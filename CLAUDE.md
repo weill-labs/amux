@@ -2,25 +2,19 @@
 
 ## Design Philosophy
 
-amux is a **smart tmux wrapper**, not a terminal emulator or task orchestrator. It adds agent-centric features to tmux without replacing it.
+amux is **tmux reimagined for the human+agent workflow**. It builds on tmux and existing terminal habits, but fills gaps and absorbs functionality where the default tmux UX falls short — especially around managing multiple AI coding agents across local and remote machines.
 
 ### Core Principles
 
-**tmux is the engine.** amux creates tmux sessions, sets tmux options, calls tmux commands. Every amux feature must be expressible as tmux operations + pane metadata. If tmux can't do it, amux shouldn't try. Users should be able to fall back to raw tmux commands at any time without breaking amux state.
+**Build on existing habits.** amux should feel familiar to tmux users. Typing `amux` starts a terminal session, not a dashboard. You get a shell. `Ctrl-\` splits. Panes are auto-tagged. The muscle memory transfers. Where tmux has sharp edges (pane IDs, no minimize, no metadata), amux smooths them out rather than asking users to learn a new paradigm.
 
-**Pane metadata is the data model.** All pane state lives in tmux user options (`@amux_*`). There is no external database, no state files, no daemon. `tmux show-options -p` is the source of truth. This means state survives tmux detach/reattach, session save/restore, and amux restarts.
+**Absorb tmux where needed.** amux uses tmux as infrastructure but isn't afraid to own UX on top. When tmux's built-in behavior is adequate (scrollback, copy mode, mouse support), amux stays out of the way. When it's not (pane naming, minimize/restore, swap-with-metadata, agent status), amux provides a better experience directly. The boundary isn't "what tmux can do" — it's "what's most ergonomic."
+
+**Pane metadata is the data model.** All pane state lives in tmux user options (`@amux_*`). No external database, no state files, no daemon. `tmux show-options -p` is the source of truth. This means state survives tmux detach/reattach, session save/restore, and amux restarts.
 
 **Names over IDs.** Users think in names (`pane-3`, `auth-agent`), not tmux IDs (`%40`). Every command that takes a pane reference resolves names to IDs via `pane.ResolvePane()`. Raw tmux IDs (`%N`) are still accepted for scripting and tmux keybinding compatibility.
 
 **Non-invasive.** Panes without `@amux_name` are invisible to amux. Regular tmux panes coexist with amux-managed panes. amux never touches panes it didn't create or tag.
-
-**`amux` feels like `tmux`.** Typing `amux` starts a terminal session, not a dashboard. You get a shell. `Ctrl-\` splits. Panes are auto-tagged. The TUI dashboard is a popup you open when you need it (`amux dashboard`), not the default experience.
-
-### What amux is NOT
-
-- **Not a terminal emulator.** It doesn't render characters, handle escape codes, or manage PTYs. tmux does that.
-- **Not a task orchestrator.** It doesn't queue work, manage dependencies, or retry failures. It manages *panes* that happen to run agents.
-- **Not a process manager.** It doesn't supervise processes, restart crashed agents, or collect exit codes. tmux handles process lifecycle.
 
 ## Architecture
 
