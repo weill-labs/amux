@@ -20,7 +20,20 @@ import (
 func main() {
 	if len(os.Args) < 2 {
 		// Default: create or attach to amux tmux session
-		if err := session.Start(""); err != nil {
+		if err := session.Start("", false); err != nil {
+			fmt.Fprintf(os.Stderr, "amux: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	// Handle top-level -d flag: amux -d [session]
+	if os.Args[1] == "-d" {
+		name := ""
+		if len(os.Args) > 2 {
+			name = os.Args[2]
+		}
+		if err := session.Start(name, true); err != nil {
 			fmt.Fprintf(os.Stderr, "amux: %v\n", err)
 			os.Exit(1)
 		}
@@ -28,13 +41,20 @@ func main() {
 	}
 
 	switch os.Args[1] {
+	case "attach":
+		// tmux muscle-memory compat: amux attach [-d] [session]
+		name, detach := parseAttachArgs(os.Args[2:])
+		if err := session.Start(name, detach); err != nil {
+			fmt.Fprintf(os.Stderr, "amux: %v\n", err)
+			os.Exit(1)
+		}
 	case "new":
 		// Create a named session: amux new <name>
 		name := ""
 		if len(os.Args) > 2 {
 			name = os.Args[2]
 		}
-		if err := session.Start(name); err != nil {
+		if err := session.Start(name, false); err != nil {
 			fmt.Fprintf(os.Stderr, "amux: %v\n", err)
 			os.Exit(1)
 		}
@@ -73,6 +93,19 @@ func main() {
 	}
 }
 
+// parseAttachArgs parses args for "amux attach [-d] [session]".
+func parseAttachArgs(args []string) (sessionName string, detachOthers bool) {
+	for _, arg := range args {
+		switch arg {
+		case "-d":
+			detachOthers = true
+		default:
+			sessionName = arg
+		}
+	}
+	return
+}
+
 func requireArg(cmd string, minArgs int) {
 	if len(os.Args) < minArgs+1 {
 		fmt.Fprintf(os.Stderr, "amux %s: requires %d argument(s)\n", cmd, minArgs)
@@ -96,6 +129,8 @@ func printUsage() {
 
 Usage:
   amux                              Start or attach to amux session
+  amux -d [session]                 Attach and detach other clients
+  amux attach [-d] [session]        Attach (tmux muscle-memory compat)
   amux new [name]                   Start a new named session
   amux dashboard                    Open TUI dashboard (in popup or standalone)
   amux list                         List agent panes with metadata

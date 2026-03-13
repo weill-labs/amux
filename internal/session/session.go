@@ -14,14 +14,15 @@ const defaultSession = "amux"
 // Start creates or attaches to an amux tmux session.
 // If the session already exists, it attaches. Otherwise it creates a new one,
 // configures amux keybindings and hooks, tags the initial pane, then attaches.
+// When detachOthers is true, other clients are detached on attach (like tmux attach -d).
 // This function does not return on success — it execs into tmux.
-func Start(sessionName string) error {
+func Start(sessionName string, detachOthers bool) error {
 	if sessionName == "" {
 		sessionName = defaultSession
 	}
 
 	if sessionExists(sessionName) {
-		return attach(sessionName)
+		return attach(sessionName, detachOthers)
 	}
 
 	// Create new detached session
@@ -42,7 +43,7 @@ func Start(sessionName string) error {
 		initPane(sessionName, initialPane)
 	}
 
-	return attach(sessionName)
+	return attach(sessionName, detachOthers)
 }
 
 func sessionExists(name string) bool {
@@ -50,7 +51,8 @@ func sessionExists(name string) bool {
 }
 
 // attach execs into tmux attach, replacing the current process.
-func attach(sessionName string) error {
+// When detachOthers is true, passes -d to detach other clients (like tmux attach -d).
+func attach(sessionName string, detachOthers bool) error {
 	tmuxPath, err := exec.LookPath("tmux")
 	if err != nil {
 		return fmt.Errorf("tmux not found: %w", err)
@@ -61,7 +63,11 @@ func attach(sessionName string) error {
 		return syscall.Exec(tmuxPath, []string{"tmux", "switch-client", "-t", sessionName}, os.Environ())
 	}
 
-	return syscall.Exec(tmuxPath, []string{"tmux", "attach-session", "-t", sessionName}, os.Environ())
+	args := []string{"tmux", "attach-session", "-t", sessionName}
+	if detachOthers {
+		args = []string{"tmux", "attach-session", "-d", "-t", sessionName}
+	}
+	return syscall.Exec(tmuxPath, args, os.Environ())
 }
 
 // firstPane returns the pane ID of the first pane in a session.
