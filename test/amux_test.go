@@ -965,6 +965,67 @@ func extractBorderColors(line string) []string {
 	return colors
 }
 
+func TestHotReloadKeybinding(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// Type a distinctive string before reload
+	h.sendKeys("e", "c", "h", "o", " ", "R", "E", "L", "O", "A", "D", "M", "E", "Enter")
+	h.waitFor("RELOADME", 3*time.Second)
+
+	// Trigger hot reload with Ctrl-a r
+	h.sendKeys("C-a", "r")
+
+	// Wait for session to be ready
+	if !h.waitFor("[pane-", 8*time.Second) {
+		screen := h.capture()
+		t.Fatalf("session did not recover after Ctrl-a r\nScreen:\n%s", screen)
+	}
+	time.Sleep(300 * time.Millisecond)
+
+	// Press Enter to submit whatever is on the command line.
+	// If Ctrl-a r was NOT consumed (forwarded to shell), \x01 (readline home)
+	// + 'r' was sent, putting 'r' in the input. Enter executes 'r' → "not found".
+	// If Ctrl-a r WAS consumed (reload happened), the line is empty. Enter does nothing.
+	h.sendKeys("Enter")
+	time.Sleep(500 * time.Millisecond)
+
+	h.assertScreen("Ctrl-a r should be consumed, not forwarded (no 'not found' error)", func(s string) bool {
+		return !strings.Contains(s, "not found")
+	})
+
+	// Previously typed text should still be visible (server kept emulator state)
+	h.assertScreen("RELOADME visible after hot reload", func(s string) bool {
+		return strings.Contains(s, "RELOADME")
+	})
+}
+
+func TestHotReloadAutoDetect(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// Type a distinctive string
+	h.sendKeys("e", "c", "h", "o", " ", "A", "U", "T", "O", "R", "L", "D", "Enter")
+	h.waitFor("AUTORLD", 3*time.Second)
+
+	// Rebuild the binary (triggers fsnotify → auto-reload)
+	out, err := exec.Command("go", "build", "-o", amuxBin, "..").CombinedOutput()
+	if err != nil {
+		t.Fatalf("rebuilding amux binary: %v\n%s", err, out)
+	}
+
+	// After auto-reload, the session should continue
+	if !h.waitFor("[pane-", 10*time.Second) {
+		screen := h.capture()
+		t.Fatalf("session did not recover after binary rebuild\nScreen:\n%s", screen)
+	}
+
+	// Previously typed text should still be visible
+	h.assertScreen("AUTORLD visible after auto-reload", func(s string) bool {
+		return strings.Contains(s, "AUTORLD") && strings.Contains(s, "[pane-")
+	})
+}
+
 func TestVerticalBorderPartialColor(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)

@@ -130,6 +130,7 @@ Inside an amux session:
   Ctrl-a _                          Root-level split top/bottom
   Ctrl-a o                          Cycle focus to next pane
   Ctrl-a h/j/k/l                    Focus left/down/up/right
+  Ctrl-a r                          Hot reload (re-exec binary)
   Ctrl-a d                          Detach from session
   Ctrl-a Ctrl-a                     Send literal Ctrl-a`)
 }
@@ -222,6 +223,13 @@ func runMux(sessionName string) error {
 
 	// Client-side renderer with per-pane emulators
 	cr := NewClientRenderer(cols, rows)
+
+	// Hot reload: resolve binary path once, start file watcher
+	triggerReload := make(chan struct{}, 1)
+	execPath, execErr := resolveExecutable()
+	if execErr == nil {
+		go watchBinary(execPath, triggerReload)
+	}
 
 	// Forward SIGWINCH to server and update client renderer
 	sigCh := make(chan os.Signal, 1)
@@ -328,6 +336,19 @@ func runMux(sessionName string) error {
 					case 'j':
 						// Ctrl-a j → focus down
 						sendCommand(conn, "focus", []string{"down"})
+					case 'r':
+						// Ctrl-a r → hot reload (re-exec binary)
+						if len(forward) > 0 {
+							server.WriteMsg(conn, &server.Message{
+								Type: server.MsgTypeInput, Input: forward,
+							})
+							forward = nil
+						}
+						select {
+						case triggerReload <- struct{}{}:
+						default:
+						}
+						continue
 					case 0x01:
 						// Ctrl-a Ctrl-a → literal Ctrl-a
 						forward = append(forward, 0x01)
@@ -361,8 +382,17 @@ func runMux(sessionName string) error {
 		}
 	}()
 
-	<-done
-	return nil
+	// Wait for session end or hot reload trigger
+	select {
+	case <-done:
+		return nil
+	case <-triggerReload:
+		if execPath != "" {
+			execSelf(execPath, conn, fd, oldState)
+		}
+		// execSelf replaces the process; if we get here, exec failed fatally
+		return nil
+	}
 }
 
 // sendCommand sends a command to the server (non-blocking, ignores response).
