@@ -143,6 +143,9 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 		}
 		sess.mu.Unlock()
 
+		// Start goroutines AFTER releasing the lock (C1 fix)
+		newPane.Start()
+
 		sess.renderAndBroadcast()
 		cc.Send(&Message{Type: MsgTypeCmdResult,
 			CmdOutput: fmt.Sprintf("Split %s: new pane %s\n", dirName(dir), newPane.Meta.Name)})
@@ -215,6 +218,8 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 		}
 		sess.mu.Unlock()
 
+		pane.Start()
+
 		sess.renderAndBroadcast()
 		cc.Send(&Message{Type: MsgTypeCmdResult,
 			CmdOutput: fmt.Sprintf("Spawned %s in pane %d\n", meta.Name, pane.ID)})
@@ -259,16 +264,11 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 		}
 		paneID := pane.ID
 		paneName := pane.Meta.Name
-		pane.Close()
-		// Remove from pane list
-		for i, p := range sess.Panes {
-			if p.ID == paneID {
-				sess.Panes = append(sess.Panes[:i], sess.Panes[i+1:]...)
-				break
-			}
-		}
+		// Remove from list BEFORE closing so onExit sees it's gone (C2 fix)
+		sess.removePane(paneID)
 		sess.Window.ClosePane(paneID)
 		sess.mu.Unlock()
+		pane.Close()
 
 		sess.renderAndBroadcast()
 		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: fmt.Sprintf("Killed %s\n", paneName)})

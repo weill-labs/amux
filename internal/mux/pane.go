@@ -5,7 +5,6 @@ import (
 	"os/exec"
 	"regexp"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"syscall"
 
@@ -33,14 +32,13 @@ type Pane struct {
 	emulator TerminalEmulator
 
 	closed   atomic.Bool
-	mu       sync.Mutex
 	onOutput func(paneID uint32, data []byte)
 	onExit   func(paneID uint32)
 }
 
-// NewPane creates a new pane running the user's shell.
-// onOutput is called with raw PTY output (in a dedicated goroutine).
-// onExit is called when the shell process exits.
+// NewPane creates a new pane running the user's shell but does NOT start
+// the read/drain/wait goroutines. Call Start() after releasing any locks
+// that the onOutput/onExit callbacks might need.
 func NewPane(id uint32, meta PaneMeta, cols, rows int, onOutput func(uint32, []byte), onExit func(uint32)) (*Pane, error) {
 	shell := os.Getenv("SHELL")
 	if shell == "" {
@@ -63,7 +61,7 @@ func NewPane(id uint32, meta PaneMeta, cols, rows int, onOutput func(uint32, []b
 
 	emu := NewVTEmulator(cols, rows)
 
-	p := &Pane{
+	return &Pane{
 		ID:       id,
 		Meta:     meta,
 		ptmx:     ptmx,
@@ -71,13 +69,15 @@ func NewPane(id uint32, meta PaneMeta, cols, rows int, onOutput func(uint32, []b
 		emulator: emu,
 		onOutput: onOutput,
 		onExit:   onExit,
-	}
+	}, nil
+}
 
+// Start launches the goroutines that read PTY output and wait for exit.
+// Call this after releasing any locks that onOutput/onExit callbacks need.
+func (p *Pane) Start() {
 	go p.readLoop()
 	go p.drainResponses()
 	go p.waitLoop()
-
-	return p, nil
 }
 
 // readLoop reads PTY output, feeds the emulator, and notifies the callback.
@@ -142,7 +142,6 @@ func (p *Pane) Resize(cols, rows int) error {
 }
 
 // RenderScreen returns the current screen state as ANSI output.
-// Used for reconstructing the screen on client reattach.
 func (p *Pane) RenderScreen() string {
 	return RenderWithCursor(p.emulator)
 }
@@ -156,11 +155,9 @@ func (p *Pane) CursorPos() (col, row int) {
 func (p *Pane) Output(lines int) string {
 	rendered := p.emulator.Render()
 	all := strings.Split(rendered, "\n")
-	// Take last N non-empty lines
 	var result []string
 	for i := len(all) - 1; i >= 0 && len(result) < lines; i-- {
 		trimmed := strings.TrimRight(all[i], " ")
-		// Strip ANSI escapes for plain text output
 		plain := stripANSI(trimmed)
 		if plain != "" {
 			result = append([]string{plain}, result...)

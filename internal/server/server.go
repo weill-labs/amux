@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/render"
@@ -26,6 +27,7 @@ type Session struct {
 	compositor *render.Compositor
 	counter    uint32
 	mu         sync.Mutex
+	shutdown   atomic.Bool
 }
 
 // broadcast sends a message to all connected clients.
@@ -70,7 +72,30 @@ func (s *Session) removeClient(cc *ClientConn) {
 	}
 }
 
+// hasPane checks if a pane ID is still in the session's pane list.
+// Caller must hold s.mu.
+func (s *Session) hasPane(id uint32) bool {
+	for _, p := range s.Panes {
+		if p.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+// removePane removes a pane from the flat list by ID.
+// Caller must hold s.mu.
+func (s *Session) removePane(id uint32) {
+	for i, p := range s.Panes {
+		if p.ID == id {
+			s.Panes = append(s.Panes[:i], s.Panes[i+1:]...)
+			return
+		}
+	}
+}
+
 // createPane creates a new pane with auto-assigned metadata.
+// The pane's goroutines are NOT started — call pane.Start() after releasing s.mu.
 func (s *Session) createPane(srv *Server, cols, rows int) (*mux.Pane, error) {
 	meta := mux.PaneMeta{
 		Name:  fmt.Sprintf("pane-%d", s.counter+1),
@@ -81,6 +106,7 @@ func (s *Session) createPane(srv *Server, cols, rows int) (*mux.Pane, error) {
 }
 
 // createPaneWithMeta creates a new pane with explicit metadata (for spawn).
+// The pane's goroutines are NOT started — call pane.Start() after releasing s.mu.
 func (s *Session) createPaneWithMeta(srv *Server, meta mux.PaneMeta, cols, rows int) (*mux.Pane, error) {
 	s.counter++
 	if meta.Color == "" {
@@ -89,11 +115,23 @@ func (s *Session) createPaneWithMeta(srv *Server, meta mux.PaneMeta, cols, rows 
 
 	pane, err := mux.NewPane(s.counter, meta, cols, rows,
 		func(paneID uint32, data []byte) {
-			// Any pane output triggers a full re-render
+			if s.shutdown.Load() {
+				return
+			}
 			s.renderAndBroadcast()
 		},
 		func(paneID uint32) {
+			if s.shutdown.Load() {
+				return
+			}
+
 			s.mu.Lock()
+			// Check if pane was already removed (e.g., by kill command)
+			if !s.hasPane(paneID) {
+				s.mu.Unlock()
+				return
+			}
+
 			remaining := len(s.Panes)
 			if remaining <= 1 {
 				s.mu.Unlock()
@@ -102,15 +140,7 @@ func (s *Session) createPaneWithMeta(srv *Server, meta mux.PaneMeta, cols, rows 
 				return
 			}
 
-			// Remove from flat pane list
-			for i, p := range s.Panes {
-				if p.ID == paneID {
-					s.Panes = append(s.Panes[:i], s.Panes[i+1:]...)
-					break
-				}
-			}
-
-			// Remove from layout
+			s.removePane(paneID)
 			if s.Window != nil {
 				s.Window.ClosePane(paneID)
 			}
@@ -201,11 +231,18 @@ func (s *Server) Shutdown() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, sess := range s.sessions {
+		// Set shutdown flag so onExit/onOutput callbacks become no-ops
+		sess.shutdown.Store(true)
+
+		// Collect panes under lock, then close without holding sess.mu
 		sess.mu.Lock()
-		for _, p := range sess.Panes {
+		panes := make([]*mux.Pane, len(sess.Panes))
+		copy(panes, sess.Panes)
+		sess.mu.Unlock()
+
+		for _, p := range panes {
 			p.Close()
 		}
-		sess.mu.Unlock()
 	}
 }
 
@@ -246,8 +283,6 @@ func (s *Server) handleAttach(conn net.Conn, msg *Message) {
 
 	cc := NewClientConn(conn)
 
-	sess.mu.Lock()
-
 	cols, rows := msg.Cols, msg.Rows
 	if cols <= 0 {
 		cols = 80
@@ -256,7 +291,10 @@ func (s *Server) handleAttach(conn net.Conn, msg *Message) {
 		rows = 24
 	}
 
+	sess.mu.Lock()
+
 	// Create the first pane and window if none exist
+	var newPane *mux.Pane
 	if sess.Window == nil {
 		sess.compositor = render.NewCompositor(cols, rows, sess.Name)
 		layoutH := sess.compositor.LayoutHeight()
@@ -268,6 +306,7 @@ func (s *Server) handleAttach(conn net.Conn, msg *Message) {
 			return
 		}
 		sess.Window = mux.NewWindow(pane, cols, layoutH)
+		newPane = pane
 	}
 
 	// Send current screen state to the new client (enables reattach)
@@ -278,6 +317,11 @@ func (s *Server) handleAttach(conn net.Conn, msg *Message) {
 
 	sess.clients = append(sess.clients, cc)
 	sess.mu.Unlock()
+
+	// Start pane goroutines AFTER releasing the lock (fixes C1)
+	if newPane != nil {
+		newPane.Start()
+	}
 
 	// Blocks until client disconnects or detaches
 	cc.readLoop(s, sess)
