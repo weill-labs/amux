@@ -154,3 +154,77 @@ func TestReattach(t *testing.T) {
 		return strings.Contains(s, "HELLO")
 	})
 }
+
+func TestRootSplitVertical(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// First do a normal horizontal split to get 2 panes stacked
+	h.sendKeys("C-a", "-")
+	h.waitFor("[pane-2]", 3*time.Second)
+
+	// Now root-split vertical — should create a full-height left/right split
+	h.sendKeys("C-a", "|")
+
+	if !h.waitFor("[pane-3]", 3*time.Second) {
+		screen := h.capture()
+		t.Fatalf("root vertical split failed, screen:\n%s", screen)
+	}
+
+	// Should see 3 panes
+	h.assertScreen("should show 3 panes after root vertical split", func(s string) bool {
+		return strings.Contains(s, "[pane-1]") &&
+			strings.Contains(s, "[pane-2]") &&
+			strings.Contains(s, "[pane-3]")
+	})
+
+	// Should have a vertical border (│) from the root split
+	h.assertScreen("should have vertical border from root split", func(s string) bool {
+		for _, line := range strings.Split(s, "\n") {
+			if strings.Contains(line, "amux") && strings.Contains(line, "panes") {
+				continue
+			}
+			if strings.Contains(line, "│") {
+				return true
+			}
+		}
+		return false
+	})
+}
+
+func TestRootSplitHorizontal(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// First do a normal vertical split to get 2 panes side by side
+	h.sendKeys("C-a", "\\")
+	h.waitFor("[pane-2]", 3*time.Second)
+
+	// Now root-split horizontal — should create a full-width top/bottom split
+	h.sendKeys("C-a", "_")
+
+	if !h.waitFor("[pane-3]", 3*time.Second) {
+		screen := h.capture()
+		t.Fatalf("root horizontal split failed, screen:\n%s", screen)
+	}
+
+	// Should see 3 panes
+	h.assertScreen("should show 3 panes after root horizontal split", func(s string) bool {
+		return strings.Contains(s, "[pane-1]") &&
+			strings.Contains(s, "[pane-2]") &&
+			strings.Contains(s, "[pane-3]")
+	})
+
+	// Should have a horizontal border (─) from the root split
+	h.assertScreen("should have horizontal border from root split", func(s string) bool {
+		for _, line := range strings.Split(s, "\n") {
+			if strings.Contains(line, "amux") && strings.Contains(line, "panes") {
+				continue
+			}
+			if strings.Contains(line, "─") {
+				return true
+			}
+		}
+		return false
+	})
+}

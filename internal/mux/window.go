@@ -30,28 +30,24 @@ func NewWindow(pane *Pane, width, height int) *Window {
 
 // SplitRoot splits the entire window at the root level.
 func (w *Window) SplitRoot(dir SplitDir, newPane *Pane) (*Pane, error) {
-	// Wrap the current root in a new parent and add the new pane as a sibling
 	oldRoot := w.Root
 
 	newLeaf := NewLeaf(newPane, 0, 0, 0, 0)
-	var child1H, child2H int
 
 	if dir == SplitHorizontal {
 		size2 := (oldRoot.W - 1) / 2
 		size1 := oldRoot.W - 1 - size2
-		child1H = oldRoot.H
-		child2H = oldRoot.H
-		oldRoot.W = size1
 		newLeaf.W = size2
 		newLeaf.H = oldRoot.H
+		// Propagate new width to oldRoot and all its children
+		oldRoot.ResizeAll(size1, oldRoot.H)
 	} else {
 		size2 := (oldRoot.H - 1) / 2
 		size1 := oldRoot.H - 1 - size2
-		child1H = size1
-		child2H = size2
-		oldRoot.H = size1
 		newLeaf.W = oldRoot.W
 		newLeaf.H = size2
+		// Propagate new height to oldRoot and all its children
+		oldRoot.ResizeAll(oldRoot.W, size1)
 	}
 
 	newRoot := &LayoutCell{
@@ -65,9 +61,7 @@ func (w *Window) SplitRoot(dir SplitDir, newPane *Pane) (*Pane, error) {
 
 	w.Root.FixOffsets()
 
-	// Resize all PTYs
-	_ = child1H
-	_ = child2H
+	// Resize all PTYs to match new cell dimensions
 	w.Root.Walk(func(c *LayoutCell) {
 		if c.Pane != nil {
 			c.Pane.Resize(c.W, paneHeight(c.H))

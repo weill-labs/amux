@@ -80,8 +80,13 @@ func (h *TmuxHarness) cleanup() {
 	exec.Command("tmux", "send-keys", "-t", h.session, "C-a", "d").Run()
 	time.Sleep(200 * time.Millisecond)
 	exec.Command("tmux", "kill-session", "-t", h.session).Run()
-	// Kill only this test's server
-	exec.Command("pkill", "-f", fmt.Sprintf("amux _server %s", h.session)).Run()
+	// Kill only this test's server (exact match with word boundary via pgrep)
+	out, _ := exec.Command("pgrep", "-f", fmt.Sprintf("amux _server %s$", h.session)).Output()
+	for _, pid := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if pid != "" {
+			exec.Command("kill", pid).Run()
+		}
+	}
 	exec.Command("rm", "-f", fmt.Sprintf("/tmp/amux-%d/%s", os.Getuid(), h.session)).Run()
 	time.Sleep(100 * time.Millisecond)
 }
