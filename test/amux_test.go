@@ -317,3 +317,122 @@ func TestRootSplitHorizontal(t *testing.T) {
 		t.Errorf("pane-1 (col %d) should be left of pane-2 (col %d)", col1, col2)
 	}
 }
+
+func TestFocusNavigationThreePanes(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// Create 3 panes: split vertical, then split one horizontal
+	h.sendKeys("C-a", "\\")
+	h.waitFor("[pane-2]", 3*time.Second)
+	h.sendKeys("C-a", "-")
+	h.waitFor("[pane-3]", 3*time.Second)
+
+	// Cycle through all 3 panes with Ctrl-a o
+	// After 3 cycles we should be back to the starting pane
+	seen := map[string]bool{}
+	for i := 0; i < 3; i++ {
+		h.sendKeys("C-a", "o")
+		time.Sleep(400 * time.Millisecond)
+		for _, line := range strings.Split(h.capture(), "\n") {
+			for _, name := range []string{"pane-1", "pane-2", "pane-3"} {
+				if strings.Contains(line, "["+name+"]") && strings.Contains(line, "●") {
+					seen[name] = true
+				}
+			}
+		}
+	}
+
+	for _, name := range []string{"pane-1", "pane-2", "pane-3"} {
+		if !seen[name] {
+			t.Errorf("focus cycle never reached %s (saw: %v)", name, seen)
+		}
+	}
+}
+
+func TestDirectionalFocusAfterRootSplit(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// Create: pane-1 top-left, pane-2 bottom-left, pane-3 right (root split)
+	h.sendKeys("C-a", "-")
+	h.waitFor("[pane-2]", 3*time.Second)
+	h.sendKeys("C-a", "|")
+	h.waitFor("[pane-3]", 3*time.Second)
+
+	// pane-3 is active (rightmost). Navigate left with h.
+	h.sendKeys("C-a", "h")
+	time.Sleep(400 * time.Millisecond)
+
+	// Should land on pane-1 or pane-2 (left column)
+	leftActive := false
+	for _, line := range strings.Split(h.capture(), "\n") {
+		if (strings.Contains(line, "[pane-1]") || strings.Contains(line, "[pane-2]")) &&
+			strings.Contains(line, "●") {
+			leftActive = true
+			break
+		}
+	}
+	if !leftActive {
+		screen := h.capture()
+		t.Errorf("Ctrl-a h from pane-3 should focus a left pane\nScreen:\n%s", screen)
+	}
+
+	// Navigate right with l — should go back to pane-3
+	h.sendKeys("C-a", "l")
+	time.Sleep(400 * time.Millisecond)
+
+	h.assertScreen("Ctrl-a l should focus pane-3", func(s string) bool {
+		for _, line := range strings.Split(s, "\n") {
+			if strings.Contains(line, "[pane-3]") && strings.Contains(line, "●") {
+				return true
+			}
+		}
+		return false
+	})
+
+	// Navigate up/down between pane-1 and pane-2
+	h.sendKeys("C-a", "h")
+	time.Sleep(400 * time.Millisecond)
+
+	// Find which left pane is active
+	var activeName string
+	for _, line := range strings.Split(h.capture(), "\n") {
+		if strings.Contains(line, "●") {
+			if strings.Contains(line, "[pane-1]") {
+				activeName = "pane-1"
+			} else if strings.Contains(line, "[pane-2]") {
+				activeName = "pane-2"
+			}
+		}
+	}
+
+	if activeName == "" {
+		t.Fatal("no left pane is active")
+	}
+
+	// Navigate to the other left pane with j or k
+	if activeName == "pane-1" {
+		h.sendKeys("C-a", "j") // down to pane-2
+		time.Sleep(400 * time.Millisecond)
+		h.assertScreen("j from pane-1 should reach pane-2", func(s string) bool {
+			for _, line := range strings.Split(s, "\n") {
+				if strings.Contains(line, "[pane-2]") && strings.Contains(line, "●") {
+					return true
+				}
+			}
+			return false
+		})
+	} else {
+		h.sendKeys("C-a", "k") // up to pane-1
+		time.Sleep(400 * time.Millisecond)
+		h.assertScreen("k from pane-2 should reach pane-1", func(s string) bool {
+			for _, line := range strings.Split(s, "\n") {
+				if strings.Contains(line, "[pane-1]") && strings.Contains(line, "●") {
+					return true
+				}
+			}
+			return false
+		})
+	}
+}
