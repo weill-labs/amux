@@ -46,6 +46,68 @@ func Start(sessionName string, detachOthers bool) error {
 	return attach(sessionName, detachOthers)
 }
 
+// Adopt converts an existing tmux session into an amux-managed session.
+// When run from inside a different tmux session, it links the source session's
+// windows into the current session (non-destructive — source session is preserved).
+// When run outside tmux, it configures the session in place.
+func Adopt(sessionName string) error {
+	if !sessionExists(sessionName) {
+		return fmt.Errorf("session %q does not exist", sessionName)
+	}
+
+	// If inside a different tmux session, link windows into it
+	if os.Getenv("TMUX") != "" {
+		current := currentSession()
+		if current != "" && current != sessionName {
+			return adoptInto(current, sessionName)
+		}
+	}
+
+	// Otherwise, configure the session in place
+	configure(sessionName)
+
+	panes := allPanes(sessionName)
+	for _, paneID := range panes {
+		initPane(sessionName, paneID)
+	}
+
+	fmt.Printf("Adopted %s: %d panes\n", sessionName, len(panes))
+	return nil
+}
+
+// adoptInto links windows from sourceSession into targetSession and tags their panes.
+// The source session is preserved (link-window creates shared references).
+func adoptInto(targetSession, sourceSession string) error {
+	// Collect pane IDs before linking (pane IDs are globally stable)
+	panes := allPanes(sourceSession)
+	windows := allWindows(sourceSession)
+
+	if len(windows) == 0 {
+		return fmt.Errorf("no windows found in session %q", sourceSession)
+	}
+
+	// Find next available window index in target session
+	startIdx := maxWindowIndex(targetSession) + 1
+
+	for i, winID := range windows {
+		err := tmuxCmd("link-window", "-s",
+			fmt.Sprintf("%s:%s", sourceSession, winID), "-t",
+			fmt.Sprintf("%s:%d", targetSession, startIdx+i))
+		if err != nil {
+			return fmt.Errorf("linking window %s: %w", winID, err)
+		}
+	}
+
+	// Tag all linked panes with amux metadata
+	for _, paneID := range panes {
+		initPane(targetSession, paneID)
+	}
+
+	fmt.Printf("Adopted %s into %s: %d panes across %d windows\n",
+		sourceSession, targetSession, len(panes), len(windows))
+	return nil
+}
+
 func sessionExists(name string) bool {
 	return exec.Command("tmux", "has-session", "-t", name).Run() == nil
 }
@@ -70,18 +132,67 @@ func attach(sessionName string, detachOthers bool) error {
 	return syscall.Exec(tmuxPath, args, os.Environ())
 }
 
+// allPanes returns the pane IDs of all panes across all windows in a session.
+func allPanes(sessionName string) []string {
+	out, err := exec.Command("tmux", "list-panes", "-t", sessionName,
+		"-s", "-F", "#{pane_id}").Output()
+	if err != nil {
+		return nil
+	}
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	if len(lines) == 1 && lines[0] == "" {
+		return nil
+	}
+	return lines
+}
+
 // firstPane returns the pane ID of the first pane in a session.
 func firstPane(sessionName string) string {
-	out, err := exec.Command("tmux", "list-panes", "-t", sessionName,
-		"-F", "#{pane_id}").Output()
+	panes := allPanes(sessionName)
+	if len(panes) > 0 {
+		return panes[0]
+	}
+	return ""
+}
+
+// currentSession returns the name of the tmux session this process is running in.
+func currentSession() string {
+	out, err := exec.Command("tmux", "display-message", "-p", "#{session_name}").Output()
 	if err != nil {
 		return ""
 	}
-	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
-	if len(lines) > 0 {
-		return lines[0]
+	return strings.TrimSpace(string(out))
+}
+
+// allWindows returns the window IDs (e.g., @0, @1) for all windows in a session.
+// Window IDs are stable across link/move operations, unlike indices.
+func allWindows(sessionName string) []string {
+	out, err := exec.Command("tmux", "list-windows", "-t", sessionName,
+		"-F", "#{window_id}").Output()
+	if err != nil {
+		return nil
 	}
-	return ""
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	if len(lines) == 1 && lines[0] == "" {
+		return nil
+	}
+	return lines
+}
+
+// maxWindowIndex returns the highest window index in a session.
+func maxWindowIndex(sessionName string) int {
+	out, err := exec.Command("tmux", "list-windows", "-t", sessionName,
+		"-F", "#{window_index}").Output()
+	if err != nil {
+		return 0
+	}
+	max := 0
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if idx, err := strconv.Atoi(line); err == nil && idx > max {
+			max = idx
+		}
+	}
+	return max
 }
 
 // configure sets up amux-specific keybindings, hooks, and status bar on a session.

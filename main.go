@@ -7,6 +7,7 @@ import (
 
 	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/grid"
+	"github.com/weill-labs/amux/internal/merge"
 	"github.com/weill-labs/amux/internal/minimize"
 	"github.com/weill-labs/amux/internal/pane"
 	"github.com/weill-labs/amux/internal/session"
@@ -58,6 +59,12 @@ func main() {
 			fmt.Fprintf(os.Stderr, "amux: %v\n", err)
 			os.Exit(1)
 		}
+	case "adopt":
+		requireArg("adopt", 1)
+		if err := session.Adopt(os.Args[2]); err != nil {
+			fmt.Fprintf(os.Stderr, "amux adopt: %v\n", err)
+			os.Exit(1)
+		}
 	case "dashboard":
 		runDashboard()
 	case "list":
@@ -70,6 +77,9 @@ func main() {
 	case "restore":
 		requireArg("restore", 2)
 		runRestore(resolveOrDie(os.Args[2]))
+	case "merge":
+		requireArg("merge", 2)
+		runMerge(os.Args[2], os.Args[3])
 	case "swap":
 		requireArg("swap", 3)
 		runSwap(resolveOrDie(os.Args[2]), resolveOrDie(os.Args[3]))
@@ -132,12 +142,14 @@ Usage:
   amux -d [session]                 Attach and detach other clients
   amux attach [-d] [session]        Attach (tmux muscle-memory compat)
   amux new [name]                   Start a new named session
+  amux adopt <session>              Adopt an existing tmux session
   amux dashboard                    Open TUI dashboard (in popup or standalone)
   amux list                         List agent panes with metadata
   amux status                       Show agent status (for scripts/prompts)
   amux output <pane>                Show pane output (last 50 lines)
   amux minimize <pane>              Minimize a pane to 1 row
   amux restore <pane>               Restore a minimized pane
+  amux merge <src_win> <dst_win>    Merge panes from one window into another
   amux swap <pane_a> <pane_b>       Swap two panes (with metadata)
   amux spawn [flags]                Spawn a new agent
 
@@ -263,6 +275,16 @@ func runRestore(paneID string) {
 		os.Exit(1)
 	}
 	fmt.Printf("Restored %s\n", paneID)
+}
+
+func runMerge(srcWindow, dstWindow string) {
+	t := newTmux()
+	count, err := merge.Merge(t, srcWindow, dstWindow)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "amux merge: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("Merged %d panes from window %s into window %s\n", count, srcWindow, dstWindow)
 }
 
 func runSwap(paneA, paneB string) {
