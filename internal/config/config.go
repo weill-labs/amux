@@ -9,18 +9,29 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-// CatppuccinMocha is the palette used for auto-assigning host colors.
+// CatppuccinMocha accent palette in official order (catppuccin.com/palette).
 var CatppuccinMocha = []string{
-	"f38ba8", "fab387", "f9e2af", "a6e3a1", "94e2d5",
-	"89dceb", "74c7ec", "89b4fa", "b4befe", "cba6f7",
-	"f5c2e7", "eba0ac", "f2cdcd",
+	"f5e0dc", // Rosewater
+	"f2cdcd", // Flamingo
+	"f5c2e7", // Pink
+	"cba6f7", // Mauve
+	"f38ba8", // Red
+	"eba0ac", // Maroon
+	"fab387", // Peach
+	"f9e2af", // Yellow
+	"a6e3a1", // Green
+	"94e2d5", // Teal
+	"89dceb", // Sky
+	"74c7ec", // Sapphire
+	"89b4fa", // Blue
+	"b4befe", // Lavender
 }
 
 // Host defines a machine that can run agents.
 type Host struct {
-	Type       string `toml:"type"`       // "local" or "remote"
-	User       string `toml:"user"`       // SSH user (remote only)
-	Address    string `toml:"address"`    // IP or hostname (remote only)
+	Type       string `toml:"type"`    // "local" or "remote"
+	User       string `toml:"user"`    // SSH user (remote only)
+	Address    string `toml:"address"` // IP or hostname (remote only)
 	ProjectDir string `toml:"project_dir"`
 	GPU        string `toml:"gpu"`
 	Color      string `toml:"color"` // hex color, auto-assigned if empty

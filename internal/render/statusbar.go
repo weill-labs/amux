@@ -8,9 +8,6 @@ import (
 	"github.com/weill-labs/amux/internal/mux"
 )
 
-// PaneStatusHeight is the number of rows reserved for the per-pane status line.
-const PaneStatusHeight = 1
-
 // GlobalBarHeight is the number of rows reserved for the global status bar.
 const GlobalBarHeight = 1
 
@@ -23,47 +20,47 @@ func renderPaneStatus(buf *strings.Builder, cell *mux.LayoutCell, isActive bool)
 	meta := cell.Pane.Meta
 
 	// Move to cell position
-	buf.WriteString(fmt.Sprintf("\033[%d;%dH", cell.Y+1, cell.X+1))
+	buf.WriteString(CursorTo(cell.Y+1, cell.X+1))
 
 	// Background: subtle dark surface
-	buf.WriteString("\033[48;2;49;50;68m") // Catppuccin surface0 (#313244)
+	buf.WriteString(Surface0Bg)
 
 	// Status icon with pane color
 	if isActive {
 		buf.WriteString(hexToANSI(meta.Color))
 		buf.WriteString("●")
 	} else {
-		buf.WriteString("\033[38;5;240m") // dim gray
+		buf.WriteString(DimFg)
 		buf.WriteString("○")
 	}
 
 	// Name in bold with pane color
 	buf.WriteString(" ")
 	if isActive {
-		buf.WriteString("\033[1m") // bold
+		buf.WriteString(Bold)
 		buf.WriteString(hexToANSI(meta.Color))
 	} else {
-		buf.WriteString("\033[38;2;205;214;244m") // Catppuccin text
+		buf.WriteString(TextFg)
 	}
 	buf.WriteString(fmt.Sprintf("[%s]", meta.Name))
-	buf.WriteString("\033[22m") // unbold
+	buf.WriteString(NoBold)
 
-	// Host (only if not "local")
-	if meta.Host != "" && meta.Host != "local" {
-		buf.WriteString("\033[38;2;166;227;161m") // Catppuccin green
+	// Host (only if not mux.DefaultHost)
+	if meta.Host != "" && meta.Host != mux.DefaultHost {
+		buf.WriteString(GreenFg)
 		buf.WriteString(fmt.Sprintf(" @%s", meta.Host))
 	}
 
 	// Task
 	if meta.Task != "" {
-		buf.WriteString("\033[38;2;205;214;244m") // Catppuccin text
+		buf.WriteString(TextFg)
 		buf.WriteString(fmt.Sprintf(" %s", meta.Task))
 	}
 
 	// Fill remaining width with spaces
 	// Calculate how many chars we've written (rough estimate)
 	usedWidth := 2 + len(meta.Name) + 2 // "● [name]"
-	if meta.Host != "" && meta.Host != "local" {
+	if meta.Host != "" && meta.Host != mux.DefaultHost {
 		usedWidth += 2 + len(meta.Host)
 	}
 	if meta.Task != "" {
@@ -74,19 +71,19 @@ func renderPaneStatus(buf *strings.Builder, cell *mux.LayoutCell, isActive bool)
 		buf.WriteString(strings.Repeat(" ", remaining))
 	}
 
-	buf.WriteString("\033[0m") // reset
+	buf.WriteString(Reset)
 }
 
 // renderGlobalBar draws the global status bar at the bottom of the terminal.
 func renderGlobalBar(buf *strings.Builder, sessionName string, paneCount int, width, yPos int) {
-	buf.WriteString(fmt.Sprintf("\033[%d;1H", yPos+1))
+	buf.WriteString(CursorTo(yPos+1, 1))
 
 	// Catppuccin surface0 bg, text fg
-	buf.WriteString("\033[48;2;49;50;68m\033[38;2;205;214;244m")
+	buf.WriteString(Surface0Bg + TextFg)
 
 	now := time.Now().Format("15:04")
 
-	left := fmt.Sprintf(" \033[1mamux\033[22m │ %s ", sessionName)
+	left := " " + Bold + "amux" + NoBold + " │ " + sessionName + " "
 	right := fmt.Sprintf(" %d panes │ %s ", paneCount, now)
 
 	buf.WriteString(left)
@@ -101,5 +98,5 @@ func renderGlobalBar(buf *strings.Builder, sessionName string, paneCount int, wi
 	}
 
 	buf.WriteString(right)
-	buf.WriteString("\033[0m")
+	buf.WriteString(Reset)
 }
