@@ -14,6 +14,12 @@ type TerminalEmulator interface {
 	// Write feeds PTY output data into the emulator.
 	Write(data []byte) (int, error)
 
+	// Read returns terminal responses (DA queries, cursor reports, etc.).
+	// These must be drained and written back to the PTY so the shell
+	// receives the expected replies. Go's io.Pipe is unbuffered — if
+	// Read is not called, Write blocks on the first response.
+	Read(p []byte) (int, error)
+
 	// Render returns the full screen as an ANSI-formatted string.
 	Render() string
 
@@ -49,6 +55,10 @@ func NewVTEmulator(width, height int) TerminalEmulator {
 
 func (v *vtEmulator) Write(data []byte) (int, error) {
 	return v.emu.Write(data)
+}
+
+func (v *vtEmulator) Read(p []byte) (int, error) {
+	return v.emu.Read(p)
 }
 
 func (v *vtEmulator) Render() string {

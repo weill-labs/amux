@@ -72,6 +72,7 @@ func NewPane(id uint32, meta PaneMeta, cols, rows int, onOutput func(uint32, []b
 	}
 
 	go p.readLoop()
+	go p.drainResponses()
 	go p.waitLoop()
 
 	return p, nil
@@ -97,6 +98,23 @@ func (p *Pane) readLoop() {
 			if err != io.EOF && !p.closed.Load() {
 				// Unexpected read error
 			}
+			return
+		}
+	}
+}
+
+// drainResponses reads terminal responses from the emulator (DA replies,
+// cursor position reports, etc.) and writes them back to the PTY so the
+// shell receives them. Without this, the emulator's unbuffered io.Pipe
+// blocks on the first response, deadlocking the server.
+func (p *Pane) drainResponses() {
+	buf := make([]byte, 1024)
+	for {
+		n, err := p.emulator.Read(buf)
+		if n > 0 {
+			p.ptmx.Write(buf[:n])
+		}
+		if err != nil {
 			return
 		}
 	}
