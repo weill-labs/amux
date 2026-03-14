@@ -436,3 +436,46 @@ func TestDirectionalFocusAfterRootSplit(t *testing.T) {
 		})
 	}
 }
+
+func TestNavigateBackToRightPaneAfterRootHSplit(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// Vertical split: pane-1 left, pane-2 right
+	h.sendKeys("C-a", "\\")
+	h.waitFor("[pane-2]", 3*time.Second)
+
+	// Root horizontal split: top (pane-1 | pane-2), bottom (pane-3)
+	h.sendKeys("C-a", "_")
+	h.waitFor("[pane-3]", 3*time.Second)
+
+	// pane-3 is active (bottom). Navigate up with k.
+	h.sendKeys("C-a", "k")
+	time.Sleep(400 * time.Millisecond)
+
+	// Should be on pane-1 or pane-2 (top row)
+	screen := h.capture()
+	topActive := false
+	for _, line := range strings.Split(screen, "\n") {
+		if (strings.Contains(line, "[pane-1]") || strings.Contains(line, "[pane-2]")) &&
+			strings.Contains(line, "●") {
+			topActive = true
+		}
+	}
+	if !topActive {
+		t.Fatalf("k from pane-3 should focus a top pane\nScreen:\n%s", screen)
+	}
+
+	// Now navigate right with l to reach pane-2
+	h.sendKeys("C-a", "l")
+	time.Sleep(400 * time.Millisecond)
+
+	h.assertScreen("l should reach pane-2 (right side of top row)", func(s string) bool {
+		for _, line := range strings.Split(s, "\n") {
+			if strings.Contains(line, "[pane-2]") && strings.Contains(line, "●") {
+				return true
+			}
+		}
+		return false
+	})
+}

@@ -203,16 +203,20 @@ func (w *Window) Focus(direction string) {
 		ncx := cell.X + cell.W/2
 		ncy := cell.Y + cell.H/2
 
+		// For left/right, require overlapping Y ranges.
+		// For up/down, require overlapping X ranges.
+		// This prevents jumping to a pane that's technically in the right
+		// direction but doesn't share any edge with the active pane.
 		match := false
 		switch direction {
 		case "left":
-			match = ncx < cx
+			match = ncx < cx && overlapsY(activeCell, cell)
 		case "right":
-			match = ncx > cx
+			match = ncx > cx && overlapsY(activeCell, cell)
 		case "up":
-			match = ncy < cy
+			match = ncy < cy && overlapsX(activeCell, cell)
 		case "down":
-			match = ncy > cy
+			match = ncy > cy && overlapsX(activeCell, cell)
 		}
 
 		if !match {
@@ -231,6 +235,16 @@ func (w *Window) Focus(direction string) {
 	if best != nil {
 		w.ActivePane = best.Pane
 	}
+}
+
+// overlapsY returns true if two cells share any vertical range.
+func overlapsY(a, b *LayoutCell) bool {
+	return a.Y < b.Y+b.H && b.Y < a.Y+a.H
+}
+
+// overlapsX returns true if two cells share any horizontal range.
+func overlapsX(a, b *LayoutCell) bool {
+	return a.X < b.X+b.W && b.X < a.X+a.W
 }
 
 // paneHeight returns the PTY height for a pane in a layout cell,
