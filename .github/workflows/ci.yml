@@ -26,7 +26,23 @@ jobs:
         run: go vet ./...
 
       - name: Unit tests
-        run: go test ./internal/... -timeout 60s
+        run: go test -json ./internal/... -timeout 60s | tee unit-results.json
 
       - name: Integration tests
-        run: go test -v -timeout 120s ./test/
+        run: go test -json -timeout 120s ./test/ | tee integration-results.json
+
+      - name: Test timing summary
+        if: always()
+        run: |
+          echo '## Test Timing' >> "$GITHUB_STEP_SUMMARY"
+          echo '' >> "$GITHUB_STEP_SUMMARY"
+          echo '| Test | Duration |' >> "$GITHUB_STEP_SUMMARY"
+          echo '|------|----------|' >> "$GITHUB_STEP_SUMMARY"
+          jq -r 'select(.Action=="pass" and .Test) | "| \(.Test) | \(.Elapsed)s |"' \
+            unit-results.json integration-results.json \
+            | sort -t'|' -k3 -rn >> "$GITHUB_STEP_SUMMARY"
+          echo '' >> "$GITHUB_STEP_SUMMARY"
+          total=$(jq -r 'select(.Action=="pass" and .Test) | .Elapsed' \
+            unit-results.json integration-results.json \
+            | awk '{s+=$1} END {printf "%.2f", s}')
+          echo "**Total: ${total}s**" >> "$GITHUB_STEP_SUMMARY"
