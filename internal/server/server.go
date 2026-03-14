@@ -11,7 +11,7 @@ import (
 	"github.com/weill-labs/amux/internal/render"
 )
 
-// paneAccents from session.go — Catppuccin Mocha subset for pane colors.
+// paneAccents — Catppuccin Mocha subset for pane colors.
 var paneAccents = []string{
 	"f38ba8", "fab387", "f9e2af", "a6e3a1",
 	"94e2d5", "89b4fa", "b4befe", "cba6f7",
@@ -19,11 +19,13 @@ var paneAccents = []string{
 
 // Session holds the state for one amux session.
 type Session struct {
-	Name    string
-	Panes   []*mux.Pane
-	clients []*ClientConn
-	counter uint32
-	mu      sync.Mutex
+	Name       string
+	Window     *mux.Window
+	Panes      []*mux.Pane // flat list for quick lookup
+	clients    []*ClientConn
+	compositor *render.Compositor
+	counter    uint32
+	mu         sync.Mutex
 }
 
 // broadcast sends a message to all connected clients.
@@ -33,6 +35,24 @@ func (s *Session) broadcast(msg *Message) {
 	copy(clients, s.clients)
 	s.mu.Unlock()
 
+	for _, c := range clients {
+		c.Send(msg)
+	}
+}
+
+// renderAndBroadcast does a full composite render and sends to all clients.
+func (s *Session) renderAndBroadcast() {
+	s.mu.Lock()
+	if s.Window == nil || len(s.clients) == 0 {
+		s.mu.Unlock()
+		return
+	}
+	data := s.compositor.RenderFull(s.Window.Root, s.Window.ActivePane)
+	clients := make([]*ClientConn, len(s.clients))
+	copy(clients, s.clients)
+	s.mu.Unlock()
+
+	msg := &Message{Type: MsgTypeRender, RenderData: data}
 	for _, c := range clients {
 		c.Send(msg)
 	}
@@ -50,6 +70,39 @@ func (s *Session) removeClient(cc *ClientConn) {
 	}
 }
 
+// createPane creates a new pane with auto-assigned metadata.
+func (s *Session) createPane(srv *Server, cols, rows int) (*mux.Pane, error) {
+	s.counter++
+	meta := mux.PaneMeta{
+		Name:  fmt.Sprintf("pane-%d", s.counter),
+		Host:  "local",
+		Color: paneAccents[(s.counter-1)%uint32(len(paneAccents))],
+	}
+
+	pane, err := mux.NewPane(s.counter, meta, cols, rows,
+		func(paneID uint32, data []byte) {
+			// Any pane output triggers a full re-render
+			s.renderAndBroadcast()
+		},
+		func(paneID uint32) {
+			s.mu.Lock()
+			remaining := len(s.Panes)
+			s.mu.Unlock()
+			if remaining <= 1 {
+				// Last pane exited
+				s.broadcast(&Message{Type: MsgTypeExit})
+				srv.Shutdown()
+			}
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	s.Panes = append(s.Panes, pane)
+	return pane, nil
+}
+
 // Server listens on a Unix socket and manages sessions.
 type Server struct {
 	listener net.Listener
@@ -59,7 +112,6 @@ type Server struct {
 }
 
 // SocketDir returns the directory for amux Unix sockets.
-// Uses /tmp/ (not os.TempDir()) for short stable paths, matching tmux convention.
 func SocketDir() string {
 	return fmt.Sprintf("/tmp/amux-%d", os.Getuid())
 }
@@ -82,7 +134,6 @@ func NewServer(sessionName string) (*Server, error) {
 	if _, err := os.Stat(sockPath); err == nil {
 		conn, err := net.Dial("unix", sockPath)
 		if err != nil {
-			// Dead socket — remove it
 			os.Remove(sockPath)
 		} else {
 			conn.Close()
@@ -173,58 +224,37 @@ func (s *Server) handleAttach(conn net.Conn, msg *Message) {
 
 	sess.mu.Lock()
 
-	// Create the first pane if none exist
-	if len(sess.Panes) == 0 {
-		cols, rows := msg.Cols, msg.Rows
-		if cols <= 0 {
-			cols = 80
-		}
-		if rows <= 0 {
-			rows = 24
-		}
+	cols, rows := msg.Cols, msg.Rows
+	if cols <= 0 {
+		cols = 80
+	}
+	if rows <= 0 {
+		rows = 24
+	}
 
-		sess.counter++
-		meta := mux.PaneMeta{
-			Name:  fmt.Sprintf("pane-%d", sess.counter),
-			Host:  "local",
-			Color: paneAccents[(sess.counter-1)%uint32(len(paneAccents))],
-		}
-
-		pane, err := mux.NewPane(sess.counter, meta, cols, rows,
-			func(paneID uint32, data []byte) {
-				// Forward raw PTY output to all clients
-				sess.broadcast(&Message{Type: MsgTypeRender, RenderData: data})
-			},
-			func(paneID uint32) {
-				// Shell exited — notify clients
-				sess.broadcast(&Message{Type: MsgTypeExit})
-				s.Shutdown()
-			},
-		)
+	// Create the first pane and window if none exist
+	if sess.Window == nil {
+		pane, err := sess.createPane(s, cols, rows)
 		if err != nil {
 			sess.mu.Unlock()
 			conn.Close()
 			return
 		}
-		sess.Panes = append(sess.Panes, pane)
+		sess.Window = mux.NewWindow(pane, cols, rows)
+		sess.compositor = render.NewCompositor(cols, rows)
 	}
 
 	// Send current screen state to the new client (enables reattach)
-	if len(sess.Panes) > 0 {
-		var screen []byte
-		// Set terminal title so the user knows they're in amux
-		screen = append(screen, []byte(fmt.Sprintf("\033]0;amux: %s\007", sess.Name))...)
-		screen = append(screen, render.ClearScreen()...)
-		rendered := sess.Panes[0].RenderScreen()
-		screen = append(screen, []byte(rendered)...)
-		cc.Send(&Message{Type: MsgTypeRender, RenderData: screen})
-	}
+	var screen []byte
+	screen = append(screen, []byte(fmt.Sprintf("\033]0;amux: %s\007", sess.Name))...)
+	screen = append(screen, sess.compositor.RenderFull(sess.Window.Root, sess.Window.ActivePane)...)
+	cc.Send(&Message{Type: MsgTypeRender, RenderData: screen})
 
 	sess.clients = append(sess.clients, cc)
 	sess.mu.Unlock()
 
 	// Blocks until client disconnects or detaches
-	cc.readLoop(sess)
+	cc.readLoop(s, sess)
 }
 
 // handleOneShot processes a single command and closes the connection.
@@ -242,5 +272,5 @@ func (s *Server) handleOneShot(conn net.Conn, msg *Message) {
 		return
 	}
 
-	cc.handleCommand(sess, msg)
+	cc.handleCommand(s, sess, msg)
 }

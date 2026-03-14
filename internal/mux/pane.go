@@ -148,6 +148,11 @@ func (p *Pane) RenderScreen() string {
 	return RenderWithCursor(p.emulator)
 }
 
+// CursorPos returns the cursor position within this pane (0-indexed).
+func (p *Pane) CursorPos() (col, row int) {
+	return p.emulator.CursorPosition()
+}
+
 // Close terminates the pane's shell and PTY.
 func (p *Pane) Close() error {
 	if p.closed.Swap(true) {

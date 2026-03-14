@@ -275,6 +275,12 @@ func runMux(sessionName string) error {
 						server.WriteMsg(conn, &server.Message{Type: server.MsgTypeDetach})
 						conn.Close()
 						return
+					case '%':
+						// Ctrl-a % split left/right
+						sendCommand(conn, "split", nil)
+					case '"':
+						// Ctrl-a quote split top/bottom
+						sendCommand(conn, "split", []string{"v"})
 					case 0x01:
 						// Ctrl-a Ctrl-a → literal Ctrl-a
 						forward = append(forward, 0x01)
@@ -282,6 +288,18 @@ func runMux(sessionName string) error {
 						// Not a recognized command, forward prefix + byte
 						forward = append(forward, 0x01, buf[i])
 					}
+					continue
+				}
+
+				// Ctrl-backslash (0x1c) split left/right (no prefix)
+				if buf[i] == 0x1c {
+					if len(forward) > 0 {
+						server.WriteMsg(conn, &server.Message{
+							Type: server.MsgTypeInput, Input: forward,
+						})
+						forward = nil
+					}
+					sendCommand(conn, "split", nil)
 					continue
 				}
 
@@ -310,6 +328,15 @@ func runMux(sessionName string) error {
 
 	<-done
 	return nil
+}
+
+// sendCommand sends a command to the server (non-blocking, ignores response).
+func sendCommand(conn net.Conn, name string, args []string) {
+	server.WriteMsg(conn, &server.Message{
+		Type:    server.MsgTypeCommand,
+		CmdName: name,
+		CmdArgs: args,
+	})
 }
 
 // startServerDaemon launches the server as a background daemon.

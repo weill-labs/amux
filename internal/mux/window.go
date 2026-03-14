@@ -1,0 +1,134 @@
+package mux
+
+import "fmt"
+
+// Window holds the layout tree and active pane for one window.
+type Window struct {
+	Root       *LayoutCell
+	ActivePane *Pane
+	Width      int
+	Height     int
+}
+
+// NewWindow creates a window with a single pane.
+func NewWindow(pane *Pane, width, height int) *Window {
+	root := NewLeaf(pane, 0, 0, width, height)
+	return &Window{
+		Root:       root,
+		ActivePane: pane,
+		Width:      width,
+		Height:     height,
+	}
+}
+
+// Split splits the active pane in the given direction, creating a new pane
+// via the provided factory function. Returns the new pane.
+func (w *Window) Split(dir SplitDir, newPane *Pane) (*Pane, error) {
+	cell := w.Root.FindPane(w.ActivePane.ID)
+	if cell == nil {
+		return nil, fmt.Errorf("active pane %d not found in layout", w.ActivePane.ID)
+	}
+
+	newCell, err := cell.Split(dir, newPane)
+	if err != nil {
+		return nil, err
+	}
+
+	// Resize the new pane's PTY to match its layout cell
+	newPane.Resize(newCell.W, newCell.H)
+
+	// Resize the existing pane's PTY (its cell may have shrunk)
+	existingCell := w.Root.FindPane(w.ActivePane.ID)
+	if existingCell != nil {
+		w.ActivePane.Resize(existingCell.W, existingCell.H)
+	}
+
+	w.Root.FixOffsets()
+	w.ActivePane = newPane
+
+	return newPane, nil
+}
+
+// ClosePane removes a pane from the layout and reclaims its space.
+func (w *Window) ClosePane(paneID uint32) error {
+	cell := w.Root.FindPane(paneID)
+	if cell == nil {
+		return fmt.Errorf("pane %d not found", paneID)
+	}
+
+	// Count leaves to prevent closing the last pane
+	count := 0
+	w.Root.Walk(func(_ *LayoutCell) { count++ })
+	if count <= 1 {
+		return fmt.Errorf("cannot close last pane")
+	}
+
+	result := cell.Close()
+
+	// If the closed cell was the root's only child, update root
+	if len(w.Root.Children) == 1 {
+		only := w.Root.Children[0]
+		only.Parent = nil
+		only.X = 0
+		only.Y = 0
+		only.W = w.Width
+		only.H = w.Height
+		w.Root = only
+	} else if w.Root.IsLeaf() && w.Root.Pane == nil {
+		// Root was collapsed
+		if result != nil {
+			result.Parent = nil
+			w.Root = result
+		}
+	}
+
+	// Update active pane if the closed pane was active
+	if w.ActivePane.ID == paneID {
+		if result != nil && result.IsLeaf() && result.Pane != nil {
+			w.ActivePane = result.Pane
+		} else {
+			// Find any leaf
+			w.Root.Walk(func(c *LayoutCell) {
+				if w.ActivePane.ID == paneID && c.Pane != nil {
+					w.ActivePane = c.Pane
+				}
+			})
+		}
+	}
+
+	// Resize the recipient pane to match its new cell dimensions
+	w.Root.FixOffsets()
+	w.Root.Walk(func(c *LayoutCell) {
+		if c.Pane != nil {
+			c.Pane.Resize(c.W, c.H)
+		}
+	})
+
+	return nil
+}
+
+// Resize adjusts the layout to fit new terminal dimensions.
+func (w *Window) Resize(width, height int) {
+	w.Width = width
+	w.Height = height
+	w.Root.ResizeAll(width, height)
+	w.Root.FixOffsets()
+
+	// Resize all pane PTYs to match their new cell dimensions
+	w.Root.Walk(func(c *LayoutCell) {
+		if c.Pane != nil {
+			c.Pane.Resize(c.W, c.H)
+		}
+	})
+}
+
+// Panes returns all panes in the window (depth-first order).
+func (w *Window) Panes() []*Pane {
+	var panes []*Pane
+	w.Root.Walk(func(c *LayoutCell) {
+		if c.Pane != nil {
+			panes = append(panes, c.Pane)
+		}
+	})
+	return panes
+}
