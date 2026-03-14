@@ -124,7 +124,7 @@ func markBorders(bm *borderMap, cell *mux.LayoutCell) {
 }
 
 // renderBorders draws all border cells with junction characters and per-cell coloring.
-func renderBorders(buf *strings.Builder, bm *borderMap, root *mux.LayoutCell, activePane *mux.Pane) {
+func renderBorders(buf *strings.Builder, bm *borderMap, root *mux.LayoutCell, activePaneID uint32, activeColor string) {
 	lastColor := ""
 	for y := 0; y < bm.height; y++ {
 		for x := 0; x < bm.width; x++ {
@@ -158,9 +158,9 @@ func renderBorders(buf *strings.Builder, bm *borderMap, root *mux.LayoutCell, ac
 			}
 			var color string
 			if neighbors >= 3 {
-				color = borderColorAtJunction(bc.left, bc.right, activePane)
+				color = borderColorAtJunction(bc.left, bc.right, activePaneID, activeColor)
 			} else {
-				color = borderColorAt(bc.left, bc.right, x, y, activePane)
+				color = borderColorAt(bc.left, bc.right, x, y, activePaneID, activeColor)
 			}
 
 			if color != lastColor {
@@ -182,8 +182,8 @@ func renderBorders(buf *strings.Builder, bm *borderMap, root *mux.LayoutCell, ac
 
 // borderColorAt determines the color for a border cell based on which leaf
 // pane is adjacent.
-func borderColorAt(a, b *mux.LayoutCell, x, y int, activePane *mux.Pane) string {
-	if activePane == nil {
+func borderColorAt(a, b *mux.LayoutCell, x, y int, activePaneID uint32, activeColor string) string {
+	if activePaneID == 0 {
 		return DimFg
 	}
 
@@ -200,9 +200,9 @@ func borderColorAt(a, b *mux.LayoutCell, x, y int, activePane *mux.Pane) string 
 		leafB = findLeafByAxis(b, x, y)
 	}
 
-	if (leafA != nil && leafA.Pane != nil && leafA.Pane.ID == activePane.ID) ||
-		(leafB != nil && leafB.Pane != nil && leafB.Pane.ID == activePane.ID) {
-		return activePaneColor(activePane)
+	if (leafA != nil && leafA.CellPaneID() == activePaneID) ||
+		(leafB != nil && leafB.CellPaneID() == activePaneID) {
+		return activeColor
 	}
 
 	return DimFg
@@ -210,12 +210,12 @@ func borderColorAt(a, b *mux.LayoutCell, x, y int, activePane *mux.Pane) string 
 
 // borderColorAtJunction uses subtree search for junction cells where
 // position-based lookup fails (the junction is at a corner between 3+ panes).
-func borderColorAtJunction(a, b *mux.LayoutCell, activePane *mux.Pane) string {
-	if activePane == nil {
+func borderColorAtJunction(a, b *mux.LayoutCell, activePaneID uint32, activeColor string) string {
+	if activePaneID == 0 {
 		return DimFg
 	}
-	if a.FindPane(activePane.ID) != nil || b.FindPane(activePane.ID) != nil {
-		return activePaneColor(activePane)
+	if a.FindByPaneID(activePaneID) != nil || b.FindByPaneID(activePaneID) != nil {
+		return activeColor
 	}
 	return DimFg
 }

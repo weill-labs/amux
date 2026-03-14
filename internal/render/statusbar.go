@@ -13,21 +13,18 @@ const GlobalBarHeight = 1
 
 // renderPaneStatus draws a per-pane status line at the top of a pane cell.
 // Format: ● [name] @host task
-func renderPaneStatus(buf *strings.Builder, cell *mux.LayoutCell, isActive bool) {
-	if cell.Pane == nil {
-		return
-	}
-	meta := cell.Pane.Meta
-
+func renderPaneStatus(buf *strings.Builder, cell *mux.LayoutCell, isActive bool, pd PaneData) {
 	// Move to cell position
 	buf.WriteString(CursorTo(cell.Y+1, cell.X+1))
 
 	// Background: subtle dark surface
 	buf.WriteString(Surface0Bg)
 
+	color := pd.Color()
+
 	// Status icon with pane color
 	if isActive {
-		buf.WriteString(hexToANSI(meta.Color))
+		buf.WriteString(hexToANSI(color))
 		buf.WriteString("●")
 	} else {
 		buf.WriteString(DimFg)
@@ -38,33 +35,33 @@ func renderPaneStatus(buf *strings.Builder, cell *mux.LayoutCell, isActive bool)
 	buf.WriteString(" ")
 	if isActive {
 		buf.WriteString(Bold)
-		buf.WriteString(hexToANSI(meta.Color))
+		buf.WriteString(hexToANSI(color))
 	} else {
 		buf.WriteString(TextFg)
 	}
-	buf.WriteString(fmt.Sprintf("[%s]", meta.Name))
+	buf.WriteString(fmt.Sprintf("[%s]", pd.Name()))
 	buf.WriteString(NoBold)
 
 	// Host (only if not mux.DefaultHost)
-	if meta.Host != "" && meta.Host != mux.DefaultHost {
+	if pd.Host() != "" && pd.Host() != mux.DefaultHost {
 		buf.WriteString(GreenFg)
-		buf.WriteString(fmt.Sprintf(" @%s", meta.Host))
+		buf.WriteString(fmt.Sprintf(" @%s", pd.Host()))
 	}
 
 	// Task
-	if meta.Task != "" {
+	if pd.Task() != "" {
 		buf.WriteString(TextFg)
-		buf.WriteString(fmt.Sprintf(" %s", meta.Task))
+		buf.WriteString(fmt.Sprintf(" %s", pd.Task()))
 	}
 
 	// Fill remaining width with spaces
 	// Calculate how many chars we've written (rough estimate)
-	usedWidth := 2 + len(meta.Name) + 2 // "● [name]"
-	if meta.Host != "" && meta.Host != mux.DefaultHost {
-		usedWidth += 2 + len(meta.Host)
+	usedWidth := 2 + len(pd.Name()) + 2 // "● [name]"
+	if pd.Host() != "" && pd.Host() != mux.DefaultHost {
+		usedWidth += 2 + len(pd.Host())
 	}
-	if meta.Task != "" {
-		usedWidth += 1 + len(meta.Task)
+	if pd.Task() != "" {
+		usedWidth += 1 + len(pd.Task())
 	}
 	remaining := cell.W - usedWidth
 	if remaining > 0 {

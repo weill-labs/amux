@@ -25,6 +25,11 @@ func (c *Compositor) Resize(width, height int) {
 	c.height = height
 }
 
+// SetSessionName updates the session name shown in the global bar.
+func (c *Compositor) SetSessionName(name string) {
+	c.sessionName = name
+}
+
 // LayoutHeight returns the height available for the layout tree
 // (terminal height minus the global status bar).
 func (c *Compositor) LayoutHeight() int {
@@ -37,7 +42,9 @@ func ClearScreen() []byte {
 }
 
 // RenderFull composes all panes, status lines, and borders into ANSI output.
-func (c *Compositor) RenderFull(root *mux.LayoutCell, activePane *mux.Pane) []byte {
+// lookup maps pane IDs to their rendering data. Client provides emulator-backed
+// adapters; server could provide Pane wrappers.
+func (c *Compositor) RenderFull(root *mux.LayoutCell, activePaneID uint32, lookup func(uint32) PaneData) []byte {
 	var buf strings.Builder
 
 	// Hide cursor during render to prevent flicker
@@ -48,38 +55,53 @@ func (c *Compositor) RenderFull(root *mux.LayoutCell, activePane *mux.Pane) []by
 	// Count panes for global bar
 	paneCount := 0
 
+	// Determine active pane color for borders
+	var activeColor string
+	if pd := lookup(activePaneID); pd != nil && pd.Color() != "" {
+		activeColor = hexToANSI(pd.Color())
+	} else {
+		activeColor = BlueFg
+	}
+
 	// Render each pane's status line and content
 	root.Walk(func(cell *mux.LayoutCell) {
-		if cell.Pane == nil {
+		pid := cell.CellPaneID()
+		if pid == 0 {
+			return
+		}
+		pd := lookup(pid)
+		if pd == nil {
 			return
 		}
 		paneCount++
 
-		isActive := activePane != nil && activePane.ID == cell.Pane.ID
+		isActive := pid == activePaneID
 
 		// Per-pane status line
-		renderPaneStatus(&buf, cell, isActive)
+		renderPaneStatus(&buf, cell, isActive, pd)
 
 		// Pane content (shifted down by status line)
-		rendered := cell.Pane.RenderScreen()
+		rendered := pd.RenderScreen()
 		c.blitPane(&buf, cell, rendered)
 	})
 
 	// Draw borders with proper junction characters
 	bm := buildBorderMap(root, c.width, c.height)
-	renderBorders(&buf, bm, root, activePane)
+	renderBorders(&buf, bm, root, activePaneID, activeColor)
 
 	// Global status bar at bottom
 	renderGlobalBar(&buf, c.sessionName, paneCount, c.width, c.height-1)
 
 	// Restore cursor to active pane's cursor position
-	if activePane != nil {
-		cell := root.FindPane(activePane.ID)
+	if activePaneID != 0 {
+		cell := root.FindByPaneID(activePaneID)
 		if cell != nil {
-			col, row := activePane.CursorPos()
-			absRow := cell.Y + mux.StatusLineRows + row + 1
-			absCol := cell.X + col + 1
-			buf.WriteString(CursorTo(absRow, absCol))
+			if pd := lookup(activePaneID); pd != nil {
+				col, row := pd.CursorPos()
+				absRow := cell.Y + mux.StatusLineRows + row + 1
+				absCol := cell.X + col + 1
+				buf.WriteString(CursorTo(absRow, absCol))
+			}
 		}
 	}
 
@@ -104,14 +126,6 @@ func (c *Compositor) blitPane(buf *strings.Builder, cell *mux.LayoutCell, render
 			buf.WriteString(line)
 		}
 	}
-}
-
-// activePaneColor returns the ANSI color for the active pane's border.
-func activePaneColor(p *mux.Pane) string {
-	if p.Meta.Color != "" {
-		return hexToANSI(p.Meta.Color)
-	}
-	return BlueFg
 }
 
 // hexToANSI converts a 6-digit hex color to an ANSI truecolor escape.
