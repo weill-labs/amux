@@ -511,8 +511,8 @@ func TestRootVerticalSplitRenderClipping(t *testing.T) {
 		if col >= len(runes) {
 			continue
 		}
-		// The character at the border column should be │ on most lines
-		if runes[col] != '│' && runes[col] != '─' {
+		// The character at the border column should be a border character
+		if !isBorderRune(runes[col]) {
 			// Allow status line rows (contain [pane-]) and empty lines
 			if strings.Contains(line, "[pane-") || strings.TrimSpace(line) == "" {
 				continue
@@ -588,7 +588,7 @@ func TestFiveRootVerticalSplits(t *testing.T) {
 	// Should have 4 vertical borders
 	borderCount := 0
 	for _, r := range []rune(row0) {
-		if r == '│' {
+		if isVerticalBorderRune(r) {
 			borderCount++
 		}
 	}
@@ -620,7 +620,7 @@ func TestMultipleNonRootSplitsEqualWidth(t *testing.T) {
 	// 3 vertical borders
 	borderCount := 0
 	for _, r := range []rune(row0) {
-		if r == '│' {
+		if isVerticalBorderRune(r) {
 			borderCount++
 		}
 	}

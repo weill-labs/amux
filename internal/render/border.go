@@ -1,0 +1,212 @@
+package render
+
+import (
+	"strings"
+
+	"github.com/weill-labs/amux/internal/mux"
+)
+
+// borderCell tracks a border position and the two layout cells on either side.
+type borderCell struct {
+	left, right *mux.LayoutCell // for vertical borders (or top/bottom for horizontal)
+}
+
+// borderMap is a 2D grid marking which terminal cells are borders.
+// Each entry stores the adjacent cells for color determination.
+type borderMap struct {
+	width, height int
+	cells         []borderCell // width * height, row-major
+	isBorder      []bool       // same layout
+}
+
+func newBorderMap(w, h int) *borderMap {
+	return &borderMap{
+		width:    w,
+		height:   h,
+		cells:    make([]borderCell, w*h),
+		isBorder: make([]bool, w*h),
+	}
+}
+
+func (bm *borderMap) set(x, y int, left, right *mux.LayoutCell) {
+	if x >= 0 && x < bm.width && y >= 0 && y < bm.height {
+		idx := y*bm.width + x
+		bm.isBorder[idx] = true
+		bm.cells[idx] = borderCell{left: left, right: right}
+	}
+}
+
+func (bm *borderMap) has(x, y int) bool {
+	if x < 0 || x >= bm.width || y < 0 || y >= bm.height {
+		return false
+	}
+	return bm.isBorder[y*bm.width+x]
+}
+
+func (bm *borderMap) get(x, y int) borderCell {
+	return bm.cells[y*bm.width+x]
+}
+
+// junctionChar picks the box-drawing character based on which neighbors are borders.
+func junctionChar(up, down, left, right bool) string {
+	switch {
+	case up && down && left && right:
+		return "┼"
+	case up && down && right:
+		return "├"
+	case up && down && left:
+		return "┤"
+	case down && left && right:
+		return "┬"
+	case up && left && right:
+		return "┴"
+	case down && right:
+		return "┌"
+	case down && left:
+		return "┐"
+	case up && right:
+		return "└"
+	case up && left:
+		return "┘"
+	case up && down:
+		return "│"
+	case left && right:
+		return "─"
+	case up:
+		return "│"
+	case down:
+		return "│"
+	case left:
+		return "─"
+	case right:
+		return "─"
+	default:
+		return "+"
+	}
+}
+
+// buildBorderMap walks the layout tree and marks all border cells.
+func buildBorderMap(root *mux.LayoutCell, w, h int) *borderMap {
+	bm := newBorderMap(w, h)
+	markBorders(bm, root)
+	return bm
+}
+
+// markBorders recursively marks border cells in the map.
+func markBorders(bm *borderMap, cell *mux.LayoutCell) {
+	if cell.IsLeaf() {
+		return
+	}
+
+	children := cell.Children
+	for i := 0; i < len(children)-1; i++ {
+		left := children[i]
+		right := children[i+1]
+
+		if cell.Dir == mux.SplitHorizontal {
+			// Vertical border at x = left.X + left.W
+			x := left.X + left.W
+			for y := cell.Y; y < cell.Y+cell.H; y++ {
+				bm.set(x, y, left, right)
+			}
+		} else {
+			// Horizontal border at y = left.Y + left.H
+			y := left.Y + left.H
+			for x := cell.X; x < cell.X+cell.W; x++ {
+				bm.set(x, y, left, right)
+			}
+		}
+	}
+
+	for _, child := range children {
+		markBorders(bm, child)
+	}
+}
+
+// renderBorders draws all border cells with junction characters and per-cell coloring.
+func renderBorders(buf *strings.Builder, bm *borderMap, root *mux.LayoutCell, activePane *mux.Pane) {
+	lastColor := ""
+	for y := 0; y < bm.height; y++ {
+		for x := 0; x < bm.width; x++ {
+			if !bm.has(x, y) {
+				continue
+			}
+
+			// Determine junction character from neighbors
+			up := bm.has(x, y-1)
+			down := bm.has(x, y+1)
+			left := bm.has(x-1, y)
+			right := bm.has(x+1, y)
+			ch := junctionChar(up, down, left, right)
+
+			// Determine color from adjacent panes
+			bc := bm.get(x, y)
+			color := borderColorAt(bc.left, bc.right, x, y, activePane)
+
+			if color != lastColor {
+				if lastColor != "" {
+					buf.WriteString(Reset)
+				}
+				buf.WriteString(color)
+				lastColor = color
+			}
+
+			buf.WriteString(CursorTo(y+1, x+1))
+			buf.WriteString(ch)
+		}
+	}
+	if lastColor != "" {
+		buf.WriteString(Reset)
+	}
+}
+
+// borderColorAt determines the color for a border cell based on which leaf
+// pane is adjacent. Uses the perpendicular axis to find the leaf within
+// each adjacent subtree (the border position itself is between the cells).
+func borderColorAt(a, b *mux.LayoutCell, x, y int, activePane *mux.Pane) string {
+	if activePane == nil {
+		return DimFg
+	}
+
+	// Find the leaf panes at this Y in each subtree (for vertical borders)
+	// or at this X (for horizontal borders). We search by the perpendicular
+	// axis because the border position is outside both cells' bounds.
+	leafA := findLeafByAxis(a, x, y)
+	leafB := findLeafByAxis(b, x, y)
+
+	if (leafA != nil && leafA.Pane != nil && leafA.Pane.ID == activePane.ID) ||
+		(leafB != nil && leafB.Pane != nil && leafB.Pane.ID == activePane.ID) {
+		return activePaneColor(activePane)
+	}
+	return DimFg
+}
+
+// findLeafByAxis finds the leaf cell in a subtree that contains the given
+// position on the relevant axis. For a cell arranged horizontally, searches
+// by X. For vertical, searches by Y. Leaf cells match if either axis fits.
+func findLeafByAxis(cell *mux.LayoutCell, x, y int) *mux.LayoutCell {
+	if cell.IsLeaf() {
+		// A leaf matches if the position falls within its range on either axis
+		if y >= cell.Y && y < cell.Y+cell.H {
+			return cell
+		}
+		if x >= cell.X && x < cell.X+cell.W {
+			return cell
+		}
+		return nil
+	}
+	for _, child := range cell.Children {
+		if cell.Dir == mux.SplitVertical {
+			// Children stacked vertically — match by Y
+			if y >= child.Y && y < child.Y+child.H {
+				return findLeafByAxis(child, x, y)
+			}
+		} else {
+			// Children side by side — match by X
+			if x >= child.X && x < child.X+child.W {
+				return findLeafByAxis(child, x, y)
+			}
+		}
+	}
+	return nil
+}
