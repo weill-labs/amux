@@ -10,7 +10,6 @@ import (
 
 	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/mux"
-	"github.com/weill-labs/amux/internal/render"
 )
 
 // Default terminal dimensions when the client doesn't report a size.
@@ -24,14 +23,13 @@ const DefaultOutputLines = 50
 
 // Session holds the state for one amux session.
 type Session struct {
-	Name       string
-	Window     *mux.Window
-	Panes      []*mux.Pane // flat list for quick lookup
-	clients    []*ClientConn
-	compositor *render.Compositor
-	counter    uint32
-	mu         sync.Mutex
-	shutdown   atomic.Bool
+	Name    string
+	Window  *mux.Window
+	Panes   []*mux.Pane // flat list for quick lookup
+	clients []*ClientConn
+	counter atomic.Uint32
+	mu      sync.Mutex
+	shutdown atomic.Bool
 }
 
 // broadcast sends a message to all connected clients.
@@ -46,19 +44,24 @@ func (s *Session) broadcast(msg *Message) {
 	}
 }
 
-// renderAndBroadcast does a full composite render and sends to all clients.
-func (s *Session) renderAndBroadcast() {
+// broadcastPaneOutput sends raw PTY output for one pane to all clients.
+func (s *Session) broadcastPaneOutput(paneID uint32, data []byte) {
+	s.broadcast(&Message{Type: MsgTypePaneOutput, PaneID: paneID, PaneData: data})
+}
+
+// broadcastLayout sends the current layout snapshot to all clients.
+func (s *Session) broadcastLayout() {
 	s.mu.Lock()
-	if s.Window == nil || len(s.clients) == 0 {
+	if s.Window == nil {
 		s.mu.Unlock()
 		return
 	}
-	data := s.compositor.RenderFull(s.Window.Root, s.Window.ActivePane)
+	snap := s.Window.SnapshotLayout(s.Name)
 	clients := make([]*ClientConn, len(s.clients))
 	copy(clients, s.clients)
 	s.mu.Unlock()
 
-	msg := &Message{Type: MsgTypeRender, RenderData: data}
+	msg := &Message{Type: MsgTypeLayout, Layout: snap}
 	for _, c := range clients {
 		c.Send(msg)
 	}
@@ -77,7 +80,6 @@ func (s *Session) removeClient(cc *ClientConn) {
 }
 
 // hasPane checks if a pane ID is still in the session's pane list.
-// Caller must hold s.mu.
 func (s *Session) hasPane(id uint32) bool {
 	for _, p := range s.Panes {
 		if p.ID == id {
@@ -88,7 +90,6 @@ func (s *Session) hasPane(id uint32) bool {
 }
 
 // removePane removes a pane from the flat list by ID.
-// Caller must hold s.mu.
 func (s *Session) removePane(id uint32) {
 	for i, p := range s.Panes {
 		if p.ID == id {
@@ -99,30 +100,30 @@ func (s *Session) removePane(id uint32) {
 }
 
 // createPane creates a new pane with auto-assigned metadata.
-// The pane's goroutines are NOT started — call pane.Start() after releasing s.mu.
 func (s *Session) createPane(srv *Server, cols, rows int) (*mux.Pane, error) {
+	cnt := s.counter.Load()
 	meta := mux.PaneMeta{
-		Name:  fmt.Sprintf(mux.PaneNameFormat, s.counter+1),
+		Name:  fmt.Sprintf(mux.PaneNameFormat, cnt+1),
 		Host:  mux.DefaultHost,
-		Color: config.CatppuccinMocha[s.counter%uint32(len(config.CatppuccinMocha))],
+		Color: config.CatppuccinMocha[cnt%uint32(len(config.CatppuccinMocha))],
 	}
 	return s.createPaneWithMeta(srv, meta, cols, rows)
 }
 
 // createPaneWithMeta creates a new pane with explicit metadata (for spawn).
-// The pane's goroutines are NOT started — call pane.Start() after releasing s.mu.
 func (s *Session) createPaneWithMeta(srv *Server, meta mux.PaneMeta, cols, rows int) (*mux.Pane, error) {
-	s.counter++
+	id := s.counter.Add(1)
 	if meta.Color == "" {
-		meta.Color = config.CatppuccinMocha[(s.counter-1)%uint32(len(config.CatppuccinMocha))]
+		meta.Color = config.CatppuccinMocha[(id-1)%uint32(len(config.CatppuccinMocha))]
 	}
 
-	pane, err := mux.NewPane(s.counter, meta, cols, rows,
+	pane, err := mux.NewPane(id, meta, cols, rows,
 		func(paneID uint32, data []byte) {
 			if s.shutdown.Load() {
 				return
 			}
-			s.renderAndBroadcast()
+			// Send raw PTY output to all clients (client does rendering)
+			s.broadcastPaneOutput(paneID, data)
 		},
 		func(paneID uint32) {
 			if s.shutdown.Load() {
@@ -130,7 +131,6 @@ func (s *Session) createPaneWithMeta(srv *Server, meta mux.PaneMeta, cols, rows 
 			}
 
 			s.mu.Lock()
-			// Check if pane was already removed (e.g., by kill command)
 			if !s.hasPane(paneID) {
 				s.mu.Unlock()
 				return
@@ -150,7 +150,7 @@ func (s *Session) createPaneWithMeta(srv *Server, meta mux.PaneMeta, cols, rows 
 			}
 			s.mu.Unlock()
 
-			s.renderAndBroadcast()
+			s.broadcastLayout()
 		},
 	)
 	if err != nil {
@@ -188,7 +188,6 @@ func NewServer(sessionName string) (*Server, error) {
 
 	sockPath := SocketPath(sessionName)
 
-	// Clean up stale socket
 	if _, err := os.Stat(sockPath); err == nil {
 		conn, err := net.Dial("unix", sockPath)
 		if err != nil {
@@ -235,23 +234,17 @@ func (s *Server) Shutdown() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, sess := range s.sessions {
-		// Set shutdown flag so onExit/onOutput callbacks become no-ops
 		sess.shutdown.Store(true)
-
-		// Collect panes under lock, then close without holding sess.mu
 		sess.mu.Lock()
 		panes := make([]*mux.Pane, len(sess.Panes))
 		copy(panes, sess.Panes)
 		sess.mu.Unlock()
-
 		for _, p := range panes {
 			p.Close()
 		}
 	}
 }
 
-// handleConn reads the first message to determine if this is an interactive
-// attach or a one-shot command.
 func (s *Server) handleConn(conn net.Conn) {
 	msg, err := ReadMsg(conn)
 	if err != nil {
@@ -300,8 +293,8 @@ func (s *Server) handleAttach(conn net.Conn, msg *Message) {
 	// Create the first pane and window if none exist
 	var newPane *mux.Pane
 	if sess.Window == nil {
-		sess.compositor = render.NewCompositor(cols, rows, sess.Name)
-		layoutH := sess.compositor.LayoutHeight()
+		// Reserve 1 row for global status bar, 1 for per-pane status
+		layoutH := rows - 1 // global bar
 		paneH := mux.PaneContentHeight(layoutH)
 		pane, err := sess.createPane(s, cols, paneH)
 		if err != nil {
@@ -313,30 +306,30 @@ func (s *Server) handleAttach(conn net.Conn, msg *Message) {
 		newPane = pane
 	}
 
-	// Send current screen state to the new client (enables reattach)
-	var screen []byte
-	screen = append(screen, []byte(render.SetTitle("amux: "+sess.Name))...)
-	screen = append(screen, sess.compositor.RenderFull(sess.Window.Root, sess.Window.ActivePane)...)
-	cc.Send(&Message{Type: MsgTypeRender, RenderData: screen})
+	// Send layout snapshot so client can build its rendering state
+	snap := sess.Window.SnapshotLayout(sess.Name)
+	cc.Send(&Message{Type: MsgTypeLayout, Layout: snap})
+
+	// Send current screen state for each pane (enables reattach)
+	for _, p := range sess.Panes {
+		rendered := p.RenderScreen()
+		cc.Send(&Message{Type: MsgTypePaneOutput, PaneID: p.ID, PaneData: []byte(rendered)})
+	}
 
 	sess.clients = append(sess.clients, cc)
 	sess.mu.Unlock()
 
-	// Start pane goroutines AFTER releasing the lock (fixes C1)
 	if newPane != nil {
 		newPane.Start()
 	}
 
-	// Blocks until client disconnects or detaches
 	cc.readLoop(s, sess)
 }
 
-// handleOneShot processes a single command and closes the connection.
 func (s *Server) handleOneShot(conn net.Conn, msg *Message) {
 	cc := NewClientConn(conn)
 	defer cc.Close()
 
-	// Each server process hosts one session — use the first one
 	s.mu.Lock()
 	var sess *Session
 	for _, sess = range s.sessions {

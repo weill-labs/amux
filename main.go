@@ -220,13 +220,17 @@ func runMux(sessionName string) error {
 		term.Restore(fd, oldState)
 	}()
 
-	// Forward SIGWINCH to server
+	// Client-side renderer with per-pane emulators
+	cr := NewClientRenderer(cols, rows)
+
+	// Forward SIGWINCH to server and update client renderer
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGWINCH)
 	go func() {
 		for range sigCh {
 			c, r, _ := term.GetSize(fd)
 			if c > 0 && r > 0 {
+				cr.Resize(c, r)
 				server.WriteMsg(conn, &server.Message{
 					Type: server.MsgTypeResize,
 					Cols: c,
@@ -236,24 +240,39 @@ func runMux(sessionName string) error {
 		}
 	}()
 
-	// Server → terminal: read rendered output, write to stdout
+	// Server → client renderer → stdout
+	// Messages are dispatched to a coalescing render loop that caps at ~60fps.
 	done := make(chan struct{})
+	msgCh := make(chan *renderMsg, 256)
+
+	// Read server messages and dispatch to render loop
 	go func() {
-		defer close(done)
+		defer close(msgCh)
 		for {
 			msg, err := server.ReadMsg(conn)
 			if err != nil {
 				return
 			}
 			switch msg.Type {
-			case server.MsgTypeRender:
-				os.Stdout.Write(msg.RenderData)
+			case server.MsgTypeLayout:
+				msgCh <- &renderMsg{typ: renderMsgLayout, layout: msg.Layout}
+			case server.MsgTypePaneOutput:
+				msgCh <- &renderMsg{typ: renderMsgPaneOutput, paneID: msg.PaneID, data: msg.PaneData}
 			case server.MsgTypeExit:
+				msgCh <- &renderMsg{typ: renderMsgExit}
 				return
 			case server.MsgTypeBell:
-				os.Stdout.Write([]byte{0x07})
+				msgCh <- &renderMsg{typ: renderMsgBell}
 			}
 		}
+	}()
+
+	// Coalescing render loop
+	go func() {
+		defer close(done)
+		cr.renderCoalesced(msgCh, func(data []byte) {
+			os.Stdout.Write(data)
+		})
 	}()
 
 	// Terminal → server: read input with Ctrl-a prefix handling

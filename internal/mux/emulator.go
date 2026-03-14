@@ -90,6 +90,23 @@ func (v *vtEmulator) CursorHidden() bool {
 	return false
 }
 
+// NewVTEmulatorWithDrain creates a terminal emulator that automatically
+// drains its own response pipe. Suitable for client-side emulators that
+// don't have a PTY to forward responses to.
+func NewVTEmulatorWithDrain(width, height int) TerminalEmulator {
+	emu := NewVTEmulator(width, height)
+	go func() {
+		buf := make([]byte, 1024)
+		for {
+			_, err := emu.Read(buf)
+			if err != nil {
+				return
+			}
+		}
+	}()
+	return emu
+}
+
 // RenderWithCursor returns the emulator's rendered screen followed by
 // a cursor positioning escape sequence.
 func RenderWithCursor(emu TerminalEmulator) string {

@@ -21,8 +21,11 @@ type LayoutCell struct {
 	// Dir is the split direction for internal nodes. For leaves, Dir is -1.
 	Dir SplitDir
 
-	// Leaf: points to a pane. Nil for internal nodes.
+	// Leaf: points to a pane. Nil for internal nodes and client-side cells.
 	Pane *Pane
+
+	// PaneID is set on client-side rebuilt cells (where Pane is nil).
+	PaneID uint32
 
 	// Tree structure
 	Parent   *LayoutCell
@@ -339,6 +342,28 @@ func (c *LayoutCell) FindPane(paneID uint32) *LayoutCell {
 	var found *LayoutCell
 	c.Walk(func(leaf *LayoutCell) {
 		if leaf.Pane != nil && leaf.Pane.ID == paneID {
+			found = leaf
+		}
+	})
+	return found
+}
+
+// CellPaneID returns the effective pane ID for this leaf cell.
+// Server-side cells have Pane set (returns Pane.ID).
+// Client-side cells have PaneID set (returns PaneID).
+func (c *LayoutCell) CellPaneID() uint32 {
+	if c.Pane != nil {
+		return c.Pane.ID
+	}
+	return c.PaneID
+}
+
+// FindByPaneID returns the leaf cell with the given pane ID.
+// Works for both server-side cells (Pane.ID) and client-side cells (PaneID).
+func (c *LayoutCell) FindByPaneID(paneID uint32) *LayoutCell {
+	var found *LayoutCell
+	c.Walk(func(leaf *LayoutCell) {
+		if leaf.CellPaneID() == paneID {
 			found = leaf
 		}
 	})

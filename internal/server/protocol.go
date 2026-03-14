@@ -6,6 +6,8 @@ import (
 	"encoding/gob"
 	"fmt"
 	"io"
+
+	"github.com/weill-labs/amux/internal/proto"
 )
 
 // MsgType identifies the kind of protocol message.
@@ -24,7 +26,9 @@ const (
 	MsgTypeCmdResult MsgType = 11
 	MsgTypeExit      MsgType = 12
 	MsgTypeNotify    MsgType = 13
-	MsgTypeBell      MsgType = 14
+	MsgTypeBell       MsgType = 14
+	MsgTypePaneOutput MsgType = 15 // raw PTY output for one pane
+	MsgTypeLayout     MsgType = 16 // serialized layout tree + metadata
 )
 
 // Message is the wire protocol envelope. Only the fields relevant to
@@ -55,6 +59,13 @@ type Message struct {
 
 	// MsgTypeNotify
 	Text string
+
+	// MsgTypePaneOutput
+	PaneID   uint32
+	PaneData []byte
+
+	// MsgTypeLayout
+	Layout *proto.LayoutSnapshot
 }
 
 const maxMessageSize = 16 * 1024 * 1024 // 16 MB
