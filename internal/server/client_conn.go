@@ -130,8 +130,23 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 			sess.mu.Unlock()
 			return
 		}
-		sess.Window.Focus(direction)
-		sess.mu.Unlock()
+
+		switch direction {
+		case "next", "left", "right", "up", "down":
+			sess.Window.Focus(direction)
+			sess.mu.Unlock()
+		default:
+			// Treat as pane name or ID
+			pane := sess.Window.ResolvePane(direction)
+			if pane == nil {
+				sess.mu.Unlock()
+				cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("pane %q not found", direction)})
+				return
+			}
+			sess.Window.ActivePane = pane
+			sess.mu.Unlock()
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: fmt.Sprintf("Focused %s\n", pane.Meta.Name)})
+		}
 
 		sess.renderAndBroadcast()
 
