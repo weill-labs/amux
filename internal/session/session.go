@@ -231,6 +231,9 @@ func configure(sessionName string) {
 	tmuxCmd("bind-key", "-T", "root", `C-\`,
 		"split-window", "-h", "-c", "#{pane_current_path}")
 
+	// Double-click pane → toggle zoom
+	tmuxCmd("bind-key", "-T", "root", "DoubleClick1Pane", "resize-pane", "-Z")
+
 	// Standard splits/windows inherit current directory
 	tmuxCmd("bind-key", `"`, "split-window", "-c", "#{pane_current_path}")
 	tmuxCmd("bind-key", "%", "split-window", "-h", "-c", "#{pane_current_path}")
