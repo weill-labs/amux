@@ -1,6 +1,7 @@
 package test
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -551,5 +552,46 @@ func TestExitAfterDoubleRootVSplit(t *testing.T) {
 		lines := h.contentLines()
 		t.Errorf("border at col %d, expected near middle (30-50) — panes didn't resize\nScreen:\n%s",
 			col, strings.Join(lines, "\n"))
+	}
+}
+
+func TestFiveRootVerticalSplits(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// Do 4 more root-level vertical splits (5 panes total)
+	for i := 0; i < 4; i++ {
+		h.sendKeys("C-a", "|")
+		h.waitFor(fmt.Sprintf("[pane-%d]", i+2), 3*time.Second)
+	}
+
+	// All 5 pane names should be visible
+	for i := 1; i <= 5; i++ {
+		name := fmt.Sprintf("pane-%d", i)
+		if !h.waitFor("["+name+"]", 3*time.Second) {
+			screen := h.capture()
+			t.Fatalf("%s not found\nScreen:\n%s", name, screen)
+		}
+	}
+
+	// All pane names should be on the SAME row (all side by side)
+	lines := h.contentLines()
+	row0 := lines[0]
+	for i := 1; i <= 5; i++ {
+		name := fmt.Sprintf("[pane-%d]", i)
+		if !strings.Contains(row0, name) {
+			t.Errorf("%s not on first row\nRow 0: %s", name, row0)
+		}
+	}
+
+	// Should have 4 vertical borders
+	borderCount := 0
+	for _, r := range []rune(row0) {
+		if r == '│' {
+			borderCount++
+		}
+	}
+	if borderCount != 4 {
+		t.Errorf("expected 4 vertical borders on first row, got %d\nRow 0: %s", borderCount, row0)
 	}
 }
