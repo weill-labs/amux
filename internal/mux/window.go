@@ -122,6 +122,75 @@ func (w *Window) Resize(width, height int) {
 	})
 }
 
+// Focus changes the active pane. Direction is "next", "left", "right", "up", "down".
+func (w *Window) Focus(direction string) {
+	panes := w.Panes()
+	if len(panes) <= 1 {
+		return
+	}
+
+	if direction == "next" {
+		// Cycle to next pane
+		for i, p := range panes {
+			if p.ID == w.ActivePane.ID {
+				w.ActivePane = panes[(i+1)%len(panes)]
+				return
+			}
+		}
+		return
+	}
+
+	// Directional focus: find the active cell, then find the nearest neighbor
+	activeCell := w.Root.FindPane(w.ActivePane.ID)
+	if activeCell == nil {
+		return
+	}
+
+	// Center point of active pane
+	cx := activeCell.X + activeCell.W/2
+	cy := activeCell.Y + activeCell.H/2
+
+	var best *LayoutCell
+	bestDist := int(^uint(0) >> 1) // max int
+
+	w.Root.Walk(func(cell *LayoutCell) {
+		if cell.Pane == nil || cell.Pane.ID == w.ActivePane.ID {
+			return
+		}
+
+		ncx := cell.X + cell.W/2
+		ncy := cell.Y + cell.H/2
+
+		match := false
+		switch direction {
+		case "left":
+			match = ncx < cx
+		case "right":
+			match = ncx > cx
+		case "up":
+			match = ncy < cy
+		case "down":
+			match = ncy > cy
+		}
+
+		if !match {
+			return
+		}
+
+		dx := cx - ncx
+		dy := cy - ncy
+		dist := dx*dx + dy*dy
+		if dist < bestDist {
+			bestDist = dist
+			best = cell
+		}
+	})
+
+	if best != nil {
+		w.ActivePane = best.Pane
+	}
+}
+
 // Panes returns all panes in the window (depth-first order).
 func (w *Window) Panes() []*Pane {
 	var panes []*Pane

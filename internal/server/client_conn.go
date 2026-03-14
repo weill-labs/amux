@@ -142,6 +142,22 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 		cc.Send(&Message{Type: MsgTypeCmdResult,
 			CmdOutput: fmt.Sprintf("Split %s: new pane %s\n", dirName(dir), newPane.Meta.Name)})
 
+	case "focus":
+		direction := "next"
+		if len(msg.CmdArgs) > 0 {
+			direction = msg.CmdArgs[0]
+		}
+
+		sess.mu.Lock()
+		if sess.Window == nil {
+			sess.mu.Unlock()
+			return
+		}
+		sess.Window.Focus(direction)
+		sess.mu.Unlock()
+
+		sess.renderAndBroadcast()
+
 	default:
 		cc.Send(&Message{Type: MsgTypeCmdResult,
 			CmdErr: fmt.Sprintf("unknown command: %s", msg.CmdName)})

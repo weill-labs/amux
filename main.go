@@ -275,12 +275,27 @@ func runMux(sessionName string) error {
 						server.WriteMsg(conn, &server.Message{Type: server.MsgTypeDetach})
 						conn.Close()
 						return
-					case '%':
-						// Ctrl-a % split left/right
-						sendCommand(conn, "split", nil)
-					case '"':
-						// Ctrl-a quote split top/bottom
+					case '-':
+						// Ctrl-a - → horizontal split (top/bottom)
 						sendCommand(conn, "split", []string{"v"})
+					case '\\':
+						// Ctrl-a \ → vertical split (left/right)
+						sendCommand(conn, "split", nil)
+					case 'o':
+						// Ctrl-a o → cycle to next pane
+						sendCommand(conn, "focus", []string{"next"})
+					case 'h':
+						// Ctrl-a h → focus left
+						sendCommand(conn, "focus", []string{"left"})
+					case 'l':
+						// Ctrl-a l → focus right
+						sendCommand(conn, "focus", []string{"right"})
+					case 'k':
+						// Ctrl-a k → focus up
+						sendCommand(conn, "focus", []string{"up"})
+					case 'j':
+						// Ctrl-a j → focus down
+						sendCommand(conn, "focus", []string{"down"})
 					case 0x01:
 						// Ctrl-a Ctrl-a → literal Ctrl-a
 						forward = append(forward, 0x01)
@@ -288,18 +303,6 @@ func runMux(sessionName string) error {
 						// Not a recognized command, forward prefix + byte
 						forward = append(forward, 0x01, buf[i])
 					}
-					continue
-				}
-
-				// Ctrl-backslash (0x1c) split left/right (no prefix)
-				if buf[i] == 0x1c {
-					if len(forward) > 0 {
-						server.WriteMsg(conn, &server.Message{
-							Type: server.MsgTypeInput, Input: forward,
-						})
-						forward = nil
-					}
-					sendCommand(conn, "split", nil)
 					continue
 				}
 
