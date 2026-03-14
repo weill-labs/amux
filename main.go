@@ -2,39 +2,24 @@ package main
 
 import (
 	"fmt"
+	"net"
 	"os"
+	"os/exec"
+	"os/signal"
+	"path/filepath"
 	"strings"
+	"syscall"
+	"time"
 
-	"github.com/weill-labs/amux/internal/config"
-	"github.com/weill-labs/amux/internal/grid"
-	"github.com/weill-labs/amux/internal/merge"
-	"github.com/weill-labs/amux/internal/minimize"
-	"github.com/weill-labs/amux/internal/pane"
-	"github.com/weill-labs/amux/internal/session"
-	"github.com/weill-labs/amux/internal/spawn"
-	swappkg "github.com/weill-labs/amux/internal/swap"
-	"github.com/weill-labs/amux/internal/tmux"
+	"github.com/weill-labs/amux/internal/server"
 
-	tea "github.com/charmbracelet/bubbletea"
+	"golang.org/x/term"
 )
 
 func main() {
 	if len(os.Args) < 2 {
-		// Default: create or attach to amux tmux session
-		if err := session.Start("", false); err != nil {
-			fmt.Fprintf(os.Stderr, "amux: %v\n", err)
-			os.Exit(1)
-		}
-		return
-	}
-
-	// Handle top-level -d flag: amux -d [session]
-	if os.Args[1] == "-d" {
-		name := ""
-		if len(os.Args) > 2 {
-			name = os.Args[2]
-		}
-		if err := session.Start(name, true); err != nil {
+		// Default: start or attach to amux session
+		if err := runMux("default"); err != nil {
 			fmt.Fprintf(os.Stderr, "amux: %v\n", err)
 			os.Exit(1)
 		}
@@ -42,58 +27,53 @@ func main() {
 	}
 
 	switch os.Args[1] {
+	// --- New built-in multiplexer commands ---
+	case "_server":
+		sessionName := "default"
+		if len(os.Args) > 2 {
+			sessionName = os.Args[2]
+		}
+		runServer(sessionName)
+
 	case "attach":
-		// tmux muscle-memory compat: amux attach [-d] [session]
-		name, detach := parseAttachArgs(os.Args[2:])
-		if err := session.Start(name, detach); err != nil {
+		name, _ := parseAttachArgs(os.Args[2:])
+		if name == "" {
+			name = "default"
+		}
+		if err := runMux(name); err != nil {
 			fmt.Fprintf(os.Stderr, "amux: %v\n", err)
 			os.Exit(1)
 		}
+
 	case "new":
-		// Create a named session: amux new <name>
-		name := ""
+		name := "default"
 		if len(os.Args) > 2 {
 			name = os.Args[2]
 		}
-		if err := session.Start(name, false); err != nil {
+		if err := runMux(name); err != nil {
 			fmt.Fprintf(os.Stderr, "amux: %v\n", err)
 			os.Exit(1)
 		}
-	case "adopt":
-		requireArg("adopt", 1)
-		if err := session.Adopt(os.Args[2]); err != nil {
-			fmt.Fprintf(os.Stderr, "amux adopt: %v\n", err)
-			os.Exit(1)
-		}
-	case "dashboard":
-		runDashboard()
+
+	// --- Commands that talk to the server ---
 	case "list":
-		runList()
+		runServerCommand("list", nil)
+
 	case "status":
-		runStatus()
-	case "minimize":
-		requireArg("minimize", 2)
-		runMinimize(resolveOrDie(os.Args[2]))
-	case "restore":
-		requireArg("restore", 2)
-		runRestore(resolveOrDie(os.Args[2]))
-	case "merge":
-		requireArg("merge", 2)
-		runMerge(os.Args[2], os.Args[3])
-	case "swap":
-		requireArg("swap", 3)
-		runSwap(resolveOrDie(os.Args[2]), resolveOrDie(os.Args[3]))
-	case "output":
-		requireArg("output", 2)
-		runOutput(resolveOrDie(os.Args[2]))
-	case "spawn":
-		runSpawn(os.Args[2:])
-	case "_init-pane":
-		// Internal: called by tmux hook to auto-tag new panes
-		if len(os.Args) < 4 {
+		runServerCommand("status", nil)
+
+	case "output", "minimize", "restore", "kill":
+		if len(os.Args) < 3 {
+			fmt.Fprintf(os.Stderr, "usage: amux %s <pane>\n", os.Args[1])
 			os.Exit(1)
 		}
-		session.InitPaneFromCLI(os.Args[2], os.Args[3])
+		runServerCommand(os.Args[1], []string{os.Args[2]})
+	case "spawn":
+		runServerCommand("spawn", os.Args[2:])
+	case "dashboard":
+		fmt.Fprintln(os.Stderr, "amux dashboard: not yet migrated to built-in mux")
+		os.Exit(1)
+
 	case "help", "--help", "-h":
 		printUsage()
 	default:
@@ -116,239 +96,341 @@ func parseAttachArgs(args []string) (sessionName string, detachOthers bool) {
 	return
 }
 
-func requireArg(cmd string, minArgs int) {
-	if len(os.Args) < minArgs+1 {
-		fmt.Fprintf(os.Stderr, "amux %s: requires %d argument(s)\n", cmd, minArgs)
-		os.Exit(1)
-	}
-}
-
-// resolveOrDie resolves a pane name or ID to a tmux pane ID, exiting on failure.
-func resolveOrDie(ref string) string {
-	t := newTmux()
-	id, err := pane.ResolvePane(t, ref)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "amux: %v\n", err)
-		os.Exit(1)
-	}
-	return id
-}
-
 func printUsage() {
 	fmt.Println(`amux — Agent-Centric Terminal Multiplexer
 
 Usage:
   amux                              Start or attach to amux session
-  amux -d [session]                 Attach and detach other clients
-  amux attach [-d] [session]        Attach (tmux muscle-memory compat)
+  amux attach [session]             Attach to a session
   amux new [name]                   Start a new named session
-  amux adopt <session>              Adopt an existing tmux session
-  amux dashboard                    Open TUI dashboard (in popup or standalone)
-  amux list                         List agent panes with metadata
-  amux status                       Show agent status (for scripts/prompts)
-  amux output <pane>                Show pane output (last 50 lines)
-  amux minimize <pane>              Minimize a pane to 1 row
+  amux list                         List panes with metadata
+  amux status                       Show pane summary
+  amux output <pane>                Show last 50 lines of pane output
+  amux spawn --name NAME [--task T] Spawn a new agent pane
+  amux minimize <pane>              Minimize a pane
   amux restore <pane>               Restore a minimized pane
-  amux merge <src_win> <dst_win>    Merge panes from one window into another
-  amux swap <pane_a> <pane_b>       Swap two panes (with metadata)
-  amux spawn [flags]                Spawn a new agent
+  amux kill <pane>                  Kill a pane
 
-Panes can be referenced by name (pane-3) or tmux ID (%40).
+Panes can be referenced by name (pane-1) or ID (1).
 
-Inside an amux session (prefix is Ctrl-a):
-  Ctrl-\                            Split pane vertically (new shell)
-  prefix g                          Open dashboard popup
-  prefix a m                        Minimize current pane
-  prefix a r                        Restore current pane
-  prefix a s                        Spawn agent (interactive)
-  prefix a l                        List agent panes
-
-Spawn flags:
-  --name NAME          Agent display name (required)
-  --host HOST          Host key from config, or "local" (default: local)
-  --task TASK          Issue ID or description
-  --repo PATH          Repository path
-  --prompt PROMPT      Initial prompt for the agent
-  --worktree           Create a git worktree`)
+Inside an amux session:
+  Ctrl-a \                          Split active pane left/right
+  Ctrl-a -                          Split active pane top/bottom
+  Ctrl-a |                          Root-level split left/right
+  Ctrl-a _                          Root-level split top/bottom
+  Ctrl-a o                          Cycle focus to next pane
+  Ctrl-a h/j/k/l                    Focus left/down/up/right
+  Ctrl-a d                          Detach from session
+  Ctrl-a Ctrl-a                     Send literal Ctrl-a`)
 }
 
-func newTmux() tmux.Tmux {
-	return &tmux.LiveTmux{}
-}
+// ---------------------------------------------------------------------------
+// Built-in multiplexer: server daemon
+// ---------------------------------------------------------------------------
 
-func loadConfig() *config.Config {
-	cfg, err := config.Load(config.DefaultPath())
+func runServer(sessionName string) {
+	s, err := server.NewServer(sessionName)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "amux: warning: %v\n", err)
-		return &config.Config{Hosts: make(map[string]config.Host)}
-	}
-	return cfg
-}
-
-func runDashboard() {
-	t := newTmux()
-	cfg := loadConfig()
-	m := grid.New(t, cfg)
-	p := tea.NewProgram(m, tea.WithAltScreen())
-	if _, err := p.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "amux: %v\n", err)
+		fmt.Fprintf(os.Stderr, "amux server: %v\n", err)
 		os.Exit(1)
 	}
-}
 
-func runList() {
-	t := newTmux()
-	panes, err := pane.Discover(t)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "amux list: %v\n", err)
-		os.Exit(1)
-	}
-	if len(panes) == 0 {
-		fmt.Println("No agent panes found.")
-		return
-	}
-	fmt.Printf("%-6s %-20s %-15s %-12s %-25s %s\n",
-		"PANE", "NAME", "HOST", "STATUS", "TASK", "OUTPUT")
-	for _, p := range panes {
-		output := p.Output
-		if p.Status == pane.StatusMinimized {
-			output = "(minimized)"
-		}
-		if p.Status == pane.StatusDisconnected {
-			output = "(disconnected)"
-		}
-		fmt.Printf("%-6s %-20s %-15s %-12s %-25s %s\n",
-			p.ID, p.Name, p.Host, p.Status, p.Task, output)
-	}
-}
+	// Handle shutdown signals
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
+	go func() {
+		<-sigCh
+		s.Shutdown()
+		os.Exit(0)
+	}()
 
-func runStatus() {
-	t := newTmux()
-	panes, err := pane.Discover(t)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "amux status: %v\n", err)
-		os.Exit(1)
-	}
-	active := 0
-	idle := 0
-	minimized := 0
-	disconnected := 0
-	for _, p := range panes {
-		switch p.Status {
-		case pane.StatusActive:
-			active++
-		case pane.StatusIdle:
-			idle++
-		case pane.StatusMinimized:
-			minimized++
-		case pane.StatusDisconnected:
-			disconnected++
+	if err := s.Run(); err != nil {
+		// listener closed is expected on shutdown
+		if !strings.Contains(err.Error(), "use of closed") {
+			fmt.Fprintf(os.Stderr, "amux server: %v\n", err)
+			os.Exit(1)
 		}
 	}
-	fmt.Printf("agents: %d total, %d active, %d idle, %d minimized, %d disconnected\n",
-		len(panes), active, idle, minimized, disconnected)
 }
 
-func runOutput(paneID string) {
-	t := newTmux()
-	out, err := t.PaneOutput(paneID, 50)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "amux output: %v\n", err)
-		os.Exit(1)
-	}
-	fmt.Print(out)
-}
+// ---------------------------------------------------------------------------
+// Built-in multiplexer: client
+// ---------------------------------------------------------------------------
 
-func runMinimize(paneID string) {
-	t := newTmux()
-	if err := minimize.Minimize(t, paneID); err != nil {
-		fmt.Fprintf(os.Stderr, "amux minimize: %v\n", err)
-		os.Exit(1)
-	}
-	fmt.Printf("Minimized %s\n", paneID)
-}
+// runMux connects to an existing server or starts one, then enters raw
+// terminal mode for interactive use.
+func runMux(sessionName string) error {
+	sockPath := server.SocketPath(sessionName)
 
-func runRestore(paneID string) {
-	t := newTmux()
-	if err := minimize.Restore(t, paneID); err != nil {
-		fmt.Fprintf(os.Stderr, "amux restore: %v\n", err)
-		os.Exit(1)
-	}
-	fmt.Printf("Restored %s\n", paneID)
-}
-
-func runMerge(srcWindow, dstWindow string) {
-	t := newTmux()
-	count, err := merge.Merge(t, srcWindow, dstWindow)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "amux merge: %v\n", err)
-		os.Exit(1)
-	}
-	fmt.Printf("Merged %d panes from window %s into window %s\n", count, srcWindow, dstWindow)
-}
-
-func runSwap(paneA, paneB string) {
-	t := newTmux()
-	if err := swappkg.SwapWithMeta(t, paneA, paneB); err != nil {
-		fmt.Fprintf(os.Stderr, "amux swap: %v\n", err)
-		os.Exit(1)
-	}
-	fmt.Printf("Swapped %s <-> %s\n", paneA, paneB)
-}
-
-func runSpawn(args []string) {
-	sc := spawn.SpawnConfig{}
-
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--name":
-			i++
-			if i < len(args) {
-				sc.Name = args[i]
-			}
-		case "--host":
-			i++
-			if i < len(args) {
-				sc.Host = args[i]
-			}
-		case "--task":
-			i++
-			if i < len(args) {
-				sc.Task = args[i]
-			}
-		case "--repo":
-			i++
-			if i < len(args) {
-				sc.Repo = args[i]
-			}
-		case "--prompt":
-			i++
-			if i < len(args) {
-				sc.Prompt = args[i]
-			}
-		case "--worktree":
-			sc.Worktree = true
-		default:
-			if !strings.HasPrefix(args[i], "-") && sc.Name == "" {
-				sc.Name = args[i]
-			} else {
-				fmt.Fprintf(os.Stderr, "amux spawn: unknown flag %q\n", args[i])
-				os.Exit(1)
-			}
+	// Start server daemon if no socket exists
+	if !socketAlive(sockPath) {
+		if err := startServerDaemon(sessionName); err != nil {
+			return fmt.Errorf("starting server: %w", err)
+		}
+		// Wait for socket to appear
+		if err := waitForSocket(sockPath, 5*time.Second); err != nil {
+			return err
 		}
 	}
 
-	if sc.Name == "" {
-		fmt.Fprintf(os.Stderr, "amux spawn: --name is required\n")
+	conn, err := net.Dial("unix", sockPath)
+	if err != nil {
+		return fmt.Errorf("connecting to server: %w", err)
+	}
+	defer conn.Close()
+
+	fd := int(os.Stdin.Fd())
+	cols, rows, _ := term.GetSize(fd)
+	if cols <= 0 {
+		cols = 80
+	}
+	if rows <= 0 {
+		rows = 24
+	}
+
+	// Send attach
+	if err := server.WriteMsg(conn, &server.Message{
+		Type:    server.MsgTypeAttach,
+		Session: sessionName,
+		Cols:    cols,
+		Rows:    rows,
+	}); err != nil {
+		return fmt.Errorf("sending attach: %w", err)
+	}
+
+	// Enter raw mode
+	oldState, err := term.MakeRaw(fd)
+	if err != nil {
+		return fmt.Errorf("raw mode: %w", err)
+	}
+	defer func() {
+		term.Restore(fd, oldState)
+		// Reset terminal title on detach
+		os.Stdout.Write([]byte("\033]0;\007"))
+	}()
+
+	// Forward SIGWINCH to server
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGWINCH)
+	go func() {
+		for range sigCh {
+			c, r, _ := term.GetSize(fd)
+			if c > 0 && r > 0 {
+				server.WriteMsg(conn, &server.Message{
+					Type: server.MsgTypeResize,
+					Cols: c,
+					Rows: r,
+				})
+			}
+		}
+	}()
+
+	// Server → terminal: read rendered output, write to stdout
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			msg, err := server.ReadMsg(conn)
+			if err != nil {
+				return
+			}
+			switch msg.Type {
+			case server.MsgTypeRender:
+				os.Stdout.Write(msg.RenderData)
+			case server.MsgTypeExit:
+				return
+			case server.MsgTypeBell:
+				os.Stdout.Write([]byte{0x07})
+			}
+		}
+	}()
+
+	// Terminal → server: read input with Ctrl-a prefix handling
+	go func() {
+		buf := make([]byte, 4096)
+		prefix := false
+
+		for {
+			n, err := os.Stdin.Read(buf)
+			if err != nil {
+				return
+			}
+
+			var forward []byte
+			for i := 0; i < n; i++ {
+				if prefix {
+					prefix = false
+					switch buf[i] {
+					case 'd':
+						// Detach — flush any pending bytes, detach, exit
+						if len(forward) > 0 {
+							server.WriteMsg(conn, &server.Message{
+								Type: server.MsgTypeInput, Input: forward,
+							})
+						}
+						server.WriteMsg(conn, &server.Message{Type: server.MsgTypeDetach})
+						conn.Close()
+						return
+					case '-':
+						// Ctrl-a - → horizontal split (top/bottom)
+						sendCommand(conn, "split", []string{"v"})
+					case '\\':
+						// Ctrl-a \ → vertical split (left/right)
+						sendCommand(conn, "split", nil)
+					case '|':
+						// Ctrl-a | → root-level vertical split
+						sendCommand(conn, "split", []string{"root"})
+					case '_':
+						// Ctrl-a _ → root-level horizontal split
+						sendCommand(conn, "split", []string{"root", "v"})
+					case 'o':
+						// Ctrl-a o → cycle to next pane
+						sendCommand(conn, "focus", []string{"next"})
+					case 'h':
+						// Ctrl-a h → focus left
+						sendCommand(conn, "focus", []string{"left"})
+					case 'l':
+						// Ctrl-a l → focus right
+						sendCommand(conn, "focus", []string{"right"})
+					case 'k':
+						// Ctrl-a k → focus up
+						sendCommand(conn, "focus", []string{"up"})
+					case 'j':
+						// Ctrl-a j → focus down
+						sendCommand(conn, "focus", []string{"down"})
+					case 0x01:
+						// Ctrl-a Ctrl-a → literal Ctrl-a
+						forward = append(forward, 0x01)
+					default:
+						// Not a recognized command, forward prefix + byte
+						forward = append(forward, 0x01, buf[i])
+					}
+					continue
+				}
+
+				if buf[i] == 0x01 {
+					// Flush accumulated bytes before entering prefix mode
+					if len(forward) > 0 {
+						server.WriteMsg(conn, &server.Message{
+							Type: server.MsgTypeInput, Input: forward,
+						})
+						forward = nil
+					}
+					prefix = true
+					continue
+				}
+
+				forward = append(forward, buf[i])
+			}
+
+			if len(forward) > 0 {
+				server.WriteMsg(conn, &server.Message{
+					Type: server.MsgTypeInput, Input: forward,
+				})
+			}
+		}
+	}()
+
+	<-done
+	return nil
+}
+
+// sendCommand sends a command to the server (non-blocking, ignores response).
+func sendCommand(conn net.Conn, name string, args []string) {
+	server.WriteMsg(conn, &server.Message{
+		Type:    server.MsgTypeCommand,
+		CmdName: name,
+		CmdArgs: args,
+	})
+}
+
+// startServerDaemon launches the server as a background daemon.
+func startServerDaemon(sessionName string) error {
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+
+	logDir := server.SocketDir()
+	os.MkdirAll(logDir, 0700)
+	logPath := filepath.Join(logDir, sessionName+".log")
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+	if err != nil {
+		return fmt.Errorf("opening log: %w", err)
+	}
+
+	cmd := exec.Command(exe, "_server", sessionName)
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Setsid: true, // Detach from controlling terminal
+	}
+	cmd.Stdout = logFile
+	cmd.Stderr = logFile
+	cmd.Stdin = nil
+
+	if err := cmd.Start(); err != nil {
+		logFile.Close()
+		return err
+	}
+	logFile.Close()
+
+	// Release the child process so it runs independently
+	cmd.Process.Release()
+	return nil
+}
+
+// socketAlive checks if a socket exists and a server is listening on it.
+func socketAlive(sockPath string) bool {
+	conn, err := net.Dial("unix", sockPath)
+	if err != nil {
+		return false
+	}
+	conn.Close()
+	return true
+}
+
+// waitForSocket polls until the socket becomes available.
+func waitForSocket(sockPath string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if socketAlive(sockPath) {
+			return nil
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	return fmt.Errorf("server did not start within %v", timeout)
+}
+
+// ---------------------------------------------------------------------------
+// Server command client (for amux list, etc.)
+// ---------------------------------------------------------------------------
+
+func runServerCommand(cmdName string, args []string) {
+	sockPath := server.SocketPath("default")
+	conn, err := net.Dial("unix", sockPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "amux %s: server not running (run 'amux' first)\n", cmdName)
+		os.Exit(1)
+	}
+	defer conn.Close()
+
+	if err := server.WriteMsg(conn, &server.Message{
+		Type:    server.MsgTypeCommand,
+		CmdName: cmdName,
+		CmdArgs: args,
+	}); err != nil {
+		fmt.Fprintf(os.Stderr, "amux %s: %v\n", cmdName, err)
 		os.Exit(1)
 	}
 
-	t := newTmux()
-	cfg := loadConfig()
-	paneID, err := spawn.Spawn(t, cfg, sc)
+	reply, err := server.ReadMsg(conn)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "amux spawn: %v\n", err)
+		fmt.Fprintf(os.Stderr, "amux %s: %v\n", cmdName, err)
 		os.Exit(1)
 	}
-	fmt.Printf("Spawned %s in %s\n", sc.Name, paneID)
+
+	if reply.CmdErr != "" {
+		fmt.Fprintf(os.Stderr, "amux %s: %s\n", cmdName, reply.CmdErr)
+		os.Exit(1)
+	}
+	fmt.Print(reply.CmdOutput)
 }

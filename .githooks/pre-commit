@@ -1,0 +1,30 @@
+#!/bin/bash
+# Pre-commit hook: run goimports on staged Go files
+
+STAGED=$(git diff --cached --name-only --diff-filter=ACM | grep '\.go$')
+if [ -z "$STAGED" ]; then
+    exit 0
+fi
+
+# Check goimports is available
+if ! command -v goimports &>/dev/null; then
+    echo "goimports not found. Install: go install golang.org/x/tools/cmd/goimports@latest"
+    exit 1
+fi
+
+# Run goimports on staged files
+NEEDS_FMT=false
+for file in $STAGED; do
+    if [ -f "$file" ]; then
+        OUTPUT=$(goimports -l "$file")
+        if [ -n "$OUTPUT" ]; then
+            goimports -w "$file"
+            git add "$file"
+            NEEDS_FMT=true
+        fi
+    fi
+done
+
+if [ "$NEEDS_FMT" = true ]; then
+    echo "goimports: auto-formatted staged Go files"
+fi

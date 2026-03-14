@@ -88,11 +88,16 @@ amux dashboard          # open TUI popup
 
 ### Adding a New Feature
 
-1. Create `internal/<feature>/<feature>.go`
-2. Accept `tmux.Tmux` interface as first parameter
-3. Add mock-based tests in `<feature>_test.go`
-4. Wire the subcommand in `main.go`
-5. If the feature uses new `@amux_*` options, add them to `tmux.AmuxOptions`
+1. **Write an integration test first.** Add a test to `integration_test.go` that exercises the feature end-to-end via the tmux harness. The harness runs amux in a real tmux session, sends keys, and asserts on screen content. Tests run in ~10s total — use them freely.
+2. Implement the feature.
+3. Verify the integration test passes: `go test -v -run TestYourFeature -timeout 30s`
+4. Add unit tests for complex logic (layout algorithms, protocol encoding, etc.).
+
+### Fixing a Bug
+
+1. **Write a regression test first.** Add an integration test to `integration_test.go` that reproduces the bug (it should fail before the fix).
+2. Fix the bug.
+3. Verify the test passes.
 
 ### Adding New Metadata
 
@@ -122,4 +127,7 @@ color = "a6e3a1"
 
 ## Issue Tracking
 
-Linear project: https://linear.app/weill-labs/project/amux-b3a52334f77c
+All issues and feature requests go in the Linear project (not GitHub Issues):
+https://linear.app/weill-labs/project/amux-b3a52334f77c
+
+Team key: `LAB`. Use the Linear skill to create/query issues.
