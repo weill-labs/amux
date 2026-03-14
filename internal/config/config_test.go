@@ -58,17 +58,26 @@ color = "a6e3a1"
 }
 
 func TestColorForHost(t *testing.T) {
-	// Deterministic: same host always gets same color
-	c1 := ColorForHost("my-server")
-	c2 := ColorForHost("my-server")
-	if c1 != c2 {
-		t.Errorf("ColorForHost not deterministic: %s vs %s", c1, c2)
+	tests := []struct {
+		name     string
+		hostA    string
+		hostB    string
+		wantSame bool
+	}{
+		{"same host is deterministic", "my-server", "my-server", true},
+		{"different hosts differ", "my-server", "other-server", false},
 	}
 
-	// Different hosts should (usually) get different colors
-	c3 := ColorForHost("other-server")
-	// Not guaranteed but extremely likely for different inputs
-	_ = c3
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := ColorForHost(tt.hostA)
+			b := ColorForHost(tt.hostB)
+			if (a == b) != tt.wantSame {
+				t.Errorf("ColorForHost(%q)=%s, ColorForHost(%q)=%s, wantSame=%v",
+					tt.hostA, a, tt.hostB, b, tt.wantSame)
+			}
+		})
+	}
 }
 
 func TestHostUser(t *testing.T) {
@@ -78,11 +87,20 @@ func TestHostUser(t *testing.T) {
 		},
 	}
 
-	if u := cfg.HostUser("myhost"); u != "admin" {
-		t.Errorf("expected admin, got %s", u)
+	tests := []struct {
+		host string
+		want string
+	}{
+		{"myhost", "admin"},
+		{"unknown", "ubuntu"},
 	}
-	if u := cfg.HostUser("unknown"); u != "ubuntu" {
-		t.Errorf("expected ubuntu default, got %s", u)
+
+	for _, tt := range tests {
+		t.Run(tt.host, func(t *testing.T) {
+			if got := cfg.HostUser(tt.host); got != tt.want {
+				t.Errorf("HostUser(%q) = %q, want %q", tt.host, got, tt.want)
+			}
+		})
 	}
 }
 

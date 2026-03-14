@@ -7,8 +7,6 @@ import (
 
 func TestVTEmulatorWriteRender(t *testing.T) {
 	emu := NewVTEmulator(80, 24)
-
-	// Write some text
 	emu.Write([]byte("Hello, world!"))
 
 	rendered := emu.Render()
@@ -18,33 +16,55 @@ func TestVTEmulatorWriteRender(t *testing.T) {
 }
 
 func TestVTEmulatorSize(t *testing.T) {
-	emu := NewVTEmulator(120, 40)
-
-	w, h := emu.Size()
-	if w != 120 || h != 40 {
-		t.Errorf("Size() = (%d, %d), want (120, 40)", w, h)
+	tests := []struct {
+		name             string
+		initW, initH     int
+		resizeW, resizeH int // 0 means no resize
+		wantW, wantH     int
+	}{
+		{"initial 80x24", 80, 24, 0, 0, 80, 24},
+		{"initial 120x40", 120, 40, 0, 0, 120, 40},
+		{"resize 80x24 to 120x40", 80, 24, 120, 40, 120, 40},
+		{"resize 120x40 to 40x10", 120, 40, 40, 10, 40, 10},
 	}
-}
 
-func TestVTEmulatorResize(t *testing.T) {
-	emu := NewVTEmulator(80, 24)
-	emu.Resize(120, 40)
-
-	w, h := emu.Size()
-	if w != 120 || h != 40 {
-		t.Errorf("after Resize: Size() = (%d, %d), want (120, 40)", w, h)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			emu := NewVTEmulator(tt.initW, tt.initH)
+			if tt.resizeW > 0 {
+				emu.Resize(tt.resizeW, tt.resizeH)
+			}
+			w, h := emu.Size()
+			if w != tt.wantW || h != tt.wantH {
+				t.Errorf("Size() = (%d, %d), want (%d, %d)", w, h, tt.wantW, tt.wantH)
+			}
+		})
 	}
 }
 
 func TestVTEmulatorCursorPosition(t *testing.T) {
-	emu := NewVTEmulator(80, 24)
+	tests := []struct {
+		name    string
+		input   string
+		wantCol int
+		wantRow int
+	}{
+		{"after ABCD", "ABCD", 4, 0},
+		{"empty", "", 0, 0},
+		{"after newline", "hello\r\n", 0, 1},
+	}
 
-	// Write text to move cursor
-	emu.Write([]byte("ABCD"))
-
-	col, row := emu.CursorPosition()
-	if col != 4 || row != 0 {
-		t.Errorf("CursorPosition() = (%d, %d), want (4, 0)", col, row)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			emu := NewVTEmulator(80, 24)
+			if tt.input != "" {
+				emu.Write([]byte(tt.input))
+			}
+			col, row := emu.CursorPosition()
+			if col != tt.wantCol || row != tt.wantRow {
+				t.Errorf("CursorPosition() = (%d, %d), want (%d, %d)", col, row, tt.wantCol, tt.wantRow)
+			}
+		})
 	}
 }
 
@@ -53,7 +73,6 @@ func TestRenderWithCursor(t *testing.T) {
 	emu.Write([]byte("test"))
 
 	result := RenderWithCursor(emu)
-	// Should end with cursor positioning sequence
 	if !strings.Contains(result, "\033[") {
 		t.Error("RenderWithCursor should contain ANSI cursor positioning")
 	}
