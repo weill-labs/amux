@@ -211,7 +211,10 @@ func (s *Server) handleAttach(conn net.Conn, msg *Message) {
 
 	// Send current screen state to the new client (enables reattach)
 	if len(sess.Panes) > 0 {
-		screen := render.ClearScreen()
+		var screen []byte
+		// Set terminal title so the user knows they're in amux
+		screen = append(screen, []byte(fmt.Sprintf("\033]0;amux: %s\007", sess.Name))...)
+		screen = append(screen, render.ClearScreen()...)
 		rendered := sess.Panes[0].RenderScreen()
 		screen = append(screen, []byte(rendered)...)
 		cc.Send(&Message{Type: MsgTypeRender, RenderData: screen})

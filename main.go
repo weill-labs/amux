@@ -207,7 +207,11 @@ func runMux(sessionName string) error {
 	if err != nil {
 		return fmt.Errorf("raw mode: %w", err)
 	}
-	defer term.Restore(fd, oldState)
+	defer func() {
+		term.Restore(fd, oldState)
+		// Reset terminal title on detach
+		os.Stdout.Write([]byte("\033]0;\007"))
+	}()
 
 	// Forward SIGWINCH to server
 	sigCh := make(chan os.Signal, 1)
