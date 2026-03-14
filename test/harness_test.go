@@ -1,6 +1,7 @@
 package test
 
 import (
+	"crypto/rand"
 	"fmt"
 	"os"
 	"os/exec"
@@ -50,7 +51,9 @@ type TmuxHarness struct {
 // session name, and waits for it to start. Safe for parallel tests.
 func newHarness(t *testing.T) *TmuxHarness {
 	t.Helper()
-	session := fmt.Sprintf("t-%d", time.Now().UnixNano()%1000000)
+	var b [4]byte
+	rand.Read(b[:])
+	session := fmt.Sprintf("t-%x", b)
 
 	h := &TmuxHarness{t: t, session: session}
 
@@ -153,4 +156,109 @@ func (h *TmuxHarness) runCmd(args ...string) string {
 		return string(out)
 	}
 	return string(out)
+}
+
+// ---------------------------------------------------------------------------
+// Layout-aware screen helpers
+// ---------------------------------------------------------------------------
+
+// lines returns the captured screen split into rows, excluding empty trailing lines.
+func (h *TmuxHarness) lines() []string {
+	h.t.Helper()
+	raw := strings.Split(h.capture(), "\n")
+	// Trim trailing empty lines
+	for len(raw) > 0 && strings.TrimSpace(raw[len(raw)-1]) == "" {
+		raw = raw[:len(raw)-1]
+	}
+	return raw
+}
+
+// isGlobalBar returns true if the line looks like the global status bar.
+func isGlobalBar(line string) bool {
+	return strings.Contains(line, "amux") && strings.Contains(line, "panes")
+}
+
+// contentLines returns screen rows excluding the global status bar.
+func (h *TmuxHarness) contentLines() []string {
+	h.t.Helper()
+	var out []string
+	for _, line := range h.lines() {
+		if !isGlobalBar(line) {
+			out = append(out, line)
+		}
+	}
+	return out
+}
+
+// verticalBorderCol finds the column where a vertical border (│) appears
+// consistently across content lines. Returns -1 if no consistent border found.
+func (h *TmuxHarness) verticalBorderCol() int {
+	h.t.Helper()
+	lines := h.contentLines()
+	if len(lines) == 0 {
+		return -1
+	}
+
+	// Find all columns that have │ on the first content line
+	candidates := map[int]bool{}
+	for i, r := range []rune(lines[0]) {
+		if r == '│' {
+			candidates[i] = true
+		}
+	}
+
+	// Keep only columns where │ appears on most lines (>50%)
+	for col := range candidates {
+		count := 0
+		for _, line := range lines {
+			runes := []rune(line)
+			if col < len(runes) && runes[col] == '│' {
+				count++
+			}
+		}
+		if count < len(lines)/2 {
+			delete(candidates, col)
+		}
+	}
+
+	// Return the first consistent column
+	for col := range candidates {
+		return col
+	}
+	return -1
+}
+
+// horizontalBorderRow finds a row index where a horizontal border (─)
+// spans most of the width. Returns -1 if none found.
+func (h *TmuxHarness) horizontalBorderRow() int {
+	h.t.Helper()
+	for i, line := range h.contentLines() {
+		count := strings.Count(line, "─")
+		if count > 10 { // at least 10 ─ chars indicates a border
+			return i
+		}
+	}
+	return -1
+}
+
+// paneNameRow returns the row index where [name] appears, or -1.
+func paneNameRow(lines []string, name string) int {
+	target := "[" + name + "]"
+	for i, line := range lines {
+		if strings.Contains(line, target) {
+			return i
+		}
+	}
+	return -1
+}
+
+// paneNameCol returns the column where [name] starts, or -1.
+func paneNameCol(lines []string, name string) int {
+	target := "[" + name + "]"
+	for _, line := range lines {
+		if idx := strings.Index(line, target); idx >= 0 {
+			return idx
+		}
+	}
+	return -1
 }

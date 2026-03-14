@@ -72,20 +72,10 @@ func (c *LayoutCell) Split(dir SplitDir, newPane *Pane) (*LayoutCell, error) {
 	size1 := available - 1 - size2
 
 	// Case A: parent exists and has the same split direction — add as sibling
+	// and redistribute space equally among all siblings.
 	if c.Parent != nil && !c.Parent.isLeaf && c.Parent.Dir == dir {
-		newLeaf := NewLeaf(newPane, 0, 0, 0, 0) // offsets fixed later
+		newLeaf := NewLeaf(newPane, 0, 0, 0, 0)
 		newLeaf.Parent = c.Parent
-
-		// Shrink current cell, insert new sibling after it
-		if dir == SplitHorizontal {
-			newLeaf.W = size2
-			newLeaf.H = c.H
-			c.W = size1
-		} else {
-			newLeaf.W = c.W
-			newLeaf.H = size2
-			c.H = size1
-		}
 
 		// Insert after c in parent's children
 		idx := c.indexInParent()
@@ -93,6 +83,31 @@ func (c *LayoutCell) Split(dir SplitDir, newPane *Pane) (*LayoutCell, error) {
 		parent.Children = append(parent.Children, nil)
 		copy(parent.Children[idx+2:], parent.Children[idx+1:])
 		parent.Children[idx+1] = newLeaf
+
+		// Redistribute equally
+		n := len(parent.Children)
+		seps := n - 1
+		if dir == SplitHorizontal {
+			each := (parent.W - seps) / n
+			for i, child := range parent.Children {
+				if i == n-1 {
+					child.W = parent.W - seps - each*(n-1)
+				} else {
+					child.W = each
+				}
+				child.H = parent.H
+			}
+		} else {
+			each := (parent.H - seps) / n
+			for i, child := range parent.Children {
+				if i == n-1 {
+					child.H = parent.H - seps - each*(n-1)
+				} else {
+					child.H = each
+				}
+				child.W = parent.W
+			}
+		}
 
 		return newLeaf, nil
 	}
@@ -133,25 +148,46 @@ func (c *LayoutCell) Close() *LayoutCell {
 	parent := c.Parent
 	idx := c.indexInParent()
 
-	// Pick recipient: prefer next sibling, fall back to previous
-	var recipient *LayoutCell
-	if idx+1 < len(parent.Children) {
-		recipient = parent.Children[idx+1]
-	} else if idx > 0 {
-		recipient = parent.Children[idx-1]
-	}
-
-	// Transfer space (+1 for the separator that disappears)
-	if recipient != nil {
-		if parent.Dir == SplitHorizontal {
-			recipient.W += c.W + 1
-		} else {
-			recipient.H += c.H + 1
-		}
-	}
-
 	// Remove from parent
 	parent.Children = append(parent.Children[:idx], parent.Children[idx+1:]...)
+
+	// Pick a recipient for focus transfer (prefer next sibling, fall back to previous)
+	var recipient *LayoutCell
+	if idx < len(parent.Children) {
+		recipient = parent.Children[idx]
+	} else if len(parent.Children) > 0 {
+		recipient = parent.Children[len(parent.Children)-1]
+	}
+
+	// Redistribute space equally among remaining siblings
+	n := len(parent.Children)
+	seps := n - 1
+	if seps < 0 {
+		seps = 0
+	}
+	if n > 0 {
+		if parent.Dir == SplitHorizontal {
+			each := (parent.W - seps) / n
+			for i, child := range parent.Children {
+				if i == n-1 {
+					child.W = parent.W - seps - each*(n-1)
+				} else {
+					child.W = each
+				}
+				child.H = parent.H
+			}
+		} else {
+			each := (parent.H - seps) / n
+			for i, child := range parent.Children {
+				if i == n-1 {
+					child.H = parent.H - seps - each*(n-1)
+				} else {
+					child.H = each
+				}
+				child.W = parent.W
+			}
+		}
+	}
 
 	// Collapse single-child parent
 	if len(parent.Children) == 1 {
@@ -208,64 +244,83 @@ func (c *LayoutCell) ResizeAll(newW, newH int) {
 		return
 	}
 
-	dw := newW - c.W
-	dh := newH - c.H
 	c.W = newW
 	c.H = newH
 
+	// Compute target sizes for children proportionally.
+	// Available space = total minus separators between children.
+	n := len(c.Children)
+	separators := n - 1
+	if separators < 0 {
+		separators = 0
+	}
+
 	if c.Dir == SplitHorizontal {
-		// Distribute width change proportionally among children
-		c.distributeResize(dw, true)
-		// All children get the full height
-		for _, child := range c.Children {
-			child.H = newH
-			if !child.isLeaf {
-				child.ResizeAll(child.W, child.H)
-			}
+		available := newW - separators
+		targets := proportionalSizes(c.Children, available, true)
+		for i, child := range c.Children {
+			child.ResizeAll(targets[i], newH)
 		}
 	} else {
-		// Distribute height change proportionally among children
-		c.distributeResize(dh, false)
-		// All children get the full width
-		for _, child := range c.Children {
-			child.W = newW
-			if !child.isLeaf {
-				child.ResizeAll(child.W, child.H)
-			}
+		available := newH - separators
+		targets := proportionalSizes(c.Children, available, false)
+		for i, child := range c.Children {
+			child.ResizeAll(newW, targets[i])
 		}
 	}
 
 	c.FixOffsets()
 }
 
-// distributeResize spreads a size delta proportionally across children.
-func (c *LayoutCell) distributeResize(delta int, horizontal bool) {
-	n := len(c.Children)
-	if n == 0 || delta == 0 {
-		return
+// proportionalSizes computes target sizes for children to fill `available` space,
+// proportional to their current sizes. Ensures each child gets at least PaneMinSize.
+func proportionalSizes(children []*LayoutCell, available int, horizontal bool) []int {
+	n := len(children)
+	if n == 0 {
+		return nil
 	}
 
-	// Distribute evenly, remainder to the last child
-	per := delta / n
-	remainder := delta - per*n
-
-	for i, child := range c.Children {
-		extra := per
-		if i == n-1 {
-			extra += remainder
-		}
+	// Compute current total
+	total := 0
+	for _, child := range children {
 		if horizontal {
-			child.W += extra
-			if child.W < PaneMinSize {
-				child.W = PaneMinSize
-			}
+			total += child.W
 		} else {
-			child.H += extra
-			if child.H < PaneMinSize {
-				child.H = PaneMinSize
-			}
+			total += child.H
 		}
 	}
+
+	targets := make([]int, n)
+	if total == 0 {
+		// All zero — distribute evenly
+		per := available / n
+		for i := range targets {
+			targets[i] = per
+		}
+		targets[n-1] = available - per*(n-1)
+		return targets
+	}
+
+	// Proportional distribution
+	assigned := 0
+	for i, child := range children {
+		cur := child.W
+		if !horizontal {
+			cur = child.H
+		}
+		if i == n-1 {
+			// Last child gets remainder to avoid rounding drift
+			targets[i] = available - assigned
+		} else {
+			targets[i] = cur * available / total
+		}
+		if targets[i] < PaneMinSize {
+			targets[i] = PaneMinSize
+		}
+		assigned += targets[i]
+	}
+
+	return targets
 }
 
 // Walk calls fn for every leaf cell in the tree (depth-first).

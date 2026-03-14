@@ -6,7 +6,6 @@ import (
 )
 
 // StatusLineRows is the number of rows reserved for the per-pane status line.
-// The compositor draws the status line; pane PTYs get cellH - StatusLineRows.
 const StatusLineRows = 1
 
 // Window holds the layout tree and active pane for one window.
@@ -29,35 +28,59 @@ func NewWindow(pane *Pane, width, height int) *Window {
 }
 
 // SplitRoot splits the entire window at the root level.
+// If the root already has the same split direction, the new pane is added
+// as a sibling (equal distribution). Otherwise, wraps the root in a new parent.
 func (w *Window) SplitRoot(dir SplitDir, newPane *Pane) (*Pane, error) {
-	oldRoot := w.Root
-
 	newLeaf := NewLeaf(newPane, 0, 0, 0, 0)
 
-	if dir == SplitHorizontal {
-		size2 := (oldRoot.W - 1) / 2
-		size1 := oldRoot.W - 1 - size2
-		newLeaf.W = size2
-		newLeaf.H = oldRoot.H
-		// Propagate new width to oldRoot and all its children
-		oldRoot.ResizeAll(size1, oldRoot.H)
+	if !w.Root.IsLeaf() && w.Root.Dir == dir {
+		// Same direction: add as sibling, redistribute equally
+		newLeaf.Parent = w.Root
+		w.Root.Children = append(w.Root.Children, newLeaf)
+		// Give all children equal sizes so ResizeAll distributes fairly
+		n := len(w.Root.Children)
+		seps := n - 1
+		if dir == SplitHorizontal {
+			each := (w.Width - seps) / n
+			for _, child := range w.Root.Children {
+				child.ResizeAll(each, w.Height)
+			}
+			// Give remainder to last child
+			w.Root.Children[n-1].ResizeAll(w.Width-seps-each*(n-1), w.Height)
+		} else {
+			each := (w.Height - seps) / n
+			for _, child := range w.Root.Children {
+				child.ResizeAll(w.Width, each)
+			}
+			w.Root.Children[n-1].ResizeAll(w.Width, w.Height-seps-each*(n-1))
+		}
 	} else {
-		size2 := (oldRoot.H - 1) / 2
-		size1 := oldRoot.H - 1 - size2
-		newLeaf.W = oldRoot.W
-		newLeaf.H = size2
-		// Propagate new height to oldRoot and all its children
-		oldRoot.ResizeAll(oldRoot.W, size1)
-	}
+		// Different direction or root is a leaf: wrap
+		oldRoot := w.Root
 
-	newRoot := &LayoutCell{
-		X: 0, Y: 0, W: w.Width, H: w.Height,
-		Dir:      dir,
-		Children: []*LayoutCell{oldRoot, newLeaf},
+		if dir == SplitHorizontal {
+			size2 := (oldRoot.W - 1) / 2
+			size1 := oldRoot.W - 1 - size2
+			newLeaf.W = size2
+			newLeaf.H = oldRoot.H
+			oldRoot.ResizeAll(size1, oldRoot.H)
+		} else {
+			size2 := (oldRoot.H - 1) / 2
+			size1 := oldRoot.H - 1 - size2
+			newLeaf.W = oldRoot.W
+			newLeaf.H = size2
+			oldRoot.ResizeAll(oldRoot.W, size1)
+		}
+
+		newRoot := &LayoutCell{
+			X: 0, Y: 0, W: w.Width, H: w.Height,
+			Dir:      dir,
+			Children: []*LayoutCell{oldRoot, newLeaf},
+		}
+		oldRoot.Parent = newRoot
+		newLeaf.Parent = newRoot
+		w.Root = newRoot
 	}
-	oldRoot.Parent = newRoot
-	newLeaf.Parent = newRoot
-	w.Root = newRoot
 
 	w.Root.FixOffsets()
 
@@ -125,6 +148,9 @@ func (w *Window) ClosePane(paneID uint32) error {
 		w.Root = result
 	}
 
+	// Propagate sizes to all children after redistribution
+	w.Root.ResizeAll(w.Width, w.Height)
+
 	// Update active pane if the closed pane was active
 	if w.ActivePane.ID == paneID {
 		if result != nil && result.IsLeaf() && result.Pane != nil {
@@ -172,7 +198,6 @@ func (w *Window) Focus(direction string) {
 	}
 
 	if direction == "next" {
-		// Cycle to next pane
 		for i, p := range panes {
 			if p.ID == w.ActivePane.ID {
 				w.ActivePane = panes[(i+1)%len(panes)]
@@ -182,18 +207,16 @@ func (w *Window) Focus(direction string) {
 		return
 	}
 
-	// Directional focus: find the active cell, then find the nearest neighbor
 	activeCell := w.Root.FindPane(w.ActivePane.ID)
 	if activeCell == nil {
 		return
 	}
 
-	// Center point of active pane
 	cx := activeCell.X + activeCell.W/2
 	cy := activeCell.Y + activeCell.H/2
 
 	var best *LayoutCell
-	bestDist := int(^uint(0) >> 1) // max int
+	bestDist := int(^uint(0) >> 1)
 
 	w.Root.Walk(func(cell *LayoutCell) {
 		if cell.Pane == nil || cell.Pane.ID == w.ActivePane.ID {
@@ -206,13 +229,13 @@ func (w *Window) Focus(direction string) {
 		match := false
 		switch direction {
 		case "left":
-			match = ncx < cx
+			match = ncx < cx && overlapsY(activeCell, cell)
 		case "right":
-			match = ncx > cx
+			match = ncx > cx && overlapsY(activeCell, cell)
 		case "up":
-			match = ncy < cy
+			match = ncy < cy && overlapsX(activeCell, cell)
 		case "down":
-			match = ncy > cy
+			match = ncy > cy && overlapsX(activeCell, cell)
 		}
 
 		if !match {
@@ -231,6 +254,41 @@ func (w *Window) Focus(direction string) {
 	if best != nil {
 		w.ActivePane = best.Pane
 	}
+}
+
+// forceResizeChildren propagates a parent's dimensions to its children.
+// Close() updates the parent's W/H but children retain old sizes.
+func forceResizeChildren(cell *LayoutCell) {
+	if cell.IsLeaf() {
+		return
+	}
+	targetW, targetH := cell.W, cell.H
+	childTotal := 0
+	for _, child := range cell.Children {
+		if cell.Dir == SplitHorizontal {
+			childTotal += child.W
+		} else {
+			childTotal += child.H
+		}
+	}
+	childTotal += len(cell.Children) - 1
+
+	if cell.Dir == SplitHorizontal {
+		cell.W = childTotal
+	} else {
+		cell.H = childTotal
+	}
+	cell.ResizeAll(targetW, targetH)
+}
+
+// overlapsY returns true if two cells share any vertical range.
+func overlapsY(a, b *LayoutCell) bool {
+	return a.Y < b.Y+b.H && b.Y < a.Y+a.H
+}
+
+// overlapsX returns true if two cells share any horizontal range.
+func overlapsX(a, b *LayoutCell) bool {
+	return a.X < b.X+b.W && b.X < a.X+a.W
 }
 
 // paneHeight returns the PTY height for a pane in a layout cell,
@@ -261,7 +319,6 @@ func (w *Window) ResolvePane(ref string) *Pane {
 			return p
 		}
 	}
-	// Prefix match on name
 	for _, p := range w.Panes() {
 		if strings.HasPrefix(p.Meta.Name, ref) {
 			return p
@@ -286,7 +343,6 @@ func (w *Window) Minimize(paneID uint32) error {
 	cell.H = StatusLineRows + 1
 	cell.Pane.Resize(cell.W, 1)
 
-	// Give reclaimed space to a sibling
 	if cell.Parent != nil {
 		reclaimed := cell.Pane.Meta.RestoreH - cell.H
 		if reclaimed > 0 {
@@ -325,14 +381,12 @@ func (w *Window) Restore(paneID uint32) error {
 		savedH = 12
 	}
 
-	// Take space from a sibling
-	needed := savedH - cell.H
-	if cell.Parent != nil && needed > 0 {
+	if cell.Parent != nil {
+		needed := savedH - cell.H
 		for _, sib := range cell.Parent.Children {
 			if sib != cell {
-				give := needed
-				if cell.Parent.Dir == SplitVertical && sib.H-give >= PaneMinSize+StatusLineRows {
-					sib.H -= give
+				if cell.Parent.Dir == SplitVertical && sib.H-needed >= PaneMinSize+StatusLineRows {
+					sib.H -= needed
 					if !sib.IsLeaf() {
 						sib.ResizeAll(sib.W, sib.H)
 					} else if sib.Pane != nil {
