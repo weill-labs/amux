@@ -1,6 +1,6 @@
 // TODO(LAB-83): Make integration tests parallelizable by giving each test
 // its own amux session name and socket path.
-package integration
+package test
 
 import (
 	"fmt"
@@ -30,7 +30,7 @@ func TestMain(m *testing.M) {
 	defer os.RemoveAll(tmp)
 
 	amuxBin = tmp + "/amux"
-	out, err := exec.Command("go", "build", "-o", amuxBin, "../..").CombinedOutput()
+	out, err := exec.Command("go", "build", "-o", amuxBin, "..").CombinedOutput()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "building amux: %v\n%s\n", err, out)
 		os.Exit(1)
