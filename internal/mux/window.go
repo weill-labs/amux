@@ -161,7 +161,6 @@ func (w *Window) Resize(width, height int) {
 	w.Width = width
 	w.Height = height
 	w.Root.ResizeAll(width, height)
-	w.Root.FixOffsets()
 
 	// Resize all pane PTYs to match their new cell dimensions
 	w.Root.Walk(func(c *LayoutCell) {

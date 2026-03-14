@@ -164,20 +164,8 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 		sess.renderAndBroadcast()
 
 	case "output":
-		if len(msg.CmdArgs) < 1 {
-			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "usage: output <pane>"})
-			return
-		}
-		sess.mu.Lock()
-		if sess.Window == nil {
-			sess.mu.Unlock()
-			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "no session"})
-			return
-		}
-		pane := sess.Window.ResolvePane(msg.CmdArgs[0])
-		if pane == nil {
-			sess.mu.Unlock()
-			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("pane %q not found", msg.CmdArgs[0])})
+		pane, ok := cc.resolvePane(sess, "output", msg.CmdArgs)
+		if !ok {
 			return
 		}
 		out := pane.Output(50)
@@ -232,20 +220,8 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 			CmdOutput: fmt.Sprintf("Spawned %s in pane %d\n", meta.Name, pane.ID)})
 
 	case "minimize":
-		if len(msg.CmdArgs) < 1 {
-			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "usage: minimize <pane>"})
-			return
-		}
-		sess.mu.Lock()
-		if sess.Window == nil {
-			sess.mu.Unlock()
-			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "no session"})
-			return
-		}
-		pane := sess.Window.ResolvePane(msg.CmdArgs[0])
-		if pane == nil {
-			sess.mu.Unlock()
-			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("pane %q not found", msg.CmdArgs[0])})
+		pane, ok := cc.resolvePane(sess, "minimize", msg.CmdArgs)
+		if !ok {
 			return
 		}
 		err := sess.Window.Minimize(pane.ID)
@@ -258,20 +234,8 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: fmt.Sprintf("Minimized %s\n", pane.Meta.Name)})
 
 	case "restore":
-		if len(msg.CmdArgs) < 1 {
-			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "usage: restore <pane>"})
-			return
-		}
-		sess.mu.Lock()
-		if sess.Window == nil {
-			sess.mu.Unlock()
-			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "no session"})
-			return
-		}
-		pane := sess.Window.ResolvePane(msg.CmdArgs[0])
-		if pane == nil {
-			sess.mu.Unlock()
-			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("pane %q not found", msg.CmdArgs[0])})
+		pane, ok := cc.resolvePane(sess, "restore", msg.CmdArgs)
+		if !ok {
 			return
 		}
 		err := sess.Window.Restore(pane.ID)
@@ -284,20 +248,8 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: fmt.Sprintf("Restored %s\n", pane.Meta.Name)})
 
 	case "kill":
-		if len(msg.CmdArgs) < 1 {
-			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "usage: kill <pane>"})
-			return
-		}
-		sess.mu.Lock()
-		if sess.Window == nil {
-			sess.mu.Unlock()
-			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "no session"})
-			return
-		}
-		pane := sess.Window.ResolvePane(msg.CmdArgs[0])
-		if pane == nil {
-			sess.mu.Unlock()
-			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("pane %q not found", msg.CmdArgs[0])})
+		pane, ok := cc.resolvePane(sess, "kill", msg.CmdArgs)
+		if !ok {
 			return
 		}
 		if len(sess.Panes) <= 1 {
@@ -339,6 +291,29 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 		cc.Send(&Message{Type: MsgTypeCmdResult,
 			CmdErr: fmt.Sprintf("unknown command: %s", msg.CmdName)})
 	}
+}
+
+// resolvePane validates args, locks the session, and resolves the pane by name/ID.
+// On success the session mutex is held and the caller must unlock it.
+// On failure an error message is sent to the client and ok is false.
+func (cc *ClientConn) resolvePane(sess *Session, cmdName string, args []string) (pane *mux.Pane, ok bool) {
+	if len(args) < 1 {
+		cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("usage: %s <pane>", cmdName)})
+		return nil, false
+	}
+	sess.mu.Lock()
+	if sess.Window == nil {
+		sess.mu.Unlock()
+		cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "no session"})
+		return nil, false
+	}
+	pane = sess.Window.ResolvePane(args[0])
+	if pane == nil {
+		sess.mu.Unlock()
+		cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("pane %q not found", args[0])})
+		return nil, false
+	}
+	return pane, true
 }
 
 func dirName(d mux.SplitDir) string {

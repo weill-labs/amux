@@ -11,7 +11,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/server"
 
 	"golang.org/x/term"
@@ -62,30 +61,13 @@ func main() {
 
 	case "status":
 		runServerCommand("status", nil)
-	case "output":
+
+	case "output", "minimize", "restore", "kill":
 		if len(os.Args) < 3 {
-			fmt.Fprintln(os.Stderr, "usage: amux output <pane>")
+			fmt.Fprintf(os.Stderr, "usage: amux %s <pane>\n", os.Args[1])
 			os.Exit(1)
 		}
-		runServerCommand("output", []string{os.Args[2]})
-	case "minimize":
-		if len(os.Args) < 3 {
-			fmt.Fprintln(os.Stderr, "usage: amux minimize <pane>")
-			os.Exit(1)
-		}
-		runServerCommand("minimize", []string{os.Args[2]})
-	case "restore":
-		if len(os.Args) < 3 {
-			fmt.Fprintln(os.Stderr, "usage: amux restore <pane>")
-			os.Exit(1)
-		}
-		runServerCommand("restore", []string{os.Args[2]})
-	case "kill":
-		if len(os.Args) < 3 {
-			fmt.Fprintln(os.Stderr, "usage: amux kill <pane>")
-			os.Exit(1)
-		}
-		runServerCommand("kill", []string{os.Args[2]})
+		runServerCommand(os.Args[1], []string{os.Args[2]})
 	case "spawn":
 		runServerCommand("spawn", os.Args[2:])
 	case "dashboard":
@@ -140,15 +122,6 @@ Inside an amux session:
   Ctrl-a h/j/k/l                    Focus left/down/up/right
   Ctrl-a d                          Detach from session
   Ctrl-a Ctrl-a                     Send literal Ctrl-a`)
-}
-
-func loadConfig() *config.Config {
-	cfg, err := config.Load(config.DefaultPath())
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "amux: warning: %v\n", err)
-		return &config.Config{Hosts: make(map[string]config.Host)}
-	}
-	return cfg
 }
 
 // ---------------------------------------------------------------------------

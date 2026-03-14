@@ -1,7 +1,6 @@
 package mux
 
 import (
-	"io"
 	"os"
 	"os/exec"
 	"regexp"
@@ -98,9 +97,6 @@ func (p *Pane) readLoop() {
 			}
 		}
 		if err != nil {
-			if err != io.EOF && !p.closed.Load() {
-				// Unexpected read error
-			}
 			return
 		}
 	}
