@@ -22,13 +22,14 @@ const (
 	MsgTypeCommand MsgType = 5
 
 	// Server → Client
-	MsgTypeRender    MsgType = 10
-	MsgTypeCmdResult MsgType = 11
-	MsgTypeExit      MsgType = 12
-	MsgTypeNotify    MsgType = 13
-	MsgTypeBell       MsgType = 14
-	MsgTypePaneOutput MsgType = 15 // raw PTY output for one pane
-	MsgTypeLayout     MsgType = 16 // serialized layout tree + metadata
+	MsgTypeRender       MsgType = 10
+	MsgTypeCmdResult    MsgType = 11
+	MsgTypeExit         MsgType = 12
+	MsgTypeNotify       MsgType = 13
+	MsgTypeBell         MsgType = 14
+	MsgTypePaneOutput   MsgType = 15 // raw PTY output for one pane
+	MsgTypeLayout       MsgType = 16 // serialized layout tree + metadata
+	MsgTypeServerReload MsgType = 17 // server is about to exec — clients should reconnect
 )
 
 // Message is the wire protocol envelope. Only the fields relevant to

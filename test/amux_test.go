@@ -1302,6 +1302,122 @@ func TestGoldenFourPane(t *testing.T) {
 	assertGolden(t, "four_pane.color", colorMap)
 }
 
+// ---------------------------------------------------------------------------
+// Server hot-reload tests
+// ---------------------------------------------------------------------------
+
+func TestServerHotReload(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// Type text in pane-1
+	h.sendKeys("e", "c", "h", "o", " ", "B", "E", "F", "O", "R", "E", "R", "L", "D", "Enter")
+	h.waitFor("BEFORERLD", 3*time.Second)
+
+	// Split to create pane-2
+	h.sendKeys("C-a", "\\")
+	h.waitFor("[pane-2]", 3*time.Second)
+
+	// Trigger server reload via CLI command
+	h.runCmd("reload-server")
+
+	// Wait for client to reconnect (re-exec)
+	if !h.waitFor("[pane-", 10*time.Second) {
+		screen := h.capture()
+		t.Fatalf("session did not recover after reload-server\nScreen:\n%s", screen)
+	}
+
+	// Layout should be preserved: both panes visible
+	if !h.waitForFunc(func(s string) bool {
+		return strings.Contains(s, "[pane-1]") && strings.Contains(s, "[pane-2]")
+	}, 5*time.Second) {
+		screen := h.capture()
+		t.Fatalf("both panes should be visible after reload\nScreen:\n%s", screen)
+	}
+
+	// PTY should still work: type in pane-2 and verify
+	h.sendKeys("e", "c", "h", "o", " ", "A", "F", "T", "E", "R", "R", "L", "D", "Enter")
+	if !h.waitFor("AFTERRLD", 5*time.Second) {
+		screen := h.capture()
+		t.Fatalf("PTY should work after reload\nScreen:\n%s", screen)
+	}
+
+	// List should show both panes
+	listOut := h.runCmd("list")
+	if !strings.Contains(listOut, "pane-1") || !strings.Contains(listOut, "pane-2") {
+		t.Errorf("list should show both panes after reload, got:\n%s", listOut)
+	}
+}
+
+func TestServerAutoReload(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// Type text in pane-1
+	h.sendKeys("e", "c", "h", "o", " ", "S", "R", "V", "A", "U", "T", "O", "Enter")
+	h.waitFor("SRVAUTO", 3*time.Second)
+
+	// Rebuild binary (triggers server-side binary watcher → auto-reload)
+	out, err := exec.Command("go", "build", "-o", amuxBin, "..").CombinedOutput()
+	if err != nil {
+		t.Fatalf("rebuilding amux binary: %v\n%s", err, out)
+	}
+
+	// Wait for session to recover (both server and client reload)
+	if !h.waitFor("[pane-", 15*time.Second) {
+		screen := h.capture()
+		t.Fatalf("session did not recover after binary rebuild\nScreen:\n%s", screen)
+	}
+
+	// Previously typed text should still be visible
+	if !h.waitFor("SRVAUTO", 5*time.Second) {
+		screen := h.capture()
+		t.Fatalf("SRVAUTO should be visible after server auto-reload\nScreen:\n%s", screen)
+	}
+}
+
+func TestServerReloadWithMinimizedPane(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// Split to get two panes
+	h.sendKeys("C-a", "-")
+	h.waitFor("[pane-2]", 3*time.Second)
+
+	// Minimize pane-1
+	h.runCmd("minimize", "pane-1")
+	time.Sleep(500 * time.Millisecond)
+
+	// Verify minimized state before reload
+	statusBefore := h.runCmd("status")
+	if !strings.Contains(statusBefore, "1 minimized") {
+		t.Fatalf("expected 1 minimized pane before reload, got:\n%s", statusBefore)
+	}
+
+	// Trigger server reload
+	h.runCmd("reload-server")
+
+	// Wait for recovery
+	if !h.waitFor("[pane-", 10*time.Second) {
+		screen := h.capture()
+		t.Fatalf("session did not recover after reload\nScreen:\n%s", screen)
+	}
+
+	// Wait for both panes to be visible
+	if !h.waitForFunc(func(s string) bool {
+		return strings.Contains(s, "[pane-1]") && strings.Contains(s, "[pane-2]")
+	}, 5*time.Second) {
+		screen := h.capture()
+		t.Fatalf("both panes should be visible after reload\nScreen:\n%s", screen)
+	}
+
+	// Minimized state should be preserved
+	statusAfter := h.runCmd("status")
+	if !strings.Contains(statusAfter, "1 minimized") {
+		t.Errorf("minimized state should be preserved after reload, got:\n%s", statusAfter)
+	}
+}
+
 func TestCapture(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)

@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/weill-labs/amux/internal/checkpoint"
 	"github.com/weill-labs/amux/internal/render"
 	"github.com/weill-labs/amux/internal/server"
 
@@ -81,6 +82,8 @@ func main() {
 		runServerCommand(args[0], []string{args[1]})
 	case "spawn":
 		runServerCommand("spawn", args[1:])
+	case "reload-server":
+		runServerCommand("reload-server", nil)
 	case "dashboard":
 		fmt.Fprintln(os.Stderr, "amux dashboard: not yet migrated to built-in mux")
 		os.Exit(1)
@@ -124,6 +127,7 @@ Usage:
   amux [-s session] restore <pane>    Restore a minimized pane
   amux [-s session] kill <pane>       Kill a pane
   amux [-s session] focus <pane>      Focus a pane by name or ID
+  amux [-s session] reload-server     Hot-reload the server (preserves panes)
 
 Panes can be referenced by name (pane-1) or ID (1).
 
@@ -144,10 +148,28 @@ Inside an amux session:
 // ---------------------------------------------------------------------------
 
 func runServer(sessionName string) {
-	s, err := server.NewServer(sessionName)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "amux server: %v\n", err)
-		os.Exit(1)
+	var s *server.Server
+	var err error
+
+	// Check for checkpoint restore (after server hot-reload)
+	if cpPath := os.Getenv("AMUX_CHECKPOINT"); cpPath != "" {
+		os.Unsetenv("AMUX_CHECKPOINT")
+		cp, readErr := checkpoint.Read(cpPath)
+		if readErr != nil {
+			fmt.Fprintf(os.Stderr, "amux server: reading checkpoint: %v\n", readErr)
+			os.Exit(1)
+		}
+		s, err = server.NewServerFromCheckpoint(cp)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "amux server: restoring from checkpoint: %v\n", err)
+			os.Exit(1)
+		}
+	} else {
+		s, err = server.NewServer(sessionName)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "amux server: %v\n", err)
+			os.Exit(1)
+		}
 	}
 
 	// Handle shutdown signals
@@ -158,6 +180,19 @@ func runServer(sessionName string) {
 		s.Shutdown()
 		os.Exit(0)
 	}()
+
+	// Server-side binary watcher for auto-reload
+	triggerReload := make(chan struct{}, 1)
+	execPath, execErr := resolveExecutable()
+	if execErr == nil {
+		go watchBinary(execPath, triggerReload)
+		go func() {
+			<-triggerReload
+			if reloadErr := s.Reload(execPath); reloadErr != nil {
+				fmt.Fprintf(os.Stderr, "amux server: reload failed: %v\n", reloadErr)
+			}
+		}()
+	}
 
 	if err := s.Run(); err != nil {
 		// listener closed is expected on shutdown
@@ -275,6 +310,13 @@ func runMux(sessionName string) error {
 				return
 			case server.MsgTypeBell:
 				msgCh <- &renderMsg{typ: renderMsgBell}
+			case server.MsgTypeServerReload:
+				// Server is reloading — re-exec ourselves to reconnect
+				select {
+				case triggerReload <- struct{}{}:
+				default:
+				}
+				return
 			}
 		}
 	}()

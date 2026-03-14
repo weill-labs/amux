@@ -7,7 +7,9 @@ import (
 	"path/filepath"
 	"sync"
 	"sync/atomic"
+	"syscall"
 
+	"github.com/weill-labs/amux/internal/checkpoint"
 	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/render"
@@ -294,6 +296,195 @@ func (s *Server) Shutdown() {
 			p.Close()
 		}
 	}
+}
+
+// Reload checkpoints the server state and exec's the new binary.
+// On success, this function never returns (the process image is replaced).
+// On failure, the old server continues running.
+func (s *Server) Reload(execPath string) error {
+	s.mu.Lock()
+	var sess *Session
+	for _, sess = range s.sessions {
+		break
+	}
+	s.mu.Unlock()
+
+	if sess == nil {
+		return fmt.Errorf("no session to reload")
+	}
+
+	// Broadcast reload notice to clients
+	sess.broadcast(&Message{Type: MsgTypeServerReload})
+
+	// Stop PTY read broadcasts
+	sess.shutdown.Store(true)
+
+	// Build checkpoint
+	sess.mu.Lock()
+	if sess.Window == nil {
+		sess.mu.Unlock()
+		sess.shutdown.Store(false)
+		return fmt.Errorf("no window to checkpoint")
+	}
+
+	cp := &checkpoint.ServerCheckpoint{
+		SessionName: sess.Name,
+		Counter:     sess.counter.Load(),
+		Layout:      *sess.Window.SnapshotLayout(sess.Name),
+	}
+
+	for _, p := range sess.Panes {
+		pc := checkpoint.PaneCheckpoint{
+			ID:     p.ID,
+			Meta:   p.Meta,
+			PtmxFd: p.PtmxFd(),
+			PID:    p.ProcessPid(),
+			Screen: p.RenderScreen(),
+		}
+		cell := sess.Window.Root.FindPane(p.ID)
+		if cell != nil {
+			pc.Cols = cell.W
+			pc.Rows = mux.PaneContentHeight(cell.H)
+		}
+		cp.Panes = append(cp.Panes, pc)
+	}
+	sess.mu.Unlock()
+
+	// Get listener FD
+	lnFd, err := listenerFd(s.listener)
+	if err != nil {
+		sess.shutdown.Store(false)
+		return fmt.Errorf("getting listener FD: %w", err)
+	}
+	cp.ListenerFd = lnFd
+
+	// Write checkpoint to temp file
+	cpPath, err := checkpoint.Write(cp)
+	if err != nil {
+		sess.shutdown.Store(false)
+		return fmt.Errorf("writing checkpoint: %w", err)
+	}
+
+	// Clear FD_CLOEXEC on inherited FDs
+	clearCloexec(uintptr(cp.ListenerFd))
+	for _, pc := range cp.Panes {
+		clearCloexec(uintptr(pc.PtmxFd))
+	}
+
+	// Replace process image with new binary
+	env := append(os.Environ(), "AMUX_CHECKPOINT="+cpPath)
+	execErr := syscall.Exec(execPath, os.Args, env)
+
+	// If we get here, the exec call failed — undo changes
+	sess.shutdown.Store(false)
+	os.Remove(cpPath)
+	return fmt.Errorf("server exec: %w", execErr)
+}
+
+// NewServerFromCheckpoint restores a server from a checkpoint after exec.
+func NewServerFromCheckpoint(cp *checkpoint.ServerCheckpoint) (*Server, error) {
+	// Reconstruct listener from inherited FD
+	listenerFile := os.NewFile(uintptr(cp.ListenerFd), "listener")
+	if listenerFile == nil {
+		return nil, fmt.Errorf("invalid listener FD %d", cp.ListenerFd)
+	}
+	listener, err := net.FileListener(listenerFile)
+	if err != nil {
+		return nil, fmt.Errorf("restoring listener: %w", err)
+	}
+	listenerFile.Close() // FileListener dups the FD
+
+	sess := &Session{Name: cp.SessionName}
+	sess.counter.Store(cp.Counter)
+
+	s := &Server{
+		listener: listener,
+		sessions: map[string]*Session{cp.SessionName: sess},
+		sockPath: SocketPath(cp.SessionName),
+	}
+
+	// Restore panes
+	paneMap := make(map[uint32]*mux.Pane, len(cp.Panes))
+	for _, pc := range cp.Panes {
+		pane, restoreErr := mux.RestorePane(pc.ID, pc.Meta, pc.PtmxFd, pc.PID, pc.Cols, pc.Rows,
+			func(paneID uint32, data []byte) {
+				if sess.shutdown.Load() {
+					return
+				}
+				sess.broadcastPaneOutput(paneID, data)
+			},
+			func(paneID uint32) {
+				if sess.shutdown.Load() {
+					return
+				}
+				sess.mu.Lock()
+				if !sess.hasPane(paneID) {
+					sess.mu.Unlock()
+					return
+				}
+				remaining := len(sess.Panes)
+				if remaining <= 1 {
+					sess.mu.Unlock()
+					sess.broadcast(&Message{Type: MsgTypeExit})
+					s.Shutdown()
+					return
+				}
+				sess.removePane(paneID)
+				if sess.Window != nil {
+					sess.Window.ClosePane(paneID)
+				}
+				sess.mu.Unlock()
+				sess.broadcastLayout()
+			},
+		)
+		if restoreErr != nil {
+			continue // Skip pane on restore failure
+		}
+
+		pane.ReplayScreen(pc.Screen)
+		paneMap[pc.ID] = pane
+		sess.Panes = append(sess.Panes, pane)
+	}
+
+	if len(sess.Panes) == 0 {
+		listener.Close()
+		return nil, fmt.Errorf("no panes restored from checkpoint")
+	}
+
+	// Rebuild window from layout snapshot
+	sess.Window = mux.RebuildFromSnapshot(cp.Layout, paneMap)
+
+	// Start PTY read loops for all restored panes
+	for _, p := range sess.Panes {
+		p.Start()
+	}
+
+	return s, nil
+}
+
+// listenerFd extracts the raw file descriptor from a net.Listener.
+func listenerFd(ln net.Listener) (int, error) {
+	type syscallConner interface {
+		SyscallConn() (syscall.RawConn, error)
+	}
+	sc, ok := ln.(syscallConner)
+	if !ok {
+		return -1, fmt.Errorf("listener does not support SyscallConn")
+	}
+	raw, err := sc.SyscallConn()
+	if err != nil {
+		return -1, err
+	}
+	var fd int
+	if err := raw.Control(func(f uintptr) { fd = int(f) }); err != nil {
+		return -1, err
+	}
+	return fd, nil
+}
+
+// clearCloexec clears the FD_CLOEXEC flag so the FD survives exec.
+func clearCloexec(fd uintptr) {
+	syscall.Syscall(syscall.SYS_FCNTL, fd, syscall.F_SETFD, 0)
 }
 
 func (s *Server) handleConn(conn net.Conn) {

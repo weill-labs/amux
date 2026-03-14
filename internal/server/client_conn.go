@@ -3,6 +3,8 @@ package server
 import (
 	"fmt"
 	"net"
+	"os"
+	"path/filepath"
 	"sync"
 
 	"github.com/weill-labs/amux/internal/mux"
@@ -280,6 +282,23 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 		active := total - minimized
 		cc.Send(&Message{Type: MsgTypeCmdResult,
 			CmdOutput: fmt.Sprintf("panes: %d total, %d active, %d minimized\n", total, active, minimized)})
+
+	case "reload-server":
+		execPath, err := os.Executable()
+		if err != nil {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("reload: %v", err)})
+			return
+		}
+		execPath, err = filepath.EvalSymlinks(execPath)
+		if err != nil {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("reload: %v", err)})
+			return
+		}
+		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: "Server reloading...\n"})
+		// Reload replaces the process via exec — doesn't return on success
+		if err := srv.Reload(execPath); err != nil {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: err.Error()})
+		}
 
 	default:
 		cc.Send(&Message{Type: MsgTypeCmdResult,
