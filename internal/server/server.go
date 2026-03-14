@@ -87,12 +87,28 @@ func (s *Session) createPane(srv *Server, cols, rows int) (*mux.Pane, error) {
 		func(paneID uint32) {
 			s.mu.Lock()
 			remaining := len(s.Panes)
-			s.mu.Unlock()
 			if remaining <= 1 {
-				// Last pane exited
+				s.mu.Unlock()
 				s.broadcast(&Message{Type: MsgTypeExit})
 				srv.Shutdown()
+				return
 			}
+
+			// Remove from flat pane list
+			for i, p := range s.Panes {
+				if p.ID == paneID {
+					s.Panes = append(s.Panes[:i], s.Panes[i+1:]...)
+					break
+				}
+			}
+
+			// Remove from layout
+			if s.Window != nil {
+				s.Window.ClosePane(paneID)
+			}
+			s.mu.Unlock()
+
+			s.renderAndBroadcast()
 		},
 	)
 	if err != nil {

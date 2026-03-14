@@ -65,21 +65,14 @@ func (w *Window) ClosePane(paneID uint32) error {
 
 	result := cell.Close()
 
-	// If the closed cell was the root's only child, update root
-	if len(w.Root.Children) == 1 {
-		only := w.Root.Children[0]
-		only.Parent = nil
-		only.X = 0
-		only.Y = 0
-		only.W = w.Width
-		only.H = w.Height
-		w.Root = only
-	} else if w.Root.IsLeaf() && w.Root.Pane == nil {
-		// Root was collapsed
-		if result != nil {
-			result.Parent = nil
-			w.Root = result
-		}
+	// If Close() collapsed a single-child parent that was the root,
+	// result has Parent==nil and should become the new root.
+	if result != nil && result.Parent == nil {
+		result.X = 0
+		result.Y = 0
+		result.W = w.Width
+		result.H = w.Height
+		w.Root = result
 	}
 
 	// Update active pane if the closed pane was active
