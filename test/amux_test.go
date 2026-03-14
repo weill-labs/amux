@@ -479,3 +479,43 @@ func TestNavigateBackToRightPaneAfterRootHSplit(t *testing.T) {
 		return false
 	})
 }
+
+func TestRootVerticalSplitRenderClipping(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// Horizontal split first, then root vertical
+	h.sendKeys("C-a", "-")
+	h.waitFor("[pane-2]", 3*time.Second)
+	h.sendKeys("C-a", "|")
+	h.waitFor("[pane-3]", 3*time.Second)
+
+	// Type a long line in pane-3 to trigger potential bleeding
+	h.sendKeys("e", "c", "h", "o", " ", "R", "I", "G", "H", "T", "P", "A", "N", "E", "T", "E", "S", "T", "Enter")
+	time.Sleep(500 * time.Millisecond)
+
+	// The vertical border column should be consistent on every content row.
+	// If content bleeds, some rows will have the border shifted or missing.
+	col := h.verticalBorderCol()
+	if col < 0 {
+		t.Fatal("no consistent vertical border found")
+	}
+
+	// Check that no content from the right pane appears left of the border
+	// (excluding the status bar rows which have pane names)
+	lines := h.contentLines()
+	for i, line := range lines {
+		runes := []rune(line)
+		if col >= len(runes) {
+			continue
+		}
+		// The character at the border column should be │ on most lines
+		if runes[col] != '│' && runes[col] != '─' {
+			// Allow status line rows (contain [pane-]) and empty lines
+			if strings.Contains(line, "[pane-") || strings.TrimSpace(line) == "" {
+				continue
+			}
+			t.Errorf("row %d: expected border at col %d, got %c\nline: %s", i, col, runes[col], line)
+		}
+	}
+}
