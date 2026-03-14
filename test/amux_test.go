@@ -1026,6 +1026,108 @@ func TestHotReloadAutoDetect(t *testing.T) {
 	})
 }
 
+func TestJunctionNotColoredOnInactiveBorder(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// Build layout:
+	//   pane-1 │ pane-2      (left column has 3 stacked panes,
+	//   ───────┤              right column is a single pane)
+	//   pane-3 │ pane-2
+	//   ───────┤
+	//   pane-4 │ pane-2
+	//
+	// Vertical split: pane-1 left, pane-2 right
+	h.sendKeys("C-a", "\\")
+	h.waitFor("[pane-2]", 3*time.Second)
+
+	// Focus left pane (pane-1) and split horizontally twice
+	h.sendKeys("C-a", "h")
+	time.Sleep(300 * time.Millisecond)
+	h.sendKeys("C-a", "-")
+	h.waitFor("[pane-3]", 3*time.Second)
+	h.sendKeys("C-a", "-")
+	h.waitFor("[pane-4]", 3*time.Second)
+
+	// pane-4 is active (bottom-left). The vertical border has junction
+	// characters (┤) where horizontal borders meet it. The junction at
+	// the TOP horizontal border (between pane-1 and pane-3) is NOT
+	// adjacent to pane-4, so it should be DIM.
+
+	// Capture with ANSI escapes
+	out, err := exec.Command("tmux", "capture-pane", "-t", h.session, "-p", "-e").Output()
+	if err != nil {
+		t.Fatalf("capture-pane -e: %v", err)
+	}
+	lines := strings.Split(string(out), "\n")
+
+	// Find horizontal border rows (contain ─ characters).
+	// With 3 stacked panes on the left, there are 2 horizontal borders.
+	var hBorderRows []int
+	for i, line := range lines {
+		if strings.Contains(line, "─") && !isGlobalBar(line) {
+			hBorderRows = append(hBorderRows, i)
+		}
+	}
+	if len(hBorderRows) < 2 {
+		t.Fatalf("expected 2 horizontal border rows, found %d\nScreen:\n%s",
+			len(hBorderRows), string(out))
+	}
+
+	// Extract the color of the junction character on each horizontal border row.
+	// The junction is the box-drawing character at the vertical border column
+	// on that row (e.g., ┤, ├, ┼).
+	topJunctionColor := extractJunctionColor(lines[hBorderRows[0]])
+	bottomJunctionColor := extractJunctionColor(lines[hBorderRows[1]])
+
+	if topJunctionColor == "" || bottomJunctionColor == "" {
+		t.Fatalf("could not extract junction colors: top=%q bottom=%q\n  topLine: %q\n  bottomLine: %q",
+			topJunctionColor, bottomJunctionColor,
+			lines[hBorderRows[0]], lines[hBorderRows[1]])
+	}
+
+	// The bottom junction (between pane-3 and pane-4) IS adjacent to
+	// the active pane-4, so it should be colored. The top junction
+	// (between pane-1 and pane-3) is NOT adjacent to pane-4, so it
+	// should be DIM. They must have DIFFERENT colors.
+	if topJunctionColor == bottomJunctionColor {
+		t.Errorf("top junction (pane-1/pane-3 border, row %d) should be dim but has same color as bottom junction (pane-3/pane-4 border, row %d):\n  top:    %s\n  bottom: %s",
+			hBorderRows[0], hBorderRows[1], topJunctionColor, bottomJunctionColor)
+	}
+}
+
+// extractJunctionColor finds the first junction box-drawing character
+// (┤, ├, ┼, ┬, ┴) in an ANSI-escaped line and returns the most recent
+// ANSI escape sequence before it.
+func extractJunctionColor(line string) string {
+	lastEscape := ""
+	i := 0
+	for i < len(line) {
+		// Track ANSI escapes
+		if line[i] == '\033' && i+1 < len(line) && line[i+1] == '[' {
+			j := i + 2
+			for j < len(line) && line[j] != 'm' {
+				j++
+			}
+			if j < len(line) {
+				lastEscape = line[i : j+1]
+				i = j + 1
+				continue
+			}
+		}
+		// Check for junction box-drawing characters (3-byte UTF-8)
+		if i+2 < len(line) && line[i] == '\xe2' && line[i+1] == '\x94' {
+			b := line[i+2]
+			// ┤=\xa4  ├=\x9c  ┼=\xbc  ┬=\xac  ┴=\xb4
+			if b == '\xa4' || b == '\x9c' || b == '\xbc' || b == '\xac' || b == '\xb4' {
+				return lastEscape
+			}
+		}
+		i++
+	}
+	return ""
+}
+
 func TestVerticalBorderPartialColor(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
