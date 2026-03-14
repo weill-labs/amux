@@ -118,11 +118,7 @@ func (c *Compositor) blitPane(buf *strings.Builder, cell *mux.LayoutCell, render
 }
 
 // drawBorders draws separator lines between panes.
-func (c *Compositor) drawBorders(buf *strings.Builder, root *mux.LayoutCell, activePane *mux.Pane) {
-	c.drawBordersRecursive(buf, root, activePane)
-}
-
-func (c *Compositor) drawBordersRecursive(buf *strings.Builder, cell *mux.LayoutCell, activePane *mux.Pane) {
+func (c *Compositor) drawBorders(buf *strings.Builder, cell *mux.LayoutCell, activePane *mux.Pane) {
 	if cell.IsLeaf() {
 		return
 	}
@@ -141,7 +137,7 @@ func (c *Compositor) drawBordersRecursive(buf *strings.Builder, cell *mux.Layout
 	}
 
 	for _, child := range children {
-		c.drawBordersRecursive(buf, child, activePane)
+		c.drawBorders(buf, child, activePane)
 	}
 }
 
@@ -183,13 +179,7 @@ func borderColor(parent *mux.LayoutCell, activePane *mux.Pane) string {
 
 // containsPane returns true if the cell or any descendant contains the pane.
 func containsPane(cell *mux.LayoutCell, paneID uint32) bool {
-	found := false
-	cell.Walk(func(c *mux.LayoutCell) {
-		if c.Pane != nil && c.Pane.ID == paneID {
-			found = true
-		}
-	})
-	return found
+	return cell.FindPane(paneID) != nil
 }
 
 // hexToANSI converts a 6-digit hex color to an ANSI truecolor escape.

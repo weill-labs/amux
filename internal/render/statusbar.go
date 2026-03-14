@@ -30,7 +30,7 @@ func renderPaneStatus(buf *strings.Builder, cell *mux.LayoutCell, isActive bool)
 
 	// Status icon with pane color
 	if isActive {
-		buf.WriteString(hexFg(meta.Color))
+		buf.WriteString(hexToANSI(meta.Color))
 		buf.WriteString("●")
 	} else {
 		buf.WriteString("\033[38;5;240m") // dim gray
@@ -41,7 +41,7 @@ func renderPaneStatus(buf *strings.Builder, cell *mux.LayoutCell, isActive bool)
 	buf.WriteString(" ")
 	if isActive {
 		buf.WriteString("\033[1m") // bold
-		buf.WriteString(hexFg(meta.Color))
+		buf.WriteString(hexToANSI(meta.Color))
 	} else {
 		buf.WriteString("\033[38;2;205;214;244m") // Catppuccin text
 	}
@@ -102,14 +102,4 @@ func renderGlobalBar(buf *strings.Builder, sessionName string, paneCount int, wi
 
 	buf.WriteString(right)
 	buf.WriteString("\033[0m")
-}
-
-// hexFg returns an ANSI truecolor foreground escape for a hex color.
-func hexFg(hex string) string {
-	if len(hex) < 6 {
-		return "\033[38;5;75m" // fallback blue
-	}
-	var r, g, b int
-	fmt.Sscanf(hex, "%02x%02x%02x", &r, &g, &b)
-	return fmt.Sprintf("\033[38;2;%d;%d;%dm", r, g, b)
 }
