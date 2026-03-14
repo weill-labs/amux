@@ -72,11 +72,10 @@ func (s *Session) removeClient(cc *ClientConn) {
 
 // createPane creates a new pane with auto-assigned metadata.
 func (s *Session) createPane(srv *Server, cols, rows int) (*mux.Pane, error) {
-	s.counter++
 	meta := mux.PaneMeta{
-		Name:  fmt.Sprintf("pane-%d", s.counter),
+		Name:  fmt.Sprintf("pane-%d", s.counter+1),
 		Host:  "local",
-		Color: paneAccents[(s.counter-1)%uint32(len(paneAccents))],
+		Color: paneAccents[s.counter%uint32(len(paneAccents))],
 	}
 	return s.createPaneWithMeta(srv, meta, cols, rows)
 }
