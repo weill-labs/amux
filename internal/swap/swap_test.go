@@ -35,7 +35,7 @@ func (m *mockTmux) RemoteSessionAlive(user, host, session string) bool {
 func (m *mockTmux) WindowPanes(paneID string) ([]string, error) {
 	return []string{paneID}, nil
 }
-func (m *mockTmux) JoinPane(src, dst string) error                          { return nil }
+func (m *mockTmux) JoinPane(src, dst string) error                            { return nil }
 func (m *mockTmux) SessionWindowPanes(sessionWindow string) ([]string, error) { return nil, nil }
 
 func (m *mockTmux) SwapPane(src, dst string) error {
@@ -59,6 +59,7 @@ func (m *mockTmux) SetOption(paneID, key, value string) error {
 }
 
 func TestSwapWithMeta(t *testing.T) {
+	t.Parallel()
 	mt := newMock()
 	mt.options["%1"] = map[string]string{
 		"@amux_name":  "agent-a",

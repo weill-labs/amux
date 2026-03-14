@@ -6,6 +6,7 @@ import (
 )
 
 func TestWriteReadMsg(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		msg  Message
@@ -50,6 +51,7 @@ func TestWriteReadMsg(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			var buf bytes.Buffer
 
 			if err := WriteMsg(&buf, &tt.msg); err != nil {
@@ -87,6 +89,7 @@ func TestWriteReadMsg(t *testing.T) {
 }
 
 func TestWriteReadMultiple(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 
 	msgs := []Message{

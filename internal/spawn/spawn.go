@@ -3,6 +3,7 @@ package spawn
 import (
 	"encoding/base64"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 
@@ -10,14 +11,23 @@ import (
 	"github.com/weill-labs/amux/internal/tmux"
 )
 
+// amuxPath returns the path to the amux binary.
+func amuxPath() string {
+	path, err := os.Executable()
+	if err != nil {
+		return "amux"
+	}
+	return path
+}
+
 // SpawnConfig holds parameters for spawning a new agent.
 type SpawnConfig struct {
-	Name    string // display name for the agent
-	Host    string // host key from config, or "local"
-	Task    string // issue ID or description
-	Repo    string // repository path
-	Prompt  string // initial prompt for the agent
-	Worktree bool  // create a git worktree
+	Name     string // display name for the agent
+	Host     string // host key from config, or "local"
+	Task     string // issue ID or description
+	Repo     string // repository path
+	Prompt   string // initial prompt for the agent
+	Worktree bool   // create a git worktree
 }
 
 // Local spawns a new local agent pane.
@@ -43,11 +53,14 @@ func Local(t tmux.Tmux, cfg *config.Config, sc SpawnConfig) (string, error) {
 		}
 	}
 
-	// Build the command to run in the new pane
-	shellCmd := fmt.Sprintf("cd %s && claude", dir)
+	// Build the command to run in the new pane, wrapped with amux _wrap for
+	// per-pane status bar support.
+	amuxBin := amuxPath()
+	agentCmd := "claude"
 	if sc.Prompt != "" {
-		shellCmd = fmt.Sprintf("cd %s && claude -p %q", dir, sc.Prompt)
+		agentCmd = fmt.Sprintf("claude -p %q", sc.Prompt)
 	}
+	shellCmd := fmt.Sprintf("cd %s && %s _wrap -- %s", dir, amuxBin, agentCmd)
 
 	// Create new pane
 	paneID, err := t.SplitWindow(shellCmd)
