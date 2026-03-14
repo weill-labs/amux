@@ -240,6 +240,43 @@ func (w *Window) Focus(direction string) {
 		}
 	})
 
+	// Fallback: if no overlap-based match, find nearest pane in the
+	// requested direction without requiring geometric overlap.
+	if best == nil {
+		w.Root.Walk(func(cell *LayoutCell) {
+			if cell.Pane == nil || cell.Pane.ID == w.ActivePane.ID {
+				return
+			}
+
+			ncx := cell.X + cell.W/2
+			ncy := cell.Y + cell.H/2
+
+			match := false
+			switch direction {
+			case "left":
+				match = ncx < cx
+			case "right":
+				match = ncx > cx
+			case "up":
+				match = ncy < cy
+			case "down":
+				match = ncy > cy
+			}
+
+			if !match {
+				return
+			}
+
+			dx := cx - ncx
+			dy := cy - ncy
+			dist := dx*dx + dy*dy
+			if dist < bestDist {
+				bestDist = dist
+				best = cell
+			}
+		})
+	}
+
 	if best != nil {
 		w.ActivePane = best.Pane
 	}
