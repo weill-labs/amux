@@ -1,6 +1,7 @@
 package test
 
 import (
+	"crypto/rand"
 	"fmt"
 	"os"
 	"os/exec"
@@ -50,7 +51,9 @@ type TmuxHarness struct {
 // session name, and waits for it to start. Safe for parallel tests.
 func newHarness(t *testing.T) *TmuxHarness {
 	t.Helper()
-	session := fmt.Sprintf("t-%d", time.Now().UnixNano()%1000000)
+	var b [4]byte
+	rand.Read(b[:])
+	session := fmt.Sprintf("t-%x", b)
 
 	h := &TmuxHarness{t: t, session: session}
 
