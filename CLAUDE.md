@@ -2,110 +2,129 @@
 
 ## Design Philosophy
 
-amux is **tmux reimagined for the human+agent workflow**. It builds on tmux and existing terminal habits, but fills gaps and absorbs functionality where the default tmux UX falls short — especially around managing multiple AI coding agents across local and remote machines.
+amux is a **standalone terminal multiplexer for the human+agent workflow**. Single Go binary, no tmux dependency. It manages panes, layout, and rendering natively via a client-server architecture over Unix sockets.
 
 ### Core Principles
 
-**Build on existing habits.** amux should feel familiar to tmux users. Typing `amux` starts a terminal session, not a dashboard. You get a shell. `Ctrl-\` splits. Panes are auto-tagged. The muscle memory transfers. Where tmux has sharp edges (pane IDs, no minimize, no metadata), amux smooths them out rather than asking users to learn a new paradigm.
+**Build on existing habits.** amux feels familiar to tmux users. `amux` starts a session. `Ctrl-a \` splits. Panes are auto-tagged. The muscle memory transfers.
 
-**Absorb tmux where needed.** amux uses tmux as infrastructure but isn't afraid to own UX on top. When tmux's built-in behavior is adequate (scrollback, copy mode, mouse support), amux stays out of the way. When it's not (pane naming, minimize/restore, swap-with-metadata, agent status), amux provides a better experience directly. The boundary isn't "what tmux can do" — it's "what's most ergonomic."
+**Client-server architecture.** The server is a background daemon that owns PTYs and layout state. Clients connect over a Unix socket, receive layout snapshots and raw pane output, and render locally. This enables hot-reload: rebuilding the binary auto-restarts the client with new rendering code while preserving running shells.
 
-**Pane metadata is the data model.** All pane state lives in tmux user options (`@amux_*`). No external database, no state files, no daemon. `tmux show-options -p` is the source of truth. This means state survives tmux detach/reattach, session save/restore, and amux restarts.
+**Pane metadata is in-memory.** All pane state lives in `mux.PaneMeta` structs on the server. No external database or state files.
 
-**Names over IDs.** Users think in names (`pane-3`, `auth-agent`), not tmux IDs (`%40`). Every command that takes a pane reference resolves names to IDs via `pane.ResolvePane()`. Raw tmux IDs (`%N`) are still accepted for scripting and tmux keybinding compatibility.
-
-**Non-invasive.** Panes without `@amux_name` are invisible to amux. Regular tmux panes coexist with amux-managed panes. amux never touches panes it didn't create or tag.
+**Names over IDs.** Users reference panes by name (`pane-3`) or numeric ID (`3`). `Window.ResolvePane()` handles resolution. Prefix matches are also supported.
 
 ## Architecture
 
-Single Go binary. All tmux interaction abstracted behind the `tmux.Tmux` interface.
-
-### Package Structure
-
 ```
-main.go                    CLI dispatch — routes subcommands
+main.go                       CLI dispatch, client attach loop, keybinding handling
+client.go                     ClientRenderer — client-side rendering with local vt emulators
+reload.go                     Hot-reload: watches binary, re-execs client on change
 internal/
-  tmux/tmux.go             Tmux interface + LiveTmux implementation
-  pane/pane.go             PaneInfo, Discover(), ResolvePane(), idle detection
-  session/session.go       Session create/attach, configure keybindings/hooks
-  minimize/minimize.go     Minimize (resize to 1) / restore (read saved height)
-  swap/swap.go             Swap pane content + copy @amux_* metadata
-  spawn/spawn.go           Local + remote agent spawning
-  grid/                    Bubbletea TUI dashboard
-    model.go               Model/Update/View
-    keymap.go              Keybindings
-    styles.go              Lipgloss styles, Catppuccin colors
-  config/config.go         ~/.config/amux/hosts.toml parsing
+  mux/
+    layout.go                 LayoutCell tree, split/close/resize, proportional sizing
+    window.go                 Window (layout + active pane), Focus(), Minimize/Restore
+    pane.go                   Pane struct, PTY management, PaneMeta
+    emulator.go               VT terminal emulator wrapper (vt100 lib)
+    snapshot.go               LayoutSnapshot serialization for wire protocol
+  server/
+    server.go                 Server + Session structs, socket listener, attach/detach
+    client_conn.go            Per-client connection, command dispatch (list/split/focus/etc.)
+    protocol.go               Wire protocol: Message types, gob encoding over Unix socket
+  render/
+    compositor.go             RenderFull() — composites panes, borders, status bars
+    border.go                 Border map, junction characters, active-pane coloring
+    statusbar.go              Per-pane status lines, global session bar
+    ansi.go                   ANSI escape sequences, Catppuccin Mocha palette
+    panedata.go               PaneData interface for rendering
+  proto/
+    types.go                  Shared types (LayoutSnapshot, CellSnapshot, PaneSnapshot)
+  config/
+    config.go                 ~/.config/amux/hosts.toml parsing
+test/
+  harness_test.go             Integration test harness (drives amux inside a real tmux session)
+  amux_test.go                Integration tests (~30 tests)
 ```
 
 ### Key Abstractions
 
-**`tmux.Tmux` interface** — Every package accepts this interface, never calls `exec.Command("tmux", ...)` directly. This enables unit testing with mock implementations. `LiveTmux` is the real implementation.
+**Client-server protocol** — Clients send `MsgTypeInput`, `MsgTypeResize`, `MsgTypeCommand`. Server sends `MsgTypePaneOutput` (raw PTY bytes per pane), `MsgTypeLayout` (layout tree snapshot), `MsgTypeRender` (legacy pre-rendered ANSI).
 
-**`@amux_*` pane options** — The metadata namespace:
-- `@amux_name` — display name (e.g., "pane-1", "auth-agent")
-- `@amux_host` — "local" or hostname from config
-- `@amux_task` — issue ID or description
-- `@amux_remote` — remote tmux session name (SSH agents)
-- `@amux_color` — hex color for pane border
-- `@amux_minimized` — "1" when minimized
-- `@amux_restore_h` — saved height before minimize
+**`mux.Window`** — Owns the layout tree (`LayoutCell`) and active pane. All layout operations (split, close, resize, focus) go through Window methods.
 
-**`pane.ResolvePane()`** — Accepts a name string or raw tmux ID (`%N`). All CLI commands route through `resolveOrDie()` in main.go.
+**`mux.LayoutCell`** — Binary tree of splits. Leaves hold panes. Internal nodes hold a split direction and children. `Walk()` for traversal, `FindPane()` for lookup, `FixOffsets()` after structural changes.
 
-**`session.Start()`** — Uses `syscall.Exec` to replace the Go process with tmux. This is intentional — amux is a launcher, not a wrapper process that stays resident.
+**`Window.ResolvePane(ref)`** — Accepts pane name (`pane-1`), numeric ID (`1`), or prefix match. All CLI commands route through this.
+
+**`render.RenderFull()`** — Composites pane content, borders with junction characters, per-pane status lines, and the global session bar into a single ANSI output string.
 
 ### Patterns to Follow
 
-**One package per feature.** Minimize logic in `minimize/`, swap in `swap/`, etc. Each package depends on `tmux.Tmux` interface, not on other feature packages.
+**One package per concern.** Layout logic in `mux/`, rendering in `render/`, server protocol in `server/`. Packages depend on interfaces and shared types (`proto/`), not on each other's internals.
 
-**Test with mock tmux.** Each test file creates a `mockTmux` struct implementing the `tmux.Tmux` interface. Tests never call real tmux. See `minimize/minimize_test.go` for the pattern.
+**Unit tests for layout/rendering logic.** See `layout_test.go`, `window_test.go`, `emulator_test.go`. Use `fakePaneID()` helper to create minimal panes for testing.
 
-**tmux swap-pane doesn't swap user options.** This is a tmux limitation. After `swap-pane`, amux must manually copy all `@amux_*` options between the two panes. The `swap.SwapWithMeta()` function handles this. Any new metadata keys must be added to `tmux.AmuxOptions`.
+**Integration tests for end-to-end behavior.** The harness in `test/harness_test.go` runs amux inside a real tmux session, sends keys via `tmux send-keys`, and asserts on screen content via `tmux capture-pane`. Tests run in ~6s total.
 
-**Guard against impossible states.** Minimize checks that at least one pane stays non-minimized. Restore caps height at available space. These guards prevent the user from getting into an unrecoverable state without needing to drop to raw tmux.
+**Guard against impossible states.** Minimize checks that at least one pane stays non-minimized. Restore caps height at available space. Focus fallback finds nearest pane when strict overlap matching fails.
 
 ## Development
 
 ### Build and Test
 
 ```bash
-go build -o ~/.local/bin/amux .    # build + install
+go build -o ~/.local/bin/amux .    # build + install (client hot-reloads automatically)
 go test ./...                       # run all tests
 ```
 
 ### Testing Live
 
 ```bash
-amux                    # start a session
-# Ctrl-\ to split, then:
-amux list               # verify panes are tagged
-amux output pane-1      # read pane output by name
+amux                    # start a session (or reattach to existing)
+# Ctrl-a \ to split, then:
+amux list               # verify panes
+amux focus pane-3       # focus by name
+amux output pane-1      # read pane output
 amux minimize pane-2    # minimize by name
 amux restore pane-2     # restore
-amux dashboard          # open TUI popup
 ```
+
+### TDD Workflow
+
+All development follows test-driven development: write a failing test first, then implement. The integration test harness makes this fast (~6s for the full suite).
 
 ### Adding a New Feature
 
-1. **Write an integration test first.** Add a test to `integration_test.go` that exercises the feature end-to-end via the tmux harness. The harness runs amux in a real tmux session, sends keys, and asserts on screen content. Tests run in ~10s total — use them freely.
+1. **Write an integration test first.** Add a test to `test/amux_test.go` that exercises the feature end-to-end via the tmux harness. Follow existing test patterns.
 2. Implement the feature.
-3. Verify the integration test passes: `go test -v -run TestYourFeature -timeout 30s`
-4. Add unit tests for complex logic (layout algorithms, protocol encoding, etc.).
+3. Verify the integration test passes: `go test -v -run TestYourFeature ./test/ -timeout 30s`
+4. Add unit tests for complex logic (layout algorithms, rendering, protocol encoding).
 
 ### Fixing a Bug
 
-1. **Write a regression test first.** Add an integration test to `integration_test.go` that reproduces the bug (it should fail before the fix).
+1. **Write a failing regression test first.** Add a test to `test/amux_test.go` that reproduces the bug (it should fail before the fix).
 2. Fix the bug.
-3. Verify the test passes.
+3. Verify the test passes: `go test ./...`
 
-### Adding New Metadata
+### Adding a New CLI Command
 
-1. Add the field to `tmux.PaneFields`
-2. Add the format variable to `ListPanes()` format string
-3. Parse it in the `ListPanes()` loop
-4. Add the key to `tmux.AmuxOptions` (for swap metadata copy)
-5. Expose it in `pane.PaneInfo` if the dashboard needs it
+1. Add the command name to the `switch` in `main.go` (use `runServerCommand()` for server-side commands)
+2. Add the handler in `internal/server/client_conn.go` `handleCommand()` method
+3. Update `printUsage()` in `main.go`
+4. Write integration test in `test/amux_test.go`
+
+### Server Restart vs Client Hot-Reload
+
+The client watches the binary and re-execs itself on changes (`reload.go`). This means rendering changes take effect immediately after `go build`. However, **server-side changes** (protocol, session logic, pane management) require killing the server process:
+
+```bash
+# Find and kill the server
+ps aux | grep 'amux _server'
+kill <PID>
+# Then: amux (starts fresh server with new binary)
+```
+
+Socket location: `/tmp/amux-$UID/<session-name>`
 
 ## Configuration
 
