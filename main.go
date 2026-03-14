@@ -60,25 +60,34 @@ func main() {
 	case "list":
 		runServerCommand("list", nil)
 
-	// --- Not yet migrated ---
 	case "status":
-		fmt.Fprintln(os.Stderr, "amux status: not yet migrated to built-in mux")
-		os.Exit(1)
+		runServerCommand("status", nil)
 	case "output":
-		fmt.Fprintln(os.Stderr, "amux output: not yet migrated to built-in mux")
-		os.Exit(1)
+		if len(os.Args) < 3 {
+			fmt.Fprintln(os.Stderr, "usage: amux output <pane>")
+			os.Exit(1)
+		}
+		runServerCommand("output", []string{os.Args[2]})
 	case "minimize":
-		fmt.Fprintln(os.Stderr, "amux minimize: not yet migrated to built-in mux")
-		os.Exit(1)
+		if len(os.Args) < 3 {
+			fmt.Fprintln(os.Stderr, "usage: amux minimize <pane>")
+			os.Exit(1)
+		}
+		runServerCommand("minimize", []string{os.Args[2]})
 	case "restore":
-		fmt.Fprintln(os.Stderr, "amux restore: not yet migrated to built-in mux")
-		os.Exit(1)
-	case "swap":
-		fmt.Fprintln(os.Stderr, "amux swap: not yet migrated to built-in mux")
-		os.Exit(1)
+		if len(os.Args) < 3 {
+			fmt.Fprintln(os.Stderr, "usage: amux restore <pane>")
+			os.Exit(1)
+		}
+		runServerCommand("restore", []string{os.Args[2]})
+	case "kill":
+		if len(os.Args) < 3 {
+			fmt.Fprintln(os.Stderr, "usage: amux kill <pane>")
+			os.Exit(1)
+		}
+		runServerCommand("kill", []string{os.Args[2]})
 	case "spawn":
-		fmt.Fprintln(os.Stderr, "amux spawn: not yet migrated to built-in mux")
-		os.Exit(1)
+		runServerCommand("spawn", os.Args[2:])
 	case "dashboard":
 		fmt.Fprintln(os.Stderr, "amux dashboard: not yet migrated to built-in mux")
 		os.Exit(1)
@@ -106,15 +115,29 @@ func parseAttachArgs(args []string) (sessionName string, detachOthers bool) {
 }
 
 func printUsage() {
-	fmt.Println(`amux — Agent-Centric Terminal Multiplexer (built-in)
+	fmt.Println(`amux — Agent-Centric Terminal Multiplexer
 
 Usage:
   amux                              Start or attach to amux session
   amux attach [session]             Attach to a session
   amux new [name]                   Start a new named session
   amux list                         List panes with metadata
+  amux status                       Show pane summary
+  amux output <pane>                Show last 50 lines of pane output
+  amux spawn --name NAME [--task T] Spawn a new agent pane
+  amux minimize <pane>              Minimize a pane
+  amux restore <pane>               Restore a minimized pane
+  amux kill <pane>                  Kill a pane
+
+Panes can be referenced by name (pane-1) or ID (1).
 
 Inside an amux session:
+  Ctrl-a \                          Split active pane left/right
+  Ctrl-a -                          Split active pane top/bottom
+  Ctrl-a |                          Root-level split left/right
+  Ctrl-a _                          Root-level split top/bottom
+  Ctrl-a o                          Cycle focus to next pane
+  Ctrl-a h/j/k/l                    Focus left/down/up/right
   Ctrl-a d                          Detach from session
   Ctrl-a Ctrl-a                     Send literal Ctrl-a`)
 }
@@ -281,6 +304,12 @@ func runMux(sessionName string) error {
 					case '\\':
 						// Ctrl-a \ → vertical split (left/right)
 						sendCommand(conn, "split", nil)
+					case '|':
+						// Ctrl-a | → root-level vertical split
+						sendCommand(conn, "split", []string{"root"})
+					case '_':
+						// Ctrl-a _ → root-level horizontal split
+						sendCommand(conn, "split", []string{"root", "v"})
 					case 'o':
 						// Ctrl-a o → cycle to next pane
 						sendCommand(conn, "focus", []string{"next"})

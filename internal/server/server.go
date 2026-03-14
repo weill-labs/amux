@@ -78,6 +78,15 @@ func (s *Session) createPane(srv *Server, cols, rows int) (*mux.Pane, error) {
 		Host:  "local",
 		Color: paneAccents[(s.counter-1)%uint32(len(paneAccents))],
 	}
+	return s.createPaneWithMeta(srv, meta, cols, rows)
+}
+
+// createPaneWithMeta creates a new pane with explicit metadata (for spawn).
+func (s *Session) createPaneWithMeta(srv *Server, meta mux.PaneMeta, cols, rows int) (*mux.Pane, error) {
+	s.counter++
+	if meta.Color == "" {
+		meta.Color = paneAccents[(s.counter-1)%uint32(len(paneAccents))]
+	}
 
 	pane, err := mux.NewPane(s.counter, meta, cols, rows,
 		func(paneID uint32, data []byte) {
@@ -250,14 +259,16 @@ func (s *Server) handleAttach(conn net.Conn, msg *Message) {
 
 	// Create the first pane and window if none exist
 	if sess.Window == nil {
-		pane, err := sess.createPane(s, cols, rows)
+		sess.compositor = render.NewCompositor(cols, rows, sess.Name)
+		layoutH := sess.compositor.LayoutHeight()
+		paneH := render.PaneContentHeight(layoutH)
+		pane, err := sess.createPane(s, cols, paneH)
 		if err != nil {
 			sess.mu.Unlock()
 			conn.Close()
 			return
 		}
-		sess.Window = mux.NewWindow(pane, cols, rows)
-		sess.compositor = render.NewCompositor(cols, rows)
+		sess.Window = mux.NewWindow(pane, cols, layoutH)
 	}
 
 	// Send current screen state to the new client (enables reattach)

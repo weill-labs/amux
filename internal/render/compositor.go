@@ -9,13 +9,14 @@ import (
 
 // Compositor composes pane content into terminal output.
 type Compositor struct {
-	width  int
-	height int
+	width       int
+	height      int
+	sessionName string
 }
 
 // NewCompositor creates a compositor for the given terminal dimensions.
-func NewCompositor(width, height int) *Compositor {
-	return &Compositor{width: width, height: height}
+func NewCompositor(width, height int, sessionName string) *Compositor {
+	return &Compositor{width: width, height: height, sessionName: sessionName}
 }
 
 // Resize updates the compositor's terminal dimensions.
@@ -24,13 +25,28 @@ func (c *Compositor) Resize(width, height int) {
 	c.height = height
 }
 
+// LayoutHeight returns the height available for the layout tree
+// (terminal height minus the global status bar).
+func (c *Compositor) LayoutHeight() int {
+	return c.height - GlobalBarHeight
+}
+
+// PaneContentHeight returns the height available for pane content
+// within a layout cell (cell height minus the per-pane status line).
+func PaneContentHeight(cellH int) int {
+	h := cellH - PaneStatusHeight
+	if h < 1 {
+		h = 1
+	}
+	return h
+}
+
 // ClearScreen returns ANSI sequences to clear the screen and home the cursor.
 func ClearScreen() []byte {
 	return []byte("\033[2J\033[H")
 }
 
-// RenderFull composes all panes and borders into a single ANSI output.
-// Each pane's content comes from its emulator's Render().
+// RenderFull composes all panes, status lines, and borders into ANSI output.
 func (c *Compositor) RenderFull(root *mux.LayoutCell, activePane *mux.Pane) []byte {
 	var buf strings.Builder
 
@@ -39,11 +55,22 @@ func (c *Compositor) RenderFull(root *mux.LayoutCell, activePane *mux.Pane) []by
 	// Clear screen
 	buf.WriteString("\033[2J")
 
-	// Render each pane's content at its position
+	// Count panes for global bar
+	paneCount := 0
+
+	// Render each pane's status line and content
 	root.Walk(func(cell *mux.LayoutCell) {
 		if cell.Pane == nil {
 			return
 		}
+		paneCount++
+
+		isActive := activePane != nil && activePane.ID == cell.Pane.ID
+
+		// Per-pane status line
+		renderPaneStatus(&buf, cell, isActive)
+
+		// Pane content (shifted down by PaneStatusHeight)
 		rendered := cell.Pane.RenderScreen()
 		c.blitPane(&buf, cell, rendered)
 	})
@@ -51,13 +78,18 @@ func (c *Compositor) RenderFull(root *mux.LayoutCell, activePane *mux.Pane) []by
 	// Draw borders between panes
 	c.drawBorders(&buf, root, activePane)
 
+	// Global status bar at bottom
+	renderGlobalBar(&buf, c.sessionName, paneCount, c.width, c.height-1)
+
 	// Restore cursor to active pane's cursor position
 	if activePane != nil {
 		cell := root.FindPane(activePane.ID)
 		if cell != nil {
 			col, row := activePane.CursorPos()
-			// Convert pane-local cursor to absolute terminal position (1-indexed)
-			buf.WriteString(fmt.Sprintf("\033[%d;%dH", cell.Y+row+1, cell.X+col+1))
+			// Offset by PaneStatusHeight for the status line
+			absRow := cell.Y + PaneStatusHeight + row + 1
+			absCol := cell.X + col + 1
+			buf.WriteString(fmt.Sprintf("\033[%d;%dH", absRow, absCol))
 		}
 	}
 
@@ -67,17 +99,18 @@ func (c *Compositor) RenderFull(root *mux.LayoutCell, activePane *mux.Pane) []by
 	return []byte(buf.String())
 }
 
-// blitPane writes a pane's rendered content at its layout position.
+// blitPane writes a pane's rendered content below its status line.
 func (c *Compositor) blitPane(buf *strings.Builder, cell *mux.LayoutCell, rendered string) {
 	lines := strings.Split(rendered, "\n")
+	contentH := PaneContentHeight(cell.H)
 
 	for i, line := range lines {
-		if i >= cell.H {
+		if i >= contentH {
 			break
 		}
-		// Move cursor to pane position (1-indexed)
-		buf.WriteString(fmt.Sprintf("\033[%d;%dH", cell.Y+i+1, cell.X+1))
-		// Truncate line to pane width (crude but works for Phase 2)
+		// Shift down by PaneStatusHeight for the status line
+		row := cell.Y + PaneStatusHeight + i + 1
+		buf.WriteString(fmt.Sprintf("\033[%d;%dH", row, cell.X+1))
 		if len(line) > 0 {
 			buf.WriteString(line)
 		}
@@ -99,17 +132,14 @@ func (c *Compositor) drawBordersRecursive(buf *strings.Builder, cell *mux.Layout
 		child := children[i]
 
 		if cell.Dir == mux.SplitHorizontal {
-			// Vertical border line: at x = child.X + child.W, spanning child.Y to child.Y + cell.H - 1
 			borderX := child.X + child.W
 			c.drawVerticalBorder(buf, borderX, cell.Y, cell.H, cell, activePane)
 		} else {
-			// Horizontal border line: at y = child.Y + child.H, spanning child.X to child.X + cell.W - 1
 			borderY := child.Y + child.H
 			c.drawHorizontalBorder(buf, borderY, cell.X, cell.W, cell, activePane)
 		}
 	}
 
-	// Recurse into children
 	for _, child := range children {
 		c.drawBordersRecursive(buf, child, activePane)
 	}
@@ -122,7 +152,7 @@ func (c *Compositor) drawVerticalBorder(buf *strings.Builder, x, y, h int, paren
 		buf.WriteString(color)
 		buf.WriteString("│")
 	}
-	buf.WriteString("\033[0m") // reset
+	buf.WriteString("\033[0m")
 }
 
 func (c *Compositor) drawHorizontalBorder(buf *strings.Builder, y, x, w int, parent *mux.LayoutCell, activePane *mux.Pane) {
@@ -135,25 +165,31 @@ func (c *Compositor) drawHorizontalBorder(buf *strings.Builder, y, x, w int, par
 	buf.WriteString("\033[0m")
 }
 
-// borderColor returns an ANSI color escape for the border adjacent to the
-// active pane. Active pane borders are bright, others are dim.
+// borderColor returns the active pane's color if the active pane is
+// anywhere under this parent, otherwise dim gray.
 func borderColor(parent *mux.LayoutCell, activePane *mux.Pane) string {
 	if activePane == nil {
-		return "\033[38;5;240m" // dim gray
+		return "\033[38;5;240m"
 	}
-
-	// Check if the active pane is a direct child of this parent
-	for _, child := range parent.Children {
-		if child.IsLeaf() && child.Pane != nil && child.Pane.ID == activePane.ID {
-			// Active pane's color
-			color := activePane.Meta.Color
-			if color != "" {
-				return hexToANSI(color)
-			}
-			return "\033[38;5;75m" // bright blue default
+	if containsPane(parent, activePane.ID) {
+		color := activePane.Meta.Color
+		if color != "" {
+			return hexToANSI(color)
 		}
+		return "\033[38;5;75m"
 	}
-	return "\033[38;5;240m" // dim gray
+	return "\033[38;5;240m"
+}
+
+// containsPane returns true if the cell or any descendant contains the pane.
+func containsPane(cell *mux.LayoutCell, paneID uint32) bool {
+	found := false
+	cell.Walk(func(c *mux.LayoutCell) {
+		if c.Pane != nil && c.Pane.ID == paneID {
+			found = true
+		}
+	})
+	return found
 }
 
 // hexToANSI converts a 6-digit hex color to an ANSI truecolor escape.

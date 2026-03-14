@@ -4,6 +4,8 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"regexp"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -19,6 +21,7 @@ type PaneMeta struct {
 	Remote    string
 	Color     string
 	Minimized bool
+	RestoreH  int // saved height before minimize
 }
 
 // Pane manages a PTY, its terminal emulator, and metadata.
@@ -151,6 +154,29 @@ func (p *Pane) RenderScreen() string {
 // CursorPos returns the cursor position within this pane (0-indexed).
 func (p *Pane) CursorPos() (col, row int) {
 	return p.emulator.CursorPosition()
+}
+
+// Output returns the last N lines of visible pane content from the emulator.
+func (p *Pane) Output(lines int) string {
+	rendered := p.emulator.Render()
+	all := strings.Split(rendered, "\n")
+	// Take last N non-empty lines
+	var result []string
+	for i := len(all) - 1; i >= 0 && len(result) < lines; i-- {
+		trimmed := strings.TrimRight(all[i], " ")
+		// Strip ANSI escapes for plain text output
+		plain := stripANSI(trimmed)
+		if plain != "" {
+			result = append([]string{plain}, result...)
+		}
+	}
+	return strings.Join(result, "\n")
+}
+
+var ansiRe = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]|\x1b\][^\x07]*\x07|\x1b[()][0-9A-B]`)
+
+func stripANSI(s string) string {
+	return ansiRe.ReplaceAllString(s, "")
 }
 
 // Close terminates the pane's shell and PTY.

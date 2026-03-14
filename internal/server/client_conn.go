@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/weill-labs/amux/internal/mux"
+	"github.com/weill-labs/amux/internal/render"
 )
 
 // ClientConn manages a single client connection to the server.
@@ -64,8 +65,8 @@ func (cc *ClientConn) readLoop(srv *Server, sess *Session) {
 		case MsgTypeResize:
 			sess.mu.Lock()
 			if sess.Window != nil {
-				sess.Window.Resize(msg.Cols, msg.Rows)
 				sess.compositor.Resize(msg.Cols, msg.Rows)
+				sess.Window.Resize(msg.Cols, sess.compositor.LayoutHeight())
 			}
 			sess.mu.Unlock()
 			sess.renderAndBroadcast()
@@ -103,9 +104,15 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: output})
 
 	case "split":
+		rootLevel := false
 		dir := mux.SplitHorizontal
-		if len(msg.CmdArgs) > 0 && msg.CmdArgs[0] == "v" {
-			dir = mux.SplitVertical
+		for _, arg := range msg.CmdArgs {
+			switch arg {
+			case "v":
+				dir = mux.SplitVertical
+			case "root":
+				rootLevel = true
+			}
 		}
 
 		sess.mu.Lock()
@@ -115,22 +122,20 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 			return
 		}
 
-		// Create new pane sized to the active cell (will be resized by Split)
-		cell := sess.Window.Root.FindPane(sess.Window.ActivePane.ID)
-		if cell == nil {
-			sess.mu.Unlock()
-			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "active pane not found"})
-			return
-		}
-
-		newPane, err := sess.createPane(srv, cell.W, cell.H)
+		// Initial PTY size (will be resized by Split/SplitRoot)
+		initW, initH := sess.Window.Width, sess.Window.Height
+		newPane, err := sess.createPane(srv, initW, render.PaneContentHeight(initH))
 		if err != nil {
 			sess.mu.Unlock()
 			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: err.Error()})
 			return
 		}
 
-		_, err = sess.Window.Split(dir, newPane)
+		if rootLevel {
+			_, err = sess.Window.SplitRoot(dir, newPane)
+		} else {
+			_, err = sess.Window.Split(dir, newPane)
+		}
 		if err != nil {
 			sess.mu.Unlock()
 			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: err.Error()})
@@ -157,6 +162,178 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 		sess.mu.Unlock()
 
 		sess.renderAndBroadcast()
+
+	case "output":
+		if len(msg.CmdArgs) < 1 {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "usage: output <pane>"})
+			return
+		}
+		sess.mu.Lock()
+		if sess.Window == nil {
+			sess.mu.Unlock()
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "no session"})
+			return
+		}
+		pane := sess.Window.ResolvePane(msg.CmdArgs[0])
+		if pane == nil {
+			sess.mu.Unlock()
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("pane %q not found", msg.CmdArgs[0])})
+			return
+		}
+		out := pane.Output(50)
+		sess.mu.Unlock()
+		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: out + "\n"})
+
+	case "spawn":
+		// Parse: spawn --name NAME [--host HOST] [--task TASK]
+		meta := mux.PaneMeta{Host: "local"}
+		for i := 0; i < len(msg.CmdArgs)-1; i += 2 {
+			switch msg.CmdArgs[i] {
+			case "--name":
+				meta.Name = msg.CmdArgs[i+1]
+			case "--host":
+				meta.Host = msg.CmdArgs[i+1]
+			case "--task":
+				meta.Task = msg.CmdArgs[i+1]
+			case "--color":
+				meta.Color = msg.CmdArgs[i+1]
+			}
+		}
+		if meta.Name == "" {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "--name is required"})
+			return
+		}
+
+		sess.mu.Lock()
+		if sess.Window == nil {
+			sess.mu.Unlock()
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "no session"})
+			return
+		}
+
+		initW, initH := sess.Window.Width, sess.Window.Height
+		pane, err := sess.createPaneWithMeta(srv, meta, initW, render.PaneContentHeight(initH))
+		if err != nil {
+			sess.mu.Unlock()
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: err.Error()})
+			return
+		}
+
+		_, err = sess.Window.Split(mux.SplitHorizontal, pane)
+		if err != nil {
+			sess.mu.Unlock()
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: err.Error()})
+			return
+		}
+		sess.mu.Unlock()
+
+		sess.renderAndBroadcast()
+		cc.Send(&Message{Type: MsgTypeCmdResult,
+			CmdOutput: fmt.Sprintf("Spawned %s in pane %d\n", meta.Name, pane.ID)})
+
+	case "minimize":
+		if len(msg.CmdArgs) < 1 {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "usage: minimize <pane>"})
+			return
+		}
+		sess.mu.Lock()
+		if sess.Window == nil {
+			sess.mu.Unlock()
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "no session"})
+			return
+		}
+		pane := sess.Window.ResolvePane(msg.CmdArgs[0])
+		if pane == nil {
+			sess.mu.Unlock()
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("pane %q not found", msg.CmdArgs[0])})
+			return
+		}
+		err := sess.Window.Minimize(pane.ID)
+		sess.mu.Unlock()
+		if err != nil {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: err.Error()})
+			return
+		}
+		sess.renderAndBroadcast()
+		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: fmt.Sprintf("Minimized %s\n", pane.Meta.Name)})
+
+	case "restore":
+		if len(msg.CmdArgs) < 1 {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "usage: restore <pane>"})
+			return
+		}
+		sess.mu.Lock()
+		if sess.Window == nil {
+			sess.mu.Unlock()
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "no session"})
+			return
+		}
+		pane := sess.Window.ResolvePane(msg.CmdArgs[0])
+		if pane == nil {
+			sess.mu.Unlock()
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("pane %q not found", msg.CmdArgs[0])})
+			return
+		}
+		err := sess.Window.Restore(pane.ID)
+		sess.mu.Unlock()
+		if err != nil {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: err.Error()})
+			return
+		}
+		sess.renderAndBroadcast()
+		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: fmt.Sprintf("Restored %s\n", pane.Meta.Name)})
+
+	case "kill":
+		if len(msg.CmdArgs) < 1 {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "usage: kill <pane>"})
+			return
+		}
+		sess.mu.Lock()
+		if sess.Window == nil {
+			sess.mu.Unlock()
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "no session"})
+			return
+		}
+		pane := sess.Window.ResolvePane(msg.CmdArgs[0])
+		if pane == nil {
+			sess.mu.Unlock()
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("pane %q not found", msg.CmdArgs[0])})
+			return
+		}
+		if len(sess.Panes) <= 1 {
+			sess.mu.Unlock()
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "cannot kill last pane"})
+			return
+		}
+		paneID := pane.ID
+		paneName := pane.Meta.Name
+		pane.Close()
+		// Remove from pane list
+		for i, p := range sess.Panes {
+			if p.ID == paneID {
+				sess.Panes = append(sess.Panes[:i], sess.Panes[i+1:]...)
+				break
+			}
+		}
+		sess.Window.ClosePane(paneID)
+		sess.mu.Unlock()
+
+		sess.renderAndBroadcast()
+		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: fmt.Sprintf("Killed %s\n", paneName)})
+
+	case "status":
+		sess.mu.Lock()
+		total := len(sess.Panes)
+		minimized := 0
+		for _, p := range sess.Panes {
+			if p.Meta.Minimized {
+				minimized++
+			}
+		}
+		sess.mu.Unlock()
+		active := total - minimized
+		cc.Send(&Message{Type: MsgTypeCmdResult,
+			CmdOutput: fmt.Sprintf("panes: %d total, %d active, %d minimized\n", total, active, minimized)})
 
 	default:
 		cc.Send(&Message{Type: MsgTypeCmdResult,
