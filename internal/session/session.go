@@ -86,47 +86,92 @@ func firstPane(sessionName string) string {
 
 // configure sets up amux-specific keybindings, hooks, and status bar on a session.
 func configure(sessionName string) {
-	target := func(args ...string) {
-		fullArgs := append([]string{"-t", sessionName}, args...)
-		// We need to prepend the tmux subcommand
-		_ = fullArgs // used below
+	amuxBin := amuxPath()
+	opt := func(key, val string) {
+		tmuxCmd("set-option", "-t", sessionName, key, val)
 	}
-	_ = target // not used directly, we use tmuxCmd
+
+	// --- Prefix ---
+	// amux owns C-a as prefix; raw tmux sessions keep default C-b.
+	// C-a C-a sends literal C-a to the shell (readline beginning-of-line).
+	opt("prefix", "C-a")
+	tmuxCmd("bind-key", "C-a", "send-prefix")
+
+	// --- Agent optimizations ---
+	// Large scrollback so `amux output` can read agent history
+	opt("history-limit", "50000")
+
+	// OSC 52 clipboard — makes copy work over SSH and nested tmux.
+	// These are server/global options, safe to set globally.
+	tmuxCmd("set-option", "-g", "set-clipboard", "on")
+	tmuxCmd("set-option", "-g", "allow-passthrough", "on")
 
 	// --- Keybindings ---
-	// Ctrl-\ → vertical split + auto-tag new pane
+	// Note: tmux keybindings are global (no per-session scoping), but they're
+	// effectively unreachable from non-amux sessions which use a different prefix.
+
+	// Ctrl-\ → vertical split (inherits current directory)
 	tmuxCmd("bind-key", "-T", "root", `C-\`,
 		"split-window", "-h", "-c", "#{pane_current_path}")
 
-	// Ctrl-a - → horizontal split + auto-tag new pane (matches tmux pain-control)
-	// These use the global prefix table, which is fine since amux sessions
-	// inherit the user's tmux config.
+	// Standard splits/windows inherit current directory
+	tmuxCmd("bind-key", `"`, "split-window", "-c", "#{pane_current_path}")
+	tmuxCmd("bind-key", "%", "split-window", "-h", "-c", "#{pane_current_path}")
+	tmuxCmd("bind-key", "c", "new-window", "-c", "#{pane_current_path}")
+
+	// prefix+g → dashboard popup (direct shortcut)
+	tmuxCmd("bind-key", "g",
+		"display-popup", "-E", "-w", "80%", "-h", "80%",
+		fmt.Sprintf("%s dashboard", amuxBin))
+
+	// prefix+a → enter amux keytable for single-key dispatch
+	tmuxCmd("bind-key", "a", "switch-client", "-T", "amux")
+
+	// amux keytable: prefix+a then one of these keys
+	tmuxCmd("bind-key", "-T", "amux", "g",
+		"display-popup", "-E", "-w", "80%", "-h", "80%",
+		fmt.Sprintf("%s dashboard", amuxBin))
+	tmuxCmd("bind-key", "-T", "amux", "m",
+		"run-shell", fmt.Sprintf("%s minimize #{pane_id}", amuxBin))
+	tmuxCmd("bind-key", "-T", "amux", "r",
+		"run-shell", fmt.Sprintf("%s restore #{pane_id}", amuxBin))
+	tmuxCmd("bind-key", "-T", "amux", "s",
+		"display-popup", "-E", "-w", "60%", "-h", "40%",
+		fmt.Sprintf("%s spawn -i", amuxBin))
+	tmuxCmd("bind-key", "-T", "amux", "l",
+		"display-popup", "-E", "-w", "60%", "-h", "40%",
+		fmt.Sprintf("%s list", amuxBin))
 
 	// --- Hooks ---
 	// After any split, auto-tag the new pane with amux metadata.
 	// #{pane_id} in hook context refers to the newly created pane.
-	amuxBin := amuxPath()
 	tmuxCmd("set-hook", "-t", sessionName, "after-split-window",
 		fmt.Sprintf("run-shell '%s _init-pane %s #{pane_id}'", amuxBin, sessionName))
 
+	// Mouse tracking reset on reattach — fixes stale SGR mouse reports
+	// after SSH disconnect while a TUI had mouse tracking enabled.
+	tmuxCmd("set-hook", "-t", sessionName, "client-attached",
+		`run-shell "tmux set -g mouse off && tmux set -g mouse on"`)
+
 	// --- Status bar ---
 	// Left: session name with amux branding
-	tmuxCmd("set-option", "-t", sessionName, "status-left",
-		" #[bold]amux#[nobold] | #S ")
-	tmuxCmd("set-option", "-t", sessionName, "status-left-length", "30")
+	opt("status-left", " #[bold]amux#[nobold] | #S ")
+	opt("status-left-length", "30")
 
 	// Right: pane count + host + time
-	tmuxCmd("set-option", "-t", sessionName, "status-right",
-		" #{window_panes} panes | #h | %H:%M ")
-	tmuxCmd("set-option", "-t", sessionName, "status-right-length", "40")
+	opt("status-right", " #{window_panes} panes | #h | %H:%M ")
+	opt("status-right-length", "40")
 
-	// Status bar style — subtle dark
-	tmuxCmd("set-option", "-t", sessionName, "status-style", "bg=#313244,fg=#cdd6f4")
+	// Status bar style — subtle dark (Catppuccin Mocha surface0/text)
+	opt("status-style", "bg=#313244,fg=#cdd6f4")
 
-	// Pane border — show amux name if set, otherwise dir/branch
-	tmuxCmd("set-option", "-t", sessionName, "pane-border-status", "top")
-	tmuxCmd("set-option", "-t", sessionName, "pane-border-format",
-		"#{?#{@amux_name}, #{pane_id}: #[bold]#{?#{@amux_color},#[fg=#{s/^/#/:@amux_color}],}[#{@amux_name}]#[default] #{@amux_task}, #{pane_id}: #{pane_current_path}}")
+	// Pane border — show amux name+task if set, otherwise dir/branch
+	opt("pane-border-status", "top")
+	opt("pane-border-format",
+		"#{?#{@amux_name},"+
+			" #{pane_id}: #[bold]#{?#{@amux_color},#[fg=#{s/^/#/:@amux_color}],}"+
+			"[#{@amux_name}]#[default] #{@amux_task},"+
+			" #{pane_id}: #[bold,fg=#89b4fa]#{@pane_dir}#[nobold,fg=#f9e2af]#{@pane_branch}#[default]} ")
 }
 
 // initPane sets default amux metadata on a pane.
