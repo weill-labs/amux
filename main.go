@@ -206,15 +206,16 @@ func runMux(sessionName string) error {
 		return fmt.Errorf("sending attach: %w", err)
 	}
 
-	// Enter raw mode
+	// Enter raw mode + alternate screen buffer
 	oldState, err := term.MakeRaw(fd)
 	if err != nil {
 		return fmt.Errorf("raw mode: %w", err)
 	}
+	os.Stdout.Write([]byte("\033[?1049h")) // enter alt screen
 	defer func() {
+		os.Stdout.Write([]byte("\033[?1049l")) // exit alt screen (restores previous content)
+		os.Stdout.Write([]byte("\033]0;\007")) // reset title
 		term.Restore(fd, oldState)
-		// Reset terminal title on detach
-		os.Stdout.Write([]byte("\033]0;\007"))
 	}()
 
 	// Forward SIGWINCH to server
