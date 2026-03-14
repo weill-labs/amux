@@ -61,7 +61,9 @@ func (m *mockTmux) SendKeys(paneID string, keys ...string) error {
 }
 func (m *mockTmux) CurrentSession() string                                { return "main" }
 func (m *mockTmux) RemoteSessionAlive(user, host, session string) bool    { return false }
-func (m *mockTmux) WindowPanes(paneID string) ([]string, error)          { return []string{paneID}, nil }
+func (m *mockTmux) WindowPanes(paneID string) ([]string, error) { return []string{paneID}, nil }
+func (m *mockTmux) JoinPane(src, dst string) error                          { return nil }
+func (m *mockTmux) SessionWindowPanes(sessionWindow string) ([]string, error) { return nil, nil }
 
 func TestDiscover(t *testing.T) {
 	mt := newMockTmux()

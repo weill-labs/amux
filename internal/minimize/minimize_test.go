@@ -68,6 +68,8 @@ func (m *mockTmux) WindowPanes(paneID string) ([]string, error) {
 	}
 	return []string{paneID}, nil
 }
+func (m *mockTmux) JoinPane(src, dst string) error                          { return nil }
+func (m *mockTmux) SessionWindowPanes(sessionWindow string) ([]string, error) { return nil, nil }
 
 func TestMinimize(t *testing.T) {
 	mt := newMock()

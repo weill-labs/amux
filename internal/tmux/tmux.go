@@ -55,6 +55,12 @@ type Tmux interface {
 
 	// WindowPanes returns pane IDs in the same window as the given pane.
 	WindowPanes(paneID string) ([]string, error)
+
+	// JoinPane moves src pane to be adjacent to dst pane (in dst's window).
+	JoinPane(src, dst string) error
+
+	// SessionWindowPanes returns pane IDs in a specific session:window.
+	SessionWindowPanes(sessionWindow string) ([]string, error)
 }
 
 // PaneFields holds raw tmux fields for a single pane.
@@ -246,6 +252,24 @@ func (t *LiveTmux) WindowPanes(paneID string) ([]string, error) {
 		return nil, err
 	}
 
+	var panes []string
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if line != "" {
+			panes = append(panes, line)
+		}
+	}
+	return panes, nil
+}
+
+func (t *LiveTmux) JoinPane(src, dst string) error {
+	return exec.Command("tmux", "join-pane", "-s", src, "-t", dst).Run()
+}
+
+func (t *LiveTmux) SessionWindowPanes(sessionWindow string) ([]string, error) {
+	out, err := exec.Command("tmux", "list-panes", "-t", sessionWindow, "-F", "#{pane_id}").Output()
+	if err != nil {
+		return nil, err
+	}
 	var panes []string
 	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
 		if line != "" {
