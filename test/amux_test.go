@@ -595,3 +595,35 @@ func TestFiveRootVerticalSplits(t *testing.T) {
 		t.Errorf("expected 4 vertical borders on first row, got %d\nRow 0: %s", borderCount, row0)
 	}
 }
+
+func TestMultipleNonRootSplitsEqualWidth(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// Split active pane 3 times (4 panes total, all side by side)
+	for i := 0; i < 3; i++ {
+		h.sendKeys("C-a", "\\")
+		h.waitFor(fmt.Sprintf("[pane-%d]", i+2), 3*time.Second)
+	}
+
+	// All 4 pane names should be on the same row
+	lines := h.contentLines()
+	row0 := lines[0]
+	for i := 1; i <= 4; i++ {
+		name := fmt.Sprintf("[pane-%d]", i)
+		if !strings.Contains(row0, name) {
+			t.Errorf("%s not on first row\nRow 0: %s", name, row0)
+		}
+	}
+
+	// 3 vertical borders
+	borderCount := 0
+	for _, r := range []rune(row0) {
+		if r == '│' {
+			borderCount++
+		}
+	}
+	if borderCount != 3 {
+		t.Errorf("expected 3 vertical borders, got %d\nRow 0: %s", borderCount, row0)
+	}
+}
