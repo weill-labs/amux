@@ -1,5 +1,3 @@
-// TODO(LAB-83): Make integration tests parallelizable by giving each test
-// its own amux session name and socket path.
 package test
 
 import (
@@ -45,18 +43,18 @@ func TestMain(m *testing.M) {
 
 type TmuxHarness struct {
 	t       *testing.T
-	session string
+	session string // unique per-test session name (tmux + amux)
 }
 
-// newHarness creates a tmux session with a shell, runs amux inside it,
-// and waits for amux to start. The shell survives amux detach.
+// newHarness creates a tmux session with a shell, runs amux with a unique
+// session name, and waits for it to start. Safe for parallel tests.
 func newHarness(t *testing.T) *TmuxHarness {
 	t.Helper()
-	session := fmt.Sprintf("amux-test-%d", time.Now().UnixNano()%100000)
+	session := fmt.Sprintf("t-%d", time.Now().UnixNano()%1000000)
 
 	h := &TmuxHarness{t: t, session: session}
 
-	// Start tmux session with a shell (not amux directly)
+	// Start tmux session with a shell
 	cmd := exec.Command("tmux", "new-session", "-d", "-s", session,
 		"-x", "80", "-y", "24")
 	if out, err := cmd.CombinedOutput(); err != nil {
@@ -65,8 +63,8 @@ func newHarness(t *testing.T) *TmuxHarness {
 
 	t.Cleanup(h.cleanup)
 
-	// Launch amux
-	h.sendKeys(amuxBin, "Enter")
+	// Launch amux with this test's unique session name (-s flag)
+	h.sendKeys(amuxBin, " -s ", session, "Enter")
 
 	// Wait for amux to start (status bar should appear)
 	if !h.waitFor("[pane-", 8*time.Second) {
@@ -77,19 +75,18 @@ func newHarness(t *testing.T) *TmuxHarness {
 	return h
 }
 
-// cleanup kills the tmux session and the amux server.
+// cleanup kills the tmux session and its amux server.
 func (h *TmuxHarness) cleanup() {
-	// Detach first (so amux server stays running for cleanup)
 	exec.Command("tmux", "send-keys", "-t", h.session, "C-a", "d").Run()
 	time.Sleep(200 * time.Millisecond)
 	exec.Command("tmux", "kill-session", "-t", h.session).Run()
-	exec.Command("pkill", "-f", "amux _server").Run()
-	exec.Command("rm", "-f", fmt.Sprintf("/tmp/amux-%d/default", os.Getuid())).Run()
-	time.Sleep(200 * time.Millisecond)
+	// Kill only this test's server
+	exec.Command("pkill", "-f", fmt.Sprintf("amux _server %s", h.session)).Run()
+	exec.Command("rm", "-f", fmt.Sprintf("/tmp/amux-%d/%s", os.Getuid(), h.session)).Run()
+	time.Sleep(100 * time.Millisecond)
 }
 
-// sendKeys sends keystrokes to the tmux session. Each argument is passed as
-// a separate tmux send-keys argument. Use tmux key names like "C-a" for Ctrl-a.
+// sendKeys sends keystrokes to the tmux session.
 func (h *TmuxHarness) sendKeys(keys ...string) {
 	h.t.Helper()
 	args := append([]string{"send-keys", "-t", h.session}, keys...)
@@ -142,10 +139,10 @@ func (h *TmuxHarness) assertScreen(msg string, fn func(string) bool) {
 	}
 }
 
-// runCmd runs an amux CLI command (e.g., "list") and returns its output.
+// runCmd runs an amux CLI command targeting this test's session.
 func (h *TmuxHarness) runCmd(args ...string) string {
 	h.t.Helper()
-	cmdArgs := append([]string{}, args...)
+	cmdArgs := append([]string{"-s", h.session}, args...)
 	out, err := exec.Command(amuxBin, cmdArgs...).CombinedOutput()
 	if err != nil {
 		return string(out)
