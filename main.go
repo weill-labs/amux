@@ -143,11 +143,13 @@ Usage:
 
 Panes can be referenced by name (pane-3) or tmux ID (%40).
 
-Inside an amux session:
+Inside an amux session (prefix is Ctrl-a):
   Ctrl-\                            Split pane vertically (new shell)
-  Ctrl-a g                          Open dashboard popup
-  Ctrl-a a m                        Minimize current pane
-  Ctrl-a a r                        Restore current pane
+  prefix g                          Open dashboard popup
+  prefix a m                        Minimize current pane
+  prefix a r                        Restore current pane
+  prefix a s                        Spawn agent (interactive)
+  prefix a l                        List agent panes
 
 Spawn flags:
   --name NAME          Agent display name (required)
