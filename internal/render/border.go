@@ -158,7 +158,7 @@ func renderBorders(buf *strings.Builder, bm *borderMap, root *mux.LayoutCell, ac
 			}
 			var color string
 			if neighbors >= 3 {
-				color = borderColorAtJunction(bc.left, bc.right, activePaneID, activeColor)
+				color = borderColorAtJunction(bc.left, bc.right, x, y, activePaneID, activeColor)
 			} else {
 				color = borderColorAt(bc.left, bc.right, x, y, activePaneID, activeColor)
 			}
@@ -208,14 +208,23 @@ func borderColorAt(a, b *mux.LayoutCell, x, y int, activePaneID uint32, activeCo
 	return DimFg
 }
 
-// borderColorAtJunction uses subtree search for junction cells where
-// position-based lookup fails (the junction is at a corner between 3+ panes).
-func borderColorAtJunction(a, b *mux.LayoutCell, activePaneID uint32, activeColor string) string {
+// borderColorAtJunction checks only the directly adjacent leaf panes at a
+// junction position rather than searching entire subtrees. This prevents
+// coloring junctions that are not adjacent to the active pane.
+func borderColorAtJunction(a, b *mux.LayoutCell, x, y int, activePaneID uint32, activeColor string) string {
 	if activePaneID == 0 {
 		return DimFg
 	}
-	if a.FindByPaneID(activePaneID) != nil || b.FindByPaneID(activePaneID) != nil {
-		return activeColor
+	// Check leaves adjacent to the junction in all 4 directions.
+	for _, off := range [][2]int{{-1, 0}, {1, 0}, {0, -1}, {0, 1}} {
+		nx, ny := x+off[0], y+off[1]
+		leaf := findLeafByAxis(a, nx, ny)
+		if leaf == nil {
+			leaf = findLeafByAxis(b, nx, ny)
+		}
+		if leaf != nil && leaf.CellPaneID() == activePaneID {
+			return activeColor
+		}
 	}
 	return DimFg
 }
