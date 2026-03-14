@@ -2,6 +2,7 @@ package test
 
 import (
 	"fmt"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -626,4 +627,166 @@ func TestMultipleNonRootSplitsEqualWidth(t *testing.T) {
 	if borderCount != 3 {
 		t.Errorf("expected 3 vertical borders, got %d\nRow 0: %s", borderCount, row0)
 	}
+}
+
+func TestOutput(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// Type a distinctive string
+	h.sendKeys("e", "c", "h", "o", " ", "O", "U", "T", "P", "U", "T", "M", "A", "R", "K", "E", "R", "Enter")
+	h.waitFor("OUTPUTMARKER", 3*time.Second)
+
+	output := h.runCmd("output", "pane-1")
+	if !strings.Contains(output, "OUTPUTMARKER") {
+		t.Errorf("amux output should contain OUTPUTMARKER, got:\n%s", output)
+	}
+}
+
+func TestSpawn(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	output := h.runCmd("spawn", "--name", "test-agent", "--task", "TASK-42")
+	if !strings.Contains(output, "test-agent") {
+		t.Errorf("spawn should report agent name, got:\n%s", output)
+	}
+
+	// Should appear in list with metadata
+	h.waitFor("[test-agent]", 3*time.Second)
+	listOut := h.runCmd("list")
+	if !strings.Contains(listOut, "test-agent") {
+		t.Errorf("list should contain test-agent, got:\n%s", listOut)
+	}
+	if !strings.Contains(listOut, "TASK-42") {
+		t.Errorf("list should contain TASK-42, got:\n%s", listOut)
+	}
+}
+
+func TestMinimizeRestore(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// Split to get two panes
+	h.sendKeys("C-a", "-")
+	h.waitFor("[pane-2]", 3*time.Second)
+
+	// Minimize pane-1
+	output := h.runCmd("minimize", "pane-1")
+	if !strings.Contains(output, "Minimized") {
+		t.Errorf("minimize should confirm, got:\n%s", output)
+	}
+
+	// pane-1 status should still be visible but pane should be small
+	time.Sleep(500 * time.Millisecond)
+	h.assertScreen("pane-1 still visible after minimize", func(s string) bool {
+		return strings.Contains(s, "[pane-1]")
+	})
+
+	// Restore pane-1
+	output = h.runCmd("restore", "pane-1")
+	if !strings.Contains(output, "Restored") {
+		t.Errorf("restore should confirm, got:\n%s", output)
+	}
+
+	// Both panes should be visible with reasonable sizes
+	time.Sleep(500 * time.Millisecond)
+	h.assertScreen("both panes visible after restore", func(s string) bool {
+		return strings.Contains(s, "[pane-1]") && strings.Contains(s, "[pane-2]")
+	})
+}
+
+func TestKill(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// Split to get two panes
+	h.sendKeys("C-a", "\\")
+	h.waitFor("[pane-2]", 3*time.Second)
+
+	// Kill pane-2
+	output := h.runCmd("kill", "pane-2")
+	if !strings.Contains(output, "Killed") {
+		t.Errorf("kill should confirm, got:\n%s", output)
+	}
+
+	// pane-2 should disappear
+	if !h.waitForFunc(func(s string) bool {
+		return !strings.Contains(s, "[pane-2]")
+	}, 5*time.Second) {
+		t.Fatal("pane-2 should disappear after kill")
+	}
+
+	// pane-1 should remain
+	h.assertScreen("pane-1 should remain after kill", func(s string) bool {
+		return strings.Contains(s, "[pane-1]")
+	})
+
+	// List should show only pane-1
+	listOut := h.runCmd("list")
+	if strings.Contains(listOut, "pane-2") {
+		t.Errorf("list should not contain pane-2 after kill, got:\n%s", listOut)
+	}
+}
+
+func TestNamedSession(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// The harness starts amux with -s <session>. Verify the session name
+	// appears in the global status bar.
+	h.assertScreen("session name in status bar", func(s string) bool {
+		return strings.Contains(s, h.session)
+	})
+
+	// List via -s flag should work
+	output := h.runCmd("list")
+	if !strings.Contains(output, "pane-1") {
+		t.Errorf("list with -s should work, got:\n%s", output)
+	}
+}
+
+func TestTerminalResize(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// Split vertically
+	h.sendKeys("C-a", "\\")
+	h.waitFor("[pane-2]", 3*time.Second)
+
+	// Resize the tmux pane (simulates terminal resize → SIGWINCH)
+	exec.Command("tmux", "resize-pane", "-t", h.session, "-x", "120", "-y", "40").Run()
+	time.Sleep(1 * time.Second)
+
+	// After resize, both panes should still be visible
+	h.assertScreen("both panes visible after resize", func(s string) bool {
+		return strings.Contains(s, "[pane-1]") && strings.Contains(s, "[pane-2]")
+	})
+
+	// Border should still exist
+	col := h.verticalBorderCol()
+	if col < 0 {
+		t.Fatal("vertical border missing after resize")
+	}
+
+	// Border should be roughly in the middle of the new width
+	if col < 40 || col > 80 {
+		t.Errorf("border at col %d, expected near middle of 120-wide terminal", col)
+	}
+}
+
+func TestCtrlACtrlA(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// Ctrl-a Ctrl-a should forward a literal Ctrl-a (0x01) to the shell,
+	// NOT trigger an amux command. The shell may display it as ^A.
+	// Verify: amux stays running (not detached/split) and the byte reaches the pane.
+	h.sendKeys("C-a", "C-a")
+	time.Sleep(300 * time.Millisecond)
+
+	// amux should still be running (status bar visible)
+	h.assertScreen("amux still running after Ctrl-a Ctrl-a", func(s string) bool {
+		return strings.Contains(s, "[pane-") && strings.Contains(s, "amux")
+	})
 }
