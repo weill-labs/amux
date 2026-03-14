@@ -13,6 +13,15 @@ import (
 	"github.com/weill-labs/amux/internal/render"
 )
 
+// Default terminal dimensions when the client doesn't report a size.
+const (
+	DefaultTermCols = 80
+	DefaultTermRows = 24
+)
+
+// DefaultOutputLines is how many lines `amux output` shows by default.
+const DefaultOutputLines = 50
+
 // Session holds the state for one amux session.
 type Session struct {
 	Name       string
@@ -93,8 +102,8 @@ func (s *Session) removePane(id uint32) {
 // The pane's goroutines are NOT started — call pane.Start() after releasing s.mu.
 func (s *Session) createPane(srv *Server, cols, rows int) (*mux.Pane, error) {
 	meta := mux.PaneMeta{
-		Name:  fmt.Sprintf("pane-%d", s.counter+1),
-		Host:  "local",
+		Name:  fmt.Sprintf(mux.PaneNameFormat, s.counter+1),
+		Host:  mux.DefaultHost,
 		Color: config.CatppuccinMocha[s.counter%uint32(len(config.CatppuccinMocha))],
 	}
 	return s.createPaneWithMeta(srv, meta, cols, rows)
@@ -280,10 +289,10 @@ func (s *Server) handleAttach(conn net.Conn, msg *Message) {
 
 	cols, rows := msg.Cols, msg.Rows
 	if cols <= 0 {
-		cols = 80
+		cols = DefaultTermCols
 	}
 	if rows <= 0 {
-		rows = 24
+		rows = DefaultTermRows
 	}
 
 	sess.mu.Lock()
@@ -306,7 +315,7 @@ func (s *Server) handleAttach(conn net.Conn, msg *Message) {
 
 	// Send current screen state to the new client (enables reattach)
 	var screen []byte
-	screen = append(screen, []byte(fmt.Sprintf("\033]0;amux: %s\007", sess.Name))...)
+	screen = append(screen, []byte(render.SetTitle("amux: "+sess.Name))...)
 	screen = append(screen, sess.compositor.RenderFull(sess.Window.Root, sess.Window.ActivePane)...)
 	cc.Send(&Message{Type: MsgTypeRender, RenderData: screen})
 

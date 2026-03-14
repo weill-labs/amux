@@ -45,8 +45,8 @@ func renderPaneStatus(buf *strings.Builder, cell *mux.LayoutCell, isActive bool)
 	buf.WriteString(fmt.Sprintf("[%s]", meta.Name))
 	buf.WriteString(NoBold)
 
-	// Host (only if not "local")
-	if meta.Host != "" && meta.Host != "local" {
+	// Host (only if not mux.DefaultHost)
+	if meta.Host != "" && meta.Host != mux.DefaultHost {
 		buf.WriteString(GreenFg)
 		buf.WriteString(fmt.Sprintf(" @%s", meta.Host))
 	}
@@ -60,7 +60,7 @@ func renderPaneStatus(buf *strings.Builder, cell *mux.LayoutCell, isActive bool)
 	// Fill remaining width with spaces
 	// Calculate how many chars we've written (rough estimate)
 	usedWidth := 2 + len(meta.Name) + 2 // "● [name]"
-	if meta.Host != "" && meta.Host != "local" {
+	if meta.Host != "" && meta.Host != mux.DefaultHost {
 		usedWidth += 2 + len(meta.Host)
 	}
 	if meta.Task != "" {

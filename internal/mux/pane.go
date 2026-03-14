@@ -11,6 +11,12 @@ import (
 	"github.com/creack/pty"
 )
 
+// DefaultHost is the host value for locally-running panes.
+const DefaultHost = "local"
+
+// PaneNameFormat is the format string for auto-assigned pane names.
+const PaneNameFormat = "pane-%d"
+
 // PaneMeta holds amux metadata for a pane.
 type PaneMeta struct {
 	Name      string

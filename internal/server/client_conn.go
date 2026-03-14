@@ -142,13 +142,13 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 			sess.mu.Unlock()
 			return
 		}
-		out := pane.Output(50)
+		out := pane.Output(DefaultOutputLines)
 		sess.mu.Unlock()
 		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: out + "\n"})
 
 	case "spawn":
 		// Parse: spawn --name NAME [--host HOST] [--task TASK]
-		meta := mux.PaneMeta{Host: "local"}
+		meta := mux.PaneMeta{Host: mux.DefaultHost}
 		for i := 0; i < len(msg.CmdArgs)-1; i += 2 {
 			switch msg.CmdArgs[i] {
 			case "--name":

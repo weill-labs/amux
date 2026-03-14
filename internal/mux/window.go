@@ -8,6 +8,10 @@ import (
 // StatusLineRows is the number of rows reserved for the per-pane status line.
 const StatusLineRows = 1
 
+// DefaultRestoreHeight is the fallback pane height when restoring a minimized
+// pane that has no saved height.
+const DefaultRestoreHeight = 12
+
 // Window holds the layout tree and active pane for one window.
 type Window struct {
 	Root       *LayoutCell
@@ -372,7 +376,7 @@ func (w *Window) Restore(paneID uint32) error {
 
 	savedH := cell.Pane.Meta.RestoreH
 	if savedH <= 0 {
-		savedH = 12
+		savedH = DefaultRestoreHeight
 	}
 
 	if cell.Parent != nil {

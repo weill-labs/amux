@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/weill-labs/amux/internal/render"
 	"github.com/weill-labs/amux/internal/server"
 
 	"golang.org/x/term"
@@ -190,10 +191,10 @@ func runMux(sessionName string) error {
 	fd := int(os.Stdin.Fd())
 	cols, rows, _ := term.GetSize(fd)
 	if cols <= 0 {
-		cols = 80
+		cols = server.DefaultTermCols
 	}
 	if rows <= 0 {
-		rows = 24
+		rows = server.DefaultTermRows
 	}
 
 	// Send attach
@@ -211,10 +212,10 @@ func runMux(sessionName string) error {
 	if err != nil {
 		return fmt.Errorf("raw mode: %w", err)
 	}
-	os.Stdout.Write([]byte("\033[?1049h")) // enter alt screen
+	os.Stdout.Write([]byte(render.AltScreenEnter))
 	defer func() {
-		os.Stdout.Write([]byte("\033[?1049l")) // exit alt screen (restores previous content)
-		os.Stdout.Write([]byte("\033]0;\007")) // reset title
+		os.Stdout.Write([]byte(render.AltScreenExit))
+		os.Stdout.Write([]byte(render.ResetTitle))
 		term.Restore(fd, oldState)
 	}()
 

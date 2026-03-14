@@ -22,6 +22,18 @@ const (
 	BlueFg     = "\033[38;2;137;180;250m" // Blue (#89b4fa)
 )
 
+// OSC (Operating System Command) sequences for terminal title.
+const (
+	AltScreenEnter = "\033[?1049h"
+	AltScreenExit  = "\033[?1049l"
+	ResetTitle     = "\033]0;\007"
+)
+
+// SetTitle returns an OSC escape to set the terminal title.
+func SetTitle(title string) string {
+	return fmt.Sprintf("\033]0;%s\007", title)
+}
+
 // CursorTo returns an ANSI escape to move the cursor to (row, col), 1-based.
 func CursorTo(row, col int) string {
 	return fmt.Sprintf("\033[%d;%dH", row, col)
