@@ -10,12 +10,17 @@ func TestBasicStartAndDetach(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
 
-	h.assertScreen("should show pane status", func(s string) bool {
-		return strings.Contains(s, "[pane-")
+	// Status line should be on row 0 with pane name
+	h.assertScreen("should show pane status on first row", func(s string) bool {
+		lines := strings.Split(s, "\n")
+		return len(lines) > 0 && strings.Contains(lines[0], "[pane-")
 	})
 
-	h.assertScreen("should show global status bar", func(s string) bool {
-		return strings.Contains(s, "amux")
+	// Global bar should be on the last non-empty row
+	h.assertScreen("should show global bar on last row", func(s string) bool {
+		lines := strings.Split(strings.TrimRight(s, "\n "), "\n")
+		last := lines[len(lines)-1]
+		return isGlobalBar(last)
 	})
 
 	h.sendKeys("C-a", "d")
@@ -27,15 +32,31 @@ func TestSplitVertical(t *testing.T) {
 	h := newHarness(t)
 
 	h.sendKeys("C-a", "\\")
+	h.waitFor("[pane-2]", 3*time.Second)
 
-	if !h.waitFor("│", 3*time.Second) {
-		t.Fatal("vertical border not found after split")
+	// Both pane names should be on the SAME row (side by side)
+	h.assertScreen("pane names on same row (left/right split)", func(s string) bool {
+		for _, line := range strings.Split(s, "\n") {
+			if strings.Contains(line, "[pane-1]") && strings.Contains(line, "[pane-2]") {
+				return true
+			}
+		}
+		return false
+	})
+
+	// Vertical border should span most rows
+	col := h.verticalBorderCol()
+	if col < 0 {
+		t.Fatal("no consistent vertical border found")
 	}
 
-	h.waitFor("[pane-2]", 3*time.Second)
-	h.assertScreen("should show two panes", func(s string) bool {
-		return strings.Contains(s, "[pane-1]") && strings.Contains(s, "[pane-2]")
-	})
+	// pane-1 name should be left of the border, pane-2 right of it
+	lines := h.contentLines()
+	col1 := paneNameCol(lines, "pane-1")
+	col2 := paneNameCol(lines, "pane-2")
+	if col1 >= col || col2 <= col {
+		t.Errorf("pane-1 (col %d) should be left of border (col %d), pane-2 (col %d) right", col1, col, col2)
+	}
 }
 
 func TestSplitHorizontal(t *testing.T) {
@@ -43,15 +64,27 @@ func TestSplitHorizontal(t *testing.T) {
 	h := newHarness(t)
 
 	h.sendKeys("C-a", "-")
+	h.waitFor("[pane-2]", 3*time.Second)
 
-	if !h.waitFor("─", 3*time.Second) {
-		t.Fatal("horizontal border not found after split")
+	// Pane names should be on DIFFERENT rows (top/bottom split)
+	lines := h.contentLines()
+	row1 := paneNameRow(lines, "pane-1")
+	row2 := paneNameRow(lines, "pane-2")
+	if row1 < 0 || row2 < 0 {
+		t.Fatal("could not find both pane names")
+	}
+	if row1 >= row2 {
+		t.Errorf("pane-1 (row %d) should be above pane-2 (row %d)", row1, row2)
 	}
 
-	h.waitFor("[pane-2]", 3*time.Second)
-	h.assertScreen("should show two panes", func(s string) bool {
-		return strings.Contains(s, "[pane-1]") && strings.Contains(s, "[pane-2]")
-	})
+	// Horizontal border should be between the two panes
+	borderRow := h.horizontalBorderRow()
+	if borderRow < 0 {
+		t.Fatal("no horizontal border found")
+	}
+	if borderRow <= row1 || borderRow >= row2 {
+		t.Errorf("border (row %d) should be between pane-1 (row %d) and pane-2 (row %d)", borderRow, row1, row2)
+	}
 }
 
 func TestFocusCycle(t *testing.T) {
@@ -61,16 +94,33 @@ func TestFocusCycle(t *testing.T) {
 	h.sendKeys("C-a", "\\")
 	h.waitFor("[pane-2]", 3*time.Second)
 
-	h.sendKeys("C-a", "o")
-	time.Sleep(500 * time.Millisecond)
-
-	h.assertScreen("pane-1 should have active indicator", func(s string) bool {
+	// pane-2 should be active (●) after split
+	h.assertScreen("pane-2 should be active after split", func(s string) bool {
 		for _, line := range strings.Split(s, "\n") {
-			if strings.Contains(line, "[pane-1]") && strings.Contains(line, "●") {
+			if strings.Contains(line, "[pane-2]") && strings.Contains(line, "●") {
 				return true
 			}
 		}
 		return false
+	})
+
+	// Cycle focus
+	h.sendKeys("C-a", "o")
+	time.Sleep(500 * time.Millisecond)
+
+	// Now pane-1 should be active (●) and pane-2 inactive (○)
+	h.assertScreen("pane-1 active, pane-2 inactive after cycle", func(s string) bool {
+		pane1Active := false
+		pane2Inactive := false
+		for _, line := range strings.Split(s, "\n") {
+			if strings.Contains(line, "[pane-1]") && strings.Contains(line, "●") {
+				pane1Active = true
+			}
+			if strings.Contains(line, "[pane-2]") && strings.Contains(line, "○") {
+				pane2Inactive = true
+			}
+		}
+		return pane1Active && pane2Inactive
 	})
 }
 
@@ -89,20 +139,27 @@ func TestPaneClose(t *testing.T) {
 		t.Fatal("pane-2 should disappear after exit")
 	}
 
-	h.assertScreen("pane-1 should remain", func(s string) bool {
-		return strings.Contains(s, "[pane-1]")
-	})
-
-	h.assertScreen("no pane borders with single pane", func(s string) bool {
+	// pane-1 should be the only pane, taking full width (no vertical borders)
+	h.assertScreen("single pane after close, no borders", func(s string) bool {
+		hasPane1 := false
 		for _, line := range strings.Split(s, "\n") {
-			if strings.Contains(line, "amux") && strings.Contains(line, "panes") {
+			if strings.Contains(line, "[pane-1]") {
+				hasPane1 = true
+			}
+			if isGlobalBar(line) {
 				continue
 			}
 			if strings.Contains(line, "│") {
 				return false
 			}
 		}
-		return true
+		return hasPane1
+	})
+
+	// pane-1 status should be on row 0 (full screen, no offset)
+	h.assertScreen("pane-1 status on first row", func(s string) bool {
+		lines := strings.Split(s, "\n")
+		return len(lines) > 0 && strings.Contains(lines[0], "[pane-1]")
 	})
 }
 
@@ -119,6 +176,10 @@ func TestList(t *testing.T) {
 	}
 	if !strings.Contains(output, "pane-2") {
 		t.Errorf("list should contain pane-2, got:\n%s", output)
+	}
+	// Active pane should be marked with *
+	if !strings.Contains(output, "*") {
+		t.Errorf("list should mark active pane with *, got:\n%s", output)
 	}
 }
 
@@ -142,7 +203,6 @@ func TestReattach(t *testing.T) {
 	h.sendKeys("C-a", "d")
 	time.Sleep(500 * time.Millisecond)
 
-	// Reattach with the same session name
 	h.sendKeys(amuxBin, " -s ", h.session, "Enter")
 
 	if !h.waitFor("[pane-", 5*time.Second) {
@@ -150,8 +210,9 @@ func TestReattach(t *testing.T) {
 		t.Fatalf("reattach failed, screen:\n%s", screen)
 	}
 
-	h.assertScreen("should see HELLO after reattach", func(s string) bool {
-		return strings.Contains(s, "HELLO")
+	// Screen should be reconstructed — HELLO visible and status bar present
+	h.assertScreen("HELLO and status bar after reattach", func(s string) bool {
+		return strings.Contains(s, "HELLO") && strings.Contains(s, "[pane-")
 	})
 }
 
@@ -159,72 +220,100 @@ func TestRootSplitVertical(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
 
-	// First do a normal horizontal split to get 2 panes stacked
+	// Horizontal split first: pane-1 top, pane-2 bottom
 	h.sendKeys("C-a", "-")
 	h.waitFor("[pane-2]", 3*time.Second)
 
-	// Now root-split vertical — should create a full-height left/right split
+	// Root vertical split: left column (pane-1 + pane-2 stacked), right column (pane-3)
 	h.sendKeys("C-a", "|")
+	h.waitFor("[pane-3]", 3*time.Second)
 
-	if !h.waitFor("[pane-3]", 3*time.Second) {
-		screen := h.capture()
-		t.Fatalf("root vertical split failed, screen:\n%s", screen)
+	lines := h.contentLines()
+
+	// All 3 pane names should be visible
+	for _, name := range []string{"pane-1", "pane-2", "pane-3"} {
+		if paneNameRow(lines, name) < 0 {
+			t.Errorf("pane %s not found on screen", name)
+		}
 	}
 
-	// Should see 3 panes
-	h.assertScreen("should show 3 panes after root vertical split", func(s string) bool {
-		return strings.Contains(s, "[pane-1]") &&
-			strings.Contains(s, "[pane-2]") &&
-			strings.Contains(s, "[pane-3]")
-	})
+	// Vertical border from root split should span most of the height
+	col := h.verticalBorderCol()
+	if col < 0 {
+		t.Fatal("no consistent vertical border found for root split")
+	}
 
-	// Should have a vertical border (│) from the root split
-	h.assertScreen("should have vertical border from root split", func(s string) bool {
-		for _, line := range strings.Split(s, "\n") {
-			if strings.Contains(line, "amux") && strings.Contains(line, "panes") {
-				continue
-			}
-			if strings.Contains(line, "│") {
-				return true
-			}
-		}
-		return false
-	})
+	// pane-3 should be to the right of the border
+	col3 := paneNameCol(lines, "pane-3")
+	if col3 <= col {
+		t.Errorf("pane-3 (col %d) should be right of root border (col %d)", col3, col)
+	}
+
+	// pane-1 and pane-2 should both be to the left of the border
+	col1 := paneNameCol(lines, "pane-1")
+	col2 := paneNameCol(lines, "pane-2")
+	if col1 >= col {
+		t.Errorf("pane-1 (col %d) should be left of root border (col %d)", col1, col)
+	}
+	if col2 >= col {
+		t.Errorf("pane-2 (col %d) should be left of root border (col %d)", col2, col)
+	}
+
+	// pane-1 should be above pane-2 (stacked in left column)
+	row1 := paneNameRow(lines, "pane-1")
+	row2 := paneNameRow(lines, "pane-2")
+	if row1 >= row2 {
+		t.Errorf("pane-1 (row %d) should be above pane-2 (row %d)", row1, row2)
+	}
 }
 
 func TestRootSplitHorizontal(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
 
-	// First do a normal vertical split to get 2 panes side by side
+	// Vertical split first: pane-1 left, pane-2 right
 	h.sendKeys("C-a", "\\")
 	h.waitFor("[pane-2]", 3*time.Second)
 
-	// Now root-split horizontal — should create a full-width top/bottom split
+	// Root horizontal split: top row (pane-1 + pane-2 side by side), bottom row (pane-3)
 	h.sendKeys("C-a", "_")
+	h.waitFor("[pane-3]", 3*time.Second)
 
-	if !h.waitFor("[pane-3]", 3*time.Second) {
-		screen := h.capture()
-		t.Fatalf("root horizontal split failed, screen:\n%s", screen)
+	lines := h.contentLines()
+
+	// All 3 pane names should be visible
+	for _, name := range []string{"pane-1", "pane-2", "pane-3"} {
+		if paneNameRow(lines, name) < 0 {
+			t.Errorf("pane %s not found on screen", name)
+		}
 	}
 
-	// Should see 3 panes
-	h.assertScreen("should show 3 panes after root horizontal split", func(s string) bool {
-		return strings.Contains(s, "[pane-1]") &&
-			strings.Contains(s, "[pane-2]") &&
-			strings.Contains(s, "[pane-3]")
-	})
+	// pane-1 and pane-2 should be on the same row (side by side, top half)
+	row1 := paneNameRow(lines, "pane-1")
+	row2 := paneNameRow(lines, "pane-2")
+	if row1 != row2 {
+		t.Errorf("pane-1 (row %d) and pane-2 (row %d) should be on same row", row1, row2)
+	}
 
-	// Should have a horizontal border (─) from the root split
-	h.assertScreen("should have horizontal border from root split", func(s string) bool {
-		for _, line := range strings.Split(s, "\n") {
-			if strings.Contains(line, "amux") && strings.Contains(line, "panes") {
-				continue
-			}
-			if strings.Contains(line, "─") {
-				return true
-			}
-		}
-		return false
-	})
+	// pane-3 should be below both
+	row3 := paneNameRow(lines, "pane-3")
+	if row3 <= row1 {
+		t.Errorf("pane-3 (row %d) should be below pane-1/pane-2 (row %d)", row3, row1)
+	}
+
+	// Horizontal border from root split should be between top and bottom
+	borderRow := h.horizontalBorderRow()
+	if borderRow < 0 {
+		t.Fatal("no horizontal border found for root split")
+	}
+	if borderRow <= row1 || borderRow >= row3 {
+		t.Errorf("border (row %d) should be between top panes (row %d) and pane-3 (row %d)", borderRow, row1, row3)
+	}
+
+	// pane-1 should be left of pane-2
+	col1 := paneNameCol(lines, "pane-1")
+	col2 := paneNameCol(lines, "pane-2")
+	if col1 >= col2 {
+		t.Errorf("pane-1 (col %d) should be left of pane-2 (col %d)", col1, col2)
+	}
 }
