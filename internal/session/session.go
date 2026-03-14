@@ -9,6 +9,14 @@ import (
 	"syscall"
 )
 
+// paneAccents is a curated 8-color subset of Catppuccin Mocha for maximum
+// visual distinction in pane borders: red, peach, yellow, green, teal, blue,
+// lavender, mauve.
+var paneAccents = []string{
+	"f38ba8", "fab387", "f9e2af", "a6e3a1",
+	"94e2d5", "89b4fa", "b4befe", "cba6f7",
+}
+
 const defaultSession = "amux"
 
 // Start creates or attaches to an amux tmux session.
@@ -274,12 +282,20 @@ func configure(sessionName string) {
 	opt("status-right-length", "40")
 	opt("status-style", "bg=#313244,fg=#cdd6f4") // Catppuccin Mocha surface0/text
 
-	// Pane border — show amux name+task if set, otherwise dir/branch
+	// Pane border — show status icon + name + host + task if amux-managed,
+	// otherwise dir/branch for regular tmux panes.
 	opt("pane-border-status", "top")
 	opt("pane-border-format",
 		"#{?#{@amux_name},"+
-			" #{pane_id}: #[bold]#{?#{@amux_color},#[fg=#{s/^/#/:@amux_color}],}"+
-			"[#{@amux_name}]#[default] #{@amux_task},"+
+			// Status icon: ─ when minimized (dim), ● otherwise (pane color)
+			" #{?#{@amux_minimized},#[fg=#585b70]─,#{?#{@amux_color},#[fg=#{s/^/#/:@amux_color}],}●}"+
+			" #{pane_id}: "+
+			// Name in bold + pane color
+			"#[bold]#{?#{@amux_color},#[fg=#{s/^/#/:@amux_color}],}[#{@amux_name}]#[default]"+
+			// Host (only shown when not "local")
+			"#{?#{==:#{@amux_host},local},, @#{@amux_host}}"+
+			" #{@amux_task},"+
+			// Non-amux pane fallback
 			" #{pane_id}: #[bold,fg=#89b4fa]#{@pane_dir}#[nobold,fg=#f9e2af]#{@pane_branch}#[default]} ")
 }
 
@@ -288,10 +304,12 @@ func configure(sessionName string) {
 func initPane(sessionName, paneID string) {
 	counter := nextCounter(sessionName)
 	name := fmt.Sprintf("pane-%d", counter)
+	color := paneAccents[(counter-1)%len(paneAccents)]
 
 	for _, kv := range []struct{ key, val string }{
 		{"@amux_name", name},
 		{"@amux_host", "local"},
+		{"@amux_color", color},
 	} {
 		exec.Command("tmux", "set-option", "-p", "-t", paneID, kv.key, kv.val).Run()
 	}

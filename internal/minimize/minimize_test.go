@@ -26,13 +26,13 @@ func (m *mockTmux) ListPanes() (map[string]tmux.PaneFields, error) { return m.pa
 func (m *mockTmux) PaneOutput(paneID string, lines int) (string, error) {
 	return "", nil
 }
-func (m *mockTmux) SwapPane(src, dst string) error            { return nil }
-func (m *mockTmux) SetPaneTitle(paneID, title string) error   { return nil }
-func (m *mockTmux) SelectPane(paneID string) error            { return nil }
-func (m *mockTmux) KillPane(paneID string) error              { return nil }
-func (m *mockTmux) SplitWindow(cmd string) (string, error)    { return "%99", nil }
-func (m *mockTmux) SendKeys(paneID string, keys ...string) error { return nil }
-func (m *mockTmux) CurrentSession() string                    { return "main" }
+func (m *mockTmux) SwapPane(src, dst string) error                     { return nil }
+func (m *mockTmux) SetPaneTitle(paneID, title string) error            { return nil }
+func (m *mockTmux) SelectPane(paneID string) error                     { return nil }
+func (m *mockTmux) KillPane(paneID string) error                       { return nil }
+func (m *mockTmux) SplitWindow(cmd string) (string, error)             { return "%99", nil }
+func (m *mockTmux) SendKeys(paneID string, keys ...string) error       { return nil }
+func (m *mockTmux) CurrentSession() string                             { return "main" }
 func (m *mockTmux) RemoteSessionAlive(user, host, session string) bool { return false }
 
 func (m *mockTmux) ResizePane(paneID string, height int) error {
@@ -68,10 +68,11 @@ func (m *mockTmux) WindowPanes(paneID string) ([]string, error) {
 	}
 	return []string{paneID}, nil
 }
-func (m *mockTmux) JoinPane(src, dst string) error                          { return nil }
+func (m *mockTmux) JoinPane(src, dst string) error                            { return nil }
 func (m *mockTmux) SessionWindowPanes(sessionWindow string) ([]string, error) { return nil, nil }
 
 func TestMinimize(t *testing.T) {
+	t.Parallel()
 	mt := newMock()
 	mt.heights["%1"] = 30
 	mt.window["%1"] = []string{"%1", "%2"} // two panes in window
@@ -98,6 +99,7 @@ func TestMinimize(t *testing.T) {
 }
 
 func TestMinimizeAlreadyMinimized(t *testing.T) {
+	t.Parallel()
 	mt := newMock()
 	mt.options["%1"] = map[string]string{"@amux_minimized": "1"}
 
@@ -108,6 +110,7 @@ func TestMinimizeAlreadyMinimized(t *testing.T) {
 }
 
 func TestMinimizeLastPane(t *testing.T) {
+	t.Parallel()
 	mt := newMock()
 	mt.heights["%1"] = 30
 	mt.window["%1"] = []string{"%1"} // only pane in window
@@ -119,6 +122,7 @@ func TestMinimizeLastPane(t *testing.T) {
 }
 
 func TestRestore(t *testing.T) {
+	t.Parallel()
 	mt := newMock()
 	mt.options["%1"] = map[string]string{
 		"@amux_minimized": "1",
@@ -141,6 +145,7 @@ func TestRestore(t *testing.T) {
 }
 
 func TestRestoreNotMinimized(t *testing.T) {
+	t.Parallel()
 	mt := newMock()
 	err := Restore(mt, "%1")
 	if err == nil {
@@ -149,6 +154,7 @@ func TestRestoreNotMinimized(t *testing.T) {
 }
 
 func TestMinimizeRestore_RoundTrip(t *testing.T) {
+	t.Parallel()
 	mt := newMock()
 	mt.heights["%1"] = 25
 	mt.window["%1"] = []string{"%1", "%2"}
@@ -167,4 +173,3 @@ func TestMinimizeRestore_RoundTrip(t *testing.T) {
 		t.Errorf("after restore: height=%d, want 25", mt.heights["%1"])
 	}
 }
-

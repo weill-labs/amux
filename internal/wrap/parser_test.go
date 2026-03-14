@@ -3,6 +3,7 @@ package wrap
 import "testing"
 
 func TestParserAltScreen(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		feeds   []string
@@ -52,6 +53,7 @@ func TestParserAltScreen(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			p := &Parser{}
 			for _, data := range tt.feeds {
 				p.Feed([]byte(data))
@@ -64,6 +66,7 @@ func TestParserAltScreen(t *testing.T) {
 }
 
 func TestParserDataPassthrough(t *testing.T) {
+	t.Parallel()
 	p := &Parser{}
 	input := []byte("hello\x1b[?1049hworld")
 	output := p.Feed(input)

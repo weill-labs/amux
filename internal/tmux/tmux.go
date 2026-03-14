@@ -78,6 +78,7 @@ type PaneFields struct {
 	Color     string // @amux_color
 	Minimized string // @amux_minimized ("1" or "")
 	RestoreH  string // @amux_restore_h
+	Wrapped   string // @amux_wrapped ("1" or "")
 }
 
 // IsAmux returns true if this pane has amux metadata.
@@ -104,6 +105,7 @@ func (t *LiveTmux) ListPanes() (map[string]PaneFields, error) {
 		"#{@amux_color}",
 		"#{@amux_minimized}",
 		"#{@amux_restore_h}",
+		"#{@amux_wrapped}",
 	}, "\t")
 
 	out, err := exec.Command("tmux", "list-panes", "-a", "-F", format).Output()
@@ -116,7 +118,7 @@ func (t *LiveTmux) ListPanes() (map[string]PaneFields, error) {
 		if line == "" {
 			continue
 		}
-		fields := strings.SplitN(line, "\t", 11)
+		fields := strings.SplitN(line, "\t", 12)
 		if len(fields) < 4 {
 			continue
 		}
@@ -148,6 +150,9 @@ func (t *LiveTmux) ListPanes() (map[string]PaneFields, error) {
 		}
 		if len(fields) > 10 {
 			p.RestoreH = fields[10]
+		}
+		if len(fields) > 11 {
+			p.Wrapped = fields[11]
 		}
 
 		panes[p.ID] = p
@@ -288,6 +293,7 @@ var AmuxOptions = []string{
 	"@amux_color",
 	"@amux_minimized",
 	"@amux_restore_h",
+	"@amux_wrapped",
 }
 
 // SetAmuxMeta sets all @amux_* metadata on a pane.

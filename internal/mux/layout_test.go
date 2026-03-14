@@ -8,6 +8,7 @@ func fakePaneID(id uint32) *Pane {
 }
 
 func TestNewLeaf(t *testing.T) {
+	t.Parallel()
 	p := fakePaneID(1)
 	leaf := NewLeaf(p, 0, 0, 80, 24)
 
@@ -23,6 +24,7 @@ func TestNewLeaf(t *testing.T) {
 }
 
 func TestSplitHorizontal(t *testing.T) {
+	t.Parallel()
 	p1 := fakePaneID(1)
 	root := NewLeaf(p1, 0, 0, 80, 24)
 
@@ -70,6 +72,7 @@ func TestSplitHorizontal(t *testing.T) {
 }
 
 func TestSplitVertical(t *testing.T) {
+	t.Parallel()
 	p1 := fakePaneID(1)
 	root := NewLeaf(p1, 0, 0, 80, 24)
 
@@ -93,6 +96,7 @@ func TestSplitVertical(t *testing.T) {
 }
 
 func TestSplitTooSmall(t *testing.T) {
+	t.Parallel()
 	p1 := fakePaneID(1)
 	root := NewLeaf(p1, 0, 0, 4, 24) // Width 4 < 2*2+1=5
 
@@ -104,6 +108,7 @@ func TestSplitTooSmall(t *testing.T) {
 }
 
 func TestSplitSiblingInsertion(t *testing.T) {
+	t.Parallel()
 	// Split once horizontally, then split the left child horizontally again.
 	// The second split should add a sibling (Case A) rather than nesting.
 	p1 := fakePaneID(1)
@@ -127,6 +132,7 @@ func TestSplitSiblingInsertion(t *testing.T) {
 }
 
 func TestClosePane(t *testing.T) {
+	t.Parallel()
 	p1 := fakePaneID(1)
 	root := NewLeaf(p1, 0, 0, 80, 24)
 
@@ -151,6 +157,7 @@ func TestClosePane(t *testing.T) {
 }
 
 func TestCloseCollapsesSingleChild(t *testing.T) {
+	t.Parallel()
 	p1 := fakePaneID(1)
 	root := NewLeaf(p1, 0, 0, 80, 24)
 
@@ -175,6 +182,7 @@ func TestCloseCollapsesSingleChild(t *testing.T) {
 }
 
 func TestFixOffsets(t *testing.T) {
+	t.Parallel()
 	p1 := fakePaneID(1)
 	root := NewLeaf(p1, 0, 0, 80, 24)
 
@@ -202,6 +210,7 @@ func TestFixOffsets(t *testing.T) {
 }
 
 func TestResizeAll(t *testing.T) {
+	t.Parallel()
 	p1 := fakePaneID(1)
 	root := NewLeaf(p1, 0, 0, 80, 24)
 
@@ -230,6 +239,7 @@ func TestResizeAll(t *testing.T) {
 }
 
 func TestWalkAndFindPane(t *testing.T) {
+	t.Parallel()
 	p1 := fakePaneID(1)
 	root := NewLeaf(p1, 0, 0, 80, 24)
 
@@ -259,6 +269,7 @@ func TestWalkAndFindPane(t *testing.T) {
 }
 
 func TestNestedSplits(t *testing.T) {
+	t.Parallel()
 	// Create a 2x2 grid: split H, then split each half V
 	p1 := fakePaneID(1)
 	root := NewLeaf(p1, 0, 0, 81, 25)

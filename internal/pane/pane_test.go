@@ -59,13 +59,14 @@ func (m *mockTmux) SplitWindow(cmd string) (string, error)  { return "%99", nil 
 func (m *mockTmux) SendKeys(paneID string, keys ...string) error {
 	return nil
 }
-func (m *mockTmux) CurrentSession() string                                { return "main" }
-func (m *mockTmux) RemoteSessionAlive(user, host, session string) bool    { return false }
-func (m *mockTmux) WindowPanes(paneID string) ([]string, error) { return []string{paneID}, nil }
-func (m *mockTmux) JoinPane(src, dst string) error                          { return nil }
+func (m *mockTmux) CurrentSession() string                                    { return "main" }
+func (m *mockTmux) RemoteSessionAlive(user, host, session string) bool        { return false }
+func (m *mockTmux) WindowPanes(paneID string) ([]string, error)               { return []string{paneID}, nil }
+func (m *mockTmux) JoinPane(src, dst string) error                            { return nil }
 func (m *mockTmux) SessionWindowPanes(sessionWindow string) ([]string, error) { return nil, nil }
 
 func TestDiscover(t *testing.T) {
+	t.Parallel()
 	mt := newMockTmux()
 	mt.panes = map[string]tmux.PaneFields{
 		"%1": {ID: "%1", Name: "auth-agent", Host: "local", Task: "CHA-16"},
@@ -99,6 +100,7 @@ func TestDiscover(t *testing.T) {
 }
 
 func TestDiscoverMinimized(t *testing.T) {
+	t.Parallel()
 	mt := newMockTmux()
 	mt.panes = map[string]tmux.PaneFields{
 		"%1": {ID: "%1", Name: "agent", Minimized: "1"},
@@ -118,6 +120,7 @@ func TestDiscoverMinimized(t *testing.T) {
 }
 
 func TestIsIdle(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name   string
 		output string
@@ -133,6 +136,7 @@ func TestIsIdle(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			if got := IsIdle(tt.output); got != tt.want {
 				t.Errorf("IsIdle(%q) = %v, want %v", tt.output, got, tt.want)
 			}
@@ -141,6 +145,7 @@ func TestIsIdle(t *testing.T) {
 }
 
 func TestLastNonEmptyLine(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		input string
 		want  string

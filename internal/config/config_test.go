@@ -7,6 +7,7 @@ import (
 )
 
 func TestLoadMissing(t *testing.T) {
+	t.Parallel()
 	cfg, err := Load("/nonexistent/path/hosts.toml")
 	if err != nil {
 		t.Fatalf("expected no error for missing file, got %v", err)
@@ -17,6 +18,7 @@ func TestLoadMissing(t *testing.T) {
 }
 
 func TestLoadValid(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "hosts.toml")
 	content := `
@@ -58,6 +60,7 @@ color = "a6e3a1"
 }
 
 func TestColorForHost(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		hostA    string
@@ -70,6 +73,7 @@ func TestColorForHost(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			a := ColorForHost(tt.hostA)
 			b := ColorForHost(tt.hostB)
 			if (a == b) != tt.wantSame {
@@ -81,6 +85,7 @@ func TestColorForHost(t *testing.T) {
 }
 
 func TestHostUser(t *testing.T) {
+	t.Parallel()
 	cfg := &Config{
 		Hosts: map[string]Host{
 			"myhost": {User: "admin"},
@@ -97,6 +102,7 @@ func TestHostUser(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.host, func(t *testing.T) {
+			t.Parallel()
 			if got := cfg.HostUser(tt.host); got != tt.want {
 				t.Errorf("HostUser(%q) = %q, want %q", tt.host, got, tt.want)
 			}
@@ -105,6 +111,7 @@ func TestHostUser(t *testing.T) {
 }
 
 func TestAutoAssignColor(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "hosts.toml")
 	content := `

@@ -6,6 +6,7 @@ import (
 )
 
 func TestVTEmulatorWriteRender(t *testing.T) {
+	t.Parallel()
 	emu := NewVTEmulator(80, 24)
 	emu.Write([]byte("Hello, world!"))
 
@@ -16,6 +17,7 @@ func TestVTEmulatorWriteRender(t *testing.T) {
 }
 
 func TestVTEmulatorSize(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name             string
 		initW, initH     int
@@ -30,6 +32,7 @@ func TestVTEmulatorSize(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			emu := NewVTEmulator(tt.initW, tt.initH)
 			if tt.resizeW > 0 {
 				emu.Resize(tt.resizeW, tt.resizeH)
@@ -43,6 +46,7 @@ func TestVTEmulatorSize(t *testing.T) {
 }
 
 func TestVTEmulatorCursorPosition(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		input   string
@@ -56,6 +60,7 @@ func TestVTEmulatorCursorPosition(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			emu := NewVTEmulator(80, 24)
 			if tt.input != "" {
 				emu.Write([]byte(tt.input))
@@ -69,6 +74,7 @@ func TestVTEmulatorCursorPosition(t *testing.T) {
 }
 
 func TestRenderWithCursor(t *testing.T) {
+	t.Parallel()
 	emu := NewVTEmulator(80, 24)
 	emu.Write([]byte("test"))
 

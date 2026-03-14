@@ -22,21 +22,21 @@ func newMock() *mockTmux {
 	}
 }
 
-func (m *mockTmux) ListPanes() (map[string]tmux.PaneFields, error)           { return nil, nil }
-func (m *mockTmux) PaneOutput(paneID string, lines int) (string, error)      { return "", nil }
-func (m *mockTmux) ResizePane(paneID string, height int) error               { return nil }
-func (m *mockTmux) SwapPane(src, dst string) error                           { return nil }
-func (m *mockTmux) PaneHeight(paneID string) (int, error)                    { return 20, nil }
-func (m *mockTmux) GetOption(paneID, key string) (string, error)             { return "", nil }
-func (m *mockTmux) SetOption(paneID, key, value string) error                { return nil }
-func (m *mockTmux) SetPaneTitle(paneID, title string) error                  { return nil }
-func (m *mockTmux) SelectPane(paneID string) error                           { return nil }
-func (m *mockTmux) KillPane(paneID string) error                             { return nil }
-func (m *mockTmux) SplitWindow(cmd string) (string, error)                   { return "%99", nil }
-func (m *mockTmux) SendKeys(paneID string, keys ...string) error             { return nil }
-func (m *mockTmux) CurrentSession() string                                   { return m.session }
-func (m *mockTmux) RemoteSessionAlive(user, host, session string) bool       { return false }
-func (m *mockTmux) WindowPanes(paneID string) ([]string, error)              { return []string{paneID}, nil }
+func (m *mockTmux) ListPanes() (map[string]tmux.PaneFields, error)      { return nil, nil }
+func (m *mockTmux) PaneOutput(paneID string, lines int) (string, error) { return "", nil }
+func (m *mockTmux) ResizePane(paneID string, height int) error          { return nil }
+func (m *mockTmux) SwapPane(src, dst string) error                      { return nil }
+func (m *mockTmux) PaneHeight(paneID string) (int, error)               { return 20, nil }
+func (m *mockTmux) GetOption(paneID, key string) (string, error)        { return "", nil }
+func (m *mockTmux) SetOption(paneID, key, value string) error           { return nil }
+func (m *mockTmux) SetPaneTitle(paneID, title string) error             { return nil }
+func (m *mockTmux) SelectPane(paneID string) error                      { return nil }
+func (m *mockTmux) KillPane(paneID string) error                        { return nil }
+func (m *mockTmux) SplitWindow(cmd string) (string, error)              { return "%99", nil }
+func (m *mockTmux) SendKeys(paneID string, keys ...string) error        { return nil }
+func (m *mockTmux) CurrentSession() string                              { return m.session }
+func (m *mockTmux) RemoteSessionAlive(user, host, session string) bool  { return false }
+func (m *mockTmux) WindowPanes(paneID string) ([]string, error)         { return []string{paneID}, nil }
 
 func (m *mockTmux) JoinPane(src, dst string) error {
 	m.joined = append(m.joined, joinCall{src, dst})
@@ -51,6 +51,7 @@ func (m *mockTmux) SessionWindowPanes(sessionWindow string) ([]string, error) {
 }
 
 func TestMerge(t *testing.T) {
+	t.Parallel()
 	mt := newMock()
 	mt.windows["amux:0"] = []string{"%1"}
 	mt.windows["amux:1"] = []string{"%2", "%3"}
@@ -76,6 +77,7 @@ func TestMerge(t *testing.T) {
 }
 
 func TestMergeSrcNotFound(t *testing.T) {
+	t.Parallel()
 	mt := newMock()
 	mt.windows["amux:0"] = []string{"%1"}
 
@@ -86,6 +88,7 @@ func TestMergeSrcNotFound(t *testing.T) {
 }
 
 func TestMergeDstNotFound(t *testing.T) {
+	t.Parallel()
 	mt := newMock()
 	mt.windows["amux:0"] = []string{"%1"}
 
@@ -96,6 +99,7 @@ func TestMergeDstNotFound(t *testing.T) {
 }
 
 func TestMergeNotInTmux(t *testing.T) {
+	t.Parallel()
 	mt := newMock()
 	mt.session = ""
 
@@ -109,6 +113,7 @@ func TestMergeNotInTmux(t *testing.T) {
 }
 
 func TestMergeJoinError(t *testing.T) {
+	t.Parallel()
 	mt := &errorMock{
 		mockTmux: mockTmux{
 			session: "amux",
