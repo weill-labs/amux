@@ -332,12 +332,15 @@ func (s *Server) handleOneShot(conn net.Conn, msg *Message) {
 	cc := NewClientConn(conn)
 	defer cc.Close()
 
-	sessionName := "default"
+	// Each server process hosts one session — use the first one
 	s.mu.Lock()
-	sess, ok := s.sessions[sessionName]
+	var sess *Session
+	for _, sess = range s.sessions {
+		break
+	}
 	s.mu.Unlock()
 
-	if !ok {
+	if sess == nil {
 		cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "no session"})
 		return
 	}

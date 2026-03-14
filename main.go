@@ -16,29 +16,40 @@ import (
 	"golang.org/x/term"
 )
 
+// sessionName is the global session name, set by -s flag or defaulting to "default".
+var sessionName = "default"
+
 func main() {
-	if len(os.Args) < 2 {
-		// Default: start or attach to amux session
-		if err := runMux("default"); err != nil {
+	// Extract global -s flag before subcommand parsing
+	args := os.Args[1:]
+	for i := 0; i < len(args); i++ {
+		if args[i] == "-s" && i+1 < len(args) {
+			sessionName = args[i+1]
+			args = append(args[:i], args[i+2:]...)
+			break
+		}
+	}
+
+	if len(args) == 0 {
+		if err := runMux(sessionName); err != nil {
 			fmt.Fprintf(os.Stderr, "amux: %v\n", err)
 			os.Exit(1)
 		}
 		return
 	}
 
-	switch os.Args[1] {
-	// --- New built-in multiplexer commands ---
+	switch args[0] {
 	case "_server":
-		sessionName := "default"
-		if len(os.Args) > 2 {
-			sessionName = os.Args[2]
+		name := sessionName
+		if len(args) > 1 {
+			name = args[1]
 		}
-		runServer(sessionName)
+		runServer(name)
 
 	case "attach":
-		name, _ := parseAttachArgs(os.Args[2:])
+		name, _ := parseAttachArgs(args[1:])
 		if name == "" {
-			name = "default"
+			name = sessionName
 		}
 		if err := runMux(name); err != nil {
 			fmt.Fprintf(os.Stderr, "amux: %v\n", err)
@@ -46,30 +57,27 @@ func main() {
 		}
 
 	case "new":
-		name := "default"
-		if len(os.Args) > 2 {
-			name = os.Args[2]
+		name := sessionName
+		if len(args) > 1 {
+			name = args[1]
 		}
 		if err := runMux(name); err != nil {
 			fmt.Fprintf(os.Stderr, "amux: %v\n", err)
 			os.Exit(1)
 		}
 
-	// --- Commands that talk to the server ---
 	case "list":
 		runServerCommand("list", nil)
-
 	case "status":
 		runServerCommand("status", nil)
-
 	case "output", "minimize", "restore", "kill":
-		if len(os.Args) < 3 {
-			fmt.Fprintf(os.Stderr, "usage: amux %s <pane>\n", os.Args[1])
+		if len(args) < 2 {
+			fmt.Fprintf(os.Stderr, "usage: amux %s <pane>\n", args[0])
 			os.Exit(1)
 		}
-		runServerCommand(os.Args[1], []string{os.Args[2]})
+		runServerCommand(args[0], []string{args[1]})
 	case "spawn":
-		runServerCommand("spawn", os.Args[2:])
+		runServerCommand("spawn", args[1:])
 	case "dashboard":
 		fmt.Fprintln(os.Stderr, "amux dashboard: not yet migrated to built-in mux")
 		os.Exit(1)
@@ -77,7 +85,7 @@ func main() {
 	case "help", "--help", "-h":
 		printUsage()
 	default:
-		fmt.Fprintf(os.Stderr, "amux: unknown command %q\n", os.Args[1])
+		fmt.Fprintf(os.Stderr, "amux: unknown command %q\n", args[0])
 		printUsage()
 		os.Exit(1)
 	}
@@ -100,16 +108,16 @@ func printUsage() {
 	fmt.Println(`amux — Agent-Centric Terminal Multiplexer
 
 Usage:
-  amux                              Start or attach to amux session
-  amux attach [session]             Attach to a session
-  amux new [name]                   Start a new named session
-  amux list                         List panes with metadata
-  amux status                       Show pane summary
-  amux output <pane>                Show last 50 lines of pane output
-  amux spawn --name NAME [--task T] Spawn a new agent pane
-  amux minimize <pane>              Minimize a pane
-  amux restore <pane>               Restore a minimized pane
-  amux kill <pane>                  Kill a pane
+  amux [-s session]                   Start or attach to amux session
+  amux [-s session] attach [session]  Attach to a session
+  amux [-s session] new [name]        Start a new named session
+  amux [-s session] list              List panes with metadata
+  amux [-s session] status            Show pane summary
+  amux [-s session] output <pane>     Show last 50 lines of pane output
+  amux [-s session] spawn --name NAME Spawn a new agent pane
+  amux [-s session] minimize <pane>   Minimize a pane
+  amux [-s session] restore <pane>    Restore a minimized pane
+  amux [-s session] kill <pane>       Kill a pane
 
 Panes can be referenced by name (pane-1) or ID (1).
 
@@ -262,7 +270,7 @@ func runMux(sessionName string) error {
 					prefix = false
 					switch buf[i] {
 					case 'd':
-						// Detach — flush any pending bytes, detach, exit
+						// Detach
 						if len(forward) > 0 {
 							server.WriteMsg(conn, &server.Message{
 								Type: server.MsgTypeInput, Input: forward,
@@ -405,7 +413,7 @@ func waitForSocket(sockPath string, timeout time.Duration) error {
 // ---------------------------------------------------------------------------
 
 func runServerCommand(cmdName string, args []string) {
-	sockPath := server.SocketPath("default")
+	sockPath := server.SocketPath(sessionName)
 	conn, err := net.Dial("unix", sockPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "amux %s: server not running (run 'amux' first)\n", cmdName)

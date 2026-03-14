@@ -7,6 +7,7 @@ import (
 )
 
 func TestBasicStartAndDetach(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 
 	h.assertScreen("should show pane status", func(s string) bool {
@@ -22,6 +23,7 @@ func TestBasicStartAndDetach(t *testing.T) {
 }
 
 func TestSplitVertical(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 
 	h.sendKeys("C-a", "\\")
@@ -37,6 +39,7 @@ func TestSplitVertical(t *testing.T) {
 }
 
 func TestSplitHorizontal(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 
 	h.sendKeys("C-a", "-")
@@ -52,6 +55,7 @@ func TestSplitHorizontal(t *testing.T) {
 }
 
 func TestFocusCycle(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 
 	h.sendKeys("C-a", "\\")
@@ -61,8 +65,7 @@ func TestFocusCycle(t *testing.T) {
 	time.Sleep(500 * time.Millisecond)
 
 	h.assertScreen("pane-1 should have active indicator", func(s string) bool {
-		lines := strings.Split(s, "\n")
-		for _, line := range lines {
+		for _, line := range strings.Split(s, "\n") {
 			if strings.Contains(line, "[pane-1]") && strings.Contains(line, "●") {
 				return true
 			}
@@ -72,6 +75,7 @@ func TestFocusCycle(t *testing.T) {
 }
 
 func TestPaneClose(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 
 	h.sendKeys("C-a", "\\")
@@ -90,8 +94,7 @@ func TestPaneClose(t *testing.T) {
 	})
 
 	h.assertScreen("no pane borders with single pane", func(s string) bool {
-		lines := strings.Split(s, "\n")
-		for _, line := range lines {
+		for _, line := range strings.Split(s, "\n") {
 			if strings.Contains(line, "amux") && strings.Contains(line, "panes") {
 				continue
 			}
@@ -104,6 +107,7 @@ func TestPaneClose(t *testing.T) {
 }
 
 func TestList(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 
 	h.sendKeys("C-a", "\\")
@@ -119,6 +123,7 @@ func TestList(t *testing.T) {
 }
 
 func TestStatus(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 
 	output := h.runCmd("status")
@@ -128,6 +133,7 @@ func TestStatus(t *testing.T) {
 }
 
 func TestReattach(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t)
 
 	h.sendKeys("e", "c", "h", "o", " ", "H", "E", "L", "L", "O", "Enter")
@@ -136,7 +142,8 @@ func TestReattach(t *testing.T) {
 	h.sendKeys("C-a", "d")
 	time.Sleep(500 * time.Millisecond)
 
-	h.sendKeys(amuxBin, "Enter")
+	// Reattach with the same session name
+	h.sendKeys(amuxBin, " -s ", h.session, "Enter")
 
 	if !h.waitFor("[pane-", 5*time.Second) {
 		screen := h.capture()
