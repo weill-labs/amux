@@ -64,11 +64,12 @@ func (cc *ClientConn) readLoop(srv *Server, sess *Session) {
 		case MsgTypeResize:
 			sess.mu.Lock()
 			if sess.Window != nil {
-				sess.compositor.Resize(msg.Cols, msg.Rows)
-				sess.Window.Resize(msg.Cols, sess.compositor.LayoutHeight())
+				// Layout height = terminal height minus global status bar
+				layoutH := msg.Rows - 1
+				sess.Window.Resize(msg.Cols, layoutH)
 			}
 			sess.mu.Unlock()
-			sess.renderAndBroadcast()
+			sess.broadcastLayout()
 
 		case MsgTypeDetach:
 			return
@@ -148,7 +149,7 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 			cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: fmt.Sprintf("Focused %s\n", pane.Meta.Name)})
 		}
 
-		sess.renderAndBroadcast()
+		sess.broadcastLayout()
 
 	case "output":
 		sess.mu.Lock()
@@ -199,7 +200,7 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: err.Error()})
 			return
 		}
-		sess.renderAndBroadcast()
+		sess.broadcastLayout()
 		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: fmt.Sprintf("Minimized %s\n", pane.Meta.Name)})
 
 	case "restore":
@@ -215,7 +216,7 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: err.Error()})
 			return
 		}
-		sess.renderAndBroadcast()
+		sess.broadcastLayout()
 		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: fmt.Sprintf("Restored %s\n", pane.Meta.Name)})
 
 	case "kill":
@@ -238,7 +239,7 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 		sess.mu.Unlock()
 		pane.Close()
 
-		sess.renderAndBroadcast()
+		sess.broadcastLayout()
 		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: fmt.Sprintf("Killed %s\n", paneName)})
 
 	case "status":
@@ -300,7 +301,7 @@ func (cc *ClientConn) splitNewPane(srv *Server, sess *Session, meta mux.PaneMeta
 	sess.mu.Unlock()
 
 	pane.Start()
-	sess.renderAndBroadcast()
+	sess.broadcastLayout()
 	return pane
 }
 

@@ -21,8 +21,11 @@ type LayoutCell struct {
 	// Dir is the split direction for internal nodes. For leaves, Dir is -1.
 	Dir SplitDir
 
-	// Leaf: points to a pane. Nil for internal nodes.
+	// Leaf: points to a pane. Nil for internal nodes and client-side cells.
 	Pane *Pane
+
+	// PaneID is set on client-side rebuilt cells (where Pane is nil).
+	PaneID uint32
 
 	// Tree structure
 	Parent   *LayoutCell
