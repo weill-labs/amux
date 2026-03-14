@@ -71,7 +71,7 @@ func main() {
 		runServerCommand("list", nil)
 	case "status":
 		runServerCommand("status", nil)
-	case "output", "minimize", "restore", "kill":
+	case "output", "minimize", "restore", "kill", "focus":
 		if len(args) < 2 {
 			fmt.Fprintf(os.Stderr, "usage: amux %s <pane>\n", args[0])
 			os.Exit(1)
@@ -119,6 +119,7 @@ Usage:
   amux [-s session] minimize <pane>   Minimize a pane
   amux [-s session] restore <pane>    Restore a minimized pane
   amux [-s session] kill <pane>       Kill a pane
+  amux [-s session] focus <pane>      Focus a pane by name or ID
 
 Panes can be referenced by name (pane-1) or ID (1).
 

@@ -832,6 +832,91 @@ func TestOnlyActivePaneBordersColored(t *testing.T) {
 	}
 }
 
+func TestFocusByName(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// Create two panes side by side
+	h.sendKeys("C-a", "\\")
+	h.waitFor("[pane-2]", 3*time.Second)
+
+	// pane-2 should be active after split
+	h.assertScreen("pane-2 active after split", func(s string) bool {
+		for _, line := range strings.Split(s, "\n") {
+			if strings.Contains(line, "[pane-2]") && strings.Contains(line, "●") {
+				return true
+			}
+		}
+		return false
+	})
+
+	// Focus pane-1 by name via CLI
+	output := h.runCmd("focus", "pane-1")
+	if !strings.Contains(output, "Focused") {
+		t.Errorf("focus should confirm, got:\n%s", output)
+	}
+
+	time.Sleep(500 * time.Millisecond)
+
+	// pane-1 should now be active
+	h.assertScreen("pane-1 active after focus by name", func(s string) bool {
+		for _, line := range strings.Split(s, "\n") {
+			if strings.Contains(line, "[pane-1]") && strings.Contains(line, "●") {
+				return true
+			}
+		}
+		return false
+	})
+
+	// pane-2 should be inactive
+	h.assertScreen("pane-2 inactive after focus by name", func(s string) bool {
+		for _, line := range strings.Split(s, "\n") {
+			if strings.Contains(line, "[pane-2]") && strings.Contains(line, "○") {
+				return true
+			}
+		}
+		return false
+	})
+}
+
+func TestFocusByID(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// Create two panes
+	h.sendKeys("C-a", "\\")
+	h.waitFor("[pane-2]", 3*time.Second)
+
+	// Focus pane-1 by numeric ID
+	output := h.runCmd("focus", "1")
+	if !strings.Contains(output, "Focused") {
+		t.Errorf("focus by ID should confirm, got:\n%s", output)
+	}
+
+	time.Sleep(500 * time.Millisecond)
+
+	// pane-1 should be active
+	h.assertScreen("pane-1 active after focus by ID", func(s string) bool {
+		for _, line := range strings.Split(s, "\n") {
+			if strings.Contains(line, "[pane-1]") && strings.Contains(line, "●") {
+				return true
+			}
+		}
+		return false
+	})
+}
+
+func TestFocusNotFound(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// Try to focus a non-existent pane
+	output := h.runCmd("focus", "nonexistent")
+	if !strings.Contains(output, "not found") {
+		t.Errorf("focus of nonexistent pane should report error, got:\n%s", output)
+	}
+}
+
 // pickContentLine returns a middle content line from ANSI-escaped screen output,
 // skipping status lines and empty lines.
 func pickContentLine(screen string) string {
