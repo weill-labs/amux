@@ -87,8 +87,16 @@ func firstPane(sessionName string) string {
 // configure sets up amux-specific keybindings, hooks, and status bar on a session.
 func configure(sessionName string) {
 	amuxBin := amuxPath()
+
+	// opt sets a session-scoped tmux option.
 	opt := func(key, val string) {
 		tmuxCmd("set-option", "-t", sessionName, key, val)
+	}
+	// popup binds a key in the amux keytable to an amux subcommand in a popup.
+	popup := func(key, w, h, subcmd string) {
+		tmuxCmd("bind-key", "-T", "amux", key,
+			"display-popup", "-E", "-w", w, "-h", h,
+			amuxBin+" "+subcmd)
 	}
 
 	// --- Prefix ---
@@ -98,11 +106,9 @@ func configure(sessionName string) {
 	tmuxCmd("bind-key", "C-a", "send-prefix")
 
 	// --- Agent optimizations ---
-	// Large scrollback so `amux output` can read agent history
-	opt("history-limit", "50000")
+	opt("history-limit", "50000") // large scrollback for `amux output`
 
 	// OSC 52 clipboard — makes copy work over SSH and nested tmux.
-	// These are server/global options, safe to set globally.
 	tmuxCmd("set-option", "-g", "set-clipboard", "on")
 	tmuxCmd("set-option", "-g", "allow-passthrough", "on")
 
@@ -122,25 +128,19 @@ func configure(sessionName string) {
 	// prefix+g → dashboard popup (direct shortcut)
 	tmuxCmd("bind-key", "g",
 		"display-popup", "-E", "-w", "80%", "-h", "80%",
-		fmt.Sprintf("%s dashboard", amuxBin))
+		amuxBin+" dashboard")
 
 	// prefix+a → enter amux keytable for single-key dispatch
 	tmuxCmd("bind-key", "a", "switch-client", "-T", "amux")
 
 	// amux keytable: prefix+a then one of these keys
-	tmuxCmd("bind-key", "-T", "amux", "g",
-		"display-popup", "-E", "-w", "80%", "-h", "80%",
-		fmt.Sprintf("%s dashboard", amuxBin))
+	popup("g", "80%", "80%", "dashboard")
+	popup("s", "60%", "40%", "spawn -i")
+	popup("l", "60%", "40%", "list")
 	tmuxCmd("bind-key", "-T", "amux", "m",
 		"run-shell", fmt.Sprintf("%s minimize #{pane_id}", amuxBin))
 	tmuxCmd("bind-key", "-T", "amux", "r",
 		"run-shell", fmt.Sprintf("%s restore #{pane_id}", amuxBin))
-	tmuxCmd("bind-key", "-T", "amux", "s",
-		"display-popup", "-E", "-w", "60%", "-h", "40%",
-		fmt.Sprintf("%s spawn -i", amuxBin))
-	tmuxCmd("bind-key", "-T", "amux", "l",
-		"display-popup", "-E", "-w", "60%", "-h", "40%",
-		fmt.Sprintf("%s list", amuxBin))
 
 	// --- Hooks ---
 	// After any split, auto-tag the new pane with amux metadata.
@@ -154,16 +154,11 @@ func configure(sessionName string) {
 		`run-shell "tmux set -g mouse off && tmux set -g mouse on"`)
 
 	// --- Status bar ---
-	// Left: session name with amux branding
 	opt("status-left", " #[bold]amux#[nobold] | #S ")
 	opt("status-left-length", "30")
-
-	// Right: pane count + host + time
 	opt("status-right", " #{window_panes} panes | #h | %H:%M ")
 	opt("status-right-length", "40")
-
-	// Status bar style — subtle dark (Catppuccin Mocha surface0/text)
-	opt("status-style", "bg=#313244,fg=#cdd6f4")
+	opt("status-style", "bg=#313244,fg=#cdd6f4") // Catppuccin Mocha surface0/text
 
 	// Pane border — show amux name+task if set, otherwise dir/branch
 	opt("pane-border-status", "top")
