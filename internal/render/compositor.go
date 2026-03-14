@@ -114,13 +114,16 @@ func (c *Compositor) drawBorders(buf *strings.Builder, cell *mux.LayoutCell, act
 	children := cell.Children
 	for i := 0; i < len(children)-1; i++ {
 		child := children[i]
+		// Pass the two children adjacent to this border for color determination
+		left := children[i]
+		right := children[i+1]
 
 		if cell.Dir == mux.SplitHorizontal {
 			borderX := child.X + child.W
-			c.drawVerticalBorder(buf, borderX, cell.Y, cell.H, cell, activePane)
+			c.drawVerticalBorder(buf, borderX, cell.Y, cell.H, left, right, activePane)
 		} else {
 			borderY := child.Y + child.H
-			c.drawHorizontalBorder(buf, borderY, cell.X, cell.W, cell, activePane)
+			c.drawHorizontalBorder(buf, borderY, cell.X, cell.W, left, right, activePane)
 		}
 	}
 
@@ -129,8 +132,8 @@ func (c *Compositor) drawBorders(buf *strings.Builder, cell *mux.LayoutCell, act
 	}
 }
 
-func (c *Compositor) drawVerticalBorder(buf *strings.Builder, x, y, h int, parent *mux.LayoutCell, activePane *mux.Pane) {
-	color := borderColor(parent, activePane)
+func (c *Compositor) drawVerticalBorder(buf *strings.Builder, x, y, h int, left, right *mux.LayoutCell, activePane *mux.Pane) {
+	color := adjacentBorderColor(left, right, activePane)
 	for row := 0; row < h; row++ {
 		buf.WriteString(CursorTo(y+row+1, x+1))
 		buf.WriteString(color)
@@ -139,8 +142,8 @@ func (c *Compositor) drawVerticalBorder(buf *strings.Builder, x, y, h int, paren
 	buf.WriteString(Reset)
 }
 
-func (c *Compositor) drawHorizontalBorder(buf *strings.Builder, y, x, w int, parent *mux.LayoutCell, activePane *mux.Pane) {
-	color := borderColor(parent, activePane)
+func (c *Compositor) drawHorizontalBorder(buf *strings.Builder, y, x, w int, top, bottom *mux.LayoutCell, activePane *mux.Pane) {
+	color := adjacentBorderColor(top, bottom, activePane)
 	buf.WriteString(CursorTo(y+1, x+1))
 	buf.WriteString(color)
 	for col := 0; col < w; col++ {
@@ -149,13 +152,14 @@ func (c *Compositor) drawHorizontalBorder(buf *strings.Builder, y, x, w int, par
 	buf.WriteString(Reset)
 }
 
-// borderColor returns the active pane's color if the active pane is
-// anywhere under this parent, otherwise dim gray.
-func borderColor(parent *mux.LayoutCell, activePane *mux.Pane) string {
+// adjacentBorderColor returns the active pane's color if the active pane
+// is in either of the two cells adjacent to this border. Only the borders
+// directly touching the active pane are colored.
+func adjacentBorderColor(a, b *mux.LayoutCell, activePane *mux.Pane) string {
 	if activePane == nil {
 		return DimFg
 	}
-	if containsPane(parent, activePane.ID) {
+	if a.FindPane(activePane.ID) != nil || b.FindPane(activePane.ID) != nil {
 		color := activePane.Meta.Color
 		if color != "" {
 			return hexToANSI(color)
@@ -163,11 +167,6 @@ func borderColor(parent *mux.LayoutCell, activePane *mux.Pane) string {
 		return BlueFg
 	}
 	return DimFg
-}
-
-// containsPane returns true if the cell or any descendant contains the pane.
-func containsPane(cell *mux.LayoutCell, paneID uint32) bool {
-	return cell.FindPane(paneID) != nil
 }
 
 // hexToANSI converts a 6-digit hex color to an ANSI truecolor escape.
