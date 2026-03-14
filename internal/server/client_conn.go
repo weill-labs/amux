@@ -167,6 +167,11 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 		if paneRef != "" {
 			// Single pane capture (replaces old "output" command)
 			sess.mu.Lock()
+			if sess.Window == nil {
+				sess.mu.Unlock()
+				cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "no session"})
+				return
+			}
 			pane := sess.Window.ResolvePane(paneRef)
 			if pane == nil {
 				sess.mu.Unlock()

@@ -177,6 +177,9 @@ func (s *serverPaneData) Minimized() bool       { return s.p.Meta.Minimized }
 // renderCapture renders the full composited screen server-side.
 // If stripANSI is true, the ANSI stream is materialized into a plain-text
 // 2D grid that preserves the visual layout.
+//
+// Note: pane emulator reads here race with concurrent PTY writes. This is
+// the same best-effort pattern used by handleAttach's reattach snapshot.
 func (s *Session) renderCapture(stripANSI bool) string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -185,25 +188,22 @@ func (s *Session) renderCapture(stripANSI bool) string {
 		return ""
 	}
 
-	// Build pane lookup from session panes
 	paneMap := make(map[uint32]render.PaneData, len(s.Panes))
 	for _, p := range s.Panes {
 		paneMap[p.ID] = &serverPaneData{p: p}
 	}
-	lookup := func(id uint32) render.PaneData {
-		return paneMap[id]
-	}
 
-	// Total height = layout height + global bar
 	totalH := s.Window.Height + render.GlobalBarHeight
 	comp := render.NewCompositor(s.Window.Width, totalH, s.Name)
 
-	activePaneID := uint32(0)
+	var activePaneID uint32
 	if s.Window.ActivePane != nil {
 		activePaneID = s.Window.ActivePane.ID
 	}
 
-	raw := string(comp.RenderFull(s.Window.Root, activePaneID, lookup))
+	raw := string(comp.RenderFull(s.Window.Root, activePaneID, func(id uint32) render.PaneData {
+		return paneMap[id]
+	}))
 
 	if stripANSI {
 		return render.MaterializeGrid(raw, s.Window.Width, totalH)

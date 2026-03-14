@@ -7,11 +7,10 @@ import (
 )
 
 // MaterializeGrid replays an ANSI escape stream onto a 2D character grid
-// and returns the result as newline-separated rows. This converts cursor-
-// positioning escapes into actual spatial layout, producing plain text that
-// faithfully represents what a terminal would display.
+// and returns the result as newline-separated rows. Only CUP (\033[row;colH)
+// cursor positioning is handled; other cursor movement (A/B/C/D) is skipped.
+// This is sufficient for the compositor's output, which uses CUP exclusively.
 func MaterializeGrid(ansiStream string, width, height int) string {
-	// Initialize grid with spaces
 	grid := make([][]rune, height)
 	for i := range grid {
 		grid[i] = make([]rune, width)
@@ -44,9 +43,9 @@ func MaterializeGrid(ansiStream string, width, height int) string {
 
 					if finalByte == 'H' || finalByte == 'f' {
 						// CUP: \033[row;colH (1-based) or \033[H (home)
-						r, c := parseCUP(params)
-						row = clamp(r-1, 0, height-1)
-						col = clamp(c-1, 0, width-1)
+						r, c := ParseCUP(params)
+						row = Clamp(r-1, 0, height-1)
+						col = Clamp(c-1, 0, width-1)
 					}
 					// All other CSI sequences (SGR, clear, cursor visibility) — skip
 
@@ -130,15 +129,10 @@ func MaterializeGrid(ansiStream string, width, height int) string {
 	return buf.String()
 }
 
-// parseCUP parses CSI CUP parameters "row;col" (1-based). Missing values default to 1.
-func parseCUP(params string) (row, col int) {
+// ParseCUP parses CSI CUP parameters "row;col" (1-based). Missing values default to 1.
+func ParseCUP(params string) (row, col int) {
 	row, col = 1, 1
-	if params == "" {
-		return
-	}
-
-	// Handle private mode prefix (e.g., \033[?25l)
-	if len(params) > 0 && params[0] == '?' {
+	if params == "" || params[0] == '?' {
 		return
 	}
 
@@ -154,7 +148,8 @@ func parseCUP(params string) (row, col int) {
 	return
 }
 
-func clamp(v, lo, hi int) int {
+// Clamp restricts v to the range [lo, hi].
+func Clamp(v, lo, hi int) int {
 	if v < lo {
 		return lo
 	}

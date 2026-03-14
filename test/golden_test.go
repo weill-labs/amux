@@ -6,9 +6,12 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"unicode/utf8"
+
+	"github.com/weill-labs/amux/internal/render"
 )
 
 var updateGoldens = flag.Bool("update", false, "update golden files")
@@ -98,14 +101,13 @@ func isStatusLine(line string) bool {
 	return strings.Contains(line, "[pane-")
 }
 
+var timeRe = regexp.MustCompile(`\d{2}:\d{2}`)
+
 // normalizeGlobalBar replaces the random session name with SESSION and
 // the timestamp with 00:00.
 func normalizeGlobalBar(line string, sessionName string) string {
 	line = strings.ReplaceAll(line, sessionName, "SESSION")
-	// Replace HH:MM timestamp pattern
-	timeRe := regexp.MustCompile(`\d{2}:\d{2}`)
-	line = timeRe.ReplaceAllString(line, "00:00")
-	return line
+	return timeRe.ReplaceAllString(line, "00:00")
 }
 
 // extractBorderLine keeps only box-drawing border characters in a line,
@@ -191,9 +193,9 @@ func extractColorMap(ansiStream string, width, height int) string {
 					params := ansiStream[i+2 : j]
 
 					if finalByte == 'H' || finalByte == 'f' {
-						r, c := parseCUPForColor(params)
-						row = clampVal(r-1, 0, height-1)
-						col = clampVal(c-1, 0, width-1)
+						r, c := render.ParseCUP(params)
+						row = render.Clamp(r-1, 0, height-1)
+						col = render.Clamp(c-1, 0, width-1)
 					} else if finalByte == 'm' {
 						currentColor = extractFgHex(params, currentColor)
 					}
@@ -277,7 +279,10 @@ func extractFgHex(params string, current string) string {
 	parts := strings.Split(params, ";")
 	// Truecolor foreground: 38;2;R;G;B
 	if len(parts) >= 5 && parts[0] == "38" && parts[1] == "2" {
-		return fmt.Sprintf("%02x%02x%02x", atoi(parts[2]), atoi(parts[3]), atoi(parts[4]))
+		r, _ := strconv.Atoi(parts[2])
+		g, _ := strconv.Atoi(parts[3])
+		b, _ := strconv.Atoi(parts[4])
+		return fmt.Sprintf("%02x%02x%02x", r, g, b)
 	}
 	return current
 }
@@ -300,39 +305,3 @@ func colorToLetter(hex string) byte {
 	return '?'
 }
 
-func parseCUPForColor(params string) (row, col int) {
-	row, col = 1, 1
-	if params == "" || (len(params) > 0 && params[0] == '?') {
-		return
-	}
-	parts := strings.SplitN(params, ";", 2)
-	if v := atoi(parts[0]); v > 0 {
-		row = v
-	}
-	if len(parts) > 1 {
-		if v := atoi(parts[1]); v > 0 {
-			col = v
-		}
-	}
-	return
-}
-
-func clampVal(v, lo, hi int) int {
-	if v < lo {
-		return lo
-	}
-	if v > hi {
-		return hi
-	}
-	return v
-}
-
-func atoi(s string) int {
-	n := 0
-	for _, c := range s {
-		if c >= '0' && c <= '9' {
-			n = n*10 + int(c-'0')
-		}
-	}
-	return n
-}
