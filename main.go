@@ -71,7 +71,9 @@ func main() {
 		runServerCommand("list", nil)
 	case "status":
 		runServerCommand("status", nil)
-	case "output", "minimize", "restore", "kill", "focus":
+	case "capture":
+		runServerCommand("capture", args[1:])
+	case "minimize", "restore", "kill", "focus":
 		if len(args) < 2 {
 			fmt.Fprintf(os.Stderr, "usage: amux %s <pane>\n", args[0])
 			os.Exit(1)
@@ -114,7 +116,9 @@ Usage:
   amux [-s session] new [name]        Start a new named session
   amux [-s session] list              List panes with metadata
   amux [-s session] status            Show pane summary
-  amux [-s session] output <pane>     Show last 50 lines of pane output
+  amux [-s session] capture           Capture full composited screen
+  amux [-s session] capture <pane>    Capture a single pane's output
+  amux [-s session] capture --ansi    Capture with ANSI escape codes
   amux [-s session] spawn --name NAME Spawn a new agent pane
   amux [-s session] minimize <pane>   Minimize a pane
   amux [-s session] restore <pane>    Restore a minimized pane

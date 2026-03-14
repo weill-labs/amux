@@ -160,6 +160,39 @@ func (h *TmuxHarness) runCmd(args ...string) string {
 	return string(out)
 }
 
+// captureAmux returns the server-side composited screen via `amux capture`.
+// Unlike h.capture() (tmux capture-pane), this tests the server's compositor
+// directly and returns a deterministic plain-text 2D grid.
+func (h *TmuxHarness) captureAmux() string {
+	h.t.Helper()
+	return h.runCmd("capture")
+}
+
+// captureAmuxLines returns the amux capture output split into rows.
+func (h *TmuxHarness) captureAmuxLines() []string {
+	h.t.Helper()
+	return strings.Split(h.captureAmux(), "\n")
+}
+
+// captureAmuxContentLines returns amux capture lines excluding the global bar.
+func (h *TmuxHarness) captureAmuxContentLines() []string {
+	h.t.Helper()
+	var out []string
+	for _, line := range h.captureAmuxLines() {
+		if !isGlobalBar(line) {
+			out = append(out, line)
+		}
+	}
+	return out
+}
+
+// captureAmuxVerticalBorderCol finds a consistent vertical border column
+// in the amux capture output.
+func (h *TmuxHarness) captureAmuxVerticalBorderCol() int {
+	h.t.Helper()
+	return findVerticalBorderCol(h.captureAmuxContentLines())
+}
+
 // ---------------------------------------------------------------------------
 // Layout-aware screen helpers
 // ---------------------------------------------------------------------------
@@ -214,7 +247,11 @@ func isVerticalBorderRune(r rune) bool {
 // consistently across content lines. Returns -1 if no consistent border found.
 func (h *TmuxHarness) verticalBorderCol() int {
 	h.t.Helper()
-	lines := h.contentLines()
+	return findVerticalBorderCol(h.contentLines())
+}
+
+// findVerticalBorderCol finds a consistent vertical border column in lines.
+func findVerticalBorderCol(lines []string) int {
 	if len(lines) == 0 {
 		return -1
 	}
@@ -243,24 +280,6 @@ func (h *TmuxHarness) verticalBorderCol() int {
 
 	for col := range candidates {
 		return col
-	}
-	return -1
-}
-
-// horizontalBorderRow finds a row index where a horizontal border
-// spans most of the width. Returns -1 if none found.
-func (h *TmuxHarness) horizontalBorderRow() int {
-	h.t.Helper()
-	for i, line := range h.contentLines() {
-		count := 0
-		for _, r := range line {
-			if r == '─' || r == '┼' || r == '┬' || r == '┴' {
-				count++
-			}
-		}
-		if count > 10 {
-			return i
-		}
 	}
 	return -1
 }

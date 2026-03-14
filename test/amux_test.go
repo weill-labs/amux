@@ -12,18 +12,23 @@ func TestBasicStartAndDetach(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
 
-	// Status line should be on row 0 with pane name
-	h.assertScreen("should show pane status on first row", func(s string) bool {
-		lines := strings.Split(s, "\n")
-		return len(lines) > 0 && strings.Contains(lines[0], "[pane-")
-	})
+	// Verify layout via amux capture (server-side compositor)
+	lines := h.captureAmuxLines()
+	if len(lines) == 0 || !strings.Contains(lines[0], "[pane-") {
+		t.Errorf("capture: first row should contain pane status, got: %q", lines[0])
+	}
 
 	// Global bar should be on the last non-empty row
-	h.assertScreen("should show global bar on last row", func(s string) bool {
-		lines := strings.Split(strings.TrimRight(s, "\n "), "\n")
-		last := lines[len(lines)-1]
-		return isGlobalBar(last)
-	})
+	lastNonEmpty := ""
+	for i := len(lines) - 1; i >= 0; i-- {
+		if strings.TrimSpace(lines[i]) != "" {
+			lastNonEmpty = lines[i]
+			break
+		}
+	}
+	if !isGlobalBar(lastNonEmpty) {
+		t.Errorf("capture: last row should be global bar, got: %q", lastNonEmpty)
+	}
 
 	h.sendKeys("C-a", "d")
 	time.Sleep(500 * time.Millisecond)
@@ -36,28 +41,32 @@ func TestSplitVertical(t *testing.T) {
 	h.sendKeys("C-a", "\\")
 	h.waitFor("[pane-2]", 3*time.Second)
 
+	// Verify layout via amux capture
+	lines := h.captureAmuxContentLines()
+
 	// Both pane names should be on the SAME row (side by side)
-	h.assertScreen("pane names on same row (left/right split)", func(s string) bool {
-		for _, line := range strings.Split(s, "\n") {
-			if strings.Contains(line, "[pane-1]") && strings.Contains(line, "[pane-2]") {
-				return true
-			}
+	found := false
+	for _, line := range lines {
+		if strings.Contains(line, "[pane-1]") && strings.Contains(line, "[pane-2]") {
+			found = true
+			break
 		}
-		return false
-	})
+	}
+	if !found {
+		t.Errorf("capture: pane names should be on same row\n%s", strings.Join(lines, "\n"))
+	}
 
 	// Vertical border should span most rows
-	col := h.verticalBorderCol()
+	col := findVerticalBorderCol(lines)
 	if col < 0 {
-		t.Fatal("no consistent vertical border found")
+		t.Fatal("capture: no consistent vertical border found")
 	}
 
 	// pane-1 name should be left of the border, pane-2 right of it
-	lines := h.contentLines()
 	col1 := paneNameCol(lines, "pane-1")
 	col2 := paneNameCol(lines, "pane-2")
 	if col1 >= col || col2 <= col {
-		t.Errorf("pane-1 (col %d) should be left of border (col %d), pane-2 (col %d) right", col1, col, col2)
+		t.Errorf("capture: pane-1 (col %d) should be left of border (col %d), pane-2 (col %d) right", col1, col, col2)
 	}
 }
 
@@ -68,24 +77,37 @@ func TestSplitHorizontal(t *testing.T) {
 	h.sendKeys("C-a", "-")
 	h.waitFor("[pane-2]", 3*time.Second)
 
-	// Pane names should be on DIFFERENT rows (top/bottom split)
-	lines := h.contentLines()
+	// Verify layout via amux capture
+	lines := h.captureAmuxContentLines()
+
 	row1 := paneNameRow(lines, "pane-1")
 	row2 := paneNameRow(lines, "pane-2")
 	if row1 < 0 || row2 < 0 {
-		t.Fatal("could not find both pane names")
+		t.Fatalf("capture: could not find both pane names\n%s", strings.Join(lines, "\n"))
 	}
 	if row1 >= row2 {
-		t.Errorf("pane-1 (row %d) should be above pane-2 (row %d)", row1, row2)
+		t.Errorf("capture: pane-1 (row %d) should be above pane-2 (row %d)", row1, row2)
 	}
 
 	// Horizontal border should be between the two panes
-	borderRow := h.horizontalBorderRow()
-	if borderRow < 0 {
-		t.Fatal("no horizontal border found")
+	hBorderRow := -1
+	for i, line := range lines {
+		count := 0
+		for _, r := range line {
+			if r == '─' || r == '┼' || r == '┬' || r == '┴' {
+				count++
+			}
+		}
+		if count > 10 {
+			hBorderRow = i
+			break
+		}
 	}
-	if borderRow <= row1 || borderRow >= row2 {
-		t.Errorf("border (row %d) should be between pane-1 (row %d) and pane-2 (row %d)", borderRow, row1, row2)
+	if hBorderRow < 0 {
+		t.Fatal("capture: no horizontal border found")
+	}
+	if hBorderRow <= row1 || hBorderRow >= row2 {
+		t.Errorf("capture: border (row %d) should be between pane-1 (row %d) and pane-2 (row %d)", hBorderRow, row1, row2)
 	}
 }
 
@@ -141,22 +163,21 @@ func TestPaneClose(t *testing.T) {
 		t.Fatal("pane-2 should disappear after exit")
 	}
 
-	// pane-1 should be the only pane, taking full width (no vertical borders)
-	h.assertScreen("single pane after close, no borders", func(s string) bool {
-		hasPane1 := false
-		for _, line := range strings.Split(s, "\n") {
-			if strings.Contains(line, "[pane-1]") {
-				hasPane1 = true
-			}
-			if isGlobalBar(line) {
-				continue
-			}
-			if strings.Contains(line, "│") {
-				return false
-			}
+	// Verify layout via amux capture: single pane, no borders
+	capLines := h.captureAmuxContentLines()
+	hasPane1 := false
+	for _, line := range capLines {
+		if strings.Contains(line, "[pane-1]") {
+			hasPane1 = true
 		}
-		return hasPane1
-	})
+		if strings.Contains(line, "│") {
+			t.Errorf("capture: no vertical borders expected after close, got: %q", line)
+			break
+		}
+	}
+	if !hasPane1 {
+		t.Errorf("capture: pane-1 should still be visible\n%s", strings.Join(capLines, "\n"))
+	}
 
 	// pane-1 status should be on row 0 (full screen, no offset)
 	h.assertScreen("pane-1 status on first row", func(s string) bool {
@@ -230,42 +251,43 @@ func TestRootSplitVertical(t *testing.T) {
 	h.sendKeys("C-a", "|")
 	h.waitFor("[pane-3]", 3*time.Second)
 
-	lines := h.contentLines()
+	// Verify layout via amux capture
+	lines := h.captureAmuxContentLines()
 
 	// All 3 pane names should be visible
 	for _, name := range []string{"pane-1", "pane-2", "pane-3"} {
 		if paneNameRow(lines, name) < 0 {
-			t.Errorf("pane %s not found on screen", name)
+			t.Errorf("capture: pane %s not found\n%s", name, strings.Join(lines, "\n"))
 		}
 	}
 
 	// Vertical border from root split should span most of the height
-	col := h.verticalBorderCol()
+	col := findVerticalBorderCol(lines)
 	if col < 0 {
-		t.Fatal("no consistent vertical border found for root split")
+		t.Fatal("capture: no consistent vertical border found for root split")
 	}
 
 	// pane-3 should be to the right of the border
 	col3 := paneNameCol(lines, "pane-3")
 	if col3 <= col {
-		t.Errorf("pane-3 (col %d) should be right of root border (col %d)", col3, col)
+		t.Errorf("capture: pane-3 (col %d) should be right of root border (col %d)", col3, col)
 	}
 
 	// pane-1 and pane-2 should both be to the left of the border
 	col1 := paneNameCol(lines, "pane-1")
 	col2 := paneNameCol(lines, "pane-2")
 	if col1 >= col {
-		t.Errorf("pane-1 (col %d) should be left of root border (col %d)", col1, col)
+		t.Errorf("capture: pane-1 (col %d) should be left of root border (col %d)", col1, col)
 	}
 	if col2 >= col {
-		t.Errorf("pane-2 (col %d) should be left of root border (col %d)", col2, col)
+		t.Errorf("capture: pane-2 (col %d) should be left of root border (col %d)", col2, col)
 	}
 
 	// pane-1 should be above pane-2 (stacked in left column)
 	row1 := paneNameRow(lines, "pane-1")
 	row2 := paneNameRow(lines, "pane-2")
 	if row1 >= row2 {
-		t.Errorf("pane-1 (row %d) should be above pane-2 (row %d)", row1, row2)
+		t.Errorf("capture: pane-1 (row %d) should be above pane-2 (row %d)", row1, row2)
 	}
 }
 
@@ -281,12 +303,13 @@ func TestRootSplitHorizontal(t *testing.T) {
 	h.sendKeys("C-a", "_")
 	h.waitFor("[pane-3]", 3*time.Second)
 
-	lines := h.contentLines()
+	// Verify layout via amux capture
+	lines := h.captureAmuxContentLines()
 
 	// All 3 pane names should be visible
 	for _, name := range []string{"pane-1", "pane-2", "pane-3"} {
 		if paneNameRow(lines, name) < 0 {
-			t.Errorf("pane %s not found on screen", name)
+			t.Errorf("capture: pane %s not found\n%s", name, strings.Join(lines, "\n"))
 		}
 	}
 
@@ -294,29 +317,41 @@ func TestRootSplitHorizontal(t *testing.T) {
 	row1 := paneNameRow(lines, "pane-1")
 	row2 := paneNameRow(lines, "pane-2")
 	if row1 != row2 {
-		t.Errorf("pane-1 (row %d) and pane-2 (row %d) should be on same row", row1, row2)
+		t.Errorf("capture: pane-1 (row %d) and pane-2 (row %d) should be on same row", row1, row2)
 	}
 
 	// pane-3 should be below both
 	row3 := paneNameRow(lines, "pane-3")
 	if row3 <= row1 {
-		t.Errorf("pane-3 (row %d) should be below pane-1/pane-2 (row %d)", row3, row1)
+		t.Errorf("capture: pane-3 (row %d) should be below pane-1/pane-2 (row %d)", row3, row1)
 	}
 
 	// Horizontal border from root split should be between top and bottom
-	borderRow := h.horizontalBorderRow()
-	if borderRow < 0 {
-		t.Fatal("no horizontal border found for root split")
+	hBorderRow := -1
+	for i, line := range lines {
+		count := 0
+		for _, r := range line {
+			if r == '─' || r == '┼' || r == '┬' || r == '┴' {
+				count++
+			}
+		}
+		if count > 10 {
+			hBorderRow = i
+			break
+		}
 	}
-	if borderRow <= row1 || borderRow >= row3 {
-		t.Errorf("border (row %d) should be between top panes (row %d) and pane-3 (row %d)", borderRow, row1, row3)
+	if hBorderRow < 0 {
+		t.Fatal("capture: no horizontal border found for root split")
+	}
+	if hBorderRow <= row1 || hBorderRow >= row3 {
+		t.Errorf("capture: border (row %d) should be between top panes (row %d) and pane-3 (row %d)", hBorderRow, row1, row3)
 	}
 
 	// pane-1 should be left of pane-2
 	col1 := paneNameCol(lines, "pane-1")
 	col2 := paneNameCol(lines, "pane-2")
 	if col1 >= col2 {
-		t.Errorf("pane-1 (col %d) should be left of pane-2 (col %d)", col1, col2)
+		t.Errorf("capture: pane-1 (col %d) should be left of pane-2 (col %d)", col1, col2)
 	}
 }
 
@@ -629,7 +664,7 @@ func TestMultipleNonRootSplitsEqualWidth(t *testing.T) {
 	}
 }
 
-func TestOutput(t *testing.T) {
+func TestCapturePane(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
 
@@ -637,9 +672,9 @@ func TestOutput(t *testing.T) {
 	h.sendKeys("e", "c", "h", "o", " ", "O", "U", "T", "P", "U", "T", "M", "A", "R", "K", "E", "R", "Enter")
 	h.waitFor("OUTPUTMARKER", 3*time.Second)
 
-	output := h.runCmd("output", "pane-1")
+	output := h.runCmd("capture", "pane-1")
 	if !strings.Contains(output, "OUTPUTMARKER") {
-		t.Errorf("amux output should contain OUTPUTMARKER, got:\n%s", output)
+		t.Errorf("amux capture <pane> should contain OUTPUTMARKER, got:\n%s", output)
 	}
 }
 
@@ -1190,5 +1225,128 @@ func TestVerticalBorderPartialColor(t *testing.T) {
 	if topColors[0] == bottomColors[0] {
 		t.Errorf("vertical border should have different colors above and below:\n  top (row %d): %s\n  bottom (row %d): %s",
 			topRow, topColors[0], bottomRow, bottomColors[0])
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Golden rendering tests
+// ---------------------------------------------------------------------------
+
+func TestGoldenSinglePane(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	frame := extractFrame(h.captureAmux(), h.session)
+	assertGolden(t, "single_pane.golden", frame)
+}
+
+func TestGoldenVerticalSplit(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	h.sendKeys("C-a", "\\")
+	h.waitFor("[pane-2]", 3*time.Second)
+
+	// Focus pane-1 so active state is deterministic
+	h.sendKeys("C-a", "h")
+	time.Sleep(300 * time.Millisecond)
+
+	frame := extractFrame(h.captureAmux(), h.session)
+	assertGolden(t, "vertical_split.golden", frame)
+
+	// Color golden: pane-1 active, its borders should be Rosewater (R)
+	ansi := h.runCmd("capture", "--ansi")
+	colorMap := extractColorMap(ansi, 80, 24)
+	assertGolden(t, "vertical_split.color", colorMap)
+}
+
+func TestGoldenHorizontalSplit(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	h.sendKeys("C-a", "-")
+	h.waitFor("[pane-2]", 3*time.Second)
+
+	// pane-2 is active after split (Flamingo)
+	frame := extractFrame(h.captureAmux(), h.session)
+	assertGolden(t, "horizontal_split.golden", frame)
+
+	ansi := h.runCmd("capture", "--ansi")
+	colorMap := extractColorMap(ansi, 80, 24)
+	assertGolden(t, "horizontal_split.color", colorMap)
+}
+
+func TestGoldenFourPane(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// Build 2x2 grid:
+	// pane-1 | pane-2
+	// -------+-------
+	// pane-3 | pane-4
+	h.sendKeys("C-a", "\\")
+	h.waitFor("[pane-2]", 3*time.Second)
+	h.sendKeys("C-a", "-")
+	h.waitFor("[pane-3]", 3*time.Second)
+	h.sendKeys("C-a", "h")
+	time.Sleep(300 * time.Millisecond)
+	h.sendKeys("C-a", "-")
+	h.waitFor("[pane-4]", 3*time.Second)
+
+	// pane-4 is active (bottom-left)
+	frame := extractFrame(h.captureAmux(), h.session)
+	assertGolden(t, "four_pane.golden", frame)
+
+	ansi := h.runCmd("capture", "--ansi")
+	colorMap := extractColorMap(ansi, 80, 24)
+	assertGolden(t, "four_pane.color", colorMap)
+}
+
+func TestCapture(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// Type a distinctive string so it appears in the pane
+	h.sendKeys("e", "c", "h", "o", " ", "S", "C", "R", "E", "E", "N", "C", "A", "P", "Enter")
+	h.waitFor("SCREENCAP", 3*time.Second)
+
+	// amux capture should return the full composited screen with pane content
+	out := h.runCmd("capture")
+	if !strings.Contains(out, "SCREENCAP") {
+		t.Errorf("amux capture should contain typed text, got:\n%s", out)
+	}
+	// Should include the pane status line
+	if !strings.Contains(out, "[pane-") {
+		t.Errorf("amux capture should contain pane status, got:\n%s", out)
+	}
+	// Should include the global session bar
+	if !strings.Contains(out, "amux") {
+		t.Errorf("amux capture should contain global bar, got:\n%s", out)
+	}
+}
+
+func TestCaptureWithSplit(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// Split and type distinctive text in each pane
+	h.sendKeys("e", "c", "h", "o", " ", "L", "E", "F", "T", "P", "A", "N", "E", "Enter")
+	h.waitFor("LEFTPANE", 3*time.Second)
+
+	h.sendKeys("C-a", "\\")
+	h.waitFor("[pane-2]", 3*time.Second)
+	h.sendKeys("e", "c", "h", "o", " ", "R", "I", "G", "H", "T", "P", "A", "N", "E", "Enter")
+	h.waitFor("RIGHTPANE", 3*time.Second)
+
+	out := h.runCmd("capture")
+	if !strings.Contains(out, "LEFTPANE") {
+		t.Errorf("amux capture should contain left pane text, got:\n%s", out)
+	}
+	if !strings.Contains(out, "RIGHTPANE") {
+		t.Errorf("amux capture should contain right pane text, got:\n%s", out)
+	}
+	// Both pane status lines should appear
+	if !strings.Contains(out, "[pane-1]") || !strings.Contains(out, "[pane-2]") {
+		t.Errorf("amux capture should contain both pane names, got:\n%s", out)
 	}
 }
