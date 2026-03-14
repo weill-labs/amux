@@ -192,7 +192,25 @@ func (h *TmuxHarness) contentLines() []string {
 	return out
 }
 
-// verticalBorderCol finds the column where a vertical border (│) appears
+// isBorderRune returns true for any box-drawing character used in borders.
+func isBorderRune(r rune) bool {
+	switch r {
+	case '│', '─', '┼', '├', '┤', '┬', '┴', '┌', '┐', '└', '┘':
+		return true
+	}
+	return false
+}
+
+// isVerticalBorderRune returns true for box-drawing characters with a vertical component.
+func isVerticalBorderRune(r rune) bool {
+	switch r {
+	case '│', '┼', '├', '┤', '┬', '┴', '┌', '┐', '└', '┘':
+		return true
+	}
+	return false
+}
+
+// verticalBorderCol finds the column where a vertical border appears
 // consistently across content lines. Returns -1 if no consistent border found.
 func (h *TmuxHarness) verticalBorderCol() int {
 	h.t.Helper()
@@ -201,20 +219,20 @@ func (h *TmuxHarness) verticalBorderCol() int {
 		return -1
 	}
 
-	// Find all columns that have │ on the first content line
+	// Find all columns that have a vertical border char on the first content line
 	candidates := map[int]bool{}
 	for i, r := range []rune(lines[0]) {
-		if r == '│' {
+		if isVerticalBorderRune(r) {
 			candidates[i] = true
 		}
 	}
 
-	// Keep only columns where │ appears on most lines (>50%)
+	// Keep only columns where a vertical border char appears on most lines (>50%)
 	for col := range candidates {
 		count := 0
 		for _, line := range lines {
 			runes := []rune(line)
-			if col < len(runes) && runes[col] == '│' {
+			if col < len(runes) && isVerticalBorderRune(runes[col]) {
 				count++
 			}
 		}
@@ -223,20 +241,24 @@ func (h *TmuxHarness) verticalBorderCol() int {
 		}
 	}
 
-	// Return the first consistent column
 	for col := range candidates {
 		return col
 	}
 	return -1
 }
 
-// horizontalBorderRow finds a row index where a horizontal border (─)
+// horizontalBorderRow finds a row index where a horizontal border
 // spans most of the width. Returns -1 if none found.
 func (h *TmuxHarness) horizontalBorderRow() int {
 	h.t.Helper()
 	for i, line := range h.contentLines() {
-		count := strings.Count(line, "─")
-		if count > 10 { // at least 10 ─ chars indicates a border
+		count := 0
+		for _, r := range line {
+			if r == '─' || r == '┼' || r == '┬' || r == '┴' {
+				count++
+			}
+		}
+		if count > 10 {
 			return i
 		}
 	}
