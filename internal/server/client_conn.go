@@ -6,7 +6,6 @@ import (
 	"sync"
 
 	"github.com/weill-labs/amux/internal/mux"
-	"github.com/weill-labs/amux/internal/render"
 )
 
 // ClientConn manages a single client connection to the server.
@@ -114,41 +113,11 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 				rootLevel = true
 			}
 		}
-
-		sess.mu.Lock()
-		if sess.Window == nil {
-			sess.mu.Unlock()
-			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "no window"})
-			return
+		pane := cc.splitNewPane(srv, sess, mux.PaneMeta{}, dir, rootLevel)
+		if pane != nil {
+			cc.Send(&Message{Type: MsgTypeCmdResult,
+				CmdOutput: fmt.Sprintf("Split %s: new pane %s\n", dirName(dir), pane.Meta.Name)})
 		}
-
-		// Initial PTY size (will be resized by Split/SplitRoot)
-		initW, initH := sess.Window.Width, sess.Window.Height
-		newPane, err := sess.createPane(srv, initW, render.PaneContentHeight(initH))
-		if err != nil {
-			sess.mu.Unlock()
-			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: err.Error()})
-			return
-		}
-
-		if rootLevel {
-			_, err = sess.Window.SplitRoot(dir, newPane)
-		} else {
-			_, err = sess.Window.Split(dir, newPane)
-		}
-		if err != nil {
-			sess.mu.Unlock()
-			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: err.Error()})
-			return
-		}
-		sess.mu.Unlock()
-
-		// Start goroutines AFTER releasing the lock (C1 fix)
-		newPane.Start()
-
-		sess.renderAndBroadcast()
-		cc.Send(&Message{Type: MsgTypeCmdResult,
-			CmdOutput: fmt.Sprintf("Split %s: new pane %s\n", dirName(dir), newPane.Meta.Name)})
 
 	case "focus":
 		direction := "next"
@@ -167,8 +136,10 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 		sess.renderAndBroadcast()
 
 	case "output":
-		pane, ok := cc.resolvePane(sess, "output", msg.CmdArgs)
-		if !ok {
+		sess.mu.Lock()
+		pane := cc.resolvePane(sess, "output", msg.CmdArgs)
+		if pane == nil {
+			sess.mu.Unlock()
 			return
 		}
 		out := pane.Output(50)
@@ -194,39 +165,17 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "--name is required"})
 			return
 		}
-
-		sess.mu.Lock()
-		if sess.Window == nil {
-			sess.mu.Unlock()
-			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "no session"})
-			return
+		pane := cc.splitNewPane(srv, sess, meta, mux.SplitHorizontal, false)
+		if pane != nil {
+			cc.Send(&Message{Type: MsgTypeCmdResult,
+				CmdOutput: fmt.Sprintf("Spawned %s in pane %d\n", meta.Name, pane.ID)})
 		}
-
-		initW, initH := sess.Window.Width, sess.Window.Height
-		pane, err := sess.createPaneWithMeta(srv, meta, initW, render.PaneContentHeight(initH))
-		if err != nil {
-			sess.mu.Unlock()
-			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: err.Error()})
-			return
-		}
-
-		_, err = sess.Window.Split(mux.SplitHorizontal, pane)
-		if err != nil {
-			sess.mu.Unlock()
-			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: err.Error()})
-			return
-		}
-		sess.mu.Unlock()
-
-		pane.Start()
-
-		sess.renderAndBroadcast()
-		cc.Send(&Message{Type: MsgTypeCmdResult,
-			CmdOutput: fmt.Sprintf("Spawned %s in pane %d\n", meta.Name, pane.ID)})
 
 	case "minimize":
-		pane, ok := cc.resolvePane(sess, "minimize", msg.CmdArgs)
-		if !ok {
+		sess.mu.Lock()
+		pane := cc.resolvePane(sess, "minimize", msg.CmdArgs)
+		if pane == nil {
+			sess.mu.Unlock()
 			return
 		}
 		err := sess.Window.Minimize(pane.ID)
@@ -239,8 +188,10 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: fmt.Sprintf("Minimized %s\n", pane.Meta.Name)})
 
 	case "restore":
-		pane, ok := cc.resolvePane(sess, "restore", msg.CmdArgs)
-		if !ok {
+		sess.mu.Lock()
+		pane := cc.resolvePane(sess, "restore", msg.CmdArgs)
+		if pane == nil {
+			sess.mu.Unlock()
 			return
 		}
 		err := sess.Window.Restore(pane.ID)
@@ -253,8 +204,10 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: fmt.Sprintf("Restored %s\n", pane.Meta.Name)})
 
 	case "kill":
-		pane, ok := cc.resolvePane(sess, "kill", msg.CmdArgs)
-		if !ok {
+		sess.mu.Lock()
+		pane := cc.resolvePane(sess, "kill", msg.CmdArgs)
+		if pane == nil {
+			sess.mu.Unlock()
 			return
 		}
 		if len(sess.Panes) <= 1 {
@@ -293,27 +246,66 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 	}
 }
 
-// resolvePane validates args, locks the session, and resolves the pane by name/ID.
-// On success the session mutex is held and the caller must unlock it.
-// On failure an error message is sent to the client and ok is false.
-func (cc *ClientConn) resolvePane(sess *Session, cmdName string, args []string) (pane *mux.Pane, ok bool) {
-	if len(args) < 1 {
-		cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("usage: %s <pane>", cmdName)})
-		return nil, false
-	}
+// splitNewPane creates a pane, inserts it into the layout, starts it, and
+// triggers a render. Returns the new pane, or nil if an error was sent.
+func (cc *ClientConn) splitNewPane(srv *Server, sess *Session, meta mux.PaneMeta, dir mux.SplitDir, rootLevel bool) *mux.Pane {
 	sess.mu.Lock()
 	if sess.Window == nil {
 		sess.mu.Unlock()
-		cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "no session"})
-		return nil, false
+		cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "no window"})
+		return nil
 	}
-	pane = sess.Window.ResolvePane(args[0])
-	if pane == nil {
+
+	initW, initH := sess.Window.Width, sess.Window.Height
+	var (
+		pane *mux.Pane
+		err  error
+	)
+	if meta.Name != "" {
+		pane, err = sess.createPaneWithMeta(srv, meta, initW, mux.PaneContentHeight(initH))
+	} else {
+		pane, err = sess.createPane(srv, initW, mux.PaneContentHeight(initH))
+	}
+	if err != nil {
 		sess.mu.Unlock()
-		cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("pane %q not found", args[0])})
-		return nil, false
+		cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: err.Error()})
+		return nil
 	}
-	return pane, true
+
+	if rootLevel {
+		_, err = sess.Window.SplitRoot(dir, pane)
+	} else {
+		_, err = sess.Window.Split(dir, pane)
+	}
+	if err != nil {
+		sess.mu.Unlock()
+		cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: err.Error()})
+		return nil
+	}
+	sess.mu.Unlock()
+
+	pane.Start()
+	sess.renderAndBroadcast()
+	return pane
+}
+
+// resolvePane validates args and resolves a pane by name or ID.
+// Caller must hold sess.mu. Sends an error to the client on failure.
+func (cc *ClientConn) resolvePane(sess *Session, cmdName string, args []string) *mux.Pane {
+	if len(args) < 1 {
+		cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("usage: %s <pane>", cmdName)})
+		return nil
+	}
+	if sess.Window == nil {
+		cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "no session"})
+		return nil
+	}
+	pane := sess.Window.ResolvePane(args[0])
+	if pane == nil {
+		cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("pane %q not found", args[0])})
+		return nil
+	}
+	return pane
 }
 
 func dirName(d mux.SplitDir) string {

@@ -84,12 +84,7 @@ func (w *Window) SplitRoot(dir SplitDir, newPane *Pane) (*Pane, error) {
 
 	w.Root.FixOffsets()
 
-	// Resize all PTYs to match new cell dimensions
-	w.Root.Walk(func(c *LayoutCell) {
-		if c.Pane != nil {
-			c.Pane.Resize(c.W, paneHeight(c.H))
-		}
-	})
+	w.resizePTYs()
 
 	w.ActivePane = newPane
 	return newPane, nil
@@ -109,11 +104,11 @@ func (w *Window) Split(dir SplitDir, newPane *Pane) (*Pane, error) {
 	}
 
 	// Resize PTYs to match layout cells (minus status line row)
-	newPane.Resize(newCell.W, paneHeight(newCell.H))
+	newPane.Resize(newCell.W, PaneContentHeight(newCell.H))
 
 	existingCell := w.Root.FindPane(w.ActivePane.ID)
 	if existingCell != nil {
-		w.ActivePane.Resize(existingCell.W, paneHeight(existingCell.H))
+		w.ActivePane.Resize(existingCell.W, PaneContentHeight(existingCell.H))
 	}
 
 	w.Root.FixOffsets()
@@ -165,13 +160,8 @@ func (w *Window) ClosePane(paneID uint32) error {
 		}
 	}
 
-	// Resize the recipient pane to match its new cell dimensions
 	w.Root.FixOffsets()
-	w.Root.Walk(func(c *LayoutCell) {
-		if c.Pane != nil {
-			c.Pane.Resize(c.W, paneHeight(c.H))
-		}
-	})
+	w.resizePTYs()
 
 	return nil
 }
@@ -182,12 +172,7 @@ func (w *Window) Resize(width, height int) {
 	w.Height = height
 	w.Root.ResizeAll(width, height)
 
-	// Resize all pane PTYs to match their new cell dimensions
-	w.Root.Walk(func(c *LayoutCell) {
-		if c.Pane != nil {
-			c.Pane.Resize(c.W, paneHeight(c.H))
-		}
-	})
+	w.resizePTYs()
 }
 
 // Focus changes the active pane. Direction is "next", "left", "right", "up", "down".
@@ -291,14 +276,23 @@ func overlapsX(a, b *LayoutCell) bool {
 	return a.X < b.X+b.W && b.X < a.X+a.W
 }
 
-// paneHeight returns the PTY height for a pane in a layout cell,
+// PaneContentHeight returns the PTY height for a pane in a layout cell,
 // accounting for the per-pane status line.
-func paneHeight(cellH int) int {
+func PaneContentHeight(cellH int) int {
 	h := cellH - StatusLineRows
 	if h < 1 {
 		h = 1
 	}
 	return h
+}
+
+// resizePTYs resizes all pane PTYs to match their layout cell dimensions.
+func (w *Window) resizePTYs() {
+	w.Root.Walk(func(c *LayoutCell) {
+		if c.Pane != nil {
+			c.Pane.Resize(c.W, PaneContentHeight(c.H))
+		}
+	})
 }
 
 // Panes returns all panes in the window (depth-first order).
@@ -354,7 +348,7 @@ func (w *Window) Minimize(paneID uint32) error {
 					if !sib.IsLeaf() {
 						sib.ResizeAll(sib.W, sib.H)
 					} else if sib.Pane != nil {
-						sib.Pane.Resize(sib.W, paneHeight(sib.H))
+						sib.Pane.Resize(sib.W, PaneContentHeight(sib.H))
 					}
 					break
 				}
@@ -390,7 +384,7 @@ func (w *Window) Restore(paneID uint32) error {
 					if !sib.IsLeaf() {
 						sib.ResizeAll(sib.W, sib.H)
 					} else if sib.Pane != nil {
-						sib.Pane.Resize(sib.W, paneHeight(sib.H))
+						sib.Pane.Resize(sib.W, PaneContentHeight(sib.H))
 					}
 					break
 				}
@@ -401,7 +395,7 @@ func (w *Window) Restore(paneID uint32) error {
 	cell.H = savedH
 	cell.Pane.Meta.Minimized = false
 	cell.Pane.Meta.RestoreH = 0
-	cell.Pane.Resize(cell.W, paneHeight(cell.H))
+	cell.Pane.Resize(cell.W, PaneContentHeight(cell.H))
 
 	w.Root.FixOffsets()
 	return nil

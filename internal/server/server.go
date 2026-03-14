@@ -8,15 +8,10 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/render"
 )
-
-// paneAccents — Catppuccin Mocha subset for pane colors.
-var paneAccents = []string{
-	"f38ba8", "fab387", "f9e2af", "a6e3a1",
-	"94e2d5", "89b4fa", "b4befe", "cba6f7",
-}
 
 // Session holds the state for one amux session.
 type Session struct {
@@ -100,7 +95,7 @@ func (s *Session) createPane(srv *Server, cols, rows int) (*mux.Pane, error) {
 	meta := mux.PaneMeta{
 		Name:  fmt.Sprintf("pane-%d", s.counter+1),
 		Host:  "local",
-		Color: paneAccents[s.counter%uint32(len(paneAccents))],
+		Color: config.CatppuccinMocha[s.counter%uint32(len(config.CatppuccinMocha))],
 	}
 	return s.createPaneWithMeta(srv, meta, cols, rows)
 }
@@ -110,7 +105,7 @@ func (s *Session) createPane(srv *Server, cols, rows int) (*mux.Pane, error) {
 func (s *Session) createPaneWithMeta(srv *Server, meta mux.PaneMeta, cols, rows int) (*mux.Pane, error) {
 	s.counter++
 	if meta.Color == "" {
-		meta.Color = paneAccents[(s.counter-1)%uint32(len(paneAccents))]
+		meta.Color = config.CatppuccinMocha[(s.counter-1)%uint32(len(config.CatppuccinMocha))]
 	}
 
 	pane, err := mux.NewPane(s.counter, meta, cols, rows,
@@ -298,7 +293,7 @@ func (s *Server) handleAttach(conn net.Conn, msg *Message) {
 	if sess.Window == nil {
 		sess.compositor = render.NewCompositor(cols, rows, sess.Name)
 		layoutH := sess.compositor.LayoutHeight()
-		paneH := render.PaneContentHeight(layoutH)
+		paneH := mux.PaneContentHeight(layoutH)
 		pane, err := sess.createPane(s, cols, paneH)
 		if err != nil {
 			sess.mu.Unlock()
