@@ -84,7 +84,9 @@ amux                    # start a session (or reattach to existing)
 # Ctrl-a \ to split, then:
 amux list               # verify panes
 amux focus pane-3       # focus by name
-amux output pane-1      # read pane output
+amux capture            # capture full composited screen
+amux capture pane-1     # capture single pane output
+amux capture --ansi     # capture with ANSI color codes
 amux minimize pane-2    # minimize by name
 amux restore pane-2     # restore
 ```
@@ -92,6 +94,16 @@ amux restore pane-2     # restore
 ### TDD Workflow
 
 All development follows test-driven development: write a failing test first, then implement. The integration test harness makes this fast (~6s for the full suite).
+
+### Test Philosophy
+
+Tests should read like specs. Minimize logic in assertions so a human can read the test and immediately understand what behavior is expected. Prefer golden file comparisons (`assertGolden`) over inline predicate functions — the golden file *is* the spec, viewable as a standalone document.
+
+**Golden files** live in `test/testdata/`. Two types:
+- `.golden` — structural layout frame (status lines, borders, global bar). Open one and you see the expected screen layout.
+- `.color` — border color map using Catppuccin color initials (`R`=Rosewater, `F`=Flamingo, `M`=Mauve, `.`=dim, `|`=global bar). Shows which borders should be colored at a glance.
+
+Regenerate goldens after intentional rendering changes: `cd test && go test -run TestGolden -update`
 
 ### Adding a New Feature
 

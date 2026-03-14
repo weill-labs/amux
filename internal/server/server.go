@@ -10,6 +10,7 @@ import (
 
 	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/mux"
+	"github.com/weill-labs/amux/internal/render"
 )
 
 // Default terminal dimensions when the client doesn't report a size.
@@ -159,6 +160,56 @@ func (s *Session) createPaneWithMeta(srv *Server, meta mux.PaneMeta, cols, rows 
 
 	s.Panes = append(s.Panes, pane)
 	return pane, nil
+}
+
+// serverPaneData adapts *mux.Pane to the render.PaneData interface.
+type serverPaneData struct{ p *mux.Pane }
+
+func (s *serverPaneData) RenderScreen() string  { return s.p.RenderScreen() }
+func (s *serverPaneData) CursorPos() (int, int) { return s.p.CursorPos() }
+func (s *serverPaneData) ID() uint32            { return s.p.ID }
+func (s *serverPaneData) Name() string          { return s.p.Meta.Name }
+func (s *serverPaneData) Host() string          { return s.p.Meta.Host }
+func (s *serverPaneData) Task() string          { return s.p.Meta.Task }
+func (s *serverPaneData) Color() string         { return s.p.Meta.Color }
+func (s *serverPaneData) Minimized() bool       { return s.p.Meta.Minimized }
+
+// renderCapture renders the full composited screen server-side.
+// If stripANSI is true, the ANSI stream is materialized into a plain-text
+// 2D grid that preserves the visual layout.
+//
+// Note: pane emulator reads here race with concurrent PTY writes. This is
+// the same best-effort pattern used by handleAttach's reattach snapshot.
+func (s *Session) renderCapture(stripANSI bool) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.Window == nil {
+		return ""
+	}
+
+	paneMap := make(map[uint32]render.PaneData, len(s.Panes))
+	for _, p := range s.Panes {
+		paneMap[p.ID] = &serverPaneData{p: p}
+	}
+
+	totalH := s.Window.Height + render.GlobalBarHeight
+	comp := render.NewCompositor(s.Window.Width, totalH, s.Name)
+
+	var activePaneID uint32
+	if s.Window.ActivePane != nil {
+		activePaneID = s.Window.ActivePane.ID
+	}
+
+	raw := string(comp.RenderFull(s.Window.Root, activePaneID, func(id uint32) render.PaneData {
+		return paneMap[id]
+	}))
+
+	if stripANSI {
+		return render.MaterializeGrid(raw, s.Window.Width, totalH)
+	}
+
+	return raw
 }
 
 // Server listens on a Unix socket and manages sessions.

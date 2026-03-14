@@ -151,16 +151,41 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 
 		sess.broadcastLayout()
 
-	case "output":
-		sess.mu.Lock()
-		pane := cc.resolvePane(sess, "output", msg.CmdArgs)
-		if pane == nil {
-			sess.mu.Unlock()
-			return
+	case "capture":
+		// amux capture [--ansi] [pane] — full screen or single pane
+		includeANSI := false
+		var paneRef string
+		for _, arg := range msg.CmdArgs {
+			switch arg {
+			case "--ansi":
+				includeANSI = true
+			default:
+				paneRef = arg
+			}
 		}
-		out := pane.Output(DefaultOutputLines)
-		sess.mu.Unlock()
-		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: out + "\n"})
+
+		if paneRef != "" {
+			// Single pane capture (replaces old "output" command)
+			sess.mu.Lock()
+			if sess.Window == nil {
+				sess.mu.Unlock()
+				cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "no session"})
+				return
+			}
+			pane := sess.Window.ResolvePane(paneRef)
+			if pane == nil {
+				sess.mu.Unlock()
+				cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("pane %q not found", paneRef)})
+				return
+			}
+			out := pane.Output(DefaultOutputLines)
+			sess.mu.Unlock()
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: out + "\n"})
+		} else {
+			// Full composited screen capture
+			out := sess.renderCapture(!includeANSI)
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: out})
+		}
 
 	case "spawn":
 		// Parse: spawn --name NAME [--host HOST] [--task TASK]

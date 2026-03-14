@@ -164,7 +164,7 @@ func (p *Pane) Output(lines int) string {
 	var result []string
 	for i := len(all) - 1; i >= 0 && len(result) < lines; i-- {
 		trimmed := strings.TrimRight(all[i], " ")
-		plain := stripANSI(trimmed)
+		plain := StripANSI(trimmed)
 		if plain != "" {
 			result = append([]string{plain}, result...)
 		}
@@ -174,7 +174,8 @@ func (p *Pane) Output(lines int) string {
 
 var ansiRe = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]|\x1b\][^\x07]*\x07|\x1b[()][0-9A-B]`)
 
-func stripANSI(s string) string {
+// StripANSI removes ANSI escape sequences from a string.
+func StripANSI(s string) string {
 	return ansiRe.ReplaceAllString(s, "")
 }
 
