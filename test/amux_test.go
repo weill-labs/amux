@@ -879,3 +879,68 @@ func extractBorderColors(line string) []string {
 	}
 	return colors
 }
+
+func TestVerticalBorderPartialColor(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// Vertical split then horizontal split on the right side:
+	// pane-1 (left) | pane-2 (top-right)
+	//               | pane-3 (bottom-right, active)
+	h.sendKeys("C-a", "\\")
+	h.waitFor("[pane-2]", 3*time.Second)
+	h.sendKeys("C-a", "-")
+	h.waitFor("[pane-3]", 3*time.Second)
+
+	// pane-3 is active (bottom-right). The vertical border between
+	// pane-1 and the right column should be colored only in the bottom
+	// half (adjacent to pane-3), and dim in the top half (adjacent to pane-2).
+
+	// Capture with ANSI escapes
+	out, err := exec.Command("tmux", "capture-pane", "-t", h.session, "-p", "-e").Output()
+	if err != nil {
+		t.Fatalf("capture-pane -e: %v", err)
+	}
+
+	// Find a row in the top half and bottom half of the vertical border.
+	// The horizontal border between pane-2 and pane-3 should be roughly
+	// in the middle. Check border colors above and below it.
+	lines := strings.Split(string(out), "\n")
+
+	// Find the horizontal border row (has ─ characters)
+	hBorderRow := -1
+	for i, line := range lines {
+		if strings.Contains(line, "─") && !isGlobalBar(line) {
+			hBorderRow = i
+			break
+		}
+	}
+	if hBorderRow < 0 {
+		t.Fatal("no horizontal border found")
+	}
+
+	// Get the border color from a row ABOVE the horizontal border (pane-1 | pane-2)
+	// and from a row BELOW it (pane-1 | pane-3)
+	topRow := hBorderRow - 2
+	bottomRow := hBorderRow + 2
+	if topRow < 0 {
+		topRow = 1
+	}
+	if bottomRow >= len(lines) {
+		bottomRow = len(lines) - 2
+	}
+
+	topColors := extractBorderColors(lines[topRow])
+	bottomColors := extractBorderColors(lines[bottomRow])
+
+	if len(topColors) == 0 || len(bottomColors) == 0 {
+		t.Fatalf("no border colors found: top=%v bottom=%v", topColors, bottomColors)
+	}
+
+	// Top border should be dim (pane-2 is not active)
+	// Bottom border should be colored (pane-3 is active)
+	if topColors[0] == bottomColors[0] {
+		t.Errorf("vertical border should have different colors above and below:\n  top (row %d): %s\n  bottom (row %d): %s",
+			topRow, topColors[0], bottomRow, bottomColors[0])
+	}
+}
