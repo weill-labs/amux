@@ -79,19 +79,21 @@ func newHarness(t *testing.T) *TmuxHarness {
 }
 
 // cleanup kills the tmux session and its amux server.
+// Only targets this test's resources — never kills other amux sessions.
 func (h *TmuxHarness) cleanup() {
-	exec.Command("tmux", "send-keys", "-t", h.session, "C-a", "d").Run()
-	time.Sleep(200 * time.Millisecond)
+	// Kill the tmux session (this also terminates the amux client inside it)
 	exec.Command("tmux", "kill-session", "-t", h.session).Run()
-	// Kill only this test's server (exact match with word boundary via pgrep)
+
+	// Kill only this test's server daemon (exact match on session name)
 	out, _ := exec.Command("pgrep", "-f", fmt.Sprintf("amux _server %s$", h.session)).Output()
 	for _, pid := range strings.Split(strings.TrimSpace(string(out)), "\n") {
 		if pid != "" {
 			exec.Command("kill", pid).Run()
 		}
 	}
+
+	// Clean up socket
 	exec.Command("rm", "-f", fmt.Sprintf("/tmp/amux-%d/%s", os.Getuid(), h.session)).Run()
-	time.Sleep(100 * time.Millisecond)
 }
 
 // sendKeys sends keystrokes to the tmux session.
