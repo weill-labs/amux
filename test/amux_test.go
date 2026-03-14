@@ -519,3 +519,37 @@ func TestRootVerticalSplitRenderClipping(t *testing.T) {
 		}
 	}
 }
+
+func TestExitAfterDoubleRootVSplit(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// Root vertical split twice: pane-1 | pane-2 | pane-3
+	h.sendKeys("C-a", "|")
+	h.waitFor("[pane-2]", 3*time.Second)
+	h.sendKeys("C-a", "|")
+	h.waitFor("[pane-3]", 3*time.Second)
+
+	// Exit pane-3 (rightmost, active)
+	h.sendKeys("e", "x", "i", "t", "Enter")
+
+	if !h.waitForFunc(func(s string) bool {
+		return !strings.Contains(s, "[pane-3]")
+	}, 5*time.Second) {
+		t.Fatal("pane-3 should disappear after exit")
+	}
+
+	// Remaining panes should fill the full width
+	// The vertical border should be roughly at the midpoint (~col 40 for 80-wide terminal)
+	col := h.verticalBorderCol()
+	if col < 0 {
+		t.Fatal("no vertical border found — panes may not have resized")
+	}
+
+	// Border should be near the middle (between col 30 and 50 for an 80-wide terminal)
+	if col < 30 || col > 50 {
+		lines := h.contentLines()
+		t.Errorf("border at col %d, expected near middle (30-50) — panes didn't resize\nScreen:\n%s",
+			col, strings.Join(lines, "\n"))
+	}
+}

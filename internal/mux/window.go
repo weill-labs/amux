@@ -125,6 +125,13 @@ func (w *Window) ClosePane(paneID uint32) error {
 		w.Root = result
 	}
 
+	// Close() added space to the recipient by updating its W or H, but
+	// its children still have their old sizes. Force propagation by
+	// temporarily reverting W/H to the children's total, then ResizeAll.
+	if result != nil && !result.IsLeaf() {
+		forceResizeChildren(result)
+	}
+
 	// Update active pane if the closed pane was active
 	if w.ActivePane.ID == paneID {
 		if result != nil && result.IsLeaf() && result.Pane != nil {
@@ -235,6 +242,34 @@ func (w *Window) Focus(direction string) {
 	if best != nil {
 		w.ActivePane = best.Pane
 	}
+}
+
+// forceResizeChildren propagates a parent's dimensions to its children.
+// Close() updates the parent's W/H but children retain old sizes.
+// We compute the children's current total, set the parent's dimension
+// to that total, then call ResizeAll with the actual target size.
+func forceResizeChildren(cell *LayoutCell) {
+	if cell.IsLeaf() {
+		return
+	}
+	targetW, targetH := cell.W, cell.H
+	childTotal := 0
+	for _, child := range cell.Children {
+		if cell.Dir == SplitHorizontal {
+			childTotal += child.W
+		} else {
+			childTotal += child.H
+		}
+	}
+	childTotal += len(cell.Children) - 1 // separators
+
+	// Temporarily set to children's actual total so ResizeAll computes correct delta
+	if cell.Dir == SplitHorizontal {
+		cell.W = childTotal
+	} else {
+		cell.H = childTotal
+	}
+	cell.ResizeAll(targetW, targetH)
 }
 
 // overlapsY returns true if two cells share any vertical range.
