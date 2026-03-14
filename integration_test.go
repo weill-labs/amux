@@ -1,3 +1,5 @@
+// TODO(LAB-83): Make integration tests parallelizable by giving each test
+// its own amux session name and socket path.
 package main
 
 import (
@@ -63,7 +65,7 @@ func newHarness(t *testing.T) *TmuxHarness {
 
 	t.Cleanup(h.cleanup)
 
-	// Launch amux inside the shell
+	// Launch amux
 	h.sendKeys(amuxBin, "Enter")
 
 	// Wait for amux to start (status bar should appear)
@@ -75,14 +77,14 @@ func newHarness(t *testing.T) *TmuxHarness {
 	return h
 }
 
-// cleanup kills the tmux session and any associated amux server.
+// cleanup kills the tmux session and the amux server.
 func (h *TmuxHarness) cleanup() {
+	// Detach first (so amux server stays running for cleanup)
+	exec.Command("tmux", "send-keys", "-t", h.session, "C-a", "d").Run()
+	time.Sleep(200 * time.Millisecond)
 	exec.Command("tmux", "kill-session", "-t", h.session).Run()
-	// Kill any amux server that was started
-	exec.Command("pkill", "-f", fmt.Sprintf("amux _server")).Run()
-	// Clean up socket
+	exec.Command("pkill", "-f", "amux _server").Run()
 	exec.Command("rm", "-f", fmt.Sprintf("/tmp/amux-%d/default", os.Getuid())).Run()
-	// Brief pause for process cleanup
 	time.Sleep(200 * time.Millisecond)
 }
 
