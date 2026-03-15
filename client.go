@@ -214,6 +214,8 @@ func (cr *ClientRenderer) renderCoalesced(msgCh <-chan *renderMsg, write func([]
 				doRender()
 			case renderMsgBell:
 				write([]byte{0x07})
+			case renderMsgClipboard:
+				write(msg.data)
 			case renderMsgExit:
 				// Final render before exit
 				if cr.IsDirty() {
@@ -234,6 +236,7 @@ const (
 	renderMsgLayout     renderMsgType = iota
 	renderMsgPaneOutput
 	renderMsgBell
+	renderMsgClipboard
 	renderMsgExit
 	renderMsgCopyMode
 )
