@@ -453,7 +453,8 @@ func (s *Session) unsubscribePaneOutput(paneID uint32, ch chan struct{}) {
 // notifyPaneOutputSubs wakes all wait-for subscribers for the given pane.
 func (s *Session) notifyPaneOutputSubs(paneID uint32) {
 	s.paneOutputMu.Lock()
-	subs := s.paneOutputSubs[paneID]
+	subs := make([]chan struct{}, len(s.paneOutputSubs[paneID]))
+	copy(subs, s.paneOutputSubs[paneID])
 	s.paneOutputMu.Unlock()
 	for _, ch := range subs {
 		select {
@@ -485,12 +486,8 @@ func (s *Session) paneScreenContains(paneID uint32, substr string) bool {
 
 // waitGeneration blocks until the layout generation exceeds afterGen or
 // timeout expires. Returns the current generation and whether it matched.
+// All checks happen under generationMu to avoid TOCTOU races with Broadcast.
 func (s *Session) waitGeneration(afterGen uint64, timeout time.Duration) (uint64, bool) {
-	// Fast path: already past the target generation.
-	if gen := s.generation.Load(); gen > afterGen {
-		return gen, true
-	}
-
 	deadline := time.Now().Add(timeout)
 	timer := time.AfterFunc(timeout, func() {
 		s.generationMu.Lock()
