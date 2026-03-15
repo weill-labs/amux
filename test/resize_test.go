@@ -11,8 +11,7 @@ func TestTerminalResize(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
 
-	h.sendKeys("C-a", "\\")
-	h.waitFor("[pane-2]", 3*time.Second)
+	h.splitV()
 
 	// Resize the tmux pane (simulates terminal resize -> SIGWINCH)
 	exec.Command("tmux", "resize-pane", "-t", h.session, "-x", "120", "-y", "40").Run()

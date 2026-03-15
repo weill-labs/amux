@@ -11,8 +11,7 @@ func TestSwapForward(t *testing.T) {
 	h := newHarness(t)
 
 	// Split to get 2 panes side-by-side: pane-1 (left) | pane-2 (right, active)
-	h.sendKeys("C-a", "\\")
-	h.waitFor("[pane-2]", 3*time.Second)
+	h.splitV()
 
 	// Verify initial order: pane-1 left of pane-2
 	lines := h.captureAmuxContentLines()
@@ -31,7 +30,7 @@ func TestSwapForward(t *testing.T) {
 		c1 := paneNameCol(ls, "pane-1")
 		c2 := paneNameCol(ls, "pane-2")
 		return c1 >= 0 && c2 >= 0 && c2 < c1
-	}, 3*time.Second)
+	}, 3 * time.Second)
 	if !ok {
 		lines = h.captureAmuxContentLines()
 		t.Errorf("swap forward: expected pane-2 left of pane-1\n%s", strings.Join(lines, "\n"))
@@ -43,10 +42,8 @@ func TestSwapBackward(t *testing.T) {
 	h := newHarness(t)
 
 	// 3 panes: pane-1 | pane-2 | pane-3 (active)
-	h.sendKeys("C-a", "\\")
-	h.waitFor("[pane-2]", 3*time.Second)
-	h.sendKeys("C-a", "\\")
-	h.waitFor("[pane-3]", 3*time.Second)
+	h.splitV()
+	h.splitV()
 
 	// Swap backward: Ctrl-a { swaps active (pane-3) with previous (pane-2)
 	h.sendKeys("C-a", "{")
@@ -58,7 +55,7 @@ func TestSwapBackward(t *testing.T) {
 		c2 := paneNameCol(ls, "pane-2")
 		c3 := paneNameCol(ls, "pane-3")
 		return c1 >= 0 && c2 >= 0 && c3 >= 0 && c1 < c3 && c3 < c2
-	}, 3*time.Second)
+	}, 3 * time.Second)
 	if !ok {
 		lines := h.captureAmuxContentLines()
 		t.Errorf("swap backward: expected pane-1|pane-3|pane-2\n%s", strings.Join(lines, "\n"))
@@ -69,8 +66,7 @@ func TestSwapCLI(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
 
-	h.sendKeys("C-a", "\\")
-	h.waitFor("[pane-2]", 3*time.Second)
+	h.splitV()
 
 	out := h.runCmd("swap", "pane-1", "pane-2")
 	if strings.Contains(out, "unknown command") {
@@ -83,7 +79,7 @@ func TestSwapCLI(t *testing.T) {
 		c1 := paneNameCol(ls, "pane-1")
 		c2 := paneNameCol(ls, "pane-2")
 		return c1 >= 0 && c2 >= 0 && c2 < c1
-	}, 3*time.Second)
+	}, 3 * time.Second)
 	if !ok {
 		lines := h.captureAmuxContentLines()
 		t.Errorf("CLI swap: expected pane-2 left of pane-1\n%s", strings.Join(lines, "\n"))
@@ -95,10 +91,8 @@ func TestRotate(t *testing.T) {
 	h := newHarness(t)
 
 	// 3 panes: pane-1 | pane-2 | pane-3
-	h.sendKeys("C-a", "\\")
-	h.waitFor("[pane-2]", 3*time.Second)
-	h.sendKeys("C-a", "\\")
-	h.waitFor("[pane-3]", 3*time.Second)
+	h.splitV()
+	h.splitV()
 
 	out := h.runCmd("rotate")
 	if strings.Contains(out, "unknown command") {
@@ -114,7 +108,7 @@ func TestRotate(t *testing.T) {
 		c2 := paneNameCol(ls, "pane-2")
 		c3 := paneNameCol(ls, "pane-3")
 		return c1 >= 0 && c2 >= 0 && c3 >= 0 && c3 < c1 && c1 < c2
-	}, 3*time.Second)
+	}, 3 * time.Second)
 	if !ok {
 		lines := h.captureAmuxContentLines()
 		t.Errorf("rotate: expected pane-3|pane-1|pane-2\n%s", strings.Join(lines, "\n"))

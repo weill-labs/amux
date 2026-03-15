@@ -85,6 +85,33 @@ func (cc *ClientConn) readLoop(srv *Server, sess *Session) {
 	}
 }
 
+// withPaneWindow resolves a pane from command args, finds its containing window,
+// and runs fn under the session lock. On success, it broadcasts the layout update
+// and sends the result to the client. On error, it sends the error message.
+func (cc *ClientConn) withPaneWindow(sess *Session, cmdName string, args []string,
+	fn func(pane *mux.Pane, w *mux.Window) (string, error)) {
+	sess.mu.Lock()
+	pane := cc.resolvePane(sess, cmdName, args)
+	if pane == nil {
+		sess.mu.Unlock()
+		return
+	}
+	w := sess.FindWindowByPaneID(pane.ID)
+	if w == nil {
+		sess.mu.Unlock()
+		cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "pane not in any window"})
+		return
+	}
+	result, err := fn(pane, w)
+	sess.mu.Unlock()
+	if err != nil {
+		cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: err.Error()})
+		return
+	}
+	sess.broadcastLayout()
+	cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: result})
+}
+
 // handleCommand processes one-shot CLI commands (list, split, etc.).
 func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 	switch msg.CmdName {
@@ -148,25 +175,15 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 			w.Focus(direction)
 			sess.mu.Unlock()
 		default:
-			// Treat as pane name or ID — search active window first, then all windows
-			pane := w.ResolvePane(direction)
-			if pane == nil {
-				// Search across all windows
-				for _, win := range sess.Windows {
-					if p := win.ResolvePane(direction); p != nil {
-						pane = p
-						sess.ActiveWindowID = win.ID
-						break
-					}
-				}
-			}
+			// Treat as pane name or ID — reuse cross-window resolution
+			pane := cc.resolvePaneAcrossWindows(sess, "focus", direction)
 			if pane == nil {
 				sess.mu.Unlock()
-				cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("pane %q not found", direction)})
 				return
 			}
-			// Make sure we set active pane in the correct window
+			// Switch to the pane's window and make it active
 			if pw := sess.FindWindowByPaneID(pane.ID); pw != nil {
+				sess.ActiveWindowID = pw.ID
 				pw.ActivePane = pane
 			}
 			sess.mu.Unlock()
@@ -292,48 +309,14 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: fmt.Sprintf("%s %s\n", verb, pane.Meta.Name)})
 
 	case "minimize":
-		sess.mu.Lock()
-		pane := cc.resolvePane(sess, "minimize", msg.CmdArgs)
-		if pane == nil {
-			sess.mu.Unlock()
-			return
-		}
-		w := sess.FindWindowByPaneID(pane.ID)
-		if w == nil {
-			sess.mu.Unlock()
-			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "pane not in any window"})
-			return
-		}
-		err := w.Minimize(pane.ID)
-		sess.mu.Unlock()
-		if err != nil {
-			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: err.Error()})
-			return
-		}
-		sess.broadcastLayout()
-		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: fmt.Sprintf("Minimized %s\n", pane.Meta.Name)})
+		cc.withPaneWindow(sess, "minimize", msg.CmdArgs, func(p *mux.Pane, w *mux.Window) (string, error) {
+			return fmt.Sprintf("Minimized %s\n", p.Meta.Name), w.Minimize(p.ID)
+		})
 
 	case "restore":
-		sess.mu.Lock()
-		pane := cc.resolvePane(sess, "restore", msg.CmdArgs)
-		if pane == nil {
-			sess.mu.Unlock()
-			return
-		}
-		w := sess.FindWindowByPaneID(pane.ID)
-		if w == nil {
-			sess.mu.Unlock()
-			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "pane not in any window"})
-			return
-		}
-		err := w.Restore(pane.ID)
-		sess.mu.Unlock()
-		if err != nil {
-			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: err.Error()})
-			return
-		}
-		sess.broadcastLayout()
-		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: fmt.Sprintf("Restored %s\n", pane.Meta.Name)})
+		cc.withPaneWindow(sess, "restore", msg.CmdArgs, func(p *mux.Pane, w *mux.Window) (string, error) {
+			return fmt.Sprintf("Restored %s\n", p.Meta.Name), w.Restore(p.ID)
+		})
 
 	case "kill":
 		sess.mu.Lock()

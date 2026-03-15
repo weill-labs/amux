@@ -10,8 +10,7 @@ func TestZoomToggle(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
 
-	h.sendKeys("C-a", "-")
-	h.waitFor("[pane-2]", 3*time.Second)
+	h.splitH()
 
 	h.assertScreen("both panes visible before zoom", func(s string) bool {
 		return strings.Contains(s, "[pane-1]") && strings.Contains(s, "[pane-2]")
@@ -24,7 +23,7 @@ func TestZoomToggle(t *testing.T) {
 
 	if !h.waitForFunc(func(s string) bool {
 		return strings.Contains(s, "[pane-1]") && !strings.Contains(s, "[pane-2]")
-	}, 3*time.Second) {
+	}, 3 * time.Second) {
 		screen := h.capture()
 		t.Fatalf("pane-1 should be visible and pane-2 hidden when zoomed\nScreen:\n%s", screen)
 	}
@@ -41,7 +40,7 @@ func TestZoomToggle(t *testing.T) {
 
 	if !h.waitForFunc(func(s string) bool {
 		return strings.Contains(s, "[pane-1]") && strings.Contains(s, "[pane-2]")
-	}, 3*time.Second) {
+	}, 3 * time.Second) {
 		screen := h.capture()
 		t.Fatalf("both panes should be visible after unzoom\nScreen:\n%s", screen)
 	}
@@ -51,17 +50,16 @@ func TestZoomKeybinding(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
 
-	h.sendKeys("C-a", "-")
-	h.waitFor("[pane-2]", 3*time.Second)
+	h.splitH()
 
 	h.sendKeys("C-a", "k")
-	time.Sleep(300 * time.Millisecond)
+	time.Sleep(400 * time.Millisecond)
 
 	h.sendKeys("C-a", "z")
 
 	if !h.waitForFunc(func(s string) bool {
 		return strings.Contains(s, "[pane-1]") && !strings.Contains(s, "[pane-2]")
-	}, 3*time.Second) {
+	}, 3 * time.Second) {
 		screen := h.capture()
 		t.Fatalf("Ctrl-a z should zoom the active pane\nScreen:\n%s", screen)
 	}
@@ -70,7 +68,7 @@ func TestZoomKeybinding(t *testing.T) {
 
 	if !h.waitForFunc(func(s string) bool {
 		return strings.Contains(s, "[pane-1]") && strings.Contains(s, "[pane-2]")
-	}, 3*time.Second) {
+	}, 3 * time.Second) {
 		screen := h.capture()
 		t.Fatalf("Ctrl-a z should toggle unzoom\nScreen:\n%s", screen)
 	}
@@ -90,22 +88,20 @@ func TestZoomKillZoomedPane(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
 
-	h.sendKeys("C-a", "-")
-	h.waitFor("[pane-2]", 3*time.Second)
-	h.sendKeys("C-a", "-")
-	h.waitFor("[pane-3]", 3*time.Second)
+	h.splitH()
+	h.splitH()
 
 	h.runCmd("zoom", "pane-2")
 	h.waitForFunc(func(s string) bool {
 		return strings.Contains(s, "[pane-2]") && !strings.Contains(s, "[pane-1]")
-	}, 3*time.Second)
+	}, 3 * time.Second)
 
 	h.runCmd("kill", "pane-2")
 
 	if !h.waitForFunc(func(s string) bool {
 		return strings.Contains(s, "[pane-1]") && strings.Contains(s, "[pane-3]") &&
 			!strings.Contains(s, "[pane-2]")
-	}, 5*time.Second) {
+	}, 5 * time.Second) {
 		screen := h.capture()
 		t.Fatalf("killing zoomed pane should unzoom and show remaining panes\nScreen:\n%s", screen)
 	}
@@ -120,19 +116,18 @@ func TestZoomAutoUnzoomOnSplit(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
 
-	h.sendKeys("C-a", "-")
-	h.waitFor("[pane-2]", 3*time.Second)
+	h.splitH()
 
 	h.runCmd("zoom", "pane-1")
 	h.waitForFunc(func(s string) bool {
 		return strings.Contains(s, "[pane-1]") && !strings.Contains(s, "[pane-2]")
-	}, 3*time.Second)
+	}, 3 * time.Second)
 
 	h.sendKeys("C-a", "-")
 	if !h.waitForFunc(func(s string) bool {
 		return strings.Contains(s, "[pane-1]") && strings.Contains(s, "[pane-2]") &&
 			strings.Contains(s, "[pane-3]")
-	}, 3*time.Second) {
+	}, 3 * time.Second) {
 		screen := h.capture()
 		t.Fatalf("split while zoomed should auto-unzoom and show all panes\nScreen:\n%s", screen)
 	}
@@ -142,18 +137,17 @@ func TestZoomAutoUnzoomOnFocus(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
 
-	h.sendKeys("C-a", "-")
-	h.waitFor("[pane-2]", 3*time.Second)
+	h.splitH()
 
 	h.sendKeys("C-a", "z")
 	h.waitForFunc(func(s string) bool {
 		return strings.Contains(s, "[pane-2]") && !strings.Contains(s, "[pane-1]")
-	}, 3*time.Second)
+	}, 3 * time.Second)
 
 	h.sendKeys("C-a", "k")
 	if !h.waitForFunc(func(s string) bool {
 		return strings.Contains(s, "[pane-1]") && strings.Contains(s, "[pane-2]")
-	}, 3*time.Second) {
+	}, 3 * time.Second) {
 		screen := h.capture()
 		t.Fatalf("focus while zoomed should auto-unzoom\nScreen:\n%s", screen)
 	}

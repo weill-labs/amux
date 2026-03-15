@@ -11,16 +11,14 @@ func TestOnlyActivePaneBordersColored(t *testing.T) {
 	h := newHarness(t)
 
 	// Create 3 panes side by side: pane-1 | pane-2 | pane-3
-	h.sendKeys("C-a", "\\")
-	h.waitFor("[pane-2]", 3*time.Second)
-	h.sendKeys("C-a", "\\")
-	h.waitFor("[pane-3]", 3*time.Second)
+	h.splitV()
+	h.splitV()
 
 	// Focus pane-1 (leftmost)
 	h.sendKeys("C-a", "h")
-	time.Sleep(300 * time.Millisecond)
+	time.Sleep(400 * time.Millisecond)
 	h.sendKeys("C-a", "h")
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(400 * time.Millisecond)
 
 	colorLine := pickContentLine(h.captureANSI())
 	borders := extractBorderColors(colorLine)
@@ -46,15 +44,12 @@ func TestJunctionNotColoredOnInactiveBorder(t *testing.T) {
 	//   pane-3 │ pane-2
 	//   ───────┤
 	//   pane-4 │ pane-2
-	h.sendKeys("C-a", "\\")
-	h.waitFor("[pane-2]", 3*time.Second)
+	h.splitV()
 
 	h.sendKeys("C-a", "h")
-	time.Sleep(300 * time.Millisecond)
-	h.sendKeys("C-a", "-")
-	h.waitFor("[pane-3]", 3*time.Second)
-	h.sendKeys("C-a", "-")
-	h.waitFor("[pane-4]", 3*time.Second)
+	time.Sleep(400 * time.Millisecond)
+	h.splitH()
+	h.splitH()
 
 	// pane-4 is active (bottom-left). The junction at the TOP horizontal
 	// border is NOT adjacent to pane-4, so it should be DIM.
@@ -130,10 +125,8 @@ func TestVerticalBorderPartialColor(t *testing.T) {
 	// Vertical split then horizontal split on the right side:
 	// pane-1 (left) | pane-2 (top-right)
 	//               | pane-3 (bottom-right, active)
-	h.sendKeys("C-a", "\\")
-	h.waitFor("[pane-2]", 3*time.Second)
-	h.sendKeys("C-a", "-")
-	h.waitFor("[pane-3]", 3*time.Second)
+	h.splitV()
+	h.splitH()
 
 	lines := strings.Split(h.captureANSI(), "\n")
 
