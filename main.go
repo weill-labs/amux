@@ -413,86 +413,143 @@ func runMux(sessionName string) error {
 		// Mouse drag state — caches border direction from initial press
 		var drag dragState
 
+		// Repeat key state — allows navigation/resize keys to repeat
+		// without re-pressing the prefix, matching tmux's -r behavior.
+		const repeatTimeout = 500 * time.Millisecond
+		var repeatKey byte
+		var repeatTimer *time.Timer
+
+		// isRepeatableKey returns true for keys that can repeat without prefix.
+		isRepeatableKey := func(b byte) bool {
+			switch b {
+			case 'h', 'j', 'k', 'l', 'H', 'J', 'K', 'L':
+				return true
+			}
+			return false
+		}
+
+		// clearRepeat cancels repeat mode.
+		clearRepeat := func() {
+			if repeatTimer != nil {
+				repeatTimer.Stop()
+				repeatTimer = nil
+			}
+			repeatKey = 0
+		}
+
+		// startRepeat enters repeat mode for the given key.
+		startRepeat := func(b byte) {
+			repeatKey = b
+			if repeatTimer != nil {
+				repeatTimer.Stop()
+			}
+			repeatTimer = time.AfterFunc(repeatTimeout, func() {
+				repeatKey = 0
+				repeatTimer = nil
+			})
+		}
+
+		// execPrefixKey executes a prefix keybinding. Returns true if
+		// the goroutine should exit (detach).
+		execPrefixKey := func(b byte, forward *[]byte) bool {
+			switch b {
+			case 'd':
+				if len(*forward) > 0 {
+					server.WriteMsg(conn, &server.Message{
+						Type: server.MsgTypeInput, Input: *forward,
+					})
+				}
+				server.WriteMsg(conn, &server.Message{Type: server.MsgTypeDetach})
+				conn.Close()
+				return true
+			case '-':
+				sendCommand(conn, "split", []string{"v"})
+			case '\\':
+				sendCommand(conn, "split", nil)
+			case '|':
+				sendCommand(conn, "split", []string{"root"})
+			case '_':
+				sendCommand(conn, "split", []string{"root", "v"})
+			case '}':
+				sendCommand(conn, "swap", []string{"forward"})
+			case '{':
+				sendCommand(conn, "swap", []string{"backward"})
+			case 'o':
+				sendCommand(conn, "focus", []string{"next"})
+			case 'h':
+				sendCommand(conn, "focus", []string{"left"})
+			case 'l':
+				sendCommand(conn, "focus", []string{"right"})
+			case 'k':
+				sendCommand(conn, "focus", []string{"up"})
+			case 'j':
+				sendCommand(conn, "focus", []string{"down"})
+			case 'H':
+				sendCommand(conn, "resize-active", []string{"left", "2"})
+			case 'J':
+				sendCommand(conn, "resize-active", []string{"down", "2"})
+			case 'K':
+				sendCommand(conn, "resize-active", []string{"up", "2"})
+			case 'L':
+				sendCommand(conn, "resize-active", []string{"right", "2"})
+			case 'z':
+				sendCommand(conn, "zoom", nil)
+			case 'm':
+				sendCommand(conn, "toggle-minimize", nil)
+			case '[':
+				cr.EnterCopyMode(cr.ActivePaneID())
+				if data := cr.Render(); data != nil {
+					os.Stdout.Write(data)
+				}
+			case 'c':
+				sendCommand(conn, "new-window", nil)
+			case 'n':
+				sendCommand(conn, "next-window", nil)
+			case 'p':
+				sendCommand(conn, "prev-window", nil)
+			case '1', '2', '3', '4', '5', '6', '7', '8', '9':
+				sendCommand(conn, "select-window", []string{string(b)})
+			case 'r':
+				if len(*forward) > 0 {
+					server.WriteMsg(conn, &server.Message{
+						Type: server.MsgTypeInput, Input: *forward,
+					})
+					*forward = nil
+				}
+				select {
+				case triggerReload <- struct{}{}:
+				default:
+				}
+			case 0x01:
+				*forward = append(*forward, 0x01)
+			default:
+				*forward = append(*forward, 0x01, b)
+			}
+			return false
+		}
+
 		// processKeyByte handles a single non-mouse byte through the
 		// Ctrl-a prefix system. Returns true if the goroutine should exit.
 		processKeyByte := func(b byte, forward *[]byte) bool {
+			// Check repeat mode: if a repeatable key arrives within the timeout,
+			// execute it directly without requiring the prefix.
+			if repeatKey != 0 && b == repeatKey {
+				startRepeat(b)
+				return execPrefixKey(b, forward)
+			}
+
 			if prefix {
 				prefix = false
-				switch b {
-				case 'd':
-					if len(*forward) > 0 {
-						server.WriteMsg(conn, &server.Message{
-							Type: server.MsgTypeInput, Input: *forward,
-						})
-					}
-					server.WriteMsg(conn, &server.Message{Type: server.MsgTypeDetach})
-					conn.Close()
-					return true
-				case '-':
-					sendCommand(conn, "split", []string{"v"})
-				case '\\':
-					sendCommand(conn, "split", nil)
-				case '|':
-					sendCommand(conn, "split", []string{"root"})
-				case '_':
-					sendCommand(conn, "split", []string{"root", "v"})
-				case '}':
-					sendCommand(conn, "swap", []string{"forward"})
-				case '{':
-					sendCommand(conn, "swap", []string{"backward"})
-				case 'o':
-					sendCommand(conn, "focus", []string{"next"})
-				case 'h':
-					sendCommand(conn, "focus", []string{"left"})
-				case 'l':
-					sendCommand(conn, "focus", []string{"right"})
-				case 'k':
-					sendCommand(conn, "focus", []string{"up"})
-				case 'j':
-					sendCommand(conn, "focus", []string{"down"})
-				case 'H':
-					sendCommand(conn, "resize-active", []string{"left", "2"})
-				case 'J':
-					sendCommand(conn, "resize-active", []string{"down", "2"})
-				case 'K':
-					sendCommand(conn, "resize-active", []string{"up", "2"})
-				case 'L':
-					sendCommand(conn, "resize-active", []string{"right", "2"})
-				case 'z':
-					sendCommand(conn, "zoom", nil)
-				case 'm':
-					sendCommand(conn, "toggle-minimize", nil)
-				case '[':
-					cr.EnterCopyMode(cr.ActivePaneID())
-					if data := cr.Render(); data != nil {
-						os.Stdout.Write(data)
-					}
-				case 'c':
-					sendCommand(conn, "new-window", nil)
-				case 'n':
-					sendCommand(conn, "next-window", nil)
-				case 'p':
-					sendCommand(conn, "prev-window", nil)
-				case '1', '2', '3', '4', '5', '6', '7', '8', '9':
-					sendCommand(conn, "select-window", []string{string(b)})
-				case 'r':
-					if len(*forward) > 0 {
-						server.WriteMsg(conn, &server.Message{
-							Type: server.MsgTypeInput, Input: *forward,
-						})
-						*forward = nil
-					}
-					select {
-					case triggerReload <- struct{}{}:
-					default:
-					}
-				case 0x01:
-					*forward = append(*forward, 0x01)
-				default:
-					*forward = append(*forward, 0x01, b)
+				if isRepeatableKey(b) {
+					startRepeat(b)
+				} else {
+					clearRepeat()
 				}
-				return false
+				return execPrefixKey(b, forward)
 			}
+
+			// Any non-repeat key clears repeat mode
+			clearRepeat()
 
 			if b == 0x01 {
 				if len(*forward) > 0 {
