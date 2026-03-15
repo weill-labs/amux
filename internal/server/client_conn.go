@@ -308,6 +308,25 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 		sess.broadcastLayout()
 		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: fmt.Sprintf("Killed %s\n", paneName)})
 
+	case "send-keys":
+		if len(msg.CmdArgs) < 2 {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "usage: send-keys <pane> <keys>..."})
+			return
+		}
+		sess.mu.Lock()
+		pane := cc.resolvePane(sess, "send-keys", msg.CmdArgs[:1])
+		if pane == nil {
+			sess.mu.Unlock()
+			return
+		}
+		var data []byte
+		for _, key := range msg.CmdArgs[1:] {
+			data = append(data, parseKey(key)...)
+		}
+		pane.Write(data)
+		sess.mu.Unlock()
+		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: fmt.Sprintf("Sent %d bytes to %s\n", len(data), pane.Meta.Name)})
+
 	case "status":
 		sess.mu.Lock()
 		total := len(sess.Panes)
@@ -511,6 +530,49 @@ func (cc *ClientConn) resolvePane(sess *Session, cmdName string, args []string) 
 		return nil
 	}
 	return pane
+}
+
+// parseKey converts a key name to its byte representation.
+// Supports special key names (Enter, Tab, C-x, Escape, etc.)
+// and literal text (sent as-is).
+func parseKey(key string) []byte {
+	// Check special key names (case-sensitive, matching tmux conventions)
+	if b, ok := specialKeys[key]; ok {
+		return b
+	}
+
+	// C-x / C-X → Ctrl+letter (ASCII control code)
+	if len(key) == 3 && (key[0] == 'C' || key[0] == 'c') && key[1] == '-' {
+		ch := key[2]
+		if ch >= 'a' && ch <= 'z' {
+			return []byte{ch - 'a' + 1}
+		}
+		if ch >= 'A' && ch <= 'Z' {
+			return []byte{ch - 'A' + 1}
+		}
+	}
+
+	// Literal text
+	return []byte(key)
+}
+
+// specialKeys maps tmux-compatible key names to byte sequences.
+var specialKeys = map[string][]byte{
+	"Enter":    {'\r'},
+	"Tab":      {'\t'},
+	"Escape":   {0x1b},
+	"Space":    {' '},
+	"BSpace":   {0x7f},
+	"Up":       {0x1b, '[', 'A'},
+	"Down":     {0x1b, '[', 'B'},
+	"Right":    {0x1b, '[', 'C'},
+	"Left":     {0x1b, '[', 'D'},
+	"Home":     {0x1b, '[', 'H'},
+	"End":      {0x1b, '[', 'F'},
+	"PageUp":   {0x1b, '[', '5', '~'},
+	"PageDown": {0x1b, '[', '6', '~'},
+	"Delete":   {0x1b, '[', '3', '~'},
+	"Insert":   {0x1b, '[', '2', '~'},
 }
 
 func dirName(d mux.SplitDir) string {

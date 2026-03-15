@@ -99,6 +99,12 @@ func main() {
 			os.Exit(1)
 		}
 		runServerCommand(args[0], []string{args[1]})
+	case "send-keys":
+		if len(args) < 3 {
+			fmt.Fprintf(os.Stderr, "usage: amux send-keys <pane> <keys>...\n")
+			os.Exit(1)
+		}
+		runServerCommand("send-keys", args[1:])
 	case "spawn":
 		runServerCommand("spawn", args[1:])
 	case "reload-server":
@@ -141,6 +147,8 @@ Usage:
   amux [-s session] capture           Capture full composited screen
   amux [-s session] capture <pane>    Capture a single pane's output
   amux [-s session] capture --ansi    Capture with ANSI escape codes
+  amux [-s session] send-keys <pane> <keys>...
+                                      Send keystrokes to a pane
   amux [-s session] spawn --name NAME Spawn a new agent pane
   amux [-s session] zoom [pane]       Toggle zoom (maximize) a pane
   amux [-s session] swap <p1> <p2>    Swap two panes by name or ID
