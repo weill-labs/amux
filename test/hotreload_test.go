@@ -170,6 +170,17 @@ func TestServerReloadMinimizedPanePreservesContent(t *testing.T) {
 		t.Fatalf("session did not recover after reload\nScreen:\n%s", h.capture())
 	}
 
+	// Wait for the SIGWINCH force-redraw loop to complete (fires 500ms
+	// after reload, with a 200ms gap between passes).
+	time.Sleep(1500 * time.Millisecond)
+
+	// Check content BEFORE restore — the minimized pane's emulator
+	// should not have been garbled by the SIGWINCH loop.
+	paneBeforeRestore := h.runCmd("capture", "pane-1")
+	if !strings.Contains(paneBeforeRestore, "RELOAD_MARKER") {
+		t.Fatalf("minimized pane emulator should not be garbled by SIGWINCH loop after reload, got:\n%s", paneBeforeRestore)
+	}
+
 	// Restore pane-1 and verify content survived
 	h.runCmd("restore", "pane-1")
 	time.Sleep(1 * time.Second)
