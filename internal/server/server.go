@@ -403,6 +403,9 @@ func (s *Session) renderColorMap() string {
 	return render.ExtractColorMap(ansi, width, h) + "\n"
 }
 
+// BuildVersion is set by main at startup for version reporting in status.
+var BuildVersion string
+
 // Server listens on a Unix socket and manages sessions.
 type Server struct {
 	listener net.Listener

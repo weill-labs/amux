@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"syscall"
 	"time"
@@ -23,6 +24,25 @@ import (
 
 // sessionName is the global session name, set by -s flag or defaulting to "default".
 var sessionName = "default"
+
+// BuildCommit can be set via -ldflags "-X main.BuildCommit=abc1234".
+// Falls back to VCS info from runtime/debug at startup.
+var BuildCommit string
+
+// buildVersion returns the build identifier (commit hash or "dev").
+func buildVersion() string {
+	if BuildCommit != "" {
+		return BuildCommit
+	}
+	if info, ok := debug.ReadBuildInfo(); ok {
+		for _, s := range info.Settings {
+			if s.Key == "vcs.revision" && len(s.Value) >= 7 {
+				return s.Value[:7]
+			}
+		}
+	}
+	return "dev"
+}
 
 func main() {
 	// Extract global -s flag before subcommand parsing
@@ -44,6 +64,10 @@ func main() {
 	}
 
 	switch args[0] {
+	case "version":
+		fmt.Printf("amux build: %s\n", buildVersion())
+		return
+
 	case "_server":
 		name := sessionName
 		if len(args) > 1 {
@@ -187,6 +211,7 @@ Usage:
   amux [-s session] prev-window        Switch to previous window
   amux [-s session] rename-window <n>  Rename the active window
   amux [-s session] reload-server      Hot-reload the server (preserves panes)
+  amux version                         Show build version
 
 Panes can be referenced by name (pane-1) or ID (1).
 
@@ -217,6 +242,8 @@ Inside an amux session:
 // ---------------------------------------------------------------------------
 
 func runServer(sessionName string) {
+	server.BuildVersion = buildVersion()
+
 	var s *server.Server
 	var err error
 
@@ -256,9 +283,10 @@ func runServer(sessionName string) {
 	if execErr == nil {
 		go watchBinary(execPath, triggerReload)
 		go func() {
-			<-triggerReload
-			if reloadErr := s.Reload(execPath); reloadErr != nil {
-				fmt.Fprintf(os.Stderr, "amux server: reload failed: %v\n", reloadErr)
+			for range triggerReload {
+				if reloadErr := s.Reload(execPath); reloadErr != nil {
+					fmt.Fprintf(os.Stderr, "amux server: reload failed: %v\n", reloadErr)
+				}
 			}
 		}()
 	}
