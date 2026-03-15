@@ -218,6 +218,14 @@ func (p *Pane) Write(data []byte) (int, error) {
 	return p.ptmx.Write(data)
 }
 
+// EmulatorSize returns the current emulator dimensions.
+func (p *Pane) EmulatorSize() (cols, rows int) {
+	if p.emulator != nil {
+		return p.emulator.Size()
+	}
+	return 0, 0
+}
+
 // Resize changes the PTY and emulator dimensions.
 func (p *Pane) Resize(cols, rows int) error {
 	if p.emulator != nil {
