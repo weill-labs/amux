@@ -328,7 +328,7 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "no active window"})
 			return
 		}
-		name, wasMinimized, err := w.ToggleMinimize()
+		name, didMinimize, err := w.ToggleMinimize()
 		sess.mu.Unlock()
 		if err != nil {
 			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: err.Error()})
@@ -336,7 +336,7 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 		}
 		sess.broadcastLayout()
 		verb := "Restored"
-		if wasMinimized {
+		if didMinimize {
 			verb = "Minimized"
 		}
 		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: fmt.Sprintf("%s %s\n", verb, name)})
@@ -446,10 +446,13 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 		ref := msg.CmdArgs[0]
 
 		sess.mu.Lock()
-		switched := cc.switchWindow(sess, ref)
+		w := sess.ResolveWindow(ref)
+		if w != nil {
+			sess.ActiveWindowID = w.ID
+		}
 		sess.mu.Unlock()
 
-		if !switched {
+		if w == nil {
 			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("window %q not found", ref)})
 			return
 		}
@@ -661,17 +664,6 @@ func (cc *ClientConn) createNewWindow(srv *Server, sess *Session, name string) {
 	sess.broadcastLayout()
 	cc.Send(&Message{Type: MsgTypeCmdResult,
 		CmdOutput: fmt.Sprintf("Created %s\n", newWin.Name)})
-}
-
-// switchWindow switches to a window by 1-based index or name.
-// Caller must hold sess.mu. Returns true if switched.
-func (cc *ClientConn) switchWindow(sess *Session, ref string) bool {
-	w := sess.ResolveWindow(ref)
-	if w == nil {
-		return false
-	}
-	sess.ActiveWindowID = w.ID
-	return true
 }
 
 // splitNewPane creates a pane, inserts it into the active window's layout,

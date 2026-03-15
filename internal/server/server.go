@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/coverage"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -107,8 +109,7 @@ func (s *Session) PrevWindow() {
 // Caller must hold s.mu.
 func (s *Session) ResolveWindow(ref string) *mux.Window {
 	// Try as 1-based index
-	var idx int
-	if _, err := fmt.Sscanf(ref, "%d", &idx); err == nil {
+	if idx, err := strconv.Atoi(ref); err == nil {
 		if idx >= 1 && idx <= len(s.Windows) {
 			return s.Windows[idx-1]
 		}
@@ -122,7 +123,7 @@ func (s *Session) ResolveWindow(ref string) *mux.Window {
 	}
 	// Try prefix match
 	for _, w := range s.Windows {
-		if len(ref) > 0 && len(w.Name) >= len(ref) && w.Name[:len(ref)] == ref {
+		if len(ref) > 0 && strings.HasPrefix(w.Name, ref) {
 			return w
 		}
 	}
