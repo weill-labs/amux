@@ -498,6 +498,26 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 		sess.mu.Unlock()
 		sess.broadcastLayout()
 
+	case "resize-active":
+		if len(msg.CmdArgs) < 2 {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "usage: resize-active <direction> <delta>"})
+			return
+		}
+		direction := msg.CmdArgs[0]
+		delta, err := strconv.Atoi(msg.CmdArgs[1])
+		if err != nil {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "resize-active: invalid delta"})
+			return
+		}
+		sess.mu.Lock()
+		w := sess.ActiveWindow()
+		if w != nil {
+			w.ResizeActive(direction, delta)
+		}
+		sess.mu.Unlock()
+		sess.broadcastLayout()
+		cc.Send(&Message{Type: MsgTypeCmdResult})
+
 	case "swap":
 		sess.mu.Lock()
 		w := sess.ActiveWindow()

@@ -200,6 +200,7 @@ Inside an amux session:
   Ctrl-a {                           Swap active pane with previous
   Ctrl-a o                           Cycle focus to next pane
   Ctrl-a h/j/k/l                     Focus left/down/up/right
+  Ctrl-a H/J/K/L                     Resize pane left/down/up/right
   Ctrl-a [                           Enter copy/scroll mode
   Ctrl-a c                           Create new window
   Ctrl-a n                           Next window
@@ -448,6 +449,14 @@ func runMux(sessionName string) error {
 					sendCommand(conn, "focus", []string{"up"})
 				case 'j':
 					sendCommand(conn, "focus", []string{"down"})
+				case 'H':
+					sendCommand(conn, "resize-active", []string{"left", "2"})
+				case 'J':
+					sendCommand(conn, "resize-active", []string{"down", "2"})
+				case 'K':
+					sendCommand(conn, "resize-active", []string{"up", "2"})
+				case 'L':
+					sendCommand(conn, "resize-active", []string{"right", "2"})
 				case 'z':
 					sendCommand(conn, "zoom", nil)
 				case '[':

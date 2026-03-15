@@ -402,6 +402,104 @@ func (w *Window) ResizeBorder(x, y, delta int) bool {
 	return true
 }
 
+// ResizeActive moves the nearest border in the given direction by delta cells,
+// following tmux's resize-pane semantics. The direction specifies which way the
+// border moves, not which way the pane grows.
+// direction is "left", "right", "up", or "down".
+// Returns true if a resize was performed.
+func (w *Window) ResizeActive(direction string, delta int) bool {
+	if w.ActivePane == nil || delta <= 0 {
+		return false
+	}
+	if w.ZoomedPaneID != 0 {
+		w.Unzoom()
+	}
+
+	// Map direction to split axis and change sign.
+	// Positive change grows the left/top sibling (border moves right/down).
+	// Negative change shrinks it (border moves left/up).
+	var axis SplitDir
+	var change int
+	switch direction {
+	case "left":
+		axis, change = SplitHorizontal, -delta
+	case "right":
+		axis, change = SplitHorizontal, delta
+	case "up":
+		axis, change = SplitVertical, -delta
+	case "down":
+		axis, change = SplitVertical, delta
+	default:
+		return false
+	}
+
+	// Find the active pane's leaf cell
+	leaf := w.Root.FindPane(w.ActivePane.ID)
+	if leaf == nil {
+		return false
+	}
+
+	// Walk up the tree to find the nearest ancestor with matching axis.
+	cell := leaf
+	for cell.Parent != nil {
+		if cell.Parent.Dir == axis {
+			idx := cell.indexInParent()
+			siblings := cell.Parent.Children
+
+			// tmux convention: resize the border adjacent to this cell.
+			// If we're the last child, use the border to our left (idx-1, idx).
+			// Otherwise, use the border to our right (idx, idx+1).
+			left, right := siblings[idx], siblings[idx+1]
+			if idx == len(siblings)-1 {
+				left, right = siblings[idx-1], siblings[idx]
+			}
+
+			if change > 0 {
+				return w.resizeBetween(left, right, axis, change)
+			}
+			return w.resizeBetween(right, left, axis, -change)
+		}
+		cell = cell.Parent
+	}
+
+	return false
+}
+
+// resizeBetween transfers delta cells from donor to grower along the given axis.
+func (w *Window) resizeBetween(grower, donor *LayoutCell, axis SplitDir, delta int) bool {
+	var growerSize, donorSize *int
+	if axis == SplitHorizontal {
+		growerSize = &grower.W
+		donorSize = &donor.W
+	} else {
+		growerSize = &grower.H
+		donorSize = &donor.H
+	}
+
+	// Clamp so donor doesn't go below minimum
+	if *donorSize-delta < PaneMinSize {
+		delta = *donorSize - PaneMinSize
+	}
+	if delta <= 0 {
+		return false
+	}
+
+	*growerSize += delta
+	*donorSize -= delta
+
+	// Propagate size changes to subtrees
+	if !grower.IsLeaf() {
+		grower.ResizeAll(grower.W, grower.H)
+	}
+	if !donor.IsLeaf() {
+		donor.ResizeAll(donor.W, donor.H)
+	}
+
+	w.Root.FixOffsets()
+	w.resizePTYs()
+	return true
+}
+
 // resizePTYs resizes all pane PTYs to match their layout cell dimensions.
 func (w *Window) resizePTYs() {
 	w.Root.Walk(func(c *LayoutCell) {
