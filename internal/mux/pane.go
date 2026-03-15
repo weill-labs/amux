@@ -20,13 +20,14 @@ const PaneNameFormat = "pane-%d"
 
 // PaneMeta holds amux metadata for a pane.
 type PaneMeta struct {
-	Name      string
-	Host      string
-	Task      string
-	Remote    string
-	Color     string
-	Minimized bool
-	RestoreH  int // saved height before minimize
+	Name         string
+	Host         string
+	Task         string
+	Remote       string
+	Color        string
+	Minimized    bool
+	RestoreH     int    // saved height before minimize
+	MinimizedSeq uint64 // monotonic counter for LIFO restore ordering
 }
 
 // Pane manages a PTY, its terminal emulator, and metadata.

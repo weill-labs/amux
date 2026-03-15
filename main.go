@@ -196,6 +196,7 @@ Inside an amux session:
   Ctrl-a |                           Root-level split left/right
   Ctrl-a _                           Root-level split top/bottom
   Ctrl-a z                           Toggle zoom on active pane
+  Ctrl-a m                           Toggle minimize/restore
   Ctrl-a }                           Swap active pane with next
   Ctrl-a {                           Swap active pane with previous
   Ctrl-a o                           Cycle focus to next pane
@@ -450,6 +451,8 @@ func runMux(sessionName string) error {
 					sendCommand(conn, "focus", []string{"down"})
 				case 'z':
 					sendCommand(conn, "zoom", nil)
+				case 'm':
+					sendCommand(conn, "toggle-minimize", nil)
 				case '[':
 					cr.EnterCopyMode(cr.ActivePaneID())
 					if data := cr.Render(); data != nil {
