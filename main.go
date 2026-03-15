@@ -356,18 +356,16 @@ func runMux(sessionName string) error {
 				action := cm.HandleInput(buf[:n])
 				paneID := cr.ActivePaneID()
 				switch action {
+				case copymode.ActionNone:
+					continue
 				case copymode.ActionExit:
 					cr.ExitCopyMode(paneID)
 				case copymode.ActionYank:
-					// Copy selected text to system clipboard
 					if text := cm.SelectedText(); text != "" {
 						copyToClipboard(text)
 					}
 					cr.ExitCopyMode(paneID)
-				case copymode.ActionRedraw:
-					// Trigger a re-render
 				}
-				// Force a render to reflect copy mode changes
 				if data := cr.Render(); data != nil {
 					os.Stdout.Write(data)
 				}

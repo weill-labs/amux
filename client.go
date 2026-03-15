@@ -80,10 +80,14 @@ func (cr *ClientRenderer) HandleLayout(snap *proto.LayoutSnapshot) {
 	// Rebuild layout tree from snapshot
 	cr.layout = mux.RebuildLayout(snap.Root)
 
-	// Resize emulators to match their layout cells
+	// Resize emulators (and active copy modes) to match their layout cells
 	cr.layout.Walk(func(cell *mux.LayoutCell) {
 		if emu, ok := cr.emulators[cell.PaneID]; ok {
-			emu.Resize(cell.W, mux.PaneContentHeight(cell.H))
+			contentH := mux.PaneContentHeight(cell.H)
+			emu.Resize(cell.W, contentH)
+			if cm := cr.copyModes[cell.PaneID]; cm != nil {
+				cm.Resize(cell.W, contentH)
+			}
 		}
 	})
 

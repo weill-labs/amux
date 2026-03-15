@@ -1,9 +1,6 @@
 package copymode
 
-import (
-	"fmt"
-	"strings"
-)
+import "strings"
 
 // ANSI escapes for copy mode highlighting.
 const (
@@ -19,10 +16,7 @@ const (
 // (no trailing newline), suitable for the compositor's blitPane.
 func (cm *CopyMode) RenderViewport() string {
 	total := cm.TotalLines()
-	firstVisible := total - cm.height - cm.oy
-	if firstVisible < 0 {
-		firstVisible = 0
-	}
+	firstVisible := max(0, total-cm.height-cm.oy)
 
 	lines := make([]string, cm.height)
 	for row := 0; row < cm.height; row++ {
@@ -67,31 +61,31 @@ func (cm *CopyMode) highlightMatches(line string, absIdx int) string {
 		return line
 	}
 
-	// Build the highlighted line by inserting escapes around each match.
-	// Process matches right-to-left so byte offsets remain valid.
+	// Build the highlighted line left-to-right, inserting ANSI escapes
+	// around each match.
 	runes := []rune(line)
-	for j := len(lineMatches) - 1; j >= 0; j-- {
-		mi := lineMatches[j]
+	var buf strings.Builder
+	pos := 0
+	for _, mi := range lineMatches {
 		m := cm.matches[mi]
-
 		start := m.Col
-		end := m.Col + m.Len
 		if start >= len(runes) {
 			continue
 		}
-		if end > len(runes) {
-			end = len(runes)
-		}
+		end := min(m.Col+m.Len, len(runes))
 
+		buf.WriteString(string(runes[pos:start]))
 		bg := matchBg
 		if mi == cm.matchIdx {
 			bg = matchCurrentBg
 		}
-
-		highlighted := bg + string(runes[start:end]) + matchOff
-		runes = append(runes[:start], append([]rune(highlighted), runes[end:]...)...)
+		buf.WriteString(bg)
+		buf.WriteString(string(runes[start:end]))
+		buf.WriteString(matchOff)
+		pos = end
 	}
-	return string(runes)
+	buf.WriteString(string(runes[pos:]))
+	return buf.String()
 }
 
 // SearchBarText returns the search prompt to display in the status bar.
@@ -100,7 +94,7 @@ func (cm *CopyMode) SearchBarText() string {
 	if !cm.searching {
 		return ""
 	}
-	return fmt.Sprintf("/%s", cm.searchBuf)
+	return "/" + cm.searchBuf
 }
 
 // padOrTruncate ensures s is exactly width characters (rune-based),

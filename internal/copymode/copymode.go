@@ -63,9 +63,6 @@ func New(emu TerminalEmulator, width, height int) *CopyMode {
 		emu:      emu,
 		width:    width,
 		height:   height,
-		oy:       0,
-		cx:       0,
-		cy:       0,
 		matchIdx: -1,
 	}
 }
@@ -113,10 +110,6 @@ func (cm *CopyMode) handleSearchInput(data []byte) Action {
 }
 
 func (cm *CopyMode) handleNormalInput(data []byte) Action {
-	if len(data) == 0 {
-		return ActionNone
-	}
-
 	b := data[0]
 	switch b {
 	case 'q', 0x1b: // quit / Escape
@@ -137,19 +130,11 @@ func (cm *CopyMode) handleNormalInput(data []byte) Action {
 		return ActionNone
 
 	case 0x04: // Ctrl-d — half page down
-		half := cm.height / 2
-		cm.oy -= half
-		if cm.oy < 0 {
-			cm.oy = 0
-		}
+		cm.oy = clamp(cm.oy-cm.height/2, 0, cm.maxOY())
 		return ActionRedraw
 
 	case 0x15: // Ctrl-u — half page up
-		half := cm.height / 2
-		cm.oy += half
-		if cm.oy > cm.maxOY() {
-			cm.oy = cm.maxOY()
-		}
+		cm.oy = clamp(cm.oy+cm.height/2, 0, cm.maxOY())
 		return ActionRedraw
 
 	case 'g': // scroll to top
@@ -222,16 +207,9 @@ func (cm *CopyMode) TotalLines() int {
 func (cm *CopyMode) Resize(width, height int) {
 	cm.width = width
 	cm.height = height
-	// Clamp scroll offset and cursor after resize.
-	if cm.oy > cm.maxOY() {
-		cm.oy = cm.maxOY()
-	}
-	if cm.cy >= cm.height {
-		cm.cy = cm.height - 1
-	}
-	if cm.cx >= cm.width {
-		cm.cx = cm.width - 1
-	}
+	cm.oy = clamp(cm.oy, 0, cm.maxOY())
+	cm.cy = clamp(cm.cy, 0, cm.height-1)
+	cm.cx = clamp(cm.cx, 0, cm.width-1)
 }
 
 // SelectedText returns the text between the selection start and end.
@@ -255,11 +233,7 @@ func (cm *CopyMode) SelectedText() string {
 		if startX >= len(line) {
 			return ""
 		}
-		end := endX + 1
-		if end > len(line) {
-			end = len(line)
-		}
-		return line[startX:end]
+		return line[startX:min(endX+1, len(line))]
 	}
 
 	var buf strings.Builder
@@ -272,10 +246,7 @@ func (cm *CopyMode) SelectedText() string {
 			}
 			buf.WriteByte('\n')
 		case y == endY:
-			end := endX + 1
-			if end > len(line) {
-				end = len(line)
-			}
+			end := min(endX+1, len(line))
 			if end > 0 {
 				buf.WriteString(line[:end])
 			}
@@ -370,10 +341,7 @@ func (cm *CopyMode) prevMatch() {
 	if len(cm.matches) == 0 {
 		return
 	}
-	cm.matchIdx--
-	if cm.matchIdx < 0 {
-		cm.matchIdx = len(cm.matches) - 1
-	}
+	cm.matchIdx = (cm.matchIdx - 1 + len(cm.matches)) % len(cm.matches)
 	cm.scrollToMatch()
 }
 
@@ -386,13 +354,12 @@ func (cm *CopyMode) scrollToMatch() {
 	// Convert absolute line index to the required scroll offset.
 	// firstVisible = totalLines - height - oy => oy = totalLines - height - firstVisible
 	// We want the match line visible, placing it at the cursor row (cy=0, top of viewport).
-	cm.oy = cm.TotalLines() - cm.height - m.LineIdx
-	if cm.oy < 0 {
-		cm.oy = 0
-	}
-	if cm.oy > cm.maxOY() {
-		cm.oy = cm.maxOY()
-	}
+	cm.oy = clamp(cm.TotalLines()-cm.height-m.LineIdx, 0, cm.maxOY())
+}
+
+// clamp returns v clamped to the range [lo, hi].
+func clamp(v, lo, hi int) int {
+	return max(lo, min(v, hi))
 }
 
 // stripANSI removes ANSI escape sequences from a string, returning plain text.
