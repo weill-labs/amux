@@ -1418,6 +1418,61 @@ func TestServerReloadWithMinimizedPane(t *testing.T) {
 	}
 }
 
+func TestServerReloadBorderColors(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// Split to get two panes with a border
+	h.sendKeys("C-a", "\\")
+	h.waitFor("[pane-2]", 3*time.Second)
+
+	// Focus pane-1 so active state is deterministic
+	h.sendKeys("C-a", "h")
+	time.Sleep(500 * time.Millisecond)
+
+	// Capture border colors BEFORE reload (via tmux capture-pane -e for ANSI)
+	outBefore, err := exec.Command("tmux", "capture-pane", "-t", h.session, "-p", "-e").Output()
+	if err != nil {
+		t.Fatalf("capture-pane -e before: %v", err)
+	}
+	colorsBefore := extractBorderColors(pickContentLine(string(outBefore)))
+
+	// Reload server
+	h.runCmd("reload-server")
+
+	// Wait for recovery
+	if !h.waitFor("[pane-", 10*time.Second) {
+		screen := h.capture()
+		t.Fatalf("session did not recover after reload\nScreen:\n%s", screen)
+	}
+	if !h.waitForFunc(func(s string) bool {
+		return strings.Contains(s, "[pane-1]") && strings.Contains(s, "[pane-2]")
+	}, 5*time.Second) {
+		screen := h.capture()
+		t.Fatalf("both panes should be visible after reload\nScreen:\n%s", screen)
+	}
+	time.Sleep(500 * time.Millisecond)
+
+	// Capture border colors AFTER reload
+	outAfter, err := exec.Command("tmux", "capture-pane", "-t", h.session, "-p", "-e").Output()
+	if err != nil {
+		t.Fatalf("capture-pane -e after: %v", err)
+	}
+	colorsAfter := extractBorderColors(pickContentLine(string(outAfter)))
+
+	if len(colorsBefore) == 0 {
+		t.Fatalf("no border colors found before reload\nScreen:\n%s", string(outBefore))
+	}
+	if len(colorsAfter) == 0 {
+		t.Fatalf("no border colors found after reload\nScreen:\n%s", string(outAfter))
+	}
+
+	// Border colors should match before and after reload
+	if colorsBefore[0] != colorsAfter[0] {
+		t.Errorf("border color changed after reload:\n  before: %s\n  after:  %s", colorsBefore[0], colorsAfter[0])
+	}
+}
+
 func TestCapture(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
