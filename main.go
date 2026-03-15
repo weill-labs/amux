@@ -76,6 +76,8 @@ func main() {
 		runServerCommand("status", nil)
 	case "capture":
 		runServerCommand("capture", args[1:])
+	case "zoom":
+		runServerCommand("zoom", args[1:])
 	case "minimize", "restore", "kill", "focus":
 		if len(args) < 2 {
 			fmt.Fprintf(os.Stderr, "usage: amux %s <pane>\n", args[0])
@@ -125,6 +127,7 @@ Usage:
   amux [-s session] capture <pane>    Capture a single pane's output
   amux [-s session] capture --ansi    Capture with ANSI escape codes
   amux [-s session] spawn --name NAME Spawn a new agent pane
+  amux [-s session] zoom [pane]       Toggle zoom (maximize) a pane
   amux [-s session] minimize <pane>   Minimize a pane
   amux [-s session] restore <pane>    Restore a minimized pane
   amux [-s session] kill <pane>       Kill a pane
@@ -138,6 +141,7 @@ Inside an amux session:
   Ctrl-a -                          Split active pane top/bottom
   Ctrl-a |                          Root-level split left/right
   Ctrl-a _                          Root-level split top/bottom
+  Ctrl-a z                          Toggle zoom on active pane
   Ctrl-a o                          Cycle focus to next pane
   Ctrl-a h/j/k/l                    Focus left/down/up/right
   Ctrl-a r                          Hot reload (re-exec binary)
@@ -375,6 +379,8 @@ func runMux(sessionName string) error {
 					sendCommand(conn, "focus", []string{"up"})
 				case 'j':
 					sendCommand(conn, "focus", []string{"down"})
+				case 'z':
+					sendCommand(conn, "zoom", nil)
 				case 'r':
 					if len(*forward) > 0 {
 						server.WriteMsg(conn, &server.Message{

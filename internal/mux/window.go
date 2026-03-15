@@ -14,10 +14,11 @@ const DefaultRestoreHeight = 12
 
 // Window holds the layout tree and active pane for one window.
 type Window struct {
-	Root       *LayoutCell
-	ActivePane *Pane
-	Width      int
-	Height     int
+	Root         *LayoutCell
+	ActivePane   *Pane
+	Width        int
+	Height       int
+	ZoomedPaneID uint32 // non-zero when a pane is zoomed to full window
 }
 
 // NewWindow creates a window with a single pane.
@@ -34,7 +35,11 @@ func NewWindow(pane *Pane, width, height int) *Window {
 // SplitRoot splits the entire window at the root level.
 // If the root already has the same split direction, the new pane is added
 // as a sibling (equal distribution). Otherwise, wraps the root in a new parent.
+// Auto-unzooms if a pane is zoomed.
 func (w *Window) SplitRoot(dir SplitDir, newPane *Pane) (*Pane, error) {
+	if w.ZoomedPaneID != 0 {
+		w.Unzoom()
+	}
 	newLeaf := NewLeaf(newPane, 0, 0, 0, 0)
 
 	if !w.Root.IsLeaf() && w.Root.Dir == dir {
@@ -96,7 +101,11 @@ func (w *Window) SplitRoot(dir SplitDir, newPane *Pane) (*Pane, error) {
 
 // Split splits the active pane in the given direction, creating a new pane
 // via the provided factory function. Returns the new pane.
+// Auto-unzooms if a pane is zoomed.
 func (w *Window) Split(dir SplitDir, newPane *Pane) (*Pane, error) {
+	if w.ZoomedPaneID != 0 {
+		w.Unzoom()
+	}
 	cell := w.Root.FindPane(w.ActivePane.ID)
 	if cell == nil {
 		return nil, fmt.Errorf("active pane %d not found in layout", w.ActivePane.ID)
@@ -122,6 +131,7 @@ func (w *Window) Split(dir SplitDir, newPane *Pane) (*Pane, error) {
 }
 
 // ClosePane removes a pane from the layout and reclaims its space.
+// If the closed pane was zoomed, zoom is automatically cleared.
 func (w *Window) ClosePane(paneID uint32) error {
 	cell := w.Root.FindPane(paneID)
 	if cell == nil {
@@ -133,6 +143,11 @@ func (w *Window) ClosePane(paneID uint32) error {
 	w.Root.Walk(func(_ *LayoutCell) { count++ })
 	if count <= 1 {
 		return fmt.Errorf("cannot close last pane")
+	}
+
+	// Auto-unzoom if closing the zoomed pane
+	if w.ZoomedPaneID == paneID {
+		w.ZoomedPaneID = 0
 	}
 
 	result := cell.Close()
@@ -177,10 +192,22 @@ func (w *Window) Resize(width, height int) {
 	w.Root.ResizeAll(width, height)
 
 	w.resizePTYs()
+
+	// If a pane is zoomed, its PTY should match the full window, not its cell
+	if w.ZoomedPaneID != 0 {
+		cell := w.Root.FindPane(w.ZoomedPaneID)
+		if cell != nil && cell.Pane != nil {
+			cell.Pane.Resize(width, PaneContentHeight(height))
+		}
+	}
 }
 
 // Focus changes the active pane. Direction is "next", "left", "right", "up", "down".
+// Auto-unzooms if a pane is zoomed.
 func (w *Window) Focus(direction string) {
+	if w.ZoomedPaneID != 0 {
+		w.Unzoom()
+	}
 	panes := w.Panes()
 	if len(panes) <= 1 {
 		return
@@ -409,7 +436,11 @@ func (w *Window) ResolvePane(ref string) *Pane {
 }
 
 // Minimize shrinks a pane's layout cell to StatusLineRows + 1 (just status + 1 row).
+// Auto-unzooms if a pane is zoomed.
 func (w *Window) Minimize(paneID uint32) error {
+	if w.ZoomedPaneID != 0 {
+		w.Unzoom()
+	}
 	cell := w.Root.FindPane(paneID)
 	if cell == nil {
 		return fmt.Errorf("pane %d not found", paneID)
@@ -444,6 +475,57 @@ func (w *Window) Minimize(paneID uint32) error {
 	}
 
 	w.Root.FixOffsets()
+	return nil
+}
+
+// Zoom toggles a pane to fill the entire window. The layout tree is kept
+// intact; the ZoomedPaneID field tells the client to render only this pane.
+// The zoomed pane's PTY is resized to the full window dimensions.
+func (w *Window) Zoom(paneID uint32) error {
+	if w.ZoomedPaneID == paneID {
+		return w.Unzoom()
+	}
+	if w.ZoomedPaneID != 0 {
+		w.Unzoom()
+	}
+
+	cell := w.Root.FindPane(paneID)
+	if cell == nil {
+		return fmt.Errorf("pane %d not found", paneID)
+	}
+
+	// Cannot zoom if only one pane
+	count := 0
+	w.Root.Walk(func(_ *LayoutCell) { count++ })
+	if count <= 1 {
+		return fmt.Errorf("cannot zoom with only one pane")
+	}
+
+	w.ZoomedPaneID = paneID
+	w.ActivePane = cell.Pane
+
+	// Resize zoomed pane PTY to full window
+	cell.Pane.Resize(w.Width, PaneContentHeight(w.Height))
+
+	return nil
+}
+
+// Unzoom restores the normal multi-pane view. The zoomed pane's PTY is
+// resized back to match its layout cell.
+func (w *Window) Unzoom() error {
+	if w.ZoomedPaneID == 0 {
+		return fmt.Errorf("no pane is zoomed")
+	}
+
+	paneID := w.ZoomedPaneID
+	w.ZoomedPaneID = 0
+
+	// Resize the previously-zoomed pane back to its cell size
+	cell := w.Root.FindPane(paneID)
+	if cell != nil && cell.Pane != nil {
+		cell.Pane.Resize(cell.W, PaneContentHeight(cell.H))
+	}
+
 	return nil
 }
 
