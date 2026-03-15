@@ -91,15 +91,17 @@ jobs:
       - name: Test timing summary
         if: always() && steps.changes.outputs.code_changed == 'true'
         run: |
-          echo '## Test Timing' >> "$GITHUB_STEP_SUMMARY"
-          echo '' >> "$GITHUB_STEP_SUMMARY"
-          echo '| Test | Duration |' >> "$GITHUB_STEP_SUMMARY"
-          echo '|------|----------|' >> "$GITHUB_STEP_SUMMARY"
-          jq -r 'select(.Action=="pass" and .Test) | "| \(.Test) | \(.Elapsed)s |"' \
-            unit-results.json integration-results.json \
-            | sort -t'|' -k3 -rn >> "$GITHUB_STEP_SUMMARY"
-          echo '' >> "$GITHUB_STEP_SUMMARY"
           total=$(jq -r 'select(.Action=="pass" and .Test) | .Elapsed' \
             unit-results.json integration-results.json \
             | awk '{s+=$1} END {printf "%.2f", s}')
-          echo "**Total: ${total}s**" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo '## Test Timing'
+            echo ''
+            echo '| Test | Duration |'
+            echo '|------|----------|'
+            jq -r 'select(.Action=="pass" and .Test) | "| \(.Test) | \(.Elapsed)s |"' \
+              unit-results.json integration-results.json \
+              | sort -t'|' -k3 -rn
+            echo ''
+            echo "**Total: ${total}s**"
+          } >> "$GITHUB_STEP_SUMMARY"
