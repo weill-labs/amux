@@ -136,16 +136,9 @@ After creating a PR, always run the code review and code simplifier agents befor
 3. Update `printUsage()` in `main.go`
 4. Write integration test in `test/amux_test.go`
 
-### Server Restart vs Client Hot-Reload
+### Hot-Reload
 
-The client watches the binary and re-execs itself on changes (`reload.go`). This means rendering changes take effect immediately after `go build`. However, **server-side changes** (protocol, session logic, pane management) require killing the server process:
-
-```bash
-# Find and kill the server
-ps aux | grep 'amux _server'
-kill <PID>
-# Then: amux (starts fresh server with new binary)
-```
+Both client and server watch the binary and re-exec on changes (`reload.go`). Running `go build -o ~/.local/bin/amux .` triggers automatic reload of both — panes and shells are preserved across server reloads via checkpoint/restore.
 
 Socket location: `/tmp/amux-$UID/<session-name>`
 

@@ -409,6 +409,9 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 		if zoomed != "" {
 			statusLine += fmt.Sprintf(", %s zoomed", zoomed)
 		}
+		if BuildVersion != "" {
+			statusLine += fmt.Sprintf(", build: %s", BuildVersion)
+		}
 		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: statusLine + "\n"})
 
 	case "new-window":

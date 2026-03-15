@@ -481,9 +481,11 @@ func (w *Window) ResizeActive(direction string, delta int) bool {
 			// tmux convention: resize the border adjacent to this cell.
 			// If we're the last child, use the border to our left (idx-1, idx).
 			// Otherwise, use the border to our right (idx, idx+1).
-			left, right := siblings[idx], siblings[idx+1]
+			var left, right *LayoutCell
 			if idx == len(siblings)-1 {
 				left, right = siblings[idx-1], siblings[idx]
+			} else {
+				left, right = siblings[idx], siblings[idx+1]
 			}
 
 			if change > 0 {
@@ -533,9 +535,10 @@ func (w *Window) resizeBetween(grower, donor *LayoutCell, axis SplitDir, delta i
 }
 
 // resizePTYs resizes all pane PTYs to match their layout cell dimensions.
+// Minimized panes are skipped — their PTYs stay at pre-minimize dimensions.
 func (w *Window) resizePTYs() {
 	w.Root.Walk(func(c *LayoutCell) {
-		if c.Pane != nil {
+		if c.Pane != nil && !c.Pane.Meta.Minimized {
 			c.Pane.Resize(c.W, PaneContentHeight(c.H))
 		}
 	})
@@ -675,7 +678,8 @@ func (w *Window) activeCellIndex(cells []*LayoutCell) int {
 	return -1
 }
 
-// Minimize shrinks a pane's layout cell to StatusLineRows + 1 (just status + 1 row).
+// Minimize shrinks a pane's layout cell to just the status line (header only).
+// Only allowed in vertical splits with at least one non-minimized sibling.
 // Auto-unzooms if a pane is zoomed.
 func (w *Window) Minimize(paneID uint32) error {
 	if w.ZoomedPaneID != 0 {
@@ -689,13 +693,38 @@ func (w *Window) Minimize(paneID uint32) error {
 		return fmt.Errorf("pane already minimized")
 	}
 
+	// Only allow minimize in vertical splits (stacked panes).
+	// A pane at root or in a horizontal split has no vertical sibling
+	// to absorb the reclaimed height.
+	if cell.Parent == nil || cell.Parent.Dir != SplitVertical {
+		return fmt.Errorf("cannot minimize: pane is not in a vertical split")
+	}
+
+	// Require at least one non-minimized sibling to remain visible.
+	nonMinSibs := 0
+	for _, sib := range cell.Parent.Children {
+		if sib == cell {
+			continue
+		}
+		if !sib.IsLeaf() {
+			nonMinSibs++ // subtrees always count as non-minimized
+		} else if sib.Pane != nil && !sib.Pane.Meta.Minimized {
+			nonMinSibs++
+		}
+	}
+	if nonMinSibs == 0 {
+		return fmt.Errorf("cannot minimize the last visible pane in this group")
+	}
+
 	cell.Pane.Meta.Minimized = true
 	cell.Pane.Meta.RestoreH = cell.H
 	w.minimizeSeq++
 	cell.Pane.Meta.MinimizedSeq = w.minimizeSeq
 
-	cell.H = StatusLineRows + 1
-	cell.Pane.Resize(cell.W, 1)
+	cell.H = StatusLineRows
+	// Don't resize the PTY — TUI apps (Claude Code, vim, etc.) may not
+	// recover properly from being resized to 1 row. The PTY and emulator
+	// stay at their original dimensions; only the layout cell shrinks.
 
 	if cell.Parent != nil {
 		reclaimed := cell.Pane.Meta.RestoreH - cell.H
@@ -813,41 +842,18 @@ func (w *Window) Restore(paneID uint32) error {
 	return nil
 }
 
-// ToggleMinimize minimizes the active pane if no panes are minimized,
-// or restores the most recently minimized pane (LIFO order).
+// ToggleMinimize toggles the active pane's minimized state.
 // Returns the affected pane's name and whether it was minimized (true) or restored (false).
 func (w *Window) ToggleMinimize() (name string, minimized bool, err error) {
-	// Find the most recently minimized pane (highest MinimizedSeq).
-	var best *Pane
-	w.Root.Walk(func(c *LayoutCell) {
-		if c.Pane != nil && c.Pane.Meta.Minimized {
-			if best == nil || c.Pane.Meta.MinimizedSeq > best.Meta.MinimizedSeq {
-				best = c.Pane
-			}
-		}
-	})
-
-	if best != nil {
-		err = w.Restore(best.ID)
-		return best.Meta.Name, false, err
-	}
-
 	if w.ActivePane == nil {
 		return "", false, fmt.Errorf("no active pane")
 	}
 
-	// Guard: refuse to minimize the last non-minimized pane.
-	nonMinimized := 0
-	w.Root.Walk(func(c *LayoutCell) {
-		if c.Pane != nil && !c.Pane.Meta.Minimized {
-			nonMinimized++
-		}
-	})
-	if nonMinimized <= 1 {
-		return "", false, fmt.Errorf("cannot minimize the only visible pane")
-	}
-
 	name = w.ActivePane.Meta.Name
+	if w.ActivePane.Meta.Minimized {
+		err = w.Restore(w.ActivePane.ID)
+		return name, false, err
+	}
 	err = w.Minimize(w.ActivePane.ID)
 	return name, true, err
 }

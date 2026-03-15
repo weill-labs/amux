@@ -403,6 +403,9 @@ func (s *Session) renderColorMap() string {
 	return render.ExtractColorMap(ansi, width, h) + "\n"
 }
 
+// BuildVersion is set by main at startup for version reporting in status.
+var BuildVersion string
+
 // Server listens on a Unix socket and manages sessions.
 type Server struct {
 	listener net.Listener
@@ -532,12 +535,19 @@ func (s *Server) Reload(execPath string) error {
 			PID:    p.ProcessPid(),
 			Screen: p.RenderScreen(),
 		}
-		// Find the cell in whichever window contains this pane
-		for _, w := range sess.Windows {
-			if cell := w.Root.FindPane(p.ID); cell != nil {
-				pc.Cols = cell.W
-				pc.Rows = mux.PaneContentHeight(cell.H)
-				break
+		// For minimized panes, save the emulator's actual dimensions
+		// (pre-minimize size) so the emulator is restored at the correct
+		// size after hot-reload. The cell dimensions are shrunk to just
+		// the status line, which would garble output if used.
+		if p.Meta.Minimized {
+			pc.Cols, pc.Rows = p.EmulatorSize()
+		} else {
+			for _, w := range sess.Windows {
+				if cell := w.Root.FindPane(p.ID); cell != nil {
+					pc.Cols = cell.W
+					pc.Rows = mux.PaneContentHeight(cell.H)
+					break
+				}
 			}
 		}
 		cp.Panes = append(cp.Panes, pc)
