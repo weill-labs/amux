@@ -62,7 +62,7 @@ profiles=()
 if [[ ${#profiles[@]} -gt 0 ]]; then
   {
     echo "mode: atomic"
-    grep -v '^mode:' "${profiles[@]}"
+    grep -h -v '^mode:' "${profiles[@]}"
   } > merged-coverage.txt
 
   go tool cover -func merged-coverage.txt > coverage-summary.txt
