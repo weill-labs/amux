@@ -2,9 +2,11 @@ package test
 
 import (
 	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -19,6 +21,10 @@ func TestMain(m *testing.M) {
 		fmt.Println("SKIP: tmux not found")
 		os.Exit(0)
 	}
+
+	// Clean up orphaned test sessions from previous runs that may have
+	// been killed by a timeout panic (t.Cleanup doesn't run on panic).
+	cleanupStaleTestSessions()
 
 	// Build amux binary for testing
 	tmp, err := os.MkdirTemp("", "amux-test-*")
@@ -35,7 +41,53 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 
-	os.Exit(m.Run())
+	code := m.Run()
+	cleanupStaleTestSessions()
+	os.Exit(code)
+}
+
+// cleanupStaleTestSessions removes orphaned tmux sessions, amux server
+// processes, sockets, and log files left behind by previous test runs
+// that were killed by a timeout panic.
+//
+// Not safe if multiple `go test` invocations run concurrently — it may
+// kill sessions belonging to the other run.
+func cleanupStaleTestSessions() {
+	// Kill tmux sessions matching the test naming convention (t- + 8 hex chars)
+	out, _ := exec.Command("tmux", "list-sessions", "-F", "#{session_name}").Output()
+	for _, name := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if isTestSession(name) {
+			exec.Command("tmux", "kill-session", "-t", name).Run()
+		}
+	}
+
+	// Kill orphaned amux server processes, validating session name
+	out, _ = exec.Command("pgrep", "-fl", "amux _server t-").Output()
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 3 && isTestSession(fields[len(fields)-1]) {
+			exec.Command("kill", fields[0]).Run()
+		}
+	}
+
+	// Clean up stale sockets and log files
+	socketDir := fmt.Sprintf("/tmp/amux-%d", os.Getuid())
+	entries, _ := os.ReadDir(socketDir)
+	for _, e := range entries {
+		name := e.Name()
+		if isTestSession(name) || (strings.HasSuffix(name, ".log") && isTestSession(strings.TrimSuffix(name, ".log"))) {
+			os.Remove(filepath.Join(socketDir, name))
+		}
+	}
+}
+
+// isTestSession returns true if the name matches the test session convention: t- followed by 8 hex chars.
+func isTestSession(name string) bool {
+	if len(name) != 10 || name[:2] != "t-" {
+		return false
+	}
+	_, err := hex.DecodeString(name[2:])
+	return err == nil
 }
 
 // ---------------------------------------------------------------------------
@@ -93,7 +145,7 @@ func (h *TmuxHarness) cleanup() {
 	}
 
 	// Clean up socket
-	exec.Command("rm", "-f", fmt.Sprintf("/tmp/amux-%d/%s", os.Getuid(), h.session)).Run()
+	os.Remove(filepath.Join(fmt.Sprintf("/tmp/amux-%d", os.Getuid()), h.session))
 }
 
 // sendKeys sends keystrokes to the tmux session.
@@ -153,10 +205,7 @@ func (h *TmuxHarness) assertScreen(msg string, fn func(string) bool) {
 func (h *TmuxHarness) runCmd(args ...string) string {
 	h.t.Helper()
 	cmdArgs := append([]string{"-s", h.session}, args...)
-	out, err := exec.Command(amuxBin, cmdArgs...).CombinedOutput()
-	if err != nil {
-		return string(out)
-	}
+	out, _ := exec.Command(amuxBin, cmdArgs...).CombinedOutput()
 	return string(out)
 }
 
