@@ -9,22 +9,64 @@ import (
 
 // fakePaneData implements PaneData with a fixed screen string.
 type fakePaneData struct {
-	id     uint32
-	name   string
-	screen string
+	id           uint32
+	name         string
+	screen       string
+	minimized    bool
+	cursorHidden bool
 }
 
 func (f *fakePaneData) RenderScreen(bool) string { return f.screen }
 func (f *fakePaneData) CursorPos() (int, int)   { return 0, 0 }
-func (f *fakePaneData) CursorHidden() bool      { return true }
+func (f *fakePaneData) CursorHidden() bool      { return f.cursorHidden }
 func (f *fakePaneData) ID() uint32              { return f.id }
 func (f *fakePaneData) Name() string            { return f.name }
 func (f *fakePaneData) Host() string            { return "local" }
 func (f *fakePaneData) Task() string            { return "" }
 func (f *fakePaneData) Color() string           { return "f5e0dc" }
-func (f *fakePaneData) Minimized() bool         { return false }
+func (f *fakePaneData) Minimized() bool         { return f.minimized }
 func (f *fakePaneData) InCopyMode() bool        { return false }
 func (f *fakePaneData) HasCursorBlock() bool    { return false }
+
+func TestMinimizedPaneHidesCursor(t *testing.T) {
+	t.Parallel()
+
+	// Two panes stacked vertically: pane-1 (top, minimized), pane-2 (bottom)
+	width, height := 40, 10
+	top := mux.NewLeaf(&mux.Pane{ID: 1, Meta: mux.PaneMeta{
+		Name: "pane-1", Minimized: true,
+	}}, 0, 0, width, mux.StatusLineRows)
+	bottom := mux.NewLeaf(&mux.Pane{ID: 2, Meta: mux.PaneMeta{
+		Name: "pane-2",
+	}}, 0, mux.StatusLineRows, width, height-mux.StatusLineRows)
+	root := &mux.LayoutCell{
+		X: 0, Y: 0, W: width, H: height,
+		Dir:      mux.SplitVertical,
+		Children: []*mux.LayoutCell{top, bottom},
+	}
+	top.Parent = root
+	bottom.Parent = root
+
+	comp := NewCompositor(width, height+GlobalBarHeight, "test")
+
+	lookup := func(id uint32) PaneData {
+		switch id {
+		case 1:
+			return &fakePaneData{id: 1, name: "pane-1", screen: "", minimized: true}
+		case 2:
+			return &fakePaneData{id: 2, name: "pane-2", screen: "hello"}
+		}
+		return nil
+	}
+
+	// Active pane is the minimized pane-1
+	output := string(comp.RenderFull(root, 1, lookup))
+
+	// Should NOT contain ShowCursor since the active pane is minimized
+	if strings.Contains(output, ShowCursor) {
+		t.Error("cursor should be hidden when active pane is minimized")
+	}
+}
 
 func TestBlitPaneClipsToWidth(t *testing.T) {
 	t.Parallel()
@@ -51,10 +93,10 @@ func TestBlitPaneClipsToWidth(t *testing.T) {
 	lookup := func(id uint32) PaneData {
 		switch id {
 		case 1:
-			return &fakePaneData{id: 1, name: "pane-1", screen: longLine}
+			return &fakePaneData{id: 1, name: "pane-1", screen: longLine, cursorHidden: true}
 		case 2:
 			// Empty content — overflow from pane-1 would be visible here
-			return &fakePaneData{id: 2, name: "pane-2", screen: ""}
+			return &fakePaneData{id: 2, name: "pane-2", screen: "", cursorHidden: true}
 		}
 		return nil
 	}
