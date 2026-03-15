@@ -7,11 +7,11 @@ A drop-in replacement for tmux built for the human+agent workflow. Same keybindi
 
 ## Philosophy
 
-1. **Tight feedback loops.** Minimize information latency between humans and agents.
+1. **Tight feedback loops.** Minimize latency between humans and agents.
 
-2. **Shared visibility.** Windows and panes are the communication primitive.
+2. **Shared visibility.** TUI panes are the communication primitive.
 
-3. **Familiarity.** The best interface is the one you already know.
+3. **Familiar UX.** The best interface is the one you already know.
 
 ## Install
 
