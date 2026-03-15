@@ -3,6 +3,7 @@ package test
 import (
 	"crypto/rand"
 	"fmt"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -253,7 +254,11 @@ func (h *AmuxHarness) globalBarAmux() string {
 func (h *AmuxHarness) runCmd(args ...string) string {
 	h.t.Helper()
 	cmdArgs := append([]string{"-s", h.inner}, args...)
-	out, _ := exec.Command(amuxBin, cmdArgs...).CombinedOutput()
+	cmd := exec.Command(amuxBin, cmdArgs...)
+	if h.outer.coverDir != "" {
+		cmd.Env = append(os.Environ(), "GOCOVERDIR="+h.outer.coverDir)
+	}
+	out, _ := cmd.CombinedOutput()
 	return string(out)
 }
 

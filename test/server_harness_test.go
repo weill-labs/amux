@@ -20,9 +20,10 @@ import (
 // CLI commands are synchronous: after runCmd("split") returns, capture()
 // immediately reflects the split. Zero polling, zero time.Sleep.
 type ServerHarness struct {
-	t       *testing.T
-	session string
-	cmd     *exec.Cmd
+	t        *testing.T
+	session  string
+	cmd      *exec.Cmd
+	coverDir string // per-test GOCOVERDIR subdirectory (avoids coverage metadata races)
 }
 
 // newServerHarness starts a server daemon with a unique session name,
@@ -41,7 +42,24 @@ func newServerHarness(t *testing.T) *ServerHarness {
 
 	cmd := exec.Command(amuxBin, "_server", session)
 	cmd.ExtraFiles = []*os.File{writePipe} // fd 3 in child
-	cmd.Env = append(os.Environ(), "AMUX_READY_FD=3", "AMUX_NO_WATCH=1")
+	env := append(os.Environ(), "AMUX_READY_FD=3", "AMUX_NO_WATCH=1")
+
+	// Give each test its own GOCOVERDIR subdirectory. Without this, all
+	// parallel amux processes (servers + short-lived CLI commands) race on
+	// covmeta.* file renames in the shared directory, causing intermittent
+	// "rename: no such file or directory" errors that corrupt CLI output.
+	var coverDir string
+	if gocoverDir != "" {
+		coverDir = filepath.Join(gocoverDir, session)
+		os.MkdirAll(coverDir, 0755)
+		for i, e := range env {
+			if strings.HasPrefix(e, "GOCOVERDIR=") {
+				env[i] = "GOCOVERDIR=" + coverDir
+				break
+			}
+		}
+	}
+	cmd.Env = env
 
 	logDir := server.SocketDir()
 	os.MkdirAll(logDir, 0700)
@@ -72,7 +90,7 @@ func newServerHarness(t *testing.T) *ServerHarness {
 		t.Fatalf("server ready signal not received: err=%v, buf=%q", err, string(buf[:n]))
 	}
 
-	h := &ServerHarness{t: t, session: session, cmd: cmd}
+	h := &ServerHarness{t: t, session: session, cmd: cmd, coverDir: coverDir}
 	t.Cleanup(h.cleanup)
 
 	// Seed the first pane by sending a temporary Attach message.
@@ -141,7 +159,11 @@ func (h *ServerHarness) cleanup() {
 func (h *ServerHarness) runCmd(args ...string) string {
 	h.t.Helper()
 	cmdArgs := append([]string{"-s", h.session}, args...)
-	out, _ := exec.Command(amuxBin, cmdArgs...).CombinedOutput()
+	cmd := exec.Command(amuxBin, cmdArgs...)
+	if h.coverDir != "" {
+		cmd.Env = append(os.Environ(), "GOCOVERDIR="+h.coverDir)
+	}
+	out, _ := cmd.CombinedOutput()
 	return string(out)
 }
 
