@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -19,6 +20,10 @@ func TestMain(m *testing.M) {
 		fmt.Println("SKIP: tmux not found")
 		os.Exit(0)
 	}
+
+	// Clean up orphaned test sessions from previous runs that may have
+	// been killed by a timeout panic (t.Cleanup doesn't run on panic).
+	cleanupStaleTestSessions()
 
 	// Build amux binary for testing
 	tmp, err := os.MkdirTemp("", "amux-test-*")
@@ -35,7 +40,52 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 
-	os.Exit(m.Run())
+	code := m.Run()
+	cleanupStaleTestSessions()
+	os.Exit(code)
+}
+
+// cleanupStaleTestSessions removes orphaned tmux sessions, amux server
+// processes, and sockets left behind by previous test runs that were
+// killed by a timeout panic.
+func cleanupStaleTestSessions() {
+	// Kill tmux sessions matching the test naming convention (t- + 8 hex chars)
+	out, _ := exec.Command("tmux", "list-sessions", "-F", "#{session_name}").Output()
+	for _, name := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if isTestSession(name) {
+			exec.Command("tmux", "kill-session", "-t", name).Run()
+		}
+	}
+
+	// Kill orphaned amux server processes for test sessions
+	out, _ = exec.Command("pgrep", "-f", "amux _server t-").Output()
+	for _, pid := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if pid != "" {
+			exec.Command("kill", pid).Run()
+		}
+	}
+
+	// Clean up stale sockets
+	socketDir := fmt.Sprintf("/tmp/amux-%d", os.Getuid())
+	entries, _ := os.ReadDir(socketDir)
+	for _, e := range entries {
+		if isTestSession(e.Name()) {
+			os.Remove(filepath.Join(socketDir, e.Name()))
+		}
+	}
+}
+
+// isTestSession returns true if the name matches the test session convention: t- followed by 8 hex chars.
+func isTestSession(name string) bool {
+	if len(name) != 10 || name[:2] != "t-" {
+		return false
+	}
+	for _, c := range name[2:] {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+			return false
+		}
+	}
+	return true
 }
 
 // ---------------------------------------------------------------------------
