@@ -18,6 +18,7 @@ type ClientRenderer struct {
 	paneInfo     map[uint32]proto.PaneSnapshot
 	layout       *mux.LayoutCell
 	activePaneID uint32
+	zoomedPaneID uint32
 	sessionName  string
 	compositor   *render.Compositor
 	width        int // full terminal width
@@ -45,6 +46,7 @@ func (cr *ClientRenderer) HandleLayout(snap *proto.LayoutSnapshot) {
 
 	cr.sessionName = snap.SessionName
 	cr.activePaneID = snap.ActivePaneID
+	cr.zoomedPaneID = snap.ZoomedPaneID
 
 	// Build map of current pane IDs from snapshot
 	newPaneIDs := make(map[uint32]bool, len(snap.Panes))
@@ -125,7 +127,19 @@ func (cr *ClientRenderer) Render() []byte {
 		return &clientPaneData{emu: emu, info: info}
 	}
 
-	return cr.compositor.RenderFull(cr.layout, cr.activePaneID, lookup)
+	root := cr.layout
+	if cr.zoomedPaneID != 0 {
+		// When zoomed, create a temp single-leaf layout at full window size
+		layoutH := cr.compositor.LayoutHeight()
+		root = mux.NewLeafByID(cr.zoomedPaneID, 0, 0, cr.width, layoutH)
+
+		// Resize the zoomed emulator to match
+		if emu, ok := cr.emulators[cr.zoomedPaneID]; ok {
+			emu.Resize(cr.width, mux.PaneContentHeight(layoutH))
+		}
+	}
+
+	return cr.compositor.RenderFull(root, cr.activePaneID, lookup)
 }
 
 // IsDirty returns true if there is new data to render.

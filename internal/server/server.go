@@ -150,6 +150,9 @@ func (s *Session) createPaneWithMeta(srv *Server, meta mux.PaneMeta, cols, rows 
 
 			s.removePane(paneID)
 			if s.Window != nil {
+				if s.Window.ZoomedPaneID == paneID {
+					s.Window.Unzoom()
+				}
 				s.Window.ClosePane(paneID)
 			}
 			s.mu.Unlock()
@@ -205,7 +208,12 @@ func (s *Session) renderCapture(stripANSI bool) string {
 		activePaneID = s.Window.ActivePane.ID
 	}
 
-	raw := string(comp.RenderFull(s.Window.Root, activePaneID, func(id uint32) render.PaneData {
+	root := s.Window.Root
+	if s.Window.ZoomedPaneID != 0 {
+		root = mux.NewLeafByID(s.Window.ZoomedPaneID, 0, 0, s.Window.Width, s.Window.Height)
+	}
+
+	raw := string(comp.RenderFull(root, activePaneID, func(id uint32) render.PaneData {
 		return paneMap[id]
 	}))
 
@@ -433,6 +441,9 @@ func NewServerFromCheckpoint(cp *checkpoint.ServerCheckpoint) (*Server, error) {
 				}
 				sess.removePane(paneID)
 				if sess.Window != nil {
+					if sess.Window.ZoomedPaneID == paneID {
+						sess.Window.Unzoom()
+					}
 					sess.Window.ClosePane(paneID)
 				}
 				sess.mu.Unlock()

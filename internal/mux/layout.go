@@ -47,6 +47,17 @@ func NewLeaf(pane *Pane, x, y, w, h int) *LayoutCell {
 	}
 }
 
+// NewLeafByID creates a client-side leaf cell with only a PaneID (no Pane pointer).
+// Used for temporary layout trees like the zoomed-pane view.
+func NewLeafByID(paneID uint32, x, y, w, h int) *LayoutCell {
+	return &LayoutCell{
+		X: x, Y: y, W: w, H: h,
+		PaneID: paneID,
+		isLeaf: true,
+		Dir:    -1,
+	}
+}
+
 // IsLeaf returns true if this cell is a pane leaf.
 func (c *LayoutCell) IsLeaf() bool {
 	return c.isLeaf
