@@ -249,6 +249,110 @@ func (h *TmuxHarness) scrollAt(x, y int, up bool) {
 }
 
 // ---------------------------------------------------------------------------
+// Shared ANSI / color helpers (used by border, hotreload, and mouse tests)
+// ---------------------------------------------------------------------------
+
+// captureANSI captures the tmux pane with ANSI escape sequences preserved.
+func (h *TmuxHarness) captureANSI() string {
+	h.t.Helper()
+	out, err := exec.Command("tmux", "capture-pane", "-t", h.session, "-p", "-e").Output()
+	if err != nil {
+		h.t.Fatalf("capture-pane -e: %v", err)
+	}
+	return string(out)
+}
+
+// isPaneActive returns true if the captured screen shows the named pane
+// with the active indicator (● [name]).
+func isPaneActive(screen, paneName string) bool {
+	target := "[" + paneName + "]"
+	for _, line := range strings.Split(screen, "\n") {
+		idx := strings.Index(line, target)
+		if idx < 0 {
+			continue
+		}
+		if strings.Contains(line[:idx], "●") {
+			return true
+		}
+	}
+	return false
+}
+
+// isPaneInactive returns true if the captured screen shows the named pane
+// with the inactive indicator (○ [name]).
+func isPaneInactive(screen, paneName string) bool {
+	target := "[" + paneName + "]"
+	for _, line := range strings.Split(screen, "\n") {
+		if strings.Contains(line, target) && strings.Contains(line, "○") {
+			return true
+		}
+	}
+	return false
+}
+
+// pickContentLine returns a middle content line from ANSI-escaped screen output,
+// skipping status lines and empty lines.
+func pickContentLine(screen string) string {
+	lines := strings.Split(screen, "\n")
+	for i := len(lines) / 2; i < len(lines); i++ {
+		if strings.Contains(lines[i], "│") && !strings.Contains(lines[i], "amux") {
+			return lines[i]
+		}
+	}
+	for _, line := range lines {
+		if strings.Contains(line, "│") && !strings.Contains(lines[0], "[pane-") {
+			return line
+		}
+	}
+	return ""
+}
+
+// extractBorderColors finds each │ in an ANSI-escaped line and returns
+// the most recent \033[...m escape sequence before each one.
+func extractBorderColors(line string) []string {
+	var colors []string
+	lastEscape := ""
+	i := 0
+	for i < len(line) {
+		if line[i] == '\033' && i+1 < len(line) && line[i+1] == '[' {
+			j := i + 2
+			for j < len(line) && line[j] != 'm' {
+				j++
+			}
+			if j < len(line) {
+				lastEscape = line[i : j+1]
+				i = j + 1
+				continue
+			}
+		}
+		if i+2 < len(line) && line[i] == '\xe2' && line[i+1] == '\x94' && line[i+2] == '\x82' {
+			colors = append(colors, lastEscape)
+			i += 3
+			continue
+		}
+		i++
+	}
+	return colors
+}
+
+// findHorizontalBorderRow returns the first row index containing a horizontal
+// border (>10 horizontal box-drawing chars), or -1 if not found.
+func findHorizontalBorderRow(lines []string) int {
+	for i, line := range lines {
+		count := 0
+		for _, r := range line {
+			if r == '─' || r == '┼' || r == '┬' || r == '┴' {
+				count++
+			}
+		}
+		if count > 10 {
+			return i
+		}
+	}
+	return -1
+}
+
+// ---------------------------------------------------------------------------
 // Layout-aware screen helpers
 // ---------------------------------------------------------------------------
 
