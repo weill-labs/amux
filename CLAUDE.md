@@ -6,7 +6,7 @@ amux is a **standalone terminal multiplexer for the human+agent workflow**. Sing
 
 ### Core Principles
 
-See [README.md — Philosophy](README.md#philosophy) for the three tenets that guide all design decisions: tight feedback loops, shared visibility, and familiarity.
+See [README.md — Philosophy](README.md#philosophy) for the three tenets that guide all design decisions: tight feedback loops, shared visibility, and equal access.
 
 **Client-server architecture.** The server is a background daemon that owns PTYs and layout state. Clients connect over a Unix socket, receive layout snapshots and raw pane output, and render locally. This enables hot-reload: rebuilding the binary auto-restarts the client with new rendering code while preserving running shells.
 
