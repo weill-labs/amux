@@ -335,6 +335,27 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 		sess.broadcastLayout()
 		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: fmt.Sprintf("Restored %s\n", pane.Meta.Name)})
 
+	case "toggle-minimize":
+		sess.mu.Lock()
+		w := sess.ActiveWindow()
+		if w == nil {
+			sess.mu.Unlock()
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "no active window"})
+			return
+		}
+		name, wasMinimized, err := w.ToggleMinimize()
+		sess.mu.Unlock()
+		if err != nil {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: err.Error()})
+			return
+		}
+		sess.broadcastLayout()
+		verb := "Restored"
+		if wasMinimized {
+			verb = "Minimized"
+		}
+		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: fmt.Sprintf("%s %s\n", verb, name)})
+
 	case "kill":
 		sess.mu.Lock()
 		pane := cc.resolvePane(sess, "kill", msg.CmdArgs)

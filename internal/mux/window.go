@@ -21,6 +21,7 @@ type Window struct {
 	Width        int
 	Height       int
 	ZoomedPaneID uint32 // non-zero when a pane is zoomed to full window
+	minimizeSeq  uint64 // monotonic counter for LIFO minimize ordering
 }
 
 // NewWindow creates a window with a single pane.
@@ -659,6 +660,8 @@ func (w *Window) Minimize(paneID uint32) error {
 
 	cell.Pane.Meta.Minimized = true
 	cell.Pane.Meta.RestoreH = cell.H
+	w.minimizeSeq++
+	cell.Pane.Meta.MinimizedSeq = w.minimizeSeq
 
 	cell.H = StatusLineRows + 1
 	cell.Pane.Resize(cell.W, 1)
@@ -772,8 +775,60 @@ func (w *Window) Restore(paneID uint32) error {
 	cell.H = savedH
 	cell.Pane.Meta.Minimized = false
 	cell.Pane.Meta.RestoreH = 0
+	cell.Pane.Meta.MinimizedSeq = 0
 	cell.Pane.Resize(cell.W, PaneContentHeight(cell.H))
 
 	w.Root.FixOffsets()
 	return nil
+}
+
+// ToggleMinimize minimizes the active pane if no panes are minimized,
+// or restores the most recently minimized pane (LIFO order).
+// Returns the affected pane's name and whether it was minimized (true) or restored (false).
+func (w *Window) ToggleMinimize() (name string, minimized bool, err error) {
+	// Find the most recently minimized pane (highest MinimizedSeq).
+	var best *Pane
+	w.Root.Walk(func(c *LayoutCell) {
+		if c.Pane != nil && c.Pane.Meta.Minimized {
+			if best == nil || c.Pane.Meta.MinimizedSeq > best.Meta.MinimizedSeq {
+				best = c.Pane
+			}
+		}
+	})
+
+	if best != nil {
+		err = w.Restore(best.ID)
+		return best.Meta.Name, false, err
+	}
+
+	if w.ActivePane == nil {
+		return "", false, fmt.Errorf("no active pane")
+	}
+
+	// Guard: refuse to minimize the last non-minimized pane.
+	nonMinimized := 0
+	w.Root.Walk(func(c *LayoutCell) {
+		if c.Pane != nil && !c.Pane.Meta.Minimized {
+			nonMinimized++
+		}
+	})
+	if nonMinimized <= 1 {
+		return "", false, fmt.Errorf("cannot minimize the only visible pane")
+	}
+
+	name = w.ActivePane.Meta.Name
+	err = w.Minimize(w.ActivePane.ID)
+	return name, true, err
+}
+
+// recoverMinimizeSeq recomputes minimizeSeq from existing pane MinimizedSeq
+// values after a checkpoint restore or hot-reload.
+func (w *Window) recoverMinimizeSeq() {
+	var maxSeq uint64
+	w.Root.Walk(func(c *LayoutCell) {
+		if c.Pane != nil && c.Pane.Meta.MinimizedSeq > maxSeq {
+			maxSeq = c.Pane.Meta.MinimizedSeq
+		}
+	})
+	w.minimizeSeq = maxSeq
 }
