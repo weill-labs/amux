@@ -6,6 +6,7 @@ package render
 type PaneData interface {
 	RenderScreen() string
 	CursorPos() (col, row int)
+	CursorHidden() bool
 	ID() uint32
 	Name() string
 	Host() string

@@ -222,11 +222,15 @@ type clientPaneData struct {
 }
 
 func (c *clientPaneData) RenderScreen() string {
-	return mux.RenderWithCursor(c.emu)
+	return c.emu.Render()
 }
 
 func (c *clientPaneData) CursorPos() (col, row int) {
 	return c.emu.CursorPosition()
+}
+
+func (c *clientPaneData) CursorHidden() bool {
+	return c.emu.CursorHidden()
 }
 
 func (c *clientPaneData) ID() uint32      { return c.info.ID }

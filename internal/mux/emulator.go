@@ -3,6 +3,7 @@ package mux
 import (
 	"fmt"
 	"sync"
+	"sync/atomic"
 
 	"github.com/charmbracelet/x/vt"
 )
@@ -38,19 +39,28 @@ type TerminalEmulator interface {
 
 // vtEmulator wraps charmbracelet/x/vt.SafeEmulator.
 type vtEmulator struct {
-	emu *vt.SafeEmulator
-	w   int
-	h   int
-	mu  sync.Mutex
+	emu          *vt.SafeEmulator
+	w            int
+	h            int
+	mu           sync.Mutex
+	cursorHidden atomic.Bool
 }
 
 // NewVTEmulator creates a new terminal emulator with the given dimensions.
 func NewVTEmulator(width, height int) TerminalEmulator {
-	return &vtEmulator{
+	v := &vtEmulator{
 		emu: vt.NewSafeEmulator(width, height),
 		w:   width,
 		h:   height,
 	}
+	// Track cursor visibility changes so CursorHidden() reflects the
+	// application's actual cursor state (e.g. \033[?25l / \033[?25h).
+	v.emu.SetCallbacks(vt.Callbacks{
+		CursorVisibility: func(visible bool) {
+			v.cursorHidden.Store(!visible)
+		},
+	})
+	return v
 }
 
 func (v *vtEmulator) Write(data []byte) (int, error) {
@@ -85,9 +95,7 @@ func (v *vtEmulator) CursorPosition() (col, row int) {
 }
 
 func (v *vtEmulator) CursorHidden() bool {
-	// SafeEmulator doesn't expose cursor hidden state directly.
-	// Default to visible. Phase 2 can access screen-level cursor state.
-	return false
+	return v.cursorHidden.Load()
 }
 
 // NewVTEmulatorWithDrain creates a terminal emulator that automatically
