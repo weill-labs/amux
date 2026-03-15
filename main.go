@@ -173,6 +173,8 @@ Inside an amux session:
   Ctrl-a {                          Swap active pane with previous
   Ctrl-a o                          Cycle focus to next pane
   Ctrl-a h/j/k/l                    Focus left/down/up/right
+  Ctrl-a arrow keys                  Focus in arrow direction
+  Alt+h/j/k/l                        Focus left/down/up/right (no prefix)
   Ctrl-a [                          Enter copy/scroll mode
   Ctrl-a r                          Hot reload (re-exec binary)
   Ctrl-a d                          Detach from session
