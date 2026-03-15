@@ -90,7 +90,7 @@ jobs:
 
       - name: Upload unit coverage to Codecov
         if: always() && steps.changes.outputs.code_changed == 'true'
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v5.5.2
         with:
           files: unit-coverage.txt
           flags: unit
@@ -99,7 +99,7 @@ jobs:
 
       - name: Upload integration coverage to Codecov
         if: always() && steps.changes.outputs.code_changed == 'true'
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v5.5.2
         with:
           files: integration-coverage.txt
           flags: integration
