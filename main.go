@@ -12,6 +12,9 @@ import (
 	"time"
 
 	"github.com/weill-labs/amux/internal/checkpoint"
+	"github.com/weill-labs/amux/internal/copymode"
+	"github.com/weill-labs/amux/internal/mouse"
+	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/render"
 	"github.com/weill-labs/amux/internal/server"
 
@@ -74,12 +77,34 @@ func main() {
 		runServerCommand("status", nil)
 	case "capture":
 		runServerCommand("capture", args[1:])
+	case "copy-mode":
+		if len(args) < 2 {
+			fmt.Fprintf(os.Stderr, "usage: amux copy-mode <pane>\n")
+			os.Exit(1)
+		}
+		runServerCommand("copy-mode", []string{args[1]})
+	case "zoom":
+		runServerCommand("zoom", args[1:])
+	case "swap":
+		if len(args) < 3 {
+			fmt.Fprintf(os.Stderr, "usage: amux swap <pane1> <pane2>\n")
+			os.Exit(1)
+		}
+		runServerCommand("swap", []string{args[1], args[2]})
+	case "rotate":
+		runServerCommand("rotate", args[1:])
 	case "minimize", "restore", "kill", "focus":
 		if len(args) < 2 {
 			fmt.Fprintf(os.Stderr, "usage: amux %s <pane>\n", args[0])
 			os.Exit(1)
 		}
 		runServerCommand(args[0], []string{args[1]})
+	case "send-keys":
+		if len(args) < 3 {
+			fmt.Fprintf(os.Stderr, "usage: amux send-keys <pane> <keys>...\n")
+			os.Exit(1)
+		}
+		runServerCommand("send-keys", args[1:])
 	case "spawn":
 		runServerCommand("spawn", args[1:])
 	case "new-window":
@@ -142,11 +167,18 @@ Usage:
   amux [-s session] capture            Capture full composited screen
   amux [-s session] capture <pane>     Capture a single pane's output
   amux [-s session] capture --ansi     Capture with ANSI escape codes
+  amux [-s session] send-keys <pane> <keys>...
+                                       Send keystrokes to a pane
   amux [-s session] spawn --name NAME  Spawn a new agent pane
+  amux [-s session] zoom [pane]        Toggle zoom (maximize) a pane
+  amux [-s session] swap <p1> <p2>     Swap two panes by name or ID
+  amux [-s session] rotate             Rotate pane positions forward
+  amux [-s session] rotate --reverse   Rotate pane positions backward
   amux [-s session] minimize <pane>    Minimize a pane
   amux [-s session] restore <pane>     Restore a minimized pane
   amux [-s session] kill <pane>        Kill a pane
   amux [-s session] focus <pane>       Focus a pane by name or ID
+  amux [-s session] copy-mode <pane>   Enter copy/scroll mode for a pane
   amux [-s session] new-window         Create a new window
   amux [-s session] list-windows       List all windows
   amux [-s session] select-window <n>  Switch to window by index or name
@@ -162,8 +194,12 @@ Inside an amux session:
   Ctrl-a -                           Split active pane top/bottom
   Ctrl-a |                           Root-level split left/right
   Ctrl-a _                           Root-level split top/bottom
+  Ctrl-a z                           Toggle zoom on active pane
+  Ctrl-a }                           Swap active pane with next
+  Ctrl-a {                           Swap active pane with previous
   Ctrl-a o                           Cycle focus to next pane
   Ctrl-a h/j/k/l                     Focus left/down/up/right
+  Ctrl-a [                           Enter copy/scroll mode
   Ctrl-a c                           Create new window
   Ctrl-a n                           Next window
   Ctrl-a p                           Previous window
@@ -284,7 +320,9 @@ func runMux(sessionName string) error {
 		return fmt.Errorf("raw mode: %w", err)
 	}
 	os.Stdout.Write([]byte(render.AltScreenEnter))
+	os.Stdout.Write([]byte(render.MouseEnable))
 	defer func() {
+		os.Stdout.Write([]byte(render.MouseDisable))
 		os.Stdout.Write([]byte(render.AltScreenExit))
 		os.Stdout.Write([]byte(render.ResetTitle))
 		term.Restore(fd, oldState)
@@ -335,11 +373,15 @@ func runMux(sessionName string) error {
 				msgCh <- &renderMsg{typ: renderMsgLayout, layout: msg.Layout}
 			case server.MsgTypePaneOutput:
 				msgCh <- &renderMsg{typ: renderMsgPaneOutput, paneID: msg.PaneID, data: msg.PaneData}
+			case server.MsgTypeCopyMode:
+				msgCh <- &renderMsg{typ: renderMsgCopyMode, paneID: msg.PaneID}
 			case server.MsgTypeExit:
 				msgCh <- &renderMsg{typ: renderMsgExit}
 				return
 			case server.MsgTypeBell:
 				msgCh <- &renderMsg{typ: renderMsgBell}
+			case server.MsgTypeClipboard:
+				msgCh <- &renderMsg{typ: renderMsgClipboard, data: msg.PaneData}
 			case server.MsgTypeServerReload:
 				// Server is reloading — re-exec ourselves to reconnect
 				select {
@@ -359,10 +401,100 @@ func runMux(sessionName string) error {
 		})
 	}()
 
-	// Terminal → server: read input with Ctrl-a prefix handling
+	// Terminal → server: read input with mouse parsing + Ctrl-a prefix handling
 	go func() {
 		buf := make([]byte, 4096)
 		prefix := false
+		mouseParser := &mouse.Parser{}
+
+		// Mouse drag state — caches border direction from initial press
+		var drag dragState
+
+		// processKeyByte handles a single non-mouse byte through the
+		// Ctrl-a prefix system. Returns true if the goroutine should exit.
+		processKeyByte := func(b byte, forward *[]byte) bool {
+			if prefix {
+				prefix = false
+				switch b {
+				case 'd':
+					if len(*forward) > 0 {
+						server.WriteMsg(conn, &server.Message{
+							Type: server.MsgTypeInput, Input: *forward,
+						})
+					}
+					server.WriteMsg(conn, &server.Message{Type: server.MsgTypeDetach})
+					conn.Close()
+					return true
+				case '-':
+					sendCommand(conn, "split", []string{"v"})
+				case '\\':
+					sendCommand(conn, "split", nil)
+				case '|':
+					sendCommand(conn, "split", []string{"root"})
+				case '_':
+					sendCommand(conn, "split", []string{"root", "v"})
+				case '}':
+					sendCommand(conn, "swap", []string{"forward"})
+				case '{':
+					sendCommand(conn, "swap", []string{"backward"})
+				case 'o':
+					sendCommand(conn, "focus", []string{"next"})
+				case 'h':
+					sendCommand(conn, "focus", []string{"left"})
+				case 'l':
+					sendCommand(conn, "focus", []string{"right"})
+				case 'k':
+					sendCommand(conn, "focus", []string{"up"})
+				case 'j':
+					sendCommand(conn, "focus", []string{"down"})
+				case 'z':
+					sendCommand(conn, "zoom", nil)
+				case '[':
+					cr.EnterCopyMode(cr.ActivePaneID())
+					if data := cr.Render(); data != nil {
+						os.Stdout.Write(data)
+					}
+				case 'c':
+					sendCommand(conn, "new-window", nil)
+				case 'n':
+					sendCommand(conn, "next-window", nil)
+				case 'p':
+					sendCommand(conn, "prev-window", nil)
+				case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
+					sendCommand(conn, "select-window", []string{string(b)})
+				case 'r':
+					if len(*forward) > 0 {
+						server.WriteMsg(conn, &server.Message{
+							Type: server.MsgTypeInput, Input: *forward,
+						})
+						*forward = nil
+					}
+					select {
+					case triggerReload <- struct{}{}:
+					default:
+					}
+				case 0x01:
+					*forward = append(*forward, 0x01)
+				default:
+					*forward = append(*forward, 0x01, b)
+				}
+				return false
+			}
+
+			if b == 0x01 {
+				if len(*forward) > 0 {
+					server.WriteMsg(conn, &server.Message{
+						Type: server.MsgTypeInput, Input: *forward,
+					})
+					*forward = nil
+				}
+				prefix = true
+				return false
+			}
+
+			*forward = append(*forward, b)
+			return false
+		}
 
 		for {
 			n, err := os.Stdin.Read(buf)
@@ -370,96 +502,56 @@ func runMux(sessionName string) error {
 				return
 			}
 
-			var forward []byte
-			for i := 0; i < n; i++ {
-				if prefix {
-					prefix = false
-					switch buf[i] {
-					case 'd':
-						// Detach
-						if len(forward) > 0 {
-							server.WriteMsg(conn, &server.Message{
-								Type: server.MsgTypeInput, Input: forward,
-							})
-						}
-						server.WriteMsg(conn, &server.Message{Type: server.MsgTypeDetach})
-						conn.Close()
-						return
-					case '-':
-						// Ctrl-a - → horizontal split (top/bottom)
-						sendCommand(conn, "split", []string{"v"})
-					case '\\':
-						// Ctrl-a \ → vertical split (left/right)
-						sendCommand(conn, "split", nil)
-					case '|':
-						// Ctrl-a | → root-level vertical split
-						sendCommand(conn, "split", []string{"root"})
-					case '_':
-						// Ctrl-a _ → root-level horizontal split
-						sendCommand(conn, "split", []string{"root", "v"})
-					case 'o':
-						// Ctrl-a o → cycle to next pane
-						sendCommand(conn, "focus", []string{"next"})
-					case 'h':
-						// Ctrl-a h → focus left
-						sendCommand(conn, "focus", []string{"left"})
-					case 'l':
-						// Ctrl-a l → focus right
-						sendCommand(conn, "focus", []string{"right"})
-					case 'k':
-						// Ctrl-a k → focus up
-						sendCommand(conn, "focus", []string{"up"})
-					case 'j':
-						// Ctrl-a j → focus down
-						sendCommand(conn, "focus", []string{"down"})
-					case 'c':
-						// Ctrl-a c → new window
-						sendCommand(conn, "new-window", nil)
-					case 'n':
-						// Ctrl-a n → next window
-						sendCommand(conn, "next-window", nil)
-					case 'p':
-						// Ctrl-a p → previous window
-						sendCommand(conn, "prev-window", nil)
-					case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
-						// Ctrl-a 0-9 → select window by number
-						sendCommand(conn, "select-window", []string{string(buf[i])})
-					case 'r':
-						// Ctrl-a r → hot reload (re-exec binary)
-						if len(forward) > 0 {
-							server.WriteMsg(conn, &server.Message{
-								Type: server.MsgTypeInput, Input: forward,
-							})
-							forward = nil
-						}
-						select {
-						case triggerReload <- struct{}{}:
-						default:
-						}
-						continue
-					case 0x01:
-						// Ctrl-a Ctrl-a → literal Ctrl-a
-						forward = append(forward, 0x01)
-					default:
-						// Not a recognized command, forward prefix + byte
-						forward = append(forward, 0x01, buf[i])
-					}
+			// If the active pane is in copy mode, route input there
+			if cm := cr.ActiveCopyMode(); cm != nil {
+				action := cm.HandleInput(buf[:n])
+				paneID := cr.ActivePaneID()
+				switch action {
+				case copymode.ActionNone:
 					continue
+				case copymode.ActionExit:
+					cr.ExitCopyMode(paneID)
+				case copymode.ActionYank:
+					if text := cm.SelectedText(); text != "" {
+						copyToClipboard(text)
+					}
+					cr.ExitCopyMode(paneID)
 				}
+				if data := cr.Render(); data != nil {
+					os.Stdout.Write(data)
+				}
+				continue
+			}
 
-				if buf[i] == 0x01 {
-					// Flush accumulated bytes before entering prefix mode
+			var forward []byte
+			shouldExit := false
+
+			for i := 0; i < n && !shouldExit; i++ {
+				ev, isMouse, flushed := mouseParser.Feed(buf[i])
+
+				if isMouse {
+					// Flush any accumulated forward bytes before handling mouse
 					if len(forward) > 0 {
 						server.WriteMsg(conn, &server.Message{
 							Type: server.MsgTypeInput, Input: forward,
 						})
 						forward = nil
 					}
-					prefix = true
+					handleMouseEvent(ev, cr, conn, &drag)
 					continue
 				}
 
-				forward = append(forward, buf[i])
+				// Process flushed bytes (normal input that passed through parser)
+				for _, fb := range flushed {
+					if processKeyByte(fb, &forward) {
+						shouldExit = true
+						break
+					}
+				}
+			}
+
+			if shouldExit {
+				return
 			}
 
 			if len(forward) > 0 {
@@ -483,6 +575,22 @@ func runMux(sessionName string) error {
 	}
 }
 
+// copyToClipboard copies text to the system clipboard.
+func copyToClipboard(text string) {
+	// Try pbcopy (macOS), then xclip (Linux), then xsel (Linux)
+	for _, cmd := range [][]string{
+		{"pbcopy"},
+		{"xclip", "-selection", "clipboard"},
+		{"xsel", "--clipboard", "--input"},
+	} {
+		c := exec.Command(cmd[0], cmd[1:]...)
+		c.Stdin = strings.NewReader(text)
+		if c.Run() == nil {
+			return
+		}
+	}
+}
+
 // sendCommand sends a command to the server (non-blocking, ignores response).
 func sendCommand(conn net.Conn, name string, args []string) {
 	server.WriteMsg(conn, &server.Message{
@@ -490,6 +598,80 @@ func sendCommand(conn net.Conn, name string, args []string) {
 		CmdName: name,
 		CmdArgs: args,
 	})
+}
+
+// handleMouseEvent dispatches a parsed mouse event to the appropriate action:
+// click-to-focus, border drag, or scroll wheel.
+func handleMouseEvent(ev mouse.Event, cr *ClientRenderer, conn net.Conn, drag *dragState) {
+	cr.mu.Lock()
+	layout := cr.layout
+	cr.mu.Unlock()
+
+	if layout == nil {
+		return
+	}
+
+	switch {
+	case ev.Action == mouse.Press && ev.Button == mouse.ButtonLeft:
+		// Check if clicking on a border (start drag) or a pane (focus)
+		if hit := layout.FindBorderAt(ev.X, ev.Y); hit != nil {
+			drag.active = true
+			drag.borderX = ev.X
+			drag.borderY = ev.Y
+			drag.borderDir = hit.Dir
+		} else if cell := layout.FindLeafAt(ev.X, ev.Y); cell != nil {
+			paneID := cell.CellPaneID()
+			cr.mu.Lock()
+			alreadyActive := paneID == cr.activePaneID
+			cr.mu.Unlock()
+			if !alreadyActive {
+				sendCommand(conn, "focus", []string{fmt.Sprintf("%d", paneID)})
+			}
+		}
+
+	case ev.Action == mouse.Motion && drag.active:
+		dx := ev.X - ev.LastX
+		dy := ev.Y - ev.LastY
+		delta := dx
+		if drag.borderDir == mux.SplitVertical {
+			delta = dy
+		}
+		if delta != 0 {
+			sendCommand(conn, "resize-border", []string{
+				fmt.Sprintf("%d", drag.borderX),
+				fmt.Sprintf("%d", drag.borderY),
+				fmt.Sprintf("%d", delta),
+			})
+			if drag.borderDir == mux.SplitHorizontal {
+				drag.borderX += dx
+			} else {
+				drag.borderY += dy
+			}
+		}
+
+	case ev.Action == mouse.Release:
+		drag.active = false
+
+	case ev.Button == mouse.ScrollUp:
+		// Scroll wheel sends arrow keys to the active pane
+		server.WriteMsg(conn, &server.Message{
+			Type: server.MsgTypeInput, Input: []byte("\033[A\033[A\033[A"),
+		})
+	case ev.Button == mouse.ScrollDown:
+		server.WriteMsg(conn, &server.Message{
+			Type: server.MsgTypeInput, Input: []byte("\033[B\033[B\033[B"),
+		})
+	}
+}
+
+// dragState tracks an in-progress border drag. The border direction is
+// cached from the initial press so motion events don't need to re-query
+// the layout (which may be stale during fast drags).
+type dragState struct {
+	active    bool
+	borderX   int
+	borderY   int
+	borderDir mux.SplitDir
 }
 
 // startServerDaemon launches the server as a background daemon.

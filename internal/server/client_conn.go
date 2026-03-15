@@ -5,6 +5,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -229,6 +230,45 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 				CmdOutput: fmt.Sprintf("Spawned %s in pane %d\n", meta.Name, pane.ID)})
 		}
 
+	case "zoom":
+		sess.mu.Lock()
+		w := sess.ActiveWindow()
+		if w == nil {
+			sess.mu.Unlock()
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "no session"})
+			return
+		}
+		// Resolve target pane: explicit arg or active pane
+		var pane *mux.Pane
+		if len(msg.CmdArgs) > 0 {
+			pane = w.ResolvePane(msg.CmdArgs[0])
+			if pane == nil {
+				sess.mu.Unlock()
+				cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("pane %q not found", msg.CmdArgs[0])})
+				return
+			}
+		} else {
+			pane = w.ActivePane
+		}
+		if pane == nil {
+			sess.mu.Unlock()
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "no active pane"})
+			return
+		}
+		willUnzoom := w.ZoomedPaneID == pane.ID
+		err := w.Zoom(pane.ID)
+		sess.mu.Unlock()
+		if err != nil {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: err.Error()})
+			return
+		}
+		sess.broadcastLayout()
+		verb := "Zoomed"
+		if willUnzoom {
+			verb = "Unzoomed"
+		}
+		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: fmt.Sprintf("%s %s\n", verb, pane.Meta.Name)})
+
 	case "minimize":
 		sess.mu.Lock()
 		pane := cc.resolvePane(sess, "minimize", msg.CmdArgs)
@@ -315,6 +355,25 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 		sess.broadcastLayout()
 		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: fmt.Sprintf("Killed %s\n", paneName)})
 
+	case "send-keys":
+		if len(msg.CmdArgs) < 2 {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "usage: send-keys <pane> <keys>..."})
+			return
+		}
+		sess.mu.Lock()
+		pane := cc.resolvePane(sess, "send-keys", msg.CmdArgs[:1])
+		if pane == nil {
+			sess.mu.Unlock()
+			return
+		}
+		var data []byte
+		for _, key := range msg.CmdArgs[1:] {
+			data = append(data, parseKey(key)...)
+		}
+		pane.Write(data)
+		sess.mu.Unlock()
+		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: fmt.Sprintf("Sent %d bytes to %s\n", len(data), pane.Meta.Name)})
+
 	case "status":
 		sess.mu.Lock()
 		total := len(sess.Panes)
@@ -324,12 +383,24 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 				minimized++
 			}
 		}
+		zoomed := ""
+		w := sess.ActiveWindow()
+		if w != nil && w.ZoomedPaneID != 0 {
+			for _, p := range sess.Panes {
+				if p.ID == w.ZoomedPaneID {
+					zoomed = p.Meta.Name
+					break
+				}
+			}
+		}
 		windowCount := len(sess.Windows)
 		sess.mu.Unlock()
 		active := total - minimized
-		cc.Send(&Message{Type: MsgTypeCmdResult,
-			CmdOutput: fmt.Sprintf("windows: %d, panes: %d total, %d active, %d minimized\n",
-				windowCount, total, active, minimized)})
+		statusLine := fmt.Sprintf("windows: %d, panes: %d total, %d active, %d minimized", windowCount, total, active, minimized)
+		if zoomed != "" {
+			statusLine += fmt.Sprintf(", %s zoomed", zoomed)
+		}
+		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: statusLine + "\n"})
 
 	case "new-window":
 		var name string
@@ -409,6 +480,101 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 		sess.mu.Unlock()
 		sess.broadcastLayout()
 		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: fmt.Sprintf("Renamed window to %s\n", msg.CmdArgs[0])})
+
+	case "resize-border":
+		if len(msg.CmdArgs) < 3 {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "usage: resize-border <x> <y> <delta>"})
+			return
+		}
+		x, err1 := strconv.Atoi(msg.CmdArgs[0])
+		y, err2 := strconv.Atoi(msg.CmdArgs[1])
+		delta, err3 := strconv.Atoi(msg.CmdArgs[2])
+		if err1 != nil || err2 != nil || err3 != nil {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "resize-border: invalid arguments"})
+			return
+		}
+		sess.mu.Lock()
+		w := sess.ActiveWindow()
+		if w != nil {
+			w.ResizeBorder(x, y, delta)
+		}
+		sess.mu.Unlock()
+		sess.broadcastLayout()
+
+	case "swap":
+		sess.mu.Lock()
+		w := sess.ActiveWindow()
+		if w == nil {
+			sess.mu.Unlock()
+			return
+		}
+
+		var err error
+		switch {
+		case len(msg.CmdArgs) == 1 && msg.CmdArgs[0] == "forward":
+			err = w.SwapPaneForward()
+		case len(msg.CmdArgs) == 1 && msg.CmdArgs[0] == "backward":
+			err = w.SwapPaneBackward()
+		case len(msg.CmdArgs) == 2:
+			pane1 := w.ResolvePane(msg.CmdArgs[0])
+			if pane1 == nil {
+				sess.mu.Unlock()
+				cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("pane %q not found", msg.CmdArgs[0])})
+				return
+			}
+			pane2 := w.ResolvePane(msg.CmdArgs[1])
+			if pane2 == nil {
+				sess.mu.Unlock()
+				cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("pane %q not found", msg.CmdArgs[1])})
+				return
+			}
+			err = w.SwapPanes(pane1.ID, pane2.ID)
+		default:
+			sess.mu.Unlock()
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "usage: swap <pane1> <pane2> | swap forward | swap backward"})
+			return
+		}
+		sess.mu.Unlock()
+
+		if err != nil {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: err.Error()})
+			return
+		}
+		sess.broadcastLayout()
+		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: "Swapped\n"})
+
+	case "rotate":
+		sess.mu.Lock()
+		w := sess.ActiveWindow()
+		if w == nil {
+			sess.mu.Unlock()
+			return
+		}
+
+		forward := true
+		for _, arg := range msg.CmdArgs {
+			if arg == "--reverse" {
+				forward = false
+			}
+		}
+
+		w.RotatePanes(forward)
+		sess.mu.Unlock()
+
+		sess.broadcastLayout()
+		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: "Rotated\n"})
+
+	case "copy-mode":
+		sess.mu.Lock()
+		pane := cc.resolvePane(sess, "copy-mode", msg.CmdArgs)
+		if pane == nil {
+			sess.mu.Unlock()
+			return
+		}
+		paneID := pane.ID
+		sess.mu.Unlock()
+		sess.broadcast(&Message{Type: MsgTypeCopyMode, PaneID: paneID})
+		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: fmt.Sprintf("Copy mode entered for %s\n", pane.Meta.Name)})
 
 	case "reload-server":
 		execPath, err := os.Executable()
@@ -574,6 +740,49 @@ func (cc *ClientConn) resolvePaneAcrossWindows(sess *Session, cmdName string, re
 	}
 	cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("pane %q not found", ref)})
 	return nil
+}
+
+// parseKey converts a key name to its byte representation.
+// Supports special key names (Enter, Tab, C-x, Escape, etc.)
+// and literal text (sent as-is).
+func parseKey(key string) []byte {
+	// Check special key names (case-sensitive, matching tmux conventions)
+	if b, ok := specialKeys[key]; ok {
+		return b
+	}
+
+	// C-x / C-X → Ctrl+letter (ASCII control code)
+	if len(key) == 3 && (key[0] == 'C' || key[0] == 'c') && key[1] == '-' {
+		ch := key[2]
+		if ch >= 'a' && ch <= 'z' {
+			return []byte{ch - 'a' + 1}
+		}
+		if ch >= 'A' && ch <= 'Z' {
+			return []byte{ch - 'A' + 1}
+		}
+	}
+
+	// Literal text
+	return []byte(key)
+}
+
+// specialKeys maps tmux-compatible key names to byte sequences.
+var specialKeys = map[string][]byte{
+	"Enter":    {'\r'},
+	"Tab":      {'\t'},
+	"Escape":   {0x1b},
+	"Space":    {' '},
+	"BSpace":   {0x7f},
+	"Up":       {0x1b, '[', 'A'},
+	"Down":     {0x1b, '[', 'B'},
+	"Right":    {0x1b, '[', 'C'},
+	"Left":     {0x1b, '[', 'D'},
+	"Home":     {0x1b, '[', 'H'},
+	"End":      {0x1b, '[', 'F'},
+	"PageUp":   {0x1b, '[', '5', '~'},
+	"PageDown": {0x1b, '[', '6', '~'},
+	"Delete":   {0x1b, '[', '3', '~'},
+	"Insert":   {0x1b, '[', '2', '~'},
 }
 
 func dirName(d mux.SplitDir) string {

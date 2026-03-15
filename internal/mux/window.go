@@ -14,12 +14,13 @@ const DefaultRestoreHeight = 12
 
 // Window holds the layout tree and active pane for one window.
 type Window struct {
-	ID         uint32
-	Name       string
-	Root       *LayoutCell
-	ActivePane *Pane
-	Width      int
-	Height     int
+	ID           uint32
+	Name         string
+	Root         *LayoutCell
+	ActivePane   *Pane
+	Width        int
+	Height       int
+	ZoomedPaneID uint32 // non-zero when a pane is zoomed to full window
 }
 
 // NewWindow creates a window with a single pane.
@@ -36,7 +37,11 @@ func NewWindow(pane *Pane, width, height int) *Window {
 // SplitRoot splits the entire window at the root level.
 // If the root already has the same split direction, the new pane is added
 // as a sibling (equal distribution). Otherwise, wraps the root in a new parent.
+// Auto-unzooms if a pane is zoomed.
 func (w *Window) SplitRoot(dir SplitDir, newPane *Pane) (*Pane, error) {
+	if w.ZoomedPaneID != 0 {
+		w.Unzoom()
+	}
 	newLeaf := NewLeaf(newPane, 0, 0, 0, 0)
 
 	if !w.Root.IsLeaf() && w.Root.Dir == dir {
@@ -98,7 +103,11 @@ func (w *Window) SplitRoot(dir SplitDir, newPane *Pane) (*Pane, error) {
 
 // Split splits the active pane in the given direction, creating a new pane
 // via the provided factory function. Returns the new pane.
+// Auto-unzooms if a pane is zoomed.
 func (w *Window) Split(dir SplitDir, newPane *Pane) (*Pane, error) {
+	if w.ZoomedPaneID != 0 {
+		w.Unzoom()
+	}
 	cell := w.Root.FindPane(w.ActivePane.ID)
 	if cell == nil {
 		return nil, fmt.Errorf("active pane %d not found in layout", w.ActivePane.ID)
@@ -124,6 +133,7 @@ func (w *Window) Split(dir SplitDir, newPane *Pane) (*Pane, error) {
 }
 
 // ClosePane removes a pane from the layout and reclaims its space.
+// If the closed pane was zoomed, zoom is automatically cleared.
 func (w *Window) ClosePane(paneID uint32) error {
 	cell := w.Root.FindPane(paneID)
 	if cell == nil {
@@ -135,6 +145,11 @@ func (w *Window) ClosePane(paneID uint32) error {
 	w.Root.Walk(func(_ *LayoutCell) { count++ })
 	if count <= 1 {
 		return fmt.Errorf("cannot close last pane")
+	}
+
+	// Auto-unzoom if closing the zoomed pane
+	if w.ZoomedPaneID == paneID {
+		w.ZoomedPaneID = 0
 	}
 
 	result := cell.Close()
@@ -179,10 +194,22 @@ func (w *Window) Resize(width, height int) {
 	w.Root.ResizeAll(width, height)
 
 	w.resizePTYs()
+
+	// If a pane is zoomed, its PTY should match the full window, not its cell
+	if w.ZoomedPaneID != 0 {
+		cell := w.Root.FindPane(w.ZoomedPaneID)
+		if cell != nil && cell.Pane != nil {
+			cell.Pane.Resize(width, PaneContentHeight(height))
+		}
+	}
 }
 
 // Focus changes the active pane. Direction is "next", "left", "right", "up", "down".
+// Auto-unzooms if a pane is zoomed.
 func (w *Window) Focus(direction string) {
+	if w.ZoomedPaneID != 0 {
+		w.Unzoom()
+	}
 	panes := w.Panes()
 	if len(panes) <= 1 {
 		return
@@ -329,6 +356,52 @@ func PaneContentHeight(cellH int) int {
 	return h
 }
 
+// ResizeBorder moves a border at position (x, y) by delta cells.
+// For vertical borders (horizontal split), delta is applied horizontally.
+// For horizontal borders (vertical split), delta is applied vertically.
+// Returns true if a resize was performed.
+func (w *Window) ResizeBorder(x, y, delta int) bool {
+	hit := w.Root.FindBorderAt(x, y)
+	if hit == nil || delta == 0 {
+		return false
+	}
+
+	var leftSize, rightSize *int
+	if hit.Dir == SplitHorizontal {
+		leftSize = &hit.Left.W
+		rightSize = &hit.Right.W
+	} else {
+		leftSize = &hit.Left.H
+		rightSize = &hit.Right.H
+	}
+
+	// Clamp delta so neither side goes below PaneMinSize
+	if delta > 0 && *rightSize-delta < PaneMinSize {
+		delta = *rightSize - PaneMinSize
+	}
+	if delta < 0 && *leftSize+delta < PaneMinSize {
+		delta = -(*leftSize - PaneMinSize)
+	}
+	if delta == 0 {
+		return false
+	}
+
+	*leftSize += delta
+	*rightSize -= delta
+
+	// Propagate size changes to subtrees
+	if !hit.Left.IsLeaf() {
+		hit.Left.ResizeAll(hit.Left.W, hit.Left.H)
+	}
+	if !hit.Right.IsLeaf() {
+		hit.Right.ResizeAll(hit.Right.W, hit.Right.H)
+	}
+
+	w.Root.FixOffsets()
+	w.resizePTYs()
+	return true
+}
+
 // resizePTYs resizes all pane PTYs to match their layout cell dimensions.
 func (w *Window) resizePTYs() {
 	w.Root.Walk(func(c *LayoutCell) {
@@ -364,8 +437,109 @@ func (w *Window) ResolvePane(ref string) *Pane {
 	return nil
 }
 
+// SwapPanes exchanges the Pane pointers of two layout cells and resizes PTYs
+// to match their new cell dimensions.
+// Both the Pane struct and its Meta travel together (swap-with-meta semantics).
+func (w *Window) SwapPanes(id1, id2 uint32) error {
+	if id1 == id2 {
+		return nil
+	}
+	cell1 := w.Root.FindPane(id1)
+	if cell1 == nil {
+		return fmt.Errorf("pane %d not found", id1)
+	}
+	cell2 := w.Root.FindPane(id2)
+	if cell2 == nil {
+		return fmt.Errorf("pane %d not found", id2)
+	}
+	cell1.Pane, cell2.Pane = cell2.Pane, cell1.Pane
+	w.resizePTYs()
+	return nil
+}
+
+// SwapPaneForward swaps the active pane with the next pane in walk order.
+func (w *Window) SwapPaneForward() error {
+	cells := w.paneLeaves()
+	if len(cells) <= 1 {
+		return nil
+	}
+	idx := w.activeCellIndex(cells)
+	if idx < 0 {
+		return fmt.Errorf("active pane not found in layout")
+	}
+	next := (idx + 1) % len(cells)
+	return w.SwapPanes(cells[idx].Pane.ID, cells[next].Pane.ID)
+}
+
+// SwapPaneBackward swaps the active pane with the previous pane in walk order.
+func (w *Window) SwapPaneBackward() error {
+	cells := w.paneLeaves()
+	if len(cells) <= 1 {
+		return nil
+	}
+	idx := w.activeCellIndex(cells)
+	if idx < 0 {
+		return fmt.Errorf("active pane not found in layout")
+	}
+	prev := (idx - 1 + len(cells)) % len(cells)
+	return w.SwapPanes(cells[idx].Pane.ID, cells[prev].Pane.ID)
+}
+
+// RotatePanes cycles all pane positions and resizes PTYs to match.
+// If forward is true, panes advance one position in walk order: each cell
+// gets the pane from the previous cell, with the last pane wrapping to the
+// first cell.
+func (w *Window) RotatePanes(forward bool) {
+	cells := w.paneLeaves()
+	if len(cells) <= 1 {
+		return
+	}
+	if forward {
+		last := cells[len(cells)-1].Pane
+		for i := len(cells) - 1; i > 0; i-- {
+			cells[i].Pane = cells[i-1].Pane
+		}
+		cells[0].Pane = last
+	} else {
+		first := cells[0].Pane
+		for i := 0; i < len(cells)-1; i++ {
+			cells[i].Pane = cells[i+1].Pane
+		}
+		cells[len(cells)-1].Pane = first
+	}
+	w.resizePTYs()
+}
+
+// paneLeaves returns all non-minimized leaf cells containing panes
+// (depth-first order). Minimized panes are excluded because their cell
+// height doesn't match normal panes — swapping would produce inconsistent state.
+func (w *Window) paneLeaves() []*LayoutCell {
+	var cells []*LayoutCell
+	w.Root.Walk(func(c *LayoutCell) {
+		if c.Pane != nil && !c.Pane.Meta.Minimized {
+			cells = append(cells, c)
+		}
+	})
+	return cells
+}
+
+// activeCellIndex returns the index of the active pane's cell in the given
+// leaf cell slice, or -1 if not found.
+func (w *Window) activeCellIndex(cells []*LayoutCell) int {
+	for i, c := range cells {
+		if c.Pane.ID == w.ActivePane.ID {
+			return i
+		}
+	}
+	return -1
+}
+
 // Minimize shrinks a pane's layout cell to StatusLineRows + 1 (just status + 1 row).
+// Auto-unzooms if a pane is zoomed.
 func (w *Window) Minimize(paneID uint32) error {
+	if w.ZoomedPaneID != 0 {
+		w.Unzoom()
+	}
 	cell := w.Root.FindPane(paneID)
 	if cell == nil {
 		return fmt.Errorf("pane %d not found", paneID)
@@ -400,6 +574,57 @@ func (w *Window) Minimize(paneID uint32) error {
 	}
 
 	w.Root.FixOffsets()
+	return nil
+}
+
+// Zoom toggles a pane to fill the entire window. The layout tree is kept
+// intact; the ZoomedPaneID field tells the client to render only this pane.
+// The zoomed pane's PTY is resized to the full window dimensions.
+func (w *Window) Zoom(paneID uint32) error {
+	if w.ZoomedPaneID == paneID {
+		return w.Unzoom()
+	}
+	if w.ZoomedPaneID != 0 {
+		w.Unzoom()
+	}
+
+	cell := w.Root.FindPane(paneID)
+	if cell == nil {
+		return fmt.Errorf("pane %d not found", paneID)
+	}
+
+	// Cannot zoom if only one pane
+	count := 0
+	w.Root.Walk(func(_ *LayoutCell) { count++ })
+	if count <= 1 {
+		return fmt.Errorf("cannot zoom with only one pane")
+	}
+
+	w.ZoomedPaneID = paneID
+	w.ActivePane = cell.Pane
+
+	// Resize zoomed pane PTY to full window
+	cell.Pane.Resize(w.Width, PaneContentHeight(w.Height))
+
+	return nil
+}
+
+// Unzoom restores the normal multi-pane view. The zoomed pane's PTY is
+// resized back to match its layout cell.
+func (w *Window) Unzoom() error {
+	if w.ZoomedPaneID == 0 {
+		return fmt.Errorf("no pane is zoomed")
+	}
+
+	paneID := w.ZoomedPaneID
+	w.ZoomedPaneID = 0
+
+	// Resize the previously-zoomed pane back to its cell size
+	cell := w.Root.FindPane(paneID)
+	if cell != nil && cell.Pane != nil {
+		cell.Pane.Resize(cell.W, PaneContentHeight(cell.H))
+	}
+
 	return nil
 }
 

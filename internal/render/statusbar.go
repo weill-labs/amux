@@ -42,6 +42,13 @@ func renderPaneStatus(buf *strings.Builder, cell *mux.LayoutCell, isActive bool,
 	buf.WriteString(fmt.Sprintf("[%s]", pd.Name()))
 	buf.WriteString(NoBold)
 
+	// Copy mode indicator
+	if pd.InCopyMode() {
+		buf.WriteString(" ")
+		buf.WriteString(YellowFg)
+		buf.WriteString("[copy]")
+	}
+
 	// Host (only if not mux.DefaultHost)
 	if pd.Host() != "" && pd.Host() != mux.DefaultHost {
 		buf.WriteString(GreenFg)
@@ -57,6 +64,9 @@ func renderPaneStatus(buf *strings.Builder, cell *mux.LayoutCell, isActive bool,
 	// Fill remaining width with spaces
 	// Calculate how many chars we've written (rough estimate)
 	usedWidth := 2 + len(pd.Name()) + 2 // "● [name]"
+	if pd.InCopyMode() {
+		usedWidth += 7 // " [copy]"
+	}
 	if pd.Host() != "" && pd.Host() != mux.DefaultHost {
 		usedWidth += 2 + len(pd.Host())
 	}

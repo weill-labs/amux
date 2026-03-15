@@ -2,9 +2,11 @@ package test
 
 import (
 	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -19,6 +21,10 @@ func TestMain(m *testing.M) {
 		fmt.Println("SKIP: tmux not found")
 		os.Exit(0)
 	}
+
+	// Clean up orphaned test sessions from previous runs that may have
+	// been killed by a timeout panic (t.Cleanup doesn't run on panic).
+	cleanupStaleTestSessions()
 
 	// Build amux binary for testing
 	tmp, err := os.MkdirTemp("", "amux-test-*")
@@ -35,7 +41,53 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 
-	os.Exit(m.Run())
+	code := m.Run()
+	cleanupStaleTestSessions()
+	os.Exit(code)
+}
+
+// cleanupStaleTestSessions removes orphaned tmux sessions, amux server
+// processes, sockets, and log files left behind by previous test runs
+// that were killed by a timeout panic.
+//
+// Not safe if multiple `go test` invocations run concurrently — it may
+// kill sessions belonging to the other run.
+func cleanupStaleTestSessions() {
+	// Kill tmux sessions matching the test naming convention (t- + 8 hex chars)
+	out, _ := exec.Command("tmux", "list-sessions", "-F", "#{session_name}").Output()
+	for _, name := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if isTestSession(name) {
+			exec.Command("tmux", "kill-session", "-t", name).Run()
+		}
+	}
+
+	// Kill orphaned amux server processes, validating session name
+	out, _ = exec.Command("pgrep", "-fl", "amux _server t-").Output()
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 3 && isTestSession(fields[len(fields)-1]) {
+			exec.Command("kill", fields[0]).Run()
+		}
+	}
+
+	// Clean up stale sockets and log files
+	socketDir := fmt.Sprintf("/tmp/amux-%d", os.Getuid())
+	entries, _ := os.ReadDir(socketDir)
+	for _, e := range entries {
+		name := e.Name()
+		if isTestSession(name) || (strings.HasSuffix(name, ".log") && isTestSession(strings.TrimSuffix(name, ".log"))) {
+			os.Remove(filepath.Join(socketDir, name))
+		}
+	}
+}
+
+// isTestSession returns true if the name matches the test session convention: t- followed by 8 hex chars.
+func isTestSession(name string) bool {
+	if len(name) != 10 || name[:2] != "t-" {
+		return false
+	}
+	_, err := hex.DecodeString(name[2:])
+	return err == nil
 }
 
 // ---------------------------------------------------------------------------
@@ -93,7 +145,7 @@ func (h *TmuxHarness) cleanup() {
 	}
 
 	// Clean up socket
-	exec.Command("rm", "-f", fmt.Sprintf("/tmp/amux-%d/%s", os.Getuid(), h.session)).Run()
+	os.Remove(filepath.Join(fmt.Sprintf("/tmp/amux-%d", os.Getuid()), h.session))
 }
 
 // sendKeys sends keystrokes to the tmux session.
@@ -153,10 +205,7 @@ func (h *TmuxHarness) assertScreen(msg string, fn func(string) bool) {
 func (h *TmuxHarness) runCmd(args ...string) string {
 	h.t.Helper()
 	cmdArgs := append([]string{"-s", h.session}, args...)
-	out, err := exec.Command(amuxBin, cmdArgs...).CombinedOutput()
-	if err != nil {
-		return string(out)
-	}
+	out, _ := exec.Command(amuxBin, cmdArgs...).CombinedOutput()
 	return string(out)
 }
 
@@ -191,6 +240,165 @@ func (h *TmuxHarness) captureAmuxContentLines() []string {
 func (h *TmuxHarness) captureAmuxVerticalBorderCol() int {
 	h.t.Helper()
 	return findVerticalBorderCol(h.captureAmuxContentLines())
+}
+
+// sendMouseSGR sends a raw SGR mouse escape sequence to the tmux pane.
+// button: 0=left, 1=middle, 2=right, 64=scroll-up, 65=scroll-down
+// x, y: 1-based terminal coordinates
+// press: true for press (M), false for release (m)
+func (h *TmuxHarness) sendMouseSGR(button, x, y int, press bool) {
+	h.t.Helper()
+	term := byte('M')
+	if !press {
+		term = byte('m')
+	}
+	// Build the SGR sequence: \033[<button;x;yM or \033[<button;x;ym
+	seq := fmt.Sprintf("\x1b[<%d;%d;%d%c", button, x, y, term)
+	// Convert to hex for tmux send-keys -H
+	var hexArgs []string
+	for _, b := range []byte(seq) {
+		hexArgs = append(hexArgs, fmt.Sprintf("%02x", b))
+	}
+	args := append([]string{"send-keys", "-t", h.session, "-H"}, hexArgs...)
+	if out, err := exec.Command("tmux", args...).CombinedOutput(); err != nil {
+		h.t.Fatalf("send-keys -H: %v\n%s", err, out)
+	}
+}
+
+// clickAt sends a left-click press at (x, y) using 1-based coordinates.
+func (h *TmuxHarness) clickAt(x, y int) {
+	h.t.Helper()
+	h.sendMouseSGR(0, x, y, true)
+	time.Sleep(50 * time.Millisecond)
+	h.sendMouseSGR(0, x, y, false)
+}
+
+// dragBorder sends a left-click press at (startX, startY), then a motion
+// event at (endX, endY), then release at (endX, endY).
+func (h *TmuxHarness) dragBorder(startX, startY, endX, endY int) {
+	h.t.Helper()
+	// Press
+	h.sendMouseSGR(0, startX, startY, true)
+	time.Sleep(50 * time.Millisecond)
+	// Motion (button 0 + 32 motion flag = 32)
+	h.sendMouseSGR(32, endX, endY, true)
+	time.Sleep(50 * time.Millisecond)
+	// Release
+	h.sendMouseSGR(0, endX, endY, false)
+}
+
+// scrollAt sends a scroll wheel event at (x, y). up=true for scroll up.
+func (h *TmuxHarness) scrollAt(x, y int, up bool) {
+	h.t.Helper()
+	btn := 65 // scroll down
+	if up {
+		btn = 64
+	}
+	h.sendMouseSGR(btn, x, y, true)
+}
+
+// ---------------------------------------------------------------------------
+// Shared ANSI / color helpers (used by border, hotreload, and mouse tests)
+// ---------------------------------------------------------------------------
+
+// captureANSI captures the tmux pane with ANSI escape sequences preserved.
+func (h *TmuxHarness) captureANSI() string {
+	h.t.Helper()
+	out, err := exec.Command("tmux", "capture-pane", "-t", h.session, "-p", "-e").Output()
+	if err != nil {
+		h.t.Fatalf("capture-pane -e: %v", err)
+	}
+	return string(out)
+}
+
+// isPaneActive returns true if the captured screen shows the named pane
+// with the active indicator (● [name]).
+func isPaneActive(screen, paneName string) bool {
+	target := "[" + paneName + "]"
+	for _, line := range strings.Split(screen, "\n") {
+		idx := strings.Index(line, target)
+		if idx < 0 {
+			continue
+		}
+		if strings.Contains(line[:idx], "●") {
+			return true
+		}
+	}
+	return false
+}
+
+// isPaneInactive returns true if the captured screen shows the named pane
+// with the inactive indicator (○ [name]).
+func isPaneInactive(screen, paneName string) bool {
+	target := "[" + paneName + "]"
+	for _, line := range strings.Split(screen, "\n") {
+		if strings.Contains(line, target) && strings.Contains(line, "○") {
+			return true
+		}
+	}
+	return false
+}
+
+// pickContentLine returns a middle content line from ANSI-escaped screen output,
+// skipping status lines and empty lines.
+func pickContentLine(screen string) string {
+	lines := strings.Split(screen, "\n")
+	for i := len(lines) / 2; i < len(lines); i++ {
+		if strings.Contains(lines[i], "│") && !strings.Contains(lines[i], "amux") {
+			return lines[i]
+		}
+	}
+	for _, line := range lines {
+		if strings.Contains(line, "│") && !strings.Contains(lines[0], "[pane-") {
+			return line
+		}
+	}
+	return ""
+}
+
+// extractBorderColors finds each │ in an ANSI-escaped line and returns
+// the most recent \033[...m escape sequence before each one.
+func extractBorderColors(line string) []string {
+	var colors []string
+	lastEscape := ""
+	i := 0
+	for i < len(line) {
+		if line[i] == '\033' && i+1 < len(line) && line[i+1] == '[' {
+			j := i + 2
+			for j < len(line) && line[j] != 'm' {
+				j++
+			}
+			if j < len(line) {
+				lastEscape = line[i : j+1]
+				i = j + 1
+				continue
+			}
+		}
+		if i+2 < len(line) && line[i] == '\xe2' && line[i+1] == '\x94' && line[i+2] == '\x82' {
+			colors = append(colors, lastEscape)
+			i += 3
+			continue
+		}
+		i++
+	}
+	return colors
+}
+
+// findHorizontalBorderRow returns the first row index containing a horizontal
+// border (>10 horizontal box-drawing chars), or -1 if not found.
+func findHorizontalBorderRow(lines []string) int {
+	for i, line := range lines {
+		count := 0
+		for _, r := range line {
+			if r == '─' || r == '┼' || r == '┬' || r == '┴' {
+				count++
+			}
+		}
+		if count > 10 {
+			return i
+		}
+	}
+	return -1
 }
 
 // ---------------------------------------------------------------------------

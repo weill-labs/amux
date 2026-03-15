@@ -8,6 +8,7 @@ package proto
 type LayoutSnapshot struct {
 	SessionName  string
 	ActivePaneID uint32
+	ZoomedPaneID uint32
 	Root         CellSnapshot
 	Panes        []PaneSnapshot
 	Width        int

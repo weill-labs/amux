@@ -20,6 +20,17 @@ const (
 	TextFg     = "\033[38;2;205;214;244m" // Text (#cdd6f4)
 	GreenFg    = "\033[38;2;166;227;161m" // Green (#a6e3a1)
 	BlueFg     = "\033[38;2;137;180;250m" // Blue (#89b4fa)
+	YellowFg   = "\033[38;2;249;226;175m" // Yellow (#f9e2af)
+)
+
+// Mouse tracking mode sequences.
+const (
+	// MouseEnable activates button-event tracking (press/release/drag)
+	// with SGR extended coordinates (no 223-column limit).
+	MouseEnable = "\033[?1002h\033[?1006h"
+
+	// MouseDisable turns off all mouse tracking modes.
+	MouseDisable = "\033[?1006l\033[?1002l"
 )
 
 // OSC (Operating System Command) sequences for terminal title.

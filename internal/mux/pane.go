@@ -43,6 +43,8 @@ type Pane struct {
 	drainStarted bool
 	onOutput     func(paneID uint32, data []byte)
 	onExit       func(paneID uint32)
+	onClipboard  func(paneID uint32, data []byte)
+	osc52Scanner OSC52Scanner
 }
 
 // NewPane creates a new pane running the user's shell but does NOT start
@@ -147,6 +149,12 @@ func (p *Pane) Start() {
 	go p.waitLoop()
 }
 
+// SetOnClipboard sets the callback invoked when OSC 52 clipboard sequences
+// are detected in pane output. Must be called before Start().
+func (p *Pane) SetOnClipboard(fn func(paneID uint32, data []byte)) {
+	p.onClipboard = fn
+}
+
 // readLoop reads PTY output, feeds the emulator, and notifies the callback.
 func (p *Pane) readLoop() {
 	buf := make([]byte, 32*1024)
@@ -155,6 +163,12 @@ func (p *Pane) readLoop() {
 		if n > 0 {
 			data := make([]byte, n)
 			copy(data, buf[:n])
+
+			if p.onClipboard != nil {
+				for _, seq := range p.osc52Scanner.Scan(data) {
+					p.onClipboard(p.ID, seq)
+				}
+			}
 
 			// Feed emulator for screen state tracking (enables reattach)
 			p.emulator.Write(data)
@@ -205,7 +219,12 @@ func (p *Pane) Write(data []byte) (int, error) {
 
 // Resize changes the PTY and emulator dimensions.
 func (p *Pane) Resize(cols, rows int) error {
-	p.emulator.Resize(cols, rows)
+	if p.emulator != nil {
+		p.emulator.Resize(cols, rows)
+	}
+	if p.ptmx == nil {
+		return nil
+	}
 	return pty.Setsize(p.ptmx, &pty.Winsize{
 		Cols: uint16(cols),
 		Rows: uint16(rows),
