@@ -2,7 +2,9 @@ package test
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -1470,6 +1472,41 @@ func TestServerReloadBorderColors(t *testing.T) {
 	// Border colors should match before and after reload
 	if colorsBefore[0] != colorsAfter[0] {
 		t.Errorf("border color changed after reload:\n  before: %s\n  after:  %s", colorsBefore[0], colorsAfter[0])
+	}
+}
+
+func TestServerReloadTUIRedraw(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// Write a small TUI script that enters alternate screen buffer,
+	// draws a marker, and redraws on SIGWINCH — simulates Claude Code, vim, etc.
+	scriptPath := filepath.Join(os.TempDir(), fmt.Sprintf("amux-tui-%s.sh", h.session))
+	os.WriteFile(scriptPath, []byte(`#!/bin/bash
+printf '\033[?1049h'
+draw() { printf '\033[2J\033[H'; echo TUIMARK_OK; }
+trap draw WINCH
+draw
+while true; do sleep 60; done
+`), 0755)
+	t.Cleanup(func() { os.Remove(scriptPath) })
+
+	// Run the TUI script in the pane
+	h.sendKeys(scriptPath, "Enter")
+	if !h.waitFor("TUIMARK_OK", 5*time.Second) {
+		screen := h.capture()
+		t.Fatalf("TUI script did not start\nScreen:\n%s", screen)
+	}
+
+	// Reload server
+	h.runCmd("reload-server")
+
+	// Wait for recovery + SIGWINCH-triggered redraw
+	// The server nudges PTY sizes after reload, triggering SIGWINCH
+	// which causes the TUI script to redraw cleanly
+	if !h.waitFor("TUIMARK_OK", 15*time.Second) {
+		screen := h.capture()
+		t.Fatalf("TUI marker should be visible after reload (SIGWINCH redraw)\nScreen:\n%s", screen)
 	}
 }
 
