@@ -28,7 +28,7 @@ func TestNewWindowKeybinding(t *testing.T) {
 
 	// Global bar should show 2 windows
 	bar := h.globalBar()
-	if !strings.Contains(bar, "1:window-") || !strings.Contains(bar, "2:window-") {
+	if !hasWindowTab(bar, 1) || !hasWindowTab(bar, 2) {
 		t.Errorf("global bar should show 2 windows, got: %q", bar)
 	}
 }
@@ -153,7 +153,7 @@ func TestWindowAutoCloseOnLastPane(t *testing.T) {
 	// Only one window should remain — with 1 window the bar shows session name,
 	// not window tabs, so window-2 should not appear.
 	bar := h.globalBar()
-	if strings.Contains(bar, "2:window-") {
+	if hasWindowTab(bar, 2) {
 		t.Errorf("window 2 should be gone from global bar, got: %q", bar)
 	}
 }
