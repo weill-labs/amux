@@ -78,6 +78,14 @@ func main() {
 		runServerCommand("capture", args[1:])
 	case "zoom":
 		runServerCommand("zoom", args[1:])
+	case "swap":
+		if len(args) < 3 {
+			fmt.Fprintf(os.Stderr, "usage: amux swap <pane1> <pane2>\n")
+			os.Exit(1)
+		}
+		runServerCommand("swap", []string{args[1], args[2]})
+	case "rotate":
+		runServerCommand("rotate", args[1:])
 	case "minimize", "restore", "kill", "focus":
 		if len(args) < 2 {
 			fmt.Fprintf(os.Stderr, "usage: amux %s <pane>\n", args[0])
@@ -128,6 +136,9 @@ Usage:
   amux [-s session] capture --ansi    Capture with ANSI escape codes
   amux [-s session] spawn --name NAME Spawn a new agent pane
   amux [-s session] zoom [pane]       Toggle zoom (maximize) a pane
+  amux [-s session] swap <p1> <p2>     Swap two panes by name or ID
+  amux [-s session] rotate            Rotate pane positions forward
+  amux [-s session] rotate --reverse  Rotate pane positions backward
   amux [-s session] minimize <pane>   Minimize a pane
   amux [-s session] restore <pane>    Restore a minimized pane
   amux [-s session] kill <pane>       Kill a pane
@@ -142,6 +153,8 @@ Inside an amux session:
   Ctrl-a |                          Root-level split left/right
   Ctrl-a _                          Root-level split top/bottom
   Ctrl-a z                          Toggle zoom on active pane
+  Ctrl-a }                          Swap active pane with next
+  Ctrl-a {                          Swap active pane with previous
   Ctrl-a o                          Cycle focus to next pane
   Ctrl-a h/j/k/l                    Focus left/down/up/right
   Ctrl-a r                          Hot reload (re-exec binary)
@@ -369,6 +382,10 @@ func runMux(sessionName string) error {
 					sendCommand(conn, "split", []string{"root"})
 				case '_':
 					sendCommand(conn, "split", []string{"root", "v"})
+				case '}':
+					sendCommand(conn, "swap", []string{"forward"})
+				case '{':
+					sendCommand(conn, "swap", []string{"backward"})
 				case 'o':
 					sendCommand(conn, "focus", []string{"next"})
 				case 'h':
