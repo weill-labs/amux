@@ -318,6 +318,9 @@ func (c *clientPaneData) CursorHidden() bool {
 }
 
 func (c *clientPaneData) HasCursorBlock() bool {
+	if c.cm != nil {
+		return false // copy mode renders its own reverse-video cursor
+	}
 	return c.emu.HasCursorBlock()
 }
 

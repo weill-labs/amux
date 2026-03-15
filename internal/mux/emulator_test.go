@@ -137,6 +137,37 @@ func TestRenderWithoutCursorBlock(t *testing.T) {
 	})
 }
 
+func TestHasCursorBlock(t *testing.T) {
+	t.Parallel()
+
+	t.Run("true for isolated reverse-video space", func(t *testing.T) {
+		t.Parallel()
+		emu := NewVTEmulator(40, 10)
+		emu.Write([]byte("hello \033[7m \033[m"))
+		if !emu.HasCursorBlock() {
+			t.Error("HasCursorBlock() = false, want true")
+		}
+	})
+
+	t.Run("false for adjacent reverse-video content", func(t *testing.T) {
+		t.Parallel()
+		emu := NewVTEmulator(40, 10)
+		emu.Write([]byte("\033[7mselected\033[m"))
+		if emu.HasCursorBlock() {
+			t.Error("HasCursorBlock() = true for multi-char reverse video, want false")
+		}
+	})
+
+	t.Run("false when no reverse video", func(t *testing.T) {
+		t.Parallel()
+		emu := NewVTEmulator(40, 10)
+		emu.Write([]byte("hello"))
+		if emu.HasCursorBlock() {
+			t.Error("HasCursorBlock() = true with no reverse video, want false")
+		}
+	})
+}
+
 func TestCursorHidden(t *testing.T) {
 	t.Parallel()
 
