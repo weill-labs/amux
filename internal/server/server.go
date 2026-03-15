@@ -8,6 +8,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"syscall"
+	"time"
 
 	"github.com/weill-labs/amux/internal/checkpoint"
 	"github.com/weill-labs/amux/internal/config"
@@ -458,6 +459,39 @@ func NewServerFromCheckpoint(cp *checkpoint.ServerCheckpoint) (*Server, error) {
 	for _, p := range sess.Panes {
 		p.Start()
 	}
+
+	// Force TUI apps (Claude Code, vim, etc.) to do a full screen redraw.
+	// Without this, incremental updates buffered during the reload window
+	// corrupt the display because they assume the pre-reload screen state.
+	// We resize each PTY (shrink then restore) to trigger SIGWINCH. The
+	// delay lets readLoops drain buffered PTY output first; the gap between
+	// resizes prevents SIGWINCH coalescing.
+	go func() {
+		time.Sleep(500 * time.Millisecond)
+		sess.mu.Lock()
+		defer sess.mu.Unlock()
+		if sess.Window == nil {
+			return
+		}
+		// First pass: shrink by 1 row
+		for _, p := range sess.Panes {
+			cell := sess.Window.Root.FindPane(p.ID)
+			if cell != nil {
+				p.Resize(cell.W, mux.PaneContentHeight(cell.H)-1)
+			}
+		}
+		// Let TUI apps process the first SIGWINCH
+		sess.mu.Unlock()
+		time.Sleep(200 * time.Millisecond)
+		sess.mu.Lock()
+		// Second pass: restore original size
+		for _, p := range sess.Panes {
+			cell := sess.Window.Root.FindPane(p.ID)
+			if cell != nil {
+				p.Resize(cell.W, mux.PaneContentHeight(cell.H))
+			}
+		}
+	}()
 
 	return s, nil
 }
