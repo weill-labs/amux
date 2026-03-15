@@ -116,3 +116,78 @@ func TestKill(t *testing.T) {
 		t.Errorf("list should not contain pane-2 after kill, got:\n%s", listOut)
 	}
 }
+
+func TestSendKeys(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// Send literal text + Enter to pane-1 via CLI
+	out := h.runCmd("send-keys", "pane-1", "echo SENDTEST", "Enter")
+	if strings.Contains(out, "error") || strings.Contains(out, "not found") {
+		t.Fatalf("send-keys failed: %s", out)
+	}
+
+	// Verify the command executed in the pane
+	if !h.waitFor("SENDTEST", 3*time.Second) {
+		t.Fatalf("send-keys text not visible in pane\nScreen:\n%s", h.capture())
+	}
+
+	// Verify via amux capture of the specific pane
+	paneOut := h.runCmd("capture", "pane-1")
+	if !strings.Contains(paneOut, "SENDTEST") {
+		t.Errorf("pane capture should contain SENDTEST, got:\n%s", paneOut)
+	}
+}
+
+func TestSendKeysSpecialKeys(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// Type partial text, then C-c to cancel, then a new command
+	h.runCmd("send-keys", "pane-1", "partial-text")
+	time.Sleep(200 * time.Millisecond)
+	h.runCmd("send-keys", "pane-1", "C-c")
+	time.Sleep(200 * time.Millisecond)
+	h.runCmd("send-keys", "pane-1", "echo AFTERCANCEL", "Enter")
+
+	if !h.waitFor("AFTERCANCEL", 3*time.Second) {
+		t.Fatalf("C-c + new command not visible\nScreen:\n%s", h.capture())
+	}
+}
+
+func TestSendKeysInvalidPane(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	out := h.runCmd("send-keys", "nonexistent", "hello")
+	if !strings.Contains(out, "not found") {
+		t.Errorf("expected 'not found' error for invalid pane, got: %s", out)
+	}
+}
+
+func TestSendKeysToSpecificPane(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// Create a second pane
+	h.sendKeys("C-a", "\\")
+	h.waitFor("[pane-2]", 3*time.Second)
+
+	// Send keys specifically to pane-2 (not the active pane)
+	h.runCmd("send-keys", "pane-2", "echo PANE2CMD", "Enter")
+
+	// Verify it appeared in pane-2's output
+	ok := h.waitForFunc(func(screen string) bool {
+		paneOut := h.runCmd("capture", "pane-2")
+		return strings.Contains(paneOut, "PANE2CMD")
+	}, 3*time.Second)
+	if !ok {
+		t.Fatalf("send-keys to pane-2 did not work\npane-2 output:\n%s", h.runCmd("capture", "pane-2"))
+	}
+
+	// Verify it did NOT appear in pane-1
+	pane1Out := h.runCmd("capture", "pane-1")
+	if strings.Contains(pane1Out, "PANE2CMD") {
+		t.Errorf("PANE2CMD should not appear in pane-1, got:\n%s", pane1Out)
+	}
+}
