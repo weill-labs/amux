@@ -193,6 +193,61 @@ func (h *TmuxHarness) captureAmuxVerticalBorderCol() int {
 	return findVerticalBorderCol(h.captureAmuxContentLines())
 }
 
+// sendMouseSGR sends a raw SGR mouse escape sequence to the tmux pane.
+// button: 0=left, 1=middle, 2=right, 64=scroll-up, 65=scroll-down
+// x, y: 1-based terminal coordinates
+// press: true for press (M), false for release (m)
+func (h *TmuxHarness) sendMouseSGR(button, x, y int, press bool) {
+	h.t.Helper()
+	term := byte('M')
+	if !press {
+		term = byte('m')
+	}
+	// Build the SGR sequence: \033[<button;x;yM or \033[<button;x;ym
+	seq := fmt.Sprintf("\x1b[<%d;%d;%d%c", button, x, y, term)
+	// Convert to hex for tmux send-keys -H
+	var hexArgs []string
+	for _, b := range []byte(seq) {
+		hexArgs = append(hexArgs, fmt.Sprintf("%02x", b))
+	}
+	args := append([]string{"send-keys", "-t", h.session, "-H"}, hexArgs...)
+	if out, err := exec.Command("tmux", args...).CombinedOutput(); err != nil {
+		h.t.Fatalf("send-keys -H: %v\n%s", err, out)
+	}
+}
+
+// clickAt sends a left-click press at (x, y) using 1-based coordinates.
+func (h *TmuxHarness) clickAt(x, y int) {
+	h.t.Helper()
+	h.sendMouseSGR(0, x, y, true)
+	time.Sleep(50 * time.Millisecond)
+	h.sendMouseSGR(0, x, y, false)
+}
+
+// dragBorder sends a left-click press at (startX, startY), then a motion
+// event at (endX, endY), then release at (endX, endY).
+func (h *TmuxHarness) dragBorder(startX, startY, endX, endY int) {
+	h.t.Helper()
+	// Press
+	h.sendMouseSGR(0, startX, startY, true)
+	time.Sleep(50 * time.Millisecond)
+	// Motion (button 0 + 32 motion flag = 32)
+	h.sendMouseSGR(32, endX, endY, true)
+	time.Sleep(50 * time.Millisecond)
+	// Release
+	h.sendMouseSGR(0, endX, endY, false)
+}
+
+// scrollAt sends a scroll wheel event at (x, y). up=true for scroll up.
+func (h *TmuxHarness) scrollAt(x, y int, up bool) {
+	h.t.Helper()
+	btn := 65 // scroll down
+	if up {
+		btn = 64
+	}
+	h.sendMouseSGR(btn, x, y, true)
+}
+
 // ---------------------------------------------------------------------------
 // Layout-aware screen helpers
 // ---------------------------------------------------------------------------

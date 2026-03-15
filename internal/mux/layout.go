@@ -370,6 +370,62 @@ func (c *LayoutCell) FindByPaneID(paneID uint32) *LayoutCell {
 	return found
 }
 
+// FindLeafAt returns the leaf cell containing (x, y), or nil if (x, y) is
+// on a border or outside all cells. Coordinates are 0-based.
+func (c *LayoutCell) FindLeafAt(x, y int) *LayoutCell {
+	if c.isLeaf {
+		if x >= c.X && x < c.X+c.W && y >= c.Y && y < c.Y+c.H {
+			return c
+		}
+		return nil
+	}
+	for _, child := range c.Children {
+		if leaf := child.FindLeafAt(x, y); leaf != nil {
+			return leaf
+		}
+	}
+	return nil
+}
+
+// BorderHit describes the two children on either side of a border.
+type BorderHit struct {
+	Left  *LayoutCell // child on the left/top side
+	Right *LayoutCell // child on the right/bottom side
+	Dir   SplitDir    // split direction of the parent
+}
+
+// FindBorderAt returns the two adjacent children and split direction for
+// a border at (x, y), or nil if (x, y) is not on a border.
+func (c *LayoutCell) FindBorderAt(x, y int) *BorderHit {
+	if c.isLeaf {
+		return nil
+	}
+	for i := 0; i < len(c.Children)-1; i++ {
+		left := c.Children[i]
+		right := c.Children[i+1]
+		if c.Dir == SplitHorizontal {
+			// Vertical border at x = left.X + left.W
+			borderX := left.X + left.W
+			if x == borderX && y >= c.Y && y < c.Y+c.H {
+				return &BorderHit{Left: left, Right: right, Dir: c.Dir}
+			}
+		} else {
+			// Horizontal border at y = left.Y + left.H
+			borderY := left.Y + left.H
+			if y == borderY && x >= c.X && x < c.X+c.W {
+				return &BorderHit{Left: left, Right: right, Dir: c.Dir}
+			}
+		}
+	}
+	// Search children recursively
+	for _, child := range c.Children {
+		if hit := child.FindBorderAt(x, y); hit != nil {
+			return hit
+		}
+	}
+	return nil
+}
+
 func (c *LayoutCell) indexInParent() int {
 	if c.Parent == nil {
 		return -1

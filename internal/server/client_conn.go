@@ -5,6 +5,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 
 	"github.com/weill-labs/amux/internal/mux"
@@ -282,6 +283,25 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 		active := total - minimized
 		cc.Send(&Message{Type: MsgTypeCmdResult,
 			CmdOutput: fmt.Sprintf("panes: %d total, %d active, %d minimized\n", total, active, minimized)})
+
+	case "resize-border":
+		// resize-border <x> <y> <delta>
+		if len(msg.CmdArgs) < 3 {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "usage: resize-border <x> <y> <delta>"})
+			return
+		}
+		x, err1 := strconv.Atoi(msg.CmdArgs[0])
+		y, err2 := strconv.Atoi(msg.CmdArgs[1])
+		delta, err3 := strconv.Atoi(msg.CmdArgs[2])
+		if err1 != nil || err2 != nil || err3 != nil {
+			return
+		}
+		sess.mu.Lock()
+		if sess.Window != nil {
+			sess.Window.ResizeBorder(x, y, delta)
+		}
+		sess.mu.Unlock()
+		sess.broadcastLayout()
 
 	case "reload-server":
 		execPath, err := os.Executable()

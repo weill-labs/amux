@@ -327,6 +327,67 @@ func PaneContentHeight(cellH int) int {
 	return h
 }
 
+// FocusPaneAt sets the active pane to the one containing (x, y).
+// Returns true if a pane was found and focused, false if (x, y) is on a
+// border or outside all panes.
+func (w *Window) FocusPaneAt(x, y int) bool {
+	cell := w.Root.FindLeafAt(x, y)
+	if cell == nil || cell.Pane == nil {
+		return false
+	}
+	if cell.Pane.ID == w.ActivePane.ID {
+		return false // already focused
+	}
+	w.ActivePane = cell.Pane
+	return true
+}
+
+// ResizeBorder moves a border at position (x, y) by delta cells.
+// For vertical borders (horizontal split), delta is applied horizontally.
+// For horizontal borders (vertical split), delta is applied vertically.
+// Returns true if a resize was performed.
+func (w *Window) ResizeBorder(x, y, delta int) bool {
+	hit := w.Root.FindBorderAt(x, y)
+	if hit == nil || delta == 0 {
+		return false
+	}
+
+	var leftSize, rightSize *int
+	if hit.Dir == SplitHorizontal {
+		leftSize = &hit.Left.W
+		rightSize = &hit.Right.W
+	} else {
+		leftSize = &hit.Left.H
+		rightSize = &hit.Right.H
+	}
+
+	// Clamp delta so neither side goes below PaneMinSize
+	if delta > 0 && *rightSize-delta < PaneMinSize {
+		delta = *rightSize - PaneMinSize
+	}
+	if delta < 0 && *leftSize+delta < PaneMinSize {
+		delta = -(*leftSize - PaneMinSize)
+	}
+	if delta == 0 {
+		return false
+	}
+
+	*leftSize += delta
+	*rightSize -= delta
+
+	// Propagate size changes to subtrees
+	if !hit.Left.IsLeaf() {
+		hit.Left.ResizeAll(hit.Left.W, hit.Left.H)
+	}
+	if !hit.Right.IsLeaf() {
+		hit.Right.ResizeAll(hit.Right.W, hit.Right.H)
+	}
+
+	w.Root.FixOffsets()
+	w.resizePTYs()
+	return true
+}
+
 // resizePTYs resizes all pane PTYs to match their layout cell dimensions.
 func (w *Window) resizePTYs() {
 	w.Root.Walk(func(c *LayoutCell) {

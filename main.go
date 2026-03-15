@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/weill-labs/amux/internal/checkpoint"
+	"github.com/weill-labs/amux/internal/mouse"
 	"github.com/weill-labs/amux/internal/render"
 	"github.com/weill-labs/amux/internal/server"
 
@@ -254,7 +255,9 @@ func runMux(sessionName string) error {
 		return fmt.Errorf("raw mode: %w", err)
 	}
 	os.Stdout.Write([]byte(render.AltScreenEnter))
+	os.Stdout.Write([]byte(render.MouseEnable))
 	defer func() {
+		os.Stdout.Write([]byte(render.MouseDisable))
 		os.Stdout.Write([]byte(render.AltScreenExit))
 		os.Stdout.Write([]byte(render.ResetTitle))
 		term.Restore(fd, oldState)
@@ -329,10 +332,82 @@ func runMux(sessionName string) error {
 		})
 	}()
 
-	// Terminal → server: read input with Ctrl-a prefix handling
+	// Terminal → server: read input with mouse parsing + Ctrl-a prefix handling
 	go func() {
 		buf := make([]byte, 4096)
 		prefix := false
+		mouseParser := &mouse.Parser{}
+
+		// Mouse drag state (follows tmux's callback pattern)
+		var dragBorderX, dragBorderY int
+		dragging := false
+
+		// processKeyByte handles a single non-mouse byte through the
+		// Ctrl-a prefix system. Returns true if the goroutine should exit.
+		processKeyByte := func(b byte, forward *[]byte) bool {
+			if prefix {
+				prefix = false
+				switch b {
+				case 'd':
+					if len(*forward) > 0 {
+						server.WriteMsg(conn, &server.Message{
+							Type: server.MsgTypeInput, Input: *forward,
+						})
+					}
+					server.WriteMsg(conn, &server.Message{Type: server.MsgTypeDetach})
+					conn.Close()
+					return true
+				case '-':
+					sendCommand(conn, "split", []string{"v"})
+				case '\\':
+					sendCommand(conn, "split", nil)
+				case '|':
+					sendCommand(conn, "split", []string{"root"})
+				case '_':
+					sendCommand(conn, "split", []string{"root", "v"})
+				case 'o':
+					sendCommand(conn, "focus", []string{"next"})
+				case 'h':
+					sendCommand(conn, "focus", []string{"left"})
+				case 'l':
+					sendCommand(conn, "focus", []string{"right"})
+				case 'k':
+					sendCommand(conn, "focus", []string{"up"})
+				case 'j':
+					sendCommand(conn, "focus", []string{"down"})
+				case 'r':
+					if len(*forward) > 0 {
+						server.WriteMsg(conn, &server.Message{
+							Type: server.MsgTypeInput, Input: *forward,
+						})
+						*forward = nil
+					}
+					select {
+					case triggerReload <- struct{}{}:
+					default:
+					}
+				case 0x01:
+					*forward = append(*forward, 0x01)
+				default:
+					*forward = append(*forward, 0x01, b)
+				}
+				return false
+			}
+
+			if b == 0x01 {
+				if len(*forward) > 0 {
+					server.WriteMsg(conn, &server.Message{
+						Type: server.MsgTypeInput, Input: *forward,
+					})
+					*forward = nil
+				}
+				prefix = true
+				return false
+			}
+
+			*forward = append(*forward, b)
+			return false
+		}
 
 		for {
 			n, err := os.Stdin.Read(buf)
@@ -341,83 +416,34 @@ func runMux(sessionName string) error {
 			}
 
 			var forward []byte
-			for i := 0; i < n; i++ {
-				if prefix {
-					prefix = false
-					switch buf[i] {
-					case 'd':
-						// Detach
-						if len(forward) > 0 {
-							server.WriteMsg(conn, &server.Message{
-								Type: server.MsgTypeInput, Input: forward,
-							})
-						}
-						server.WriteMsg(conn, &server.Message{Type: server.MsgTypeDetach})
-						conn.Close()
-						return
-					case '-':
-						// Ctrl-a - → horizontal split (top/bottom)
-						sendCommand(conn, "split", []string{"v"})
-					case '\\':
-						// Ctrl-a \ → vertical split (left/right)
-						sendCommand(conn, "split", nil)
-					case '|':
-						// Ctrl-a | → root-level vertical split
-						sendCommand(conn, "split", []string{"root"})
-					case '_':
-						// Ctrl-a _ → root-level horizontal split
-						sendCommand(conn, "split", []string{"root", "v"})
-					case 'o':
-						// Ctrl-a o → cycle to next pane
-						sendCommand(conn, "focus", []string{"next"})
-					case 'h':
-						// Ctrl-a h → focus left
-						sendCommand(conn, "focus", []string{"left"})
-					case 'l':
-						// Ctrl-a l → focus right
-						sendCommand(conn, "focus", []string{"right"})
-					case 'k':
-						// Ctrl-a k → focus up
-						sendCommand(conn, "focus", []string{"up"})
-					case 'j':
-						// Ctrl-a j → focus down
-						sendCommand(conn, "focus", []string{"down"})
-					case 'r':
-						// Ctrl-a r → hot reload (re-exec binary)
-						if len(forward) > 0 {
-							server.WriteMsg(conn, &server.Message{
-								Type: server.MsgTypeInput, Input: forward,
-							})
-							forward = nil
-						}
-						select {
-						case triggerReload <- struct{}{}:
-						default:
-						}
-						continue
-					case 0x01:
-						// Ctrl-a Ctrl-a → literal Ctrl-a
-						forward = append(forward, 0x01)
-					default:
-						// Not a recognized command, forward prefix + byte
-						forward = append(forward, 0x01, buf[i])
-					}
-					continue
-				}
+			shouldExit := false
 
-				if buf[i] == 0x01 {
-					// Flush accumulated bytes before entering prefix mode
+			for i := 0; i < n && !shouldExit; i++ {
+				ev, isMouse, flushed := mouseParser.Feed(buf[i])
+
+				if isMouse {
+					// Flush any accumulated forward bytes before handling mouse
 					if len(forward) > 0 {
 						server.WriteMsg(conn, &server.Message{
 							Type: server.MsgTypeInput, Input: forward,
 						})
 						forward = nil
 					}
-					prefix = true
+					handleMouseEvent(ev, cr, conn, &dragging, &dragBorderX, &dragBorderY)
 					continue
 				}
 
-				forward = append(forward, buf[i])
+				// Process flushed bytes (normal input that passed through parser)
+				for _, fb := range flushed {
+					if processKeyByte(fb, &forward) {
+						shouldExit = true
+						break
+					}
+				}
+			}
+
+			if shouldExit {
+				return
 			}
 
 			if len(forward) > 0 {
@@ -448,6 +474,79 @@ func sendCommand(conn net.Conn, name string, args []string) {
 		CmdName: name,
 		CmdArgs: args,
 	})
+}
+
+// handleMouseEvent dispatches a parsed mouse event to the appropriate action:
+// click-to-focus, border drag, or scroll wheel.
+func handleMouseEvent(ev mouse.Event, cr *ClientRenderer, conn net.Conn, dragging *bool, dragBorderX, dragBorderY *int) {
+	cr.mu.Lock()
+	layout := cr.layout
+	cr.mu.Unlock()
+
+	if layout == nil {
+		return
+	}
+
+	switch {
+	case ev.Action == mouse.Press && ev.Button == mouse.ButtonLeft:
+		// Check if clicking on a border (start drag) or a pane (focus)
+		if hit := layout.FindBorderAt(ev.X, ev.Y); hit != nil {
+			*dragging = true
+			*dragBorderX = ev.X
+			*dragBorderY = ev.Y
+		} else if cell := layout.FindLeafAt(ev.X, ev.Y); cell != nil {
+			paneID := cell.CellPaneID()
+			cr.mu.Lock()
+			alreadyActive := paneID == cr.activePaneID
+			cr.mu.Unlock()
+			if !alreadyActive {
+				sendCommand(conn, "focus", []string{fmt.Sprintf("%d", paneID)})
+			}
+		}
+
+	case ev.Action == mouse.Motion && *dragging:
+		// Compute delta from the drag origin
+		dx := ev.X - ev.LastX
+		dy := ev.Y - ev.LastY
+		delta := dx
+		// Check border direction to determine which axis matters
+		if hit := layout.FindBorderAt(*dragBorderX, *dragBorderY); hit != nil {
+			if hit.Dir == 1 { // SplitVertical — horizontal border, drag vertically
+				delta = dy
+			}
+		}
+		if delta != 0 {
+			sendCommand(conn, "resize-border", []string{
+				fmt.Sprintf("%d", *dragBorderX),
+				fmt.Sprintf("%d", *dragBorderY),
+				fmt.Sprintf("%d", delta),
+			})
+			// Update drag origin to track cumulative movement
+			if hit := layout.FindBorderAt(*dragBorderX, *dragBorderY); hit != nil {
+				if hit.Dir == 0 { // SplitHorizontal
+					*dragBorderX += dx
+				} else {
+					*dragBorderY += dy
+				}
+			}
+		}
+
+	case ev.Action == mouse.Release:
+		*dragging = false
+
+	case ev.Button == mouse.ScrollUp || ev.Button == mouse.ScrollDown:
+		// Forward scroll wheel to the pane under the cursor.
+		// Convert to up/down arrow key sequences.
+		var seq []byte
+		if ev.Button == mouse.ScrollUp {
+			seq = []byte("\033[A\033[A\033[A") // 3x up arrow
+		} else {
+			seq = []byte("\033[B\033[B\033[B") // 3x down arrow
+		}
+		server.WriteMsg(conn, &server.Message{
+			Type: server.MsgTypeInput, Input: seq,
+		})
+	}
 }
 
 // startServerDaemon launches the server as a background daemon.

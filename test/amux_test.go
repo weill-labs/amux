@@ -1558,3 +1558,163 @@ func TestCaptureWithSplit(t *testing.T) {
 		t.Errorf("amux capture should contain both pane names, got:\n%s", out)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Mouse support tests
+// ---------------------------------------------------------------------------
+
+func TestMouseClickFocus(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// Create a vertical split (left | right)
+	h.sendKeys("C-a", "\\")
+	h.waitFor("[pane-2]", 3*time.Second)
+
+	// pane-2 should be active (focus goes to new pane after split)
+	h.waitForFunc(func(s string) bool {
+		return isActivePaneLine(s, "pane-2")
+	}, 3*time.Second)
+
+	// Find the approximate center of pane-1 (left half of 80-col terminal)
+	// pane-1 occupies roughly columns 1-39, pane-2 occupies columns 41-80
+	// Click at column 10, row 5 (1-based) — well inside pane-1
+	h.clickAt(10, 5)
+
+	// pane-1 should now be active
+	if !h.waitForFunc(func(s string) bool {
+		return isActivePaneLine(s, "pane-1")
+	}, 3*time.Second) {
+		t.Errorf("after clicking left pane, pane-1 should be active.\nScreen:\n%s", h.capture())
+	}
+
+	// Click on pane-2 (column 60, row 5) to switch back
+	h.clickAt(60, 5)
+
+	if !h.waitForFunc(func(s string) bool {
+		return isActivePaneLine(s, "pane-2")
+	}, 3*time.Second) {
+		t.Errorf("after clicking right pane, pane-2 should be active.\nScreen:\n%s", h.capture())
+	}
+}
+
+func TestMouseClickFocusHorizontalSplit(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// Create a horizontal split (top / bottom)
+	h.sendKeys("C-a", "-")
+	h.waitFor("[pane-2]", 3*time.Second)
+
+	// pane-2 should be active (bottom pane, after split)
+	h.waitForFunc(func(s string) bool {
+		return isActivePaneLine(s, "pane-2")
+	}, 3*time.Second)
+
+	// Click at top of screen (row 3) — inside pane-1
+	h.clickAt(40, 3)
+
+	if !h.waitForFunc(func(s string) bool {
+		return isActivePaneLine(s, "pane-1")
+	}, 3*time.Second) {
+		t.Errorf("after clicking top pane, pane-1 should be active.\nScreen:\n%s", h.capture())
+	}
+}
+
+func TestMouseBorderDrag(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// Create vertical split
+	h.sendKeys("C-a", "\\")
+	h.waitFor("[pane-2]", 3*time.Second)
+	time.Sleep(200 * time.Millisecond)
+
+	// Find the border column via capture
+	borderCol := h.captureAmuxVerticalBorderCol()
+	if borderCol < 0 {
+		t.Fatalf("no vertical border found.\nScreen:\n%s", h.captureAmux())
+	}
+
+	// Capture pane-1 name column position before drag
+	linesBefore := h.captureAmuxContentLines()
+	col1Before := paneNameCol(linesBefore, "pane-1")
+
+	// Drag the border 5 columns to the right
+	// Border is at borderCol (0-based in amux), need 1-based for SGR
+	dragDelta := 5
+	h.dragBorder(borderCol+1, 10, borderCol+1+dragDelta, 10)
+	time.Sleep(300 * time.Millisecond)
+
+	// The border should have moved — pane-1 status line should still be visible
+	// and pane-1 width should be larger (name column stays at same position)
+	newBorderCol := h.captureAmuxVerticalBorderCol()
+	if newBorderCol < 0 {
+		t.Fatalf("no vertical border found after drag.\nScreen:\n%s", h.captureAmux())
+	}
+
+	// Border should have moved to the right
+	if newBorderCol <= borderCol {
+		// Allow some tolerance — at minimum it shouldn't go backwards
+		linesAfter := h.captureAmuxContentLines()
+		col1After := paneNameCol(linesAfter, "pane-1")
+		_ = col1Before
+		_ = col1After
+		t.Errorf("border should have moved right: was at %d, now at %d.\nScreen:\n%s",
+			borderCol, newBorderCol, h.captureAmux())
+	}
+}
+
+func TestMouseScrollWheel(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// Generate enough output to have scrollback
+	for i := 0; i < 30; i++ {
+		h.sendKeys(fmt.Sprintf("echo line-%d", i), "Enter")
+		time.Sleep(30 * time.Millisecond)
+	}
+	h.waitFor("line-29", 3*time.Second)
+
+	// Verify line-29 is visible
+	screen := h.capture()
+	if !strings.Contains(screen, "line-29") {
+		t.Fatalf("expected line-29 visible before scroll.\nScreen:\n%s", screen)
+	}
+
+	// Scroll up at center of the single pane (40, 12)
+	// Note: scroll wheel support requires the application in the pane to handle
+	// mouse events, or amux to convert scroll to up/down arrow keys.
+	// For now, we just verify the scroll event doesn't crash amux.
+	h.scrollAt(40, 12, true)
+	h.scrollAt(40, 12, true)
+	h.scrollAt(40, 12, true)
+	time.Sleep(200 * time.Millisecond)
+
+	// amux should still be responsive
+	if !h.waitFor("[pane-", 3*time.Second) {
+		t.Errorf("amux should still be running after scroll.\nScreen:\n%s", h.capture())
+	}
+}
+
+// isActivePaneLine returns true if the captured screen shows the named pane
+// with the active indicator (● [name]).
+func isActivePaneLine(screen, paneName string) bool {
+	// In the raw tmux capture, the bullet character may render differently.
+	// Check that the pane name appears and is the active one by verifying
+	// the screen contains the active indicator pattern.
+	// The amux capture (server-side) is more reliable for this.
+	target := "[" + paneName + "]"
+	for _, line := range strings.Split(screen, "\n") {
+		idx := strings.Index(line, target)
+		if idx < 0 {
+			continue
+		}
+		// Check for active indicator (●) before the name on the same line
+		prefix := line[:idx]
+		if strings.Contains(prefix, "●") {
+			return true
+		}
+	}
+	return false
+}
