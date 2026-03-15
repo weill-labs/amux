@@ -882,6 +882,11 @@ func parseKey(key string) []byte {
 		}
 	}
 
+	// M-x / M-X → Alt+key (ESC prefix)
+	if len(key) == 3 && (key[0] == 'M' || key[0] == 'm') && key[1] == '-' {
+		return []byte{0x1b, key[2]}
+	}
+
 	// Literal text
 	return []byte(key)
 }
