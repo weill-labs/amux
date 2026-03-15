@@ -14,7 +14,7 @@ type fakePaneData struct {
 	screen string
 }
 
-func (f *fakePaneData) RenderScreen() string    { return f.screen }
+func (f *fakePaneData) RenderScreen(bool) string { return f.screen }
 func (f *fakePaneData) CursorPos() (int, int)   { return 0, 0 }
 func (f *fakePaneData) CursorHidden() bool      { return true }
 func (f *fakePaneData) ID() uint32              { return f.id }
@@ -24,6 +24,7 @@ func (f *fakePaneData) Task() string            { return "" }
 func (f *fakePaneData) Color() string           { return "f5e0dc" }
 func (f *fakePaneData) Minimized() bool         { return false }
 func (f *fakePaneData) InCopyMode() bool        { return false }
+func (f *fakePaneData) HasCursorBlock() bool    { return false }
 
 func TestBlitPaneClipsToWidth(t *testing.T) {
 	t.Parallel()

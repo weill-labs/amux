@@ -67,6 +67,36 @@ func TestCapturePaneANSI(t *testing.T) {
 	}
 }
 
+func TestCursorBlockOnlyInActivePane(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// Split so we have two panes with shell prompts
+	h.sendKeys("C-a", "\\")
+	h.waitFor("[pane-2]", 3*time.Second)
+
+	// Focus pane-2 (active) — capture ANSI and count reverse-video blocks
+	h.runCmd("focus", "pane-2")
+	time.Sleep(300 * time.Millisecond)
+	ansi := h.runCmd("capture", "--ansi")
+
+	revCount := strings.Count(ansi, "\033[7m")
+
+	// At most 1 reverse-video block (the active pane's cursor).
+	// Without the cursor fix, inactive panes would also show cursor blocks.
+	if revCount > 1 {
+		t.Errorf("expected at most 1 reverse-video cursor block, got %d — inactive panes are leaking cursors", revCount)
+	}
+
+	// Terminal cursor should either be hidden (app manages cursor)
+	// or visible (shell cursor) — but never both a reverse-video block
+	// AND a visible terminal cursor at a different position.
+	hasShow := strings.Contains(ansi, "\033[?25h")
+	if revCount == 1 && hasShow {
+		t.Errorf("active pane has both a reverse-video cursor block and a visible terminal cursor — expected only one")
+	}
+}
+
 func TestCaptureWithSplit(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
