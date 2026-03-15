@@ -116,7 +116,7 @@ func (c *Compositor) RenderFull(root *mux.LayoutCell, activePaneID uint32, looku
 	if activePaneID != 0 {
 		if cell := root.FindByPaneID(activePaneID); cell != nil {
 			if pd := lookup(activePaneID); pd != nil {
-				if pd.Minimized() || pd.CursorHidden() || pd.HasCursorBlock() {
+				if pd.CursorHidden() || pd.HasCursorBlock() {
 					showCursor = false
 				} else {
 					col, row := pd.CursorPos()
