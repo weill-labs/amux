@@ -435,9 +435,9 @@ func (w *Window) ResolvePane(ref string) *Pane {
 	return nil
 }
 
-// SwapPanes exchanges the Pane pointers of two layout cells.
+// SwapPanes exchanges the Pane pointers of two layout cells and resizes PTYs
+// to match their new cell dimensions.
 // Both the Pane struct and its Meta travel together (swap-with-meta semantics).
-// The caller must resize PTYs after if the cells have different dimensions.
 func (w *Window) SwapPanes(id1, id2 uint32) error {
 	if id1 == id2 {
 		return nil
@@ -451,6 +451,7 @@ func (w *Window) SwapPanes(id1, id2 uint32) error {
 		return fmt.Errorf("pane %d not found", id2)
 	}
 	cell1.Pane, cell2.Pane = cell2.Pane, cell1.Pane
+	w.resizePTYs()
 	return nil
 }
 
@@ -482,10 +483,10 @@ func (w *Window) SwapPaneBackward() error {
 	return w.SwapPanes(cells[idx].Pane.ID, cells[prev].Pane.ID)
 }
 
-// RotatePanes cycles all pane positions. If forward is true, panes advance
-// one position in walk order: each cell gets the pane from the previous cell,
-// with the last pane wrapping to the first cell.
-// The caller must resize PTYs after.
+// RotatePanes cycles all pane positions and resizes PTYs to match.
+// If forward is true, panes advance one position in walk order: each cell
+// gets the pane from the previous cell, with the last pane wrapping to the
+// first cell.
 func (w *Window) RotatePanes(forward bool) {
 	cells := w.paneLeaves()
 	if len(cells) <= 1 {
@@ -504,13 +505,16 @@ func (w *Window) RotatePanes(forward bool) {
 		}
 		cells[len(cells)-1].Pane = first
 	}
+	w.resizePTYs()
 }
 
-// paneLeaves returns all leaf cells containing panes (depth-first order).
+// paneLeaves returns all non-minimized leaf cells containing panes
+// (depth-first order). Minimized panes are excluded because their cell
+// height doesn't match normal panes — swapping would produce inconsistent state.
 func (w *Window) paneLeaves() []*LayoutCell {
 	var cells []*LayoutCell
 	w.Root.Walk(func(c *LayoutCell) {
-		if c.Pane != nil {
+		if c.Pane != nil && !c.Pane.Meta.Minimized {
 			cells = append(cells, c)
 		}
 	})

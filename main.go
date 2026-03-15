@@ -136,7 +136,7 @@ Usage:
   amux [-s session] capture --ansi    Capture with ANSI escape codes
   amux [-s session] spawn --name NAME Spawn a new agent pane
   amux [-s session] zoom [pane]       Toggle zoom (maximize) a pane
-  amux [-s session] swap <p1> <p2>     Swap two panes by name or ID
+  amux [-s session] swap <p1> <p2>    Swap two panes by name or ID
   amux [-s session] rotate            Rotate pane positions forward
   amux [-s session] rotate --reverse  Rotate pane positions backward
   amux [-s session] minimize <pane>   Minimize a pane

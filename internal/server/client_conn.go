@@ -386,14 +386,6 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "usage: swap <pane1> <pane2> | swap forward | swap backward"})
 			return
 		}
-
-		// Resize PTYs to match new cell dimensions
-		for _, p := range sess.Panes {
-			cell := sess.Window.Root.FindPane(p.ID)
-			if cell != nil {
-				p.Resize(cell.W, mux.PaneContentHeight(cell.H))
-			}
-		}
 		sess.mu.Unlock()
 
 		if err != nil {
@@ -418,14 +410,6 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 		}
 
 		sess.Window.RotatePanes(forward)
-
-		// Resize PTYs to match new cell dimensions
-		for _, p := range sess.Panes {
-			cell := sess.Window.Root.FindPane(p.ID)
-			if cell != nil {
-				p.Resize(cell.W, mux.PaneContentHeight(cell.H))
-			}
-		}
 		sess.mu.Unlock()
 
 		sess.broadcastLayout()
