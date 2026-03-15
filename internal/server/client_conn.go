@@ -354,6 +354,80 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 		sess.mu.Unlock()
 		sess.broadcastLayout()
 
+	case "swap":
+		sess.mu.Lock()
+		if sess.Window == nil {
+			sess.mu.Unlock()
+			return
+		}
+
+		var err error
+		switch {
+		case len(msg.CmdArgs) == 1 && msg.CmdArgs[0] == "forward":
+			err = sess.Window.SwapPaneForward()
+		case len(msg.CmdArgs) == 1 && msg.CmdArgs[0] == "backward":
+			err = sess.Window.SwapPaneBackward()
+		case len(msg.CmdArgs) == 2:
+			pane1 := sess.Window.ResolvePane(msg.CmdArgs[0])
+			if pane1 == nil {
+				sess.mu.Unlock()
+				cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("pane %q not found", msg.CmdArgs[0])})
+				return
+			}
+			pane2 := sess.Window.ResolvePane(msg.CmdArgs[1])
+			if pane2 == nil {
+				sess.mu.Unlock()
+				cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("pane %q not found", msg.CmdArgs[1])})
+				return
+			}
+			err = sess.Window.SwapPanes(pane1.ID, pane2.ID)
+		default:
+			sess.mu.Unlock()
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "usage: swap <pane1> <pane2> | swap forward | swap backward"})
+			return
+		}
+		sess.mu.Unlock()
+
+		if err != nil {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: err.Error()})
+			return
+		}
+		sess.broadcastLayout()
+		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: "Swapped\n"})
+
+	case "rotate":
+		sess.mu.Lock()
+		if sess.Window == nil {
+			sess.mu.Unlock()
+			return
+		}
+
+		forward := true
+		for _, arg := range msg.CmdArgs {
+			if arg == "--reverse" {
+				forward = false
+			}
+		}
+
+		sess.Window.RotatePanes(forward)
+		sess.mu.Unlock()
+
+		sess.broadcastLayout()
+		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: "Rotated\n"})
+
+	case "copy-mode":
+		sess.mu.Lock()
+		pane := cc.resolvePane(sess, "copy-mode", msg.CmdArgs)
+		if pane == nil {
+			sess.mu.Unlock()
+			return
+		}
+		paneID := pane.ID
+		sess.mu.Unlock()
+		// Broadcast copy-mode message to all attached clients
+		sess.broadcast(&Message{Type: MsgTypeCopyMode, PaneID: paneID})
+		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: fmt.Sprintf("Copy mode entered for %s\n", pane.Meta.Name)})
+
 	case "reload-server":
 		execPath, err := os.Executable()
 		if err != nil {
