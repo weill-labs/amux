@@ -5,15 +5,13 @@
 
 A terminal multiplexer built for working alongside AI agents. Drop-in replacement for tmux — same muscle memory, new capabilities.
 
-## Why amux
+## Philosophy
 
-Terminal multiplexers haven't changed in decades, but the way we use terminals has. When you're running multiple AI agents alongside your own shell, you need panes that agents can discover, address by name, and programmatically control. amux makes that natural.
+1. **Agents are peers, not afterthoughts.** Same panes, same view, same API. The human uses keybindings, the agent uses CLI commands — both are first-class.
 
-- **Agent-native CLI** — agents can `amux list`, `amux send-keys`, `amux capture`, and `amux spawn` without screen-scraping or brittle key sequences
-- **Named panes** — reference panes by name (`pane-1`) or ID (`1`) instead of opaque indices
-- **Hot-reload** — update amux without losing your running shells or pane layout
-- **Multiple windows** — organize work across windows within a session
-- **Catppuccin Mocha theme** — color-coded borders so you can tell panes apart at a glance
+2. **Zero friction.** Fast enough that neither human nor agent waits. Familiar enough that tmux users don't notice they've switched. Sessions survive upgrades so nothing is ever lost.
+
+3. **One source of truth.** What the human sees on screen is exactly what the agent captures. No divergence, no stale state, no translation layer.
 
 ## Install
 
