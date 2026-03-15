@@ -155,19 +155,31 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 		sess.broadcastLayout()
 
 	case "capture":
-		// amux capture [--ansi] [pane] — full screen or single pane
+		// amux capture [--ansi|--colors] [pane] — full screen or single pane
 		includeANSI := false
+		colorMap := false
 		var paneRef string
 		for _, arg := range msg.CmdArgs {
 			switch arg {
 			case "--ansi":
 				includeANSI = true
+			case "--colors":
+				colorMap = true
 			default:
 				paneRef = arg
 			}
 		}
 
+		if includeANSI && colorMap {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "--ansi and --colors are mutually exclusive"})
+			return
+		}
+
 		if paneRef != "" {
+			if colorMap {
+				cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "--colors is only supported for full screen capture"})
+				return
+			}
 			// Single pane capture (replaces old "output" command)
 			sess.mu.Lock()
 			if sess.Window == nil {
@@ -186,7 +198,12 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 			cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: out + "\n"})
 		} else {
 			// Full composited screen capture
-			out := sess.renderCapture(!includeANSI)
+			var out string
+			if colorMap {
+				out = sess.renderColorMap()
+			} else {
+				out = sess.renderCapture(!includeANSI)
+			}
 			cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: out})
 		}
 
