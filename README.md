@@ -15,6 +15,12 @@ Terminal multiplexers haven't changed in decades, but the way we use terminals h
 - **Multiple windows** — organize work across windows within a session
 - **Catppuccin Mocha theme** — color-coded borders so you can tell panes apart at a glance
 
+## Install
+
+```bash
+go install github.com/weill-labs/amux@latest
+```
+
 ## Quick Start
 
 ```bash
