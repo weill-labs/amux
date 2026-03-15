@@ -443,19 +443,18 @@ func (w *Window) ResizeActive(direction string, delta int) bool {
 			idx := cell.indexInParent()
 			siblings := cell.Parent.Children
 
-			// tmux convention: pick the left/top child of the border.
-			// If we're the last child, back up one so lc is the previous sibling.
-			lc := cell
+			// tmux convention: resize the border adjacent to this cell.
+			// If we're the last child, use the border to our left (idx-1, idx).
+			// Otherwise, use the border to our right (idx, idx+1).
+			left, right := siblings[idx], siblings[idx+1]
 			if idx == len(siblings)-1 {
-				lc = siblings[idx-1]
+				left, right = siblings[idx-1], siblings[idx]
 			}
-			lcIdx := lc.indexInParent()
-			next := siblings[lcIdx+1]
 
 			if change > 0 {
-				return w.resizeBetween(lc, next, axis, change)
+				return w.resizeBetween(left, right, axis, change)
 			}
-			return w.resizeBetween(next, lc, axis, -change)
+			return w.resizeBetween(right, left, axis, -change)
 		}
 		cell = cell.Parent
 	}
