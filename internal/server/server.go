@@ -686,6 +686,7 @@ func NewServerFromCheckpoint(cp *checkpoint.ServerCheckpoint) (*Server, error) {
 	}
 
 	// Force TUI apps to do a full screen redraw via SIGWINCH.
+	// Skip minimized panes — their PTYs stay at pre-minimize dimensions.
 	go func() {
 		time.Sleep(500 * time.Millisecond)
 		sess.mu.Lock()
@@ -693,6 +694,9 @@ func NewServerFromCheckpoint(cp *checkpoint.ServerCheckpoint) (*Server, error) {
 		for _, w := range sess.Windows {
 			// First pass: shrink by 1 row
 			for _, p := range sess.Panes {
+				if p.Meta.Minimized {
+					continue
+				}
 				if cell := w.Root.FindPane(p.ID); cell != nil {
 					p.Resize(cell.W, mux.PaneContentHeight(cell.H)-1)
 				}
@@ -705,6 +709,9 @@ func NewServerFromCheckpoint(cp *checkpoint.ServerCheckpoint) (*Server, error) {
 		for _, w := range sess.Windows {
 			// Second pass: restore original size
 			for _, p := range sess.Panes {
+				if p.Meta.Minimized {
+					continue
+				}
 				if cell := w.Root.FindPane(p.ID); cell != nil {
 					p.Resize(cell.W, mux.PaneContentHeight(cell.H))
 				}
