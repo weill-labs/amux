@@ -15,6 +15,25 @@ import (
 // amuxBin is the path to the built amux binary, set in TestMain.
 var amuxBin string
 
+// gocoverDir is the directory for integration test coverage data.
+// Set when GOCOVERDIR is configured; empty otherwise.
+var gocoverDir string
+
+// buildAmux builds the amux binary at binPath. When GOCOVERDIR is set,
+// the binary is built with -cover so it writes coverage data on exit.
+func buildAmux(binPath string) error {
+	args := []string{"build"}
+	if os.Getenv("GOCOVERDIR") != "" {
+		args = append(args, "-cover")
+	}
+	args = append(args, "-o", binPath, "..")
+	out, err := exec.Command("go", args...).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("building amux: %v\n%s", err, out)
+	}
+	return nil
+}
+
 func TestMain(m *testing.M) {
 	// Skip if tmux isn't available
 	if _, err := exec.LookPath("tmux"); err != nil {
@@ -26,6 +45,17 @@ func TestMain(m *testing.M) {
 	// been killed by a timeout panic (t.Cleanup doesn't run on panic).
 	cleanupStaleTestSessions()
 
+	// Set up coverage output directory if not already set
+	if os.Getenv("GOCOVERDIR") == "" {
+		covDir, err := os.MkdirTemp("", "amux-cov-*")
+		if err == nil {
+			gocoverDir = covDir
+			os.Setenv("GOCOVERDIR", covDir)
+		}
+	} else {
+		gocoverDir = os.Getenv("GOCOVERDIR")
+	}
+
 	// Build amux binary for testing
 	tmp, err := os.MkdirTemp("", "amux-test-*")
 	if err != nil {
@@ -35,14 +65,27 @@ func TestMain(m *testing.M) {
 	defer os.RemoveAll(tmp)
 
 	amuxBin = tmp + "/amux"
-	out, err := exec.Command("go", "build", "-o", amuxBin, "..").CombinedOutput()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "building amux: %v\n%s\n", err, out)
+	if err := buildAmux(amuxBin); err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
 		os.Exit(1)
 	}
 
 	code := m.Run()
 	cleanupStaleTestSessions()
+
+	// Convert coverage data to text profile
+	if gocoverDir != "" {
+		entries, _ := os.ReadDir(gocoverDir)
+		if len(entries) > 0 {
+			exec.Command("go", "tool", "covdata", "textfmt",
+				"-i="+gocoverDir, "-o=integration-coverage.txt").Run()
+		}
+		// Only remove the dir if we created it
+		if os.Getenv("GOCOVERDIR") == gocoverDir {
+			os.RemoveAll(gocoverDir)
+		}
+	}
+
 	os.Exit(code)
 }
 
@@ -118,6 +161,13 @@ func newHarness(t *testing.T) *TmuxHarness {
 
 	t.Cleanup(h.cleanup)
 
+	// Export GOCOVERDIR inside the tmux shell so the amux client and
+	// server daemon both inherit it and write coverage data on exit.
+	if dir := os.Getenv("GOCOVERDIR"); dir != "" {
+		h.sendKeys("export GOCOVERDIR="+dir, "Enter")
+		time.Sleep(100 * time.Millisecond)
+	}
+
 	// Launch amux with this test's unique session name (-s flag)
 	h.sendKeys(amuxBin, " -s ", session, "Enter")
 
@@ -130,19 +180,26 @@ func newHarness(t *testing.T) *TmuxHarness {
 	return h
 }
 
-// cleanup kills the tmux session and its amux server.
-// Only targets this test's resources — never kills other amux sessions.
+// cleanup detaches the client gracefully (for coverage flush), then kills
+// the tmux session and server. Only targets this test's resources.
 func (h *TmuxHarness) cleanup() {
-	// Kill the tmux session (this also terminates the amux client inside it)
+	// Detach client gracefully so it exits cleanly and flushes coverage data
+	exec.Command("tmux", "send-keys", "-t", h.session, "C-a", "d").Run()
+	time.Sleep(200 * time.Millisecond)
+
+	// Kill the tmux session
 	exec.Command("tmux", "kill-session", "-t", h.session).Run()
 
-	// Kill only this test's server daemon (exact match on session name)
+	// SIGTERM the server daemon (exact match on session name).
+	// The server handles SIGTERM gracefully via os.Exit(0), which
+	// triggers Go's atexit coverage flush.
 	out, _ := exec.Command("pgrep", "-f", fmt.Sprintf("amux _server %s$", h.session)).Output()
 	for _, pid := range strings.Split(strings.TrimSpace(string(out)), "\n") {
 		if pid != "" {
 			exec.Command("kill", pid).Run()
 		}
 	}
+	time.Sleep(200 * time.Millisecond) // wait for coverage flush
 
 	// Clean up socket
 	os.Remove(filepath.Join(fmt.Sprintf("/tmp/amux-%d", os.Getuid()), h.session))

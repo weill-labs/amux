@@ -4,6 +4,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime/coverage"
 	"syscall"
 	"time"
 
@@ -88,6 +89,12 @@ func execSelf(execPath string, conn net.Conn, fd int, oldState *term.State) {
 	os.Stdout.Write([]byte(render.MouseDisable))
 	os.Stdout.Write([]byte(render.AltScreenExit))
 	os.Stdout.Write([]byte(render.ResetTitle))
+
+	// Flush coverage data before exec (which replaces the process image
+	// without running atexit handlers). No-op if not built with -cover.
+	if dir := os.Getenv("GOCOVERDIR"); dir != "" {
+		_ = coverage.WriteCountersDir(dir)
+	}
 
 	// Replace process
 	err := syscall.Exec(execPath, os.Args, os.Environ())
