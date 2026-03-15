@@ -90,6 +90,14 @@ func (cr *ClientRenderer) HandleLayout(snap *proto.LayoutSnapshot) {
 	cr.compositor.SetSessionName(snap.SessionName)
 	cr.compositor.Resize(snap.Width, snap.Height+render.GlobalBarHeight)
 
+	// When zoomed, resize the zoomed emulator to full window size
+	if cr.zoomedPaneID != 0 {
+		if emu, ok := cr.emulators[cr.zoomedPaneID]; ok {
+			layoutH := cr.compositor.LayoutHeight()
+			emu.Resize(cr.width, mux.PaneContentHeight(layoutH))
+		}
+	}
+
 	cr.dirty = true
 }
 
@@ -129,14 +137,8 @@ func (cr *ClientRenderer) Render() []byte {
 
 	root := cr.layout
 	if cr.zoomedPaneID != 0 {
-		// When zoomed, create a temp single-leaf layout at full window size
-		layoutH := cr.compositor.LayoutHeight()
-		root = mux.NewLeafByID(cr.zoomedPaneID, 0, 0, cr.width, layoutH)
-
-		// Resize the zoomed emulator to match
-		if emu, ok := cr.emulators[cr.zoomedPaneID]; ok {
-			emu.Resize(cr.width, mux.PaneContentHeight(layoutH))
-		}
+		// When zoomed, create a temporary single-leaf layout at full window size
+		root = mux.NewLeafByID(cr.zoomedPaneID, 0, 0, cr.width, cr.compositor.LayoutHeight())
 	}
 
 	return cr.compositor.RenderFull(root, cr.activePaneID, lookup)

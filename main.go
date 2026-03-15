@@ -75,12 +75,7 @@ func main() {
 	case "capture":
 		runServerCommand("capture", args[1:])
 	case "zoom":
-		if len(args) < 2 {
-			// zoom with no pane arg toggles active pane
-			runServerCommand("zoom", nil)
-		} else {
-			runServerCommand("zoom", []string{args[1]})
-		}
+		runServerCommand("zoom", args[1:])
 	case "minimize", "restore", "kill", "focus":
 		if len(args) < 2 {
 			fmt.Fprintf(os.Stderr, "usage: amux %s <pane>\n", args[0])

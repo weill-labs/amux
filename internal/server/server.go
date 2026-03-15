@@ -150,9 +150,6 @@ func (s *Session) createPaneWithMeta(srv *Server, meta mux.PaneMeta, cols, rows 
 
 			s.removePane(paneID)
 			if s.Window != nil {
-				if s.Window.ZoomedPaneID == paneID {
-					s.Window.Unzoom()
-				}
 				s.Window.ClosePane(paneID)
 			}
 			s.mu.Unlock()
@@ -441,9 +438,6 @@ func NewServerFromCheckpoint(cp *checkpoint.ServerCheckpoint) (*Server, error) {
 				}
 				sess.removePane(paneID)
 				if sess.Window != nil {
-					if sess.Window.ZoomedPaneID == paneID {
-						sess.Window.Unzoom()
-					}
 					sess.Window.ClosePane(paneID)
 				}
 				sess.mu.Unlock()

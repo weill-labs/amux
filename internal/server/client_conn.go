@@ -221,6 +221,7 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "no session"})
 			return
 		}
+		// Resolve target pane: explicit arg or active pane
 		var pane *mux.Pane
 		if len(msg.CmdArgs) > 0 {
 			pane = sess.Window.ResolvePane(msg.CmdArgs[0])
@@ -229,14 +230,15 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 				cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("pane %q not found", msg.CmdArgs[0])})
 				return
 			}
-		} else if sess.Window.ActivePane != nil {
-			pane = sess.Window.ActivePane
 		} else {
+			pane = sess.Window.ActivePane
+		}
+		if pane == nil {
 			sess.mu.Unlock()
 			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "no active pane"})
 			return
 		}
-		wasZoomed := sess.Window.ZoomedPaneID == pane.ID
+		willUnzoom := sess.Window.ZoomedPaneID == pane.ID
 		err := sess.Window.Zoom(pane.ID)
 		sess.mu.Unlock()
 		if err != nil {
@@ -244,11 +246,11 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 			return
 		}
 		sess.broadcastLayout()
-		if wasZoomed {
-			cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: fmt.Sprintf("Unzoomed %s\n", pane.Meta.Name)})
-		} else {
-			cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: fmt.Sprintf("Zoomed %s\n", pane.Meta.Name)})
+		verb := "Zoomed"
+		if willUnzoom {
+			verb = "Unzoomed"
 		}
+		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: fmt.Sprintf("%s %s\n", verb, pane.Meta.Name)})
 
 	case "minimize":
 		sess.mu.Lock()
@@ -296,10 +298,6 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 		}
 		paneID := pane.ID
 		paneName := pane.Meta.Name
-		// Auto-unzoom if killing the zoomed pane
-		if sess.Window.ZoomedPaneID == paneID {
-			sess.Window.Unzoom()
-		}
 		// Remove from list BEFORE closing so onExit sees it's gone (C2 fix)
 		sess.removePane(paneID)
 		sess.Window.ClosePane(paneID)

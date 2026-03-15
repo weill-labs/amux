@@ -123,6 +123,7 @@ func (w *Window) Split(dir SplitDir, newPane *Pane) (*Pane, error) {
 }
 
 // ClosePane removes a pane from the layout and reclaims its space.
+// If the closed pane was zoomed, zoom is automatically cleared.
 func (w *Window) ClosePane(paneID uint32) error {
 	cell := w.Root.FindPane(paneID)
 	if cell == nil {
@@ -134,6 +135,11 @@ func (w *Window) ClosePane(paneID uint32) error {
 	w.Root.Walk(func(_ *LayoutCell) { count++ })
 	if count <= 1 {
 		return fmt.Errorf("cannot close last pane")
+	}
+
+	// Auto-unzoom if closing the zoomed pane
+	if w.ZoomedPaneID == paneID {
+		w.ZoomedPaneID = 0
 	}
 
 	result := cell.Close()
@@ -178,6 +184,14 @@ func (w *Window) Resize(width, height int) {
 	w.Root.ResizeAll(width, height)
 
 	w.resizePTYs()
+
+	// If a pane is zoomed, its PTY should match the full window, not its cell
+	if w.ZoomedPaneID != 0 {
+		cell := w.Root.FindPane(w.ZoomedPaneID)
+		if cell != nil && cell.Pane != nil {
+			cell.Pane.Resize(width, PaneContentHeight(height))
+		}
+	}
 }
 
 // Focus changes the active pane. Direction is "next", "left", "right", "up", "down".
