@@ -89,6 +89,38 @@ func TestMinimizeRestore(t *testing.T) {
 	})
 }
 
+func TestMinimizeRestorePreservesContent(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	h.sendKeys("C-a", "-")
+	h.waitFor("[pane-2]", 3*time.Second)
+
+	// Put identifiable content in pane-1
+	h.runCmd("focus", "pane-1")
+	time.Sleep(200 * time.Millisecond)
+	h.sendKeys("echo PRESERVE_TEST_MARKER", "Enter")
+	h.waitFor("PRESERVE_TEST_MARKER", 3*time.Second)
+
+	// Capture pane content before minimize
+	beforeCapture := h.runCmd("capture", "pane-1")
+	if !strings.Contains(beforeCapture, "PRESERVE_TEST_MARKER") {
+		t.Fatalf("marker should be visible before minimize, got:\n%s", beforeCapture)
+	}
+
+	// Minimize then restore pane-1
+	h.runCmd("minimize", "pane-1")
+	time.Sleep(500 * time.Millisecond)
+	h.runCmd("restore", "pane-1")
+	time.Sleep(1 * time.Second)
+
+	// Pane content should be preserved — not blank
+	afterCapture := h.runCmd("capture", "pane-1")
+	if !strings.Contains(afterCapture, "PRESERVE_TEST_MARKER") {
+		t.Fatalf("pane content should be preserved after minimize/restore, got:\n%s", afterCapture)
+	}
+}
+
 func TestToggleMinimizeKeybinding(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)

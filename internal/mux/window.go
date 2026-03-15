@@ -502,9 +502,10 @@ func (w *Window) resizeBetween(grower, donor *LayoutCell, axis SplitDir, delta i
 }
 
 // resizePTYs resizes all pane PTYs to match their layout cell dimensions.
+// Minimized panes are skipped — their PTYs stay at pre-minimize dimensions.
 func (w *Window) resizePTYs() {
 	w.Root.Walk(func(c *LayoutCell) {
-		if c.Pane != nil {
+		if c.Pane != nil && !c.Pane.Meta.Minimized {
 			c.Pane.Resize(c.W, PaneContentHeight(c.H))
 		}
 	})
@@ -664,7 +665,9 @@ func (w *Window) Minimize(paneID uint32) error {
 	cell.Pane.Meta.MinimizedSeq = w.minimizeSeq
 
 	cell.H = StatusLineRows + 1
-	cell.Pane.Resize(cell.W, 1)
+	// Don't resize the PTY — TUI apps (Claude Code, vim, etc.) may not
+	// recover properly from being resized to 1 row. The PTY and emulator
+	// stay at their original dimensions; only the layout cell shrinks.
 
 	if cell.Parent != nil {
 		reclaimed := cell.Pane.Meta.RestoreH - cell.H

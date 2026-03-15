@@ -91,9 +91,14 @@ func (cr *ClientRenderer) HandleLayout(snap *proto.LayoutSnapshot) {
 	// Rebuild layout tree from the active window's root
 	cr.layout = mux.RebuildLayout(activeRoot)
 
-	// Resize emulators (and active copy modes) to match their layout cells
+	// Resize emulators (and active copy modes) to match their layout cells.
+	// Minimized panes are skipped — their emulators stay at pre-minimize
+	// dimensions so TUI app output is processed at the correct size.
 	cr.layout.Walk(func(cell *mux.LayoutCell) {
 		if emu, ok := cr.emulators[cell.PaneID]; ok {
+			if info, ok := cr.paneInfo[cell.PaneID]; ok && info.Minimized {
+				return
+			}
 			contentH := mux.PaneContentHeight(cell.H)
 			emu.Resize(cell.W, contentH)
 			if cm := cr.copyModes[cell.PaneID]; cm != nil {
