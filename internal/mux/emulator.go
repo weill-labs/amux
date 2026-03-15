@@ -137,15 +137,36 @@ func (v *vtEmulator) ScrollbackLineText(y int) string {
 	return buf.String()
 }
 
+// isCursorBlock returns true if the cell at (x, y) is an isolated
+// reverse-video space — an app-rendered block cursor. "Isolated" means
+// neither the left nor right neighbor has the reverse-video attribute,
+// which distinguishes single-cell cursors from multi-cell highlights.
+func (v *vtEmulator) isCursorBlock(x, y, w int) bool {
+	cell := v.emu.CellAt(x, y)
+	if cell == nil || cell.Style.Attrs&uv.AttrReverse == 0 {
+		return false
+	}
+	if cell.Content != " " && cell.Content != "" {
+		return false
+	}
+	if x > 0 {
+		if left := v.emu.CellAt(x-1, y); left != nil && left.Style.Attrs&uv.AttrReverse != 0 {
+			return false
+		}
+	}
+	if x < w-1 {
+		if right := v.emu.CellAt(x+1, y); right != nil && right.Style.Attrs&uv.AttrReverse != 0 {
+			return false
+		}
+	}
+	return true
+}
+
 func (v *vtEmulator) RenderWithoutCursorBlock() string {
 	v.mu.Lock()
 	w, h := v.w, v.h
 	v.mu.Unlock()
 
-	// Find isolated reverse-video space cells (cursor blocks).
-	// A cursor block is a single reverse-video space not adjacent to other
-	// reverse-video cells. This distinguishes cursor indicators from
-	// legitimate reverse-video content like selections or highlights.
 	type savedCell struct {
 		x, y int
 		cell uv.Cell
@@ -154,28 +175,10 @@ func (v *vtEmulator) RenderWithoutCursorBlock() string {
 
 	for y := 0; y < h; y++ {
 		for x := 0; x < w; x++ {
+			if !v.isCursorBlock(x, y, w) {
+				continue
+			}
 			cell := v.emu.CellAt(x, y)
-			if cell == nil || cell.Style.Attrs&uv.AttrReverse == 0 {
-				continue
-			}
-			if cell.Content != " " && cell.Content != "" {
-				continue
-			}
-			leftReverse := false
-			if x > 0 {
-				if left := v.emu.CellAt(x-1, y); left != nil {
-					leftReverse = left.Style.Attrs&uv.AttrReverse != 0
-				}
-			}
-			rightReverse := false
-			if x < w-1 {
-				if right := v.emu.CellAt(x+1, y); right != nil {
-					rightReverse = right.Style.Attrs&uv.AttrReverse != 0
-				}
-			}
-			if leftReverse || rightReverse {
-				continue
-			}
 			saved = append(saved, savedCell{x, y, *cell})
 			modified := cell.Clone()
 			modified.Style.Attrs &^= uv.AttrReverse
@@ -202,26 +205,7 @@ func (v *vtEmulator) HasCursorBlock() bool {
 
 	for y := 0; y < h; y++ {
 		for x := 0; x < w; x++ {
-			cell := v.emu.CellAt(x, y)
-			if cell == nil || cell.Style.Attrs&uv.AttrReverse == 0 {
-				continue
-			}
-			if cell.Content != " " && cell.Content != "" {
-				continue
-			}
-			leftReverse := false
-			if x > 0 {
-				if left := v.emu.CellAt(x-1, y); left != nil {
-					leftReverse = left.Style.Attrs&uv.AttrReverse != 0
-				}
-			}
-			rightReverse := false
-			if x < w-1 {
-				if right := v.emu.CellAt(x+1, y); right != nil {
-					rightReverse = right.Style.Attrs&uv.AttrReverse != 0
-				}
-			}
-			if !leftReverse && !rightReverse {
+			if v.isCursorBlock(x, y, w) {
 				return true
 			}
 		}
