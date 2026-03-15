@@ -46,27 +46,50 @@ func (cr *ClientRenderer) HandleLayout(snap *proto.LayoutSnapshot) {
 	cr.sessionName = snap.SessionName
 	cr.activePaneID = snap.ActivePaneID
 
+	// Collect all pane snapshots across all windows (or from legacy fields)
+	allPanes := snap.Panes
+	activeRoot := snap.Root
+	if len(snap.Windows) > 0 {
+		allPanes = nil
+		for _, ws := range snap.Windows {
+			allPanes = append(allPanes, ws.Panes...)
+			if ws.ID == snap.ActiveWindowID {
+				activeRoot = ws.Root
+				cr.activePaneID = ws.ActivePaneID
+			}
+		}
+	}
+
 	// Build map of current pane IDs from snapshot
-	newPaneIDs := make(map[uint32]bool, len(snap.Panes))
-	for _, ps := range snap.Panes {
+	newPaneIDs := make(map[uint32]bool, len(allPanes))
+	for _, ps := range allPanes {
 		newPaneIDs[ps.ID] = true
 		cr.paneInfo[ps.ID] = ps
 	}
 
 	// Create emulators for new panes
-	for _, ps := range snap.Panes {
+	for _, ps := range allPanes {
 		if _, exists := cr.emulators[ps.ID]; !exists {
-			// Find cell dimensions from snapshot
+			// Find cell dimensions from the active window's root
 			w, h := snap.Width, mux.PaneContentHeight(snap.Height)
-			if cell := findCellInSnapshot(snap.Root, ps.ID); cell != nil {
+			if cell := findCellInSnapshot(activeRoot, ps.ID); cell != nil {
 				w = cell.W
 				h = mux.PaneContentHeight(cell.H)
+			} else if len(snap.Windows) > 0 {
+				// Search other windows for this pane's dimensions
+				for _, ws := range snap.Windows {
+					if cell := findCellInSnapshot(ws.Root, ps.ID); cell != nil {
+						w = cell.W
+						h = mux.PaneContentHeight(cell.H)
+						break
+					}
+				}
 			}
 			cr.emulators[ps.ID] = mux.NewVTEmulatorWithDrain(w, h)
 		}
 	}
 
-	// Remove stale emulators
+	// Remove stale emulators (only remove panes that no longer exist in any window)
 	for id := range cr.emulators {
 		if !newPaneIDs[id] {
 			delete(cr.emulators, id)
@@ -74,8 +97,8 @@ func (cr *ClientRenderer) HandleLayout(snap *proto.LayoutSnapshot) {
 		}
 	}
 
-	// Rebuild layout tree from snapshot
-	cr.layout = mux.RebuildLayout(snap.Root)
+	// Rebuild layout tree from the active window's root
+	cr.layout = mux.RebuildLayout(activeRoot)
 
 	// Resize emulators to match their layout cells
 	cr.layout.Walk(func(cell *mux.LayoutCell) {
@@ -87,6 +110,20 @@ func (cr *ClientRenderer) HandleLayout(snap *proto.LayoutSnapshot) {
 	// Update compositor
 	cr.compositor.SetSessionName(snap.SessionName)
 	cr.compositor.Resize(snap.Width, snap.Height+render.GlobalBarHeight)
+
+	// Pass window info for the global bar
+	if len(snap.Windows) > 0 {
+		windows := make([]render.WindowInfo, len(snap.Windows))
+		for i, ws := range snap.Windows {
+			windows[i] = render.WindowInfo{
+				Index:    ws.Index,
+				Name:     ws.Name,
+				IsActive: ws.ID == snap.ActiveWindowID,
+				Panes:    len(ws.Panes),
+			}
+		}
+		cr.compositor.SetWindows(windows)
+	}
 
 	cr.dirty = true
 }

@@ -7,11 +7,25 @@ import (
 	"github.com/weill-labs/amux/internal/mux"
 )
 
+// WindowInfo holds metadata about a window for rendering in the global bar.
+type WindowInfo struct {
+	Index    int
+	Name     string
+	IsActive bool
+	Panes    int
+}
+
 // Compositor composes pane content into terminal output.
 type Compositor struct {
 	width       int
 	height      int
 	sessionName string
+	windows     []WindowInfo
+}
+
+// SetWindows sets the window list for the global bar.
+func (c *Compositor) SetWindows(windows []WindowInfo) {
+	c.windows = windows
 }
 
 // NewCompositor creates a compositor for the given terminal dimensions.
@@ -90,7 +104,7 @@ func (c *Compositor) RenderFull(root *mux.LayoutCell, activePaneID uint32, looku
 	renderBorders(&buf, bm, root, activePaneID, activeColor)
 
 	// Global status bar at bottom
-	renderGlobalBar(&buf, c.sessionName, paneCount, c.width, c.height-1)
+	renderGlobalBar(&buf, c.sessionName, paneCount, c.width, c.height-1, c.windows)
 
 	// Position cursor and respect the active pane's cursor visibility state.
 	// If the application has hidden its cursor (e.g. during streaming output),

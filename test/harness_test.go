@@ -305,3 +305,25 @@ func paneNameCol(lines []string, name string) int {
 	}
 	return -1
 }
+
+// globalBar returns the global bar line from the screen, or "".
+func (h *TmuxHarness) globalBar() string {
+	h.t.Helper()
+	for _, line := range h.lines() {
+		if isGlobalBar(line) {
+			return line
+		}
+	}
+	return ""
+}
+
+// globalBarAmux returns the global bar from amux capture output.
+func (h *TmuxHarness) globalBarAmux() string {
+	h.t.Helper()
+	for _, line := range h.captureAmuxLines() {
+		if isGlobalBar(line) {
+			return line
+		}
+	}
+	return ""
+}

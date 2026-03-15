@@ -13,6 +13,7 @@ import (
 	"github.com/weill-labs/amux/internal/checkpoint"
 	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/mux"
+	"github.com/weill-labs/amux/internal/proto"
 	"github.com/weill-labs/amux/internal/render"
 )
 
@@ -25,15 +26,99 @@ const (
 // DefaultOutputLines is how many lines `amux output` shows by default.
 const DefaultOutputLines = 50
 
+// WindowNameFormat is the default name for auto-created windows.
+const WindowNameFormat = "window-%d"
+
 // Session holds the state for one amux session.
 type Session struct {
-	Name    string
-	Window  *mux.Window
-	Panes   []*mux.Pane // flat list for quick lookup
-	clients []*ClientConn
-	counter atomic.Uint32
-	mu      sync.Mutex
-	shutdown atomic.Bool
+	Name           string
+	Windows        []*mux.Window // ordered list of windows
+	ActiveWindowID uint32        // which window is displayed
+	Panes          []*mux.Pane   // flat list of ALL panes across all windows
+	clients        []*ClientConn
+	counter        atomic.Uint32 // pane ID counter
+	windowCounter  atomic.Uint32 // window ID counter
+	mu             sync.Mutex
+	shutdown       atomic.Bool
+}
+
+// ActiveWindow returns the currently active window, or nil.
+func (s *Session) ActiveWindow() *mux.Window {
+	for _, w := range s.Windows {
+		if w.ID == s.ActiveWindowID {
+			return w
+		}
+	}
+	if len(s.Windows) > 0 {
+		return s.Windows[0]
+	}
+	return nil
+}
+
+// FindWindowByPaneID returns the window containing the given pane, or nil.
+func (s *Session) FindWindowByPaneID(paneID uint32) *mux.Window {
+	for _, w := range s.Windows {
+		if w.Root.FindPane(paneID) != nil {
+			return w
+		}
+	}
+	return nil
+}
+
+// WindowIndex returns the 1-based display index for a window.
+func (s *Session) WindowIndex(w *mux.Window) int {
+	for i, win := range s.Windows {
+		if win.ID == w.ID {
+			return i + 1
+		}
+	}
+	return 0
+}
+
+// RemoveWindow removes a window from the list by ID.
+func (s *Session) RemoveWindow(windowID uint32) {
+	for i, w := range s.Windows {
+		if w.ID == windowID {
+			s.Windows = append(s.Windows[:i], s.Windows[i+1:]...)
+			return
+		}
+	}
+}
+
+// NextWindow switches to the next window (wrapping).
+func (s *Session) NextWindow() {
+	if len(s.Windows) <= 1 {
+		return
+	}
+	for i, w := range s.Windows {
+		if w.ID == s.ActiveWindowID {
+			s.ActiveWindowID = s.Windows[(i+1)%len(s.Windows)].ID
+			return
+		}
+	}
+}
+
+// PrevWindow switches to the previous window (wrapping).
+func (s *Session) PrevWindow() {
+	if len(s.Windows) <= 1 {
+		return
+	}
+	for i, w := range s.Windows {
+		if w.ID == s.ActiveWindowID {
+			prev := (i - 1 + len(s.Windows)) % len(s.Windows)
+			s.ActiveWindowID = s.Windows[prev].ID
+			return
+		}
+	}
+}
+
+// SelectWindowByIndex switches to the window at the given 1-based index.
+func (s *Session) SelectWindowByIndex(idx int) bool {
+	if idx < 1 || idx > len(s.Windows) {
+		return false
+	}
+	s.ActiveWindowID = s.Windows[idx-1].ID
+	return true
 }
 
 // broadcast sends a message to all connected clients.
@@ -56,11 +141,12 @@ func (s *Session) broadcastPaneOutput(paneID uint32, data []byte) {
 // broadcastLayout sends the current layout snapshot to all clients.
 func (s *Session) broadcastLayout() {
 	s.mu.Lock()
-	if s.Window == nil {
+	w := s.ActiveWindow()
+	if w == nil {
 		s.mu.Unlock()
 		return
 	}
-	snap := s.Window.SnapshotLayout(s.Name)
+	snap := s.snapshotLayoutLocked()
 	clients := make([]*ClientConn, len(s.clients))
 	copy(clients, s.clients)
 	s.mu.Unlock()
@@ -69,6 +155,26 @@ func (s *Session) broadcastLayout() {
 	for _, c := range clients {
 		c.Send(msg)
 	}
+}
+
+// snapshotLayoutLocked builds a LayoutSnapshot with multi-window data.
+// Caller must hold s.mu.
+func (s *Session) snapshotLayoutLocked() *proto.LayoutSnapshot {
+	w := s.ActiveWindow()
+	if w == nil {
+		return nil
+	}
+
+	// Build legacy single-window fields for the active window
+	snap := w.SnapshotLayout(s.Name)
+	snap.ActiveWindowID = s.ActiveWindowID
+
+	// Build multi-window snapshots
+	for i, win := range s.Windows {
+		snap.Windows = append(snap.Windows, win.SnapshotWindow(i+1))
+	}
+
+	return snap
 }
 
 // removeClient removes a client from the session.
@@ -149,8 +255,26 @@ func (s *Session) createPaneWithMeta(srv *Server, meta mux.PaneMeta, cols, rows 
 			}
 
 			s.removePane(paneID)
-			if s.Window != nil {
-				s.Window.ClosePane(paneID)
+
+			// Find the window containing this pane and close it there
+			w := s.FindWindowByPaneID(paneID)
+			if w != nil {
+				paneCount := 0
+				w.Root.Walk(func(c *mux.LayoutCell) {
+					if c.Pane != nil {
+						paneCount++
+					}
+				})
+				if paneCount <= 1 {
+					// Last pane in this window — destroy the window
+					wasActive := w.ID == s.ActiveWindowID
+					s.RemoveWindow(w.ID)
+					if wasActive && len(s.Windows) > 0 {
+						s.ActiveWindowID = s.Windows[0].ID
+					}
+				} else {
+					w.ClosePane(paneID)
+				}
 			}
 			s.mu.Unlock()
 
@@ -188,7 +312,8 @@ func (s *Session) renderCapture(stripANSI bool) string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if s.Window == nil {
+	w := s.ActiveWindow()
+	if w == nil {
 		return ""
 	}
 
@@ -197,23 +322,44 @@ func (s *Session) renderCapture(stripANSI bool) string {
 		paneMap[p.ID] = &serverPaneData{p: p}
 	}
 
-	totalH := s.Window.Height + render.GlobalBarHeight
-	comp := render.NewCompositor(s.Window.Width, totalH, s.Name)
+	totalH := w.Height + render.GlobalBarHeight
+	comp := render.NewCompositor(w.Width, totalH, s.Name)
+	comp.SetWindows(s.windowInfoLocked())
 
 	var activePaneID uint32
-	if s.Window.ActivePane != nil {
-		activePaneID = s.Window.ActivePane.ID
+	if w.ActivePane != nil {
+		activePaneID = w.ActivePane.ID
 	}
 
-	raw := string(comp.RenderFull(s.Window.Root, activePaneID, func(id uint32) render.PaneData {
+	raw := string(comp.RenderFull(w.Root, activePaneID, func(id uint32) render.PaneData {
 		return paneMap[id]
 	}))
 
 	if stripANSI {
-		return render.MaterializeGrid(raw, s.Window.Width, totalH)
+		return render.MaterializeGrid(raw, w.Width, totalH)
 	}
 
 	return raw
+}
+
+// windowInfoLocked returns window info for rendering. Caller must hold s.mu.
+func (s *Session) windowInfoLocked() []render.WindowInfo {
+	infos := make([]render.WindowInfo, len(s.Windows))
+	for i, w := range s.Windows {
+		paneCount := 0
+		w.Root.Walk(func(c *mux.LayoutCell) {
+			if c.Pane != nil {
+				paneCount++
+			}
+		})
+		infos[i] = render.WindowInfo{
+			Index:    i + 1,
+			Name:     w.Name,
+			IsActive: w.ID == s.ActiveWindowID,
+			Panes:    paneCount,
+		}
+	}
+	return infos
 }
 
 // Server listens on a Unix socket and manages sessions.
@@ -323,16 +469,18 @@ func (s *Server) Reload(execPath string) error {
 
 	// Build checkpoint
 	sess.mu.Lock()
-	if sess.Window == nil {
+	if len(sess.Windows) == 0 {
 		sess.mu.Unlock()
 		sess.shutdown.Store(false)
 		return fmt.Errorf("no window to checkpoint")
 	}
 
+	snap := sess.snapshotLayoutLocked()
 	cp := &checkpoint.ServerCheckpoint{
-		SessionName: sess.Name,
-		Counter:     sess.counter.Load(),
-		Layout:      *sess.Window.SnapshotLayout(sess.Name),
+		SessionName:   sess.Name,
+		Counter:       sess.counter.Load(),
+		WindowCounter: sess.windowCounter.Load(),
+		Layout:        *snap,
 	}
 
 	for _, p := range sess.Panes {
@@ -343,10 +491,13 @@ func (s *Server) Reload(execPath string) error {
 			PID:    p.ProcessPid(),
 			Screen: p.RenderScreen(),
 		}
-		cell := sess.Window.Root.FindPane(p.ID)
-		if cell != nil {
-			pc.Cols = cell.W
-			pc.Rows = mux.PaneContentHeight(cell.H)
+		// Find the cell in whichever window contains this pane
+		for _, w := range sess.Windows {
+			if cell := w.Root.FindPane(p.ID); cell != nil {
+				pc.Cols = cell.W
+				pc.Rows = mux.PaneContentHeight(cell.H)
+				break
+			}
 		}
 		cp.Panes = append(cp.Panes, pc)
 	}
@@ -398,6 +549,7 @@ func NewServerFromCheckpoint(cp *checkpoint.ServerCheckpoint) (*Server, error) {
 
 	sess := &Session{Name: cp.SessionName}
 	sess.counter.Store(cp.Counter)
+	sess.windowCounter.Store(cp.WindowCounter)
 
 	s := &Server{
 		listener: listener,
@@ -432,8 +584,23 @@ func NewServerFromCheckpoint(cp *checkpoint.ServerCheckpoint) (*Server, error) {
 					return
 				}
 				sess.removePane(paneID)
-				if sess.Window != nil {
-					sess.Window.ClosePane(paneID)
+				w := sess.FindWindowByPaneID(paneID)
+				if w != nil {
+					paneCount := 0
+					w.Root.Walk(func(c *mux.LayoutCell) {
+						if c.Pane != nil {
+							paneCount++
+						}
+					})
+					if paneCount <= 1 {
+						wasActive := w.ID == sess.ActiveWindowID
+						sess.RemoveWindow(w.ID)
+						if wasActive && len(sess.Windows) > 0 {
+							sess.ActiveWindowID = sess.Windows[0].ID
+						}
+					} else {
+						w.ClosePane(paneID)
+					}
 				}
 				sess.mu.Unlock()
 				sess.broadcastLayout()
@@ -453,43 +620,51 @@ func NewServerFromCheckpoint(cp *checkpoint.ServerCheckpoint) (*Server, error) {
 		return nil, fmt.Errorf("no panes restored from checkpoint")
 	}
 
-	// Rebuild window from layout snapshot
-	sess.Window = mux.RebuildFromSnapshot(cp.Layout, paneMap)
+	// Rebuild windows from multi-window snapshot or legacy single-window
+	if len(cp.Layout.Windows) > 0 {
+		for _, ws := range cp.Layout.Windows {
+			w := mux.RebuildWindowFromSnapshot(ws, cp.Layout.Width, cp.Layout.Height, paneMap)
+			sess.Windows = append(sess.Windows, w)
+		}
+		sess.ActiveWindowID = cp.Layout.ActiveWindowID
+	} else {
+		// Legacy single-window checkpoint
+		w := mux.RebuildFromSnapshot(cp.Layout, paneMap)
+		winID := sess.windowCounter.Add(1)
+		w.ID = winID
+		w.Name = fmt.Sprintf(WindowNameFormat, winID)
+		sess.Windows = append(sess.Windows, w)
+		sess.ActiveWindowID = winID
+	}
 
 	// Start PTY read loops for all restored panes
 	for _, p := range sess.Panes {
 		p.Start()
 	}
 
-	// Force TUI apps (Claude Code, vim, etc.) to do a full screen redraw.
-	// Without this, incremental updates buffered during the reload window
-	// corrupt the display because they assume the pre-reload screen state.
-	// We resize each PTY (shrink then restore) to trigger SIGWINCH. The
-	// delay lets readLoops drain buffered PTY output first; the gap between
-	// resizes prevents SIGWINCH coalescing.
+	// Force TUI apps to do a full screen redraw via SIGWINCH.
 	go func() {
 		time.Sleep(500 * time.Millisecond)
 		sess.mu.Lock()
 		defer sess.mu.Unlock()
-		if sess.Window == nil {
-			return
-		}
-		// First pass: shrink by 1 row
-		for _, p := range sess.Panes {
-			cell := sess.Window.Root.FindPane(p.ID)
-			if cell != nil {
-				p.Resize(cell.W, mux.PaneContentHeight(cell.H)-1)
+		for _, w := range sess.Windows {
+			// First pass: shrink by 1 row
+			for _, p := range sess.Panes {
+				if cell := w.Root.FindPane(p.ID); cell != nil {
+					p.Resize(cell.W, mux.PaneContentHeight(cell.H)-1)
+				}
 			}
 		}
 		// Let TUI apps process the first SIGWINCH
 		sess.mu.Unlock()
 		time.Sleep(200 * time.Millisecond)
 		sess.mu.Lock()
-		// Second pass: restore original size
-		for _, p := range sess.Panes {
-			cell := sess.Window.Root.FindPane(p.ID)
-			if cell != nil {
-				p.Resize(cell.W, mux.PaneContentHeight(cell.H))
+		for _, w := range sess.Windows {
+			// Second pass: restore original size
+			for _, p := range sess.Panes {
+				if cell := w.Root.FindPane(p.ID); cell != nil {
+					p.Resize(cell.W, mux.PaneContentHeight(cell.H))
+				}
 			}
 		}
 	}()
@@ -569,7 +744,7 @@ func (s *Server) handleAttach(conn net.Conn, msg *Message) {
 
 	// Create the first pane and window if none exist
 	var newPane *mux.Pane
-	if sess.Window == nil {
+	if len(sess.Windows) == 0 {
 		// Reserve 1 row for global status bar, 1 for per-pane status
 		layoutH := rows - 1 // global bar
 		paneH := mux.PaneContentHeight(layoutH)
@@ -579,12 +754,17 @@ func (s *Server) handleAttach(conn net.Conn, msg *Message) {
 			conn.Close()
 			return
 		}
-		sess.Window = mux.NewWindow(pane, cols, layoutH)
+		winID := sess.windowCounter.Add(1)
+		w := mux.NewWindow(pane, cols, layoutH)
+		w.ID = winID
+		w.Name = fmt.Sprintf(WindowNameFormat, winID)
+		sess.Windows = append(sess.Windows, w)
+		sess.ActiveWindowID = winID
 		newPane = pane
 	}
 
 	// Send layout snapshot so client can build its rendering state
-	snap := sess.Window.SnapshotLayout(sess.Name)
+	snap := sess.snapshotLayoutLocked()
 	cc.Send(&Message{Type: MsgTypeLayout, Layout: snap})
 
 	// Send current screen state for each pane (enables reattach)

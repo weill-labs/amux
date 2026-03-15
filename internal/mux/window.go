@@ -14,6 +14,8 @@ const DefaultRestoreHeight = 12
 
 // Window holds the layout tree and active pane for one window.
 type Window struct {
+	ID         uint32
+	Name       string
 	Root       *LayoutCell
 	ActivePane *Pane
 	Width      int

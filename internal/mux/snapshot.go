@@ -3,6 +3,7 @@ package mux
 import "github.com/weill-labs/amux/internal/proto"
 
 // SnapshotLayout creates a serializable snapshot of the current layout state.
+// Used for single-window backward compatibility and by SnapshotWindow.
 func (w *Window) SnapshotLayout(sessionName string) *proto.LayoutSnapshot {
 	snap := &proto.LayoutSnapshot{
 		SessionName: sessionName,
@@ -24,6 +25,30 @@ func (w *Window) SnapshotLayout(sessionName string) *proto.LayoutSnapshot {
 		})
 	}
 	return snap
+}
+
+// SnapshotWindow creates a WindowSnapshot for the wire protocol.
+func (w *Window) SnapshotWindow(index int) proto.WindowSnapshot {
+	ws := proto.WindowSnapshot{
+		ID:    w.ID,
+		Name:  w.Name,
+		Index: index,
+		Root:  snapshotCell(w.Root),
+	}
+	if w.ActivePane != nil {
+		ws.ActivePaneID = w.ActivePane.ID
+	}
+	for _, p := range w.Panes() {
+		ws.Panes = append(ws.Panes, proto.PaneSnapshot{
+			ID:        p.ID,
+			Name:      p.Meta.Name,
+			Host:      p.Meta.Host,
+			Task:      p.Meta.Task,
+			Color:     p.Meta.Color,
+			Minimized: p.Meta.Minimized,
+		})
+	}
+	return ws
 }
 
 func snapshotCell(c *LayoutCell) proto.CellSnapshot {
@@ -63,7 +88,8 @@ func RebuildLayout(cs proto.CellSnapshot) *LayoutCell {
 }
 
 // RebuildFromSnapshot creates a server-side Window from a LayoutSnapshot,
-// attaching actual Pane pointers to leaf cells. Used for server hot-reload.
+// attaching actual Pane pointers to leaf cells. Used for server hot-reload
+// when restoring from a legacy single-window checkpoint.
 func RebuildFromSnapshot(snap proto.LayoutSnapshot, paneMap map[uint32]*Pane) *Window {
 	root := rebuildCellWithPanes(snap.Root, paneMap)
 
@@ -83,6 +109,31 @@ func RebuildFromSnapshot(snap proto.LayoutSnapshot, paneMap map[uint32]*Pane) *W
 		ActivePane: activePane,
 		Width:      snap.Width,
 		Height:     snap.Height,
+	}
+}
+
+// RebuildWindowFromSnapshot creates a server-side Window from a WindowSnapshot.
+func RebuildWindowFromSnapshot(ws proto.WindowSnapshot, width, height int, paneMap map[uint32]*Pane) *Window {
+	root := rebuildCellWithPanes(ws.Root, paneMap)
+
+	var activePane *Pane
+	if p, ok := paneMap[ws.ActivePaneID]; ok {
+		activePane = p
+	} else {
+		root.Walk(func(c *LayoutCell) {
+			if activePane == nil && c.Pane != nil {
+				activePane = c.Pane
+			}
+		})
+	}
+
+	return &Window{
+		ID:         ws.ID,
+		Name:       ws.Name,
+		Root:       root,
+		ActivePane: activePane,
+		Width:      width,
+		Height:     height,
 	}
 }
 
