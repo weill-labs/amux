@@ -104,15 +104,12 @@ func TestNextPrevWindowCLI(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Keybinding tests — TmuxHarness (requires real terminal for key simulation)
+// Keybinding tests — AmuxHarness (inner amux inside outer server)
 // ---------------------------------------------------------------------------
 
 func TestNewWindowKeybinding(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t)
-
-	// Start with one window showing pane-1
-	h.waitFor("[pane-1]", 3*time.Second)
+	h := newAmuxHarness(t)
 
 	// Create a new window via Ctrl-a c
 	h.sendKeys("C-a", "c")
@@ -136,13 +133,13 @@ func TestNewWindowKeybinding(t *testing.T) {
 
 func TestNextPrevWindow(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t)
-
-	h.waitFor("[pane-1]", 3*time.Second)
+	h := newAmuxHarness(t)
 
 	// Create a second window
 	h.sendKeys("C-a", "c")
-	h.waitFor("[pane-2]", 3*time.Second)
+	if !h.waitFor("[pane-2]", 3*time.Second) {
+		t.Fatalf("new window did not appear.\nScreen:\n%s", h.capture())
+	}
 
 	// Go to previous window (Ctrl-a p) — should show pane-1
 	h.sendKeys("C-a", "p")
@@ -165,15 +162,17 @@ func TestNextPrevWindow(t *testing.T) {
 
 func TestSelectWindowByNumber(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t)
-
-	h.waitFor("[pane-1]", 3*time.Second)
+	h := newAmuxHarness(t)
 
 	// Create 2 more windows (total 3)
 	h.sendKeys("C-a", "c")
-	h.waitFor("[pane-2]", 3*time.Second)
+	if !h.waitFor("[pane-2]", 3*time.Second) {
+		t.Fatalf("window 2 did not appear.\nScreen:\n%s", h.capture())
+	}
 	h.sendKeys("C-a", "c")
-	h.waitFor("[pane-3]", 3*time.Second)
+	if !h.waitFor("[pane-3]", 3*time.Second) {
+		t.Fatalf("window 3 did not appear.\nScreen:\n%s", h.capture())
+	}
 
 	// Ctrl-a 1 → window 1 (pane-1)
 	h.sendKeys("C-a", "1")
@@ -196,19 +195,23 @@ func TestSelectWindowByNumber(t *testing.T) {
 
 func TestWindowPaneIsolation(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t)
-
-	h.waitFor("[pane-1]", 3*time.Second)
+	h := newAmuxHarness(t)
 
 	// Type something in window 1
 	h.sendKeys("e", "c", "h", "o", " ", "W", "I", "N", "1", "Enter")
-	h.waitFor("WIN1", 3*time.Second)
+	if !h.waitFor("WIN1", 3*time.Second) {
+		t.Fatalf("WIN1 should appear in window 1.\nScreen:\n%s", h.capture())
+	}
 
 	// Create window 2 and type something different
 	h.sendKeys("C-a", "c")
-	h.waitFor("[pane-2]", 3*time.Second)
+	if !h.waitFor("[pane-2]", 3*time.Second) {
+		t.Fatalf("window 2 did not appear.\nScreen:\n%s", h.capture())
+	}
 	h.sendKeys("e", "c", "h", "o", " ", "W", "I", "N", "2", "Enter")
-	h.waitFor("WIN2", 3*time.Second)
+	if !h.waitFor("WIN2", 3*time.Second) {
+		t.Fatalf("WIN2 should appear in window 2.\nScreen:\n%s", h.capture())
+	}
 
 	// Window 2 should show WIN2 but not WIN1
 	h.assertScreen("window 2 should show WIN2", func(s string) bool {
@@ -232,13 +235,13 @@ func TestWindowPaneIsolation(t *testing.T) {
 
 func TestSplitWithinWindow(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t)
-
-	h.waitFor("[pane-1]", 3*time.Second)
+	h := newAmuxHarness(t)
 
 	// Create window 2
 	h.sendKeys("C-a", "c")
-	h.waitFor("[pane-2]", 3*time.Second)
+	if !h.waitFor("[pane-2]", 3*time.Second) {
+		t.Fatalf("window 2 did not appear.\nScreen:\n%s", h.capture())
+	}
 
 	// Split within window 2
 	h.splitV()

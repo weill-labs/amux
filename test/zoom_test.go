@@ -80,70 +80,81 @@ func TestZoomKillZoomedPane(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Keybinding tests — TmuxHarness (requires client for prefix key processing)
+// Keybinding tests — AmuxHarness (client for prefix key processing)
 // ---------------------------------------------------------------------------
 
 func TestZoomKeybinding(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t)
+	h := newAmuxHarness(t)
 
 	h.splitH()
 
+	// Focus pane-1 via Ctrl-a k
+	gen := h.generation()
 	h.sendKeys("C-a", "k")
-	time.Sleep(400 * time.Millisecond)
+	h.waitLayout(gen)
 
+	// Zoom via Ctrl-a z
+	gen = h.generation()
 	h.sendKeys("C-a", "z")
+	h.waitLayout(gen)
 
-	if !h.waitForFunc(func(s string) bool {
+	h.assertScreen("Ctrl-a z should zoom the active pane", func(s string) bool {
 		return strings.Contains(s, "[pane-1]") && !strings.Contains(s, "[pane-2]")
-	}, 3*time.Second) {
-		screen := h.capture()
-		t.Fatalf("Ctrl-a z should zoom the active pane\nScreen:\n%s", screen)
-	}
+	})
 
+	// Unzoom via Ctrl-a z
+	gen = h.generation()
 	h.sendKeys("C-a", "z")
+	h.waitLayout(gen)
 
-	if !h.waitForFunc(func(s string) bool {
+	h.assertScreen("Ctrl-a z should toggle unzoom", func(s string) bool {
 		return strings.Contains(s, "[pane-1]") && strings.Contains(s, "[pane-2]")
-	}, 3*time.Second) {
-		screen := h.capture()
-		t.Fatalf("Ctrl-a z should toggle unzoom\nScreen:\n%s", screen)
-	}
+	})
 }
 
 func TestZoomAutoUnzoomOnSplit(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t)
+	h := newAmuxHarness(t)
 
 	h.splitH()
 
 	h.runCmd("zoom", "pane-1")
-	h.waitForFunc(func(s string) bool {
+	h.assertScreen("pane-1 zoomed before split", func(s string) bool {
 		return strings.Contains(s, "[pane-1]") && !strings.Contains(s, "[pane-2]")
-	}, 3*time.Second)
+	})
 
+	// Split while zoomed should auto-unzoom
+	gen := h.generation()
 	h.sendKeys("C-a", "-")
-	if !h.waitForFunc(func(s string) bool {
+	h.waitLayout(gen)
+
+	h.assertScreen("split while zoomed should auto-unzoom and show all panes", func(s string) bool {
 		return strings.Contains(s, "[pane-1]") && strings.Contains(s, "[pane-2]") &&
 			strings.Contains(s, "[pane-3]")
-	}, 3*time.Second) {
-		screen := h.capture()
-		t.Fatalf("split while zoomed should auto-unzoom and show all panes\nScreen:\n%s", screen)
-	}
+	})
 }
 
 func TestZoomAutoUnzoomOnFocus(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t)
+	h := newAmuxHarness(t)
 
 	h.splitH()
 
+	// Zoom via Ctrl-a z (active pane is pane-2 after split)
+	gen := h.generation()
 	h.sendKeys("C-a", "z")
-	h.waitForFunc(func(s string) bool {
-		return strings.Contains(s, "[pane-2]") && !strings.Contains(s, "[pane-1]")
-	}, 3*time.Second)
+	h.waitLayout(gen)
 
+	h.assertScreen("pane-2 zoomed before focus change", func(s string) bool {
+		return strings.Contains(s, "[pane-2]") && !strings.Contains(s, "[pane-1]")
+	})
+
+	// Focus previous pane should auto-unzoom
+	gen = h.generation()
 	h.sendKeys("C-a", "k")
+	h.waitLayout(gen)
+
 	if !h.waitForFunc(func(s string) bool {
 		return strings.Contains(s, "[pane-1]") && strings.Contains(s, "[pane-2]")
 	}, 3*time.Second) {

@@ -290,7 +290,10 @@ func runServer(sessionName string) {
 
 	// Signal readiness on the fd specified by AMUX_READY_FD (used by
 	// test harness for deterministic startup without polling).
+	// Unset immediately so child processes (pane shells, inner amux)
+	// don't inherit it and accidentally close an unrelated fd.
 	if fdStr := os.Getenv("AMUX_READY_FD"); fdStr != "" {
+		os.Unsetenv("AMUX_READY_FD")
 		if fd, err := strconv.Atoi(fdStr); err == nil {
 			if ready := os.NewFile(uintptr(fd), "ready-signal"); ready != nil {
 				ready.Write([]byte("ready\n"))

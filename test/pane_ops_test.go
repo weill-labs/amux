@@ -3,7 +3,6 @@ package test
 import (
 	"strings"
 	"testing"
-	"time"
 )
 
 // ---------------------------------------------------------------------------
@@ -259,31 +258,30 @@ func TestSendKeysToSpecificPane(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Keybinding tests — TmuxHarness (requires client for prefix key processing)
+// Keybinding tests — AmuxHarness (requires client for prefix key processing)
 // ---------------------------------------------------------------------------
 
 func TestToggleMinimizeKeybinding(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t)
+	h := newAmuxHarness(t)
 
-	h.sendKeys("C-a", "-")
-	h.waitFor("[pane-2]", 3*time.Second)
+	h.splitH()
 
 	h.runCmd("focus", "pane-1")
-	time.Sleep(300 * time.Millisecond)
+	gen := h.generation()
 	h.sendKeys("C-a", "m")
+	h.waitLayout(gen)
 
-	time.Sleep(500 * time.Millisecond)
 	statusOut := h.runCmd("status")
 	if !strings.Contains(statusOut, "1 minimized") {
 		t.Fatalf("expected 1 minimized pane after Ctrl-a m, got:\n%s", statusOut)
 	}
 
 	h.runCmd("focus", "pane-1")
-	time.Sleep(300 * time.Millisecond)
+	gen = h.generation()
 	h.sendKeys("C-a", "m")
+	h.waitLayout(gen)
 
-	time.Sleep(500 * time.Millisecond)
 	statusOut = h.runCmd("status")
 	if !strings.Contains(statusOut, "0 minimized") {
 		t.Fatalf("expected 0 minimized panes after toggling restore, got:\n%s", statusOut)
@@ -292,22 +290,20 @@ func TestToggleMinimizeKeybinding(t *testing.T) {
 
 func TestToggleMinimizeMultiplePanes(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t)
+	h := newAmuxHarness(t)
 
-	h.sendKeys("C-a", "-")
-	h.waitFor("[pane-2]", 3*time.Second)
-	h.sendKeys("C-a", "-")
-	h.waitFor("[pane-3]", 3*time.Second)
+	h.splitH()
+	h.splitH()
 
 	h.runCmd("focus", "pane-1")
-	time.Sleep(300 * time.Millisecond)
+	gen := h.generation()
 	h.sendKeys("C-a", "m")
-	time.Sleep(500 * time.Millisecond)
+	h.waitLayout(gen)
 
 	h.runCmd("focus", "pane-2")
-	time.Sleep(300 * time.Millisecond)
+	gen = h.generation()
 	h.sendKeys("C-a", "m")
-	time.Sleep(500 * time.Millisecond)
+	h.waitLayout(gen)
 
 	statusOut := h.runCmd("status")
 	if !strings.Contains(statusOut, "2 minimized") {
