@@ -7,7 +7,7 @@ A terminal multiplexer built for working alongside AI agents. Drop-in replacemen
 
 ## Philosophy
 
-1. **Agents are peers, not afterthoughts.** Same panes, same view, same API. The human uses keybindings, the agent uses CLI commands — both are first-class.
+1. **Agents are peers.** Keybindings for humans, CLI commands for agents — same panes, same capabilities.
 
 2. **Zero friction.** Fast enough that neither human nor agent waits. Familiar enough that tmux users don't notice they've switched. Sessions survive upgrades so nothing is ever lost.
 
