@@ -47,8 +47,11 @@ func TestMain(m *testing.M) {
 }
 
 // cleanupStaleTestSessions removes orphaned tmux sessions, amux server
-// processes, and sockets left behind by previous test runs that were
-// killed by a timeout panic.
+// processes, sockets, and log files left behind by previous test runs
+// that were killed by a timeout panic.
+//
+// Not safe if multiple `go test` invocations run concurrently — it may
+// kill sessions belonging to the other run.
 func cleanupStaleTestSessions() {
 	// Kill tmux sessions matching the test naming convention (t- + 8 hex chars)
 	out, _ := exec.Command("tmux", "list-sessions", "-F", "#{session_name}").Output()
@@ -58,20 +61,22 @@ func cleanupStaleTestSessions() {
 		}
 	}
 
-	// Kill orphaned amux server processes for test sessions
-	out, _ = exec.Command("pgrep", "-f", "amux _server t-").Output()
-	for _, pid := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		if pid != "" {
-			exec.Command("kill", pid).Run()
+	// Kill orphaned amux server processes, validating session name
+	out, _ = exec.Command("pgrep", "-fl", "amux _server t-").Output()
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 3 && isTestSession(fields[len(fields)-1]) {
+			exec.Command("kill", fields[0]).Run()
 		}
 	}
 
-	// Clean up stale sockets
+	// Clean up stale sockets and log files
 	socketDir := fmt.Sprintf("/tmp/amux-%d", os.Getuid())
 	entries, _ := os.ReadDir(socketDir)
 	for _, e := range entries {
-		if isTestSession(e.Name()) {
-			os.Remove(filepath.Join(socketDir, e.Name()))
+		name := e.Name()
+		if isTestSession(name) || (strings.HasSuffix(name, ".log") && isTestSession(strings.TrimSuffix(name, ".log"))) {
+			os.Remove(filepath.Join(socketDir, name))
 		}
 	}
 }
