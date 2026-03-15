@@ -3,6 +3,7 @@ package render
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/weill-labs/amux/internal/mux"
 )
@@ -144,9 +145,10 @@ func clipLine(line string, maxWidth int) string {
 	for i < len(line) {
 		b := line[i]
 
-		// Skip ESC sequences (they have zero visible width)
+		// Skip escape sequences — zero visible width
 		if b == '\033' && i+1 < len(line) {
 			next := line[i+1]
+			// CSI: \033[ params final_byte
 			if next == '[' {
 				j := i + 2
 				for j < len(line) && line[j] >= 0x20 && line[j] <= 0x3F {
@@ -157,31 +159,40 @@ func clipLine(line string, maxWidth int) string {
 					continue
 				}
 			}
+			// OSC: \033] ... BEL(\007) or ST(\033\\)
+			if next == ']' {
+				j := i + 2
+				for j < len(line) {
+					if line[j] == '\007' {
+						j++
+						break
+					}
+					if line[j] == '\033' && j+1 < len(line) && line[j+1] == '\\' {
+						j += 2
+						break
+					}
+					j++
+				}
+				i = j
+				continue
+			}
 			i += 2
 			continue
 		}
 
+		// Skip control characters
 		if b < 0x20 {
 			i++
 			continue
 		}
 
-		// Visible character — check if we've hit the width limit
 		if visible >= maxWidth {
 			return line[:i]
 		}
 		visible++
 
-		// Advance past UTF-8 rune
-		if b < 0x80 {
-			i++
-		} else if b < 0xE0 {
-			i += 2
-		} else if b < 0xF0 {
-			i += 3
-		} else {
-			i += 4
-		}
+		_, size := utf8.DecodeRuneInString(line[i:])
+		i += size
 	}
 	return line
 }

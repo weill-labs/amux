@@ -62,17 +62,20 @@ func TestBlitPaneClipsToWidth(t *testing.T) {
 	grid := MaterializeGrid(string(output), width, height+GlobalBarHeight)
 	lines := strings.Split(grid, "\n")
 
-	// The content row is row 1 (row 0 is the status line).
-	// Pane-1's content should be clipped to 10 chars: "ABCDEFGHIJ"
-	// Pane-2 has empty content, so any bleed from pane-1 would be visible.
-	contentRow := lines[1]
+	// Row 0 is the status line; row 1 is the content row.
+	contentRow := []rune(lines[1])
 
-	// Characters past the border (col 11+) should be empty, not pane-1 overflow
-	for col := 11; col < len([]rune(contentRow)); col++ {
-		ch := []rune(contentRow)[col]
-		if ch != ' ' {
+	// Left pane (cols 0-9) should show the first 10 characters, clipped.
+	leftContent := string(contentRow[:10])
+	if leftContent != "ABCDEFGHIJ" {
+		t.Errorf("left pane content = %q, want %q", leftContent, "ABCDEFGHIJ")
+	}
+
+	// Right pane region (col 11+) should be empty — no bleed from pane-1.
+	for col := 11; col < len(contentRow); col++ {
+		if contentRow[col] != ' ' {
 			t.Errorf("pane-1 content bled into pane-2 at col %d: %q\n  full row: %q",
-				col, string(ch), contentRow)
+				col, string(contentRow[col]), string(contentRow))
 			break
 		}
 	}
