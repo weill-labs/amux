@@ -39,16 +39,10 @@ func TestMain(m *testing.M) {
 	// been killed by a timeout panic (t.Cleanup doesn't run on panic).
 	cleanupStaleTestSessions()
 
-	// Set up coverage output directory. If GOCOVERDIR is already set
-	// (e.g. by CI), use it; otherwise create a temp dir.
+	// Use GOCOVERDIR if explicitly set (e.g. by CI). When set, the amux
+	// binary is built with -cover and writes coverage data on exit.
+	// When not set, build without -cover for faster tests and no metadata races.
 	gocoverDir = os.Getenv("GOCOVERDIR")
-	if gocoverDir == "" {
-		if dir, err := os.MkdirTemp("", "amux-cov-*"); err == nil {
-			gocoverDir = dir
-			gocoverOwned = true
-			os.Setenv("GOCOVERDIR", dir)
-		}
-	}
 
 	// Build amux binary for testing
 	tmp, err := os.MkdirTemp("", "amux-test-*")
