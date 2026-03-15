@@ -111,8 +111,9 @@ After creating a PR, always run the code review and code simplifier agents befor
 
 ### Adding a New Feature
 
-1. **Write an integration test first.** Add a test to `test/amux_test.go` that exercises the feature end-to-end via the tmux harness. Follow existing test patterns.
-2. Implement the feature.
+1. **Check what dependencies already provide.** Before designing a custom solution, check if the underlying library (e.g., `charmbracelet/x/vt`) already supports the capability. Read tests and exported methods in `go/pkg/mod/`. This avoids designing infrastructure that already exists.
+2. **Write an integration test first.** Add a test in `test/` that exercises the feature end-to-end via the tmux harness. Follow existing test patterns.
+3. Implement the feature.
 3. Verify the integration test passes: `go test -v -run TestYourFeature ./test/ -timeout 30s`
 4. Add unit tests for complex logic (layout algorithms, rendering, protocol encoding).
 
