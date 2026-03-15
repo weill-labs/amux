@@ -107,6 +107,26 @@ func main() {
 		runServerCommand("send-keys", args[1:])
 	case "spawn":
 		runServerCommand("spawn", args[1:])
+	case "new-window":
+		runServerCommand("new-window", args[1:])
+	case "list-windows":
+		runServerCommand("list-windows", nil)
+	case "select-window":
+		if len(args) < 2 {
+			fmt.Fprintf(os.Stderr, "usage: amux select-window <index|name>\n")
+			os.Exit(1)
+		}
+		runServerCommand("select-window", []string{args[1]})
+	case "next-window":
+		runServerCommand("next-window", nil)
+	case "prev-window":
+		runServerCommand("prev-window", nil)
+	case "rename-window":
+		if len(args) < 2 {
+			fmt.Fprintf(os.Stderr, "usage: amux rename-window <name>\n")
+			os.Exit(1)
+		}
+		runServerCommand("rename-window", []string{args[1]})
 	case "reload-server":
 		runServerCommand("reload-server", nil)
 	case "dashboard":
@@ -139,46 +159,59 @@ func printUsage() {
 	fmt.Println(`amux — Agent-Centric Terminal Multiplexer
 
 Usage:
-  amux [-s session]                   Start or attach to amux session
-  amux [-s session] attach [session]  Attach to a session
-  amux [-s session] new [name]        Start a new named session
-  amux [-s session] list              List panes with metadata
-  amux [-s session] status            Show pane summary
-  amux [-s session] capture           Capture full composited screen
-  amux [-s session] capture <pane>    Capture a single pane's output
-  amux [-s session] capture --ansi    Capture with ANSI escape codes
+  amux [-s session]                    Start or attach to amux session
+  amux [-s session] attach [session]   Attach to a session
+  amux [-s session] new [name]         Start a new named session
+  amux [-s session] list               List panes with metadata
+  amux [-s session] status             Show pane/window summary
+  amux [-s session] capture            Capture full composited screen
+  amux [-s session] capture <pane>     Capture a single pane's output
+  amux [-s session] capture --ansi     Capture with ANSI escape codes
+  amux [-s session] capture --colors   Capture border color map
   amux [-s session] send-keys <pane> <keys>...
-                                      Send keystrokes to a pane
-  amux [-s session] spawn --name NAME Spawn a new agent pane
-  amux [-s session] zoom [pane]       Toggle zoom (maximize) a pane
-  amux [-s session] swap <p1> <p2>    Swap two panes by name or ID
-  amux [-s session] rotate            Rotate pane positions forward
-  amux [-s session] rotate --reverse  Rotate pane positions backward
-  amux [-s session] minimize <pane>   Minimize a pane
-  amux [-s session] restore <pane>    Restore a minimized pane
-  amux [-s session] kill <pane>       Kill a pane
-  amux [-s session] focus <pane>      Focus a pane by name or ID
-  amux [-s session] copy-mode <pane>  Enter copy/scroll mode for a pane
-  amux [-s session] reload-server     Hot-reload the server (preserves panes)
+                                       Send keystrokes to a pane
+  amux [-s session] spawn --name NAME  Spawn a new agent pane
+  amux [-s session] zoom [pane]        Toggle zoom (maximize) a pane
+  amux [-s session] swap <p1> <p2>     Swap two panes by name or ID
+  amux [-s session] rotate             Rotate pane positions forward
+  amux [-s session] rotate --reverse   Rotate pane positions backward
+  amux [-s session] minimize <pane>    Minimize a pane
+  amux [-s session] restore <pane>     Restore a minimized pane
+  amux [-s session] kill <pane>        Kill a pane
+  amux [-s session] focus <pane>       Focus a pane by name or ID
+  amux [-s session] copy-mode <pane>   Enter copy/scroll mode for a pane
+  amux [-s session] new-window         Create a new window
+  amux [-s session] list-windows       List all windows
+  amux [-s session] select-window <n>  Switch to window by index or name
+  amux [-s session] next-window        Switch to next window
+  amux [-s session] prev-window        Switch to previous window
+  amux [-s session] rename-window <n>  Rename the active window
+  amux [-s session] reload-server      Hot-reload the server (preserves panes)
 
 Panes can be referenced by name (pane-1) or ID (1).
 
 Inside an amux session:
-  Ctrl-a \                          Split active pane left/right
-  Ctrl-a -                          Split active pane top/bottom
-  Ctrl-a |                          Root-level split left/right
-  Ctrl-a _                          Root-level split top/bottom
-  Ctrl-a z                          Toggle zoom on active pane
-  Ctrl-a }                          Swap active pane with next
-  Ctrl-a {                          Swap active pane with previous
-  Ctrl-a o                          Cycle focus to next pane
-  Ctrl-a h/j/k/l                    Focus left/down/up/right
+  Ctrl-a \                           Split active pane left/right
+  Ctrl-a -                           Split active pane top/bottom
+  Ctrl-a |                           Root-level split left/right
+  Ctrl-a _                           Root-level split top/bottom
+  Ctrl-a z                           Toggle zoom on active pane
+  Ctrl-a m                           Toggle minimize/restore
+  Ctrl-a }                           Swap active pane with next
+  Ctrl-a {                           Swap active pane with previous
+  Ctrl-a o                           Cycle focus to next pane
+  Ctrl-a h/j/k/l                     Focus left/down/up/right
   Ctrl-a arrow keys                  Focus in arrow direction
   Alt+h/j/k/l                        Focus left/down/up/right (no prefix)
-  Ctrl-a [                          Enter copy/scroll mode
-  Ctrl-a r                          Hot reload (re-exec binary)
-  Ctrl-a d                          Detach from session
-  Ctrl-a Ctrl-a                     Send literal Ctrl-a`)
+  Ctrl-a H/J/K/L                     Resize pane left/down/up/right
+  Ctrl-a [                           Enter copy/scroll mode
+  Ctrl-a c                           Create new window
+  Ctrl-a n                           Next window
+  Ctrl-a p                           Previous window
+  Ctrl-a 1-9                         Select window by number
+  Ctrl-a r                           Hot reload (re-exec binary)
+  Ctrl-a d                           Detach from session
+  Ctrl-a Ctrl-a                      Send literal Ctrl-a`)
 }
 
 // ---------------------------------------------------------------------------
@@ -403,6 +436,104 @@ func runMux(sessionName string) error {
 			prefixEscBuf = nil
 		}
 
+		// Repeat key state — allows navigation/resize keys to repeat
+		// without re-pressing the prefix, matching tmux's -r behavior.
+		// Uses a deadline instead of a timer to avoid goroutine races.
+		const repeatTimeout = 500 * time.Millisecond
+		var repeatKey byte
+		var repeatDeadline time.Time
+
+		// isRepeatableKey returns true for keys that can repeat without prefix.
+		isRepeatableKey := func(b byte) bool {
+			switch b {
+			case 'h', 'j', 'k', 'l', 'H', 'J', 'K', 'L':
+				return true
+			}
+			return false
+		}
+
+		// execPrefixKey executes a prefix keybinding. Returns true if
+		// the goroutine should exit (detach).
+		execPrefixKey := func(b byte, forward *[]byte) bool {
+			switch b {
+			case 'd':
+				if len(*forward) > 0 {
+					server.WriteMsg(conn, &server.Message{
+						Type: server.MsgTypeInput, Input: *forward,
+					})
+				}
+				server.WriteMsg(conn, &server.Message{Type: server.MsgTypeDetach})
+				conn.Close()
+				return true
+			case '-':
+				sendCommand(conn, "split", []string{"v"})
+			case '\\':
+				sendCommand(conn, "split", nil)
+			case '|':
+				sendCommand(conn, "split", []string{"root"})
+			case '_':
+				sendCommand(conn, "split", []string{"root", "v"})
+			case '}':
+				sendCommand(conn, "swap", []string{"forward"})
+			case '{':
+				sendCommand(conn, "swap", []string{"backward"})
+			case 'o':
+				sendCommand(conn, "focus", []string{"next"})
+			case 'h':
+				sendCommand(conn, "focus", []string{"left"})
+			case 'l':
+				sendCommand(conn, "focus", []string{"right"})
+			case 'k':
+				sendCommand(conn, "focus", []string{"up"})
+			case 'j':
+				sendCommand(conn, "focus", []string{"down"})
+			case 'H':
+				sendCommand(conn, "resize-active", []string{"left", "2"})
+			case 'J':
+				sendCommand(conn, "resize-active", []string{"down", "2"})
+			case 'K':
+				sendCommand(conn, "resize-active", []string{"up", "2"})
+			case 'L':
+				sendCommand(conn, "resize-active", []string{"right", "2"})
+			case 'z':
+				sendCommand(conn, "zoom", nil)
+			case 'm':
+				sendCommand(conn, "toggle-minimize", nil)
+			case '[':
+				cr.EnterCopyMode(cr.ActivePaneID())
+				if data := cr.Render(); data != nil {
+					os.Stdout.Write(data)
+				}
+			case 'c':
+				sendCommand(conn, "new-window", nil)
+			case 'n':
+				sendCommand(conn, "next-window", nil)
+			case 'p':
+				sendCommand(conn, "prev-window", nil)
+			case '1', '2', '3', '4', '5', '6', '7', '8', '9':
+				sendCommand(conn, "select-window", []string{string(b)})
+			case 'r':
+				if len(*forward) > 0 {
+					server.WriteMsg(conn, &server.Message{
+						Type: server.MsgTypeInput, Input: *forward,
+					})
+					*forward = nil
+				}
+				select {
+				case triggerReload <- struct{}{}:
+				default:
+				}
+			case 0x1b:
+				prefixEsc = true
+				prefixEscBuf = nil
+			case 0x01:
+				*forward = append(*forward, 0x01)
+			default:
+				*forward = append(*forward, 0x01, b)
+			}
+			return false
+		}
+
 		// processKeyByte handles a single non-mouse byte through the
 		// Ctrl-a prefix system. Returns true if the goroutine should exit.
 		processKeyByte := func(b byte, forward *[]byte) bool {
@@ -439,67 +570,25 @@ func runMux(sessionName string) error {
 				return false
 			}
 
+			// Repeat mode: any repeatable key executes without prefix while
+			// the deadline hasn't expired. Matches tmux behavior where all
+			// repeatable bindings stay active, not just the original key.
+			if repeatKey != 0 {
+				if isRepeatableKey(b) && time.Now().Before(repeatDeadline) {
+					repeatKey = b
+					repeatDeadline = time.Now().Add(repeatTimeout)
+					return execPrefixKey(b, forward)
+				}
+				repeatKey = 0
+			}
+
 			if prefix {
 				prefix = false
-				switch b {
-				case 'd':
-					if len(*forward) > 0 {
-						server.WriteMsg(conn, &server.Message{
-							Type: server.MsgTypeInput, Input: *forward,
-						})
-					}
-					server.WriteMsg(conn, &server.Message{Type: server.MsgTypeDetach})
-					conn.Close()
-					return true
-				case '-':
-					sendCommand(conn, "split", []string{"v"})
-				case '\\':
-					sendCommand(conn, "split", nil)
-				case '|':
-					sendCommand(conn, "split", []string{"root"})
-				case '_':
-					sendCommand(conn, "split", []string{"root", "v"})
-				case '}':
-					sendCommand(conn, "swap", []string{"forward"})
-				case '{':
-					sendCommand(conn, "swap", []string{"backward"})
-				case 'o':
-					sendCommand(conn, "focus", []string{"next"})
-				case 'h':
-					sendCommand(conn, "focus", []string{"left"})
-				case 'l':
-					sendCommand(conn, "focus", []string{"right"})
-				case 'k':
-					sendCommand(conn, "focus", []string{"up"})
-				case 'j':
-					sendCommand(conn, "focus", []string{"down"})
-				case 'z':
-					sendCommand(conn, "zoom", nil)
-				case '[':
-					cr.EnterCopyMode(cr.ActivePaneID())
-					if data := cr.Render(); data != nil {
-						os.Stdout.Write(data)
-					}
-				case 'r':
-					if len(*forward) > 0 {
-						server.WriteMsg(conn, &server.Message{
-							Type: server.MsgTypeInput, Input: *forward,
-						})
-						*forward = nil
-					}
-					select {
-					case triggerReload <- struct{}{}:
-					default:
-					}
-				case 0x1b:
-					prefixEsc = true
-					prefixEscBuf = nil
-				case 0x01:
-					*forward = append(*forward, 0x01)
-				default:
-					*forward = append(*forward, 0x01, b)
+				if isRepeatableKey(b) {
+					repeatKey = b
+					repeatDeadline = time.Now().Add(repeatTimeout)
 				}
-				return false
+				return execPrefixKey(b, forward)
 			}
 
 			if b == 0x01 {

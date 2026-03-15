@@ -82,7 +82,7 @@ func renderPaneStatus(buf *strings.Builder, cell *mux.LayoutCell, isActive bool,
 }
 
 // renderGlobalBar draws the global status bar at the bottom of the terminal.
-func renderGlobalBar(buf *strings.Builder, sessionName string, paneCount int, width, yPos int) {
+func renderGlobalBar(buf *strings.Builder, sessionName string, paneCount int, width, yPos int, windows []WindowInfo) {
 	buf.WriteString(CursorTo(yPos+1, 1))
 
 	// Catppuccin surface0 bg, text fg
@@ -90,15 +90,34 @@ func renderGlobalBar(buf *strings.Builder, sessionName string, paneCount int, wi
 
 	now := time.Now().Format("15:04")
 
-	left := " " + Bold + "amux" + NoBold + " │ " + sessionName + " "
+	left := " " + Bold + "amux" + NoBold + " │ "
+	leftVisible := 8 // " amux │ "
+
+	// Show window tabs if there are multiple windows
+	if len(windows) > 1 {
+		for _, w := range windows {
+			tab := fmt.Sprintf("%d:%s", w.Index, w.Name)
+			if w.IsActive {
+				left += Bold + "[" + tab + "]" + NoBold + " "
+				leftVisible += len(tab) + 3 // "[tab] "
+			} else {
+				left += tab + " "
+				leftVisible += len(tab) + 1
+			}
+		}
+		left += "│ "
+		leftVisible += 2
+	} else {
+		left += sessionName + " "
+		leftVisible += len(sessionName) + 1
+	}
+
 	right := fmt.Sprintf(" %d panes │ %s ", paneCount, now)
+	rightVisible := len(right)
 
 	buf.WriteString(left)
 
 	// Fill middle
-	// Approximate visible width (ignore ANSI escapes for rough fill)
-	leftVisible := 8 + len(sessionName) // " amux │ session "
-	rightVisible := len(right)
 	fill := width - leftVisible - rightVisible
 	if fill > 0 {
 		buf.WriteString(strings.Repeat(" ", fill))

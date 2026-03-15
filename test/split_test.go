@@ -307,8 +307,7 @@ func TestGoldenVerticalSplit(t *testing.T) {
 	frame := extractFrame(h.captureAmux(), h.session)
 	assertGolden(t, "vertical_split.golden", frame)
 
-	ansi := h.runCmd("capture", "--ansi")
-	colorMap := extractColorMap(ansi, 80, 24)
+	colorMap := h.runCmd("capture", "--colors")
 	assertGolden(t, "vertical_split.color", colorMap)
 }
 
@@ -322,8 +321,7 @@ func TestGoldenHorizontalSplit(t *testing.T) {
 	frame := extractFrame(h.captureAmux(), h.session)
 	assertGolden(t, "horizontal_split.golden", frame)
 
-	ansi := h.runCmd("capture", "--ansi")
-	colorMap := extractColorMap(ansi, 80, 24)
+	colorMap := h.runCmd("capture", "--colors")
 	assertGolden(t, "horizontal_split.color", colorMap)
 }
 
@@ -347,7 +345,6 @@ func TestGoldenFourPane(t *testing.T) {
 	frame := extractFrame(h.captureAmux(), h.session)
 	assertGolden(t, "four_pane.golden", frame)
 
-	ansi := h.runCmd("capture", "--ansi")
-	colorMap := extractColorMap(ansi, 80, 24)
+	colorMap := h.runCmd("capture", "--colors")
 	assertGolden(t, "four_pane.color", colorMap)
 }

@@ -15,11 +15,14 @@ const DefaultRestoreHeight = 12
 
 // Window holds the layout tree and active pane for one window.
 type Window struct {
+	ID           uint32
+	Name         string
 	Root         *LayoutCell
 	ActivePane   *Pane
 	Width        int
 	Height       int
 	ZoomedPaneID uint32 // non-zero when a pane is zoomed to full window
+	minimizeSeq  uint64 // monotonic counter for LIFO minimize ordering
 }
 
 // NewWindow creates a window with a single pane.
@@ -431,6 +434,104 @@ func (w *Window) ResizeBorder(x, y, delta int) bool {
 	return true
 }
 
+// ResizeActive moves the nearest border in the given direction by delta cells,
+// following tmux's resize-pane semantics. The direction specifies which way the
+// border moves, not which way the pane grows.
+// direction is "left", "right", "up", or "down".
+// Returns true if a resize was performed.
+func (w *Window) ResizeActive(direction string, delta int) bool {
+	if w.ActivePane == nil || delta <= 0 {
+		return false
+	}
+	if w.ZoomedPaneID != 0 {
+		w.Unzoom()
+	}
+
+	// Map direction to split axis and change sign.
+	// Positive change grows the left/top sibling (border moves right/down).
+	// Negative change shrinks it (border moves left/up).
+	var axis SplitDir
+	var change int
+	switch direction {
+	case "left":
+		axis, change = SplitHorizontal, -delta
+	case "right":
+		axis, change = SplitHorizontal, delta
+	case "up":
+		axis, change = SplitVertical, -delta
+	case "down":
+		axis, change = SplitVertical, delta
+	default:
+		return false
+	}
+
+	// Find the active pane's leaf cell
+	leaf := w.Root.FindPane(w.ActivePane.ID)
+	if leaf == nil {
+		return false
+	}
+
+	// Walk up the tree to find the nearest ancestor with matching axis.
+	cell := leaf
+	for cell.Parent != nil {
+		if cell.Parent.Dir == axis {
+			idx := cell.indexInParent()
+			siblings := cell.Parent.Children
+
+			// tmux convention: resize the border adjacent to this cell.
+			// If we're the last child, use the border to our left (idx-1, idx).
+			// Otherwise, use the border to our right (idx, idx+1).
+			left, right := siblings[idx], siblings[idx+1]
+			if idx == len(siblings)-1 {
+				left, right = siblings[idx-1], siblings[idx]
+			}
+
+			if change > 0 {
+				return w.resizeBetween(left, right, axis, change)
+			}
+			return w.resizeBetween(right, left, axis, -change)
+		}
+		cell = cell.Parent
+	}
+
+	return false
+}
+
+// resizeBetween transfers delta cells from donor to grower along the given axis.
+func (w *Window) resizeBetween(grower, donor *LayoutCell, axis SplitDir, delta int) bool {
+	var growerSize, donorSize *int
+	if axis == SplitHorizontal {
+		growerSize = &grower.W
+		donorSize = &donor.W
+	} else {
+		growerSize = &grower.H
+		donorSize = &donor.H
+	}
+
+	// Clamp so donor doesn't go below minimum
+	if *donorSize-delta < PaneMinSize {
+		delta = *donorSize - PaneMinSize
+	}
+	if delta <= 0 {
+		return false
+	}
+
+	*growerSize += delta
+	*donorSize -= delta
+
+	// Propagate size changes to subtrees
+	if !grower.IsLeaf() {
+		grower.ResizeAll(grower.W, grower.H)
+	}
+	if !donor.IsLeaf() {
+		donor.ResizeAll(donor.W, donor.H)
+	}
+
+	w.Root.FixOffsets()
+	w.resizePTYs()
+	return true
+}
+
 // resizePTYs resizes all pane PTYs to match their layout cell dimensions.
 func (w *Window) resizePTYs() {
 	w.Root.Walk(func(c *LayoutCell) {
@@ -438,6 +539,17 @@ func (w *Window) resizePTYs() {
 			c.Pane.Resize(c.W, PaneContentHeight(c.H))
 		}
 	})
+}
+
+// PaneCount returns the number of panes in the window's layout tree.
+func (w *Window) PaneCount() int {
+	count := 0
+	w.Root.Walk(func(c *LayoutCell) {
+		if c.Pane != nil {
+			count++
+		}
+	})
+	return count
 }
 
 // Panes returns all panes in the window (depth-first order).
@@ -579,6 +691,8 @@ func (w *Window) Minimize(paneID uint32) error {
 
 	cell.Pane.Meta.Minimized = true
 	cell.Pane.Meta.RestoreH = cell.H
+	w.minimizeSeq++
+	cell.Pane.Meta.MinimizedSeq = w.minimizeSeq
 
 	cell.H = StatusLineRows + 1
 	cell.Pane.Resize(cell.W, 1)
@@ -692,8 +806,60 @@ func (w *Window) Restore(paneID uint32) error {
 	cell.H = savedH
 	cell.Pane.Meta.Minimized = false
 	cell.Pane.Meta.RestoreH = 0
+	cell.Pane.Meta.MinimizedSeq = 0
 	cell.Pane.Resize(cell.W, PaneContentHeight(cell.H))
 
 	w.Root.FixOffsets()
 	return nil
+}
+
+// ToggleMinimize minimizes the active pane if no panes are minimized,
+// or restores the most recently minimized pane (LIFO order).
+// Returns the affected pane's name and whether it was minimized (true) or restored (false).
+func (w *Window) ToggleMinimize() (name string, minimized bool, err error) {
+	// Find the most recently minimized pane (highest MinimizedSeq).
+	var best *Pane
+	w.Root.Walk(func(c *LayoutCell) {
+		if c.Pane != nil && c.Pane.Meta.Minimized {
+			if best == nil || c.Pane.Meta.MinimizedSeq > best.Meta.MinimizedSeq {
+				best = c.Pane
+			}
+		}
+	})
+
+	if best != nil {
+		err = w.Restore(best.ID)
+		return best.Meta.Name, false, err
+	}
+
+	if w.ActivePane == nil {
+		return "", false, fmt.Errorf("no active pane")
+	}
+
+	// Guard: refuse to minimize the last non-minimized pane.
+	nonMinimized := 0
+	w.Root.Walk(func(c *LayoutCell) {
+		if c.Pane != nil && !c.Pane.Meta.Minimized {
+			nonMinimized++
+		}
+	})
+	if nonMinimized <= 1 {
+		return "", false, fmt.Errorf("cannot minimize the only visible pane")
+	}
+
+	name = w.ActivePane.Meta.Name
+	err = w.Minimize(w.ActivePane.ID)
+	return name, true, err
+}
+
+// recoverMinimizeSeq recomputes minimizeSeq from existing pane MinimizedSeq
+// values after a checkpoint restore or hot-reload.
+func (w *Window) recoverMinimizeSeq() {
+	var maxSeq uint64
+	w.Root.Walk(func(c *LayoutCell) {
+		if c.Pane != nil && c.Pane.Meta.MinimizedSeq > maxSeq {
+			maxSeq = c.Pane.Meta.MinimizedSeq
+		}
+	})
+	w.minimizeSeq = maxSeq
 }

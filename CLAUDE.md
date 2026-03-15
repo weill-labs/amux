@@ -68,6 +68,8 @@ test/
 
 **Guard against impossible states.** Minimize checks that at least one pane stays non-minimized. Restore caps height at available space. Focus fallback finds nearest pane when strict overlap matching fails.
 
+**Colors live in `config/config.go`.** The Catppuccin Mocha palette (`CatppuccinMocha`), letter abbreviations (`CatppuccinLetters`), and named hex constants (`DimColorHex`, `TextColorHex`) are defined once in the config package. Reference these constants instead of hardcoding hex values like `"f5e0dc"` or `"6c7086"`.
+
 ## Development
 
 ### Build and Test
@@ -105,14 +107,19 @@ Tests should read like specs. Minimize logic in assertions so a human can read t
 
 Regenerate goldens after intentional rendering changes: `cd test && go test -run TestGolden -update`
 
+### Pre-Push Rebase
+
+Rebase onto `origin/main` before the first push (`git fetch origin main && git rebase origin/main`). Multiple features often land in parallel; rebasing before push avoids repeated merge conflict resolution after the PR is open.
+
 ### Post-PR Review
 
 After creating a PR, always run the code review and code simplifier agents before considering the work done. These catch issues that are easy to miss during implementation: style inconsistencies, unnecessary complexity, and subtle bugs.
 
 ### Adding a New Feature
 
-1. **Write an integration test first.** Add a test to `test/amux_test.go` that exercises the feature end-to-end via the tmux harness. Follow existing test patterns.
-2. Implement the feature.
+1. **Check what dependencies already provide.** Before designing a custom solution, check if the underlying library (e.g., `charmbracelet/x/vt`) already supports the capability. Read tests and exported methods in `go/pkg/mod/`. This avoids designing infrastructure that already exists.
+2. **Write an integration test first.** Add a test in `test/` that exercises the feature end-to-end via the tmux harness. Follow existing test patterns.
+3. Implement the feature.
 3. Verify the integration test passes: `go test -v -run TestYourFeature ./test/ -timeout 30s`
 4. Add unit tests for complex logic (layout algorithms, rendering, protocol encoding).
 
@@ -166,3 +173,12 @@ All issues and feature requests go in the Linear project (not GitHub Issues):
 https://linear.app/weill-labs/project/amux-b3a52334f77c
 
 Team key: `LAB`. Use the Linear skill to create/query issues.
+
+**Link PRs to Linear issues.** When creating a PR that implements a Linear issue, include `Fixes LAB-XXX` in the PR description. This tells Linear's GitHub integration to auto-transition the issue to Done when the PR merges. Example:
+
+```
+## Summary
+- Implements feature X
+
+Fixes LAB-123
+```

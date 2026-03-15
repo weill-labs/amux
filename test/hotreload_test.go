@@ -3,7 +3,6 @@ package test
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -44,9 +43,8 @@ func TestHotReloadAutoDetect(t *testing.T) {
 	h.sendKeys("e", "c", "h", "o", " ", "A", "U", "T", "O", "R", "L", "D", "Enter")
 	h.waitFor("AUTORLD", 3*time.Second)
 
-	out, err := exec.Command("go", "build", "-o", amuxBin, "..").CombinedOutput()
-	if err != nil {
-		t.Fatalf("rebuilding amux binary: %v\n%s", err, out)
+	if err := buildAmux(amuxBin); err != nil {
+		t.Fatalf("rebuilding amux binary: %v", err)
 	}
 
 	if !h.waitFor("[pane-", 10*time.Second) {
@@ -102,9 +100,8 @@ func TestServerAutoReload(t *testing.T) {
 	h.sendKeys("e", "c", "h", "o", " ", "S", "R", "V", "A", "U", "T", "O", "Enter")
 	h.waitFor("SRVAUTO", 3*time.Second)
 
-	out, err := exec.Command("go", "build", "-o", amuxBin, "..").CombinedOutput()
-	if err != nil {
-		t.Fatalf("rebuilding amux binary: %v\n%s", err, out)
+	if err := buildAmux(amuxBin); err != nil {
+		t.Fatalf("rebuilding amux binary: %v", err)
 	}
 
 	if !h.waitFor("[pane-", 15*time.Second) {

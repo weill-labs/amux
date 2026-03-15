@@ -20,13 +20,14 @@ const PaneNameFormat = "pane-%d"
 
 // PaneMeta holds amux metadata for a pane.
 type PaneMeta struct {
-	Name      string
-	Host      string
-	Task      string
-	Remote    string
-	Color     string
-	Minimized bool
-	RestoreH  int // saved height before minimize
+	Name         string
+	Host         string
+	Task         string
+	Remote       string
+	Color        string
+	Minimized    bool
+	RestoreH     int    // saved height before minimize
+	MinimizedSeq uint64 // monotonic counter for LIFO restore ordering
 }
 
 // Pane manages a PTY, its terminal emulator, and metadata.
@@ -244,6 +245,17 @@ func (p *Pane) Render() string {
 // client-side emulator seeds the correct cursor position.
 func (p *Pane) RenderScreen() string {
 	return RenderWithCursor(p.emulator)
+}
+
+// RenderWithoutCursorBlock returns the screen with the cursor cell's
+// reverse-video attribute cleared, so inactive panes don't show a block cursor.
+func (p *Pane) RenderWithoutCursorBlock() string {
+	return p.emulator.RenderWithoutCursorBlock()
+}
+
+// HasCursorBlock returns true if the pane contains an app-rendered block cursor.
+func (p *Pane) HasCursorBlock() bool {
+	return p.emulator.HasCursorBlock()
 }
 
 // CursorPos returns the cursor position within this pane (0-indexed).

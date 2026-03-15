@@ -11,28 +11,85 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4.2.2
+        with:
+          fetch-depth: 2
+
+      - name: Check for code changes
+        id: changes
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            BASE="${{ github.event.pull_request.base.sha }}"
+          else
+            BASE="${{ github.event.before }}"
+          fi
+          CODE_CHANGED=$(git diff --name-only "$BASE" HEAD | grep -vE '\.(md)$|^docs/|^LICENSE$' | head -1)
+          if [ -z "$CODE_CHANGED" ]; then
+            echo "code_changed=false" >> "$GITHUB_OUTPUT"
+            echo "Docs-only change, skipping tests"
+          else
+            echo "code_changed=true" >> "$GITHUB_OUTPUT"
+          fi
 
       - uses: actions/setup-go@v5.4.0
+        if: steps.changes.outputs.code_changed == 'true'
         with:
           go-version: "1.25"
 
       - name: Install tmux
+        if: steps.changes.outputs.code_changed == 'true'
         run: sudo apt-get update && sudo apt-get install -y tmux
 
       - name: Build
+        if: steps.changes.outputs.code_changed == 'true'
         run: go build ./...
 
       - name: Vet
+        if: steps.changes.outputs.code_changed == 'true'
         run: go vet ./...
 
       - name: Unit tests
-        run: go test -json ./internal/... -timeout 60s | tee unit-results.json
+        if: steps.changes.outputs.code_changed == 'true'
+        run: go test -json -coverprofile=unit-coverage.txt -covermode=atomic ./internal/... -timeout 60s | tee unit-results.json
 
       - name: Integration tests
-        run: go test -json -timeout 120s ./test/ | tee integration-results.json
+        if: steps.changes.outputs.code_changed == 'true'
+        run: |
+          mkdir -p /tmp/amux-covdata
+          GOCOVERDIR=/tmp/amux-covdata go test -json -timeout 120s ./test/ | tee integration-results.json
+
+      - name: Coverage summary
+        if: always() && steps.changes.outputs.code_changed == 'true'
+        run: |
+          # Convert integration coverage from binary to text
+          if ls /tmp/amux-covdata/* &>/dev/null; then
+            go tool covdata textfmt -i=/tmp/amux-covdata -o=integration-coverage.txt
+          fi
+
+          # Merge unit + integration profiles
+          profiles=""
+          [ -f unit-coverage.txt ] && profiles="unit-coverage.txt"
+          [ -f integration-coverage.txt ] && profiles="$profiles integration-coverage.txt"
+
+          if [ -n "$profiles" ]; then
+            go tool cover -func <(cat $profiles | grep -v '^mode:' | sed '1imode: atomic') > coverage-summary.txt
+            total=$(tail -1 coverage-summary.txt | awk '{print $NF}')
+
+            {
+              echo '## Coverage'
+              echo ''
+              echo "**Total: ${total}**"
+              echo ''
+              echo '<details><summary>Per-function breakdown</summary>'
+              echo ''
+              echo '```'
+              cat coverage-summary.txt
+              echo '```'
+              echo '</details>'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Test timing summary
-        if: always()
+        if: always() && steps.changes.outputs.code_changed == 'true'
         run: |
           echo '## Test Timing' >> "$GITHUB_STEP_SUMMARY"
           echo '' >> "$GITHUB_STEP_SUMMARY"

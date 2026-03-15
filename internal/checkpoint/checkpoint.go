@@ -25,11 +25,12 @@ type PaneCheckpoint struct {
 
 // ServerCheckpoint captures the full server state for reload.
 type ServerCheckpoint struct {
-	SessionName string
-	Counter     uint32
-	ListenerFd  int
-	Layout      proto.LayoutSnapshot
-	Panes       []PaneCheckpoint
+	SessionName   string
+	Counter       uint32
+	WindowCounter uint32
+	ListenerFd    int
+	Layout        proto.LayoutSnapshot
+	Panes         []PaneCheckpoint
 }
 
 // Write gob-encodes the checkpoint to a temp file and returns the path.

@@ -3,15 +3,30 @@ package render
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/weill-labs/amux/internal/mux"
 )
+
+// WindowInfo holds metadata about a window for rendering in the global bar.
+type WindowInfo struct {
+	Index    int
+	Name     string
+	IsActive bool
+	Panes    int
+}
 
 // Compositor composes pane content into terminal output.
 type Compositor struct {
 	width       int
 	height      int
 	sessionName string
+	windows     []WindowInfo
+}
+
+// SetWindows sets the window list for the global bar.
+func (c *Compositor) SetWindows(windows []WindowInfo) {
+	c.windows = windows
 }
 
 // NewCompositor creates a compositor for the given terminal dimensions.
@@ -81,7 +96,7 @@ func (c *Compositor) RenderFull(root *mux.LayoutCell, activePaneID uint32, looku
 		renderPaneStatus(&buf, cell, isActive, pd)
 
 		// Pane content (shifted down by status line)
-		rendered := pd.RenderScreen()
+		rendered := pd.RenderScreen(isActive)
 		c.blitPane(&buf, cell, rendered)
 	})
 
@@ -90,16 +105,18 @@ func (c *Compositor) RenderFull(root *mux.LayoutCell, activePaneID uint32, looku
 	renderBorders(&buf, bm, root, activePaneID, activeColor)
 
 	// Global status bar at bottom
-	renderGlobalBar(&buf, c.sessionName, paneCount, c.width, c.height-1)
+	renderGlobalBar(&buf, c.sessionName, paneCount, c.width, c.height-1, c.windows)
 
 	// Position cursor and respect the active pane's cursor visibility state.
 	// If the application has hidden its cursor (e.g. during streaming output),
 	// keep it hidden rather than showing it at a stale position.
+	// If the application renders its own block cursor (reverse-video space),
+	// hide the terminal cursor to avoid showing two cursors.
 	showCursor := true
 	if activePaneID != 0 {
 		if cell := root.FindByPaneID(activePaneID); cell != nil {
 			if pd := lookup(activePaneID); pd != nil {
-				if pd.CursorHidden() {
+				if pd.CursorHidden() || pd.HasCursorBlock() {
 					showCursor = false
 				} else {
 					col, row := pd.CursorPos()
@@ -118,6 +135,8 @@ func (c *Compositor) RenderFull(root *mux.LayoutCell, activePaneID uint32, looku
 }
 
 // blitPane writes a pane's rendered content below its status line.
+// Lines are clipped to cell.W visible characters to prevent content
+// from bleeding into adjacent panes.
 func (c *Compositor) blitPane(buf *strings.Builder, cell *mux.LayoutCell, rendered string) {
 	lines := strings.Split(rendered, "\n")
 	contentH := mux.PaneContentHeight(cell.H)
@@ -129,9 +148,69 @@ func (c *Compositor) blitPane(buf *strings.Builder, cell *mux.LayoutCell, render
 		row := cell.Y + mux.StatusLineRows + i + 1
 		buf.WriteString(CursorTo(row, cell.X+1))
 		if len(line) > 0 {
-			buf.WriteString(line)
+			buf.WriteString(clipLine(line, cell.W))
 		}
 	}
+}
+
+// clipLine truncates an ANSI-escaped line to at most maxWidth visible
+// characters, preserving escape sequences that precede the cutoff.
+func clipLine(line string, maxWidth int) string {
+	visible := 0
+	i := 0
+	for i < len(line) {
+		b := line[i]
+
+		// Skip escape sequences — zero visible width
+		if b == '\033' && i+1 < len(line) {
+			next := line[i+1]
+			// CSI: \033[ params final_byte
+			if next == '[' {
+				j := i + 2
+				for j < len(line) && line[j] >= 0x20 && line[j] <= 0x3F {
+					j++
+				}
+				if j < len(line) {
+					i = j + 1
+					continue
+				}
+			}
+			// OSC: \033] ... BEL(\007) or ST(\033\\)
+			if next == ']' {
+				j := i + 2
+				for j < len(line) {
+					if line[j] == '\007' {
+						j++
+						break
+					}
+					if line[j] == '\033' && j+1 < len(line) && line[j+1] == '\\' {
+						j += 2
+						break
+					}
+					j++
+				}
+				i = j
+				continue
+			}
+			i += 2
+			continue
+		}
+
+		// Skip control characters
+		if b < 0x20 {
+			i++
+			continue
+		}
+
+		if visible >= maxWidth {
+			return line[:i]
+		}
+		visible++
+
+		_, size := utf8.DecodeRuneInString(line[i:])
+		i += size
+	}
+	return line
 }
 
 // hexToANSI converts a 6-digit hex color to an ANSI truecolor escape.

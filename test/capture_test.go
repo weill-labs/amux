@@ -38,6 +38,56 @@ func TestCapturePane(t *testing.T) {
 	}
 }
 
+func TestCapturePaneANSI(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// Write colored text so the pane has ANSI sequences
+	h.sendKeys("e", "c", "h", "o", " ", "-", "e", " ",
+		"'", "\\", "0", "3", "3", "[", "3", "1", "m", "R", "E", "D", "\\", "0", "3", "3", "[", "m", "'",
+		"Enter")
+	h.waitFor("RED", 3*time.Second)
+
+	// Per-pane capture without --ansi should be plain text
+	plain := h.runCmd("capture", "pane-1")
+	if strings.Contains(plain, "\033[") {
+		t.Errorf("capture pane without --ansi should be plain text, got ANSI escapes:\n%s", plain)
+	}
+	if !strings.Contains(plain, "RED") {
+		t.Errorf("capture pane should contain RED, got:\n%s", plain)
+	}
+
+	// Per-pane capture with --ansi should preserve ANSI sequences
+	ansi := h.runCmd("capture", "--ansi", "pane-1")
+	if !strings.Contains(ansi, "\033[") {
+		t.Errorf("capture pane --ansi should contain ANSI escapes, got:\n%s", ansi)
+	}
+	if !strings.Contains(ansi, "RED") {
+		t.Errorf("capture pane --ansi should contain RED, got:\n%s", ansi)
+	}
+}
+
+func TestCursorBlockOnlyInActivePane(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// Split so we have two panes with shell prompts
+	h.sendKeys("C-a", "\\")
+	h.waitFor("[pane-2]", 3*time.Second)
+
+	// Focus pane-2 — pane-1 becomes inactive.
+	// Use per-pane --ansi capture (returns emulator Render() output)
+	// to check each pane independently, avoiding false positives from
+	// the compositor's own ANSI sequences or shell prompt styling.
+	h.runCmd("focus", "pane-2")
+	time.Sleep(300 * time.Millisecond)
+
+	inactive := h.runCmd("capture", "--ansi", "pane-1")
+	if strings.Contains(inactive, "\033[7m") {
+		t.Errorf("inactive pane should have no reverse-video cursor blocks, got:\n%s", inactive)
+	}
+}
+
 func TestCaptureWithSplit(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
