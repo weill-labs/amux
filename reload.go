@@ -85,6 +85,7 @@ func execSelf(execPath string, conn net.Conn, fd int, oldState *term.State) {
 
 	// Restore terminal state
 	term.Restore(fd, oldState)
+	os.Stdout.Write([]byte(render.MouseDisable))
 	os.Stdout.Write([]byte(render.AltScreenExit))
 	os.Stdout.Write([]byte(render.ResetTitle))
 

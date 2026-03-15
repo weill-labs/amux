@@ -220,22 +220,22 @@ func parseParams(paramBytes []byte, isRelease bool) (Event, bool) {
 
 	// Extract button from low bits
 	btnBits := cb &^ (4 | 8 | 16 | 32) // clear modifier + motion bits
-	switch {
-	case btnBits == 0:
+	switch btnBits {
+	case 0:
 		ev.Button = ButtonLeft
-	case btnBits == 1:
+	case 1:
 		ev.Button = ButtonMiddle
-	case btnBits == 2:
+	case 2:
 		ev.Button = ButtonRight
-	case btnBits == 3:
+	case 3:
 		ev.Button = ButtonNone
-	case btnBits == 64:
+	case 64:
 		ev.Button = ScrollUp
-	case btnBits == 65:
+	case 65:
 		ev.Button = ScrollDown
-	case btnBits == 66:
+	case 66:
 		ev.Button = ScrollLeft
-	case btnBits == 67:
+	case 67:
 		ev.Button = ScrollRight
 	default:
 		ev.Button = ButtonNone

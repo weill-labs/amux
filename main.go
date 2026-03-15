@@ -13,6 +13,7 @@ import (
 
 	"github.com/weill-labs/amux/internal/checkpoint"
 	"github.com/weill-labs/amux/internal/mouse"
+	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/render"
 	"github.com/weill-labs/amux/internal/server"
 
@@ -505,15 +506,16 @@ func handleMouseEvent(ev mouse.Event, cr *ClientRenderer, conn net.Conn, draggin
 		}
 
 	case ev.Action == mouse.Motion && *dragging:
-		// Compute delta from the drag origin
+		hit := layout.FindBorderAt(*dragBorderX, *dragBorderY)
+		if hit == nil {
+			break
+		}
+		// Use the axis that matches the border direction
 		dx := ev.X - ev.LastX
 		dy := ev.Y - ev.LastY
 		delta := dx
-		// Check border direction to determine which axis matters
-		if hit := layout.FindBorderAt(*dragBorderX, *dragBorderY); hit != nil {
-			if hit.Dir == 1 { // SplitVertical — horizontal border, drag vertically
-				delta = dy
-			}
+		if hit.Dir == mux.SplitVertical {
+			delta = dy
 		}
 		if delta != 0 {
 			sendCommand(conn, "resize-border", []string{
@@ -522,29 +524,23 @@ func handleMouseEvent(ev mouse.Event, cr *ClientRenderer, conn net.Conn, draggin
 				fmt.Sprintf("%d", delta),
 			})
 			// Update drag origin to track cumulative movement
-			if hit := layout.FindBorderAt(*dragBorderX, *dragBorderY); hit != nil {
-				if hit.Dir == 0 { // SplitHorizontal
-					*dragBorderX += dx
-				} else {
-					*dragBorderY += dy
-				}
+			if hit.Dir == mux.SplitHorizontal {
+				*dragBorderX += dx
+			} else {
+				*dragBorderY += dy
 			}
 		}
 
 	case ev.Action == mouse.Release:
 		*dragging = false
 
-	case ev.Button == mouse.ScrollUp || ev.Button == mouse.ScrollDown:
-		// Forward scroll wheel to the pane under the cursor.
-		// Convert to up/down arrow key sequences.
-		var seq []byte
-		if ev.Button == mouse.ScrollUp {
-			seq = []byte("\033[A\033[A\033[A") // 3x up arrow
-		} else {
-			seq = []byte("\033[B\033[B\033[B") // 3x down arrow
-		}
+	case ev.Button == mouse.ScrollUp:
 		server.WriteMsg(conn, &server.Message{
-			Type: server.MsgTypeInput, Input: seq,
+			Type: server.MsgTypeInput, Input: []byte("\033[A\033[A\033[A"), // 3x up arrow
+		})
+	case ev.Button == mouse.ScrollDown:
+		server.WriteMsg(conn, &server.Message{
+			Type: server.MsgTypeInput, Input: []byte("\033[B\033[B\033[B"), // 3x down arrow
 		})
 	}
 }
