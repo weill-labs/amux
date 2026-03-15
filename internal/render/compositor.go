@@ -92,21 +92,27 @@ func (c *Compositor) RenderFull(root *mux.LayoutCell, activePaneID uint32, looku
 	// Global status bar at bottom
 	renderGlobalBar(&buf, c.sessionName, paneCount, c.width, c.height-1)
 
-	// Restore cursor to active pane's cursor position
+	// Position cursor and respect the active pane's cursor visibility state.
+	// If the application has hidden its cursor (e.g. during streaming output),
+	// keep it hidden rather than showing it at a stale position.
+	showCursor := true
 	if activePaneID != 0 {
-		cell := root.FindByPaneID(activePaneID)
-		if cell != nil {
+		if cell := root.FindByPaneID(activePaneID); cell != nil {
 			if pd := lookup(activePaneID); pd != nil {
-				col, row := pd.CursorPos()
-				absRow := cell.Y + mux.StatusLineRows + row + 1
-				absCol := cell.X + col + 1
-				buf.WriteString(CursorTo(absRow, absCol))
+				if pd.CursorHidden() {
+					showCursor = false
+				} else {
+					col, row := pd.CursorPos()
+					absRow := cell.Y + mux.StatusLineRows + row + 1
+					absCol := cell.X + col + 1
+					buf.WriteString(CursorTo(absRow, absCol))
+				}
 			}
 		}
 	}
-
-	// Show cursor
-	buf.WriteString(ShowCursor)
+	if showCursor {
+		buf.WriteString(ShowCursor)
+	}
 
 	return []byte(buf.String())
 }

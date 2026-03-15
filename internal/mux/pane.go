@@ -212,7 +212,16 @@ func (p *Pane) Resize(cols, rows int) error {
 	})
 }
 
-// RenderScreen returns the current screen state as ANSI output.
+// Render returns the current screen cell content as an ANSI string.
+// Used by the compositor via PaneData.RenderScreen(). For the reattach
+// snapshot (which needs cursor positioning embedded), use RenderScreen().
+func (p *Pane) Render() string {
+	return p.emulator.Render()
+}
+
+// RenderScreen returns the screen state with a trailing cursor-position escape.
+// Used when sending a reattach snapshot to a reconnecting client so the
+// client-side emulator seeds the correct cursor position.
 func (p *Pane) RenderScreen() string {
 	return RenderWithCursor(p.emulator)
 }
@@ -220,6 +229,12 @@ func (p *Pane) RenderScreen() string {
 // CursorPos returns the cursor position within this pane (0-indexed).
 func (p *Pane) CursorPos() (col, row int) {
 	return p.emulator.CursorPosition()
+}
+
+// CursorHidden returns true if the application running in this pane has
+// hidden the hardware cursor (e.g. via \033[?25l).
+func (p *Pane) CursorHidden() bool {
+	return p.emulator.CursorHidden()
 }
 
 // Output returns the last N lines of visible pane content from the emulator.

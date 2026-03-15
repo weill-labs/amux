@@ -83,3 +83,34 @@ func TestRenderWithCursor(t *testing.T) {
 		t.Error("RenderWithCursor should contain ANSI cursor positioning")
 	}
 }
+
+func TestCursorHidden(t *testing.T) {
+	t.Parallel()
+
+	t.Run("visible by default", func(t *testing.T) {
+		t.Parallel()
+		emu := NewVTEmulator(80, 24)
+		if emu.CursorHidden() {
+			t.Error("CursorHidden() = true on fresh emulator, want false")
+		}
+	})
+
+	t.Run("hidden after hide sequence", func(t *testing.T) {
+		t.Parallel()
+		emu := NewVTEmulator(80, 24)
+		emu.Write([]byte("\033[?25l")) // hide cursor
+		if !emu.CursorHidden() {
+			t.Error("CursorHidden() = false after \\033[?25l, want true")
+		}
+	})
+
+	t.Run("visible after show sequence", func(t *testing.T) {
+		t.Parallel()
+		emu := NewVTEmulator(80, 24)
+		emu.Write([]byte("\033[?25l")) // hide
+		emu.Write([]byte("\033[?25h")) // show
+		if emu.CursorHidden() {
+			t.Error("CursorHidden() = true after \\033[?25h, want false")
+		}
+	})
+}
