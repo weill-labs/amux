@@ -1304,6 +1304,34 @@ func TestGoldenFourPane(t *testing.T) {
 	assertGolden(t, "four_pane.color", colorMap)
 }
 
+func TestGoldenFourPaneDiagonalFocus(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// Build 2x2 grid (same as TestGoldenFourPane):
+	// pane-1 | pane-2
+	// -------+-------
+	// pane-4 | pane-3
+	h.sendKeys("C-a", "\\")
+	h.waitFor("[pane-2]", 3*time.Second)
+	h.sendKeys("C-a", "-")
+	h.waitFor("[pane-3]", 3*time.Second)
+	h.sendKeys("C-a", "h")
+	time.Sleep(300 * time.Millisecond)
+	h.sendKeys("C-a", "-")
+	h.waitFor("[pane-4]", 3*time.Second)
+
+	// Focus pane-3 (bottom-right) — the diagonal corner pane relative to
+	// the junction at (40, 11). This is the case where cardinal-only junction
+	// checks fail to find the active pane.
+	h.runCmd("focus", "pane-3")
+	time.Sleep(300 * time.Millisecond)
+
+	ansi := h.runCmd("capture", "--ansi")
+	colorMap := extractColorMap(ansi, 80, 24)
+	assertGolden(t, "four_pane_diagonal.color", colorMap)
+}
+
 // ---------------------------------------------------------------------------
 // Server hot-reload tests
 // ---------------------------------------------------------------------------
