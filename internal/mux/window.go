@@ -645,7 +645,8 @@ func (w *Window) activeCellIndex(cells []*LayoutCell) int {
 	return -1
 }
 
-// Minimize shrinks a pane's layout cell to StatusLineRows + 1 (just status + 1 row).
+// Minimize shrinks a pane's layout cell to just the status line (header only).
+// Only allowed in vertical splits with at least one non-minimized sibling.
 // Auto-unzooms if a pane is zoomed.
 func (w *Window) Minimize(paneID uint32) error {
 	if w.ZoomedPaneID != 0 {
@@ -659,12 +660,35 @@ func (w *Window) Minimize(paneID uint32) error {
 		return fmt.Errorf("pane already minimized")
 	}
 
+	// Only allow minimize in vertical splits (stacked panes).
+	// A pane at root or in a horizontal split has no vertical sibling
+	// to absorb the reclaimed height.
+	if cell.Parent == nil || cell.Parent.Dir != SplitVertical {
+		return fmt.Errorf("cannot minimize: pane is not in a vertical split")
+	}
+
+	// Require at least one non-minimized sibling to remain visible.
+	nonMinSibs := 0
+	for _, sib := range cell.Parent.Children {
+		if sib == cell {
+			continue
+		}
+		if !sib.IsLeaf() {
+			nonMinSibs++ // subtrees always count as non-minimized
+		} else if sib.Pane != nil && !sib.Pane.Meta.Minimized {
+			nonMinSibs++
+		}
+	}
+	if nonMinSibs == 0 {
+		return fmt.Errorf("cannot minimize the last visible pane in this group")
+	}
+
 	cell.Pane.Meta.Minimized = true
 	cell.Pane.Meta.RestoreH = cell.H
 	w.minimizeSeq++
 	cell.Pane.Meta.MinimizedSeq = w.minimizeSeq
 
-	cell.H = StatusLineRows + 1
+	cell.H = StatusLineRows
 	// Don't resize the PTY — TUI apps (Claude Code, vim, etc.) may not
 	// recover properly from being resized to 1 row. The PTY and emulator
 	// stay at their original dimensions; only the layout cell shrinks.
@@ -806,17 +830,6 @@ func (w *Window) ToggleMinimize() (name string, minimized bool, err error) {
 
 	if w.ActivePane == nil {
 		return "", false, fmt.Errorf("no active pane")
-	}
-
-	// Guard: refuse to minimize the last non-minimized pane.
-	nonMinimized := 0
-	w.Root.Walk(func(c *LayoutCell) {
-		if c.Pane != nil && !c.Pane.Meta.Minimized {
-			nonMinimized++
-		}
-	})
-	if nonMinimized <= 1 {
-		return "", false, fmt.Errorf("cannot minimize the only visible pane")
 	}
 
 	name = w.ActivePane.Meta.Name

@@ -89,6 +89,88 @@ func TestMinimizeRestore(t *testing.T) {
 	})
 }
 
+func TestMinimizeSoloPaneInColumnFails(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// Create a horizontal split: pane-1 left, pane-2 right
+	h.sendKeys("C-a", "\\")
+	h.waitFor("[pane-2]", 3*time.Second)
+
+	// pane-1 is the only pane in its column — minimize should fail
+	output := h.runCmd("minimize", "pane-1")
+	if !strings.Contains(output, "cannot") {
+		t.Errorf("minimizing sole pane in column should fail, got:\n%s", output)
+	}
+
+	// Verify pane-1 is not minimized
+	statusOut := h.runCmd("status")
+	if !strings.Contains(statusOut, "0 minimized") {
+		t.Errorf("no panes should be minimized, got:\n%s", statusOut)
+	}
+}
+
+func TestMinimizeLastPaneInColumnFails(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// Create vertical split: pane-1 top, pane-2 bottom
+	h.sendKeys("C-a", "-")
+	h.waitFor("[pane-2]", 3*time.Second)
+
+	// Minimize pane-1 — should succeed
+	output := h.runCmd("minimize", "pane-1")
+	if !strings.Contains(output, "Minimized") {
+		t.Fatalf("first minimize should succeed, got:\n%s", output)
+	}
+
+	// Minimize pane-2 (last non-minimized in column) — should fail
+	output = h.runCmd("minimize", "pane-2")
+	if !strings.Contains(output, "cannot") {
+		t.Errorf("minimizing last visible pane in column should fail, got:\n%s", output)
+	}
+
+	h.runCmd("restore", "pane-1")
+}
+
+func TestMinimizeShowsHeaderOnly(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// Create vertical split
+	h.sendKeys("C-a", "-")
+	h.waitFor("[pane-2]", 3*time.Second)
+
+	// Put content in pane-1
+	h.runCmd("focus", "pane-1")
+	time.Sleep(200 * time.Millisecond)
+	h.sendKeys("echo SHOULD_NOT_SEE", "Enter")
+	h.waitFor("SHOULD_NOT_SEE", 3*time.Second)
+
+	// Minimize pane-1
+	h.runCmd("minimize", "pane-1")
+	time.Sleep(500 * time.Millisecond)
+
+	// The minimized pane should show ONLY the status line [pane-1], no body content
+	screen := h.capture()
+	lines := strings.Split(screen, "\n")
+	for i, line := range lines {
+		if strings.Contains(line, "[pane-1]") {
+			// The next line should NOT contain pane-1 body content —
+			// it should be the border or pane-2's status line
+			if i+1 < len(lines) {
+				nextLine := lines[i+1]
+				if !strings.Contains(nextLine, "─") && !strings.Contains(nextLine, "[pane-2]") {
+					t.Errorf("minimized pane should show header only, but line after status is:\n%s", nextLine)
+				}
+			}
+			break
+		}
+	}
+
+	h.runCmd("restore", "pane-1")
+}
+
 func TestMinimizeRestorePreservesContent(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
