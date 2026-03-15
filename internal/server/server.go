@@ -181,9 +181,15 @@ func (s *Session) createPaneWithMeta(srv *Server, meta mux.PaneMeta, cols, rows 
 // serverPaneData adapts *mux.Pane to the render.PaneData interface.
 type serverPaneData struct{ p *mux.Pane }
 
-func (s *serverPaneData) RenderScreen() string  { return s.p.Render() }
+func (s *serverPaneData) RenderScreen(active bool) string {
+	if !active {
+		return s.p.RenderWithoutCursorBlock()
+	}
+	return s.p.Render()
+}
 func (s *serverPaneData) CursorPos() (int, int) { return s.p.CursorPos() }
 func (s *serverPaneData) CursorHidden() bool    { return s.p.CursorHidden() }
+func (s *serverPaneData) HasCursorBlock() bool  { return s.p.HasCursorBlock() }
 func (s *serverPaneData) ID() uint32            { return s.p.ID }
 func (s *serverPaneData) Name() string          { return s.p.Meta.Name }
 func (s *serverPaneData) Host() string          { return s.p.Meta.Host }

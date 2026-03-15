@@ -6,6 +6,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/vt"
 )
 
@@ -42,6 +43,15 @@ type TerminalEmulator interface {
 
 	// ScrollbackLineText returns the plain text of scrollback line y (0=oldest).
 	ScrollbackLineText(y int) string
+
+	// RenderWithoutCursorBlock renders the screen with the cursor cell's
+	// reverse-video attribute cleared. Used for inactive pane rendering so
+	// app-drawn block cursors don't appear in unfocused panes.
+	RenderWithoutCursorBlock() string
+
+	// HasCursorBlock returns true if the screen contains an isolated
+	// reverse-video space cell (an app-rendered block cursor).
+	HasCursorBlock() bool
 }
 
 // vtEmulator wraps charmbracelet/x/vt.SafeEmulator.
@@ -125,6 +135,98 @@ func (v *vtEmulator) ScrollbackLineText(y int) string {
 		}
 	}
 	return buf.String()
+}
+
+func (v *vtEmulator) RenderWithoutCursorBlock() string {
+	v.mu.Lock()
+	w, h := v.w, v.h
+	v.mu.Unlock()
+
+	// Find isolated reverse-video space cells (cursor blocks).
+	// A cursor block is a single reverse-video space not adjacent to other
+	// reverse-video cells. This distinguishes cursor indicators from
+	// legitimate reverse-video content like selections or highlights.
+	type savedCell struct {
+		x, y int
+		cell uv.Cell
+	}
+	var saved []savedCell
+
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			cell := v.emu.CellAt(x, y)
+			if cell == nil || cell.Style.Attrs&uv.AttrReverse == 0 {
+				continue
+			}
+			if cell.Content != " " && cell.Content != "" {
+				continue
+			}
+			leftReverse := false
+			if x > 0 {
+				if left := v.emu.CellAt(x-1, y); left != nil {
+					leftReverse = left.Style.Attrs&uv.AttrReverse != 0
+				}
+			}
+			rightReverse := false
+			if x < w-1 {
+				if right := v.emu.CellAt(x+1, y); right != nil {
+					rightReverse = right.Style.Attrs&uv.AttrReverse != 0
+				}
+			}
+			if leftReverse || rightReverse {
+				continue
+			}
+			saved = append(saved, savedCell{x, y, *cell})
+			modified := cell.Clone()
+			modified.Style.Attrs &^= uv.AttrReverse
+			v.emu.SetCell(x, y, modified)
+		}
+	}
+
+	if len(saved) == 0 {
+		return v.emu.Render()
+	}
+
+	rendered := v.emu.Render()
+	for _, s := range saved {
+		c := s.cell
+		v.emu.SetCell(s.x, s.y, &c)
+	}
+	return rendered
+}
+
+func (v *vtEmulator) HasCursorBlock() bool {
+	v.mu.Lock()
+	w, h := v.w, v.h
+	v.mu.Unlock()
+
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			cell := v.emu.CellAt(x, y)
+			if cell == nil || cell.Style.Attrs&uv.AttrReverse == 0 {
+				continue
+			}
+			if cell.Content != " " && cell.Content != "" {
+				continue
+			}
+			leftReverse := false
+			if x > 0 {
+				if left := v.emu.CellAt(x-1, y); left != nil {
+					leftReverse = left.Style.Attrs&uv.AttrReverse != 0
+				}
+			}
+			rightReverse := false
+			if x < w-1 {
+				if right := v.emu.CellAt(x+1, y); right != nil {
+					rightReverse = right.Style.Attrs&uv.AttrReverse != 0
+				}
+			}
+			if !leftReverse && !rightReverse {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // NewVTEmulatorWithDrain creates a terminal emulator that automatically

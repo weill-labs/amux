@@ -293,9 +293,12 @@ type clientPaneData struct {
 	cm   *copymode.CopyMode // nil when not in copy mode
 }
 
-func (c *clientPaneData) RenderScreen() string {
+func (c *clientPaneData) RenderScreen(active bool) string {
 	if c.cm != nil {
 		return c.cm.RenderViewport()
+	}
+	if !active {
+		return c.emu.RenderWithoutCursorBlock()
 	}
 	return c.emu.Render()
 }
@@ -312,6 +315,10 @@ func (c *clientPaneData) CursorHidden() bool {
 		return true // copy mode manages its own cursor via reverse video
 	}
 	return c.emu.CursorHidden()
+}
+
+func (c *clientPaneData) HasCursorBlock() bool {
+	return c.emu.HasCursorBlock()
 }
 
 func (c *clientPaneData) ID() uint32      { return c.info.ID }

@@ -4,9 +4,10 @@ package render
 // Server-side *mux.Pane and client-side emulator+metadata adapters both
 // satisfy this interface.
 type PaneData interface {
-	RenderScreen() string
+	RenderScreen(active bool) string
 	CursorPos() (col, row int)
 	CursorHidden() bool
+	HasCursorBlock() bool
 	ID() uint32
 	Name() string
 	Host() string
