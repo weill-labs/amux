@@ -2,6 +2,7 @@ package test
 
 import (
 	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"os/exec"
@@ -80,12 +81,8 @@ func isTestSession(name string) bool {
 	if len(name) != 10 || name[:2] != "t-" {
 		return false
 	}
-	for _, c := range name[2:] {
-		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
-			return false
-		}
-	}
-	return true
+	_, err := hex.DecodeString(name[2:])
+	return err == nil
 }
 
 // ---------------------------------------------------------------------------
@@ -143,7 +140,7 @@ func (h *TmuxHarness) cleanup() {
 	}
 
 	// Clean up socket
-	exec.Command("rm", "-f", fmt.Sprintf("/tmp/amux-%d/%s", os.Getuid(), h.session)).Run()
+	os.Remove(filepath.Join(fmt.Sprintf("/tmp/amux-%d", os.Getuid()), h.session))
 }
 
 // sendKeys sends keystrokes to the tmux session.
@@ -203,10 +200,7 @@ func (h *TmuxHarness) assertScreen(msg string, fn func(string) bool) {
 func (h *TmuxHarness) runCmd(args ...string) string {
 	h.t.Helper()
 	cmdArgs := append([]string{"-s", h.session}, args...)
-	out, err := exec.Command(amuxBin, cmdArgs...).CombinedOutput()
-	if err != nil {
-		return string(out)
-	}
+	out, _ := exec.Command(amuxBin, cmdArgs...).CombinedOutput()
 	return string(out)
 }
 
