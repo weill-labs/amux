@@ -215,8 +215,14 @@ func borderColorAtJunction(a, b *mux.LayoutCell, x, y int, activePaneID uint32, 
 	if activePaneID == 0 {
 		return DimFg
 	}
-	// Check leaves adjacent to the junction in all 4 directions.
-	for _, off := range [][2]int{{-1, 0}, {1, 0}, {0, -1}, {0, 1}} {
+	// Check leaves adjacent to the junction in all 8 directions (cardinal +
+	// diagonal). Cardinal positions can land on border cells where inclusive
+	// bounds in findLeafByAxis claim the wrong pane. Diagonal positions are
+	// always inside cells, so they reliably find the correct corner pane.
+	for _, off := range [][2]int{
+		{-1, 0}, {1, 0}, {0, -1}, {0, 1},
+		{-1, -1}, {1, -1}, {-1, 1}, {1, 1},
+	} {
 		nx, ny := x+off[0], y+off[1]
 		leaf := findLeafByAxis(a, nx, ny)
 		if leaf == nil {
