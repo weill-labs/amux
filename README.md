@@ -3,7 +3,7 @@
 [![CI](https://github.com/weill-labs/amux/actions/workflows/ci.yml/badge.svg)](https://github.com/weill-labs/amux/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/weill-labs/amux/graph/badge.svg?token=RY0CPn9v7g)](https://codecov.io/gh/weill-labs/amux)
 
-A terminal multiplexer built for working alongside AI agents. Drop-in replacement for tmux — same muscle memory, new capabilities.
+tmux for the agent era.
 
 ## Philosophy
 
