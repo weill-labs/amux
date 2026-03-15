@@ -6,6 +6,64 @@ import (
 	"time"
 )
 
+// ---------------------------------------------------------------------------
+// CLI-only tests — ServerHarness (zero polling, zero sleep)
+// ---------------------------------------------------------------------------
+
+func TestFocusByName(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	h.splitV()
+
+	h.assertScreen("pane-2 active after split", func(s string) bool {
+		return isPaneActive(s, "pane-2")
+	})
+
+	output := h.runCmd("focus", "pane-1")
+	if !strings.Contains(output, "Focused") {
+		t.Errorf("focus should confirm, got:\n%s", output)
+	}
+
+	h.assertScreen("pane-1 active after focus by name", func(s string) bool {
+		return isPaneActive(s, "pane-1")
+	})
+
+	h.assertScreen("pane-2 inactive after focus by name", func(s string) bool {
+		return isPaneInactive(s, "pane-2")
+	})
+}
+
+func TestFocusByID(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	h.splitV()
+
+	output := h.runCmd("focus", "1")
+	if !strings.Contains(output, "Focused") {
+		t.Errorf("focus by ID should confirm, got:\n%s", output)
+	}
+
+	h.assertScreen("pane-1 active after focus by ID", func(s string) bool {
+		return isPaneActive(s, "pane-1")
+	})
+}
+
+func TestFocusNotFound(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	output := h.runCmd("focus", "nonexistent")
+	if !strings.Contains(output, "not found") {
+		t.Errorf("focus of nonexistent pane should report error, got:\n%s", output)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Keybinding tests — TmuxHarness (requires client for prefix key processing)
+// ---------------------------------------------------------------------------
+
 func TestFocusCycle(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
@@ -131,60 +189,6 @@ func TestNavigateBackToRightPaneAfterRootHSplit(t *testing.T) {
 	h.assertScreen("l should reach pane-2 (right side of top row)", func(s string) bool {
 		return isPaneActive(s, "pane-2")
 	})
-}
-
-func TestFocusByName(t *testing.T) {
-	t.Parallel()
-	h := newHarness(t)
-
-	h.splitV()
-
-	h.assertScreen("pane-2 active after split", func(s string) bool {
-		return isPaneActive(s, "pane-2")
-	})
-
-	output := h.runCmd("focus", "pane-1")
-	if !strings.Contains(output, "Focused") {
-		t.Errorf("focus should confirm, got:\n%s", output)
-	}
-
-	time.Sleep(400 * time.Millisecond)
-
-	h.assertScreen("pane-1 active after focus by name", func(s string) bool {
-		return isPaneActive(s, "pane-1")
-	})
-
-	h.assertScreen("pane-2 inactive after focus by name", func(s string) bool {
-		return isPaneInactive(s, "pane-2")
-	})
-}
-
-func TestFocusByID(t *testing.T) {
-	t.Parallel()
-	h := newHarness(t)
-
-	h.splitV()
-
-	output := h.runCmd("focus", "1")
-	if !strings.Contains(output, "Focused") {
-		t.Errorf("focus by ID should confirm, got:\n%s", output)
-	}
-
-	time.Sleep(400 * time.Millisecond)
-
-	h.assertScreen("pane-1 active after focus by ID", func(s string) bool {
-		return isPaneActive(s, "pane-1")
-	})
-}
-
-func TestFocusNotFound(t *testing.T) {
-	t.Parallel()
-	h := newHarness(t)
-
-	output := h.runCmd("focus", "nonexistent")
-	if !strings.Contains(output, "not found") {
-		t.Errorf("focus of nonexistent pane should report error, got:\n%s", output)
-	}
 }
 
 func TestPrefixArrowFocus(t *testing.T) {

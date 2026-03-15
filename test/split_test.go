@@ -4,16 +4,15 @@ import (
 	"fmt"
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestSplitVertical(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t)
+	h := newServerHarness(t)
 
 	h.splitV()
 
-	lines := h.captureAmuxContentLines()
+	lines := h.captureContentLines()
 
 	// Both pane names should be on the SAME row (side by side)
 	found := false
@@ -43,11 +42,11 @@ func TestSplitVertical(t *testing.T) {
 
 func TestSplitHorizontal(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t)
+	h := newServerHarness(t)
 
 	h.splitH()
 
-	lines := h.captureAmuxContentLines()
+	lines := h.captureContentLines()
 
 	row1 := paneNameRow(lines, "pane-1")
 	row2 := paneNameRow(lines, "pane-2")
@@ -69,7 +68,7 @@ func TestSplitHorizontal(t *testing.T) {
 
 func TestRootSplitVertical(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t)
+	h := newServerHarness(t)
 
 	// Horizontal split first: pane-1 top, pane-2 bottom
 	h.splitH()
@@ -77,7 +76,7 @@ func TestRootSplitVertical(t *testing.T) {
 	// Root vertical split: left column (pane-1 + pane-2 stacked), right column (pane-3)
 	h.splitRootV()
 
-	lines := h.captureAmuxContentLines()
+	lines := h.captureContentLines()
 
 	for _, name := range []string{"pane-1", "pane-2", "pane-3"} {
 		if paneNameRow(lines, name) < 0 {
@@ -113,14 +112,14 @@ func TestRootSplitVertical(t *testing.T) {
 
 func TestRootSplitHorizontal(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t)
+	h := newServerHarness(t)
 
 	h.splitV()
 
 	// Root horizontal split: top row (pane-1 + pane-2 side by side), bottom row (pane-3)
 	h.splitRootH()
 
-	lines := h.captureAmuxContentLines()
+	lines := h.captureContentLines()
 
 	for _, name := range []string{"pane-1", "pane-2", "pane-3"} {
 		if paneNameRow(lines, name) < 0 {
@@ -156,21 +155,21 @@ func TestRootSplitHorizontal(t *testing.T) {
 
 func TestRootVerticalSplitRenderClipping(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t)
+	h := newServerHarness(t)
 
 	h.splitH()
 	h.splitRootV()
 
 	// Type a long line in pane-3 to trigger potential bleeding
-	h.sendKeys("e", "c", "h", "o", " ", "R", "I", "G", "H", "T", "P", "A", "N", "E", "T", "E", "S", "T", "Enter")
-	time.Sleep(400 * time.Millisecond)
+	h.sendKeys("pane-3", "echo RIGHTPANETEST", "Enter")
+	h.waitFor("pane-3", "RIGHTPANETEST")
 
-	col := h.verticalBorderCol()
+	col := h.captureVerticalBorderCol()
 	if col < 0 {
 		t.Fatal("no consistent vertical border found")
 	}
 
-	lines := h.contentLines()
+	lines := h.captureContentLines()
 	for i, line := range lines {
 		runes := []rune(line)
 		if col >= len(runes) {
@@ -187,27 +186,27 @@ func TestRootVerticalSplitRenderClipping(t *testing.T) {
 
 func TestExitAfterDoubleRootVSplit(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t)
+	h := newServerHarness(t)
 
 	// Root vertical split twice: pane-1 | pane-2 | pane-3
 	h.splitRootV()
 	h.splitRootV()
 
-	h.sendKeys("e", "x", "i", "t", "Enter")
+	gen := h.generation()
+	h.sendKeys("pane-3", "exit", "Enter")
+	h.waitLayout(gen)
 
-	if !h.waitForFunc(func(s string) bool {
+	h.assertScreen("pane-3 should disappear after exit", func(s string) bool {
 		return !strings.Contains(s, "[pane-3]")
-	}, 5 * time.Second) {
-		t.Fatal("pane-3 should disappear after exit")
-	}
+	})
 
-	col := h.verticalBorderCol()
+	col := h.captureVerticalBorderCol()
 	if col < 0 {
 		t.Fatal("no vertical border found — panes may not have resized")
 	}
 
 	if col < 30 || col > 50 {
-		lines := h.contentLines()
+		lines := h.captureContentLines()
 		t.Errorf("border at col %d, expected near middle (30-50) — panes didn't resize\nScreen:\n%s",
 			col, strings.Join(lines, "\n"))
 	}
@@ -215,7 +214,7 @@ func TestExitAfterDoubleRootVSplit(t *testing.T) {
 
 func TestFiveRootVerticalSplits(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t)
+	h := newServerHarness(t)
 
 	for i := 0; i < 4; i++ {
 		h.splitRootV()
@@ -223,13 +222,12 @@ func TestFiveRootVerticalSplits(t *testing.T) {
 
 	for i := 1; i <= 5; i++ {
 		name := fmt.Sprintf("pane-%d", i)
-		if !h.waitFor("["+name+"]", 3 * time.Second) {
-			screen := h.capture()
-			t.Fatalf("%s not found\nScreen:\n%s", name, screen)
+		if paneNameRow(h.captureContentLines(), name) < 0 {
+			t.Fatalf("%s not found\nScreen:\n%s", name, h.capture())
 		}
 	}
 
-	lines := h.contentLines()
+	lines := h.captureContentLines()
 	row0 := lines[0]
 	for i := 1; i <= 5; i++ {
 		name := fmt.Sprintf("[pane-%d]", i)
@@ -251,13 +249,13 @@ func TestFiveRootVerticalSplits(t *testing.T) {
 
 func TestMultipleNonRootSplitsEqualWidth(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t)
+	h := newServerHarness(t)
 
 	for i := 0; i < 3; i++ {
 		h.splitV()
 	}
 
-	lines := h.contentLines()
+	lines := h.captureContentLines()
 	row0 := lines[0]
 	for i := 1; i <= 4; i++ {
 		name := fmt.Sprintf("[pane-%d]", i)
@@ -283,15 +281,14 @@ func TestMultipleNonRootSplitsEqualWidth(t *testing.T) {
 
 func TestGoldenVerticalSplit(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t)
+	h := newServerHarness(t)
 
 	h.splitV()
 
 	// Focus pane-1 so active state is deterministic
-	h.sendKeys("C-a", "h")
-	time.Sleep(400 * time.Millisecond)
+	h.runCmd("focus", "pane-1")
 
-	frame := extractFrame(h.captureAmux(), h.session)
+	frame := extractFrame(h.capture(), h.session)
 	assertGolden(t, "vertical_split.golden", frame)
 
 	colorMap := h.runCmd("capture", "--colors")
@@ -300,11 +297,11 @@ func TestGoldenVerticalSplit(t *testing.T) {
 
 func TestGoldenHorizontalSplit(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t)
+	h := newServerHarness(t)
 
 	h.splitH()
 
-	frame := extractFrame(h.captureAmux(), h.session)
+	frame := extractFrame(h.capture(), h.session)
 	assertGolden(t, "horizontal_split.golden", frame)
 
 	colorMap := h.runCmd("capture", "--colors")
@@ -313,7 +310,7 @@ func TestGoldenHorizontalSplit(t *testing.T) {
 
 func TestGoldenFourPane(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t)
+	h := newServerHarness(t)
 
 	// Build 2x2 grid:
 	// pane-1 | pane-2
@@ -321,11 +318,10 @@ func TestGoldenFourPane(t *testing.T) {
 	// pane-3 | pane-4
 	h.splitV()
 	h.splitH()
-	h.sendKeys("C-a", "h")
-	time.Sleep(400 * time.Millisecond)
+	h.runCmd("focus", "pane-1")
 	h.splitH()
 
-	frame := extractFrame(h.captureAmux(), h.session)
+	frame := extractFrame(h.capture(), h.session)
 	assertGolden(t, "four_pane.golden", frame)
 
 	colorMap := h.runCmd("capture", "--colors")

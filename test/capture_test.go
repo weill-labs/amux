@@ -3,17 +3,16 @@ package test
 import (
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestCapture(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t)
+	h := newServerHarness(t)
 
-	h.sendKeys("e", "c", "h", "o", " ", "S", "C", "R", "E", "E", "N", "C", "A", "P", "Enter")
-	h.waitFor("SCREENCAP", 3 * time.Second)
+	h.sendKeys("pane-1", "echo SCREENCAP", "Enter")
+	h.waitFor("pane-1", "SCREENCAP")
 
-	out := h.runCmd("capture")
+	out := h.capture()
 	if !strings.Contains(out, "SCREENCAP") {
 		t.Errorf("amux capture should contain typed text, got:\n%s", out)
 	}
@@ -27,10 +26,10 @@ func TestCapture(t *testing.T) {
 
 func TestCapturePane(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t)
+	h := newServerHarness(t)
 
-	h.sendKeys("e", "c", "h", "o", " ", "O", "U", "T", "P", "U", "T", "M", "A", "R", "K", "E", "R", "Enter")
-	h.waitFor("OUTPUTMARKER", 3 * time.Second)
+	h.sendKeys("pane-1", "echo OUTPUTMARKER", "Enter")
+	h.waitFor("pane-1", "OUTPUTMARKER")
 
 	output := h.runCmd("capture", "pane-1")
 	if !strings.Contains(output, "OUTPUTMARKER") {
@@ -40,13 +39,13 @@ func TestCapturePane(t *testing.T) {
 
 func TestCapturePaneANSI(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t)
+	h := newServerHarness(t)
 
-	// Write colored text so the pane has ANSI sequences
-	h.sendKeys("e", "c", "h", "o", " ", "-", "e", " ",
-		"'", "\\", "0", "3", "3", "[", "3", "1", "m", "R", "E", "D", "\\", "0", "3", "3", "[", "m", "'",
-		"Enter")
-	h.waitFor("RED", 3 * time.Second)
+	// Write colored text so the pane has ANSI sequences.
+	// Split the done-marker across two printf calls so it only appears as a
+	// contiguous string in the OUTPUT, not in the echoed command text.
+	h.sendKeys("pane-1", `printf '\033[31mRED\033[m\n' && printf COL; printf 'DONE\n'`, "Enter")
+	h.waitFor("pane-1", "COLDONE")
 
 	// Per-pane capture without --ansi should be plain text
 	plain := h.runCmd("capture", "pane-1")
@@ -69,7 +68,7 @@ func TestCapturePaneANSI(t *testing.T) {
 
 func TestCursorBlockOnlyInActivePane(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t)
+	h := newServerHarness(t)
 
 	// Split so we have two panes with shell prompts
 	h.splitV()
@@ -79,7 +78,6 @@ func TestCursorBlockOnlyInActivePane(t *testing.T) {
 	// to check each pane independently, avoiding false positives from
 	// the compositor's own ANSI sequences or shell prompt styling.
 	h.runCmd("focus", "pane-2")
-	time.Sleep(400 * time.Millisecond)
 
 	inactive := h.runCmd("capture", "--ansi", "pane-1")
 	if strings.Contains(inactive, "\033[7m") {
@@ -89,16 +87,16 @@ func TestCursorBlockOnlyInActivePane(t *testing.T) {
 
 func TestCaptureWithSplit(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t)
+	h := newServerHarness(t)
 
-	h.sendKeys("e", "c", "h", "o", " ", "L", "E", "F", "T", "P", "A", "N", "E", "Enter")
-	h.waitFor("LEFTPANE", 3 * time.Second)
+	h.sendKeys("pane-1", "echo LEFTPANE", "Enter")
+	h.waitFor("pane-1", "LEFTPANE")
 
 	h.splitV()
-	h.sendKeys("e", "c", "h", "o", " ", "R", "I", "G", "H", "T", "P", "A", "N", "E", "Enter")
-	h.waitFor("RIGHTPANE", 3 * time.Second)
+	h.sendKeys("pane-2", "echo RIGHTPANE", "Enter")
+	h.waitFor("pane-2", "RIGHTPANE")
 
-	out := h.runCmd("capture")
+	out := h.capture()
 	if !strings.Contains(out, "LEFTPANE") {
 		t.Errorf("amux capture should contain left pane text, got:\n%s", out)
 	}

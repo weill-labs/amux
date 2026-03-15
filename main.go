@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -95,6 +96,8 @@ func main() {
 			os.Exit(1)
 		}
 
+	case "split":
+		runServerCommand("split", args[1:])
 	case "list":
 		runServerCommand("list", nil)
 	case "status":
@@ -110,11 +113,11 @@ func main() {
 	case "zoom":
 		runServerCommand("zoom", args[1:])
 	case "swap":
-		if len(args) < 3 {
-			fmt.Fprintf(os.Stderr, "usage: amux swap <pane1> <pane2>\n")
+		if len(args) < 2 {
+			fmt.Fprintf(os.Stderr, "usage: amux swap <pane1> <pane2> | swap forward | swap backward\n")
 			os.Exit(1)
 		}
-		runServerCommand("swap", []string{args[1], args[2]})
+		runServerCommand("swap", args[1:])
 	case "rotate":
 		runServerCommand("rotate", args[1:])
 	case "minimize", "restore", "kill", "focus":
@@ -151,6 +154,16 @@ func main() {
 			os.Exit(1)
 		}
 		runServerCommand("rename-window", []string{args[1]})
+	case "generation":
+		runServerCommand("generation", nil)
+	case "wait-layout":
+		runServerCommand("wait-layout", args[1:])
+	case "wait-for":
+		if len(args) < 3 {
+			fmt.Fprintf(os.Stderr, "usage: amux wait-for <pane> <substring> [--timeout <duration>]\n")
+			os.Exit(1)
+		}
+		runServerCommand("wait-for", args[1:])
 	case "reload-server":
 		runServerCommand("reload-server", nil)
 	case "dashboard":
@@ -211,6 +224,11 @@ Usage:
   amux [-s session] prev-window        Switch to previous window
   amux [-s session] rename-window <n>  Rename the active window
   amux [-s session] reload-server      Hot-reload the server (preserves panes)
+  amux [-s session] generation         Show current layout generation counter
+  amux [-s session] wait-layout [--after N] [--timeout 3s]
+                                       Block until layout generation > N
+  amux [-s session] wait-for <pane> <substring> [--timeout 3s]
+                                       Block until substring appears in pane
   amux version                         Show build version
 
 Panes can be referenced by name (pane-1) or ID (1).
@@ -267,6 +285,17 @@ func runServer(sessionName string) {
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "amux server: %v\n", err)
 			os.Exit(1)
+		}
+	}
+
+	// Signal readiness on the fd specified by AMUX_READY_FD (used by
+	// test harness for deterministic startup without polling).
+	if fdStr := os.Getenv("AMUX_READY_FD"); fdStr != "" {
+		if fd, err := strconv.Atoi(fdStr); err == nil {
+			if ready := os.NewFile(uintptr(fd), "ready-signal"); ready != nil {
+				ready.Write([]byte("ready\n"))
+				ready.Close()
+			}
 		}
 	}
 

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/hex"
 	"fmt"
 	"net"
 	"os"
@@ -8,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/weill-labs/amux/internal/mux"
 )
@@ -366,8 +368,18 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 
 	case "send-keys":
 		if len(msg.CmdArgs) < 2 {
-			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "usage: send-keys <pane> <keys>..."})
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "usage: send-keys <pane> [--hex] <keys>..."})
 			return
+		}
+		hexMode := false
+		keys := make([]string, len(msg.CmdArgs)-1)
+		copy(keys, msg.CmdArgs[1:])
+		for i, arg := range keys {
+			if arg == "--hex" {
+				hexMode = true
+				keys = append(keys[:i], keys[i+1:]...)
+				break
+			}
 		}
 		sess.mu.Lock()
 		pane := cc.resolvePane(sess, "send-keys", msg.CmdArgs[:1])
@@ -376,8 +388,20 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 			return
 		}
 		var data []byte
-		for _, key := range msg.CmdArgs[1:] {
-			data = append(data, parseKey(key)...)
+		if hexMode {
+			for _, hexStr := range keys {
+				b, err := hex.DecodeString(hexStr)
+				if err != nil {
+					sess.mu.Unlock()
+					cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("invalid hex: %s", hexStr)})
+					return
+				}
+				data = append(data, b...)
+			}
+		} else {
+			for _, key := range keys {
+				data = append(data, parseKey(key)...)
+			}
 		}
 		pane.Write(data)
 		sess.mu.Unlock()
@@ -604,6 +628,102 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 		sess.mu.Unlock()
 		sess.broadcast(&Message{Type: MsgTypeCopyMode, PaneID: paneID})
 		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: fmt.Sprintf("Copy mode entered for %s\n", pane.Meta.Name)})
+
+	case "generation":
+		gen := sess.generation.Load()
+		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: fmt.Sprintf("%d\n", gen)})
+
+	case "wait-layout":
+		var afterGen uint64
+		timeout := 3 * time.Second
+		for i := 0; i < len(msg.CmdArgs); i++ {
+			switch msg.CmdArgs[i] {
+			case "--after":
+				if i+1 < len(msg.CmdArgs) {
+					i++
+					n, err := strconv.ParseUint(msg.CmdArgs[i], 10, 64)
+					if err != nil {
+						cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("invalid generation: %s", msg.CmdArgs[i])})
+						return
+					}
+					afterGen = n
+				}
+			case "--timeout":
+				if i+1 < len(msg.CmdArgs) {
+					i++
+					d, err := time.ParseDuration(msg.CmdArgs[i])
+					if err != nil {
+						cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("invalid timeout: %s", msg.CmdArgs[i])})
+						return
+					}
+					timeout = d
+				}
+			}
+		}
+		gen, ok := sess.waitGeneration(afterGen, timeout)
+		if !ok {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("timeout waiting for generation > %d (current: %d)", afterGen, gen)})
+			return
+		}
+		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: fmt.Sprintf("%d\n", gen)})
+
+	case "wait-for":
+		if len(msg.CmdArgs) < 2 {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "usage: wait-for <pane> <substring> [--timeout <duration>]"})
+			return
+		}
+		paneRef := msg.CmdArgs[0]
+		substr := msg.CmdArgs[1]
+		timeout := 3 * time.Second
+		for i := 2; i < len(msg.CmdArgs); i++ {
+			if msg.CmdArgs[i] == "--timeout" && i+1 < len(msg.CmdArgs) {
+				i++
+				d, err := time.ParseDuration(msg.CmdArgs[i])
+				if err != nil {
+					cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("invalid timeout: %s", msg.CmdArgs[i])})
+					return
+				}
+				timeout = d
+			}
+		}
+
+		sess.mu.Lock()
+		pane := cc.resolvePaneAcrossWindows(sess, "wait-for", paneRef)
+		if pane == nil {
+			sess.mu.Unlock()
+			return
+		}
+		paneID := pane.ID
+		sess.mu.Unlock()
+
+		// Check immediately — the content may already be on screen.
+		if sess.paneScreenContains(paneID, substr) {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: "matched\n"})
+			return
+		}
+
+		// Subscribe to pane output notifications and poll on each write.
+		ch := sess.subscribePaneOutput(paneID)
+		defer sess.unsubscribePaneOutput(paneID, ch)
+
+		deadline := time.Now().Add(timeout)
+		for {
+			remaining := time.Until(deadline)
+			if remaining <= 0 {
+				cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("timeout waiting for %q in %s", substr, paneRef)})
+				return
+			}
+			select {
+			case <-ch:
+				if sess.paneScreenContains(paneID, substr) {
+					cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: "matched\n"})
+					return
+				}
+			case <-time.After(remaining):
+				cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("timeout waiting for %q in %s", substr, paneRef)})
+				return
+			}
+		}
 
 	case "reload-server":
 		execPath, err := os.Executable()
