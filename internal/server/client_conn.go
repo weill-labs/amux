@@ -372,13 +372,12 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 			return
 		}
 		hexMode := false
-		keys := make([]string, len(msg.CmdArgs)-1)
-		copy(keys, msg.CmdArgs[1:])
-		for i, arg := range keys {
+		var keys []string
+		for _, arg := range msg.CmdArgs[1:] {
 			if arg == "--hex" {
 				hexMode = true
-				keys = append(keys[:i], keys[i+1:]...)
-				break
+			} else {
+				keys = append(keys, arg)
 			}
 		}
 		sess.mu.Lock()
@@ -706,20 +705,16 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 		ch := sess.subscribePaneOutput(paneID)
 		defer sess.unsubscribePaneOutput(paneID, ch)
 
-		deadline := time.Now().Add(timeout)
+		timer := time.NewTimer(timeout)
+		defer timer.Stop()
 		for {
-			remaining := time.Until(deadline)
-			if remaining <= 0 {
-				cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("timeout waiting for %q in %s", substr, paneRef)})
-				return
-			}
 			select {
 			case <-ch:
 				if sess.paneScreenContains(paneID, substr) {
 					cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: "matched\n"})
 					return
 				}
-			case <-time.After(remaining):
+			case <-timer.C:
 				cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("timeout waiting for %q in %s", substr, paneRef)})
 				return
 			}
