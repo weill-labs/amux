@@ -5,6 +5,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 
 	"github.com/weill-labs/amux/internal/mux"
@@ -332,6 +333,26 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 			statusLine += fmt.Sprintf(", %s zoomed", zoomed)
 		}
 		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: statusLine + "\n"})
+
+	case "resize-border":
+		// resize-border <x> <y> <delta>
+		if len(msg.CmdArgs) < 3 {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "usage: resize-border <x> <y> <delta>"})
+			return
+		}
+		x, err1 := strconv.Atoi(msg.CmdArgs[0])
+		y, err2 := strconv.Atoi(msg.CmdArgs[1])
+		delta, err3 := strconv.Atoi(msg.CmdArgs[2])
+		if err1 != nil || err2 != nil || err3 != nil {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "resize-border: invalid arguments"})
+			return
+		}
+		sess.mu.Lock()
+		if sess.Window != nil {
+			sess.Window.ResizeBorder(x, y, delta)
+		}
+		sess.mu.Unlock()
+		sess.broadcastLayout()
 
 	case "reload-server":
 		execPath, err := os.Executable()
