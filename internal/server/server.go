@@ -177,6 +177,7 @@ func (s *serverPaneData) Host() string          { return s.p.Meta.Host }
 func (s *serverPaneData) Task() string          { return s.p.Meta.Task }
 func (s *serverPaneData) Color() string         { return s.p.Meta.Color }
 func (s *serverPaneData) Minimized() bool       { return s.p.Meta.Minimized }
+func (s *serverPaneData) InCopyMode() bool      { return false }
 
 // renderCapture renders the full composited screen server-side.
 // If stripANSI is true, the ANSI stream is materialized into a plain-text

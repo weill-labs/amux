@@ -4,6 +4,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/weill-labs/amux/internal/copymode"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
 	"github.com/weill-labs/amux/internal/render"
@@ -23,6 +24,7 @@ type ClientRenderer struct {
 	width        int // full terminal width
 	height       int // full terminal height
 	dirty        bool
+	copyModes    map[uint32]*copymode.CopyMode // per-pane copy mode state (nil = not in copy mode)
 }
 
 // NewClientRenderer creates a client renderer for the given terminal dimensions.
@@ -30,6 +32,7 @@ func NewClientRenderer(width, height int) *ClientRenderer {
 	return &ClientRenderer{
 		emulators:  make(map[uint32]mux.TerminalEmulator),
 		paneInfo:   make(map[uint32]proto.PaneSnapshot),
+		copyModes:  make(map[uint32]*copymode.CopyMode),
 		compositor: render.NewCompositor(width, height, ""),
 		width:      width,
 		height:     height,
@@ -122,7 +125,7 @@ func (cr *ClientRenderer) Render() []byte {
 		if !ok {
 			return nil
 		}
-		return &clientPaneData{emu: emu, info: info}
+		return &clientPaneData{emu: emu, info: info, cm: cr.copyModes[paneID]}
 	}
 
 	return cr.compositor.RenderFull(cr.layout, cr.activePaneID, lookup)
@@ -183,6 +186,12 @@ func (cr *ClientRenderer) renderCoalesced(msgCh <-chan *renderMsg, write func([]
 			case renderMsgPaneOutput:
 				cr.HandlePaneOutput(msg.paneID, msg.data)
 				scheduleRender()
+			case renderMsgCopyMode:
+				cr.EnterCopyMode(msg.paneID)
+				if renderTimer != nil {
+					renderTimer.Stop()
+				}
+				doRender()
 			case renderMsgBell:
 				write([]byte{0x07})
 			case renderMsgExit:
@@ -206,6 +215,7 @@ const (
 	renderMsgPaneOutput
 	renderMsgBell
 	renderMsgExit
+	renderMsgCopyMode
 )
 
 type renderMsg struct {
@@ -215,21 +225,69 @@ type renderMsg struct {
 	data   []byte
 }
 
+// EnterCopyMode enters copy mode for the given pane. Thread-safe.
+func (cr *ClientRenderer) EnterCopyMode(paneID uint32) {
+	cr.mu.Lock()
+	defer cr.mu.Unlock()
+	emu, ok := cr.emulators[paneID]
+	if !ok {
+		return
+	}
+	if cr.copyModes[paneID] != nil {
+		return // already in copy mode
+	}
+	w, h := emu.Size()
+	cr.copyModes[paneID] = copymode.New(emu, w, h)
+	cr.dirty = true
+}
+
+// ExitCopyMode exits copy mode for the given pane. Thread-safe.
+func (cr *ClientRenderer) ExitCopyMode(paneID uint32) {
+	cr.mu.Lock()
+	defer cr.mu.Unlock()
+	delete(cr.copyModes, paneID)
+	cr.dirty = true
+}
+
+// ActiveCopyMode returns the copy mode for the active pane, or nil. Thread-safe.
+func (cr *ClientRenderer) ActiveCopyMode() *copymode.CopyMode {
+	cr.mu.Lock()
+	defer cr.mu.Unlock()
+	return cr.copyModes[cr.activePaneID]
+}
+
+// ActivePaneID returns the active pane ID. Thread-safe.
+func (cr *ClientRenderer) ActivePaneID() uint32 {
+	cr.mu.Lock()
+	defer cr.mu.Unlock()
+	return cr.activePaneID
+}
+
 // clientPaneData adapts an emulator + snapshot metadata for the PaneData interface.
 type clientPaneData struct {
 	emu  mux.TerminalEmulator
 	info proto.PaneSnapshot
+	cm   *copymode.CopyMode // nil when not in copy mode
 }
 
 func (c *clientPaneData) RenderScreen() string {
+	if c.cm != nil {
+		return c.cm.RenderViewport()
+	}
 	return c.emu.Render()
 }
 
 func (c *clientPaneData) CursorPos() (col, row int) {
+	if c.cm != nil {
+		return c.cm.CursorPos()
+	}
 	return c.emu.CursorPosition()
 }
 
 func (c *clientPaneData) CursorHidden() bool {
+	if c.cm != nil {
+		return true // copy mode manages its own cursor via reverse video
+	}
 	return c.emu.CursorHidden()
 }
 
@@ -239,6 +297,9 @@ func (c *clientPaneData) Host() string    { return c.info.Host }
 func (c *clientPaneData) Task() string    { return c.info.Task }
 func (c *clientPaneData) Color() string   { return c.info.Color }
 func (c *clientPaneData) Minimized() bool { return c.info.Minimized }
+func (c *clientPaneData) InCopyMode() bool {
+	return c.cm != nil
+}
 
 // findCellInSnapshot finds a cell by pane ID in a CellSnapshot tree.
 func findCellInSnapshot(cs proto.CellSnapshot, paneID uint32) *proto.CellSnapshot {

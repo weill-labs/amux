@@ -30,6 +30,7 @@ const (
 	MsgTypePaneOutput   MsgType = 15 // raw PTY output for one pane
 	MsgTypeLayout       MsgType = 16 // serialized layout tree + metadata
 	MsgTypeServerReload MsgType = 17 // server is about to exec — clients should reconnect
+	MsgTypeCopyMode     MsgType = 18 // enter copy mode for a pane (server → client)
 )
 
 // Message is the wire protocol envelope. Only the fields relevant to

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/weill-labs/amux/internal/checkpoint"
+	"github.com/weill-labs/amux/internal/copymode"
 	"github.com/weill-labs/amux/internal/render"
 	"github.com/weill-labs/amux/internal/server"
 
@@ -74,6 +75,12 @@ func main() {
 		runServerCommand("status", nil)
 	case "capture":
 		runServerCommand("capture", args[1:])
+	case "copy-mode":
+		if len(args) < 2 {
+			fmt.Fprintf(os.Stderr, "usage: amux copy-mode <pane>\n")
+			os.Exit(1)
+		}
+		runServerCommand("copy-mode", []string{args[1]})
 	case "minimize", "restore", "kill", "focus":
 		if len(args) < 2 {
 			fmt.Fprintf(os.Stderr, "usage: amux %s <pane>\n", args[0])
@@ -127,6 +134,7 @@ Usage:
   amux [-s session] restore <pane>    Restore a minimized pane
   amux [-s session] kill <pane>       Kill a pane
   amux [-s session] focus <pane>      Focus a pane by name or ID
+  amux [-s session] copy-mode <pane>  Enter copy/scroll mode for a pane
   amux [-s session] reload-server     Hot-reload the server (preserves panes)
 
 Panes can be referenced by name (pane-1) or ID (1).
@@ -138,6 +146,7 @@ Inside an amux session:
   Ctrl-a _                          Root-level split top/bottom
   Ctrl-a o                          Cycle focus to next pane
   Ctrl-a h/j/k/l                    Focus left/down/up/right
+  Ctrl-a [                          Enter copy/scroll mode
   Ctrl-a r                          Hot reload (re-exec binary)
   Ctrl-a d                          Detach from session
   Ctrl-a Ctrl-a                     Send literal Ctrl-a`)
@@ -305,6 +314,8 @@ func runMux(sessionName string) error {
 				msgCh <- &renderMsg{typ: renderMsgLayout, layout: msg.Layout}
 			case server.MsgTypePaneOutput:
 				msgCh <- &renderMsg{typ: renderMsgPaneOutput, paneID: msg.PaneID, data: msg.PaneData}
+			case server.MsgTypeCopyMode:
+				msgCh <- &renderMsg{typ: renderMsgCopyMode, paneID: msg.PaneID}
 			case server.MsgTypeExit:
 				msgCh <- &renderMsg{typ: renderMsgExit}
 				return
@@ -338,6 +349,29 @@ func runMux(sessionName string) error {
 			n, err := os.Stdin.Read(buf)
 			if err != nil {
 				return
+			}
+
+			// If the active pane is in copy mode, route input there
+			if cm := cr.ActiveCopyMode(); cm != nil {
+				action := cm.HandleInput(buf[:n])
+				paneID := cr.ActivePaneID()
+				switch action {
+				case copymode.ActionExit:
+					cr.ExitCopyMode(paneID)
+				case copymode.ActionYank:
+					// Copy selected text to system clipboard
+					if text := cm.SelectedText(); text != "" {
+						copyToClipboard(text)
+					}
+					cr.ExitCopyMode(paneID)
+				case copymode.ActionRedraw:
+					// Trigger a re-render
+				}
+				// Force a render to reflect copy mode changes
+				if data := cr.Render(); data != nil {
+					os.Stdout.Write(data)
+				}
+				continue
 			}
 
 			var forward []byte
@@ -382,6 +416,12 @@ func runMux(sessionName string) error {
 					case 'j':
 						// Ctrl-a j → focus down
 						sendCommand(conn, "focus", []string{"down"})
+					case '[':
+						// Ctrl-a [ → enter copy mode for active pane
+						cr.EnterCopyMode(cr.ActivePaneID())
+						if data := cr.Render(); data != nil {
+							os.Stdout.Write(data)
+						}
 					case 'r':
 						// Ctrl-a r → hot reload (re-exec binary)
 						if len(forward) > 0 {
@@ -438,6 +478,22 @@ func runMux(sessionName string) error {
 		}
 		// execSelf replaces the process; if we get here, exec failed fatally
 		return nil
+	}
+}
+
+// copyToClipboard copies text to the system clipboard.
+func copyToClipboard(text string) {
+	// Try pbcopy (macOS), then xclip (Linux), then xsel (Linux)
+	for _, cmd := range [][]string{
+		{"pbcopy"},
+		{"xclip", "-selection", "clipboard"},
+		{"xsel", "--clipboard", "--input"},
+	} {
+		c := exec.Command(cmd[0], cmd[1:]...)
+		c.Stdin = strings.NewReader(text)
+		if c.Run() == nil {
+			return
+		}
 	}
 }
 

@@ -1558,3 +1558,4 @@ func TestCaptureWithSplit(t *testing.T) {
 		t.Errorf("amux capture should contain both pane names, got:\n%s", out)
 	}
 }
+
