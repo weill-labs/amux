@@ -1559,3 +1559,448 @@ func TestCaptureWithSplit(t *testing.T) {
 	}
 }
 
+func TestZoomToggle(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// Split to get two panes (top/bottom)
+	h.sendKeys("C-a", "-")
+	h.waitFor("[pane-2]", 3*time.Second)
+
+	// Both panes should be visible before zoom
+	h.assertScreen("both panes visible before zoom", func(s string) bool {
+		return strings.Contains(s, "[pane-1]") && strings.Contains(s, "[pane-2]")
+	})
+
+	// Zoom pane-1 via CLI
+	output := h.runCmd("zoom", "pane-1")
+	if !strings.Contains(output, "Zoomed") {
+		t.Errorf("zoom should confirm, got:\n%s", output)
+	}
+
+	// Only pane-1 should be visible when zoomed
+	if !h.waitForFunc(func(s string) bool {
+		return strings.Contains(s, "[pane-1]") && !strings.Contains(s, "[pane-2]")
+	}, 3*time.Second) {
+		screen := h.capture()
+		t.Fatalf("pane-1 should be visible and pane-2 hidden when zoomed\nScreen:\n%s", screen)
+	}
+
+	// Status should report zoomed state
+	status := h.runCmd("status")
+	if !strings.Contains(status, "zoomed") {
+		t.Errorf("status should report zoomed state, got:\n%s", status)
+	}
+
+	// Unzoom via CLI (toggle)
+	output = h.runCmd("zoom", "pane-1")
+	if !strings.Contains(output, "Unzoomed") {
+		t.Errorf("unzoom should confirm, got:\n%s", output)
+	}
+
+	// Both panes should be visible after unzoom
+	if !h.waitForFunc(func(s string) bool {
+		return strings.Contains(s, "[pane-1]") && strings.Contains(s, "[pane-2]")
+	}, 3*time.Second) {
+		screen := h.capture()
+		t.Fatalf("both panes should be visible after unzoom\nScreen:\n%s", screen)
+	}
+}
+
+func TestZoomKeybinding(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// Split to get two panes
+	h.sendKeys("C-a", "-")
+	h.waitFor("[pane-2]", 3*time.Second)
+
+	// Focus pane-1
+	h.sendKeys("C-a", "k")
+	time.Sleep(300 * time.Millisecond)
+
+	// Zoom via Ctrl-a z
+	h.sendKeys("C-a", "z")
+
+	// Only the active pane should be visible
+	if !h.waitForFunc(func(s string) bool {
+		return strings.Contains(s, "[pane-1]") && !strings.Contains(s, "[pane-2]")
+	}, 3*time.Second) {
+		screen := h.capture()
+		t.Fatalf("Ctrl-a z should zoom the active pane\nScreen:\n%s", screen)
+	}
+
+	// Ctrl-a z again to unzoom
+	h.sendKeys("C-a", "z")
+
+	if !h.waitForFunc(func(s string) bool {
+		return strings.Contains(s, "[pane-1]") && strings.Contains(s, "[pane-2]")
+	}, 3*time.Second) {
+		screen := h.capture()
+		t.Fatalf("Ctrl-a z should toggle unzoom\nScreen:\n%s", screen)
+	}
+}
+
+func TestZoomSinglePaneFails(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// Should fail with only one pane
+	output := h.runCmd("zoom", "pane-1")
+	if !strings.Contains(output, "cannot zoom") {
+		t.Errorf("zoom should fail with single pane, got:\n%s", output)
+	}
+}
+
+func TestZoomKillZoomedPane(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// Split to get three panes
+	h.sendKeys("C-a", "-")
+	h.waitFor("[pane-2]", 3*time.Second)
+	h.sendKeys("C-a", "-")
+	h.waitFor("[pane-3]", 3*time.Second)
+
+	// Zoom pane-2
+	h.runCmd("zoom", "pane-2")
+	h.waitForFunc(func(s string) bool {
+		return strings.Contains(s, "[pane-2]") && !strings.Contains(s, "[pane-1]")
+	}, 3*time.Second)
+
+	// Kill the zoomed pane — should auto-unzoom
+	h.runCmd("kill", "pane-2")
+
+	// Should unzoom and show remaining panes
+	if !h.waitForFunc(func(s string) bool {
+		return strings.Contains(s, "[pane-1]") && strings.Contains(s, "[pane-3]") &&
+			!strings.Contains(s, "[pane-2]")
+	}, 5*time.Second) {
+		screen := h.capture()
+		t.Fatalf("killing zoomed pane should unzoom and show remaining panes\nScreen:\n%s", screen)
+	}
+
+	// Status should not report zoomed
+	status := h.runCmd("status")
+	if strings.Contains(status, "zoomed") {
+		t.Errorf("status should not report zoomed after kill, got:\n%s", status)
+	}
+}
+
+func TestZoomAutoUnzoomOnSplit(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// Split to get two panes
+	h.sendKeys("C-a", "-")
+	h.waitFor("[pane-2]", 3*time.Second)
+
+	// Zoom pane-1
+	h.runCmd("zoom", "pane-1")
+	h.waitForFunc(func(s string) bool {
+		return strings.Contains(s, "[pane-1]") && !strings.Contains(s, "[pane-2]")
+	}, 3*time.Second)
+
+	// Split while zoomed — should auto-unzoom and show all panes
+	h.sendKeys("C-a", "-")
+	if !h.waitForFunc(func(s string) bool {
+		return strings.Contains(s, "[pane-1]") && strings.Contains(s, "[pane-2]") &&
+			strings.Contains(s, "[pane-3]")
+	}, 3*time.Second) {
+		screen := h.capture()
+		t.Fatalf("split while zoomed should auto-unzoom and show all panes\nScreen:\n%s", screen)
+	}
+}
+
+func TestZoomAutoUnzoomOnFocus(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// Split to get two panes
+	h.sendKeys("C-a", "-")
+	h.waitFor("[pane-2]", 3*time.Second)
+
+	// Zoom pane-2 (bottom, active after split)
+	h.sendKeys("C-a", "z")
+	h.waitForFunc(func(s string) bool {
+		return strings.Contains(s, "[pane-2]") && !strings.Contains(s, "[pane-1]")
+	}, 3*time.Second)
+
+	// Focus up — should auto-unzoom and show both panes
+	h.sendKeys("C-a", "k")
+	if !h.waitForFunc(func(s string) bool {
+		return strings.Contains(s, "[pane-1]") && strings.Contains(s, "[pane-2]")
+	}, 3*time.Second) {
+		screen := h.capture()
+		t.Fatalf("focus while zoomed should auto-unzoom\nScreen:\n%s", screen)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Swap and Rotate (LAB-93)
+// ---------------------------------------------------------------------------
+
+func TestSwapForward(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// Split to get 2 panes side-by-side: pane-1 (left) | pane-2 (right, active)
+	h.sendKeys("C-a", "\\")
+	h.waitFor("[pane-2]", 3*time.Second)
+
+	// Verify initial order: pane-1 left of pane-2
+	lines := h.captureAmuxContentLines()
+	col1 := paneNameCol(lines, "pane-1")
+	col2 := paneNameCol(lines, "pane-2")
+	if col1 < 0 || col2 < 0 || col1 >= col2 {
+		t.Fatalf("initial: pane-1 (col %d) should be left of pane-2 (col %d)", col1, col2)
+	}
+
+	// Swap forward: Ctrl-a } swaps active (pane-2) with next (wraps to pane-1)
+	h.sendKeys("C-a", "}")
+
+	// After swap: pane-2 on left, pane-1 on right
+	ok := h.waitForFunc(func(screen string) bool {
+		ls := strings.Split(screen, "\n")
+		c1 := paneNameCol(ls, "pane-1")
+		c2 := paneNameCol(ls, "pane-2")
+		return c1 >= 0 && c2 >= 0 && c2 < c1
+	}, 3*time.Second)
+	if !ok {
+		lines = h.captureAmuxContentLines()
+		t.Errorf("swap forward: expected pane-2 left of pane-1\n%s", strings.Join(lines, "\n"))
+	}
+}
+
+func TestSwapBackward(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// 3 panes: pane-1 | pane-2 | pane-3 (active)
+	h.sendKeys("C-a", "\\")
+	h.waitFor("[pane-2]", 3*time.Second)
+	h.sendKeys("C-a", "\\")
+	h.waitFor("[pane-3]", 3*time.Second)
+
+	// Swap backward: Ctrl-a { swaps active (pane-3) with previous (pane-2)
+	h.sendKeys("C-a", "{")
+
+	// After swap: pane-1 | pane-3 | pane-2
+	ok := h.waitForFunc(func(screen string) bool {
+		ls := strings.Split(screen, "\n")
+		c1 := paneNameCol(ls, "pane-1")
+		c2 := paneNameCol(ls, "pane-2")
+		c3 := paneNameCol(ls, "pane-3")
+		return c1 >= 0 && c2 >= 0 && c3 >= 0 && c1 < c3 && c3 < c2
+	}, 3*time.Second)
+	if !ok {
+		lines := h.captureAmuxContentLines()
+		t.Errorf("swap backward: expected pane-1|pane-3|pane-2\n%s", strings.Join(lines, "\n"))
+	}
+}
+
+func TestSwapCLI(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	h.sendKeys("C-a", "\\")
+	h.waitFor("[pane-2]", 3*time.Second)
+
+	// Swap via CLI
+	out := h.runCmd("swap", "pane-1", "pane-2")
+	if strings.Contains(out, "unknown command") {
+		t.Fatalf("swap command not recognized: %s", out)
+	}
+
+	// After swap: pane-2 on left, pane-1 on right
+	ok := h.waitForFunc(func(screen string) bool {
+		ls := strings.Split(screen, "\n")
+		c1 := paneNameCol(ls, "pane-1")
+		c2 := paneNameCol(ls, "pane-2")
+		return c1 >= 0 && c2 >= 0 && c2 < c1
+	}, 3*time.Second)
+	if !ok {
+		lines := h.captureAmuxContentLines()
+		t.Errorf("CLI swap: expected pane-2 left of pane-1\n%s", strings.Join(lines, "\n"))
+	}
+}
+
+func TestRotate(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// 3 panes: pane-1 | pane-2 | pane-3
+	h.sendKeys("C-a", "\\")
+	h.waitFor("[pane-2]", 3*time.Second)
+	h.sendKeys("C-a", "\\")
+	h.waitFor("[pane-3]", 3*time.Second)
+
+	// Rotate forward via CLI
+	out := h.runCmd("rotate")
+	if strings.Contains(out, "unknown command") {
+		t.Fatalf("rotate command not recognized: %s", out)
+	}
+
+	// Forward rotation: panes move forward through cells.
+	// Cell 0 gets last pane (pane-3), cell 1 gets pane-1, cell 2 gets pane-2.
+	// Result: pane-3 | pane-1 | pane-2
+	ok := h.waitForFunc(func(screen string) bool {
+		ls := strings.Split(screen, "\n")
+		c1 := paneNameCol(ls, "pane-1")
+		c2 := paneNameCol(ls, "pane-2")
+		c3 := paneNameCol(ls, "pane-3")
+		return c1 >= 0 && c2 >= 0 && c3 >= 0 && c3 < c1 && c1 < c2
+	}, 3*time.Second)
+	if !ok {
+		lines := h.captureAmuxContentLines()
+		t.Errorf("rotate: expected pane-3|pane-1|pane-2\n%s", strings.Join(lines, "\n"))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Mouse support tests
+// ---------------------------------------------------------------------------
+
+func TestMouseClickFocus(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// Create a vertical split (left | right)
+	h.sendKeys("C-a", "\\")
+	h.waitFor("[pane-2]", 3*time.Second)
+
+	// pane-2 should be active (focus goes to new pane after split)
+	h.waitForFunc(func(s string) bool {
+		return isActivePaneLine(s, "pane-2")
+	}, 3*time.Second)
+
+	// Find the approximate center of pane-1 (left half of 80-col terminal)
+	// pane-1 occupies roughly columns 1-39, pane-2 occupies columns 41-80
+	// Click at column 10, row 5 (1-based) — well inside pane-1
+	h.clickAt(10, 5)
+
+	// pane-1 should now be active
+	if !h.waitForFunc(func(s string) bool {
+		return isActivePaneLine(s, "pane-1")
+	}, 3*time.Second) {
+		t.Errorf("after clicking left pane, pane-1 should be active.\nScreen:\n%s", h.capture())
+	}
+
+	// Click on pane-2 (column 60, row 5) to switch back
+	h.clickAt(60, 5)
+
+	if !h.waitForFunc(func(s string) bool {
+		return isActivePaneLine(s, "pane-2")
+	}, 3*time.Second) {
+		t.Errorf("after clicking right pane, pane-2 should be active.\nScreen:\n%s", h.capture())
+	}
+}
+
+func TestMouseClickFocusHorizontalSplit(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// Create a horizontal split (top / bottom)
+	h.sendKeys("C-a", "-")
+	h.waitFor("[pane-2]", 3*time.Second)
+
+	// pane-2 should be active (bottom pane, after split)
+	h.waitForFunc(func(s string) bool {
+		return isActivePaneLine(s, "pane-2")
+	}, 3*time.Second)
+
+	// Click at top of screen (row 3) — inside pane-1
+	h.clickAt(40, 3)
+
+	if !h.waitForFunc(func(s string) bool {
+		return isActivePaneLine(s, "pane-1")
+	}, 3*time.Second) {
+		t.Errorf("after clicking top pane, pane-1 should be active.\nScreen:\n%s", h.capture())
+	}
+}
+
+func TestMouseBorderDrag(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// Create vertical split
+	h.sendKeys("C-a", "\\")
+	h.waitFor("[pane-2]", 3*time.Second)
+	time.Sleep(200 * time.Millisecond)
+
+	// Find the border column via capture
+	borderCol := h.captureAmuxVerticalBorderCol()
+	if borderCol < 0 {
+		t.Fatalf("no vertical border found.\nScreen:\n%s", h.captureAmux())
+	}
+
+	// Drag the border 5 columns to the right
+	// Border is at borderCol (0-based in amux), need 1-based for SGR
+	dragDelta := 5
+	h.dragBorder(borderCol+1, 10, borderCol+1+dragDelta, 10)
+	time.Sleep(300 * time.Millisecond)
+
+	// Border should have moved to the right
+	newBorderCol := h.captureAmuxVerticalBorderCol()
+	if newBorderCol < 0 {
+		t.Fatalf("no vertical border found after drag.\nScreen:\n%s", h.captureAmux())
+	}
+	if newBorderCol <= borderCol {
+		t.Errorf("border should have moved right: was at %d, now at %d.\nScreen:\n%s",
+			borderCol, newBorderCol, h.captureAmux())
+	}
+}
+
+func TestMouseScrollWheel(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// Generate enough output to have scrollback
+	for i := 0; i < 30; i++ {
+		h.sendKeys(fmt.Sprintf("echo line-%d", i), "Enter")
+		time.Sleep(30 * time.Millisecond)
+	}
+	h.waitFor("line-29", 3*time.Second)
+
+	// Verify line-29 is visible
+	screen := h.capture()
+	if !strings.Contains(screen, "line-29") {
+		t.Fatalf("expected line-29 visible before scroll.\nScreen:\n%s", screen)
+	}
+
+	// Scroll up at center of the single pane (40, 12)
+	// Note: scroll wheel support requires the application in the pane to handle
+	// mouse events, or amux to convert scroll to up/down arrow keys.
+	// For now, we just verify the scroll event doesn't crash amux.
+	h.scrollAt(40, 12, true)
+	h.scrollAt(40, 12, true)
+	h.scrollAt(40, 12, true)
+	time.Sleep(200 * time.Millisecond)
+
+	// amux should still be responsive
+	if !h.waitFor("[pane-", 3*time.Second) {
+		t.Errorf("amux should still be running after scroll.\nScreen:\n%s", h.capture())
+	}
+}
+
+// isActivePaneLine returns true if the captured screen shows the named pane
+// with the active indicator (● [name]).
+func isActivePaneLine(screen, paneName string) bool {
+	// In the raw tmux capture, the bullet character may render differently.
+	// Check that the pane name appears and is the active one by verifying
+	// the screen contains the active indicator pattern.
+	// The amux capture (server-side) is more reliable for this.
+	target := "[" + paneName + "]"
+	for _, line := range strings.Split(screen, "\n") {
+		idx := strings.Index(line, target)
+		if idx < 0 {
+			continue
+		}
+		// Check for active indicator (●) before the name on the same line
+		prefix := line[:idx]
+		if strings.Contains(prefix, "●") {
+			return true
+		}
+	}
+	return false
+}

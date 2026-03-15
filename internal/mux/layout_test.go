@@ -268,6 +268,145 @@ func TestWalkAndFindPane(t *testing.T) {
 	}
 }
 
+func TestFindLeafAt(t *testing.T) {
+	t.Parallel()
+	// Horizontal split: pane-1 (0..38) | border (39) | pane-2 (40..79)
+	p1 := fakePaneID(1)
+	root := NewLeaf(p1, 0, 0, 80, 24)
+	p2 := fakePaneID(2)
+	root.Split(SplitHorizontal, p2)
+	root.FixOffsets()
+
+	tests := []struct {
+		name   string
+		x, y   int
+		wantID uint32 // 0 means nil (border/outside)
+	}{
+		{"left pane center", 10, 12, 1},
+		{"right pane center", 50, 12, 2},
+		{"left pane origin", 0, 0, 1},
+		{"left pane edge", root.Children[0].W - 1, 0, 1},
+		{"border column", root.Children[0].W, 12, 0},
+		{"right pane origin", root.Children[1].X, 0, 2},
+		{"outside right", 80, 12, 0},
+		{"outside bottom", 10, 24, 0},
+		{"negative coords", -1, -1, 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			leaf := root.FindLeafAt(tt.x, tt.y)
+			if tt.wantID == 0 {
+				if leaf != nil {
+					t.Errorf("expected nil, got pane %d", leaf.Pane.ID)
+				}
+			} else {
+				if leaf == nil {
+					t.Fatalf("expected pane %d, got nil", tt.wantID)
+				}
+				if leaf.Pane.ID != tt.wantID {
+					t.Errorf("pane ID = %d, want %d", leaf.Pane.ID, tt.wantID)
+				}
+			}
+		})
+	}
+}
+
+func TestFindLeafAtVerticalSplit(t *testing.T) {
+	t.Parallel()
+	p1 := fakePaneID(1)
+	root := NewLeaf(p1, 0, 0, 80, 25)
+	p2 := fakePaneID(2)
+	root.Split(SplitVertical, p2)
+	root.FixOffsets()
+
+	top := root.Children[0]
+	bottom := root.Children[1]
+
+	// Top pane
+	leaf := root.FindLeafAt(10, 5)
+	if leaf == nil || leaf.Pane.ID != 1 {
+		t.Errorf("expected pane 1 at (10,5)")
+	}
+
+	// Bottom pane
+	leaf = root.FindLeafAt(10, bottom.Y+1)
+	if leaf == nil || leaf.Pane.ID != 2 {
+		t.Errorf("expected pane 2 at (10,%d)", bottom.Y+1)
+	}
+
+	// Border row
+	borderY := top.Y + top.H
+	leaf = root.FindLeafAt(10, borderY)
+	if leaf != nil {
+		t.Errorf("expected nil at border row %d, got pane %d", borderY, leaf.Pane.ID)
+	}
+}
+
+func TestFindBorderAt(t *testing.T) {
+	t.Parallel()
+	// Horizontal split: pane-1 | border | pane-2
+	p1 := fakePaneID(1)
+	root := NewLeaf(p1, 0, 0, 80, 24)
+	p2 := fakePaneID(2)
+	root.Split(SplitHorizontal, p2)
+	root.FixOffsets()
+
+	borderX := root.Children[0].W
+
+	// Border position
+	hit := root.FindBorderAt(borderX, 12)
+	if hit == nil {
+		t.Fatal("expected border hit at border column")
+	}
+	if hit.Dir != SplitHorizontal {
+		t.Errorf("dir = %d, want SplitHorizontal", hit.Dir)
+	}
+
+	// Non-border position (inside pane)
+	hit = root.FindBorderAt(10, 12)
+	if hit != nil {
+		t.Error("expected no border hit inside pane")
+	}
+}
+
+func TestFindBorderAtNested(t *testing.T) {
+	t.Parallel()
+	// 2x2 grid: H split, then each child V split
+	p1 := fakePaneID(1)
+	root := NewLeaf(p1, 0, 0, 81, 25)
+	p2 := fakePaneID(2)
+	root.Split(SplitHorizontal, p2)
+	p3 := fakePaneID(3)
+	root.Children[0].Split(SplitVertical, p3)
+	p4 := fakePaneID(4)
+	root.Children[1].Split(SplitVertical, p4)
+	root.FixOffsets()
+
+	// Vertical border between left and right halves
+	vBorderX := root.Children[0].X + root.Children[0].W
+	hit := root.FindBorderAt(vBorderX, 5)
+	if hit == nil {
+		t.Fatal("expected vertical border hit")
+	}
+	if hit.Dir != SplitHorizontal {
+		t.Errorf("dir = %d, want SplitHorizontal", hit.Dir)
+	}
+
+	// Horizontal border in left half
+	leftChild := root.Children[0]
+	if !leftChild.IsLeaf() {
+		hBorderY := leftChild.Children[0].Y + leftChild.Children[0].H
+		hit = root.FindBorderAt(5, hBorderY)
+		if hit == nil {
+			t.Fatal("expected horizontal border hit in left half")
+		}
+		if hit.Dir != SplitVertical {
+			t.Errorf("dir = %d, want SplitVertical", hit.Dir)
+		}
+	}
+}
+
 func TestNestedSplits(t *testing.T) {
 	t.Parallel()
 	// Create a 2x2 grid: split H, then split each half V

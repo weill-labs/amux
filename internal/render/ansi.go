@@ -23,6 +23,16 @@ const (
 	YellowFg   = "\033[38;2;249;226;175m" // Yellow (#f9e2af)
 )
 
+// Mouse tracking mode sequences.
+const (
+	// MouseEnable activates button-event tracking (press/release/drag)
+	// with SGR extended coordinates (no 223-column limit).
+	MouseEnable = "\033[?1002h\033[?1006h"
+
+	// MouseDisable turns off all mouse tracking modes.
+	MouseDisable = "\033[?1006l\033[?1002l"
+)
+
 // OSC (Operating System Command) sequences for terminal title.
 const (
 	AltScreenEnter = "\033[?1049h"

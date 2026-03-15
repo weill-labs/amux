@@ -5,9 +5,10 @@ import "github.com/weill-labs/amux/internal/proto"
 // SnapshotLayout creates a serializable snapshot of the current layout state.
 func (w *Window) SnapshotLayout(sessionName string) *proto.LayoutSnapshot {
 	snap := &proto.LayoutSnapshot{
-		SessionName: sessionName,
-		Width:       w.Width,
-		Height:      w.Height,
+		SessionName:  sessionName,
+		Width:        w.Width,
+		Height:       w.Height,
+		ZoomedPaneID: w.ZoomedPaneID,
 	}
 	if w.ActivePane != nil {
 		snap.ActivePaneID = w.ActivePane.ID
@@ -79,10 +80,11 @@ func RebuildFromSnapshot(snap proto.LayoutSnapshot, paneMap map[uint32]*Pane) *W
 	}
 
 	return &Window{
-		Root:       root,
-		ActivePane: activePane,
-		Width:      snap.Width,
-		Height:     snap.Height,
+		Root:         root,
+		ActivePane:   activePane,
+		Width:        snap.Width,
+		Height:       snap.Height,
+		ZoomedPaneID: snap.ZoomedPaneID,
 	}
 }
 

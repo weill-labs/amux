@@ -206,7 +206,12 @@ func (s *Session) renderCapture(stripANSI bool) string {
 		activePaneID = s.Window.ActivePane.ID
 	}
 
-	raw := string(comp.RenderFull(s.Window.Root, activePaneID, func(id uint32) render.PaneData {
+	root := s.Window.Root
+	if s.Window.ZoomedPaneID != 0 {
+		root = mux.NewLeafByID(s.Window.ZoomedPaneID, 0, 0, s.Window.Width, s.Window.Height)
+	}
+
+	raw := string(comp.RenderFull(root, activePaneID, func(id uint32) render.PaneData {
 		return paneMap[id]
 	}))
 

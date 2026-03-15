@@ -5,6 +5,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 
 	"github.com/weill-labs/amux/internal/mux"
@@ -214,6 +215,44 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 				CmdOutput: fmt.Sprintf("Spawned %s in pane %d\n", meta.Name, pane.ID)})
 		}
 
+	case "zoom":
+		sess.mu.Lock()
+		if sess.Window == nil {
+			sess.mu.Unlock()
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "no session"})
+			return
+		}
+		// Resolve target pane: explicit arg or active pane
+		var pane *mux.Pane
+		if len(msg.CmdArgs) > 0 {
+			pane = sess.Window.ResolvePane(msg.CmdArgs[0])
+			if pane == nil {
+				sess.mu.Unlock()
+				cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("pane %q not found", msg.CmdArgs[0])})
+				return
+			}
+		} else {
+			pane = sess.Window.ActivePane
+		}
+		if pane == nil {
+			sess.mu.Unlock()
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "no active pane"})
+			return
+		}
+		willUnzoom := sess.Window.ZoomedPaneID == pane.ID
+		err := sess.Window.Zoom(pane.ID)
+		sess.mu.Unlock()
+		if err != nil {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: err.Error()})
+			return
+		}
+		sess.broadcastLayout()
+		verb := "Zoomed"
+		if willUnzoom {
+			verb = "Unzoomed"
+		}
+		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: fmt.Sprintf("%s %s\n", verb, pane.Meta.Name)})
+
 	case "minimize":
 		sess.mu.Lock()
 		pane := cc.resolvePane(sess, "minimize", msg.CmdArgs)
@@ -278,10 +317,103 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 				minimized++
 			}
 		}
+		zoomed := ""
+		if sess.Window != nil && sess.Window.ZoomedPaneID != 0 {
+			for _, p := range sess.Panes {
+				if p.ID == sess.Window.ZoomedPaneID {
+					zoomed = p.Meta.Name
+					break
+				}
+			}
+		}
 		sess.mu.Unlock()
 		active := total - minimized
-		cc.Send(&Message{Type: MsgTypeCmdResult,
-			CmdOutput: fmt.Sprintf("panes: %d total, %d active, %d minimized\n", total, active, minimized)})
+		statusLine := fmt.Sprintf("panes: %d total, %d active, %d minimized", total, active, minimized)
+		if zoomed != "" {
+			statusLine += fmt.Sprintf(", %s zoomed", zoomed)
+		}
+		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: statusLine + "\n"})
+
+	case "resize-border":
+		// resize-border <x> <y> <delta>
+		if len(msg.CmdArgs) < 3 {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "usage: resize-border <x> <y> <delta>"})
+			return
+		}
+		x, err1 := strconv.Atoi(msg.CmdArgs[0])
+		y, err2 := strconv.Atoi(msg.CmdArgs[1])
+		delta, err3 := strconv.Atoi(msg.CmdArgs[2])
+		if err1 != nil || err2 != nil || err3 != nil {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "resize-border: invalid arguments"})
+			return
+		}
+		sess.mu.Lock()
+		if sess.Window != nil {
+			sess.Window.ResizeBorder(x, y, delta)
+		}
+		sess.mu.Unlock()
+		sess.broadcastLayout()
+
+	case "swap":
+		sess.mu.Lock()
+		if sess.Window == nil {
+			sess.mu.Unlock()
+			return
+		}
+
+		var err error
+		switch {
+		case len(msg.CmdArgs) == 1 && msg.CmdArgs[0] == "forward":
+			err = sess.Window.SwapPaneForward()
+		case len(msg.CmdArgs) == 1 && msg.CmdArgs[0] == "backward":
+			err = sess.Window.SwapPaneBackward()
+		case len(msg.CmdArgs) == 2:
+			pane1 := sess.Window.ResolvePane(msg.CmdArgs[0])
+			if pane1 == nil {
+				sess.mu.Unlock()
+				cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("pane %q not found", msg.CmdArgs[0])})
+				return
+			}
+			pane2 := sess.Window.ResolvePane(msg.CmdArgs[1])
+			if pane2 == nil {
+				sess.mu.Unlock()
+				cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("pane %q not found", msg.CmdArgs[1])})
+				return
+			}
+			err = sess.Window.SwapPanes(pane1.ID, pane2.ID)
+		default:
+			sess.mu.Unlock()
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "usage: swap <pane1> <pane2> | swap forward | swap backward"})
+			return
+		}
+		sess.mu.Unlock()
+
+		if err != nil {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: err.Error()})
+			return
+		}
+		sess.broadcastLayout()
+		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: "Swapped\n"})
+
+	case "rotate":
+		sess.mu.Lock()
+		if sess.Window == nil {
+			sess.mu.Unlock()
+			return
+		}
+
+		forward := true
+		for _, arg := range msg.CmdArgs {
+			if arg == "--reverse" {
+				forward = false
+			}
+		}
+
+		sess.Window.RotatePanes(forward)
+		sess.mu.Unlock()
+
+		sess.broadcastLayout()
+		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: "Rotated\n"})
 
 	case "copy-mode":
 		sess.mu.Lock()

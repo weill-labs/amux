@@ -171,3 +171,189 @@ func TestFocusRightNoOverlap(t *testing.T) {
 		t.Errorf("Focus(right) = pane %d, want pane 2 (fallback)", w.ActivePane.ID)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Swap and Rotate (LAB-93)
+// ---------------------------------------------------------------------------
+
+// collectPaneIDs returns pane IDs in depth-first walk order.
+func collectPaneIDs(w *Window) []uint32 {
+	var ids []uint32
+	w.Root.Walk(func(c *LayoutCell) {
+		if c.Pane != nil {
+			ids = append(ids, c.Pane.ID)
+		}
+	})
+	return ids
+}
+
+func TestSwapPanes(t *testing.T) {
+	t.Parallel()
+	p1 := fakePaneID(1)
+	p2 := fakePaneID(2)
+	p1.Meta.Name = "alpha"
+	p2.Meta.Name = "beta"
+
+	root := NewLeaf(p1, 0, 0, 80, 24)
+	root.Split(SplitHorizontal, p2)
+
+	w := &Window{Root: root, ActivePane: p1, Width: 80, Height: 24}
+
+	if err := w.SwapPanes(1, 2); err != nil {
+		t.Fatalf("SwapPanes: %v", err)
+	}
+
+	left := root.Children[0]
+	right := root.Children[1]
+
+	// Pane pointers should be exchanged
+	if left.Pane.ID != 2 || right.Pane.ID != 1 {
+		t.Errorf("after swap: left=%d right=%d, want 2,1", left.Pane.ID, right.Pane.ID)
+	}
+
+	// Metadata follows the pane (swap-with-meta)
+	if left.Pane.Meta.Name != "beta" || right.Pane.Meta.Name != "alpha" {
+		t.Errorf("metadata: left=%q right=%q, want beta,alpha",
+			left.Pane.Meta.Name, right.Pane.Meta.Name)
+	}
+
+	// ActivePane follows the pane object, not the cell position
+	if w.ActivePane.ID != 1 {
+		t.Errorf("ActivePane.ID = %d, want 1 (follows pane)", w.ActivePane.ID)
+	}
+}
+
+func TestSwapPanesSelf(t *testing.T) {
+	t.Parallel()
+	p1 := fakePaneID(1)
+	root := NewLeaf(p1, 0, 0, 80, 24)
+	w := &Window{Root: root, ActivePane: p1, Width: 80, Height: 24}
+
+	// Swapping a pane with itself is a no-op
+	if err := w.SwapPanes(1, 1); err != nil {
+		t.Errorf("SwapPanes(self): unexpected error: %v", err)
+	}
+}
+
+func TestSwapPanesNotFound(t *testing.T) {
+	t.Parallel()
+	p1 := fakePaneID(1)
+	root := NewLeaf(p1, 0, 0, 80, 24)
+	w := &Window{Root: root, ActivePane: p1, Width: 80, Height: 24}
+
+	if err := w.SwapPanes(1, 99); err == nil {
+		t.Error("expected error for non-existent pane")
+	}
+	if err := w.SwapPanes(99, 1); err == nil {
+		t.Error("expected error for non-existent source pane")
+	}
+}
+
+func TestSwapPaneForward(t *testing.T) {
+	t.Parallel()
+	p1 := fakePaneID(1)
+	p2 := fakePaneID(2)
+	p3 := fakePaneID(3)
+
+	root := NewLeaf(p1, 0, 0, 120, 24)
+	root.Split(SplitHorizontal, p2)
+	root.Children[1].Split(SplitHorizontal, p3)
+
+	// Active is pane-3 (last in walk order)
+	w := &Window{Root: root, ActivePane: p3, Width: 120, Height: 24}
+
+	if err := w.SwapPaneForward(); err != nil {
+		t.Fatalf("SwapPaneForward: %v", err)
+	}
+
+	// Forward: pane-3 swaps with next (wraps to pane-1)
+	// Before: [1, 2, 3], After: [3, 2, 1]
+	ids := collectPaneIDs(w)
+	if ids[0] != 3 || ids[1] != 2 || ids[2] != 1 {
+		t.Errorf("after forward swap: %v, want [3,2,1]", ids)
+	}
+}
+
+func TestSwapPaneBackward(t *testing.T) {
+	t.Parallel()
+	p1 := fakePaneID(1)
+	p2 := fakePaneID(2)
+	p3 := fakePaneID(3)
+
+	root := NewLeaf(p1, 0, 0, 120, 24)
+	root.Split(SplitHorizontal, p2)
+	root.Children[1].Split(SplitHorizontal, p3)
+
+	// Active is pane-3 (last in walk order)
+	w := &Window{Root: root, ActivePane: p3, Width: 120, Height: 24}
+
+	if err := w.SwapPaneBackward(); err != nil {
+		t.Fatalf("SwapPaneBackward: %v", err)
+	}
+
+	// Backward: pane-3 swaps with previous (pane-2)
+	// Before: [1, 2, 3], After: [1, 3, 2]
+	ids := collectPaneIDs(w)
+	if ids[0] != 1 || ids[1] != 3 || ids[2] != 2 {
+		t.Errorf("after backward swap: %v, want [1,3,2]", ids)
+	}
+}
+
+func TestRotatePanesForward(t *testing.T) {
+	t.Parallel()
+	p1 := fakePaneID(1)
+	p2 := fakePaneID(2)
+	p3 := fakePaneID(3)
+
+	root := NewLeaf(p1, 0, 0, 120, 24)
+	root.Split(SplitHorizontal, p2)
+	root.Children[1].Split(SplitHorizontal, p3)
+
+	w := &Window{Root: root, ActivePane: p1, Width: 120, Height: 24}
+
+	w.RotatePanes(true)
+
+	// Forward: each cell gets the pane from the previous cell (last wraps to first)
+	// Before: [1, 2, 3], After: [3, 1, 2]
+	ids := collectPaneIDs(w)
+	if ids[0] != 3 || ids[1] != 1 || ids[2] != 2 {
+		t.Errorf("after forward rotate: %v, want [3,1,2]", ids)
+	}
+}
+
+func TestRotatePanesBackward(t *testing.T) {
+	t.Parallel()
+	p1 := fakePaneID(1)
+	p2 := fakePaneID(2)
+	p3 := fakePaneID(3)
+
+	root := NewLeaf(p1, 0, 0, 120, 24)
+	root.Split(SplitHorizontal, p2)
+	root.Children[1].Split(SplitHorizontal, p3)
+
+	w := &Window{Root: root, ActivePane: p1, Width: 120, Height: 24}
+
+	w.RotatePanes(false)
+
+	// Backward: each cell gets the pane from the next cell (first wraps to last)
+	// Before: [1, 2, 3], After: [2, 3, 1]
+	ids := collectPaneIDs(w)
+	if ids[0] != 2 || ids[1] != 3 || ids[2] != 1 {
+		t.Errorf("after backward rotate: %v, want [2,3,1]", ids)
+	}
+}
+
+func TestRotateSinglePane(t *testing.T) {
+	t.Parallel()
+	p1 := fakePaneID(1)
+	root := NewLeaf(p1, 0, 0, 80, 24)
+	w := &Window{Root: root, ActivePane: p1, Width: 80, Height: 24}
+
+	// Single pane — should be a no-op
+	w.RotatePanes(true)
+
+	ids := collectPaneIDs(w)
+	if len(ids) != 1 || ids[0] != 1 {
+		t.Errorf("rotate single pane: %v, want [1]", ids)
+	}
+}

@@ -105,6 +105,10 @@ Tests should read like specs. Minimize logic in assertions so a human can read t
 
 Regenerate goldens after intentional rendering changes: `cd test && go test -run TestGolden -update`
 
+### Post-PR Review
+
+After creating a PR, always run the code review and code simplifier agents before considering the work done. These catch issues that are easy to miss during implementation: style inconsistencies, unnecessary complexity, and subtle bugs.
+
 ### Adding a New Feature
 
 1. **Write an integration test first.** Add a test to `test/amux_test.go` that exercises the feature end-to-end via the tmux harness. Follow existing test patterns.
