@@ -9,7 +9,7 @@ tmux for the agent era.
 
 1. **Agents are peers.** Keybindings for humans, CLI commands for agents — same panes, same capabilities.
 
-2. **Zero friction.** Fast enough that neither human nor agent waits. Familiar enough that tmux users don't notice they've switched. Sessions survive upgrades so nothing is ever lost.
+2. **Zero friction.** Design for a familiar UX, tight feedback loops, and low latency.
 
 3. **One source of truth.** What the human sees on screen is exactly what the agent captures. No divergence, no stale state, no translation layer.
 
