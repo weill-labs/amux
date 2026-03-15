@@ -327,6 +327,52 @@ func PaneContentHeight(cellH int) int {
 	return h
 }
 
+// ResizeBorder moves a border at position (x, y) by delta cells.
+// For vertical borders (horizontal split), delta is applied horizontally.
+// For horizontal borders (vertical split), delta is applied vertically.
+// Returns true if a resize was performed.
+func (w *Window) ResizeBorder(x, y, delta int) bool {
+	hit := w.Root.FindBorderAt(x, y)
+	if hit == nil || delta == 0 {
+		return false
+	}
+
+	var leftSize, rightSize *int
+	if hit.Dir == SplitHorizontal {
+		leftSize = &hit.Left.W
+		rightSize = &hit.Right.W
+	} else {
+		leftSize = &hit.Left.H
+		rightSize = &hit.Right.H
+	}
+
+	// Clamp delta so neither side goes below PaneMinSize
+	if delta > 0 && *rightSize-delta < PaneMinSize {
+		delta = *rightSize - PaneMinSize
+	}
+	if delta < 0 && *leftSize+delta < PaneMinSize {
+		delta = -(*leftSize - PaneMinSize)
+	}
+	if delta == 0 {
+		return false
+	}
+
+	*leftSize += delta
+	*rightSize -= delta
+
+	// Propagate size changes to subtrees
+	if !hit.Left.IsLeaf() {
+		hit.Left.ResizeAll(hit.Left.W, hit.Left.H)
+	}
+	if !hit.Right.IsLeaf() {
+		hit.Right.ResizeAll(hit.Right.W, hit.Right.H)
+	}
+
+	w.Root.FixOffsets()
+	w.resizePTYs()
+	return true
+}
+
 // resizePTYs resizes all pane PTYs to match their layout cell dimensions.
 func (w *Window) resizePTYs() {
 	w.Root.Walk(func(c *LayoutCell) {
