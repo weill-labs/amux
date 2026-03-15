@@ -1,9 +1,9 @@
-# amux
+# amux — tmux for the agent era.
 
 [![CI](https://github.com/weill-labs/amux/actions/workflows/ci.yml/badge.svg)](https://github.com/weill-labs/amux/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/weill-labs/amux/graph/badge.svg?token=RY0CPn9v7g)](https://codecov.io/gh/weill-labs/amux)
 
-tmux for the agent era.
+A drop-in replacement for tmux built for the human+agent workflow. Same keybindings, same mental model — plus first-class CLI access for AI agents.
 
 ## Philosophy
 
