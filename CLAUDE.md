@@ -68,6 +68,8 @@ test/
 
 **Guard against impossible states.** Minimize checks that at least one pane stays non-minimized. Restore caps height at available space. Focus fallback finds nearest pane when strict overlap matching fails.
 
+**Colors live in `config/config.go`.** The Catppuccin Mocha palette (`CatppuccinMocha`), letter abbreviations (`CatppuccinLetters`), and named hex constants (`DimColorHex`, `TextColorHex`) are defined once in the config package. Reference these constants instead of hardcoding hex values like `"f5e0dc"` or `"6c7086"`.
+
 ## Development
 
 ### Build and Test
@@ -104,6 +106,10 @@ Tests should read like specs. Minimize logic in assertions so a human can read t
 - `.color` — border color map using Catppuccin color initials (`R`=Rosewater, `F`=Flamingo, `M`=Mauve, `.`=dim, `|`=global bar). Shows which borders should be colored at a glance.
 
 Regenerate goldens after intentional rendering changes: `cd test && go test -run TestGolden -update`
+
+### Pre-Push Rebase
+
+Rebase onto `origin/main` before the first push (`git fetch origin main && git rebase origin/main`). Multiple features often land in parallel; rebasing before push avoids repeated merge conflict resolution after the PR is open.
 
 ### Post-PR Review
 
@@ -167,3 +173,12 @@ All issues and feature requests go in the Linear project (not GitHub Issues):
 https://linear.app/weill-labs/project/amux-b3a52334f77c
 
 Team key: `LAB`. Use the Linear skill to create/query issues.
+
+**Link PRs to Linear issues.** When creating a PR that implements a Linear issue, include `Fixes LAB-XXX` in the PR description. This tells Linear's GitHub integration to auto-transition the issue to Done when the PR merges. Example:
+
+```
+## Summary
+- Implements feature X
+
+Fixes LAB-123
+```
