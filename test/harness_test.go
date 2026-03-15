@@ -166,14 +166,14 @@ func newHarness(t *testing.T) *TmuxHarness {
 	// server daemon both inherit it and write coverage data on exit.
 	if dir := os.Getenv("GOCOVERDIR"); dir != "" {
 		h.sendKeys("export GOCOVERDIR="+dir, "Enter")
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(200 * time.Millisecond)
 	}
 
 	// Launch amux with this test's unique session name (-s flag)
 	h.sendKeys(amuxBin, " -s ", session, "Enter")
 
 	// Wait for amux to start (status bar should appear)
-	if !h.waitFor("[pane-", 8*time.Second) {
+	if !h.waitFor("[pane-", 8 * time.Second) {
 		screen := h.capture()
 		t.Fatalf("amux did not start within timeout.\nScreen:\n%s", screen)
 	}
@@ -354,6 +354,27 @@ func (h *TmuxHarness) scrollAt(x, y int, up bool) {
 	}
 	h.sendMouseSGR(btn, x, y, true)
 }
+
+// ---------------------------------------------------------------------------
+// Split helpers — wrap the common "send split key + wait for new pane" pattern
+// ---------------------------------------------------------------------------
+
+// doSplit sends a prefix + key split combo and waits for a new pane to appear.
+func (h *TmuxHarness) doSplit(key string) {
+	h.t.Helper()
+	n := strings.Count(h.capture(), "[pane-")
+	h.sendKeys("C-a", key)
+	if !h.waitForFunc(func(s string) bool {
+		return strings.Count(s, "[pane-") > n
+	}, 3 * time.Second) {
+		h.t.Fatalf("split (%s): new pane did not appear\nScreen:\n%s", key, h.capture())
+	}
+}
+
+func (h *TmuxHarness) splitV()     { h.t.Helper(); h.doSplit("\\") }
+func (h *TmuxHarness) splitH()     { h.t.Helper(); h.doSplit("-") }
+func (h *TmuxHarness) splitRootV() { h.t.Helper(); h.doSplit("|") }
+func (h *TmuxHarness) splitRootH() { h.t.Helper(); h.doSplit("_") }
 
 // ---------------------------------------------------------------------------
 // Shared ANSI / color helpers (used by border, hotreload, and mouse tests)

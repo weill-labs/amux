@@ -11,13 +11,13 @@ func TestNewWindowKeybinding(t *testing.T) {
 	h := newHarness(t)
 
 	// Start with one window showing pane-1
-	h.waitFor("[pane-1]", 3*time.Second)
+	h.waitFor("[pane-1]", 3 * time.Second)
 
 	// Create a new window via Ctrl-a c
 	h.sendKeys("C-a", "c")
 
 	// New window should show pane-2 (new pane in new window)
-	if !h.waitFor("[pane-2]", 3*time.Second) {
+	if !h.waitFor("[pane-2]", 3 * time.Second) {
 		t.Fatalf("new window did not appear.\nScreen:\n%s", h.capture())
 	}
 
@@ -37,7 +37,7 @@ func TestNewWindowCLI(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
 
-	h.waitFor("[pane-1]", 3*time.Second)
+	h.waitFor("[pane-1]", 3 * time.Second)
 
 	// Create new window via CLI
 	out := h.runCmd("new-window")
@@ -46,7 +46,7 @@ func TestNewWindowCLI(t *testing.T) {
 	}
 
 	// Should switch to the new window showing pane-2
-	if !h.waitFor("[pane-2]", 3*time.Second) {
+	if !h.waitFor("[pane-2]", 3 * time.Second) {
 		t.Fatalf("new window did not appear.\nScreen:\n%s", h.capture())
 	}
 
@@ -60,27 +60,27 @@ func TestNextPrevWindow(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
 
-	h.waitFor("[pane-1]", 3*time.Second)
+	h.waitFor("[pane-1]", 3 * time.Second)
 
 	// Create a second window
 	h.sendKeys("C-a", "c")
-	h.waitFor("[pane-2]", 3*time.Second)
+	h.waitFor("[pane-2]", 3 * time.Second)
 
 	// Go to previous window (Ctrl-a p) — should show pane-1
 	h.sendKeys("C-a", "p")
-	if !h.waitFor("[pane-1]", 3*time.Second) {
+	if !h.waitFor("[pane-1]", 3 * time.Second) {
 		t.Fatalf("prev window should show pane-1.\nScreen:\n%s", h.capture())
 	}
 
 	// Go to next window (Ctrl-a n) — should show pane-2
 	h.sendKeys("C-a", "n")
-	if !h.waitFor("[pane-2]", 3*time.Second) {
+	if !h.waitFor("[pane-2]", 3 * time.Second) {
 		t.Fatalf("next window should show pane-2.\nScreen:\n%s", h.capture())
 	}
 
 	// Next again wraps to window 1
 	h.sendKeys("C-a", "n")
-	if !h.waitFor("[pane-1]", 3*time.Second) {
+	if !h.waitFor("[pane-1]", 3 * time.Second) {
 		t.Fatalf("next window should wrap to pane-1.\nScreen:\n%s", h.capture())
 	}
 }
@@ -89,29 +89,29 @@ func TestSelectWindowByNumber(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
 
-	h.waitFor("[pane-1]", 3*time.Second)
+	h.waitFor("[pane-1]", 3 * time.Second)
 
 	// Create 2 more windows (total 3)
 	h.sendKeys("C-a", "c")
-	h.waitFor("[pane-2]", 3*time.Second)
+	h.waitFor("[pane-2]", 3 * time.Second)
 	h.sendKeys("C-a", "c")
-	h.waitFor("[pane-3]", 3*time.Second)
+	h.waitFor("[pane-3]", 3 * time.Second)
 
 	// Ctrl-a 1 → window 1 (pane-1)
 	h.sendKeys("C-a", "1")
-	if !h.waitFor("[pane-1]", 3*time.Second) {
+	if !h.waitFor("[pane-1]", 3 * time.Second) {
 		t.Fatalf("Ctrl-a 1 should select window 1.\nScreen:\n%s", h.capture())
 	}
 
 	// Ctrl-a 3 → window 3 (pane-3)
 	h.sendKeys("C-a", "3")
-	if !h.waitFor("[pane-3]", 3*time.Second) {
+	if !h.waitFor("[pane-3]", 3 * time.Second) {
 		t.Fatalf("Ctrl-a 3 should select window 3.\nScreen:\n%s", h.capture())
 	}
 
 	// Ctrl-a 2 → window 2 (pane-2)
 	h.sendKeys("C-a", "2")
-	if !h.waitFor("[pane-2]", 3*time.Second) {
+	if !h.waitFor("[pane-2]", 3 * time.Second) {
 		t.Fatalf("Ctrl-a 2 should select window 2.\nScreen:\n%s", h.capture())
 	}
 }
@@ -120,11 +120,11 @@ func TestListWindows(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
 
-	h.waitFor("[pane-1]", 3*time.Second)
+	h.waitFor("[pane-1]", 3 * time.Second)
 
 	// Create a second window
 	h.sendKeys("C-a", "c")
-	h.waitFor("[pane-2]", 3*time.Second)
+	h.waitFor("[pane-2]", 3 * time.Second)
 
 	// list-windows should show both
 	out := h.runCmd("list-windows")
@@ -137,16 +137,16 @@ func TestWindowAutoCloseOnLastPane(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
 
-	h.waitFor("[pane-1]", 3*time.Second)
+	h.waitFor("[pane-1]", 3 * time.Second)
 
 	// Create a second window
 	h.sendKeys("C-a", "c")
-	h.waitFor("[pane-2]", 3*time.Second)
+	h.waitFor("[pane-2]", 3 * time.Second)
 
 	// Kill the pane in window 2 — window should close, switch to window 1
 	h.runCmd("kill", "pane-2")
 
-	if !h.waitFor("[pane-1]", 3*time.Second) {
+	if !h.waitFor("[pane-1]", 3 * time.Second) {
 		t.Fatalf("should switch to window 1 after window 2 closes.\nScreen:\n%s", h.capture())
 	}
 
@@ -162,17 +162,17 @@ func TestWindowPaneIsolation(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
 
-	h.waitFor("[pane-1]", 3*time.Second)
+	h.waitFor("[pane-1]", 3 * time.Second)
 
 	// Type something in window 1
 	h.sendKeys("e", "c", "h", "o", " ", "W", "I", "N", "1", "Enter")
-	h.waitFor("WIN1", 3*time.Second)
+	h.waitFor("WIN1", 3 * time.Second)
 
 	// Create window 2 and type something different
 	h.sendKeys("C-a", "c")
-	h.waitFor("[pane-2]", 3*time.Second)
+	h.waitFor("[pane-2]", 3 * time.Second)
 	h.sendKeys("e", "c", "h", "o", " ", "W", "I", "N", "2", "Enter")
-	h.waitFor("WIN2", 3*time.Second)
+	h.waitFor("WIN2", 3 * time.Second)
 
 	// Window 2 should show WIN2 but not WIN1
 	h.assertScreen("window 2 should show WIN2", func(s string) bool {
@@ -184,7 +184,7 @@ func TestWindowPaneIsolation(t *testing.T) {
 
 	// Switch back to window 1
 	h.sendKeys("C-a", "1")
-	if !h.waitFor("WIN1", 3*time.Second) {
+	if !h.waitFor("WIN1", 3 * time.Second) {
 		t.Fatalf("window 1 should show WIN1.\nScreen:\n%s", h.capture())
 	}
 
@@ -198,17 +198,14 @@ func TestSplitWithinWindow(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
 
-	h.waitFor("[pane-1]", 3*time.Second)
+	h.waitFor("[pane-1]", 3 * time.Second)
 
 	// Create window 2
 	h.sendKeys("C-a", "c")
-	h.waitFor("[pane-2]", 3*time.Second)
+	h.waitFor("[pane-2]", 3 * time.Second)
 
 	// Split within window 2
-	h.sendKeys("C-a", "\\")
-	if !h.waitFor("[pane-3]", 3*time.Second) {
-		t.Fatalf("split in window 2 should create pane-3.\nScreen:\n%s", h.capture())
-	}
+	h.splitV()
 
 	// Both pane-2 and pane-3 should be visible (same window)
 	h.assertScreen("window 2 should show both pane-2 and pane-3", func(s string) bool {
@@ -217,7 +214,7 @@ func TestSplitWithinWindow(t *testing.T) {
 
 	// Switch to window 1 — should only show pane-1
 	h.sendKeys("C-a", "1")
-	if !h.waitFor("[pane-1]", 3*time.Second) {
+	if !h.waitFor("[pane-1]", 3 * time.Second) {
 		t.Fatalf("window 1 should show pane-1.\nScreen:\n%s", h.capture())
 	}
 	h.assertScreen("window 1 should not show pane-2 or pane-3", func(s string) bool {
@@ -229,11 +226,11 @@ func TestSelectWindowCLI(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
 
-	h.waitFor("[pane-1]", 3*time.Second)
+	h.waitFor("[pane-1]", 3 * time.Second)
 
 	// Create second window
 	h.sendKeys("C-a", "c")
-	h.waitFor("[pane-2]", 3*time.Second)
+	h.waitFor("[pane-2]", 3 * time.Second)
 
 	// Switch back via CLI
 	out := h.runCmd("select-window", "1")
@@ -241,7 +238,7 @@ func TestSelectWindowCLI(t *testing.T) {
 		t.Fatalf("select-window not recognized: %s", out)
 	}
 
-	if !h.waitFor("[pane-1]", 3*time.Second) {
+	if !h.waitFor("[pane-1]", 3 * time.Second) {
 		t.Fatalf("select-window 1 should switch to window 1.\nScreen:\n%s", h.capture())
 	}
 }
@@ -250,20 +247,20 @@ func TestNextPrevWindowCLI(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
 
-	h.waitFor("[pane-1]", 3*time.Second)
+	h.waitFor("[pane-1]", 3 * time.Second)
 
 	h.sendKeys("C-a", "c")
-	h.waitFor("[pane-2]", 3*time.Second)
+	h.waitFor("[pane-2]", 3 * time.Second)
 
 	// prev-window via CLI
 	h.runCmd("prev-window")
-	if !h.waitFor("[pane-1]", 3*time.Second) {
+	if !h.waitFor("[pane-1]", 3 * time.Second) {
 		t.Fatalf("prev-window should switch to window 1.\nScreen:\n%s", h.capture())
 	}
 
 	// next-window via CLI
 	h.runCmd("next-window")
-	if !h.waitFor("[pane-2]", 3*time.Second) {
+	if !h.waitFor("[pane-2]", 3 * time.Second) {
 		t.Fatalf("next-window should switch to window 2.\nScreen:\n%s", h.capture())
 	}
 }

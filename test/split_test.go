@@ -11,8 +11,7 @@ func TestSplitVertical(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
 
-	h.sendKeys("C-a", "\\")
-	h.waitFor("[pane-2]", 3*time.Second)
+	h.splitV()
 
 	lines := h.captureAmuxContentLines()
 
@@ -46,8 +45,7 @@ func TestSplitHorizontal(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
 
-	h.sendKeys("C-a", "-")
-	h.waitFor("[pane-2]", 3*time.Second)
+	h.splitH()
 
 	lines := h.captureAmuxContentLines()
 
@@ -74,12 +72,10 @@ func TestRootSplitVertical(t *testing.T) {
 	h := newHarness(t)
 
 	// Horizontal split first: pane-1 top, pane-2 bottom
-	h.sendKeys("C-a", "-")
-	h.waitFor("[pane-2]", 3*time.Second)
+	h.splitH()
 
 	// Root vertical split: left column (pane-1 + pane-2 stacked), right column (pane-3)
-	h.sendKeys("C-a", "|")
-	h.waitFor("[pane-3]", 3*time.Second)
+	h.splitRootV()
 
 	lines := h.captureAmuxContentLines()
 
@@ -119,12 +115,10 @@ func TestRootSplitHorizontal(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
 
-	h.sendKeys("C-a", "\\")
-	h.waitFor("[pane-2]", 3*time.Second)
+	h.splitV()
 
 	// Root horizontal split: top row (pane-1 + pane-2 side by side), bottom row (pane-3)
-	h.sendKeys("C-a", "_")
-	h.waitFor("[pane-3]", 3*time.Second)
+	h.splitRootH()
 
 	lines := h.captureAmuxContentLines()
 
@@ -164,14 +158,12 @@ func TestRootVerticalSplitRenderClipping(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
 
-	h.sendKeys("C-a", "-")
-	h.waitFor("[pane-2]", 3*time.Second)
-	h.sendKeys("C-a", "|")
-	h.waitFor("[pane-3]", 3*time.Second)
+	h.splitH()
+	h.splitRootV()
 
 	// Type a long line in pane-3 to trigger potential bleeding
 	h.sendKeys("e", "c", "h", "o", " ", "R", "I", "G", "H", "T", "P", "A", "N", "E", "T", "E", "S", "T", "Enter")
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(400 * time.Millisecond)
 
 	col := h.verticalBorderCol()
 	if col < 0 {
@@ -198,16 +190,14 @@ func TestExitAfterDoubleRootVSplit(t *testing.T) {
 	h := newHarness(t)
 
 	// Root vertical split twice: pane-1 | pane-2 | pane-3
-	h.sendKeys("C-a", "|")
-	h.waitFor("[pane-2]", 3*time.Second)
-	h.sendKeys("C-a", "|")
-	h.waitFor("[pane-3]", 3*time.Second)
+	h.splitRootV()
+	h.splitRootV()
 
 	h.sendKeys("e", "x", "i", "t", "Enter")
 
 	if !h.waitForFunc(func(s string) bool {
 		return !strings.Contains(s, "[pane-3]")
-	}, 5*time.Second) {
+	}, 5 * time.Second) {
 		t.Fatal("pane-3 should disappear after exit")
 	}
 
@@ -228,13 +218,12 @@ func TestFiveRootVerticalSplits(t *testing.T) {
 	h := newHarness(t)
 
 	for i := 0; i < 4; i++ {
-		h.sendKeys("C-a", "|")
-		h.waitFor(fmt.Sprintf("[pane-%d]", i+2), 3*time.Second)
+		h.splitRootV()
 	}
 
 	for i := 1; i <= 5; i++ {
 		name := fmt.Sprintf("pane-%d", i)
-		if !h.waitFor("["+name+"]", 3*time.Second) {
+		if !h.waitFor("["+name+"]", 3 * time.Second) {
 			screen := h.capture()
 			t.Fatalf("%s not found\nScreen:\n%s", name, screen)
 		}
@@ -265,8 +254,7 @@ func TestMultipleNonRootSplitsEqualWidth(t *testing.T) {
 	h := newHarness(t)
 
 	for i := 0; i < 3; i++ {
-		h.sendKeys("C-a", "\\")
-		h.waitFor(fmt.Sprintf("[pane-%d]", i+2), 3*time.Second)
+		h.splitV()
 	}
 
 	lines := h.contentLines()
@@ -297,12 +285,11 @@ func TestGoldenVerticalSplit(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
 
-	h.sendKeys("C-a", "\\")
-	h.waitFor("[pane-2]", 3*time.Second)
+	h.splitV()
 
 	// Focus pane-1 so active state is deterministic
 	h.sendKeys("C-a", "h")
-	time.Sleep(300 * time.Millisecond)
+	time.Sleep(400 * time.Millisecond)
 
 	frame := extractFrame(h.captureAmux(), h.session)
 	assertGolden(t, "vertical_split.golden", frame)
@@ -315,8 +302,7 @@ func TestGoldenHorizontalSplit(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
 
-	h.sendKeys("C-a", "-")
-	h.waitFor("[pane-2]", 3*time.Second)
+	h.splitH()
 
 	frame := extractFrame(h.captureAmux(), h.session)
 	assertGolden(t, "horizontal_split.golden", frame)
@@ -333,14 +319,11 @@ func TestGoldenFourPane(t *testing.T) {
 	// pane-1 | pane-2
 	// -------+-------
 	// pane-3 | pane-4
-	h.sendKeys("C-a", "\\")
-	h.waitFor("[pane-2]", 3*time.Second)
-	h.sendKeys("C-a", "-")
-	h.waitFor("[pane-3]", 3*time.Second)
+	h.splitV()
+	h.splitH()
 	h.sendKeys("C-a", "h")
-	time.Sleep(300 * time.Millisecond)
-	h.sendKeys("C-a", "-")
-	h.waitFor("[pane-4]", 3*time.Second)
+	time.Sleep(400 * time.Millisecond)
+	h.splitH()
 
 	frame := extractFrame(h.captureAmux(), h.session)
 	assertGolden(t, "four_pane.golden", frame)

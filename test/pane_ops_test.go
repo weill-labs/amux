@@ -10,14 +10,13 @@ func TestPaneClose(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
 
-	h.sendKeys("C-a", "\\")
-	h.waitFor("[pane-2]", 3*time.Second)
+	h.splitV()
 
 	h.sendKeys("e", "x", "i", "t", "Enter")
 
 	if !h.waitForFunc(func(s string) bool {
 		return !strings.Contains(s, "[pane-2]")
-	}, 5*time.Second) {
+	}, 5 * time.Second) {
 		t.Fatal("pane-2 should disappear after exit")
 	}
 
@@ -51,7 +50,7 @@ func TestSpawn(t *testing.T) {
 		t.Errorf("spawn should report agent name, got:\n%s", output)
 	}
 
-	h.waitFor("[test-agent]", 3*time.Second)
+	h.waitFor("[test-agent]", 3 * time.Second)
 	listOut := h.runCmd("list")
 	if !strings.Contains(listOut, "test-agent") {
 		t.Errorf("list should contain test-agent, got:\n%s", listOut)
@@ -65,15 +64,14 @@ func TestMinimizeRestore(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
 
-	h.sendKeys("C-a", "-")
-	h.waitFor("[pane-2]", 3*time.Second)
+	h.splitH()
 
 	output := h.runCmd("minimize", "pane-1")
 	if !strings.Contains(output, "Minimized") {
 		t.Errorf("minimize should confirm, got:\n%s", output)
 	}
 
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(400 * time.Millisecond)
 	h.assertScreen("pane-1 still visible after minimize", func(s string) bool {
 		return strings.Contains(s, "[pane-1]")
 	})
@@ -83,7 +81,7 @@ func TestMinimizeRestore(t *testing.T) {
 		t.Errorf("restore should confirm, got:\n%s", output)
 	}
 
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(400 * time.Millisecond)
 	h.assertScreen("both panes visible after restore", func(s string) bool {
 		return strings.Contains(s, "[pane-1]") && strings.Contains(s, "[pane-2]")
 	})
@@ -269,8 +267,7 @@ func TestKill(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
 
-	h.sendKeys("C-a", "\\")
-	h.waitFor("[pane-2]", 3*time.Second)
+	h.splitV()
 
 	output := h.runCmd("kill", "pane-2")
 	if !strings.Contains(output, "Killed") {
@@ -279,7 +276,7 @@ func TestKill(t *testing.T) {
 
 	if !h.waitForFunc(func(s string) bool {
 		return !strings.Contains(s, "[pane-2]")
-	}, 5*time.Second) {
+	}, 5 * time.Second) {
 		t.Fatal("pane-2 should disappear after kill")
 	}
 
@@ -304,7 +301,7 @@ func TestSendKeys(t *testing.T) {
 	}
 
 	// Verify the command executed in the pane
-	if !h.waitFor("SENDTEST", 3*time.Second) {
+	if !h.waitFor("SENDTEST", 3 * time.Second) {
 		t.Fatalf("send-keys text not visible in pane\nScreen:\n%s", h.capture())
 	}
 
@@ -326,7 +323,7 @@ func TestSendKeysSpecialKeys(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 	h.runCmd("send-keys", "pane-1", "echo AFTERCANCEL", "Enter")
 
-	if !h.waitFor("AFTERCANCEL", 3*time.Second) {
+	if !h.waitFor("AFTERCANCEL", 3 * time.Second) {
 		t.Fatalf("C-c + new command not visible\nScreen:\n%s", h.capture())
 	}
 }
@@ -346,8 +343,7 @@ func TestSendKeysToSpecificPane(t *testing.T) {
 	h := newHarness(t)
 
 	// Create a second pane
-	h.sendKeys("C-a", "\\")
-	h.waitFor("[pane-2]", 3*time.Second)
+	h.splitV()
 
 	// Send keys specifically to pane-2 (not the active pane)
 	h.runCmd("send-keys", "pane-2", "echo PANE2CMD", "Enter")
@@ -356,7 +352,7 @@ func TestSendKeysToSpecificPane(t *testing.T) {
 	ok := h.waitForFunc(func(screen string) bool {
 		paneOut := h.runCmd("capture", "pane-2")
 		return strings.Contains(paneOut, "PANE2CMD")
-	}, 3*time.Second)
+	}, 3 * time.Second)
 	if !ok {
 		t.Fatalf("send-keys to pane-2 did not work\npane-2 output:\n%s", h.runCmd("capture", "pane-2"))
 	}
