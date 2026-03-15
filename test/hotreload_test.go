@@ -163,7 +163,8 @@ func TestServerReloadBorderColors(t *testing.T) {
 	h.sendKeys("C-a", "h")
 	time.Sleep(500 * time.Millisecond)
 
-	colorsBefore := extractBorderColors(pickContentLine(h.captureANSI()))
+	ansiBefore := h.captureANSI()
+	colorsBefore := extractBorderColors(pickContentLine(ansiBefore))
 
 	h.runCmd("reload-server")
 
@@ -179,13 +180,14 @@ func TestServerReloadBorderColors(t *testing.T) {
 	}
 	time.Sleep(500 * time.Millisecond)
 
-	colorsAfter := extractBorderColors(pickContentLine(h.captureANSI()))
+	ansiAfter := h.captureANSI()
+	colorsAfter := extractBorderColors(pickContentLine(ansiAfter))
 
 	if len(colorsBefore) == 0 {
-		t.Fatalf("no border colors found before reload\nScreen:\n%s", h.captureANSI())
+		t.Fatalf("no border colors found before reload\nScreen:\n%s", ansiBefore)
 	}
 	if len(colorsAfter) == 0 {
-		t.Fatalf("no border colors found after reload\nScreen:\n%s", h.captureANSI())
+		t.Fatalf("no border colors found after reload\nScreen:\n%s", ansiAfter)
 	}
 
 	if colorsBefore[0] != colorsAfter[0] {
