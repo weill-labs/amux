@@ -27,6 +27,31 @@ var CatppuccinMocha = []string{
 	"b4befe", // Lavender
 }
 
+// CatppuccinLetters maps each hex color to a single-letter abbreviation
+// for use in color map output (e.g., `amux capture --colors`).
+var CatppuccinLetters = map[string]byte{
+	"f5e0dc": 'R', // Rosewater
+	"f2cdcd": 'F', // Flamingo
+	"f5c2e7": 'P', // Pink
+	"cba6f7": 'M', // Mauve
+	"f38ba8": 'E', // Red
+	"eba0ac": 'A', // Maroon
+	"fab387": 'H', // Peach
+	"f9e2af": 'Y', // Yellow
+	"a6e3a1": 'G', // Green
+	"94e2d5": 'T', // Teal
+	"89dceb": 'S', // Sky
+	"74c7ec": 'B', // Sapphire
+	"89b4fa": 'U', // Blue
+	"b4befe": 'L', // Lavender
+}
+
+// DimColorHex is the Overlay 0 color used for inactive/dim borders.
+const DimColorHex = "6c7086"
+
+// TextColorHex is the Text foreground color.
+const TextColorHex = "cdd6f4"
+
 // Host defines a machine that can run agents.
 type Host struct {
 	Type       string `toml:"type"`    // "local" or "remote"
