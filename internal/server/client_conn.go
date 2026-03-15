@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/weill-labs/amux/internal/mux"
@@ -59,17 +60,18 @@ func (cc *ClientConn) readLoop(srv *Server, sess *Session) {
 		switch msg.Type {
 		case MsgTypeInput:
 			sess.mu.Lock()
-			if sess.Window != nil && sess.Window.ActivePane != nil {
-				sess.Window.ActivePane.Write(msg.Input)
+			w := sess.ActiveWindow()
+			if w != nil && w.ActivePane != nil {
+				w.ActivePane.Write(msg.Input)
 			}
 			sess.mu.Unlock()
 
 		case MsgTypeResize:
 			sess.mu.Lock()
-			if sess.Window != nil {
-				// Layout height = terminal height minus global status bar
-				layoutH := msg.Rows - 1
-				sess.Window.Resize(msg.Cols, layoutH)
+			// Resize all windows to match the terminal
+			layoutH := msg.Rows - 1
+			for _, w := range sess.Windows {
+				w.Resize(msg.Cols, layoutH)
 			}
 			sess.mu.Unlock()
 			sess.broadcastLayout()
@@ -92,15 +94,20 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 		if len(sess.Panes) == 0 {
 			output = "No panes.\n"
 		} else {
-			output = fmt.Sprintf("%-6s %-20s %-15s %s\n", "PANE", "NAME", "HOST", "TASK")
+			output = fmt.Sprintf("%-6s %-20s %-15s %-10s %s\n", "PANE", "NAME", "HOST", "WINDOW", "TASK")
+			w := sess.ActiveWindow()
 			for _, p := range sess.Panes {
 				active := " "
-				if sess.Window != nil && sess.Window.ActivePane != nil && sess.Window.ActivePane.ID == p.ID {
+				if w != nil && w.ActivePane != nil && w.ActivePane.ID == p.ID {
 					active = "*"
 				}
-				output += fmt.Sprintf("%-6s %-20s %-15s %s\n",
+				winName := ""
+				if pw := sess.FindWindowByPaneID(p.ID); pw != nil {
+					winName = pw.Name
+				}
+				output += fmt.Sprintf("%-6s %-20s %-15s %-10s %s\n",
 					fmt.Sprintf("%s%d", active, p.ID),
-					p.Meta.Name, p.Meta.Host, p.Meta.Task)
+					p.Meta.Name, p.Meta.Host, winName, p.Meta.Task)
 			}
 		}
 		sess.mu.Unlock()
@@ -130,24 +137,38 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 		}
 
 		sess.mu.Lock()
-		if sess.Window == nil {
+		w := sess.ActiveWindow()
+		if w == nil {
 			sess.mu.Unlock()
 			return
 		}
 
 		switch direction {
 		case "next", "left", "right", "up", "down":
-			sess.Window.Focus(direction)
+			w.Focus(direction)
 			sess.mu.Unlock()
 		default:
-			// Treat as pane name or ID
-			pane := sess.Window.ResolvePane(direction)
+			// Treat as pane name or ID — search active window first, then all windows
+			pane := w.ResolvePane(direction)
+			if pane == nil {
+				// Search across all windows
+				for _, win := range sess.Windows {
+					if p := win.ResolvePane(direction); p != nil {
+						pane = p
+						sess.ActiveWindowID = win.ID
+						break
+					}
+				}
+			}
 			if pane == nil {
 				sess.mu.Unlock()
 				cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("pane %q not found", direction)})
 				return
 			}
-			sess.Window.ActivePane = pane
+			// Make sure we set active pane in the correct window
+			if pw := sess.FindWindowByPaneID(pane.ID); pw != nil {
+				pw.ActivePane = pane
+			}
 			sess.mu.Unlock()
 			cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: fmt.Sprintf("Focused %s\n", pane.Meta.Name)})
 		}
@@ -180,17 +201,11 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 				cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "--colors is only supported for full screen capture"})
 				return
 			}
-			// Single pane capture (replaces old "output" command)
+			// Single pane capture
 			sess.mu.Lock()
-			if sess.Window == nil {
-				sess.mu.Unlock()
-				cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "no session"})
-				return
-			}
-			pane := sess.Window.ResolvePane(paneRef)
+			pane := cc.resolvePaneAcrossWindows(sess, "capture", paneRef)
 			if pane == nil {
 				sess.mu.Unlock()
-				cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("pane %q not found", paneRef)})
 				return
 			}
 			out := pane.Output(DefaultOutputLines)
@@ -234,7 +249,8 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 
 	case "zoom":
 		sess.mu.Lock()
-		if sess.Window == nil {
+		w := sess.ActiveWindow()
+		if w == nil {
 			sess.mu.Unlock()
 			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "no session"})
 			return
@@ -242,22 +258,22 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 		// Resolve target pane: explicit arg or active pane
 		var pane *mux.Pane
 		if len(msg.CmdArgs) > 0 {
-			pane = sess.Window.ResolvePane(msg.CmdArgs[0])
+			pane = w.ResolvePane(msg.CmdArgs[0])
 			if pane == nil {
 				sess.mu.Unlock()
 				cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("pane %q not found", msg.CmdArgs[0])})
 				return
 			}
 		} else {
-			pane = sess.Window.ActivePane
+			pane = w.ActivePane
 		}
 		if pane == nil {
 			sess.mu.Unlock()
 			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "no active pane"})
 			return
 		}
-		willUnzoom := sess.Window.ZoomedPaneID == pane.ID
-		err := sess.Window.Zoom(pane.ID)
+		willUnzoom := w.ZoomedPaneID == pane.ID
+		err := w.Zoom(pane.ID)
 		sess.mu.Unlock()
 		if err != nil {
 			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: err.Error()})
@@ -277,7 +293,13 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 			sess.mu.Unlock()
 			return
 		}
-		err := sess.Window.Minimize(pane.ID)
+		w := sess.FindWindowByPaneID(pane.ID)
+		if w == nil {
+			sess.mu.Unlock()
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "pane not in any window"})
+			return
+		}
+		err := w.Minimize(pane.ID)
 		sess.mu.Unlock()
 		if err != nil {
 			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: err.Error()})
@@ -293,7 +315,13 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 			sess.mu.Unlock()
 			return
 		}
-		err := sess.Window.Restore(pane.ID)
+		w := sess.FindWindowByPaneID(pane.ID)
+		if w == nil {
+			sess.mu.Unlock()
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "pane not in any window"})
+			return
+		}
+		err := w.Restore(pane.ID)
 		sess.mu.Unlock()
 		if err != nil {
 			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: err.Error()})
@@ -316,9 +344,9 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 		}
 		paneID := pane.ID
 		paneName := pane.Meta.Name
-		// Remove from list BEFORE closing so onExit sees it's gone (C2 fix)
+		// Remove from list BEFORE closing so onExit sees it's gone
 		sess.removePane(paneID)
-		sess.Window.ClosePane(paneID)
+		sess.closePaneInWindow(paneID)
 		sess.mu.Unlock()
 		pane.Close()
 
@@ -354,24 +382,98 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 			}
 		}
 		zoomed := ""
-		if sess.Window != nil && sess.Window.ZoomedPaneID != 0 {
+		w := sess.ActiveWindow()
+		if w != nil && w.ZoomedPaneID != 0 {
 			for _, p := range sess.Panes {
-				if p.ID == sess.Window.ZoomedPaneID {
+				if p.ID == w.ZoomedPaneID {
 					zoomed = p.Meta.Name
 					break
 				}
 			}
 		}
+		windowCount := len(sess.Windows)
 		sess.mu.Unlock()
 		active := total - minimized
-		statusLine := fmt.Sprintf("panes: %d total, %d active, %d minimized", total, active, minimized)
+		statusLine := fmt.Sprintf("windows: %d, panes: %d total, %d active, %d minimized", windowCount, total, active, minimized)
 		if zoomed != "" {
 			statusLine += fmt.Sprintf(", %s zoomed", zoomed)
 		}
 		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: statusLine + "\n"})
 
+	case "new-window":
+		var name string
+		for i := 0; i < len(msg.CmdArgs)-1; i += 2 {
+			if msg.CmdArgs[i] == "--name" {
+				name = msg.CmdArgs[i+1]
+			}
+		}
+		cc.createNewWindow(srv, sess, name)
+
+	case "list-windows":
+		sess.mu.Lock()
+		var output strings.Builder
+		output.WriteString(fmt.Sprintf("%-6s %-20s %-8s\n", "WIN", "NAME", "PANES"))
+		for i, w := range sess.Windows {
+			active := " "
+			if w.ID == sess.ActiveWindowID {
+				active = "*"
+			}
+			output.WriteString(fmt.Sprintf("%-6s %-20s %-8d\n",
+				fmt.Sprintf("%s%d:", active, i+1), w.Name, w.PaneCount()))
+		}
+		sess.mu.Unlock()
+		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: output.String()})
+
+	case "select-window":
+		if len(msg.CmdArgs) < 1 {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "usage: select-window <index|name>"})
+			return
+		}
+		ref := msg.CmdArgs[0]
+
+		sess.mu.Lock()
+		switched := cc.switchWindow(sess, ref)
+		sess.mu.Unlock()
+
+		if !switched {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("window %q not found", ref)})
+			return
+		}
+		sess.broadcastLayout()
+		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: "Switched window\n"})
+
+	case "next-window":
+		sess.mu.Lock()
+		sess.NextWindow()
+		sess.mu.Unlock()
+		sess.broadcastLayout()
+		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: "Next window\n"})
+
+	case "prev-window":
+		sess.mu.Lock()
+		sess.PrevWindow()
+		sess.mu.Unlock()
+		sess.broadcastLayout()
+		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: "Previous window\n"})
+
+	case "rename-window":
+		if len(msg.CmdArgs) < 1 {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "usage: rename-window <name>"})
+			return
+		}
+		sess.mu.Lock()
+		w := sess.ActiveWindow()
+		if w == nil {
+			sess.mu.Unlock()
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "no window"})
+			return
+		}
+		w.Name = msg.CmdArgs[0]
+		sess.mu.Unlock()
+		sess.broadcastLayout()
+		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: fmt.Sprintf("Renamed window to %s\n", msg.CmdArgs[0])})
+
 	case "resize-border":
-		// resize-border <x> <y> <delta>
 		if len(msg.CmdArgs) < 3 {
 			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "usage: resize-border <x> <y> <delta>"})
 			return
@@ -384,15 +486,17 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 			return
 		}
 		sess.mu.Lock()
-		if sess.Window != nil {
-			sess.Window.ResizeBorder(x, y, delta)
+		w := sess.ActiveWindow()
+		if w != nil {
+			w.ResizeBorder(x, y, delta)
 		}
 		sess.mu.Unlock()
 		sess.broadcastLayout()
 
 	case "swap":
 		sess.mu.Lock()
-		if sess.Window == nil {
+		w := sess.ActiveWindow()
+		if w == nil {
 			sess.mu.Unlock()
 			return
 		}
@@ -400,23 +504,23 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 		var err error
 		switch {
 		case len(msg.CmdArgs) == 1 && msg.CmdArgs[0] == "forward":
-			err = sess.Window.SwapPaneForward()
+			err = w.SwapPaneForward()
 		case len(msg.CmdArgs) == 1 && msg.CmdArgs[0] == "backward":
-			err = sess.Window.SwapPaneBackward()
+			err = w.SwapPaneBackward()
 		case len(msg.CmdArgs) == 2:
-			pane1 := sess.Window.ResolvePane(msg.CmdArgs[0])
+			pane1 := w.ResolvePane(msg.CmdArgs[0])
 			if pane1 == nil {
 				sess.mu.Unlock()
 				cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("pane %q not found", msg.CmdArgs[0])})
 				return
 			}
-			pane2 := sess.Window.ResolvePane(msg.CmdArgs[1])
+			pane2 := w.ResolvePane(msg.CmdArgs[1])
 			if pane2 == nil {
 				sess.mu.Unlock()
 				cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("pane %q not found", msg.CmdArgs[1])})
 				return
 			}
-			err = sess.Window.SwapPanes(pane1.ID, pane2.ID)
+			err = w.SwapPanes(pane1.ID, pane2.ID)
 		default:
 			sess.mu.Unlock()
 			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "usage: swap <pane1> <pane2> | swap forward | swap backward"})
@@ -433,7 +537,8 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 
 	case "rotate":
 		sess.mu.Lock()
-		if sess.Window == nil {
+		w := sess.ActiveWindow()
+		if w == nil {
 			sess.mu.Unlock()
 			return
 		}
@@ -445,7 +550,7 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 			}
 		}
 
-		sess.Window.RotatePanes(forward)
+		w.RotatePanes(forward)
 		sess.mu.Unlock()
 
 		sess.broadcastLayout()
@@ -460,7 +565,6 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 		}
 		paneID := pane.ID
 		sess.mu.Unlock()
-		// Broadcast copy-mode message to all attached clients
 		sess.broadcast(&Message{Type: MsgTypeCopyMode, PaneID: paneID})
 		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: fmt.Sprintf("Copy mode entered for %s\n", pane.Meta.Name)})
 
@@ -487,17 +591,67 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 	}
 }
 
-// splitNewPane creates a pane, inserts it into the layout, starts it, and
-// triggers a render. Returns the new pane, or nil if an error was sent.
+// createNewWindow creates a new window with one pane and switches to it.
+func (cc *ClientConn) createNewWindow(srv *Server, sess *Session, name string) {
+	sess.mu.Lock()
+	w := sess.ActiveWindow()
+	if w == nil {
+		sess.mu.Unlock()
+		cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "no session"})
+		return
+	}
+
+	cols, layoutH := w.Width, w.Height
+	paneH := mux.PaneContentHeight(layoutH)
+
+	pane, err := sess.createPane(srv, cols, paneH)
+	if err != nil {
+		sess.mu.Unlock()
+		cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: err.Error()})
+		return
+	}
+
+	winID := sess.windowCounter.Add(1)
+	newWin := mux.NewWindow(pane, cols, layoutH)
+	newWin.ID = winID
+	if name != "" {
+		newWin.Name = name
+	} else {
+		newWin.Name = fmt.Sprintf(WindowNameFormat, winID)
+	}
+	sess.Windows = append(sess.Windows, newWin)
+	sess.ActiveWindowID = winID
+	sess.mu.Unlock()
+
+	pane.Start()
+	sess.broadcastLayout()
+	cc.Send(&Message{Type: MsgTypeCmdResult,
+		CmdOutput: fmt.Sprintf("Created %s\n", newWin.Name)})
+}
+
+// switchWindow switches to a window by 1-based index or name.
+// Caller must hold sess.mu. Returns true if switched.
+func (cc *ClientConn) switchWindow(sess *Session, ref string) bool {
+	w := sess.ResolveWindow(ref)
+	if w == nil {
+		return false
+	}
+	sess.ActiveWindowID = w.ID
+	return true
+}
+
+// splitNewPane creates a pane, inserts it into the active window's layout,
+// starts it, and triggers a render. Returns the new pane, or nil on error.
 func (cc *ClientConn) splitNewPane(srv *Server, sess *Session, meta mux.PaneMeta, dir mux.SplitDir, rootLevel bool) *mux.Pane {
 	sess.mu.Lock()
-	if sess.Window == nil {
+	w := sess.ActiveWindow()
+	if w == nil {
 		sess.mu.Unlock()
 		cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "no window"})
 		return nil
 	}
 
-	initW, initH := sess.Window.Width, sess.Window.Height
+	initW, initH := w.Width, w.Height
 	var (
 		pane *mux.Pane
 		err  error
@@ -514,9 +668,9 @@ func (cc *ClientConn) splitNewPane(srv *Server, sess *Session, meta mux.PaneMeta
 	}
 
 	if rootLevel {
-		_, err = sess.Window.SplitRoot(dir, pane)
+		_, err = w.SplitRoot(dir, pane)
 	} else {
-		_, err = sess.Window.Split(dir, pane)
+		_, err = w.Split(dir, pane)
 	}
 	if err != nil {
 		sess.mu.Unlock()
@@ -531,22 +685,40 @@ func (cc *ClientConn) splitNewPane(srv *Server, sess *Session, meta mux.PaneMeta
 }
 
 // resolvePane validates args and resolves a pane by name or ID.
+// Searches active window first, then all windows.
 // Caller must hold sess.mu. Sends an error to the client on failure.
 func (cc *ClientConn) resolvePane(sess *Session, cmdName string, args []string) *mux.Pane {
 	if len(args) < 1 {
 		cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("usage: %s <pane>", cmdName)})
 		return nil
 	}
-	if sess.Window == nil {
+	return cc.resolvePaneAcrossWindows(sess, cmdName, args[0])
+}
+
+// resolvePaneAcrossWindows resolves a pane reference, searching the active
+// window first, then all other windows.
+// Caller must hold sess.mu.
+func (cc *ClientConn) resolvePaneAcrossWindows(sess *Session, cmdName string, ref string) *mux.Pane {
+	w := sess.ActiveWindow()
+	if w == nil {
 		cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "no session"})
 		return nil
 	}
-	pane := sess.Window.ResolvePane(args[0])
-	if pane == nil {
-		cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("pane %q not found", args[0])})
-		return nil
+	// Search active window first
+	if pane := w.ResolvePane(ref); pane != nil {
+		return pane
 	}
-	return pane
+	// Search all other windows
+	for _, win := range sess.Windows {
+		if win.ID == w.ID {
+			continue
+		}
+		if pane := win.ResolvePane(ref); pane != nil {
+			return pane
+		}
+	}
+	cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("pane %q not found", ref)})
+	return nil
 }
 
 // parseKey converts a key name to its byte representation.

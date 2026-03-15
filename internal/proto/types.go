@@ -3,6 +3,8 @@
 package proto
 
 // LayoutSnapshot is a serializable representation of the full layout state.
+// When Windows is non-empty, the multi-window fields take precedence over
+// the legacy single-window fields (Root, Panes, ActivePaneID).
 type LayoutSnapshot struct {
 	SessionName  string
 	ActivePaneID uint32
@@ -11,6 +13,21 @@ type LayoutSnapshot struct {
 	Panes        []PaneSnapshot
 	Width        int
 	Height       int
+
+	// Multi-window fields
+	Windows        []WindowSnapshot
+	ActiveWindowID uint32
+}
+
+// WindowSnapshot captures one window's state for the wire protocol.
+type WindowSnapshot struct {
+	ID           uint32
+	Name         string
+	Index        int // 1-based display order
+	ActivePaneID uint32
+	ZoomedPaneID uint32
+	Root         CellSnapshot
+	Panes        []PaneSnapshot
 }
 
 // CellSnapshot is a serializable layout tree node.

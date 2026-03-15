@@ -107,6 +107,26 @@ func main() {
 		runServerCommand("send-keys", args[1:])
 	case "spawn":
 		runServerCommand("spawn", args[1:])
+	case "new-window":
+		runServerCommand("new-window", args[1:])
+	case "list-windows":
+		runServerCommand("list-windows", nil)
+	case "select-window":
+		if len(args) < 2 {
+			fmt.Fprintf(os.Stderr, "usage: amux select-window <index|name>\n")
+			os.Exit(1)
+		}
+		runServerCommand("select-window", []string{args[1]})
+	case "next-window":
+		runServerCommand("next-window", nil)
+	case "prev-window":
+		runServerCommand("prev-window", nil)
+	case "rename-window":
+		if len(args) < 2 {
+			fmt.Fprintf(os.Stderr, "usage: amux rename-window <name>\n")
+			os.Exit(1)
+		}
+		runServerCommand("rename-window", []string{args[1]})
 	case "reload-server":
 		runServerCommand("reload-server", nil)
 	case "dashboard":
@@ -139,45 +159,55 @@ func printUsage() {
 	fmt.Println(`amux — Agent-Centric Terminal Multiplexer
 
 Usage:
-  amux [-s session]                   Start or attach to amux session
-  amux [-s session] attach [session]  Attach to a session
-  amux [-s session] new [name]        Start a new named session
-  amux [-s session] list              List panes with metadata
-  amux [-s session] status            Show pane summary
-  amux [-s session] capture           Capture full composited screen
-  amux [-s session] capture <pane>    Capture a single pane's output
-  amux [-s session] capture --ansi    Capture with ANSI escape codes
-  amux [-s session] capture --colors  Capture border color map
+  amux [-s session]                    Start or attach to amux session
+  amux [-s session] attach [session]   Attach to a session
+  amux [-s session] new [name]         Start a new named session
+  amux [-s session] list               List panes with metadata
+  amux [-s session] status             Show pane/window summary
+  amux [-s session] capture            Capture full composited screen
+  amux [-s session] capture <pane>     Capture a single pane's output
+  amux [-s session] capture --ansi     Capture with ANSI escape codes
+  amux [-s session] capture --colors   Capture border color map
   amux [-s session] send-keys <pane> <keys>...
-                                      Send keystrokes to a pane
-  amux [-s session] spawn --name NAME Spawn a new agent pane
-  amux [-s session] zoom [pane]       Toggle zoom (maximize) a pane
-  amux [-s session] swap <p1> <p2>    Swap two panes by name or ID
-  amux [-s session] rotate            Rotate pane positions forward
-  amux [-s session] rotate --reverse  Rotate pane positions backward
-  amux [-s session] minimize <pane>   Minimize a pane
-  amux [-s session] restore <pane>    Restore a minimized pane
-  amux [-s session] kill <pane>       Kill a pane
-  amux [-s session] focus <pane>      Focus a pane by name or ID
-  amux [-s session] copy-mode <pane>  Enter copy/scroll mode for a pane
-  amux [-s session] reload-server     Hot-reload the server (preserves panes)
+                                       Send keystrokes to a pane
+  amux [-s session] spawn --name NAME  Spawn a new agent pane
+  amux [-s session] zoom [pane]        Toggle zoom (maximize) a pane
+  amux [-s session] swap <p1> <p2>     Swap two panes by name or ID
+  amux [-s session] rotate             Rotate pane positions forward
+  amux [-s session] rotate --reverse   Rotate pane positions backward
+  amux [-s session] minimize <pane>    Minimize a pane
+  amux [-s session] restore <pane>     Restore a minimized pane
+  amux [-s session] kill <pane>        Kill a pane
+  amux [-s session] focus <pane>       Focus a pane by name or ID
+  amux [-s session] copy-mode <pane>   Enter copy/scroll mode for a pane
+  amux [-s session] new-window         Create a new window
+  amux [-s session] list-windows       List all windows
+  amux [-s session] select-window <n>  Switch to window by index or name
+  amux [-s session] next-window        Switch to next window
+  amux [-s session] prev-window        Switch to previous window
+  amux [-s session] rename-window <n>  Rename the active window
+  amux [-s session] reload-server      Hot-reload the server (preserves panes)
 
 Panes can be referenced by name (pane-1) or ID (1).
 
 Inside an amux session:
-  Ctrl-a \                          Split active pane left/right
-  Ctrl-a -                          Split active pane top/bottom
-  Ctrl-a |                          Root-level split left/right
-  Ctrl-a _                          Root-level split top/bottom
-  Ctrl-a z                          Toggle zoom on active pane
-  Ctrl-a }                          Swap active pane with next
-  Ctrl-a {                          Swap active pane with previous
-  Ctrl-a o                          Cycle focus to next pane
-  Ctrl-a h/j/k/l                    Focus left/down/up/right
-  Ctrl-a [                          Enter copy/scroll mode
-  Ctrl-a r                          Hot reload (re-exec binary)
-  Ctrl-a d                          Detach from session
-  Ctrl-a Ctrl-a                     Send literal Ctrl-a`)
+  Ctrl-a \                           Split active pane left/right
+  Ctrl-a -                           Split active pane top/bottom
+  Ctrl-a |                           Root-level split left/right
+  Ctrl-a _                           Root-level split top/bottom
+  Ctrl-a z                           Toggle zoom on active pane
+  Ctrl-a }                           Swap active pane with next
+  Ctrl-a {                           Swap active pane with previous
+  Ctrl-a o                           Cycle focus to next pane
+  Ctrl-a h/j/k/l                     Focus left/down/up/right
+  Ctrl-a [                           Enter copy/scroll mode
+  Ctrl-a c                           Create new window
+  Ctrl-a n                           Next window
+  Ctrl-a p                           Previous window
+  Ctrl-a 1-9                         Select window by number
+  Ctrl-a r                           Hot reload (re-exec binary)
+  Ctrl-a d                           Detach from session
+  Ctrl-a Ctrl-a                      Send literal Ctrl-a`)
 }
 
 // ---------------------------------------------------------------------------
@@ -425,6 +455,14 @@ func runMux(sessionName string) error {
 					if data := cr.Render(); data != nil {
 						os.Stdout.Write(data)
 					}
+				case 'c':
+					sendCommand(conn, "new-window", nil)
+				case 'n':
+					sendCommand(conn, "next-window", nil)
+				case 'p':
+					sendCommand(conn, "prev-window", nil)
+				case '1', '2', '3', '4', '5', '6', '7', '8', '9':
+					sendCommand(conn, "select-window", []string{string(b)})
 				case 'r':
 					if len(*forward) > 0 {
 						server.WriteMsg(conn, &server.Message{

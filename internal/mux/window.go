@@ -14,6 +14,8 @@ const DefaultRestoreHeight = 12
 
 // Window holds the layout tree and active pane for one window.
 type Window struct {
+	ID           uint32
+	Name         string
 	Root         *LayoutCell
 	ActivePane   *Pane
 	Width        int
@@ -407,6 +409,17 @@ func (w *Window) resizePTYs() {
 			c.Pane.Resize(c.W, PaneContentHeight(c.H))
 		}
 	})
+}
+
+// PaneCount returns the number of panes in the window's layout tree.
+func (w *Window) PaneCount() int {
+	count := 0
+	w.Root.Walk(func(c *LayoutCell) {
+		if c.Pane != nil {
+			count++
+		}
+	})
+	return count
 }
 
 // Panes returns all panes in the window (depth-first order).

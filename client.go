@@ -51,27 +51,36 @@ func (cr *ClientRenderer) HandleLayout(snap *proto.LayoutSnapshot) {
 	cr.activePaneID = snap.ActivePaneID
 	cr.zoomedPaneID = snap.ZoomedPaneID
 
+	// Collect all pane snapshots across all windows (or from legacy fields)
+	allPanes := snap.Panes
+	activeRoot := snap.Root
+	if len(snap.Windows) > 0 {
+		allPanes = nil
+		for _, ws := range snap.Windows {
+			allPanes = append(allPanes, ws.Panes...)
+			if ws.ID == snap.ActiveWindowID {
+				activeRoot = ws.Root
+				cr.activePaneID = ws.ActivePaneID
+			}
+		}
+	}
+
 	// Build map of current pane IDs from snapshot
-	newPaneIDs := make(map[uint32]bool, len(snap.Panes))
-	for _, ps := range snap.Panes {
+	newPaneIDs := make(map[uint32]bool, len(allPanes))
+	for _, ps := range allPanes {
 		newPaneIDs[ps.ID] = true
 		cr.paneInfo[ps.ID] = ps
 	}
 
 	// Create emulators for new panes
-	for _, ps := range snap.Panes {
+	for _, ps := range allPanes {
 		if _, exists := cr.emulators[ps.ID]; !exists {
-			// Find cell dimensions from snapshot
-			w, h := snap.Width, mux.PaneContentHeight(snap.Height)
-			if cell := findCellInSnapshot(snap.Root, ps.ID); cell != nil {
-				w = cell.W
-				h = mux.PaneContentHeight(cell.H)
-			}
+			w, h := findPaneDimensions(snap, activeRoot, ps.ID)
 			cr.emulators[ps.ID] = mux.NewVTEmulatorWithDrain(w, h)
 		}
 	}
 
-	// Remove stale emulators
+	// Remove stale emulators (only remove panes that no longer exist in any window)
 	for id := range cr.emulators {
 		if !newPaneIDs[id] {
 			delete(cr.emulators, id)
@@ -79,8 +88,8 @@ func (cr *ClientRenderer) HandleLayout(snap *proto.LayoutSnapshot) {
 		}
 	}
 
-	// Rebuild layout tree from snapshot
-	cr.layout = mux.RebuildLayout(snap.Root)
+	// Rebuild layout tree from the active window's root
+	cr.layout = mux.RebuildLayout(activeRoot)
 
 	// Resize emulators (and active copy modes) to match their layout cells
 	cr.layout.Walk(func(cell *mux.LayoutCell) {
@@ -96,6 +105,20 @@ func (cr *ClientRenderer) HandleLayout(snap *proto.LayoutSnapshot) {
 	// Update compositor
 	cr.compositor.SetSessionName(snap.SessionName)
 	cr.compositor.Resize(snap.Width, snap.Height+render.GlobalBarHeight)
+
+	// Pass window info for the global bar
+	if len(snap.Windows) > 0 {
+		windows := make([]render.WindowInfo, len(snap.Windows))
+		for i, ws := range snap.Windows {
+			windows[i] = render.WindowInfo{
+				Index:    ws.Index,
+				Name:     ws.Name,
+				IsActive: ws.ID == snap.ActiveWindowID,
+				Panes:    len(ws.Panes),
+			}
+		}
+		cr.compositor.SetWindows(windows)
+	}
 
 	// When zoomed, resize the zoomed emulator to full window size
 	if cr.zoomedPaneID != 0 {
@@ -322,6 +345,21 @@ func (c *clientPaneData) Color() string   { return c.info.Color }
 func (c *clientPaneData) Minimized() bool { return c.info.Minimized }
 func (c *clientPaneData) InCopyMode() bool {
 	return c.cm != nil
+}
+
+// findPaneDimensions returns the width and content height for a pane,
+// searching the active window's root first, then all other windows.
+// Falls back to the full snapshot dimensions if not found.
+func findPaneDimensions(snap *proto.LayoutSnapshot, activeRoot proto.CellSnapshot, paneID uint32) (int, int) {
+	if cell := findCellInSnapshot(activeRoot, paneID); cell != nil {
+		return cell.W, mux.PaneContentHeight(cell.H)
+	}
+	for _, ws := range snap.Windows {
+		if cell := findCellInSnapshot(ws.Root, paneID); cell != nil {
+			return cell.W, mux.PaneContentHeight(cell.H)
+		}
+	}
+	return snap.Width, mux.PaneContentHeight(snap.Height)
 }
 
 // findCellInSnapshot finds a cell by pane ID in a CellSnapshot tree.
