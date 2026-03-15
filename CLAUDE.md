@@ -167,3 +167,12 @@ All issues and feature requests go in the Linear project (not GitHub Issues):
 https://linear.app/weill-labs/project/amux-b3a52334f77c
 
 Team key: `LAB`. Use the Linear skill to create/query issues.
+
+**Link PRs to Linear issues.** When creating a PR that implements a Linear issue, include `Fixes LAB-XXX` in the PR description. This tells Linear's GitHub integration to auto-transition the issue to Done when the PR merges. Example:
+
+```
+## Summary
+- Implements feature X
+
+Fixes LAB-123
+```
