@@ -450,6 +450,62 @@ func TestRotatePanesBackward(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// ResizeActive (regression: index out of bounds when active pane is last child)
+// ---------------------------------------------------------------------------
+
+func TestResizeActiveFromLastChild(t *testing.T) {
+	t.Parallel()
+	// Two panes side by side: [pane-1 | pane-2], pane-2 active (last child).
+	// ResizeActive("left", 2) should move the border left without panicking.
+	p1 := fakePaneID(1)
+	p2 := fakePaneID(2)
+
+	root := NewLeaf(p1, 0, 0, 80, 24)
+	root.Split(SplitHorizontal, p2)
+
+	w := &Window{Root: root, ActivePane: p2, Width: 80, Height: 24}
+	w.Root.FixOffsets()
+
+	initialP1W := root.Children[0].W
+
+	ok := w.ResizeActive("left", 2)
+	if !ok {
+		t.Fatal("ResizeActive returned false, expected true")
+	}
+
+	newP1W := root.Children[0].W
+	if newP1W >= initialP1W {
+		t.Errorf("pane-1 width should shrink: was %d, now %d", initialP1W, newP1W)
+	}
+}
+
+func TestResizeActiveFromFirstChild(t *testing.T) {
+	t.Parallel()
+	// Two panes side by side: [pane-1 | pane-2], pane-1 active (first child).
+	// ResizeActive("right", 2) should move the border right.
+	p1 := fakePaneID(1)
+	p2 := fakePaneID(2)
+
+	root := NewLeaf(p1, 0, 0, 80, 24)
+	root.Split(SplitHorizontal, p2)
+
+	w := &Window{Root: root, ActivePane: p1, Width: 80, Height: 24}
+	w.Root.FixOffsets()
+
+	initialP1W := root.Children[0].W
+
+	ok := w.ResizeActive("right", 2)
+	if !ok {
+		t.Fatal("ResizeActive returned false, expected true")
+	}
+
+	newP1W := root.Children[0].W
+	if newP1W <= initialP1W {
+		t.Errorf("pane-1 width should grow: was %d, now %d", initialP1W, newP1W)
+	}
+}
+
 func TestRotateSinglePane(t *testing.T) {
 	t.Parallel()
 	p1 := fakePaneID(1)
