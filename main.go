@@ -168,6 +168,12 @@ func main() {
 		runServerCommand("clipboard-gen", nil)
 	case "wait-clipboard":
 		runServerCommand("wait-clipboard", args[1:])
+	case "resize-window":
+		if len(args) < 3 {
+			fmt.Fprintf(os.Stderr, "usage: amux resize-window <cols> <rows>\n")
+			os.Exit(1)
+		}
+		runServerCommand("resize-window", args[1:])
 	case "reload-server":
 		runServerCommand("reload-server", nil)
 	case "dashboard":
@@ -227,6 +233,8 @@ Usage:
   amux [-s session] next-window        Switch to next window
   amux [-s session] prev-window        Switch to previous window
   amux [-s session] rename-window <n>  Rename the active window
+  amux [-s session] resize-window <c> <r>
+                                       Resize window to cols x rows
   amux [-s session] reload-server      Hot-reload the server (preserves panes)
   amux [-s session] generation         Show current layout generation counter
   amux [-s session] wait-layout [--after N] [--timeout 3s]
@@ -315,10 +323,16 @@ func runServer(sessionName string) {
 		os.Exit(0)
 	}()
 
-	// Server-side binary watcher for auto-reload
+	// Server-side binary watcher for auto-reload.
+	// AMUX_NO_WATCH=1 disables watching (used by test harness for the outer
+	// server so only the inner server responds to binary changes).
+	// Unset immediately so child processes don't inherit it.
+	noWatch := os.Getenv("AMUX_NO_WATCH") == "1"
+	os.Unsetenv("AMUX_NO_WATCH")
+
 	triggerReload := make(chan struct{}, 1)
 	execPath, execErr := resolveExecutable()
-	if execErr == nil {
+	if execErr == nil && !noWatch {
 		go watchBinary(execPath, triggerReload)
 		go func() {
 			for range triggerReload {
@@ -400,10 +414,12 @@ func runMux(sessionName string) error {
 	// Client-side renderer with per-pane emulators
 	cr := NewClientRenderer(cols, rows)
 
-	// Hot reload: resolve binary path once, start file watcher
+	// Hot reload: resolve binary path once, start file watcher.
+	// AMUX_NO_WATCH=1 disables watching (used by test harness for the outer
+	// client so only the inner client responds to binary changes).
 	triggerReload := make(chan struct{}, 1)
 	execPath, execErr := resolveExecutable()
-	if execErr == nil {
+	if execErr == nil && os.Getenv("AMUX_NO_WATCH") != "1" {
 		go watchBinary(execPath, triggerReload)
 	}
 

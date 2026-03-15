@@ -553,6 +553,26 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 		sess.broadcastLayout()
 		cc.Send(&Message{Type: MsgTypeCmdResult})
 
+	case "resize-window":
+		if len(msg.CmdArgs) < 2 {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "usage: resize-window <cols> <rows>"})
+			return
+		}
+		cols, err1 := strconv.Atoi(msg.CmdArgs[0])
+		rows, err2 := strconv.Atoi(msg.CmdArgs[1])
+		if err1 != nil || err2 != nil || cols <= 0 || rows <= 0 {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "resize-window: invalid dimensions"})
+			return
+		}
+		sess.mu.Lock()
+		layoutH := rows - 1
+		for _, w := range sess.Windows {
+			w.Resize(cols, layoutH)
+		}
+		sess.mu.Unlock()
+		sess.broadcastLayout()
+		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: fmt.Sprintf("Resized to %dx%d\n", cols, rows)})
+
 	case "swap":
 		sess.mu.Lock()
 		w := sess.ActiveWindow()

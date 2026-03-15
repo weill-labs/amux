@@ -3,7 +3,6 @@ package test
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -214,7 +213,7 @@ func TestCopyModeDoesNotForwardInput(t *testing.T) {
 
 func TestCopyModeResizeSurvives(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t)
+	h := newAmuxHarness(t)
 
 	// Generate output so scrollback has content
 	scriptPath := filepath.Join(os.TempDir(), fmt.Sprintf("amux-resize-%s.sh", h.session))
@@ -222,33 +221,36 @@ func TestCopyModeResizeSurvives(t *testing.T) {
 	t.Cleanup(func() { os.Remove(scriptPath) })
 
 	h.sendKeys(scriptPath, "Enter")
-	h.waitFor("RESIZE-30", 5*time.Second)
+	if !h.waitFor("RESIZE-30", 5*time.Second) {
+		t.Fatalf("RESIZE-30 not visible\nScreen:\n%s", h.captureOuter())
+	}
 
 	// Enter copy mode and scroll up
 	h.sendKeys("C-a", "[")
 	if !h.waitFor("[copy]", 3*time.Second) {
-		t.Fatalf("expected [copy] indicator\nScreen:\n%s", h.capture())
+		t.Fatalf("expected [copy] indicator\nScreen:\n%s", h.captureOuter())
 	}
 	for i := 0; i < 20; i++ {
 		h.sendKeys("k")
 	}
 	time.Sleep(400 * time.Millisecond)
 
-	// Resize terminal while in copy mode
-	exec.Command("tmux", "resize-pane", "-t", h.session, "-x", "120", "-y", "40").Run()
+	// Resize terminal while in copy mode via the outer server
+	h.outer.runCmd("resize-window", "120", "40")
 	time.Sleep(1 * time.Second)
 
 	// Copy mode should still be active after resize
-	h.assertScreen("copy mode survives resize", func(s string) bool {
-		return strings.Contains(s, "[copy]")
-	})
+	screen := h.captureOuter()
+	if !strings.Contains(screen, "[copy]") {
+		t.Errorf("copy mode should survive resize\nScreen:\n%s", screen)
+	}
 
 	// Should still be able to exit
 	h.sendKeys("q")
-	if !h.waitForFunc(func(s string) bool {
+	if !waitForOuter(h, func(s string) bool {
 		return !strings.Contains(s, "[copy]")
 	}, 3*time.Second) {
-		t.Fatalf("expected [copy] to disappear after q\nScreen:\n%s", h.capture())
+		t.Fatalf("expected [copy] to disappear after q\nScreen:\n%s", h.captureOuter())
 	}
 }
 

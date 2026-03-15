@@ -41,7 +41,7 @@ func newServerHarness(t *testing.T) *ServerHarness {
 
 	cmd := exec.Command(amuxBin, "_server", session)
 	cmd.ExtraFiles = []*os.File{writePipe} // fd 3 in child
-	cmd.Env = append(os.Environ(), "AMUX_READY_FD=3")
+	cmd.Env = append(os.Environ(), "AMUX_READY_FD=3", "AMUX_NO_WATCH=1")
 
 	logDir := server.SocketDir()
 	os.MkdirAll(logDir, 0700)

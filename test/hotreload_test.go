@@ -11,15 +11,17 @@ import (
 
 func TestHotReloadKeybinding(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t)
+	h := newAmuxHarness(t)
 
-	h.sendKeys("e", "c", "h", "o", " ", "R", "E", "L", "O", "A", "D", "M", "E", "Enter")
-	h.waitFor("RELOADME", 3 * time.Second)
+	h.sendKeys("echo RELOADME", "Enter")
+	if !h.waitFor("RELOADME", 3*time.Second) {
+		t.Fatalf("RELOADME not visible\nScreen:\n%s", h.captureOuter())
+	}
 
 	h.sendKeys("C-a", "r")
 
-	if !h.waitFor("[pane-", 8 * time.Second) {
-		screen := h.capture()
+	if !h.waitFor("[pane-", 8*time.Second) {
+		screen := h.captureOuter()
 		t.Fatalf("session did not recover after Ctrl-a r\nScreen:\n%s", screen)
 	}
 	time.Sleep(400 * time.Millisecond)
@@ -27,34 +29,38 @@ func TestHotReloadKeybinding(t *testing.T) {
 	h.sendKeys("Enter")
 	time.Sleep(400 * time.Millisecond)
 
-	h.assertScreen("Ctrl-a r should be consumed, not forwarded (no 'not found' error)", func(s string) bool {
-		return !strings.Contains(s, "not found")
-	})
+	screen := h.captureOuter()
+	if strings.Contains(screen, "not found") {
+		t.Errorf("Ctrl-a r should be consumed, not forwarded (no 'not found' error)\nScreen:\n%s", screen)
+	}
 
-	h.assertScreen("RELOADME visible after hot reload", func(s string) bool {
-		return strings.Contains(s, "RELOADME")
-	})
+	if !strings.Contains(screen, "RELOADME") {
+		t.Errorf("RELOADME should be visible after hot reload\nScreen:\n%s", screen)
+	}
 }
 
 func TestHotReloadAutoDetect(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t)
+	h := newAmuxHarness(t)
 
-	h.sendKeys("e", "c", "h", "o", " ", "A", "U", "T", "O", "R", "L", "D", "Enter")
-	h.waitFor("AUTORLD", 3 * time.Second)
+	h.sendKeys("echo AUTORLD", "Enter")
+	if !h.waitFor("AUTORLD", 3*time.Second) {
+		t.Fatalf("AUTORLD not visible\nScreen:\n%s", h.captureOuter())
+	}
 
 	if err := buildAmux(amuxBin); err != nil {
 		t.Fatalf("rebuilding amux binary: %v", err)
 	}
 
-	if !h.waitFor("[pane-", 10 * time.Second) {
-		screen := h.capture()
+	if !h.waitFor("[pane-", 10*time.Second) {
+		screen := h.captureOuter()
 		t.Fatalf("session did not recover after binary rebuild\nScreen:\n%s", screen)
 	}
 
-	h.assertScreen("AUTORLD visible after auto-reload", func(s string) bool {
-		return strings.Contains(s, "AUTORLD") && strings.Contains(s, "[pane-")
-	})
+	screen := h.captureOuter()
+	if !strings.Contains(screen, "AUTORLD") || !strings.Contains(screen, "[pane-") {
+		t.Errorf("AUTORLD should be visible after auto-reload\nScreen:\n%s", screen)
+	}
 }
 
 func TestServerHotReload(t *testing.T) {
@@ -94,22 +100,24 @@ func TestServerHotReload(t *testing.T) {
 
 func TestServerAutoReload(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t)
+	h := newAmuxHarness(t)
 
-	h.sendKeys("e", "c", "h", "o", " ", "S", "R", "V", "A", "U", "T", "O", "Enter")
-	h.waitFor("SRVAUTO", 3 * time.Second)
+	h.sendKeys("echo SRVAUTO", "Enter")
+	if !h.waitFor("SRVAUTO", 3*time.Second) {
+		t.Fatalf("SRVAUTO not visible\nScreen:\n%s", h.captureOuter())
+	}
 
 	if err := buildAmux(amuxBin); err != nil {
 		t.Fatalf("rebuilding amux binary: %v", err)
 	}
 
-	if !h.waitFor("[pane-", 15 * time.Second) {
-		screen := h.capture()
+	if !h.waitFor("[pane-", 15*time.Second) {
+		screen := h.captureOuter()
 		t.Fatalf("session did not recover after binary rebuild\nScreen:\n%s", screen)
 	}
 
-	if !h.waitFor("SRVAUTO", 5 * time.Second) {
-		screen := h.capture()
+	if !h.waitFor("SRVAUTO", 5*time.Second) {
+		screen := h.captureOuter()
 		t.Fatalf("SRVAUTO should be visible after server auto-reload\nScreen:\n%s", screen)
 	}
 }
@@ -220,7 +228,7 @@ func TestServerReloadBorderColors(t *testing.T) {
 
 func TestServerReloadTUIRedraw(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t)
+	h := newAmuxHarness(t)
 
 	scriptPath := filepath.Join(os.TempDir(), fmt.Sprintf("amux-tui-%s.sh", h.session))
 	os.WriteFile(scriptPath, []byte(`#!/bin/bash
@@ -233,15 +241,15 @@ while true; do sleep 60; done
 	t.Cleanup(func() { os.Remove(scriptPath) })
 
 	h.sendKeys(scriptPath, "Enter")
-	if !h.waitFor("TUIMARK_OK", 5 * time.Second) {
-		screen := h.capture()
+	if !h.waitFor("TUIMARK_OK", 5*time.Second) {
+		screen := h.captureOuter()
 		t.Fatalf("TUI script did not start\nScreen:\n%s", screen)
 	}
 
 	h.runCmd("reload-server")
 
-	if !h.waitFor("TUIMARK_OK", 15 * time.Second) {
-		screen := h.capture()
+	if !h.waitFor("TUIMARK_OK", 15*time.Second) {
+		screen := h.captureOuter()
 		t.Fatalf("TUI marker should be visible after reload (SIGWINCH redraw)\nScreen:\n%s", screen)
 	}
 }
