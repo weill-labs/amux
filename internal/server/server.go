@@ -48,6 +48,17 @@ func (s *Session) broadcast(msg *Message) {
 	}
 }
 
+// clipboardCallback returns the onClipboard callback for panes in this session.
+// It forwards OSC 52 clipboard sequences to all connected clients.
+func (s *Session) clipboardCallback() func(paneID uint32, data []byte) {
+	return func(paneID uint32, data []byte) {
+		if s.shutdown.Load() {
+			return
+		}
+		s.broadcast(&Message{Type: MsgTypeClipboard, PaneID: paneID, PaneData: data})
+	}
+}
+
 // broadcastPaneOutput sends raw PTY output for one pane to all clients.
 func (s *Session) broadcastPaneOutput(paneID uint32, data []byte) {
 	s.broadcast(&Message{Type: MsgTypePaneOutput, PaneID: paneID, PaneData: data})
@@ -161,6 +172,8 @@ func (s *Session) createPaneWithMeta(srv *Server, meta mux.PaneMeta, cols, rows 
 		return nil, err
 	}
 
+	pane.SetOnClipboard(s.clipboardCallback())
+
 	s.Panes = append(s.Panes, pane)
 	return pane, nil
 }
@@ -177,6 +190,7 @@ func (s *serverPaneData) Host() string          { return s.p.Meta.Host }
 func (s *serverPaneData) Task() string          { return s.p.Meta.Task }
 func (s *serverPaneData) Color() string         { return s.p.Meta.Color }
 func (s *serverPaneData) Minimized() bool       { return s.p.Meta.Minimized }
+func (s *serverPaneData) InCopyMode() bool      { return false }
 
 // renderCapture renders the full composited screen server-side.
 // If stripANSI is true, the ANSI stream is materialized into a plain-text
@@ -458,6 +472,8 @@ func NewServerFromCheckpoint(cp *checkpoint.ServerCheckpoint) (*Server, error) {
 		if restoreErr != nil {
 			continue // Skip pane on restore failure
 		}
+
+		pane.SetOnClipboard(sess.clipboardCallback())
 
 		pane.ReplayScreen(pc.Screen)
 		paneMap[pc.ID] = pane

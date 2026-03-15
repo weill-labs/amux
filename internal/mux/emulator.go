@@ -2,6 +2,7 @@ package mux
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -35,6 +36,12 @@ type TerminalEmulator interface {
 
 	// CursorHidden returns true if the cursor is hidden.
 	CursorHidden() bool
+
+	// ScrollbackLen returns the number of lines in the scrollback buffer.
+	ScrollbackLen() int
+
+	// ScrollbackLineText returns the plain text of scrollback line y (0=oldest).
+	ScrollbackLineText(y int) string
 }
 
 // vtEmulator wraps charmbracelet/x/vt.SafeEmulator.
@@ -96,6 +103,28 @@ func (v *vtEmulator) CursorPosition() (col, row int) {
 
 func (v *vtEmulator) CursorHidden() bool {
 	return v.cursorHidden.Load()
+}
+
+func (v *vtEmulator) ScrollbackLen() int {
+	return v.emu.ScrollbackLen()
+}
+
+func (v *vtEmulator) ScrollbackLineText(y int) string {
+	sb := v.emu.Scrollback()
+	if sb == nil || y < 0 || y >= sb.Len() {
+		return ""
+	}
+	line := sb.Line(y)
+	if line == nil {
+		return ""
+	}
+	var buf strings.Builder
+	for _, cell := range line {
+		if cell.Content != "" {
+			buf.WriteString(cell.Content)
+		}
+	}
+	return buf.String()
 }
 
 // NewVTEmulatorWithDrain creates a terminal emulator that automatically

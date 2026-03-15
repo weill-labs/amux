@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/weill-labs/amux/internal/checkpoint"
+	"github.com/weill-labs/amux/internal/copymode"
 	"github.com/weill-labs/amux/internal/mouse"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/render"
@@ -76,14 +77,34 @@ func main() {
 		runServerCommand("status", nil)
 	case "capture":
 		runServerCommand("capture", args[1:])
+	case "copy-mode":
+		if len(args) < 2 {
+			fmt.Fprintf(os.Stderr, "usage: amux copy-mode <pane>\n")
+			os.Exit(1)
+		}
+		runServerCommand("copy-mode", []string{args[1]})
 	case "zoom":
 		runServerCommand("zoom", args[1:])
+	case "swap":
+		if len(args) < 3 {
+			fmt.Fprintf(os.Stderr, "usage: amux swap <pane1> <pane2>\n")
+			os.Exit(1)
+		}
+		runServerCommand("swap", []string{args[1], args[2]})
+	case "rotate":
+		runServerCommand("rotate", args[1:])
 	case "minimize", "restore", "kill", "focus":
 		if len(args) < 2 {
 			fmt.Fprintf(os.Stderr, "usage: amux %s <pane>\n", args[0])
 			os.Exit(1)
 		}
 		runServerCommand(args[0], []string{args[1]})
+	case "send-keys":
+		if len(args) < 3 {
+			fmt.Fprintf(os.Stderr, "usage: amux send-keys <pane> <keys>...\n")
+			os.Exit(1)
+		}
+		runServerCommand("send-keys", args[1:])
 	case "spawn":
 		runServerCommand("spawn", args[1:])
 	case "reload-server":
@@ -127,12 +148,18 @@ Usage:
   amux [-s session] capture <pane>    Capture a single pane's output
   amux [-s session] capture --ansi    Capture with ANSI escape codes
   amux [-s session] capture --colors  Capture border color map
+  amux [-s session] send-keys <pane> <keys>...
+                                      Send keystrokes to a pane
   amux [-s session] spawn --name NAME Spawn a new agent pane
   amux [-s session] zoom [pane]       Toggle zoom (maximize) a pane
+  amux [-s session] swap <p1> <p2>    Swap two panes by name or ID
+  amux [-s session] rotate            Rotate pane positions forward
+  amux [-s session] rotate --reverse  Rotate pane positions backward
   amux [-s session] minimize <pane>   Minimize a pane
   amux [-s session] restore <pane>    Restore a minimized pane
   amux [-s session] kill <pane>       Kill a pane
   amux [-s session] focus <pane>      Focus a pane by name or ID
+  amux [-s session] copy-mode <pane>  Enter copy/scroll mode for a pane
   amux [-s session] reload-server     Hot-reload the server (preserves panes)
 
 Panes can be referenced by name (pane-1) or ID (1).
@@ -143,8 +170,11 @@ Inside an amux session:
   Ctrl-a |                          Root-level split left/right
   Ctrl-a _                          Root-level split top/bottom
   Ctrl-a z                          Toggle zoom on active pane
+  Ctrl-a }                          Swap active pane with next
+  Ctrl-a {                          Swap active pane with previous
   Ctrl-a o                          Cycle focus to next pane
   Ctrl-a h/j/k/l                    Focus left/down/up/right
+  Ctrl-a [                          Enter copy/scroll mode
   Ctrl-a r                          Hot reload (re-exec binary)
   Ctrl-a d                          Detach from session
   Ctrl-a Ctrl-a                     Send literal Ctrl-a`)
@@ -314,11 +344,15 @@ func runMux(sessionName string) error {
 				msgCh <- &renderMsg{typ: renderMsgLayout, layout: msg.Layout}
 			case server.MsgTypePaneOutput:
 				msgCh <- &renderMsg{typ: renderMsgPaneOutput, paneID: msg.PaneID, data: msg.PaneData}
+			case server.MsgTypeCopyMode:
+				msgCh <- &renderMsg{typ: renderMsgCopyMode, paneID: msg.PaneID}
 			case server.MsgTypeExit:
 				msgCh <- &renderMsg{typ: renderMsgExit}
 				return
 			case server.MsgTypeBell:
 				msgCh <- &renderMsg{typ: renderMsgBell}
+			case server.MsgTypeClipboard:
+				msgCh <- &renderMsg{typ: renderMsgClipboard, data: msg.PaneData}
 			case server.MsgTypeServerReload:
 				// Server is reloading — re-exec ourselves to reconnect
 				select {
@@ -370,6 +404,10 @@ func runMux(sessionName string) error {
 					sendCommand(conn, "split", []string{"root"})
 				case '_':
 					sendCommand(conn, "split", []string{"root", "v"})
+				case '}':
+					sendCommand(conn, "swap", []string{"forward"})
+				case '{':
+					sendCommand(conn, "swap", []string{"backward"})
 				case 'o':
 					sendCommand(conn, "focus", []string{"next"})
 				case 'h':
@@ -382,6 +420,11 @@ func runMux(sessionName string) error {
 					sendCommand(conn, "focus", []string{"down"})
 				case 'z':
 					sendCommand(conn, "zoom", nil)
+				case '[':
+					cr.EnterCopyMode(cr.ActivePaneID())
+					if data := cr.Render(); data != nil {
+						os.Stdout.Write(data)
+					}
 				case 'r':
 					if len(*forward) > 0 {
 						server.WriteMsg(conn, &server.Message{
@@ -420,6 +463,27 @@ func runMux(sessionName string) error {
 			n, err := os.Stdin.Read(buf)
 			if err != nil {
 				return
+			}
+
+			// If the active pane is in copy mode, route input there
+			if cm := cr.ActiveCopyMode(); cm != nil {
+				action := cm.HandleInput(buf[:n])
+				paneID := cr.ActivePaneID()
+				switch action {
+				case copymode.ActionNone:
+					continue
+				case copymode.ActionExit:
+					cr.ExitCopyMode(paneID)
+				case copymode.ActionYank:
+					if text := cm.SelectedText(); text != "" {
+						copyToClipboard(text)
+					}
+					cr.ExitCopyMode(paneID)
+				}
+				if data := cr.Render(); data != nil {
+					os.Stdout.Write(data)
+				}
+				continue
 			}
 
 			var forward []byte
@@ -471,6 +535,22 @@ func runMux(sessionName string) error {
 		}
 		// execSelf replaces the process; if we get here, exec failed fatally
 		return nil
+	}
+}
+
+// copyToClipboard copies text to the system clipboard.
+func copyToClipboard(text string) {
+	// Try pbcopy (macOS), then xclip (Linux), then xsel (Linux)
+	for _, cmd := range [][]string{
+		{"pbcopy"},
+		{"xclip", "-selection", "clipboard"},
+		{"xsel", "--clipboard", "--input"},
+	} {
+		c := exec.Command(cmd[0], cmd[1:]...)
+		c.Stdin = strings.NewReader(text)
+		if c.Run() == nil {
+			return
+		}
 	}
 }
 

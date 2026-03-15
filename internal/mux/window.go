@@ -435,6 +435,103 @@ func (w *Window) ResolvePane(ref string) *Pane {
 	return nil
 }
 
+// SwapPanes exchanges the Pane pointers of two layout cells and resizes PTYs
+// to match their new cell dimensions.
+// Both the Pane struct and its Meta travel together (swap-with-meta semantics).
+func (w *Window) SwapPanes(id1, id2 uint32) error {
+	if id1 == id2 {
+		return nil
+	}
+	cell1 := w.Root.FindPane(id1)
+	if cell1 == nil {
+		return fmt.Errorf("pane %d not found", id1)
+	}
+	cell2 := w.Root.FindPane(id2)
+	if cell2 == nil {
+		return fmt.Errorf("pane %d not found", id2)
+	}
+	cell1.Pane, cell2.Pane = cell2.Pane, cell1.Pane
+	w.resizePTYs()
+	return nil
+}
+
+// SwapPaneForward swaps the active pane with the next pane in walk order.
+func (w *Window) SwapPaneForward() error {
+	cells := w.paneLeaves()
+	if len(cells) <= 1 {
+		return nil
+	}
+	idx := w.activeCellIndex(cells)
+	if idx < 0 {
+		return fmt.Errorf("active pane not found in layout")
+	}
+	next := (idx + 1) % len(cells)
+	return w.SwapPanes(cells[idx].Pane.ID, cells[next].Pane.ID)
+}
+
+// SwapPaneBackward swaps the active pane with the previous pane in walk order.
+func (w *Window) SwapPaneBackward() error {
+	cells := w.paneLeaves()
+	if len(cells) <= 1 {
+		return nil
+	}
+	idx := w.activeCellIndex(cells)
+	if idx < 0 {
+		return fmt.Errorf("active pane not found in layout")
+	}
+	prev := (idx - 1 + len(cells)) % len(cells)
+	return w.SwapPanes(cells[idx].Pane.ID, cells[prev].Pane.ID)
+}
+
+// RotatePanes cycles all pane positions and resizes PTYs to match.
+// If forward is true, panes advance one position in walk order: each cell
+// gets the pane from the previous cell, with the last pane wrapping to the
+// first cell.
+func (w *Window) RotatePanes(forward bool) {
+	cells := w.paneLeaves()
+	if len(cells) <= 1 {
+		return
+	}
+	if forward {
+		last := cells[len(cells)-1].Pane
+		for i := len(cells) - 1; i > 0; i-- {
+			cells[i].Pane = cells[i-1].Pane
+		}
+		cells[0].Pane = last
+	} else {
+		first := cells[0].Pane
+		for i := 0; i < len(cells)-1; i++ {
+			cells[i].Pane = cells[i+1].Pane
+		}
+		cells[len(cells)-1].Pane = first
+	}
+	w.resizePTYs()
+}
+
+// paneLeaves returns all non-minimized leaf cells containing panes
+// (depth-first order). Minimized panes are excluded because their cell
+// height doesn't match normal panes — swapping would produce inconsistent state.
+func (w *Window) paneLeaves() []*LayoutCell {
+	var cells []*LayoutCell
+	w.Root.Walk(func(c *LayoutCell) {
+		if c.Pane != nil && !c.Pane.Meta.Minimized {
+			cells = append(cells, c)
+		}
+	})
+	return cells
+}
+
+// activeCellIndex returns the index of the active pane's cell in the given
+// leaf cell slice, or -1 if not found.
+func (w *Window) activeCellIndex(cells []*LayoutCell) int {
+	for i, c := range cells {
+		if c.Pane.ID == w.ActivePane.ID {
+			return i
+		}
+	}
+	return -1
+}
+
 // Minimize shrinks a pane's layout cell to StatusLineRows + 1 (just status + 1 row).
 // Auto-unzooms if a pane is zoomed.
 func (w *Window) Minimize(paneID uint32) error {
