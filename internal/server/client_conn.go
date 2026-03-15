@@ -138,7 +138,9 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 		switch direction {
 		case "next", "left", "right", "up", "down":
 			sess.Window.Focus(direction)
+			name := sess.Window.ActivePane.Meta.Name
 			sess.mu.Unlock()
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: fmt.Sprintf("Focused %s\n", name)})
 		default:
 			// Treat as pane name or ID
 			pane := sess.Window.ResolvePane(direction)
