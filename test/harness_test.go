@@ -26,7 +26,7 @@ var gocoverOwned bool
 func buildAmux(binPath string) error {
 	args := []string{"build"}
 	if os.Getenv("GOCOVERDIR") != "" {
-		args = append(args, "-cover")
+		args = append(args, "-cover", "-covermode=atomic")
 	}
 	args = append(args, "-o", binPath, "..")
 	out, err := exec.Command("go", args...).CombinedOutput()
