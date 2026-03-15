@@ -16,8 +16,10 @@ import (
 var amuxBin string
 
 // gocoverDir is the directory for integration test coverage data.
-// Set when GOCOVERDIR is configured; empty otherwise.
 var gocoverDir string
+
+// gocoverOwned is true when TestMain created gocoverDir (vs. inheriting it).
+var gocoverOwned bool
 
 // buildAmux builds the amux binary at binPath. When GOCOVERDIR is set,
 // the binary is built with -cover so it writes coverage data on exit.
@@ -45,15 +47,15 @@ func TestMain(m *testing.M) {
 	// been killed by a timeout panic (t.Cleanup doesn't run on panic).
 	cleanupStaleTestSessions()
 
-	// Set up coverage output directory if not already set
-	if os.Getenv("GOCOVERDIR") == "" {
-		covDir, err := os.MkdirTemp("", "amux-cov-*")
-		if err == nil {
-			gocoverDir = covDir
-			os.Setenv("GOCOVERDIR", covDir)
+	// Set up coverage output directory. If GOCOVERDIR is already set
+	// (e.g. by CI), use it; otherwise create a temp dir.
+	gocoverDir = os.Getenv("GOCOVERDIR")
+	if gocoverDir == "" {
+		if dir, err := os.MkdirTemp("", "amux-cov-*"); err == nil {
+			gocoverDir = dir
+			gocoverOwned = true
+			os.Setenv("GOCOVERDIR", dir)
 		}
-	} else {
-		gocoverDir = os.Getenv("GOCOVERDIR")
 	}
 
 	// Build amux binary for testing
@@ -80,8 +82,7 @@ func TestMain(m *testing.M) {
 			exec.Command("go", "tool", "covdata", "textfmt",
 				"-i="+gocoverDir, "-o=integration-coverage.txt").Run()
 		}
-		// Only remove the dir if we created it
-		if os.Getenv("GOCOVERDIR") == gocoverDir {
+		if gocoverOwned {
 			os.RemoveAll(gocoverDir)
 		}
 	}
