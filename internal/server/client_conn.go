@@ -189,13 +189,13 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 			cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: out + "\n"})
 		} else {
 			// Full composited screen capture
+			var out string
 			if colorMap {
-				out := sess.renderColorMap()
-				cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: out})
+				out = sess.renderColorMap()
 			} else {
-				out := sess.renderCapture(!includeANSI)
-				cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: out})
+				out = sess.renderCapture(!includeANSI)
 			}
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: out})
 		}
 
 	case "spawn":

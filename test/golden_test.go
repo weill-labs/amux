@@ -121,4 +121,3 @@ func extractBorderLine(line string) string {
 	return strings.TrimRight(string(out), " ")
 }
 
-

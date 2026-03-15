@@ -1,6 +1,7 @@
 package render
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/weill-labs/amux/internal/mux"
@@ -140,19 +141,14 @@ func colorMapString(root *mux.LayoutCell, w, h int, activePaneID uint32) string 
 			}
 		}
 	}
-	var result string
+	var buf strings.Builder
 	for y, row := range grid {
 		if y > 0 {
-			result += "\n"
+			buf.WriteByte('\n')
 		}
-		// Trim trailing spaces
-		line := string(row)
-		for len(line) > 0 && line[len(line)-1] == ' ' {
-			line = line[:len(line)-1]
-		}
-		result += line
+		buf.WriteString(strings.TrimRight(string(row), " "))
 	}
-	return result
+	return buf.String()
 }
 
 func TestBorderColor_TwoPaneVertical(t *testing.T) {
@@ -287,14 +283,5 @@ func TestBorderColor_ThreeColSplitMiddle(t *testing.T) {
 }
 
 func splitLines(s string) []string {
-	var lines []string
-	start := 0
-	for i := 0; i < len(s); i++ {
-		if s[i] == '\n' {
-			lines = append(lines, s[start:i])
-			start = i + 1
-		}
-	}
-	lines = append(lines, s[start:])
-	return lines
+	return strings.Split(s, "\n")
 }
