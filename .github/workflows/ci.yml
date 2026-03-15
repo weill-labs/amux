@@ -49,11 +49,44 @@ jobs:
 
       - name: Unit tests
         if: steps.changes.outputs.code_changed == 'true'
-        run: go test -json ./internal/... -timeout 60s | tee unit-results.json
+        run: go test -json -coverprofile=unit-coverage.txt -covermode=atomic ./internal/... -timeout 60s | tee unit-results.json
 
       - name: Integration tests
         if: steps.changes.outputs.code_changed == 'true'
-        run: go test -json -timeout 120s ./test/ | tee integration-results.json
+        run: |
+          mkdir -p /tmp/amux-covdata
+          GOCOVERDIR=/tmp/amux-covdata go test -json -timeout 120s ./test/ | tee integration-results.json
+
+      - name: Coverage summary
+        if: always() && steps.changes.outputs.code_changed == 'true'
+        run: |
+          # Convert integration coverage from binary to text
+          if ls /tmp/amux-covdata/* &>/dev/null; then
+            go tool covdata textfmt -i=/tmp/amux-covdata -o=integration-coverage.txt
+          fi
+
+          # Merge unit + integration profiles
+          profiles=""
+          [ -f unit-coverage.txt ] && profiles="unit-coverage.txt"
+          [ -f integration-coverage.txt ] && profiles="$profiles integration-coverage.txt"
+
+          if [ -n "$profiles" ]; then
+            go tool cover -func <(cat $profiles | grep -v '^mode:' | sed '1imode: atomic') > coverage-summary.txt
+            total=$(tail -1 coverage-summary.txt | awk '{print $NF}')
+
+            {
+              echo '## Coverage'
+              echo ''
+              echo "**Total: ${total}**"
+              echo ''
+              echo '<details><summary>Per-function breakdown</summary>'
+              echo ''
+              echo '```'
+              cat coverage-summary.txt
+              echo '```'
+              echo '</details>'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Test timing summary
         if: always() && steps.changes.outputs.code_changed == 'true'

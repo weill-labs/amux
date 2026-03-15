@@ -5,6 +5,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime/coverage"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -401,6 +402,12 @@ func (s *Server) Reload(execPath string) error {
 	clearCloexec(uintptr(cp.ListenerFd))
 	for _, pc := range cp.Panes {
 		clearCloexec(uintptr(pc.PtmxFd))
+	}
+
+	// Flush coverage data before exec (which replaces the process image
+	// without running atexit handlers). No-op if not built with -cover.
+	if dir := os.Getenv("GOCOVERDIR"); dir != "" {
+		_ = coverage.WriteCountersDir(dir)
 	}
 
 	// Replace process image with new binary
