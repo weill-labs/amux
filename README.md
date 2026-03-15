@@ -11,7 +11,7 @@ A drop-in replacement for tmux built for the human+agent workflow. Same keybindi
 
 2. **Shared visibility.** TUI panes are the communication primitive.
 
-3. **Familiar UX.** The best interface is the one you already know.
+3. **Equal access.** Keybindings for humans, CLI commands for agents — same panes, same capabilities.
 
 ## Install
 
