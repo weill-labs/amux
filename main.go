@@ -339,9 +339,8 @@ func runMux(sessionName string) error {
 		prefix := false
 		mouseParser := &mouse.Parser{}
 
-		// Mouse drag state (follows tmux's callback pattern)
-		var dragBorderX, dragBorderY int
-		dragging := false
+		// Mouse drag state — caches border direction from initial press
+		var drag dragState
 
 		// processKeyByte handles a single non-mouse byte through the
 		// Ctrl-a prefix system. Returns true if the goroutine should exit.
@@ -430,7 +429,7 @@ func runMux(sessionName string) error {
 						})
 						forward = nil
 					}
-					handleMouseEvent(ev, cr, conn, &dragging, &dragBorderX, &dragBorderY)
+					handleMouseEvent(ev, cr, conn, &drag)
 					continue
 				}
 
@@ -479,7 +478,7 @@ func sendCommand(conn net.Conn, name string, args []string) {
 
 // handleMouseEvent dispatches a parsed mouse event to the appropriate action:
 // click-to-focus, border drag, or scroll wheel.
-func handleMouseEvent(ev mouse.Event, cr *ClientRenderer, conn net.Conn, dragging *bool, dragBorderX, dragBorderY *int) {
+func handleMouseEvent(ev mouse.Event, cr *ClientRenderer, conn net.Conn, drag *dragState) {
 	cr.mu.Lock()
 	layout := cr.layout
 	cr.mu.Unlock()
@@ -492,9 +491,10 @@ func handleMouseEvent(ev mouse.Event, cr *ClientRenderer, conn net.Conn, draggin
 	case ev.Action == mouse.Press && ev.Button == mouse.ButtonLeft:
 		// Check if clicking on a border (start drag) or a pane (focus)
 		if hit := layout.FindBorderAt(ev.X, ev.Y); hit != nil {
-			*dragging = true
-			*dragBorderX = ev.X
-			*dragBorderY = ev.Y
+			drag.active = true
+			drag.borderX = ev.X
+			drag.borderY = ev.Y
+			drag.borderDir = hit.Dir
 		} else if cell := layout.FindLeafAt(ev.X, ev.Y); cell != nil {
 			paneID := cell.CellPaneID()
 			cr.mu.Lock()
@@ -505,44 +505,49 @@ func handleMouseEvent(ev mouse.Event, cr *ClientRenderer, conn net.Conn, draggin
 			}
 		}
 
-	case ev.Action == mouse.Motion && *dragging:
-		hit := layout.FindBorderAt(*dragBorderX, *dragBorderY)
-		if hit == nil {
-			break
-		}
-		// Use the axis that matches the border direction
+	case ev.Action == mouse.Motion && drag.active:
 		dx := ev.X - ev.LastX
 		dy := ev.Y - ev.LastY
 		delta := dx
-		if hit.Dir == mux.SplitVertical {
+		if drag.borderDir == mux.SplitVertical {
 			delta = dy
 		}
 		if delta != 0 {
 			sendCommand(conn, "resize-border", []string{
-				fmt.Sprintf("%d", *dragBorderX),
-				fmt.Sprintf("%d", *dragBorderY),
+				fmt.Sprintf("%d", drag.borderX),
+				fmt.Sprintf("%d", drag.borderY),
 				fmt.Sprintf("%d", delta),
 			})
-			// Update drag origin to track cumulative movement
-			if hit.Dir == mux.SplitHorizontal {
-				*dragBorderX += dx
+			if drag.borderDir == mux.SplitHorizontal {
+				drag.borderX += dx
 			} else {
-				*dragBorderY += dy
+				drag.borderY += dy
 			}
 		}
 
 	case ev.Action == mouse.Release:
-		*dragging = false
+		drag.active = false
 
 	case ev.Button == mouse.ScrollUp:
+		// Scroll wheel sends arrow keys to the active pane
 		server.WriteMsg(conn, &server.Message{
-			Type: server.MsgTypeInput, Input: []byte("\033[A\033[A\033[A"), // 3x up arrow
+			Type: server.MsgTypeInput, Input: []byte("\033[A\033[A\033[A"),
 		})
 	case ev.Button == mouse.ScrollDown:
 		server.WriteMsg(conn, &server.Message{
-			Type: server.MsgTypeInput, Input: []byte("\033[B\033[B\033[B"), // 3x down arrow
+			Type: server.MsgTypeInput, Input: []byte("\033[B\033[B\033[B"),
 		})
 	}
+}
+
+// dragState tracks an in-progress border drag. The border direction is
+// cached from the initial press so motion events don't need to re-query
+// the layout (which may be stale during fast drags).
+type dragState struct {
+	active    bool
+	borderX   int
+	borderY   int
+	borderDir mux.SplitDir
 }
 
 // startServerDaemon launches the server as a background daemon.

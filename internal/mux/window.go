@@ -327,21 +327,6 @@ func PaneContentHeight(cellH int) int {
 	return h
 }
 
-// FocusPaneAt sets the active pane to the one containing (x, y).
-// Returns true if a pane was found and focused, false if (x, y) is on a
-// border or outside all panes.
-func (w *Window) FocusPaneAt(x, y int) bool {
-	cell := w.Root.FindLeafAt(x, y)
-	if cell == nil || cell.Pane == nil {
-		return false
-	}
-	if cell.Pane.ID == w.ActivePane.ID {
-		return false // already focused
-	}
-	w.ActivePane = cell.Pane
-	return true
-}
-
 // ResizeBorder moves a border at position (x, y) by delta cells.
 // For vertical borders (horizontal split), delta is applied horizontally.
 // For horizontal borders (vertical split), delta is applied vertically.

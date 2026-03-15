@@ -1636,30 +1636,18 @@ func TestMouseBorderDrag(t *testing.T) {
 		t.Fatalf("no vertical border found.\nScreen:\n%s", h.captureAmux())
 	}
 
-	// Capture pane-1 name column position before drag
-	linesBefore := h.captureAmuxContentLines()
-	col1Before := paneNameCol(linesBefore, "pane-1")
-
 	// Drag the border 5 columns to the right
 	// Border is at borderCol (0-based in amux), need 1-based for SGR
 	dragDelta := 5
 	h.dragBorder(borderCol+1, 10, borderCol+1+dragDelta, 10)
 	time.Sleep(300 * time.Millisecond)
 
-	// The border should have moved — pane-1 status line should still be visible
-	// and pane-1 width should be larger (name column stays at same position)
+	// Border should have moved to the right
 	newBorderCol := h.captureAmuxVerticalBorderCol()
 	if newBorderCol < 0 {
 		t.Fatalf("no vertical border found after drag.\nScreen:\n%s", h.captureAmux())
 	}
-
-	// Border should have moved to the right
 	if newBorderCol <= borderCol {
-		// Allow some tolerance — at minimum it shouldn't go backwards
-		linesAfter := h.captureAmuxContentLines()
-		col1After := paneNameCol(linesAfter, "pane-1")
-		_ = col1Before
-		_ = col1After
 		t.Errorf("border should have moved right: was at %d, now at %d.\nScreen:\n%s",
 			borderCol, newBorderCol, h.captureAmux())
 	}

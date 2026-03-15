@@ -294,6 +294,7 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 		y, err2 := strconv.Atoi(msg.CmdArgs[1])
 		delta, err3 := strconv.Atoi(msg.CmdArgs[2])
 		if err1 != nil || err2 != nil || err3 != nil {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "resize-border: invalid arguments"})
 			return
 		}
 		sess.mu.Lock()
