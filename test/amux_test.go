@@ -108,3 +108,11 @@ func TestStatus(t *testing.T) {
 		t.Errorf("status should show 1 total, got:\n%s", output)
 	}
 }
+
+func TestGoldenSinglePane(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	frame := extractFrame(h.captureAmux(), h.session)
+	assertGolden(t, "single_pane.golden", frame)
+}

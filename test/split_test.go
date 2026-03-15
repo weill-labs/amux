@@ -288,3 +288,66 @@ func TestMultipleNonRootSplitsEqualWidth(t *testing.T) {
 		t.Errorf("expected 3 vertical borders, got %d\nRow 0: %s", borderCount, row0)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Golden rendering tests for split layouts
+// ---------------------------------------------------------------------------
+
+func TestGoldenVerticalSplit(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	h.sendKeys("C-a", "\\")
+	h.waitFor("[pane-2]", 3*time.Second)
+
+	// Focus pane-1 so active state is deterministic
+	h.sendKeys("C-a", "h")
+	time.Sleep(300 * time.Millisecond)
+
+	frame := extractFrame(h.captureAmux(), h.session)
+	assertGolden(t, "vertical_split.golden", frame)
+
+	ansi := h.runCmd("capture", "--ansi")
+	colorMap := extractColorMap(ansi, 80, 24)
+	assertGolden(t, "vertical_split.color", colorMap)
+}
+
+func TestGoldenHorizontalSplit(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	h.sendKeys("C-a", "-")
+	h.waitFor("[pane-2]", 3*time.Second)
+
+	frame := extractFrame(h.captureAmux(), h.session)
+	assertGolden(t, "horizontal_split.golden", frame)
+
+	ansi := h.runCmd("capture", "--ansi")
+	colorMap := extractColorMap(ansi, 80, 24)
+	assertGolden(t, "horizontal_split.color", colorMap)
+}
+
+func TestGoldenFourPane(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// Build 2x2 grid:
+	// pane-1 | pane-2
+	// -------+-------
+	// pane-3 | pane-4
+	h.sendKeys("C-a", "\\")
+	h.waitFor("[pane-2]", 3*time.Second)
+	h.sendKeys("C-a", "-")
+	h.waitFor("[pane-3]", 3*time.Second)
+	h.sendKeys("C-a", "h")
+	time.Sleep(300 * time.Millisecond)
+	h.sendKeys("C-a", "-")
+	h.waitFor("[pane-4]", 3*time.Second)
+
+	frame := extractFrame(h.captureAmux(), h.session)
+	assertGolden(t, "four_pane.golden", frame)
+
+	ansi := h.runCmd("capture", "--ansi")
+	colorMap := extractColorMap(ansi, 80, 24)
+	assertGolden(t, "four_pane.color", colorMap)
+}
