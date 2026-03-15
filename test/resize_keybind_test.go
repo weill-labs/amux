@@ -10,7 +10,7 @@ func TestResizeKeybindHorizontal(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
 
-	// Create a vertical split: [pane-1 | pane-2]
+	// Split horizontally: [pane-1 | pane-2]
 	h.sendKeys("C-a", "\\")
 	h.waitFor("[pane-2]", 3*time.Second)
 	time.Sleep(200 * time.Millisecond)

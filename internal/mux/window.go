@@ -411,10 +411,13 @@ func (w *Window) ResizeActive(direction string, delta int) bool {
 	if w.ActivePane == nil || delta <= 0 {
 		return false
 	}
+	if w.ZoomedPaneID != 0 {
+		w.Unzoom()
+	}
 
 	// Map direction to split axis and change sign.
-	// Positive change = grow the left/top child (border moves right/down).
-	// Negative change = shrink the left/top child (border moves left/up).
+	// Positive change grows the left/top sibling (border moves right/down).
+	// Negative change shrinks it (border moves left/up).
 	var axis SplitDir
 	var change int
 	switch direction {

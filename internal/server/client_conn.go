@@ -516,6 +516,7 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 		}
 		sess.mu.Unlock()
 		sess.broadcastLayout()
+		cc.Send(&Message{Type: MsgTypeCmdResult})
 
 	case "swap":
 		sess.mu.Lock()
