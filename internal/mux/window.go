@@ -706,7 +706,31 @@ func (w *Window) ToggleMinimize() (name string, minimized bool, err error) {
 	if w.ActivePane == nil {
 		return "", false, fmt.Errorf("no active pane")
 	}
+
+	// Guard: refuse to minimize the last non-minimized pane.
+	nonMinimized := 0
+	w.Root.Walk(func(c *LayoutCell) {
+		if c.Pane != nil && !c.Pane.Meta.Minimized {
+			nonMinimized++
+		}
+	})
+	if nonMinimized <= 1 {
+		return "", false, fmt.Errorf("cannot minimize the only visible pane")
+	}
+
 	name = w.ActivePane.Meta.Name
 	err = w.Minimize(w.ActivePane.ID)
 	return name, true, err
+}
+
+// recoverMinimizeSeq recomputes minimizeSeq from existing pane MinimizedSeq
+// values after a checkpoint restore or hot-reload.
+func (w *Window) recoverMinimizeSeq() {
+	var maxSeq uint64
+	w.Root.Walk(func(c *LayoutCell) {
+		if c.Pane != nil && c.Pane.Meta.MinimizedSeq > maxSeq {
+			maxSeq = c.Pane.Meta.MinimizedSeq
+		}
+	})
+	w.minimizeSeq = maxSeq
 }
