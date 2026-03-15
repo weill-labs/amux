@@ -294,6 +294,49 @@ func collectPaneIDs(w *Window) []uint32 {
 	return ids
 }
 
+func TestResizeActiveLastChild(t *testing.T) {
+	t.Parallel()
+	// Regression: ResizeActive panicked with index out of range when
+	// the active pane was the last child in its parent's children slice.
+	// The bug accessed siblings[idx+1] before checking whether idx was
+	// the last element.
+	p1 := fakePaneID(1)
+	p2 := fakePaneID(2)
+
+	root := NewLeaf(p1, 0, 0, 80, 24)
+	root.Split(SplitHorizontal, p2)
+	root.FixOffsets()
+
+	// Active pane is p2 — the LAST child (idx=1, len=2)
+	w := &Window{Root: root, ActivePane: p2, Width: 80, Height: 24}
+
+	// This should not panic. Resize left on a horizontal split
+	// moves the border between p1 and p2.
+	result := w.ResizeActive("left", 2)
+	if !result {
+		t.Error("ResizeActive(left, 2) on last child should succeed")
+	}
+}
+
+func TestResizeActiveFirstChild(t *testing.T) {
+	t.Parallel()
+	// Complementary test: active pane is the first child.
+	p1 := fakePaneID(1)
+	p2 := fakePaneID(2)
+
+	root := NewLeaf(p1, 0, 0, 80, 24)
+	root.Split(SplitHorizontal, p2)
+	root.FixOffsets()
+
+	// Active pane is p1 — the FIRST child (idx=0)
+	w := &Window{Root: root, ActivePane: p1, Width: 80, Height: 24}
+
+	result := w.ResizeActive("right", 2)
+	if !result {
+		t.Error("ResizeActive(right, 2) on first child should succeed")
+	}
+}
+
 func TestSwapPanes(t *testing.T) {
 	t.Parallel()
 	p1 := fakePaneID(1)

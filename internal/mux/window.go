@@ -481,9 +481,11 @@ func (w *Window) ResizeActive(direction string, delta int) bool {
 			// tmux convention: resize the border adjacent to this cell.
 			// If we're the last child, use the border to our left (idx-1, idx).
 			// Otherwise, use the border to our right (idx, idx+1).
-			left, right := siblings[idx], siblings[idx+1]
+			var left, right *LayoutCell
 			if idx == len(siblings)-1 {
 				left, right = siblings[idx-1], siblings[idx]
+			} else {
+				left, right = siblings[idx], siblings[idx+1]
 			}
 
 			if change > 0 {
