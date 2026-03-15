@@ -305,3 +305,4 @@ func colorToLetter(hex string) byte {
 	return '?'
 }
 
+
