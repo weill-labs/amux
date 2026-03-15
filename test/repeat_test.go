@@ -69,6 +69,32 @@ func TestRepeatFocus(t *testing.T) {
 	}
 }
 
+func TestRepeatCrossKey(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// Create 3 panes: [pane-1 | pane-2 | pane-3]
+	h.sendKeys("C-a", "\\")
+	h.waitFor("[pane-2]", 3*time.Second)
+	h.sendKeys("C-a", "\\")
+	h.waitFor("[pane-3]", 3*time.Second)
+	time.Sleep(200 * time.Millisecond)
+
+	// Focus is on pane-3. Press Prefix+h (focus left to pane-2),
+	// then l without prefix (focus right back to pane-3).
+	// Tests that repeat mode accepts any repeatable key, not just the original.
+	h.sendKeys("C-a", "h")
+	time.Sleep(100 * time.Millisecond)
+	h.sendKeys("l")
+	time.Sleep(300 * time.Millisecond)
+
+	if !h.waitForFunc(func(s string) bool {
+		return isPaneActive(s, "pane-3")
+	}, 3*time.Second) {
+		t.Errorf("expected pane-3 active after h then l (cross-key repeat).\nScreen:\n%s", h.capture())
+	}
+}
+
 func TestRepeatExpiresAfterTimeout(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
@@ -95,6 +121,9 @@ func TestRepeatExpiresAfterTimeout(t *testing.T) {
 	time.Sleep(300 * time.Millisecond)
 
 	newBorder := h.captureAmuxVerticalBorderCol()
+	if newBorder < 0 {
+		t.Fatalf("no vertical border found after timeout.\nScreen:\n%s", h.captureAmux())
+	}
 	// Should have moved only 2 cells (one resize), not 4
 	moved := newBorder - initialBorder
 	if moved > 3 {

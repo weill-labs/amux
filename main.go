@@ -415,9 +415,10 @@ func runMux(sessionName string) error {
 
 		// Repeat key state — allows navigation/resize keys to repeat
 		// without re-pressing the prefix, matching tmux's -r behavior.
+		// Uses a deadline instead of a timer to avoid goroutine races.
 		const repeatTimeout = 500 * time.Millisecond
 		var repeatKey byte
-		var repeatTimer *time.Timer
+		var repeatDeadline time.Time
 
 		// isRepeatableKey returns true for keys that can repeat without prefix.
 		isRepeatableKey := func(b byte) bool {
@@ -426,27 +427,6 @@ func runMux(sessionName string) error {
 				return true
 			}
 			return false
-		}
-
-		// clearRepeat cancels repeat mode.
-		clearRepeat := func() {
-			if repeatTimer != nil {
-				repeatTimer.Stop()
-				repeatTimer = nil
-			}
-			repeatKey = 0
-		}
-
-		// startRepeat enters repeat mode for the given key.
-		startRepeat := func(b byte) {
-			repeatKey = b
-			if repeatTimer != nil {
-				repeatTimer.Stop()
-			}
-			repeatTimer = time.AfterFunc(repeatTimeout, func() {
-				repeatKey = 0
-				repeatTimer = nil
-			})
 		}
 
 		// execPrefixKey executes a prefix keybinding. Returns true if
@@ -531,25 +511,26 @@ func runMux(sessionName string) error {
 		// processKeyByte handles a single non-mouse byte through the
 		// Ctrl-a prefix system. Returns true if the goroutine should exit.
 		processKeyByte := func(b byte, forward *[]byte) bool {
-			// Check repeat mode: if a repeatable key arrives within the timeout,
-			// execute it directly without requiring the prefix.
-			if repeatKey != 0 && b == repeatKey {
-				startRepeat(b)
-				return execPrefixKey(b, forward)
+			// Repeat mode: any repeatable key executes without prefix while
+			// the deadline hasn't expired. Matches tmux behavior where all
+			// repeatable bindings stay active, not just the original key.
+			if repeatKey != 0 {
+				if isRepeatableKey(b) && time.Now().Before(repeatDeadline) {
+					repeatKey = b
+					repeatDeadline = time.Now().Add(repeatTimeout)
+					return execPrefixKey(b, forward)
+				}
+				repeatKey = 0
 			}
 
 			if prefix {
 				prefix = false
 				if isRepeatableKey(b) {
-					startRepeat(b)
-				} else {
-					clearRepeat()
+					repeatKey = b
+					repeatDeadline = time.Now().Add(repeatTimeout)
 				}
 				return execPrefixKey(b, forward)
 			}
-
-			// Any non-repeat key clears repeat mode
-			clearRepeat()
 
 			if b == 0x01 {
 				if len(*forward) > 0 {
