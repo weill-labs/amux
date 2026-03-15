@@ -27,18 +27,15 @@ func extractOSC52Base64(raw string) string {
 	return payload
 }
 
-func TestClipboardOSC52(t *testing.T) {
-	t.Parallel()
-	h := newAmuxHarness(t)
-
-	// Read clipboard generation before emitting OSC 52
+// assertClipboardOSC52 emits an OSC 52 sequence via printf, waits for the
+// clipboard event, and asserts the decoded content matches want.
+func assertClipboardOSC52(t *testing.T, h *AmuxHarness, printfArg, want string) {
+	t.Helper()
 	genStr := strings.TrimSpace(h.runCmd("clipboard-gen"))
 	gen, _ := strconv.ParseUint(genStr, 10, 64)
 
-	// Emit OSC 52 with "Hello" (base64: SGVsbG8=), BEL terminator
-	h.sendKeys("printf '\\033]52;c;SGVsbG8=\\007'", "Enter")
+	h.sendKeys("printf '"+printfArg+"'", "Enter")
 
-	// Block until the inner server processes the OSC 52 event
 	out := strings.TrimSpace(h.runCmd("wait-clipboard", "--after", strconv.FormatUint(gen, 10), "--timeout", "5s"))
 	if strings.Contains(out, "timeout") {
 		t.Fatalf("wait-clipboard timed out")
@@ -50,34 +47,21 @@ func TestClipboardOSC52(t *testing.T) {
 		t.Fatalf("decoding clipboard base64 %q (from %q): %v", b64, out, err)
 	}
 
-	if string(decoded) != "Hello" {
-		t.Errorf("clipboard via OSC 52: got %q, want %q", string(decoded), "Hello")
+	if string(decoded) != want {
+		t.Errorf("clipboard via OSC 52: got %q, want %q", string(decoded), want)
 	}
+}
+
+func TestClipboardOSC52(t *testing.T) {
+	t.Parallel()
+	h := newAmuxHarness(t)
+	// "Hello" = SGVsbG8= in base64, BEL terminator
+	assertClipboardOSC52(t, h, "\\033]52;c;SGVsbG8=\\007", "Hello")
 }
 
 func TestClipboardOSC52STTerminator(t *testing.T) {
 	t.Parallel()
 	h := newAmuxHarness(t)
-
-	genStr := strings.TrimSpace(h.runCmd("clipboard-gen"))
-	gen, _ := strconv.ParseUint(genStr, 10, 64)
-
-	// Emit OSC 52 with ST terminator (\033\\) instead of BEL
-	// "World" = V29ybGQ= in base64
-	h.sendKeys("printf '\\033]52;c;V29ybGQ=\\033\\\\'", "Enter")
-
-	out := strings.TrimSpace(h.runCmd("wait-clipboard", "--after", strconv.FormatUint(gen, 10), "--timeout", "5s"))
-	if strings.Contains(out, "timeout") {
-		t.Fatalf("wait-clipboard timed out")
-	}
-
-	b64 := extractOSC52Base64(out)
-	decoded, err := base64.StdEncoding.DecodeString(b64)
-	if err != nil {
-		t.Fatalf("decoding clipboard base64 %q (from %q): %v", b64, out, err)
-	}
-
-	if string(decoded) != "World" {
-		t.Errorf("clipboard via OSC 52 (ST terminator): got %q, want %q", string(decoded), "World")
-	}
+	// "World" = V29ybGQ= in base64, ST terminator (\033\\)
+	assertClipboardOSC52(t, h, "\\033]52;c;V29ybGQ=\\033\\\\", "World")
 }

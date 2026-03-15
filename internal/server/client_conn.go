@@ -653,31 +653,10 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: fmt.Sprintf("%d\n", gen)})
 
 	case "wait-layout":
-		var afterGen uint64
-		timeout := 3 * time.Second
-		for i := 0; i < len(msg.CmdArgs); i++ {
-			switch msg.CmdArgs[i] {
-			case "--after":
-				if i+1 < len(msg.CmdArgs) {
-					i++
-					n, err := strconv.ParseUint(msg.CmdArgs[i], 10, 64)
-					if err != nil {
-						cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("invalid generation: %s", msg.CmdArgs[i])})
-						return
-					}
-					afterGen = n
-				}
-			case "--timeout":
-				if i+1 < len(msg.CmdArgs) {
-					i++
-					d, err := time.ParseDuration(msg.CmdArgs[i])
-					if err != nil {
-						cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("invalid timeout: %s", msg.CmdArgs[i])})
-						return
-					}
-					timeout = d
-				}
-			}
+		afterGen, timeout, err := parseWaitArgs(msg.CmdArgs)
+		if err != nil {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: err.Error()})
+			return
 		}
 		gen, ok := sess.waitGeneration(afterGen, timeout)
 		if !ok {
@@ -691,31 +670,10 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: fmt.Sprintf("%d\n", gen)})
 
 	case "wait-clipboard":
-		var afterGen uint64
-		timeout := 3 * time.Second
-		for i := 0; i < len(msg.CmdArgs); i++ {
-			switch msg.CmdArgs[i] {
-			case "--after":
-				if i+1 < len(msg.CmdArgs) {
-					i++
-					n, err := strconv.ParseUint(msg.CmdArgs[i], 10, 64)
-					if err != nil {
-						cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("invalid generation: %s", msg.CmdArgs[i])})
-						return
-					}
-					afterGen = n
-				}
-			case "--timeout":
-				if i+1 < len(msg.CmdArgs) {
-					i++
-					d, err := time.ParseDuration(msg.CmdArgs[i])
-					if err != nil {
-						cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("invalid timeout: %s", msg.CmdArgs[i])})
-						return
-					}
-					timeout = d
-				}
-			}
+		afterGen, timeout, err := parseWaitArgs(msg.CmdArgs)
+		if err != nil {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: err.Error()})
+			return
 		}
 		data, ok := sess.waitClipboard(afterGen, timeout)
 		if !ok {
@@ -918,6 +876,33 @@ func (cc *ClientConn) resolvePaneAcrossWindows(sess *Session, cmdName string, re
 	}
 	cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("pane %q not found", ref)})
 	return nil
+}
+
+// parseWaitArgs extracts --after and --timeout flags from command arguments.
+// Used by wait-layout and wait-clipboard which share the same flag syntax.
+func parseWaitArgs(args []string) (afterGen uint64, timeout time.Duration, err error) {
+	timeout = 3 * time.Second
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--after":
+			if i+1 < len(args) {
+				i++
+				afterGen, err = strconv.ParseUint(args[i], 10, 64)
+				if err != nil {
+					return 0, 0, fmt.Errorf("invalid generation: %s", args[i])
+				}
+			}
+		case "--timeout":
+			if i+1 < len(args) {
+				i++
+				timeout, err = time.ParseDuration(args[i])
+				if err != nil {
+					return 0, 0, fmt.Errorf("invalid timeout: %s", args[i])
+				}
+			}
+		}
+	}
+	return afterGen, timeout, nil
 }
 
 // parseKey converts a key name to its byte representation.
