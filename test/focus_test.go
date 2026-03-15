@@ -195,3 +195,111 @@ func TestFocusNotFound(t *testing.T) {
 		t.Errorf("focus of nonexistent pane should report error, got:\n%s", output)
 	}
 }
+
+func TestPrefixArrowFocus(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// Split horizontally: pane-1 (left) | pane-2 (right, active)
+	h.sendKeys("C-a", "\\")
+	h.waitFor("[pane-2]", 3*time.Second)
+
+	h.assertScreen("pane-2 active after split", func(s string) bool {
+		return isPaneActive(s, "pane-2")
+	})
+
+	// Prefix + Left arrow should focus pane-1
+	h.sendKeys("C-a", "Left")
+	time.Sleep(400 * time.Millisecond)
+
+	h.assertScreen("prefix+Left should focus pane-1", func(s string) bool {
+		return isPaneActive(s, "pane-1")
+	})
+
+	// Prefix + Right arrow should focus pane-2
+	h.sendKeys("C-a", "Right")
+	time.Sleep(400 * time.Millisecond)
+
+	h.assertScreen("prefix+Right should focus pane-2", func(s string) bool {
+		return isPaneActive(s, "pane-2")
+	})
+}
+
+func TestAltHJKLFocus(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// Split horizontally: pane-1 (left) | pane-2 (right, active)
+	h.sendKeys("C-a", "\\")
+	h.waitFor("[pane-2]", 3*time.Second)
+
+	h.assertScreen("pane-2 active after split", func(s string) bool {
+		return isPaneActive(s, "pane-2")
+	})
+
+	// Alt+h should focus left (pane-1)
+	h.sendKeys("M-h")
+	time.Sleep(400 * time.Millisecond)
+
+	h.assertScreen("Alt+h should focus pane-1", func(s string) bool {
+		return isPaneActive(s, "pane-1")
+	})
+
+	// Alt+l should focus right (pane-2)
+	h.sendKeys("M-l")
+	time.Sleep(400 * time.Millisecond)
+
+	h.assertScreen("Alt+l should focus pane-2", func(s string) bool {
+		return isPaneActive(s, "pane-2")
+	})
+}
+
+func TestAltHJKLFocusVertical(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// Split vertically: pane-1 (top) / pane-2 (bottom, active)
+	h.sendKeys("C-a", "-")
+	h.waitFor("[pane-2]", 3*time.Second)
+
+	// Alt+k should focus up (pane-1)
+	h.sendKeys("M-k")
+	time.Sleep(400 * time.Millisecond)
+
+	h.assertScreen("Alt+k should focus pane-1", func(s string) bool {
+		return isPaneActive(s, "pane-1")
+	})
+
+	// Alt+j should focus down (pane-2)
+	h.sendKeys("M-j")
+	time.Sleep(400 * time.Millisecond)
+
+	h.assertScreen("Alt+j should focus pane-2", func(s string) bool {
+		return isPaneActive(s, "pane-2")
+	})
+}
+
+func TestPrefixArrowFocusVertical(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// Split vertically: pane-1 (top) / pane-2 (bottom, active)
+	h.sendKeys("C-a", "-")
+	h.waitFor("[pane-2]", 3*time.Second)
+
+	// Prefix + Up arrow should focus pane-1
+	h.sendKeys("C-a", "Up")
+	time.Sleep(400 * time.Millisecond)
+
+	h.assertScreen("prefix+Up should focus pane-1", func(s string) bool {
+		return isPaneActive(s, "pane-1")
+	})
+
+	// Prefix + Down arrow should focus pane-2
+	h.sendKeys("C-a", "Down")
+	time.Sleep(400 * time.Millisecond)
+
+	h.assertScreen("prefix+Down should focus pane-2", func(s string) bool {
+		return isPaneActive(s, "pane-2")
+	})
+}

@@ -3,6 +3,7 @@ package mux
 import (
 	"fmt"
 	"strings"
+	"sync/atomic"
 )
 
 // StatusLineRows is the number of rows reserved for the per-pane status line.
@@ -98,7 +99,7 @@ func (w *Window) SplitRoot(dir SplitDir, newPane *Pane) (*Pane, error) {
 
 	w.resizePTYs()
 
-	w.ActivePane = newPane
+	w.setActive(newPane)
 	return newPane, nil
 }
 
@@ -128,7 +129,7 @@ func (w *Window) Split(dir SplitDir, newPane *Pane) (*Pane, error) {
 	}
 
 	w.Root.FixOffsets()
-	w.ActivePane = newPane
+	w.setActive(newPane)
 
 	return newPane, nil
 }
@@ -171,12 +172,12 @@ func (w *Window) ClosePane(paneID uint32) error {
 	// Update active pane if the closed pane was active
 	if w.ActivePane.ID == paneID {
 		if result != nil && result.IsLeaf() && result.Pane != nil {
-			w.ActivePane = result.Pane
+			w.setActive(result.Pane)
 		} else {
 			// Find any leaf
 			w.Root.Walk(func(c *LayoutCell) {
 				if w.ActivePane.ID == paneID && c.Pane != nil {
-					w.ActivePane = c.Pane
+					w.setActive(c.Pane)
 				}
 			})
 		}
@@ -205,7 +206,23 @@ func (w *Window) Resize(width, height int) {
 	}
 }
 
+// activePointCounter is a package-level monotonic counter for pane focus recency.
+var activePointCounter uint64
+
+// setActive updates the active pane and increments ActivePoint for recency tracking.
+func (w *Window) setActive(p *Pane) {
+	w.ActivePane = p
+	p.ActivePoint = atomic.AddUint64(&activePointCounter, 1)
+}
+
+// FocusPane sets the active pane directly (by pointer) and updates recency.
+// Used by the server when focusing by name or ID.
+func (w *Window) FocusPane(p *Pane) {
+	w.setActive(p)
+}
+
 // Focus changes the active pane. Direction is "next", "left", "right", "up", "down".
+// Uses tmux-style adjacency + perpendicular overlap + wrapping + recency tiebreaker.
 // Auto-unzooms if a pane is zoomed.
 func (w *Window) Focus(direction string) {
 	if w.ZoomedPaneID != 0 {
@@ -219,7 +236,7 @@ func (w *Window) Focus(direction string) {
 	if direction == "next" {
 		for i, p := range panes {
 			if p.ID == w.ActivePane.ID {
-				w.ActivePane = panes[(i+1)%len(panes)]
+				w.setActive(panes[(i+1)%len(panes)])
 				return
 			}
 		}
@@ -231,85 +248,109 @@ func (w *Window) Focus(direction string) {
 		return
 	}
 
-	cx := activeCell.X + activeCell.W/2
-	cy := activeCell.Y + activeCell.H/2
+	// Try adjacent panes, then wrap to opposite edge.
+	best := w.findDirectional(activeCell, direction, false)
+	if best == nil {
+		best = w.findDirectional(activeCell, direction, true)
+	}
+
+	if best != nil {
+		w.setActive(best.Pane)
+	}
+}
+
+// findDirectional finds the best pane in the given direction from activeCell.
+// If wrap is true, searches from the opposite window edge instead.
+//
+// The algorithm checks two things for each candidate pane:
+//   - Adjacency: the candidate's edge touches the active pane's edge (with 1-cell border)
+//   - Perpendicular overlap: the candidate shares some range along the other axis
+//
+// Among matching candidates, the most recently active pane wins (recency tiebreaker).
+func (w *Window) findDirectional(activeCell *LayoutCell, direction string, wrap bool) *LayoutCell {
+	// vertical means we're moving along the Y axis (up/down).
+	// checkNear means adjacency is checked against the candidate's near edge
+	// (Y for down, X for right) rather than its far edge (Y+H for up, X+W for left).
+	vertical := direction == "up" || direction == "down"
+	checkNear := direction == "down" || direction == "right"
+
+	// Compute the edge that candidates must be adjacent to, and the
+	// perpendicular range they must overlap with.
+	var edge, rangeStart, rangeEnd int
+	switch direction {
+	case "up":
+		edge = activeCell.Y
+		if wrap {
+			edge = w.Height + 1
+		}
+	case "down":
+		edge = activeCell.Y + activeCell.H + 1
+		if wrap {
+			edge = 0
+		}
+	case "left":
+		edge = activeCell.X
+		if wrap {
+			edge = w.Width + 1
+		}
+	case "right":
+		edge = activeCell.X + activeCell.W + 1
+		if wrap {
+			edge = 0
+		}
+	}
+	if vertical {
+		rangeStart = activeCell.X
+		rangeEnd = activeCell.X + activeCell.W
+	} else {
+		rangeStart = activeCell.Y
+		rangeEnd = activeCell.Y + activeCell.H
+	}
 
 	var best *LayoutCell
-	bestDist := int(^uint(0) >> 1)
+	var bestActivePoint uint64
 
 	w.Root.Walk(func(cell *LayoutCell) {
 		if cell.Pane == nil || cell.Pane.ID == w.ActivePane.ID {
 			return
 		}
 
-		ncx := cell.X + cell.W/2
-		ncy := cell.Y + cell.H/2
-
-		match := false
-		switch direction {
-		case "left":
-			match = ncx < cx && overlapsY(activeCell, cell)
-		case "right":
-			match = ncx > cx && overlapsY(activeCell, cell)
-		case "up":
-			match = ncy < cy && overlapsX(activeCell, cell)
-		case "down":
-			match = ncy > cy && overlapsX(activeCell, cell)
+		// Check adjacency: candidate's edge must be exactly at our edge.
+		var candEdge, candStart, candEnd int
+		if vertical {
+			candStart = cell.X
+			candEnd = cell.X + cell.W
+			if checkNear {
+				candEdge = cell.Y
+			} else {
+				candEdge = cell.Y + cell.H + 1
+			}
+		} else {
+			candStart = cell.Y
+			candEnd = cell.Y + cell.H
+			if checkNear {
+				candEdge = cell.X
+			} else {
+				candEdge = cell.X + cell.W + 1
+			}
 		}
-
-		if !match {
+		if candEdge != edge {
 			return
 		}
 
-		dx := cx - ncx
-		dy := cy - ncy
-		dist := dx*dx + dy*dy
-		if dist < bestDist {
-			bestDist = dist
+		// Check perpendicular overlap (half-open interval intersection).
+		if candStart >= rangeEnd || candEnd <= rangeStart {
+			return
+		}
+
+		// Tiebreaker: most recently active pane wins.
+		if best == nil || cell.Pane.ActivePoint > bestActivePoint {
 			best = cell
+			bestActivePoint = cell.Pane.ActivePoint
 		}
 	})
 
-	// Fallback: if no overlap-based match, find nearest pane in the
-	// requested direction without requiring geometric overlap.
-	if best == nil {
-		w.Root.Walk(func(cell *LayoutCell) {
-			if cell.Pane == nil || cell.Pane.ID == w.ActivePane.ID {
-				return
-			}
-
-			ncx := cell.X + cell.W/2
-			ncy := cell.Y + cell.H/2
-
-			match := false
-			switch direction {
-			case "left":
-				match = ncx < cx
-			case "right":
-				match = ncx > cx
-			case "up":
-				match = ncy < cy
-			case "down":
-				match = ncy > cy
-			}
-
-			if !match {
-				return
-			}
-
-			dx := cx - ncx
-			dy := cy - ncy
-			dist := dx*dx + dy*dy
-			if dist < bestDist {
-				bestDist = dist
-				best = cell
-			}
-		})
-	}
-
-	if best != nil {
-		w.ActivePane = best.Pane
-	}
+	return best
 }
 
 // forceResizeChildren propagates a parent's dimensions to its children.
@@ -335,16 +376,6 @@ func forceResizeChildren(cell *LayoutCell) {
 		cell.H = childTotal
 	}
 	cell.ResizeAll(targetW, targetH)
-}
-
-// overlapsY returns true if two cells share any vertical range.
-func overlapsY(a, b *LayoutCell) bool {
-	return a.Y < b.Y+b.H && b.Y < a.Y+a.H
-}
-
-// overlapsX returns true if two cells share any horizontal range.
-func overlapsX(a, b *LayoutCell) bool {
-	return a.X < b.X+b.W && b.X < a.X+a.W
 }
 
 // PaneContentHeight returns the PTY height for a pane in a layout cell,
@@ -713,7 +744,7 @@ func (w *Window) Zoom(paneID uint32) error {
 	}
 
 	w.ZoomedPaneID = paneID
-	w.ActivePane = cell.Pane
+	w.setActive(cell.Pane)
 
 	// Resize zoomed pane PTY to full window
 	cell.Pane.Resize(w.Width, PaneContentHeight(w.Height))

@@ -146,7 +146,9 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 		switch direction {
 		case "next", "left", "right", "up", "down":
 			w.Focus(direction)
+			name := w.ActivePane.Meta.Name
 			sess.mu.Unlock()
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: fmt.Sprintf("Focused %s\n", name)})
 		default:
 			// Treat as pane name or ID — search active window first, then all windows
 			pane := w.ResolvePane(direction)
@@ -165,9 +167,9 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 				cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("pane %q not found", direction)})
 				return
 			}
-			// Make sure we set active pane in the correct window
+			// Set active pane in the correct window with recency tracking
 			if pw := sess.FindWindowByPaneID(pane.ID); pw != nil {
-				pw.ActivePane = pane
+				pw.FocusPane(pane)
 			}
 			sess.mu.Unlock()
 			cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: fmt.Sprintf("Focused %s\n", pane.Meta.Name)})
