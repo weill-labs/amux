@@ -55,7 +55,7 @@ jobs:
         if: steps.changes.outputs.code_changed == 'true'
         run: |
           mkdir -p /tmp/amux-covdata
-          GOCOVERDIR=/tmp/amux-covdata go test -json -parallel 4 -timeout 120s ./test/ | tee integration-results.json
+          GOCOVERDIR=/tmp/amux-covdata go test -json -timeout 300s ./test/ | tee integration-results.json
 
       - name: Coverage summary
         if: always() && steps.changes.outputs.code_changed == 'true'
