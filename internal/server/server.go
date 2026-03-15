@@ -221,6 +221,14 @@ func (s *Session) renderCapture(stripANSI bool) string {
 	return raw
 }
 
+// renderColorMap renders the ANSI capture and extracts a color map showing
+// border colors as single-letter Catppuccin initials.
+func (s *Session) renderColorMap() string {
+	ansi := s.renderCapture(false)
+	totalH := s.Window.Height + render.GlobalBarHeight
+	return render.ExtractColorMap(ansi, s.Window.Width, totalH) + "\n"
+}
+
 // Server listens on a Unix socket and manages sessions.
 type Server struct {
 	listener net.Listener

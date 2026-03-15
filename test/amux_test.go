@@ -1304,67 +1304,8 @@ func TestGoldenFourPane(t *testing.T) {
 	assertGolden(t, "four_pane.color", colorMap)
 }
 
-func TestGoldenFourPaneDiagonalFocus(t *testing.T) {
-	t.Parallel()
-	h := newHarness(t)
-
-	// Build 2x2 grid (same as TestGoldenFourPane):
-	// pane-1 | pane-2
-	// -------+-------
-	// pane-4 | pane-3
-	h.sendKeys("C-a", "\\")
-	h.waitFor("[pane-2]", 3*time.Second)
-	h.sendKeys("C-a", "-")
-	h.waitFor("[pane-3]", 3*time.Second)
-	h.sendKeys("C-a", "h")
-	time.Sleep(300 * time.Millisecond)
-	h.sendKeys("C-a", "-")
-	h.waitFor("[pane-4]", 3*time.Second)
-
-	// Focus pane-3 (bottom-right) — the diagonal corner pane relative to
-	// the junction at (40, 11). This is the case where cardinal-only junction
-	// checks fail to find the active pane.
-	h.runCmd("focus", "pane-3")
-	time.Sleep(300 * time.Millisecond)
-
-	ansi := h.runCmd("capture", "--ansi")
-	colorMap := extractColorMap(ansi, 80, 24)
-	assertGolden(t, "four_pane_diagonal.color", colorMap)
-}
-
-func TestGoldenThreeColSplitMiddle(t *testing.T) {
-	t.Parallel()
-	h := newHarness(t)
-
-	// Build 3 columns, then split the middle column into 3 rows:
-	// pane-1 │ pane-2 │ pane-3
-	//        ├────────┤
-	//        │ pane-4 │
-	//        ├────────┤
-	//        │ pane-5 │
-	h.sendKeys("C-a", "\\")
-	h.waitFor("[pane-2]", 3*time.Second)
-	h.sendKeys("C-a", "\\")
-	h.waitFor("[pane-3]", 3*time.Second)
-
-	// Focus middle column and split twice
-	h.runCmd("focus", "pane-2")
-	time.Sleep(300 * time.Millisecond)
-	h.sendKeys("C-a", "-")
-	h.waitFor("[pane-4]", 3*time.Second)
-	h.sendKeys("C-a", "-")
-	h.waitFor("[pane-5]", 3*time.Second)
-
-	// Focus pane-4 (middle of middle column) — the border cells at
-	// the first row of pane-4 are adjacent to an internal horizontal
-	// border within the middle column subtree.
-	h.runCmd("focus", "pane-4")
-	time.Sleep(300 * time.Millisecond)
-
-	ansi := h.runCmd("capture", "--ansi")
-	colorMap := extractColorMap(ansi, 80, 24)
-	assertGolden(t, "three_col_split_middle.color", colorMap)
-}
+// Border color tests for diagonal junctions and internal split boundaries
+// live in internal/render/border_test.go as unit tests (no tmux harness needed).
 
 // ---------------------------------------------------------------------------
 // Server hot-reload tests

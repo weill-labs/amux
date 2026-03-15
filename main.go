@@ -126,6 +126,7 @@ Usage:
   amux [-s session] capture           Capture full composited screen
   amux [-s session] capture <pane>    Capture a single pane's output
   amux [-s session] capture --ansi    Capture with ANSI escape codes
+  amux [-s session] capture --colors  Capture border color map
   amux [-s session] spawn --name NAME Spawn a new agent pane
   amux [-s session] zoom [pane]       Toggle zoom (maximize) a pane
   amux [-s session] minimize <pane>   Minimize a pane
