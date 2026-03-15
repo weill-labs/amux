@@ -7,11 +7,11 @@ tmux for the agent era.
 
 ## Philosophy
 
-1. **Agents are peers.** Keybindings for humans, CLI commands for agents — same panes, same capabilities.
+1. **Tight feedback loops.** Minimize information latency between humans and agents.
 
-2. **Zero friction.** Design for a familiar UX, tight feedback loops, and low latency.
+2. **Shared visibility.** Windows and panes are the communication primitive.
 
-3. **One source of truth.** What the human sees on screen is exactly what the agent captures. No divergence, no stale state, no translation layer.
+3. **Familiarity.** The best interface is the one you already know.
 
 ## Install
 
