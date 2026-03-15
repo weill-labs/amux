@@ -170,7 +170,16 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 			}
 		}
 
+		if includeANSI && colorMap {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "--ansi and --colors are mutually exclusive"})
+			return
+		}
+
 		if paneRef != "" {
+			if colorMap {
+				cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "--colors is only supported for full screen capture"})
+				return
+			}
 			// Single pane capture (replaces old "output" command)
 			sess.mu.Lock()
 			if sess.Window == nil {
