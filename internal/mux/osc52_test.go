@@ -90,6 +90,44 @@ func TestOSC52ScanEmpty(t *testing.T) {
 	}
 }
 
+func TestOSC52ScanPartialPrefix(t *testing.T) {
+	s := &OSC52Scanner{}
+
+	// First read ends mid-prefix: "\x1b]5" is the start of "\x1b]52;"
+	results := s.Scan([]byte("normal output\x1b]5"))
+	if len(results) != 0 {
+		t.Fatalf("expected 0 results from partial prefix, got %d", len(results))
+	}
+
+	// Second read completes the prefix and the full sequence
+	results = s.Scan([]byte("2;c;SGVsbG8=\x07"))
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result after completing split prefix, got %d", len(results))
+	}
+	want := "\x1b]52;c;SGVsbG8=\x07"
+	if string(results[0]) != want {
+		t.Errorf("got %q, want %q", results[0], want)
+	}
+}
+
+func TestOSC52ScanMaxSizeGuard(t *testing.T) {
+	s := &OSC52Scanner{}
+
+	// Build a sequence that exceeds maxOSC52Size (prefix + >4MB of data, no terminator)
+	huge := make([]byte, 0, maxOSC52Size+100)
+	huge = append(huge, osc52Prefix...)
+	huge = append(huge, make([]byte, maxOSC52Size+100-len(osc52Prefix))...)
+	// No terminator — scanner should abandon, not buffer
+
+	results := s.Scan(huge)
+	if len(results) != 0 {
+		t.Fatalf("expected 0 results for oversized sequence, got %d", len(results))
+	}
+	if len(s.partial) > 0 {
+		t.Errorf("scanner should not buffer oversized sequences, but partial has %d bytes", len(s.partial))
+	}
+}
+
 func TestOSC52ScanPrimarySelection(t *testing.T) {
 	s := &OSC52Scanner{}
 	// Test with primary selection "p" instead of clipboard "c"
@@ -101,15 +139,5 @@ func TestOSC52ScanPrimarySelection(t *testing.T) {
 	}
 	if string(results[0]) != "\x1b]52;p;dGVzdA==\x07" {
 		t.Errorf("got %q", results[0])
-	}
-}
-
-func TestOSC52ScanOnlySequence(t *testing.T) {
-	s := &OSC52Scanner{}
-	data := []byte("\x1b]52;c;SGVsbG8=\x07")
-	results := s.Scan(data)
-
-	if len(results) != 1 {
-		t.Fatalf("expected 1 result, got %d", len(results))
 	}
 }
