@@ -181,24 +181,29 @@ func renderBorders(buf *strings.Builder, bm *borderMap, root *mux.LayoutCell, ac
 }
 
 // borderColorAt determines the color for a border cell based on which leaf
-// pane is adjacent.
+// pane is adjacent. Uses direction-aware offsets: for vertical borders,
+// search horizontally (x±1); for horizontal borders, search vertically
+// (y±1). This avoids crossing internal perpendicular borders within
+// subtrees where inclusive bounds in findLeafByAxis would claim the
+// wrong pane.
 func borderColorAt(a, b *mux.LayoutCell, x, y int, activePaneID uint32, activeColor string) string {
 	if activePaneID == 0 {
 		return DimFg
 	}
 
-	// Search slightly inside each subtree. The border position (x,y)
-	// sits between the two cells, so x is at a.X+a.W (outside a) and
-	// at b.X-1 (outside b). Search at (x-1) for left/top and (x+1)
-	// for right/bottom to find the adjacent leaf.
-	leafA := findLeafByAxis(a, x-1, y-1)
-	if leafA == nil {
-		leafA = findLeafByAxis(a, x, y)
+	// Determine border direction from the 'a' cell's geometry.
+	// Vertical borders sit at a.X+a.W; horizontal borders sit at a.Y+a.H.
+	var dxA, dyA, dxB, dyB int
+	if x == a.X+a.W {
+		dxA, dyA = -1, 0
+		dxB, dyB = 1, 0
+	} else {
+		dxA, dyA = 0, -1
+		dxB, dyB = 0, 1
 	}
-	leafB := findLeafByAxis(b, x+1, y+1)
-	if leafB == nil {
-		leafB = findLeafByAxis(b, x, y)
-	}
+
+	leafA := findLeafByAxis(a, x+dxA, y+dyA)
+	leafB := findLeafByAxis(b, x+dxB, y+dyB)
 
 	if (leafA != nil && leafA.CellPaneID() == activePaneID) ||
 		(leafB != nil && leafB.CellPaneID() == activePaneID) {
