@@ -415,6 +415,19 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 		sess.broadcastLayout()
 		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: "Rotated\n"})
 
+	case "copy-mode":
+		sess.mu.Lock()
+		pane := cc.resolvePane(sess, "copy-mode", msg.CmdArgs)
+		if pane == nil {
+			sess.mu.Unlock()
+			return
+		}
+		paneID := pane.ID
+		sess.mu.Unlock()
+		// Broadcast copy-mode message to all attached clients
+		sess.broadcast(&Message{Type: MsgTypeCopyMode, PaneID: paneID})
+		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: fmt.Sprintf("Copy mode entered for %s\n", pane.Meta.Name)})
+
 	case "reload-server":
 		execPath, err := os.Executable()
 		if err != nil {
