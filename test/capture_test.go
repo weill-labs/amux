@@ -67,6 +67,27 @@ func TestCapturePaneANSI(t *testing.T) {
 	}
 }
 
+func TestCursorBlockOnlyInActivePane(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// Split so we have two panes with shell prompts
+	h.sendKeys("C-a", "\\")
+	h.waitFor("[pane-2]", 3*time.Second)
+
+	// Focus pane-2 — pane-1 becomes inactive.
+	// Use per-pane --ansi capture (returns emulator Render() output)
+	// to check each pane independently, avoiding false positives from
+	// the compositor's own ANSI sequences or shell prompt styling.
+	h.runCmd("focus", "pane-2")
+	time.Sleep(300 * time.Millisecond)
+
+	inactive := h.runCmd("capture", "--ansi", "pane-1")
+	if strings.Contains(inactive, "\033[7m") {
+		t.Errorf("inactive pane should have no reverse-video cursor blocks, got:\n%s", inactive)
+	}
+}
+
 func TestCaptureWithSplit(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
