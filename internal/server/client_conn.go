@@ -181,7 +181,12 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 				cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("pane %q not found", paneRef)})
 				return
 			}
-			out := pane.Output(DefaultOutputLines)
+			var out string
+			if includeANSI {
+				out = pane.Render()
+			} else {
+				out = pane.Output(DefaultOutputLines)
+			}
 			sess.mu.Unlock()
 			cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: out + "\n"})
 		} else {
