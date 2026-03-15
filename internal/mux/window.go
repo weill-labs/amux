@@ -411,6 +411,17 @@ func (w *Window) resizePTYs() {
 	})
 }
 
+// PaneCount returns the number of panes in the window's layout tree.
+func (w *Window) PaneCount() int {
+	count := 0
+	w.Root.Walk(func(c *LayoutCell) {
+		if c.Pane != nil {
+			count++
+		}
+	})
+	return count
+}
+
 // Panes returns all panes in the window (depth-first order).
 func (w *Window) Panes() []*Pane {
 	var panes []*Pane

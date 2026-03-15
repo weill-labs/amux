@@ -204,7 +204,7 @@ Inside an amux session:
   Ctrl-a c                           Create new window
   Ctrl-a n                           Next window
   Ctrl-a p                           Previous window
-  Ctrl-a 0-9                         Select window by number
+  Ctrl-a 1-9                         Select window by number
   Ctrl-a r                           Hot reload (re-exec binary)
   Ctrl-a d                           Detach from session
   Ctrl-a Ctrl-a                      Send literal Ctrl-a`)
@@ -461,7 +461,7 @@ func runMux(sessionName string) error {
 					sendCommand(conn, "next-window", nil)
 				case 'p':
 					sendCommand(conn, "prev-window", nil)
-				case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
+				case '1', '2', '3', '4', '5', '6', '7', '8', '9':
 					sendCommand(conn, "select-window", []string{string(b)})
 				case 'r':
 					if len(*forward) > 0 {

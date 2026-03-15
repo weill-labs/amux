@@ -25,6 +25,7 @@ type WindowSnapshot struct {
 	Name         string
 	Index        int // 1-based display order
 	ActivePaneID uint32
+	ZoomedPaneID uint32
 	Root         CellSnapshot
 	Panes        []PaneSnapshot
 }

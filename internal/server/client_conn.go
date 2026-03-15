@@ -346,26 +346,7 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 		paneName := pane.Meta.Name
 		// Remove from list BEFORE closing so onExit sees it's gone
 		sess.removePane(paneID)
-		// Find and update the owning window
-		w := sess.FindWindowByPaneID(paneID)
-		if w != nil {
-			paneCount := 0
-			w.Root.Walk(func(c *mux.LayoutCell) {
-				if c.Pane != nil {
-					paneCount++
-				}
-			})
-			if paneCount <= 1 {
-				// Last pane in window — destroy the window
-				wasActive := w.ID == sess.ActiveWindowID
-				sess.RemoveWindow(w.ID)
-				if wasActive && len(sess.Windows) > 0 {
-					sess.ActiveWindowID = sess.Windows[0].ID
-				}
-			} else {
-				w.ClosePane(paneID)
-			}
-		}
+		sess.closePaneInWindow(paneID)
 		sess.mu.Unlock()
 		pane.Close()
 
@@ -433,18 +414,12 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 		var output strings.Builder
 		output.WriteString(fmt.Sprintf("%-6s %-20s %-8s\n", "WIN", "NAME", "PANES"))
 		for i, w := range sess.Windows {
-			paneCount := 0
-			w.Root.Walk(func(c *mux.LayoutCell) {
-				if c.Pane != nil {
-					paneCount++
-				}
-			})
 			active := " "
 			if w.ID == sess.ActiveWindowID {
 				active = "*"
 			}
 			output.WriteString(fmt.Sprintf("%-6s %-20s %-8d\n",
-				fmt.Sprintf("%s%d:", active, i+1), w.Name, paneCount))
+				fmt.Sprintf("%s%d:", active, i+1), w.Name, w.PaneCount()))
 		}
 		sess.mu.Unlock()
 		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: output.String()})
@@ -657,25 +632,12 @@ func (cc *ClientConn) createNewWindow(srv *Server, sess *Session, name string) {
 // switchWindow switches to a window by 1-based index or name.
 // Caller must hold sess.mu. Returns true if switched.
 func (cc *ClientConn) switchWindow(sess *Session, ref string) bool {
-	// Try as 1-based index
-	var idx int
-	if _, err := fmt.Sscanf(ref, "%d", &idx); err == nil {
-		return sess.SelectWindowByIndex(idx)
+	w := sess.ResolveWindow(ref)
+	if w == nil {
+		return false
 	}
-	// Try as name (exact or prefix)
-	for _, w := range sess.Windows {
-		if w.Name == ref {
-			sess.ActiveWindowID = w.ID
-			return true
-		}
-	}
-	for _, w := range sess.Windows {
-		if strings.HasPrefix(w.Name, ref) {
-			sess.ActiveWindowID = w.ID
-			return true
-		}
-	}
-	return false
+	sess.ActiveWindowID = w.ID
+	return true
 }
 
 // splitNewPane creates a pane, inserts it into the active window's layout,

@@ -65,16 +65,6 @@ func (s *Session) FindWindowByPaneID(paneID uint32) *mux.Window {
 	return nil
 }
 
-// WindowIndex returns the 1-based display index for a window.
-func (s *Session) WindowIndex(w *mux.Window) int {
-	for i, win := range s.Windows {
-		if win.ID == w.ID {
-			return i + 1
-		}
-	}
-	return 0
-}
-
 // RemoveWindow removes a window from the list by ID.
 func (s *Session) RemoveWindow(windowID uint32) {
 	for i, w := range s.Windows {
@@ -112,13 +102,49 @@ func (s *Session) PrevWindow() {
 	}
 }
 
-// SelectWindowByIndex switches to the window at the given 1-based index.
-func (s *Session) SelectWindowByIndex(idx int) bool {
-	if idx < 1 || idx > len(s.Windows) {
-		return false
+// ResolveWindow finds a window by 1-based index, exact name, or name prefix.
+// Caller must hold s.mu.
+func (s *Session) ResolveWindow(ref string) *mux.Window {
+	// Try as 1-based index
+	var idx int
+	if _, err := fmt.Sscanf(ref, "%d", &idx); err == nil {
+		if idx >= 1 && idx <= len(s.Windows) {
+			return s.Windows[idx-1]
+		}
+		return nil
 	}
-	s.ActiveWindowID = s.Windows[idx-1].ID
-	return true
+	// Try exact name match
+	for _, w := range s.Windows {
+		if w.Name == ref {
+			return w
+		}
+	}
+	// Try prefix match
+	for _, w := range s.Windows {
+		if len(ref) > 0 && len(w.Name) >= len(ref) && w.Name[:len(ref)] == ref {
+			return w
+		}
+	}
+	return nil
+}
+
+// closePaneInWindow removes a pane from its window's layout. If the pane
+// is the last one in the window, the window itself is destroyed and focus
+// moves to the first remaining window. Caller must hold s.mu.
+func (s *Session) closePaneInWindow(paneID uint32) {
+	w := s.FindWindowByPaneID(paneID)
+	if w == nil {
+		return
+	}
+	if w.PaneCount() <= 1 {
+		wasActive := w.ID == s.ActiveWindowID
+		s.RemoveWindow(w.ID)
+		if wasActive && len(s.Windows) > 0 {
+			s.ActiveWindowID = s.Windows[0].ID
+		}
+	} else {
+		w.ClosePane(paneID)
+	}
 }
 
 // broadcast sends a message to all connected clients.
@@ -152,12 +178,11 @@ func (s *Session) broadcastPaneOutput(paneID uint32, data []byte) {
 // broadcastLayout sends the current layout snapshot to all clients.
 func (s *Session) broadcastLayout() {
 	s.mu.Lock()
-	w := s.ActiveWindow()
-	if w == nil {
+	snap := s.snapshotLayoutLocked()
+	if snap == nil {
 		s.mu.Unlock()
 		return
 	}
-	snap := s.snapshotLayoutLocked()
 	clients := make([]*ClientConn, len(s.clients))
 	copy(clients, s.clients)
 	s.mu.Unlock()
@@ -266,27 +291,7 @@ func (s *Session) createPaneWithMeta(srv *Server, meta mux.PaneMeta, cols, rows 
 			}
 
 			s.removePane(paneID)
-
-			// Find the window containing this pane and close it there
-			w := s.FindWindowByPaneID(paneID)
-			if w != nil {
-				paneCount := 0
-				w.Root.Walk(func(c *mux.LayoutCell) {
-					if c.Pane != nil {
-						paneCount++
-					}
-				})
-				if paneCount <= 1 {
-					// Last pane in this window — destroy the window
-					wasActive := w.ID == s.ActiveWindowID
-					s.RemoveWindow(w.ID)
-					if wasActive && len(s.Windows) > 0 {
-						s.ActiveWindowID = s.Windows[0].ID
-					}
-				} else {
-					w.ClosePane(paneID)
-				}
-			}
+			s.closePaneInWindow(paneID)
 			s.mu.Unlock()
 
 			s.broadcastLayout()
@@ -365,17 +370,11 @@ func (s *Session) renderCapture(stripANSI bool) string {
 func (s *Session) windowInfoLocked() []render.WindowInfo {
 	infos := make([]render.WindowInfo, len(s.Windows))
 	for i, w := range s.Windows {
-		paneCount := 0
-		w.Root.Walk(func(c *mux.LayoutCell) {
-			if c.Pane != nil {
-				paneCount++
-			}
-		})
 		infos[i] = render.WindowInfo{
 			Index:    i + 1,
 			Name:     w.Name,
 			IsActive: w.ID == s.ActiveWindowID,
-			Panes:    paneCount,
+			Panes:    w.PaneCount(),
 		}
 	}
 	return infos
@@ -386,6 +385,10 @@ func (s *Session) windowInfoLocked() []render.WindowInfo {
 func (s *Session) renderColorMap() string {
 	s.mu.Lock()
 	w := s.ActiveWindow()
+	if w == nil {
+		s.mu.Unlock()
+		return ""
+	}
 	width := w.Width
 	h := w.Height + render.GlobalBarHeight
 	s.mu.Unlock()
@@ -615,24 +618,7 @@ func NewServerFromCheckpoint(cp *checkpoint.ServerCheckpoint) (*Server, error) {
 					return
 				}
 				sess.removePane(paneID)
-				w := sess.FindWindowByPaneID(paneID)
-				if w != nil {
-					paneCount := 0
-					w.Root.Walk(func(c *mux.LayoutCell) {
-						if c.Pane != nil {
-							paneCount++
-						}
-					})
-					if paneCount <= 1 {
-						wasActive := w.ID == sess.ActiveWindowID
-						sess.RemoveWindow(w.ID)
-						if wasActive && len(sess.Windows) > 0 {
-							sess.ActiveWindowID = sess.Windows[0].ID
-						}
-					} else {
-						w.ClosePane(paneID)
-					}
-				}
+				sess.closePaneInWindow(paneID)
 				sess.mu.Unlock()
 				sess.broadcastLayout()
 			},

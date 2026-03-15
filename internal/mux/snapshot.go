@@ -31,10 +31,11 @@ func (w *Window) SnapshotLayout(sessionName string) *proto.LayoutSnapshot {
 // SnapshotWindow creates a WindowSnapshot for the wire protocol.
 func (w *Window) SnapshotWindow(index int) proto.WindowSnapshot {
 	ws := proto.WindowSnapshot{
-		ID:    w.ID,
-		Name:  w.Name,
-		Index: index,
-		Root:  snapshotCell(w.Root),
+		ID:           w.ID,
+		Name:         w.Name,
+		Index:        index,
+		ZoomedPaneID: w.ZoomedPaneID,
+		Root:         snapshotCell(w.Root),
 	}
 	if w.ActivePane != nil {
 		ws.ActivePaneID = w.ActivePane.ID
@@ -130,12 +131,13 @@ func RebuildWindowFromSnapshot(ws proto.WindowSnapshot, width, height int, paneM
 	}
 
 	return &Window{
-		ID:         ws.ID,
-		Name:       ws.Name,
-		Root:       root,
-		ActivePane: activePane,
-		Width:      width,
-		Height:     height,
+		ID:           ws.ID,
+		Name:         ws.Name,
+		Root:         root,
+		ActivePane:   activePane,
+		Width:        width,
+		Height:       height,
+		ZoomedPaneID: ws.ZoomedPaneID,
 	}
 }
 

@@ -75,21 +75,7 @@ func (cr *ClientRenderer) HandleLayout(snap *proto.LayoutSnapshot) {
 	// Create emulators for new panes
 	for _, ps := range allPanes {
 		if _, exists := cr.emulators[ps.ID]; !exists {
-			// Find cell dimensions from the active window's root
-			w, h := snap.Width, mux.PaneContentHeight(snap.Height)
-			if cell := findCellInSnapshot(activeRoot, ps.ID); cell != nil {
-				w = cell.W
-				h = mux.PaneContentHeight(cell.H)
-			} else if len(snap.Windows) > 0 {
-				// Search other windows for this pane's dimensions
-				for _, ws := range snap.Windows {
-					if cell := findCellInSnapshot(ws.Root, ps.ID); cell != nil {
-						w = cell.W
-						h = mux.PaneContentHeight(cell.H)
-						break
-					}
-				}
-			}
+			w, h := findPaneDimensions(snap, activeRoot, ps.ID)
 			cr.emulators[ps.ID] = mux.NewVTEmulatorWithDrain(w, h)
 		}
 	}
@@ -359,6 +345,21 @@ func (c *clientPaneData) Color() string   { return c.info.Color }
 func (c *clientPaneData) Minimized() bool { return c.info.Minimized }
 func (c *clientPaneData) InCopyMode() bool {
 	return c.cm != nil
+}
+
+// findPaneDimensions returns the width and content height for a pane,
+// searching the active window's root first, then all other windows.
+// Falls back to the full snapshot dimensions if not found.
+func findPaneDimensions(snap *proto.LayoutSnapshot, activeRoot proto.CellSnapshot, paneID uint32) (int, int) {
+	if cell := findCellInSnapshot(activeRoot, paneID); cell != nil {
+		return cell.W, mux.PaneContentHeight(cell.H)
+	}
+	for _, ws := range snap.Windows {
+		if cell := findCellInSnapshot(ws.Root, paneID); cell != nil {
+			return cell.W, mux.PaneContentHeight(cell.H)
+		}
+	}
+	return snap.Width, mux.PaneContentHeight(snap.Height)
 }
 
 // findCellInSnapshot finds a cell by pane ID in a CellSnapshot tree.
