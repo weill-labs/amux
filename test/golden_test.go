@@ -8,8 +8,6 @@ import (
 	"regexp"
 	"strings"
 	"testing"
-
-	"github.com/weill-labs/amux/internal/render"
 )
 
 var updateGoldens = flag.Bool("update", false, "update golden files")
@@ -123,8 +121,4 @@ func extractBorderLine(line string) string {
 	return strings.TrimRight(string(out), " ")
 }
 
-// extractColorMap delegates to the render package's ExtractColorMap.
-func extractColorMap(ansiStream string, width, height int) string {
-	return render.ExtractColorMap(ansiStream, width, height)
-}
 
