@@ -164,7 +164,6 @@ func (p *Pane) readLoop() {
 			data := make([]byte, n)
 			copy(data, buf[:n])
 
-			// Detect OSC 52 clipboard sequences and forward them
 			if p.onClipboard != nil {
 				for _, seq := range p.osc52Scanner.Scan(data) {
 					p.onClipboard(p.ID, seq)
