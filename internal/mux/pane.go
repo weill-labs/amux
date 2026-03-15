@@ -205,7 +205,12 @@ func (p *Pane) Write(data []byte) (int, error) {
 
 // Resize changes the PTY and emulator dimensions.
 func (p *Pane) Resize(cols, rows int) error {
-	p.emulator.Resize(cols, rows)
+	if p.emulator != nil {
+		p.emulator.Resize(cols, rows)
+	}
+	if p.ptmx == nil {
+		return nil
+	}
 	return pty.Setsize(p.ptmx, &pty.Winsize{
 		Cols: uint16(cols),
 		Rows: uint16(rows),
