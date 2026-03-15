@@ -375,6 +375,8 @@ func runMux(sessionName string) error {
 	go func() {
 		buf := make([]byte, 4096)
 		prefix := false
+		prefixEsc := false       // true after Ctrl-a then \x1b
+		var prefixEscBuf []byte   // buffered bytes after the \x1b
 		mouseParser := &mouse.Parser{}
 
 		// Mouse drag state — caches border direction from initial press
@@ -383,6 +385,39 @@ func runMux(sessionName string) error {
 		// processKeyByte handles a single non-mouse byte through the
 		// Ctrl-a prefix system. Returns true if the goroutine should exit.
 		processKeyByte := func(b byte, forward *[]byte) bool {
+			// Handle escape sequence buffering for prefix + arrow keys.
+			// After Ctrl-a \x1b, we buffer bytes looking for [A/B/C/D.
+			if prefixEsc {
+				prefixEscBuf = append(prefixEscBuf, b)
+				if len(prefixEscBuf) == 1 && b == '[' {
+					return false // waiting for direction byte
+				}
+				if len(prefixEscBuf) == 2 && prefixEscBuf[0] == '[' {
+					prefixEsc = false
+					switch b {
+					case 'A':
+						sendCommand(conn, "focus", []string{"up"})
+					case 'B':
+						sendCommand(conn, "focus", []string{"down"})
+					case 'C':
+						sendCommand(conn, "focus", []string{"right"})
+					case 'D':
+						sendCommand(conn, "focus", []string{"left"})
+					default:
+						*forward = append(*forward, 0x01, 0x1b)
+						*forward = append(*forward, prefixEscBuf...)
+					}
+					prefixEscBuf = nil
+					return false
+				}
+				// Not a CSI sequence — flush buffered bytes
+				prefixEsc = false
+				*forward = append(*forward, 0x01, 0x1b)
+				*forward = append(*forward, prefixEscBuf...)
+				prefixEscBuf = nil
+				return false
+			}
+
 			if prefix {
 				prefix = false
 				switch b {
@@ -435,6 +470,9 @@ func runMux(sessionName string) error {
 					case triggerReload <- struct{}{}:
 					default:
 					}
+				case 0x1b:
+					prefixEsc = true
+					prefixEscBuf = nil
 				case 0x01:
 					*forward = append(*forward, 0x01)
 				default:

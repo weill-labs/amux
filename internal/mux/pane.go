@@ -31,8 +31,9 @@ type PaneMeta struct {
 
 // Pane manages a PTY, its terminal emulator, and metadata.
 type Pane struct {
-	ID   uint32
-	Meta PaneMeta
+	ID          uint32
+	ActivePoint uint64 // monotonic counter — higher means more recently focused
+	Meta        PaneMeta
 
 	ptmx     *os.File
 	cmd      *exec.Cmd
