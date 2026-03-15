@@ -3,6 +3,7 @@ package mux
 import (
 	"fmt"
 	"strings"
+	"sync/atomic"
 )
 
 // StatusLineRows is the number of rows reserved for the per-pane status line.
@@ -208,8 +209,13 @@ var activePointCounter uint64
 // setActive updates the active pane and increments ActivePoint for recency tracking.
 func (w *Window) setActive(p *Pane) {
 	w.ActivePane = p
-	activePointCounter++
-	p.ActivePoint = activePointCounter
+	p.ActivePoint = atomic.AddUint64(&activePointCounter, 1)
+}
+
+// FocusPane sets the active pane directly (by pointer) and updates recency.
+// Used by the server when focusing by name or ID.
+func (w *Window) FocusPane(p *Pane) {
+	w.setActive(p)
 }
 
 // Focus changes the active pane. Direction is "next", "left", "right", "up", "down".

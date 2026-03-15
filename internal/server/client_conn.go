@@ -147,7 +147,7 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 				cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("pane %q not found", direction)})
 				return
 			}
-			sess.Window.ActivePane = pane
+			sess.Window.FocusPane(pane)
 			sess.mu.Unlock()
 			cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: fmt.Sprintf("Focused %s\n", pane.Meta.Name)})
 		}
