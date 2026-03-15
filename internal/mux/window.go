@@ -809,30 +809,18 @@ func (w *Window) Restore(paneID uint32) error {
 	return nil
 }
 
-// ToggleMinimize minimizes the active pane if no panes are minimized,
-// or restores the most recently minimized pane (LIFO order).
+// ToggleMinimize toggles the active pane's minimized state.
 // Returns the affected pane's name and whether it was minimized (true) or restored (false).
 func (w *Window) ToggleMinimize() (name string, minimized bool, err error) {
-	// Find the most recently minimized pane (highest MinimizedSeq).
-	var best *Pane
-	w.Root.Walk(func(c *LayoutCell) {
-		if c.Pane != nil && c.Pane.Meta.Minimized {
-			if best == nil || c.Pane.Meta.MinimizedSeq > best.Meta.MinimizedSeq {
-				best = c.Pane
-			}
-		}
-	})
-
-	if best != nil {
-		err = w.Restore(best.ID)
-		return best.Meta.Name, false, err
-	}
-
 	if w.ActivePane == nil {
 		return "", false, fmt.Errorf("no active pane")
 	}
 
 	name = w.ActivePane.Meta.Name
+	if w.ActivePane.Meta.Minimized {
+		err = w.Restore(w.ActivePane.ID)
+		return name, false, err
+	}
 	err = w.Minimize(w.ActivePane.ID)
 	return name, true, err
 }
