@@ -245,6 +245,17 @@ func (p *Pane) RenderScreen() string {
 	return RenderWithCursor(p.emulator)
 }
 
+// RenderWithoutCursorBlock returns the screen with the cursor cell's
+// reverse-video attribute cleared, so inactive panes don't show a block cursor.
+func (p *Pane) RenderWithoutCursorBlock() string {
+	return p.emulator.RenderWithoutCursorBlock()
+}
+
+// HasCursorBlock returns true if the pane contains an app-rendered block cursor.
+func (p *Pane) HasCursorBlock() bool {
+	return p.emulator.HasCursorBlock()
+}
+
 // CursorPos returns the cursor position within this pane (0-indexed).
 func (p *Pane) CursorPos() (col, row int) {
 	return p.emulator.CursorPosition()

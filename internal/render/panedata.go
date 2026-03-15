@@ -4,9 +4,16 @@ package render
 // Server-side *mux.Pane and client-side emulator+metadata adapters both
 // satisfy this interface.
 type PaneData interface {
-	RenderScreen() string
+	// RenderScreen returns the pane's screen content as an ANSI string.
+	// When active is false, app-rendered cursor blocks (isolated reverse-video
+	// spaces) are stripped so unfocused panes don't show stray cursors.
+	RenderScreen(active bool) string
 	CursorPos() (col, row int)
 	CursorHidden() bool
+	// HasCursorBlock reports whether the screen contains an app-rendered
+	// block cursor (isolated reverse-video space). When true, the compositor
+	// hides the terminal cursor to avoid showing two cursors.
+	HasCursorBlock() bool
 	ID() uint32
 	Name() string
 	Host() string

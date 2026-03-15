@@ -96,7 +96,7 @@ func (c *Compositor) RenderFull(root *mux.LayoutCell, activePaneID uint32, looku
 		renderPaneStatus(&buf, cell, isActive, pd)
 
 		// Pane content (shifted down by status line)
-		rendered := pd.RenderScreen()
+		rendered := pd.RenderScreen(isActive)
 		c.blitPane(&buf, cell, rendered)
 	})
 
@@ -110,11 +110,13 @@ func (c *Compositor) RenderFull(root *mux.LayoutCell, activePaneID uint32, looku
 	// Position cursor and respect the active pane's cursor visibility state.
 	// If the application has hidden its cursor (e.g. during streaming output),
 	// keep it hidden rather than showing it at a stale position.
+	// If the application renders its own block cursor (reverse-video space),
+	// hide the terminal cursor to avoid showing two cursors.
 	showCursor := true
 	if activePaneID != 0 {
 		if cell := root.FindByPaneID(activePaneID); cell != nil {
 			if pd := lookup(activePaneID); pd != nil {
-				if pd.CursorHidden() {
+				if pd.CursorHidden() || pd.HasCursorBlock() {
 					showCursor = false
 				} else {
 					col, row := pd.CursorPos()
