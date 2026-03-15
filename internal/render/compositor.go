@@ -118,6 +118,8 @@ func (c *Compositor) RenderFull(root *mux.LayoutCell, activePaneID uint32, looku
 }
 
 // blitPane writes a pane's rendered content below its status line.
+// Lines are clipped to cell.W visible characters to prevent content
+// from bleeding into adjacent panes.
 func (c *Compositor) blitPane(buf *strings.Builder, cell *mux.LayoutCell, rendered string) {
 	lines := strings.Split(rendered, "\n")
 	contentH := mux.PaneContentHeight(cell.H)
@@ -129,9 +131,59 @@ func (c *Compositor) blitPane(buf *strings.Builder, cell *mux.LayoutCell, render
 		row := cell.Y + mux.StatusLineRows + i + 1
 		buf.WriteString(CursorTo(row, cell.X+1))
 		if len(line) > 0 {
-			buf.WriteString(line)
+			buf.WriteString(clipLine(line, cell.W))
 		}
 	}
+}
+
+// clipLine truncates an ANSI-escaped line to at most maxWidth visible
+// characters, preserving escape sequences that precede the cutoff.
+func clipLine(line string, maxWidth int) string {
+	visible := 0
+	i := 0
+	for i < len(line) {
+		b := line[i]
+
+		// Skip ESC sequences (they have zero visible width)
+		if b == '\033' && i+1 < len(line) {
+			next := line[i+1]
+			if next == '[' {
+				j := i + 2
+				for j < len(line) && line[j] >= 0x20 && line[j] <= 0x3F {
+					j++
+				}
+				if j < len(line) {
+					i = j + 1
+					continue
+				}
+			}
+			i += 2
+			continue
+		}
+
+		if b < 0x20 {
+			i++
+			continue
+		}
+
+		// Visible character — check if we've hit the width limit
+		if visible >= maxWidth {
+			return line[:i]
+		}
+		visible++
+
+		// Advance past UTF-8 rune
+		if b < 0x80 {
+			i++
+		} else if b < 0xE0 {
+			i += 2
+		} else if b < 0xF0 {
+			i += 3
+		} else {
+			i += 4
+		}
+	}
+	return line
 }
 
 // hexToANSI converts a 6-digit hex color to an ANSI truecolor escape.
