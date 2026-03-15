@@ -1686,3 +1686,52 @@ func TestZoomKillZoomedPane(t *testing.T) {
 		t.Errorf("status should not report zoomed after kill, got:\n%s", status)
 	}
 }
+
+func TestZoomAutoUnzoomOnSplit(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// Split to get two panes
+	h.sendKeys("C-a", "-")
+	h.waitFor("[pane-2]", 3*time.Second)
+
+	// Zoom pane-1
+	h.runCmd("zoom", "pane-1")
+	h.waitForFunc(func(s string) bool {
+		return strings.Contains(s, "[pane-1]") && !strings.Contains(s, "[pane-2]")
+	}, 3*time.Second)
+
+	// Split while zoomed — should auto-unzoom and show all panes
+	h.sendKeys("C-a", "-")
+	if !h.waitForFunc(func(s string) bool {
+		return strings.Contains(s, "[pane-1]") && strings.Contains(s, "[pane-2]") &&
+			strings.Contains(s, "[pane-3]")
+	}, 3*time.Second) {
+		screen := h.capture()
+		t.Fatalf("split while zoomed should auto-unzoom and show all panes\nScreen:\n%s", screen)
+	}
+}
+
+func TestZoomAutoUnzoomOnFocus(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// Split to get two panes
+	h.sendKeys("C-a", "-")
+	h.waitFor("[pane-2]", 3*time.Second)
+
+	// Zoom pane-2 (bottom, active after split)
+	h.sendKeys("C-a", "z")
+	h.waitForFunc(func(s string) bool {
+		return strings.Contains(s, "[pane-2]") && !strings.Contains(s, "[pane-1]")
+	}, 3*time.Second)
+
+	// Focus up — should auto-unzoom and show both panes
+	h.sendKeys("C-a", "k")
+	if !h.waitForFunc(func(s string) bool {
+		return strings.Contains(s, "[pane-1]") && strings.Contains(s, "[pane-2]")
+	}, 3*time.Second) {
+		screen := h.capture()
+		t.Fatalf("focus while zoomed should auto-unzoom\nScreen:\n%s", screen)
+	}
+}

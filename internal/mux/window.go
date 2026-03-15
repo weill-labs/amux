@@ -35,7 +35,11 @@ func NewWindow(pane *Pane, width, height int) *Window {
 // SplitRoot splits the entire window at the root level.
 // If the root already has the same split direction, the new pane is added
 // as a sibling (equal distribution). Otherwise, wraps the root in a new parent.
+// Auto-unzooms if a pane is zoomed.
 func (w *Window) SplitRoot(dir SplitDir, newPane *Pane) (*Pane, error) {
+	if w.ZoomedPaneID != 0 {
+		w.Unzoom()
+	}
 	newLeaf := NewLeaf(newPane, 0, 0, 0, 0)
 
 	if !w.Root.IsLeaf() && w.Root.Dir == dir {
@@ -97,7 +101,11 @@ func (w *Window) SplitRoot(dir SplitDir, newPane *Pane) (*Pane, error) {
 
 // Split splits the active pane in the given direction, creating a new pane
 // via the provided factory function. Returns the new pane.
+// Auto-unzooms if a pane is zoomed.
 func (w *Window) Split(dir SplitDir, newPane *Pane) (*Pane, error) {
+	if w.ZoomedPaneID != 0 {
+		w.Unzoom()
+	}
 	cell := w.Root.FindPane(w.ActivePane.ID)
 	if cell == nil {
 		return nil, fmt.Errorf("active pane %d not found in layout", w.ActivePane.ID)
@@ -195,7 +203,11 @@ func (w *Window) Resize(width, height int) {
 }
 
 // Focus changes the active pane. Direction is "next", "left", "right", "up", "down".
+// Auto-unzooms if a pane is zoomed.
 func (w *Window) Focus(direction string) {
+	if w.ZoomedPaneID != 0 {
+		w.Unzoom()
+	}
 	panes := w.Panes()
 	if len(panes) <= 1 {
 		return
@@ -378,7 +390,11 @@ func (w *Window) ResolvePane(ref string) *Pane {
 }
 
 // Minimize shrinks a pane's layout cell to StatusLineRows + 1 (just status + 1 row).
+// Auto-unzooms if a pane is zoomed.
 func (w *Window) Minimize(paneID uint32) error {
+	if w.ZoomedPaneID != 0 {
+		w.Unzoom()
+	}
 	cell := w.Root.FindPane(paneID)
 	if cell == nil {
 		return fmt.Errorf("pane %d not found", paneID)
