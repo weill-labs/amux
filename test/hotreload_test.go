@@ -150,6 +150,38 @@ func TestServerReloadWithMinimizedPane(t *testing.T) {
 	}
 }
 
+func TestServerReloadMinimizedPanePreservesContent(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	h.sendKeys("C-a", "-")
+	h.waitFor("[pane-2]", 3*time.Second)
+
+	// Put content in pane-1
+	h.runCmd("focus", "pane-1")
+	time.Sleep(200 * time.Millisecond)
+	h.sendKeys("echo RELOAD_MARKER", "Enter")
+	h.waitFor("RELOAD_MARKER", 3*time.Second)
+
+	// Minimize pane-1, then reload server
+	h.runCmd("minimize", "pane-1")
+	time.Sleep(500 * time.Millisecond)
+	h.runCmd("reload-server")
+
+	if !h.waitFor("[pane-", 10*time.Second) {
+		t.Fatalf("session did not recover after reload\nScreen:\n%s", h.capture())
+	}
+
+	// Restore pane-1 and verify content survived
+	h.runCmd("restore", "pane-1")
+	time.Sleep(1 * time.Second)
+
+	paneOut := h.runCmd("capture", "pane-1")
+	if !strings.Contains(paneOut, "RELOAD_MARKER") {
+		t.Fatalf("minimized pane content should survive server reload, got:\n%s", paneOut)
+	}
+}
+
 func TestServerReloadBorderColors(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)

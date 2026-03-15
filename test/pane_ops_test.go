@@ -89,11 +89,125 @@ func TestMinimizeRestore(t *testing.T) {
 	})
 }
 
+func TestMinimizeSoloPaneInColumnFails(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// Create a horizontal split: pane-1 left, pane-2 right
+	h.sendKeys("C-a", "\\")
+	h.waitFor("[pane-2]", 3*time.Second)
+
+	// pane-1 is the only pane in its column — minimize should fail
+	output := h.runCmd("minimize", "pane-1")
+	if !strings.Contains(output, "cannot") {
+		t.Errorf("minimizing sole pane in column should fail, got:\n%s", output)
+	}
+
+	// Verify pane-1 is not minimized
+	statusOut := h.runCmd("status")
+	if !strings.Contains(statusOut, "0 minimized") {
+		t.Errorf("no panes should be minimized, got:\n%s", statusOut)
+	}
+}
+
+func TestMinimizeLastPaneInColumnFails(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// Create vertical split: pane-1 top, pane-2 bottom
+	h.sendKeys("C-a", "-")
+	h.waitFor("[pane-2]", 3*time.Second)
+
+	// Minimize pane-1 — should succeed
+	output := h.runCmd("minimize", "pane-1")
+	if !strings.Contains(output, "Minimized") {
+		t.Fatalf("first minimize should succeed, got:\n%s", output)
+	}
+
+	// Minimize pane-2 (last non-minimized in column) — should fail
+	output = h.runCmd("minimize", "pane-2")
+	if !strings.Contains(output, "cannot") {
+		t.Errorf("minimizing last visible pane in column should fail, got:\n%s", output)
+	}
+
+	h.runCmd("restore", "pane-1")
+}
+
+func TestMinimizeShowsHeaderOnly(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// Create vertical split
+	h.sendKeys("C-a", "-")
+	h.waitFor("[pane-2]", 3*time.Second)
+
+	// Put content in pane-1
+	h.runCmd("focus", "pane-1")
+	time.Sleep(200 * time.Millisecond)
+	h.sendKeys("echo SHOULD_NOT_SEE", "Enter")
+	h.waitFor("SHOULD_NOT_SEE", 3*time.Second)
+
+	// Minimize pane-1
+	h.runCmd("minimize", "pane-1")
+	time.Sleep(500 * time.Millisecond)
+
+	// The minimized pane should show ONLY the status line [pane-1], no body content
+	screen := h.capture()
+	lines := strings.Split(screen, "\n")
+	for i, line := range lines {
+		if strings.Contains(line, "[pane-1]") {
+			// The next line should NOT contain pane-1 body content —
+			// it should be the border or pane-2's status line
+			if i+1 < len(lines) {
+				nextLine := lines[i+1]
+				if !strings.Contains(nextLine, "─") && !strings.Contains(nextLine, "[pane-2]") {
+					t.Errorf("minimized pane should show header only, but line after status is:\n%s", nextLine)
+				}
+			}
+			break
+		}
+	}
+
+	h.runCmd("restore", "pane-1")
+}
+
+func TestMinimizeRestorePreservesContent(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	h.sendKeys("C-a", "-")
+	h.waitFor("[pane-2]", 3*time.Second)
+
+	// Put identifiable content in pane-1
+	h.runCmd("focus", "pane-1")
+	time.Sleep(200 * time.Millisecond)
+	h.sendKeys("echo PRESERVE_TEST_MARKER", "Enter")
+	h.waitFor("PRESERVE_TEST_MARKER", 3*time.Second)
+
+	// Capture pane content before minimize
+	beforeCapture := h.runCmd("capture", "pane-1")
+	if !strings.Contains(beforeCapture, "PRESERVE_TEST_MARKER") {
+		t.Fatalf("marker should be visible before minimize, got:\n%s", beforeCapture)
+	}
+
+	// Minimize then restore pane-1
+	h.runCmd("minimize", "pane-1")
+	time.Sleep(500 * time.Millisecond)
+	h.runCmd("restore", "pane-1")
+	time.Sleep(1 * time.Second)
+
+	// Pane content should be preserved — not blank
+	afterCapture := h.runCmd("capture", "pane-1")
+	if !strings.Contains(afterCapture, "PRESERVE_TEST_MARKER") {
+		t.Fatalf("pane content should be preserved after minimize/restore, got:\n%s", afterCapture)
+	}
+}
+
 func TestToggleMinimizeKeybinding(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
 
-	// Create a second pane (horizontal split)
+	// Create a vertical split: pane-1 top, pane-2 bottom
 	h.sendKeys("C-a", "-")
 	h.waitFor("[pane-2]", 3*time.Second)
 
@@ -102,65 +216,52 @@ func TestToggleMinimizeKeybinding(t *testing.T) {
 	time.Sleep(300 * time.Millisecond)
 	h.sendKeys("C-a", "m")
 
-	// Verify pane-1 is minimized via status command
+	// Verify pane-1 is minimized
 	time.Sleep(500 * time.Millisecond)
 	statusOut := h.runCmd("status")
 	if !strings.Contains(statusOut, "1 minimized") {
 		t.Fatalf("expected 1 minimized pane after Ctrl-a m, got:\n%s", statusOut)
 	}
 
-	// Press Ctrl-a m again — should restore pane-1 (most recently minimized)
+	// Focus the minimized pane-1 and press Ctrl-a m to restore it
+	h.runCmd("focus", "pane-1")
+	time.Sleep(300 * time.Millisecond)
 	h.sendKeys("C-a", "m")
 
-	// Verify no panes are minimized
+	// Verify pane-1 is restored
 	time.Sleep(500 * time.Millisecond)
 	statusOut = h.runCmd("status")
 	if !strings.Contains(statusOut, "0 minimized") {
-		t.Fatalf("expected 0 minimized panes after second Ctrl-a m, got:\n%s", statusOut)
+		t.Fatalf("expected 0 minimized panes after toggling restore, got:\n%s", statusOut)
 	}
 }
 
-func TestToggleMinimizeLIFO(t *testing.T) {
+func TestToggleMinimizeMultiplePanes(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
 
-	// Create 3 panes
+	// Create 3 panes in a vertical split
 	h.sendKeys("C-a", "-")
 	h.waitFor("[pane-2]", 3*time.Second)
 	h.sendKeys("C-a", "-")
 	h.waitFor("[pane-3]", 3*time.Second)
 
-	// Minimize pane-1 then pane-2 via CLI
-	h.runCmd("minimize", "pane-1")
+	// Focus pane-1, Ctrl-a m to minimize it
+	h.runCmd("focus", "pane-1")
 	time.Sleep(300 * time.Millisecond)
-	h.runCmd("minimize", "pane-2")
-	time.Sleep(300 * time.Millisecond)
-
-	// Toggle should restore pane-2 first (LIFO)
 	h.sendKeys("C-a", "m")
 	time.Sleep(500 * time.Millisecond)
 
-	// Verify: pane-2 restored (1 minimized remains = pane-1)
+	// Focus pane-2, Ctrl-a m to minimize it (should NOT restore pane-1)
+	h.runCmd("focus", "pane-2")
+	time.Sleep(300 * time.Millisecond)
+	h.sendKeys("C-a", "m")
+	time.Sleep(500 * time.Millisecond)
+
+	// Both pane-1 and pane-2 should be minimized
 	statusOut := h.runCmd("status")
-	if !strings.Contains(statusOut, "1 minimized") {
-		t.Fatalf("expected 1 minimized after first toggle (pane-1 still minimized), got:\n%s", statusOut)
-	}
-	// Confirm pane-2 is restored by trying to minimize it (should succeed, not error)
-	out := h.runCmd("minimize", "pane-2")
-	if strings.Contains(out, "already minimized") {
-		t.Errorf("pane-2 should have been restored by LIFO toggle, got:\n%s", out)
-	}
-	// Undo: restore pane-2 back for next step
-	h.runCmd("restore", "pane-2")
-	time.Sleep(300 * time.Millisecond)
-
-	// Toggle again should restore pane-1
-	h.sendKeys("C-a", "m")
-	time.Sleep(500 * time.Millisecond)
-
-	statusOut = h.runCmd("status")
-	if !strings.Contains(statusOut, "0 minimized") {
-		t.Fatalf("expected 0 minimized after second toggle, got:\n%s", statusOut)
+	if !strings.Contains(statusOut, "2 minimized") {
+		t.Fatalf("expected 2 minimized after minimizing pane-1 then pane-2, got:\n%s", statusOut)
 	}
 }
 
