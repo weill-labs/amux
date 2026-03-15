@@ -3,17 +3,14 @@ package test
 import (
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestResizeKeybindHorizontal(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t)
+	h := newAmuxHarness(t)
 
 	// Split horizontally: [pane-1 | pane-2]
-	h.sendKeys("C-a", "\\")
-	h.waitFor("[pane-2]", 3*time.Second)
-	time.Sleep(200 * time.Millisecond)
+	h.splitV()
 
 	// Measure initial border position
 	initialBorder := h.captureAmuxVerticalBorderCol()
@@ -22,10 +19,13 @@ func TestResizeKeybindHorizontal(t *testing.T) {
 	}
 
 	// Focus pane-1 (left), then press Prefix+L to grow it rightward
+	gen := h.generation()
 	h.sendKeys("C-a", "h") // focus left pane
-	time.Sleep(200 * time.Millisecond)
+	h.waitLayout(gen)
+
+	gen = h.generation()
 	h.sendKeys("C-a", "L") // resize: grow right
-	time.Sleep(300 * time.Millisecond)
+	h.waitLayout(gen)
 
 	newBorder := h.captureAmuxVerticalBorderCol()
 	if newBorder < 0 {
@@ -37,8 +37,9 @@ func TestResizeKeybindHorizontal(t *testing.T) {
 	}
 
 	// Now press Prefix+H to shrink it back (grow left = move border left)
+	gen = h.generation()
 	h.sendKeys("C-a", "H")
-	time.Sleep(300 * time.Millisecond)
+	h.waitLayout(gen)
 
 	shrunkBorder := h.captureAmuxVerticalBorderCol()
 	if shrunkBorder >= newBorder {
@@ -49,16 +50,15 @@ func TestResizeKeybindHorizontal(t *testing.T) {
 
 func TestResizeKeybindVertical(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t)
+	h := newAmuxHarness(t)
 
 	// Create a horizontal split: pane-1 on top, pane-2 on bottom
-	h.sendKeys("C-a", "-")
-	h.waitFor("[pane-2]", 3*time.Second)
-	time.Sleep(200 * time.Millisecond)
+	h.splitH()
 
 	// Focus pane-1 (top)
+	gen := h.generation()
 	h.sendKeys("C-a", "k")
-	time.Sleep(200 * time.Millisecond)
+	h.waitLayout(gen)
 
 	// Measure initial horizontal border row
 	initialRow := findHorizontalBorderRow(h.captureAmuxContentLines())
@@ -67,8 +67,9 @@ func TestResizeKeybindVertical(t *testing.T) {
 	}
 
 	// Press Prefix+J to grow top pane downward (move border down)
+	gen = h.generation()
 	h.sendKeys("C-a", "J")
-	time.Sleep(300 * time.Millisecond)
+	h.waitLayout(gen)
 
 	newRow := findHorizontalBorderRow(h.captureAmuxContentLines())
 	if newRow < 0 {
@@ -80,8 +81,9 @@ func TestResizeKeybindVertical(t *testing.T) {
 	}
 
 	// Press Prefix+K to shrink it back (grow up = move border up)
+	gen = h.generation()
 	h.sendKeys("C-a", "K")
-	time.Sleep(300 * time.Millisecond)
+	h.waitLayout(gen)
 
 	shrunkRow := findHorizontalBorderRow(h.captureAmuxContentLines())
 	if shrunkRow >= newRow {
@@ -92,12 +94,10 @@ func TestResizeKeybindVertical(t *testing.T) {
 
 func TestResizeKeybindFromRightPane(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t)
+	h := newAmuxHarness(t)
 
 	// [pane-1 | pane-2], focus stays on pane-2 (right)
-	h.sendKeys("C-a", "\\")
-	h.waitFor("[pane-2]", 3*time.Second)
-	time.Sleep(200 * time.Millisecond)
+	h.splitV()
 
 	initialBorder := h.captureAmuxVerticalBorderCol()
 	if initialBorder < 0 {
@@ -105,8 +105,9 @@ func TestResizeKeybindFromRightPane(t *testing.T) {
 	}
 
 	// From right pane, Prefix+H should grow left (move border left)
+	gen := h.generation()
 	h.sendKeys("C-a", "H")
-	time.Sleep(300 * time.Millisecond)
+	h.waitLayout(gen)
 
 	newBorder := h.captureAmuxVerticalBorderCol()
 	if newBorder >= initialBorder {
@@ -117,13 +118,12 @@ func TestResizeKeybindFromRightPane(t *testing.T) {
 
 func TestResizeKeybindNoEffect(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t)
+	h := newAmuxHarness(t)
 
 	// Single pane — resize should be a no-op, not crash
 	h.sendKeys("C-a", "H")
-	time.Sleep(300 * time.Millisecond)
 
-	// Should still be running with the single pane
+	// No layout change occurs on a single pane, so just assert immediately.
 	h.assertScreen("amux still running after resize with single pane", func(s string) bool {
 		return strings.Contains(s, "[pane-1]")
 	})

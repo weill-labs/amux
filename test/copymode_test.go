@@ -12,32 +12,32 @@ import (
 
 func TestCopyModeEnterExit(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t)
+	h := newAmuxHarness(t)
 
 	// Enter copy mode with Ctrl-a [
 	h.sendKeys("C-a", "[")
 
-	// Verify [copy] indicator appears in the screen
-	if !h.waitFor("[copy]", 3 * time.Second) {
-		screen := h.capture()
+	// Verify [copy] indicator appears (client-side, check outer pane)
+	if !h.waitFor("[copy]", 3*time.Second) {
+		screen := h.captureOuter()
 		t.Fatalf("expected [copy] indicator after entering copy mode\nScreen:\n%s", screen)
 	}
 
 	// Exit copy mode with q
 	h.sendKeys("q")
 
-	// Verify [copy] indicator disappears
-	if !h.waitForFunc(func(s string) bool {
+	// Verify [copy] indicator disappears (poll outer pane)
+	if !waitForOuter(h, func(s string) bool {
 		return !strings.Contains(s, "[copy]")
-	}, 3 * time.Second) {
-		screen := h.capture()
+	}, 3*time.Second) {
+		screen := h.captureOuter()
 		t.Fatalf("expected [copy] indicator to disappear after pressing q\nScreen:\n%s", screen)
 	}
 }
 
 func TestCopyModeScroll(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t)
+	h := newAmuxHarness(t)
 
 	// Generate 50 numbered lines of output using a temp script
 	scriptPath := filepath.Join(os.TempDir(), fmt.Sprintf("amux-scroll-%s.sh", h.session))
@@ -49,21 +49,21 @@ for i in $(seq -w 1 50); do echo "SCROLLTEST-$i"; done
 	h.sendKeys(scriptPath, "Enter")
 
 	// Wait for the last line to appear, confirming all output was generated
-	if !h.waitFor("SCROLLTEST-50", 5 * time.Second) {
-		screen := h.capture()
+	if !h.waitFor("SCROLLTEST-50", 5*time.Second) {
+		screen := h.captureOuter()
 		t.Fatalf("expected SCROLLTEST-50 in output\nScreen:\n%s", screen)
 	}
 
 	// Early lines should have scrolled off screen by now
-	screen := h.capture()
+	screen := h.captureOuter()
 	if strings.Contains(screen, "SCROLLTEST-01") {
 		t.Log("SCROLLTEST-01 still visible before copy mode, test may not validate scrollback")
 	}
 
 	// Enter copy mode
 	h.sendKeys("C-a", "[")
-	if !h.waitFor("[copy]", 3 * time.Second) {
-		screen = h.capture()
+	if !h.waitFor("[copy]", 3*time.Second) {
+		screen = h.captureOuter()
 		t.Fatalf("expected [copy] indicator\nScreen:\n%s", screen)
 	}
 
@@ -71,11 +71,12 @@ for i in $(seq -w 1 50); do echo "SCROLLTEST-$i"; done
 	for i := 0; i < 40; i++ {
 		h.sendKeys("k")
 	}
-	time.Sleep(400 * time.Millisecond)
 
-	// Verify earlier lines become visible after scrolling up
-	if !h.waitFor("SCROLLTEST-01", 3 * time.Second) {
-		screen = h.capture()
+	// Verify earlier lines become visible after scrolling up (client-side rendering)
+	if !waitForOuter(h, func(s string) bool {
+		return strings.Contains(s, "SCROLLTEST-01")
+	}, 3*time.Second) {
+		screen = h.captureOuter()
 		t.Fatalf("expected SCROLLTEST-01 to be visible after scrolling up in copy mode\nScreen:\n%s", screen)
 	}
 
@@ -85,19 +86,19 @@ for i in $(seq -w 1 50); do echo "SCROLLTEST-$i"; done
 
 func TestCopyModeSearch(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t)
+	h := newAmuxHarness(t)
 
 	// Generate output with a distinctive marker
 	h.sendKeys("e", "c", "h", "o", " ", "S", "E", "A", "R", "C", "H", "M", "A", "R", "K", "Enter")
-	if !h.waitFor("SEARCHMARK", 3 * time.Second) {
-		screen := h.capture()
+	if !h.waitFor("SEARCHMARK", 3*time.Second) {
+		screen := h.captureOuter()
 		t.Fatalf("expected SEARCHMARK in output\nScreen:\n%s", screen)
 	}
 
 	// Enter copy mode
 	h.sendKeys("C-a", "[")
-	if !h.waitFor("[copy]", 3 * time.Second) {
-		screen := h.capture()
+	if !h.waitFor("[copy]", 3*time.Second) {
+		screen := h.captureOuter()
 		t.Fatalf("expected [copy] indicator\nScreen:\n%s", screen)
 	}
 
@@ -111,101 +112,101 @@ func TestCopyModeSearch(t *testing.T) {
 
 	// Confirm search
 	h.sendKeys("Enter")
-	time.Sleep(400 * time.Millisecond)
 
 	// Verify copy mode is still active (search doesn't exit copy mode)
-	h.assertScreen("expected [copy] indicator to remain after search", func(s string) bool {
-		return strings.Contains(s, "[copy]")
-	})
+	if !h.waitFor("[copy]", 3*time.Second) {
+		screen := h.captureOuter()
+		t.Fatalf("expected [copy] indicator to remain after search\nScreen:\n%s", screen)
+	}
 
 	// Exit copy mode
 	h.sendKeys("q")
 
-	if !h.waitForFunc(func(s string) bool {
+	if !waitForOuter(h, func(s string) bool {
 		return !strings.Contains(s, "[copy]")
-	}, 3 * time.Second) {
-		screen := h.capture()
+	}, 3*time.Second) {
+		screen := h.captureOuter()
 		t.Fatalf("expected [copy] to disappear after exiting\nScreen:\n%s", screen)
 	}
 }
 
 func TestCopyModeCLI(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t)
+	h := newAmuxHarness(t)
 
 	// Enter copy mode via CLI command
 	h.runCmd("copy-mode", "pane-1")
 
-	// Verify [copy] indicator appears
-	if !h.waitFor("[copy]", 3 * time.Second) {
-		screen := h.capture()
+	// Verify [copy] indicator appears (client-side, check outer pane)
+	if !h.waitFor("[copy]", 3*time.Second) {
+		screen := h.captureOuter()
 		t.Fatalf("expected [copy] indicator after CLI copy-mode command\nScreen:\n%s", screen)
 	}
 
 	// Exit copy mode
 	h.sendKeys("q")
 
-	if !h.waitForFunc(func(s string) bool {
+	if !waitForOuter(h, func(s string) bool {
 		return !strings.Contains(s, "[copy]")
-	}, 3 * time.Second) {
-		screen := h.capture()
+	}, 3*time.Second) {
+		screen := h.captureOuter()
 		t.Fatalf("expected [copy] to disappear after pressing q\nScreen:\n%s", screen)
 	}
 }
 
 func TestCopyModeEscapeExit(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t)
+	h := newAmuxHarness(t)
 
 	// Enter copy mode
 	h.sendKeys("C-a", "[")
-	if !h.waitFor("[copy]", 3 * time.Second) {
-		screen := h.capture()
+	if !h.waitFor("[copy]", 3*time.Second) {
+		screen := h.captureOuter()
 		t.Fatalf("expected [copy] indicator\nScreen:\n%s", screen)
 	}
 
 	// Exit with Escape
 	h.sendKeys("Escape")
 
-	// Verify copy mode exits
-	if !h.waitForFunc(func(s string) bool {
+	// Verify copy mode exits (poll outer pane)
+	if !waitForOuter(h, func(s string) bool {
 		return !strings.Contains(s, "[copy]")
-	}, 3 * time.Second) {
-		screen := h.capture()
+	}, 3*time.Second) {
+		screen := h.captureOuter()
 		t.Fatalf("expected [copy] to disappear after pressing Escape\nScreen:\n%s", screen)
 	}
 }
 
 func TestCopyModeDoesNotForwardInput(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t)
+	h := newAmuxHarness(t)
 
 	// Enter copy mode
 	h.sendKeys("C-a", "[")
-	if !h.waitFor("[copy]", 3 * time.Second) {
-		screen := h.capture()
+	if !h.waitFor("[copy]", 3*time.Second) {
+		screen := h.captureOuter()
 		t.Fatalf("expected [copy] indicator\nScreen:\n%s", screen)
 	}
 
 	// Type characters that would be visible if forwarded to the shell
 	h.sendKeys("h", "e", "l", "l", "o")
-	time.Sleep(400 * time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
 
 	// Exit copy mode
 	h.sendKeys("q")
-	if !h.waitForFunc(func(s string) bool {
+	if !waitForOuter(h, func(s string) bool {
 		return !strings.Contains(s, "[copy]")
-	}, 3 * time.Second) {
-		screen := h.capture()
+	}, 3*time.Second) {
+		screen := h.captureOuter()
 		t.Fatalf("expected [copy] to disappear\nScreen:\n%s", screen)
 	}
 
 	// Wait a moment for any buffered input to be processed
-	time.Sleep(400 * time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
 
 	// Verify "hello" does NOT appear in the shell output
 	// (the characters should have been consumed by copy mode)
-	screen := h.capture()
+	screen := h.captureOuter()
 	if strings.Contains(screen, "hello") {
 		t.Errorf("copy mode should not forward input to the shell, but 'hello' appeared\nScreen:\n%s", screen)
 	}
@@ -221,11 +222,11 @@ func TestCopyModeResizeSurvives(t *testing.T) {
 	t.Cleanup(func() { os.Remove(scriptPath) })
 
 	h.sendKeys(scriptPath, "Enter")
-	h.waitFor("RESIZE-30", 5 * time.Second)
+	h.waitFor("RESIZE-30", 5*time.Second)
 
 	// Enter copy mode and scroll up
 	h.sendKeys("C-a", "[")
-	if !h.waitFor("[copy]", 3 * time.Second) {
+	if !h.waitFor("[copy]", 3*time.Second) {
 		t.Fatalf("expected [copy] indicator\nScreen:\n%s", h.capture())
 	}
 	for i := 0; i < 20; i++ {
@@ -246,7 +247,23 @@ func TestCopyModeResizeSurvives(t *testing.T) {
 	h.sendKeys("q")
 	if !h.waitForFunc(func(s string) bool {
 		return !strings.Contains(s, "[copy]")
-	}, 3 * time.Second) {
+	}, 3*time.Second) {
 		t.Fatalf("expected [copy] to disappear after q\nScreen:\n%s", h.capture())
 	}
+}
+
+// waitForOuter polls the outer pane capture until fn returns true or timeout
+// expires. Used for copy mode assertions where the [copy] indicator is
+// rendered client-side and only visible in the outer pane, not the inner
+// compositor.
+func waitForOuter(h *AmuxHarness, fn func(string) bool, timeout time.Duration) bool {
+	h.t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if fn(h.captureOuter()) {
+			return true
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	return false
 }
