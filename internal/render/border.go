@@ -196,7 +196,13 @@ func borderColor(a, b *mux.LayoutCell, x, y int, junction bool, activePaneID uin
 // findLeafByAxis finds the leaf pane adjacent to a border position.
 // Border cells sit between panes, so exact position may not be inside
 // any cell. We search by the perpendicular axis and use inclusive
-// bounds to catch boundary positions (junctions).
+// upper bounds (<=) to catch boundary positions at cell edges.
+//
+// Consequence: when (x, y) falls on an internal border within a subtree,
+// the FIRST child whose inclusive range covers it wins. This means callers
+// must choose probe offsets carefully — borderColor uses perpendicular
+// offsets for straight segments and diagonal offsets for junctions to
+// avoid landing on internal borders (see border.go).
 func findLeafByAxis(cell *mux.LayoutCell, x, y int) *mux.LayoutCell {
 	if cell.IsLeaf() {
 		// Use inclusive upper bound — border junctions sit at cell edges
