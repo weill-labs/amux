@@ -342,6 +342,8 @@ func runMux(sessionName string) error {
 				return
 			case server.MsgTypeBell:
 				msgCh <- &renderMsg{typ: renderMsgBell}
+			case server.MsgTypeClipboard:
+				msgCh <- &renderMsg{typ: renderMsgClipboard, data: msg.PaneData}
 			case server.MsgTypeServerReload:
 				// Server is reloading — re-exec ourselves to reconnect
 				select {

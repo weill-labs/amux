@@ -161,6 +161,14 @@ func (s *Session) createPaneWithMeta(srv *Server, meta mux.PaneMeta, cols, rows 
 		return nil, err
 	}
 
+	// Forward OSC 52 clipboard sequences to all connected clients
+	pane.SetOnClipboard(func(paneID uint32, data []byte) {
+		if s.shutdown.Load() {
+			return
+		}
+		s.broadcast(&Message{Type: MsgTypeClipboard, PaneID: paneID, PaneData: data})
+	})
+
 	s.Panes = append(s.Panes, pane)
 	return pane, nil
 }
@@ -448,6 +456,14 @@ func NewServerFromCheckpoint(cp *checkpoint.ServerCheckpoint) (*Server, error) {
 		if restoreErr != nil {
 			continue // Skip pane on restore failure
 		}
+
+		// Forward OSC 52 clipboard sequences to all connected clients
+		pane.SetOnClipboard(func(paneID uint32, data []byte) {
+			if sess.shutdown.Load() {
+				return
+			}
+			sess.broadcast(&Message{Type: MsgTypeClipboard, PaneID: paneID, PaneData: data})
+		})
 
 		pane.ReplayScreen(pc.Screen)
 		paneMap[pc.ID] = pane
