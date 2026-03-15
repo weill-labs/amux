@@ -5,30 +5,12 @@ import (
 	"strconv"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/weill-labs/amux/internal/config"
 )
 
-// Catppuccin Mocha hex → letter mapping for color maps.
-var catppuccinLetter = map[string]byte{
-	"f5e0dc": 'R', // Rosewater
-	"f2cdcd": 'F', // Flamingo
-	"f5c2e7": 'P', // Pink
-	"cba6f7": 'M', // Mauve
-	"f38ba8": 'E', // Red
-	"eba0ac": 'A', // Maroon
-	"fab387": 'H', // Peach
-	"f9e2af": 'Y', // Yellow
-	"a6e3a1": 'G', // Green
-	"94e2d5": 'T', // Teal
-	"89dceb": 'S', // Sky
-	"74c7ec": 'B', // Sapphire
-	"89b4fa": 'U', // Blue
-	"b4befe": 'L', // Lavender
-}
-
-const dimColorHex = "6c7086"
-
 var knownNonBorderColors = map[string]byte{
-	"cdd6f4": '|', // TextFg — global bar separators
+	config.TextColorHex: '|', // TextFg — global bar separators
 }
 
 // ExtractColorMap takes a raw ANSI capture stream and produces a human-readable
@@ -158,17 +140,14 @@ func extractFgHex(params string, current string) string {
 }
 
 func colorToLetter(hex string) byte {
-	if hex == dimColorHex {
+	if hex == "" || hex == config.DimColorHex {
 		return '.'
 	}
-	if l, ok := catppuccinLetter[hex]; ok {
+	if l, ok := config.CatppuccinLetters[hex]; ok {
 		return l
 	}
 	if l, ok := knownNonBorderColors[hex]; ok {
 		return l
-	}
-	if hex == "" {
-		return '.'
 	}
 	return '?'
 }
