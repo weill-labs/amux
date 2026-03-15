@@ -496,8 +496,16 @@ func (h *TmuxHarness) lines() []string {
 }
 
 // isGlobalBar returns true if the line looks like the global status bar.
+// Matches the structural pattern: " amux │ ... panes │ HH:MM "
 func isGlobalBar(line string) bool {
-	return strings.Contains(line, "amux") && strings.Contains(line, "panes")
+	return strings.Contains(line, " amux ") && strings.Contains(line, "panes │")
+}
+
+// hasWindowTab returns true if the global bar contains a tab for the given
+// 1-based window index (e.g., "1:window-" or "[2:window-").
+func hasWindowTab(bar string, index int) bool {
+	prefix := fmt.Sprintf("%d:window-", index)
+	return strings.Contains(bar, prefix)
 }
 
 // contentLines returns screen rows excluding the global status bar.

@@ -173,7 +173,9 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 		switch direction {
 		case "next", "left", "right", "up", "down":
 			w.Focus(direction)
+			name := w.ActivePane.Meta.Name
 			sess.mu.Unlock()
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: fmt.Sprintf("Focused %s\n", name)})
 		default:
 			// Treat as pane name or ID — reuse cross-window resolution
 			pane := cc.resolvePaneAcrossWindows(sess, "focus", direction)
@@ -184,7 +186,7 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 			// Switch to the pane's window and make it active
 			if pw := sess.FindWindowByPaneID(pane.ID); pw != nil {
 				sess.ActiveWindowID = pw.ID
-				pw.ActivePane = pane
+				pw.FocusPane(pane)
 			}
 			sess.mu.Unlock()
 			cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: fmt.Sprintf("Focused %s\n", pane.Meta.Name)})
@@ -317,6 +319,27 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 		cc.withPaneWindow(sess, "restore", msg.CmdArgs, func(p *mux.Pane, w *mux.Window) (string, error) {
 			return fmt.Sprintf("Restored %s\n", p.Meta.Name), w.Restore(p.ID)
 		})
+
+	case "toggle-minimize":
+		sess.mu.Lock()
+		w := sess.ActiveWindow()
+		if w == nil {
+			sess.mu.Unlock()
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "no active window"})
+			return
+		}
+		name, wasMinimized, err := w.ToggleMinimize()
+		sess.mu.Unlock()
+		if err != nil {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: err.Error()})
+			return
+		}
+		sess.broadcastLayout()
+		verb := "Restored"
+		if wasMinimized {
+			verb = "Minimized"
+		}
+		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: fmt.Sprintf("%s %s\n", verb, name)})
 
 	case "kill":
 		sess.mu.Lock()
@@ -480,6 +503,26 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 		}
 		sess.mu.Unlock()
 		sess.broadcastLayout()
+
+	case "resize-active":
+		if len(msg.CmdArgs) < 2 {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "usage: resize-active <direction> <delta>"})
+			return
+		}
+		direction := msg.CmdArgs[0]
+		delta, err := strconv.Atoi(msg.CmdArgs[1])
+		if err != nil {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "resize-active: invalid delta"})
+			return
+		}
+		sess.mu.Lock()
+		w := sess.ActiveWindow()
+		if w != nil {
+			w.ResizeActive(direction, delta)
+		}
+		sess.mu.Unlock()
+		sess.broadcastLayout()
+		cc.Send(&Message{Type: MsgTypeCmdResult})
 
 	case "swap":
 		sess.mu.Lock()

@@ -4,7 +4,8 @@ import "testing"
 
 // buildLayout creates a Window with manually positioned leaf cells for
 // testing directional focus. Each pane is placed at explicit (x,y,w,h)
-// coordinates — no splits needed.
+// coordinates — no splits needed. Window dimensions are computed as the
+// bounding box of all panes (accounting for 1-cell borders between them).
 func buildLayout(active uint32, panes []struct {
 	id         uint32
 	x, y, w, h int
@@ -13,21 +14,28 @@ func buildLayout(active uint32, panes []struct {
 		panic("buildLayout: need at least one pane")
 	}
 
-	// Create leaves
+	// Create leaves and compute bounding box for window dimensions.
 	leaves := make([]*LayoutCell, len(panes))
 	var activePane *Pane
+	var maxX, maxY int
 	for i, p := range panes {
 		pane := fakePaneID(p.id)
 		leaves[i] = NewLeaf(pane, p.x, p.y, p.w, p.h)
 		if p.id == active {
 			activePane = pane
 		}
+		if right := p.x + p.w; right > maxX {
+			maxX = right
+		}
+		if bottom := p.y + p.h; bottom > maxY {
+			maxY = bottom
+		}
 	}
 
 	// Wrap all leaves in a single horizontal parent (the exact tree
 	// structure doesn't matter — Focus() only uses Walk and cell geometry).
 	root := &LayoutCell{
-		X: 0, Y: 0, W: 200, H: 200,
+		X: 0, Y: 0, W: maxX, H: maxY,
 		Dir:      SplitHorizontal,
 		Children: leaves,
 	}
@@ -38,15 +46,20 @@ func buildLayout(active uint32, panes []struct {
 	return &Window{
 		Root:       root,
 		ActivePane: activePane,
-		Width:      200,
-		Height:     200,
+		Width:      maxX,
+		Height:     maxY,
 	}
 }
 
-func TestFocusUpWithOverlap(t *testing.T) {
+// ---------------------------------------------------------------------------
+// Directional Focus (LAB-147): tmux-style adjacency + overlap + wrapping
+// ---------------------------------------------------------------------------
+
+func TestFocusUpAdjacent(t *testing.T) {
 	t.Parallel()
-	// Two panes stacked vertically in the same column.
+	// Two panes stacked vertically, 1-cell border between them.
 	//   pane 1: (0,0)  40x12
+	//   border: y=12
 	//   pane 2: (0,13) 40x12  <- active
 	w := buildLayout(2, []struct {
 		id         uint32
@@ -63,112 +76,206 @@ func TestFocusUpWithOverlap(t *testing.T) {
 	}
 }
 
-func TestFocusUpNoOverlap(t *testing.T) {
+func TestFocusDownAdjacent(t *testing.T) {
 	t.Parallel()
-	// Two panes where the target is above but in a different column
-	// with no horizontal overlap.
-	//   pane 1: (0,0)   40x12   (columns 0-39)
-	//   pane 2: (50,20) 40x12   (columns 50-89) <- active
-	w := buildLayout(2, []struct {
-		id         uint32
-		x, y, w, h int
-	}{
-		{1, 0, 0, 40, 12},
-		{2, 50, 20, 40, 12},
-	})
-
-	w.Focus("up")
-
-	if w.ActivePane.ID != 1 {
-		t.Errorf("Focus(up) = pane %d, want pane 1 (fallback)", w.ActivePane.ID)
-	}
-}
-
-func TestFocusUpPrefersOverlap(t *testing.T) {
-	t.Parallel()
-	// Three panes:
-	//   pane 1: (0,0)   30x10  — above, no X overlap, closer by distance
-	//   pane 2: (50,5)  40x10  — above, HAS X overlap with active
-	//   pane 3: (50,20) 40x10  — active
-	//
-	// pane 1 center: (15, 5)   — distance from active center (70,25): dx=55, dy=20 → 3425
-	// pane 2 center: (70, 10)  — distance from active center (70,25): dx=0,  dy=15 → 225
-	//
-	// Both are "above" active. Pane 2 has X overlap and should win via
-	// the strict first pass, regardless of distance.
-	w := buildLayout(3, []struct {
-		id         uint32
-		x, y, w, h int
-	}{
-		{1, 0, 0, 30, 10},
-		{2, 50, 5, 40, 10},
-		{3, 50, 20, 40, 10},
-	})
-
-	w.Focus("up")
-
-	if w.ActivePane.ID != 2 {
-		t.Errorf("Focus(up) = pane %d, want pane 2 (overlap preferred)", w.ActivePane.ID)
-	}
-}
-
-func TestFocusLeftNoOverlap(t *testing.T) {
-	t.Parallel()
-	// Verify fallback works for the "left" direction too.
-	//   pane 1: (0,0)   30x10  (rows 0-9)
-	//   pane 2: (50,20) 30x10  (rows 20-29) <- active, no Y overlap
-	w := buildLayout(2, []struct {
-		id         uint32
-		x, y, w, h int
-	}{
-		{1, 0, 0, 30, 10},
-		{2, 50, 20, 30, 10},
-	})
-
-	w.Focus("left")
-
-	if w.ActivePane.ID != 1 {
-		t.Errorf("Focus(left) = pane %d, want pane 1 (fallback)", w.ActivePane.ID)
-	}
-}
-
-func TestFocusDownNoOverlap(t *testing.T) {
-	t.Parallel()
-	// Verify fallback works for the "down" direction.
-	//   pane 1: (0,0)   30x10  <- active
-	//   pane 2: (50,20) 30x10  — below, no X overlap
+	// Two panes stacked vertically. Active is top — down goes to bottom.
 	w := buildLayout(1, []struct {
 		id         uint32
 		x, y, w, h int
 	}{
-		{1, 0, 0, 30, 10},
-		{2, 50, 20, 30, 10},
+		{1, 0, 0, 40, 12},
+		{2, 0, 13, 40, 12},
 	})
 
 	w.Focus("down")
 
 	if w.ActivePane.ID != 2 {
-		t.Errorf("Focus(down) = pane %d, want pane 2 (fallback)", w.ActivePane.ID)
+		t.Errorf("Focus(down) = pane %d, want pane 2", w.ActivePane.ID)
 	}
 }
 
-func TestFocusRightNoOverlap(t *testing.T) {
+func TestFocusLeftAdjacent(t *testing.T) {
 	t.Parallel()
-	// Verify fallback works for the "right" direction.
-	//   pane 1: (0,0)   30x10  <- active
-	//   pane 2: (50,20) 30x10  — right, no Y overlap
+	// Two panes side by side, active is right.
+	w := buildLayout(2, []struct {
+		id         uint32
+		x, y, w, h int
+	}{
+		{1, 0, 0, 39, 24},
+		{2, 40, 0, 39, 24},
+	})
+
+	w.Focus("left")
+
+	if w.ActivePane.ID != 1 {
+		t.Errorf("Focus(left) = pane %d, want pane 1", w.ActivePane.ID)
+	}
+}
+
+func TestFocusRightAdjacent(t *testing.T) {
+	t.Parallel()
+	// Two panes side by side, active is left.
 	w := buildLayout(1, []struct {
 		id         uint32
 		x, y, w, h int
 	}{
-		{1, 0, 0, 30, 10},
-		{2, 50, 20, 30, 10},
+		{1, 0, 0, 39, 24},
+		{2, 40, 0, 39, 24},
 	})
 
 	w.Focus("right")
 
 	if w.ActivePane.ID != 2 {
-		t.Errorf("Focus(right) = pane %d, want pane 2 (fallback)", w.ActivePane.ID)
+		t.Errorf("Focus(right) = pane %d, want pane 2", w.ActivePane.ID)
+	}
+}
+
+func TestFocusUpWraps(t *testing.T) {
+	t.Parallel()
+	// Active pane is at top — up should wrap to bottom.
+	w := buildLayout(1, []struct {
+		id         uint32
+		x, y, w, h int
+	}{
+		{1, 0, 0, 40, 12},
+		{2, 0, 13, 40, 12},
+	})
+
+	w.Focus("up")
+
+	if w.ActivePane.ID != 2 {
+		t.Errorf("Focus(up) from top = pane %d, want pane 2 (wrap)", w.ActivePane.ID)
+	}
+}
+
+func TestFocusDownWraps(t *testing.T) {
+	t.Parallel()
+	// Active pane is at bottom — down should wrap to top.
+	w := buildLayout(2, []struct {
+		id         uint32
+		x, y, w, h int
+	}{
+		{1, 0, 0, 40, 12},
+		{2, 0, 13, 40, 12},
+	})
+
+	w.Focus("down")
+
+	if w.ActivePane.ID != 1 {
+		t.Errorf("Focus(down) from bottom = pane %d, want pane 1 (wrap)", w.ActivePane.ID)
+	}
+}
+
+func TestFocusLeftWraps(t *testing.T) {
+	t.Parallel()
+	// Active is leftmost — left should wrap to rightmost.
+	w := buildLayout(1, []struct {
+		id         uint32
+		x, y, w, h int
+	}{
+		{1, 0, 0, 39, 24},
+		{2, 40, 0, 39, 24},
+	})
+
+	w.Focus("left")
+
+	if w.ActivePane.ID != 2 {
+		t.Errorf("Focus(left) from leftmost = pane %d, want pane 2 (wrap)", w.ActivePane.ID)
+	}
+}
+
+func TestFocusRightWraps(t *testing.T) {
+	t.Parallel()
+	// Active is rightmost — right should wrap to leftmost.
+	w := buildLayout(2, []struct {
+		id         uint32
+		x, y, w, h int
+	}{
+		{1, 0, 0, 39, 24},
+		{2, 40, 0, 39, 24},
+	})
+
+	w.Focus("right")
+
+	if w.ActivePane.ID != 1 {
+		t.Errorf("Focus(right) from rightmost = pane %d, want pane 1 (wrap)", w.ActivePane.ID)
+	}
+}
+
+func TestFocusRecencyTiebreaker(t *testing.T) {
+	t.Parallel()
+	// Three panes in a row. Two are adjacent above the active pane,
+	// both with X overlap. The one with higher ActivePoint wins.
+	//
+	//   pane 1: (0,0)   20x10
+	//   pane 2: (21,0)  19x10   ← higher ActivePoint
+	//   border: y=10
+	//   pane 3: (0,11)  40x10   ← active
+	p1 := fakePaneID(1)
+	p2 := fakePaneID(2)
+	p3 := fakePaneID(3)
+	p1.ActivePoint = 5
+	p2.ActivePoint = 10
+
+	leaves := []*LayoutCell{
+		NewLeaf(p1, 0, 0, 20, 10),
+		NewLeaf(p2, 21, 0, 19, 10),
+		NewLeaf(p3, 0, 11, 40, 10),
+	}
+	root := &LayoutCell{
+		X: 0, Y: 0, W: 40, H: 21,
+		Dir:      SplitVertical,
+		Children: leaves,
+	}
+	for _, l := range leaves {
+		l.Parent = root
+	}
+	w := &Window{Root: root, ActivePane: p3, Width: 40, Height: 21}
+
+	w.Focus("up")
+
+	if w.ActivePane.ID != 2 {
+		t.Errorf("Focus(up) recency = pane %d, want pane 2 (higher ActivePoint)", w.ActivePane.ID)
+	}
+}
+
+func TestFocusActivePointIncremented(t *testing.T) {
+	t.Parallel()
+	// Verify that Focus() increments ActivePoint on the new active pane.
+	w := buildLayout(1, []struct {
+		id         uint32
+		x, y, w, h int
+	}{
+		{1, 0, 0, 40, 12},
+		{2, 0, 13, 40, 12},
+	})
+
+	w.Focus("down")
+
+	if w.ActivePane.ID != 2 {
+		t.Fatalf("Focus(down) = pane %d, want pane 2", w.ActivePane.ID)
+	}
+	if w.ActivePane.ActivePoint == 0 {
+		t.Error("ActivePoint not incremented after Focus()")
+	}
+}
+
+func TestFocusNoOverlapNoOp(t *testing.T) {
+	t.Parallel()
+	// Two panes that are NOT adjacent (gap between them) and have no
+	// perpendicular overlap. Focus should be a no-op.
+	w := buildLayout(2, []struct {
+		id         uint32
+		x, y, w, h int
+	}{
+		{1, 50, 0, 30, 10},
+		{2, 0, 20, 40, 10},
+	})
+
+	w.Focus("up")
+
+	if w.ActivePane.ID != 2 {
+		t.Errorf("Focus(up) with no adjacent pane = pane %d, want pane 2 (no-op)", w.ActivePane.ID)
 	}
 }
 

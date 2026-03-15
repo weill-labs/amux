@@ -106,13 +106,15 @@ func RebuildFromSnapshot(snap proto.LayoutSnapshot, paneMap map[uint32]*Pane) *W
 		}
 	}
 
-	return &Window{
+	w := &Window{
 		Root:         root,
 		ActivePane:   activePane,
 		Width:        snap.Width,
 		Height:       snap.Height,
 		ZoomedPaneID: snap.ZoomedPaneID,
 	}
+	w.recoverMinimizeSeq()
+	return w
 }
 
 // RebuildWindowFromSnapshot creates a server-side Window from a WindowSnapshot.
@@ -130,7 +132,7 @@ func RebuildWindowFromSnapshot(ws proto.WindowSnapshot, width, height int, paneM
 		})
 	}
 
-	return &Window{
+	w := &Window{
 		ID:           ws.ID,
 		Name:         ws.Name,
 		Root:         root,
@@ -139,6 +141,8 @@ func RebuildWindowFromSnapshot(ws proto.WindowSnapshot, width, height int, paneM
 		Height:       height,
 		ZoomedPaneID: ws.ZoomedPaneID,
 	}
+	w.recoverMinimizeSeq()
+	return w
 }
 
 func rebuildCellWithPanes(cs proto.CellSnapshot, paneMap map[uint32]*Pane) *LayoutCell {

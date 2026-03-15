@@ -87,6 +87,81 @@ func TestMinimizeRestore(t *testing.T) {
 	})
 }
 
+func TestToggleMinimizeKeybinding(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// Create a second pane (horizontal split)
+	h.sendKeys("C-a", "-")
+	h.waitFor("[pane-2]", 3*time.Second)
+
+	// Focus pane-1 and press Ctrl-a m to minimize it
+	h.runCmd("focus", "pane-1")
+	time.Sleep(300 * time.Millisecond)
+	h.sendKeys("C-a", "m")
+
+	// Verify pane-1 is minimized via status command
+	time.Sleep(500 * time.Millisecond)
+	statusOut := h.runCmd("status")
+	if !strings.Contains(statusOut, "1 minimized") {
+		t.Fatalf("expected 1 minimized pane after Ctrl-a m, got:\n%s", statusOut)
+	}
+
+	// Press Ctrl-a m again — should restore pane-1 (most recently minimized)
+	h.sendKeys("C-a", "m")
+
+	// Verify no panes are minimized
+	time.Sleep(500 * time.Millisecond)
+	statusOut = h.runCmd("status")
+	if !strings.Contains(statusOut, "0 minimized") {
+		t.Fatalf("expected 0 minimized panes after second Ctrl-a m, got:\n%s", statusOut)
+	}
+}
+
+func TestToggleMinimizeLIFO(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	// Create 3 panes
+	h.sendKeys("C-a", "-")
+	h.waitFor("[pane-2]", 3*time.Second)
+	h.sendKeys("C-a", "-")
+	h.waitFor("[pane-3]", 3*time.Second)
+
+	// Minimize pane-1 then pane-2 via CLI
+	h.runCmd("minimize", "pane-1")
+	time.Sleep(300 * time.Millisecond)
+	h.runCmd("minimize", "pane-2")
+	time.Sleep(300 * time.Millisecond)
+
+	// Toggle should restore pane-2 first (LIFO)
+	h.sendKeys("C-a", "m")
+	time.Sleep(500 * time.Millisecond)
+
+	// Verify: pane-2 restored (1 minimized remains = pane-1)
+	statusOut := h.runCmd("status")
+	if !strings.Contains(statusOut, "1 minimized") {
+		t.Fatalf("expected 1 minimized after first toggle (pane-1 still minimized), got:\n%s", statusOut)
+	}
+	// Confirm pane-2 is restored by trying to minimize it (should succeed, not error)
+	out := h.runCmd("minimize", "pane-2")
+	if strings.Contains(out, "already minimized") {
+		t.Errorf("pane-2 should have been restored by LIFO toggle, got:\n%s", out)
+	}
+	// Undo: restore pane-2 back for next step
+	h.runCmd("restore", "pane-2")
+	time.Sleep(300 * time.Millisecond)
+
+	// Toggle again should restore pane-1
+	h.sendKeys("C-a", "m")
+	time.Sleep(500 * time.Millisecond)
+
+	statusOut = h.runCmd("status")
+	if !strings.Contains(statusOut, "0 minimized") {
+		t.Fatalf("expected 0 minimized after second toggle, got:\n%s", statusOut)
+	}
+}
+
 func TestKill(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)

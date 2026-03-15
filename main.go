@@ -196,10 +196,14 @@ Inside an amux session:
   Ctrl-a |                           Root-level split left/right
   Ctrl-a _                           Root-level split top/bottom
   Ctrl-a z                           Toggle zoom on active pane
+  Ctrl-a m                           Toggle minimize/restore
   Ctrl-a }                           Swap active pane with next
   Ctrl-a {                           Swap active pane with previous
   Ctrl-a o                           Cycle focus to next pane
   Ctrl-a h/j/k/l                     Focus left/down/up/right
+  Ctrl-a arrow keys                  Focus in arrow direction
+  Alt+h/j/k/l                        Focus left/down/up/right (no prefix)
+  Ctrl-a H/J/K/L                     Resize pane left/down/up/right
   Ctrl-a [                           Enter copy/scroll mode
   Ctrl-a c                           Create new window
   Ctrl-a n                           Next window
@@ -406,80 +410,185 @@ func runMux(sessionName string) error {
 	go func() {
 		buf := make([]byte, 4096)
 		prefix := false
+		prefixEsc := false      // true after Ctrl-a then \x1b
+		var prefixEscBuf []byte  // buffered bytes after the \x1b
+		altEsc := false          // true after bare \x1b (for alt+hjkl)
 		mouseParser := &mouse.Parser{}
 
 		// Mouse drag state — caches border direction from initial press
 		var drag dragState
 
+		// arrowDirection maps CSI final bytes to focus directions.
+		arrowDirection := map[byte]string{
+			'A': "up", 'B': "down", 'C': "right", 'D': "left",
+		}
+
+		// altHJKL maps alt+key bytes to focus directions.
+		altHJKL := map[byte]string{
+			'h': "left", 'j': "down", 'k': "up", 'l': "right",
+		}
+
+		// flushPrefixEsc forwards the buffered prefix+escape bytes as literal input.
+		flushPrefixEsc := func(forward *[]byte) {
+			prefixEsc = false
+			*forward = append(*forward, 0x01, 0x1b)
+			*forward = append(*forward, prefixEscBuf...)
+			prefixEscBuf = nil
+		}
+
+		// Repeat key state — allows navigation/resize keys to repeat
+		// without re-pressing the prefix, matching tmux's -r behavior.
+		// Uses a deadline instead of a timer to avoid goroutine races.
+		const repeatTimeout = 500 * time.Millisecond
+		var repeatKey byte
+		var repeatDeadline time.Time
+
+		// isRepeatableKey returns true for keys that can repeat without prefix.
+		isRepeatableKey := func(b byte) bool {
+			switch b {
+			case 'h', 'j', 'k', 'l', 'H', 'J', 'K', 'L':
+				return true
+			}
+			return false
+		}
+
+		// execPrefixKey executes a prefix keybinding. Returns true if
+		// the goroutine should exit (detach).
+		execPrefixKey := func(b byte, forward *[]byte) bool {
+			switch b {
+			case 'd':
+				if len(*forward) > 0 {
+					server.WriteMsg(conn, &server.Message{
+						Type: server.MsgTypeInput, Input: *forward,
+					})
+				}
+				server.WriteMsg(conn, &server.Message{Type: server.MsgTypeDetach})
+				conn.Close()
+				return true
+			case '-':
+				sendCommand(conn, "split", []string{"v"})
+			case '\\':
+				sendCommand(conn, "split", nil)
+			case '|':
+				sendCommand(conn, "split", []string{"root"})
+			case '_':
+				sendCommand(conn, "split", []string{"root", "v"})
+			case '}':
+				sendCommand(conn, "swap", []string{"forward"})
+			case '{':
+				sendCommand(conn, "swap", []string{"backward"})
+			case 'o':
+				sendCommand(conn, "focus", []string{"next"})
+			case 'h':
+				sendCommand(conn, "focus", []string{"left"})
+			case 'l':
+				sendCommand(conn, "focus", []string{"right"})
+			case 'k':
+				sendCommand(conn, "focus", []string{"up"})
+			case 'j':
+				sendCommand(conn, "focus", []string{"down"})
+			case 'H':
+				sendCommand(conn, "resize-active", []string{"left", "2"})
+			case 'J':
+				sendCommand(conn, "resize-active", []string{"down", "2"})
+			case 'K':
+				sendCommand(conn, "resize-active", []string{"up", "2"})
+			case 'L':
+				sendCommand(conn, "resize-active", []string{"right", "2"})
+			case 'z':
+				sendCommand(conn, "zoom", nil)
+			case 'm':
+				sendCommand(conn, "toggle-minimize", nil)
+			case '[':
+				cr.EnterCopyMode(cr.ActivePaneID())
+				if data := cr.Render(); data != nil {
+					os.Stdout.Write(data)
+				}
+			case 'c':
+				sendCommand(conn, "new-window", nil)
+			case 'n':
+				sendCommand(conn, "next-window", nil)
+			case 'p':
+				sendCommand(conn, "prev-window", nil)
+			case '1', '2', '3', '4', '5', '6', '7', '8', '9':
+				sendCommand(conn, "select-window", []string{string(b)})
+			case 'r':
+				if len(*forward) > 0 {
+					server.WriteMsg(conn, &server.Message{
+						Type: server.MsgTypeInput, Input: *forward,
+					})
+					*forward = nil
+				}
+				select {
+				case triggerReload <- struct{}{}:
+				default:
+				}
+			case 0x1b:
+				prefixEsc = true
+				prefixEscBuf = nil
+			case 0x01:
+				*forward = append(*forward, 0x01)
+			default:
+				*forward = append(*forward, 0x01, b)
+			}
+			return false
+		}
+
 		// processKeyByte handles a single non-mouse byte through the
 		// Ctrl-a prefix system. Returns true if the goroutine should exit.
 		processKeyByte := func(b byte, forward *[]byte) bool {
+			// Handle alt+hjkl: after a bare \x1b, check if next byte is h/j/k/l.
+			if altEsc {
+				altEsc = false
+				if dir, ok := altHJKL[b]; ok {
+					sendCommand(conn, "focus", []string{dir})
+					return false
+				}
+				// Not alt+hjkl — forward the \x1b and process this byte normally.
+				*forward = append(*forward, 0x1b)
+				// Fall through to handle b via the rest of processKeyByte.
+			}
+
+			// Handle escape sequence buffering for prefix + arrow keys.
+			// After Ctrl-a \x1b, we buffer bytes looking for CSI arrow: \x1b[A/B/C/D.
+			if prefixEsc {
+				prefixEscBuf = append(prefixEscBuf, b)
+				if len(prefixEscBuf) == 1 && b == '[' {
+					return false // waiting for direction byte
+				}
+				if len(prefixEscBuf) == 2 && prefixEscBuf[0] == '[' {
+					if dir, ok := arrowDirection[b]; ok {
+						prefixEsc = false
+						prefixEscBuf = nil
+						sendCommand(conn, "focus", []string{dir})
+					} else {
+						flushPrefixEsc(forward)
+					}
+					return false
+				}
+				flushPrefixEsc(forward)
+				return false
+			}
+
+			// Repeat mode: any repeatable key executes without prefix while
+			// the deadline hasn't expired. Matches tmux behavior where all
+			// repeatable bindings stay active, not just the original key.
+			if repeatKey != 0 {
+				if isRepeatableKey(b) && time.Now().Before(repeatDeadline) {
+					repeatKey = b
+					repeatDeadline = time.Now().Add(repeatTimeout)
+					return execPrefixKey(b, forward)
+				}
+				repeatKey = 0
+			}
+
 			if prefix {
 				prefix = false
-				switch b {
-				case 'd':
-					if len(*forward) > 0 {
-						server.WriteMsg(conn, &server.Message{
-							Type: server.MsgTypeInput, Input: *forward,
-						})
-					}
-					server.WriteMsg(conn, &server.Message{Type: server.MsgTypeDetach})
-					conn.Close()
-					return true
-				case '-':
-					sendCommand(conn, "split", []string{"v"})
-				case '\\':
-					sendCommand(conn, "split", nil)
-				case '|':
-					sendCommand(conn, "split", []string{"root"})
-				case '_':
-					sendCommand(conn, "split", []string{"root", "v"})
-				case '}':
-					sendCommand(conn, "swap", []string{"forward"})
-				case '{':
-					sendCommand(conn, "swap", []string{"backward"})
-				case 'o':
-					sendCommand(conn, "focus", []string{"next"})
-				case 'h':
-					sendCommand(conn, "focus", []string{"left"})
-				case 'l':
-					sendCommand(conn, "focus", []string{"right"})
-				case 'k':
-					sendCommand(conn, "focus", []string{"up"})
-				case 'j':
-					sendCommand(conn, "focus", []string{"down"})
-				case 'z':
-					sendCommand(conn, "zoom", nil)
-				case '[':
-					cr.EnterCopyMode(cr.ActivePaneID())
-					if data := cr.Render(); data != nil {
-						os.Stdout.Write(data)
-					}
-				case 'c':
-					sendCommand(conn, "new-window", nil)
-				case 'n':
-					sendCommand(conn, "next-window", nil)
-				case 'p':
-					sendCommand(conn, "prev-window", nil)
-				case '1', '2', '3', '4', '5', '6', '7', '8', '9':
-					sendCommand(conn, "select-window", []string{string(b)})
-				case 'r':
-					if len(*forward) > 0 {
-						server.WriteMsg(conn, &server.Message{
-							Type: server.MsgTypeInput, Input: *forward,
-						})
-						*forward = nil
-					}
-					select {
-					case triggerReload <- struct{}{}:
-					default:
-					}
-				case 0x01:
-					*forward = append(*forward, 0x01)
-				default:
-					*forward = append(*forward, 0x01, b)
+				if isRepeatableKey(b) {
+					repeatKey = b
+					repeatDeadline = time.Now().Add(repeatTimeout)
 				}
-				return false
+				return execPrefixKey(b, forward)
 			}
 
 			if b == 0x01 {
@@ -490,6 +599,11 @@ func runMux(sessionName string) error {
 					*forward = nil
 				}
 				prefix = true
+				return false
+			}
+
+			if b == 0x1b {
+				altEsc = true
 				return false
 			}
 
