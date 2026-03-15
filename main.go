@@ -164,6 +164,10 @@ func main() {
 			os.Exit(1)
 		}
 		runServerCommand("wait-for", args[1:])
+	case "clipboard-gen":
+		runServerCommand("clipboard-gen", nil)
+	case "wait-clipboard":
+		runServerCommand("wait-clipboard", args[1:])
 	case "reload-server":
 		runServerCommand("reload-server", nil)
 	case "dashboard":

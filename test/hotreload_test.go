@@ -59,30 +59,30 @@ func TestHotReloadAutoDetect(t *testing.T) {
 
 func TestServerHotReload(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t)
+	h := newAmuxHarness(t)
 
-	h.sendKeys("e", "c", "h", "o", " ", "B", "E", "F", "O", "R", "E", "R", "L", "D", "Enter")
-	h.waitFor("BEFORERLD", 3 * time.Second)
+	h.sendKeys("echo BEFORERLD", "Enter")
+	h.waitFor("BEFORERLD", 3*time.Second)
 
 	h.splitV()
 
 	h.runCmd("reload-server")
 
-	if !h.waitFor("[pane-", 10 * time.Second) {
-		screen := h.capture()
+	if !h.waitFor("[pane-", 5*time.Second) {
+		screen := h.captureOuter()
 		t.Fatalf("session did not recover after reload-server\nScreen:\n%s", screen)
 	}
 
 	if !h.waitForFunc(func(s string) bool {
 		return strings.Contains(s, "[pane-1]") && strings.Contains(s, "[pane-2]")
-	}, 5 * time.Second) {
-		screen := h.capture()
+	}, 5*time.Second) {
+		screen := h.captureOuter()
 		t.Fatalf("both panes should be visible after reload\nScreen:\n%s", screen)
 	}
 
-	h.sendKeys("e", "c", "h", "o", " ", "A", "F", "T", "E", "R", "R", "L", "D", "Enter")
-	if !h.waitFor("AFTERRLD", 5 * time.Second) {
-		screen := h.capture()
+	h.sendKeys("echo AFTERRLD", "Enter")
+	if !h.waitFor("AFTERRLD", 5*time.Second) {
+		screen := h.captureOuter()
 		t.Fatalf("PTY should work after reload\nScreen:\n%s", screen)
 	}
 
@@ -116,12 +116,11 @@ func TestServerAutoReload(t *testing.T) {
 
 func TestServerReloadWithMinimizedPane(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t)
+	h := newAmuxHarness(t)
 
 	h.splitH()
 
 	h.runCmd("minimize", "pane-1")
-	time.Sleep(400 * time.Millisecond)
 
 	statusBefore := h.runCmd("status")
 	if !strings.Contains(statusBefore, "1 minimized") {
@@ -130,15 +129,15 @@ func TestServerReloadWithMinimizedPane(t *testing.T) {
 
 	h.runCmd("reload-server")
 
-	if !h.waitFor("[pane-", 10 * time.Second) {
-		screen := h.capture()
+	if !h.waitFor("[pane-", 5*time.Second) {
+		screen := h.captureOuter()
 		t.Fatalf("session did not recover after reload\nScreen:\n%s", screen)
 	}
 
 	if !h.waitForFunc(func(s string) bool {
 		return strings.Contains(s, "[pane-1]") && strings.Contains(s, "[pane-2]")
-	}, 5 * time.Second) {
-		screen := h.capture()
+	}, 5*time.Second) {
+		screen := h.captureOuter()
 		t.Fatalf("both panes should be visible after reload\nScreen:\n%s", screen)
 	}
 
@@ -150,61 +149,59 @@ func TestServerReloadWithMinimizedPane(t *testing.T) {
 
 func TestServerReloadMinimizedPanePreservesContent(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t)
+	h := newAmuxHarness(t)
 
-	h.sendKeys("C-a", "-")
-	h.waitFor("[pane-2]", 3*time.Second)
+	h.splitH()
 
 	// Put content in pane-1
-	h.runCmd("focus", "pane-1")
-	time.Sleep(200 * time.Millisecond)
+	gen := h.generation()
+	h.sendKeys("C-a", "h")
+	h.waitLayout(gen)
 	h.sendKeys("echo RELOAD_MARKER", "Enter")
 	h.waitFor("RELOAD_MARKER", 3*time.Second)
 
 	// Minimize pane-1, then reload server
 	h.runCmd("minimize", "pane-1")
-	time.Sleep(500 * time.Millisecond)
 	h.runCmd("reload-server")
 
-	if !h.waitFor("[pane-", 10*time.Second) {
-		t.Fatalf("session did not recover after reload\nScreen:\n%s", h.capture())
+	if !h.waitFor("[pane-", 5*time.Second) {
+		t.Fatalf("session did not recover after reload\nScreen:\n%s", h.captureOuter())
 	}
 
 	// Restore pane-1 and verify content survived
 	h.runCmd("restore", "pane-1")
-	time.Sleep(1 * time.Second)
 
-	paneOut := h.runCmd("capture", "pane-1")
-	if !strings.Contains(paneOut, "RELOAD_MARKER") {
+	if !h.waitFor("RELOAD_MARKER", 5*time.Second) {
+		paneOut := h.runCmd("capture", "pane-1")
 		t.Fatalf("minimized pane content should survive server reload, got:\n%s", paneOut)
 	}
 }
 
 func TestServerReloadBorderColors(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t)
+	h := newAmuxHarness(t)
 
 	h.splitV()
 
+	gen := h.generation()
 	h.sendKeys("C-a", "h")
-	time.Sleep(400 * time.Millisecond)
+	h.waitLayout(gen)
 
 	ansiBefore := h.captureANSI()
 	colorsBefore := extractBorderColors(pickContentLine(ansiBefore))
 
 	h.runCmd("reload-server")
 
-	if !h.waitFor("[pane-", 10 * time.Second) {
-		screen := h.capture()
+	if !h.waitFor("[pane-", 5*time.Second) {
+		screen := h.captureOuter()
 		t.Fatalf("session did not recover after reload\nScreen:\n%s", screen)
 	}
 	if !h.waitForFunc(func(s string) bool {
 		return strings.Contains(s, "[pane-1]") && strings.Contains(s, "[pane-2]")
-	}, 5 * time.Second) {
-		screen := h.capture()
+	}, 5*time.Second) {
+		screen := h.captureOuter()
 		t.Fatalf("both panes should be visible after reload\nScreen:\n%s", screen)
 	}
-	time.Sleep(400 * time.Millisecond)
 
 	ansiAfter := h.captureANSI()
 	colorsAfter := extractBorderColors(pickContentLine(ansiAfter))

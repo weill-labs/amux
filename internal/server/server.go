@@ -54,6 +54,13 @@ type Session struct {
 	// a substring appears in a pane's screen content.
 	paneOutputSubs map[uint32][]chan struct{}
 	paneOutputMu   sync.Mutex
+
+	// Clipboard generation counter — incremented on every OSC 52 clipboard
+	// event. Used by wait-clipboard to block until a clipboard write occurs.
+	clipboardGen     atomic.Uint64
+	clipboardMu      sync.Mutex
+	clipboardCond    *sync.Cond
+	lastClipboardB64 string // last clipboard payload (base64), protected by clipboardMu
 }
 
 // ActiveWindow returns the currently active window, or nil.
@@ -173,13 +180,20 @@ func (s *Session) broadcast(msg *Message) {
 }
 
 // clipboardCallback returns the onClipboard callback for panes in this session.
-// It forwards OSC 52 clipboard sequences to all connected clients.
+// It forwards OSC 52 clipboard sequences to all connected clients and
+// increments the clipboard generation counter for wait-clipboard.
 func (s *Session) clipboardCallback() func(paneID uint32, data []byte) {
 	return func(paneID uint32, data []byte) {
 		if s.shutdown.Load() {
 			return
 		}
 		s.broadcast(&Message{Type: MsgTypeClipboard, PaneID: paneID, PaneData: data})
+
+		s.clipboardMu.Lock()
+		s.lastClipboardB64 = string(data)
+		s.clipboardGen.Add(1)
+		s.clipboardCond.Broadcast()
+		s.clipboardMu.Unlock()
 	}
 }
 
@@ -510,6 +524,31 @@ func (s *Session) waitGeneration(afterGen uint64, timeout time.Duration) (uint64
 	}
 }
 
+// waitClipboard blocks until the clipboard generation exceeds afterGen or
+// timeout expires. Returns the last clipboard payload and whether it matched.
+func (s *Session) waitClipboard(afterGen uint64, timeout time.Duration) (string, bool) {
+	deadline := time.Now().Add(timeout)
+	timer := time.AfterFunc(timeout, func() {
+		s.clipboardMu.Lock()
+		s.clipboardCond.Broadcast()
+		s.clipboardMu.Unlock()
+	})
+	defer timer.Stop()
+
+	s.clipboardMu.Lock()
+	defer s.clipboardMu.Unlock()
+	for {
+		gen := s.clipboardGen.Load()
+		if gen > afterGen {
+			return s.lastClipboardB64, true
+		}
+		if time.Now().After(deadline) {
+			return "", false
+		}
+		s.clipboardCond.Wait()
+	}
+}
+
 // BuildVersion is set by main at startup for version reporting in status.
 var BuildVersion string
 
@@ -558,6 +597,7 @@ func NewServer(sessionName string) (*Server, error) {
 
 	sess := &Session{Name: sessionName}
 	sess.generationCond = sync.NewCond(&sess.generationMu)
+	sess.clipboardCond = sync.NewCond(&sess.clipboardMu)
 
 	s := &Server{
 		listener: listener,
@@ -714,6 +754,7 @@ func NewServerFromCheckpoint(cp *checkpoint.ServerCheckpoint) (*Server, error) {
 
 	sess := &Session{Name: cp.SessionName}
 	sess.generationCond = sync.NewCond(&sess.generationMu)
+	sess.clipboardCond = sync.NewCond(&sess.clipboardMu)
 	sess.counter.Store(cp.Counter)
 	sess.windowCounter.Store(cp.WindowCounter)
 

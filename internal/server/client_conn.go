@@ -666,6 +666,44 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 		}
 		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: fmt.Sprintf("%d\n", gen)})
 
+	case "clipboard-gen":
+		gen := sess.clipboardGen.Load()
+		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: fmt.Sprintf("%d\n", gen)})
+
+	case "wait-clipboard":
+		var afterGen uint64
+		timeout := 3 * time.Second
+		for i := 0; i < len(msg.CmdArgs); i++ {
+			switch msg.CmdArgs[i] {
+			case "--after":
+				if i+1 < len(msg.CmdArgs) {
+					i++
+					n, err := strconv.ParseUint(msg.CmdArgs[i], 10, 64)
+					if err != nil {
+						cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("invalid generation: %s", msg.CmdArgs[i])})
+						return
+					}
+					afterGen = n
+				}
+			case "--timeout":
+				if i+1 < len(msg.CmdArgs) {
+					i++
+					d, err := time.ParseDuration(msg.CmdArgs[i])
+					if err != nil {
+						cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("invalid timeout: %s", msg.CmdArgs[i])})
+						return
+					}
+					timeout = d
+				}
+			}
+		}
+		data, ok := sess.waitClipboard(afterGen, timeout)
+		if !ok {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "timeout waiting for clipboard event"})
+			return
+		}
+		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: data + "\n"})
+
 	case "wait-for":
 		if len(msg.CmdArgs) < 2 {
 			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "usage: wait-for <pane> <substring> [--timeout <duration>]"})

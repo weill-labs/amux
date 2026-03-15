@@ -42,17 +42,10 @@ func newAmuxHarness(t *testing.T) *AmuxHarness {
 	// Launch inner amux inside the outer pane.
 	outer.sendKeys("pane-1", amuxBin+" -s "+inner, "Enter")
 
-	// Wait for the inner amux client to render (status bar appears in outer pane).
+	// Wait for the inner amux client to render (status bar appears in outer
+	// pane). Once the client has rendered, the inner server is guaranteed to
+	// be accepting connections — no polling loop needed.
 	outer.waitFor("pane-1", "[pane-")
-
-	// Verify the inner server socket is reachable.
-	for i := 0; i < 50; i++ {
-		out := h.runCmd("list")
-		if strings.Contains(out, "pane-1") {
-			break
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
 
 	t.Cleanup(h.cleanup)
 	return h
