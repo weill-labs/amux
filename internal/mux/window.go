@@ -258,53 +258,50 @@ func (w *Window) Focus(direction string) {
 
 // findDirectional finds the best pane in the given direction from activeCell.
 // If wrap is true, searches from the opposite window edge instead.
+//
+// The algorithm checks two things for each candidate pane:
+//   - Adjacency: the candidate's edge touches the active pane's edge (with 1-cell border)
+//   - Perpendicular overlap: the candidate shares some range along the other axis
+//
+// Among matching candidates, the most recently active pane wins (recency tiebreaker).
 func (w *Window) findDirectional(activeCell *LayoutCell, direction string, wrap bool) *LayoutCell {
-	var edge int
-	var rangeStart, rangeEnd int
+	// vertical means we're moving along the Y axis (up/down).
+	// checkNear means adjacency is checked against the candidate's near edge
+	// (Y for down, X for right) rather than its far edge (Y+H for up, X+W for left).
+	vertical := direction == "up" || direction == "down"
+	checkNear := direction == "down" || direction == "right"
 
-	// isAdjacent checks whether a candidate cell's far edge meets the target edge.
-	// candRange returns the candidate's perpendicular extent (start, end).
-	// Both are set once per direction to avoid re-dispatching inside the Walk closure.
-	var isAdjacent func(cell *LayoutCell) bool
-	var candRange func(cell *LayoutCell) (int, int)
-
+	// Compute the edge that candidates must be adjacent to, and the
+	// perpendicular range they must overlap with.
+	var edge, rangeStart, rangeEnd int
 	switch direction {
 	case "up":
 		edge = activeCell.Y
 		if wrap {
 			edge = w.Height + 1
 		}
-		rangeStart = activeCell.X
-		rangeEnd = activeCell.X + activeCell.W
-		isAdjacent = func(c *LayoutCell) bool { return c.Y+c.H+1 == edge }
-		candRange = func(c *LayoutCell) (int, int) { return c.X, c.X + c.W }
 	case "down":
 		edge = activeCell.Y + activeCell.H + 1
 		if wrap {
 			edge = 0
 		}
-		rangeStart = activeCell.X
-		rangeEnd = activeCell.X + activeCell.W
-		isAdjacent = func(c *LayoutCell) bool { return c.Y == edge }
-		candRange = func(c *LayoutCell) (int, int) { return c.X, c.X + c.W }
 	case "left":
 		edge = activeCell.X
 		if wrap {
 			edge = w.Width + 1
 		}
-		rangeStart = activeCell.Y
-		rangeEnd = activeCell.Y + activeCell.H
-		isAdjacent = func(c *LayoutCell) bool { return c.X+c.W+1 == edge }
-		candRange = func(c *LayoutCell) (int, int) { return c.Y, c.Y + c.H }
 	case "right":
 		edge = activeCell.X + activeCell.W + 1
 		if wrap {
 			edge = 0
 		}
+	}
+	if vertical {
+		rangeStart = activeCell.X
+		rangeEnd = activeCell.X + activeCell.W
+	} else {
 		rangeStart = activeCell.Y
 		rangeEnd = activeCell.Y + activeCell.H
-		isAdjacent = func(c *LayoutCell) bool { return c.X == edge }
-		candRange = func(c *LayoutCell) (int, int) { return c.Y, c.Y + c.H }
 	}
 
 	var best *LayoutCell
@@ -315,12 +312,30 @@ func (w *Window) findDirectional(activeCell *LayoutCell, direction string, wrap 
 			return
 		}
 
-		if !isAdjacent(cell) {
+		// Check adjacency: candidate's edge must be exactly at our edge.
+		var candEdge, candStart, candEnd int
+		if vertical {
+			candStart = cell.X
+			candEnd = cell.X + cell.W
+			if checkNear {
+				candEdge = cell.Y
+			} else {
+				candEdge = cell.Y + cell.H + 1
+			}
+		} else {
+			candStart = cell.Y
+			candEnd = cell.Y + cell.H
+			if checkNear {
+				candEdge = cell.X
+			} else {
+				candEdge = cell.X + cell.W + 1
+			}
+		}
+		if candEdge != edge {
 			return
 		}
 
 		// Check perpendicular overlap (half-open interval intersection).
-		candStart, candEnd := candRange(cell)
 		if candStart >= rangeEnd || candEnd <= rangeStart {
 			return
 		}

@@ -4,7 +4,8 @@ import "testing"
 
 // buildLayout creates a Window with manually positioned leaf cells for
 // testing directional focus. Each pane is placed at explicit (x,y,w,h)
-// coordinates — no splits needed.
+// coordinates — no splits needed. Window dimensions are computed as the
+// bounding box of all panes (accounting for 1-cell borders between them).
 func buildLayout(active uint32, panes []struct {
 	id         uint32
 	x, y, w, h int
@@ -13,21 +14,28 @@ func buildLayout(active uint32, panes []struct {
 		panic("buildLayout: need at least one pane")
 	}
 
-	// Create leaves
+	// Create leaves and compute bounding box for window dimensions.
 	leaves := make([]*LayoutCell, len(panes))
 	var activePane *Pane
+	var maxX, maxY int
 	for i, p := range panes {
 		pane := fakePaneID(p.id)
 		leaves[i] = NewLeaf(pane, p.x, p.y, p.w, p.h)
 		if p.id == active {
 			activePane = pane
 		}
+		if right := p.x + p.w; right > maxX {
+			maxX = right
+		}
+		if bottom := p.y + p.h; bottom > maxY {
+			maxY = bottom
+		}
 	}
 
 	// Wrap all leaves in a single horizontal parent (the exact tree
 	// structure doesn't matter — Focus() only uses Walk and cell geometry).
 	root := &LayoutCell{
-		X: 0, Y: 0, W: 200, H: 200,
+		X: 0, Y: 0, W: maxX, H: maxY,
 		Dir:      SplitHorizontal,
 		Children: leaves,
 	}
@@ -38,8 +46,8 @@ func buildLayout(active uint32, panes []struct {
 	return &Window{
 		Root:       root,
 		ActivePane: activePane,
-		Width:      200,
-		Height:     200,
+		Width:      maxX,
+		Height:     maxY,
 	}
 }
 
@@ -60,8 +68,6 @@ func TestFocusUpAdjacent(t *testing.T) {
 		{1, 0, 0, 40, 12},
 		{2, 0, 13, 40, 12},
 	})
-	w.Width = 40
-	w.Height = 25
 
 	w.Focus("up")
 
@@ -80,8 +86,6 @@ func TestFocusDownAdjacent(t *testing.T) {
 		{1, 0, 0, 40, 12},
 		{2, 0, 13, 40, 12},
 	})
-	w.Width = 40
-	w.Height = 25
 
 	w.Focus("down")
 
@@ -100,8 +104,6 @@ func TestFocusLeftAdjacent(t *testing.T) {
 		{1, 0, 0, 39, 24},
 		{2, 40, 0, 39, 24},
 	})
-	w.Width = 79
-	w.Height = 24
 
 	w.Focus("left")
 
@@ -120,8 +122,6 @@ func TestFocusRightAdjacent(t *testing.T) {
 		{1, 0, 0, 39, 24},
 		{2, 40, 0, 39, 24},
 	})
-	w.Width = 79
-	w.Height = 24
 
 	w.Focus("right")
 
@@ -140,8 +140,6 @@ func TestFocusUpWraps(t *testing.T) {
 		{1, 0, 0, 40, 12},
 		{2, 0, 13, 40, 12},
 	})
-	w.Width = 40
-	w.Height = 25
 
 	w.Focus("up")
 
@@ -160,8 +158,6 @@ func TestFocusDownWraps(t *testing.T) {
 		{1, 0, 0, 40, 12},
 		{2, 0, 13, 40, 12},
 	})
-	w.Width = 40
-	w.Height = 25
 
 	w.Focus("down")
 
@@ -180,8 +176,6 @@ func TestFocusLeftWraps(t *testing.T) {
 		{1, 0, 0, 39, 24},
 		{2, 40, 0, 39, 24},
 	})
-	w.Width = 79
-	w.Height = 24
 
 	w.Focus("left")
 
@@ -200,8 +194,6 @@ func TestFocusRightWraps(t *testing.T) {
 		{1, 0, 0, 39, 24},
 		{2, 40, 0, 39, 24},
 	})
-	w.Width = 79
-	w.Height = 24
 
 	w.Focus("right")
 
@@ -257,8 +249,6 @@ func TestFocusActivePointIncremented(t *testing.T) {
 		{1, 0, 0, 40, 12},
 		{2, 0, 13, 40, 12},
 	})
-	w.Width = 40
-	w.Height = 25
 
 	w.Focus("down")
 
@@ -281,8 +271,6 @@ func TestFocusNoOverlapNoOp(t *testing.T) {
 		{1, 50, 0, 30, 10},
 		{2, 0, 20, 40, 10},
 	})
-	w.Width = 80
-	w.Height = 30
 
 	w.Focus("up")
 
