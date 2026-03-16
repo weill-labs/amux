@@ -128,21 +128,11 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      - name: Upload unit coverage to Codecov
+      - name: Upload coverage to Codecov
         if: always() && steps.changes.outputs.code_changed == 'true'
         uses: codecov/codecov-action@v5.5.2
         with:
-          files: unit-coverage.txt
-          flags: unit
-          token: ${{ secrets.CODECOV_TOKEN }}
-          fail_ci_if_error: false
-
-      - name: Upload integration coverage to Codecov
-        if: always() && steps.changes.outputs.code_changed == 'true'
-        uses: codecov/codecov-action@v5.5.2
-        with:
-          files: integration-coverage.txt
-          flags: integration
+          files: merged-coverage.txt
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
 
