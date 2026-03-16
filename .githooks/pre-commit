@@ -1,6 +1,16 @@
 #!/bin/bash
-# Pre-commit hook: run goimports on staged Go files
+# Pre-commit hook
 
+# Block direct commits to main — use feature branches + PRs
+BRANCH=$(git symbolic-ref --short HEAD 2>/dev/null)
+if [ "$BRANCH" = "main" ] || [ "$BRANCH" = "master" ]; then
+    echo "ERROR: direct commits to $BRANCH are not allowed"
+    echo "  Create a feature branch: git checkout -b my-feature"
+    echo "  Override with: git commit --no-verify"
+    exit 1
+fi
+
+# Run goimports on staged Go files
 STAGED=$(git diff --cached --name-only --diff-filter=ACM | grep '\.go$')
 if [ -z "$STAGED" ]; then
     exit 0
