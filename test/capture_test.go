@@ -93,15 +93,22 @@ func TestCaptureIdleIndicator(t *testing.T) {
 	// Split so pane-1 becomes inactive (pane-2 gets focus)
 	h.splitV()
 
-	// Wait for the idle timer to fire (DefaultIdleTimeout = 2s).
-	// The inactive pane's shell is at the prompt with no children,
-	// so it will transition to idle and show the ◇ indicator.
+	// Wait for pane-1 to be idle (no child processes), then poll for the
+	// idle timer to fire (DefaultIdleTimeout = 2s) which sets the idle
+	// state tracked by the server and shows the ◇ indicator.
+	h.waitIdle("pane-1")
 	h.waitFor("pane-2", "$")
-	time.Sleep(3 * time.Second)
 
-	out := h.capture()
-	if !strings.Contains(out, "◇") {
-		t.Errorf("capture should show idle diamond indicator for inactive idle pane, got:\n%s", out)
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		out := h.capture()
+		if strings.Contains(out, "◇") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("capture should show idle diamond indicator for inactive idle pane, got:\n%s", out)
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
 }
 

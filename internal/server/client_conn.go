@@ -824,6 +824,69 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 			}
 		}
 
+	case "wait-idle":
+		if len(msg.CmdArgs) < 1 {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "usage: wait-idle <pane> [--timeout <duration>]"})
+			return
+		}
+		paneRef := msg.CmdArgs[0]
+		timeout := 5 * time.Second
+		for i := 1; i < len(msg.CmdArgs); i++ {
+			if msg.CmdArgs[i] == "--timeout" && i+1 < len(msg.CmdArgs) {
+				i++
+				d, err := time.ParseDuration(msg.CmdArgs[i])
+				if err != nil {
+					cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("invalid timeout: %s", msg.CmdArgs[i])})
+					return
+				}
+				timeout = d
+			}
+		}
+
+		sess.mu.Lock()
+		pane := cc.resolvePaneAcrossWindows(sess, "wait-idle", paneRef)
+		if pane == nil {
+			sess.mu.Unlock()
+			return
+		}
+		paneID := pane.ID
+		sess.mu.Unlock()
+
+		// Check immediately — the pane may already be idle.
+		if sess.paneIsIdle(paneID) {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: "idle\n"})
+			return
+		}
+
+		// Subscribe to pane output notifications and check on each write.
+		// Also use a ticker as fallback: the child process may exit between
+		// output writes, so the ticker rechecks every 100ms to catch the
+		// transition to idle.
+		ch := sess.subscribePaneOutput(paneID)
+		defer sess.unsubscribePaneOutput(paneID, ch)
+
+		ticker := time.NewTicker(100 * time.Millisecond)
+		defer ticker.Stop()
+		timer := time.NewTimer(timeout)
+		defer timer.Stop()
+		for {
+			select {
+			case <-ch:
+				if sess.paneIsIdle(paneID) {
+					cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: "idle\n"})
+					return
+				}
+			case <-ticker.C:
+				if sess.paneIsIdle(paneID) {
+					cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: "idle\n"})
+					return
+				}
+			case <-timer.C:
+				cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("timeout waiting for %s to become idle", paneRef)})
+				return
+			}
+		}
+
 	case "set-hook":
 		if len(msg.CmdArgs) < 2 {
 			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "usage: set-hook <event> <command>"})
