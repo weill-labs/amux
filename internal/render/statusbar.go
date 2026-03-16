@@ -74,6 +74,21 @@ func renderPaneStatus(buf *strings.Builder, cell *mux.LayoutCell, isActive bool,
 		buf.WriteString(pd.Host())
 	}
 
+	// Connection status indicator (remote panes only)
+	if cs := pd.ConnStatus(); cs != "" {
+		switch cs {
+		case "connected":
+			buf.WriteString(GreenFg)
+			buf.WriteString(" ⚡")
+		case "reconnecting":
+			buf.WriteString(YellowFg)
+			buf.WriteString(" ⟳")
+		case "disconnected":
+			buf.WriteString(RedFg)
+			buf.WriteString(" ✕")
+		}
+	}
+
 	// Task
 	if pd.Task() != "" {
 		buf.WriteString(TextFg)
@@ -91,6 +106,9 @@ func renderPaneStatus(buf *strings.Builder, cell *mux.LayoutCell, isActive bool,
 	}
 	if pd.Host() != "" && pd.Host() != mux.DefaultHost {
 		usedWidth += 2 + len(pd.Host())
+	}
+	if cs := pd.ConnStatus(); cs != "" {
+		usedWidth += 2 // " ⚡" or " ⟳" or " ✕" (space + 1 rune)
 	}
 	if pd.Task() != "" {
 		usedWidth += 1 + len(pd.Task())

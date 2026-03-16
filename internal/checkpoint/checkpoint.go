@@ -17,12 +17,13 @@ import (
 type PaneCheckpoint struct {
 	ID        uint32
 	Meta      mux.PaneMeta
-	PtmxFd    int       // PTY master FD number (inherited across exec)
-	PID       int       // Shell process PID (for waitLoop)
+	PtmxFd    int       // PTY master FD number (inherited across exec); -1 for proxy panes
+	PID       int       // Shell process PID (for waitLoop); 0 for proxy panes
 	Cols      int
 	Rows      int
 	Screen    string    // RenderScreen() ANSI output for replay
 	CreatedAt time.Time // Pane creation time (preserved across reloads)
+	IsProxy   bool      // true for remote proxy panes (no PTY/process)
 }
 
 // ServerCheckpoint captures the full server state for reload.

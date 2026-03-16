@@ -43,6 +43,10 @@ type Pane struct {
 	process  *os.Process // set for restored panes (where cmd is nil)
 	emulator TerminalEmulator
 
+	// writeOverride, when non-nil, receives Write() calls instead of the PTY.
+	// Used by proxy panes to route input over SSH to a remote amux server.
+	writeOverride func([]byte) (int, error)
+
 	closed       atomic.Bool
 	drainStarted bool
 	onOutput     func(paneID uint32, data []byte)
@@ -141,7 +145,11 @@ func (p *Pane) SetCreatedAt(t time.Time) {
 }
 
 // PtmxFd returns the file descriptor number for the PTY master.
+// Returns -1 for proxy panes (no PTY).
 func (p *Pane) PtmxFd() int {
+	if p.ptmx == nil {
+		return -1
+	}
 	return int(p.ptmx.Fd())
 }
 
@@ -235,7 +243,11 @@ func (p *Pane) waitLoop() {
 }
 
 // Write sends input data to the PTY (from client keyboard input).
+// For proxy panes, input is routed through writeOverride to the remote server.
 func (p *Pane) Write(data []byte) (int, error) {
+	if p.writeOverride != nil {
+		return p.writeOverride(data)
+	}
 	return p.ptmx.Write(data)
 }
 
@@ -346,6 +358,7 @@ func (p *Pane) IsIdle() bool {
 }
 
 // Close terminates the pane's shell and PTY.
+// For proxy panes (no PTY), Close() just marks the pane as closed.
 func (p *Pane) Close() error {
 	if p.closed.Swap(true) {
 		return nil
@@ -355,5 +368,60 @@ func (p *Pane) Close() error {
 	} else if p.process != nil {
 		p.process.Signal(syscall.SIGHUP)
 	}
+	if p.ptmx == nil {
+		return nil
+	}
 	return p.ptmx.Close()
+}
+
+// NewProxyPane creates a pane that proxies I/O to a remote amux server.
+// It has an emulator for local screen state but no PTY or shell process.
+// Input is routed through writeOverride; output is fed via FeedOutput().
+func NewProxyPane(id uint32, meta PaneMeta, cols, rows int,
+	onOutput func(uint32, []byte), onExit func(uint32),
+	writeOverride func([]byte) (int, error)) *Pane {
+
+	emu := NewVTEmulator(cols, rows)
+	p := &Pane{
+		ID:            id,
+		Meta:          meta,
+		emulator:      emu,
+		writeOverride: writeOverride,
+		onOutput:      onOutput,
+		onExit:        onExit,
+		createdAt:     time.Now(),
+		drainStarted:  true, // no PTY responses to drain
+	}
+	// Start drain goroutine for emulator responses (DA replies etc.)
+	// that would otherwise block the emulator's pipe.
+	go p.drainResponsesDiscard()
+	return p
+}
+
+// drainResponsesDiscard reads and discards terminal responses from the
+// emulator. Proxy panes have no PTY to forward responses to, but the
+// emulator's pipe must be drained to prevent blocking.
+func (p *Pane) drainResponsesDiscard() {
+	buf := make([]byte, 1024)
+	for {
+		_, err := p.emulator.Read(buf)
+		if err != nil {
+			return
+		}
+	}
+}
+
+// FeedOutput feeds remote PTY output into this proxy pane's local emulator
+// and broadcasts it to connected clients. Called by the remote host connection
+// when it receives pane output from the remote amux server.
+func (p *Pane) FeedOutput(data []byte) {
+	p.emulator.Write(data)
+	if p.onOutput != nil {
+		p.onOutput(p.ID, data)
+	}
+}
+
+// IsProxy returns true if this is a proxy pane (no local PTY).
+func (p *Pane) IsProxy() bool {
+	return p.writeOverride != nil
 }

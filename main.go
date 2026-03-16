@@ -68,7 +68,11 @@ func main() {
 
 	switch args[0] {
 	case "version":
-		fmt.Printf("amux build: %s\n", buildVersion())
+		if len(args) > 1 && args[1] == "--hash" {
+			fmt.Println(buildVersion())
+		} else {
+			fmt.Printf("amux build: %s\n", buildVersion())
+		}
 		return
 
 	case "_server":
@@ -205,6 +209,20 @@ func main() {
 
 	case "events":
 		runStreamingCommand("events", args[1:])
+	case "hosts":
+		runServerCommand("hosts", nil)
+	case "disconnect":
+		if len(args) < 2 {
+			fmt.Fprintf(os.Stderr, "usage: amux disconnect <host>\n")
+			os.Exit(1)
+		}
+		runServerCommand("disconnect", []string{args[1]})
+	case "reconnect":
+		if len(args) < 2 {
+			fmt.Fprintf(os.Stderr, "usage: amux reconnect <host>\n")
+			os.Exit(1)
+		}
+		runServerCommand("reconnect", []string{args[1]})
 	case "reload-server":
 		runServerCommand("reload-server", nil)
 	case "dashboard":
@@ -273,6 +291,10 @@ Usage:
   amux [-s session] list-hooks         List registered hooks
   amux [-s session] events [--filter type1,type2] [--pane <ref>] [--host <name>]
                                        Stream events as NDJSON (layout, output, idle, busy)
+  amux [-s session] split --host HOST  Split with a remote pane on HOST
+  amux [-s session] hosts              List configured remote hosts + status
+  amux [-s session] disconnect <host>  Drop SSH connection to a host
+  amux [-s session] reconnect <host>   Reconnect to a remote host
   amux [-s session] reload-server      Hot-reload the server (preserves panes)
   amux [-s session] generation         Show current layout generation counter
   amux [-s session] wait-layout [--after N] [--timeout 3s]
@@ -324,6 +346,12 @@ func runServer(sessionName string) {
 	var s *server.Server
 	var err error
 
+	// Load config for remote host definitions
+	cfg, cfgErr := config.Load(config.DefaultPath())
+	if cfgErr != nil {
+		cfg = &config.Config{Hosts: make(map[string]config.Host)}
+	}
+
 	// Check for checkpoint restore (after server hot-reload)
 	if cpPath := os.Getenv("AMUX_CHECKPOINT"); cpPath != "" {
 		os.Unsetenv("AMUX_CHECKPOINT")
@@ -344,6 +372,9 @@ func runServer(sessionName string) {
 			os.Exit(1)
 		}
 	}
+
+	// Set up remote pane manager for all sessions
+	s.SetupRemoteManager(cfg)
 
 	// Signal readiness on the fd specified by AMUX_READY_FD (used by
 	// test harness for deterministic startup without polling).
