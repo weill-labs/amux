@@ -12,36 +12,6 @@ See [README.md — Philosophy](README.md#philosophy) for the project thesis and 
 
 ## Architecture
 
-```
-main.go                       CLI dispatch, client attach loop, keybinding handling
-client.go                     ClientRenderer — client-side rendering with local vt emulators
-reload.go                     Hot-reload: watches binary, re-execs client on change
-internal/
-  mux/
-    layout.go                 LayoutCell tree, split/close/resize, proportional sizing
-    window.go                 Window (layout + active pane), Focus(), Minimize/Restore
-    pane.go                   Pane struct, PTY management, PaneMeta
-    emulator.go               VT terminal emulator wrapper (vt100 lib)
-    snapshot.go               LayoutSnapshot serialization for wire protocol
-  server/
-    server.go                 Server + Session structs, socket listener, attach/detach
-    client_conn.go            Per-client connection, command dispatch (list/split/focus/etc.)
-    protocol.go               Wire protocol: Message types, gob encoding over Unix socket
-  render/
-    compositor.go             RenderFull() — composites panes, borders, status bars
-    border.go                 Border map, junction characters, active-pane coloring
-    statusbar.go              Per-pane status lines, global session bar
-    ansi.go                   ANSI escape sequences, Catppuccin Mocha palette
-    panedata.go               PaneData interface for rendering
-  proto/
-    types.go                  Shared types (LayoutSnapshot, CellSnapshot, PaneSnapshot)
-  config/
-    config.go                 ~/.config/amux/hosts.toml parsing
-test/
-  harness_test.go             Integration test harness (drives amux inside a real tmux session)
-  amux_test.go                Integration tests (~30 tests)
-```
-
 ### Key Abstractions
 
 **Client-server protocol** — Clients send `MsgTypeInput`, `MsgTypeResize`, `MsgTypeCommand`. Server sends `MsgTypePaneOutput` (raw PTY bytes per pane), `MsgTypeLayout` (layout tree snapshot), `MsgTypeRender` (legacy pre-rendered ANSI).
@@ -60,7 +30,7 @@ test/
 
 **Unit tests for layout/rendering logic.** See `layout_test.go`, `window_test.go`, `emulator_test.go`. Use `fakePaneID()` helper to create minimal panes for testing.
 
-**Integration tests for end-to-end behavior.** The harness in `test/harness_test.go` runs amux inside a real tmux session, sends keys via `tmux send-keys`, and asserts on screen content via `tmux capture-pane`. Tests run in ~6s total.
+**Integration tests for end-to-end behavior.** The harness in `test/server_harness_test.go` drives amux directly over the Unix socket — no tmux dependency. Tests run in ~6s total.
 
 **Guard against impossible states.** Minimize checks that at least one pane stays non-minimized. Restore caps height at available space. Focus fallback finds nearest pane when strict overlap matching fails.
 
@@ -120,24 +90,17 @@ When creating PRs that add or modify benchmarks, include a "Baseline numbers" se
 
 ### Adding a New Feature
 
-1. **Check what dependencies already provide.** Before designing a custom solution, check if the underlying library (e.g., `charmbracelet/x/vt`) already supports the capability. Read tests and exported methods in `go/pkg/mod/`. This avoids designing infrastructure that already exists.
-2. **Write an integration test first.** Add a test in `test/` that exercises the feature end-to-end via the tmux harness. Follow existing test patterns.
-3. Implement the feature.
-3. Verify the integration test passes: `go test -v -run TestYourFeature ./test/ -timeout 30s`
-4. Add unit tests for complex logic (layout algorithms, rendering, protocol encoding).
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow. Additional note for AI agents:
+
+1. **Check what dependencies already provide.** Before designing a custom solution, check if the underlying library (e.g., `charmbracelet/x/vt`) already supports the capability. Read tests and exported methods in `go/pkg/mod/`.
 
 ### Fixing a Bug
 
-1. **Write a failing regression test first.** Add a test to `test/amux_test.go` that reproduces the bug (it should fail before the fix).
-2. Fix the bug.
-3. Verify the test passes: `go test ./...`
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow.
 
 ### Adding a New CLI Command
 
-1. Add the command name to the `switch` in `main.go` (use `runServerCommand()` for server-side commands)
-2. Add the handler in `internal/server/client_conn.go` `handleCommand()` method
-3. Update `printUsage()` in `main.go`
-4. Write integration test in `test/amux_test.go`
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow.
 
 ### Hot-Reload
 
@@ -151,16 +114,4 @@ See [README.md — Configuration](README.md#configuration) for the `hosts.toml` 
 
 ## Issue Tracking
 
-All issues and feature requests go in the Linear project (not GitHub Issues):
-https://linear.app/weill-labs/project/amux-b3a52334f77c
-
-Team key: `LAB`. Use the Linear skill to create/query issues.
-
-**Link PRs to Linear issues.** When creating a PR that implements a Linear issue, include `Fixes LAB-XXX` in the PR description. This tells Linear's GitHub integration to auto-transition the issue to Done when the PR merges. Example:
-
-```
-## Summary
-- Implements feature X
-
-Fixes LAB-123
-```
+File bugs and feature requests on [GitHub Issues](https://github.com/weill-labs/amux/issues).
