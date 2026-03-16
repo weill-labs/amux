@@ -10,6 +10,33 @@ import (
 	"github.com/weill-labs/amux/internal/server"
 )
 
+// waitForFile polls until path exists or timeout expires.
+func waitForFile(t *testing.T, path string, timeout time.Duration) bool {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(path); err == nil {
+			return true
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return false
+}
+
+// waitForFileContent polls until path exists with non-empty content or timeout expires.
+func waitForFileContent(t *testing.T, path string, timeout time.Duration) string {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		data, err := os.ReadFile(path)
+		if err == nil && len(data) > 0 {
+			return string(data)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return ""
+}
+
 func TestSetHookAndListHooks(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)
@@ -93,22 +120,14 @@ func TestHookOnIdleFires(t *testing.T) {
 	tmp := t.TempDir()
 	marker := filepath.Join(tmp, "idle-fired")
 
-	// Register on-idle hook that creates a marker file
 	h.runCmd("set-hook", "on-idle", "touch "+marker)
 
-	// Generate pane activity, then wait for idle (default 2s timeout)
 	h.sendKeys("pane-1", "echo TRIGGER_ACTIVITY", "Enter")
 	h.waitFor("pane-1", "TRIGGER_ACTIVITY")
 
-	// Wait for idle timeout + hook execution
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		if _, err := os.Stat(marker); err == nil {
-			return // on-idle hook fired
-		}
-		time.Sleep(100 * time.Millisecond)
+	if !waitForFile(t, marker, 5*time.Second) {
+		t.Fatal("on-idle hook did not fire within timeout")
 	}
-	t.Fatal("on-idle hook did not fire within timeout")
 }
 
 func TestHookOnActivityFires(t *testing.T) {
@@ -118,23 +137,16 @@ func TestHookOnActivityFires(t *testing.T) {
 	tmp := t.TempDir()
 	marker := filepath.Join(tmp, "activity-fired")
 
-	// Wait for initial idle state (pane starts, shell prompt appears, then goes idle)
-	time.Sleep(3 * time.Second)
+	// Wait for initial idle state (shell prompt appears, then quiet period expires)
+	time.Sleep(server.DefaultIdleTimeout + 1*time.Second)
 
-	// Register on-activity hook
 	h.runCmd("set-hook", "on-activity", "touch "+marker)
 
-	// Trigger activity by sending input that produces output
 	h.sendKeys("pane-1", "echo TRIGGER", "Enter")
 
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		if _, err := os.Stat(marker); err == nil {
-			return // on-activity hook fired
-		}
-		time.Sleep(100 * time.Millisecond)
+	if !waitForFile(t, marker, 5*time.Second) {
+		t.Fatal("on-activity hook did not fire within timeout")
 	}
-	t.Fatal("on-activity hook did not fire within timeout")
 }
 
 func TestHookReceivesEnvVars(t *testing.T) {
@@ -144,56 +156,38 @@ func TestHookReceivesEnvVars(t *testing.T) {
 	tmp := t.TempDir()
 	envFile := filepath.Join(tmp, "hook-env")
 
-	// Register on-idle hook that dumps env vars
 	h.runCmd("set-hook", "on-idle", "env > "+envFile)
 
-	// Generate activity then wait for idle
 	h.sendKeys("pane-1", "echo ENV_TEST", "Enter")
 	h.waitFor("pane-1", "ENV_TEST")
 
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		data, err := os.ReadFile(envFile)
-		if err == nil && len(data) > 0 {
-			content := string(data)
-			if !strings.Contains(content, "AMUX_PANE_ID=") {
-				t.Errorf("missing AMUX_PANE_ID in hook env")
-			}
-			if !strings.Contains(content, "AMUX_PANE_NAME=pane-1") {
-				t.Errorf("missing AMUX_PANE_NAME=pane-1 in hook env")
-			}
-			if !strings.Contains(content, "AMUX_EVENT=on-idle") {
-				t.Errorf("missing AMUX_EVENT=on-idle in hook env")
-			}
-			return
-		}
-		time.Sleep(100 * time.Millisecond)
+	content := waitForFileContent(t, envFile, 5*time.Second)
+	if content == "" {
+		t.Fatal("hook env output not written within timeout")
 	}
-	t.Fatal("hook env output not written within timeout")
+	if !strings.Contains(content, "AMUX_PANE_ID=") {
+		t.Errorf("missing AMUX_PANE_ID in hook env")
+	}
+	if !strings.Contains(content, "AMUX_PANE_NAME=pane-1") {
+		t.Errorf("missing AMUX_PANE_NAME=pane-1 in hook env")
+	}
+	if !strings.Contains(content, "AMUX_EVENT=on-idle") {
+		t.Errorf("missing AMUX_EVENT=on-idle in hook env")
+	}
 }
 
 func TestHookFailingCommandLogsToSessionLog(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)
 
-	// Register a hook with a command that will fail
 	h.runCmd("set-hook", "on-idle", "/nonexistent/binary/xyz")
 
-	// Trigger activity then wait for idle → hook fires and fails
 	h.sendKeys("pane-1", "echo FAIL_TEST", "Enter")
 	h.waitFor("pane-1", "FAIL_TEST")
 
-	// Wait for idle timeout (2s) + hook execution + log flush
 	logPath := filepath.Join(server.SocketDir(), h.session+".log")
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		data, err := os.ReadFile(logPath)
-		if err == nil && strings.Contains(string(data), "hook") && strings.Contains(string(data), "failed") {
-			return // error was logged to session log
-		}
-		time.Sleep(100 * time.Millisecond)
+	content := waitForFileContent(t, logPath, 5*time.Second)
+	if !strings.Contains(content, "hook") || !strings.Contains(content, "failed") {
+		t.Fatalf("expected hook failure in session log, got:\n%s", content)
 	}
-	// Read final log content for error message
-	data, _ := os.ReadFile(logPath)
-	t.Fatalf("expected hook failure in session log, got:\n%s", string(data))
 }

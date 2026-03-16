@@ -15,6 +15,9 @@ const (
 	OnActivity Event = "on-activity"
 )
 
+// AllEvents lists all valid hook events in display order.
+var AllEvents = []Event{OnIdle, OnActivity}
+
 // ParseEvent validates and returns a hook event from a string.
 func ParseEvent(s string) (Event, error) {
 	switch Event(s) {

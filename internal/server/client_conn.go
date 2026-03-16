@@ -855,7 +855,7 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 		// Group by event with per-event indices (matching unset-hook's index space)
 		var output strings.Builder
 		hasAny := false
-		for _, event := range []hooks.Event{hooks.OnIdle, hooks.OnActivity} {
+		for _, event := range hooks.AllEvents {
 			entries := sess.Hooks.List(event)
 			if len(entries) == 0 {
 				continue

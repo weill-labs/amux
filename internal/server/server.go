@@ -671,6 +671,17 @@ func SocketPath(session string) string {
 	return filepath.Join(SocketDir(), session)
 }
 
+// newSession creates a Session with all fields initialized.
+func newSession(name string) *Session {
+	sess := &Session{Name: name}
+	sess.generationCond = sync.NewCond(&sess.generationMu)
+	sess.clipboardCond = sync.NewCond(&sess.clipboardMu)
+	sess.Hooks = hooks.NewRegistry()
+	sess.idleTimers = make(map[uint32]*time.Timer)
+	sess.idleState = make(map[uint32]bool)
+	return sess
+}
+
 // NewServer creates a new server listening on a Unix socket for the given session.
 func NewServer(sessionName string) (*Server, error) {
 	sockDir := SocketDir()
@@ -696,12 +707,7 @@ func NewServer(sessionName string) (*Server, error) {
 	}
 	os.Chmod(sockPath, 0700)
 
-	sess := &Session{Name: sessionName}
-	sess.generationCond = sync.NewCond(&sess.generationMu)
-	sess.clipboardCond = sync.NewCond(&sess.clipboardMu)
-	sess.Hooks = hooks.NewRegistry()
-	sess.idleTimers = make(map[uint32]*time.Timer)
-	sess.idleState = make(map[uint32]bool)
+	sess := newSession(sessionName)
 
 	s := &Server{
 		listener: listener,
@@ -856,12 +862,7 @@ func NewServerFromCheckpoint(cp *checkpoint.ServerCheckpoint) (*Server, error) {
 	}
 	listenerFile.Close() // FileListener dups the FD
 
-	sess := &Session{Name: cp.SessionName}
-	sess.generationCond = sync.NewCond(&sess.generationMu)
-	sess.clipboardCond = sync.NewCond(&sess.clipboardMu)
-	sess.Hooks = hooks.NewRegistry()
-	sess.idleTimers = make(map[uint32]*time.Timer)
-	sess.idleState = make(map[uint32]bool)
+	sess := newSession(cp.SessionName)
 	sess.counter.Store(cp.Counter)
 	sess.windowCounter.Store(cp.WindowCounter)
 

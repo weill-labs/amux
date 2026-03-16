@@ -143,6 +143,8 @@ func TestRemoveOutOfBounds(t *testing.T) {
 func TestFireFailingCommandLogsError(t *testing.T) {
 	// Capture stderr by temporarily replacing os.Stderr with a pipe
 	origStderr := os.Stderr
+	defer func() { os.Stderr = origStderr }() // safety net on panic
+
 	r, w, err := os.Pipe()
 	if err != nil {
 		t.Fatalf("creating pipe: %v", err)
@@ -154,7 +156,6 @@ func TestFireFailingCommandLogsError(t *testing.T) {
 	reg.Fire(OnIdle, nil)
 
 	// Wait for async goroutine to write to stderr
-	deadline := time.Now().Add(3 * time.Second)
 	done := make(chan string, 1)
 	go func() {
 		buf := make([]byte, 4096)
@@ -165,11 +166,11 @@ func TestFireFailingCommandLogsError(t *testing.T) {
 	var output string
 	select {
 	case output = <-done:
-	case <-time.After(time.Until(deadline)):
+	case <-time.After(3 * time.Second):
 		t.Fatal("timed out waiting for stderr output")
 	}
 
-	// Restore stderr before any assertions (t.Error writes to stderr)
+	// Restore stderr before assertions (t.Error writes to stderr)
 	w.Close()
 	os.Stderr = origStderr
 	r.Close()
