@@ -413,9 +413,9 @@ func (s *Session) renderCapture(stripANSI bool) string {
 		root = mux.NewLeafByID(w.ZoomedPaneID, 0, 0, w.Width, w.Height)
 	}
 
-	raw := string(comp.RenderFull(root, activePaneID, func(id uint32) render.PaneData {
+	raw := comp.RenderFull(root, activePaneID, func(id uint32) render.PaneData {
 		return paneMap[id]
-	}))
+	})
 
 	if stripANSI {
 		return render.MaterializeGrid(raw, w.Width, totalH)

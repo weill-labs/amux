@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -522,8 +523,8 @@ func runMux(sessionName string) error {
 	// Coalescing render loop
 	go func() {
 		defer close(done)
-		cr.renderCoalesced(msgCh, func(data []byte) {
-			os.Stdout.Write(data)
+		cr.renderCoalesced(msgCh, func(data string) {
+			io.WriteString(os.Stdout, data)
 		})
 	}()
 
@@ -609,8 +610,8 @@ func runMux(sessionName string) error {
 					}
 				case "copy-mode":
 					cr.EnterCopyMode(cr.ActivePaneID())
-					if data := cr.Render(); data != nil {
-						os.Stdout.Write(data)
+					if data := cr.Render(); data != "" {
+						io.WriteString(os.Stdout, data)
 					}
 				default:
 					// Generic server command
@@ -724,8 +725,8 @@ func runMux(sessionName string) error {
 					}
 					cr.ExitCopyMode(paneID)
 				}
-				if data := cr.Render(); data != nil {
-					os.Stdout.Write(data)
+				if data := cr.Render(); data != "" {
+					io.WriteString(os.Stdout, data)
 				}
 				continue
 			}
