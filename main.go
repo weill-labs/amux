@@ -60,6 +60,15 @@ func main() {
 	}
 
 	if len(args) == 0 {
+		// Nested detection: if running inside an SSH session (but not
+		// inside a local amux pane on the same host), attempt takeover.
+		// Emit a takeover sequence and wait for the local amux to ack.
+		if os.Getenv("SSH_CONNECTION") != "" && os.Getenv("AMUX_PANE") == "" {
+			if tryTakeover(sessionName) {
+				return // takeover succeeded — managed mode started
+			}
+			// No ack — fall through to normal standalone mode
+		}
 		if err := runMux(sessionName); err != nil {
 			fmt.Fprintf(os.Stderr, "amux: %v\n", err)
 			os.Exit(1)
@@ -224,6 +233,12 @@ func main() {
 			os.Exit(1)
 		}
 		runServerCommand("reconnect", []string{args[1]})
+	case "unsplice":
+		if len(args) < 2 {
+			fmt.Fprintf(os.Stderr, "usage: amux unsplice <host>\n")
+			os.Exit(1)
+		}
+		runServerCommand("unsplice", []string{args[1]})
 	case "reload-server":
 		runServerCommand("reload-server", nil)
 	case "dashboard":
@@ -296,6 +311,7 @@ Usage:
   amux [-s session] hosts              List configured remote hosts + status
   amux [-s session] disconnect <host>  Drop SSH connection to a host
   amux [-s session] reconnect <host>   Reconnect to a remote host
+  amux [-s session] unsplice <host>    Revert SSH takeover for a host
   amux [-s session] reload-server      Hot-reload the server (preserves panes)
   amux [-s session] generation         Show current layout generation counter
   amux [-s session] wait-layout [--after N] [--timeout 3s]
@@ -1059,4 +1075,55 @@ func runServerCommand(cmdName string, args []string) {
 // It renders from the client-side emulators and returns a response message.
 func handleCaptureRequest(cr *ClientRenderer, args []string, agentStatus map[uint32]proto.PaneAgentStatus) *server.Message {
 	return cr.renderer.HandleCaptureRequest(args, agentStatus)
+}
+
+// tryTakeover attempts an SSH session takeover. It emits a takeover sequence
+// to stdout and waits up to 2 seconds for an ack from a local amux on stdin.
+// If acked, it starts the server in managed mode (no TUI) and returns true.
+// If no ack, returns false and the caller should proceed with normal startup.
+func tryTakeover(sessionName string) bool {
+	hostname, _ := os.Hostname()
+
+	// Build the takeover request. We don't know our pane layout yet
+	// (the server hasn't started), so emit a minimal request with
+	// host info. The local amux will query our panes after connecting.
+	req := mux.TakeoverRequest{
+		Session: sessionName + "@" + hostname,
+		Host:    hostname,
+		UID:     fmt.Sprintf("%d", os.Getuid()),
+		Panes:   []mux.TakeoverPane{}, // empty — local will query after connect
+	}
+
+	// Emit the takeover sequence to stdout (flows through SSH PTY to local amux)
+	os.Stdout.Write(mux.FormatTakeoverSequence(req))
+
+	// Wait for ack on stdin with 2s timeout.
+	// os.Stdin doesn't support SetReadDeadline, so use a goroutine + timer.
+	type readResult struct {
+		data []byte
+		err  error
+	}
+	ch := make(chan readResult, 1)
+	go func() {
+		buf := make([]byte, len(mux.TakeoverAck)+64)
+		n, err := os.Stdin.Read(buf)
+		ch <- readResult{data: buf[:n], err: err}
+	}()
+
+	select {
+	case result := <-ch:
+		if result.err != nil || len(result.data) == 0 {
+			return false
+		}
+		if !strings.Contains(string(result.data), mux.TakeoverAck) {
+			return false
+		}
+	case <-time.After(2 * time.Second):
+		return false
+	}
+
+	// Takeover acked — start server in managed mode (no TUI client)
+	fmt.Fprintf(os.Stderr, "amux: takeover acked, entering managed mode\n")
+	runServer(req.Session)
+	return true
 }

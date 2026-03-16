@@ -530,6 +530,7 @@ func (s *Session) createPaneWithMeta(srv *Server, meta mux.PaneMeta, cols, rows 
 	}
 
 	pane.SetOnClipboard(s.clipboardCallback())
+	pane.SetOnTakeover(s.takeoverCallback(srv))
 
 	s.Panes = append(s.Panes, pane)
 	return pane, nil
@@ -617,6 +618,114 @@ func (s *Session) SetupRemoteManager(cfg *config.Config) {
 		},
 	)
 	s.RemoteManager = mgr
+}
+
+// takeoverCallback returns the onTakeover callback for panes in this session.
+// When a nested amux emits a takeover sequence through the PTY, this handler
+// sends the ack, establishes a remote connection, builds proxy panes, and
+// splices them into the layout tree — replacing the SSH pane.
+func (s *Session) takeoverCallback(srv *Server) func(paneID uint32, req mux.TakeoverRequest) {
+	return func(paneID uint32, req mux.TakeoverRequest) {
+		go s.handleTakeover(srv, paneID, req)
+	}
+}
+
+// handleTakeover processes a takeover request from a nested amux.
+// It runs asynchronously (called via goroutine from the readLoop callback).
+func (s *Session) handleTakeover(srv *Server, sshPaneID uint32, req mux.TakeoverRequest) {
+	s.mu.Lock()
+	sshPane := s.findPaneLocked(sshPaneID)
+	if sshPane == nil {
+		s.mu.Unlock()
+		return
+	}
+
+	// Find the window containing the SSH pane
+	w := s.FindWindowByPaneID(sshPaneID)
+	if w == nil {
+		s.mu.Unlock()
+		return
+	}
+
+	// Get the SSH pane's cell dimensions for the proxy panes
+	cell := w.Root.FindPane(sshPaneID)
+	if cell == nil {
+		s.mu.Unlock()
+		return
+	}
+	cols, cellH := cell.W, cell.H
+	s.mu.Unlock()
+
+	// Send ack through the SSH PTY's stdin — this tells the remote amux
+	// to enter managed mode instead of launching its own TUI.
+	sshPane.Write([]byte(mux.TakeoverAck))
+
+	// Wait briefly for the remote server to start
+	time.Sleep(500 * time.Millisecond)
+
+	// If no remote manager is configured, create a minimal one.
+	// The takeover uses the existing SSH PTY connection, so we don't
+	// need a full remote manager with SSH config — we just need proxy panes.
+	hostname := req.Host
+	if hostname == "" {
+		hostname = "remote"
+	}
+
+	// Build proxy panes for the remote session. For now, create one
+	// proxy pane per remote pane reported in the takeover request.
+	// If the request has no panes (remote just started), create one default pane.
+	remotePanes := req.Panes
+	if len(remotePanes) == 0 {
+		remotePanes = []mux.TakeoverPane{
+			{ID: 1, Name: "pane-1", Cols: cols, Rows: mux.PaneContentHeight(cellH)},
+		}
+	}
+
+	var proxyPanes []*mux.Pane
+	for _, rp := range remotePanes {
+		id := s.counter.Add(1)
+		meta := mux.PaneMeta{
+			Name:   fmt.Sprintf("%s@%s", rp.Name, hostname),
+			Host:   hostname,
+			Color:  config.CatppuccinMocha[(id-1)%uint32(len(config.CatppuccinMocha))],
+			Remote: string(remote.Connected),
+		}
+
+		// The writeOverride routes input through the original SSH PTY.
+		// All proxy panes share the same SSH connection (the original PTY),
+		// but the remote amux server demuxes by pane ID.
+		proxyPane := mux.NewProxyPane(id, meta, cols, mux.PaneContentHeight(cellH),
+			s.paneOutputCallback(),
+			s.paneExitCallback(srv),
+			func(data []byte) (int, error) {
+				// Route input through the original SSH PTY
+				return sshPane.Write(data)
+			},
+		)
+		proxyPanes = append(proxyPanes, proxyPane)
+	}
+
+	// Splice the proxy panes into the layout, replacing the SSH pane
+	s.mu.Lock()
+	for _, pp := range proxyPanes {
+		s.Panes = append(s.Panes, pp)
+	}
+	_, spliceErr := w.SplicePane(sshPaneID, proxyPanes)
+	if spliceErr != nil {
+		// Roll back: remove the proxy panes we just added
+		for _, pp := range proxyPanes {
+			s.removePane(pp.ID)
+		}
+		s.mu.Unlock()
+		return
+	}
+
+	// Keep the SSH pane in the panes list (dormant) so we can unsplice later.
+	// It's no longer in the layout tree, but its PTY stays alive to maintain
+	// the SSH connection.
+	s.mu.Unlock()
+
+	s.broadcastLayout()
 }
 
 // findPaneLocked finds a pane by ID. Caller must hold s.mu.
