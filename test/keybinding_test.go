@@ -89,9 +89,9 @@ func TestCustomPrefixOldPrefixPassthrough(t *testing.T) {
 prefix = "C-b"
 `)
 
-	// Ctrl-a \ with old prefix should NOT split
+	// Ctrl-a \ with old prefix should NOT split — server rejects
+	// unrecognized prefix immediately, so assert without waiting.
 	h.sendKeys("C-a", "\\")
-	time.Sleep(500 * time.Millisecond)
 
 	h.assertScreen("old prefix should not split", func(s string) bool {
 		return strings.Contains(s, "[pane-1]") && !strings.Contains(s, "[pane-2]")
@@ -156,8 +156,8 @@ unbind = ["o"]
 	h.splitV()
 
 	// pane-2 is active after split. Ctrl-a o should do nothing (unbound).
+	// Server rejects unrecognized keys immediately, so assert without waiting.
 	h.sendKeys("C-a", "o")
-	time.Sleep(500 * time.Millisecond)
 
 	h.assertActive("pane-2")
 }
@@ -173,13 +173,12 @@ unbind = ["d"]
 q = "detach"
 `)
 
-	// Ctrl-a q should detach the inner client
+	// Ctrl-a q should detach the inner client. After detach, the outer
+	// pane shows the shell prompt instead of amux chrome. Wait for the
+	// global bar to disappear.
 	h.sendKeys("C-a", "q")
-	time.Sleep(500 * time.Millisecond)
+	h.outer.waitFor("pane-1", "$")
 
-	// After detach, the outer pane should show the shell prompt,
-	// not the inner amux UI. The inner server still runs but the
-	// client is gone, so the outer pane no longer shows amux chrome.
 	outerContent := h.captureOuter()
 	if strings.Contains(outerContent, "amux") && strings.Contains(outerContent, "panes") {
 		t.Errorf("inner amux should be detached (global bar still visible)\nOuter:\n%s", outerContent)

@@ -101,13 +101,17 @@ func TestCopyModeSearch(t *testing.T) {
 		t.Fatalf("expected [copy] indicator\nScreen:\n%s", screen)
 	}
 
-	// Start search with /
+	// Start search with / and wait for search prompt
 	h.sendKeys("/")
-	time.Sleep(200 * time.Millisecond)
+	if !h.waitFor("/", 3*time.Second) {
+		t.Fatalf("expected search prompt\nScreen:\n%s", h.captureOuter())
+	}
 
-	// Type search query
+	// Type search query and wait for it to appear in the search field
 	h.sendKeys("S", "E", "A", "R", "C", "H", "M", "A", "R", "K")
-	time.Sleep(200 * time.Millisecond)
+	if !h.waitFor("SEARCHMARK", 3*time.Second) {
+		t.Fatalf("expected search query visible\nScreen:\n%s", h.captureOuter())
+	}
 
 	// Confirm search
 	h.sendKeys("Enter")
@@ -189,9 +193,8 @@ func TestCopyModeDoesNotForwardInput(t *testing.T) {
 
 	// Type characters that would be visible if forwarded to the shell
 	h.sendKeys("h", "e", "l", "l", "o")
-	time.Sleep(200 * time.Millisecond)
 
-	// Exit copy mode
+	// Exit copy mode and wait for indicator to disappear
 	h.sendKeys("q")
 	if !waitForOuter(h, func(s string) bool {
 		return !strings.Contains(s, "[copy]")
@@ -200,8 +203,12 @@ func TestCopyModeDoesNotForwardInput(t *testing.T) {
 		t.Fatalf("expected [copy] to disappear\nScreen:\n%s", screen)
 	}
 
-	// Wait a moment for any buffered input to be processed
-	time.Sleep(200 * time.Millisecond)
+	// Send a marker command — once it appears, any buffered "hello"
+	// input would have been processed too.
+	h.sendKeys("e", "c", "h", "o", " ", "D", "O", "N", "E", "Enter")
+	if !h.waitFor("DONE", 3*time.Second) {
+		t.Fatalf("expected DONE marker\nScreen:\n%s", h.captureOuter())
+	}
 
 	// Verify "hello" does NOT appear in the shell output
 	// (the characters should have been consumed by copy mode)
@@ -233,16 +240,19 @@ func TestCopyModeResizeSurvives(t *testing.T) {
 	for i := 0; i < 20; i++ {
 		h.sendKeys("k")
 	}
-	time.Sleep(400 * time.Millisecond)
+	// Wait for scroll to reach earlier content
+	if !waitForOuter(h, func(s string) bool {
+		return strings.Contains(s, "RESIZE-01")
+	}, 3*time.Second) {
+		t.Fatalf("scrollback not reached after scrolling up\nScreen:\n%s", h.captureOuter())
+	}
 
 	// Resize terminal while in copy mode via the outer server
 	h.outer.runCmd("resize-window", "120", "40")
-	time.Sleep(1 * time.Second)
 
 	// Copy mode should still be active after resize
-	screen := h.captureOuter()
-	if !strings.Contains(screen, "[copy]") {
-		t.Errorf("copy mode should survive resize\nScreen:\n%s", screen)
+	if !h.waitFor("[copy]", 3*time.Second) {
+		t.Fatalf("expected [copy] to survive resize\nScreen:\n%s", h.captureOuter())
 	}
 
 	// Should still be able to exit
