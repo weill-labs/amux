@@ -86,9 +86,11 @@ amux                    # start a session (or reattach to existing)
 # Ctrl-a \ to split, then:
 amux list               # verify panes
 amux focus pane-3       # focus by name
-amux capture            # capture full composited screen
-amux capture pane-1     # capture single pane output
-amux capture --ansi     # capture with ANSI color codes
+amux capture              # capture full composited screen
+amux capture pane-1       # capture single pane output
+amux capture --ansi       # capture with ANSI color codes
+amux capture --format json          # structured JSON (full screen)
+amux capture --format json pane-1   # structured JSON (single pane)
 amux minimize pane-2    # minimize by name
 amux restore pane-2     # restore
 ```
