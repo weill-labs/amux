@@ -47,33 +47,15 @@ jobs:
         if: steps.changes.outputs.code_changed == 'true'
         run: go vet ./...
 
-      - name: Unit tests
+      - name: Tests with coverage
         if: steps.changes.outputs.code_changed == 'true'
-        run: go test -json -coverprofile=unit-coverage.txt -covermode=atomic ./internal/... -timeout 60s | tee unit-results.json
-
-      - name: Integration tests
-        if: steps.changes.outputs.code_changed == 'true'
-        run: |
-          mkdir -p /tmp/amux-covdata
-          GOCOVERDIR=/tmp/amux-covdata go test -json -timeout 300s ./test/ | tee integration-results.json
+        run: scripts/coverage.sh --ci
 
       - name: Coverage summary
         if: always() && steps.changes.outputs.code_changed == 'true'
         run: |
-          # Convert integration coverage from binary to text
-          if ls /tmp/amux-covdata/* &>/dev/null; then
-            go tool covdata textfmt -i=/tmp/amux-covdata -o=integration-coverage.txt
-          fi
-
-          # Merge unit + integration profiles
-          profiles=""
-          [ -f unit-coverage.txt ] && profiles="unit-coverage.txt"
-          [ -f integration-coverage.txt ] && profiles="$profiles integration-coverage.txt"
-
-          if [ -n "$profiles" ]; then
-            go tool cover -func <(cat $profiles | grep -v '^mode:' | sed '1imode: atomic') > coverage-summary.txt
+          if [ -f coverage-summary.txt ]; then
             total=$(tail -1 coverage-summary.txt | awk '{print $NF}')
-
             {
               echo '## Coverage'
               echo ''
@@ -109,15 +91,17 @@ jobs:
       - name: Test timing summary
         if: always() && steps.changes.outputs.code_changed == 'true'
         run: |
-          echo '## Test Timing' >> "$GITHUB_STEP_SUMMARY"
-          echo '' >> "$GITHUB_STEP_SUMMARY"
-          echo '| Test | Duration |' >> "$GITHUB_STEP_SUMMARY"
-          echo '|------|----------|' >> "$GITHUB_STEP_SUMMARY"
-          jq -r 'select(.Action=="pass" and .Test) | "| \(.Test) | \(.Elapsed)s |"' \
-            unit-results.json integration-results.json \
-            | sort -t'|' -k3 -rn >> "$GITHUB_STEP_SUMMARY"
-          echo '' >> "$GITHUB_STEP_SUMMARY"
           total=$(jq -r 'select(.Action=="pass" and .Test) | .Elapsed' \
             unit-results.json integration-results.json \
             | awk '{s+=$1} END {printf "%.2f", s}')
-          echo "**Total: ${total}s**" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo '## Test Timing'
+            echo ''
+            echo '| Test | Duration |'
+            echo '|------|----------|'
+            jq -r 'select(.Action=="pass" and .Test) | "| \(.Test) | \(.Elapsed)s |"' \
+              unit-results.json integration-results.json \
+              | sort -t'|' -k3 -rn
+            echo ''
+            echo "**Total: ${total}s**"
+          } >> "$GITHUB_STEP_SUMMARY"
