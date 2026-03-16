@@ -572,7 +572,6 @@ func (s *Session) paneIsBusy(paneID uint32) bool {
 	return !status.Idle
 }
 
-
 // trackPaneActivity is called on every PTY output. It resets the idle timer
 // and fires on-activity if the pane was previously idle.
 func (s *Session) trackPaneActivity(paneID uint32) {

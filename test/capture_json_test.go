@@ -232,11 +232,7 @@ func TestCaptureJSON_AgentStatus_Busy(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)
 
-	// Use sentinel pattern: background sleep, print marker, wait.
-	// waitFor on the marker is output-based (reliable under load) unlike
-	// waitBusy which relies on pgrep (flaky under parallel test load).
-	h.sendKeys("pane-1", `sleep 300 & printf '\x42\x55\x53\x59_OK\n'; wait`, "Enter")
-	h.waitFor("pane-1", "BUSY_OK")
+	h.startLongSleep("pane-1")
 
 	pane1 := captureJSONPane(t, h, "pane-1")
 
@@ -296,8 +292,7 @@ func TestCaptureJSON_AgentStatus_SinglePane(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)
 
-	h.sendKeys("pane-1", `sleep 300 & printf '\x42\x55\x53\x59_OK\n'; wait`, "Enter")
-	h.waitFor("pane-1", "BUSY_OK")
+	h.startLongSleep("pane-1")
 
 	// Single-pane capture should also include agent status
 	out := h.runCmd("capture", "--format", "json", "pane-1")
@@ -336,8 +331,7 @@ func TestCaptureJSON_AgentStatus_Transition(t *testing.T) {
 	}
 
 	// Transition to busy
-	h.sendKeys("pane-1", `sleep 300 & printf '\x42\x55\x53\x59_OK\n'; wait`, "Enter")
-	h.waitFor("pane-1", "BUSY_OK")
+	h.startLongSleep("pane-1")
 
 	pane = captureJSONPane(t, h, "pane-1")
 	if pane.Idle {
@@ -377,8 +371,7 @@ func TestCaptureJSON_AgentStatus_MultiPane(t *testing.T) {
 	h.splitV() // creates pane-2
 
 	// Make pane-1 busy, leave pane-2 idle
-	h.sendKeys("pane-1", `sleep 300 & printf '\x42\x55\x53\x59_OK\n'; wait`, "Enter")
-	h.waitFor("pane-1", "BUSY_OK")
+	h.startLongSleep("pane-1")
 	h.sendKeys("pane-2", "echo IDLE_CHECK", "Enter")
 	h.waitFor("pane-2", "IDLE_CHECK")
 

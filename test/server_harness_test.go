@@ -278,6 +278,16 @@ func (h *ServerHarness) waitBusy(pane string) {
 	}
 }
 
+// startLongSleep starts a background sleep in the named pane and waits for a
+// sentinel marker to confirm the child process exists. This is more reliable
+// than waitBusy under parallel test load because it uses output-based detection
+// (waitFor) instead of pgrep.
+func (h *ServerHarness) startLongSleep(pane string) {
+	h.tb.Helper()
+	h.sendKeys(pane, `sleep 300 & printf '\x42\x55\x53\x59_OK\n'; wait`, "Enter")
+	h.waitFor(pane, "BUSY_OK")
+}
+
 // waitIdle blocks until the named pane becomes idle (no activity for DefaultIdleTimeout).
 // Uses the server's wait-idle command (event-based, zero polling).
 func (h *ServerHarness) waitIdle(pane string) {
