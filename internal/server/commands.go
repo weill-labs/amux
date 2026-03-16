@@ -124,6 +124,15 @@ func cmdSplit(ctx *CommandContext) {
 			hostName = ctx.Args[i+1]
 		}
 	}
+	// If no --host flag, inherit the active pane's host when it's a
+	// remote proxy pane. Splitting a remote pane should stay remote.
+	if hostName == "" {
+		ctx.Sess.mu.Lock()
+		if w := ctx.Sess.ActiveWindow(); w != nil && w.ActivePane != nil && w.ActivePane.IsProxy() {
+			hostName = w.ActivePane.Meta.Host
+		}
+		ctx.Sess.mu.Unlock()
+	}
 
 	if hostName != "" {
 		pane := ctx.CC.splitRemotePane(ctx.Srv, ctx.Sess, hostName, dir, rootLevel)
