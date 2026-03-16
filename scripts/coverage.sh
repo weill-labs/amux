@@ -51,8 +51,12 @@ fi
 # --- Merge coverage ---
 echo ""
 echo "=== Merging coverage ==="
-if compgen -G "$COVDIR/*" >/dev/null; then
-  go tool covdata textfmt -i="$COVDIR" -o=integration-coverage.txt
+# ServerHarness writes coverage to per-test subdirectories under GOCOVERDIR
+# to avoid races between parallel processes. covdata textfmt doesn't recurse,
+# so we must list all directories (parent + subdirs) explicitly.
+covdirs=$(find "$COVDIR" -type d | paste -sd, -)
+if find "$COVDIR" -name 'cov*' -print -quit | grep -q .; then
+  go tool covdata textfmt -i="$covdirs" -o=integration-coverage.txt
 fi
 
 profiles=()
