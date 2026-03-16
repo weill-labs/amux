@@ -218,8 +218,9 @@ func (s *Session) broadcastPaneOutput(paneID uint32, data []byte) {
 // broadcastLayout sends the current layout snapshot to all clients
 // and increments the layout generation counter.
 func (s *Session) broadcastLayout() {
+	idleSnap := s.snapshotIdleState()
 	s.mu.Lock()
-	snap := s.snapshotLayoutLocked()
+	snap := s.snapshotLayoutLocked(idleSnap)
 	if snap == nil {
 		s.mu.Unlock()
 		return
@@ -242,7 +243,21 @@ func (s *Session) broadcastLayout() {
 
 // snapshotLayoutLocked builds a LayoutSnapshot with multi-window data.
 // Caller must hold s.mu.
-func (s *Session) snapshotLayoutLocked() *proto.LayoutSnapshot {
+// snapshotIdleState returns a copy of the session's idle state map.
+// Must be called before acquiring s.mu to maintain lock ordering:
+// trackPaneActivity holds idleTimerMu then acquires s.mu (via buildPaneEnv),
+// so callers must acquire idleTimerMu before s.mu.
+func (s *Session) snapshotIdleState() map[uint32]bool {
+	s.idleTimerMu.Lock()
+	defer s.idleTimerMu.Unlock()
+	snap := make(map[uint32]bool, len(s.idleState))
+	for id, idle := range s.idleState {
+		snap[id] = idle
+	}
+	return snap
+}
+
+func (s *Session) snapshotLayoutLocked(idleSnap map[uint32]bool) *proto.LayoutSnapshot {
 	w := s.ActiveWindow()
 	if w == nil {
 		return nil
@@ -257,18 +272,15 @@ func (s *Session) snapshotLayoutLocked() *proto.LayoutSnapshot {
 		snap.Windows = append(snap.Windows, win.SnapshotWindow(i+1))
 	}
 
-	// Stamp idle state from the server's cached idle timers.
-	// This avoids spawning pgrep subprocesses under s.mu.
-	s.idleTimerMu.Lock()
+	// Stamp idle state from the pre-acquired snapshot.
 	for i := range snap.Panes {
-		snap.Panes[i].Idle = s.idleState[snap.Panes[i].ID]
+		snap.Panes[i].Idle = idleSnap[snap.Panes[i].ID]
 	}
 	for wi := range snap.Windows {
 		for pi := range snap.Windows[wi].Panes {
-			snap.Windows[wi].Panes[pi].Idle = s.idleState[snap.Windows[wi].Panes[pi].ID]
+			snap.Windows[wi].Panes[pi].Idle = idleSnap[snap.Windows[wi].Panes[pi].ID]
 		}
 	}
-	s.idleTimerMu.Unlock()
 
 	return snap
 }
@@ -373,7 +385,10 @@ func (s *Session) createPaneWithMeta(srv *Server, meta mux.PaneMeta, cols, rows 
 }
 
 // serverPaneData adapts *mux.Pane to the render.PaneData interface.
-type serverPaneData struct{ p *mux.Pane }
+type serverPaneData struct {
+	p    *mux.Pane
+	idle bool // cached from session idle tracking, avoids forking pgrep
+}
 
 func (s *serverPaneData) RenderScreen(active bool) string {
 	if !active {
@@ -381,17 +396,17 @@ func (s *serverPaneData) RenderScreen(active bool) string {
 	}
 	return s.p.Render()
 }
-func (s *serverPaneData) CursorPos() (int, int) { return s.p.CursorPos() }
-func (s *serverPaneData) CursorHidden() bool    { return s.p.CursorHidden() }
-func (s *serverPaneData) HasCursorBlock() bool  { return s.p.HasCursorBlock() }
-func (s *serverPaneData) ID() uint32            { return s.p.ID }
-func (s *serverPaneData) Name() string          { return s.p.Meta.Name }
-func (s *serverPaneData) Host() string          { return s.p.Meta.Host }
-func (s *serverPaneData) Task() string          { return s.p.Meta.Task }
-func (s *serverPaneData) Color() string         { return s.p.Meta.Color }
-func (s *serverPaneData) Minimized() bool       { return s.p.Meta.Minimized }
-func (s *serverPaneData) Idle() bool            { return s.p.IsIdle() }
-func (s *serverPaneData) InCopyMode() bool      { return false }
+func (s *serverPaneData) CursorPos() (int, int)  { return s.p.CursorPos() }
+func (s *serverPaneData) CursorHidden() bool     { return s.p.CursorHidden() }
+func (s *serverPaneData) HasCursorBlock() bool   { return s.p.HasCursorBlock() }
+func (s *serverPaneData) ID() uint32             { return s.p.ID }
+func (s *serverPaneData) Name() string           { return s.p.Meta.Name }
+func (s *serverPaneData) Host() string           { return s.p.Meta.Host }
+func (s *serverPaneData) Task() string           { return s.p.Meta.Task }
+func (s *serverPaneData) Color() string          { return s.p.Meta.Color }
+func (s *serverPaneData) Minimized() bool        { return s.p.Meta.Minimized }
+func (s *serverPaneData) Idle() bool             { return s.idle }
+func (s *serverPaneData) InCopyMode() bool       { return false }
 func (s *serverPaneData) CopyModeSearch() string { return "" }
 
 // renderCapture renders the full composited screen server-side.
@@ -401,6 +416,7 @@ func (s *serverPaneData) CopyModeSearch() string { return "" }
 // Note: pane emulator reads here race with concurrent PTY writes. This is
 // the same best-effort pattern used by handleAttach's reattach snapshot.
 func (s *Session) renderCapture(stripANSI bool) string {
+	idleSnap := s.snapshotIdleState()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -411,7 +427,7 @@ func (s *Session) renderCapture(stripANSI bool) string {
 
 	paneMap := make(map[uint32]render.PaneData, len(s.Panes))
 	for _, p := range s.Panes {
-		paneMap[p.ID] = &serverPaneData{p: p}
+		paneMap[p.ID] = &serverPaneData{p: p, idle: idleSnap[p.ID]}
 	}
 
 	totalH := w.Height + render.GlobalBarHeight
@@ -786,6 +802,7 @@ func (s *Server) Reload(execPath string) error {
 	sess.shutdown.Store(true)
 
 	// Build checkpoint
+	idleSnap := sess.snapshotIdleState()
 	sess.mu.Lock()
 	if len(sess.Windows) == 0 {
 		sess.mu.Unlock()
@@ -793,7 +810,7 @@ func (s *Server) Reload(execPath string) error {
 		return fmt.Errorf("no window to checkpoint")
 	}
 
-	snap := sess.snapshotLayoutLocked()
+	snap := sess.snapshotLayoutLocked(idleSnap)
 	cp := &checkpoint.ServerCheckpoint{
 		SessionName:   sess.Name,
 		Counter:       sess.counter.Load(),
@@ -1085,6 +1102,7 @@ func (s *Server) handleAttach(conn net.Conn, msg *Message) {
 		rows = DefaultTermRows
 	}
 
+	idleSnap := sess.snapshotIdleState()
 	sess.mu.Lock()
 
 	// Reserve rows for the global status bar.
@@ -1117,7 +1135,7 @@ func (s *Server) handleAttach(conn net.Conn, msg *Message) {
 	}
 
 	// Send layout snapshot so client can build its rendering state
-	snap := sess.snapshotLayoutLocked()
+	snap := sess.snapshotLayoutLocked(idleSnap)
 	cc.Send(&Message{Type: MsgTypeLayout, Layout: snap})
 
 	// Send current screen state for each pane (enables reattach)

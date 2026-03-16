@@ -1,0 +1,15 @@
+#!/bin/bash
+# Block --amend on commits that have already been pushed.
+# Force pushes break Codecov analysis and lose review context.
+# We squash-merge PRs anyway, so extra commits are free.
+
+if [ "$2" = "commit" ] && [ -n "$3" ]; then
+    # $3 is the SHA being amended
+    UPSTREAM=$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null)
+    if [ -n "$UPSTREAM" ] && git merge-base --is-ancestor "$3" "$UPSTREAM" 2>/dev/null; then
+        echo "ERROR: refusing to amend a commit that has been pushed to $UPSTREAM"
+        echo "  Create a new commit instead — we squash-merge PRs."
+        echo "  To override: git commit --amend --no-verify"
+        exit 1
+    fi
+fi

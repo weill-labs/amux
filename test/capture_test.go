@@ -3,6 +3,7 @@ package test
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestCapture(t *testing.T) {
@@ -82,6 +83,25 @@ func TestCursorBlockOnlyInActivePane(t *testing.T) {
 	inactive := h.runCmd("capture", "--ansi", "pane-1")
 	if strings.Contains(inactive, "\033[7m") {
 		t.Errorf("inactive pane should have no reverse-video cursor blocks, got:\n%s", inactive)
+	}
+}
+
+func TestCaptureIdleIndicator(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	// Split so pane-1 becomes inactive (pane-2 gets focus)
+	h.splitV()
+
+	// Wait for the idle timer to fire (DefaultIdleTimeout = 2s).
+	// The inactive pane's shell is at the prompt with no children,
+	// so it will transition to idle and show the ◇ indicator.
+	h.waitFor("pane-2", "$")
+	time.Sleep(3 * time.Second)
+
+	out := h.capture()
+	if !strings.Contains(out, "◇") {
+		t.Errorf("capture should show idle diamond indicator for inactive idle pane, got:\n%s", out)
 	}
 }
 
