@@ -10,7 +10,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4.2.2
+      - uses: actions/checkout@v6.0.2
         with:
           fetch-depth: 2
 
@@ -39,14 +39,14 @@ jobs:
             echo "code_changed=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: actions/setup-go@v5.4.0
+      - uses: actions/setup-go@v6.3.0
         if: steps.changes.outputs.code_changed == 'true'
         with:
           go-version: "1.25"
 
       - name: Cache apt packages
         if: steps.changes.outputs.code_changed == 'true'
-        uses: actions/cache@v4
+        uses: actions/cache@v5.0.3
         with:
           path: ~/apt-cache
           key: apt-tmux-${{ runner.os }}
@@ -65,7 +65,7 @@ jobs:
 
       - name: Cache Go tools
         if: steps.changes.outputs.code_changed == 'true'
-        uses: actions/cache@v4
+        uses: actions/cache@v5.0.3
         with:
           path: ~/go/bin
           key: go-tools-${{ runner.os }}-junit-report-v2.1.0
