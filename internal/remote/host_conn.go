@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strings"
 	"sync"
 
 	"golang.org/x/crypto/ssh"
@@ -140,9 +141,12 @@ func (hc *HostConn) connect(sessionName string) error {
 		return fmt.Errorf("starting remote server: %w", err)
 	}
 
-	// Persistent attach connection for streaming pane output
+	// Persistent attach connection for streaming pane output.
+	// Try Unix socket forwarding first (OpenSSH); fall back to TCP via
+	// socat bridge (needed for Tailscale SSH which doesn't support
+	// direct-streamlocal@openssh.com).
 	remoteSock := hc.remoteSocketPath(remoteSession)
-	amuxConn, err := sshClient.Dial("unix", remoteSock)
+	amuxConn, err := hc.dialRemoteSocket(sshClient, remoteSock)
 	if err != nil {
 		sshClient.Close()
 		return fmt.Errorf("dialing remote socket %s: %w", remoteSock, err)
@@ -182,7 +186,7 @@ func (hc *HostConn) runCommand(cmdName string, cmdArgs []string) (string, error)
 	}
 
 	remoteSock := hc.remoteSocketPath(session)
-	conn, err := sshClient.Dial("unix", remoteSock)
+	conn, err := hc.dialRemoteSocket(sshClient, remoteSock)
 	if err != nil {
 		return "", fmt.Errorf("dialing remote socket: %w", err)
 	}
@@ -349,7 +353,9 @@ func (hc *HostConn) CreateRemotePane(localPaneID uint32) (uint32, error) {
 
 	// Parse: "Spawned remote-N in pane M\n"
 	var remotePaneID uint32
-	fmt.Sscanf(output, "Spawned remote-%*d in pane %d", &remotePaneID)
+	if idx := strings.LastIndex(output, "pane "); idx >= 0 {
+		fmt.Sscanf(output[idx:], "pane %d", &remotePaneID)
+	}
 	if remotePaneID == 0 {
 		return 0, fmt.Errorf("could not parse remote pane ID from: %s", output)
 	}
@@ -439,6 +445,52 @@ func remoteSessionName(localSessionName string) string {
 // Uses the cached remote UID (queried during connect).
 func (hc *HostConn) remoteSocketPath(sessionName string) string {
 	return fmt.Sprintf("/tmp/amux-%s/%s", hc.remoteUID, sessionName)
+}
+
+// dialRemoteSocket connects to the remote amux Unix socket. It tries direct
+// Unix socket forwarding first (works with OpenSSH), then falls back to
+// launching socat on the remote to bridge a TCP port to the socket (needed
+// for Tailscale SSH which doesn't support direct-streamlocal@openssh.com).
+func (hc *HostConn) dialRemoteSocket(client *ssh.Client, sockPath string) (net.Conn, error) {
+	// Try direct Unix socket forwarding first
+	conn, err := client.Dial("unix", sockPath)
+	if err == nil {
+		return conn, nil
+	}
+
+	// Fallback: start socat on the remote to bridge TCP→Unix socket.
+	// Pick a high ephemeral port and have socat listen on localhost only.
+	port, socatErr := hc.startSocatBridge(client, sockPath)
+	if socatErr != nil {
+		return nil, fmt.Errorf("unix dial failed (%w) and socat fallback failed (%w)", err, socatErr)
+	}
+
+	tcpConn, tcpErr := client.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+	if tcpErr != nil {
+		return nil, fmt.Errorf("unix dial failed (%w) and TCP fallback failed (%w)", err, tcpErr)
+	}
+	return tcpConn, nil
+}
+
+// startSocatBridge launches socat on the remote to bridge a TCP port to the
+// Unix socket. Returns the port number. The socat process exits when the
+// TCP connection closes.
+func (hc *HostConn) startSocatBridge(client *ssh.Client, sockPath string) (int, error) {
+	// Find a free port and start socat
+	out, err := sshOutput(client, fmt.Sprintf(
+		`port=$(python3 -c "import socket; s=socket.socket(); s.bind(('',0)); print(s.getsockname()[1]); s.close()" 2>/dev/null || shuf -i 49152-65535 -n 1); `+
+			`nohup socat TCP-LISTEN:$port,bind=127.0.0.1,fork,reuseaddr UNIX-CONNECT:%s </dev/null >/dev/null 2>&1 & `+
+			`sleep 0.3; echo $port`, sockPath))
+	if err != nil {
+		return 0, fmt.Errorf("starting socat: %w", err)
+	}
+
+	var port int
+	fmt.Sscanf(out, "%d", &port)
+	if port == 0 {
+		return 0, fmt.Errorf("could not parse socat port from: %s", out)
+	}
+	return port, nil
 }
 
 // hasPort returns true if the address already includes a port.
