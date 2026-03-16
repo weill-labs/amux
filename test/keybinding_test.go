@@ -30,7 +30,7 @@ func newAmuxHarnessWithConfig(t *testing.T, configContent string) *AmuxHarness {
 	rand.Read(b[:])
 	inner := fmt.Sprintf("t-%x", b)
 
-	h := &AmuxHarness{outer: outer, inner: inner, t: t, session: inner}
+	h := &AmuxHarness{outer: outer, inner: inner, tb: t, session: inner}
 
 	// Launch inner amux with AMUX_CONFIG set
 	outer.sendKeys("pane-1", fmt.Sprintf("AMUX_CONFIG=%s %s -s %s", configPath, amuxBin, inner), "Enter")

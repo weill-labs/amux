@@ -92,12 +92,32 @@ func cleanupStaleTestSessions() {
 		}
 	}
 
+	// Also kill orphaned benchmark amux servers
+	out, _ = exec.Command("pgrep", "-fl", "amux _server bench-").Output()
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 3 && isBenchSession(fields[len(fields)-1]) {
+			exec.Command("kill", fields[0]).Run()
+		}
+	}
+
+	// Kill orphaned tmux benchmark sessions
+	if _, err := exec.LookPath("tmux"); err == nil {
+		out, _ = exec.Command("tmux", "list-sessions", "-F", "#{session_name}").Output()
+		for _, name := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+			if isBenchSession(name) {
+				exec.Command("tmux", "kill-session", "-t", name).Run()
+			}
+		}
+	}
+
 	// Clean up stale sockets and log files
 	socketDir := fmt.Sprintf("/tmp/amux-%d", os.Getuid())
 	entries, _ := os.ReadDir(socketDir)
 	for _, e := range entries {
 		name := e.Name()
-		if isTestSession(name) || (strings.HasSuffix(name, ".log") && isTestSession(strings.TrimSuffix(name, ".log"))) {
+		base := strings.TrimSuffix(name, ".log")
+		if isTestSession(base) || isBenchSession(base) {
 			os.Remove(filepath.Join(socketDir, name))
 		}
 	}
@@ -109,6 +129,15 @@ func isTestSession(name string) bool {
 		return false
 	}
 	_, err := hex.DecodeString(name[2:])
+	return err == nil
+}
+
+// isBenchSession returns true if the name matches the bench session convention: bench- followed by 8 hex chars.
+func isBenchSession(name string) bool {
+	if len(name) != 14 || !strings.HasPrefix(name, "bench-") {
+		return false
+	}
+	_, err := hex.DecodeString(name[6:])
 	return err == nil
 }
 

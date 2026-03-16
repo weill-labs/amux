@@ -20,7 +20,7 @@ import (
 // CLI commands are synchronous: after runCmd("split") returns, capture()
 // immediately reflects the split. Zero polling, zero time.Sleep.
 type ServerHarness struct {
-	t        *testing.T
+	tb       testing.TB
 	session  string
 	cmd      *exec.Cmd
 	coverDir string // per-test GOCOVERDIR subdirectory (avoids coverage metadata races)
@@ -28,8 +28,8 @@ type ServerHarness struct {
 
 // newServerHarness starts a server daemon with a unique session name,
 // waits for the ready signal, and seeds the first pane. Safe for parallel tests.
-func newServerHarness(t *testing.T) *ServerHarness {
-	t.Helper()
+func newServerHarness(tb testing.TB) *ServerHarness {
+	tb.Helper()
 	var b [4]byte
 	rand.Read(b[:])
 	session := fmt.Sprintf("t-%x", b)
@@ -37,7 +37,7 @@ func newServerHarness(t *testing.T) *ServerHarness {
 	// Create pipe for the server's ready signal.
 	readPipe, writePipe, err := os.Pipe()
 	if err != nil {
-		t.Fatalf("creating ready pipe: %v", err)
+		tb.Fatalf("creating ready pipe: %v", err)
 	}
 
 	cmd := exec.Command(amuxBin, "_server", session)
@@ -66,7 +66,7 @@ func newServerHarness(t *testing.T) *ServerHarness {
 	logPath := filepath.Join(logDir, session+".log")
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
 	if err != nil {
-		t.Fatalf("opening log: %v", err)
+		tb.Fatalf("opening log: %v", err)
 	}
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
@@ -75,7 +75,7 @@ func newServerHarness(t *testing.T) *ServerHarness {
 		logFile.Close()
 		readPipe.Close()
 		writePipe.Close()
-		t.Fatalf("starting server: %v", err)
+		tb.Fatalf("starting server: %v", err)
 	}
 	writePipe.Close() // close write end in parent
 	logFile.Close()
@@ -87,11 +87,11 @@ func newServerHarness(t *testing.T) *ServerHarness {
 	readPipe.Close()
 	if err != nil || !strings.Contains(string(buf[:n]), "ready") {
 		cmd.Process.Kill()
-		t.Fatalf("server ready signal not received: err=%v, buf=%q", err, string(buf[:n]))
+		tb.Fatalf("server ready signal not received: err=%v, buf=%q", err, string(buf[:n]))
 	}
 
-	h := &ServerHarness{t: t, session: session, cmd: cmd, coverDir: coverDir}
-	t.Cleanup(h.cleanup)
+	h := &ServerHarness{tb: tb, session: session, cmd: cmd, coverDir: coverDir}
+	tb.Cleanup(h.cleanup)
 
 	// Seed the first pane by sending a temporary Attach message.
 	h.seedPane()
@@ -102,11 +102,11 @@ func newServerHarness(t *testing.T) *ServerHarness {
 // seedPane creates the first pane+window by connecting as a client, reading
 // the layout response (which confirms pane creation), then disconnecting.
 func (h *ServerHarness) seedPane() {
-	h.t.Helper()
+	h.tb.Helper()
 	sockPath := server.SocketPath(h.session)
 	conn, err := net.Dial("unix", sockPath)
 	if err != nil {
-		h.t.Fatalf("seeding pane: %v", err)
+		h.tb.Fatalf("seeding pane: %v", err)
 	}
 	defer conn.Close()
 
@@ -116,17 +116,17 @@ func (h *ServerHarness) seedPane() {
 		Cols:    80,
 		Rows:    24,
 	}); err != nil {
-		h.t.Fatalf("seeding pane: writing attach: %v", err)
+		h.tb.Fatalf("seeding pane: writing attach: %v", err)
 	}
 
 	// Read the layout message — confirms the server created the pane.
 	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 	msg, err := server.ReadMsg(conn)
 	if err != nil {
-		h.t.Fatalf("seeding pane: reading layout: %v", err)
+		h.tb.Fatalf("seeding pane: reading layout: %v", err)
 	}
 	if msg.Type != server.MsgTypeLayout {
-		h.t.Fatalf("seeding pane: expected layout (type %d), got type %d", server.MsgTypeLayout, msg.Type)
+		h.tb.Fatalf("seeding pane: expected layout (type %d), got type %d", server.MsgTypeLayout, msg.Type)
 	}
 }
 
@@ -157,7 +157,7 @@ func (h *ServerHarness) cleanup() {
 
 // runCmd executes an amux CLI command targeting this test's session.
 func (h *ServerHarness) runCmd(args ...string) string {
-	h.t.Helper()
+	h.tb.Helper()
 	cmdArgs := append([]string{"-s", h.session}, args...)
 	cmd := exec.Command(amuxBin, cmdArgs...)
 	if h.coverDir != "" {
@@ -169,19 +169,19 @@ func (h *ServerHarness) runCmd(args ...string) string {
 
 // capture returns the server-side composited screen (plain text 2D grid).
 func (h *ServerHarness) capture() string {
-	h.t.Helper()
+	h.tb.Helper()
 	return h.runCmd("capture")
 }
 
 // captureLines returns the capture output split into rows.
 func (h *ServerHarness) captureLines() []string {
-	h.t.Helper()
+	h.tb.Helper()
 	return strings.Split(h.capture(), "\n")
 }
 
 // captureContentLines returns capture lines excluding the global bar.
 func (h *ServerHarness) captureContentLines() []string {
-	h.t.Helper()
+	h.tb.Helper()
 	var out []string
 	for _, line := range h.captureLines() {
 		if !isGlobalBar(line) {
@@ -193,22 +193,22 @@ func (h *ServerHarness) captureContentLines() []string {
 
 // captureVerticalBorderCol finds a consistent vertical border column.
 func (h *ServerHarness) captureVerticalBorderCol() int {
-	h.t.Helper()
+	h.tb.Helper()
 	return findVerticalBorderCol(h.captureContentLines())
 }
 
 // assertScreen fails the test if fn returns false for the current screen.
 func (h *ServerHarness) assertScreen(msg string, fn func(string) bool) {
-	h.t.Helper()
+	h.tb.Helper()
 	screen := h.capture()
 	if !fn(screen) {
-		h.t.Errorf("%s\nScreen:\n%s", msg, screen)
+		h.tb.Errorf("%s\nScreen:\n%s", msg, screen)
 	}
 }
 
 // globalBar returns the global bar line from the capture.
 func (h *ServerHarness) globalBar() string {
-	h.t.Helper()
+	h.tb.Helper()
 	for _, line := range h.captureLines() {
 		if isGlobalBar(line) {
 			return line
@@ -224,30 +224,30 @@ func (h *ServerHarness) globalBar() string {
 // waitFor blocks until substr appears in the named pane's screen content.
 // Uses the server's wait-for command (blocking, zero polling).
 func (h *ServerHarness) waitFor(pane, substr string) {
-	h.t.Helper()
+	h.tb.Helper()
 	out := h.runCmd("wait-for", pane, substr, "--timeout", "5s")
 	if strings.Contains(out, "timeout") || strings.Contains(out, "not found") {
-		h.t.Fatalf("wait-for %q in %s: %s\ncapture:\n%s", substr, pane, strings.TrimSpace(out), h.capture())
+		h.tb.Fatalf("wait-for %q in %s: %s\ncapture:\n%s", substr, pane, strings.TrimSpace(out), h.capture())
 	}
 }
 
 // generation returns the current layout generation counter.
 func (h *ServerHarness) generation() uint64 {
-	h.t.Helper()
+	h.tb.Helper()
 	out := strings.TrimSpace(h.runCmd("generation"))
 	n, err := strconv.ParseUint(out, 10, 64)
 	if err != nil {
-		h.t.Fatalf("parsing generation: %v (output: %q)", err, out)
+		h.tb.Fatalf("parsing generation: %v (output: %q)", err, out)
 	}
 	return n
 }
 
 // waitLayout blocks until the layout generation exceeds afterGen.
 func (h *ServerHarness) waitLayout(afterGen uint64) {
-	h.t.Helper()
+	h.tb.Helper()
 	out := h.runCmd("wait-layout", "--after", strconv.FormatUint(afterGen, 10), "--timeout", "5s")
 	if strings.Contains(out, "timeout") {
-		h.t.Fatalf("wait-layout timed out after generation %d\ncapture:\n%s", afterGen, h.capture())
+		h.tb.Fatalf("wait-layout timed out after generation %d\ncapture:\n%s", afterGen, h.capture())
 	}
 }
 
@@ -256,34 +256,34 @@ func (h *ServerHarness) waitLayout(afterGen uint64) {
 // ---------------------------------------------------------------------------
 
 func (h *ServerHarness) splitV() {
-	h.t.Helper()
+	h.tb.Helper()
 	out := h.runCmd("split")
 	if strings.Contains(out, "error") || strings.Contains(out, "cannot") {
-		h.t.Fatalf("splitV failed: %s", out)
+		h.tb.Fatalf("splitV failed: %s", out)
 	}
 }
 
 func (h *ServerHarness) splitH() {
-	h.t.Helper()
+	h.tb.Helper()
 	out := h.runCmd("split", "v")
 	if strings.Contains(out, "error") || strings.Contains(out, "cannot") {
-		h.t.Fatalf("splitH failed: %s", out)
+		h.tb.Fatalf("splitH failed: %s", out)
 	}
 }
 
 func (h *ServerHarness) splitRootV() {
-	h.t.Helper()
+	h.tb.Helper()
 	out := h.runCmd("split", "root")
 	if strings.Contains(out, "error") || strings.Contains(out, "cannot") {
-		h.t.Fatalf("splitRootV failed: %s", out)
+		h.tb.Fatalf("splitRootV failed: %s", out)
 	}
 }
 
 func (h *ServerHarness) splitRootH() {
-	h.t.Helper()
+	h.tb.Helper()
 	out := h.runCmd("split", "root", "v")
 	if strings.Contains(out, "error") || strings.Contains(out, "cannot") {
-		h.t.Fatalf("splitRootH failed: %s", out)
+		h.tb.Fatalf("splitRootH failed: %s", out)
 	}
 }
 
@@ -293,10 +293,10 @@ func (h *ServerHarness) splitRootH() {
 
 // sendKeys sends keystrokes to a specific pane via the server's send-keys command.
 func (h *ServerHarness) sendKeys(pane string, keys ...string) {
-	h.t.Helper()
+	h.tb.Helper()
 	args := append([]string{"send-keys", pane}, keys...)
 	out := h.runCmd(args...)
 	if strings.Contains(out, "not found") {
-		h.t.Fatalf("sendKeys to %s: %s", pane, strings.TrimSpace(out))
+		h.tb.Fatalf("sendKeys to %s: %s", pane, strings.TrimSpace(out))
 	}
 }
