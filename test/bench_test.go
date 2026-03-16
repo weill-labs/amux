@@ -188,7 +188,8 @@ func BenchmarkInputLatency(b *testing.B) {
 			marker := fmt.Sprintf("BENCH-%04d", i)
 			th.run("send-keys", "-t", th.session, fmt.Sprintf("echo %s", marker), "Enter")
 			// Poll at 5ms since tmux has no blocking wait-for
-			for {
+			deadline := time.Now().Add(10 * time.Second)
+			for time.Now().Before(deadline) {
 				out := th.run("capture-pane", "-t", th.session, "-p")
 				if strings.Contains(out, marker) {
 					break
@@ -222,7 +223,8 @@ func BenchmarkThroughput(b *testing.B) {
 		for i := range b.N {
 			marker := fmt.Sprintf("DONE-%04d", i)
 			th.run("send-keys", "-t", th.session, fmt.Sprintf("seq 1 10000; echo %s", marker), "Enter")
-			for {
+			deadline := time.Now().Add(30 * time.Second)
+			for time.Now().Before(deadline) {
 				out := th.run("capture-pane", "-t", th.session, "-p")
 				if strings.Contains(out, marker) {
 					break
@@ -240,6 +242,10 @@ func BenchmarkThroughput(b *testing.B) {
 func BenchmarkSplitScale(b *testing.B) {
 	for _, n := range []int{4, 10, 20} {
 		b.Run(fmt.Sprintf("amux/panes_%d", n), func(b *testing.B) {
+			// Each iteration needs a fresh harness since splits accumulate.
+			// StopTimer/StartTimer per iteration is a known anti-pattern that
+			// can inflate b.N, but it's unavoidable here — the alternative
+			// (timing setup+teardown) is worse. Eager cleanup prevents fd exhaustion.
 			for range b.N {
 				b.StopTimer()
 				h := newServerHarness(b)
@@ -248,7 +254,6 @@ func BenchmarkSplitScale(b *testing.B) {
 					h.splitV()
 				}
 				b.StopTimer()
-				// Eager cleanup to avoid accumulating file descriptors.
 				h.cleanup()
 				b.StartTimer()
 			}
@@ -327,7 +332,7 @@ func BenchmarkHotReload(b *testing.B) {
 		buildDur := time.Since(buildStart)
 
 		b.StartTimer()
-		totalStart := time.Now()
+		reconnectStart := time.Now()
 
 		// Wait for re-render (layout generation bumps after reconnect)
 		h.waitLayout(gen)
@@ -335,9 +340,10 @@ func BenchmarkHotReload(b *testing.B) {
 			b.Fatal("client did not reconnect after hot-reload")
 		}
 
-		reconnectDur := time.Since(totalStart)
+		reconnectDur := time.Since(reconnectStart)
+		totalDur := buildDur + reconnectDur
 
-		b.ReportMetric(float64(buildDur.Nanoseconds())+float64(reconnectDur.Nanoseconds()), "total-ns/op")
+		b.ReportMetric(float64(totalDur.Nanoseconds()), "total-ns/op")
 		b.ReportMetric(float64(reconnectDur.Nanoseconds()), "reconnect-ns/op")
 	}
 }

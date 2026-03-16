@@ -16,7 +16,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4.2.2
         with:
-          fetch-depth: 2
+          fetch-depth: 0
 
       - name: Check for code changes
         id: changes
@@ -141,12 +141,11 @@ jobs:
           echo "$COMPARISON"
 
           BODY="## Benchmark Comparison
+\`\`\`
+${COMPARISON}
+\`\`\`
 
-          \`\`\`
-          ${COMPARISON}
-          \`\`\`
-
-          > Regressions >15% are flagged as warnings. Results from benchstat with statistical significance testing."
+> Regressions >15% are flagged as warnings. Results from benchstat with statistical significance testing."
 
           gh pr comment "$PR_NUMBER" --body "$BODY" --edit-last 2>/dev/null || \
           gh pr comment "$PR_NUMBER" --body "$BODY"
