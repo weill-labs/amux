@@ -73,6 +73,7 @@ test/
 ### Build and Test
 
 ```bash
+make setup                         # after cloning: activate git hooks (formatting, lint, commit guards)
 go build -o ~/.local/bin/amux .    # build + install (client hot-reloads automatically)
 go test ./...                       # run all tests
 ```
