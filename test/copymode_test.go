@@ -259,7 +259,7 @@ func TestCopyModeResizeSurvives(t *testing.T) {
 // rendered client-side and only visible in the outer pane, not the inner
 // compositor.
 func waitForOuter(h *AmuxHarness, fn func(string) bool, timeout time.Duration) bool {
-	h.t.Helper()
+	h.tb.Helper()
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		if fn(h.captureOuter()) {

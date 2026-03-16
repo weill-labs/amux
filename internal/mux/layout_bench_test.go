@@ -1,0 +1,127 @@
+package mux
+
+import (
+	"fmt"
+	"testing"
+)
+
+// benchTree builds a balanced layout tree with n panes by alternating H/V splits.
+func benchTree(n int) *LayoutCell {
+	if n < 1 {
+		n = 1
+	}
+	root := NewLeaf(fakePaneID(1), 0, 0, 800, 240)
+	for i := 2; i <= n; i++ {
+		var target *LayoutCell
+		root.Walk(func(c *LayoutCell) {
+			if target == nil {
+				target = c
+			}
+		})
+		dir := SplitHorizontal
+		if i%2 == 0 {
+			dir = SplitVertical
+		}
+		target.Split(dir, fakePaneID(uint32(i)))
+	}
+	root.FixOffsets()
+	return root
+}
+
+func BenchmarkSplit(b *testing.B) {
+	for _, depth := range []int{1, 4, 10} {
+		b.Run(fmt.Sprintf("depth_%d", depth), func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				root := NewLeaf(fakePaneID(1), 0, 0, 80, 24)
+				for i := 2; i <= depth; i++ {
+					var target *LayoutCell
+					root.Walk(func(c *LayoutCell) {
+						if target == nil {
+							target = c
+						}
+					})
+					dir := SplitHorizontal
+					if i%2 == 0 {
+						dir = SplitVertical
+					}
+					target.Split(dir, fakePaneID(uint32(i)))
+				}
+			}
+		})
+	}
+}
+
+func BenchmarkClose(b *testing.B) {
+	for _, n := range []int{2, 4, 10} {
+		b.Run(fmt.Sprintf("panes_%d", n), func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				root := benchTree(n)
+				// Close the last leaf
+				var last *LayoutCell
+				root.Walk(func(c *LayoutCell) {
+					last = c
+				})
+				last.Close()
+			}
+		})
+	}
+}
+
+func BenchmarkWalk(b *testing.B) {
+	for _, n := range []int{1, 4, 10, 20} {
+		b.Run(fmt.Sprintf("panes_%d", n), func(b *testing.B) {
+			root := benchTree(n)
+			b.ReportAllocs()
+			b.ResetTimer()
+			for b.Loop() {
+				root.Walk(func(c *LayoutCell) {})
+			}
+		})
+	}
+}
+
+func BenchmarkFixOffsets(b *testing.B) {
+	for _, n := range []int{1, 4, 10, 20} {
+		b.Run(fmt.Sprintf("panes_%d", n), func(b *testing.B) {
+			root := benchTree(n)
+			b.ReportAllocs()
+			b.ResetTimer()
+			for b.Loop() {
+				root.FixOffsets()
+			}
+		})
+	}
+}
+
+func BenchmarkResolvePane(b *testing.B) {
+	for _, n := range []int{1, 10, 20} {
+		b.Run(fmt.Sprintf("panes_%d", n), func(b *testing.B) {
+			// Build a window with named panes
+			panes := make([]struct {
+				id         uint32
+				x, y, w, h int
+			}, n)
+			for i := range panes {
+				panes[i] = struct {
+					id         uint32
+					x, y, w, h int
+				}{uint32(i + 1), i * 4, 0, 4, 24}
+			}
+			w := buildLayout(1, panes)
+			// Set Meta.Name on each pane
+			w.Root.Walk(func(c *LayoutCell) {
+				if c.Pane != nil {
+					c.Pane.Meta.Name = fmt.Sprintf("pane-%d", c.Pane.ID)
+				}
+			})
+			target := fmt.Sprintf("pane-%d", n)
+			b.ReportAllocs()
+			b.ResetTimer()
+			for b.Loop() {
+				w.ResolvePane(target)
+			}
+		})
+	}
+}
