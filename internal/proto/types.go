@@ -78,6 +78,12 @@ type CapturePane struct {
 	Position  *CapturePos   `json:"position,omitempty"`
 	Cursor    CaptureCursor `json:"cursor"`
 	Content   []string      `json:"content"`
+
+	// Agent status fields (LAB-159)
+	Idle           bool   `json:"idle"`
+	IdleSince      string `json:"idle_since,omitempty"`
+	CurrentCommand string `json:"current_command"`
+	ChildPIDs      []int  `json:"child_pids"`
 }
 
 // CapturePos holds a pane's position and size within the layout.

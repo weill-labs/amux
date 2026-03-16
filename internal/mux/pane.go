@@ -6,8 +6,10 @@ import (
 	"os/exec"
 	"regexp"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
+	"time"
 
 	"github.com/creack/pty"
 )
@@ -47,6 +49,12 @@ type Pane struct {
 	onExit       func(paneID uint32)
 	onClipboard  func(paneID uint32, data []byte)
 	osc52Scanner OSC52Scanner
+
+	// Idle tracking (LAB-159)
+	idleMu       sync.Mutex
+	createdAt    time.Time
+	lastBusySeen time.Time // last time process tree showed busy
+	idleSince    time.Time // when the current idle period began
 }
 
 // NewPane creates a new pane running the user's shell but does NOT start
@@ -75,13 +83,14 @@ func NewPane(id uint32, meta PaneMeta, cols, rows int, onOutput func(uint32, []b
 	emu := NewVTEmulator(cols, rows)
 
 	return &Pane{
-		ID:       id,
-		Meta:     meta,
-		ptmx:     ptmx,
-		cmd:      cmd,
-		emulator: emu,
-		onOutput: onOutput,
-		onExit:   onExit,
+		ID:        id,
+		Meta:      meta,
+		ptmx:      ptmx,
+		cmd:       cmd,
+		emulator:  emu,
+		onOutput:  onOutput,
+		onExit:    onExit,
+		createdAt: time.Now(),
 	}, nil
 }
 
@@ -111,6 +120,7 @@ func RestorePane(id uint32, meta PaneMeta, ptmxFd, pid, cols, rows int, onOutput
 		drainStarted: true,
 		onOutput:     onOutput,
 		onExit:       onExit,
+		createdAt:    time.Now(),
 	}
 
 	// Start drain immediately so screen replay doesn't deadlock

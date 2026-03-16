@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"time"
 
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
@@ -60,6 +61,7 @@ func (s *Session) captureJSON() string {
 			return
 		}
 
+		status := pane.AgentStatus()
 		cp := proto.CapturePane{
 			ID:        pane.ID,
 			Name:      pane.Meta.Name,
@@ -75,8 +77,15 @@ func (s *Session) captureJSON() string {
 				Width:  c.W,
 				Height: c.H,
 			},
-			Cursor:  captureCursor(pane),
-			Content: pane.ContentLines(),
+			Cursor:         captureCursor(pane),
+			Content:        pane.ContentLines(),
+			Idle:           status.Idle,
+			IdleSince:      formatIdleSince(status.IdleSince),
+			CurrentCommand: status.CurrentCommand,
+			ChildPIDs:      status.ChildPIDs,
+		}
+		if cp.ChildPIDs == nil {
+			cp.ChildPIDs = []int{}
 		}
 		capture.Panes = append(capture.Panes, cp)
 	})
@@ -99,21 +108,37 @@ func (s *Session) capturePaneJSON(pane *mux.Pane) string {
 		zoomedPaneID = w.ZoomedPaneID
 	}
 
+	status := pane.AgentStatus()
 	cp := proto.CapturePane{
-		ID:        pane.ID,
-		Name:      pane.Meta.Name,
-		Active:    pane.ID == activePaneID,
-		Minimized: pane.Meta.Minimized,
-		Zoomed:    pane.ID == zoomedPaneID,
-		Host:      pane.Meta.Host,
-		Task:      pane.Meta.Task,
-		Color:     pane.Meta.Color,
-		Cursor:    captureCursor(pane),
-		Content:   pane.ContentLines(),
+		ID:             pane.ID,
+		Name:           pane.Meta.Name,
+		Active:         pane.ID == activePaneID,
+		Minimized:      pane.Meta.Minimized,
+		Zoomed:         pane.ID == zoomedPaneID,
+		Host:           pane.Meta.Host,
+		Task:           pane.Meta.Task,
+		Color:          pane.Meta.Color,
+		Cursor:         captureCursor(pane),
+		Content:        pane.ContentLines(),
+		Idle:           status.Idle,
+		IdleSince:      formatIdleSince(status.IdleSince),
+		CurrentCommand: status.CurrentCommand,
+		ChildPIDs:      status.ChildPIDs,
+	}
+	if cp.ChildPIDs == nil {
+		cp.ChildPIDs = []int{}
 	}
 
 	out, _ := json.MarshalIndent(cp, "", "  ")
 	return string(out)
+}
+
+// formatIdleSince returns an RFC3339 string for a non-zero time, or "".
+func formatIdleSince(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.UTC().Format(time.RFC3339)
 }
 
 // captureCursor reads cursor state from a pane.

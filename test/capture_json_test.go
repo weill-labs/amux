@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/weill-labs/amux/internal/proto"
 )
@@ -207,5 +208,103 @@ func TestCaptureJSON_RoundTrip(t *testing.T) {
 		if !found {
 			t.Errorf("plain text line %q not found in JSON content", trimmed)
 		}
+	}
+}
+
+func TestCaptureJSON_AgentStatus_Busy(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	// Run a long-lived command to make the pane busy
+	h.sendKeys("pane-1", "sleep 30", "Enter")
+	// Give the shell time to fork the child
+	time.Sleep(500 * time.Millisecond)
+
+	out := h.runCmd("capture", "--format", "json")
+
+	var capture proto.CaptureJSON
+	if err := json.Unmarshal([]byte(out), &capture); err != nil {
+		t.Fatalf("failed to parse JSON: %v\nraw output:\n%s", err, out)
+	}
+
+	var pane1 *proto.CapturePane
+	for i := range capture.Panes {
+		if capture.Panes[i].Name == "pane-1" {
+			pane1 = &capture.Panes[i]
+			break
+		}
+	}
+	if pane1 == nil {
+		t.Fatal("pane-1 not found in JSON output")
+	}
+
+	if pane1.Idle {
+		t.Error("pane should not be idle while sleep is running")
+	}
+	if pane1.CurrentCommand == "" {
+		t.Error("current_command should be non-empty")
+	}
+	if !strings.Contains(pane1.CurrentCommand, "sleep") {
+		t.Errorf("current_command should contain 'sleep', got %q", pane1.CurrentCommand)
+	}
+	if len(pane1.ChildPIDs) == 0 {
+		t.Error("child_pids should be non-empty while command is running")
+	}
+}
+
+func TestCaptureJSON_AgentStatus_Idle(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	// Just let the shell sit at its prompt — no command running
+	// Wait briefly for the shell to fully initialize
+	time.Sleep(500 * time.Millisecond)
+
+	out := h.runCmd("capture", "--format", "json", "pane-1")
+
+	var pane proto.CapturePane
+	if err := json.Unmarshal([]byte(out), &pane); err != nil {
+		t.Fatalf("failed to parse JSON: %v\nraw output:\n%s", err, out)
+	}
+
+	if !pane.Idle {
+		t.Error("pane should be idle when no command is running")
+	}
+	if pane.IdleSince == "" {
+		t.Error("idle_since should be set when pane is idle")
+	}
+	// Validate idle_since is a valid RFC3339 timestamp
+	if _, err := time.Parse(time.RFC3339, pane.IdleSince); err != nil {
+		t.Errorf("idle_since should be RFC3339, got %q: %v", pane.IdleSince, err)
+	}
+	if pane.CurrentCommand == "" {
+		t.Error("current_command should report the shell even when idle")
+	}
+}
+
+func TestCaptureJSON_AgentStatus_SinglePane(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	// Run a command so the pane is busy
+	h.sendKeys("pane-1", "sleep 30", "Enter")
+	time.Sleep(500 * time.Millisecond)
+
+	// Single-pane capture should also include agent status
+	out := h.runCmd("capture", "--format", "json", "pane-1")
+
+	var pane proto.CapturePane
+	if err := json.Unmarshal([]byte(out), &pane); err != nil {
+		t.Fatalf("failed to parse JSON: %v\nraw output:\n%s", err, out)
+	}
+
+	if pane.Idle {
+		t.Error("pane should not be idle while sleep is running")
+	}
+	if !strings.Contains(pane.CurrentCommand, "sleep") {
+		t.Errorf("current_command should contain 'sleep', got %q", pane.CurrentCommand)
+	}
+	if len(pane.ChildPIDs) == 0 {
+		t.Error("child_pids should be non-empty")
 	}
 }
