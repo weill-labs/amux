@@ -48,6 +48,12 @@ type PaneSnapshot struct {
 	Color     string
 	Minimized bool
 	Idle      bool
+
+	// EmuWidth/EmuHeight are set for minimized panes to record the
+	// pre-minimize emulator dimensions. Clients use these to create
+	// correctly-sized emulators so replayed screen content isn't truncated.
+	EmuWidth  int
+	EmuHeight int
 }
 
 // CaptureJSON is the full-screen JSON capture output.

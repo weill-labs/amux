@@ -523,6 +523,11 @@ func runMux(sessionName string) error {
 				msgCh <- &renderMsg{typ: renderMsgBell}
 			case server.MsgTypeClipboard:
 				msgCh <- &renderMsg{typ: renderMsgClipboard, data: msg.PaneData}
+			case server.MsgTypeCaptureRequest:
+				// Server is forwarding a capture request — render from
+				// client-side emulators and send the result back.
+				resp := handleCaptureRequest(cr, msg.CmdArgs)
+				server.WriteMsg(conn, resp)
 			case server.MsgTypeServerReload:
 				// Server is reloading — re-exec ourselves to reconnect
 				select {
@@ -1019,4 +1024,71 @@ func runServerCommand(cmdName string, args []string) {
 		os.Exit(1)
 	}
 	fmt.Print(reply.CmdOutput)
+}
+
+// handleCaptureRequest processes a capture request forwarded from the server.
+// It renders from the client-side emulators and returns a response message.
+func handleCaptureRequest(cr *ClientRenderer, args []string) *server.Message {
+	includeANSI := false
+	colorMap := false
+	formatJSON := false
+	var paneRef string
+	for _, arg := range args {
+		switch arg {
+		case "--ansi":
+			includeANSI = true
+		case "--colors":
+			colorMap = true
+		case "--format":
+			// next arg handled below
+		case "json":
+			formatJSON = true
+		default:
+			paneRef = arg
+		}
+	}
+
+	flagCount := 0
+	if includeANSI {
+		flagCount++
+	}
+	if colorMap {
+		flagCount++
+	}
+	if formatJSON {
+		flagCount++
+	}
+	if flagCount > 1 {
+		return &server.Message{Type: server.MsgTypeCaptureResponse,
+			CmdErr: "--ansi, --colors, and --format json are mutually exclusive"}
+	}
+
+	if paneRef != "" {
+		if colorMap {
+			return &server.Message{Type: server.MsgTypeCaptureResponse,
+				CmdErr: "--colors is only supported for full screen capture"}
+		}
+		paneID := cr.ResolvePaneID(paneRef)
+		if paneID == 0 {
+			return &server.Message{Type: server.MsgTypeCaptureResponse,
+				CmdErr: fmt.Sprintf("pane %q not found", paneRef)}
+		}
+		var out string
+		if formatJSON {
+			out = cr.CapturePaneJSON(paneID)
+		} else {
+			out = cr.CapturePaneText(paneID, includeANSI)
+		}
+		return &server.Message{Type: server.MsgTypeCaptureResponse, CmdOutput: out + "\n"}
+	}
+
+	var out string
+	if formatJSON {
+		out = cr.CaptureJSON() + "\n"
+	} else if colorMap {
+		out = cr.CaptureColorMap()
+	} else {
+		out = cr.Capture(!includeANSI)
+	}
+	return &server.Message{Type: server.MsgTypeCaptureResponse, CmdOutput: out}
 }

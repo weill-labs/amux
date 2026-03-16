@@ -75,6 +75,10 @@ type Session struct {
 	// Event stream subscribers — used by `amux events` for push-based notifications.
 	eventSubs   []*eventSub
 	eventSubsMu sync.Mutex
+
+	// Capture forwarding — routes capture requests through the attached
+	// interactive client so the result reflects client-side emulator state.
+	captureResult chan *Message
 }
 
 // ActiveWindow returns the currently active window, or nil.
@@ -211,6 +215,126 @@ func (s *Session) clipboardCallback() func(paneID uint32, data []byte) {
 	}
 }
 
+// forwardCapture sends a capture request to the first attached interactive
+// client and waits for its response. The client renders from its own
+// emulators (the rendering source of truth). When no interactive client
+// is attached (headless/test usage), falls back to server-side emulators.
+func (s *Session) forwardCapture(args []string) *Message {
+	s.mu.Lock()
+	if len(s.clients) == 0 {
+		s.mu.Unlock()
+		return s.serverSideCapture(args)
+	}
+	client := s.clients[0]
+
+	// Create a one-shot channel for the response
+	ch := make(chan *Message, 1)
+	s.captureResult = ch
+	s.mu.Unlock()
+
+	// Send capture request to the interactive client
+	client.Send(&Message{Type: MsgTypeCaptureRequest, CmdArgs: args})
+
+	// Wait for response with timeout
+	select {
+	case resp := <-ch:
+		s.mu.Lock()
+		s.captureResult = nil
+		s.mu.Unlock()
+		return &Message{Type: MsgTypeCmdResult, CmdOutput: resp.CmdOutput, CmdErr: resp.CmdErr}
+	case <-time.After(3 * time.Second):
+		s.mu.Lock()
+		s.captureResult = nil
+		s.mu.Unlock()
+		return &Message{Type: MsgTypeCmdResult, CmdErr: "capture timed out (client unresponsive)"}
+	}
+}
+
+// serverSideCapture renders capture from server-side emulators.
+// Used when no interactive client is attached (headless/test usage).
+func (s *Session) serverSideCapture(args []string) *Message {
+	includeANSI := false
+	colorMap := false
+	formatJSON := false
+	var paneRef string
+	for _, arg := range args {
+		switch arg {
+		case "--ansi":
+			includeANSI = true
+		case "--colors":
+			colorMap = true
+		case "--format":
+			// next arg handled below
+		case "json":
+			formatJSON = true
+		default:
+			paneRef = arg
+		}
+	}
+
+	flagCount := 0
+	if includeANSI {
+		flagCount++
+	}
+	if colorMap {
+		flagCount++
+	}
+	if formatJSON {
+		flagCount++
+	}
+	if flagCount > 1 {
+		return &Message{Type: MsgTypeCmdResult, CmdErr: "--ansi, --colors, and --format json are mutually exclusive"}
+	}
+
+	if paneRef != "" {
+		if colorMap {
+			return &Message{Type: MsgTypeCmdResult, CmdErr: "--colors is only supported for full screen capture"}
+		}
+		s.mu.Lock()
+		w := s.ActiveWindow()
+		if w == nil {
+			s.mu.Unlock()
+			return &Message{Type: MsgTypeCmdResult, CmdErr: "no session"}
+		}
+		pane := w.ResolvePane(paneRef)
+		if pane == nil {
+			// Search other windows
+			for _, win := range s.Windows {
+				if win.ID == w.ID {
+					continue
+				}
+				if pane = win.ResolvePane(paneRef); pane != nil {
+					break
+				}
+			}
+		}
+		if pane == nil {
+			s.mu.Unlock()
+			return &Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("pane %q not found", paneRef)}
+		}
+		var out string
+		if formatJSON {
+			out = s.capturePaneJSON(pane)
+		} else if includeANSI {
+			out = pane.Render()
+		} else {
+			out = pane.Output(DefaultOutputLines)
+		}
+		s.mu.Unlock()
+		return &Message{Type: MsgTypeCmdResult, CmdOutput: out + "\n"}
+	}
+
+	var out string
+	if formatJSON {
+		out = s.captureJSON() + "\n"
+	} else if colorMap {
+		out = s.renderColorMap()
+	} else {
+		out = s.renderCapture(!includeANSI)
+	}
+	return &Message{Type: MsgTypeCmdResult, CmdOutput: out}
+}
+
 // broadcastPaneOutput sends raw PTY output for one pane to all clients,
 // notifies any wait-for subscribers, and tracks pane activity for hooks.
 func (s *Session) broadcastPaneOutput(paneID uint32, data []byte) {
@@ -227,6 +351,17 @@ func (s *Session) broadcastPaneOutput(paneID uint32, data []byte) {
 	}
 	s.mu.Unlock()
 	s.emitEvent(Event{Type: EventOutput, PaneID: paneID, PaneName: paneName, Host: host})
+}
+
+// broadcastPaneOutputLocked sends raw PTY output to all clients.
+// Caller must hold s.mu.
+func (s *Session) broadcastPaneOutputLocked(paneID uint32, data []byte) {
+	clients := make([]*ClientConn, len(s.clients))
+	copy(clients, s.clients)
+	msg := &Message{Type: MsgTypePaneOutput, PaneID: paneID, PaneData: data}
+	for _, c := range clients {
+		c.Send(msg)
+	}
 }
 
 // broadcastLayout sends the current layout snapshot to all clients
@@ -1082,9 +1217,13 @@ func NewServerFromCheckpoint(cp *checkpoint.ServerCheckpoint) (*Server, error) {
 		// may have fed buffered PTY output into their emulators, garbling
 		// the content that was replayed during restore. Clear the screen
 		// first so the replay starts from a known state.
+		// Also broadcast the replay to clients so their emulators stay
+		// in sync with the server.
 		for _, p := range sess.Panes {
 			if screen, ok := minimizedScreens[p.ID]; ok {
-				p.ReplayScreen("\033[H\033[2J" + screen)
+				replayData := "\033[H\033[2J" + screen
+				p.ReplayScreen(replayData)
+				sess.broadcastPaneOutputLocked(p.ID, []byte(replayData))
 			}
 		}
 	}()

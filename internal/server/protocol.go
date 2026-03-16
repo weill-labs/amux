@@ -32,6 +32,10 @@ const (
 	MsgTypeServerReload MsgType = 17 // server is about to exec — clients should reconnect
 	MsgTypeCopyMode     MsgType = 18 // enter copy mode for a pane (server → client)
 	MsgTypeClipboard    MsgType = 19 // OSC 52 clipboard data from a pane
+
+	// Bidirectional — capture routed through attached client
+	MsgTypeCaptureRequest  MsgType = 20 // server → client: render capture from client emulators
+	MsgTypeCaptureResponse MsgType = 21 // client → server: captured output
 )
 
 // Message is the wire protocol envelope. Only the fields relevant to

@@ -1,6 +1,9 @@
 package main
 
 import (
+	"encoding/json"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -75,7 +78,14 @@ func (cr *ClientRenderer) HandleLayout(snap *proto.LayoutSnapshot) {
 	// Create emulators for new panes
 	for _, ps := range allPanes {
 		if _, exists := cr.emulators[ps.ID]; !exists {
-			w, h := findPaneDimensions(snap, activeRoot, ps.ID)
+			var w, h int
+			if ps.Minimized && ps.EmuWidth > 0 && ps.EmuHeight > 0 {
+				// Use pre-minimize emulator dimensions so replayed
+				// screen content isn't truncated into a tiny emulator.
+				w, h = ps.EmuWidth, ps.EmuHeight
+			} else {
+				w, h = findPaneDimensions(snap, activeRoot, ps.ID)
+			}
 			cr.emulators[ps.ID] = mux.NewVTEmulatorWithDrain(w, h)
 		}
 	}
@@ -193,6 +203,215 @@ func (cr *ClientRenderer) Resize(width, height int) {
 	cr.width = width
 	cr.height = height
 	cr.compositor.Resize(width, height)
+}
+
+// Capture renders the full composited screen from client-side emulators.
+// If stripANSI is true, returns a plain-text grid preserving visual layout.
+func (cr *ClientRenderer) Capture(stripANSI bool) string {
+	cr.mu.Lock()
+	defer cr.mu.Unlock()
+
+	if cr.layout == nil {
+		return ""
+	}
+
+	root, activePaneID := cr.captureRootLocked()
+	raw := string(cr.compositor.RenderFull(root, activePaneID, cr.paneLookupLocked))
+
+	if stripANSI {
+		return render.MaterializeGrid(raw, cr.width, cr.height)
+	}
+	return raw
+}
+
+// CaptureColorMap renders a color map from client-side emulators.
+func (cr *ClientRenderer) CaptureColorMap() string {
+	cr.mu.Lock()
+	defer cr.mu.Unlock()
+
+	if cr.layout == nil {
+		return ""
+	}
+
+	root, activePaneID := cr.captureRootLocked()
+	raw := string(cr.compositor.RenderFull(root, activePaneID, cr.paneLookupLocked))
+	return render.ExtractColorMap(raw, cr.width, cr.height) + "\n"
+}
+
+// CaptureJSON renders a structured JSON capture from client-side emulators.
+func (cr *ClientRenderer) CaptureJSON() string {
+	cr.mu.Lock()
+	defer cr.mu.Unlock()
+
+	if cr.layout == nil {
+		return "{}"
+	}
+
+	root := cr.layout
+	if cr.zoomedPaneID != 0 {
+		root = mux.NewLeafByID(cr.zoomedPaneID, 0, 0, cr.width, cr.compositor.LayoutHeight())
+	}
+
+	capture := proto.CaptureJSON{
+		Session: cr.sessionName,
+		Width:   cr.width,
+		Height:  cr.compositor.LayoutHeight(),
+	}
+
+	root.Walk(func(c *mux.LayoutCell) {
+		paneID := c.CellPaneID()
+		if paneID == 0 {
+			return
+		}
+		emu, ok := cr.emulators[paneID]
+		if !ok {
+			return
+		}
+		info, ok := cr.paneInfo[paneID]
+		if !ok {
+			return
+		}
+
+		col, row := emu.CursorPosition()
+		cp := proto.CapturePane{
+			ID:        info.ID,
+			Name:      info.Name,
+			Active:    info.ID == cr.activePaneID,
+			Minimized: info.Minimized,
+			Zoomed:    info.ID == cr.zoomedPaneID,
+			Host:      info.Host,
+			Task:      info.Task,
+			Color:     info.Color,
+			Position: &proto.CapturePos{
+				X:      c.X,
+				Y:      c.Y,
+				Width:  c.W,
+				Height: c.H,
+			},
+			Cursor: proto.CaptureCursor{
+				Col:    col,
+				Row:    row,
+				Hidden: emu.CursorHidden(),
+			},
+			Content: emulatorContentLines(emu),
+		}
+		capture.Panes = append(capture.Panes, cp)
+	})
+
+	out, _ := json.MarshalIndent(capture, "", "  ")
+	return string(out)
+}
+
+// CapturePaneText returns a single pane's content from client-side emulators.
+func (cr *ClientRenderer) CapturePaneText(paneID uint32, includeANSI bool) string {
+	cr.mu.Lock()
+	defer cr.mu.Unlock()
+
+	emu, ok := cr.emulators[paneID]
+	if !ok {
+		return ""
+	}
+	if includeANSI {
+		return emu.Render()
+	}
+	lines := emulatorContentLines(emu)
+	return strings.Join(lines, "\n")
+}
+
+// CapturePaneJSON returns a single pane's JSON from client-side emulators.
+func (cr *ClientRenderer) CapturePaneJSON(paneID uint32) string {
+	cr.mu.Lock()
+	defer cr.mu.Unlock()
+
+	emu, ok := cr.emulators[paneID]
+	if !ok {
+		return "{}"
+	}
+	info, ok := cr.paneInfo[paneID]
+	if !ok {
+		return "{}"
+	}
+
+	col, row := emu.CursorPosition()
+	cp := proto.CapturePane{
+		ID:        info.ID,
+		Name:      info.Name,
+		Active:    info.ID == cr.activePaneID,
+		Minimized: info.Minimized,
+		Zoomed:    info.ID == cr.zoomedPaneID,
+		Host:      info.Host,
+		Task:      info.Task,
+		Color:     info.Color,
+		Cursor: proto.CaptureCursor{
+			Col:    col,
+			Row:    row,
+			Hidden: emu.CursorHidden(),
+		},
+		Content: emulatorContentLines(emu),
+	}
+	out, _ := json.MarshalIndent(cp, "", "  ")
+	return string(out)
+}
+
+// ResolvePaneID resolves a pane reference to an ID from client-side state.
+func (cr *ClientRenderer) ResolvePaneID(ref string) uint32 {
+	cr.mu.Lock()
+	defer cr.mu.Unlock()
+
+	// Try numeric ID
+	if id, err := strconv.ParseUint(ref, 10, 32); err == nil {
+		if _, ok := cr.paneInfo[uint32(id)]; ok {
+			return uint32(id)
+		}
+	}
+	// Try name or prefix match
+	var prefixMatch uint32
+	for _, info := range cr.paneInfo {
+		if info.Name == ref {
+			return info.ID
+		}
+		if strings.HasPrefix(info.Name, ref) {
+			prefixMatch = info.ID
+		}
+	}
+	return prefixMatch
+}
+
+// captureRootLocked returns the layout root and active pane ID for capture.
+// Caller must hold cr.mu.
+func (cr *ClientRenderer) captureRootLocked() (*mux.LayoutCell, uint32) {
+	root := cr.layout
+	if cr.zoomedPaneID != 0 {
+		root = mux.NewLeafByID(cr.zoomedPaneID, 0, 0, cr.width, cr.compositor.LayoutHeight())
+	}
+	return root, cr.activePaneID
+}
+
+// paneLookupLocked returns a PaneData for the given pane ID.
+// Caller must hold cr.mu.
+func (cr *ClientRenderer) paneLookupLocked(paneID uint32) render.PaneData {
+	emu, ok := cr.emulators[paneID]
+	if !ok {
+		return nil
+	}
+	info, ok := cr.paneInfo[paneID]
+	if !ok {
+		return nil
+	}
+	return &clientPaneData{emu: emu, info: info, cm: cr.copyModes[paneID]}
+}
+
+// emulatorContentLines returns plain-text screen lines from an emulator.
+func emulatorContentLines(emu mux.TerminalEmulator) []string {
+	_, rows := emu.Size()
+	rendered := emu.Render()
+	all := strings.Split(rendered, "\n")
+
+	result := make([]string, rows)
+	for i := 0; i < rows && i < len(all); i++ {
+		result[i] = mux.StripANSI(strings.TrimRight(all[i], " "))
+	}
+	return result
 }
 
 // renderCoalesced runs a select loop that reads messages from msgCh,

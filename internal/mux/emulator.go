@@ -230,11 +230,23 @@ func NewVTEmulatorWithDrain(width, height int) TerminalEmulator {
 	return emu
 }
 
-// RenderWithCursor returns the emulator's rendered screen followed by
-// a cursor positioning escape sequence.
+// RenderWithCursor returns the emulator's screen using explicit cursor
+// positioning per row, followed by a final cursor position escape.
+// Using CUP sequences per row avoids width-dependent line wrapping that
+// causes garbling when wide Unicode characters (block elements, etc.)
+// have different widths across emulator instances.
 func RenderWithCursor(emu TerminalEmulator) string {
 	rendered := emu.Render()
+	lines := strings.Split(rendered, "\n")
+
+	var buf strings.Builder
+	for i, line := range lines {
+		// Position cursor at start of each row (CUP is 1-indexed)
+		buf.WriteString(fmt.Sprintf("\033[%d;1H", i+1))
+		buf.WriteString(line)
+	}
+
 	col, row := emu.CursorPosition()
-	// ANSI cursor position is 1-indexed
-	return rendered + fmt.Sprintf("\033[%d;%dH", row+1, col+1)
+	buf.WriteString(fmt.Sprintf("\033[%d;%dH", row+1, col+1))
+	return buf.String()
 }
