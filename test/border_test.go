@@ -3,22 +3,23 @@ package test
 import (
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestOnlyActivePaneBordersColored(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t)
+	h := newAmuxHarness(t)
 
 	// Create 3 panes side by side: pane-1 | pane-2 | pane-3
 	h.splitV()
 	h.splitV()
 
 	// Focus pane-1 (leftmost)
+	gen := h.generation()
 	h.sendKeys("C-a", "h")
-	time.Sleep(400 * time.Millisecond)
+	h.waitLayout(gen)
+	gen = h.generation()
 	h.sendKeys("C-a", "h")
-	time.Sleep(400 * time.Millisecond)
+	h.waitLayout(gen)
 
 	colorLine := pickContentLine(h.captureANSI())
 	borders := extractBorderColors(colorLine)
@@ -36,7 +37,7 @@ func TestOnlyActivePaneBordersColored(t *testing.T) {
 
 func TestJunctionNotColoredOnInactiveBorder(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t)
+	h := newAmuxHarness(t)
 
 	// Build layout:
 	//   pane-1 │ pane-2
@@ -46,8 +47,9 @@ func TestJunctionNotColoredOnInactiveBorder(t *testing.T) {
 	//   pane-4 │ pane-2
 	h.splitV()
 
+	gen := h.generation()
 	h.sendKeys("C-a", "h")
-	time.Sleep(400 * time.Millisecond)
+	h.waitLayout(gen)
 	h.splitH()
 	h.splitH()
 
@@ -120,7 +122,7 @@ func findANSIHorizontalBorderRows(lines []string) []int {
 
 func TestVerticalBorderPartialColor(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t)
+	h := newAmuxHarness(t)
 
 	// Vertical split then horizontal split on the right side:
 	// pane-1 (left) | pane-2 (top-right)

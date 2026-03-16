@@ -1,66 +1,67 @@
 package test
 
 import (
-	"os/exec"
+	"encoding/base64"
+	"strconv"
 	"strings"
 	"testing"
-	"time"
 )
 
-func TestClipboardOSC52(t *testing.T) {
-	// Not parallel — these tests share tmux's global paste buffer
-	h := newHarness(t)
+// extractOSC52Base64 extracts the base64 payload from a raw OSC 52 sequence.
+// Format: \x1b]52;<selection>;<base64-data><terminator>
+func extractOSC52Base64(raw string) string {
+	// Find the second semicolon (after "52;c;")
+	prefix := "\x1b]52;"
+	if !strings.HasPrefix(raw, prefix) {
+		return raw
+	}
+	rest := raw[len(prefix):]
+	idx := strings.IndexByte(rest, ';')
+	if idx < 0 {
+		return raw
+	}
+	payload := rest[idx+1:]
+	// Strip terminator: BEL (\x07) or ST (\x1b\)
+	payload = strings.TrimRight(payload, "\x07")
+	payload = strings.TrimSuffix(payload, "\x1b\\")
+	return payload
+}
 
-	// Enable tmux clipboard handling so it stores OSC 52 content in paste buffer
-	if out, err := exec.Command("tmux", "set-option", "-t", h.session, "set-clipboard", "on").CombinedOutput(); err != nil {
-		t.Skipf("tmux set-clipboard not supported: %v\n%s", err, out)
+// assertClipboardOSC52 emits an OSC 52 sequence via printf, waits for the
+// clipboard event, and asserts the decoded content matches want.
+func assertClipboardOSC52(t *testing.T, h *AmuxHarness, printfArg, want string) {
+	t.Helper()
+	genStr := strings.TrimSpace(h.runCmd("clipboard-gen"))
+	gen, _ := strconv.ParseUint(genStr, 10, 64)
+
+	h.sendKeys("printf '"+printfArg+"'", "Enter")
+
+	out := strings.TrimSpace(h.runCmd("wait-clipboard", "--after", strconv.FormatUint(gen, 10), "--timeout", "5s"))
+	if strings.Contains(out, "timeout") {
+		t.Fatalf("wait-clipboard timed out")
 	}
 
-	// Clear any existing paste buffer
-	exec.Command("tmux", "delete-buffer").Run()
-
-	// Emit OSC 52 with "Hello" (base64: SGVsbG8=), BEL terminator
-	h.sendKeys("printf '\\033]52;c;SGVsbG8=\\007'", "Enter")
-
-	// Wait for the OSC 52 to propagate: pane → server → client → tmux
-	time.Sleep(2 * time.Second)
-
-	// tmux should have stored the decoded clipboard content in its paste buffer
-	out, err := exec.Command("tmux", "show-buffer").CombinedOutput()
+	b64 := extractOSC52Base64(out)
+	decoded, err := base64.StdEncoding.DecodeString(b64)
 	if err != nil {
-		t.Skipf("tmux show-buffer failed (clipboard may not be supported in this environment): %v\n%s", err, out)
+		t.Fatalf("decoding clipboard base64 %q (from %q): %v", b64, out, err)
 	}
 
-	got := strings.TrimRight(string(out), "\n")
-	if got != "Hello" {
-		t.Errorf("clipboard via OSC 52: got %q, want %q", got, "Hello")
+	if string(decoded) != want {
+		t.Errorf("clipboard via OSC 52: got %q, want %q", string(decoded), want)
 	}
 }
 
+func TestClipboardOSC52(t *testing.T) {
+	t.Parallel()
+	h := newAmuxHarness(t)
+	// "Hello" = SGVsbG8= in base64, BEL terminator
+	assertClipboardOSC52(t, h, "\\033]52;c;SGVsbG8=\\007", "Hello")
+}
+
 func TestClipboardOSC52STTerminator(t *testing.T) {
-	// Not parallel — these tests share tmux's global paste buffer
-	h := newHarness(t)
-
-	// Enable tmux clipboard handling
-	if out, err := exec.Command("tmux", "set-option", "-t", h.session, "set-clipboard", "on").CombinedOutput(); err != nil {
-		t.Skipf("tmux set-clipboard not supported: %v\n%s", err, out)
-	}
-
-	exec.Command("tmux", "delete-buffer").Run()
-
-	// Emit OSC 52 with ST terminator (\033\\) instead of BEL
-	// "World" = V29ybGQ= in base64
-	h.sendKeys("printf '\\033]52;c;V29ybGQ=\\033\\\\'", "Enter")
-
-	time.Sleep(2 * time.Second)
-
-	out, err := exec.Command("tmux", "show-buffer").CombinedOutput()
-	if err != nil {
-		t.Skipf("tmux show-buffer failed: %v\n%s", err, out)
-	}
-
-	got := strings.TrimRight(string(out), "\n")
-	if got != "World" {
-		t.Errorf("clipboard via OSC 52 (ST terminator): got %q, want %q", got, "World")
-	}
+	t.Parallel()
+	h := newAmuxHarness(t)
+	// "World" = V29ybGQ= in base64, ST terminator (\033\\)
+	assertClipboardOSC52(t, h, "\\033]52;c;V29ybGQ=\\033\\\\", "World")
 }

@@ -1,7 +1,6 @@
 package test
 
 import (
-	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -9,17 +8,23 @@ import (
 
 func TestTerminalResize(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t)
+	h := newAmuxHarness(t)
 
 	h.splitV()
 
-	// Resize the tmux pane (simulates terminal resize -> SIGWINCH)
-	exec.Command("tmux", "resize-pane", "-t", h.session, "-x", "120", "-y", "40").Run()
-	time.Sleep(1 * time.Second)
+	// Resize the outer server's window, which resizes the outer pane's PTY,
+	// sending SIGWINCH to the inner amux client, which forwards resize to
+	// the inner server.
+	h.outer.runCmd("resize-window", "120", "40")
 
-	h.assertScreen("both panes visible after resize", func(s string) bool {
+	// Wait for the inner server to process the resize — the inner client
+	// receives SIGWINCH and sends MsgTypeResize to the inner server.
+	if !h.waitForFunc(func(s string) bool {
 		return strings.Contains(s, "[pane-1]") && strings.Contains(s, "[pane-2]")
-	})
+	}, 5*time.Second) {
+		screen := h.captureOuter()
+		t.Fatalf("both panes not visible after resize\nScreen:\n%s", screen)
+	}
 
 	col := h.verticalBorderCol()
 	if col < 0 {

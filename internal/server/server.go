@@ -43,6 +43,24 @@ type Session struct {
 	windowCounter  atomic.Uint32 // window ID counter
 	mu             sync.Mutex
 	shutdown       atomic.Bool
+
+	// Layout generation counter — incremented on every broadcastLayout.
+	// Used by wait-layout to block until a layout change occurs.
+	generation     atomic.Uint64
+	generationMu   sync.Mutex
+	generationCond *sync.Cond
+
+	// Per-pane output subscribers — used by wait-for to block until
+	// a substring appears in a pane's screen content.
+	paneOutputSubs map[uint32][]chan struct{}
+	paneOutputMu   sync.Mutex
+
+	// Clipboard generation counter — incremented on every OSC 52 clipboard
+	// event. Used by wait-clipboard to block until a clipboard write occurs.
+	clipboardGen     atomic.Uint64
+	clipboardMu      sync.Mutex
+	clipboardCond    *sync.Cond
+	lastClipboardB64 string // last clipboard payload (base64), protected by clipboardMu
 }
 
 // ActiveWindow returns the currently active window, or nil.
@@ -162,22 +180,32 @@ func (s *Session) broadcast(msg *Message) {
 }
 
 // clipboardCallback returns the onClipboard callback for panes in this session.
-// It forwards OSC 52 clipboard sequences to all connected clients.
+// It forwards OSC 52 clipboard sequences to all connected clients and
+// increments the clipboard generation counter for wait-clipboard.
 func (s *Session) clipboardCallback() func(paneID uint32, data []byte) {
 	return func(paneID uint32, data []byte) {
 		if s.shutdown.Load() {
 			return
 		}
 		s.broadcast(&Message{Type: MsgTypeClipboard, PaneID: paneID, PaneData: data})
+
+		s.clipboardMu.Lock()
+		s.lastClipboardB64 = string(data)
+		s.clipboardGen.Add(1)
+		s.clipboardCond.Broadcast()
+		s.clipboardMu.Unlock()
 	}
 }
 
-// broadcastPaneOutput sends raw PTY output for one pane to all clients.
+// broadcastPaneOutput sends raw PTY output for one pane to all clients,
+// and notifies any wait-for subscribers for that pane.
 func (s *Session) broadcastPaneOutput(paneID uint32, data []byte) {
 	s.broadcast(&Message{Type: MsgTypePaneOutput, PaneID: paneID, PaneData: data})
+	s.notifyPaneOutputSubs(paneID)
 }
 
-// broadcastLayout sends the current layout snapshot to all clients.
+// broadcastLayout sends the current layout snapshot to all clients
+// and increments the layout generation counter.
 func (s *Session) broadcastLayout() {
 	s.mu.Lock()
 	snap := s.snapshotLayoutLocked()
@@ -188,6 +216,12 @@ func (s *Session) broadcastLayout() {
 	clients := make([]*ClientConn, len(s.clients))
 	copy(clients, s.clients)
 	s.mu.Unlock()
+
+	// Increment generation and wake any wait-layout waiters.
+	s.generationMu.Lock()
+	s.generation.Add(1)
+	s.generationCond.Broadcast()
+	s.generationMu.Unlock()
 
 	msg := &Message{Type: MsgTypeLayout, Layout: snap}
 	for _, c := range clients {
@@ -404,6 +438,117 @@ func (s *Session) renderColorMap() string {
 	return render.ExtractColorMap(ansi, width, h) + "\n"
 }
 
+// subscribePaneOutput registers a channel to receive notifications when
+// PTY output arrives for the given pane. Returns the channel.
+func (s *Session) subscribePaneOutput(paneID uint32) chan struct{} {
+	ch := make(chan struct{}, 1)
+	s.paneOutputMu.Lock()
+	if s.paneOutputSubs == nil {
+		s.paneOutputSubs = make(map[uint32][]chan struct{})
+	}
+	s.paneOutputSubs[paneID] = append(s.paneOutputSubs[paneID], ch)
+	s.paneOutputMu.Unlock()
+	return ch
+}
+
+// unsubscribePaneOutput removes a previously registered subscriber channel.
+func (s *Session) unsubscribePaneOutput(paneID uint32, ch chan struct{}) {
+	s.paneOutputMu.Lock()
+	subs := s.paneOutputSubs[paneID]
+	for i, sub := range subs {
+		if sub == ch {
+			s.paneOutputSubs[paneID] = append(subs[:i], subs[i+1:]...)
+			break
+		}
+	}
+	s.paneOutputMu.Unlock()
+}
+
+// notifyPaneOutputSubs wakes all wait-for subscribers for the given pane.
+func (s *Session) notifyPaneOutputSubs(paneID uint32) {
+	s.paneOutputMu.Lock()
+	subs := make([]chan struct{}, len(s.paneOutputSubs[paneID]))
+	copy(subs, s.paneOutputSubs[paneID])
+	s.paneOutputMu.Unlock()
+	for _, ch := range subs {
+		select {
+		case ch <- struct{}{}:
+		default:
+		}
+	}
+}
+
+// paneScreenContains checks whether the rendered screen of the given pane
+// contains the substring. Thread-safe: looks up the pane under s.mu, then
+// calls Render() (thread-safe on the emulator) outside the lock.
+func (s *Session) paneScreenContains(paneID uint32, substr string) bool {
+	s.mu.Lock()
+	var pane *mux.Pane
+	for _, p := range s.Panes {
+		if p.ID == paneID {
+			pane = p
+			break
+		}
+	}
+	s.mu.Unlock()
+	if pane == nil {
+		return false
+	}
+	plain := mux.StripANSI(pane.Render())
+	return strings.Contains(plain, substr)
+}
+
+// waitGeneration blocks until the layout generation exceeds afterGen or
+// timeout expires. Returns the current generation and whether it matched.
+// All checks happen under generationMu to avoid TOCTOU races with Broadcast.
+func (s *Session) waitGeneration(afterGen uint64, timeout time.Duration) (uint64, bool) {
+	deadline := time.Now().Add(timeout)
+	timer := time.AfterFunc(timeout, func() {
+		s.generationMu.Lock()
+		s.generationCond.Broadcast()
+		s.generationMu.Unlock()
+	})
+	defer timer.Stop()
+
+	s.generationMu.Lock()
+	defer s.generationMu.Unlock()
+	for {
+		gen := s.generation.Load()
+		if gen > afterGen {
+			return gen, true
+		}
+		if time.Now().After(deadline) {
+			return gen, false
+		}
+		s.generationCond.Wait()
+	}
+}
+
+// waitClipboard blocks until the clipboard generation exceeds afterGen or
+// timeout expires. Returns the last clipboard payload and whether it matched.
+func (s *Session) waitClipboard(afterGen uint64, timeout time.Duration) (string, bool) {
+	deadline := time.Now().Add(timeout)
+	timer := time.AfterFunc(timeout, func() {
+		s.clipboardMu.Lock()
+		s.clipboardCond.Broadcast()
+		s.clipboardMu.Unlock()
+	})
+	defer timer.Stop()
+
+	s.clipboardMu.Lock()
+	defer s.clipboardMu.Unlock()
+	for {
+		gen := s.clipboardGen.Load()
+		if gen > afterGen {
+			return s.lastClipboardB64, true
+		}
+		if time.Now().After(deadline) {
+			return "", false
+		}
+		s.clipboardCond.Wait()
+	}
+}
+
 // BuildVersion is set by main at startup for version reporting in status.
 var BuildVersion string
 
@@ -451,6 +596,8 @@ func NewServer(sessionName string) (*Server, error) {
 	os.Chmod(sockPath, 0700)
 
 	sess := &Session{Name: sessionName}
+	sess.generationCond = sync.NewCond(&sess.generationMu)
+	sess.clipboardCond = sync.NewCond(&sess.clipboardMu)
 
 	s := &Server{
 		listener: listener,
@@ -606,6 +753,8 @@ func NewServerFromCheckpoint(cp *checkpoint.ServerCheckpoint) (*Server, error) {
 	listenerFile.Close() // FileListener dups the FD
 
 	sess := &Session{Name: cp.SessionName}
+	sess.generationCond = sync.NewCond(&sess.generationMu)
+	sess.clipboardCond = sync.NewCond(&sess.clipboardMu)
 	sess.counter.Store(cp.Counter)
 	sess.windowCounter.Store(cp.WindowCounter)
 

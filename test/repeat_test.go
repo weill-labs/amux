@@ -7,16 +7,15 @@ import (
 
 func TestRepeatResize(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t)
+	h := newAmuxHarness(t)
 
 	// Split horizontally: [pane-1 | pane-2]
-	h.sendKeys("C-a", "\\")
-	h.waitFor("[pane-2]", 3*time.Second)
-	time.Sleep(200 * time.Millisecond)
+	h.splitV()
 
 	// Focus left pane
+	gen := h.generation()
 	h.sendKeys("C-a", "h")
-	time.Sleep(200 * time.Millisecond)
+	h.waitLayout(gen)
 
 	initialBorder := h.captureAmuxVerticalBorderCol()
 	if initialBorder < 0 {
@@ -29,7 +28,11 @@ func TestRepeatResize(t *testing.T) {
 	h.sendKeys("L")
 	time.Sleep(100 * time.Millisecond)
 	h.sendKeys("L")
-	time.Sleep(300 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
+
+	// Wait for the layout to settle after the last resize
+	gen = h.generation()
+	h.waitLayout(gen - 1)
 
 	newBorder := h.captureAmuxVerticalBorderCol()
 	if newBorder < 0 {
@@ -46,21 +49,17 @@ func TestRepeatResize(t *testing.T) {
 
 func TestRepeatFocus(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t)
+	h := newAmuxHarness(t)
 
 	// Create 3 panes: [pane-1 | pane-2 | pane-3]
-	h.sendKeys("C-a", "\\")
-	h.waitFor("[pane-2]", 3*time.Second)
-	h.sendKeys("C-a", "\\")
-	h.waitFor("[pane-3]", 3*time.Second)
-	time.Sleep(200 * time.Millisecond)
+	h.splitV()
+	h.splitV()
 
 	// Focus is on pane-3 (rightmost). Press Prefix+h then h again without prefix.
 	// Should end up on pane-1 (two moves left).
 	h.sendKeys("C-a", "h")
 	time.Sleep(100 * time.Millisecond)
 	h.sendKeys("h")
-	time.Sleep(300 * time.Millisecond)
 
 	if !h.waitForFunc(func(s string) bool {
 		return isPaneActive(s, "pane-1")
@@ -71,14 +70,11 @@ func TestRepeatFocus(t *testing.T) {
 
 func TestRepeatCrossKey(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t)
+	h := newAmuxHarness(t)
 
 	// Create 3 panes: [pane-1 | pane-2 | pane-3]
-	h.sendKeys("C-a", "\\")
-	h.waitFor("[pane-2]", 3*time.Second)
-	h.sendKeys("C-a", "\\")
-	h.waitFor("[pane-3]", 3*time.Second)
-	time.Sleep(200 * time.Millisecond)
+	h.splitV()
+	h.splitV()
 
 	// Focus is on pane-3. Press Prefix+h (focus left to pane-2),
 	// then l without prefix (focus right back to pane-3).
@@ -86,7 +82,6 @@ func TestRepeatCrossKey(t *testing.T) {
 	h.sendKeys("C-a", "h")
 	time.Sleep(100 * time.Millisecond)
 	h.sendKeys("l")
-	time.Sleep(300 * time.Millisecond)
 
 	if !h.waitForFunc(func(s string) bool {
 		return isPaneActive(s, "pane-3")
@@ -97,16 +92,15 @@ func TestRepeatCrossKey(t *testing.T) {
 
 func TestRepeatExpiresAfterTimeout(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t)
+	h := newAmuxHarness(t)
 
 	// Split: [pane-1 | pane-2]
-	h.sendKeys("C-a", "\\")
-	h.waitFor("[pane-2]", 3*time.Second)
-	time.Sleep(200 * time.Millisecond)
+	h.splitV()
 
 	// Focus left pane
+	gen := h.generation()
 	h.sendKeys("C-a", "h")
-	time.Sleep(200 * time.Millisecond)
+	h.waitLayout(gen)
 
 	initialBorder := h.captureAmuxVerticalBorderCol()
 	if initialBorder < 0 {

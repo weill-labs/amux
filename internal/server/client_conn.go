@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/hex"
 	"fmt"
 	"net"
 	"os"
@@ -8,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/weill-labs/amux/internal/mux"
 )
@@ -366,8 +368,17 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 
 	case "send-keys":
 		if len(msg.CmdArgs) < 2 {
-			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "usage: send-keys <pane> <keys>..."})
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "usage: send-keys <pane> [--hex] <keys>..."})
 			return
+		}
+		hexMode := false
+		var keys []string
+		for _, arg := range msg.CmdArgs[1:] {
+			if arg == "--hex" {
+				hexMode = true
+			} else {
+				keys = append(keys, arg)
+			}
 		}
 		sess.mu.Lock()
 		pane := cc.resolvePane(sess, "send-keys", msg.CmdArgs[:1])
@@ -376,8 +387,20 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 			return
 		}
 		var data []byte
-		for _, key := range msg.CmdArgs[1:] {
-			data = append(data, parseKey(key)...)
+		if hexMode {
+			for _, hexStr := range keys {
+				b, err := hex.DecodeString(hexStr)
+				if err != nil {
+					sess.mu.Unlock()
+					cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("invalid hex: %s", hexStr)})
+					return
+				}
+				data = append(data, b...)
+			}
+		} else {
+			for _, key := range keys {
+				data = append(data, parseKey(key)...)
+			}
 		}
 		pane.Write(data)
 		sess.mu.Unlock()
@@ -530,6 +553,26 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 		sess.broadcastLayout()
 		cc.Send(&Message{Type: MsgTypeCmdResult})
 
+	case "resize-window":
+		if len(msg.CmdArgs) < 2 {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "usage: resize-window <cols> <rows>"})
+			return
+		}
+		cols, err1 := strconv.Atoi(msg.CmdArgs[0])
+		rows, err2 := strconv.Atoi(msg.CmdArgs[1])
+		if err1 != nil || err2 != nil || cols <= 0 || rows <= 0 {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "resize-window: invalid dimensions"})
+			return
+		}
+		sess.mu.Lock()
+		layoutH := rows - 1
+		for _, w := range sess.Windows {
+			w.Resize(cols, layoutH)
+		}
+		sess.mu.Unlock()
+		sess.broadcastLayout()
+		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: fmt.Sprintf("Resized to %dx%d\n", cols, rows)})
+
 	case "swap":
 		sess.mu.Lock()
 		w := sess.ActiveWindow()
@@ -604,6 +647,94 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 		sess.mu.Unlock()
 		sess.broadcast(&Message{Type: MsgTypeCopyMode, PaneID: paneID})
 		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: fmt.Sprintf("Copy mode entered for %s\n", pane.Meta.Name)})
+
+	case "generation":
+		gen := sess.generation.Load()
+		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: fmt.Sprintf("%d\n", gen)})
+
+	case "wait-layout":
+		afterGen, timeout, err := parseWaitArgs(msg.CmdArgs)
+		if err != nil {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: err.Error()})
+			return
+		}
+		gen, ok := sess.waitGeneration(afterGen, timeout)
+		if !ok {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("timeout waiting for generation > %d (current: %d)", afterGen, gen)})
+			return
+		}
+		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: fmt.Sprintf("%d\n", gen)})
+
+	case "clipboard-gen":
+		gen := sess.clipboardGen.Load()
+		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: fmt.Sprintf("%d\n", gen)})
+
+	case "wait-clipboard":
+		afterGen, timeout, err := parseWaitArgs(msg.CmdArgs)
+		if err != nil {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: err.Error()})
+			return
+		}
+		data, ok := sess.waitClipboard(afterGen, timeout)
+		if !ok {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "timeout waiting for clipboard event"})
+			return
+		}
+		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: data + "\n"})
+
+	case "wait-for":
+		if len(msg.CmdArgs) < 2 {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "usage: wait-for <pane> <substring> [--timeout <duration>]"})
+			return
+		}
+		paneRef := msg.CmdArgs[0]
+		substr := msg.CmdArgs[1]
+		timeout := 3 * time.Second
+		for i := 2; i < len(msg.CmdArgs); i++ {
+			if msg.CmdArgs[i] == "--timeout" && i+1 < len(msg.CmdArgs) {
+				i++
+				d, err := time.ParseDuration(msg.CmdArgs[i])
+				if err != nil {
+					cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("invalid timeout: %s", msg.CmdArgs[i])})
+					return
+				}
+				timeout = d
+			}
+		}
+
+		sess.mu.Lock()
+		pane := cc.resolvePaneAcrossWindows(sess, "wait-for", paneRef)
+		if pane == nil {
+			sess.mu.Unlock()
+			return
+		}
+		paneID := pane.ID
+		sess.mu.Unlock()
+
+		// Check immediately — the content may already be on screen.
+		if sess.paneScreenContains(paneID, substr) {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: "matched\n"})
+			return
+		}
+
+		// Subscribe to pane output notifications and poll on each write.
+		ch := sess.subscribePaneOutput(paneID)
+		defer sess.unsubscribePaneOutput(paneID, ch)
+
+		timer := time.NewTimer(timeout)
+		defer timer.Stop()
+		for {
+			select {
+			case <-ch:
+				if sess.paneScreenContains(paneID, substr) {
+					cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: "matched\n"})
+					return
+				}
+			case <-timer.C:
+				cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("timeout waiting for %q in %s", substr, paneRef)})
+				return
+			}
+		}
 
 	case "reload-server":
 		execPath, err := os.Executable()
@@ -747,6 +878,33 @@ func (cc *ClientConn) resolvePaneAcrossWindows(sess *Session, cmdName string, re
 	return nil
 }
 
+// parseWaitArgs extracts --after and --timeout flags from command arguments.
+// Used by wait-layout and wait-clipboard which share the same flag syntax.
+func parseWaitArgs(args []string) (afterGen uint64, timeout time.Duration, err error) {
+	timeout = 3 * time.Second
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--after":
+			if i+1 < len(args) {
+				i++
+				afterGen, err = strconv.ParseUint(args[i], 10, 64)
+				if err != nil {
+					return 0, 0, fmt.Errorf("invalid generation: %s", args[i])
+				}
+			}
+		case "--timeout":
+			if i+1 < len(args) {
+				i++
+				timeout, err = time.ParseDuration(args[i])
+				if err != nil {
+					return 0, 0, fmt.Errorf("invalid timeout: %s", args[i])
+				}
+			}
+		}
+	}
+	return afterGen, timeout, nil
+}
+
 // parseKey converts a key name to its byte representation.
 // Supports special key names (Enter, Tab, C-x, Escape, etc.)
 // and literal text (sent as-is).
@@ -765,6 +923,11 @@ func parseKey(key string) []byte {
 		if ch >= 'A' && ch <= 'Z' {
 			return []byte{ch - 'A' + 1}
 		}
+	}
+
+	// M-x / M-X → Alt+key (ESC prefix)
+	if len(key) == 3 && (key[0] == 'M' || key[0] == 'm') && key[1] == '-' {
+		return []byte{0x1b, key[2]}
 	}
 
 	// Literal text

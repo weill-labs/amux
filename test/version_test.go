@@ -20,7 +20,7 @@ func TestVersionCommand(t *testing.T) {
 
 func TestStatusIncludesBuild(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t)
+	h := newServerHarness(t)
 
 	statusOut := h.runCmd("status")
 	if !strings.Contains(statusOut, "build:") {

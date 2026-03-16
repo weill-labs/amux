@@ -3,12 +3,69 @@ package test
 import (
 	"strings"
 	"testing"
-	"time"
 )
+
+// ---------------------------------------------------------------------------
+// CLI-only tests — ServerHarness (zero polling, zero sleep)
+// ---------------------------------------------------------------------------
+
+func TestFocusByName(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	h.splitV()
+
+	h.assertScreen("pane-2 active after split", func(s string) bool {
+		return isPaneActive(s, "pane-2")
+	})
+
+	output := h.runCmd("focus", "pane-1")
+	if !strings.Contains(output, "Focused") {
+		t.Errorf("focus should confirm, got:\n%s", output)
+	}
+
+	h.assertScreen("pane-1 active after focus by name", func(s string) bool {
+		return isPaneActive(s, "pane-1")
+	})
+
+	h.assertScreen("pane-2 inactive after focus by name", func(s string) bool {
+		return isPaneInactive(s, "pane-2")
+	})
+}
+
+func TestFocusByID(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	h.splitV()
+
+	output := h.runCmd("focus", "1")
+	if !strings.Contains(output, "Focused") {
+		t.Errorf("focus by ID should confirm, got:\n%s", output)
+	}
+
+	h.assertScreen("pane-1 active after focus by ID", func(s string) bool {
+		return isPaneActive(s, "pane-1")
+	})
+}
+
+func TestFocusNotFound(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	output := h.runCmd("focus", "nonexistent")
+	if !strings.Contains(output, "not found") {
+		t.Errorf("focus of nonexistent pane should report error, got:\n%s", output)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Keybinding tests — AmuxHarness (inner amux inside outer server)
+// ---------------------------------------------------------------------------
 
 func TestFocusCycle(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t)
+	h := newAmuxHarness(t)
 
 	h.splitV()
 
@@ -16,8 +73,9 @@ func TestFocusCycle(t *testing.T) {
 		return isPaneActive(s, "pane-2")
 	})
 
+	gen := h.generation()
 	h.sendKeys("C-a", "o")
-	time.Sleep(400 * time.Millisecond)
+	h.waitLayout(gen)
 
 	h.assertScreen("pane-1 active, pane-2 inactive after cycle", func(s string) bool {
 		return isPaneActive(s, "pane-1") && isPaneInactive(s, "pane-2")
@@ -26,15 +84,16 @@ func TestFocusCycle(t *testing.T) {
 
 func TestFocusNavigationThreePanes(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t)
+	h := newAmuxHarness(t)
 
 	h.splitV()
 	h.splitH()
 
 	seen := map[string]bool{}
 	for i := 0; i < 3; i++ {
+		gen := h.generation()
 		h.sendKeys("C-a", "o")
-		time.Sleep(400 * time.Millisecond)
+		h.waitLayout(gen)
 		screen := h.capture()
 		for _, name := range []string{"pane-1", "pane-2", "pane-3"} {
 			if isPaneActive(screen, name) {
@@ -52,15 +111,16 @@ func TestFocusNavigationThreePanes(t *testing.T) {
 
 func TestDirectionalFocusAfterRootSplit(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t)
+	h := newAmuxHarness(t)
 
 	// Create: pane-1 top-left, pane-2 bottom-left, pane-3 right (root split)
 	h.splitH()
 	h.splitRootV()
 
 	// pane-3 is active (rightmost). Navigate left with h.
+	gen := h.generation()
 	h.sendKeys("C-a", "h")
-	time.Sleep(400 * time.Millisecond)
+	h.waitLayout(gen)
 
 	screen := h.capture()
 	if !isPaneActive(screen, "pane-1") && !isPaneActive(screen, "pane-2") {
@@ -68,16 +128,18 @@ func TestDirectionalFocusAfterRootSplit(t *testing.T) {
 	}
 
 	// Navigate right with l — should go back to pane-3
+	gen = h.generation()
 	h.sendKeys("C-a", "l")
-	time.Sleep(400 * time.Millisecond)
+	h.waitLayout(gen)
 
 	h.assertScreen("Ctrl-a l should focus pane-3", func(s string) bool {
 		return isPaneActive(s, "pane-3")
 	})
 
 	// Navigate up/down between pane-1 and pane-2
+	gen = h.generation()
 	h.sendKeys("C-a", "h")
-	time.Sleep(400 * time.Millisecond)
+	h.waitLayout(gen)
 
 	screen = h.capture()
 	var activeName string
@@ -92,14 +154,16 @@ func TestDirectionalFocusAfterRootSplit(t *testing.T) {
 	}
 
 	if activeName == "pane-1" {
+		gen = h.generation()
 		h.sendKeys("C-a", "j") // down to pane-2
-		time.Sleep(400 * time.Millisecond)
+		h.waitLayout(gen)
 		h.assertScreen("j from pane-1 should reach pane-2", func(s string) bool {
 			return isPaneActive(s, "pane-2")
 		})
 	} else {
+		gen = h.generation()
 		h.sendKeys("C-a", "k") // up to pane-1
-		time.Sleep(400 * time.Millisecond)
+		h.waitLayout(gen)
 		h.assertScreen("k from pane-2 should reach pane-1", func(s string) bool {
 			return isPaneActive(s, "pane-1")
 		})
@@ -108,7 +172,7 @@ func TestDirectionalFocusAfterRootSplit(t *testing.T) {
 
 func TestNavigateBackToRightPaneAfterRootHSplit(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t)
+	h := newAmuxHarness(t)
 
 	h.splitV()
 
@@ -116,8 +180,9 @@ func TestNavigateBackToRightPaneAfterRootHSplit(t *testing.T) {
 	h.splitRootH()
 
 	// pane-3 is active (bottom). Navigate up with k.
+	gen := h.generation()
 	h.sendKeys("C-a", "k")
-	time.Sleep(400 * time.Millisecond)
+	h.waitLayout(gen)
 
 	screen := h.capture()
 	if !isPaneActive(screen, "pane-1") && !isPaneActive(screen, "pane-2") {
@@ -125,91 +190,39 @@ func TestNavigateBackToRightPaneAfterRootHSplit(t *testing.T) {
 	}
 
 	// Now navigate right with l to reach pane-2
+	gen = h.generation()
 	h.sendKeys("C-a", "l")
-	time.Sleep(400 * time.Millisecond)
+	h.waitLayout(gen)
 
 	h.assertScreen("l should reach pane-2 (right side of top row)", func(s string) bool {
 		return isPaneActive(s, "pane-2")
 	})
 }
 
-func TestFocusByName(t *testing.T) {
-	t.Parallel()
-	h := newHarness(t)
-
-	h.splitV()
-
-	h.assertScreen("pane-2 active after split", func(s string) bool {
-		return isPaneActive(s, "pane-2")
-	})
-
-	output := h.runCmd("focus", "pane-1")
-	if !strings.Contains(output, "Focused") {
-		t.Errorf("focus should confirm, got:\n%s", output)
-	}
-
-	time.Sleep(400 * time.Millisecond)
-
-	h.assertScreen("pane-1 active after focus by name", func(s string) bool {
-		return isPaneActive(s, "pane-1")
-	})
-
-	h.assertScreen("pane-2 inactive after focus by name", func(s string) bool {
-		return isPaneInactive(s, "pane-2")
-	})
-}
-
-func TestFocusByID(t *testing.T) {
-	t.Parallel()
-	h := newHarness(t)
-
-	h.splitV()
-
-	output := h.runCmd("focus", "1")
-	if !strings.Contains(output, "Focused") {
-		t.Errorf("focus by ID should confirm, got:\n%s", output)
-	}
-
-	time.Sleep(400 * time.Millisecond)
-
-	h.assertScreen("pane-1 active after focus by ID", func(s string) bool {
-		return isPaneActive(s, "pane-1")
-	})
-}
-
-func TestFocusNotFound(t *testing.T) {
-	t.Parallel()
-	h := newHarness(t)
-
-	output := h.runCmd("focus", "nonexistent")
-	if !strings.Contains(output, "not found") {
-		t.Errorf("focus of nonexistent pane should report error, got:\n%s", output)
-	}
-}
-
 func TestPrefixArrowFocus(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t)
+	h := newAmuxHarness(t)
 
 	// Split horizontally: pane-1 (left) | pane-2 (right, active)
-	h.sendKeys("C-a", "\\")
-	h.waitFor("[pane-2]", 3*time.Second)
+	h.splitV()
 
 	h.assertScreen("pane-2 active after split", func(s string) bool {
 		return isPaneActive(s, "pane-2")
 	})
 
 	// Prefix + Left arrow should focus pane-1
+	gen := h.generation()
 	h.sendKeys("C-a", "Left")
-	time.Sleep(400 * time.Millisecond)
+	h.waitLayout(gen)
 
 	h.assertScreen("prefix+Left should focus pane-1", func(s string) bool {
 		return isPaneActive(s, "pane-1")
 	})
 
 	// Prefix + Right arrow should focus pane-2
+	gen = h.generation()
 	h.sendKeys("C-a", "Right")
-	time.Sleep(400 * time.Millisecond)
+	h.waitLayout(gen)
 
 	h.assertScreen("prefix+Right should focus pane-2", func(s string) bool {
 		return isPaneActive(s, "pane-2")
@@ -218,27 +231,28 @@ func TestPrefixArrowFocus(t *testing.T) {
 
 func TestAltHJKLFocus(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t)
+	h := newAmuxHarness(t)
 
 	// Split horizontally: pane-1 (left) | pane-2 (right, active)
-	h.sendKeys("C-a", "\\")
-	h.waitFor("[pane-2]", 3*time.Second)
+	h.splitV()
 
 	h.assertScreen("pane-2 active after split", func(s string) bool {
 		return isPaneActive(s, "pane-2")
 	})
 
 	// Alt+h should focus left (pane-1)
+	gen := h.generation()
 	h.sendKeys("M-h")
-	time.Sleep(400 * time.Millisecond)
+	h.waitLayout(gen)
 
 	h.assertScreen("Alt+h should focus pane-1", func(s string) bool {
 		return isPaneActive(s, "pane-1")
 	})
 
 	// Alt+l should focus right (pane-2)
+	gen = h.generation()
 	h.sendKeys("M-l")
-	time.Sleep(400 * time.Millisecond)
+	h.waitLayout(gen)
 
 	h.assertScreen("Alt+l should focus pane-2", func(s string) bool {
 		return isPaneActive(s, "pane-2")
@@ -247,23 +261,24 @@ func TestAltHJKLFocus(t *testing.T) {
 
 func TestAltHJKLFocusVertical(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t)
+	h := newAmuxHarness(t)
 
 	// Split vertically: pane-1 (top) / pane-2 (bottom, active)
-	h.sendKeys("C-a", "-")
-	h.waitFor("[pane-2]", 3*time.Second)
+	h.splitH()
 
 	// Alt+k should focus up (pane-1)
+	gen := h.generation()
 	h.sendKeys("M-k")
-	time.Sleep(400 * time.Millisecond)
+	h.waitLayout(gen)
 
 	h.assertScreen("Alt+k should focus pane-1", func(s string) bool {
 		return isPaneActive(s, "pane-1")
 	})
 
 	// Alt+j should focus down (pane-2)
+	gen = h.generation()
 	h.sendKeys("M-j")
-	time.Sleep(400 * time.Millisecond)
+	h.waitLayout(gen)
 
 	h.assertScreen("Alt+j should focus pane-2", func(s string) bool {
 		return isPaneActive(s, "pane-2")
@@ -272,23 +287,24 @@ func TestAltHJKLFocusVertical(t *testing.T) {
 
 func TestPrefixArrowFocusVertical(t *testing.T) {
 	t.Parallel()
-	h := newHarness(t)
+	h := newAmuxHarness(t)
 
 	// Split vertically: pane-1 (top) / pane-2 (bottom, active)
-	h.sendKeys("C-a", "-")
-	h.waitFor("[pane-2]", 3*time.Second)
+	h.splitH()
 
 	// Prefix + Up arrow should focus pane-1
+	gen := h.generation()
 	h.sendKeys("C-a", "Up")
-	time.Sleep(400 * time.Millisecond)
+	h.waitLayout(gen)
 
 	h.assertScreen("prefix+Up should focus pane-1", func(s string) bool {
 		return isPaneActive(s, "pane-1")
 	})
 
 	// Prefix + Down arrow should focus pane-2
+	gen = h.generation()
 	h.sendKeys("C-a", "Down")
-	time.Sleep(400 * time.Millisecond)
+	h.waitLayout(gen)
 
 	h.assertScreen("prefix+Down should focus pane-2", func(s string) bool {
 		return isPaneActive(s, "pane-2")
