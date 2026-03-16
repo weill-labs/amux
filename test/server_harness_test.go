@@ -313,37 +313,20 @@ func (h *ServerHarness) waitLayout(afterGen uint64) {
 // Split helpers — synchronous via CLI, no keybinding simulation
 // ---------------------------------------------------------------------------
 
-func (h *ServerHarness) splitV() {
+// doSplit runs a split CLI command and fails the test if it errors.
+func (h *ServerHarness) doSplit(args ...string) {
 	h.tb.Helper()
-	out := h.runCmd("split")
+	cmdArgs := append([]string{"split"}, args...)
+	out := h.runCmd(cmdArgs...)
 	if strings.Contains(out, "error") || strings.Contains(out, "cannot") {
-		h.tb.Fatalf("splitV failed: %s", out)
+		h.tb.Fatalf("split %v failed: %s", args, out)
 	}
 }
 
-func (h *ServerHarness) splitH() {
-	h.tb.Helper()
-	out := h.runCmd("split", "v")
-	if strings.Contains(out, "error") || strings.Contains(out, "cannot") {
-		h.tb.Fatalf("splitH failed: %s", out)
-	}
-}
-
-func (h *ServerHarness) splitRootV() {
-	h.tb.Helper()
-	out := h.runCmd("split", "root")
-	if strings.Contains(out, "error") || strings.Contains(out, "cannot") {
-		h.tb.Fatalf("splitRootV failed: %s", out)
-	}
-}
-
-func (h *ServerHarness) splitRootH() {
-	h.tb.Helper()
-	out := h.runCmd("split", "root", "v")
-	if strings.Contains(out, "error") || strings.Contains(out, "cannot") {
-		h.tb.Fatalf("splitRootH failed: %s", out)
-	}
-}
+func (h *ServerHarness) splitV()     { h.tb.Helper(); h.doSplit() }
+func (h *ServerHarness) splitH()     { h.tb.Helper(); h.doSplit("v") }
+func (h *ServerHarness) splitRootV() { h.tb.Helper(); h.doSplit("root") }
+func (h *ServerHarness) splitRootH() { h.tb.Helper(); h.doSplit("root", "v") }
 
 // ---------------------------------------------------------------------------
 // Pane interaction — via CLI send-keys, no tmux
