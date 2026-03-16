@@ -863,9 +863,7 @@ func sendCommand(conn net.Conn, name string, args []string) {
 // handleMouseEvent dispatches a parsed mouse event to the appropriate action:
 // click-to-focus, border drag, or scroll wheel.
 func handleMouseEvent(ev mouse.Event, cr *ClientRenderer, conn net.Conn, drag *dragState) {
-	cr.mu.Lock()
-	layout := cr.layout
-	cr.mu.Unlock()
+	layout := cr.Layout()
 
 	if layout == nil {
 		return
@@ -881,9 +879,7 @@ func handleMouseEvent(ev mouse.Event, cr *ClientRenderer, conn net.Conn, drag *d
 			drag.borderDir = hit.Dir
 		} else if cell := layout.FindLeafAt(ev.X, ev.Y); cell != nil {
 			paneID := cell.CellPaneID()
-			cr.mu.Lock()
-			alreadyActive := paneID == cr.activePaneID
-			cr.mu.Unlock()
+			alreadyActive := paneID == cr.ActivePaneID()
 			if !alreadyActive {
 				sendCommand(conn, "focus", []string{fmt.Sprintf("%d", paneID)})
 			}
@@ -1062,55 +1058,5 @@ func runServerCommand(cmdName string, args []string) {
 // handleCaptureRequest processes a capture request forwarded from the server.
 // It renders from the client-side emulators and returns a response message.
 func handleCaptureRequest(cr *ClientRenderer, args []string, agentStatus map[uint32]proto.PaneAgentStatus) *server.Message {
-	var includeANSI, colorMap, formatJSON bool
-	var paneRef string
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--ansi":
-			includeANSI = true
-		case "--colors":
-			colorMap = true
-		case "--format":
-			if i+1 < len(args) && args[i+1] == "json" {
-				formatJSON = true
-				i++ // consume "json"
-			}
-		default:
-			paneRef = args[i]
-		}
-	}
-
-	if (includeANSI && colorMap) || (includeANSI && formatJSON) || (colorMap && formatJSON) {
-		return &server.Message{Type: server.MsgTypeCaptureResponse,
-			CmdErr: "--ansi, --colors, and --format json are mutually exclusive"}
-	}
-
-	if paneRef != "" {
-		if colorMap {
-			return &server.Message{Type: server.MsgTypeCaptureResponse,
-				CmdErr: "--colors is only supported for full screen capture"}
-		}
-		paneID := cr.ResolvePaneID(paneRef)
-		if paneID == 0 {
-			return &server.Message{Type: server.MsgTypeCaptureResponse,
-				CmdErr: fmt.Sprintf("pane %q not found", paneRef)}
-		}
-		var out string
-		if formatJSON {
-			out = cr.CapturePaneJSON(paneID, agentStatus)
-		} else {
-			out = cr.CapturePaneText(paneID, includeANSI)
-		}
-		return &server.Message{Type: server.MsgTypeCaptureResponse, CmdOutput: out + "\n"}
-	}
-
-	var out string
-	if formatJSON {
-		out = cr.CaptureJSON(agentStatus) + "\n"
-	} else if colorMap {
-		out = cr.CaptureColorMap()
-	} else {
-		out = cr.Capture(!includeANSI)
-	}
-	return &server.Message{Type: server.MsgTypeCaptureResponse, CmdOutput: out}
+	return cr.renderer.HandleCaptureRequest(args, agentStatus)
 }
