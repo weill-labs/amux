@@ -62,14 +62,14 @@ func (c *Compositor) LayoutHeight() int {
 }
 
 // ClearScreen returns ANSI sequences to clear the screen and home the cursor.
-func ClearScreen() []byte {
-	return []byte(ClearAll + CursorHome)
+func ClearScreen() string {
+	return ClearAll + CursorHome
 }
 
 // RenderFull composes all panes, status lines, and borders into ANSI output.
 // lookup maps pane IDs to their rendering data. Client provides emulator-backed
 // adapters; server could provide Pane wrappers.
-func (c *Compositor) RenderFull(root *mux.LayoutCell, activePaneID uint32, lookup func(uint32) PaneData) []byte {
+func (c *Compositor) RenderFull(root *mux.LayoutCell, activePaneID uint32, lookup func(uint32) PaneData) string {
 	var buf strings.Builder
 	buf.Grow(c.width * c.height * 4) // pre-allocate for typical ANSI output
 
@@ -130,7 +130,7 @@ func (c *Compositor) RenderFull(root *mux.LayoutCell, activePaneID uint32, looku
 	// hide the terminal cursor to avoid showing two cursors.
 	c.renderCursor(&buf, root, activePaneID, lookup)
 
-	return []byte(buf.String())
+	return buf.String()
 }
 
 // renderCursor positions the terminal cursor at the active pane's cursor

@@ -60,7 +60,7 @@ func TestMinimizedPaneHidesCursor(t *testing.T) {
 	}
 
 	// Active pane is the minimized pane-1
-	output := string(comp.RenderFull(root, 1, lookup))
+	output := comp.RenderFull(root, 1, lookup)
 
 	// Should NOT contain ShowCursor since the active pane is minimized
 	if strings.Contains(output, ShowCursor) {
@@ -113,7 +113,7 @@ func TestRenderCursorEdgeCases(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			comp := NewCompositor(width, height+GlobalBarHeight, "test")
-			output := string(comp.RenderFull(root, tt.activeID, tt.lookup))
+			output := comp.RenderFull(root, tt.activeID, tt.lookup)
 			hasCursor := strings.Contains(output, ShowCursor)
 			if hasCursor != tt.wantVisible {
 				t.Errorf("cursor visible = %v, want %v", hasCursor, tt.wantVisible)
@@ -228,7 +228,7 @@ func TestBlitPaneClipsToWidth(t *testing.T) {
 	}
 
 	output := comp.RenderFull(root, 1, lookup)
-	grid := MaterializeGrid(string(output), width, height+GlobalBarHeight)
+	grid := MaterializeGrid(output, width, height+GlobalBarHeight)
 	lines := strings.Split(grid, "\n")
 
 	// Row 0 is the status line; row 1 is the content row.

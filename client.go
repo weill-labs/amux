@@ -148,12 +148,12 @@ func (cr *ClientRenderer) HandlePaneOutput(paneID uint32, data []byte) {
 }
 
 // Render produces ANSI output compositing all panes. Returns nil if no layout.
-func (cr *ClientRenderer) Render() []byte {
+func (cr *ClientRenderer) Render() string {
 	cr.mu.Lock()
 	defer cr.mu.Unlock()
 
 	if cr.layout == nil {
-		return nil
+		return ""
 	}
 
 	cr.dirty = false
@@ -198,12 +198,12 @@ func (cr *ClientRenderer) Resize(width, height int) {
 // renderCoalesced runs a select loop that reads messages from msgCh,
 // updates the client renderer, and coalesces renders at ~60fps.
 // Layout changes render immediately; pane output is debounced.
-func (cr *ClientRenderer) renderCoalesced(msgCh <-chan *renderMsg, write func([]byte)) {
+func (cr *ClientRenderer) renderCoalesced(msgCh <-chan *renderMsg, write func(string)) {
 	var renderTimer *time.Timer
 	var renderC <-chan time.Time
 
 	doRender := func() {
-		if data := cr.Render(); data != nil {
+		if data := cr.Render(); data != "" {
 			write(data)
 		}
 		renderTimer = nil
@@ -241,9 +241,9 @@ func (cr *ClientRenderer) renderCoalesced(msgCh <-chan *renderMsg, write func([]
 				}
 				doRender()
 			case renderMsgBell:
-				write([]byte{0x07})
+				write("\x07")
 			case renderMsgClipboard:
-				write(msg.data)
+				write(string(msg.data))
 			case renderMsgExit:
 				// Final render before exit
 				if cr.IsDirty() {
