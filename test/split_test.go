@@ -221,6 +221,35 @@ func TestFiveRootVerticalSplits(t *testing.T) {
 	}
 }
 
+func TestMultipleNonRootSplitsEqualWidth(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	// 3 non-root splits produce 4 nested panes
+	for i := 0; i < 3; i++ {
+		h.splitV()
+	}
+
+	c := h.captureJSON()
+	if len(c.Panes) != 4 {
+		t.Fatalf("expected 4 panes, got %d", len(c.Panes))
+	}
+
+	for i := 1; i <= 4; i++ {
+		name := fmt.Sprintf("pane-%d", i)
+		h.jsonPane(c, name) // fails if not found
+	}
+
+	// Verify panes are ordered left to right
+	for i := 0; i < len(c.Panes)-1; i++ {
+		if c.Panes[i].Position.X >= c.Panes[i+1].Position.X {
+			t.Errorf("pane %s (x=%d) should be left of pane %s (x=%d)",
+				c.Panes[i].Name, c.Panes[i].Position.X,
+				c.Panes[i+1].Name, c.Panes[i+1].Position.X)
+		}
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Golden file tests
 // ---------------------------------------------------------------------------

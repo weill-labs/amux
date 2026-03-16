@@ -1,6 +1,7 @@
 package test
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -71,7 +72,10 @@ func TestSwapCLI(t *testing.T) {
 
 	h.splitV()
 
-	h.runCmd("swap", "pane-1", "pane-2")
+	out := h.runCmd("swap", "pane-1", "pane-2")
+	if strings.Contains(out, "unknown command") {
+		t.Fatalf("swap command not recognized: %s", out)
+	}
 
 	// Swap is synchronous — capture immediately reflects the change.
 	c := h.captureJSON()
@@ -90,7 +94,10 @@ func TestRotate(t *testing.T) {
 	h.splitV()
 	h.splitV()
 
-	h.runCmd("rotate")
+	out := h.runCmd("rotate")
+	if strings.Contains(out, "unknown command") {
+		t.Fatalf("rotate command not recognized: %s", out)
+	}
 
 	// Forward rotation: panes move forward through cells.
 	// Cell 0 gets last pane (pane-3), cell 1 gets pane-1, cell 2 gets pane-2.

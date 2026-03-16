@@ -220,10 +220,14 @@ func (h *ServerHarness) captureJSON() proto.CaptureJSON {
 }
 
 // jsonPane finds a pane by name in a CaptureJSON, or fails the test.
+// Also fails if Position is nil (full-screen captures always set it).
 func (h *ServerHarness) jsonPane(capture proto.CaptureJSON, name string) proto.CapturePane {
 	h.tb.Helper()
 	for _, p := range capture.Panes {
 		if p.Name == name {
+			if p.Position == nil {
+				h.tb.Fatalf("pane %q has nil Position in full-screen capture", name)
+			}
 			return p
 		}
 	}
