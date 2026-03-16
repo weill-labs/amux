@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/coverage"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -239,7 +240,7 @@ func (s *Session) forwardCapture(args []string) *Message {
 
 	// For JSON captures, snapshot pane list while holding the lock.
 	var statusPanes []*mux.Pane
-	if hasArg(args, "json") {
+	if slices.Contains(args, "json") {
 		statusPanes = make([]*mux.Pane, len(s.Panes))
 		copy(statusPanes, s.Panes)
 	}
@@ -268,16 +269,16 @@ func (s *Session) forwardCapture(args []string) *Message {
 		AgentStatus: agentStatus,
 	})
 
+	defer func() {
+		s.mu.Lock()
+		s.captureResult = nil
+		s.mu.Unlock()
+	}()
+
 	select {
 	case resp := <-ch:
-		s.mu.Lock()
-		s.captureResult = nil
-		s.mu.Unlock()
 		return &Message{Type: MsgTypeCmdResult, CmdOutput: resp.CmdOutput, CmdErr: resp.CmdErr}
 	case <-time.After(3 * time.Second):
-		s.mu.Lock()
-		s.captureResult = nil
-		s.mu.Unlock()
 		return &Message{Type: MsgTypeCmdResult, CmdErr: "capture timed out (client unresponsive)"}
 	}
 }
@@ -310,16 +311,6 @@ func nonNilPIDs(pids []int) []int {
 		return []int{}
 	}
 	return pids
-}
-
-// hasArg checks if a string appears in the args slice.
-func hasArg(args []string, target string) bool {
-	for _, a := range args {
-		if a == target {
-			return true
-		}
-	}
-	return false
 }
 
 // broadcastPaneOutput sends raw PTY output for one pane to all clients,

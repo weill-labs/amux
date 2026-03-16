@@ -220,7 +220,7 @@ func (cr *ClientRenderer) Capture(stripANSI bool) string {
 	}
 
 	root, activePaneID := cr.captureRootLocked()
-	raw := string(cr.compositor.RenderFull(root, activePaneID, cr.paneLookupLocked))
+	raw := cr.compositor.RenderFull(root, activePaneID, cr.paneLookupLocked)
 
 	if stripANSI {
 		return render.MaterializeGrid(raw, cr.width, cr.height)
@@ -238,7 +238,7 @@ func (cr *ClientRenderer) CaptureColorMap() string {
 	}
 
 	root, activePaneID := cr.captureRootLocked()
-	raw := string(cr.compositor.RenderFull(root, activePaneID, cr.paneLookupLocked))
+	raw := cr.compositor.RenderFull(root, activePaneID, cr.paneLookupLocked)
 	return render.ExtractColorMap(raw, cr.width, cr.height) + "\n"
 }
 
@@ -252,10 +252,7 @@ func (cr *ClientRenderer) CaptureJSON(agentStatus map[uint32]proto.PaneAgentStat
 		return "{}"
 	}
 
-	root := cr.layout
-	if cr.zoomedPaneID != 0 {
-		root = mux.NewLeafByID(cr.zoomedPaneID, 0, 0, cr.width, cr.compositor.LayoutHeight())
-	}
+	root, _ := cr.captureRootLocked()
 
 	capture := proto.CaptureJSON{
 		Session: cr.sessionName,
@@ -276,39 +273,13 @@ func (cr *ClientRenderer) CaptureJSON(agentStatus map[uint32]proto.PaneAgentStat
 		if paneID == 0 {
 			return
 		}
-		emu, ok := cr.emulators[paneID]
+		cp, ok := cr.buildCapturePaneLocked(paneID, agentStatus)
 		if !ok {
 			return
 		}
-		info, ok := cr.paneInfo[paneID]
-		if !ok {
-			return
+		cp.Position = &proto.CapturePos{
+			X: c.X, Y: c.Y, Width: c.W, Height: c.H,
 		}
-
-		col, row := emu.CursorPosition()
-		cp := proto.CapturePane{
-			ID:        info.ID,
-			Name:      info.Name,
-			Active:    info.ID == cr.activePaneID,
-			Minimized: info.Minimized,
-			Zoomed:    info.ID == cr.zoomedPaneID,
-			Host:      info.Host,
-			Task:      info.Task,
-			Color:     info.Color,
-			Position: &proto.CapturePos{
-				X:      c.X,
-				Y:      c.Y,
-				Width:  c.W,
-				Height: c.H,
-			},
-			Cursor: proto.CaptureCursor{
-				Col:    col,
-				Row:    row,
-				Hidden: emu.CursorHidden(),
-			},
-			Content: mux.EmulatorContentLines(emu),
-		}
-		cp.ApplyAgentStatus(agentStatus)
 		capture.Panes = append(capture.Panes, cp)
 	})
 
@@ -336,33 +307,10 @@ func (cr *ClientRenderer) CapturePaneJSON(paneID uint32, agentStatus map[uint32]
 	cr.mu.Lock()
 	defer cr.mu.Unlock()
 
-	emu, ok := cr.emulators[paneID]
+	cp, ok := cr.buildCapturePaneLocked(paneID, agentStatus)
 	if !ok {
 		return "{}"
 	}
-	info, ok := cr.paneInfo[paneID]
-	if !ok {
-		return "{}"
-	}
-
-	col, row := emu.CursorPosition()
-	cp := proto.CapturePane{
-		ID:        info.ID,
-		Name:      info.Name,
-		Active:    info.ID == cr.activePaneID,
-		Minimized: info.Minimized,
-		Zoomed:    info.ID == cr.zoomedPaneID,
-		Host:      info.Host,
-		Task:      info.Task,
-		Color:     info.Color,
-		Cursor: proto.CaptureCursor{
-			Col:    col,
-			Row:    row,
-			Hidden: emu.CursorHidden(),
-		},
-		Content: mux.EmulatorContentLines(emu),
-	}
-	cp.ApplyAgentStatus(agentStatus)
 	out, _ := json.MarshalIndent(cp, "", "  ")
 	return string(out)
 }
@@ -399,6 +347,38 @@ func (cr *ClientRenderer) captureRootLocked() (*mux.LayoutCell, uint32) {
 		root = mux.NewLeafByID(cr.zoomedPaneID, 0, 0, cr.width, cr.compositor.LayoutHeight())
 	}
 	return root, cr.activePaneID
+}
+
+// buildCapturePaneLocked builds a CapturePane from emulator state for the given pane.
+// Returns false if the pane or its emulator is not found. Caller must hold cr.mu.
+func (cr *ClientRenderer) buildCapturePaneLocked(paneID uint32, agentStatus map[uint32]proto.PaneAgentStatus) (proto.CapturePane, bool) {
+	emu, ok := cr.emulators[paneID]
+	if !ok {
+		return proto.CapturePane{}, false
+	}
+	info, ok := cr.paneInfo[paneID]
+	if !ok {
+		return proto.CapturePane{}, false
+	}
+	col, row := emu.CursorPosition()
+	cp := proto.CapturePane{
+		ID:        info.ID,
+		Name:      info.Name,
+		Active:    info.ID == cr.activePaneID,
+		Minimized: info.Minimized,
+		Zoomed:    info.ID == cr.zoomedPaneID,
+		Host:      info.Host,
+		Task:      info.Task,
+		Color:     info.Color,
+		Cursor: proto.CaptureCursor{
+			Col:    col,
+			Row:    row,
+			Hidden: emu.CursorHidden(),
+		},
+		Content: mux.EmulatorContentLines(emu),
+	}
+	cp.ApplyAgentStatus(agentStatus)
+	return cp, true
 }
 
 // paneLookupLocked returns a PaneData for the given pane ID.
