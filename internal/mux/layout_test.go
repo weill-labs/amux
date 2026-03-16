@@ -131,10 +131,9 @@ func TestSplitSiblingInsertion(t *testing.T) {
 	}
 }
 
-func TestSplitSiblingHalfSize(t *testing.T) {
+func TestSplitSiblingEqualRedistribution(t *testing.T) {
 	t.Parallel()
-	// Case A split should take half the space from the current cell,
-	// leaving other siblings untouched (O(1) operation).
+	// Case A split should redistribute space equally among all siblings.
 	tests := []struct {
 		name      string
 		dir       SplitDir
@@ -151,29 +150,38 @@ func TestSplitSiblingHalfSize(t *testing.T) {
 			root := NewLeaf(fakePaneID(1), 0, 0, tt.w, tt.h)
 			root.Split(tt.dir, fakePaneID(2))
 
-			// Record sibling sizes before the Case A split
 			size := func(c *LayoutCell) int {
 				if tt.dir == SplitHorizontal {
 					return c.W
 				}
 				return c.H
 			}
-			child0Size := size(root.Children[0])
-			child1Size := size(root.Children[1])
 
 			// Split child0 again in the same direction (Case A)
 			root.Children[0].Split(tt.dir, fakePaneID(3))
 
-			// Uninvolved sibling should be untouched
-			if size(root.Children[2]) != child1Size {
-				t.Errorf("uninvolved sibling size = %d, want %d (unchanged)", size(root.Children[2]), child1Size)
+			// All 3 siblings should have approximately equal sizes
+			n := len(root.Children)
+			if n != 3 {
+				t.Fatalf("expected 3 children, got %d", n)
 			}
-
-			// Split pair should sum to original child0 size (minus 1 separator)
-			newChild := root.Children[1] // inserted after child0
-			if size(root.Children[0])+1+size(newChild) != child0Size {
-				t.Errorf("split pair sizes %d + 1 + %d != %d (original)",
-					size(root.Children[0]), size(newChild), child0Size)
+			sizes := make([]int, n)
+			for i, c := range root.Children {
+				sizes[i] = size(c)
+			}
+			minS, maxS := sizes[0], sizes[0]
+			for _, s := range sizes[1:] {
+				if s < minS {
+					minS = s
+				}
+				if s > maxS {
+					maxS = s
+				}
+			}
+			// Allow for integer rounding: the last child gets the remainder,
+			// so it can be up to n-1 larger than the others.
+			if maxS-minS > n-1 {
+				t.Errorf("siblings not equal: sizes %v (max-min=%d, limit=%d)", sizes, maxS-minS, n-1)
 			}
 
 			// Total across all children + separators should be preserved
