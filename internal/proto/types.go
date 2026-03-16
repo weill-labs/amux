@@ -100,6 +100,15 @@ type CapturePane struct {
 	ChildPIDs []int `json:"child_pids"`
 }
 
+// PaneAgentStatus holds process-level status for a pane, gathered by the
+// server and forwarded to the client for JSON capture.
+type PaneAgentStatus struct {
+	Idle           bool
+	IdleSince      string // RFC3339 or ""
+	CurrentCommand string
+	ChildPIDs      []int
+}
+
 // CapturePos holds a pane's position and size within the layout.
 type CapturePos struct {
 	X      int `json:"x"`

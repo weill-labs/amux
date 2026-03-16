@@ -81,7 +81,7 @@ func (hc *headlessClient) readLoop() {
 		case server.MsgTypePaneOutput:
 			hc.handlePaneOutput(msg.PaneID, msg.PaneData)
 		case server.MsgTypeCaptureRequest:
-			resp := hc.handleCapture(msg.CmdArgs)
+			resp := hc.handleCapture(msg.CmdArgs, msg.AgentStatus)
 			server.WriteMsg(hc.conn, resp)
 		case server.MsgTypeExit:
 			return
@@ -166,7 +166,7 @@ func (hc *headlessClient) handlePaneOutput(paneID uint32, data []byte) {
 	}
 }
 
-func (hc *headlessClient) handleCapture(args []string) *server.Message {
+func (hc *headlessClient) handleCapture(args []string, agentStatus map[uint32]proto.PaneAgentStatus) *server.Message {
 	includeANSI := false
 	colorMap := false
 	formatJSON := false
@@ -212,7 +212,7 @@ func (hc *headlessClient) handleCapture(args []string) *server.Message {
 		}
 		var out string
 		if formatJSON {
-			out = hc.capturePaneJSON(paneID)
+			out = hc.capturePaneJSON(paneID, agentStatus)
 		} else {
 			out = hc.capturePaneText(paneID, includeANSI)
 		}
@@ -221,7 +221,7 @@ func (hc *headlessClient) handleCapture(args []string) *server.Message {
 
 	var out string
 	if formatJSON {
-		out = hc.captureJSON() + "\n"
+		out = hc.captureJSON(agentStatus) + "\n"
 	} else if colorMap {
 		out = hc.captureColorMap()
 	} else {
@@ -264,7 +264,7 @@ func (hc *headlessClient) captureColorMap() string {
 	return render.ExtractColorMap(raw, hc.width, hc.height) + "\n"
 }
 
-func (hc *headlessClient) captureJSON() string {
+func (hc *headlessClient) captureJSON(agentStatus map[uint32]proto.PaneAgentStatus) string {
 	hc.mu.Lock()
 	defer hc.mu.Unlock()
 	if hc.layout == nil {
@@ -323,6 +323,12 @@ func (hc *headlessClient) captureJSON() string {
 			Cursor: proto.CaptureCursor{Col: col, Row: row, Hidden: emu.CursorHidden()},
 			Content: emuContentLines(emu),
 		}
+		if st, ok := agentStatus[paneID]; ok {
+			cp.Idle = st.Idle
+			cp.IdleSince = st.IdleSince
+			cp.CurrentCommand = st.CurrentCommand
+			if st.ChildPIDs != nil { cp.ChildPIDs = st.ChildPIDs } else { cp.ChildPIDs = []int{} }
+		}
 		capture.Panes = append(capture.Panes, cp)
 	})
 
@@ -343,7 +349,7 @@ func (hc *headlessClient) capturePaneText(paneID uint32, includeANSI bool) strin
 	return strings.Join(emuContentLines(emu), "\n")
 }
 
-func (hc *headlessClient) capturePaneJSON(paneID uint32) string {
+func (hc *headlessClient) capturePaneJSON(paneID uint32, agentStatus map[uint32]proto.PaneAgentStatus) string {
 	hc.mu.Lock()
 	defer hc.mu.Unlock()
 	emu, ok := hc.emulators[paneID]
@@ -362,6 +368,12 @@ func (hc *headlessClient) capturePaneJSON(paneID uint32) string {
 		Task: info.Task, Color: info.Color,
 		Cursor:  proto.CaptureCursor{Col: col, Row: row, Hidden: emu.CursorHidden()},
 		Content: emuContentLines(emu),
+	}
+	if st, ok := agentStatus[paneID]; ok {
+		cp.Idle = st.Idle
+		cp.IdleSince = st.IdleSince
+		cp.CurrentCommand = st.CurrentCommand
+		if st.ChildPIDs != nil { cp.ChildPIDs = st.ChildPIDs } else { cp.ChildPIDs = []int{} }
 	}
 	out, _ := json.MarshalIndent(cp, "", "  ")
 	return string(out)
@@ -433,7 +445,9 @@ func (p *headlessPaneData) Host() string             { return p.info.Host }
 func (p *headlessPaneData) Task() string             { return p.info.Task }
 func (p *headlessPaneData) Color() string            { return p.info.Color }
 func (p *headlessPaneData) Minimized() bool          { return p.info.Minimized }
+func (p *headlessPaneData) Idle() bool               { return p.info.Idle }
 func (p *headlessPaneData) InCopyMode() bool         { return false }
+func (p *headlessPaneData) CopyModeSearch() string   { return "" }
 
 // findCellDimensions finds a pane's dimensions in the layout snapshot.
 func findCellDimensions(snap *proto.LayoutSnapshot, activeRoot proto.CellSnapshot, paneID uint32) (int, int) {

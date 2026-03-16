@@ -73,6 +73,10 @@ type Message struct {
 
 	// MsgTypeLayout
 	Layout *proto.LayoutSnapshot
+
+	// MsgTypeCaptureRequest — server-gathered agent status for JSON capture.
+	// Keyed by pane ID. Only populated when capture args include --format json.
+	AgentStatus map[uint32]proto.PaneAgentStatus
 }
 
 const maxMessageSize = 16 * 1024 * 1024 // 16 MB

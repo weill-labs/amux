@@ -19,6 +19,7 @@ import (
 	"github.com/weill-labs/amux/internal/copymode"
 	"github.com/weill-labs/amux/internal/mouse"
 	"github.com/weill-labs/amux/internal/mux"
+	"github.com/weill-labs/amux/internal/proto"
 	"github.com/weill-labs/amux/internal/render"
 	"github.com/weill-labs/amux/internal/server"
 
@@ -526,7 +527,7 @@ func runMux(sessionName string) error {
 			case server.MsgTypeCaptureRequest:
 				// Server is forwarding a capture request — render from
 				// client-side emulators and send the result back.
-				resp := handleCaptureRequest(cr, msg.CmdArgs)
+				resp := handleCaptureRequest(cr, msg.CmdArgs, msg.AgentStatus)
 				server.WriteMsg(conn, resp)
 			case server.MsgTypeServerReload:
 				// Server is reloading — re-exec ourselves to reconnect
@@ -1028,7 +1029,7 @@ func runServerCommand(cmdName string, args []string) {
 
 // handleCaptureRequest processes a capture request forwarded from the server.
 // It renders from the client-side emulators and returns a response message.
-func handleCaptureRequest(cr *ClientRenderer, args []string) *server.Message {
+func handleCaptureRequest(cr *ClientRenderer, args []string, agentStatus map[uint32]proto.PaneAgentStatus) *server.Message {
 	includeANSI := false
 	colorMap := false
 	formatJSON := false
@@ -1075,7 +1076,7 @@ func handleCaptureRequest(cr *ClientRenderer, args []string) *server.Message {
 		}
 		var out string
 		if formatJSON {
-			out = cr.CapturePaneJSON(paneID)
+			out = cr.CapturePaneJSON(paneID, agentStatus)
 		} else {
 			out = cr.CapturePaneText(paneID, includeANSI)
 		}
@@ -1084,7 +1085,7 @@ func handleCaptureRequest(cr *ClientRenderer, args []string) *server.Message {
 
 	var out string
 	if formatJSON {
-		out = cr.CaptureJSON() + "\n"
+		out = cr.CaptureJSON(agentStatus) + "\n"
 	} else if colorMap {
 		out = cr.CaptureColorMap()
 	} else {

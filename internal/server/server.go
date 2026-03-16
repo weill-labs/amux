@@ -217,7 +217,8 @@ func (s *Session) clipboardCallback() func(paneID uint32, data []byte) {
 
 // forwardCapture sends a capture request to the first attached interactive
 // client and waits for its response. The client renders from its own
-// emulators — the rendering source of truth.
+// emulators — the rendering source of truth. For JSON captures, the server
+// gathers agent status (process inspection) and includes it in the request.
 func (s *Session) forwardCapture(args []string) *Message {
 	s.mu.Lock()
 	if len(s.clients) == 0 {
@@ -228,9 +229,39 @@ func (s *Session) forwardCapture(args []string) *Message {
 
 	ch := make(chan *Message, 1)
 	s.captureResult = ch
+
+	// For JSON captures, gather agent status while we hold the lock.
+	// The actual AgentStatus() calls happen outside the lock to avoid
+	// blocking the server on pgrep/ps subprocesses.
+	var statusPanes []*mux.Pane
+	isJSON := hasArg(args, "json")
+	if isJSON {
+		for _, p := range s.Panes {
+			statusPanes = append(statusPanes, p)
+		}
+	}
 	s.mu.Unlock()
 
-	client.Send(&Message{Type: MsgTypeCaptureRequest, CmdArgs: args})
+	// Gather agent status outside the lock (spawns subprocesses).
+	var agentStatus map[uint32]proto.PaneAgentStatus
+	if isJSON {
+		agentStatus = make(map[uint32]proto.PaneAgentStatus, len(statusPanes))
+		for _, p := range statusPanes {
+			st := p.AgentStatus()
+			agentStatus[p.ID] = proto.PaneAgentStatus{
+				Idle:           st.Idle,
+				IdleSince:      formatIdleSince(st.IdleSince),
+				CurrentCommand: st.CurrentCommand,
+				ChildPIDs:      nonNilPIDs(st.ChildPIDs),
+			}
+		}
+	}
+
+	client.Send(&Message{
+		Type:        MsgTypeCaptureRequest,
+		CmdArgs:     args,
+		AgentStatus: agentStatus,
+	})
 
 	select {
 	case resp := <-ch:
@@ -244,6 +275,24 @@ func (s *Session) forwardCapture(args []string) *Message {
 		s.mu.Unlock()
 		return &Message{Type: MsgTypeCmdResult, CmdErr: "capture timed out (client unresponsive)"}
 	}
+}
+
+// nonNilPIDs ensures a nil slice becomes an empty slice for JSON marshaling.
+func nonNilPIDs(pids []int) []int {
+	if pids == nil {
+		return []int{}
+	}
+	return pids
+}
+
+// hasArg checks if a string appears in the args slice.
+func hasArg(args []string, target string) bool {
+	for _, a := range args {
+		if a == target {
+			return true
+		}
+	}
+	return false
 }
 
 // broadcastPaneOutput sends raw PTY output for one pane to all clients,

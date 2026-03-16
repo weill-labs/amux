@@ -239,7 +239,8 @@ func (cr *ClientRenderer) CaptureColorMap() string {
 }
 
 // CaptureJSON renders a structured JSON capture from client-side emulators.
-func (cr *ClientRenderer) CaptureJSON() string {
+// Agent status (idle, current_command, child_pids) comes from the server.
+func (cr *ClientRenderer) CaptureJSON(agentStatus map[uint32]proto.PaneAgentStatus) string {
 	cr.mu.Lock()
 	defer cr.mu.Unlock()
 
@@ -295,6 +296,12 @@ func (cr *ClientRenderer) CaptureJSON() string {
 			},
 			Content: emulatorContentLines(emu),
 		}
+		if st, ok := agentStatus[paneID]; ok {
+			cp.Idle = st.Idle
+			cp.IdleSince = st.IdleSince
+			cp.CurrentCommand = st.CurrentCommand
+			if st.ChildPIDs != nil { cp.ChildPIDs = st.ChildPIDs } else { cp.ChildPIDs = []int{} }
+		}
 		capture.Panes = append(capture.Panes, cp)
 	})
 
@@ -319,7 +326,7 @@ func (cr *ClientRenderer) CapturePaneText(paneID uint32, includeANSI bool) strin
 }
 
 // CapturePaneJSON returns a single pane's JSON from client-side emulators.
-func (cr *ClientRenderer) CapturePaneJSON(paneID uint32) string {
+func (cr *ClientRenderer) CapturePaneJSON(paneID uint32, agentStatus map[uint32]proto.PaneAgentStatus) string {
 	cr.mu.Lock()
 	defer cr.mu.Unlock()
 
@@ -348,6 +355,12 @@ func (cr *ClientRenderer) CapturePaneJSON(paneID uint32) string {
 			Hidden: emu.CursorHidden(),
 		},
 		Content: emulatorContentLines(emu),
+	}
+	if st, ok := agentStatus[paneID]; ok {
+		cp.Idle = st.Idle
+		cp.IdleSince = st.IdleSince
+		cp.CurrentCommand = st.CurrentCommand
+		if st.ChildPIDs != nil { cp.ChildPIDs = st.ChildPIDs } else { cp.ChildPIDs = []int{} }
 	}
 	out, _ := json.MarshalIndent(cp, "", "  ")
 	return string(out)
