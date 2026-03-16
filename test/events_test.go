@@ -115,7 +115,8 @@ func TestEventsInitialSnapshot(t *testing.T) {
 
 	// Next idle or busy event should be for pane-1. Other events (output,
 	// layout from idle state changes) may arrive first — skip them.
-	deadline = time.Now().Add(5 * time.Second)
+	// Use 10s timeout: idle event requires DefaultIdleTimeout (2s) + CI overhead.
+	deadline = time.Now().Add(10 * time.Second)
 	for {
 		ev = readEvent(t, scanner, time.Until(deadline))
 		if ev.Type == "idle" || ev.Type == "busy" {
