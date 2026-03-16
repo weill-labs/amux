@@ -292,6 +292,21 @@ func (p *Pane) Output(lines int) string {
 	return strings.Join(result, "\n")
 }
 
+// ContentLines returns all visible screen lines as a slice of plain text strings.
+// Every row from 0 to height-1 is represented (len(result) == pane height).
+// Lines are ANSI-stripped and right-trimmed of trailing whitespace.
+func (p *Pane) ContentLines() []string {
+	_, rows := p.emulator.Size()
+	rendered := p.emulator.Render()
+	all := strings.Split(rendered, "\n")
+
+	result := make([]string, rows)
+	for i := 0; i < rows && i < len(all); i++ {
+		result[i] = StripANSI(strings.TrimRight(all[i], " "))
+	}
+	return result
+}
+
 var ansiRe = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]|\x1b\][^\x07]*\x07|\x1b[()][0-9A-B]`)
 
 // StripANSI removes ANSI escape sequences from a string.
