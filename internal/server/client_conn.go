@@ -757,6 +757,61 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 			}
 		}
 
+	case "wait-busy":
+		if len(msg.CmdArgs) < 1 {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "usage: wait-busy <pane> [--timeout <duration>]"})
+			return
+		}
+		paneRef := msg.CmdArgs[0]
+		timeout := 5 * time.Second
+		for i := 1; i < len(msg.CmdArgs); i++ {
+			if msg.CmdArgs[i] == "--timeout" && i+1 < len(msg.CmdArgs) {
+				i++
+				d, err := time.ParseDuration(msg.CmdArgs[i])
+				if err != nil {
+					cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("invalid timeout: %s", msg.CmdArgs[i])})
+					return
+				}
+				timeout = d
+			}
+		}
+
+		sess.mu.Lock()
+		pane := cc.resolvePaneAcrossWindows(sess, "wait-busy", paneRef)
+		if pane == nil {
+			sess.mu.Unlock()
+			return
+		}
+		paneID := pane.ID
+		sess.mu.Unlock()
+
+		// Check immediately — the pane may already be busy.
+		if sess.paneIsBusy(paneID) {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: "busy\n"})
+			return
+		}
+
+		// Subscribe to pane output notifications and check on each write.
+		// When the shell runs a command, it echoes the input (PTY output)
+		// before forking the child, so output events are a reliable trigger.
+		ch := sess.subscribePaneOutput(paneID)
+		defer sess.unsubscribePaneOutput(paneID, ch)
+
+		timer := time.NewTimer(timeout)
+		defer timer.Stop()
+		for {
+			select {
+			case <-ch:
+				if sess.paneIsBusy(paneID) {
+					cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: "busy\n"})
+					return
+				}
+			case <-timer.C:
+				cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("timeout waiting for %s to become busy", paneRef)})
+				return
+			}
+		}
+
 	case "reload-server":
 		execPath, err := os.Executable()
 		if err != nil {

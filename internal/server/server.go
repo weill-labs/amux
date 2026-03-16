@@ -478,6 +478,26 @@ func (s *Session) notifyPaneOutputSubs(paneID uint32) {
 	}
 }
 
+// paneIsBusy checks whether the given pane has child processes (i.e., a
+// command is running). Thread-safe: looks up the pane under s.mu, then
+// inspects the process tree outside the lock.
+func (s *Session) paneIsBusy(paneID uint32) bool {
+	s.mu.Lock()
+	var pane *mux.Pane
+	for _, p := range s.Panes {
+		if p.ID == paneID {
+			pane = p
+			break
+		}
+	}
+	s.mu.Unlock()
+	if pane == nil {
+		return false
+	}
+	status := pane.AgentStatus()
+	return !status.Idle
+}
+
 // paneScreenContains checks whether the rendered screen of the given pane
 // contains the substring. Thread-safe: looks up the pane under s.mu, then
 // calls Render() (thread-safe on the emulator) outside the lock.
