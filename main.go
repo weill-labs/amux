@@ -315,6 +315,7 @@ Inside an amux session (defaults, configurable via config.toml):
   Ctrl-a -                           Split active pane top/bottom
   Ctrl-a |                           Root-level split left/right
   Ctrl-a _                           Root-level split top/bottom
+  Ctrl-a x                           Kill active pane
   Ctrl-a z                           Toggle zoom on active pane
   Ctrl-a m                           Toggle minimize/restore
   Ctrl-a }                           Swap active pane with next

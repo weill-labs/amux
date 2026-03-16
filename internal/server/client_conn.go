@@ -347,7 +347,16 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 
 	case "kill":
 		sess.mu.Lock()
-		pane := cc.resolvePane(sess, "kill", msg.CmdArgs)
+		var pane *mux.Pane
+		if len(msg.CmdArgs) == 0 {
+			// No argument: kill the active pane (for keybinding use)
+			w := sess.ActiveWindow()
+			if w != nil {
+				pane = w.ActivePane
+			}
+		} else {
+			pane = cc.resolvePane(sess, "kill", msg.CmdArgs)
+		}
 		if pane == nil {
 			sess.mu.Unlock()
 			return

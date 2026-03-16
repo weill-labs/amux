@@ -46,6 +46,7 @@ func DefaultKeybindings() *Keybindings {
 			'J':  {Action: "resize-active", Args: []string{"down", "2"}},
 			'K':  {Action: "resize-active", Args: []string{"up", "2"}},
 			'L':  {Action: "resize-active", Args: []string{"right", "2"}},
+			'x':  {Action: "kill"},
 			'z':  {Action: "zoom"},
 			'm':  {Action: "toggle-minimize"},
 			'[':  {Action: "copy-mode"},
