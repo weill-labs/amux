@@ -73,28 +73,118 @@ type Message struct {
 
 const maxMessageSize = 16 * 1024 * 1024 // 16 MB
 
-// WriteMsg encodes and writes a length-prefixed message to w.
+// Wire format discriminators. The first byte on the wire identifies the
+// encoding used for the rest of the message:
+//   - wireFormatGob:    [0x00][length:4 BE][gob payload]
+//   - wireFormatBinary: [0x01][paneID:4 BE][length:4 BE][pane data]
+const (
+	wireFormatGob    byte = 0x00
+	wireFormatBinary byte = 0x01
+)
+
+// WriteMsg encodes and writes a message to w.
+//
+// MsgTypePaneOutput uses a compact binary encoding (no gob overhead).
+// All other message types use the original length-prefixed gob encoding.
 func WriteMsg(w io.Writer, msg *Message) error {
+	if msg.Type == MsgTypePaneOutput {
+		return writePaneOutputBinary(w, msg)
+	}
+	return writeMsgGob(w, msg)
+}
+
+// writePaneOutputBinary writes a PaneOutput message using compact binary
+// framing: [0x01][paneID:4 BE][length:4 BE][data].
+func writePaneOutputBinary(w io.Writer, msg *Message) error {
+	dataLen := len(msg.PaneData)
+	// Header: 1 (discriminator) + 4 (paneID) + 4 (length) = 9 bytes
+	var hdr [9]byte
+	hdr[0] = wireFormatBinary
+	binary.BigEndian.PutUint32(hdr[1:5], msg.PaneID)
+	binary.BigEndian.PutUint32(hdr[5:9], uint32(dataLen))
+	if _, err := w.Write(hdr[:]); err != nil {
+		return fmt.Errorf("writing binary header: %w", err)
+	}
+	if dataLen > 0 {
+		if _, err := w.Write(msg.PaneData); err != nil {
+			return fmt.Errorf("writing pane data: %w", err)
+		}
+	}
+	return nil
+}
+
+// writeMsgGob writes a gob-encoded message with format:
+// [0x00][length:4 BE][gob payload].
+func writeMsgGob(w io.Writer, msg *Message) error {
 	var buf bytes.Buffer
 	if err := gob.NewEncoder(&buf).Encode(msg); err != nil {
 		return fmt.Errorf("encoding message: %w", err)
 	}
 
-	length := uint32(buf.Len())
-	if err := binary.Write(w, binary.BigEndian, length); err != nil {
-		return fmt.Errorf("writing length: %w", err)
+	// Header: 1 (discriminator) + 4 (length) = 5 bytes
+	var hdr [5]byte
+	hdr[0] = wireFormatGob
+	binary.BigEndian.PutUint32(hdr[1:5], uint32(buf.Len()))
+	if _, err := w.Write(hdr[:]); err != nil {
+		return fmt.Errorf("writing gob header: %w", err)
 	}
 
 	_, err := w.Write(buf.Bytes())
 	return err
 }
 
-// ReadMsg reads a length-prefixed message from r.
+// ReadMsg reads a message from r. It inspects the first byte to determine
+// whether the message uses binary PaneOutput encoding or gob encoding.
 func ReadMsg(r io.Reader) (*Message, error) {
-	var length uint32
-	if err := binary.Read(r, binary.BigEndian, &length); err != nil {
+	var disc [1]byte
+	if _, err := io.ReadFull(r, disc[:]); err != nil {
 		return nil, err
 	}
+
+	if disc[0] == wireFormatBinary {
+		return readPaneOutputBinary(r)
+	}
+	return readMsgGob(r)
+}
+
+// readPaneOutputBinary reads the remainder of a binary PaneOutput message
+// after the discriminator byte has been consumed.
+// Format: [paneID:4 BE][length:4 BE][data].
+func readPaneOutputBinary(r io.Reader) (*Message, error) {
+	var hdr [8]byte
+	if _, err := io.ReadFull(r, hdr[:]); err != nil {
+		return nil, err
+	}
+
+	paneID := binary.BigEndian.Uint32(hdr[0:4])
+	dataLen := binary.BigEndian.Uint32(hdr[4:8])
+
+	if dataLen > maxMessageSize {
+		return nil, fmt.Errorf("message too large: %d bytes", dataLen)
+	}
+
+	data := make([]byte, dataLen)
+	if dataLen > 0 {
+		if _, err := io.ReadFull(r, data); err != nil {
+			return nil, err
+		}
+	}
+
+	return &Message{
+		Type:     MsgTypePaneOutput,
+		PaneID:   paneID,
+		PaneData: data,
+	}, nil
+}
+
+// readMsgGob reads the remainder of a gob-encoded message after the
+// discriminator byte has been consumed. Format: [length:4 BE][gob payload].
+func readMsgGob(r io.Reader) (*Message, error) {
+	var lenBuf [4]byte
+	if _, err := io.ReadFull(r, lenBuf[:]); err != nil {
+		return nil, err
+	}
+	length := binary.BigEndian.Uint32(lenBuf[:])
 
 	if length > maxMessageSize {
 		return nil, fmt.Errorf("message too large: %d bytes", length)

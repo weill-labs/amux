@@ -47,6 +47,18 @@ func TestWriteReadMsg(t *testing.T) {
 			name: "empty input",
 			msg:  Message{Type: MsgTypeInput, Input: []byte{}},
 		},
+		{
+			name: "pane output",
+			msg:  Message{Type: MsgTypePaneOutput, PaneID: 7, PaneData: []byte("terminal output")},
+		},
+		{
+			name: "pane output empty data",
+			msg:  Message{Type: MsgTypePaneOutput, PaneID: 1, PaneData: []byte{}},
+		},
+		{
+			name: "pane output large pane id",
+			msg:  Message{Type: MsgTypePaneOutput, PaneID: 0xFFFFFFFF, PaneData: []byte("x")},
+		},
 	}
 
 	for _, tt := range tests {
@@ -84,6 +96,12 @@ func TestWriteReadMsg(t *testing.T) {
 			if got.CmdOutput != tt.msg.CmdOutput {
 				t.Errorf("CmdOutput = %q, want %q", got.CmdOutput, tt.msg.CmdOutput)
 			}
+			if got.PaneID != tt.msg.PaneID {
+				t.Errorf("PaneID = %d, want %d", got.PaneID, tt.msg.PaneID)
+			}
+			if !bytes.Equal(got.PaneData, tt.msg.PaneData) {
+				t.Errorf("PaneData = %q, want %q", got.PaneData, tt.msg.PaneData)
+			}
 		})
 	}
 }
@@ -92,9 +110,13 @@ func TestWriteReadMultiple(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
 
+	// Interleave gob and binary (PaneOutput) messages on the same stream
+	// to verify the discriminator byte correctly routes decoding.
 	msgs := []Message{
 		{Type: MsgTypeAttach, Session: "s1", Cols: 80, Rows: 24},
+		{Type: MsgTypePaneOutput, PaneID: 1, PaneData: []byte("hello from pane 1")},
 		{Type: MsgTypeInput, Input: []byte("ls\n")},
+		{Type: MsgTypePaneOutput, PaneID: 2, PaneData: []byte("hello from pane 2")},
 		{Type: MsgTypeResize, Cols: 120, Rows: 40},
 		{Type: MsgTypeDetach},
 	}
@@ -112,6 +134,12 @@ func TestWriteReadMultiple(t *testing.T) {
 		}
 		if got.Type != want.Type {
 			t.Errorf("msg[%d].Type = %d, want %d", i, got.Type, want.Type)
+		}
+		if got.PaneID != want.PaneID {
+			t.Errorf("msg[%d].PaneID = %d, want %d", i, got.PaneID, want.PaneID)
+		}
+		if !bytes.Equal(got.PaneData, want.PaneData) {
+			t.Errorf("msg[%d].PaneData = %q, want %q", i, got.PaneData, want.PaneData)
 		}
 	}
 }
