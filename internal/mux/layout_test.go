@@ -135,84 +135,59 @@ func TestSplitSiblingHalfSize(t *testing.T) {
 	t.Parallel()
 	// Case A split should take half the space from the current cell,
 	// leaving other siblings untouched (O(1) operation).
-	p1 := fakePaneID(1)
-	root := NewLeaf(p1, 0, 0, 80, 24)
-
-	p2 := fakePaneID(2)
-	root.Split(SplitHorizontal, p2)
-
-	// After first split: child0.W=39, child1.W=40 (39 + 1 + 40 = 80)
-	child0W := root.Children[0].W
-	child1W := root.Children[1].W
-
-	// Split child0 again in the same direction (Case A)
-	p3 := fakePaneID(3)
-	root.Children[0].Split(SplitHorizontal, p3)
-
-	// child1 (the uninvolved sibling) should be untouched
-	if root.Children[2].W != child1W {
-		t.Errorf("uninvolved sibling W = %d, want %d (unchanged)", root.Children[2].W, child1W)
+	tests := []struct {
+		name      string
+		dir       SplitDir
+		w, h      int
+		wantTotal int // expected total (width for H, height for V)
+	}{
+		{"horizontal", SplitHorizontal, 80, 24, 80},
+		{"vertical", SplitVertical, 80, 25, 25},
 	}
 
-	// child0 and the new sibling should split child0's original width
-	// child0.W + 1 (sep) + new.W = original child0W
-	newChild := root.Children[1] // inserted after child0
-	if root.Children[0].W+1+newChild.W != child0W {
-		t.Errorf("split pair widths %d + 1 + %d != %d (original)",
-			root.Children[0].W, newChild.W, child0W)
-	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			root := NewLeaf(fakePaneID(1), 0, 0, tt.w, tt.h)
+			root.Split(tt.dir, fakePaneID(2))
 
-	// Total should still be 80
-	total := 0
-	for i, c := range root.Children {
-		total += c.W
-		if i < len(root.Children)-1 {
-			total++ // separator
-		}
-	}
-	if total != 80 {
-		t.Errorf("total width = %d, want 80", total)
-	}
-}
+			// Record sibling sizes before the Case A split
+			size := func(c *LayoutCell) int {
+				if tt.dir == SplitHorizontal {
+					return c.W
+				}
+				return c.H
+			}
+			child0Size := size(root.Children[0])
+			child1Size := size(root.Children[1])
 
-func TestSplitSiblingVerticalHalfSize(t *testing.T) {
-	t.Parallel()
-	// Same test as TestSplitSiblingHalfSize but for vertical splits
-	p1 := fakePaneID(1)
-	root := NewLeaf(p1, 0, 0, 80, 25)
+			// Split child0 again in the same direction (Case A)
+			root.Children[0].Split(tt.dir, fakePaneID(3))
 
-	p2 := fakePaneID(2)
-	root.Split(SplitVertical, p2)
+			// Uninvolved sibling should be untouched
+			if size(root.Children[2]) != child1Size {
+				t.Errorf("uninvolved sibling size = %d, want %d (unchanged)", size(root.Children[2]), child1Size)
+			}
 
-	child0H := root.Children[0].H
-	child1H := root.Children[1].H
+			// Split pair should sum to original child0 size (minus 1 separator)
+			newChild := root.Children[1] // inserted after child0
+			if size(root.Children[0])+1+size(newChild) != child0Size {
+				t.Errorf("split pair sizes %d + 1 + %d != %d (original)",
+					size(root.Children[0]), size(newChild), child0Size)
+			}
 
-	// Split child0 vertically again (Case A)
-	p3 := fakePaneID(3)
-	root.Children[0].Split(SplitVertical, p3)
-
-	// child1 should be untouched
-	if root.Children[2].H != child1H {
-		t.Errorf("uninvolved sibling H = %d, want %d (unchanged)", root.Children[2].H, child1H)
-	}
-
-	// child0 and new sibling should split child0's original height
-	newChild := root.Children[1]
-	if root.Children[0].H+1+newChild.H != child0H {
-		t.Errorf("split pair heights %d + 1 + %d != %d (original)",
-			root.Children[0].H, newChild.H, child0H)
-	}
-
-	// Total should still be 25
-	total := 0
-	for i, c := range root.Children {
-		total += c.H
-		if i < len(root.Children)-1 {
-			total++
-		}
-	}
-	if total != 25 {
-		t.Errorf("total height = %d, want 25", total)
+			// Total across all children + separators should be preserved
+			total := 0
+			for i, c := range root.Children {
+				total += size(c)
+				if i < len(root.Children)-1 {
+					total++ // separator
+				}
+			}
+			if total != tt.wantTotal {
+				t.Errorf("total = %d, want %d", total, tt.wantTotal)
+			}
+		})
 	}
 }
 
