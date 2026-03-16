@@ -119,24 +119,17 @@ When creating PRs that add or modify benchmarks, include a "Baseline numbers" se
 
 ### Adding a New Feature
 
-1. **Check what dependencies already provide.** Before designing a custom solution, check if the underlying library (e.g., `charmbracelet/x/vt`) already supports the capability. Read tests and exported methods in `go/pkg/mod/`. This avoids designing infrastructure that already exists.
-2. **Write an integration test first.** Add a test in `test/` that exercises the feature end-to-end via the tmux harness. Follow existing test patterns.
-3. Implement the feature.
-3. Verify the integration test passes: `go test -v -run TestYourFeature ./test/ -timeout 30s`
-4. Add unit tests for complex logic (layout algorithms, rendering, protocol encoding).
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow. Additional note for AI agents:
+
+1. **Check what dependencies already provide.** Before designing a custom solution, check if the underlying library (e.g., `charmbracelet/x/vt`) already supports the capability. Read tests and exported methods in `go/pkg/mod/`.
 
 ### Fixing a Bug
 
-1. **Write a failing regression test first.** Add a test to `test/amux_test.go` that reproduces the bug (it should fail before the fix).
-2. Fix the bug.
-3. Verify the test passes: `go test ./...`
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow.
 
 ### Adding a New CLI Command
 
-1. Add the command name to the `switch` in `main.go` (use `runServerCommand()` for server-side commands)
-2. Add the handler in `internal/server/client_conn.go` `handleCommand()` method
-3. Update `printUsage()` in `main.go`
-4. Write integration test in `test/amux_test.go`
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow.
 
 ### Hot-Reload
 

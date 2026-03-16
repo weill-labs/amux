@@ -51,10 +51,11 @@ cd test && go test -run TestGolden -update
 
 ## Adding a feature
 
-1. Write an integration test first in `test/`
-2. Implement the feature
-3. Verify: `go test -v -run TestYourFeature ./test/ -timeout 30s`
-4. Add unit tests for complex logic (layout algorithms, rendering, protocol)
+1. Check what dependencies already provide before building a custom solution
+2. Write an integration test first in `test/`
+3. Implement the feature
+4. Verify: `go test -v -run TestYourFeature ./test/ -timeout 30s`
+5. Add unit tests for complex logic (layout algorithms, rendering, protocol)
 
 ## Fixing a bug
 
