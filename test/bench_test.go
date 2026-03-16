@@ -353,6 +353,87 @@ func BenchmarkHotReload(b *testing.B) {
 }
 
 // ---------------------------------------------------------------------------
+// BenchmarkOutputDetection — polling vs push for pane output detection
+// ---------------------------------------------------------------------------
+
+// BenchmarkOutputDetection measures how quickly a caller can detect that a
+// pane produced output. This is the core operation agents need — "did the
+// command finish?"
+//   - polling: fork `amux capture --format json` each iteration (CLI round-trip)
+//   - push:    read from a persistent event stream subscription (zero fork overhead)
+func BenchmarkOutputDetection(b *testing.B) {
+	b.Run("polling", func(b *testing.B) {
+		for _, panes := range []int{1, 4} {
+			b.Run(fmt.Sprintf("panes_%d", panes), func(b *testing.B) {
+				b.StopTimer()
+				h := newServerHarness(b)
+				for i := 1; i < panes; i++ {
+					h.splitV()
+				}
+				b.StartTimer()
+				b.ReportAllocs()
+				for b.Loop() {
+					h.runCmd("capture", "--format", "json")
+				}
+			})
+		}
+	})
+
+	b.Run("push", func(b *testing.B) {
+		for _, panes := range []int{1, 4} {
+			b.Run(fmt.Sprintf("panes_%d", panes), func(b *testing.B) {
+				b.StopTimer()
+				h := newServerHarness(b)
+				for i := 1; i < panes; i++ {
+					h.splitV()
+				}
+
+				// Open persistent event stream filtered to layout events
+				sockPath := server.SocketPath(h.session)
+				conn, err := net.Dial("unix", sockPath)
+				if err != nil {
+					b.Fatalf("dial: %v", err)
+				}
+				defer conn.Close()
+
+				server.WriteMsg(conn, &server.Message{
+					Type:    server.MsgTypeCommand,
+					CmdName: "events",
+					CmdArgs: []string{"--filter", "layout"},
+				})
+
+				pr, pw := net.Pipe()
+				defer pr.Close()
+				go func() {
+					defer pw.Close()
+					for {
+						msg, err := server.ReadMsg(conn)
+						if err != nil {
+							return
+						}
+						if msg.CmdOutput != "" {
+							pw.Write([]byte(msg.CmdOutput))
+						}
+					}
+				}()
+				scanner := bufio.NewScanner(pr)
+
+				// Drain initial layout snapshot
+				scanner.Scan()
+
+				b.StartTimer()
+				b.ReportAllocs()
+				for b.Loop() {
+					// Trigger a layout change (focus cycle), read the pushed event
+					h.runCmd("focus", "next")
+					scanner.Scan()
+				}
+			})
+		}
+	})
+}
+
+// ---------------------------------------------------------------------------
 // BenchmarkDetectLayoutChange — polling vs push for layout change detection
 // ---------------------------------------------------------------------------
 
