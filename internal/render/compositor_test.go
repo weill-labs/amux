@@ -68,6 +68,132 @@ func TestMinimizedPaneHidesCursor(t *testing.T) {
 	}
 }
 
+func TestRenderCursorEdgeCases(t *testing.T) {
+	t.Parallel()
+
+	width, height := 40, 5
+	root := mux.NewLeaf(&mux.Pane{ID: 1, Meta: mux.PaneMeta{Name: "pane-1"}}, 0, 0, width, height)
+
+	tests := []struct {
+		name        string
+		activeID    uint32
+		lookup      func(uint32) PaneData
+		wantVisible bool
+	}{
+		{
+			name:     "no active pane",
+			activeID: 0,
+			lookup: func(id uint32) PaneData {
+				return &fakePaneData{id: 1, name: "pane-1", screen: "hello"}
+			},
+			wantVisible: true,
+		},
+		{
+			name:     "active pane not in layout",
+			activeID: 99,
+			lookup: func(id uint32) PaneData {
+				if id == 1 {
+					return &fakePaneData{id: 1, name: "pane-1", screen: "hello"}
+				}
+				return nil
+			},
+			wantVisible: true,
+		},
+		{
+			name:     "lookup returns nil for active pane",
+			activeID: 1,
+			lookup: func(id uint32) PaneData {
+				return nil
+			},
+			wantVisible: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			comp := NewCompositor(width, height+GlobalBarHeight, "test")
+			output := string(comp.RenderFull(root, tt.activeID, tt.lookup))
+			hasCursor := strings.Contains(output, ShowCursor)
+			if hasCursor != tt.wantVisible {
+				t.Errorf("cursor visible = %v, want %v", hasCursor, tt.wantVisible)
+			}
+		})
+	}
+}
+
+func TestHexToANSI(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		hex  string
+		want string
+	}{
+		{name: "short hex returns DimFg", hex: "abc", want: DimFg},
+		{name: "empty hex returns DimFg", hex: "", want: DimFg},
+		{name: "valid hex", hex: "ff8800", want: "\033[38;2;255;136;0m"},
+		{name: "catppuccin rosewater", hex: "f5e0dc", want: "\033[38;2;245;224;220m"},
+		{name: "black", hex: "000000", want: "\033[38;2;0;0;0m"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := hexToANSI(tt.hex)
+			if got != tt.want {
+				t.Errorf("hexToANSI(%q) = %q, want %q", tt.hex, got, tt.want)
+			}
+			// Verify caching: second call returns same result
+			if got2 := hexToANSI(tt.hex); got2 != got {
+				t.Errorf("cached result differs: %q vs %q", got, got2)
+			}
+		})
+	}
+}
+
+func TestGlobalBarMultipleWindows(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		windows []WindowInfo
+		want    []string // substrings expected in output
+	}{
+		{
+			name: "two windows",
+			windows: []WindowInfo{
+				{Index: 1, Name: "main", IsActive: true, Panes: 2},
+				{Index: 2, Name: "logs", IsActive: false, Panes: 1},
+			},
+			want: []string{"[1:main]", "2:logs"},
+		},
+		{
+			name: "three windows middle active",
+			windows: []WindowInfo{
+				{Index: 1, Name: "code", IsActive: false, Panes: 1},
+				{Index: 2, Name: "test", IsActive: true, Panes: 3},
+				{Index: 3, Name: "logs", IsActive: false, Panes: 1},
+			},
+			want: []string{"1:code", "[2:test]", "3:logs"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			var buf strings.Builder
+			renderGlobalBar(&buf, "test-session", 3, 120, 10, tt.windows)
+			output := buf.String()
+			for _, s := range tt.want {
+				if !strings.Contains(output, s) {
+					t.Errorf("output missing %q", s)
+				}
+			}
+		})
+	}
+}
+
 func TestBlitPaneClipsToWidth(t *testing.T) {
 	t.Parallel()
 
