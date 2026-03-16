@@ -278,11 +278,11 @@ func (h *ServerHarness) waitBusy(pane string) {
 	}
 }
 
-// waitIdle blocks until the named pane has no child processes (shell is at prompt).
-// Uses the server's wait-idle command (blocking, zero polling).
+// waitIdle blocks until the named pane becomes idle (no activity for DefaultIdleTimeout).
+// Uses the server's wait-idle command (event-based, zero polling).
 func (h *ServerHarness) waitIdle(pane string) {
 	h.tb.Helper()
-	out := h.runCmd("wait-idle", pane, "--timeout", "5s")
+	out := h.runCmd("wait-idle", pane, "--timeout", "10s")
 	if strings.Contains(out, "timeout") || strings.Contains(out, "not found") {
 		h.tb.Fatalf("wait-idle %s: %s\ncapture:\n%s", pane, strings.TrimSpace(out), h.capture())
 	}

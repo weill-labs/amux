@@ -168,7 +168,7 @@ func TestEventsIdleBusyTransition(t *testing.T) {
 	h := newServerHarness(t)
 
 	// Wait for pane to become idle first
-	time.Sleep(server.DefaultIdleTimeout + 500*time.Millisecond)
+	h.waitIdle("pane-1")
 
 	// Subscribe to idle and busy events for pane-1
 	scanner, closer := eventStream(t, h.session, "--filter", "idle,busy", "--pane", "pane-1")
@@ -202,7 +202,8 @@ func TestEventsFilterPane(t *testing.T) {
 	h.splitV() // creates pane-2
 
 	// Wait for both panes to become idle
-	time.Sleep(server.DefaultIdleTimeout + 500*time.Millisecond)
+	h.waitIdle("pane-1")
+	h.waitIdle("pane-2")
 
 	// Subscribe only to pane-1 events
 	scanner, closer := eventStream(t, h.session, "--filter", "idle,busy", "--pane", "pane-1")
