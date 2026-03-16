@@ -161,10 +161,8 @@ func TestServerReloadMinimizedPanePreservesContent(t *testing.T) {
 
 	h.splitH()
 
-	// Put content in pane-1
-	gen := h.generation()
-	h.sendKeys("C-a", "h")
-	h.waitLayout(gen)
+	// Focus pane-1 (above pane-2 in vertical stack) and put content in it
+	h.runCmd("focus", "pane-1")
 	h.sendKeys("echo RELOAD_MARKER", "Enter")
 	h.waitFor("RELOAD_MARKER", 3*time.Second)
 
@@ -187,12 +185,15 @@ func TestServerReloadMinimizedPanePreservesContent(t *testing.T) {
 		t.Fatalf("minimized pane emulator should not be garbled by SIGWINCH loop after reload, got:\n%s", paneBeforeRestore)
 	}
 
-	// Restore pane-1 and verify content survived
+	// Restore pane-1 and verify the content is still in the emulator.
+	// After restore the shell receives SIGWINCH and may redraw its prompt,
+	// but RELOAD_MARKER should still be on the visible screen or at least
+	// in the server-side emulator output.
 	h.runCmd("restore", "pane-1")
 
-	if !h.waitFor("RELOAD_MARKER", 5*time.Second) {
-		paneOut := h.runCmd("capture", "pane-1")
-		t.Fatalf("minimized pane content should survive server reload, got:\n%s", paneOut)
+	paneAfterRestore := h.runCmd("capture", "pane-1")
+	if !strings.Contains(paneAfterRestore, "RELOAD_MARKER") {
+		t.Fatalf("minimized pane content should survive server reload and restore, got:\n%s", paneAfterRestore)
 	}
 }
 

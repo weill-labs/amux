@@ -834,6 +834,19 @@ func NewServerFromCheckpoint(cp *checkpoint.ServerCheckpoint) (*Server, error) {
 		p.Start()
 	}
 
+	// Save screen data for minimized panes so we can re-replay after the
+	// SIGWINCH loop. Between Start() and the SIGWINCH delay, the readLoop
+	// may consume buffered PTY output (e.g. a shell prompt produced during
+	// the exec gap) that overwrites the replayed emulator content. Visible
+	// panes recover via the SIGWINCH-triggered redraw; minimized panes need
+	// an explicit re-replay.
+	minimizedScreens := make(map[uint32]string)
+	for _, pc := range cp.Panes {
+		if pc.Meta.Minimized {
+			minimizedScreens[pc.ID] = pc.Screen
+		}
+	}
+
 	// Force TUI apps to do a full screen redraw via SIGWINCH.
 	// Skip minimized panes — their PTYs stay at pre-minimize dimensions.
 	go func() {
@@ -861,6 +874,16 @@ func NewServerFromCheckpoint(cp *checkpoint.ServerCheckpoint) (*Server, error) {
 		sess.mu.Lock()
 
 		resizeVisible(0) // Restore original size
+
+		// Re-replay saved screen data for minimized panes. The readLoop
+		// may have fed buffered PTY output into their emulators, garbling
+		// the content that was replayed during restore. Clear the screen
+		// first so the replay starts from a known state.
+		for _, p := range sess.Panes {
+			if screen, ok := minimizedScreens[p.ID]; ok {
+				p.ReplayScreen("\033[H\033[2J" + screen)
+			}
+		}
 	}()
 
 	return s, nil
