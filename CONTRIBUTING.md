@@ -3,7 +3,7 @@
 ## Prerequisites
 
 - Go 1.25+
-- tmux (required for integration tests)
+- tmux (optional, only needed for comparison benchmarks)
 
 ## Build
 
@@ -27,7 +27,7 @@ amux uses test-driven development. Write a failing test first, then implement.
 
 ### Integration tests
 
-The harness in `test/harness_test.go` runs amux inside a real tmux session, sends keys via `tmux send-keys`, and asserts on screen content via `tmux capture-pane`. The full suite runs in ~6s.
+The harness in `test/server_harness_test.go` drives amux directly over the Unix socket. The full suite runs in ~6s.
 
 ```bash
 go test -v -run TestYourFeature ./test/ -timeout 30s

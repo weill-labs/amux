@@ -12,36 +12,6 @@ See [README.md — Philosophy](README.md#philosophy) for the project thesis and 
 
 ## Architecture
 
-```
-main.go                       CLI dispatch, client attach loop, keybinding handling
-client.go                     ClientRenderer — client-side rendering with local vt emulators
-reload.go                     Hot-reload: watches binary, re-execs client on change
-internal/
-  mux/
-    layout.go                 LayoutCell tree, split/close/resize, proportional sizing
-    window.go                 Window (layout + active pane), Focus(), Minimize/Restore
-    pane.go                   Pane struct, PTY management, PaneMeta
-    emulator.go               VT terminal emulator wrapper (vt100 lib)
-    snapshot.go               LayoutSnapshot serialization for wire protocol
-  server/
-    server.go                 Server + Session structs, socket listener, attach/detach
-    client_conn.go            Per-client connection, command dispatch (list/split/focus/etc.)
-    protocol.go               Wire protocol: Message types, gob encoding over Unix socket
-  render/
-    compositor.go             RenderFull() — composites panes, borders, status bars
-    border.go                 Border map, junction characters, active-pane coloring
-    statusbar.go              Per-pane status lines, global session bar
-    ansi.go                   ANSI escape sequences, Catppuccin Mocha palette
-    panedata.go               PaneData interface for rendering
-  proto/
-    types.go                  Shared types (LayoutSnapshot, CellSnapshot, PaneSnapshot)
-  config/
-    config.go                 ~/.config/amux/hosts.toml parsing
-test/
-  harness_test.go             Integration test harness (drives amux inside a real tmux session)
-  amux_test.go                Integration tests (~30 tests)
-```
-
 ### Key Abstractions
 
 **Client-server protocol** — Clients send `MsgTypeInput`, `MsgTypeResize`, `MsgTypeCommand`. Server sends `MsgTypePaneOutput` (raw PTY bytes per pane), `MsgTypeLayout` (layout tree snapshot), `MsgTypeRender` (legacy pre-rendered ANSI).
@@ -60,7 +30,7 @@ test/
 
 **Unit tests for layout/rendering logic.** See `layout_test.go`, `window_test.go`, `emulator_test.go`. Use `fakePaneID()` helper to create minimal panes for testing.
 
-**Integration tests for end-to-end behavior.** The harness in `test/harness_test.go` runs amux inside a real tmux session, sends keys via `tmux send-keys`, and asserts on screen content via `tmux capture-pane`. Tests run in ~6s total.
+**Integration tests for end-to-end behavior.** The harness in `test/server_harness_test.go` drives amux directly over the Unix socket — no tmux dependency. Tests run in ~6s total.
 
 **Guard against impossible states.** Minimize checks that at least one pane stays non-minimized. Restore caps height at available space. Focus fallback finds nearest pane when strict overlap matching fails.
 
