@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/weill-labs/amux/internal/hooks"
 	"github.com/weill-labs/amux/internal/mux"
 )
 
@@ -811,6 +812,56 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 				return
 			}
 		}
+
+	case "set-hook":
+		if len(msg.CmdArgs) < 2 {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "usage: set-hook <event> <command>"})
+			return
+		}
+		event, err := hooks.ParseEvent(msg.CmdArgs[0])
+		if err != nil {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: err.Error()})
+			return
+		}
+		command := strings.Join(msg.CmdArgs[1:], " ")
+		sess.Hooks.Add(event, command)
+		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: fmt.Sprintf("Hook added: %s → %s\n", event, command)})
+
+	case "unset-hook":
+		if len(msg.CmdArgs) < 1 {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "usage: unset-hook <event> [index]"})
+			return
+		}
+		event, err := hooks.ParseEvent(msg.CmdArgs[0])
+		if err != nil {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: err.Error()})
+			return
+		}
+		if len(msg.CmdArgs) >= 2 {
+			idx, err := strconv.Atoi(msg.CmdArgs[1])
+			if err != nil {
+				cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("invalid index: %s", msg.CmdArgs[1])})
+				return
+			}
+			sess.Hooks.Remove(event, idx)
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: fmt.Sprintf("Removed hook %d for %s\n", idx, event)})
+		} else {
+			sess.Hooks.RemoveAll(event)
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: fmt.Sprintf("Removed all hooks for %s\n", event)})
+		}
+
+	case "list-hooks":
+		all := sess.Hooks.ListAll()
+		if len(all) == 0 {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: "No hooks registered.\n"})
+			return
+		}
+		var output strings.Builder
+		output.WriteString(fmt.Sprintf("%-4s %-15s %s\n", "IDX", "EVENT", "COMMAND"))
+		for i, entry := range all {
+			output.WriteString(fmt.Sprintf("%-4d %-15s %s\n", i, entry.Event, entry.Command))
+		}
+		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: output.String()})
 
 	case "reload-server":
 		execPath, err := os.Executable()

@@ -15,6 +15,7 @@ import (
 
 	"github.com/weill-labs/amux/internal/checkpoint"
 	"github.com/weill-labs/amux/internal/config"
+	"github.com/weill-labs/amux/internal/hooks"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
 	"github.com/weill-labs/amux/internal/render"
@@ -25,6 +26,9 @@ const (
 	DefaultTermCols = 80
 	DefaultTermRows = 24
 )
+
+// DefaultIdleTimeout is how long a pane must be quiet before firing on-idle.
+const DefaultIdleTimeout = 2 * time.Second
 
 // DefaultOutputLines is how many lines `amux output` shows by default.
 const DefaultOutputLines = 50
@@ -61,6 +65,12 @@ type Session struct {
 	clipboardMu      sync.Mutex
 	clipboardCond    *sync.Cond
 	lastClipboardB64 string // last clipboard payload (base64), protected by clipboardMu
+
+	// Hook system — session-level, not checkpointed.
+	Hooks      *hooks.Registry
+	idleTimers map[uint32]*time.Timer // per-pane idle timers, protected by idleTimerMu
+	idleState  map[uint32]bool        // true = idle, protected by idleTimerMu
+	idleTimerMu sync.Mutex
 }
 
 // ActiveWindow returns the currently active window, or nil.
@@ -198,10 +208,13 @@ func (s *Session) clipboardCallback() func(paneID uint32, data []byte) {
 }
 
 // broadcastPaneOutput sends raw PTY output for one pane to all clients,
-// and notifies any wait-for subscribers for that pane.
+// notifies any wait-for subscribers, and tracks pane activity for hooks.
 func (s *Session) broadcastPaneOutput(paneID uint32, data []byte) {
 	s.broadcast(&Message{Type: MsgTypePaneOutput, PaneID: paneID, PaneData: data})
 	s.notifyPaneOutputSubs(paneID)
+	if s.Hooks != nil {
+		s.trackPaneActivity(paneID)
+	}
 }
 
 // broadcastLayout sends the current layout snapshot to all clients
@@ -271,14 +284,15 @@ func (s *Session) hasPane(id uint32) bool {
 	return false
 }
 
-// removePane removes a pane from the flat list by ID.
+// removePane removes a pane from the flat list by ID and cleans up its idle timer.
 func (s *Session) removePane(id uint32) {
 	for i, p := range s.Panes {
 		if p.ID == id {
 			s.Panes = append(s.Panes[:i], s.Panes[i+1:]...)
-			return
+			break
 		}
 	}
+	go s.stopPaneIdleTimer(id)
 }
 
 // createPane creates a new pane with auto-assigned metadata.
@@ -498,6 +512,71 @@ func (s *Session) paneIsBusy(paneID uint32) bool {
 	return !status.Idle
 }
 
+// trackPaneActivity is called on every PTY output. It resets the idle timer
+// and fires on-activity if the pane was previously idle.
+func (s *Session) trackPaneActivity(paneID uint32) {
+	s.idleTimerMu.Lock()
+	defer s.idleTimerMu.Unlock()
+
+	// If pane was idle, fire on-activity
+	if s.idleState[paneID] {
+		s.idleState[paneID] = false
+		env := s.buildPaneEnv(paneID, hooks.OnActivity)
+		s.Hooks.Fire(hooks.OnActivity, env)
+	}
+
+	// Reset or create idle timer
+	if t, ok := s.idleTimers[paneID]; ok {
+		t.Reset(DefaultIdleTimeout)
+	} else {
+		s.idleTimers[paneID] = time.AfterFunc(DefaultIdleTimeout, func() {
+			s.idleTimerMu.Lock()
+			s.idleState[paneID] = true
+			env := s.buildPaneEnv(paneID, hooks.OnIdle)
+			s.idleTimerMu.Unlock()
+			s.Hooks.Fire(hooks.OnIdle, env)
+		})
+	}
+}
+
+// stopPaneIdleTimer cleans up the idle timer for a closed pane.
+func (s *Session) stopPaneIdleTimer(paneID uint32) {
+	s.idleTimerMu.Lock()
+	defer s.idleTimerMu.Unlock()
+	if t, ok := s.idleTimers[paneID]; ok {
+		t.Stop()
+		delete(s.idleTimers, paneID)
+		delete(s.idleState, paneID)
+	}
+}
+
+// buildPaneEnv builds the environment variable map for a hook invocation.
+// Acquires s.mu internally to look up pane metadata.
+func (s *Session) buildPaneEnv(paneID uint32, event hooks.Event) map[string]string {
+	env := map[string]string{
+		"AMUX_PANE_ID": fmt.Sprintf("%d", paneID),
+		"AMUX_EVENT":   string(event),
+	}
+
+	// Look up pane metadata under session lock
+	s.mu.Lock()
+	for _, p := range s.Panes {
+		if p.ID == paneID {
+			env["AMUX_PANE_NAME"] = p.Meta.Name
+			if p.Meta.Task != "" {
+				env["AMUX_TASK"] = p.Meta.Task
+			}
+			if p.Meta.Host != "" {
+				env["AMUX_HOST"] = p.Meta.Host
+			}
+			break
+		}
+	}
+	s.mu.Unlock()
+
+	return env
+}
+
 // paneScreenContains checks whether the rendered screen of the given pane
 // contains the substring. Thread-safe: looks up the pane under s.mu, then
 // calls Render() (thread-safe on the emulator) outside the lock.
@@ -618,6 +697,7 @@ func NewServer(sessionName string) (*Server, error) {
 	sess := &Session{Name: sessionName}
 	sess.generationCond = sync.NewCond(&sess.generationMu)
 	sess.clipboardCond = sync.NewCond(&sess.clipboardMu)
+	sess.Hooks = hooks.NewRegistry()
 
 	s := &Server{
 		listener: listener,
@@ -775,6 +855,7 @@ func NewServerFromCheckpoint(cp *checkpoint.ServerCheckpoint) (*Server, error) {
 	sess := &Session{Name: cp.SessionName}
 	sess.generationCond = sync.NewCond(&sess.generationMu)
 	sess.clipboardCond = sync.NewCond(&sess.clipboardMu)
+	sess.Hooks = hooks.NewRegistry()
 	sess.counter.Store(cp.Counter)
 	sess.windowCounter.Store(cp.WindowCounter)
 
