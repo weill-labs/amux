@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"net"
 	"os"
@@ -881,6 +882,30 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 		}
 		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: output.String()})
 
+	case "events":
+		f := parseEventsArgs(msg.CmdArgs)
+		sub := sess.addEventSub(f)
+		defer sess.removeEventSub(sub)
+
+		// Emit current state as initial snapshot — prevents race where
+		// caller sends keys before subscribing and misses the resulting event.
+		for _, ev := range sess.currentStateEvents() {
+			if !f.matches(ev) {
+				continue
+			}
+			data, _ := json.Marshal(ev)
+			if err := cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: string(data) + "\n"}); err != nil {
+				return
+			}
+		}
+
+		// Stream real-time events until the connection closes.
+		for data := range sub.ch {
+			if err := cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: string(data) + "\n"}); err != nil {
+				return
+			}
+		}
+
 	case "reload-server":
 		execPath, err := os.Executable()
 		if err != nil {
@@ -1103,4 +1128,29 @@ func dirName(d mux.SplitDir) string {
 		return "horizontal"
 	}
 	return "vertical"
+}
+
+// parseEventsArgs parses --filter, --pane, and --host flags for the events command.
+func parseEventsArgs(args []string) eventFilter {
+	var f eventFilter
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--filter":
+			if i+1 < len(args) {
+				i++
+				f.Types = strings.Split(args[i], ",")
+			}
+		case "--pane":
+			if i+1 < len(args) {
+				i++
+				f.PaneName = args[i]
+			}
+		case "--host":
+			if i+1 < len(args) {
+				i++
+				f.Host = args[i]
+			}
+		}
+	}
+	return f
 }
