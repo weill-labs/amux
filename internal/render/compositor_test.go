@@ -1,6 +1,7 @@
 package render
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -189,6 +190,26 @@ func TestGlobalBarMultipleWindows(t *testing.T) {
 				if !strings.Contains(output, s) {
 					t.Errorf("output missing %q", s)
 				}
+			}
+		})
+	}
+}
+
+func TestGlobalBarFillsFullWidth(t *testing.T) {
+	t.Parallel()
+
+	for _, width := range []int{80, 120, 200} {
+		t.Run(fmt.Sprintf("width=%d", width), func(t *testing.T) {
+			t.Parallel()
+			var buf strings.Builder
+			renderGlobalBar(&buf, "default", 2, width, 0, nil)
+			grid := MaterializeGrid(buf.String(), width, 1)
+
+			// width-1 accounts for MaterializeGrid trimming the trailing space.
+			row := []rune(grid)
+			if len(row) < width-1 {
+				t.Errorf("global bar is %d cols, want >= %d\n  row: %q",
+					len(row), width-1, string(row))
 			}
 		})
 	}

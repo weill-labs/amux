@@ -4,6 +4,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/weill-labs/amux/internal/mux"
 )
@@ -116,7 +117,7 @@ func renderGlobalBar(buf *strings.Builder, sessionName string, paneCount int, wi
 
 	paneCountStr := strconv.Itoa(paneCount)
 	right := " " + paneCountStr + " panes │ " + now + " "
-	rightVisible := len(right)
+	rightVisible := utf8.RuneCountInString(right)
 
 	buf.WriteString(left)
 
