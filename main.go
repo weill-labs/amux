@@ -1030,36 +1030,25 @@ func runServerCommand(cmdName string, args []string) {
 // handleCaptureRequest processes a capture request forwarded from the server.
 // It renders from the client-side emulators and returns a response message.
 func handleCaptureRequest(cr *ClientRenderer, args []string, agentStatus map[uint32]proto.PaneAgentStatus) *server.Message {
-	includeANSI := false
-	colorMap := false
-	formatJSON := false
+	var includeANSI, colorMap, formatJSON bool
 	var paneRef string
-	for _, arg := range args {
-		switch arg {
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
 		case "--ansi":
 			includeANSI = true
 		case "--colors":
 			colorMap = true
 		case "--format":
-			// next arg handled below
-		case "json":
-			formatJSON = true
+			if i+1 < len(args) && args[i+1] == "json" {
+				formatJSON = true
+				i++ // consume "json"
+			}
 		default:
-			paneRef = arg
+			paneRef = args[i]
 		}
 	}
 
-	flagCount := 0
-	if includeANSI {
-		flagCount++
-	}
-	if colorMap {
-		flagCount++
-	}
-	if formatJSON {
-		flagCount++
-	}
-	if flagCount > 1 {
+	if (includeANSI && colorMap) || (includeANSI && formatJSON) || (colorMap && formatJSON) {
 		return &server.Message{Type: server.MsgTypeCaptureResponse,
 			CmdErr: "--ansi, --colors, and --format json are mutually exclusive"}
 	}

@@ -230,6 +230,20 @@ func NewVTEmulatorWithDrain(width, height int) TerminalEmulator {
 	return emu
 }
 
+// EmulatorContentLines returns plain-text screen lines from an emulator,
+// stripping ANSI codes and trailing spaces from each line.
+func EmulatorContentLines(emu TerminalEmulator) []string {
+	_, rows := emu.Size()
+	rendered := emu.Render()
+	all := strings.Split(rendered, "\n")
+
+	result := make([]string, rows)
+	for i := 0; i < rows && i < len(all); i++ {
+		result[i] = StripANSI(strings.TrimRight(all[i], " "))
+	}
+	return result
+}
+
 // RenderWithCursor returns the emulator's screen using explicit cursor
 // positioning per row, followed by a final cursor position escape.
 // Using CUP sequences per row avoids width-dependent line wrapping that

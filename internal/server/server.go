@@ -78,6 +78,9 @@ type Session struct {
 
 	// Capture forwarding — routes capture requests through the attached
 	// interactive client so the result reflects client-side emulator state.
+	// captureMu serializes capture requests; captureResult is the one-shot
+	// response channel for the in-flight request (protected by s.mu).
+	captureMu     sync.Mutex
 	captureResult chan *Message
 }
 
@@ -219,7 +222,12 @@ func (s *Session) clipboardCallback() func(paneID uint32, data []byte) {
 // client and waits for its response. The client renders from its own
 // emulators — the rendering source of truth. For JSON captures, the server
 // gathers agent status (process inspection) and includes it in the request.
+// Serialized: only one capture in flight at a time via captureMu.
 func (s *Session) forwardCapture(args []string) *Message {
+	// Serialize capture requests so concurrent callers don't clobber each other.
+	s.captureMu.Lock()
+	defer s.captureMu.Unlock()
+
 	s.mu.Lock()
 	if len(s.clients) == 0 {
 		s.mu.Unlock()
@@ -230,15 +238,14 @@ func (s *Session) forwardCapture(args []string) *Message {
 	ch := make(chan *Message, 1)
 	s.captureResult = ch
 
-	// For JSON captures, gather agent status while we hold the lock.
+	// For JSON captures, gather pane references while we hold the lock.
 	// The actual AgentStatus() calls happen outside the lock to avoid
 	// blocking the server on pgrep/ps subprocesses.
 	var statusPanes []*mux.Pane
 	isJSON := hasArg(args, "json")
 	if isJSON {
-		for _, p := range s.Panes {
-			statusPanes = append(statusPanes, p)
-		}
+		statusPanes = make([]*mux.Pane, len(s.Panes))
+		copy(statusPanes, s.Panes)
 	}
 	s.mu.Unlock()
 
@@ -274,6 +281,20 @@ func (s *Session) forwardCapture(args []string) *Message {
 		s.captureResult = nil
 		s.mu.Unlock()
 		return &Message{Type: MsgTypeCmdResult, CmdErr: "capture timed out (client unresponsive)"}
+	}
+}
+
+// routeCaptureResponse delivers a capture response from the interactive client
+// to the waiting forwardCapture caller. Thread-safe.
+func (s *Session) routeCaptureResponse(msg *Message) {
+	s.mu.Lock()
+	ch := s.captureResult
+	s.mu.Unlock()
+	if ch != nil {
+		select {
+		case ch <- msg:
+		default:
+		}
 	}
 }
 

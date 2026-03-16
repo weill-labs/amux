@@ -88,13 +88,7 @@ func (cc *ClientConn) readLoop(srv *Server, sess *Session) {
 			cc.handleCommand(srv, sess, msg)
 
 		case MsgTypeCaptureResponse:
-			// Route capture response from interactive client to waiting CLI
-			if ch := sess.captureResult; ch != nil {
-				select {
-				case ch <- msg:
-				default:
-				}
-			}
+			sess.routeCaptureResponse(msg)
 		}
 	}
 }
@@ -211,7 +205,7 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 	case "capture":
 		// Forward to attached interactive client so capture reflects
 		// client-side emulator state (the rendering source of truth).
-		// Falls back to server-side capture if no client is attached.
+		// Returns an error if no client is attached.
 		result := sess.forwardCapture(msg.CmdArgs)
 		cc.Send(result)
 

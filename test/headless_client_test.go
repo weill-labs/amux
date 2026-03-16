@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -126,7 +127,7 @@ func (hc *headlessClient) handleLayout(snap *proto.LayoutSnapshot) {
 			if ps.Minimized && ps.EmuWidth > 0 && ps.EmuHeight > 0 {
 				w, h = ps.EmuWidth, ps.EmuHeight
 			} else {
-				w, h = findCellDimensions(snap, activeRoot, ps.ID)
+				w, h = proto.FindPaneDimensions(snap, activeRoot, ps.ID, mux.PaneContentHeight)
 			}
 			hc.emulators[ps.ID] = mux.NewVTEmulatorWithDrain(w, h)
 		}
@@ -167,35 +168,25 @@ func (hc *headlessClient) handlePaneOutput(paneID uint32, data []byte) {
 }
 
 func (hc *headlessClient) handleCapture(args []string, agentStatus map[uint32]proto.PaneAgentStatus) *server.Message {
-	includeANSI := false
-	colorMap := false
-	formatJSON := false
+	var includeANSI, colorMap, formatJSON bool
 	var paneRef string
-	for _, arg := range args {
-		switch arg {
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
 		case "--ansi":
 			includeANSI = true
 		case "--colors":
 			colorMap = true
 		case "--format":
-		case "json":
-			formatJSON = true
+			if i+1 < len(args) && args[i+1] == "json" {
+				formatJSON = true
+				i++ // consume "json"
+			}
 		default:
-			paneRef = arg
+			paneRef = args[i]
 		}
 	}
 
-	flagCount := 0
-	if includeANSI {
-		flagCount++
-	}
-	if colorMap {
-		flagCount++
-	}
-	if formatJSON {
-		flagCount++
-	}
-	if flagCount > 1 {
+	if (includeANSI && colorMap) || (includeANSI && formatJSON) || (colorMap && formatJSON) {
 		return &server.Message{Type: server.MsgTypeCaptureResponse,
 			CmdErr: "--ansi, --colors, and --format json are mutually exclusive"}
 	}
@@ -321,14 +312,9 @@ func (hc *headlessClient) captureJSON(agentStatus map[uint32]proto.PaneAgentStat
 				X: c.X, Y: c.Y, Width: c.W, Height: c.H,
 			},
 			Cursor: proto.CaptureCursor{Col: col, Row: row, Hidden: emu.CursorHidden()},
-			Content: emuContentLines(emu),
+			Content: mux.EmulatorContentLines(emu),
 		}
-		if st, ok := agentStatus[paneID]; ok {
-			cp.Idle = st.Idle
-			cp.IdleSince = st.IdleSince
-			cp.CurrentCommand = st.CurrentCommand
-			if st.ChildPIDs != nil { cp.ChildPIDs = st.ChildPIDs } else { cp.ChildPIDs = []int{} }
-		}
+		cp.ApplyAgentStatus(agentStatus)
 		capture.Panes = append(capture.Panes, cp)
 	})
 
@@ -346,7 +332,7 @@ func (hc *headlessClient) capturePaneText(paneID uint32, includeANSI bool) strin
 	if includeANSI {
 		return emu.Render()
 	}
-	return strings.Join(emuContentLines(emu), "\n")
+	return strings.Join(mux.EmulatorContentLines(emu), "\n")
 }
 
 func (hc *headlessClient) capturePaneJSON(paneID uint32, agentStatus map[uint32]proto.PaneAgentStatus) string {
@@ -367,14 +353,9 @@ func (hc *headlessClient) capturePaneJSON(paneID uint32, agentStatus map[uint32]
 		Zoomed: info.ID == hc.zoomedPaneID, Host: info.Host,
 		Task: info.Task, Color: info.Color,
 		Cursor:  proto.CaptureCursor{Col: col, Row: row, Hidden: emu.CursorHidden()},
-		Content: emuContentLines(emu),
+		Content: mux.EmulatorContentLines(emu),
 	}
-	if st, ok := agentStatus[paneID]; ok {
-		cp.Idle = st.Idle
-		cp.IdleSince = st.IdleSince
-		cp.CurrentCommand = st.CurrentCommand
-		if st.ChildPIDs != nil { cp.ChildPIDs = st.ChildPIDs } else { cp.ChildPIDs = []int{} }
-	}
+	cp.ApplyAgentStatus(agentStatus)
 	out, _ := json.MarshalIndent(cp, "", "  ")
 	return string(out)
 }
@@ -382,11 +363,9 @@ func (hc *headlessClient) capturePaneJSON(paneID uint32, agentStatus map[uint32]
 func (hc *headlessClient) resolvePaneID(ref string) uint32 {
 	hc.mu.Lock()
 	defer hc.mu.Unlock()
-	if id, err := fmt.Sscanf(ref, "%d", new(uint32)); err == nil && id == 1 {
-		var n uint32
-		fmt.Sscanf(ref, "%d", &n)
-		if _, ok := hc.paneInfo[n]; ok {
-			return n
+	if n, err := strconv.ParseUint(ref, 10, 32); err == nil {
+		if _, ok := hc.paneInfo[uint32(n)]; ok {
+			return uint32(n)
 		}
 	}
 	var prefixMatch uint32
@@ -449,39 +428,3 @@ func (p *headlessPaneData) Idle() bool               { return p.info.Idle }
 func (p *headlessPaneData) InCopyMode() bool         { return false }
 func (p *headlessPaneData) CopyModeSearch() string   { return "" }
 
-// findCellDimensions finds a pane's dimensions in the layout snapshot.
-func findCellDimensions(snap *proto.LayoutSnapshot, activeRoot proto.CellSnapshot, paneID uint32) (int, int) {
-	if cell := findCellByID(activeRoot, paneID); cell != nil {
-		return cell.W, mux.PaneContentHeight(cell.H)
-	}
-	for _, ws := range snap.Windows {
-		if cell := findCellByID(ws.Root, paneID); cell != nil {
-			return cell.W, mux.PaneContentHeight(cell.H)
-		}
-	}
-	return snap.Width, mux.PaneContentHeight(snap.Height)
-}
-
-func findCellByID(cs proto.CellSnapshot, paneID uint32) *proto.CellSnapshot {
-	if cs.IsLeaf && cs.PaneID == paneID {
-		return &cs
-	}
-	for i := range cs.Children {
-		if found := findCellByID(cs.Children[i], paneID); found != nil {
-			return found
-		}
-	}
-	return nil
-}
-
-// emuContentLines returns plain-text screen lines from an emulator.
-func emuContentLines(emu mux.TerminalEmulator) []string {
-	_, rows := emu.Size()
-	rendered := emu.Render()
-	all := strings.Split(rendered, "\n")
-	result := make([]string, rows)
-	for i := 0; i < rows && i < len(all); i++ {
-		result[i] = mux.StripANSI(strings.TrimRight(all[i], " "))
-	}
-	return result
-}

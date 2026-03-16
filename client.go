@@ -28,7 +28,9 @@ type ClientRenderer struct {
 	width        int // full terminal width
 	height       int // full terminal height
 	dirty        bool
-	copyModes    map[uint32]*copymode.CopyMode // per-pane copy mode state (nil = not in copy mode)
+	copyModes   map[uint32]*copymode.CopyMode // per-pane copy mode state (nil = not in copy mode)
+	windows     []proto.WindowSnapshot         // for JSON capture window info
+	activeWinID uint32
 }
 
 // NewClientRenderer creates a client renderer for the given terminal dimensions.
@@ -59,6 +61,8 @@ func (cr *ClientRenderer) HandleLayout(snap *proto.LayoutSnapshot) {
 	activeRoot := snap.Root
 	if len(snap.Windows) > 0 {
 		allPanes = nil
+		cr.windows = snap.Windows
+		cr.activeWinID = snap.ActiveWindowID
 		for _, ws := range snap.Windows {
 			allPanes = append(allPanes, ws.Panes...)
 			if ws.ID == snap.ActiveWindowID {
@@ -84,7 +88,7 @@ func (cr *ClientRenderer) HandleLayout(snap *proto.LayoutSnapshot) {
 				// screen content isn't truncated into a tiny emulator.
 				w, h = ps.EmuWidth, ps.EmuHeight
 			} else {
-				w, h = findPaneDimensions(snap, activeRoot, ps.ID)
+				w, h = proto.FindPaneDimensions(snap, activeRoot, ps.ID, mux.PaneContentHeight)
 			}
 			cr.emulators[ps.ID] = mux.NewVTEmulatorWithDrain(w, h)
 		}
@@ -258,6 +262,14 @@ func (cr *ClientRenderer) CaptureJSON(agentStatus map[uint32]proto.PaneAgentStat
 		Width:   cr.width,
 		Height:  cr.compositor.LayoutHeight(),
 	}
+	for _, ws := range cr.windows {
+		if ws.ID == cr.activeWinID {
+			capture.Window = proto.CaptureWindow{
+				ID: ws.ID, Name: ws.Name, Index: ws.Index,
+			}
+			break
+		}
+	}
 
 	root.Walk(func(c *mux.LayoutCell) {
 		paneID := c.CellPaneID()
@@ -294,14 +306,9 @@ func (cr *ClientRenderer) CaptureJSON(agentStatus map[uint32]proto.PaneAgentStat
 				Row:    row,
 				Hidden: emu.CursorHidden(),
 			},
-			Content: emulatorContentLines(emu),
+			Content: mux.EmulatorContentLines(emu),
 		}
-		if st, ok := agentStatus[paneID]; ok {
-			cp.Idle = st.Idle
-			cp.IdleSince = st.IdleSince
-			cp.CurrentCommand = st.CurrentCommand
-			if st.ChildPIDs != nil { cp.ChildPIDs = st.ChildPIDs } else { cp.ChildPIDs = []int{} }
-		}
+		cp.ApplyAgentStatus(agentStatus)
 		capture.Panes = append(capture.Panes, cp)
 	})
 
@@ -321,8 +328,7 @@ func (cr *ClientRenderer) CapturePaneText(paneID uint32, includeANSI bool) strin
 	if includeANSI {
 		return emu.Render()
 	}
-	lines := emulatorContentLines(emu)
-	return strings.Join(lines, "\n")
+	return strings.Join(mux.EmulatorContentLines(emu), "\n")
 }
 
 // CapturePaneJSON returns a single pane's JSON from client-side emulators.
@@ -354,14 +360,9 @@ func (cr *ClientRenderer) CapturePaneJSON(paneID uint32, agentStatus map[uint32]
 			Row:    row,
 			Hidden: emu.CursorHidden(),
 		},
-		Content: emulatorContentLines(emu),
+		Content: mux.EmulatorContentLines(emu),
 	}
-	if st, ok := agentStatus[paneID]; ok {
-		cp.Idle = st.Idle
-		cp.IdleSince = st.IdleSince
-		cp.CurrentCommand = st.CurrentCommand
-		if st.ChildPIDs != nil { cp.ChildPIDs = st.ChildPIDs } else { cp.ChildPIDs = []int{} }
-	}
+	cp.ApplyAgentStatus(agentStatus)
 	out, _ := json.MarshalIndent(cp, "", "  ")
 	return string(out)
 }
@@ -412,19 +413,6 @@ func (cr *ClientRenderer) paneLookupLocked(paneID uint32) render.PaneData {
 		return nil
 	}
 	return &clientPaneData{emu: emu, info: info, cm: cr.copyModes[paneID]}
-}
-
-// emulatorContentLines returns plain-text screen lines from an emulator.
-func emulatorContentLines(emu mux.TerminalEmulator) []string {
-	_, rows := emu.Size()
-	rendered := emu.Render()
-	all := strings.Split(rendered, "\n")
-
-	result := make([]string, rows)
-	for i := 0; i < rows && i < len(all); i++ {
-		result[i] = mux.StripANSI(strings.TrimRight(all[i], " "))
-	}
-	return result
 }
 
 // renderCoalesced runs a select loop that reads messages from msgCh,
@@ -601,30 +589,3 @@ func (c *clientPaneData) CopyModeSearch() string {
 	return ""
 }
 
-// findPaneDimensions returns the width and content height for a pane,
-// searching the active window's root first, then all other windows.
-// Falls back to the full snapshot dimensions if not found.
-func findPaneDimensions(snap *proto.LayoutSnapshot, activeRoot proto.CellSnapshot, paneID uint32) (int, int) {
-	if cell := findCellInSnapshot(activeRoot, paneID); cell != nil {
-		return cell.W, mux.PaneContentHeight(cell.H)
-	}
-	for _, ws := range snap.Windows {
-		if cell := findCellInSnapshot(ws.Root, paneID); cell != nil {
-			return cell.W, mux.PaneContentHeight(cell.H)
-		}
-	}
-	return snap.Width, mux.PaneContentHeight(snap.Height)
-}
-
-// findCellInSnapshot finds a cell by pane ID in a CellSnapshot tree.
-func findCellInSnapshot(cs proto.CellSnapshot, paneID uint32) *proto.CellSnapshot {
-	if cs.IsLeaf && cs.PaneID == paneID {
-		return &cs
-	}
-	for i := range cs.Children {
-		if found := findCellInSnapshot(cs.Children[i], paneID); found != nil {
-			return found
-		}
-	}
-	return nil
-}
