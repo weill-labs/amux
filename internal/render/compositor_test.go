@@ -194,6 +194,28 @@ func TestGlobalBarMultipleWindows(t *testing.T) {
 	}
 }
 
+func TestGlobalBarFillsFullWidth(t *testing.T) {
+	t.Parallel()
+
+	widths := []int{80, 120, 200}
+	for _, width := range widths {
+		var buf strings.Builder
+		// yPos=0 so the bar renders on row 1 (1-indexed CUP)
+		renderGlobalBar(&buf, "default", 2, width, 0, nil)
+		grid := MaterializeGrid(buf.String(), width, 1)
+
+		// MaterializeGrid trims trailing spaces, so a bar ending in a
+		// space will measure width-1. The real invariant: no column
+		// before the last is left unfilled (i.e., the bar content +
+		// trailing space reaches the full width).
+		row := []rune(grid)
+		if len(row) < width-1 {
+			t.Errorf("width=%d: global bar is %d cols, want >= %d\n  row: %q",
+				width, len(row), width-1, string(row))
+		}
+	}
+}
+
 func TestBlitPaneClipsToWidth(t *testing.T) {
 	t.Parallel()
 
