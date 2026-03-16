@@ -563,3 +563,174 @@ func TestRotateSinglePane(t *testing.T) {
 		t.Errorf("rotate single pane: %v, want [1]", ids)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// SplicePane
+// ---------------------------------------------------------------------------
+
+func TestSplicePaneSingleReplacement(t *testing.T) {
+	t.Parallel()
+	p1 := fakePaneID(1)
+	p2 := fakePaneID(2)
+	root := NewLeaf(p1, 0, 0, 80, 24)
+	w := &Window{Root: root, ActivePane: p1, Width: 80, Height: 24}
+
+	cells, err := w.SplicePane(1, []*Pane{p2})
+	if err != nil {
+		t.Fatalf("SplicePane: %v", err)
+	}
+	if len(cells) != 1 {
+		t.Fatalf("expected 1 cell, got %d", len(cells))
+	}
+	if cells[0].Pane.ID != 2 {
+		t.Errorf("spliced pane ID = %d, want 2", cells[0].Pane.ID)
+	}
+	// Root should still be a leaf
+	if !w.Root.IsLeaf() {
+		t.Error("root should still be a leaf after 1:1 splice")
+	}
+	if w.Root.Pane.ID != 2 {
+		t.Errorf("root pane ID = %d, want 2", w.Root.Pane.ID)
+	}
+	// Active pane should update
+	if w.ActivePane.ID != 2 {
+		t.Errorf("active pane = %d, want 2", w.ActivePane.ID)
+	}
+}
+
+func TestSplicePaneMultiple(t *testing.T) {
+	t.Parallel()
+	p1 := fakePaneID(1)
+	root := NewLeaf(p1, 0, 0, 80, 24)
+	w := &Window{Root: root, ActivePane: p1, Width: 80, Height: 24}
+
+	proxyA := fakePaneID(10)
+	proxyB := fakePaneID(11)
+	proxyC := fakePaneID(12)
+
+	cells, err := w.SplicePane(1, []*Pane{proxyA, proxyB, proxyC})
+	if err != nil {
+		t.Fatalf("SplicePane: %v", err)
+	}
+	if len(cells) != 3 {
+		t.Fatalf("expected 3 cells, got %d", len(cells))
+	}
+
+	// Root should now be internal with horizontal split
+	if w.Root.IsLeaf() {
+		t.Error("root should be internal after multi-pane splice")
+	}
+	if w.Root.Dir != SplitHorizontal {
+		t.Errorf("root dir = %d, want SplitHorizontal", w.Root.Dir)
+	}
+	if len(w.Root.Children) != 3 {
+		t.Fatalf("root children = %d, want 3", len(w.Root.Children))
+	}
+
+	// All children should be leaves with correct panes
+	for i, expected := range []uint32{10, 11, 12} {
+		child := w.Root.Children[i]
+		if !child.IsLeaf() {
+			t.Errorf("child %d should be a leaf", i)
+		}
+		if child.Pane.ID != expected {
+			t.Errorf("child %d pane ID = %d, want %d", i, child.Pane.ID, expected)
+		}
+	}
+
+	// Widths should add up: w1 + 1 + w2 + 1 + w3 = 80
+	totalW := 0
+	for i, child := range w.Root.Children {
+		totalW += child.W
+		if i < len(w.Root.Children)-1 {
+			totalW++ // separator
+		}
+	}
+	if totalW != 80 {
+		t.Errorf("total width = %d, want 80", totalW)
+	}
+}
+
+func TestSplicePaneInSplitLayout(t *testing.T) {
+	t.Parallel()
+	// Create a window with 2 panes (horizontal split), then splice pane-2
+	p1 := fakePaneID(1)
+	p2 := fakePaneID(2)
+	root := NewLeaf(p1, 0, 0, 80, 24)
+	w := &Window{Root: root, ActivePane: p1, Width: 80, Height: 24}
+
+	_, err := root.Split(SplitHorizontal, p2)
+	if err != nil {
+		t.Fatalf("Split: %v", err)
+	}
+	w.setActive(p2)
+
+	// Splice pane-2 with two proxy panes
+	proxyA := fakePaneID(20)
+	proxyB := fakePaneID(21)
+	_, err = w.SplicePane(2, []*Pane{proxyA, proxyB})
+	if err != nil {
+		t.Fatalf("SplicePane: %v", err)
+	}
+
+	// Walk should find 3 panes: p1, proxyA, proxyB
+	ids := collectPaneIDs(w)
+	if len(ids) != 3 {
+		t.Fatalf("expected 3 panes, got %d: %v", len(ids), ids)
+	}
+}
+
+func TestSplicePaneNotFound(t *testing.T) {
+	t.Parallel()
+	p1 := fakePaneID(1)
+	root := NewLeaf(p1, 0, 0, 80, 24)
+	w := &Window{Root: root, ActivePane: p1, Width: 80, Height: 24}
+
+	_, err := w.SplicePane(99, []*Pane{fakePaneID(2)})
+	if err == nil {
+		t.Error("expected error for non-existent pane")
+	}
+}
+
+func TestSplicePaneEmpty(t *testing.T) {
+	t.Parallel()
+	p1 := fakePaneID(1)
+	root := NewLeaf(p1, 0, 0, 80, 24)
+	w := &Window{Root: root, ActivePane: p1, Width: 80, Height: 24}
+
+	_, err := w.SplicePane(1, nil)
+	if err == nil {
+		t.Error("expected error for empty panes list")
+	}
+}
+
+func TestUnsplicePane(t *testing.T) {
+	t.Parallel()
+	p1 := fakePaneID(1)
+	root := NewLeaf(p1, 0, 0, 80, 24)
+	w := &Window{Root: root, ActivePane: p1, Width: 80, Height: 24}
+
+	// Splice in two proxy panes
+	proxyA := &Pane{ID: 10, Meta: PaneMeta{Host: "gpu-box"}, writeOverride: func(b []byte) (int, error) { return len(b), nil }}
+	proxyB := &Pane{ID: 11, Meta: PaneMeta{Host: "gpu-box"}, writeOverride: func(b []byte) (int, error) { return len(b), nil }}
+	_, err := w.SplicePane(1, []*Pane{proxyA, proxyB})
+	if err != nil {
+		t.Fatalf("SplicePane: %v", err)
+	}
+
+	// Unsplice back to a single pane
+	replacement := fakePaneID(99)
+	err = w.UnsplicePane("gpu-box", replacement)
+	if err != nil {
+		t.Fatalf("UnsplicePane: %v", err)
+	}
+
+	// Should have exactly one pane
+	ids := collectPaneIDs(w)
+	if len(ids) != 1 || ids[0] != 99 {
+		t.Errorf("after unsplice: panes = %v, want [99]", ids)
+	}
+	if w.ActivePane.ID != 99 {
+		t.Errorf("active pane = %d, want 99", w.ActivePane.ID)
+	}
+}

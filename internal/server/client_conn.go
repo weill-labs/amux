@@ -1010,6 +1010,73 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: err.Error()})
 		}
 
+	case "unsplice":
+		if len(msg.CmdArgs) < 1 {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "usage: unsplice <host>"})
+			return
+		}
+		hostName := msg.CmdArgs[0]
+
+		sess.mu.Lock()
+		w := sess.ActiveWindow()
+		if w == nil {
+			sess.mu.Unlock()
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "no active window"})
+			return
+		}
+
+		// Collect proxy pane IDs for this host before unsplicing
+		var proxyIDs []uint32
+		for _, p := range sess.Panes {
+			if p.Meta.Host == hostName && p.IsProxy() {
+				proxyIDs = append(proxyIDs, p.ID)
+			}
+		}
+		if len(proxyIDs) == 0 {
+			sess.mu.Unlock()
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("no spliced panes for host %q", hostName)})
+			return
+		}
+
+		// Find the spliced cell's dimensions for the replacement pane.
+		// Use the first proxy pane's parent cell (which is the splice container).
+		var cellW, cellH int
+		for _, p := range sess.Panes {
+			if p.Meta.Host == hostName && p.IsProxy() {
+				if c := w.Root.FindPane(p.ID); c != nil && c.Parent != nil {
+					cellW, cellH = c.Parent.W, c.Parent.H
+					break
+				}
+			}
+		}
+		if cellW == 0 {
+			cellW, cellH = w.Width, w.Height
+		}
+		pane, err := sess.createPane(srv, cellW, mux.PaneContentHeight(cellH))
+		if err != nil {
+			sess.mu.Unlock()
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: err.Error()})
+			return
+		}
+
+		err = w.UnsplicePane(hostName, pane)
+		if err != nil {
+			sess.mu.Unlock()
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: err.Error()})
+			return
+		}
+
+		// Remove proxy panes from the session
+		for _, id := range proxyIDs {
+			sess.removePane(id)
+		}
+		sess.mu.Unlock()
+
+		pane.Start()
+		sess.broadcastLayout()
+		cc.Send(&Message{Type: MsgTypeCmdResult,
+			CmdOutput: fmt.Sprintf("Unspliced %s: %d proxy panes removed\n", hostName, len(proxyIDs))})
+
 	default:
 		cc.Send(&Message{Type: MsgTypeCmdResult,
 			CmdErr: fmt.Sprintf("unknown command: %s", msg.CmdName)})

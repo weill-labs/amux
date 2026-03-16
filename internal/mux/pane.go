@@ -51,8 +51,10 @@ type Pane struct {
 	drainStarted bool
 	onOutput     func(paneID uint32, data []byte)
 	onExit       func(paneID uint32)
-	onClipboard  func(paneID uint32, data []byte)
-	osc52Scanner OSC52Scanner
+	onClipboard    func(paneID uint32, data []byte)
+	onTakeover     func(paneID uint32, req TakeoverRequest)
+	osc52Scanner   OSC52Scanner
+	controlScanner AmuxControlScanner
 
 	// Idle tracking (LAB-159)
 	idleMu       sync.Mutex
@@ -185,6 +187,12 @@ func (p *Pane) SetOnClipboard(fn func(paneID uint32, data []byte)) {
 	p.onClipboard = fn
 }
 
+// SetOnTakeover sets the callback invoked when a nested amux emits a
+// takeover sequence through the PTY. Must be called before Start().
+func (p *Pane) SetOnTakeover(fn func(paneID uint32, req TakeoverRequest)) {
+	p.onTakeover = fn
+}
+
 // readLoop reads PTY output, feeds the emulator, and notifies the callback.
 func (p *Pane) readLoop() {
 	buf := make([]byte, 32*1024)
@@ -197,6 +205,12 @@ func (p *Pane) readLoop() {
 			if p.onClipboard != nil {
 				for _, seq := range p.osc52Scanner.Scan(data) {
 					p.onClipboard(p.ID, seq)
+				}
+			}
+
+			if p.onTakeover != nil {
+				for _, req := range p.controlScanner.Scan(data) {
+					p.onTakeover(p.ID, req)
 				}
 			}
 

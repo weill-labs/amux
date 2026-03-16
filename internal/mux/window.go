@@ -877,3 +877,105 @@ func (w *Window) recoverMinimizeSeq() {
 	})
 	w.minimizeSeq = maxSeq
 }
+
+// SplicePane replaces a leaf pane (by ID) with one or more proxy panes.
+// If panes has 1 entry, it's a simple 1:1 replacement. If panes has 2+
+// entries, the leaf is converted to a horizontal split containing the
+// new panes. The original cell's dimensions are preserved.
+// Returns the list of newly created layout cells.
+func (w *Window) SplicePane(oldPaneID uint32, newPanes []*Pane) ([]*LayoutCell, error) {
+	if len(newPanes) == 0 {
+		return nil, fmt.Errorf("no panes to splice")
+	}
+
+	cell := w.Root.FindPane(oldPaneID)
+	if cell == nil {
+		return nil, fmt.Errorf("pane %d not found in layout", oldPaneID)
+	}
+
+	// Auto-unzoom if the spliced pane was zoomed
+	if w.ZoomedPaneID == oldPaneID {
+		w.ZoomedPaneID = 0
+	}
+
+	// Single pane: simple replacement
+	if len(newPanes) == 1 {
+		cell.Pane = newPanes[0]
+		newPanes[0].Resize(cell.W, PaneContentHeight(cell.H))
+		if w.ActivePane != nil && w.ActivePane.ID == oldPaneID {
+			w.setActive(newPanes[0])
+		}
+		return []*LayoutCell{cell}, nil
+	}
+
+	// Multiple panes: convert the leaf into a horizontal split
+	x, y, totalW, h := cell.X, cell.Y, cell.W, cell.H
+	n := len(newPanes)
+	seps := n - 1
+
+	// Calculate width per pane
+	available := totalW - seps
+	if available < n*PaneMinSize {
+		return nil, fmt.Errorf("not enough space to splice %d panes into %d cols", n, totalW)
+	}
+
+	cell.isLeaf = false
+	cell.Pane = nil
+	cell.Dir = SplitHorizontal
+	cell.Children = make([]*LayoutCell, n)
+
+	each := available / n
+	xoff := x
+	for i, pane := range newPanes {
+		childW := each
+		if i == n-1 {
+			childW = available - each*(n-1) // remainder to last
+		}
+		leaf := NewLeaf(pane, xoff, y, childW, h)
+		leaf.Parent = cell
+		cell.Children[i] = leaf
+
+		pane.Resize(childW, PaneContentHeight(h))
+		xoff += childW + 1 // +1 for separator
+	}
+
+	// Update active pane if the replaced pane was active
+	if w.ActivePane != nil && w.ActivePane.ID == oldPaneID {
+		w.setActive(newPanes[0])
+	}
+
+	w.Root.FixOffsets()
+
+	return cell.Children, nil
+}
+
+// UnsplicePane replaces all children of a spliced cell (that contains
+// proxy panes for a specific host) with a single pane. Used to revert
+// a takeover and restore the original SSH pane.
+func (w *Window) UnsplicePane(hostName string, replacement *Pane) error {
+	// Find a cell containing proxy panes for this host
+	var targetCell *LayoutCell
+	w.Root.Walk(func(c *LayoutCell) {
+		if c.Pane != nil && c.Pane.Meta.Host == hostName && c.Pane.IsProxy() {
+			if c.Parent != nil && !c.Parent.IsLeaf() {
+				targetCell = c.Parent
+			}
+		}
+	})
+	if targetCell == nil {
+		return fmt.Errorf("no spliced panes found for host %q", hostName)
+	}
+
+	// Convert back to a leaf with the replacement pane
+	targetCell.isLeaf = true
+	targetCell.Dir = -1
+	targetCell.Pane = replacement
+	targetCell.Children = nil
+
+	replacement.Resize(targetCell.W, PaneContentHeight(targetCell.H))
+	w.setActive(replacement)
+	w.Root.FixOffsets()
+	w.resizePTYs()
+
+	return nil
+}
