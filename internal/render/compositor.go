@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"unicode/utf8"
 
+	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/mux"
 )
 
@@ -239,23 +241,38 @@ func clipLine(line string, maxWidth int) string {
 }
 
 // hexColorCache maps hex color strings (e.g. "f5e0dc") to precomputed
-// ANSI truecolor escapes. The cache is package-level since colors are
-// drawn from a fixed palette (~14 Catppuccin colors).
-var hexColorCache = make(map[string]string)
+// ANSI truecolor escapes. Uses sync.Map for thread-safe concurrent access
+// from multiple rendering goroutines.
+var hexColorCache sync.Map
+
+func init() {
+	for _, hex := range config.CatppuccinMocha {
+		hexColorCache.Store(hex, computeANSI(hex))
+	}
+	hexColorCache.Store(config.DimColorHex, computeANSI(config.DimColorHex))
+	hexColorCache.Store(config.TextColorHex, computeANSI(config.TextColorHex))
+}
+
+// computeANSI converts a 6-digit hex color to an ANSI truecolor escape.
+func computeANSI(hex string) string {
+	r, _ := strconv.ParseUint(hex[0:2], 16, 8)
+	g, _ := strconv.ParseUint(hex[2:4], 16, 8)
+	b, _ := strconv.ParseUint(hex[4:6], 16, 8)
+	return fmt.Sprintf("\033[38;2;%d;%d;%dm", r, g, b)
+}
 
 // hexToANSI converts a 6-digit hex color to an ANSI truecolor escape.
 // Results are cached — repeated calls for the same hex value are free.
+// Pre-populated at init with the Catppuccin Mocha palette; unknown colors
+// are computed on first use and cached thread-safely.
 func hexToANSI(hex string) string {
 	if len(hex) < 6 {
 		return DimFg
 	}
-	if cached, ok := hexColorCache[hex]; ok {
-		return cached
+	if cached, ok := hexColorCache.Load(hex); ok {
+		return cached.(string)
 	}
-	r, _ := strconv.ParseUint(hex[0:2], 16, 8)
-	g, _ := strconv.ParseUint(hex[2:4], 16, 8)
-	b, _ := strconv.ParseUint(hex[4:6], 16, 8)
-	result := fmt.Sprintf("\033[38;2;%d;%d;%dm", r, g, b)
-	hexColorCache[hex] = result
+	result := computeANSI(hex)
+	hexColorCache.Store(hex, result)
 	return result
 }
