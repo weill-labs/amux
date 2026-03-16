@@ -79,11 +79,18 @@ type CapturePane struct {
 	Cursor    CaptureCursor `json:"cursor"`
 	Content   []string      `json:"content"`
 
-	// Agent status fields (LAB-159)
-	Idle           bool   `json:"idle"`
-	IdleSince      string `json:"idle_since,omitempty"`
+	// Agent status fields (LAB-159).
+	// Idle is true when no foreground command is running in the pane.
+	Idle bool `json:"idle"`
+	// IdleSince is the RFC3339 timestamp of the last busy→idle transition.
+	// Omitted when the pane is busy.
+	IdleSince string `json:"idle_since,omitempty"`
+	// CurrentCommand is the foreground process name when busy, or the
+	// shell name (e.g., "bash") when idle.
 	CurrentCommand string `json:"current_command"`
-	ChildPIDs      []int  `json:"child_pids"`
+	// ChildPIDs lists the direct child PIDs of the pane's shell process.
+	// These are ephemeral OS-level PIDs — they change across captures.
+	ChildPIDs []int `json:"child_pids"`
 }
 
 // CapturePos holds a pane's position and size within the layout.

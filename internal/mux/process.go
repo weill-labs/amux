@@ -1,11 +1,15 @@
 package mux
 
 import (
+	"context"
 	"os/exec"
 	"strconv"
 	"strings"
 	"time"
 )
+
+// processTimeout limits how long pgrep/ps subprocess calls can take.
+const processTimeout = 500 * time.Millisecond
 
 // AgentStatus holds the process-level status of a pane for JSON capture.
 type AgentStatus struct {
@@ -16,16 +20,28 @@ type AgentStatus struct {
 }
 
 // AgentStatus inspects the pane's process tree and returns its current status.
-// Uses pgrep/ps for portable macOS+Linux support.
+// Uses pgrep/ps for portable macOS+Linux support. Safe to call without
+// holding any session-level locks — only acquires the pane's internal idleMu.
+//
+// When idle, CurrentCommand reports the shell name (e.g., "bash").
+// When busy, CurrentCommand reports the foreground child's name.
 func (p *Pane) AgentStatus() AgentStatus {
 	shellPid := p.ProcessPid()
 	if shellPid == 0 {
-		return AgentStatus{Idle: true}
+		// Dead or restored pane with no process — report idle since creation
+		return AgentStatus{
+			Idle:      true,
+			IdleSince: p.createdAt,
+			ChildPIDs: []int{},
+		}
 	}
 
 	children := childPIDs(shellPid)
 	status := AgentStatus{
 		ChildPIDs: children,
+	}
+	if status.ChildPIDs == nil {
+		status.ChildPIDs = []int{}
 	}
 
 	if len(children) == 0 {
@@ -33,15 +49,14 @@ func (p *Pane) AgentStatus() AgentStatus {
 		status.Idle = true
 		status.CurrentCommand = processName(shellPid)
 	} else {
-		// Check if the child itself has children (grandchildren of shell).
-		// A single child with no grandchildren might be shell job control
-		// (e.g., bash forks itself), but typically means a foreground command.
 		foregroundPid := children[len(children)-1] // last child is typically foreground
 		status.CurrentCommand = processName(foregroundPid)
 
 		grandchildren := childPIDs(foregroundPid)
-		// idle = child has no grandchildren AND the child's name matches the shell
-		// (some shells fork themselves for job control)
+		// Heuristic: if the shell's only child has no grandchildren and
+		// shares the shell's name, it's likely a job-control self-fork
+		// (e.g., bash forks itself). This can false-positive if the user
+		// runs a command matching the shell name (e.g., "bash -c '...'").
 		if len(grandchildren) == 0 && len(children) == 1 {
 			shellName := processName(shellPid)
 			childName := processName(children[0])
@@ -78,7 +93,9 @@ func (p *Pane) AgentStatus() AgentStatus {
 
 // childPIDs returns the PIDs of direct children of the given process.
 func childPIDs(pid int) []int {
-	out, err := exec.Command("pgrep", "-P", strconv.Itoa(pid)).Output()
+	ctx, cancel := context.WithTimeout(context.Background(), processTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "pgrep", "-P", strconv.Itoa(pid)).Output()
 	if err != nil {
 		return nil
 	}
@@ -97,7 +114,9 @@ func childPIDs(pid int) []int {
 
 // processName returns the short command name for a PID.
 func processName(pid int) string {
-	out, err := exec.Command("ps", "-o", "comm=", "-p", strconv.Itoa(pid)).Output()
+	ctx, cancel := context.WithTimeout(context.Background(), processTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "ps", "-o", "comm=", "-p", strconv.Itoa(pid)).Output()
 	if err != nil {
 		return ""
 	}
