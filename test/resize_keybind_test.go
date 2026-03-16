@@ -12,11 +12,9 @@ func TestResizeKeybindHorizontal(t *testing.T) {
 	// Split horizontally: [pane-1 | pane-2]
 	h.splitV()
 
-	// Measure initial border position
-	initialBorder := h.captureAmuxVerticalBorderCol()
-	if initialBorder < 0 {
-		t.Fatalf("no vertical border found.\nScreen:\n%s", h.captureAmux())
-	}
+	// Measure initial pane-1 width
+	c := h.captureJSON()
+	initialW := h.jsonPane(c, "pane-1").Position.Width
 
 	// Focus pane-1 (left), then press Prefix+L to grow it rightward
 	gen := h.generation()
@@ -27,24 +25,21 @@ func TestResizeKeybindHorizontal(t *testing.T) {
 	h.sendKeys("C-a", "L") // resize: grow right
 	h.waitLayout(gen)
 
-	newBorder := h.captureAmuxVerticalBorderCol()
-	if newBorder < 0 {
-		t.Fatalf("no vertical border found after resize.\nScreen:\n%s", h.captureAmux())
-	}
-	if newBorder <= initialBorder {
-		t.Errorf("Prefix+L from left pane should move border right: was %d, now %d.\nScreen:\n%s",
-			initialBorder, newBorder, h.captureAmux())
+	c = h.captureJSON()
+	newW := h.jsonPane(c, "pane-1").Position.Width
+	if newW <= initialW {
+		t.Errorf("Prefix+L from left pane should grow it: width was %d, now %d", initialW, newW)
 	}
 
-	// Now press Prefix+H to shrink it back (grow left = move border left)
+	// Now press Prefix+H to shrink it back
 	gen = h.generation()
 	h.sendKeys("C-a", "H")
 	h.waitLayout(gen)
 
-	shrunkBorder := h.captureAmuxVerticalBorderCol()
-	if shrunkBorder >= newBorder {
-		t.Errorf("Prefix+H from left pane should move border left: was %d, now %d.\nScreen:\n%s",
-			newBorder, shrunkBorder, h.captureAmux())
+	c = h.captureJSON()
+	shrunkW := h.jsonPane(c, "pane-1").Position.Width
+	if shrunkW >= newW {
+		t.Errorf("Prefix+H from left pane should shrink it: width was %d, now %d", newW, shrunkW)
 	}
 }
 
@@ -60,35 +55,30 @@ func TestResizeKeybindVertical(t *testing.T) {
 	h.sendKeys("C-a", "k")
 	h.waitLayout(gen)
 
-	// Measure initial horizontal border row
-	initialRow := findHorizontalBorderRow(h.captureAmuxContentLines())
-	if initialRow < 0 {
-		t.Fatalf("no horizontal border found.\nScreen:\n%s", h.captureAmux())
-	}
+	// Measure initial pane-1 height
+	c := h.captureJSON()
+	initialH := h.jsonPane(c, "pane-1").Position.Height
 
-	// Press Prefix+J to grow top pane downward (move border down)
+	// Press Prefix+J to grow top pane downward
 	gen = h.generation()
 	h.sendKeys("C-a", "J")
 	h.waitLayout(gen)
 
-	newRow := findHorizontalBorderRow(h.captureAmuxContentLines())
-	if newRow < 0 {
-		t.Fatalf("no horizontal border found after resize.\nScreen:\n%s", h.captureAmux())
-	}
-	if newRow <= initialRow {
-		t.Errorf("Prefix+J from top pane should move border down: was row %d, now %d.\nScreen:\n%s",
-			initialRow, newRow, h.captureAmux())
+	c = h.captureJSON()
+	newH := h.jsonPane(c, "pane-1").Position.Height
+	if newH <= initialH {
+		t.Errorf("Prefix+J from top pane should grow it: height was %d, now %d", initialH, newH)
 	}
 
-	// Press Prefix+K to shrink it back (grow up = move border up)
+	// Press Prefix+K to shrink it back
 	gen = h.generation()
 	h.sendKeys("C-a", "K")
 	h.waitLayout(gen)
 
-	shrunkRow := findHorizontalBorderRow(h.captureAmuxContentLines())
-	if shrunkRow >= newRow {
-		t.Errorf("Prefix+K from top pane should move border up: was row %d, now %d.\nScreen:\n%s",
-			newRow, shrunkRow, h.captureAmux())
+	c = h.captureJSON()
+	shrunkH := h.jsonPane(c, "pane-1").Position.Height
+	if shrunkH >= newH {
+		t.Errorf("Prefix+K from top pane should shrink it: height was %d, now %d", newH, shrunkH)
 	}
 }
 
@@ -99,20 +89,18 @@ func TestResizeKeybindFromRightPane(t *testing.T) {
 	// [pane-1 | pane-2], focus stays on pane-2 (right)
 	h.splitV()
 
-	initialBorder := h.captureAmuxVerticalBorderCol()
-	if initialBorder < 0 {
-		t.Fatalf("no vertical border found.\nScreen:\n%s", h.captureAmux())
-	}
+	c := h.captureJSON()
+	initialW := h.jsonPane(c, "pane-2").Position.Width
 
-	// From right pane, Prefix+H should grow left (move border left)
+	// From right pane, Prefix+H should grow left (pane-2 grows, pane-1 shrinks)
 	gen := h.generation()
 	h.sendKeys("C-a", "H")
 	h.waitLayout(gen)
 
-	newBorder := h.captureAmuxVerticalBorderCol()
-	if newBorder >= initialBorder {
-		t.Errorf("Prefix+H from right pane should move border left: was %d, now %d.\nScreen:\n%s",
-			initialBorder, newBorder, h.captureAmux())
+	c = h.captureJSON()
+	newW := h.jsonPane(c, "pane-2").Position.Width
+	if newW <= initialW {
+		t.Errorf("Prefix+H from right pane should grow it: width was %d, now %d", initialW, newW)
 	}
 }
 

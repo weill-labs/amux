@@ -1,7 +1,6 @@
 package test
 
 import (
-	"strings"
 	"testing"
 )
 
@@ -17,11 +16,11 @@ func TestSwapForward(t *testing.T) {
 	h.splitV()
 
 	// Verify initial order: pane-1 left of pane-2
-	lines := h.captureAmuxContentLines()
-	col1 := paneNameCol(lines, "pane-1")
-	col2 := paneNameCol(lines, "pane-2")
-	if col1 < 0 || col2 < 0 || col1 >= col2 {
-		t.Fatalf("initial: pane-1 (col %d) should be left of pane-2 (col %d)", col1, col2)
+	c := h.captureJSON()
+	p1 := h.jsonPane(c, "pane-1")
+	p2 := h.jsonPane(c, "pane-2")
+	if p1.Position.X >= p2.Position.X {
+		t.Fatalf("initial: pane-1 (x=%d) should be left of pane-2 (x=%d)", p1.Position.X, p2.Position.X)
 	}
 
 	// Swap forward: Ctrl-a } swaps active (pane-2) with next (wraps to pane-1)
@@ -30,11 +29,11 @@ func TestSwapForward(t *testing.T) {
 	h.waitLayout(gen)
 
 	// After swap: pane-2 on left, pane-1 on right
-	lines = h.captureAmuxContentLines()
-	c1 := paneNameCol(lines, "pane-1")
-	c2 := paneNameCol(lines, "pane-2")
-	if c1 < 0 || c2 < 0 || c2 >= c1 {
-		t.Errorf("swap forward: expected pane-2 left of pane-1\n%s", strings.Join(lines, "\n"))
+	c = h.captureJSON()
+	p1 = h.jsonPane(c, "pane-1")
+	p2 = h.jsonPane(c, "pane-2")
+	if p2.Position.X >= p1.Position.X {
+		t.Errorf("swap forward: pane-2 (x=%d) should be left of pane-1 (x=%d)", p2.Position.X, p1.Position.X)
 	}
 }
 
@@ -52,12 +51,13 @@ func TestSwapBackward(t *testing.T) {
 	h.waitLayout(gen)
 
 	// After swap: pane-1 | pane-3 | pane-2
-	lines := h.captureAmuxContentLines()
-	c1 := paneNameCol(lines, "pane-1")
-	c2 := paneNameCol(lines, "pane-2")
-	c3 := paneNameCol(lines, "pane-3")
-	if c1 < 0 || c2 < 0 || c3 < 0 || c1 >= c3 || c3 >= c2 {
-		t.Errorf("swap backward: expected pane-1|pane-3|pane-2\n%s", strings.Join(lines, "\n"))
+	c := h.captureJSON()
+	p1 := h.jsonPane(c, "pane-1")
+	p2 := h.jsonPane(c, "pane-2")
+	p3 := h.jsonPane(c, "pane-3")
+	if !(p1.Position.X < p3.Position.X && p3.Position.X < p2.Position.X) {
+		t.Errorf("swap backward: expected pane-1 (x=%d) | pane-3 (x=%d) | pane-2 (x=%d)",
+			p1.Position.X, p3.Position.X, p2.Position.X)
 	}
 }
 
@@ -71,18 +71,14 @@ func TestSwapCLI(t *testing.T) {
 
 	h.splitV()
 
-	out := h.runCmd("swap", "pane-1", "pane-2")
-	if strings.Contains(out, "unknown command") {
-		t.Fatalf("swap command not recognized: %s", out)
-	}
+	h.runCmd("swap", "pane-1", "pane-2")
 
 	// Swap is synchronous — capture immediately reflects the change.
-	lines := h.captureContentLines()
-	c1 := paneNameCol(lines, "pane-1")
-	c2 := paneNameCol(lines, "pane-2")
-	if c1 < 0 || c2 < 0 || c2 >= c1 {
-		t.Errorf("CLI swap: expected pane-2 (col %d) left of pane-1 (col %d)\n%s",
-			c2, c1, strings.Join(lines, "\n"))
+	c := h.captureJSON()
+	p1 := h.jsonPane(c, "pane-1")
+	p2 := h.jsonPane(c, "pane-2")
+	if p2.Position.X >= p1.Position.X {
+		t.Errorf("CLI swap: pane-2 (x=%d) should be left of pane-1 (x=%d)", p2.Position.X, p1.Position.X)
 	}
 }
 
@@ -94,21 +90,17 @@ func TestRotate(t *testing.T) {
 	h.splitV()
 	h.splitV()
 
-	out := h.runCmd("rotate")
-	if strings.Contains(out, "unknown command") {
-		t.Fatalf("rotate command not recognized: %s", out)
-	}
+	h.runCmd("rotate")
 
 	// Forward rotation: panes move forward through cells.
 	// Cell 0 gets last pane (pane-3), cell 1 gets pane-1, cell 2 gets pane-2.
 	// Result: pane-3 | pane-1 | pane-2
-	// Rotate is synchronous — capture immediately reflects the change.
-	lines := h.captureContentLines()
-	c1 := paneNameCol(lines, "pane-1")
-	c2 := paneNameCol(lines, "pane-2")
-	c3 := paneNameCol(lines, "pane-3")
-	if c1 < 0 || c2 < 0 || c3 < 0 || c3 >= c1 || c1 >= c2 {
-		t.Errorf("rotate: expected pane-3 (col %d) | pane-1 (col %d) | pane-2 (col %d)\n%s",
-			c3, c1, c2, strings.Join(lines, "\n"))
+	c := h.captureJSON()
+	p1 := h.jsonPane(c, "pane-1")
+	p2 := h.jsonPane(c, "pane-2")
+	p3 := h.jsonPane(c, "pane-3")
+	if !(p3.Position.X < p1.Position.X && p1.Position.X < p2.Position.X) {
+		t.Errorf("rotate: expected pane-3 (x=%d) | pane-1 (x=%d) | pane-2 (x=%d)",
+			p3.Position.X, p1.Position.X, p2.Position.X)
 	}
 }
