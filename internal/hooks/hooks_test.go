@@ -136,6 +136,60 @@ func TestFireNoHooks(t *testing.T) {
 	r.Fire(OnIdle, nil)
 }
 
+func TestRemoveOutOfBounds(t *testing.T) {
+	r := NewRegistry()
+	r.Add(OnIdle, "echo a")
+
+	// These should not panic or corrupt state
+	r.Remove(OnIdle, -1)
+	r.Remove(OnIdle, 99)
+	r.Remove(OnActivity, 0) // no hooks for this event
+
+	hooks := r.List(OnIdle)
+	if len(hooks) != 1 || hooks[0].Command != "echo a" {
+		t.Errorf("hooks should be unchanged after out-of-bounds removes, got %v", hooks)
+	}
+}
+
+func TestFireFailingCommandLogsError(t *testing.T) {
+	// Capture stderr by temporarily replacing os.Stderr with a pipe
+	origStderr := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("creating pipe: %v", err)
+	}
+	os.Stderr = w
+
+	reg := NewRegistry()
+	reg.Add(OnIdle, "/nonexistent/binary/that/does/not/exist")
+	reg.Fire(OnIdle, nil)
+
+	// Wait for async goroutine to write to stderr
+	deadline := time.Now().Add(3 * time.Second)
+	done := make(chan string, 1)
+	go func() {
+		buf := make([]byte, 4096)
+		n, _ := r.Read(buf)
+		done <- string(buf[:n])
+	}()
+
+	var output string
+	select {
+	case output = <-done:
+	case <-time.After(time.Until(deadline)):
+		t.Fatal("timed out waiting for stderr output")
+	}
+
+	// Restore stderr before any assertions (t.Error writes to stderr)
+	w.Close()
+	os.Stderr = origStderr
+	r.Close()
+
+	if !strings.Contains(output, "hook") || !strings.Contains(output, "failed") {
+		t.Errorf("expected error log containing 'hook' and 'failed', got: %q", output)
+	}
+}
+
 func TestParseEvent(t *testing.T) {
 	tests := []struct {
 		input string

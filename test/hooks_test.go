@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/weill-labs/amux/internal/server"
 )
 
 func TestSetHookAndListHooks(t *testing.T) {
@@ -168,4 +170,30 @@ func TestHookReceivesEnvVars(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 	}
 	t.Fatal("hook env output not written within timeout")
+}
+
+func TestHookFailingCommandLogsToSessionLog(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	// Register a hook with a command that will fail
+	h.runCmd("set-hook", "on-idle", "/nonexistent/binary/xyz")
+
+	// Trigger activity then wait for idle → hook fires and fails
+	h.sendKeys("pane-1", "echo FAIL_TEST", "Enter")
+	h.waitFor("pane-1", "FAIL_TEST")
+
+	// Wait for idle timeout (2s) + hook execution + log flush
+	logPath := filepath.Join(server.SocketDir(), h.session+".log")
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		data, err := os.ReadFile(logPath)
+		if err == nil && strings.Contains(string(data), "hook") && strings.Contains(string(data), "failed") {
+			return // error was logged to session log
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	// Read final log content for error message
+	data, _ := os.ReadFile(logPath)
+	t.Fatalf("expected hook failure in session log, got:\n%s", string(data))
 }
