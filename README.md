@@ -67,6 +67,7 @@ amux list                    List panes with metadata
 amux status                  Show pane/window summary
 amux focus <pane>            Focus a pane by name or ID
 amux capture [pane]          Capture screen output (full or single pane)
+amux capture --format json   Structured JSON output for agents
 amux send-keys <pane> <keys> Send keystrokes to a pane
 amux spawn --name NAME       Spawn a new agent pane
 amux zoom [pane]             Toggle zoom on a pane

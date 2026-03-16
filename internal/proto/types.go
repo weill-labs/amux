@@ -48,3 +48,49 @@ type PaneSnapshot struct {
 	Color     string
 	Minimized bool
 }
+
+// CaptureJSON is the full-screen JSON capture output.
+type CaptureJSON struct {
+	Session string        `json:"session"`
+	Window  CaptureWindow `json:"window"`
+	Width   int           `json:"width"`
+	Height  int           `json:"height"`
+	Panes   []CapturePane `json:"panes"`
+}
+
+// CaptureWindow identifies the captured window.
+type CaptureWindow struct {
+	ID    uint32 `json:"id"`
+	Name  string `json:"name"`
+	Index int    `json:"index"`
+}
+
+// CapturePane holds one pane's metadata, cursor, and content for JSON output.
+type CapturePane struct {
+	ID        uint32        `json:"id"`
+	Name      string        `json:"name"`
+	Active    bool          `json:"active"`
+	Minimized bool          `json:"minimized"`
+	Zoomed    bool          `json:"zoomed"`
+	Host      string        `json:"host"`
+	Task      string        `json:"task"`
+	Color     string        `json:"color"`
+	Position  *CapturePos   `json:"position,omitempty"`
+	Cursor    CaptureCursor `json:"cursor"`
+	Content   []string      `json:"content"`
+}
+
+// CapturePos holds a pane's position and size within the layout.
+type CapturePos struct {
+	X      int `json:"x"`
+	Y      int `json:"y"`
+	Width  int `json:"width"`
+	Height int `json:"height"`
+}
+
+// CaptureCursor holds cursor state for JSON output.
+type CaptureCursor struct {
+	Col    int  `json:"col"`
+	Row    int  `json:"row"`
+	Hidden bool `json:"hidden"`
+}

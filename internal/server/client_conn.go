@@ -197,9 +197,10 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 		sess.broadcastLayout()
 
 	case "capture":
-		// amux capture [--ansi|--colors] [pane] — full screen or single pane
+		// amux capture [--ansi|--colors|--format json] [pane]
 		includeANSI := false
 		colorMap := false
+		formatJSON := false
 		var paneRef string
 		for _, arg := range msg.CmdArgs {
 			switch arg {
@@ -207,13 +208,29 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 				includeANSI = true
 			case "--colors":
 				colorMap = true
+			case "--format":
+				// next arg is the format value; handled below
+			case "json":
+				// only valid after --format; set flag
+				formatJSON = true
 			default:
 				paneRef = arg
 			}
 		}
 
-		if includeANSI && colorMap {
-			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "--ansi and --colors are mutually exclusive"})
+		// Three-way mutual exclusivity check
+		flagCount := 0
+		if includeANSI {
+			flagCount++
+		}
+		if colorMap {
+			flagCount++
+		}
+		if formatJSON {
+			flagCount++
+		}
+		if flagCount > 1 {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "--ansi, --colors, and --format json are mutually exclusive"})
 			return
 		}
 
@@ -230,7 +247,9 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 				return
 			}
 			var out string
-			if includeANSI {
+			if formatJSON {
+				out = sess.capturePaneJSON(pane)
+			} else if includeANSI {
 				out = pane.Render()
 			} else {
 				out = pane.Output(DefaultOutputLines)
@@ -240,7 +259,9 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 		} else {
 			// Full composited screen capture
 			var out string
-			if colorMap {
+			if formatJSON {
+				out = sess.captureJSON() + "\n"
+			} else if colorMap {
 				out = sess.renderColorMap()
 			} else {
 				out = sess.renderCapture(!includeANSI)
