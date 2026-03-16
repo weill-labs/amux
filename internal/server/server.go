@@ -373,7 +373,10 @@ func (s *Session) createPaneWithMeta(srv *Server, meta mux.PaneMeta, cols, rows 
 }
 
 // serverPaneData adapts *mux.Pane to the render.PaneData interface.
-type serverPaneData struct{ p *mux.Pane }
+type serverPaneData struct {
+	p    *mux.Pane
+	idle bool // cached from session idle tracking, avoids forking pgrep
+}
 
 func (s *serverPaneData) RenderScreen(active bool) string {
 	if !active {
@@ -390,7 +393,7 @@ func (s *serverPaneData) Host() string          { return s.p.Meta.Host }
 func (s *serverPaneData) Task() string          { return s.p.Meta.Task }
 func (s *serverPaneData) Color() string         { return s.p.Meta.Color }
 func (s *serverPaneData) Minimized() bool       { return s.p.Meta.Minimized }
-func (s *serverPaneData) Idle() bool            { return s.p.IsIdle() }
+func (s *serverPaneData) Idle() bool            { return s.idle }
 func (s *serverPaneData) InCopyMode() bool      { return false }
 func (s *serverPaneData) CopyModeSearch() string { return "" }
 
@@ -401,6 +404,16 @@ func (s *serverPaneData) CopyModeSearch() string { return "" }
 // Note: pane emulator reads here race with concurrent PTY writes. This is
 // the same best-effort pattern used by handleAttach's reattach snapshot.
 func (s *Session) renderCapture(stripANSI bool) string {
+	// Snapshot idle state before acquiring s.mu to avoid deadlock:
+	// trackPaneActivity holds idleTimerMu → acquires s.mu (via buildPaneEnv),
+	// so we must not hold s.mu when acquiring idleTimerMu.
+	s.idleTimerMu.Lock()
+	idleSnapshot := make(map[uint32]bool, len(s.idleState))
+	for id, idle := range s.idleState {
+		idleSnapshot[id] = idle
+	}
+	s.idleTimerMu.Unlock()
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -411,7 +424,7 @@ func (s *Session) renderCapture(stripANSI bool) string {
 
 	paneMap := make(map[uint32]render.PaneData, len(s.Panes))
 	for _, p := range s.Panes {
-		paneMap[p.ID] = &serverPaneData{p: p}
+		paneMap[p.ID] = &serverPaneData{p: p, idle: idleSnapshot[p.ID]}
 	}
 
 	totalH := w.Height + render.GlobalBarHeight

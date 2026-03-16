@@ -26,12 +26,13 @@ func renderPaneStatus(buf *strings.Builder, cell *mux.LayoutCell, isActive bool,
 	buf.WriteString(Surface0Bg)
 
 	color := pd.Color()
+	idle := !isActive && pd.Idle() // call once — may fork pgrep on server side
 
 	// Status icon: active=●, inactive+busy=○, inactive+idle=◇
 	if isActive {
 		buf.WriteString(hexToANSI(color))
 		buf.WriteString("●")
-	} else if pd.Idle() {
+	} else if idle {
 		buf.WriteString(DimFg)
 		buf.WriteString("◇")
 	} else {
@@ -44,7 +45,7 @@ func renderPaneStatus(buf *strings.Builder, cell *mux.LayoutCell, isActive bool,
 	if isActive {
 		buf.WriteString(Bold)
 		buf.WriteString(hexToANSI(color))
-	} else if pd.Idle() {
+	} else if idle {
 		buf.WriteString(DimFg)
 	} else {
 		buf.WriteString(TextFg)
