@@ -959,11 +959,13 @@ func (s *Server) handleAttach(conn net.Conn, msg *Message) {
 
 	sess.mu.Lock()
 
-	// Create the first pane and window if none exist
+	// Reserve rows for the global status bar.
+	layoutH := rows - render.GlobalBarHeight
+
+	// Create the first pane and window if none exist.
 	var newPane *mux.Pane
+	var resized bool
 	if len(sess.Windows) == 0 {
-		// Reserve 1 row for global status bar, 1 for per-pane status
-		layoutH := rows - render.GlobalBarHeight
 		paneH := mux.PaneContentHeight(layoutH)
 		pane, err := sess.createPane(s, cols, paneH)
 		if err != nil {
@@ -980,10 +982,10 @@ func (s *Server) handleAttach(conn net.Conn, msg *Message) {
 		newPane = pane
 	} else {
 		// Reattach: resize existing windows to match the new client's terminal.
-		layoutH := rows - render.GlobalBarHeight
 		for _, w := range sess.Windows {
 			w.Resize(cols, layoutH)
 		}
+		resized = true
 	}
 
 	// Send layout snapshot so client can build its rendering state
@@ -998,6 +1000,10 @@ func (s *Server) handleAttach(conn net.Conn, msg *Message) {
 
 	sess.clients = append(sess.clients, cc)
 	sess.mu.Unlock()
+
+	if resized {
+		sess.broadcastLayout()
+	}
 
 	if newPane != nil {
 		newPane.Start()

@@ -59,7 +59,7 @@ func TestReattachResize(t *testing.T) {
 	if snap.Width != 120 {
 		t.Errorf("reattach width: got %d, want 120", snap.Width)
 	}
-	// layoutH = rows - 1 (global bar)
+	// Layout height excludes the global bar.
 	if snap.Height != 39 {
 		t.Errorf("reattach height: got %d, want 39", snap.Height)
 	}
