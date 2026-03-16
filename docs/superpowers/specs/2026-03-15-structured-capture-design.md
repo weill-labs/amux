@@ -14,13 +14,15 @@ amux capture --format json              # full-screen: layout + all pane content
 amux capture --format json pane-1       # single-pane: content + cursor + metadata
 ```
 
-`--format json` is mutually exclusive with `--ansi` and `--colors`.
+`--format json` is mutually exclusive with `--ansi` and `--colors`. The existing two-way exclusivity check (`--ansi` vs `--colors`) is replaced with a three-way check covering all combinations.
 
 ## Output Shapes
 
 ### Full-screen
 
-Returns the complete layout state with all pane content embedded.
+Returns the active window's layout state with all pane content embedded. Multi-window sessions capture only the active window (matching existing `renderCapture` behavior). The `window.index` field is derived from the window's position in `Session.Windows` (1-based).
+
+At most one pane can be zoomed per window. When a pane is zoomed, its `position` reflects the full window dimensions (the zoomed viewport), not its original layout position. Other panes retain their layout positions but are not visible.
 
 ```json
 {
@@ -72,7 +74,7 @@ The `content` field is an array of strings, one per visible screen line. Lines a
 - ANSI-stripped (plain text only)
 - All lines preserved (including empty ones) to maintain positional accuracy — `content[n]` is screen row `n`
 
-This matches the VT emulator's screen buffer: every row from 0 to height-1 is represented.
+The array is padded to the pane's height: `len(content) == pane_height` is guaranteed. This matches the VT emulator's screen buffer: every row from 0 to height-1 is represented.
 
 ## Implementation
 
@@ -127,11 +129,13 @@ type CaptureCursor struct {
 
 A new method on `Session` (next to `renderCapture` and `renderColorMap`) that:
 
-1. Locks the session
+1. Locks the session mutex
 2. Reads the active window's layout snapshot (reuses `SnapshotLayout()` infrastructure)
-3. For each pane, reads emulator state: cursor position, cursor hidden, and screen content (render + strip ANSI + split into lines)
+3. For each pane, reads emulator state: cursor position, cursor hidden, and screen content (render + strip ANSI + split into lines + pad to height)
 4. Builds the `CaptureJSON` struct
 5. Serializes with `encoding/json.Marshal`
+
+Note: Pane emulator reads race with concurrent PTY writes (same best-effort pattern as existing `renderCapture`). The session lock prevents layout changes but does not synchronize emulator content. This is acceptable — the capture is a point-in-time snapshot, not a transaction.
 
 For single-pane: builds a single `CapturePane` without the `Position` field.
 
@@ -147,13 +151,13 @@ New method on `Pane` that returns all visible lines as `[]string`:
 func (p *Pane) ContentLines() []string
 ```
 
-Renders the emulator, strips ANSI, splits by newline, right-trims each line. Unlike `Output()` which skips empty lines and limits count, this preserves all rows for positional accuracy.
+Renders the emulator, strips ANSI, splits by newline, right-trims each line, and pads the result to the pane's height with empty strings. Unlike `Output()` which skips empty lines and limits count, this preserves all rows for positional accuracy (`len(result) == pane_height`).
 
 ## Testing
 
 ### Round-trip test
 
-Captures the same state as both text and JSON. Verifies that the JSON content lines match the text capture (after equivalent normalization). This proves the JSON is lossless and keeps it honest as rendering evolves.
+Captures the same state as both text and JSON. Verifies that the JSON content lines match the text capture after normalization: strip ANSI, right-trim each line, match line-for-line. This proves the JSON is lossless and keeps it honest as rendering evolves.
 
 ### Integration tests
 
