@@ -78,7 +78,6 @@ func TestMouseScrollWheel(t *testing.T) {
 
 	for i := 0; i < 30; i++ {
 		h.sendKeys(fmt.Sprintf("echo line-%d", i), "Enter")
-		time.Sleep(30 * time.Millisecond)
 	}
 	h.waitFor("line-29", 3*time.Second)
 
@@ -90,7 +89,6 @@ func TestMouseScrollWheel(t *testing.T) {
 	h.scrollAt(40, 12, true)
 	h.scrollAt(40, 12, true)
 	h.scrollAt(40, 12, true)
-	time.Sleep(200 * time.Millisecond)
 
 	if !h.waitFor("[pane-", 3*time.Second) {
 		t.Errorf("amux should still be running after scroll.\nScreen:\n%s", h.capture())

@@ -24,10 +24,12 @@ func TestHotReloadKeybinding(t *testing.T) {
 		screen := h.captureOuter()
 		t.Fatalf("session did not recover after Ctrl-a r\nScreen:\n%s", screen)
 	}
-	time.Sleep(400 * time.Millisecond)
 
-	h.sendKeys("Enter")
-	time.Sleep(400 * time.Millisecond)
+	// Send a marker command to confirm the shell is ready after reload
+	h.sendKeys("e", "c", "h", "o", " ", "P", "O", "S", "T", "R", "E", "L", "O", "A", "D", "Enter")
+	if !h.waitFor("POSTRELOAD", 5*time.Second) {
+		t.Fatalf("shell not ready after reload\nScreen:\n%s", h.captureOuter())
+	}
 
 	screen := h.captureOuter()
 	if strings.Contains(screen, "not found") {
