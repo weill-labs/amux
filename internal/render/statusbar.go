@@ -1,7 +1,7 @@
 package render
 
 import (
-	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -14,8 +14,7 @@ const GlobalBarHeight = 1
 // renderPaneStatus draws a per-pane status line at the top of a pane cell.
 // Format: ● [name] @host task
 func renderPaneStatus(buf *strings.Builder, cell *mux.LayoutCell, isActive bool, pd PaneData) {
-	// Move to cell position
-	buf.WriteString(CursorTo(cell.Y+1, cell.X+1))
+	writeCursorTo(buf, cell.Y+1, cell.X+1)
 
 	// Background: subtle dark surface
 	buf.WriteString(Surface0Bg)
@@ -39,7 +38,9 @@ func renderPaneStatus(buf *strings.Builder, cell *mux.LayoutCell, isActive bool,
 	} else {
 		buf.WriteString(TextFg)
 	}
-	buf.WriteString(fmt.Sprintf("[%s]", pd.Name()))
+	buf.WriteString("[")
+	buf.WriteString(pd.Name())
+	buf.WriteString("]")
 	buf.WriteString(NoBold)
 
 	// Copy mode indicator
@@ -52,17 +53,18 @@ func renderPaneStatus(buf *strings.Builder, cell *mux.LayoutCell, isActive bool,
 	// Host (only if not mux.DefaultHost)
 	if pd.Host() != "" && pd.Host() != mux.DefaultHost {
 		buf.WriteString(GreenFg)
-		buf.WriteString(fmt.Sprintf(" @%s", pd.Host()))
+		buf.WriteString(" @")
+		buf.WriteString(pd.Host())
 	}
 
 	// Task
 	if pd.Task() != "" {
 		buf.WriteString(TextFg)
-		buf.WriteString(fmt.Sprintf(" %s", pd.Task()))
+		buf.WriteString(" ")
+		buf.WriteString(pd.Task())
 	}
 
 	// Fill remaining width with spaces
-	// Calculate how many chars we've written (rough estimate)
 	usedWidth := 2 + len(pd.Name()) + 2 // "● [name]"
 	if pd.InCopyMode() {
 		usedWidth += 7 // " [copy]"
@@ -83,7 +85,7 @@ func renderPaneStatus(buf *strings.Builder, cell *mux.LayoutCell, isActive bool,
 
 // renderGlobalBar draws the global status bar at the bottom of the terminal.
 func renderGlobalBar(buf *strings.Builder, sessionName string, paneCount int, width, yPos int, windows []WindowInfo) {
-	buf.WriteString(CursorTo(yPos+1, 1))
+	writeCursorTo(buf, yPos+1, 1)
 
 	// Catppuccin surface0 bg, text fg
 	buf.WriteString(Surface0Bg + TextFg)
@@ -96,7 +98,7 @@ func renderGlobalBar(buf *strings.Builder, sessionName string, paneCount int, wi
 	// Show window tabs if there are multiple windows
 	if len(windows) > 1 {
 		for _, w := range windows {
-			tab := fmt.Sprintf("%d:%s", w.Index, w.Name)
+			tab := strconv.Itoa(w.Index) + ":" + w.Name
 			if w.IsActive {
 				left += Bold + "[" + tab + "]" + NoBold + " "
 				leftVisible += len(tab) + 3 // "[tab] "
@@ -112,7 +114,8 @@ func renderGlobalBar(buf *strings.Builder, sessionName string, paneCount int, wi
 		leftVisible += len(sessionName) + 1
 	}
 
-	right := fmt.Sprintf(" %d panes │ %s ", paneCount, now)
+	paneCountStr := strconv.Itoa(paneCount)
+	right := " " + paneCountStr + " panes │ " + now + " "
 	rightVisible := len(right)
 
 	buf.WriteString(left)

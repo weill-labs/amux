@@ -1,6 +1,10 @@
 package render
 
-import "fmt"
+import (
+	"fmt"
+	"strconv"
+	"strings"
+)
 
 // ANSI CSI escape sequences for terminal rendering.
 const (
@@ -48,4 +52,14 @@ func SetTitle(title string) string {
 // CursorTo returns an ANSI escape to move the cursor to (row, col), 1-based.
 func CursorTo(row, col int) string {
 	return fmt.Sprintf("\033[%d;%dH", row, col)
+}
+
+// writeCursorTo writes a cursor-position escape directly into buf,
+// avoiding the string allocation that CursorTo produces.
+func writeCursorTo(buf *strings.Builder, row, col int) {
+	buf.WriteString("\033[")
+	buf.WriteString(strconv.Itoa(row))
+	buf.WriteByte(';')
+	buf.WriteString(strconv.Itoa(col))
+	buf.WriteByte('H')
 }

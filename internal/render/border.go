@@ -11,12 +11,18 @@ type borderCell struct {
 	left, right *mux.LayoutCell // for vertical borders (or top/bottom for horizontal)
 }
 
+// borderPos records a border cell position for sparse iteration.
+type borderPos struct {
+	x, y int
+}
+
 // borderMap is a 2D grid marking which terminal cells are borders.
 // Each entry stores the adjacent cells for color determination.
 type borderMap struct {
 	width, height int
 	cells         []borderCell // width * height, row-major
 	isBorder      []bool       // same layout
+	positions     []borderPos  // sparse list of border positions
 }
 
 func newBorderMap(w, h int) *borderMap {
@@ -31,6 +37,9 @@ func newBorderMap(w, h int) *borderMap {
 func (bm *borderMap) set(x, y int, left, right *mux.LayoutCell) {
 	if x >= 0 && x < bm.width && y >= 0 && y < bm.height {
 		idx := y*bm.width + x
+		if !bm.isBorder[idx] {
+			bm.positions = append(bm.positions, borderPos{x, y})
+		}
 		bm.isBorder[idx] = true
 		bm.cells[idx] = borderCell{left: left, right: right}
 	}
@@ -124,62 +133,69 @@ func markBorders(bm *borderMap, cell *mux.LayoutCell) {
 }
 
 // renderBorders draws all border cells with junction characters and per-cell coloring.
+// Iterates the sparse position list instead of scanning the full w*h grid.
 func renderBorders(buf *strings.Builder, bm *borderMap, root *mux.LayoutCell, activePaneID uint32, activeColor string) {
 	lastColor := ""
-	for y := 0; y < bm.height; y++ {
-		for x := 0; x < bm.width; x++ {
-			if !bm.has(x, y) {
-				continue
+	for _, pos := range bm.positions {
+		x, y := pos.x, pos.y
+
+		// Determine junction character from neighbors
+		up := bm.has(x, y-1)
+		down := bm.has(x, y+1)
+		left := bm.has(x-1, y)
+		right := bm.has(x+1, y)
+		ch := junctionChar(up, down, left, right)
+
+		// Determine color from adjacent panes
+		bc := bm.get(x, y)
+		isJunction := (up || down) && (left || right)
+		color := borderColor(bc.left, bc.right, x, y, isJunction, activePaneID, activeColor)
+
+		if color != lastColor {
+			if lastColor != "" {
+				buf.WriteString(Reset)
 			}
-
-			// Determine junction character from neighbors
-			up := bm.has(x, y-1)
-			down := bm.has(x, y+1)
-			left := bm.has(x-1, y)
-			right := bm.has(x+1, y)
-			ch := junctionChar(up, down, left, right)
-
-			// Determine color from adjacent panes.
-			bc := bm.get(x, y)
-			isJunction := (up || down) && (left || right)
-			color := borderColor(bc.left, bc.right, x, y, isJunction, activePaneID, activeColor)
-
-			if color != lastColor {
-				if lastColor != "" {
-					buf.WriteString(Reset)
-				}
-				buf.WriteString(color)
-				lastColor = color
-			}
-
-			buf.WriteString(CursorTo(y+1, x+1))
-			buf.WriteString(ch)
+			buf.WriteString(color)
+			lastColor = color
 		}
+
+		writeCursorTo(buf, y+1, x+1)
+		buf.WriteString(ch)
 	}
 	if lastColor != "" {
 		buf.WriteString(Reset)
 	}
 }
 
+// Probe offsets for borderColor — hoisted to package level to avoid
+// per-call slice allocation. Junctions probe all 4 diagonals; straight
+// segments probe the 2 positions perpendicular to the border direction.
+var (
+	junctionOffsets   = [4][2]int{{-1, -1}, {1, -1}, {-1, 1}, {1, 1}}
+	verticalOffsets   = [2][2]int{{-1, 0}, {1, 0}}
+	horizontalOffsets = [2][2]int{{0, -1}, {0, 1}}
+)
+
 // borderColor determines the color for a border cell based on whether the
 // active pane is adjacent. For junctions (where perpendicular borders meet),
 // it probes the 4 diagonal positions which are always inside pane cells.
 // For straight segments, it probes the two positions perpendicular to the
-// border direction (x±1 for vertical borders, y±1 for horizontal).
+// border direction (x+-1 for vertical borders, y+-1 for horizontal).
 func borderColor(a, b *mux.LayoutCell, x, y int, junction bool, activePaneID uint32, activeColor string) string {
 	if activePaneID == 0 {
 		return DimFg
 	}
+
+	// Select probe offsets based on border type
 	var offsets [][2]int
 	if junction {
-		offsets = [][2]int{{-1, -1}, {1, -1}, {-1, 1}, {1, 1}}
+		offsets = junctionOffsets[:]
 	} else if x == a.X+a.W {
-		// Vertical border: probe left into a, right into b.
-		offsets = [][2]int{{-1, 0}, {1, 0}}
+		offsets = verticalOffsets[:]
 	} else {
-		// Horizontal border: probe up into a, down into b.
-		offsets = [][2]int{{0, -1}, {0, 1}}
+		offsets = horizontalOffsets[:]
 	}
+
 	for _, off := range offsets {
 		nx, ny := x+off[0], y+off[1]
 		leaf := findLeafByAxis(a, nx, ny)
