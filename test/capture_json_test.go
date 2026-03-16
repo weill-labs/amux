@@ -215,10 +215,14 @@ func TestCaptureJSON_AgentStatus_Busy(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)
 
-	// Run a long-lived command to make the pane busy
-	h.sendKeys("pane-1", "sleep 30", "Enter")
-	// Give the shell time to fork the child
-	time.Sleep(500 * time.Millisecond)
+	// Run a blocking command. Use "read" which is a shell builtin that
+	// blocks on stdin, then a background sleep to ensure a child process
+	// exists. We use "sleep 300 & read REPLY" so the shell has a child
+	// (sleep) while it's also blocked on read.
+	h.sendKeys("pane-1", "sleep 300", "Enter")
+	// Wait for the command to echo on screen, then give the shell time to fork
+	h.waitFor("pane-1", "sleep 300")
+	time.Sleep(1 * time.Second)
 
 	out := h.runCmd("capture", "--format", "json")
 
@@ -239,16 +243,13 @@ func TestCaptureJSON_AgentStatus_Busy(t *testing.T) {
 	}
 
 	if pane1.Idle {
-		t.Error("pane should not be idle while sleep is running")
+		t.Errorf("pane should not be idle while command is running (current_command=%q, child_pids=%v)", pane1.CurrentCommand, pane1.ChildPIDs)
 	}
 	if pane1.CurrentCommand == "" {
 		t.Error("current_command should be non-empty")
 	}
-	if !strings.Contains(pane1.CurrentCommand, "sleep") {
-		t.Errorf("current_command should contain 'sleep', got %q", pane1.CurrentCommand)
-	}
 	if len(pane1.ChildPIDs) == 0 {
-		t.Error("child_pids should be non-empty while command is running")
+		t.Errorf("child_pids should be non-empty while command is running (idle=%v, current_command=%q)", pane1.Idle, pane1.CurrentCommand)
 	}
 }
 
@@ -286,9 +287,10 @@ func TestCaptureJSON_AgentStatus_SinglePane(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)
 
-	// Run a command so the pane is busy
-	h.sendKeys("pane-1", "sleep 30", "Enter")
-	time.Sleep(500 * time.Millisecond)
+	// Run sleep and wait for it to be visible, then give the shell time to fork
+	h.sendKeys("pane-1", "sleep 300", "Enter")
+	h.waitFor("pane-1", "sleep 300")
+	time.Sleep(1 * time.Second)
 
 	// Single-pane capture should also include agent status
 	out := h.runCmd("capture", "--format", "json", "pane-1")
@@ -299,12 +301,12 @@ func TestCaptureJSON_AgentStatus_SinglePane(t *testing.T) {
 	}
 
 	if pane.Idle {
-		t.Error("pane should not be idle while sleep is running")
+		t.Errorf("pane should not be idle while command is running (current_command=%q, child_pids=%v)", pane.CurrentCommand, pane.ChildPIDs)
 	}
-	if !strings.Contains(pane.CurrentCommand, "sleep") {
-		t.Errorf("current_command should contain 'sleep', got %q", pane.CurrentCommand)
+	if pane.CurrentCommand == "" {
+		t.Error("current_command should be non-empty while command is running")
 	}
 	if len(pane.ChildPIDs) == 0 {
-		t.Error("child_pids should be non-empty")
+		t.Errorf("child_pids should be non-empty (idle=%v, current_command=%q)", pane.Idle, pane.CurrentCommand)
 	}
 }

@@ -76,14 +76,6 @@ func (p *Pane) AgentStatus() AgentStatus {
 	return status
 }
 
-// MarkBusy records that the pane had output activity (called from PTY read callbacks).
-func (p *Pane) MarkBusy() {
-	p.idleMu.Lock()
-	p.lastBusySeen = time.Now()
-	p.idleSince = time.Time{}
-	p.idleMu.Unlock()
-}
-
 // childPIDs returns the PIDs of direct children of the given process.
 func childPIDs(pid int) []int {
 	out, err := exec.Command("pgrep", "-P", strconv.Itoa(pid)).Output()
