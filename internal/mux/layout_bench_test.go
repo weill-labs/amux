@@ -95,6 +95,35 @@ func BenchmarkFixOffsets(b *testing.B) {
 	}
 }
 
+// flatHTree builds a horizontal tree with n same-direction siblings (Case A scenario).
+func flatHTree(n int) *LayoutCell {
+	root := NewLeaf(fakePaneID(1), 0, 0, 800, 240)
+	// First split creates Case B (root has no parent), establishing the internal node
+	if n >= 2 {
+		root.Split(SplitHorizontal, fakePaneID(2))
+	}
+	// Subsequent splits use Case A (same-direction sibling insertion)
+	for i := 3; i <= n; i++ {
+		root.Children[0].Split(SplitHorizontal, fakePaneID(uint32(i)))
+	}
+	root.FixOffsets()
+	return root
+}
+
+// BenchmarkSplitIncremental measures the cost of building a flat tree by
+// adding one same-direction split at a time. The per-split cost should be
+// constant (O(1)) regardless of sibling count.
+func BenchmarkSplitIncremental(b *testing.B) {
+	for _, n := range []int{4, 10, 20, 40} {
+		b.Run(fmt.Sprintf("siblings_%d", n), func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				flatHTree(n)
+			}
+		})
+	}
+}
+
 func BenchmarkResolvePane(b *testing.B) {
 	for _, n := range []int{1, 10, 20} {
 		b.Run(fmt.Sprintf("panes_%d", n), func(b *testing.B) {

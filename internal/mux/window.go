@@ -123,7 +123,15 @@ func (w *Window) Split(dir SplitDir, newPane *Pane) (*Pane, error) {
 	// Resize PTYs to match layout cells (minus status line row)
 	newPane.Resize(newCell.W, PaneContentHeight(newCell.H))
 
-	existingCell := w.Root.FindPane(w.ActivePane.ID)
+	// Find the existing pane's cell without a second tree walk:
+	// - Case A (sibling insertion): cell itself still holds the existing pane
+	// - Case B (new parent): cell became internal; existing pane is in Children[0]
+	var existingCell *LayoutCell
+	if cell.IsLeaf() {
+		existingCell = cell
+	} else if len(cell.Children) > 0 {
+		existingCell = cell.Children[0]
+	}
 	if existingCell != nil {
 		w.ActivePane.Resize(existingCell.W, PaneContentHeight(existingCell.H))
 	}

@@ -85,8 +85,9 @@ func (c *LayoutCell) Split(dir SplitDir, newPane *Pane) (*LayoutCell, error) {
 	size2 := (available - 1) / 2
 	size1 := available - 1 - size2
 
-	// Case A: parent exists and has the same split direction — add as sibling
-	// and redistribute space equally among all siblings.
+	// Case A: parent exists and has the same split direction — add as sibling.
+	// Take half the space from the current cell (O(1)) instead of
+	// redistributing all siblings equally (O(n)).
 	if c.Parent != nil && !c.Parent.isLeaf && c.Parent.Dir == dir {
 		newLeaf := NewLeaf(newPane, 0, 0, 0, 0)
 		newLeaf.Parent = c.Parent
@@ -98,29 +99,16 @@ func (c *LayoutCell) Split(dir SplitDir, newPane *Pane) (*LayoutCell, error) {
 		copy(parent.Children[idx+2:], parent.Children[idx+1:])
 		parent.Children[idx+1] = newLeaf
 
-		// Redistribute equally
-		n := len(parent.Children)
-		seps := n - 1
+		// Take half the space from the split cell only — other siblings
+		// are untouched, making this O(1) regardless of sibling count.
 		if dir == SplitHorizontal {
-			each := (parent.W - seps) / n
-			for i, child := range parent.Children {
-				if i == n-1 {
-					child.W = parent.W - seps - each*(n-1)
-				} else {
-					child.W = each
-				}
-				child.H = parent.H
-			}
+			newLeaf.H = parent.H
+			newLeaf.W = size2
+			c.W = size1
 		} else {
-			each := (parent.H - seps) / n
-			for i, child := range parent.Children {
-				if i == n-1 {
-					child.H = parent.H - seps - each*(n-1)
-				} else {
-					child.H = each
-				}
-				child.W = parent.W
-			}
+			newLeaf.W = parent.W
+			newLeaf.H = size2
+			c.H = size1
 		}
 
 		return newLeaf, nil
