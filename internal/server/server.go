@@ -221,10 +221,9 @@ func (s *Session) clipboardCallback() func(paneID uint32, data []byte) {
 // forwardCapture sends a capture request to the first attached interactive
 // client and waits for its response. The client renders from its own
 // emulators — the rendering source of truth. For JSON captures, the server
-// gathers agent status (process inspection) and includes it in the request.
-// Serialized: only one capture in flight at a time via captureMu.
+// gathers agent status (one pgrep call per pane) and includes it in the
+// request. Serialized via captureMu so concurrent callers don't clobber.
 func (s *Session) forwardCapture(args []string) *Message {
-	// Serialize capture requests so concurrent callers don't clobber each other.
 	s.captureMu.Lock()
 	defer s.captureMu.Unlock()
 
@@ -238,20 +237,19 @@ func (s *Session) forwardCapture(args []string) *Message {
 	ch := make(chan *Message, 1)
 	s.captureResult = ch
 
-	// For JSON captures, gather pane references while we hold the lock.
-	// The actual AgentStatus() calls happen outside the lock to avoid
-	// blocking the server on pgrep/ps subprocesses.
+	// For JSON captures, snapshot pane list while holding the lock.
 	var statusPanes []*mux.Pane
-	isJSON := hasArg(args, "json")
-	if isJSON {
+	if hasArg(args, "json") {
 		statusPanes = make([]*mux.Pane, len(s.Panes))
 		copy(statusPanes, s.Panes)
 	}
 	s.mu.Unlock()
 
-	// Gather agent status outside the lock (spawns subprocesses).
+	// Gather agent status outside the lock (spawns pgrep subprocesses).
+	// One call per pane — the result is included in the capture request
+	// so the client doesn't need its own pgrep.
 	var agentStatus map[uint32]proto.PaneAgentStatus
-	if isJSON {
+	if len(statusPanes) > 0 {
 		agentStatus = make(map[uint32]proto.PaneAgentStatus, len(statusPanes))
 		for _, p := range statusPanes {
 			st := p.AgentStatus()
@@ -586,8 +584,7 @@ func (s *Session) notifyPaneOutputSubs(paneID uint32) {
 
 // paneIsBusy checks whether the given pane has child processes (i.e., a
 // command is running). Thread-safe: looks up the pane under s.mu, then
-// inspects the process tree outside the lock. Retries once on "not busy"
-// to handle races where pgrep misses a recently-forked child.
+// inspects the process tree outside the lock.
 func (s *Session) paneIsBusy(paneID uint32) bool {
 	s.mu.Lock()
 	var pane *mux.Pane
@@ -601,8 +598,7 @@ func (s *Session) paneIsBusy(paneID uint32) bool {
 	if pane == nil {
 		return false
 	}
-	status := pane.AgentStatus()
-	return !status.Idle
+	return !pane.AgentStatus().Idle
 }
 
 // paneIsIdle checks whether the given pane has no child processes (shell is

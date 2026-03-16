@@ -235,6 +235,7 @@ func TestCaptureJSON_AgentStatus_Busy(t *testing.T) {
 	h.sendKeys("pane-1", "sleep 300", "Enter")
 	h.waitBusy("pane-1") // zero-polling: blocks until child process exists
 
+
 	pane1 := captureJSONPane(t, h, "pane-1")
 
 	if pane1.Idle {
@@ -259,7 +260,8 @@ func TestCaptureJSON_AgentStatus_Idle(t *testing.T) {
 	// to confirm the shell is initialized and idle.
 	h.sendKeys("pane-1", "echo READY", "Enter")
 	h.waitFor("pane-1", "READY")
-	h.waitIdle("pane-1") // ensure shell prompt processing is complete
+	h.waitIdle("pane-1")
+
 
 	out := h.runCmd("capture", "--format", "json", "pane-1")
 
@@ -289,6 +291,7 @@ func TestCaptureJSON_AgentStatus_SinglePane(t *testing.T) {
 	h.sendKeys("pane-1", "sleep 300", "Enter")
 	h.waitBusy("pane-1")
 
+
 	// Single-pane capture should also include agent status
 	out := h.runCmd("capture", "--format", "json", "pane-1")
 
@@ -312,10 +315,11 @@ func TestCaptureJSON_AgentStatus_Transition(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)
 
-	// Start idle — confirm initial state
+	// Start idle — confirm initial state.
 	h.sendKeys("pane-1", "echo INIT", "Enter")
 	h.waitFor("pane-1", "INIT")
-	h.waitIdle("pane-1") // ensure shell prompt processing is complete
+	h.waitIdle("pane-1")
+
 
 	pane := captureJSONPane(t, h, "pane-1")
 	if !pane.Idle {
@@ -329,6 +333,7 @@ func TestCaptureJSON_AgentStatus_Transition(t *testing.T) {
 	// Transition to busy
 	h.sendKeys("pane-1", "sleep 300", "Enter")
 	h.waitBusy("pane-1")
+
 
 	pane = captureJSONPane(t, h, "pane-1")
 	if pane.Idle {
@@ -372,7 +377,8 @@ func TestCaptureJSON_AgentStatus_MultiPane(t *testing.T) {
 	h.waitBusy("pane-1")
 	h.sendKeys("pane-2", "echo IDLE_CHECK", "Enter")
 	h.waitFor("pane-2", "IDLE_CHECK")
-	h.waitIdle("pane-2") // ensure shell prompt processing is complete
+	h.waitIdle("pane-2")
+
 
 	out := h.runCmd("capture", "--format", "json")
 	var capture proto.CaptureJSON
