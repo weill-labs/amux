@@ -113,7 +113,11 @@ Rebase onto `origin/main` before the first push (`git fetch origin main && git r
 
 ### Post-PR Review
 
-After creating a PR, always run the code review and code simplifier agents before considering the work done. These catch issues that are easy to miss during implementation: style inconsistencies, unnecessary complexity, and subtle bugs.
+After creating a PR, immediately dispatch the code review and code simplifier agents (in background) before presenting the PR URL. Address their feedback before considering the work done. These catch issues that are easy to miss during implementation: style inconsistencies, unnecessary complexity, and subtle bugs.
+
+### Include Baseline Numbers in Performance PRs
+
+When creating PRs that add or modify benchmarks, include a "Baseline numbers" section in the PR description with representative results in a markdown table. Include the hardware (e.g., "Apple M4, macOS") for context. Development run results are ephemeral — the PR description is the permanent record.
 
 ### Adding a New Feature
 
