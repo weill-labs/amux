@@ -7,6 +7,26 @@ func fakePaneID(id uint32) *Pane {
 	return &Pane{ID: id}
 }
 
+// assertApproxEqual checks that all sizes are approximately equal, allowing
+// for integer rounding. The last child receives the remainder, so the maximum
+// difference is len(sizes)-1.
+func assertApproxEqual(t *testing.T, sizes []int) {
+	t.Helper()
+	minS, maxS := sizes[0], sizes[0]
+	for _, s := range sizes[1:] {
+		if s < minS {
+			minS = s
+		}
+		if s > maxS {
+			maxS = s
+		}
+	}
+	limit := len(sizes) - 1
+	if maxS-minS > limit {
+		t.Errorf("sizes not approximately equal: %v (max-min=%d, limit=%d)", sizes, maxS-minS, limit)
+	}
+}
+
 func TestNewLeaf(t *testing.T) {
 	t.Parallel()
 	p := fakePaneID(1)
@@ -161,28 +181,14 @@ func TestSplitSiblingEqualRedistribution(t *testing.T) {
 			root.Children[0].Split(tt.dir, fakePaneID(3))
 
 			// All 3 siblings should have approximately equal sizes
-			n := len(root.Children)
-			if n != 3 {
-				t.Fatalf("expected 3 children, got %d", n)
+			if len(root.Children) != 3 {
+				t.Fatalf("expected 3 children, got %d", len(root.Children))
 			}
-			sizes := make([]int, n)
+			sizes := make([]int, len(root.Children))
 			for i, c := range root.Children {
 				sizes[i] = size(c)
 			}
-			minS, maxS := sizes[0], sizes[0]
-			for _, s := range sizes[1:] {
-				if s < minS {
-					minS = s
-				}
-				if s > maxS {
-					maxS = s
-				}
-			}
-			// Allow for integer rounding: the last child gets the remainder,
-			// so it can be up to n-1 larger than the others.
-			if maxS-minS > n-1 {
-				t.Errorf("siblings not equal: sizes %v (max-min=%d, limit=%d)", sizes, maxS-minS, n-1)
-			}
+			assertApproxEqual(t, sizes)
 
 			// Total across all children + separators should be preserved
 			total := 0
