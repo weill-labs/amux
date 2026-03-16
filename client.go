@@ -1,6 +1,9 @@
 package main
 
 import (
+	"encoding/json"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -25,7 +28,9 @@ type ClientRenderer struct {
 	width        int // full terminal width
 	height       int // full terminal height
 	dirty        bool
-	copyModes    map[uint32]*copymode.CopyMode // per-pane copy mode state (nil = not in copy mode)
+	copyModes   map[uint32]*copymode.CopyMode // per-pane copy mode state (nil = not in copy mode)
+	windows     []proto.WindowSnapshot         // for JSON capture window info
+	activeWinID uint32
 }
 
 // NewClientRenderer creates a client renderer for the given terminal dimensions.
@@ -56,6 +61,8 @@ func (cr *ClientRenderer) HandleLayout(snap *proto.LayoutSnapshot) {
 	activeRoot := snap.Root
 	if len(snap.Windows) > 0 {
 		allPanes = nil
+		cr.windows = snap.Windows
+		cr.activeWinID = snap.ActiveWindowID
 		for _, ws := range snap.Windows {
 			allPanes = append(allPanes, ws.Panes...)
 			if ws.ID == snap.ActiveWindowID {
@@ -75,7 +82,14 @@ func (cr *ClientRenderer) HandleLayout(snap *proto.LayoutSnapshot) {
 	// Create emulators for new panes
 	for _, ps := range allPanes {
 		if _, exists := cr.emulators[ps.ID]; !exists {
-			w, h := findPaneDimensions(snap, activeRoot, ps.ID)
+			var w, h int
+			if ps.Minimized && ps.EmuWidth > 0 && ps.EmuHeight > 0 {
+				// Use pre-minimize emulator dimensions so replayed
+				// screen content isn't truncated into a tiny emulator.
+				w, h = ps.EmuWidth, ps.EmuHeight
+			} else {
+				w, h = proto.FindPaneDimensions(snap, activeRoot, ps.ID, mux.PaneContentHeight)
+			}
 			cr.emulators[ps.ID] = mux.NewVTEmulatorWithDrain(w, h)
 		}
 	}
@@ -193,6 +207,192 @@ func (cr *ClientRenderer) Resize(width, height int) {
 	cr.width = width
 	cr.height = height
 	cr.compositor.Resize(width, height)
+}
+
+// Capture renders the full composited screen from client-side emulators.
+// If stripANSI is true, returns a plain-text grid preserving visual layout.
+func (cr *ClientRenderer) Capture(stripANSI bool) string {
+	cr.mu.Lock()
+	defer cr.mu.Unlock()
+
+	if cr.layout == nil {
+		return ""
+	}
+
+	root, activePaneID := cr.captureRootLocked()
+	raw := cr.compositor.RenderFull(root, activePaneID, cr.paneLookupLocked)
+
+	if stripANSI {
+		return render.MaterializeGrid(raw, cr.width, cr.height)
+	}
+	return raw
+}
+
+// CaptureColorMap renders a color map from client-side emulators.
+func (cr *ClientRenderer) CaptureColorMap() string {
+	cr.mu.Lock()
+	defer cr.mu.Unlock()
+
+	if cr.layout == nil {
+		return ""
+	}
+
+	root, activePaneID := cr.captureRootLocked()
+	raw := cr.compositor.RenderFull(root, activePaneID, cr.paneLookupLocked)
+	return render.ExtractColorMap(raw, cr.width, cr.height) + "\n"
+}
+
+// CaptureJSON renders a structured JSON capture from client-side emulators.
+// Agent status (idle, current_command, child_pids) comes from the server.
+func (cr *ClientRenderer) CaptureJSON(agentStatus map[uint32]proto.PaneAgentStatus) string {
+	cr.mu.Lock()
+	defer cr.mu.Unlock()
+
+	if cr.layout == nil {
+		return "{}"
+	}
+
+	root, _ := cr.captureRootLocked()
+
+	capture := proto.CaptureJSON{
+		Session: cr.sessionName,
+		Width:   cr.width,
+		Height:  cr.compositor.LayoutHeight(),
+	}
+	for _, ws := range cr.windows {
+		if ws.ID == cr.activeWinID {
+			capture.Window = proto.CaptureWindow{
+				ID: ws.ID, Name: ws.Name, Index: ws.Index,
+			}
+			break
+		}
+	}
+
+	root.Walk(func(c *mux.LayoutCell) {
+		paneID := c.CellPaneID()
+		if paneID == 0 {
+			return
+		}
+		cp, ok := cr.buildCapturePaneLocked(paneID, agentStatus)
+		if !ok {
+			return
+		}
+		cp.Position = &proto.CapturePos{
+			X: c.X, Y: c.Y, Width: c.W, Height: c.H,
+		}
+		capture.Panes = append(capture.Panes, cp)
+	})
+
+	out, _ := json.MarshalIndent(capture, "", "  ")
+	return string(out)
+}
+
+// CapturePaneText returns a single pane's content from client-side emulators.
+func (cr *ClientRenderer) CapturePaneText(paneID uint32, includeANSI bool) string {
+	cr.mu.Lock()
+	defer cr.mu.Unlock()
+
+	emu, ok := cr.emulators[paneID]
+	if !ok {
+		return ""
+	}
+	if includeANSI {
+		return emu.Render()
+	}
+	return strings.Join(mux.EmulatorContentLines(emu), "\n")
+}
+
+// CapturePaneJSON returns a single pane's JSON from client-side emulators.
+func (cr *ClientRenderer) CapturePaneJSON(paneID uint32, agentStatus map[uint32]proto.PaneAgentStatus) string {
+	cr.mu.Lock()
+	defer cr.mu.Unlock()
+
+	cp, ok := cr.buildCapturePaneLocked(paneID, agentStatus)
+	if !ok {
+		return "{}"
+	}
+	out, _ := json.MarshalIndent(cp, "", "  ")
+	return string(out)
+}
+
+// ResolvePaneID resolves a pane reference to an ID from client-side state.
+func (cr *ClientRenderer) ResolvePaneID(ref string) uint32 {
+	cr.mu.Lock()
+	defer cr.mu.Unlock()
+
+	// Try numeric ID
+	if id, err := strconv.ParseUint(ref, 10, 32); err == nil {
+		if _, ok := cr.paneInfo[uint32(id)]; ok {
+			return uint32(id)
+		}
+	}
+	// Try name or prefix match
+	var prefixMatch uint32
+	for _, info := range cr.paneInfo {
+		if info.Name == ref {
+			return info.ID
+		}
+		if strings.HasPrefix(info.Name, ref) {
+			prefixMatch = info.ID
+		}
+	}
+	return prefixMatch
+}
+
+// captureRootLocked returns the layout root and active pane ID for capture.
+// Caller must hold cr.mu.
+func (cr *ClientRenderer) captureRootLocked() (*mux.LayoutCell, uint32) {
+	root := cr.layout
+	if cr.zoomedPaneID != 0 {
+		root = mux.NewLeafByID(cr.zoomedPaneID, 0, 0, cr.width, cr.compositor.LayoutHeight())
+	}
+	return root, cr.activePaneID
+}
+
+// buildCapturePaneLocked builds a CapturePane from emulator state for the given pane.
+// Returns false if the pane or its emulator is not found. Caller must hold cr.mu.
+func (cr *ClientRenderer) buildCapturePaneLocked(paneID uint32, agentStatus map[uint32]proto.PaneAgentStatus) (proto.CapturePane, bool) {
+	emu, ok := cr.emulators[paneID]
+	if !ok {
+		return proto.CapturePane{}, false
+	}
+	info, ok := cr.paneInfo[paneID]
+	if !ok {
+		return proto.CapturePane{}, false
+	}
+	col, row := emu.CursorPosition()
+	cp := proto.CapturePane{
+		ID:        info.ID,
+		Name:      info.Name,
+		Active:    info.ID == cr.activePaneID,
+		Minimized: info.Minimized,
+		Zoomed:    info.ID == cr.zoomedPaneID,
+		Host:      info.Host,
+		Task:      info.Task,
+		Color:     info.Color,
+		Cursor: proto.CaptureCursor{
+			Col:    col,
+			Row:    row,
+			Hidden: emu.CursorHidden(),
+		},
+		Content: mux.EmulatorContentLines(emu),
+	}
+	cp.ApplyAgentStatus(agentStatus)
+	return cp, true
+}
+
+// paneLookupLocked returns a PaneData for the given pane ID.
+// Caller must hold cr.mu.
+func (cr *ClientRenderer) paneLookupLocked(paneID uint32) render.PaneData {
+	emu, ok := cr.emulators[paneID]
+	if !ok {
+		return nil
+	}
+	info, ok := cr.paneInfo[paneID]
+	if !ok {
+		return nil
+	}
+	return &clientPaneData{emu: emu, info: info, cm: cr.copyModes[paneID]}
 }
 
 // renderCoalesced runs a select loop that reads messages from msgCh,
@@ -370,30 +570,3 @@ func (c *clientPaneData) CopyModeSearch() string {
 	return ""
 }
 
-// findPaneDimensions returns the width and content height for a pane,
-// searching the active window's root first, then all other windows.
-// Falls back to the full snapshot dimensions if not found.
-func findPaneDimensions(snap *proto.LayoutSnapshot, activeRoot proto.CellSnapshot, paneID uint32) (int, int) {
-	if cell := findCellInSnapshot(activeRoot, paneID); cell != nil {
-		return cell.W, mux.PaneContentHeight(cell.H)
-	}
-	for _, ws := range snap.Windows {
-		if cell := findCellInSnapshot(ws.Root, paneID); cell != nil {
-			return cell.W, mux.PaneContentHeight(cell.H)
-		}
-	}
-	return snap.Width, mux.PaneContentHeight(snap.Height)
-}
-
-// findCellInSnapshot finds a cell by pane ID in a CellSnapshot tree.
-func findCellInSnapshot(cs proto.CellSnapshot, paneID uint32) *proto.CellSnapshot {
-	if cs.IsLeaf && cs.PaneID == paneID {
-		return &cs
-	}
-	for i := range cs.Children {
-		if found := findCellInSnapshot(cs.Children[i], paneID); found != nil {
-			return found
-		}
-	}
-	return nil
-}

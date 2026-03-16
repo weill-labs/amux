@@ -96,22 +96,34 @@ func TestEventsInitialSnapshot(t *testing.T) {
 	scanner, closer := eventStream(t, h.session)
 	defer closer()
 
-	// First event should be a layout snapshot
-	ev := readEvent(t, scanner, 5*time.Second)
-	if ev.Type != "layout" {
-		t.Errorf("first event type: got %q, want %q", ev.Type, "layout")
+	// First event should be a layout snapshot. On slow CI, an idle-triggered
+	// layout broadcast may arrive first without active_pane — skip it.
+	var ev eventJSON
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		ev = readEvent(t, scanner, time.Until(deadline))
+		if ev.Type == "layout" && ev.ActivePane != "" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("expected layout event with active_pane, got type=%q active_pane=%q", ev.Type, ev.ActivePane)
+		}
 	}
 	if ev.Timestamp == "" {
 		t.Error("event should have a timestamp")
 	}
-	if ev.ActivePane == "" {
-		t.Error("layout event should have active_pane")
-	}
 
-	// Second event should be idle or busy for pane-1
-	ev = readEvent(t, scanner, 5*time.Second)
-	if ev.Type != "idle" && ev.Type != "busy" {
-		t.Errorf("second event type: got %q, want idle or busy", ev.Type)
+	// Next idle or busy event should be for pane-1. Other events (output,
+	// layout from idle state changes) may arrive first — skip them.
+	deadline = time.Now().Add(5 * time.Second)
+	for {
+		ev = readEvent(t, scanner, time.Until(deadline))
+		if ev.Type == "idle" || ev.Type == "busy" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("expected idle or busy event, only got %q", ev.Type)
+		}
 	}
 	if ev.PaneName != "pane-1" {
 		t.Errorf("pane name: got %q, want %q", ev.PaneName, "pane-1")

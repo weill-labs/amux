@@ -29,6 +29,10 @@ const (
 	MsgTypeCopyMode     = proto.MsgTypeCopyMode
 	MsgTypeClipboard    = proto.MsgTypeClipboard
 	MsgTypeInputPane    = proto.MsgTypeInputPane
+
+	// Bidirectional — capture routed through attached client
+	MsgTypeCaptureRequest  = proto.MsgTypeCaptureRequest
+	MsgTypeCaptureResponse = proto.MsgTypeCaptureResponse
 )
 
 // WriteMsg encodes and writes a message to w.

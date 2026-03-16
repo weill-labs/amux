@@ -31,6 +31,10 @@ const (
 	MsgTypeCopyMode     MsgType = 18 // enter copy mode for a pane (server → client)
 	MsgTypeClipboard    MsgType = 19 // OSC 52 clipboard data from a pane
 	MsgTypeInputPane    MsgType = 20 // input targeted at a specific pane ID (remote proxying)
+
+	// Bidirectional — capture routed through attached client
+	MsgTypeCaptureRequest  MsgType = 21 // server → client: render capture from client emulators
+	MsgTypeCaptureResponse MsgType = 22 // client → server: captured output
 )
 
 // Message is the wire protocol envelope. Only the fields relevant to
@@ -68,6 +72,10 @@ type Message struct {
 
 	// MsgTypeLayout
 	Layout *LayoutSnapshot
+
+	// MsgTypeCaptureRequest — server-gathered agent status for JSON capture.
+	// Keyed by pane ID. Only populated when capture args include --format json.
+	AgentStatus map[uint32]PaneAgentStatus
 }
 
 const maxMessageSize = 16 * 1024 * 1024 // 16 MB

@@ -19,6 +19,7 @@ import (
 	"github.com/weill-labs/amux/internal/copymode"
 	"github.com/weill-labs/amux/internal/mouse"
 	"github.com/weill-labs/amux/internal/mux"
+	"github.com/weill-labs/amux/internal/proto"
 	"github.com/weill-labs/amux/internal/render"
 	"github.com/weill-labs/amux/internal/server"
 
@@ -554,6 +555,11 @@ func runMux(sessionName string) error {
 				msgCh <- &renderMsg{typ: renderMsgBell}
 			case server.MsgTypeClipboard:
 				msgCh <- &renderMsg{typ: renderMsgClipboard, data: msg.PaneData}
+			case server.MsgTypeCaptureRequest:
+				// Server is forwarding a capture request — render from
+				// client-side emulators and send the result back.
+				resp := handleCaptureRequest(cr, msg.CmdArgs, msg.AgentStatus)
+				server.WriteMsg(conn, resp)
 			case server.MsgTypeServerReload:
 				// Server is reloading — re-exec ourselves to reconnect
 				select {
@@ -1050,4 +1056,60 @@ func runServerCommand(cmdName string, args []string) {
 		os.Exit(1)
 	}
 	fmt.Print(reply.CmdOutput)
+}
+
+// handleCaptureRequest processes a capture request forwarded from the server.
+// It renders from the client-side emulators and returns a response message.
+func handleCaptureRequest(cr *ClientRenderer, args []string, agentStatus map[uint32]proto.PaneAgentStatus) *server.Message {
+	var includeANSI, colorMap, formatJSON bool
+	var paneRef string
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--ansi":
+			includeANSI = true
+		case "--colors":
+			colorMap = true
+		case "--format":
+			if i+1 < len(args) && args[i+1] == "json" {
+				formatJSON = true
+				i++ // consume "json"
+			}
+		default:
+			paneRef = args[i]
+		}
+	}
+
+	if (includeANSI && colorMap) || (includeANSI && formatJSON) || (colorMap && formatJSON) {
+		return &server.Message{Type: server.MsgTypeCaptureResponse,
+			CmdErr: "--ansi, --colors, and --format json are mutually exclusive"}
+	}
+
+	if paneRef != "" {
+		if colorMap {
+			return &server.Message{Type: server.MsgTypeCaptureResponse,
+				CmdErr: "--colors is only supported for full screen capture"}
+		}
+		paneID := cr.ResolvePaneID(paneRef)
+		if paneID == 0 {
+			return &server.Message{Type: server.MsgTypeCaptureResponse,
+				CmdErr: fmt.Sprintf("pane %q not found", paneRef)}
+		}
+		var out string
+		if formatJSON {
+			out = cr.CapturePaneJSON(paneID, agentStatus)
+		} else {
+			out = cr.CapturePaneText(paneID, includeANSI)
+		}
+		return &server.Message{Type: server.MsgTypeCaptureResponse, CmdOutput: out + "\n"}
+	}
+
+	var out string
+	if formatJSON {
+		out = cr.CaptureJSON(agentStatus) + "\n"
+	} else if colorMap {
+		out = cr.CaptureColorMap()
+	} else {
+		out = cr.Capture(!includeANSI)
+	}
+	return &server.Message{Type: server.MsgTypeCaptureResponse, CmdOutput: out}
 }

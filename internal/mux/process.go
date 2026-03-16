@@ -80,6 +80,19 @@ func (p *Pane) AgentStatus() AgentStatus {
 				status.CurrentCommand = shellName
 			}
 		}
+
+		// If still busy, recheck once after a brief delay to filter
+		// transient children from PROMPT_COMMAND or PS1 evaluation.
+		// These processes live <20ms and shouldn't count as "busy".
+		if !status.Idle {
+			time.Sleep(25 * time.Millisecond)
+			recheck := childPIDs(shellPid)
+			if len(recheck) == 0 {
+				status.Idle = true
+				status.ChildPIDs = []int{}
+				status.CurrentCommand = processName(shellPid)
+			}
+		}
 	}
 
 	// Populate idle_since from tracked state
