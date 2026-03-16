@@ -341,16 +341,22 @@ func TestCaptureJSON_AgentStatus_ChildPIDsArray(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)
 
-	// Even when idle, child_pids should be a JSON array (not null)
+	// Even when idle, child_pids should be a JSON array (not null).
+	// Retry briefly — bash's job-control self-fork can create a transient
+	// child process that settles within ~100ms.
 	h.sendKeys("pane-1", "echo ARRAY_TEST", "Enter")
 	h.waitFor("pane-1", "ARRAY_TEST")
 
-	out := h.runCmd("capture", "--format", "json", "pane-1")
-
-	// Verify the raw JSON contains "child_pids": [] not "child_pids": null
-	if !strings.Contains(out, `"child_pids": []`) {
-		t.Errorf("idle pane should have child_pids as empty array, got:\n%s", out)
+	deadline := time.Now().Add(3 * time.Second)
+	var out string
+	for time.Now().Before(deadline) {
+		out = h.runCmd("capture", "--format", "json", "pane-1")
+		if strings.Contains(out, `"child_pids": []`) {
+			return // pass
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
+	t.Errorf("idle pane should have child_pids as empty array, got:\n%s", out)
 }
 
 func TestCaptureJSON_AgentStatus_MultiPane(t *testing.T) {

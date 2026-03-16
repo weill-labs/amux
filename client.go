@@ -358,6 +358,7 @@ func (c *clientPaneData) Host() string    { return c.info.Host }
 func (c *clientPaneData) Task() string    { return c.info.Task }
 func (c *clientPaneData) Color() string   { return c.info.Color }
 func (c *clientPaneData) Minimized() bool { return c.info.Minimized }
+func (c *clientPaneData) Idle() bool      { return c.info.Idle }
 func (c *clientPaneData) InCopyMode() bool {
 	return c.cm != nil
 }

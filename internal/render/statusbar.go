@@ -14,6 +14,11 @@ const GlobalBarHeight = 1
 
 // renderPaneStatus draws a per-pane status line at the top of a pane cell.
 // Format: ● [name] @host task
+//
+// Icon states:
+//   - Active pane:          ● (filled, pane color)
+//   - Inactive + busy:      ○ (hollow circle, dim)
+//   - Inactive + idle:      ◇ (diamond outline, dim)
 func renderPaneStatus(buf *strings.Builder, cell *mux.LayoutCell, isActive bool, pd PaneData) {
 	writeCursorTo(buf, cell.Y+1, cell.X+1)
 
@@ -22,20 +27,25 @@ func renderPaneStatus(buf *strings.Builder, cell *mux.LayoutCell, isActive bool,
 
 	color := pd.Color()
 
-	// Status icon with pane color
+	// Status icon: active=●, inactive+busy=○, inactive+idle=◇
 	if isActive {
 		buf.WriteString(hexToANSI(color))
 		buf.WriteString("●")
+	} else if pd.Idle() {
+		buf.WriteString(DimFg)
+		buf.WriteString("◇")
 	} else {
 		buf.WriteString(DimFg)
 		buf.WriteString("○")
 	}
 
-	// Name in bold with pane color
+	// Name: active=bold+color, inactive+busy=text, inactive+idle=dim
 	buf.WriteString(" ")
 	if isActive {
 		buf.WriteString(Bold)
 		buf.WriteString(hexToANSI(color))
+	} else if pd.Idle() {
+		buf.WriteString(DimFg)
 	} else {
 		buf.WriteString(TextFg)
 	}

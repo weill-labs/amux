@@ -73,6 +73,8 @@ func goldenDiff(expected, actual string) string {
 // only the structural elements: status lines, borders, and global bar.
 // Pane content cells are replaced with spaces. Session name and timestamp
 // in the global bar are normalized for deterministic comparison.
+// Idle/busy icons (◇/○) are normalized to ○ since the idle state depends on
+// shell initialization timing and is nondeterministic in golden tests.
 func extractFrame(capture string, sessionName string) string {
 	lines := strings.Split(capture, "\n")
 	var result []string
@@ -80,7 +82,7 @@ func extractFrame(capture string, sessionName string) string {
 	for _, line := range lines {
 		switch {
 		case isStatusLine(line):
-			result = append(result, line)
+			result = append(result, normalizeIdleIcon(line))
 		case isGlobalBar(line):
 			result = append(result, normalizeGlobalBar(line, sessionName))
 		default:
@@ -90,6 +92,12 @@ func extractFrame(capture string, sessionName string) string {
 	}
 
 	return strings.Join(result, "\n")
+}
+
+// normalizeIdleIcon replaces the idle diamond (◇) with the generic inactive
+// circle (○) so golden files are deterministic regardless of shell init timing.
+func normalizeIdleIcon(line string) string {
+	return strings.ReplaceAll(line, "◇", "○")
 }
 
 // isStatusLine returns true if the line contains a pane status indicator.
