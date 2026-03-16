@@ -250,15 +250,9 @@ func TestCopyModeResizeSurvives(t *testing.T) {
 	// Resize terminal while in copy mode via the outer server
 	h.outer.runCmd("resize-window", "120", "40")
 
-	// Wait for copy mode indicator to remain after resize
+	// Copy mode should still be active after resize
 	if !h.waitFor("[copy]", 3*time.Second) {
 		t.Fatalf("expected [copy] to survive resize\nScreen:\n%s", h.captureOuter())
-	}
-
-	// Copy mode should still be active after resize
-	screen := h.captureOuter()
-	if !strings.Contains(screen, "[copy]") {
-		t.Errorf("copy mode should survive resize\nScreen:\n%s", screen)
 	}
 
 	// Should still be able to exit
