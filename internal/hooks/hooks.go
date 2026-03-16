@@ -106,10 +106,13 @@ func (r *Registry) Fire(event Event, env map[string]string) {
 }
 
 // executeHook runs a shell command with additional environment variables.
+// Errors are logged to stderr (the server's stderr goes to the session log).
 func executeHook(command string, env map[string]string) {
 	cmd := exec.Command("sh", "-c", command)
 	cmd.Env = append(os.Environ(), mapToEnv(env)...)
-	cmd.Run()
+	if err := cmd.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "hook %q failed: %v\n", command, err)
+	}
 }
 
 // mapToEnv converts a map to KEY=VALUE slice.

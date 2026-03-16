@@ -67,9 +67,9 @@ type Session struct {
 	lastClipboardB64 string // last clipboard payload (base64), protected by clipboardMu
 
 	// Hook system — session-level, not checkpointed.
-	Hooks      *hooks.Registry
-	idleTimers map[uint32]*time.Timer // per-pane idle timers, protected by idleTimerMu
-	idleState  map[uint32]bool        // true = idle, protected by idleTimerMu
+	Hooks       *hooks.Registry
+	idleTimers  map[uint32]*time.Timer // per-pane idle timers, protected by idleTimerMu
+	idleState   map[uint32]bool        // true = idle, protected by idleTimerMu
 	idleTimerMu sync.Mutex
 }
 
