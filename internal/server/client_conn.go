@@ -851,15 +851,23 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 		}
 
 	case "list-hooks":
-		all := sess.Hooks.ListAll()
-		if len(all) == 0 {
+		// Group by event with per-event indices (matching unset-hook's index space)
+		var output strings.Builder
+		hasAny := false
+		for _, event := range []hooks.Event{hooks.OnIdle, hooks.OnActivity} {
+			entries := sess.Hooks.List(event)
+			if len(entries) == 0 {
+				continue
+			}
+			hasAny = true
+			output.WriteString(fmt.Sprintf("%s:\n", event))
+			for i, entry := range entries {
+				output.WriteString(fmt.Sprintf("  %d: %s\n", i, entry.Command))
+			}
+		}
+		if !hasAny {
 			cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: "No hooks registered.\n"})
 			return
-		}
-		var output strings.Builder
-		output.WriteString(fmt.Sprintf("%-4s %-15s %s\n", "IDX", "EVENT", "COMMAND"))
-		for i, entry := range all {
-			output.WriteString(fmt.Sprintf("%-4d %-15s %s\n", i, entry.Event, entry.Command))
 		}
 		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: output.String()})
 

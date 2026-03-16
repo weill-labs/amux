@@ -212,9 +212,7 @@ func (s *Session) clipboardCallback() func(paneID uint32, data []byte) {
 func (s *Session) broadcastPaneOutput(paneID uint32, data []byte) {
 	s.broadcast(&Message{Type: MsgTypePaneOutput, PaneID: paneID, PaneData: data})
 	s.notifyPaneOutputSubs(paneID)
-	if s.Hooks != nil {
-		s.trackPaneActivity(paneID)
-	}
+	s.trackPaneActivity(paneID)
 }
 
 // broadcastLayout sends the current layout snapshot to all clients
@@ -292,6 +290,10 @@ func (s *Session) removePane(id uint32) {
 			break
 		}
 	}
+	// Async to avoid deadlock: removePane is called with s.mu held, and
+	// stopPaneIdleTimer acquires idleTimerMu. The idle timer callback holds
+	// idleTimerMu and acquires s.mu (via buildPaneEnv), so synchronous
+	// acquisition here would invert the lock order.
 	go s.stopPaneIdleTimer(id)
 }
 
@@ -698,6 +700,8 @@ func NewServer(sessionName string) (*Server, error) {
 	sess.generationCond = sync.NewCond(&sess.generationMu)
 	sess.clipboardCond = sync.NewCond(&sess.clipboardMu)
 	sess.Hooks = hooks.NewRegistry()
+	sess.idleTimers = make(map[uint32]*time.Timer)
+	sess.idleState = make(map[uint32]bool)
 
 	s := &Server{
 		listener: listener,
@@ -856,6 +860,8 @@ func NewServerFromCheckpoint(cp *checkpoint.ServerCheckpoint) (*Server, error) {
 	sess.generationCond = sync.NewCond(&sess.generationMu)
 	sess.clipboardCond = sync.NewCond(&sess.clipboardMu)
 	sess.Hooks = hooks.NewRegistry()
+	sess.idleTimers = make(map[uint32]*time.Timer)
+	sess.idleState = make(map[uint32]bool)
 	sess.counter.Store(cp.Counter)
 	sess.windowCounter.Store(cp.WindowCounter)
 
