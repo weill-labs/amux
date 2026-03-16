@@ -65,11 +65,21 @@ type Host struct {
 // Config is the top-level amux configuration.
 type Config struct {
 	Hosts map[string]Host `toml:"hosts"`
+	Keys  KeyConfig       `toml:"keys"`
 }
 
 // DefaultPath returns the default config file path.
+// Checks AMUX_CONFIG env var first, then ~/.config/amux/config.toml,
+// then falls back to ~/.config/amux/hosts.toml for backward compatibility.
 func DefaultPath() string {
+	if p := os.Getenv("AMUX_CONFIG"); p != "" {
+		return p
+	}
 	home, _ := os.UserHomeDir()
+	configPath := filepath.Join(home, ".config", "amux", "config.toml")
+	if _, err := os.Stat(configPath); err == nil {
+		return configPath
+	}
 	return filepath.Join(home, ".config", "amux", "hosts.toml")
 }
 

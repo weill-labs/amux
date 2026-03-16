@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/weill-labs/amux/internal/checkpoint"
+	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/copymode"
 	"github.com/weill-labs/amux/internal/mouse"
 	"github.com/weill-labs/amux/internal/mux"
@@ -245,7 +246,7 @@ Usage:
 
 Panes can be referenced by name (pane-1) or ID (1).
 
-Inside an amux session:
+Inside an amux session (defaults, configurable via config.toml):
   Ctrl-a \                           Split active pane left/right
   Ctrl-a -                           Split active pane top/bottom
   Ctrl-a |                           Root-level split left/right
@@ -266,7 +267,10 @@ Inside an amux session:
   Ctrl-a 1-9                         Select window by number
   Ctrl-a r                           Hot reload (re-exec binary)
   Ctrl-a d                           Detach from session
-  Ctrl-a Ctrl-a                      Send literal Ctrl-a`)
+  Ctrl-a Ctrl-a                      Send literal Ctrl-a
+
+Keybindings are configurable via ~/.config/amux/config.toml (or AMUX_CONFIG env var).
+See https://github.com/weill-labs/amux for config format.`)
 }
 
 // ---------------------------------------------------------------------------
@@ -359,6 +363,17 @@ func runServer(sessionName string) {
 // runMux connects to an existing server or starts one, then enters raw
 // terminal mode for interactive use.
 func runMux(sessionName string) error {
+	// Load config for keybindings
+	cfg, err := config.Load(config.DefaultPath())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "amux: loading config: %v\n", err)
+		cfg = &config.Config{}
+	}
+	kb, err := config.BuildKeybindings(&cfg.Keys)
+	if err != nil {
+		return fmt.Errorf("invalid keybindings: %w", err)
+	}
+
 	sockPath := server.SocketPath(sessionName)
 
 	// Start server daemon if no socket exists
@@ -525,91 +540,62 @@ func runMux(sessionName string) error {
 
 		// isRepeatableKey returns true for keys that can repeat without prefix.
 		isRepeatableKey := func(b byte) bool {
-			switch b {
-			case 'h', 'j', 'k', 'l', 'H', 'J', 'K', 'L':
-				return true
+			if binding, ok := kb.Bindings[b]; ok {
+				switch binding.Action {
+				case "focus", "resize-active":
+					return true
+				}
 			}
 			return false
 		}
 
-		// execPrefixKey executes a prefix keybinding. Returns true if
-		// the goroutine should exit (detach).
+		// execPrefixKey executes a prefix keybinding via the config-driven
+		// dispatch table. Returns true if the goroutine should exit (detach).
 		execPrefixKey := func(b byte, forward *[]byte) bool {
-			switch b {
-			case 'd':
-				if len(*forward) > 0 {
-					server.WriteMsg(conn, &server.Message{
-						Type: server.MsgTypeInput, Input: *forward,
-					})
-				}
-				server.WriteMsg(conn, &server.Message{Type: server.MsgTypeDetach})
-				conn.Close()
-				return true
-			case '-':
-				sendCommand(conn, "split", []string{"v"})
-			case '\\':
-				sendCommand(conn, "split", nil)
-			case '|':
-				sendCommand(conn, "split", []string{"root"})
-			case '_':
-				sendCommand(conn, "split", []string{"root", "v"})
-			case '}':
-				sendCommand(conn, "swap", []string{"forward"})
-			case '{':
-				sendCommand(conn, "swap", []string{"backward"})
-			case 'o':
-				sendCommand(conn, "focus", []string{"next"})
-			case 'h':
-				sendCommand(conn, "focus", []string{"left"})
-			case 'l':
-				sendCommand(conn, "focus", []string{"right"})
-			case 'k':
-				sendCommand(conn, "focus", []string{"up"})
-			case 'j':
-				sendCommand(conn, "focus", []string{"down"})
-			case 'H':
-				sendCommand(conn, "resize-active", []string{"left", "2"})
-			case 'J':
-				sendCommand(conn, "resize-active", []string{"down", "2"})
-			case 'K':
-				sendCommand(conn, "resize-active", []string{"up", "2"})
-			case 'L':
-				sendCommand(conn, "resize-active", []string{"right", "2"})
-			case 'z':
-				sendCommand(conn, "zoom", nil)
-			case 'm':
-				sendCommand(conn, "toggle-minimize", nil)
-			case '[':
-				cr.EnterCopyMode(cr.ActivePaneID())
-				if data := cr.Render(); data != nil {
-					os.Stdout.Write(data)
-				}
-			case 'c':
-				sendCommand(conn, "new-window", nil)
-			case 'n':
-				sendCommand(conn, "next-window", nil)
-			case 'p':
-				sendCommand(conn, "prev-window", nil)
-			case '1', '2', '3', '4', '5', '6', '7', '8', '9':
-				sendCommand(conn, "select-window", []string{string(b)})
-			case 'r':
-				if len(*forward) > 0 {
-					server.WriteMsg(conn, &server.Message{
-						Type: server.MsgTypeInput, Input: *forward,
-					})
-					*forward = nil
-				}
-				select {
-				case triggerReload <- struct{}{}:
+			// Pressing the prefix key again sends the literal prefix byte
+			if b == kb.Prefix {
+				*forward = append(*forward, kb.Prefix)
+				return false
+			}
+
+			// Look up binding in dispatch table
+			if binding, ok := kb.Bindings[b]; ok {
+				switch binding.Action {
+				case "detach":
+					if len(*forward) > 0 {
+						server.WriteMsg(conn, &server.Message{
+							Type: server.MsgTypeInput, Input: *forward,
+						})
+					}
+					server.WriteMsg(conn, &server.Message{Type: server.MsgTypeDetach})
+					conn.Close()
+					return true
+				case "reload":
+					if len(*forward) > 0 {
+						server.WriteMsg(conn, &server.Message{
+							Type: server.MsgTypeInput, Input: *forward,
+						})
+						*forward = nil
+					}
+					select {
+					case triggerReload <- struct{}{}:
+					default:
+					}
+				case "copy-mode":
+					cr.EnterCopyMode(cr.ActivePaneID())
+					if data := cr.Render(); data != nil {
+						os.Stdout.Write(data)
+					}
 				default:
+					// Generic server command
+					sendCommand(conn, binding.Action, binding.Args)
 				}
-			case 0x1b:
+			} else if b == 0x1b {
 				prefixEsc = true
 				prefixEscBuf = nil
-			case 0x01:
-				*forward = append(*forward, 0x01)
-			default:
-				*forward = append(*forward, 0x01, b)
+			} else {
+				// Unrecognized key after prefix: forward prefix + byte
+				*forward = append(*forward, kb.Prefix, b)
 			}
 			return false
 		}
@@ -671,7 +657,7 @@ func runMux(sessionName string) error {
 				return execPrefixKey(b, forward)
 			}
 
-			if b == 0x01 {
+			if b == kb.Prefix {
 				if len(*forward) > 0 {
 					server.WriteMsg(conn, &server.Message{
 						Type: server.MsgTypeInput, Input: *forward,
