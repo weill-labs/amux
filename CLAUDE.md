@@ -2,11 +2,7 @@
 
 ## Design Philosophy
 
-amux is a **standalone terminal multiplexer for the human+agent workflow**. Single Go binary, no tmux dependency. It manages panes, layout, and rendering natively via a client-server architecture over Unix sockets.
-
-### Core Principles
-
-See [README.md — Philosophy](README.md#philosophy) for the three tenets that guide all design decisions: tight feedback loops, shared visibility, and equal access.
+See [README.md — Philosophy](README.md#philosophy) for the project thesis and three tenets.
 
 **Client-server architecture.** The server is a background daemon that owns PTYs and layout state. Clients connect over a Unix socket, receive layout snapshots and raw pane output, and render locally. This enables hot-reload: rebuilding the binary auto-restarts the client with new rendering code while preserving running shells.
 
@@ -81,18 +77,12 @@ go test ./...                       # run all tests
 
 ### Testing Live
 
+See [README.md — CLI](README.md#cli) for the full command reference. Key commands for testing:
+
 ```bash
-amux                    # start a session (or reattach to existing)
-# Ctrl-a \ to split, then:
-amux list               # verify panes
-amux focus pane-3       # focus by name
-amux capture              # capture full composited screen
-amux capture pane-1       # capture single pane output
-amux capture --ansi       # capture with ANSI color codes
-amux capture --format json          # structured JSON (full screen)
-amux capture --format json pane-1   # structured JSON (single pane)
-amux minimize pane-2    # minimize by name
-amux restore pane-2     # restore
+amux                              # start or reattach
+amux capture --format json        # structured JSON for agents
+amux capture --format json pane-1 # single pane JSON
 ```
 
 ### TDD Workflow
@@ -146,21 +136,7 @@ Socket location: `/tmp/amux-$UID/<session-name>`
 
 ## Configuration
 
-Config file: `~/.config/amux/hosts.toml`
-
-```toml
-[hosts.lambda-a100]
-type = "remote"
-user = "ubuntu"
-address = "150.136.64.231"
-project_dir = "~/Project"
-gpu = "A100"
-color = "f38ba8"    # optional, auto-assigned from Catppuccin Mocha palette
-
-[hosts.macbook]
-type = "local"
-color = "a6e3a1"
-```
+See [README.md — Configuration](README.md#configuration) for the `hosts.toml` format. Config parsing lives in `config/config.go`. Pane colors are optional — if omitted, they're auto-assigned from the Catppuccin Mocha palette.
 
 ## Issue Tracking
 
