@@ -91,7 +91,7 @@ All development follows test-driven development: write a failing test first, the
 
 ### Test Philosophy
 
-Tests should read like specs. Minimize logic in assertions so a human can read the test and immediately understand what behavior is expected. Prefer golden file comparisons (`assertGolden`) over inline predicate functions — the golden file *is* the spec, viewable as a standalone document.
+Tests should read like specs. Minimize logic in assertions so a human can read the test and immediately understand what behavior is expected. Prefer golden file comparisons (`assertGolden`) over inline predicate functions — the golden file *is* the spec, viewable as a standalone document. Use table-driven tests for unit tests with multiple cases — define a `tests` slice of structs, iterate with `t.Run(tt.name, ...)`, and call `t.Parallel()` in each subtest.
 
 **Golden files** live in `test/testdata/`. Two types:
 - `.golden` — structural layout frame (status lines, borders, global bar). Open one and you see the expected screen layout.
