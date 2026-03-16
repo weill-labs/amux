@@ -1038,9 +1038,21 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 			return
 		}
 
-		// Create a new local pane to replace the spliced region
-		cols, layoutH := w.Width, w.Height
-		pane, err := sess.createPane(srv, cols, mux.PaneContentHeight(layoutH))
+		// Find the spliced cell's dimensions for the replacement pane.
+		// Use the first proxy pane's parent cell (which is the splice container).
+		var cellW, cellH int
+		for _, p := range sess.Panes {
+			if p.Meta.Host == hostName && p.IsProxy() {
+				if c := w.Root.FindPane(p.ID); c != nil && c.Parent != nil {
+					cellW, cellH = c.Parent.W, c.Parent.H
+					break
+				}
+			}
+		}
+		if cellW == 0 {
+			cellW, cellH = w.Width, w.Height
+		}
+		pane, err := sess.createPane(srv, cellW, mux.PaneContentHeight(cellH))
 		if err != nil {
 			sess.mu.Unlock()
 			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: err.Error()})

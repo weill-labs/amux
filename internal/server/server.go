@@ -82,6 +82,11 @@ type Session struct {
 	// Nil when no config is loaded or no remote hosts are defined.
 	RemoteManager *remote.Manager
 
+	// SSH takeover tracking — pane IDs that have already been taken over.
+	// Prevents duplicate takeover if the remote emits the sequence twice.
+	// Protected by s.mu.
+	takenOverPanes map[uint32]bool
+
 	// Capture forwarding — routes capture requests through the attached
 	// interactive client so the result reflects client-side emulator state.
 	// captureMu serializes capture requests; captureResult is the one-shot
@@ -622,8 +627,8 @@ func (s *Session) SetupRemoteManager(cfg *config.Config) {
 
 // takeoverCallback returns the onTakeover callback for panes in this session.
 // When a nested amux emits a takeover sequence through the PTY, this handler
-// sends the ack, establishes a remote connection, builds proxy panes, and
-// splices them into the layout tree — replacing the SSH pane.
+// sends the ack, builds proxy panes that route I/O through the existing SSH
+// PTY, and splices them into the layout tree — replacing the SSH pane.
 func (s *Session) takeoverCallback(srv *Server) func(paneID uint32, req mux.TakeoverRequest) {
 	return func(paneID uint32, req mux.TakeoverRequest) {
 		go s.handleTakeover(srv, paneID, req)
@@ -634,26 +639,27 @@ func (s *Session) takeoverCallback(srv *Server) func(paneID uint32, req mux.Take
 // It runs asynchronously (called via goroutine from the readLoop callback).
 func (s *Session) handleTakeover(srv *Server, sshPaneID uint32, req mux.TakeoverRequest) {
 	s.mu.Lock()
+
+	// Guard against duplicate takeover for the same pane (e.g., the remote
+	// emits the sequence twice during reconnect).
+	if s.takenOverPanes[sshPaneID] {
+		s.mu.Unlock()
+		return
+	}
+	s.takenOverPanes[sshPaneID] = true
+
 	sshPane := s.findPaneLocked(sshPaneID)
 	if sshPane == nil {
 		s.mu.Unlock()
 		return
 	}
 
-	// Find the window containing the SSH pane
+	// Verify the SSH pane is still in a window's layout
 	w := s.FindWindowByPaneID(sshPaneID)
 	if w == nil {
 		s.mu.Unlock()
 		return
 	}
-
-	// Get the SSH pane's cell dimensions for the proxy panes
-	cell := w.Root.FindPane(sshPaneID)
-	if cell == nil {
-		s.mu.Unlock()
-		return
-	}
-	cols, cellH := cell.W, cell.H
 	s.mu.Unlock()
 
 	// Send ack through the SSH PTY's stdin — this tells the remote amux
@@ -663,17 +669,28 @@ func (s *Session) handleTakeover(srv *Server, sshPaneID uint32, req mux.Takeover
 	// Wait briefly for the remote server to start
 	time.Sleep(500 * time.Millisecond)
 
-	// If no remote manager is configured, create a minimal one.
-	// The takeover uses the existing SSH PTY connection, so we don't
-	// need a full remote manager with SSH config — we just need proxy panes.
 	hostname := req.Host
 	if hostname == "" {
 		hostname = "remote"
 	}
 
-	// Build proxy panes for the remote session. For now, create one
-	// proxy pane per remote pane reported in the takeover request.
-	// If the request has no panes (remote just started), create one default pane.
+	// Re-acquire lock and read fresh cell dimensions (may have changed
+	// during the unlocked period due to resize events).
+	s.mu.Lock()
+	w = s.FindWindowByPaneID(sshPaneID)
+	if w == nil {
+		s.mu.Unlock()
+		return
+	}
+	cell := w.Root.FindPane(sshPaneID)
+	if cell == nil {
+		s.mu.Unlock()
+		return
+	}
+	cols, cellH := cell.W, cell.H
+
+	// Build proxy panes for the remote session. If the request has no
+	// panes (remote just started), create one default pane.
 	remotePanes := req.Panes
 	if len(remotePanes) == 0 {
 		remotePanes = []mux.TakeoverPane{
@@ -698,7 +715,6 @@ func (s *Session) handleTakeover(srv *Server, sshPaneID uint32, req mux.Takeover
 			s.paneOutputCallback(),
 			s.paneExitCallback(srv),
 			func(data []byte) (int, error) {
-				// Route input through the original SSH PTY
 				return sshPane.Write(data)
 			},
 		)
@@ -706,13 +722,11 @@ func (s *Session) handleTakeover(srv *Server, sshPaneID uint32, req mux.Takeover
 	}
 
 	// Splice the proxy panes into the layout, replacing the SSH pane
-	s.mu.Lock()
 	for _, pp := range proxyPanes {
 		s.Panes = append(s.Panes, pp)
 	}
 	_, spliceErr := w.SplicePane(sshPaneID, proxyPanes)
 	if spliceErr != nil {
-		// Roll back: remove the proxy panes we just added
 		for _, pp := range proxyPanes {
 			s.removePane(pp.ID)
 		}
@@ -720,9 +734,8 @@ func (s *Session) handleTakeover(srv *Server, sshPaneID uint32, req mux.Takeover
 		return
 	}
 
-	// Keep the SSH pane in the panes list (dormant) so we can unsplice later.
-	// It's no longer in the layout tree, but its PTY stays alive to maintain
-	// the SSH connection.
+	// The SSH pane stays in the panes list (dormant) — its PTY maintains
+	// the SSH connection for unsplice fallback.
 	s.mu.Unlock()
 
 	s.broadcastLayout()
@@ -982,6 +995,7 @@ func newSession(name string) *Session {
 	sess.Hooks = hooks.NewRegistry()
 	sess.idleTimers = make(map[uint32]*time.Timer)
 	sess.idleState = make(map[uint32]bool)
+	sess.takenOverPanes = make(map[uint32]bool)
 	return sess
 }
 

@@ -944,6 +944,8 @@ func (w *Window) SplicePane(oldPaneID uint32, newPanes []*Pane) ([]*LayoutCell, 
 		w.setActive(newPanes[0])
 	}
 
+	w.Root.FixOffsets()
+
 	return cell.Children, nil
 }
 

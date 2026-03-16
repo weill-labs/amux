@@ -1099,6 +1099,10 @@ func tryTakeover(sessionName string) bool {
 
 	// Wait for ack on stdin with 2s timeout.
 	// os.Stdin doesn't support SetReadDeadline, so use a goroutine + timer.
+	// On timeout, the goroutine remains blocked on Read until stdin receives
+	// any input (which happens immediately when runMux takes over the
+	// terminal). The buffered channel prevents the goroutine from blocking
+	// permanently after it completes.
 	type readResult struct {
 		data []byte
 		err  error
