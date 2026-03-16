@@ -3,11 +3,13 @@ package test
 import (
 	"encoding/hex"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // amuxBin is the path to the built amux binary, set in TestMain.
@@ -80,23 +82,34 @@ func TestMain(m *testing.M) {
 // and log files left behind by previous test runs that were killed by a
 // timeout panic.
 //
-// Not safe if multiple `go test` invocations run concurrently — it may
-// kill sessions belonging to the other run.
+// Only kills servers whose sockets are unresponsive (stale). Live servers
+// that accept connections are left alone, making this safe even if another
+// `go test` invocation is running concurrently.
 func cleanupStaleTestSessions() {
-	// Kill orphaned amux server processes, validating session name
+	socketDir := fmt.Sprintf("/tmp/amux-%d", os.Getuid())
+
+	// Kill orphaned amux server processes, but only if their socket is stale
 	out, _ := exec.Command("pgrep", "-fl", "amux _server t-").Output()
 	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
 		fields := strings.Fields(line)
 		if len(fields) >= 3 && isTestSession(fields[len(fields)-1]) {
+			session := fields[len(fields)-1]
+			if isSocketAlive(filepath.Join(socketDir, session)) {
+				continue // server is live, don't kill
+			}
 			exec.Command("kill", fields[0]).Run()
 		}
 	}
 
-	// Also kill orphaned benchmark amux servers
+	// Also kill orphaned benchmark amux servers (same liveness check)
 	out, _ = exec.Command("pgrep", "-fl", "amux _server bench-").Output()
 	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
 		fields := strings.Fields(line)
 		if len(fields) >= 3 && isBenchSession(fields[len(fields)-1]) {
+			session := fields[len(fields)-1]
+			if isSocketAlive(filepath.Join(socketDir, session)) {
+				continue
+			}
 			exec.Command("kill", fields[0]).Run()
 		}
 	}
@@ -111,16 +124,28 @@ func cleanupStaleTestSessions() {
 		}
 	}
 
-	// Clean up stale sockets and log files
-	socketDir := fmt.Sprintf("/tmp/amux-%d", os.Getuid())
+	// Clean up stale sockets and log files (only if socket is not alive)
 	entries, _ := os.ReadDir(socketDir)
 	for _, e := range entries {
 		name := e.Name()
 		base := strings.TrimSuffix(name, ".log")
 		if isTestSession(base) || isBenchSession(base) {
-			os.Remove(filepath.Join(socketDir, name))
+			sockPath := filepath.Join(socketDir, base)
+			if !isSocketAlive(sockPath) {
+				os.Remove(filepath.Join(socketDir, name))
+			}
 		}
 	}
+}
+
+// isSocketAlive checks if a Unix socket is accepting connections.
+func isSocketAlive(sockPath string) bool {
+	conn, err := net.DialTimeout("unix", sockPath, 100*time.Millisecond)
+	if err != nil {
+		return false
+	}
+	conn.Close()
+	return true
 }
 
 // isTestSession returns true if the name matches the test session convention: t- followed by 8 hex chars.
