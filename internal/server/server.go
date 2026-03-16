@@ -217,25 +217,21 @@ func (s *Session) clipboardCallback() func(paneID uint32, data []byte) {
 
 // forwardCapture sends a capture request to the first attached interactive
 // client and waits for its response. The client renders from its own
-// emulators (the rendering source of truth). When no interactive client
-// is attached (headless/test usage), falls back to server-side emulators.
+// emulators — the rendering source of truth.
 func (s *Session) forwardCapture(args []string) *Message {
 	s.mu.Lock()
 	if len(s.clients) == 0 {
 		s.mu.Unlock()
-		return s.serverSideCapture(args)
+		return &Message{Type: MsgTypeCmdResult, CmdErr: "no client attached"}
 	}
 	client := s.clients[0]
 
-	// Create a one-shot channel for the response
 	ch := make(chan *Message, 1)
 	s.captureResult = ch
 	s.mu.Unlock()
 
-	// Send capture request to the interactive client
 	client.Send(&Message{Type: MsgTypeCaptureRequest, CmdArgs: args})
 
-	// Wait for response with timeout
 	select {
 	case resp := <-ch:
 		s.mu.Lock()
@@ -248,91 +244,6 @@ func (s *Session) forwardCapture(args []string) *Message {
 		s.mu.Unlock()
 		return &Message{Type: MsgTypeCmdResult, CmdErr: "capture timed out (client unresponsive)"}
 	}
-}
-
-// serverSideCapture renders capture from server-side emulators.
-// Used when no interactive client is attached (headless/test usage).
-func (s *Session) serverSideCapture(args []string) *Message {
-	includeANSI := false
-	colorMap := false
-	formatJSON := false
-	var paneRef string
-	for _, arg := range args {
-		switch arg {
-		case "--ansi":
-			includeANSI = true
-		case "--colors":
-			colorMap = true
-		case "--format":
-			// next arg handled below
-		case "json":
-			formatJSON = true
-		default:
-			paneRef = arg
-		}
-	}
-
-	flagCount := 0
-	if includeANSI {
-		flagCount++
-	}
-	if colorMap {
-		flagCount++
-	}
-	if formatJSON {
-		flagCount++
-	}
-	if flagCount > 1 {
-		return &Message{Type: MsgTypeCmdResult, CmdErr: "--ansi, --colors, and --format json are mutually exclusive"}
-	}
-
-	if paneRef != "" {
-		if colorMap {
-			return &Message{Type: MsgTypeCmdResult, CmdErr: "--colors is only supported for full screen capture"}
-		}
-		s.mu.Lock()
-		w := s.ActiveWindow()
-		if w == nil {
-			s.mu.Unlock()
-			return &Message{Type: MsgTypeCmdResult, CmdErr: "no session"}
-		}
-		pane := w.ResolvePane(paneRef)
-		if pane == nil {
-			// Search other windows
-			for _, win := range s.Windows {
-				if win.ID == w.ID {
-					continue
-				}
-				if pane = win.ResolvePane(paneRef); pane != nil {
-					break
-				}
-			}
-		}
-		if pane == nil {
-			s.mu.Unlock()
-			return &Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("pane %q not found", paneRef)}
-		}
-		var out string
-		if formatJSON {
-			out = s.capturePaneJSON(pane)
-		} else if includeANSI {
-			out = pane.Render()
-		} else {
-			out = pane.Output(DefaultOutputLines)
-		}
-		s.mu.Unlock()
-		return &Message{Type: MsgTypeCmdResult, CmdOutput: out + "\n"}
-	}
-
-	var out string
-	if formatJSON {
-		out = s.captureJSON() + "\n"
-	} else if colorMap {
-		out = s.renderColorMap()
-	} else {
-		out = s.renderCapture(!includeANSI)
-	}
-	return &Message{Type: MsgTypeCmdResult, CmdOutput: out}
 }
 
 // broadcastPaneOutput sends raw PTY output for one pane to all clients,
