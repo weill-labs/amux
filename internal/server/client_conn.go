@@ -890,12 +890,12 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 		// Emit current state as initial snapshot — prevents race where
 		// caller sends keys before subscribing and misses the resulting event.
 		for _, ev := range sess.currentStateEvents() {
-			if f.matches(ev) {
-				ev.Timestamp = time.Now().UTC().Format(time.RFC3339Nano)
-				data, _ := json.Marshal(ev)
-				if err := cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: string(data) + "\n"}); err != nil {
-					return
-				}
+			if !f.matches(ev) {
+				continue
+			}
+			data, _ := json.Marshal(ev)
+			if err := cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: string(data) + "\n"}); err != nil {
+				return
 			}
 		}
 

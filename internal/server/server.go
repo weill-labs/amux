@@ -221,12 +221,9 @@ func (s *Session) broadcastPaneOutput(paneID uint32, data []byte) {
 	// Emit output event for event stream subscribers.
 	s.mu.Lock()
 	var paneName, host string
-	for _, p := range s.Panes {
-		if p.ID == paneID {
-			paneName = p.Meta.Name
-			host = p.Meta.Host
-			break
-		}
+	if p := s.findPaneLocked(paneID); p != nil {
+		paneName = p.Meta.Name
+		host = p.Meta.Host
 	}
 	s.mu.Unlock()
 	s.emitEvent(Event{Type: EventOutput, PaneID: paneID, PaneName: paneName, Host: host})

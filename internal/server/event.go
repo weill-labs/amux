@@ -67,12 +67,7 @@ func (s *Session) addEventSub(f eventFilter) *eventSub {
 // removeEventSub unregisters a subscriber and closes its channel.
 func (s *Session) removeEventSub(sub *eventSub) {
 	s.eventSubsMu.Lock()
-	for i, existing := range s.eventSubs {
-		if existing == sub {
-			s.eventSubs = append(s.eventSubs[:i], s.eventSubs[i+1:]...)
-			break
-		}
-	}
+	s.eventSubs = slices.DeleteFunc(s.eventSubs, func(e *eventSub) bool { return e == sub })
 	s.eventSubsMu.Unlock()
 	close(sub.ch)
 }
@@ -103,11 +98,13 @@ func (s *Session) emitEvent(ev Event) {
 
 // currentStateEvents builds synthetic events representing the current session
 // state. This allows new subscribers to receive the current state immediately
-// without missing events that occurred before subscription.
+// without missing events that occurred before subscription. All events are
+// stamped with the current timestamp.
 func (s *Session) currentStateEvents() []Event {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	now := time.Now().UTC().Format(time.RFC3339Nano)
 	var events []Event
 
 	// Current layout state
@@ -118,6 +115,7 @@ func (s *Session) currentStateEvents() []Event {
 	}
 	events = append(events, Event{
 		Type:       EventLayout,
+		Timestamp:  now,
 		Generation: s.generation.Load(),
 		ActivePane: activePaneName,
 	})
@@ -130,10 +128,11 @@ func (s *Session) currentStateEvents() []Event {
 			evType = EventIdle
 		}
 		events = append(events, Event{
-			Type:     evType,
-			PaneID:   p.ID,
-			PaneName: p.Meta.Name,
-			Host:     p.Meta.Host,
+			Type:      evType,
+			Timestamp: now,
+			PaneID:    p.ID,
+			PaneName:  p.Meta.Name,
+			Host:      p.Meta.Host,
 		})
 	}
 	s.idleTimerMu.Unlock()
