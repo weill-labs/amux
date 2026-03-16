@@ -2,6 +2,7 @@ package render
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -22,6 +23,10 @@ type Compositor struct {
 	height      int
 	sessionName string
 	windows     []WindowInfo
+
+	// Cached border map — rebuilt only when layout root changes.
+	cachedBorderMap  *borderMap
+	cachedBorderRoot *mux.LayoutCell
 }
 
 // SetWindows sets the window list for the global bar.
@@ -38,6 +43,9 @@ func NewCompositor(width, height int, sessionName string) *Compositor {
 func (c *Compositor) Resize(width, height int) {
 	c.width = width
 	c.height = height
+	// Invalidate border map cache — dimensions changed.
+	c.cachedBorderMap = nil
+	c.cachedBorderRoot = nil
 }
 
 // SetSessionName updates the session name shown in the global bar.
@@ -61,10 +69,10 @@ func ClearScreen() []byte {
 // adapters; server could provide Pane wrappers.
 func (c *Compositor) RenderFull(root *mux.LayoutCell, activePaneID uint32, lookup func(uint32) PaneData) []byte {
 	var buf strings.Builder
+	buf.Grow(c.width * c.height * 4) // pre-allocate for typical ANSI output
 
 	// Hide cursor during render to prevent flicker
 	buf.WriteString(HideCursor)
-	// Clear screen
 	buf.WriteString(ClearAll)
 
 	// Count panes for global bar
@@ -100,9 +108,15 @@ func (c *Compositor) RenderFull(root *mux.LayoutCell, activePaneID uint32, looku
 		c.blitPane(&buf, cell, rendered)
 	})
 
-	// Draw borders with proper junction characters
-	bm := buildBorderMap(root, c.width, c.height)
-	renderBorders(&buf, bm, root, activePaneID, activeColor)
+	// Draw borders with proper junction characters.
+	// Cache the border map — it only changes when the layout root changes.
+	// Pointer identity is sufficient: RebuildLayout always allocates a new root,
+	// and Resize() explicitly invalidates the cache.
+	if c.cachedBorderMap == nil || c.cachedBorderRoot != root {
+		c.cachedBorderMap = buildBorderMap(root, c.width, c.height)
+		c.cachedBorderRoot = root
+	}
+	renderBorders(&buf, c.cachedBorderMap, root, activePaneID, activeColor)
 
 	// Global status bar at bottom
 	renderGlobalBar(&buf, c.sessionName, paneCount, c.width, c.height-1, c.windows)
@@ -112,26 +126,37 @@ func (c *Compositor) RenderFull(root *mux.LayoutCell, activePaneID uint32, looku
 	// keep it hidden rather than showing it at a stale position.
 	// If the application renders its own block cursor (reverse-video space),
 	// hide the terminal cursor to avoid showing two cursors.
-	showCursor := true
-	if activePaneID != 0 {
-		if cell := root.FindByPaneID(activePaneID); cell != nil {
-			if pd := lookup(activePaneID); pd != nil {
-				if pd.Minimized() || pd.CursorHidden() || pd.HasCursorBlock() {
-					showCursor = false
-				} else {
-					col, row := pd.CursorPos()
-					absRow := cell.Y + mux.StatusLineRows + row + 1
-					absCol := cell.X + col + 1
-					buf.WriteString(CursorTo(absRow, absCol))
-				}
-			}
-		}
-	}
-	if showCursor {
-		buf.WriteString(ShowCursor)
-	}
+	c.renderCursor(&buf, root, activePaneID, lookup)
 
 	return []byte(buf.String())
+}
+
+// renderCursor positions the terminal cursor at the active pane's cursor
+// location, or hides it when the active pane is minimized, has a hidden
+// cursor, or renders its own block cursor.
+func (c *Compositor) renderCursor(buf *strings.Builder, root *mux.LayoutCell, activePaneID uint32, lookup func(uint32) PaneData) {
+	if activePaneID == 0 {
+		buf.WriteString(ShowCursor)
+		return
+	}
+	cell := root.FindByPaneID(activePaneID)
+	if cell == nil {
+		buf.WriteString(ShowCursor)
+		return
+	}
+	pd := lookup(activePaneID)
+	if pd == nil {
+		buf.WriteString(ShowCursor)
+		return
+	}
+	if pd.Minimized() || pd.CursorHidden() || pd.HasCursorBlock() {
+		return // keep cursor hidden (HideCursor was written at start of render)
+	}
+	col, row := pd.CursorPos()
+	absRow := cell.Y + mux.StatusLineRows + row + 1
+	absCol := cell.X + col + 1
+	writeCursorTo(buf, absRow, absCol)
+	buf.WriteString(ShowCursor)
 }
 
 // blitPane writes a pane's rendered content below its status line.
@@ -146,7 +171,7 @@ func (c *Compositor) blitPane(buf *strings.Builder, cell *mux.LayoutCell, render
 			break
 		}
 		row := cell.Y + mux.StatusLineRows + i + 1
-		buf.WriteString(CursorTo(row, cell.X+1))
+		writeCursorTo(buf, row, cell.X+1)
 		if len(line) > 0 {
 			buf.WriteString(clipLine(line, cell.W))
 		}
@@ -213,12 +238,24 @@ func clipLine(line string, maxWidth int) string {
 	return line
 }
 
+// hexColorCache maps hex color strings (e.g. "f5e0dc") to precomputed
+// ANSI truecolor escapes. The cache is package-level since colors are
+// drawn from a fixed palette (~14 Catppuccin colors).
+var hexColorCache = make(map[string]string)
+
 // hexToANSI converts a 6-digit hex color to an ANSI truecolor escape.
+// Results are cached — repeated calls for the same hex value are free.
 func hexToANSI(hex string) string {
 	if len(hex) < 6 {
 		return DimFg
 	}
-	var r, g, b int
-	fmt.Sscanf(hex, "%02x%02x%02x", &r, &g, &b)
-	return fmt.Sprintf("\033[38;2;%d;%d;%dm", r, g, b)
+	if cached, ok := hexColorCache[hex]; ok {
+		return cached
+	}
+	r, _ := strconv.ParseUint(hex[0:2], 16, 8)
+	g, _ := strconv.ParseUint(hex[2:4], 16, 8)
+	b, _ := strconv.ParseUint(hex[4:6], 16, 8)
+	result := fmt.Sprintf("\033[38;2;%d;%d;%dm", r, g, b)
+	hexColorCache[hex] = result
+	return result
 }
