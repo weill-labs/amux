@@ -880,42 +880,31 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 			return
 		}
 		paneID := pane.ID
+		paneName := pane.Meta.Name
 		sess.mu.Unlock()
 
-		// Check immediately — the pane may already be busy.
-		if sess.paneIsBusy(paneID) {
+		// Subscribe BEFORE checking state to prevent TOCTOU race.
+		sub := sess.addEventSub(eventFilter{Types: []string{EventBusy}, PaneName: paneName})
+		defer sess.removeEventSub(sub)
+
+		// Check current state — if not idle, it's already busy.
+		sess.idleTimerMu.Lock()
+		idle := sess.idleState[paneID]
+		sess.idleTimerMu.Unlock()
+
+		if !idle {
 			cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: "busy\n"})
 			return
 		}
 
-		// Subscribe to pane output notifications and check on each write.
-		// Also use a ticker as fallback: the shell echoes the command
-		// (triggering output) before forking the child, so pgrep may
-		// miss the child on the first check. The ticker rechecks every
-		// 100ms to catch the fork after the echo.
-		ch := sess.subscribePaneOutput(paneID)
-		defer sess.unsubscribePaneOutput(paneID, ch)
-
-		ticker := time.NewTicker(100 * time.Millisecond)
-		defer ticker.Stop()
+		// Wait for busy event or timeout.
 		timer := time.NewTimer(timeout)
 		defer timer.Stop()
-		for {
-			select {
-			case <-ch:
-				if sess.paneIsBusy(paneID) {
-					cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: "busy\n"})
-					return
-				}
-			case <-ticker.C:
-				if sess.paneIsBusy(paneID) {
-					cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: "busy\n"})
-					return
-				}
-			case <-timer.C:
-				cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("timeout waiting for %s to become busy", paneRef)})
-				return
-			}
+		select {
+		case <-sub.ch:
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: "busy\n"})
+		case <-timer.C:
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("timeout waiting for %s to become busy", paneRef)})
 		}
 
 	case "set-hook":

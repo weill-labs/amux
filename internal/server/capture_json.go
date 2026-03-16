@@ -15,9 +15,10 @@ type paneCapture struct {
 }
 
 // captureJSON returns the full-screen JSON capture of the active window.
-// Caller does NOT hold s.mu — this method acquires and releases it,
-// then calls AgentStatus() outside the lock to avoid blocking the
-// server on subprocess calls (pgrep/ps).
+// Caller does NOT hold s.mu — this method acquires and releases it.
+// Uses the server's cached idleState for the idle field (no pgrep for idle
+// panes). For busy panes, calls AgentStatus() outside the lock to get
+// current_command and child_pids.
 func (s *Session) captureJSON() string {
 	s.mu.Lock()
 
@@ -57,6 +58,18 @@ func (s *Session) captureJSON() string {
 		Height: w.Height,
 	}
 
+	// Snapshot cached idle state under idleTimerMu.
+	s.idleTimerMu.Lock()
+	idleSnap := make(map[uint32]bool, len(s.idleState))
+	sinceSnap := make(map[uint32]time.Time, len(s.idleSince))
+	for id, idle := range s.idleState {
+		idleSnap[id] = idle
+	}
+	for id, t := range s.idleSince {
+		sinceSnap[id] = t
+	}
+	s.idleTimerMu.Unlock()
+
 	// Gather pane data under the lock (metadata, cursor, content).
 	var panes []paneCapture
 	root.Walk(func(c *mux.LayoutCell) {
@@ -93,13 +106,22 @@ func (s *Session) captureJSON() string {
 
 	s.mu.Unlock()
 
-	// Call AgentStatus() outside the lock — spawns pgrep/ps subprocesses.
+	// Populate agent status using cached idle state where possible.
+	// Idle panes skip pgrep entirely; busy panes call AgentStatus()
+	// for current_command and child_pids.
 	for _, pc := range panes {
-		status := pc.pane.AgentStatus()
-		pc.cp.Idle = status.Idle
-		pc.cp.IdleSince = formatIdleSince(status.IdleSince)
-		pc.cp.CurrentCommand = status.CurrentCommand
-		pc.cp.ChildPIDs = status.ChildPIDs
+		if idleSnap[pc.pane.ID] {
+			pc.cp.Idle = true
+			pc.cp.IdleSince = formatIdleSince(sinceSnap[pc.pane.ID])
+			pc.cp.CurrentCommand = pc.pane.ShellName()
+			pc.cp.ChildPIDs = []int{}
+		} else {
+			status := pc.pane.AgentStatus()
+			pc.cp.Idle = status.Idle
+			pc.cp.IdleSince = formatIdleSince(status.IdleSince)
+			pc.cp.CurrentCommand = status.CurrentCommand
+			pc.cp.ChildPIDs = status.ChildPIDs
+		}
 		capture.Panes = append(capture.Panes, pc.cp)
 	}
 
@@ -108,8 +130,8 @@ func (s *Session) captureJSON() string {
 }
 
 // capturePaneJSON returns a single pane's JSON capture.
-// Caller must hold s.mu. This method releases s.mu before calling
-// AgentStatus() to avoid blocking the server on subprocess calls.
+// Caller must hold s.mu. Uses cached idleState for idle panes (no pgrep).
+// For busy panes, releases s.mu to call AgentStatus(), then re-locks.
 func (s *Session) capturePaneJSON(pane *mux.Pane) string {
 	var activePaneID uint32
 	w := s.ActiveWindow()
@@ -122,13 +144,18 @@ func (s *Session) capturePaneJSON(pane *mux.Pane) string {
 		zoomedPaneID = w.ZoomedPaneID
 	}
 
+	// Snapshot cached idle state.
+	s.idleTimerMu.Lock()
+	idle := s.idleState[pane.ID]
+	since := s.idleSince[pane.ID]
+	s.idleTimerMu.Unlock()
+
 	cp := proto.CapturePane{
 		ID:         pane.ID,
 		Name:       pane.Meta.Name,
 		Active:     pane.ID == activePaneID,
 		Minimized:  pane.Meta.Minimized,
 		Zoomed:     pane.ID == zoomedPaneID,
-		Idle:       pane.IsIdle(),
 		Host:       pane.Meta.Host,
 		Task:       pane.Meta.Task,
 		Color:      pane.Meta.Color,
@@ -137,17 +164,22 @@ func (s *Session) capturePaneJSON(pane *mux.Pane) string {
 		Content:    pane.ContentLines(),
 	}
 
-	// Release s.mu before calling AgentStatus() — the caller re-locks
-	// after this function returns, but we must not hold the session lock
-	// while spawning subprocesses.
-	s.mu.Unlock()
-	status := pane.AgentStatus()
-	s.mu.Lock()
+	if idle {
+		cp.Idle = true
+		cp.IdleSince = formatIdleSince(since)
+		cp.CurrentCommand = pane.ShellName()
+		cp.ChildPIDs = []int{}
+	} else {
+		// Release s.mu before calling AgentStatus() — spawns subprocesses.
+		s.mu.Unlock()
+		status := pane.AgentStatus()
+		s.mu.Lock()
 
-	cp.Idle = status.Idle
-	cp.IdleSince = formatIdleSince(status.IdleSince)
-	cp.CurrentCommand = status.CurrentCommand
-	cp.ChildPIDs = status.ChildPIDs
+		cp.Idle = status.Idle
+		cp.IdleSince = formatIdleSince(status.IdleSince)
+		cp.CurrentCommand = status.CurrentCommand
+		cp.ChildPIDs = status.ChildPIDs
+	}
 
 	out, _ := json.MarshalIndent(cp, "", "  ")
 	return string(out)

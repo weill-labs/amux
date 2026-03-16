@@ -255,24 +255,12 @@ func TestCaptureJSON_AgentStatus_Idle(t *testing.T) {
 	h := newServerHarness(t)
 
 	// Shell at prompt — send a harmless command and wait for its output
-	// to confirm the shell is initialized and idle.
+	// to confirm the shell is initialized, then wait for idle timer.
 	h.sendKeys("pane-1", "echo READY", "Enter")
 	h.waitFor("pane-1", "READY")
+	h.waitIdle("pane-1")
 
-	// Retry briefly — under parallel load, pgrep may see transient shell
-	// children (job-control self-fork) that settle within a few hundred ms.
-	deadline := time.Now().Add(3 * time.Second)
-	var pane proto.CapturePane
-	for time.Now().Before(deadline) {
-		out := h.runCmd("capture", "--format", "json", "pane-1")
-		if err := json.Unmarshal([]byte(out), &pane); err != nil {
-			t.Fatalf("failed to parse JSON: %v\nraw output:\n%s", err, out)
-		}
-		if pane.Idle {
-			break
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
+	pane := captureJSONPane(t, h, "pane-1")
 
 	if !pane.Idle {
 		t.Errorf("pane should be idle when no command is running (current_command=%q, child_pids=%v)", pane.CurrentCommand, pane.ChildPIDs)
@@ -347,21 +335,14 @@ func TestCaptureJSON_AgentStatus_ChildPIDsArray(t *testing.T) {
 	h := newServerHarness(t)
 
 	// Even when idle, child_pids should be a JSON array (not null).
-	// Retry briefly — bash's job-control self-fork can create a transient
-	// child process that settles within ~100ms.
 	h.sendKeys("pane-1", "echo ARRAY_TEST", "Enter")
 	h.waitFor("pane-1", "ARRAY_TEST")
+	h.waitIdle("pane-1")
 
-	deadline := time.Now().Add(3 * time.Second)
-	var out string
-	for time.Now().Before(deadline) {
-		out = h.runCmd("capture", "--format", "json", "pane-1")
-		if strings.Contains(out, `"child_pids": []`) {
-			return // pass
-		}
-		time.Sleep(100 * time.Millisecond)
+	out := h.runCmd("capture", "--format", "json", "pane-1")
+	if !strings.Contains(out, `"child_pids": []`) {
+		t.Errorf("idle pane should have child_pids as empty array, got:\n%s", out)
 	}
-	t.Errorf("idle pane should have child_pids as empty array, got:\n%s", out)
 }
 
 func TestCaptureJSON_AgentStatus_MultiPane(t *testing.T) {

@@ -71,6 +71,7 @@ type Session struct {
 	Hooks       *hooks.Registry
 	idleTimers  map[uint32]*time.Timer // per-pane idle timers, protected by idleTimerMu
 	idleState   map[uint32]bool        // true = idle, protected by idleTimerMu
+	idleSince   map[uint32]time.Time   // when each pane became idle, protected by idleTimerMu
 	idleTimerMu sync.Mutex
 
 	// Event stream subscribers — used by `amux events` for push-based notifications.
@@ -646,20 +647,6 @@ func (s *Session) notifyPaneOutputSubs(paneID uint32) {
 	}
 }
 
-// paneIsBusy checks whether the given pane has child processes (i.e., a
-// command is running). Thread-safe: looks up the pane under s.mu, then
-// inspects the process tree outside the lock. Retries once on "not busy"
-// to handle races where pgrep misses a recently-forked child.
-func (s *Session) paneIsBusy(paneID uint32) bool {
-	s.mu.Lock()
-	pane := s.findPaneLocked(paneID)
-	s.mu.Unlock()
-	if pane == nil {
-		return false
-	}
-	return !pane.AgentStatus().Idle
-}
-
 // trackPaneActivity is called on every PTY output. It resets the idle timer
 // and fires on-activity if the pane was previously idle.
 func (s *Session) trackPaneActivity(paneID uint32) {
@@ -669,6 +656,7 @@ func (s *Session) trackPaneActivity(paneID uint32) {
 	// If pane was idle, fire on-activity and emit busy event
 	if s.idleState[paneID] {
 		s.idleState[paneID] = false
+		delete(s.idleSince, paneID)
 		env := s.buildPaneEnv(paneID, hooks.OnActivity)
 		s.Hooks.Fire(hooks.OnActivity, env)
 		s.emitEvent(Event{
@@ -686,6 +674,7 @@ func (s *Session) trackPaneActivity(paneID uint32) {
 		s.idleTimers[paneID] = time.AfterFunc(DefaultIdleTimeout, func() {
 			s.idleTimerMu.Lock()
 			s.idleState[paneID] = true
+			s.idleSince[paneID] = time.Now()
 			env := s.buildPaneEnv(paneID, hooks.OnIdle)
 			s.idleTimerMu.Unlock()
 			s.Hooks.Fire(hooks.OnIdle, env)
@@ -707,6 +696,7 @@ func (s *Session) stopPaneIdleTimer(paneID uint32) {
 		t.Stop()
 		delete(s.idleTimers, paneID)
 		delete(s.idleState, paneID)
+		delete(s.idleSince, paneID)
 	}
 }
 
@@ -830,6 +820,7 @@ func newSession(name string) *Session {
 	sess.Hooks = hooks.NewRegistry()
 	sess.idleTimers = make(map[uint32]*time.Timer)
 	sess.idleState = make(map[uint32]bool)
+	sess.idleSince = make(map[uint32]time.Time)
 	return sess
 }
 
