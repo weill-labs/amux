@@ -16,11 +16,14 @@ jobs:
 
       - name: Check for code changes
         id: changes
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
         run: |
           if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
-            BASE="${{ github.event.pull_request.base.sha }}"
+            BASE="$PR_BASE_SHA"
           else
-            BASE="${{ github.event.before }}"
+            BASE="$PUSH_BEFORE_SHA"
           fi
           CODE_CHANGED=$(git diff --name-only "$BASE" HEAD | grep -vE '\.(md)$|^docs/|^LICENSE$' | head -1)
           if [ -z "$CODE_CHANGED" ]; then
@@ -35,9 +38,31 @@ jobs:
         with:
           go-version: "1.25"
 
+      - name: Cache apt packages
+        if: steps.changes.outputs.code_changed == 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/apt-cache
+          key: apt-tmux-${{ runner.os }}
+
       - name: Install tmux
         if: steps.changes.outputs.code_changed == 'true'
-        run: sudo apt-get update && sudo apt-get install -y tmux
+        run: |
+          if [ -d ~/apt-cache ] && ls ~/apt-cache/*.deb 1>/dev/null 2>&1; then
+            sudo dpkg -i ~/apt-cache/*.deb 2>/dev/null || sudo apt-get install -y -f
+          else
+            sudo apt-get update && sudo apt-get install -y tmux
+            mkdir -p ~/apt-cache
+            cp /var/cache/apt/archives/tmux*.deb ~/apt-cache/ 2>/dev/null || true
+            cp /var/cache/apt/archives/libevent*.deb ~/apt-cache/ 2>/dev/null || true
+          fi
+
+      - name: Cache Go tools
+        if: steps.changes.outputs.code_changed == 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/go/bin
+          key: go-tools-${{ runner.os }}-junit-report-v2.1.0
 
       - name: Build
         if: steps.changes.outputs.code_changed == 'true'
@@ -49,7 +74,12 @@ jobs:
 
       - name: Install go-junit-report
         if: steps.changes.outputs.code_changed == 'true'
-        run: go install github.com/jstemmer/go-junit-report/v2@v2.1.0
+        run: |
+          if [ -f ~/go/bin/go-junit-report ]; then
+            echo "go-junit-report already cached"
+          else
+            go install github.com/jstemmer/go-junit-report/v2@v2.1.0
+          fi
 
       - name: Tests with coverage
         if: steps.changes.outputs.code_changed == 'true'

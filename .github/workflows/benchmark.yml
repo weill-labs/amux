@@ -3,12 +3,9 @@ name: Benchmarks
 on:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
 
 permissions:
   contents: write
-  pull-requests: write
 
 jobs:
   benchmark:
@@ -21,15 +18,9 @@ jobs:
       - name: Check for code changes
         id: changes
         env:
-          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PUSH_BEFORE_SHA: ${{ github.event.before }}
         run: |
-          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
-            BASE="$PR_BASE_SHA"
-          else
-            BASE="$PUSH_BEFORE_SHA"
-          fi
-          CODE_CHANGED=$(git diff --name-only "$BASE" HEAD | grep -vE '\.(md)$|^docs/|^LICENSE$' | head -1)
+          CODE_CHANGED=$(git diff --name-only "$PUSH_BEFORE_SHA" HEAD | grep -vE '\.(md)$|^docs/|^LICENSE$' | head -1)
           if [ -z "$CODE_CHANGED" ]; then
             echo "code_changed=false" >> "$GITHUB_OUTPUT"
             echo "Docs-only change, skipping benchmarks"
@@ -89,9 +80,8 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
-      # On main: update trend data via gh-pages
       - name: Update trend data
-        if: github.ref == 'refs/heads/main' && steps.changes.outputs.code_changed == 'true'
+        if: steps.changes.outputs.code_changed == 'true'
         run: |
           go install go.bobheadxi.dev/gobenchdata@latest
           gobenchdata merge bench-all.txt --json benchmarks.json || true
@@ -117,43 +107,3 @@ jobs:
 
           git checkout -
 
-      # On PR: compare against main baseline from gh-pages
-      - name: Download main baseline
-        if: github.event_name == 'pull_request' && steps.changes.outputs.code_changed == 'true'
-        run: |
-          git fetch origin gh-pages 2>/dev/null || true
-          git show origin/gh-pages:bench-all.txt > baseline.txt 2>/dev/null || true
-        continue-on-error: true
-
-      - name: Compare with baseline
-        if: github.event_name == 'pull_request' && steps.changes.outputs.code_changed == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: |
-          if [ ! -s baseline.txt ]; then
-            echo "No baseline found on gh-pages, showing current results only"
-            benchstat bench-all.txt
-            exit 0
-          fi
-
-          COMPARISON=$(benchstat baseline.txt bench-all.txt 2>&1 || true)
-          echo "$COMPARISON"
-
-          BODY=$(cat <<HEREDOC
-          ## Benchmark Comparison
-
-          \`\`\`
-          ${COMPARISON}
-          \`\`\`
-
-          > Regressions >15% are flagged as warnings. Results from benchstat with statistical significance testing.
-          HEREDOC
-          )
-
-          gh pr comment "$PR_NUMBER" --body "$BODY" --edit-last 2>/dev/null || \
-          gh pr comment "$PR_NUMBER" --body "$BODY"
-
-          if echo "$COMPARISON" | grep -qE '\+[1-9][5-9]\.[0-9]+%|\+[2-9][0-9]+\.[0-9]+%|\+[0-9]{3,}\.[0-9]+%'; then
-            echo "::warning::Potential performance regression detected (>15%). Check benchstat output above."
-          fi
