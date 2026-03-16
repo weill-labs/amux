@@ -22,20 +22,21 @@ func DeployBinary(client *ssh.Client, buildHash string) error {
 		return nil // up to date
 	}
 
-	// Detect remote architecture
+	// Detect remote architecture (sshOutput already trims whitespace)
 	remoteArch, err := sshOutput(client, "uname -sm")
 	if err != nil {
 		return fmt.Errorf("detecting remote arch: %w", err)
 	}
 
 	// Check local architecture matches
-	localArch, err := exec.Command("uname", "-sm").Output()
+	localArchBytes, err := exec.Command("uname", "-sm").Output()
 	if err != nil {
 		return fmt.Errorf("detecting local arch: %w", err)
 	}
-	if strings.TrimSpace(string(localArch)) != strings.TrimSpace(remoteArch) {
+	localArch := strings.TrimSpace(string(localArchBytes))
+	if localArch != remoteArch {
 		return fmt.Errorf("cross-arch deploy not yet supported: local=%s, remote=%s",
-			strings.TrimSpace(string(localArch)), strings.TrimSpace(remoteArch))
+			localArch, remoteArch)
 	}
 
 	localExe, err := os.Executable()
@@ -52,7 +53,7 @@ func remoteBuildHash(client *ssh.Client) (string, error) {
 	if err != nil || out == "" {
 		return "", fmt.Errorf("amux not found on remote")
 	}
-	return strings.TrimSpace(out), nil
+	return out, nil // sshOutput already trims whitespace
 }
 
 // uploadBinary uploads the local amux binary to ~/.local/bin/amux on the remote.

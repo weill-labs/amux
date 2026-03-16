@@ -115,31 +115,32 @@ func (m *Manager) CreatePane(hostName string, localPaneID uint32, sessionName st
 	return remotePaneID, nil
 }
 
-// SendInput routes input from a local proxy pane to the correct remote host.
-func (m *Manager) SendInput(localPaneID uint32, data []byte) error {
+// hostConnForPane returns the HostConn for a local pane, or nil if not found.
+func (m *Manager) hostConnForPane(localPaneID uint32) *HostConn {
 	m.mu.Lock()
+	defer m.mu.Unlock()
 	hostName, ok := m.localToHost[localPaneID]
 	if !ok {
-		m.mu.Unlock()
+		return nil
+	}
+	return m.hosts[hostName]
+}
+
+// SendInput routes input from a local proxy pane to the correct remote host.
+func (m *Manager) SendInput(localPaneID uint32, data []byte) error {
+	hc := m.hostConnForPane(localPaneID)
+	if hc == nil {
 		return fmt.Errorf("no remote host for local pane %d", localPaneID)
 	}
-	hc := m.hosts[hostName]
-	m.mu.Unlock()
-
 	return hc.SendInput(localPaneID, data)
 }
 
 // SendResize notifies the remote server about a pane resize.
 func (m *Manager) SendResize(localPaneID uint32, cols, rows int) error {
-	m.mu.Lock()
-	hostName, ok := m.localToHost[localPaneID]
-	if !ok {
-		m.mu.Unlock()
+	hc := m.hostConnForPane(localPaneID)
+	if hc == nil {
 		return nil // ignore resize for unknown panes
 	}
-	hc := m.hosts[hostName]
-	m.mu.Unlock()
-
 	return hc.SendResize(localPaneID, cols, rows)
 }
 
@@ -211,14 +212,7 @@ func (m *Manager) ReconnectHost(hostName string, sessionName string) error {
 // ConnStatusForPane returns the connection status string for a local pane.
 // Returns "" for local panes (not tracked by the manager).
 func (m *Manager) ConnStatusForPane(localPaneID uint32) string {
-	m.mu.Lock()
-	hostName, ok := m.localToHost[localPaneID]
-	if !ok {
-		m.mu.Unlock()
-		return ""
-	}
-	hc := m.hosts[hostName]
-	m.mu.Unlock()
+	hc := m.hostConnForPane(localPaneID)
 	if hc == nil {
 		return ""
 	}

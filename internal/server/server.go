@@ -353,6 +353,41 @@ func (s *Session) removePane(id uint32) {
 	go s.stopPaneIdleTimer(id)
 }
 
+// paneOutputCallback returns the standard onOutput callback for panes.
+func (s *Session) paneOutputCallback() func(uint32, []byte) {
+	return func(paneID uint32, data []byte) {
+		if s.shutdown.Load() {
+			return
+		}
+		s.broadcastPaneOutput(paneID, data)
+	}
+}
+
+// paneExitCallback returns the standard onExit callback for panes.
+// When the last pane exits, the session sends MsgTypeExit and shuts down.
+func (s *Session) paneExitCallback(srv *Server) func(uint32) {
+	return func(paneID uint32) {
+		if s.shutdown.Load() {
+			return
+		}
+		s.mu.Lock()
+		if !s.hasPane(paneID) {
+			s.mu.Unlock()
+			return
+		}
+		if len(s.Panes) <= 1 {
+			s.mu.Unlock()
+			s.broadcast(&Message{Type: MsgTypeExit})
+			srv.Shutdown()
+			return
+		}
+		s.removePane(paneID)
+		s.closePaneInWindow(paneID)
+		s.mu.Unlock()
+		s.broadcastLayout()
+	}
+}
+
 // createPane creates a new pane with auto-assigned metadata.
 func (s *Session) createPane(srv *Server, cols, rows int) (*mux.Pane, error) {
 	cnt := s.counter.Load()
@@ -372,38 +407,8 @@ func (s *Session) createPaneWithMeta(srv *Server, meta mux.PaneMeta, cols, rows 
 	}
 
 	pane, err := mux.NewPane(id, meta, cols, rows,
-		func(paneID uint32, data []byte) {
-			if s.shutdown.Load() {
-				return
-			}
-			// Send raw PTY output to all clients (client does rendering)
-			s.broadcastPaneOutput(paneID, data)
-		},
-		func(paneID uint32) {
-			if s.shutdown.Load() {
-				return
-			}
-
-			s.mu.Lock()
-			if !s.hasPane(paneID) {
-				s.mu.Unlock()
-				return
-			}
-
-			remaining := len(s.Panes)
-			if remaining <= 1 {
-				s.mu.Unlock()
-				s.broadcast(&Message{Type: MsgTypeExit})
-				srv.Shutdown()
-				return
-			}
-
-			s.removePane(paneID)
-			s.closePaneInWindow(paneID)
-			s.mu.Unlock()
-
-			s.broadcastLayout()
-		},
+		s.paneOutputCallback(),
+		s.paneExitCallback(srv),
 	)
 	if err != nil {
 		return nil, err
@@ -432,33 +437,8 @@ func (s *Session) createRemotePane(srv *Server, hostName string, cols, rows int)
 
 	// Create the proxy pane with a writeOverride that routes to the remote manager
 	pane := mux.NewProxyPane(id, meta, cols, rows,
-		func(paneID uint32, data []byte) {
-			if s.shutdown.Load() {
-				return
-			}
-			s.broadcastPaneOutput(paneID, data)
-		},
-		func(paneID uint32) {
-			if s.shutdown.Load() {
-				return
-			}
-			s.mu.Lock()
-			if !s.hasPane(paneID) {
-				s.mu.Unlock()
-				return
-			}
-			remaining := len(s.Panes)
-			if remaining <= 1 {
-				s.mu.Unlock()
-				s.broadcast(&Message{Type: MsgTypeExit})
-				srv.Shutdown()
-				return
-			}
-			s.removePane(paneID)
-			s.closePaneInWindow(paneID)
-			s.mu.Unlock()
-			s.broadcastLayout()
-		},
+		s.paneOutputCallback(),
+		s.paneExitCallback(srv),
 		func(data []byte) (int, error) {
 			return len(data), s.RemoteManager.SendInput(id, data)
 		},
@@ -488,13 +468,7 @@ func (s *Session) SetupRemoteManager(cfg *config.Config) {
 		// onPaneOutput: feed remote output into the proxy pane's emulator
 		func(localPaneID uint32, data []byte) {
 			s.mu.Lock()
-			var pane *mux.Pane
-			for _, p := range s.Panes {
-				if p.ID == localPaneID {
-					pane = p
-					break
-				}
-			}
+			pane := s.findPaneLocked(localPaneID)
 			s.mu.Unlock()
 			if pane != nil {
 				pane.FeedOutput(data)
@@ -678,19 +652,12 @@ func (s *Session) notifyPaneOutputSubs(paneID uint32) {
 // to handle races where pgrep misses a recently-forked child.
 func (s *Session) paneIsBusy(paneID uint32) bool {
 	s.mu.Lock()
-	var pane *mux.Pane
-	for _, p := range s.Panes {
-		if p.ID == paneID {
-			pane = p
-			break
-		}
-	}
+	pane := s.findPaneLocked(paneID)
 	s.mu.Unlock()
 	if pane == nil {
 		return false
 	}
-	status := pane.AgentStatus()
-	return !status.Idle
+	return !pane.AgentStatus().Idle
 }
 
 // paneIsIdle checks whether the given pane has no child processes (shell is
@@ -795,19 +762,12 @@ func (s *Session) buildPaneEnv(paneID uint32, event hooks.Event) map[string]stri
 // calls Render() (thread-safe on the emulator) outside the lock.
 func (s *Session) paneScreenContains(paneID uint32, substr string) bool {
 	s.mu.Lock()
-	var pane *mux.Pane
-	for _, p := range s.Panes {
-		if p.ID == paneID {
-			pane = p
-			break
-		}
-	}
+	pane := s.findPaneLocked(paneID)
 	s.mu.Unlock()
 	if pane == nil {
 		return false
 	}
-	plain := mux.StripANSI(pane.Render())
-	return strings.Contains(plain, substr)
+	return strings.Contains(mux.StripANSI(pane.Render()), substr)
 }
 
 // waitGeneration blocks until the layout generation exceeds afterGen or
@@ -1111,39 +1071,16 @@ func NewServerFromCheckpoint(cp *checkpoint.ServerCheckpoint) (*Server, error) {
 	for _, pc := range cp.Panes {
 		var pane *mux.Pane
 
+		onOutput := sess.paneOutputCallback()
+		onExit := sess.paneExitCallback(s)
+
 		if pc.IsProxy {
 			// Restore proxy pane with frozen content, mark as reconnecting.
 			// The remote manager will re-establish the SSH connection.
 			meta := pc.Meta
 			meta.Remote = string(remote.Reconnecting)
 			pane = mux.NewProxyPane(pc.ID, meta, pc.Cols, pc.Rows,
-				func(paneID uint32, data []byte) {
-					if sess.shutdown.Load() {
-						return
-					}
-					sess.broadcastPaneOutput(paneID, data)
-				},
-				func(paneID uint32) {
-					if sess.shutdown.Load() {
-						return
-					}
-					sess.mu.Lock()
-					if !sess.hasPane(paneID) {
-						sess.mu.Unlock()
-						return
-					}
-					remaining := len(sess.Panes)
-					if remaining <= 1 {
-						sess.mu.Unlock()
-						sess.broadcast(&Message{Type: MsgTypeExit})
-						s.Shutdown()
-						return
-					}
-					sess.removePane(paneID)
-					sess.closePaneInWindow(paneID)
-					sess.mu.Unlock()
-					sess.broadcastLayout()
-				},
+				onOutput, onExit,
 				func(data []byte) (int, error) {
 					// writeOverride will be reconnected by the remote manager
 					if sess.RemoteManager != nil {
@@ -1155,33 +1092,7 @@ func NewServerFromCheckpoint(cp *checkpoint.ServerCheckpoint) (*Server, error) {
 		} else {
 			var restoreErr error
 			pane, restoreErr = mux.RestorePane(pc.ID, pc.Meta, pc.PtmxFd, pc.PID, pc.Cols, pc.Rows,
-				func(paneID uint32, data []byte) {
-					if sess.shutdown.Load() {
-						return
-					}
-					sess.broadcastPaneOutput(paneID, data)
-				},
-				func(paneID uint32) {
-					if sess.shutdown.Load() {
-						return
-					}
-					sess.mu.Lock()
-					if !sess.hasPane(paneID) {
-						sess.mu.Unlock()
-						return
-					}
-					remaining := len(sess.Panes)
-					if remaining <= 1 {
-						sess.mu.Unlock()
-						sess.broadcast(&Message{Type: MsgTypeExit})
-						s.Shutdown()
-						return
-					}
-					sess.removePane(paneID)
-					sess.closePaneInWindow(paneID)
-					sess.mu.Unlock()
-					sess.broadcastLayout()
-				},
+				onOutput, onExit,
 			)
 			if restoreErr != nil {
 				continue // Skip pane on restore failure

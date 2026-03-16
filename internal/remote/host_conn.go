@@ -26,7 +26,8 @@ type HostConn struct {
 	mu        sync.Mutex
 	state     ConnState
 	sshClient *ssh.Client
-	amuxConn  net.Conn // persistent attach connection for pane I/O
+	amuxConn  net.Conn    // persistent attach connection for pane I/O
+	writeMu   sync.Mutex  // serializes writes to amuxConn
 
 	// Pane ID mapping: local ↔ remote
 	remoteToLocal map[uint32]uint32
@@ -34,6 +35,7 @@ type HostConn struct {
 
 	// Session name for the remote amux server (includes local hostname)
 	sessionName string
+	remoteUID   string // UID of the remote user (for socket path)
 
 	// Callbacks back to the local server
 	onPaneOutput  PaneOutputCallback
@@ -118,6 +120,19 @@ func (hc *HostConn) connect(sessionName string) error {
 		return fmt.Errorf("SSH dial: %w", err)
 	}
 
+	// Query the remote user's UID for socket path construction.
+	// The remote amux server uses /tmp/amux-$UID/, and the remote UID
+	// differs from the local UID (e.g., macOS UID 501 vs Linux UID 1000).
+	remoteUID, err := sshOutput(sshClient, "id -u")
+	if err != nil {
+		sshClient.Close()
+		return fmt.Errorf("querying remote UID: %w", err)
+	}
+
+	hc.mu.Lock()
+	hc.remoteUID = remoteUID
+	hc.mu.Unlock()
+
 	// Ensure remote amux server is running
 	remoteSession := remoteSessionName(sessionName)
 	if err := hc.ensureRemoteServer(sshClient, remoteSession); err != nil {
@@ -126,7 +141,7 @@ func (hc *HostConn) connect(sessionName string) error {
 	}
 
 	// Persistent attach connection for streaming pane output
-	remoteSock := remoteSocketPath(remoteSession)
+	remoteSock := hc.remoteSocketPath(remoteSession)
 	amuxConn, err := sshClient.Dial("unix", remoteSock)
 	if err != nil {
 		sshClient.Close()
@@ -166,7 +181,7 @@ func (hc *HostConn) runCommand(cmdName string, cmdArgs []string) (string, error)
 		return "", fmt.Errorf("not connected")
 	}
 
-	remoteSock := remoteSocketPath(session)
+	remoteSock := hc.remoteSocketPath(session)
 	conn, err := sshClient.Dial("unix", remoteSock)
 	if err != nil {
 		return "", fmt.Errorf("dialing remote socket: %w", err)
@@ -244,7 +259,7 @@ func (hc *HostConn) ensureRemoteServer(client *ssh.Client, sessionName string) e
 	}
 	defer sess.Close()
 
-	sockPath := remoteSocketPath(sessionName)
+	sockPath := hc.remoteSocketPath(sessionName)
 	cmd := fmt.Sprintf(
 		`if [ ! -S %s ]; then nohup amux _server %s </dev/null >/dev/null 2>&1 & sleep 0.5; fi`,
 		sockPath, sessionName,
@@ -283,27 +298,17 @@ func (hc *HostConn) readLoop() {
 		case proto.MsgTypeLayout:
 			// Layout is managed locally. We only care about pane output.
 
-		case proto.MsgTypeExit:
-			hc.handleDisconnect()
-			return
-
-		case proto.MsgTypeServerReload:
-			// Remote server is reloading — reconnect after a brief delay
+		case proto.MsgTypeExit, proto.MsgTypeServerReload:
+			// Connection ended or remote server is reloading — reconnect
 			hc.handleDisconnect()
 			return
 		}
 	}
 }
 
-// handleDisconnect is called when the SSH/amux connection drops.
-// It marks the state as reconnecting and starts the backoff loop.
-func (hc *HostConn) handleDisconnect() {
-	hc.mu.Lock()
-	if hc.state != Connected && hc.state != Reconnecting {
-		hc.mu.Unlock()
-		return
-	}
-	// Close stale connections
+// closeConnsLocked closes any open amux/SSH connections.
+// Caller must hold hc.mu.
+func (hc *HostConn) closeConnsLocked() {
 	if hc.amuxConn != nil {
 		hc.amuxConn.Close()
 		hc.amuxConn = nil
@@ -312,6 +317,20 @@ func (hc *HostConn) handleDisconnect() {
 		hc.sshClient.Close()
 		hc.sshClient = nil
 	}
+}
+
+// handleDisconnect is called when the SSH/amux connection drops.
+// It sets state to Reconnecting (preventing duplicate reconnect loops),
+// closes stale connections, and starts the backoff loop.
+func (hc *HostConn) handleDisconnect() {
+	hc.mu.Lock()
+	if hc.state != Connected {
+		// Already disconnected or reconnecting — don't spawn another loop
+		hc.mu.Unlock()
+		return
+	}
+	hc.setState(Reconnecting)
+	hc.closeConnsLocked()
 	hc.mu.Unlock()
 
 	// Start reconnection in background
@@ -345,6 +364,8 @@ func (hc *HostConn) CreateRemotePane(localPaneID uint32) (uint32, error) {
 
 // SendInput sends keyboard input to a specific remote pane via the
 // persistent attach connection using MsgTypeInputPane.
+// Uses writeMu to serialize writes — proto.WriteMsg performs multiple
+// Write calls (header + body) which must not interleave.
 func (hc *HostConn) SendInput(localPaneID uint32, data []byte) error {
 	hc.mu.Lock()
 	conn := hc.amuxConn
@@ -355,6 +376,8 @@ func (hc *HostConn) SendInput(localPaneID uint32, data []byte) error {
 		return nil // silently drop input when disconnected
 	}
 
+	hc.writeMu.Lock()
+	defer hc.writeMu.Unlock()
 	return proto.WriteMsg(conn, &proto.Message{
 		Type:     proto.MsgTypeInputPane,
 		PaneID:   remotePaneID,
@@ -392,14 +415,7 @@ func (hc *HostConn) RemovePane(localPaneID uint32) {
 func (hc *HostConn) Disconnect() {
 	hc.mu.Lock()
 	defer hc.mu.Unlock()
-	if hc.amuxConn != nil {
-		hc.amuxConn.Close()
-		hc.amuxConn = nil
-	}
-	if hc.sshClient != nil {
-		hc.sshClient.Close()
-		hc.sshClient = nil
-	}
+	hc.closeConnsLocked()
 	hc.setState(Disconnected)
 }
 
@@ -420,8 +436,9 @@ func remoteSessionName(localSessionName string) string {
 }
 
 // remoteSocketPath returns the expected amux socket path on the remote host.
-func remoteSocketPath(sessionName string) string {
-	return fmt.Sprintf("/tmp/amux-%d/%s", os.Getuid(), sessionName)
+// Uses the cached remote UID (queried during connect).
+func (hc *HostConn) remoteSocketPath(sessionName string) string {
+	return fmt.Sprintf("/tmp/amux-%s/%s", hc.remoteUID, sessionName)
 }
 
 // hasPort returns true if the address already includes a port.
