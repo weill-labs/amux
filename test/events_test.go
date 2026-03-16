@@ -229,7 +229,8 @@ func TestEventsFilterPane(t *testing.T) {
 // TestEventsCLI exercises `amux events` through the actual binary (covers
 // main.go:runStreamingCommand and the CLI dispatch). The test reads stdout
 // from the spawned process, verifies the initial snapshot arrives as valid
-// NDJSON, then kills the process and checks for clean exit.
+// NDJSON, then shuts down the server so the client exits normally and
+// flushes coverage data.
 func TestEventsCLI(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)
@@ -247,10 +248,6 @@ func TestEventsCLI(t *testing.T) {
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start: %v", err)
 	}
-	t.Cleanup(func() {
-		cmd.Process.Kill()
-		cmd.Wait()
-	})
 
 	scanner := bufio.NewScanner(stdout)
 
@@ -298,6 +295,22 @@ func TestEventsCLI(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("timeout reading layout event from CLI after split")
+	}
+
+	// Shut down the server so the events client exits normally (via broken
+	// pipe / EOF), allowing the -cover runtime to flush coverage data.
+	// Kill sends SIGKILL which skips coverage flush.
+	h.cmd.Process.Signal(os.Interrupt)
+	waitDone := make(chan struct{})
+	go func() {
+		cmd.Wait()
+		close(waitDone)
+	}()
+	select {
+	case <-waitDone:
+	case <-time.After(5 * time.Second):
+		cmd.Process.Kill()
+		cmd.Wait()
 	}
 }
 
