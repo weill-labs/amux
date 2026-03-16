@@ -1,6 +1,7 @@
 package render
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -197,22 +198,20 @@ func TestGlobalBarMultipleWindows(t *testing.T) {
 func TestGlobalBarFillsFullWidth(t *testing.T) {
 	t.Parallel()
 
-	widths := []int{80, 120, 200}
-	for _, width := range widths {
-		var buf strings.Builder
-		// yPos=0 so the bar renders on row 1 (1-indexed CUP)
-		renderGlobalBar(&buf, "default", 2, width, 0, nil)
-		grid := MaterializeGrid(buf.String(), width, 1)
+	for _, width := range []int{80, 120, 200} {
+		t.Run(fmt.Sprintf("width=%d", width), func(t *testing.T) {
+			t.Parallel()
+			var buf strings.Builder
+			renderGlobalBar(&buf, "default", 2, width, 0, nil)
+			grid := MaterializeGrid(buf.String(), width, 1)
 
-		// MaterializeGrid trims trailing spaces, so a bar ending in a
-		// space will measure width-1. The real invariant: no column
-		// before the last is left unfilled (i.e., the bar content +
-		// trailing space reaches the full width).
-		row := []rune(grid)
-		if len(row) < width-1 {
-			t.Errorf("width=%d: global bar is %d cols, want >= %d\n  row: %q",
-				width, len(row), width-1, string(row))
-		}
+			// width-1 accounts for MaterializeGrid trimming the trailing space.
+			row := []rune(grid)
+			if len(row) < width-1 {
+				t.Errorf("global bar is %d cols, want >= %d\n  row: %q",
+					len(row), width-1, string(row))
+			}
+		})
 	}
 }
 
