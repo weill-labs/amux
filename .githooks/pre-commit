@@ -28,3 +28,18 @@ done
 if [ "$NEEDS_FMT" = true ]; then
     echo "goimports: auto-formatted staged Go files"
 fi
+
+# Validate YAML syntax on staged workflow files
+STAGED_YAML=$(git diff --cached --name-only --diff-filter=ACM | grep '\.github/workflows/.*\.yml$')
+if [ -n "$STAGED_YAML" ]; then
+    if command -v uv &>/dev/null; then
+        for file in $STAGED_YAML; do
+            if [ -f "$file" ]; then
+                if ! uv run --with pyyaml python3 -c "import yaml, sys; yaml.safe_load(open(sys.argv[1]))" "$file" 2>/dev/null; then
+                    echo "YAML syntax error in $file"
+                    exit 1
+                fi
+            fi
+        done
+    fi
+fi
