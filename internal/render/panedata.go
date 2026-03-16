@@ -22,4 +22,7 @@ type PaneData interface {
 	Minimized() bool
 	Idle() bool
 	InCopyMode() bool
+	// CopyModeSearch returns the search prompt text (e.g., "/pattern")
+	// when the user is actively typing a search in copy mode. Empty otherwise.
+	CopyModeSearch() string
 }

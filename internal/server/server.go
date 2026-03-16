@@ -392,6 +392,7 @@ func (s *serverPaneData) Color() string         { return s.p.Meta.Color }
 func (s *serverPaneData) Minimized() bool       { return s.p.Meta.Minimized }
 func (s *serverPaneData) Idle() bool            { return s.p.IsIdle() }
 func (s *serverPaneData) InCopyMode() bool      { return false }
+func (s *serverPaneData) CopyModeSearch() string { return "" }
 
 // renderCapture renders the full composited screen server-side.
 // If stripANSI is true, the ANSI stream is materialized into a plain-text

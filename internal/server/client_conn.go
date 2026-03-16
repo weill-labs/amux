@@ -794,16 +794,25 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 		}
 
 		// Subscribe to pane output notifications and check on each write.
-		// When the shell runs a command, it echoes the input (PTY output)
-		// before forking the child, so output events are a reliable trigger.
+		// Also use a ticker as fallback: the shell echoes the command
+		// (triggering output) before forking the child, so pgrep may
+		// miss the child on the first check. The ticker rechecks every
+		// 100ms to catch the fork after the echo.
 		ch := sess.subscribePaneOutput(paneID)
 		defer sess.unsubscribePaneOutput(paneID, ch)
 
+		ticker := time.NewTicker(100 * time.Millisecond)
+		defer ticker.Stop()
 		timer := time.NewTimer(timeout)
 		defer timer.Stop()
 		for {
 			select {
 			case <-ch:
+				if sess.paneIsBusy(paneID) {
+					cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: "busy\n"})
+					return
+				}
+			case <-ticker.C:
 				if sess.paneIsBusy(paneID) {
 					cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: "busy\n"})
 					return
