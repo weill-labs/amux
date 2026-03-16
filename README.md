@@ -7,6 +7,17 @@ A drop-in replacement for tmux built for the human+agent workflow. Same keybindi
 
 ## Philosophy
 
+When humans and agents pair, they need a shared screen. GUIs require screenshots and vision models. Headless APIs cut the human out. The TUI is the only medium native to both — text that humans read and LLMs process at full capability, in real time, in the same panes.
+
+```
+PTY output (raw bytes)
+       ↓
+   VT emulator (parsed state) ← source of truth
+       ↓                ↓
+  ANSI rendering    structured output
+  (for humans)      (for agents)
+```
+
 1. **Tight feedback loops.** Minimize latency between humans and agents.
 
 2. **Shared visibility.** TUI panes are the communication primitive.
