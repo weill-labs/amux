@@ -1,4 +1,4 @@
-package main
+package client
 
 import (
 	"encoding/json"
@@ -7,7 +7,6 @@ import (
 
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
-	"github.com/weill-labs/amux/internal/server"
 )
 
 // buildTestRenderer creates a ClientRenderer with two panes in a vertical split.
@@ -176,16 +175,16 @@ func TestHandleCaptureRequest(t *testing.T) {
 	cr := buildTestRenderer(t)
 
 	// Plain text
-	resp := handleCaptureRequest(cr, []string{}, nil)
-	if resp.Type != server.MsgTypeCaptureResponse {
-		t.Errorf("type: got %d, want %d", resp.Type, server.MsgTypeCaptureResponse)
+	resp := cr.HandleCaptureRequest([]string{}, nil)
+	if resp.Type != proto.MsgTypeCaptureResponse {
+		t.Errorf("type: got %d, want %d", resp.Type, proto.MsgTypeCaptureResponse)
 	}
 	if resp.CmdOutput == "" {
 		t.Error("plain capture should produce output")
 	}
 
 	// JSON
-	resp = handleCaptureRequest(cr, []string{"--format", "json"}, nil)
+	resp = cr.HandleCaptureRequest([]string{"--format", "json"}, nil)
 	if resp.CmdErr != "" {
 		t.Errorf("JSON capture error: %s", resp.CmdErr)
 	}
@@ -194,31 +193,31 @@ func TestHandleCaptureRequest(t *testing.T) {
 	}
 
 	// Single pane
-	resp = handleCaptureRequest(cr, []string{"pane-1"}, nil)
+	resp = cr.HandleCaptureRequest([]string{"pane-1"}, nil)
 	if !strings.Contains(resp.CmdOutput, "hello from pane 1") {
 		t.Error("single pane capture should contain pane content")
 	}
 
 	// Color map
-	resp = handleCaptureRequest(cr, []string{"--colors"}, nil)
+	resp = cr.HandleCaptureRequest([]string{"--colors"}, nil)
 	if resp.CmdErr != "" {
 		t.Errorf("color map error: %s", resp.CmdErr)
 	}
 
 	// Mutual exclusivity
-	resp = handleCaptureRequest(cr, []string{"--ansi", "--colors"}, nil)
+	resp = cr.HandleCaptureRequest([]string{"--ansi", "--colors"}, nil)
 	if resp.CmdErr == "" {
 		t.Error("--ansi + --colors should error")
 	}
 
 	// Nonexistent pane
-	resp = handleCaptureRequest(cr, []string{"nope"}, nil)
+	resp = cr.HandleCaptureRequest([]string{"nope"}, nil)
 	if resp.CmdErr == "" {
 		t.Error("nonexistent pane should error")
 	}
 
 	// --colors with pane ref
-	resp = handleCaptureRequest(cr, []string{"--colors", "pane-1"}, nil)
+	resp = cr.HandleCaptureRequest([]string{"--colors", "pane-1"}, nil)
 	if resp.CmdErr == "" {
 		t.Error("--colors with pane ref should error")
 	}

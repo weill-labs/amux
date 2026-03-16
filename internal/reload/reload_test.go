@@ -1,4 +1,4 @@
-package main
+package reload
 
 import (
 	"os"
@@ -16,7 +16,7 @@ func TestWatchBinaryDebounce(t *testing.T) {
 	}
 
 	triggerReload := make(chan struct{}, 1)
-	go watchBinary(binPath, triggerReload)
+	go WatchBinary(binPath, triggerReload)
 
 	// Give watcher time to start
 	time.Sleep(100 * time.Millisecond)
@@ -54,7 +54,7 @@ func TestWatchBinaryIgnoresOtherFiles(t *testing.T) {
 	}
 
 	triggerReload := make(chan struct{}, 1)
-	go watchBinary(binPath, triggerReload)
+	go WatchBinary(binPath, triggerReload)
 
 	time.Sleep(100 * time.Millisecond)
 
@@ -80,7 +80,7 @@ func TestWatchBinaryDeleteAndRecreate(t *testing.T) {
 	}
 
 	triggerReload := make(chan struct{}, 1)
-	go watchBinary(binPath, triggerReload)
+	go WatchBinary(binPath, triggerReload)
 
 	time.Sleep(100 * time.Millisecond)
 
