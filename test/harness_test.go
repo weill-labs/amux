@@ -170,22 +170,6 @@ func isBenchSession(name string) bool {
 // Shared ANSI / color helpers (used by border, hotreload, and mouse tests)
 // ---------------------------------------------------------------------------
 
-// isPaneActive returns true if the captured screen shows the named pane
-// with the active indicator (● [name]).
-func isPaneActive(screen, paneName string) bool {
-	target := "[" + paneName + "]"
-	for _, line := range strings.Split(screen, "\n") {
-		idx := strings.Index(line, target)
-		if idx < 0 {
-			continue
-		}
-		if strings.Contains(line[:idx], "●") {
-			return true
-		}
-	}
-	return false
-}
-
 // pickContentLine returns a middle content line from ANSI-escaped screen output,
 // skipping status lines and empty lines.
 func pickContentLine(screen string) string {
