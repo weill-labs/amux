@@ -77,3 +77,5 @@ cd test && go test -run TestGolden -update
 - Keep PRs focused — avoid mixing features with refactors
 
 Check [GitHub Issues](https://github.com/weill-labs/amux/issues) for open tasks and to report bugs.
+
+By submitting a pull request, you agree that your contribution is licensed under the [MIT License](LICENSE).
