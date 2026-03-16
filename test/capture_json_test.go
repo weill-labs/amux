@@ -233,18 +233,22 @@ func TestCaptureJSON_AgentStatus_Busy(t *testing.T) {
 	h := newServerHarness(t)
 
 	h.sendKeys("pane-1", "sleep 300", "Enter")
-	h.waitBusy("pane-1") // zero-polling: blocks until child process exists
+	h.waitBusy("pane-1")
 
-	pane1 := captureJSONPane(t, h, "pane-1")
-
-	if pane1.Idle {
-		t.Errorf("pane should not be idle (current_command=%q, child_pids=%v)", pane1.CurrentCommand, pane1.ChildPIDs)
-	}
-	if pane1.CurrentCommand == "" {
-		t.Error("current_command should be non-empty")
-	}
-	if len(pane1.ChildPIDs) == 0 {
-		t.Error("child_pids should be non-empty while command is running")
+	// Poll until AgentStatus agrees with waitBusy — separate pgrep calls
+	// can briefly disagree on slow CI.
+	var pane1 proto.CapturePane
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		pane1 = captureJSONPane(t, h, "pane-1")
+		if !pane1.Idle && pane1.CurrentCommand != "" && len(pane1.ChildPIDs) > 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("pane should be busy (idle=%v, current_command=%q, child_pids=%v)",
+				pane1.Idle, pane1.CurrentCommand, pane1.ChildPIDs)
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
 	if pane1.IdleSince != "" {
 		t.Errorf("idle_since should be empty when busy, got %q", pane1.IdleSince)
@@ -256,29 +260,32 @@ func TestCaptureJSON_AgentStatus_Idle(t *testing.T) {
 	h := newServerHarness(t)
 
 	// Shell at prompt — send a harmless command and wait for its output
-	// to confirm the shell is initialized and idle.
+	// to confirm the shell is initialized and idle. Poll the JSON capture
+	// until AgentStatus agrees, since waitIdle and forwardCapture use
+	// separate pgrep calls that can briefly disagree on slow CI.
 	h.sendKeys("pane-1", "echo READY", "Enter")
 	h.waitFor("pane-1", "READY")
 	h.waitIdle("pane-1")
 
-	out := h.runCmd("capture", "--format", "json", "pane-1")
-
 	var pane proto.CapturePane
-	if err := json.Unmarshal([]byte(out), &pane); err != nil {
-		t.Fatalf("failed to parse JSON: %v\nraw output:\n%s", err, out)
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		out := h.runCmd("capture", "--format", "json", "pane-1")
+		if err := json.Unmarshal([]byte(out), &pane); err != nil {
+			t.Fatalf("failed to parse JSON: %v\nraw output:\n%s", err, out)
+		}
+		if pane.Idle && pane.IdleSince != "" && pane.CurrentCommand != "" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("pane should be idle with all fields populated (idle=%v, idle_since=%q, current_command=%q)",
+				pane.Idle, pane.IdleSince, pane.CurrentCommand)
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
 
-	if !pane.Idle {
-		t.Error("pane should be idle when no command is running")
-	}
-	if pane.IdleSince == "" {
-		t.Error("idle_since should be set when pane is idle")
-	}
 	if _, err := time.Parse(time.RFC3339, pane.IdleSince); err != nil {
 		t.Errorf("idle_since should be RFC3339, got %q: %v", pane.IdleSince, err)
-	}
-	if pane.CurrentCommand == "" {
-		t.Error("current_command should report the shell even when idle")
 	}
 }
 
@@ -289,22 +296,23 @@ func TestCaptureJSON_AgentStatus_SinglePane(t *testing.T) {
 	h.sendKeys("pane-1", "sleep 300", "Enter")
 	h.waitBusy("pane-1")
 
-	// Single-pane capture should also include agent status
-	out := h.runCmd("capture", "--format", "json", "pane-1")
-
+	// Single-pane capture should also include agent status. Poll until
+	// AgentStatus agrees — separate pgrep calls can briefly disagree.
 	var pane proto.CapturePane
-	if err := json.Unmarshal([]byte(out), &pane); err != nil {
-		t.Fatalf("failed to parse JSON: %v\nraw output:\n%s", err, out)
-	}
-
-	if pane.Idle {
-		t.Errorf("pane should not be idle (current_command=%q, child_pids=%v)", pane.CurrentCommand, pane.ChildPIDs)
-	}
-	if pane.CurrentCommand == "" {
-		t.Error("current_command should be non-empty while command is running")
-	}
-	if len(pane.ChildPIDs) == 0 {
-		t.Error("child_pids should be non-empty")
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		out := h.runCmd("capture", "--format", "json", "pane-1")
+		if err := json.Unmarshal([]byte(out), &pane); err != nil {
+			t.Fatalf("failed to parse JSON: %v\nraw output:\n%s", err, out)
+		}
+		if !pane.Idle && pane.CurrentCommand != "" && len(pane.ChildPIDs) > 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("pane should be busy (idle=%v, current_command=%q, child_pids=%v)",
+				pane.Idle, pane.CurrentCommand, pane.ChildPIDs)
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
 }
 
@@ -312,20 +320,25 @@ func TestCaptureJSON_AgentStatus_Transition(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)
 
-	// Start idle — confirm initial state.
+	// Start idle — confirm initial state. Poll the JSON capture until
+	// AgentStatus agrees with waitIdle, since they use separate pgrep calls
+	// that can briefly disagree on slow CI (shell PROMPT_COMMAND, etc.).
 	h.sendKeys("pane-1", "echo INIT", "Enter")
 	h.waitFor("pane-1", "INIT")
 	h.waitIdle("pane-1")
 
-	pane := captureJSONPane(t, h, "pane-1")
-	if !pane.Idle {
-		t.Fatal("pane should start idle")
+	var pane proto.CapturePane
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		pane = captureJSONPane(t, h, "pane-1")
+		if pane.Idle && pane.IdleSince != "" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("pane should start idle (idle=%v, idle_since=%q)", pane.Idle, pane.IdleSince)
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
-	idleSince1 := pane.IdleSince
-	if idleSince1 == "" {
-		t.Fatal("idle_since should be set initially")
-	}
-
 	// Transition to busy
 	h.sendKeys("pane-1", "sleep 300", "Enter")
 	h.waitBusy("pane-1")

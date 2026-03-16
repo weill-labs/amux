@@ -108,10 +108,17 @@ func TestEventsInitialSnapshot(t *testing.T) {
 		t.Error("layout event should have active_pane")
 	}
 
-	// Second event should be idle or busy for pane-1
-	ev = readEvent(t, scanner, 5*time.Second)
-	if ev.Type != "idle" && ev.Type != "busy" {
-		t.Errorf("second event type: got %q, want idle or busy", ev.Type)
+	// Next idle or busy event should be for pane-1. Other events (output,
+	// layout from idle state changes) may arrive first — skip them.
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		ev = readEvent(t, scanner, time.Until(deadline))
+		if ev.Type == "idle" || ev.Type == "busy" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("expected idle or busy event, only got %q", ev.Type)
+		}
 	}
 	if ev.PaneName != "pane-1" {
 		t.Errorf("pane name: got %q, want %q", ev.PaneName, "pane-1")
