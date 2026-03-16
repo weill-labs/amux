@@ -71,6 +71,10 @@ type Session struct {
 	idleTimers  map[uint32]*time.Timer // per-pane idle timers, protected by idleTimerMu
 	idleState   map[uint32]bool        // true = idle, protected by idleTimerMu
 	idleTimerMu sync.Mutex
+
+	// Event stream subscribers — used by `amux events` for push-based notifications.
+	eventSubs   []*eventSub
+	eventSubsMu sync.Mutex
 }
 
 // ActiveWindow returns the currently active window, or nil.
@@ -213,6 +217,19 @@ func (s *Session) broadcastPaneOutput(paneID uint32, data []byte) {
 	s.broadcast(&Message{Type: MsgTypePaneOutput, PaneID: paneID, PaneData: data})
 	s.notifyPaneOutputSubs(paneID)
 	s.trackPaneActivity(paneID)
+
+	// Emit output event for event stream subscribers.
+	s.mu.Lock()
+	var paneName, host string
+	for _, p := range s.Panes {
+		if p.ID == paneID {
+			paneName = p.Meta.Name
+			host = p.Meta.Host
+			break
+		}
+	}
+	s.mu.Unlock()
+	s.emitEvent(Event{Type: EventOutput, PaneID: paneID, PaneName: paneName, Host: host})
 }
 
 // broadcastLayout sends the current layout snapshot to all clients
@@ -230,7 +247,7 @@ func (s *Session) broadcastLayout() {
 
 	// Increment generation and wake any wait-layout waiters.
 	s.generationMu.Lock()
-	s.generation.Add(1)
+	gen := s.generation.Add(1)
 	s.generationCond.Broadcast()
 	s.generationMu.Unlock()
 
@@ -238,6 +255,18 @@ func (s *Session) broadcastLayout() {
 	for _, c := range clients {
 		c.Send(msg)
 	}
+
+	// Emit layout event for event stream subscribers.
+	activePaneName := ""
+	if snap.ActivePaneID != 0 {
+		for _, p := range snap.Panes {
+			if p.ID == snap.ActivePaneID {
+				activePaneName = p.Name
+				break
+			}
+		}
+	}
+	s.emitEvent(Event{Type: EventLayout, Generation: gen, ActivePane: activePaneName})
 }
 
 // snapshotLayoutLocked builds a LayoutSnapshot with multi-window data.
@@ -536,11 +565,17 @@ func (s *Session) trackPaneActivity(paneID uint32) {
 	s.idleTimerMu.Lock()
 	defer s.idleTimerMu.Unlock()
 
-	// If pane was idle, fire on-activity
+	// If pane was idle, fire on-activity and emit busy event
 	if s.idleState[paneID] {
 		s.idleState[paneID] = false
 		env := s.buildPaneEnv(paneID, hooks.OnActivity)
 		s.Hooks.Fire(hooks.OnActivity, env)
+		s.emitEvent(Event{
+			Type:     EventBusy,
+			PaneID:   paneID,
+			PaneName: env["AMUX_PANE_NAME"],
+			Host:     env["AMUX_HOST"],
+		})
 	}
 
 	// Reset or create idle timer
@@ -553,6 +588,12 @@ func (s *Session) trackPaneActivity(paneID uint32) {
 			env := s.buildPaneEnv(paneID, hooks.OnIdle)
 			s.idleTimerMu.Unlock()
 			s.Hooks.Fire(hooks.OnIdle, env)
+			s.emitEvent(Event{
+				Type:     EventIdle,
+				PaneID:   paneID,
+				PaneName: env["AMUX_PANE_NAME"],
+				Host:     env["AMUX_HOST"],
+			})
 		})
 	}
 }

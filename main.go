@@ -197,6 +197,8 @@ func main() {
 	case "list-hooks":
 		runServerCommand("list-hooks", nil)
 
+	case "events":
+		runStreamingCommand("events", args[1:])
 	case "reload-server":
 		runServerCommand("reload-server", nil)
 	case "dashboard":
@@ -263,6 +265,8 @@ Usage:
   amux [-s session] unset-hook <event> [index]
                                        Remove hook(s) for an event
   amux [-s session] list-hooks         List registered hooks
+  amux [-s session] events [--filter type1,type2] [--pane <ref>] [--host <name>]
+                                       Stream events as NDJSON (layout, output, idle, busy)
   amux [-s session] reload-server      Hot-reload the server (preserves panes)
   amux [-s session] generation         Show current layout generation counter
   amux [-s session] wait-layout [--after N] [--timeout 3s]
@@ -941,6 +945,40 @@ func waitForSocket(sockPath string, timeout time.Duration) error {
 // ---------------------------------------------------------------------------
 // Server command client (for amux list, etc.)
 // ---------------------------------------------------------------------------
+
+// runStreamingCommand opens a persistent connection to the server and streams
+// MsgTypeCmdResult messages to stdout until the connection closes.
+// Used for long-lived commands like "events".
+func runStreamingCommand(cmdName string, args []string) {
+	sockPath := server.SocketPath(sessionName)
+	conn, err := net.Dial("unix", sockPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "amux %s: server not running (run 'amux' first)\n", cmdName)
+		os.Exit(1)
+	}
+	defer conn.Close()
+
+	if err := server.WriteMsg(conn, &server.Message{
+		Type:    server.MsgTypeCommand,
+		CmdName: cmdName,
+		CmdArgs: args,
+	}); err != nil {
+		fmt.Fprintf(os.Stderr, "amux %s: %v\n", cmdName, err)
+		os.Exit(1)
+	}
+
+	for {
+		msg, err := server.ReadMsg(conn)
+		if err != nil {
+			break // connection closed (server reload, shutdown, or pipe closed)
+		}
+		if msg.CmdErr != "" {
+			fmt.Fprintf(os.Stderr, "amux %s: %s\n", cmdName, msg.CmdErr)
+			os.Exit(1)
+		}
+		fmt.Print(msg.CmdOutput) // already newline-terminated
+	}
+}
 
 func runServerCommand(cmdName string, args []string) {
 	sockPath := server.SocketPath(sessionName)
