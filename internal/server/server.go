@@ -277,6 +277,14 @@ func (s *Session) forwardCapture(args []string) *Message {
 	}
 }
 
+// formatIdleSince returns an RFC3339 string for a non-zero time, or "".
+func formatIdleSince(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.UTC().Format(time.RFC3339)
+}
+
 // nonNilPIDs ensures a nil slice becomes an empty slice for JSON marshaling.
 func nonNilPIDs(pids []int) []int {
 	if pids == nil {
@@ -505,105 +513,14 @@ func (s *Session) createPaneWithMeta(srv *Server, meta mux.PaneMeta, cols, rows 
 	return pane, nil
 }
 
-// serverPaneData adapts *mux.Pane to the render.PaneData interface.
-type serverPaneData struct {
-	p    *mux.Pane
-	idle bool // cached from session idle tracking, avoids forking pgrep
-}
-
-func (s *serverPaneData) RenderScreen(active bool) string {
-	if !active {
-		return s.p.RenderWithoutCursorBlock()
-	}
-	return s.p.Render()
-}
-func (s *serverPaneData) CursorPos() (int, int)  { return s.p.CursorPos() }
-func (s *serverPaneData) CursorHidden() bool     { return s.p.CursorHidden() }
-func (s *serverPaneData) HasCursorBlock() bool   { return s.p.HasCursorBlock() }
-func (s *serverPaneData) ID() uint32             { return s.p.ID }
-func (s *serverPaneData) Name() string           { return s.p.Meta.Name }
-func (s *serverPaneData) Host() string           { return s.p.Meta.Host }
-func (s *serverPaneData) Task() string           { return s.p.Meta.Task }
-func (s *serverPaneData) Color() string          { return s.p.Meta.Color }
-func (s *serverPaneData) Minimized() bool        { return s.p.Meta.Minimized }
-func (s *serverPaneData) Idle() bool             { return s.idle }
-func (s *serverPaneData) InCopyMode() bool       { return false }
-func (s *serverPaneData) CopyModeSearch() string { return "" }
-
-// renderCapture renders the full composited screen server-side.
-// If stripANSI is true, the ANSI stream is materialized into a plain-text
-// 2D grid that preserves the visual layout.
-//
-// Note: pane emulator reads here race with concurrent PTY writes. This is
-// the same best-effort pattern used by handleAttach's reattach snapshot.
-func (s *Session) renderCapture(stripANSI bool) string {
-	idleSnap := s.snapshotIdleState()
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	w := s.ActiveWindow()
-	if w == nil {
-		return ""
-	}
-
-	paneMap := make(map[uint32]render.PaneData, len(s.Panes))
+// findPaneLocked finds a pane by ID. Caller must hold s.mu.
+func (s *Session) findPaneLocked(id uint32) *mux.Pane {
 	for _, p := range s.Panes {
-		paneMap[p.ID] = &serverPaneData{p: p, idle: idleSnap[p.ID]}
-	}
-
-	totalH := w.Height + render.GlobalBarHeight
-	comp := render.NewCompositor(w.Width, totalH, s.Name)
-	comp.SetWindows(s.windowInfoLocked())
-
-	var activePaneID uint32
-	if w.ActivePane != nil {
-		activePaneID = w.ActivePane.ID
-	}
-
-	root := w.Root
-	if w.ZoomedPaneID != 0 {
-		root = mux.NewLeafByID(w.ZoomedPaneID, 0, 0, w.Width, w.Height)
-	}
-
-	raw := comp.RenderFull(root, activePaneID, func(id uint32) render.PaneData {
-		return paneMap[id]
-	})
-
-	if stripANSI {
-		return render.MaterializeGrid(raw, w.Width, totalH)
-	}
-
-	return raw
-}
-
-// windowInfoLocked returns window info for rendering. Caller must hold s.mu.
-func (s *Session) windowInfoLocked() []render.WindowInfo {
-	infos := make([]render.WindowInfo, len(s.Windows))
-	for i, w := range s.Windows {
-		infos[i] = render.WindowInfo{
-			Index:    i + 1,
-			Name:     w.Name,
-			IsActive: w.ID == s.ActiveWindowID,
-			Panes:    w.PaneCount(),
+		if p.ID == id {
+			return p
 		}
 	}
-	return infos
-}
-
-// renderColorMap renders the ANSI capture and extracts a color map showing
-// border colors as single-letter Catppuccin initials.
-func (s *Session) renderColorMap() string {
-	s.mu.Lock()
-	w := s.ActiveWindow()
-	if w == nil {
-		s.mu.Unlock()
-		return ""
-	}
-	width := w.Width
-	h := w.Height + render.GlobalBarHeight
-	s.mu.Unlock()
-	ansi := s.renderCapture(false)
-	return render.ExtractColorMap(ansi, width, h) + "\n"
+	return nil
 }
 
 // subscribePaneOutput registers a channel to receive notifications when
