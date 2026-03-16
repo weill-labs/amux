@@ -1,5 +1,10 @@
 # Contributing to amux
 
+## Prerequisites
+
+- Go 1.25+
+- tmux (required for integration tests)
+
 ## Build
 
 ```bash
@@ -8,6 +13,13 @@ go test ./...                       # run all tests
 ```
 
 Hot-reload: both client and server watch the binary and re-exec on changes. Running `go build` triggers automatic reload — panes and shells are preserved.
+
+To test manually after building:
+
+```bash
+amux                              # start or reattach to a session
+amux capture --format json        # structured JSON output for agents
+```
 
 ## Test
 
@@ -63,3 +75,5 @@ cd test && go test -run TestGolden -update
 - Include tests for new behavior
 - Bug fixes include a regression test
 - Keep PRs focused — don't mix features with refactors
+
+Check [GitHub Issues](https://github.com/weill-labs/amux/issues) for open tasks and to report bugs.
