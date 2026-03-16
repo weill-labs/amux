@@ -23,7 +23,6 @@ func (w *Window) SnapshotLayout(sessionName string) *proto.LayoutSnapshot {
 			Task:      p.Meta.Task,
 			Color:     p.Meta.Color,
 			Minimized: p.Meta.Minimized,
-			Idle:      p.IsIdle(),
 		})
 	}
 	return snap
@@ -49,7 +48,6 @@ func (w *Window) SnapshotWindow(index int) proto.WindowSnapshot {
 			Task:      p.Meta.Task,
 			Color:     p.Meta.Color,
 			Minimized: p.Meta.Minimized,
-			Idle:      p.IsIdle(),
 		})
 	}
 	return ws

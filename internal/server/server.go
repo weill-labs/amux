@@ -257,6 +257,19 @@ func (s *Session) snapshotLayoutLocked() *proto.LayoutSnapshot {
 		snap.Windows = append(snap.Windows, win.SnapshotWindow(i+1))
 	}
 
+	// Stamp idle state from the server's cached idle timers.
+	// This avoids spawning pgrep subprocesses under s.mu.
+	s.idleTimerMu.Lock()
+	for i := range snap.Panes {
+		snap.Panes[i].Idle = s.idleState[snap.Panes[i].ID]
+	}
+	for wi := range snap.Windows {
+		for pi := range snap.Windows[wi].Panes {
+			snap.Windows[wi].Panes[pi].Idle = s.idleState[snap.Windows[wi].Panes[pi].ID]
+		}
+	}
+	s.idleTimerMu.Unlock()
+
 	return snap
 }
 
