@@ -16,15 +16,17 @@ import (
 	"github.com/weill-labs/amux/internal/server"
 )
 
-// ServerHarness starts only the inner amux server daemon. All interaction
-// is via CLI commands over the Unix socket — no client process, no tmux.
+// ServerHarness starts the inner amux server daemon and attaches a headless
+// client. The client maintains local emulators and responds to capture
+// requests — making it the rendering source of truth, same as a real client.
 // CLI commands are synchronous: after runCmd("split") returns, capture()
 // immediately reflects the split. Zero polling, zero time.Sleep.
 type ServerHarness struct {
 	tb       testing.TB
 	session  string
 	cmd      *exec.Cmd
-	coverDir string // per-test GOCOVERDIR subdirectory (avoids coverage metadata races)
+	coverDir string          // per-test GOCOVERDIR subdirectory (avoids coverage metadata races)
+	client   *headlessClient // attached headless client for capture
 }
 
 // newServerHarness starts a server daemon with a unique session name,
@@ -94,22 +96,25 @@ func newServerHarness(tb testing.TB) *ServerHarness {
 	h := &ServerHarness{tb: tb, session: session, cmd: cmd, coverDir: coverDir}
 	tb.Cleanup(h.cleanup)
 
-	// Seed the first pane by sending a temporary Attach message.
-	h.seedPane()
+	// Attach a headless client — seeds the first pane and stays connected
+	// so capture requests route through client-side emulators.
+	sockPath := server.SocketPath(session)
+	client, err := newHeadlessClient(sockPath, session, 80, 24)
+	if err != nil {
+		cmd.Process.Kill()
+		tb.Fatalf("attaching headless client: %v", err)
+	}
+	h.client = client
 
 	return h
 }
 
-// seedPane creates the first pane+window by connecting as a client, reading
-// the layout response (which confirms pane creation), then disconnecting.
-func (h *ServerHarness) seedPane() {
-	h.tb.Helper()
-	h.attachAt(80, 24)
-}
-
-// cleanup sends SIGTERM for graceful shutdown (coverage flush), then cleans
-// up the socket and log files.
+// cleanup detaches the headless client, sends SIGTERM for graceful shutdown
+// (coverage flush), then cleans up the socket and log files.
 func (h *ServerHarness) cleanup() {
+	if h.client != nil {
+		h.client.close()
+	}
 	if h.cmd != nil && h.cmd.Process != nil {
 		h.cmd.Process.Signal(os.Interrupt)
 		done := make(chan struct{})

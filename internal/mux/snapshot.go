@@ -16,15 +16,7 @@ func (w *Window) SnapshotLayout(sessionName string) *proto.LayoutSnapshot {
 	}
 	snap.Root = snapshotCell(w.Root)
 	for _, p := range w.Panes() {
-		snap.Panes = append(snap.Panes, proto.PaneSnapshot{
-			ID:         p.ID,
-			Name:       p.Meta.Name,
-			Host:       p.Meta.Host,
-			Task:       p.Meta.Task,
-			Color:      p.Meta.Color,
-			Minimized:  p.Meta.Minimized,
-			ConnStatus: p.Meta.Remote,
-		})
+		snap.Panes = append(snap.Panes, paneToSnapshot(p))
 	}
 	return snap
 }
@@ -42,17 +34,28 @@ func (w *Window) SnapshotWindow(index int) proto.WindowSnapshot {
 		ws.ActivePaneID = w.ActivePane.ID
 	}
 	for _, p := range w.Panes() {
-		ws.Panes = append(ws.Panes, proto.PaneSnapshot{
-			ID:         p.ID,
-			Name:       p.Meta.Name,
-			Host:       p.Meta.Host,
-			Task:       p.Meta.Task,
-			Color:      p.Meta.Color,
-			Minimized:  p.Meta.Minimized,
-			ConnStatus: p.Meta.Remote,
-		})
+		ws.Panes = append(ws.Panes, paneToSnapshot(p))
 	}
 	return ws
+}
+
+// paneToSnapshot converts a Pane to a PaneSnapshot. For minimized panes,
+// includes the emulator's actual dimensions so clients create correctly-sized
+// emulators (the cell dimensions are shrunk to just the status bar).
+func paneToSnapshot(p *Pane) proto.PaneSnapshot {
+	ps := proto.PaneSnapshot{
+		ID:         p.ID,
+		Name:       p.Meta.Name,
+		Host:       p.Meta.Host,
+		Task:       p.Meta.Task,
+		Color:      p.Meta.Color,
+		Minimized:  p.Meta.Minimized,
+		ConnStatus: p.Meta.Remote,
+	}
+	if p.Meta.Minimized {
+		ps.EmuWidth, ps.EmuHeight = p.EmulatorSize()
+	}
+	return ps
 }
 
 func snapshotCell(c *LayoutCell) proto.CellSnapshot {

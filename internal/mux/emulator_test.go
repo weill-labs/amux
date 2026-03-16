@@ -1,6 +1,7 @@
 package mux
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -81,6 +82,42 @@ func TestRenderWithCursor(t *testing.T) {
 	result := RenderWithCursor(emu)
 	if !strings.Contains(result, "\033[") {
 		t.Error("RenderWithCursor should contain ANSI cursor positioning")
+	}
+}
+
+func TestRenderWithCursorRoundTrip(t *testing.T) {
+	t.Parallel()
+	// Verify that RenderWithCursor output replays correctly into a fresh
+	// emulator. Catches width-dependent wrapping with wide Unicode chars
+	// (block elements, box drawing) that caused garbled reattach rendering.
+	content := []string{
+		"           Claude Code v2.1.76",
+		" \u2590\u259b\u2588\u2588\u2588\u259c\u258c   Opus 4.6 (1M context)",
+		"\u259d\u259c\u2588\u2588\u2588\u2588\u2588\u259b\u2598  Claude Max",
+		"  \u2598\u2598 \u259d\u259d    /Users/test",
+		"",
+		"\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500",
+		"\u276f ",
+	}
+
+	w, h := 44, 20
+	emu1 := NewVTEmulatorWithDrain(w, h)
+	for i, line := range content {
+		emu1.Write([]byte(fmt.Sprintf("\033[%d;1H%s", i+1, line)))
+	}
+
+	emu2 := NewVTEmulatorWithDrain(w, h)
+	emu2.Write([]byte(RenderWithCursor(emu1)))
+
+	lines1 := strings.Split(emu1.Render(), "\n")
+	lines2 := strings.Split(emu2.Render(), "\n")
+
+	for i := 0; i < len(lines1) && i < len(lines2); i++ {
+		s1 := StripANSI(lines1[i])
+		s2 := StripANSI(lines2[i])
+		if s1 != s2 {
+			t.Errorf("line %d mismatch:\n  orig:   %q\n  replay: %q", i, s1, s2)
+		}
 	}
 }
 

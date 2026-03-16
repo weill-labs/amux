@@ -49,6 +49,12 @@ type PaneSnapshot struct {
 	Minimized  bool
 	Idle       bool
 	ConnStatus string // "", "connected", "reconnecting", "disconnected" (remote panes only)
+
+	// EmuWidth/EmuHeight are set for minimized panes to record the
+	// pre-minimize emulator dimensions. Clients use these to create
+	// correctly-sized emulators so replayed screen content isn't truncated.
+	EmuWidth  int
+	EmuHeight int
 }
 
 // CaptureJSON is the full-screen JSON capture output.
@@ -99,6 +105,15 @@ type CapturePane struct {
 	ChildPIDs []int `json:"child_pids"`
 }
 
+// PaneAgentStatus holds process-level status for a pane, gathered by the
+// server and forwarded to the client for JSON capture.
+type PaneAgentStatus struct {
+	Idle           bool
+	IdleSince      string // RFC3339 or ""
+	CurrentCommand string
+	ChildPIDs      []int
+}
+
 // CapturePos holds a pane's position and size within the layout.
 type CapturePos struct {
 	X      int `json:"x"`
@@ -112,4 +127,53 @@ type CaptureCursor struct {
 	Col    int  `json:"col"`
 	Row    int  `json:"row"`
 	Hidden bool `json:"hidden"`
+}
+
+// ApplyAgentStatus populates agent status fields on a CapturePane from
+// the server-gathered status map. ChildPIDs is normalized to an empty
+// slice (never nil) for consistent JSON output.
+func (cp *CapturePane) ApplyAgentStatus(status map[uint32]PaneAgentStatus) {
+	st, ok := status[cp.ID]
+	if !ok {
+		return
+	}
+	cp.Idle = st.Idle
+	cp.IdleSince = st.IdleSince
+	cp.CurrentCommand = st.CurrentCommand
+	if st.ChildPIDs != nil {
+		cp.ChildPIDs = st.ChildPIDs
+	} else {
+		cp.ChildPIDs = []int{}
+	}
+}
+
+// FindCellInSnapshot finds a leaf cell by pane ID in a CellSnapshot tree.
+// Returns nil if no matching leaf is found.
+func FindCellInSnapshot(cs CellSnapshot, paneID uint32) *CellSnapshot {
+	if cs.IsLeaf && cs.PaneID == paneID {
+		return &cs
+	}
+	for i := range cs.Children {
+		if found := FindCellInSnapshot(cs.Children[i], paneID); found != nil {
+			return found
+		}
+	}
+	return nil
+}
+
+// FindPaneDimensions returns the width and content height for a pane,
+// searching activeRoot first, then all windows in the snapshot.
+// contentHeight is a caller-provided function that converts a cell height
+// to the pane's content height (subtracting status bar, etc.).
+// Falls back to the full snapshot dimensions if the pane is not found.
+func FindPaneDimensions(snap *LayoutSnapshot, activeRoot CellSnapshot, paneID uint32, contentHeight func(int) int) (int, int) {
+	if cell := FindCellInSnapshot(activeRoot, paneID); cell != nil {
+		return cell.W, contentHeight(cell.H)
+	}
+	for _, ws := range snap.Windows {
+		if cell := FindCellInSnapshot(ws.Root, paneID); cell != nil {
+			return cell.W, contentHeight(cell.H)
+		}
+	}
+	return snap.Width, contentHeight(snap.Height)
 }

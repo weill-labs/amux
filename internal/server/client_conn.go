@@ -97,6 +97,9 @@ func (cc *ClientConn) readLoop(srv *Server, sess *Session) {
 
 		case MsgTypeCommand:
 			cc.handleCommand(srv, sess, msg)
+
+		case MsgTypeCaptureResponse:
+			sess.routeCaptureResponse(msg)
 		}
 	}
 }
@@ -225,77 +228,11 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 		sess.broadcastLayout()
 
 	case "capture":
-		// amux capture [--ansi|--colors|--format json] [pane]
-		includeANSI := false
-		colorMap := false
-		formatJSON := false
-		var paneRef string
-		for _, arg := range msg.CmdArgs {
-			switch arg {
-			case "--ansi":
-				includeANSI = true
-			case "--colors":
-				colorMap = true
-			case "--format":
-				// next arg is the format value; handled below
-			case "json":
-				// only valid after --format; set flag
-				formatJSON = true
-			default:
-				paneRef = arg
-			}
-		}
-
-		// Three-way mutual exclusivity check
-		flagCount := 0
-		if includeANSI {
-			flagCount++
-		}
-		if colorMap {
-			flagCount++
-		}
-		if formatJSON {
-			flagCount++
-		}
-		if flagCount > 1 {
-			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "--ansi, --colors, and --format json are mutually exclusive"})
-			return
-		}
-
-		if paneRef != "" {
-			if colorMap {
-				cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "--colors is only supported for full screen capture"})
-				return
-			}
-			// Single pane capture
-			sess.mu.Lock()
-			pane := cc.resolvePaneAcrossWindows(sess, "capture", paneRef)
-			if pane == nil {
-				sess.mu.Unlock()
-				return
-			}
-			var out string
-			if formatJSON {
-				out = sess.capturePaneJSON(pane)
-			} else if includeANSI {
-				out = pane.Render()
-			} else {
-				out = pane.Output(DefaultOutputLines)
-			}
-			sess.mu.Unlock()
-			cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: out + "\n"})
-		} else {
-			// Full composited screen capture
-			var out string
-			if formatJSON {
-				out = sess.captureJSON() + "\n"
-			} else if colorMap {
-				out = sess.renderColorMap()
-			} else {
-				out = sess.renderCapture(!includeANSI)
-			}
-			cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: out})
-		}
+		// Forward to attached interactive client so capture reflects
+		// client-side emulator state (the rendering source of truth).
+		// Returns an error if no client is attached.
+		result := sess.forwardCapture(msg.CmdArgs)
+		cc.Send(result)
 
 	case "spawn":
 		// Parse: spawn --name NAME [--host HOST] [--task TASK]

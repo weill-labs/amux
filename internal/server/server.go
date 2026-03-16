@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/coverage"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -80,6 +81,13 @@ type Session struct {
 	// Remote pane management — manages SSH connections to remote hosts.
 	// Nil when no config is loaded or no remote hosts are defined.
 	RemoteManager *remote.Manager
+
+	// Capture forwarding — routes capture requests through the attached
+	// interactive client so the result reflects client-side emulator state.
+	// captureMu serializes capture requests; captureResult is the one-shot
+	// response channel for the in-flight request (protected by s.mu).
+	captureMu     sync.Mutex
+	captureResult chan *Message
 }
 
 // ActiveWindow returns the currently active window, or nil.
@@ -216,6 +224,102 @@ func (s *Session) clipboardCallback() func(paneID uint32, data []byte) {
 	}
 }
 
+// forwardCapture sends a capture request to the first attached interactive
+// client and waits for its response. The client renders from its own
+// emulators — the rendering source of truth. For JSON captures, the server
+// gathers agent status (one pgrep call per pane) and includes it in the
+// request. Serialized via captureMu so concurrent callers don't clobber.
+func (s *Session) forwardCapture(args []string) *Message {
+	s.captureMu.Lock()
+	defer s.captureMu.Unlock()
+
+	s.mu.Lock()
+	if len(s.clients) == 0 {
+		s.mu.Unlock()
+		return &Message{Type: MsgTypeCmdResult, CmdErr: "no client attached"}
+	}
+	// Use the first attached client. In practice there's one interactive
+	// client at a time; if multiple attach, the first is authoritative.
+	client := s.clients[0]
+
+	ch := make(chan *Message, 1)
+	s.captureResult = ch
+
+	// For JSON captures, snapshot pane list while holding the lock.
+	var statusPanes []*mux.Pane
+	if slices.Contains(args, "json") {
+		statusPanes = make([]*mux.Pane, len(s.Panes))
+		copy(statusPanes, s.Panes)
+	}
+	s.mu.Unlock()
+
+	// Gather agent status outside the lock (spawns pgrep subprocesses).
+	// One call per pane — the result is included in the capture request
+	// so the client doesn't need its own pgrep.
+	var agentStatus map[uint32]proto.PaneAgentStatus
+	if len(statusPanes) > 0 {
+		agentStatus = make(map[uint32]proto.PaneAgentStatus, len(statusPanes))
+		for _, p := range statusPanes {
+			st := p.AgentStatus()
+			agentStatus[p.ID] = proto.PaneAgentStatus{
+				Idle:           st.Idle,
+				IdleSince:      formatIdleSince(st.IdleSince),
+				CurrentCommand: st.CurrentCommand,
+				ChildPIDs:      nonNilPIDs(st.ChildPIDs),
+			}
+		}
+	}
+
+	client.Send(&Message{
+		Type:        MsgTypeCaptureRequest,
+		CmdArgs:     args,
+		AgentStatus: agentStatus,
+	})
+
+	defer func() {
+		s.mu.Lock()
+		s.captureResult = nil
+		s.mu.Unlock()
+	}()
+
+	select {
+	case resp := <-ch:
+		return &Message{Type: MsgTypeCmdResult, CmdOutput: resp.CmdOutput, CmdErr: resp.CmdErr}
+	case <-time.After(3 * time.Second):
+		return &Message{Type: MsgTypeCmdResult, CmdErr: "capture timed out (client unresponsive)"}
+	}
+}
+
+// routeCaptureResponse delivers a capture response from the interactive client
+// to the waiting forwardCapture caller. Thread-safe.
+func (s *Session) routeCaptureResponse(msg *Message) {
+	s.mu.Lock()
+	ch := s.captureResult
+	s.mu.Unlock()
+	if ch != nil {
+		select {
+		case ch <- msg:
+		default:
+		}
+	}
+}
+
+// formatIdleSince returns an RFC3339 string for a non-zero time, or "".
+func formatIdleSince(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.UTC().Format(time.RFC3339)
+}
+
+// nonNilPIDs ensures a nil slice becomes an empty slice for JSON marshaling.
+func nonNilPIDs(pids []int) []int {
+	if pids == nil {
+		return []int{}
+	}
+	return pids
+}
+
 // broadcastPaneOutput sends raw PTY output for one pane to all clients,
 // notifies any wait-for subscribers, and tracks pane activity for hooks.
 func (s *Session) broadcastPaneOutput(paneID uint32, data []byte) {
@@ -232,6 +336,17 @@ func (s *Session) broadcastPaneOutput(paneID uint32, data []byte) {
 	}
 	s.mu.Unlock()
 	s.emitEvent(Event{Type: EventOutput, PaneID: paneID, PaneName: paneName, Host: host})
+}
+
+// broadcastPaneOutputLocked sends raw PTY output to all clients.
+// Caller must hold s.mu.
+func (s *Session) broadcastPaneOutputLocked(paneID uint32, data []byte) {
+	clients := make([]*ClientConn, len(s.clients))
+	copy(clients, s.clients)
+	msg := &Message{Type: MsgTypePaneOutput, PaneID: paneID, PaneData: data}
+	for _, c := range clients {
+		c.Send(msg)
+	}
 }
 
 // broadcastLayout sends the current layout snapshot to all clients
@@ -504,106 +619,14 @@ func (s *Session) SetupRemoteManager(cfg *config.Config) {
 	s.RemoteManager = mgr
 }
 
-// serverPaneData adapts *mux.Pane to the render.PaneData interface.
-type serverPaneData struct {
-	p    *mux.Pane
-	idle bool // cached from session idle tracking, avoids forking pgrep
-}
-
-func (s *serverPaneData) RenderScreen(active bool) string {
-	if !active {
-		return s.p.RenderWithoutCursorBlock()
-	}
-	return s.p.Render()
-}
-func (s *serverPaneData) CursorPos() (int, int)  { return s.p.CursorPos() }
-func (s *serverPaneData) CursorHidden() bool     { return s.p.CursorHidden() }
-func (s *serverPaneData) HasCursorBlock() bool   { return s.p.HasCursorBlock() }
-func (s *serverPaneData) ID() uint32             { return s.p.ID }
-func (s *serverPaneData) Name() string           { return s.p.Meta.Name }
-func (s *serverPaneData) Host() string           { return s.p.Meta.Host }
-func (s *serverPaneData) Task() string           { return s.p.Meta.Task }
-func (s *serverPaneData) Color() string          { return s.p.Meta.Color }
-func (s *serverPaneData) Minimized() bool        { return s.p.Meta.Minimized }
-func (s *serverPaneData) Idle() bool              { return s.idle }
-func (s *serverPaneData) ConnStatus() string      { return s.p.Meta.Remote }
-func (s *serverPaneData) InCopyMode() bool        { return false }
-func (s *serverPaneData) CopyModeSearch() string { return "" }
-
-// renderCapture renders the full composited screen server-side.
-// If stripANSI is true, the ANSI stream is materialized into a plain-text
-// 2D grid that preserves the visual layout.
-//
-// Note: pane emulator reads here race with concurrent PTY writes. This is
-// the same best-effort pattern used by handleAttach's reattach snapshot.
-func (s *Session) renderCapture(stripANSI bool) string {
-	idleSnap := s.snapshotIdleState()
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	w := s.ActiveWindow()
-	if w == nil {
-		return ""
-	}
-
-	paneMap := make(map[uint32]render.PaneData, len(s.Panes))
+// findPaneLocked finds a pane by ID. Caller must hold s.mu.
+func (s *Session) findPaneLocked(id uint32) *mux.Pane {
 	for _, p := range s.Panes {
-		paneMap[p.ID] = &serverPaneData{p: p, idle: idleSnap[p.ID]}
-	}
-
-	totalH := w.Height + render.GlobalBarHeight
-	comp := render.NewCompositor(w.Width, totalH, s.Name)
-	comp.SetWindows(s.windowInfoLocked())
-
-	var activePaneID uint32
-	if w.ActivePane != nil {
-		activePaneID = w.ActivePane.ID
-	}
-
-	root := w.Root
-	if w.ZoomedPaneID != 0 {
-		root = mux.NewLeafByID(w.ZoomedPaneID, 0, 0, w.Width, w.Height)
-	}
-
-	raw := comp.RenderFull(root, activePaneID, func(id uint32) render.PaneData {
-		return paneMap[id]
-	})
-
-	if stripANSI {
-		return render.MaterializeGrid(raw, w.Width, totalH)
-	}
-
-	return raw
-}
-
-// windowInfoLocked returns window info for rendering. Caller must hold s.mu.
-func (s *Session) windowInfoLocked() []render.WindowInfo {
-	infos := make([]render.WindowInfo, len(s.Windows))
-	for i, w := range s.Windows {
-		infos[i] = render.WindowInfo{
-			Index:    i + 1,
-			Name:     w.Name,
-			IsActive: w.ID == s.ActiveWindowID,
-			Panes:    w.PaneCount(),
+		if p.ID == id {
+			return p
 		}
 	}
-	return infos
-}
-
-// renderColorMap renders the ANSI capture and extracts a color map showing
-// border colors as single-letter Catppuccin initials.
-func (s *Session) renderColorMap() string {
-	s.mu.Lock()
-	w := s.ActiveWindow()
-	if w == nil {
-		s.mu.Unlock()
-		return ""
-	}
-	width := w.Width
-	h := w.Height + render.GlobalBarHeight
-	s.mu.Unlock()
-	ansi := s.renderCapture(false)
-	return render.ExtractColorMap(ansi, width, h) + "\n"
+	return nil
 }
 
 // subscribePaneOutput registers a channel to receive notifications when
@@ -648,8 +671,7 @@ func (s *Session) notifyPaneOutputSubs(paneID uint32) {
 
 // paneIsBusy checks whether the given pane has child processes (i.e., a
 // command is running). Thread-safe: looks up the pane under s.mu, then
-// inspects the process tree outside the lock. Retries once on "not busy"
-// to handle races where pgrep misses a recently-forked child.
+// inspects the process tree outside the lock.
 func (s *Session) paneIsBusy(paneID uint32) bool {
 	s.mu.Lock()
 	pane := s.findPaneLocked(paneID)
@@ -660,14 +682,29 @@ func (s *Session) paneIsBusy(paneID uint32) bool {
 	return !pane.AgentStatus().Idle
 }
 
+// paneIsIdle checks whether the given pane has no child processes (shell is
+// at prompt). Thread-safe: looks up the pane under s.mu, then inspects the
+// process tree outside the lock.
+func (s *Session) paneIsIdle(paneID uint32) bool {
+	s.mu.Lock()
+	pane := s.findPaneLocked(paneID)
+	s.mu.Unlock()
+	if pane == nil {
+		return true
+	}
+	return pane.AgentStatus().Idle
+}
+
 // trackPaneActivity is called on every PTY output. It resets the idle timer
-// and fires on-activity if the pane was previously idle.
+// and fires on-activity if the pane was previously idle. When the idle state
+// transitions (idle↔busy), a layout broadcast is sent so clients see the
+// updated PaneSnapshot.Idle (used for idle indicators in the status bar).
 func (s *Session) trackPaneActivity(paneID uint32) {
 	s.idleTimerMu.Lock()
-	defer s.idleTimerMu.Unlock()
 
 	// If pane was idle, fire on-activity and emit busy event
-	if s.idleState[paneID] {
+	wasIdle := s.idleState[paneID]
+	if wasIdle {
 		s.idleState[paneID] = false
 		env := s.buildPaneEnv(paneID, hooks.OnActivity)
 		s.Hooks.Fire(hooks.OnActivity, env)
@@ -695,7 +732,13 @@ func (s *Session) trackPaneActivity(paneID uint32) {
 				PaneName: env["AMUX_PANE_NAME"],
 				Host:     env["AMUX_HOST"],
 			})
+			s.broadcastLayout()
 		})
+	}
+	s.idleTimerMu.Unlock()
+
+	if wasIdle {
+		s.broadcastLayout()
 	}
 }
 
@@ -1163,9 +1206,13 @@ func NewServerFromCheckpoint(cp *checkpoint.ServerCheckpoint) (*Server, error) {
 		// may have fed buffered PTY output into their emulators, garbling
 		// the content that was replayed during restore. Clear the screen
 		// first so the replay starts from a known state.
+		// Also broadcast the replay to clients so their emulators stay
+		// in sync with the server.
 		for _, p := range sess.Panes {
 			if screen, ok := minimizedScreens[p.ID]; ok {
-				p.ReplayScreen("\033[H\033[2J" + screen)
+				replayData := "\033[H\033[2J" + screen
+				p.ReplayScreen(replayData)
+				sess.broadcastPaneOutputLocked(p.ID, []byte(replayData))
 			}
 		}
 	}()
