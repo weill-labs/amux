@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"encoding/json"
 	"net"
+	"os"
+	"os/exec"
 	"testing"
 	"time"
 
@@ -221,5 +223,102 @@ func TestEventsFilterPane(t *testing.T) {
 	ev = readEvent(t, scanner, 5*time.Second)
 	if ev.PaneName != "pane-1" {
 		t.Errorf("filtered event should be for pane-1, got %q", ev.PaneName)
+	}
+}
+
+// TestEventsCLI exercises `amux events` through the actual binary (covers
+// main.go:runStreamingCommand and the CLI dispatch). The test reads stdout
+// from the spawned process, verifies the initial snapshot arrives as valid
+// NDJSON, then kills the process and checks for clean exit.
+func TestEventsCLI(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	// Spawn `amux events --filter layout` as a subprocess
+	cmd := exec.Command(amuxBin, "-s", h.session, "events", "--filter", "layout")
+	if h.coverDir != "" {
+		cmd.Env = append(os.Environ(), "GOCOVERDIR="+h.coverDir)
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatalf("stdout pipe: %v", err)
+	}
+	cmd.Stderr = os.Stderr
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	t.Cleanup(func() {
+		cmd.Process.Kill()
+		cmd.Wait()
+	})
+
+	scanner := bufio.NewScanner(stdout)
+
+	// Read initial layout snapshot from CLI stdout
+	done := make(chan eventJSON, 1)
+	go func() {
+		if scanner.Scan() {
+			var ev eventJSON
+			json.Unmarshal(scanner.Bytes(), &ev)
+			done <- ev
+		}
+	}()
+
+	select {
+	case ev := <-done:
+		if ev.Type != "layout" {
+			t.Errorf("first CLI event type: got %q, want layout", ev.Type)
+		}
+		if ev.ActivePane == "" {
+			t.Error("CLI layout event should have active_pane")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout reading first event from CLI")
+	}
+
+	// Trigger a layout change and verify it arrives
+	h.doSplit()
+
+	done2 := make(chan eventJSON, 1)
+	go func() {
+		if scanner.Scan() {
+			var ev eventJSON
+			json.Unmarshal(scanner.Bytes(), &ev)
+			done2 <- ev
+		}
+	}()
+
+	select {
+	case ev := <-done2:
+		if ev.Type != "layout" {
+			t.Errorf("second CLI event type: got %q, want layout", ev.Type)
+		}
+		if ev.Generation == 0 {
+			t.Error("CLI layout event should have non-zero generation")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout reading layout event from CLI after split")
+	}
+}
+
+// TestEventsCLIServerNotRunning verifies that `amux events` exits with an
+// error when no server is running (covers the error path in runStreamingCommand).
+func TestEventsCLIServerNotRunning(t *testing.T) {
+	t.Parallel()
+	cmd := exec.Command(amuxBin, "-s", "nonexistent-session-xyz", "events")
+	if gocoverDir != "" {
+		cmd.Env = append(os.Environ(), "GOCOVERDIR="+gocoverDir)
+	}
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatal("expected error when server not running")
+	}
+	if exit, ok := err.(*exec.ExitError); ok {
+		if exit.ExitCode() != 1 {
+			t.Errorf("exit code: got %d, want 1", exit.ExitCode())
+		}
+	}
+	if got := string(out); got == "" {
+		t.Error("expected error message on stderr")
 	}
 }
