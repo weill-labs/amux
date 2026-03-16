@@ -81,26 +81,10 @@ func (r *Registry) List(event Event) []Entry {
 	return result
 }
 
-// ListAll returns all registered hooks across all events.
-func (r *Registry) ListAll() []Entry {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	var result []Entry
-	for _, entries := range r.hooks {
-		result = append(result, entries...)
-	}
-	return result
-}
-
 // Fire executes all hooks for an event asynchronously.
 // Each hook command runs as a shell command with the given environment variables.
 func (r *Registry) Fire(event Event, env map[string]string) {
-	r.mu.RLock()
-	entries := make([]Entry, len(r.hooks[event]))
-	copy(entries, r.hooks[event])
-	r.mu.RUnlock()
-
-	for _, entry := range entries {
+	for _, entry := range r.List(event) {
 		go executeHook(entry.Command, env)
 	}
 }

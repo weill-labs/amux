@@ -64,17 +64,6 @@ func TestRegistryRemoveAll(t *testing.T) {
 	}
 }
 
-func TestRegistryListAll(t *testing.T) {
-	r := NewRegistry()
-	r.Add(OnIdle, "echo idle")
-	r.Add(OnActivity, "echo active")
-
-	all := r.ListAll()
-	if len(all) != 2 {
-		t.Fatalf("expected 2 total hooks, got %d", len(all))
-	}
-}
-
 func TestFireExecutesCommand(t *testing.T) {
 	r := NewRegistry()
 	tmp := t.TempDir()
