@@ -70,14 +70,15 @@ func (s *Session) captureJSON() string {
 		}
 
 		cp := proto.CapturePane{
-			ID:        pane.ID,
-			Name:      pane.Meta.Name,
-			Active:    pane.ID == activePaneID,
-			Minimized: pane.Meta.Minimized,
-			Zoomed:    pane.ID == w.ZoomedPaneID,
-			Host:      pane.Meta.Host,
-			Task:      pane.Meta.Task,
-			Color:     pane.Meta.Color,
+			ID:         pane.ID,
+			Name:       pane.Meta.Name,
+			Active:     pane.ID == activePaneID,
+			Minimized:  pane.Meta.Minimized,
+			Zoomed:     pane.ID == w.ZoomedPaneID,
+			Host:       pane.Meta.Host,
+			Task:       pane.Meta.Task,
+			Color:      pane.Meta.Color,
+			ConnStatus: pane.Meta.Remote,
 			Position: &proto.CapturePos{
 				X:      c.X,
 				Y:      c.Y,
@@ -122,17 +123,18 @@ func (s *Session) capturePaneJSON(pane *mux.Pane) string {
 	}
 
 	cp := proto.CapturePane{
-		ID:        pane.ID,
-		Name:      pane.Meta.Name,
-		Active:    pane.ID == activePaneID,
-		Minimized: pane.Meta.Minimized,
-		Zoomed:    pane.ID == zoomedPaneID,
-		Idle:      pane.IsIdle(),
-		Host:      pane.Meta.Host,
-		Task:      pane.Meta.Task,
-		Color:     pane.Meta.Color,
-		Cursor:    captureCursor(pane),
-		Content:   pane.ContentLines(),
+		ID:         pane.ID,
+		Name:       pane.Meta.Name,
+		Active:     pane.ID == activePaneID,
+		Minimized:  pane.Meta.Minimized,
+		Zoomed:     pane.ID == zoomedPaneID,
+		Idle:       pane.IsIdle(),
+		Host:       pane.Meta.Host,
+		Task:       pane.Meta.Task,
+		Color:      pane.Meta.Color,
+		ConnStatus: pane.Meta.Remote,
+		Cursor:     captureCursor(pane),
+		Content:    pane.ContentLines(),
 	}
 
 	// Release s.mu before calling AgentStatus() — the caller re-locks

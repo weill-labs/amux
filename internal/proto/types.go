@@ -41,13 +41,14 @@ type CellSnapshot struct {
 
 // PaneSnapshot holds metadata for one pane.
 type PaneSnapshot struct {
-	ID        uint32
-	Name      string
-	Host      string
-	Task      string
-	Color     string
-	Minimized bool
-	Idle      bool
+	ID         uint32
+	Name       string
+	Host       string
+	Task       string
+	Color      string
+	Minimized  bool
+	Idle       bool
+	ConnStatus string // "", "connected", "reconnecting", "disconnected" (remote panes only)
 }
 
 // CaptureJSON is the full-screen JSON capture output.
@@ -79,6 +80,10 @@ type CapturePane struct {
 	Position  *CapturePos   `json:"position,omitempty"`
 	Cursor    CaptureCursor `json:"cursor"`
 	Content   []string      `json:"content"`
+
+	// ConnStatus is the remote connection state: "", "connected", "reconnecting", "disconnected".
+	// Empty for local panes.
+	ConnStatus string `json:"conn_status,omitempty"`
 
 	// Agent status fields (LAB-159).
 	// Idle is true when no foreground command is running in the pane.

@@ -81,6 +81,17 @@ func (cc *ClientConn) readLoop(srv *Server, sess *Session) {
 			sess.mu.Unlock()
 			sess.broadcastLayout()
 
+		case MsgTypeInputPane:
+			// Targeted input for a specific pane (used by remote proxy connections)
+			sess.mu.Lock()
+			for _, p := range sess.Panes {
+				if p.ID == msg.PaneID {
+					p.Write(msg.PaneData)
+					break
+				}
+			}
+			sess.mu.Unlock()
+
 		case MsgTypeDetach:
 			return
 
@@ -148,6 +159,7 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 	case "split":
 		rootLevel := false
 		dir := mux.SplitHorizontal
+		var hostName string
 		for _, arg := range msg.CmdArgs {
 			switch arg {
 			case "v":
@@ -156,10 +168,23 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 				rootLevel = true
 			}
 		}
-		pane := cc.splitNewPane(srv, sess, mux.PaneMeta{}, dir, rootLevel)
-		if pane != nil {
-			cc.Send(&Message{Type: MsgTypeCmdResult,
-				CmdOutput: fmt.Sprintf("Split %s: new pane %s\n", dirName(dir), pane.Meta.Name)})
+		for i := 0; i < len(msg.CmdArgs)-1; i++ {
+			if msg.CmdArgs[i] == "--host" {
+				hostName = msg.CmdArgs[i+1]
+			}
+		}
+		if hostName != "" {
+			pane := cc.splitRemotePane(srv, sess, hostName, dir, rootLevel)
+			if pane != nil {
+				cc.Send(&Message{Type: MsgTypeCmdResult,
+					CmdOutput: fmt.Sprintf("Split %s: new remote pane %s @%s\n", dirName(dir), pane.Meta.Name, hostName)})
+			}
+		} else {
+			pane := cc.splitNewPane(srv, sess, mux.PaneMeta{}, dir, rootLevel)
+			if pane != nil {
+				cc.Send(&Message{Type: MsgTypeCmdResult,
+					CmdOutput: fmt.Sprintf("Split %s: new pane %s\n", dirName(dir), pane.Meta.Name)})
+			}
 		}
 
 	case "focus":
@@ -275,12 +300,14 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 	case "spawn":
 		// Parse: spawn --name NAME [--host HOST] [--task TASK]
 		meta := mux.PaneMeta{Host: mux.DefaultHost}
+		var remoteHost string
 		for i := 0; i < len(msg.CmdArgs)-1; i += 2 {
 			switch msg.CmdArgs[i] {
 			case "--name":
 				meta.Name = msg.CmdArgs[i+1]
 			case "--host":
 				meta.Host = msg.CmdArgs[i+1]
+				remoteHost = msg.CmdArgs[i+1]
 			case "--task":
 				meta.Task = msg.CmdArgs[i+1]
 			case "--color":
@@ -291,10 +318,24 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "--name is required"})
 			return
 		}
-		pane := cc.splitNewPane(srv, sess, meta, mux.SplitHorizontal, false)
-		if pane != nil {
-			cc.Send(&Message{Type: MsgTypeCmdResult,
-				CmdOutput: fmt.Sprintf("Spawned %s in pane %d\n", meta.Name, pane.ID)})
+		if remoteHost != "" && remoteHost != mux.DefaultHost {
+			pane := cc.splitRemotePane(srv, sess, remoteHost, mux.SplitHorizontal, false)
+			if pane != nil {
+				// Override the auto-assigned name with the user's --name
+				pane.Meta.Name = meta.Name
+				if meta.Task != "" {
+					pane.Meta.Task = meta.Task
+				}
+				sess.broadcastLayout()
+				cc.Send(&Message{Type: MsgTypeCmdResult,
+					CmdOutput: fmt.Sprintf("Spawned %s in pane %d @%s\n", meta.Name, pane.ID, remoteHost)})
+			}
+		} else {
+			pane := cc.splitNewPane(srv, sess, meta, mux.SplitHorizontal, false)
+			if pane != nil {
+				cc.Send(&Message{Type: MsgTypeCmdResult,
+					CmdOutput: fmt.Sprintf("Spawned %s in pane %d\n", meta.Name, pane.ID)})
+			}
 		}
 
 	case "zoom":
@@ -969,6 +1010,53 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 			}
 		}
 
+	case "hosts":
+		if sess.RemoteManager == nil {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: "No remote hosts configured.\n"})
+			return
+		}
+		statuses := sess.RemoteManager.AllHostStatus()
+		if len(statuses) == 0 {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: "No remote hosts configured.\n"})
+			return
+		}
+		var output strings.Builder
+		output.WriteString(fmt.Sprintf("%-20s %-15s\n", "HOST", "STATUS"))
+		for name, state := range statuses {
+			output.WriteString(fmt.Sprintf("%-20s %-15s\n", name, state))
+		}
+		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: output.String()})
+
+	case "disconnect":
+		if len(msg.CmdArgs) < 1 {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "usage: disconnect <host>"})
+			return
+		}
+		if sess.RemoteManager == nil {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "no remote hosts configured"})
+			return
+		}
+		if err := sess.RemoteManager.DisconnectHost(msg.CmdArgs[0]); err != nil {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: err.Error()})
+			return
+		}
+		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: fmt.Sprintf("Disconnected from %s\n", msg.CmdArgs[0])})
+
+	case "reconnect":
+		if len(msg.CmdArgs) < 1 {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "usage: reconnect <host>"})
+			return
+		}
+		if sess.RemoteManager == nil {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "no remote hosts configured"})
+			return
+		}
+		if err := sess.RemoteManager.ReconnectHost(msg.CmdArgs[0], sess.Name); err != nil {
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: err.Error()})
+			return
+		}
+		cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: fmt.Sprintf("Reconnected to %s\n", msg.CmdArgs[0])})
+
 	case "reload-server":
 		execPath, err := os.Executable()
 		if err != nil {
@@ -1028,6 +1116,50 @@ func (cc *ClientConn) createNewWindow(srv *Server, sess *Session, name string) {
 	sess.broadcastLayout()
 	cc.Send(&Message{Type: MsgTypeCmdResult,
 		CmdOutput: fmt.Sprintf("Created %s\n", newWin.Name)})
+}
+
+// splitRemotePane creates a proxy pane connected to a remote host, inserts it
+// into the active window's layout, and triggers a render. Returns the pane, or nil on error.
+func (cc *ClientConn) splitRemotePane(srv *Server, sess *Session, hostName string, dir mux.SplitDir, rootLevel bool) *mux.Pane {
+	sess.mu.Lock()
+	w := sess.ActiveWindow()
+	if w == nil {
+		sess.mu.Unlock()
+		cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "no window"})
+		return nil
+	}
+	initW, initH := w.Width, w.Height
+	sess.mu.Unlock()
+
+	// createRemotePane must be called without holding s.mu (SSH calls inside)
+	pane, err := sess.createRemotePane(srv, hostName, initW, mux.PaneContentHeight(initH))
+	if err != nil {
+		cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: err.Error()})
+		return nil
+	}
+
+	sess.mu.Lock()
+	w = sess.ActiveWindow()
+	if w == nil {
+		sess.mu.Unlock()
+		cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "no window"})
+		return nil
+	}
+	if rootLevel {
+		_, err = w.SplitRoot(dir, pane)
+	} else {
+		_, err = w.Split(dir, pane)
+	}
+	sess.mu.Unlock()
+
+	if err != nil {
+		cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: err.Error()})
+		return nil
+	}
+
+	// No pane.Start() needed — proxy panes don't have a readLoop/waitLoop
+	sess.broadcastLayout()
+	return pane
 }
 
 // splitNewPane creates a pane, inserts it into the active window's layout,

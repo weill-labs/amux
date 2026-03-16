@@ -21,6 +21,9 @@ type PaneData interface {
 	Color() string
 	Minimized() bool
 	Idle() bool
+	// ConnStatus returns the connection state for remote panes:
+	// "", "connected", "reconnecting", or "disconnected".
+	ConnStatus() string
 	InCopyMode() bool
 	// CopyModeSearch returns the search prompt text (e.g., "/pattern")
 	// when the user is actively typing a search in copy mode. Empty otherwise.

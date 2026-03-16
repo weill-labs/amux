@@ -17,12 +17,13 @@ func (w *Window) SnapshotLayout(sessionName string) *proto.LayoutSnapshot {
 	snap.Root = snapshotCell(w.Root)
 	for _, p := range w.Panes() {
 		snap.Panes = append(snap.Panes, proto.PaneSnapshot{
-			ID:        p.ID,
-			Name:      p.Meta.Name,
-			Host:      p.Meta.Host,
-			Task:      p.Meta.Task,
-			Color:     p.Meta.Color,
-			Minimized: p.Meta.Minimized,
+			ID:         p.ID,
+			Name:       p.Meta.Name,
+			Host:       p.Meta.Host,
+			Task:       p.Meta.Task,
+			Color:      p.Meta.Color,
+			Minimized:  p.Meta.Minimized,
+			ConnStatus: p.Meta.Remote,
 		})
 	}
 	return snap
@@ -42,12 +43,13 @@ func (w *Window) SnapshotWindow(index int) proto.WindowSnapshot {
 	}
 	for _, p := range w.Panes() {
 		ws.Panes = append(ws.Panes, proto.PaneSnapshot{
-			ID:        p.ID,
-			Name:      p.Meta.Name,
-			Host:      p.Meta.Host,
-			Task:      p.Meta.Task,
-			Color:     p.Meta.Color,
-			Minimized: p.Meta.Minimized,
+			ID:         p.ID,
+			Name:       p.Meta.Name,
+			Host:       p.Meta.Host,
+			Task:       p.Meta.Task,
+			Color:      p.Meta.Color,
+			Minimized:  p.Meta.Minimized,
+			ConnStatus: p.Meta.Remote,
 		})
 	}
 	return ws
