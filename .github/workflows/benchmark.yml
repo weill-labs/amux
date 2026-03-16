@@ -140,12 +140,16 @@ jobs:
           COMPARISON=$(benchstat baseline.txt bench-all.txt 2>&1 || true)
           echo "$COMPARISON"
 
-          BODY="## Benchmark Comparison
-\`\`\`
-${COMPARISON}
-\`\`\`
+          BODY=$(cat <<HEREDOC
+          ## Benchmark Comparison
 
-> Regressions >15% are flagged as warnings. Results from benchstat with statistical significance testing."
+          \`\`\`
+          ${COMPARISON}
+          \`\`\`
+
+          > Regressions >15% are flagged as warnings. Results from benchstat with statistical significance testing.
+          HEREDOC
+          )
 
           gh pr comment "$PR_NUMBER" --body "$BODY" --edit-last 2>/dev/null || \
           gh pr comment "$PR_NUMBER" --body "$BODY"
