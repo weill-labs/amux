@@ -111,7 +111,6 @@ func TestReattachResizeShrink(t *testing.T) {
 		t.Errorf("root cell width: got %d, want 60", root.W)
 	}
 
-	// Both children should sum to 60.
 	if len(root.Children) != 2 {
 		t.Fatalf("expected 2 children, got %d", len(root.Children))
 	}

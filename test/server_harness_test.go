@@ -4,7 +4,6 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
-	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -105,31 +104,7 @@ func newServerHarness(tb testing.TB) *ServerHarness {
 // the layout response (which confirms pane creation), then disconnecting.
 func (h *ServerHarness) seedPane() {
 	h.tb.Helper()
-	sockPath := server.SocketPath(h.session)
-	conn, err := net.Dial("unix", sockPath)
-	if err != nil {
-		h.tb.Fatalf("seeding pane: %v", err)
-	}
-	defer conn.Close()
-
-	if err := server.WriteMsg(conn, &server.Message{
-		Type:    server.MsgTypeAttach,
-		Session: h.session,
-		Cols:    80,
-		Rows:    24,
-	}); err != nil {
-		h.tb.Fatalf("seeding pane: writing attach: %v", err)
-	}
-
-	// Read the layout message — confirms the server created the pane.
-	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
-	msg, err := server.ReadMsg(conn)
-	if err != nil {
-		h.tb.Fatalf("seeding pane: reading layout: %v", err)
-	}
-	if msg.Type != server.MsgTypeLayout {
-		h.tb.Fatalf("seeding pane: expected layout (type %d), got type %d", server.MsgTypeLayout, msg.Type)
-	}
+	h.attachAt(80, 24)
 }
 
 // cleanup sends SIGTERM for graceful shutdown (coverage flush), then cleans
