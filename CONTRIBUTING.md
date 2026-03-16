@@ -73,8 +73,7 @@ cd test && go test -run TestGolden -update
 ## Pull requests
 
 - One logical change per PR
-- Include tests for new behavior
-- Bug fixes include a regression test
-- Keep PRs focused — don't mix features with refactors
+- Tests are required (see sections above)
+- Keep PRs focused — avoid mixing features with refactors
 
 Check [GitHub Issues](https://github.com/weill-labs/amux/issues) for open tasks and to report bugs.
