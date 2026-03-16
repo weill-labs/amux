@@ -64,6 +64,8 @@ test/
 
 **Guard against impossible states.** Minimize checks that at least one pane stays non-minimized. Restore caps height at available space. Focus fallback finds nearest pane when strict overlap matching fails.
 
+**Minimize requires a vertical-axis split.** `Minimize` only works on panes in a vertical split (`splitH` / top-bottom layout). Panes in a horizontal split (`splitV` / left-right layout) cannot be minimized — the command returns an error. Tests that exercise minimize must use `splitH()`, not `splitV()`.
+
 **Colors live in `config/config.go`.** The Catppuccin Mocha palette (`CatppuccinMocha`), letter abbreviations (`CatppuccinLetters`), and named hex constants (`DimColorHex`, `TextColorHex`) are defined once in the config package. Reference these constants instead of hardcoding hex values like `"f5e0dc"` or `"6c7086"`.
 
 ## Development
@@ -102,6 +104,10 @@ Regenerate goldens after intentional rendering changes: `cd test && go test -run
 ### Pre-Push Rebase
 
 Rebase onto `origin/main` before the first push (`git fetch origin main && git rebase origin/main`). Multiple features often land in parallel; rebasing before push avoids repeated merge conflict resolution after the PR is open.
+
+### Specs and Plans on Feature Branches
+
+Commit design specs and implementation plans to the feature branch, not main. Committing to main before creating the feature branch causes divergent branches on subsequent pulls.
 
 ### Post-PR Review
 
