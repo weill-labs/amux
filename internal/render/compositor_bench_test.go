@@ -8,24 +8,7 @@ import (
 	"github.com/weill-labs/amux/internal/mux"
 )
 
-// benchFakePaneData implements PaneData for benchmarks.
-type benchFakePaneData struct {
-	id     uint32
-	name   string
-	screen string
-}
-
-func (f *benchFakePaneData) RenderScreen(bool) string { return f.screen }
-func (f *benchFakePaneData) CursorPos() (int, int)   { return 0, 0 }
-func (f *benchFakePaneData) CursorHidden() bool      { return true }
-func (f *benchFakePaneData) ID() uint32              { return f.id }
-func (f *benchFakePaneData) Name() string            { return f.name }
-func (f *benchFakePaneData) Host() string            { return "local" }
-func (f *benchFakePaneData) Task() string            { return "" }
-func (f *benchFakePaneData) Color() string           { return "f5e0dc" }
-func (f *benchFakePaneData) Minimized() bool         { return false }
-func (f *benchFakePaneData) InCopyMode() bool        { return false }
-func (f *benchFakePaneData) HasCursorBlock() bool    { return false }
+// Benchmarks reuse fakePaneData from compositor_test.go (same package).
 
 // benchLayoutTree builds a layout tree with n panes fitting in w×h,
 // returning the root and the list of pane IDs.
@@ -66,26 +49,21 @@ func BenchmarkRenderFull(b *testing.B) {
 	for _, n := range []int{1, 4, 10, 20} {
 		b.Run(fmt.Sprintf("panes_%d", n), func(b *testing.B) {
 			w, h := 200, 60
-			root, ids := benchLayoutTree(n, w, h)
+			root, _ := benchLayoutTree(n, w, h)
 
-			// Pre-render screens for each pane
-			screens := map[uint32]string{}
+			// Pre-build PaneData for each pane
+			paneDataMap := make(map[uint32]PaneData, n)
 			root.Walk(func(c *mux.LayoutCell) {
 				pid := c.CellPaneID()
-				screens[pid] = benchScreen(c.W, mux.PaneContentHeight(c.H))
+				paneDataMap[pid] = &fakePaneData{
+					id:     pid,
+					name:   fmt.Sprintf("pane-%d", pid),
+					screen: benchScreen(c.W, mux.PaneContentHeight(c.H)),
+				}
 			})
 
 			lookup := func(id uint32) PaneData {
-				for _, pid := range ids {
-					if pid == id {
-						return &benchFakePaneData{
-							id:     pid,
-							name:   fmt.Sprintf("pane-%d", pid),
-							screen: screens[pid],
-						}
-					}
-				}
-				return nil
+				return paneDataMap[id]
 			}
 
 			comp := NewCompositor(w, h+GlobalBarHeight, "bench")

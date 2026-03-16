@@ -103,8 +103,13 @@ jobs:
           cp benchmarks.json /tmp/bench-data/ 2>/dev/null || true
           cp bench-all.txt /tmp/bench-data/
 
-          git fetch origin gh-pages || git checkout --orphan gh-pages
-          git checkout gh-pages 2>/dev/null || git checkout --orphan gh-pages
+          if git fetch origin gh-pages 2>/dev/null; then
+            git checkout gh-pages
+          else
+            git checkout --orphan gh-pages
+            git rm -rf . 2>/dev/null || true
+          fi
+
           cp /tmp/bench-data/* . 2>/dev/null || true
           git add benchmarks.json bench-all.txt 2>/dev/null || true
           git diff --cached --quiet || git commit -m "Update benchmark data [skip ci]"
@@ -112,14 +117,12 @@ jobs:
 
           git checkout -
 
-      # On PR: compare against main baseline
+      # On PR: compare against main baseline from gh-pages
       - name: Download main baseline
         if: github.event_name == 'pull_request' && steps.changes.outputs.code_changed == 'true'
-        uses: actions/download-artifact@v4
-        with:
-          name: benchmark-results
-          path: pr-bench
-          merge-multiple: true
+        run: |
+          git fetch origin gh-pages 2>/dev/null || true
+          git show origin/gh-pages:bench-all.txt > baseline.txt 2>/dev/null || true
         continue-on-error: true
 
       - name: Compare with baseline
@@ -128,10 +131,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
-          if [ -f pr-bench/bench-all.txt ]; then
-            cp pr-bench/bench-all.txt baseline.txt
-          else
-            echo "No baseline found, showing current results only"
+          if [ ! -s baseline.txt ]; then
+            echo "No baseline found on gh-pages, showing current results only"
             benchstat bench-all.txt
             exit 0
           fi

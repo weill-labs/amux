@@ -335,8 +335,7 @@ func BenchmarkHotReload(b *testing.B) {
 			b.Fatal("client did not reconnect after hot-reload")
 		}
 
-		totalDur := time.Since(totalStart)
-		reconnectDur := totalDur // reconnect-only (excludes build)
+		reconnectDur := time.Since(totalStart)
 
 		b.ReportMetric(float64(buildDur.Nanoseconds())+float64(reconnectDur.Nanoseconds()), "total-ns/op")
 		b.ReportMetric(float64(reconnectDur.Nanoseconds()), "reconnect-ns/op")

@@ -43,18 +43,23 @@ func benchLayoutSnapshot(n int) *proto.LayoutSnapshot {
 	return snap
 }
 
+// benchPaneOutputMsg creates a MsgTypePaneOutput message with n bytes of payload.
+func benchPaneOutputMsg(n int) *Message {
+	data := make([]byte, n)
+	for i := range data {
+		data[i] = byte('A' + i%26)
+	}
+	return &Message{
+		Type:     MsgTypePaneOutput,
+		PaneID:   1,
+		PaneData: data,
+	}
+}
+
 func BenchmarkWriteMsg_PaneOutput(b *testing.B) {
 	for _, size := range []int{256, 4096, 32768} {
 		b.Run(fmt.Sprintf("bytes_%d", size), func(b *testing.B) {
-			data := make([]byte, size)
-			for i := range data {
-				data[i] = byte('A' + i%26)
-			}
-			msg := &Message{
-				Type:     MsgTypePaneOutput,
-				PaneID:   1,
-				PaneData: data,
-			}
+			msg := benchPaneOutputMsg(size)
 			var buf bytes.Buffer
 			b.SetBytes(int64(size))
 			b.ReportAllocs()
@@ -70,15 +75,7 @@ func BenchmarkWriteMsg_PaneOutput(b *testing.B) {
 func BenchmarkReadMsg_PaneOutput(b *testing.B) {
 	for _, size := range []int{256, 4096, 32768} {
 		b.Run(fmt.Sprintf("bytes_%d", size), func(b *testing.B) {
-			data := make([]byte, size)
-			for i := range data {
-				data[i] = byte('A' + i%26)
-			}
-			msg := &Message{
-				Type:     MsgTypePaneOutput,
-				PaneID:   1,
-				PaneData: data,
-			}
+			msg := benchPaneOutputMsg(size)
 			// Pre-encode
 			var encoded bytes.Buffer
 			WriteMsg(&encoded, msg)

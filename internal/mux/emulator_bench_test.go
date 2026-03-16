@@ -34,17 +34,7 @@ func BenchmarkEmulatorWrite(b *testing.B) {
 	for _, size := range []int{256, 4096, 32768} {
 		b.Run(fmt.Sprintf("bytes_%d", size), func(b *testing.B) {
 			payload := realisticTerminalPayload(size)
-			emu := NewVTEmulator(80, 24)
-			// Drain response pipe in background
-			drainBuf := make([]byte, 4096)
-			go func() {
-				for {
-					_, err := emu.Read(drainBuf)
-					if err != nil {
-						return
-					}
-				}
-			}()
+			emu := NewVTEmulatorWithDrain(80, 24)
 
 			b.SetBytes(int64(size))
 			b.ReportAllocs()
@@ -57,17 +47,7 @@ func BenchmarkEmulatorWrite(b *testing.B) {
 }
 
 func BenchmarkEmulatorRender(b *testing.B) {
-	emu := NewVTEmulator(80, 24)
-	// Drain response pipe in background
-	drainBuf := make([]byte, 4096)
-	go func() {
-		for {
-			_, err := emu.Read(drainBuf)
-			if err != nil {
-				return
-			}
-		}
-	}()
+	emu := NewVTEmulatorWithDrain(80, 24)
 
 	// Write realistic 80x24 content once in setup
 	payload := realisticTerminalPayload(80 * 24)
