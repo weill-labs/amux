@@ -211,6 +211,18 @@ func TestEmitEventDropsWhenFull(t *testing.T) {
 	sess.removeEventSub(sub)
 }
 
+func TestEmitEventAfterRemove(t *testing.T) {
+	t.Parallel()
+	sess := newSession("test-remove-race")
+
+	sub := sess.addEventSub(eventFilter{})
+	sess.removeEventSub(sub)
+
+	// emitEvent after removeEventSub must not panic (send on closed channel).
+	// The trySend recover guard handles this race.
+	sess.emitEvent(Event{Type: EventLayout, Generation: 1})
+}
+
 func TestParseEventsArgs(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

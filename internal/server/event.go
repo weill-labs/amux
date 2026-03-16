@@ -88,11 +88,20 @@ func (s *Session) emitEvent(ev Event) {
 
 	for _, sub := range subs {
 		if sub.filter.matches(ev) {
-			select {
-			case sub.ch <- data:
-			default: // drop if full
-			}
+			trySend(sub.ch, data)
 		}
+	}
+}
+
+// trySend attempts a non-blocking send on ch. If ch is full the event is
+// dropped. If ch was closed (removeEventSub raced between the subscriber
+// snapshot and this send), the panic is recovered — dropping the event is
+// the correct behavior since the subscriber is already gone.
+func trySend(ch chan []byte, data []byte) {
+	defer func() { recover() }()
+	select {
+	case ch <- data:
+	default:
 	}
 }
 
