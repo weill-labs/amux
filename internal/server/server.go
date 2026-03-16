@@ -233,6 +233,8 @@ func (s *Session) forwardCapture(args []string) *Message {
 		s.mu.Unlock()
 		return &Message{Type: MsgTypeCmdResult, CmdErr: "no client attached"}
 	}
+	// Use the first attached client. In practice there's one interactive
+	// client at a time; if multiple attach, the first is authoritative.
 	client := s.clients[0]
 
 	ch := make(chan *Message, 1)
@@ -613,13 +615,15 @@ func (s *Session) paneIsIdle(paneID uint32) bool {
 }
 
 // trackPaneActivity is called on every PTY output. It resets the idle timer
-// and fires on-activity if the pane was previously idle.
+// and fires on-activity if the pane was previously idle. When the idle state
+// transitions (idle↔busy), a layout broadcast is sent so clients see the
+// updated PaneSnapshot.Idle (used for idle indicators in the status bar).
 func (s *Session) trackPaneActivity(paneID uint32) {
 	s.idleTimerMu.Lock()
-	defer s.idleTimerMu.Unlock()
 
 	// If pane was idle, fire on-activity and emit busy event
-	if s.idleState[paneID] {
+	wasIdle := s.idleState[paneID]
+	if wasIdle {
 		s.idleState[paneID] = false
 		env := s.buildPaneEnv(paneID, hooks.OnActivity)
 		s.Hooks.Fire(hooks.OnActivity, env)
@@ -647,7 +651,13 @@ func (s *Session) trackPaneActivity(paneID uint32) {
 				PaneName: env["AMUX_PANE_NAME"],
 				Host:     env["AMUX_HOST"],
 			})
+			s.broadcastLayout()
 		})
+	}
+	s.idleTimerMu.Unlock()
+
+	if wasIdle {
+		s.broadcastLayout()
 	}
 }
 

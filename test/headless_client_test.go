@@ -234,7 +234,8 @@ func (hc *headlessClient) captureScreen(stripANSI bool) string {
 
 	root, activePaneID := hc.captureRoot()
 	comp := render.NewCompositor(hc.width, hc.height, hc.sessionName)
-	raw := string(comp.RenderFull(root, activePaneID, hc.paneLookup))
+	comp.SetWindows(hc.windowInfo())
+	raw := comp.RenderFull(root, activePaneID, hc.paneLookup)
 
 	if stripANSI {
 		return render.MaterializeGrid(raw, hc.width, hc.height)
@@ -251,7 +252,8 @@ func (hc *headlessClient) captureColorMap() string {
 
 	root, activePaneID := hc.captureRoot()
 	comp := render.NewCompositor(hc.width, hc.height, hc.sessionName)
-	raw := string(comp.RenderFull(root, activePaneID, hc.paneLookup))
+	comp.SetWindows(hc.windowInfo())
+	raw := comp.RenderFull(root, activePaneID, hc.paneLookup)
 	return render.ExtractColorMap(raw, hc.width, hc.height) + "\n"
 }
 
@@ -378,6 +380,19 @@ func (hc *headlessClient) resolvePaneID(ref string) uint32 {
 		}
 	}
 	return prefixMatch
+}
+
+// windowInfo returns window metadata for the compositor global bar. Caller must hold hc.mu.
+func (hc *headlessClient) windowInfo() []render.WindowInfo {
+	infos := make([]render.WindowInfo, len(hc.windows))
+	for i, ws := range hc.windows {
+		infos[i] = render.WindowInfo{
+			Index: ws.Index, Name: ws.Name,
+			IsActive: ws.ID == hc.activeWinID,
+			Panes: len(ws.Panes),
+		}
+	}
+	return infos
 }
 
 // captureRoot returns the layout root for capture. Caller must hold hc.mu.
