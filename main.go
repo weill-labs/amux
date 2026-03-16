@@ -181,6 +181,21 @@ func main() {
 			os.Exit(1)
 		}
 		runServerCommand("resize-window", args[1:])
+	case "set-hook":
+		if len(args) < 3 {
+			fmt.Fprintf(os.Stderr, "usage: amux set-hook <event> <command>\n")
+			os.Exit(1)
+		}
+		runServerCommand("set-hook", args[1:])
+	case "unset-hook":
+		if len(args) < 2 {
+			fmt.Fprintf(os.Stderr, "usage: amux unset-hook <event> [index]\n")
+			os.Exit(1)
+		}
+		runServerCommand("unset-hook", args[1:])
+	case "list-hooks":
+		runServerCommand("list-hooks", nil)
+
 	case "reload-server":
 		runServerCommand("reload-server", nil)
 	case "dashboard":
@@ -242,6 +257,11 @@ Usage:
   amux [-s session] rename-window <n>  Rename the active window
   amux [-s session] resize-window <c> <r>
                                        Resize window to cols x rows
+  amux [-s session] set-hook <event> <command>
+                                       Register a hook (events: on-idle, on-activity)
+  amux [-s session] unset-hook <event> [index]
+                                       Remove hook(s) for an event
+  amux [-s session] list-hooks         List registered hooks
   amux [-s session] reload-server      Hot-reload the server (preserves panes)
   amux [-s session] generation         Show current layout generation counter
   amux [-s session] wait-layout [--after N] [--timeout 3s]
