@@ -293,6 +293,16 @@ func (h *ServerHarness) waitFor(pane, substr string) {
 	}
 }
 
+// waitBusy blocks until the named pane has child processes (a command is running).
+// Uses the server's wait-busy command (blocking, zero polling).
+func (h *ServerHarness) waitBusy(pane string) {
+	h.tb.Helper()
+	out := h.runCmd("wait-busy", pane, "--timeout", "5s")
+	if strings.Contains(out, "timeout") || strings.Contains(out, "not found") {
+		h.tb.Fatalf("wait-busy %s: %s\ncapture:\n%s", pane, strings.TrimSpace(out), h.capture())
+	}
+}
+
 // generation returns the current layout generation counter.
 func (h *ServerHarness) generation() uint64 {
 	h.tb.Helper()

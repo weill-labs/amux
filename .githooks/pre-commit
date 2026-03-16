@@ -29,6 +29,20 @@ if [ "$NEEDS_FMT" = true ]; then
     echo "goimports: auto-formatted staged Go files"
 fi
 
+# Reject new time.Sleep additions in test files — use wait primitives instead
+SLEEP_ADDITIONS=$(git diff --cached --diff-filter=ACM -U0 -- '*_test.go' | grep '^\+' | grep -v '^\+\+\+' | grep 'time\.Sleep')
+if [ -n "$SLEEP_ADDITIONS" ]; then
+    echo "ERROR: new time.Sleep added to test files"
+    echo "  Use deterministic wait primitives instead:"
+    echo "    h.waitFor(pane, substr)   — wait for screen content"
+    echo "    h.waitBusy(pane)          — wait for child process"
+    echo "    h.waitLayout(afterGen)    — wait for layout change"
+    echo ""
+    echo "  Added lines:"
+    echo "$SLEEP_ADDITIONS"
+    exit 1
+fi
+
 # Validate YAML syntax on staged workflow files
 STAGED_YAML=$(git diff --cached --name-only --diff-filter=ACM | grep '\.github/workflows/.*\.yml$')
 if [ -n "$STAGED_YAML" ]; then
