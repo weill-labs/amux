@@ -31,7 +31,7 @@ integ_rc=0
 
 # --- Unit tests ---
 echo "=== Unit tests ==="
-unit_args=(-coverprofile=unit-coverage.txt -covermode=atomic ./internal/... -timeout 60s)
+unit_args=(-race -coverprofile=unit-coverage.txt -covermode=atomic ./internal/... -timeout 60s)
 if [[ "$CI_MODE" == true ]]; then
   go test -json "${unit_args[@]}" | tee unit-results.json || unit_rc=$?
 else
