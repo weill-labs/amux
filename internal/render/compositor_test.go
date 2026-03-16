@@ -28,6 +28,7 @@ func (f *fakePaneData) Color() string           { return "f5e0dc" }
 func (f *fakePaneData) Minimized() bool         { return f.minimized }
 func (f *fakePaneData) Idle() bool              { return true }
 func (f *fakePaneData) InCopyMode() bool        { return false }
+func (f *fakePaneData) CopyModeSearch() string  { return "" }
 func (f *fakePaneData) HasCursorBlock() bool    { return false }
 
 func TestMinimizedPaneHidesCursor(t *testing.T) {

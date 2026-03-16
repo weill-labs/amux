@@ -362,6 +362,12 @@ func (c *clientPaneData) Idle() bool      { return c.info.Idle }
 func (c *clientPaneData) InCopyMode() bool {
 	return c.cm != nil
 }
+func (c *clientPaneData) CopyModeSearch() string {
+	if c.cm != nil {
+		return c.cm.SearchBarText()
+	}
+	return ""
+}
 
 // findPaneDimensions returns the width and content height for a pane,
 // searching the active window's root first, then all other windows.

@@ -101,11 +101,18 @@ func TestCopyModeSearch(t *testing.T) {
 		t.Fatalf("expected [copy] indicator\nScreen:\n%s", screen)
 	}
 
-	// Start search with /. Each sendKeys is a separate CLI command
-	// (~50ms apart), giving the inner amux time to switch from
-	// navigation to search mode before the query characters arrive.
+	// Start search with / — the search prompt is now rendered in the
+	// status bar as "[copy] /query", so we can waitFor it.
 	h.sendKeys("/")
+	if !h.waitFor("[copy] /", 3*time.Second) {
+		t.Fatalf("expected search prompt in status bar\nScreen:\n%s", h.captureOuter())
+	}
+
+	// Type search query and wait for it to render
 	h.sendKeys("S", "E", "A", "R", "C", "H", "M", "A", "R", "K")
+	if !h.waitFor("/SEARCHMARK", 3*time.Second) {
+		t.Fatalf("expected search query in status bar\nScreen:\n%s", h.captureOuter())
+	}
 
 	// Confirm search
 	h.sendKeys("Enter")

@@ -54,11 +54,16 @@ func renderPaneStatus(buf *strings.Builder, cell *mux.LayoutCell, isActive bool,
 	buf.WriteString("]")
 	buf.WriteString(NoBold)
 
-	// Copy mode indicator
+	// Copy mode indicator + search prompt
 	if pd.InCopyMode() {
 		buf.WriteString(" ")
 		buf.WriteString(YellowFg)
-		buf.WriteString("[copy]")
+		if search := pd.CopyModeSearch(); search != "" {
+			buf.WriteString("[copy] ")
+			buf.WriteString(search)
+		} else {
+			buf.WriteString("[copy]")
+		}
 	}
 
 	// Host (only if not mux.DefaultHost)
@@ -79,6 +84,9 @@ func renderPaneStatus(buf *strings.Builder, cell *mux.LayoutCell, isActive bool,
 	usedWidth := 2 + len(pd.Name()) + 2 // "● [name]"
 	if pd.InCopyMode() {
 		usedWidth += 7 // " [copy]"
+		if search := pd.CopyModeSearch(); search != "" {
+			usedWidth += 1 + len(search) // " /query"
+		}
 	}
 	if pd.Host() != "" && pd.Host() != mux.DefaultHost {
 		usedWidth += 2 + len(pd.Host())

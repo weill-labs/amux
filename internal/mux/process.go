@@ -37,6 +37,21 @@ func (p *Pane) AgentStatus() AgentStatus {
 	}
 
 	children := childPIDs(shellPid)
+
+	// If pgrep returned empty but the pane was recently busy (within 500ms),
+	// retry once — pgrep can miss recently-forked children under load.
+	// Skip retry for panes that have been idle longer to avoid catching
+	// transient shell children during prompt processing.
+	if len(children) == 0 {
+		p.idleMu.Lock()
+		recentlyBusy := !p.lastBusySeen.IsZero() && time.Since(p.lastBusySeen) < 500*time.Millisecond
+		p.idleMu.Unlock()
+		if recentlyBusy {
+			time.Sleep(10 * time.Millisecond)
+			children = childPIDs(shellPid)
+		}
+	}
+
 	status := AgentStatus{
 		ChildPIDs: children,
 	}

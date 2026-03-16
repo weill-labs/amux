@@ -392,6 +392,7 @@ func (s *serverPaneData) Color() string         { return s.p.Meta.Color }
 func (s *serverPaneData) Minimized() bool       { return s.p.Meta.Minimized }
 func (s *serverPaneData) Idle() bool            { return s.p.IsIdle() }
 func (s *serverPaneData) InCopyMode() bool      { return false }
+func (s *serverPaneData) CopyModeSearch() string { return "" }
 
 // renderCapture renders the full composited screen server-side.
 // If stripANSI is true, the ANSI stream is materialized into a plain-text
@@ -510,7 +511,8 @@ func (s *Session) notifyPaneOutputSubs(paneID uint32) {
 
 // paneIsBusy checks whether the given pane has child processes (i.e., a
 // command is running). Thread-safe: looks up the pane under s.mu, then
-// inspects the process tree outside the lock.
+// inspects the process tree outside the lock. Retries once on "not busy"
+// to handle races where pgrep misses a recently-forked child.
 func (s *Session) paneIsBusy(paneID uint32) bool {
 	s.mu.Lock()
 	var pane *mux.Pane
