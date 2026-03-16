@@ -2,6 +2,7 @@ package test
 
 import (
 	"crypto/rand"
+	"encoding/json"
 	"fmt"
 	"net"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weill-labs/amux/internal/proto"
 	"github.com/weill-labs/amux/internal/server"
 )
 
@@ -204,6 +206,62 @@ func (h *ServerHarness) assertScreen(msg string, fn func(string) bool) {
 	if !fn(screen) {
 		h.tb.Errorf("%s\nScreen:\n%s", msg, screen)
 	}
+}
+
+// captureJSON returns the full-screen JSON capture as a parsed struct.
+func (h *ServerHarness) captureJSON() proto.CaptureJSON {
+	h.tb.Helper()
+	out := h.runCmd("capture", "--format", "json")
+	var capture proto.CaptureJSON
+	if err := json.Unmarshal([]byte(out), &capture); err != nil {
+		h.tb.Fatalf("captureJSON: %v\nraw: %s", err, out)
+	}
+	return capture
+}
+
+// jsonPane finds a pane by name in a CaptureJSON, or fails the test.
+func (h *ServerHarness) jsonPane(capture proto.CaptureJSON, name string) proto.CapturePane {
+	h.tb.Helper()
+	for _, p := range capture.Panes {
+		if p.Name == name {
+			return p
+		}
+	}
+	h.tb.Fatalf("pane %q not found in JSON capture", name)
+	return proto.CapturePane{}
+}
+
+// assertActive asserts that the named pane is the active pane.
+func (h *ServerHarness) assertActive(name string) {
+	h.tb.Helper()
+	c := h.captureJSON()
+	p := h.jsonPane(c, name)
+	if !p.Active {
+		h.tb.Errorf("%s should be active, but is not", name)
+	}
+}
+
+// assertInactive asserts that the named pane is not the active pane.
+func (h *ServerHarness) assertInactive(name string) {
+	h.tb.Helper()
+	c := h.captureJSON()
+	p := h.jsonPane(c, name)
+	if p.Active {
+		h.tb.Errorf("%s should be inactive, but is active", name)
+	}
+}
+
+// activePaneName returns the name of the active pane from JSON capture.
+func (h *ServerHarness) activePaneName() string {
+	h.tb.Helper()
+	c := h.captureJSON()
+	for _, p := range c.Panes {
+		if p.Active {
+			return p.Name
+		}
+	}
+	h.tb.Fatal("no active pane found")
+	return ""
 }
 
 // globalBar returns the global bar line from the capture.
