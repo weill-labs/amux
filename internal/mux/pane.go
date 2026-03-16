@@ -155,6 +155,22 @@ func (p *Pane) PtmxFd() int {
 	return int(p.ptmx.Fd())
 }
 
+// ShellName returns the shell's command name (e.g., "bash", "zsh") without
+// forking a subprocess. Falls back to processName() if the cmd path is unavailable.
+func (p *Pane) ShellName() string {
+	if p.cmd != nil {
+		name := p.cmd.Path
+		if idx := strings.LastIndex(name, "/"); idx >= 0 {
+			name = name[idx+1:]
+		}
+		return strings.TrimPrefix(name, "-")
+	}
+	if pid := p.ProcessPid(); pid != 0 {
+		return processName(pid)
+	}
+	return ""
+}
+
 // ProcessPid returns the PID of the shell process.
 func (p *Pane) ProcessPid() int {
 	if p.cmd != nil {
@@ -358,17 +374,6 @@ var ansiRe = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]|\x1b\][^\x07]*\x07|\x1b[(
 // StripANSI removes ANSI escape sequences from a string.
 func StripANSI(s string) string {
 	return ansiRe.ReplaceAllString(s, "")
-}
-
-// IsIdle returns true when the shell has no child processes (sitting at a prompt).
-// This is a lightweight check (single pgrep call) suitable for the hot snapshot
-// path. For full agent status with idle_since tracking, use AgentStatus().
-func (p *Pane) IsIdle() bool {
-	pid := p.ProcessPid()
-	if pid == 0 {
-		return true
-	}
-	return len(childPIDs(pid)) == 0
 }
 
 // Close terminates the pane's shell and PTY.
