@@ -61,9 +61,7 @@ func TestRepeatFocus(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 	h.sendKeys("h")
 
-	if !h.waitForFunc(func(s string) bool {
-		return isPaneActive(s, "pane-1")
-	}, 3*time.Second) {
+	if !h.waitForActive("pane-1", 3*time.Second) {
 		t.Errorf("expected pane-1 active after repeated h.\nScreen:\n%s", h.capture())
 	}
 }
@@ -83,9 +81,7 @@ func TestRepeatCrossKey(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 	h.sendKeys("l")
 
-	if !h.waitForFunc(func(s string) bool {
-		return isPaneActive(s, "pane-3")
-	}, 3*time.Second) {
+	if !h.waitForActive("pane-3", 3*time.Second) {
 		t.Errorf("expected pane-3 active after h then l (cross-key repeat).\nScreen:\n%s", h.capture())
 	}
 }

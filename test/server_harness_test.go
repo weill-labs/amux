@@ -2,6 +2,7 @@ package test
 
 import (
 	"crypto/rand"
+	"encoding/json"
 	"fmt"
 	"net"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weill-labs/amux/internal/proto"
 	"github.com/weill-labs/amux/internal/server"
 )
 
@@ -206,6 +208,66 @@ func (h *ServerHarness) assertScreen(msg string, fn func(string) bool) {
 	}
 }
 
+// captureJSON returns the full-screen JSON capture as a parsed struct.
+func (h *ServerHarness) captureJSON() proto.CaptureJSON {
+	h.tb.Helper()
+	out := h.runCmd("capture", "--format", "json")
+	var capture proto.CaptureJSON
+	if err := json.Unmarshal([]byte(out), &capture); err != nil {
+		h.tb.Fatalf("captureJSON: %v\nraw: %s", err, out)
+	}
+	return capture
+}
+
+// jsonPane finds a pane by name in a CaptureJSON, or fails the test.
+// Also fails if Position is nil (full-screen captures always set it).
+func (h *ServerHarness) jsonPane(capture proto.CaptureJSON, name string) proto.CapturePane {
+	h.tb.Helper()
+	for _, p := range capture.Panes {
+		if p.Name == name {
+			if p.Position == nil {
+				h.tb.Fatalf("pane %q has nil Position in full-screen capture", name)
+			}
+			return p
+		}
+	}
+	h.tb.Fatalf("pane %q not found in JSON capture", name)
+	return proto.CapturePane{}
+}
+
+// assertActive asserts that the named pane is the active pane.
+func (h *ServerHarness) assertActive(name string) {
+	h.tb.Helper()
+	c := h.captureJSON()
+	p := h.jsonPane(c, name)
+	if !p.Active {
+		h.tb.Errorf("%s should be active, but is not", name)
+	}
+}
+
+// assertInactive asserts that the named pane is not the active pane.
+func (h *ServerHarness) assertInactive(name string) {
+	h.tb.Helper()
+	c := h.captureJSON()
+	p := h.jsonPane(c, name)
+	if p.Active {
+		h.tb.Errorf("%s should be inactive, but is active", name)
+	}
+}
+
+// activePaneName returns the name of the active pane from JSON capture.
+func (h *ServerHarness) activePaneName() string {
+	h.tb.Helper()
+	c := h.captureJSON()
+	for _, p := range c.Panes {
+		if p.Active {
+			return p.Name
+		}
+	}
+	h.tb.Fatal("no active pane found")
+	return ""
+}
+
 // globalBar returns the global bar line from the capture.
 func (h *ServerHarness) globalBar() string {
 	h.tb.Helper()
@@ -255,37 +317,20 @@ func (h *ServerHarness) waitLayout(afterGen uint64) {
 // Split helpers — synchronous via CLI, no keybinding simulation
 // ---------------------------------------------------------------------------
 
-func (h *ServerHarness) splitV() {
+// doSplit runs a split CLI command and fails the test if it errors.
+func (h *ServerHarness) doSplit(args ...string) {
 	h.tb.Helper()
-	out := h.runCmd("split")
+	cmdArgs := append([]string{"split"}, args...)
+	out := h.runCmd(cmdArgs...)
 	if strings.Contains(out, "error") || strings.Contains(out, "cannot") {
-		h.tb.Fatalf("splitV failed: %s", out)
+		h.tb.Fatalf("split %v failed: %s", args, out)
 	}
 }
 
-func (h *ServerHarness) splitH() {
-	h.tb.Helper()
-	out := h.runCmd("split", "v")
-	if strings.Contains(out, "error") || strings.Contains(out, "cannot") {
-		h.tb.Fatalf("splitH failed: %s", out)
-	}
-}
-
-func (h *ServerHarness) splitRootV() {
-	h.tb.Helper()
-	out := h.runCmd("split", "root")
-	if strings.Contains(out, "error") || strings.Contains(out, "cannot") {
-		h.tb.Fatalf("splitRootV failed: %s", out)
-	}
-}
-
-func (h *ServerHarness) splitRootH() {
-	h.tb.Helper()
-	out := h.runCmd("split", "root", "v")
-	if strings.Contains(out, "error") || strings.Contains(out, "cannot") {
-		h.tb.Fatalf("splitRootH failed: %s", out)
-	}
-}
+func (h *ServerHarness) splitV()     { h.tb.Helper(); h.doSplit() }
+func (h *ServerHarness) splitH()     { h.tb.Helper(); h.doSplit("v") }
+func (h *ServerHarness) splitRootV() { h.tb.Helper(); h.doSplit("root") }
+func (h *ServerHarness) splitRootH() { h.tb.Helper(); h.doSplit("root", "v") }
 
 // ---------------------------------------------------------------------------
 // Pane interaction — via CLI send-keys, no tmux

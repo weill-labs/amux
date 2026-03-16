@@ -2,6 +2,7 @@ package test
 
 import (
 	"crypto/rand"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -10,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weill-labs/amux/internal/proto"
 	"github.com/weill-labs/amux/internal/server"
 )
 
@@ -133,6 +135,22 @@ func (h *AmuxHarness) waitForFunc(fn func(string) bool, timeout time.Duration) b
 	return false
 }
 
+// waitForActive polls JSON capture until the named pane is active or timeout.
+func (h *AmuxHarness) waitForActive(name string, timeout time.Duration) bool {
+	h.tb.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		c := h.captureJSON()
+		for _, p := range c.Panes {
+			if p.Name == name && p.Active {
+				return true
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	return false
+}
+
 // ---------------------------------------------------------------------------
 // Capture — inner compositor and outer rendered content
 // ---------------------------------------------------------------------------
@@ -227,6 +245,66 @@ func (h *AmuxHarness) assertScreen(msg string, fn func(string) bool) {
 	if !fn(screen) {
 		h.tb.Errorf("%s\nScreen:\n%s", msg, screen)
 	}
+}
+
+// captureJSON returns the full-screen JSON capture as a parsed struct.
+func (h *AmuxHarness) captureJSON() proto.CaptureJSON {
+	h.tb.Helper()
+	out := h.runCmd("capture", "--format", "json")
+	var capture proto.CaptureJSON
+	if err := json.Unmarshal([]byte(out), &capture); err != nil {
+		h.tb.Fatalf("captureJSON: %v\nraw: %s", err, out)
+	}
+	return capture
+}
+
+// jsonPane finds a pane by name in a CaptureJSON, or fails the test.
+// Also fails if Position is nil (full-screen captures always set it).
+func (h *AmuxHarness) jsonPane(capture proto.CaptureJSON, name string) proto.CapturePane {
+	h.tb.Helper()
+	for _, p := range capture.Panes {
+		if p.Name == name {
+			if p.Position == nil {
+				h.tb.Fatalf("pane %q has nil Position in full-screen capture", name)
+			}
+			return p
+		}
+	}
+	h.tb.Fatalf("pane %q not found in JSON capture", name)
+	return proto.CapturePane{}
+}
+
+// assertActive asserts that the named pane is the active pane.
+func (h *AmuxHarness) assertActive(name string) {
+	h.tb.Helper()
+	c := h.captureJSON()
+	p := h.jsonPane(c, name)
+	if !p.Active {
+		h.tb.Errorf("%s should be active, but is not", name)
+	}
+}
+
+// assertInactive asserts that the named pane is not the active pane.
+func (h *AmuxHarness) assertInactive(name string) {
+	h.tb.Helper()
+	c := h.captureJSON()
+	p := h.jsonPane(c, name)
+	if p.Active {
+		h.tb.Errorf("%s should be inactive, but is active", name)
+	}
+}
+
+// activePaneName returns the name of the active pane from JSON capture.
+func (h *AmuxHarness) activePaneName() string {
+	h.tb.Helper()
+	c := h.captureJSON()
+	for _, p := range c.Panes {
+		if p.Active {
+			return p.Name
+		}
+	}
+	h.tb.Fatal("no active pane found")
+	return ""
 }
 
 // globalBar returns the global bar line from the inner capture.

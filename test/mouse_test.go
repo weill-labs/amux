@@ -13,25 +13,19 @@ func TestMouseClickFocus(t *testing.T) {
 
 	h.splitV()
 
-	h.assertScreen("pane-2 should be active after split", func(s string) bool {
-		return isPaneActive(s, "pane-2")
-	})
+	h.assertActive("pane-2")
 
 	// Click at column 10, row 5 — inside pane-1 (left half of 80-col terminal)
 	h.clickAt(10, 5)
 
-	if !h.waitForFunc(func(s string) bool {
-		return isPaneActive(s, "pane-1")
-	}, 3*time.Second) {
+	if !h.waitForActive("pane-1", 3*time.Second) {
 		t.Errorf("after clicking left pane, pane-1 should be active.\nScreen:\n%s", h.capture())
 	}
 
 	// Click on pane-2 (column 60) to switch back
 	h.clickAt(60, 5)
 
-	if !h.waitForFunc(func(s string) bool {
-		return isPaneActive(s, "pane-2")
-	}, 3*time.Second) {
+	if !h.waitForActive("pane-2", 3*time.Second) {
 		t.Errorf("after clicking right pane, pane-2 should be active.\nScreen:\n%s", h.capture())
 	}
 }
@@ -42,16 +36,12 @@ func TestMouseClickFocusHorizontalSplit(t *testing.T) {
 
 	h.splitH()
 
-	h.assertScreen("pane-2 should be active after split", func(s string) bool {
-		return isPaneActive(s, "pane-2")
-	})
+	h.assertActive("pane-2")
 
 	// Click at top of screen (row 3) — inside pane-1
 	h.clickAt(40, 3)
 
-	if !h.waitForFunc(func(s string) bool {
-		return isPaneActive(s, "pane-1")
-	}, 3*time.Second) {
+	if !h.waitForActive("pane-1", 3*time.Second) {
 		t.Errorf("after clicking top pane, pane-1 should be active.\nScreen:\n%s", h.capture())
 	}
 }

@@ -136,15 +136,12 @@ o = "split v"
 	h.sendKeys("C-a", "o")
 	h.waitLayout(gen)
 
-	// Verify horizontal split: pane names on DIFFERENT rows
-	lines := h.captureAmuxContentLines()
-	row1 := paneNameRow(lines, "pane-1")
-	row2 := paneNameRow(lines, "pane-2")
-	if row1 < 0 || row2 < 0 {
-		t.Fatalf("both pane names should be visible")
-	}
-	if row1 == row2 {
-		t.Errorf("horizontal split should put panes on different rows, both on row %d", row1)
+	// Verify horizontal split: panes on different Y positions
+	c := h.captureJSON()
+	p1 := h.jsonPane(c, "pane-1")
+	p2 := h.jsonPane(c, "pane-2")
+	if p1.Position.Y == p2.Position.Y {
+		t.Errorf("horizontal split should put panes at different Y, both at y=%d", p1.Position.Y)
 	}
 }
 
@@ -162,9 +159,7 @@ unbind = ["o"]
 	h.sendKeys("C-a", "o")
 	time.Sleep(500 * time.Millisecond)
 
-	h.assertScreen("pane-2 should still be active (o unbound)", func(s string) bool {
-		return isPaneActive(s, "pane-2")
-	})
+	h.assertActive("pane-2")
 }
 
 func TestCustomDetachBinding(t *testing.T) {
@@ -210,7 +205,5 @@ func TestDefaultBindingsWithoutConfig(t *testing.T) {
 	h.sendKeys("C-a", "o")
 	h.waitLayout(gen)
 
-	h.assertScreen("pane-1 active after cycle", func(s string) bool {
-		return isPaneActive(s, "pane-1")
-	})
+	h.assertActive("pane-1")
 }

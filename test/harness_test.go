@@ -161,18 +161,6 @@ func isPaneActive(screen, paneName string) bool {
 	return false
 }
 
-// isPaneInactive returns true if the captured screen shows the named pane
-// with the inactive indicator (○ [name]).
-func isPaneInactive(screen, paneName string) bool {
-	target := "[" + paneName + "]"
-	for _, line := range strings.Split(screen, "\n") {
-		if strings.Contains(line, target) && strings.Contains(line, "○") {
-			return true
-		}
-	}
-	return false
-}
-
 // pickContentLine returns a middle content line from ANSI-escaped screen output,
 // skipping status lines and empty lines.
 func pickContentLine(screen string) string {
@@ -216,23 +204,6 @@ func extractBorderColors(line string) []string {
 		i++
 	}
 	return colors
-}
-
-// findHorizontalBorderRow returns the first row index containing a horizontal
-// border (>10 horizontal box-drawing chars), or -1 if not found.
-func findHorizontalBorderRow(lines []string) int {
-	for i, line := range lines {
-		count := 0
-		for _, r := range line {
-			if r == '─' || r == '┼' || r == '┬' || r == '┴' {
-				count++
-			}
-		}
-		if count > 10 {
-			return i
-		}
-	}
-	return -1
 }
 
 // ---------------------------------------------------------------------------
@@ -304,24 +275,3 @@ func findVerticalBorderCol(lines []string) int {
 	return -1
 }
 
-// paneNameRow returns the row index where [name] appears, or -1.
-func paneNameRow(lines []string, name string) int {
-	target := "[" + name + "]"
-	for i, line := range lines {
-		if strings.Contains(line, target) {
-			return i
-		}
-	}
-	return -1
-}
-
-// paneNameCol returns the column where [name] starts, or -1.
-func paneNameCol(lines []string, name string) int {
-	target := "[" + name + "]"
-	for _, line := range lines {
-		if idx := strings.Index(line, target); idx >= 0 {
-			return idx
-		}
-	}
-	return -1
-}

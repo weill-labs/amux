@@ -20,20 +20,11 @@ func TestPaneClose(t *testing.T) {
 	h.sendKeys("pane-2", "exit", "Enter")
 	h.waitLayout(gen) // blocks until pane exit triggers layout update
 
-	capLines := h.captureContentLines()
-	hasPane1 := false
-	for _, line := range capLines {
-		if strings.Contains(line, "[pane-1]") {
-			hasPane1 = true
-		}
-		if strings.Contains(line, "│") {
-			t.Errorf("capture: no vertical borders expected after close, got: %q", line)
-			break
-		}
+	c := h.captureJSON()
+	if len(c.Panes) != 1 {
+		t.Errorf("expected 1 pane after close, got %d", len(c.Panes))
 	}
-	if !hasPane1 {
-		t.Errorf("capture: pane-1 should still be visible\n%s", strings.Join(capLines, "\n"))
-	}
+	h.jsonPane(c, "pane-1") // fails if pane-1 not found
 
 	h.assertScreen("pane-1 status on first row", func(s string) bool {
 		lines := strings.Split(s, "\n")
