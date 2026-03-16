@@ -1,12 +1,16 @@
 package test
 
 import (
+	"bufio"
 	"crypto/rand"
 	"fmt"
+	"net"
 	"os/exec"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/weill-labs/amux/internal/server"
 )
 
 // ---------------------------------------------------------------------------
@@ -347,3 +351,76 @@ func BenchmarkHotReload(b *testing.B) {
 		b.ReportMetric(float64(reconnectDur.Nanoseconds()), "reconnect-ns/op")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// BenchmarkDetectLayoutChange — polling vs push for layout change detection
+// ---------------------------------------------------------------------------
+
+// BenchmarkDetectLayoutChange measures the detection overhead after a layout
+// change. The change (focus cycle) is synchronous — by the time the CLI
+// returns, the server has already emitted the event. We measure how long
+// it takes to confirm the change:
+//   - polling: one `amux capture --format json` CLI round-trip (what agents do today)
+//   - push:    one buffered read from an open event stream (near-zero overhead)
+func BenchmarkDetectLayoutChange(b *testing.B) {
+	b.Run("polling", func(b *testing.B) {
+		b.StopTimer()
+		h := newServerHarness(b)
+		h.splitV() // need 2 panes for focus cycling
+		b.StartTimer()
+		b.ReportAllocs()
+		for b.Loop() {
+			// Simulate what a polling agent does each cycle:
+			// call capture --format json and parse it.
+			h.runCmd("capture", "--format", "json")
+		}
+	})
+
+	b.Run("push", func(b *testing.B) {
+		b.StopTimer()
+		h := newServerHarness(b)
+		h.splitV() // need 2 panes for focus cycling
+
+		// Open persistent event stream (reused across iterations)
+		sockPath := server.SocketPath(h.session)
+		conn, err := net.Dial("unix", sockPath)
+		if err != nil {
+			b.Fatalf("dial: %v", err)
+		}
+		defer conn.Close()
+
+		server.WriteMsg(conn, &server.Message{
+			Type:    server.MsgTypeCommand,
+			CmdName: "events",
+			CmdArgs: []string{"--filter", "layout"},
+		})
+
+		pr, pw := net.Pipe()
+		defer pr.Close()
+		go func() {
+			defer pw.Close()
+			for {
+				msg, err := server.ReadMsg(conn)
+				if err != nil {
+					return
+				}
+				if msg.CmdOutput != "" {
+					pw.Write([]byte(msg.CmdOutput))
+				}
+			}
+		}()
+		scanner := bufio.NewScanner(pr)
+
+		// Drain initial layout snapshot
+		scanner.Scan()
+
+		b.StartTimer()
+		b.ReportAllocs()
+		for b.Loop() {
+			// Trigger a layout change (focus next), then read the pushed event
+			h.runCmd("focus", "next")
+			scanner.Scan()
+		}
+	})
+}
+
