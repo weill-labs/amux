@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Collect merged unit + integration test coverage.
+# Collect merged unit + integration test coverage (used by CI and `make coverage`).
 #
 # Integration tests launch amux as a subprocess inside tmux, so normal
 # -coverprofile can't track what the binary executes. This script uses
