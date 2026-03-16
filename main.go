@@ -170,18 +170,18 @@ func main() {
 			os.Exit(1)
 		}
 		runServerCommand("wait-for", args[1:])
-	case "wait-busy":
-		if len(args) < 2 {
-			fmt.Fprintf(os.Stderr, "usage: amux wait-busy <pane> [--timeout <duration>]\n")
-			os.Exit(1)
-		}
-		runServerCommand("wait-busy", args[1:])
 	case "wait-idle":
 		if len(args) < 2 {
 			fmt.Fprintf(os.Stderr, "usage: amux wait-idle <pane> [--timeout <duration>]\n")
 			os.Exit(1)
 		}
 		runServerCommand("wait-idle", args[1:])
+	case "wait-busy":
+		if len(args) < 2 {
+			fmt.Fprintf(os.Stderr, "usage: amux wait-busy <pane> [--timeout <duration>]\n")
+			os.Exit(1)
+		}
+		runServerCommand("wait-busy", args[1:])
 	case "clipboard-gen":
 		runServerCommand("clipboard-gen", nil)
 	case "wait-clipboard":
@@ -304,7 +304,7 @@ Usage:
   amux [-s session] wait-busy <pane> [--timeout 5s]
                                        Block until pane has child processes
   amux [-s session] wait-idle <pane> [--timeout 5s]
-                                       Block until pane has no child processes
+                                       Block until pane becomes idle
   amux version                         Show build version
 
 Panes can be referenced by name (pane-1) or ID (1).

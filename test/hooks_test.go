@@ -138,7 +138,7 @@ func TestHookOnActivityFires(t *testing.T) {
 	marker := filepath.Join(tmp, "activity-fired")
 
 	// Wait for initial idle state (shell prompt appears, then quiet period expires)
-	time.Sleep(server.DefaultIdleTimeout + 1*time.Second)
+	h.waitIdle("pane-1")
 
 	h.runCmd("set-hook", "on-activity", "touch "+marker)
 
