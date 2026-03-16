@@ -7,6 +7,7 @@ import (
 	"encoding/gob"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
@@ -14,13 +15,14 @@ import (
 
 // PaneCheckpoint captures the state of a single pane for reload.
 type PaneCheckpoint struct {
-	ID     uint32
-	Meta   mux.PaneMeta
-	PtmxFd int // PTY master FD number (inherited across exec)
-	PID    int // Shell process PID (for waitLoop)
-	Cols   int
-	Rows   int
-	Screen string // RenderScreen() ANSI output for replay
+	ID        uint32
+	Meta      mux.PaneMeta
+	PtmxFd    int       // PTY master FD number (inherited across exec)
+	PID       int       // Shell process PID (for waitLoop)
+	Cols      int
+	Rows      int
+	Screen    string    // RenderScreen() ANSI output for replay
+	CreatedAt time.Time // Pane creation time (preserved across reloads)
 }
 
 // ServerCheckpoint captures the full server state for reload.

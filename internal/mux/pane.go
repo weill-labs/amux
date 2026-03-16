@@ -130,6 +130,16 @@ func RestorePane(id uint32, meta PaneMeta, ptmxFd, pid, cols, rows int, onOutput
 	return p, nil
 }
 
+// CreatedAt returns when this pane was created.
+func (p *Pane) CreatedAt() time.Time {
+	return p.createdAt
+}
+
+// SetCreatedAt overrides the creation time (used to restore from checkpoint).
+func (p *Pane) SetCreatedAt(t time.Time) {
+	p.createdAt = t
+}
+
 // PtmxFd returns the file descriptor number for the PTY master.
 func (p *Pane) PtmxFd() int {
 	return int(p.ptmx.Fd())

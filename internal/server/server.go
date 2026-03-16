@@ -781,11 +781,12 @@ func (s *Server) Reload(execPath string) error {
 
 	for _, p := range sess.Panes {
 		pc := checkpoint.PaneCheckpoint{
-			ID:     p.ID,
-			Meta:   p.Meta,
-			PtmxFd: p.PtmxFd(),
-			PID:    p.ProcessPid(),
-			Screen: p.RenderScreen(),
+			ID:        p.ID,
+			Meta:      p.Meta,
+			PtmxFd:    p.PtmxFd(),
+			PID:       p.ProcessPid(),
+			Screen:    p.RenderScreen(),
+			CreatedAt: p.CreatedAt(),
 		}
 		// For minimized panes, save the emulator's actual dimensions
 		// (pre-minimize size) so the emulator is restored at the correct
@@ -909,6 +910,9 @@ func NewServerFromCheckpoint(cp *checkpoint.ServerCheckpoint) (*Server, error) {
 
 		pane.SetOnClipboard(sess.clipboardCallback())
 
+		if !pc.CreatedAt.IsZero() {
+			pane.SetCreatedAt(pc.CreatedAt)
+		}
 		pane.ReplayScreen(pc.Screen)
 		paneMap[pc.ID] = pane
 		sess.Panes = append(sess.Panes, pane)
