@@ -43,8 +43,8 @@ All use Go's `testing.B` for `benchstat`-compatible output.
 ### Rendering throughput (`compositor_bench_test.go`)
 
 - `BenchmarkRenderFull/panes_1` / `panes_4` / `panes_10` / `panes_20` — build a layout tree with N panes, populate emulators with realistic terminal content (shell prompt + `ls` output), call `RenderFull()` in a loop. Measures compositor cost as pane count grows.
-- `BenchmarkClipLine` — the hot path in `blitPane()` that clips ANSI-escaped lines. Feed it realistic lines with escape sequences.
-- `BenchmarkBuildBorderMap` — border junction calculation, scales with layout complexity.
+- `BenchmarkClipLine` — the hot path in `blitPane()` that clips ANSI-escaped lines. Feed it realistic lines with escape sequences. Note: `clipLine` is unexported; bench file must use `package render` (not `package render_test`).
+- `BenchmarkBuildBorderMap` — border junction calculation, scales with layout complexity. Also unexported; same package constraint.
 
 ### Protocol encode/decode (`protocol_bench_test.go`)
 
@@ -90,7 +90,7 @@ Uses `AmuxHarness` for amux (full client+server stack). `TmuxBenchHarness` for t
 
 - `BenchmarkInputLatency/amux` / `tmux` — send a unique marker string, then use `wait-for` (amux, blocking) or poll `capture-pane` (tmux) until it appears. Measure wall-clock time.
 - Unique token per iteration (`BENCH-0001`, `BENCH-0002`, ...) to avoid false positives.
-- For tmux, poll at 5ms intervals since tmux has no blocking wait-for equivalent.
+- For tmux, poll at 5ms intervals since tmux has no blocking wait-for equivalent. Note: the tmux measurement includes polling overhead and is an upper bound, not a direct apples-to-apples comparison.
 
 ### Rendering throughput under load
 
