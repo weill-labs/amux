@@ -47,6 +47,7 @@ type PaneSnapshot struct {
 	Task      string
 	Color     string
 	Minimized bool
+	Idle      bool
 }
 
 // CaptureJSON is the full-screen JSON capture output.

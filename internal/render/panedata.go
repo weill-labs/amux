@@ -20,5 +20,6 @@ type PaneData interface {
 	Task() string
 	Color() string
 	Minimized() bool
+	Idle() bool
 	InCopyMode() bool
 }

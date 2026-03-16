@@ -127,6 +127,7 @@ func (s *Session) capturePaneJSON(pane *mux.Pane) string {
 		Active:    pane.ID == activePaneID,
 		Minimized: pane.Meta.Minimized,
 		Zoomed:    pane.ID == zoomedPaneID,
+		Idle:      pane.IsIdle(),
 		Host:      pane.Meta.Host,
 		Task:      pane.Meta.Task,
 		Color:     pane.Meta.Color,

@@ -334,6 +334,17 @@ func StripANSI(s string) string {
 	return ansiRe.ReplaceAllString(s, "")
 }
 
+// IsIdle returns true when the shell has no child processes (sitting at a prompt).
+// This is a lightweight check (single pgrep call) suitable for the hot snapshot
+// path. For full agent status with idle_since tracking, use AgentStatus().
+func (p *Pane) IsIdle() bool {
+	pid := p.ProcessPid()
+	if pid == 0 {
+		return true
+	}
+	return len(childPIDs(pid)) == 0
+}
+
 // Close terminates the pane's shell and PTY.
 func (p *Pane) Close() error {
 	if p.closed.Swap(true) {
