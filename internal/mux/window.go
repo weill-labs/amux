@@ -924,21 +924,19 @@ func (w *Window) SplicePane(oldPaneID uint32, newPanes []*Pane) ([]*LayoutCell, 
 	cell.Dir = SplitHorizontal
 	cell.Children = make([]*LayoutCell, n)
 
-	var newCells []*LayoutCell
 	each := available / n
 	xoff := x
 	for i, pane := range newPanes {
-		w := each
+		childW := each
 		if i == n-1 {
-			w = available - each*(n-1) // remainder to last
+			childW = available - each*(n-1) // remainder to last
 		}
-		leaf := NewLeaf(pane, xoff, y, w, h)
+		leaf := NewLeaf(pane, xoff, y, childW, h)
 		leaf.Parent = cell
 		cell.Children[i] = leaf
-		newCells = append(newCells, leaf)
 
-		pane.Resize(w, PaneContentHeight(h))
-		xoff += w + 1 // +1 for separator
+		pane.Resize(childW, PaneContentHeight(h))
+		xoff += childW + 1 // +1 for separator
 	}
 
 	// Update active pane if the replaced pane was active
@@ -946,7 +944,7 @@ func (w *Window) SplicePane(oldPaneID uint32, newPanes []*Pane) ([]*LayoutCell, 
 		w.setActive(newPanes[0])
 	}
 
-	return newCells, nil
+	return cell.Children, nil
 }
 
 // UnsplicePane replaces all children of a spliced cell (that contains

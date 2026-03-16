@@ -51,10 +51,10 @@ type Pane struct {
 	drainStarted bool
 	onOutput     func(paneID uint32, data []byte)
 	onExit       func(paneID uint32)
-	onClipboard  func(paneID uint32, data []byte)
-	onTakeover   func(paneID uint32, req TakeoverRequest)
-	osc52Scanner     OSC52Scanner
-	controlScanner   AmuxControlScanner
+	onClipboard    func(paneID uint32, data []byte)
+	onTakeover     func(paneID uint32, req TakeoverRequest)
+	osc52Scanner   OSC52Scanner
+	controlScanner AmuxControlScanner
 
 	// Idle tracking (LAB-159)
 	idleMu       sync.Mutex
