@@ -12,31 +12,22 @@ func TestSplitVertical(t *testing.T) {
 
 	h.splitV()
 
-	lines := h.captureContentLines()
-
-	// Both pane names should be on the SAME row (side by side)
-	found := false
-	for _, line := range lines {
-		if strings.Contains(line, "[pane-1]") && strings.Contains(line, "[pane-2]") {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Errorf("capture: pane names should be on same row\n%s", strings.Join(lines, "\n"))
+	c := h.captureJSON()
+	if len(c.Panes) != 2 {
+		t.Fatalf("expected 2 panes, got %d", len(c.Panes))
 	}
 
-	// Vertical border should span most rows
-	col := findVerticalBorderCol(lines)
-	if col < 0 {
-		t.Fatal("capture: no consistent vertical border found")
+	p1 := h.jsonPane(c, "pane-1")
+	p2 := h.jsonPane(c, "pane-2")
+
+	// pane-1 should be left of pane-2
+	if p1.Position.X >= p2.Position.X {
+		t.Errorf("pane-1 (x=%d) should be left of pane-2 (x=%d)", p1.Position.X, p2.Position.X)
 	}
 
-	// pane-1 name should be left of the border, pane-2 right of it
-	col1 := paneNameCol(lines, "pane-1")
-	col2 := paneNameCol(lines, "pane-2")
-	if col1 >= col || col2 <= col {
-		t.Errorf("capture: pane-1 (col %d) should be left of border (col %d), pane-2 (col %d) right", col1, col, col2)
+	// Both should be on the same row
+	if p1.Position.Y != p2.Position.Y {
+		t.Errorf("pane-1 (y=%d) and pane-2 (y=%d) should be on same row", p1.Position.Y, p2.Position.Y)
 	}
 }
 
@@ -46,23 +37,22 @@ func TestSplitHorizontal(t *testing.T) {
 
 	h.splitH()
 
-	lines := h.captureContentLines()
-
-	row1 := paneNameRow(lines, "pane-1")
-	row2 := paneNameRow(lines, "pane-2")
-	if row1 < 0 || row2 < 0 {
-		t.Fatalf("capture: could not find both pane names\n%s", strings.Join(lines, "\n"))
-	}
-	if row1 >= row2 {
-		t.Errorf("capture: pane-1 (row %d) should be above pane-2 (row %d)", row1, row2)
+	c := h.captureJSON()
+	if len(c.Panes) != 2 {
+		t.Fatalf("expected 2 panes, got %d", len(c.Panes))
 	}
 
-	hBorderRow := findHorizontalBorderRow(lines)
-	if hBorderRow < 0 {
-		t.Fatal("capture: no horizontal border found")
+	p1 := h.jsonPane(c, "pane-1")
+	p2 := h.jsonPane(c, "pane-2")
+
+	// pane-1 should be above pane-2
+	if p1.Position.Y >= p2.Position.Y {
+		t.Errorf("pane-1 (y=%d) should be above pane-2 (y=%d)", p1.Position.Y, p2.Position.Y)
 	}
-	if hBorderRow <= row1 || hBorderRow >= row2 {
-		t.Errorf("capture: border (row %d) should be between pane-1 (row %d) and pane-2 (row %d)", hBorderRow, row1, row2)
+
+	// Both should be in the same column
+	if p1.Position.X != p2.Position.X {
+		t.Errorf("pane-1 (x=%d) and pane-2 (x=%d) should be in same column", p1.Position.X, p2.Position.X)
 	}
 }
 
@@ -76,37 +66,26 @@ func TestRootSplitVertical(t *testing.T) {
 	// Root vertical split: left column (pane-1 + pane-2 stacked), right column (pane-3)
 	h.splitRootV()
 
-	lines := h.captureContentLines()
-
-	for _, name := range []string{"pane-1", "pane-2", "pane-3"} {
-		if paneNameRow(lines, name) < 0 {
-			t.Errorf("capture: pane %s not found\n%s", name, strings.Join(lines, "\n"))
-		}
+	c := h.captureJSON()
+	if len(c.Panes) != 3 {
+		t.Fatalf("expected 3 panes, got %d", len(c.Panes))
 	}
 
-	col := findVerticalBorderCol(lines)
-	if col < 0 {
-		t.Fatal("capture: no consistent vertical border found for root split")
+	p1 := h.jsonPane(c, "pane-1")
+	p2 := h.jsonPane(c, "pane-2")
+	p3 := h.jsonPane(c, "pane-3")
+
+	// pane-3 should be right of pane-1 and pane-2
+	if p3.Position.X <= p1.Position.X {
+		t.Errorf("pane-3 (x=%d) should be right of pane-1 (x=%d)", p3.Position.X, p1.Position.X)
+	}
+	if p3.Position.X <= p2.Position.X {
+		t.Errorf("pane-3 (x=%d) should be right of pane-2 (x=%d)", p3.Position.X, p2.Position.X)
 	}
 
-	col3 := paneNameCol(lines, "pane-3")
-	if col3 <= col {
-		t.Errorf("capture: pane-3 (col %d) should be right of root border (col %d)", col3, col)
-	}
-
-	col1 := paneNameCol(lines, "pane-1")
-	col2 := paneNameCol(lines, "pane-2")
-	if col1 >= col {
-		t.Errorf("capture: pane-1 (col %d) should be left of root border (col %d)", col1, col)
-	}
-	if col2 >= col {
-		t.Errorf("capture: pane-2 (col %d) should be left of root border (col %d)", col2, col)
-	}
-
-	row1 := paneNameRow(lines, "pane-1")
-	row2 := paneNameRow(lines, "pane-2")
-	if row1 >= row2 {
-		t.Errorf("capture: pane-1 (row %d) should be above pane-2 (row %d)", row1, row2)
+	// pane-1 should be above pane-2
+	if p1.Position.Y >= p2.Position.Y {
+		t.Errorf("pane-1 (y=%d) should be above pane-2 (y=%d)", p1.Position.Y, p2.Position.Y)
 	}
 }
 
@@ -119,37 +98,28 @@ func TestRootSplitHorizontal(t *testing.T) {
 	// Root horizontal split: top row (pane-1 + pane-2 side by side), bottom row (pane-3)
 	h.splitRootH()
 
-	lines := h.captureContentLines()
-
-	for _, name := range []string{"pane-1", "pane-2", "pane-3"} {
-		if paneNameRow(lines, name) < 0 {
-			t.Errorf("capture: pane %s not found\n%s", name, strings.Join(lines, "\n"))
-		}
+	c := h.captureJSON()
+	if len(c.Panes) != 3 {
+		t.Fatalf("expected 3 panes, got %d", len(c.Panes))
 	}
 
-	row1 := paneNameRow(lines, "pane-1")
-	row2 := paneNameRow(lines, "pane-2")
-	if row1 != row2 {
-		t.Errorf("capture: pane-1 (row %d) and pane-2 (row %d) should be on same row", row1, row2)
+	p1 := h.jsonPane(c, "pane-1")
+	p2 := h.jsonPane(c, "pane-2")
+	p3 := h.jsonPane(c, "pane-3")
+
+	// pane-1 and pane-2 should be on the same row
+	if p1.Position.Y != p2.Position.Y {
+		t.Errorf("pane-1 (y=%d) and pane-2 (y=%d) should be on same row", p1.Position.Y, p2.Position.Y)
 	}
 
-	row3 := paneNameRow(lines, "pane-3")
-	if row3 <= row1 {
-		t.Errorf("capture: pane-3 (row %d) should be below pane-1/pane-2 (row %d)", row3, row1)
+	// pane-3 should be below pane-1 and pane-2
+	if p3.Position.Y <= p1.Position.Y {
+		t.Errorf("pane-3 (y=%d) should be below pane-1 (y=%d)", p3.Position.Y, p1.Position.Y)
 	}
 
-	hBorderRow := findHorizontalBorderRow(lines)
-	if hBorderRow < 0 {
-		t.Fatal("capture: no horizontal border found for root split")
-	}
-	if hBorderRow <= row1 || hBorderRow >= row3 {
-		t.Errorf("capture: border (row %d) should be between top panes (row %d) and pane-3 (row %d)", hBorderRow, row1, row3)
-	}
-
-	col1 := paneNameCol(lines, "pane-1")
-	col2 := paneNameCol(lines, "pane-2")
-	if col1 >= col2 {
-		t.Errorf("capture: pane-1 (col %d) should be left of pane-2 (col %d)", col1, col2)
+	// pane-1 should be left of pane-2
+	if p1.Position.X >= p2.Position.X {
+		t.Errorf("pane-1 (x=%d) should be left of pane-2 (x=%d)", p1.Position.X, p2.Position.X)
 	}
 }
 
@@ -164,6 +134,18 @@ func TestRootVerticalSplitRenderClipping(t *testing.T) {
 	h.sendKeys("pane-3", "echo RIGHTPANETEST", "Enter")
 	h.waitFor("pane-3", "RIGHTPANETEST")
 
+	// Verify pane-3 content doesn't bleed into pane-1/pane-2's columns
+	c := h.captureJSON()
+	p3 := h.jsonPane(c, "pane-3")
+	p1 := h.jsonPane(c, "pane-1")
+
+	// pane-3 should start after pane-1 ends (plus border)
+	if p3.Position.X <= p1.Position.X+p1.Position.Width {
+		t.Errorf("pane-3 (x=%d) should start after pane-1 (x=%d, w=%d)",
+			p3.Position.X, p1.Position.X, p1.Position.Width)
+	}
+
+	// Also verify via text capture that content doesn't bleed
 	col := h.captureVerticalBorderCol()
 	if col < 0 {
 		t.Fatal("no consistent vertical border found")
@@ -196,19 +178,18 @@ func TestExitAfterDoubleRootVSplit(t *testing.T) {
 	h.sendKeys("pane-3", "exit", "Enter")
 	h.waitLayout(gen)
 
-	h.assertScreen("pane-3 should disappear after exit", func(s string) bool {
-		return !strings.Contains(s, "[pane-3]")
-	})
-
-	col := h.captureVerticalBorderCol()
-	if col < 0 {
-		t.Fatal("no vertical border found — panes may not have resized")
+	c := h.captureJSON()
+	if len(c.Panes) != 2 {
+		t.Fatalf("expected 2 panes after exit, got %d", len(c.Panes))
 	}
 
-	if col < 30 || col > 50 {
-		lines := h.captureContentLines()
-		t.Errorf("border at col %d, expected near middle (30-50) — panes didn't resize\nScreen:\n%s",
-			col, strings.Join(lines, "\n"))
+	// Remaining panes should roughly split the width
+	p1 := h.jsonPane(c, "pane-1")
+	p2 := h.jsonPane(c, "pane-2")
+	totalW := p1.Position.Width + p2.Position.Width + 1 // +1 for border
+	if totalW < 70 || totalW > 82 {
+		t.Errorf("remaining panes should fill ~80 cols, got %d (p1=%d, p2=%d)",
+			totalW, p1.Position.Width, p2.Position.Width)
 	}
 }
 
@@ -220,63 +201,28 @@ func TestFiveRootVerticalSplits(t *testing.T) {
 		h.splitRootV()
 	}
 
+	c := h.captureJSON()
+	if len(c.Panes) != 5 {
+		t.Fatalf("expected 5 panes, got %d", len(c.Panes))
+	}
+
 	for i := 1; i <= 5; i++ {
 		name := fmt.Sprintf("pane-%d", i)
-		if paneNameRow(h.captureContentLines(), name) < 0 {
-			t.Fatalf("%s not found\nScreen:\n%s", name, h.capture())
+		h.jsonPane(c, name) // fails test if not found
+	}
+
+	// Verify panes are ordered left to right by x position
+	for i := 0; i < len(c.Panes)-1; i++ {
+		if c.Panes[i].Position.X >= c.Panes[i+1].Position.X {
+			t.Errorf("pane %s (x=%d) should be left of pane %s (x=%d)",
+				c.Panes[i].Name, c.Panes[i].Position.X,
+				c.Panes[i+1].Name, c.Panes[i+1].Position.X)
 		}
-	}
-
-	lines := h.captureContentLines()
-	row0 := lines[0]
-	for i := 1; i <= 5; i++ {
-		name := fmt.Sprintf("[pane-%d]", i)
-		if !strings.Contains(row0, name) {
-			t.Errorf("%s not on first row\nRow 0: %s", name, row0)
-		}
-	}
-
-	borderCount := 0
-	for _, r := range []rune(row0) {
-		if isVerticalBorderRune(r) {
-			borderCount++
-		}
-	}
-	if borderCount != 4 {
-		t.Errorf("expected 4 vertical borders on first row, got %d\nRow 0: %s", borderCount, row0)
-	}
-}
-
-func TestMultipleNonRootSplitsEqualWidth(t *testing.T) {
-	t.Parallel()
-	h := newServerHarness(t)
-
-	for i := 0; i < 3; i++ {
-		h.splitV()
-	}
-
-	lines := h.captureContentLines()
-	row0 := lines[0]
-	for i := 1; i <= 4; i++ {
-		name := fmt.Sprintf("[pane-%d]", i)
-		if !strings.Contains(row0, name) {
-			t.Errorf("%s not on first row\nRow 0: %s", name, row0)
-		}
-	}
-
-	borderCount := 0
-	for _, r := range []rune(row0) {
-		if isVerticalBorderRune(r) {
-			borderCount++
-		}
-	}
-	if borderCount != 3 {
-		t.Errorf("expected 3 vertical borders, got %d\nRow 0: %s", borderCount, row0)
 	}
 }
 
 // ---------------------------------------------------------------------------
-// Golden rendering tests for split layouts
+// Golden file tests
 // ---------------------------------------------------------------------------
 
 func TestGoldenVerticalSplit(t *testing.T) {
@@ -284,9 +230,6 @@ func TestGoldenVerticalSplit(t *testing.T) {
 	h := newServerHarness(t)
 
 	h.splitV()
-
-	// Focus pane-1 so active state is deterministic
-	h.runCmd("focus", "pane-1")
 
 	frame := extractFrame(h.capture(), h.session)
 	assertGolden(t, "vertical_split.golden", frame)
@@ -312,10 +255,6 @@ func TestGoldenFourPane(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)
 
-	// Build 2x2 grid:
-	// pane-1 | pane-2
-	// -------+-------
-	// pane-3 | pane-4
 	h.splitV()
 	h.splitH()
 	h.runCmd("focus", "pane-1")

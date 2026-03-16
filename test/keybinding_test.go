@@ -162,9 +162,7 @@ unbind = ["o"]
 	h.sendKeys("C-a", "o")
 	time.Sleep(500 * time.Millisecond)
 
-	h.assertScreen("pane-2 should still be active (o unbound)", func(s string) bool {
-		return isPaneActive(s, "pane-2")
-	})
+	h.assertActive("pane-2")
 }
 
 func TestCustomDetachBinding(t *testing.T) {
@@ -210,7 +208,5 @@ func TestDefaultBindingsWithoutConfig(t *testing.T) {
 	h.sendKeys("C-a", "o")
 	h.waitLayout(gen)
 
-	h.assertScreen("pane-1 active after cycle", func(s string) bool {
-		return isPaneActive(s, "pane-1")
-	})
+	h.assertActive("pane-1")
 }

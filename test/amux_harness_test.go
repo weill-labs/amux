@@ -135,6 +135,22 @@ func (h *AmuxHarness) waitForFunc(fn func(string) bool, timeout time.Duration) b
 	return false
 }
 
+// waitForActive polls JSON capture until the named pane is active or timeout.
+func (h *AmuxHarness) waitForActive(name string, timeout time.Duration) bool {
+	h.tb.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		c := h.captureJSON()
+		for _, p := range c.Panes {
+			if p.Name == name && p.Active {
+				return true
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	return false
+}
+
 // ---------------------------------------------------------------------------
 // Capture — inner compositor and outer rendered content
 // ---------------------------------------------------------------------------
