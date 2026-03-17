@@ -73,7 +73,8 @@ mkdirSync(framesDir, { recursive: true });
 
 async function main() {
   const browser = await chromium.launch({ headless: true });
-  const context = await browser.newContext({ deviceScaleFactor: 1 });
+  const scale = parseFloat(getOption('--scale', '2'));
+  const context = await browser.newContext({ deviceScaleFactor: scale });
   const page = await context.newPage();
 
   // Build HTML with asciinema-player — use local file URL for the cast data

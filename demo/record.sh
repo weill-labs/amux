@@ -41,7 +41,8 @@ echo "Converting to GIF (Playwright + asciinema-player)..."
 (cd "$SCRIPT_DIR" && node cast2gif.mjs "$CAST_FILE" "$GIF_FILE" \
     --font "Fira Code" \
     --font-size 16 \
-    --fps 8)
+    --fps 8 \
+    --scale 2)
 
 # Clean up intermediate file
 rm -f "$CAST_FILE"
