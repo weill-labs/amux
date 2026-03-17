@@ -327,14 +327,18 @@ func (h *ServerHarness) waitLayout(afterGen uint64) {
 // Split helpers — synchronous via CLI, no keybinding simulation
 // ---------------------------------------------------------------------------
 
-// doSplit runs a split CLI command and fails the test if it errors.
+// doSplit runs a split CLI command, waits for the layout generation to bump
+// (ensuring the headless client has received the broadcast), and fails the
+// test if the command errors.
 func (h *ServerHarness) doSplit(args ...string) {
 	h.tb.Helper()
+	gen := h.generation()
 	cmdArgs := append([]string{"split"}, args...)
 	out := h.runCmd(cmdArgs...)
 	if strings.Contains(out, "error") || strings.Contains(out, "cannot") {
 		h.tb.Fatalf("split %v failed: %s", args, out)
 	}
+	h.waitLayout(gen)
 }
 
 func (h *ServerHarness) splitV()     { h.tb.Helper(); h.doSplit() }
