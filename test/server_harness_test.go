@@ -33,6 +33,14 @@ type ServerHarness struct {
 // waits for the ready signal, and seeds the first pane. Safe for parallel tests.
 func newServerHarness(tb testing.TB) *ServerHarness {
 	tb.Helper()
+	return newServerHarnessWithConfig(tb, "")
+}
+
+// newServerHarnessWithConfig starts a server with a custom config file.
+// The config is written to a temp file and passed via AMUX_CONFIG.
+// Pass an empty configContent to start with the default (no) config.
+func newServerHarnessWithConfig(tb testing.TB, configContent string) *ServerHarness {
+	tb.Helper()
 	var b [4]byte
 	rand.Read(b[:])
 	session := fmt.Sprintf("t-%x", b)
@@ -46,6 +54,16 @@ func newServerHarness(tb testing.TB) *ServerHarness {
 	cmd := exec.Command(amuxBin, "_server", session)
 	cmd.ExtraFiles = []*os.File{writePipe} // fd 3 in child
 	env := append(os.Environ(), "AMUX_READY_FD=3", "AMUX_NO_WATCH=1")
+
+	// Write config to a temp file and pass via AMUX_CONFIG if provided.
+	if configContent != "" {
+		configDir := tb.TempDir()
+		configPath := filepath.Join(configDir, "config.toml")
+		if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+			tb.Fatalf("writing config: %v", err)
+		}
+		env = append(env, "AMUX_CONFIG="+configPath)
+	}
 
 	// Give each test its own GOCOVERDIR subdirectory. Without this, all
 	// parallel amux processes (servers + short-lived CLI commands) race on
@@ -98,84 +116,6 @@ func newServerHarness(tb testing.TB) *ServerHarness {
 
 	// Attach a headless client — seeds the first pane and stays connected
 	// so capture requests route through client-side emulators.
-	sockPath := server.SocketPath(session)
-	client, err := newHeadlessClient(sockPath, session, 80, 24)
-	if err != nil {
-		cmd.Process.Kill()
-		tb.Fatalf("attaching headless client: %v", err)
-	}
-	h.client = client
-
-	return h
-}
-
-// newServerHarnessWithConfig starts a server with a custom config file.
-// The config is written to a temp file and passed via AMUX_CONFIG.
-func newServerHarnessWithConfig(tb testing.TB, configContent string) *ServerHarness {
-	tb.Helper()
-	var b [4]byte
-	rand.Read(b[:])
-	session := fmt.Sprintf("t-%x", b)
-
-	configDir := tb.TempDir()
-	configPath := filepath.Join(configDir, "config.toml")
-	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
-		tb.Fatalf("writing config: %v", err)
-	}
-
-	readPipe, writePipe, err := os.Pipe()
-	if err != nil {
-		tb.Fatalf("creating ready pipe: %v", err)
-	}
-
-	cmd := exec.Command(amuxBin, "_server", session)
-	cmd.ExtraFiles = []*os.File{writePipe}
-	env := append(os.Environ(), "AMUX_READY_FD=3", "AMUX_NO_WATCH=1", "AMUX_CONFIG="+configPath)
-
-	var coverDir string
-	if gocoverDir != "" {
-		coverDir = filepath.Join(gocoverDir, session)
-		os.MkdirAll(coverDir, 0755)
-		for i, e := range env {
-			if strings.HasPrefix(e, "GOCOVERDIR=") {
-				env[i] = "GOCOVERDIR=" + coverDir
-				break
-			}
-		}
-	}
-	cmd.Env = env
-
-	logDir := server.SocketDir()
-	os.MkdirAll(logDir, 0700)
-	logPath := filepath.Join(logDir, session+".log")
-	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
-	if err != nil {
-		tb.Fatalf("opening log: %v", err)
-	}
-	cmd.Stdout = logFile
-	cmd.Stderr = logFile
-
-	if err := cmd.Start(); err != nil {
-		logFile.Close()
-		readPipe.Close()
-		writePipe.Close()
-		tb.Fatalf("starting server: %v", err)
-	}
-	writePipe.Close()
-	logFile.Close()
-
-	readPipe.SetReadDeadline(time.Now().Add(10 * time.Second))
-	buf := make([]byte, 64)
-	n, err := readPipe.Read(buf)
-	readPipe.Close()
-	if err != nil || !strings.Contains(string(buf[:n]), "ready") {
-		cmd.Process.Kill()
-		tb.Fatalf("server ready signal not received: err=%v, buf=%q", err, string(buf[:n]))
-	}
-
-	h := &ServerHarness{tb: tb, session: session, cmd: cmd, coverDir: coverDir}
-	tb.Cleanup(h.cleanup)
-
 	sockPath := server.SocketPath(session)
 	client, err := newHeadlessClient(sockPath, session, 80, 24)
 	if err != nil {

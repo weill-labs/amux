@@ -52,17 +52,18 @@ func TestSplitInheritsRemoteHost(t *testing.T) {
 	w.FocusPane(proxyPane) // make proxy pane active
 	sess.mu.Unlock()
 
-	// Send split command through handleCommand with a pipe to capture response.
-	// Read responses asynchronously to avoid blocking.
+	// Send the split command through handleCommand with a pipe to capture the response.
+	// handleCommand may send layout broadcasts before the cmd result, so drain
+	// messages asynchronously and pick out the MsgTypeCmdResult.
 	serverConn, clientConn := net.Pipe()
+	defer serverConn.Close()
+	defer clientConn.Close()
 	cc := NewClientConn(serverConn)
 
-	// Drain all messages from the server side
-	type response struct {
-		output string
-		err    string
+	type cmdResult struct {
+		output, err string
 	}
-	responses := make(chan response, 10)
+	results := make(chan cmdResult, 1)
 	go func() {
 		for {
 			msg, err := ReadMsg(clientConn)
@@ -70,38 +71,30 @@ func TestSplitInheritsRemoteHost(t *testing.T) {
 				return
 			}
 			if msg.Type == MsgTypeCmdResult {
-				responses <- response{output: msg.CmdOutput, err: msg.CmdErr}
+				results <- cmdResult{output: msg.CmdOutput, err: msg.CmdErr}
+				return
 			}
-			// Ignore layout broadcasts etc.
 		}
 	}()
 
-	// Send the split command (no --host flag)
 	go cc.handleCommand(srv, sess, &Message{
 		Type:    MsgTypeCommand,
 		CmdName: "split",
-		CmdArgs: nil,
 	})
 
-	// Wait for the command result.
 	// With the fix: the split tries to create a remote pane on gpu-server,
 	// which fails because no RemoteManager is configured — but that proves
-	// the host was inherited (the output mentions the remote host or the
-	// error says "remote hosts").
+	// the host was inherited (the response mentions the remote host).
 	// Without the fix: a local pane is created ("new pane pane-3").
 	select {
-	case resp := <-responses:
-		serverConn.Close()
-		clientConn.Close()
-		isRemote := strings.Contains(resp.output, "@gpu-server") ||
-			strings.Contains(resp.err, "remote")
+	case r := <-results:
+		isRemote := strings.Contains(r.output, "@gpu-server") ||
+			strings.Contains(r.err, "remote")
 		if !isRemote {
 			t.Errorf("split on proxy pane should inherit host (expect remote pane or remote error), got output=%q err=%q",
-				strings.TrimSpace(resp.output), resp.err)
+				strings.TrimSpace(r.output), r.err)
 		}
 	case <-time.After(5 * time.Second):
-		serverConn.Close()
-		clientConn.Close()
 		t.Fatal("timeout waiting for split response")
 	}
 }

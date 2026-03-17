@@ -1,7 +1,6 @@
 package test
 
 import (
-	"os"
 	"strings"
 	"testing"
 )
@@ -15,18 +14,6 @@ func TestSplitRemotePaneInheritsHost(t *testing.T) {
 	defer cleanup()
 
 	h := newServerHarnessWithConfig(t, remoteLocalhostConfig(keyFile))
-
-	// Verify the remote host is configured
-	hostsOut := h.runCmd("hosts")
-	t.Logf("hosts: %s", strings.TrimSpace(hostsOut))
-
-	// Verify key is in authorized_keys right before the split
-	akData, _ := os.ReadFile(os.Getenv("HOME") + "/.ssh/authorized_keys")
-	pubKey, _ := os.ReadFile(keyFile + ".pub")
-	if !strings.Contains(string(akData), strings.TrimSpace(string(pubKey))) {
-		t.Fatalf("test key not in authorized_keys!\nkey: %s", strings.TrimSpace(string(pubKey)))
-	}
-	t.Logf("key verified in authorized_keys, keyFile=%s", keyFile)
 
 	// Create a remote pane on test-remote (localhost)
 	out := h.runCmd("split", "--host", "test-remote")
