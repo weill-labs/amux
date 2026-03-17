@@ -214,7 +214,7 @@ jobs:
 
           git add benchmarks.json bench-all.txt index.html 2>/dev/null || true
           git diff --cached --quiet || git commit -m "Update benchmark data [skip ci]"
-          git push origin gh-pages 2>/dev/null || true
+          git push origin gh-pages || echo "::warning::Failed to push to gh-pages"
 
           git checkout "$ORIGINAL_REF"
 
