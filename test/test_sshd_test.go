@@ -11,6 +11,8 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"os/user"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -29,6 +31,19 @@ import (
 func startTestSSHServer(t *testing.T, authorizedKey ssh.PublicKey) string {
 	t.Helper()
 
+	// Build env for exec'd commands with the test amux binary in PATH.
+	// On CI runners the binary is in a temp dir not in PATH.
+	execEnv := os.Environ()
+	binDir := filepath.Dir(amuxBin)
+	if !strings.Contains(os.Getenv("PATH"), binDir) {
+		for i, e := range execEnv {
+			if strings.HasPrefix(e, "PATH=") {
+				execEnv[i] = "PATH=" + binDir + ":" + e[5:]
+				break
+			}
+		}
+	}
+
 	// Generate ed25519 host key
 	_, hostPriv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -41,7 +56,7 @@ func startTestSSHServer(t *testing.T, authorizedKey ssh.PublicKey) string {
 
 	authorizedKeyBytes := authorizedKey.Marshal()
 	config := &ssh.ServerConfig{
-		MaxAuthTries: 20,
+		MaxAuthTries: 20, // Allow many attempts — SSH agent may present many keys
 		PublicKeyCallback: func(conn ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
 			if bytes.Equal(key.Marshal(), authorizedKeyBytes) {
 				return &ssh.Permissions{}, nil
@@ -73,7 +88,7 @@ func startTestSSHServer(t *testing.T, authorizedKey ssh.PublicKey) string {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				handleSSHConn(tcpConn, config)
+				handleSSHConn(tcpConn, config, execEnv)
 			}()
 		}
 	}()
@@ -82,7 +97,7 @@ func startTestSSHServer(t *testing.T, authorizedKey ssh.PublicKey) string {
 }
 
 // handleSSHConn performs the SSH handshake and dispatches channels.
-func handleSSHConn(tcpConn net.Conn, config *ssh.ServerConfig) {
+func handleSSHConn(tcpConn net.Conn, config *ssh.ServerConfig, execEnv []string) {
 	defer tcpConn.Close()
 
 	sshConn, chans, reqs, err := ssh.NewServerConn(tcpConn, config)
@@ -99,7 +114,7 @@ func handleSSHConn(tcpConn net.Conn, config *ssh.ServerConfig) {
 			if err != nil {
 				continue
 			}
-			go handleSession(ch, chReqs)
+			go handleSession(ch, chReqs, execEnv)
 
 		case "direct-streamlocal@openssh.com":
 			handleStreamLocal(newChannel)
@@ -111,7 +126,7 @@ func handleSSHConn(tcpConn net.Conn, config *ssh.ServerConfig) {
 }
 
 // handleSession handles SSH session channels (exec requests).
-func handleSession(ch ssh.Channel, reqs <-chan *ssh.Request) {
+func handleSession(ch ssh.Channel, reqs <-chan *ssh.Request, execEnv []string) {
 	defer ch.Close()
 	for req := range reqs {
 		switch req.Type {
@@ -125,6 +140,7 @@ func handleSession(ch ssh.Channel, reqs <-chan *ssh.Request) {
 			req.Reply(true, nil)
 
 			cmd := exec.Command("sh", "-c", command)
+			cmd.Env = execEnv
 			cmd.Stdout = ch
 			cmd.Stderr = ch.Stderr()
 			cmd.Stdin = ch
@@ -225,8 +241,7 @@ func setupTestSSH(t *testing.T) (addr string, keyFile string) {
 	addr = startTestSSHServer(t, pubKey)
 
 	// Write private key to a temp file for the amux identity_file config
-	tmpDir := t.TempDir()
-	keyPath := tmpDir + "/id_test"
+	keyPath := filepath.Join(t.TempDir(), "id_test")
 	if err := os.WriteFile(keyPath, privPEM, 0600); err != nil {
 		t.Fatalf("writing test key: %v", err)
 	}
@@ -249,9 +264,9 @@ identity_file = "%s"
 }
 
 func currentUser() string {
-	out, err := exec.Command("id", "-un").Output()
+	u, err := user.Current()
 	if err != nil {
 		return "root"
 	}
-	return strings.TrimSpace(string(out))
+	return u.Username
 }
