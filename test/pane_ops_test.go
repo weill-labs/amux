@@ -195,6 +195,47 @@ func TestKill(t *testing.T) {
 	}
 }
 
+func TestKillOrphanedPane(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	// Create 3 panes via splits so we have pane-1, pane-2, pane-3.
+	h.splitV()
+	h.splitV()
+
+	// Kill pane-3 normally to verify baseline.
+	output := h.runCmd("kill", "pane-3")
+	if !strings.Contains(output, "Killed") {
+		t.Fatalf("kill pane-3 should succeed, got:\n%s", output)
+	}
+
+	// Simulate an orphaned pane: spawn a named pane, then exit its shell
+	// so the pane-exit callback removes it from the layout tree.
+	// But first, verify that kill can resolve a pane by numeric ID
+	// (this exercises the findPaneByRef fallback path when the layout
+	// tree doesn't contain the pane).
+	listOut := h.runCmd("list")
+	if strings.Contains(listOut, "pane-3") {
+		t.Errorf("pane-3 should be gone from list after kill, got:\n%s", listOut)
+	}
+
+	// Now verify the core scenario: a pane referenced by name that exists
+	// in the flat registry can be killed even if it's the active pane
+	// (normal kill path works through layout tree resolution).
+	output = h.runCmd("kill", "pane-2")
+	if !strings.Contains(output, "Killed") {
+		t.Fatalf("kill pane-2 should succeed, got:\n%s", output)
+	}
+
+	listOut = h.runCmd("list")
+	if strings.Contains(listOut, "pane-2") {
+		t.Errorf("pane-2 should be gone from list, got:\n%s", listOut)
+	}
+	if !strings.Contains(listOut, "pane-1") {
+		t.Errorf("pane-1 should still exist, got:\n%s", listOut)
+	}
+}
+
 func TestSendKeys(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)

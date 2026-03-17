@@ -483,6 +483,26 @@ func (s *Session) hasPane(id uint32) bool {
 	return false
 }
 
+// findPaneByRef searches the flat Panes list for a pane matching the reference.
+// This finds panes that may not be in any window's layout tree (e.g., dormant
+// SSH takeover panes or orphaned panes from race conditions).
+// Caller must hold s.mu.
+func (s *Session) findPaneByRef(ref string) *mux.Pane {
+	// Exact match by name or numeric ID
+	for _, p := range s.Panes {
+		if p.Meta.Name == ref || fmt.Sprintf("%d", p.ID) == ref {
+			return p
+		}
+	}
+	// Prefix match
+	for _, p := range s.Panes {
+		if strings.HasPrefix(p.Meta.Name, ref) {
+			return p
+		}
+	}
+	return nil
+}
+
 // removePane removes a pane from the flat list by ID and cleans up its idle timer.
 func (s *Session) removePane(id uint32) {
 	for i, p := range s.Panes {
