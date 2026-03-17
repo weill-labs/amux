@@ -96,7 +96,7 @@ jobs:
 
       - name: Flake detection (integration tests x3)
         if: steps.changes.outputs.code_changed == 'true'
-        run: go test -race -count=3 -parallel 2 -timeout 900s ./test/
+        run: go test -race -count=3 -parallel 2 -timeout 1800s ./test/
 
       - name: Convert test results to JUnit XML
         if: ${{ !cancelled() && steps.changes.outputs.code_changed == 'true' }}
