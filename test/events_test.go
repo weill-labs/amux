@@ -21,6 +21,7 @@ type eventJSON struct {
 	PaneName   string `json:"pane_name,omitempty"`
 	Host       string `json:"host,omitempty"`
 	ActivePane string `json:"active_pane,omitempty"`
+	TimedOut   bool   `json:"-"` // set by readEvent on timeout
 }
 
 // eventStream connects to the server's events command and returns a scanner
@@ -66,7 +67,8 @@ func eventStream(t *testing.T, session string, args ...string) (*bufio.Scanner, 
 	return scanner, closer
 }
 
-// readEvent reads the next event with a timeout.
+// readEvent reads the next event from the scanner within timeout.
+// Returns a zero eventJSON with TimedOut=true if the deadline expires.
 func readEvent(t *testing.T, scanner *bufio.Scanner, timeout time.Duration) eventJSON {
 	t.Helper()
 	done := make(chan eventJSON, 1)
@@ -84,9 +86,18 @@ func readEvent(t *testing.T, scanner *bufio.Scanner, timeout time.Duration) even
 	case ev := <-done:
 		return ev
 	case <-time.After(timeout):
-		t.Fatal("timeout reading event")
-		return eventJSON{}
+		return eventJSON{TimedOut: true}
 	}
+}
+
+// mustReadEvent reads the next event, fataling on timeout.
+func mustReadEvent(t *testing.T, scanner *bufio.Scanner, timeout time.Duration) eventJSON {
+	t.Helper()
+	ev := readEvent(t, scanner, timeout)
+	if ev.TimedOut {
+		t.Fatal("timeout reading event")
+	}
+	return ev
 }
 
 func TestEventsInitialSnapshot(t *testing.T) {
@@ -96,38 +107,30 @@ func TestEventsInitialSnapshot(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)
 
+	// Wait for the pane to be idle before subscribing to the event stream.
+	// This ensures the idle state is established so the initial snapshot
+	// includes it — avoids waiting for DefaultIdleTimeout on slow CI.
+	h.waitIdle("pane-1")
+
 	scanner, closer := eventStream(t, h.session)
 	defer closer()
 
-	// First event should be a layout snapshot. On slow CI, an idle-triggered
-	// layout broadcast may arrive first without active_pane — skip it.
-	var ev eventJSON
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		ev = readEvent(t, scanner, time.Until(deadline))
-		if ev.Type == "layout" && ev.ActivePane != "" {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("expected layout event with active_pane, got type=%q active_pane=%q", ev.Type, ev.ActivePane)
-		}
+	// First event should be a layout snapshot with active_pane.
+	ev := mustReadEvent(t, scanner, 5*time.Second)
+	if ev.Type != "layout" {
+		t.Fatalf("first event type: got %q, want layout", ev.Type)
+	}
+	if ev.ActivePane == "" {
+		t.Error("layout event should have active_pane")
 	}
 	if ev.Timestamp == "" {
 		t.Error("event should have a timestamp")
 	}
 
-	// Next idle or busy event should be for pane-1. Other events (output,
-	// layout from idle state changes) may arrive first — skip them.
-	// Use 10s timeout: idle event requires DefaultIdleTimeout (2s) + CI overhead.
-	deadline = time.Now().Add(10 * time.Second)
-	for {
-		ev = readEvent(t, scanner, time.Until(deadline))
-		if ev.Type == "idle" || ev.Type == "busy" {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("expected idle or busy event, only got %q", ev.Type)
-		}
+	// Second event should be idle for pane-1 (we confirmed idle above).
+	ev = mustReadEvent(t, scanner, 5*time.Second)
+	if ev.Type != "idle" {
+		t.Fatalf("second event type: got %q, want idle", ev.Type)
 	}
 	if ev.PaneName != "pane-1" {
 		t.Errorf("pane name: got %q, want %q", ev.PaneName, "pane-1")
@@ -142,12 +145,12 @@ func TestEventsLayoutOnSplit(t *testing.T) {
 	defer closer()
 
 	// Drain initial layout snapshot
-	readEvent(t, scanner, 5*time.Second)
+	mustReadEvent(t, scanner, 5*time.Second)
 
 	// Split should emit a layout event
 	h.doSplit()
 
-	ev := readEvent(t, scanner, 5*time.Second)
+	ev := mustReadEvent(t, scanner, 5*time.Second)
 	if ev.Type != "layout" {
 		t.Errorf("event type: got %q, want %q", ev.Type, "layout")
 	}
@@ -165,7 +168,7 @@ func TestEventsFilterType(t *testing.T) {
 	defer closer()
 
 	// Drain initial layout snapshot
-	readEvent(t, scanner, 5*time.Second)
+	mustReadEvent(t, scanner, 5*time.Second)
 
 	// Generate output (should NOT produce an event since we're filtered to layout)
 	h.sendKeys("pane-1", "echo hello", "Enter")
@@ -173,7 +176,7 @@ func TestEventsFilterType(t *testing.T) {
 	// Split SHOULD produce a layout event
 	h.doSplit()
 
-	ev := readEvent(t, scanner, 5*time.Second)
+	ev := mustReadEvent(t, scanner, 5*time.Second)
 	if ev.Type != "layout" {
 		t.Errorf("expected layout event, got %q", ev.Type)
 	}
@@ -191,7 +194,7 @@ func TestEventsIdleBusyTransition(t *testing.T) {
 	defer closer()
 
 	// Drain initial snapshot (should be idle since we waited)
-	ev := readEvent(t, scanner, 5*time.Second)
+	ev := mustReadEvent(t, scanner, 5*time.Second)
 	if ev.Type != "idle" {
 		t.Errorf("initial state: got %q, want idle", ev.Type)
 	}
@@ -199,13 +202,13 @@ func TestEventsIdleBusyTransition(t *testing.T) {
 	// Generate activity — should trigger busy transition
 	h.sendKeys("pane-1", "echo activity", "Enter")
 
-	ev = readEvent(t, scanner, 5*time.Second)
+	ev = mustReadEvent(t, scanner, 5*time.Second)
 	if ev.Type != "busy" {
 		t.Errorf("after activity: got %q, want busy", ev.Type)
 	}
 
 	// Wait for idle timeout — should trigger idle transition
-	ev = readEvent(t, scanner, server.DefaultIdleTimeout+3*time.Second)
+	ev = mustReadEvent(t, scanner, server.DefaultIdleTimeout+3*time.Second)
 	if ev.Type != "idle" {
 		t.Errorf("after quiet: got %q, want idle", ev.Type)
 	}
@@ -226,7 +229,7 @@ func TestEventsFilterPane(t *testing.T) {
 	defer closer()
 
 	// Drain initial snapshot (idle for pane-1)
-	ev := readEvent(t, scanner, 5*time.Second)
+	ev := mustReadEvent(t, scanner, 5*time.Second)
 	if ev.PaneName != "pane-1" {
 		t.Errorf("initial event pane: got %q, want pane-1", ev.PaneName)
 	}
@@ -237,7 +240,7 @@ func TestEventsFilterPane(t *testing.T) {
 	// Activity on pane-1 SHOULD appear
 	h.sendKeys("pane-1", "echo pane1activity", "Enter")
 
-	ev = readEvent(t, scanner, 5*time.Second)
+	ev = mustReadEvent(t, scanner, 5*time.Second)
 	if ev.PaneName != "pane-1" {
 		t.Errorf("filtered event should be for pane-1, got %q", ev.PaneName)
 	}
