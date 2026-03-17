@@ -223,7 +223,6 @@ All commands accept `-s <session>` to target a specific session. Panes are refer
 | `amux swap forward\|backward` | Swap active pane with neighbor |
 | `amux rotate [--reverse]` | Rotate pane positions |
 | `amux copy-mode [pane]` | Enter copy/scroll mode |
-| `amux resize-active <dir> <delta>` | Resize active pane (left/right/up/down) |
 
 ### Agent API
 
