@@ -19,7 +19,7 @@ func setupTestSSHKey(t *testing.T) (keyFile string, cleanup func()) {
 
 	// Check that sshd is running on localhost
 	if err := exec.Command("ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=2", "localhost", "true").Run(); err != nil {
-		t.Fatalf("SSH to localhost not available (is Remote Login enabled?): %v", err)
+		t.Skipf("SSH to localhost not available (is Remote Login enabled?): %v", err)
 	}
 
 	tmpDir := t.TempDir()
