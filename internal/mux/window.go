@@ -452,7 +452,17 @@ func (w *Window) ResizeBorder(x, y, delta int) bool {
 // direction is "left", "right", "up", or "down".
 // Returns true if a resize was performed.
 func (w *Window) ResizeActive(direction string, delta int) bool {
-	if w.ActivePane == nil || delta <= 0 {
+	if w.ActivePane == nil {
+		return false
+	}
+	return w.ResizePane(w.ActivePane.ID, direction, delta)
+}
+
+// ResizePane resizes a specific pane by moving its nearest border in the given direction.
+// direction is "left", "right", "up", or "down". delta is the number of cells to move.
+// Returns true if a resize was performed.
+func (w *Window) ResizePane(paneID uint32, direction string, delta int) bool {
+	if delta <= 0 {
 		return false
 	}
 	if w.ZoomedPaneID != 0 {
@@ -477,8 +487,7 @@ func (w *Window) ResizeActive(direction string, delta int) bool {
 		return false
 	}
 
-	// Find the active pane's leaf cell
-	leaf := w.Root.FindPane(w.ActivePane.ID)
+	leaf := w.Root.FindPane(paneID)
 	if leaf == nil {
 		return false
 	}
