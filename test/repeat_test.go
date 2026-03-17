@@ -98,8 +98,9 @@ func TestRepeatCrossKey(t *testing.T) {
 
 func TestRepeatExpiresAfterTimeout(t *testing.T) {
 	t.Parallel()
-	// Use a short repeat timeout so waitLayout (which takes >50ms) lets it expire.
-	h := newAmuxHarness(t, "AMUX_REPEAT_TIMEOUT=50ms")
+	// Use a short repeat timeout. waitLayout involves a CLI subprocess
+	// roundtrip that takes >200ms, letting the timeout expire naturally.
+	h := newAmuxHarness(t, "AMUX_REPEAT_TIMEOUT=200ms")
 
 	// Split: [pane-1 | pane-2]
 	h.splitV()
