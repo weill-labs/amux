@@ -50,7 +50,7 @@ go test ./...                       # run all tests
 
 ### Testing Live
 
-See [README.md — CLI](README.md#cli) for the full command reference. Key commands for testing:
+See [README.md — CLI Reference](README.md#cli-reference) for the full command reference. Key commands for testing:
 
 ```bash
 amux                              # start or reattach
