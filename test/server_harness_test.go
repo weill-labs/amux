@@ -341,6 +341,17 @@ func (h *ServerHarness) doSplit(args ...string) {
 	h.waitLayout(gen)
 }
 
+// doFocus runs a focus command and waits for the layout generation to bump
+// (ensuring the headless client has received the broadcast).
+func (h *ServerHarness) doFocus(args ...string) string {
+	h.tb.Helper()
+	gen := h.generation()
+	cmdArgs := append([]string{"focus"}, args...)
+	out := h.runCmd(cmdArgs...)
+	h.waitLayout(gen)
+	return out
+}
+
 func (h *ServerHarness) splitV()     { h.tb.Helper(); h.doSplit() }
 func (h *ServerHarness) splitH()     { h.tb.Helper(); h.doSplit("v") }
 func (h *ServerHarness) splitRootV() { h.tb.Helper(); h.doSplit("root") }

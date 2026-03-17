@@ -156,6 +156,7 @@ func cmdFocus(ctx *CommandContext) {
 		w.Focus(direction)
 		name := w.ActivePane.Meta.Name
 		ctx.Sess.mu.Unlock()
+		ctx.Sess.broadcastLayout()
 		ctx.reply(fmt.Sprintf("Focused %s\n", name))
 	default:
 		pane := ctx.CC.resolvePaneAcrossWindows(ctx.Sess, "focus", direction)
@@ -168,10 +169,9 @@ func cmdFocus(ctx *CommandContext) {
 			pw.FocusPane(pane)
 		}
 		ctx.Sess.mu.Unlock()
+		ctx.Sess.broadcastLayout()
 		ctx.reply(fmt.Sprintf("Focused %s\n", pane.Meta.Name))
 	}
-
-	ctx.Sess.broadcastLayout()
 }
 
 func cmdCapture(ctx *CommandContext) {

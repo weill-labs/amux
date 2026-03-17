@@ -78,7 +78,7 @@ func TestCursorBlockOnlyInActivePane(t *testing.T) {
 	// Use per-pane --ansi capture (returns emulator Render() output)
 	// to check each pane independently, avoiding false positives from
 	// the compositor's own ANSI sequences or shell prompt styling.
-	h.runCmd("focus", "pane-2")
+	h.doFocus("pane-2")
 
 	inactive := h.runCmd("capture", "--ansi", "pane-1")
 	if strings.Contains(inactive, "\033[7m") {
