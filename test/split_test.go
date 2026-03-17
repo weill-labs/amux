@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestSplitHorizontal(t *testing.T) {
+func TestSplitVertical(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)
 
@@ -31,7 +31,7 @@ func TestSplitHorizontal(t *testing.T) {
 	}
 }
 
-func TestSplitVertical(t *testing.T) {
+func TestSplitHorizontal(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)
 
@@ -56,7 +56,7 @@ func TestSplitVertical(t *testing.T) {
 	}
 }
 
-func TestRootSplitHorizontal(t *testing.T) {
+func TestRootSplitVertical(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)
 
@@ -89,7 +89,7 @@ func TestRootSplitHorizontal(t *testing.T) {
 	}
 }
 
-func TestRootSplitVertical(t *testing.T) {
+func TestRootSplitHorizontal(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)
 
