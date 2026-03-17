@@ -46,7 +46,7 @@ if [ "$NEEDS_FMT" = true ]; then
 fi
 
 # Reject new time.Sleep additions in test files — use wait primitives instead
-SLEEP_ADDITIONS=$(git diff --cached --diff-filter=ACM -U0 -- '*_test.go' | grep '^\+' | grep -v '^\+\+\+' | grep 'time\.Sleep')
+SLEEP_ADDITIONS=$(git diff --cached --diff-filter=ACM -U0 -- '*_test.go' | grep '^\+' | grep -vF '+++' | grep -F 'time.Sleep')
 if [ -n "$SLEEP_ADDITIONS" ]; then
     echo "ERROR: new time.Sleep added to test files"
     echo "  Use deterministic wait primitives instead:"
@@ -56,6 +56,19 @@ if [ -n "$SLEEP_ADDITIONS" ]; then
     echo ""
     echo "  Added lines:"
     echo "$SLEEP_ADDITIONS"
+    exit 1
+fi
+
+# Reject t.Skip/t.Skipf additions in test files — tests should never be skipped
+SKIP_ADDITIONS=$(git diff --cached --diff-filter=ACM -U0 -- '*_test.go' | grep '^\+' | grep -vF '+++' | grep -F 't.Skip')
+if [ -n "$SKIP_ADDITIONS" ]; then
+    echo "ERROR: new t.Skip/t.Skipf added to test files"
+    echo "  Tests should never be skipped. Fix the underlying issue instead:"
+    echo "    - Missing dependency? Add setup code or a mock"
+    echo "    - Environment-specific? Use build tags or test fixtures"
+    echo ""
+    echo "  Added lines:"
+    echo "$SKIP_ADDITIONS"
     exit 1
 fi
 
