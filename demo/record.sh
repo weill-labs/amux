@@ -39,8 +39,8 @@ asciinema rec \
 
 echo "Converting to GIF (Playwright + asciinema-player)..."
 (cd "$SCRIPT_DIR" && node cast2gif.mjs "$CAST_FILE" "$GIF_FILE" \
-    --font "Fira Code" \
-    --font-size 16 \
+    --font "Menlo" \
+    --font-size 20 \
     --fps 8 \
     --scale 2)
 
