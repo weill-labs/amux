@@ -2,6 +2,7 @@ package test
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/weill-labs/amux/internal/proto"
@@ -74,5 +75,76 @@ func TestIdleStatus_BusyWithMultiplePanes(t *testing.T) {
 		if p.Name == "pane-1" && p.Idle {
 			t.Error("pane-1 running 'sleep 30' should be busy")
 		}
+	}
+}
+
+func TestWaitBusy_EventBased(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	// Wait for pane to become idle first so wait-busy has something to wait for.
+	h.sendKeys("pane-1", "echo INIT", "Enter")
+	h.waitFor("pane-1", "INIT")
+	h.waitIdle("pane-1")
+
+	// Start a command and use waitBusy to detect it.
+	h.sendKeys("pane-1", "sleep 300", "Enter")
+	h.waitBusy("pane-1")
+
+	// Verify the pane is indeed busy via JSON capture.
+	pane := captureJSONPane(t, h, "pane-1")
+	if pane.Idle {
+		t.Error("pane should be busy after waitBusy returns")
+	}
+}
+
+func TestWaitIdle_EventBased(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	// Generate activity, then wait for idle.
+	h.sendKeys("pane-1", "echo ACTIVITY", "Enter")
+	h.waitFor("pane-1", "ACTIVITY")
+	h.waitIdle("pane-1")
+
+	// Verify via JSON capture — should report idle with shell name.
+	pane := captureJSONPane(t, h, "pane-1")
+	if !pane.Idle {
+		t.Error("pane should be idle after waitIdle returns")
+	}
+	if pane.CurrentCommand == "" {
+		t.Error("idle pane should report shell name as current_command")
+	}
+	// ShellName() extracts from cmd.Path — should be bash/zsh/etc.
+	if !strings.Contains(pane.CurrentCommand, "sh") {
+		t.Errorf("expected shell name containing 'sh', got %q", pane.CurrentCommand)
+	}
+}
+
+func TestWaitBusy_AlreadyBusy(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	// Start a command before calling wait-busy — should return immediately.
+	h.startLongSleep("pane-1")
+
+	out := h.runCmd("wait-busy", "pane-1", "--timeout", "1s")
+	if strings.Contains(out, "timeout") {
+		t.Error("wait-busy should return immediately when pane is already busy")
+	}
+}
+
+func TestWaitIdle_AlreadyIdle(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	// Wait for idle, then call wait-idle again — should return immediately.
+	h.sendKeys("pane-1", "echo READY", "Enter")
+	h.waitFor("pane-1", "READY")
+	h.waitIdle("pane-1")
+
+	out := h.runCmd("wait-idle", "pane-1", "--timeout", "1s")
+	if strings.Contains(out, "timeout") {
+		t.Error("wait-idle should return immediately when pane is already idle")
 	}
 }

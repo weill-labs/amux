@@ -72,6 +72,7 @@ type Session struct {
 	Hooks       *hooks.Registry
 	idleTimers  map[uint32]*time.Timer // per-pane idle timers, protected by idleTimerMu
 	idleState   map[uint32]bool        // true = idle, protected by idleTimerMu
+	idleSince   map[uint32]time.Time   // when each pane became idle, protected by idleTimerMu
 	idleTimerMu sync.Mutex
 
 	// Event stream subscribers — used by `amux events` for push-based notifications.
@@ -258,20 +259,35 @@ func (s *Session) forwardCapture(args []string) *Message {
 	}
 	s.mu.Unlock()
 
-	// Gather agent status outside the lock (spawns pgrep subprocesses).
-	// One call per pane — the result is included in the capture request
-	// so the client doesn't need its own pgrep.
+	// Gather agent status. Call AgentStatus() for each pane, then use
+	// cached idleState to stabilize the result: when both the idle timer
+	// and pgrep agree the pane is idle, use the server's cached timestamp
+	// and shell name. This avoids pgrep false positives from transient
+	// shell children under parallel load, while still trusting pgrep for
+	// busy panes (including silent long-running processes like sleep).
 	var agentStatus map[uint32]proto.PaneAgentStatus
 	if len(statusPanes) > 0 {
+		_, sinceSnap := s.snapshotIdleFull()
+
 		agentStatus = make(map[uint32]proto.PaneAgentStatus, len(statusPanes))
 		for _, p := range statusPanes {
 			st := p.AgentStatus()
-			agentStatus[p.ID] = proto.PaneAgentStatus{
+			pas := proto.PaneAgentStatus{
 				Idle:           st.Idle,
 				IdleSince:      formatIdleSince(st.IdleSince),
 				CurrentCommand: st.CurrentCommand,
 				ChildPIDs:      nonNilPIDs(st.ChildPIDs),
 			}
+			// When pgrep confirms idle, use cached timestamp to avoid
+			// race where pgrep sees idle but idleSince was just reset.
+			if st.Idle {
+				if t, ok := sinceSnap[p.ID]; ok {
+					pas.IdleSince = formatIdleSince(t)
+				}
+				pas.CurrentCommand = p.ShellName()
+				pas.ChildPIDs = []int{}
+			}
+			agentStatus[p.ID] = pas
 		}
 	}
 
@@ -392,8 +408,6 @@ func (s *Session) broadcastLayout() {
 	s.emitEvent(Event{Type: EventLayout, Generation: gen, ActivePane: activePaneName})
 }
 
-// snapshotLayoutLocked builds a LayoutSnapshot with multi-window data.
-// Caller must hold s.mu.
 // snapshotIdleState returns a copy of the session's idle state map.
 // Must be called before acquiring s.mu to maintain lock ordering:
 // trackPaneActivity holds idleTimerMu then acquires s.mu (via buildPaneEnv),
@@ -408,6 +422,24 @@ func (s *Session) snapshotIdleState() map[uint32]bool {
 	return snap
 }
 
+// snapshotIdleFull returns copies of both idleState and idleSince maps.
+// Same lock ordering requirement as snapshotIdleState.
+func (s *Session) snapshotIdleFull() (map[uint32]bool, map[uint32]time.Time) {
+	s.idleTimerMu.Lock()
+	defer s.idleTimerMu.Unlock()
+	idleSnap := make(map[uint32]bool, len(s.idleState))
+	sinceSnap := make(map[uint32]time.Time, len(s.idleSince))
+	for id, idle := range s.idleState {
+		idleSnap[id] = idle
+	}
+	for id, t := range s.idleSince {
+		sinceSnap[id] = t
+	}
+	return idleSnap, sinceSnap
+}
+
+// snapshotLayoutLocked builds a LayoutSnapshot with multi-window data.
+// Caller must hold s.mu.
 func (s *Session) snapshotLayoutLocked(idleSnap map[uint32]bool) *proto.LayoutSnapshot {
 	w := s.ActiveWindow()
 	if w == nil {
@@ -791,32 +823,6 @@ func (s *Session) notifyPaneOutputSubs(paneID uint32) {
 	}
 }
 
-// paneIsBusy checks whether the given pane has child processes (i.e., a
-// command is running). Thread-safe: looks up the pane under s.mu, then
-// inspects the process tree outside the lock.
-func (s *Session) paneIsBusy(paneID uint32) bool {
-	s.mu.Lock()
-	pane := s.findPaneLocked(paneID)
-	s.mu.Unlock()
-	if pane == nil {
-		return false
-	}
-	return !pane.AgentStatus().Idle
-}
-
-// paneIsIdle checks whether the given pane has no child processes (shell is
-// at prompt). Thread-safe: looks up the pane under s.mu, then inspects the
-// process tree outside the lock.
-func (s *Session) paneIsIdle(paneID uint32) bool {
-	s.mu.Lock()
-	pane := s.findPaneLocked(paneID)
-	s.mu.Unlock()
-	if pane == nil {
-		return true
-	}
-	return pane.AgentStatus().Idle
-}
-
 // trackPaneActivity is called on every PTY output. It resets the idle timer
 // and fires on-activity if the pane was previously idle. When the idle state
 // transitions (idle↔busy), a layout broadcast is sent so clients see the
@@ -828,6 +834,7 @@ func (s *Session) trackPaneActivity(paneID uint32) {
 	wasIdle := s.idleState[paneID]
 	if wasIdle {
 		s.idleState[paneID] = false
+		delete(s.idleSince, paneID)
 		env := s.buildPaneEnv(paneID, hooks.OnActivity)
 		s.Hooks.Fire(hooks.OnActivity, env)
 		s.emitEvent(Event{
@@ -845,6 +852,7 @@ func (s *Session) trackPaneActivity(paneID uint32) {
 		s.idleTimers[paneID] = time.AfterFunc(DefaultIdleTimeout, func() {
 			s.idleTimerMu.Lock()
 			s.idleState[paneID] = true
+			s.idleSince[paneID] = time.Now()
 			env := s.buildPaneEnv(paneID, hooks.OnIdle)
 			s.idleTimerMu.Unlock()
 			s.Hooks.Fire(hooks.OnIdle, env)
@@ -872,6 +880,7 @@ func (s *Session) stopPaneIdleTimer(paneID uint32) {
 		t.Stop()
 		delete(s.idleTimers, paneID)
 		delete(s.idleState, paneID)
+		delete(s.idleSince, paneID)
 	}
 }
 
@@ -996,6 +1005,7 @@ func newSession(name string) *Session {
 	sess.idleTimers = make(map[uint32]*time.Timer)
 	sess.idleState = make(map[uint32]bool)
 	sess.takenOverPanes = make(map[uint32]bool)
+	sess.idleSince = make(map[uint32]time.Time)
 	return sess
 }
 
