@@ -549,11 +549,9 @@ func cmdResizePane(ctx *CommandContext) {
 			return
 		}
 	}
-	dir := direction
-	d := delta
 	ctx.CC.withPaneWindow(ctx.Sess, "resize-pane", ctx.Args[:1], func(p *mux.Pane, w *mux.Window) (string, error) {
-		w.ResizePane(p.ID, dir, d)
-		return fmt.Sprintf("Resized %s %s by %d\n", p.Meta.Name, dir, d), nil
+		w.ResizePane(p.ID, direction, delta)
+		return fmt.Sprintf("Resized %s %s by %d\n", p.Meta.Name, direction, delta), nil
 	})
 }
 
