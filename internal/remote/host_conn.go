@@ -27,8 +27,8 @@ type HostConn struct {
 	mu        sync.Mutex
 	state     ConnState
 	sshClient *ssh.Client
-	amuxConn  net.Conn    // persistent attach connection for pane I/O
-	writeMu   sync.Mutex  // serializes writes to amuxConn
+	amuxConn  net.Conn   // persistent attach connection for pane I/O
+	writeMu   sync.Mutex // serializes writes to amuxConn
 
 	// Pane ID mapping: local ↔ remote
 	remoteToLocal map[uint32]uint32
@@ -211,23 +211,23 @@ func (hc *HostConn) runCommand(cmdName string, cmdArgs []string) (string, error)
 }
 
 // buildSSHConfig builds the SSH client configuration using agent auth and key files.
+// When an identity_file is configured, it is tried first. This avoids issues
+// where the SSH agent holds keys that Go's crypto/ssh can't sign with
+// (e.g., macOS Keychain-backed keys), which would abort the handshake before
+// the explicit key file is ever tried.
 func (hc *HostConn) buildSSHConfig() (*ssh.ClientConfig, error) {
 	var authMethods []ssh.AuthMethod
 
-	// Try SSH agent first
-	if sock := os.Getenv("SSH_AUTH_SOCK"); sock != "" {
-		conn, err := net.Dial("unix", sock)
-		if err == nil {
-			agentClient := agent.NewClient(conn)
-			authMethods = append(authMethods, ssh.PublicKeysCallback(agentClient.Signers))
-		}
-	}
-
-	// Try key files
-	for _, keyPath := range []string{
+	// Load explicit identity file first (highest priority when configured),
+	// then default key paths as fallback.
+	keyPaths := []string{
 		os.ExpandEnv("$HOME/.ssh/id_ed25519"),
 		os.ExpandEnv("$HOME/.ssh/id_rsa"),
-	} {
+	}
+	if hc.config.IdentityFile != "" {
+		keyPaths = append([]string{hc.config.IdentityFile}, keyPaths...)
+	}
+	for _, keyPath := range keyPaths {
 		key, err := os.ReadFile(keyPath)
 		if err != nil {
 			continue
@@ -237,6 +237,15 @@ func (hc *HostConn) buildSSHConfig() (*ssh.ClientConfig, error) {
 			continue
 		}
 		authMethods = append(authMethods, ssh.PublicKeys(signer))
+	}
+
+	// SSH agent as fallback — tried after explicit key files.
+	if sock := os.Getenv("SSH_AUTH_SOCK"); sock != "" {
+		conn, err := net.Dial("unix", sock)
+		if err == nil {
+			agentClient := agent.NewClient(conn)
+			authMethods = append(authMethods, ssh.PublicKeysCallback(agentClient.Signers))
+		}
 	}
 
 	if len(authMethods) == 0 {
@@ -265,8 +274,8 @@ func (hc *HostConn) ensureRemoteServer(client *ssh.Client, sessionName string) e
 
 	sockPath := hc.remoteSocketPath(sessionName)
 	cmd := fmt.Sprintf(
-		`if [ ! -S %s ]; then nohup amux _server %s </dev/null >/dev/null 2>&1 & sleep 0.5; fi`,
-		sockPath, sessionName,
+		`if [ ! -S %s ]; then nohup amux _server %s </dev/null >/dev/null 2>&1 & for i in 1 2 3 4 5 6 7 8 9 10; do [ -S %s ] && break; sleep 0.2; done; fi`,
+		sockPath, sessionName, sockPath,
 	)
 	// Ignore errors — the server may already be running
 	_ = sess.Run(cmd)

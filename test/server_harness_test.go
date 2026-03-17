@@ -42,6 +42,14 @@ func newServerHarness(tb testing.TB) *ServerHarness {
 
 func newServerHarnessImpl(tb testing.TB, cols, rows int) *ServerHarness {
 	tb.Helper()
+	return newServerHarnessWithConfig(tb, "")
+}
+
+// newServerHarnessWithConfig starts a server with a custom config file.
+// The config is written to a temp file and passed via AMUX_CONFIG.
+// Pass an empty configContent to start with the default (no) config.
+func newServerHarnessWithConfig(tb testing.TB, configContent string) *ServerHarness {
+	tb.Helper()
 	var b [4]byte
 	rand.Read(b[:])
 	session := fmt.Sprintf("t-%x", b)
@@ -55,6 +63,16 @@ func newServerHarnessImpl(tb testing.TB, cols, rows int) *ServerHarness {
 	cmd := exec.Command(amuxBin, "_server", session)
 	cmd.ExtraFiles = []*os.File{writePipe} // fd 3 in child
 	env := append(os.Environ(), "AMUX_READY_FD=3", "AMUX_NO_WATCH=1")
+
+	// Write config to a temp file and pass via AMUX_CONFIG if provided.
+	if configContent != "" {
+		configDir := tb.TempDir()
+		configPath := filepath.Join(configDir, "config.toml")
+		if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+			tb.Fatalf("writing config: %v", err)
+		}
+		env = append(env, "AMUX_CONFIG="+configPath)
+	}
 
 	// Give each test its own GOCOVERDIR subdirectory. Without this, all
 	// parallel amux processes (servers + short-lived CLI commands) race on

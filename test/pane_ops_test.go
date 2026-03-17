@@ -218,6 +218,10 @@ func TestSendKeysSpecialKeys(t *testing.T) {
 
 	h.runCmd("send-keys", "pane-1", "partial-text")
 	h.runCmd("send-keys", "pane-1", "C-c")
+	// Wait for ^C to appear on screen, proving the shell processed the
+	// interrupt. Waiting for "$" is unreliable since the initial prompt
+	// already has a "$" on screen.
+	h.waitFor("pane-1", "^C")
 	h.runCmd("send-keys", "pane-1", "echo AFTERCANCEL", "Enter")
 
 	h.waitFor("pane-1", "AFTERCANCEL")
