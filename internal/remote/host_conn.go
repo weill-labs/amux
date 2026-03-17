@@ -211,19 +211,15 @@ func (hc *HostConn) runCommand(cmdName string, cmdArgs []string) (string, error)
 }
 
 // buildSSHConfig builds the SSH client configuration using agent auth and key files.
+// When an identity_file is configured, it is tried first. This avoids issues
+// where the SSH agent holds keys that Go's crypto/ssh can't sign with
+// (e.g., macOS Keychain-backed keys), which would abort the handshake before
+// the explicit key file is ever tried.
 func (hc *HostConn) buildSSHConfig() (*ssh.ClientConfig, error) {
 	var authMethods []ssh.AuthMethod
 
-	// Try SSH agent first
-	if sock := os.Getenv("SSH_AUTH_SOCK"); sock != "" {
-		conn, err := net.Dial("unix", sock)
-		if err == nil {
-			agentClient := agent.NewClient(conn)
-			authMethods = append(authMethods, ssh.PublicKeysCallback(agentClient.Signers))
-		}
-	}
-
-	// Try explicit identity file from config first, then default key paths
+	// Load explicit identity file first (highest priority when configured),
+	// then default key paths as fallback.
 	keyPaths := []string{
 		os.ExpandEnv("$HOME/.ssh/id_ed25519"),
 		os.ExpandEnv("$HOME/.ssh/id_rsa"),
@@ -241,6 +237,15 @@ func (hc *HostConn) buildSSHConfig() (*ssh.ClientConfig, error) {
 			continue
 		}
 		authMethods = append(authMethods, ssh.PublicKeys(signer))
+	}
+
+	// SSH agent as fallback — tried after explicit key files.
+	if sock := os.Getenv("SSH_AUTH_SOCK"); sock != "" {
+		conn, err := net.Dial("unix", sock)
+		if err == nil {
+			agentClient := agent.NewClient(conn)
+			authMethods = append(authMethods, ssh.PublicKeysCallback(agentClient.Signers))
+		}
 	}
 
 	if len(authMethods) == 0 {
