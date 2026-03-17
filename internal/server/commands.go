@@ -79,6 +79,7 @@ var commandRegistry = map[string]CommandHandler{
 	"reload-server":   cmdReloadServer,
 	"unsplice":        cmdUnsplice,
 	"_inject-proxy":   cmdInjectProxy,
+	"type-keys":       cmdTypeKeys,
 }
 
 func cmdList(ctx *CommandContext) {
@@ -342,36 +343,17 @@ func cmdSendKeys(ctx *CommandContext) {
 		ctx.replyErr("usage: send-keys <pane> [--hex] <keys>...")
 		return
 	}
-	hexMode := false
-	var keys []string
-	for _, arg := range ctx.Args[1:] {
-		if arg == "--hex" {
-			hexMode = true
-		} else {
-			keys = append(keys, arg)
-		}
+	hexMode, keys := parseKeyArgs(ctx.Args[1:])
+	data, err := encodeKeys(hexMode, keys)
+	if err != nil {
+		ctx.replyErr(err.Error())
+		return
 	}
 	ctx.Sess.mu.Lock()
 	pane := ctx.CC.resolvePane(ctx.Sess, "send-keys", ctx.Args[:1])
 	if pane == nil {
 		ctx.Sess.mu.Unlock()
 		return
-	}
-	var data []byte
-	if hexMode {
-		for _, hexStr := range keys {
-			b, err := hex.DecodeString(hexStr)
-			if err != nil {
-				ctx.Sess.mu.Unlock()
-				ctx.replyErr(fmt.Sprintf("invalid hex: %s", hexStr))
-				return
-			}
-			data = append(data, b...)
-		}
-	} else {
-		for _, key := range keys {
-			data = append(data, parseKey(key)...)
-		}
 	}
 	pane.Write(data)
 	ctx.Sess.mu.Unlock()
@@ -1007,6 +989,67 @@ func cmdUnsplice(ctx *CommandContext) {
 	pane.Start()
 	ctx.Sess.broadcastLayout()
 	ctx.reply(fmt.Sprintf("Unspliced %s: %d proxy panes removed\n", hostName, len(proxyIDs)))
+}
+
+func cmdTypeKeys(ctx *CommandContext) {
+	if len(ctx.Args) == 0 {
+		ctx.replyErr("usage: type-keys [--hex] <keys>...")
+		return
+	}
+	hexMode, keys := parseKeyArgs(ctx.Args)
+	if len(keys) == 0 {
+		ctx.replyErr("usage: type-keys [--hex] <keys>...")
+		return
+	}
+	data, err := encodeKeys(hexMode, keys)
+	if err != nil {
+		ctx.replyErr(err.Error())
+		return
+	}
+
+	ctx.Sess.mu.Lock()
+	if len(ctx.Sess.clients) == 0 {
+		ctx.Sess.mu.Unlock()
+		ctx.replyErr("no client attached")
+		return
+	}
+	client := ctx.Sess.clients[0]
+	ctx.Sess.mu.Unlock()
+
+	client.Send(&Message{Type: MsgTypeTypeKeys, Input: data})
+	ctx.reply(fmt.Sprintf("Typed %d bytes\n", len(data)))
+}
+
+// parseKeyArgs splits args into a hex-mode flag and the remaining key tokens.
+func parseKeyArgs(args []string) (hexMode bool, keys []string) {
+	for _, arg := range args {
+		if arg == "--hex" {
+			hexMode = true
+		} else {
+			keys = append(keys, arg)
+		}
+	}
+	return hexMode, keys
+}
+
+// encodeKeys converts key tokens to raw bytes. In hex mode, tokens are
+// hex-decoded; otherwise each token is passed through parseKey.
+func encodeKeys(hexMode bool, keys []string) ([]byte, error) {
+	var data []byte
+	if hexMode {
+		for _, hexStr := range keys {
+			b, err := hex.DecodeString(hexStr)
+			if err != nil {
+				return nil, fmt.Errorf("invalid hex: %s", hexStr)
+			}
+			data = append(data, b...)
+		}
+	} else {
+		for _, key := range keys {
+			data = append(data, parseKey(key)...)
+		}
+	}
+	return data, nil
 }
 
 func cmdInjectProxy(ctx *CommandContext) {

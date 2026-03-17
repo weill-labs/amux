@@ -118,6 +118,9 @@ func RunSession(sessionName string) error {
 		}
 	}()
 
+	// Channel for injecting keystrokes from type-keys (server → client).
+	injectCh := make(chan []byte, 16)
+
 	// Server → client renderer → stdout
 	// Messages are dispatched to a coalescing render loop that caps at ~60fps.
 	done := make(chan struct{})
@@ -150,6 +153,11 @@ func RunSession(sessionName string) error {
 				// client-side emulators and send the result back.
 				resp := cr.HandleCaptureRequest(msg.CmdArgs, msg.AgentStatus)
 				proto.WriteMsg(conn, resp)
+			case proto.MsgTypeTypeKeys:
+				select {
+				case injectCh <- msg.Input:
+				default:
+				}
 			case proto.MsgTypeServerReload:
 				// Server is reloading — re-exec ourselves to reconnect
 				select {
@@ -174,8 +182,8 @@ func RunSession(sessionName string) error {
 		buf := make([]byte, 4096)
 		prefix := false
 		prefixEsc := false      // true after Ctrl-a then \x1b
-		var prefixEscBuf []byte  // buffered bytes after the \x1b
-		altEsc := false          // true after bare \x1b (for alt+hjkl)
+		var prefixEscBuf []byte // buffered bytes after the \x1b
+		altEsc := false         // true after bare \x1b (for alt+hjkl)
 		mouseParser := &mouse.Parser{}
 
 		// Mouse drag state — caches border direction from initial press
@@ -345,15 +353,38 @@ func RunSession(sessionName string) error {
 			return false
 		}
 
+		// Read stdin in a dedicated goroutine, sending chunks on stdinCh.
+		// This allows the main input loop to select between stdin and
+		// injected keystrokes from type-keys.
+		stdinCh := make(chan []byte, 4)
+		go func() {
+			defer close(stdinCh)
+			for {
+				n, err := os.Stdin.Read(buf)
+				if err != nil {
+					return
+				}
+				cp := make([]byte, n)
+				copy(cp, buf[:n])
+				stdinCh <- cp
+			}
+		}()
+
 		for {
-			n, err := os.Stdin.Read(buf)
-			if err != nil {
-				return
+			var raw []byte
+			select {
+			case data, ok := <-stdinCh:
+				if !ok {
+					return
+				}
+				raw = data
+			case data := <-injectCh:
+				raw = data
 			}
 
 			// If the active pane is in copy mode, route input there
 			if cm := cr.ActiveCopyMode(); cm != nil {
-				action := cm.HandleInput(buf[:n])
+				action := cm.HandleInput(raw)
 				paneID := cr.ActivePaneID()
 				switch action {
 				case copymode.ActionNone:
@@ -375,8 +406,8 @@ func RunSession(sessionName string) error {
 			var forward []byte
 			shouldExit := false
 
-			for i := 0; i < n && !shouldExit; i++ {
-				ev, isMouse, flushed := mouseParser.Feed(buf[i])
+			for i := 0; i < len(raw) && !shouldExit; i++ {
+				ev, isMouse, flushed := mouseParser.Feed(raw[i])
 
 				if isMouse {
 					// Flush any accumulated forward bytes before handling mouse
