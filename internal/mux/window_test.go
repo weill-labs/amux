@@ -337,6 +337,112 @@ func TestResizeActiveFirstChild(t *testing.T) {
 	}
 }
 
+func TestResizePane(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		splitDir  SplitDir
+		paneID    uint32
+		direction string
+		delta     int
+		wantOK    bool
+	}{
+		{
+			name:      "grow right on vertical split",
+			splitDir:  SplitVertical,
+			paneID:    1,
+			direction: "right",
+			delta:     5,
+			wantOK:    true,
+		},
+		{
+			name:      "grow down on horizontal split",
+			splitDir:  SplitHorizontal,
+			paneID:    1,
+			direction: "down",
+			delta:     3,
+			wantOK:    true,
+		},
+		{
+			name:      "non-active pane resized",
+			splitDir:  SplitVertical,
+			paneID:    1, // active is p2
+			direction: "right",
+			delta:     2,
+			wantOK:    true,
+		},
+		{
+			name:      "invalid direction",
+			splitDir:  SplitVertical,
+			paneID:    1,
+			direction: "diagonal",
+			delta:     1,
+			wantOK:    false,
+		},
+		{
+			name:      "zero delta",
+			splitDir:  SplitVertical,
+			paneID:    1,
+			direction: "right",
+			delta:     0,
+			wantOK:    false,
+		},
+		{
+			name:      "nonexistent pane",
+			splitDir:  SplitVertical,
+			paneID:    99,
+			direction: "right",
+			delta:     1,
+			wantOK:    false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			p1 := fakePaneID(1)
+			p2 := fakePaneID(2)
+
+			root := NewLeaf(p1, 0, 0, 80, 24)
+			root.Split(tt.splitDir, p2)
+			root.FixOffsets()
+
+			w := &Window{Root: root, ActivePane: p2, Width: 80, Height: 24}
+
+			got := w.ResizePane(tt.paneID, tt.direction, tt.delta)
+			if got != tt.wantOK {
+				t.Errorf("ResizePane(%d, %q, %d) = %v, want %v",
+					tt.paneID, tt.direction, tt.delta, got, tt.wantOK)
+			}
+		})
+	}
+}
+
+func TestResizePaneDelegation(t *testing.T) {
+	t.Parallel()
+	// Verify ResizeActive delegates to ResizePane correctly.
+	p1 := fakePaneID(1)
+	p2 := fakePaneID(2)
+
+	root := NewLeaf(p1, 0, 0, 80, 24)
+	root.Split(SplitVertical, p2)
+	root.FixOffsets()
+
+	w := &Window{Root: root, ActivePane: p1, Width: 80, Height: 24}
+
+	leaf1 := root.FindPane(1)
+	initialW := leaf1.W
+
+	result := w.ResizeActive("right", 3)
+	if !result {
+		t.Fatal("ResizeActive should succeed")
+	}
+	if leaf1.W != initialW+3 {
+		t.Errorf("pane-1 width after ResizeActive: got %d, want %d", leaf1.W, initialW+3)
+	}
+}
+
 func TestSwapPanes(t *testing.T) {
 	t.Parallel()
 	p1 := fakePaneID(1)

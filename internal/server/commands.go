@@ -58,6 +58,7 @@ var commandRegistry = map[string]CommandHandler{
 	"rename-window":   cmdRenameWindow,
 	"resize-border":   cmdResizeBorder,
 	"resize-active":   cmdResizeActive,
+	"resize-pane":     cmdResizePane,
 	"resize-window":   cmdResizeWindow,
 	"swap":            cmdSwap,
 	"rotate":          cmdRotate,
@@ -525,6 +526,35 @@ func cmdResizeActive(ctx *CommandContext) {
 	ctx.Sess.mu.Unlock()
 	ctx.Sess.broadcastLayout()
 	ctx.CC.Send(&Message{Type: MsgTypeCmdResult})
+}
+
+func cmdResizePane(ctx *CommandContext) {
+	if len(ctx.Args) < 2 {
+		ctx.replyErr("usage: resize-pane <pane> <direction> [delta]")
+		return
+	}
+	direction := ctx.Args[1]
+	switch direction {
+	case "left", "right", "up", "down":
+	default:
+		ctx.replyErr(fmt.Sprintf("resize-pane: invalid direction %q (use left/right/up/down)", direction))
+		return
+	}
+	delta := 1
+	if len(ctx.Args) >= 3 {
+		var err error
+		delta, err = strconv.Atoi(ctx.Args[2])
+		if err != nil || delta <= 0 {
+			ctx.replyErr("resize-pane: invalid delta")
+			return
+		}
+	}
+	dir := direction
+	d := delta
+	ctx.CC.withPaneWindow(ctx.Sess, "resize-pane", ctx.Args[:1], func(p *mux.Pane, w *mux.Window) (string, error) {
+		w.ResizePane(p.ID, dir, d)
+		return fmt.Sprintf("Resized %s %s by %d\n", p.Meta.Name, dir, d), nil
+	})
 }
 
 func cmdResizeWindow(ctx *CommandContext) {

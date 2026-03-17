@@ -127,6 +127,12 @@ func main() {
 		runServerCommand("swap", args[1:])
 	case "rotate":
 		runServerCommand("rotate", args[1:])
+	case "resize-pane":
+		if len(args) < 3 {
+			fmt.Fprintf(os.Stderr, "usage: amux resize-pane <pane> <direction> [delta]\n")
+			os.Exit(1)
+		}
+		runServerCommand("resize-pane", args[1:])
 	case "minimize", "restore", "kill", "focus":
 		if len(args) < 2 {
 			fmt.Fprintf(os.Stderr, "usage: amux %s <pane>\n", args[0])
@@ -282,6 +288,8 @@ Usage:
   amux [-s session] rotate --reverse   Rotate pane positions backward
   amux [-s session] minimize <pane>    Minimize a pane
   amux [-s session] restore <pane>     Restore a minimized pane
+  amux [-s session] resize-pane <pane> <dir> [n]
+                                       Resize pane (dir: left/right/up/down)
   amux [-s session] kill <pane>        Kill a pane
   amux [-s session] focus <pane>       Focus a pane by name or ID
   amux [-s session] copy-mode <pane>   Enter copy/scroll mode for a pane
