@@ -1,6 +1,12 @@
 #!/bin/bash
 # Pre-commit hook
 
+# Skip during rebase — intermediate states have compilation errors that
+# cause goimports to revert partially-resolved conflict edits.
+if [ -d ".git/rebase-merge" ] || [ -d ".git/rebase-apply" ]; then
+    exit 0
+fi
+
 # Block direct commits to main — use feature branches + PRs
 BRANCH=$(git symbolic-ref --short HEAD 2>/dev/null)
 if [ "$BRANCH" = "main" ] || [ "$BRANCH" = "master" ]; then
