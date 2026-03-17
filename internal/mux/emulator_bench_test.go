@@ -2,6 +2,7 @@ package mux
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -58,4 +59,55 @@ func BenchmarkEmulatorRender(b *testing.B) {
 	for b.Loop() {
 		emu.Render()
 	}
+}
+
+func BenchmarkEmulatorContentLines(b *testing.B) {
+	emu := NewVTEmulatorWithDrain(80, 24)
+	payload := realisticTerminalPayload(80 * 24)
+	emu.Write(payload)
+
+	b.Run("Render+StripANSI", func(b *testing.B) {
+		b.ReportAllocs()
+		b.ResetTimer()
+		for b.Loop() {
+			rendered := emu.Render()
+			lines := strings.Split(rendered, "\n")
+			for i, line := range lines {
+				lines[i] = StripANSI(strings.TrimRight(line, " "))
+			}
+		}
+	})
+
+	b.Run("ScreenLineText", func(b *testing.B) {
+		b.ReportAllocs()
+		b.ResetTimer()
+		for b.Loop() {
+			EmulatorContentLines(emu)
+		}
+	})
+}
+
+func BenchmarkScreenContains(b *testing.B) {
+	emu := NewVTEmulatorWithDrain(80, 24)
+	payload := realisticTerminalPayload(80 * 24)
+	emu.Write(payload)
+
+	// Search for a string that appears near the bottom of the screen
+	target := "README.md"
+
+	b.Run("Render+StripANSI+Contains", func(b *testing.B) {
+		b.ReportAllocs()
+		b.ResetTimer()
+		for b.Loop() {
+			strings.Contains(StripANSI(emu.Render()), target)
+		}
+	})
+
+	b.Run("ScreenContains", func(b *testing.B) {
+		b.ReportAllocs()
+		b.ResetTimer()
+		for b.Loop() {
+			emu.ScreenContains(target)
+		}
+	})
 }

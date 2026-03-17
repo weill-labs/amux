@@ -21,10 +21,6 @@ func newFakeEmulator(w, h int) *fakeEmulator {
 	return &fakeEmulator{width: w, height: h, screen: screen}
 }
 
-func (e *fakeEmulator) Render() string {
-	return strings.Join(e.screen, "\n")
-}
-
 func (e *fakeEmulator) Size() (int, int) {
 	return e.width, e.height
 }
@@ -38,6 +34,13 @@ func (e *fakeEmulator) ScrollbackLineText(y int) string {
 		return ""
 	}
 	return e.scrollback[y]
+}
+
+func (e *fakeEmulator) ScreenLineText(y int) string {
+	if y < 0 || y >= len(e.screen) {
+		return ""
+	}
+	return e.screen[y]
 }
 
 func TestNewCopyMode(t *testing.T) {
@@ -216,20 +219,3 @@ func TestRenderViewport(t *testing.T) {
 	}
 }
 
-func TestStripANSI(t *testing.T) {
-	tests := []struct {
-		input string
-		want  string
-	}{
-		{"hello", "hello"},
-		{"\033[31mred\033[0m", "red"},
-		{"\033[38;2;100;200;255mcolor\033[0m text", "color text"},
-		{"\033]0;title\007rest", "rest"},
-	}
-	for _, tt := range tests {
-		got := stripANSI(tt.input)
-		if got != tt.want {
-			t.Errorf("stripANSI(%q) = %q, want %q", tt.input, got, tt.want)
-		}
-	}
-}

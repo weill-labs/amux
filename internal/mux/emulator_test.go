@@ -205,6 +205,100 @@ func TestHasCursorBlock(t *testing.T) {
 	})
 }
 
+func TestScreenLineText(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		input string
+		row   int
+		want  string
+	}{
+		{"plain text row 0", "Hello, world!", 0, "Hello, world!"},
+		{"colored text", "\033[31mred\033[0m \033[32mgreen\033[0m", 0, "red green"},
+		{"second row", "line1\r\nline2", 1, "line2"},
+		{"empty row", "hello", 5, ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			emu := NewVTEmulatorWithDrain(80, 24)
+			emu.Write([]byte(tt.input))
+			got := emu.ScreenLineText(tt.row)
+			if got != tt.want {
+				t.Errorf("ScreenLineText(%d) = %q, want %q", tt.row, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestScreenLineTextWideChars(t *testing.T) {
+	t.Parallel()
+	emu := NewVTEmulatorWithDrain(80, 24)
+	// CJK character "中" is width 2, occupies 2 cells
+	emu.Write([]byte("A中B"))
+	got := emu.ScreenLineText(0)
+	if got != "A中B" {
+		t.Errorf("ScreenLineText(0) = %q, want %q", got, "A中B")
+	}
+}
+
+func TestScreenLineTextTrailingSpaces(t *testing.T) {
+	t.Parallel()
+	emu := NewVTEmulatorWithDrain(80, 24)
+	emu.Write([]byte("hello"))
+	got := emu.ScreenLineText(0)
+	// Should not have trailing spaces (the remaining 75 columns)
+	if got != "hello" {
+		t.Errorf("ScreenLineText(0) = %q, want %q", got, "hello")
+	}
+}
+
+func TestScreenContains(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		input  string
+		substr string
+		want   bool
+	}{
+		{"match", "hello world", "world", true},
+		{"no match", "hello world", "missing", false},
+		{"empty substr", "hello", "", true},
+		{"colored match", "\033[31mhello\033[0m", "hello", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			emu := NewVTEmulatorWithDrain(80, 24)
+			emu.Write([]byte(tt.input))
+			got := emu.ScreenContains(tt.substr)
+			if got != tt.want {
+				t.Errorf("ScreenContains(%q) = %v, want %v", tt.substr, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestScreenContainsMultiRow(t *testing.T) {
+	t.Parallel()
+	emu := NewVTEmulatorWithDrain(80, 24)
+	emu.Write([]byte("first line\r\nsecond line\r\nthird line"))
+
+	if !emu.ScreenContains("second") {
+		t.Error("ScreenContains(\"second\") = false, want true")
+	}
+	if !emu.ScreenContains("third") {
+		t.Error("ScreenContains(\"third\") = false, want true")
+	}
+	if emu.ScreenContains("fourth") {
+		t.Error("ScreenContains(\"fourth\") = true, want false")
+	}
+}
+
 func TestCursorHidden(t *testing.T) {
 	t.Parallel()
 

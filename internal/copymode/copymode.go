@@ -2,15 +2,14 @@ package copymode
 
 import (
 	"strings"
-	"unicode"
 )
 
 // TerminalEmulator is the subset of a pane's emulator that copy mode needs.
 type TerminalEmulator interface {
-	Render() string
 	Size() (width, height int)
 	ScrollbackLen() int
 	ScrollbackLineText(y int) string // plain text of scrollback line y (0=oldest)
+	ScreenLineText(y int) string     // plain text of screen line y (0=top row)
 }
 
 // Match represents a single search hit in the scrollback/screen buffer.
@@ -271,14 +270,8 @@ func (cm *CopyMode) lineText(absIdx int) string {
 	if absIdx < sbLen {
 		return cm.emu.ScrollbackLineText(absIdx)
 	}
-	// Screen line: parse from Render() output.
 	screenRow := absIdx - sbLen
-	rendered := cm.emu.Render()
-	lines := strings.Split(rendered, "\n")
-	if screenRow < len(lines) {
-		return stripANSI(lines[screenRow])
-	}
-	return ""
+	return cm.emu.ScreenLineText(screenRow)
 }
 
 // runSearch finds all case-insensitive occurrences of searchQuery across
@@ -362,55 +355,3 @@ func clamp(v, lo, hi int) int {
 	return max(lo, min(v, hi))
 }
 
-// stripANSI removes ANSI escape sequences from a string, returning plain text.
-func stripANSI(s string) string {
-	var buf strings.Builder
-	buf.Grow(len(s))
-	i := 0
-	for i < len(s) {
-		if s[i] == 0x1b {
-			// Skip CSI sequences: ESC [ ... final_byte
-			if i+1 < len(s) && s[i+1] == '[' {
-				j := i + 2
-				for j < len(s) && !isFinalByte(s[j]) {
-					j++
-				}
-				if j < len(s) {
-					j++ // skip final byte
-				}
-				i = j
-				continue
-			}
-			// Skip OSC sequences: ESC ] ... ST
-			if i+1 < len(s) && s[i+1] == ']' {
-				j := i + 2
-				for j < len(s) {
-					if s[j] == 0x07 { // BEL terminator
-						j++
-						break
-					}
-					if s[j] == 0x1b && j+1 < len(s) && s[j+1] == '\\' { // ST terminator
-						j += 2
-						break
-					}
-					j++
-				}
-				i = j
-				continue
-			}
-			// Skip other two-byte escapes
-			i += 2
-			continue
-		}
-		if unicode.IsPrint(rune(s[i])) || s[i] == '\t' {
-			buf.WriteByte(s[i])
-		}
-		i++
-	}
-	return buf.String()
-}
-
-// isFinalByte returns true if b is a CSI final byte (0x40-0x7e).
-func isFinalByte(b byte) bool {
-	return b >= 0x40 && b <= 0x7e
-}

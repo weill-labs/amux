@@ -341,12 +341,10 @@ func (p *Pane) CursorHidden() bool {
 
 // Output returns the last N lines of visible pane content from the emulator.
 func (p *Pane) Output(lines int) string {
-	rendered := p.emulator.Render()
-	all := strings.Split(rendered, "\n")
+	_, rows := p.emulator.Size()
 	var result []string
-	for i := len(all) - 1; i >= 0 && len(result) < lines; i-- {
-		trimmed := strings.TrimRight(all[i], " ")
-		plain := StripANSI(trimmed)
+	for y := rows - 1; y >= 0 && len(result) < lines; y-- {
+		plain := p.emulator.ScreenLineText(y)
 		if plain != "" {
 			result = append([]string{plain}, result...)
 		}
@@ -356,17 +354,14 @@ func (p *Pane) Output(lines int) string {
 
 // ContentLines returns all visible screen lines as a slice of plain text strings.
 // Every row from 0 to height-1 is represented (len(result) == pane height).
-// Lines are ANSI-stripped and right-trimmed of trailing whitespace.
+// Lines are right-trimmed of trailing whitespace.
 func (p *Pane) ContentLines() []string {
-	_, rows := p.emulator.Size()
-	rendered := p.emulator.Render()
-	all := strings.Split(rendered, "\n")
+	return EmulatorContentLines(p.emulator)
+}
 
-	result := make([]string, rows)
-	for i := 0; i < rows && i < len(all); i++ {
-		result[i] = StripANSI(strings.TrimRight(all[i], " "))
-	}
-	return result
+// ScreenContains returns true if any visible screen line contains substr.
+func (p *Pane) ScreenContains(substr string) bool {
+	return p.emulator.ScreenContains(substr)
 }
 
 var ansiRe = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]|\x1b\][^\x07]*\x07|\x1b[()][0-9A-B]`)
