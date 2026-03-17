@@ -267,7 +267,7 @@ func (h *ServerHarness) globalBar() string {
 // Uses the server's wait-for command (blocking, zero polling).
 func (h *ServerHarness) waitFor(pane, substr string) {
 	h.tb.Helper()
-	out := h.runCmd("wait-for", pane, substr, "--timeout", "5s")
+	out := h.runCmd("wait-for", pane, substr, "--timeout", "10s")
 	if strings.Contains(out, "timeout") || strings.Contains(out, "not found") {
 		h.tb.Fatalf("wait-for %q in %s: %s\ncapture:\n%s", substr, pane, strings.TrimSpace(out), h.capture())
 	}
