@@ -25,14 +25,14 @@ echo "Recording demo..."
 asciinema rec \
     --window-size 160x40 \
     --idle-time-limit 3 \
-    --command "bash '${SCRIPT_DIR}/driver.sh'" \
+    --command "bash ${SCRIPT_DIR}/driver.sh" \
     --overwrite \
     "$CAST_FILE"
 
 echo "Converting to GIF..."
 agg \
     --font-size 16 \
-    --font-family "JetBrains Mono,Menlo,monospace" \
+    --font-family "Menlo,monospace" \
     --theme asciinema \
     --speed 1.0 \
     "$CAST_FILE" \

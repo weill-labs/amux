@@ -40,14 +40,14 @@ RESPONSE_SCRIPT="$1"
 clear
 
 # Show Claude Code startup banner
-printf "\n\033[1m╭──────────────────────────────────────╮\033[0m\n"
-printf "\033[1m│ ✻ Welcome to Claude Code!            │\033[0m\n"
+printf "\n\033[1m┌──────────────────────────────────────┐\033[0m\n"
+printf "\033[1m│ * Welcome to Claude Code!            │\033[0m\n"
 printf "\033[1m│                                      │\033[0m\n"
 printf "\033[1m│   /help for help                     │\033[0m\n"
-printf "\033[1m╰──────────────────────────────────────╯\033[0m\n\n"
+printf "\033[1m└──────────────────────────────────────┘\033[0m\n\n"
 
 # Show prompt and wait for input (the agent will send-keys the prompt)
-printf "\033[1;35m❯\033[0m "
+printf "\033[1;35m>\033[0m "
 read -r prompt
 
 # Echo nothing — the typed text is already visible from send-keys.
@@ -61,30 +61,30 @@ sleep 0.8
 bash "$RESPONSE_SCRIPT"
 
 # Show done and new prompt
-printf "\n\033[1;35m❯\033[0m "
+printf "\n\033[1;35m>\033[0m "
 read -r _ 2>/dev/null || sleep 999
 MAINEOF
 
     # Response: create server
     cat > "$SIMDIR/resp-server.sh" <<'EOF'
-printf "\033[36m⏺ Write\033[0m(package.json)\n"
+printf "\033[36m● Write\033[0m(package.json)\n"
 sleep 0.4
-printf "\033[36m⏺ Write\033[0m(src/server.js)\n"
+printf "\033[36m● Write\033[0m(src/server.js)\n"
 sleep 0.4
-printf "\033[36m⏺ Write\033[0m(src/routes.js)\n"
+printf "\033[36m● Write\033[0m(src/routes.js)\n"
 sleep 0.5
-printf "\033[36m⏺ Run\033[0m(npm install)\n"
+printf "\033[36m● Run\033[0m(npm install)\n"
 sleep 1
 printf "\n\033[32m✓ Created 3 files, installed deps\033[0m\n"
 EOF
 
     # Response: add tests
     cat > "$SIMDIR/resp-tests.sh" <<'EOF'
-printf "\033[36m⏺ Read\033[0m(src/server.js)\n"
+printf "\033[36m● Read\033[0m(src/server.js)\n"
 sleep 0.4
-printf "\033[36m⏺ Write\033[0m(test/server.test.js)\n"
+printf "\033[36m● Write\033[0m(test/server.test.js)\n"
 sleep 0.5
-printf "\033[36m⏺ Run\033[0m(npm test)\n\n"
+printf "\033[36m● Run\033[0m(npm test)\n\n"
 sleep 1.2
 printf "  \033[32mPASS\033[0m test/server.test.js\n"
 printf "    \033[32m✓\033[0m health check (3ms)\n"
@@ -96,15 +96,15 @@ EOF
 
     # Response: security review
     cat > "$SIMDIR/resp-review.sh" <<'EOF'
-printf "\033[36m⏺ Read\033[0m(src/server.js)\n"
+printf "\033[36m● Read\033[0m(src/server.js)\n"
 sleep 0.3
-printf "\033[36m⏺ Read\033[0m(src/routes.js)\n"
+printf "\033[36m● Read\033[0m(src/routes.js)\n"
 sleep 0.5
 printf "\n\033[33m⚠ Found 1 issue:\033[0m\n"
 printf "  src/server.js:12\n"
 printf "  Missing rate limiting on /api\n\n"
 sleep 0.6
-printf "\033[36m⏺ Edit\033[0m(src/server.js)\n"
+printf "\033[36m● Edit\033[0m(src/server.js)\n"
 printf "  + rate-limit middleware\n"
 sleep 0.5
 printf "\n\033[32m✓ Fixed 1 issue\033[0m\n"
