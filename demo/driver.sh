@@ -28,7 +28,7 @@ agent() {
     uid="$(id -u)"
 
     # Wait for the amux server socket
-    for _ in $(seq 1 50); do
+    for _ in {1..50}; do
         [ -S "/tmp/amux-${uid}/${session}" ] && break
         sleep 0.2
     done

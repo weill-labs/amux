@@ -30,9 +30,9 @@ step() {
 # --- Cleanup ---
 
 cleanup() {
-    "$AMUX" -s "$SESSION" kill build 2>/dev/null || true
-    "$AMUX" -s "$SESSION" kill lint  2>/dev/null || true
-    "$AMUX" -s "$SESSION" kill logs  2>/dev/null || true
+    for pane in build lint logs; do
+        "$AMUX" -s "$SESSION" kill "$pane" 2>/dev/null || true
+    done
 }
 trap cleanup EXIT
 
