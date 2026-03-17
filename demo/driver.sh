@@ -184,16 +184,12 @@ agent() {
     "$AMUX" -s "$session" wait-idle "$review_pane" --timeout 25s >/dev/null
     sleep 0.5
 
-    # Minimize the review pane — reclaims vertical space
-    "$AMUX" -s "$session" minimize "$review_pane" >/dev/null
-    sleep 1.5
-
     # Show structured JSON capture in pane-1
     # Send Ctrl-C first to exit the fake claude, then run capture
     "$AMUX" -s "$session" send-keys pane-1 --hex 03 >/dev/null
     sleep 0.3
     "$AMUX" -s "$session" send-keys pane-1 \
-        "clear && amux -s ${session} capture --format json | jq '{session, panes: [.panes[] | {name, task, idle, minimized}]}'" Enter >/dev/null
+        "clear && amux -s ${session} capture --format json | jq '{session, panes: [.panes[] | {name, task, idle}]}'" Enter >/dev/null
 
     # Hold final frame so viewer can read the JSON
     sleep 5
