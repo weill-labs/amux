@@ -51,9 +51,6 @@ func (h *TmuxBenchHarness) run(args ...string) string {
 
 func (h *TmuxBenchHarness) cleanup() {
 	exec.Command("tmux", "kill-session", "-t", h.session).Run()
-	// Wait for PTY release — tmux sessions hold PTY fds that the kernel
-	// needs time to reclaim, especially on CI runners with limited PTYs.
-	time.Sleep(100 * time.Millisecond)
 }
 
 // ---------------------------------------------------------------------------
