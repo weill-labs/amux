@@ -29,9 +29,18 @@ type ServerHarness struct {
 	client   *headlessClient // attached headless client for capture
 }
 
+// newServerHarnessWithSize starts a server harness with a custom terminal size.
+func newServerHarnessWithSize(tb testing.TB, cols, rows int) *ServerHarness {
+	return newServerHarnessImpl(tb, cols, rows)
+}
+
 // newServerHarness starts a server daemon with a unique session name,
 // waits for the ready signal, and seeds the first pane. Safe for parallel tests.
 func newServerHarness(tb testing.TB) *ServerHarness {
+	return newServerHarnessImpl(tb, 80, 24)
+}
+
+func newServerHarnessImpl(tb testing.TB, cols, rows int) *ServerHarness {
 	tb.Helper()
 	var b [4]byte
 	rand.Read(b[:])
@@ -99,7 +108,7 @@ func newServerHarness(tb testing.TB) *ServerHarness {
 	// Attach a headless client — seeds the first pane and stays connected
 	// so capture requests route through client-side emulators.
 	sockPath := server.SocketPath(session)
-	client, err := newHeadlessClient(sockPath, session, 80, 24)
+	client, err := newHeadlessClient(sockPath, session, cols, rows)
 	if err != nil {
 		cmd.Process.Kill()
 		tb.Fatalf("attaching headless client: %v", err)
@@ -267,7 +276,13 @@ func (h *ServerHarness) globalBar() string {
 // Uses the server's wait-for command (blocking, zero polling).
 func (h *ServerHarness) waitFor(pane, substr string) {
 	h.tb.Helper()
-	out := h.runCmd("wait-for", pane, substr, "--timeout", "10s")
+	h.waitForTimeout(pane, substr, "10s")
+}
+
+// waitForTimeout is like waitFor but with a custom timeout.
+func (h *ServerHarness) waitForTimeout(pane, substr, timeout string) {
+	h.tb.Helper()
+	out := h.runCmd("wait-for", pane, substr, "--timeout", timeout)
 	if strings.Contains(out, "timeout") || strings.Contains(out, "not found") {
 		h.tb.Fatalf("wait-for %q in %s: %s\ncapture:\n%s", substr, pane, strings.TrimSpace(out), h.capture())
 	}
@@ -317,7 +332,13 @@ func (h *ServerHarness) generation() uint64 {
 // waitLayout blocks until the layout generation exceeds afterGen.
 func (h *ServerHarness) waitLayout(afterGen uint64) {
 	h.tb.Helper()
-	out := h.runCmd("wait-layout", "--after", strconv.FormatUint(afterGen, 10), "--timeout", "5s")
+	h.waitLayoutTimeout(afterGen, "5s")
+}
+
+// waitLayoutTimeout is like waitLayout but with a custom timeout.
+func (h *ServerHarness) waitLayoutTimeout(afterGen uint64, timeout string) {
+	h.tb.Helper()
+	out := h.runCmd("wait-layout", "--after", strconv.FormatUint(afterGen, 10), "--timeout", timeout)
 	if strings.Contains(out, "timeout") {
 		h.tb.Fatalf("wait-layout timed out after generation %d\ncapture:\n%s", afterGen, h.capture())
 	}

@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   benchmark:
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v6.0.2
         with:
@@ -35,7 +35,7 @@ jobs:
 
       - name: Install tmux
         if: steps.changes.outputs.code_changed == 'true'
-        run: sudo apt-get update && sudo apt-get install -y tmux
+        run: brew install tmux
 
       - name: Install benchstat
         if: steps.changes.outputs.code_changed == 'true'

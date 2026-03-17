@@ -216,7 +216,7 @@ func BenchmarkThroughput(b *testing.B) {
 		for i := range b.N {
 			marker := fmt.Sprintf("DONE-%04d", i)
 			h.sendKeys("pane-1", fmt.Sprintf("seq 1 10000; echo %s", marker), "Enter")
-			h.waitFor("pane-1", marker)
+			h.waitForTimeout("pane-1", marker, "30s")
 		}
 	})
 
@@ -250,12 +250,14 @@ func BenchmarkSplitScale(b *testing.B) {
 			// StopTimer/StartTimer per iteration is a known anti-pattern that
 			// can inflate b.N, but it's unavoidable here — the alternative
 			// (timing setup+teardown) is worse. Eager cleanup prevents fd exhaustion.
+			// Use root splits so space is distributed evenly (leaf splits halve
+			// exponentially, hitting the minimum pane size at ~7 panes).
 			for range b.N {
 				b.StopTimer()
-				h := newServerHarness(b)
+				h := newServerHarnessWithSize(b, 80, 200)
 				b.StartTimer()
 				for i := 1; i < n; i++ {
-					h.splitV()
+					h.splitRootH()
 				}
 				b.StopTimer()
 				h.cleanup()
@@ -287,9 +289,11 @@ func BenchmarkCaptureScale(b *testing.B) {
 	for _, n := range []int{1, 4, 10, 20} {
 		b.Run(fmt.Sprintf("amux/panes_%d", n), func(b *testing.B) {
 			b.StopTimer()
-			h := newServerHarness(b)
+			// Use root splits so space is distributed evenly (leaf splits halve
+			// exponentially, hitting the minimum pane size at ~7 panes).
+			h := newServerHarnessWithSize(b, 80, 200)
 			for i := 1; i < n; i++ {
-				h.splitV()
+				h.splitRootH()
 			}
 			b.StartTimer()
 			for b.Loop() {
@@ -320,7 +324,7 @@ func BenchmarkHotReload(b *testing.B) {
 	h := newAmuxHarness(b)
 
 	// Verify the inner amux is running
-	if !h.waitFor("[pane-", 5*time.Second) {
+	if !h.waitFor("[pane-", 10*time.Second) {
 		b.Fatal("inner amux did not render")
 	}
 
@@ -338,9 +342,11 @@ func BenchmarkHotReload(b *testing.B) {
 		b.StartTimer()
 		reconnectStart := time.Now()
 
-		// Wait for re-render (layout generation bumps after reconnect)
-		h.waitLayout(gen)
-		if !h.waitFor("[pane-", 10*time.Second) {
+		// Wait for re-render (layout generation bumps after reconnect).
+		// Use 30s timeout — go build on CI can take 10-20s, and the
+		// server re-exec + client reconnect adds more time.
+		h.waitLayoutTimeout(gen, "30s")
+		if !h.waitFor("[pane-", 30*time.Second) {
 			b.Fatal("client did not reconnect after hot-reload")
 		}
 
