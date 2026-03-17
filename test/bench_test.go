@@ -25,6 +25,9 @@ type TmuxBenchHarness struct {
 
 func newTmuxBenchHarness(b *testing.B) *TmuxBenchHarness {
 	b.Helper()
+	if testing.Short() {
+		b.Skip("tmux comparison benchmarks skipped in short mode (PTY exhaustion on CI)")
+	}
 	if _, err := exec.LookPath("tmux"); err != nil {
 		b.Skip("tmux not found, skipping tmux benchmarks")
 	}
@@ -209,13 +212,18 @@ func BenchmarkInputLatency(b *testing.B) {
 // ---------------------------------------------------------------------------
 
 func BenchmarkThroughput(b *testing.B) {
+	lines := 10000
+	if testing.Short() {
+		lines = 1000
+	}
+
 	b.Run("amux", func(b *testing.B) {
 		b.StopTimer()
 		h := newServerHarness(b)
 		b.StartTimer()
 		for i := range b.N {
 			marker := fmt.Sprintf("DONE-%04d", i)
-			h.sendKeys("pane-1", fmt.Sprintf("seq 1 10000; echo %s", marker), "Enter")
+			h.sendKeys("pane-1", fmt.Sprintf("seq 1 %d; echo %s", lines, marker), "Enter")
 			h.waitFor("pane-1", marker)
 		}
 	})
@@ -226,7 +234,7 @@ func BenchmarkThroughput(b *testing.B) {
 		b.StartTimer()
 		for i := range b.N {
 			marker := fmt.Sprintf("DONE-%04d", i)
-			th.run("send-keys", "-t", th.session, fmt.Sprintf("seq 1 10000; echo %s", marker), "Enter")
+			th.run("send-keys", "-t", th.session, fmt.Sprintf("seq 1 %d; echo %s", lines, marker), "Enter")
 			deadline := time.Now().Add(30 * time.Second)
 			for time.Now().Before(deadline) {
 				out := th.run("capture-pane", "-t", th.session, "-p")
@@ -244,7 +252,11 @@ func BenchmarkThroughput(b *testing.B) {
 // ---------------------------------------------------------------------------
 
 func BenchmarkSplitScale(b *testing.B) {
-	for _, n := range []int{4, 10, 20} {
+	scales := []int{4, 10, 20}
+	if testing.Short() {
+		scales = []int{4}
+	}
+	for _, n := range scales {
 		b.Run(fmt.Sprintf("amux/panes_%d", n), func(b *testing.B) {
 			// Each iteration needs a fresh harness since splits accumulate.
 			// StopTimer/StartTimer per iteration is a known anti-pattern that
@@ -284,7 +296,11 @@ func BenchmarkSplitScale(b *testing.B) {
 // ---------------------------------------------------------------------------
 
 func BenchmarkCaptureScale(b *testing.B) {
-	for _, n := range []int{1, 4, 10, 20} {
+	scales := []int{1, 4, 10, 20}
+	if testing.Short() {
+		scales = []int{1, 4}
+	}
+	for _, n := range scales {
 		b.Run(fmt.Sprintf("amux/panes_%d", n), func(b *testing.B) {
 			b.StopTimer()
 			h := newServerHarness(b)
@@ -316,6 +332,9 @@ func BenchmarkCaptureScale(b *testing.B) {
 // ---------------------------------------------------------------------------
 
 func BenchmarkHotReload(b *testing.B) {
+	if testing.Short() {
+		b.Skip("hot-reload benchmark skipped in short mode (go build too slow on CI)")
+	}
 	b.StopTimer()
 	h := newAmuxHarness(b)
 
