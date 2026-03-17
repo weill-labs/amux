@@ -662,7 +662,7 @@ func cmdWaitFor(ctx *CommandContext) {
 	}
 	paneRef := ctx.Args[0]
 	substr := ctx.Args[1]
-	timeout, err := parseTimeout(ctx.Args, 2, 3*time.Second)
+	timeout, err := parseTimeout(ctx.Args, 2, 10*time.Second)
 	if err != nil {
 		ctx.replyErr(err.Error())
 		return
