@@ -5,9 +5,9 @@ import (
 	"testing"
 )
 
-// TestRemotePaneReconnectsAfterReload verifies that a remote proxy pane
-// reconnects and remains functional after a server hot-reload.
-func TestRemotePaneReconnectsAfterReload(t *testing.T) {
+// TestRemotePaneViaSSH verifies that a remote proxy pane can be created
+// over a real SSH connection (in-process test server) and is functional.
+func TestRemotePaneViaSSH(t *testing.T) {
 	t.Parallel()
 
 	addr, keyFile := setupTestSSH(t)
