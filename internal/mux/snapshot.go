@@ -2,47 +2,53 @@ package mux
 
 import "github.com/weill-labs/amux/internal/proto"
 
+// snapshotCore extracts the shared fields from a Window snapshot:
+// layout tree, pane snapshots, active pane ID, and zoomed pane ID.
+func (w *Window) snapshotCore() (root proto.CellSnapshot, panes []proto.PaneSnapshot, activePaneID, zoomedPaneID uint32) {
+	root = snapshotCell(w.Root)
+	if w.ActivePane != nil {
+		activePaneID = w.ActivePane.ID
+	}
+	zoomedPaneID = w.ZoomedPaneID
+	for _, p := range w.Panes() {
+		panes = append(panes, p.ToSnapshot())
+	}
+	return root, panes, activePaneID, zoomedPaneID
+}
+
 // SnapshotLayout creates a serializable snapshot of the current layout state.
 // Used for single-window backward compatibility and by SnapshotWindow.
 func (w *Window) SnapshotLayout(sessionName string) *proto.LayoutSnapshot {
-	snap := &proto.LayoutSnapshot{
+	root, panes, activePaneID, zoomedPaneID := w.snapshotCore()
+	return &proto.LayoutSnapshot{
 		SessionName:  sessionName,
 		Width:        w.Width,
 		Height:       w.Height,
-		ZoomedPaneID: w.ZoomedPaneID,
+		ActivePaneID: activePaneID,
+		ZoomedPaneID: zoomedPaneID,
+		Root:         root,
+		Panes:        panes,
 	}
-	if w.ActivePane != nil {
-		snap.ActivePaneID = w.ActivePane.ID
-	}
-	snap.Root = snapshotCell(w.Root)
-	for _, p := range w.Panes() {
-		snap.Panes = append(snap.Panes, paneToSnapshot(p))
-	}
-	return snap
 }
 
 // SnapshotWindow creates a WindowSnapshot for the wire protocol.
 func (w *Window) SnapshotWindow(index int) proto.WindowSnapshot {
-	ws := proto.WindowSnapshot{
+	root, panes, activePaneID, zoomedPaneID := w.snapshotCore()
+	return proto.WindowSnapshot{
 		ID:           w.ID,
 		Name:         w.Name,
 		Index:        index,
-		ZoomedPaneID: w.ZoomedPaneID,
-		Root:         snapshotCell(w.Root),
+		ActivePaneID: activePaneID,
+		ZoomedPaneID: zoomedPaneID,
+		Root:         root,
+		Panes:        panes,
 	}
-	if w.ActivePane != nil {
-		ws.ActivePaneID = w.ActivePane.ID
-	}
-	for _, p := range w.Panes() {
-		ws.Panes = append(ws.Panes, paneToSnapshot(p))
-	}
-	return ws
 }
 
-// paneToSnapshot converts a Pane to a PaneSnapshot. For minimized panes,
+// ToSnapshot converts a Pane to a PaneSnapshot. For minimized panes,
 // includes the emulator's actual dimensions so clients create correctly-sized
 // emulators (the cell dimensions are shrunk to just the status bar).
-func paneToSnapshot(p *Pane) proto.PaneSnapshot {
+func (p *Pane) ToSnapshot() proto.PaneSnapshot {
 	ps := proto.PaneSnapshot{
 		ID:         p.ID,
 		Name:       p.Meta.Name,
