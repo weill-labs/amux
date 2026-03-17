@@ -279,12 +279,12 @@ func TestThreeColumnsMiddleSplitEqualRows(t *testing.T) {
 	// Equal splits should produce heights within 1 of each other
 	heights := []int{p2.Position.Height, p4.Position.Height, p5.Position.Height}
 	minH, maxH := heights[0], heights[0]
-	for _, h := range heights[1:] {
-		if h < minH {
-			minH = h
+	for _, v := range heights[1:] {
+		if v < minH {
+			minH = v
 		}
-		if h > maxH {
-			maxH = h
+		if v > maxH {
+			maxH = v
 		}
 	}
 	if maxH-minH > 1 {
