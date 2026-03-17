@@ -961,6 +961,8 @@ func NewServer(sessionName string) (*Server, error) {
 		return nil, fmt.Errorf("creating socket dir: %w", err)
 	}
 
+	CleanStaleSockets()
+
 	sockPath := SocketPath(sessionName)
 
 	if _, err := os.Stat(sockPath); err == nil {
