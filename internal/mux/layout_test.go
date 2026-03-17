@@ -158,7 +158,7 @@ func TestSplitSiblingEqualRedistribution(t *testing.T) {
 		name      string
 		dir       SplitDir
 		w, h      int
-		wantTotal int // expected total (width for H, height for V)
+		wantTotal int // expected total (width for V, height for H)
 	}{
 		{"vertical", SplitVertical, 80, 24, 80},
 		{"horizontal", SplitHorizontal, 80, 25, 25},

@@ -9,7 +9,7 @@ func TestResizeKeybindHorizontal(t *testing.T) {
 	t.Parallel()
 	h := newAmuxHarness(t)
 
-	// Split horizontally: [pane-1 | pane-2]
+	// Split vertically: [pane-1 | pane-2]
 	h.splitV()
 
 	// Measure initial pane-1 width
