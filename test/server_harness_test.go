@@ -352,10 +352,10 @@ func (h *ServerHarness) doFocus(args ...string) string {
 	return out
 }
 
-func (h *ServerHarness) splitV()     { h.tb.Helper(); h.doSplit() }
-func (h *ServerHarness) splitH()     { h.tb.Helper(); h.doSplit("v") }
-func (h *ServerHarness) splitRootV() { h.tb.Helper(); h.doSplit("root") }
-func (h *ServerHarness) splitRootH() { h.tb.Helper(); h.doSplit("root", "v") }
+func (h *ServerHarness) splitV()     { h.tb.Helper(); h.doSplit("v") }
+func (h *ServerHarness) splitH()     { h.tb.Helper(); h.doSplit() }
+func (h *ServerHarness) splitRootV() { h.tb.Helper(); h.doSplit("root", "v") }
+func (h *ServerHarness) splitRootH() { h.tb.Helper(); h.doSplit("root") }
 
 // ---------------------------------------------------------------------------
 // Pane interaction — via CLI send-keys, no tmux

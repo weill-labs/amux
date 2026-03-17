@@ -48,7 +48,7 @@ func HandleMouseEvent(ev mouse.Event, cr *ClientRenderer, conn net.Conn, drag *D
 		dx := ev.X - ev.LastX
 		dy := ev.Y - ev.LastY
 		delta := dx
-		if drag.BorderDir == mux.SplitVertical {
+		if drag.BorderDir == mux.SplitHorizontal {
 			delta = dy
 		}
 		if delta != 0 {
@@ -57,7 +57,7 @@ func HandleMouseEvent(ev mouse.Event, cr *ClientRenderer, conn net.Conn, drag *D
 				fmt.Sprintf("%d", drag.BorderY),
 				fmt.Sprintf("%d", delta),
 			})
-			if drag.BorderDir == mux.SplitHorizontal {
+			if drag.BorderDir == mux.SplitVertical {
 				drag.BorderX += dx
 			} else {
 				drag.BorderY += dy

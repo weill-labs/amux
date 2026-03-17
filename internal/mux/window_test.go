@@ -36,7 +36,7 @@ func buildLayout(active uint32, panes []struct {
 	// structure doesn't matter — Focus() only uses Walk and cell geometry).
 	root := &LayoutCell{
 		X: 0, Y: 0, W: maxX, H: maxY,
-		Dir:      SplitHorizontal,
+		Dir:      SplitVertical,
 		Children: leaves,
 	}
 	for _, l := range leaves {
@@ -224,7 +224,7 @@ func TestFocusRecencyTiebreaker(t *testing.T) {
 	}
 	root := &LayoutCell{
 		X: 0, Y: 0, W: 40, H: 21,
-		Dir:      SplitVertical,
+		Dir:      SplitHorizontal,
 		Children: leaves,
 	}
 	for _, l := range leaves {
@@ -304,13 +304,13 @@ func TestResizeActiveLastChild(t *testing.T) {
 	p2 := fakePaneID(2)
 
 	root := NewLeaf(p1, 0, 0, 80, 24)
-	root.Split(SplitHorizontal, p2)
+	root.Split(SplitVertical, p2)
 	root.FixOffsets()
 
 	// Active pane is p2 — the LAST child (idx=1, len=2)
 	w := &Window{Root: root, ActivePane: p2, Width: 80, Height: 24}
 
-	// This should not panic. Resize left on a horizontal split
+	// This should not panic. Resize left on a vertical split
 	// moves the border between p1 and p2.
 	result := w.ResizeActive("left", 2)
 	if !result {
@@ -325,7 +325,7 @@ func TestResizeActiveFirstChild(t *testing.T) {
 	p2 := fakePaneID(2)
 
 	root := NewLeaf(p1, 0, 0, 80, 24)
-	root.Split(SplitHorizontal, p2)
+	root.Split(SplitVertical, p2)
 	root.FixOffsets()
 
 	// Active pane is p1 — the FIRST child (idx=0)
@@ -345,7 +345,7 @@ func TestSwapPanes(t *testing.T) {
 	p2.Meta.Name = "beta"
 
 	root := NewLeaf(p1, 0, 0, 80, 24)
-	root.Split(SplitHorizontal, p2)
+	root.Split(SplitVertical, p2)
 
 	w := &Window{Root: root, ActivePane: p1, Width: 80, Height: 24}
 
@@ -406,8 +406,8 @@ func TestSwapPaneForward(t *testing.T) {
 	p3 := fakePaneID(3)
 
 	root := NewLeaf(p1, 0, 0, 120, 24)
-	root.Split(SplitHorizontal, p2)
-	root.Children[1].Split(SplitHorizontal, p3)
+	root.Split(SplitVertical, p2)
+	root.Children[1].Split(SplitVertical, p3)
 
 	// Active is pane-3 (last in walk order)
 	w := &Window{Root: root, ActivePane: p3, Width: 120, Height: 24}
@@ -431,8 +431,8 @@ func TestSwapPaneBackward(t *testing.T) {
 	p3 := fakePaneID(3)
 
 	root := NewLeaf(p1, 0, 0, 120, 24)
-	root.Split(SplitHorizontal, p2)
-	root.Children[1].Split(SplitHorizontal, p3)
+	root.Split(SplitVertical, p2)
+	root.Children[1].Split(SplitVertical, p3)
 
 	// Active is pane-3 (last in walk order)
 	w := &Window{Root: root, ActivePane: p3, Width: 120, Height: 24}
@@ -456,8 +456,8 @@ func TestRotatePanesForward(t *testing.T) {
 	p3 := fakePaneID(3)
 
 	root := NewLeaf(p1, 0, 0, 120, 24)
-	root.Split(SplitHorizontal, p2)
-	root.Children[1].Split(SplitHorizontal, p3)
+	root.Split(SplitVertical, p2)
+	root.Children[1].Split(SplitVertical, p3)
 
 	w := &Window{Root: root, ActivePane: p1, Width: 120, Height: 24}
 
@@ -478,8 +478,8 @@ func TestRotatePanesBackward(t *testing.T) {
 	p3 := fakePaneID(3)
 
 	root := NewLeaf(p1, 0, 0, 120, 24)
-	root.Split(SplitHorizontal, p2)
-	root.Children[1].Split(SplitHorizontal, p3)
+	root.Split(SplitVertical, p2)
+	root.Children[1].Split(SplitVertical, p3)
 
 	w := &Window{Root: root, ActivePane: p1, Width: 120, Height: 24}
 
@@ -505,7 +505,7 @@ func TestResizeActiveFromLastChild(t *testing.T) {
 	p2 := fakePaneID(2)
 
 	root := NewLeaf(p1, 0, 0, 80, 24)
-	root.Split(SplitHorizontal, p2)
+	root.Split(SplitVertical, p2)
 
 	w := &Window{Root: root, ActivePane: p2, Width: 80, Height: 24}
 	w.Root.FixOffsets()
@@ -531,7 +531,7 @@ func TestResizeActiveFromFirstChild(t *testing.T) {
 	p2 := fakePaneID(2)
 
 	root := NewLeaf(p1, 0, 0, 80, 24)
-	root.Split(SplitHorizontal, p2)
+	root.Split(SplitVertical, p2)
 
 	w := &Window{Root: root, ActivePane: p1, Width: 80, Height: 24}
 	w.Root.FixOffsets()
@@ -616,12 +616,12 @@ func TestSplicePaneMultiple(t *testing.T) {
 		t.Fatalf("expected 3 cells, got %d", len(cells))
 	}
 
-	// Root should now be internal with horizontal split
+	// Root should now be internal with vertical split
 	if w.Root.IsLeaf() {
 		t.Error("root should be internal after multi-pane splice")
 	}
-	if w.Root.Dir != SplitHorizontal {
-		t.Errorf("root dir = %d, want SplitHorizontal", w.Root.Dir)
+	if w.Root.Dir != SplitVertical {
+		t.Errorf("root dir = %d, want SplitVertical", w.Root.Dir)
 	}
 	if len(w.Root.Children) != 3 {
 		t.Fatalf("root children = %d, want 3", len(w.Root.Children))
@@ -653,13 +653,13 @@ func TestSplicePaneMultiple(t *testing.T) {
 
 func TestSplicePaneInSplitLayout(t *testing.T) {
 	t.Parallel()
-	// Create a window with 2 panes (horizontal split), then splice pane-2
+	// Create a window with 2 panes (vertical split), then splice pane-2
 	p1 := fakePaneID(1)
 	p2 := fakePaneID(2)
 	root := NewLeaf(p1, 0, 0, 80, 24)
 	w := &Window{Root: root, ActivePane: p1, Width: 80, Height: 24}
 
-	_, err := root.Split(SplitHorizontal, p2)
+	_, err := root.Split(SplitVertical, p2)
 	if err != nil {
 		t.Fatalf("Split: %v", err)
 	}

@@ -6,8 +6,8 @@ import "fmt"
 type SplitDir int
 
 const (
-	SplitHorizontal SplitDir = iota // children left-to-right
-	SplitVertical                   // children top-to-bottom
+	SplitVertical   SplitDir = iota // vertical divider: children left-to-right
+	SplitHorizontal                 // horizontal divider: children top-to-bottom
 )
 
 // LayoutCell is a node in the layout tree. Internal nodes (Dir != -1) hold
@@ -72,7 +72,7 @@ func (c *LayoutCell) Split(dir SplitDir, newPane *Pane) (*LayoutCell, error) {
 
 	// Check minimum space: need room for both panes + 1 separator
 	var available int
-	if dir == SplitHorizontal {
+	if dir == SplitVertical {
 		available = c.W
 	} else {
 		available = c.H
@@ -111,7 +111,7 @@ func (c *LayoutCell) Split(dir SplitDir, newPane *Pane) (*LayoutCell, error) {
 
 	// Create two leaf children
 	var child1, child2 *LayoutCell
-	if dir == SplitHorizontal {
+	if dir == SplitVertical {
 		child1 = NewLeaf(oldPane, c.X, c.Y, size1, c.H)
 		child2 = NewLeaf(newPane, c.X+size1+1, c.Y, size2, c.H)
 	} else {
@@ -181,7 +181,7 @@ func (c *LayoutCell) FixOffsets() {
 		return
 	}
 
-	if c.Dir == SplitHorizontal {
+	if c.Dir == SplitVertical {
 		xoff := c.X
 		for _, child := range c.Children {
 			child.X = xoff
@@ -219,7 +219,7 @@ func (c *LayoutCell) ResizeAll(newW, newH int) {
 		separators = 0
 	}
 
-	if c.Dir == SplitHorizontal {
+	if c.Dir == SplitVertical {
 		available := newW - separators
 		targets := proportionalSizes(c.Children, available, true)
 		for i, child := range c.Children {
@@ -364,7 +364,7 @@ func (c *LayoutCell) FindBorderAt(x, y int) *BorderHit {
 	for i := 0; i < len(c.Children)-1; i++ {
 		left := c.Children[i]
 		right := c.Children[i+1]
-		if c.Dir == SplitHorizontal {
+		if c.Dir == SplitVertical {
 			// Vertical border at x = left.X + left.W
 			borderX := left.X + left.W
 			if x == borderX && y >= c.Y && y < c.Y+c.H {
@@ -392,7 +392,7 @@ func (c *LayoutCell) FindBorderAt(x, y int) *BorderHit {
 func (c *LayoutCell) distributeEqual() {
 	n := len(c.Children)
 	seps := n - 1
-	if c.Dir == SplitHorizontal {
+	if c.Dir == SplitVertical {
 		each := (c.W - seps) / n
 		for i, child := range c.Children {
 			if i == n-1 {

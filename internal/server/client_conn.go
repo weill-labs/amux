@@ -393,10 +393,10 @@ var specialKeys = map[string][]byte{
 }
 
 func dirName(d mux.SplitDir) string {
-	if d == mux.SplitHorizontal {
-		return "horizontal"
+	if d == mux.SplitVertical {
+		return "vertical"
 	}
-	return "vertical"
+	return "horizontal"
 }
 
 // parseEventsArgs parses --filter, --pane, and --host flags for the events command.

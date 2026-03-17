@@ -18,7 +18,7 @@ func TestSnapshotRoundTrip(t *testing.T) {
 	leaf2.Parent = w.Root
 	w.Root.isLeaf = false
 	w.Root.Pane = nil
-	w.Root.Dir = SplitHorizontal
+	w.Root.Dir = SplitVertical
 	child1 := NewLeaf(p1, 0, 0, 40, 24)
 	child1.Parent = w.Root
 	w.Root.Children = []*LayoutCell{child1, leaf2}
@@ -81,17 +81,17 @@ func TestRebuildFromSnapshot(t *testing.T) {
 	p2 := &Pane{ID: 2, Meta: PaneMeta{Name: "pane-2", Host: "remote", Color: "a6e3a1"}}
 	p3 := &Pane{ID: 3, Meta: PaneMeta{Name: "pane-3", Host: "local", Color: "cba6f7", Minimized: true, RestoreH: 10}}
 
-	// 2x2 layout: horizontal split at root, vertical split in left child
+	// 2x2 layout: vertical split at root, horizontal split in left child
 	snap := proto.LayoutSnapshot{
 		SessionName:  "test",
 		ActivePaneID: 2,
 		Width:        80,
 		Height:       24,
 		Root: proto.CellSnapshot{
-			X: 0, Y: 0, W: 80, H: 24, Dir: 0, // SplitHorizontal
+			X: 0, Y: 0, W: 80, H: 24, Dir: 0, // SplitVertical
 			Children: []proto.CellSnapshot{
 				{
-					X: 0, Y: 0, W: 39, H: 24, Dir: 1, // SplitVertical
+					X: 0, Y: 0, W: 39, H: 24, Dir: 1, // SplitHorizontal
 					Children: []proto.CellSnapshot{
 						{X: 0, Y: 0, W: 39, H: 11, IsLeaf: true, Dir: -1, PaneID: 1},
 						{X: 0, Y: 12, W: 39, H: 11, IsLeaf: true, Dir: -1, PaneID: 3},
@@ -123,7 +123,7 @@ func TestRebuildFromSnapshot(t *testing.T) {
 		t.Fatalf("root children = %d, want 2", len(w.Root.Children))
 	}
 
-	// Left child is internal (vertical split)
+	// Left child is internal (horizontal split)
 	left := w.Root.Children[0]
 	if left.IsLeaf() {
 		t.Fatal("left child should not be leaf")

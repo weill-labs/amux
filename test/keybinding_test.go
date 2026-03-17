@@ -136,12 +136,12 @@ o = "split v"
 	h.sendKeys("C-a", "o")
 	h.waitLayout(gen)
 
-	// Verify horizontal split: panes on different Y positions
+	// Verify vertical split: panes on different X positions (left/right)
 	c := h.captureJSON()
 	p1 := h.jsonPane(c, "pane-1")
 	p2 := h.jsonPane(c, "pane-2")
-	if p1.Position.Y == p2.Position.Y {
-		t.Errorf("horizontal split should put panes at different Y, both at y=%d", p1.Position.Y)
+	if p1.Position.X == p2.Position.X {
+		t.Errorf("vertical split should put panes at different X, both at x=%d", p1.Position.X)
 	}
 }
 

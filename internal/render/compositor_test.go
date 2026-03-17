@@ -45,7 +45,7 @@ func TestMinimizedPaneHidesCursor(t *testing.T) {
 	}}, 0, mux.StatusLineRows, width, height-mux.StatusLineRows)
 	root := &mux.LayoutCell{
 		X: 0, Y: 0, W: width, H: height,
-		Dir:      mux.SplitVertical,
+		Dir:      mux.SplitHorizontal,
 		Children: []*mux.LayoutCell{top, bottom},
 	}
 	top.Parent = root
@@ -228,7 +228,7 @@ func TestBlitPaneClipsToWidth(t *testing.T) {
 	right := mux.NewLeaf(&mux.Pane{ID: 2}, 11, 0, 9, height)
 	root := &mux.LayoutCell{
 		X: 0, Y: 0, W: width, H: height,
-		Dir:      mux.SplitHorizontal,
+		Dir:      mux.SplitVertical,
 		Children: []*mux.LayoutCell{left, right},
 	}
 	left.Parent = root

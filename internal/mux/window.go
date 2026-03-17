@@ -53,7 +53,7 @@ func (w *Window) SplitRoot(dir SplitDir, newPane *Pane) (*Pane, error) {
 		// Give all children equal sizes so ResizeAll distributes fairly
 		n := len(w.Root.Children)
 		seps := n - 1
-		if dir == SplitHorizontal {
+		if dir == SplitVertical {
 			each := (w.Width - seps) / n
 			for _, child := range w.Root.Children {
 				child.ResizeAll(each, w.Height)
@@ -71,7 +71,7 @@ func (w *Window) SplitRoot(dir SplitDir, newPane *Pane) (*Pane, error) {
 		// Different direction or root is a leaf: wrap
 		oldRoot := w.Root
 
-		if dir == SplitHorizontal {
+		if dir == SplitVertical {
 			size2 := (oldRoot.W - 1) / 2
 			size1 := oldRoot.W - 1 - size2
 			newLeaf.W = size2
@@ -370,7 +370,7 @@ func forceResizeChildren(cell *LayoutCell) {
 	targetW, targetH := cell.W, cell.H
 	childTotal := 0
 	for _, child := range cell.Children {
-		if cell.Dir == SplitHorizontal {
+		if cell.Dir == SplitVertical {
 			childTotal += child.W
 		} else {
 			childTotal += child.H
@@ -378,7 +378,7 @@ func forceResizeChildren(cell *LayoutCell) {
 	}
 	childTotal += len(cell.Children) - 1
 
-	if cell.Dir == SplitHorizontal {
+	if cell.Dir == SplitVertical {
 		cell.W = childTotal
 	} else {
 		cell.H = childTotal
@@ -397,8 +397,8 @@ func PaneContentHeight(cellH int) int {
 }
 
 // ResizeBorder moves a border at position (x, y) by delta cells.
-// For vertical borders (horizontal split), delta is applied horizontally.
-// For horizontal borders (vertical split), delta is applied vertically.
+// For vertical borders (vertical split), delta is applied horizontally.
+// For horizontal borders (horizontal split), delta is applied vertically.
 // Returns true if a resize was performed.
 func (w *Window) ResizeBorder(x, y, delta int) bool {
 	hit := w.Root.FindBorderAt(x, y)
@@ -407,7 +407,7 @@ func (w *Window) ResizeBorder(x, y, delta int) bool {
 	}
 
 	var leftSize, rightSize *int
-	if hit.Dir == SplitHorizontal {
+	if hit.Dir == SplitVertical {
 		leftSize = &hit.Left.W
 		rightSize = &hit.Right.W
 	} else {
@@ -462,13 +462,13 @@ func (w *Window) ResizeActive(direction string, delta int) bool {
 	var change int
 	switch direction {
 	case "left":
-		axis, change = SplitHorizontal, -delta
-	case "right":
-		axis, change = SplitHorizontal, delta
-	case "up":
 		axis, change = SplitVertical, -delta
-	case "down":
+	case "right":
 		axis, change = SplitVertical, delta
+	case "up":
+		axis, change = SplitHorizontal, -delta
+	case "down":
+		axis, change = SplitHorizontal, delta
 	default:
 		return false
 	}
@@ -510,7 +510,7 @@ func (w *Window) ResizeActive(direction string, delta int) bool {
 // resizeBetween transfers delta cells from donor to grower along the given axis.
 func (w *Window) resizeBetween(grower, donor *LayoutCell, axis SplitDir, delta int) bool {
 	var growerSize, donorSize *int
-	if axis == SplitHorizontal {
+	if axis == SplitVertical {
 		growerSize = &grower.W
 		donorSize = &donor.W
 	} else {
@@ -687,7 +687,7 @@ func (w *Window) activeCellIndex(cells []*LayoutCell) int {
 }
 
 // Minimize shrinks a pane's layout cell to just the status line (header only).
-// Only allowed in vertical splits with at least one non-minimized sibling.
+// Only allowed in horizontal splits with at least one non-minimized sibling.
 // Auto-unzooms if a pane is zoomed.
 func (w *Window) Minimize(paneID uint32) error {
 	if w.ZoomedPaneID != 0 {
@@ -701,11 +701,11 @@ func (w *Window) Minimize(paneID uint32) error {
 		return fmt.Errorf("pane already minimized")
 	}
 
-	// Only allow minimize in vertical splits (stacked panes).
-	// A pane at root or in a horizontal split has no vertical sibling
+	// Only allow minimize in horizontal splits (stacked panes).
+	// A pane at root or in a vertical split has no horizontal sibling
 	// to absorb the reclaimed height.
-	if cell.Parent == nil || cell.Parent.Dir != SplitVertical {
-		return fmt.Errorf("cannot minimize: pane is not in a vertical split")
+	if cell.Parent == nil || cell.Parent.Dir != SplitHorizontal {
+		return fmt.Errorf("cannot minimize: pane is not in a horizontal split")
 	}
 
 	// Require at least one non-minimized sibling to remain visible.
@@ -739,7 +739,7 @@ func (w *Window) Minimize(paneID uint32) error {
 		if reclaimed > 0 {
 			for _, sib := range cell.Parent.Children {
 				if sib != cell && !sib.IsLeaf() || (sib.IsLeaf() && sib.Pane != nil && !sib.Pane.Meta.Minimized) {
-					if cell.Parent.Dir == SplitVertical {
+					if cell.Parent.Dir == SplitHorizontal {
 						sib.H += reclaimed
 					}
 					if !sib.IsLeaf() {
@@ -827,7 +827,7 @@ func (w *Window) Restore(paneID uint32) error {
 		needed := savedH - cell.H
 		for _, sib := range cell.Parent.Children {
 			if sib != cell {
-				if cell.Parent.Dir == SplitVertical && sib.H-needed >= PaneMinSize+StatusLineRows {
+				if cell.Parent.Dir == SplitHorizontal && sib.H-needed >= PaneMinSize+StatusLineRows {
 					sib.H -= needed
 					if !sib.IsLeaf() {
 						sib.ResizeAll(sib.W, sib.H)
@@ -880,7 +880,7 @@ func (w *Window) recoverMinimizeSeq() {
 
 // SplicePane replaces a leaf pane (by ID) with one or more proxy panes.
 // If panes has 1 entry, it's a simple 1:1 replacement. If panes has 2+
-// entries, the leaf is converted to a horizontal split containing the
+// entries, the leaf is converted to a vertical split containing the
 // new panes. The original cell's dimensions are preserved.
 // Returns the list of newly created layout cells.
 func (w *Window) SplicePane(oldPaneID uint32, newPanes []*Pane) ([]*LayoutCell, error) {
@@ -908,7 +908,7 @@ func (w *Window) SplicePane(oldPaneID uint32, newPanes []*Pane) ([]*LayoutCell, 
 		return []*LayoutCell{cell}, nil
 	}
 
-	// Multiple panes: convert the leaf into a horizontal split
+	// Multiple panes: convert the leaf into a vertical split
 	x, y, totalW, h := cell.X, cell.Y, cell.W, cell.H
 	n := len(newPanes)
 	seps := n - 1
@@ -921,7 +921,7 @@ func (w *Window) SplicePane(oldPaneID uint32, newPanes []*Pane) ([]*LayoutCell, 
 
 	cell.isLeaf = false
 	cell.Pane = nil
-	cell.Dir = SplitHorizontal
+	cell.Dir = SplitVertical
 	cell.Children = make([]*LayoutCell, n)
 
 	each := available / n
