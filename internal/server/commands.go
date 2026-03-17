@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/hooks"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/render"
@@ -661,17 +662,10 @@ func cmdWaitFor(ctx *CommandContext) {
 	}
 	paneRef := ctx.Args[0]
 	substr := ctx.Args[1]
-	timeout := 3 * time.Second
-	for i := 2; i < len(ctx.Args); i++ {
-		if ctx.Args[i] == "--timeout" && i+1 < len(ctx.Args) {
-			i++
-			d, err := time.ParseDuration(ctx.Args[i])
-			if err != nil {
-				ctx.replyErr(fmt.Sprintf("invalid timeout: %s", ctx.Args[i]))
-				return
-			}
-			timeout = d
-		}
+	timeout, err := parseTimeout(ctx.Args, 2, 3*time.Second)
+	if err != nil {
+		ctx.replyErr(err.Error())
+		return
 	}
 
 	ctx.Sess.mu.Lock()
@@ -713,17 +707,10 @@ func cmdWaitIdle(ctx *CommandContext) {
 		return
 	}
 	paneRef := ctx.Args[0]
-	timeout := 5 * time.Second
-	for i := 1; i < len(ctx.Args); i++ {
-		if ctx.Args[i] == "--timeout" && i+1 < len(ctx.Args) {
-			i++
-			d, err := time.ParseDuration(ctx.Args[i])
-			if err != nil {
-				ctx.replyErr(fmt.Sprintf("invalid timeout: %s", ctx.Args[i]))
-				return
-			}
-			timeout = d
-		}
+	timeout, err := parseTimeout(ctx.Args, 1, 5*time.Second)
+	if err != nil {
+		ctx.replyErr(err.Error())
+		return
 	}
 
 	ctx.Sess.mu.Lock()
@@ -760,17 +747,10 @@ func cmdWaitBusy(ctx *CommandContext) {
 		return
 	}
 	paneRef := ctx.Args[0]
-	timeout := 5 * time.Second
-	for i := 1; i < len(ctx.Args); i++ {
-		if ctx.Args[i] == "--timeout" && i+1 < len(ctx.Args) {
-			i++
-			d, err := time.ParseDuration(ctx.Args[i])
-			if err != nil {
-				ctx.replyErr(fmt.Sprintf("invalid timeout: %s", ctx.Args[i]))
-				return
-			}
-			timeout = d
-		}
+	timeout, err := parseTimeout(ctx.Args, 1, 5*time.Second)
+	if err != nil {
+		ctx.replyErr(err.Error())
+		return
 	}
 
 	ctx.Sess.mu.Lock()
@@ -1030,7 +1010,7 @@ func cmdInjectProxy(ctx *CommandContext) {
 	meta := mux.PaneMeta{
 		Name:  fmt.Sprintf(mux.PaneNameFormat, id),
 		Host:  hostName,
-		Color: "f5e0dc",
+		Color: config.CatppuccinMocha[0], // Rosewater
 	}
 	proxyPane := mux.NewProxyPane(id, meta, w.Width/2, mux.PaneContentHeight(w.Height),
 		ctx.Sess.paneOutputCallback(),

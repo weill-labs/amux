@@ -327,6 +327,23 @@ func parseWaitArgs(args []string) (afterGen uint64, timeout time.Duration, err e
 	return afterGen, timeout, nil
 }
 
+// parseTimeout extracts --timeout from args starting at the given offset.
+// Returns the parsed duration or the provided default.
+// Used by wait-for, wait-idle, and wait-busy.
+func parseTimeout(args []string, startIdx int, defaultTimeout time.Duration) (time.Duration, error) {
+	for i := startIdx; i < len(args); i++ {
+		if args[i] == "--timeout" && i+1 < len(args) {
+			i++
+			d, err := time.ParseDuration(args[i])
+			if err != nil {
+				return 0, fmt.Errorf("invalid timeout: %s", args[i])
+			}
+			return d, nil
+		}
+	}
+	return defaultTimeout, nil
+}
+
 // parseKey converts a key name to its byte representation.
 // Supports special key names (Enter, Tab, C-x, Escape, etc.)
 // and literal text (sent as-is).
