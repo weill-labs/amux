@@ -332,7 +332,13 @@ func (h *ServerHarness) generation() uint64 {
 // waitLayout blocks until the layout generation exceeds afterGen.
 func (h *ServerHarness) waitLayout(afterGen uint64) {
 	h.tb.Helper()
-	out := h.runCmd("wait-layout", "--after", strconv.FormatUint(afterGen, 10), "--timeout", "5s")
+	h.waitLayoutTimeout(afterGen, "5s")
+}
+
+// waitLayoutTimeout is like waitLayout but with a custom timeout.
+func (h *ServerHarness) waitLayoutTimeout(afterGen uint64, timeout string) {
+	h.tb.Helper()
+	out := h.runCmd("wait-layout", "--after", strconv.FormatUint(afterGen, 10), "--timeout", timeout)
 	if strings.Contains(out, "timeout") {
 		h.tb.Fatalf("wait-layout timed out after generation %d\ncapture:\n%s", afterGen, h.capture())
 	}
