@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   benchmark:
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v6.0.2
         with:
@@ -35,7 +35,7 @@ jobs:
 
       - name: Install tmux
         if: steps.changes.outputs.code_changed == 'true'
-        run: sudo apt-get update && sudo apt-get install -y tmux
+        run: brew install tmux
 
       - name: Install benchstat
         if: steps.changes.outputs.code_changed == 'true'
@@ -47,7 +47,7 @@ jobs:
 
       - name: Integration benchmarks
         if: steps.changes.outputs.code_changed == 'true'
-        run: go test -bench=. -benchmem -count=5 -run='^$' ./test/ -timeout 600s | tee bench-integration.txt
+        run: go test -bench=. -benchmem -count=7 -run='^$' ./test/ -timeout 300s | tee bench-integration.txt
 
       - name: Combine results
         if: steps.changes.outputs.code_changed == 'true'
