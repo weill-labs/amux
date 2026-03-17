@@ -1,4 +1,4 @@
-.PHONY: setup build test bench coverage
+.PHONY: setup build test bench coverage release-dry-run
 
 setup: ## Configure git hooks and install tools
 	git config core.hooksPath .githooks
@@ -15,3 +15,6 @@ bench: ## Run microbenchmarks
 
 coverage: ## Collect merged unit + integration coverage
 	scripts/coverage.sh
+
+release-dry-run: ## Test release build locally (no publish)
+	goreleaser release --snapshot --clean
