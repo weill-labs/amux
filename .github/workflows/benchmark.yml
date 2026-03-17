@@ -84,8 +84,8 @@ jobs:
         if: steps.changes.outputs.code_changed == 'true'
         run: |
           go install go.bobheadxi.dev/gobenchdata@latest
-          # Filter to benchmark lines only — gobenchdata panics on PASS/ok lines
-          grep '^Benchmark' bench-all.txt > bench-filtered.txt || true
+          # Strip PASS/ok/FAIL lines — gobenchdata panics on them but needs the goos/goarch/pkg headers
+          grep -v -E '^(PASS|FAIL|ok\s)' bench-all.txt > bench-filtered.txt || true
           if [ -s bench-filtered.txt ]; then
             gobenchdata merge bench-filtered.txt --json benchmarks.json
           fi
