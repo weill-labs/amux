@@ -359,7 +359,7 @@ func TestGoldenFourPane(t *testing.T) {
 
 	h.splitV()
 	h.splitH()
-	h.runCmd("focus", "pane-1")
+	h.doFocus("pane-1")
 	h.splitH()
 
 	frame := extractFrame(h.capture(), h.session)
