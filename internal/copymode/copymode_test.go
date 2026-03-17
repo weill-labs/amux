@@ -40,6 +40,13 @@ func (e *fakeEmulator) ScrollbackLineText(y int) string {
 	return e.scrollback[y]
 }
 
+func (e *fakeEmulator) ScreenLineText(y int) string {
+	if y < 0 || y >= len(e.screen) {
+		return ""
+	}
+	return e.screen[y]
+}
+
 func TestNewCopyMode(t *testing.T) {
 	emu := newFakeEmulator(80, 24)
 	cm := New(emu, 80, 24)

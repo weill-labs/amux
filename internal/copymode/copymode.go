@@ -11,6 +11,7 @@ type TerminalEmulator interface {
 	Size() (width, height int)
 	ScrollbackLen() int
 	ScrollbackLineText(y int) string // plain text of scrollback line y (0=oldest)
+	ScreenLineText(y int) string     // plain text of screen line y (0=top row)
 }
 
 // Match represents a single search hit in the scrollback/screen buffer.
@@ -271,14 +272,8 @@ func (cm *CopyMode) lineText(absIdx int) string {
 	if absIdx < sbLen {
 		return cm.emu.ScrollbackLineText(absIdx)
 	}
-	// Screen line: parse from Render() output.
 	screenRow := absIdx - sbLen
-	rendered := cm.emu.Render()
-	lines := strings.Split(rendered, "\n")
-	if screenRow < len(lines) {
-		return stripANSI(lines[screenRow])
-	}
-	return ""
+	return cm.emu.ScreenLineText(screenRow)
 }
 
 // runSearch finds all case-insensitive occurrences of searchQuery across

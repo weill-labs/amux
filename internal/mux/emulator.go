@@ -52,6 +52,13 @@ type TerminalEmulator interface {
 	// HasCursorBlock returns true if the screen contains an isolated
 	// reverse-video space cell (an app-rendered block cursor).
 	HasCursorBlock() bool
+
+	// ScreenLineText returns the plain text of screen line y (0=top row).
+	// Continuation cells (Width==0) are skipped, trailing spaces trimmed.
+	ScreenLineText(y int) string
+
+	// ScreenContains returns true if any screen line contains substr.
+	ScreenContains(substr string) bool
 }
 
 // vtEmulator wraps charmbracelet/x/vt.SafeEmulator.
@@ -135,6 +142,48 @@ func (v *vtEmulator) ScrollbackLineText(y int) string {
 		}
 	}
 	return buf.String()
+}
+
+// screenLineTextInner extracts plain text from screen row y across w columns.
+// Skips continuation cells (Width==0) and trims trailing spaces.
+func (v *vtEmulator) screenLineTextInner(w, y int) string {
+	var buf strings.Builder
+	buf.Grow(w)
+	for x := 0; x < w; x++ {
+		cell := v.emu.CellAt(x, y)
+		if cell == nil {
+			buf.WriteByte(' ')
+			continue
+		}
+		if cell.Width == 0 {
+			continue
+		}
+		if cell.Content == "" {
+			buf.WriteByte(' ')
+		} else {
+			buf.WriteString(cell.Content)
+		}
+	}
+	return strings.TrimRight(buf.String(), " ")
+}
+
+func (v *vtEmulator) ScreenLineText(y int) string {
+	v.mu.Lock()
+	w := v.w
+	v.mu.Unlock()
+	return v.screenLineTextInner(w, y)
+}
+
+func (v *vtEmulator) ScreenContains(substr string) bool {
+	v.mu.Lock()
+	w, h := v.w, v.h
+	v.mu.Unlock()
+	for y := 0; y < h; y++ {
+		if strings.Contains(v.screenLineTextInner(w, y), substr) {
+			return true
+		}
+	}
+	return false
 }
 
 // isCursorBlock returns true if the cell at (x, y) is an isolated
@@ -230,16 +279,13 @@ func NewVTEmulatorWithDrain(width, height int) TerminalEmulator {
 	return emu
 }
 
-// EmulatorContentLines returns plain-text screen lines from an emulator,
-// stripping ANSI codes and trailing spaces from each line.
+// EmulatorContentLines returns plain-text screen lines from an emulator
+// by reading the cell grid directly (no ANSI round-trip).
 func EmulatorContentLines(emu TerminalEmulator) []string {
 	_, rows := emu.Size()
-	rendered := emu.Render()
-	all := strings.Split(rendered, "\n")
-
 	result := make([]string, rows)
-	for i := 0; i < rows && i < len(all); i++ {
-		result[i] = StripANSI(strings.TrimRight(all[i], " "))
+	for y := 0; y < rows; y++ {
+		result[y] = emu.ScreenLineText(y)
 	}
 	return result
 }

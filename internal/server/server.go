@@ -911,9 +911,9 @@ func (s *Session) buildPaneEnv(paneID uint32, event hooks.Event) map[string]stri
 	return env
 }
 
-// paneScreenContains checks whether the rendered screen of the given pane
-// contains the substring. Thread-safe: looks up the pane under s.mu, then
-// calls Render() (thread-safe on the emulator) outside the lock.
+// paneScreenContains checks whether the screen of the given pane contains
+// the substring. Thread-safe: looks up the pane under s.mu, then reads the
+// cell grid directly (no ANSI round-trip) outside the lock.
 func (s *Session) paneScreenContains(paneID uint32, substr string) bool {
 	s.mu.Lock()
 	pane := s.findPaneLocked(paneID)
@@ -921,7 +921,7 @@ func (s *Session) paneScreenContains(paneID uint32, substr string) bool {
 	if pane == nil {
 		return false
 	}
-	return strings.Contains(mux.StripANSI(pane.Render()), substr)
+	return pane.ScreenContains(substr)
 }
 
 // waitGeneration blocks until the layout generation exceeds afterGen or
