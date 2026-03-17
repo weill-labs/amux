@@ -223,6 +223,23 @@ func TestServerReloadPreservesGeneration(t *testing.T) {
 	}
 }
 
+func TestServerReloadCaptureRetry(t *testing.T) {
+	t.Parallel()
+	h := newAmuxHarness(t)
+
+	h.runCmd("reload-server")
+
+	// Issue capture immediately — the retry loop should wait for the
+	// client to reconnect rather than returning "no client attached".
+	out := h.runCmd("capture", "--format", "json")
+	if strings.Contains(out, "no client attached") {
+		t.Fatalf("capture should retry after reload, got: %s", out)
+	}
+	if !strings.Contains(out, "pane-1") {
+		t.Errorf("capture JSON should contain pane-1 after reload, got: %s", out)
+	}
+}
+
 func TestServerReloadBorderColors(t *testing.T) {
 	t.Parallel()
 	h := newAmuxHarness(t)
