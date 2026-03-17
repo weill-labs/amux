@@ -2,12 +2,9 @@ package main
 
 import (
 	"fmt"
-	"io"
 	"net"
 	"os"
-	"os/exec"
 	"os/signal"
-	"path/filepath"
 	"runtime/debug"
 	"strconv"
 	"strings"
@@ -15,15 +12,11 @@ import (
 	"time"
 
 	"github.com/weill-labs/amux/internal/checkpoint"
+	"github.com/weill-labs/amux/internal/client"
 	"github.com/weill-labs/amux/internal/config"
-	"github.com/weill-labs/amux/internal/copymode"
-	"github.com/weill-labs/amux/internal/mouse"
 	"github.com/weill-labs/amux/internal/mux"
-	"github.com/weill-labs/amux/internal/proto"
-	"github.com/weill-labs/amux/internal/render"
+	"github.com/weill-labs/amux/internal/reload"
 	"github.com/weill-labs/amux/internal/server"
-
-	"golang.org/x/term"
 )
 
 // sessionName is the global session name, set by -s flag or defaulting to "default".
@@ -62,14 +55,12 @@ func main() {
 	if len(args) == 0 {
 		// Nested detection: if running inside an SSH session (but not
 		// inside a local amux pane on the same host), attempt takeover.
-		// Emit a takeover sequence and wait for the local amux to ack.
 		if os.Getenv("SSH_CONNECTION") != "" && os.Getenv("AMUX_PANE") == "" {
 			if tryTakeover(sessionName) {
 				return // takeover succeeded — managed mode started
 			}
-			// No ack — fall through to normal standalone mode
 		}
-		if err := runMux(sessionName); err != nil {
+		if err := client.RunSession(sessionName); err != nil {
 			fmt.Fprintf(os.Stderr, "amux: %v\n", err)
 			os.Exit(1)
 		}
@@ -97,7 +88,7 @@ func main() {
 		if name == "" {
 			name = sessionName
 		}
-		if err := runMux(name); err != nil {
+		if err := client.RunSession(name); err != nil {
 			fmt.Fprintf(os.Stderr, "amux: %v\n", err)
 			os.Exit(1)
 		}
@@ -107,7 +98,7 @@ func main() {
 		if len(args) > 1 {
 			name = args[1]
 		}
-		if err := runMux(name); err != nil {
+		if err := client.RunSession(name); err != nil {
 			fmt.Fprintf(os.Stderr, "amux: %v\n", err)
 			os.Exit(1)
 		}
@@ -425,9 +416,9 @@ func runServer(sessionName string) {
 	os.Unsetenv("AMUX_NO_WATCH")
 
 	triggerReload := make(chan struct{}, 1)
-	execPath, execErr := resolveExecutable()
+	execPath, execErr := reload.ResolveExecutable()
 	if execErr == nil && !noWatch {
-		go watchBinary(execPath, triggerReload)
+		go reload.WatchBinary(execPath, triggerReload)
 		go func() {
 			for range triggerReload {
 				if reloadErr := s.Reload(execPath); reloadErr != nil {
@@ -444,562 +435,6 @@ func runServer(sessionName string) {
 			os.Exit(1)
 		}
 	}
-}
-
-// ---------------------------------------------------------------------------
-// Built-in multiplexer: client
-// ---------------------------------------------------------------------------
-
-// runMux connects to an existing server or starts one, then enters raw
-// terminal mode for interactive use.
-func runMux(sessionName string) error {
-	// Load config for keybindings
-	cfg, err := config.Load(config.DefaultPath())
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "amux: loading config: %v\n", err)
-		cfg = &config.Config{}
-	}
-	kb, err := config.BuildKeybindings(&cfg.Keys)
-	if err != nil {
-		return fmt.Errorf("invalid keybindings: %w", err)
-	}
-
-	sockPath := server.SocketPath(sessionName)
-
-	// Start server daemon if no socket exists
-	if !socketAlive(sockPath) {
-		if err := startServerDaemon(sessionName); err != nil {
-			return fmt.Errorf("starting server: %w", err)
-		}
-		// Wait for socket to appear
-		if err := waitForSocket(sockPath, 5*time.Second); err != nil {
-			return err
-		}
-	}
-
-	conn, err := net.Dial("unix", sockPath)
-	if err != nil {
-		return fmt.Errorf("connecting to server: %w", err)
-	}
-	defer conn.Close()
-
-	fd := int(os.Stdin.Fd())
-	cols, rows, _ := term.GetSize(fd)
-	if cols <= 0 {
-		cols = server.DefaultTermCols
-	}
-	if rows <= 0 {
-		rows = server.DefaultTermRows
-	}
-
-	// Send attach
-	if err := server.WriteMsg(conn, &server.Message{
-		Type:    server.MsgTypeAttach,
-		Session: sessionName,
-		Cols:    cols,
-		Rows:    rows,
-	}); err != nil {
-		return fmt.Errorf("sending attach: %w", err)
-	}
-
-	// Enter raw mode + alternate screen buffer
-	oldState, err := term.MakeRaw(fd)
-	if err != nil {
-		return fmt.Errorf("raw mode: %w", err)
-	}
-	os.Stdout.Write([]byte(render.AltScreenEnter))
-	os.Stdout.Write([]byte(render.MouseEnable))
-	defer func() {
-		os.Stdout.Write([]byte(render.MouseDisable))
-		os.Stdout.Write([]byte(render.AltScreenExit))
-		os.Stdout.Write([]byte(render.ResetTitle))
-		term.Restore(fd, oldState)
-	}()
-
-	// Client-side renderer with per-pane emulators
-	cr := NewClientRenderer(cols, rows)
-
-	// Hot reload: resolve binary path once, start file watcher.
-	// AMUX_NO_WATCH=1 disables watching (used by test harness for the outer
-	// client so only the inner client responds to binary changes).
-	triggerReload := make(chan struct{}, 1)
-	execPath, execErr := resolveExecutable()
-	if execErr == nil && os.Getenv("AMUX_NO_WATCH") != "1" {
-		go watchBinary(execPath, triggerReload)
-	}
-
-	// Forward SIGWINCH to server and update client renderer
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGWINCH)
-	go func() {
-		for range sigCh {
-			c, r, _ := term.GetSize(fd)
-			if c > 0 && r > 0 {
-				cr.Resize(c, r)
-				server.WriteMsg(conn, &server.Message{
-					Type: server.MsgTypeResize,
-					Cols: c,
-					Rows: r,
-				})
-			}
-		}
-	}()
-
-	// Server → client renderer → stdout
-	// Messages are dispatched to a coalescing render loop that caps at ~60fps.
-	done := make(chan struct{})
-	msgCh := make(chan *renderMsg, 256)
-
-	// Read server messages and dispatch to render loop
-	go func() {
-		defer close(msgCh)
-		for {
-			msg, err := server.ReadMsg(conn)
-			if err != nil {
-				return
-			}
-			switch msg.Type {
-			case server.MsgTypeLayout:
-				msgCh <- &renderMsg{typ: renderMsgLayout, layout: msg.Layout}
-			case server.MsgTypePaneOutput:
-				msgCh <- &renderMsg{typ: renderMsgPaneOutput, paneID: msg.PaneID, data: msg.PaneData}
-			case server.MsgTypeCopyMode:
-				msgCh <- &renderMsg{typ: renderMsgCopyMode, paneID: msg.PaneID}
-			case server.MsgTypeExit:
-				msgCh <- &renderMsg{typ: renderMsgExit}
-				return
-			case server.MsgTypeBell:
-				msgCh <- &renderMsg{typ: renderMsgBell}
-			case server.MsgTypeClipboard:
-				msgCh <- &renderMsg{typ: renderMsgClipboard, data: msg.PaneData}
-			case server.MsgTypeCaptureRequest:
-				// Server is forwarding a capture request — render from
-				// client-side emulators and send the result back.
-				resp := handleCaptureRequest(cr, msg.CmdArgs, msg.AgentStatus)
-				server.WriteMsg(conn, resp)
-			case server.MsgTypeServerReload:
-				// Server is reloading — re-exec ourselves to reconnect
-				select {
-				case triggerReload <- struct{}{}:
-				default:
-				}
-				return
-			}
-		}
-	}()
-
-	// Coalescing render loop
-	go func() {
-		defer close(done)
-		cr.renderCoalesced(msgCh, func(data string) {
-			io.WriteString(os.Stdout, data)
-		})
-	}()
-
-	// Terminal → server: read input with mouse parsing + Ctrl-a prefix handling
-	go func() {
-		buf := make([]byte, 4096)
-		prefix := false
-		prefixEsc := false      // true after Ctrl-a then \x1b
-		var prefixEscBuf []byte  // buffered bytes after the \x1b
-		altEsc := false          // true after bare \x1b (for alt+hjkl)
-		mouseParser := &mouse.Parser{}
-
-		// Mouse drag state — caches border direction from initial press
-		var drag dragState
-
-		// arrowDirection maps CSI final bytes to focus directions.
-		arrowDirection := map[byte]string{
-			'A': "up", 'B': "down", 'C': "right", 'D': "left",
-		}
-
-		// altHJKL maps alt+key bytes to focus directions.
-		altHJKL := map[byte]string{
-			'h': "left", 'j': "down", 'k': "up", 'l': "right",
-		}
-
-		// flushPrefixEsc forwards the buffered prefix+escape bytes as literal input.
-		flushPrefixEsc := func(forward *[]byte) {
-			prefixEsc = false
-			*forward = append(*forward, 0x01, 0x1b)
-			*forward = append(*forward, prefixEscBuf...)
-			prefixEscBuf = nil
-		}
-
-		// Repeat key state — allows navigation/resize keys to repeat
-		// without re-pressing the prefix, matching tmux's -r behavior.
-		// Uses a deadline instead of a timer to avoid goroutine races.
-		const repeatTimeout = 500 * time.Millisecond
-		var repeatKey byte
-		var repeatDeadline time.Time
-
-		// isRepeatableKey returns true for keys that can repeat without prefix.
-		isRepeatableKey := func(b byte) bool {
-			if binding, ok := kb.Bindings[b]; ok {
-				switch binding.Action {
-				case "focus", "resize-active":
-					return true
-				}
-			}
-			return false
-		}
-
-		// execPrefixKey executes a prefix keybinding via the config-driven
-		// dispatch table. Returns true if the goroutine should exit (detach).
-		execPrefixKey := func(b byte, forward *[]byte) bool {
-			// Pressing the prefix key again sends the literal prefix byte
-			if b == kb.Prefix {
-				*forward = append(*forward, kb.Prefix)
-				return false
-			}
-
-			// Look up binding in dispatch table
-			if binding, ok := kb.Bindings[b]; ok {
-				switch binding.Action {
-				case "detach":
-					if len(*forward) > 0 {
-						server.WriteMsg(conn, &server.Message{
-							Type: server.MsgTypeInput, Input: *forward,
-						})
-					}
-					server.WriteMsg(conn, &server.Message{Type: server.MsgTypeDetach})
-					conn.Close()
-					return true
-				case "reload":
-					if len(*forward) > 0 {
-						server.WriteMsg(conn, &server.Message{
-							Type: server.MsgTypeInput, Input: *forward,
-						})
-						*forward = nil
-					}
-					select {
-					case triggerReload <- struct{}{}:
-					default:
-					}
-				case "copy-mode":
-					cr.EnterCopyMode(cr.ActivePaneID())
-					if data := cr.Render(); data != "" {
-						io.WriteString(os.Stdout, data)
-					}
-				default:
-					// Generic server command
-					sendCommand(conn, binding.Action, binding.Args)
-				}
-			} else if b == 0x1b {
-				prefixEsc = true
-				prefixEscBuf = nil
-			} else {
-				// Unrecognized key after prefix: forward prefix + byte
-				*forward = append(*forward, kb.Prefix, b)
-			}
-			return false
-		}
-
-		// processKeyByte handles a single non-mouse byte through the
-		// Ctrl-a prefix system. Returns true if the goroutine should exit.
-		processKeyByte := func(b byte, forward *[]byte) bool {
-			// Handle alt+hjkl: after a bare \x1b, check if next byte is h/j/k/l.
-			if altEsc {
-				altEsc = false
-				if dir, ok := altHJKL[b]; ok {
-					sendCommand(conn, "focus", []string{dir})
-					return false
-				}
-				// Not alt+hjkl — forward the \x1b and process this byte normally.
-				*forward = append(*forward, 0x1b)
-				// Fall through to handle b via the rest of processKeyByte.
-			}
-
-			// Handle escape sequence buffering for prefix + arrow keys.
-			// After Ctrl-a \x1b, we buffer bytes looking for CSI arrow: \x1b[A/B/C/D.
-			if prefixEsc {
-				prefixEscBuf = append(prefixEscBuf, b)
-				if len(prefixEscBuf) == 1 && b == '[' {
-					return false // waiting for direction byte
-				}
-				if len(prefixEscBuf) == 2 && prefixEscBuf[0] == '[' {
-					if dir, ok := arrowDirection[b]; ok {
-						prefixEsc = false
-						prefixEscBuf = nil
-						sendCommand(conn, "focus", []string{dir})
-					} else {
-						flushPrefixEsc(forward)
-					}
-					return false
-				}
-				flushPrefixEsc(forward)
-				return false
-			}
-
-			// Repeat mode: any repeatable key executes without prefix while
-			// the deadline hasn't expired. Matches tmux behavior where all
-			// repeatable bindings stay active, not just the original key.
-			if repeatKey != 0 {
-				if isRepeatableKey(b) && time.Now().Before(repeatDeadline) {
-					repeatKey = b
-					repeatDeadline = time.Now().Add(repeatTimeout)
-					return execPrefixKey(b, forward)
-				}
-				repeatKey = 0
-			}
-
-			if prefix {
-				prefix = false
-				if isRepeatableKey(b) {
-					repeatKey = b
-					repeatDeadline = time.Now().Add(repeatTimeout)
-				}
-				return execPrefixKey(b, forward)
-			}
-
-			if b == kb.Prefix {
-				if len(*forward) > 0 {
-					server.WriteMsg(conn, &server.Message{
-						Type: server.MsgTypeInput, Input: *forward,
-					})
-					*forward = nil
-				}
-				prefix = true
-				return false
-			}
-
-			if b == 0x1b {
-				altEsc = true
-				return false
-			}
-
-			*forward = append(*forward, b)
-			return false
-		}
-
-		for {
-			n, err := os.Stdin.Read(buf)
-			if err != nil {
-				return
-			}
-
-			// If the active pane is in copy mode, route input there
-			if cm := cr.ActiveCopyMode(); cm != nil {
-				action := cm.HandleInput(buf[:n])
-				paneID := cr.ActivePaneID()
-				switch action {
-				case copymode.ActionNone:
-					continue
-				case copymode.ActionExit:
-					cr.ExitCopyMode(paneID)
-				case copymode.ActionYank:
-					if text := cm.SelectedText(); text != "" {
-						copyToClipboard(text)
-					}
-					cr.ExitCopyMode(paneID)
-				}
-				if data := cr.Render(); data != "" {
-					io.WriteString(os.Stdout, data)
-				}
-				continue
-			}
-
-			var forward []byte
-			shouldExit := false
-
-			for i := 0; i < n && !shouldExit; i++ {
-				ev, isMouse, flushed := mouseParser.Feed(buf[i])
-
-				if isMouse {
-					// Flush any accumulated forward bytes before handling mouse
-					if len(forward) > 0 {
-						server.WriteMsg(conn, &server.Message{
-							Type: server.MsgTypeInput, Input: forward,
-						})
-						forward = nil
-					}
-					handleMouseEvent(ev, cr, conn, &drag)
-					continue
-				}
-
-				// Process flushed bytes (normal input that passed through parser)
-				for _, fb := range flushed {
-					if processKeyByte(fb, &forward) {
-						shouldExit = true
-						break
-					}
-				}
-			}
-
-			if shouldExit {
-				return
-			}
-
-			if len(forward) > 0 {
-				server.WriteMsg(conn, &server.Message{
-					Type: server.MsgTypeInput, Input: forward,
-				})
-			}
-		}
-	}()
-
-	// Wait for session end or hot reload trigger
-	select {
-	case <-done:
-		return nil
-	case <-triggerReload:
-		if execPath != "" {
-			execSelf(execPath, conn, fd, oldState)
-		}
-		// execSelf replaces the process; if we get here, exec failed fatally
-		return nil
-	}
-}
-
-// copyToClipboard copies text to the system clipboard.
-func copyToClipboard(text string) {
-	// Try pbcopy (macOS), then xclip (Linux), then xsel (Linux)
-	for _, cmd := range [][]string{
-		{"pbcopy"},
-		{"xclip", "-selection", "clipboard"},
-		{"xsel", "--clipboard", "--input"},
-	} {
-		c := exec.Command(cmd[0], cmd[1:]...)
-		c.Stdin = strings.NewReader(text)
-		if c.Run() == nil {
-			return
-		}
-	}
-}
-
-// sendCommand sends a command to the server (non-blocking, ignores response).
-func sendCommand(conn net.Conn, name string, args []string) {
-	server.WriteMsg(conn, &server.Message{
-		Type:    server.MsgTypeCommand,
-		CmdName: name,
-		CmdArgs: args,
-	})
-}
-
-// handleMouseEvent dispatches a parsed mouse event to the appropriate action:
-// click-to-focus, border drag, or scroll wheel.
-func handleMouseEvent(ev mouse.Event, cr *ClientRenderer, conn net.Conn, drag *dragState) {
-	layout := cr.Layout()
-
-	if layout == nil {
-		return
-	}
-
-	switch {
-	case ev.Action == mouse.Press && ev.Button == mouse.ButtonLeft:
-		// Check if clicking on a border (start drag) or a pane (focus)
-		if hit := layout.FindBorderAt(ev.X, ev.Y); hit != nil {
-			drag.active = true
-			drag.borderX = ev.X
-			drag.borderY = ev.Y
-			drag.borderDir = hit.Dir
-		} else if cell := layout.FindLeafAt(ev.X, ev.Y); cell != nil {
-			paneID := cell.CellPaneID()
-			alreadyActive := paneID == cr.ActivePaneID()
-			if !alreadyActive {
-				sendCommand(conn, "focus", []string{fmt.Sprintf("%d", paneID)})
-			}
-		}
-
-	case ev.Action == mouse.Motion && drag.active:
-		dx := ev.X - ev.LastX
-		dy := ev.Y - ev.LastY
-		delta := dx
-		if drag.borderDir == mux.SplitVertical {
-			delta = dy
-		}
-		if delta != 0 {
-			sendCommand(conn, "resize-border", []string{
-				fmt.Sprintf("%d", drag.borderX),
-				fmt.Sprintf("%d", drag.borderY),
-				fmt.Sprintf("%d", delta),
-			})
-			if drag.borderDir == mux.SplitHorizontal {
-				drag.borderX += dx
-			} else {
-				drag.borderY += dy
-			}
-		}
-
-	case ev.Action == mouse.Release:
-		drag.active = false
-
-	case ev.Button == mouse.ScrollUp:
-		// Scroll wheel sends arrow keys to the active pane
-		server.WriteMsg(conn, &server.Message{
-			Type: server.MsgTypeInput, Input: []byte("\033[A\033[A\033[A"),
-		})
-	case ev.Button == mouse.ScrollDown:
-		server.WriteMsg(conn, &server.Message{
-			Type: server.MsgTypeInput, Input: []byte("\033[B\033[B\033[B"),
-		})
-	}
-}
-
-// dragState tracks an in-progress border drag. The border direction is
-// cached from the initial press so motion events don't need to re-query
-// the layout (which may be stale during fast drags).
-type dragState struct {
-	active    bool
-	borderX   int
-	borderY   int
-	borderDir mux.SplitDir
-}
-
-// startServerDaemon launches the server as a background daemon.
-func startServerDaemon(sessionName string) error {
-	exe, err := os.Executable()
-	if err != nil {
-		return err
-	}
-
-	logDir := server.SocketDir()
-	os.MkdirAll(logDir, 0700)
-	logPath := filepath.Join(logDir, sessionName+".log")
-	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
-	if err != nil {
-		return fmt.Errorf("opening log: %w", err)
-	}
-
-	cmd := exec.Command(exe, "_server", sessionName)
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		Setsid: true, // Detach from controlling terminal
-	}
-	cmd.Stdout = logFile
-	cmd.Stderr = logFile
-	cmd.Stdin = nil
-
-	if err := cmd.Start(); err != nil {
-		logFile.Close()
-		return err
-	}
-	logFile.Close()
-
-	// Release the child process so it runs independently
-	cmd.Process.Release()
-	return nil
-}
-
-// socketAlive checks if a socket exists and a server is listening on it.
-func socketAlive(sockPath string) bool {
-	conn, err := net.Dial("unix", sockPath)
-	if err != nil {
-		return false
-	}
-	conn.Close()
-	return true
-}
-
-// waitForSocket polls until the socket becomes available.
-func waitForSocket(sockPath string, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		if socketAlive(sockPath) {
-			return nil
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	return fmt.Errorf("server did not start within %v", timeout)
 }
 
 // ---------------------------------------------------------------------------
@@ -1071,12 +506,6 @@ func runServerCommand(cmdName string, args []string) {
 	fmt.Print(reply.CmdOutput)
 }
 
-// handleCaptureRequest processes a capture request forwarded from the server.
-// It renders from the client-side emulators and returns a response message.
-func handleCaptureRequest(cr *ClientRenderer, args []string, agentStatus map[uint32]proto.PaneAgentStatus) *server.Message {
-	return cr.renderer.HandleCaptureRequest(args, agentStatus)
-}
-
 // tryTakeover attempts an SSH session takeover. It emits a takeover sequence
 // to stdout and waits up to 2 seconds for an ack from a local amux on stdin.
 // If acked, it starts the server in managed mode (no TUI) and returns true.
@@ -1084,25 +513,15 @@ func handleCaptureRequest(cr *ClientRenderer, args []string, agentStatus map[uin
 func tryTakeover(sessionName string) bool {
 	hostname, _ := os.Hostname()
 
-	// Build the takeover request. We don't know our pane layout yet
-	// (the server hasn't started), so emit a minimal request with
-	// host info. The local amux will query our panes after connecting.
 	req := mux.TakeoverRequest{
 		Session: sessionName + "@" + hostname,
 		Host:    hostname,
 		UID:     fmt.Sprintf("%d", os.Getuid()),
-		Panes:   []mux.TakeoverPane{}, // empty — local will query after connect
+		Panes:   []mux.TakeoverPane{},
 	}
 
-	// Emit the takeover sequence to stdout (flows through SSH PTY to local amux)
 	os.Stdout.Write(mux.FormatTakeoverSequence(req))
 
-	// Wait for ack on stdin with 2s timeout.
-	// os.Stdin doesn't support SetReadDeadline, so use a goroutine + timer.
-	// On timeout, the goroutine remains blocked on Read until stdin receives
-	// any input (which happens immediately when runMux takes over the
-	// terminal). The buffered channel prevents the goroutine from blocking
-	// permanently after it completes.
 	type readResult struct {
 		data []byte
 		err  error
@@ -1126,7 +545,6 @@ func tryTakeover(sessionName string) bool {
 		return false
 	}
 
-	// Takeover acked — start server in managed mode (no TUI client)
 	fmt.Fprintf(os.Stderr, "amux: takeover acked, entering managed mode\n")
 	runServer(req.Session)
 	return true

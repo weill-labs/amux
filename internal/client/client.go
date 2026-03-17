@@ -1,10 +1,9 @@
-package main
+package client
 
 import (
 	"sync"
 	"time"
 
-	"github.com/weill-labs/amux/internal/client"
 	"github.com/weill-labs/amux/internal/copymode"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
@@ -15,7 +14,7 @@ import (
 // Renderer (which handles emulators, layout, and capture) and adds copy mode,
 // dirty tracking, and the coalesced render loop.
 type ClientRenderer struct {
-	renderer *client.Renderer
+	renderer *Renderer
 
 	mu        sync.Mutex
 	dirty     bool
@@ -25,7 +24,7 @@ type ClientRenderer struct {
 // NewClientRenderer creates a client renderer for the given terminal dimensions.
 func NewClientRenderer(width, height int) *ClientRenderer {
 	cr := &ClientRenderer{
-		renderer:  client.New(width, height),
+		renderer:  New(width, height),
 		copyModes: make(map[uint32]*copymode.CopyMode),
 	}
 	// Resize copy modes when the renderer resizes emulators during layout.
@@ -130,10 +129,30 @@ func (cr *ClientRenderer) Layout() *mux.LayoutCell {
 	return cr.renderer.Layout()
 }
 
-// renderCoalesced runs a select loop that reads messages from msgCh,
+// RenderMsgType is the type tag for internal render messages.
+type RenderMsgType int
+
+const (
+	RenderMsgLayout     RenderMsgType = iota
+	RenderMsgPaneOutput
+	RenderMsgBell
+	RenderMsgClipboard
+	RenderMsgExit
+	RenderMsgCopyMode
+)
+
+// RenderMsg is an internal message type for the render coalescing loop.
+type RenderMsg struct {
+	Typ    RenderMsgType
+	Layout *proto.LayoutSnapshot
+	PaneID uint32
+	Data   []byte
+}
+
+// RenderCoalesced runs a select loop that reads messages from msgCh,
 // updates the client renderer, and coalesces renders at ~60fps.
 // Layout changes render immediately; pane output is debounced.
-func (cr *ClientRenderer) renderCoalesced(msgCh <-chan *renderMsg, write func(string)) {
+func (cr *ClientRenderer) RenderCoalesced(msgCh <-chan *RenderMsg, write func(string)) {
 	var renderTimer *time.Timer
 	var renderC <-chan time.Time
 
@@ -158,28 +177,28 @@ func (cr *ClientRenderer) renderCoalesced(msgCh <-chan *renderMsg, write func(st
 			if !ok {
 				return
 			}
-			switch msg.typ {
-			case renderMsgLayout:
-				cr.HandleLayout(msg.layout)
+			switch msg.Typ {
+			case RenderMsgLayout:
+				cr.HandleLayout(msg.Layout)
 				// Layout changes render immediately
 				if renderTimer != nil {
 					renderTimer.Stop()
 				}
 				doRender()
-			case renderMsgPaneOutput:
-				cr.HandlePaneOutput(msg.paneID, msg.data)
+			case RenderMsgPaneOutput:
+				cr.HandlePaneOutput(msg.PaneID, msg.Data)
 				scheduleRender()
-			case renderMsgCopyMode:
-				cr.EnterCopyMode(msg.paneID)
+			case RenderMsgCopyMode:
+				cr.EnterCopyMode(msg.PaneID)
 				if renderTimer != nil {
 					renderTimer.Stop()
 				}
 				doRender()
-			case renderMsgBell:
+			case RenderMsgBell:
 				write("\x07")
-			case renderMsgClipboard:
-				write(string(msg.data))
-			case renderMsgExit:
+			case RenderMsgClipboard:
+				write(string(msg.Data))
+			case RenderMsgExit:
 				// Final render before exit
 				if cr.IsDirty() {
 					doRender()
@@ -190,25 +209,6 @@ func (cr *ClientRenderer) renderCoalesced(msgCh <-chan *renderMsg, write func(st
 			doRender()
 		}
 	}
-}
-
-// renderMsg is an internal message type for the render coalescing loop.
-type renderMsgType int
-
-const (
-	renderMsgLayout     renderMsgType = iota
-	renderMsgPaneOutput
-	renderMsgBell
-	renderMsgClipboard
-	renderMsgExit
-	renderMsgCopyMode
-)
-
-type renderMsg struct {
-	typ    renderMsgType
-	layout *proto.LayoutSnapshot
-	paneID uint32
-	data   []byte
 }
 
 // EnterCopyMode enters copy mode for the given pane. Thread-safe.
@@ -241,6 +241,12 @@ func (cr *ClientRenderer) ActiveCopyMode() *copymode.CopyMode {
 	cr.mu.Lock()
 	defer cr.mu.Unlock()
 	return cr.copyModes[activePaneID]
+}
+
+// HandleCaptureRequest processes a capture request forwarded from the server.
+// It renders from the client-side emulators and returns a response message.
+func (cr *ClientRenderer) HandleCaptureRequest(args []string, agentStatus map[uint32]proto.PaneAgentStatus) *proto.Message {
+	return cr.renderer.HandleCaptureRequest(args, agentStatus)
 }
 
 // clientPaneData adapts an emulator + snapshot metadata for the PaneData interface.
