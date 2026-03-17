@@ -126,7 +126,7 @@ func newServerHarnessWithConfig(tb testing.TB, configContent string) *ServerHarn
 	// Attach a headless client — seeds the first pane and stays connected
 	// so capture requests route through client-side emulators.
 	sockPath := server.SocketPath(session)
-	client, err := newHeadlessClient(sockPath, session, cols, rows)
+	client, err := newHeadlessClient(sockPath, session, 80, 24)
 	if err != nil {
 		cmd.Process.Kill()
 		tb.Fatalf("attaching headless client: %v", err)
