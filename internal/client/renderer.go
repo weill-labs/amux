@@ -251,7 +251,7 @@ func (r *Renderer) CaptureJSON(agentStatus map[uint32]proto.PaneAgentStatus) str
 	capture := proto.CaptureJSON{
 		Session: r.sessionName,
 		Width:   r.width,
-		Height:  r.compositor.LayoutHeight(),
+		Height:  r.height,
 	}
 	for _, ws := range r.windows {
 		if ws.ID == r.activeWinID {
