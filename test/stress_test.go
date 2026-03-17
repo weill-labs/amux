@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -106,9 +107,9 @@ func TestStressRapidSplits(t *testing.T) {
 	// All panes should be renderable with status lines
 	screen := h.capture()
 	for i := 1; i <= 8; i++ {
-		name := fmt.Sprintf("pane-%d", i)
-		if !strings.Contains(screen, fmt.Sprintf("[%s]", name)) {
-			t.Errorf("%s status line not found in capture", name)
+		label := fmt.Sprintf("[pane-%d]", i)
+		if !strings.Contains(screen, label) {
+			t.Errorf("pane-%d status line not found in capture", i)
 		}
 	}
 }
@@ -316,43 +317,24 @@ func TestStressWindowNextPrev(t *testing.T) {
 	h.runCmd("new-window", "--name", "win3")
 	h.waitLayout(gen)
 
-	// Currently on window 3. prev → 2 → 1
-	gen = h.generation()
-	h.runCmd("prev-window")
-	h.waitLayout(gen)
+	// selectWindow runs a window navigation command and asserts the active window marker.
+	selectWindow := func(cmd, wantMarker string) {
+		t.Helper()
+		gen = h.generation()
+		h.runCmd(cmd)
+		h.waitLayout(gen)
 
-	lw := h.runCmd("list-windows")
-	if !strings.Contains(lw, "*2:") {
-		t.Errorf("prev-window should move to window 2, got:\n%s", lw)
+		lw := h.runCmd("list-windows")
+		if !strings.Contains(lw, wantMarker) {
+			t.Errorf("%s should show %s active, got:\n%s", cmd, wantMarker, lw)
+		}
 	}
 
-	gen = h.generation()
-	h.runCmd("prev-window")
-	h.waitLayout(gen)
-
-	lw = h.runCmd("list-windows")
-	if !strings.Contains(lw, "*1:") {
-		t.Errorf("prev-window should move to window 1, got:\n%s", lw)
-	}
-
-	// next → 2 → 3
-	gen = h.generation()
-	h.runCmd("next-window")
-	h.waitLayout(gen)
-
-	lw = h.runCmd("list-windows")
-	if !strings.Contains(lw, "*2:") {
-		t.Errorf("next-window should move to window 2, got:\n%s", lw)
-	}
-
-	gen = h.generation()
-	h.runCmd("next-window")
-	h.waitLayout(gen)
-
-	lw = h.runCmd("list-windows")
-	if !strings.Contains(lw, "*3:") {
-		t.Errorf("next-window should move to window 3, got:\n%s", lw)
-	}
+	// Currently on window 3. prev → 2 → 1, then next → 2 → 3
+	selectWindow("prev-window", "*2:")
+	selectWindow("prev-window", "*1:")
+	selectWindow("next-window", "*2:")
+	selectWindow("next-window", "*3:")
 }
 
 func TestStressCrossWindowIsolation(t *testing.T) {
@@ -403,24 +385,15 @@ func TestStressSpawnWithColor(t *testing.T) {
 	}
 
 	c := h.captureJSON()
-	found := false
-	for _, p := range c.Panes {
-		if p.Name == "my-agent" {
-			found = true
-			if p.Task != "LAB-100" {
-				t.Errorf("task should be LAB-100, got %q", p.Task)
-			}
-			if p.Color != "f38ba8" {
-				t.Errorf("color should be f38ba8, got %q", p.Color)
-			}
-			break
-		}
+	p := h.jsonPane(c, "my-agent")
+	if p.Task != "LAB-100" {
+		t.Errorf("task should be LAB-100, got %q", p.Task)
 	}
-	if !found {
-		t.Error("my-agent not found in JSON capture")
+	if p.Color != "f38ba8" {
+		t.Errorf("color should be f38ba8, got %q", p.Color)
 	}
 
-	// Verify the name shows in list output
+	// Verify the name and task show in list output
 	list := h.runCmd("list")
 	if !strings.Contains(list, "my-agent") {
 		t.Errorf("list should show my-agent, got:\n%s", list)
@@ -441,16 +414,10 @@ func TestStressContentPreservationZoom(t *testing.T) {
 	h.splitV()
 
 	// Put identifiable content in pane-1
-	h.runCmd("focus", "pane-1")
 	h.sendKeys("pane-1", "echo ZOOM_PRESERVE_MARKER", "Enter")
 	h.waitFor("pane-1", "ZOOM_PRESERVE_MARKER")
 
-	before := h.runCmd("capture", "pane-1")
-	if !strings.Contains(before, "ZOOM_PRESERVE_MARKER") {
-		t.Fatalf("marker should be visible before zoom, got:\n%s", before)
-	}
-
-	// Zoom → unzoom
+	// Zoom then unzoom
 	h.runCmd("zoom", "pane-1")
 	h.runCmd("zoom", "pane-1")
 
@@ -518,7 +485,7 @@ func TestStressResizeWindow(t *testing.T) {
 	}
 
 	// Resize back to original
-	h.runCmd("resize-window", fmt.Sprintf("%d", initialW), fmt.Sprintf("%d", initialH))
+	h.runCmd("resize-window", strconv.Itoa(initialW), strconv.Itoa(initialH))
 
 	c = h.captureJSON()
 	if c.Width != initialW {
@@ -568,7 +535,7 @@ func TestStressWaitLayoutTimeout(t *testing.T) {
 
 	// Wait for a generation far in the future — should timeout
 	futureGen := h.generation() + 1000
-	out := h.runCmd("wait-layout", "--after", fmt.Sprintf("%d", futureGen), "--timeout", "1s")
+	out := h.runCmd("wait-layout", "--after", strconv.FormatUint(futureGen, 10), "--timeout", "1s")
 	if !strings.Contains(out, "timeout") {
 		t.Errorf("wait-layout for future generation should timeout, got:\n%s", out)
 	}
@@ -685,49 +652,35 @@ func TestStressKeybindingSplits(t *testing.T) {
 	t.Parallel()
 	h := newAmuxHarness(t)
 
-	// Ctrl-a \ → vertical split
-	gen := h.generation()
-	h.sendKeys("C-a", "\\")
-	h.waitLayout(gen)
-
-	c := h.captureJSON()
-	if len(c.Panes) != 2 {
-		t.Fatalf("Ctrl-a \\ should split: expected 2 panes, got %d", len(c.Panes))
+	splits := []struct {
+		key       string
+		wantPanes int
+		desc      string
+	}{
+		{`\`, 2, "vertical split"},
+		{"-", 3, "horizontal split"},
+		{"|", 4, "root vertical split"},
+		{"_", 5, "root horizontal split"},
 	}
+
+	for _, tt := range splits {
+		gen := h.generation()
+		h.sendKeys("C-a", tt.key)
+		h.waitLayout(gen)
+
+		c := h.captureJSON()
+		if len(c.Panes) != tt.wantPanes {
+			t.Fatalf("Ctrl-a %s (%s): expected %d panes, got %d",
+				tt.key, tt.desc, tt.wantPanes, len(c.Panes))
+		}
+	}
+
+	// Verify the first split created a vertical layout (left|right)
+	c := h.captureJSON()
 	p1 := h.jsonPane(c, "pane-1")
 	p2 := h.jsonPane(c, "pane-2")
 	if p1.Position.X >= p2.Position.X {
 		t.Error("Ctrl-a \\ should create vertical split (left|right)")
-	}
-
-	// Ctrl-a - → horizontal split
-	gen = h.generation()
-	h.sendKeys("C-a", "-")
-	h.waitLayout(gen)
-
-	c = h.captureJSON()
-	if len(c.Panes) != 3 {
-		t.Fatalf("Ctrl-a - should split: expected 3 panes, got %d", len(c.Panes))
-	}
-
-	// Ctrl-a | → root vertical split
-	gen = h.generation()
-	h.sendKeys("C-a", "|")
-	h.waitLayout(gen)
-
-	c = h.captureJSON()
-	if len(c.Panes) != 4 {
-		t.Fatalf("Ctrl-a | should root split: expected 4 panes, got %d", len(c.Panes))
-	}
-
-	// Ctrl-a _ → root horizontal split
-	gen = h.generation()
-	h.sendKeys("C-a", "_")
-	h.waitLayout(gen)
-
-	c = h.captureJSON()
-	if len(c.Panes) != 5 {
-		t.Fatalf("Ctrl-a _ should root split: expected 5 panes, got %d", len(c.Panes))
 	}
 }
 
@@ -771,50 +724,27 @@ func TestStressKeybindingWindowOps(t *testing.T) {
 	t.Parallel()
 	h := newAmuxHarness(t)
 
-	// Ctrl-a c → new window
-	gen := h.generation()
-	h.sendKeys("C-a", "c")
-	h.waitLayout(gen)
+	// sendKeyAndCheck sends a keybinding and verifies the expected window marker.
+	sendKeyAndCheck := func(key, desc, wantMarker string) {
+		t.Helper()
+		gen := h.generation()
+		h.sendKeys("C-a", key)
+		h.waitLayout(gen)
 
-	lw := h.runCmd("list-windows")
-	if !strings.Contains(lw, "2:") {
-		t.Errorf("Ctrl-a c should create window 2, got:\n%s", lw)
+		lw := h.runCmd("list-windows")
+		if !strings.Contains(lw, wantMarker) {
+			t.Errorf("Ctrl-a %s (%s) should show %s, got:\n%s", key, desc, wantMarker, lw)
+		}
 	}
 
-	// Create a third window
-	gen = h.generation()
-	h.sendKeys("C-a", "c")
-	h.waitLayout(gen)
+	// Create windows 2 and 3
+	sendKeyAndCheck("c", "new window", "2:")
+	sendKeyAndCheck("c", "new window", "3:")
 
-	// Ctrl-a p → previous window
-	gen = h.generation()
-	h.sendKeys("C-a", "p")
-	h.waitLayout(gen)
-
-	lw = h.runCmd("list-windows")
-	if !strings.Contains(lw, "*2:") {
-		t.Errorf("Ctrl-a p should move to window 2, got:\n%s", lw)
-	}
-
-	// Ctrl-a n → next window
-	gen = h.generation()
-	h.sendKeys("C-a", "n")
-	h.waitLayout(gen)
-
-	lw = h.runCmd("list-windows")
-	if !strings.Contains(lw, "*3:") {
-		t.Errorf("Ctrl-a n should move to window 3, got:\n%s", lw)
-	}
-
-	// Ctrl-a 1 → select window 1
-	gen = h.generation()
-	h.sendKeys("C-a", "1")
-	h.waitLayout(gen)
-
-	lw = h.runCmd("list-windows")
-	if !strings.Contains(lw, "*1:") {
-		t.Errorf("Ctrl-a 1 should select window 1, got:\n%s", lw)
-	}
+	// Navigate: prev → window 2, next → window 3, direct select → window 1
+	sendKeyAndCheck("p", "previous window", "*2:")
+	sendKeyAndCheck("n", "next window", "*3:")
+	sendKeyAndCheck("1", "select window 1", "*1:")
 }
 
 func TestStressKeybindingResize(t *testing.T) {
@@ -1081,39 +1011,28 @@ func TestStressFocusDirections(t *testing.T) {
 
 	h.splitV()
 
-	// Focus left
-	out := h.doFocus("left")
-	if strings.Contains(out, "error") {
-		t.Errorf("focus left failed: %s", out)
+	// focusAndAssert runs a directional focus and verifies the active pane.
+	focusAndAssert := func(direction, wantActive string) {
+		t.Helper()
+		out := h.doFocus(direction)
+		if strings.Contains(out, "error") {
+			t.Errorf("focus %s failed: %s", direction, out)
+		}
+		h.assertActive(wantActive)
 	}
-	h.assertActive("pane-1")
 
-	// Focus right
-	out = h.doFocus("right")
-	if strings.Contains(out, "error") {
-		t.Errorf("focus right failed: %s", out)
-	}
-	h.assertActive("pane-2")
+	focusAndAssert("left", "pane-1")
+	focusAndAssert("right", "pane-2")
 
-	// Add horizontal split and test up/down
+	// Add horizontal split for up/down testing
 	h.splitH()
 
-	// pane-3 is active (below pane-2), focus up
-	out = h.doFocus("up")
-	if strings.Contains(out, "error") {
-		t.Errorf("focus up failed: %s", out)
-	}
-	h.assertActive("pane-2")
+	// pane-3 is active (below pane-2)
+	focusAndAssert("up", "pane-2")
+	focusAndAssert("down", "pane-3")
 
-	// Focus down
-	out = h.doFocus("down")
-	if strings.Contains(out, "error") {
-		t.Errorf("focus down failed: %s", out)
-	}
-	h.assertActive("pane-3")
-
-	// Focus next (cycle)
-	out = h.doFocus("next")
+	// Focus next (cycle) -- just verify no error
+	out := h.doFocus("next")
 	if strings.Contains(out, "error") {
 		t.Errorf("focus next failed: %s", out)
 	}
@@ -1192,17 +1111,18 @@ func TestStressRootSplitGrid(t *testing.T) {
 	p2 := h.jsonPane(c, "pane-2")
 	p3 := h.jsonPane(c, "pane-3")
 
-	// p1 left of p2
+	// p1 left of p2 (vertical split)
 	if p1.Position.X >= p2.Position.X {
 		t.Errorf("pane-1 (x=%d) should be left of pane-2 (x=%d)", p1.Position.X, p2.Position.X)
 	}
 
-	// p3 below both
-	if p3.Position.Y <= p1.Position.Y {
-		t.Errorf("pane-3 (y=%d) should be below pane-1 (y=%d)", p3.Position.Y, p1.Position.Y)
+	// p3 below the top row (root horizontal split)
+	topMaxY := p1.Position.Y
+	if p2.Position.Y > topMaxY {
+		topMaxY = p2.Position.Y
 	}
-	if p3.Position.Y <= p2.Position.Y {
-		t.Errorf("pane-3 (y=%d) should be below pane-2 (y=%d)", p3.Position.Y, p2.Position.Y)
+	if p3.Position.Y <= topMaxY {
+		t.Errorf("pane-3 (y=%d) should be below top row (max y=%d)", p3.Position.Y, topMaxY)
 	}
 }
 
