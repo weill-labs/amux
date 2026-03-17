@@ -239,26 +239,23 @@ func (s *Session) forwardCapture(args []string) *Message {
 	defer s.captureMu.Unlock()
 
 	// Wait briefly for a client to attach (covers post-reload reconnection).
-	s.mu.Lock()
-	if len(s.clients) == 0 {
-		s.mu.Unlock()
-		attached := false
-		for range 10 {
-			time.Sleep(300 * time.Millisecond)
-			s.mu.Lock()
-			if len(s.clients) > 0 {
-				attached = true
-				break
-			}
-			s.mu.Unlock()
+	// The loop acquires s.mu; on success it remains held through the snapshot below.
+	const maxRetries = 10
+	var client *ClientConn
+	for attempt := range maxRetries {
+		s.mu.Lock()
+		if len(s.clients) > 0 {
+			// Use the first attached client. In practice there's one interactive
+			// client at a time; if multiple attach, the first is authoritative.
+			client = s.clients[0]
+			break
 		}
-		if !attached {
+		s.mu.Unlock()
+		if attempt == maxRetries-1 {
 			return &Message{Type: MsgTypeCmdResult, CmdErr: "no client attached"}
 		}
+		time.Sleep(300 * time.Millisecond)
 	}
-	// Use the first attached client. In practice there's one interactive
-	// client at a time; if multiple attach, the first is authoritative.
-	client := s.clients[0]
 
 	ch := make(chan *Message, 1)
 	s.captureResult = ch
