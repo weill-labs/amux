@@ -251,14 +251,7 @@ func (cm *CopyMode) SelectedText() string {
 		return ""
 	}
 
-	startY, startX := cm.selStartY, cm.selStartX
-	endY, endX := cm.selEndY, cm.selEndX
-
-	// Normalize so start <= end.
-	if startY > endY || (startY == endY && startX > endX) {
-		startY, endY = endY, startY
-		startX, endX = endX, startX
-	}
+	startY, startX, endY, endX := cm.normalizedSelection()
 
 	if startY == endY {
 		line := cm.lineText(startY)
@@ -288,6 +281,17 @@ func (cm *CopyMode) SelectedText() string {
 		}
 	}
 	return buf.String()
+}
+
+// normalizedSelection returns the selection bounds with start <= end.
+func (cm *CopyMode) normalizedSelection() (startY, startX, endY, endX int) {
+	startY, startX = cm.selStartY, cm.selStartX
+	endY, endX = cm.selEndY, cm.selEndX
+	if startY > endY || (startY == endY && startX > endX) {
+		startY, endY = endY, startY
+		startX, endX = endX, startX
+	}
+	return
 }
 
 // updateSelection updates the selection end point to the current cursor position.
