@@ -43,7 +43,15 @@ agent() {
     "$AMUX" -s "$session" spawn --name build --task "LAB-42: run tests" >/dev/null
     sleep 0.8
     "$AMUX" -s "$session" spawn --name lint --task "LAB-43: lint check" >/dev/null
-    sleep 1.5
+    sleep 1.2
+
+    # Vertical split on pane-1 to create a logs pane below it
+    "$AMUX" -s "$session" focus pane-1 >/dev/null
+    sleep 0.3
+    # split v output: "Split vertical: new pane pane-4" — extract the name
+    local logs_pane
+    logs_pane=$("$AMUX" -s "$session" split v | awk '{print $NF}')
+    sleep 1
 
     # Send commands to panes — use clear to hide the raw echo commands,
     # then printf for clean output that looks like real tool output
@@ -52,17 +60,23 @@ agent() {
     sleep 0.3
     "$AMUX" -s "$session" send-keys lint \
         'clear && printf "$ eslint src/\n" && sleep 1 && printf "==> Checking 18 files...\n" && sleep 1.5 && printf "✓ No errors found\n"' Enter >/dev/null
+    sleep 0.3
+    "$AMUX" -s "$session" send-keys "$logs_pane" \
+        'clear && printf "[INFO] server started on :8080\n" && sleep 0.8 && printf "[INFO] GET /health 200 12ms\n" && sleep 0.8 && printf "[INFO] POST /api/run 201 45ms\n"' Enter >/dev/null
 
-    # Wait for both panes to finish (event-based, no polling)
+    # Wait for build and lint to finish (event-based, no polling)
     "$AMUX" -s "$session" wait-idle build --timeout 15s >/dev/null
     "$AMUX" -s "$session" wait-idle lint --timeout 15s >/dev/null
-
     sleep 0.5
+
+    # Minimize the logs pane — reclaims vertical space for pane-1
+    "$AMUX" -s "$session" minimize "$logs_pane" >/dev/null
+    sleep 1.5
 
     # Show structured JSON capture in pane-1 (visible in the TUI)
     # Must include -s flag so the capture targets THIS session, not default
     "$AMUX" -s "$session" send-keys pane-1 \
-        "clear && amux -s ${session} capture --format json | jq '{session, panes: [.panes[] | {name, task, idle}]}'" Enter >/dev/null
+        "clear && amux -s ${session} capture --format json | jq '{session, panes: [.panes[] | {name, task, idle, minimized}]}'" Enter >/dev/null
 
     # Hold final frame so viewer can read the JSON
     sleep 5
