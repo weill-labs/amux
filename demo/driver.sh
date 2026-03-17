@@ -32,6 +32,10 @@ agent() {
         [ -S "/tmp/amux-${uid}/${session}" ] && break
         sleep 0.2
     done
+    if [ ! -S "/tmp/amux-${uid}/${session}" ]; then
+        echo "ERROR: amux server socket not found after 10s" >&2
+        return 1
+    fi
     # Let the TUI render its first frame
     sleep 2
 
@@ -49,8 +53,9 @@ agent() {
     "$AMUX" -s "$session" send-keys lint \
         'clear && printf "$ eslint src/\n" && sleep 1 && printf "==> Checking 18 files...\n" && sleep 1.5 && printf "✓ No errors found\n"' Enter >/dev/null
 
-    # Wait for build to finish (event-based, no polling)
+    # Wait for both panes to finish (event-based, no polling)
     "$AMUX" -s "$session" wait-idle build --timeout 15s >/dev/null
+    "$AMUX" -s "$session" wait-idle lint --timeout 15s >/dev/null
 
     sleep 0.5
 

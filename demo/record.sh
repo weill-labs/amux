@@ -13,7 +13,7 @@ CAST_FILE="${SCRIPT_DIR}/hero.cast"
 GIF_FILE="${SCRIPT_DIR}/hero.gif"
 
 # Check dependencies
-for cmd in asciinema agg; do
+for cmd in amux asciinema agg jq; do
     if ! command -v "$cmd" &>/dev/null; then
         echo "Missing dependency: $cmd"
         echo "Install with: brew install $cmd"
@@ -25,7 +25,7 @@ echo "Recording demo..."
 asciinema rec \
     --window-size 160x40 \
     --idle-time-limit 3 \
-    --command "bash ${SCRIPT_DIR}/driver.sh" \
+    --command "bash '${SCRIPT_DIR}/driver.sh'" \
     --overwrite \
     "$CAST_FILE"
 
