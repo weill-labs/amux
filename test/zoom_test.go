@@ -79,6 +79,42 @@ func TestZoomKillZoomedPane(t *testing.T) {
 	}
 }
 
+func TestZoomAutoUnzoomOnCLIFocus(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	h.splitH()
+
+	h.runCmd("zoom", "pane-2")
+	h.assertScreen("pane-2 zoomed before CLI focus", func(s string) bool {
+		return strings.Contains(s, "[pane-2]") && !strings.Contains(s, "[pane-1]")
+	})
+
+	// Focusing a different pane via CLI should auto-unzoom
+	h.runCmd("focus", "pane-1")
+	h.assertScreen("CLI focus should auto-unzoom and show all panes", func(s string) bool {
+		return strings.Contains(s, "[pane-1]") && strings.Contains(s, "[pane-2]")
+	})
+}
+
+func TestZoomCLIFocusSamePaneNoUnzoom(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	h.splitH()
+
+	h.runCmd("zoom", "pane-2")
+	h.assertScreen("pane-2 zoomed", func(s string) bool {
+		return strings.Contains(s, "[pane-2]") && !strings.Contains(s, "[pane-1]")
+	})
+
+	// Focusing the already-zoomed pane should NOT unzoom
+	h.runCmd("focus", "pane-2")
+	h.assertScreen("focusing zoomed pane should stay zoomed", func(s string) bool {
+		return strings.Contains(s, "[pane-2]") && !strings.Contains(s, "[pane-1]")
+	})
+}
+
 // ---------------------------------------------------------------------------
 // Keybinding tests — AmuxHarness (client for prefix key processing)
 // ---------------------------------------------------------------------------

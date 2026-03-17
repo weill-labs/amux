@@ -179,21 +179,24 @@ func (s *Session) ResolveWindow(ref string) *mux.Window {
 
 // closePaneInWindow removes a pane from its window's layout. If the pane
 // is the last one in the window, the window itself is destroyed and focus
-// moves to the first remaining window. Caller must hold s.mu.
-func (s *Session) closePaneInWindow(paneID uint32) {
+// moves to the first remaining window. Returns the name of the closed window,
+// or "" if only the pane was removed. Caller must hold s.mu.
+func (s *Session) closePaneInWindow(paneID uint32) string {
 	w := s.FindWindowByPaneID(paneID)
 	if w == nil {
-		return
+		return ""
 	}
 	if w.PaneCount() <= 1 {
 		wasActive := w.ID == s.ActiveWindowID
+		windowName := w.Name
 		s.RemoveWindow(w.ID)
 		if wasActive && len(s.Windows) > 0 {
 			s.ActiveWindowID = s.Windows[0].ID
 		}
-	} else {
-		w.ClosePane(paneID)
+		return windowName
 	}
+	w.ClosePane(paneID)
+	return ""
 }
 
 // broadcast sends a message to all connected clients.
@@ -235,10 +238,23 @@ func (s *Session) forwardCapture(args []string) *Message {
 	s.captureMu.Lock()
 	defer s.captureMu.Unlock()
 
+	// Wait briefly for a client to attach (covers post-reload reconnection).
 	s.mu.Lock()
 	if len(s.clients) == 0 {
 		s.mu.Unlock()
-		return &Message{Type: MsgTypeCmdResult, CmdErr: "no client attached"}
+		attached := false
+		for range 10 {
+			time.Sleep(300 * time.Millisecond)
+			s.mu.Lock()
+			if len(s.clients) > 0 {
+				attached = true
+				break
+			}
+			s.mu.Unlock()
+		}
+		if !attached {
+			return &Message{Type: MsgTypeCmdResult, CmdErr: "no client attached"}
+		}
 	}
 	// Use the first attached client. In practice there's one interactive
 	// client at a time; if multiple attach, the first is authoritative.
@@ -1067,6 +1083,7 @@ func (s *Server) Reload(execPath string) error {
 		SessionName:   sess.Name,
 		Counter:       sess.counter.Load(),
 		WindowCounter: sess.windowCounter.Load(),
+		Generation:    sess.generation.Load(),
 		Layout:        *snap,
 	}
 
@@ -1160,6 +1177,7 @@ func NewServerFromCheckpoint(cp *checkpoint.ServerCheckpoint) (*Server, error) {
 	sess := newSession(cp.SessionName)
 	sess.counter.Store(cp.Counter)
 	sess.windowCounter.Store(cp.WindowCounter)
+	sess.generation.Store(cp.Generation)
 
 	s := &Server{
 		listener: listener,

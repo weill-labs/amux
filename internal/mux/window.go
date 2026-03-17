@@ -225,7 +225,11 @@ func (w *Window) setActive(p *Pane) {
 
 // FocusPane sets the active pane directly (by pointer) and updates recency.
 // Used by the server when focusing by name or ID.
+// Auto-unzooms if a pane is zoomed and the target is a different pane.
 func (w *Window) FocusPane(p *Pane) {
+	if w.ZoomedPaneID != 0 && p.ID != w.ZoomedPaneID {
+		w.Unzoom()
+	}
 	w.setActive(p)
 }
 

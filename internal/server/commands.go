@@ -314,20 +314,27 @@ func cmdKill(ctx *CommandContext) {
 		ctx.Sess.mu.Unlock()
 		return
 	}
-	if len(ctx.Sess.Panes) <= 1 {
-		ctx.Sess.mu.Unlock()
-		ctx.replyErr("cannot kill last pane")
-		return
-	}
 	paneID := pane.ID
 	paneName := pane.Meta.Name
+	lastPane := len(ctx.Sess.Panes) <= 1
 	ctx.Sess.removePane(paneID)
-	ctx.Sess.closePaneInWindow(paneID)
+	closedWindow := ctx.Sess.closePaneInWindow(paneID)
 	ctx.Sess.mu.Unlock()
 	pane.Close()
 
+	if lastPane {
+		ctx.reply(fmt.Sprintf("Killed %s (session exiting)\n", paneName))
+		ctx.Sess.broadcast(&Message{Type: MsgTypeExit})
+		ctx.Srv.Shutdown()
+		return
+	}
+
 	ctx.Sess.broadcastLayout()
-	ctx.reply(fmt.Sprintf("Killed %s\n", paneName))
+	if closedWindow != "" {
+		ctx.reply(fmt.Sprintf("Killed %s (closed %s)\n", paneName, closedWindow))
+	} else {
+		ctx.reply(fmt.Sprintf("Killed %s\n", paneName))
+	}
 }
 
 func cmdSendKeys(ctx *CommandContext) {
