@@ -22,7 +22,7 @@ PTY output (raw bytes)
 
 2. **Shared visibility.** TUI panes are the communication primitive.
 
-3. **Equal access.** Keybindings for humans, CLI commands for agents — same panes, same capabilities. Agents get structured JSON capture, blocking waits (`wait-idle`, `wait-for`, `wait-busy`), and push-based events — not screen-scraping.
+3. **Equal access.** Keybindings for humans, CLI commands for agents — same panes, same capabilities.
 
 ## Agent API
 
@@ -120,7 +120,7 @@ Event types: `layout`, `output`, `idle`, `busy`. New subscribers receive the cur
 
 ### Agent Loop Example
 
-A concrete example combining the four primitives — spawn, send, wait, capture:
+A concrete example combining send, wait, and capture:
 
 ```bash
 #!/usr/bin/env bash
@@ -153,10 +153,10 @@ fi
 ## Why amux?
 
 **Why not tmux + scripts?**
-`tmux capture-pane` gives raw ANSI text with escape codes. Parsing it requires regex heuristics that break across terminal widths and applications. amux gives structured JSON with metadata — idle state, cursor position, process info, layout coordinates — ready for programmatic consumption.
+`tmux capture-pane` returns raw text with ANSI escape codes. Parsing it requires regex heuristics that break across terminal widths and applications. amux returns structured JSON with metadata (idle state, cursor position, process info, layout coordinates).
 
 **Why not tmux control mode?**
-Control mode still delivers raw pane content. You still need to poll for changes. amux has blocking waits (`wait-idle`, `wait-for`) and push-based events — an agent can subscribe once and react to state changes without spinning.
+Control mode still delivers raw pane content and requires polling. amux has blocking waits (`wait-idle`, `wait-for`) and push-based events — an agent subscribes once and reacts to state changes without polling.
 
 **Why not headless (expect/pexpect)?**
 Headless tools cut the human out of the loop. The amux thesis is that humans and agents work better together on a shared screen in real time. Both see the same panes, both can act on them.
@@ -210,66 +210,66 @@ All commands accept `-s <session>` to target a specific session. Panes are refer
 
 | Command | Description |
 |---------|-------------|
-| `list` | List panes with metadata |
-| `split [--host HOST]` | Split active pane (default: horizontal) |
-| `focus <pane\|direction>` | Focus a pane by name, ID, or direction (left/right/up/down/next) |
-| `spawn --name NAME [--host HOST] [--task TASK]` | Spawn a new named pane |
-| `zoom [pane]` | Toggle zoom on a pane |
-| `minimize <pane>` | Minimize a pane |
-| `restore <pane>` | Restore a minimized pane |
-| `kill [pane]` | Kill a pane (default: active) |
-| `send-keys <pane> [--hex] <keys>...` | Send keystrokes to a pane |
-| `swap <p1> <p2>` | Swap two panes |
-| `swap forward\|backward` | Swap active pane with neighbor |
-| `rotate [--reverse]` | Rotate pane positions |
-| `copy-mode [pane]` | Enter copy/scroll mode |
-| `resize-active <dir> <delta>` | Resize active pane (left/right/up/down) |
+| `amux list` | List panes with metadata |
+| `amux split [--host HOST]` | Split active pane (default: horizontal) |
+| `amux focus <pane\|direction>` | Focus by name, ID, or direction (left/right/up/down/next) |
+| `amux spawn --name NAME [--host HOST] [--task TASK]` | Spawn a new named pane |
+| `amux zoom [pane]` | Toggle zoom on a pane |
+| `amux minimize <pane>` | Minimize a pane |
+| `amux restore <pane>` | Restore a minimized pane |
+| `amux kill [pane]` | Kill a pane (default: active) |
+| `amux send-keys <pane> [--hex] <keys>...` | Send keystrokes to a pane |
+| `amux swap <p1> <p2>` | Swap two panes |
+| `amux swap forward\|backward` | Swap active pane with neighbor |
+| `amux rotate [--reverse]` | Rotate pane positions |
+| `amux copy-mode [pane]` | Enter copy/scroll mode |
+| `amux resize-active <dir> <delta>` | Resize active pane (left/right/up/down) |
 
 ### Agent API
 
 | Command | Description |
 |---------|-------------|
-| `capture [pane]` | Capture screen output (text) |
-| `capture --format json [pane]` | Structured JSON capture |
-| `capture --ansi [pane]` | Capture with ANSI escape codes |
-| `capture --colors` | Capture border color map |
-| `wait-idle <pane> [--timeout 5s]` | Block until pane becomes idle |
-| `wait-busy <pane> [--timeout 5s]` | Block until pane has child processes |
-| `wait-for <pane> <substring> [--timeout 10s]` | Block until substring appears in pane |
-| `wait-layout [--after N] [--timeout 3s]` | Block until layout generation > N |
-| `wait-clipboard [--after N] [--timeout 3s]` | Block until clipboard content changes |
-| `generation` | Show current layout generation counter |
-| `events [--filter type,...] [--pane ref] [--host name]` | Stream events as NDJSON |
+| `amux capture [pane]` | Capture screen output (text) |
+| `amux capture --format json [pane]` | Structured JSON capture |
+| `amux capture --ansi [pane]` | Capture with ANSI escape codes |
+| `amux capture --colors` | Capture border color map |
+| `amux wait-idle <pane> [--timeout 5s]` | Block until pane becomes idle |
+| `amux wait-busy <pane> [--timeout 5s]` | Block until pane has child processes |
+| `amux wait-for <pane> <substring> [--timeout 10s]` | Block until substring appears in pane |
+| `amux wait-layout [--after N] [--timeout 3s]` | Block until layout generation > N |
+| `amux wait-clipboard [--after N] [--timeout 3s]` | Block until clipboard content changes |
+| `amux generation` | Show current layout generation counter |
+| `amux events [--filter type,...] [--pane ref] [--host name]` | Stream events as NDJSON |
 
 ### Windows
 
 | Command | Description |
 |---------|-------------|
-| `new-window [--name NAME]` | Create a new window |
-| `list-windows` | List all windows |
-| `select-window <index\|name>` | Switch to a window |
-| `next-window` | Switch to next window |
-| `prev-window` | Switch to previous window |
-| `rename-window <name>` | Rename the active window |
-| `resize-window <cols> <rows>` | Resize window to given dimensions |
+| `amux new-window [--name NAME]` | Create a new window |
+| `amux list-windows` | List all windows |
+| `amux select-window <index\|name>` | Switch to a window |
+| `amux next-window` | Switch to next window |
+| `amux prev-window` | Switch to previous window |
+| `amux rename-window <name>` | Rename the active window |
+| `amux resize-window <cols> <rows>` | Resize window to given dimensions |
 
 ### Remote Hosts
 
 | Command | Description |
 |---------|-------------|
-| `hosts` | List configured remote hosts and connection status |
-| `split --host HOST` | Split with a remote pane on HOST |
-| `disconnect <host>` | Drop SSH connection to a host |
-| `reconnect <host>` | Reconnect to a remote host |
-| `unsplice <host>` | Revert SSH takeover, replace remote panes with local |
+| `amux hosts` | List configured remote hosts and connection status |
+| `amux split --host HOST` | Split with a remote pane on HOST |
+| `amux disconnect <host>` | Drop SSH connection to a host |
+| `amux reconnect <host>` | Reconnect to a remote host |
+| `amux unsplice <host>` | Revert SSH takeover, replace remote panes with local |
 
 ### Hooks
 
 | Command | Description |
 |---------|-------------|
-| `set-hook <event> <command>` | Register a hook (events: `on-idle`, `on-activity`) |
-| `unset-hook <event> [index]` | Remove hook(s) for an event |
-| `list-hooks` | List registered hooks |
+| `amux set-hook <event> <command>` | Register a hook (events: `on-idle`, `on-activity`) |
+| `amux unset-hook <event> [index]` | Remove hook(s) for an event |
+| `amux list-hooks` | List registered hooks |
 
 ## Keybindings
 
@@ -284,15 +284,15 @@ Default prefix: `Ctrl-a`. Configurable via `~/.config/amux/config.toml` (see [Co
 | `Ctrl-a x` | Kill active pane |
 | `Ctrl-a z` | Toggle zoom on active pane |
 | `Ctrl-a m` | Toggle minimize/restore |
-| `Ctrl-a }` / `{` | Swap active pane with next/previous |
+| `Ctrl-a }` / `Ctrl-a {` | Swap active pane with next/previous |
 | `Ctrl-a o` | Cycle focus to next pane |
 | `Ctrl-a h/j/k/l` | Focus left/down/up/right |
 | `Ctrl-a arrow keys` | Focus in arrow direction |
-| `Alt+h/j/k/l` | Focus left/down/up/right (no prefix) |
+| `Alt-h/j/k/l` | Focus left/down/up/right (no prefix) |
 | `Ctrl-a H/J/K/L` | Resize pane left/down/up/right |
 | `Ctrl-a [` | Enter copy/scroll mode |
 | `Ctrl-a c` | Create new window |
-| `Ctrl-a n` / `p` | Next/previous window |
+| `Ctrl-a n` / `Ctrl-a p` | Next/previous window |
 | `Ctrl-a 1-9` | Select window by number |
 | `Ctrl-a r` | Hot reload (re-exec binary) |
 | `Ctrl-a d` | Detach from session |
@@ -318,8 +318,6 @@ color = "f38ba8"            # Catppuccin Red — optional, auto-assigned if omit
 type = "local"
 color = "a6e3a1"            # Catppuccin Green
 ```
-
-Colors are auto-assigned from the Catppuccin Mocha palette (deterministic by hostname) when omitted.
 
 ### Keybindings
 
