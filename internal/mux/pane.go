@@ -356,12 +356,7 @@ func (p *Pane) Output(lines int) string {
 // Every row from 0 to height-1 is represented (len(result) == pane height).
 // Lines are right-trimmed of trailing whitespace.
 func (p *Pane) ContentLines() []string {
-	_, rows := p.emulator.Size()
-	result := make([]string, rows)
-	for y := 0; y < rows; y++ {
-		result[y] = p.emulator.ScreenLineText(y)
-	}
-	return result
+	return EmulatorContentLines(p.emulator)
 }
 
 // ScreenContains returns true if any visible screen line contains substr.
