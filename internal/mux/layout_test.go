@@ -446,7 +446,7 @@ func TestFindBorderAt(t *testing.T) {
 
 func TestFindBorderAtNested(t *testing.T) {
 	t.Parallel()
-	// 2x2 grid: H split, then each child V split
+	// 2x2 grid: V split at root, then each child H split
 	p1 := fakePaneID(1)
 	root := NewLeaf(p1, 0, 0, 81, 25)
 	p2 := fakePaneID(2)
@@ -483,7 +483,7 @@ func TestFindBorderAtNested(t *testing.T) {
 
 func TestNestedSplits(t *testing.T) {
 	t.Parallel()
-	// Create a 2x2 grid: split H, then split each half V
+	// Create a 2x2 grid: split V, then split each half H
 	p1 := fakePaneID(1)
 	root := NewLeaf(p1, 0, 0, 81, 25)
 

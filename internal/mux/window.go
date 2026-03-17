@@ -702,8 +702,8 @@ func (w *Window) Minimize(paneID uint32) error {
 	}
 
 	// Only allow minimize in horizontal splits (stacked panes).
-	// A pane at root or in a vertical split has no horizontal sibling
-	// to absorb the reclaimed height.
+	// A pane at root or in a vertical split (left/right) has no stacked
+	// sibling to absorb the reclaimed height.
 	if cell.Parent == nil || cell.Parent.Dir != SplitHorizontal {
 		return fmt.Errorf("cannot minimize: pane is not in a horizontal split")
 	}
