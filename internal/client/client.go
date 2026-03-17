@@ -133,7 +133,7 @@ func (cr *ClientRenderer) Layout() *mux.LayoutCell {
 type RenderMsgType int
 
 const (
-	RenderMsgLayout     RenderMsgType = iota
+	RenderMsgLayout RenderMsgType = iota
 	RenderMsgPaneOutput
 	RenderMsgBell
 	RenderMsgClipboard
@@ -223,7 +223,8 @@ func (cr *ClientRenderer) EnterCopyMode(paneID uint32) {
 		return // already in copy mode
 	}
 	w, h := emu.Size()
-	cr.copyModes[paneID] = copymode.New(emu, w, h)
+	_, curRow := emu.CursorPosition()
+	cr.copyModes[paneID] = copymode.New(emu, w, h, curRow)
 	cr.dirty = true
 }
 
@@ -289,13 +290,13 @@ func (c *clientPaneData) HasCursorBlock() bool {
 	return c.emu.HasCursorBlock()
 }
 
-func (c *clientPaneData) ID() uint32        { return c.info.ID }
-func (c *clientPaneData) Name() string      { return c.info.Name }
-func (c *clientPaneData) Host() string      { return c.info.Host }
-func (c *clientPaneData) Task() string      { return c.info.Task }
-func (c *clientPaneData) Color() string     { return c.info.Color }
-func (c *clientPaneData) Minimized() bool   { return c.info.Minimized }
-func (c *clientPaneData) Idle() bool        { return c.info.Idle }
+func (c *clientPaneData) ID() uint32         { return c.info.ID }
+func (c *clientPaneData) Name() string       { return c.info.Name }
+func (c *clientPaneData) Host() string       { return c.info.Host }
+func (c *clientPaneData) Task() string       { return c.info.Task }
+func (c *clientPaneData) Color() string      { return c.info.Color }
+func (c *clientPaneData) Minimized() bool    { return c.info.Minimized }
+func (c *clientPaneData) Idle() bool         { return c.info.Idle }
 func (c *clientPaneData) ConnStatus() string { return c.info.ConnStatus }
 func (c *clientPaneData) InCopyMode() bool {
 	return c.cm != nil

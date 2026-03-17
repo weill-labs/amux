@@ -56,12 +56,13 @@ type CopyMode struct {
 }
 
 // New creates a CopyMode for the given emulator and viewport size.
-// The cursor starts at the top-left of the viewport.
-func New(emu TerminalEmulator, width, height int) *CopyMode {
+// cursorRow sets the initial cursor row (0-indexed from top of viewport).
+func New(emu TerminalEmulator, width, height, cursorRow int) *CopyMode {
 	return &CopyMode{
 		emu:      emu,
 		width:    width,
 		height:   height,
+		cy:       clamp(cursorRow, 0, max(0, height-1)),
 		matchIdx: -1,
 	}
 }
@@ -114,34 +115,66 @@ func (cm *CopyMode) handleNormalInput(data []byte) Action {
 	case 'q', 0x1b: // quit / Escape
 		return ActionExit
 
-	case 'j': // scroll viewport down one line
-		if cm.oy > 0 {
+	case 'j': // move cursor down
+		if cm.cy < cm.height-1 {
+			cm.cy++
+		} else if cm.oy > 0 {
 			cm.oy--
+		} else {
+			return ActionNone
+		}
+		cm.updateSelection()
+		return ActionRedraw
+
+	case 'k': // move cursor up
+		if cm.cy > 0 {
+			cm.cy--
+		} else if cm.oy < cm.maxOY() {
+			cm.oy++
+		} else {
+			return ActionNone
+		}
+		cm.updateSelection()
+		return ActionRedraw
+
+	case 'h': // move cursor left
+		if cm.cx > 0 {
+			cm.cx--
+			cm.updateSelection()
 			return ActionRedraw
 		}
 		return ActionNone
 
-	case 'k': // scroll viewport up one line
-		if cm.oy < cm.maxOY() {
-			cm.oy++
+	case 'l': // move cursor right
+		if cm.cx < cm.width-1 {
+			cm.cx++
+			cm.updateSelection()
 			return ActionRedraw
 		}
 		return ActionNone
 
 	case 0x04: // Ctrl-d — half page down
-		cm.oy = clamp(cm.oy-cm.height/2, 0, cm.maxOY())
+		half := cm.height / 2
+		cm.oy = clamp(cm.oy-half, 0, cm.maxOY())
+		cm.updateSelection()
 		return ActionRedraw
 
 	case 0x15: // Ctrl-u — half page up
-		cm.oy = clamp(cm.oy+cm.height/2, 0, cm.maxOY())
+		half := cm.height / 2
+		cm.oy = clamp(cm.oy+half, 0, cm.maxOY())
+		cm.updateSelection()
 		return ActionRedraw
 
 	case 'g': // scroll to top
 		cm.oy = cm.maxOY()
+		cm.cy = 0
+		cm.updateSelection()
 		return ActionRedraw
 
 	case 'G': // scroll to bottom
 		cm.oy = 0
+		cm.cy = cm.height - 1
+		cm.updateSelection()
 		return ActionRedraw
 
 	case '/': // enter search mode
@@ -160,7 +193,7 @@ func (cm *CopyMode) handleNormalInput(data []byte) Action {
 	case 'v': // toggle selection
 		cm.selecting = !cm.selecting
 		if cm.selecting {
-			absY := cm.TotalLines() - cm.height - cm.oy + cm.cy
+			absY := cm.cursorAbsLine()
 			cm.selStartX = cm.cx
 			cm.selStartY = absY
 			cm.selEndX = cm.cx
@@ -218,14 +251,7 @@ func (cm *CopyMode) SelectedText() string {
 		return ""
 	}
 
-	startY, startX := cm.selStartY, cm.selStartX
-	endY, endX := cm.selEndY, cm.selEndX
-
-	// Normalize so start <= end.
-	if startY > endY || (startY == endY && startX > endX) {
-		startY, endY = endY, startY
-		startX, endX = endX, startX
-	}
+	startY, startX, endY, endX := cm.normalizedSelection()
 
 	if startY == endY {
 		line := cm.lineText(startY)
@@ -255,6 +281,30 @@ func (cm *CopyMode) SelectedText() string {
 		}
 	}
 	return buf.String()
+}
+
+// normalizedSelection returns the selection bounds with start <= end.
+func (cm *CopyMode) normalizedSelection() (startY, startX, endY, endX int) {
+	startY, startX = cm.selStartY, cm.selStartX
+	endY, endX = cm.selEndY, cm.selEndX
+	if startY > endY || (startY == endY && startX > endX) {
+		startY, endY = endY, startY
+		startX, endX = endX, startX
+	}
+	return
+}
+
+// updateSelection updates the selection end point to the current cursor position.
+func (cm *CopyMode) updateSelection() {
+	if cm.selecting {
+		cm.selEndX = cm.cx
+		cm.selEndY = cm.cursorAbsLine()
+	}
+}
+
+// cursorAbsLine returns the absolute line index the cursor is on.
+func (cm *CopyMode) cursorAbsLine() int {
+	return cm.TotalLines() - cm.height - cm.oy + cm.cy
 }
 
 // maxOY returns the maximum scroll offset (fully scrolled to top).
@@ -309,7 +359,7 @@ func (cm *CopyMode) runSearch() {
 	}
 
 	// Jump to the nearest match at or below the cursor's absolute position.
-	cursorAbs := cm.TotalLines() - cm.height - cm.oy + cm.cy
+	cursorAbs := cm.cursorAbsLine()
 	cm.matchIdx = 0
 	for i, m := range cm.matches {
 		if m.LineIdx >= cursorAbs {
@@ -338,20 +388,23 @@ func (cm *CopyMode) prevMatch() {
 	cm.scrollToMatch()
 }
 
-// scrollToMatch adjusts oy so the current match is visible in the viewport.
+// scrollToMatch adjusts oy and cy so the current match is visible in the viewport
+// and the cursor is positioned on the match line.
 func (cm *CopyMode) scrollToMatch() {
 	if cm.matchIdx < 0 || cm.matchIdx >= len(cm.matches) {
 		return
 	}
 	m := cm.matches[cm.matchIdx]
-	// Convert absolute line index to the required scroll offset.
-	// firstVisible = totalLines - height - oy => oy = totalLines - height - firstVisible
-	// We want the match line visible, placing it at the cursor row (cy=0, top of viewport).
-	cm.oy = clamp(cm.TotalLines()-cm.height-m.LineIdx, 0, cm.maxOY())
+	// Place the match line in the center of the viewport.
+	center := cm.height / 2
+	cm.oy = clamp(cm.TotalLines()-cm.height-m.LineIdx+center, 0, cm.maxOY())
+	// Position cursor on the match line within the viewport.
+	firstVisible := cm.TotalLines() - cm.height - cm.oy
+	cm.cy = clamp(m.LineIdx-firstVisible, 0, cm.height-1)
+	cm.cx = m.Col
 }
 
 // clamp returns v clamped to the range [lo, hi].
 func clamp(v, lo, hi int) int {
 	return max(lo, min(v, hi))
 }
-

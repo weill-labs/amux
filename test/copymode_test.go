@@ -66,17 +66,15 @@ for i in $(seq -w 1 50); do echo "SCROLLTEST-$i"; done
 		t.Fatalf("expected [copy] indicator\nScreen:\n%s", screen)
 	}
 
-	// Scroll up with k several times to reach earlier lines
-	for i := 0; i < 40; i++ {
-		h.sendKeys("k")
-	}
+	// Scroll to top with g to reach earliest lines
+	h.sendKeys("g")
 
 	// Verify earlier lines become visible after scrolling up (client-side rendering)
 	if !waitForOuter(h, func(s string) bool {
 		return strings.Contains(s, "SCROLLTEST-01")
 	}, 3*time.Second) {
 		screen = h.captureOuter()
-		t.Fatalf("expected SCROLLTEST-01 to be visible after scrolling up in copy mode\nScreen:\n%s", screen)
+		t.Fatalf("expected SCROLLTEST-01 to be visible after scrolling to top in copy mode\nScreen:\n%s", screen)
 	}
 
 	// Exit copy mode
@@ -233,19 +231,17 @@ func TestCopyModeResizeSurvives(t *testing.T) {
 		t.Fatalf("RESIZE-30 not visible\nScreen:\n%s", h.captureOuter())
 	}
 
-	// Enter copy mode and scroll up
+	// Enter copy mode and scroll to top
 	h.sendKeys("C-a", "[")
 	if !h.waitFor("[copy]", 3*time.Second) {
 		t.Fatalf("expected [copy] indicator\nScreen:\n%s", h.captureOuter())
 	}
-	for i := 0; i < 20; i++ {
-		h.sendKeys("k")
-	}
+	h.sendKeys("g")
 	// Wait for scroll to reach earlier content
 	if !waitForOuter(h, func(s string) bool {
 		return strings.Contains(s, "RESIZE-01")
 	}, 3*time.Second) {
-		t.Fatalf("scrollback not reached after scrolling up\nScreen:\n%s", h.captureOuter())
+		t.Fatalf("scrollback not reached after scrolling to top\nScreen:\n%s", h.captureOuter())
 	}
 
 	// Resize terminal while in copy mode via the outer server

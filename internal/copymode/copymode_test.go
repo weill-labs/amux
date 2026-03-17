@@ -45,7 +45,7 @@ func (e *fakeEmulator) ScreenLineText(y int) string {
 
 func TestNewCopyMode(t *testing.T) {
 	emu := newFakeEmulator(80, 24)
-	cm := New(emu, 80, 24)
+	cm := New(emu, 80, 24, 0)
 
 	if cm.ScrollOffset() != 0 {
 		t.Errorf("initial oy = %d, want 0", cm.ScrollOffset())
@@ -56,36 +56,153 @@ func TestNewCopyMode(t *testing.T) {
 	}
 }
 
-func TestScrollUpDown(t *testing.T) {
+func TestNewCopyModeCursorPosition(t *testing.T) {
+	emu := newFakeEmulator(80, 24)
+	cm := New(emu, 80, 24, 10)
+
+	cx, cy := cm.CursorPos()
+	if cx != 0 || cy != 10 {
+		t.Errorf("cursor = (%d,%d), want (0,10)", cx, cy)
+	}
+}
+
+func TestNewCopyModeCursorClamped(t *testing.T) {
+	emu := newFakeEmulator(80, 24)
+	cm := New(emu, 80, 24, 100) // beyond viewport
+
+	_, cy := cm.CursorPos()
+	if cy != 23 {
+		t.Errorf("cursor cy = %d, want 23 (clamped to height-1)", cy)
+	}
+}
+
+func TestCursorMovement(t *testing.T) {
 	emu := newFakeEmulator(80, 10)
-	// Add 20 lines of scrollback
 	for i := 0; i < 20; i++ {
 		emu.scrollback = append(emu.scrollback, fmt.Sprintf("scrollback-line-%d", i))
 	}
-	cm := New(emu, 80, 10)
+	cm := New(emu, 80, 10, 5) // cursor in middle
 
-	// k scrolls up
-	action := cm.HandleInput([]byte{'k'})
-	if action != ActionRedraw {
-		t.Errorf("k should return ActionRedraw, got %d", action)
-	}
-	if cm.ScrollOffset() != 1 {
-		t.Errorf("after k: oy = %d, want 1", cm.ScrollOffset())
-	}
-
-	// j scrolls down
-	action = cm.HandleInput([]byte{'j'})
+	// j moves cursor down
+	action := cm.HandleInput([]byte{'j'})
 	if action != ActionRedraw {
 		t.Errorf("j should return ActionRedraw, got %d", action)
 	}
-	if cm.ScrollOffset() != 0 {
-		t.Errorf("after j: oy = %d, want 0", cm.ScrollOffset())
+	_, cy := cm.CursorPos()
+	if cy != 6 {
+		t.Errorf("after j: cy = %d, want 6", cy)
 	}
 
-	// j at bottom does nothing
-	action = cm.HandleInput([]byte{'j'})
+	// k moves cursor up
+	action = cm.HandleInput([]byte{'k'})
+	if action != ActionRedraw {
+		t.Errorf("k should return ActionRedraw, got %d", action)
+	}
+	_, cy = cm.CursorPos()
+	if cy != 5 {
+		t.Errorf("after k: cy = %d, want 5", cy)
+	}
+}
+
+func TestCursorEdgeScrolling(t *testing.T) {
+	emu := newFakeEmulator(80, 10)
+	for i := 0; i < 20; i++ {
+		emu.scrollback = append(emu.scrollback, fmt.Sprintf("scrollback-line-%d", i))
+	}
+	cm := New(emu, 80, 10, 0) // cursor at top
+
+	// k at top of viewport scrolls up (increases oy)
+	action := cm.HandleInput([]byte{'k'})
+	if action != ActionRedraw {
+		t.Errorf("k at top should return ActionRedraw, got %d", action)
+	}
+	if cm.ScrollOffset() != 1 {
+		t.Errorf("after k at top: oy = %d, want 1", cm.ScrollOffset())
+	}
+	_, cy := cm.CursorPos()
+	if cy != 0 {
+		t.Errorf("cursor should stay at 0 after edge scroll, got %d", cy)
+	}
+
+	// j scrolls back down (cursor at top, oy > 0)
+	cm.HandleInput([]byte{'j'})
+	_, cy = cm.CursorPos()
+	if cy != 1 {
+		t.Errorf("after j from top: cy = %d, want 1", cy)
+	}
+}
+
+func TestCursorBottomEdgeScrolling(t *testing.T) {
+	emu := newFakeEmulator(80, 5)
+	for i := 0; i < 10; i++ {
+		emu.scrollback = append(emu.scrollback, fmt.Sprintf("line-%d", i))
+	}
+	// Start scrolled up with cursor at bottom
+	cm := New(emu, 80, 5, 4)
+	cm.HandleInput([]byte{'g'}) // scroll to top
+	_, cy := cm.CursorPos()
+	if cy != 0 {
+		t.Errorf("after g: cy = %d, want 0", cy)
+	}
+
+	// Move cursor to bottom of viewport
+	for i := 0; i < 4; i++ {
+		cm.HandleInput([]byte{'j'})
+	}
+	_, cy = cm.CursorPos()
+	if cy != 4 {
+		t.Errorf("cursor at bottom: cy = %d, want 4", cy)
+	}
+
+	// j at bottom of viewport should scroll (decrease oy)
+	oyBefore := cm.ScrollOffset()
+	cm.HandleInput([]byte{'j'})
+	if cm.ScrollOffset() != oyBefore-1 {
+		t.Errorf("j at bottom should scroll: oy = %d, want %d", cm.ScrollOffset(), oyBefore-1)
+	}
+	_, cy = cm.CursorPos()
+	if cy != 4 {
+		t.Errorf("cursor should stay at bottom after edge scroll, got %d", cy)
+	}
+}
+
+func TestHorizontalMovement(t *testing.T) {
+	emu := newFakeEmulator(80, 10)
+	cm := New(emu, 80, 10, 0)
+
+	// l moves cursor right
+	cm.HandleInput([]byte{'l'})
+	cx, _ := cm.CursorPos()
+	if cx != 1 {
+		t.Errorf("after l: cx = %d, want 1", cx)
+	}
+
+	// h moves cursor left
+	cm.HandleInput([]byte{'h'})
+	cx, _ = cm.CursorPos()
+	if cx != 0 {
+		t.Errorf("after h: cx = %d, want 0", cx)
+	}
+
+	// h at left edge does nothing
+	action := cm.HandleInput([]byte{'h'})
 	if action != ActionNone {
-		t.Errorf("j at bottom should return ActionNone, got %d", action)
+		t.Errorf("h at left edge should return ActionNone, got %d", action)
+	}
+
+	// l to right edge
+	for i := 0; i < 79; i++ {
+		cm.HandleInput([]byte{'l'})
+	}
+	cx, _ = cm.CursorPos()
+	if cx != 79 {
+		t.Errorf("at right edge: cx = %d, want 79", cx)
+	}
+
+	// l at right edge does nothing
+	action = cm.HandleInput([]byte{'l'})
+	if action != ActionNone {
+		t.Errorf("l at right edge should return ActionNone, got %d", action)
 	}
 }
 
@@ -94,30 +211,38 @@ func TestScrollToTopBottom(t *testing.T) {
 	for i := 0; i < 50; i++ {
 		emu.scrollback = append(emu.scrollback, fmt.Sprintf("line-%d", i))
 	}
-	cm := New(emu, 80, 10)
+	cm := New(emu, 80, 10, 5)
 
-	// g → scroll to top
+	// g → scroll to top, cursor to row 0
 	cm.HandleInput([]byte{'g'})
 	if cm.ScrollOffset() != 50 {
 		t.Errorf("after g: oy = %d, want 50", cm.ScrollOffset())
 	}
+	_, cy := cm.CursorPos()
+	if cy != 0 {
+		t.Errorf("after g: cy = %d, want 0", cy)
+	}
 
-	// G → scroll to bottom
+	// G → scroll to bottom, cursor to last row
 	cm.HandleInput([]byte{'G'})
 	if cm.ScrollOffset() != 0 {
 		t.Errorf("after G: oy = %d, want 0", cm.ScrollOffset())
+	}
+	_, cy = cm.CursorPos()
+	if cy != 9 {
+		t.Errorf("after G: cy = %d, want 9", cy)
 	}
 }
 
 func TestExitKeys(t *testing.T) {
 	emu := newFakeEmulator(80, 24)
-	cm := New(emu, 80, 24)
+	cm := New(emu, 80, 24, 0)
 
 	if action := cm.HandleInput([]byte{'q'}); action != ActionExit {
 		t.Errorf("q should return ActionExit, got %d", action)
 	}
 
-	cm2 := New(emu, 80, 24)
+	cm2 := New(emu, 80, 24, 0)
 	if action := cm2.HandleInput([]byte{0x1b}); action != ActionExit {
 		t.Errorf("Escape should return ActionExit, got %d", action)
 	}
@@ -132,7 +257,7 @@ func TestSearchBasic(t *testing.T) {
 		"hello again",
 		"last line",
 	}
-	cm := New(emu, 80, 5)
+	cm := New(emu, 80, 5, 0)
 
 	// Enter search mode
 	cm.HandleInput([]byte{'/'})
@@ -158,7 +283,7 @@ func TestSearchBasic(t *testing.T) {
 
 func TestSearchCancel(t *testing.T) {
 	emu := newFakeEmulator(80, 5)
-	cm := New(emu, 80, 5)
+	cm := New(emu, 80, 5, 0)
 
 	cm.HandleInput([]byte{'/'})
 	cm.HandleInput([]byte("test"))
@@ -177,7 +302,7 @@ func TestHalfPageScroll(t *testing.T) {
 	for i := 0; i < 30; i++ {
 		emu.scrollback = append(emu.scrollback, fmt.Sprintf("line-%d", i))
 	}
-	cm := New(emu, 80, 10)
+	cm := New(emu, 80, 10, 0)
 
 	// Ctrl-u → half page up
 	cm.HandleInput([]byte{0x15})
@@ -196,7 +321,7 @@ func TestRenderViewport(t *testing.T) {
 	emu := newFakeEmulator(20, 3)
 	emu.scrollback = []string{"sb-line-0", "sb-line-1"}
 	emu.screen = []string{"screen-0", "screen-1", "screen-2"}
-	cm := New(emu, 20, 3)
+	cm := New(emu, 20, 3, 0)
 
 	// At oy=0, should show the last 3 lines (screen lines)
 	rendered := cm.RenderViewport()
@@ -204,18 +329,84 @@ func TestRenderViewport(t *testing.T) {
 	if len(lines) != 3 {
 		t.Fatalf("expected 3 lines, got %d", len(lines))
 	}
-	// First line (cursor) should have reverse video
+	// Cursor character at (0,0) should have reverse video
 	if !strings.Contains(lines[0], "\033[7m") {
-		t.Errorf("cursor line should have reverse video, got: %q", lines[0])
+		t.Errorf("cursor character should have reverse video, got: %q", lines[0])
+	}
+	// Non-cursor lines should NOT have reverse video
+	if strings.Contains(lines[1], "\033[7m") {
+		t.Errorf("non-cursor line should not have reverse video, got: %q", lines[1])
 	}
 
 	// Scroll up to see scrollback
 	cm.HandleInput([]byte{'g'}) // go to top
 	rendered = cm.RenderViewport()
 	lines = strings.Split(rendered, "\n")
-	// Should now show scrollback lines
-	if !strings.Contains(lines[0], "sb-line-0") {
+	// Should now show scrollback lines (cursor is on first char, so check for "b-line-0" after cursor escape)
+	if !strings.Contains(lines[0], "b-line-0") {
 		t.Errorf("top of scroll should show sb-line-0, got: %q", lines[0])
 	}
 }
 
+func TestRenderCursorSingleChar(t *testing.T) {
+	emu := newFakeEmulator(10, 3)
+	emu.screen = []string{"hello", "world", "test!"}
+	cm := New(emu, 10, 3, 1) // cursor on row 1
+	cm.cx = 2                // cursor on column 2
+
+	rendered := cm.RenderViewport()
+	lines := strings.Split(rendered, "\n")
+
+	// Row 1 should have reverse video around just the 'r' (column 2 of "world")
+	if !strings.Contains(lines[1], reverseOn+"r"+reverseOff) {
+		t.Errorf("expected single-char cursor on 'r', got: %q", lines[1])
+	}
+	// Row 0 should NOT have reverse video
+	if strings.Contains(lines[0], reverseOn) {
+		t.Errorf("non-cursor row should not have reverse video, got: %q", lines[0])
+	}
+}
+
+func TestSelectionHighlighting(t *testing.T) {
+	emu := newFakeEmulator(20, 3)
+	emu.screen = []string{"hello world foo", "second line here", "third line text"}
+	cm := New(emu, 20, 3, 0)
+
+	// Move to column 6, then start selection with v
+	for i := 0; i < 6; i++ {
+		cm.HandleInput([]byte{'l'})
+	}
+	cm.HandleInput([]byte{'v'})
+
+	// Move down and right to extend selection
+	cm.HandleInput([]byte{'j'})
+	cm.HandleInput([]byte{'l'})
+	cm.HandleInput([]byte{'l'})
+
+	rendered := cm.RenderViewport()
+	lines := strings.Split(rendered, "\n")
+
+	// First line should have selection highlight starting at column 6
+	if !strings.Contains(lines[0], selectionBg) {
+		t.Errorf("first selected line should have selection bg, got: %q", lines[0])
+	}
+	// Second line should have selection highlight
+	if !strings.Contains(lines[1], selectionBg) {
+		t.Errorf("second selected line should have selection bg, got: %q", lines[1])
+	}
+	// Third line should NOT have selection highlight
+	if strings.Contains(lines[2], selectionBg) {
+		t.Errorf("unselected line should not have selection bg, got: %q", lines[2])
+	}
+}
+
+func TestJAtBottomOfLiveView(t *testing.T) {
+	emu := newFakeEmulator(80, 10)
+	// No scrollback — j at bottom with oy=0 should be a no-op
+	cm := New(emu, 80, 10, 9) // cursor at bottom
+
+	action := cm.HandleInput([]byte{'j'})
+	if action != ActionNone {
+		t.Errorf("j at absolute bottom should return ActionNone, got %d", action)
+	}
+}

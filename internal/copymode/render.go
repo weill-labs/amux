@@ -4,12 +4,26 @@ import "strings"
 
 // ANSI escapes for copy mode highlighting.
 const (
-	reverseOn  = "\033[7m"  // reverse video (cursor line)
+	reverseOn  = "\033[7m"  // reverse video (cursor character)
 	reverseOff = "\033[27m" // normal video
+
+	selectionBg  = "\033[44m" // blue background (selection)
+	selectionOff = "\033[49m" // reset background
 
 	matchBg        = "\033[43m"    // yellow background (search match)
 	matchCurrentBg = "\033[43;1m"  // yellow background + bold (current match)
 	matchOff       = "\033[49;22m" // reset background + bold
+)
+
+// style flags for per-character highlighting.
+type charStyle uint8
+
+const (
+	styleNone         charStyle = 0
+	styleSelection    charStyle = 1 << 0
+	styleMatch        charStyle = 1 << 1
+	styleCurrentMatch charStyle = 1 << 2
+	styleCursor       charStyle = 1 << 3
 )
 
 // RenderViewport returns the viewport content as a newline-separated string
@@ -17,6 +31,9 @@ const (
 func (cm *CopyMode) RenderViewport() string {
 	total := cm.TotalLines()
 	firstVisible := max(0, total-cm.height-cm.oy)
+
+	// Precompute normalized selection range for highlighting.
+	selStartY, selStartX, selEndY, selEndX := cm.normalizedSelection()
 
 	lines := make([]string, cm.height)
 	for row := 0; row < cm.height; row++ {
@@ -28,63 +45,96 @@ func (cm *CopyMode) RenderViewport() string {
 
 		// Pad or truncate to viewport width.
 		line = padOrTruncate(line, cm.width)
+		runes := []rune(line)
 
-		// Apply search match highlighting before cursor highlight,
-		// so cursor reverse-video is applied on top.
-		line = cm.highlightMatches(line, absIdx)
+		// Build per-character style flags on the plain text, then render
+		// all ANSI escapes in a single pass. This avoids corruption from
+		// earlier highlighting inserting escapes that shift column indices.
+		styles := make([]charStyle, len(runes))
 
-		// Cursor line: apply reverse video to the entire line.
-		if row == cm.cy {
-			line = reverseOn + line + reverseOff
+		// Mark search matches.
+		for i, m := range cm.matches {
+			if m.LineIdx != absIdx {
+				continue
+			}
+			end := min(m.Col+m.Len, len(runes))
+			flag := styleMatch
+			if i == cm.matchIdx {
+				flag = styleCurrentMatch
+			}
+			for col := m.Col; col < end; col++ {
+				styles[col] |= flag
+			}
 		}
 
-		lines[row] = line
+		// Mark selection.
+		if cm.selecting && absIdx >= selStartY && absIdx <= selEndY {
+			colStart := 0
+			colEnd := len(runes)
+			if absIdx == selStartY {
+				colStart = selStartX
+			}
+			if absIdx == selEndY {
+				colEnd = min(selEndX+1, len(runes))
+			}
+			for col := colStart; col < colEnd; col++ {
+				styles[col] |= styleSelection
+			}
+		}
+
+		// Mark cursor character.
+		if row == cm.cy && cm.cx < len(runes) {
+			styles[cm.cx] |= styleCursor
+		}
+
+		// Render with ANSI escapes.
+		lines[row] = renderStyledLine(runes, styles)
 	}
 
 	return strings.Join(lines, "\n")
 }
 
-// highlightMatches wraps search match text in ANSI highlight escapes.
-func (cm *CopyMode) highlightMatches(line string, absIdx int) string {
-	if len(cm.matches) == 0 {
-		return line
-	}
-
-	// Collect matches on this line.
-	var lineMatches []int // indices into cm.matches
-	for i, m := range cm.matches {
-		if m.LineIdx == absIdx {
-			lineMatches = append(lineMatches, i)
-		}
-	}
-	if len(lineMatches) == 0 {
-		return line
-	}
-
-	// Build the highlighted line left-to-right, inserting ANSI escapes
-	// around each match.
-	runes := []rune(line)
+// renderStyledLine emits a line with ANSI escapes based on per-character styles.
+// Minimizes escape sequences by tracking the current style state.
+func renderStyledLine(runes []rune, styles []charStyle) string {
 	var buf strings.Builder
-	pos := 0
-	for _, mi := range lineMatches {
-		m := cm.matches[mi]
-		start := m.Col
-		if start >= len(runes) {
-			continue
-		}
-		end := min(m.Col+m.Len, len(runes))
+	buf.Grow(len(runes) * 2) // rough estimate
 
-		buf.WriteString(string(runes[pos:start]))
-		bg := matchBg
-		if mi == cm.matchIdx {
-			bg = matchCurrentBg
+	var cur charStyle
+	for i, r := range runes {
+		s := styles[i]
+		if s != cur {
+			// Close previous style.
+			if cur != styleNone {
+				if cur&styleCursor != 0 {
+					buf.WriteString(reverseOff)
+				}
+				if cur&(styleSelection|styleMatch|styleCurrentMatch) != 0 {
+					buf.WriteString(matchOff)
+				}
+			}
+			// Open new style. Cursor (reverse video) takes visual priority;
+			// search match bg takes priority over selection bg.
+			if s&styleCursor != 0 {
+				buf.WriteString(reverseOn)
+			} else if s&styleCurrentMatch != 0 {
+				buf.WriteString(matchCurrentBg)
+			} else if s&styleMatch != 0 {
+				buf.WriteString(matchBg)
+			} else if s&styleSelection != 0 {
+				buf.WriteString(selectionBg)
+			}
+			cur = s
 		}
-		buf.WriteString(bg)
-		buf.WriteString(string(runes[start:end]))
-		buf.WriteString(matchOff)
-		pos = end
+		buf.WriteRune(r)
 	}
-	buf.WriteString(string(runes[pos:]))
+	// Close trailing style.
+	if cur&styleCursor != 0 {
+		buf.WriteString(reverseOff)
+	}
+	if cur&(styleSelection|styleMatch|styleCurrentMatch) != 0 {
+		buf.WriteString(matchOff)
+	}
 	return buf.String()
 }
 

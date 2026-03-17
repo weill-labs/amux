@@ -216,13 +216,15 @@ func TestSendKeysSpecialKeys(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)
 
-	h.runCmd("send-keys", "pane-1", "partial-text")
-	h.runCmd("send-keys", "pane-1", "C-c")
-	// Wait for ^C to appear on screen, proving the shell processed the
-	// interrupt. Waiting for "$" is unreliable since the initial prompt
-	// already has a "$" on screen.
-	h.waitFor("pane-1", "^C")
-	h.runCmd("send-keys", "pane-1", "echo AFTERCANCEL", "Enter")
+	// Start a blocking command so Ctrl-C interrupts a running process
+	// rather than readline with partial text. Sending ^C to readline
+	// triggers a PTY input queue flush that can race with subsequent
+	// send-keys on slow CI runners, dropping characters.
+	h.sendKeys("pane-1", "sleep 300", "Enter")
+	h.waitBusy("pane-1")
+	h.sendKeys("pane-1", "C-c")
+	h.waitIdle("pane-1")
+	h.sendKeys("pane-1", "echo AFTERCANCEL", "Enter")
 
 	h.waitFor("pane-1", "AFTERCANCEL")
 }

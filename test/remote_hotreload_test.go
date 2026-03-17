@@ -11,7 +11,7 @@ func TestRemotePaneViaSSH(t *testing.T) {
 	t.Parallel()
 
 	addr, keyFile := setupTestSSH(t)
-	h := newServerHarnessWithConfig(t, remoteTestConfig(addr, keyFile))
+	h := newServerHarnessWithConfig(t, 80, 24, remoteTestConfig(addr, keyFile))
 
 	// Create a remote pane
 	out := h.runCmd("split", "--host", "test-remote")
