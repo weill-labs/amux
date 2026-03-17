@@ -114,4 +114,4 @@ See [README.md — Configuration](README.md#configuration) for the `hosts.toml` 
 
 ## Issue Tracking
 
-File bugs and feature requests on [GitHub Issues](https://github.com/weill-labs/amux/issues).
+File bugs and feature requests in the [Linear LAB project](https://linear.app/weill-labs/team/LAB). GitHub Issues is not actively monitored.
