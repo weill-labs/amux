@@ -274,8 +274,8 @@ func (hc *HostConn) ensureRemoteServer(client *ssh.Client, sessionName string) e
 
 	sockPath := hc.remoteSocketPath(sessionName)
 	cmd := fmt.Sprintf(
-		`if [ ! -S %s ]; then nohup amux _server %s </dev/null >/dev/null 2>&1 & sleep 0.5; fi`,
-		sockPath, sessionName,
+		`if [ ! -S %s ]; then nohup amux _server %s </dev/null >/dev/null 2>&1 & for i in 1 2 3 4 5 6 7 8 9 10; do [ -S %s ] && break; sleep 0.2; done; fi`,
+		sockPath, sessionName, sockPath,
 	)
 	// Ignore errors — the server may already be running
 	_ = sess.Run(cmd)
