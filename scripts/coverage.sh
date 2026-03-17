@@ -64,9 +64,14 @@ profiles=()
 [[ -f integration-coverage.txt ]] && profiles+=(integration-coverage.txt)
 
 if [[ ${#profiles[@]} -gt 0 ]]; then
+  # Deduplicate overlapping entries by taking the max count per block.
+  # Without this, Codecov undercounts because it sees duplicate entries
+  # where one profile has count=0 for a block the other profile covers.
   {
     echo "mode: atomic"
-    grep -h -v '^mode:' "${profiles[@]}"
+    grep -h -v '^mode:' "${profiles[@]}" \
+      | sort -t' ' -k1,1 \
+      | awk '{key=$1" "$2; if (key==prev) {if ($3+0 > max) max=$3+0} else {if (NR>1) print prev, max; prev=key; max=$3+0}} END {print prev, max}'
   } > merged-coverage.txt
 
   go tool cover -func merged-coverage.txt > coverage-summary.txt
