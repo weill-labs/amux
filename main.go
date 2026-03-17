@@ -232,6 +232,8 @@ func main() {
 		runServerCommand("unsplice", []string{args[1]})
 	case "reload-server":
 		runServerCommand("reload-server", nil)
+	case "_inject-proxy":
+		runServerCommand("_inject-proxy", args[1:])
 	case "dashboard":
 		fmt.Fprintln(os.Stderr, "amux dashboard: not yet migrated to built-in mux")
 		os.Exit(1)
