@@ -296,6 +296,10 @@ func (cc *ClientConn) resolvePaneAcrossWindows(sess *Session, cmdName string, re
 			return pane
 		}
 	}
+	// Fall back: search flat pane registry for orphaned/dormant panes
+	if pane := sess.findPaneByRef(ref); pane != nil {
+		return pane
+	}
 	cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("pane %q not found", ref)})
 	return nil
 }

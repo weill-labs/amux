@@ -195,6 +195,38 @@ func TestKill(t *testing.T) {
 	}
 }
 
+func TestKillOrphanedPane(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	// Create 3 panes via splits so we have pane-1, pane-2, pane-3.
+	h.splitV()
+	h.splitV()
+
+	// Kill pane-3 and verify it disappears from the list.
+	output := h.runCmd("kill", "pane-3")
+	if !strings.Contains(output, "Killed") {
+		t.Fatalf("kill pane-3 should succeed, got:\n%s", output)
+	}
+	listOut := h.runCmd("list")
+	if strings.Contains(listOut, "pane-3") {
+		t.Errorf("pane-3 should be gone from list after kill, got:\n%s", listOut)
+	}
+
+	// Kill pane-2 and verify only pane-1 remains.
+	output = h.runCmd("kill", "pane-2")
+	if !strings.Contains(output, "Killed") {
+		t.Fatalf("kill pane-2 should succeed, got:\n%s", output)
+	}
+	listOut = h.runCmd("list")
+	if strings.Contains(listOut, "pane-2") {
+		t.Errorf("pane-2 should be gone from list, got:\n%s", listOut)
+	}
+	if !strings.Contains(listOut, "pane-1") {
+		t.Errorf("pane-1 should still exist, got:\n%s", listOut)
+	}
+}
+
 func TestSendKeys(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)
