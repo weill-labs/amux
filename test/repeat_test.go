@@ -98,9 +98,7 @@ func TestRepeatCrossKey(t *testing.T) {
 
 func TestRepeatExpiresAfterTimeout(t *testing.T) {
 	t.Parallel()
-	// Use a short repeat timeout. waitLayout involves a CLI subprocess
-	// roundtrip that takes >200ms, letting the timeout expire naturally.
-	h := newAmuxHarness(t, "AMUX_REPEAT_TIMEOUT=200ms")
+	h := newAmuxHarness(t)
 
 	// Split: [pane-1 | pane-2]
 	h.splitV()
@@ -115,14 +113,16 @@ func TestRepeatExpiresAfterTimeout(t *testing.T) {
 		t.Fatalf("no vertical border found.\nScreen:\n%s", h.captureAmux())
 	}
 
-	// Press Prefix+L to resize once
+	// Press Prefix+L to resize once, then wait for the default 500ms
+	// repeat timeout to expire (real-time deadline test).
 	gen = h.generation()
 	h.sendKeys("C-a", "L")
-	h.waitLayout(gen) // This takes >50ms, so the repeat timeout expires naturally.
+	h.waitLayout(gen)
+	h.waitDuration(700 * time.Millisecond)
 
 	// This L should be typed into the shell (repeat expired), not trigger resize
 	h.sendKeys("L")
-	time.Sleep(300 * time.Millisecond)
+	h.waitDuration(300 * time.Millisecond)
 
 	newBorder := h.captureAmuxVerticalBorderCol()
 	if newBorder < 0 {

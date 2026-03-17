@@ -160,6 +160,13 @@ func (h *AmuxHarness) waitLayoutOrTimeout(afterGen uint64, timeout string) bool 
 	return !strings.Contains(out, "timeout")
 }
 
+// waitDuration pauses for the given duration. Use for tests that verify
+// real-time deadline expiry (e.g., repeat timeout). This is NOT for
+// synchronization — use waitLayout/waitFor for that.
+func (h *AmuxHarness) waitDuration(d time.Duration) {
+	<-time.After(d)
+}
+
 // waitForFunc polls the inner compositor capture until fn returns true or
 // timeout expires. Used for complex predicates that can't be expressed as
 // a simple substring match. Prefer waitLayout for layout changes.
