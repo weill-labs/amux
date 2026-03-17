@@ -114,4 +114,4 @@ See [README.md — Configuration](README.md#configuration) for the `hosts.toml` 
 
 ## Issue Tracking
 
-Issues are tracked in the [Linear LAB project](https://linear.app/weill-labs/team/LAB). Use Linear for filing bugs, feature requests, and tracking work. GitHub Issues is not actively monitored.
+File bugs and feature requests in the [Linear LAB project](https://linear.app/weill-labs/team/LAB). GitHub Issues is not actively monitored.
