@@ -17,8 +17,8 @@ import (
 type PaneCheckpoint struct {
 	ID        uint32
 	Meta      mux.PaneMeta
-	PtmxFd    int       // PTY master FD number (inherited across exec); -1 for proxy panes
-	PID       int       // Shell process PID (for waitLoop); 0 for proxy panes
+	PtmxFd    int // PTY master FD number (inherited across exec); -1 for proxy panes
+	PID       int // Shell process PID (for waitLoop); 0 for proxy panes
 	Cols      int
 	Rows      int
 	Screen    string    // RenderScreen() ANSI output for replay
@@ -31,6 +31,7 @@ type ServerCheckpoint struct {
 	SessionName   string
 	Counter       uint32
 	WindowCounter uint32
+	Generation    uint64 // layout generation counter (survives reload)
 	ListenerFd    int
 	Layout        proto.LayoutSnapshot
 	Panes         []PaneCheckpoint

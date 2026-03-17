@@ -53,7 +53,10 @@ func TestWindowAutoCloseOnLastPane(t *testing.T) {
 	h.runCmd("new-window")
 
 	// Kill the pane in window 2 — window should close, switch to window 1
-	h.runCmd("kill", "pane-2")
+	out := h.runCmd("kill", "pane-2")
+	if !strings.Contains(out, "closed") {
+		t.Errorf("kill last pane in window should report closure, got: %s", out)
+	}
 
 	h.assertScreen("should show pane-1 after window 2 closes", func(s string) bool {
 		return strings.Contains(s, "[pane-1]")

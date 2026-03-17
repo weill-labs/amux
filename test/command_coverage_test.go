@@ -33,13 +33,13 @@ func TestSpawnRequiresName(t *testing.T) {
 	}
 }
 
-func TestKillLastPaneError(t *testing.T) {
+func TestKillLastPaneExitsSession(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)
 
 	out := h.runCmd("kill", "pane-1")
-	if !strings.Contains(out, "cannot kill last pane") {
-		t.Fatalf("expected last pane error, got: %s", out)
+	if !strings.Contains(out, "session exiting") {
+		t.Fatalf("expected session exit message, got: %s", out)
 	}
 }
 

@@ -199,6 +199,47 @@ func TestServerReloadMinimizedPanePreservesContent(t *testing.T) {
 	}
 }
 
+func TestServerReloadPreservesGeneration(t *testing.T) {
+	t.Parallel()
+	h := newAmuxHarness(t)
+
+	// Do a split to bump the generation counter
+	h.splitH()
+
+	genBefore := h.generation()
+	if genBefore == 0 {
+		t.Fatalf("generation should be > 0 after split, got 0")
+	}
+
+	h.runCmd("reload-server")
+
+	if !h.waitFor("[pane-", 5*time.Second) {
+		t.Fatalf("session did not recover after reload\nScreen:\n%s", h.captureOuter())
+	}
+
+	genAfter := h.generation()
+	if genAfter < genBefore {
+		t.Errorf("generation should survive reload: before=%d, after=%d", genBefore, genAfter)
+	}
+}
+
+func TestServerReloadCaptureRetry(t *testing.T) {
+	t.Parallel()
+	h := newAmuxHarness(t)
+
+	h.runCmd("reload-server")
+
+	// Issue capture immediately — the retry loop should wait for the
+	// client to reconnect rather than returning "no client attached".
+	out := h.runCmd("capture", "--format", "json")
+	if strings.Contains(out, "no client attached") {
+		t.Fatalf("capture should retry after reload, got: %s", out)
+	}
+	if !strings.Contains(out, "pane-1") {
+		t.Errorf("capture JSON should contain pane-1 after reload, got: %s", out)
+	}
+}
+
 func TestServerReloadBorderColors(t *testing.T) {
 	t.Parallel()
 	h := newAmuxHarness(t)
