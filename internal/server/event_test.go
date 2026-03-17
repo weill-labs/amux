@@ -131,10 +131,10 @@ func TestEmitEventDelivery(t *testing.T) {
 	t.Parallel()
 	sess := newSession("test-emit")
 
-	sub := sess.addEventSub(eventFilter{})
-	defer sess.removeEventSub(sub)
+	sub := sess.events.Subscribe(eventFilter{})
+	defer sess.events.Unsubscribe(sub)
 
-	sess.emitEvent(Event{Type: EventLayout, Generation: 1})
+	sess.events.Emit(Event{Type: EventLayout, Generation: 1})
 
 	select {
 	case data := <-sub.ch:
@@ -157,11 +157,11 @@ func TestEmitEventFiltered(t *testing.T) {
 	t.Parallel()
 	sess := newSession("test-filter")
 
-	sub := sess.addEventSub(eventFilter{Types: []string{EventIdle}})
-	defer sess.removeEventSub(sub)
+	sub := sess.events.Subscribe(eventFilter{Types: []string{EventIdle}})
+	defer sess.events.Unsubscribe(sub)
 
-	sess.emitEvent(Event{Type: EventLayout, Generation: 1})
-	sess.emitEvent(Event{Type: EventIdle, PaneID: 1, PaneName: "pane-1"})
+	sess.events.Emit(Event{Type: EventLayout, Generation: 1})
+	sess.events.Emit(Event{Type: EventIdle, PaneID: 1, PaneName: "pane-1"})
 
 	select {
 	case data := <-sub.ch:
@@ -187,17 +187,17 @@ func TestEmitEventDropsWhenFull(t *testing.T) {
 	t.Parallel()
 	sess := newSession("test-drop")
 
-	sub := sess.addEventSub(eventFilter{})
+	sub := sess.events.Subscribe(eventFilter{})
 
 	// Fill the channel
 	for i := 0; i < 64; i++ {
-		sess.emitEvent(Event{Type: EventOutput, PaneID: 1})
+		sess.events.Emit(Event{Type: EventOutput, PaneID: 1})
 	}
 
 	// This should not block — event is dropped
 	done := make(chan struct{})
 	go func() {
-		sess.emitEvent(Event{Type: EventOutput, PaneID: 1})
+		sess.events.Emit(Event{Type: EventOutput, PaneID: 1})
 		close(done)
 	}()
 
@@ -208,19 +208,19 @@ func TestEmitEventDropsWhenFull(t *testing.T) {
 		t.Fatal("emitEvent blocked on full channel")
 	}
 
-	sess.removeEventSub(sub)
+	sess.events.Unsubscribe(sub)
 }
 
 func TestEmitEventAfterRemove(t *testing.T) {
 	t.Parallel()
 	sess := newSession("test-remove-race")
 
-	sub := sess.addEventSub(eventFilter{})
-	sess.removeEventSub(sub)
+	sub := sess.events.Subscribe(eventFilter{})
+	sess.events.Unsubscribe(sub)
 
 	// emitEvent after removeEventSub must not panic (send on closed channel).
 	// The trySend recover guard handles this race.
-	sess.emitEvent(Event{Type: EventLayout, Generation: 1})
+	sess.events.Emit(Event{Type: EventLayout, Generation: 1})
 }
 
 func TestParseEventsArgs(t *testing.T) {

@@ -69,15 +69,11 @@ type Session struct {
 	lastClipboardB64 string // last clipboard payload (base64), protected by clipboardMu
 
 	// Hook system — session-level, not checkpointed.
-	Hooks       *hooks.Registry
-	idleTimers  map[uint32]*time.Timer // per-pane idle timers, protected by idleTimerMu
-	idleState   map[uint32]bool        // true = idle, protected by idleTimerMu
-	idleSince   map[uint32]time.Time   // when each pane became idle, protected by idleTimerMu
-	idleTimerMu sync.Mutex
+	Hooks *hooks.Registry
+	idle  *IdleTracker
 
-	// Event stream subscribers — used by `amux events` for push-based notifications.
-	eventSubs   []*eventSub
-	eventSubsMu sync.Mutex
+	// Event stream — used by `amux events` for push-based notifications.
+	events *EventBus
 
 	// Remote pane management — manages SSH connections to remote hosts.
 	// Nil when no config is loaded or no remote hosts are defined.
@@ -356,7 +352,7 @@ func (s *Session) broadcastPaneOutput(paneID uint32, data []byte) {
 		host = p.Meta.Host
 	}
 	s.mu.Unlock()
-	s.emitEvent(Event{Type: EventOutput, PaneID: paneID, PaneName: paneName, Host: host})
+	s.events.Emit(Event{Type: EventOutput, PaneID: paneID, PaneName: paneName, Host: host})
 }
 
 // broadcastPaneOutputLocked sends raw PTY output to all clients.
@@ -405,37 +401,21 @@ func (s *Session) broadcastLayout() {
 			}
 		}
 	}
-	s.emitEvent(Event{Type: EventLayout, Generation: gen, ActivePane: activePaneName})
+	s.events.Emit(Event{Type: EventLayout, Generation: gen, ActivePane: activePaneName})
 }
 
 // snapshotIdleState returns a copy of the session's idle state map.
 // Must be called before acquiring s.mu to maintain lock ordering:
-// trackPaneActivity holds idleTimerMu then acquires s.mu (via buildPaneEnv),
-// so callers must acquire idleTimerMu before s.mu.
+// trackPaneActivity holds idle.mu then acquires s.mu (via buildPaneEnv),
+// so callers must acquire idle.mu before s.mu.
 func (s *Session) snapshotIdleState() map[uint32]bool {
-	s.idleTimerMu.Lock()
-	defer s.idleTimerMu.Unlock()
-	snap := make(map[uint32]bool, len(s.idleState))
-	for id, idle := range s.idleState {
-		snap[id] = idle
-	}
-	return snap
+	return s.idle.SnapshotState()
 }
 
-// snapshotIdleFull returns copies of both idleState and idleSince maps.
+// snapshotIdleFull returns copies of both idle state and since maps.
 // Same lock ordering requirement as snapshotIdleState.
 func (s *Session) snapshotIdleFull() (map[uint32]bool, map[uint32]time.Time) {
-	s.idleTimerMu.Lock()
-	defer s.idleTimerMu.Unlock()
-	idleSnap := make(map[uint32]bool, len(s.idleState))
-	sinceSnap := make(map[uint32]time.Time, len(s.idleSince))
-	for id, idle := range s.idleState {
-		idleSnap[id] = idle
-	}
-	for id, t := range s.idleSince {
-		sinceSnap[id] = t
-	}
-	return idleSnap, sinceSnap
+	return s.idle.SnapshotFull()
 }
 
 // snapshotLayoutLocked builds a LayoutSnapshot with multi-window data.
@@ -498,11 +478,7 @@ func (s *Session) removePane(id uint32) {
 			break
 		}
 	}
-	// Async to avoid deadlock: removePane is called with s.mu held, and
-	// stopPaneIdleTimer acquires idleTimerMu. The idle timer callback holds
-	// idleTimerMu and acquires s.mu (via buildPaneEnv), so synchronous
-	// acquisition here would invert the lock order.
-	go s.stopPaneIdleTimer(id)
+	go s.idle.StopTimer(id)
 }
 
 // paneOutputCallback returns the standard onOutput callback for panes.
@@ -828,59 +804,29 @@ func (s *Session) notifyPaneOutputSubs(paneID uint32) {
 // transitions (idle↔busy), a layout broadcast is sent so clients see the
 // updated PaneSnapshot.Idle (used for idle indicators in the status bar).
 func (s *Session) trackPaneActivity(paneID uint32) {
-	s.idleTimerMu.Lock()
+	wasIdle := s.idle.TrackActivity(paneID, DefaultIdleTimeout, func() {
+		s.idle.MarkIdle(paneID)
+		env := s.buildPaneEnv(paneID, hooks.OnIdle)
+		s.Hooks.Fire(hooks.OnIdle, env)
+		s.events.Emit(Event{
+			Type:     EventIdle,
+			PaneID:   paneID,
+			PaneName: env["AMUX_PANE_NAME"],
+			Host:     env["AMUX_HOST"],
+		})
+		s.broadcastLayout()
+	})
 
-	// If pane was idle, fire on-activity and emit busy event
-	wasIdle := s.idleState[paneID]
 	if wasIdle {
-		s.idleState[paneID] = false
-		delete(s.idleSince, paneID)
 		env := s.buildPaneEnv(paneID, hooks.OnActivity)
 		s.Hooks.Fire(hooks.OnActivity, env)
-		s.emitEvent(Event{
+		s.events.Emit(Event{
 			Type:     EventBusy,
 			PaneID:   paneID,
 			PaneName: env["AMUX_PANE_NAME"],
 			Host:     env["AMUX_HOST"],
 		})
-	}
-
-	// Reset or create idle timer
-	if t, ok := s.idleTimers[paneID]; ok {
-		t.Reset(DefaultIdleTimeout)
-	} else {
-		s.idleTimers[paneID] = time.AfterFunc(DefaultIdleTimeout, func() {
-			s.idleTimerMu.Lock()
-			s.idleState[paneID] = true
-			s.idleSince[paneID] = time.Now()
-			env := s.buildPaneEnv(paneID, hooks.OnIdle)
-			s.idleTimerMu.Unlock()
-			s.Hooks.Fire(hooks.OnIdle, env)
-			s.emitEvent(Event{
-				Type:     EventIdle,
-				PaneID:   paneID,
-				PaneName: env["AMUX_PANE_NAME"],
-				Host:     env["AMUX_HOST"],
-			})
-			s.broadcastLayout()
-		})
-	}
-	s.idleTimerMu.Unlock()
-
-	if wasIdle {
 		s.broadcastLayout()
-	}
-}
-
-// stopPaneIdleTimer cleans up the idle timer for a closed pane.
-func (s *Session) stopPaneIdleTimer(paneID uint32) {
-	s.idleTimerMu.Lock()
-	defer s.idleTimerMu.Unlock()
-	if t, ok := s.idleTimers[paneID]; ok {
-		t.Stop()
-		delete(s.idleTimers, paneID)
-		delete(s.idleState, paneID)
-		delete(s.idleSince, paneID)
 	}
 }
 
@@ -1002,10 +948,9 @@ func newSession(name string) *Session {
 	sess.generationCond = sync.NewCond(&sess.generationMu)
 	sess.clipboardCond = sync.NewCond(&sess.clipboardMu)
 	sess.Hooks = hooks.NewRegistry()
-	sess.idleTimers = make(map[uint32]*time.Timer)
-	sess.idleState = make(map[uint32]bool)
+	sess.idle = NewIdleTracker()
+	sess.events = NewEventBus()
 	sess.takenOverPanes = make(map[uint32]bool)
-	sess.idleSince = make(map[uint32]time.Time)
 	return sess
 }
 

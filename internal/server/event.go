@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"slices"
+	"sync"
 	"time"
 )
 
@@ -52,39 +53,50 @@ func (f eventFilter) matches(ev Event) bool {
 	return true
 }
 
-// addEventSub registers a new event subscriber and returns it.
-func (s *Session) addEventSub(f eventFilter) *eventSub {
+// EventBus manages event subscribers and dispatches events.
+type EventBus struct {
+	mu   sync.Mutex
+	subs []*eventSub
+}
+
+// NewEventBus creates an EventBus with no subscribers.
+func NewEventBus() *EventBus {
+	return &EventBus{}
+}
+
+// Subscribe registers a new event subscriber and returns it.
+func (b *EventBus) Subscribe(f eventFilter) *eventSub {
 	sub := &eventSub{
 		ch:     make(chan []byte, 64),
 		filter: f,
 	}
-	s.eventSubsMu.Lock()
-	s.eventSubs = append(s.eventSubs, sub)
-	s.eventSubsMu.Unlock()
+	b.mu.Lock()
+	b.subs = append(b.subs, sub)
+	b.mu.Unlock()
 	return sub
 }
 
-// removeEventSub unregisters a subscriber and closes its channel.
-func (s *Session) removeEventSub(sub *eventSub) {
-	s.eventSubsMu.Lock()
-	s.eventSubs = slices.DeleteFunc(s.eventSubs, func(e *eventSub) bool { return e == sub })
-	s.eventSubsMu.Unlock()
+// Unsubscribe unregisters a subscriber and closes its channel.
+func (b *EventBus) Unsubscribe(sub *eventSub) {
+	b.mu.Lock()
+	b.subs = slices.DeleteFunc(b.subs, func(e *eventSub) bool { return e == sub })
+	b.mu.Unlock()
 	close(sub.ch)
 }
 
-// emitEvent marshals an event to JSON and sends it to all matching subscribers.
+// Emit marshals an event to JSON and sends it to all matching subscribers.
 // Non-blocking: if a subscriber's channel is full, the event is dropped.
-func (s *Session) emitEvent(ev Event) {
+func (b *EventBus) Emit(ev Event) {
 	ev.Timestamp = time.Now().UTC().Format(time.RFC3339Nano)
 	data, err := json.Marshal(ev)
 	if err != nil {
 		return
 	}
 
-	s.eventSubsMu.Lock()
-	subs := make([]*eventSub, len(s.eventSubs))
-	copy(subs, s.eventSubs)
-	s.eventSubsMu.Unlock()
+	b.mu.Lock()
+	subs := make([]*eventSub, len(b.subs))
+	copy(subs, b.subs)
+	b.mu.Unlock()
 
 	for _, sub := range subs {
 		if sub.filter.matches(ev) {
@@ -94,7 +106,7 @@ func (s *Session) emitEvent(ev Event) {
 }
 
 // trySend attempts a non-blocking send on ch. If ch is full the event is
-// dropped. If ch was closed (removeEventSub raced between the subscriber
+// dropped. If ch was closed (Unsubscribe raced between the subscriber
 // snapshot and this send), the panic is recovered — dropping the event is
 // the correct behavior since the subscriber is already gone.
 func trySend(ch chan []byte, data []byte) {
@@ -110,6 +122,9 @@ func trySend(ch chan []byte, data []byte) {
 // without missing events that occurred before subscription. All events are
 // stamped with the current timestamp.
 func (s *Session) currentStateEvents() []Event {
+	// Snapshot idle state before acquiring s.mu (lock ordering: idle.mu before s.mu).
+	idleSnap := s.idle.SnapshotState()
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -130,10 +145,9 @@ func (s *Session) currentStateEvents() []Event {
 	})
 
 	// Current idle/busy state for each pane
-	s.idleTimerMu.Lock()
 	for _, p := range s.Panes {
 		evType := EventBusy
-		if s.idleState[p.ID] {
+		if idleSnap[p.ID] {
 			evType = EventIdle
 		}
 		events = append(events, Event{
@@ -144,7 +158,6 @@ func (s *Session) currentStateEvents() []Event {
 			Host:      p.Meta.Host,
 		})
 	}
-	s.idleTimerMu.Unlock()
 
 	return events
 }
