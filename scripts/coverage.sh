@@ -41,7 +41,7 @@ fi
 # --- Integration tests ---
 echo ""
 echo "=== Integration tests (GOCOVERDIR) ==="
-integ_args=(-timeout 300s ./test/)
+integ_args=(-parallel 2 -timeout 300s ./test/)
 if [[ "$CI_MODE" == true ]]; then
   GOCOVERDIR="$COVDIR" go test -json "${integ_args[@]}" | tee integration-results.json || integ_rc=$?
 else
