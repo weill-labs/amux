@@ -368,3 +368,81 @@ func TestGoldenFourPane(t *testing.T) {
 	colorMap := h.runCmd("capture", "--colors")
 	assertGolden(t, "four_pane.color", colorMap)
 }
+
+// ---------------------------------------------------------------------------
+// Golden file tests — extended rendering dimensions
+// ---------------------------------------------------------------------------
+
+func TestGoldenMinimizedColumn(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	// Build 3 panes stacked vertically: pane-1 (top), pane-2 (middle), pane-3 (bottom)
+	h.splitH()
+	h.splitH()
+
+	// Minimize the middle pane — collapses to status-line-only height
+	gen := h.generation()
+	h.runCmd("minimize", "pane-2")
+	h.waitLayout(gen)
+
+	// Focus pane-1 so active state is deterministic
+	h.doFocus("pane-1")
+
+	frame := extractFrame(h.capture(), h.session)
+	assertGolden(t, "minimized_column.golden", frame)
+
+	colorMap := h.runCmd("capture", "--colors")
+	assertGolden(t, "minimized_column.color", colorMap)
+}
+
+func TestGoldenZoomed(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	// Create 3-pane layout: pane-1 | pane-2 (left-right), pane-3 below pane-2
+	h.splitV()
+	h.splitH()
+
+	// Focus and zoom pane-1 — fills the entire window, hides borders and other panes
+	h.doFocus("pane-1")
+	gen := h.generation()
+	h.runCmd("zoom", "pane-1")
+	h.waitLayout(gen)
+
+	frame := extractFrame(h.capture(), h.session)
+	assertGolden(t, "zoomed.golden", frame)
+
+	colorMap := h.runCmd("capture", "--colors")
+	assertGolden(t, "zoomed.color", colorMap)
+}
+
+func TestGoldenMultiWindowTabs(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	// Window 1: 2 panes left-right
+	h.splitV()
+
+	// Create window 2 with a distinct name
+	gen := h.generation()
+	h.runCmd("new-window", "--name", "logs")
+	h.waitLayout(gen)
+
+	// Split window 2 so it has 2 panes too
+	h.splitV()
+
+	// Switch back to window 1
+	gen = h.generation()
+	h.runCmd("select-window", "1")
+	h.waitLayout(gen)
+
+	// Focus pane-1 so active state is deterministic
+	h.doFocus("pane-1")
+
+	frame := extractFrame(h.capture(), h.session)
+	assertGolden(t, "multi_window_tabs.golden", frame)
+
+	colorMap := h.runCmd("capture", "--colors")
+	assertGolden(t, "multi_window_tabs.color", colorMap)
+}
