@@ -218,10 +218,10 @@ func TestSendKeysSpecialKeys(t *testing.T) {
 
 	h.runCmd("send-keys", "pane-1", "partial-text")
 	h.runCmd("send-keys", "pane-1", "C-c")
-	// Wait for the shell to process the interrupt and show a fresh prompt
-	// before sending the next command. Without this, keystrokes arrive
-	// while the shell is still handling SIGINT, causing garbled input.
-	h.waitFor("pane-1", "$")
+	// Wait for ^C to appear on screen, proving the shell processed the
+	// interrupt. Waiting for "$" is unreliable since the initial prompt
+	// already has a "$" on screen.
+	h.waitFor("pane-1", "^C")
 	h.runCmd("send-keys", "pane-1", "echo AFTERCANCEL", "Enter")
 
 	h.waitFor("pane-1", "AFTERCANCEL")
