@@ -1,9 +1,9 @@
-# amux — tmux for the agent era.
+# amux — terminal multiplexer for human+agent workflows
 
 [![CI](https://github.com/weill-labs/amux/actions/workflows/ci.yml/badge.svg)](https://github.com/weill-labs/amux/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/weill-labs/amux/graph/badge.svg?token=RY0CPn9v7g)](https://codecov.io/gh/weill-labs/amux)
 
-A drop-in replacement for tmux built for the human+agent workflow. Same keybindings, same mental model — plus first-class CLI access for AI agents.
+A terminal multiplexer with a first-class agent API. Structured JSON capture, blocking wait primitives, and push-based events — no polling, no screen-scraping.
 
 ## Philosophy
 
@@ -22,7 +22,147 @@ PTY output (raw bytes)
 
 2. **Shared visibility.** TUI panes are the communication primitive.
 
-3. **Equal access.** Keybindings for humans, CLI commands for agents — same panes, same capabilities.
+3. **Equal access.** Keybindings for humans, CLI commands for agents — same panes, same capabilities. Agents get structured JSON capture, blocking waits (`wait-idle`, `wait-for`, `wait-busy`), and push-based events — not screen-scraping.
+
+## Agent API
+
+The agent API is how AI agents interact with amux sessions programmatically. Every operation is a single CLI call — no libraries, no SDK, language-agnostic.
+
+### Structured Capture
+
+Capture the full session state as structured JSON:
+
+```bash
+amux capture --format json
+```
+
+Returns a JSON object with session metadata, window info, and per-pane state:
+
+```json
+{
+  "session": "my-project",
+  "window": {"id": 1, "name": "main", "index": 1},
+  "width": 200, "height": 50,
+  "panes": [
+    {
+      "id": 1,
+      "name": "pane-1",
+      "active": true,
+      "minimized": false,
+      "zoomed": false,
+      "host": "local",
+      "task": "",
+      "color": "f5e0dc",
+      "position": {"x": 0, "y": 0, "width": 100, "height": 49},
+      "cursor": {"col": 12, "row": 24, "hidden": false},
+      "content": ["$ make test", "PASS", "ok  github.com/weill-labs/amux 5.432s", "$ ▊"],
+      "idle": true,
+      "idle_since": "2025-06-15T10:30:00Z",
+      "current_command": "bash",
+      "child_pids": []
+    },
+    {
+      "id": 2,
+      "name": "pane-2",
+      "active": false,
+      "minimized": false,
+      "zoomed": false,
+      "host": "lambda-a100",
+      "task": "training",
+      "color": "f38ba8",
+      "position": {"x": 101, "y": 0, "width": 99, "height": 49},
+      "cursor": {"col": 0, "row": 15, "hidden": false},
+      "content": ["epoch 3/10  loss=0.0342  lr=1e-4", "..."],
+      "conn_status": "connected",
+      "idle": false,
+      "current_command": "python",
+      "child_pids": [48291]
+    }
+  ]
+}
+```
+
+Capture a single pane:
+
+```bash
+amux capture --format json pane-1
+```
+
+### Wait Commands
+
+Block until a condition is met — no polling loops.
+
+| Command | Description | Default timeout |
+|---------|-------------|-----------------|
+| `wait-idle <pane>` | Block until pane has no foreground process | 5s |
+| `wait-busy <pane>` | Block until pane has a child process | 5s |
+| `wait-for <pane> <substring>` | Block until substring appears in pane content | 10s |
+| `wait-layout [--after N]` | Block until layout generation exceeds N | 3s |
+| `wait-clipboard [--after N]` | Block until clipboard content changes | 3s |
+
+All accept `--timeout <duration>` (e.g., `--timeout 30s`).
+
+### Event Stream
+
+Subscribe to real-time session events as NDJSON:
+
+```bash
+amux events [--filter layout,idle,busy] [--pane pane-1] [--host lambda-a100]
+```
+
+```json
+{"type":"layout","ts":"2025-06-15T10:30:00.123Z","generation":42,"active_pane":"pane-1"}
+{"type":"idle","ts":"2025-06-15T10:30:01.456Z","pane_id":2,"pane_name":"pane-2","host":"lambda-a100"}
+{"type":"busy","ts":"2025-06-15T10:30:05.789Z","pane_id":2,"pane_name":"pane-2","host":"lambda-a100"}
+```
+
+Event types: `layout`, `output`, `idle`, `busy`. New subscribers receive the current state as an initial snapshot — no events are missed between subscribe and the first real event.
+
+### Agent Loop Example
+
+A concrete example combining the four primitives — spawn, send, wait, capture:
+
+```bash
+#!/usr/bin/env bash
+# Agent loop: run a command, wait for it to finish, inspect the result.
+
+PANE="pane-1"
+
+# 1. Send a command to the pane
+amux send-keys "$PANE" "make test" Enter
+
+# 2. Wait for the command to start (pane becomes busy)
+amux wait-busy "$PANE" --timeout 5s
+
+# 3. Wait for it to finish (pane becomes idle)
+amux wait-idle "$PANE" --timeout 120s
+
+# 4. Capture the result as structured JSON
+output=$(amux capture --format json "$PANE")
+
+# 5. Parse with jq and decide what to do next
+exit_line=$(echo "$output" | jq -r '.panes[0].content[-2]')
+if echo "$exit_line" | grep -q "FAIL"; then
+  echo "Tests failed — reading output for diagnostics"
+  echo "$output" | jq -r '.panes[0].content[]'
+else
+  echo "Tests passed"
+fi
+```
+
+## Why amux?
+
+**Why not tmux + scripts?**
+`tmux capture-pane` gives raw ANSI text with escape codes. Parsing it requires regex heuristics that break across terminal widths and applications. amux gives structured JSON with metadata — idle state, cursor position, process info, layout coordinates — ready for programmatic consumption.
+
+**Why not tmux control mode?**
+Control mode still delivers raw pane content. You still need to poll for changes. amux has blocking waits (`wait-idle`, `wait-for`) and push-based events — an agent can subscribe once and react to state changes without spinning.
+
+**Why not headless (expect/pexpect)?**
+Headless tools cut the human out of the loop. The amux thesis is that humans and agents work better together on a shared screen in real time. Both see the same panes, both can act on them.
+
+**Does amux support all tmux features?**
+No, and it doesn't aim to. amux implements what matters for human+agent pairing: splits, windows, zoom, minimize, remote hosts, and the agent API. If you need tmux's full feature set (session groups, advanced hooks, `choose-tree`), use tmux.
 
 ## Install
 
@@ -30,15 +170,110 @@ PTY output (raw bytes)
 go install github.com/weill-labs/amux@latest
 ```
 
+Single binary, no runtime dependencies.
+
 ## Quick Start
 
+**Human:**
+
 ```bash
-amux                        # start or reattach to a session
-amux new my-project         # start a named session
-amux -s my-project attach   # attach to a specific session
+amux                          # start or reattach to a session
+amux new my-project           # start a named session
+amux -s my-project attach     # attach to a specific session
 ```
 
+**Agent:**
+
+```bash
+amux capture --format json    # structured JSON of all panes
+amux send-keys pane-1 "ls" Enter  # send keystrokes
+amux wait-idle pane-1         # block until command finishes
+amux events --filter idle     # subscribe to idle/busy transitions
+```
+
+## CLI Reference
+
+All commands accept `-s <session>` to target a specific session. Panes are referenced by name (`pane-1`) or numeric ID (`1`). Prefix matches are also supported.
+
+### Session
+
+| Command | Description |
+|---------|-------------|
+| `amux` | Start or attach to default session |
+| `amux new [name]` | Start a new named session |
+| `amux attach [session]` | Attach to a session |
+| `amux status` | Show pane/window summary |
+| `amux version` | Show build version |
+| `amux reload-server` | Hot-reload the server (preserves panes) |
+
+### Pane Management
+
+| Command | Description |
+|---------|-------------|
+| `list` | List panes with metadata |
+| `split [--host HOST]` | Split active pane (default: horizontal) |
+| `focus <pane\|direction>` | Focus a pane by name, ID, or direction (left/right/up/down/next) |
+| `spawn --name NAME [--host HOST] [--task TASK]` | Spawn a new named pane |
+| `zoom [pane]` | Toggle zoom on a pane |
+| `minimize <pane>` | Minimize a pane |
+| `restore <pane>` | Restore a minimized pane |
+| `kill [pane]` | Kill a pane (default: active) |
+| `send-keys <pane> [--hex] <keys>...` | Send keystrokes to a pane |
+| `swap <p1> <p2>` | Swap two panes |
+| `swap forward\|backward` | Swap active pane with neighbor |
+| `rotate [--reverse]` | Rotate pane positions |
+| `copy-mode [pane]` | Enter copy/scroll mode |
+| `resize-active <dir> <delta>` | Resize active pane (left/right/up/down) |
+
+### Agent API
+
+| Command | Description |
+|---------|-------------|
+| `capture [pane]` | Capture screen output (text) |
+| `capture --format json [pane]` | Structured JSON capture |
+| `capture --ansi [pane]` | Capture with ANSI escape codes |
+| `capture --colors` | Capture border color map |
+| `wait-idle <pane> [--timeout 5s]` | Block until pane becomes idle |
+| `wait-busy <pane> [--timeout 5s]` | Block until pane has child processes |
+| `wait-for <pane> <substring> [--timeout 10s]` | Block until substring appears in pane |
+| `wait-layout [--after N] [--timeout 3s]` | Block until layout generation > N |
+| `wait-clipboard [--after N] [--timeout 3s]` | Block until clipboard content changes |
+| `generation` | Show current layout generation counter |
+| `events [--filter type,...] [--pane ref] [--host name]` | Stream events as NDJSON |
+
+### Windows
+
+| Command | Description |
+|---------|-------------|
+| `new-window [--name NAME]` | Create a new window |
+| `list-windows` | List all windows |
+| `select-window <index\|name>` | Switch to a window |
+| `next-window` | Switch to next window |
+| `prev-window` | Switch to previous window |
+| `rename-window <name>` | Rename the active window |
+| `resize-window <cols> <rows>` | Resize window to given dimensions |
+
+### Remote Hosts
+
+| Command | Description |
+|---------|-------------|
+| `hosts` | List configured remote hosts and connection status |
+| `split --host HOST` | Split with a remote pane on HOST |
+| `disconnect <host>` | Drop SSH connection to a host |
+| `reconnect <host>` | Reconnect to a remote host |
+| `unsplice <host>` | Revert SSH takeover, replace remote panes with local |
+
+### Hooks
+
+| Command | Description |
+|---------|-------------|
+| `set-hook <event> <command>` | Register a hook (events: `on-idle`, `on-activity`) |
+| `unset-hook <event> [index]` | Remove hook(s) for an event |
+| `list-hooks` | List registered hooks |
+
 ## Keybindings
+
+Default prefix: `Ctrl-a`. Configurable via `~/.config/amux/config.toml` (see [Configuration](#configuration)).
 
 | Key | Action |
 |-----|--------|
@@ -46,58 +281,59 @@ amux -s my-project attach   # attach to a specific session
 | `Ctrl-a -` | Split active pane top/bottom |
 | `Ctrl-a \|` | Root-level split left/right |
 | `Ctrl-a _` | Root-level split top/bottom |
+| `Ctrl-a x` | Kill active pane |
 | `Ctrl-a z` | Toggle zoom on active pane |
 | `Ctrl-a m` | Toggle minimize/restore |
 | `Ctrl-a }` / `{` | Swap active pane with next/previous |
 | `Ctrl-a o` | Cycle focus to next pane |
 | `Ctrl-a h/j/k/l` | Focus left/down/up/right |
+| `Ctrl-a arrow keys` | Focus in arrow direction |
+| `Alt+h/j/k/l` | Focus left/down/up/right (no prefix) |
 | `Ctrl-a H/J/K/L` | Resize pane left/down/up/right |
 | `Ctrl-a [` | Enter copy/scroll mode |
 | `Ctrl-a c` | Create new window |
-| `Ctrl-a n/p` | Next/previous window |
+| `Ctrl-a n` / `p` | Next/previous window |
 | `Ctrl-a 1-9` | Select window by number |
-| `Ctrl-a r` | Hot reload |
+| `Ctrl-a r` | Hot reload (re-exec binary) |
 | `Ctrl-a d` | Detach from session |
 | `Ctrl-a Ctrl-a` | Send literal Ctrl-a |
 
-## CLI
-
-```
-amux list                    List panes with metadata
-amux status                  Show pane/window summary
-amux focus <pane>            Focus a pane by name or ID
-amux capture [pane]          Capture screen output (full or single pane)
-amux capture --format json   Structured JSON output for agents
-amux send-keys <pane> <keys> Send keystrokes to a pane
-amux spawn --name NAME       Spawn a new agent pane
-amux zoom [pane]             Toggle zoom on a pane
-amux swap <p1> <p2>          Swap two panes
-amux rotate [--reverse]      Rotate pane positions
-amux minimize <pane>         Minimize a pane
-amux restore <pane>          Restore a minimized pane
-amux kill <pane>             Kill a pane
-amux new-window              Create a new window
-amux select-window <n>       Switch to window by index or name
-amux reload-server           Hot-reload the server
-```
-
 ## Configuration
 
-Host definitions live in `~/.config/amux/hosts.toml`:
+Config file: `~/.config/amux/config.toml` (or set `AMUX_CONFIG` env var).
+
+### Remote Hosts
 
 ```toml
 [hosts.lambda-a100]
 type = "remote"
 user = "ubuntu"
 address = "150.136.64.231"
+identity_file = "~/.ssh/id_ed25519"
 project_dir = "~/Project"
 gpu = "A100"
-color = "f38ba8"
+color = "f38ba8"            # Catppuccin Red — optional, auto-assigned if omitted
 
 [hosts.macbook]
 type = "local"
-color = "a6e3a1"
+color = "a6e3a1"            # Catppuccin Green
 ```
+
+Colors are auto-assigned from the Catppuccin Mocha palette (deterministic by hostname) when omitted.
+
+### Keybindings
+
+```toml
+[keys]
+prefix = "C-b"              # change prefix to Ctrl-b (default: Ctrl-a)
+unbind = ["m", "["]          # remove default bindings
+
+[keys.bind]
+"s" = "split v"             # bind Ctrl-b s to vertical split
+"q" = "kill"                # bind Ctrl-b q to kill pane
+```
+
+Key format: single character (`d`, `\\`, `-`) or Ctrl combo (`C-a`, `C-b`). Actions match CLI command names (e.g., `split`, `focus left`, `zoom`, `kill`).
 
 ## License
 
