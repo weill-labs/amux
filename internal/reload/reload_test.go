@@ -16,10 +16,9 @@ func TestWatchBinaryDebounce(t *testing.T) {
 	}
 
 	triggerReload := make(chan struct{}, 1)
-	go WatchBinary(binPath, triggerReload)
-
-	// Give watcher time to start
-	time.Sleep(100 * time.Millisecond)
+	ready := make(chan struct{})
+	go WatchBinary(binPath, triggerReload, ready)
+	<-ready
 
 	// Write to the file multiple times in quick succession (simulates go build)
 	for i := 0; i < 5; i++ {
@@ -54,9 +53,9 @@ func TestWatchBinaryIgnoresOtherFiles(t *testing.T) {
 	}
 
 	triggerReload := make(chan struct{}, 1)
-	go WatchBinary(binPath, triggerReload)
-
-	time.Sleep(100 * time.Millisecond)
+	ready := make(chan struct{})
+	go WatchBinary(binPath, triggerReload, ready)
+	<-ready
 
 	// Write to a different file in the same directory
 	os.WriteFile(otherPath, []byte("noise"), 0644)
@@ -80,9 +79,9 @@ func TestWatchBinaryDeleteAndRecreate(t *testing.T) {
 	}
 
 	triggerReload := make(chan struct{}, 1)
-	go WatchBinary(binPath, triggerReload)
-
-	time.Sleep(100 * time.Millisecond)
+	ready := make(chan struct{})
+	go WatchBinary(binPath, triggerReload, ready)
+	<-ready
 
 	// Delete and recreate (simulates build tools that replace via rename)
 	os.Remove(binPath)

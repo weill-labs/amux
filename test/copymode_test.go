@@ -230,7 +230,11 @@ func TestCopyModeResizeSurvives(t *testing.T) {
 		t.Fatalf("scrollback not reached after scrolling to top\nScreen:\n%s", h.captureOuter())
 	}
 
-	// Resize terminal while in copy mode via the outer server
+	// Resize terminal while in copy mode via the outer server.
+	// Wait for the inner server to process the resize (layout generation
+	// bump) so the inner client has finished re-rendering before we send
+	// the next key. Without this, the q key can arrive during resize
+	// processing and get routed to the shell instead of copy mode.
 	gen := h.generation()
 	h.outer.runCmd("resize-window", "120", "40")
 	h.waitLayout(gen)

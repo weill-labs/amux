@@ -31,7 +31,7 @@ type AmuxHarness struct {
 
 // newAmuxHarness starts an outer amux server, launches an inner amux inside
 // the outer pane, and waits for the inner amux to render its first pane.
-func newAmuxHarness(tb testing.TB) *AmuxHarness {
+func newAmuxHarness(tb testing.TB, envVars ...string) *AmuxHarness {
 	tb.Helper()
 	outer := newServerHarness(tb)
 
@@ -40,6 +40,11 @@ func newAmuxHarness(tb testing.TB) *AmuxHarness {
 	inner := fmt.Sprintf("t-%x", b)
 
 	h := &AmuxHarness{outer: outer, inner: inner, tb: tb, session: inner}
+
+	// Export any extra environment variables before launching the inner amux.
+	for _, ev := range envVars {
+		outer.sendKeys("pane-1", "export "+ev, "Enter")
+	}
 
 	// Launch inner amux inside the outer pane.
 	outer.sendKeys("pane-1", amuxBin+" -s "+inner, "Enter")

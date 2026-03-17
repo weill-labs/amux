@@ -1,6 +1,7 @@
 package server
 
 import (
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -30,13 +31,16 @@ func TestWaitGeneration_WakesOnIncrement(t *testing.T) {
 	done := make(chan struct{})
 	var result uint64
 	var resultOk bool
+	ready := make(chan struct{})
 	go func() {
+		close(ready)
 		result, resultOk = sess.waitGeneration(0, 5*time.Second)
 		close(done)
 	}()
 
-	// Give the goroutine time to enter Wait.
-	time.Sleep(50 * time.Millisecond)
+	// Wait for the goroutine to be scheduled, then yield to let it enter Wait.
+	<-ready
+	runtime.Gosched()
 
 	// Simulate broadcastLayout incrementing generation.
 	sess.generationMu.Lock()

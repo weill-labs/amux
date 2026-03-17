@@ -21,18 +21,29 @@ func ResolveExecutable() (string, error) {
 
 // WatchBinary watches for changes to the binary at execPath and sends on
 // triggerReload when a change is detected (with 200ms debounce).
-func WatchBinary(execPath string, triggerReload chan<- struct{}) {
+// If ready is non-nil, it is closed after the file watcher is registered.
+func WatchBinary(execPath string, triggerReload chan<- struct{}, ready chan<- struct{}) {
 	dir := filepath.Dir(execPath)
 	base := filepath.Base(execPath)
 
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
+		if ready != nil {
+			close(ready)
+		}
 		return
 	}
 	defer watcher.Close()
 
 	if err := watcher.Add(dir); err != nil {
+		if ready != nil {
+			close(ready)
+		}
 		return
+	}
+
+	if ready != nil {
+		close(ready)
 	}
 
 	var debounce *time.Timer

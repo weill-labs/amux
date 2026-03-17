@@ -9,10 +9,11 @@ import (
 
 // Event types emitted by the event stream.
 const (
-	EventLayout = "layout"
-	EventOutput = "output"
-	EventIdle   = "idle"
-	EventBusy   = "busy"
+	EventLayout         = "layout"
+	EventOutput         = "output"
+	EventIdle           = "idle"
+	EventBusy           = "busy"
+	EventRedrawComplete = "redraw-complete"
 )
 
 // Event is a single event in the NDJSON event stream.

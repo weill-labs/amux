@@ -141,13 +141,17 @@ func TestEventsInitialSnapshot(t *testing.T) {
 		t.Error("event should have a timestamp")
 	}
 
-	// Second event should be idle for pane-1 (we confirmed idle above).
-	ev = mustReadEvent(t, scanner, 5*time.Second)
-	if ev.Type != "idle" {
-		t.Fatalf("second event type: got %q, want idle", ev.Type)
-	}
-	if ev.PaneName != "pane-1" {
-		t.Errorf("pane name: got %q, want %q", ev.PaneName, "pane-1")
+	// Drain events until we see idle for pane-1. The exact event order
+	// between layout and idle depends on shell timing, so accept
+	// intervening events gracefully.
+	for {
+		ev = readEvent(t, scanner, 5*time.Second)
+		if ev.TimedOut {
+			t.Fatal("timeout waiting for idle event for pane-1")
+		}
+		if ev.Type == "idle" && ev.PaneName == "pane-1" {
+			break
+		}
 	}
 }
 

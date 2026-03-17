@@ -24,7 +24,7 @@ var gocoverOwned bool
 // buildAmux builds the amux binary at binPath. When GOCOVERDIR is set,
 // the binary is built with -cover so it writes coverage data on exit.
 func buildAmux(binPath string) error {
-	args := []string{"build"}
+	args := []string{"build", "-race"}
 	if os.Getenv("GOCOVERDIR") != "" {
 		args = append(args, "-cover", "-covermode=atomic")
 	}
@@ -283,4 +283,3 @@ func findVerticalBorderCol(lines []string) int {
 	}
 	return -1
 }
-

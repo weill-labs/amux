@@ -2,6 +2,7 @@ package hooks
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"sync"
@@ -38,8 +39,9 @@ type Entry struct {
 
 // Registry stores hooks and executes them on events.
 type Registry struct {
-	mu    sync.RWMutex
-	hooks map[Event][]Entry
+	mu          sync.RWMutex
+	hooks       map[Event][]Entry
+	ErrorWriter io.Writer // if set, errors are written here instead of os.Stderr
 }
 
 // NewRegistry creates an empty hook registry.
@@ -87,18 +89,22 @@ func (r *Registry) List(event Event) []Entry {
 // Fire executes all hooks for an event asynchronously.
 // Each hook command runs as a shell command with the given environment variables.
 func (r *Registry) Fire(event Event, env map[string]string) {
+	w := r.ErrorWriter
+	if w == nil {
+		w = os.Stderr
+	}
 	for _, entry := range r.List(event) {
-		go executeHook(entry.Command, env)
+		go executeHook(entry.Command, env, w)
 	}
 }
 
 // executeHook runs a shell command with additional environment variables.
-// Errors are logged to stderr (the server's stderr goes to the session log).
-func executeHook(command string, env map[string]string) {
+// Errors are written to w.
+func executeHook(command string, env map[string]string, w io.Writer) {
 	cmd := exec.Command("sh", "-c", command)
 	cmd.Env = append(os.Environ(), mapToEnv(env)...)
 	if err := cmd.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "hook %q failed: %v\n", command, err)
+		fmt.Fprintf(w, "hook %q failed: %v\n", command, err)
 	}
 }
 
