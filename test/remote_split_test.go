@@ -8,37 +8,40 @@ import (
 
 // TestSplitRemotePaneInheritsHost verifies that splitting a remote proxy
 // pane without --host creates the new pane on the same remote host.
-// Requires SSH to localhost — skips if unavailable (CI, no agent keys).
 func TestSplitRemotePaneInheritsHost(t *testing.T) {
 	t.Parallel()
 
-	user := os.Getenv("USER")
-	if user == "" {
-		t.Skip("USER env not set")
+	keyFile, cleanup := setupTestSSHKey(t)
+	defer cleanup()
+
+	h := newServerHarnessWithConfig(t, remoteLocalhostConfig(keyFile))
+
+	// Verify the remote host is configured
+	hostsOut := h.runCmd("hosts")
+	t.Logf("hosts: %s", strings.TrimSpace(hostsOut))
+
+	// Verify key is in authorized_keys right before the split
+	akData, _ := os.ReadFile(os.Getenv("HOME") + "/.ssh/authorized_keys")
+	pubKey, _ := os.ReadFile(keyFile + ".pub")
+	if !strings.Contains(string(akData), strings.TrimSpace(string(pubKey))) {
+		t.Fatalf("test key not in authorized_keys!\nkey: %s", strings.TrimSpace(string(pubKey)))
 	}
+	t.Logf("key verified in authorized_keys, keyFile=%s", keyFile)
 
-	h := newServerHarnessWithConfig(t, `
-[hosts.test-remote]
-type = "remote"
-user = "`+user+`"
-address = "127.0.0.1"
-`)
-
-	// Create a remote pane — skip if SSH auth fails
+	// Create a remote pane on test-remote (localhost)
 	out := h.runCmd("split", "--host", "test-remote")
-	if strings.Contains(out, "unable to authenticate") ||
-		strings.Contains(out, "connection refused") ||
-		strings.Contains(out, "no SSH auth") {
-		t.Skip("SSH to localhost not available (no agent keys loaded)")
+	t.Logf("split --host test-remote: %s", strings.TrimSpace(out))
+	if strings.Contains(out, "unable to authenticate") || strings.Contains(out, "no SSH auth") {
+		t.Skip("SSH auth to localhost failed (Go crypto/ssh can't use macOS Keychain agent)")
 	}
 	if strings.Contains(out, "error") || strings.Contains(out, "Error") {
-		t.Skipf("remote split failed: %s", strings.TrimSpace(out))
+		t.Fatalf("split --host test-remote failed: %s", out)
 	}
 
 	// Verify: pane-1 (local) + pane-2 (remote)
 	c := h.captureJSON()
 	if len(c.Panes) != 2 {
-		t.Fatalf("expected 2 panes, got %d", len(c.Panes))
+		t.Fatalf("expected 2 panes, got %d\nlist: %s", len(c.Panes), h.runCmd("list"))
 	}
 	p2 := h.jsonPane(c, "pane-2")
 	if p2.Host != "test-remote" {

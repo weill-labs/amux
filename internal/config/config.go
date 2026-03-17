@@ -54,12 +54,13 @@ const TextColorHex = "cdd6f4"
 
 // Host defines a machine that can run agents.
 type Host struct {
-	Type       string `toml:"type"`    // "local" or "remote"
-	User       string `toml:"user"`    // SSH user (remote only)
-	Address    string `toml:"address"` // IP or hostname (remote only)
-	ProjectDir string `toml:"project_dir"`
-	GPU        string `toml:"gpu"`
-	Color      string `toml:"color"` // hex color, auto-assigned if empty
+	Type         string `toml:"type"`          // "local" or "remote"
+	User         string `toml:"user"`          // SSH user (remote only)
+	Address      string `toml:"address"`       // IP or hostname (remote only)
+	IdentityFile string `toml:"identity_file"` // SSH private key path (optional)
+	ProjectDir   string `toml:"project_dir"`
+	GPU          string `toml:"gpu"`
+	Color        string `toml:"color"` // hex color, auto-assigned if empty
 }
 
 // Config is the top-level amux configuration.

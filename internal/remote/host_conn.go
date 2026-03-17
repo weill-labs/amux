@@ -27,8 +27,8 @@ type HostConn struct {
 	mu        sync.Mutex
 	state     ConnState
 	sshClient *ssh.Client
-	amuxConn  net.Conn    // persistent attach connection for pane I/O
-	writeMu   sync.Mutex  // serializes writes to amuxConn
+	amuxConn  net.Conn   // persistent attach connection for pane I/O
+	writeMu   sync.Mutex // serializes writes to amuxConn
 
 	// Pane ID mapping: local ↔ remote
 	remoteToLocal map[uint32]uint32
@@ -223,11 +223,15 @@ func (hc *HostConn) buildSSHConfig() (*ssh.ClientConfig, error) {
 		}
 	}
 
-	// Try key files
-	for _, keyPath := range []string{
+	// Try explicit identity file from config first, then default key paths
+	keyPaths := []string{
 		os.ExpandEnv("$HOME/.ssh/id_ed25519"),
 		os.ExpandEnv("$HOME/.ssh/id_rsa"),
-	} {
+	}
+	if hc.config.IdentityFile != "" {
+		keyPaths = append([]string{hc.config.IdentityFile}, keyPaths...)
+	}
+	for _, keyPath := range keyPaths {
 		key, err := os.ReadFile(keyPath)
 		if err != nil {
 			continue
