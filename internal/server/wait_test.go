@@ -38,7 +38,9 @@ func TestWaitGeneration_WakesOnIncrement(t *testing.T) {
 		close(done)
 	}()
 
-	// Wait for the goroutine to be scheduled, then yield to let it enter Wait.
+	// Wait for the goroutine to be scheduled. Gosched gives it a chance to
+	// enter Wait, but the waitGeneration loop handles the case where the
+	// broadcast fires before Wait is reached.
 	<-ready
 	runtime.Gosched()
 
