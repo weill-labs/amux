@@ -61,15 +61,11 @@ func cleanStaleSocketsIn(dir string) {
 		if e.IsDir() || filepath.Ext(name) == ".log" {
 			continue
 		}
-		sockPath := filepath.Join(dir, name)
-		fi, err := e.Info()
-		if err != nil {
-			continue
-		}
 		// Only consider Unix sockets (mode type bit ModeSocket).
-		if fi.Mode().Type()&os.ModeSocket == 0 {
+		if e.Type()&os.ModeSocket == 0 {
 			continue
 		}
+		sockPath := filepath.Join(dir, name)
 		if SocketAlive(sockPath) {
 			continue
 		}
