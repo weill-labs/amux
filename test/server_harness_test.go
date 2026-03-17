@@ -42,13 +42,13 @@ func newServerHarness(tb testing.TB) *ServerHarness {
 
 func newServerHarnessImpl(tb testing.TB, cols, rows int) *ServerHarness {
 	tb.Helper()
-	return newServerHarnessWithConfig(tb, "")
+	return newServerHarnessWithConfig(tb, cols, rows, "")
 }
 
 // newServerHarnessWithConfig starts a server with a custom config file.
 // The config is written to a temp file and passed via AMUX_CONFIG.
 // Pass an empty configContent to start with the default (no) config.
-func newServerHarnessWithConfig(tb testing.TB, configContent string) *ServerHarness {
+func newServerHarnessWithConfig(tb testing.TB, cols, rows int, configContent string) *ServerHarness {
 	tb.Helper()
 	var b [4]byte
 	rand.Read(b[:])

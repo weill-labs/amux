@@ -4,8 +4,11 @@ import "strings"
 
 // ANSI escapes for copy mode highlighting.
 const (
-	reverseOn  = "\033[7m"  // reverse video (cursor line)
+	reverseOn  = "\033[7m"  // reverse video (cursor character)
 	reverseOff = "\033[27m" // normal video
+
+	selectionBg  = "\033[44m" // blue background (selection)
+	selectionOff = "\033[49m" // reset background
 
 	matchBg        = "\033[43m"    // yellow background (search match)
 	matchCurrentBg = "\033[43;1m"  // yellow background + bold (current match)
@@ -18,6 +21,9 @@ func (cm *CopyMode) RenderViewport() string {
 	total := cm.TotalLines()
 	firstVisible := max(0, total-cm.height-cm.oy)
 
+	// Precompute normalized selection range for highlighting.
+	selStartY, selStartX, selEndY, selEndX := cm.normalizedSelection()
+
 	lines := make([]string, cm.height)
 	for row := 0; row < cm.height; row++ {
 		absIdx := firstVisible + row
@@ -29,19 +35,84 @@ func (cm *CopyMode) RenderViewport() string {
 		// Pad or truncate to viewport width.
 		line = padOrTruncate(line, cm.width)
 
-		// Apply search match highlighting before cursor highlight,
-		// so cursor reverse-video is applied on top.
+		// Apply search match highlighting.
 		line = cm.highlightMatches(line, absIdx)
 
-		// Cursor line: apply reverse video to the entire line.
+		// Apply selection highlighting.
+		if cm.selecting {
+			line = highlightSelection(line, absIdx, selStartY, selStartX, selEndY, selEndX)
+		}
+
+		// Cursor: apply reverse video to the single character at (cx, cy).
 		if row == cm.cy {
-			line = reverseOn + line + reverseOff
+			line = highlightCursor(line, cm.cx)
 		}
 
 		lines[row] = line
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+// highlightCursor applies reverse video to the character at column cx.
+func highlightCursor(line string, cx int) string {
+	runes := []rune(line)
+	if cx >= len(runes) {
+		return line
+	}
+	var buf strings.Builder
+	buf.WriteString(string(runes[:cx]))
+	buf.WriteString(reverseOn)
+	buf.WriteString(string(runes[cx : cx+1]))
+	buf.WriteString(reverseOff)
+	if cx+1 < len(runes) {
+		buf.WriteString(string(runes[cx+1:]))
+	}
+	return buf.String()
+}
+
+// normalizedSelection returns the selection bounds with start <= end.
+func (cm *CopyMode) normalizedSelection() (startY, startX, endY, endX int) {
+	startY, startX = cm.selStartY, cm.selStartX
+	endY, endX = cm.selEndY, cm.selEndX
+	if startY > endY || (startY == endY && startX > endX) {
+		startY, endY = endY, startY
+		startX, endX = endX, startX
+	}
+	return
+}
+
+// highlightSelection applies blue background to the selected range on a line.
+func highlightSelection(line string, absIdx, startY, startX, endY, endX int) string {
+	if absIdx < startY || absIdx > endY {
+		return line
+	}
+
+	runes := []rune(line)
+	lineLen := len(runes)
+
+	// Determine the column range to highlight on this line.
+	colStart := 0
+	colEnd := lineLen
+	if absIdx == startY {
+		colStart = startX
+	}
+	if absIdx == endY {
+		colEnd = min(endX+1, lineLen)
+	}
+	if colStart >= lineLen || colStart >= colEnd {
+		return line
+	}
+
+	var buf strings.Builder
+	buf.WriteString(string(runes[:colStart]))
+	buf.WriteString(selectionBg)
+	buf.WriteString(string(runes[colStart:colEnd]))
+	buf.WriteString(selectionOff)
+	if colEnd < lineLen {
+		buf.WriteString(string(runes[colEnd:]))
+	}
+	return buf.String()
 }
 
 // highlightMatches wraps search match text in ANSI highlight escapes.
