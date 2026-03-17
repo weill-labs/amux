@@ -84,7 +84,11 @@ jobs:
         if: steps.changes.outputs.code_changed == 'true'
         run: |
           go install go.bobheadxi.dev/gobenchdata@latest
-          gobenchdata merge bench-all.txt --json benchmarks.json || true
+          # Filter to benchmark lines only — gobenchdata panics on PASS/ok lines
+          grep '^Benchmark' bench-all.txt > bench-filtered.txt || true
+          if [ -s bench-filtered.txt ]; then
+            gobenchdata merge bench-filtered.txt --json benchmarks.json
+          fi
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
