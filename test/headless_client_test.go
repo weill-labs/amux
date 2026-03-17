@@ -64,6 +64,8 @@ func (hc *headlessClient) readLoop() {
 		case server.MsgTypeCaptureRequest:
 			resp := hc.renderer.HandleCaptureRequest(msg.CmdArgs, msg.AgentStatus)
 			server.WriteMsg(hc.conn, resp)
+		case server.MsgTypeTypeKeys:
+			// no-op: headless client doesn't process keystrokes
 		case server.MsgTypeExit:
 			return
 		}

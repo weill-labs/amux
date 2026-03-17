@@ -35,6 +35,9 @@ const (
 	// Bidirectional — capture routed through attached client
 	MsgTypeCaptureRequest  MsgType = 21 // server → client: render capture from client emulators
 	MsgTypeCaptureResponse MsgType = 22 // client → server: captured output
+
+	// Server → Client — inject keystrokes into client input pipeline
+	MsgTypeTypeKeys MsgType = 23
 )
 
 // Message is the wire protocol envelope. Only the fields relevant to

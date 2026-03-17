@@ -139,6 +139,12 @@ func main() {
 			os.Exit(1)
 		}
 		runServerCommand("send-keys", args[1:])
+	case "type-keys":
+		if len(args) < 2 {
+			fmt.Fprintf(os.Stderr, "usage: amux type-keys [--hex] <keys>...\n")
+			os.Exit(1)
+		}
+		runServerCommand("type-keys", args[1:])
 	case "spawn":
 		runServerCommand("spawn", args[1:])
 	case "new-window":
@@ -275,6 +281,8 @@ Usage:
   amux [-s session] capture --colors   Capture border color map
   amux [-s session] send-keys <pane> <keys>...
                                        Send keystrokes to a pane
+  amux [-s session] type-keys [--hex] <keys>...
+                                       Type keys through client input pipeline
   amux [-s session] spawn --name NAME  Spawn a new agent pane
   amux [-s session] zoom [pane]        Toggle zoom (maximize) a pane
   amux [-s session] swap <p1> <p2>     Swap two panes by name or ID

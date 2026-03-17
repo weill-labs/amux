@@ -33,6 +33,9 @@ const (
 	// Bidirectional — capture routed through attached client
 	MsgTypeCaptureRequest  = proto.MsgTypeCaptureRequest
 	MsgTypeCaptureResponse = proto.MsgTypeCaptureResponse
+
+	// Server → Client — inject keystrokes into client input pipeline
+	MsgTypeTypeKeys = proto.MsgTypeTypeKeys
 )
 
 // WriteMsg encodes and writes a message to w.

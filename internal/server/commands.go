@@ -79,6 +79,7 @@ var commandRegistry = map[string]CommandHandler{
 	"reload-server":   cmdReloadServer,
 	"unsplice":        cmdUnsplice,
 	"_inject-proxy":   cmdInjectProxy,
+	"type-keys":       cmdTypeKeys,
 }
 
 func cmdList(ctx *CommandContext) {
@@ -1007,6 +1008,54 @@ func cmdUnsplice(ctx *CommandContext) {
 	pane.Start()
 	ctx.Sess.broadcastLayout()
 	ctx.reply(fmt.Sprintf("Unspliced %s: %d proxy panes removed\n", hostName, len(proxyIDs)))
+}
+
+func cmdTypeKeys(ctx *CommandContext) {
+	if len(ctx.Args) == 0 {
+		ctx.replyErr("usage: type-keys [--hex] <keys>...")
+		return
+	}
+	hexMode := false
+	var keys []string
+	for _, arg := range ctx.Args {
+		if arg == "--hex" {
+			hexMode = true
+		} else {
+			keys = append(keys, arg)
+		}
+	}
+	if len(keys) == 0 {
+		ctx.replyErr("usage: type-keys [--hex] <keys>...")
+		return
+	}
+
+	var data []byte
+	if hexMode {
+		for _, hexStr := range keys {
+			b, err := hex.DecodeString(hexStr)
+			if err != nil {
+				ctx.replyErr(fmt.Sprintf("invalid hex: %s", hexStr))
+				return
+			}
+			data = append(data, b...)
+		}
+	} else {
+		for _, key := range keys {
+			data = append(data, parseKey(key)...)
+		}
+	}
+
+	ctx.Sess.mu.Lock()
+	if len(ctx.Sess.clients) == 0 {
+		ctx.Sess.mu.Unlock()
+		ctx.replyErr("no client attached")
+		return
+	}
+	client := ctx.Sess.clients[0]
+	ctx.Sess.mu.Unlock()
+
+	client.Send(&Message{Type: MsgTypeTypeKeys, Input: data})
+	ctx.reply(fmt.Sprintf("Typed %d bytes\n", len(data)))
 }
 
 func cmdInjectProxy(ctx *CommandContext) {
