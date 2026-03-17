@@ -490,7 +490,7 @@ func (s *Session) hasPane(id uint32) bool {
 func (s *Session) findPaneByRef(ref string) *mux.Pane {
 	// Exact match by name or numeric ID
 	for _, p := range s.Panes {
-		if p.Meta.Name == ref || fmt.Sprintf("%d", p.ID) == ref {
+		if p.Meta.Name == ref || strconv.FormatUint(uint64(p.ID), 10) == ref {
 			return p
 		}
 	}
