@@ -262,7 +262,7 @@ func TestThreeColumnsMiddleSplitEqualRows(t *testing.T) {
 	h.splitRootV()
 
 	// Focus middle column (pane-2) and split horizontally twice
-	h.runCmd("focus", "pane-2")
+	h.doFocus("pane-2")
 	h.splitH()
 	h.splitH()
 
@@ -309,12 +309,12 @@ func TestGoldenThreeColumnsMiddleSplit(t *testing.T) {
 
 	h.splitRootV()
 	h.splitRootV()
-	h.runCmd("focus", "pane-2")
+	h.doFocus("pane-2")
 	h.splitH()
 	h.splitH()
 
 	// Focus pane-1 so active state is deterministic
-	h.runCmd("focus", "pane-1")
+	h.doFocus("pane-1")
 
 	frame := extractFrame(h.capture(), h.session)
 	assertGolden(t, "three_col_middle_split.golden", frame)
