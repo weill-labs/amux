@@ -250,6 +250,79 @@ func TestMultipleNonRootSplitsEqualWidth(t *testing.T) {
 	}
 }
 
+func TestThreeColumnsMiddleSplitEqualRows(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	// Build: 3 columns, then split middle column into 3 rows
+	// pane-1 | pane-2 | pane-3
+	//        | pane-4 |
+	//        | pane-5 |
+	h.splitRootV()
+	h.splitRootV()
+
+	// Focus middle column (pane-2) and split horizontally twice
+	h.runCmd("focus", "pane-2")
+	h.splitH()
+	h.splitH()
+
+	c := h.captureJSON()
+	if len(c.Panes) != 5 {
+		t.Fatalf("expected 5 panes, got %d", len(c.Panes))
+	}
+
+	// The 3 panes in the middle column should have approximately equal heights
+	p2 := h.jsonPane(c, "pane-2")
+	p4 := h.jsonPane(c, "pane-4")
+	p5 := h.jsonPane(c, "pane-5")
+
+	// Equal splits should produce heights within 1 of each other
+	heights := []int{p2.Position.Height, p4.Position.Height, p5.Position.Height}
+	minH, maxH := heights[0], heights[0]
+	for _, v := range heights[1:] {
+		if v < minH {
+			minH = v
+		}
+		if v > maxH {
+			maxH = v
+		}
+	}
+	if maxH-minH > 1 {
+		t.Errorf("middle column rows not equal: pane-2 H=%d, pane-4 H=%d, pane-5 H=%d",
+			p2.Position.Height, p4.Position.Height, p5.Position.Height)
+	}
+
+	// pane-1 and pane-3 should span the full height (leftmost/rightmost columns)
+	p1 := h.jsonPane(c, "pane-1")
+	p3 := h.jsonPane(c, "pane-3")
+	if p1.Position.Y != 0 || p3.Position.Y != 0 {
+		t.Errorf("pane-1 (y=%d) and pane-3 (y=%d) should start at row 0", p1.Position.Y, p3.Position.Y)
+	}
+	if p1.Position.Height != p3.Position.Height {
+		t.Errorf("pane-1 (H=%d) and pane-3 (H=%d) should have equal height", p1.Position.Height, p3.Position.Height)
+	}
+}
+
+func TestGoldenThreeColumnsMiddleSplit(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	h.splitRootV()
+	h.splitRootV()
+	h.runCmd("focus", "pane-2")
+	h.splitH()
+	h.splitH()
+
+	// Focus pane-1 so active state is deterministic
+	h.runCmd("focus", "pane-1")
+
+	frame := extractFrame(h.capture(), h.session)
+	assertGolden(t, "three_col_middle_split.golden", frame)
+
+	colorMap := h.runCmd("capture", "--colors")
+	assertGolden(t, "three_col_middle_split.color", colorMap)
+}
+
 // ---------------------------------------------------------------------------
 // Golden file tests
 // ---------------------------------------------------------------------------

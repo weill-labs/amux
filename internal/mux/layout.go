@@ -81,13 +81,8 @@ func (c *LayoutCell) Split(dir SplitDir, newPane *Pane) (*LayoutCell, error) {
 		return nil, fmt.Errorf("not enough space to split (%d < %d)", available, 2*PaneMinSize+1)
 	}
 
-	// Split in half (first child gets the extra cell if odd)
-	size2 := (available - 1) / 2
-	size1 := available - 1 - size2
-
-	// Case A: parent exists and has the same split direction — add as sibling.
-	// Take half the space from the current cell (O(1)) instead of
-	// redistributing all siblings equally (O(n)).
+	// Case A: parent exists and has the same split direction — add as sibling
+	// and redistribute space equally among all siblings.
 	if c.Parent != nil && !c.Parent.isLeaf && c.Parent.Dir == dir {
 		newLeaf := NewLeaf(newPane, 0, 0, 0, 0)
 		newLeaf.Parent = c.Parent
@@ -99,22 +94,14 @@ func (c *LayoutCell) Split(dir SplitDir, newPane *Pane) (*LayoutCell, error) {
 		copy(parent.Children[idx+2:], parent.Children[idx+1:])
 		parent.Children[idx+1] = newLeaf
 
-		// Take half the space from the split cell only — other siblings
-		// are untouched, making this O(1) regardless of sibling count.
-		if dir == SplitHorizontal {
-			newLeaf.H = parent.H
-			newLeaf.W = size2
-			c.W = size1
-		} else {
-			newLeaf.W = parent.W
-			newLeaf.H = size2
-			c.H = size1
-		}
-
+		parent.distributeEqual()
 		return newLeaf, nil
 	}
 
 	// Case B: create a new parent wrapping both cells
+	// Split in half (first child gets the extra cell if odd)
+	size2 := (available - 1) / 2
+	size1 := available - 1 - size2
 	oldPane := c.Pane
 
 	// Convert this cell from leaf to internal node
@@ -162,33 +149,8 @@ func (c *LayoutCell) Close() *LayoutCell {
 	}
 
 	// Redistribute space equally among remaining siblings
-	n := len(parent.Children)
-	seps := n - 1
-	if seps < 0 {
-		seps = 0
-	}
-	if n > 0 {
-		if parent.Dir == SplitHorizontal {
-			each := (parent.W - seps) / n
-			for i, child := range parent.Children {
-				if i == n-1 {
-					child.W = parent.W - seps - each*(n-1)
-				} else {
-					child.W = each
-				}
-				child.H = parent.H
-			}
-		} else {
-			each := (parent.H - seps) / n
-			for i, child := range parent.Children {
-				if i == n-1 {
-					child.H = parent.H - seps - each*(n-1)
-				} else {
-					child.H = each
-				}
-				child.W = parent.W
-			}
-		}
+	if len(parent.Children) > 0 {
+		parent.distributeEqual()
 	}
 
 	// Collapse single-child parent
@@ -423,6 +385,34 @@ func (c *LayoutCell) FindBorderAt(x, y int) *BorderHit {
 		}
 	}
 	return nil
+}
+
+// distributeEqual sets all children to equal sizes along the split direction.
+// The last child receives the remainder to account for integer rounding.
+func (c *LayoutCell) distributeEqual() {
+	n := len(c.Children)
+	seps := n - 1
+	if c.Dir == SplitHorizontal {
+		each := (c.W - seps) / n
+		for i, child := range c.Children {
+			if i == n-1 {
+				child.W = c.W - seps - each*(n-1)
+			} else {
+				child.W = each
+			}
+			child.H = c.H
+		}
+	} else {
+		each := (c.H - seps) / n
+		for i, child := range c.Children {
+			if i == n-1 {
+				child.H = c.H - seps - each*(n-1)
+			} else {
+				child.H = each
+			}
+			child.W = c.W
+		}
+	}
 }
 
 func (c *LayoutCell) indexInParent() int {
