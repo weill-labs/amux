@@ -39,12 +39,12 @@ write_sim_scripts() {
 RESPONSE_SCRIPT="$1"
 clear
 
-# Show Claude Code startup banner
-printf "\n\033[1m┌──────────────────────────────────────┐\033[0m\n"
-printf "\033[1m│ * Welcome to Claude Code!            │\033[0m\n"
-printf "\033[1m│                                      │\033[0m\n"
-printf "\033[1m│   /help for help                     │\033[0m\n"
-printf "\033[1m└──────────────────────────────────────┘\033[0m\n\n"
+# Show Claude Code startup banner (matches real claude CLI output)
+printf "\n"
+printf " \033[1m▐▛███▜▌\033[0m   \033[1mClaude Code\033[0m\n"
+printf " \033[1m▝▜█████▛▘\033[0m  Opus 4.6 (1M context)\n"
+printf "   \033[1m▘▘ ▝▝\033[0m\n"
+printf "\n"
 
 # Show prompt and wait for input (the agent will send-keys the prompt)
 printf "\033[1;35m>\033[0m "
