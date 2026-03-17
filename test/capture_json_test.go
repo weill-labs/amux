@@ -51,6 +51,9 @@ func TestCaptureJSON_FullScreen(t *testing.T) {
 	if capture.Width != 80 {
 		t.Errorf("width: got %d, want 80", capture.Width)
 	}
+	if capture.Height != 24 {
+		t.Errorf("height: got %d, want 24 (full terminal height)", capture.Height)
+	}
 	if len(capture.Panes) != 2 {
 		t.Fatalf("expected 2 panes, got %d", len(capture.Panes))
 	}
@@ -376,4 +379,3 @@ func TestCaptureJSON_AgentStatus_MultiPane(t *testing.T) {
 		}
 	}
 }
-
