@@ -25,9 +25,6 @@ type TmuxBenchHarness struct {
 
 func newTmuxBenchHarness(b *testing.B) *TmuxBenchHarness {
 	b.Helper()
-	if testing.Short() {
-		b.Skip("tmux comparison benchmarks skipped in short mode (PTY exhaustion on CI)")
-	}
 	if _, err := exec.LookPath("tmux"); err != nil {
 		b.Skip("tmux not found, skipping tmux benchmarks")
 	}
@@ -54,6 +51,9 @@ func (h *TmuxBenchHarness) run(args ...string) string {
 
 func (h *TmuxBenchHarness) cleanup() {
 	exec.Command("tmux", "kill-session", "-t", h.session).Run()
+	// Wait for PTY release — tmux sessions hold PTY fds that the kernel
+	// needs time to reclaim, especially on CI runners with limited PTYs.
+	time.Sleep(100 * time.Millisecond)
 }
 
 // ---------------------------------------------------------------------------
@@ -212,19 +212,14 @@ func BenchmarkInputLatency(b *testing.B) {
 // ---------------------------------------------------------------------------
 
 func BenchmarkThroughput(b *testing.B) {
-	lines := 10000
-	if testing.Short() {
-		lines = 1000
-	}
-
 	b.Run("amux", func(b *testing.B) {
 		b.StopTimer()
 		h := newServerHarness(b)
 		b.StartTimer()
 		for i := range b.N {
 			marker := fmt.Sprintf("DONE-%04d", i)
-			h.sendKeys("pane-1", fmt.Sprintf("seq 1 %d; echo %s", lines, marker), "Enter")
-			h.waitFor("pane-1", marker)
+			h.sendKeys("pane-1", fmt.Sprintf("seq 1 10000; echo %s", marker), "Enter")
+			h.waitForTimeout("pane-1", marker, "30s")
 		}
 	})
 
@@ -234,7 +229,7 @@ func BenchmarkThroughput(b *testing.B) {
 		b.StartTimer()
 		for i := range b.N {
 			marker := fmt.Sprintf("DONE-%04d", i)
-			th.run("send-keys", "-t", th.session, fmt.Sprintf("seq 1 %d; echo %s", lines, marker), "Enter")
+			th.run("send-keys", "-t", th.session, fmt.Sprintf("seq 1 10000; echo %s", marker), "Enter")
 			deadline := time.Now().Add(30 * time.Second)
 			for time.Now().Before(deadline) {
 				out := th.run("capture-pane", "-t", th.session, "-p")
@@ -252,22 +247,20 @@ func BenchmarkThroughput(b *testing.B) {
 // ---------------------------------------------------------------------------
 
 func BenchmarkSplitScale(b *testing.B) {
-	scales := []int{4, 10, 20}
-	if testing.Short() {
-		scales = []int{4}
-	}
-	for _, n := range scales {
+	for _, n := range []int{4, 10, 20} {
 		b.Run(fmt.Sprintf("amux/panes_%d", n), func(b *testing.B) {
 			// Each iteration needs a fresh harness since splits accumulate.
 			// StopTimer/StartTimer per iteration is a known anti-pattern that
 			// can inflate b.N, but it's unavoidable here — the alternative
 			// (timing setup+teardown) is worse. Eager cleanup prevents fd exhaustion.
+			// Use root splits so space is distributed evenly (leaf splits halve
+			// exponentially, hitting the minimum pane size at ~7 panes).
 			for range b.N {
 				b.StopTimer()
-				h := newServerHarness(b)
+				h := newServerHarnessWithSize(b, 80, 200)
 				b.StartTimer()
 				for i := 1; i < n; i++ {
-					h.splitV()
+					h.splitRootH()
 				}
 				b.StopTimer()
 				h.cleanup()
@@ -296,16 +289,14 @@ func BenchmarkSplitScale(b *testing.B) {
 // ---------------------------------------------------------------------------
 
 func BenchmarkCaptureScale(b *testing.B) {
-	scales := []int{1, 4, 10, 20}
-	if testing.Short() {
-		scales = []int{1, 4}
-	}
-	for _, n := range scales {
+	for _, n := range []int{1, 4, 10, 20} {
 		b.Run(fmt.Sprintf("amux/panes_%d", n), func(b *testing.B) {
 			b.StopTimer()
-			h := newServerHarness(b)
+			// Use root splits so space is distributed evenly (leaf splits halve
+			// exponentially, hitting the minimum pane size at ~7 panes).
+			h := newServerHarnessWithSize(b, 80, 200)
 			for i := 1; i < n; i++ {
-				h.splitV()
+				h.splitRootH()
 			}
 			b.StartTimer()
 			for b.Loop() {
@@ -332,14 +323,11 @@ func BenchmarkCaptureScale(b *testing.B) {
 // ---------------------------------------------------------------------------
 
 func BenchmarkHotReload(b *testing.B) {
-	if testing.Short() {
-		b.Skip("hot-reload benchmark skipped in short mode (go build too slow on CI)")
-	}
 	b.StopTimer()
 	h := newAmuxHarness(b)
 
 	// Verify the inner amux is running
-	if !h.waitFor("[pane-", 5*time.Second) {
+	if !h.waitFor("[pane-", 10*time.Second) {
 		b.Fatal("inner amux did not render")
 	}
 
@@ -357,9 +345,11 @@ func BenchmarkHotReload(b *testing.B) {
 		b.StartTimer()
 		reconnectStart := time.Now()
 
-		// Wait for re-render (layout generation bumps after reconnect)
-		h.waitLayout(gen)
-		if !h.waitFor("[pane-", 10*time.Second) {
+		// Wait for re-render (layout generation bumps after reconnect).
+		// Use 30s timeout — go build on CI can take 10-20s, and the
+		// server re-exec + client reconnect adds more time.
+		h.waitLayoutTimeout(gen, "30s")
+		if !h.waitFor("[pane-", 30*time.Second) {
 			b.Fatal("client did not reconnect after hot-reload")
 		}
 
