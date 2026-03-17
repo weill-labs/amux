@@ -17,7 +17,7 @@ func TestFocusByName(t *testing.T) {
 
 	h.assertActive("pane-2")
 
-	output := h.runCmd("focus", "pane-1")
+	output := h.doFocus("pane-1")
 	if !strings.Contains(output, "Focused") {
 		t.Errorf("focus should confirm, got:\n%s", output)
 	}
@@ -32,7 +32,7 @@ func TestFocusByID(t *testing.T) {
 
 	h.splitV()
 
-	output := h.runCmd("focus", "1")
+	output := h.doFocus("1")
 	if !strings.Contains(output, "Focused") {
 		t.Errorf("focus by ID should confirm, got:\n%s", output)
 	}

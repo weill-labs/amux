@@ -101,9 +101,6 @@ func mustReadEvent(t *testing.T, scanner *bufio.Scanner, timeout time.Duration) 
 }
 
 func TestEventsInitialSnapshot(t *testing.T) {
-	if os.Getenv("CI") != "" {
-		t.Skip("flaky on CI: idle/busy events may not arrive within timeout (LAB-XXX)")
-	}
 	t.Parallel()
 	h := newServerHarness(t)
 
