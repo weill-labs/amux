@@ -179,7 +179,7 @@ func TestPrefixArrowFocus(t *testing.T) {
 	t.Parallel()
 	h := newAmuxHarness(t)
 
-	// Split horizontally: pane-1 (left) | pane-2 (right, active)
+	// Split vertically: pane-1 (left) | pane-2 (right, active)
 	h.splitV()
 
 	h.assertActive("pane-2")
@@ -203,7 +203,7 @@ func TestAltHJKLFocus(t *testing.T) {
 	t.Parallel()
 	h := newAmuxHarness(t)
 
-	// Split horizontally: pane-1 (left) | pane-2 (right, active)
+	// Split vertically: pane-1 (left) | pane-2 (right, active)
 	h.splitV()
 
 	h.assertActive("pane-2")
@@ -227,7 +227,7 @@ func TestAltHJKLFocusVertical(t *testing.T) {
 	t.Parallel()
 	h := newAmuxHarness(t)
 
-	// Split vertically: pane-1 (top) / pane-2 (bottom, active)
+	// Split horizontally: pane-1 (top) / pane-2 (bottom, active)
 	h.splitH()
 
 	// Alt+k should focus up (pane-1)
@@ -249,7 +249,7 @@ func TestPrefixArrowFocusVertical(t *testing.T) {
 	t.Parallel()
 	h := newAmuxHarness(t)
 
-	// Split vertically: pane-1 (top) / pane-2 (bottom, active)
+	// Split horizontally: pane-1 (top) / pane-2 (bottom, active)
 	h.splitH()
 
 	// Prefix + Up arrow should focus pane-1

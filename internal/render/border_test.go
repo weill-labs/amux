@@ -33,7 +33,7 @@ func mkSplit(dir mux.SplitDir, x, y, w, h int, children ...*mux.LayoutCell) *mux
 func buildTwoPaneVertical(w, h int) *mux.LayoutCell {
 	topH := (h - 1) / 2
 	botH := h - 1 - topH
-	return mkSplit(mux.SplitVertical, 0, 0, w, h,
+	return mkSplit(mux.SplitHorizontal, 0, 0, w, h,
 		mkLeaf(1, 0, 0, w, topH),
 		mkLeaf(2, 0, topH+1, w, botH),
 	)
@@ -49,11 +49,11 @@ func buildThreePaneT(w, h int) *mux.LayoutCell {
 	botH := h - 1 - topH
 	botLeftW := (w - 1) / 2
 	botRightW := w - 1 - botLeftW
-	bot := mkSplit(mux.SplitHorizontal, 0, topH+1, w, botH,
+	bot := mkSplit(mux.SplitVertical, 0, topH+1, w, botH,
 		mkLeaf(2, 0, topH+1, botLeftW, botH),
 		mkLeaf(3, botLeftW+1, topH+1, botRightW, botH),
 	)
-	return mkSplit(mux.SplitVertical, 0, 0, w, h,
+	return mkSplit(mux.SplitHorizontal, 0, 0, w, h,
 		mkLeaf(1, 0, 0, w, topH),
 		bot,
 	)
@@ -69,15 +69,15 @@ func buildFourPane(w, h int) *mux.LayoutCell {
 	rightW := w - 1 - leftW
 	topH := (h - 1) / 2
 	botH := h - 1 - topH
-	left := mkSplit(mux.SplitVertical, 0, 0, leftW, h,
+	left := mkSplit(mux.SplitHorizontal, 0, 0, leftW, h,
 		mkLeaf(1, 0, 0, leftW, topH),
 		mkLeaf(4, 0, topH+1, leftW, botH),
 	)
-	right := mkSplit(mux.SplitVertical, leftW+1, 0, rightW, h,
+	right := mkSplit(mux.SplitHorizontal, leftW+1, 0, rightW, h,
 		mkLeaf(2, leftW+1, 0, rightW, topH),
 		mkLeaf(3, leftW+1, topH+1, rightW, botH),
 	)
-	return mkSplit(mux.SplitHorizontal, 0, 0, w, h, left, right)
+	return mkSplit(mux.SplitVertical, 0, 0, w, h, left, right)
 }
 
 // buildThreeColSplitMiddle creates:
@@ -97,13 +97,13 @@ func buildThreeColSplitMiddle(w, h int) *mux.LayoutCell {
 	topH := (h - 2) / 3
 	midH := topH
 	botH := h - 2 - 2*topH
-	mid := mkSplit(mux.SplitVertical, midX, 0, midW, h,
+	mid := mkSplit(mux.SplitHorizontal, midX, 0, midW, h,
 		mkLeaf(2, midX, 0, midW, topH),
 		mkLeaf(4, midX, topH+1, midW, midH),
 		mkLeaf(5, midX, topH+1+midH+1, midW, botH),
 	)
 
-	return mkSplit(mux.SplitHorizontal, 0, 0, w, h,
+	return mkSplit(mux.SplitVertical, 0, 0, w, h,
 		mkLeaf(1, 0, 0, colW, h),
 		mid,
 		mkLeaf(3, rightX, 0, colW, h),

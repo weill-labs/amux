@@ -112,7 +112,7 @@ func markBorders(bm *borderMap, cell *mux.LayoutCell) {
 		left := children[i]
 		right := children[i+1]
 
-		if cell.Dir == mux.SplitHorizontal {
+		if cell.Dir == mux.SplitVertical {
 			// Vertical border at x = left.X + left.W
 			x := left.X + left.W
 			for y := cell.Y; y < cell.Y+cell.H; y++ {
@@ -228,7 +228,7 @@ func findLeafByAxis(cell *mux.LayoutCell, x, y int) *mux.LayoutCell {
 		return nil
 	}
 	for _, child := range cell.Children {
-		if cell.Dir == mux.SplitVertical {
+		if cell.Dir == mux.SplitHorizontal {
 			if y >= child.Y && y <= child.Y+child.H {
 				if found := findLeafByAxis(child, x, y); found != nil {
 					return found

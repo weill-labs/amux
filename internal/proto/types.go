@@ -34,7 +34,7 @@ type WindowSnapshot struct {
 type CellSnapshot struct {
 	X, Y, W, H int
 	IsLeaf      bool
-	Dir         int    // -1 for leaf, 0 for SplitHorizontal, 1 for SplitVertical
+	Dir         int    // -1 for leaf, 0 for SplitVertical, 1 for SplitHorizontal
 	PaneID      uint32 // only for leaves
 	Children    []CellSnapshot
 }

@@ -200,7 +200,7 @@ func cmdSpawn(ctx *CommandContext) {
 		return
 	}
 	if remoteHost != "" && remoteHost != mux.DefaultHost {
-		pane := ctx.CC.splitRemotePane(ctx.Srv, ctx.Sess, remoteHost, mux.SplitHorizontal, false)
+		pane := ctx.CC.splitRemotePane(ctx.Srv, ctx.Sess, remoteHost, mux.SplitVertical, false)
 		if pane != nil {
 			pane.Meta.Name = meta.Name
 			if meta.Task != "" {
@@ -210,7 +210,7 @@ func cmdSpawn(ctx *CommandContext) {
 			ctx.reply(fmt.Sprintf("Spawned %s in pane %d @%s\n", meta.Name, pane.ID, remoteHost))
 		}
 	} else {
-		pane := ctx.CC.splitNewPane(ctx.Srv, ctx.Sess, meta, mux.SplitHorizontal, false)
+		pane := ctx.CC.splitNewPane(ctx.Srv, ctx.Sess, meta, mux.SplitVertical, false)
 		if pane != nil {
 			ctx.reply(fmt.Sprintf("Spawned %s in pane %d\n", meta.Name, pane.ID))
 		}
@@ -1018,7 +1018,7 @@ func cmdInjectProxy(ctx *CommandContext) {
 		func(data []byte) (int, error) { return len(data), nil },
 	)
 	ctx.Sess.Panes = append(ctx.Sess.Panes, proxyPane)
-	_, err := w.Split(mux.SplitHorizontal, proxyPane)
+	_, err := w.Split(mux.SplitVertical, proxyPane)
 	ctx.Sess.mu.Unlock()
 	if err != nil {
 		ctx.replyErr(err.Error())

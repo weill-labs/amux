@@ -43,13 +43,13 @@ func TestNewLeaf(t *testing.T) {
 	}
 }
 
-func TestSplitHorizontal(t *testing.T) {
+func TestSplitVertical(t *testing.T) {
 	t.Parallel()
 	p1 := fakePaneID(1)
 	root := NewLeaf(p1, 0, 0, 80, 24)
 
 	p2 := fakePaneID(2)
-	newCell, err := root.Split(SplitHorizontal, p2)
+	newCell, err := root.Split(SplitVertical, p2)
 	if err != nil {
 		t.Fatalf("Split: %v", err)
 	}
@@ -91,13 +91,13 @@ func TestSplitHorizontal(t *testing.T) {
 	}
 }
 
-func TestSplitVertical(t *testing.T) {
+func TestSplitHorizontal(t *testing.T) {
 	t.Parallel()
 	p1 := fakePaneID(1)
 	root := NewLeaf(p1, 0, 0, 80, 24)
 
 	p2 := fakePaneID(2)
-	_, err := root.Split(SplitVertical, p2)
+	_, err := root.Split(SplitHorizontal, p2)
 	if err != nil {
 		t.Fatalf("Split: %v", err)
 	}
@@ -121,7 +121,7 @@ func TestSplitTooSmall(t *testing.T) {
 	root := NewLeaf(p1, 0, 0, 4, 24) // Width 4 < 2*2+1=5
 
 	p2 := fakePaneID(2)
-	_, err := root.Split(SplitHorizontal, p2)
+	_, err := root.Split(SplitVertical, p2)
 	if err == nil {
 		t.Error("expected error for too-small split")
 	}
@@ -129,18 +129,18 @@ func TestSplitTooSmall(t *testing.T) {
 
 func TestSplitSiblingInsertion(t *testing.T) {
 	t.Parallel()
-	// Split once horizontally, then split the left child horizontally again.
+	// Split once vertically, then split the left child vertically again.
 	// The second split should add a sibling (Case A) rather than nesting.
 	p1 := fakePaneID(1)
 	root := NewLeaf(p1, 0, 0, 80, 24)
 
 	p2 := fakePaneID(2)
-	root.Split(SplitHorizontal, p2)
+	root.Split(SplitVertical, p2)
 
-	// Now split the left child (which has W=39) horizontally
+	// Now split the left child (which has W=39) vertically
 	left := root.Children[0]
 	p3 := fakePaneID(3)
-	_, err := left.Split(SplitHorizontal, p3)
+	_, err := left.Split(SplitVertical, p3)
 	if err != nil {
 		t.Fatalf("second split: %v", err)
 	}
@@ -158,10 +158,10 @@ func TestSplitSiblingEqualRedistribution(t *testing.T) {
 		name      string
 		dir       SplitDir
 		w, h      int
-		wantTotal int // expected total (width for H, height for V)
+		wantTotal int // expected total (width for V, height for H)
 	}{
-		{"horizontal", SplitHorizontal, 80, 24, 80},
-		{"vertical", SplitVertical, 80, 25, 25},
+		{"vertical", SplitVertical, 80, 24, 80},
+		{"horizontal", SplitHorizontal, 80, 25, 25},
 	}
 
 	for _, tt := range tests {
@@ -171,7 +171,7 @@ func TestSplitSiblingEqualRedistribution(t *testing.T) {
 			root.Split(tt.dir, fakePaneID(2))
 
 			size := func(c *LayoutCell) int {
-				if tt.dir == SplitHorizontal {
+				if tt.dir == SplitVertical {
 					return c.W
 				}
 				return c.H
@@ -211,7 +211,7 @@ func TestClosePane(t *testing.T) {
 	root := NewLeaf(p1, 0, 0, 80, 24)
 
 	p2 := fakePaneID(2)
-	root.Split(SplitHorizontal, p2)
+	root.Split(SplitVertical, p2)
 
 	right := root.Children[1]
 	rightW := right.W
@@ -236,7 +236,7 @@ func TestCloseCollapsesSingleChild(t *testing.T) {
 	root := NewLeaf(p1, 0, 0, 80, 24)
 
 	p2 := fakePaneID(2)
-	root.Split(SplitHorizontal, p2)
+	root.Split(SplitVertical, p2)
 
 	// Close right pane — parent should collapse, left becomes new root-level cell
 	right := root.Children[1]
@@ -261,7 +261,7 @@ func TestFixOffsets(t *testing.T) {
 	root := NewLeaf(p1, 0, 0, 80, 24)
 
 	p2 := fakePaneID(2)
-	root.Split(SplitHorizontal, p2)
+	root.Split(SplitVertical, p2)
 
 	// Manually mess up offsets
 	root.Children[0].X = 999
@@ -289,7 +289,7 @@ func TestResizeAll(t *testing.T) {
 	root := NewLeaf(p1, 0, 0, 80, 24)
 
 	p2 := fakePaneID(2)
-	root.Split(SplitHorizontal, p2)
+	root.Split(SplitVertical, p2)
 
 	// Resize to 120x40
 	root.ResizeAll(120, 40)
@@ -318,10 +318,10 @@ func TestWalkAndFindPane(t *testing.T) {
 	root := NewLeaf(p1, 0, 0, 80, 24)
 
 	p2 := fakePaneID(2)
-	root.Split(SplitHorizontal, p2)
+	root.Split(SplitVertical, p2)
 
 	p3 := fakePaneID(3)
-	root.Children[1].Split(SplitVertical, p3)
+	root.Children[1].Split(SplitHorizontal, p3)
 
 	// Walk should find 3 leaves
 	count := 0
@@ -344,11 +344,11 @@ func TestWalkAndFindPane(t *testing.T) {
 
 func TestFindLeafAt(t *testing.T) {
 	t.Parallel()
-	// Horizontal split: pane-1 (0..38) | border (39) | pane-2 (40..79)
+	// Vertical split: pane-1 (0..38) | border (39) | pane-2 (40..79)
 	p1 := fakePaneID(1)
 	root := NewLeaf(p1, 0, 0, 80, 24)
 	p2 := fakePaneID(2)
-	root.Split(SplitHorizontal, p2)
+	root.Split(SplitVertical, p2)
 	root.FixOffsets()
 
 	tests := []struct {
@@ -391,7 +391,7 @@ func TestFindLeafAtVerticalSplit(t *testing.T) {
 	p1 := fakePaneID(1)
 	root := NewLeaf(p1, 0, 0, 80, 25)
 	p2 := fakePaneID(2)
-	root.Split(SplitVertical, p2)
+	root.Split(SplitHorizontal, p2)
 	root.FixOffsets()
 
 	top := root.Children[0]
@@ -419,11 +419,11 @@ func TestFindLeafAtVerticalSplit(t *testing.T) {
 
 func TestFindBorderAt(t *testing.T) {
 	t.Parallel()
-	// Horizontal split: pane-1 | border | pane-2
+	// Vertical split: pane-1 | border | pane-2
 	p1 := fakePaneID(1)
 	root := NewLeaf(p1, 0, 0, 80, 24)
 	p2 := fakePaneID(2)
-	root.Split(SplitHorizontal, p2)
+	root.Split(SplitVertical, p2)
 	root.FixOffsets()
 
 	borderX := root.Children[0].W
@@ -433,8 +433,8 @@ func TestFindBorderAt(t *testing.T) {
 	if hit == nil {
 		t.Fatal("expected border hit at border column")
 	}
-	if hit.Dir != SplitHorizontal {
-		t.Errorf("dir = %d, want SplitHorizontal", hit.Dir)
+	if hit.Dir != SplitVertical {
+		t.Errorf("dir = %d, want SplitVertical", hit.Dir)
 	}
 
 	// Non-border position (inside pane)
@@ -446,15 +446,15 @@ func TestFindBorderAt(t *testing.T) {
 
 func TestFindBorderAtNested(t *testing.T) {
 	t.Parallel()
-	// 2x2 grid: H split, then each child V split
+	// 2x2 grid: V split at root, then each child H split
 	p1 := fakePaneID(1)
 	root := NewLeaf(p1, 0, 0, 81, 25)
 	p2 := fakePaneID(2)
-	root.Split(SplitHorizontal, p2)
+	root.Split(SplitVertical, p2)
 	p3 := fakePaneID(3)
-	root.Children[0].Split(SplitVertical, p3)
+	root.Children[0].Split(SplitHorizontal, p3)
 	p4 := fakePaneID(4)
-	root.Children[1].Split(SplitVertical, p4)
+	root.Children[1].Split(SplitHorizontal, p4)
 	root.FixOffsets()
 
 	// Vertical border between left and right halves
@@ -463,8 +463,8 @@ func TestFindBorderAtNested(t *testing.T) {
 	if hit == nil {
 		t.Fatal("expected vertical border hit")
 	}
-	if hit.Dir != SplitHorizontal {
-		t.Errorf("dir = %d, want SplitHorizontal", hit.Dir)
+	if hit.Dir != SplitVertical {
+		t.Errorf("dir = %d, want SplitVertical", hit.Dir)
 	}
 
 	// Horizontal border in left half
@@ -475,26 +475,26 @@ func TestFindBorderAtNested(t *testing.T) {
 		if hit == nil {
 			t.Fatal("expected horizontal border hit in left half")
 		}
-		if hit.Dir != SplitVertical {
-			t.Errorf("dir = %d, want SplitVertical", hit.Dir)
+		if hit.Dir != SplitHorizontal {
+			t.Errorf("dir = %d, want SplitHorizontal", hit.Dir)
 		}
 	}
 }
 
 func TestNestedSplits(t *testing.T) {
 	t.Parallel()
-	// Create a 2x2 grid: split H, then split each half V
+	// Create a 2x2 grid: split V, then split each half H
 	p1 := fakePaneID(1)
 	root := NewLeaf(p1, 0, 0, 81, 25)
 
 	p2 := fakePaneID(2)
-	root.Split(SplitHorizontal, p2)
+	root.Split(SplitVertical, p2)
 
 	p3 := fakePaneID(3)
-	root.Children[0].Split(SplitVertical, p3)
+	root.Children[0].Split(SplitHorizontal, p3)
 
 	p4 := fakePaneID(4)
-	root.Children[1].Split(SplitVertical, p4)
+	root.Children[1].Split(SplitHorizontal, p4)
 
 	root.FixOffsets()
 

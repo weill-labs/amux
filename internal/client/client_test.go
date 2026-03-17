@@ -20,7 +20,7 @@ func buildTestRenderer(t *testing.T) *ClientRenderer {
 		Height:       23, // 24 - 1 global bar
 		Root: proto.CellSnapshot{
 			X: 0, Y: 0, W: 80, H: 23,
-			Dir: int(mux.SplitHorizontal),
+			Dir: int(mux.SplitVertical),
 			Children: []proto.CellSnapshot{
 				{X: 0, Y: 0, W: 39, H: 23, IsLeaf: true, Dir: -1, PaneID: 1},
 				{X: 40, Y: 0, W: 39, H: 23, IsLeaf: true, Dir: -1, PaneID: 2},
@@ -34,7 +34,7 @@ func buildTestRenderer(t *testing.T) *ClientRenderer {
 			ID: 1, Name: "window-1", Index: 1, ActivePaneID: 1,
 			Root: proto.CellSnapshot{
 				X: 0, Y: 0, W: 80, H: 23,
-				Dir: int(mux.SplitHorizontal),
+				Dir: int(mux.SplitVertical),
 				Children: []proto.CellSnapshot{
 					{X: 0, Y: 0, W: 39, H: 23, IsLeaf: true, Dir: -1, PaneID: 1},
 					{X: 40, Y: 0, W: 39, H: 23, IsLeaf: true, Dir: -1, PaneID: 2},

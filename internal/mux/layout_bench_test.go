@@ -18,9 +18,9 @@ func benchTree(n int) *LayoutCell {
 				target = c
 			}
 		})
-		dir := SplitHorizontal
+		dir := SplitVertical
 		if i%2 == 0 {
-			dir = SplitVertical
+			dir = SplitHorizontal
 		}
 		target.Split(dir, fakePaneID(uint32(i)))
 	}
@@ -41,9 +41,9 @@ func BenchmarkSplit(b *testing.B) {
 							target = c
 						}
 					})
-					dir := SplitHorizontal
+					dir := SplitVertical
 					if i%2 == 0 {
-						dir = SplitVertical
+						dir = SplitHorizontal
 					}
 					target.Split(dir, fakePaneID(uint32(i)))
 				}
@@ -100,11 +100,11 @@ func flatHTree(n int) *LayoutCell {
 	root := NewLeaf(fakePaneID(1), 0, 0, 800, 240)
 	// First split creates Case B (root has no parent), establishing the internal node
 	if n >= 2 {
-		root.Split(SplitHorizontal, fakePaneID(2))
+		root.Split(SplitVertical, fakePaneID(2))
 	}
 	// Subsequent splits use Case A (same-direction sibling insertion)
 	for i := 3; i <= n; i++ {
-		root.Children[0].Split(SplitHorizontal, fakePaneID(uint32(i)))
+		root.Children[0].Split(SplitVertical, fakePaneID(uint32(i)))
 	}
 	root.FixOffsets()
 	return root

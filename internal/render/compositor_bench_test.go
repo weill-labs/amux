@@ -23,9 +23,9 @@ func benchLayoutTree(n, w, h int) (*mux.LayoutCell, []uint32) {
 				target = c
 			}
 		})
-		dir := mux.SplitHorizontal
+		dir := mux.SplitVertical
 		if i%2 == 0 {
-			dir = mux.SplitVertical
+			dir = mux.SplitHorizontal
 		}
 		p := &mux.Pane{ID: uint32(i), Meta: mux.PaneMeta{Name: fmt.Sprintf("pane-%d", i)}}
 		target.Split(dir, p)
