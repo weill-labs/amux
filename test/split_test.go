@@ -370,7 +370,7 @@ func TestGoldenFourPane(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Golden file tests — extended rendering dimensions
+// Golden file tests — minimize, zoom, and multi-window states
 // ---------------------------------------------------------------------------
 
 func TestGoldenMinimizedColumn(t *testing.T) {
@@ -404,8 +404,8 @@ func TestGoldenZoomed(t *testing.T) {
 	h.splitV()
 	h.splitH()
 
-	// Focus and zoom pane-1 — fills the entire window, hides borders and other panes
-	h.doFocus("pane-1")
+	// Zoom pane-1 — fills the entire window, hides borders and other panes.
+	// No doFocus needed: Window.Zoom() sets the target pane as active internally.
 	gen := h.generation()
 	h.runCmd("zoom", "pane-1")
 	h.waitLayout(gen)
