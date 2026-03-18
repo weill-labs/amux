@@ -392,6 +392,25 @@ func runServer(sessionName string) {
 			fmt.Fprintf(os.Stderr, "amux server: restoring from checkpoint: %v\n", err)
 			os.Exit(1)
 		}
+	} else if crashPath := server.DetectCrashedSession(sessionName); crashPath != "" {
+		// Crash recovery: checkpoint exists but no server is running
+		crashCP, readErr := checkpoint.ReadCrash(crashPath)
+		if readErr != nil {
+			fmt.Fprintf(os.Stderr, "amux server: unreadable crash checkpoint, starting fresh: %v\n", readErr)
+			os.Remove(crashPath) // remove stale checkpoint to avoid warning on every startup
+			s, err = server.NewServer(sessionName)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "amux server: %v\n", err)
+				os.Exit(1)
+			}
+		} else {
+			fmt.Fprintf(os.Stderr, "amux server: recovering crashed session %q\n", sessionName)
+			s, err = server.NewServerFromCrashCheckpoint(sessionName, crashCP)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "amux server: crash recovery: %v\n", err)
+				os.Exit(1)
+			}
+		}
 	} else {
 		s, err = server.NewServer(sessionName)
 		if err != nil {
@@ -417,13 +436,17 @@ func runServer(sessionName string) {
 		}
 	}
 
-	// Handle shutdown signals
+	// Handle shutdown signals. The goroutine calls Shutdown() which closes
+	// the listener (unblocking Run()), then finishes cleanup (crash checkpoint
+	// removal, pane teardown). shutdownDone lets the main goroutine wait for
+	// cleanup to complete before exiting.
 	sigCh := make(chan os.Signal, 1)
+	shutdownDone := make(chan struct{})
 	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
 	go func() {
 		<-sigCh
 		s.Shutdown()
-		os.Exit(0)
+		close(shutdownDone)
 	}()
 
 	// Server-side binary watcher for auto-reload.
@@ -453,6 +476,10 @@ func runServer(sessionName string) {
 			os.Exit(1)
 		}
 	}
+
+	// Wait for Shutdown() to finish cleanup (crash checkpoint removal, etc.)
+	// before the process exits.
+	<-shutdownDone
 }
 
 // ---------------------------------------------------------------------------

@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"syscall"
 	"time"
+
+	"github.com/weill-labs/amux/internal/checkpoint"
 )
 
 // StartDaemon launches the server as a background daemon.
@@ -82,6 +84,23 @@ func SocketAlive(sockPath string) bool {
 	}
 	conn.Close()
 	return true
+}
+
+// DetectCrashedSession checks if a crash checkpoint exists for the given
+// session AND the server socket is stale or missing. Returns the checkpoint
+// path if a crashed session is detected, or "" if no recovery is needed.
+func DetectCrashedSession(sessionName string) string {
+	cpPath := checkpoint.CrashCheckpointPath(sessionName)
+	if _, err := os.Stat(cpPath); err != nil {
+		return "" // no crash checkpoint
+	}
+
+	sockPath := SocketPath(sessionName)
+	if SocketAlive(sockPath) {
+		return "" // server is running — no crash
+	}
+
+	return cpPath
 }
 
 // WaitForSocket polls until the socket becomes available.

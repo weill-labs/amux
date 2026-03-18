@@ -22,15 +22,16 @@ const PaneNameFormat = "pane-%d"
 
 // PaneMeta holds amux metadata for a pane.
 type PaneMeta struct {
-	Name         string
-	Host         string
-	Task         string
-	Remote       string
-	Color        string
-	Minimized    bool
-	RestoreH     int    // saved height before minimize
-	MinimizedSeq uint64 // monotonic counter for LIFO restore ordering
-	Dormant      bool   // pane is in Session.Panes but not in any window layout (e.g., SSH takeover host)
+	Name         string `json:"name"`
+	Host         string `json:"host"`
+	Task         string `json:"task,omitempty"`
+	Remote       string `json:"remote,omitempty"`
+	Color        string `json:"color"`
+	Minimized    bool   `json:"minimized,omitempty"`
+	RestoreH     int    `json:"restore_h,omitempty"`     // saved height before minimize
+	MinimizedSeq uint64 `json:"minimized_seq,omitempty"` // monotonic counter for LIFO restore ordering
+	Dormant      bool   `json:"dormant,omitempty"`       // pane is in Session.Panes but not in any window layout (e.g., SSH takeover host)
+	Dir          string `json:"dir,omitempty"`           // working directory override for new shell
 }
 
 // Pane manages a PTY, its terminal emulator, and metadata.
@@ -78,6 +79,9 @@ func NewPane(id uint32, meta PaneMeta, cols, rows int, onOutput func(uint32, []b
 		"TERM=xterm-256color",
 		"AMUX_PANE=1",
 	)
+	if meta.Dir != "" {
+		cmd.Dir = meta.Dir
+	}
 
 	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{
 		Cols: uint16(cols),

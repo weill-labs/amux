@@ -6,55 +6,58 @@ package proto
 // When Windows is non-empty, the multi-window fields take precedence over
 // the legacy single-window fields (Root, Panes, ActivePaneID).
 type LayoutSnapshot struct {
-	SessionName  string
-	ActivePaneID uint32
-	ZoomedPaneID uint32
-	Root         CellSnapshot
-	Panes        []PaneSnapshot
-	Width        int
-	Height       int
+	SessionName  string         `json:"session_name"`
+	ActivePaneID uint32         `json:"active_pane_id"`
+	ZoomedPaneID uint32         `json:"zoomed_pane_id"`
+	Root         CellSnapshot   `json:"root"`
+	Panes        []PaneSnapshot `json:"panes"`
+	Width        int            `json:"width"`
+	Height       int            `json:"height"`
 
 	// Multi-window fields
-	Windows        []WindowSnapshot
-	ActiveWindowID uint32
+	Windows        []WindowSnapshot `json:"windows,omitempty"`
+	ActiveWindowID uint32           `json:"active_window_id,omitempty"`
 }
 
 // WindowSnapshot captures one window's state for the wire protocol.
 type WindowSnapshot struct {
-	ID           uint32
-	Name         string
-	Index        int // 1-based display order
-	ActivePaneID uint32
-	ZoomedPaneID uint32
-	Root         CellSnapshot
-	Panes        []PaneSnapshot
+	ID           uint32         `json:"id"`
+	Name         string         `json:"name"`
+	Index        int            `json:"index"` // 1-based display order
+	ActivePaneID uint32         `json:"active_pane_id"`
+	ZoomedPaneID uint32         `json:"zoomed_pane_id"`
+	Root         CellSnapshot   `json:"root"`
+	Panes        []PaneSnapshot `json:"panes"`
 }
 
 // CellSnapshot is a serializable layout tree node.
 type CellSnapshot struct {
-	X, Y, W, H int
-	IsLeaf      bool
-	Dir         int    // -1 for leaf, 0 for SplitVertical, 1 for SplitHorizontal
-	PaneID      uint32 // only for leaves
-	Children    []CellSnapshot
+	X        int            `json:"x"`
+	Y        int            `json:"y"`
+	W        int            `json:"w"`
+	H        int            `json:"h"`
+	IsLeaf   bool           `json:"is_leaf"`
+	Dir      int            `json:"dir"`     // -1 for leaf, 0 for SplitVertical, 1 for SplitHorizontal
+	PaneID   uint32         `json:"pane_id"` // only for leaves
+	Children []CellSnapshot `json:"children,omitempty"`
 }
 
 // PaneSnapshot holds metadata for one pane.
 type PaneSnapshot struct {
-	ID         uint32
-	Name       string
-	Host       string
-	Task       string
-	Color      string
-	Minimized  bool
-	Idle       bool
-	ConnStatus string // "", "connected", "reconnecting", "disconnected" (remote panes only)
+	ID         uint32 `json:"id"`
+	Name       string `json:"name"`
+	Host       string `json:"host"`
+	Task       string `json:"task"`
+	Color      string `json:"color"`
+	Minimized  bool   `json:"minimized"`
+	Idle       bool   `json:"idle"`
+	ConnStatus string `json:"conn_status,omitempty"` // "", "connected", "reconnecting", "disconnected" (remote panes only)
 
 	// EmuWidth/EmuHeight are set for minimized panes to record the
 	// pre-minimize emulator dimensions. Clients use these to create
 	// correctly-sized emulators so replayed screen content isn't truncated.
-	EmuWidth  int
-	EmuHeight int
+	EmuWidth  int `json:"emu_width,omitempty"`
+	EmuHeight int `json:"emu_height,omitempty"`
 }
 
 // CaptureJSON is the full-screen JSON capture output.
