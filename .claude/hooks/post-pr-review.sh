@@ -7,12 +7,10 @@
 input=$(cat)
 command=$(echo "$input" | jq -r '.tool_input.command // empty' 2>/dev/null)
 
+# Check if the given PR has merge conflicts. GitHub needs a moment after push
+# to compute merge state, so we sleep briefly before querying.
 check_conflicts() {
-    local pr_num
-    pr_num=$(gh pr view --json number --jq .number 2>/dev/null)
-    if [[ -z "$pr_num" ]]; then
-        return
-    fi
+    local pr_num="$1"
     sleep 2
     local mergeable
     mergeable=$(gh pr view "$pr_num" --json mergeable --jq .mergeable 2>/dev/null)
@@ -23,18 +21,20 @@ check_conflicts() {
 
 # After gh pr create: remind to run review agents + check conflicts
 if [[ "$command" == gh\ pr\ create* ]]; then
-    echo "PR created. Run the code-reviewer and code-simplifier agents now to review the changes before considering this done." >&2
-    check_conflicts
-    exit 2
+    pr_num=$(gh pr view --json number --jq .number 2>/dev/null)
+    if [[ -n "$pr_num" ]]; then
+        echo "PR created. Run the code-reviewer and code-simplifier agents now to review the changes before considering this done." >&2
+        check_conflicts "$pr_num"
+        exit 2
+    fi
 fi
 
 # After git push: remind to run review agents + check for merge conflicts
 if [[ "$command" == git\ push* ]]; then
-    # Only trigger on branches with an open PR (skip pushes to main)
     pr_num=$(gh pr view --json number --jq .number 2>/dev/null)
     if [[ -n "$pr_num" ]]; then
         echo "Pushed to PR #$pr_num. Run the code-reviewer and code-simplifier agents in background now." >&2
-        check_conflicts
+        check_conflicts "$pr_num"
         exit 2
     fi
 fi
