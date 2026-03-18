@@ -630,18 +630,45 @@ func TestPrevGridText(t *testing.T) {
 // These verify that RenderDiff produces the same visual result as RenderFull
 // including cell styles (foreground, background, attributes), not just text.
 
+// cellContent returns a cell's visible character, defaulting to space for nil
+// or empty cells.
+func cellContent(c *uv.Cell) string {
+	if c != nil && c.Content != "" {
+		return c.Content
+	}
+	return " "
+}
+
+// cellStyle returns a cell's style, defaulting to zero-value for nil cells.
+func cellStyle(c *uv.Cell) uv.Style {
+	if c != nil {
+		return c.Style
+	}
+	return uv.Style{}
+}
+
+// htopSampleANSI is htop-like ANSI content used across color oracle tests:
+// colored CPU bars, bold/dim styles, sort indicator, and process rows.
+var htopSampleANSI = strings.Join([]string{
+	"\033[32m|||||\033[31m||\033[90;1m   \033[0m CPU1 [##...]",
+	"\033[34m|||\033[33m|||\033[90;1m    \033[0m CPU2 [##...]",
+	"  PID USER  \033[30;42m▽CPU%\033[0m MEM%  TIME+",
+	"\033[1;37m 1234 root  \033[0m\033[32m 45.2\033[0m  2.1  0:12.34",
+	"\033[37m 5678 user  \033[0m\033[33m 12.1\033[0m  1.5  0:05.67",
+}, "\r\n")
+
 // colorOracleCheck feeds RenderDiff output into diffDisplay (persistent, like a
 // real terminal), creates a fresh display from RenderFull for ground truth, and
 // compares cell-by-cell. Foreground-only differences on space characters are
 // ignored since they're visually invisible (the RenderFull ANSI path inherits
 // fg state onto trailing spaces, while BuildGrid sets only bg on fill cells).
 func colorOracleCheck(comp *Compositor, diffDisplay *vt.SafeEmulator, root *mux.LayoutCell, activeID uint32, lookup func(uint32) PaneData, width, height int) []string {
-	// Ground truth: RenderFull (clear screen) → fresh display emulator
+	// Ground truth: RenderFull (clear screen) -> fresh display emulator.
 	fullANSI := comp.RenderFull(root, activeID, lookup, true)
 	fullDisplay := vt.NewSafeEmulator(width, height)
 	fullDisplay.Write([]byte(fullANSI))
 
-	// Diff path: RenderDiff → persistent display emulator
+	// Diff path: RenderDiff -> persistent display emulator.
 	diffANSI := comp.RenderDiff(root, activeID, lookup)
 	diffDisplay.Write([]byte(diffANSI))
 
@@ -650,43 +677,31 @@ func colorOracleCheck(comp *Compositor, diffDisplay *vt.SafeEmulator, root *mux.
 		for x := 0; x < width; x++ {
 			fullCell := fullDisplay.CellAt(x, y)
 			diffCell := diffDisplay.CellAt(x, y)
+			fc := cellContent(fullCell)
+			dc := cellContent(diffCell)
 
-			fullContent := " "
-			diffContent := " "
-			if fullCell != nil && fullCell.Content != "" {
-				fullContent = fullCell.Content
-			}
-			if diffCell != nil && diffCell.Content != "" {
-				diffContent = diffCell.Content
-			}
-
-			if fullContent != diffContent {
+			if fc != dc {
 				mismatches = append(mismatches, fmt.Sprintf(
-					"cell(%d,%d): content full=%q diff=%q", x, y, fullContent, diffContent))
+					"cell(%d,%d): content full=%q diff=%q", x, y, fc, dc))
 				continue
 			}
 
-			var fullStyle, diffStyle uv.Style
-			if fullCell != nil {
-				fullStyle = fullCell.Style
-			}
-			if diffCell != nil {
-				diffStyle = diffCell.Style
-			}
+			fs := cellStyle(fullCell)
+			ds := cellStyle(diffCell)
 
 			// Skip fg-only differences on space characters — the RenderFull
 			// ANSI path inherits fg from previous styled characters onto
 			// trailing fill spaces, while BuildGrid explicitly sets only bg
 			// on fill cells. Both produce identical visual output.
-			if fullContent == " " {
-				fullStyle.Fg = nil
-				diffStyle.Fg = nil
+			if fc == " " {
+				fs.Fg = nil
+				ds.Fg = nil
 			}
 
-			if !fullStyle.Equal(&diffStyle) {
+			if !fs.Equal(&ds) {
 				mismatches = append(mismatches, fmt.Sprintf(
-					"cell(%d,%d) %q: style full=%s diff=%s", x, y, fullContent,
-					fullStyle.String(), diffStyle.String()))
+					"cell(%d,%d) %q: style full=%s diff=%s", x, y, fc,
+					fs.String(), ds.String()))
 			}
 		}
 	}
@@ -700,16 +715,7 @@ func TestRenderDiff_ColorOracle(t *testing.T) {
 	contentH := height - mux.StatusLineRows
 
 	paneEmu := vt.NewSafeEmulator(width, contentH)
-
-	// Feed htop-like ANSI: colored bars, bold/dim styles, sort indicator.
-	htopContent := strings.Join([]string{
-		"\033[32m|||||\033[31m||\033[90;1m   \033[0m CPU1 [##...]",
-		"\033[34m|||\033[33m|||\033[90;1m    \033[0m CPU2 [##...]",
-		"  PID USER  \033[30;42m▽CPU%\033[0m MEM%  TIME+",
-		"\033[1;37m 1234 root  \033[0m\033[32m 45.2\033[0m  2.1  0:12.34",
-		"\033[37m 5678 user  \033[0m\033[33m 12.1\033[0m  1.5  0:05.67",
-	}, "\r\n")
-	paneEmu.Write([]byte(htopContent))
+	paneEmu.Write([]byte(htopSampleANSI))
 
 	root := mux.NewLeafByID(1, 0, 0, width, height)
 	lookup := func(id uint32) PaneData {
@@ -736,16 +742,7 @@ func TestRenderDiff_ColorOracle_IncrementalUpdate(t *testing.T) {
 	contentH := height - mux.StatusLineRows
 
 	paneEmu := vt.NewSafeEmulator(width, contentH)
-
-	// Initial htop content.
-	htopContent := strings.Join([]string{
-		"\033[32m|||||\033[31m||\033[90;1m   \033[0m CPU1 [##...]",
-		"\033[34m|||\033[33m|||\033[90;1m    \033[0m CPU2 [##...]",
-		"  PID USER  \033[30;42m▽CPU%\033[0m MEM%  TIME+",
-		"\033[1;37m 1234 root  \033[0m\033[32m 45.2\033[0m  2.1  0:12.34",
-		"\033[37m 5678 user  \033[0m\033[33m 12.1\033[0m  1.5  0:05.67",
-	}, "\r\n")
-	paneEmu.Write([]byte(htopContent))
+	paneEmu.Write([]byte(htopSampleANSI))
 
 	root := mux.NewLeafByID(1, 0, 0, width, height)
 	lookup := func(id uint32) PaneData {

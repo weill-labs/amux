@@ -189,19 +189,20 @@ func (c *Compositor) PrevGridText() string {
 // gridToText converts a ScreenGrid to plain text with trailing spaces trimmed.
 func gridToText(g *ScreenGrid) string {
 	var buf strings.Builder
+	row := make([]byte, 0, g.Width)
 	for y := 0; y < g.Height; y++ {
 		if y > 0 {
 			buf.WriteByte('\n')
 		}
-		var row strings.Builder
+		row = row[:0]
 		for x := 0; x < g.Width; x++ {
 			ch := g.Get(x, y).Char
 			if ch == "" {
 				ch = " "
 			}
-			row.WriteString(ch)
+			row = append(row, ch...)
 		}
-		buf.WriteString(strings.TrimRight(row.String(), " "))
+		buf.WriteString(strings.TrimRight(string(row), " "))
 	}
 	return buf.String()
 }
