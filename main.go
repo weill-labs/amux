@@ -396,16 +396,19 @@ func runServer(sessionName string) {
 		// Crash recovery: checkpoint exists but no server is running
 		crashCP, readErr := checkpoint.ReadCrash(crashPath)
 		if readErr != nil {
-			fmt.Fprintf(os.Stderr, "amux server: reading crash checkpoint: %v\n", readErr)
-			// Fall through to fresh start
+			fmt.Fprintf(os.Stderr, "amux server: unreadable crash checkpoint, starting fresh: %v\n", readErr)
 			s, err = server.NewServer(sessionName)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "amux server: %v\n", err)
+				os.Exit(1)
+			}
 		} else {
 			fmt.Fprintf(os.Stderr, "amux server: recovering crashed session %q\n", sessionName)
 			s, err = server.NewServerFromCrashCheckpoint(sessionName, crashCP)
-		}
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "amux server: crash recovery: %v\n", err)
-			os.Exit(1)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "amux server: crash recovery: %v\n", err)
+				os.Exit(1)
+			}
 		}
 	} else {
 		s, err = server.NewServer(sessionName)

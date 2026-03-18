@@ -186,7 +186,7 @@ func waitForCrashCheckpoint(t *testing.T, path string, timeout time.Duration) {
 	}
 }
 
-// paneNames returns a sorted comma-joined string of pane names from a capture.
+// paneNames returns a comma-joined string of pane names from a capture (layout order).
 func paneNames(c proto.CaptureJSON) string {
 	var names []string
 	for _, p := range c.Panes {

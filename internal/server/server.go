@@ -102,7 +102,7 @@ func (s *Session) buildCrashCheckpoint() *checkpoint.CrashCheckpoint {
 		return nil
 	}
 
-	idleSnap := make(map[uint32]bool)
+	idleSnap := make(map[uint32]bool) // empty — crash checkpoint doesn't need idle state
 	snap := s.snapshotLayoutLocked(idleSnap)
 	cp := &checkpoint.CrashCheckpoint{
 		Version:       checkpoint.CrashVersion,
@@ -339,7 +339,8 @@ func NewServerFromCrashCheckpoint(sessionName string, cp *checkpoint.CrashCheckp
 		onExit := sess.paneExitCallback(s)
 
 		if ps.IsProxy {
-			// Restore proxy pane with frozen content, mark as reconnecting
+			// Restore proxy pane with frozen content, mark as reconnecting.
+			// The remote manager will re-establish the SSH connection.
 			meta := ps.Meta
 			meta.Remote = string(remote.Reconnecting)
 			pane = mux.NewProxyPane(ps.ID, meta, ps.Cols, ps.Rows,
@@ -348,7 +349,7 @@ func NewServerFromCrashCheckpoint(sessionName string, cp *checkpoint.CrashCheckp
 					if sess.RemoteManager != nil {
 						return len(data), sess.RemoteManager.SendInput(ps.ID, data)
 					}
-					return len(data), nil
+					return len(data), nil // drop input until reconnected
 				},
 			)
 		} else {
