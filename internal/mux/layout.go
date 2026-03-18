@@ -202,89 +202,100 @@ func (c *LayoutCell) FixOffsets() {
 
 // ResizeAll adjusts the layout tree to fit new terminal dimensions.
 func (c *LayoutCell) ResizeAll(newW, newH int) {
-	if c.isLeaf {
-		c.W = newW
-		c.H = newH
+	if c == nil {
 		return
 	}
 
-	c.W = newW
-	c.H = newH
-
-	// Compute target sizes for children proportionally.
-	// Available space = total minus separators between children.
-	n := len(c.Children)
-	separators := n - 1
-	if separators < 0 {
-		separators = 0
+	// Match tmux's resize behavior: distribute exact deltas cell-by-cell
+	// instead of recomputing proportions from already-rounded pane sizes.
+	xchange := newW - c.W
+	xlimit := c.resizeCheck(SplitVertical)
+	if xchange < -xlimit {
+		xchange = -xlimit
+	}
+	if xchange != 0 {
+		c.resizeAdjust(SplitVertical, xchange)
 	}
 
-	if c.Dir == SplitVertical {
-		available := newW - separators
-		targets := proportionalSizes(c.Children, available, true)
-		for i, child := range c.Children {
-			child.ResizeAll(targets[i], newH)
-		}
-	} else {
-		available := newH - separators
-		targets := proportionalSizes(c.Children, available, false)
-		for i, child := range c.Children {
-			child.ResizeAll(newW, targets[i])
-		}
+	ychange := newH - c.H
+	ylimit := c.resizeCheck(SplitHorizontal)
+	if ychange < -ylimit {
+		ychange = -ylimit
+	}
+	if ychange != 0 {
+		c.resizeAdjust(SplitHorizontal, ychange)
 	}
 
 	c.FixOffsets()
 }
 
-// proportionalSizes computes target sizes for children to fill `available` space,
-// proportional to their current sizes. Ensures each child gets at least PaneMinSize.
-func proportionalSizes(children []*LayoutCell, available int, horizontal bool) []int {
-	n := len(children)
-	if n == 0 {
-		return nil
+func (c *LayoutCell) resizeCheck(axis SplitDir) int {
+	if c.IsLeaf() {
+		size := c.W
+		if axis == SplitHorizontal {
+			size = c.H
+		}
+		if size > PaneMinSize {
+			return size - PaneMinSize
+		}
+		return 0
 	}
 
-	// Compute current total
-	total := 0
-	for _, child := range children {
-		if horizontal {
-			total += child.W
-		} else {
-			total += child.H
+	if c.Dir == axis {
+		available := 0
+		for _, child := range c.Children {
+			available += child.resizeCheck(axis)
 		}
+		return available
 	}
 
-	targets := make([]int, n)
-	if total == 0 {
-		// All zero — distribute evenly
-		per := available / n
-		for i := range targets {
-			targets[i] = per
+	minimum := -1
+	for _, child := range c.Children {
+		available := child.resizeCheck(axis)
+		if minimum == -1 || available < minimum {
+			minimum = available
 		}
-		targets[n-1] = available - per*(n-1)
-		return targets
+	}
+	if minimum < 0 {
+		return 0
+	}
+	return minimum
+}
+
+func (c *LayoutCell) resizeAdjust(axis SplitDir, change int) {
+	if axis == SplitVertical {
+		c.W += change
+	} else {
+		c.H += change
 	}
 
-	// Proportional distribution
-	assigned := 0
-	for i, child := range children {
-		cur := child.W
-		if !horizontal {
-			cur = child.H
-		}
-		if i == n-1 {
-			// Last child gets remainder to avoid rounding drift
-			targets[i] = available - assigned
-		} else {
-			targets[i] = cur * available / total
-		}
-		if targets[i] < PaneMinSize {
-			targets[i] = PaneMinSize
-		}
-		assigned += targets[i]
+	if c.IsLeaf() {
+		return
 	}
 
-	return targets
+	if c.Dir != axis {
+		for _, child := range c.Children {
+			child.resizeAdjust(axis, change)
+		}
+		return
+	}
+
+	for change != 0 {
+		for _, child := range c.Children {
+			if change == 0 {
+				break
+			}
+			if change > 0 {
+				child.resizeAdjust(axis, 1)
+				change--
+				continue
+			}
+			if child.resizeCheck(axis) > 0 {
+				child.resizeAdjust(axis, -1)
+				change++
+			}
+		}
+	}
 }
 
 // HasNonMinimizedLeaf returns true if any leaf in the subtree has a

@@ -1,6 +1,9 @@
 package mux
 
-import "testing"
+import (
+	"fmt"
+	"testing"
+)
 
 // fakePaneID creates a minimal Pane with just an ID for testing layout.
 func fakePaneID(id uint32) *Pane {
@@ -310,6 +313,58 @@ func TestResizeAll(t *testing.T) {
 			t.Errorf("child[%d].H = %d, want 40", i, child.H)
 		}
 	}
+}
+
+func TestResizeAll_RoundTripKeepsEqualGridStable(t *testing.T) {
+	t.Parallel()
+
+	root := NewLeaf(fakePaneID(1), 0, 0, 80, 23)
+	if _, err := root.Split(SplitVertical, fakePaneID(2)); err != nil {
+		t.Fatalf("split root vertical: %v", err)
+	}
+	if _, err := root.Children[1].Split(SplitVertical, fakePaneID(3)); err != nil {
+		t.Fatalf("split root vertical again: %v", err)
+	}
+
+	nextID := uint32(4)
+	for _, col := range root.Children {
+		if _, err := col.Split(SplitHorizontal, fakePaneID(nextID)); err != nil {
+			t.Fatalf("split column horizontal: %v", err)
+		}
+		nextID++
+		if _, err := col.Children[1].Split(SplitHorizontal, fakePaneID(nextID)); err != nil {
+			t.Fatalf("split column horizontal again: %v", err)
+		}
+		nextID++
+	}
+	root.FixOffsets()
+
+	initial := snapshotLeafGeometry(root)
+
+	root.ResizeAll(120, 39)
+	root.ResizeAll(80, 23)
+
+	if diff := diffLeafGeometry(initial, snapshotLeafGeometry(root)); diff != "" {
+		t.Fatalf("equal 3x3 grid drifted after resize round-trip:\n%s", diff)
+	}
+}
+
+func snapshotLeafGeometry(root *LayoutCell) map[uint32][4]int {
+	out := map[uint32][4]int{}
+	root.Walk(func(c *LayoutCell) {
+		out[c.Pane.ID] = [4]int{c.X, c.Y, c.W, c.H}
+	})
+	return out
+}
+
+func diffLeafGeometry(want, got map[uint32][4]int) string {
+	var out string
+	for id := range want {
+		if want[id] != got[id] {
+			out += fmt.Sprintf("pane-%d: want=%v got=%v\n", id, want[id], got[id])
+		}
+	}
+	return out
 }
 
 func TestWalkAndFindPane(t *testing.T) {
