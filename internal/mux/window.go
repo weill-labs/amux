@@ -172,15 +172,18 @@ func (w *Window) ClosePane(paneID uint32) error {
 		result.W = w.Width
 		result.H = w.Height
 		w.Root = result
+	}
 
-		// If the remaining subtree has no visible pane, auto-restore the
-		// most recently minimized one (LIFO by MinimizedSeq).
-		if !result.HasNonMinimizedLeaf() {
-			w.autoRestoreOne(result)
+	// If the close left all remaining siblings minimized, auto-restore the
+	// most recently minimized one (LIFO by MinimizedSeq).
+	if result != nil {
+		subtree := result
+		if subtree.Parent != nil {
+			subtree = subtree.Parent
 		}
-	} else if result != nil && result.Parent != nil && !result.Parent.HasNonMinimizedLeaf() {
-		// All siblings in the parent are minimized — auto-restore the most recent.
-		w.autoRestoreOne(result.Parent)
+		if !subtree.HasNonMinimizedLeaf() {
+			w.autoRestoreOne(subtree)
+		}
 	}
 
 	// Propagate sizes to all children after redistribution
@@ -774,24 +777,20 @@ func (w *Window) Minimize(paneID uint32) error {
 	// recover properly from being resized to 1 row. The PTY and emulator
 	// stay at their original dimensions; only the layout cell shrinks.
 
-	if cell.Parent != nil {
-		reclaimed := cell.Pane.Meta.RestoreH - cell.H
-		if reclaimed > 0 {
-			for _, sib := range cell.Parent.Children {
-				if sib == cell {
-					continue
+	reclaimed := cell.Pane.Meta.RestoreH - cell.H
+	if reclaimed > 0 {
+		for _, sib := range cell.Parent.Children {
+			if sib == cell {
+				continue
+			}
+			if sib.HasNonMinimizedLeaf() {
+				sib.H += reclaimed
+				if !sib.IsLeaf() {
+					sib.ResizeAll(sib.W, sib.H)
+				} else if sib.Pane != nil {
+					sib.Pane.Resize(sib.W, PaneContentHeight(sib.H))
 				}
-				if sib.HasNonMinimizedLeaf() {
-					if cell.Parent.Dir == SplitHorizontal {
-						sib.H += reclaimed
-					}
-					if !sib.IsLeaf() {
-						sib.ResizeAll(sib.W, sib.H)
-					} else if sib.Pane != nil {
-						sib.Pane.Resize(sib.W, PaneContentHeight(sib.H))
-					}
-					break
-				}
+				break
 			}
 		}
 	}
