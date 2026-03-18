@@ -1,6 +1,6 @@
 #!/bin/bash
 # Stop hook: warn if implementation .go files changed without any test files.
-# Exits 2 (block + feedback) when tests are missing, 0 otherwise.
+# Exits 1 (warn) when tests are missing, 0 otherwise.
 #
 # On first trigger for a given diff, the warning fires and the diff hash is
 # saved. On subsequent stops with the same diff, the hook exits 0 silently.

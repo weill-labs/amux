@@ -85,8 +85,9 @@ func TestWatchBinaryNilReady(t *testing.T) {
 		WatchBinary(binPath, triggerReload, nil)
 	}()
 
-	// Write to trigger a reload, confirming the watcher started
-	<-time.After(100 * time.Millisecond) // let watcher register
+	// Inherent race: cannot use ready channel since we're testing nil.
+	// Generous 2s fallback timeout below handles slow CI.
+	<-time.After(200 * time.Millisecond) // let watcher register
 	os.WriteFile(binPath, []byte("v2"), 0755)
 
 	select {
