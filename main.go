@@ -60,6 +60,7 @@ func main() {
 				return // takeover succeeded — managed mode started
 			}
 		}
+		checkNesting(sessionName)
 		if err := client.RunSession(sessionName); err != nil {
 			fmt.Fprintf(os.Stderr, "amux: %v\n", err)
 			os.Exit(1)
@@ -88,6 +89,7 @@ func main() {
 		if name == "" {
 			name = sessionName
 		}
+		checkNesting(name)
 		if err := client.RunSession(name); err != nil {
 			fmt.Fprintf(os.Stderr, "amux: %v\n", err)
 			os.Exit(1)
@@ -98,6 +100,7 @@ func main() {
 		if len(args) > 1 {
 			name = args[1]
 		}
+		checkNesting(name)
 		if err := client.RunSession(name); err != nil {
 			fmt.Fprintf(os.Stderr, "amux: %v\n", err)
 			os.Exit(1)
@@ -549,6 +552,17 @@ func runServerCommand(cmdName string, args []string) {
 		os.Exit(1)
 	}
 	fmt.Print(reply.CmdOutput)
+}
+
+// checkNesting exits with an error if we're inside the same amux session
+// we're trying to attach to (which would cause a frozen recursive nesting).
+// Cross-session nesting is allowed. Users can override with `unset AMUX_SESSION`.
+func checkNesting(target string) {
+	if envSession := os.Getenv("AMUX_SESSION"); envSession == target {
+		fmt.Fprintf(os.Stderr, "amux: cannot attach to session %q from inside itself (recursive nesting)\n", target)
+		fmt.Fprintf(os.Stderr, "  unset AMUX_SESSION to override\n")
+		os.Exit(1)
+	}
 }
 
 // tryTakeover attempts an SSH session takeover. It emits a takeover sequence

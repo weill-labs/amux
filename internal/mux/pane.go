@@ -68,7 +68,7 @@ type Pane struct {
 // NewPane creates a new pane running the user's shell but does NOT start
 // the read/drain/wait goroutines. Call Start() after releasing any locks
 // that the onOutput/onExit callbacks might need.
-func NewPane(id uint32, meta PaneMeta, cols, rows int, onOutput func(uint32, []byte), onExit func(uint32)) (*Pane, error) {
+func NewPane(id uint32, meta PaneMeta, cols, rows int, sessionName string, onOutput func(uint32, []byte), onExit func(uint32)) (*Pane, error) {
 	shell := os.Getenv("SHELL")
 	if shell == "" {
 		shell = "/bin/bash"
@@ -78,6 +78,7 @@ func NewPane(id uint32, meta PaneMeta, cols, rows int, onOutput func(uint32, []b
 	cmd.Env = append(os.Environ(),
 		"TERM=xterm-256color",
 		"AMUX_PANE=1",
+		"AMUX_SESSION="+sessionName,
 	)
 	if meta.Dir != "" {
 		cmd.Dir = meta.Dir
