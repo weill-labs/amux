@@ -10,6 +10,8 @@ This file is the canonical shared guidance for coding agents in this repo.
 - `.agents/skills/` holds Codex skills for reusable repo workflows.
 - `make setup` installs Git hooks for everyone. It is not Claude-specific.
 
+Codex does not currently have documented Claude-style repo hooks. If a rule should apply to all agents, put it in `AGENTS.md` and enforce it with `.githooks` or CI when possible. Use `.claude/hooks/` only for Claude-specific automation layers on top of shared policy.
+
 If a tool-specific file disagrees with this file, follow `AGENTS.md` and update the stale tool-specific file.
 
 ## Design Philosophy
@@ -140,4 +142,4 @@ See [README.md -- Configuration](README.md#configuration) for the `hosts.toml` f
 
 ## Issue Tracking
 
-File bugs and feature requests in the [Linear LAB project](https://linear.app/weill-labs/team/LAB). GitHub Issues is not actively monitored.
+File bugs and feature requests for this repository in the [`amux` project](https://linear.app/weill-labs/project/amux-b3a52334f77c). GitHub Issues is not actively monitored.
