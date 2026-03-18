@@ -48,7 +48,7 @@ func newAmuxHarness(tb testing.TB) *AmuxHarness {
 	// Wait for the inner amux client to render (status bar appears in outer
 	// pane). Once the client has rendered, the inner server is guaranteed to
 	// be accepting connections — no polling loop needed.
-	outer.waitFor("pane-1", "[pane-")
+	outer.waitForTimeout("pane-1", "[pane-", "30s")
 
 	tb.Cleanup(h.cleanup)
 	return h
