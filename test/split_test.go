@@ -323,6 +323,39 @@ func TestGoldenThreeColumnsMiddleSplit(t *testing.T) {
 	assertGolden(t, "three_col_middle_split.color", colorMap)
 }
 
+func TestGoldenNinePane(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	// 3 columns: pane-1 | pane-2 | pane-3
+	h.splitRootV()
+	h.splitRootV()
+
+	// Left column: pane-1 → split H x2 → pane-1, pane-4, pane-5
+	h.doFocus("pane-1")
+	h.splitH()
+	h.splitH()
+
+	// Middle column: pane-2 → split H x2 → pane-2, pane-6, pane-7
+	h.doFocus("pane-2")
+	h.splitH()
+	h.splitH()
+
+	// Right column: pane-3 → split H x2 → pane-3, pane-8, pane-9
+	h.doFocus("pane-3")
+	h.splitH()
+	h.splitH()
+
+	// Focus pane-1 for deterministic active state
+	h.doFocus("pane-1")
+
+	frame := extractFrame(h.capture(), h.session)
+	assertGolden(t, "nine_pane.golden", frame)
+
+	colorMap := h.runCmd("capture", "--colors")
+	assertGolden(t, "nine_pane.color", colorMap)
+}
+
 // ---------------------------------------------------------------------------
 // Golden file tests
 // ---------------------------------------------------------------------------

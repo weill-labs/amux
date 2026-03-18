@@ -1,6 +1,7 @@
 package render
 
 import (
+	"fmt"
 	"image/color"
 	"strconv"
 	"strings"
@@ -31,6 +32,7 @@ func (c ScreenCell) Equal(o ScreenCell) bool {
 type ScreenGrid struct {
 	Width, Height int
 	Cells         []ScreenCell // Cells[y*Width + x]
+	Debug         bool         // when true, OOB Set() panics instead of silently dropping
 }
 
 // NewScreenGrid creates a grid filled with space cells.
@@ -42,10 +44,15 @@ func NewScreenGrid(width, height int) *ScreenGrid {
 	return &ScreenGrid{Width: width, Height: height, Cells: cells}
 }
 
-// Set writes a cell at (x, y). Out-of-bounds writes are ignored.
+// Set writes a cell at (x, y). Out-of-bounds writes are ignored in normal mode.
+// When Debug is true, OOB writes panic to surface compositor bugs in tests.
 func (g *ScreenGrid) Set(x, y int, cell ScreenCell) {
 	if x >= 0 && x < g.Width && y >= 0 && y < g.Height {
 		g.Cells[y*g.Width+x] = cell
+		return
+	}
+	if g.Debug {
+		panic(fmt.Sprintf("ScreenGrid.Set: out-of-bounds (%d,%d) on %dx%d grid", x, y, g.Width, g.Height))
 	}
 }
 
@@ -157,6 +164,7 @@ func CellFromUV(c *uv.Cell) ScreenCell {
 // into a ScreenGrid. This is the cell-level equivalent of RenderFull.
 func (c *Compositor) BuildGrid(root *mux.LayoutCell, activePaneID uint32, lookup func(uint32) PaneData) *ScreenGrid {
 	g := NewScreenGrid(c.width, c.height)
+	g.Debug = c.debug
 
 	// Determine active pane color for borders.
 	var activeColorHex string

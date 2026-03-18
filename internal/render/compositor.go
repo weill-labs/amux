@@ -25,6 +25,7 @@ type Compositor struct {
 	height      int
 	sessionName string
 	windows     []WindowInfo
+	debug       bool // when true, BuildGrid creates grids with Debug=true
 
 	// Cached border map — rebuilt only when layout root changes.
 	cachedBorderMap  *borderMap
@@ -42,6 +43,12 @@ func (c *Compositor) SetWindows(windows []WindowInfo) {
 // NewCompositor creates a compositor for the given terminal dimensions.
 func NewCompositor(width, height int, sessionName string) *Compositor {
 	return &Compositor{width: width, height: height, sessionName: sessionName}
+}
+
+// SetDebug enables or disables debug mode. When enabled, BuildGrid creates
+// grids that panic on out-of-bounds writes instead of silently dropping them.
+func (c *Compositor) SetDebug(on bool) {
+	c.debug = on
 }
 
 // Resize updates the compositor's terminal dimensions.

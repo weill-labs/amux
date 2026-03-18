@@ -9,6 +9,7 @@ import (
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/vt"
+	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/mux"
 )
 
@@ -417,6 +418,48 @@ func init() {
 	timeNow = func() time.Time { return frozen }
 }
 
+// newDebugCompositor creates a compositor with debug mode enabled so that
+// out-of-bounds grid writes panic instead of being silently dropped.
+func newDebugCompositor(width, height int, sessionName string) *Compositor {
+	c := NewCompositor(width, height, sessionName)
+	c.SetDebug(true)
+	return c
+}
+
+func TestScreenGrid_SetDebugPanics(t *testing.T) {
+	t.Parallel()
+	g := NewScreenGrid(10, 5)
+	g.Debug = true
+
+	// In-bounds write should not panic.
+	g.Set(0, 0, ScreenCell{Char: "A", Width: 1})
+	if got := g.Get(0, 0); got.Char != "A" {
+		t.Fatalf("in-bounds write failed: got %q", got.Char)
+	}
+
+	// OOB writes should panic.
+	tests := []struct {
+		name string
+		x, y int
+	}{
+		{"x too large", 10, 0},
+		{"y too large", 0, 5},
+		{"negative x", -1, 0},
+		{"negative y", 0, -1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			defer func() {
+				if r := recover(); r == nil {
+					t.Errorf("Set(%d,%d) should panic in debug mode", tt.x, tt.y)
+				}
+			}()
+			g.Set(tt.x, tt.y, ScreenCell{Char: "X", Width: 1})
+		})
+	}
+}
+
 func TestRenderDiff_InitialPaint(t *testing.T) {
 	t.Parallel()
 	width, height := 40, 6
@@ -433,7 +476,7 @@ func TestRenderDiff_InitialPaint(t *testing.T) {
 		return nil
 	}
 
-	comp := NewCompositor(width, totalH, "test")
+	comp := newDebugCompositor(width, totalH, "test")
 	display := vt.NewSafeEmulator(width, totalH)
 
 	if err := oracleCheck(comp, display, root, 1, lookup, width, totalH); err != "" {
@@ -456,7 +499,7 @@ func TestRenderDiff_PaneOutput(t *testing.T) {
 		return nil
 	}
 
-	comp := NewCompositor(width, totalH, "test")
+	comp := newDebugCompositor(width, totalH, "test")
 	display := vt.NewSafeEmulator(width, totalH)
 
 	// Initial paint.
@@ -506,7 +549,7 @@ func TestRenderDiff_FocusChange(t *testing.T) {
 		return nil
 	}
 
-	comp := NewCompositor(width, totalH, "test")
+	comp := newDebugCompositor(width, totalH, "test")
 	display := vt.NewSafeEmulator(width, totalH)
 
 	// Initial render with pane-1 active.
@@ -535,7 +578,7 @@ func TestRenderDiff_Backspace(t *testing.T) {
 		return nil
 	}
 
-	comp := NewCompositor(width, totalH, "test")
+	comp := newDebugCompositor(width, totalH, "test")
 	display := vt.NewSafeEmulator(width, totalH)
 
 	// Initial paint.
@@ -566,7 +609,7 @@ func TestRenderDiff_Resize(t *testing.T) {
 		return nil
 	}
 
-	comp := NewCompositor(width, totalH, "test")
+	comp := newDebugCompositor(width, totalH, "test")
 	display := vt.NewSafeEmulator(width, totalH)
 
 	// Initial paint.
@@ -619,7 +662,7 @@ func TestPrevGridText(t *testing.T) {
 		return nil
 	}
 
-	comp := NewCompositor(width, totalH, "test")
+	comp := newDebugCompositor(width, totalH, "test")
 
 	// Before any render, PrevGridText returns empty.
 	if got := comp.PrevGridText(); got != "" {
@@ -755,7 +798,7 @@ func TestRenderDiff_ColorOracle(t *testing.T) {
 		return nil
 	}
 
-	comp := NewCompositor(width, totalH, "test")
+	comp := newDebugCompositor(width, totalH, "test")
 	diffDisplay := vt.NewSafeEmulator(width, totalH)
 
 	// First render: prevGrid is nil so DiffGrid returns all cells.
@@ -782,7 +825,7 @@ func TestRenderDiff_ColorOracle_IncrementalUpdate(t *testing.T) {
 		return nil
 	}
 
-	comp := NewCompositor(width, totalH, "test")
+	comp := newDebugCompositor(width, totalH, "test")
 	diffDisplay := vt.NewSafeEmulator(width, totalH)
 
 	// Initial render: populate prevGrid and prime the diff display.
@@ -945,7 +988,7 @@ func TestRenderDiff_LongLines(t *testing.T) {
 		return nil
 	}
 
-	comp := NewCompositor(width, totalH, "test")
+	comp := newDebugCompositor(width, totalH, "test")
 	display := vt.NewSafeEmulator(width, totalH)
 
 	if err := oracleCheck(comp, display, root, 1, lookup, width, totalH); err != "" {
@@ -978,7 +1021,7 @@ func TestRenderDiff_LongLines_TwoPanes(t *testing.T) {
 	)
 	lookup := twoPaneLookup(pane1Emu, pane2Emu)
 
-	comp := NewCompositor(width, totalH, "test")
+	comp := newDebugCompositor(width, totalH, "test")
 	display := vt.NewSafeEmulator(width, totalH)
 
 	// Initial paint.
@@ -1019,7 +1062,7 @@ func TestRenderDiff_ColorOracle_LongLines(t *testing.T) {
 	)
 	lookup := twoPaneLookup(pane1Emu, pane2Emu)
 
-	comp := NewCompositor(width, totalH, "test")
+	comp := newDebugCompositor(width, totalH, "test")
 	diffDisplay := vt.NewSafeEmulator(width, totalH)
 
 	if mismatches := colorOracleCheck(comp, diffDisplay, root, 1, lookup, width, totalH); len(mismatches) > 0 {
@@ -1071,7 +1114,7 @@ func TestRenderDiff_LongLines_NinePanes(t *testing.T) {
 		return nil
 	}
 
-	comp := NewCompositor(width, totalH, "test")
+	comp := newDebugCompositor(width, totalH, "test")
 	display := vt.NewSafeEmulator(width, totalH)
 
 	// Text oracle.
@@ -1125,7 +1168,7 @@ func TestRenderDiff_ColorOracle_TwoPanes(t *testing.T) {
 		return nil
 	}
 
-	comp := NewCompositor(width, totalH, "test")
+	comp := newDebugCompositor(width, totalH, "test")
 	diffDisplay := vt.NewSafeEmulator(width, totalH)
 
 	// Initial paint with both panes.
@@ -1144,4 +1187,227 @@ func TestRenderDiff_ColorOracle_TwoPanes(t *testing.T) {
 		t.Errorf("two-pane incremental: %d color mismatches:\n%s",
 			len(mismatches), strings.Join(mismatches, "\n"))
 	}
+}
+
+// --- Fuzz compositor (#169) ---
+
+// Fuzz-specific minimum pane dimensions. Larger than PaneMinSize (2) to avoid
+// triggering known oracle divergences where RenderFull's ANSI path doesn't clip
+// status text to pane width but BuildGrid does. Width=12 fits "● [pane-NN]",
+// height=4 fits status line + 2 content rows + 1 border.
+const (
+	fuzzMinW = 12
+	fuzzMinH = 4
+)
+
+// fuzzLayout generates a random layout tree from fuzz data. It recursively
+// splits available space, consuming 1 byte per decision: 0 = stop (leaf),
+// 1 = split horizontal, 2+ = split vertical. Respects fuzzMinW/fuzzMinH
+// constraints. Returns the root cell and a list of pane IDs assigned to leaves.
+func fuzzLayout(data []byte, width, height int) (*mux.LayoutCell, []uint32) {
+	var nextID uint32
+	var paneIDs []uint32
+	pos := 0
+
+	consume := func() byte {
+		if pos >= len(data) {
+			return 0
+		}
+		b := data[pos]
+		pos++
+		return b
+	}
+
+	var build func(x, y, w, h int) *mux.LayoutCell
+	build = func(x, y, w, h int) *mux.LayoutCell {
+		b := consume()
+		// Stop (leaf) if byte says so or if space is too small to split.
+		minSplitW := 2*fuzzMinW + 1
+		minSplitH := 2*fuzzMinH + 1
+		if b == 0 || (w < minSplitW && h < minSplitH) {
+			nextID++
+			id := nextID
+			paneIDs = append(paneIDs, id)
+			return mux.NewLeafByID(id, x, y, w, h)
+		}
+
+		// Decide split direction based on byte parity and available space.
+		splitH := b%2 == 1
+		if splitH && h < minSplitH {
+			splitH = false
+		}
+		if !splitH && w < minSplitW {
+			splitH = true
+		}
+		// Final guard: if still can't split, make a leaf.
+		if (splitH && h < minSplitH) || (!splitH && w < minSplitW) {
+			nextID++
+			id := nextID
+			paneIDs = append(paneIDs, id)
+			return mux.NewLeafByID(id, x, y, w, h)
+		}
+
+		if splitH {
+			// Horizontal split: top-bottom.
+			rangeH := h - 1 - 2*fuzzMinH + 1
+			topH := fuzzMinH + int(consume())%rangeH
+			botH := h - 1 - topH
+			top := build(x, y, w, topH)
+			bot := build(x, y+topH+1, w, botH)
+			cell := &mux.LayoutCell{
+				X: x, Y: y, W: w, H: h,
+				Dir:      mux.SplitHorizontal,
+				Children: []*mux.LayoutCell{top, bot},
+			}
+			top.Parent = cell
+			bot.Parent = cell
+			return cell
+		}
+
+		// Vertical split: left-right.
+		rangeW := w - 1 - 2*fuzzMinW + 1
+		leftW := fuzzMinW + int(consume())%rangeW
+		rightW := w - 1 - leftW
+		left := build(x, y, leftW, h)
+		right := build(x+leftW+1, y, rightW, h)
+		cell := &mux.LayoutCell{
+			X: x, Y: y, W: w, H: h,
+			Dir:      mux.SplitVertical,
+			Children: []*mux.LayoutCell{left, right},
+		}
+		left.Parent = cell
+		right.Parent = cell
+		return cell
+	}
+
+	root := build(0, 0, width, height)
+	return root, paneIDs
+}
+
+// fuzzPaneContent generates lines of varying length from fuzz data.
+// Some lines intentionally exceed pane width — the LAB-235 trigger pattern.
+// Only printable ASCII; wide chars and ANSI escapes are a follow-up.
+func fuzzPaneContent(data []byte, width, height int) string {
+	if len(data) == 0 {
+		return ""
+	}
+	var lines []string
+	pos := 0
+	for i := 0; i < height && pos < len(data); i++ {
+		// Line length: consume one byte to decide length relative to width.
+		lenByte := data[pos]
+		pos++
+		// Allow lines from 0 to width+width/2 (some overflow).
+		lineLen := int(lenByte) % (width + width/2 + 1)
+		var line strings.Builder
+		for j := 0; j < lineLen && pos < len(data); j++ {
+			// Map byte to printable ASCII range (0x20–0x7E).
+			ch := 0x20 + data[pos]%0x5F
+			line.WriteByte(ch)
+			pos++
+		}
+		lines = append(lines, line.String())
+	}
+	return strings.Join(lines, "\r\n")
+}
+
+func FuzzCompositor(f *testing.F) {
+	// Seed corpus: empty (1 pane), 2-byte (2 panes), 8-byte (several splits).
+	f.Add([]byte{})
+	f.Add([]byte{1, 0})
+	f.Add([]byte{2, 0, 1, 0, 2, 0, 1, 0})
+
+	colors := make([]string, len(config.CatppuccinMocha))
+	copy(colors, config.CatppuccinMocha)
+
+	f.Fuzz(func(t *testing.T, data []byte) {
+		width, height := 80, 24
+		totalH := height + GlobalBarHeight
+
+		// Split data: first 16 bytes for layout, rest for content.
+		layoutData := data
+		var contentData []byte
+		if len(data) > 16 {
+			layoutData = data[:16]
+			contentData = data[16:]
+		}
+
+		root, paneIDs := fuzzLayout(layoutData, width, height)
+		if len(paneIDs) == 0 {
+			return
+		}
+
+		// Create emulators and feed content.
+		type paneInfo struct {
+			emu   *vt.SafeEmulator
+			id    uint32
+			name  string
+			color string
+		}
+		panes := make([]paneInfo, len(paneIDs))
+		for i, id := range paneIDs {
+			// Find this pane's cell to get dimensions.
+			cell := root.FindByPaneID(id)
+			if cell == nil {
+				continue
+			}
+			contentH := mux.PaneContentHeight(cell.H)
+			if contentH < 1 {
+				contentH = 1
+			}
+			emu := vt.NewSafeEmulator(cell.W, contentH)
+
+			// Generate content from fuzz data.
+			if len(contentData) > 0 {
+				perPane := len(contentData) / len(paneIDs)
+				if perPane < 1 {
+					perPane = 1
+				}
+				start := i * perPane
+				end := start + perPane
+				if end > len(contentData) {
+					end = len(contentData)
+				}
+				if start < len(contentData) {
+					content := fuzzPaneContent(contentData[start:end], cell.W, contentH)
+					emu.Write([]byte(content))
+				}
+			}
+
+			colorIdx := int(id-1) % len(colors)
+			panes[i] = paneInfo{
+				emu:   emu,
+				id:    id,
+				name:  fmt.Sprintf("pane-%d", id),
+				color: colors[colorIdx],
+			}
+		}
+
+		lookup := func(id uint32) PaneData {
+			for _, p := range panes {
+				if p.id == id && p.emu != nil {
+					return &emuPaneData{
+						emu: p.emu, id: p.id,
+						name: p.name, color: p.color,
+						cursorHidden: true,
+					}
+				}
+			}
+			return nil
+		}
+
+		// Debug compositor: OOB writes panic.
+		comp := newDebugCompositor(width, totalH, "fuzz")
+		display := vt.NewSafeEmulator(width, totalH)
+
+		// Oracle check: RenderFull vs RenderDiff text comparison.
+		if err := oracleCheck(comp, display, root, paneIDs[0], lookup, width, totalH); err != "" {
+			t.Error(err)
+		}
+
+		// Layer boundary validation: geometric overlap detection.
+		if overlaps := validateLayerBoundaries(root, width, totalH); len(overlaps) > 0 {
+			t.Errorf("layer overlaps:\n%s", strings.Join(overlaps, "\n"))
+		}
+	})
 }
