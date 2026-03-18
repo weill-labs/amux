@@ -51,13 +51,7 @@ func (s *Session) clipboardCallback() func(paneID uint32, data []byte) {
 		if s.shutdown.Load() {
 			return
 		}
-		s.broadcast(&Message{Type: MsgTypeClipboard, PaneID: paneID, PaneData: data})
-
-		s.clipboardMu.Lock()
-		s.lastClipboardB64 = string(data)
-		s.clipboardGen.Add(1)
-		s.clipboardCond.Broadcast()
-		s.clipboardMu.Unlock()
+		s.enqueueClipboard(paneID, data)
 	}
 }
 
@@ -243,16 +237,7 @@ func (s *Session) notifyPaneOutputSubs(paneID uint32) {
 // updated PaneSnapshot.Idle (used for idle indicators in the status bar).
 func (s *Session) trackPaneActivity(paneID uint32) {
 	wasIdle := s.idle.TrackActivity(paneID, DefaultIdleTimeout, func() {
-		s.idle.MarkIdle(paneID)
-		env := s.buildPaneEnv(paneID, hooks.OnIdle)
-		s.Hooks.Fire(hooks.OnIdle, env)
-		s.events.Emit(Event{
-			Type:     EventIdle,
-			PaneID:   paneID,
-			PaneName: env["AMUX_PANE_NAME"],
-			Host:     env["AMUX_HOST"],
-		})
-		s.broadcastLayout()
+		s.enqueueIdleTimeout(paneID)
 	})
 
 	if wasIdle {

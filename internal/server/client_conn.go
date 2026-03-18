@@ -48,7 +48,7 @@ func (cc *ClientConn) Close() {
 // readLoop reads messages from the client and dispatches them to the session.
 func (cc *ClientConn) readLoop(srv *Server, sess *Session) {
 	defer func() {
-		sess.removeClient(cc)
+		sess.enqueueDetachClient(cc)
 		cc.Close()
 	}()
 
@@ -68,12 +68,7 @@ func (cc *ClientConn) readLoop(srv *Server, sess *Session) {
 			sess.mu.Unlock()
 
 		case MsgTypeResize:
-			sess.mu.Lock()
-			cc.cols = msg.Cols
-			cc.rows = msg.Rows
-			sess.recalcSizeLocked()
-			sess.mu.Unlock()
-			sess.broadcastLayout()
+			sess.enqueueResizeClient(cc, msg.Cols, msg.Rows)
 
 		case MsgTypeInputPane:
 			// Targeted input for a specific pane (used by remote proxy connections)
