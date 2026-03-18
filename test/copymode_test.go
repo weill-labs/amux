@@ -245,7 +245,9 @@ func TestCopyModeResizeSurvives(t *testing.T) {
 	}
 
 	// Resize terminal while in copy mode via the outer server
+	gen := h.generation()
 	h.outer.runCmd("resize-window", "120", "40")
+	h.waitLayout(gen)
 
 	// Copy mode should still be active after resize
 	if !h.waitFor("[copy]", 3*time.Second) {
