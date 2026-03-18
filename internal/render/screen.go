@@ -197,7 +197,7 @@ func (c *Compositor) BuildGrid(root *mux.LayoutCell, activePaneID uint32, lookup
 		c.cachedBorderMap = buildBorderMap(root, c.width, c.height)
 		c.cachedBorderRoot = root
 	}
-	buildBorderCells(g, c.cachedBorderMap, root, activePaneID, activeColorHex)
+	buildBorderCells(g, c.cachedBorderMap, activePaneID, activeColorHex)
 
 	// Global bar cells.
 	buildGlobalBarCells(g, c.sessionName, paneCount, c.width, c.height-1, c.windows)
@@ -205,117 +205,106 @@ func (c *Compositor) BuildGrid(root *mux.LayoutCell, activePaneID uint32, lookup
 	return g
 }
 
+// styledChar represents a single character with styling for status/bar rendering.
+type styledChar struct {
+	ch    string
+	style uv.Style
+}
+
+// appendStyledStr appends each rune of s as a styledChar with the given style.
+func appendStyledStr(chars []styledChar, s string, style uv.Style) []styledChar {
+	for _, r := range s {
+		chars = append(chars, styledChar{ch: string(r), style: style})
+	}
+	return chars
+}
+
 // buildStatusCells writes the per-pane status line into the grid cell-by-cell.
 func buildStatusCells(g *ScreenGrid, cell *mux.LayoutCell, isActive bool, pd PaneData) {
 	y := cell.Y
 	bg := hexToColor(config.Surface0Hex)
-	paneColor := pd.Color()
 	idle := !isActive && pd.Idle()
 
-	// Build the status text content and per-character styles.
-	type styledChar struct {
-		ch   string
-		fg   color.Color
-		bg   color.Color
-		bold bool
-	}
-	var chars []styledChar
+	dimStyle := uv.Style{Fg: hexToColor(config.DimColorHex), Bg: bg}
+	textStyle := uv.Style{Fg: hexToColor(config.TextColorHex), Bg: bg}
+	paneStyle := uv.Style{Fg: hexToColor(pd.Color()), Bg: bg}
+	yellowStyle := uv.Style{Fg: hexToColor("f9e2af"), Bg: bg}
+	greenStyle := uv.Style{Fg: hexToColor("a6e3a1"), Bg: bg}
+	redStyle := uv.Style{Fg: hexToColor("f38ba8"), Bg: bg}
+	paneBold := paneStyle
+	paneBold.Attrs |= uv.AttrBold
 
-	dimFgColor := hexToColor(config.DimColorHex)
-	textFgColor := hexToColor(config.TextColorHex)
-	paneColorFg := hexToColor(paneColor)
-	yellowFg := hexToColor("f9e2af")
-	greenFg := hexToColor("a6e3a1")
-	redFg := hexToColor("f38ba8")
+	var chars []styledChar
 
 	// Icon
 	if isActive {
-		chars = append(chars, styledChar{ch: "●", fg: paneColorFg, bg: bg})
+		chars = appendStyledStr(chars, "●", paneStyle)
 	} else if idle {
-		chars = append(chars, styledChar{ch: "◇", fg: dimFgColor, bg: bg})
+		chars = appendStyledStr(chars, "◇", dimStyle)
 	} else {
-		chars = append(chars, styledChar{ch: "○", fg: dimFgColor, bg: bg})
+		chars = appendStyledStr(chars, "○", dimStyle)
 	}
 
 	// Space + name
-	chars = append(chars, styledChar{ch: " ", fg: nil, bg: bg})
-	var nameFg color.Color
-	nameBold := false
+	chars = appendStyledStr(chars, " ", uv.Style{Bg: bg})
+	var nameStyle uv.Style
 	if isActive {
-		nameFg = paneColorFg
-		nameBold = true
+		nameStyle = paneBold
 	} else if idle {
-		nameFg = dimFgColor
+		nameStyle = dimStyle
 	} else {
-		nameFg = textFgColor
+		nameStyle = textStyle
 	}
-	for _, r := range "[" + pd.Name() + "]" {
-		chars = append(chars, styledChar{ch: string(r), fg: nameFg, bg: bg, bold: nameBold})
-	}
+	chars = appendStyledStr(chars, "["+pd.Name()+"]", nameStyle)
 
 	// Copy mode indicator
 	if pd.InCopyMode() {
-		chars = append(chars, styledChar{ch: " ", bg: bg})
-		for _, r := range "[copy]" {
-			chars = append(chars, styledChar{ch: string(r), fg: yellowFg, bg: bg})
-		}
+		chars = appendStyledStr(chars, " ", uv.Style{Bg: bg})
+		chars = appendStyledStr(chars, "[copy]", yellowStyle)
 		if search := pd.CopyModeSearch(); search != "" {
-			chars = append(chars, styledChar{ch: " ", bg: bg})
-			for _, r := range search {
-				chars = append(chars, styledChar{ch: string(r), fg: yellowFg, bg: bg})
-			}
+			chars = appendStyledStr(chars, " ", uv.Style{Bg: bg})
+			chars = appendStyledStr(chars, search, yellowStyle)
 		}
 	}
 
 	// Host
 	if pd.Host() != "" && pd.Host() != mux.DefaultHost {
-		chars = append(chars, styledChar{ch: " ", bg: bg})
-		for _, r := range "@" + pd.Host() {
-			chars = append(chars, styledChar{ch: string(r), fg: greenFg, bg: bg})
-		}
+		chars = appendStyledStr(chars, " ", uv.Style{Bg: bg})
+		chars = appendStyledStr(chars, "@"+pd.Host(), greenStyle)
 	}
 
 	// Connection status
 	if cs := pd.ConnStatus(); cs != "" {
-		chars = append(chars, styledChar{ch: " ", bg: bg})
+		chars = appendStyledStr(chars, " ", uv.Style{Bg: bg})
 		switch cs {
 		case "connected":
-			chars = append(chars, styledChar{ch: "⚡", fg: greenFg, bg: bg})
+			chars = appendStyledStr(chars, "⚡", greenStyle)
 		case "reconnecting":
-			chars = append(chars, styledChar{ch: "⟳", fg: yellowFg, bg: bg})
+			chars = appendStyledStr(chars, "⟳", yellowStyle)
 		case "disconnected":
-			chars = append(chars, styledChar{ch: "✕", fg: redFg, bg: bg})
+			chars = appendStyledStr(chars, "✕", redStyle)
 		}
 	}
 
 	// Task
 	if pd.Task() != "" {
-		chars = append(chars, styledChar{ch: " ", bg: bg})
-		for _, r := range pd.Task() {
-			chars = append(chars, styledChar{ch: string(r), fg: textFgColor, bg: bg})
-		}
+		chars = appendStyledStr(chars, " ", uv.Style{Bg: bg})
+		chars = appendStyledStr(chars, pd.Task(), textStyle)
 	}
 
 	// Write chars to grid, fill remaining with spaces.
+	fillCell := ScreenCell{Char: " ", Width: 1, Style: uv.Style{Bg: bg}}
 	for i := 0; i < cell.W; i++ {
-		var sc ScreenCell
+		sc := fillCell
 		if i < len(chars) {
-			c := chars[i]
-			sc = ScreenCell{Char: c.ch, Width: 1}
-			sc.Style.Fg = c.fg
-			sc.Style.Bg = c.bg
-			if c.bold {
-				sc.Style.Attrs |= uv.AttrBold
-			}
-		} else {
-			sc = ScreenCell{Char: " ", Width: 1, Style: uv.Style{Bg: bg}}
+			sc = ScreenCell{Char: chars[i].ch, Width: 1, Style: chars[i].style}
 		}
 		g.Set(cell.X+i, y, sc)
 	}
 }
 
 // buildBorderCells writes border characters into the grid with proper colors.
-func buildBorderCells(g *ScreenGrid, bm *borderMap, root *mux.LayoutCell, activePaneID uint32, activeColorHex string) {
+func buildBorderCells(g *ScreenGrid, bm *borderMap, activePaneID uint32, activeColorHex string) {
 	activeColorFg := hexToColor(activeColorHex)
 	dimFgColor := hexToColor(config.DimColorHex)
 
@@ -328,44 +317,15 @@ func buildBorderCells(g *ScreenGrid, bm *borderMap, root *mux.LayoutCell, active
 		right := bm.has(x+1, y)
 		ch := junctionChar(up, down, left, right)
 
-		// Determine color.
 		bc := bm.get(x, y)
 		isJunction := (up || down) && (left || right)
-		var fg color.Color
-		if borderIsActive(bc.left, bc.right, x, y, isJunction, activePaneID) {
+		fg := dimFgColor
+		if borderAdjacentToActive(bc.left, bc.right, x, y, isJunction, activePaneID) {
 			fg = activeColorFg
-		} else {
-			fg = dimFgColor
 		}
 
 		g.Set(x, y, ScreenCell{Char: ch, Width: 1, Style: uv.Style{Fg: fg}})
 	}
-}
-
-// borderIsActive returns true if the active pane is adjacent to the border at (x, y).
-func borderIsActive(a, b *mux.LayoutCell, x, y int, junction bool, activePaneID uint32) bool {
-	if activePaneID == 0 {
-		return false
-	}
-	var offsets [][2]int
-	if junction {
-		offsets = junctionOffsets[:]
-	} else if x == a.X+a.W {
-		offsets = verticalOffsets[:]
-	} else {
-		offsets = horizontalOffsets[:]
-	}
-	for _, off := range offsets {
-		nx, ny := x+off[0], y+off[1]
-		leaf := findLeafByAxis(a, nx, ny)
-		if leaf == nil {
-			leaf = findLeafByAxis(b, nx, ny)
-		}
-		if leaf != nil && leaf.CellPaneID() == activePaneID {
-			return true
-		}
-	}
-	return false
 }
 
 // buildGlobalBarCells writes the global status bar into the grid.
@@ -373,58 +333,44 @@ func buildGlobalBarCells(g *ScreenGrid, sessionName string, paneCount int, width
 	bg := hexToColor(config.Surface0Hex)
 	textFg := hexToColor(config.TextColorHex)
 	baseStyle := uv.Style{Fg: textFg, Bg: bg}
-
-	type styledChar struct {
-		ch    string
-		style uv.Style
-	}
-	var chars []styledChar
-
-	writeStr := func(s string, style uv.Style) {
-		for _, r := range s {
-			chars = append(chars, styledChar{ch: string(r), style: style})
-		}
-	}
-
-	// " amux │ "
-	writeStr(" ", baseStyle)
 	boldStyle := baseStyle
 	boldStyle.Attrs |= uv.AttrBold
-	writeStr("amux", boldStyle)
-	writeStr(" │ ", baseStyle)
+
+	var chars []styledChar
+
+	// " amux │ "
+	chars = appendStyledStr(chars, " ", baseStyle)
+	chars = appendStyledStr(chars, "amux", boldStyle)
+	chars = appendStyledStr(chars, " │ ", baseStyle)
 
 	if len(windows) > 1 {
 		for _, w := range windows {
 			tab := strconv.Itoa(w.Index) + ":" + w.Name
 			if w.IsActive {
-				writeStr("[", boldStyle)
-				writeStr(tab, boldStyle)
-				writeStr("]", boldStyle)
-				writeStr(" ", baseStyle)
+				chars = appendStyledStr(chars, "["+tab+"]", boldStyle)
+				chars = appendStyledStr(chars, " ", baseStyle)
 			} else {
-				writeStr(tab, baseStyle)
-				writeStr(" ", baseStyle)
+				chars = appendStyledStr(chars, tab, baseStyle)
+				chars = appendStyledStr(chars, " ", baseStyle)
 			}
 		}
-		writeStr("│ ", baseStyle)
+		chars = appendStyledStr(chars, "│ ", baseStyle)
 	} else {
-		writeStr(sessionName+" ", baseStyle)
+		chars = appendStyledStr(chars, sessionName+" ", baseStyle)
 	}
 
 	paneCountStr := strconv.Itoa(paneCount)
 	now := timeNow().Format("15:04")
-	right := " " + paneCountStr + " panes │ " + now + " "
+	rightText := " " + paneCountStr + " panes │ " + now + " "
 
 	// Fill middle.
 	leftLen := len(chars)
-	rightLen := len([]rune(right))
+	rightLen := len([]rune(rightText))
 	fill := width - leftLen - rightLen
-	if fill > 0 {
-		for i := 0; i < fill; i++ {
-			chars = append(chars, styledChar{ch: " ", style: baseStyle})
-		}
+	for i := 0; i < fill; i++ {
+		chars = append(chars, styledChar{ch: " ", style: baseStyle})
 	}
-	writeStr(right, baseStyle)
+	chars = appendStyledStr(chars, rightText, baseStyle)
 
 	// Write to grid.
 	for i := 0; i < width && i < len(chars); i++ {

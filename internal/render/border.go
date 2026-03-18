@@ -176,17 +176,16 @@ var (
 	horizontalOffsets = [2][2]int{{0, -1}, {0, 1}}
 )
 
-// borderColor determines the color for a border cell based on whether the
-// active pane is adjacent. For junctions (where perpendicular borders meet),
-// it probes the 4 diagonal positions which are always inside pane cells.
+// borderAdjacentToActive reports whether the active pane is adjacent to the
+// border at (x, y). For junctions (where perpendicular borders meet), it
+// probes the 4 diagonal positions which are always inside pane cells.
 // For straight segments, it probes the two positions perpendicular to the
 // border direction (x+-1 for vertical borders, y+-1 for horizontal).
-func borderColor(a, b *mux.LayoutCell, x, y int, junction bool, activePaneID uint32, activeColor string) string {
+func borderAdjacentToActive(a, b *mux.LayoutCell, x, y int, junction bool, activePaneID uint32) bool {
 	if activePaneID == 0 {
-		return DimFg
+		return false
 	}
 
-	// Select probe offsets based on border type
 	var offsets [][2]int
 	if junction {
 		offsets = junctionOffsets[:]
@@ -203,8 +202,17 @@ func borderColor(a, b *mux.LayoutCell, x, y int, junction bool, activePaneID uin
 			leaf = findLeafByAxis(b, nx, ny)
 		}
 		if leaf != nil && leaf.CellPaneID() == activePaneID {
-			return activeColor
+			return true
 		}
+	}
+	return false
+}
+
+// borderColor determines the ANSI color for a border cell: activeColor when
+// the active pane is adjacent, DimFg otherwise.
+func borderColor(a, b *mux.LayoutCell, x, y int, junction bool, activePaneID uint32, activeColor string) string {
+	if borderAdjacentToActive(a, b, x, y, junction, activePaneID) {
+		return activeColor
 	}
 	return DimFg
 }
