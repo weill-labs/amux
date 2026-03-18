@@ -145,8 +145,15 @@ func (r *Renderer) HandleLayout(snap *proto.LayoutSnapshot) bool {
 		}
 	})
 
+	// Rescale layout to fit this client's terminal. The server layout may be
+	// larger (sized to the biggest client); proportional rescaling ensures all
+	// panes are visible. Emulators stay at server resolution for PTY fidelity.
+	clientLayoutH := r.height - render.GlobalBarHeight
+	if r.layout != nil && (snap.Width != r.width || snap.Height != clientLayoutH) {
+		r.layout.ResizeAll(r.width, clientLayoutH)
+	}
+
 	// The client keeps its own terminal size (set by Resize via SIGWINCH).
-	// The server layout may be larger; out-of-bounds cells are clipped.
 	r.compositor.SetSessionName(snap.SessionName)
 
 	// Pass window info for the global bar
