@@ -25,9 +25,14 @@ func TestBuildEnsureServerCmd(t *testing.T) {
 		t.Error("command should check socket existence")
 	}
 
-	// Must try ~/.local/bin/amux first (deploy location)
+	// Must respect AMUX_BIN env var override (used by test harness)
+	if !strings.Contains(cmd, "${AMUX_BIN:-") {
+		t.Error("command should check AMUX_BIN env var first")
+	}
+
+	// Must try ~/.local/bin/amux as fallback (deploy location)
 	if !strings.Contains(cmd, "~/.local/bin/amux") {
-		t.Error("command should try ~/.local/bin/amux first")
+		t.Error("command should try ~/.local/bin/amux as fallback")
 	}
 
 	// Must pass session name to _server

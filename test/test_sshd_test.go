@@ -43,6 +43,9 @@ func startTestSSHServer(t *testing.T, authorizedKey ssh.PublicKey) string {
 			}
 		}
 	}
+	// Override the binary used by buildEnsureServerCmd so the remote server
+	// always uses the test binary, not a stale ~/.local/bin/amux.
+	execEnv = append(execEnv, "AMUX_BIN="+amuxBin)
 
 	// Generate ed25519 host key
 	_, hostPriv, err := ed25519.GenerateKey(rand.Reader)
