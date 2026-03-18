@@ -362,6 +362,20 @@ func (e *emuPaneData) ConnStatus() string     { return "" }
 func (e *emuPaneData) InCopyMode() bool       { return false }
 func (e *emuPaneData) CopyModeSearch() string { return "" }
 
+// twoPaneLookup returns a lookup function for two side-by-side panes with
+// standard test colors (rosewater for pane-1, mauve for pane-2).
+func twoPaneLookup(pane1Emu, pane2Emu *vt.SafeEmulator) func(uint32) PaneData {
+	return func(id uint32) PaneData {
+		switch id {
+		case 1:
+			return &emuPaneData{emu: pane1Emu, id: 1, name: "pane-1", color: "f5e0dc", cursorHidden: true}
+		case 2:
+			return &emuPaneData{emu: pane2Emu, id: 2, name: "pane-2", color: "cba6f7", cursorHidden: true}
+		}
+		return nil
+	}
+}
+
 // oracleCheck compares RenderDiff (applied to display emu) against RenderFull
 // (materialized). Returns an error message if they don't match, empty string if OK.
 func oracleCheck(comp *Compositor, display *vt.SafeEmulator, root *mux.LayoutCell, activeID uint32, lookup func(uint32) PaneData, width, height int) string {
@@ -787,6 +801,287 @@ func TestRenderDiff_ColorOracle_IncrementalUpdate(t *testing.T) {
 	if mismatches := colorOracleCheck(comp, diffDisplay, root, 1, lookup, width, totalH); len(mismatches) > 0 {
 		t.Errorf("incremental update: %d color mismatches:\n%s",
 			len(mismatches), strings.Join(mismatches, "\n"))
+	}
+}
+
+// --- Layer boundary validation ---
+// validateLayerBoundaries checks that pane content, status lines, borders,
+// and the global bar occupy non-overlapping regions of the grid.
+// Returns descriptions of any overlapping cells.
+func validateLayerBoundaries(root *mux.LayoutCell, width, height int) []string {
+	const (
+		layerNone    byte = iota
+		layerStatus       // per-pane status line
+		layerContent      // pane content area
+		layerBorder       // border characters
+		layerGlobal       // global status bar
+	)
+	layerName := map[byte]string{
+		layerNone: "none", layerStatus: "status", layerContent: "content",
+		layerBorder: "border", layerGlobal: "global",
+	}
+
+	grid := make([]byte, width*height) // all layerNone
+
+	var overlaps []string
+	claim := func(x, y int, layer byte, desc string) {
+		if x < 0 || x >= width || y < 0 || y >= height {
+			return
+		}
+		idx := y*width + x
+		if grid[idx] != layerNone {
+			overlaps = append(overlaps, fmt.Sprintf(
+				"(%d,%d): %s overlaps with %s (%s)",
+				x, y, layerName[layer], layerName[grid[idx]], desc))
+		}
+		grid[idx] = layer
+	}
+
+	// Pane status lines and content areas.
+	root.Walk(func(cell *mux.LayoutCell) {
+		pid := cell.CellPaneID()
+		if pid == 0 {
+			return
+		}
+		// Status line row.
+		for col := 0; col < cell.W; col++ {
+			claim(cell.X+col, cell.Y, layerStatus,
+				fmt.Sprintf("pane-%d status", pid))
+		}
+		// Content area.
+		contentH := mux.PaneContentHeight(cell.H)
+		for row := 0; row < contentH; row++ {
+			for col := 0; col < cell.W; col++ {
+				claim(cell.X+col, cell.Y+mux.StatusLineRows+row, layerContent,
+					fmt.Sprintf("pane-%d content", pid))
+			}
+		}
+	})
+
+	// Border positions.
+	bm := buildBorderMap(root, width, height)
+	for _, pos := range bm.positions {
+		claim(pos.x, pos.y, layerBorder, "border")
+	}
+
+	// Global bar (last row).
+	globalY := height - 1
+	for x := 0; x < width; x++ {
+		claim(x, globalY, layerGlobal, "global bar")
+	}
+
+	return overlaps
+}
+
+func TestValidateLayerBoundaries(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name          string
+		width, height int
+		buildRoot     func(w, h int) *mux.LayoutCell
+	}{
+		{"TwoPanes", 41, 6, buildTwoPaneVertical},
+		{"FourPanes", 81, 20, buildFourPane},
+		{"NinePanes", 80, 24, func(w, h int) *mux.LayoutCell {
+			return buildNinePaneGrid(26, 8, w, h)
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			totalH := tt.height + GlobalBarHeight
+			root := tt.buildRoot(tt.width, tt.height)
+			if overlaps := validateLayerBoundaries(root, tt.width, totalH); len(overlaps) > 0 {
+				t.Errorf("layer overlaps:\n%s", strings.Join(overlaps, "\n"))
+			}
+		})
+	}
+}
+
+// buildNinePaneGrid creates a 3x3 grid of panes.
+func buildNinePaneGrid(colW, rowH, totalW, totalH int) *mux.LayoutCell {
+	var id uint32
+	buildCol := func(x int) *mux.LayoutCell {
+		var rows []*mux.LayoutCell
+		for r := 0; r < 3; r++ {
+			id++
+			y := r * (rowH + 1)
+			h := rowH
+			if r == 2 {
+				h = totalH - y // last row gets remaining height
+			}
+			rows = append(rows, mux.NewLeafByID(id, x, y, colW, h))
+		}
+		return mkSplit(mux.SplitHorizontal, x, 0, colW, totalH, rows...)
+	}
+
+	return mkSplit(mux.SplitVertical, 0, 0, totalW, totalH,
+		buildCol(0),
+		buildCol(colW+1),
+		buildCol(2*(colW+1)),
+	)
+}
+
+// --- Long-line oracle tests (issue #166) ---
+// These verify that lines exceeding pane width are handled correctly
+// by both RenderFull and RenderDiff, preventing the LAB-235 class of bugs.
+
+func TestRenderDiff_LongLines(t *testing.T) {
+	t.Parallel()
+	width, height := 30, 6
+	totalH := height + GlobalBarHeight
+	contentH := height - mux.StatusLineRows
+
+	paneEmu := vt.NewSafeEmulator(width, contentH)
+	// Write a line that exceeds the pane width — triggers wrapping in the VT emulator.
+	longLine := strings.Repeat("A", width+20)
+	paneEmu.Write([]byte(longLine))
+
+	root := mux.NewLeafByID(1, 0, 0, width, height)
+	lookup := func(id uint32) PaneData {
+		if id == 1 {
+			return &emuPaneData{emu: paneEmu, id: 1, name: "pane-1", color: "f5e0dc", cursorHidden: true}
+		}
+		return nil
+	}
+
+	comp := NewCompositor(width, totalH, "test")
+	display := vt.NewSafeEmulator(width, totalH)
+
+	if err := oracleCheck(comp, display, root, 1, lookup, width, totalH); err != "" {
+		t.Error(err)
+	}
+}
+
+func TestRenderDiff_LongLines_TwoPanes(t *testing.T) {
+	t.Parallel()
+	pane1W := 25
+	pane2W := 25
+	width := pane1W + 1 + pane2W // 51
+	height := 8
+	totalH := height + GlobalBarHeight
+	contentH := height - mux.StatusLineRows
+
+	pane1Emu := vt.NewSafeEmulator(pane1W, contentH)
+	pane2Emu := vt.NewSafeEmulator(pane2W, contentH)
+
+	// Left pane: long line with ANSI colors (simulates a colored prompt with long branch name).
+	pane1Emu.Write([]byte(
+		"\033[32muser@host\033[0m:\033[34m~/very/deeply/nested/project/directory\033[0m (feature/extremely-long-branch-name-that-overflows)$ ",
+	))
+	// Right pane: long plain text line.
+	pane2Emu.Write([]byte(strings.Repeat("B", pane2W+15)))
+
+	root := mkSplit(mux.SplitVertical, 0, 0, width, height,
+		mux.NewLeafByID(1, 0, 0, pane1W, height),
+		mux.NewLeafByID(2, pane1W+1, 0, pane2W, height),
+	)
+	lookup := twoPaneLookup(pane1Emu, pane2Emu)
+
+	comp := NewCompositor(width, totalH, "test")
+	display := vt.NewSafeEmulator(width, totalH)
+
+	// Initial paint.
+	if err := oracleCheck(comp, display, root, 1, lookup, width, totalH); err != "" {
+		t.Error(err)
+	}
+
+	// Incremental: add more long content.
+	pane1Emu.Write([]byte("\r\n" + strings.Repeat("X", pane1W+10)))
+	if err := oracleCheck(comp, display, root, 1, lookup, width, totalH); err != "" {
+		t.Error(err)
+	}
+}
+
+func TestRenderDiff_ColorOracle_LongLines(t *testing.T) {
+	t.Parallel()
+	pane1W := 20
+	pane2W := 20
+	width := pane1W + 1 + pane2W // 41
+	height := 8
+	totalH := height + GlobalBarHeight
+	contentH := height - mux.StatusLineRows
+
+	pane1Emu := vt.NewSafeEmulator(pane1W, contentH)
+	pane2Emu := vt.NewSafeEmulator(pane2W, contentH)
+
+	// Colored long lines — ANSI escapes + text exceeding pane width.
+	pane1Emu.Write([]byte(
+		"\033[32m" + strings.Repeat("|", pane1W+10) + "\033[0m",
+	))
+	pane2Emu.Write([]byte(
+		"\033[31m" + strings.Repeat("#", pane2W+10) + "\033[0m",
+	))
+
+	root := mkSplit(mux.SplitVertical, 0, 0, width, height,
+		mux.NewLeafByID(1, 0, 0, pane1W, height),
+		mux.NewLeafByID(2, pane1W+1, 0, pane2W, height),
+	)
+	lookup := twoPaneLookup(pane1Emu, pane2Emu)
+
+	comp := NewCompositor(width, totalH, "test")
+	diffDisplay := vt.NewSafeEmulator(width, totalH)
+
+	if mismatches := colorOracleCheck(comp, diffDisplay, root, 1, lookup, width, totalH); len(mismatches) > 0 {
+		t.Errorf("long-line color oracle: %d mismatches:\n%s",
+			len(mismatches), strings.Join(mismatches, "\n"))
+	}
+
+	// Incremental update: overwrite with new long colored content.
+	pane1Emu.Write([]byte(
+		"\033[1;1H\033[33m" + strings.Repeat("=", pane1W+5) + "\033[0m",
+	))
+	if mismatches := colorOracleCheck(comp, diffDisplay, root, 1, lookup, width, totalH); len(mismatches) > 0 {
+		t.Errorf("long-line color oracle incremental: %d mismatches:\n%s",
+			len(mismatches), strings.Join(mismatches, "\n"))
+	}
+}
+
+func TestRenderDiff_LongLines_NinePanes(t *testing.T) {
+	t.Parallel()
+	colW := 26
+	rowH := 8
+	width := 3*colW + 2  // 80
+	height := 3*rowH + 2 // 26
+	totalH := height + GlobalBarHeight
+	contentH := rowH - mux.StatusLineRows
+
+	// Build 9 pane emulators with long lines.
+	emus := make([]*vt.SafeEmulator, 9)
+	for i := range emus {
+		emus[i] = vt.NewSafeEmulator(colW, contentH)
+		// Each pane gets a line that overflows its width.
+		line := fmt.Sprintf("pane-%d:%s", i+1, strings.Repeat(string(rune('a'+i)), colW+10))
+		emus[i].Write([]byte(line))
+	}
+
+	root := buildNinePaneGrid(colW, rowH, width, height)
+
+	colors := []string{"f5e0dc", "cba6f7", "f38ba8", "fab387", "f9e2af", "a6e3a1", "89dceb", "74c7ec", "b4befe"}
+	lookup := func(id uint32) PaneData {
+		idx := int(id) - 1
+		if idx >= 0 && idx < len(emus) {
+			return &emuPaneData{
+				emu: emus[idx], id: id,
+				name:         fmt.Sprintf("pane-%d", id),
+				color:        colors[idx],
+				cursorHidden: true,
+			}
+		}
+		return nil
+	}
+
+	comp := NewCompositor(width, totalH, "test")
+	display := vt.NewSafeEmulator(width, totalH)
+
+	// Text oracle.
+	if err := oracleCheck(comp, display, root, 1, lookup, width, totalH); err != "" {
+		t.Error(err)
+	}
+
+	// Layer boundary validation.
+	if overlaps := validateLayerBoundaries(root, width, totalH); len(overlaps) > 0 {
+		t.Errorf("9-pane layer overlaps:\n%s", strings.Join(overlaps, "\n"))
 	}
 }
 
