@@ -138,6 +138,8 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 
 // createNewWindow creates a new window with one pane and switches to it.
 func (cc *ClientConn) createNewWindow(srv *Server, sess *Session, name string) {
+	// Grab the active pane's PID under the lock, then resolve its cwd
+	// outside the lock (PaneCwd shells out to lsof).
 	sess.mu.Lock()
 	w := sess.ActiveWindow()
 	if w == nil {
@@ -145,11 +147,18 @@ func (cc *ClientConn) createNewWindow(srv *Server, sess *Session, name string) {
 		cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "no session"})
 		return
 	}
-
+	var activePid int
+	if w.ActivePane != nil {
+		activePid = w.ActivePane.ProcessPid()
+	}
 	cols, layoutH := w.Width, w.Height
-	paneH := mux.PaneContentHeight(layoutH)
+	sess.mu.Unlock()
 
-	pane, err := sess.createPane(srv, cols, paneH)
+	meta := mux.PaneMeta{Dir: mux.PaneCwd(activePid)}
+
+	sess.mu.Lock()
+	paneH := mux.PaneContentHeight(layoutH)
+	pane, err := sess.createPaneWithMeta(srv, meta, cols, paneH)
 	if err != nil {
 		sess.mu.Unlock()
 		cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: err.Error()})
@@ -221,6 +230,8 @@ func (cc *ClientConn) splitRemotePane(srv *Server, sess *Session, hostName strin
 // splitNewPane creates a pane, inserts it into the active window's layout,
 // starts it, and triggers a render. Returns the new pane, or nil on error.
 func (cc *ClientConn) splitNewPane(srv *Server, sess *Session, meta mux.PaneMeta, dir mux.SplitDir, rootLevel bool) *mux.Pane {
+	// Grab the active pane's PID under the lock, then resolve its cwd
+	// outside the lock (PaneCwd shells out to lsof).
 	sess.mu.Lock()
 	w := sess.ActiveWindow()
 	if w == nil {
@@ -228,17 +239,27 @@ func (cc *ClientConn) splitNewPane(srv *Server, sess *Session, meta mux.PaneMeta
 		cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "no window"})
 		return nil
 	}
-
-	initW, initH := w.Width, w.Height
-	var (
-		pane *mux.Pane
-		err  error
-	)
-	if meta.Name != "" {
-		pane, err = sess.createPaneWithMeta(srv, meta, initW, mux.PaneContentHeight(initH))
-	} else {
-		pane, err = sess.createPane(srv, initW, mux.PaneContentHeight(initH))
+	var activePid int
+	if w.ActivePane != nil {
+		activePid = w.ActivePane.ProcessPid()
 	}
+	initW, initH := w.Width, w.Height
+	sess.mu.Unlock()
+
+	if meta.Dir == "" {
+		meta.Dir = mux.PaneCwd(activePid)
+	}
+
+	sess.mu.Lock()
+	// Re-fetch window — another command could have changed it while we
+	// resolved the cwd outside the lock.
+	w = sess.ActiveWindow()
+	if w == nil {
+		sess.mu.Unlock()
+		cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "no window"})
+		return nil
+	}
+	pane, err := sess.createPaneWithMeta(srv, meta, initW, mux.PaneContentHeight(initH))
 	if err != nil {
 		sess.mu.Unlock()
 		cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: err.Error()})
