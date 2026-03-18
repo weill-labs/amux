@@ -30,26 +30,11 @@ func (s *Session) SetupRemoteManager(cfg *config.Config, buildHash string) {
 			if s.shutdown.Load() {
 				return
 			}
-			s.mu.Lock()
-			if !s.hasPane(localPaneID) {
-				s.mu.Unlock()
-				return
-			}
-			s.removePane(localPaneID)
-			s.closePaneInWindow(localPaneID)
-			s.mu.Unlock()
-			s.broadcastLayout()
+			s.enqueueRemotePaneExit(localPaneID)
 		},
 		// onStateChange: update pane metadata when connection state changes
 		func(hostName string, state remote.ConnState) {
-			s.mu.Lock()
-			for _, p := range s.Panes {
-				if p.Meta.Host == hostName && p.IsProxy() {
-					p.Meta.Remote = string(state)
-				}
-			}
-			s.mu.Unlock()
-			s.broadcastLayout()
+			s.enqueueRemoteStateChange(hostName, state)
 		},
 	)
 	s.RemoteManager = mgr
@@ -61,7 +46,7 @@ func (s *Session) SetupRemoteManager(cfg *config.Config, buildHash string) {
 // PTY, and splices them into the layout tree — replacing the SSH pane.
 func (s *Session) takeoverCallback(srv *Server) func(paneID uint32, req mux.TakeoverRequest) {
 	return func(paneID uint32, req mux.TakeoverRequest) {
-		go s.handleTakeover(srv, paneID, req)
+		s.enqueueTakeover(srv, paneID, req)
 	}
 }
 

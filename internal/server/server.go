@@ -14,7 +14,6 @@ import (
 	"github.com/weill-labs/amux/internal/hooks"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/remote"
-	"github.com/weill-labs/amux/internal/render"
 )
 
 // Default terminal dimensions when the client doesn't report a size.
@@ -90,6 +89,11 @@ type Session struct {
 	crashCheckpointTrigger chan struct{}
 	crashCheckpointStop    chan struct{}
 	crashCheckpointDone    chan struct{} // closed when loop exits
+
+	// Async session event loop — phase 1 serializes callback-driven writes.
+	sessionEvents    chan sessionEvent
+	sessionEventStop chan struct{}
+	sessionEventDone chan struct{}
 }
 
 // buildCrashCheckpoint builds a crash checkpoint from the current session state.
@@ -272,6 +276,7 @@ func newSession(name string) *Session {
 	sess.events = NewEventBus()
 	sess.takenOverPanes = make(map[uint32]bool)
 	sess.startCrashCheckpointLoop()
+	sess.startEventLoop()
 	return sess
 }
 
@@ -462,6 +467,11 @@ func (s *Server) Shutdown() {
 	for _, sess := range s.sessions {
 		sess.shutdown.Store(true)
 
+		if sess.sessionEventStop != nil {
+			close(sess.sessionEventStop)
+			<-sess.sessionEventDone
+		}
+
 		// Stop crash checkpoint loop and wait for it to exit.
 		// The shutdown flag prevents any further writes.
 		if sess.crashCheckpointStop != nil {
@@ -527,53 +537,22 @@ func (s *Server) handleAttach(conn net.Conn, msg *Message) {
 	if rows <= 0 {
 		rows = DefaultTermRows
 	}
-	cc.cols = cols
-	cc.rows = rows
-
-	idleSnap := sess.snapshotIdleState()
-	sess.mu.Lock()
-
-	// Create the first pane and window if none exist.
-	var newPane *mux.Pane
-	if len(sess.Windows) == 0 {
-		layoutH := rows - render.GlobalBarHeight
-		paneH := mux.PaneContentHeight(layoutH)
-		pane, err := sess.createPane(s, cols, paneH)
-		if err != nil {
-			sess.mu.Unlock()
-			conn.Close()
-			return
-		}
-		winID := sess.windowCounter.Add(1)
-		w := mux.NewWindow(pane, cols, layoutH)
-		w.ID = winID
-		w.Name = fmt.Sprintf(WindowNameFormat, winID)
-		sess.Windows = append(sess.Windows, w)
-		sess.ActiveWindowID = winID
-		newPane = pane
+	res := sess.enqueueAttachClient(s, cc, cols, rows)
+	if res.err != nil {
+		conn.Close()
+		return
 	}
 
-	// Add client before recalcSize so its dimensions are included in the max.
-	sess.clients = append(sess.clients, cc)
-	sess.recalcSizeLocked()
-
-	// Send layout snapshot so client can build its rendering state
-	snap := sess.snapshotLayoutLocked(idleSnap)
-	cc.Send(&Message{Type: MsgTypeLayout, Layout: snap})
-
-	// Send current screen state for each pane (enables reattach)
-	for _, p := range sess.Panes {
-		rendered := p.RenderScreen()
-		cc.Send(&Message{Type: MsgTypePaneOutput, PaneID: p.ID, PaneData: []byte(rendered)})
+	cc.Send(&Message{Type: MsgTypeLayout, Layout: res.snap})
+	for _, pr := range res.paneRenders {
+		cc.Send(&Message{Type: MsgTypePaneOutput, PaneID: pr.paneID, PaneData: pr.data})
 	}
-
-	sess.mu.Unlock()
 
 	// Broadcast layout to other clients so they see the updated dimensions.
 	sess.broadcastLayout()
 
-	if newPane != nil {
-		newPane.Start()
+	if res.newPane != nil {
+		res.newPane.Start()
 	}
 
 	cc.readLoop(s, sess)

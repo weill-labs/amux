@@ -58,7 +58,7 @@ func (s *Session) removePane(id uint32) {
 			break
 		}
 	}
-	go s.idle.StopTimer(id)
+	s.idle.StopTimer(id)
 }
 
 // paneOutputCallback returns the standard onOutput callback for panes.
@@ -67,7 +67,7 @@ func (s *Session) paneOutputCallback() func(uint32, []byte) {
 		if s.shutdown.Load() {
 			return
 		}
-		s.broadcastPaneOutput(paneID, data)
+		s.enqueuePaneOutput(paneID, data)
 	}
 }
 
@@ -78,21 +78,7 @@ func (s *Session) paneExitCallback(srv *Server) func(uint32) {
 		if s.shutdown.Load() {
 			return
 		}
-		s.mu.Lock()
-		if !s.hasPane(paneID) {
-			s.mu.Unlock()
-			return
-		}
-		if len(s.Panes) <= 1 {
-			s.mu.Unlock()
-			s.broadcast(&Message{Type: MsgTypeExit})
-			srv.Shutdown()
-			return
-		}
-		s.removePane(paneID)
-		s.closePaneInWindow(paneID)
-		s.mu.Unlock()
-		s.broadcastLayout()
+		s.enqueuePaneExit(srv, paneID)
 	}
 }
 
