@@ -6,7 +6,7 @@ input=$(cat)
 command=$(echo "$input" | jq -r '.tool_input.command // empty' 2>/dev/null)
 
 if [[ "$command" == gh\ pr\ merge* ]]; then
-    echo "PR merged. Run /postmortem now to capture session learnings: What did you learn? Any pain points? Any action items for issues, CLAUDE.md updates, documentation, or hooks?" >&2
+    echo "PR merged. Run /postmortem now to capture session learnings: What did you learn? Any pain points? Any action items for issues, AGENTS.md or CLAUDE.md updates, documentation, or hooks?" >&2
     exit 2
 fi
 

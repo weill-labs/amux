@@ -1,5 +1,5 @@
 #!/bin/bash
-# PostToolUse hook: after PR creation/push, run review agents and check for conflicts.
+# PostToolUse hook: after PR creation/push, remind about review workflow and check for conflicts.
 # Reads tool input JSON from stdin. Exit 2 sends feedback back to Claude.
 # Uses `mergeable` field (CONFLICTING/MERGEABLE/UNKNOWN) — not `mergeStateStatus`
 # which also reflects CI check status and would false-positive on pending checks.
@@ -19,21 +19,21 @@ check_conflicts() {
     fi
 }
 
-# After gh pr create: remind to run review agents + check conflicts
+# After gh pr create: remind to run review workflow + check conflicts
 if [[ "$command" == gh\ pr\ create* ]]; then
     pr_num=$(gh pr view --json number --jq .number 2>/dev/null)
     if [[ -n "$pr_num" ]]; then
-        echo "PR created. Run the code-reviewer and code-simplifier agents now to review the changes before considering this done." >&2
+        echo "PR created. Run a review pass and a simplification pass now before considering this done." >&2
         check_conflicts "$pr_num"
         exit 2
     fi
 fi
 
-# After git push: remind to run review agents + check for merge conflicts
+# After git push: remind to run review workflow + check for merge conflicts
 if [[ "$command" == git\ push* ]]; then
     pr_num=$(gh pr view --json number --jq .number 2>/dev/null)
     if [[ -n "$pr_num" ]]; then
-        echo "Pushed to PR #$pr_num. Run the code-reviewer and code-simplifier agents in background now." >&2
+        echo "Pushed to PR #$pr_num. Run a review pass and a simplification pass now." >&2
         check_conflicts "$pr_num"
         exit 2
     fi

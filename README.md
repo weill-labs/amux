@@ -191,6 +191,15 @@ amux wait-idle pane-1         # block until command finishes
 amux events --filter idle     # subscribe to idle/busy transitions
 ```
 
+## AI Agent Support
+
+Shared repo guidance lives in [AGENTS.md](AGENTS.md). This is the canonical instruction file for coding agents in this repo.
+
+- Claude Code also loads repo automation from `.claude/settings.json` and `.claude/hooks/`.
+- Codex reads `AGENTS.md` and can discover repo skills from `.agents/skills/`.
+- `make setup` installs the repo Git hooks for everyone. It is not Claude-specific.
+- Optional for Codex users: trust the repo, then install the OpenAI Docs MCP server with `codex mcp add openaiDeveloperDocs --url https://developers.openai.com/mcp`.
+
 ## CLI Reference
 
 All commands accept `-s <session>` to target a specific session. Panes are referenced by name (`pane-1`) or numeric ID (`1`). Prefix matches are also supported.

@@ -8,6 +8,7 @@
 ## Build
 
 ```bash
+make setup                         # activate repo git hooks
 go build -o ~/.local/bin/amux .    # build + install
 go test ./...                       # run all tests
 ```
@@ -20,6 +21,15 @@ To test manually after building:
 amux                              # start or reattach to a session
 amux capture --format json        # structured JSON output for agents
 ```
+
+## AI Agents
+
+- Shared repo instructions live in `AGENTS.md`.
+- `CLAUDE.md` is a thin Claude Code shim plus notes about Claude-only hooks.
+- Claude Code also loads `.claude/settings.json` and `.claude/hooks/`.
+- Codex reads `AGENTS.md` and can discover repo skills from `.agents/skills/`.
+- Run `make setup` after cloning so repo Git hooks are active regardless of which tool you use.
+- Optional for Codex users: trust the repo, then install the OpenAI Docs MCP server with `codex mcp add openaiDeveloperDocs --url https://developers.openai.com/mcp`.
 
 ## Test
 
