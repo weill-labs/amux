@@ -2,6 +2,7 @@ package test
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -32,6 +33,29 @@ func TestFontResize_ThreeByThreeGridReturnsToOriginalLayout(t *testing.T) {
 	}
 }
 
+func TestFontResize_UnevenGridReturnsToOriginalLayout(t *testing.T) {
+	t.Parallel()
+	h := newAmuxHarness(t)
+
+	makeThreeByThreeGrid(t, h)
+	makeGridUneven(t, h)
+
+	initial := capturePanePositions(h)
+
+	gen := h.generation()
+	h.outer.runCmd("resize-window", "120", "40")
+	h.waitLayout(gen)
+
+	gen = h.generation()
+	h.outer.runCmd("resize-window", "80", "24")
+	h.waitLayout(gen)
+
+	final := capturePanePositions(h)
+	if diff := diffPanePositions(initial, final); diff != "" {
+		t.Fatalf("uneven grid drifted after grow/shrink cycle:\n%s", diff)
+	}
+}
+
 func makeThreeByThreeGrid(t *testing.T, h *AmuxHarness) {
 	t.Helper()
 
@@ -42,6 +66,20 @@ func makeThreeByThreeGrid(t *testing.T, h *AmuxHarness) {
 		h.runCmd("focus", pane)
 		h.runCmd("split")
 		h.runCmd("split")
+	}
+}
+
+func makeGridUneven(t *testing.T, h *AmuxHarness) {
+	t.Helper()
+
+	if out := h.runCmd("resize-pane", "pane-1", "right", "5"); !strings.Contains(out, "Resized") {
+		t.Fatalf("resize-pane pane-1 right failed: %s", out)
+	}
+	if out := h.runCmd("resize-pane", "pane-1", "down", "2"); !strings.Contains(out, "Resized") {
+		t.Fatalf("resize-pane pane-1 down failed: %s", out)
+	}
+	if out := h.runCmd("resize-pane", "pane-9", "left", "3"); !strings.Contains(out, "Resized") {
+		t.Fatalf("resize-pane pane-9 left failed: %s", out)
 	}
 }
 
