@@ -33,7 +33,7 @@ amux capture --format json        # structured JSON output for agents
 
 ## Test
 
-amux uses test-driven development. Write a failing test first, then implement.
+amux uses test-driven development with separate commits per phase. See [AGENTS.md — TDD Workflow](AGENTS.md#tdd-workflow) for the full red-green-refactor commit structure.
 
 ### Integration tests
 
