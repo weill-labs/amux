@@ -1,6 +1,7 @@
 package remote
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -122,5 +123,195 @@ func TestFindModuleRoot(t *testing.T) {
 	root3 := findModuleRoot("/nonexistent/deep/path")
 	if root3 != "" {
 		t.Errorf("findModuleRoot(\"/nonexistent/deep/path\") = %q, want empty", root3)
+	}
+}
+
+// --- SSH-backed tests (use in-process test SSH server) ---
+
+func TestSSHOutput(t *testing.T) {
+	t.Parallel()
+	ts := startTestSSH(t)
+
+	out, err := sshOutput(ts.Client, "echo hello")
+	if err != nil {
+		t.Fatalf("sshOutput error: %v", err)
+	}
+	if out != "hello" {
+		t.Errorf("sshOutput = %q, want hello", out)
+	}
+}
+
+func TestSSHOutputError(t *testing.T) {
+	t.Parallel()
+	ts := startTestSSH(t)
+
+	_, err := sshOutput(ts.Client, "exit 1")
+	if err == nil {
+		t.Error("sshOutput with failing command should return error")
+	}
+}
+
+func TestSSHRun(t *testing.T) {
+	t.Parallel()
+	ts := startTestSSH(t)
+
+	// sshRun ignores errors — should not panic on success or failure
+	sshRun(ts.Client, "true")
+	sshRun(ts.Client, "false")
+}
+
+func TestSSHRunErr(t *testing.T) {
+	t.Parallel()
+	ts := startTestSSH(t)
+
+	if err := sshRunErr(ts.Client, "true"); err != nil {
+		t.Errorf("sshRunErr(true) = %v, want nil", err)
+	}
+	if err := sshRunErr(ts.Client, "false"); err == nil {
+		t.Error("sshRunErr(false) should return error")
+	}
+}
+
+func TestUploadBinary(t *testing.T) {
+	t.Parallel()
+	ts := startTestSSH(t)
+
+	// Create a temp file to upload
+	tmpFile := filepath.Join(t.TempDir(), "test-binary")
+	if err := os.WriteFile(tmpFile, []byte("#!/bin/sh\necho uploaded"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := uploadBinary(ts.Client, tmpFile); err != nil {
+		t.Fatalf("uploadBinary error: %v", err)
+	}
+
+	// Verify the file was uploaded to $HOME/.local/bin/amux
+	uploaded := filepath.Join(ts.HomeDir, ".local", "bin", "amux")
+	data, err := os.ReadFile(uploaded)
+	if err != nil {
+		t.Fatalf("reading uploaded binary: %v", err)
+	}
+	if string(data) != "#!/bin/sh\necho uploaded" {
+		t.Errorf("uploaded content = %q, want script content", string(data))
+	}
+
+	// Verify it's executable
+	info, _ := os.Stat(uploaded)
+	if info.Mode()&0111 == 0 {
+		t.Error("uploaded binary should be executable")
+	}
+}
+
+func TestUploadBinaryFileNotFound(t *testing.T) {
+	t.Parallel()
+	ts := startTestSSH(t)
+
+	err := uploadBinary(ts.Client, "/nonexistent/path/to/binary")
+	if err == nil {
+		t.Error("uploadBinary with nonexistent file should error")
+	}
+}
+
+func TestRemoteBuildHashNotFound(t *testing.T) {
+	t.Parallel()
+	ts := startTestSSH(t)
+
+	// No amux binary on the "remote" — should return error
+	_, err := remoteBuildHash(ts.Client)
+	if err == nil {
+		t.Error("remoteBuildHash should error when amux not found")
+	}
+}
+
+func TestRemoteBuildHashFound(t *testing.T) {
+	t.Parallel()
+	ts := startTestSSH(t)
+
+	// Plant a fake amux script that returns a hash
+	binDir := filepath.Join(ts.HomeDir, ".local", "bin")
+	os.MkdirAll(binDir, 0755)
+	script := filepath.Join(binDir, "amux")
+	os.WriteFile(script, []byte("#!/bin/sh\necho fakehash123\n"), 0755)
+
+	hash, err := remoteBuildHash(ts.Client)
+	if err != nil {
+		t.Fatalf("remoteBuildHash error: %v", err)
+	}
+	if hash != "fakehash123" {
+		t.Errorf("remoteBuildHash = %q, want fakehash123", hash)
+	}
+}
+
+func TestDeployBinaryUpToDate(t *testing.T) {
+	t.Parallel()
+	ts := startTestSSH(t)
+
+	// Plant a fake amux that reports "abc1234" as its hash
+	binDir := filepath.Join(ts.HomeDir, ".local", "bin")
+	os.MkdirAll(binDir, 0755)
+	script := filepath.Join(binDir, "amux")
+	os.WriteFile(script, []byte("#!/bin/sh\necho abc1234\n"), 0755)
+
+	// Deploy with matching hash — should skip (no upload)
+	err := DeployBinary(ts.Client, "abc1234")
+	if err != nil {
+		t.Errorf("DeployBinary with matching hash should succeed, got: %v", err)
+	}
+}
+
+func TestDeployBinaryCrossArchFails(t *testing.T) {
+	t.Parallel()
+	ts := startTestSSH(t)
+
+	// Plant a fake uname that reports a different architecture.
+	// This triggers the cross-arch path in DeployBinary.
+	binDir := filepath.Join(ts.HomeDir, ".local", "bin")
+	os.MkdirAll(binDir, 0755)
+
+	fakeUname := filepath.Join(binDir, "uname")
+	// Report opposite arch from what we're running on
+	fakeArch := "Linux x86_64"
+	if runtime.GOOS == "linux" && runtime.GOARCH == "amd64" {
+		fakeArch = "Linux aarch64"
+	}
+	os.WriteFile(fakeUname, []byte(fmt.Sprintf("#!/bin/sh\necho '%s'\n", fakeArch)), 0755)
+
+	// DeployBinary should attempt cross-compile (which will fail in test env
+	// since go.mod can't be found from test binary path) and then fall through
+	// to the GitHub release download (which will also fail). Both failing means
+	// it returns a "cross-arch deploy failed" error.
+	err := DeployBinary(ts.Client, "crosshash")
+	if err == nil {
+		t.Error("DeployBinary cross-arch should fail when both cross-compile and download fail")
+	}
+}
+
+func TestDeployBinarySameArch(t *testing.T) {
+	t.Parallel()
+	ts := startTestSSH(t)
+
+	// No amux on remote, uname -sm returns the local platform
+	// since our test SSH server runs sh -c on the same machine.
+	// This means local OS/arch == remote OS/arch → same-arch upload path.
+
+	// Create a small fake binary to deploy (the real test binary is too large
+	// and os.Executable() returns the test binary path which may not be
+	// a valid amux binary). We can't easily override os.Executable(), so
+	// instead we test the upload path directly via uploadBinary (above)
+	// and test DeployBinary's same-arch detection here by verifying it
+	// attempts the upload (which will succeed or fail based on os.Executable).
+	err := DeployBinary(ts.Client, "newhash")
+	// This will attempt to upload the test binary — that's fine, we just
+	// verify it didn't error on architecture detection or parsing.
+	// The upload itself should succeed since it's a same-arch scenario.
+	if err != nil {
+		t.Errorf("DeployBinary same-arch should succeed, got: %v", err)
+	}
+
+	// Verify something was uploaded
+	uploaded := filepath.Join(ts.HomeDir, ".local", "bin", "amux")
+	if _, err := os.Stat(uploaded); err != nil {
+		t.Errorf("expected binary at %s after deploy: %v", uploaded, err)
 	}
 }

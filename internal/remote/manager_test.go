@@ -1,6 +1,8 @@
 package remote
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/weill-labs/amux/internal/config"
@@ -249,4 +251,105 @@ func TestManagerDisconnectAndReconnectHost(t *testing.T) {
 	if hc.State() != Disconnected {
 		t.Errorf("state after DisconnectHost = %q, want disconnected", hc.State())
 	}
+}
+
+func TestDeployToAddressEmptyBuildHash(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config.Config{Hosts: map[string]config.Host{}}
+	m := NewManager(cfg, "")
+
+	// Empty build hash — should return immediately without SSH dial
+	m.DeployToAddress("host", "10.0.0.1:22", "ubuntu")
+	// No panic or error = pass
+}
+
+func TestDeployToAddressDeployDisabled(t *testing.T) {
+	f := false
+	cfg := &config.Config{Hosts: map[string]config.Host{
+		"dev": {Type: "remote", Address: "10.0.0.1", Deploy: &f},
+	}}
+	m := NewManager(cfg, "abc1234")
+
+	// deploy=false in config — should skip without SSH dial
+	m.DeployToAddress("dev", "10.0.0.1:22", "ubuntu")
+}
+
+func TestDeployToAddressViaSSH(t *testing.T) {
+	t.Parallel()
+	ts := startTestSSH(t)
+
+	cfg := &config.Config{Hosts: map[string]config.Host{
+		"test-host": {
+			Type:         "remote",
+			Address:      ts.Addr,
+			User:         "testuser",
+			IdentityFile: ts.KeyFile,
+		},
+	}}
+	m := NewManager(cfg, "deployhash")
+
+	// Should SSH to the test server and deploy
+	m.DeployToAddress("test-host", ts.Addr, "testuser")
+
+	// Verify binary was uploaded
+	uploaded := filepath.Join(ts.HomeDir, ".local", "bin", "amux")
+	if _, err := os.Stat(uploaded); err != nil {
+		t.Errorf("expected binary at %s after DeployToAddress: %v", uploaded, err)
+	}
+}
+
+func TestDeployToAddressHostNotInConfig(t *testing.T) {
+	// Cannot use t.Parallel — t.Setenv modifies process env.
+	ts := startTestSSH(t)
+
+	// Host "unknown-host" is NOT in the config map — DeployToAddress
+	// falls back to constructing a Host from the raw address and user.
+	cfg := &config.Config{Hosts: map[string]config.Host{}}
+	m := NewManager(cfg, "deployhash")
+
+	// Write the identity file path into the config after the fact won't work
+	// since the host isn't in the map. DeployToAddress will build a Host with
+	// no IdentityFile, so buildSSHConfig will try default keys + agent.
+	// We provide the identity file by placing it at the default SSH key path.
+	fakeHome := t.TempDir()
+	sshDir := filepath.Join(fakeHome, ".ssh")
+	os.MkdirAll(sshDir, 0700)
+
+	// Copy the test key to the default location buildSSHConfig checks
+	keyData, err := os.ReadFile(ts.KeyFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sshDir, "id_ed25519"), keyData, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("HOME", fakeHome)
+	t.Setenv("SSH_AUTH_SOCK", "") // disable agent so only the key file is used
+
+	m.DeployToAddress("unknown-host", ts.Addr, "testuser")
+
+	// Verify binary was uploaded via the fallback config path
+	uploaded := filepath.Join(ts.HomeDir, ".local", "bin", "amux")
+	if _, err := os.Stat(uploaded); err != nil {
+		t.Errorf("expected binary at %s after DeployToAddress (host not in config): %v", uploaded, err)
+	}
+}
+
+func TestDeployToAddressBuildSSHConfigError(t *testing.T) {
+	// Cannot use t.Parallel — t.Setenv modifies process env.
+
+	// Point HOME to an empty dir (no default SSH keys) and disable the agent.
+	// buildSSHConfig should fail with "no SSH auth methods available".
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("SSH_AUTH_SOCK", "")
+
+	cfg := &config.Config{Hosts: map[string]config.Host{
+		"noauth": {Type: "remote", Address: "127.0.0.1:22"},
+	}}
+	m := NewManager(cfg, "somehash")
+
+	// Should hit the buildSSHConfig error path and return without panic.
+	m.DeployToAddress("noauth", "127.0.0.1:22", "testuser")
 }
