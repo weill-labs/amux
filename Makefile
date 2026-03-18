@@ -5,7 +5,7 @@ setup: ## Configure git hooks and install tools
 	@echo "Hooks activated from .githooks/"
 
 build: ## Build and install amux
-	go build -o ~/.local/bin/amux .
+	scripts/build-install.sh
 
 test: ## Run all tests
 	go test ./... -timeout 120s
