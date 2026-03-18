@@ -1,6 +1,35 @@
 package remote
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
+
+func TestBuildEnsureServerCmd(t *testing.T) {
+	t.Parallel()
+
+	cmd := buildEnsureServerCmd("/tmp/amux-1000/default", "default@myhost")
+
+	// Must check for socket before starting
+	if !strings.Contains(cmd, `[ ! -S /tmp/amux-1000/default ]`) {
+		t.Error("command should check socket existence")
+	}
+
+	// Must try ~/.local/bin/amux first (deploy location)
+	if !strings.Contains(cmd, "~/.local/bin/amux") {
+		t.Error("command should try ~/.local/bin/amux first")
+	}
+
+	// Must pass session name to _server
+	if !strings.Contains(cmd, `_server default@myhost`) {
+		t.Error("command should pass session name to _server")
+	}
+
+	// Must fall back to amux in PATH
+	if !strings.Contains(cmd, "command -v amux") {
+		t.Error("command should fall back to amux in PATH")
+	}
+}
 
 func TestNormalizeAddr(t *testing.T) {
 	t.Parallel()

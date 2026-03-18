@@ -37,9 +37,8 @@ type HostConn struct {
 	localToRemote map[uint32]uint32
 
 	// Session name for the remote amux server (includes local hostname)
-	sessionName  string
-	remoteUID    string // UID of the remote user (for socket path)
-	takeoverMode bool   // true when established via takeover (skip ensureRemoteServer on reconnect)
+	sessionName string
+	remoteUID   string // UID of the remote user (for socket path)
 
 	// Callbacks back to the local server
 	onPaneOutput  PaneOutputCallback
@@ -61,13 +60,6 @@ func NewHostConn(name string, cfg config.Host, buildHash string,
 		onPaneExit:    onExit,
 		onStateChange: onStateChange,
 	}
-}
-
-// SSHClient returns the underlying SSH client, or nil if not connected.
-func (hc *HostConn) SSHClient() *ssh.Client {
-	hc.mu.Lock()
-	defer hc.mu.Unlock()
-	return hc.sshClient
 }
 
 // shouldDeploy returns true if auto-deploy should run for this host.
@@ -333,14 +325,20 @@ func (hc *HostConn) ensureRemoteServer(client *ssh.Client, sessionName string) e
 	defer sess.Close()
 
 	sockPath := hc.remoteSocketPath(sessionName)
-	// Try ~/.local/bin/amux first (where deploy installs), fall back to PATH
-	cmd := fmt.Sprintf(
-		`if [ ! -S %s ]; then AMUX=$(command -v ~/.local/bin/amux 2>/dev/null || command -v amux 2>/dev/null || echo amux); nohup "$AMUX" _server %s </dev/null >/dev/null 2>&1 & for i in 1 2 3 4 5 6 7 8 9 10; do [ -S %s ] && break; sleep 0.2; done; fi`,
-		sockPath, sessionName, sockPath,
-	)
+	cmd := buildEnsureServerCmd(sockPath, sessionName)
 	// Ignore errors — the server may already be running
 	_ = sess.Run(cmd)
 	return nil
+}
+
+// buildEnsureServerCmd returns the shell command that starts amux _server if
+// the socket doesn't already exist. Tries ~/.local/bin/amux first (where deploy
+// installs), then falls back to amux in PATH.
+func buildEnsureServerCmd(sockPath, sessionName string) string {
+	return fmt.Sprintf(
+		`if [ ! -S %s ]; then AMUX=$(command -v ~/.local/bin/amux 2>/dev/null || command -v amux 2>/dev/null || echo amux); nohup "$AMUX" _server %s </dev/null >/dev/null 2>&1 & for i in 1 2 3 4 5 6 7 8 9 10; do [ -S %s ] && break; sleep 0.2; done; fi`,
+		sockPath, sessionName, sockPath,
+	)
 }
 
 // readLoop reads messages from the persistent attach connection and dispatches them.
