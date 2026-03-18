@@ -5,6 +5,7 @@ package reload
 import (
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
@@ -26,25 +27,26 @@ func WatchBinary(execPath string, triggerReload chan<- struct{}, ready chan<- st
 	dir := filepath.Dir(execPath)
 	base := filepath.Base(execPath)
 
+	var signalReady sync.Once
+	closeReady := func() {
+		if ready != nil {
+			signalReady.Do(func() { close(ready) })
+		}
+	}
+
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
-		if ready != nil {
-			close(ready)
-		}
+		closeReady()
 		return
 	}
 	defer watcher.Close()
 
 	if err := watcher.Add(dir); err != nil {
-		if ready != nil {
-			close(ready)
-		}
+		closeReady()
 		return
 	}
 
-	if ready != nil {
-		close(ready)
-	}
+	closeReady()
 
 	var debounce *time.Timer
 
