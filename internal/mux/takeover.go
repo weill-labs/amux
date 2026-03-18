@@ -9,10 +9,12 @@ import (
 // the SSH PTY to signal the local amux to splice remote panes into the
 // local layout.
 type TakeoverRequest struct {
-	Session string         `json:"session"`
-	Host    string         `json:"host"`
-	UID     string         `json:"uid"`
-	Panes   []TakeoverPane `json:"panes"`
+	Session    string         `json:"session"`
+	Host       string         `json:"host"`
+	UID        string         `json:"uid"`
+	SSHAddress string         `json:"ssh_address,omitempty"` // server_ip:port from SSH_CONNECTION
+	SSHUser    string         `json:"ssh_user,omitempty"`    // remote user for return SSH connection
+	Panes      []TakeoverPane `json:"panes"`
 }
 
 // TakeoverPane describes one remote pane in a takeover request.

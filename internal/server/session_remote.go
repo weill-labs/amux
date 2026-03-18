@@ -12,8 +12,8 @@ import (
 )
 
 // SetupRemoteManager initializes the remote manager with callbacks.
-func (s *Session) SetupRemoteManager(cfg *config.Config) {
-	mgr := remote.NewManager(cfg)
+func (s *Session) SetupRemoteManager(cfg *config.Config, buildHash string) {
+	mgr := remote.NewManager(cfg, buildHash)
 	mgr.SetCallbacks(
 		// onPaneOutput: feed remote output into the proxy pane's emulator
 		func(localPaneID uint32, data []byte) {
@@ -169,6 +169,12 @@ func (s *Session) handleTakeover(srv *Server, sshPaneID uint32, req mux.Takeover
 	s.mu.Unlock()
 
 	s.broadcastLayout()
+
+	// Deploy updated binary in background — the remote amux hot-reloads
+	// via its file watcher when the binary changes on disk.
+	if s.RemoteManager != nil && req.SSHAddress != "" {
+		go s.RemoteManager.DeployToAddress(hostname, req.SSHAddress, req.SSHUser)
+	}
 }
 
 // forwardCapture sends a capture request to the first attached interactive

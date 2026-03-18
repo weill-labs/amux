@@ -64,7 +64,8 @@ type Host struct {
 	IdentityFile string `toml:"identity_file"` // SSH private key path (optional)
 	ProjectDir   string `toml:"project_dir"`
 	GPU          string `toml:"gpu"`
-	Color        string `toml:"color"` // hex color, auto-assigned if empty
+	Color        string `toml:"color"`  // hex color, auto-assigned if empty
+	Deploy       *bool  `toml:"deploy"` // auto-deploy binary; nil = true (opt-out with false)
 }
 
 // Config is the top-level amux configuration.
