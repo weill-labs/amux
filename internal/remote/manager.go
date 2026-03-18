@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"sync"
 
+	"golang.org/x/crypto/ssh"
+
 	"github.com/weill-labs/amux/internal/config"
 )
 
@@ -36,31 +38,72 @@ type StateChangeCallback func(hostName string, state ConnState)
 // Manager coordinates all remote host connections. It maps local pane IDs
 // to their remote counterparts and routes I/O through the appropriate HostConn.
 type Manager struct {
-	mu    sync.Mutex
-	hosts map[string]*HostConn // keyed by config host name
-	cfg   *config.Config
+	mu        sync.Mutex
+	hosts     map[string]*HostConn // keyed by config host name
+	cfg       *config.Config
+	buildHash string // local build hash for deploy decisions
 
 	// localToHost maps local pane ID → host name for routing input
 	localToHost map[uint32]string
 
 	// Callbacks wired by the server
-	onPaneOutput    PaneOutputCallback
-	onPaneExit      PaneExitCallback
-	onStateChange   StateChangeCallback
+	onPaneOutput  PaneOutputCallback
+	onPaneExit    PaneExitCallback
+	onStateChange StateChangeCallback
 }
 
 // NewManager creates a remote host manager with the given config.
-func NewManager(cfg *config.Config) *Manager {
+func NewManager(cfg *config.Config, buildHash string) *Manager {
 	return &Manager{
 		hosts:       make(map[string]*HostConn),
 		cfg:         cfg,
+		buildHash:   buildHash,
 		localToHost: make(map[uint32]string),
 	}
+}
+
+// HostConnFor returns the HostConn for a named host, or nil if not connected.
+func (m *Manager) HostConnFor(name string) *HostConn {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.hosts[name]
 }
 
 // Config returns the underlying config.
 func (m *Manager) Config() *config.Config {
 	return m.cfg
+}
+
+// BuildHash returns the local build hash used for deploy decisions.
+func (m *Manager) BuildHash() string {
+	return m.buildHash
+}
+
+// DeployToAddress deploys the local binary to a remote host via a temporary SSH
+// connection. Used for post-takeover deployment when no persistent HostConn exists.
+func (m *Manager) DeployToAddress(hostName, sshAddr, sshUser string) {
+	if m.buildHash == "" {
+		return
+	}
+
+	hostCfg, ok := m.cfg.Hosts[hostName]
+	if !ok {
+		hostCfg = config.Host{Type: "remote", Address: sshAddr, User: sshUser}
+	}
+
+	hc := NewHostConn("deploy-tmp", hostCfg, m.buildHash, nil, nil, nil)
+	sshCfg, err := hc.buildSSHConfig()
+	if err != nil {
+		return
+	}
+
+	client, err := ssh.Dial("tcp", normalizeAddr(sshAddr), sshCfg)
+	if err != nil {
+		return
+	}
+	defer client.Close()
+
+	_ = DeployBinary(client, m.buildHash)
 }
 
 // SetCallbacks configures the callbacks the manager uses to communicate
@@ -95,7 +138,7 @@ func (m *Manager) CreatePane(hostName string, localPaneID uint32, sessionName st
 
 	hc, exists := m.hosts[hostName]
 	if !exists {
-		hc = NewHostConn(hostName, host, m.onPaneOutput, m.onPaneExit, m.onStateChange)
+		hc = NewHostConn(hostName, host, m.buildHash, m.onPaneOutput, m.onPaneExit, m.onStateChange)
 		m.hosts[hostName] = hc
 	}
 	m.localToHost[localPaneID] = hostName

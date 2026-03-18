@@ -22,8 +22,9 @@ import (
 //   - Persistent attach connection (amuxConn) for streaming pane output
 //   - One-shot connections for commands (spawn, resize) via runCommand()
 type HostConn struct {
-	name   string
-	config config.Host
+	name      string
+	config    config.Host
+	buildHash string // local build hash for deploy decisions
 
 	mu        sync.Mutex
 	state     ConnState
@@ -36,8 +37,9 @@ type HostConn struct {
 	localToRemote map[uint32]uint32
 
 	// Session name for the remote amux server (includes local hostname)
-	sessionName string
-	remoteUID   string // UID of the remote user (for socket path)
+	sessionName  string
+	remoteUID    string // UID of the remote user (for socket path)
+	takeoverMode bool   // true when established via takeover (skip ensureRemoteServer on reconnect)
 
 	// Callbacks back to the local server
 	onPaneOutput  PaneOutputCallback
@@ -46,11 +48,12 @@ type HostConn struct {
 }
 
 // NewHostConn creates a host connection (not yet connected).
-func NewHostConn(name string, cfg config.Host,
+func NewHostConn(name string, cfg config.Host, buildHash string,
 	onOutput PaneOutputCallback, onExit PaneExitCallback, onStateChange StateChangeCallback) *HostConn {
 	return &HostConn{
 		name:          name,
 		config:        cfg,
+		buildHash:     buildHash,
 		state:         Disconnected,
 		remoteToLocal: make(map[uint32]uint32),
 		localToRemote: make(map[uint32]uint32),
@@ -58,6 +61,25 @@ func NewHostConn(name string, cfg config.Host,
 		onPaneExit:    onExit,
 		onStateChange: onStateChange,
 	}
+}
+
+// SSHClient returns the underlying SSH client, or nil if not connected.
+func (hc *HostConn) SSHClient() *ssh.Client {
+	hc.mu.Lock()
+	defer hc.mu.Unlock()
+	return hc.sshClient
+}
+
+// shouldDeploy returns true if auto-deploy should run for this host.
+// Checks AMUX_NO_DEPLOY env var and the per-host deploy config opt-out.
+func (hc *HostConn) shouldDeploy() bool {
+	if os.Getenv("AMUX_NO_DEPLOY") == "1" {
+		return false
+	}
+	if hc.config.Deploy != nil && !*hc.config.Deploy {
+		return false
+	}
+	return hc.buildHash != ""
 }
 
 // State returns the current connection state. Thread-safe.
@@ -113,9 +135,7 @@ func (hc *HostConn) connect(sessionName string) error {
 	if addr == "" {
 		addr = hc.name
 	}
-	if !hasPort(addr) {
-		addr = addr + ":22"
-	}
+	addr = normalizeAddr(addr)
 
 	sshClient, err := ssh.Dial("tcp", addr, sshCfg)
 	if err != nil {
@@ -134,6 +154,13 @@ func (hc *HostConn) connect(sessionName string) error {
 	hc.mu.Lock()
 	hc.remoteUID = remoteUID
 	hc.mu.Unlock()
+
+	// Deploy local binary to remote if needed (best-effort)
+	if hc.shouldDeploy() {
+		if err := DeployBinary(sshClient, hc.buildHash); err != nil {
+			fmt.Fprintf(os.Stderr, "amux: deploy to %s: %v\n", hc.name, err)
+		}
+	}
 
 	// Ensure remote amux server is running
 	remoteSession := remoteSessionName(sessionName)
@@ -306,8 +333,9 @@ func (hc *HostConn) ensureRemoteServer(client *ssh.Client, sessionName string) e
 	defer sess.Close()
 
 	sockPath := hc.remoteSocketPath(sessionName)
+	// Try ~/.local/bin/amux first (where deploy installs), fall back to PATH
 	cmd := fmt.Sprintf(
-		`if [ ! -S %s ]; then nohup amux _server %s </dev/null >/dev/null 2>&1 & for i in 1 2 3 4 5 6 7 8 9 10; do [ -S %s ] && break; sleep 0.2; done; fi`,
+		`if [ ! -S %s ]; then AMUX=$(command -v ~/.local/bin/amux 2>/dev/null || command -v amux 2>/dev/null || echo amux); nohup "$AMUX" _server %s </dev/null >/dev/null 2>&1 & for i in 1 2 3 4 5 6 7 8 9 10; do [ -S %s ] && break; sleep 0.2; done; fi`,
 		sockPath, sessionName, sockPath,
 	)
 	// Ignore errors — the server may already be running
@@ -539,4 +567,12 @@ func (hc *HostConn) startSocatBridge(client *ssh.Client, sockPath string) (int, 
 func hasPort(addr string) bool {
 	_, _, err := net.SplitHostPort(addr)
 	return err == nil
+}
+
+// normalizeAddr ensures the address has a port, defaulting to :22.
+func normalizeAddr(addr string) string {
+	if !hasPort(addr) {
+		return addr + ":22"
+	}
+	return addr
 }

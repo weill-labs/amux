@@ -401,7 +401,7 @@ func runServer(sessionName string) {
 	}
 
 	// Set up remote pane manager for all sessions
-	s.SetupRemoteManager(cfg)
+	s.SetupRemoteManager(cfg, server.BuildVersion)
 
 	// Signal readiness on the fd specified by AMUX_READY_FD (used by
 	// test harness for deterministic startup without polling).
@@ -536,6 +536,17 @@ func tryTakeover(sessionName string) bool {
 		Host:    hostname,
 		UID:     fmt.Sprintf("%d", os.Getuid()),
 		Panes:   []mux.TakeoverPane{},
+	}
+
+	// Populate SSH connection info for return connection (deploy, bidirectional I/O).
+	// SSH_CONNECTION format: "client_ip client_port server_ip server_port"
+	if sshConn := os.Getenv("SSH_CONNECTION"); sshConn != "" {
+		if parts := strings.Fields(sshConn); len(parts) >= 4 {
+			req.SSHAddress = parts[2] + ":" + parts[3]
+		}
+	}
+	if user := os.Getenv("USER"); user != "" {
+		req.SSHUser = user
 	}
 
 	os.Stdout.Write(mux.FormatTakeoverSequence(req))

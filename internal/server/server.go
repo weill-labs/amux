@@ -178,11 +178,11 @@ func NewServer(sessionName string) (*Server, error) {
 }
 
 // SetupRemoteManager initializes the remote manager for all sessions.
-func (s *Server) SetupRemoteManager(cfg *config.Config) {
+func (s *Server) SetupRemoteManager(cfg *config.Config, buildHash string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, sess := range s.sessions {
-		sess.SetupRemoteManager(cfg)
+		sess.SetupRemoteManager(cfg, buildHash)
 	}
 }
 
