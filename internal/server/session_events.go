@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/weill-labs/amux/internal/hooks"
@@ -9,6 +10,8 @@ import (
 	"github.com/weill-labs/amux/internal/remote"
 	"github.com/weill-labs/amux/internal/render"
 )
+
+var errSessionShuttingDown = errors.New("session shutting down")
 
 type sessionEvent interface {
 	handle(*Session)
@@ -138,7 +141,7 @@ type takeoverEvent struct {
 }
 
 func (e takeoverEvent) handle(s *Session) {
-	s.handleTakeover(e.srv, e.paneID, e.req)
+	go s.handleTakeover(e.srv, e.paneID, e.req)
 }
 
 type remotePaneExitEvent struct {
@@ -221,9 +224,14 @@ func (s *Session) enqueueAttachClient(srv *Server, cc *ClientConn, cols, rows in
 		rows:  rows,
 		reply: reply,
 	}) {
-		return attachResult{err: fmt.Errorf("session shutting down")}
+		return attachResult{err: errSessionShuttingDown}
 	}
-	return <-reply
+	select {
+	case res := <-reply:
+		return res
+	case <-s.sessionEventDone:
+		return attachResult{err: errSessionShuttingDown}
+	}
 }
 
 func (s *Session) enqueueDetachClient(cc *ClientConn) {

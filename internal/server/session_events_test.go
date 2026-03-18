@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net"
 	"testing"
 	"time"
@@ -158,6 +159,36 @@ func TestPaneExitCallbackEnqueuesRemoval(t *testing.T) {
 		defer sess.mu.Unlock()
 		return !sess.hasPane(p2.ID) && w.PaneCount() == 1
 	})
+}
+
+func TestEnqueueAttachClientReturnsOnSessionShutdown(t *testing.T) {
+	t.Parallel()
+
+	sess := &Session{
+		sessionEvents:    make(chan sessionEvent, 1),
+		sessionEventStop: make(chan struct{}),
+		sessionEventDone: make(chan struct{}),
+	}
+
+	resultCh := make(chan attachResult, 1)
+	go func() {
+		resultCh <- sess.enqueueAttachClient(&Server{}, NewClientConn(nil), 80, 24)
+	}()
+
+	waitUntil(t, func() bool {
+		return len(sess.sessionEvents) == 1
+	})
+
+	close(sess.sessionEventDone)
+
+	select {
+	case res := <-resultCh:
+		if !errors.Is(res.err, errSessionShuttingDown) {
+			t.Fatalf("attach error = %v, want %v", res.err, errSessionShuttingDown)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("enqueueAttachClient did not return after shutdown")
+	}
 }
 
 func readMsgWithTimeout(t *testing.T, conn net.Conn) *Message {
