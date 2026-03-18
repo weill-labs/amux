@@ -568,8 +568,9 @@ func tryTakeover(sessionName string) bool {
 			return false
 		}
 		// Try session-carrying ack (new format); fall back to fixed ack (legacy).
-		session, ok := mux.ParseTakeoverAck(string(result.data))
-		if !ok && strings.Contains(string(result.data), mux.TakeoverAck) {
+		ackData := string(result.data)
+		session, ok := mux.ParseTakeoverAck(ackData)
+		if !ok && strings.Contains(ackData, mux.TakeoverAck) {
 			session = req.Session
 			ok = true
 		}

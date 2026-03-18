@@ -556,16 +556,16 @@ func (hc *HostConn) connectTakeover(sessionName, remoteUID, sshAddr string) erro
 		return fmt.Errorf("SSH dial %s: %w", sshAddr, err)
 	}
 
-	remoteSock := fmt.Sprintf("/tmp/amux-%s/%s", remoteUID, sessionName)
-	if err := waitForSocket(sshClient, remoteSock, 5*time.Second); err != nil {
-		sshClient.Close()
-		return fmt.Errorf("waiting for remote socket %s: %w", remoteSock, err)
-	}
-
 	hc.mu.Lock()
 	hc.remoteUID = remoteUID
 	hc.takeoverMode = true
 	hc.mu.Unlock()
+
+	remoteSock := hc.remoteSocketPath(sessionName)
+	if err := waitForSocket(sshClient, remoteSock, 5*time.Second); err != nil {
+		sshClient.Close()
+		return fmt.Errorf("waiting for remote socket %s: %w", remoteSock, err)
+	}
 
 	return hc.attachToSocket(sshClient, remoteSock, sessionName)
 }
@@ -575,7 +575,7 @@ func waitForSocket(client *ssh.Client, sockPath string, timeout time.Duration) e
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		out, err := sshOutput(client, fmt.Sprintf("test -S %s && echo ok", sockPath))
-		if err == nil && strings.Contains(out, "ok") {
+		if err == nil && out == "ok" {
 			return nil
 		}
 		time.Sleep(100 * time.Millisecond)

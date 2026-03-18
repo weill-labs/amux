@@ -136,14 +136,12 @@ func (s *Session) handleTakeover(srv *Server, sshPaneID uint32, req mux.Takeover
 		}
 
 		// writeOverride routes input through the RemoteManager → SSH → remote amux.
-		// Use a local copy of id to avoid closure capture of loop variable.
-		localID := id
 		proxyPane := mux.NewProxyPane(id, meta, cols, mux.PaneContentHeight(cellH),
 			s.paneOutputCallback(),
 			s.paneExitCallback(srv),
 			func(data []byte) (int, error) {
 				if s.RemoteManager != nil {
-					return len(data), s.RemoteManager.SendInput(localID, data)
+					return len(data), s.RemoteManager.SendInput(id, data)
 				}
 				return len(data), nil
 			},
