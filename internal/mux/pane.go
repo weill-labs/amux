@@ -365,7 +365,8 @@ func (p *Pane) ContentLines() []string {
 	return EmulatorContentLines(p.emulator)
 }
 
-// ScreenContains returns true if any visible screen line contains substr.
+// ScreenContains returns true if substr appears in the pane's visible screen
+// content, matching across soft-wrapped lines.
 func (p *Pane) ScreenContains(substr string) bool {
 	return p.emulator.ScreenContains(substr)
 }
