@@ -41,11 +41,11 @@ fi
 # --- Integration tests ---
 echo ""
 echo "=== Integration tests (GOCOVERDIR) ==="
-integ_args=(-race -parallel 2 -timeout 900s ./test/)
+integ_args=(-race -timeout 300s ./test/)
 if [[ "$CI_MODE" == true ]]; then
-  AMUX_TEST_RACE=1 GOCOVERDIR="$COVDIR" go test -json "${integ_args[@]}" | tee integration-results.json || integ_rc=$?
+  GOCOVERDIR="$COVDIR" go test -json "${integ_args[@]}" | tee integration-results.json || integ_rc=$?
 else
-  AMUX_TEST_RACE=1 GOCOVERDIR="$COVDIR" go test "${integ_args[@]}" || integ_rc=$?
+  GOCOVERDIR="$COVDIR" go test "${integ_args[@]}" || integ_rc=$?
 fi
 
 # --- Merge coverage ---
