@@ -58,6 +58,11 @@ type CopyMode struct {
 	selStartY  int  // start absolute line index
 	selEndX    int
 	selEndY    int
+
+	// Character search state (f/F/t/T)
+	pendingCharSearch byte // 0=none, 'f'/'F'/'t'/'T'=awaiting target
+	lastCharSearch    byte // last f/F/t/T command (for ;/, repeat)
+	lastCharTarget    byte // last target character
 }
 
 // New creates a CopyMode for the given emulator and viewport size.
@@ -91,6 +96,14 @@ func (cm *CopyMode) HandleInput(data []byte) Action {
 			var consumed int
 			action, consumed = cm.handleSearchInput(data)
 			data = data[consumed:]
+		} else if cm.pendingCharSearch != 0 {
+			if data[0] == 0x1b { // Escape cancels pending search
+				cm.pendingCharSearch = 0
+			} else {
+				action = cm.executeCharSearch(cm.pendingCharSearch, data[0])
+				cm.pendingCharSearch = 0
+			}
+			data = data[1:]
 		} else {
 			action = cm.handleNormalKey(data[0])
 			data = data[1:]
@@ -139,22 +152,14 @@ func (cm *CopyMode) handleNormalKey(b byte) Action {
 		return ActionExit
 
 	case 'j': // move cursor down
-		if cm.cy < cm.height-1 {
-			cm.cy++
-		} else if cm.oy > 0 {
-			cm.oy--
-		} else {
+		if !cm.moveDown() {
 			return ActionNone
 		}
 		cm.updateSelection()
 		return ActionRedraw
 
 	case 'k': // move cursor up
-		if cm.cy > 0 {
-			cm.cy--
-		} else if cm.oy < cm.maxOY() {
-			cm.oy++
-		} else {
+		if !cm.moveUp() {
 			return ActionNone
 		}
 		cm.updateSelection()
@@ -251,6 +256,50 @@ func (cm *CopyMode) handleNormalKey(b byte) Action {
 			return ActionYank
 		}
 		return ActionNone
+
+	case '0': // beginning of line
+		cm.cx = 0
+		cm.updateSelection()
+		return ActionRedraw
+
+	case '$': // end of line
+		cm.cx = cm.lineEndCol()
+		cm.updateSelection()
+		return ActionRedraw
+
+	case '^': // first non-blank character
+		cm.cx = cm.firstNonBlankCol()
+		cm.updateSelection()
+		return ActionRedraw
+
+	case 'W': // forward WORD
+		return cm.moveWordForward()
+
+	case 'B': // backward WORD
+		return cm.moveWordBackward()
+
+	case 'E': // end of WORD
+		return cm.moveWordEnd()
+
+	case 0x06: // Ctrl-f — full page down
+		cm.oy = clamp(cm.oy-cm.height, 0, cm.maxOY())
+		cm.updateSelection()
+		return ActionRedraw
+
+	case 0x02: // Ctrl-b — full page up
+		cm.oy = clamp(cm.oy+cm.height, 0, cm.maxOY())
+		cm.updateSelection()
+		return ActionRedraw
+
+	case 'f', 'F', 't', 'T': // character search — await target
+		cm.pendingCharSearch = b
+		return ActionNone
+
+	case ';': // repeat last character search
+		return cm.repeatCharSearch(false)
+
+	case ',': // repeat last character search (reversed)
+		return cm.repeatCharSearch(true)
 	}
 	return ActionNone
 }

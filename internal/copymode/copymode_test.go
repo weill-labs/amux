@@ -626,6 +626,400 @@ func TestCellAt_SearchMatch(t *testing.T) {
 	}
 }
 
+// --- Vim motion tests (LAB-236) ---
+
+func TestLineStart(t *testing.T) {
+	t.Parallel()
+	emu := newFakeEmulator(40, 3)
+	emu.screen = []string{"  hello world", "second line", "third line"}
+	cm := New(emu, 40, 3, 0)
+
+	// Move cursor to column 8, then press 0.
+	for i := 0; i < 8; i++ {
+		cm.HandleInput([]byte{'l'})
+	}
+	cx, _ := cm.CursorPos()
+	if cx != 8 {
+		t.Fatalf("setup: cx = %d, want 8", cx)
+	}
+
+	action := cm.HandleInput([]byte{'0'})
+	if action != ActionRedraw {
+		t.Errorf("0 should return ActionRedraw, got %d", action)
+	}
+	cx, _ = cm.CursorPos()
+	if cx != 0 {
+		t.Errorf("after 0: cx = %d, want 0", cx)
+	}
+}
+
+func TestLineEnd(t *testing.T) {
+	t.Parallel()
+	emu := newFakeEmulator(40, 3)
+	emu.screen = []string{"hello world", "", "  "}
+	cm := New(emu, 40, 3, 0)
+
+	// $ should go to last non-space char of "hello world" (col 10).
+	action := cm.HandleInput([]byte{'$'})
+	if action != ActionRedraw {
+		t.Errorf("$ should return ActionRedraw, got %d", action)
+	}
+	cx, _ := cm.CursorPos()
+	if cx != 10 {
+		t.Errorf("$ on 'hello world': cx = %d, want 10", cx)
+	}
+
+	// $ on empty line → cx=0.
+	cm.HandleInput([]byte{'j'})
+	cm.HandleInput([]byte{'$'})
+	cx, _ = cm.CursorPos()
+	if cx != 0 {
+		t.Errorf("$ on empty line: cx = %d, want 0", cx)
+	}
+}
+
+func TestFirstNonBlank(t *testing.T) {
+	t.Parallel()
+	emu := newFakeEmulator(40, 3)
+	emu.screen = []string{"   hello", "\tworld", "noindent"}
+	cm := New(emu, 40, 3, 0)
+
+	// ^ on "   hello" → cx=3 (first non-space).
+	cm.HandleInput([]byte{'^'})
+	cx, _ := cm.CursorPos()
+	if cx != 3 {
+		t.Errorf("^ on '   hello': cx = %d, want 3", cx)
+	}
+
+	// ^ on "\tworld" → cx=1 (first non-whitespace after tab).
+	cm.HandleInput([]byte{'j'})
+	cm.HandleInput([]byte{'^'})
+	cx, _ = cm.CursorPos()
+	if cx != 1 {
+		t.Errorf("^ on '\\tworld': cx = %d, want 1", cx)
+	}
+
+	// ^ on "noindent" → cx=0.
+	cm.HandleInput([]byte{'j'})
+	cm.HandleInput([]byte{'^'})
+	cx, _ = cm.CursorPos()
+	if cx != 0 {
+		t.Errorf("^ on 'noindent': cx = %d, want 0", cx)
+	}
+}
+
+func TestFullPageScroll(t *testing.T) {
+	t.Parallel()
+	emu := newFakeEmulator(80, 10)
+	for i := 0; i < 50; i++ {
+		emu.scrollback = append(emu.scrollback, fmt.Sprintf("line-%d", i))
+	}
+	cm := New(emu, 80, 10, 5)
+
+	// Ctrl-b (0x02) → full page up.
+	cm.HandleInput([]byte{0x02})
+	if cm.ScrollOffset() != 10 {
+		t.Errorf("Ctrl-b: oy = %d, want 10", cm.ScrollOffset())
+	}
+
+	// Ctrl-f (0x06) → full page down.
+	cm.HandleInput([]byte{0x06})
+	if cm.ScrollOffset() != 0 {
+		t.Errorf("Ctrl-f: oy = %d, want 0", cm.ScrollOffset())
+	}
+
+	// Ctrl-b from bottom, then Ctrl-f to clamp at 0.
+	cm.HandleInput([]byte{0x02})
+	cm.HandleInput([]byte{0x06})
+	cm.HandleInput([]byte{0x06}) // extra — should clamp at 0
+	if cm.ScrollOffset() != 0 {
+		t.Errorf("Ctrl-f clamp: oy = %d, want 0", cm.ScrollOffset())
+	}
+}
+
+func TestWordForward(t *testing.T) {
+	t.Parallel()
+	emu := newFakeEmulator(40, 3)
+	emu.screen = []string{"hello world foo", "bar baz", "end"}
+	cm := New(emu, 40, 3, 0)
+
+	// W from col 0 ("hello") → col 6 ("world").
+	cm.HandleInput([]byte{'W'})
+	cx, _ := cm.CursorPos()
+	if cx != 6 {
+		t.Errorf("W #1: cx = %d, want 6", cx)
+	}
+
+	// W from col 6 ("world") → col 12 ("foo").
+	cm.HandleInput([]byte{'W'})
+	cx, _ = cm.CursorPos()
+	if cx != 12 {
+		t.Errorf("W #2: cx = %d, want 12", cx)
+	}
+}
+
+func TestWordForwardWrap(t *testing.T) {
+	t.Parallel()
+	emu := newFakeEmulator(40, 3)
+	emu.screen = []string{"hello", "world foo", "end"}
+	cm := New(emu, 40, 3, 0)
+
+	// W past "hello" → wrap to "world" on next line (cx=0, cy=1).
+	cm.HandleInput([]byte{'W'})
+	cx, cy := cm.CursorPos()
+	if cx != 0 || cy != 1 {
+		t.Errorf("W wrap: cx=%d cy=%d, want cx=0 cy=1", cx, cy)
+	}
+}
+
+func TestWordForwardAtEnd(t *testing.T) {
+	t.Parallel()
+	emu := newFakeEmulator(40, 2)
+	emu.screen = []string{"hello", "world"}
+	cm := New(emu, 40, 2, 1) // cursor on last line
+
+	// Move to "world" (col 0 of last line).
+	// W should be a no-op — no more words.
+	action := cm.HandleInput([]byte{'W'})
+	cx, cy := cm.CursorPos()
+	// Either no-op (ActionNone) or moved to end — just verify no crash.
+	_ = action
+	_ = cx
+	_ = cy
+}
+
+func TestWordBackward(t *testing.T) {
+	t.Parallel()
+	emu := newFakeEmulator(40, 3)
+	emu.screen = []string{"hello world foo", "bar baz", "end"}
+	cm := New(emu, 40, 3, 0)
+
+	// Position at "foo" (col 12).
+	for i := 0; i < 12; i++ {
+		cm.HandleInput([]byte{'l'})
+	}
+
+	// B from "foo" → "world" (col 6).
+	cm.HandleInput([]byte{'B'})
+	cx, _ := cm.CursorPos()
+	if cx != 6 {
+		t.Errorf("B #1: cx = %d, want 6", cx)
+	}
+
+	// B from "world" → "hello" (col 0).
+	cm.HandleInput([]byte{'B'})
+	cx, _ = cm.CursorPos()
+	if cx != 0 {
+		t.Errorf("B #2: cx = %d, want 0", cx)
+	}
+}
+
+func TestWordBackwardWrap(t *testing.T) {
+	t.Parallel()
+	emu := newFakeEmulator(40, 3)
+	emu.screen = []string{"hello world", "foo", "end"}
+	cm := New(emu, 40, 3, 1) // cursor on "foo" line
+
+	// B from start of "foo" → wraps to "world" on prev line.
+	cm.HandleInput([]byte{'B'})
+	cx, cy := cm.CursorPos()
+	if cx != 6 || cy != 0 {
+		t.Errorf("B wrap: cx=%d cy=%d, want cx=6 cy=0", cx, cy)
+	}
+}
+
+func TestWordEnd(t *testing.T) {
+	t.Parallel()
+	emu := newFakeEmulator(40, 3)
+	emu.screen = []string{"hello world foo", "bar", "end"}
+	cm := New(emu, 40, 3, 0)
+
+	// E from col 0 → end of "hello" (col 4).
+	cm.HandleInput([]byte{'E'})
+	cx, _ := cm.CursorPos()
+	if cx != 4 {
+		t.Errorf("E #1: cx = %d, want 4", cx)
+	}
+
+	// E again → end of "world" (col 10).
+	cm.HandleInput([]byte{'E'})
+	cx, _ = cm.CursorPos()
+	if cx != 10 {
+		t.Errorf("E #2: cx = %d, want 10", cx)
+	}
+}
+
+func TestCharSearchForward(t *testing.T) {
+	t.Parallel()
+	emu := newFakeEmulator(40, 3)
+	emu.screen = []string{"hello world", "test", "end"}
+	cm := New(emu, 40, 3, 0)
+
+	// f + 'o' → jump to first 'o' (col 4 in "hello").
+	action := cm.HandleInput([]byte{'f', 'o'})
+	if action != ActionRedraw {
+		t.Errorf("f+o should return ActionRedraw, got %d", action)
+	}
+	cx, _ := cm.CursorPos()
+	if cx != 4 {
+		t.Errorf("f+o: cx = %d, want 4", cx)
+	}
+}
+
+func TestCharSearchBackward(t *testing.T) {
+	t.Parallel()
+	emu := newFakeEmulator(40, 3)
+	emu.screen = []string{"hello world", "test", "end"}
+	cm := New(emu, 40, 3, 0)
+
+	// Move to col 8, then F + 'l' → find 'l' backward.
+	for i := 0; i < 8; i++ {
+		cm.HandleInput([]byte{'l'})
+	}
+	cm.HandleInput([]byte{'F', 'l'})
+	cx, _ := cm.CursorPos()
+	if cx != 3 {
+		t.Errorf("F+l: cx = %d, want 3", cx)
+	}
+}
+
+func TestCharSearchTill(t *testing.T) {
+	t.Parallel()
+	emu := newFakeEmulator(40, 3)
+	emu.screen = []string{"hello world", "test", "end"}
+	cm := New(emu, 40, 3, 0)
+
+	// t + 'w' → land one before 'w' (col 5 in "hello world").
+	cm.HandleInput([]byte{'t', 'w'})
+	cx, _ := cm.CursorPos()
+	if cx != 5 {
+		t.Errorf("t+w: cx = %d, want 5", cx)
+	}
+}
+
+func TestCharSearchTillBackward(t *testing.T) {
+	t.Parallel()
+	emu := newFakeEmulator(40, 3)
+	emu.screen = []string{"hello world", "test", "end"}
+	cm := New(emu, 40, 3, 0)
+
+	// Move to col 8, then T + 'l' → land one after 'l' (col 4).
+	for i := 0; i < 8; i++ {
+		cm.HandleInput([]byte{'l'})
+	}
+	cm.HandleInput([]byte{'T', 'l'})
+	cx, _ := cm.CursorPos()
+	if cx != 4 {
+		t.Errorf("T+l: cx = %d, want 4", cx)
+	}
+}
+
+func TestCharSearchNoMatch(t *testing.T) {
+	t.Parallel()
+	emu := newFakeEmulator(40, 3)
+	emu.screen = []string{"hello world", "test", "end"}
+	cm := New(emu, 40, 3, 0)
+
+	// f + 'z' — no 'z' on line → ActionNone, cursor stays.
+	action := cm.HandleInput([]byte{'f', 'z'})
+	if action != ActionNone {
+		t.Errorf("f+z (no match) should return ActionNone, got %d", action)
+	}
+	cx, _ := cm.CursorPos()
+	if cx != 0 {
+		t.Errorf("f+z: cx = %d, want 0 (unchanged)", cx)
+	}
+}
+
+func TestCharSearchRepeat(t *testing.T) {
+	t.Parallel()
+	emu := newFakeEmulator(40, 3)
+	emu.screen = []string{"aXbXcXd", "test", "end"}
+	cm := New(emu, 40, 3, 0)
+
+	// f + 'X' → first X (col 1).
+	cm.HandleInput([]byte{'f', 'X'})
+	cx, _ := cm.CursorPos()
+	if cx != 1 {
+		t.Errorf("f+X: cx = %d, want 1", cx)
+	}
+
+	// ; → next X (col 3).
+	cm.HandleInput([]byte{';'})
+	cx, _ = cm.CursorPos()
+	if cx != 3 {
+		t.Errorf(";: cx = %d, want 3", cx)
+	}
+
+	// , → reverse (F direction) → back to X at col 1.
+	cm.HandleInput([]byte{','})
+	cx, _ = cm.CursorPos()
+	if cx != 1 {
+		t.Errorf(",: cx = %d, want 1", cx)
+	}
+
+	// ; after , should go FORWARD again (original direction preserved).
+	cm.HandleInput([]byte{';'})
+	cx, _ = cm.CursorPos()
+	if cx != 3 {
+		t.Errorf("; after ,: cx = %d, want 3", cx)
+	}
+}
+
+func TestCharSearchEscapeCancel(t *testing.T) {
+	t.Parallel()
+	emu := newFakeEmulator(40, 3)
+	emu.screen = []string{"hello world", "test", "end"}
+	cm := New(emu, 40, 3, 0)
+
+	// Move to col 3, press f then Escape — should cancel, cursor unchanged.
+	for i := 0; i < 3; i++ {
+		cm.HandleInput([]byte{'l'})
+	}
+	action := cm.HandleInput([]byte{'f', 0x1b})
+	cx, _ := cm.CursorPos()
+	if cx != 3 {
+		t.Errorf("f+Esc: cx = %d, want 3 (unchanged)", cx)
+	}
+	// Should NOT exit copy mode (Escape consumed by pending cancel).
+	if action == ActionExit {
+		t.Error("f+Esc should NOT exit copy mode")
+	}
+}
+
+func TestCharSearchWithSelection(t *testing.T) {
+	t.Parallel()
+	emu := newFakeEmulator(40, 3)
+	emu.screen = []string{"hello world", "test", "end"}
+	cm := New(emu, 40, 3, 0)
+
+	// Start selection at col 0, then f+'w' → selection extends to col 5.
+	cm.HandleInput([]byte{'v'})
+	cm.HandleInput([]byte{'f', 'w'})
+
+	text := cm.SelectedText()
+	if text != "hello w" {
+		t.Errorf("selection after v+fw = %q, want %q", text, "hello w")
+	}
+}
+
+func TestBatchedCharSearch(t *testing.T) {
+	t.Parallel()
+	emu := newFakeEmulator(40, 3)
+	emu.screen = []string{"hello world", "test", "end"}
+	cm := New(emu, 40, 3, 0)
+
+	// Send 'f' and 'o' in a single HandleInput call.
+	action := cm.HandleInput([]byte{'f', 'o'})
+	if action != ActionRedraw {
+		t.Errorf("batched f+o should return ActionRedraw, got %d", action)
+	}
+	cx, _ := cm.CursorPos()
+	if cx != 4 {
+		t.Errorf("batched f+o: cx = %d, want 4", cx)
+	}
+}
+
 func TestJAtBottomOfLiveView(t *testing.T) {
 	emu := newFakeEmulator(80, 10)
 	// No scrollback — j at bottom with oy=0 should be a no-op
