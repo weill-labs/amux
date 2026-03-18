@@ -114,7 +114,7 @@ func (s *Session) createPaneWithMeta(srv *Server, meta mux.PaneMeta, cols, rows 
 		meta.Color = config.CatppuccinMocha[(id-1)%uint32(len(config.CatppuccinMocha))]
 	}
 
-	pane, err := mux.NewPane(id, meta, cols, rows,
+	pane, err := mux.NewPane(id, meta, cols, rows, s.Name,
 		s.paneOutputCallback(),
 		s.paneExitCallback(srv),
 	)

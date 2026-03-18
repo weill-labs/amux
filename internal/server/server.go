@@ -370,7 +370,7 @@ func NewServerFromCrashCheckpoint(sessionName string, cp *checkpoint.CrashCheckp
 			meta := ps.Meta
 			meta.Dir = ps.Cwd // set cwd for the new shell
 			var newErr error
-			pane, newErr = mux.NewPane(ps.ID, meta, ps.Cols, ps.Rows,
+			pane, newErr = mux.NewPane(ps.ID, meta, ps.Cols, ps.Rows, sessionName,
 				onOutput, onExit,
 			)
 			if newErr != nil {
