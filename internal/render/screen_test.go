@@ -362,6 +362,20 @@ func (e *emuPaneData) ConnStatus() string     { return "" }
 func (e *emuPaneData) InCopyMode() bool       { return false }
 func (e *emuPaneData) CopyModeSearch() string { return "" }
 
+// twoPaneLookup returns a lookup function for two side-by-side panes with
+// standard test colors (rosewater for pane-1, mauve for pane-2).
+func twoPaneLookup(pane1Emu, pane2Emu *vt.SafeEmulator) func(uint32) PaneData {
+	return func(id uint32) PaneData {
+		switch id {
+		case 1:
+			return &emuPaneData{emu: pane1Emu, id: 1, name: "pane-1", color: "f5e0dc", cursorHidden: true}
+		case 2:
+			return &emuPaneData{emu: pane2Emu, id: 2, name: "pane-2", color: "cba6f7", cursorHidden: true}
+		}
+		return nil
+	}
+}
+
 // oracleCheck compares RenderDiff (applied to display emu) against RenderFull
 // (materialized). Returns an error message if they don't match, empty string if OK.
 func oracleCheck(comp *Compositor, display *vt.SafeEmulator, root *mux.LayoutCell, activeID uint32, lookup func(uint32) PaneData, width, height int) string {
@@ -859,37 +873,28 @@ func validateLayerBoundaries(root *mux.LayoutCell, width, height int) []string {
 	return overlaps
 }
 
-func TestValidateLayerBoundaries_TwoPanes(t *testing.T) {
+func TestValidateLayerBoundaries(t *testing.T) {
 	t.Parallel()
-	width, height := 41, 6
-	totalH := height + GlobalBarHeight
-	root := buildTwoPaneVertical(width, height)
-	if overlaps := validateLayerBoundaries(root, width, totalH); len(overlaps) > 0 {
-		t.Errorf("layer overlaps:\n%s", strings.Join(overlaps, "\n"))
+	tests := []struct {
+		name          string
+		width, height int
+		buildRoot     func(w, h int) *mux.LayoutCell
+	}{
+		{"TwoPanes", 41, 6, buildTwoPaneVertical},
+		{"FourPanes", 81, 20, buildFourPane},
+		{"NinePanes", 80, 24, func(w, h int) *mux.LayoutCell {
+			return buildNinePaneGrid(26, 8, w, h)
+		}},
 	}
-}
-
-func TestValidateLayerBoundaries_FourPanes(t *testing.T) {
-	t.Parallel()
-	width, height := 81, 20
-	totalH := height + GlobalBarHeight
-	root := buildFourPane(width, height)
-	if overlaps := validateLayerBoundaries(root, width, totalH); len(overlaps) > 0 {
-		t.Errorf("layer overlaps:\n%s", strings.Join(overlaps, "\n"))
-	}
-}
-
-func TestValidateLayerBoundaries_NinePanes(t *testing.T) {
-	t.Parallel()
-	width, height := 80, 24
-	totalH := height + GlobalBarHeight
-
-	// 3x3 grid: each column 26 wide (26+1+26+1+26=80), each row 8 tall (8+8+8=24).
-	colW := 26
-	rowH := 8
-	root := buildNinePaneGrid(colW, rowH, width, height)
-	if overlaps := validateLayerBoundaries(root, width, totalH); len(overlaps) > 0 {
-		t.Errorf("layer overlaps:\n%s", strings.Join(overlaps, "\n"))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			totalH := tt.height + GlobalBarHeight
+			root := tt.buildRoot(tt.width, tt.height)
+			if overlaps := validateLayerBoundaries(root, tt.width, totalH); len(overlaps) > 0 {
+				t.Errorf("layer overlaps:\n%s", strings.Join(overlaps, "\n"))
+			}
+		})
 	}
 }
 
@@ -901,37 +906,20 @@ func buildNinePaneGrid(colW, rowH, totalW, totalH int) *mux.LayoutCell {
 		for r := 0; r < 3; r++ {
 			id++
 			y := r * (rowH + 1)
+			h := rowH
 			if r == 2 {
-				// Last row gets remaining height.
-				rows = append(rows, mux.NewLeafByID(id, x, y, colW, totalH-y))
-			} else {
-				rows = append(rows, mux.NewLeafByID(id, x, y, colW, rowH))
+				h = totalH - y // last row gets remaining height
 			}
+			rows = append(rows, mux.NewLeafByID(id, x, y, colW, h))
 		}
-		col := &mux.LayoutCell{
-			X: x, Y: 0, W: colW, H: totalH,
-			Dir:      mux.SplitHorizontal,
-			Children: rows,
-		}
-		for _, c := range rows {
-			c.Parent = col
-		}
-		return col
+		return mkSplit(mux.SplitHorizontal, x, 0, colW, totalH, rows...)
 	}
 
-	col1 := buildCol(0)
-	col2 := buildCol(colW + 1)
-	col3 := buildCol(2 * (colW + 1))
-
-	root := &mux.LayoutCell{
-		X: 0, Y: 0, W: totalW, H: totalH,
-		Dir:      mux.SplitVertical,
-		Children: []*mux.LayoutCell{col1, col2, col3},
-	}
-	col1.Parent = root
-	col2.Parent = root
-	col3.Parent = root
-	return root
+	return mkSplit(mux.SplitVertical, 0, 0, totalW, totalH,
+		buildCol(0),
+		buildCol(colW+1),
+		buildCol(2*(colW+1)),
+	)
 }
 
 // --- Long-line oracle tests (issue #166) ---
@@ -984,25 +972,11 @@ func TestRenderDiff_LongLines_TwoPanes(t *testing.T) {
 	// Right pane: long plain text line.
 	pane2Emu.Write([]byte(strings.Repeat("B", pane2W+15)))
 
-	left := mux.NewLeafByID(1, 0, 0, pane1W, height)
-	right := mux.NewLeafByID(2, pane1W+1, 0, pane2W, height)
-	root := &mux.LayoutCell{
-		X: 0, Y: 0, W: width, H: height,
-		Dir:      mux.SplitVertical,
-		Children: []*mux.LayoutCell{left, right},
-	}
-	left.Parent = root
-	right.Parent = root
-
-	lookup := func(id uint32) PaneData {
-		switch id {
-		case 1:
-			return &emuPaneData{emu: pane1Emu, id: 1, name: "pane-1", color: "f5e0dc", cursorHidden: true}
-		case 2:
-			return &emuPaneData{emu: pane2Emu, id: 2, name: "pane-2", color: "cba6f7", cursorHidden: true}
-		}
-		return nil
-	}
+	root := mkSplit(mux.SplitVertical, 0, 0, width, height,
+		mux.NewLeafByID(1, 0, 0, pane1W, height),
+		mux.NewLeafByID(2, pane1W+1, 0, pane2W, height),
+	)
+	lookup := twoPaneLookup(pane1Emu, pane2Emu)
 
 	comp := NewCompositor(width, totalH, "test")
 	display := vt.NewSafeEmulator(width, totalH)
@@ -1039,25 +1013,11 @@ func TestRenderDiff_ColorOracle_LongLines(t *testing.T) {
 		"\033[31m" + strings.Repeat("#", pane2W+10) + "\033[0m",
 	))
 
-	left := mux.NewLeafByID(1, 0, 0, pane1W, height)
-	right := mux.NewLeafByID(2, pane1W+1, 0, pane2W, height)
-	root := &mux.LayoutCell{
-		X: 0, Y: 0, W: width, H: height,
-		Dir:      mux.SplitVertical,
-		Children: []*mux.LayoutCell{left, right},
-	}
-	left.Parent = root
-	right.Parent = root
-
-	lookup := func(id uint32) PaneData {
-		switch id {
-		case 1:
-			return &emuPaneData{emu: pane1Emu, id: 1, name: "pane-1", color: "f5e0dc", cursorHidden: true}
-		case 2:
-			return &emuPaneData{emu: pane2Emu, id: 2, name: "pane-2", color: "cba6f7", cursorHidden: true}
-		}
-		return nil
-	}
+	root := mkSplit(mux.SplitVertical, 0, 0, width, height,
+		mux.NewLeafByID(1, 0, 0, pane1W, height),
+		mux.NewLeafByID(2, pane1W+1, 0, pane2W, height),
+	)
+	lookup := twoPaneLookup(pane1Emu, pane2Emu)
 
 	comp := NewCompositor(width, totalH, "test")
 	diffDisplay := vt.NewSafeEmulator(width, totalH)
@@ -1097,10 +1057,10 @@ func TestRenderDiff_LongLines_NinePanes(t *testing.T) {
 
 	root := buildNinePaneGrid(colW, rowH, width, height)
 
+	colors := []string{"f5e0dc", "cba6f7", "f38ba8", "fab387", "f9e2af", "a6e3a1", "89dceb", "74c7ec", "b4befe"}
 	lookup := func(id uint32) PaneData {
 		idx := int(id) - 1
 		if idx >= 0 && idx < len(emus) {
-			colors := []string{"f5e0dc", "cba6f7", "f38ba8", "fab387", "f9e2af", "a6e3a1", "89dceb", "74c7ec", "b4befe"}
 			return &emuPaneData{
 				emu: emus[idx], id: id,
 				name:         fmt.Sprintf("pane-%d", id),
