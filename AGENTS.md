@@ -52,6 +52,8 @@ See [README.md -- Philosophy](README.md#philosophy) for the project thesis and t
 
 **Minimize requires a horizontal split.** `Minimize` only works on panes in a horizontal split (`splitH` / top-bottom layout). Panes in a vertical split (`splitV` / left-right layout) cannot be minimized -- the command returns an error. Tests that exercise minimize must use `splitH()`, not `splitV()`.
 
+**Check tmux before changing layout resize behavior.** For pane sizing, resize distribution, and other layout-behavior questions, inspect tmux first and prefer matching its user-visible behavior. In particular, do not recompute sizes from already-rounded live pane geometry if tmux uses exact delta distribution.
+
 **Colors live in `config/config.go`.** The Catppuccin Mocha palette (`CatppuccinMocha`), letter abbreviations (`CatppuccinLetters`), and named hex constants (`DimColorHex`, `TextColorHex`) are defined once in the config package. Reference these constants instead of hardcoding hex values like `"f5e0dc"` or `"6c7086"`.
 
 ## Development
@@ -106,6 +108,10 @@ Commit design specs and implementation plans to the feature branch, not main. Co
 ### Review Before Done
 
 After creating or updating a PR, run a review pass and a simplification pass before considering the work done. Claude Code gets hook reminders for this. Codex users should use the repo PR workflow skill or perform the steps explicitly.
+
+### Merge Policy
+
+GitHub PRs for this repo are squash-only. `gh pr merge --merge` and `gh pr merge --rebase` will fail.
 
 ### Include Baseline Numbers In Performance PRs
 
