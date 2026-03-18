@@ -626,6 +626,22 @@ func TestPrevGridText(t *testing.T) {
 	}
 }
 
+func TestGridToText_EmptyCharCell(t *testing.T) {
+	t.Parallel()
+	g := NewScreenGrid(5, 2)
+	g.Set(1, 0, ScreenCell{Char: "", Width: 1})  // empty char → treated as space
+	g.Set(2, 0, ScreenCell{Char: "A", Width: 1}) // normal cell
+
+	got := gridToText(g)
+	lines := strings.Split(got, "\n")
+	if len(lines) != 2 {
+		t.Fatalf("got %d lines, want 2", len(lines))
+	}
+	if !strings.Contains(lines[0], " A") {
+		t.Errorf("row 0 should show space+A for empty+normal cell, got %q", lines[0])
+	}
+}
+
 // --- Color-aware oracle tests ---
 // These verify that RenderDiff produces the same visual result as RenderFull
 // including cell styles (foreground, background, attributes), not just text.
