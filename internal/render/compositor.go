@@ -29,6 +29,9 @@ type Compositor struct {
 	// Cached border map — rebuilt only when layout root changes.
 	cachedBorderMap  *borderMap
 	cachedBorderRoot *mux.LayoutCell
+
+	// Previous frame's grid for diff rendering. Nil forces full paint.
+	prevGrid *ScreenGrid
 }
 
 // SetWindows sets the window list for the global bar.
@@ -45,9 +48,10 @@ func NewCompositor(width, height int, sessionName string) *Compositor {
 func (c *Compositor) Resize(width, height int) {
 	c.width = width
 	c.height = height
-	// Invalidate border map cache — dimensions changed.
+	// Invalidate caches — dimensions changed.
 	c.cachedBorderMap = nil
 	c.cachedBorderRoot = nil
+	c.prevGrid = nil // force full repaint
 }
 
 // SetSessionName updates the session name shown in the global bar.
@@ -69,13 +73,19 @@ func ClearScreen() string {
 // RenderFull composes all panes, status lines, and borders into ANSI output.
 // lookup maps pane IDs to their rendering data. Client provides emulator-backed
 // adapters; server could provide Pane wrappers.
-func (c *Compositor) RenderFull(root *mux.LayoutCell, activePaneID uint32, lookup func(uint32) PaneData) string {
+//
+// When clearScreen is true the entire terminal is erased before drawing. This
+// is required after layout changes (panes move/resize) but should be skipped
+// for incremental updates (pane output, copy mode navigation) to avoid flicker.
+func (c *Compositor) RenderFull(root *mux.LayoutCell, activePaneID uint32, lookup func(uint32) PaneData, clearScreen ...bool) string {
 	var buf strings.Builder
 	buf.Grow(c.width * c.height * 4) // pre-allocate for typical ANSI output
 
 	// Hide cursor during render to prevent flicker
 	buf.WriteString(HideCursor)
-	buf.WriteString(ClearAll)
+	if len(clearScreen) > 0 && clearScreen[0] {
+		buf.WriteString(ClearAll)
+	}
 
 	// Count panes for global bar
 	paneCount := 0
@@ -131,6 +141,59 @@ func (c *Compositor) RenderFull(root *mux.LayoutCell, activePaneID uint32, looku
 	c.renderCursor(&buf, root, activePaneID, lookup)
 
 	return buf.String()
+}
+
+// RenderDiff composes all panes into a cell grid, diffs against the previous
+// frame, and returns minimal ANSI output for the changed cells. On the first
+// call (or after Resize), prevGrid is nil and every cell is emitted.
+func (c *Compositor) RenderDiff(root *mux.LayoutCell, activePaneID uint32, lookup func(uint32) PaneData) string {
+	newGrid := c.BuildGrid(root, activePaneID, lookup)
+	changes := DiffGrid(c.prevGrid, newGrid)
+	c.prevGrid = newGrid
+
+	var buf strings.Builder
+	buf.Grow(c.width * c.height) // rough estimate
+
+	buf.WriteString(HideCursor)
+	buf.WriteString(EmitDiff(changes))
+
+	// Position cursor.
+	c.renderCursorDiff(&buf, root, activePaneID, lookup)
+
+	return buf.String()
+}
+
+// ClearPrevGrid forces a full repaint on the next RenderDiff call.
+func (c *Compositor) ClearPrevGrid() {
+	c.prevGrid = nil
+}
+
+// renderCursorDiff positions the cursor for the diff path — same logic as
+// renderCursor but writes to a builder that already has HideCursor.
+func (c *Compositor) renderCursorDiff(buf *strings.Builder, root *mux.LayoutCell, activePaneID uint32, lookup func(uint32) PaneData) {
+	if activePaneID == 0 {
+		buf.WriteString(ShowCursor)
+		return
+	}
+	cell := root.FindByPaneID(activePaneID)
+	if cell == nil {
+		buf.WriteString(ShowCursor)
+		return
+	}
+	pd := lookup(activePaneID)
+	if pd == nil {
+		buf.WriteString(ShowCursor)
+		return
+	}
+	if pd.Minimized() || pd.CursorHidden() || pd.HasCursorBlock() {
+		return // keep cursor hidden
+	}
+	col, row := pd.CursorPos()
+	absRow := cell.Y + mux.StatusLineRows + row + 1
+	absCol := cell.X + col + 1
+	buf.WriteString(Reset)
+	writeCursorTo(buf, absRow, absCol)
+	buf.WriteString(ShowCursor)
 }
 
 // renderCursor positions the terminal cursor at the active pane's cursor

@@ -52,6 +52,9 @@ const DimColorHex = "6c7086"
 // TextColorHex is the Text foreground color.
 const TextColorHex = "cdd6f4"
 
+// Surface0Hex is the Surface 0 background color for status bars.
+const Surface0Hex = "313244"
+
 // Host defines a machine that can run agents.
 type Host struct {
 	Type         string `toml:"type"`          // "local" or "remote"

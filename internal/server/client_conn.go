@@ -252,6 +252,10 @@ func (cc *ClientConn) splitNewPane(srv *Server, sess *Session, meta mux.PaneMeta
 		_, err = w.Split(dir, pane)
 	}
 	if err != nil {
+		// Split failed (e.g. not enough space) — remove the pane we just
+		// created so it doesn't become an orphan in the session's pane list.
+		sess.removePane(pane.ID)
+		pane.Close()
 		sess.mu.Unlock()
 		cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: err.Error()})
 		return nil

@@ -8,6 +8,10 @@ type PaneData interface {
 	// When active is false, app-rendered cursor blocks (isolated reverse-video
 	// spaces) are stripped so unfocused panes don't show stray cursors.
 	RenderScreen(active bool) string
+	// CellAt returns the cell at (col, row) for cell-grid compositing.
+	// For copy mode panes, returns cells with selection/search/cursor overlays.
+	// For inactive panes, cursor block reverse-video is cleared.
+	CellAt(col, row int, active bool) ScreenCell
 	CursorPos() (col, row int)
 	CursorHidden() bool
 	// HasCursorBlock reports whether the screen contains an app-rendered

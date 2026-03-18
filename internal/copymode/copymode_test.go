@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	uv "github.com/charmbracelet/ultraviolet"
 )
 
 // fakeEmulator implements TerminalEmulator for testing.
@@ -397,6 +399,230 @@ func TestSelectionHighlighting(t *testing.T) {
 	// Third line should NOT have selection highlight
 	if strings.Contains(lines[2], selectionBg) {
 		t.Errorf("unselected line should not have selection bg, got: %q", lines[2])
+	}
+}
+
+func TestLineSelectHighlighting(t *testing.T) {
+	emu := newFakeEmulator(20, 3)
+	emu.screen = []string{"hello world foo", "second line here", "third line text"}
+	cm := New(emu, 20, 3, 0)
+
+	// Move to column 6 (should not affect line-select range)
+	for i := 0; i < 6; i++ {
+		cm.HandleInput([]byte{'l'})
+	}
+
+	// V to enter line-select mode
+	cm.HandleInput([]byte{'V'})
+	if !cm.selecting || !cm.lineSelect {
+		t.Fatal("expected selecting=true, lineSelect=true after V")
+	}
+
+	rendered := cm.RenderViewport()
+	lines := strings.Split(rendered, "\n")
+
+	// First line should be fully highlighted (selection covers entire line)
+	if !strings.Contains(lines[0], selectionBg) {
+		t.Errorf("selected line should have selection bg, got: %q", lines[0])
+	}
+	// Second line should NOT have selection highlight
+	if strings.Contains(lines[1], selectionBg) {
+		t.Errorf("unselected line should not have selection bg, got: %q", lines[1])
+	}
+
+	// Extend selection down
+	cm.HandleInput([]byte{'j'})
+	rendered = cm.RenderViewport()
+	lines = strings.Split(rendered, "\n")
+
+	// Both lines 0 and 1 should have full-line highlighting
+	if !strings.Contains(lines[0], selectionBg) {
+		t.Errorf("first selected line should have selection bg, got: %q", lines[0])
+	}
+	if !strings.Contains(lines[1], selectionBg) {
+		t.Errorf("second selected line should have selection bg, got: %q", lines[1])
+	}
+	if strings.Contains(lines[2], selectionBg) {
+		t.Errorf("unselected line should not have selection bg, got: %q", lines[2])
+	}
+}
+
+func TestLineSelectYank(t *testing.T) {
+	emu := newFakeEmulator(20, 3)
+	emu.screen = []string{"hello world", "second line", "third line"}
+	cm := New(emu, 20, 3, 0)
+
+	// Move to column 5 (irrelevant for line-select)
+	for i := 0; i < 5; i++ {
+		cm.HandleInput([]byte{'l'})
+	}
+
+	// V then j to select two full lines
+	cm.HandleInput([]byte{'V'})
+	cm.HandleInput([]byte{'j'})
+
+	text := cm.SelectedText()
+	expected := "hello world\nsecond line\n"
+	if text != expected {
+		t.Errorf("line-select yank = %q, want %q", text, expected)
+	}
+}
+
+func TestLineSelectToggleOff(t *testing.T) {
+	emu := newFakeEmulator(20, 3)
+	emu.screen = []string{"hello", "world", "test"}
+	cm := New(emu, 20, 3, 0)
+
+	// V on, then V off
+	cm.HandleInput([]byte{'V'})
+	if !cm.selecting {
+		t.Fatal("expected selecting=true after V")
+	}
+	cm.HandleInput([]byte{'V'})
+	if cm.selecting || cm.lineSelect {
+		t.Fatal("expected selecting=false, lineSelect=false after second V")
+	}
+}
+
+func TestVClearsLineSelect(t *testing.T) {
+	emu := newFakeEmulator(20, 3)
+	emu.screen = []string{"hello", "world", "test"}
+	cm := New(emu, 20, 3, 0)
+
+	// V then v should switch to character selection
+	cm.HandleInput([]byte{'V'})
+	if !cm.lineSelect {
+		t.Fatal("expected lineSelect=true after V")
+	}
+	cm.HandleInput([]byte{'v'})
+	if cm.lineSelect {
+		t.Fatal("expected lineSelect=false after v")
+	}
+	if !cm.selecting {
+		t.Fatal("expected selecting=true after v (character select started)")
+	}
+}
+
+func TestBatchedInputVy(t *testing.T) {
+	emu := newFakeEmulator(20, 3)
+	emu.screen = []string{"hello world", "second line", "third line"}
+	cm := New(emu, 20, 3, 0)
+
+	// Send V and y as a single batch — both must be processed.
+	action := cm.HandleInput([]byte{'V', 'y'})
+	if action != ActionYank {
+		t.Errorf("batched Vy should return ActionYank, got %d", action)
+	}
+
+	text := cm.SelectedText()
+	if text == "" {
+		t.Fatal("batched Vy should produce non-empty selection")
+	}
+	if text != "hello world\n" {
+		t.Errorf("batched Vy text = %q, want %q", text, "hello world\n")
+	}
+}
+
+func TestBatchedInputMovement(t *testing.T) {
+	emu := newFakeEmulator(20, 5)
+	emu.screen = []string{"line-0", "line-1", "line-2", "line-3", "line-4"}
+	cm := New(emu, 20, 5, 0)
+
+	// Send 5 'l' keys as a single batch — cursor should move 5 columns.
+	action := cm.HandleInput([]byte{'l', 'l', 'l', 'l', 'l'})
+	if action != ActionRedraw {
+		t.Errorf("batched lllll should return ActionRedraw, got %d", action)
+	}
+	cx, _ := cm.CursorPos()
+	if cx != 5 {
+		t.Errorf("cursor after 5 batched l's: cx = %d, want 5", cx)
+	}
+}
+
+func TestBatchedInputSearchThenNormal(t *testing.T) {
+	emu := newFakeEmulator(20, 3)
+	emu.scrollback = []string{"hello world"}
+	emu.screen = []string{"screen-0", "screen-1", "screen-2"}
+	cm := New(emu, 20, 3, 0)
+
+	// Batch: '/' enters search, then "hi\r" confirms, then remaining bytes
+	// are processed as normal mode keys. After search confirm, 'j' should move.
+	action := cm.HandleInput([]byte{'/', 'h', 'i', '\r', 'j'})
+	if action != ActionRedraw {
+		t.Errorf("expected ActionRedraw, got %d", action)
+	}
+	if cm.SearchQuery() != "hi" {
+		t.Errorf("search query = %q, want %q", cm.SearchQuery(), "hi")
+	}
+}
+
+func TestCellAt_CursorReverse(t *testing.T) {
+	t.Parallel()
+	emu := newFakeEmulator(10, 3)
+	emu.screen = []string{"hello", "world", "test!"}
+	cm := New(emu, 10, 3, 1) // cursor row 1
+	cm.cx = 2                // cursor col 2
+
+	cell := cm.CellAt(2, 1)
+	if cell.Char != "r" {
+		t.Errorf("cursor cell Char = %q, want 'r'", cell.Char)
+	}
+	if cell.Style.Attrs&uv.AttrReverse == 0 {
+		t.Error("cursor cell should have AttrReverse")
+	}
+
+	// Non-cursor cell should not have reverse.
+	other := cm.CellAt(0, 0)
+	if other.Style.Attrs&uv.AttrReverse != 0 {
+		t.Error("non-cursor cell should not have AttrReverse")
+	}
+}
+
+func TestCellAt_Selection(t *testing.T) {
+	t.Parallel()
+	emu := newFakeEmulator(10, 3)
+	emu.screen = []string{"hello", "world", "test!"}
+	cm := New(emu, 10, 3, 0)
+
+	// Start character selection at (2,0), extend to (4,0).
+	cm.cx = 2
+	cm.HandleInput([]byte{'v'})
+	cm.HandleInput([]byte{'l', 'l'})
+
+	// Col 3 should be selected.
+	cell := cm.CellAt(3, 0)
+	if cell.Style.Bg == nil {
+		t.Error("selected cell should have non-nil Bg")
+	}
+
+	// Col 0 should NOT be selected.
+	unsel := cm.CellAt(0, 0)
+	if unsel.Style.Bg != nil {
+		t.Error("unselected cell should have nil Bg")
+	}
+}
+
+func TestCellAt_SearchMatch(t *testing.T) {
+	t.Parallel()
+	emu := newFakeEmulator(20, 3)
+	emu.screen = []string{"hello world", "foo bar", "hello again"}
+	cm := New(emu, 20, 3, 0)
+
+	// Search for "hello"
+	cm.HandleInput([]byte{'/'})
+	cm.HandleInput([]byte("hello"))
+	cm.HandleInput([]byte{'\r'})
+
+	// Col 0 of row 0 should be in a match.
+	cell := cm.CellAt(0, 0)
+	if cell.Style.Bg == nil {
+		t.Error("match cell should have non-nil Bg")
+	}
+
+	// Col 6 of row 0 (after "hello ") should NOT be in a match.
+	noMatch := cm.CellAt(6, 0)
+	if noMatch.Style.Bg != nil {
+		t.Error("non-match cell should have nil Bg")
 	}
 }
 

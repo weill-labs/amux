@@ -2,6 +2,10 @@ package copymode
 
 import (
 	"strings"
+
+	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/charmbracelet/x/ansi"
+	"github.com/weill-labs/amux/internal/render"
 )
 
 // TerminalEmulator is the subset of a pane's emulator that copy mode needs.
@@ -48,11 +52,12 @@ type CopyMode struct {
 	matchIdx    int // current match index (-1 = none)
 
 	// Selection state
-	selecting bool
-	selStartX int // start column (viewport-relative)
-	selStartY int // start absolute line index
-	selEndX   int
-	selEndY   int
+	selecting  bool
+	lineSelect bool // true = full-line selection (V), false = character selection (v)
+	selStartX  int  // start column (viewport-relative)
+	selStartY  int  // start absolute line index
+	selEndX    int
+	selEndY    int
 }
 
 // New creates a CopyMode for the given emulator and viewport size.
@@ -70,30 +75,49 @@ func New(emu TerminalEmulator, width, height, cursorRow int) *CopyMode {
 // HandleInput processes raw input bytes and returns the action the client
 // should take. When searching, printable keys build the query; otherwise
 // vi-style keys control scrolling, search, and selection.
+//
+// All bytes in data are processed. ActionExit and ActionYank are returned
+// immediately (remaining bytes are dropped). ActionRedraw is accumulated
+// so that batched keystrokes (e.g. rapid "Vy") are fully handled.
 func (cm *CopyMode) HandleInput(data []byte) Action {
 	if len(data) == 0 {
 		return ActionNone
 	}
 
-	if cm.searching {
-		return cm.handleSearchInput(data)
+	result := ActionNone
+	for len(data) > 0 {
+		var action Action
+		if cm.searching {
+			var consumed int
+			action, consumed = cm.handleSearchInput(data)
+			data = data[consumed:]
+		} else {
+			action = cm.handleNormalKey(data[0])
+			data = data[1:]
+		}
+		switch action {
+		case ActionExit, ActionYank:
+			return action
+		case ActionRedraw:
+			result = ActionRedraw
+		}
 	}
-	return cm.handleNormalInput(data)
+	return result
 }
 
-func (cm *CopyMode) handleSearchInput(data []byte) Action {
+func (cm *CopyMode) handleSearchInput(data []byte) (Action, int) {
 	action := ActionNone
-	for _, b := range data {
+	for i, b := range data {
 		switch {
 		case b == '\r' || b == '\n': // Enter — confirm search
 			cm.searchQuery = cm.searchBuf
 			cm.searching = false
 			cm.runSearch()
-			return ActionRedraw
+			return ActionRedraw, i + 1
 		case b == 0x1b: // Escape — cancel search
 			cm.searching = false
 			cm.searchBuf = ""
-			return ActionRedraw
+			return ActionRedraw, i + 1
 		case b == 0x7f: // Backspace
 			if len(cm.searchBuf) > 0 {
 				cm.searchBuf = cm.searchBuf[:len(cm.searchBuf)-1]
@@ -106,11 +130,10 @@ func (cm *CopyMode) handleSearchInput(data []byte) Action {
 			}
 		}
 	}
-	return action
+	return action, len(data)
 }
 
-func (cm *CopyMode) handleNormalInput(data []byte) Action {
-	b := data[0]
+func (cm *CopyMode) handleNormalKey(b byte) Action {
 	switch b {
 	case 'q', 0x1b: // quit / Escape
 		return ActionExit
@@ -190,13 +213,35 @@ func (cm *CopyMode) handleNormalInput(data []byte) Action {
 		cm.prevMatch()
 		return ActionRedraw
 
-	case 'v': // toggle selection
-		cm.selecting = !cm.selecting
-		if cm.selecting {
+	case 'v': // toggle character selection
+		if cm.lineSelect {
+			// Switch from line-select to character-select at cursor position.
+			cm.lineSelect = false
 			absY := cm.cursorAbsLine()
 			cm.selStartX = cm.cx
 			cm.selStartY = absY
 			cm.selEndX = cm.cx
+			cm.selEndY = absY
+		} else {
+			cm.selecting = !cm.selecting
+			if cm.selecting {
+				absY := cm.cursorAbsLine()
+				cm.selStartX = cm.cx
+				cm.selStartY = absY
+				cm.selEndX = cm.cx
+				cm.selEndY = absY
+			}
+		}
+		return ActionRedraw
+
+	case 'V': // toggle line selection
+		cm.lineSelect = !cm.lineSelect
+		cm.selecting = cm.lineSelect
+		if cm.selecting {
+			absY := cm.cursorAbsLine()
+			cm.selStartX = 0
+			cm.selStartY = absY
+			cm.selEndX = cm.width - 1
 			cm.selEndY = absY
 		}
 		return ActionRedraw
@@ -253,6 +298,16 @@ func (cm *CopyMode) SelectedText() string {
 
 	startY, startX, endY, endX := cm.normalizedSelection()
 
+	// Line-select mode: grab full lines with trailing newline.
+	if cm.lineSelect {
+		var buf strings.Builder
+		for y := startY; y <= endY; y++ {
+			buf.WriteString(cm.lineText(y))
+			buf.WriteByte('\n')
+		}
+		return buf.String()
+	}
+
 	if startY == endY {
 		line := cm.lineText(startY)
 		if startX >= len(line) {
@@ -291,14 +346,22 @@ func (cm *CopyMode) normalizedSelection() (startY, startX, endY, endX int) {
 		startY, endY = endY, startY
 		startX, endX = endX, startX
 	}
+	if cm.lineSelect {
+		startX = 0
+		endX = cm.width - 1
+	}
 	return
 }
 
 // updateSelection updates the selection end point to the current cursor position.
 func (cm *CopyMode) updateSelection() {
 	if cm.selecting {
-		cm.selEndX = cm.cx
 		cm.selEndY = cm.cursorAbsLine()
+		if cm.lineSelect {
+			cm.selEndX = cm.width - 1
+		} else {
+			cm.selEndX = cm.cx
+		}
 	}
 }
 
@@ -402,6 +465,84 @@ func (cm *CopyMode) scrollToMatch() {
 	firstVisible := cm.TotalLines() - cm.height - cm.oy
 	cm.cy = clamp(m.LineIdx-firstVisible, 0, cm.height-1)
 	cm.cx = m.Col
+}
+
+// ViewportHeight returns the viewport height in rows.
+func (cm *CopyMode) ViewportHeight() int {
+	return cm.height
+}
+
+// FirstVisibleLine returns the absolute line index of the first visible row.
+func (cm *CopyMode) FirstVisibleLine() int {
+	return max(0, cm.TotalLines()-cm.height-cm.oy)
+}
+
+// LineText returns the plain text for an absolute line index (exported wrapper).
+func (cm *CopyMode) LineText(absIdx int) string {
+	return cm.lineText(absIdx)
+}
+
+// Copy mode cell colors — using basic ANSI colors to match terminal themes.
+var (
+	copySelectionBg = ansi.BasicColor(4)  // blue
+	copyMatchBg     = ansi.BasicColor(3)  // yellow
+	copyCurrentBg   = ansi.BasicColor(11) // bright yellow
+)
+
+// CellAt returns the cell at (col, viewportRow) with copy mode overlays applied.
+// The base character comes from the line text. Selection, search matches, and
+// the cursor are overlaid as style changes.
+func (cm *CopyMode) CellAt(col, viewportRow int) render.ScreenCell {
+	absIdx := cm.FirstVisibleLine() + viewportRow
+	line := cm.lineText(absIdx)
+	runes := []rune(line)
+
+	char := " "
+	if col < len(runes) {
+		char = string(runes[col])
+	}
+
+	sc := render.ScreenCell{Char: char, Width: 1}
+
+	// Selection overlay.
+	if cm.selecting {
+		startY, startX, endY, endX := cm.normalizedSelection()
+		if absIdx >= startY && absIdx <= endY {
+			colStart := 0
+			colEnd := cm.width
+			if absIdx == startY {
+				colStart = startX
+			}
+			if absIdx == endY {
+				colEnd = endX + 1
+			}
+			if col >= colStart && col < colEnd {
+				sc.Style.Bg = copySelectionBg
+			}
+		}
+	}
+
+	// Search match overlay (takes priority over selection).
+	for i, m := range cm.matches {
+		if m.LineIdx != absIdx {
+			continue
+		}
+		if col >= m.Col && col < m.Col+m.Len {
+			if i == cm.matchIdx {
+				sc.Style.Bg = copyCurrentBg
+				sc.Style.Attrs |= uv.AttrBold
+			} else {
+				sc.Style.Bg = copyMatchBg
+			}
+		}
+	}
+
+	// Cursor overlay (takes priority over everything).
+	if viewportRow == cm.cy && col == cm.cx {
+		sc.Style.Attrs |= uv.AttrReverse
+	}
+
+	return sc
 }
 
 // clamp returns v clamped to the range [lo, hi].

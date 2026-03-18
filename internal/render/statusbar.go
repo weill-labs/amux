@@ -3,7 +3,6 @@ package render
 import (
 	"strconv"
 	"strings"
-	"time"
 	"unicode/utf8"
 
 	"github.com/weill-labs/amux/internal/mux"
@@ -128,7 +127,7 @@ func renderGlobalBar(buf *strings.Builder, sessionName string, paneCount int, wi
 	// Catppuccin surface0 bg, text fg
 	buf.WriteString(Surface0Bg + TextFg)
 
-	now := time.Now().Format("15:04")
+	now := timeNow().Format("15:04")
 
 	left := " " + Bold + "amux" + NoBold + " │ "
 	leftVisible := 8 // " amux │ "
