@@ -34,7 +34,7 @@ See [README.md — Philosophy](README.md#philosophy) for the project thesis and 
 
 **Guard against impossible states.** Minimize checks that at least one pane stays non-minimized. Restore caps height at available space. Focus fallback finds nearest pane when strict overlap matching fails.
 
-**Save/restore cursor state in copy mode motions.** `moveDown()`/`moveUp()` mutate `cy`/`oy` as side effects. Any motion that calls them in a scanning loop (word motions, paragraph motions, etc.) must save `cy`/`oy` before scanning and restore them on failure paths where `ActionNone` is returned. Otherwise the cursor drifts silently.
+**Save/restore cursor state in copy mode motions.** Compound motions (word, paragraph, etc.) call `moveDown()`/`moveUp()` in scanning loops. These helpers mutate `cy`/`oy` on each call, so the caller must save both values before the loop and restore them when returning `ActionNone`. Otherwise the cursor drifts silently on failed motions.
 
 **Minimize requires a horizontal split.** `Minimize` only works on panes in a horizontal split (`splitH` / top-bottom layout). Panes in a vertical split (`splitV` / left-right layout) cannot be minimized — the command returns an error. Tests that exercise minimize must use `splitH()`, not `splitV()`.
 
