@@ -261,6 +261,87 @@ func TestCopyModeResizeSurvives(t *testing.T) {
 	}
 }
 
+func TestCopyModeVimMotions(t *testing.T) {
+	t.Parallel()
+	h := newAmuxHarness(t)
+
+	// Generate output with distinctive words on multiple lines.
+	scriptPath := filepath.Join(os.TempDir(), fmt.Sprintf("amux-motions-%s.sh", h.session))
+	os.WriteFile(scriptPath, []byte(`#!/bin/bash
+for i in $(seq -w 1 50); do echo "ALPHA BRAVO CHARLIE $i"; done
+`), 0755)
+	t.Cleanup(func() { os.Remove(scriptPath) })
+
+	h.sendKeys(scriptPath, "Enter")
+	if !h.waitFor("ALPHA BRAVO CHARLIE 50", 5*time.Second) {
+		t.Fatalf("expected output\nScreen:\n%s", h.captureOuter())
+	}
+
+	// Enter copy mode.
+	h.sendKeys("C-a", "[")
+	if !h.waitFor("[copy]", 3*time.Second) {
+		t.Fatalf("expected [copy] indicator\nScreen:\n%s", h.captureOuter())
+	}
+
+	// Exercise word motions: W (forward), B (backward), E (end of word).
+	for _, key := range []string{"W", "W", "B", "E"} {
+		h.sendKeys(key)
+		if !h.waitFor("[copy]", 2*time.Second) {
+			t.Fatalf("[copy] disappeared after %s\nScreen:\n%s", key, h.captureOuter())
+		}
+	}
+
+	// Exercise line motions: $ (end), 0 (start), ^ (first non-blank).
+	for _, key := range []string{"$", "0", "^"} {
+		h.sendKeys(key)
+		if !h.waitFor("[copy]", 2*time.Second) {
+			t.Fatalf("[copy] disappeared after %s\nScreen:\n%s", key, h.captureOuter())
+		}
+	}
+
+	// Exercise char search: f + A (find 'A' on line).
+	h.sendKeys("f", "A")
+	if !h.waitFor("[copy]", 2*time.Second) {
+		t.Fatalf("[copy] disappeared after fA\nScreen:\n%s", h.captureOuter())
+	}
+
+	// Exercise repeat (;) and reverse repeat (,).
+	h.sendKeys(";")
+	if !h.waitFor("[copy]", 2*time.Second) {
+		t.Fatalf("[copy] disappeared after ;\nScreen:\n%s", h.captureOuter())
+	}
+	h.sendKeys(",")
+	if !h.waitFor("[copy]", 2*time.Second) {
+		t.Fatalf("[copy] disappeared after ,\nScreen:\n%s", h.captureOuter())
+	}
+
+	// Exercise full-page scroll: Ctrl-f (down), Ctrl-b (up).
+	h.sendKeys("C-f")
+	if !h.waitFor("[copy]", 2*time.Second) {
+		t.Fatalf("[copy] disappeared after Ctrl-f\nScreen:\n%s", h.captureOuter())
+	}
+	h.sendKeys("C-b")
+	if !h.waitFor("[copy]", 2*time.Second) {
+		t.Fatalf("[copy] disappeared after Ctrl-b\nScreen:\n%s", h.captureOuter())
+	}
+
+	// Scroll to top with g, verify early output is reachable.
+	h.sendKeys("g")
+	if !waitForOuter(h, func(s string) bool {
+		return strings.Contains(s, "ALPHA BRAVO CHARLIE 01")
+	}, 3*time.Second) {
+		t.Fatalf("expected early output after scrolling to top\nScreen:\n%s", h.captureOuter())
+	}
+
+	// Exit copy mode.
+	h.sendKeys("q")
+	if !waitForOuter(h, func(s string) bool {
+		return !strings.Contains(s, "[copy]")
+	}, 3*time.Second) {
+		t.Fatalf("expected [copy] to disappear after q\nScreen:\n%s", h.captureOuter())
+	}
+}
+
 // waitForOuter polls the outer pane capture until fn returns true or timeout
 // expires. Used for copy mode assertions where the [copy] indicator is
 // rendered client-side and only visible in the outer pane, not the inner

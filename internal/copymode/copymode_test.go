@@ -778,14 +778,16 @@ func TestWordForwardAtEnd(t *testing.T) {
 	emu.screen = []string{"hello", "world"}
 	cm := New(emu, 40, 2, 1) // cursor on last line
 
-	// Move to "world" (col 0 of last line).
-	// W should be a no-op — no more words.
+	// Cursor is on "world" (col 0 of last line).
+	// W should be a no-op — no more words after this one.
 	action := cm.HandleInput([]byte{'W'})
+	if action != ActionNone {
+		t.Errorf("W at last word should return ActionNone, got %d", action)
+	}
 	cx, cy := cm.CursorPos()
-	// Either no-op (ActionNone) or moved to end — just verify no crash.
-	_ = action
-	_ = cx
-	_ = cy
+	if cx != 0 || cy != 1 {
+		t.Errorf("W at last word: cx=%d cy=%d, want cx=0 cy=1 (unchanged)", cx, cy)
+	}
 }
 
 func TestWordBackward(t *testing.T) {

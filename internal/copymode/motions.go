@@ -35,7 +35,7 @@ func (cm *CopyMode) moveUp() bool {
 func (cm *CopyMode) lineEndCol() int {
 	line := []rune(cm.lineText(cm.cursorAbsLine()))
 	end := len(line) - 1
-	for end >= 0 && line[end] == ' ' {
+	for end >= 0 && unicode.IsSpace(line[end]) {
 		end--
 	}
 	if end < 0 {
@@ -65,6 +65,7 @@ func (cm *CopyMode) cursorLineRunes() []rune {
 // A WORD is a sequence of non-whitespace characters separated by whitespace.
 // Moves to the first character of the next WORD, wrapping across lines.
 func (cm *CopyMode) moveWordForward() Action {
+	savedCY, savedOY := cm.cy, cm.oy
 	line := cm.cursorLineRunes()
 	pos := cm.cx
 
@@ -86,6 +87,7 @@ func (cm *CopyMode) moveWordForward() Action {
 		}
 		// Ran off the end — wrap to next line.
 		if !cm.moveDown() {
+			cm.cy, cm.oy = savedCY, savedOY
 			return ActionNone
 		}
 		line = cm.cursorLineRunes()
@@ -96,6 +98,7 @@ func (cm *CopyMode) moveWordForward() Action {
 // moveWordBackward implements the B (WORD backward) motion.
 // Moves to the first character of the previous WORD, wrapping across lines.
 func (cm *CopyMode) moveWordBackward() Action {
+	savedCY, savedOY := cm.cy, cm.oy
 	line := cm.cursorLineRunes()
 	pos := cm.cx
 
@@ -105,6 +108,7 @@ func (cm *CopyMode) moveWordBackward() Action {
 	// If we're before the start of the line, wrap to previous line.
 	for pos < 0 {
 		if !cm.moveUp() {
+			cm.cy, cm.oy = savedCY, savedOY
 			cm.cx = 0
 			cm.updateSelection()
 			return ActionRedraw
@@ -118,6 +122,7 @@ func (cm *CopyMode) moveWordBackward() Action {
 		pos--
 		if pos < 0 {
 			if !cm.moveUp() {
+				cm.cy, cm.oy = savedCY, savedOY
 				cm.cx = 0
 				cm.updateSelection()
 				return ActionRedraw
@@ -140,6 +145,7 @@ func (cm *CopyMode) moveWordBackward() Action {
 // moveWordEnd implements the E (end of WORD) motion.
 // Moves to the last character of the next WORD, wrapping across lines.
 func (cm *CopyMode) moveWordEnd() Action {
+	savedCY, savedOY := cm.cy, cm.oy
 	line := cm.cursorLineRunes()
 	pos := cm.cx
 	lineLen := len(line)
@@ -162,6 +168,7 @@ func (cm *CopyMode) moveWordEnd() Action {
 		pos++
 		if pos >= lineLen {
 			if !cm.moveDown() {
+				cm.cy, cm.oy = savedCY, savedOY
 				cm.cx = max(0, lineLen-1)
 				cm.updateSelection()
 				return ActionRedraw
@@ -185,58 +192,56 @@ func (cm *CopyMode) moveWordEnd() Action {
 // executeCharSearch performs an f/F/t/T character search on the current line.
 // Returns ActionNone if the target is not found (cursor stays, last search unchanged).
 func (cm *CopyMode) executeCharSearch(cmd, target byte) Action {
+	col, ok := cm.findCharOnLine(cmd, rune(target))
+	if !ok {
+		return ActionNone
+	}
+	cm.cx = col
+	cm.lastCharSearch = cmd
+	cm.lastCharTarget = target
+	cm.updateSelection()
+	return ActionRedraw
+}
+
+// findCharOnLine searches for rune r on the current line using the given
+// command ('f'/'F'/'t'/'T'). Returns the destination column and true if
+// found, or (0, false) if not found or the "till" offset would not move.
+func (cm *CopyMode) findCharOnLine(cmd byte, r rune) (int, bool) {
 	line := cm.cursorLineRunes()
-	r := rune(target)
 
 	switch cmd {
 	case 'f': // find forward — land ON target
 		for i := cm.cx + 1; i < len(line); i++ {
 			if line[i] == r {
-				cm.cx = i
-				cm.lastCharSearch = cmd
-				cm.lastCharTarget = target
-				cm.updateSelection()
-				return ActionRedraw
+				return i, true
 			}
 		}
 	case 'F': // find backward — land ON target
 		for i := cm.cx - 1; i >= 0; i-- {
 			if line[i] == r {
-				cm.cx = i
-				cm.lastCharSearch = cmd
-				cm.lastCharTarget = target
-				cm.updateSelection()
-				return ActionRedraw
+				return i, true
 			}
 		}
 	case 't': // till forward — land one BEFORE target
 		for i := cm.cx + 1; i < len(line); i++ {
 			if line[i] == r {
 				if i-1 > cm.cx {
-					cm.cx = i - 1
-					cm.lastCharSearch = cmd
-					cm.lastCharTarget = target
-					cm.updateSelection()
-					return ActionRedraw
+					return i - 1, true
 				}
-				return ActionNone
+				return 0, false
 			}
 		}
 	case 'T': // till backward — land one AFTER target
 		for i := cm.cx - 1; i >= 0; i-- {
 			if line[i] == r {
 				if i+1 < cm.cx {
-					cm.cx = i + 1
-					cm.lastCharSearch = cmd
-					cm.lastCharTarget = target
-					cm.updateSelection()
-					return ActionRedraw
+					return i + 1, true
 				}
-				return ActionNone
+				return 0, false
 			}
 		}
 	}
-	return ActionNone
+	return 0, false
 }
 
 // repeatCharSearch repeats the last f/F/t/T search. If reverse is true,
