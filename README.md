@@ -301,6 +301,7 @@ Default prefix: `Ctrl-a`. Configurable via `~/.config/amux/config.toml` (see [Co
 | `Ctrl-a [` | Enter copy/scroll mode |
 | `Ctrl-a c` | Create new window |
 | `Ctrl-a n` / `Ctrl-a p` | Next/previous window |
+| `Ctrl-a q` | Show pane labels for quick jump |
 | `Ctrl-a 1-9` | Select window by number |
 | `Ctrl-a r` | Hot reload (re-exec binary) |
 | `Ctrl-a d` | Detach from session |

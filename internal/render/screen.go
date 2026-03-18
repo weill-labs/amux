@@ -156,6 +156,10 @@ func CellFromUV(c *uv.Cell) ScreenCell {
 // BuildGrid composes pane content, borders, status lines, and the global bar
 // into a ScreenGrid. This is the cell-level equivalent of RenderFull.
 func (c *Compositor) BuildGrid(root *mux.LayoutCell, activePaneID uint32, lookup func(uint32) PaneData) *ScreenGrid {
+	return c.buildGridWithOverlay(root, activePaneID, lookup, nil)
+}
+
+func (c *Compositor) buildGridWithOverlay(root *mux.LayoutCell, activePaneID uint32, lookup func(uint32) PaneData, overlay []PaneOverlayLabel) *ScreenGrid {
 	g := NewScreenGrid(c.width, c.height)
 
 	// Determine active pane color for borders.
@@ -198,6 +202,10 @@ func (c *Compositor) BuildGrid(root *mux.LayoutCell, activePaneID uint32, lookup
 		c.cachedBorderRoot = root
 	}
 	buildBorderCells(g, c.cachedBorderMap, activePaneID, activeColorHex)
+
+	if len(overlay) > 0 {
+		buildPaneOverlayCells(g, root, lookup, overlay)
+	}
 
 	// Global bar cells.
 	buildGlobalBarCells(g, c.sessionName, paneCount, c.width, c.height-1, c.windows)

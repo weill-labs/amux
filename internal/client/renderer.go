@@ -214,6 +214,11 @@ func (r *Renderer) ClearPrevGrid() {
 // this is guaranteed: the interactive client calls both from the single
 // renderCoalesced goroutine, and the headless client is sequential.
 func (r *Renderer) RenderFull(paneLookup func(uint32) render.PaneData, clearScreen ...bool) string {
+	return r.RenderFullWithOverlay(paneLookup, nil, clearScreen...)
+}
+
+// RenderFullWithOverlay is RenderFull plus an optional pane overlay layer.
+func (r *Renderer) RenderFullWithOverlay(paneLookup func(uint32) render.PaneData, overlay []render.PaneOverlayLabel, clearScreen ...bool) string {
 	r.mu.Lock()
 	if r.layout == nil {
 		r.mu.Unlock()
@@ -228,12 +233,17 @@ func (r *Renderer) RenderFull(paneLookup func(uint32) render.PaneData, clearScre
 	comp := r.compositor
 	r.mu.Unlock()
 
-	return comp.RenderFull(root, activePaneID, paneLookup, clearScreen...)
+	return comp.RenderFullWithOverlay(root, activePaneID, paneLookup, overlay, clearScreen...)
 }
 
 // RenderDiff produces minimal ANSI output by diffing against the previous frame.
 // Returns empty string if no layout is available.
 func (r *Renderer) RenderDiff(paneLookup func(uint32) render.PaneData) string {
+	return r.RenderDiffWithOverlay(paneLookup, nil)
+}
+
+// RenderDiffWithOverlay is RenderDiff plus an optional pane overlay layer.
+func (r *Renderer) RenderDiffWithOverlay(paneLookup func(uint32) render.PaneData, overlay []render.PaneOverlayLabel) string {
 	r.mu.Lock()
 	if r.layout == nil {
 		r.mu.Unlock()
@@ -248,7 +258,7 @@ func (r *Renderer) RenderDiff(paneLookup func(uint32) render.PaneData) string {
 	comp := r.compositor
 	r.mu.Unlock()
 
-	return comp.RenderDiff(root, activePaneID, paneLookup)
+	return comp.RenderDiffWithOverlay(root, activePaneID, paneLookup, overlay)
 }
 
 // Capture renders the full composited screen from client-side emulators.
