@@ -70,6 +70,49 @@ func TestWatchBinaryIgnoresOtherFiles(t *testing.T) {
 	}
 }
 
+func TestWatchBinaryNilReady(t *testing.T) {
+	// Passing nil for the ready channel should not panic.
+	dir := t.TempDir()
+	binPath := filepath.Join(dir, "amux-test")
+	if err := os.WriteFile(binPath, []byte("v1"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	triggerReload := make(chan struct{}, 1)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		WatchBinary(binPath, triggerReload, nil)
+	}()
+
+	// Write to trigger a reload, confirming the watcher started
+	<-time.After(100 * time.Millisecond) // let watcher register
+	os.WriteFile(binPath, []byte("v2"), 0755)
+
+	select {
+	case <-triggerReload:
+		// Good — watcher works with nil ready channel
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected reload trigger with nil ready channel")
+	}
+}
+
+func TestWatchBinaryBadDirClosesReady(t *testing.T) {
+	// When the directory doesn't exist, watcher.Add fails and ready
+	// should still be closed so callers don't block forever.
+	ready := make(chan struct{})
+	triggerReload := make(chan struct{}, 1)
+
+	go WatchBinary("/nonexistent/path/amux-test", triggerReload, ready)
+
+	select {
+	case <-ready:
+		// Good — ready was closed despite the error
+	case <-time.After(2 * time.Second):
+		t.Fatal("ready channel should be closed when watcher.Add fails")
+	}
+}
+
 func TestWatchBinaryDeleteAndRecreate(t *testing.T) {
 	dir := t.TempDir()
 	binPath := filepath.Join(dir, "amux-test")
