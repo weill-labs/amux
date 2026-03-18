@@ -79,11 +79,7 @@ func TestWatchBinaryNilReady(t *testing.T) {
 	}
 
 	triggerReload := make(chan struct{}, 1)
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		WatchBinary(binPath, triggerReload, nil)
-	}()
+	go WatchBinary(binPath, triggerReload, nil)
 
 	// Inherent race: cannot use ready channel since we're testing nil.
 	// Generous 2s fallback timeout below handles slow CI.
