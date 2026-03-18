@@ -68,6 +68,11 @@ func (hc *headlessClient) resize(cols, rows int) {
 	})
 }
 
+// capture returns a plain-text rendering from the client's local emulators.
+func (hc *headlessClient) capture() string {
+	return hc.renderer.Capture(true)
+}
+
 func (hc *headlessClient) close() {
 	hc.conn.Close()
 	<-hc.done
