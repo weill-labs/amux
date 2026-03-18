@@ -128,6 +128,21 @@ func TestFindModuleRoot(t *testing.T) {
 
 // --- SSH-backed tests (use in-process test SSH server) ---
 
+// plantFakeAmux writes a shell script to $HOME/.local/bin/amux in the test
+// SSH server's home directory. The script echoes the given hash, simulating
+// an installed amux binary that reports its version.
+func plantFakeAmux(t *testing.T, homeDir, hash string) {
+	t.Helper()
+	binDir := filepath.Join(homeDir, ".local", "bin")
+	if err := os.MkdirAll(binDir, 0755); err != nil {
+		t.Fatalf("creating bin dir: %v", err)
+	}
+	script := filepath.Join(binDir, "amux")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\necho "+hash+"\n"), 0755); err != nil {
+		t.Fatalf("writing fake amux: %v", err)
+	}
+}
+
 func TestSSHOutput(t *testing.T) {
 	t.Parallel()
 	ts := startTestSSH(t)
@@ -228,11 +243,7 @@ func TestRemoteBuildHashFound(t *testing.T) {
 	t.Parallel()
 	ts := startTestSSH(t)
 
-	// Plant a fake amux script that returns a hash
-	binDir := filepath.Join(ts.HomeDir, ".local", "bin")
-	os.MkdirAll(binDir, 0755)
-	script := filepath.Join(binDir, "amux")
-	os.WriteFile(script, []byte("#!/bin/sh\necho fakehash123\n"), 0755)
+	plantFakeAmux(t, ts.HomeDir, "fakehash123")
 
 	hash, err := remoteBuildHash(ts.Client)
 	if err != nil {
@@ -247,11 +258,7 @@ func TestDeployBinaryUpToDate(t *testing.T) {
 	t.Parallel()
 	ts := startTestSSH(t)
 
-	// Plant a fake amux that reports "abc1234" as its hash
-	binDir := filepath.Join(ts.HomeDir, ".local", "bin")
-	os.MkdirAll(binDir, 0755)
-	script := filepath.Join(binDir, "amux")
-	os.WriteFile(script, []byte("#!/bin/sh\necho abc1234\n"), 0755)
+	plantFakeAmux(t, ts.HomeDir, "abc1234")
 
 	// Deploy with matching hash — should skip (no upload)
 	err := DeployBinary(ts.Client, "abc1234")
@@ -264,18 +271,21 @@ func TestDeployBinaryCrossArchFails(t *testing.T) {
 	t.Parallel()
 	ts := startTestSSH(t)
 
-	// Plant a fake uname that reports a different architecture.
-	// This triggers the cross-arch path in DeployBinary.
+	// Plant a fake uname that reports a different architecture,
+	// triggering the cross-arch path in DeployBinary.
 	binDir := filepath.Join(ts.HomeDir, ".local", "bin")
-	os.MkdirAll(binDir, 0755)
+	if err := os.MkdirAll(binDir, 0755); err != nil {
+		t.Fatalf("creating bin dir: %v", err)
+	}
 
-	fakeUname := filepath.Join(binDir, "uname")
-	// Report opposite arch from what we're running on
 	fakeArch := "Linux x86_64"
 	if runtime.GOOS == "linux" && runtime.GOARCH == "amd64" {
 		fakeArch = "Linux aarch64"
 	}
-	os.WriteFile(fakeUname, []byte(fmt.Sprintf("#!/bin/sh\necho '%s'\n", fakeArch)), 0755)
+	fakeUname := filepath.Join(binDir, "uname")
+	if err := os.WriteFile(fakeUname, []byte(fmt.Sprintf("#!/bin/sh\necho '%s'\n", fakeArch)), 0755); err != nil {
+		t.Fatalf("writing fake uname: %v", err)
+	}
 
 	// DeployBinary should attempt cross-compile (which will fail in test env
 	// since go.mod can't be found from test binary path) and then fall through
@@ -291,20 +301,10 @@ func TestDeployBinarySameArch(t *testing.T) {
 	t.Parallel()
 	ts := startTestSSH(t)
 
-	// No amux on remote, uname -sm returns the local platform
-	// since our test SSH server runs sh -c on the same machine.
-	// This means local OS/arch == remote OS/arch → same-arch upload path.
-
-	// Create a small fake binary to deploy (the real test binary is too large
-	// and os.Executable() returns the test binary path which may not be
-	// a valid amux binary). We can't easily override os.Executable(), so
-	// instead we test the upload path directly via uploadBinary (above)
-	// and test DeployBinary's same-arch detection here by verifying it
-	// attempts the upload (which will succeed or fail based on os.Executable).
+	// No amux on remote and the test SSH server runs on the same machine,
+	// so uname -sm matches the local platform → same-arch upload path.
+	// DeployBinary will upload the test binary via os.Executable().
 	err := DeployBinary(ts.Client, "newhash")
-	// This will attempt to upload the test binary — that's fine, we just
-	// verify it didn't error on architecture detection or parsing.
-	// The upload itself should succeed since it's a same-arch scenario.
 	if err != nil {
 		t.Errorf("DeployBinary same-arch should succeed, got: %v", err)
 	}

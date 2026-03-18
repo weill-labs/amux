@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -60,8 +61,14 @@ func startTestSSH(t *testing.T) *testSSH {
 
 	// SSH server config
 	authorizedKeyBytes := sshPub.Marshal()
-	_, hostPriv, _ := ed25519.GenerateKey(rand.Reader)
-	hostSigner, _ := ssh.NewSignerFromKey(hostPriv)
+	_, hostPriv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generating host key: %v", err)
+	}
+	hostSigner, err := ssh.NewSignerFromKey(hostPriv)
+	if err != nil {
+		t.Fatalf("creating host signer: %v", err)
+	}
 
 	srvCfg := &ssh.ServerConfig{
 		MaxAuthTries: 20,
@@ -89,10 +96,10 @@ func startTestSSH(t *testing.T) *testSSH {
 	// Strip real amux from PATH so remoteBuildHash finds only what we plant.
 	execEnv := os.Environ()
 	for i, e := range execEnv {
-		if len(e) > 5 && e[:5] == "HOME=" {
+		if strings.HasPrefix(e, "HOME=") {
 			execEnv[i] = "HOME=" + homeDir
 		}
-		if len(e) > 5 && e[:5] == "PATH=" {
+		if strings.HasPrefix(e, "PATH=") {
 			execEnv[i] = "PATH=" + filepath.Join(homeDir, ".local", "bin") + ":/usr/bin:/bin"
 		}
 	}

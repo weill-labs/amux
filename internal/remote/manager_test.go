@@ -265,6 +265,8 @@ func TestDeployToAddressEmptyBuildHash(t *testing.T) {
 }
 
 func TestDeployToAddressDeployDisabled(t *testing.T) {
+	t.Parallel()
+
 	f := false
 	cfg := &config.Config{Hosts: map[string]config.Host{
 		"dev": {Type: "remote", Address: "10.0.0.1", Deploy: &f},
@@ -308,13 +310,14 @@ func TestDeployToAddressHostNotInConfig(t *testing.T) {
 	cfg := &config.Config{Hosts: map[string]config.Host{}}
 	m := NewManager(cfg, "deployhash")
 
-	// Write the identity file path into the config after the fact won't work
-	// since the host isn't in the map. DeployToAddress will build a Host with
-	// no IdentityFile, so buildSSHConfig will try default keys + agent.
-	// We provide the identity file by placing it at the default SSH key path.
+	// Host not in config → DeployToAddress builds a Host with no IdentityFile,
+	// so buildSSHConfig tries default keys + agent. Place the test key at
+	// the default SSH key path so it's discovered.
 	fakeHome := t.TempDir()
 	sshDir := filepath.Join(fakeHome, ".ssh")
-	os.MkdirAll(sshDir, 0700)
+	if err := os.MkdirAll(sshDir, 0700); err != nil {
+		t.Fatalf("creating .ssh dir: %v", err)
+	}
 
 	// Copy the test key to the default location buildSSHConfig checks
 	keyData, err := os.ReadFile(ts.KeyFile)
