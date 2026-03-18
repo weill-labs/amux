@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"path/filepath"
@@ -384,6 +385,7 @@ func (s *Session) broadcastPaneOutputLocked(paneID uint32, data []byte) {
 func (s *Session) broadcastLayout() {
 	idleSnap := s.snapshotIdleState()
 	s.mu.Lock()
+	s.assertPaneLayoutConsistency()
 	snap := s.snapshotLayoutLocked(idleSnap)
 	if snap == nil {
 		s.mu.Unlock()
@@ -501,6 +503,24 @@ func (s *Session) findPaneByRef(ref string) *mux.Pane {
 		}
 	}
 	return nil
+}
+
+// assertPaneLayoutConsistency checks that every non-dormant pane in the flat
+// registry exists in some window's layout tree. Logs a warning for each
+// violation — these indicate the dual data-structure divergence that causes
+// ghost panes (LAB-210). Caller must hold s.mu.
+func (s *Session) assertPaneLayoutConsistency() int {
+	n := 0
+	for _, p := range s.Panes {
+		if p.Meta.Dormant {
+			continue
+		}
+		if s.FindWindowByPaneID(p.ID) == nil {
+			log.Printf("[amux] consistency warning: pane %d (%s) is non-dormant but not in any window layout", p.ID, p.Meta.Name)
+			n++
+		}
+	}
+	return n
 }
 
 // removePane removes a pane from the flat list by ID and cleans up its idle timer.
@@ -777,6 +797,7 @@ func (s *Session) handleTakeover(srv *Server, sshPaneID uint32, req mux.Takeover
 
 	// The SSH pane stays in the panes list (dormant) — its PTY maintains
 	// the SSH connection for unsplice fallback.
+	sshPane.Meta.Dormant = true
 	s.mu.Unlock()
 
 	s.broadcastLayout()
