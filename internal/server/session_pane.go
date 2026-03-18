@@ -108,8 +108,15 @@ func (s *Session) createPane(srv *Server, cols, rows int) (*mux.Pane, error) {
 }
 
 // createPaneWithMeta creates a new pane with explicit metadata (for spawn).
+// Name, Host, and Color are auto-assigned if empty.
 func (s *Session) createPaneWithMeta(srv *Server, meta mux.PaneMeta, cols, rows int) (*mux.Pane, error) {
 	id := s.counter.Add(1)
+	if meta.Name == "" {
+		meta.Name = fmt.Sprintf(mux.PaneNameFormat, id)
+	}
+	if meta.Host == "" {
+		meta.Host = mux.DefaultHost
+	}
 	if meta.Color == "" {
 		meta.Color = config.CatppuccinMocha[(id-1)%uint32(len(config.CatppuccinMocha))]
 	}
