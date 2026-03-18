@@ -356,3 +356,76 @@ func TestDeployToAddressBuildSSHConfigError(t *testing.T) {
 	// Should hit the buildSSHConfig error path and return without panic.
 	m.DeployToAddress("noauth", "127.0.0.1:22", "testuser")
 }
+
+func TestFindHostByAddress(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		hosts     map[string]config.Host
+		sshAddr   string
+		wantName  string
+		wantFound bool
+	}{
+		{
+			name: "match by address",
+			hosts: map[string]config.Host{
+				"gpu-box": {Type: "remote", Address: "10.0.0.5"},
+			},
+			sshAddr:   "10.0.0.5:22",
+			wantName:  "gpu-box",
+			wantFound: true,
+		},
+		{
+			name: "match by name fallback",
+			hosts: map[string]config.Host{
+				"10.0.0.5": {Type: "remote"},
+			},
+			sshAddr:   "10.0.0.5:22",
+			wantName:  "10.0.0.5",
+			wantFound: true,
+		},
+		{
+			name: "no match",
+			hosts: map[string]config.Host{
+				"gpu-box": {Type: "remote", Address: "10.0.0.5"},
+			},
+			sshAddr:   "10.0.0.99:22",
+			wantName:  "",
+			wantFound: false,
+		},
+		{
+			name: "skip local hosts",
+			hosts: map[string]config.Host{
+				"local-dev": {Type: "local", Address: "10.0.0.5"},
+			},
+			sshAddr:   "10.0.0.5:22",
+			wantName:  "",
+			wantFound: false,
+		},
+		{
+			name: "normalize port on match",
+			hosts: map[string]config.Host{
+				"gpu-box": {Type: "remote", Address: "10.0.0.5:22"},
+			},
+			sshAddr:   "10.0.0.5",
+			wantName:  "gpu-box",
+			wantFound: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := &config.Config{Hosts: tt.hosts}
+			m := NewManager(cfg, "hash")
+			gotName, _, gotFound := m.findHostByAddress(tt.sshAddr)
+			if gotFound != tt.wantFound {
+				t.Errorf("found = %v, want %v", gotFound, tt.wantFound)
+			}
+			if gotName != tt.wantName {
+				t.Errorf("name = %q, want %q", gotName, tt.wantName)
+			}
+		})
+	}
+}

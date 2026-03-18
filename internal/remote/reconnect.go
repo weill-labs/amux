@@ -22,6 +22,9 @@ func (hc *HostConn) startReconnectLoop() {
 	}
 	hc.setState(Reconnecting)
 	sessionName := hc.sessionName
+	remoteUID := hc.remoteUID
+	isTakeover := hc.takeoverMode
+	sshAddr := normalizeAddr(hc.config.Address)
 	hc.mu.Unlock()
 
 	delay := initialBackoff
@@ -36,7 +39,12 @@ func (hc *HostConn) startReconnectLoop() {
 		}
 		hc.mu.Unlock()
 
-		err := hc.connect(sessionName)
+		var err error
+		if isTakeover {
+			err = hc.connectTakeover(sessionName, remoteUID, sshAddr)
+		} else {
+			err = hc.connect(sessionName)
+		}
 		if err == nil {
 			hc.mu.Lock()
 			hc.setState(Connected)

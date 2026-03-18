@@ -31,7 +31,7 @@ type ServerHarness struct {
 
 // newServerHarnessWithSize starts a server harness with a custom terminal size.
 func newServerHarnessWithSize(tb testing.TB, cols, rows int) *ServerHarness {
-	return newServerHarnessImpl(tb, cols, rows)
+	return newServerHarnessWithConfig(tb, cols, rows, "")
 }
 
 // newServerHarness starts a server daemon with a unique session name,
@@ -360,6 +360,15 @@ func (h *ServerHarness) waitLayoutTimeout(afterGen uint64, timeout string) {
 	if strings.Contains(out, "timeout") {
 		h.tb.Fatalf("wait-layout timed out after generation %d\ncapture:\n%s", afterGen, h.capture())
 	}
+}
+
+// waitLayoutOrTimeout is like waitLayoutTimeout but returns false on timeout
+// instead of failing the test. Used in polling loops where timeout is a valid
+// exit condition rather than a test failure.
+func (h *ServerHarness) waitLayoutOrTimeout(afterGen uint64, timeout string) bool {
+	h.tb.Helper()
+	out := h.runCmd("wait-layout", "--after", strconv.FormatUint(afterGen, 10), "--timeout", timeout)
+	return !strings.Contains(out, "timeout")
 }
 
 // ---------------------------------------------------------------------------

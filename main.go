@@ -584,7 +584,7 @@ func tryTakeover(sessionName string) bool {
 	}
 	ch := make(chan readResult, 1)
 	go func() {
-		buf := make([]byte, len(mux.TakeoverAck)+64)
+		buf := make([]byte, 256) // enough for session-carrying ack
 		n, err := os.Stdin.Read(buf)
 		ch <- readResult{data: buf[:n], err: err}
 	}()
@@ -594,14 +594,20 @@ func tryTakeover(sessionName string) bool {
 		if result.err != nil || len(result.data) == 0 {
 			return false
 		}
-		if !strings.Contains(string(result.data), mux.TakeoverAck) {
+		// Try session-carrying ack (new format); fall back to fixed ack (legacy).
+		ackData := string(result.data)
+		session, ok := mux.ParseTakeoverAck(ackData)
+		if !ok && strings.Contains(ackData, mux.TakeoverAck) {
+			session = req.Session
+			ok = true
+		}
+		if !ok {
 			return false
 		}
+		fmt.Fprintf(os.Stderr, "amux: takeover acked, entering managed mode\n")
+		runServer(session)
+		return true
 	case <-time.After(2 * time.Second):
 		return false
 	}
-
-	fmt.Fprintf(os.Stderr, "amux: takeover acked, entering managed mode\n")
-	runServer(req.Session)
-	return true
 }

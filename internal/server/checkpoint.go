@@ -181,6 +181,7 @@ func NewServerFromCheckpoint(cp *checkpoint.ServerCheckpoint) (*Server, error) {
 		}
 
 		pane.SetOnClipboard(sess.clipboardCallback())
+		pane.SetOnTakeover(sess.takeoverCallback(s))
 
 		if !pc.CreatedAt.IsZero() {
 			pane.SetCreatedAt(pc.CreatedAt)

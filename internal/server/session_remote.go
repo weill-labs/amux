@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"os"
 	"slices"
 	"time"
 
@@ -91,12 +92,9 @@ func (s *Session) handleTakeover(srv *Server, sshPaneID uint32, req mux.Takeover
 	}
 	s.mu.Unlock()
 
-	// Send ack through the SSH PTY's stdin — this tells the remote amux
-	// to enter managed mode instead of launching its own TUI.
-	sshPane.Write([]byte(mux.TakeoverAck))
-
-	// Wait briefly for the remote server to start
-	time.Sleep(500 * time.Millisecond)
+	// Send ack through the SSH PTY's stdin — carries the agreed session name
+	// so the remote amux starts its server at the right socket path.
+	sshPane.Write([]byte(mux.FormatTakeoverAck(req.Session) + "\n"))
 
 	hostname := req.Host
 	if hostname == "" {
@@ -137,14 +135,15 @@ func (s *Session) handleTakeover(srv *Server, sshPaneID uint32, req mux.Takeover
 			Remote: string(remote.Connected),
 		}
 
-		// The writeOverride routes input through the original SSH PTY.
-		// All proxy panes share the same SSH connection (the original PTY),
-		// but the remote amux server demuxes by pane ID.
+		// writeOverride routes input through the RemoteManager → SSH → remote amux.
 		proxyPane := mux.NewProxyPane(id, meta, cols, mux.PaneContentHeight(cellH),
 			s.paneOutputCallback(),
 			s.paneExitCallback(srv),
 			func(data []byte) (int, error) {
-				return sshPane.Write(data)
+				if s.RemoteManager != nil {
+					return len(data), s.RemoteManager.SendInput(id, data)
+				}
+				return len(data), nil
 			},
 		)
 		proxyPanes = append(proxyPanes, proxyPane)
@@ -170,10 +169,21 @@ func (s *Session) handleTakeover(srv *Server, sshPaneID uint32, req mux.Takeover
 
 	s.broadcastLayout()
 
-	// Deploy updated binary in background — the remote amux hot-reloads
-	// via its file watcher when the binary changes on disk.
+	// Wire bidirectional I/O: connect back to the remote amux server via SSH
+	// and register pane mappings so SendInput/FeedOutput flow correctly.
+	// Also deploy the updated binary so the remote amux hot-reloads.
 	if s.RemoteManager != nil && req.SSHAddress != "" {
 		go s.RemoteManager.DeployToAddress(hostname, req.SSHAddress, req.SSHUser)
+
+		paneMappings := make(map[uint32]uint32, len(proxyPanes))
+		for i, pp := range proxyPanes {
+			paneMappings[pp.ID] = remotePanes[i].ID
+		}
+		if err := s.RemoteManager.AttachForTakeover(
+			hostname, req.SSHAddress, req.SSHUser, req.UID, req.Session, paneMappings,
+		); err != nil {
+			fmt.Fprintf(os.Stderr, "amux: takeover AttachForTakeover: %v\n", err)
+		}
 	}
 }
 

@@ -107,6 +107,16 @@ func handleSSHConn(tcpConn net.Conn, config *ssh.ServerConfig, execEnv []string)
 	defer sshConn.Close()
 	go ssh.DiscardRequests(reqs)
 
+	// Build SSH_CONNECTION from the real TCP addresses so that commands run
+	// inside this session (e.g. "amux") can detect they're in an SSH context
+	// and trigger the takeover flow. Format: "clientIP clientPort serverIP serverPort"
+	remoteAddr := tcpConn.RemoteAddr().String()
+	localAddr := tcpConn.LocalAddr().String()
+	remoteHost, remotePort, _ := net.SplitHostPort(remoteAddr)
+	localHost, localPort, _ := net.SplitHostPort(localAddr)
+	sshConnectionVal := fmt.Sprintf("%s %s %s %s", remoteHost, remotePort, localHost, localPort)
+	connEnv := append(append([]string{}, execEnv...), "SSH_CONNECTION="+sshConnectionVal)
+
 	for newChannel := range chans {
 		switch newChannel.ChannelType() {
 		case "session":
@@ -114,7 +124,7 @@ func handleSSHConn(tcpConn net.Conn, config *ssh.ServerConfig, execEnv []string)
 			if err != nil {
 				continue
 			}
-			go handleSession(ch, chReqs, execEnv)
+			go handleSession(ch, chReqs, connEnv)
 
 		case "direct-streamlocal@openssh.com":
 			handleStreamLocal(newChannel)
