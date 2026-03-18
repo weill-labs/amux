@@ -46,14 +46,15 @@ var CatppuccinLetters = map[string]byte{
 	"b4befe": 'L', // Lavender
 }
 
-// DimColorHex is the Overlay 0 color used for inactive/dim borders.
-const DimColorHex = "6c7086"
-
-// TextColorHex is the Text foreground color.
-const TextColorHex = "cdd6f4"
-
-// Surface0Hex is the Surface 0 background color for status bars.
-const Surface0Hex = "313244"
+// Named hex color constants from the Catppuccin Mocha palette.
+const (
+	DimColorHex  = "6c7086" // Overlay 0 — inactive/dim borders
+	TextColorHex = "cdd6f4" // Text foreground
+	Surface0Hex  = "313244" // Surface 0 — status bar background
+	GreenHex     = "a6e3a1" // Green — status indicator
+	YellowHex    = "f9e2af" // Yellow — status indicator
+	RedHex       = "f38ba8" // Red — status indicator
+)
 
 // Host defines a machine that can run agents.
 type Host struct {
