@@ -217,16 +217,19 @@ func (s *Session) writeCrashCheckpoint() {
 	}
 }
 
-// removeClient removes a client from the session.
+// removeClient removes a client from the session and recalculates
+// the session size in case the largest client disconnected.
 func (s *Session) removeClient(cc *ClientConn) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	for i, c := range s.clients {
 		if c == cc {
 			s.clients = append(s.clients[:i], s.clients[i+1:]...)
-			return
+			break
 		}
 	}
+	s.recalcSizeLocked()
+	s.mu.Unlock()
+	s.broadcastLayout()
 }
 
 // BuildVersion is set by main at startup for version reporting in status.
@@ -524,17 +527,16 @@ func (s *Server) handleAttach(conn net.Conn, msg *Message) {
 	if rows <= 0 {
 		rows = DefaultTermRows
 	}
+	cc.cols = cols
+	cc.rows = rows
 
 	idleSnap := sess.snapshotIdleState()
 	sess.mu.Lock()
 
-	// Reserve rows for the global status bar.
-	layoutH := rows - render.GlobalBarHeight
-
 	// Create the first pane and window if none exist.
 	var newPane *mux.Pane
-	var resized bool
 	if len(sess.Windows) == 0 {
+		layoutH := rows - render.GlobalBarHeight
 		paneH := mux.PaneContentHeight(layoutH)
 		pane, err := sess.createPane(s, cols, paneH)
 		if err != nil {
@@ -549,13 +551,11 @@ func (s *Server) handleAttach(conn net.Conn, msg *Message) {
 		sess.Windows = append(sess.Windows, w)
 		sess.ActiveWindowID = winID
 		newPane = pane
-	} else {
-		// Reattach: resize existing windows to match the new client's terminal.
-		for _, w := range sess.Windows {
-			w.Resize(cols, layoutH)
-		}
-		resized = true
 	}
+
+	// Add client before recalcSize so its dimensions are included in the max.
+	sess.clients = append(sess.clients, cc)
+	sess.recalcSizeLocked()
 
 	// Send layout snapshot so client can build its rendering state
 	snap := sess.snapshotLayoutLocked(idleSnap)
@@ -567,12 +567,10 @@ func (s *Server) handleAttach(conn net.Conn, msg *Message) {
 		cc.Send(&Message{Type: MsgTypePaneOutput, PaneID: p.ID, PaneData: []byte(rendered)})
 	}
 
-	sess.clients = append(sess.clients, cc)
 	sess.mu.Unlock()
 
-	if resized {
-		sess.broadcastLayout()
-	}
+	// Broadcast layout to other clients so they see the updated dimensions.
+	sess.broadcastLayout()
 
 	if newPane != nil {
 		newPane.Start()

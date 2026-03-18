@@ -145,11 +145,12 @@ func (r *Renderer) HandleLayout(snap *proto.LayoutSnapshot) bool {
 		}
 	})
 
-	// Update dimensions and compositor
-	r.width = snap.Width
-	r.height = snap.Height + render.GlobalBarHeight
+	// Update compositor session name. Dimensions are NOT overwritten from
+	// the server snapshot — the client keeps its own terminal size (set by
+	// Resize() from SIGWINCH). With multi-client "largest wins", the server
+	// layout may be larger than this client's terminal; ScreenGrid.Set clips
+	// out-of-bounds cells safely.
 	r.compositor.SetSessionName(snap.SessionName)
-	r.compositor.Resize(r.width, r.height)
 
 	// Pass window info for the global bar
 	if len(snap.Windows) > 0 {

@@ -96,19 +96,20 @@ func TestReattachResizeShrink(t *testing.T) {
 	// Initial session is 80×24. Split vertically.
 	h.splitV()
 
-	// Reattach at a smaller size (60×20).
+	// Reattach at a smaller size (60×20). The primary headless client (80×24)
+	// is still connected, so "largest client wins" keeps the layout at 80×23.
 	msg := h.attachAt(60, 20)
 	snap := msg.Layout
-	if snap.Width != 60 {
-		t.Errorf("shrink width: got %d, want 60", snap.Width)
+	if snap.Width != 80 {
+		t.Errorf("shrink width: got %d, want 80 (largest client wins)", snap.Width)
 	}
-	if snap.Height != 19 {
-		t.Errorf("shrink height: got %d, want 19", snap.Height)
+	if snap.Height != 23 {
+		t.Errorf("shrink height: got %d, want 23 (largest client wins)", snap.Height)
 	}
 
 	root := snap.Root
-	if root.W != 60 {
-		t.Errorf("root cell width: got %d, want 60", root.W)
+	if root.W != 80 {
+		t.Errorf("root cell width: got %d, want 80", root.W)
 	}
 
 	if len(root.Children) != 2 {
@@ -117,7 +118,7 @@ func TestReattachResizeShrink(t *testing.T) {
 	left := root.Children[0]
 	right := root.Children[1]
 	// Children sum to width-1 (1 col for the vertical border).
-	if left.W+right.W != 59 {
-		t.Errorf("children widths don't sum to 59: %d + %d", left.W, right.W)
+	if left.W+right.W != 79 {
+		t.Errorf("children widths don't sum to 79: %d + %d", left.W, right.W)
 	}
 }

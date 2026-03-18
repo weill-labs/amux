@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/weill-labs/amux/internal/mux"
-	"github.com/weill-labs/amux/internal/render"
 )
 
 // ClientConn manages a single client connection to the server.
@@ -17,6 +16,8 @@ type ClientConn struct {
 	conn   net.Conn
 	mu     sync.Mutex
 	closed bool
+	cols   int // last reported terminal width
+	rows   int // last reported terminal height
 }
 
 // NewClientConn wraps a net.Conn for protocol communication.
@@ -68,11 +69,9 @@ func (cc *ClientConn) readLoop(srv *Server, sess *Session) {
 
 		case MsgTypeResize:
 			sess.mu.Lock()
-			// Resize all windows to match the terminal
-			layoutH := msg.Rows - render.GlobalBarHeight
-			for _, w := range sess.Windows {
-				w.Resize(msg.Cols, layoutH)
-			}
+			cc.cols = msg.Cols
+			cc.rows = msg.Rows
+			sess.recalcSizeLocked()
 			sess.mu.Unlock()
 			sess.broadcastLayout()
 
