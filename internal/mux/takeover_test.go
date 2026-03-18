@@ -218,6 +218,71 @@ func TestFormatTakeoverSequence(t *testing.T) {
 	}
 }
 
+func TestFormatAndParseTakeoverAck(t *testing.T) {
+	t.Parallel()
+	session := "default@localMachine"
+	ack := FormatTakeoverAck(session)
+
+	got, ok := ParseTakeoverAck(ack)
+	if !ok {
+		t.Fatalf("ParseTakeoverAck(%q) = _, false; want true", ack)
+	}
+	if got != session {
+		t.Errorf("ParseTakeoverAck round-trip: got %q, want %q", got, session)
+	}
+}
+
+func TestParseTakeoverAckWithTrailingNewline(t *testing.T) {
+	t.Parallel()
+	// The server appends \n to the ack to flush through PTY canonical-mode
+	// line buffering. ParseTakeoverAck must ignore trailing data after BEL.
+	session := "default@host"
+	ack := FormatTakeoverAck(session) + "\n"
+	got, ok := ParseTakeoverAck(ack)
+	if !ok {
+		t.Fatalf("ParseTakeoverAck(%q) = _, false; want true", ack)
+	}
+	if got != session {
+		t.Errorf("got %q, want %q", got, session)
+	}
+}
+
+func TestParseTakeoverAckRejectsOldFormat(t *testing.T) {
+	t.Parallel()
+	// Old fixed TakeoverAck constant (no session name) should parse as empty session
+	oldAck := "\x1b]999;amux-takeover-ack\x07"
+	_, ok := ParseTakeoverAck(oldAck)
+	if ok {
+		t.Error("old ack format (no session) should not parse as valid")
+	}
+}
+
+func TestTakeoverRequestSSHFields(t *testing.T) {
+	t.Parallel()
+	// Verify SSHAddress and SSHUser are carried through JSON round-trip
+	req := TakeoverRequest{
+		Session:    "s1@remote",
+		Host:       "remote-box",
+		UID:        "1000",
+		SSHAddress: "10.0.0.5:22",
+		SSHUser:    "ubuntu",
+		Panes:      []TakeoverPane{{ID: 1, Name: "pane-1", Cols: 80, Rows: 24}},
+	}
+	seq := FormatTakeoverSequence(req)
+	scanner := &AmuxControlScanner{}
+	results := scanner.Scan(seq)
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	got := results[0]
+	if got.SSHAddress != "10.0.0.5:22" {
+		t.Errorf("SSHAddress = %q, want %q", got.SSHAddress, "10.0.0.5:22")
+	}
+	if got.SSHUser != "ubuntu" {
+		t.Errorf("SSHUser = %q, want %q", got.SSHUser, "ubuntu")
+	}
+}
+
 func TestAmuxControlScanDoesNotMatchOSC52(t *testing.T) {
 	t.Parallel()
 	s := &AmuxControlScanner{}

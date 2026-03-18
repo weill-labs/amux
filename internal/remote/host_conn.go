@@ -37,8 +37,9 @@ type HostConn struct {
 	localToRemote map[uint32]uint32
 
 	// Session name for the remote amux server (includes local hostname)
-	sessionName string
-	remoteUID   string // UID of the remote user (for socket path)
+	sessionName  string
+	remoteUID    string // UID of the remote user (for socket path)
+	takeoverMode bool   // true when established via takeover (skip ensureRemoteServer on reconnect)
 
 	// Callbacks back to the local server
 	onPaneOutput  PaneOutputCallback
@@ -90,16 +91,25 @@ func (hc *HostConn) setState(s ConnState) {
 
 // EnsureConnected establishes the SSH connection and amux tunnel if not already connected.
 func (hc *HostConn) EnsureConnected(sessionName string) error {
+	return hc.connectAndStart(func() error {
+		return hc.connect(sessionName)
+	})
+}
+
+// connectAndStart transitions through Connecting → Connected (or Disconnected on
+// error) and starts the readLoop on success. The supplied connectFn performs the
+// actual SSH dial and amux attach; both EnsureConnected and
+// EnsureConnectedForTakeover share this state-machine wrapper.
+func (hc *HostConn) connectAndStart(connectFn func() error) error {
 	hc.mu.Lock()
 	if hc.state == Connected {
 		hc.mu.Unlock()
 		return nil
 	}
 	hc.setState(Connecting)
-	hc.sessionName = sessionName
 	hc.mu.Unlock()
 
-	if err := hc.connect(sessionName); err != nil {
+	if err := connectFn(); err != nil {
 		hc.mu.Lock()
 		hc.setState(Disconnected)
 		hc.mu.Unlock()
@@ -110,9 +120,7 @@ func (hc *HostConn) EnsureConnected(sessionName string) error {
 	hc.setState(Connected)
 	hc.mu.Unlock()
 
-	// Start reading pane output from the persistent attach connection
 	go hc.readLoop()
-
 	return nil
 }
 
@@ -166,6 +174,13 @@ func (hc *HostConn) connect(sessionName string) error {
 	// socat bridge (needed for Tailscale SSH which doesn't support
 	// direct-streamlocal@openssh.com).
 	remoteSock := hc.remoteSocketPath(remoteSession)
+	return hc.attachToSocket(sshClient, remoteSock, remoteSession)
+}
+
+// attachToSocket dials the remote amux socket, sends an MsgTypeAttach, and
+// stores the resulting connections. On failure it closes sshClient.
+// Shared by connect (normal) and connectTakeover (SSH takeover).
+func (hc *HostConn) attachToSocket(sshClient *ssh.Client, remoteSock, sessionName string) error {
 	amuxConn, err := hc.dialRemoteSocket(sshClient, remoteSock)
 	if err != nil {
 		sshClient.Close()
@@ -176,7 +191,7 @@ func (hc *HostConn) connect(sessionName string) error {
 	// guarantees the remote session has a window. Without the wait, a
 	// subsequent runCommand("spawn") can race with handleAttach on the
 	// remote server and fail with "no window".
-	if err := attachAndWait(amuxConn, remoteSession, 10*time.Second); err != nil {
+	if err := attachAndWait(amuxConn, sessionName, 10*time.Second); err != nil {
 		amuxConn.Close()
 		sshClient.Close()
 		return err
@@ -185,7 +200,7 @@ func (hc *HostConn) connect(sessionName string) error {
 	hc.mu.Lock()
 	hc.sshClient = sshClient
 	hc.amuxConn = amuxConn
-	hc.sessionName = remoteSession
+	hc.sessionName = sessionName
 	hc.mu.Unlock()
 
 	return nil
@@ -505,6 +520,67 @@ func (hc *HostConn) Disconnect() {
 func (hc *HostConn) Reconnect(sessionName string) error {
 	hc.Disconnect()
 	return hc.EnsureConnected(sessionName)
+}
+
+// RegisterPane registers a local-to-remote pane ID mapping for a takeover proxy
+// pane. Must be called before EnsureConnectedForTakeover so that readLoop can
+// route MsgTypePaneOutput to the correct local pane immediately after connecting.
+func (hc *HostConn) RegisterPane(localPaneID, remotePaneID uint32) {
+	hc.mu.Lock()
+	defer hc.mu.Unlock()
+	hc.localToRemote[localPaneID] = remotePaneID
+	hc.remoteToLocal[remotePaneID] = localPaneID
+}
+
+// EnsureConnectedForTakeover establishes SSH+amux for a takeover pane.
+// Unlike EnsureConnected, it skips ensureRemoteServer and waits for the socket.
+func (hc *HostConn) EnsureConnectedForTakeover(sessionName, remoteUID, sshAddr string) error {
+	return hc.connectAndStart(func() error {
+		return hc.connectTakeover(sessionName, remoteUID, sshAddr)
+	})
+}
+
+// connectTakeover connects to a remote amux server that was started by tryTakeover.
+// Unlike connect(), it uses the explicit sshAddr and remoteUID, skips ensureRemoteServer,
+// and waits for the socket to appear instead of sleeping.
+func (hc *HostConn) connectTakeover(sessionName, remoteUID, sshAddr string) error {
+	sshCfg, err := hc.buildSSHConfig()
+	if err != nil {
+		return fmt.Errorf("building SSH config: %w", err)
+	}
+
+	sshAddr = normalizeAddr(sshAddr)
+
+	sshClient, err := ssh.Dial("tcp", sshAddr, sshCfg)
+	if err != nil {
+		return fmt.Errorf("SSH dial %s: %w", sshAddr, err)
+	}
+
+	remoteSock := fmt.Sprintf("/tmp/amux-%s/%s", remoteUID, sessionName)
+	if err := waitForSocket(sshClient, remoteSock, 5*time.Second); err != nil {
+		sshClient.Close()
+		return fmt.Errorf("waiting for remote socket %s: %w", remoteSock, err)
+	}
+
+	hc.mu.Lock()
+	hc.remoteUID = remoteUID
+	hc.takeoverMode = true
+	hc.mu.Unlock()
+
+	return hc.attachToSocket(sshClient, remoteSock, sessionName)
+}
+
+// waitForSocket polls via SSH until sockPath exists on the remote host or timeout expires.
+func waitForSocket(client *ssh.Client, sockPath string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		out, err := sshOutput(client, fmt.Sprintf("test -S %s && echo ok", sockPath))
+		if err == nil && strings.Contains(out, "ok") {
+			return nil
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return fmt.Errorf("socket %s did not appear within %v", sockPath, timeout)
 }
 
 // remoteSessionName returns the session name to use on the remote server.

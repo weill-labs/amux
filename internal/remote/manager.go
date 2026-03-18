@@ -155,6 +155,59 @@ func (m *Manager) CreatePane(hostName string, localPaneID uint32, sessionName st
 	return remotePaneID, nil
 }
 
+// AttachForTakeover connects to a remote amux server that was started by a takeover
+// and wires bidirectional I/O for all proxy panes. paneMappings maps local pane ID →
+// remote pane ID. All mappings are registered before connecting so the readLoop
+// never receives output for an unmapped pane.
+func (m *Manager) AttachForTakeover(hostName, sshAddr, sshUser, remoteUID, sessionName string, paneMappings map[uint32]uint32) error {
+	m.mu.Lock()
+
+	// Find config entry by SSH address to inherit identity_file and user settings.
+	connKey, hostCfg, found := m.findHostByAddress(sshAddr)
+	if !found {
+		connKey = hostName
+		hostCfg = config.Host{Type: "remote", Address: sshAddr, User: sshUser}
+	}
+
+	hc, exists := m.hosts[connKey]
+	if !exists {
+		hc = NewHostConn(connKey, hostCfg, m.buildHash, m.onPaneOutput, m.onPaneExit, m.onStateChange)
+		m.hosts[connKey] = hc
+	}
+	for localID := range paneMappings {
+		m.localToHost[localID] = connKey
+	}
+	m.mu.Unlock()
+
+	// Register ALL pane mappings before connecting so readLoop routes output correctly
+	// from the first message. If we connected first, early output from any pane not
+	// yet registered would be silently dropped.
+	for localID, remoteID := range paneMappings {
+		hc.RegisterPane(localID, remoteID)
+	}
+
+	return hc.EnsureConnectedForTakeover(sessionName, remoteUID, sshAddr)
+}
+
+// findHostByAddress finds a config host entry whose Address matches sshAddr.
+// Returns the host name, config entry, and true if found.
+func (m *Manager) findHostByAddress(sshAddr string) (string, config.Host, bool) {
+	sshAddr = normalizeAddr(sshAddr)
+	for name, host := range m.cfg.Hosts {
+		if host.Type == "local" {
+			continue
+		}
+		addr := host.Address
+		if addr == "" {
+			addr = name
+		}
+		if normalizeAddr(addr) == sshAddr {
+			return name, host, true
+		}
+	}
+	return "", config.Host{}, false
+}
+
 // hostConnForPane returns the HostConn for a local pane, or nil if not found.
 func (m *Manager) hostConnForPane(localPaneID uint32) *HostConn {
 	m.mu.Lock()

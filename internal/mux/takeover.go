@@ -3,6 +3,7 @@ package mux
 import (
 	"bytes"
 	"encoding/json"
+	"strings"
 )
 
 // TakeoverRequest is the JSON payload emitted by a nested amux through
@@ -25,9 +26,38 @@ type TakeoverPane struct {
 	Rows int    `json:"rows"`
 }
 
-// TakeoverAck is the sequence sent back through the PTY's stdin to
-// acknowledge a takeover request.
+// TakeoverAck is the legacy fixed ack (no session name). Kept for reference.
+// New code should use FormatTakeoverAck/ParseTakeoverAck.
 const TakeoverAck = "\x1b]999;amux-takeover-ack\x07"
+
+// takeoverAckPrefix is the OSC prefix for a session-carrying ack.
+const takeoverAckPrefix = "\x1b]999;amux-takeover-ack;"
+
+// FormatTakeoverAck builds the ack sequence carrying the agreed remote session name.
+// The remote amux reads the session name from the ack and calls runServer with it,
+// ensuring both sides agree on the Unix socket path.
+func FormatTakeoverAck(session string) string {
+	return takeoverAckPrefix + session + "\x07"
+}
+
+// ParseTakeoverAck extracts the session name from a TakeoverAck sequence.
+// Returns (session, true) if the sequence is a valid session-carrying ack,
+// or ("", false) if it is not (e.g. old fixed-format ack or unrelated data).
+func ParseTakeoverAck(data string) (string, bool) {
+	if !strings.HasPrefix(data, takeoverAckPrefix) {
+		return "", false
+	}
+	rest := data[len(takeoverAckPrefix):]
+	belIdx := strings.IndexByte(rest, 0x07)
+	if belIdx < 0 {
+		return "", false
+	}
+	session := rest[:belIdx]
+	if session == "" {
+		return "", false
+	}
+	return session, true
+}
 
 // amuxControlPrefix is the OSC 999 prefix for amux control sequences.
 var amuxControlPrefix = []byte("\x1b]999;amux-takeover;")
