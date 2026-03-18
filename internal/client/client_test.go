@@ -8,47 +8,45 @@ import (
 
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
+	"github.com/weill-labs/amux/internal/render"
 )
+
+// twoPane80x23 returns a layout snapshot with two panes in a vertical split
+// at 80 columns by 23 rows (the standard 80x24 terminal minus the global bar).
+func twoPane80x23() *proto.LayoutSnapshot {
+	root := proto.CellSnapshot{
+		X: 0, Y: 0, W: 80, H: 23,
+		Dir: int(mux.SplitVertical),
+		Children: []proto.CellSnapshot{
+			{X: 0, Y: 0, W: 39, H: 23, IsLeaf: true, Dir: -1, PaneID: 1},
+			{X: 40, Y: 0, W: 39, H: 23, IsLeaf: true, Dir: -1, PaneID: 2},
+		},
+	}
+	panes := []proto.PaneSnapshot{
+		{ID: 1, Name: "pane-1", Host: "local", Color: "f5e0dc"},
+		{ID: 2, Name: "pane-2", Host: "local", Color: "f2cdcd"},
+	}
+	return &proto.LayoutSnapshot{
+		SessionName:  "test",
+		ActivePaneID: 1,
+		Width:        80,
+		Height:       23,
+		Root:         root,
+		Panes:        panes,
+		Windows: []proto.WindowSnapshot{{
+			ID: 1, Name: "window-1", Index: 1, ActivePaneID: 1,
+			Root:  root,
+			Panes: panes,
+		}},
+		ActiveWindowID: 1,
+	}
+}
 
 // buildTestRenderer creates a ClientRenderer with two panes in a vertical split.
 func buildTestRenderer(t *testing.T) *ClientRenderer {
 	t.Helper()
 	cr := NewClientRenderer(80, 24)
-	cr.HandleLayout(&proto.LayoutSnapshot{
-		SessionName:  "test",
-		ActivePaneID: 1,
-		Width:        80,
-		Height:       23, // 24 - 1 global bar
-		Root: proto.CellSnapshot{
-			X: 0, Y: 0, W: 80, H: 23,
-			Dir: int(mux.SplitVertical),
-			Children: []proto.CellSnapshot{
-				{X: 0, Y: 0, W: 39, H: 23, IsLeaf: true, Dir: -1, PaneID: 1},
-				{X: 40, Y: 0, W: 39, H: 23, IsLeaf: true, Dir: -1, PaneID: 2},
-			},
-		},
-		Panes: []proto.PaneSnapshot{
-			{ID: 1, Name: "pane-1", Host: "local", Color: "f5e0dc"},
-			{ID: 2, Name: "pane-2", Host: "local", Color: "f2cdcd"},
-		},
-		Windows: []proto.WindowSnapshot{{
-			ID: 1, Name: "window-1", Index: 1, ActivePaneID: 1,
-			Root: proto.CellSnapshot{
-				X: 0, Y: 0, W: 80, H: 23,
-				Dir: int(mux.SplitVertical),
-				Children: []proto.CellSnapshot{
-					{X: 0, Y: 0, W: 39, H: 23, IsLeaf: true, Dir: -1, PaneID: 1},
-					{X: 40, Y: 0, W: 39, H: 23, IsLeaf: true, Dir: -1, PaneID: 2},
-				},
-			},
-			Panes: []proto.PaneSnapshot{
-				{ID: 1, Name: "pane-1", Host: "local", Color: "f5e0dc"},
-				{ID: 2, Name: "pane-2", Host: "local", Color: "f2cdcd"},
-			},
-		}},
-		ActiveWindowID: 1,
-	})
-	// Write content into pane-1
+	cr.HandleLayout(twoPane80x23())
 	cr.HandlePaneOutput(1, []byte("hello from pane 1"))
 	return cr
 }
@@ -326,40 +324,7 @@ func TestRescaleLayoutForSmallerClient(t *testing.T) {
 
 	// Client terminal is 40×12, but server layout is 80×23 (the larger client).
 	cr := NewClientRenderer(40, 12)
-	cr.HandleLayout(&proto.LayoutSnapshot{
-		SessionName:  "test",
-		ActivePaneID: 1,
-		Width:        80,
-		Height:       23,
-		Root: proto.CellSnapshot{
-			X: 0, Y: 0, W: 80, H: 23,
-			Dir: int(mux.SplitVertical),
-			Children: []proto.CellSnapshot{
-				{X: 0, Y: 0, W: 39, H: 23, IsLeaf: true, Dir: -1, PaneID: 1},
-				{X: 40, Y: 0, W: 39, H: 23, IsLeaf: true, Dir: -1, PaneID: 2},
-			},
-		},
-		Panes: []proto.PaneSnapshot{
-			{ID: 1, Name: "pane-1", Host: "local", Color: "f5e0dc"},
-			{ID: 2, Name: "pane-2", Host: "local", Color: "f2cdcd"},
-		},
-		Windows: []proto.WindowSnapshot{{
-			ID: 1, Name: "window-1", Index: 1, ActivePaneID: 1,
-			Root: proto.CellSnapshot{
-				X: 0, Y: 0, W: 80, H: 23,
-				Dir: int(mux.SplitVertical),
-				Children: []proto.CellSnapshot{
-					{X: 0, Y: 0, W: 39, H: 23, IsLeaf: true, Dir: -1, PaneID: 1},
-					{X: 40, Y: 0, W: 39, H: 23, IsLeaf: true, Dir: -1, PaneID: 2},
-				},
-			},
-			Panes: []proto.PaneSnapshot{
-				{ID: 1, Name: "pane-1", Host: "local", Color: "f5e0dc"},
-				{ID: 2, Name: "pane-2", Host: "local", Color: "f2cdcd"},
-			},
-		}},
-		ActiveWindowID: 1,
-	})
+	cr.HandleLayout(twoPane80x23())
 	cr.HandlePaneOutput(1, []byte("hello from pane 1"))
 	cr.HandlePaneOutput(2, []byte("hello from pane 2"))
 
@@ -381,7 +346,7 @@ func TestRescaleLayoutForSmallerClient(t *testing.T) {
 	if len(capture.Panes) != 2 {
 		t.Fatalf("panes: got %d, want 2", len(capture.Panes))
 	}
-	clientLayoutH := 12 - 1 // 12 rows minus GlobalBarHeight
+	clientLayoutH := 12 - render.GlobalBarHeight
 	for _, p := range capture.Panes {
 		pos := p.Position
 		if pos == nil {

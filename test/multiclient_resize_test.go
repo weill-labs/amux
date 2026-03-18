@@ -7,44 +7,51 @@ import (
 	"github.com/weill-labs/amux/internal/server"
 )
 
+// attachClient attaches a new headless client to the harness's session.
+func (h *ServerHarness) attachClient(cols, rows int) *headlessClient {
+	h.tb.Helper()
+	sockPath := server.SocketPath(h.session)
+	hc, err := newHeadlessClient(sockPath, h.session, cols, rows)
+	if err != nil {
+		h.tb.Fatalf("attaching %dx%d client: %v", cols, rows, err)
+	}
+	return hc
+}
+
+// assertLayoutSize verifies that the server's layout dimensions match the
+// expected width and height by doing a fresh attach at the given terminal size.
+func (h *ServerHarness) assertLayoutSize(cols, rows, wantW, wantH int) {
+	h.tb.Helper()
+	msg := h.attachAt(cols, rows)
+	snap := msg.Layout
+	if snap.Width != wantW {
+		h.tb.Errorf("layout width: got %d, want %d", snap.Width, wantW)
+	}
+	if snap.Height != wantH {
+		h.tb.Errorf("layout height: got %d, want %d", snap.Height, wantH)
+	}
+}
+
 func TestMultiClientLargestWins(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t) // 80×24
 
 	// Attach a second, smaller client (60×20).
-	sockPath := server.SocketPath(h.session)
-	small, err := newHeadlessClient(sockPath, h.session, 60, 20)
-	if err != nil {
-		t.Fatalf("attaching small client: %v", err)
-	}
+	small := h.attachClient(60, 20)
 
 	// Wait for the layout broadcast triggered by the second client's attach.
 	gen := h.generation()
 	h.waitLayout(gen)
 
 	// Layout should stay at 80×23 (the larger client's dimensions).
-	msg := h.attachAt(80, 24)
-	snap := msg.Layout
-	if snap.Width != 80 {
-		t.Errorf("width: got %d, want 80 (largest client)", snap.Width)
-	}
-	if snap.Height != 23 {
-		t.Errorf("height: got %d, want 23 (largest client)", snap.Height)
-	}
+	h.assertLayoutSize(80, 24, 80, 23)
 
 	// Disconnect the small client — removeClient broadcasts layout.
 	gen = h.generation()
 	small.close()
 	h.waitLayout(gen)
 
-	msg = h.attachAt(80, 24)
-	snap = msg.Layout
-	if snap.Width != 80 {
-		t.Errorf("after disconnect width: got %d, want 80", snap.Width)
-	}
-	if snap.Height != 23 {
-		t.Errorf("after disconnect height: got %d, want 23", snap.Height)
-	}
+	h.assertLayoutSize(80, 24, 80, 23)
 }
 
 func TestMultiClientExpandOnLarger(t *testing.T) {
@@ -52,39 +59,21 @@ func TestMultiClientExpandOnLarger(t *testing.T) {
 	h := newServerHarness(t) // 80×24
 
 	// Attach a second, larger client (120×40).
-	sockPath := server.SocketPath(h.session)
-	large, err := newHeadlessClient(sockPath, h.session, 120, 40)
-	if err != nil {
-		t.Fatalf("attaching large client: %v", err)
-	}
+	large := h.attachClient(120, 40)
 
 	// Wait for the layout broadcast triggered by the larger client.
 	gen := h.generation()
 	h.waitLayout(gen)
 
 	// Layout should expand to 120×39 (the larger client's dimensions).
-	msg := h.attachAt(120, 40)
-	snap := msg.Layout
-	if snap.Width != 120 {
-		t.Errorf("width: got %d, want 120 (largest client)", snap.Width)
-	}
-	if snap.Height != 39 {
-		t.Errorf("height: got %d, want 39 (largest client)", snap.Height)
-	}
+	h.assertLayoutSize(120, 40, 120, 39)
 
 	// Disconnect the large client — layout should shrink back to 80×23.
 	gen = h.generation()
 	large.close()
 	h.waitLayout(gen)
 
-	msg = h.attachAt(80, 24)
-	snap = msg.Layout
-	if snap.Width != 80 {
-		t.Errorf("after disconnect width: got %d, want 80", snap.Width)
-	}
-	if snap.Height != 23 {
-		t.Errorf("after disconnect height: got %d, want 23", snap.Height)
-	}
+	h.assertLayoutSize(80, 24, 80, 23)
 }
 
 func TestMultiClientSmallClientSeesAllPanes(t *testing.T) {
@@ -95,11 +84,7 @@ func TestMultiClientSmallClientSeesAllPanes(t *testing.T) {
 	h.splitV()
 
 	// Attach a second, smaller client (40×12).
-	sockPath := server.SocketPath(h.session)
-	small, err := newHeadlessClient(sockPath, h.session, 40, 12)
-	if err != nil {
-		t.Fatalf("attaching small client: %v", err)
-	}
+	small := h.attachClient(40, 12)
 	defer small.close()
 
 	// The small client's renderer rescales the layout proportionally.
@@ -118,11 +103,7 @@ func TestMultiClientResizeRecalculates(t *testing.T) {
 	h := newServerHarness(t) // 80×24
 
 	// Attach a second, larger client (120×40).
-	sockPath := server.SocketPath(h.session)
-	large, err := newHeadlessClient(sockPath, h.session, 120, 40)
-	if err != nil {
-		t.Fatalf("attaching large client: %v", err)
-	}
+	large := h.attachClient(120, 40)
 
 	gen := h.generation()
 	h.waitLayout(gen)
@@ -133,14 +114,7 @@ func TestMultiClientResizeRecalculates(t *testing.T) {
 	h.client.resize(70, 20)
 	h.waitLayout(gen)
 
-	msg := h.attachAt(120, 40)
-	snap := msg.Layout
-	if snap.Width != 120 {
-		t.Errorf("width: got %d, want 120 (large client still connected)", snap.Width)
-	}
-	if snap.Height != 39 {
-		t.Errorf("height: got %d, want 39 (large client still connected)", snap.Height)
-	}
+	h.assertLayoutSize(120, 40, 120, 39)
 
 	large.close()
 }

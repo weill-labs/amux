@@ -153,7 +153,6 @@ func (r *Renderer) HandleLayout(snap *proto.LayoutSnapshot) bool {
 		r.layout.ResizeAll(r.width, clientLayoutH)
 	}
 
-	// The client keeps its own terminal size (set by Resize via SIGWINCH).
 	r.compositor.SetSessionName(snap.SessionName)
 
 	// Pass window info for the global bar
