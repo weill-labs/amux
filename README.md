@@ -282,7 +282,7 @@ Default prefix: `Ctrl-a`. Configurable via `~/.config/amux/config.toml` (see [Co
 | `Ctrl-a _` | Root-level split top/bottom |
 | `Ctrl-a x` | Kill active pane |
 | `Ctrl-a z` | Toggle zoom on active pane |
-| `Ctrl-a m` | Toggle minimize/restore |
+| `Ctrl-a M` | Toggle minimize/restore |
 | `Ctrl-a }` / `Ctrl-a {` | Swap active pane with next/previous |
 | `Ctrl-a o` | Cycle focus to next pane |
 | `Ctrl-a h/j/k/l` | Focus left/down/up/right |
@@ -323,11 +323,12 @@ color = "a6e3a1"            # Catppuccin Green
 ```toml
 [keys]
 prefix = "C-b"              # change prefix to Ctrl-b (default: Ctrl-a)
-unbind = ["m", "["]          # remove default bindings
+unbind = ["M", "["]         # remove default bindings
 
 [keys.bind]
 "s" = "split v"             # bind Ctrl-b s to vertical split
 "q" = "kill"                # bind Ctrl-b q to kill pane
+"m" = "toggle-minimize"     # restore the pre-LAB-241 minimize key if desired
 ```
 
 Key format: single character (`d`, `\\`, `-`) or Ctrl combo (`C-a`, `C-b`). Actions match CLI command names (e.g., `split`, `focus left`, `zoom`, `kill`).

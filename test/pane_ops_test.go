@@ -298,22 +298,22 @@ func TestToggleMinimizeKeybinding(t *testing.T) {
 
 	h.runCmd("focus", "pane-1")
 	gen := h.generation()
-	h.sendKeys("C-a", "m")
+	h.sendKeys("C-a", "M")
 	h.waitLayout(gen)
 
 	statusOut := h.runCmd("status")
 	if !strings.Contains(statusOut, "1 minimized") {
-		t.Fatalf("expected 1 minimized pane after Ctrl-a m, got:\n%s", statusOut)
+		t.Fatalf("expected 1 minimized pane after Ctrl-a M, got:\n%s", statusOut)
 	}
 
 	h.runCmd("focus", "pane-1")
 	gen = h.generation()
-	h.sendKeys("C-a", "m")
+	h.sendKeys("C-a", "M")
 	h.waitLayout(gen)
 
 	statusOut = h.runCmd("status")
 	if !strings.Contains(statusOut, "0 minimized") {
-		t.Fatalf("expected 0 minimized panes after toggling restore, got:\n%s", statusOut)
+		t.Fatalf("expected 0 minimized panes after toggling restore with Ctrl-a M, got:\n%s", statusOut)
 	}
 }
 
@@ -326,12 +326,12 @@ func TestToggleMinimizeMultiplePanes(t *testing.T) {
 
 	h.runCmd("focus", "pane-1")
 	gen := h.generation()
-	h.sendKeys("C-a", "m")
+	h.sendKeys("C-a", "M")
 	h.waitLayout(gen)
 
 	h.runCmd("focus", "pane-2")
 	gen = h.generation()
-	h.sendKeys("C-a", "m")
+	h.sendKeys("C-a", "M")
 	h.waitLayout(gen)
 
 	statusOut := h.runCmd("status")
