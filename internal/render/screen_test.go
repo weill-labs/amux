@@ -1,6 +1,7 @@
 package render
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -585,5 +586,254 @@ func TestDiffGrid_StyleChange(t *testing.T) {
 	}
 	if !strings.Contains(changes[0].Cell.Style.String(), "38;2;255;0;0") {
 		t.Errorf("style should be red fg: %q", changes[0].Cell.Style.String())
+	}
+}
+
+func TestPrevGridText(t *testing.T) {
+	t.Parallel()
+	width, height := 40, 6
+	totalH := height + GlobalBarHeight
+
+	paneEmu := vt.NewSafeEmulator(40, height-mux.StatusLineRows)
+	paneEmu.Write([]byte("hello world"))
+
+	root := mux.NewLeafByID(1, 0, 0, width, height)
+	lookup := func(id uint32) PaneData {
+		if id == 1 {
+			return &emuPaneData{emu: paneEmu, id: 1, name: "pane-1", color: "f5e0dc", cursorHidden: true}
+		}
+		return nil
+	}
+
+	comp := NewCompositor(width, totalH, "test")
+
+	// Before any render, PrevGridText returns empty.
+	if got := comp.PrevGridText(); got != "" {
+		t.Errorf("before render: PrevGridText = %q, want empty", got)
+	}
+
+	// After RenderDiff, PrevGridText should match MaterializeGrid of RenderFull.
+	comp.RenderDiff(root, 1, lookup)
+	got := comp.PrevGridText()
+	if got == "" {
+		t.Fatal("after RenderDiff: PrevGridText is empty")
+	}
+
+	full := comp.RenderFull(root, 1, lookup, true)
+	expected := MaterializeGrid(full, width, totalH)
+	if got != expected {
+		t.Errorf("PrevGridText doesn't match MaterializeGrid:\ngot:\n%s\nwant:\n%s", got, expected)
+	}
+}
+
+// --- Color-aware oracle tests ---
+// These verify that RenderDiff produces the same visual result as RenderFull
+// including cell styles (foreground, background, attributes), not just text.
+
+// colorOracleCheck feeds RenderDiff output into diffDisplay (persistent, like a
+// real terminal), creates a fresh display from RenderFull for ground truth, and
+// compares cell-by-cell. Foreground-only differences on space characters are
+// ignored since they're visually invisible (the RenderFull ANSI path inherits
+// fg state onto trailing spaces, while BuildGrid sets only bg on fill cells).
+func colorOracleCheck(comp *Compositor, diffDisplay *vt.SafeEmulator, root *mux.LayoutCell, activeID uint32, lookup func(uint32) PaneData, width, height int) []string {
+	// Ground truth: RenderFull (clear screen) → fresh display emulator
+	fullANSI := comp.RenderFull(root, activeID, lookup, true)
+	fullDisplay := vt.NewSafeEmulator(width, height)
+	fullDisplay.Write([]byte(fullANSI))
+
+	// Diff path: RenderDiff → persistent display emulator
+	diffANSI := comp.RenderDiff(root, activeID, lookup)
+	diffDisplay.Write([]byte(diffANSI))
+
+	var mismatches []string
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			fullCell := fullDisplay.CellAt(x, y)
+			diffCell := diffDisplay.CellAt(x, y)
+
+			fullContent := " "
+			diffContent := " "
+			if fullCell != nil && fullCell.Content != "" {
+				fullContent = fullCell.Content
+			}
+			if diffCell != nil && diffCell.Content != "" {
+				diffContent = diffCell.Content
+			}
+
+			if fullContent != diffContent {
+				mismatches = append(mismatches, fmt.Sprintf(
+					"cell(%d,%d): content full=%q diff=%q", x, y, fullContent, diffContent))
+				continue
+			}
+
+			var fullStyle, diffStyle uv.Style
+			if fullCell != nil {
+				fullStyle = fullCell.Style
+			}
+			if diffCell != nil {
+				diffStyle = diffCell.Style
+			}
+
+			// Skip fg-only differences on space characters — the RenderFull
+			// ANSI path inherits fg from previous styled characters onto
+			// trailing fill spaces, while BuildGrid explicitly sets only bg
+			// on fill cells. Both produce identical visual output.
+			if fullContent == " " {
+				fullStyle.Fg = nil
+				diffStyle.Fg = nil
+			}
+
+			if !fullStyle.Equal(&diffStyle) {
+				mismatches = append(mismatches, fmt.Sprintf(
+					"cell(%d,%d) %q: style full=%s diff=%s", x, y, fullContent,
+					fullStyle.String(), diffStyle.String()))
+			}
+		}
+	}
+	return mismatches
+}
+
+func TestRenderDiff_ColorOracle(t *testing.T) {
+	t.Parallel()
+	width, height := 60, 10
+	totalH := height + GlobalBarHeight
+	contentH := height - mux.StatusLineRows
+
+	paneEmu := vt.NewSafeEmulator(width, contentH)
+
+	// Feed htop-like ANSI: colored bars, bold/dim styles, sort indicator.
+	htopContent := strings.Join([]string{
+		"\033[32m|||||\033[31m||\033[90;1m   \033[0m CPU1 [##...]",
+		"\033[34m|||\033[33m|||\033[90;1m    \033[0m CPU2 [##...]",
+		"  PID USER  \033[30;42m▽CPU%\033[0m MEM%  TIME+",
+		"\033[1;37m 1234 root  \033[0m\033[32m 45.2\033[0m  2.1  0:12.34",
+		"\033[37m 5678 user  \033[0m\033[33m 12.1\033[0m  1.5  0:05.67",
+	}, "\r\n")
+	paneEmu.Write([]byte(htopContent))
+
+	root := mux.NewLeafByID(1, 0, 0, width, height)
+	lookup := func(id uint32) PaneData {
+		if id == 1 {
+			return &emuPaneData{emu: paneEmu, id: 1, name: "pane-1", color: "f5e0dc", cursorHidden: true}
+		}
+		return nil
+	}
+
+	comp := NewCompositor(width, totalH, "test")
+	diffDisplay := vt.NewSafeEmulator(width, totalH)
+
+	// First render: prevGrid is nil so DiffGrid returns all cells.
+	if mismatches := colorOracleCheck(comp, diffDisplay, root, 1, lookup, width, totalH); len(mismatches) > 0 {
+		t.Errorf("initial paint: %d color mismatches:\n%s",
+			len(mismatches), strings.Join(mismatches, "\n"))
+	}
+}
+
+func TestRenderDiff_ColorOracle_IncrementalUpdate(t *testing.T) {
+	t.Parallel()
+	width, height := 60, 10
+	totalH := height + GlobalBarHeight
+	contentH := height - mux.StatusLineRows
+
+	paneEmu := vt.NewSafeEmulator(width, contentH)
+
+	// Initial htop content.
+	htopContent := strings.Join([]string{
+		"\033[32m|||||\033[31m||\033[90;1m   \033[0m CPU1 [##...]",
+		"\033[34m|||\033[33m|||\033[90;1m    \033[0m CPU2 [##...]",
+		"  PID USER  \033[30;42m▽CPU%\033[0m MEM%  TIME+",
+		"\033[1;37m 1234 root  \033[0m\033[32m 45.2\033[0m  2.1  0:12.34",
+		"\033[37m 5678 user  \033[0m\033[33m 12.1\033[0m  1.5  0:05.67",
+	}, "\r\n")
+	paneEmu.Write([]byte(htopContent))
+
+	root := mux.NewLeafByID(1, 0, 0, width, height)
+	lookup := func(id uint32) PaneData {
+		if id == 1 {
+			return &emuPaneData{emu: paneEmu, id: 1, name: "pane-1", color: "f5e0dc", cursorHidden: true}
+		}
+		return nil
+	}
+
+	comp := NewCompositor(width, totalH, "test")
+	diffDisplay := vt.NewSafeEmulator(width, totalH)
+
+	// Initial render: populate prevGrid and prime the diff display.
+	initDiff := comp.RenderDiff(root, 1, lookup)
+	diffDisplay.Write([]byte(initDiff))
+
+	// Simulate htop redraw: overwrite CPU bars with new values.
+	paneEmu.Write([]byte(
+		"\033[1;1H" + // home cursor to top-left of pane content
+			"\033[32m|||||||\033[31m|\033[90;1m  \033[0m CPU1 [###..]" +
+			"\r\n" +
+			"\033[34m||\033[33m||||\033[90;1m    \033[0m CPU2 [##...]",
+	))
+
+	// Second render: only changed cells emitted via diff, applied to same display.
+	if mismatches := colorOracleCheck(comp, diffDisplay, root, 1, lookup, width, totalH); len(mismatches) > 0 {
+		t.Errorf("incremental update: %d color mismatches:\n%s",
+			len(mismatches), strings.Join(mismatches, "\n"))
+	}
+}
+
+func TestRenderDiff_ColorOracle_TwoPanes(t *testing.T) {
+	t.Parallel()
+	width, height := 81, 10
+	totalH := height + GlobalBarHeight
+	contentH := height - mux.StatusLineRows
+
+	pane1W := 40
+	pane2W := 40
+	pane1Emu := vt.NewSafeEmulator(pane1W, contentH)
+	pane2Emu := vt.NewSafeEmulator(pane2W, contentH)
+
+	// Left pane: htop-like colored bars
+	pane1Emu.Write([]byte(
+		"\033[32m|||||\033[31m||\033[90;1m   \033[0m CPU1\r\n" +
+			"\033[34m|||\033[33m|||\033[90;1m    \033[0m CPU2",
+	))
+
+	// Right pane: plain text
+	pane2Emu.Write([]byte("$ top\r\nPID  CPU%  MEM%"))
+
+	left := mux.NewLeafByID(1, 0, 0, pane1W, height)
+	right := mux.NewLeafByID(2, pane1W+1, 0, pane2W, height)
+	root := &mux.LayoutCell{
+		X: 0, Y: 0, W: width, H: height,
+		Dir:      mux.SplitVertical,
+		Children: []*mux.LayoutCell{left, right},
+	}
+	left.Parent = root
+	right.Parent = root
+
+	lookup := func(id uint32) PaneData {
+		switch id {
+		case 1:
+			return &emuPaneData{emu: pane1Emu, id: 1, name: "pane-1", color: "f5e0dc", cursorHidden: true}
+		case 2:
+			return &emuPaneData{emu: pane2Emu, id: 2, name: "pane-2", color: "cba6f7", cursorHidden: true}
+		}
+		return nil
+	}
+
+	comp := NewCompositor(width, totalH, "test")
+	diffDisplay := vt.NewSafeEmulator(width, totalH)
+
+	// Initial paint with both panes.
+	if mismatches := colorOracleCheck(comp, diffDisplay, root, 1, lookup, width, totalH); len(mismatches) > 0 {
+		t.Errorf("two-pane initial: %d color mismatches:\n%s",
+			len(mismatches), strings.Join(mismatches, "\n"))
+	}
+
+	// Update left pane, keep right pane unchanged.
+	pane1Emu.Write([]byte(
+		"\033[1;1H" +
+			"\033[32m|||||||\033[31m|\033[90;1m  \033[0m CPU1",
+	))
+
+	if mismatches := colorOracleCheck(comp, diffDisplay, root, 1, lookup, width, totalH); len(mismatches) > 0 {
+		t.Errorf("two-pane incremental: %d color mismatches:\n%s",
+			len(mismatches), strings.Join(mismatches, "\n"))
 	}
 }

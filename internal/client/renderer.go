@@ -270,6 +270,16 @@ func (r *Renderer) Capture(stripANSI bool) string {
 	return raw
 }
 
+// CaptureDisplay returns what the diff renderer thinks the terminal displays.
+// This reads the compositor's prevGrid rather than re-rendering via RenderFull,
+// so a diff between Capture() and CaptureDisplay() reveals exactly where the
+// diff renderer diverges from ground truth.
+func (r *Renderer) CaptureDisplay() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.compositor.PrevGridText()
+}
+
 // CaptureColorMap renders a color map from client-side emulators.
 func (r *Renderer) CaptureColorMap() string {
 	r.mu.Lock()
@@ -471,7 +481,7 @@ func (r *Renderer) paneLookupLocked(paneID uint32) render.PaneData {
 // with the rendered output. This is the shared implementation used by both
 // the live client (main package) and the headless test client.
 func (r *Renderer) HandleCaptureRequest(args []string, agentStatus map[uint32]proto.PaneAgentStatus) *proto.Message {
-	var includeANSI, colorMap, formatJSON bool
+	var includeANSI, colorMap, formatJSON, displayMode bool
 	var paneRef string
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
@@ -479,6 +489,8 @@ func (r *Renderer) HandleCaptureRequest(args []string, agentStatus map[uint32]pr
 			includeANSI = true
 		case "--colors":
 			colorMap = true
+		case "--display":
+			displayMode = true
 		case "--format":
 			if i+1 < len(args) && args[i+1] == "json" {
 				formatJSON = true
@@ -492,6 +504,18 @@ func (r *Renderer) HandleCaptureRequest(args []string, agentStatus map[uint32]pr
 	if (includeANSI && colorMap) || (includeANSI && formatJSON) || (colorMap && formatJSON) {
 		return &proto.Message{Type: proto.MsgTypeCaptureResponse,
 			CmdErr: "--ansi, --colors, and --format json are mutually exclusive"}
+	}
+
+	if displayMode {
+		if includeANSI || colorMap || formatJSON || paneRef != "" {
+			return &proto.Message{Type: proto.MsgTypeCaptureResponse,
+				CmdErr: "--display is mutually exclusive with other flags"}
+		}
+		out := r.CaptureDisplay()
+		if out == "" {
+			out = "(no previous grid — diff renderer has not run yet)"
+		}
+		return &proto.Message{Type: proto.MsgTypeCaptureResponse, CmdOutput: out + "\n"}
 	}
 
 	if paneRef != "" {
