@@ -108,6 +108,15 @@ type Server struct {
 	mu       sync.Mutex
 }
 
+// firstSession returns any session from the map, or nil.
+// Caller must hold s.mu.
+func (s *Server) firstSession() *Session {
+	for _, sess := range s.sessions {
+		return sess
+	}
+	return nil
+}
+
 // SocketDir returns the directory for amux Unix sockets.
 func SocketDir() string {
 	return fmt.Sprintf("/tmp/amux-%d", os.Getuid())
@@ -314,10 +323,7 @@ func (s *Server) handleOneShot(conn net.Conn, msg *Message) {
 	defer cc.Close()
 
 	s.mu.Lock()
-	var sess *Session
-	for _, sess = range s.sessions {
-		break
-	}
+	sess := s.firstSession()
 	s.mu.Unlock()
 
 	if sess == nil {

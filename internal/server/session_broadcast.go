@@ -248,18 +248,14 @@ func (s *Session) buildPaneEnv(paneID uint32, event hooks.Event) map[string]stri
 		"AMUX_EVENT":   string(event),
 	}
 
-	// Look up pane metadata under session lock
 	s.mu.Lock()
-	for _, p := range s.Panes {
-		if p.ID == paneID {
-			env["AMUX_PANE_NAME"] = p.Meta.Name
-			if p.Meta.Task != "" {
-				env["AMUX_TASK"] = p.Meta.Task
-			}
-			if p.Meta.Host != "" {
-				env["AMUX_HOST"] = p.Meta.Host
-			}
-			break
+	if p := s.findPaneLocked(paneID); p != nil {
+		env["AMUX_PANE_NAME"] = p.Meta.Name
+		if p.Meta.Task != "" {
+			env["AMUX_TASK"] = p.Meta.Task
+		}
+		if p.Meta.Host != "" {
+			env["AMUX_HOST"] = p.Meta.Host
 		}
 	}
 	s.mu.Unlock()

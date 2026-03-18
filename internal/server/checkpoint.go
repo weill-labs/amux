@@ -18,10 +18,7 @@ import (
 // On failure, the old server continues running.
 func (s *Server) Reload(execPath string) error {
 	s.mu.Lock()
-	var sess *Session
-	for _, sess = range s.sessions {
-		break
-	}
+	sess := s.firstSession()
 	s.mu.Unlock()
 
 	if sess == nil {
