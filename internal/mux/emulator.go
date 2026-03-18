@@ -188,6 +188,7 @@ func (v *vtEmulator) ScreenContains(substr string) bool {
 	// Join all lines without separators — terminal output is a continuous
 	// stream and column-boundary wraps are visual, not logical.
 	var buf strings.Builder
+	buf.Grow(w * h)
 	for y := 0; y < h; y++ {
 		buf.WriteString(v.screenLineTextInner(w, y))
 	}
