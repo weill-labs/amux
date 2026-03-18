@@ -59,6 +59,20 @@ func newHeadlessClient(sockPath, session string, cols, rows int) (*headlessClien
 	return hc, nil
 }
 
+// resize sends a MsgTypeResize to the server, simulating a terminal resize.
+func (hc *headlessClient) resize(cols, rows int) {
+	server.WriteMsg(hc.conn, &server.Message{
+		Type: server.MsgTypeResize,
+		Cols: cols,
+		Rows: rows,
+	})
+}
+
+// capture returns a plain-text rendering from the client's local emulators.
+func (hc *headlessClient) capture() string {
+	return hc.renderer.Capture(true)
+}
+
 func (hc *headlessClient) close() {
 	hc.conn.Close()
 	<-hc.done

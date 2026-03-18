@@ -7,7 +7,29 @@ import (
 
 	"github.com/weill-labs/amux/internal/hooks"
 	"github.com/weill-labs/amux/internal/proto"
+	"github.com/weill-labs/amux/internal/render"
 )
+
+// recalcSizeLocked resizes all windows to the maximum terminal dimensions
+// across connected clients ("largest client wins"). Smaller clients clip
+// out-of-bounds cells locally. Caller must hold s.mu.
+func (s *Session) recalcSizeLocked() {
+	var maxCols, maxRows int
+	for _, c := range s.clients {
+		maxCols = max(maxCols, c.cols)
+		maxRows = max(maxRows, c.rows)
+	}
+	if maxCols == 0 || maxRows == 0 {
+		return
+	}
+	layoutH := maxRows - render.GlobalBarHeight
+	if aw := s.ActiveWindow(); aw != nil && maxCols == aw.Width && layoutH == aw.Height {
+		return
+	}
+	for _, w := range s.Windows {
+		w.Resize(maxCols, layoutH)
+	}
+}
 
 // broadcast sends a message to all connected clients.
 func (s *Session) broadcast(msg *Message) {

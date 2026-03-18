@@ -8,47 +8,45 @@ import (
 
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
+	"github.com/weill-labs/amux/internal/render"
 )
+
+// twoPane80x23 returns a layout snapshot with two panes in a vertical split
+// at 80 columns by 23 rows (the standard 80x24 terminal minus the global bar).
+func twoPane80x23() *proto.LayoutSnapshot {
+	root := proto.CellSnapshot{
+		X: 0, Y: 0, W: 80, H: 23,
+		Dir: int(mux.SplitVertical),
+		Children: []proto.CellSnapshot{
+			{X: 0, Y: 0, W: 39, H: 23, IsLeaf: true, Dir: -1, PaneID: 1},
+			{X: 40, Y: 0, W: 39, H: 23, IsLeaf: true, Dir: -1, PaneID: 2},
+		},
+	}
+	panes := []proto.PaneSnapshot{
+		{ID: 1, Name: "pane-1", Host: "local", Color: "f5e0dc"},
+		{ID: 2, Name: "pane-2", Host: "local", Color: "f2cdcd"},
+	}
+	return &proto.LayoutSnapshot{
+		SessionName:  "test",
+		ActivePaneID: 1,
+		Width:        80,
+		Height:       23,
+		Root:         root,
+		Panes:        panes,
+		Windows: []proto.WindowSnapshot{{
+			ID: 1, Name: "window-1", Index: 1, ActivePaneID: 1,
+			Root:  root,
+			Panes: panes,
+		}},
+		ActiveWindowID: 1,
+	}
+}
 
 // buildTestRenderer creates a ClientRenderer with two panes in a vertical split.
 func buildTestRenderer(t *testing.T) *ClientRenderer {
 	t.Helper()
 	cr := NewClientRenderer(80, 24)
-	cr.HandleLayout(&proto.LayoutSnapshot{
-		SessionName:  "test",
-		ActivePaneID: 1,
-		Width:        80,
-		Height:       23, // 24 - 1 global bar
-		Root: proto.CellSnapshot{
-			X: 0, Y: 0, W: 80, H: 23,
-			Dir: int(mux.SplitVertical),
-			Children: []proto.CellSnapshot{
-				{X: 0, Y: 0, W: 39, H: 23, IsLeaf: true, Dir: -1, PaneID: 1},
-				{X: 40, Y: 0, W: 39, H: 23, IsLeaf: true, Dir: -1, PaneID: 2},
-			},
-		},
-		Panes: []proto.PaneSnapshot{
-			{ID: 1, Name: "pane-1", Host: "local", Color: "f5e0dc"},
-			{ID: 2, Name: "pane-2", Host: "local", Color: "f2cdcd"},
-		},
-		Windows: []proto.WindowSnapshot{{
-			ID: 1, Name: "window-1", Index: 1, ActivePaneID: 1,
-			Root: proto.CellSnapshot{
-				X: 0, Y: 0, W: 80, H: 23,
-				Dir: int(mux.SplitVertical),
-				Children: []proto.CellSnapshot{
-					{X: 0, Y: 0, W: 39, H: 23, IsLeaf: true, Dir: -1, PaneID: 1},
-					{X: 40, Y: 0, W: 39, H: 23, IsLeaf: true, Dir: -1, PaneID: 2},
-				},
-			},
-			Panes: []proto.PaneSnapshot{
-				{ID: 1, Name: "pane-1", Host: "local", Color: "f5e0dc"},
-				{ID: 2, Name: "pane-2", Host: "local", Color: "f2cdcd"},
-			},
-		}},
-		ActiveWindowID: 1,
-	})
-	// Write content into pane-1
+	cr.HandleLayout(twoPane80x23())
 	cr.HandlePaneOutput(1, []byte("hello from pane 1"))
 	return cr
 }
@@ -318,5 +316,48 @@ func TestRenderCoalesced_FullRenderMode(t *testing.T) {
 
 	if rendered == "" {
 		t.Fatal("AMUX_RENDER=full should produce output")
+	}
+}
+
+func TestRescaleLayoutForSmallerClient(t *testing.T) {
+	t.Parallel()
+
+	// Client terminal is 40×12, but server layout is 80×23 (the larger client).
+	cr := NewClientRenderer(40, 12)
+	cr.HandleLayout(twoPane80x23())
+	cr.HandlePaneOutput(1, []byte("hello from pane 1"))
+	cr.HandlePaneOutput(2, []byte("hello from pane 2"))
+
+	// Both pane status lines should appear in the plain text capture.
+	text := cr.Capture(true)
+	if !strings.Contains(text, "pane-1") {
+		t.Errorf("should contain pane-1 status line\ncapture:\n%s", text)
+	}
+	if !strings.Contains(text, "pane-2") {
+		t.Errorf("should contain pane-2 status line\ncapture:\n%s", text)
+	}
+
+	// JSON positions should fit within client bounds (40 wide, 11 layout height).
+	jsonOut := cr.CaptureJSON(nil)
+	var capture proto.CaptureJSON
+	if err := json.Unmarshal([]byte(jsonOut), &capture); err != nil {
+		t.Fatalf("JSON parse: %v", err)
+	}
+	if len(capture.Panes) != 2 {
+		t.Fatalf("panes: got %d, want 2", len(capture.Panes))
+	}
+	clientLayoutH := 12 - render.GlobalBarHeight
+	for _, p := range capture.Panes {
+		pos := p.Position
+		if pos == nil {
+			t.Errorf("pane %s: no position", p.Name)
+			continue
+		}
+		if pos.X+pos.Width > 40 {
+			t.Errorf("pane %s: right edge %d exceeds client width 40", p.Name, pos.X+pos.Width)
+		}
+		if pos.Y+pos.Height > clientLayoutH {
+			t.Errorf("pane %s: bottom edge %d exceeds layout height %d", p.Name, pos.Y+pos.Height, clientLayoutH)
+		}
 	}
 }
