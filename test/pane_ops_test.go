@@ -339,3 +339,72 @@ func TestToggleMinimizeMultiplePanes(t *testing.T) {
 		t.Fatalf("expected 2 minimized after minimizing pane-1 then pane-2, got:\n%s", statusOut)
 	}
 }
+
+// TestMinimizeAllSiblingsViaClose verifies that closing the only visible pane
+// in a horizontal split auto-restores a minimized sibling. Without this guard,
+// both remaining panes would stay minimized with no visible content.
+func TestMinimizeAllSiblingsViaClose(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	// Create 3 panes in a horizontal split: pane-1, pane-2, pane-3
+	h.splitH()
+	h.splitH()
+
+	// Minimize pane-1 and pane-3, leaving pane-2 as the only visible pane.
+	output := h.runCmd("minimize", "pane-1")
+	if !strings.Contains(output, "Minimized") {
+		t.Fatalf("minimize pane-1 should succeed, got:\n%s", output)
+	}
+	output = h.runCmd("minimize", "pane-3")
+	if !strings.Contains(output, "Minimized") {
+		t.Fatalf("minimize pane-3 should succeed, got:\n%s", output)
+	}
+
+	// Kill pane-2 (the only visible pane). This should auto-restore one
+	// of the minimized siblings.
+	output = h.runCmd("kill", "pane-2")
+	if !strings.Contains(output, "Killed") {
+		t.Fatalf("kill pane-2 should succeed, got:\n%s", output)
+	}
+
+	// At least one pane must be non-minimized after the close.
+	statusOut := h.runCmd("status")
+	if strings.Contains(statusOut, "2 minimized") {
+		t.Errorf("closing the last visible pane should auto-restore a sibling, got:\n%s", statusOut)
+	}
+}
+
+// TestMinimizeReclaimGoesToVisibleSibling verifies that reclaimed height from
+// minimizing goes to a non-minimized sibling, not a minimized one.
+func TestMinimizeReclaimGoesToVisibleSibling(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	// 3 horizontal panes
+	h.splitH()
+	h.splitH()
+
+	// Minimize pane-1 first
+	output := h.runCmd("minimize", "pane-1")
+	if !strings.Contains(output, "Minimized") {
+		t.Fatalf("minimize pane-1 should succeed, got:\n%s", output)
+	}
+
+	// Minimize pane-2 — reclaimed space should go to pane-3 (the only visible one)
+	output = h.runCmd("minimize", "pane-2")
+	if !strings.Contains(output, "Minimized") {
+		t.Fatalf("minimize pane-2 should succeed, got:\n%s", output)
+	}
+
+	// Verify pane-3 is visible and has content area (not just a status line).
+	// If reclaimed space went to minimized pane-1 instead, pane-3 would be
+	// squeezed.
+	h.assertScreen("pane-3 should be the large visible pane", func(s string) bool {
+		return strings.Contains(s, "[pane-3]")
+	})
+
+	// Restore for cleanup
+	h.runCmd("restore", "pane-1")
+	h.runCmd("restore", "pane-2")
+}

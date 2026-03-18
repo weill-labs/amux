@@ -287,6 +287,21 @@ func proportionalSizes(children []*LayoutCell, available int, horizontal bool) [
 	return targets
 }
 
+// HasNonMinimizedLeaf returns true if any leaf in the subtree has a
+// non-minimized pane. Used by minimize guards to check whether a subtree
+// sibling actually has visible content.
+func (c *LayoutCell) HasNonMinimizedLeaf() bool {
+	if c.IsLeaf() {
+		return c.Pane != nil && !c.Pane.Meta.Minimized
+	}
+	for _, child := range c.Children {
+		if child.HasNonMinimizedLeaf() {
+			return true
+		}
+	}
+	return false
+}
+
 // Walk calls fn for every leaf cell in the tree (depth-first).
 func (c *LayoutCell) Walk(fn func(*LayoutCell)) {
 	if c.isLeaf {
