@@ -30,6 +30,7 @@ type PaneMeta struct {
 	Minimized    bool
 	RestoreH     int    // saved height before minimize
 	MinimizedSeq uint64 // monotonic counter for LIFO restore ordering
+	Dormant      bool   // pane is in Session.Panes but not in any window layout (e.g., SSH takeover host)
 }
 
 // Pane manages a PTY, its terminal emulator, and metadata.
@@ -47,10 +48,10 @@ type Pane struct {
 	// Used by proxy panes to route input over SSH to a remote amux server.
 	writeOverride func([]byte) (int, error)
 
-	closed       atomic.Bool
-	drainStarted bool
-	onOutput     func(paneID uint32, data []byte)
-	onExit       func(paneID uint32)
+	closed         atomic.Bool
+	drainStarted   bool
+	onOutput       func(paneID uint32, data []byte)
+	onExit         func(paneID uint32)
 	onClipboard    func(paneID uint32, data []byte)
 	onTakeover     func(paneID uint32, req TakeoverRequest)
 	osc52Scanner   OSC52Scanner

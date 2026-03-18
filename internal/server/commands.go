@@ -97,7 +97,9 @@ func cmdList(ctx *CommandContext) {
 				active = "*"
 			}
 			winName := ""
-			if pw := ctx.Sess.FindWindowByPaneID(p.ID); pw != nil {
+			if p.Meta.Dormant {
+				winName = "(dormant)"
+			} else if pw := ctx.Sess.FindWindowByPaneID(p.ID); pw != nil {
 				winName = pw.Name
 			}
 			output += fmt.Sprintf("%-6s %-20s %-15s %-10s %s\n",
