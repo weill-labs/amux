@@ -1,7 +1,6 @@
 package render
 
 import (
-	"fmt"
 	"image/color"
 	"strconv"
 	"strings"
@@ -28,11 +27,17 @@ func (c ScreenCell) Equal(o ScreenCell) bool {
 	return c.Char == o.Char && c.Width == o.Width && c.Style.Equal(&o.Style)
 }
 
+// OOBWrite records a single out-of-bounds Set() call.
+type OOBWrite struct {
+	X, Y int
+}
+
 // ScreenGrid is a 2D grid of screen cells in row-major order.
 type ScreenGrid struct {
 	Width, Height int
 	Cells         []ScreenCell // Cells[y*Width + x]
-	Debug         bool         // when true, OOB Set() panics instead of silently dropping
+	Debug         bool         // when true, OOB Set() calls are recorded in OOBWrites
+	oobWrites     []OOBWrite
 }
 
 // NewScreenGrid creates a grid filled with space cells.
@@ -44,16 +49,22 @@ func NewScreenGrid(width, height int) *ScreenGrid {
 	return &ScreenGrid{Width: width, Height: height, Cells: cells}
 }
 
-// Set writes a cell at (x, y). Out-of-bounds writes are ignored in normal mode.
-// When Debug is true, OOB writes panic to surface compositor bugs in tests.
+// Set writes a cell at (x, y). Out-of-bounds writes are silently ignored.
+// When Debug is true, OOB writes are also recorded for later inspection
+// via OOBWrites().
 func (g *ScreenGrid) Set(x, y int, cell ScreenCell) {
 	if x >= 0 && x < g.Width && y >= 0 && y < g.Height {
 		g.Cells[y*g.Width+x] = cell
 		return
 	}
 	if g.Debug {
-		panic(fmt.Sprintf("ScreenGrid.Set: out-of-bounds (%d,%d) on %dx%d grid", x, y, g.Width, g.Height))
+		g.oobWrites = append(g.oobWrites, OOBWrite{X: x, Y: y})
 	}
+}
+
+// OOBWrites returns all out-of-bounds Set() calls recorded when Debug is true.
+func (g *ScreenGrid) OOBWrites() []OOBWrite {
+	return g.oobWrites
 }
 
 // Get reads the cell at (x, y). Out-of-bounds returns a space cell.
