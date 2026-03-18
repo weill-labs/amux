@@ -39,12 +39,14 @@ func NewClientRenderer(width, height int) *ClientRenderer {
 	return cr
 }
 
-// HandleLayout processes a layout snapshot from the server.
-func (cr *ClientRenderer) HandleLayout(snap *proto.LayoutSnapshot) {
-	cr.renderer.HandleLayout(snap)
+// HandleLayout processes a layout snapshot from the server. Returns true if the
+// layout structure changed (panes moved/resized/added/removed).
+func (cr *ClientRenderer) HandleLayout(snap *proto.LayoutSnapshot) bool {
+	structureChanged := cr.renderer.HandleLayout(snap)
 	cr.mu.Lock()
 	cr.dirty = true
 	cr.mu.Unlock()
+	return structureChanged
 }
 
 // HandlePaneOutput feeds raw PTY data into a pane's local emulator.
@@ -56,7 +58,10 @@ func (cr *ClientRenderer) HandlePaneOutput(paneID uint32, data []byte) {
 }
 
 // Render produces ANSI output compositing all panes. Returns empty if no layout.
-func (cr *ClientRenderer) Render() string {
+// When clearScreen is true, the terminal is fully erased before drawing (needed
+// after layout changes). When false, content is overwritten in-place to avoid
+// flicker during incremental updates like copy mode navigation.
+func (cr *ClientRenderer) Render(clearScreen ...bool) string {
 	cr.mu.Lock()
 	cr.dirty = false
 	cr.mu.Unlock()
@@ -74,7 +79,7 @@ func (cr *ClientRenderer) Render() string {
 		cm := cr.copyModes[paneID]
 		cr.mu.Unlock()
 		return &clientPaneData{emu: emu, info: info, cm: cm}
-	})
+	}, clearScreen...)
 }
 
 // IsDirty returns true if there is new data to render.
@@ -151,15 +156,18 @@ type RenderMsg struct {
 
 // RenderCoalesced runs a select loop that reads messages from msgCh,
 // updates the client renderer, and coalesces renders at ~60fps.
-// Layout changes render immediately; pane output is debounced.
+// Layout changes render immediately with a full clear; pane output is
+// debounced and rendered without clearing to avoid flicker.
 func (cr *ClientRenderer) RenderCoalesced(msgCh <-chan *RenderMsg, write func(string)) {
 	var renderTimer *time.Timer
 	var renderC <-chan time.Time
+	needsClear := true // first render always clears
 
 	doRender := func() {
-		if data := cr.Render(); data != "" {
+		if data := cr.Render(needsClear); data != "" {
 			write(data)
 		}
+		needsClear = false
 		renderTimer = nil
 		renderC = nil
 	}
@@ -179,8 +187,12 @@ func (cr *ClientRenderer) RenderCoalesced(msgCh <-chan *RenderMsg, write func(st
 			}
 			switch msg.Typ {
 			case RenderMsgLayout:
-				cr.HandleLayout(msg.Layout)
-				// Layout changes render immediately
+				structureChanged := cr.HandleLayout(msg.Layout)
+				// Only clear screen when pane positions/sizes actually changed.
+				// Focus changes are metadata-only and don't need a clear.
+				if structureChanged {
+					needsClear = true
+				}
 				if renderTimer != nil {
 					renderTimer.Stop()
 				}

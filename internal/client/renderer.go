@@ -50,12 +50,31 @@ func New(width, height int) *Renderer {
 	}
 }
 
+// layoutFingerprint returns a string encoding the layout structure: pane IDs,
+// positions, sizes, zoom state, and dimensions. Two layouts with the same
+// fingerprint can be rendered without clearing the screen.
+func (r *Renderer) layoutFingerprint() string {
+	if r.layout == nil {
+		return ""
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "%d,%d,%d;", r.width, r.height, r.zoomedPaneID)
+	r.layout.Walk(func(cell *mux.LayoutCell) {
+		fmt.Fprintf(&b, "%d:%d,%d,%d,%d;", cell.CellPaneID(), cell.X, cell.Y, cell.W, cell.H)
+	})
+	return b.String()
+}
+
 // HandleLayout processes a layout snapshot from the server. Creates/removes
 // emulators as panes appear/disappear, rebuilds the local layout tree, and
-// resizes emulators to match their cells.
-func (r *Renderer) HandleLayout(snap *proto.LayoutSnapshot) {
+// resizes emulators to match their cells. Returns true if the layout structure
+// changed (panes moved/resized/added/removed), false for metadata-only updates
+// like focus changes.
+func (r *Renderer) HandleLayout(snap *proto.LayoutSnapshot) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
+	oldFP := r.layoutFingerprint()
 
 	r.sessionName = snap.SessionName
 	r.activePaneID = snap.ActivePaneID
@@ -153,6 +172,8 @@ func (r *Renderer) HandleLayout(snap *proto.LayoutSnapshot) {
 			emu.Resize(r.width, mux.PaneContentHeight(layoutH))
 		}
 	}
+
+	return r.layoutFingerprint() != oldFP
 }
 
 // HandlePaneOutput feeds raw PTY data into a pane's local emulator.
@@ -185,7 +206,7 @@ func (r *Renderer) Resize(width, height int) {
 // concurrently (the compositor is unprotected after unlock). In practice
 // this is guaranteed: the interactive client calls both from the single
 // renderCoalesced goroutine, and the headless client is sequential.
-func (r *Renderer) RenderFull(paneLookup func(uint32) render.PaneData) string {
+func (r *Renderer) RenderFull(paneLookup func(uint32) render.PaneData, clearScreen ...bool) string {
 	r.mu.Lock()
 	if r.layout == nil {
 		r.mu.Unlock()
@@ -200,7 +221,7 @@ func (r *Renderer) RenderFull(paneLookup func(uint32) render.PaneData) string {
 	comp := r.compositor
 	r.mu.Unlock()
 
-	return comp.RenderFull(root, activePaneID, paneLookup)
+	return comp.RenderFull(root, activePaneID, paneLookup, clearScreen...)
 }
 
 // Capture renders the full composited screen from client-side emulators.
@@ -214,7 +235,7 @@ func (r *Renderer) Capture(stripANSI bool) string {
 	}
 
 	root, activePaneID := r.captureRootLocked()
-	raw := r.compositor.RenderFull(root, activePaneID, r.paneLookupLocked)
+	raw := r.compositor.RenderFull(root, activePaneID, r.paneLookupLocked, true)
 
 	if stripANSI {
 		return render.MaterializeGrid(raw, r.width, r.height)
@@ -232,7 +253,7 @@ func (r *Renderer) CaptureColorMap() string {
 	}
 
 	root, activePaneID := r.captureRootLocked()
-	raw := r.compositor.RenderFull(root, activePaneID, r.paneLookupLocked)
+	raw := r.compositor.RenderFull(root, activePaneID, r.paneLookupLocked, true)
 	return render.ExtractColorMap(raw, r.width, r.height) + "\n"
 }
 

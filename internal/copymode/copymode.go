@@ -48,11 +48,12 @@ type CopyMode struct {
 	matchIdx    int // current match index (-1 = none)
 
 	// Selection state
-	selecting bool
-	selStartX int // start column (viewport-relative)
-	selStartY int // start absolute line index
-	selEndX   int
-	selEndY   int
+	selecting  bool
+	lineSelect bool // true = full-line selection (V), false = character selection (v)
+	selStartX  int  // start column (viewport-relative)
+	selStartY  int  // start absolute line index
+	selEndX    int
+	selEndY    int
 }
 
 // New creates a CopyMode for the given emulator and viewport size.
@@ -70,30 +71,49 @@ func New(emu TerminalEmulator, width, height, cursorRow int) *CopyMode {
 // HandleInput processes raw input bytes and returns the action the client
 // should take. When searching, printable keys build the query; otherwise
 // vi-style keys control scrolling, search, and selection.
+//
+// All bytes in data are processed. ActionExit and ActionYank are returned
+// immediately (remaining bytes are dropped). ActionRedraw is accumulated
+// so that batched keystrokes (e.g. rapid "Vy") are fully handled.
 func (cm *CopyMode) HandleInput(data []byte) Action {
 	if len(data) == 0 {
 		return ActionNone
 	}
 
-	if cm.searching {
-		return cm.handleSearchInput(data)
+	result := ActionNone
+	for len(data) > 0 {
+		var action Action
+		if cm.searching {
+			var consumed int
+			action, consumed = cm.handleSearchInput(data)
+			data = data[consumed:]
+		} else {
+			action = cm.handleNormalKey(data[0])
+			data = data[1:]
+		}
+		switch action {
+		case ActionExit, ActionYank:
+			return action
+		case ActionRedraw:
+			result = ActionRedraw
+		}
 	}
-	return cm.handleNormalInput(data)
+	return result
 }
 
-func (cm *CopyMode) handleSearchInput(data []byte) Action {
+func (cm *CopyMode) handleSearchInput(data []byte) (Action, int) {
 	action := ActionNone
-	for _, b := range data {
+	for i, b := range data {
 		switch {
 		case b == '\r' || b == '\n': // Enter — confirm search
 			cm.searchQuery = cm.searchBuf
 			cm.searching = false
 			cm.runSearch()
-			return ActionRedraw
+			return ActionRedraw, i + 1
 		case b == 0x1b: // Escape — cancel search
 			cm.searching = false
 			cm.searchBuf = ""
-			return ActionRedraw
+			return ActionRedraw, i + 1
 		case b == 0x7f: // Backspace
 			if len(cm.searchBuf) > 0 {
 				cm.searchBuf = cm.searchBuf[:len(cm.searchBuf)-1]
@@ -106,11 +126,10 @@ func (cm *CopyMode) handleSearchInput(data []byte) Action {
 			}
 		}
 	}
-	return action
+	return action, len(data)
 }
 
-func (cm *CopyMode) handleNormalInput(data []byte) Action {
-	b := data[0]
+func (cm *CopyMode) handleNormalKey(b byte) Action {
 	switch b {
 	case 'q', 0x1b: // quit / Escape
 		return ActionExit
@@ -190,13 +209,35 @@ func (cm *CopyMode) handleNormalInput(data []byte) Action {
 		cm.prevMatch()
 		return ActionRedraw
 
-	case 'v': // toggle selection
-		cm.selecting = !cm.selecting
-		if cm.selecting {
+	case 'v': // toggle character selection
+		if cm.lineSelect {
+			// Switch from line-select to character-select at cursor position.
+			cm.lineSelect = false
 			absY := cm.cursorAbsLine()
 			cm.selStartX = cm.cx
 			cm.selStartY = absY
 			cm.selEndX = cm.cx
+			cm.selEndY = absY
+		} else {
+			cm.selecting = !cm.selecting
+			if cm.selecting {
+				absY := cm.cursorAbsLine()
+				cm.selStartX = cm.cx
+				cm.selStartY = absY
+				cm.selEndX = cm.cx
+				cm.selEndY = absY
+			}
+		}
+		return ActionRedraw
+
+	case 'V': // toggle line selection
+		cm.lineSelect = !cm.lineSelect
+		cm.selecting = cm.lineSelect
+		if cm.selecting {
+			absY := cm.cursorAbsLine()
+			cm.selStartX = 0
+			cm.selStartY = absY
+			cm.selEndX = cm.width - 1
 			cm.selEndY = absY
 		}
 		return ActionRedraw
@@ -253,6 +294,16 @@ func (cm *CopyMode) SelectedText() string {
 
 	startY, startX, endY, endX := cm.normalizedSelection()
 
+	// Line-select mode: grab full lines with trailing newline.
+	if cm.lineSelect {
+		var buf strings.Builder
+		for y := startY; y <= endY; y++ {
+			buf.WriteString(cm.lineText(y))
+			buf.WriteByte('\n')
+		}
+		return buf.String()
+	}
+
 	if startY == endY {
 		line := cm.lineText(startY)
 		if startX >= len(line) {
@@ -291,14 +342,22 @@ func (cm *CopyMode) normalizedSelection() (startY, startX, endY, endX int) {
 		startY, endY = endY, startY
 		startX, endX = endX, startX
 	}
+	if cm.lineSelect {
+		startX = 0
+		endX = cm.width - 1
+	}
 	return
 }
 
 // updateSelection updates the selection end point to the current cursor position.
 func (cm *CopyMode) updateSelection() {
 	if cm.selecting {
-		cm.selEndX = cm.cx
 		cm.selEndY = cm.cursorAbsLine()
+		if cm.lineSelect {
+			cm.selEndX = cm.width - 1
+		} else {
+			cm.selEndX = cm.cx
+		}
 	}
 }
 

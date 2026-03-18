@@ -69,13 +69,19 @@ func ClearScreen() string {
 // RenderFull composes all panes, status lines, and borders into ANSI output.
 // lookup maps pane IDs to their rendering data. Client provides emulator-backed
 // adapters; server could provide Pane wrappers.
-func (c *Compositor) RenderFull(root *mux.LayoutCell, activePaneID uint32, lookup func(uint32) PaneData) string {
+//
+// When clearScreen is true the entire terminal is erased before drawing. This
+// is required after layout changes (panes move/resize) but should be skipped
+// for incremental updates (pane output, copy mode navigation) to avoid flicker.
+func (c *Compositor) RenderFull(root *mux.LayoutCell, activePaneID uint32, lookup func(uint32) PaneData, clearScreen ...bool) string {
 	var buf strings.Builder
 	buf.Grow(c.width * c.height * 4) // pre-allocate for typical ANSI output
 
 	// Hide cursor during render to prevent flicker
 	buf.WriteString(HideCursor)
-	buf.WriteString(ClearAll)
+	if len(clearScreen) > 0 && clearScreen[0] {
+		buf.WriteString(ClearAll)
+	}
 
 	// Count panes for global bar
 	paneCount := 0
