@@ -138,9 +138,8 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 
 // createNewWindow creates a new window with one pane and switches to it.
 func (cc *ClientConn) createNewWindow(srv *Server, sess *Session, name string) {
-	// Resolve the active pane's cwd before creating the new window.
-	// PaneCwd shells out to lsof (macOS) so we grab the PID under the
-	// lock, then resolve outside the lock to avoid blocking the session.
+	// Grab the active pane's PID under the lock, then resolve its cwd
+	// outside the lock (PaneCwd shells out to lsof).
 	sess.mu.Lock()
 	w := sess.ActiveWindow()
 	if w == nil {
@@ -155,10 +154,7 @@ func (cc *ClientConn) createNewWindow(srv *Server, sess *Session, name string) {
 	cols, layoutH := w.Width, w.Height
 	sess.mu.Unlock()
 
-	var meta mux.PaneMeta
-	if cwd := mux.PaneCwd(activePid); cwd != "" {
-		meta.Dir = cwd
-	}
+	meta := mux.PaneMeta{Dir: mux.PaneCwd(activePid)}
 
 	sess.mu.Lock()
 	paneH := mux.PaneContentHeight(layoutH)
@@ -234,9 +230,8 @@ func (cc *ClientConn) splitRemotePane(srv *Server, sess *Session, hostName strin
 // splitNewPane creates a pane, inserts it into the active window's layout,
 // starts it, and triggers a render. Returns the new pane, or nil on error.
 func (cc *ClientConn) splitNewPane(srv *Server, sess *Session, meta mux.PaneMeta, dir mux.SplitDir, rootLevel bool) *mux.Pane {
-	// Resolve the active pane's cwd before creating the new pane.
-	// PaneCwd shells out to lsof (macOS) so we grab the PID under the
-	// lock, then resolve outside the lock to avoid blocking the session.
+	// Grab the active pane's PID under the lock, then resolve its cwd
+	// outside the lock (PaneCwd shells out to lsof).
 	sess.mu.Lock()
 	w := sess.ActiveWindow()
 	if w == nil {
@@ -252,9 +247,7 @@ func (cc *ClientConn) splitNewPane(srv *Server, sess *Session, meta mux.PaneMeta
 	sess.mu.Unlock()
 
 	if meta.Dir == "" {
-		if cwd := mux.PaneCwd(activePid); cwd != "" {
-			meta.Dir = cwd
-		}
+		meta.Dir = mux.PaneCwd(activePid)
 	}
 
 	sess.mu.Lock()

@@ -98,13 +98,7 @@ func (s *Session) paneExitCallback(srv *Server) func(uint32) {
 
 // createPane creates a new pane with auto-assigned metadata.
 func (s *Session) createPane(srv *Server, cols, rows int) (*mux.Pane, error) {
-	cnt := s.counter.Load()
-	meta := mux.PaneMeta{
-		Name:  fmt.Sprintf(mux.PaneNameFormat, cnt+1),
-		Host:  mux.DefaultHost,
-		Color: config.CatppuccinMocha[cnt%uint32(len(config.CatppuccinMocha))],
-	}
-	return s.createPaneWithMeta(srv, meta, cols, rows)
+	return s.createPaneWithMeta(srv, mux.PaneMeta{}, cols, rows)
 }
 
 // createPaneWithMeta creates a new pane with explicit metadata (for spawn).
