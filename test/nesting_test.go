@@ -20,20 +20,21 @@ func TestNestingEnvVarSet(t *testing.T) {
 
 func TestNestingSameSessionBlocked(t *testing.T) {
 	t.Parallel()
-	h := newServerHarness(t)
-
-	// Running amux targeting the same session inside a pane should fail
-	h.sendKeys("pane-1", amuxBin+" -s "+h.session, "Enter")
-	h.waitFor("pane-1", "cannot attach to session")
-}
-
-func TestNestingSameSessionBlockedAttach(t *testing.T) {
-	t.Parallel()
-	h := newServerHarness(t)
-
-	// The "attach" subcommand should also be blocked
-	h.sendKeys("pane-1", amuxBin+" -s "+h.session+" attach", "Enter")
-	h.waitFor("pane-1", "cannot attach to session")
+	tests := []struct {
+		name   string
+		suffix string // appended after "amux -s <session>"
+	}{
+		{"bare", ""},
+		{"attach", " attach"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newServerHarness(t)
+			h.sendKeys("pane-1", amuxBin+" -s "+h.session+tt.suffix, "Enter")
+			h.waitFor("pane-1", "cannot attach to session")
+		})
+	}
 }
 
 func TestNestingCrossSessionAllowed(t *testing.T) {
