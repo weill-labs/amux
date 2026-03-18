@@ -3,6 +3,7 @@ package test
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestOnlyActivePaneBordersColored(t *testing.T) {
@@ -52,6 +53,13 @@ func TestJunctionNotColoredOnInactiveBorder(t *testing.T) {
 	h.waitLayout(gen)
 	h.splitH()
 	h.splitH()
+
+	// Wait for the inner client to render all 4 panes to the outer PTY.
+	// splitH() waits for the inner server's layout generation, but the
+	// outer emulator may not have processed the rendered output yet.
+	if !h.waitFor("[pane-4]", 5*time.Second) {
+		t.Fatal("timed out waiting for pane-4 to appear in outer capture")
+	}
 
 	// pane-4 is active (bottom-left). The junction at the TOP horizontal
 	// border is NOT adjacent to pane-4, so it should be DIM.
