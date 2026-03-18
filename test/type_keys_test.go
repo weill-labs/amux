@@ -37,7 +37,7 @@ func TestTypeKeysLiteral(t *testing.T) {
 
 func TestTypeKeysNoClient(t *testing.T) {
 	t.Parallel()
-	h := newServerHarness(t)
+	h := newServerHarnessPersistent(t)
 
 	// Close the headless client so there are no attached clients.
 	h.client.close()

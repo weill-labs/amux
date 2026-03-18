@@ -22,7 +22,9 @@ import (
 func TestCrashRecovery_LayoutRestored(t *testing.T) {
 	t.Parallel()
 
-	h := newServerHarness(t)
+	// Use persistent server: the test deliberately disconnects the client
+	// before SIGKILL, so exit-unattached would shut down the server early.
+	h := newServerHarnessPersistent(t)
 
 	// Create a multi-pane layout: split vertically (2 panes side-by-side)
 	h.splitV()
@@ -209,7 +211,7 @@ func startServerForSession(t *testing.T, session string) *ServerHarness {
 
 	cmd := exec.Command(amuxBin, "_server", session)
 	cmd.ExtraFiles = []*os.File{writePipe}
-	env := append(os.Environ(), "AMUX_READY_FD=3", "AMUX_NO_WATCH=1")
+	env := append(os.Environ(), "AMUX_READY_FD=3", "AMUX_NO_WATCH=1", "AMUX_EXIT_UNATTACHED=1")
 
 	// Per-test cover dir
 	var coverDir string

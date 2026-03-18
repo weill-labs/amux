@@ -45,10 +45,25 @@ func newServerHarnessImpl(tb testing.TB, cols, rows int) *ServerHarness {
 	return newServerHarnessWithConfig(tb, cols, rows, "")
 }
 
+// newServerHarnessPersistent starts a server that does NOT exit when all
+// clients disconnect. Used by tests that deliberately detach all clients
+// and then issue commands against the still-running server.
+func newServerHarnessPersistent(tb testing.TB) *ServerHarness {
+	tb.Helper()
+	return newServerHarnessWithOptions(tb, 80, 24, "", false)
+}
+
 // newServerHarnessWithConfig starts a server with a custom config file.
 // The config is written to a temp file and passed via AMUX_CONFIG.
 // Pass an empty configContent to start with the default (no) config.
 func newServerHarnessWithConfig(tb testing.TB, cols, rows int, configContent string) *ServerHarness {
+	tb.Helper()
+	return newServerHarnessWithOptions(tb, cols, rows, configContent, true)
+}
+
+// newServerHarnessWithOptions is the shared constructor. When exitUnattached
+// is true the server self-terminates after all clients disconnect.
+func newServerHarnessWithOptions(tb testing.TB, cols, rows int, configContent string, exitUnattached bool) *ServerHarness {
 	tb.Helper()
 	var b [4]byte
 	rand.Read(b[:])
@@ -63,6 +78,9 @@ func newServerHarnessWithConfig(tb testing.TB, cols, rows int, configContent str
 	cmd := exec.Command(amuxBin, "_server", session)
 	cmd.ExtraFiles = []*os.File{writePipe} // fd 3 in child
 	env := append(os.Environ(), "AMUX_READY_FD=3", "AMUX_NO_WATCH=1")
+	if exitUnattached {
+		env = append(env, "AMUX_EXIT_UNATTACHED=1")
+	}
 
 	// Write config to a temp file and pass via AMUX_CONFIG if provided.
 	if configContent != "" {
