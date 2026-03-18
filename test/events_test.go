@@ -6,9 +6,11 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/weill-labs/amux/internal/proto"
 	"github.com/weill-labs/amux/internal/server"
 )
 
@@ -21,6 +23,7 @@ type eventJSON struct {
 	PaneName   string `json:"pane_name,omitempty"`
 	Host       string `json:"host,omitempty"`
 	ActivePane string `json:"active_pane,omitempty"`
+	ClientID   string `json:"client_id,omitempty"`
 	TimedOut   bool   `json:"-"` // set by readEvent on timeout
 }
 
@@ -98,6 +101,20 @@ func mustReadEvent(t *testing.T, scanner *bufio.Scanner, timeout time.Duration) 
 		t.Fatal("timeout reading event")
 	}
 	return ev
+}
+
+func parseClientIDs(listing string) []string {
+	var ids []string
+	for _, line := range strings.Split(listing, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
+		if strings.HasPrefix(fields[0], "client-") {
+			ids = append(ids, fields[0])
+		}
+	}
+	return ids
 }
 
 func TestEventsInitialSnapshot(t *testing.T) {
@@ -240,6 +257,111 @@ func TestEventsFilterPane(t *testing.T) {
 	ev = mustReadEvent(t, scanner, 5*time.Second)
 	if ev.PaneName != "pane-1" {
 		t.Errorf("filtered event should be for pane-1, got %q", ev.PaneName)
+	}
+}
+
+func TestEventsClientUISnapshotAndUpdates(t *testing.T) {
+	t.Parallel()
+
+	h := newServerHarness(t)
+	scanner, closer := eventStream(t, h.session, "--filter", proto.UIEventDisplayPanesHidden+","+proto.UIEventDisplayPanesShown, "--client", "client-1")
+	defer closer()
+
+	ev := mustReadEvent(t, scanner, 5*time.Second)
+	if ev.Type != proto.UIEventDisplayPanesHidden {
+		t.Fatalf("initial UI state: got %q, want %q", ev.Type, proto.UIEventDisplayPanesHidden)
+	}
+	if ev.ClientID != "client-1" {
+		t.Fatalf("client_id: got %q, want client-1", ev.ClientID)
+	}
+
+	h.client.sendUIEvent(proto.UIEventDisplayPanesShown)
+	ev = mustReadEvent(t, scanner, 5*time.Second)
+	if ev.Type != proto.UIEventDisplayPanesShown {
+		t.Fatalf("updated UI state: got %q, want %q", ev.Type, proto.UIEventDisplayPanesShown)
+	}
+	if ev.ClientID != "client-1" {
+		t.Fatalf("client_id: got %q, want client-1", ev.ClientID)
+	}
+}
+
+func TestEventsFilterClient(t *testing.T) {
+	t.Parallel()
+
+	h := newServerHarness(t)
+	second, err := newHeadlessClient(server.SocketPath(h.session), h.session, 80, 24)
+	if err != nil {
+		t.Fatalf("attaching second client: %v", err)
+	}
+	defer second.close()
+
+	clients := parseClientIDs(h.runCmd("list-clients"))
+	if len(clients) != 2 {
+		t.Fatalf("attached clients = %v, want 2", clients)
+	}
+	secondID := clients[1]
+
+	scanner, closer := eventStream(t, h.session, "--filter", proto.UIEventDisplayPanesHidden, "--client", secondID)
+	defer closer()
+
+	ev := mustReadEvent(t, scanner, 5*time.Second)
+	if ev.Type != proto.UIEventDisplayPanesHidden || ev.ClientID != secondID {
+		t.Fatalf("initial event = %+v, want hidden for %s", ev, secondID)
+	}
+
+	h.client.sendUIEvent(proto.UIEventDisplayPanesShown)
+	if ev := readEvent(t, scanner, 200*time.Millisecond); !ev.TimedOut {
+		t.Fatalf("client-1 event should not match %s filter, got %+v", secondID, ev)
+	}
+}
+
+func TestWaitUIImmediateHidden(t *testing.T) {
+	t.Parallel()
+
+	h := newServerHarness(t)
+	out := h.runCmd("wait-ui", proto.UIEventDisplayPanesHidden, "--timeout", "1s")
+	if strings.Contains(out, "timeout") {
+		t.Fatalf("wait-ui hidden should return immediately, got: %s", out)
+	}
+	if !strings.Contains(out, proto.UIEventDisplayPanesHidden) {
+		t.Fatalf("wait-ui hidden output = %q", out)
+	}
+}
+
+func TestWaitUIRequiresClientWhenAmbiguous(t *testing.T) {
+	t.Parallel()
+
+	h := newServerHarness(t)
+	second, err := newHeadlessClient(server.SocketPath(h.session), h.session, 80, 24)
+	if err != nil {
+		t.Fatalf("attaching second client: %v", err)
+	}
+	defer second.close()
+
+	clients := parseClientIDs(h.runCmd("list-clients"))
+	out := h.runCmd("wait-ui", proto.UIEventDisplayPanesHidden, "--timeout", "1s")
+	if !strings.Contains(out, "multiple clients attached") {
+		t.Fatalf("expected ambiguous wait-ui error, got: %s", out)
+	}
+	for _, id := range clients {
+		if !strings.Contains(out, id) {
+			t.Fatalf("expected listed client ID %s, got: %s", id, out)
+		}
+	}
+}
+
+func TestListClientsShowsDisplayPanesState(t *testing.T) {
+	t.Parallel()
+
+	h := newServerHarness(t)
+	h.client.sendUIEvent(proto.UIEventDisplayPanesShown)
+
+	out := h.runCmd("list-clients")
+	if !strings.Contains(out, "CLIENT") || !strings.Contains(out, "DISPLAY_PANES") {
+		t.Fatalf("unexpected list-clients header: %s", out)
+	}
+	if !strings.Contains(out, "client-1") || !strings.Contains(out, "shown") {
+		t.Fatalf("list-clients should report shown state, got: %s", out)
 	}
 }
 

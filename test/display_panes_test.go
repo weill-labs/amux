@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/weill-labs/amux/internal/proto"
 )
 
 func TestDisplayPanesOverlayShowsLabels(t *testing.T) {
@@ -122,5 +124,24 @@ func TestDisplayPanesZoomedOnlyShowsVisiblePane(t *testing.T) {
 	}
 	if got := h.activePaneName(); got != "pane-2" {
 		t.Fatalf("hidden zoomed pane label should not change focus, got %s", got)
+	}
+}
+
+func TestDisplayPanesWaitUIShownAndHidden(t *testing.T) {
+	t.Parallel()
+
+	h := newAmuxHarness(t)
+	h.splitV()
+
+	h.sendKeys("C-a", "q")
+	out := h.runCmd("wait-ui", proto.UIEventDisplayPanesShown, "--timeout", "3s")
+	if !strings.Contains(out, proto.UIEventDisplayPanesShown) {
+		t.Fatalf("wait-ui shown output = %q", out)
+	}
+
+	h.sendKeys("1")
+	out = h.runCmd("wait-ui", proto.UIEventDisplayPanesHidden, "--timeout", "3s")
+	if !strings.Contains(out, proto.UIEventDisplayPanesHidden) {
+		t.Fatalf("wait-ui hidden output = %q", out)
 	}
 }

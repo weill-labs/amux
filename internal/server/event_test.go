@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"testing"
 	"time"
+
+	"github.com/weill-labs/amux/internal/proto"
 )
 
 func TestEventFilterMatchesAll(t *testing.T) {
@@ -70,6 +72,21 @@ func TestEventFilterCombined(t *testing.T) {
 	}
 	if f.matches(Event{Type: EventIdle, PaneName: "pane-2"}) {
 		t.Error("should not match idle+pane-2")
+	}
+}
+
+func TestEventFilterMatchesClient(t *testing.T) {
+	t.Parallel()
+	f := eventFilter{ClientID: "client-2"}
+
+	if !f.matches(Event{Type: proto.UIEventDisplayPanesShown, ClientID: "client-2"}) {
+		t.Error("should match client-2")
+	}
+	if f.matches(Event{Type: proto.UIEventDisplayPanesShown, ClientID: "client-1"}) {
+		t.Error("should not match client-1")
+	}
+	if f.matches(Event{Type: EventLayout}) {
+		t.Error("session-wide event should not match client filter")
 	}
 }
 
@@ -234,8 +251,9 @@ func TestParseEventsArgs(t *testing.T) {
 		{"filter", []string{"--filter", "layout,idle"}, eventFilter{Types: []string{"layout", "idle"}}},
 		{"pane", []string{"--pane", "pane-1"}, eventFilter{PaneName: "pane-1"}},
 		{"host", []string{"--host", "gpu-box"}, eventFilter{Host: "gpu-box"}},
-		{"combined", []string{"--filter", "idle", "--pane", "pane-1", "--host", "local"},
-			eventFilter{Types: []string{"idle"}, PaneName: "pane-1", Host: "local"}},
+		{"client", []string{"--client", "client-2"}, eventFilter{ClientID: "client-2"}},
+		{"combined", []string{"--filter", "idle", "--pane", "pane-1", "--host", "local", "--client", "client-2"},
+			eventFilter{Types: []string{"idle"}, PaneName: "pane-1", Host: "local", ClientID: "client-2"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -255,6 +273,37 @@ func TestParseEventsArgs(t *testing.T) {
 			if got.Host != tt.want.Host {
 				t.Errorf("Host: got %q, want %q", got.Host, tt.want.Host)
 			}
+			if got.ClientID != tt.want.ClientID {
+				t.Errorf("ClientID: got %q, want %q", got.ClientID, tt.want.ClientID)
+			}
 		})
+	}
+}
+
+func TestCurrentStateEventsIncludesClientUIState(t *testing.T) {
+	t.Parallel()
+
+	sess := newSession("test-ui-state")
+	sess.clients = append(sess.clients,
+		&ClientConn{ID: "client-1"},
+		&ClientConn{ID: "client-2", displayPanesShown: true},
+	)
+
+	events := sess.currentStateEvents()
+	var got []Event
+	for _, ev := range events {
+		if ev.ClientID != "" {
+			got = append(got, ev)
+		}
+	}
+
+	if len(got) != 2 {
+		t.Fatalf("got %d client UI events, want 2", len(got))
+	}
+	if got[0].Type != proto.UIEventDisplayPanesHidden || got[0].ClientID != "client-1" {
+		t.Fatalf("first client UI event = %#v, want hidden for client-1", got[0])
+	}
+	if got[1].Type != proto.UIEventDisplayPanesShown || got[1].ClientID != "client-2" {
+		t.Fatalf("second client UI event = %#v, want shown for client-2", got[1])
 	}
 }

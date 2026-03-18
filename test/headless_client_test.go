@@ -68,6 +68,13 @@ func (hc *headlessClient) resize(cols, rows int) {
 	})
 }
 
+func (hc *headlessClient) sendUIEvent(name string) {
+	server.WriteMsg(hc.conn, &server.Message{
+		Type:    server.MsgTypeUIEvent,
+		UIEvent: name,
+	})
+}
+
 // capture returns a plain-text rendering from the client's local emulators.
 func (hc *headlessClient) capture() string {
 	return hc.renderer.Capture(true)

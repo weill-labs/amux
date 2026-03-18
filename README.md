@@ -99,6 +99,7 @@ Block until a condition is met — no polling loops.
 | `wait-for <pane> <substring>` | Block until substring appears in pane content | 10s |
 | `wait-layout [--after N]` | Block until layout generation exceeds N | 3s |
 | `wait-clipboard [--after N]` | Block until clipboard content changes | 3s |
+| `wait-ui <event> [--client client-1]` | Block until a client-local UI state is reached | 5s |
 
 All accept `--timeout <duration>` (e.g., `--timeout 30s`).
 
@@ -107,8 +108,11 @@ All accept `--timeout <duration>` (e.g., `--timeout 30s`).
 Subscribe to real-time session events as NDJSON:
 
 ```bash
-amux events [--filter layout,idle,busy] [--pane pane-1] [--host lambda-a100]
+amux events [--filter layout,idle,busy,display-panes-shown] [--pane pane-1] [--host lambda-a100] [--client client-1]
 ```
+
+Client-local UI events currently include `display-panes-shown` and `display-panes-hidden`.
+Use `amux list-clients` to discover attached client IDs for `--client` and `wait-ui`.
 
 ```json
 {"type":"layout","ts":"2025-06-15T10:30:00.123Z","generation":42,"active_pane":"pane-1"}
@@ -189,6 +193,7 @@ amux capture --format json    # structured JSON of all panes
 amux send-keys pane-1 "ls" Enter  # send keystrokes
 amux wait-idle pane-1         # block until command finishes
 amux events --filter idle     # subscribe to idle/busy transitions
+amux list-clients             # discover attached client IDs
 ```
 
 ## AI Agent Support
@@ -246,8 +251,10 @@ All commands accept `-s <session>` to target a specific session. Panes are refer
 | `amux wait-for <pane> <substring> [--timeout 10s]` | Block until substring appears in pane |
 | `amux wait-layout [--after N] [--timeout 3s]` | Block until layout generation > N |
 | `amux wait-clipboard [--after N] [--timeout 3s]` | Block until clipboard content changes |
+| `amux wait-ui <event> [--client id] [--timeout 5s]` | Block until a client-local UI state is reached |
 | `amux generation` | Show current layout generation counter |
-| `amux events [--filter type,...] [--pane ref] [--host name]` | Stream events as NDJSON |
+| `amux events [--filter type,...] [--pane ref] [--host name] [--client id]` | Stream events as NDJSON |
+| `amux list-clients` | List attached clients and `display-panes` state |
 
 ### Windows
 

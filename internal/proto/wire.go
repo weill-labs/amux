@@ -38,6 +38,9 @@ const (
 
 	// Server → Client — inject keystrokes into client input pipeline
 	MsgTypeTypeKeys MsgType = 23
+
+	// Client → Server — transient client-local UI state transitions
+	MsgTypeUIEvent MsgType = 24
 )
 
 // Message is the wire protocol envelope. Only the fields relevant to
@@ -79,6 +82,9 @@ type Message struct {
 	// MsgTypeCaptureRequest — server-gathered agent status for JSON capture.
 	// Keyed by pane ID. Only populated when capture args include --format json.
 	AgentStatus map[uint32]PaneAgentStatus
+
+	// MsgTypeUIEvent
+	UIEvent string
 }
 
 const maxMessageSize = 16 * 1024 * 1024 // 16 MB

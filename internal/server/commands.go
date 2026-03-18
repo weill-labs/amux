@@ -13,6 +13,7 @@ import (
 	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/hooks"
 	"github.com/weill-labs/amux/internal/mux"
+	"github.com/weill-labs/amux/internal/proto"
 	"github.com/weill-labs/amux/internal/render"
 )
 
@@ -52,6 +53,7 @@ var commandRegistry = map[string]CommandHandler{
 	"status":          cmdStatus,
 	"new-window":      cmdNewWindow,
 	"list-windows":    cmdListWindows,
+	"list-clients":    cmdListClients,
 	"select-window":   cmdSelectWindow,
 	"next-window":     cmdNextWindow,
 	"prev-window":     cmdPrevWindow,
@@ -70,6 +72,7 @@ var commandRegistry = map[string]CommandHandler{
 	"wait-for":        cmdWaitFor,
 	"wait-idle":       cmdWaitIdle,
 	"wait-busy":       cmdWaitBusy,
+	"wait-ui":         cmdWaitUI,
 	"set-hook":        cmdSetHook,
 	"unset-hook":      cmdUnsetHook,
 	"list-hooks":      cmdListHooks,
@@ -809,6 +812,85 @@ func cmdWaitBusy(ctx *CommandContext) {
 	}
 }
 
+func parseWaitUIArgs(args []string) (eventName, clientID string, timeout time.Duration, err error) {
+	if len(args) < 1 {
+		return "", "", 0, fmt.Errorf("usage: wait-ui <event> [--client <id>] [--timeout <duration>]")
+	}
+	eventName = args[0]
+	timeout, err = parseTimeout(args, 1, 5*time.Second)
+	if err != nil {
+		return "", "", 0, err
+	}
+	for i := 1; i < len(args); i++ {
+		if args[i] == "--client" && i+1 < len(args) {
+			i++
+			clientID = args[i]
+		}
+	}
+	return eventName, clientID, timeout, nil
+}
+
+func resolveUIClient(sess *Session, requested string) (*ClientConn, string, error) {
+	if len(sess.clients) == 0 {
+		return nil, "", fmt.Errorf("no client attached")
+	}
+	if requested != "" {
+		for _, cc := range sess.clients {
+			if cc.ID == requested {
+				return cc, cc.ID, nil
+			}
+		}
+		return nil, "", fmt.Errorf("unknown client: %s", requested)
+	}
+	if len(sess.clients) == 1 {
+		return sess.clients[0], sess.clients[0].ID, nil
+	}
+	ids := make([]string, 0, len(sess.clients))
+	for _, cc := range sess.clients {
+		ids = append(ids, cc.ID)
+	}
+	return nil, "", fmt.Errorf("multiple clients attached; specify --client (%s)", strings.Join(ids, ", "))
+}
+
+func cmdWaitUI(ctx *CommandContext) {
+	eventName, requestedClientID, timeout, err := parseWaitUIArgs(ctx.Args)
+	if err != nil {
+		ctx.replyErr(err.Error())
+		return
+	}
+	if !proto.IsKnownUIEvent(eventName) {
+		ctx.replyErr(errUnknownUIEvent(eventName).Error())
+		return
+	}
+
+	ctx.Sess.mu.Lock()
+	cc, clientID, err := resolveUIClient(ctx.Sess, requestedClientID)
+	if err != nil {
+		ctx.Sess.mu.Unlock()
+		ctx.replyErr(err.Error())
+		return
+	}
+	currentMatch := cc.matchesUIEvent(eventName)
+	ctx.Sess.mu.Unlock()
+
+	sub := ctx.Sess.events.Subscribe(eventFilter{Types: []string{eventName}, ClientID: clientID})
+	defer ctx.Sess.events.Unsubscribe(sub)
+
+	if currentMatch {
+		ctx.reply(eventName + "\n")
+		return
+	}
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case <-sub.ch:
+		ctx.reply(eventName + "\n")
+	case <-timer.C:
+		ctx.replyErr(fmt.Sprintf("timeout waiting for %s on %s", eventName, clientID))
+	}
+}
+
 func cmdSetHook(ctx *CommandContext) {
 	if len(ctx.Args) < 2 {
 		ctx.replyErr("usage: set-hook <event> <command>")
@@ -889,6 +971,23 @@ func cmdEvents(ctx *CommandContext) {
 			return
 		}
 	}
+}
+
+func cmdListClients(ctx *CommandContext) {
+	ctx.Sess.mu.Lock()
+	defer ctx.Sess.mu.Unlock()
+
+	if len(ctx.Sess.clients) == 0 {
+		ctx.reply("No clients attached.\n")
+		return
+	}
+
+	var output strings.Builder
+	output.WriteString(fmt.Sprintf("%-10s %-15s\n", "CLIENT", "DISPLAY_PANES"))
+	for _, cc := range ctx.Sess.clients {
+		output.WriteString(fmt.Sprintf("%-10s %-15s\n", cc.ID, cc.displayPanesState()))
+	}
+	ctx.reply(output.String())
 }
 
 func cmdHosts(ctx *CommandContext) {
