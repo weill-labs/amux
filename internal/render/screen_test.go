@@ -408,6 +408,18 @@ func oracleCheck(comp *Compositor, display *vt.SafeEmulator, root *mux.LayoutCel
 	if expected != actual.String() {
 		return "oracle mismatch:\n--- expected (RenderFull) ---\n" + expected + "\n--- actual (RenderDiff) ---\n" + actual.String()
 	}
+
+	// Check for OOB writes recorded by the debug grid.
+	if g := comp.LastGrid(); g != nil {
+		if oob := g.OOBWrites(); len(oob) > 0 {
+			var buf strings.Builder
+			fmt.Fprintf(&buf, "ScreenGrid: %d out-of-bounds write(s) on %dx%d grid:", len(oob), g.Width, g.Height)
+			for _, w := range oob {
+				fmt.Fprintf(&buf, "\n  Set(%d, %d)", w.X, w.Y)
+			}
+			return buf.String()
+		}
+	}
 	return ""
 }
 
@@ -418,22 +430,6 @@ func init() {
 
 	// All compositors created during tests record OOB grid writes.
 	debugDefault = true
-}
-
-// assertNoOOB fails the test if the compositor's last grid recorded any
-// out-of-bounds writes. Call after RenderDiff or BuildGrid.
-func assertNoOOB(t *testing.T, comp *Compositor) {
-	t.Helper()
-	g := comp.LastGrid()
-	if g == nil {
-		return
-	}
-	if oob := g.OOBWrites(); len(oob) > 0 {
-		t.Errorf("ScreenGrid: %d out-of-bounds write(s) on %dx%d grid:", len(oob), g.Width, g.Height)
-		for _, w := range oob {
-			t.Errorf("  Set(%d, %d)", w.X, w.Y)
-		}
-	}
 }
 
 func TestScreenGrid_SetDebugRecordsOOB(t *testing.T) {
@@ -794,6 +790,14 @@ func colorOracleCheck(comp *Compositor, diffDisplay *vt.SafeEmulator, root *mux.
 					"cell(%d,%d) %q: style full=%s diff=%s", x, y, fc,
 					fs.String(), ds.String()))
 			}
+		}
+	}
+
+	// Check for OOB writes recorded by the debug grid.
+	if g := comp.LastGrid(); g != nil {
+		for _, w := range g.OOBWrites() {
+			mismatches = append(mismatches, fmt.Sprintf(
+				"ScreenGrid.Set: out-of-bounds (%d,%d) on %dx%d grid", w.X, w.Y, g.Width, g.Height))
 		}
 	}
 	return mismatches
@@ -1410,13 +1414,10 @@ func FuzzCompositor(f *testing.F) {
 		comp := NewCompositor(width, totalH, "fuzz")
 		display := vt.NewSafeEmulator(width, totalH)
 
-		// Oracle check: RenderFull vs RenderDiff text comparison.
+		// Oracle check: RenderFull vs RenderDiff text comparison + OOB detection.
 		if err := oracleCheck(comp, display, root, paneIDs[0], lookup, width, totalH); err != "" {
 			t.Error(err)
 		}
-
-		// OOB write check: debug grid records any out-of-bounds Set() calls.
-		assertNoOOB(t, comp)
 
 		// Layer boundary validation: geometric overlap detection.
 		if overlaps := validateLayerBoundaries(root, width, totalH); len(overlaps) > 0 {

@@ -41,7 +41,7 @@ func (c *Compositor) SetWindows(windows []WindowInfo) {
 }
 
 // debugDefault controls whether new compositors start with debug mode enabled.
-// Tests set this to true in init() so all compositors panic on OOB grid writes.
+// Tests set this to true in init() so all compositors record OOB grid writes.
 var debugDefault bool
 
 // NewCompositor creates a compositor for the given terminal dimensions.
@@ -50,7 +50,7 @@ func NewCompositor(width, height int, sessionName string) *Compositor {
 }
 
 // SetDebug enables or disables debug mode. When enabled, BuildGrid creates
-// grids that panic on out-of-bounds writes instead of silently dropping them.
+// grids that record out-of-bounds writes for later inspection via OOBWrites().
 func (c *Compositor) SetDebug(on bool) {
 	c.debug = on
 }
@@ -182,7 +182,7 @@ func (c *Compositor) RenderDiff(root *mux.LayoutCell, activePaneID uint32, looku
 	return buf.String()
 }
 
-// LastGrid returns the most recent grid produced by RenderDiff or BuildGrid.
+// LastGrid returns the most recent grid produced by RenderDiff.
 // Returns nil before the first render.
 func (c *Compositor) LastGrid() *ScreenGrid {
 	return c.prevGrid
