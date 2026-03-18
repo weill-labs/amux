@@ -9,52 +9,40 @@ import (
 	"github.com/weill-labs/amux/internal/mux"
 )
 
-// TestAssertPaneLayoutConsistency_DormantPanesAllowed verifies that the
-// invariant check does NOT flag dormant panes (they're intentionally
-// outside the layout tree).
-func TestAssertPaneLayoutConsistency_DormantPanesAllowed(t *testing.T) {
+// TestAssertPaneLayoutConsistency verifies that the invariant check skips
+// dormant panes (intentionally outside the layout tree) and flags non-dormant
+// orphans.
+func TestAssertPaneLayoutConsistency(t *testing.T) {
 	t.Parallel()
 
-	sess := newSession("test-dormant-ok")
-
-	// Create a minimal window with a pane in the layout.
-	pane1 := &mux.Pane{ID: 1, Meta: mux.PaneMeta{Name: "pane-1"}}
-	w := mux.NewWindow(pane1, 80, 24)
-	w.ID = 1
-	sess.Windows = append(sess.Windows, w)
-	sess.Panes = append(sess.Panes, pane1)
-
-	// Add a dormant pane (not in any layout tree).
-	dormant := &mux.Pane{ID: 2, Meta: mux.PaneMeta{Name: "ssh-host", Dormant: true}}
-	sess.Panes = append(sess.Panes, dormant)
-
-	n := sess.assertPaneLayoutConsistency()
-	if n != 0 {
-		t.Errorf("dormant pane should not trigger consistency warning, got %d violations", n)
+	tests := []struct {
+		name           string
+		dormant        bool
+		wantViolations int
+	}{
+		{"dormant pane allowed", true, 0},
+		{"orphan detected", false, 1},
 	}
-}
 
-// TestAssertPaneLayoutConsistency_OrphanDetected verifies that the invariant
-// check flags non-dormant panes that are missing from the layout tree.
-func TestAssertPaneLayoutConsistency_OrphanDetected(t *testing.T) {
-	t.Parallel()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	sess := newSession("test-orphan-warn")
+			sess := newSession("test-consistency")
 
-	// Create a minimal window with a pane in the layout.
-	pane1 := &mux.Pane{ID: 1, Meta: mux.PaneMeta{Name: "pane-1"}}
-	w := mux.NewWindow(pane1, 80, 24)
-	w.ID = 1
-	sess.Windows = append(sess.Windows, w)
-	sess.Panes = append(sess.Panes, pane1)
+			pane1 := &mux.Pane{ID: 1, Meta: mux.PaneMeta{Name: "pane-1"}}
+			w := mux.NewWindow(pane1, 80, 24)
+			w.ID = 1
+			sess.Windows = append(sess.Windows, w)
+			sess.Panes = append(sess.Panes, pane1)
 
-	// Add an orphaned pane (NOT dormant, NOT in layout tree).
-	orphan := &mux.Pane{ID: 2, Meta: mux.PaneMeta{Name: "orphan-pane"}}
-	sess.Panes = append(sess.Panes, orphan)
+			extra := &mux.Pane{ID: 2, Meta: mux.PaneMeta{Name: "extra-pane", Dormant: tt.dormant}}
+			sess.Panes = append(sess.Panes, extra)
 
-	n := sess.assertPaneLayoutConsistency()
-	if n != 1 {
-		t.Errorf("expected 1 consistency violation for orphaned pane, got %d", n)
+			if n := sess.assertPaneLayoutConsistency(); n != tt.wantViolations {
+				t.Errorf("got %d violations, want %d", n, tt.wantViolations)
+			}
+		})
 	}
 }
 
