@@ -376,6 +376,24 @@ func twoPaneLookup(pane1Emu, pane2Emu *vt.SafeEmulator) func(uint32) PaneData {
 	}
 }
 
+// oobErrors returns one error string per out-of-bounds grid write recorded
+// by the compositor's last render. Returns nil when there are no OOB writes.
+func oobErrors(comp *Compositor) []string {
+	g := comp.LastGrid()
+	if g == nil {
+		return nil
+	}
+	oob := g.OOBWrites()
+	if len(oob) == 0 {
+		return nil
+	}
+	errs := make([]string, len(oob))
+	for i, w := range oob {
+		errs[i] = fmt.Sprintf("ScreenGrid.Set: out-of-bounds (%d,%d) on %dx%d grid", w.X, w.Y, g.Width, g.Height)
+	}
+	return errs
+}
+
 // oracleCheck compares RenderDiff (applied to display emu) against RenderFull
 // (materialized). Returns an error message if they don't match, empty string if OK.
 func oracleCheck(comp *Compositor, display *vt.SafeEmulator, root *mux.LayoutCell, activeID uint32, lookup func(uint32) PaneData, width, height int) string {
@@ -408,17 +426,8 @@ func oracleCheck(comp *Compositor, display *vt.SafeEmulator, root *mux.LayoutCel
 	if expected != actual.String() {
 		return "oracle mismatch:\n--- expected (RenderFull) ---\n" + expected + "\n--- actual (RenderDiff) ---\n" + actual.String()
 	}
-
-	// Check for OOB writes recorded by the debug grid.
-	if g := comp.LastGrid(); g != nil {
-		if oob := g.OOBWrites(); len(oob) > 0 {
-			var buf strings.Builder
-			fmt.Fprintf(&buf, "ScreenGrid: %d out-of-bounds write(s) on %dx%d grid:", len(oob), g.Width, g.Height)
-			for _, w := range oob {
-				fmt.Fprintf(&buf, "\n  Set(%d, %d)", w.X, w.Y)
-			}
-			return buf.String()
-		}
+	if errs := oobErrors(comp); len(errs) > 0 {
+		return strings.Join(errs, "\n")
 	}
 	return ""
 }
@@ -793,13 +802,7 @@ func colorOracleCheck(comp *Compositor, diffDisplay *vt.SafeEmulator, root *mux.
 		}
 	}
 
-	// Check for OOB writes recorded by the debug grid.
-	if g := comp.LastGrid(); g != nil {
-		for _, w := range g.OOBWrites() {
-			mismatches = append(mismatches, fmt.Sprintf(
-				"ScreenGrid.Set: out-of-bounds (%d,%d) on %dx%d grid", w.X, w.Y, g.Width, g.Height))
-		}
-	}
+	mismatches = append(mismatches, oobErrors(comp)...)
 	return mismatches
 }
 
