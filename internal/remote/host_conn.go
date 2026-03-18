@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
@@ -152,15 +153,14 @@ func (hc *HostConn) connect(sessionName string) error {
 		return fmt.Errorf("dialing remote socket %s: %w", remoteSock, err)
 	}
 
-	if err := proto.WriteMsg(amuxConn, &proto.Message{
-		Type:    proto.MsgTypeAttach,
-		Session: remoteSession,
-		Cols:    80,
-		Rows:    24,
-	}); err != nil {
+	// Attach to the remote server and wait for the first layout, which
+	// guarantees the remote session has a window. Without the wait, a
+	// subsequent runCommand("spawn") can race with handleAttach on the
+	// remote server and fail with "no window".
+	if err := attachAndWait(amuxConn, remoteSession, 10*time.Second); err != nil {
 		amuxConn.Close()
 		sshClient.Close()
-		return fmt.Errorf("attaching to remote: %w", err)
+		return err
 	}
 
 	hc.mu.Lock()
@@ -170,6 +170,39 @@ func (hc *HostConn) connect(sessionName string) error {
 	hc.mu.Unlock()
 
 	return nil
+}
+
+// attachAndWait sends MsgTypeAttach and blocks until the remote server
+// responds with a MsgTypeLayout, confirming the session window exists.
+func attachAndWait(conn net.Conn, session string, timeout time.Duration) error {
+	if err := proto.WriteMsg(conn, &proto.Message{
+		Type:    proto.MsgTypeAttach,
+		Session: session,
+		Cols:    80,
+		Rows:    24,
+	}); err != nil {
+		return fmt.Errorf("attaching to remote: %w", err)
+	}
+	if err := waitForLayout(conn, timeout); err != nil {
+		return fmt.Errorf("waiting for remote layout: %w", err)
+	}
+	return nil
+}
+
+// waitForLayout reads messages from conn until a MsgTypeLayout arrives,
+// confirming the remote server has a window. Non-layout messages are discarded.
+func waitForLayout(conn net.Conn, timeout time.Duration) error {
+	conn.SetReadDeadline(time.Now().Add(timeout))
+	defer conn.SetReadDeadline(time.Time{})
+	for {
+		msg, err := proto.ReadMsg(conn)
+		if err != nil {
+			return err
+		}
+		if msg.Type == proto.MsgTypeLayout {
+			return nil
+		}
+	}
 }
 
 // runCommand opens a one-shot connection to the remote amux server, sends a

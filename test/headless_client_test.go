@@ -1,7 +1,10 @@
 package test
 
 import (
+	"fmt"
 	"net"
+	"sync"
+	"time"
 
 	"github.com/weill-labs/amux/internal/client"
 	"github.com/weill-labs/amux/internal/server"
@@ -11,9 +14,11 @@ import (
 // and responds to MsgTypeCaptureRequest. It runs without a terminal —
 // used by ServerHarness so capture always routes through a client.
 type headlessClient struct {
-	conn     net.Conn
-	renderer *client.Renderer
-	done     chan struct{}
+	conn      net.Conn
+	renderer  *client.Renderer
+	done      chan struct{}
+	ready     chan struct{} // closed after first MsgTypeLayout is processed
+	readyOnce sync.Once
 }
 
 // newHeadlessClient attaches to the server and starts a background message
@@ -38,9 +43,19 @@ func newHeadlessClient(sockPath, session string, cols, rows int) (*headlessClien
 		conn:     conn,
 		renderer: client.New(cols, rows),
 		done:     make(chan struct{}),
+		ready:    make(chan struct{}),
 	}
 
 	go hc.readLoop()
+
+	// Block until the server sends the first layout, guaranteeing the
+	// window and initial pane exist before any test code runs.
+	select {
+	case <-hc.ready:
+	case <-time.After(10 * time.Second):
+		conn.Close()
+		return nil, fmt.Errorf("timeout waiting for first layout from server")
+	}
 	return hc, nil
 }
 
@@ -59,6 +74,7 @@ func (hc *headlessClient) readLoop() {
 		switch msg.Type {
 		case server.MsgTypeLayout:
 			hc.renderer.HandleLayout(msg.Layout)
+			hc.readyOnce.Do(func() { close(hc.ready) })
 		case server.MsgTypePaneOutput:
 			hc.renderer.HandlePaneOutput(msg.PaneID, msg.PaneData)
 		case server.MsgTypeCaptureRequest:
