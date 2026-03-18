@@ -145,11 +145,8 @@ func (r *Renderer) HandleLayout(snap *proto.LayoutSnapshot) bool {
 		}
 	})
 
-	// Update compositor session name. Dimensions are NOT overwritten from
-	// the server snapshot — the client keeps its own terminal size (set by
-	// Resize() from SIGWINCH). With multi-client "largest wins", the server
-	// layout may be larger than this client's terminal; ScreenGrid.Set clips
-	// out-of-bounds cells safely.
+	// The client keeps its own terminal size (set by Resize via SIGWINCH).
+	// The server layout may be larger; out-of-bounds cells are clipped.
 	r.compositor.SetSessionName(snap.SessionName)
 
 	// Pass window info for the global bar
