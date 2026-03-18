@@ -28,9 +28,15 @@ if [[ "$command" == gh\ pr\ create* ]]; then
     exit 2
 fi
 
-# After git push: check for merge conflicts on the current PR
+# After git push: remind to run review agents + check for merge conflicts
 if [[ "$command" == git\ push* ]]; then
-    check_conflicts
+    # Only trigger on branches with an open PR (skip pushes to main)
+    pr_num=$(gh pr view --json number --jq .number 2>/dev/null)
+    if [[ -n "$pr_num" ]]; then
+        echo "Pushed to PR #$pr_num. Run the code-reviewer and code-simplifier agents in background now." >&2
+        check_conflicts
+        exit 2
+    fi
 fi
 
 exit 0
