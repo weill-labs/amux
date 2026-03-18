@@ -24,6 +24,7 @@ type Event struct {
 	PaneName   string `json:"pane_name,omitempty"`
 	Host       string `json:"host,omitempty"`
 	ActivePane string `json:"active_pane,omitempty"`
+	ClientID   string `json:"client_id,omitempty"`
 }
 
 // eventSub is a subscriber to the event stream.
@@ -37,6 +38,7 @@ type eventFilter struct {
 	Types    []string // event types to include (empty = all)
 	PaneName string   // match pane name (empty = all panes)
 	Host     string   // match host (empty = all hosts)
+	ClientID string   // match client ID (empty = all clients)
 }
 
 // matches returns true if the event passes the filter.
@@ -48,6 +50,9 @@ func (f eventFilter) matches(ev Event) bool {
 		return false
 	}
 	if f.Host != "" && ev.Host != f.Host {
+		return false
+	}
+	if f.ClientID != "" && ev.ClientID != f.ClientID {
 		return false
 	}
 	return true
@@ -157,6 +162,13 @@ func (s *Session) currentStateEvents() []Event {
 			PaneName:  p.Meta.Name,
 			Host:      p.Meta.Host,
 		})
+	}
+
+	for _, cc := range s.clients {
+		for _, ev := range cc.currentUIEvents() {
+			ev.Timestamp = now
+			events = append(events, ev)
+		}
 	}
 
 	return events

@@ -2,7 +2,6 @@ package client
 
 import (
 	"fmt"
-	"net"
 
 	"github.com/weill-labs/amux/internal/mouse"
 	"github.com/weill-labs/amux/internal/mux"
@@ -21,7 +20,7 @@ type DragState struct {
 
 // HandleMouseEvent dispatches a parsed mouse event to the appropriate action:
 // click-to-focus, border drag, or scroll wheel.
-func HandleMouseEvent(ev mouse.Event, cr *ClientRenderer, conn net.Conn, drag *DragState) {
+func HandleMouseEvent(ev mouse.Event, cr *ClientRenderer, sender *messageSender, drag *DragState) {
 	layout := cr.Layout()
 
 	if layout == nil {
@@ -40,7 +39,7 @@ func HandleMouseEvent(ev mouse.Event, cr *ClientRenderer, conn net.Conn, drag *D
 			paneID := cell.CellPaneID()
 			alreadyActive := paneID == cr.ActivePaneID()
 			if !alreadyActive {
-				SendCommand(conn, "focus", []string{fmt.Sprintf("%d", paneID)})
+				sender.Command("focus", []string{fmt.Sprintf("%d", paneID)})
 			}
 		}
 
@@ -52,7 +51,7 @@ func HandleMouseEvent(ev mouse.Event, cr *ClientRenderer, conn net.Conn, drag *D
 			delta = dy
 		}
 		if delta != 0 {
-			SendCommand(conn, "resize-border", []string{
+			sender.Command("resize-border", []string{
 				fmt.Sprintf("%d", drag.BorderX),
 				fmt.Sprintf("%d", drag.BorderY),
 				fmt.Sprintf("%d", delta),
@@ -69,11 +68,11 @@ func HandleMouseEvent(ev mouse.Event, cr *ClientRenderer, conn net.Conn, drag *D
 
 	case ev.Button == mouse.ScrollUp:
 		// Scroll wheel sends arrow keys to the active pane
-		proto.WriteMsg(conn, &proto.Message{
+		sender.Send(&proto.Message{
 			Type: proto.MsgTypeInput, Input: []byte("\033[A\033[A\033[A"),
 		})
 	case ev.Button == mouse.ScrollDown:
-		proto.WriteMsg(conn, &proto.Message{
+		sender.Send(&proto.Message{
 			Type: proto.MsgTypeInput, Input: []byte("\033[B\033[B\033[B"),
 		})
 	}

@@ -21,6 +21,7 @@ type ClientRenderer struct {
 	dirty        bool
 	copyModes    map[uint32]*copymode.CopyMode // per-pane copy mode state (nil = not in copy mode)
 	displayPanes *displayPanesState
+	OnUIEvent    func(string)
 }
 
 // NewClientRenderer creates a client renderer for the given terminal dimensions.
@@ -45,11 +46,24 @@ func NewClientRenderer(width, height int) *ClientRenderer {
 // layout structure changed (panes moved/resized/added/removed).
 func (cr *ClientRenderer) HandleLayout(snap *proto.LayoutSnapshot) bool {
 	structureChanged := cr.renderer.HandleLayout(snap)
+	clearedDisplayPanes := false
 	cr.mu.Lock()
+	if cr.displayPanes != nil {
+		clearedDisplayPanes = true
+	}
 	cr.displayPanes = nil
 	cr.dirty = true
 	cr.mu.Unlock()
+	if clearedDisplayPanes {
+		cr.emitUIEvent(proto.UIEventDisplayPanesHidden)
+	}
 	return structureChanged
+}
+
+func (cr *ClientRenderer) emitUIEvent(name string) {
+	if cr.OnUIEvent != nil {
+		cr.OnUIEvent(name)
+	}
 }
 
 // HandlePaneOutput feeds raw PTY data into a pane's local emulator.

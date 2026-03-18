@@ -2,6 +2,7 @@ package client
 
 import (
 	"github.com/weill-labs/amux/internal/mux"
+	"github.com/weill-labs/amux/internal/proto"
 	"github.com/weill-labs/amux/internal/render"
 )
 
@@ -47,21 +48,28 @@ func (cr *ClientRenderer) ShowDisplayPanes() bool {
 	}
 
 	cr.mu.Lock()
-	defer cr.mu.Unlock()
+	wasActive := cr.displayPanes != nil
 	cr.displayPanes = &displayPanesState{labels: labels, targets: targets}
 	cr.dirty = true
+	cr.mu.Unlock()
+	if !wasActive {
+		cr.emitUIEvent(proto.UIEventDisplayPanesShown)
+	}
 	return true
 }
 
 // HideDisplayPanes clears the pane overlay.
-func (cr *ClientRenderer) HideDisplayPanes() {
+func (cr *ClientRenderer) HideDisplayPanes() bool {
 	cr.mu.Lock()
-	defer cr.mu.Unlock()
 	if cr.displayPanes == nil {
-		return
+		cr.mu.Unlock()
+		return false
 	}
 	cr.displayPanes = nil
 	cr.dirty = true
+	cr.mu.Unlock()
+	cr.emitUIEvent(proto.UIEventDisplayPanesHidden)
+	return true
 }
 
 // ResolveDisplayPaneKey resolves a single key byte against the active pane

@@ -36,6 +36,9 @@ const (
 
 	// Server → Client — inject keystrokes into client input pipeline
 	MsgTypeTypeKeys = proto.MsgTypeTypeKeys
+
+	// Client → Server — transient client-local UI state transitions
+	MsgTypeUIEvent = proto.MsgTypeUIEvent
 )
 
 // WriteMsg encodes and writes a message to w.

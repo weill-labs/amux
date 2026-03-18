@@ -13,11 +13,13 @@ import (
 
 // ClientConn manages a single client connection to the server.
 type ClientConn struct {
-	conn   net.Conn
-	mu     sync.Mutex
-	closed bool
-	cols   int // last reported terminal width
-	rows   int // last reported terminal height
+	conn              net.Conn
+	ID                string
+	displayPanesShown bool
+	mu                sync.Mutex
+	closed            bool
+	cols              int // last reported terminal width
+	rows              int // last reported terminal height
 }
 
 // NewClientConn wraps a net.Conn for protocol communication.
@@ -89,6 +91,18 @@ func (cc *ClientConn) readLoop(srv *Server, sess *Session) {
 
 		case MsgTypeCaptureResponse:
 			sess.routeCaptureResponse(msg)
+		case MsgTypeUIEvent:
+			sess.mu.Lock()
+			changed, err := cc.applyUIEvent(msg.UIEvent)
+			clientID := cc.ID
+			sess.mu.Unlock()
+			if err != nil {
+				cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: err.Error()})
+				continue
+			}
+			if changed {
+				sess.events.Emit(Event{Type: msg.UIEvent, ClientID: clientID})
+			}
 		}
 	}
 }
@@ -422,7 +436,7 @@ func dirName(d mux.SplitDir) string {
 	return "horizontal"
 }
 
-// parseEventsArgs parses --filter, --pane, and --host flags for the events command.
+// parseEventsArgs parses --filter, --pane, --host, and --client flags for the events command.
 func parseEventsArgs(args []string) eventFilter {
 	var f eventFilter
 	for i := 0; i < len(args); i++ {
@@ -441,6 +455,11 @@ func parseEventsArgs(args []string) eventFilter {
 			if i+1 < len(args) {
 				i++
 				f.Host = args[i]
+			}
+		case "--client":
+			if i+1 < len(args) {
+				i++
+				f.ClientID = args[i]
 			}
 		}
 	}

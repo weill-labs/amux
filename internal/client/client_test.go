@@ -322,6 +322,72 @@ func TestShowDisplayPanesZoomedOnlyLabelsVisiblePane(t *testing.T) {
 	}
 }
 
+func TestDisplayPanesUIEvents(t *testing.T) {
+	t.Parallel()
+
+	cr := buildTestRenderer(t)
+	var events []string
+	cr.OnUIEvent = func(name string) {
+		events = append(events, name)
+	}
+
+	if !cr.ShowDisplayPanes() {
+		t.Fatal("ShowDisplayPanes should succeed")
+	}
+	if !cr.HideDisplayPanes() {
+		t.Fatal("HideDisplayPanes should report a state change")
+	}
+
+	want := []string{proto.UIEventDisplayPanesShown, proto.UIEventDisplayPanesHidden}
+	if len(events) != len(want) {
+		t.Fatalf("events = %v, want %v", events, want)
+	}
+	for i := range want {
+		if events[i] != want[i] {
+			t.Fatalf("events[%d] = %q, want %q", i, events[i], want[i])
+		}
+	}
+}
+
+func TestHandleLayoutClearsDisplayPanesEmitsHidden(t *testing.T) {
+	t.Parallel()
+
+	cr := buildTestRenderer(t)
+	var events []string
+	cr.OnUIEvent = func(name string) {
+		events = append(events, name)
+	}
+	if !cr.ShowDisplayPanes() {
+		t.Fatal("ShowDisplayPanes should succeed")
+	}
+
+	cr.HandleLayout(&proto.LayoutSnapshot{
+		SessionName:  "test",
+		ActivePaneID: 1,
+		Width:        80,
+		Height:       23,
+		Root: proto.CellSnapshot{
+			X: 0, Y: 0, W: 80, H: 23,
+			Dir: int(mux.SplitVertical),
+			Children: []proto.CellSnapshot{
+				{X: 0, Y: 0, W: 39, H: 23, IsLeaf: true, Dir: -1, PaneID: 1},
+				{X: 40, Y: 0, W: 39, H: 23, IsLeaf: true, Dir: -1, PaneID: 2},
+			},
+		},
+		Panes: []proto.PaneSnapshot{
+			{ID: 1, Name: "pane-1", Host: "local", Color: "f5e0dc"},
+			{ID: 2, Name: "pane-2", Host: "local", Color: "f2cdcd"},
+		},
+	})
+
+	if len(events) != 2 {
+		t.Fatalf("events = %v, want shown+hidden", events)
+	}
+	if events[0] != proto.UIEventDisplayPanesShown || events[1] != proto.UIEventDisplayPanesHidden {
+		t.Fatalf("events = %v, want [%q %q]", events, proto.UIEventDisplayPanesShown, proto.UIEventDisplayPanesHidden)
+	}
+}
+
 func TestHandleCaptureRequest(t *testing.T) {
 	t.Parallel()
 	cr := buildTestRenderer(t)

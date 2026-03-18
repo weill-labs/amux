@@ -55,6 +55,7 @@ func RunSession(sessionName string) error {
 		return fmt.Errorf("connecting to server: %w", err)
 	}
 	defer conn.Close()
+	sender := newMessageSender(conn)
 
 	fd := int(os.Stdin.Fd())
 	cols, rows, _ := term.GetSize(fd)
@@ -66,7 +67,7 @@ func RunSession(sessionName string) error {
 	}
 
 	// Send attach
-	if err := proto.WriteMsg(conn, &proto.Message{
+	if err := sender.Send(&proto.Message{
 		Type:    proto.MsgTypeAttach,
 		Session: sessionName,
 		Cols:    cols,
@@ -91,6 +92,12 @@ func RunSession(sessionName string) error {
 
 	// Client-side renderer with per-pane emulators
 	cr := NewClientRenderer(cols, rows)
+	cr.OnUIEvent = func(name string) {
+		_ = sender.Send(&proto.Message{
+			Type:    proto.MsgTypeUIEvent,
+			UIEvent: name,
+		})
+	}
 
 	// Hot reload: resolve binary path once, start file watcher.
 	// AMUX_NO_WATCH=1 disables watching (used by test harness for the outer
@@ -109,7 +116,7 @@ func RunSession(sessionName string) error {
 			c, r, _ := term.GetSize(fd)
 			if c > 0 && r > 0 {
 				cr.Resize(c, r)
-				proto.WriteMsg(conn, &proto.Message{
+				sender.Send(&proto.Message{
 					Type: proto.MsgTypeResize,
 					Cols: c,
 					Rows: r,
@@ -152,7 +159,7 @@ func RunSession(sessionName string) error {
 				// Server is forwarding a capture request — render from
 				// client-side emulators and send the result back.
 				resp := cr.HandleCaptureRequest(msg.CmdArgs, msg.AgentStatus)
-				proto.WriteMsg(conn, resp)
+				sender.Send(resp)
 			case proto.MsgTypeTypeKeys:
 				select {
 				case injectCh <- msg.Input:
@@ -239,16 +246,16 @@ func RunSession(sessionName string) error {
 				switch binding.Action {
 				case "detach":
 					if len(*forward) > 0 {
-						proto.WriteMsg(conn, &proto.Message{
+						sender.Send(&proto.Message{
 							Type: proto.MsgTypeInput, Input: *forward,
 						})
 					}
-					proto.WriteMsg(conn, &proto.Message{Type: proto.MsgTypeDetach})
+					sender.Send(&proto.Message{Type: proto.MsgTypeDetach})
 					conn.Close()
 					return true
 				case "reload":
 					if len(*forward) > 0 {
-						proto.WriteMsg(conn, &proto.Message{
+						sender.Send(&proto.Message{
 							Type: proto.MsgTypeInput, Input: *forward,
 						})
 						*forward = nil
@@ -276,7 +283,7 @@ func RunSession(sessionName string) error {
 					io.WriteString(os.Stdout, "\a")
 				default:
 					// Generic server command
-					SendCommand(conn, binding.Action, binding.Args)
+					sender.Command(binding.Action, binding.Args)
 				}
 			} else if b == 0x1b {
 				prefixEsc = true
@@ -295,7 +302,7 @@ func RunSession(sessionName string) error {
 			if altEsc {
 				altEsc = false
 				if dir, ok := altHJKL[b]; ok {
-					SendCommand(conn, "focus", []string{dir})
+					sender.Command("focus", []string{dir})
 					return false
 				}
 				// Not alt+hjkl — forward the \x1b and process this byte normally.
@@ -314,7 +321,7 @@ func RunSession(sessionName string) error {
 					if dir, ok := arrowDirection[b]; ok {
 						prefixEsc = false
 						prefixEscBuf = nil
-						SendCommand(conn, "focus", []string{dir})
+						sender.Command("focus", []string{dir})
 					} else {
 						flushPrefixEsc(forward)
 					}
@@ -347,7 +354,7 @@ func RunSession(sessionName string) error {
 
 			if b == kb.Prefix {
 				if len(*forward) > 0 {
-					proto.WriteMsg(conn, &proto.Message{
+					sender.Send(&proto.Message{
 						Type: proto.MsgTypeInput, Input: *forward,
 					})
 					*forward = nil
@@ -424,12 +431,12 @@ func RunSession(sessionName string) error {
 				if isMouse {
 					// Flush any accumulated forward bytes before handling mouse
 					if len(forward) > 0 {
-						proto.WriteMsg(conn, &proto.Message{
+						sender.Send(&proto.Message{
 							Type: proto.MsgTypeInput, Input: forward,
 						})
 						forward = nil
 					}
-					HandleMouseEvent(ev, cr, conn, &drag)
+					HandleMouseEvent(ev, cr, sender, &drag)
 					continue
 				}
 
@@ -442,7 +449,7 @@ func RunSession(sessionName string) error {
 							io.WriteString(os.Stdout, data)
 						}
 						if ok {
-							SendCommand(conn, "focus", []string{fmt.Sprintf("%d", paneID)})
+							sender.Command("focus", []string{fmt.Sprintf("%d", paneID)})
 						}
 						continue
 					}
@@ -458,7 +465,7 @@ func RunSession(sessionName string) error {
 			}
 
 			if len(forward) > 0 {
-				proto.WriteMsg(conn, &proto.Message{
+				sender.Send(&proto.Message{
 					Type: proto.MsgTypeInput, Input: forward,
 				})
 			}
@@ -471,7 +478,7 @@ func RunSession(sessionName string) error {
 		return nil
 	case <-triggerReload:
 		if execPath != "" {
-			ExecSelf(execPath, conn, fd, oldState)
+			ExecSelf(execPath, sender, fd, oldState)
 		}
 		// ExecSelf replaces the process; if we get here, exec failed fatally
 		return nil
@@ -494,26 +501,17 @@ func CopyToClipboard(text string) {
 	}
 }
 
-// SendCommand sends a command to the server (non-blocking, ignores response).
-func SendCommand(conn net.Conn, name string, args []string) {
-	proto.WriteMsg(conn, &proto.Message{
-		Type:    proto.MsgTypeCommand,
-		CmdName: name,
-		CmdArgs: args,
-	})
-}
-
 // ExecSelf replaces the current process with the binary at execPath.
 // Pre-validates the binary before tearing down the connection.
-func ExecSelf(execPath string, conn net.Conn, fd int, oldState *term.State) {
+func ExecSelf(execPath string, sender *messageSender, fd int, oldState *term.State) {
 	// Pre-validate: binary must exist and be accessible
 	if _, err := os.Stat(execPath); err != nil {
 		return
 	}
 
 	// Clean disconnect from server
-	proto.WriteMsg(conn, &proto.Message{Type: proto.MsgTypeDetach})
-	conn.Close()
+	sender.Send(&proto.Message{Type: proto.MsgTypeDetach})
+	sender.conn.Close()
 
 	// Restore terminal state
 	term.Restore(fd, oldState)

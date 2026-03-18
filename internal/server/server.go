@@ -38,6 +38,7 @@ type Session struct {
 	ActiveWindowID uint32        // which window is displayed
 	Panes          []*mux.Pane   // flat list of ALL panes across all windows
 	clients        []*ClientConn
+	clientCounter  atomic.Uint32
 	counter        atomic.Uint32 // pane ID counter
 	windowCounter  atomic.Uint32 // window ID counter
 	mu             sync.Mutex
@@ -529,6 +530,7 @@ func (s *Server) handleAttach(conn net.Conn, msg *Message) {
 	}
 
 	cc := NewClientConn(conn)
+	cc.ID = fmt.Sprintf("client-%d", sess.clientCounter.Add(1))
 
 	cols, rows := msg.Cols, msg.Rows
 	if cols <= 0 {

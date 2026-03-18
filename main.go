@@ -112,6 +112,8 @@ func main() {
 		runServerCommand("list", nil)
 	case "status":
 		runServerCommand("status", nil)
+	case "list-clients":
+		runServerCommand("list-clients", nil)
 	case "capture":
 		runServerCommand("capture", args[1:])
 	case "copy-mode":
@@ -198,6 +200,12 @@ func main() {
 			os.Exit(1)
 		}
 		runServerCommand("wait-busy", args[1:])
+	case "wait-ui":
+		if len(args) < 2 {
+			fmt.Fprintf(os.Stderr, "usage: amux wait-ui <event> [--client <id>] [--timeout <duration>]\n")
+			os.Exit(1)
+		}
+		runServerCommand("wait-ui", args[1:])
 	case "clipboard-gen":
 		runServerCommand("clipboard-gen", nil)
 	case "wait-clipboard":
@@ -284,6 +292,7 @@ Usage:
   amux [-s session] new [name]         Start a new named session
   amux [-s session] list               List panes with metadata
   amux [-s session] status             Show pane/window summary
+  amux [-s session] list-clients       List attached clients + display-panes state
   amux [-s session] capture            Capture full composited screen
   amux [-s session] capture <pane>     Capture a single pane's output
   amux [-s session] capture --ansi     Capture with ANSI escape codes
@@ -317,8 +326,8 @@ Usage:
   amux [-s session] unset-hook <event> [index]
                                        Remove hook(s) for an event
   amux [-s session] list-hooks         List registered hooks
-  amux [-s session] events [--filter type1,type2] [--pane <ref>] [--host <name>]
-                                       Stream events as NDJSON (layout, output, idle, busy)
+  amux [-s session] events [--filter type1,type2] [--pane <ref>] [--host <name>] [--client <id>]
+                                       Stream events as NDJSON (layout, idle, busy, display-panes-*)
   amux [-s session] split --host HOST  Split with a remote pane on HOST
   amux [-s session] hosts              List configured remote hosts + status
   amux [-s session] disconnect <host>  Drop SSH connection to a host
@@ -334,6 +343,8 @@ Usage:
                                        Block until pane has child processes
   amux [-s session] wait-idle <pane> [--timeout 5s]
                                        Block until pane becomes idle
+  amux [-s session] wait-ui <event> [--client <id>] [--timeout 5s]
+                                       Block until a client-local UI state is reached
   amux version                         Show build version
 
 Panes can be referenced by name (pane-1) or ID (1).
@@ -346,6 +357,7 @@ Inside an amux session (defaults, configurable via config.toml):
   Ctrl-a x                           Kill active pane
   Ctrl-a z                           Toggle zoom on active pane
   Ctrl-a M                           Toggle minimize/restore
+  Ctrl-a q                           Show pane labels and jump to a pane
   Ctrl-a }                           Swap active pane with next
   Ctrl-a {                           Swap active pane with previous
   Ctrl-a o                           Cycle focus to next pane
