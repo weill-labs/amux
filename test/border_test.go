@@ -57,7 +57,7 @@ func TestJunctionNotColoredOnInactiveBorder(t *testing.T) {
 	// Wait for the inner client to render all 4 panes to the outer PTY.
 	// splitH() waits for the inner server's layout generation, but the
 	// outer emulator may not have processed the rendered output yet.
-	if !h.waitFor("[pane-4]", 5*time.Second) {
+	if !h.waitFor("[pane-4]", 3*time.Second) {
 		t.Fatal("timed out waiting for pane-4 to appear in outer capture")
 	}
 
