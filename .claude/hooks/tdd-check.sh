@@ -9,37 +9,21 @@ ACK_FILE=".claude/.tdd-ack"
 
 # Get modified .go files (staged + unstaged)
 changed=$(git diff --name-only HEAD 2>/dev/null; git diff --name-only 2>/dev/null)
-
-if [ -z "$changed" ]; then
-    rm -f "$ACK_FILE"
-    exit 0
-fi
-
-# Filter to .go files only
 go_files=$(echo "$changed" | grep '\.go$' | sort -u)
-if [ -z "$go_files" ]; then
-    rm -f "$ACK_FILE"
-    exit 0
-fi
 
 # Separate implementation files from test files
 impl_files=$(echo "$go_files" | grep -v '_test\.go$')
 test_files=$(echo "$go_files" | grep '_test\.go$')
 
-# If no implementation files changed, nothing to check
-if [ -z "$impl_files" ]; then
-    rm -f "$ACK_FILE"
-    exit 0
-fi
-
-# If at least one test file was also modified, TDD is satisfied
-if [ -n "$test_files" ]; then
+# TDD is satisfied when: no impl files changed, or at least one test file changed
+if [ -z "$impl_files" ] || [ -n "$test_files" ]; then
     rm -f "$ACK_FILE"
     exit 0
 fi
 
 # Hash the current impl-only diff to detect whether it changed since last ack.
-current_hash=$(git diff HEAD -- $impl_files 2>/dev/null | md5 -q 2>/dev/null || git diff HEAD -- $impl_files 2>/dev/null | md5sum 2>/dev/null | cut -d' ' -f1)
+diff_content=$(git diff HEAD -- $impl_files 2>/dev/null)
+current_hash=$(echo "$diff_content" | md5 -q 2>/dev/null || echo "$diff_content" | md5sum 2>/dev/null | cut -d' ' -f1)
 if [ -f "$ACK_FILE" ] && [ "$(cat "$ACK_FILE")" = "$current_hash" ]; then
     exit 0
 fi
