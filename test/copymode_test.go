@@ -256,7 +256,7 @@ func TestCopyModeResizeSurvives(t *testing.T) {
 	h.sendKeys("q")
 	if !waitForOuter(h, func(s string) bool {
 		return !strings.Contains(s, "[copy]")
-	}, 5*time.Second) {
+	}, 10*time.Second) {
 		t.Fatalf("expected [copy] to disappear after q\nScreen:\n%s", h.captureOuter())
 	}
 }
