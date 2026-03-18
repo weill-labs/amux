@@ -34,6 +34,8 @@ See [README.md — Philosophy](README.md#philosophy) for the project thesis and 
 
 **Guard against impossible states.** Minimize checks that at least one pane stays non-minimized. Restore caps height at available space. Focus fallback finds nearest pane when strict overlap matching fails.
 
+**Save/restore cursor state in copy mode motions.** `moveDown()`/`moveUp()` mutate `cy`/`oy` as side effects. Any motion that calls them in a scanning loop (word motions, paragraph motions, etc.) must save `cy`/`oy` before scanning and restore them on failure paths where `ActionNone` is returned. Otherwise the cursor drifts silently.
+
 **Minimize requires a horizontal split.** `Minimize` only works on panes in a horizontal split (`splitH` / top-bottom layout). Panes in a vertical split (`splitV` / left-right layout) cannot be minimized — the command returns an error. Tests that exercise minimize must use `splitH()`, not `splitV()`.
 
 **Colors live in `config/config.go`.** The Catppuccin Mocha palette (`CatppuccinMocha`), letter abbreviations (`CatppuccinLetters`), and named hex constants (`DimColorHex`, `TextColorHex`) are defined once in the config package. Reference these constants instead of hardcoding hex values like `"f5e0dc"` or `"6c7086"`.
