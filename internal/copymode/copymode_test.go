@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	uv "github.com/charmbracelet/ultraviolet"
 )
 
 // fakeEmulator implements TerminalEmulator for testing.
@@ -551,6 +553,76 @@ func TestBatchedInputSearchThenNormal(t *testing.T) {
 	}
 	if cm.SearchQuery() != "hi" {
 		t.Errorf("search query = %q, want %q", cm.SearchQuery(), "hi")
+	}
+}
+
+func TestCellAt_CursorReverse(t *testing.T) {
+	t.Parallel()
+	emu := newFakeEmulator(10, 3)
+	emu.screen = []string{"hello", "world", "test!"}
+	cm := New(emu, 10, 3, 1) // cursor row 1
+	cm.cx = 2                // cursor col 2
+
+	cell := cm.CellAt(2, 1)
+	if cell.Char != "r" {
+		t.Errorf("cursor cell Char = %q, want 'r'", cell.Char)
+	}
+	if cell.Style.Attrs&uv.AttrReverse == 0 {
+		t.Error("cursor cell should have AttrReverse")
+	}
+
+	// Non-cursor cell should not have reverse.
+	other := cm.CellAt(0, 0)
+	if other.Style.Attrs&uv.AttrReverse != 0 {
+		t.Error("non-cursor cell should not have AttrReverse")
+	}
+}
+
+func TestCellAt_Selection(t *testing.T) {
+	t.Parallel()
+	emu := newFakeEmulator(10, 3)
+	emu.screen = []string{"hello", "world", "test!"}
+	cm := New(emu, 10, 3, 0)
+
+	// Start character selection at (2,0), extend to (4,0).
+	cm.cx = 2
+	cm.HandleInput([]byte{'v'})
+	cm.HandleInput([]byte{'l', 'l'})
+
+	// Col 3 should be selected.
+	cell := cm.CellAt(3, 0)
+	if cell.Style.Bg == nil {
+		t.Error("selected cell should have non-nil Bg")
+	}
+
+	// Col 0 should NOT be selected.
+	unsel := cm.CellAt(0, 0)
+	if unsel.Style.Bg != nil {
+		t.Error("unselected cell should have nil Bg")
+	}
+}
+
+func TestCellAt_SearchMatch(t *testing.T) {
+	t.Parallel()
+	emu := newFakeEmulator(20, 3)
+	emu.screen = []string{"hello world", "foo bar", "hello again"}
+	cm := New(emu, 20, 3, 0)
+
+	// Search for "hello"
+	cm.HandleInput([]byte{'/'})
+	cm.HandleInput([]byte("hello"))
+	cm.HandleInput([]byte{'\r'})
+
+	// Col 0 of row 0 should be in a match.
+	cell := cm.CellAt(0, 0)
+	if cell.Style.Bg == nil {
+		t.Error("match cell should have non-nil Bg")
+	}
+
+	// Col 6 of row 0 (after "hello ") should NOT be in a match.
+	noMatch := cm.CellAt(6, 0)
+	if noMatch.Style.Bg != nil {
+		t.Error("non-match cell should have nil Bg")
 	}
 }
 

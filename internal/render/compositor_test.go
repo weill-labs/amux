@@ -18,19 +18,22 @@ type fakePaneData struct {
 }
 
 func (f *fakePaneData) RenderScreen(bool) string { return f.screen }
-func (f *fakePaneData) CursorPos() (int, int)   { return 0, 0 }
-func (f *fakePaneData) CursorHidden() bool      { return f.cursorHidden }
-func (f *fakePaneData) ID() uint32              { return f.id }
-func (f *fakePaneData) Name() string            { return f.name }
-func (f *fakePaneData) Host() string            { return "local" }
-func (f *fakePaneData) Task() string            { return "" }
-func (f *fakePaneData) Color() string           { return "f5e0dc" }
-func (f *fakePaneData) Minimized() bool         { return f.minimized }
-func (f *fakePaneData) Idle() bool              { return true }
-func (f *fakePaneData) ConnStatus() string      { return "" }
-func (f *fakePaneData) InCopyMode() bool        { return false }
-func (f *fakePaneData) CopyModeSearch() string  { return "" }
-func (f *fakePaneData) HasCursorBlock() bool    { return false }
+func (f *fakePaneData) CellAt(col, row int, active bool) ScreenCell {
+	return ScreenCell{Char: " ", Width: 1}
+}
+func (f *fakePaneData) CursorPos() (int, int)  { return 0, 0 }
+func (f *fakePaneData) CursorHidden() bool     { return f.cursorHidden }
+func (f *fakePaneData) ID() uint32             { return f.id }
+func (f *fakePaneData) Name() string           { return f.name }
+func (f *fakePaneData) Host() string           { return "local" }
+func (f *fakePaneData) Task() string           { return "" }
+func (f *fakePaneData) Color() string          { return "f5e0dc" }
+func (f *fakePaneData) Minimized() bool        { return f.minimized }
+func (f *fakePaneData) Idle() bool             { return true }
+func (f *fakePaneData) ConnStatus() string     { return "" }
+func (f *fakePaneData) InCopyMode() bool       { return false }
+func (f *fakePaneData) CopyModeSearch() string { return "" }
+func (f *fakePaneData) HasCursorBlock() bool   { return false }
 
 func TestMinimizedPaneHidesCursor(t *testing.T) {
 	t.Parallel()

@@ -59,6 +59,9 @@ type TerminalEmulator interface {
 
 	// ScreenContains returns true if any screen line contains substr.
 	ScreenContains(substr string) bool
+
+	// CellAt returns the raw cell at (col, row). Returns nil for out-of-bounds.
+	CellAt(col, row int) *uv.Cell
 }
 
 // vtEmulator wraps charmbracelet/x/vt.SafeEmulator.
@@ -172,6 +175,10 @@ func (v *vtEmulator) ScreenLineText(y int) string {
 	w := v.w
 	v.mu.Unlock()
 	return v.screenLineTextInner(w, y)
+}
+
+func (v *vtEmulator) CellAt(col, row int) *uv.Cell {
+	return v.emu.CellAt(col, row)
 }
 
 func (v *vtEmulator) ScreenContains(substr string) bool {

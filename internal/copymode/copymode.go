@@ -2,6 +2,10 @@ package copymode
 
 import (
 	"strings"
+
+	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/charmbracelet/x/ansi"
+	"github.com/weill-labs/amux/internal/render"
 )
 
 // TerminalEmulator is the subset of a pane's emulator that copy mode needs.
@@ -461,6 +465,84 @@ func (cm *CopyMode) scrollToMatch() {
 	firstVisible := cm.TotalLines() - cm.height - cm.oy
 	cm.cy = clamp(m.LineIdx-firstVisible, 0, cm.height-1)
 	cm.cx = m.Col
+}
+
+// ViewportHeight returns the viewport height in rows.
+func (cm *CopyMode) ViewportHeight() int {
+	return cm.height
+}
+
+// FirstVisibleLine returns the absolute line index of the first visible row.
+func (cm *CopyMode) FirstVisibleLine() int {
+	return max(0, cm.TotalLines()-cm.height-cm.oy)
+}
+
+// LineText returns the plain text for an absolute line index (exported wrapper).
+func (cm *CopyMode) LineText(absIdx int) string {
+	return cm.lineText(absIdx)
+}
+
+// Copy mode cell colors — using basic ANSI colors to match terminal themes.
+var (
+	copySelectionBg = ansi.BasicColor(4)  // blue
+	copyMatchBg     = ansi.BasicColor(3)  // yellow
+	copyCurrentBg   = ansi.BasicColor(11) // bright yellow
+)
+
+// CellAt returns the cell at (col, viewportRow) with copy mode overlays applied.
+// The base character comes from the line text. Selection, search matches, and
+// the cursor are overlaid as style changes.
+func (cm *CopyMode) CellAt(col, viewportRow int) render.ScreenCell {
+	absIdx := cm.FirstVisibleLine() + viewportRow
+	line := cm.lineText(absIdx)
+	runes := []rune(line)
+
+	char := " "
+	if col < len(runes) {
+		char = string(runes[col])
+	}
+
+	sc := render.ScreenCell{Char: char, Width: 1}
+
+	// Selection overlay.
+	if cm.selecting {
+		startY, startX, endY, endX := cm.normalizedSelection()
+		if absIdx >= startY && absIdx <= endY {
+			colStart := 0
+			colEnd := cm.width
+			if absIdx == startY {
+				colStart = startX
+			}
+			if absIdx == endY {
+				colEnd = endX + 1
+			}
+			if col >= colStart && col < colEnd {
+				sc.Style.Bg = copySelectionBg
+			}
+		}
+	}
+
+	// Search match overlay (takes priority over selection).
+	for i, m := range cm.matches {
+		if m.LineIdx != absIdx {
+			continue
+		}
+		if col >= m.Col && col < m.Col+m.Len {
+			if i == cm.matchIdx {
+				sc.Style.Bg = copyCurrentBg
+				sc.Style.Attrs |= uv.AttrBold
+			} else {
+				sc.Style.Bg = copyMatchBg
+			}
+		}
+	}
+
+	// Cursor overlay (takes priority over everything).
+	if viewportRow == cm.cy && col == cm.cx {
+		sc.Style.Attrs |= uv.AttrReverse
+	}
+
+	return sc
 }
 
 // clamp returns v clamped to the range [lo, hi].

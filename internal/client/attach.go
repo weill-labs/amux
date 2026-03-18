@@ -259,7 +259,7 @@ func RunSession(sessionName string) error {
 					}
 				case "copy-mode":
 					cr.EnterCopyMode(cr.ActivePaneID())
-					if data := cr.Render(false); data != "" {
+					if data := cr.RenderDiff(); data != "" {
 						io.WriteString(os.Stdout, data)
 					}
 				default:
@@ -397,7 +397,7 @@ func RunSession(sessionName string) error {
 					}
 					cr.ExitCopyMode(paneID)
 				}
-				if data := cr.Render(false); data != "" {
+				if data := cr.RenderDiff(); data != "" {
 					io.WriteString(os.Stdout, data)
 				}
 				continue

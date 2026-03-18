@@ -195,6 +195,13 @@ func (r *Renderer) Resize(width, height int) {
 	r.compositor.Resize(width, height)
 }
 
+// ClearPrevGrid forces a full repaint on the next RenderDiff call.
+func (r *Renderer) ClearPrevGrid() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.compositor.ClearPrevGrid()
+}
+
 // RenderFull produces ANSI output compositing all panes. The paneLookup
 // function maps pane IDs to PaneData — the caller provides this so it can
 // inject copy-mode overlays or other per-pane customization.
@@ -222,6 +229,26 @@ func (r *Renderer) RenderFull(paneLookup func(uint32) render.PaneData, clearScre
 	r.mu.Unlock()
 
 	return comp.RenderFull(root, activePaneID, paneLookup, clearScreen...)
+}
+
+// RenderDiff produces minimal ANSI output by diffing against the previous frame.
+// Returns empty string if no layout is available.
+func (r *Renderer) RenderDiff(paneLookup func(uint32) render.PaneData) string {
+	r.mu.Lock()
+	if r.layout == nil {
+		r.mu.Unlock()
+		return ""
+	}
+
+	root := r.layout
+	activePaneID := r.activePaneID
+	if r.zoomedPaneID != 0 {
+		root = mux.NewLeafByID(r.zoomedPaneID, 0, 0, r.width, r.compositor.LayoutHeight())
+	}
+	comp := r.compositor
+	r.mu.Unlock()
+
+	return comp.RenderDiff(root, activePaneID, paneLookup)
 }
 
 // Capture renders the full composited screen from client-side emulators.

@@ -66,7 +66,22 @@ func (cr *ClientRenderer) Render(clearScreen ...bool) string {
 	cr.dirty = false
 	cr.mu.Unlock()
 
-	return cr.renderer.RenderFull(func(paneID uint32) render.PaneData {
+	return cr.renderer.RenderFull(cr.paneLookup(), clearScreen...)
+}
+
+// RenderDiff produces minimal ANSI output by diffing against the previous frame.
+// This is the primary render path — no screen clearing, no flicker.
+func (cr *ClientRenderer) RenderDiff() string {
+	cr.mu.Lock()
+	cr.dirty = false
+	cr.mu.Unlock()
+
+	return cr.renderer.RenderDiff(cr.paneLookup())
+}
+
+// paneLookup returns a lookup function for pane data including copy mode.
+func (cr *ClientRenderer) paneLookup() func(uint32) render.PaneData {
+	return func(paneID uint32) render.PaneData {
 		emu, ok := cr.renderer.Emulator(paneID)
 		if !ok {
 			return nil
@@ -79,7 +94,7 @@ func (cr *ClientRenderer) Render(clearScreen ...bool) string {
 		cm := cr.copyModes[paneID]
 		cr.mu.Unlock()
 		return &clientPaneData{emu: emu, info: info, cm: cm}
-	}, clearScreen...)
+	}
 }
 
 // IsDirty returns true if there is new data to render.
@@ -156,18 +171,17 @@ type RenderMsg struct {
 
 // RenderCoalesced runs a select loop that reads messages from msgCh,
 // updates the client renderer, and coalesces renders at ~60fps.
-// Layout changes render immediately with a full clear; pane output is
-// debounced and rendered without clearing to avoid flicker.
+// Uses the diff renderer for flicker-free incremental updates. Layout
+// changes that move/resize panes clear the previous grid to force a
+// full repaint through the diff engine.
 func (cr *ClientRenderer) RenderCoalesced(msgCh <-chan *RenderMsg, write func(string)) {
 	var renderTimer *time.Timer
 	var renderC <-chan time.Time
-	needsClear := true // first render always clears
 
 	doRender := func() {
-		if data := cr.Render(needsClear); data != "" {
+		if data := cr.RenderDiff(); data != "" {
 			write(data)
 		}
-		needsClear = false
 		renderTimer = nil
 		renderC = nil
 	}
@@ -188,10 +202,10 @@ func (cr *ClientRenderer) RenderCoalesced(msgCh <-chan *RenderMsg, write func(st
 			switch msg.Typ {
 			case RenderMsgLayout:
 				structureChanged := cr.HandleLayout(msg.Layout)
-				// Only clear screen when pane positions/sizes actually changed.
-				// Focus changes are metadata-only and don't need a clear.
+				// When pane positions/sizes changed, clear prevGrid so the
+				// diff engine does a full repaint (no stale cells).
 				if structureChanged {
-					needsClear = true
+					cr.renderer.ClearPrevGrid()
 				}
 				if renderTimer != nil {
 					renderTimer.Stop()
@@ -279,6 +293,18 @@ func (c *clientPaneData) RenderScreen(active bool) string {
 		return c.emu.RenderWithoutCursorBlock()
 	}
 	return c.emu.Render()
+}
+
+func (c *clientPaneData) CellAt(col, row int, active bool) render.ScreenCell {
+	if c.cm != nil {
+		return c.cm.CellAt(col, row)
+	}
+	cell := c.emu.CellAt(col, row)
+	sc := render.CellFromUV(cell)
+	if !active {
+		stripCursorBlock(&sc, c.emu, col, row)
+	}
+	return sc
 }
 
 func (c *clientPaneData) CursorPos() (col, row int) {

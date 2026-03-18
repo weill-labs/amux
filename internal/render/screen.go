@@ -1,0 +1,445 @@
+package render
+
+import (
+	"image/color"
+	"strconv"
+	"strings"
+	"time"
+
+	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/charmbracelet/x/ansi"
+	"github.com/weill-labs/amux/internal/config"
+	"github.com/weill-labs/amux/internal/mux"
+)
+
+// timeNow returns the current time. Overridable in tests.
+var timeNow = time.Now
+
+// ScreenCell represents a single cell in the composited screen grid.
+type ScreenCell struct {
+	Char  string   // grapheme cluster ("" treated as space)
+	Style uv.Style // foreground, background, attributes
+	Width int      // 1=normal, 2=wide, 0=continuation
+}
+
+// Equal reports whether two cells are visually identical.
+func (c ScreenCell) Equal(o ScreenCell) bool {
+	return c.Char == o.Char && c.Width == o.Width && c.Style.Equal(&o.Style)
+}
+
+// ScreenGrid is a 2D grid of screen cells in row-major order.
+type ScreenGrid struct {
+	Width, Height int
+	Cells         []ScreenCell // Cells[y*Width + x]
+}
+
+// NewScreenGrid creates a grid filled with space cells.
+func NewScreenGrid(width, height int) *ScreenGrid {
+	cells := make([]ScreenCell, width*height)
+	for i := range cells {
+		cells[i] = ScreenCell{Char: " ", Width: 1}
+	}
+	return &ScreenGrid{Width: width, Height: height, Cells: cells}
+}
+
+// Set writes a cell at (x, y). Out-of-bounds writes are ignored.
+func (g *ScreenGrid) Set(x, y int, cell ScreenCell) {
+	if x >= 0 && x < g.Width && y >= 0 && y < g.Height {
+		g.Cells[y*g.Width+x] = cell
+	}
+}
+
+// Get reads the cell at (x, y). Out-of-bounds returns a space cell.
+func (g *ScreenGrid) Get(x, y int) ScreenCell {
+	if x >= 0 && x < g.Width && y >= 0 && y < g.Height {
+		return g.Cells[y*g.Width+x]
+	}
+	return ScreenCell{Char: " ", Width: 1}
+}
+
+// CellChange records a single cell that differs between two grids.
+type CellChange struct {
+	X, Y int
+	Cell ScreenCell
+}
+
+// DiffGrid compares prev and next and returns changed cells in row-major order.
+// If prev is nil, every cell in next is returned (initial full paint).
+func DiffGrid(prev, next *ScreenGrid) []CellChange {
+	if next == nil {
+		return nil
+	}
+	if prev == nil {
+		changes := make([]CellChange, 0, next.Width*next.Height)
+		for y := 0; y < next.Height; y++ {
+			for x := 0; x < next.Width; x++ {
+				changes = append(changes, CellChange{
+					X: x, Y: y,
+					Cell: next.Cells[y*next.Width+x],
+				})
+			}
+		}
+		return changes
+	}
+	var changes []CellChange
+	for y := 0; y < next.Height; y++ {
+		for x := 0; x < next.Width; x++ {
+			idx := y*next.Width + x
+			if !next.Cells[idx].Equal(prev.Cells[idx]) {
+				changes = append(changes, CellChange{
+					X: x, Y: y, Cell: next.Cells[idx],
+				})
+			}
+		}
+	}
+	return changes
+}
+
+// EmitDiff produces minimal ANSI output for the given cell changes.
+// Changes must be in row-major order (as returned by DiffGrid).
+// Consecutive cells on the same row share a single CUP escape.
+// Does not emit HideCursor/ShowCursor — the compositor handles those.
+func EmitDiff(changes []CellChange) string {
+	if len(changes) == 0 {
+		return ""
+	}
+	var buf strings.Builder
+	buf.Grow(len(changes) * 8)
+
+	var prevStyle *uv.Style
+	expectX, expectY := -1, -1
+
+	for _, ch := range changes {
+		// Emit CUP only when cursor is not at the expected position.
+		if ch.Y != expectY || ch.X != expectX {
+			writeCursorTo(&buf, ch.Y+1, ch.X+1)
+		}
+
+		// Minimal style transition.
+		s := ch.Cell.Style
+		if diff := uv.StyleDiff(prevStyle, &s); diff != "" {
+			buf.WriteString(diff)
+		}
+		sCopy := s
+		prevStyle = &sCopy
+
+		// Write character.
+		char := ch.Cell.Char
+		if char == "" {
+			char = " "
+		}
+		buf.WriteString(char)
+
+		// Advance expected cursor position.
+		expectY = ch.Y
+		w := ch.Cell.Width
+		if w <= 0 {
+			w = 1
+		}
+		expectX = ch.X + w
+	}
+	return buf.String()
+}
+
+// CellFromUV converts a VT library cell to a ScreenCell.
+func CellFromUV(c *uv.Cell) ScreenCell {
+	if c == nil {
+		return ScreenCell{Char: " ", Width: 1}
+	}
+	char := c.Content
+	if char == "" {
+		char = " "
+	}
+	return ScreenCell{Char: char, Style: c.Style, Width: c.Width}
+}
+
+// BuildGrid composes pane content, borders, status lines, and the global bar
+// into a ScreenGrid. This is the cell-level equivalent of RenderFull.
+func (c *Compositor) BuildGrid(root *mux.LayoutCell, activePaneID uint32, lookup func(uint32) PaneData) *ScreenGrid {
+	g := NewScreenGrid(c.width, c.height)
+
+	// Determine active pane color for borders.
+	var activeColorHex string
+	if pd := lookup(activePaneID); pd != nil && pd.Color() != "" {
+		activeColorHex = pd.Color()
+	}
+
+	paneCount := 0
+
+	// Render each pane's status line and content.
+	root.Walk(func(cell *mux.LayoutCell) {
+		pid := cell.CellPaneID()
+		if pid == 0 {
+			return
+		}
+		pd := lookup(pid)
+		if pd == nil {
+			return
+		}
+		paneCount++
+		isActive := pid == activePaneID
+
+		// Status line cells.
+		buildStatusCells(g, cell, isActive, pd)
+
+		// Pane content cells.
+		contentH := mux.PaneContentHeight(cell.H)
+		for row := 0; row < contentH; row++ {
+			for col := 0; col < cell.W; col++ {
+				sc := pd.CellAt(col, row, isActive)
+				g.Set(cell.X+col, cell.Y+mux.StatusLineRows+row, sc)
+			}
+		}
+	})
+
+	// Border cells.
+	if c.cachedBorderMap == nil || c.cachedBorderRoot != root {
+		c.cachedBorderMap = buildBorderMap(root, c.width, c.height)
+		c.cachedBorderRoot = root
+	}
+	buildBorderCells(g, c.cachedBorderMap, root, activePaneID, activeColorHex)
+
+	// Global bar cells.
+	buildGlobalBarCells(g, c.sessionName, paneCount, c.width, c.height-1, c.windows)
+
+	return g
+}
+
+// buildStatusCells writes the per-pane status line into the grid cell-by-cell.
+func buildStatusCells(g *ScreenGrid, cell *mux.LayoutCell, isActive bool, pd PaneData) {
+	y := cell.Y
+	bg := hexToColor(config.Surface0Hex)
+	paneColor := pd.Color()
+	idle := !isActive && pd.Idle()
+
+	// Build the status text content and per-character styles.
+	type styledChar struct {
+		ch   string
+		fg   color.Color
+		bg   color.Color
+		bold bool
+	}
+	var chars []styledChar
+
+	dimFgColor := hexToColor(config.DimColorHex)
+	textFgColor := hexToColor(config.TextColorHex)
+	paneColorFg := hexToColor(paneColor)
+	yellowFg := hexToColor("f9e2af")
+	greenFg := hexToColor("a6e3a1")
+	redFg := hexToColor("f38ba8")
+
+	// Icon
+	if isActive {
+		chars = append(chars, styledChar{ch: "●", fg: paneColorFg, bg: bg})
+	} else if idle {
+		chars = append(chars, styledChar{ch: "◇", fg: dimFgColor, bg: bg})
+	} else {
+		chars = append(chars, styledChar{ch: "○", fg: dimFgColor, bg: bg})
+	}
+
+	// Space + name
+	chars = append(chars, styledChar{ch: " ", fg: nil, bg: bg})
+	var nameFg color.Color
+	nameBold := false
+	if isActive {
+		nameFg = paneColorFg
+		nameBold = true
+	} else if idle {
+		nameFg = dimFgColor
+	} else {
+		nameFg = textFgColor
+	}
+	for _, r := range "[" + pd.Name() + "]" {
+		chars = append(chars, styledChar{ch: string(r), fg: nameFg, bg: bg, bold: nameBold})
+	}
+
+	// Copy mode indicator
+	if pd.InCopyMode() {
+		chars = append(chars, styledChar{ch: " ", bg: bg})
+		for _, r := range "[copy]" {
+			chars = append(chars, styledChar{ch: string(r), fg: yellowFg, bg: bg})
+		}
+		if search := pd.CopyModeSearch(); search != "" {
+			chars = append(chars, styledChar{ch: " ", bg: bg})
+			for _, r := range search {
+				chars = append(chars, styledChar{ch: string(r), fg: yellowFg, bg: bg})
+			}
+		}
+	}
+
+	// Host
+	if pd.Host() != "" && pd.Host() != mux.DefaultHost {
+		chars = append(chars, styledChar{ch: " ", bg: bg})
+		for _, r := range "@" + pd.Host() {
+			chars = append(chars, styledChar{ch: string(r), fg: greenFg, bg: bg})
+		}
+	}
+
+	// Connection status
+	if cs := pd.ConnStatus(); cs != "" {
+		chars = append(chars, styledChar{ch: " ", bg: bg})
+		switch cs {
+		case "connected":
+			chars = append(chars, styledChar{ch: "⚡", fg: greenFg, bg: bg})
+		case "reconnecting":
+			chars = append(chars, styledChar{ch: "⟳", fg: yellowFg, bg: bg})
+		case "disconnected":
+			chars = append(chars, styledChar{ch: "✕", fg: redFg, bg: bg})
+		}
+	}
+
+	// Task
+	if pd.Task() != "" {
+		chars = append(chars, styledChar{ch: " ", bg: bg})
+		for _, r := range pd.Task() {
+			chars = append(chars, styledChar{ch: string(r), fg: textFgColor, bg: bg})
+		}
+	}
+
+	// Write chars to grid, fill remaining with spaces.
+	for i := 0; i < cell.W; i++ {
+		var sc ScreenCell
+		if i < len(chars) {
+			c := chars[i]
+			sc = ScreenCell{Char: c.ch, Width: 1}
+			sc.Style.Fg = c.fg
+			sc.Style.Bg = c.bg
+			if c.bold {
+				sc.Style.Attrs |= uv.AttrBold
+			}
+		} else {
+			sc = ScreenCell{Char: " ", Width: 1, Style: uv.Style{Bg: bg}}
+		}
+		g.Set(cell.X+i, y, sc)
+	}
+}
+
+// buildBorderCells writes border characters into the grid with proper colors.
+func buildBorderCells(g *ScreenGrid, bm *borderMap, root *mux.LayoutCell, activePaneID uint32, activeColorHex string) {
+	activeColorFg := hexToColor(activeColorHex)
+	dimFgColor := hexToColor(config.DimColorHex)
+
+	for _, pos := range bm.positions {
+		x, y := pos.x, pos.y
+
+		up := bm.has(x, y-1)
+		down := bm.has(x, y+1)
+		left := bm.has(x-1, y)
+		right := bm.has(x+1, y)
+		ch := junctionChar(up, down, left, right)
+
+		// Determine color.
+		bc := bm.get(x, y)
+		isJunction := (up || down) && (left || right)
+		var fg color.Color
+		if borderIsActive(bc.left, bc.right, x, y, isJunction, activePaneID) {
+			fg = activeColorFg
+		} else {
+			fg = dimFgColor
+		}
+
+		g.Set(x, y, ScreenCell{Char: ch, Width: 1, Style: uv.Style{Fg: fg}})
+	}
+}
+
+// borderIsActive returns true if the active pane is adjacent to the border at (x, y).
+func borderIsActive(a, b *mux.LayoutCell, x, y int, junction bool, activePaneID uint32) bool {
+	if activePaneID == 0 {
+		return false
+	}
+	var offsets [][2]int
+	if junction {
+		offsets = junctionOffsets[:]
+	} else if x == a.X+a.W {
+		offsets = verticalOffsets[:]
+	} else {
+		offsets = horizontalOffsets[:]
+	}
+	for _, off := range offsets {
+		nx, ny := x+off[0], y+off[1]
+		leaf := findLeafByAxis(a, nx, ny)
+		if leaf == nil {
+			leaf = findLeafByAxis(b, nx, ny)
+		}
+		if leaf != nil && leaf.CellPaneID() == activePaneID {
+			return true
+		}
+	}
+	return false
+}
+
+// buildGlobalBarCells writes the global status bar into the grid.
+func buildGlobalBarCells(g *ScreenGrid, sessionName string, paneCount int, width, yPos int, windows []WindowInfo) {
+	bg := hexToColor(config.Surface0Hex)
+	textFg := hexToColor(config.TextColorHex)
+	baseStyle := uv.Style{Fg: textFg, Bg: bg}
+
+	type styledChar struct {
+		ch    string
+		style uv.Style
+	}
+	var chars []styledChar
+
+	writeStr := func(s string, style uv.Style) {
+		for _, r := range s {
+			chars = append(chars, styledChar{ch: string(r), style: style})
+		}
+	}
+
+	// " amux │ "
+	writeStr(" ", baseStyle)
+	boldStyle := baseStyle
+	boldStyle.Attrs |= uv.AttrBold
+	writeStr("amux", boldStyle)
+	writeStr(" │ ", baseStyle)
+
+	if len(windows) > 1 {
+		for _, w := range windows {
+			tab := strconv.Itoa(w.Index) + ":" + w.Name
+			if w.IsActive {
+				writeStr("[", boldStyle)
+				writeStr(tab, boldStyle)
+				writeStr("]", boldStyle)
+				writeStr(" ", baseStyle)
+			} else {
+				writeStr(tab, baseStyle)
+				writeStr(" ", baseStyle)
+			}
+		}
+		writeStr("│ ", baseStyle)
+	} else {
+		writeStr(sessionName+" ", baseStyle)
+	}
+
+	paneCountStr := strconv.Itoa(paneCount)
+	now := timeNow().Format("15:04")
+	right := " " + paneCountStr + " panes │ " + now + " "
+
+	// Fill middle.
+	leftLen := len(chars)
+	rightLen := len([]rune(right))
+	fill := width - leftLen - rightLen
+	if fill > 0 {
+		for i := 0; i < fill; i++ {
+			chars = append(chars, styledChar{ch: " ", style: baseStyle})
+		}
+	}
+	writeStr(right, baseStyle)
+
+	// Write to grid.
+	for i := 0; i < width && i < len(chars); i++ {
+		g.Set(i, yPos, ScreenCell{Char: chars[i].ch, Width: 1, Style: chars[i].style})
+	}
+}
+
+// hexToColor converts a 6-digit hex color string to a color.Color.
+// Returns nil for invalid or short input.
+func hexToColor(hex string) color.Color {
+	if len(hex) < 6 {
+		return nil
+	}
+	r, _ := strconv.ParseUint(hex[0:2], 16, 8)
+	g, _ := strconv.ParseUint(hex[2:4], 16, 8)
+	b, _ := strconv.ParseUint(hex[4:6], 16, 8)
+	return ansi.RGBColor{R: uint8(r), G: uint8(g), B: uint8(b)}
+}
