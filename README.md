@@ -5,6 +5,8 @@
 
 A terminal multiplexer with a first-class agent API. Structured JSON capture, blocking wait primitives, and push-based events — no polling, no screen-scraping.
 
+![amux demo](demo/hero.gif)
+
 ## Philosophy
 
 When humans and agents pair, they need a shared screen. GUIs require screenshots and vision models. Headless APIs cut the human out. The TUI is the only medium native to both — text that humans read and LLMs process at full capability, in real time, in the same panes.
