@@ -1,6 +1,7 @@
 package client
 
 import (
+	"os"
 	"sync"
 	"time"
 
@@ -114,6 +115,11 @@ func (cr *ClientRenderer) Capture(stripANSI bool) string {
 	return cr.renderer.Capture(stripANSI)
 }
 
+// CaptureDisplay returns what the diff renderer thinks the terminal displays.
+func (cr *ClientRenderer) CaptureDisplay() string {
+	return cr.renderer.CaptureDisplay()
+}
+
 // CaptureColorMap renders a color map from client-side emulators.
 func (cr *ClientRenderer) CaptureColorMap() string {
 	return cr.renderer.CaptureColorMap()
@@ -178,8 +184,15 @@ func (cr *ClientRenderer) RenderCoalesced(msgCh <-chan *RenderMsg, write func(st
 	var renderTimer *time.Timer
 	var renderC <-chan time.Time
 
+	useFull := os.Getenv("AMUX_RENDER") == "full"
 	doRender := func() {
-		if data := cr.RenderDiff(); data != "" {
+		var data string
+		if useFull {
+			data = cr.Render()
+		} else {
+			data = cr.RenderDiff()
+		}
+		if data != "" {
 			write(data)
 		}
 		renderTimer = nil

@@ -155,6 +155,14 @@ func (c *Compositor) RenderDiff(root *mux.LayoutCell, activePaneID uint32, looku
 	buf.Grow(c.width * c.height) // rough estimate
 
 	buf.WriteString(HideCursor)
+	// Reset all styles before emitting diffs. The terminal retains the
+	// "current style" from the previous frame's last cell write (typically
+	// the global bar with bg=surface0). Without a reset, EmitDiff's first
+	// StyleDiff(nil → cell) only sets the needed attributes, leaving stale
+	// bg/fg from the prior frame to bleed into content cells.
+	if len(changes) > 0 {
+		buf.WriteString(Reset)
+	}
 	buf.WriteString(EmitDiff(changes))
 
 	// Position cursor.
@@ -166,6 +174,37 @@ func (c *Compositor) RenderDiff(root *mux.LayoutCell, activePaneID uint32, looku
 // ClearPrevGrid forces a full repaint on the next RenderDiff call.
 func (c *Compositor) ClearPrevGrid() {
 	c.prevGrid = nil
+}
+
+// PrevGridText returns the previous frame's grid as plain text (no ANSI).
+// Each row is newline-separated; trailing spaces are trimmed.
+// Returns empty string if no previous grid exists (before first render).
+func (c *Compositor) PrevGridText() string {
+	if c.prevGrid == nil {
+		return ""
+	}
+	return gridToText(c.prevGrid)
+}
+
+// gridToText converts a ScreenGrid to plain text with trailing spaces trimmed.
+func gridToText(g *ScreenGrid) string {
+	var buf strings.Builder
+	row := make([]byte, 0, g.Width)
+	for y := 0; y < g.Height; y++ {
+		if y > 0 {
+			buf.WriteByte('\n')
+		}
+		row = row[:0]
+		for x := 0; x < g.Width; x++ {
+			ch := g.Get(x, y).Char
+			if ch == "" {
+				ch = " "
+			}
+			row = append(row, ch...)
+		}
+		buf.WriteString(strings.TrimRight(string(row), " "))
+	}
+	return buf.String()
 }
 
 // renderCursorDiff positions the cursor for the diff path — same logic as

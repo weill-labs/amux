@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
@@ -170,6 +171,34 @@ func TestClientRendererResolvePaneID(t *testing.T) {
 	}
 }
 
+func TestCaptureDisplay(t *testing.T) {
+	t.Parallel()
+
+	cr := NewClientRenderer(80, 24)
+
+	// Before any layout, CaptureDisplay returns empty.
+	if got := cr.CaptureDisplay(); got != "" {
+		t.Errorf("before layout: CaptureDisplay = %q, want empty", got)
+	}
+
+	cr = buildTestRenderer(t)
+
+	// After layout but before diff render, prevGrid is nil (HandleLayout
+	// calls Resize which clears it). Force a diff render.
+	cr.RenderDiff()
+
+	got := cr.CaptureDisplay()
+	if got == "" {
+		t.Fatal("after RenderDiff: CaptureDisplay is empty")
+	}
+	if !strings.Contains(got, "pane-1") {
+		t.Error("CaptureDisplay should contain pane status line")
+	}
+	if !strings.Contains(got, "hello from pane 1") {
+		t.Error("CaptureDisplay should contain pane content")
+	}
+}
+
 func TestHandleCaptureRequest(t *testing.T) {
 	t.Parallel()
 	cr := buildTestRenderer(t)
@@ -220,5 +249,74 @@ func TestHandleCaptureRequest(t *testing.T) {
 	resp = cr.HandleCaptureRequest([]string{"--colors", "pane-1"}, nil)
 	if resp.CmdErr == "" {
 		t.Error("--colors with pane ref should error")
+	}
+}
+
+func TestHandleCaptureRequest_DisplayFlag(t *testing.T) {
+	t.Parallel()
+	cr := buildTestRenderer(t)
+
+	// --display before any diff render returns fallback message.
+	resp := cr.HandleCaptureRequest([]string{"--display"}, nil)
+	if resp.CmdErr != "" {
+		t.Errorf("--display error: %s", resp.CmdErr)
+	}
+	if !strings.Contains(resp.CmdOutput, "no previous grid") {
+		t.Errorf("--display before render should show fallback, got: %q", resp.CmdOutput)
+	}
+
+	// After a diff render, --display returns grid content.
+	cr.RenderDiff()
+	resp = cr.HandleCaptureRequest([]string{"--display"}, nil)
+	if resp.CmdErr != "" {
+		t.Errorf("--display error: %s", resp.CmdErr)
+	}
+	if !strings.Contains(resp.CmdOutput, "pane-1") {
+		t.Errorf("--display should contain pane status, got: %q", resp.CmdOutput)
+	}
+
+	// --display is mutually exclusive with other flags.
+	for _, args := range [][]string{
+		{"--display", "--ansi"},
+		{"--display", "--colors"},
+		{"--display", "--format", "json"},
+		{"--display", "pane-1"},
+	} {
+		resp = cr.HandleCaptureRequest(args, nil)
+		if resp.CmdErr == "" {
+			t.Errorf("--display with %v should error", args[1:])
+		}
+	}
+}
+
+func TestRenderCoalesced_FullRenderMode(t *testing.T) {
+	// Cannot use t.Parallel — t.Setenv requires sequential execution.
+	t.Setenv("AMUX_RENDER", "full")
+
+	cr := buildTestRenderer(t)
+	msgCh := make(chan *RenderMsg, 1)
+
+	var rendered string
+	msgCh <- &RenderMsg{
+		Typ:    RenderMsgPaneOutput,
+		PaneID: 1,
+		Data:   []byte("test output"),
+	}
+
+	done := make(chan struct{})
+	go func() {
+		cr.RenderCoalesced(msgCh, func(s string) {
+			rendered = s
+		})
+		close(done)
+	}()
+
+	// Let the render timer fire, then signal exit.
+	<-time.After(50 * time.Millisecond)
+	msgCh <- &RenderMsg{Typ: RenderMsgExit}
+	<-done
+
+	if rendered == "" {
+		t.Fatal("AMUX_RENDER=full should produce output")
 	}
 }
