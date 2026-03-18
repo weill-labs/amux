@@ -228,9 +228,9 @@ func buildStatusCells(g *ScreenGrid, cell *mux.LayoutCell, isActive bool, pd Pan
 	dimStyle := uv.Style{Fg: hexToColor(config.DimColorHex), Bg: bg}
 	textStyle := uv.Style{Fg: hexToColor(config.TextColorHex), Bg: bg}
 	paneStyle := uv.Style{Fg: hexToColor(pd.Color()), Bg: bg}
-	yellowStyle := uv.Style{Fg: hexToColor("f9e2af"), Bg: bg}
-	greenStyle := uv.Style{Fg: hexToColor("a6e3a1"), Bg: bg}
-	redStyle := uv.Style{Fg: hexToColor("f38ba8"), Bg: bg}
+	yellowStyle := uv.Style{Fg: hexToColor(config.YellowHex), Bg: bg}
+	greenStyle := uv.Style{Fg: hexToColor(config.GreenHex), Bg: bg}
+	redStyle := uv.Style{Fg: hexToColor(config.RedHex), Bg: bg}
 	paneBold := paneStyle
 	paneBold.Attrs |= uv.AttrBold
 

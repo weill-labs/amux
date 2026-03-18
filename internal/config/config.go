@@ -55,6 +55,13 @@ const TextColorHex = "cdd6f4"
 // Surface0Hex is the Surface 0 background color for status bars.
 const Surface0Hex = "313244"
 
+// Accent color hex constants for status indicators.
+const (
+	GreenHex  = "a6e3a1"
+	YellowHex = "f9e2af"
+	RedHex    = "f38ba8"
+)
+
 // Host defines a machine that can run agents.
 type Host struct {
 	Type         string `toml:"type"`          // "local" or "remote"
