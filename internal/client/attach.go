@@ -262,6 +262,16 @@ func RunSession(sessionName string) error {
 					if data := cr.RenderDiff(); data != "" {
 						io.WriteString(os.Stdout, data)
 					}
+				case "display-panes":
+					if cr.DisplayPanesActive() {
+						cr.HideDisplayPanes()
+					} else if !cr.ShowDisplayPanes() {
+						io.WriteString(os.Stdout, "\a")
+						break
+					}
+					if data := cr.RenderDiff(); data != "" {
+						io.WriteString(os.Stdout, data)
+					}
 				case "compat-bell":
 					io.WriteString(os.Stdout, "\a")
 				default:
@@ -425,6 +435,17 @@ func RunSession(sessionName string) error {
 
 				// Process flushed bytes (normal input that passed through parser)
 				for _, fb := range flushed {
+					if cr.DisplayPanesActive() {
+						paneID, ok := cr.ResolveDisplayPaneKey(fb)
+						cr.HideDisplayPanes()
+						if data := cr.RenderDiff(); data != "" {
+							io.WriteString(os.Stdout, data)
+						}
+						if ok {
+							SendCommand(conn, "focus", []string{fmt.Sprintf("%d", paneID)})
+						}
+						continue
+					}
 					if processKeyByte(fb, &forward) {
 						shouldExit = true
 						break

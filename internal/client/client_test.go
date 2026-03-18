@@ -2,6 +2,7 @@ package client
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -48,6 +49,40 @@ func buildTestRenderer(t *testing.T) *ClientRenderer {
 	cr := NewClientRenderer(80, 24)
 	cr.HandleLayout(twoPane80x23())
 	cr.HandlePaneOutput(1, []byte("hello from pane 1"))
+	return cr
+}
+
+func buildManyPaneRenderer(t *testing.T, n int) *ClientRenderer {
+	t.Helper()
+	cr := NewClientRenderer(200, 24)
+	children := make([]proto.CellSnapshot, 0, n)
+	panes := make([]proto.PaneSnapshot, 0, n)
+	x := 0
+	for i := 1; i <= n; i++ {
+		w := 4
+		if i == n {
+			w = 200 - x
+		}
+		children = append(children, proto.CellSnapshot{
+			X: x, Y: 0, W: w, H: 23, IsLeaf: true, Dir: -1, PaneID: uint32(i),
+		})
+		panes = append(panes, proto.PaneSnapshot{
+			ID: uint32(i), Name: fmt.Sprintf("pane-%d", i), Host: "local", Color: "f5e0dc",
+		})
+		x += w + 1
+	}
+	cr.HandleLayout(&proto.LayoutSnapshot{
+		SessionName:  "test",
+		ActivePaneID: 1,
+		Width:        200,
+		Height:       23,
+		Root: proto.CellSnapshot{
+			X: 0, Y: 0, W: 200, H: 23,
+			Dir:      int(mux.SplitVertical),
+			Children: children,
+		},
+		Panes: panes,
+	})
 	return cr
 }
 
@@ -194,6 +229,96 @@ func TestCaptureDisplay(t *testing.T) {
 	}
 	if !strings.Contains(got, "hello from pane 1") {
 		t.Error("CaptureDisplay should contain pane content")
+	}
+}
+
+func TestDisplayPanesOverlayDisplayOnly(t *testing.T) {
+	t.Parallel()
+
+	cr := buildTestRenderer(t)
+	if !cr.ShowDisplayPanes() {
+		t.Fatal("ShowDisplayPanes should succeed for two panes")
+	}
+	cr.RenderDiff()
+
+	display := cr.CaptureDisplay()
+	if !strings.Contains(display, "[1]") || !strings.Contains(display, "[2]") {
+		t.Fatalf("display capture should include overlay labels, got:\n%s", display)
+	}
+
+	plain := cr.Capture(true)
+	if strings.Contains(plain, "[1]") || strings.Contains(plain, "[2]") {
+		t.Fatalf("plain capture should not include overlay labels, got:\n%s", plain)
+	}
+
+	resp := cr.HandleCaptureRequest([]string{"--display"}, nil)
+	if !strings.Contains(resp.CmdOutput, "[1]") {
+		t.Fatalf("--display should include overlay labels, got:\n%s", resp.CmdOutput)
+	}
+
+	resp = cr.HandleCaptureRequest([]string{}, nil)
+	if strings.Contains(resp.CmdOutput, "[1]") || strings.Contains(resp.CmdOutput, "[2]") {
+		t.Fatalf("plain capture request should not include overlay labels, got:\n%s", resp.CmdOutput)
+	}
+}
+
+func TestDisplayPanesLabelResolution(t *testing.T) {
+	t.Parallel()
+
+	cr := buildTestRenderer(t)
+	if !cr.ShowDisplayPanes() {
+		t.Fatal("ShowDisplayPanes should succeed")
+	}
+
+	if paneID, ok := cr.ResolveDisplayPaneKey('1'); !ok || paneID != 1 {
+		t.Fatalf("label 1 should resolve to pane-1, got pane=%d ok=%v", paneID, ok)
+	}
+	if paneID, ok := cr.ResolveDisplayPaneKey('2'); !ok || paneID != 2 {
+		t.Fatalf("label 2 should resolve to pane-2, got pane=%d ok=%v", paneID, ok)
+	}
+}
+
+func TestShowDisplayPanesTooManyPanes(t *testing.T) {
+	t.Parallel()
+
+	cr := buildManyPaneRenderer(t, len(displayPaneLabelAlphabet)+1)
+	if cr.ShowDisplayPanes() {
+		t.Fatal("ShowDisplayPanes should fail when pane count exceeds label capacity")
+	}
+}
+
+func TestShowDisplayPanesZoomedOnlyLabelsVisiblePane(t *testing.T) {
+	t.Parallel()
+
+	cr := buildTestRenderer(t)
+	cr.HandleLayout(&proto.LayoutSnapshot{
+		SessionName:  "test",
+		ActivePaneID: 1,
+		ZoomedPaneID: 2,
+		Width:        80,
+		Height:       23,
+		Root: proto.CellSnapshot{
+			X: 0, Y: 0, W: 80, H: 23,
+			Dir: int(mux.SplitVertical),
+			Children: []proto.CellSnapshot{
+				{X: 0, Y: 0, W: 39, H: 23, IsLeaf: true, Dir: -1, PaneID: 1},
+				{X: 40, Y: 0, W: 39, H: 23, IsLeaf: true, Dir: -1, PaneID: 2},
+			},
+		},
+		Panes: []proto.PaneSnapshot{
+			{ID: 1, Name: "pane-1", Host: "local", Color: "f5e0dc"},
+			{ID: 2, Name: "pane-2", Host: "local", Color: "f2cdcd"},
+		},
+	})
+
+	if !cr.ShowDisplayPanes() {
+		t.Fatal("ShowDisplayPanes should succeed in zoom mode")
+	}
+	if paneID, ok := cr.ResolveDisplayPaneKey('1'); !ok || paneID != 2 {
+		t.Fatalf("visible zoomed pane should be relabeled as 1, got pane=%d ok=%v", paneID, ok)
+	}
+	if paneID, ok := cr.ResolveDisplayPaneKey('2'); ok || paneID != 0 {
+		t.Fatalf("hidden pane should not get a visible label in zoom mode, got pane=%d ok=%v", paneID, ok)
 	}
 }
 

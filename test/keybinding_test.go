@@ -211,6 +211,27 @@ m = "toggle-minimize"
 	}
 }
 
+func TestCustomDisplayPanesBinding(t *testing.T) {
+	t.Parallel()
+
+	h := newAmuxHarnessWithConfig(t, `
+[keys]
+unbind = ["q"]
+
+[keys.bind]
+w = "display-panes"
+`)
+
+	gen := h.generation()
+	h.sendKeys("C-a", "\\")
+	h.waitLayout(gen)
+
+	h.sendKeys("C-a", "w")
+	if !h.waitFor("[2]", 3*time.Second) {
+		t.Fatalf("expected custom Ctrl-a w binding to show pane overlay, got:\n%s", h.captureOuter())
+	}
+}
+
 func TestDefaultBindingsWithoutConfig(t *testing.T) {
 	t.Parallel()
 

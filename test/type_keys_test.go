@@ -165,3 +165,25 @@ func TestTypeKeysOldMinimizeKeyDoesNotLeakInput(t *testing.T) {
 		t.Fatalf("old C-a m should not leak literal input into the shell\nScreen:\n%s", screen)
 	}
 }
+
+func TestTypeKeysDisplayPanesConsumesOnlyOneKey(t *testing.T) {
+	t.Parallel()
+	h := newAmuxHarness(t)
+
+	h.splitV()
+
+	before := h.activePaneName()
+	h.runCmd("type-keys", "C-a", "q", "0", "e", "c", "h", "o", " ", "BATCH_OK", "Enter")
+
+	if !h.waitFor("BATCH_OK", 3*time.Second) {
+		t.Fatalf("expected BATCH_OK after invalid overlay key plus batched shell input\nScreen:\n%s", h.captureOuter())
+	}
+	if got := h.activePaneName(); got != before {
+		t.Fatalf("invalid overlay key should not change focus, got %s want %s", got, before)
+	}
+
+	screen := h.captureOuter()
+	if strings.Contains(screen, "0echo BATCH_OK") {
+		t.Fatalf("overlay should consume only the first key, got leaked batched input\nScreen:\n%s", screen)
+	}
+}

@@ -17,9 +17,10 @@ import (
 type ClientRenderer struct {
 	renderer *Renderer
 
-	mu        sync.Mutex
-	dirty     bool
-	copyModes map[uint32]*copymode.CopyMode // per-pane copy mode state (nil = not in copy mode)
+	mu           sync.Mutex
+	dirty        bool
+	copyModes    map[uint32]*copymode.CopyMode // per-pane copy mode state (nil = not in copy mode)
+	displayPanes *displayPanesState
 }
 
 // NewClientRenderer creates a client renderer for the given terminal dimensions.
@@ -45,6 +46,7 @@ func NewClientRenderer(width, height int) *ClientRenderer {
 func (cr *ClientRenderer) HandleLayout(snap *proto.LayoutSnapshot) bool {
 	structureChanged := cr.renderer.HandleLayout(snap)
 	cr.mu.Lock()
+	cr.displayPanes = nil
 	cr.dirty = true
 	cr.mu.Unlock()
 	return structureChanged
@@ -67,7 +69,7 @@ func (cr *ClientRenderer) Render(clearScreen ...bool) string {
 	cr.dirty = false
 	cr.mu.Unlock()
 
-	return cr.renderer.RenderFull(cr.paneLookup(), clearScreen...)
+	return cr.renderer.RenderFullWithOverlay(cr.paneLookup(), cr.overlayLabels(), clearScreen...)
 }
 
 // RenderDiff produces minimal ANSI output by diffing against the previous frame.
@@ -77,7 +79,7 @@ func (cr *ClientRenderer) RenderDiff() string {
 	cr.dirty = false
 	cr.mu.Unlock()
 
-	return cr.renderer.RenderDiff(cr.paneLookup())
+	return cr.renderer.RenderDiffWithOverlay(cr.paneLookup(), cr.overlayLabels())
 }
 
 // paneLookup returns a lookup function for pane data including copy mode.

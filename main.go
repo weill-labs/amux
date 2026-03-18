@@ -357,6 +357,7 @@ Inside an amux session (defaults, configurable via config.toml):
   Ctrl-a c                           Create new window
   Ctrl-a n                           Next window
   Ctrl-a p                           Previous window
+  Ctrl-a q                           Show pane labels for quick jump
   Ctrl-a 1-9                         Select window by number
   Ctrl-a r                           Hot reload (re-exec binary)
   Ctrl-a d                           Detach from session

@@ -98,6 +98,9 @@ func TestDefaultKeybindings(t *testing.T) {
 	if b, ok := kb.Bindings['o']; !ok || b.Action != "focus" {
 		t.Error("default: o should be bound to focus")
 	}
+	if b, ok := kb.Bindings['q']; !ok || b.Action != "display-panes" {
+		t.Error("default: q should be bound to display-panes")
+	}
 	if b, ok := kb.Bindings['M']; !ok || b.Action != "toggle-minimize" {
 		t.Error("default: M should be bound to toggle-minimize")
 	}
