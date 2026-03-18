@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"golang.org/x/crypto/ssh"
@@ -204,17 +205,24 @@ func TestDisconnect(t *testing.T) {
 func TestHandleDisconnect(t *testing.T) {
 	t.Parallel()
 
-	var lastState ConnState
+	var mu sync.Mutex
+	var states []ConnState
 	hc := NewHostConn("test", config.Host{}, "hash",
 		nil, nil,
-		func(_ string, s ConnState) { lastState = s },
+		func(_ string, s ConnState) {
+			mu.Lock()
+			states = append(states, s)
+			mu.Unlock()
+		},
 	)
 
 	// Not connected — should be a no-op
 	hc.handleDisconnect()
-	if lastState == Reconnecting {
-		t.Error("handleDisconnect on non-connected should not transition to Reconnecting")
+	mu.Lock()
+	if len(states) > 0 {
+		t.Error("handleDisconnect on non-connected should not fire callback")
 	}
+	mu.Unlock()
 
 	// Simulate Connected state
 	hc.mu.Lock()
@@ -223,15 +231,26 @@ func TestHandleDisconnect(t *testing.T) {
 
 	hc.handleDisconnect()
 
-	// Should transition to Reconnecting
-	if lastState != Reconnecting {
-		t.Errorf("state after handleDisconnect = %q, want reconnecting", lastState)
+	// Should transition to Reconnecting (the immediate transition, before
+	// startReconnectLoop runs in its goroutine).
+	hc.mu.Lock()
+	s := hc.state
+	hc.mu.Unlock()
+	if s != Reconnecting {
+		t.Errorf("state after handleDisconnect = %q, want reconnecting", s)
 	}
 
 	// Calling again should be a no-op (already reconnecting)
-	lastState = ""
+	mu.Lock()
+	countBefore := len(states)
+	mu.Unlock()
+
 	hc.handleDisconnect()
-	if lastState != "" {
+
+	mu.Lock()
+	countAfter := len(states)
+	mu.Unlock()
+	if countAfter != countBefore {
 		t.Error("duplicate handleDisconnect should be a no-op")
 	}
 }
