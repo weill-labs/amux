@@ -419,13 +419,9 @@ func (hc *HostConn) CreateRemotePane(localPaneID uint32) (uint32, error) {
 		return 0, err
 	}
 
-	// Parse: "Spawned remote-N in pane M\n"
-	var remotePaneID uint32
-	if idx := strings.LastIndex(output, "pane "); idx >= 0 {
-		fmt.Sscanf(output[idx:], "pane %d", &remotePaneID)
-	}
-	if remotePaneID == 0 {
-		return 0, fmt.Errorf("could not parse remote pane ID from: %s", output)
+	remotePaneID, err := parseSpawnOutput(output)
+	if err != nil {
+		return 0, err
 	}
 
 	hc.mu.Lock()
@@ -434,6 +430,18 @@ func (hc *HostConn) CreateRemotePane(localPaneID uint32) (uint32, error) {
 	hc.mu.Unlock()
 
 	return remotePaneID, nil
+}
+
+// parseSpawnOutput extracts the pane ID from "Spawned remote-N in pane M\n".
+func parseSpawnOutput(output string) (uint32, error) {
+	var id uint32
+	if idx := strings.LastIndex(output, "pane "); idx >= 0 {
+		fmt.Sscanf(output[idx:], "pane %d", &id)
+	}
+	if id == 0 {
+		return 0, fmt.Errorf("could not parse remote pane ID from: %s", output)
+	}
+	return id, nil
 }
 
 // SendInput sends keyboard input to a specific remote pane via the
