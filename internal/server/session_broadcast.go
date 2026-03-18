@@ -105,6 +105,12 @@ func (s *Session) broadcastLayout() {
 		}
 	}
 	s.events.Emit(Event{Type: EventLayout, Generation: gen, ActivePane: activePaneName})
+
+	// Signal crash checkpoint loop (non-blocking — drop if already pending)
+	select {
+	case s.crashCheckpointTrigger <- struct{}{}:
+	default:
+	}
 }
 
 // snapshotIdleState returns a copy of the session's idle state map.

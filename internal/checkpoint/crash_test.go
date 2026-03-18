@@ -1,0 +1,270 @@
+package checkpoint
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/weill-labs/amux/internal/mux"
+	"github.com/weill-labs/amux/internal/proto"
+)
+
+func TestCrashRoundTrip(t *testing.T) {
+	now := time.Now().Truncate(time.Millisecond)
+	cp := &CrashCheckpoint{
+		Version:       CrashVersion,
+		SessionName:   "test-session",
+		Counter:       5,
+		WindowCounter: 2,
+		Generation:    42,
+		Layout: proto.LayoutSnapshot{
+			SessionName:    "test-session",
+			ActivePaneID:   2,
+			Width:          80,
+			Height:         23,
+			ActiveWindowID: 1,
+			Windows: []proto.WindowSnapshot{
+				{
+					ID:           1,
+					Name:         "window-1",
+					Index:        1,
+					ActivePaneID: 2,
+					Root: proto.CellSnapshot{
+						X: 0, Y: 0, W: 80, H: 23, Dir: 0,
+						Children: []proto.CellSnapshot{
+							{X: 0, Y: 0, W: 39, H: 23, IsLeaf: true, Dir: -1, PaneID: 1},
+							{X: 40, Y: 0, W: 39, H: 23, IsLeaf: true, Dir: -1, PaneID: 2},
+						},
+					},
+					Panes: []proto.PaneSnapshot{
+						{ID: 1, Name: "pane-1", Host: "local", Color: "f38ba8"},
+						{ID: 2, Name: "pane-2", Host: "remote", Task: "TASK-1", Color: "a6e3a1"},
+					},
+				},
+			},
+		},
+		PaneStates: []CrashPaneState{
+			{
+				ID:        1,
+				Meta:      mux.PaneMeta{Name: "pane-1", Host: "local", Color: "f38ba8"},
+				Cols:      39,
+				Rows:      22,
+				Screen:    "hello world",
+				CreatedAt: now,
+				Cwd:       "/home/user/project",
+			},
+			{
+				ID:        2,
+				Meta:      mux.PaneMeta{Name: "pane-2", Host: "remote", Task: "TASK-1", Color: "a6e3a1", Minimized: true, RestoreH: 12},
+				Cols:      39,
+				Rows:      22,
+				Screen:    "$ echo test\ntest",
+				CreatedAt: now,
+				IsProxy:   true,
+			},
+		},
+		Timestamp: now,
+	}
+
+	dir := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", dir)
+
+	if err := WriteCrash(cp, "test-session"); err != nil {
+		t.Fatalf("WriteCrash: %v", err)
+	}
+
+	path := CrashCheckpointPath("test-session")
+	got, err := ReadCrash(path)
+	if err != nil {
+		t.Fatalf("ReadCrash: %v", err)
+	}
+
+	if got.Version != CrashVersion {
+		t.Errorf("Version = %d, want %d", got.Version, CrashVersion)
+	}
+	if got.SessionName != cp.SessionName {
+		t.Errorf("SessionName = %q, want %q", got.SessionName, cp.SessionName)
+	}
+	if got.Counter != cp.Counter {
+		t.Errorf("Counter = %d, want %d", got.Counter, cp.Counter)
+	}
+	if got.WindowCounter != cp.WindowCounter {
+		t.Errorf("WindowCounter = %d, want %d", got.WindowCounter, cp.WindowCounter)
+	}
+	if got.Generation != cp.Generation {
+		t.Errorf("Generation = %d, want %d", got.Generation, cp.Generation)
+	}
+	if len(got.PaneStates) != len(cp.PaneStates) {
+		t.Fatalf("PaneStates = %d, want %d", len(got.PaneStates), len(cp.PaneStates))
+	}
+
+	for i, want := range cp.PaneStates {
+		got := got.PaneStates[i]
+		if got.ID != want.ID {
+			t.Errorf("PaneStates[%d].ID = %d, want %d", i, got.ID, want.ID)
+		}
+		if got.Meta.Name != want.Meta.Name {
+			t.Errorf("PaneStates[%d].Meta.Name = %q, want %q", i, got.Meta.Name, want.Meta.Name)
+		}
+		if got.Meta.Minimized != want.Meta.Minimized {
+			t.Errorf("PaneStates[%d].Meta.Minimized = %v, want %v", i, got.Meta.Minimized, want.Meta.Minimized)
+		}
+		if got.Cols != want.Cols {
+			t.Errorf("PaneStates[%d].Cols = %d, want %d", i, got.Cols, want.Cols)
+		}
+		if got.Rows != want.Rows {
+			t.Errorf("PaneStates[%d].Rows = %d, want %d", i, got.Rows, want.Rows)
+		}
+		if got.Screen != want.Screen {
+			t.Errorf("PaneStates[%d].Screen = %q, want %q", i, got.Screen, want.Screen)
+		}
+		if got.IsProxy != want.IsProxy {
+			t.Errorf("PaneStates[%d].IsProxy = %v, want %v", i, got.IsProxy, want.IsProxy)
+		}
+		if got.Cwd != want.Cwd {
+			t.Errorf("PaneStates[%d].Cwd = %q, want %q", i, got.Cwd, want.Cwd)
+		}
+		if !got.CreatedAt.Equal(want.CreatedAt) {
+			t.Errorf("PaneStates[%d].CreatedAt = %v, want %v", i, got.CreatedAt, want.CreatedAt)
+		}
+	}
+
+	// Verify layout was preserved
+	if got.Layout.ActivePaneID != cp.Layout.ActivePaneID {
+		t.Errorf("Layout.ActivePaneID = %d, want %d", got.Layout.ActivePaneID, cp.Layout.ActivePaneID)
+	}
+	if len(got.Layout.Windows) != 1 {
+		t.Fatalf("Layout.Windows = %d, want 1", len(got.Layout.Windows))
+	}
+	if got.Layout.Windows[0].Name != "window-1" {
+		t.Errorf("Layout.Windows[0].Name = %q, want %q", got.Layout.Windows[0].Name, "window-1")
+	}
+}
+
+func TestCrashAtomicWrite(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", dir)
+
+	cp := &CrashCheckpoint{
+		Version:     CrashVersion,
+		SessionName: "atomic-test",
+		Timestamp:   time.Now(),
+	}
+
+	if err := WriteCrash(cp, "atomic-test"); err != nil {
+		t.Fatalf("WriteCrash: %v", err)
+	}
+
+	path := CrashCheckpointPath("atomic-test")
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("checkpoint file should exist: %v", err)
+	}
+
+	// Overwrite with new data — should be atomic (no partial writes)
+	cp.Counter = 99
+	if err := WriteCrash(cp, "atomic-test"); err != nil {
+		t.Fatalf("WriteCrash overwrite: %v", err)
+	}
+
+	got, err := ReadCrash(path)
+	if err != nil {
+		t.Fatalf("ReadCrash: %v", err)
+	}
+	if got.Counter != 99 {
+		t.Errorf("Counter = %d, want 99 (atomic overwrite)", got.Counter)
+	}
+}
+
+func TestCrashVersionValidation(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", dir)
+
+	cp := &CrashCheckpoint{
+		Version:     999, // invalid version
+		SessionName: "bad-version",
+	}
+
+	if err := WriteCrash(cp, "bad-version"); err != nil {
+		t.Fatalf("WriteCrash: %v", err)
+	}
+
+	path := CrashCheckpointPath("bad-version")
+	if _, err := ReadCrash(path); err == nil {
+		t.Error("expected error reading checkpoint with invalid version")
+	}
+}
+
+func TestCrashRemove(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", dir)
+
+	cp := &CrashCheckpoint{
+		Version:     CrashVersion,
+		SessionName: "remove-test",
+	}
+
+	if err := WriteCrash(cp, "remove-test"); err != nil {
+		t.Fatalf("WriteCrash: %v", err)
+	}
+
+	path := CrashCheckpointPath("remove-test")
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("checkpoint should exist: %v", err)
+	}
+
+	if err := RemoveCrash("remove-test"); err != nil {
+		t.Fatalf("RemoveCrash: %v", err)
+	}
+
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Error("checkpoint file should be removed")
+	}
+}
+
+func TestCrashCheckpointDir(t *testing.T) {
+	// Cannot use t.Parallel() — subtests use t.Setenv which modifies process env.
+
+	t.Run("default", func(t *testing.T) {
+		t.Setenv("XDG_STATE_HOME", "")
+		dir := CrashCheckpointDir()
+		home, _ := os.UserHomeDir()
+		want := filepath.Join(home, ".local", "state", "amux")
+		if dir != want {
+			t.Errorf("CrashCheckpointDir() = %q, want %q", dir, want)
+		}
+	})
+
+	t.Run("xdg_override", func(t *testing.T) {
+		t.Setenv("XDG_STATE_HOME", "/tmp/test-xdg-state")
+		dir := CrashCheckpointDir()
+		want := "/tmp/test-xdg-state/amux"
+		if dir != want {
+			t.Errorf("CrashCheckpointDir() = %q, want %q", dir, want)
+		}
+	})
+}
+
+func TestReadCrashDoesNotDelete(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", dir)
+
+	cp := &CrashCheckpoint{
+		Version:     CrashVersion,
+		SessionName: "persist-test",
+	}
+
+	if err := WriteCrash(cp, "persist-test"); err != nil {
+		t.Fatalf("WriteCrash: %v", err)
+	}
+
+	path := CrashCheckpointPath("persist-test")
+
+	// Read should NOT delete the file (unlike hot-reload checkpoint)
+	if _, err := ReadCrash(path); err != nil {
+		t.Fatalf("first ReadCrash: %v", err)
+	}
+	if _, err := ReadCrash(path); err != nil {
+		t.Fatalf("second ReadCrash should succeed (file not deleted): %v", err)
+	}
+}

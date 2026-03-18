@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/weill-labs/amux/internal/checkpoint"
 	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/hooks"
 	"github.com/weill-labs/amux/internal/mux"
@@ -83,6 +84,124 @@ type Session struct {
 	// response channel for the in-flight request (protected by s.mu).
 	captureMu     sync.Mutex
 	captureResult chan *Message
+
+	// Crash checkpoint — non-blocking trigger from broadcastLayout().
+	// The crashCheckpointLoop goroutine debounces and writes periodically.
+	crashCheckpointTrigger chan struct{}
+	crashCheckpointStop    chan struct{}
+	crashCheckpointDone    chan struct{} // closed when loop exits
+}
+
+// buildCrashCheckpoint builds a crash checkpoint from the current session state.
+// Unlike the hot-reload checkpoint, this omits FDs/PIDs (they can't survive a crash)
+// and captures screen content and cwd for each pane.
+func (s *Session) buildCrashCheckpoint() *checkpoint.CrashCheckpoint {
+	s.mu.Lock()
+	if len(s.Windows) == 0 {
+		s.mu.Unlock()
+		return nil
+	}
+
+	idleSnap := make(map[uint32]bool)
+	snap := s.snapshotLayoutLocked(idleSnap)
+	cp := &checkpoint.CrashCheckpoint{
+		Version:       checkpoint.CrashVersion,
+		SessionName:   s.Name,
+		Counter:       s.counter.Load(),
+		WindowCounter: s.windowCounter.Load(),
+		Generation:    s.generation.Load(),
+		Layout:        *snap,
+		Timestamp:     time.Now(),
+	}
+
+	for _, p := range s.Panes {
+		ps := checkpoint.CrashPaneState{
+			ID:        p.ID,
+			Meta:      p.Meta,
+			Screen:    p.RenderScreen(),
+			CreatedAt: p.CreatedAt(),
+			IsProxy:   p.IsProxy(),
+		}
+
+		if p.Meta.Minimized {
+			ps.Cols, ps.Rows = p.EmulatorSize()
+		} else {
+			for _, w := range s.Windows {
+				if cell := w.Root.FindPane(p.ID); cell != nil {
+					ps.Cols = cell.W
+					ps.Rows = mux.PaneContentHeight(cell.H)
+					break
+				}
+			}
+		}
+
+		// Capture cwd for local panes (best-effort)
+		if !p.IsProxy() {
+			ps.Cwd = mux.PaneCwd(p.ProcessPid())
+		}
+
+		cp.PaneStates = append(cp.PaneStates, ps)
+	}
+	s.mu.Unlock()
+
+	return cp
+}
+
+// startCrashCheckpointLoop starts the background goroutine that writes crash
+// checkpoints on layout changes (debounced 500ms) and periodic screen content
+// snapshots (every 30s).
+func (s *Session) startCrashCheckpointLoop() {
+	s.crashCheckpointTrigger = make(chan struct{}, 1)
+	s.crashCheckpointStop = make(chan struct{})
+	s.crashCheckpointDone = make(chan struct{})
+	go s.crashCheckpointLoop()
+}
+
+// crashCheckpointLoop debounces layout-change triggers and writes crash
+// checkpoints periodically. Runs until crashCheckpointStop is closed.
+func (s *Session) crashCheckpointLoop() {
+	defer close(s.crashCheckpointDone)
+
+	const debounce = 500 * time.Millisecond
+	const periodic = 30 * time.Second
+
+	debounceTimer := time.NewTimer(debounce)
+	debounceTimer.Stop()
+	periodicTicker := time.NewTicker(periodic)
+	defer periodicTicker.Stop()
+
+	for {
+		select {
+		case <-s.crashCheckpointStop:
+			debounceTimer.Stop()
+			return
+
+		case <-s.crashCheckpointTrigger:
+			// Layout changed — debounce before writing
+			debounceTimer.Reset(debounce)
+
+		case <-debounceTimer.C:
+			s.writeCrashCheckpoint()
+
+		case <-periodicTicker.C:
+			s.writeCrashCheckpoint()
+		}
+	}
+}
+
+// writeCrashCheckpoint builds and writes a crash checkpoint to disk.
+// Skips writing if the session is shutting down (clean shutdown removes the checkpoint).
+func (s *Session) writeCrashCheckpoint() {
+	if s.shutdown.Load() {
+		return
+	}
+	cp := s.buildCrashCheckpoint()
+	if cp == nil {
+		return
+	}
+	if err := checkpoint.WriteCrash(cp, s.Name); err != nil {
+		fmt.Fprintf(os.Stderr, "amux: crash checkpoint write: %v\n", err)
+	}
 }
 
 // removeClient removes a client from the session.
@@ -136,6 +255,7 @@ func newSession(name string) *Session {
 	sess.idle = NewIdleTracker()
 	sess.events = NewEventBus()
 	sess.takenOverPanes = make(map[uint32]bool)
+	sess.startCrashCheckpointLoop()
 	return sess
 }
 
@@ -177,6 +297,124 @@ func NewServer(sessionName string) (*Server, error) {
 	return s, nil
 }
 
+// NewServerFromCrashCheckpoint restores a server from a crash checkpoint.
+// Creates a new Unix socket, spawns fresh shells for each pane (with cwd
+// restored), and replays last-known screen content. Proxy panes are recreated
+// with "reconnecting" status.
+func NewServerFromCrashCheckpoint(sessionName string, cp *checkpoint.CrashCheckpoint) (*Server, error) {
+	sockDir := SocketDir()
+	if err := os.MkdirAll(sockDir, 0700); err != nil {
+		return nil, fmt.Errorf("creating socket dir: %w", err)
+	}
+
+	CleanStaleSockets()
+
+	sockPath := SocketPath(sessionName)
+	// Clean up any stale socket from the crashed server
+	os.Remove(sockPath)
+
+	listener, err := net.Listen("unix", sockPath)
+	if err != nil {
+		return nil, fmt.Errorf("listening: %w", err)
+	}
+	os.Chmod(sockPath, 0700)
+
+	sess := newSession(sessionName)
+	sess.counter.Store(cp.Counter)
+	sess.windowCounter.Store(cp.WindowCounter)
+	sess.generation.Store(cp.Generation)
+
+	s := &Server{
+		listener: listener,
+		sessions: map[string]*Session{sessionName: sess},
+		sockPath: sockPath,
+	}
+
+	// Restore panes — spawn fresh shells (FDs/PIDs are lost on crash)
+	paneMap := make(map[uint32]*mux.Pane, len(cp.PaneStates))
+	for _, ps := range cp.PaneStates {
+		var pane *mux.Pane
+
+		onOutput := sess.paneOutputCallback()
+		onExit := sess.paneExitCallback(s)
+
+		if ps.IsProxy {
+			// Restore proxy pane with frozen content, mark as reconnecting
+			meta := ps.Meta
+			meta.Remote = string(remote.Reconnecting)
+			pane = mux.NewProxyPane(ps.ID, meta, ps.Cols, ps.Rows,
+				onOutput, onExit,
+				func(data []byte) (int, error) {
+					if sess.RemoteManager != nil {
+						return len(data), sess.RemoteManager.SendInput(ps.ID, data)
+					}
+					return len(data), nil
+				},
+			)
+		} else {
+			// Spawn fresh shell with restored cwd
+			meta := ps.Meta
+			meta.Dir = ps.Cwd // set cwd for the new shell
+			var newErr error
+			pane, newErr = mux.NewPane(ps.ID, meta, ps.Cols, ps.Rows,
+				onOutput, onExit,
+			)
+			if newErr != nil {
+				fmt.Fprintf(os.Stderr, "amux: crash recovery: skipping pane %d: %v\n", ps.ID, newErr)
+				continue
+			}
+		}
+
+		pane.SetOnClipboard(sess.clipboardCallback())
+
+		if !ps.CreatedAt.IsZero() {
+			pane.SetCreatedAt(ps.CreatedAt)
+		}
+
+		// Replay last-known screen content so user/agent sees where they left off
+		if ps.Screen != "" {
+			pane.ReplayScreen(ps.Screen)
+		}
+
+		paneMap[ps.ID] = pane
+		sess.Panes = append(sess.Panes, pane)
+	}
+
+	if len(sess.Panes) == 0 {
+		listener.Close()
+		return nil, fmt.Errorf("no panes restored from crash checkpoint")
+	}
+
+	// Rebuild windows from snapshot
+	if len(cp.Layout.Windows) > 0 {
+		for _, ws := range cp.Layout.Windows {
+			w := mux.RebuildWindowFromSnapshot(ws, cp.Layout.Width, cp.Layout.Height, paneMap)
+			sess.Windows = append(sess.Windows, w)
+		}
+		sess.ActiveWindowID = cp.Layout.ActiveWindowID
+	} else {
+		// Fallback: single window from legacy root
+		w := mux.RebuildFromSnapshot(cp.Layout, paneMap)
+		winID := sess.windowCounter.Add(1)
+		w.ID = winID
+		w.Name = fmt.Sprintf(WindowNameFormat, winID)
+		sess.Windows = append(sess.Windows, w)
+		sess.ActiveWindowID = winID
+	}
+
+	// Start PTY read loops for all panes
+	for _, p := range sess.Panes {
+		if !p.IsProxy() {
+			p.Start()
+		}
+	}
+
+	// Remove crash checkpoint — recovery is complete
+	checkpoint.RemoveCrash(sessionName)
+
+	return s, nil
+}
+
 // SetupRemoteManager initializes the remote manager for all sessions.
 func (s *Server) SetupRemoteManager(cfg *config.Config) {
 	s.mu.Lock()
@@ -206,6 +444,17 @@ func (s *Server) Shutdown() {
 	defer s.mu.Unlock()
 	for _, sess := range s.sessions {
 		sess.shutdown.Store(true)
+
+		// Stop crash checkpoint loop and wait for it to exit.
+		// The shutdown flag prevents any further writes.
+		if sess.crashCheckpointStop != nil {
+			close(sess.crashCheckpointStop)
+			<-sess.crashCheckpointDone
+		}
+
+		// Clean shutdown: remove crash checkpoint (no recovery needed)
+		checkpoint.RemoveCrash(sess.Name)
+
 		if sess.RemoteManager != nil {
 			sess.RemoteManager.Shutdown()
 		}
