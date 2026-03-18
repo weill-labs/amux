@@ -78,11 +78,11 @@ amux capture --format json pane-1 # single pane JSON
 
 All development follows red-green-refactor with **separate commits** for each phase:
 
-1. **Red** — Write failing tests. Commit them alone. Run the tests and confirm they fail for the right reason (the feature is missing, not a typo).
-2. **Green** — Add the minimal production code to make tests pass. Commit separately.
+1. **Red** — Write failing tests. Commit them alone. Confirm they fail for the right reason (missing feature, not a syntax error).
+2. **Green** — Minimal production code to make tests pass. Commit separately.
 3. **Refactor** — Simplify, extract helpers, remove duplication. Commit separately.
 
-Each phase is its own commit so reviewers can see the progression. The integration test harness makes this fast (~6s for the full suite).
+The integration test harness makes this fast (~6s for the full suite).
 
 ### Test Philosophy
 
