@@ -93,6 +93,7 @@ func parseUnameArch(unameSM string) (goos, goarch string, err error) {
 }
 
 // crossCompileAndUpload builds amux for the target OS/arch via `go build` and uploads it.
+// TODO(LAB-239): Add happy-path tests (fake go.mod + minimal main.go in temp dir).
 func crossCompileAndUpload(client *ssh.Client, goos, goarch string) error {
 	// Find the module root (where go.mod lives)
 	localExe, err := os.Executable()
@@ -145,6 +146,7 @@ func findModuleRoot(dir string) string {
 // NOTE: version must be a semver tag (e.g., "0.1.0") for the URL to resolve.
 // During development, buildHash is a git commit hash, so this path will 404 —
 // cross-compile is the primary stopgap until tagged releases are published.
+// TODO(LAB-239): Add happy-path tests (httptest.Server serving a fake tarball).
 func downloadReleaseBinary(client *ssh.Client, goos, goarch, version string) error {
 	archiveName := fmt.Sprintf("amux_%s_%s_%s.tar.gz", version, goos, goarch)
 	url := fmt.Sprintf("https://github.com/weill-labs/amux/releases/download/v%s/%s", version, archiveName)
