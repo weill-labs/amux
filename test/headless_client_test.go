@@ -3,6 +3,7 @@ package test
 import (
 	"fmt"
 	"net"
+	"sync"
 	"time"
 
 	"github.com/weill-labs/amux/internal/client"
@@ -13,10 +14,11 @@ import (
 // and responds to MsgTypeCaptureRequest. It runs without a terminal —
 // used by ServerHarness so capture always routes through a client.
 type headlessClient struct {
-	conn     net.Conn
-	renderer *client.Renderer
-	done     chan struct{}
-	ready    chan struct{} // closed after first MsgTypeLayout is processed
+	conn      net.Conn
+	renderer  *client.Renderer
+	done      chan struct{}
+	ready     chan struct{} // closed after first MsgTypeLayout is processed
+	readyOnce sync.Once
 }
 
 // newHeadlessClient attaches to the server and starts a background message
@@ -72,11 +74,7 @@ func (hc *headlessClient) readLoop() {
 		switch msg.Type {
 		case server.MsgTypeLayout:
 			hc.renderer.HandleLayout(msg.Layout)
-			select {
-			case <-hc.ready: // already closed
-			default:
-				close(hc.ready)
-			}
+			hc.readyOnce.Do(func() { close(hc.ready) })
 		case server.MsgTypePaneOutput:
 			hc.renderer.HandlePaneOutput(msg.PaneID, msg.PaneData)
 		case server.MsgTypeCaptureRequest:
