@@ -32,7 +32,7 @@ func TestNestingSameSessionBlocked(t *testing.T) {
 			t.Parallel()
 			h := newServerHarness(t)
 			h.sendKeys("pane-1", amuxBin+" -s "+h.session+tt.suffix, "Enter")
-			h.waitFor("pane-1", "cannot attach to session")
+			h.waitFor("pane-1", "recursive nesting")
 		})
 	}
 }

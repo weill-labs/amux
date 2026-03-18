@@ -185,12 +185,13 @@ func (v *vtEmulator) ScreenContains(substr string) bool {
 	v.mu.Lock()
 	w, h := v.w, v.h
 	v.mu.Unlock()
+	// Join all lines without separators — terminal output is a continuous
+	// stream and column-boundary wraps are visual, not logical.
+	var buf strings.Builder
 	for y := 0; y < h; y++ {
-		if strings.Contains(v.screenLineTextInner(w, y), substr) {
-			return true
-		}
+		buf.WriteString(v.screenLineTextInner(w, y))
 	}
-	return false
+	return strings.Contains(buf.String(), substr)
 }
 
 // isCursorBlock returns true if the cell at (x, y) is an isolated

@@ -299,6 +299,27 @@ func TestScreenContainsMultiRow(t *testing.T) {
 	}
 }
 
+func TestScreenContainsSoftWrap(t *testing.T) {
+	t.Parallel()
+	// Write a string longer than the terminal width (20 cols). The emulator
+	// soft-wraps at column 20, splitting the text across two screen rows.
+	// ScreenContains should still find the full substring.
+	emu := NewVTEmulatorWithDrain(20, 5)
+	emu.Write([]byte("cannot attach recursive nesting"))
+
+	if !emu.ScreenContains("recursive nesting") {
+		t.Error("ScreenContains should match across soft-wrapped lines")
+	}
+	// Verify per-line still works for non-wrapped content
+	if !emu.ScreenContains("cannot") {
+		t.Error("ScreenContains should still match within a single line")
+	}
+	// Negative case: substring not present at all
+	if emu.ScreenContains("missing text") {
+		t.Error("ScreenContains should not match absent text")
+	}
+}
+
 func TestCursorHidden(t *testing.T) {
 	t.Parallel()
 
