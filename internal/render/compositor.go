@@ -40,9 +40,13 @@ func (c *Compositor) SetWindows(windows []WindowInfo) {
 	c.windows = windows
 }
 
+// debugDefault controls whether new compositors start with debug mode enabled.
+// Tests set this to true in init() so all compositors panic on OOB grid writes.
+var debugDefault bool
+
 // NewCompositor creates a compositor for the given terminal dimensions.
 func NewCompositor(width, height int, sessionName string) *Compositor {
-	return &Compositor{width: width, height: height, sessionName: sessionName}
+	return &Compositor{width: width, height: height, sessionName: sessionName, debug: debugDefault}
 }
 
 // SetDebug enables or disables debug mode. When enabled, BuildGrid creates
@@ -176,6 +180,12 @@ func (c *Compositor) RenderDiff(root *mux.LayoutCell, activePaneID uint32, looku
 	c.renderCursorDiff(&buf, root, activePaneID, lookup)
 
 	return buf.String()
+}
+
+// LastGrid returns the most recent grid produced by RenderDiff or BuildGrid.
+// Returns nil before the first render.
+func (c *Compositor) LastGrid() *ScreenGrid {
+	return c.prevGrid
 }
 
 // ClearPrevGrid forces a full repaint on the next RenderDiff call.

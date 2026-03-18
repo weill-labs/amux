@@ -415,47 +415,66 @@ func init() {
 	// Freeze time for deterministic oracle tests (global bar shows HH:MM).
 	frozen := time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC)
 	timeNow = func() time.Time { return frozen }
+
+	// All compositors created during tests record OOB grid writes.
+	debugDefault = true
 }
 
-// newDebugCompositor creates a compositor with debug mode enabled so that
-// out-of-bounds grid writes panic instead of being silently dropped.
-func newDebugCompositor(width, height int, sessionName string) *Compositor {
-	c := NewCompositor(width, height, sessionName)
-	c.SetDebug(true)
-	return c
+// assertNoOOB fails the test if the compositor's last grid recorded any
+// out-of-bounds writes. Call after RenderDiff or BuildGrid.
+func assertNoOOB(t *testing.T, comp *Compositor) {
+	t.Helper()
+	g := comp.LastGrid()
+	if g == nil {
+		return
+	}
+	if oob := g.OOBWrites(); len(oob) > 0 {
+		t.Errorf("ScreenGrid: %d out-of-bounds write(s) on %dx%d grid:", len(oob), g.Width, g.Height)
+		for _, w := range oob {
+			t.Errorf("  Set(%d, %d)", w.X, w.Y)
+		}
+	}
 }
 
-func TestScreenGrid_SetDebugPanics(t *testing.T) {
+func TestScreenGrid_SetDebugRecordsOOB(t *testing.T) {
 	t.Parallel()
 	g := NewScreenGrid(10, 5)
 	g.Debug = true
 
-	// In-bounds write should not panic.
+	// In-bounds write: no OOB recorded.
 	g.Set(0, 0, ScreenCell{Char: "A", Width: 1})
 	if got := g.Get(0, 0); got.Char != "A" {
 		t.Fatalf("in-bounds write failed: got %q", got.Char)
 	}
-
-	// OOB writes should panic.
-	tests := []struct {
-		name string
-		x, y int
-	}{
-		{"x too large", 10, 0},
-		{"y too large", 0, 5},
-		{"negative x", -1, 0},
-		{"negative y", 0, -1},
+	if len(g.OOBWrites()) != 0 {
+		t.Fatalf("expected 0 OOB writes after in-bounds Set, got %d", len(g.OOBWrites()))
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			defer func() {
-				if r := recover(); r == nil {
-					t.Errorf("Set(%d,%d) should panic in debug mode", tt.x, tt.y)
-				}
-			}()
-			g.Set(tt.x, tt.y, ScreenCell{Char: "X", Width: 1})
-		})
+
+	// OOB writes are recorded, not panicked.
+	g.Set(10, 0, ScreenCell{Char: "X", Width: 1})
+	g.Set(0, 5, ScreenCell{Char: "X", Width: 1})
+	g.Set(-1, 0, ScreenCell{Char: "X", Width: 1})
+	g.Set(0, -1, ScreenCell{Char: "X", Width: 1})
+
+	oob := g.OOBWrites()
+	if len(oob) != 4 {
+		t.Fatalf("expected 4 OOB writes, got %d", len(oob))
+	}
+	expected := []OOBWrite{{10, 0}, {0, 5}, {-1, 0}, {0, -1}}
+	for i, want := range expected {
+		if oob[i] != want {
+			t.Errorf("OOBWrites[%d] = (%d,%d), want (%d,%d)", i, oob[i].X, oob[i].Y, want.X, want.Y)
+		}
+	}
+}
+
+func TestScreenGrid_SetDebugOff(t *testing.T) {
+	t.Parallel()
+	g := NewScreenGrid(10, 5)
+	// Debug=false (default): OOB writes silently ignored, not recorded.
+	g.Set(100, 100, ScreenCell{Char: "X", Width: 1})
+	if len(g.OOBWrites()) != 0 {
+		t.Errorf("Debug=false should not record OOB writes")
 	}
 }
 
@@ -475,7 +494,7 @@ func TestRenderDiff_InitialPaint(t *testing.T) {
 		return nil
 	}
 
-	comp := newDebugCompositor(width, totalH, "test")
+	comp := NewCompositor(width, totalH, "test")
 	display := vt.NewSafeEmulator(width, totalH)
 
 	if err := oracleCheck(comp, display, root, 1, lookup, width, totalH); err != "" {
@@ -498,7 +517,7 @@ func TestRenderDiff_PaneOutput(t *testing.T) {
 		return nil
 	}
 
-	comp := newDebugCompositor(width, totalH, "test")
+	comp := NewCompositor(width, totalH, "test")
 	display := vt.NewSafeEmulator(width, totalH)
 
 	// Initial paint.
@@ -548,7 +567,7 @@ func TestRenderDiff_FocusChange(t *testing.T) {
 		return nil
 	}
 
-	comp := newDebugCompositor(width, totalH, "test")
+	comp := NewCompositor(width, totalH, "test")
 	display := vt.NewSafeEmulator(width, totalH)
 
 	// Initial render with pane-1 active.
@@ -577,7 +596,7 @@ func TestRenderDiff_Backspace(t *testing.T) {
 		return nil
 	}
 
-	comp := newDebugCompositor(width, totalH, "test")
+	comp := NewCompositor(width, totalH, "test")
 	display := vt.NewSafeEmulator(width, totalH)
 
 	// Initial paint.
@@ -608,7 +627,7 @@ func TestRenderDiff_Resize(t *testing.T) {
 		return nil
 	}
 
-	comp := newDebugCompositor(width, totalH, "test")
+	comp := NewCompositor(width, totalH, "test")
 	display := vt.NewSafeEmulator(width, totalH)
 
 	// Initial paint.
@@ -661,7 +680,7 @@ func TestPrevGridText(t *testing.T) {
 		return nil
 	}
 
-	comp := newDebugCompositor(width, totalH, "test")
+	comp := NewCompositor(width, totalH, "test")
 
 	// Before any render, PrevGridText returns empty.
 	if got := comp.PrevGridText(); got != "" {
@@ -797,7 +816,7 @@ func TestRenderDiff_ColorOracle(t *testing.T) {
 		return nil
 	}
 
-	comp := newDebugCompositor(width, totalH, "test")
+	comp := NewCompositor(width, totalH, "test")
 	diffDisplay := vt.NewSafeEmulator(width, totalH)
 
 	// First render: prevGrid is nil so DiffGrid returns all cells.
@@ -824,7 +843,7 @@ func TestRenderDiff_ColorOracle_IncrementalUpdate(t *testing.T) {
 		return nil
 	}
 
-	comp := newDebugCompositor(width, totalH, "test")
+	comp := NewCompositor(width, totalH, "test")
 	diffDisplay := vt.NewSafeEmulator(width, totalH)
 
 	// Initial render: populate prevGrid and prime the diff display.
@@ -987,7 +1006,7 @@ func TestRenderDiff_LongLines(t *testing.T) {
 		return nil
 	}
 
-	comp := newDebugCompositor(width, totalH, "test")
+	comp := NewCompositor(width, totalH, "test")
 	display := vt.NewSafeEmulator(width, totalH)
 
 	if err := oracleCheck(comp, display, root, 1, lookup, width, totalH); err != "" {
@@ -1020,7 +1039,7 @@ func TestRenderDiff_LongLines_TwoPanes(t *testing.T) {
 	)
 	lookup := twoPaneLookup(pane1Emu, pane2Emu)
 
-	comp := newDebugCompositor(width, totalH, "test")
+	comp := NewCompositor(width, totalH, "test")
 	display := vt.NewSafeEmulator(width, totalH)
 
 	// Initial paint.
@@ -1061,7 +1080,7 @@ func TestRenderDiff_ColorOracle_LongLines(t *testing.T) {
 	)
 	lookup := twoPaneLookup(pane1Emu, pane2Emu)
 
-	comp := newDebugCompositor(width, totalH, "test")
+	comp := NewCompositor(width, totalH, "test")
 	diffDisplay := vt.NewSafeEmulator(width, totalH)
 
 	if mismatches := colorOracleCheck(comp, diffDisplay, root, 1, lookup, width, totalH); len(mismatches) > 0 {
@@ -1113,7 +1132,7 @@ func TestRenderDiff_LongLines_NinePanes(t *testing.T) {
 		return nil
 	}
 
-	comp := newDebugCompositor(width, totalH, "test")
+	comp := NewCompositor(width, totalH, "test")
 	display := vt.NewSafeEmulator(width, totalH)
 
 	// Text oracle.
@@ -1167,7 +1186,7 @@ func TestRenderDiff_ColorOracle_TwoPanes(t *testing.T) {
 		return nil
 	}
 
-	comp := newDebugCompositor(width, totalH, "test")
+	comp := NewCompositor(width, totalH, "test")
 	diffDisplay := vt.NewSafeEmulator(width, totalH)
 
 	// Initial paint with both panes.
@@ -1388,14 +1407,16 @@ func FuzzCompositor(f *testing.F) {
 			return nil
 		}
 
-		// Debug compositor: OOB writes panic.
-		comp := newDebugCompositor(width, totalH, "fuzz")
+		comp := NewCompositor(width, totalH, "fuzz")
 		display := vt.NewSafeEmulator(width, totalH)
 
 		// Oracle check: RenderFull vs RenderDiff text comparison.
 		if err := oracleCheck(comp, display, root, paneIDs[0], lookup, width, totalH); err != "" {
 			t.Error(err)
 		}
+
+		// OOB write check: debug grid records any out-of-bounds Set() calls.
+		assertNoOOB(t, comp)
 
 		// Layer boundary validation: geometric overlap detection.
 		if overlaps := validateLayerBoundaries(root, width, totalH); len(overlaps) > 0 {
