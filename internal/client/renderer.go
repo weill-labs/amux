@@ -415,6 +415,20 @@ func (r *Renderer) Layout() *mux.LayoutCell {
 	return r.layout
 }
 
+// VisibleLayout returns the layout tree currently visible to the user.
+// In zoom mode, this is a synthetic single-pane root for the zoomed pane.
+func (r *Renderer) VisibleLayout() *mux.LayoutCell {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.layout == nil {
+		return nil
+	}
+	if r.zoomedPaneID != 0 {
+		return mux.NewLeafByID(r.zoomedPaneID, 0, 0, r.width, r.compositor.LayoutHeight())
+	}
+	return r.layout
+}
+
 // Emulator returns the terminal emulator for the given pane. Thread-safe.
 func (r *Renderer) Emulator(paneID uint32) (mux.TerminalEmulator, bool) {
 	r.mu.Lock()

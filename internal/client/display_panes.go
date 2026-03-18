@@ -22,7 +22,7 @@ func (cr *ClientRenderer) DisplayPanesActive() bool {
 // ShowDisplayPanes activates the pane overlay for the active layout.
 // Returns false when there is no layout or too many panes to label.
 func (cr *ClientRenderer) ShowDisplayPanes() bool {
-	layout := cr.renderer.Layout()
+	layout := cr.renderer.VisibleLayout()
 	if layout == nil {
 		return false
 	}
@@ -64,13 +64,9 @@ func (cr *ClientRenderer) HideDisplayPanes() {
 	cr.dirty = true
 }
 
-// ResolveDisplayPaneLabel resolves the first byte of raw against the active
-// pane overlay label set.
-func (cr *ClientRenderer) ResolveDisplayPaneLabel(raw []byte) (uint32, bool) {
-	if len(raw) == 0 {
-		return 0, false
-	}
-	b := raw[0]
+// ResolveDisplayPaneKey resolves a single key byte against the active pane
+// overlay label set.
+func (cr *ClientRenderer) ResolveDisplayPaneKey(b byte) (uint32, bool) {
 	if b >= 'A' && b <= 'Z' {
 		b = b - 'A' + 'a'
 	}

@@ -394,18 +394,6 @@ func RunSession(sessionName string) error {
 				raw = data
 			}
 
-			if cr.DisplayPanesActive() {
-				paneID, ok := cr.ResolveDisplayPaneLabel(raw)
-				cr.HideDisplayPanes()
-				if data := cr.RenderDiff(); data != "" {
-					io.WriteString(os.Stdout, data)
-				}
-				if ok {
-					SendCommand(conn, "focus", []string{fmt.Sprintf("%d", paneID)})
-				}
-				continue
-			}
-
 			// If the active pane is in copy mode, route input there
 			if cm := cr.ActiveCopyMode(); cm != nil {
 				action := cm.HandleInput(raw)
@@ -447,6 +435,17 @@ func RunSession(sessionName string) error {
 
 				// Process flushed bytes (normal input that passed through parser)
 				for _, fb := range flushed {
+					if cr.DisplayPanesActive() {
+						paneID, ok := cr.ResolveDisplayPaneKey(fb)
+						cr.HideDisplayPanes()
+						if data := cr.RenderDiff(); data != "" {
+							io.WriteString(os.Stdout, data)
+						}
+						if ok {
+							SendCommand(conn, "focus", []string{fmt.Sprintf("%d", paneID)})
+						}
+						continue
+					}
 					if processKeyByte(fb, &forward) {
 						shouldExit = true
 						break

@@ -96,3 +96,31 @@ func TestDisplayPanesMinimizedPaneStillSelectable(t *testing.T) {
 		t.Fatalf("expected minimized pane to become active after quick jump, got:\n%s", h.capture())
 	}
 }
+
+func TestDisplayPanesZoomedOnlyShowsVisiblePane(t *testing.T) {
+	t.Parallel()
+
+	h := newAmuxHarness(t)
+	h.splitV()
+	h.runCmd("zoom", "pane-2")
+
+	h.sendKeys("C-a", "q")
+	if !h.waitFor("[1]", 3*time.Second) {
+		t.Fatalf("expected overlay label for zoomed pane, got:\n%s", h.captureOuter())
+	}
+
+	outer := h.captureOuter()
+	if strings.Contains(outer, "[2]") {
+		t.Fatalf("zoomed overlay should not show hidden pane labels, got:\n%s", outer)
+	}
+
+	h.sendKeys("2")
+	if !waitForOuter(h, func(s string) bool {
+		return !strings.Contains(s, "[1]")
+	}, 3*time.Second) {
+		t.Fatalf("expected overlay to clear after invalid zoomed label\nScreen:\n%s", h.captureOuter())
+	}
+	if got := h.activePaneName(); got != "pane-2" {
+		t.Fatalf("hidden zoomed pane label should not change focus, got %s", got)
+	}
+}

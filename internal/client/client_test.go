@@ -272,10 +272,10 @@ func TestDisplayPanesLabelResolution(t *testing.T) {
 		t.Fatal("ShowDisplayPanes should succeed")
 	}
 
-	if paneID, ok := cr.ResolveDisplayPaneLabel([]byte("1")); !ok || paneID != 1 {
+	if paneID, ok := cr.ResolveDisplayPaneKey('1'); !ok || paneID != 1 {
 		t.Fatalf("label 1 should resolve to pane-1, got pane=%d ok=%v", paneID, ok)
 	}
-	if paneID, ok := cr.ResolveDisplayPaneLabel([]byte("2")); !ok || paneID != 2 {
+	if paneID, ok := cr.ResolveDisplayPaneKey('2'); !ok || paneID != 2 {
 		t.Fatalf("label 2 should resolve to pane-2, got pane=%d ok=%v", paneID, ok)
 	}
 }
@@ -286,6 +286,41 @@ func TestShowDisplayPanesTooManyPanes(t *testing.T) {
 	cr := buildManyPaneRenderer(t, len(displayPaneLabelAlphabet)+1)
 	if cr.ShowDisplayPanes() {
 		t.Fatal("ShowDisplayPanes should fail when pane count exceeds label capacity")
+	}
+}
+
+func TestShowDisplayPanesZoomedOnlyLabelsVisiblePane(t *testing.T) {
+	t.Parallel()
+
+	cr := buildTestRenderer(t)
+	cr.HandleLayout(&proto.LayoutSnapshot{
+		SessionName:  "test",
+		ActivePaneID: 1,
+		ZoomedPaneID: 2,
+		Width:        80,
+		Height:       23,
+		Root: proto.CellSnapshot{
+			X: 0, Y: 0, W: 80, H: 23,
+			Dir: int(mux.SplitVertical),
+			Children: []proto.CellSnapshot{
+				{X: 0, Y: 0, W: 39, H: 23, IsLeaf: true, Dir: -1, PaneID: 1},
+				{X: 40, Y: 0, W: 39, H: 23, IsLeaf: true, Dir: -1, PaneID: 2},
+			},
+		},
+		Panes: []proto.PaneSnapshot{
+			{ID: 1, Name: "pane-1", Host: "local", Color: "f5e0dc"},
+			{ID: 2, Name: "pane-2", Host: "local", Color: "f2cdcd"},
+		},
+	})
+
+	if !cr.ShowDisplayPanes() {
+		t.Fatal("ShowDisplayPanes should succeed in zoom mode")
+	}
+	if paneID, ok := cr.ResolveDisplayPaneKey('1'); !ok || paneID != 2 {
+		t.Fatalf("visible zoomed pane should be relabeled as 1, got pane=%d ok=%v", paneID, ok)
+	}
+	if paneID, ok := cr.ResolveDisplayPaneKey('2'); ok || paneID != 0 {
+		t.Fatalf("hidden pane should not get a visible label in zoom mode, got pane=%d ok=%v", paneID, ok)
 	}
 }
 
