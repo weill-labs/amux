@@ -347,11 +347,11 @@ func (hc *HostConn) ensureRemoteServer(client *ssh.Client, sessionName string) e
 }
 
 // buildEnsureServerCmd returns the shell command that starts amux _server if
-// the socket doesn't already exist. Tries ~/.local/bin/amux first (where deploy
-// installs), then falls back to amux in PATH.
+// the socket doesn't already exist. Checks AMUX_BIN env var first (set by
+// test harness), then ~/.local/bin/amux (where deploy installs), then PATH.
 func buildEnsureServerCmd(sockPath, sessionName string) string {
 	return fmt.Sprintf(
-		`if [ ! -S %s ]; then AMUX=$(command -v ~/.local/bin/amux 2>/dev/null || command -v amux 2>/dev/null || echo amux); nohup "$AMUX" _server %s </dev/null >/dev/null 2>&1 & for i in 1 2 3 4 5 6 7 8 9 10; do [ -S %s ] && break; sleep 0.2; done; fi`,
+		`if [ ! -S %s ]; then AMUX=${AMUX_BIN:-$(command -v ~/.local/bin/amux 2>/dev/null || command -v amux 2>/dev/null || echo amux)}; nohup "$AMUX" _server %s </dev/null >/dev/null 2>&1 & for i in 1 2 3 4 5 6 7 8 9 10; do [ -S %s ] && break; sleep 0.2; done; fi`,
 		sockPath, sessionName, sockPath,
 	)
 }
