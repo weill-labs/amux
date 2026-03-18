@@ -397,6 +397,7 @@ func runServer(sessionName string) {
 		crashCP, readErr := checkpoint.ReadCrash(crashPath)
 		if readErr != nil {
 			fmt.Fprintf(os.Stderr, "amux server: unreadable crash checkpoint, starting fresh: %v\n", readErr)
+			os.Remove(crashPath) // remove stale checkpoint to avoid warning on every startup
 			s, err = server.NewServer(sessionName)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "amux server: %v\n", err)

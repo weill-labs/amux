@@ -114,6 +114,15 @@ func (s *Session) buildCrashCheckpoint() *checkpoint.CrashCheckpoint {
 		Timestamp:     time.Now(),
 	}
 
+	// Collect pane state and PIDs under the lock (fast).
+	// Cwd resolution (lsof on macOS) happens after releasing the lock
+	// to avoid blocking session operations for hundreds of milliseconds.
+	type pidEntry struct {
+		index int
+		pid   int
+	}
+	var cwdWork []pidEntry
+
 	for _, p := range s.Panes {
 		ps := checkpoint.CrashPaneState{
 			ID:        p.ID,
@@ -135,14 +144,18 @@ func (s *Session) buildCrashCheckpoint() *checkpoint.CrashCheckpoint {
 			}
 		}
 
-		// Capture cwd for local panes (best-effort)
 		if !p.IsProxy() {
-			ps.Cwd = mux.PaneCwd(p.ProcessPid())
+			cwdWork = append(cwdWork, pidEntry{index: len(cp.PaneStates), pid: p.ProcessPid()})
 		}
 
 		cp.PaneStates = append(cp.PaneStates, ps)
 	}
 	s.mu.Unlock()
+
+	// Resolve cwds outside the lock (lsof can be slow on macOS)
+	for _, w := range cwdWork {
+		cp.PaneStates[w.index].Cwd = mux.PaneCwd(w.pid)
+	}
 
 	return cp
 }
