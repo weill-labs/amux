@@ -102,6 +102,17 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow.
 
+### Debugging Rendering
+
+Use `amux capture --format json` to inspect composited output programmatically. To isolate whether a rendering bug is in the compositor (multi-pane compositing) or per-pane terminal emulation:
+
+1. Capture the full session: `amux capture --format json` — identify which panes show artifacts
+2. Zoom the affected pane: `amux zoom pane-N` — wait a few seconds, capture again
+3. If zoomed view is clean but unzoomed is corrupted, the bug is in the compositor/diff renderer (cell-grid boundary calculation, status bar overlay, or border compositing)
+4. If zoomed view is also corrupted, the bug is in the terminal emulator or PTY output
+
+Trigger patterns for compositor bugs: long/truncated lines near pane boundaries, status bar overlays adjacent to wrapped content, and high-frequency output (e.g., htop, progress bars).
+
 ### Hot-Reload
 
 Both client and server watch the binary and re-exec on changes (`reload.go`). Running `go build -o ~/.local/bin/amux .` triggers automatic reload of both — panes and shells are preserved across server reloads via checkpoint/restore.
