@@ -5,6 +5,7 @@ package remote
 
 import (
 	"fmt"
+	"os"
 	"sync"
 
 	"golang.org/x/crypto/ssh"
@@ -62,21 +63,9 @@ func NewManager(cfg *config.Config, buildHash string) *Manager {
 	}
 }
 
-// HostConnFor returns the HostConn for a named host, or nil if not connected.
-func (m *Manager) HostConnFor(name string) *HostConn {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.hosts[name]
-}
-
 // Config returns the underlying config.
 func (m *Manager) Config() *config.Config {
 	return m.cfg
-}
-
-// BuildHash returns the local build hash used for deploy decisions.
-func (m *Manager) BuildHash() string {
-	return m.buildHash
 }
 
 // DeployToAddress deploys the local binary to a remote host via a temporary SSH
@@ -92,18 +81,26 @@ func (m *Manager) DeployToAddress(hostName, sshAddr, sshUser string) {
 	}
 
 	hc := NewHostConn("deploy-tmp", hostCfg, m.buildHash, nil, nil, nil)
+	if !hc.shouldDeploy() {
+		return
+	}
+
 	sshCfg, err := hc.buildSSHConfig()
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "amux: deploy to %s: %v\n", hostName, err)
 		return
 	}
 
 	client, err := ssh.Dial("tcp", normalizeAddr(sshAddr), sshCfg)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "amux: deploy to %s: SSH dial: %v\n", hostName, err)
 		return
 	}
 	defer client.Close()
 
-	_ = DeployBinary(client, m.buildHash)
+	if err := DeployBinary(client, m.buildHash); err != nil {
+		fmt.Fprintf(os.Stderr, "amux: deploy to %s: %v\n", hostName, err)
+	}
 }
 
 // SetCallbacks configures the callbacks the manager uses to communicate

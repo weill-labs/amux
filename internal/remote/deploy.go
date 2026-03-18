@@ -104,7 +104,12 @@ func crossCompileAndUpload(client *ssh.Client, goos, goarch string) error {
 		return fmt.Errorf("could not find go.mod")
 	}
 
-	tmpBin := filepath.Join(os.TempDir(), fmt.Sprintf("amux-%s-%s", goos, goarch))
+	tmpFile, err := os.CreateTemp("", fmt.Sprintf("amux-%s-%s-*", goos, goarch))
+	if err != nil {
+		return fmt.Errorf("creating temp file: %w", err)
+	}
+	tmpBin := tmpFile.Name()
+	tmpFile.Close()
 	defer os.Remove(tmpBin)
 
 	cmd := exec.Command("go", "build", "-o", tmpBin, ".")
@@ -137,6 +142,9 @@ func findModuleRoot(dir string) string {
 
 // downloadReleaseBinary tries to download a pre-built binary from GitHub releases.
 // Tries remote curl first (fastest), falls back to local download + upload.
+// NOTE: version must be a semver tag (e.g., "0.1.0") for the URL to resolve.
+// During development, buildHash is a git commit hash, so this path will 404 —
+// cross-compile is the primary stopgap until tagged releases are published.
 func downloadReleaseBinary(client *ssh.Client, goos, goarch, version string) error {
 	archiveName := fmt.Sprintf("amux_%s_%s_%s.tar.gz", version, goos, goarch)
 	url := fmt.Sprintf("https://github.com/weill-labs/amux/releases/download/v%s/%s", version, archiveName)
