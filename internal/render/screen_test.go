@@ -330,7 +330,6 @@ func TestScreenCell_EqualDetectsStyleDiff(t *testing.T) {
 	}
 }
 
-// Verify that DiffGrid detects style-only changes.
 // --- Oracle regression tests ---
 // These verify that RenderDiff applied to a display emulator produces the
 // same visual result as RenderFull passed through MaterializeGrid.
@@ -1202,7 +1201,7 @@ const (
 
 // fuzzLayout generates a random layout tree from fuzz data. It recursively
 // splits available space, consuming 1 byte per decision: 0 = stop (leaf),
-// 1 = split horizontal, 2+ = split vertical. Respects fuzzMinW/fuzzMinH
+// odd = split horizontal, even = split vertical. Respects fuzzMinW/fuzzMinH
 // constraints. Returns the root cell and a list of pane IDs assigned to leaves.
 func fuzzLayout(data []byte, width, height int) (*mux.LayoutCell, []uint32) {
 	var nextID uint32
@@ -1218,37 +1217,31 @@ func fuzzLayout(data []byte, width, height int) (*mux.LayoutCell, []uint32) {
 		return b
 	}
 
+	makeLeaf := func(x, y, w, h int) *mux.LayoutCell {
+		nextID++
+		paneIDs = append(paneIDs, nextID)
+		return mux.NewLeafByID(nextID, x, y, w, h)
+	}
+
 	var build func(x, y, w, h int) *mux.LayoutCell
 	build = func(x, y, w, h int) *mux.LayoutCell {
 		b := consume()
-		// Stop (leaf) if byte says so or if space is too small to split.
-		minSplitW := 2*fuzzMinW + 1
-		minSplitH := 2*fuzzMinH + 1
-		if b == 0 || (w < minSplitW && h < minSplitH) {
-			nextID++
-			id := nextID
-			paneIDs = append(paneIDs, id)
-			return mux.NewLeafByID(id, x, y, w, h)
+		canSplitW := w >= 2*fuzzMinW+1
+		canSplitH := h >= 2*fuzzMinH+1
+
+		if b == 0 || (!canSplitW && !canSplitH) {
+			return makeLeaf(x, y, w, h)
 		}
 
-		// Decide split direction based on byte parity and available space.
+		// Decide split direction: prefer byte parity, fall back to whatever fits.
 		splitH := b%2 == 1
-		if splitH && h < minSplitH {
+		if splitH && !canSplitH {
 			splitH = false
-		}
-		if !splitH && w < minSplitW {
+		} else if !splitH && !canSplitW {
 			splitH = true
-		}
-		// Final guard: if still can't split, make a leaf.
-		if (splitH && h < minSplitH) || (!splitH && w < minSplitW) {
-			nextID++
-			id := nextID
-			paneIDs = append(paneIDs, id)
-			return mux.NewLeafByID(id, x, y, w, h)
 		}
 
 		if splitH {
-			// Horizontal split: top-bottom.
 			rangeH := h - 1 - 2*fuzzMinH + 1
 			topH := fuzzMinH + int(consume())%rangeH
 			botH := h - 1 - topH
@@ -1264,7 +1257,6 @@ func fuzzLayout(data []byte, width, height int) (*mux.LayoutCell, []uint32) {
 			return cell
 		}
 
-		// Vertical split: left-right.
 		rangeW := w - 1 - 2*fuzzMinW + 1
 		leftW := fuzzMinW + int(consume())%rangeW
 		rightW := w - 1 - leftW
