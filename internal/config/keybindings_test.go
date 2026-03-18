@@ -98,6 +98,12 @@ func TestDefaultKeybindings(t *testing.T) {
 	if b, ok := kb.Bindings['o']; !ok || b.Action != "focus" {
 		t.Error("default: o should be bound to focus")
 	}
+	if b, ok := kb.Bindings['M']; !ok || b.Action != "toggle-minimize" {
+		t.Error("default: M should be bound to toggle-minimize")
+	}
+	if b, ok := kb.Bindings['m']; !ok || b.Action != "compat-bell" {
+		t.Error("default: m should be reserved with compat-bell")
+	}
 }
 
 func TestBuildKeybindingsNil(t *testing.T) {

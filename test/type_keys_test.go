@@ -118,3 +118,50 @@ func TestTypeKeysCopyModeScroll(t *testing.T) {
 		t.Fatalf("expected TKSCROLL-01 visible after scrolling to top\nScreen:\n%s", screen)
 	}
 }
+
+func TestTypeKeysMinimizeWithShiftM(t *testing.T) {
+	t.Parallel()
+	h := newAmuxHarness(t)
+
+	h.splitH()
+	h.runCmd("focus", "pane-1")
+
+	gen := h.generation()
+	h.runCmd("type-keys", "C-a", "M")
+	h.waitLayout(gen)
+
+	out := h.runCmd("status")
+	if !strings.Contains(out, "1 minimized") {
+		t.Fatalf("expected 1 minimized after type-keys C-a M, got: %s", out)
+	}
+}
+
+func TestTypeKeysOldMinimizeKeyDoesNotLeakInput(t *testing.T) {
+	t.Parallel()
+	h := newAmuxHarness(t)
+
+	h.splitH()
+	h.runCmd("focus", "pane-1")
+
+	before := h.runCmd("status")
+	if !strings.Contains(before, "0 minimized") {
+		t.Fatalf("expected 0 minimized before old key test, got: %s", before)
+	}
+
+	h.runCmd("type-keys", "C-a", "m")
+	h.runCmd("type-keys", "e", "c", "h", "o", " ", "OLDKEY_OK", "Enter")
+
+	if !h.waitFor("OLDKEY_OK", 3*time.Second) {
+		t.Fatalf("expected OLDKEY_OK marker after old key test\nScreen:\n%s", h.captureOuter())
+	}
+
+	after := h.runCmd("status")
+	if !strings.Contains(after, "0 minimized") {
+		t.Fatalf("old C-a m should not minimize, got: %s", after)
+	}
+
+	screen := h.captureOuter()
+	if strings.Contains(screen, "mecho OLDKEY_OK") {
+		t.Fatalf("old C-a m should not leak literal input into the shell\nScreen:\n%s", screen)
+	}
+}

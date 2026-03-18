@@ -262,6 +262,8 @@ func RunSession(sessionName string) error {
 					if data := cr.RenderDiff(); data != "" {
 						io.WriteString(os.Stdout, data)
 					}
+				case "compat-bell":
+					io.WriteString(os.Stdout, "\a")
 				default:
 					// Generic server command
 					SendCommand(conn, binding.Action, binding.Args)

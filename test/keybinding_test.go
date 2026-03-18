@@ -185,6 +185,32 @@ q = "detach"
 	}
 }
 
+func TestCustomLegacyMinimizeBinding(t *testing.T) {
+	t.Parallel()
+
+	h := newAmuxHarnessWithConfig(t, `
+[keys]
+unbind = ["M"]
+
+[keys.bind]
+m = "toggle-minimize"
+`)
+
+	gen := h.generation()
+	h.sendKeys("C-a", "-")
+	h.waitLayout(gen)
+
+	h.runCmd("focus", "pane-1")
+	gen = h.generation()
+	h.sendKeys("C-a", "m")
+	h.waitLayout(gen)
+
+	out := h.runCmd("status")
+	if !strings.Contains(out, "1 minimized") {
+		t.Fatalf("expected legacy Ctrl-a m binding to minimize, got: %s", out)
+	}
+}
+
 func TestDefaultBindingsWithoutConfig(t *testing.T) {
 	t.Parallel()
 
