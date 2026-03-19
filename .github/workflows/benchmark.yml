@@ -84,10 +84,12 @@ jobs:
         if: steps.changes.outputs.code_changed == 'true'
         run: |
           go install go.bobheadxi.dev/gobenchdata@latest
-          # Strip test harness noise. gobenchdata expects raw benchmark output
-          # on stdin and does not tolerate PASS/ok/? summary lines.
-          grep -v -E '^(PASS|FAIL|ok[[:space:]]|\\?[[:space:]])' bench-all.txt > bench-filtered.txt || true
-          if [ -s bench-filtered.txt ]; then
+          # Strip harness noise and failed benchmark lines. gobenchdata expects
+          # only successful raw benchmark output on stdin.
+          grep -v -E '^(PASS|FAIL|ok[[:space:]]|\\?[[:space:]]|--- FAIL: )' bench-all.txt > bench-filtered.txt || true
+          if grep -q '^--- FAIL: Benchmark' bench-all.txt; then
+            echo "::warning::Skipping benchmark trend update because one or more benchmarks failed"
+          elif [ -s bench-filtered.txt ]; then
             cat bench-filtered.txt | gobenchdata --json bench-current.json
           fi
 
