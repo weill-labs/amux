@@ -1,6 +1,19 @@
 package copymode
 
-import "unicode"
+import (
+	"strings"
+	"unicode"
+)
+
+const tmuxWordSeparators = "!\"#$%&'()*+,-./:;<=>?@[\\]^`{|}~"
+
+type wordClass uint8
+
+const (
+	wordClassWhitespace wordClass = iota
+	wordClassWord
+	wordClassSeparator
+)
 
 // moveDown moves the cursor down one row, scrolling if at the viewport bottom.
 // Returns false if already at the absolute bottom (oy=0, cy=height-1).
@@ -59,6 +72,19 @@ func (cm *CopyMode) firstNonBlankCol() int {
 // cursorLineRunes returns the runes of the current cursor line.
 func (cm *CopyMode) cursorLineRunes() []rune {
 	return []rune(cm.lineText(cm.cursorAbsLine()))
+}
+
+func classifyViWordRune(r rune) wordClass {
+	switch {
+	case unicode.IsSpace(r):
+		return wordClassWhitespace
+	case r == '_' || unicode.IsLetter(r) || unicode.IsNumber(r):
+		return wordClassWord
+	case r < unicode.MaxASCII && strings.ContainsRune(tmuxWordSeparators, r):
+		return wordClassSeparator
+	default:
+		return wordClassWord
+	}
 }
 
 // moveWordForward implements the W (WORD forward) motion.
@@ -189,14 +215,127 @@ func (cm *CopyMode) moveWordEnd() Action {
 	return ActionRedraw
 }
 
+// moveViWordForward implements tmux's vi-mode next-word motion (w).
+func (cm *CopyMode) moveViWordForward() Action {
+	savedCX, savedCY, savedOY := cm.cx, cm.cy, cm.oy
+	line := cm.cursorLineRunes()
+	pos := min(cm.cx, len(line))
+
+	if pos < len(line) {
+		class := classifyViWordRune(line[pos])
+		if class != wordClassWhitespace {
+			for pos < len(line) && classifyViWordRune(line[pos]) == class {
+				pos++
+			}
+		}
+	}
+
+	for {
+		for pos < len(line) && classifyViWordRune(line[pos]) == wordClassWhitespace {
+			pos++
+		}
+		if pos < len(line) {
+			cm.cx = pos
+			cm.updateSelection()
+			return ActionRedraw
+		}
+		if !cm.moveDown() {
+			cm.cx, cm.cy, cm.oy = savedCX, savedCY, savedOY
+			return ActionNone
+		}
+		line = cm.cursorLineRunes()
+		pos = 0
+	}
+}
+
+// moveViWordBackward implements tmux's vi-mode previous-word motion (b).
+func (cm *CopyMode) moveViWordBackward() Action {
+	savedCX, savedCY, savedOY := cm.cx, cm.cy, cm.oy
+	line := cm.cursorLineRunes()
+	pos := min(cm.cx, len(line))
+
+	pos--
+	for {
+		for pos >= 0 {
+			class := classifyViWordRune(line[pos])
+			if class == wordClassWhitespace {
+				pos--
+				continue
+			}
+			for pos > 0 && classifyViWordRune(line[pos-1]) == class {
+				pos--
+			}
+			cm.cx = pos
+			cm.updateSelection()
+			return ActionRedraw
+		}
+		if !cm.moveUp() {
+			cm.cx, cm.cy, cm.oy = savedCX, savedCY, savedOY
+			return ActionNone
+		}
+		line = cm.cursorLineRunes()
+		pos = len(line) - 1
+	}
+}
+
+// moveViWordEnd implements tmux's vi-mode next-word-end motion (e).
+func (cm *CopyMode) moveViWordEnd() Action {
+	savedCX, savedCY, savedOY := cm.cx, cm.cy, cm.oy
+	line := cm.cursorLineRunes()
+	pos := min(cm.cx, len(line))
+
+	if pos < len(line) && classifyViWordRune(line[pos]) != wordClassWhitespace {
+		pos++
+		if pos >= len(line) {
+			if !cm.moveDown() {
+				cm.cx, cm.cy, cm.oy = savedCX, savedCY, savedOY
+				return ActionNone
+			}
+			line = cm.cursorLineRunes()
+			pos = 0
+		}
+	}
+
+	for {
+		for pos < len(line) && classifyViWordRune(line[pos]) == wordClassWhitespace {
+			pos++
+		}
+		if pos < len(line) {
+			break
+		}
+		if !cm.moveDown() {
+			cm.cx, cm.cy, cm.oy = savedCX, savedCY, savedOY
+			return ActionNone
+		}
+		line = cm.cursorLineRunes()
+		pos = 0
+	}
+
+	class := classifyViWordRune(line[pos])
+	for pos < len(line)-1 && classifyViWordRune(line[pos+1]) == class {
+		pos++
+	}
+
+	cm.cx = clamp(pos, 0, cm.width-1)
+	cm.updateSelection()
+	return ActionRedraw
+}
+
 // executeCharSearch performs an f/F/t/T character search on the current line.
 // Returns ActionNone if the target is not found (cursor stays, last search unchanged).
-func (cm *CopyMode) executeCharSearch(cmd, target byte) Action {
-	col, ok := cm.findCharOnLine(cmd, rune(target))
-	if !ok {
-		return ActionNone
+func (cm *CopyMode) executeCharSearch(cmd, target byte, count int) Action {
+	if count <= 0 {
+		count = 1
 	}
-	cm.cx = col
+	savedCX := cm.cx
+	for i := 0; i < count; i++ {
+		col, ok := cm.findCharOnLine(cmd, rune(target))
+		if !ok {
+			cm.cx = savedCX
+			return ActionNone
+		}
+		cm.cx = col
+	}
 	cm.lastCharSearch = cmd
 	cm.lastCharTarget = target
 	cm.updateSelection()
@@ -267,8 +406,144 @@ func (cm *CopyMode) repeatCharSearch(reverse bool) Action {
 	// the original direction when repeating in reverse.
 	savedCmd := cm.lastCharSearch
 	savedTarget := cm.lastCharTarget
-	result := cm.executeCharSearch(cmd, cm.lastCharTarget)
+	result := cm.executeCharSearch(cmd, cm.lastCharTarget, 1)
 	cm.lastCharSearch = savedCmd
 	cm.lastCharTarget = savedTarget
 	return result
+}
+
+func (cm *CopyMode) previousParagraph() Action {
+	y := cm.cursorAbsLine()
+	origY := y
+	for y > 0 && strings.TrimSpace(cm.lineText(y)) == "" {
+		y--
+	}
+	for y > 0 && strings.TrimSpace(cm.lineText(y)) != "" {
+		y--
+	}
+	if y == origY {
+		return ActionNone
+	}
+	cm.scrollToAbsolute(y, 0)
+	cm.updateSelection()
+	return ActionRedraw
+}
+
+func (cm *CopyMode) nextParagraph() Action {
+	y := cm.cursorAbsLine()
+	origY := y
+	maxY := cm.TotalLines() - 1
+	for y < maxY && strings.TrimSpace(cm.lineText(y)) == "" {
+		y++
+	}
+	for y < maxY && strings.TrimSpace(cm.lineText(y)) != "" {
+		y++
+	}
+	if y == origY {
+		return ActionNone
+	}
+	cm.scrollToAbsolute(y, 0)
+	cm.updateSelection()
+	return ActionRedraw
+}
+
+func (cm *CopyMode) matchingBracket() Action {
+	type pair struct {
+		open  rune
+		close rune
+	}
+	pairs := []pair{{'(', ')'}, {'[', ']'}, {'{', '}'}}
+
+	y, x, r, ok := cm.findBracketCandidate()
+	if !ok {
+		return ActionNone
+	}
+	for _, p := range pairs {
+		switch r {
+		case p.open:
+			if my, mx, found := cm.findMatchingForward(y, x, p.open, p.close); found {
+				cm.scrollToAbsolute(my, mx)
+				cm.updateSelection()
+				return ActionRedraw
+			}
+			return ActionNone
+		case p.close:
+			if my, mx, found := cm.findMatchingBackward(y, x, p.open, p.close); found {
+				cm.scrollToAbsolute(my, mx)
+				cm.updateSelection()
+				return ActionRedraw
+			}
+			return ActionNone
+		}
+	}
+	return ActionNone
+}
+
+func (cm *CopyMode) findBracketCandidate() (int, int, rune, bool) {
+	y := cm.cursorAbsLine()
+	line := []rune(cm.lineText(y))
+	if cm.cx < len(line) {
+		if r := line[cm.cx]; strings.ContainsRune("()[]{}", r) {
+			return y, cm.cx, r, true
+		}
+	}
+	for yy := y; yy < cm.TotalLines(); yy++ {
+		line = []rune(cm.lineText(yy))
+		startX := 0
+		if yy == y {
+			startX = min(cm.cx+1, len(line))
+		}
+		for xx := startX; xx < len(line); xx++ {
+			if r := line[xx]; strings.ContainsRune("()[]{}", r) {
+				return yy, xx, r, true
+			}
+		}
+	}
+	return 0, 0, 0, false
+}
+
+func (cm *CopyMode) findMatchingForward(y, x int, open, close rune) (int, int, bool) {
+	depth := 1
+	for yy := y; yy < cm.TotalLines(); yy++ {
+		line := []rune(cm.lineText(yy))
+		startX := 0
+		if yy == y {
+			startX = x + 1
+		}
+		for xx := startX; xx < len(line); xx++ {
+			switch line[xx] {
+			case open:
+				depth++
+			case close:
+				depth--
+				if depth == 0 {
+					return yy, xx, true
+				}
+			}
+		}
+	}
+	return 0, 0, false
+}
+
+func (cm *CopyMode) findMatchingBackward(y, x int, open, close rune) (int, int, bool) {
+	depth := 1
+	for yy := y; yy >= 0; yy-- {
+		line := []rune(cm.lineText(yy))
+		startX := len(line) - 1
+		if yy == y {
+			startX = min(x-1, len(line)-1)
+		}
+		for xx := startX; xx >= 0; xx-- {
+			switch line[xx] {
+			case close:
+				depth++
+			case open:
+				depth--
+				if depth == 0 {
+					return yy, xx, true
+				}
+			}
+		}
+	}
+	return 0, 0, false
 }

@@ -245,8 +245,12 @@ func TestExitKeys(t *testing.T) {
 	}
 
 	cm2 := New(emu, 80, 24, 0)
-	if action := cm2.HandleInput([]byte{0x1b}); action != ActionExit {
-		t.Errorf("Escape should return ActionExit, got %d", action)
+	cm2.StartSelection()
+	if action := cm2.HandleInput([]byte{0x1b}); action != ActionRedraw {
+		t.Errorf("Escape should clear selection, got %d", action)
+	}
+	if cm2.selecting {
+		t.Fatal("Escape should clear selection without exiting copy mode")
 	}
 }
 
@@ -299,6 +303,26 @@ func TestSearchCancel(t *testing.T) {
 	}
 }
 
+func TestSearchBackward(t *testing.T) {
+	t.Parallel()
+
+	emu := newFakeEmulator(80, 4)
+	emu.scrollback = []string{"hello old", "middle"}
+	emu.screen = []string{"hello new", "tail", "final", "bottom"}
+	cm := New(emu, 80, 4, 2)
+
+	cm.HandleInput([]byte{'?'})
+	cm.HandleInput([]byte("hello"))
+	cm.HandleInput([]byte{'\r'})
+
+	if got := cm.SearchQuery(); got != "hello" {
+		t.Fatalf("query = %q, want hello", got)
+	}
+	if cx, cy := cm.CursorPos(); cx != 0 || cy != 2 {
+		t.Fatalf("backward search cursor = (%d,%d), want (0,2)", cx, cy)
+	}
+}
+
 func TestHalfPageScroll(t *testing.T) {
 	emu := newFakeEmulator(80, 10)
 	for i := 0; i < 30; i++ {
@@ -316,6 +340,26 @@ func TestHalfPageScroll(t *testing.T) {
 	cm.HandleInput([]byte{0x04})
 	if cm.ScrollOffset() != 0 {
 		t.Errorf("after Ctrl-d: oy = %d, want 0", cm.ScrollOffset())
+	}
+}
+
+func TestStarAndHashSearchWordUnderCursor(t *testing.T) {
+	t.Parallel()
+
+	emu := newFakeEmulator(40, 2)
+	emu.scrollback = []string{"alpha beta alpha"}
+	emu.screen = []string{"beta alpha", "tail"}
+	cm := New(emu, 40, 2, 0)
+	cm.cx = 5 // on "alpha"
+
+	cm.HandleInput([]byte{'*'})
+	if got := cm.SearchQuery(); got != "alpha" {
+		t.Fatalf("* query = %q, want alpha", got)
+	}
+
+	cm.HandleInput([]byte{'#'})
+	if got := cm.SearchQuery(); got != "alpha" {
+		t.Fatalf("# query = %q, want alpha", got)
 	}
 }
 
@@ -510,14 +554,18 @@ func TestLineSelectToggleOff(t *testing.T) {
 	emu.screen = []string{"hello", "world", "test"}
 	cm := New(emu, 20, 3, 0)
 
-	// V on, then V off
+	// V always re-enters tmux line-selection mode.
 	cm.HandleInput([]byte{'V'})
 	if !cm.selecting {
 		t.Fatal("expected selecting=true after V")
 	}
+	cm.HandleInput([]byte{'j'})
 	cm.HandleInput([]byte{'V'})
-	if cm.selecting || cm.lineSelect {
-		t.Fatal("expected selecting=false, lineSelect=false after second V")
+	if !cm.selecting || !cm.lineSelect {
+		t.Fatal("expected line selection to remain active after second V")
+	}
+	if cm.selStartY != cm.cursorAbsLine() || cm.selEndY != cm.cursorAbsLine() {
+		t.Fatal("second V should restart line selection at the current line")
 	}
 }
 
@@ -526,7 +574,7 @@ func TestVClearsLineSelect(t *testing.T) {
 	emu.screen = []string{"hello", "world", "test"}
 	cm := New(emu, 20, 3, 0)
 
-	// V then v should switch to character selection
+	// V then v should switch to rectangle selection.
 	cm.HandleInput([]byte{'V'})
 	if !cm.lineSelect {
 		t.Fatal("expected lineSelect=true after V")
@@ -535,8 +583,131 @@ func TestVClearsLineSelect(t *testing.T) {
 	if cm.lineSelect {
 		t.Fatal("expected lineSelect=false after v")
 	}
-	if !cm.selecting {
-		t.Fatal("expected selecting=true after v (character select started)")
+	if !cm.selecting || !cm.rectSelect {
+		t.Fatal("expected v to enable rectangle selection")
+	}
+}
+
+func TestRepeatCountMovesCursor(t *testing.T) {
+	t.Parallel()
+
+	emu := newFakeEmulator(20, 4)
+	emu.screen = []string{"one", "two", "three", "four"}
+	cm := New(emu, 20, 4, 0)
+
+	action := cm.HandleInput([]byte{'3', 'j'})
+	if action != ActionRedraw {
+		t.Fatalf("3j should redraw, got %d", action)
+	}
+	if _, cy := cm.CursorPos(); cy != 3 {
+		t.Fatalf("3j moved to row %d, want 3", cy)
+	}
+}
+
+func TestArrowKeyAliases(t *testing.T) {
+	t.Parallel()
+
+	emu := newFakeEmulator(20, 3)
+	emu.screen = []string{"alpha", "bravo", "charlie"}
+	cm := New(emu, 20, 3, 1)
+
+	if action := cm.HandleInput([]byte("\x1b[A")); action != ActionRedraw {
+		t.Fatalf("Up should redraw, got %d", action)
+	}
+	if _, cy := cm.CursorPos(); cy != 0 {
+		t.Fatalf("Up moved to row %d, want 0", cy)
+	}
+	if action := cm.HandleInput([]byte("\x1b[C")); action != ActionRedraw {
+		t.Fatalf("Right should redraw, got %d", action)
+	}
+	if cx, _ := cm.CursorPos(); cx != 1 {
+		t.Fatalf("Right moved to col %d, want 1", cx)
+	}
+}
+
+func TestRectangleSelectionText(t *testing.T) {
+	t.Parallel()
+
+	emu := newFakeEmulator(20, 3)
+	emu.screen = []string{"alpha", "bravo", "charlie"}
+	cm := New(emu, 20, 3, 0)
+
+	cm.HandleInput([]byte{'l', 'v', 'j', 'j', 'l', 'l'})
+	if got := cm.SelectedText(); got != "lph\nrav\nhar" {
+		t.Fatalf("rectangle selection = %q, want %q", got, "lph\nrav\nhar")
+	}
+}
+
+func TestOtherEndSwapsSelectionEndpoint(t *testing.T) {
+	t.Parallel()
+
+	emu := newFakeEmulator(20, 2)
+	emu.screen = []string{"hello world", "second line"}
+	cm := New(emu, 20, 2, 0)
+
+	cm.HandleInput([]byte{' ', 'l', 'l', 'l'})
+	if cx, _ := cm.CursorPos(); cx != 3 {
+		t.Fatalf("setup cursor = %d, want 3", cx)
+	}
+	cm.HandleInput([]byte{'o'})
+	if cx, _ := cm.CursorPos(); cx != 0 {
+		t.Fatalf("o should jump to original start, got col %d", cx)
+	}
+}
+
+func TestCopyCommandsQueuePayload(t *testing.T) {
+	t.Parallel()
+
+	emu := newFakeEmulator(20, 1)
+	emu.screen = []string{"hello world"}
+	cm := New(emu, 20, 1, 0)
+
+	cm.HandleInput([]byte{'l', 'l', 'D'})
+	text, appendCopy := cm.ConsumeCopyText()
+	if text != "llo world" || appendCopy {
+		t.Fatalf("D queued (%q,%v), want (%q,false)", text, appendCopy, "llo world")
+	}
+
+	cm.StartSelection()
+	cm.HandleInput([]byte{'l', 'A'})
+	text, appendCopy = cm.ConsumeCopyText()
+	if text != "ll" || !appendCopy {
+		t.Fatalf("A queued (%q,%v), want (%q,true)", text, appendCopy, "ll")
+	}
+}
+
+func TestMarkJump(t *testing.T) {
+	t.Parallel()
+
+	emu := newFakeEmulator(20, 3)
+	emu.screen = []string{"alpha", "bravo", "charlie"}
+	cm := New(emu, 20, 3, 0)
+
+	cm.HandleInput([]byte{'l', 'l', 'X', 'j', '\x1b', 'l'})
+	if cx, cy := cm.CursorPos(); cx != 3 || cy != 1 {
+		t.Fatalf("setup cursor = (%d,%d), want (3,1)", cx, cy)
+	}
+	cm.HandleInput([]byte{0x1b, 'x'})
+	if cx, cy := cm.CursorPos(); cx != 2 || cy != 0 {
+		t.Fatalf("M-x cursor = (%d,%d), want (2,0)", cx, cy)
+	}
+}
+
+func TestTogglePositionIndicator(t *testing.T) {
+	t.Parallel()
+
+	emu := newFakeEmulator(20, 3)
+	for i := 0; i < 10; i++ {
+		emu.scrollback = append(emu.scrollback, fmt.Sprintf("line-%d", i))
+	}
+	cm := New(emu, 20, 3, 0)
+
+	if got := cm.SearchBarText(); got != "" {
+		t.Fatalf("initial SearchBarText = %q, want empty", got)
+	}
+	cm.HandleInput([]byte{'P'})
+	if got := cm.SearchBarText(); got == "" {
+		t.Fatal("P should expose a position indicator in the status text")
 	}
 }
 
@@ -888,6 +1059,26 @@ func TestWordForwardAtEnd(t *testing.T) {
 	}
 }
 
+func TestViWordForwardTreatsPunctuationAsSeparateWord(t *testing.T) {
+	t.Parallel()
+
+	emu := newFakeEmulator(40, 1)
+	emu.screen = []string{"alpha... beta"}
+	cm := New(emu, 40, 1, 0)
+
+	cm.HandleInput([]byte{'w'})
+	cx, _ := cm.CursorPos()
+	if cx != 5 {
+		t.Fatalf("w from alpha: cx = %d, want 5", cx)
+	}
+
+	cm.HandleInput([]byte{'w'})
+	cx, _ = cm.CursorPos()
+	if cx != 9 {
+		t.Fatalf("w from punctuation: cx = %d, want 9", cx)
+	}
+}
+
 func TestWordBackward(t *testing.T) {
 	t.Parallel()
 	emu := newFakeEmulator(40, 3)
@@ -928,6 +1119,30 @@ func TestWordBackwardWrap(t *testing.T) {
 	}
 }
 
+func TestViWordBackwardTreatsPunctuationAsSeparateWord(t *testing.T) {
+	t.Parallel()
+
+	emu := newFakeEmulator(40, 1)
+	emu.screen = []string{"alpha... beta"}
+	cm := New(emu, 40, 1, 0)
+
+	for i := 0; i < 9; i++ {
+		cm.HandleInput([]byte{'l'})
+	}
+
+	cm.HandleInput([]byte{'b'})
+	cx, _ := cm.CursorPos()
+	if cx != 5 {
+		t.Fatalf("b from beta: cx = %d, want 5", cx)
+	}
+
+	cm.HandleInput([]byte{'b'})
+	cx, _ = cm.CursorPos()
+	if cx != 0 {
+		t.Fatalf("b from punctuation: cx = %d, want 0", cx)
+	}
+}
+
 func TestWordBackwardAtAbsoluteTop(t *testing.T) {
 	t.Parallel()
 
@@ -963,6 +1178,32 @@ func TestWordEnd(t *testing.T) {
 	cx, _ = cm.CursorPos()
 	if cx != 10 {
 		t.Errorf("E #2: cx = %d, want 10", cx)
+	}
+}
+
+func TestViWordEndTreatsPunctuationAsSeparateWord(t *testing.T) {
+	t.Parallel()
+
+	emu := newFakeEmulator(40, 1)
+	emu.screen = []string{"alpha... beta"}
+	cm := New(emu, 40, 1, 0)
+
+	cm.HandleInput([]byte{'e'})
+	cx, _ := cm.CursorPos()
+	if cx != 4 {
+		t.Fatalf("e on alpha: cx = %d, want 4", cx)
+	}
+
+	cm.HandleInput([]byte{'e'})
+	cx, _ = cm.CursorPos()
+	if cx != 7 {
+		t.Fatalf("e on punctuation: cx = %d, want 7", cx)
+	}
+
+	cm.HandleInput([]byte{'e'})
+	cx, _ = cm.CursorPos()
+	if cx != 12 {
+		t.Fatalf("e on beta: cx = %d, want 12", cx)
 	}
 }
 

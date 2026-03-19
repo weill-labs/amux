@@ -2,7 +2,9 @@ package client
 
 import (
 	"fmt"
+	"time"
 
+	"github.com/weill-labs/amux/internal/copymode"
 	"github.com/weill-labs/amux/internal/mouse"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
@@ -16,6 +18,20 @@ type DragState struct {
 	BorderX   int
 	BorderY   int
 	BorderDir mux.SplitDir
+
+	CopyModeActive bool
+	CopyModePaneID uint32
+	CopyStartX     int
+	CopyStartY     int
+	CopyMoved      bool
+
+	LastClickAt time.Time
+	LastClickX  int
+	LastClickY  int
+	ClickCount  int
+
+	PendingWordCopyPaneID uint32
+	PendingWordCopyAt     time.Time
 }
 
 type paneMouseTarget struct {
@@ -26,7 +42,11 @@ type paneMouseTarget struct {
 	inContent bool
 }
 
-const wheelScrollLines = 5
+const (
+	wheelScrollLines      = 5
+	mouseMultiClickWindow = 300 * time.Millisecond
+	mouseWordCopyDelay    = 300 * time.Millisecond
+)
 
 func mouseTargetAt(layout *mux.LayoutCell, x, y int) *paneMouseTarget {
 	if layout == nil {
@@ -95,11 +115,20 @@ func HandleMouseEvent(ev mouse.Event, cr *ClientRenderer, sender *messageSender,
 		// Check if clicking on a border (start drag) or a pane (focus)
 		if hit := layout.FindBorderAt(ev.X, ev.Y); hit != nil {
 			drag.Active = true
+			drag.CopyModeActive = false
 			drag.BorderX = ev.X
 			drag.BorderY = ev.Y
 			drag.BorderDir = hit.Dir
 		} else if target := mouseTargetAt(layout, ev.X, ev.Y); target != nil {
 			focusPane(sender, target.paneID, cr.ActivePaneID())
+			if cr.InCopyMode(target.paneID) && target.inContent {
+				drag.CopyModeActive = true
+				drag.CopyModePaneID = target.paneID
+				drag.CopyStartX = target.localX
+				drag.CopyStartY = target.localY
+				drag.CopyMoved = false
+				cr.CopyModeSetCursor(target.paneID, target.localX, target.localY)
+			}
 		}
 
 	case ev.Action == mouse.Motion && drag.Active:
@@ -122,8 +151,68 @@ func HandleMouseEvent(ev mouse.Event, cr *ClientRenderer, sender *messageSender,
 			}
 		}
 
+	case ev.Action == mouse.Motion && drag.CopyModeActive:
+		target := mouseTargetAt(layout, ev.X, ev.Y)
+		if target == nil || !target.inContent || target.paneID != drag.CopyModePaneID {
+			return
+		}
+		if !drag.CopyMoved {
+			cr.CopyModeSetCursor(drag.CopyModePaneID, drag.CopyStartX, drag.CopyStartY)
+			cr.CopyModeStartSelection(drag.CopyModePaneID)
+			drag.CopyMoved = true
+		}
+		cr.CopyModeSetCursor(drag.CopyModePaneID, target.localX, target.localY)
+
 	case ev.Action == mouse.Release:
 		drag.Active = false
+		if drag.CopyModeActive {
+			if drag.CopyMoved {
+				drag.PendingWordCopyPaneID = 0
+				drag.PendingWordCopyAt = time.Time{}
+				drag.ClickCount = 0
+				cr.CopyModeCopySelection(drag.CopyModePaneID)
+			} else if target := mouseTargetAt(layout, ev.X, ev.Y); target != nil && target.inContent && target.paneID == drag.CopyModePaneID {
+				now := time.Now()
+				if target.localX == drag.LastClickX &&
+					target.localY == drag.LastClickY &&
+					now.Sub(drag.LastClickAt) <= mouseMultiClickWindow {
+					drag.ClickCount++
+				} else {
+					drag.ClickCount = 1
+				}
+				drag.LastClickAt = now
+				drag.LastClickX = target.localX
+				drag.LastClickY = target.localY
+
+				switch drag.ClickCount {
+				case 2:
+					if cm := cr.CopyModeForPane(target.paneID); cm != nil {
+						cr.CopyModeSetCursor(target.paneID, target.localX, target.localY)
+						if cm.SelectWord() == copymode.ActionRedraw {
+							cr.mu.Lock()
+							cr.dirty = true
+							cr.mu.Unlock()
+						}
+					}
+					drag.PendingWordCopyPaneID = target.paneID
+					drag.PendingWordCopyAt = now.Add(mouseWordCopyDelay)
+				case 3:
+					drag.PendingWordCopyPaneID = 0
+					drag.PendingWordCopyAt = time.Time{}
+					if cm := cr.CopyModeForPane(target.paneID); cm != nil {
+						cr.CopyModeSetCursor(target.paneID, target.localX, target.localY)
+						if cm.SelectLine() == copymode.ActionRedraw {
+							cr.mu.Lock()
+							cr.dirty = true
+							cr.mu.Unlock()
+						}
+					}
+					cr.CopyModeCopySelection(target.paneID)
+					drag.ClickCount = 0
+				}
+			}
+			drag.CopyModeActive = false
+		}
 
 	case ev.Button == mouse.ScrollUp:
 		target := mouseTargetAt(layout, ev.X, ev.Y)

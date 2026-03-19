@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/weill-labs/amux/internal/mouse"
+	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
 )
 
@@ -93,4 +94,151 @@ func TestHandleMouseEventClickSendsFocusCommand(t *testing.T) {
 		t.Fatalf("command args = %v, want [2]", msg.CmdArgs)
 	}
 	<-done
+}
+
+func TestHandleMouseEventCopyModeDragCopiesSelectionAndExits(t *testing.T) {
+	t.Parallel()
+
+	cr := buildTestRenderer(t)
+	cr.EnterCopyMode(1)
+
+	clientConn, serverConn := net.Pipe()
+	t.Cleanup(func() {
+		clientConn.Close()
+		serverConn.Close()
+	})
+
+	sender := newMessageSender(clientConn)
+	var drag DragState
+
+	var copied string
+	prevCopyToClipboard := copyToClipboard
+	copyToClipboard = func(text string) {
+		copied = text
+	}
+	t.Cleanup(func() {
+		copyToClipboard = prevCopyToClipboard
+	})
+
+	y := mux.StatusLineRows
+	HandleMouseEvent(mouse.Event{
+		Action: mouse.Press,
+		Button: mouse.ButtonLeft,
+		X:      0,
+		Y:      y,
+	}, cr, sender, &drag)
+	HandleMouseEvent(mouse.Event{
+		Action: mouse.Motion,
+		Button: mouse.ButtonLeft,
+		X:      4,
+		Y:      y,
+		LastX:  0,
+		LastY:  y,
+	}, cr, sender, &drag)
+	HandleMouseEvent(mouse.Event{
+		Action: mouse.Release,
+		Button: mouse.ButtonLeft,
+		X:      4,
+		Y:      y,
+		LastX:  4,
+		LastY:  y,
+	}, cr, sender, &drag)
+
+	if copied != "hello" {
+		t.Fatalf("copied text = %q, want %q", copied, "hello")
+	}
+	if cr.InCopyMode(1) {
+		t.Fatal("pane-1 should exit copy mode after mouse drag copy")
+	}
+}
+
+func TestHandleMouseEventCopyModeDoubleClickSelectsWordAndArmsCopy(t *testing.T) {
+	t.Parallel()
+
+	cr := buildTestRenderer(t)
+	cr.EnterCopyMode(1)
+
+	clientConn, serverConn := net.Pipe()
+	t.Cleanup(func() {
+		clientConn.Close()
+		serverConn.Close()
+	})
+
+	sender := newMessageSender(clientConn)
+	var drag DragState
+
+	y := mux.StatusLineRows
+	for i := 0; i < 2; i++ {
+		HandleMouseEvent(mouse.Event{
+			Action: mouse.Press,
+			Button: mouse.ButtonLeft,
+			X:      1,
+			Y:      y,
+		}, cr, sender, &drag)
+		HandleMouseEvent(mouse.Event{
+			Action: mouse.Release,
+			Button: mouse.ButtonLeft,
+			X:      1,
+			Y:      y,
+		}, cr, sender, &drag)
+	}
+
+	cm := cr.CopyModeForPane(1)
+	if cm == nil {
+		t.Fatal("pane-1 should remain in copy mode until delayed word copy fires")
+	}
+	if got := cm.SelectedText(); got != "hello" {
+		t.Fatalf("double click selected %q, want %q", got, "hello")
+	}
+	if drag.PendingWordCopyPaneID != 1 {
+		t.Fatalf("pending word copy pane = %d, want 1", drag.PendingWordCopyPaneID)
+	}
+}
+
+func TestHandleMouseEventCopyModeTripleClickCopiesLine(t *testing.T) {
+	t.Parallel()
+
+	cr := buildTestRenderer(t)
+	cr.EnterCopyMode(1)
+
+	clientConn, serverConn := net.Pipe()
+	t.Cleanup(func() {
+		clientConn.Close()
+		serverConn.Close()
+	})
+
+	sender := newMessageSender(clientConn)
+	var drag DragState
+
+	var copied string
+	prevCopyToClipboard := copyToClipboard
+	copyToClipboard = func(text string) {
+		copied = text
+	}
+	t.Cleanup(func() {
+		copyToClipboard = prevCopyToClipboard
+	})
+
+	y := mux.StatusLineRows
+	for i := 0; i < 3; i++ {
+		HandleMouseEvent(mouse.Event{
+			Action: mouse.Press,
+			Button: mouse.ButtonLeft,
+			X:      1,
+			Y:      y,
+		}, cr, sender, &drag)
+		HandleMouseEvent(mouse.Event{
+			Action: mouse.Release,
+			Button: mouse.ButtonLeft,
+			X:      1,
+			Y:      y,
+		}, cr, sender, &drag)
+	}
+
+	if copied != "hello from pane 1\n" {
+		t.Fatalf("triple click copied %q, want %q", copied, "hello from pane 1\n")
+	}
+	if cr.InCopyMode(1) {
+		t.Fatal("pane-1 should exit copy mode after triple-click line copy")
+	}
 }

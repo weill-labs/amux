@@ -27,6 +27,7 @@ type ClientRenderer struct {
 	chooser      *chooserState
 	message      string
 	inputIdle    bool
+	copyBuffer   string
 	OnUIEvent    func(string)
 }
 
@@ -486,6 +487,67 @@ func (cr *ClientRenderer) WheelScrollCopyMode(paneID uint32, lines int, up bool)
 		cr.mu.Unlock()
 	}
 	return action
+}
+
+// CopyModeSetCursor moves the copy-mode cursor to a viewport-relative position.
+func (cr *ClientRenderer) CopyModeSetCursor(paneID uint32, col, row int) copymode.Action {
+	cm := cr.CopyModeForPane(paneID)
+	if cm == nil {
+		return copymode.ActionNone
+	}
+	action := cm.SetCursor(col, row)
+	if action == copymode.ActionRedraw {
+		cr.mu.Lock()
+		cr.dirty = true
+		cr.mu.Unlock()
+	}
+	return action
+}
+
+// CopyModeStartSelection begins a character selection at the current cursor.
+func (cr *ClientRenderer) CopyModeStartSelection(paneID uint32) copymode.Action {
+	cm := cr.CopyModeForPane(paneID)
+	if cm == nil {
+		return copymode.ActionNone
+	}
+	action := cm.StartSelection()
+	if action == copymode.ActionRedraw {
+		cr.mu.Lock()
+		cr.dirty = true
+		cr.mu.Unlock()
+	}
+	return action
+}
+
+// CopyModeCopySelection copies the current selection and exits copy mode.
+func (cr *ClientRenderer) CopyModeCopySelection(paneID uint32) {
+	cm := cr.CopyModeForPane(paneID)
+	if cm == nil {
+		return
+	}
+	cr.copyModeCopy(cm)
+	cr.ExitCopyMode(paneID)
+}
+
+func (cr *ClientRenderer) copyModeCopy(cm *copymode.CopyMode) {
+	text, appendCopy := cm.ConsumeCopyText()
+	if text == "" {
+		text = cm.SelectedText()
+	}
+	if text == "" {
+		return
+	}
+
+	cr.mu.Lock()
+	if appendCopy {
+		cr.copyBuffer += text
+		text = cr.copyBuffer
+	} else {
+		cr.copyBuffer = text
+	}
+	cr.mu.Unlock()
+
+	copyToClipboard(text)
 }
 
 // HandleCaptureRequest processes a capture request forwarded from the server.
