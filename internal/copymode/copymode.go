@@ -63,6 +63,8 @@ type CopyMode struct {
 	pendingCharSearch byte // 0=none, 'f'/'F'/'t'/'T'=awaiting target
 	lastCharSearch    byte // last f/F/t/T command (for ;/, repeat)
 	lastCharTarget    byte // last target character
+
+	scrollExit bool
 }
 
 // New creates a CopyMode for the given emulator and viewport size.
@@ -93,10 +95,12 @@ func (cm *CopyMode) HandleInput(data []byte) Action {
 	for len(data) > 0 {
 		var action Action
 		if cm.searching {
+			cm.scrollExit = false
 			var consumed int
 			action, consumed = cm.handleSearchInput(data)
 			data = data[consumed:]
 		} else if cm.pendingCharSearch != 0 {
+			cm.scrollExit = false
 			if data[0] == 0x1b { // Escape cancels pending search
 				cm.pendingCharSearch = 0
 			} else {
@@ -105,6 +109,9 @@ func (cm *CopyMode) HandleInput(data []byte) Action {
 			}
 			data = data[1:]
 		} else {
+			if !isScrollKey(data[0]) {
+				cm.scrollExit = false
+			}
 			action = cm.handleNormalKey(data[0])
 			data = data[1:]
 		}
@@ -116,6 +123,15 @@ func (cm *CopyMode) HandleInput(data []byte) Action {
 		}
 	}
 	return result
+}
+
+func isScrollKey(b byte) bool {
+	switch b {
+	case 'j', 'k', 'g', 'G', 0x04, 0x15, 0x02, 0x06:
+		return true
+	default:
+		return false
+	}
 }
 
 func (cm *CopyMode) handleSearchInput(data []byte) (Action, int) {
@@ -314,9 +330,52 @@ func (cm *CopyMode) SearchQuery() string {
 	return cm.searchQuery
 }
 
+// SetScrollExit enables or disables auto-exit when scrolling back to live view.
+func (cm *CopyMode) SetScrollExit(enabled bool) {
+	cm.scrollExit = enabled
+}
+
+// ScrollExit reports whether auto-exit-on-bottom is currently armed.
+func (cm *CopyMode) ScrollExit() bool {
+	return cm.scrollExit
+}
+
 // ScrollOffset returns the current scroll offset from the bottom.
 func (cm *CopyMode) ScrollOffset() int {
 	return cm.oy
+}
+
+// WheelScrollUp scrolls the viewport upward without moving the copy-mode cursor.
+func (cm *CopyMode) WheelScrollUp(lines int) Action {
+	if lines <= 0 {
+		return ActionNone
+	}
+	next := clamp(cm.oy+lines, 0, cm.maxOY())
+	if next == cm.oy {
+		return ActionNone
+	}
+	cm.oy = next
+	return ActionRedraw
+}
+
+// WheelScrollDown scrolls the viewport downward without moving the cursor.
+// When scroll-exit is armed, reaching live view exits copy mode.
+func (cm *CopyMode) WheelScrollDown(lines int) Action {
+	if lines <= 0 {
+		return ActionNone
+	}
+	next := clamp(cm.oy-lines, 0, cm.maxOY())
+	if next == cm.oy {
+		if cm.scrollExit && cm.oy == 0 {
+			return ActionExit
+		}
+		return ActionNone
+	}
+	cm.oy = next
+	if cm.scrollExit && cm.oy == 0 {
+		return ActionExit
+	}
+	return ActionRedraw
 }
 
 // CursorPos returns the cursor position within the viewport (0-indexed).

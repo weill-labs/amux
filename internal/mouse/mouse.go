@@ -15,14 +15,14 @@ import "strconv"
 type Button uint8
 
 const (
-	ButtonLeft    Button = 0
-	ButtonMiddle  Button = 1
-	ButtonRight   Button = 2
-	ButtonNone    Button = 3 // motion with no button (any-event tracking)
-	ScrollUp      Button = 4
-	ScrollDown    Button = 5
-	ScrollLeft    Button = 6
-	ScrollRight   Button = 7
+	ButtonLeft   Button = 0
+	ButtonMiddle Button = 1
+	ButtonRight  Button = 2
+	ButtonNone   Button = 3 // motion with no button (any-event tracking)
+	ScrollUp     Button = 4
+	ScrollDown   Button = 5
+	ScrollLeft   Button = 6
+	ScrollRight  Button = 7
 )
 
 // String returns a human-readable button name.
@@ -53,20 +53,20 @@ func (b Button) String() string {
 type Action uint8
 
 const (
-	Press   Action = iota
+	Press Action = iota
 	Release
 	Motion
 )
 
 // Event is a parsed mouse event with terminal coordinates.
 type Event struct {
-	Button     Button
-	Action     Action
-	X, Y       int // 0-based terminal coordinates (converted from 1-based SGR)
+	Button       Button
+	Action       Action
+	X, Y         int // 0-based terminal coordinates (converted from 1-based SGR)
 	LastX, LastY int // previous event position (for drag delta calculation)
-	Shift      bool
-	Alt        bool
-	Ctrl       bool
+	Shift        bool
+	Alt          bool
+	Ctrl         bool
 }
 
 // Parser accumulates bytes from a terminal input stream and extracts
@@ -76,21 +76,21 @@ type Event struct {
 // The parser tracks the previous event position so drag handlers can
 // compute deltas without external state (following tmux's pattern).
 type Parser struct {
-	buf       []byte
-	state     parseState
-	lastX     int
-	lastY     int
-	hasLast   bool
+	buf     []byte
+	state   parseState
+	lastX   int
+	lastY   int
+	hasLast bool
 }
 
 type parseState int
 
 const (
 	stateNone    parseState = iota
-	stateEsc              // saw \033
-	stateBracket          // saw \033[
-	stateLt               // saw \033[<
-	stateParams           // accumulating digits and semicolons
+	stateEsc                // saw \033
+	stateBracket            // saw \033[
+	stateLt                 // saw \033[<
+	stateParams             // accumulating digits and semicolons
 )
 
 // Feed processes one byte of terminal input. Returns:
@@ -174,6 +174,15 @@ func (p *Parser) Feed(b byte) (Event, bool, []byte) {
 // InProgress returns true if the parser is mid-sequence.
 func (p *Parser) InProgress() bool {
 	return p.state != stateNone
+}
+
+// FlushPending resets the parser and returns any buffered bytes from an
+// incomplete non-mouse sequence candidate (for example, a lone Escape).
+func (p *Parser) FlushPending() []byte {
+	if p.state == stateNone || len(p.buf) == 0 {
+		return nil
+	}
+	return p.flush(0)
 }
 
 // flush resets the parser and returns accumulated bytes plus the extra byte.
