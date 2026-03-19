@@ -242,6 +242,22 @@ func TestUnsupportedPrefixKeyShowsFeedback(t *testing.T) {
 	h.assertActive("pane-1")
 }
 
+func TestUnsupportedPrefixKeyFeedbackClearsOnLiteralPrefix(t *testing.T) {
+	t.Parallel()
+
+	h := newAmuxHarness(t)
+	h.sendKeys("C-a", "f")
+
+	if !h.waitFor("No binding for C-a f", 3*time.Second) {
+		t.Fatalf("expected unsupported-key feedback, got:\n%s", h.captureOuter())
+	}
+
+	h.sendKeys("C-a", "C-a")
+	if !waitForOuterGone(h, "No binding for C-a f", 3*time.Second) {
+		t.Fatalf("expected unsupported-key feedback to clear after literal prefix\nScreen:\n%s", h.captureOuter())
+	}
+}
+
 func TestCustomDetachBinding(t *testing.T) {
 	t.Parallel()
 

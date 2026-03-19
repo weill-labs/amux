@@ -268,6 +268,7 @@ func RunSession(sessionName string) error {
 
 			// Pressing the prefix key again sends the literal prefix byte
 			if b == kb.Prefix {
+				cr.ClearPrefixMessage()
 				*forward = append(*forward, kb.Prefix)
 				return false
 			}
