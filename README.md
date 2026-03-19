@@ -22,9 +22,37 @@ PTY output (raw bytes)
 
 Keybindings for humans, CLI commands for agents — same panes, same capabilities.
 
+## Install
+
+```bash
+go install github.com/weill-labs/amux@latest
+```
+
+Single binary, no runtime dependencies.
+
+## Quick Start
+
+**Human:**
+
+```bash
+amux                          # start or reattach to a session
+amux new my-project           # start a named session
+amux -s my-project attach     # attach to a specific session
+```
+
+**Agent:**
+
+```bash
+amux capture --format json         # structured JSON of all panes
+amux send-keys pane-1 "ls" Enter   # send keystrokes
+amux wait-idle pane-1              # block until command finishes
+amux events --filter idle          # subscribe to idle/busy transitions
+amux list-clients                  # discover attached client IDs
+```
+
 ## Agent API
 
-The agent API is how AI agents interact with amux sessions programmatically. Every operation is a single CLI call — no libraries, no SDK, language-agnostic.
+Every operation is a single CLI call — no libraries, no SDK, language-agnostic.
 
 ### Structured Capture
 
@@ -58,23 +86,6 @@ Returns a JSON object with session metadata, window info, and per-pane state:
       "idle_since": "2025-06-15T10:30:00Z",
       "current_command": "bash",
       "child_pids": []
-    },
-    {
-      "id": 2,
-      "name": "pane-2",
-      "active": false,
-      "minimized": false,
-      "zoomed": false,
-      "host": "lambda-a100",
-      "task": "training",
-      "color": "f38ba8",
-      "position": {"x": 101, "y": 0, "width": 99, "height": 49},
-      "cursor": {"col": 0, "row": 15, "hidden": false},
-      "content": ["epoch 3/10  loss=0.0342  lr=1e-4", "..."],
-      "conn_status": "connected",
-      "idle": false,
-      "current_command": "python",
-      "child_pids": [48291]
     }
   ]
 }
@@ -109,7 +120,6 @@ Subscribe to real-time session events as NDJSON:
 amux events [--filter layout,idle,busy,display-panes-shown,choose-window-shown] [--pane pane-1] [--host lambda-a100] [--client client-1]
 ```
 
-Client-local UI events currently include `display-panes-*`, `choose-tree-*`, and `choose-window-*`.
 Use `amux list-clients` to discover attached client IDs for `--client` and `wait-ui`.
 
 ```json
@@ -165,47 +175,6 @@ Headless tools cut the human out of the loop. The amux thesis is that humans and
 
 **Does amux support all tmux features?**
 No, and it doesn't aim to. amux implements what matters for human+agent pairing: splits, windows, zoom, minimize, remote hosts, searchable choosers, and the agent API. If you need tmux's full feature set (session groups, advanced hooks), use tmux.
-
-## Install
-
-```bash
-go install github.com/weill-labs/amux@latest
-```
-
-For local development builds, prefer `make build` instead of writing `go build` directly to `~/.local/bin/amux`. The atomic replace avoids transient invalid binaries during hot-reload on macOS.
-
-Single binary, no runtime dependencies.
-
-For local development builds, prefer `make build` instead of writing `go build` directly to `~/.local/bin/amux`. The atomic replace avoids transient invalid binaries during hot-reload on macOS, and the install guard blocks cross-checkout overwrites when the existing install metadata points at another repo unless you opt in with `AMUX_INSTALL_FORCE=1`.
-
-## Quick Start
-
-**Human:**
-
-```bash
-amux                          # start or reattach to a session
-amux new my-project           # start a named session
-amux -s my-project attach     # attach to a specific session
-```
-
-**Agent:**
-
-```bash
-amux capture --format json    # structured JSON of all panes
-amux send-keys pane-1 "ls" Enter  # send keystrokes
-amux wait-idle pane-1         # block until command finishes
-amux events --filter idle     # subscribe to idle/busy transitions
-amux list-clients             # discover attached client IDs
-```
-
-## AI Agent Support
-
-Shared repo guidance lives in [AGENTS.md](AGENTS.md). This is the canonical instruction file for coding agents in this repo.
-
-- Claude Code also loads repo automation from `.claude/settings.json` and `.claude/hooks/`.
-- Codex reads `AGENTS.md` and can discover repo skills from `.agents/skills/`.
-- `make setup` installs the repo Git hooks for everyone. It is not Claude-specific.
-- Optional for Codex users: trust the repo, then install the OpenAI Docs MCP server with `codex mcp add openaiDeveloperDocs --url https://developers.openai.com/mcp`.
 
 ## CLI Reference
 
@@ -358,6 +327,15 @@ Built-in presets:
 - `tmux`: tmux-style prefix and bindings for supported features such as `%`, `"`, `q`, `s`, `w`, `c`, `n`, `p`, `[` and `Ctrl-o`
 
 `prefix`, `bind`, and `unbind` still apply on top of a preset, so you can start from `tmux` and tweak from there.
+
+## AI Agent Support
+
+Shared repo guidance lives in [AGENTS.md](AGENTS.md). This is the canonical instruction file for coding agents in this repo.
+
+- Claude Code also loads repo automation from `.claude/settings.json` and `.claude/hooks/`.
+- Codex reads `AGENTS.md` and can discover repo skills from `.agents/skills/`.
+- `make setup` installs the repo Git hooks for everyone. It is not Claude-specific.
+- Optional for Codex users: trust the repo, then install the OpenAI Docs MCP server with `codex mcp add openaiDeveloperDocs --url https://developers.openai.com/mcp`.
 
 ## License
 
