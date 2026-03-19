@@ -81,6 +81,10 @@ jobs:
         if: steps.changes.outputs.code_changed == 'true'
         run: go vet ./...
 
+      - name: Check startup invariants
+        if: steps.changes.outputs.code_changed == 'true'
+        run: scripts/check-startup-invariants.sh
+
       - name: Install go-junit-report
         if: steps.changes.outputs.code_changed == 'true'
         run: |
