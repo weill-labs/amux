@@ -7,9 +7,9 @@ A terminal multiplexer with a first-class agent API. Structured JSON capture, bl
 
 ![amux demo](demo/hero.gif)
 
-## Philosophy
+## How it works
 
-When humans and agents pair, they need a shared screen. GUIs require screenshots and vision models. Headless APIs cut the human out. The TUI is the only medium native to both — text that humans read and LLMs process at full capability, in real time, in the same panes.
+When humans and agents pair on terminal workflows, they need a shared screen. GUIs require screenshots and vision models. Headless APIs cut the human out. amux sits in between: the VT emulator's parsed state is the source of truth, rendered as ANSI for humans and structured JSON for agents.
 
 ```
 PTY output (raw bytes)
@@ -20,11 +20,7 @@ PTY output (raw bytes)
   (for humans)      (for agents)
 ```
 
-1. **Tight feedback loops.** Minimize latency between humans and agents.
-
-2. **Shared visibility.** TUI panes are the communication primitive.
-
-3. **Equal access.** Keybindings for humans, CLI commands for agents — same panes, same capabilities.
+Keybindings for humans, CLI commands for agents — same panes, same capabilities.
 
 ## Agent API
 
