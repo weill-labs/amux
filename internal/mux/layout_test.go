@@ -349,6 +349,28 @@ func TestResizeAll_RoundTripKeepsEqualGridStable(t *testing.T) {
 	}
 }
 
+func TestResizeSubtreeLeaf(t *testing.T) {
+	t.Parallel()
+
+	leaf := NewLeaf(fakePaneID(1), 0, 0, 20, 10)
+	leaf.ResizeSubtree(30, 12)
+
+	if leaf.W != 30 || leaf.H != 12 {
+		t.Fatalf("leaf size after ResizeSubtree = %dx%d, want 30x12", leaf.W, leaf.H)
+	}
+}
+
+func TestResizeSubtreeEmptyInternal(t *testing.T) {
+	t.Parallel()
+
+	cell := &LayoutCell{W: 20, H: 10, Dir: SplitVertical}
+	cell.ResizeSubtree(30, 12)
+
+	if cell.W != 20 || cell.H != 10 {
+		t.Fatalf("empty internal cell changed to %dx%d, want 20x10", cell.W, cell.H)
+	}
+}
+
 func snapshotLeafGeometry(root *LayoutCell) map[uint32][4]int {
 	out := map[uint32][4]int{}
 	root.Walk(func(c *LayoutCell) {

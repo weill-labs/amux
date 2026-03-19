@@ -56,16 +56,16 @@ func (w *Window) SplitRoot(dir SplitDir, newPane *Pane) (*Pane, error) {
 		if dir == SplitVertical {
 			each := (w.Width - seps) / n
 			for _, child := range w.Root.Children {
-				child.ResizeAll(each, w.Height)
+				child.ResizeSubtree(each, w.Height)
 			}
 			// Give remainder to last child
-			w.Root.Children[n-1].ResizeAll(w.Width-seps-each*(n-1), w.Height)
+			w.Root.Children[n-1].ResizeSubtree(w.Width-seps-each*(n-1), w.Height)
 		} else {
 			each := (w.Height - seps) / n
 			for _, child := range w.Root.Children {
-				child.ResizeAll(w.Width, each)
+				child.ResizeSubtree(w.Width, each)
 			}
-			w.Root.Children[n-1].ResizeAll(w.Width, w.Height-seps-each*(n-1))
+			w.Root.Children[n-1].ResizeSubtree(w.Width, w.Height-seps-each*(n-1))
 		}
 	} else {
 		// Different direction or root is a leaf: wrap
@@ -76,13 +76,13 @@ func (w *Window) SplitRoot(dir SplitDir, newPane *Pane) (*Pane, error) {
 			size1 := oldRoot.W - 1 - size2
 			newLeaf.W = size2
 			newLeaf.H = oldRoot.H
-			oldRoot.ResizeAll(size1, oldRoot.H)
+			oldRoot.ResizeSubtree(size1, oldRoot.H)
 		} else {
 			size2 := (oldRoot.H - 1) / 2
 			size1 := oldRoot.H - 1 - size2
 			newLeaf.W = oldRoot.W
 			newLeaf.H = size2
-			oldRoot.ResizeAll(oldRoot.W, size1)
+			oldRoot.ResizeSubtree(oldRoot.W, size1)
 		}
 
 		newRoot := &LayoutCell{
@@ -397,36 +397,6 @@ func (w *Window) findDirectional(activeCell *LayoutCell, direction string, wrap 
 	return best
 }
 
-// forceResizeChildren propagates a parent's dimensions to its children.
-// Close() updates the parent's W/H but children retain old sizes.
-func forceResizeChildren(cell *LayoutCell) {
-	if cell.IsLeaf() {
-		return
-	}
-	targetW, targetH := cell.W, cell.H
-
-	if len(cell.Children) == 0 {
-		return
-	}
-
-	if cell.Dir == SplitVertical {
-		totalW := len(cell.Children) - 1
-		for _, child := range cell.Children {
-			totalW += child.W
-		}
-		cell.W = totalW
-		cell.H = cell.Children[0].H
-	} else {
-		totalH := len(cell.Children) - 1
-		for _, child := range cell.Children {
-			totalH += child.H
-		}
-		cell.W = cell.Children[0].W
-		cell.H = totalH
-	}
-	cell.ResizeAll(targetW, targetH)
-}
-
 // PaneContentHeight returns the PTY height for a pane in a layout cell,
 // accounting for the per-pane status line.
 func PaneContentHeight(cellH int) int {
@@ -472,10 +442,10 @@ func (w *Window) ResizeBorder(x, y, delta int) bool {
 
 	// Propagate size changes to subtrees
 	if !hit.Left.IsLeaf() {
-		forceResizeChildren(hit.Left)
+		hit.Left.ResizeSubtree(hit.Left.W, hit.Left.H)
 	}
 	if !hit.Right.IsLeaf() {
-		forceResizeChildren(hit.Right)
+		hit.Right.ResizeSubtree(hit.Right.W, hit.Right.H)
 	}
 
 	w.Root.FixOffsets()
@@ -581,10 +551,10 @@ func (w *Window) resizeBetween(grower, donor *LayoutCell, axis SplitDir, delta i
 
 	// Propagate size changes to subtrees
 	if !grower.IsLeaf() {
-		forceResizeChildren(grower)
+		grower.ResizeSubtree(grower.W, grower.H)
 	}
 	if !donor.IsLeaf() {
-		forceResizeChildren(donor)
+		donor.ResizeSubtree(donor.W, donor.H)
 	}
 
 	w.Root.FixOffsets()
@@ -794,7 +764,7 @@ func (w *Window) Minimize(paneID uint32) error {
 			if sib.HasNonMinimizedLeaf() {
 				sib.H += reclaimed
 				if !sib.IsLeaf() {
-					sib.ResizeAll(sib.W, sib.H)
+					sib.ResizeSubtree(sib.W, sib.H)
 				} else if sib.Pane != nil {
 					sib.Pane.Resize(sib.W, PaneContentHeight(sib.H))
 				}
@@ -880,7 +850,7 @@ func (w *Window) Restore(paneID uint32) error {
 				if cell.Parent.Dir == SplitHorizontal && sib.H-needed >= PaneMinSize+StatusLineRows {
 					sib.H -= needed
 					if !sib.IsLeaf() {
-						sib.ResizeAll(sib.W, sib.H)
+						sib.ResizeSubtree(sib.W, sib.H)
 					} else if sib.Pane != nil {
 						sib.Pane.Resize(sib.W, PaneContentHeight(sib.H))
 					}
