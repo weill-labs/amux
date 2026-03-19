@@ -423,13 +423,23 @@ func RunSession(sessionName string) error {
 				raw = data
 			}
 
-			// If the active pane is in copy mode, route input there
-			if cm := cr.ActiveCopyMode(); cm != nil {
-				action := cm.HandleInput(raw)
+			var forward []byte
+			var copyInput []byte
+			shouldExit := false
+
+			flushCopyInput := func() {
+				if len(copyInput) == 0 {
+					return
+				}
+				cm := cr.ActiveCopyMode()
+				if cm == nil {
+					copyInput = nil
+					return
+				}
+				action := cm.HandleInput(copyInput)
 				paneID := cr.ActivePaneID()
+				copyInput = nil
 				switch action {
-				case copymode.ActionNone:
-					continue
 				case copymode.ActionExit:
 					cr.ExitCopyMode(paneID)
 				case copymode.ActionYank:
@@ -441,7 +451,6 @@ func RunSession(sessionName string) error {
 				if data := cr.RenderDiff(); data != "" {
 					io.WriteString(os.Stdout, data)
 				}
-				continue
 			}
 
 			if cr.ChooserActive() {
@@ -457,14 +466,11 @@ func RunSession(sessionName string) error {
 				}
 				continue
 			}
-
-			var forward []byte
-			shouldExit := false
-
 			for i := 0; i < len(raw) && !shouldExit; i++ {
 				ev, isMouse, flushed := mouseParser.Feed(raw[i])
 
 				if isMouse {
+					flushCopyInput()
 					// Flush any accumulated forward bytes before handling mouse
 					if len(forward) > 0 {
 						sender.Send(&proto.Message{
@@ -473,6 +479,11 @@ func RunSession(sessionName string) error {
 						forward = nil
 					}
 					HandleMouseEvent(ev, cr, sender, &drag)
+					if cr.IsDirty() {
+						if data := cr.RenderDiff(); data != "" {
+							io.WriteString(os.Stdout, data)
+						}
+					}
 					continue
 				}
 
@@ -485,6 +496,10 @@ func RunSession(sessionName string) error {
 						}
 						continue
 					}
+					if cr.ActiveCopyMode() != nil {
+						copyInput = append(copyInput, fb)
+						continue
+					}
 					if processKeyByte(fb, &forward) {
 						shouldExit = true
 						break
@@ -495,6 +510,11 @@ func RunSession(sessionName string) error {
 			if shouldExit {
 				return
 			}
+
+			if cr.ActiveCopyMode() != nil {
+				copyInput = append(copyInput, mouseParser.FlushPending()...)
+			}
+			flushCopyInput()
 
 			if len(forward) > 0 {
 				sender.Send(&proto.Message{

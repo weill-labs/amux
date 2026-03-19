@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/weill-labs/amux/internal/mouse"
 )
 
 func TestVTEmulatorWriteRender(t *testing.T) {
@@ -203,6 +205,71 @@ func TestHasCursorBlock(t *testing.T) {
 			t.Error("HasCursorBlock() = true with no reverse video, want false")
 		}
 	})
+}
+
+func TestMouseProtocolTracking(t *testing.T) {
+	t.Parallel()
+
+	emu := NewVTEmulator(40, 10)
+
+	if got := emu.MouseProtocol(); got.Enabled() {
+		t.Fatalf("mouse protocol should start disabled, got %+v", got)
+	}
+	if emu.IsAltScreen() {
+		t.Fatal("alternate screen should start disabled")
+	}
+
+	emu.Write([]byte("\x1b[?1049h\x1b[?1000h\x1b[?1006h"))
+	got := emu.MouseProtocol()
+	if !emu.IsAltScreen() {
+		t.Fatal("expected alternate screen to be enabled")
+	}
+	if got.Tracking != MouseTrackingStandard || !got.SGR {
+		t.Fatalf("MouseProtocol = %+v, want standard+SGR", got)
+	}
+
+	emu.Write([]byte("\x1b[?1000l\x1b[?1002h"))
+	got = emu.MouseProtocol()
+	if got.Tracking != MouseTrackingButton || !got.SGR {
+		t.Fatalf("MouseProtocol after 1002h = %+v, want button+SGR", got)
+	}
+
+	emu.Write([]byte("\x1b[?1003h"))
+	got = emu.MouseProtocol()
+	if got.Tracking != MouseTrackingAny {
+		t.Fatalf("MouseProtocol after 1003h = %+v, want any", got)
+	}
+
+	emu.Write([]byte("\x1b[?1003l\x1b[?1002l\x1b[?1006l\x1b[?1049l"))
+	got = emu.MouseProtocol()
+	if got.Enabled() || got.SGR {
+		t.Fatalf("MouseProtocol after reset = %+v, want disabled", got)
+	}
+	if emu.IsAltScreen() {
+		t.Fatal("expected alternate screen to be disabled")
+	}
+}
+
+func TestEncodeMouse(t *testing.T) {
+	t.Parallel()
+
+	emu := NewVTEmulator(40, 10)
+	ev := mouse.Event{Button: mouse.ScrollUp, Action: mouse.Press, X: 4, Y: 6}
+	if got := emu.EncodeMouse(ev, 4, 6); got != nil {
+		t.Fatalf("EncodeMouse without mode = %q, want nil", got)
+	}
+
+	emu.Write([]byte("\x1b[?1002h\x1b[?1006h"))
+	got := string(emu.EncodeMouse(ev, 4, 6))
+	if got != "\x1b[<64;5;7M" {
+		t.Fatalf("EncodeMouse SGR = %q, want %q", got, "\x1b[<64;5;7M")
+	}
+
+	emu.Write([]byte("\x1b[?1006l"))
+	got = string(emu.EncodeMouse(ev, 4, 6))
+	if got != "\x1b[M`%'" {
+		t.Fatalf("EncodeMouse X10 = %q, want %q", got, "\x1b[M`%'")
+	}
 }
 
 func TestScreenLineText(t *testing.T) {

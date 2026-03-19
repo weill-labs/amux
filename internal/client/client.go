@@ -299,6 +299,18 @@ func (cr *ClientRenderer) EnterCopyMode(paneID uint32) {
 	cr.dirty = true
 }
 
+// CopyModeForPane returns the copy mode for the given pane, or nil. Thread-safe.
+func (cr *ClientRenderer) CopyModeForPane(paneID uint32) *copymode.CopyMode {
+	cr.mu.Lock()
+	defer cr.mu.Unlock()
+	return cr.copyModes[paneID]
+}
+
+// InCopyMode reports whether the pane is currently in copy mode. Thread-safe.
+func (cr *ClientRenderer) InCopyMode(paneID uint32) bool {
+	return cr.CopyModeForPane(paneID) != nil
+}
+
 // ExitCopyMode exits copy mode for the given pane. Thread-safe.
 func (cr *ClientRenderer) ExitCopyMode(paneID uint32) {
 	cr.mu.Lock()
@@ -313,6 +325,41 @@ func (cr *ClientRenderer) ActiveCopyMode() *copymode.CopyMode {
 	cr.mu.Lock()
 	defer cr.mu.Unlock()
 	return cr.copyModes[activePaneID]
+}
+
+// VisibleLayout returns the layout tree currently visible to the user.
+func (cr *ClientRenderer) VisibleLayout() *mux.LayoutCell {
+	return cr.renderer.VisibleLayout()
+}
+
+// Emulator returns the emulator for the given pane. Thread-safe.
+func (cr *ClientRenderer) Emulator(paneID uint32) (mux.TerminalEmulator, bool) {
+	return cr.renderer.Emulator(paneID)
+}
+
+// WheelScrollCopyMode scrolls a pane already in copy mode without moving its cursor.
+func (cr *ClientRenderer) WheelScrollCopyMode(paneID uint32, lines int, up bool) copymode.Action {
+	cm := cr.CopyModeForPane(paneID)
+	if cm == nil {
+		return copymode.ActionNone
+	}
+
+	var action copymode.Action
+	if up {
+		action = cm.WheelScrollUp(lines)
+	} else {
+		action = cm.WheelScrollDown(lines)
+	}
+
+	switch action {
+	case copymode.ActionExit:
+		cr.ExitCopyMode(paneID)
+	case copymode.ActionRedraw:
+		cr.mu.Lock()
+		cr.dirty = true
+		cr.mu.Unlock()
+	}
+	return action
 }
 
 // HandleCaptureRequest processes a capture request forwarded from the server.
