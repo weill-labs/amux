@@ -1,9 +1,12 @@
 package test
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/weill-labs/amux/internal/proto"
 )
 
 // ---------------------------------------------------------------------------
@@ -113,6 +116,62 @@ func TestZoomCLIFocusSamePaneNoUnzoom(t *testing.T) {
 	h.assertScreen("focusing zoomed pane should stay zoomed", func(s string) bool {
 		return strings.Contains(s, "[pane-2]") && !strings.Contains(s, "[pane-1]")
 	})
+}
+
+func TestZoomResyncsStaleCursorState(t *testing.T) {
+	t.Parallel()
+	h := newServerHarnessWithSize(t, 255, 62)
+
+	h.splitH()
+	h.waitFor("pane-2", "$")
+
+	healthyCapture := h.captureJSON()
+	healthy := h.jsonPane(healthyCapture, "pane-2")
+
+	tests := []struct {
+		name string
+		zoom func()
+	}{
+		{
+			name: "zoom",
+			zoom: func() {
+				h.runCmd("zoom", "pane-2")
+			},
+		},
+		{
+			name: "unzoom",
+			zoom: func() {
+				h.runCmd("zoom", "pane-2")
+				h.runCmd("zoom", "pane-2")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Simulate stale client-side cursor state for the active pane before zoom transition.
+			h.client.renderer.HandlePaneOutput(2, []byte("\033[1;24H"))
+
+			var before proto.CapturePane
+			if err := json.Unmarshal([]byte(h.client.renderer.CapturePaneJSON(2, nil)), &before); err != nil {
+				t.Fatalf("unmarshal pane-2 before %s: %v", tt.name, err)
+			}
+			if got := before.Cursor.Col; got != 23 {
+				t.Fatalf("precondition failed before %s: pane-2 cursor col = %d, want 23", tt.name, got)
+			}
+
+			tt.zoom()
+
+			afterCapture := h.captureJSON()
+			after := h.jsonPane(afterCapture, "pane-2")
+			if got, want := after.Content[0], healthy.Content[0]; got != want {
+				t.Fatalf("pane-2 content after %s = %q, want %q", tt.name, got, want)
+			}
+			if got, want := after.Cursor.Col, healthy.Cursor.Col; got != want {
+				t.Fatalf("pane-2 cursor col after %s = %d, want %d", tt.name, got, want)
+			}
+		})
+	}
 }
 
 // ---------------------------------------------------------------------------

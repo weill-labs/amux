@@ -46,6 +46,29 @@ func TestMouseClickFocusHorizontalSplit(t *testing.T) {
 	}
 }
 
+func TestMouseClickInsideZoomedPaneDoesNotUnzoom(t *testing.T) {
+	t.Parallel()
+	h := newAmuxHarness(t)
+
+	h.splitH()
+	h.runCmd("zoom", "pane-2")
+
+	h.assertScreen("pane-2 should be zoomed before click", func(s string) bool {
+		return strings.Contains(s, "[pane-2]") && !strings.Contains(s, "[pane-1]")
+	})
+
+	gen := h.generation()
+	h.clickAt(40, 3)
+
+	if h.waitLayoutOrTimeout(gen, "500ms") {
+		t.Fatalf("clicking inside zoomed pane should not change layout.\nScreen:\n%s", h.capture())
+	}
+
+	h.assertScreen("clicking inside zoomed pane should stay zoomed", func(s string) bool {
+		return strings.Contains(s, "[pane-2]") && !strings.Contains(s, "[pane-1]")
+	})
+}
+
 func TestMouseBorderDrag(t *testing.T) {
 	t.Parallel()
 	h := newAmuxHarness(t)

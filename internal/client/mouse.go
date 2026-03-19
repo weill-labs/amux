@@ -21,7 +21,7 @@ type DragState struct {
 // HandleMouseEvent dispatches a parsed mouse event to the appropriate action:
 // click-to-focus, border drag, or scroll wheel.
 func HandleMouseEvent(ev mouse.Event, cr *ClientRenderer, sender *messageSender, drag *DragState) {
-	layout := cr.Layout()
+	layout := cr.renderer.VisibleLayout()
 
 	if layout == nil {
 		return
