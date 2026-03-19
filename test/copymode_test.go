@@ -244,9 +244,7 @@ func TestCopyModeResizeSurvives(t *testing.T) {
 	// only depends on copy mode surviving the resize, not on the outer
 	// send-keys path after the terminal resize.
 	h.runCmd("type-keys", "q")
-	if !waitForOuter(h, func(s string) bool {
-		return !strings.Contains(s, "[copy]")
-	}, 3*time.Second) {
+	if !waitForOuterGone(h, "[copy]", 3*time.Second) {
 		t.Fatalf("expected [copy] to disappear after q\nScreen:\n%s", h.captureOuter())
 	}
 }
