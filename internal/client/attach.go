@@ -154,6 +154,10 @@ func RunSession(sessionName string) error {
 				msgCh <- &RenderMsg{Typ: RenderMsgLayout, Layout: msg.Layout}
 			case proto.MsgTypePaneOutput:
 				msgCh <- &RenderMsg{Typ: RenderMsgPaneOutput, PaneID: msg.PaneID, Data: msg.PaneData}
+			case proto.MsgTypeCmdResult:
+				if msg.CmdErr != "" {
+					msgCh <- &RenderMsg{Typ: RenderMsgCmdError, Text: msg.CmdErr}
+				}
 			case proto.MsgTypeCopyMode:
 				msgCh <- &RenderMsg{Typ: RenderMsgCopyMode, PaneID: msg.PaneID}
 			case proto.MsgTypeExit:
@@ -316,6 +320,15 @@ func RunSession(sessionName string) error {
 					showChooser(chooserModeTree)
 				case "choose-window":
 					showChooser(chooserModeWindow)
+				case "toggle-minimize":
+					if reason := cr.toggleMinimizeBlockedReason(); reason != "" {
+						cr.ShowCommandError(reason)
+						io.WriteString(os.Stdout, "\a")
+						if data := cr.RenderDiff(); data != "" {
+							io.WriteString(os.Stdout, data)
+						}
+					}
+					sender.Command(binding.Action, binding.Args)
 				case "compat-bell":
 					io.WriteString(os.Stdout, "\a")
 				default:
@@ -427,14 +440,22 @@ func RunSession(sessionName string) error {
 
 		for {
 			var raw []byte
+			localInput := false
 			select {
 			case data, ok := <-stdinCh:
 				if !ok {
 					return
 				}
 				raw = data
+				localInput = true
 			case data := <-injectCh:
 				raw = data
+			}
+
+			if localInput && cr.ClearCommandFeedback() {
+				if data := cr.RenderDiff(); data != "" {
+					io.WriteString(os.Stdout, data)
+				}
 			}
 
 			var forward []byte

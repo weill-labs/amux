@@ -463,6 +463,75 @@ func TestCaptureDisplay(t *testing.T) {
 	}
 }
 
+func TestCommandFeedbackAppearsInDisplayCapture(t *testing.T) {
+	t.Parallel()
+
+	cr := buildTestRenderer(t)
+	cr.ShowCommandError("cannot minimize: pane has no stacked siblings")
+
+	if got := cr.RenderDiff(); got == "" {
+		t.Fatal("RenderDiff with command feedback should produce output")
+	}
+
+	display := cr.CaptureDisplay()
+	if !strings.Contains(display, "cannot minimize: pane has no stacked siblings") {
+		t.Fatalf("display capture should contain command feedback, got:\n%s", display)
+	}
+}
+
+func TestHandleLayoutClearsCommandFeedback(t *testing.T) {
+	t.Parallel()
+
+	cr := buildTestRenderer(t)
+	cr.ShowCommandError("cannot minimize: pane has no stacked siblings")
+	cr.RenderDiff()
+
+	cr.HandleLayout(twoPane80x23())
+	cr.RenderDiff()
+
+	display := cr.CaptureDisplay()
+	if strings.Contains(display, "cannot minimize: pane has no stacked siblings") {
+		t.Fatalf("layout update should clear command feedback, got:\n%s", display)
+	}
+}
+
+func TestToggleMinimizeBlockedReasonVerticalSplit(t *testing.T) {
+	t.Parallel()
+
+	cr := buildTestRenderer(t)
+	if got := cr.toggleMinimizeBlockedReason(); got != minimizeLeftRightSplitReason {
+		t.Fatalf("blocked reason = %q, want %q", got, minimizeLeftRightSplitReason)
+	}
+}
+
+func TestRenderCoalescedCommandErrorShowsFeedback(t *testing.T) {
+	t.Parallel()
+
+	cr := buildTestRenderer(t)
+	msgCh := make(chan *RenderMsg, 2)
+
+	var rendered strings.Builder
+	done := make(chan struct{})
+	go func() {
+		cr.RenderCoalesced(msgCh, func(s string) {
+			rendered.WriteString(s)
+		})
+		close(done)
+	}()
+
+	msgCh <- &RenderMsg{Typ: RenderMsgCmdError, Text: "cannot minimize: pane has no stacked siblings"}
+	msgCh <- &RenderMsg{Typ: RenderMsgExit}
+	close(msgCh)
+	<-done
+
+	if !strings.Contains(rendered.String(), "\a") {
+		t.Fatalf("command error render should ring bell, got %q", rendered.String())
+	}
+	if !strings.Contains(cr.CaptureDisplay(), "cannot minimize: pane has no stacked siblings") {
+		t.Fatalf("display capture should contain command feedback, got:\n%s", cr.CaptureDisplay())
+	}
+}
+
 func TestDisplayPanesOverlayDisplayOnly(t *testing.T) {
 	t.Parallel()
 

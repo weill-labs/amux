@@ -87,8 +87,23 @@ func TestMinimizeSoloPaneInColumnFails(t *testing.T) {
 	h.splitV()
 
 	output := h.runCmd("minimize", "pane-1")
-	if !strings.Contains(output, "cannot") {
+	if !strings.Contains(output, "left/right split") {
 		t.Errorf("minimizing sole pane in column should fail, got:\n%s", output)
+	}
+
+	statusOut := h.runCmd("status")
+	if !strings.Contains(statusOut, "0 minimized") {
+		t.Errorf("no panes should be minimized, got:\n%s", statusOut)
+	}
+}
+
+func TestMinimizeRootPaneShowsExplicitReason(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	output := h.runCmd("minimize", "pane-1")
+	if !strings.Contains(output, "pane has no stacked siblings") {
+		t.Fatalf("root minimize should explain the constraint, got:\n%s", output)
 	}
 
 	statusOut := h.runCmd("status")
@@ -109,7 +124,7 @@ func TestMinimizeLastPaneInColumnFails(t *testing.T) {
 	}
 
 	output = h.runCmd("minimize", "pane-2")
-	if !strings.Contains(output, "cannot") {
+	if !strings.Contains(output, "last visible pane in this stacked group") {
 		t.Errorf("minimizing last visible pane in column should fail, got:\n%s", output)
 	}
 

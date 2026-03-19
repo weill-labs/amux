@@ -120,6 +120,20 @@ func renderPaneStatus(buf *strings.Builder, cell *mux.LayoutCell, isActive bool,
 	buf.WriteString(Reset)
 }
 
+func truncateRunes(s string, max int) string {
+	if max <= 0 {
+		return ""
+	}
+	runes := []rune(s)
+	if len(runes) <= max {
+		return s
+	}
+	if max == 1 {
+		return string(runes[:1])
+	}
+	return string(runes[:max-1]) + "…"
+}
+
 // renderGlobalBar draws the global status bar at the bottom of the terminal.
 func renderGlobalBar(buf *strings.Builder, sessionName string, paneCount int, width, yPos int, windows []WindowInfo, message string) {
 	writeCursorTo(buf, yPos+1, 1)
@@ -151,8 +165,17 @@ func renderGlobalBar(buf *strings.Builder, sessionName string, paneCount int, wi
 		leftVisible += len(sessionName) + 1
 	}
 
-	paneCountStr := strconv.Itoa(paneCount)
-	right := " " + paneCountStr + " panes │ " + now + " "
+	right := ""
+	rightColor := TextFg
+	if message != "" {
+		maxText := width - leftVisible - 2
+		right = " " + truncateRunes(message, maxText) + " "
+		rightColor = RedFg
+		message = ""
+	} else {
+		paneCountStr := strconv.Itoa(paneCount)
+		right = " " + paneCountStr + " panes │ " + now + " "
+	}
 	rightVisible := utf8.RuneCountInString(right)
 
 	buf.WriteString(left)
@@ -169,6 +192,7 @@ func renderGlobalBar(buf *strings.Builder, sessionName string, paneCount int, wi
 		}
 	}
 
+	buf.WriteString(rightColor)
 	buf.WriteString(right)
 	buf.WriteString(Reset)
 }

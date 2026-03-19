@@ -123,12 +123,70 @@ func TestTypeKeysMinimizeWithShiftM(t *testing.T) {
 	h.runCmd("focus", "pane-1")
 
 	gen := h.generation()
-	h.runCmd("type-keys", "C-a", "M")
+	h.sendKeys("C-a", "M")
 	h.waitLayout(gen)
 
 	out := h.runCmd("status")
 	if !strings.Contains(out, "1 minimized") {
 		t.Fatalf("expected 1 minimized after type-keys C-a M, got: %s", out)
+	}
+}
+
+func TestTypeKeysMinimizeFailureShowsReasonInVerticalSplit(t *testing.T) {
+	t.Parallel()
+	h := newAmuxHarness(t)
+
+	h.splitV()
+	if !h.waitFor("[pane-2]", 3*time.Second) {
+		t.Fatalf("expected split layout to render before minimize test\nScreen:\n%s", h.captureOuter())
+	}
+	h.runCmd("type-keys", "C-a", "M")
+
+	msg := "left/right split"
+	if !h.waitFor(msg, 3*time.Second) {
+		t.Fatalf("expected minimize failure reason in outer capture\nScreen:\n%s", h.captureOuter())
+	}
+
+	out := h.runCmd("status")
+	if !strings.Contains(out, "0 minimized") {
+		t.Fatalf("vertical split minimize should not change minimized count, got: %s", out)
+	}
+}
+
+func TestTypeKeysMinimizeFailureShowsReasonAtRoot(t *testing.T) {
+	t.Parallel()
+	h := newAmuxHarness(t)
+
+	h.runCmd("type-keys", "C-a", "M")
+
+	if !h.waitFor("pane has no stacked siblings", 3*time.Second) {
+		t.Fatalf("expected root minimize failure reason in outer capture\nScreen:\n%s", h.captureOuter())
+	}
+
+	out := h.runCmd("status")
+	if !strings.Contains(out, "0 minimized") {
+		t.Fatalf("root minimize should not change minimized count, got: %s", out)
+	}
+}
+
+func TestMinimizeFailureFeedbackClearsOnNextLocalInput(t *testing.T) {
+	t.Parallel()
+	h := newAmuxHarness(t)
+
+	h.splitV()
+	if !h.waitFor("[pane-2]", 3*time.Second) {
+		t.Fatalf("expected split layout to render before clear test\nScreen:\n%s", h.captureOuter())
+	}
+	h.runCmd("type-keys", "C-a", "M")
+
+	msg := "left/right split"
+	if !h.waitFor(msg, 3*time.Second) {
+		t.Fatalf("expected minimize failure reason before clear test\nScreen:\n%s", h.captureOuter())
+	}
+
+	h.sendKeys("Enter")
+	if !waitForOuterGone(h, msg, 3*time.Second) {
+		t.Fatalf("expected local input to clear minimize failure feedback\nScreen:\n%s", h.captureOuter())
 	}
 }
 

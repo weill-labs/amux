@@ -134,6 +134,63 @@ func TestFocusRightAdjacent(t *testing.T) {
 	}
 }
 
+func TestMinimizeErrorReasons(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		err  string
+		run  func() error
+	}{
+		{
+			name: "root pane has no stacked siblings",
+			err:  "cannot minimize: pane has no stacked siblings",
+			run: func() error {
+				w := NewWindow(fakePaneID(1), 80, 24)
+				return w.Minimize(1)
+			},
+		},
+		{
+			name: "left right split is unsupported",
+			err:  "cannot minimize: pane is in a left/right split; minimize only works in stacked top/bottom groups",
+			run: func() error {
+				w := NewWindow(fakePaneID(1), 80, 24)
+				if _, err := w.SplitRoot(SplitVertical, fakePaneID(2)); err != nil {
+					t.Fatalf("SplitRoot(vertical): %v", err)
+				}
+				return w.Minimize(1)
+			},
+		},
+		{
+			name: "last visible pane in stacked group",
+			err:  "cannot minimize: pane is the last visible pane in this stacked group",
+			run: func() error {
+				w := NewWindow(fakePaneID(1), 80, 24)
+				if _, err := w.SplitRoot(SplitHorizontal, fakePaneID(2)); err != nil {
+					t.Fatalf("SplitRoot(horizontal): %v", err)
+				}
+				if err := w.Minimize(1); err != nil {
+					t.Fatalf("first Minimize: %v", err)
+				}
+				return w.Minimize(2)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := tt.run()
+			if err == nil {
+				t.Fatal("expected minimize error")
+			}
+			if !strings.Contains(err.Error(), tt.err) {
+				t.Fatalf("error = %q, want substring %q", err.Error(), tt.err)
+			}
+		})
+	}
+}
+
 func TestFocusUpWraps(t *testing.T) {
 	t.Parallel()
 	// Active pane is at top — up should wrap to bottom.
