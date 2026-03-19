@@ -206,6 +206,14 @@ func main() {
 			os.Exit(1)
 		}
 		runServerCommand("wait-ui", args[1:])
+	case "hook-gen":
+		runServerCommand("hook-gen", nil)
+	case "wait-hook":
+		if len(args) < 2 {
+			fmt.Fprintf(os.Stderr, "usage: amux wait-hook <event> [--pane <pane>] [--after N] [--timeout <duration>]\n")
+			os.Exit(1)
+		}
+		runServerCommand("wait-hook", args[1:])
 	case "clipboard-gen":
 		runServerCommand("clipboard-gen", nil)
 	case "wait-clipboard":
@@ -327,7 +335,7 @@ Usage:
                                        Remove hook(s) for an event
   amux [-s session] list-hooks         List registered hooks
   amux [-s session] events [--filter type1,type2] [--pane <ref>] [--host <name>] [--client <id>]
-                                       Stream events as NDJSON (layout, idle, busy, display-panes-*, choose-*)
+                                       Stream events as NDJSON (layout, idle, busy, hook, display-panes-*, choose-*, copy-mode-*, input-*)
   amux [-s session] split --host HOST  Split with a remote pane on HOST
   amux [-s session] hosts              List configured remote hosts + status
   amux [-s session] disconnect <host>  Drop SSH connection to a host
@@ -345,6 +353,9 @@ Usage:
                                        Block until pane becomes idle
   amux [-s session] wait-ui <event> [--client <id>] [--timeout 5s]
                                        Block until a client-local UI state is reached
+  amux [-s session] hook-gen          Show current hook completion generation
+  amux [-s session] wait-hook <event> [--pane <ref>] [--after N] [--timeout 5s]
+                                       Block until a matching hook completes
   amux version                         Show build version
 
 Panes can be referenced by name (pane-1) or ID (1).

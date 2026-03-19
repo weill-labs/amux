@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -239,6 +240,76 @@ func TestWaitUIImmediateHidden(t *testing.T) {
 	}
 	if !strings.Contains(out, proto.UIEventDisplayPanesHidden) {
 		t.Fatalf("wait-ui hidden output = %q", out)
+	}
+}
+
+func TestWaitUICopyModeTransitions(t *testing.T) {
+	t.Parallel()
+
+	h := newAmuxHarness(t)
+
+	h.sendKeys("C-a", "[")
+	h.waitUI(proto.UIEventCopyModeShown, 3*time.Second)
+	h.sendKeys("q")
+	h.waitUI(proto.UIEventCopyModeHidden, 3*time.Second)
+}
+
+func TestWaitUIInputIdleAfterTypeKeys(t *testing.T) {
+	t.Parallel()
+
+	h := newAmuxHarness(t)
+
+	out := h.runCmd("wait-ui", proto.UIEventInputIdle, "--timeout", "1s")
+	if !strings.Contains(out, proto.UIEventInputIdle) {
+		t.Fatalf("wait-ui input-idle output = %q", out)
+	}
+
+	h.runCmd("type-keys", "e", "c", "h", "o", " ", "INPUT_IDLE_OK", "Enter")
+	h.waitUI(proto.UIEventInputIdle, 3*time.Second)
+	if !h.waitFor("INPUT_IDLE_OK", 3*time.Second) {
+		t.Fatalf("expected INPUT_IDLE_OK after type-keys\nScreen:\n%s", h.captureOuter())
+	}
+}
+
+func TestWaitHookOnIdle(t *testing.T) {
+	t.Parallel()
+
+	h := newServerHarness(t)
+	tmp := t.TempDir()
+	marker := filepath.Join(tmp, "hook-wait")
+
+	after := strings.TrimSpace(h.runCmd("hook-gen"))
+	h.runCmd("set-hook", "on-idle", "touch "+marker)
+	h.sendKeys("pane-1", "echo HOOKWAIT", "Enter")
+	h.waitFor("pane-1", "HOOKWAIT")
+
+	out := h.runCmd("wait-hook", "on-idle", "--pane", "pane-1", "--after", after, "--timeout", "5s")
+	if strings.Contains(out, "timeout") {
+		t.Fatalf("wait-hook timed out: %s", out)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("marker missing after wait-hook: %v", err)
+	}
+}
+
+func TestWaitHookAcceptsNumericPaneRef(t *testing.T) {
+	t.Parallel()
+
+	h := newServerHarness(t)
+	tmp := t.TempDir()
+	marker := filepath.Join(tmp, "hook-wait-numeric")
+
+	after := strings.TrimSpace(h.runCmd("hook-gen"))
+	h.runCmd("set-hook", "on-idle", "touch "+marker)
+	h.sendKeys("pane-1", "echo HOOKWAIT_NUMERIC", "Enter")
+	h.waitFor("pane-1", "HOOKWAIT_NUMERIC")
+
+	out := h.runCmd("wait-hook", "on-idle", "--pane", "1", "--after", after, "--timeout", "5s")
+	if strings.Contains(out, "timeout") {
+		t.Fatalf("wait-hook with numeric pane ref timed out: %s", out)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("marker missing after numeric wait-hook: %v", err)
 	}
 }
 

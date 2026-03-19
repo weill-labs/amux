@@ -220,6 +220,48 @@ func TestCaptureJSON_RoundTrip(t *testing.T) {
 	}
 }
 
+func TestCaptureJSON_ClientUIState(t *testing.T) {
+	t.Parallel()
+	h := newAmuxHarness(t)
+
+	h.runCmd("type-keys", "C-a", "q")
+	h.runCmd("wait-ui", proto.UIEventDisplayPanesShown, "--timeout", "3s")
+
+	out := h.runCmd("capture", "--format", "json")
+
+	var capture proto.CaptureJSON
+	if err := json.Unmarshal([]byte(out), &capture); err != nil {
+		t.Fatalf("failed to parse JSON: %v\nraw output:\n%s", err, out)
+	}
+	if capture.UI == nil {
+		t.Fatal("capture UI state should be present for live client capture")
+	}
+	if !capture.UI.DisplayPanes {
+		t.Fatalf("expected display_panes=true, got %+v", capture.UI)
+	}
+	if !capture.UI.InputIdle {
+		t.Fatalf("expected input_idle=true, got %+v", capture.UI)
+	}
+}
+
+func TestCapturePaneJSON_CopyMode(t *testing.T) {
+	t.Parallel()
+	h := newAmuxHarness(t)
+
+	h.sendKeys("C-a", "[")
+	h.waitUI(proto.UIEventCopyModeShown, 3*time.Second)
+
+	out := h.runCmd("capture", "--format", "json", "pane-1")
+
+	var pane proto.CapturePane
+	if err := json.Unmarshal([]byte(out), &pane); err != nil {
+		t.Fatalf("failed to parse JSON: %v\nraw output:\n%s", err, out)
+	}
+	if !pane.CopyMode {
+		t.Fatalf("expected pane copy_mode=true, got %+v", pane)
+	}
+}
+
 func TestCaptureJSON_PreservesGraphemeClusters(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)

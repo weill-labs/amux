@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/weill-labs/amux/internal/proto"
 )
 
 func TestTypeKeysSplit(t *testing.T) {
@@ -75,19 +77,11 @@ func TestTypeKeysCopyMode(t *testing.T) {
 
 	// Enter copy mode via type-keys.
 	h.runCmd("type-keys", "C-a", "[")
-
-	if !h.waitFor("[copy]", 3*time.Second) {
-		screen := h.captureOuter()
-		t.Fatalf("expected [copy] indicator after type-keys C-a [\nScreen:\n%s", screen)
-	}
+	h.waitUI(proto.UIEventCopyModeShown, 3*time.Second)
 
 	// Exit copy mode via type-keys.
 	h.runCmd("type-keys", "q")
-
-	if !waitForOuterGone(h, "[copy]", 3*time.Second) {
-		screen := h.captureOuter()
-		t.Fatalf("expected [copy] to disappear after type-keys q\nScreen:\n%s", screen)
-	}
+	h.waitUI(proto.UIEventCopyModeHidden, 3*time.Second)
 }
 
 func TestTypeKeysCopyModeScroll(t *testing.T) {
@@ -103,9 +97,7 @@ func TestTypeKeysCopyModeScroll(t *testing.T) {
 
 	// Enter copy mode and scroll to top via type-keys.
 	h.runCmd("type-keys", "C-a", "[")
-	if !h.waitFor("[copy]", 3*time.Second) {
-		t.Fatal("failed to enter copy mode")
-	}
+	h.waitUI(proto.UIEventCopyModeShown, 3*time.Second)
 
 	h.runCmd("type-keys", "g")
 

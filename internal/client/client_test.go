@@ -228,6 +228,31 @@ func TestClientRendererCaptureJSON(t *testing.T) {
 	}
 }
 
+func TestClientRendererCaptureJSONIncludesChooserAndInputBusy(t *testing.T) {
+	t.Parallel()
+	cr := buildMultiWindowRenderer(t)
+
+	if !cr.ShowChooser(chooserModeWindow) {
+		t.Fatal("ShowChooser window should succeed")
+	}
+	cr.SetInputIdle(false)
+
+	out := cr.CaptureJSON(nil)
+	var capture proto.CaptureJSON
+	if err := json.Unmarshal([]byte(out), &capture); err != nil {
+		t.Fatalf("JSON parse: %v\nraw: %s", err, out)
+	}
+	if capture.UI == nil {
+		t.Fatal("capture UI state should be present")
+	}
+	if capture.UI.Chooser != string(chooserModeWindow) {
+		t.Fatalf("chooser = %q, want %q", capture.UI.Chooser, chooserModeWindow)
+	}
+	if capture.UI.InputIdle {
+		t.Fatal("input_idle = true, want false")
+	}
+}
+
 func TestClientRendererCaptureColorMap(t *testing.T) {
 	t.Parallel()
 	cr := buildTestRenderer(t)
@@ -755,6 +780,31 @@ func TestChooserUIEvents(t *testing.T) {
 	}
 }
 
+func TestInputIdleUIEvents(t *testing.T) {
+	t.Parallel()
+
+	cr := buildTestRenderer(t)
+	var events []string
+	cr.OnUIEvent = func(name string) {
+		events = append(events, name)
+	}
+
+	cr.SetInputIdle(true)
+	cr.SetInputIdle(false)
+	cr.SetInputIdle(false)
+	cr.SetInputIdle(true)
+
+	want := []string{proto.UIEventInputBusy, proto.UIEventInputIdle}
+	if len(events) != len(want) {
+		t.Fatalf("events = %v, want %v", events, want)
+	}
+	for i := range want {
+		if events[i] != want[i] {
+			t.Fatalf("events[%d] = %q, want %q", i, events[i], want[i])
+		}
+	}
+}
+
 func TestHandleLayoutClearsDisplayPanesEmitsHidden(t *testing.T) {
 	t.Parallel()
 
@@ -871,6 +921,14 @@ func TestHandleCaptureRequest(t *testing.T) {
 	resp = cr.HandleCaptureRequest([]string{"--colors", "pane-1"}, nil)
 	if resp.CmdErr == "" {
 		t.Error("--colors with pane ref should error")
+	}
+
+	resp = cr.HandleCaptureRequest([]string{"--format", "json", "nope"}, nil)
+	if resp.CmdErr == "" {
+		t.Fatal("JSON capture with nonexistent pane should error")
+	}
+	if !strings.Contains(resp.CmdErr, `pane "nope" not found`) {
+		t.Fatalf("CmdErr = %q, want pane not found", resp.CmdErr)
 	}
 }
 

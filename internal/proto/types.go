@@ -67,6 +67,15 @@ type CaptureJSON struct {
 	Width   int           `json:"width"`
 	Height  int           `json:"height"`
 	Panes   []CapturePane `json:"panes"`
+	UI      *CaptureUI    `json:"ui,omitempty"`
+}
+
+// CaptureUI holds client-local UI state for JSON capture.
+type CaptureUI struct {
+	CopyMode     bool   `json:"copy_mode,omitempty"`
+	DisplayPanes bool   `json:"display_panes,omitempty"`
+	Chooser      string `json:"chooser,omitempty"`
+	InputIdle    bool   `json:"input_idle"`
 }
 
 // CaptureWindow identifies the captured window.
@@ -89,6 +98,7 @@ type CapturePane struct {
 	Position  *CapturePos   `json:"position,omitempty"`
 	Cursor    CaptureCursor `json:"cursor"`
 	Content   []string      `json:"content"`
+	CopyMode  bool          `json:"copy_mode,omitempty"`
 
 	// ConnStatus is the remote connection state: "", "connected", "reconnecting", "disconnected".
 	// Empty for local panes.

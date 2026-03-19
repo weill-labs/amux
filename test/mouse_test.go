@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/weill-labs/amux/internal/proto"
 )
 
 func TestMouseClickFocus(t *testing.T) {
@@ -110,19 +112,7 @@ func writeMouseScript(t *testing.T, h *AmuxHarness, name, body string) string {
 
 func waitForOuterContains(h *AmuxHarness, fn func(string) bool, timeout time.Duration) bool {
 	h.tb.Helper()
-	ticker := time.NewTicker(50 * time.Millisecond)
-	defer ticker.Stop()
-	deadline := time.After(timeout)
-	for {
-		if fn(h.captureOuter()) {
-			return true
-		}
-		select {
-		case <-deadline:
-			return false
-		case <-ticker.C:
-		}
-	}
+	return h.waitForOuterFunc(fn, timeout)
 }
 
 func firstMarkerNumber(screen, prefix string) int {
@@ -194,9 +184,7 @@ for i in $(seq -w 1 24); do echo "MWHEEL-$i"; done
 
 	h.scrollAt(40, 12, true)
 
-	if !h.waitFor("[copy]", 3*time.Second) {
-		t.Fatalf("expected mouse wheel to enter copy mode.\nScreen:\n%s", h.captureOuter())
-	}
+	h.waitUI(proto.UIEventCopyModeShown, 3*time.Second)
 	if !waitForOuterContains(h, func(s string) bool {
 		afterTop := firstMarkerNumber(s, "MWHEEL-")
 		return afterTop > 0 && afterTop < beforeTop
@@ -216,16 +204,10 @@ for i in $(seq -w 1 24); do echo "MEXIT-$i"; done
 	h.waitFor("MEXIT-24", 3*time.Second)
 
 	h.scrollAt(40, 12, true)
-	if !h.waitFor("[copy]", 3*time.Second) {
-		t.Fatalf("expected copy mode after wheel-up.\nScreen:\n%s", h.captureOuter())
-	}
+	h.waitUI(proto.UIEventCopyModeShown, 3*time.Second)
 
 	h.scrollAt(40, 12, false)
-	if !waitForOuterContains(h, func(s string) bool {
-		return !strings.Contains(s, "[copy]")
-	}, 3*time.Second) {
-		t.Fatalf("expected wheel-down at live view to exit copy mode.\nScreen:\n%s", h.captureOuter())
-	}
+	h.waitUI(proto.UIEventCopyModeHidden, 3*time.Second)
 }
 
 func TestMouseScrollWheelTargetsInactivePaneWithoutFocusChange(t *testing.T) {
@@ -243,9 +225,7 @@ for i in $(seq -w 1 24); do echo "MINACTIVE-$i"; done
 	}
 
 	h.scrollAt(10, 5, true)
-	if !h.waitFor("[copy]", 3*time.Second) {
-		t.Fatalf("expected wheel-up over inactive pane to enter copy mode there.\nScreen:\n%s", h.captureOuter())
-	}
+	h.waitUI(proto.UIEventCopyModeShown, 3*time.Second)
 	if got := h.activePaneName(); got != "pane-2" {
 		t.Fatalf("wheel-up entry should not immediately change focus: active=%s", got)
 	}

@@ -37,6 +37,13 @@ type Entry struct {
 	Command string
 }
 
+// Result is the outcome of a hook command execution.
+type Result struct {
+	Event   Event
+	Command string
+	Err     error
+}
+
 // Registry stores hooks and executes them on events.
 type Registry struct {
 	mu          sync.RWMutex
@@ -89,23 +96,36 @@ func (r *Registry) List(event Event) []Entry {
 // Fire executes all hooks for an event asynchronously.
 // Each hook command runs as a shell command with the given environment variables.
 func (r *Registry) Fire(event Event, env map[string]string) {
+	r.FireWithCallback(event, env, nil)
+}
+
+// FireWithCallback executes all hooks for an event asynchronously and invokes
+// onResult after each command completes.
+func (r *Registry) FireWithCallback(event Event, env map[string]string, onResult func(Result)) {
 	w := r.ErrorWriter
 	if w == nil {
 		w = os.Stderr
 	}
 	for _, entry := range r.List(event) {
-		go executeHook(entry.Command, env, w)
+		go func(entry Entry) {
+			err := executeHook(entry.Command, env, w)
+			if onResult != nil {
+				onResult(Result{Event: event, Command: entry.Command, Err: err})
+			}
+		}(entry)
 	}
 }
 
 // executeHook runs a shell command with additional environment variables.
-// Errors are written to w.
-func executeHook(command string, env map[string]string, w io.Writer) {
+// Errors are logged to stderr (the server's stderr goes to the session log).
+func executeHook(command string, env map[string]string, w io.Writer) error {
 	cmd := exec.Command("sh", "-c", command)
 	cmd.Env = append(os.Environ(), mapToEnv(env)...)
 	if err := cmd.Run(); err != nil {
 		fmt.Fprintf(w, "hook %q failed: %v\n", command, err)
+		return err
 	}
+	return nil
 }
 
 // mapToEnv converts a map to KEY=VALUE slice.

@@ -38,6 +38,30 @@ func (cc *ClientConn) applyUIEvent(name string) (bool, error) {
 		}
 		cc.displayPanesShown = false
 		return true, nil
+	case proto.UIEventCopyModeShown:
+		if cc.copyModeShown {
+			return false, nil
+		}
+		cc.copyModeShown = true
+		return true, nil
+	case proto.UIEventCopyModeHidden:
+		if !cc.copyModeShown {
+			return false, nil
+		}
+		cc.copyModeShown = false
+		return true, nil
+	case proto.UIEventInputBusy:
+		if !cc.inputIdle {
+			return false, nil
+		}
+		cc.inputIdle = false
+		return true, nil
+	case proto.UIEventInputIdle:
+		if cc.inputIdle {
+			return false, nil
+		}
+		cc.inputIdle = true
+		return true, nil
 	default:
 		return false, errUnknownUIEvent(name)
 	}
@@ -57,6 +81,14 @@ func (cc *ClientConn) matchesUIEvent(name string) bool {
 		return cc.displayPanesShown
 	case proto.UIEventDisplayPanesHidden:
 		return !cc.displayPanesShown
+	case proto.UIEventCopyModeShown:
+		return cc.copyModeShown
+	case proto.UIEventCopyModeHidden:
+		return !cc.copyModeShown
+	case proto.UIEventInputBusy:
+		return !cc.inputIdle
+	case proto.UIEventInputIdle:
+		return cc.inputIdle
 	default:
 		return false
 	}
@@ -85,7 +117,18 @@ func (cc *ClientConn) currentUIEvents() []Event {
 		events[0].Type = proto.UIEventDisplayPanesShown
 	}
 
+	copyModeEvent := proto.UIEventCopyModeHidden
+	if cc.copyModeShown {
+		copyModeEvent = proto.UIEventCopyModeShown
+	}
+	inputEvent := proto.UIEventInputIdle
+	if !cc.inputIdle {
+		inputEvent = proto.UIEventInputBusy
+	}
+
 	events = append(events,
+		Event{Type: copyModeEvent, ClientID: cc.ID},
+		Event{Type: inputEvent, ClientID: cc.ID},
 		Event{Type: chooserSnapshotEvent(chooserTree, cc.chooserMode), ClientID: cc.ID},
 		Event{Type: chooserSnapshotEvent(chooserWindow, cc.chooserMode), ClientID: cc.ID},
 	)

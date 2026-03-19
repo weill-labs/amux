@@ -122,6 +122,8 @@ var commandRegistry = map[string]CommandHandler{
 	"wait-layout":     cmdWaitLayout,
 	"clipboard-gen":   cmdClipboardGen,
 	"wait-clipboard":  cmdWaitClipboard,
+	"hook-gen":        cmdHookGen,
+	"wait-hook":       cmdWaitHook,
 	"wait-for":        cmdWaitFor,
 	"wait-idle":       cmdWaitIdle,
 	"wait-busy":       cmdWaitBusy,
@@ -899,6 +901,93 @@ func cmdWaitClipboard(ctx *CommandContext) {
 		return
 	}
 	ctx.reply(data + "\n")
+}
+
+func cmdHookGen(ctx *CommandContext) {
+	gen := ctx.Sess.hookGen.Load()
+	ctx.reply(fmt.Sprintf("%d\n", gen))
+}
+
+func parseWaitHookArgs(args []string) (eventName, paneName string, afterGen uint64, timeout time.Duration, err error) {
+	if len(args) < 1 {
+		return "", "", 0, 0, fmt.Errorf("usage: wait-hook <event> [--pane <pane>] [--after N] [--timeout <duration>]")
+	}
+	eventName = args[0]
+	timeout = 5 * time.Second
+	for i := 1; i < len(args); i++ {
+		switch args[i] {
+		case "--pane":
+			if i+1 >= len(args) {
+				return "", "", 0, 0, fmt.Errorf("missing value for --pane")
+			}
+			i++
+			paneName = args[i]
+		case "--after":
+			if i+1 >= len(args) {
+				return "", "", 0, 0, fmt.Errorf("missing value for --after")
+			}
+			i++
+			afterGen, err = strconv.ParseUint(args[i], 10, 64)
+			if err != nil {
+				return "", "", 0, 0, fmt.Errorf("invalid --after generation: %s", args[i])
+			}
+		case "--timeout":
+			if i+1 >= len(args) {
+				return "", "", 0, 0, fmt.Errorf("missing value for --timeout")
+			}
+			i++
+			timeout, err = time.ParseDuration(args[i])
+			if err != nil {
+				return "", "", 0, 0, err
+			}
+		default:
+			return "", "", 0, 0, fmt.Errorf("unknown flag: %s", args[i])
+		}
+	}
+	if _, err := hooks.ParseEvent(eventName); err != nil {
+		return "", "", 0, 0, err
+	}
+	return eventName, paneName, afterGen, timeout, nil
+}
+
+func resolveWaitHookPaneName(ctx *CommandContext, ref string) (string, error) {
+	if ref == "" {
+		return "", nil
+	}
+	ctx.Sess.mu.Lock()
+	pane, _, err := ctx.CC.resolvePaneAcrossWindowsLocked(ctx.Sess, ref)
+	ctx.Sess.mu.Unlock()
+	if err != nil {
+		return "", err
+	}
+	return pane.Meta.Name, nil
+}
+
+func cmdWaitHook(ctx *CommandContext) {
+	eventName, paneName, afterGen, timeout, err := parseWaitHookArgs(ctx.Args)
+	if err != nil {
+		ctx.replyErr(err.Error())
+		return
+	}
+	paneName, err = resolveWaitHookPaneName(ctx, paneName)
+	if err != nil {
+		ctx.replyErr(err.Error())
+		return
+	}
+	record, ok := ctx.Sess.waitHook(afterGen, eventName, paneName, timeout)
+	if !ok {
+		target := eventName
+		if paneName != "" {
+			target += " on " + paneName
+		}
+		ctx.replyErr(fmt.Sprintf("timeout waiting for hook %s", target))
+		return
+	}
+	status := "success"
+	if !record.Success {
+		status = "failure"
+	}
+	ctx.reply(fmt.Sprintf("%d %s %s %s\n", record.Generation, record.Event, record.PaneName, status))
 }
 
 func cmdWaitFor(ctx *CommandContext) {

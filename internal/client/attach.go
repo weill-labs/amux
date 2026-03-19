@@ -451,6 +451,7 @@ func RunSession(sessionName string) error {
 			case data := <-injectCh:
 				raw = data
 			}
+			cr.SetInputIdle(false)
 
 			if localInput && cr.ClearCommandFeedback() {
 				if data := cr.RenderDiff(); data != "" {
@@ -499,6 +500,7 @@ func RunSession(sessionName string) error {
 				if action.command != "" {
 					sender.Command(action.command, action.args)
 				}
+				cr.SetInputIdle(true)
 				continue
 			}
 			for i := 0; i < len(raw) && !shouldExit; i++ {
@@ -543,6 +545,7 @@ func RunSession(sessionName string) error {
 			}
 
 			if shouldExit {
+				cr.SetInputIdle(true)
 				return
 			}
 
@@ -556,6 +559,7 @@ func RunSession(sessionName string) error {
 					Type: proto.MsgTypeInput, Input: forward,
 				})
 			}
+			cr.SetInputIdle(true)
 		}
 	}()
 

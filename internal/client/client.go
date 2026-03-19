@@ -1,6 +1,8 @@
 package client
 
 import (
+	"encoding/json"
+	"fmt"
 	"os"
 	"strings"
 	"sync"
@@ -24,6 +26,7 @@ type ClientRenderer struct {
 	displayPanes *displayPanesState
 	chooser      *chooserState
 	message      string
+	inputIdle    bool
 	OnUIEvent    func(string)
 }
 
@@ -32,6 +35,7 @@ func NewClientRenderer(width, height int) *ClientRenderer {
 	cr := &ClientRenderer{
 		renderer:  New(width, height),
 		copyModes: make(map[uint32]*copymode.CopyMode),
+		inputIdle: true,
 	}
 	// Resize copy modes when the renderer resizes emulators during layout.
 	cr.renderer.OnPaneResize = func(paneID uint32, w, h int) {
@@ -76,6 +80,37 @@ func (cr *ClientRenderer) emitUIEvent(name string) {
 	if cr.OnUIEvent != nil {
 		cr.OnUIEvent(name)
 	}
+}
+
+func (cr *ClientRenderer) captureUIState() *proto.CaptureUI {
+	cr.mu.Lock()
+	defer cr.mu.Unlock()
+
+	chooser := ""
+	if cr.chooser != nil {
+		chooser = string(cr.chooser.mode)
+	}
+	return &proto.CaptureUI{
+		CopyMode:     len(cr.copyModes) > 0,
+		DisplayPanes: cr.displayPanes != nil,
+		Chooser:      chooser,
+		InputIdle:    cr.inputIdle,
+	}
+}
+
+func (cr *ClientRenderer) SetInputIdle(idle bool) {
+	cr.mu.Lock()
+	changed := cr.inputIdle != idle
+	cr.inputIdle = idle
+	cr.mu.Unlock()
+	if !changed {
+		return
+	}
+	if idle {
+		cr.emitUIEvent(proto.UIEventInputIdle)
+		return
+	}
+	cr.emitUIEvent(proto.UIEventInputBusy)
 }
 
 // HandlePaneOutput feeds raw PTY data into a pane's local emulator.
@@ -189,7 +224,13 @@ func (cr *ClientRenderer) CaptureColorMap() string {
 
 // CaptureJSON renders a structured JSON capture from client-side emulators.
 func (cr *ClientRenderer) CaptureJSON(agentStatus map[uint32]proto.PaneAgentStatus) string {
-	return cr.renderer.CaptureJSON(agentStatus)
+	var capture proto.CaptureJSON
+	if err := json.Unmarshal([]byte(cr.renderer.CaptureJSON(agentStatus)), &capture); err != nil {
+		return cr.renderer.CaptureJSON(agentStatus)
+	}
+	capture.UI = cr.captureUIState()
+	out, _ := json.MarshalIndent(capture, "", "  ")
+	return string(out)
 }
 
 // CapturePaneText returns a single pane's content from client-side emulators.
@@ -199,7 +240,18 @@ func (cr *ClientRenderer) CapturePaneText(paneID uint32, includeANSI bool) strin
 
 // CapturePaneJSON returns a single pane's JSON from client-side emulators.
 func (cr *ClientRenderer) CapturePaneJSON(paneID uint32, agentStatus map[uint32]proto.PaneAgentStatus) string {
-	return cr.renderer.CapturePaneJSON(paneID, agentStatus)
+	base := cr.renderer.CapturePaneJSON(paneID, agentStatus)
+	if strings.TrimSpace(base) == "{}" {
+		return base
+	}
+
+	var pane proto.CapturePane
+	if err := json.Unmarshal([]byte(base), &pane); err != nil {
+		return base
+	}
+	pane.CopyMode = cr.InCopyMode(paneID)
+	out, _ := json.MarshalIndent(pane, "", "  ")
+	return string(out)
 }
 
 // ResolvePaneID resolves a pane reference to an ID from client-side state.
@@ -352,14 +404,20 @@ func (cr *ClientRenderer) EnterCopyMode(paneID uint32) {
 		return
 	}
 	cr.mu.Lock()
-	defer cr.mu.Unlock()
+	wasActive := len(cr.copyModes) > 0
 	if cr.copyModes[paneID] != nil {
+		cr.mu.Unlock()
 		return // already in copy mode
 	}
 	w, h := emu.Size()
 	_, curRow := emu.CursorPosition()
 	cr.copyModes[paneID] = copymode.New(emu, w, h, curRow)
 	cr.dirty = true
+	nowActive := len(cr.copyModes) > 0
+	cr.mu.Unlock()
+	if !wasActive && nowActive {
+		cr.emitUIEvent(proto.UIEventCopyModeShown)
+	}
 }
 
 // CopyModeForPane returns the copy mode for the given pane, or nil. Thread-safe.
@@ -377,9 +435,14 @@ func (cr *ClientRenderer) InCopyMode(paneID uint32) bool {
 // ExitCopyMode exits copy mode for the given pane. Thread-safe.
 func (cr *ClientRenderer) ExitCopyMode(paneID uint32) {
 	cr.mu.Lock()
-	defer cr.mu.Unlock()
+	wasVisible := len(cr.copyModes) > 0
 	delete(cr.copyModes, paneID)
 	cr.dirty = true
+	nowVisible := len(cr.copyModes) > 0
+	cr.mu.Unlock()
+	if wasVisible && !nowVisible {
+		cr.emitUIEvent(proto.UIEventCopyModeHidden)
+	}
 }
 
 // ActiveCopyMode returns the copy mode for the active pane, or nil. Thread-safe.
@@ -428,7 +491,36 @@ func (cr *ClientRenderer) WheelScrollCopyMode(paneID uint32, lines int, up bool)
 // HandleCaptureRequest processes a capture request forwarded from the server.
 // It renders from the client-side emulators and returns a response message.
 func (cr *ClientRenderer) HandleCaptureRequest(args []string, agentStatus map[uint32]proto.PaneAgentStatus) *proto.Message {
-	return cr.renderer.HandleCaptureRequest(args, agentStatus)
+	var includeANSI, colorMap, formatJSON, displayMode bool
+	var paneRef string
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--ansi":
+			includeANSI = true
+		case "--colors":
+			colorMap = true
+		case "--display":
+			displayMode = true
+		case "--format":
+			if i+1 < len(args) && args[i+1] == "json" {
+				formatJSON = true
+				i++
+			}
+		default:
+			paneRef = args[i]
+		}
+	}
+	if !formatJSON || includeANSI || colorMap || displayMode {
+		return cr.renderer.HandleCaptureRequest(args, agentStatus)
+	}
+	if paneRef != "" {
+		paneID := cr.ResolvePaneID(paneRef)
+		if paneID == 0 {
+			return &proto.Message{Type: proto.MsgTypeCaptureResponse, CmdErr: fmt.Sprintf("pane %q not found", paneRef)}
+		}
+		return &proto.Message{Type: proto.MsgTypeCaptureResponse, CmdOutput: cr.CapturePaneJSON(paneID, agentStatus) + "\n"}
+	}
+	return &proto.Message{Type: proto.MsgTypeCaptureResponse, CmdOutput: cr.CaptureJSON(agentStatus) + "\n"}
 }
 
 // clientPaneData adapts an emulator + snapshot metadata for the PaneData interface.

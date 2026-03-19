@@ -165,6 +165,14 @@ func (h *AmuxHarness) waitLayoutOrTimeout(afterGen uint64, timeout string) bool 
 	return !strings.Contains(out, "timeout")
 }
 
+func (h *AmuxHarness) waitUI(event string, timeout time.Duration) {
+	h.tb.Helper()
+	out := h.runCmd("wait-ui", event, "--timeout", timeout.String())
+	if strings.Contains(out, "timeout") {
+		h.tb.Fatalf("wait-ui %s timed out\nouter:\n%s", event, h.captureOuter())
+	}
+}
+
 // waitForFunc polls the inner compositor capture until fn returns true or
 // timeout expires. Used for complex predicates that can't be expressed as
 // a simple substring match. Prefer waitLayout for layout changes.
@@ -186,6 +194,30 @@ func (h *AmuxHarness) waitForFunc(fn func(string) bool, timeout time.Duration) b
 		gen = h.generation()
 	}
 	return false
+}
+
+// waitForOuterFunc polls the outer emulator capture until fn returns true or timeout.
+// Outer overlay updates do not have a dedicated server-side wait primitive, so this
+// uses a short ticker rather than sleep loops scattered across tests.
+func (h *AmuxHarness) waitForOuterFunc(fn func(string) bool, timeout time.Duration) bool {
+	h.tb.Helper()
+	if fn(h.captureOuter()) {
+		return true
+	}
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	for {
+		select {
+		case <-timer.C:
+			return fn(h.captureOuter())
+		case <-ticker.C:
+			if fn(h.captureOuter()) {
+				return true
+			}
+		}
+	}
 }
 
 // waitForActive polls JSON capture until the named pane is active or timeout.

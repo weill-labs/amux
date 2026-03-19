@@ -62,6 +62,13 @@ type Session struct {
 	clipboardCond    *sync.Cond
 	lastClipboardB64 string // last clipboard payload (base64), protected by clipboardMu
 
+	// Hook completion history — incremented on every hook result.
+	// Used by hook-gen and wait-hook to block until matching hook work finishes.
+	hookGen     atomic.Uint64
+	hookMu      sync.Mutex
+	hookCond    *sync.Cond
+	hookResults []hookResultRecord
+
 	// Hook system — session-level, not checkpointed.
 	Hooks *hooks.Registry
 	idle  *IdleTracker
@@ -289,6 +296,7 @@ func newSession(name string) *Session {
 	sess := &Session{Name: name}
 	sess.generationCond = sync.NewCond(&sess.generationMu)
 	sess.clipboardCond = sync.NewCond(&sess.clipboardMu)
+	sess.hookCond = sync.NewCond(&sess.hookMu)
 	sess.Hooks = hooks.NewRegistry()
 	sess.idle = NewIdleTracker()
 	sess.takenOverPanes = make(map[uint32]bool)
