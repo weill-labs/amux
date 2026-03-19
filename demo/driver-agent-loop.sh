@@ -47,6 +47,7 @@ EOF
     cat > "$SIMDIR/agent-loop.sh" <<'AGENTEOF'
 #!/bin/bash
 SESSION="$1"
+SIMDIR="$2"
 AMUX="amux"
 clear
 
@@ -57,7 +58,7 @@ sleep 1.5
 printf "\033[33m1.\033[0m Sending test command to pane-1...\n"
 sleep 0.8
 printf "   \033[2m$ amux send-keys pane-1 'make test' Enter\033[0m\n\n"
-$AMUX -s "$SESSION" send-keys pane-1 "bash /tmp/amux-agent-loop-$$/test-runner.sh" Enter >/dev/null
+$AMUX -s "$SESSION" send-keys pane-1 "bash ${SIMDIR}/test-runner.sh" Enter >/dev/null
 sleep 0.5
 
 # Step 2: Wait for busy
@@ -128,7 +129,7 @@ agent() {
     sleep 0.5
 
     # Launch agent script in agent pane
-    "$AMUX" -s "$session" send-keys agent "bash ${SIMDIR}/agent-loop.sh ${session}" Enter >/dev/null
+    "$AMUX" -s "$session" send-keys agent "bash ${SIMDIR}/agent-loop.sh ${session} ${SIMDIR}" Enter >/dev/null
 
     # Wait for agent script to finish
     sleep 20
@@ -139,6 +140,11 @@ agent() {
     fi
 }
 
+# Save our PID — exec will replace this process with amux, keeping the same PID
 echo $$ > "$PIDFILE"
+
+# Launch the agent in the background
 agent "$SESSION" "$PIDFILE" &
+
+# Replace this process with amux — TUI renders into the recorded PTY
 exec "$AMUX" -s "$SESSION"

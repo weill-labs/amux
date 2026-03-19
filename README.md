@@ -174,10 +174,10 @@ amux wait-idle "$PANE" --timeout 120s
 output=$(amux capture --format json "$PANE")
 
 # 5. Parse with jq and decide what to do next
-exit_line=$(echo "$output" | jq -r '.panes[0].content[-2]')
+exit_line=$(echo "$output" | jq -r '.content[-2]')
 if echo "$exit_line" | grep -q "FAIL"; then
   echo "Tests failed — reading output for diagnostics"
-  echo "$output" | jq -r '.panes[0].content[]'
+  echo "$output" | jq -r '.content[]'
 else
   echo "Tests passed"
 fi

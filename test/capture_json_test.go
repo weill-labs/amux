@@ -31,8 +31,8 @@ func TestCaptureJSON_FullScreen(t *testing.T) {
 		t.Fatalf("failed to parse JSON: %v\nraw output:\n%s", err, out)
 	}
 
-	if capture.APIVersion != "0.1" {
-		t.Errorf("api_version: got %q, want %q", capture.APIVersion, "0.1")
+	if capture.APIVersion != proto.AgentAPIVersion {
+		t.Errorf("api_version: got %q, want %q", capture.APIVersion, proto.AgentAPIVersion)
 	}
 	if capture.Session == "" {
 		t.Error("session should be non-empty")

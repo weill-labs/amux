@@ -191,8 +191,8 @@ func TestClientRendererCaptureJSON(t *testing.T) {
 		t.Fatalf("JSON parse: %v\nraw: %s", err, out)
 	}
 
-	if capture.APIVersion != "0.1" {
-		t.Errorf("api_version: got %q, want %q", capture.APIVersion, "0.1")
+	if capture.APIVersion != proto.AgentAPIVersion {
+		t.Errorf("api_version: got %q, want %q", capture.APIVersion, proto.AgentAPIVersion)
 	}
 	if capture.Session != "test" {
 		t.Errorf("session: got %q, want %q", capture.Session, "test")

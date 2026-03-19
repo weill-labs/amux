@@ -60,6 +60,10 @@ type PaneSnapshot struct {
 	EmuHeight int `json:"emu_height,omitempty"`
 }
 
+// AgentAPIVersion is the current agent API schema version.
+// Bump this when stable capture/event fields change.
+const AgentAPIVersion = "0.1"
+
 // CaptureJSON is the full-screen JSON capture output.
 type CaptureJSON struct {
 	APIVersion string        `json:"api_version"`

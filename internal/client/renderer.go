@@ -324,7 +324,7 @@ func (r *Renderer) CaptureJSON(agentStatus map[uint32]proto.PaneAgentStatus) str
 	root, _ := r.captureRootLocked()
 
 	capture := proto.CaptureJSON{
-		APIVersion: "0.1",
+		APIVersion: proto.AgentAPIVersion,
 		Session:    r.sessionName,
 		Width:      r.width,
 		Height:     r.height,
