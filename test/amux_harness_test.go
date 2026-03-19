@@ -165,6 +165,14 @@ func (h *AmuxHarness) waitLayoutOrTimeout(afterGen uint64, timeout string) bool 
 	return !strings.Contains(out, "timeout")
 }
 
+func (h *AmuxHarness) waitUI(event string, timeout time.Duration) {
+	h.tb.Helper()
+	out := h.runCmd("wait-ui", event, "--timeout", timeout.String())
+	if strings.Contains(out, "timeout") {
+		h.tb.Fatalf("wait-ui %s timed out\nouter:\n%s", event, h.captureOuter())
+	}
+}
+
 // waitForFunc polls the inner compositor capture until fn returns true or
 // timeout expires. Used for complex predicates that can't be expressed as
 // a simple substring match. Prefer waitLayout for layout changes.

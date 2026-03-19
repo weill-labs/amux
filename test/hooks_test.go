@@ -3,6 +3,7 @@ package test
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -11,7 +12,7 @@ import (
 	"github.com/weill-labs/amux/internal/server"
 )
 
-func waitForFileState(t *testing.T, path string, timeout time.Duration, ready func() (bool, string)) string {
+func waitForFile(t *testing.T, path string, timeout time.Duration) bool {
 	t.Helper()
 
 	watcher, err := fsnotify.NewWatcher()
@@ -24,14 +25,48 @@ func waitForFileState(t *testing.T, path string, timeout time.Duration, ready fu
 	if err := watcher.Add(dir); err != nil {
 		t.Fatalf("watch %s: %v", dir, err)
 	}
-
-	if ok, result := ready(); ok {
-		return result
+	if _, err := os.Stat(path); err == nil {
+		return true
 	}
 
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
+	for {
+		select {
+		case <-timer.C:
+			return false
+		case event := <-watcher.Events:
+			if filepath.Clean(event.Name) != filepath.Clean(path) {
+				continue
+			}
+			if _, err := os.Stat(path); err == nil {
+				return true
+			}
+		case err := <-watcher.Errors:
+			t.Logf("fsnotify error for %s: %v", path, err)
+		}
+	}
+}
 
+func waitForFileContent(t *testing.T, path string, timeout time.Duration) string {
+	t.Helper()
+
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		t.Fatalf("new watcher: %v", err)
+	}
+	defer watcher.Close()
+
+	dir := filepath.Dir(path)
+	if err := watcher.Add(dir); err != nil {
+		t.Fatalf("watch %s: %v", dir, err)
+	}
+	if data, err := os.ReadFile(path); err == nil && len(data) > 0 {
+		return string(data)
+	}
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
 	for {
 		select {
 		case <-timer.C:
@@ -40,8 +75,9 @@ func waitForFileState(t *testing.T, path string, timeout time.Duration, ready fu
 			if filepath.Clean(event.Name) != filepath.Clean(path) {
 				continue
 			}
-			if ok, result := ready(); ok {
-				return result
+			data, err := os.ReadFile(path)
+			if err == nil && len(data) > 0 {
+				return string(data)
 			}
 		case err := <-watcher.Errors:
 			t.Logf("fsnotify error for %s: %v", path, err)
@@ -49,27 +85,16 @@ func waitForFileState(t *testing.T, path string, timeout time.Duration, ready fu
 	}
 }
 
-// waitForFile waits until path exists or timeout expires.
-func waitForFile(t *testing.T, path string, timeout time.Duration) bool {
+func waitForHook(t *testing.T, h *ServerHarness, event, pane string, after uint64) {
 	t.Helper()
-	return waitForFileState(t, path, timeout, func() (bool, string) {
-		if _, err := os.Stat(path); err == nil {
-			return true, "exists"
-		}
-		return false, ""
-	}) != ""
-}
-
-// waitForFileContent waits until path exists with non-empty content or timeout expires.
-func waitForFileContent(t *testing.T, path string, timeout time.Duration) string {
-	t.Helper()
-	return waitForFileState(t, path, timeout, func() (bool, string) {
-		data, err := os.ReadFile(path)
-		if err == nil && len(data) > 0 {
-			return true, string(data)
-		}
-		return false, ""
-	})
+	args := []string{"wait-hook", event, "--after", strconv.FormatUint(after, 10), "--timeout", "5s"}
+	if pane != "" {
+		args = append(args, "--pane", pane)
+	}
+	out := h.runCmd(args...)
+	if strings.Contains(out, "timeout") {
+		t.Fatalf("wait-hook %s timed out: %s", event, out)
+	}
 }
 
 func TestSetHookAndListHooks(t *testing.T) {
@@ -154,6 +179,11 @@ func TestHookOnIdleFires(t *testing.T) {
 
 	tmp := t.TempDir()
 	marker := filepath.Join(tmp, "idle-fired")
+	after := strings.TrimSpace(h.runCmd("hook-gen"))
+	afterGen, err := strconv.ParseUint(after, 10, 64)
+	if err != nil {
+		t.Fatalf("parse hook-gen: %v (output %q)", err, after)
+	}
 
 	h.waitIdle("pane-1")
 	scanner, closer := eventStream(t, h.session, "--filter", "idle,busy", "--pane", "pane-1")
@@ -171,9 +201,9 @@ func TestHookOnIdleFires(t *testing.T) {
 	if ev := mustReadEvent(t, scanner, 10*time.Second); ev.Type != "idle" {
 		t.Fatalf("post-activity event: got %q, want idle", ev.Type)
 	}
-
-	if !waitForFile(t, marker, 2*time.Second) {
-		t.Fatal("on-idle hook did not fire within timeout")
+	waitForHook(t, h, "on-idle", "pane-1", afterGen)
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("on-idle hook marker missing after wait-hook: %v", err)
 	}
 }
 
@@ -183,6 +213,11 @@ func TestHookOnActivityFires(t *testing.T) {
 
 	tmp := t.TempDir()
 	marker := filepath.Join(tmp, "activity-fired")
+	after := strings.TrimSpace(h.runCmd("hook-gen"))
+	afterGen, err := strconv.ParseUint(after, 10, 64)
+	if err != nil {
+		t.Fatalf("parse hook-gen: %v (output %q)", err, after)
+	}
 
 	h.waitIdle("pane-1")
 	scanner, closer := eventStream(t, h.session, "--filter", "idle,busy", "--pane", "pane-1")
@@ -196,9 +231,9 @@ func TestHookOnActivityFires(t *testing.T) {
 	if ev := mustReadEvent(t, scanner, 5*time.Second); ev.Type != "busy" {
 		t.Fatalf("activity event: got %q, want busy", ev.Type)
 	}
-
-	if !waitForFile(t, marker, 5*time.Second) {
-		t.Fatal("on-activity hook did not fire within timeout")
+	waitForHook(t, h, "on-activity", "pane-1", afterGen)
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("on-activity hook marker missing after wait-hook: %v", err)
 	}
 }
 
@@ -208,16 +243,22 @@ func TestHookReceivesEnvVars(t *testing.T) {
 
 	tmp := t.TempDir()
 	envFile := filepath.Join(tmp, "hook-env")
+	after := strings.TrimSpace(h.runCmd("hook-gen"))
+	afterGen, err := strconv.ParseUint(after, 10, 64)
+	if err != nil {
+		t.Fatalf("parse hook-gen: %v (output %q)", err, after)
+	}
 
 	h.runCmd("set-hook", "on-idle", "env > "+envFile)
 
 	h.sendKeys("pane-1", "echo ENV_TEST", "Enter")
 	h.waitFor("pane-1", "ENV_TEST")
-
-	content := waitForFileContent(t, envFile, 5*time.Second)
-	if content == "" {
-		t.Fatal("hook env output not written within timeout")
+	waitForHook(t, h, "on-idle", "pane-1", afterGen)
+	data, err := os.ReadFile(envFile)
+	if err != nil || len(data) == 0 {
+		t.Fatalf("hook env output missing after wait-hook: %v", err)
 	}
+	content := string(data)
 	if !strings.Contains(content, "AMUX_PANE_ID=") {
 		t.Errorf("missing AMUX_PANE_ID in hook env")
 	}
@@ -232,14 +273,23 @@ func TestHookReceivesEnvVars(t *testing.T) {
 func TestHookFailingCommandLogsToSessionLog(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)
+	after := strings.TrimSpace(h.runCmd("hook-gen"))
+	afterGen, err := strconv.ParseUint(after, 10, 64)
+	if err != nil {
+		t.Fatalf("parse hook-gen: %v (output %q)", err, after)
+	}
 
 	h.runCmd("set-hook", "on-idle", "/nonexistent/binary/xyz")
 
 	h.sendKeys("pane-1", "echo FAIL_TEST", "Enter")
 	h.waitFor("pane-1", "FAIL_TEST")
-
+	waitForHook(t, h, "on-idle", "pane-1", afterGen)
 	logPath := filepath.Join(server.SocketDir(), h.session+".log")
-	content := waitForFileContent(t, logPath, 5*time.Second)
+	contentBytes, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("reading session log after wait-hook: %v", err)
+	}
+	content := string(contentBytes)
 	if !strings.Contains(content, "hook") || !strings.Contains(content, "failed") {
 		t.Fatalf("expected hook failure in session log, got:\n%s", content)
 	}

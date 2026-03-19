@@ -11,6 +11,7 @@ const (
 	EventOutput = "output"
 	EventIdle   = "idle"
 	EventBusy   = "busy"
+	EventHook   = "hook"
 )
 
 // Event is a single event in the NDJSON event stream.
@@ -23,6 +24,10 @@ type Event struct {
 	Host       string `json:"host,omitempty"`
 	ActivePane string `json:"active_pane,omitempty"`
 	ClientID   string `json:"client_id,omitempty"`
+	HookEvent  string `json:"hook_event,omitempty"`
+	Command    string `json:"command,omitempty"`
+	Success    bool   `json:"success,omitempty"`
+	Error      string `json:"error,omitempty"`
 }
 
 // eventSub is a subscriber to the event stream.

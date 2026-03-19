@@ -3,12 +3,24 @@ package server
 import (
 	"fmt"
 	"log"
+	"strconv"
 	"time"
 
 	"github.com/weill-labs/amux/internal/hooks"
 	"github.com/weill-labs/amux/internal/proto"
 	"github.com/weill-labs/amux/internal/render"
 )
+
+type hookResultRecord struct {
+	Generation uint64
+	Event      string
+	PaneID     uint32
+	PaneName   string
+	Host       string
+	Command    string
+	Success    bool
+	Error      string
+}
 
 // recalcSizeLocked resizes all windows to the maximum terminal dimensions
 // across connected clients ("largest client wins"). Smaller clients clip
@@ -146,6 +158,30 @@ func (s *Session) snapshotIdleFull() (map[uint32]bool, map[uint32]time.Time) {
 	return s.idle.SnapshotFull()
 }
 
+func (s *Session) fireHooks(event hooks.Event, env map[string]string) {
+	s.Hooks.FireWithCallback(event, env, func(result hooks.Result) {
+		paneID, _ := strconv.ParseUint(env["AMUX_PANE_ID"], 10, 32)
+		s.enqueueEvent(hookResultEvent{
+			record: hookResultRecord{
+				Event:    string(result.Event),
+				PaneID:   uint32(paneID),
+				PaneName: env["AMUX_PANE_NAME"],
+				Host:     env["AMUX_HOST"],
+				Command:  result.Command,
+				Success:  result.Err == nil,
+				Error:    errorString(result.Err),
+			},
+		})
+	})
+}
+
+func errorString(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
+}
+
 // snapshotLayoutLocked builds a LayoutSnapshot with multi-window data.
 // Caller must hold s.mu.
 func (s *Session) snapshotLayoutLocked(idleSnap map[uint32]bool) *proto.LayoutSnapshot {
@@ -216,7 +252,7 @@ func (s *Session) trackPaneActivity(paneID uint32) {
 
 	if wasIdle {
 		env := s.buildPaneEnv(paneID, hooks.OnActivity)
-		s.Hooks.Fire(hooks.OnActivity, env)
+		s.fireHooks(hooks.OnActivity, env)
 		s.emitEvent(Event{
 			Type:     EventBusy,
 			PaneID:   paneID,
@@ -311,5 +347,36 @@ func (s *Session) waitClipboard(afterGen uint64, timeout time.Duration) (string,
 			return "", false
 		}
 		s.clipboardCond.Wait()
+	}
+}
+
+func (s *Session) waitHook(afterGen uint64, eventName, paneName string, timeout time.Duration) (hookResultRecord, bool) {
+	deadline := time.Now().Add(timeout)
+	timer := time.AfterFunc(timeout, func() {
+		s.hookMu.Lock()
+		s.hookCond.Broadcast()
+		s.hookMu.Unlock()
+	})
+	defer timer.Stop()
+
+	s.hookMu.Lock()
+	defer s.hookMu.Unlock()
+	for {
+		for _, record := range s.hookResults {
+			if record.Generation <= afterGen {
+				continue
+			}
+			if eventName != "" && record.Event != eventName {
+				continue
+			}
+			if paneName != "" && record.PaneName != paneName {
+				continue
+			}
+			return record, true
+		}
+		if time.Now().After(deadline) {
+			return hookResultRecord{}, false
+		}
+		s.hookCond.Wait()
 	}
 }

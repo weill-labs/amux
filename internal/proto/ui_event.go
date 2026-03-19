@@ -8,6 +8,10 @@ const (
 	UIEventChooseTreeHidden   = "choose-tree-hidden"
 	UIEventChooseWindowShown  = "choose-window-shown"
 	UIEventChooseWindowHidden = "choose-window-hidden"
+	UIEventCopyModeShown      = "copy-mode-shown"
+	UIEventCopyModeHidden     = "copy-mode-hidden"
+	UIEventInputBusy          = "input-busy"
+	UIEventInputIdle          = "input-idle"
 )
 
 // IsKnownUIEvent reports whether name is a supported client UI event.
@@ -15,7 +19,9 @@ func IsKnownUIEvent(name string) bool {
 	switch name {
 	case UIEventDisplayPanesShown, UIEventDisplayPanesHidden,
 		UIEventChooseTreeShown, UIEventChooseTreeHidden,
-		UIEventChooseWindowShown, UIEventChooseWindowHidden:
+		UIEventChooseWindowShown, UIEventChooseWindowHidden,
+		UIEventCopyModeShown, UIEventCopyModeHidden,
+		UIEventInputBusy, UIEventInputIdle:
 		return true
 	default:
 		return false

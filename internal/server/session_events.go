@@ -145,7 +145,7 @@ type idleTimeoutEvent struct {
 func (e idleTimeoutEvent) handle(s *Session) {
 	s.idle.MarkIdle(e.paneID)
 	env := s.buildPaneEnv(e.paneID, hooks.OnIdle)
-	s.Hooks.Fire(hooks.OnIdle, env)
+	s.fireHooks(hooks.OnIdle, env)
 	s.emitEvent(Event{
 		Type:     EventIdle,
 		PaneID:   e.paneID,
@@ -198,6 +198,33 @@ func (e remoteStateChangeEvent) handle(s *Session) {
 	}
 	s.mu.Unlock()
 	s.broadcastLayout()
+}
+
+type hookResultEvent struct {
+	record hookResultRecord
+}
+
+func (e hookResultEvent) handle(s *Session) {
+	s.hookMu.Lock()
+	e.record.Generation = s.hookGen.Add(1)
+	s.hookResults = append(s.hookResults, e.record)
+	if len(s.hookResults) > 128 {
+		s.hookResults = append([]hookResultRecord(nil), s.hookResults[len(s.hookResults)-128:]...)
+	}
+	s.hookCond.Broadcast()
+	s.hookMu.Unlock()
+
+	s.emitEvent(Event{
+		Type:       EventHook,
+		Generation: e.record.Generation,
+		PaneID:     e.record.PaneID,
+		PaneName:   e.record.PaneName,
+		Host:       e.record.Host,
+		HookEvent:  e.record.Event,
+		Command:    e.record.Command,
+		Success:    e.record.Success,
+		Error:      e.record.Error,
+	})
 }
 
 func (s *Session) startEventLoop() {

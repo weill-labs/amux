@@ -17,6 +17,8 @@ type ClientConn struct {
 	ID                string
 	displayPanesShown bool
 	chooserMode       string
+	copyModeShown     bool
+	inputIdle         bool
 	mu                sync.Mutex
 	closed            bool
 	cols              int // last reported terminal width
@@ -25,7 +27,7 @@ type ClientConn struct {
 
 // NewClientConn wraps a net.Conn for protocol communication.
 func NewClientConn(conn net.Conn) *ClientConn {
-	return &ClientConn{conn: conn}
+	return &ClientConn{conn: conn, inputIdle: true}
 }
 
 // Send writes a message to the client. Thread-safe.
