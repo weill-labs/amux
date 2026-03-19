@@ -106,11 +106,11 @@ func TestPaneOutputCallbackEnqueuesOutputNotifications(t *testing.T) {
 	}, 80, 23, nil, nil, func(data []byte) (int, error) { return len(data), nil })
 	sess.Panes = []*mux.Pane{pane}
 
-	sub := sess.events.Subscribe(eventFilter{Types: []string{EventOutput}})
-	defer sess.events.Unsubscribe(sub)
+	res := sess.enqueueEventSubscribe(eventFilter{Types: []string{EventOutput}}, false)
+	defer sess.enqueueEventUnsubscribe(res.sub)
 
-	waitCh := sess.subscribePaneOutput(pane.ID)
-	defer sess.unsubscribePaneOutput(pane.ID, waitCh)
+	waitCh := sess.enqueuePaneOutputSubscribe(pane.ID)
+	defer sess.enqueuePaneOutputUnsubscribe(pane.ID, waitCh)
 
 	sess.paneOutputCallback()(pane.ID, []byte("hello"))
 
@@ -121,7 +121,7 @@ func TestPaneOutputCallbackEnqueuesOutputNotifications(t *testing.T) {
 	}
 
 	select {
-	case data := <-sub.ch:
+	case data := <-res.sub.ch:
 		var ev Event
 		if err := json.Unmarshal(data, &ev); err != nil {
 			t.Fatalf("json.Unmarshal: %v", err)

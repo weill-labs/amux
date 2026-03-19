@@ -81,6 +81,7 @@ func (m *Manager) DeployToAddress(hostName, sshAddr, sshUser string) {
 	}
 
 	hc := NewHostConn("deploy-tmp", hostCfg, m.buildHash, nil, nil, nil)
+	defer hc.Close()
 	if !hc.shouldDeploy() {
 		return
 	}
@@ -312,7 +313,7 @@ func (m *Manager) ConnStatusForPane(localPaneID uint32) string {
 	return string(hc.State())
 }
 
-// Shutdown disconnects all remote hosts.
+// Shutdown disconnects all remote hosts and stops their event loops.
 func (m *Manager) Shutdown() {
 	m.mu.Lock()
 	hosts := make([]*HostConn, 0, len(m.hosts))
@@ -322,6 +323,6 @@ func (m *Manager) Shutdown() {
 	m.mu.Unlock()
 
 	for _, hc := range hosts {
-		hc.Disconnect()
+		hc.Close()
 	}
 }

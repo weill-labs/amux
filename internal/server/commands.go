@@ -2,7 +2,6 @@ package server
 
 import (
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -929,8 +928,12 @@ func cmdWaitFor(ctx *CommandContext) {
 		return
 	}
 
-	ch := ctx.Sess.subscribePaneOutput(paneID)
-	defer ctx.Sess.unsubscribePaneOutput(paneID, ch)
+	ch := ctx.Sess.enqueuePaneOutputSubscribe(paneID)
+	if ch == nil {
+		ctx.replyErr("session shutting down")
+		return
+	}
+	defer ctx.Sess.enqueuePaneOutputUnsubscribe(paneID, ch)
 
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
@@ -970,8 +973,12 @@ func cmdWaitIdle(ctx *CommandContext) {
 	paneName := pane.Meta.Name
 	ctx.Sess.mu.Unlock()
 
-	sub := ctx.Sess.events.Subscribe(eventFilter{Types: []string{EventIdle}, PaneName: paneName})
-	defer ctx.Sess.events.Unsubscribe(sub)
+	res := ctx.Sess.enqueueEventSubscribe(eventFilter{Types: []string{EventIdle}, PaneName: paneName}, false)
+	if res.sub == nil {
+		ctx.replyErr("session shutting down")
+		return
+	}
+	defer ctx.Sess.enqueueEventUnsubscribe(res.sub)
 
 	if ctx.Sess.idle.IsIdle(paneID) {
 		ctx.reply("idle\n")
@@ -981,7 +988,7 @@ func cmdWaitIdle(ctx *CommandContext) {
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
 	select {
-	case <-sub.ch:
+	case <-res.sub.ch:
 		ctx.reply("idle\n")
 	case <-timer.C:
 		ctx.replyErr(fmt.Sprintf("timeout waiting for %s to become idle", paneRef))
@@ -1010,8 +1017,12 @@ func cmdWaitBusy(ctx *CommandContext) {
 	paneName := pane.Meta.Name
 	ctx.Sess.mu.Unlock()
 
-	sub := ctx.Sess.events.Subscribe(eventFilter{Types: []string{EventBusy}, PaneName: paneName})
-	defer ctx.Sess.events.Unsubscribe(sub)
+	res := ctx.Sess.enqueueEventSubscribe(eventFilter{Types: []string{EventBusy}, PaneName: paneName}, false)
+	if res.sub == nil {
+		ctx.replyErr("session shutting down")
+		return
+	}
+	defer ctx.Sess.enqueueEventUnsubscribe(res.sub)
 
 	if !ctx.Sess.idle.IsIdle(paneID) {
 		ctx.reply("busy\n")
@@ -1021,7 +1032,7 @@ func cmdWaitBusy(ctx *CommandContext) {
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
 	select {
-	case <-sub.ch:
+	case <-res.sub.ch:
 		ctx.reply("busy\n")
 	case <-timer.C:
 		ctx.replyErr(fmt.Sprintf("timeout waiting for %s to become busy", paneRef))
@@ -1089,8 +1100,12 @@ func cmdWaitUI(ctx *CommandContext) {
 	currentMatch := cc.matchesUIEvent(eventName)
 	ctx.Sess.mu.Unlock()
 
-	sub := ctx.Sess.events.Subscribe(eventFilter{Types: []string{eventName}, ClientID: clientID})
-	defer ctx.Sess.events.Unsubscribe(sub)
+	res := ctx.Sess.enqueueEventSubscribe(eventFilter{Types: []string{eventName}, ClientID: clientID}, false)
+	if res.sub == nil {
+		ctx.replyErr("session shutting down")
+		return
+	}
+	defer ctx.Sess.enqueueEventUnsubscribe(res.sub)
 
 	if currentMatch {
 		ctx.reply(eventName + "\n")
@@ -1100,7 +1115,7 @@ func cmdWaitUI(ctx *CommandContext) {
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
 	select {
-	case <-sub.ch:
+	case <-res.sub.ch:
 		ctx.reply(eventName + "\n")
 	case <-timer.C:
 		ctx.replyErr(fmt.Sprintf("timeout waiting for %s on %s", eventName, clientID))
@@ -1169,20 +1184,21 @@ func cmdListHooks(ctx *CommandContext) {
 
 func cmdEvents(ctx *CommandContext) {
 	f := parseEventsArgs(ctx.Args)
-	sub := ctx.Sess.events.Subscribe(f)
-	defer ctx.Sess.events.Unsubscribe(sub)
+	res := ctx.Sess.enqueueEventSubscribe(f, true)
+	if res.sub == nil {
+		ctx.replyErr("session shutting down")
+		return
+	}
+	defer ctx.Sess.enqueueEventUnsubscribe(res.sub)
 
-	for _, ev := range ctx.Sess.currentStateEvents() {
-		if !f.matches(ev) {
-			continue
-		}
-		data, _ := json.Marshal(ev)
+	// Send initial state computed atomically at subscribe time.
+	for _, data := range res.initialState {
 		if err := ctx.CC.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: string(data) + "\n"}); err != nil {
 			return
 		}
 	}
 
-	for data := range sub.ch {
+	for data := range res.sub.ch {
 		if err := ctx.CC.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: string(data) + "\n"}); err != nil {
 			return
 		}

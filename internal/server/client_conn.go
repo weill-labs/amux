@@ -93,17 +93,7 @@ func (cc *ClientConn) readLoop(srv *Server, sess *Session) {
 		case MsgTypeCaptureResponse:
 			sess.routeCaptureResponse(msg)
 		case MsgTypeUIEvent:
-			sess.mu.Lock()
-			changed, err := cc.applyUIEvent(msg.UIEvent)
-			clientID := cc.ID
-			sess.mu.Unlock()
-			if err != nil {
-				cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: err.Error()})
-				continue
-			}
-			if changed {
-				sess.events.Emit(Event{Type: msg.UIEvent, ClientID: clientID})
-			}
+			sess.enqueueUIEvent(cc, msg.UIEvent)
 		}
 	}
 }

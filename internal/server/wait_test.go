@@ -74,12 +74,16 @@ func TestWaitGeneration_Timeout(t *testing.T) {
 
 func TestNotifyPaneOutputSubs(t *testing.T) {
 	t.Parallel()
-	sess := &Session{}
+	sess := newSession("test-pane-output-subs")
+	stopCrashCheckpointLoop(t, sess)
 
-	ch := sess.subscribePaneOutput(1)
+	ch := sess.enqueuePaneOutputSubscribe(1)
 
-	// Notification should be received.
-	sess.notifyPaneOutputSubs(1)
+	// Notification should be received (routed through event loop).
+	sess.enqueueCommandMutation(func(s *Session) commandMutationResult {
+		s.notifyPaneOutputSubs(1)
+		return commandMutationResult{}
+	})
 	select {
 	case <-ch:
 		// ok
@@ -88,7 +92,10 @@ func TestNotifyPaneOutputSubs(t *testing.T) {
 	}
 
 	// Notification for a different pane should NOT be received.
-	sess.notifyPaneOutputSubs(2)
+	sess.enqueueCommandMutation(func(s *Session) commandMutationResult {
+		s.notifyPaneOutputSubs(2)
+		return commandMutationResult{}
+	})
 	select {
 	case <-ch:
 		t.Fatal("should not receive notification for different pane")
@@ -96,10 +103,17 @@ func TestNotifyPaneOutputSubs(t *testing.T) {
 		// ok
 	}
 
-	sess.unsubscribePaneOutput(1, ch)
+	// Unsubscribe, then synchronize via a no-op mutation to ensure it's processed.
+	sess.enqueuePaneOutputUnsubscribe(1, ch)
+	sess.enqueueCommandMutation(func(s *Session) commandMutationResult {
+		return commandMutationResult{}
+	})
 
 	// After unsubscribe, notification should NOT be received.
-	sess.notifyPaneOutputSubs(1)
+	sess.enqueueCommandMutation(func(s *Session) commandMutationResult {
+		s.notifyPaneOutputSubs(1)
+		return commandMutationResult{}
+	})
 	select {
 	case <-ch:
 		t.Fatal("should not receive notification after unsubscribe")

@@ -11,47 +11,35 @@ const (
 	backoffFactor  = 2.0
 )
 
-// startReconnectLoop begins an exponential backoff reconnection loop.
-// It runs in a goroutine and attempts to reconnect until successful or
-// the host is explicitly disconnected.
-func (hc *HostConn) startReconnectLoop() {
-	hc.mu.Lock()
-	if hc.state != Disconnected && hc.state != Reconnecting {
-		hc.mu.Unlock()
-		return
-	}
-	hc.setState(Reconnecting)
-	sessionName := hc.sessionName
-	remoteUID := hc.remoteUID
-	isTakeover := hc.takeoverMode
-	sshAddr := normalizeAddr(hc.config.Address)
-	hc.mu.Unlock()
-
+// reconnectLoop runs in a goroutine spawned by readDisconnectEvent.
+// It attempts to reconnect with exponential backoff, posting the result
+// to the actor on success. Exits when the actor state changes away from
+// Reconnecting (e.g., explicit Disconnect).
+func (hc *HostConn) reconnectLoop(sessionName, remoteUID string, isTakeover bool, sshAddr string) {
 	delay := initialBackoff
 	for attempt := 0; ; attempt++ {
 		time.Sleep(delay)
 
-		hc.mu.Lock()
-		// Stop if we were explicitly disconnected or already reconnected
-		if hc.state == Connected || hc.state == Disconnected {
-			hc.mu.Unlock()
+		// Check if still reconnecting (explicit disconnect sets Disconnected).
+		if hc.State() != Reconnecting {
 			return
 		}
-		hc.mu.Unlock()
 
+		var outcome *connectOutcome
 		var err error
 		if isTakeover {
-			err = hc.connectTakeover(sessionName, remoteUID, sshAddr)
+			outcome, err = hc.doConnectTakeover(sessionName, remoteUID, sshAddr)
 		} else {
-			err = hc.connect(sessionName)
+			outcome, err = hc.doConnect(sessionName)
 		}
-		if err == nil {
-			hc.mu.Lock()
-			hc.setState(Connected)
-			hc.mu.Unlock()
 
-			// Restart the read loop for pane output
-			go hc.readLoop()
+		if err == nil {
+			done := make(chan struct{})
+			if hc.enqueue(reconnectDoneEvent{outcome: outcome, done: done}) {
+				<-done
+			} else {
+				outcome.closeConns()
+			}
 			return
 		}
 

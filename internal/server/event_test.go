@@ -149,13 +149,17 @@ func TestEmitEventDelivery(t *testing.T) {
 	sess := newSession("test-emit")
 	stopCrashCheckpointLoop(t, sess)
 
-	sub := sess.events.Subscribe(eventFilter{})
-	defer sess.events.Unsubscribe(sub)
+	res := sess.enqueueEventSubscribe(eventFilter{}, false)
+	defer sess.enqueueEventUnsubscribe(res.sub)
 
-	sess.events.Emit(Event{Type: EventLayout, Generation: 1})
+	// Emit from within the event loop (emitEvent is event-loop-only).
+	sess.enqueueCommandMutation(func(s *Session) commandMutationResult {
+		s.emitEvent(Event{Type: EventLayout, Generation: 1})
+		return commandMutationResult{}
+	})
 
 	select {
-	case data := <-sub.ch:
+	case data := <-res.sub.ch:
 		var ev Event
 		if err := json.Unmarshal(data, &ev); err != nil {
 			t.Fatalf("unmarshal: %v", err)
@@ -176,14 +180,17 @@ func TestEmitEventFiltered(t *testing.T) {
 	sess := newSession("test-filter")
 	stopCrashCheckpointLoop(t, sess)
 
-	sub := sess.events.Subscribe(eventFilter{Types: []string{EventIdle}})
-	defer sess.events.Unsubscribe(sub)
+	res := sess.enqueueEventSubscribe(eventFilter{Types: []string{EventIdle}}, false)
+	defer sess.enqueueEventUnsubscribe(res.sub)
 
-	sess.events.Emit(Event{Type: EventLayout, Generation: 1})
-	sess.events.Emit(Event{Type: EventIdle, PaneID: 1, PaneName: "pane-1"})
+	sess.enqueueCommandMutation(func(s *Session) commandMutationResult {
+		s.emitEvent(Event{Type: EventLayout, Generation: 1})
+		s.emitEvent(Event{Type: EventIdle, PaneID: 1, PaneName: "pane-1"})
+		return commandMutationResult{}
+	})
 
 	select {
-	case data := <-sub.ch:
+	case data := <-res.sub.ch:
 		var ev Event
 		json.Unmarshal(data, &ev)
 		if ev.Type != EventIdle {
@@ -195,7 +202,7 @@ func TestEmitEventFiltered(t *testing.T) {
 
 	// Verify no extra events
 	select {
-	case data := <-sub.ch:
+	case data := <-res.sub.ch:
 		t.Errorf("unexpected event: %s", string(data))
 	case <-time.After(50 * time.Millisecond):
 		// good — no extra events
@@ -207,17 +214,23 @@ func TestEmitEventDropsWhenFull(t *testing.T) {
 	sess := newSession("test-drop")
 	stopCrashCheckpointLoop(t, sess)
 
-	sub := sess.events.Subscribe(eventFilter{})
+	res := sess.enqueueEventSubscribe(eventFilter{}, false)
 
-	// Fill the channel
-	for i := 0; i < 64; i++ {
-		sess.events.Emit(Event{Type: EventOutput, PaneID: 1})
-	}
+	// Fill the channel from within the event loop.
+	sess.enqueueCommandMutation(func(s *Session) commandMutationResult {
+		for i := 0; i < 64; i++ {
+			s.emitEvent(Event{Type: EventOutput, PaneID: 1})
+		}
+		return commandMutationResult{}
+	})
 
-	// This should not block — event is dropped
+	// This should not block — event is dropped.
 	done := make(chan struct{})
 	go func() {
-		sess.events.Emit(Event{Type: EventOutput, PaneID: 1})
+		sess.enqueueCommandMutation(func(s *Session) commandMutationResult {
+			s.emitEvent(Event{Type: EventOutput, PaneID: 1})
+			return commandMutationResult{}
+		})
 		close(done)
 	}()
 
@@ -228,7 +241,7 @@ func TestEmitEventDropsWhenFull(t *testing.T) {
 		t.Fatal("emitEvent blocked on full channel")
 	}
 
-	sess.events.Unsubscribe(sub)
+	sess.enqueueEventUnsubscribe(res.sub)
 }
 
 func TestEmitEventAfterRemove(t *testing.T) {
@@ -236,12 +249,16 @@ func TestEmitEventAfterRemove(t *testing.T) {
 	sess := newSession("test-remove-race")
 	stopCrashCheckpointLoop(t, sess)
 
-	sub := sess.events.Subscribe(eventFilter{})
-	sess.events.Unsubscribe(sub)
+	res := sess.enqueueEventSubscribe(eventFilter{}, false)
+	sess.enqueueEventUnsubscribe(res.sub)
 
-	// emitEvent after removeEventSub must not panic (send on closed channel).
-	// The trySend recover guard handles this race.
-	sess.events.Emit(Event{Type: EventLayout, Generation: 1})
+	// Emit after unsubscribe: the event loop processes both sequentially,
+	// so by the time emitEvent runs the sub is already removed from the
+	// slice. No panic, no stale delivery.
+	sess.enqueueCommandMutation(func(s *Session) commandMutationResult {
+		s.emitEvent(Event{Type: EventLayout, Generation: 1})
+		return commandMutationResult{}
+	})
 }
 
 func TestParseEventsArgs(t *testing.T) {
