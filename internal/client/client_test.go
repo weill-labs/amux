@@ -107,6 +107,13 @@ func TestClientRendererCaptureJSON(t *testing.T) {
 	t.Parallel()
 	cr := buildTestRenderer(t)
 
+	cr.renderer.mu.Lock()
+	info := cr.renderer.paneInfo[2]
+	info.Host = "test-remote"
+	info.ConnStatus = "connected"
+	cr.renderer.paneInfo[2] = info
+	cr.renderer.mu.Unlock()
+
 	out := cr.CaptureJSON(nil)
 	var capture proto.CaptureJSON
 	if err := json.Unmarshal([]byte(out), &capture); err != nil {
@@ -121,6 +128,18 @@ func TestClientRendererCaptureJSON(t *testing.T) {
 	}
 	if len(capture.Panes) != 2 {
 		t.Fatalf("panes: got %d, want 2", len(capture.Panes))
+	}
+	foundRemote := false
+	for _, p := range capture.Panes {
+		if p.Name == "pane-2" {
+			foundRemote = true
+			if p.ConnStatus != "connected" {
+				t.Fatalf("pane-2 conn_status = %q, want connected", p.ConnStatus)
+			}
+		}
+	}
+	if !foundRemote {
+		t.Fatal("pane-2 missing from capture")
 	}
 
 	// With agent status

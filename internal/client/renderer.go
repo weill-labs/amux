@@ -472,14 +472,15 @@ func (r *Renderer) buildCapturePaneLocked(paneID uint32, agentStatus map[uint32]
 	}
 	col, row := emu.CursorPosition()
 	cp := proto.CapturePane{
-		ID:        info.ID,
-		Name:      info.Name,
-		Active:    info.ID == r.activePaneID,
-		Minimized: info.Minimized,
-		Zoomed:    info.ID == r.zoomedPaneID,
-		Host:      info.Host,
-		Task:      info.Task,
-		Color:     info.Color,
+		ID:         info.ID,
+		Name:       info.Name,
+		Active:     info.ID == r.activePaneID,
+		Minimized:  info.Minimized,
+		Zoomed:     info.ID == r.zoomedPaneID,
+		Host:       info.Host,
+		Task:       info.Task,
+		Color:      info.Color,
+		ConnStatus: info.ConnStatus,
 		Cursor: proto.CaptureCursor{
 			Col:    col,
 			Row:    row,
