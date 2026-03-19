@@ -1433,7 +1433,7 @@ func cmdInjectProxy(ctx *CommandContext) {
 		}
 		proxyPane := mux.NewProxyPane(id, meta, w.Width/2, mux.PaneContentHeight(w.Height),
 			sess.paneOutputCallback(),
-			sess.paneExitCallback(ctx.Srv),
+			sess.paneExitCallback(),
 			func(data []byte) (int, error) { return len(data), nil },
 		)
 		sess.Panes = append(sess.Panes, proxyPane)

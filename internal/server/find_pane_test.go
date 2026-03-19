@@ -105,7 +105,7 @@ func TestKillOrphanedPaneViaFallback(t *testing.T) {
 		Name: "orphan-pane", Host: "remote", Color: "f5e0dc",
 	}, 80, 23,
 		sess.paneOutputCallback(),
-		sess.paneExitCallback(srv),
+		sess.paneExitCallback(),
 		func(data []byte) (int, error) { return len(data), nil },
 	)
 	sess.mu.Lock()

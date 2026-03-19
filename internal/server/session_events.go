@@ -27,7 +27,7 @@ type commandMutationResult struct {
 	startPanes      []*mux.Pane
 	closePanes      []*mux.Pane
 	sendExit        bool
-	shutdownServer  bool
+	shutdownServer  bool // handled by caller goroutine, not event loop
 }
 
 type paneRender struct {
@@ -96,7 +96,6 @@ func (e paneOutputEvent) handle(s *Session) {
 }
 
 type paneExitEvent struct {
-	srv    *Server
 	paneID uint32
 }
 
@@ -112,7 +111,7 @@ func (e paneExitEvent) handle(s *Session) {
 	if len(s.Panes) <= 1 {
 		s.mu.Unlock()
 		s.broadcast(&Message{Type: MsgTypeExit})
-		go e.srv.Shutdown()
+		s.wantShutdown = true
 		return
 	}
 	s.removePane(e.paneID)
@@ -218,6 +217,12 @@ func (s *Session) eventLoop() {
 			if ev != nil {
 				ev.handle(s)
 			}
+			if s.wantShutdown {
+				// Trigger shutdown asynchronously — Shutdown() waits
+				// on sessionEventDone, so we must return first.
+				go s.exitServer.Shutdown()
+				return
+			}
 		}
 	}
 }
@@ -268,7 +273,14 @@ func (s *Session) enqueueCommandMutation(fn func(*Session) commandMutationResult
 	case res := <-reply:
 		return res
 	case <-s.sessionEventDone:
-		return commandMutationResult{err: errSessionShuttingDown}
+		// The event loop exited (e.g., wantShutdown after our handler).
+		// The reply may already be buffered — prefer it over the error.
+		select {
+		case res := <-reply:
+			return res
+		default:
+			return commandMutationResult{err: errSessionShuttingDown}
+		}
 	}
 }
 
@@ -284,8 +296,8 @@ func (s *Session) enqueuePaneOutput(paneID uint32, data []byte) {
 	s.enqueueEvent(paneOutputEvent{paneID: paneID, data: data})
 }
 
-func (s *Session) enqueuePaneExit(srv *Server, paneID uint32) {
-	s.enqueueEvent(paneExitEvent{srv: srv, paneID: paneID})
+func (s *Session) enqueuePaneExit(paneID uint32) {
+	s.enqueueEvent(paneExitEvent{paneID: paneID})
 }
 
 func (s *Session) enqueueClipboard(paneID uint32, data []byte) {

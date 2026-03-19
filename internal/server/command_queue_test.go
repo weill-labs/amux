@@ -385,7 +385,7 @@ func TestQueuedCommandInjectProxyAndUnsplice(t *testing.T) {
 func TestQueuedPreparedRemotePaneInsert(t *testing.T) {
 	t.Parallel()
 
-	srv, sess, cleanup := newCommandTestSession(t)
+	_, sess, cleanup := newCommandTestSession(t)
 	defer cleanup()
 
 	p1 := newTestPane(sess, 1, "pane-1")
@@ -400,7 +400,7 @@ func TestQueuedPreparedRemotePaneInsert(t *testing.T) {
 		Name:  "pane-2",
 		Host:  "gpu-server",
 		Color: config.CatppuccinMocha[1],
-	}, 80, 23, sess.paneOutputCallback(), sess.paneExitCallback(srv), func(data []byte) (int, error) {
+	}, 80, 23, sess.paneOutputCallback(), sess.paneExitCallback(), func(data []byte) (int, error) {
 		return len(data), nil
 	})
 
@@ -461,7 +461,7 @@ func newTestPane(sess *Session, id uint32, name string) *mux.Pane {
 		Name:  name,
 		Host:  mux.DefaultHost,
 		Color: config.CatppuccinMocha[(id-1)%uint32(len(config.CatppuccinMocha))],
-	}, 80, 23, sess.paneOutputCallback(), sess.paneExitCallback(&Server{}), func(data []byte) (int, error) {
+	}, 80, 23, sess.paneOutputCallback(), sess.paneExitCallback(), func(data []byte) (int, error) {
 		return len(data), nil
 	})
 }

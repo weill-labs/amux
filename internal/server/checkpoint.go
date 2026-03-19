@@ -114,12 +114,10 @@ func (s *Server) Reload(execPath string) error {
 	}
 
 	// Replace process image with new binary.
-	// Re-export AMUX_EXIT_UNATTACHED if set (unsetenv'd at startup to
-	// prevent child shells from inheriting it, but must survive exec).
+	// Re-export server-only env vars (unsetenv'd at startup to prevent
+	// child shells from inheriting them, but must survive exec).
 	env := append(os.Environ(), "AMUX_CHECKPOINT="+cpPath)
-	if ExitUnattached {
-		env = append(env, "AMUX_EXIT_UNATTACHED=1")
-	}
+	env = append(env, s.Env.Export()...)
 	execErr := syscall.Exec(execPath, os.Args, env)
 
 	// If we get here, the exec call failed — undo changes
@@ -159,7 +157,7 @@ func NewServerFromCheckpoint(cp *checkpoint.ServerCheckpoint) (*Server, error) {
 		var pane *mux.Pane
 
 		onOutput := sess.paneOutputCallback()
-		onExit := sess.paneExitCallback(s)
+		onExit := sess.paneExitCallback()
 
 		if pc.IsProxy {
 			// Restore proxy pane with frozen content, mark as reconnecting.

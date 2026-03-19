@@ -101,6 +101,12 @@ type Session struct {
 	// at least one has connected. Used by test harness to avoid orphans.
 	hadClient  bool    // true after first interactive client attaches
 	exitServer *Server // back-reference to trigger shutdown
+
+	// wantShutdown is set by event handlers that want the server to exit
+	// (last client disconnected, last pane exited). The event loop checks
+	// this after each event and triggers shutdown asynchronously — never
+	// from inside the handler, which would deadlock.
+	wantShutdown bool
 }
 
 // buildCrashCheckpoint builds a crash checkpoint from the current session state.
@@ -238,28 +244,21 @@ func (s *Session) removeClient(cc *ClientConn) {
 			break
 		}
 	}
-	shouldExit := ExitUnattached && s.hadClient && len(s.clients) == 0 && !s.shutdown.Load()
+	shouldExit := s.exitServer != nil && s.exitServer.Env.ExitUnattached && s.hadClient && len(s.clients) == 0 && !s.shutdown.Load()
 	s.recalcSizeLocked()
 	s.mu.Unlock()
-	s.broadcastLayout()
 	if shouldExit {
-		// Async: removeClient may run inside the session event loop;
-		// calling Shutdown synchronously would deadlock because
-		// Shutdown waits for the event loop to finish.
-		go s.exitServer.Shutdown()
+		s.wantShutdown = true
 	}
+	s.broadcastLayout()
 }
-
-// ExitUnattached makes the server exit after all interactive clients disconnect
-// (provided at least one client connected first). Opt-in via AMUX_EXIT_UNATTACHED=1.
-// Used by test harnesses to prevent orphaned server processes.
-var ExitUnattached bool
 
 // BuildVersion is set by main at startup for version reporting in status.
 var BuildVersion string
 
 // Server listens on a Unix socket and manages sessions.
 type Server struct {
+	Env      ServerEnv
 	listener net.Listener
 	sessions map[string]*Session
 	sockPath string
@@ -373,7 +372,7 @@ func NewServerFromCrashCheckpoint(sessionName string, cp *checkpoint.CrashCheckp
 		var pane *mux.Pane
 
 		onOutput := sess.paneOutputCallback()
-		onExit := sess.paneExitCallback(s)
+		onExit := sess.paneExitCallback()
 
 		if ps.IsProxy {
 			// Restore proxy pane with frozen content, mark as reconnecting.
