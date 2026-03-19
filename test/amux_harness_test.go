@@ -2,7 +2,6 @@ package test
 
 import (
 	"crypto/rand"
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -59,21 +58,45 @@ func newAmuxHarness(tb testing.TB) *AmuxHarness {
 func (h *AmuxHarness) cleanup() {
 	// Detach inner client for graceful coverage flush.
 	h.sendKeys("C-a", "d")
-	time.Sleep(200 * time.Millisecond)
 
 	// SIGTERM inner server.
-	out, _ := exec.Command("pgrep", "-f", fmt.Sprintf("amux _server %s$", h.inner)).Output()
-	for _, pid := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+	for _, pid := range h.innerServerPIDs() {
 		if pid != "" {
 			exec.Command("kill", pid).Run()
 		}
 	}
-	time.Sleep(200 * time.Millisecond)
+	h.waitInnerServerGone(3 * time.Second)
 
 	// Clean up inner socket and log.
 	socketDir := server.SocketDir()
 	for _, suffix := range []string{"", ".log"} {
 		exec.Command("rm", "-f", fmt.Sprintf("%s/%s%s", socketDir, h.inner, suffix)).Run()
+	}
+}
+
+func (h *AmuxHarness) innerServerPIDs() []string {
+	out, _ := exec.Command("pgrep", "-f", fmt.Sprintf("amux _server %s$", h.inner)).Output()
+	var pids []string
+	for _, pid := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if pid != "" {
+			pids = append(pids, pid)
+		}
+	}
+	return pids
+}
+
+func (h *AmuxHarness) waitInnerServerGone(timeout time.Duration) {
+	deadline := time.Now().Add(timeout)
+	socketPath := server.SocketPath(h.inner)
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	for time.Now().Before(deadline) {
+		if len(h.innerServerPIDs()) == 0 {
+			if _, err := os.Stat(socketPath); os.IsNotExist(err) {
+				return
+			}
+		}
+		<-ticker.C
 	}
 }
 
@@ -126,17 +149,31 @@ func (h *AmuxHarness) waitLayoutTimeout(afterGen uint64, timeout string) {
 	}
 }
 
+func (h *AmuxHarness) waitLayoutOrTimeout(afterGen uint64, timeout string) bool {
+	h.tb.Helper()
+	out := h.runCmd("wait-layout", "--after", strconv.FormatUint(afterGen, 10), "--timeout", timeout)
+	return !strings.Contains(out, "timeout")
+}
+
 // waitForFunc polls the inner compositor capture until fn returns true or
 // timeout expires. Used for complex predicates that can't be expressed as
 // a simple substring match. Prefer waitLayout for layout changes.
 func (h *AmuxHarness) waitForFunc(fn func(string) bool, timeout time.Duration) bool {
 	h.tb.Helper()
 	deadline := time.Now().Add(timeout)
+	gen := h.generation()
 	for time.Now().Before(deadline) {
 		if fn(h.capture()) {
 			return true
 		}
-		time.Sleep(50 * time.Millisecond)
+		waitFor := time.Until(deadline)
+		if waitFor > 250*time.Millisecond {
+			waitFor = 250 * time.Millisecond
+		}
+		if !h.waitLayoutOrTimeout(gen, waitFor.String()) {
+			return fn(h.capture())
+		}
+		gen = h.generation()
 	}
 	return false
 }
@@ -145,14 +182,19 @@ func (h *AmuxHarness) waitForFunc(fn func(string) bool, timeout time.Duration) b
 func (h *AmuxHarness) waitForActive(name string, timeout time.Duration) bool {
 	h.tb.Helper()
 	deadline := time.Now().Add(timeout)
+	gen := h.generation()
 	for time.Now().Before(deadline) {
-		c := h.captureJSON()
-		for _, p := range c.Panes {
-			if p.Name == name && p.Active {
-				return true
-			}
+		if h.activePaneName() == name {
+			return true
 		}
-		time.Sleep(50 * time.Millisecond)
+		waitFor := time.Until(deadline)
+		if waitFor > 250*time.Millisecond {
+			waitFor = 250 * time.Millisecond
+		}
+		if !h.waitLayoutOrTimeout(gen, waitFor.String()) {
+			return h.activePaneName() == name
+		}
+		gen = h.generation()
 	}
 	return false
 }
@@ -256,28 +298,14 @@ func (h *AmuxHarness) assertScreen(msg string, fn func(string) bool) {
 // captureJSON returns the full-screen JSON capture as a parsed struct.
 func (h *AmuxHarness) captureJSON() proto.CaptureJSON {
 	h.tb.Helper()
-	out := h.runCmd("capture", "--format", "json")
-	var capture proto.CaptureJSON
-	if err := json.Unmarshal([]byte(out), &capture); err != nil {
-		h.tb.Fatalf("captureJSON: %v\nraw: %s", err, out)
-	}
-	return capture
+	return captureJSONFor(h.tb, h.runCmd)
 }
 
 // jsonPane finds a pane by name in a CaptureJSON, or fails the test.
 // Also fails if Position is nil (full-screen captures always set it).
 func (h *AmuxHarness) jsonPane(capture proto.CaptureJSON, name string) proto.CapturePane {
 	h.tb.Helper()
-	for _, p := range capture.Panes {
-		if p.Name == name {
-			if p.Position == nil {
-				h.tb.Fatalf("pane %q has nil Position in full-screen capture", name)
-			}
-			return p
-		}
-	}
-	h.tb.Fatalf("pane %q not found in JSON capture", name)
-	return proto.CapturePane{}
+	return jsonPaneFor(h.tb, capture, name)
 }
 
 // assertActive asserts that the named pane is the active pane.
@@ -303,25 +331,13 @@ func (h *AmuxHarness) assertInactive(name string) {
 // activePaneName returns the name of the active pane from JSON capture.
 func (h *AmuxHarness) activePaneName() string {
 	h.tb.Helper()
-	c := h.captureJSON()
-	for _, p := range c.Panes {
-		if p.Active {
-			return p.Name
-		}
-	}
-	h.tb.Fatal("no active pane found")
-	return ""
+	return activePaneNameFor(h.tb, h.captureJSON())
 }
 
 // globalBar returns the global bar line from the inner capture.
 func (h *AmuxHarness) globalBar() string {
 	h.tb.Helper()
-	for _, line := range h.lines() {
-		if isGlobalBar(line) {
-			return line
-		}
-	}
-	return ""
+	return globalBarFromLines(h.lines())
 }
 
 // globalBarAmux returns the global bar from the inner capture.

@@ -144,6 +144,18 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
 
+      - name: Upload coverage artifacts
+        if: always() && steps.changes.outputs.code_changed == 'true'
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: coverage-artifacts
+          if-no-files-found: ignore
+          path: |
+            unit-coverage.txt
+            integration-coverage.txt
+            merged-coverage.txt
+            coverage-summary.txt
+
       - name: Test timing summary
         if: always() && steps.changes.outputs.code_changed == 'true'
         run: |

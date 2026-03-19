@@ -26,9 +26,7 @@ func TestCopyModeEnterExit(t *testing.T) {
 	h.sendKeys("q")
 
 	// Verify [copy] indicator disappears (poll outer pane)
-	if !waitForOuter(h, func(s string) bool {
-		return !strings.Contains(s, "[copy]")
-	}, 3*time.Second) {
+	if !waitForOuterGone(h, "[copy]", 3*time.Second) {
 		screen := h.captureOuter()
 		t.Fatalf("expected [copy] indicator to disappear after pressing q\nScreen:\n%s", screen)
 	}
@@ -70,9 +68,7 @@ for i in $(seq -w 1 50); do echo "SCROLLTEST-$i"; done
 	h.sendKeys("g")
 
 	// Verify earlier lines become visible after scrolling up (client-side rendering)
-	if !waitForOuter(h, func(s string) bool {
-		return strings.Contains(s, "SCROLLTEST-01")
-	}, 3*time.Second) {
+	if !h.waitFor("SCROLLTEST-01", 3*time.Second) {
 		screen = h.captureOuter()
 		t.Fatalf("expected SCROLLTEST-01 to be visible after scrolling to top in copy mode\nScreen:\n%s", screen)
 	}
@@ -124,9 +120,7 @@ func TestCopyModeSearch(t *testing.T) {
 	// Exit copy mode
 	h.sendKeys("q")
 
-	if !waitForOuter(h, func(s string) bool {
-		return !strings.Contains(s, "[copy]")
-	}, 3*time.Second) {
+	if !waitForOuterGone(h, "[copy]", 3*time.Second) {
 		screen := h.captureOuter()
 		t.Fatalf("expected [copy] to disappear after exiting\nScreen:\n%s", screen)
 	}
@@ -148,9 +142,7 @@ func TestCopyModeCLI(t *testing.T) {
 	// Exit copy mode
 	h.sendKeys("q")
 
-	if !waitForOuter(h, func(s string) bool {
-		return !strings.Contains(s, "[copy]")
-	}, 3*time.Second) {
+	if !waitForOuterGone(h, "[copy]", 3*time.Second) {
 		screen := h.captureOuter()
 		t.Fatalf("expected [copy] to disappear after pressing q\nScreen:\n%s", screen)
 	}
@@ -171,9 +163,7 @@ func TestCopyModeEscapeExit(t *testing.T) {
 	h.sendKeys("Escape")
 
 	// Verify copy mode exits (poll outer pane)
-	if !waitForOuter(h, func(s string) bool {
-		return !strings.Contains(s, "[copy]")
-	}, 3*time.Second) {
+	if !waitForOuterGone(h, "[copy]", 3*time.Second) {
 		screen := h.captureOuter()
 		t.Fatalf("expected [copy] to disappear after pressing Escape\nScreen:\n%s", screen)
 	}
@@ -195,9 +185,7 @@ func TestCopyModeDoesNotForwardInput(t *testing.T) {
 
 	// Exit copy mode and wait for indicator to disappear
 	h.sendKeys("q")
-	if !waitForOuter(h, func(s string) bool {
-		return !strings.Contains(s, "[copy]")
-	}, 3*time.Second) {
+	if !waitForOuterGone(h, "[copy]", 3*time.Second) {
 		screen := h.captureOuter()
 		t.Fatalf("expected [copy] to disappear\nScreen:\n%s", screen)
 	}
@@ -238,9 +226,7 @@ func TestCopyModeResizeSurvives(t *testing.T) {
 	}
 	h.sendKeys("g")
 	// Wait for scroll to reach earlier content
-	if !waitForOuter(h, func(s string) bool {
-		return strings.Contains(s, "RESIZE-01")
-	}, 3*time.Second) {
+	if !h.waitFor("RESIZE-01", 3*time.Second) {
 		t.Fatalf("scrollback not reached after scrolling to top\nScreen:\n%s", h.captureOuter())
 	}
 
@@ -331,30 +317,25 @@ for i in $(seq -w 1 50); do echo "ALPHA BRAVO CHARLIE $i"; done
 
 	// Scroll to top with g, verify early output is reachable.
 	h.sendKeys("g")
-	if !waitForOuter(h, func(s string) bool {
-		return strings.Contains(s, "ALPHA BRAVO CHARLIE 01")
-	}, 3*time.Second) {
+	if !h.waitFor("ALPHA BRAVO CHARLIE 01", 3*time.Second) {
 		t.Fatalf("expected early output after scrolling to top\nScreen:\n%s", h.captureOuter())
 	}
 
 	// Exit copy mode.
 	h.sendKeys("q")
-	if !waitForOuter(h, func(s string) bool {
-		return !strings.Contains(s, "[copy]")
-	}, 3*time.Second) {
+	if !waitForOuterGone(h, "[copy]", 3*time.Second) {
 		t.Fatalf("expected [copy] to disappear after q\nScreen:\n%s", h.captureOuter())
 	}
 }
 
-// waitForOuter polls the outer pane capture until fn returns true or timeout
-// expires. Used for copy mode assertions where the [copy] indicator is
-// rendered client-side and only visible in the outer pane, not the inner
-// compositor.
-func waitForOuter(h *AmuxHarness, fn func(string) bool, timeout time.Duration) bool {
+// waitForOuterGone polls the outer pane capture until substr is no longer
+// present. This remains polling because the outer client-visible overlays can
+// disappear without a server-side wait primitive exposing that transition.
+func waitForOuterGone(h *AmuxHarness, substr string, timeout time.Duration) bool {
 	h.tb.Helper()
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		if fn(h.captureOuter()) {
+		if !strings.Contains(h.captureOuter(), substr) {
 			return true
 		}
 		time.Sleep(50 * time.Millisecond)

@@ -46,6 +46,7 @@ func TestCrashRecovery_LayoutRestored(t *testing.T) {
 	// Wait for crash checkpoint file to appear
 	cpPath := checkpoint.CrashCheckpointPath(h.session)
 	waitForCrashCheckpoint(t, cpPath, 5*time.Second)
+	preCrashCP := readCrashCheckpoint(t, cpPath)
 
 	// Detach the headless client before kill so it doesn't interfere
 	if h.client != nil {
@@ -86,9 +87,15 @@ func TestCrashRecovery_LayoutRestored(t *testing.T) {
 	h2.sendKeys("pane-1", "echo ALIVE", "Enter")
 	h2.waitFor("pane-1", "ALIVE")
 
-	// Verify crash checkpoint was cleaned up after recovery
-	if _, err := os.Stat(cpPath); !os.IsNotExist(err) {
-		t.Error("crash checkpoint should be removed after recovery")
+	// Recovery removes the stale checkpoint before signaling ready, but the
+	// recovered server immediately resumes normal crash checkpointing on the
+	// next layout broadcast (for example when the client reattaches). The
+	// durable invariant is that recovery replaces the stale checkpoint with a
+	// fresh one from the recovered session rather than relying on the pre-crash
+	// file indefinitely.
+	postCrashCP := waitForFreshCrashCheckpoint(t, cpPath, preCrashCP, 5*time.Second)
+	if postCrashCP.SessionName != h.session {
+		t.Errorf("refreshed crash checkpoint session = %q, want %q", postCrashCP.SessionName, h.session)
 	}
 }
 
@@ -193,6 +200,45 @@ func paneNames(c proto.CaptureJSON) string {
 		names = append(names, p.Name)
 	}
 	return strings.Join(names, ",")
+}
+
+func readCrashCheckpoint(t *testing.T, path string) checkpoint.CrashCheckpoint {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading crash checkpoint %s: %v", path, err)
+	}
+
+	var cp checkpoint.CrashCheckpoint
+	if err := json.Unmarshal(data, &cp); err != nil {
+		t.Fatalf("decoding crash checkpoint %s: %v", path, err)
+	}
+	return cp
+}
+
+func waitForFreshCrashCheckpoint(t *testing.T, path string, prev checkpoint.CrashCheckpoint, timeout time.Duration) checkpoint.CrashCheckpoint {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(path); err == nil {
+			cp := readCrashCheckpoint(t, path)
+			if cp.Timestamp.After(prev.Timestamp) || cp.Generation > prev.Generation {
+				return cp
+			}
+		}
+		<-ticker.C
+	}
+
+	t.Fatalf(
+		"crash checkpoint %s was not refreshed within %v (prev timestamp=%s, generation=%d)",
+		path,
+		timeout,
+		prev.Timestamp.Format(time.RFC3339Nano),
+		prev.Generation,
+	)
+	return checkpoint.CrashCheckpoint{}
 }
 
 // startServerForSession starts a new server process for an existing session

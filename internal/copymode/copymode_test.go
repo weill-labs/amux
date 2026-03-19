@@ -468,6 +468,43 @@ func TestLineSelectYank(t *testing.T) {
 	}
 }
 
+func TestSelectedTextReversedMultiLineSelection(t *testing.T) {
+	t.Parallel()
+
+	emu := newFakeEmulator(20, 3)
+	emu.screen = []string{"alpha", "bravo", "charlie"}
+	cm := New(emu, 20, 3, 0)
+
+	cm.selecting = true
+	cm.selStartX = 3
+	cm.selStartY = 2
+	cm.selEndX = 1
+	cm.selEndY = 1
+
+	if got := cm.SelectedText(); got != "ravo\nchar" {
+		t.Errorf("SelectedText() = %q, want %q", got, "ravo\nchar")
+	}
+}
+
+func TestSelectedTextReversedLineSelection(t *testing.T) {
+	t.Parallel()
+
+	emu := newFakeEmulator(20, 3)
+	emu.screen = []string{"alpha", "bravo", "charlie"}
+	cm := New(emu, 20, 3, 0)
+
+	cm.selecting = true
+	cm.lineSelect = true
+	cm.selStartX = 10
+	cm.selStartY = 2
+	cm.selEndX = 1
+	cm.selEndY = 1
+
+	if got := cm.SelectedText(); got != "bravo\ncharlie\n" {
+		t.Errorf("SelectedText() = %q, want %q", got, "bravo\ncharlie\n")
+	}
+}
+
 func TestLineSelectToggleOff(t *testing.T) {
 	emu := newFakeEmulator(20, 3)
 	emu.screen = []string{"hello", "world", "test"}
@@ -553,6 +590,67 @@ func TestBatchedInputSearchThenNormal(t *testing.T) {
 	}
 	if cm.SearchQuery() != "hi" {
 		t.Errorf("search query = %q, want %q", cm.SearchQuery(), "hi")
+	}
+}
+
+func TestSearchMatchNavigationWraps(t *testing.T) {
+	t.Parallel()
+
+	emu := newFakeEmulator(20, 3)
+	emu.scrollback = []string{"foo old"}
+	emu.screen = []string{"middle", "foo new", "tail foo"}
+	cm := New(emu, 20, 3, 0)
+
+	cm.searchQuery = "foo"
+	cm.runSearch()
+
+	if len(cm.matches) != 3 {
+		t.Fatalf("len(matches) = %d, want 3", len(cm.matches))
+	}
+	if cm.matchIdx != 1 {
+		t.Fatalf("initial matchIdx = %d, want 1", cm.matchIdx)
+	}
+
+	cm.nextMatch()
+	if cm.matchIdx != 2 {
+		t.Fatalf("after nextMatch: matchIdx = %d, want 2", cm.matchIdx)
+	}
+
+	cm.nextMatch()
+	if cm.matchIdx != 0 {
+		t.Fatalf("nextMatch should wrap to 0, got %d", cm.matchIdx)
+	}
+
+	cm.prevMatch()
+	if cm.matchIdx != 2 {
+		t.Fatalf("prevMatch should wrap to last match, got %d", cm.matchIdx)
+	}
+	cx, cy := cm.CursorPos()
+	if cx != 5 || cy != 2 {
+		t.Fatalf("cursor after wrapped prevMatch = (%d,%d), want (5,2)", cx, cy)
+	}
+}
+
+func TestViewportHelpers(t *testing.T) {
+	t.Parallel()
+
+	emu := newFakeEmulator(20, 3)
+	emu.scrollback = []string{"old-0", "old-1", "old-2"}
+	emu.screen = []string{"cur-0", "cur-1", "cur-2"}
+	cm := New(emu, 20, 3, 0)
+	cm.oy = 2
+
+	if got := cm.ViewportHeight(); got != 3 {
+		t.Fatalf("ViewportHeight() = %d, want 3", got)
+	}
+	if got := cm.FirstVisibleLine(); got != 1 {
+		t.Fatalf("FirstVisibleLine() = %d, want 1", got)
+	}
+	if got := cm.LineText(1); got != "old-1" {
+		t.Fatalf("LineText(1) = %q, want %q", got, "old-1")
+	}
+	if got := cm.LineText(4); got != "cur-1" {
+		t.Fatalf("LineText(4) = %q, want %q", got, "cur-1")
 	}
 }
 
@@ -830,6 +928,23 @@ func TestWordBackwardWrap(t *testing.T) {
 	}
 }
 
+func TestWordBackwardAtAbsoluteTop(t *testing.T) {
+	t.Parallel()
+
+	emu := newFakeEmulator(40, 2)
+	emu.screen = []string{"hello", "world"}
+	cm := New(emu, 40, 2, 0)
+
+	action := cm.HandleInput([]byte{'B'})
+	if action != ActionRedraw {
+		t.Fatalf("B at absolute top should return ActionRedraw, got %d", action)
+	}
+	cx, cy := cm.CursorPos()
+	if cx != 0 || cy != 0 {
+		t.Fatalf("B at absolute top moved cursor to (%d,%d), want (0,0)", cx, cy)
+	}
+}
+
 func TestWordEnd(t *testing.T) {
 	t.Parallel()
 	emu := newFakeEmulator(40, 3)
@@ -848,6 +963,44 @@ func TestWordEnd(t *testing.T) {
 	cx, _ = cm.CursorPos()
 	if cx != 10 {
 		t.Errorf("E #2: cx = %d, want 10", cx)
+	}
+}
+
+func TestWordEndWrapsToNextLine(t *testing.T) {
+	t.Parallel()
+
+	emu := newFakeEmulator(40, 3)
+	emu.screen = []string{"hello", "world foo", "end"}
+	cm := New(emu, 40, 3, 0)
+
+	for i := 0; i < 4; i++ {
+		cm.HandleInput([]byte{'l'})
+	}
+
+	action := cm.HandleInput([]byte{'E'})
+	if action != ActionRedraw {
+		t.Fatalf("E wrap should return ActionRedraw, got %d", action)
+	}
+	cx, cy := cm.CursorPos()
+	if cx != 4 || cy != 1 {
+		t.Fatalf("E wrap moved cursor to (%d,%d), want (4,1)", cx, cy)
+	}
+}
+
+func TestWordEndWhitespaceAtBottom(t *testing.T) {
+	t.Parallel()
+
+	emu := newFakeEmulator(40, 1)
+	emu.screen = []string{"   "}
+	cm := New(emu, 40, 1, 0)
+
+	action := cm.HandleInput([]byte{'E'})
+	if action != ActionRedraw {
+		t.Fatalf("E on trailing whitespace should return ActionRedraw, got %d", action)
+	}
+	cx, cy := cm.CursorPos()
+	if cx != 2 || cy != 0 {
+		t.Fatalf("E on trailing whitespace moved cursor to (%d,%d), want (2,0)", cx, cy)
 	}
 }
 

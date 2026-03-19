@@ -110,6 +110,50 @@ func TestHostUser(t *testing.T) {
 	}
 }
 
+func TestHostAddress(t *testing.T) {
+	t.Parallel()
+	cfg := &Config{
+		Hosts: map[string]Host{
+			"myhost": {Address: "10.0.0.5"},
+		},
+	}
+
+	tests := []struct {
+		host string
+		want string
+	}{
+		{"myhost", "10.0.0.5"},
+		{"unknown", "unknown"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.host, func(t *testing.T) {
+			t.Parallel()
+			if got := cfg.HostAddress(tt.host); got != tt.want {
+				t.Errorf("HostAddress(%q) = %q, want %q", tt.host, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestHostColor(t *testing.T) {
+	t.Parallel()
+	cfg := &Config{
+		Hosts: map[string]Host{
+			"myhost": {Color: "f38ba8"},
+		},
+	}
+
+	if got := cfg.HostColor("myhost"); got != "f38ba8" {
+		t.Fatalf("HostColor(%q) = %q, want %q", "myhost", got, "f38ba8")
+	}
+
+	want := ColorForHost("unknown")
+	if got := cfg.HostColor("unknown"); got != want {
+		t.Fatalf("HostColor(%q) = %q, want %q", "unknown", got, want)
+	}
+}
+
 func TestAutoAssignColor(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
