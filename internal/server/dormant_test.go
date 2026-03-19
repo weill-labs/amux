@@ -29,14 +29,19 @@ func TestAssertPaneLayoutConsistency(t *testing.T) {
 			t.Parallel()
 
 			sess := newSession("test-consistency")
+			stopCrashCheckpointLoop(t, sess)
 
-			pane1 := &mux.Pane{ID: 1, Meta: mux.PaneMeta{Name: "pane-1"}}
+			pane1 := mux.NewProxyPane(1, mux.PaneMeta{
+				Name: "pane-1", Host: mux.DefaultHost, Color: "f5e0dc",
+			}, 80, 23, nil, nil, func(data []byte) (int, error) { return len(data), nil })
 			w := mux.NewWindow(pane1, 80, 24)
 			w.ID = 1
 			sess.Windows = append(sess.Windows, w)
 			sess.Panes = append(sess.Panes, pane1)
 
-			extra := &mux.Pane{ID: 2, Meta: mux.PaneMeta{Name: "extra-pane", Dormant: tt.dormant}}
+			extra := mux.NewProxyPane(2, mux.PaneMeta{
+				Name: "extra-pane", Host: mux.DefaultHost, Color: "f2cdcd", Dormant: tt.dormant,
+			}, 80, 23, nil, nil, func(data []byte) (int, error) { return len(data), nil })
 			sess.Panes = append(sess.Panes, extra)
 
 			if n := sess.assertPaneLayoutConsistency(); n != tt.wantViolations {

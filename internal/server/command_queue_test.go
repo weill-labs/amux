@@ -71,6 +71,7 @@ func TestQueuedCommandRenameWindow(t *testing.T) {
 	if sess.generation.Load() <= before {
 		t.Fatal("expected layout generation to increment")
 	}
+	assertSessionLayoutConsistent(t, sess)
 }
 
 func TestQueuedCommandResizeWindow(t *testing.T) {
@@ -104,6 +105,7 @@ func TestQueuedCommandResizeWindow(t *testing.T) {
 	if sess.generation.Load() <= before {
 		t.Fatal("expected layout generation to increment")
 	}
+	assertSessionLayoutConsistent(t, sess)
 }
 
 func TestQueuedCommandFocusAcrossWindows(t *testing.T) {
@@ -137,6 +139,7 @@ func TestQueuedCommandFocusAcrossWindows(t *testing.T) {
 	if sess.generation.Load() <= before {
 		t.Fatal("expected layout generation to increment")
 	}
+	assertSessionLayoutConsistent(t, sess)
 }
 
 func TestQueuedCommandToggleMinimize(t *testing.T) {
@@ -169,6 +172,7 @@ func TestQueuedCommandToggleMinimize(t *testing.T) {
 	if sess.generation.Load() <= before {
 		t.Fatal("expected layout generation to increment")
 	}
+	assertSessionLayoutConsistent(t, sess)
 }
 
 func TestQueuedCommandNewWindow(t *testing.T) {
@@ -209,6 +213,7 @@ func TestQueuedCommandNewWindow(t *testing.T) {
 	if sess.generation.Load() <= before {
 		t.Fatal("expected layout generation to increment")
 	}
+	assertSessionLayoutConsistent(t, sess)
 }
 
 func TestQueuedCommandSpawnLocal(t *testing.T) {
@@ -247,7 +252,6 @@ func TestQueuedCommandSpawnLocal(t *testing.T) {
 		return len(sess.Panes) == 2
 	})
 	sess.mu.Lock()
-	defer sess.mu.Unlock()
 	found := false
 	for _, p := range sess.Panes {
 		if p.Meta.Name == "worker-1" && p.Meta.Task == "build" {
@@ -260,6 +264,8 @@ func TestQueuedCommandSpawnLocal(t *testing.T) {
 	if sess.generation.Load() <= before {
 		t.Fatal("expected layout generation to increment")
 	}
+	sess.mu.Unlock()
+	assertSessionLayoutConsistent(t, sess)
 }
 
 func TestQueuedCommandKillOrphanPane(t *testing.T) {
@@ -288,16 +294,20 @@ func TestQueuedCommandKillOrphanPane(t *testing.T) {
 	}
 
 	sess.mu.Lock()
-	defer sess.mu.Unlock()
 	if sess.hasPane(orphan.ID) {
+		sess.mu.Unlock()
 		t.Fatal("expected orphan pane to be removed")
 	}
 	if len(sess.Windows) != 1 || sess.Windows[0].PaneCount() != 1 {
+		sess.mu.Unlock()
 		t.Fatal("expected window layout to remain intact")
 	}
 	if sess.generation.Load() <= before {
+		sess.mu.Unlock()
 		t.Fatal("expected layout generation to increment")
 	}
+	sess.mu.Unlock()
+	assertSessionLayoutConsistent(t, sess)
 }
 
 func TestQueuedCommandInjectProxyAndUnsplice(t *testing.T) {
@@ -369,6 +379,7 @@ func TestQueuedCommandInjectProxyAndUnsplice(t *testing.T) {
 	if sess.generation.Load() <= beforeUnsplice {
 		t.Fatal("expected layout generation to increment after unsplice")
 	}
+	assertSessionLayoutConsistent(t, sess)
 }
 
 func TestQueuedPreparedRemotePaneInsert(t *testing.T) {
@@ -410,22 +421,27 @@ func TestQueuedPreparedRemotePaneInsert(t *testing.T) {
 	}
 
 	sess.mu.Lock()
-	defer sess.mu.Unlock()
 	if len(sess.Panes) != 2 {
+		sess.mu.Unlock()
 		t.Fatalf("expected 2 panes, got %d", len(sess.Panes))
 	}
 	if !sess.hasPane(proxy.ID) {
+		sess.mu.Unlock()
 		t.Fatal("expected prepared proxy pane to be registered")
 	}
 	if w.Root.FindPane(proxy.ID) == nil {
+		sess.mu.Unlock()
 		t.Fatal("expected prepared proxy pane to be inserted into active window")
 	}
+	sess.mu.Unlock()
+	assertSessionLayoutConsistent(t, sess)
 }
 
 func newCommandTestSession(t *testing.T) (*Server, *Session, func()) {
 	t.Helper()
 
 	sess := newSession("test-command-queue")
+	stopCrashCheckpointLoop(t, sess)
 	srv := &Server{sessions: map[string]*Session{sess.Name: sess}}
 	cleanup := func() {
 		sess.shutdown.Store(true)
@@ -435,14 +451,7 @@ func newCommandTestSession(t *testing.T) (*Server, *Session, func()) {
 		for _, p := range panes {
 			p.Close()
 		}
-		if sess.sessionEventStop != nil {
-			close(sess.sessionEventStop)
-			<-sess.sessionEventDone
-		}
-		if sess.crashCheckpointStop != nil {
-			close(sess.crashCheckpointStop)
-			<-sess.crashCheckpointDone
-		}
+		stopSessionBackgroundLoops(t, sess)
 	}
 	return srv, sess, cleanup
 }

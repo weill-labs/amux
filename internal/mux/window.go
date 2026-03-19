@@ -995,27 +995,62 @@ func (w *Window) SplicePane(oldPaneID uint32, newPanes []*Pane) ([]*LayoutCell, 
 // proxy panes for a specific host) with a single pane. Used to revert
 // a takeover and restore the original SSH pane.
 func (w *Window) UnsplicePane(hostName string, replacement *Pane) error {
-	// Find a cell containing proxy panes for this host
+	allProxyLeavesForHost := func(cell *LayoutCell) bool {
+		if cell == nil {
+			return false
+		}
+		hasLeaf := false
+		ok := true
+		cell.Walk(func(c *LayoutCell) {
+			if !ok || c == nil || !c.IsLeaf() || c.Pane == nil {
+				return
+			}
+			hasLeaf = true
+			if !c.Pane.IsProxy() || c.Pane.Meta.Host != hostName {
+				ok = false
+			}
+		})
+		return hasLeaf && ok
+	}
+
+	// Find either:
+	// - a full spliced parent containing only proxy panes for this host, or
+	// - a single injected proxy leaf for this host
 	var targetCell *LayoutCell
 	w.Root.Walk(func(c *LayoutCell) {
-		if c.Pane != nil && c.Pane.Meta.Host == hostName && c.Pane.IsProxy() {
-			if c.Parent != nil && !c.Parent.IsLeaf() {
-				targetCell = c.Parent
-			}
+		if targetCell != nil || c == nil || c.Pane == nil || !c.Pane.IsProxy() || c.Pane.Meta.Host != hostName {
+			return
 		}
+		if c.Parent != nil && !c.Parent.IsLeaf() && allProxyLeavesForHost(c.Parent) {
+			targetCell = c.Parent
+			return
+		}
+		targetCell = c
 	})
 	if targetCell == nil {
 		return fmt.Errorf("no spliced panes found for host %q", hostName)
 	}
 
-	// Convert back to a leaf with the replacement pane
-	targetCell.isLeaf = true
-	targetCell.Dir = -1
-	targetCell.Pane = replacement
-	targetCell.Children = nil
+	// Convert back to a leaf with the replacement pane.
+	if targetCell.IsLeaf() {
+		targetCell.Pane = replacement
+	} else {
+		targetCell.isLeaf = true
+		targetCell.Dir = -1
+		targetCell.Pane = replacement
+		targetCell.Children = nil
+	}
 
 	replacement.Resize(targetCell.W, PaneContentHeight(targetCell.H))
-	w.setActive(replacement)
+	if w.ActivePane == nil || w.ActivePane.Meta.Host == hostName || w.Root.FindPane(w.ActivePane.ID) == nil {
+		w.setActive(replacement)
+	} else if targetCell.Parent == nil {
+		// If the root cell was collapsed back to a leaf, keep the current active
+		// pane only when it still exists in the new layout.
+		if w.Root.FindPane(w.ActivePane.ID) == nil {
+			w.setActive(replacement)
+		}
+	}
 	w.Root.FixOffsets()
 	w.resizePTYs()
 

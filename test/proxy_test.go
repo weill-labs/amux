@@ -32,6 +32,11 @@ func TestInjectProxyAndUnsplice(t *testing.T) {
 	if strings.Contains(list, "fake-host") {
 		t.Fatalf("list should not contain fake-host after unsplice, got:\n%s", list)
 	}
+
+	c := h.captureJSON()
+	if len(c.Panes) != 2 {
+		t.Fatalf("expected original pane plus replacement pane after unsplice, got %d panes", len(c.Panes))
+	}
 }
 
 func TestUnspliceNoProxy(t *testing.T) {
