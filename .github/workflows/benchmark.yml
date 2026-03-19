@@ -84,10 +84,11 @@ jobs:
         if: steps.changes.outputs.code_changed == 'true'
         run: |
           go install go.bobheadxi.dev/gobenchdata@latest
-          # Strip PASS/ok/FAIL lines — gobenchdata panics on them but needs the goos/goarch/pkg headers
-          grep -v -E '^(PASS|FAIL|ok\s)' bench-all.txt > bench-filtered.txt || true
+          # Strip test harness noise. gobenchdata expects raw benchmark output
+          # on stdin and does not tolerate PASS/ok/? summary lines.
+          grep -v -E '^(PASS|FAIL|ok[[:space:]]|\\?[[:space:]])' bench-all.txt > bench-filtered.txt || true
           if [ -s bench-filtered.txt ]; then
-            gobenchdata merge bench-filtered.txt --json benchmarks.json
+            cat bench-filtered.txt | gobenchdata --json bench-current.json
           fi
 
           git config user.name "github-actions[bot]"
@@ -96,7 +97,7 @@ jobs:
           ORIGINAL_REF=$(git rev-parse HEAD)
 
           mkdir -p /tmp/bench-data
-          cp benchmarks.json /tmp/bench-data/ 2>/dev/null || true
+          cp bench-current.json /tmp/bench-data/ 2>/dev/null || true
           cp bench-all.txt /tmp/bench-data/
 
           if git fetch origin gh-pages 2>/dev/null; then
@@ -106,7 +107,15 @@ jobs:
             git rm -rf . 2>/dev/null || true
           fi
 
-          cp /tmp/bench-data/* . 2>/dev/null || true
+          cp /tmp/bench-data/bench-all.txt . 2>/dev/null || true
+          if [ -f /tmp/bench-data/bench-current.json ]; then
+            if [ -f benchmarks.json ]; then
+              gobenchdata merge benchmarks.json /tmp/bench-data/bench-current.json --json benchmarks-merged.json
+              mv benchmarks-merged.json benchmarks.json
+            else
+              cp /tmp/bench-data/bench-current.json benchmarks.json
+            fi
+          fi
 
           # Generate dashboard HTML if it doesn't exist
           if [ ! -f index.html ]; then
@@ -221,4 +230,3 @@ jobs:
           git push origin gh-pages || echo "::warning::Failed to push to gh-pages"
 
           git checkout "$ORIGINAL_REF"
-
