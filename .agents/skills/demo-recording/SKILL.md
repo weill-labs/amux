@@ -13,7 +13,7 @@ bash demo/record.sh    # records + converts to GIF in one command
 
 **First run** installs Playwright automatically (`cd demo && npm install && npx playwright install chromium`).
 
-**Dependencies**: `brew install asciinema ffmpeg node`. The `amux` binary must be on `$PATH`.
+**Dependencies**: `brew install asciinema ffmpeg node jq`. The `amux` binary must be on `$PATH`.
 
 ## Architecture
 
@@ -29,7 +29,7 @@ asciinema rec  ->  .cast file  ->  cast2gif.mjs (Playwright)  ->  hero.gif
 
 ### Why asciinema v2 format
 
-The v3 format uses delta timestamps which adds unnecessary complexity in `cast2gif.mjs`. v2 uses absolute timestamps. Record with `--output-format asciicast-v2`.
+The converter supports both v2 and v3, but v2 absolute timestamps are easier to inspect manually. Record with `--output-format asciicast-v2`.
 
 ### Why real-time playback (not seek)
 
@@ -66,7 +66,21 @@ All tuning flags are in `record.sh` and passed to `cast2gif.mjs`:
 - **Response scripts**: Edit `write_sim_scripts()` in `driver.sh` -- each pane has a response script (`resp-server.sh`, `resp-tests.sh`, `resp-review.sh`).
 - **Prompts**: Edit the Phase 2 `send-keys` calls in the `agent()` function.
 - **Pane layout**: The `agent()` function uses `spawn`, `focus && split v`, and `focus && split root`. Note that `split root` can rearrange the layout tree, moving panes out of vertical splits and breaking `minimize`.
-- **Utility pane**: The rightmost pane runs a dev server log simulation. Edit the inline `send-keys` command or create a script in `write_sim_scripts()`.
+- **Utility pane**: The rightmost pane content comes from the inline `send-keys` command in `agent()` (line ~178). The `devlog.sh` reference on line ~165 is a no-op (the file is not created). To refactor, add a `devlog.sh` to `write_sim_scripts()` and remove the inline send-keys block.
+
+## Rules
+
+- GIF must be under 1MB for README rendering performance.
+- Clean up `.cast` intermediate files after conversion.
+- Verify the GIF renders the Claude Code logo and tool indicators correctly before committing.
+- Use absolute paths in `record.sh` — relative paths break when the working directory differs.
+
+## Output Checklist
+
+- `demo/hero.gif` generated and under 1MB.
+- No `.cast` intermediate files left behind.
+- GIF animates correctly (check key frames: startup banners, claude responses, JSON capture).
+- `README.md` references `demo/hero.gif` and renders inline on GitHub.
 
 ## Troubleshooting
 
