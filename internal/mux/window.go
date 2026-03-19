@@ -754,8 +754,11 @@ func (w *Window) Minimize(paneID uint32) error {
 	// Only allow minimize in horizontal splits (stacked panes).
 	// A pane at root or in a vertical split (left/right) has no stacked
 	// sibling to absorb the reclaimed height.
-	if cell.Parent == nil || cell.Parent.Dir != SplitHorizontal {
-		return fmt.Errorf("cannot minimize: pane is not in a horizontal split")
+	if cell.Parent == nil {
+		return fmt.Errorf("cannot minimize: pane has no stacked siblings")
+	}
+	if cell.Parent.Dir != SplitHorizontal {
+		return fmt.Errorf("cannot minimize: pane is in a left/right split; minimize only works in stacked top/bottom groups")
 	}
 
 	// Require at least one non-minimized sibling to remain visible.
@@ -769,7 +772,7 @@ func (w *Window) Minimize(paneID uint32) error {
 		}
 	}
 	if nonMinSibs == 0 {
-		return fmt.Errorf("cannot minimize the last visible pane in this group")
+		return fmt.Errorf("cannot minimize: pane is the last visible pane in this stacked group")
 	}
 
 	cell.Pane.Meta.Minimized = true

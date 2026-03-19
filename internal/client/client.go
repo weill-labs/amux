@@ -2,6 +2,7 @@ package client
 
 import (
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -226,6 +227,7 @@ const (
 	RenderMsgClipboard
 	RenderMsgExit
 	RenderMsgCopyMode
+	RenderMsgCmdError
 )
 
 // RenderMsg is an internal message type for the render coalescing loop.
@@ -234,6 +236,7 @@ type RenderMsg struct {
 	Layout *proto.LayoutSnapshot
 	PaneID uint32
 	Data   []byte
+	Text   string
 }
 
 // RenderCoalesced runs a select loop that reads messages from msgCh,
@@ -298,6 +301,14 @@ func (cr *ClientRenderer) RenderCoalesced(msgCh <-chan *RenderMsg, write func(st
 				write("\x07")
 			case RenderMsgClipboard:
 				write(string(msg.Data))
+			case RenderMsgCmdError:
+				if cr.ShowCommandError(msg.Text) {
+					if renderTimer != nil {
+						renderTimer.Stop()
+					}
+					write("\x07")
+					doRender()
+				}
 			case RenderMsgExit:
 				// Final render before exit
 				if cr.IsDirty() {
@@ -309,6 +320,29 @@ func (cr *ClientRenderer) RenderCoalesced(msgCh <-chan *RenderMsg, write func(st
 			doRender()
 		}
 	}
+}
+
+func (cr *ClientRenderer) ShowCommandError(text string) bool {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return false
+	}
+	cr.mu.Lock()
+	defer cr.mu.Unlock()
+	cr.message = text
+	cr.dirty = true
+	return true
+}
+
+func (cr *ClientRenderer) ClearCommandFeedback() bool {
+	cr.mu.Lock()
+	defer cr.mu.Unlock()
+	if cr.message == "" {
+		return false
+	}
+	cr.message = ""
+	cr.dirty = true
+	return true
 }
 
 // EnterCopyMode enters copy mode for the given pane. Thread-safe.

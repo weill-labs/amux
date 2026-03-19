@@ -362,9 +362,11 @@ func buildBorderCells(g *ScreenGrid, bm *borderMap, activePaneID uint32, activeC
 func buildGlobalBarCells(g *ScreenGrid, sessionName string, paneCount int, width, yPos int, windows []WindowInfo, message string) {
 	bg := hexToColor(config.Surface0Hex)
 	textFg := hexToColor(config.TextColorHex)
+	redFg := hexToColor(config.RedHex)
 	baseStyle := uv.Style{Fg: textFg, Bg: bg}
 	boldStyle := baseStyle
 	boldStyle.Attrs |= uv.AttrBold
+	errorStyle := uv.Style{Fg: redFg, Bg: bg}
 
 	var chars []styledChar
 
@@ -389,9 +391,18 @@ func buildGlobalBarCells(g *ScreenGrid, sessionName string, paneCount int, width
 		chars = appendStyledStr(chars, sessionName+" ", baseStyle)
 	}
 
-	paneCountStr := strconv.Itoa(paneCount)
-	now := timeNow().Format("15:04")
-	rightText := " " + paneCountStr + " panes │ " + now + " "
+	rightText := ""
+	rightStyle := baseStyle
+	if message != "" {
+		maxText := width - len(chars) - 2
+		rightText = " " + truncateRunes(message, maxText) + " "
+		rightStyle = errorStyle
+		message = ""
+	} else {
+		paneCountStr := strconv.Itoa(paneCount)
+		now := timeNow().Format("15:04")
+		rightText = " " + paneCountStr + " panes │ " + now + " "
+	}
 
 	// Fill middle.
 	leftLen := len(chars)
@@ -407,7 +418,7 @@ func buildGlobalBarCells(g *ScreenGrid, sessionName string, paneCount int, width
 			chars = append(chars, styledChar{ch: " ", style: baseStyle})
 		}
 	}
-	chars = appendStyledStr(chars, rightText, baseStyle)
+	chars = appendStyledStr(chars, rightText, rightStyle)
 
 	// Write to grid.
 	for i := 0; i < width && i < len(chars); i++ {
