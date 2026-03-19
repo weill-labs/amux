@@ -65,13 +65,20 @@ func (h *ServerHarness) attachRendererAt(cols, rows int, afterLayout func(*clien
 		h.tb.Fatalf("attachRendererAt: write: %v", err)
 	}
 
-	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
-	layoutMsg, err := server.ReadMsg(conn)
-	if err != nil {
-		h.tb.Fatalf("attachRendererAt: read layout: %v", err)
-	}
-	if layoutMsg.Type != server.MsgTypeLayout {
-		h.tb.Fatalf("attachRendererAt: expected layout, got type %d", layoutMsg.Type)
+	conn.SetReadDeadline(time.Now().Add(10 * time.Second))
+
+	// Drain until the initial layout arrives (pane output may arrive first
+	// under -race).
+	var layoutMsg *server.Message
+	for {
+		msg, err := server.ReadMsg(conn)
+		if err != nil {
+			h.tb.Fatalf("attachRendererAt: read: %v", err)
+		}
+		if msg.Type == server.MsgTypeLayout {
+			layoutMsg = msg
+			break
+		}
 	}
 
 	r := client.New(cols, rows)
@@ -80,15 +87,17 @@ func (h *ServerHarness) attachRendererAt(cols, rows int, afterLayout func(*clien
 		afterLayout(r)
 	}
 
-	for i := 0; i < len(layoutMsg.Layout.Panes); i++ {
-		paneMsg, err := server.ReadMsg(conn)
+	// Read pane replay messages, skipping any interleaved non-pane messages.
+	replayed := 0
+	for replayed < len(layoutMsg.Layout.Panes) {
+		msg, err := server.ReadMsg(conn)
 		if err != nil {
 			h.tb.Fatalf("attachRendererAt: read pane output: %v", err)
 		}
-		if paneMsg.Type != server.MsgTypePaneOutput {
-			h.tb.Fatalf("attachRendererAt: expected pane output, got type %d", paneMsg.Type)
+		if msg.Type == server.MsgTypePaneOutput {
+			r.HandlePaneOutput(msg.PaneID, msg.PaneData)
+			replayed++
 		}
-		r.HandlePaneOutput(paneMsg.PaneID, paneMsg.PaneData)
 	}
 
 	return r
