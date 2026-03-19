@@ -123,23 +123,24 @@ Start pragmatic: `-count=5` for microbenchmarks, `-count=7` for integration benc
 
 ## CI Integration
 
-### `benchmark.yml` — runs on every push to `main` and every PR
+### `benchmark.yml` — runs on every push to `main`
 
 ```yaml
 # Pseudocode
-- apt-get install -y tmux
-- go test -bench=. -benchmem -count=5 ./internal/... > bench-micro.txt
-- go test -bench=. -benchmem -count=7 ./test/ -timeout 300s >> bench-micro.txt
+- run micro and integration benchmarks with real exit-code capture
+- upload raw outputs + benchmark-run.json manifest + normalized bench-current.json artifact
+- fail the workflow only for real benchmark failures
+```
 
-# On main: update trend data
-- gobenchdata merge bench-micro.txt → gh-pages JSON
-- commit to gh-pages
+### `benchmark-publish.yml` — runs after `benchmark.yml` completes on `main`
 
-# On PR: compare against main baseline
-- download main benchmark artifact
-- benchstat main.txt pr.txt > comparison.txt
-- post comparison as PR comment
-- fail check if regression >15% with p < 0.05
+```yaml
+# Pseudocode
+- download benchmark artifact from the triggering workflow_run
+- if benchmark-run.json says parse_ready=false, skip history update and exit successfully
+- merge bench-current.json into benchmark history on benchmark-data branch
+- build static dashboard artifact from benchmark-data contents
+- deploy GitHub Pages from uploaded artifact
 ```
 
 ### Regression threshold
@@ -170,6 +171,7 @@ benchstat old.txt new.txt
 | All-Go (`testing.B`) over shell scripts | Unified measurement, `benchstat` compatibility, reuses existing harnesses |
 | Everything in CI (including integration) | Ubuntu runners have tmux; `benchstat` handles variance statistically |
 | `gobenchdata` + GitHub Pages | Free, automated, visual trends, no infrastructure to maintain |
+| Separate publish workflow | Benchmark execution failures and publishing failures are independent, so `main` only goes red for real benchmark problems |
 | 15% regression threshold | Balances CI noise vs catching real regressions; tunable later |
 | Lightweight `TmuxBenchHarness` | Minimal code for comparison; not a full test harness |
 | `-count=7` for integration benchmarks | More samples to compensate for higher wall-clock variance |

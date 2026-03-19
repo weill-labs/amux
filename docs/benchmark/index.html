@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>amux benchmarks</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #1e1e2e;
+      color: #cdd6f4;
+      font-family: system-ui, sans-serif;
+      line-height: 1.5;
+      padding: 2rem;
+    }
+    h1 { margin-bottom: 0.25rem; }
+    p.subtitle { color: #6c7086; margin-bottom: 0.5rem; }
+    p.meta { color: #a6adc8; margin-bottom: 2rem; }
+    .chart-container {
+      background: #313244;
+      border-radius: 8px;
+      margin-bottom: 1.5rem;
+      padding: 1rem;
+    }
+    .chart-container h2 {
+      color: #89b4fa;
+      font-size: 1rem;
+      margin-bottom: 0.5rem;
+    }
+    canvas { max-height: 300px; }
+    .error { color: #f38ba8; padding: 2rem 0; }
+  </style>
+</head>
+<body>
+  <h1>amux benchmark trends</h1>
+  <p class="subtitle">Updated by the benchmark publish workflow on merges to main.</p>
+  <p id="meta" class="meta">Loading latest run metadata...</p>
+  <div id="charts"></div>
+  <script>
+    const COLORS = ["#89b4fa", "#a6e3a1", "#f9e2af", "#f38ba8", "#cba6f7", "#94e2d5", "#fab387", "#74c7ec"];
+
+    function renderMeta(run) {
+      const meta = document.getElementById("meta");
+      if (!run || !run.head_sha) {
+        meta.textContent = "No benchmark metadata yet.";
+        return;
+      }
+      const status = run.benchmark_success ? "successful benchmark run" : "benchmark run failed";
+      meta.textContent = `Latest run ${run.head_sha.slice(0, 7)} on ${run.runner_os}, ${status}.`;
+    }
+
+    async function fetchJSON(path) {
+      const res = await fetch(path);
+      if (!res.ok) {
+        throw new Error(`failed to fetch ${path}`);
+      }
+      return res.json();
+    }
+
+    function groupSuites(data) {
+      const suites = {};
+      for (const run of data) {
+        for (const suite of (run.Suites || [])) {
+          for (const bench of (suite.Benchmarks || [])) {
+            const name = bench.Name;
+            const parts = name.split("/");
+            const suiteName = parts[0].replace(/^Benchmark/, "");
+            if (!suites[suiteName]) suites[suiteName] = {};
+            if (!suites[suiteName][name]) suites[suiteName][name] = [];
+            suites[suiteName][name].push({
+              date: run.Date ? new Date(run.Date * 1000).toLocaleDateString() : "?",
+              nsOp: bench.NsPerOp || 0,
+            });
+          }
+        }
+      }
+      return suites;
+    }
+
+    async function main() {
+      const container = document.getElementById("charts");
+      try {
+        renderMeta(await fetchJSON("latest-run.json"));
+      } catch (_err) {
+        renderMeta(null);
+      }
+
+      let data;
+      try {
+        data = await fetchJSON("benchmarks.json");
+      } catch (_err) {
+        container.innerHTML = '<p class="error">No benchmark history published yet.</p>';
+        return;
+      }
+
+      if (!Array.isArray(data) || data.length === 0) {
+        container.innerHTML = '<p class="error">No benchmark history published yet.</p>';
+        return;
+      }
+
+      const suites = groupSuites(data);
+      let colorIdx = 0;
+      for (const [suiteName, benchmarks] of Object.entries(suites)) {
+        const div = document.createElement("div");
+        div.className = "chart-container";
+        div.innerHTML = `<h2>${suiteName}</h2><canvas></canvas>`;
+        container.appendChild(div);
+
+        const datasets = [];
+        let labels = [];
+        for (const [name, points] of Object.entries(benchmarks)) {
+          const shortName = name.split("/").slice(1).join("/") || name;
+          if (points.length > labels.length) labels = points.map((point) => point.date);
+          datasets.push({
+            label: shortName,
+            data: points.map((point) => point.nsOp / 1e6),
+            borderColor: COLORS[colorIdx % COLORS.length],
+            backgroundColor: `${COLORS[colorIdx % COLORS.length]}33`,
+            tension: 0.3,
+            pointRadius: 3,
+          });
+          colorIdx++;
+        }
+
+        new Chart(div.querySelector("canvas"), {
+          type: "line",
+          data: { labels, datasets },
+          options: {
+            responsive: true,
+            plugins: { legend: { labels: { color: "#cdd6f4" } } },
+            scales: {
+              x: { ticks: { color: "#6c7086" }, grid: { color: "#45475a" } },
+              y: {
+                title: { display: true, text: "ms/op", color: "#6c7086" },
+                ticks: { color: "#6c7086" },
+                grid: { color: "#45475a" },
+              },
+            },
+          },
+        });
+      }
+    }
+
+    main();
+  </script>
+</body>
+</html>

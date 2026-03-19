@@ -1,0 +1,186 @@
+name: Publish Benchmark Trends
+
+on:
+  workflow_run:
+    workflows: ["Benchmarks"]
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: benchmark-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - name: Download benchmark artifact
+        id: download
+        continue-on-error: true
+        uses: actions/download-artifact@v5
+        with:
+          name: benchmark-results
+          path: benchmark-results
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+
+      - name: Check downloaded artifact
+        id: artifact
+        run: |
+          if [[ -f benchmark-results/benchmark-run.json ]]; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::No benchmark artifact found for workflow run ${{ github.event.workflow_run.id }}"
+          fi
+
+      - uses: actions/setup-go@v6.3.0
+        if: steps.artifact.outputs.found == 'true'
+        with:
+          go-version: "1.25"
+
+      - name: Install gobenchdata
+        if: steps.artifact.outputs.found == 'true'
+        run: go install go.bobheadxi.dev/gobenchdata@latest
+
+      - name: Read benchmark manifest
+        id: manifest
+        if: steps.artifact.outputs.found == 'true'
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+
+          with open("benchmark-results/benchmark-run.json", "r", encoding="utf-8") as fh:
+              data = json.load(fh)
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
+              out.write(f"benchmark_success={'true' if data.get('benchmark_success') else 'false'}\n")
+              out.write(f"parse_ready={'true' if data.get('parse_ready') else 'false'}\n")
+              out.write(f"head_sha={data.get('head_sha', '')}\n")
+          PY
+
+      - name: Prepare benchmark data branch
+        id: data
+        if: steps.artifact.outputs.found == 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          data_dir=$(mktemp -d)
+          git -C "$data_dir" init -q
+          git -C "$data_dir" config user.name "github-actions[bot]"
+          git -C "$data_dir" config user.email "github-actions[bot]@users.noreply.github.com"
+          git -C "$data_dir" remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+
+          if git -C "$data_dir" fetch --depth=1 origin benchmark-data; then
+            git -C "$data_dir" checkout -B benchmark-data FETCH_HEAD
+          else
+            git -C "$data_dir" checkout --orphan benchmark-data
+            find "$data_dir" -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+          fi
+
+          echo "path=$data_dir" >> "$GITHUB_OUTPUT"
+
+      - name: Merge benchmark history
+        if: steps.artifact.outputs.found == 'true' && steps.manifest.outputs.parse_ready == 'true'
+        run: |
+          set -euo pipefail
+          data_dir="${{ steps.data.outputs.path }}"
+
+          if [[ -f "$data_dir/benchmarks.json" ]]; then
+            gobenchdata merge "$data_dir/benchmarks.json" benchmark-results/bench-current.json --json "$data_dir/benchmarks-merged.json"
+            mv "$data_dir/benchmarks-merged.json" "$data_dir/benchmarks.json"
+          else
+            cp benchmark-results/bench-current.json "$data_dir/benchmarks.json"
+          fi
+
+      - name: Sync dashboard files
+        id: site
+        if: steps.artifact.outputs.found == 'true'
+        run: |
+          set -euo pipefail
+          data_dir="${{ steps.data.outputs.path }}"
+          site_dir=$(mktemp -d)
+
+          cp docs/benchmark/index.html "$data_dir/index.html"
+          cp benchmark-results/benchmark-run.json "$data_dir/latest-run.json"
+          cp benchmark-results/bench-all.txt "$data_dir/bench-all.txt"
+          touch "$data_dir/.nojekyll"
+
+          if [[ ! -f "$data_dir/benchmarks.json" ]]; then
+            echo '[]' > "$data_dir/benchmarks.json"
+          fi
+
+          cp "$data_dir/index.html" "$site_dir/index.html"
+          cp "$data_dir/latest-run.json" "$site_dir/latest-run.json"
+          cp "$data_dir/bench-all.txt" "$site_dir/bench-all.txt"
+          cp "$data_dir/benchmarks.json" "$site_dir/benchmarks.json"
+          cp "$data_dir/.nojekyll" "$site_dir/.nojekyll"
+          echo "path=$site_dir" >> "$GITHUB_OUTPUT"
+
+      - name: Commit benchmark data
+        id: commit
+        if: steps.artifact.outputs.found == 'true'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          data_dir="${{ steps.data.outputs.path }}"
+
+          git -C "$data_dir" add benchmarks.json latest-run.json bench-all.txt index.html .nojekyll
+          if git -C "$data_dir" diff --cached --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          git -C "$data_dir" commit -m "Update benchmark data for ${{ steps.manifest.outputs.head_sha }} [skip ci]"
+          git -C "$data_dir" push origin HEAD:benchmark-data
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Configure GitHub Pages
+        if: steps.artifact.outputs.found == 'true'
+        id: pages
+        continue-on-error: true
+        uses: actions/configure-pages@v5
+
+      - name: Upload GitHub Pages artifact
+        if: steps.artifact.outputs.found == 'true'
+        continue-on-error: true
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: ${{ steps.site.outputs.path }}
+
+      - name: Deploy to GitHub Pages
+        if: steps.artifact.outputs.found == 'true'
+        id: deploy
+        continue-on-error: true
+        uses: actions/deploy-pages@v4
+
+      - name: Publish summary
+        if: always()
+        run: |
+          {
+            echo "## Benchmark publish"
+            echo ""
+            if [[ "${{ steps.artifact.outputs.found }}" != "true" ]]; then
+              echo "- No benchmark artifact found for workflow run ${{ github.event.workflow_run.id }}."
+            else
+              echo "- Benchmark workflow conclusion: ${{ github.event.workflow_run.conclusion }}"
+              echo "- Benchmark execution success: ${{ steps.manifest.outputs.benchmark_success }}"
+              echo "- Normalized history update ready: ${{ steps.manifest.outputs.parse_ready }}"
+              echo "- Data branch updated: ${{ steps.commit.outputs.changed }}"
+              echo "- Pages deploy outcome: ${{ steps.deploy.outcome }}"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
