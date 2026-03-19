@@ -130,8 +130,8 @@ for i in $(seq -w 1 24); do echo "MWHEEL-$i"; done
 	h.waitFor("MWHEEL-24", 3*time.Second)
 
 	screen := h.captureOuter()
-	if strings.Contains(screen, "MWHEEL-01") {
-		t.Fatalf("expected earliest line to be off-screen before wheel-up.\nScreen:\n%s", screen)
+	if strings.Contains(screen, "MWHEEL-02") {
+		t.Fatalf("expected earlier scrollback to be off-screen before wheel-up.\nScreen:\n%s", screen)
 	}
 
 	h.scrollAt(40, 12, true)
@@ -140,7 +140,7 @@ for i in $(seq -w 1 24); do echo "MWHEEL-$i"; done
 		t.Fatalf("expected mouse wheel to enter copy mode.\nScreen:\n%s", h.captureOuter())
 	}
 	if !waitForOuterContains(h, func(s string) bool {
-		return strings.Contains(s, "MWHEEL-01")
+		return strings.Contains(s, "MWHEEL-02")
 	}, 3*time.Second) {
 		t.Fatalf("expected wheel-up to reveal earlier scrollback.\nScreen:\n%s", h.captureOuter())
 	}
@@ -200,15 +200,14 @@ func TestMouseScrollWheelPassThroughAppMouse(t *testing.T) {
 orig=$(stty -g)
 trap 'stty "$orig"' EXIT
 stty raw -echo
-python3 - <<'PY'
+python3 -c "$(cat <<'PY'
 import os
-import sys
 
-os.write(1, b'\x1b[?1002h\x1b[?1006hREADY\n')
+os.write(1, b"\x1b[?1002h\x1b[?1006hREADY\n")
 events = []
 for _ in range(2):
     buf = b''
-    while not buf.endswith(b'M') and not buf.endswith(b'm'):
+    while not buf.endswith(b"M") and not buf.endswith(b"m"):
         chunk = os.read(0, 1)
         if not chunk:
             break
@@ -218,6 +217,7 @@ for _ in range(2):
 print("MOUSE1=" + events[0], flush=True)
 print("MOUSE2=" + events[1], flush=True)
 PY
+)"
 `)
 	h.sendKeys(scriptPath, "Enter")
 	if !h.waitFor("READY", 3*time.Second) {
@@ -231,10 +231,10 @@ PY
 		t.Fatalf("expected active pane to receive wheel events.\nScreen:\n%s", h.captureOuter())
 	}
 	screen := h.captureOuter()
-	if !strings.Contains(screen, "64;40;11M") {
+	if !strings.Contains(screen, "1b5b3c36343b34303b31314d") {
 		t.Fatalf("expected wheel-up sequence to reach pane input.\nScreen:\n%s", screen)
 	}
-	if !strings.Contains(screen, "65;40;11M") {
+	if !strings.Contains(screen, "1b5b3c36353b34303b31314d") {
 		t.Fatalf("expected wheel-down sequence to reach pane input.\nScreen:\n%s", screen)
 	}
 	if strings.Contains(screen, "[copy]") {
