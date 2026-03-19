@@ -70,7 +70,7 @@ func (s *Session) broadcastPaneOutput(paneID uint32, data []byte) {
 		host = p.Meta.Host
 	}
 	s.mu.Unlock()
-	s.events.Emit(Event{Type: EventOutput, PaneID: paneID, PaneName: paneName, Host: host})
+	s.emitEvent(Event{Type: EventOutput, PaneID: paneID, PaneName: paneName, Host: host})
 }
 
 // broadcastPaneOutputLocked sends raw PTY output to all clients.
@@ -120,7 +120,10 @@ func (s *Session) broadcastLayout() {
 			}
 		}
 	}
-	s.events.Emit(Event{Type: EventLayout, Generation: gen, ActivePane: activePaneName})
+	// Enqueue through the event loop — broadcastLayout can be called from
+	// command handler goroutines outside the event loop, but emitEvent
+	// must only touch eventSubs from within the loop.
+	s.enqueueEvent(emitCmd{ev: Event{Type: EventLayout, Generation: gen, ActivePane: activePaneName}})
 
 	// Signal crash checkpoint loop (non-blocking — drop if already pending)
 	select {
@@ -191,39 +194,10 @@ func (s *Session) assertPaneLayoutConsistency() int {
 	return n
 }
 
-// subscribePaneOutput registers a channel to receive notifications when
-// PTY output arrives for the given pane. Returns the channel.
-func (s *Session) subscribePaneOutput(paneID uint32) chan struct{} {
-	ch := make(chan struct{}, 1)
-	s.paneOutputMu.Lock()
-	if s.paneOutputSubs == nil {
-		s.paneOutputSubs = make(map[uint32][]chan struct{})
-	}
-	s.paneOutputSubs[paneID] = append(s.paneOutputSubs[paneID], ch)
-	s.paneOutputMu.Unlock()
-	return ch
-}
-
-// unsubscribePaneOutput removes a previously registered subscriber channel.
-func (s *Session) unsubscribePaneOutput(paneID uint32, ch chan struct{}) {
-	s.paneOutputMu.Lock()
-	subs := s.paneOutputSubs[paneID]
-	for i, sub := range subs {
-		if sub == ch {
-			s.paneOutputSubs[paneID] = append(subs[:i], subs[i+1:]...)
-			break
-		}
-	}
-	s.paneOutputMu.Unlock()
-}
-
 // notifyPaneOutputSubs wakes all wait-for subscribers for the given pane.
+// Only called from the event loop (paneOutputEvent); no mutex needed.
 func (s *Session) notifyPaneOutputSubs(paneID uint32) {
-	s.paneOutputMu.Lock()
-	subs := make([]chan struct{}, len(s.paneOutputSubs[paneID]))
-	copy(subs, s.paneOutputSubs[paneID])
-	s.paneOutputMu.Unlock()
-	for _, ch := range subs {
+	for _, ch := range s.paneOutputSubs[paneID] {
 		select {
 		case ch <- struct{}{}:
 		default:
@@ -243,7 +217,7 @@ func (s *Session) trackPaneActivity(paneID uint32) {
 	if wasIdle {
 		env := s.buildPaneEnv(paneID, hooks.OnActivity)
 		s.Hooks.Fire(hooks.OnActivity, env)
-		s.events.Emit(Event{
+		s.emitEvent(Event{
 			Type:     EventBusy,
 			PaneID:   paneID,
 			PaneName: env["AMUX_PANE_NAME"],

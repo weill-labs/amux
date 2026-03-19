@@ -1,9 +1,7 @@
 package server
 
 import (
-	"encoding/json"
 	"slices"
-	"sync"
 	"time"
 )
 
@@ -56,70 +54,6 @@ func (f eventFilter) matches(ev Event) bool {
 		return false
 	}
 	return true
-}
-
-// EventBus manages event subscribers and dispatches events.
-type EventBus struct {
-	mu   sync.Mutex
-	subs []*eventSub
-}
-
-// NewEventBus creates an EventBus with no subscribers.
-func NewEventBus() *EventBus {
-	return &EventBus{}
-}
-
-// Subscribe registers a new event subscriber and returns it.
-func (b *EventBus) Subscribe(f eventFilter) *eventSub {
-	sub := &eventSub{
-		ch:     make(chan []byte, 64),
-		filter: f,
-	}
-	b.mu.Lock()
-	b.subs = append(b.subs, sub)
-	b.mu.Unlock()
-	return sub
-}
-
-// Unsubscribe unregisters a subscriber and closes its channel.
-func (b *EventBus) Unsubscribe(sub *eventSub) {
-	b.mu.Lock()
-	b.subs = slices.DeleteFunc(b.subs, func(e *eventSub) bool { return e == sub })
-	b.mu.Unlock()
-	close(sub.ch)
-}
-
-// Emit marshals an event to JSON and sends it to all matching subscribers.
-// Non-blocking: if a subscriber's channel is full, the event is dropped.
-func (b *EventBus) Emit(ev Event) {
-	ev.Timestamp = time.Now().UTC().Format(time.RFC3339Nano)
-	data, err := json.Marshal(ev)
-	if err != nil {
-		return
-	}
-
-	b.mu.Lock()
-	subs := make([]*eventSub, len(b.subs))
-	copy(subs, b.subs)
-	b.mu.Unlock()
-
-	for _, sub := range subs {
-		if sub.filter.matches(ev) {
-			trySend(sub.ch, data)
-		}
-	}
-}
-
-// trySend attempts a non-blocking send on ch. If ch is full the event is
-// dropped. If ch was closed (Unsubscribe raced between the subscriber
-// snapshot and this send), the panic is recovered — dropping the event is
-// the correct behavior since the subscriber is already gone.
-func trySend(ch chan []byte, data []byte) {
-	defer func() { recover() }()
-	select {
-	case ch <- data:
-	default:
-	}
 }
 
 // currentStateEvents builds synthetic events representing the current session

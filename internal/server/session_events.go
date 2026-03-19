@@ -1,8 +1,10 @@
 package server
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/weill-labs/amux/internal/hooks"
 	"github.com/weill-labs/amux/internal/mux"
@@ -145,7 +147,7 @@ func (e idleTimeoutEvent) handle(s *Session) {
 	s.idle.MarkIdle(e.paneID)
 	env := s.buildPaneEnv(e.paneID, hooks.OnIdle)
 	s.Hooks.Fire(hooks.OnIdle, env)
-	s.events.Emit(Event{
+	s.emitEvent(Event{
 		Type:     EventIdle,
 		PaneID:   e.paneID,
 		PaneName: env["AMUX_PANE_NAME"],
@@ -304,6 +306,172 @@ func (s *Session) enqueueRemotePaneExit(paneID uint32) {
 
 func (s *Session) enqueueRemoteStateChange(hostName string, state remote.ConnState) {
 	s.enqueueEvent(remoteStateChangeEvent{hostName: hostName, state: state})
+}
+
+// --- Event subscribe/unsubscribe through the event loop ---
+
+// eventSubscribeResult is returned by enqueueEventSubscribe.
+type eventSubscribeResult struct {
+	sub          *eventSub
+	initialState [][]byte // JSON-encoded initial events (only when sendInitial is true)
+}
+
+type eventSubscribeCmd struct {
+	filter      eventFilter
+	sendInitial bool // if true, compute and return current-state events atomically
+	reply       chan eventSubscribeResult
+}
+
+func (e eventSubscribeCmd) handle(s *Session) {
+	sub := &eventSub{ch: make(chan []byte, 64), filter: e.filter}
+	s.eventSubs = append(s.eventSubs, sub)
+
+	result := eventSubscribeResult{sub: sub}
+	if e.sendInitial {
+		for _, ev := range s.currentStateEvents() {
+			if e.filter.matches(ev) {
+				data, _ := json.Marshal(ev)
+				result.initialState = append(result.initialState, data)
+			}
+		}
+	}
+	e.reply <- result
+}
+
+type eventUnsubscribeCmd struct {
+	sub *eventSub
+}
+
+func (e eventUnsubscribeCmd) handle(s *Session) {
+	for i, sub := range s.eventSubs {
+		if sub == e.sub {
+			s.eventSubs = append(s.eventSubs[:i], s.eventSubs[i+1:]...)
+			break
+		}
+	}
+}
+
+// --- Pane output subscribe/unsubscribe through the event loop ---
+
+type paneOutputSubscribeCmd struct {
+	paneID uint32
+	reply  chan chan struct{}
+}
+
+func (e paneOutputSubscribeCmd) handle(s *Session) {
+	ch := make(chan struct{}, 1)
+	if s.paneOutputSubs == nil {
+		s.paneOutputSubs = make(map[uint32][]chan struct{})
+	}
+	s.paneOutputSubs[e.paneID] = append(s.paneOutputSubs[e.paneID], ch)
+	e.reply <- ch
+}
+
+type paneOutputUnsubscribeCmd struct {
+	paneID uint32
+	ch     chan struct{}
+}
+
+func (e paneOutputUnsubscribeCmd) handle(s *Session) {
+	subs := s.paneOutputSubs[e.paneID]
+	for i, sub := range subs {
+		if sub == e.ch {
+			s.paneOutputSubs[e.paneID] = append(subs[:i], subs[i+1:]...)
+			break
+		}
+	}
+}
+
+// --- UI events through the event loop ---
+
+type uiEventCmd struct {
+	cc      *ClientConn
+	uiEvent string
+}
+
+func (e uiEventCmd) handle(s *Session) {
+	s.mu.Lock()
+	changed, err := e.cc.applyUIEvent(e.uiEvent)
+	clientID := e.cc.ID
+	s.mu.Unlock()
+	if err != nil {
+		e.cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: err.Error()})
+		return
+	}
+	if changed {
+		s.emitEvent(Event{Type: e.uiEvent, ClientID: clientID})
+	}
+}
+
+// --- emitEvent replaces EventBus.Emit ---
+
+// emitEvent marshals an event and sends it to all matching subscribers.
+// Non-blocking: if a subscriber's channel is full the event is dropped.
+// Must be called from the session event loop (no mutex needed).
+func (s *Session) emitEvent(ev Event) {
+	ev.Timestamp = time.Now().UTC().Format(time.RFC3339Nano)
+	data, err := json.Marshal(ev)
+	if err != nil {
+		return
+	}
+	for _, sub := range s.eventSubs {
+		if sub.filter.matches(ev) {
+			select {
+			case sub.ch <- data:
+			default:
+			}
+		}
+	}
+}
+
+// emitCmd routes an emitEvent call through the event loop.
+// Used by broadcastLayout which can be called from any goroutine.
+type emitCmd struct {
+	ev Event
+}
+
+func (e emitCmd) handle(s *Session) {
+	s.emitEvent(e.ev)
+}
+
+// --- Enqueue helpers ---
+
+func (s *Session) enqueueEventSubscribe(f eventFilter, sendInitial bool) eventSubscribeResult {
+	reply := make(chan eventSubscribeResult, 1)
+	if !s.enqueueEvent(eventSubscribeCmd{filter: f, sendInitial: sendInitial, reply: reply}) {
+		return eventSubscribeResult{}
+	}
+	select {
+	case res := <-reply:
+		return res
+	case <-s.sessionEventDone:
+		return eventSubscribeResult{}
+	}
+}
+
+func (s *Session) enqueueEventUnsubscribe(sub *eventSub) {
+	s.enqueueEvent(eventUnsubscribeCmd{sub: sub})
+}
+
+func (s *Session) enqueuePaneOutputSubscribe(paneID uint32) chan struct{} {
+	reply := make(chan (chan struct{}), 1)
+	if !s.enqueueEvent(paneOutputSubscribeCmd{paneID: paneID, reply: reply}) {
+		return nil
+	}
+	select {
+	case ch := <-reply:
+		return ch
+	case <-s.sessionEventDone:
+		return nil
+	}
+}
+
+func (s *Session) enqueuePaneOutputUnsubscribe(paneID uint32, ch chan struct{}) {
+	s.enqueueEvent(paneOutputUnsubscribeCmd{paneID: paneID, ch: ch})
+}
+
+func (s *Session) enqueueUIEvent(cc *ClientConn, uiEvent string) {
+	s.enqueueEvent(uiEventCmd{cc: cc, uiEvent: uiEvent})
 }
 
 func (s *Session) handleAttachEvent(srv *Server, cc *ClientConn, cols, rows int) attachResult {

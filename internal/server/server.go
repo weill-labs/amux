@@ -52,8 +52,8 @@ type Session struct {
 
 	// Per-pane output subscribers — used by wait-for to block until
 	// a substring appears in a pane's screen content.
+	// Only modified inside the session event loop (no mutex needed).
 	paneOutputSubs map[uint32][]chan struct{}
-	paneOutputMu   sync.Mutex
 
 	// Clipboard generation counter — incremented on every OSC 52 clipboard
 	// event. Used by wait-clipboard to block until a clipboard write occurs.
@@ -67,7 +67,8 @@ type Session struct {
 	idle  *IdleTracker
 
 	// Event stream — used by `amux events` for push-based notifications.
-	events *EventBus
+	// Only accessed from the session event loop (no mutex needed).
+	eventSubs []*eventSub
 
 	// Remote pane management — manages SSH connections to remote hosts.
 	// Nil when no config is loaded or no remote hosts are defined.
@@ -291,7 +292,6 @@ func newSession(name string) *Session {
 	sess.clipboardCond = sync.NewCond(&sess.clipboardMu)
 	sess.Hooks = hooks.NewRegistry()
 	sess.idle = NewIdleTracker()
-	sess.events = NewEventBus()
 	sess.takenOverPanes = make(map[uint32]bool)
 	sess.startCrashCheckpointLoop()
 	sess.startEventLoop()
