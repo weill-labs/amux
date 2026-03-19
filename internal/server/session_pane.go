@@ -116,9 +116,10 @@ func (s *Session) createPaneWithMeta(srv *Server, meta mux.PaneMeta, cols, rows 
 	return pane, nil
 }
 
-// createRemotePane creates a proxy pane that routes I/O to a remote host.
+// prepareRemotePane creates and connects a proxy pane that routes I/O to a
+// remote host, but does not register it in session state or any window.
 // Caller must NOT hold s.mu (the remote manager needs to make SSH calls).
-func (s *Session) createRemotePane(srv *Server, hostName string, cols, rows int) (*mux.Pane, error) {
+func (s *Session) prepareRemotePane(srv *Server, hostName string, cols, rows int) (*mux.Pane, error) {
 	if s.RemoteManager == nil {
 		return nil, fmt.Errorf("no remote hosts configured")
 	}
@@ -140,19 +141,37 @@ func (s *Session) createRemotePane(srv *Server, hostName string, cols, rows int)
 		},
 	)
 
-	s.mu.Lock()
-	s.Panes = append(s.Panes, pane)
-	s.mu.Unlock()
-
 	// Create the corresponding pane on the remote server
 	_, err := s.RemoteManager.CreatePane(hostName, id, s.Name)
 	if err != nil {
-		// Roll back: remove the pane we just added
-		s.mu.Lock()
-		s.removePane(id)
-		s.mu.Unlock()
+		s.RemoteManager.RemovePane(id)
 		return nil, err
 	}
 
 	return pane, nil
+}
+
+// insertPreparedPaneIntoActiveWindowLocked registers a pre-created pane in the
+// session and inserts it into the active window layout. Caller must hold s.mu.
+func (s *Session) insertPreparedPaneIntoActiveWindowLocked(pane *mux.Pane, dir mux.SplitDir, rootLevel bool) error {
+	w := s.ActiveWindow()
+	if w == nil {
+		return fmt.Errorf("no window")
+	}
+
+	s.Panes = append(s.Panes, pane)
+	var err error
+	if rootLevel {
+		_, err = w.SplitRoot(dir, pane)
+	} else {
+		_, err = w.Split(dir, pane)
+	}
+	if err != nil {
+		s.removePane(pane.ID)
+		if s.RemoteManager != nil && pane.IsProxy() {
+			s.RemoteManager.RemovePane(pane.ID)
+		}
+		return err
+	}
+	return nil
 }
