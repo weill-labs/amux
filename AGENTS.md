@@ -46,6 +46,8 @@ See [README.md -- Philosophy](README.md#philosophy) for the project thesis and t
 
 **Integration tests for end-to-end behavior.** The harness in `test/server_harness_test.go` drives amux directly over the Unix socket -- no tmux dependency. Tests run in ~6s total.
 
+**Do not do cross-session socket cleanup during server startup.** Parallel integration tests start multiple servers concurrently. Startup code must only reason about the current session's socket path; sweeping all sockets from `NewServer()` can unlink another live test server and cause flaky `dial unix ... no such file or directory` failures.
+
 **Guard against impossible states.** Minimize checks that at least one pane stays non-minimized. Restore caps height at available space. Focus fallback finds nearest pane when strict overlap matching fails.
 
 **Save/restore cursor state in copy mode motions.** Compound motions (word, paragraph, etc.) call `moveDown()` and `moveUp()` in scanning loops. These helpers mutate `cy` and `oy` on each call, so the caller must save both values before the loop and restore them when returning `ActionNone`. Otherwise the cursor drifts silently on failed motions.
@@ -89,6 +91,8 @@ The integration test harness makes this fast (~6s for the full suite).
 ### Test Philosophy
 
 Tests should read like specs. Minimize logic in assertions so a human can read the test and immediately understand what behavior is expected. Prefer golden file comparisons (`assertGolden`) over inline predicate functions -- the golden file is the spec, viewable as a standalone document. Use table-driven tests for unit tests with multiple cases -- define a `tests` slice of structs, iterate with `t.Run(tt.name, ...)`, and call `t.Parallel()` in each subtest.
+
+**Make harness ready signals match the next required operation.** If a test harness waits for a "ready" signal before attaching a client or issuing commands, that signal should mean the server can actually perform that next step already (for example, the accept loop is running), not just that some earlier initialization milestone completed. Prefer strengthening the server-side handshake over adding client-side retries or polling.
 
 **Golden files** live in `test/testdata/`. Two types:
 
