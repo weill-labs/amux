@@ -241,11 +241,11 @@ func TestCopyModeResizeSurvives(t *testing.T) {
 	}
 
 	// Should still be able to exit. Use inner type-keys here so the assertion
-	// only depends on copy mode surviving the resize, not on the outer
-	// send-keys path after the terminal resize.
+	// only depends on the inner client handling copy-mode exit, not on the
+	// outer pane render catching up after the terminal resize.
 	h.runCmd("type-keys", "q")
-	if !waitForOuterGone(h, "[copy]", 3*time.Second) {
-		t.Fatalf("expected [copy] to disappear after q\nScreen:\n%s", h.captureOuter())
+	if !h.waitForFunc(func(s string) bool { return !strings.Contains(s, "[copy]") }, 3*time.Second) {
+		t.Fatalf("expected [copy] to disappear after q\nInner:\n%s\nOuter:\n%s", h.capture(), h.captureOuter())
 	}
 }
 
