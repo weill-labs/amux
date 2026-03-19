@@ -21,6 +21,7 @@ type commandMutationResult struct {
 	output          string
 	err             error
 	broadcastLayout bool
+	paneRenders     []paneRender
 	startPanes      []*mux.Pane
 	closePanes      []*mux.Pane
 	sendExit        bool

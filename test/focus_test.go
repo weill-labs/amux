@@ -1,8 +1,11 @@
 package test
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/weill-labs/amux/internal/proto"
 )
 
 // ---------------------------------------------------------------------------
@@ -38,6 +41,40 @@ func TestFocusByID(t *testing.T) {
 	}
 
 	h.assertActive("pane-1")
+}
+
+func TestFocusResyncsStaleCursorState(t *testing.T) {
+	t.Parallel()
+	h := newServerHarnessWithSize(t, 255, 62)
+
+	h.splitV()
+	h.splitH()
+	h.waitFor("pane-2", "$")
+
+	healthyCapture := h.captureJSON()
+	healthy := h.jsonPane(healthyCapture, "pane-2")
+
+	// Simulate stale client-side cursor state for the inactive top-right pane.
+	h.client.renderer.HandlePaneOutput(2, []byte("\033[1;24H"))
+
+	var before proto.CapturePane
+	if err := json.Unmarshal([]byte(h.client.renderer.CapturePaneJSON(2, nil)), &before); err != nil {
+		t.Fatalf("unmarshal pane-2 before focus: %v", err)
+	}
+	if got := before.Cursor.Col; got != 23 {
+		t.Fatalf("precondition failed: pane-2 cursor col = %d, want 23", got)
+	}
+
+	h.doFocus("pane-2")
+
+	afterCapture := h.captureJSON()
+	after := h.jsonPane(afterCapture, "pane-2")
+	if got, want := after.Content[0], healthy.Content[0]; got != want {
+		t.Fatalf("pane-2 content after focus = %q, want %q", got, want)
+	}
+	if got, want := after.Cursor.Col, healthy.Cursor.Col; got != want {
+		t.Fatalf("pane-2 cursor col after focus = %d, want %d", got, want)
+	}
 }
 
 func TestFocusNotFound(t *testing.T) {

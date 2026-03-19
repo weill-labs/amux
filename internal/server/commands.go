@@ -50,6 +50,9 @@ func (ctx *CommandContext) replyCommandMutation(res commandMutationResult) {
 	if res.broadcastLayout {
 		ctx.Sess.broadcastLayout()
 	}
+	for _, pr := range res.paneRenders {
+		ctx.Sess.broadcastPaneOutput(pr.paneID, pr.data)
+	}
 	if res.output != "" {
 		ctx.reply(res.output)
 	} else {
@@ -240,13 +243,17 @@ func cmdFocus(ctx *CommandContext) {
 		if w == nil {
 			return commandMutationResult{err: fmt.Errorf("no session")}
 		}
-
 		switch direction {
 		case "next", "left", "right", "up", "down":
 			w.Focus(direction)
+			pane := w.ActivePane
 			return commandMutationResult{
-				output:          fmt.Sprintf("Focused %s\n", w.ActivePane.Meta.Name),
+				output:          fmt.Sprintf("Focused %s\n", pane.Meta.Name),
 				broadcastLayout: true,
+				paneRenders: []paneRender{{
+					paneID: pane.ID,
+					data:   []byte(pane.RenderScreen()),
+				}},
 			}
 		default:
 			pane, pw, err := ctx.CC.resolvePaneAcrossWindowsLocked(sess, direction)
@@ -260,6 +267,10 @@ func cmdFocus(ctx *CommandContext) {
 			return commandMutationResult{
 				output:          fmt.Sprintf("Focused %s\n", pane.Meta.Name),
 				broadcastLayout: true,
+				paneRenders: []paneRender{{
+					paneID: pane.ID,
+					data:   []byte(pane.RenderScreen()),
+				}},
 			}
 		}
 	}))
