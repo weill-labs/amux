@@ -321,6 +321,42 @@ func TestFocusUpFromFullWidthBottomPaneInUnevenGrid(t *testing.T) {
 	}
 }
 
+func TestFocusUpFromFullWidthBottomPaneAfterVerticalPaneResize(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		dir  string
+	}{
+		{name: "grow-up", dir: "up"},
+		{name: "grow-down", dir: "down"},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newAmuxHarness(t)
+
+			makeThreeByThreeGrid(t, h)
+			runLayoutCommand(t, h, "focus", "pane-9")
+			runLayoutCommand(t, h, "split", "root")
+			runLayoutCommand(t, h, "resize-pane", "pane-10", tt.dir, "2")
+
+			h.assertActive("pane-10")
+
+			gen := h.generation()
+			h.sendKeys("C-a", "k")
+			h.waitLayout(gen)
+
+			if got := h.activePaneName(); got == "pane-10" {
+				t.Fatalf("focus up after vertical resize %s should move to a pane above, got %s", tt.dir, got)
+			}
+		})
+	}
+}
+
 func TestAltHJKLFocusVertical(t *testing.T) {
 	t.Parallel()
 	h := newAmuxHarness(t)
