@@ -413,6 +413,25 @@ func (c *LayoutCell) FindBorderAt(x, y int) *BorderHit {
 	return nil
 }
 
+// FindBorderNear returns a border at (x, y) or within a one-cell cardinal
+// neighborhood. This matches tmux's drag behavior, which tolerates slight
+// pointer drift while dragging a border.
+func (c *LayoutCell) FindBorderNear(x, y int) *BorderHit {
+	offsets := [][2]int{
+		{0, 0},
+		{0, 1},
+		{1, 0},
+		{0, -1},
+		{-1, 0},
+	}
+	for _, off := range offsets {
+		if hit := c.FindBorderAt(x+off[0], y+off[1]); hit != nil {
+			return hit
+		}
+	}
+	return nil
+}
+
 // distributeEqual sets all children to equal sizes along the split direction.
 // The last child receives the remainder to account for integer rounding.
 func (c *LayoutCell) distributeEqual() {

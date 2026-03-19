@@ -536,6 +536,27 @@ func TestFindBorderAtNested(t *testing.T) {
 	}
 }
 
+func TestFindBorderNear(t *testing.T) {
+	t.Parallel()
+
+	root := NewLeaf(fakePaneID(1), 0, 0, 80, 24)
+	if _, err := root.Split(SplitHorizontal, fakePaneID(2)); err != nil {
+		t.Fatalf("Split: %v", err)
+	}
+
+	borderY := root.Children[0].Y + root.Children[0].H
+
+	if hit := root.FindBorderNear(10, borderY); hit == nil {
+		t.Fatal("expected exact horizontal border hit")
+	}
+	if hit := root.FindBorderNear(10, borderY+1); hit == nil {
+		t.Fatal("expected nearby horizontal border hit")
+	}
+	if hit := root.FindBorderNear(10, borderY-1); hit == nil {
+		t.Fatal("expected nearby horizontal border hit")
+	}
+}
+
 func TestNestedSplits(t *testing.T) {
 	t.Parallel()
 	// Create a 2x2 grid: split V, then split each half H

@@ -7,7 +7,7 @@ import (
 
 func TestRepeatResize(t *testing.T) {
 	t.Parallel()
-	h := newAmuxHarness(t)
+	h := newAmuxHarness(t, "AMUX_REPEAT_TIMEOUT=30s")
 
 	// Split vertically: [pane-1 | pane-2]
 	h.splitV()
@@ -22,17 +22,19 @@ func TestRepeatResize(t *testing.T) {
 		t.Fatalf("no vertical border found.\nScreen:\n%s", h.captureAmux())
 	}
 
-	// Press Prefix+L once, then L twice more WITHOUT prefix (repeat mode)
-	h.sendKeys("C-a", "L")
-	time.Sleep(100 * time.Millisecond)
-	h.sendKeys("L")
-	time.Sleep(100 * time.Millisecond)
-	h.sendKeys("L")
-	time.Sleep(100 * time.Millisecond)
-
-	// Wait for the layout to settle after the last resize
+	// Press Prefix+L once, then L twice more WITHOUT prefix (repeat mode).
+	// Use waitLayout between presses for deterministic synchronization.
 	gen = h.generation()
-	h.waitLayout(gen - 1)
+	h.sendKeys("C-a", "L")
+	h.waitLayout(gen)
+
+	gen = h.generation()
+	h.sendKeys("L")
+	h.waitLayout(gen)
+
+	gen = h.generation()
+	h.sendKeys("L")
+	h.waitLayout(gen)
 
 	newBorder := h.captureAmuxVerticalBorderCol()
 	if newBorder < 0 {
@@ -49,7 +51,7 @@ func TestRepeatResize(t *testing.T) {
 
 func TestRepeatFocus(t *testing.T) {
 	t.Parallel()
-	h := newAmuxHarness(t)
+	h := newAmuxHarness(t, "AMUX_REPEAT_TIMEOUT=30s")
 
 	// Create 3 panes: [pane-1 | pane-2 | pane-3]
 	h.splitV()
@@ -57,9 +59,13 @@ func TestRepeatFocus(t *testing.T) {
 
 	// Focus is on pane-3 (rightmost). Press Prefix+h then h again without prefix.
 	// Should end up on pane-1 (two moves left).
+	gen := h.generation()
 	h.sendKeys("C-a", "h")
-	time.Sleep(100 * time.Millisecond)
+	h.waitLayout(gen)
+
+	gen = h.generation()
 	h.sendKeys("h")
+	h.waitLayout(gen)
 
 	if !h.waitForActive("pane-1", 3*time.Second) {
 		t.Errorf("expected pane-1 active after repeated h.\nScreen:\n%s", h.capture())
@@ -68,7 +74,7 @@ func TestRepeatFocus(t *testing.T) {
 
 func TestRepeatCrossKey(t *testing.T) {
 	t.Parallel()
-	h := newAmuxHarness(t)
+	h := newAmuxHarness(t, "AMUX_REPEAT_TIMEOUT=30s")
 
 	// Create 3 panes: [pane-1 | pane-2 | pane-3]
 	h.splitV()
@@ -77,9 +83,13 @@ func TestRepeatCrossKey(t *testing.T) {
 	// Focus is on pane-3. Press Prefix+h (focus left to pane-2),
 	// then l without prefix (focus right back to pane-3).
 	// Tests that repeat mode accepts any repeatable key, not just the original.
+	gen := h.generation()
 	h.sendKeys("C-a", "h")
-	time.Sleep(100 * time.Millisecond)
+	h.waitLayout(gen)
+
+	gen = h.generation()
 	h.sendKeys("l")
+	h.waitLayout(gen)
 
 	if !h.waitForActive("pane-3", 3*time.Second) {
 		t.Errorf("expected pane-3 active after h then l (cross-key repeat).\nScreen:\n%s", h.capture())
@@ -104,11 +114,13 @@ func TestRepeatExpiresAfterTimeout(t *testing.T) {
 	}
 
 	// Press Prefix+L, then wait longer than repeat timeout (500ms), then press L
+	gen = h.generation()
 	h.sendKeys("C-a", "L")
-	time.Sleep(700 * time.Millisecond)
+	h.waitLayout(gen)
+	h.waitDuration(700 * time.Millisecond)
 	// This L should be typed into the shell (repeat expired), not trigger resize
 	h.sendKeys("L")
-	time.Sleep(300 * time.Millisecond)
+	h.waitDuration(300 * time.Millisecond)
 
 	newBorder := h.captureAmuxVerticalBorderCol()
 	if newBorder < 0 {

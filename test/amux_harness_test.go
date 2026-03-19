@@ -31,7 +31,7 @@ type AmuxHarness struct {
 
 // newAmuxHarness starts an outer amux server, launches an inner amux inside
 // the outer pane, and waits for the inner amux to render its first pane.
-func newAmuxHarness(tb testing.TB) *AmuxHarness {
+func newAmuxHarness(tb testing.TB, envVars ...string) *AmuxHarness {
 	tb.Helper()
 	outer := newServerHarness(tb)
 
@@ -40,6 +40,11 @@ func newAmuxHarness(tb testing.TB) *AmuxHarness {
 	inner := fmt.Sprintf("t-%x", b)
 
 	h := &AmuxHarness{outer: outer, inner: inner, tb: tb, session: inner}
+
+	// Export any extra environment variables before launching the inner amux.
+	for _, ev := range envVars {
+		outer.sendKeys("pane-1", "export "+ev, "Enter")
+	}
 
 	// Launch inner amux inside the outer pane.
 	outer.sendKeys("pane-1", amuxBin+" -s "+inner, "Enter")
@@ -147,6 +152,11 @@ func (h *AmuxHarness) waitLayoutTimeout(afterGen uint64, timeout string) {
 	if strings.Contains(out, "timeout") {
 		h.tb.Fatalf("inner wait-layout timed out after generation %d\ncapture:\n%s", afterGen, h.capture())
 	}
+}
+
+// waitDuration pauses for tests that intentionally verify real-time expiry.
+func (h *AmuxHarness) waitDuration(d time.Duration) {
+	<-time.After(d)
 }
 
 func (h *AmuxHarness) waitLayoutOrTimeout(afterGen uint64, timeout string) bool {
@@ -284,6 +294,12 @@ func (h *AmuxHarness) verticalBorderCol() int {
 func (h *AmuxHarness) captureAmuxVerticalBorderCol() int {
 	h.tb.Helper()
 	return findVerticalBorderCol(h.captureAmuxContentLines())
+}
+
+// captureAmuxHorizontalBorderRow finds a horizontal border in inner capture.
+func (h *AmuxHarness) captureAmuxHorizontalBorderRow() int {
+	h.tb.Helper()
+	return findHorizontalBorderRow(h.captureAmuxContentLines())
 }
 
 // assertScreen fails the test if fn returns false for the inner capture.
