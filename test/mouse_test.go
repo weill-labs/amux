@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -119,6 +120,28 @@ func waitForOuterContains(h *AmuxHarness, fn func(string) bool, timeout time.Dur
 	return false
 }
 
+func firstMarkerNumber(screen, prefix string) int {
+	for _, line := range strings.Split(screen, "\n") {
+		idx := strings.Index(line, prefix)
+		if idx < 0 {
+			continue
+		}
+		start := idx + len(prefix)
+		end := start
+		for end < len(line) && line[end] >= '0' && line[end] <= '9' {
+			end++
+		}
+		if end == start {
+			continue
+		}
+		n, err := strconv.Atoi(line[start:end])
+		if err == nil {
+			return n
+		}
+	}
+	return 0
+}
+
 func TestMouseScrollWheelEntersCopyMode(t *testing.T) {
 	t.Parallel()
 	h := newAmuxHarness(t)
@@ -130,6 +153,10 @@ for i in $(seq -w 1 24); do echo "MWHEEL-$i"; done
 	h.waitFor("MWHEEL-24", 3*time.Second)
 
 	screen := h.captureOuter()
+	beforeTop := firstMarkerNumber(screen, "MWHEEL-")
+	if beforeTop == 0 {
+		t.Fatalf("expected visible MWHEEL output before wheel-up.\nScreen:\n%s", screen)
+	}
 	if strings.Contains(screen, "MWHEEL-02") {
 		t.Fatalf("expected earlier scrollback to be off-screen before wheel-up.\nScreen:\n%s", screen)
 	}
@@ -140,7 +167,8 @@ for i in $(seq -w 1 24); do echo "MWHEEL-$i"; done
 		t.Fatalf("expected mouse wheel to enter copy mode.\nScreen:\n%s", h.captureOuter())
 	}
 	if !waitForOuterContains(h, func(s string) bool {
-		return strings.Contains(s, "MWHEEL-02")
+		afterTop := firstMarkerNumber(s, "MWHEEL-")
+		return afterTop > 0 && afterTop < beforeTop
 	}, 3*time.Second) {
 		t.Fatalf("expected wheel-up to reveal earlier scrollback.\nScreen:\n%s", h.captureOuter())
 	}

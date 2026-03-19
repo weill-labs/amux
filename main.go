@@ -440,20 +440,6 @@ func runServer(sessionName string) {
 	// Set up remote pane manager for all sessions
 	s.SetupRemoteManager(cfg, server.BuildVersion)
 
-	// Signal readiness on the fd specified by AMUX_READY_FD (used by
-	// test harness for deterministic startup without polling).
-	// Unset immediately so child processes (pane shells, inner amux)
-	// don't inherit it and accidentally close an unrelated fd.
-	if fdStr := os.Getenv("AMUX_READY_FD"); fdStr != "" {
-		os.Unsetenv("AMUX_READY_FD")
-		if fd, err := strconv.Atoi(fdStr); err == nil {
-			if ready := os.NewFile(uintptr(fd), "ready-signal"); ready != nil {
-				ready.Write([]byte("ready\n"))
-				ready.Close()
-			}
-		}
-	}
-
 	// Handle shutdown signals. The goroutine calls Shutdown() which closes
 	// the listener, unblocking Run() below.
 	sigCh := make(chan os.Signal, 1)
@@ -490,7 +476,28 @@ func runServer(sessionName string) {
 		}()
 	}
 
-	if err := s.Run(); err != nil {
+	runErr := make(chan error, 1)
+	go func() {
+		runErr <- s.Run()
+	}()
+
+	// Signal readiness on the fd specified by AMUX_READY_FD (used by
+	// test harness for deterministic startup without polling).
+	// The accept loop is already running here, so a ready signal now means
+	// clients can attach immediately instead of racing server startup.
+	// Unset immediately so child processes (pane shells, inner amux)
+	// don't inherit it and accidentally close an unrelated fd.
+	if fdStr := os.Getenv("AMUX_READY_FD"); fdStr != "" {
+		os.Unsetenv("AMUX_READY_FD")
+		if fd, err := strconv.Atoi(fdStr); err == nil {
+			if ready := os.NewFile(uintptr(fd), "ready-signal"); ready != nil {
+				ready.Write([]byte("ready\n"))
+				ready.Close()
+			}
+		}
+	}
+
+	if err := <-runErr; err != nil {
 		// listener closed is expected on shutdown
 		if !strings.Contains(err.Error(), "use of closed") {
 			fmt.Fprintf(os.Stderr, "amux server: %v\n", err)
