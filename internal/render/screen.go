@@ -227,7 +227,7 @@ func (c *Compositor) buildGridWithOverlay(root *mux.LayoutCell, activePaneID uin
 	}
 
 	// Global bar cells.
-	buildGlobalBarCells(g, c.sessionName, paneCount, c.width, c.height-1, c.windows)
+	buildGlobalBarCells(g, c.sessionName, paneCount, c.width, c.height-1, c.windows, overlay.Message)
 	if overlay.Chooser != nil {
 		buildChooserOverlayCells(g, overlay.Chooser)
 	}
@@ -359,7 +359,7 @@ func buildBorderCells(g *ScreenGrid, bm *borderMap, activePaneID uint32, activeC
 }
 
 // buildGlobalBarCells writes the global status bar into the grid.
-func buildGlobalBarCells(g *ScreenGrid, sessionName string, paneCount int, width, yPos int, windows []WindowInfo) {
+func buildGlobalBarCells(g *ScreenGrid, sessionName string, paneCount int, width, yPos int, windows []WindowInfo, message string) {
 	bg := hexToColor(config.Surface0Hex)
 	textFg := hexToColor(config.TextColorHex)
 	baseStyle := uv.Style{Fg: textFg, Bg: bg}
@@ -397,8 +397,15 @@ func buildGlobalBarCells(g *ScreenGrid, sessionName string, paneCount int, width
 	leftLen := len(chars)
 	rightLen := len([]rune(rightText))
 	fill := width - leftLen - rightLen
-	for i := 0; i < fill; i++ {
-		chars = append(chars, styledChar{ch: " ", style: baseStyle})
+	if fill > 0 {
+		messageRunes := []rune(message)
+		if len(messageRunes) > fill {
+			messageRunes = messageRunes[:fill]
+		}
+		chars = appendStyledStr(chars, string(messageRunes), baseStyle)
+		for i := len(messageRunes); i < fill; i++ {
+			chars = append(chars, styledChar{ch: " ", style: baseStyle})
+		}
 	}
 	chars = appendStyledStr(chars, rightText, baseStyle)
 

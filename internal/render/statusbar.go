@@ -121,7 +121,7 @@ func renderPaneStatus(buf *strings.Builder, cell *mux.LayoutCell, isActive bool,
 }
 
 // renderGlobalBar draws the global status bar at the bottom of the terminal.
-func renderGlobalBar(buf *strings.Builder, sessionName string, paneCount int, width, yPos int, windows []WindowInfo) {
+func renderGlobalBar(buf *strings.Builder, sessionName string, paneCount int, width, yPos int, windows []WindowInfo, message string) {
 	writeCursorTo(buf, yPos+1, 1)
 
 	// Catppuccin surface0 bg, text fg
@@ -157,10 +157,16 @@ func renderGlobalBar(buf *strings.Builder, sessionName string, paneCount int, wi
 
 	buf.WriteString(left)
 
-	// Fill middle
 	fill := width - leftVisible - rightVisible
+	messageRunes := []rune(message)
 	if fill > 0 {
-		buf.WriteString(strings.Repeat(" ", fill))
+		if len(messageRunes) > fill {
+			messageRunes = messageRunes[:fill]
+		}
+		buf.WriteString(string(messageRunes))
+		if remaining := fill - len(messageRunes); remaining > 0 {
+			buf.WriteString(strings.Repeat(" ", remaining))
+		}
 	}
 
 	buf.WriteString(right)

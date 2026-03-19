@@ -600,6 +600,24 @@ func TestChooseWindowOverlayDisplayOnly(t *testing.T) {
 	}
 }
 
+func TestPrefixMessageDisplayOnly(t *testing.T) {
+	t.Parallel()
+
+	cr := buildTestRenderer(t)
+	cr.ShowPrefixMessage("No binding for C-a f")
+	cr.RenderDiff()
+
+	display := cr.CaptureDisplay()
+	if !strings.Contains(display, "No binding for C-a f") {
+		t.Fatalf("display capture should include prefix message, got:\n%s", display)
+	}
+
+	plain := cr.Capture(true)
+	if strings.Contains(plain, "No binding for C-a f") {
+		t.Fatalf("plain capture should not include prefix message, got:\n%s", plain)
+	}
+}
+
 func TestChooseTreeFilterAndSelection(t *testing.T) {
 	t.Parallel()
 

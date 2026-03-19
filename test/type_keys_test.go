@@ -183,3 +183,19 @@ func TestTypeKeysDisplayPanesConsumesOnlyOneKey(t *testing.T) {
 		t.Fatalf("overlay should consume only the first key, got leaked batched input\nScreen:\n%s", screen)
 	}
 }
+
+func TestTypeKeysUnsupportedPrefixKeyDoesNotLeakInput(t *testing.T) {
+	t.Parallel()
+	h := newAmuxHarness(t)
+
+	h.runCmd("type-keys", "C-a", "f", "e", "c", "h", " ", "UNBOUND_OK", "Enter")
+
+	if !h.waitFor("UNBOUND_OK", 3*time.Second) {
+		t.Fatalf("expected UNBOUND_OK marker after unsupported key test\nScreen:\n%s", h.captureOuter())
+	}
+
+	screen := h.captureOuter()
+	if strings.Contains(screen, "fech UNBOUND_OK") || strings.Contains(screen, "fecho UNBOUND_OK") {
+		t.Fatalf("unsupported prefix key should not leak literal input into the shell\nScreen:\n%s", screen)
+	}
+}

@@ -258,6 +258,13 @@ func RunSession(sessionName string) error {
 					io.WriteString(os.Stdout, data)
 				}
 			}
+			showPrefixMessage := func(key byte) {
+				cr.ShowPrefixMessage(formatUnboundPrefixMessage(kb.Prefix, key))
+				io.WriteString(os.Stdout, "\a")
+				if data := cr.RenderDiff(); data != "" {
+					io.WriteString(os.Stdout, data)
+				}
+			}
 
 			// Pressing the prefix key again sends the literal prefix byte
 			if b == kb.Prefix {
@@ -267,6 +274,7 @@ func RunSession(sessionName string) error {
 
 			// Look up binding in dispatch table
 			if binding, ok := kb.Bindings[b]; ok {
+				cr.ClearPrefixMessage()
 				switch binding.Action {
 				case "detach":
 					if len(*forward) > 0 {
@@ -317,8 +325,7 @@ func RunSession(sessionName string) error {
 				prefixEsc = true
 				prefixEscBuf = nil
 			} else {
-				// Unrecognized key after prefix: forward prefix + byte
-				*forward = append(*forward, kb.Prefix, b)
+				showPrefixMessage(b)
 			}
 			return false
 		}
@@ -556,6 +563,24 @@ func CopyToClipboard(text string) {
 		if c.Run() == nil {
 			return
 		}
+	}
+}
+
+func formatUnboundPrefixMessage(prefix, key byte) string {
+	return "No binding for " + formatKeyName(prefix) + " " + formatKeyName(key)
+}
+
+func formatKeyName(b byte) string {
+	if b >= 1 && b <= 26 {
+		return "C-" + string(rune('a'+b-1))
+	}
+	switch b {
+	case 0x1b:
+		return "Esc"
+	case ' ':
+		return "Space"
+	default:
+		return string([]byte{b})
 	}
 }
 
