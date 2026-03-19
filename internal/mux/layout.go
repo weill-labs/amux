@@ -440,22 +440,30 @@ func (c *LayoutCell) distributeEqual() {
 	if c.Dir == SplitVertical {
 		each := (c.W - seps) / n
 		for i, child := range c.Children {
+			targetW := each
 			if i == n-1 {
-				child.W = c.W - seps - each*(n-1)
-			} else {
-				child.W = each
+				targetW = c.W - seps - each*(n-1)
 			}
-			child.H = c.H
+			if child.IsLeaf() {
+				child.W = targetW
+				child.H = c.H
+			} else {
+				child.ResizeAll(targetW, c.H)
+			}
 		}
 	} else {
 		each := (c.H - seps) / n
 		for i, child := range c.Children {
+			targetH := each
 			if i == n-1 {
-				child.H = c.H - seps - each*(n-1)
-			} else {
-				child.H = each
+				targetH = c.H - seps - each*(n-1)
 			}
-			child.W = c.W
+			if child.IsLeaf() {
+				child.H = targetH
+				child.W = c.W
+			} else {
+				child.ResizeAll(c.W, targetH)
+			}
 		}
 	}
 }

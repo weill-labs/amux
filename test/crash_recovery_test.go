@@ -182,6 +182,49 @@ func TestCrashRecovery_CheckpointIsValidJSON(t *testing.T) {
 	}
 }
 
+func TestCrashRecovery_FocusUpFromRestoredFullWidthBottomPane(t *testing.T) {
+	t.Parallel()
+
+	h := newServerHarnessPersistent(t)
+
+	makeThreeByThreeGridServer(t, h)
+	h.doFocus("pane-9")
+	h.doSplit("root")
+	h.assertActive("pane-10")
+
+	cpPath := checkpoint.CrashCheckpointPath(h.session)
+	waitForCrashCheckpoint(t, cpPath, 5*time.Second)
+
+	if h.client != nil {
+		h.client.close()
+		h.client = nil
+	}
+	h.cmd.Process.Signal(syscall.SIGKILL)
+	h.cmd.Wait()
+	h.cmd = nil
+
+	h2 := startServerForSession(t, h.session)
+	h2.assertActive("pane-10")
+
+	out := h2.runCmd("focus", "up")
+	if strings.Contains(out, "Focused pane-10") {
+		t.Fatalf("focus up after crash recovery should move to a pane above, got output %q\ncapture:\n%s", strings.TrimSpace(out), h2.capture())
+	}
+}
+
+func makeThreeByThreeGridServer(t *testing.T, h *ServerHarness) {
+	t.Helper()
+
+	h.doSplit("root", "v")
+	h.doSplit("root", "v")
+
+	for _, pane := range []string{"pane-1", "pane-2", "pane-3"} {
+		h.doFocus(pane)
+		h.doSplit()
+		h.doSplit()
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------

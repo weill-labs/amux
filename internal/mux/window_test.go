@@ -419,6 +419,48 @@ func TestResizePane(t *testing.T) {
 	}
 }
 
+func TestClosePaneRedistributesNestedSubtreeSizes(t *testing.T) {
+	t.Parallel()
+
+	p1 := fakePaneID(1)
+	w := NewWindow(p1, 80, 23)
+
+	p2 := fakePaneID(2)
+	if _, err := w.Split(SplitHorizontal, p2); err != nil {
+		t.Fatalf("split horizontal: %v", err)
+	}
+	p3 := fakePaneID(3)
+	if _, err := w.Split(SplitHorizontal, p3); err != nil {
+		t.Fatalf("split horizontal again: %v", err)
+	}
+
+	w.FocusPane(p1)
+	p4 := fakePaneID(4)
+	if _, err := w.Split(SplitVertical, p4); err != nil {
+		t.Fatalf("split top row vertical: %v", err)
+	}
+
+	topSubtree := w.Root.Children[0]
+	if topSubtree.IsLeaf() {
+		t.Fatal("expected top child to be a subtree")
+	}
+
+	if err := w.ClosePane(p3.ID); err != nil {
+		t.Fatalf("close pane-3: %v", err)
+	}
+
+	topSubtree = w.Root.Children[0]
+	left := topSubtree.Children[0]
+	right := topSubtree.Children[1]
+
+	if left.H != topSubtree.H {
+		t.Fatalf("left child height = %d, want subtree height %d", left.H, topSubtree.H)
+	}
+	if right.H != topSubtree.H {
+		t.Fatalf("right child height = %d, want subtree height %d", right.H, topSubtree.H)
+	}
+}
+
 func TestResizePaneDelegation(t *testing.T) {
 	t.Parallel()
 	// Verify ResizeActive delegates to ResizePane correctly.

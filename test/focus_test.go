@@ -260,6 +260,67 @@ func TestAltHJKLFocus(t *testing.T) {
 	h.assertActive("pane-2")
 }
 
+func TestFocusUpFromFullWidthBottomPane(t *testing.T) {
+	t.Parallel()
+	h := newAmuxHarness(t)
+
+	makeThreeByThreeGrid(t, h)
+
+	// Root split creates a new full-width pane below the existing 3x3 grid.
+	runLayoutCommand(t, h, "focus", "pane-9")
+	runLayoutCommand(t, h, "split", "root")
+
+	h.assertActive("pane-10")
+
+	gen := h.generation()
+	h.sendKeys("C-a", "k")
+	h.waitLayout(gen)
+
+	if got := h.activePaneName(); got == "pane-10" {
+		t.Fatalf("focus up from full-width bottom pane should move to a pane above, got %s", got)
+	}
+}
+
+func TestFocusUpFromFullWidthBottomPaneAfterResizeRoundTrip(t *testing.T) {
+	t.Parallel()
+	h := newAmuxHarness(t)
+
+	makeThreeByThreeGrid(t, h)
+	runLayoutCommand(t, h, "focus", "pane-9")
+	runLayoutCommand(t, h, "split", "root")
+	resizeRoundTrip(t, h)
+
+	h.assertActive("pane-10")
+
+	gen := h.generation()
+	h.sendKeys("C-a", "k")
+	h.waitLayout(gen)
+
+	if got := h.activePaneName(); got == "pane-10" {
+		t.Fatalf("focus up after resize round-trip should move to a pane above, got %s", got)
+	}
+}
+
+func TestFocusUpFromFullWidthBottomPaneInUnevenGrid(t *testing.T) {
+	t.Parallel()
+	h := newAmuxHarness(t)
+
+	makeThreeByThreeGrid(t, h)
+	makeGridUneven(t, h)
+	runLayoutCommand(t, h, "focus", "pane-9")
+	runLayoutCommand(t, h, "split", "root")
+
+	h.assertActive("pane-10")
+
+	gen := h.generation()
+	h.sendKeys("C-a", "k")
+	h.waitLayout(gen)
+
+	if got := h.activePaneName(); got == "pane-10" {
+		t.Fatalf("focus up in uneven grid should move to a pane above, got %s", got)
+	}
+}
+
 func TestAltHJKLFocusVertical(t *testing.T) {
 	t.Parallel()
 	h := newAmuxHarness(t)
