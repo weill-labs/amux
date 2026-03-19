@@ -3,7 +3,7 @@
 [![CI](https://github.com/weill-labs/amux/actions/workflows/ci.yml/badge.svg)](https://github.com/weill-labs/amux/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/weill-labs/amux/graph/badge.svg?token=RY0CPn9v7g)](https://codecov.io/gh/weill-labs/amux)
 
-A terminal multiplexer with a first-class agent API. Structured JSON capture, blocking wait primitives, and push-based events — no polling, no screen-scraping.
+A terminal multiplexer with a first-class agent API. Structured JSON capture, blocking waits, and push-based events — no polling, no screen-scraping.
 
 ![amux demo](demo/hero.gif)
 
