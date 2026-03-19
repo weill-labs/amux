@@ -12,6 +12,15 @@ const (
 	chooserModalMinMargin = 2
 )
 
+type chooserRowStyle string
+
+const (
+	chooserRowBorder   chooserRowStyle = "border"
+	chooserRowNormal   chooserRowStyle = "row"
+	chooserRowSelected chooserRowStyle = "selected"
+	chooserRowDim      chooserRowStyle = "dim"
+)
+
 func buildChooserOverlayCells(g *ScreenGrid, overlay *ChooserOverlay) {
 	if overlay == nil {
 		return
@@ -27,28 +36,7 @@ func buildChooserOverlayCells(g *ScreenGrid, overlay *ChooserOverlay) {
 
 	for row, line := range lines {
 		for col, r := range line {
-			style := textStyle
-			switch styles[row] {
-			case "border":
-				style = borderStyle
-			case "selected":
-				style = selectedStyle
-			case "dim":
-				style = dimStyle
-			default:
-				if col == 0 || col == len(line)-1 {
-					style = borderStyle
-				}
-			}
-			if styles[row] == "row" && (col == 0 || col == len(line)-1) {
-				style = borderStyle
-			}
-			if styles[row] == "selected" && (col == 0 || col == len(line)-1) {
-				style = borderStyle
-			}
-			if styles[row] == "dim" && (col == 0 || col == len(line)-1) {
-				style = borderStyle
-			}
+			style := chooserCellStyle(styles[row], col == 0 || col == len(line)-1, borderStyle, textStyle, dimStyle, selectedStyle)
 			g.Set(x+col, y+row, ScreenCell{Char: string(r), Width: 1, Style: style})
 		}
 	}
@@ -74,7 +62,7 @@ func renderChooserOverlay(buf *strings.Builder, width, height int, overlay *Choo
 	}
 }
 
-func chooserOverlayLayout(screenW, screenH int, overlay *ChooserOverlay) ([]string, []string, int, int) {
+func chooserOverlayLayout(screenW, screenH int, overlay *ChooserOverlay) ([]string, []chooserRowStyle, int, int) {
 	if overlay == nil || screenW <= 0 || screenH <= 0 {
 		return nil, nil, 0, 0
 	}
@@ -123,25 +111,25 @@ func chooserOverlayLayout(screenW, screenH int, overlay *ChooserOverlay) ([]stri
 	}
 
 	lines := make([]string, 0, end-start+3)
-	styles := make([]string, 0, end-start+3)
+	styles := make([]chooserRowStyle, 0, end-start+3)
 	lines = append(lines, "+"+padOrTrim(title, width-2)+"+")
-	styles = append(styles, "border")
+	styles = append(styles, chooserRowBorder)
 	lines = append(lines, "|"+padOrTrim(query, width-2)+"|")
-	styles = append(styles, "row")
+	styles = append(styles, chooserRowNormal)
 	for i := start; i < end; i++ {
 		row := overlay.Rows[i]
 		lines = append(lines, "|"+padOrTrim(row.Text, width-2)+"|")
-		style := "row"
+		style := chooserRowNormal
 		if !row.Selectable {
-			style = "dim"
+			style = chooserRowDim
 		}
 		if i == overlay.Selected && row.Selectable {
-			style = "selected"
+			style = chooserRowSelected
 		}
 		styles = append(styles, style)
 	}
 	lines = append(lines, "+"+strings.Repeat("-", width-2)+"+")
-	styles = append(styles, "border")
+	styles = append(styles, chooserRowBorder)
 
 	height := len(lines)
 	if height > screenH-chooserModalMinMargin*2 {
@@ -156,6 +144,20 @@ func chooserOverlayLayout(screenW, screenH int, overlay *ChooserOverlay) ([]stri
 		y = 0
 	}
 	return lines, styles, x, y
+}
+
+func chooserCellStyle(rowStyle chooserRowStyle, border bool, borderStyle, textStyle, dimStyle, selectedStyle uv.Style) uv.Style {
+	if border {
+		return borderStyle
+	}
+	switch rowStyle {
+	case chooserRowSelected:
+		return selectedStyle
+	case chooserRowDim:
+		return dimStyle
+	default:
+		return textStyle
+	}
 }
 
 func padOrTrim(s string, width int) string {

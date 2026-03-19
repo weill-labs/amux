@@ -9,6 +9,22 @@ const (
 )
 
 func (cc *ClientConn) applyUIEvent(name string) (bool, error) {
+	mode, shown, ok := chooserEventState(name)
+	if ok {
+		if shown {
+			if cc.chooserMode == mode {
+				return false, nil
+			}
+			cc.chooserMode = mode
+			return true, nil
+		}
+		if cc.chooserMode != mode {
+			return false, nil
+		}
+		cc.chooserMode = chooserHidden
+		return true, nil
+	}
+
 	switch name {
 	case proto.UIEventDisplayPanesShown:
 		if cc.displayPanesShown {
@@ -22,49 +38,25 @@ func (cc *ClientConn) applyUIEvent(name string) (bool, error) {
 		}
 		cc.displayPanesShown = false
 		return true, nil
-	case proto.UIEventChooseTreeShown:
-		if cc.chooserMode == chooserTree {
-			return false, nil
-		}
-		cc.chooserMode = chooserTree
-		return true, nil
-	case proto.UIEventChooseTreeHidden:
-		if cc.chooserMode != chooserTree {
-			return false, nil
-		}
-		cc.chooserMode = chooserHidden
-		return true, nil
-	case proto.UIEventChooseWindowShown:
-		if cc.chooserMode == chooserWindow {
-			return false, nil
-		}
-		cc.chooserMode = chooserWindow
-		return true, nil
-	case proto.UIEventChooseWindowHidden:
-		if cc.chooserMode != chooserWindow {
-			return false, nil
-		}
-		cc.chooserMode = chooserHidden
-		return true, nil
 	default:
 		return false, errUnknownUIEvent(name)
 	}
 }
 
 func (cc *ClientConn) matchesUIEvent(name string) bool {
+	mode, shown, ok := chooserEventState(name)
+	if ok {
+		if shown {
+			return cc.chooserMode == mode
+		}
+		return cc.chooserMode != mode
+	}
+
 	switch name {
 	case proto.UIEventDisplayPanesShown:
 		return cc.displayPanesShown
 	case proto.UIEventDisplayPanesHidden:
 		return !cc.displayPanesShown
-	case proto.UIEventChooseTreeShown:
-		return cc.chooserMode == chooserTree
-	case proto.UIEventChooseTreeHidden:
-		return cc.chooserMode != chooserTree
-	case proto.UIEventChooseWindowShown:
-		return cc.chooserMode == chooserWindow
-	case proto.UIEventChooseWindowHidden:
-		return cc.chooserMode != chooserWindow
 	default:
 		return false
 	}
@@ -93,22 +85,43 @@ func (cc *ClientConn) currentUIEvents() []Event {
 		events[0].Type = proto.UIEventDisplayPanesShown
 	}
 
-	switch cc.chooserMode {
-	case chooserTree:
-		events = append(events,
-			Event{Type: proto.UIEventChooseTreeShown, ClientID: cc.ID},
-			Event{Type: proto.UIEventChooseWindowHidden, ClientID: cc.ID},
-		)
-	case chooserWindow:
-		events = append(events,
-			Event{Type: proto.UIEventChooseTreeHidden, ClientID: cc.ID},
-			Event{Type: proto.UIEventChooseWindowShown, ClientID: cc.ID},
-		)
-	default:
-		events = append(events,
-			Event{Type: proto.UIEventChooseTreeHidden, ClientID: cc.ID},
-			Event{Type: proto.UIEventChooseWindowHidden, ClientID: cc.ID},
-		)
-	}
+	events = append(events,
+		Event{Type: chooserSnapshotEvent(chooserTree, cc.chooserMode), ClientID: cc.ID},
+		Event{Type: chooserSnapshotEvent(chooserWindow, cc.chooserMode), ClientID: cc.ID},
+	)
 	return events
+}
+
+func chooserEventState(name string) (mode string, shown bool, ok bool) {
+	switch name {
+	case proto.UIEventChooseTreeShown:
+		return chooserTree, true, true
+	case proto.UIEventChooseTreeHidden:
+		return chooserTree, false, true
+	case proto.UIEventChooseWindowShown:
+		return chooserWindow, true, true
+	case proto.UIEventChooseWindowHidden:
+		return chooserWindow, false, true
+	default:
+		return "", false, false
+	}
+}
+
+func chooserSnapshotEvent(mode, current string) string {
+	if current == mode {
+		switch mode {
+		case chooserTree:
+			return proto.UIEventChooseTreeShown
+		case chooserWindow:
+			return proto.UIEventChooseWindowShown
+		}
+	}
+	switch mode {
+	case chooserTree:
+		return proto.UIEventChooseTreeHidden
+	case chooserWindow:
+		return proto.UIEventChooseWindowHidden
+	default:
+		return ""
+	}
 }
