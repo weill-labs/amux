@@ -1,9 +1,12 @@
 package test
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/weill-labs/amux/internal/proto"
 )
 
 // ---------------------------------------------------------------------------
@@ -104,6 +107,71 @@ func TestNextPrevWindowCLI(t *testing.T) {
 	h.assertScreen("next-window should show pane-2", func(s string) bool {
 		return strings.Contains(s, "[pane-2]")
 	})
+}
+
+func TestWindowSwitchResyncsStaleCursorState(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		switchFn func(*ServerHarness)
+	}{
+		{
+			name: "select-window",
+			switchFn: func(h *ServerHarness) {
+				h.runCmd("select-window", "1")
+			},
+		},
+		{
+			name: "next-window",
+			switchFn: func(h *ServerHarness) {
+				h.runCmd("next-window")
+			},
+		},
+		{
+			name: "prev-window",
+			switchFn: func(h *ServerHarness) {
+				h.runCmd("prev-window")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newServerHarnessWithSize(t, 255, 62)
+			h.waitFor("pane-1", "$")
+
+			healthyCapture := h.captureJSON()
+			healthy := h.jsonPane(healthyCapture, "pane-1")
+
+			h.runCmd("new-window")
+			h.waitFor("pane-2", "$")
+
+			// Simulate stale client-side cursor state for the hidden pane in window 1.
+			h.client.renderer.HandlePaneOutput(1, []byte("\033[1;24H"))
+
+			var before proto.CapturePane
+			if err := json.Unmarshal([]byte(h.client.renderer.CapturePaneJSON(1, nil)), &before); err != nil {
+				t.Fatalf("unmarshal pane-1 before switch: %v", err)
+			}
+			if got := before.Cursor.Col; got != 23 {
+				t.Fatalf("precondition failed: pane-1 cursor col = %d, want 23", got)
+			}
+
+			tt.switchFn(h)
+
+			afterCapture := h.captureJSON()
+			after := h.jsonPane(afterCapture, "pane-1")
+			if got, want := after.Content[0], healthy.Content[0]; got != want {
+				t.Fatalf("pane-1 content after switch = %q, want %q", got, want)
+			}
+			if got, want := after.Cursor.Col, healthy.Cursor.Col; got != want {
+				t.Fatalf("pane-1 cursor col after switch = %d, want %d", got, want)
+			}
+		})
+	}
 }
 
 // ---------------------------------------------------------------------------

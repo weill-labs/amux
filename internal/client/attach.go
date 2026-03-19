@@ -23,6 +23,14 @@ import (
 	"golang.org/x/term"
 )
 
+func handleDisplayPaneSelection(cr *ClientRenderer, sender *messageSender, b byte) {
+	paneID, ok := cr.ResolveDisplayPaneKey(b)
+	cr.HideDisplayPanes()
+	if ok {
+		sender.Command("focus", []string{fmt.Sprintf("%d", paneID)})
+	}
+}
+
 // RunSession connects to an existing server or starts one, then enters raw
 // terminal mode for interactive use.
 func RunSession(sessionName string) error {
@@ -443,13 +451,9 @@ func RunSession(sessionName string) error {
 				// Process flushed bytes (normal input that passed through parser)
 				for _, fb := range flushed {
 					if cr.DisplayPanesActive() {
-						paneID, ok := cr.ResolveDisplayPaneKey(fb)
-						cr.HideDisplayPanes()
+						handleDisplayPaneSelection(cr, sender, fb)
 						if data := cr.RenderDiff(); data != "" {
 							io.WriteString(os.Stdout, data)
-						}
-						if ok {
-							sender.Command("focus", []string{fmt.Sprintf("%d", paneID)})
 						}
 						continue
 					}

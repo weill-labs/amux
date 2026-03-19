@@ -80,6 +80,16 @@ func (ctx *CommandContext) activeWindowSnapshot() (activePid, width, height int,
 	return activePid, w.Width, w.Height, nil
 }
 
+func activePaneRender(w *mux.Window) []paneRender {
+	if w == nil || w.ActivePane == nil {
+		return nil
+	}
+	return []paneRender{{
+		paneID: w.ActivePane.ID,
+		data:   []byte(w.ActivePane.RenderScreen()),
+	}}
+}
+
 // commandRegistry maps command names to their handlers, following
 // tmux's pattern of one entry per command.
 var commandRegistry = map[string]CommandHandler{
@@ -250,10 +260,7 @@ func cmdFocus(ctx *CommandContext) {
 			return commandMutationResult{
 				output:          fmt.Sprintf("Focused %s\n", pane.Meta.Name),
 				broadcastLayout: true,
-				paneRenders: []paneRender{{
-					paneID: pane.ID,
-					data:   []byte(pane.RenderScreen()),
-				}},
+				paneRenders:     activePaneRender(w),
 			}
 		default:
 			pane, pw, err := ctx.CC.resolvePaneAcrossWindowsLocked(sess, direction)
@@ -267,10 +274,7 @@ func cmdFocus(ctx *CommandContext) {
 			return commandMutationResult{
 				output:          fmt.Sprintf("Focused %s\n", pane.Meta.Name),
 				broadcastLayout: true,
-				paneRenders: []paneRender{{
-					paneID: pane.ID,
-					data:   []byte(pane.RenderScreen()),
-				}},
+				paneRenders:     activePaneRender(pw),
 			}
 		}
 	}))
@@ -631,7 +635,11 @@ func cmdSelectWindow(ctx *CommandContext) {
 			return commandMutationResult{err: fmt.Errorf("window %q not found", ref)}
 		}
 		sess.ActiveWindowID = w.ID
-		return commandMutationResult{output: "Switched window\n", broadcastLayout: true}
+		return commandMutationResult{
+			output:          "Switched window\n",
+			broadcastLayout: true,
+			paneRenders:     activePaneRender(w),
+		}
 	}))
 }
 
@@ -640,7 +648,11 @@ func cmdNextWindow(ctx *CommandContext) {
 		sess.mu.Lock()
 		defer sess.mu.Unlock()
 		sess.NextWindow()
-		return commandMutationResult{output: "Next window\n", broadcastLayout: true}
+		return commandMutationResult{
+			output:          "Next window\n",
+			broadcastLayout: true,
+			paneRenders:     activePaneRender(sess.ActiveWindow()),
+		}
 	}))
 }
 
@@ -649,7 +661,11 @@ func cmdPrevWindow(ctx *CommandContext) {
 		sess.mu.Lock()
 		defer sess.mu.Unlock()
 		sess.PrevWindow()
-		return commandMutationResult{output: "Previous window\n", broadcastLayout: true}
+		return commandMutationResult{
+			output:          "Previous window\n",
+			broadcastLayout: true,
+			paneRenders:     activePaneRender(sess.ActiveWindow()),
+		}
 	}))
 }
 
