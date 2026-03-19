@@ -180,6 +180,8 @@ For local development builds, prefer `make build` instead of writing `go build` 
 
 Single binary, no runtime dependencies.
 
+For local development builds, prefer `make build` instead of writing `go build` directly to `~/.local/bin/amux`. The atomic replace avoids transient invalid binaries during hot-reload on macOS, and the install guard blocks cross-checkout overwrites when the existing install metadata points at another repo unless you opt in with `AMUX_INSTALL_FORCE=1`.
+
 ## Quick Start
 
 **Human:**

@@ -146,6 +146,8 @@ Trigger patterns for compositor bugs: long or truncated lines near pane boundari
 
 Both client and server watch the binary and re-exec on changes (`reload.go`). Running `make build` replaces the installed binary atomically, which then triggers automatic reload of both -- panes and shells are preserved across server reloads via checkpoint and restore.
 
+`make build` also writes install metadata and refuses to overwrite the shared `~/.local/bin/amux` when that metadata shows it was last installed from a different checkout. Use `AMUX_INSTALL_FORCE=1 make build` only when you intentionally want to replace the shared binary.
+
 Socket location: `/tmp/amux-$UID/<session-name>`
 
 ## Configuration
