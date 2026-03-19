@@ -41,9 +41,14 @@ fi
 # --- Integration tests ---
 echo ""
 echo "=== Integration tests (GOCOVERDIR) ==="
-integ_args=(-race -timeout 900s ./test/)
+# Keep the coverage run close to the historical CI shape: parallelism capped
+# at 2 for harness stability, no -race on the integration test binary, and no
+# AMUX_TEST_RACE in the spawned amux subprocesses. Turning on both coverage and
+# race instrumentation here balloons CI wall time because each test harness
+# rebuilds and runs a race-enabled amux binary under GOCOVERDIR.
+integ_args=(-parallel 2 -timeout 300s ./test/)
 if [[ "$CI_MODE" == true ]]; then
-  AMUX_TEST_RACE=1 GOCOVERDIR="$COVDIR" go test -json "${integ_args[@]}" | tee integration-results.json || integ_rc=$?
+  GOCOVERDIR="$COVDIR" go test -json "${integ_args[@]}" | tee integration-results.json || integ_rc=$?
 else
   GOCOVERDIR="$COVDIR" go test "${integ_args[@]}" || integ_rc=$?
 fi
