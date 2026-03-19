@@ -13,7 +13,7 @@ Use this skill when the task involves `git push`, `gh pr create`, `gh pr merge`,
 - This repo is squash-only on GitHub. Use `gh pr merge --squash`; merge and rebase merges will fail.
 - Do not present a PR as done until it has had both a review pass and a simplification pass.
 - If benchmarks changed, add a `Baseline numbers` section to the PR description with representative results and hardware.
-- After merge, capture a short postmortem and turn action items into issues or doc updates.
+- After merge, run the `postmortem` skill and turn action items into issues or doc updates.
 
 ## Workflow
 
@@ -24,7 +24,7 @@ Use this skill when the task involves `git push`, `gh pr create`, `gh pr merge`,
 5. Run a simplification pass focused on unnecessary complexity and cleanup opportunities.
 6. If the change affects layout math or resize behavior, compare against tmux before adding new layout state or diverging from tmux semantics.
 7. If the change touched benchmarks, add baseline numbers before calling the PR ready.
-8. After merge, record a short postmortem with learnings, pain points, and follow-up actions.
+8. After merge, explicitly invoke the `postmortem` skill to capture learnings, pain points, and follow-up actions.
 
 ## Output Checklist
 
@@ -34,4 +34,4 @@ Use this skill when the task involves `git push`, `gh pr create`, `gh pr merge`,
 - Simplification pass completed.
 - Squash merge policy followed.
 - Benchmark baseline section added when relevant.
-- Postmortem captured after merge.
+- `postmortem` skill run after merge.
