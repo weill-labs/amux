@@ -404,20 +404,25 @@ func forceResizeChildren(cell *LayoutCell) {
 		return
 	}
 	targetW, targetH := cell.W, cell.H
-	childTotal := 0
-	for _, child := range cell.Children {
-		if cell.Dir == SplitVertical {
-			childTotal += child.W
-		} else {
-			childTotal += child.H
-		}
+
+	if len(cell.Children) == 0 {
+		return
 	}
-	childTotal += len(cell.Children) - 1
 
 	if cell.Dir == SplitVertical {
-		cell.W = childTotal
+		totalW := len(cell.Children) - 1
+		for _, child := range cell.Children {
+			totalW += child.W
+		}
+		cell.W = totalW
+		cell.H = cell.Children[0].H
 	} else {
-		cell.H = childTotal
+		totalH := len(cell.Children) - 1
+		for _, child := range cell.Children {
+			totalH += child.H
+		}
+		cell.W = cell.Children[0].W
+		cell.H = totalH
 	}
 	cell.ResizeAll(targetW, targetH)
 }
@@ -467,10 +472,10 @@ func (w *Window) ResizeBorder(x, y, delta int) bool {
 
 	// Propagate size changes to subtrees
 	if !hit.Left.IsLeaf() {
-		hit.Left.ResizeAll(hit.Left.W, hit.Left.H)
+		forceResizeChildren(hit.Left)
 	}
 	if !hit.Right.IsLeaf() {
-		hit.Right.ResizeAll(hit.Right.W, hit.Right.H)
+		forceResizeChildren(hit.Right)
 	}
 
 	w.Root.FixOffsets()
@@ -576,10 +581,10 @@ func (w *Window) resizeBetween(grower, donor *LayoutCell, axis SplitDir, delta i
 
 	// Propagate size changes to subtrees
 	if !grower.IsLeaf() {
-		grower.ResizeAll(grower.W, grower.H)
+		forceResizeChildren(grower)
 	}
 	if !donor.IsLeaf() {
-		donor.ResizeAll(donor.W, donor.H)
+		forceResizeChildren(donor)
 	}
 
 	w.Root.FixOffsets()
