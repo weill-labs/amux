@@ -1014,28 +1014,58 @@ func cmdWaitBusy(ctx *CommandContext) {
 		return
 	}
 	paneID := pane.ID
-	paneName := pane.Meta.Name
 	ctx.Sess.mu.Unlock()
 
-	res := ctx.Sess.enqueueEventSubscribe(eventFilter{Types: []string{EventBusy}, PaneName: paneName}, false)
-	if res.sub == nil {
+	checkBusy := func() (bool, error) {
+		ctx.Sess.mu.Lock()
+		pane := ctx.Sess.findPaneLocked(paneID)
+		ctx.Sess.mu.Unlock()
+		if pane == nil {
+			return false, fmt.Errorf("pane %q disappeared while waiting to become busy", paneRef)
+		}
+		return !pane.AgentStatus().Idle, nil
+	}
+
+	outputCh := ctx.Sess.enqueuePaneOutputSubscribe(paneID)
+	if outputCh == nil {
 		ctx.replyErr("session shutting down")
 		return
 	}
-	defer ctx.Sess.enqueueEventUnsubscribe(res.sub)
+	defer ctx.Sess.enqueuePaneOutputUnsubscribe(paneID, outputCh)
 
-	if !ctx.Sess.idle.IsIdle(paneID) {
+	busy, err := checkBusy()
+	if err != nil {
+		ctx.replyErr(err.Error())
+		return
+	}
+	if busy {
 		ctx.reply("busy\n")
 		return
 	}
 
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
-	select {
-	case <-res.sub.ch:
-		ctx.reply("busy\n")
-	case <-timer.C:
-		ctx.replyErr(fmt.Sprintf("timeout waiting for %s to become busy", paneRef))
+	timeoutTimer := time.NewTimer(timeout)
+	defer timeoutTimer.Stop()
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-outputCh:
+		case <-ticker.C:
+		case <-timeoutTimer.C:
+			ctx.replyErr(fmt.Sprintf("timeout waiting for %s to become busy", paneRef))
+			return
+		}
+
+		busy, err := checkBusy()
+		if err != nil {
+			ctx.replyErr(err.Error())
+			return
+		}
+		if busy {
+			ctx.reply("busy\n")
+			return
+		}
 	}
 }
 

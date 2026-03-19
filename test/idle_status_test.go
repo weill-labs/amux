@@ -96,6 +96,29 @@ func TestWaitBusy_EventBased(t *testing.T) {
 	if pane.Idle {
 		t.Error("pane should be busy after waitBusy returns")
 	}
+	if len(pane.ChildPIDs) == 0 {
+		t.Error("waitBusy should return only after a child process exists")
+	}
+}
+
+func TestWaitBusy_WaitsForChildProcessNotPromptEcho(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	h.sendKeys("pane-1", "echo READY", "Enter")
+	h.waitFor("pane-1", "READY")
+	h.waitIdle("pane-1")
+
+	h.sendKeys("pane-1", "sleep 300", "Enter")
+	h.waitBusy("pane-1")
+
+	pane := captureJSONPane(t, h, "pane-1")
+	if pane.Idle {
+		t.Error("pane should be busy after waitBusy returns")
+	}
+	if len(pane.ChildPIDs) == 0 {
+		t.Error("waitBusy should not return on prompt echo alone")
+	}
 }
 
 func TestWaitIdle_EventBased(t *testing.T) {
