@@ -6,7 +6,6 @@ type OverlayState struct {
 	PaneLabels []PaneOverlayLabel
 	Chooser    *ChooserOverlay
 	Message    string
-	Message    string
 }
 
 // ChooserOverlay is a client-local modal chooser rendered above the layout.
