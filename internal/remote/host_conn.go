@@ -5,6 +5,7 @@ import (
 	"net"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/crypto/ssh"
@@ -54,9 +55,10 @@ type HostConn struct {
 	onStateChange StateChangeCallback
 
 	// Event loop channels
-	cmds chan hostEvent
-	stop chan struct{}
-	done chan struct{}
+	cmds      chan hostEvent
+	stop      chan struct{}
+	done      chan struct{}
+	closeOnce sync.Once
 }
 
 // NewHostConn creates a host connection (not yet connected) and starts its

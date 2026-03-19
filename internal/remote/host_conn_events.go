@@ -340,9 +340,11 @@ func (hc *HostConn) enqueue(ev hostEvent) bool {
 }
 
 // Close stops the event loop and releases resources.
-// Must be called when the HostConn is no longer needed.
+// Safe to call multiple times; only the first call has effect.
 func (hc *HostConn) Close() {
-	hc.Disconnect()
-	close(hc.stop)
-	<-hc.done
+	hc.closeOnce.Do(func() {
+		hc.Disconnect()
+		close(hc.stop)
+		<-hc.done
+	})
 }
