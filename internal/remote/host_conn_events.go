@@ -29,6 +29,17 @@ type connectOutcome struct {
 	takeover    bool
 }
 
+// closeConns closes the connections held by a connectOutcome.
+// Used when discarding an outcome that arrived after an explicit disconnect.
+func (o *connectOutcome) closeConns() {
+	if o.amuxConn != nil {
+		o.amuxConn.Close()
+	}
+	if o.sshClient != nil {
+		o.sshClient.Close()
+	}
+}
+
 // --- Query events ---
 
 type stateQuery struct {
@@ -75,23 +86,9 @@ type connectEvent struct {
 }
 
 func (e connectEvent) handle(hc *HostConn) {
-	if hc.state == Connected {
-		e.reply <- nil
-		return
-	}
-
-	hc.pendingConnectReplies = append(hc.pendingConnectReplies, e.reply)
-
-	if hc.state == Connecting {
-		return // connect already in progress, reply will come via connectDoneEvent
-	}
-
-	hc.setState(Connecting)
-	sessionName := e.sessionName
-	go func() {
-		outcome, err := hc.doConnect(sessionName)
-		hc.enqueue(connectDoneEvent{outcome: outcome, err: err})
-	}()
+	hc.startConnect(e.reply, func() (*connectOutcome, error) {
+		return hc.doConnect(e.sessionName)
+	})
 }
 
 type connectTakeoverEvent struct {
@@ -102,20 +99,29 @@ type connectTakeoverEvent struct {
 }
 
 func (e connectTakeoverEvent) handle(hc *HostConn) {
+	hc.startConnect(e.reply, func() (*connectOutcome, error) {
+		return hc.doConnectTakeover(e.sessionName, e.remoteUID, e.sshAddr)
+	})
+}
+
+// startConnect is the shared handler for connectEvent and connectTakeoverEvent.
+// If already connected, replies immediately. If a connect is in progress, queues
+// the reply. Otherwise transitions to Connecting and spawns connectFn.
+func (hc *HostConn) startConnect(reply chan error, connectFn func() (*connectOutcome, error)) {
 	if hc.state == Connected {
-		e.reply <- nil
+		reply <- nil
 		return
 	}
 
-	hc.pendingConnectReplies = append(hc.pendingConnectReplies, e.reply)
+	hc.pendingConnectReplies = append(hc.pendingConnectReplies, reply)
 
 	if hc.state == Connecting {
-		return
+		return // connect already in progress, reply will come via connectDoneEvent
 	}
 
 	hc.setState(Connecting)
 	go func() {
-		outcome, err := hc.doConnectTakeover(e.sessionName, e.remoteUID, e.sshAddr)
+		outcome, err := connectFn()
 		hc.enqueue(connectDoneEvent{outcome: outcome, err: err})
 	}()
 }
@@ -130,38 +136,19 @@ func (e connectDoneEvent) handle(hc *HostConn) {
 		if hc.state == Connecting {
 			hc.setState(Disconnected)
 		}
-		for _, reply := range hc.pendingConnectReplies {
-			reply <- e.err
-		}
-		hc.pendingConnectReplies = nil
+		hc.drainPendingReplies(e.err)
 		return
 	}
 
 	if hc.state != Connecting {
-		// Explicit disconnect arrived while connecting — discard the result.
-		e.outcome.amuxConn.Close()
-		e.outcome.sshClient.Close()
-		for _, reply := range hc.pendingConnectReplies {
-			reply <- errHostConnClosed
-		}
-		hc.pendingConnectReplies = nil
+		// Explicit disconnect arrived while connecting -- discard the result.
+		e.outcome.closeConns()
+		hc.drainPendingReplies(errHostConnClosed)
 		return
 	}
 
-	hc.sshClient = e.outcome.sshClient
-	hc.amuxConn = e.outcome.amuxConn
-	hc.sessionName = e.outcome.sessionName
-	hc.remoteUID = e.outcome.remoteUID
-	if e.outcome.takeover {
-		hc.takeoverMode = true
-	}
-	hc.setState(Connected)
-	go hc.readLoop(hc.amuxConn)
-
-	for _, reply := range hc.pendingConnectReplies {
-		reply <- nil
-	}
-	hc.pendingConnectReplies = nil
+	hc.applyOutcome(e.outcome)
+	hc.drainPendingReplies(nil)
 }
 
 // --- Disconnect / Reconnect events ---
@@ -171,15 +158,7 @@ type disconnectEvent struct {
 }
 
 func (e disconnectEvent) handle(hc *HostConn) {
-	hc.closeConns()
-	hc.setState(Disconnected)
-
-	// Cancel any in-flight connect waiters.
-	for _, reply := range hc.pendingConnectReplies {
-		reply <- errHostConnClosed
-	}
-	hc.pendingConnectReplies = nil
-
+	hc.disconnectAndDrainPending()
 	if e.reply != nil {
 		close(e.reply)
 	}
@@ -191,22 +170,12 @@ type reconnectCmd struct {
 }
 
 func (e reconnectCmd) handle(hc *HostConn) {
-	// Disconnect synchronously within the actor.
-	hc.closeConns()
-	hc.setState(Disconnected)
-	for _, reply := range hc.pendingConnectReplies {
-		reply <- errHostConnClosed
-	}
-	hc.pendingConnectReplies = nil
+	hc.disconnectAndDrainPending()
 
 	// Start a new connect.
-	hc.pendingConnectReplies = append(hc.pendingConnectReplies, e.reply)
-	hc.setState(Connecting)
-	sessionName := e.sessionName
-	go func() {
-		outcome, err := hc.doConnect(sessionName)
-		hc.enqueue(connectDoneEvent{outcome: outcome, err: err})
-	}()
+	hc.startConnect(e.reply, func() (*connectOutcome, error) {
+		return hc.doConnect(e.sessionName)
+	})
 }
 
 // --- Pane mapping events ---
@@ -290,25 +259,46 @@ type reconnectDoneEvent struct {
 func (e reconnectDoneEvent) handle(hc *HostConn) {
 	defer close(e.done)
 	if hc.state != Reconnecting {
-		// Explicit disconnect while reconnecting — discard.
-		if e.outcome.amuxConn != nil {
-			e.outcome.amuxConn.Close()
-		}
-		if e.outcome.sshClient != nil {
-			e.outcome.sshClient.Close()
-		}
+		// Explicit disconnect while reconnecting -- discard.
+		e.outcome.closeConns()
 		return
 	}
 
-	hc.sshClient = e.outcome.sshClient
-	hc.amuxConn = e.outcome.amuxConn
-	hc.sessionName = e.outcome.sessionName
-	hc.remoteUID = e.outcome.remoteUID
-	if e.outcome.takeover {
+	hc.applyOutcome(e.outcome)
+}
+
+// --- Actor helpers (called only from the event loop goroutine) ---
+
+// applyOutcome installs a successful connect result into the HostConn,
+// transitions to Connected, and starts the read loop. Shared by
+// connectDoneEvent and reconnectDoneEvent.
+func (hc *HostConn) applyOutcome(o *connectOutcome) {
+	hc.sshClient = o.sshClient
+	hc.amuxConn = o.amuxConn
+	hc.sessionName = o.sessionName
+	hc.remoteUID = o.remoteUID
+	if o.takeover {
 		hc.takeoverMode = true
 	}
 	hc.setState(Connected)
 	go hc.readLoop(hc.amuxConn)
+}
+
+// drainPendingReplies sends err to all pending connect waiters and clears the slice.
+func (hc *HostConn) drainPendingReplies(err error) {
+	for _, reply := range hc.pendingConnectReplies {
+		reply <- err
+	}
+	hc.pendingConnectReplies = nil
+}
+
+// disconnectAndDrainPending closes connections, transitions to Disconnected,
+// and cancels all pending connect waiters. Shared by disconnectEvent and
+// reconnectCmd.
+func (hc *HostConn) disconnectAndDrainPending() {
+	hc.closeConns()
+	hc.setState(Disconnected)
+	hc.drainPendingReplies(errHostConnClosed)
 }
 
 // --- Event loop ---

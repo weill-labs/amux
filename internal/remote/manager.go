@@ -81,6 +81,7 @@ func (m *Manager) DeployToAddress(hostName, sshAddr, sshUser string) {
 	}
 
 	hc := NewHostConn("deploy-tmp", hostCfg, m.buildHash, nil, nil, nil)
+	defer hc.Close()
 	if !hc.shouldDeploy() {
 		return
 	}

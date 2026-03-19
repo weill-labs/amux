@@ -8,6 +8,21 @@ import (
 	"github.com/weill-labs/amux/internal/config"
 )
 
+// installTestHost creates a HostConn in the given state and installs it into the
+// manager. The HostConn is registered for cleanup via t.Cleanup.
+func installTestHost(t *testing.T, m *Manager, name string, cfg config.Host, state ConnState) *HostConn {
+	t.Helper()
+	hc := NewHostConn(name, cfg, "hash", nil, nil, nil)
+	t.Cleanup(hc.Close)
+	if state != Disconnected {
+		testInActor(hc, func(hc *HostConn) { hc.state = state })
+	}
+	m.mu.Lock()
+	m.hosts[name] = hc
+	m.mu.Unlock()
+	return hc
+}
+
 func TestNewManager(t *testing.T) {
 	t.Parallel()
 
@@ -38,12 +53,7 @@ func TestManagerHostStatus(t *testing.T) {
 		t.Errorf("HostStatus(dev) = %q, want disconnected", s)
 	}
 
-	hc := NewHostConn("dev", cfg.Hosts["dev"], "hash", nil, nil, nil)
-	defer hc.Close()
-	testInActor(hc, func(hc *HostConn) { hc.state = Connected })
-	m.mu.Lock()
-	m.hosts["dev"] = hc
-	m.mu.Unlock()
+	installTestHost(t, m, "dev", cfg.Hosts["dev"], Connected)
 
 	if s := m.HostStatus("dev"); s != Connected {
 		t.Errorf("HostStatus(dev) = %q, want connected", s)
@@ -60,12 +70,7 @@ func TestManagerAllHostStatus(t *testing.T) {
 	}}
 	m := NewManager(cfg, "hash")
 
-	hc := NewHostConn("dev", cfg.Hosts["dev"], "hash", nil, nil, nil)
-	defer hc.Close()
-	testInActor(hc, func(hc *HostConn) { hc.state = Connected })
-	m.mu.Lock()
-	m.hosts["dev"] = hc
-	m.mu.Unlock()
+	installTestHost(t, m, "dev", cfg.Hosts["dev"], Connected)
 
 	status := m.AllHostStatus()
 
@@ -92,11 +97,8 @@ func TestManagerConnStatusForPane(t *testing.T) {
 		t.Errorf("ConnStatusForPane(42) = %q, want empty", s)
 	}
 
-	hc := NewHostConn("dev", cfg.Hosts["dev"], "hash", nil, nil, nil)
-	defer hc.Close()
-	testInActor(hc, func(hc *HostConn) { hc.state = Connected })
+	installTestHost(t, m, "dev", cfg.Hosts["dev"], Connected)
 	m.mu.Lock()
-	m.hosts["dev"] = hc
 	m.localToHost[42] = "dev"
 	m.mu.Unlock()
 
@@ -113,12 +115,9 @@ func TestManagerRemovePane(t *testing.T) {
 	}}
 	m := NewManager(cfg, "hash")
 
-	hc := NewHostConn("dev", cfg.Hosts["dev"], "hash", nil, nil, nil)
-	defer hc.Close()
+	hc := installTestHost(t, m, "dev", cfg.Hosts["dev"], Disconnected)
 	hc.RegisterPane(42, 100)
-
 	m.mu.Lock()
-	m.hosts["dev"] = hc
 	m.localToHost[42] = "dev"
 	m.mu.Unlock()
 
@@ -169,15 +168,9 @@ func TestManagerShutdown(t *testing.T) {
 	}}
 	m := NewManager(cfg, "hash")
 
-	hc1 := NewHostConn("dev", cfg.Hosts["dev"], "hash", nil, nil, nil)
-	hc2 := NewHostConn("prod", cfg.Hosts["prod"], "hash", nil, nil, nil)
-	testInActor(hc1, func(hc *HostConn) { hc.state = Connected })
-	testInActor(hc2, func(hc *HostConn) { hc.state = Connected })
-
-	m.mu.Lock()
-	m.hosts["dev"] = hc1
-	m.hosts["prod"] = hc2
-	m.mu.Unlock()
+	// installTestHost registers cleanup, but Shutdown will close these first.
+	hc1 := installTestHost(t, m, "dev", cfg.Hosts["dev"], Connected)
+	hc2 := installTestHost(t, m, "prod", cfg.Hosts["prod"], Connected)
 
 	m.Shutdown()
 
@@ -226,12 +219,7 @@ func TestManagerDisconnectAndReconnectHost(t *testing.T) {
 		t.Error("ReconnectHost unknown should error")
 	}
 
-	hc := NewHostConn("dev", cfg.Hosts["dev"], "hash", nil, nil, nil)
-	defer hc.Close()
-	testInActor(hc, func(hc *HostConn) { hc.state = Connected })
-	m.mu.Lock()
-	m.hosts["dev"] = hc
-	m.mu.Unlock()
+	hc := installTestHost(t, m, "dev", cfg.Hosts["dev"], Connected)
 
 	if err := m.DisconnectHost("dev"); err != nil {
 		t.Errorf("DisconnectHost(dev) = %v, want nil", err)

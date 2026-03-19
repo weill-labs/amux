@@ -37,6 +37,8 @@ func (hc *HostConn) reconnectLoop(sessionName, remoteUID string, isTakeover bool
 			done := make(chan struct{})
 			if hc.enqueue(reconnectDoneEvent{outcome: outcome, done: done}) {
 				<-done
+			} else {
+				outcome.closeConns()
 			}
 			return
 		}

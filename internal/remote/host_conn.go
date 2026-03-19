@@ -96,7 +96,12 @@ func (hc *HostConn) State() ConnState {
 	if !hc.enqueue(stateQuery{reply: reply}) {
 		return Disconnected
 	}
-	return <-reply
+	select {
+	case s := <-reply:
+		return s
+	case <-hc.done:
+		return Disconnected
+	}
 }
 
 // setState updates the state and fires the callback.
@@ -311,7 +316,12 @@ func (hc *HostConn) SendResize(localPaneID uint32, cols, rows int) error {
 	if !hc.enqueue(paneExistsQuery{localPaneID: localPaneID, reply: reply}) {
 		return nil
 	}
-	if !<-reply {
+	select {
+	case exists := <-reply:
+		if !exists {
+			return nil
+		}
+	case <-hc.done:
 		return nil
 	}
 
@@ -327,7 +337,12 @@ func (hc *HostConn) queryConnInfo() connInfoResult {
 	if !hc.enqueue(connInfoQuery{reply: reply}) {
 		return connInfoResult{}
 	}
-	return <-reply
+	select {
+	case info := <-reply:
+		return info
+	case <-hc.done:
+		return connInfoResult{}
+	}
 }
 
 // runCommand opens a one-shot connection to the remote amux server, sends a
