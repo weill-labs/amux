@@ -154,7 +154,6 @@ func (h *AmuxHarness) waitLayoutTimeout(afterGen uint64, timeout string) {
 	}
 }
 
-<<<<<<< HEAD
 // waitDuration pauses for tests that intentionally verify real-time expiry.
 func (h *AmuxHarness) waitDuration(d time.Duration) {
 	<-time.After(d)
@@ -295,6 +294,12 @@ func (h *AmuxHarness) verticalBorderCol() int {
 func (h *AmuxHarness) captureAmuxVerticalBorderCol() int {
 	h.tb.Helper()
 	return findVerticalBorderCol(h.captureAmuxContentLines())
+}
+
+// captureAmuxHorizontalBorderRow finds a horizontal border in inner capture.
+func (h *AmuxHarness) captureAmuxHorizontalBorderRow() int {
+	h.tb.Helper()
+	return findHorizontalBorderRow(h.captureAmuxContentLines())
 }
 
 // assertScreen fails the test if fn returns false for the inner capture.
