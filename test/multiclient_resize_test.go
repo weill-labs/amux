@@ -45,6 +45,7 @@ func TestMultiClientLargestWins(t *testing.T) {
 
 	// Layout should stay at 80×23 (the larger client's dimensions).
 	h.assertLayoutSize(80, 24, 80, 23)
+	assertCaptureConsistent(t, h.captureJSON())
 
 	// Disconnect the small client — removeClient broadcasts layout.
 	gen = h.generation()
@@ -52,6 +53,7 @@ func TestMultiClientLargestWins(t *testing.T) {
 	h.waitLayout(gen)
 
 	h.assertLayoutSize(80, 24, 80, 23)
+	assertCaptureConsistent(t, h.captureJSON())
 }
 
 func TestMultiClientExpandOnLarger(t *testing.T) {
@@ -67,6 +69,7 @@ func TestMultiClientExpandOnLarger(t *testing.T) {
 
 	// Layout should expand to 120×39 (the larger client's dimensions).
 	h.assertLayoutSize(120, 40, 120, 39)
+	assertCaptureConsistent(t, h.captureJSON())
 
 	// Disconnect the large client — layout should shrink back to 80×23.
 	gen = h.generation()
@@ -74,6 +77,7 @@ func TestMultiClientExpandOnLarger(t *testing.T) {
 	h.waitLayout(gen)
 
 	h.assertLayoutSize(80, 24, 80, 23)
+	assertCaptureConsistent(t, h.captureJSON())
 }
 
 func TestMultiClientSmallClientSeesAllPanes(t *testing.T) {
@@ -96,6 +100,7 @@ func TestMultiClientSmallClientSeesAllPanes(t *testing.T) {
 	if !strings.Contains(text, "pane-2") {
 		t.Errorf("small client should see pane-2\ncapture:\n%s", text)
 	}
+	assertCaptureConsistent(t, h.captureJSON())
 }
 
 func TestMultiClientResizeRecalculates(t *testing.T) {
@@ -115,6 +120,22 @@ func TestMultiClientResizeRecalculates(t *testing.T) {
 	h.waitLayout(gen)
 
 	h.assertLayoutSize(120, 40, 120, 39)
+	assertCaptureConsistent(t, h.captureJSON())
 
 	large.close()
+}
+
+func TestMultiClientLargestClientShrinkRecalculates(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t) // 80x24
+
+	large := h.attachClient(120, 40)
+	defer large.close()
+
+	gen := h.generation()
+	large.resize(70, 20)
+	h.waitLayout(gen)
+
+	h.assertLayoutSize(80, 24, 80, 23)
+	assertCaptureConsistent(t, h.captureJSON())
 }
