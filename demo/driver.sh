@@ -112,7 +112,6 @@ EOF
 
     # Simulated dev server log — runs in the utility pane
     cat > "$SIMDIR/devlog.sh" <<'EOF'
-#!/bin/bash
 clear
 printf "\033[1m$ tail -f dev-server.log\033[0m\n\n"
 sleep 1.5

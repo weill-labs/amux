@@ -161,7 +161,7 @@ async function main() {
   let frameIndex = 0;
 
   for (let targetTime = 0; targetTime <= totalDuration; targetTime += frameInterval) {
-    // Wait until player reaches this time (at 100x speed, it's fast)
+    // Wait until player reaches this time point
     const deadline = Date.now() + 30000; // 30s timeout
     while (true) {
       const currentTime = await page.evaluate(() => window.__currentTime);
