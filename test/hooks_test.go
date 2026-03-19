@@ -120,12 +120,17 @@ func TestHookOnIdleFires(t *testing.T) {
 	tmp := t.TempDir()
 	marker := filepath.Join(tmp, "idle-fired")
 
+	// Establish a known idle baseline first, then force an idle transition
+	// after registering the hook.
+	h.waitIdle("pane-1")
 	h.runCmd("set-hook", "on-idle", "touch "+marker)
 
 	h.sendKeys("pane-1", "echo TRIGGER_ACTIVITY", "Enter")
 	h.waitFor("pane-1", "TRIGGER_ACTIVITY")
+	h.waitBusy("pane-1")
+	h.waitIdle("pane-1")
 
-	if !waitForFile(t, marker, 5*time.Second) {
+	if !waitForFile(t, marker, 2*time.Second) {
 		t.Fatal("on-idle hook did not fire within timeout")
 	}
 }

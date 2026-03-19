@@ -59,13 +59,13 @@ func TestFontResize_UnevenGridReturnsToOriginalLayout(t *testing.T) {
 func makeThreeByThreeGrid(t *testing.T, h *AmuxHarness) {
 	t.Helper()
 
-	h.runCmd("split", "v", "root")
-	h.runCmd("split", "v", "root")
+	runLayoutCommand(t, h, "split", "v", "root")
+	runLayoutCommand(t, h, "split", "v", "root")
 
 	for _, pane := range []string{"pane-1", "pane-2", "pane-3"} {
-		h.runCmd("focus", pane)
-		h.runCmd("split")
-		h.runCmd("split")
+		runLayoutCommand(t, h, "focus", pane)
+		runLayoutCommand(t, h, "split")
+		runLayoutCommand(t, h, "split")
 	}
 }
 
@@ -81,6 +81,16 @@ func makeGridUneven(t *testing.T, h *AmuxHarness) {
 	if out := h.runCmd("resize-pane", "pane-9", "left", "3"); !strings.Contains(out, "Resized") {
 		t.Fatalf("resize-pane pane-9 left failed: %s", out)
 	}
+}
+
+func runLayoutCommand(t *testing.T, h *AmuxHarness, args ...string) {
+	t.Helper()
+	gen := h.generation()
+	out := h.runCmd(args...)
+	if out != "" && (strings.Contains(out, "error") || strings.Contains(out, "cannot")) {
+		t.Fatalf("%v failed: %s", args, out)
+	}
+	h.waitLayout(gen)
 }
 
 type panePos struct {
