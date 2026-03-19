@@ -67,6 +67,40 @@ func TestCapturePaneANSI(t *testing.T) {
 	}
 }
 
+func TestCapturePaneANSI_PreservesStyleAfterSGRReset(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	// Match the tmux regress case where foreground color should survive after
+	// SGR 0 in ANSI capture output.
+	h.sendKeys("pane-1",
+		`clear; printf '\033[31;42;1mabc\033[0;31mdef\n'; printf STY; printf 'DONE\n'`,
+		"Enter")
+	h.waitFor("pane-1", "STYDONE")
+
+	ansi := h.runCmd("capture", "--ansi", "pane-1")
+	want := "\033[31;42;1mabc\033[49;22mdef\033[m"
+	if !strings.Contains(ansi, want) {
+		t.Fatalf("capture pane --ansi should preserve post-reset style state, want substring %q in:\n%s", want, ansi)
+	}
+}
+
+func TestCapturePaneANSI_PreservesOSC8Hyperlinks(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	link := "\033]8;https://example.com;\atest-link\033]8;;\a"
+	h.sendKeys("pane-1",
+		`clear; printf '\033]8;;https://example.com\033\\test-link\033]8;;\033\\\n'; printf OSC; printf 'DONE\n'`,
+		"Enter")
+	h.waitFor("pane-1", "OSCDONE")
+
+	ansi := h.runCmd("capture", "--ansi", "pane-1")
+	if !strings.Contains(ansi, link) {
+		t.Fatalf("capture pane --ansi should preserve OSC 8 hyperlink semantics, want substring %q in:\n%s", link, ansi)
+	}
+}
+
 func TestCursorBlockOnlyInActivePane(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)
