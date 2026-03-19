@@ -7,6 +7,7 @@ import (
 
 // KeyConfig represents the [keys] section of the config file.
 type KeyConfig struct {
+	Preset string            `toml:"preset"`
 	Prefix string            `toml:"prefix"`
 	Unbind []string          `toml:"unbind"`
 	Bind   map[string]string `toml:"bind"`
@@ -25,6 +26,11 @@ type Keybindings struct {
 	Prefix   byte
 	Bindings map[byte]Binding
 }
+
+const (
+	KeyPresetAmux = "amux"
+	KeyPresetTmux = "tmux"
+)
 
 // DefaultKeybindings returns the built-in default keybindings.
 func DefaultKeybindings() *Keybindings {
@@ -74,6 +80,39 @@ func DefaultKeybindings() *Keybindings {
 	}
 }
 
+// TmuxCompatKeybindings returns a tmux-style compatibility keymap.
+func TmuxCompatKeybindings() *Keybindings {
+	return &Keybindings{
+		Prefix: 0x02, // Ctrl-b
+		Bindings: map[byte]Binding{
+			'"':  {Action: "split"},
+			'%':  {Action: "split", Args: []string{"v"}},
+			'o':  {Action: "focus", Args: []string{"next"}},
+			'x':  {Action: "kill"},
+			'z':  {Action: "zoom"},
+			'[':  {Action: "copy-mode"},
+			'c':  {Action: "new-window"},
+			'n':  {Action: "next-window"},
+			'p':  {Action: "prev-window"},
+			'q':  {Action: "display-panes"},
+			's':  {Action: "choose-tree"},
+			'w':  {Action: "choose-window"},
+			'1':  {Action: "select-window", Args: []string{"1"}},
+			'2':  {Action: "select-window", Args: []string{"2"}},
+			'3':  {Action: "select-window", Args: []string{"3"}},
+			'4':  {Action: "select-window", Args: []string{"4"}},
+			'5':  {Action: "select-window", Args: []string{"5"}},
+			'6':  {Action: "select-window", Args: []string{"6"}},
+			'7':  {Action: "select-window", Args: []string{"7"}},
+			'8':  {Action: "select-window", Args: []string{"8"}},
+			'9':  {Action: "select-window", Args: []string{"9"}},
+			'd':  {Action: "detach"},
+			'C':  {Action: "reload"},
+			0x0f: {Action: "rotate"}, // Ctrl-o
+		},
+	}
+}
+
 // knownActions is the set of valid action names for key bindings.
 // Actions handled client-side (detach, reload, copy-mode) and actions
 // forwarded as server commands are both included.
@@ -93,10 +132,20 @@ var knownActions = map[string]bool{
 // Note: unbind is applied after bind, so unbinding a key that was just bound
 // will remove it. To replace a default binding, use bind alone.
 func BuildKeybindings(kc *KeyConfig) (*Keybindings, error) {
-	kb := DefaultKeybindings()
+	kb, err := keybindingsForPreset("")
+	if err != nil {
+		return nil, err
+	}
 
 	if kc == nil {
 		return kb, nil
+	}
+
+	if kc.Preset != "" {
+		kb, err = keybindingsForPreset(kc.Preset)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// Override prefix
@@ -137,6 +186,29 @@ func BuildKeybindings(kc *KeyConfig) (*Keybindings, error) {
 	}
 
 	return kb, nil
+}
+
+func keybindingsForPreset(preset string) (*Keybindings, error) {
+	switch strings.ToLower(preset) {
+	case "", KeyPresetAmux:
+		return cloneKeybindings(DefaultKeybindings()), nil
+	case KeyPresetTmux:
+		return cloneKeybindings(TmuxCompatKeybindings()), nil
+	default:
+		return nil, fmt.Errorf("unknown key preset %q", preset)
+	}
+}
+
+func cloneKeybindings(src *Keybindings) *Keybindings {
+	dst := &Keybindings{
+		Prefix:   src.Prefix,
+		Bindings: make(map[byte]Binding, len(src.Bindings)),
+	}
+	for key, binding := range src.Bindings {
+		args := append([]string(nil), binding.Args...)
+		dst.Bindings[key] = Binding{Action: binding.Action, Args: args}
+	}
+	return dst
 }
 
 // ParseKey converts a key string to its byte value.

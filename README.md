@@ -343,6 +343,7 @@ color = "a6e3a1"            # Catppuccin Green
 
 ```toml
 [keys]
+preset = "tmux"             # optional: start from the built-in tmux-compatible map
 prefix = "C-b"              # change prefix to Ctrl-b (default: Ctrl-a)
 unbind = ["M", "["]         # remove default bindings
 
@@ -353,6 +354,12 @@ unbind = ["M", "["]         # remove default bindings
 ```
 
 Key format: single character (`d`, `\\`, `-`) or Ctrl combo (`C-a`, `C-b`). Actions match CLI command names (e.g., `split`, `focus left`, `zoom`, `kill`).
+
+Built-in presets:
+- `amux` (default): the native amux keymap documented in `amux version`
+- `tmux`: tmux-style prefix and bindings for supported features such as `%`, `"`, `q`, `s`, `w`, `c`, `n`, `p`, `[` and `Ctrl-o`
+
+`prefix`, `bind`, and `unbind` still apply on top of a preset, so you can start from `tmux` and tweak from there.
 
 ## License
 

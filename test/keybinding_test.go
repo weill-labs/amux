@@ -81,6 +81,36 @@ prefix = "C-b"
 	}
 }
 
+func TestTmuxPresetUsesTmuxBindings(t *testing.T) {
+	t.Parallel()
+
+	h := newAmuxHarnessWithConfig(t, `
+[keys]
+preset = "tmux"
+`)
+
+	gen := h.generation()
+	h.sendKeys("C-b", "%")
+	h.waitLayout(gen)
+
+	lines := h.captureAmuxContentLines()
+	found := false
+	for _, line := range lines {
+		if strings.Contains(line, "[pane-1]") && strings.Contains(line, "[pane-2]") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("Ctrl-b %% should split with tmux preset\n%s", strings.Join(lines, "\n"))
+	}
+
+	h.sendKeys("C-b", "q")
+	if !h.waitFor("[2]", 3*time.Second) {
+		t.Fatalf("Ctrl-b q should show pane labels with tmux preset, got:\n%s", h.captureOuter())
+	}
+}
+
 func TestCustomPrefixOldPrefixPassthrough(t *testing.T) {
 	t.Parallel()
 
