@@ -3,7 +3,9 @@ package test
 import (
 	"fmt"
 	"net"
+	"strings"
 	"sync"
+	"testing"
 	"time"
 
 	"github.com/weill-labs/amux/internal/client"
@@ -111,5 +113,22 @@ func (hc *headlessClient) readLoop() {
 		case server.MsgTypeExit:
 			return
 		}
+	}
+}
+
+func TestParallelServerStartupKeepsAllSocketsAlive(t *testing.T) {
+	const servers = 16
+
+	for i := 0; i < servers; i++ {
+		i := i
+		t.Run(fmt.Sprintf("server-%02d", i), func(t *testing.T) {
+			t.Parallel()
+
+			h := newServerHarness(t)
+			screen := h.capture()
+			if !strings.Contains(screen, "[pane-1]") {
+				t.Fatalf("expected initial pane in capture\nScreen:\n%s", screen)
+			}
+		})
 	}
 }
