@@ -147,6 +147,7 @@ func TestEventJSONOmitsZeroFields(t *testing.T) {
 func TestEmitEventDelivery(t *testing.T) {
 	t.Parallel()
 	sess := newSession("test-emit")
+	stopCrashCheckpointLoop(t, sess)
 
 	sub := sess.events.Subscribe(eventFilter{})
 	defer sess.events.Unsubscribe(sub)
@@ -173,6 +174,7 @@ func TestEmitEventDelivery(t *testing.T) {
 func TestEmitEventFiltered(t *testing.T) {
 	t.Parallel()
 	sess := newSession("test-filter")
+	stopCrashCheckpointLoop(t, sess)
 
 	sub := sess.events.Subscribe(eventFilter{Types: []string{EventIdle}})
 	defer sess.events.Unsubscribe(sub)
@@ -203,6 +205,7 @@ func TestEmitEventFiltered(t *testing.T) {
 func TestEmitEventDropsWhenFull(t *testing.T) {
 	t.Parallel()
 	sess := newSession("test-drop")
+	stopCrashCheckpointLoop(t, sess)
 
 	sub := sess.events.Subscribe(eventFilter{})
 
@@ -231,6 +234,7 @@ func TestEmitEventDropsWhenFull(t *testing.T) {
 func TestEmitEventAfterRemove(t *testing.T) {
 	t.Parallel()
 	sess := newSession("test-remove-race")
+	stopCrashCheckpointLoop(t, sess)
 
 	sub := sess.events.Subscribe(eventFilter{})
 	sess.events.Unsubscribe(sub)
@@ -284,6 +288,7 @@ func TestCurrentStateEventsIncludesClientUIState(t *testing.T) {
 	t.Parallel()
 
 	sess := newSession("test-ui-state")
+	stopCrashCheckpointLoop(t, sess)
 	sess.clients = append(sess.clients,
 		&ClientConn{ID: "client-1"},
 		&ClientConn{ID: "client-2", displayPanesShown: true},

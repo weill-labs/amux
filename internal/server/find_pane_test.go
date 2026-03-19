@@ -13,6 +13,7 @@ func TestSessionFindPaneByRef(t *testing.T) {
 	t.Parallel()
 
 	sess := newSession("test-find")
+	stopCrashCheckpointLoop(t, sess)
 
 	// Create mock panes in the flat registry (not in any window layout)
 	panes := []struct {
@@ -24,10 +25,15 @@ func TestSessionFindPaneByRef(t *testing.T) {
 		{10, "agent-task"},
 	}
 	for _, p := range panes {
-		sess.Panes = append(sess.Panes, &mux.Pane{
-			ID:   p.id,
-			Meta: mux.PaneMeta{Name: p.name},
-		})
+		sess.Panes = append(sess.Panes, mux.NewProxyPane(
+			p.id,
+			mux.PaneMeta{Name: p.name, Host: mux.DefaultHost, Color: "f5e0dc"},
+			80,
+			23,
+			nil,
+			nil,
+			func(data []byte) (int, error) { return len(data), nil },
+		))
 	}
 
 	tests := []struct {
@@ -117,6 +123,7 @@ func TestKillOrphanedPaneViaFallback(t *testing.T) {
 		t.Fatal("orphan pane should be in Session.Panes")
 	}
 	sess.mu.Unlock()
+	assertSessionLayoutConsistent(t, sess, orphanID)
 
 	// Send "kill orphan-pane" through the command path via net.Pipe.
 	serverConn, clientConn := net.Pipe()
@@ -166,4 +173,5 @@ func TestKillOrphanedPaneViaFallback(t *testing.T) {
 	if stillExists {
 		t.Error("orphan pane should be removed from Session.Panes after kill")
 	}
+	assertSessionLayoutConsistent(t, sess)
 }

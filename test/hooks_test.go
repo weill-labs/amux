@@ -120,15 +120,22 @@ func TestHookOnIdleFires(t *testing.T) {
 	tmp := t.TempDir()
 	marker := filepath.Join(tmp, "idle-fired")
 
-	// Establish a known idle baseline first, then force an idle transition
-	// after registering the hook.
 	h.waitIdle("pane-1")
+	scanner, closer := eventStream(t, h.session, "--filter", "idle,busy", "--pane", "pane-1")
+	defer closer()
+	if ev := mustReadEvent(t, scanner, 5*time.Second); ev.Type != "idle" {
+		t.Fatalf("initial event: got %q, want idle", ev.Type)
+	}
+
 	h.runCmd("set-hook", "on-idle", "touch "+marker)
 
 	h.sendKeys("pane-1", "echo TRIGGER_ACTIVITY", "Enter")
-	h.waitFor("pane-1", "TRIGGER_ACTIVITY")
-	h.waitBusy("pane-1")
-	h.waitIdle("pane-1")
+	if ev := mustReadEvent(t, scanner, 5*time.Second); ev.Type != "busy" {
+		t.Fatalf("activity event: got %q, want busy", ev.Type)
+	}
+	if ev := mustReadEvent(t, scanner, 10*time.Second); ev.Type != "idle" {
+		t.Fatalf("post-activity event: got %q, want idle", ev.Type)
+	}
 
 	if !waitForFile(t, marker, 2*time.Second) {
 		t.Fatal("on-idle hook did not fire within timeout")
@@ -142,12 +149,18 @@ func TestHookOnActivityFires(t *testing.T) {
 	tmp := t.TempDir()
 	marker := filepath.Join(tmp, "activity-fired")
 
-	// Wait for initial idle state (shell prompt appears, then quiet period expires)
 	h.waitIdle("pane-1")
+	scanner, closer := eventStream(t, h.session, "--filter", "idle,busy", "--pane", "pane-1")
+	defer closer()
+	if ev := mustReadEvent(t, scanner, 5*time.Second); ev.Type != "idle" {
+		t.Fatalf("initial event: got %q, want idle", ev.Type)
+	}
 
 	h.runCmd("set-hook", "on-activity", "touch "+marker)
-
 	h.sendKeys("pane-1", "echo TRIGGER", "Enter")
+	if ev := mustReadEvent(t, scanner, 5*time.Second); ev.Type != "busy" {
+		t.Fatalf("activity event: got %q, want busy", ev.Type)
+	}
 
 	if !waitForFile(t, marker, 5*time.Second) {
 		t.Fatal("on-activity hook did not fire within timeout")
