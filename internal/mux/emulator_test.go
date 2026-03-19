@@ -333,6 +333,78 @@ func TestScreenLineTextWideChars(t *testing.T) {
 	}
 }
 
+func TestScreenLineTextGraphemeClusters(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		input         []byte
+		wantLine      string
+		wantCell0     string
+		wantCell0Wide int
+	}{
+		{
+			name:          "combining mark cluster",
+			input:         []byte("Λ\u030A1"),
+			wantLine:      "Λ\u030A1",
+			wantCell0:     "Λ\u030A",
+			wantCell0Wide: 1,
+		},
+		{
+			name:          "emoji modifier cluster",
+			input:         []byte("👍🏻2"),
+			wantLine:      "👍🏻2",
+			wantCell0:     "👍🏻",
+			wantCell0Wide: 2,
+		},
+		{
+			name:          "zwj emoji cluster",
+			input:         []byte("🤷‍♂️3"),
+			wantLine:      "🤷‍♂️3",
+			wantCell0:     "🤷‍♂️",
+			wantCell0Wide: 2,
+		},
+		{
+			name:          "regional indicator flag cluster",
+			input:         []byte("🇸🇪4"),
+			wantLine:      "🇸🇪4",
+			wantCell0:     "🇸🇪",
+			wantCell0Wide: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			emu := NewVTEmulatorWithDrain(20, 5)
+			emu.Write(tt.input)
+
+			if got := emu.ScreenLineText(0); got != tt.wantLine {
+				t.Fatalf("ScreenLineText(0) = %q, want %q", got, tt.wantLine)
+			}
+
+			cell0 := emu.CellAt(0, 0)
+			if cell0 == nil {
+				t.Fatal("CellAt(0, 0) = nil, want grapheme cluster")
+			}
+			if cell0.Content != tt.wantCell0 || cell0.Width != tt.wantCell0Wide {
+				t.Fatalf("CellAt(0, 0) = {content:%q width:%d}, want {content:%q width:%d}",
+					cell0.Content, cell0.Width, tt.wantCell0, tt.wantCell0Wide)
+			}
+
+			if tt.wantCell0Wide == 2 {
+				cont := emu.CellAt(1, 0)
+				if cont == nil {
+					t.Fatal("CellAt(1, 0) = nil, want continuation cell")
+				}
+				if cont.Width != 0 {
+					t.Fatalf("CellAt(1, 0).Width = %d, want 0 continuation", cont.Width)
+				}
+			}
+		})
+	}
+}
+
 func TestScreenLineTextTrailingSpaces(t *testing.T) {
 	t.Parallel()
 	emu := NewVTEmulatorWithDrain(80, 24)

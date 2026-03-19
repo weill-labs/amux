@@ -220,6 +220,27 @@ func TestCaptureJSON_RoundTrip(t *testing.T) {
 	}
 }
 
+func TestCaptureJSON_PreservesGraphemeClusters(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	line := "GRAPHEMES: Λ̊ 👍🏻 🤷‍♂️ 🇸🇪"
+	h.sendKeys("pane-1", "clear; printf '"+line+"\\n'", "Enter")
+	h.waitFor("pane-1", "GRAPHEMES:")
+
+	pane := captureJSONPane(t, h, "pane-1")
+	found := false
+	for _, got := range pane.Content {
+		if strings.Contains(got, line) {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("capture JSON should preserve grapheme clusters %q, got: %v", line, pane.Content)
+	}
+}
+
 func TestCaptureJSON_AgentStatus_Busy(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)
