@@ -13,7 +13,9 @@ make build                         # build + install atomically
 go test ./...                       # run all tests
 ```
 
-Hot-reload: both client and server watch the binary and re-exec on changes. Use `make build` so the installed binary is replaced atomically before reload — panes and shells are preserved.
+Hot-reload: both client and server watch the binary and re-exec on changes. Use `make build` so the installed binary is replaced atomically before reload, preserving panes and shells.
+
+`make build` records which checkout last installed `~/.local/bin/amux` and refuses to overwrite it when that install metadata points at a different checkout, unless you opt in with `AMUX_INSTALL_FORCE=1 make build`.
 
 To test manually after building:
 
