@@ -27,6 +27,7 @@ type commandMutationResult struct {
 	startPanes      []*mux.Pane
 	closePanes      []*mux.Pane
 	sendExit        bool
+	shutdownServer  bool // handled by caller goroutine, not event loop
 }
 
 type paneRender struct {
@@ -95,7 +96,6 @@ func (e paneOutputEvent) handle(s *Session) {
 }
 
 type paneExitEvent struct {
-	srv    *Server
 	paneID uint32
 }
 
@@ -273,7 +273,14 @@ func (s *Session) enqueueCommandMutation(fn func(*Session) commandMutationResult
 	case res := <-reply:
 		return res
 	case <-s.sessionEventDone:
-		return commandMutationResult{err: errSessionShuttingDown}
+		// The event loop exited (e.g., wantShutdown after our handler).
+		// The reply may already be buffered — prefer it over the error.
+		select {
+		case res := <-reply:
+			return res
+		default:
+			return commandMutationResult{err: errSessionShuttingDown}
+		}
 	}
 }
 
@@ -289,8 +296,8 @@ func (s *Session) enqueuePaneOutput(paneID uint32, data []byte) {
 	s.enqueueEvent(paneOutputEvent{paneID: paneID, data: data})
 }
 
-func (s *Session) enqueuePaneExit(srv *Server, paneID uint32) {
-	s.enqueueEvent(paneExitEvent{srv: srv, paneID: paneID})
+func (s *Session) enqueuePaneExit(paneID uint32) {
+	s.enqueueEvent(paneExitEvent{paneID: paneID})
 }
 
 func (s *Session) enqueueClipboard(paneID uint32, data []byte) {

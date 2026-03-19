@@ -60,6 +60,9 @@ func (ctx *CommandContext) replyCommandMutation(res commandMutationResult) {
 	if res.sendExit {
 		ctx.Sess.broadcast(&Message{Type: MsgTypeExit})
 	}
+	if res.shutdownServer {
+		go ctx.Srv.Shutdown()
+	}
 }
 
 func (ctx *CommandContext) activeWindowSnapshot() (activePid, width, height int, err error) {
@@ -486,7 +489,7 @@ func cmdKill(ctx *CommandContext) {
 		if lastPane {
 			res.output = fmt.Sprintf("Killed %s (session exiting)\n", paneName)
 			res.sendExit = true
-			sess.wantShutdown = true
+			res.shutdownServer = true
 			return res
 		}
 
@@ -1430,7 +1433,7 @@ func cmdInjectProxy(ctx *CommandContext) {
 		}
 		proxyPane := mux.NewProxyPane(id, meta, w.Width/2, mux.PaneContentHeight(w.Height),
 			sess.paneOutputCallback(),
-			sess.paneExitCallback(ctx.Srv),
+			sess.paneExitCallback(),
 			func(data []byte) (int, error) { return len(data), nil },
 		)
 		sess.Panes = append(sess.Panes, proxyPane)
