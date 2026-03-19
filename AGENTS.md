@@ -56,10 +56,6 @@ See [README.md -- Philosophy](README.md#philosophy) for the project thesis and t
 
 **Colors live in `config/config.go`.** The Catppuccin Mocha palette (`CatppuccinMocha`), letter abbreviations (`CatppuccinLetters`), and named hex constants (`DimColorHex`, `TextColorHex`) are defined once in the config package. Reference these constants instead of hardcoding hex values like `"f5e0dc"` or `"6c7086"`.
 
-**Server-only env vars go through `ServerEnv`.** Add new server-only env vars to `internal/server/envvars.go`. The registry handles read, unset (so children don't inherit), and re-export before `syscall.Exec` in one place. Never call `os.Getenv`/`os.Unsetenv` for server-only vars directly in `main.go`.
-
-**Event handlers signal shutdown via `wantShutdown`, never `Shutdown()`.** Event handlers run inside the session event loop goroutine. The event loop checks `s.wantShutdown` after each event and triggers `go s.exitServer.Shutdown()` itself. Handlers must never call `Shutdown()` directly (or via `go`) — that would either deadlock or bypass the event loop's cleanup sequence.
-
 ## Development
 
 ### Build And Test
