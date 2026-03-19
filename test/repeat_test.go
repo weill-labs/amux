@@ -113,13 +113,11 @@ func TestRepeatExpiresAfterTimeout(t *testing.T) {
 		t.Fatalf("no vertical border found.\nScreen:\n%s", h.captureAmux())
 	}
 
-	// Press Prefix+L to resize once, then wait for the default 500ms
-	// repeat timeout to expire (real-time deadline test).
+	// Press Prefix+L, then wait longer than repeat timeout (500ms), then press L
 	gen = h.generation()
 	h.sendKeys("C-a", "L")
 	h.waitLayout(gen)
 	h.waitDuration(700 * time.Millisecond)
-
 	// This L should be typed into the shell (repeat expired), not trigger resize
 	h.sendKeys("L")
 	h.waitDuration(300 * time.Millisecond)

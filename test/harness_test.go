@@ -288,3 +288,28 @@ func findVerticalBorderCol(lines []string) int {
 	}
 	return -1
 }
+
+// isHorizontalBorderRune returns true for box-drawing characters with a horizontal component.
+func isHorizontalBorderRune(r rune) bool {
+	switch r {
+	case '─', '┼', '├', '┤', '┬', '┴', '┌', '┐', '└', '┘':
+		return true
+	}
+	return false
+}
+
+// findHorizontalBorderRow finds a consistent horizontal border row in lines.
+func findHorizontalBorderRow(lines []string) int {
+	for row, line := range lines {
+		count := 0
+		for _, r := range line {
+			if isHorizontalBorderRune(r) {
+				count++
+			}
+		}
+		if count > 0 && count >= len([]rune(line))/2 {
+			return row
+		}
+	}
+	return -1
+}

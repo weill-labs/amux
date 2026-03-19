@@ -147,7 +147,33 @@ func firstMarkerNumber(screen, prefix string) int {
 	return 0
 }
 
-func TestMouseScrollWheelEntersCopyMode(t *testing.T) {
+func TestMouseHorizontalBorderDrag(t *testing.T) {
+	t.Parallel()
+	h := newAmuxHarness(t)
+
+	h.splitH()
+
+	borderRow := h.captureAmuxHorizontalBorderRow()
+	if borderRow < 0 {
+		t.Fatalf("no horizontal border found.\nScreen:\n%s", h.captureAmux())
+	}
+
+	dragDelta := 3
+	gen := h.generation()
+	h.dragBorder(40, borderRow+1, 40, borderRow+1+dragDelta)
+	h.waitLayout(gen)
+
+	newBorderRow := h.captureAmuxHorizontalBorderRow()
+	if newBorderRow < 0 {
+		t.Fatalf("no horizontal border found after drag.\nScreen:\n%s", h.captureAmux())
+	}
+	if newBorderRow <= borderRow {
+		t.Errorf("border should have moved down: was at %d, now at %d.\nScreen:\n%s",
+			borderRow, newBorderRow, h.captureAmux())
+	}
+}
+
+func TestMouseScrollWheel(t *testing.T) {
 	t.Parallel()
 	h := newAmuxHarness(t)
 
