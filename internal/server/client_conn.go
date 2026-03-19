@@ -113,15 +113,10 @@ func (cc *ClientConn) readLoop(srv *Server, sess *Session) {
 func (cc *ClientConn) withPaneWindow(sess *Session, cmdName string, args []string,
 	fn func(pane *mux.Pane, w *mux.Window) (string, error)) {
 	sess.mu.Lock()
-	pane := cc.resolvePane(sess, cmdName, args)
-	if pane == nil {
+	pane, w, err := cc.resolvePaneWindowLocked(sess, cmdName, args)
+	if err != nil {
 		sess.mu.Unlock()
-		return
-	}
-	w := sess.FindWindowByPaneID(pane.ID)
-	if w == nil {
-		sess.mu.Unlock()
-		cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "pane not in any window"})
+		cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: err.Error()})
 		return
 	}
 	result, err := fn(pane, w)
@@ -132,6 +127,20 @@ func (cc *ClientConn) withPaneWindow(sess *Session, cmdName string, args []strin
 	}
 	sess.broadcastLayout()
 	cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: result})
+}
+
+func (cc *ClientConn) resolvePaneWindowLocked(sess *Session, cmdName string, args []string) (*mux.Pane, *mux.Window, error) {
+	if len(args) < 1 {
+		return nil, nil, fmt.Errorf("usage: %s <pane>", cmdName)
+	}
+	pane, w, err := cc.resolvePaneAcrossWindowsLocked(sess, args[0])
+	if err != nil {
+		return nil, nil, err
+	}
+	if w == nil {
+		return nil, nil, fmt.Errorf("pane not in any window")
+	}
+	return pane, w, nil
 }
 
 // handleCommand dispatches CLI commands through the command registry.
@@ -145,155 +154,43 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 	handler(&CommandContext{CC: cc, Srv: srv, Sess: sess, Args: msg.CmdArgs})
 }
 
-// createNewWindow creates a new window with one pane and switches to it.
-func (cc *ClientConn) createNewWindow(srv *Server, sess *Session, name string) {
-	// Grab the active pane's PID under the lock, then resolve its cwd
-	// outside the lock (PaneCwd shells out to lsof).
+// splitRemotePane prepares a proxy pane connected to a remote host, then
+// inserts it into the active window through the session event loop.
+func (cc *ClientConn) splitRemotePane(srv *Server, sess *Session, hostName string, dir mux.SplitDir, rootLevel bool) (*mux.Pane, error) {
 	sess.mu.Lock()
 	w := sess.ActiveWindow()
 	if w == nil {
 		sess.mu.Unlock()
-		cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "no session"})
-		return
-	}
-	var activePid int
-	if w.ActivePane != nil {
-		activePid = w.ActivePane.ProcessPid()
-	}
-	cols, layoutH := w.Width, w.Height
-	sess.mu.Unlock()
-
-	meta := mux.PaneMeta{Dir: mux.PaneCwd(activePid)}
-
-	sess.mu.Lock()
-	paneH := mux.PaneContentHeight(layoutH)
-	pane, err := sess.createPaneWithMeta(srv, meta, cols, paneH)
-	if err != nil {
-		sess.mu.Unlock()
-		cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: err.Error()})
-		return
-	}
-
-	winID := sess.windowCounter.Add(1)
-	newWin := mux.NewWindow(pane, cols, layoutH)
-	newWin.ID = winID
-	if name != "" {
-		newWin.Name = name
-	} else {
-		newWin.Name = fmt.Sprintf(WindowNameFormat, winID)
-	}
-	sess.Windows = append(sess.Windows, newWin)
-	sess.ActiveWindowID = winID
-	sess.mu.Unlock()
-
-	pane.Start()
-	sess.broadcastLayout()
-	cc.Send(&Message{Type: MsgTypeCmdResult,
-		CmdOutput: fmt.Sprintf("Created %s\n", newWin.Name)})
-}
-
-// splitRemotePane creates a proxy pane connected to a remote host, inserts it
-// into the active window's layout, and triggers a render. Returns the pane, or nil on error.
-func (cc *ClientConn) splitRemotePane(srv *Server, sess *Session, hostName string, dir mux.SplitDir, rootLevel bool) *mux.Pane {
-	sess.mu.Lock()
-	w := sess.ActiveWindow()
-	if w == nil {
-		sess.mu.Unlock()
-		cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "no window"})
-		return nil
+		return nil, fmt.Errorf("no window")
 	}
 	initW, initH := w.Width, w.Height
 	sess.mu.Unlock()
 
-	// createRemotePane must be called without holding s.mu (SSH calls inside)
-	pane, err := sess.createRemotePane(srv, hostName, initW, mux.PaneContentHeight(initH))
+	pane, err := sess.prepareRemotePane(srv, hostName, initW, mux.PaneContentHeight(initH))
 	if err != nil {
-		cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: err.Error()})
-		return nil
+		return nil, err
 	}
 
-	sess.mu.Lock()
-	w = sess.ActiveWindow()
-	if w == nil {
-		sess.mu.Unlock()
-		cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "no window"})
-		return nil
-	}
-	if rootLevel {
-		_, err = w.SplitRoot(dir, pane)
-	} else {
-		_, err = w.Split(dir, pane)
-	}
-	sess.mu.Unlock()
-
-	if err != nil {
-		cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: err.Error()})
-		return nil
-	}
-
-	// No pane.Start() needed — proxy panes don't have a readLoop/waitLoop
-	sess.broadcastLayout()
-	return pane
-}
-
-// splitNewPane creates a pane, inserts it into the active window's layout,
-// starts it, and triggers a render. Returns the new pane, or nil on error.
-func (cc *ClientConn) splitNewPane(srv *Server, sess *Session, meta mux.PaneMeta, dir mux.SplitDir, rootLevel bool) *mux.Pane {
-	// Grab the active pane's PID under the lock, then resolve its cwd
-	// outside the lock (PaneCwd shells out to lsof).
-	sess.mu.Lock()
-	w := sess.ActiveWindow()
-	if w == nil {
-		sess.mu.Unlock()
-		cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "no window"})
-		return nil
-	}
-	var activePid int
-	if w.ActivePane != nil {
-		activePid = w.ActivePane.ProcessPid()
-	}
-	initW, initH := w.Width, w.Height
-	sess.mu.Unlock()
-
-	if meta.Dir == "" {
-		meta.Dir = mux.PaneCwd(activePid)
-	}
-
-	sess.mu.Lock()
-	// Re-fetch window — another command could have changed it while we
-	// resolved the cwd outside the lock.
-	w = sess.ActiveWindow()
-	if w == nil {
-		sess.mu.Unlock()
-		cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "no window"})
-		return nil
-	}
-	pane, err := sess.createPaneWithMeta(srv, meta, initW, mux.PaneContentHeight(initH))
-	if err != nil {
-		sess.mu.Unlock()
-		cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: err.Error()})
-		return nil
-	}
-
-	if rootLevel {
-		_, err = w.SplitRoot(dir, pane)
-	} else {
-		_, err = w.Split(dir, pane)
-	}
-	if err != nil {
-		// Split failed (e.g. not enough space) — remove the pane we just
-		// created so it doesn't become an orphan in the session's pane list.
-		sess.removePane(pane.ID)
+	res := sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
+		sess.mu.Lock()
+		defer sess.mu.Unlock()
+		if err := sess.insertPreparedPaneIntoActiveWindowLocked(pane, dir, rootLevel); err != nil {
+			return commandMutationResult{err: err}
+		}
+		return commandMutationResult{broadcastLayout: true}
+	})
+	if res.err != nil {
+		if sess.RemoteManager != nil {
+			sess.RemoteManager.RemovePane(pane.ID)
+		}
 		pane.Close()
-		sess.mu.Unlock()
-		cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: err.Error()})
-		return nil
+		return nil, res.err
 	}
-	sess.mu.Unlock()
+	if res.broadcastLayout {
+		sess.broadcastLayout()
+	}
 
-	pane.Start()
-	sess.broadcastLayout()
-	return pane
+	return pane, nil
 }
 
 // resolvePane validates args and resolves a pane by name or ID.
@@ -304,21 +201,37 @@ func (cc *ClientConn) resolvePane(sess *Session, cmdName string, args []string) 
 		cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("usage: %s <pane>", cmdName)})
 		return nil
 	}
-	return cc.resolvePaneAcrossWindows(sess, cmdName, args[0])
+	pane, _, err := cc.resolvePaneAcrossWindowsLocked(sess, args[0])
+	if err != nil {
+		cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: err.Error()})
+		return nil
+	}
+	return pane
 }
 
 // resolvePaneAcrossWindows resolves a pane reference, searching the active
 // window first, then all other windows.
 // Caller must hold sess.mu.
 func (cc *ClientConn) resolvePaneAcrossWindows(sess *Session, cmdName string, ref string) *mux.Pane {
+	pane, _, err := cc.resolvePaneAcrossWindowsLocked(sess, ref)
+	if err != nil {
+		cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: err.Error()})
+		return nil
+	}
+	return pane
+}
+
+// resolvePaneAcrossWindowsLocked resolves a pane reference, searching the active
+// window first, then all other windows, then the flat pane registry.
+// Caller must hold sess.mu.
+func (cc *ClientConn) resolvePaneAcrossWindowsLocked(sess *Session, ref string) (*mux.Pane, *mux.Window, error) {
 	w := sess.ActiveWindow()
 	if w == nil {
-		cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "no session"})
-		return nil
+		return nil, nil, fmt.Errorf("no session")
 	}
 	// Search active window first
 	if pane := w.ResolvePane(ref); pane != nil {
-		return pane
+		return pane, w, nil
 	}
 	// Search all other windows
 	for _, win := range sess.Windows {
@@ -326,15 +239,14 @@ func (cc *ClientConn) resolvePaneAcrossWindows(sess *Session, cmdName string, re
 			continue
 		}
 		if pane := win.ResolvePane(ref); pane != nil {
-			return pane
+			return pane, win, nil
 		}
 	}
 	// Fall back: search flat pane registry for orphaned/dormant panes
 	if pane := sess.findPaneByRef(ref); pane != nil {
-		return pane
+		return pane, sess.FindWindowByPaneID(pane.ID), nil
 	}
-	cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("pane %q not found", ref)})
-	return nil
+	return nil, nil, fmt.Errorf("pane %q not found", ref)
 }
 
 // parseWaitArgs extracts --after and --timeout flags from command arguments.

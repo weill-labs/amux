@@ -17,6 +17,16 @@ type sessionEvent interface {
 	handle(*Session)
 }
 
+type commandMutationResult struct {
+	output          string
+	err             error
+	broadcastLayout bool
+	startPanes      []*mux.Pane
+	closePanes      []*mux.Pane
+	sendExit        bool
+	shutdownServer  bool
+}
+
 type paneRender struct {
 	paneID uint32
 	data   []byte
@@ -39,6 +49,15 @@ type attachClientEvent struct {
 
 func (e attachClientEvent) handle(s *Session) {
 	e.reply <- s.handleAttachEvent(e.srv, e.cc, e.cols, e.rows)
+}
+
+type commandMutationEvent struct {
+	fn    func(*Session) commandMutationResult
+	reply chan commandMutationResult
+}
+
+func (e commandMutationEvent) handle(s *Session) {
+	e.reply <- e.fn(s)
 }
 
 type detachClientEvent struct {
@@ -231,6 +250,22 @@ func (s *Session) enqueueAttachClient(srv *Server, cc *ClientConn, cols, rows in
 		return res
 	case <-s.sessionEventDone:
 		return attachResult{err: errSessionShuttingDown}
+	}
+}
+
+func (s *Session) enqueueCommandMutation(fn func(*Session) commandMutationResult) commandMutationResult {
+	reply := make(chan commandMutationResult, 1)
+	if !s.enqueueEvent(commandMutationEvent{
+		fn:    fn,
+		reply: reply,
+	}) {
+		return commandMutationResult{err: errSessionShuttingDown}
+	}
+	select {
+	case res := <-reply:
+		return res
+	case <-s.sessionEventDone:
+		return commandMutationResult{err: errSessionShuttingDown}
 	}
 }
 
