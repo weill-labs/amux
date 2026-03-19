@@ -1,12 +1,32 @@
 package hooks
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
+
+// safeBuffer is a thread-safe wrapper around bytes.Buffer for concurrent writes and reads.
+type safeBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *safeBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *safeBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
 
 func TestRegistryAddAndList(t *testing.T) {
 	r := NewRegistry()
@@ -141,43 +161,23 @@ func TestRemoveOutOfBounds(t *testing.T) {
 }
 
 func TestFireFailingCommandLogsError(t *testing.T) {
-	// Capture stderr by temporarily replacing os.Stderr with a pipe
-	origStderr := os.Stderr
-	defer func() { os.Stderr = origStderr }() // safety net on panic
+	t.Parallel()
 
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("creating pipe: %v", err)
-	}
-	os.Stderr = w
-
+	var buf safeBuffer
 	reg := NewRegistry()
+	reg.ErrorWriter = &buf
 	reg.Add(OnIdle, "/nonexistent/binary/that/does/not/exist")
 	reg.Fire(OnIdle, nil)
 
-	// Wait for async goroutine to write to stderr
-	done := make(chan string, 1)
-	go func() {
-		buf := make([]byte, 4096)
-		n, _ := r.Read(buf)
-		done <- string(buf[:n])
-	}()
-
-	var output string
-	select {
-	case output = <-done:
-	case <-time.After(3 * time.Second):
-		t.Fatal("timed out waiting for stderr output")
+	// Poll the buffer for the error message from the async goroutine.
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if output := buf.String(); strings.Contains(output, "hook") && strings.Contains(output, "failed") {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
-
-	// Restore stderr before assertions (t.Error writes to stderr)
-	w.Close()
-	os.Stderr = origStderr
-	r.Close()
-
-	if !strings.Contains(output, "hook") || !strings.Contains(output, "failed") {
-		t.Errorf("expected error log containing 'hook' and 'failed', got: %q", output)
-	}
+	t.Fatalf("expected error log containing 'hook' and 'failed', got: %q", buf.String())
 }
 
 func TestParseEvent(t *testing.T) {

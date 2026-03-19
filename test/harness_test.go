@@ -23,8 +23,13 @@ var gocoverOwned bool
 
 // buildAmux builds the amux binary at binPath. When GOCOVERDIR is set,
 // the binary is built with -cover so it writes coverage data on exit.
+// Set AMUX_TEST_RACE=1 to build with -race (enables race detection in
+// the server binary itself, not just the test code).
 func buildAmux(binPath string) error {
 	args := []string{"build"}
+	if os.Getenv("AMUX_TEST_RACE") == "1" {
+		args = append(args, "-race")
+	}
 	if os.Getenv("GOCOVERDIR") != "" {
 		args = append(args, "-cover", "-covermode=atomic")
 	}

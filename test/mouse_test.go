@@ -110,14 +110,19 @@ func writeMouseScript(t *testing.T, h *AmuxHarness, name, body string) string {
 
 func waitForOuterContains(h *AmuxHarness, fn func(string) bool, timeout time.Duration) bool {
 	h.tb.Helper()
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	deadline := time.After(timeout)
+	for {
 		if fn(h.captureOuter()) {
 			return true
 		}
-		time.Sleep(50 * time.Millisecond)
+		select {
+		case <-deadline:
+			return false
+		case <-ticker.C:
+		}
 	}
-	return false
 }
 
 func firstMarkerNumber(screen, prefix string) int {

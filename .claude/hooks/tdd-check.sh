@@ -1,6 +1,6 @@
 #!/bin/bash
 # Stop hook: warn if implementation .go files changed without any test files.
-# Exits 2 (block + feedback) when tests are missing, 0 otherwise.
+# Exits 1 (warn) when tests are missing, 0 otherwise.
 #
 # On first trigger for a given diff, the warning fires and the diff hash is
 # saved. On subsequent stops with the same diff, the hook exits 0 silently.
@@ -31,10 +31,13 @@ fi
 # Save the hash so the next stop won't re-trigger for the same diff.
 echo "$current_hash" > "$ACK_FILE"
 
-# Implementation changed but no tests — warn
+# Implementation changed but no tests — warn (exit 1, not exit 2).
+# Stop hooks must never use exit 2 (block): blocking triggers a new
+# response, which re-triggers the hook, creating an infinite loop when
+# the condition can't be resolved by a text response.
 echo "TDD check: implementation files changed but no test files were modified:" >&2
 echo "$impl_files" | sed 's/^/  /' >&2
 echo "" >&2
 echo "Write a failing test first, then implement. If this is a pure refactor" >&2
 echo "with no behavior change, explain why no test is needed." >&2
-exit 2
+exit 1

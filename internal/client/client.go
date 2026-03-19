@@ -50,14 +50,14 @@ func (cr *ClientRenderer) HandleLayout(snap *proto.LayoutSnapshot) bool {
 	clearedDisplayPanes := false
 	clearedChooser := ""
 	cr.mu.Lock()
-	if cr.displayPanes != nil {
+	if structureChanged && cr.displayPanes != nil {
 		clearedDisplayPanes = true
+		cr.displayPanes = nil
 	}
-	cr.displayPanes = nil
-	if cr.chooser != nil {
+	if structureChanged && cr.chooser != nil {
 		clearedChooser = cr.chooser.mode.hiddenEvent()
+		cr.chooser = nil
 	}
-	cr.chooser = nil
 	cr.dirty = true
 	cr.mu.Unlock()
 	if clearedDisplayPanes {

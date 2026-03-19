@@ -466,7 +466,7 @@ func runServer(sessionName string) {
 	triggerReload := make(chan struct{}, 1)
 	execPath, execErr := reload.ResolveExecutable()
 	if execErr == nil && !noWatch {
-		go reload.WatchBinary(execPath, triggerReload)
+		go reload.WatchBinary(execPath, triggerReload, nil)
 		go func() {
 			for range triggerReload {
 				if reloadErr := s.Reload(execPath); reloadErr != nil {

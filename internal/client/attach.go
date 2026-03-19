@@ -113,7 +113,7 @@ func RunSession(sessionName string) error {
 	triggerReload := make(chan struct{}, 1)
 	execPath, execErr := reload.ResolveExecutable()
 	if execErr == nil && os.Getenv("AMUX_NO_WATCH") != "1" {
-		go reload.WatchBinary(execPath, triggerReload)
+		go reload.WatchBinary(execPath, triggerReload, nil)
 	}
 
 	// Forward SIGWINCH to server and update client renderer
