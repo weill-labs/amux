@@ -509,10 +509,17 @@ func (hc *HostConn) buildSSHConfig() (*ssh.ClientConfig, error) {
 		user = "ubuntu"
 	}
 
+	var hkCallback ssh.HostKeyCallback
+	if os.Getenv("AMUX_SSH_INSECURE") == "1" {
+		hkCallback = ssh.InsecureIgnoreHostKey()
+	} else {
+		hkCallback = hostKeyCallback("")
+	}
+
 	return &ssh.ClientConfig{
 		User:            user,
 		Auth:            authMethods,
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(), // TODO: proper host key verification
+		HostKeyCallback: hkCallback,
 	}, nil
 }
 

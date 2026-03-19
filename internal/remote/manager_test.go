@@ -249,7 +249,8 @@ func TestDeployToAddressDeployDisabled(t *testing.T) {
 }
 
 func TestDeployToAddressViaSSH(t *testing.T) {
-	t.Parallel()
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("AMUX_SSH_INSECURE", "1")
 	ts := startTestSSH(t)
 
 	cfg := &config.Config{Hosts: map[string]config.Host{
@@ -291,6 +292,7 @@ func TestDeployToAddressHostNotInConfig(t *testing.T) {
 
 	t.Setenv("HOME", fakeHome)
 	t.Setenv("SSH_AUTH_SOCK", "")
+	t.Setenv("AMUX_SSH_INSECURE", "1")
 
 	m.DeployToAddress("unknown-host", ts.Addr, "testuser")
 
