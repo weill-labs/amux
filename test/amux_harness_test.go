@@ -188,6 +188,30 @@ func (h *AmuxHarness) waitForFunc(fn func(string) bool, timeout time.Duration) b
 	return false
 }
 
+// waitForOuterFunc polls the outer emulator capture until fn returns true or timeout.
+// Outer overlay updates do not have a dedicated server-side wait primitive, so this
+// uses a short ticker rather than sleep loops scattered across tests.
+func (h *AmuxHarness) waitForOuterFunc(fn func(string) bool, timeout time.Duration) bool {
+	h.tb.Helper()
+	if fn(h.captureOuter()) {
+		return true
+	}
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	for {
+		select {
+		case <-timer.C:
+			return fn(h.captureOuter())
+		case <-ticker.C:
+			if fn(h.captureOuter()) {
+				return true
+			}
+		}
+	}
+}
+
 // waitForActive polls JSON capture until the named pane is active or timeout.
 func (h *AmuxHarness) waitForActive(name string, timeout time.Duration) bool {
 	h.tb.Helper()

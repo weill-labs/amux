@@ -335,12 +335,7 @@ for i in $(seq -w 1 50); do echo "ALPHA BRAVO CHARLIE $i"; done
 // disappear without a server-side wait primitive exposing that transition.
 func waitForOuterGone(h *AmuxHarness, substr string, timeout time.Duration) bool {
 	h.tb.Helper()
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		if !strings.Contains(h.captureOuter(), substr) {
-			return true
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	return false
+	return h.waitForOuterFunc(func(s string) bool {
+		return !strings.Contains(s, substr)
+	}, timeout)
 }

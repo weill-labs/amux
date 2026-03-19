@@ -98,16 +98,10 @@ func TestCaptureIdleIndicator(t *testing.T) {
 	h.waitFor("pane-2", "$")
 	h.waitIdle("pane-1")
 
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		out := h.capture()
-		if strings.Contains(out, "◇") {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("capture should show idle diamond indicator for inactive idle pane, got:\n%s", out)
-		}
-		time.Sleep(100 * time.Millisecond)
+	if !h.waitForFunc(func(s string) bool {
+		return strings.Contains(s, "◇")
+	}, 5*time.Second) {
+		t.Fatalf("capture should show idle diamond indicator for inactive idle pane, got:\n%s", h.capture())
 	}
 }
 

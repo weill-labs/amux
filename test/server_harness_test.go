@@ -362,6 +362,28 @@ func (h *ServerHarness) waitLayoutOrTimeout(afterGen uint64, timeout string) boo
 	return !strings.Contains(out, "timeout")
 }
 
+// waitForFunc polls the compositor capture until fn returns true or timeout.
+// It waits on layout generation bumps between capture checks, avoiding sleep-based polling.
+func (h *ServerHarness) waitForFunc(fn func(string) bool, timeout time.Duration) bool {
+	h.tb.Helper()
+	deadline := time.Now().Add(timeout)
+	gen := h.generation()
+	for time.Now().Before(deadline) {
+		if fn(h.capture()) {
+			return true
+		}
+		waitFor := time.Until(deadline)
+		if waitFor > 250*time.Millisecond {
+			waitFor = 250 * time.Millisecond
+		}
+		if !h.waitLayoutOrTimeout(gen, waitFor.String()) {
+			return fn(h.capture())
+		}
+		gen = h.generation()
+	}
+	return false
+}
+
 // ---------------------------------------------------------------------------
 // Split helpers — synchronous via CLI, no keybinding simulation
 // ---------------------------------------------------------------------------

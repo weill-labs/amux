@@ -7,34 +7,69 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fsnotify/fsnotify"
 	"github.com/weill-labs/amux/internal/server"
 )
 
-// waitForFile polls until path exists or timeout expires.
-func waitForFile(t *testing.T, path string, timeout time.Duration) bool {
+func waitForFileState(t *testing.T, path string, timeout time.Duration, ready func() (bool, string)) string {
 	t.Helper()
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		if _, err := os.Stat(path); err == nil {
-			return true
-		}
-		time.Sleep(100 * time.Millisecond)
+
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		t.Fatalf("new watcher: %v", err)
 	}
-	return false
+	defer watcher.Close()
+
+	dir := filepath.Dir(path)
+	if err := watcher.Add(dir); err != nil {
+		t.Fatalf("watch %s: %v", dir, err)
+	}
+
+	if ok, result := ready(); ok {
+		return result
+	}
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	for {
+		select {
+		case <-timer.C:
+			return ""
+		case event := <-watcher.Events:
+			if filepath.Clean(event.Name) != filepath.Clean(path) {
+				continue
+			}
+			if ok, result := ready(); ok {
+				return result
+			}
+		case err := <-watcher.Errors:
+			t.Logf("fsnotify error for %s: %v", path, err)
+		}
+	}
 }
 
-// waitForFileContent polls until path exists with non-empty content or timeout expires.
+// waitForFile waits until path exists or timeout expires.
+func waitForFile(t *testing.T, path string, timeout time.Duration) bool {
+	t.Helper()
+	return waitForFileState(t, path, timeout, func() (bool, string) {
+		if _, err := os.Stat(path); err == nil {
+			return true, "exists"
+		}
+		return false, ""
+	}) != ""
+}
+
+// waitForFileContent waits until path exists with non-empty content or timeout expires.
 func waitForFileContent(t *testing.T, path string, timeout time.Duration) string {
 	t.Helper()
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
+	return waitForFileState(t, path, timeout, func() (bool, string) {
 		data, err := os.ReadFile(path)
 		if err == nil && len(data) > 0 {
-			return string(data)
+			return true, string(data)
 		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	return ""
+		return false, ""
+	})
 }
 
 func TestSetHookAndListHooks(t *testing.T) {
