@@ -151,7 +151,7 @@ func (c *Compositor) RenderFullWithOverlay(root *mux.LayoutCell, activePaneID ui
 	}
 
 	// Global status bar at bottom
-	renderGlobalBar(&buf, c.sessionName, paneCount, c.width, c.height-1, c.windows)
+	renderGlobalBar(&buf, c.sessionName, paneCount, c.width, c.height-1, c.windows, overlay.Message)
 	if overlay.Chooser != nil {
 		renderChooserOverlay(&buf, c.width, c.height, overlay.Chooser)
 	}

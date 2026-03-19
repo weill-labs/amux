@@ -22,6 +22,7 @@ type ClientRenderer struct {
 	copyModes    map[uint32]*copymode.CopyMode // per-pane copy mode state (nil = not in copy mode)
 	displayPanes *displayPanesState
 	chooser      *chooserState
+	message      string
 	OnUIEvent    func(string)
 }
 
@@ -58,6 +59,7 @@ func (cr *ClientRenderer) HandleLayout(snap *proto.LayoutSnapshot) bool {
 		clearedChooser = cr.chooser.mode.hiddenEvent()
 		cr.chooser = nil
 	}
+	cr.message = ""
 	cr.dirty = true
 	cr.mu.Unlock()
 	if clearedDisplayPanes {
@@ -79,6 +81,9 @@ func (cr *ClientRenderer) emitUIEvent(name string) {
 func (cr *ClientRenderer) HandlePaneOutput(paneID uint32, data []byte) {
 	cr.renderer.HandlePaneOutput(paneID, data)
 	cr.mu.Lock()
+	if cr.message != "" {
+		cr.message = ""
+	}
 	cr.dirty = true
 	cr.mu.Unlock()
 }
@@ -127,7 +132,31 @@ func (cr *ClientRenderer) overlayState() render.OverlayState {
 	return render.OverlayState{
 		PaneLabels: cr.overlayLabels(),
 		Chooser:    cr.chooserOverlay(),
+		Message:    cr.prefixMessage(),
 	}
+}
+
+func (cr *ClientRenderer) ShowPrefixMessage(msg string) {
+	cr.mu.Lock()
+	defer cr.mu.Unlock()
+	cr.message = msg
+	cr.dirty = true
+}
+
+func (cr *ClientRenderer) ClearPrefixMessage() {
+	cr.mu.Lock()
+	defer cr.mu.Unlock()
+	if cr.message == "" {
+		return
+	}
+	cr.message = ""
+	cr.dirty = true
+}
+
+func (cr *ClientRenderer) prefixMessage() string {
+	cr.mu.Lock()
+	defer cr.mu.Unlock()
+	return cr.message
 }
 
 // IsDirty returns true if there is new data to render.

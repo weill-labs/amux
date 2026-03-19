@@ -190,7 +190,7 @@ func TestGlobalBarMultipleWindows(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			var buf strings.Builder
-			renderGlobalBar(&buf, "test-session", 3, 120, 10, tt.windows)
+			renderGlobalBar(&buf, "test-session", 3, 120, 10, tt.windows, "")
 			output := buf.String()
 			for _, s := range tt.want {
 				if !strings.Contains(output, s) {
@@ -208,7 +208,7 @@ func TestGlobalBarFillsFullWidth(t *testing.T) {
 		t.Run(fmt.Sprintf("width=%d", width), func(t *testing.T) {
 			t.Parallel()
 			var buf strings.Builder
-			renderGlobalBar(&buf, "default", 2, width, 0, nil)
+			renderGlobalBar(&buf, "default", 2, width, 0, nil, "")
 			grid := MaterializeGrid(buf.String(), width, 1)
 
 			// width-1 accounts for MaterializeGrid trimming the trailing space.
