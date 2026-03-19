@@ -437,6 +437,11 @@ func runServer(sessionName string) {
 		}
 	}
 
+	// Read and unset server-only env vars so child processes don't inherit
+	// them. Values are re-exported in Reload() before syscall.Exec.
+	// Must be set before event loops can observe Env (e.g., exit-unattached).
+	s.Env = server.ReadServerEnv()
+
 	// Set up remote pane manager for all sessions
 	s.SetupRemoteManager(cfg, server.BuildVersion)
 
@@ -448,10 +453,6 @@ func runServer(sessionName string) {
 		<-sigCh
 		s.Shutdown()
 	}()
-
-	// Read and unset server-only env vars so child processes don't inherit
-	// them. Values are re-exported in Reload() before syscall.Exec.
-	s.Env = server.ReadServerEnv()
 
 	triggerReload := make(chan struct{}, 1)
 	execPath, execErr := reload.ResolveExecutable()

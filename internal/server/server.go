@@ -247,10 +247,10 @@ func (s *Session) removeClient(cc *ClientConn) {
 	shouldExit := s.exitServer != nil && s.exitServer.Env.ExitUnattached && s.hadClient && len(s.clients) == 0 && !s.shutdown.Load()
 	s.recalcSizeLocked()
 	s.mu.Unlock()
-	s.broadcastLayout()
 	if shouldExit {
 		s.wantShutdown = true
 	}
+	s.broadcastLayout()
 }
 
 // BuildVersion is set by main at startup for version reporting in status.

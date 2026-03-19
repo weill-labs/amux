@@ -27,7 +27,6 @@ type commandMutationResult struct {
 	startPanes      []*mux.Pane
 	closePanes      []*mux.Pane
 	sendExit        bool
-	shutdownServer  bool // processed by caller goroutine (not event loop)
 }
 
 type paneRender struct {

@@ -60,9 +60,6 @@ func (ctx *CommandContext) replyCommandMutation(res commandMutationResult) {
 	if res.sendExit {
 		ctx.Sess.broadcast(&Message{Type: MsgTypeExit})
 	}
-	if res.shutdownServer {
-		go ctx.Srv.Shutdown()
-	}
 }
 
 func (ctx *CommandContext) activeWindowSnapshot() (activePid, width, height int, err error) {
@@ -489,7 +486,7 @@ func cmdKill(ctx *CommandContext) {
 		if lastPane {
 			res.output = fmt.Sprintf("Killed %s (session exiting)\n", paneName)
 			res.sendExit = true
-			res.shutdownServer = true
+			sess.wantShutdown = true
 			return res
 		}
 
