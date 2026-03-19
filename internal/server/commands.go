@@ -950,21 +950,29 @@ func parseWaitHookArgs(args []string) (eventName, paneName string, afterGen uint
 	return eventName, paneName, afterGen, timeout, nil
 }
 
+func resolveWaitHookPaneName(ctx *CommandContext, ref string) (string, error) {
+	if ref == "" {
+		return "", nil
+	}
+	ctx.Sess.mu.Lock()
+	pane, _, err := ctx.CC.resolvePaneAcrossWindowsLocked(ctx.Sess, ref)
+	ctx.Sess.mu.Unlock()
+	if err != nil {
+		return "", err
+	}
+	return pane.Meta.Name, nil
+}
+
 func cmdWaitHook(ctx *CommandContext) {
 	eventName, paneName, afterGen, timeout, err := parseWaitHookArgs(ctx.Args)
 	if err != nil {
 		ctx.replyErr(err.Error())
 		return
 	}
-	if paneName != "" {
-		ctx.Sess.mu.Lock()
-		pane, _, err := ctx.CC.resolvePaneAcrossWindowsLocked(ctx.Sess, paneName)
-		ctx.Sess.mu.Unlock()
-		if err != nil {
-			ctx.replyErr(err.Error())
-			return
-		}
-		paneName = pane.Meta.Name
+	paneName, err = resolveWaitHookPaneName(ctx, paneName)
+	if err != nil {
+		ctx.replyErr(err.Error())
+		return
 	}
 	record, ok := ctx.Sess.waitHook(afterGen, eventName, paneName, timeout)
 	if !ok {
