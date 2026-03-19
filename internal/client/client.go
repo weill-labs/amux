@@ -240,9 +240,14 @@ func (cr *ClientRenderer) CapturePaneText(paneID uint32, includeANSI bool) strin
 
 // CapturePaneJSON returns a single pane's JSON from client-side emulators.
 func (cr *ClientRenderer) CapturePaneJSON(paneID uint32, agentStatus map[uint32]proto.PaneAgentStatus) string {
+	base := cr.renderer.CapturePaneJSON(paneID, agentStatus)
+	if strings.TrimSpace(base) == "{}" {
+		return base
+	}
+
 	var pane proto.CapturePane
-	if err := json.Unmarshal([]byte(cr.renderer.CapturePaneJSON(paneID, agentStatus)), &pane); err != nil {
-		return cr.renderer.CapturePaneJSON(paneID, agentStatus)
+	if err := json.Unmarshal([]byte(base), &pane); err != nil {
+		return base
 	}
 	pane.CopyMode = cr.InCopyMode(paneID)
 	out, _ := json.MarshalIndent(pane, "", "  ")
