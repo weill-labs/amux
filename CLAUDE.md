@@ -94,6 +94,10 @@ Commit design specs and implementation plans to the feature branch, not main. Co
 
 After creating or updating a PR, run a review pass and a simplification pass before considering the work done. Claude Code gets hook reminders for this. Codex users should use the repo PR workflow skill or perform the steps explicitly.
 
+### Merge Conflict Resolution
+
+After resolving merge conflicts, run `go vet ./...` locally before committing. Git auto-merge can silently produce duplicate declarations (e.g., methods defined in both sides) that compile but fail vet.
+
 ### Merge Policy
 
 GitHub PRs for this repo are squash-only. `gh pr merge --merge` and `gh pr merge --rebase` will fail.
