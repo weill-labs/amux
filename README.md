@@ -32,22 +32,34 @@ Single binary, no runtime dependencies.
 
 ## Quick Start
 
-**Human:**
+**Human**
 
 ```bash
-amux                          # start or reattach to a session
-amux new my-project           # start a named session
-amux -s my-project attach     # attach to a specific session
+# Start or reattach to the default session
+amux
+
+# Or create a named session
+amux new my-project
+
+# Or attach to an existing named session
+amux -s my-project attach
 ```
 
-**Agent:**
+**Agent**
 
 ```bash
-amux capture --format json         # structured JSON of all panes
-amux send-keys pane-1 "ls" Enter   # send keystrokes
-amux wait-idle pane-1              # block until command finishes
-amux events --filter idle          # subscribe to idle/busy transitions
-amux list-clients                  # discover attached client IDs
+# Inspect the current session
+amux capture --format json
+
+# Send a command to a pane and wait for it to finish
+amux send-keys pane-1 "ls" Enter
+amux wait-idle pane-1
+
+# Subscribe to state changes
+amux events --filter idle
+
+# Discover attached clients
+amux list-clients
 ```
 
 ## Agent API
