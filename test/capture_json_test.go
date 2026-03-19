@@ -31,6 +31,9 @@ func TestCaptureJSON_FullScreen(t *testing.T) {
 		t.Fatalf("failed to parse JSON: %v\nraw output:\n%s", err, out)
 	}
 
+	if capture.APIVersion != "0.1" {
+		t.Errorf("api_version: got %q, want %q", capture.APIVersion, "0.1")
+	}
 	if capture.Session == "" {
 		t.Error("session should be non-empty")
 	}
@@ -98,8 +101,10 @@ func TestCaptureJSON_SinglePane(t *testing.T) {
 	if !pane.Active {
 		t.Error("pane-1 should be active")
 	}
-	if pane.Position != nil {
-		t.Error("single-pane capture should not include position")
+	if pane.Position == nil {
+		t.Error("single-pane capture should include position")
+	} else if pane.Position.Width == 0 || pane.Position.Height == 0 {
+		t.Errorf("single-pane position should have non-zero dimensions, got %+v", pane.Position)
 	}
 
 	found := false

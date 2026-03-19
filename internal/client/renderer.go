@@ -324,9 +324,10 @@ func (r *Renderer) CaptureJSON(agentStatus map[uint32]proto.PaneAgentStatus) str
 	root, _ := r.captureRootLocked()
 
 	capture := proto.CaptureJSON{
-		Session: r.sessionName,
-		Width:   r.width,
-		Height:  r.height,
+		APIVersion: "0.1",
+		Session:    r.sessionName,
+		Width:      r.width,
+		Height:     r.height,
 	}
 	for _, ws := range r.windows {
 		if ws.ID == r.activeWinID {
@@ -379,6 +380,14 @@ func (r *Renderer) CapturePaneJSON(paneID uint32, agentStatus map[uint32]proto.P
 	cp, ok := r.buildCapturePaneLocked(paneID, agentStatus)
 	if !ok {
 		return "{}"
+	}
+	if r.layout != nil {
+		root, _ := r.captureRootLocked()
+		if cell := root.FindByPaneID(paneID); cell != nil {
+			cp.Position = &proto.CapturePos{
+				X: cell.X, Y: cell.Y, Width: cell.W, Height: cell.H,
+			}
+		}
 	}
 	out, _ := json.MarshalIndent(cp, "", "  ")
 	return string(out)

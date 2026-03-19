@@ -191,6 +191,9 @@ func TestClientRendererCaptureJSON(t *testing.T) {
 		t.Fatalf("JSON parse: %v\nraw: %s", err, out)
 	}
 
+	if capture.APIVersion != "0.1" {
+		t.Errorf("api_version: got %q, want %q", capture.APIVersion, "0.1")
+	}
 	if capture.Session != "test" {
 		t.Errorf("session: got %q, want %q", capture.Session, "test")
 	}
@@ -293,6 +296,12 @@ func TestClientRendererCapturePaneJSON(t *testing.T) {
 	}
 	if cp.Name != "pane-1" {
 		t.Errorf("name: got %q, want pane-1", cp.Name)
+	}
+	if cp.Position == nil {
+		t.Fatal("single-pane capture should include position")
+	}
+	if cp.Position.Width == 0 || cp.Position.Height == 0 {
+		t.Errorf("position should have non-zero dimensions, got %+v", cp.Position)
 	}
 
 	empty := cr.CapturePaneJSON(999, nil)

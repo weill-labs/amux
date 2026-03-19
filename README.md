@@ -26,9 +26,19 @@ PTY output (raw bytes)
 
 ## Install
 
+**Homebrew** (macOS/Linux):
+
+```bash
+brew install weill-labs/tap/amux
+```
+
+**Go install**:
+
 ```bash
 go install github.com/weill-labs/amux@latest
 ```
+
+**GitHub Releases**: download pre-built binaries from the [releases page](https://github.com/weill-labs/amux/releases).
 
 ## Quick Start
 
@@ -64,7 +74,7 @@ amux list-clients
 
 ## Agent API
 
-Every operation is a single CLI call — no libraries, no SDK, language-agnostic.
+Every operation is a single CLI call — no libraries, no SDK, language-agnostic. See [docs/agent-api.md](docs/agent-api.md) for stability labels and versioning policy.
 
 ### Structured Capture
 
@@ -78,6 +88,7 @@ Returns a JSON object with session metadata, window info, and per-pane state:
 
 ```json
 {
+  "api_version": "0.1",
   "session": "my-project",
   "window": {"id": 1, "name": "main", "index": 1},
   "width": 200, "height": 50,
@@ -172,6 +183,8 @@ else
 fi
 ```
 
+![Agent loop demo](demo/agent-loop.gif)
+
 ## Why amux?
 
 **Why not tmux + scripts?**
@@ -184,7 +197,22 @@ Control mode still delivers raw pane content and requires polling. amux has bloc
 Headless tools cut the human out of the loop. Humans and agents work better on a shared screen. Both see the same panes, both can act on them.
 
 **Does amux support all tmux features?**
-No, and it doesn't aim to. amux implements what matters for human+agent pairing: splits, windows, zoom, minimize, remote hosts, searchable choosers, and the agent API. If you need tmux's full feature set (session groups, advanced hooks), use tmux.
+No, and it doesn't aim to. amux implements what matters for human+agent pairing: splits, windows, zoom, minimize, remote hosts, searchable choosers, and the agent API. If you need tmux's full feature set (session groups, advanced hooks), use tmux. See [docs/comparison.md](docs/comparison.md) for a detailed feature matrix of amux vs tmux vs Zellij.
+
+## Performance
+
+amux captures are comparable to tmux in raw latency while returning structured JSON instead of raw text:
+
+| Operation | amux | tmux | Notes |
+|-----------|------|------|-------|
+| Capture (1 pane) | ~10 ms | ~9 ms | amux returns typed JSON; tmux returns raw text + ANSI escapes |
+| Capture (4 panes) | ~12 ms | ~8 ms | amux includes per-pane metadata, cursor, idle state |
+| Send keys | ~8 ms | ~6 ms | Both measured round-trip through Unix socket |
+| Emulator render | ~0.07 ms | — | Per-frame VT emulation (amux-only, no tmux equivalent) |
+
+Medians from CI benchmarks on Apple M1 (macOS runner, `go test -bench`). Capture returns structured JSON with layout coordinates, process state, and idle detection — features that would require additional tmux commands + parsing to replicate.
+
+Full benchmark trends: [dashboard](https://weill-labs.github.io/amux/) (updated on each merge to main).
 
 ## CLI Reference
 

@@ -4,14 +4,30 @@
 # Requires: asciinema, node, ffmpeg (brew install asciinema ffmpeg node)
 # First run also installs playwright automatically.
 #
-# Usage:  bash demo/record.sh
-# Output: demo/hero.gif
+# Usage:  bash demo/record.sh                  # hero demo (default)
+#         DEMO=agent-loop bash demo/record.sh   # agent loop demo
+# Output: demo/hero.gif or demo/agent-loop.gif
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-CAST_FILE="${SCRIPT_DIR}/hero.cast"
-GIF_FILE="${SCRIPT_DIR}/hero.gif"
+DEMO="${DEMO:-hero}"
+
+case "$DEMO" in
+    hero)
+        DRIVER="${SCRIPT_DIR}/driver.sh"
+        ;;
+    agent-loop)
+        DRIVER="${SCRIPT_DIR}/driver-agent-loop.sh"
+        ;;
+    *)
+        echo "Unknown demo: $DEMO (supported: hero, agent-loop)"
+        exit 1
+        ;;
+esac
+
+CAST_FILE="${SCRIPT_DIR}/${DEMO}.cast"
+GIF_FILE="${SCRIPT_DIR}/${DEMO}.gif"
 
 # Check dependencies
 for cmd in amux asciinema node ffmpeg jq; do
@@ -33,7 +49,7 @@ asciinema rec \
     --output-format asciicast-v2 \
     --window-size 160x40 \
     --idle-time-limit 3 \
-    --command "bash ${SCRIPT_DIR}/driver.sh" \
+    --command "bash ${DRIVER}" \
     --overwrite \
     "$CAST_FILE"
 

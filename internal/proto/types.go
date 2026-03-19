@@ -62,12 +62,13 @@ type PaneSnapshot struct {
 
 // CaptureJSON is the full-screen JSON capture output.
 type CaptureJSON struct {
-	Session string        `json:"session"`
-	Window  CaptureWindow `json:"window"`
-	Width   int           `json:"width"`
-	Height  int           `json:"height"`
-	Panes   []CapturePane `json:"panes"`
-	UI      *CaptureUI    `json:"ui,omitempty"`
+	APIVersion string        `json:"api_version"`
+	Session    string        `json:"session"`
+	Window     CaptureWindow `json:"window"`
+	Width      int           `json:"width"`
+	Height     int           `json:"height"`
+	Panes      []CapturePane `json:"panes"`
+	UI         *CaptureUI    `json:"ui,omitempty"`
 }
 
 // CaptureUI holds client-local UI state for JSON capture.
