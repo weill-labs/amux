@@ -106,7 +106,7 @@ jobs:
 
       - name: Upload test results to Codecov
         if: ${{ !cancelled() && steps.changes.outputs.code_changed == 'true' }}
-        uses: codecov/codecov-action@v5.5.2
+        uses: codecov/codecov-action@v5.5.3
         with:
           files: unit-results.junit.xml,integration-results.junit.xml
           report_type: test_results
@@ -134,7 +134,7 @@ jobs:
 
       - name: Upload coverage to Codecov
         if: always() && steps.changes.outputs.code_changed == 'true'
-        uses: codecov/codecov-action@v5.5.2
+        uses: codecov/codecov-action@v5.5.3
         with:
           files: merged-coverage.txt
           token: ${{ secrets.CODECOV_TOKEN }}
