@@ -298,7 +298,7 @@ func (h *ServerHarness) waitForTimeout(pane, substr, timeout string) {
 }
 
 // waitBusy blocks until the named pane has child processes (a command is running).
-// Uses the server's wait-busy command (blocking, zero polling).
+// Uses the server's process-based wait-busy command.
 func (h *ServerHarness) waitBusy(pane string) {
 	h.tb.Helper()
 	out := h.runCmd("wait-busy", pane, "--timeout", "5s")
