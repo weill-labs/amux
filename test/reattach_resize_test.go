@@ -46,7 +46,7 @@ func (h *ServerHarness) attachAt(cols, rows int) *server.Message {
 // size, feeds the initial attach stream (layout + pane replays) into a fresh
 // renderer, and returns it. afterLayout runs after the initial layout is
 // applied but before replayed pane output is processed.
-func (h *ServerHarness) attachRendererAt(cols, rows int, afterLayout func(*client.Renderer, *server.Message)) *client.Renderer {
+func (h *ServerHarness) attachRendererAt(cols, rows int, afterLayout func(*client.Renderer)) *client.Renderer {
 	h.tb.Helper()
 	sockPath := server.SocketPath(h.session)
 	conn, err := net.Dial("unix", sockPath)
@@ -65,29 +65,29 @@ func (h *ServerHarness) attachRendererAt(cols, rows int, afterLayout func(*clien
 	}
 
 	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
-	msg, err := server.ReadMsg(conn)
+	layoutMsg, err := server.ReadMsg(conn)
 	if err != nil {
 		h.tb.Fatalf("attachRendererAt: read layout: %v", err)
 	}
-	if msg.Type != server.MsgTypeLayout {
-		h.tb.Fatalf("attachRendererAt: expected layout, got type %d", msg.Type)
+	if layoutMsg.Type != server.MsgTypeLayout {
+		h.tb.Fatalf("attachRendererAt: expected layout, got type %d", layoutMsg.Type)
 	}
 
 	r := client.New(cols, rows)
-	r.HandleLayout(msg.Layout)
+	r.HandleLayout(layoutMsg.Layout)
 	if afterLayout != nil {
-		afterLayout(r, msg)
+		afterLayout(r)
 	}
 
-	for range msg.Layout.Panes {
-		msg, err := server.ReadMsg(conn)
+	for i := 0; i < len(layoutMsg.Layout.Panes); i++ {
+		paneMsg, err := server.ReadMsg(conn)
 		if err != nil {
 			h.tb.Fatalf("attachRendererAt: read pane output: %v", err)
 		}
-		if msg.Type != server.MsgTypePaneOutput {
-			h.tb.Fatalf("attachRendererAt: expected pane output, got type %d", msg.Type)
+		if paneMsg.Type != server.MsgTypePaneOutput {
+			h.tb.Fatalf("attachRendererAt: expected pane output, got type %d", paneMsg.Type)
 		}
-		r.HandlePaneOutput(msg.PaneID, msg.PaneData)
+		r.HandlePaneOutput(paneMsg.PaneID, paneMsg.PaneData)
 	}
 
 	return r
@@ -188,7 +188,7 @@ func TestAttachResyncsStaleCursorState(t *testing.T) {
 	healthy := h.jsonPane(healthyCapture, "pane-2")
 
 	var before proto.CapturePane
-	r := h.attachRendererAt(255, 62, func(r *client.Renderer, _ *server.Message) {
+	r := h.attachRendererAt(255, 62, func(r *client.Renderer) {
 		// Simulate stale client-side cursor state surviving the initial layout
 		// until the attach-time pane replay arrives.
 		r.HandlePaneOutput(2, []byte("\033[1;24H"))
