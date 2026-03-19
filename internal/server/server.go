@@ -101,6 +101,12 @@ type Session struct {
 	// at least one has connected. Used by test harness to avoid orphans.
 	hadClient  bool    // true after first interactive client attaches
 	exitServer *Server // back-reference to trigger shutdown
+
+	// wantShutdown is set by event handlers that want the server to exit
+	// (last client disconnected, last pane exited). The event loop checks
+	// this after each event and triggers shutdown asynchronously — never
+	// from inside the handler, which would deadlock.
+	wantShutdown bool
 }
 
 // buildCrashCheckpoint builds a crash checkpoint from the current session state.
@@ -243,10 +249,7 @@ func (s *Session) removeClient(cc *ClientConn) {
 	s.mu.Unlock()
 	s.broadcastLayout()
 	if shouldExit {
-		// Async: removeClient may run inside the session event loop;
-		// calling Shutdown synchronously would deadlock because
-		// Shutdown waits for the event loop to finish.
-		go s.exitServer.Shutdown()
+		s.wantShutdown = true
 	}
 }
 

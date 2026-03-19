@@ -27,7 +27,7 @@ type commandMutationResult struct {
 	startPanes      []*mux.Pane
 	closePanes      []*mux.Pane
 	sendExit        bool
-	shutdownServer  bool
+	shutdownServer  bool // processed by caller goroutine (not event loop)
 }
 
 type paneRender struct {
@@ -112,7 +112,7 @@ func (e paneExitEvent) handle(s *Session) {
 	if len(s.Panes) <= 1 {
 		s.mu.Unlock()
 		s.broadcast(&Message{Type: MsgTypeExit})
-		go e.srv.Shutdown()
+		s.wantShutdown = true
 		return
 	}
 	s.removePane(e.paneID)
@@ -217,6 +217,12 @@ func (s *Session) eventLoop() {
 		case ev := <-s.sessionEvents:
 			if ev != nil {
 				ev.handle(s)
+			}
+			if s.wantShutdown {
+				// Trigger shutdown asynchronously — Shutdown() waits
+				// on sessionEventDone, so we must return first.
+				go s.exitServer.Shutdown()
+				return
 			}
 		}
 	}
