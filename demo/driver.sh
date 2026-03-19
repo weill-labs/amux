@@ -110,6 +110,21 @@ sleep 0.5
 printf "\n\033[32m✓ Fixed 1 issue\033[0m\n"
 EOF
 
+    # Simulated dev server log — runs in the utility pane
+    cat > "$SIMDIR/devlog.sh" <<'EOF'
+clear
+printf "\033[1m$ tail -f dev-server.log\033[0m\n\n"
+sleep 1.5
+printf "\033[90m21:14:01\033[0m \033[32mINFO\033[0m  server started on :3000\n"
+sleep 1.5
+printf "\033[90m21:14:03\033[0m \033[32mINFO\033[0m  GET /health \033[32m200\033[0m 4ms\n"
+sleep 1.5
+printf "\033[90m21:14:05\033[0m \033[32mINFO\033[0m  POST /api/run \033[32m201\033[0m 38ms\n"
+sleep 2
+printf "\033[90m21:14:07\033[0m \033[34mDEBG\033[0m  agent connected ws://localhost:3000\n"
+sleep 999
+EOF
+
     chmod +x "$SIMDIR"/*.sh
 }
 
@@ -162,7 +177,7 @@ agent() {
     sleep 0.3
 
     # Utility pane: dev server log
-    "$AMUX" -s "$session" send-keys "$util_pane" "bash ${SIMDIR}/devlog.sh 2>/dev/null || true" Enter >/dev/null
+    "$AMUX" -s "$session" send-keys "$util_pane" "bash ${SIMDIR}/devlog.sh" Enter >/dev/null
 
     # Wait for claude startup banners to render
     sleep 2
@@ -173,10 +188,6 @@ agent() {
     "$AMUX" -s "$session" send-keys tests "add unit tests for the server" Enter >/dev/null
     sleep 0.5
     "$AMUX" -s "$session" send-keys "$review_pane" "review server.js for security issues" Enter >/dev/null
-
-    # Utility pane shows logs while claude works
-    "$AMUX" -s "$session" send-keys "$util_pane" \
-        'clear && printf "\033[1m$ tail -f dev-server.log\033[0m\n\n" && sleep 1.5 && printf "\033[90m21:14:01\033[0m \033[32mINFO\033[0m  server started on :3000\n" && sleep 1.5 && printf "\033[90m21:14:03\033[0m \033[32mINFO\033[0m  GET /health \033[32m200\033[0m 4ms\n" && sleep 1.5 && printf "\033[90m21:14:05\033[0m \033[32mINFO\033[0m  POST /api/run \033[32m201\033[0m 38ms\n" && sleep 2 && printf "\033[90m21:14:07\033[0m \033[34mDEBG\033[0m  agent connected ws://localhost:3000\n"' Enter >/dev/null
 
     # Wait for claude sessions to finish their responses
     "$AMUX" -s "$session" wait-idle pane-1 --timeout 25s >/dev/null

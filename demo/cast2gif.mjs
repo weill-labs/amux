@@ -152,7 +152,7 @@ async function main() {
     process.exit(1);
   }
 
-  // Start playback at 100x speed — we screenshot at calculated time points
+  // Start playback — screenshots taken at 1/fps intervals
   await page.evaluate(() => { window.__player.play(); });
   await page.waitForFunction(() => window.__ready, { timeout: 5000 });
 
@@ -161,7 +161,7 @@ async function main() {
   let frameIndex = 0;
 
   for (let targetTime = 0; targetTime <= totalDuration; targetTime += frameInterval) {
-    // Wait until player reaches this time (at 100x speed, it's fast)
+    // Wait until player reaches this time point
     const deadline = Date.now() + 30000; // 30s timeout
     while (true) {
       const currentTime = await page.evaluate(() => window.__currentTime);
