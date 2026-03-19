@@ -7,6 +7,28 @@ import (
 	"testing"
 )
 
+func cleanStaleSocketsIn(dir string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || filepath.Ext(name) == ".log" {
+			continue
+		}
+		if e.Type()&os.ModeSocket == 0 {
+			continue
+		}
+		sockPath := filepath.Join(dir, name)
+		if SocketAlive(sockPath) {
+			continue
+		}
+		os.Remove(sockPath)
+		os.Remove(sockPath + ".log")
+	}
+}
+
 func TestCleanStaleSocketsIn(t *testing.T) {
 	tmpDir := t.TempDir()
 
