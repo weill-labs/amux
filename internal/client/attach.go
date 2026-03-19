@@ -287,6 +287,22 @@ func RunSession(sessionName string) error {
 					if data := cr.RenderDiff(); data != "" {
 						io.WriteString(os.Stdout, data)
 					}
+				case "choose-tree":
+					if !cr.ShowChooser(chooserModeTree) {
+						io.WriteString(os.Stdout, "\a")
+						break
+					}
+					if data := cr.RenderDiff(); data != "" {
+						io.WriteString(os.Stdout, data)
+					}
+				case "choose-window":
+					if !cr.ShowChooser(chooserModeWindow) {
+						io.WriteString(os.Stdout, "\a")
+						break
+					}
+					if data := cr.RenderDiff(); data != "" {
+						io.WriteString(os.Stdout, data)
+					}
 				case "compat-bell":
 					io.WriteString(os.Stdout, "\a")
 				default:
@@ -426,6 +442,20 @@ func RunSession(sessionName string) error {
 				}
 				if data := cr.RenderDiff(); data != "" {
 					io.WriteString(os.Stdout, data)
+				}
+				continue
+			}
+
+			if cr.ChooserActive() {
+				action := cr.HandleChooserInput(raw)
+				if action.bell {
+					io.WriteString(os.Stdout, "\a")
+				}
+				if data := cr.RenderDiff(); data != "" {
+					io.WriteString(os.Stdout, data)
+				}
+				if action.command != "" {
+					sender.Command(action.command, action.args)
 				}
 				continue
 			}

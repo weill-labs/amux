@@ -265,13 +265,46 @@ func TestListClientsShowsDisplayPanesState(t *testing.T) {
 
 	h := newServerHarness(t)
 	h.client.sendUIEvent(proto.UIEventDisplayPanesShown)
+	h.client.sendUIEvent(proto.UIEventChooseWindowShown)
 
 	out := h.runCmd("list-clients")
-	if !strings.Contains(out, "CLIENT") || !strings.Contains(out, "DISPLAY_PANES") {
+	if !strings.Contains(out, "CLIENT") || !strings.Contains(out, "DISPLAY_PANES") || !strings.Contains(out, "CHOOSER") {
 		t.Fatalf("unexpected list-clients header: %s", out)
 	}
-	if !strings.Contains(out, "client-1") || !strings.Contains(out, "shown") {
+	if !strings.Contains(out, "client-1") || !strings.Contains(out, "shown") || !strings.Contains(out, "window") {
 		t.Fatalf("list-clients should report shown state, got: %s", out)
+	}
+}
+
+func TestEventsChooserUISnapshotAndUpdates(t *testing.T) {
+	t.Parallel()
+
+	h := newServerHarness(t)
+	scanner, closer := eventStream(t, h.session, "--filter", proto.UIEventChooseTreeHidden+","+proto.UIEventChooseTreeShown, "--client", "client-1")
+	defer closer()
+
+	ev := mustReadEvent(t, scanner, 5*time.Second)
+	if ev.Type != proto.UIEventChooseTreeHidden {
+		t.Fatalf("initial chooser state: got %q, want %q", ev.Type, proto.UIEventChooseTreeHidden)
+	}
+
+	h.client.sendUIEvent(proto.UIEventChooseTreeShown)
+	ev = mustReadEvent(t, scanner, 5*time.Second)
+	if ev.Type != proto.UIEventChooseTreeShown {
+		t.Fatalf("updated chooser state: got %q, want %q", ev.Type, proto.UIEventChooseTreeShown)
+	}
+}
+
+func TestWaitUIImmediateChooseWindowHidden(t *testing.T) {
+	t.Parallel()
+
+	h := newServerHarness(t)
+	out := h.runCmd("wait-ui", proto.UIEventChooseWindowHidden, "--timeout", "1s")
+	if strings.Contains(out, "timeout") {
+		t.Fatalf("wait-ui choose-window-hidden should return immediately, got: %s", out)
+	}
+	if !strings.Contains(out, proto.UIEventChooseWindowHidden) {
+		t.Fatalf("wait-ui choose-window-hidden output = %q", out)
 	}
 }
 

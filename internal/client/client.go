@@ -21,6 +21,7 @@ type ClientRenderer struct {
 	dirty        bool
 	copyModes    map[uint32]*copymode.CopyMode // per-pane copy mode state (nil = not in copy mode)
 	displayPanes *displayPanesState
+	chooser      *chooserState
 	OnUIEvent    func(string)
 }
 
@@ -47,15 +48,23 @@ func NewClientRenderer(width, height int) *ClientRenderer {
 func (cr *ClientRenderer) HandleLayout(snap *proto.LayoutSnapshot) bool {
 	structureChanged := cr.renderer.HandleLayout(snap)
 	clearedDisplayPanes := false
+	clearedChooser := ""
 	cr.mu.Lock()
 	if cr.displayPanes != nil {
 		clearedDisplayPanes = true
 	}
 	cr.displayPanes = nil
+	if cr.chooser != nil {
+		clearedChooser = cr.chooser.mode.hiddenEvent()
+	}
+	cr.chooser = nil
 	cr.dirty = true
 	cr.mu.Unlock()
 	if clearedDisplayPanes {
 		cr.emitUIEvent(proto.UIEventDisplayPanesHidden)
+	}
+	if clearedChooser != "" {
+		cr.emitUIEvent(clearedChooser)
 	}
 	return structureChanged
 }
@@ -83,7 +92,7 @@ func (cr *ClientRenderer) Render(clearScreen ...bool) string {
 	cr.dirty = false
 	cr.mu.Unlock()
 
-	return cr.renderer.RenderFullWithOverlay(cr.paneLookup(), cr.overlayLabels(), clearScreen...)
+	return cr.renderer.RenderFullWithOverlay(cr.paneLookup(), cr.overlayState(), clearScreen...)
 }
 
 // RenderDiff produces minimal ANSI output by diffing against the previous frame.
@@ -93,7 +102,7 @@ func (cr *ClientRenderer) RenderDiff() string {
 	cr.dirty = false
 	cr.mu.Unlock()
 
-	return cr.renderer.RenderDiffWithOverlay(cr.paneLookup(), cr.overlayLabels())
+	return cr.renderer.RenderDiffWithOverlay(cr.paneLookup(), cr.overlayState())
 }
 
 // paneLookup returns a lookup function for pane data including copy mode.
@@ -111,6 +120,13 @@ func (cr *ClientRenderer) paneLookup() func(uint32) render.PaneData {
 		cm := cr.copyModes[paneID]
 		cr.mu.Unlock()
 		return &clientPaneData{emu: emu, info: info, cm: cm}
+	}
+}
+
+func (cr *ClientRenderer) overlayState() render.OverlayState {
+	return render.OverlayState{
+		PaneLabels: cr.overlayLabels(),
+		Chooser:    cr.chooserOverlay(),
 	}
 }
 

@@ -57,6 +57,8 @@ func DefaultKeybindings() *Keybindings {
 			'n': {Action: "next-window"},
 			'p': {Action: "prev-window"},
 			'q': {Action: "display-panes"},
+			's': {Action: "choose-tree"},
+			'w': {Action: "choose-window"},
 			'1': {Action: "select-window", Args: []string{"1"}},
 			'2': {Action: "select-window", Args: []string{"2"}},
 			'3': {Action: "select-window", Args: []string{"3"}},
@@ -82,8 +84,8 @@ var knownActions = map[string]bool{
 	"spawn": true, "send-keys": true, "resize-active": true,
 	"toggle-minimize": true, "new-window": true, "next-window": true,
 	"prev-window": true, "select-window": true, "rename-window": true,
-	"display-panes": true,
-	"detach":        true, "reload": true, "copy-mode": true,
+	"display-panes": true, "choose-tree": true, "choose-window": true,
+	"detach": true, "reload": true, "copy-mode": true,
 }
 
 // BuildKeybindings resolves a KeyConfig into a Keybindings dispatch table.

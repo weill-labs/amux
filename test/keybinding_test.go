@@ -232,6 +232,26 @@ w = "display-panes"
 	}
 }
 
+func TestCustomChooseWindowBinding(t *testing.T) {
+	t.Parallel()
+
+	h := newAmuxHarnessWithConfig(t, `
+[keys]
+unbind = ["w"]
+
+[keys.bind]
+W = "choose-window"
+`)
+
+	h.runCmd("new-window", "--name", "logs")
+	h.runCmd("select-window", "1")
+
+	h.sendKeys("C-a", "W")
+	if !h.waitFor("choose-window", 3*time.Second) {
+		t.Fatalf("expected custom Ctrl-a W binding to show chooser, got:\n%s", h.captureOuter())
+	}
+}
+
 func TestDefaultBindingsWithoutConfig(t *testing.T) {
 	t.Parallel()
 
