@@ -39,6 +39,10 @@ amux uses test-driven development with separate commits per phase. See [AGENTS.m
 
 The harness in `test/server_harness_test.go` drives amux directly over the Unix socket. The full suite runs in ~6s.
 
+Keep startup behavior per-session. Parallel tests may bring up many servers at once, so server startup must not do cross-session socket cleanup or other global sweeps that can remove another live test session's socket.
+
+If you add or change harness startup signals, make "ready" mean the next harness operation can succeed immediately. For example, a ready signal used before client attach should only fire once the server can actually accept that attach.
+
 ```bash
 go test -v -run TestYourFeature ./test/ -timeout 30s
 ```
