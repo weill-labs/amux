@@ -12,18 +12,7 @@ import (
 // captureJSONPane is a test helper that captures JSON and returns the named pane.
 func captureJSONPane(t *testing.T, h *ServerHarness, paneName string) proto.CapturePane {
 	t.Helper()
-	out := h.runCmd("capture", "--format", "json")
-	var capture proto.CaptureJSON
-	if err := json.Unmarshal([]byte(out), &capture); err != nil {
-		t.Fatalf("failed to parse JSON: %v\nraw output:\n%s", err, out)
-	}
-	for _, p := range capture.Panes {
-		if p.Name == paneName {
-			return p
-		}
-	}
-	t.Fatalf("pane %q not found in JSON output", paneName)
-	return proto.CapturePane{}
+	return h.jsonPane(h.captureJSON(), paneName)
 }
 
 func TestCaptureJSON_FullScreen(t *testing.T) {

@@ -117,9 +117,7 @@ func TestDisplayPanesZoomedOnlyShowsVisiblePane(t *testing.T) {
 	}
 
 	h.sendKeys("2")
-	if !waitForOuter(h, func(s string) bool {
-		return !strings.Contains(s, "[1]")
-	}, 3*time.Second) {
+	if !waitForOuterGone(h, "[1]", 3*time.Second) {
 		t.Fatalf("expected overlay to clear after invalid zoomed label\nScreen:\n%s", h.captureOuter())
 	}
 	if got := h.activePaneName(); got != "pane-2" {

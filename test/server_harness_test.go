@@ -2,7 +2,6 @@ package test
 
 import (
 	"crypto/rand"
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -218,28 +217,14 @@ func (h *ServerHarness) assertScreen(msg string, fn func(string) bool) {
 // captureJSON returns the full-screen JSON capture as a parsed struct.
 func (h *ServerHarness) captureJSON() proto.CaptureJSON {
 	h.tb.Helper()
-	out := h.runCmd("capture", "--format", "json")
-	var capture proto.CaptureJSON
-	if err := json.Unmarshal([]byte(out), &capture); err != nil {
-		h.tb.Fatalf("captureJSON: %v\nraw: %s", err, out)
-	}
-	return capture
+	return captureJSONFor(h.tb, h.runCmd)
 }
 
 // jsonPane finds a pane by name in a CaptureJSON, or fails the test.
 // Also fails if Position is nil (full-screen captures always set it).
 func (h *ServerHarness) jsonPane(capture proto.CaptureJSON, name string) proto.CapturePane {
 	h.tb.Helper()
-	for _, p := range capture.Panes {
-		if p.Name == name {
-			if p.Position == nil {
-				h.tb.Fatalf("pane %q has nil Position in full-screen capture", name)
-			}
-			return p
-		}
-	}
-	h.tb.Fatalf("pane %q not found in JSON capture", name)
-	return proto.CapturePane{}
+	return jsonPaneFor(h.tb, capture, name)
 }
 
 // assertActive asserts that the named pane is the active pane.
@@ -265,25 +250,13 @@ func (h *ServerHarness) assertInactive(name string) {
 // activePaneName returns the name of the active pane from JSON capture.
 func (h *ServerHarness) activePaneName() string {
 	h.tb.Helper()
-	c := h.captureJSON()
-	for _, p := range c.Panes {
-		if p.Active {
-			return p.Name
-		}
-	}
-	h.tb.Fatal("no active pane found")
-	return ""
+	return activePaneNameFor(h.tb, h.captureJSON())
 }
 
 // globalBar returns the global bar line from the capture.
 func (h *ServerHarness) globalBar() string {
 	h.tb.Helper()
-	for _, line := range h.captureLines() {
-		if isGlobalBar(line) {
-			return line
-		}
-	}
-	return ""
+	return globalBarFromLines(h.captureLines())
 }
 
 // ---------------------------------------------------------------------------

@@ -84,9 +84,7 @@ func TestTypeKeysCopyMode(t *testing.T) {
 	// Exit copy mode via type-keys.
 	h.runCmd("type-keys", "q")
 
-	if !waitForOuter(h, func(s string) bool {
-		return !strings.Contains(s, "[copy]")
-	}, 3*time.Second) {
+	if !waitForOuterGone(h, "[copy]", 3*time.Second) {
 		screen := h.captureOuter()
 		t.Fatalf("expected [copy] to disappear after type-keys q\nScreen:\n%s", screen)
 	}
@@ -111,9 +109,7 @@ func TestTypeKeysCopyModeScroll(t *testing.T) {
 
 	h.runCmd("type-keys", "g")
 
-	if !waitForOuter(h, func(s string) bool {
-		return strings.Contains(s, "TKSCROLL-01")
-	}, 3*time.Second) {
+	if !h.waitFor("TKSCROLL-01", 3*time.Second) {
 		screen := h.captureOuter()
 		t.Fatalf("expected TKSCROLL-01 visible after scrolling to top\nScreen:\n%s", screen)
 	}
