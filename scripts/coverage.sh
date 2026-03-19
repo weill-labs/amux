@@ -87,7 +87,7 @@ if [[ ${#profiles[@]} -gt 0 ]]; then
   # reported percentage for the same uploaded profile. go tool cover reports
   # statement/block coverage, while Codecov normalizes to line coverage and
   # counts partial lines separately.
-  grep -v '0.0%' coverage-summary.txt | head -40
+  awk '!/0.0%/ {print; if (++n == 40) exit}' coverage-summary.txt
 fi
 
 # Propagate test failures
