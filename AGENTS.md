@@ -63,7 +63,8 @@ See [README.md -- Philosophy](README.md#philosophy) for the project thesis and t
 ```bash
 make setup                         # activate repo git hooks
 make build                         # build + install atomically (client hot-reloads automatically)
-go test ./...                      # run all tests
+make test                          # run all tests
+make coverage                      # merged unit + integration coverage (use this, not go test -coverprofile)
 ```
 
 ### Testing Live
