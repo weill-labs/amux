@@ -225,7 +225,13 @@ func RunSession(sessionName string) error {
 		// Repeat key state — allows navigation/resize keys to repeat
 		// without re-pressing the prefix, matching tmux's -r behavior.
 		// Uses a deadline instead of a timer to avoid goroutine races.
-		const repeatTimeout = 500 * time.Millisecond
+		// AMUX_REPEAT_TIMEOUT overrides the default for tests.
+		repeatTimeout := 500 * time.Millisecond
+		if v := os.Getenv("AMUX_REPEAT_TIMEOUT"); v != "" {
+			if d, err := time.ParseDuration(v); err == nil {
+				repeatTimeout = d
+			}
+		}
 		var repeatKey byte
 		var repeatDeadline time.Time
 
