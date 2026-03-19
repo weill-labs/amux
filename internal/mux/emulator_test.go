@@ -130,7 +130,7 @@ func TestRenderWithoutCursorBlock(t *testing.T) {
 		t.Parallel()
 		emu := NewVTEmulator(40, 10)
 		// Write prompt, then a reverse-video space (simulating a block cursor)
-		emu.Write([]byte("hello \033[7m \033[m"))
+		emu.Write([]byte("hello \033[7m \033[m\033[1D"))
 
 		// Normal Render should contain reverse video
 		normal := emu.Render()
@@ -174,6 +174,18 @@ func TestRenderWithoutCursorBlock(t *testing.T) {
 			t.Error("RenderWithoutCursorBlock() should match Render() when no reverse video at cursor")
 		}
 	})
+
+	t.Run("preserves isolated reverse-video space away from cursor", func(t *testing.T) {
+		t.Parallel()
+		emu := NewVTEmulator(40, 10)
+		emu.Write([]byte("hello \033[7m \033[m"))
+		emu.Write([]byte("\033[1;1H"))
+
+		stripped := emu.RenderWithoutCursorBlock()
+		if !strings.Contains(stripped, "\033[7m") {
+			t.Fatal("RenderWithoutCursorBlock() should preserve off-cursor reverse video")
+		}
+	})
 }
 
 func TestHasCursorBlock(t *testing.T) {
@@ -182,7 +194,7 @@ func TestHasCursorBlock(t *testing.T) {
 	t.Run("true for isolated reverse-video space", func(t *testing.T) {
 		t.Parallel()
 		emu := NewVTEmulator(40, 10)
-		emu.Write([]byte("hello \033[7m \033[m"))
+		emu.Write([]byte("hello \033[7m \033[m\033[1D"))
 		if !emu.HasCursorBlock() {
 			t.Error("HasCursorBlock() = false, want true")
 		}
@@ -203,6 +215,16 @@ func TestHasCursorBlock(t *testing.T) {
 		emu.Write([]byte("hello"))
 		if emu.HasCursorBlock() {
 			t.Error("HasCursorBlock() = true with no reverse video, want false")
+		}
+	})
+
+	t.Run("false for isolated reverse-video space away from cursor", func(t *testing.T) {
+		t.Parallel()
+		emu := NewVTEmulator(40, 10)
+		emu.Write([]byte("hello \033[7m \033[m"))
+		emu.Write([]byte("\033[1;1H"))
+		if emu.HasCursorBlock() {
+			t.Error("HasCursorBlock() = true for off-cursor reverse video, want false")
 		}
 	})
 }

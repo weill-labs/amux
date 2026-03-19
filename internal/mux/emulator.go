@@ -359,9 +359,9 @@ func (v *vtEmulator) ScreenContains(substr string) bool {
 }
 
 // isCursorBlock returns true if the cell at (x, y) is an isolated
-// reverse-video space — an app-rendered block cursor. "Isolated" means
-// neither the left nor right neighbor has the reverse-video attribute,
-// which distinguishes single-cell cursors from multi-cell highlights.
+// reverse-video space. "Isolated" means neither the left nor right neighbor
+// has the reverse-video attribute, which distinguishes single-cell cursors
+// from multi-cell highlights.
 func (v *vtEmulator) isCursorBlock(x, y, w int) bool {
 	cell := v.emu.CellAt(x, y)
 	if cell == nil || cell.Style.Attrs&uv.AttrReverse == 0 {
@@ -383,55 +383,40 @@ func (v *vtEmulator) isCursorBlock(x, y, w int) bool {
 	return true
 }
 
-func (v *vtEmulator) RenderWithoutCursorBlock() string {
+func (v *vtEmulator) currentCursorBlock() (x, y int, ok bool) {
 	v.mu.Lock()
 	w, h := v.w, v.h
 	v.mu.Unlock()
 
-	type savedCell struct {
-		x, y int
-		cell uv.Cell
+	x, y = v.CursorPosition()
+	if x < 0 || y < 0 || x >= w || y >= h {
+		return 0, 0, false
 	}
-	var saved []savedCell
-
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
-			if !v.isCursorBlock(x, y, w) {
-				continue
-			}
-			cell := v.emu.CellAt(x, y)
-			saved = append(saved, savedCell{x, y, *cell})
-			modified := cell.Clone()
-			modified.Style.Attrs &^= uv.AttrReverse
-			v.emu.SetCell(x, y, modified)
-		}
+	if !v.isCursorBlock(x, y, w) {
+		return 0, 0, false
 	}
+	return x, y, true
+}
 
-	if len(saved) == 0 {
+func (v *vtEmulator) RenderWithoutCursorBlock() string {
+	x, y, ok := v.currentCursorBlock()
+	if !ok {
 		return v.emu.Render()
 	}
 
+	cell := v.emu.CellAt(x, y)
+	saved := *cell
+	modified := cell.Clone()
+	modified.Style.Attrs &^= uv.AttrReverse
+	v.emu.SetCell(x, y, modified)
 	rendered := v.emu.Render()
-	for _, s := range saved {
-		c := s.cell
-		v.emu.SetCell(s.x, s.y, &c)
-	}
+	v.emu.SetCell(x, y, &saved)
 	return rendered
 }
 
 func (v *vtEmulator) HasCursorBlock() bool {
-	v.mu.Lock()
-	w, h := v.w, v.h
-	v.mu.Unlock()
-
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
-			if v.isCursorBlock(x, y, w) {
-				return true
-			}
-		}
-	}
-	return false
+	_, _, ok := v.currentCursorBlock()
+	return ok
 }
 
 // NewVTEmulatorWithDrain creates a terminal emulator that automatically

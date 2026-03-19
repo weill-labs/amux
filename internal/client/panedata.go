@@ -43,6 +43,10 @@ func stripCursorBlock(sc *render.ScreenCell, emu mux.TerminalEmulator, x, y int)
 	if sc.Char != " " {
 		return
 	}
+	cursorX, cursorY := emu.CursorPosition()
+	if x != cursorX || y != cursorY {
+		return
+	}
 	w, _ := emu.Size()
 	if x > 0 {
 		if left := emu.CellAt(x-1, y); left != nil && left.Style.Attrs&uv.AttrReverse != 0 {
