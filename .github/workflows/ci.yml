@@ -94,10 +94,6 @@ jobs:
         if: steps.changes.outputs.code_changed == 'true'
         run: scripts/coverage.sh --ci
 
-      - name: Flake detection (integration tests x3)
-        if: steps.changes.outputs.code_changed == 'true'
-        run: go test -count=3 -parallel 2 -timeout 300s ./test/
-
       - name: Convert test results to JUnit XML
         if: ${{ !cancelled() && steps.changes.outputs.code_changed == 'true' }}
         run: |
@@ -155,6 +151,10 @@ jobs:
             integration-coverage.txt
             merged-coverage.txt
             coverage-summary.txt
+
+      - name: Flake detection (integration tests x3)
+        if: steps.changes.outputs.code_changed == 'true'
+        run: go test -count=3 -parallel 2 -timeout 300s ./test/
 
       - name: Test timing summary
         if: always() && steps.changes.outputs.code_changed == 'true'
