@@ -129,6 +129,9 @@ func TestTmuxCompatKeybindings(t *testing.T) {
 	if b, ok := kb.Bindings['q']; !ok || b.Action != "display-panes" {
 		t.Error("tmux preset: q should be bound to display-panes")
 	}
+	if b, ok := kb.Bindings['m']; !ok || b.Action != "compat-bell" {
+		t.Error("tmux preset: m should be reserved with compat-bell")
+	}
 	if b, ok := kb.Bindings['s']; !ok || b.Action != "choose-tree" {
 		t.Error("tmux preset: s should be bound to choose-tree")
 	}

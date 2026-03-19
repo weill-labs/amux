@@ -90,6 +90,7 @@ func TmuxCompatKeybindings() *Keybindings {
 			'o':  {Action: "focus", Args: []string{"next"}},
 			'x':  {Action: "kill"},
 			'z':  {Action: "zoom"},
+			'm':  {Action: "compat-bell"},
 			'[':  {Action: "copy-mode"},
 			'c':  {Action: "new-window"},
 			'n':  {Action: "next-window"},

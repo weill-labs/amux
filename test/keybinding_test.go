@@ -111,6 +111,27 @@ preset = "tmux"
 	}
 }
 
+func TestTmuxPresetReservesMarkPaneKey(t *testing.T) {
+	t.Parallel()
+
+	h := newAmuxHarnessWithConfig(t, `
+[keys]
+preset = "tmux"
+`)
+
+	h.sendKeys("C-b", "m")
+	h.sendKeys("e", "c", "h", "o", " ", "TMUX_M_OK", "Enter")
+
+	if !h.waitFor("TMUX_M_OK", 3*time.Second) {
+		t.Fatalf("expected TMUX_M_OK after tmux preset m test\nScreen:\n%s", h.captureOuter())
+	}
+
+	screen := h.captureOuter()
+	if strings.Contains(screen, "mecho TMUX_M_OK") {
+		t.Fatalf("Ctrl-b m should not leak literal input with tmux preset\nScreen:\n%s", screen)
+	}
+}
+
 func TestCustomPrefixOldPrefixPassthrough(t *testing.T) {
 	t.Parallel()
 
