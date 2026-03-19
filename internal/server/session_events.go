@@ -21,6 +21,7 @@ type commandMutationResult struct {
 	output          string
 	err             error
 	broadcastLayout bool
+	paneRenders     []paneRender
 	startPanes      []*mux.Pane
 	closePanes      []*mux.Pane
 	sendExit        bool
@@ -333,6 +334,7 @@ func (s *Session) handleAttachEvent(srv *Server, cc *ClientConn, cols, rows int)
 	}
 
 	s.clients = append(s.clients, cc)
+	s.hadClient = true
 	s.recalcSizeLocked()
 
 	res.snap = s.snapshotLayoutLocked(idleSnap)

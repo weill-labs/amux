@@ -2,6 +2,9 @@ package test
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -46,6 +49,29 @@ func TestMouseClickFocusHorizontalSplit(t *testing.T) {
 	}
 }
 
+func TestMouseClickInsideZoomedPaneDoesNotUnzoom(t *testing.T) {
+	t.Parallel()
+	h := newAmuxHarness(t)
+
+	h.splitH()
+	h.runCmd("zoom", "pane-2")
+
+	h.assertScreen("pane-2 should be zoomed before click", func(s string) bool {
+		return strings.Contains(s, "[pane-2]") && !strings.Contains(s, "[pane-1]")
+	})
+
+	gen := h.generation()
+	h.clickAt(40, 3)
+
+	if h.waitLayoutOrTimeout(gen, "500ms") {
+		t.Fatalf("clicking inside zoomed pane should not change layout.\nScreen:\n%s", h.capture())
+	}
+
+	h.assertScreen("clicking inside zoomed pane should stay zoomed", func(s string) bool {
+		return strings.Contains(s, "[pane-2]") && !strings.Contains(s, "[pane-1]")
+	})
+}
+
 func TestMouseBorderDrag(t *testing.T) {
 	t.Parallel()
 	h := newAmuxHarness(t)
@@ -72,25 +98,200 @@ func TestMouseBorderDrag(t *testing.T) {
 	}
 }
 
-func TestMouseScrollWheel(t *testing.T) {
+func writeMouseScript(t *testing.T, h *AmuxHarness, name, body string) string {
+	t.Helper()
+	path := filepath.Join(os.TempDir(), fmt.Sprintf("%s-%s-%s.sh", name, h.session, t.Name()))
+	if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
+		t.Fatalf("write %s: %v", path, err)
+	}
+	t.Cleanup(func() { os.Remove(path) })
+	return path
+}
+
+func waitForOuterContains(h *AmuxHarness, fn func(string) bool, timeout time.Duration) bool {
+	h.tb.Helper()
+	tick := time.NewTicker(50 * time.Millisecond)
+	defer tick.Stop()
+	deadline := time.After(timeout)
+	for {
+		if fn(h.captureOuter()) {
+			return true
+		}
+		select {
+		case <-deadline:
+			return false
+		case <-tick.C:
+		}
+	}
+}
+
+func firstMarkerNumber(screen, prefix string) int {
+	for _, line := range strings.Split(screen, "\n") {
+		idx := strings.Index(line, prefix)
+		if idx < 0 {
+			continue
+		}
+		start := idx + len(prefix)
+		end := start
+		for end < len(line) && line[end] >= '0' && line[end] <= '9' {
+			end++
+		}
+		if end == start {
+			continue
+		}
+		n, err := strconv.Atoi(line[start:end])
+		if err == nil {
+			return n
+		}
+	}
+	return 0
+}
+
+func TestMouseScrollWheelEntersCopyMode(t *testing.T) {
 	t.Parallel()
 	h := newAmuxHarness(t)
 
-	for i := 0; i < 30; i++ {
-		h.sendKeys(fmt.Sprintf("echo line-%d", i), "Enter")
+	scriptPath := writeMouseScript(t, h, "mouse-scroll", `#!/bin/bash
+for i in $(seq -w 1 24); do echo "MWHEEL-$i"; done
+`)
+	h.sendKeys(scriptPath, "Enter")
+	h.waitFor("MWHEEL-24", 3*time.Second)
+
+	screen := h.captureOuter()
+	beforeTop := firstMarkerNumber(screen, "MWHEEL-")
+	if beforeTop == 0 {
+		t.Fatalf("expected visible MWHEEL output before wheel-up.\nScreen:\n%s", screen)
 	}
-	h.waitFor("line-29", 3*time.Second)
-
-	screen := h.capture()
-	if !strings.Contains(screen, "line-29") {
-		t.Fatalf("expected line-29 visible before scroll.\nScreen:\n%s", screen)
+	if strings.Contains(screen, "MWHEEL-02") {
+		t.Fatalf("expected earlier scrollback to be off-screen before wheel-up.\nScreen:\n%s", screen)
 	}
 
 	h.scrollAt(40, 12, true)
-	h.scrollAt(40, 12, true)
-	h.scrollAt(40, 12, true)
 
-	if !h.waitFor("[pane-", 3*time.Second) {
-		t.Errorf("amux should still be running after scroll.\nScreen:\n%s", h.capture())
+	if !h.waitFor("[copy]", 3*time.Second) {
+		t.Fatalf("expected mouse wheel to enter copy mode.\nScreen:\n%s", h.captureOuter())
+	}
+	if !waitForOuterContains(h, func(s string) bool {
+		afterTop := firstMarkerNumber(s, "MWHEEL-")
+		return afterTop > 0 && afterTop < beforeTop
+	}, 3*time.Second) {
+		t.Fatalf("expected wheel-up to reveal earlier scrollback.\nScreen:\n%s", h.captureOuter())
+	}
+}
+
+func TestMouseScrollWheelDownExitsCopyMode(t *testing.T) {
+	t.Parallel()
+	h := newAmuxHarness(t)
+
+	scriptPath := writeMouseScript(t, h, "mouse-exit", `#!/bin/bash
+for i in $(seq -w 1 24); do echo "MEXIT-$i"; done
+`)
+	h.sendKeys(scriptPath, "Enter")
+	h.waitFor("MEXIT-24", 3*time.Second)
+
+	h.scrollAt(40, 12, true)
+	if !h.waitFor("[copy]", 3*time.Second) {
+		t.Fatalf("expected copy mode after wheel-up.\nScreen:\n%s", h.captureOuter())
+	}
+
+	h.scrollAt(40, 12, false)
+	if !waitForOuterContains(h, func(s string) bool {
+		return !strings.Contains(s, "[copy]")
+	}, 3*time.Second) {
+		t.Fatalf("expected wheel-down at live view to exit copy mode.\nScreen:\n%s", h.captureOuter())
+	}
+}
+
+func TestMouseScrollWheelTargetsInactivePaneWithoutFocusChange(t *testing.T) {
+	t.Parallel()
+	h := newAmuxHarness(t)
+	h.splitV()
+	h.assertActive("pane-2")
+
+	scriptPath := writeMouseScript(t, h, "mouse-inactive", `#!/bin/bash
+for i in $(seq -w 1 24); do echo "MINACTIVE-$i"; done
+`)
+	h.runCmd("send-keys", "pane-1", scriptPath, "Enter")
+	if !h.waitFor("MINACTIVE-24", 3*time.Second) {
+		t.Fatalf("expected left pane output before wheel-up.\nScreen:\n%s", h.captureOuter())
+	}
+
+	h.scrollAt(10, 5, true)
+	if !h.waitFor("[copy]", 3*time.Second) {
+		t.Fatalf("expected wheel-up over inactive pane to enter copy mode there.\nScreen:\n%s", h.captureOuter())
+	}
+	if got := h.activePaneName(); got != "pane-2" {
+		t.Fatalf("wheel-up entry should not immediately change focus: active=%s", got)
+	}
+}
+
+func TestMouseScrollWheelPassThroughAppMouse(t *testing.T) {
+	t.Parallel()
+	h := newAmuxHarness(t)
+
+	scriptPath := writeMouseScript(t, h, "mouse-pass", `#!/bin/bash
+orig=$(stty -g)
+trap 'stty "$orig"' EXIT
+stty raw -echo
+python3 -c "$(cat <<'PY'
+import os
+
+os.write(1, b"\x1b[?1002h\x1b[?1006hREADY\n")
+events = []
+for _ in range(2):
+    buf = b''
+    while not buf.endswith(b"M") and not buf.endswith(b"m"):
+        chunk = os.read(0, 1)
+        if not chunk:
+            break
+        buf += chunk
+    events.append(buf.hex())
+
+print("MOUSE1=" + events[0], flush=True)
+print("MOUSE2=" + events[1], flush=True)
+PY
+)"
+`)
+	h.sendKeys(scriptPath, "Enter")
+	if !h.waitFor("READY", 3*time.Second) {
+		t.Fatalf("expected pass-through script to arm mouse mode.\nScreen:\n%s", h.captureOuter())
+	}
+
+	h.scrollAt(40, 12, true)
+	h.scrollAt(40, 12, false)
+
+	if !h.waitFor("MOUSE1=", 3*time.Second) || !h.waitFor("MOUSE2=", 3*time.Second) {
+		t.Fatalf("expected active pane to receive wheel events.\nScreen:\n%s", h.captureOuter())
+	}
+	screen := h.captureOuter()
+	if !strings.Contains(screen, "1b5b3c36343b34303b31314d") {
+		t.Fatalf("expected wheel-up sequence to reach pane input.\nScreen:\n%s", screen)
+	}
+	if !strings.Contains(screen, "1b5b3c36353b34303b31314d") {
+		t.Fatalf("expected wheel-down sequence to reach pane input.\nScreen:\n%s", screen)
+	}
+	if strings.Contains(screen, "[copy]") {
+		t.Fatalf("app mouse pass-through should not enter copy mode.\nScreen:\n%s", screen)
+	}
+}
+
+func TestMouseScrollWheelIgnoredInAltScreenWithoutMouseMode(t *testing.T) {
+	t.Parallel()
+	h := newAmuxHarness(t)
+
+	scriptPath := writeMouseScript(t, h, "mouse-alt", `#!/bin/bash
+printf '\033[?1049hALTSCREEN'
+sleep 2
+`)
+	h.sendKeys(scriptPath, "Enter")
+	if !h.waitFor("ALTSCREEN", 3*time.Second) {
+		t.Fatalf("expected alt-screen test program output.\nScreen:\n%s", h.captureOuter())
+	}
+
+	h.scrollAt(40, 12, true)
+	if waitForOuterContains(h, func(s string) bool {
+		return strings.Contains(s, "[copy]")
+	}, 750*time.Millisecond) {
+		t.Fatalf("wheel-up in alt-screen without mouse mode should not enter copy mode.\nScreen:\n%s", h.captureOuter())
 	}
 }

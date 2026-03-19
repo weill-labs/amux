@@ -50,6 +50,9 @@ func (ctx *CommandContext) replyCommandMutation(res commandMutationResult) {
 	if res.broadcastLayout {
 		ctx.Sess.broadcastLayout()
 	}
+	for _, pr := range res.paneRenders {
+		ctx.Sess.broadcastPaneOutput(pr.paneID, pr.data)
+	}
 	if res.output != "" {
 		ctx.reply(res.output)
 	} else {
@@ -75,6 +78,16 @@ func (ctx *CommandContext) activeWindowSnapshot() (activePid, width, height int,
 		activePid = w.ActivePane.ProcessPid()
 	}
 	return activePid, w.Width, w.Height, nil
+}
+
+func activePaneRender(w *mux.Window) []paneRender {
+	if w == nil || w.ActivePane == nil {
+		return nil
+	}
+	return []paneRender{{
+		paneID: w.ActivePane.ID,
+		data:   []byte(w.ActivePane.RenderScreen()),
+	}}
 }
 
 // commandRegistry maps command names to their handlers, following
@@ -240,13 +253,14 @@ func cmdFocus(ctx *CommandContext) {
 		if w == nil {
 			return commandMutationResult{err: fmt.Errorf("no session")}
 		}
-
 		switch direction {
 		case "next", "left", "right", "up", "down":
 			w.Focus(direction)
+			pane := w.ActivePane
 			return commandMutationResult{
-				output:          fmt.Sprintf("Focused %s\n", w.ActivePane.Meta.Name),
+				output:          fmt.Sprintf("Focused %s\n", pane.Meta.Name),
 				broadcastLayout: true,
+				paneRenders:     activePaneRender(w),
 			}
 		default:
 			pane, pw, err := ctx.CC.resolvePaneAcrossWindowsLocked(sess, direction)
@@ -260,6 +274,7 @@ func cmdFocus(ctx *CommandContext) {
 			return commandMutationResult{
 				output:          fmt.Sprintf("Focused %s\n", pane.Meta.Name),
 				broadcastLayout: true,
+				paneRenders:     activePaneRender(pw),
 			}
 		}
 	}))
@@ -620,7 +635,11 @@ func cmdSelectWindow(ctx *CommandContext) {
 			return commandMutationResult{err: fmt.Errorf("window %q not found", ref)}
 		}
 		sess.ActiveWindowID = w.ID
-		return commandMutationResult{output: "Switched window\n", broadcastLayout: true}
+		return commandMutationResult{
+			output:          "Switched window\n",
+			broadcastLayout: true,
+			paneRenders:     activePaneRender(w),
+		}
 	}))
 }
 
@@ -629,7 +648,11 @@ func cmdNextWindow(ctx *CommandContext) {
 		sess.mu.Lock()
 		defer sess.mu.Unlock()
 		sess.NextWindow()
-		return commandMutationResult{output: "Next window\n", broadcastLayout: true}
+		return commandMutationResult{
+			output:          "Next window\n",
+			broadcastLayout: true,
+			paneRenders:     activePaneRender(sess.ActiveWindow()),
+		}
 	}))
 }
 
@@ -638,7 +661,11 @@ func cmdPrevWindow(ctx *CommandContext) {
 		sess.mu.Lock()
 		defer sess.mu.Unlock()
 		sess.PrevWindow()
-		return commandMutationResult{output: "Previous window\n", broadcastLayout: true}
+		return commandMutationResult{
+			output:          "Previous window\n",
+			broadcastLayout: true,
+			paneRenders:     activePaneRender(sess.ActiveWindow()),
+		}
 	}))
 }
 
@@ -1172,9 +1199,9 @@ func cmdListClients(ctx *CommandContext) {
 	}
 
 	var output strings.Builder
-	output.WriteString(fmt.Sprintf("%-10s %-15s\n", "CLIENT", "DISPLAY_PANES"))
+	output.WriteString(fmt.Sprintf("%-10s %-15s %-10s\n", "CLIENT", "DISPLAY_PANES", "CHOOSER"))
 	for _, cc := range ctx.Sess.clients {
-		output.WriteString(fmt.Sprintf("%-10s %-15s\n", cc.ID, cc.displayPanesState()))
+		output.WriteString(fmt.Sprintf("%-10s %-15s %-10s\n", cc.ID, cc.displayPanesState(), cc.chooserState()))
 	}
 	ctx.reply(output.String())
 }

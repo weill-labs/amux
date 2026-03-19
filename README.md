@@ -110,10 +110,10 @@ All accept `--timeout <duration>` (e.g., `--timeout 30s`).
 Subscribe to real-time session events as NDJSON:
 
 ```bash
-amux events [--filter layout,idle,busy,display-panes-shown] [--pane pane-1] [--host lambda-a100] [--client client-1]
+amux events [--filter layout,idle,busy,display-panes-shown,choose-window-shown] [--pane pane-1] [--host lambda-a100] [--client client-1]
 ```
 
-Client-local UI events currently include `display-panes-shown` and `display-panes-hidden`.
+Client-local UI events currently include `display-panes-*`, `choose-tree-*`, and `choose-window-*`.
 Use `amux list-clients` to discover attached client IDs for `--client` and `wait-ui`.
 
 ```json
@@ -168,7 +168,7 @@ Control mode still delivers raw pane content and requires polling. amux has bloc
 Headless tools cut the human out of the loop. The amux thesis is that humans and agents work better together on a shared screen in real time. Both see the same panes, both can act on them.
 
 **Does amux support all tmux features?**
-No, and it doesn't aim to. amux implements what matters for human+agent pairing: splits, windows, zoom, minimize, remote hosts, and the agent API. If you need tmux's full feature set (session groups, advanced hooks, `choose-tree`), use tmux.
+No, and it doesn't aim to. amux implements what matters for human+agent pairing: splits, windows, zoom, minimize, remote hosts, searchable choosers, and the agent API. If you need tmux's full feature set (session groups, advanced hooks), use tmux.
 
 ## Install
 
@@ -258,7 +258,7 @@ All commands accept `-s <session>` to target a specific session. Panes are refer
 | `amux wait-ui <event> [--client id] [--timeout 5s]` | Block until a client-local UI state is reached |
 | `amux generation` | Show current layout generation counter |
 | `amux events [--filter type,...] [--pane ref] [--host name] [--client id]` | Stream events as NDJSON |
-| `amux list-clients` | List attached clients and `display-panes` state |
+| `amux list-clients` | List attached clients and client-local UI state |
 
 ### Windows
 

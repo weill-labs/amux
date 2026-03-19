@@ -1185,3 +1185,65 @@ func TestJAtBottomOfLiveView(t *testing.T) {
 		t.Errorf("j at absolute bottom should return ActionNone, got %d", action)
 	}
 }
+
+func TestWheelScrollDoesNotMoveCursor(t *testing.T) {
+	t.Parallel()
+
+	emu := newFakeEmulator(80, 10)
+	for i := 0; i < 30; i++ {
+		emu.scrollback = append(emu.scrollback, fmt.Sprintf("line-%d", i))
+	}
+	cm := New(emu, 80, 10, 4)
+
+	cxBefore, cyBefore := cm.CursorPos()
+	action := cm.WheelScrollUp(5)
+	if action != ActionRedraw {
+		t.Fatalf("WheelScrollUp should redraw, got %d", action)
+	}
+	if cm.ScrollOffset() != 5 {
+		t.Fatalf("ScrollOffset after WheelScrollUp = %d, want 5", cm.ScrollOffset())
+	}
+	cxAfter, cyAfter := cm.CursorPos()
+	if cxAfter != cxBefore || cyAfter != cyBefore {
+		t.Fatalf("cursor moved during wheel scroll: before=(%d,%d) after=(%d,%d)", cxBefore, cyBefore, cxAfter, cyAfter)
+	}
+}
+
+func TestWheelScrollExitAtBottom(t *testing.T) {
+	t.Parallel()
+
+	emu := newFakeEmulator(80, 10)
+	for i := 0; i < 30; i++ {
+		emu.scrollback = append(emu.scrollback, fmt.Sprintf("line-%d", i))
+	}
+	cm := New(emu, 80, 10, 4)
+	cm.SetScrollExit(true)
+
+	cm.WheelScrollUp(6)
+	if action := cm.WheelScrollDown(5); action != ActionRedraw {
+		t.Fatalf("WheelScrollDown before bottom = %d, want ActionRedraw", action)
+	}
+	if action := cm.WheelScrollDown(5); action != ActionExit {
+		t.Fatalf("WheelScrollDown at bottom = %d, want ActionExit", action)
+	}
+}
+
+func TestScrollExitClearedByNonScrollKey(t *testing.T) {
+	t.Parallel()
+
+	emu := newFakeEmulator(80, 10)
+	cm := New(emu, 80, 10, 4)
+	cm.SetScrollExit(true)
+
+	cm.HandleInput([]byte{'/'})
+	if cm.ScrollExit() {
+		t.Fatal("search key should clear scroll-exit")
+	}
+
+	cm = New(emu, 80, 10, 4)
+	cm.SetScrollExit(true)
+	cm.HandleInput([]byte{'j'})
+	if !cm.ScrollExit() {
+		t.Fatal("scroll key should preserve scroll-exit")
+	}
+}

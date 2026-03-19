@@ -21,10 +21,15 @@ type headlessClient struct {
 	readyOnce sync.Once
 }
 
+func dialHeadlessSocket(sockPath string, timeout time.Duration) (net.Conn, error) {
+	_ = timeout // timeout is exercised by the layout wait below in newHeadlessClient
+	return net.Dial("unix", sockPath)
+}
+
 // newHeadlessClient attaches to the server and starts a background message
 // loop. The connection stays alive until close() is called.
 func newHeadlessClient(sockPath, session string, cols, rows int) (*headlessClient, error) {
-	conn, err := net.Dial("unix", sockPath)
+	conn, err := dialHeadlessSocket(sockPath, 3*time.Second)
 	if err != nil {
 		return nil, err
 	}

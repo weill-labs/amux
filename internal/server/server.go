@@ -95,6 +95,11 @@ type Session struct {
 	sessionEvents    chan sessionEvent
 	sessionEventStop chan struct{}
 	sessionEventDone chan struct{}
+
+	// Exit-unattached: server exits when all clients disconnect after
+	// at least one has connected. Used by test harness to avoid orphans.
+	hadClient  bool    // true after first interactive client attaches
+	exitServer *Server // back-reference to trigger shutdown
 }
 
 // buildCrashCheckpoint builds a crash checkpoint from the current session state.
@@ -232,10 +237,22 @@ func (s *Session) removeClient(cc *ClientConn) {
 			break
 		}
 	}
+	shouldExit := ExitUnattached && s.hadClient && len(s.clients) == 0 && !s.shutdown.Load()
 	s.recalcSizeLocked()
 	s.mu.Unlock()
 	s.broadcastLayout()
+	if shouldExit {
+		// Async: removeClient may run inside the session event loop;
+		// calling Shutdown synchronously would deadlock because
+		// Shutdown waits for the event loop to finish.
+		go s.exitServer.Shutdown()
+	}
 }
+
+// ExitUnattached makes the server exit after all interactive clients disconnect
+// (provided at least one client connected first). Opt-in via AMUX_EXIT_UNATTACHED=1.
+// Used by test harnesses to prevent orphaned server processes.
+var ExitUnattached bool
 
 // BuildVersion is set by main at startup for version reporting in status.
 var BuildVersion string
@@ -288,8 +305,6 @@ func NewServer(sessionName string) (*Server, error) {
 		return nil, fmt.Errorf("creating socket dir: %w", err)
 	}
 
-	CleanStaleSockets()
-
 	sockPath := SocketPath(sessionName)
 
 	if _, err := os.Stat(sockPath); err == nil {
@@ -315,6 +330,7 @@ func NewServer(sessionName string) (*Server, error) {
 		sessions: map[string]*Session{sessionName: sess},
 		sockPath: sockPath,
 	}
+	sess.exitServer = s
 
 	return s, nil
 }
@@ -328,8 +344,6 @@ func NewServerFromCrashCheckpoint(sessionName string, cp *checkpoint.CrashCheckp
 	if err := os.MkdirAll(sockDir, 0700); err != nil {
 		return nil, fmt.Errorf("creating socket dir: %w", err)
 	}
-
-	CleanStaleSockets()
 
 	sockPath := SocketPath(sessionName)
 	// Clean up any stale socket from the crashed server
@@ -351,6 +365,7 @@ func NewServerFromCrashCheckpoint(sessionName string, cp *checkpoint.CrashCheckp
 		sessions: map[string]*Session{sessionName: sess},
 		sockPath: sockPath,
 	}
+	sess.exitServer = s
 
 	// Restore panes — spawn fresh shells (FDs/PIDs are lost on crash)
 	paneMap := make(map[uint32]*mux.Pane, len(cp.PaneStates))
@@ -471,13 +486,17 @@ func (s *Server) Shutdown() {
 		if sess.sessionEventStop != nil {
 			close(sess.sessionEventStop)
 			<-sess.sessionEventDone
+			sess.sessionEventStop = nil
 		}
 
 		// Stop crash checkpoint loop and wait for it to exit.
 		// The shutdown flag prevents any further writes.
+		// Nil out after close so Shutdown() is safe to call twice
+		// (exit-unattached can race with signal-based shutdown).
 		if sess.crashCheckpointStop != nil {
 			close(sess.crashCheckpointStop)
 			<-sess.crashCheckpointDone
+			sess.crashCheckpointStop = nil
 		}
 
 		// Clean shutdown: remove crash checkpoint (no recovery needed)

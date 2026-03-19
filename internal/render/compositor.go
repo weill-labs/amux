@@ -89,11 +89,11 @@ func ClearScreen() string {
 // is required after layout changes (panes move/resize) but should be skipped
 // for incremental updates (pane output, copy mode navigation) to avoid flicker.
 func (c *Compositor) RenderFull(root *mux.LayoutCell, activePaneID uint32, lookup func(uint32) PaneData, clearScreen ...bool) string {
-	return c.RenderFullWithOverlay(root, activePaneID, lookup, nil, clearScreen...)
+	return c.RenderFullWithOverlay(root, activePaneID, lookup, OverlayState{}, clearScreen...)
 }
 
-// RenderFullWithOverlay is RenderFull plus an optional pane overlay layer.
-func (c *Compositor) RenderFullWithOverlay(root *mux.LayoutCell, activePaneID uint32, lookup func(uint32) PaneData, overlay []PaneOverlayLabel, clearScreen ...bool) string {
+// RenderFullWithOverlay is RenderFull plus optional client-local overlays.
+func (c *Compositor) RenderFullWithOverlay(root *mux.LayoutCell, activePaneID uint32, lookup func(uint32) PaneData, overlay OverlayState, clearScreen ...bool) string {
 	var buf strings.Builder
 	buf.Grow(c.width * c.height * 4) // pre-allocate for typical ANSI output
 
@@ -146,12 +146,15 @@ func (c *Compositor) RenderFullWithOverlay(root *mux.LayoutCell, activePaneID ui
 	}
 	renderBorders(&buf, c.cachedBorderMap, root, activePaneID, activeColor)
 
-	if len(overlay) > 0 {
-		renderPaneOverlay(&buf, root, lookup, overlay)
+	if len(overlay.PaneLabels) > 0 {
+		renderPaneOverlay(&buf, root, lookup, overlay.PaneLabels)
 	}
 
 	// Global status bar at bottom
 	renderGlobalBar(&buf, c.sessionName, paneCount, c.width, c.height-1, c.windows)
+	if overlay.Chooser != nil {
+		renderChooserOverlay(&buf, c.width, c.height, overlay.Chooser)
+	}
 
 	// Position cursor and respect the active pane's cursor visibility state.
 	// If the application has hidden its cursor (e.g. during streaming output),
@@ -167,11 +170,11 @@ func (c *Compositor) RenderFullWithOverlay(root *mux.LayoutCell, activePaneID ui
 // frame, and returns minimal ANSI output for the changed cells. On the first
 // call (or after Resize), prevGrid is nil and every cell is emitted.
 func (c *Compositor) RenderDiff(root *mux.LayoutCell, activePaneID uint32, lookup func(uint32) PaneData) string {
-	return c.RenderDiffWithOverlay(root, activePaneID, lookup, nil)
+	return c.RenderDiffWithOverlay(root, activePaneID, lookup, OverlayState{})
 }
 
-// RenderDiffWithOverlay is RenderDiff plus an optional pane overlay layer.
-func (c *Compositor) RenderDiffWithOverlay(root *mux.LayoutCell, activePaneID uint32, lookup func(uint32) PaneData, overlay []PaneOverlayLabel) string {
+// RenderDiffWithOverlay is RenderDiff plus optional client-local overlays.
+func (c *Compositor) RenderDiffWithOverlay(root *mux.LayoutCell, activePaneID uint32, lookup func(uint32) PaneData, overlay OverlayState) string {
 	newGrid := c.buildGridWithOverlay(root, activePaneID, lookup, overlay)
 	changes := DiffGrid(c.prevGrid, newGrid)
 	c.prevGrid = newGrid

@@ -16,6 +16,7 @@ func TestHandleAttachAndResizeThroughSessionQueue(t *testing.T) {
 	t.Parallel()
 
 	sess := newSession("test-attach-resize")
+	stopCrashCheckpointLoop(t, sess)
 	pane := mux.NewProxyPane(1, mux.PaneMeta{
 		Name:  "pane-1",
 		Host:  mux.DefaultHost,
@@ -97,6 +98,7 @@ func TestPaneOutputCallbackEnqueuesOutputNotifications(t *testing.T) {
 	t.Parallel()
 
 	sess := newSession("test-pane-output")
+	stopCrashCheckpointLoop(t, sess)
 	pane := mux.NewProxyPane(1, mux.PaneMeta{
 		Name:  "pane-1",
 		Host:  "local",
@@ -136,6 +138,7 @@ func TestPaneExitCallbackEnqueuesRemoval(t *testing.T) {
 	t.Parallel()
 
 	sess := newSession("test-pane-exit")
+	stopCrashCheckpointLoop(t, sess)
 	p1 := mux.NewProxyPane(1, mux.PaneMeta{Name: "pane-1", Host: "local", Color: "f5e0dc"}, 80, 23, nil, nil, func(data []byte) (int, error) {
 		return len(data), nil
 	})

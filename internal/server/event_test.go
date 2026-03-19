@@ -147,6 +147,7 @@ func TestEventJSONOmitsZeroFields(t *testing.T) {
 func TestEmitEventDelivery(t *testing.T) {
 	t.Parallel()
 	sess := newSession("test-emit")
+	stopCrashCheckpointLoop(t, sess)
 
 	sub := sess.events.Subscribe(eventFilter{})
 	defer sess.events.Unsubscribe(sub)
@@ -173,6 +174,7 @@ func TestEmitEventDelivery(t *testing.T) {
 func TestEmitEventFiltered(t *testing.T) {
 	t.Parallel()
 	sess := newSession("test-filter")
+	stopCrashCheckpointLoop(t, sess)
 
 	sub := sess.events.Subscribe(eventFilter{Types: []string{EventIdle}})
 	defer sess.events.Unsubscribe(sub)
@@ -203,6 +205,7 @@ func TestEmitEventFiltered(t *testing.T) {
 func TestEmitEventDropsWhenFull(t *testing.T) {
 	t.Parallel()
 	sess := newSession("test-drop")
+	stopCrashCheckpointLoop(t, sess)
 
 	sub := sess.events.Subscribe(eventFilter{})
 
@@ -231,6 +234,7 @@ func TestEmitEventDropsWhenFull(t *testing.T) {
 func TestEmitEventAfterRemove(t *testing.T) {
 	t.Parallel()
 	sess := newSession("test-remove-race")
+	stopCrashCheckpointLoop(t, sess)
 
 	sub := sess.events.Subscribe(eventFilter{})
 	sess.events.Unsubscribe(sub)
@@ -284,6 +288,7 @@ func TestCurrentStateEventsIncludesClientUIState(t *testing.T) {
 	t.Parallel()
 
 	sess := newSession("test-ui-state")
+	stopCrashCheckpointLoop(t, sess)
 	sess.clients = append(sess.clients,
 		&ClientConn{ID: "client-1"},
 		&ClientConn{ID: "client-2", displayPanesShown: true},
@@ -297,13 +302,25 @@ func TestCurrentStateEventsIncludesClientUIState(t *testing.T) {
 		}
 	}
 
-	if len(got) != 2 {
-		t.Fatalf("got %d client UI events, want 2", len(got))
+	if len(got) != 6 {
+		t.Fatalf("got %d client UI events, want 6", len(got))
 	}
 	if got[0].Type != proto.UIEventDisplayPanesHidden || got[0].ClientID != "client-1" {
 		t.Fatalf("first client UI event = %#v, want hidden for client-1", got[0])
 	}
-	if got[1].Type != proto.UIEventDisplayPanesShown || got[1].ClientID != "client-2" {
-		t.Fatalf("second client UI event = %#v, want shown for client-2", got[1])
+	if got[1].Type != proto.UIEventChooseTreeHidden || got[1].ClientID != "client-1" {
+		t.Fatalf("second client UI event = %#v, want choose-tree-hidden for client-1", got[1])
+	}
+	if got[2].Type != proto.UIEventChooseWindowHidden || got[2].ClientID != "client-1" {
+		t.Fatalf("third client UI event = %#v, want choose-window-hidden for client-1", got[2])
+	}
+	if got[3].Type != proto.UIEventDisplayPanesShown || got[3].ClientID != "client-2" {
+		t.Fatalf("fourth client UI event = %#v, want shown for client-2", got[3])
+	}
+	if got[4].Type != proto.UIEventChooseTreeHidden || got[4].ClientID != "client-2" {
+		t.Fatalf("fifth client UI event = %#v, want choose-tree-hidden for client-2", got[4])
+	}
+	if got[5].Type != proto.UIEventChooseWindowHidden || got[5].ClientID != "client-2" {
+		t.Fatalf("sixth client UI event = %#v, want choose-window-hidden for client-2", got[5])
 	}
 }

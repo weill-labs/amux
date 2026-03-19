@@ -61,6 +61,12 @@ func TestHostsCommand(t *testing.T) {
 
 	// Split a remote pane to trigger connection
 	splitRemotePane(t, h)
+	c := h.captureJSON()
+	assertCaptureConsistent(t, c)
+	p2 := h.jsonPane(c, "pane-2")
+	if p2.ConnStatus != "connected" {
+		t.Fatalf("pane-2 conn_status = %q, want connected", p2.ConnStatus)
+	}
 
 	// After connecting, hosts should show connected (not "disconnected")
 	out = h.runCmd("hosts")
@@ -81,12 +87,20 @@ func TestDisconnectAndReconnect(t *testing.T) {
 	h.waitForTimeout("pane-2", "REMOTE_OK", "5s")
 
 	// Disconnect
+	gen := h.generation()
 	out := h.runCmd("disconnect", "test-remote")
 	if strings.Contains(out, "error") || strings.Contains(out, "Error") {
 		t.Fatalf("disconnect failed: %s", out)
 	}
 	if !strings.Contains(out, "Disconnected") {
 		t.Errorf("disconnect should confirm, got: %s", out)
+	}
+	h.waitLayout(gen)
+	c := h.captureJSON()
+	assertCaptureConsistent(t, c)
+	p2 := h.jsonPane(c, "pane-2")
+	if p2.ConnStatus != "disconnected" {
+		t.Fatalf("pane-2 conn_status after disconnect = %q, want disconnected", p2.ConnStatus)
 	}
 
 	// Verify hosts shows disconnected
@@ -96,6 +110,7 @@ func TestDisconnectAndReconnect(t *testing.T) {
 	}
 
 	// Reconnect
+	gen = h.generation()
 	out = h.runCmd("reconnect", "test-remote")
 	if strings.Contains(out, "error") || strings.Contains(out, "Error") {
 		t.Fatalf("reconnect failed: %s", out)
@@ -103,6 +118,16 @@ func TestDisconnectAndReconnect(t *testing.T) {
 	if !strings.Contains(out, "Reconnected") {
 		t.Errorf("reconnect should confirm, got: %s", out)
 	}
+	h.waitLayout(gen)
+	c = h.captureJSON()
+	assertCaptureConsistent(t, c)
+	p2 = h.jsonPane(c, "pane-2")
+	if p2.ConnStatus != "connected" {
+		t.Fatalf("pane-2 conn_status after reconnect = %q, want connected", p2.ConnStatus)
+	}
+
+	h.sendKeys("pane-2", "echo RECONNECTED_OK", "Enter")
+	h.waitForTimeout("pane-2", "RECONNECTED_OK", "5s")
 
 	// Verify hosts shows connected again
 	out = h.runCmd("hosts")
@@ -122,6 +147,11 @@ func TestRemotePaneKill(t *testing.T) {
 	if len(c.Panes) != 2 {
 		t.Fatalf("expected 2 panes, got %d", len(c.Panes))
 	}
+	assertCaptureConsistent(t, c)
+	p2 := h.jsonPane(c, "pane-2")
+	if p2.ConnStatus != "connected" {
+		t.Fatalf("pane-2 conn_status before kill = %q, want connected", p2.ConnStatus)
+	}
 
 	// Kill the remote pane
 	gen := h.generation()
@@ -135,4 +165,5 @@ func TestRemotePaneKill(t *testing.T) {
 	if len(c.Panes) != 1 {
 		t.Fatalf("expected 1 pane after kill, got %d", len(c.Panes))
 	}
+	assertCaptureConsistent(t, c)
 }
