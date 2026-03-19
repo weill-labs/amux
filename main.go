@@ -453,17 +453,20 @@ func runServer(sessionName string) {
 	}
 
 	// Handle shutdown signals. The goroutine calls Shutdown() which closes
-	// the listener (unblocking Run()), then finishes cleanup (crash checkpoint
-	// removal, pane teardown). shutdownDone lets the main goroutine wait for
-	// cleanup to complete before exiting.
+	// the listener, unblocking Run() below.
 	sigCh := make(chan os.Signal, 1)
-	shutdownDone := make(chan struct{})
 	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
 	go func() {
 		<-sigCh
 		s.Shutdown()
-		close(shutdownDone)
 	}()
+
+	// Exit-unattached mode: server exits when all interactive clients disconnect.
+	// Used by test harness so orphaned test servers self-terminate.
+	// Unset so child processes (pane shells, inner amux) don't inherit it.
+	// The value is re-exported in Reload() before syscall.Exec.
+	server.ExitUnattached = os.Getenv("AMUX_EXIT_UNATTACHED") == "1"
+	os.Unsetenv("AMUX_EXIT_UNATTACHED")
 
 	// Server-side binary watcher for auto-reload.
 	// AMUX_NO_WATCH=1 disables watching (used by test harness for the outer
@@ -493,9 +496,10 @@ func runServer(sessionName string) {
 		}
 	}
 
-	// Wait for Shutdown() to finish cleanup (crash checkpoint removal, etc.)
-	// before the process exits.
-	<-shutdownDone
+	// Ensure cleanup runs regardless of what closed the listener (signal,
+	// exit-unattached, etc.). Shutdown is idempotent: if the signal
+	// goroutine already called it, this is a no-op.
+	s.Shutdown()
 }
 
 // ---------------------------------------------------------------------------

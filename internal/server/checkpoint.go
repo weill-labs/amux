@@ -113,8 +113,13 @@ func (s *Server) Reload(execPath string) error {
 		_ = coverage.WriteCountersDir(dir)
 	}
 
-	// Replace process image with new binary
+	// Replace process image with new binary.
+	// Re-export AMUX_EXIT_UNATTACHED if set (unsetenv'd at startup to
+	// prevent child shells from inheriting it, but must survive exec).
 	env := append(os.Environ(), "AMUX_CHECKPOINT="+cpPath)
+	if ExitUnattached {
+		env = append(env, "AMUX_EXIT_UNATTACHED=1")
+	}
 	execErr := syscall.Exec(execPath, os.Args, env)
 
 	// If we get here, the exec call failed — undo changes
@@ -146,6 +151,7 @@ func NewServerFromCheckpoint(cp *checkpoint.ServerCheckpoint) (*Server, error) {
 		sessions: map[string]*Session{cp.SessionName: sess},
 		sockPath: SocketPath(cp.SessionName),
 	}
+	sess.exitServer = s
 
 	// Restore panes
 	paneMap := make(map[uint32]*mux.Pane, len(cp.Panes))
