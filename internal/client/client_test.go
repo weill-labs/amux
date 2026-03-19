@@ -361,6 +361,8 @@ func TestHandleLayoutClearsDisplayPanesEmitsHidden(t *testing.T) {
 		t.Fatal("ShowDisplayPanes should succeed")
 	}
 
+	// Send a structurally different layout (3 panes instead of 2) so that
+	// HandleLayout detects a structure change and clears the overlay.
 	cr.HandleLayout(&proto.LayoutSnapshot{
 		SessionName:  "test",
 		ActivePaneID: 1,
@@ -370,13 +372,15 @@ func TestHandleLayoutClearsDisplayPanesEmitsHidden(t *testing.T) {
 			X: 0, Y: 0, W: 80, H: 23,
 			Dir: int(mux.SplitVertical),
 			Children: []proto.CellSnapshot{
-				{X: 0, Y: 0, W: 39, H: 23, IsLeaf: true, Dir: -1, PaneID: 1},
-				{X: 40, Y: 0, W: 39, H: 23, IsLeaf: true, Dir: -1, PaneID: 2},
+				{X: 0, Y: 0, W: 26, H: 23, IsLeaf: true, Dir: -1, PaneID: 1},
+				{X: 27, Y: 0, W: 26, H: 23, IsLeaf: true, Dir: -1, PaneID: 2},
+				{X: 54, Y: 0, W: 26, H: 23, IsLeaf: true, Dir: -1, PaneID: 3},
 			},
 		},
 		Panes: []proto.PaneSnapshot{
 			{ID: 1, Name: "pane-1", Host: "local", Color: "f5e0dc"},
 			{ID: 2, Name: "pane-2", Host: "local", Color: "f2cdcd"},
+			{ID: 3, Name: "pane-3", Host: "local", Color: "cba6f7"},
 		},
 	})
 
@@ -385,6 +389,29 @@ func TestHandleLayoutClearsDisplayPanesEmitsHidden(t *testing.T) {
 	}
 	if events[0] != proto.UIEventDisplayPanesShown || events[1] != proto.UIEventDisplayPanesHidden {
 		t.Fatalf("events = %v, want [%q %q]", events, proto.UIEventDisplayPanesShown, proto.UIEventDisplayPanesHidden)
+	}
+}
+
+func TestHandleLayoutPreservesDisplayPanesOnNonStructuralChange(t *testing.T) {
+	t.Parallel()
+
+	cr := buildTestRenderer(t)
+	var events []string
+	cr.OnUIEvent = func(name string) {
+		events = append(events, name)
+	}
+	if !cr.ShowDisplayPanes() {
+		t.Fatal("ShowDisplayPanes should succeed")
+	}
+
+	// Re-send the same layout (non-structural change) — overlay must survive.
+	cr.HandleLayout(twoPane80x23())
+
+	if len(events) != 1 {
+		t.Fatalf("events = %v, want only shown (no hidden)", events)
+	}
+	if events[0] != proto.UIEventDisplayPanesShown {
+		t.Fatalf("events[0] = %q, want %q", events[0], proto.UIEventDisplayPanesShown)
 	}
 }
 

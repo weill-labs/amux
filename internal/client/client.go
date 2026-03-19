@@ -48,10 +48,10 @@ func (cr *ClientRenderer) HandleLayout(snap *proto.LayoutSnapshot) bool {
 	structureChanged := cr.renderer.HandleLayout(snap)
 	clearedDisplayPanes := false
 	cr.mu.Lock()
-	if cr.displayPanes != nil {
+	if structureChanged && cr.displayPanes != nil {
 		clearedDisplayPanes = true
+		cr.displayPanes = nil
 	}
-	cr.displayPanes = nil
 	cr.dirty = true
 	cr.mu.Unlock()
 	if clearedDisplayPanes {

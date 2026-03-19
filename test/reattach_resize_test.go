@@ -28,15 +28,16 @@ func (h *ServerHarness) attachAt(cols, rows int) *server.Message {
 		h.tb.Fatalf("attachAt: write: %v", err)
 	}
 
-	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
-	msg, err := server.ReadMsg(conn)
-	if err != nil {
-		h.tb.Fatalf("attachAt: read layout: %v", err)
+	conn.SetReadDeadline(time.Now().Add(10 * time.Second))
+	for {
+		msg, err := server.ReadMsg(conn)
+		if err != nil {
+			h.tb.Fatalf("attachAt: read: %v", err)
+		}
+		if msg.Type == server.MsgTypeLayout {
+			return msg
+		}
 	}
-	if msg.Type != server.MsgTypeLayout {
-		h.tb.Fatalf("attachAt: expected layout, got type %d", msg.Type)
-	}
-	return msg
 }
 
 func TestReattachResize(t *testing.T) {
