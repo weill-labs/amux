@@ -152,7 +152,7 @@ async function main() {
     process.exit(1);
   }
 
-  // Start playback at 100x speed — we screenshot at calculated time points
+  // Start playback — screenshots taken at 1/fps intervals
   await page.evaluate(() => { window.__player.play(); });
   await page.waitForFunction(() => window.__ready, { timeout: 5000 });
 
