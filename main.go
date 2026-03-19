@@ -449,23 +449,13 @@ func runServer(sessionName string) {
 		s.Shutdown()
 	}()
 
-	// Exit-unattached mode: server exits when all interactive clients disconnect.
-	// Used by test harness so orphaned test servers self-terminate.
-	// Unset so child processes (pane shells, inner amux) don't inherit it.
-	// The value is re-exported in Reload() before syscall.Exec.
-	server.ExitUnattached = os.Getenv("AMUX_EXIT_UNATTACHED") == "1"
-	os.Unsetenv("AMUX_EXIT_UNATTACHED")
-
-	// Server-side binary watcher for auto-reload.
-	// AMUX_NO_WATCH=1 disables watching (used by test harness for the outer
-	// server so only the inner server responds to binary changes).
-	// Unset immediately so child processes don't inherit it.
-	noWatch := os.Getenv("AMUX_NO_WATCH") == "1"
-	os.Unsetenv("AMUX_NO_WATCH")
+	// Read and unset server-only env vars so child processes don't inherit
+	// them. Values are re-exported in Reload() before syscall.Exec.
+	s.Env = server.ReadServerEnv()
 
 	triggerReload := make(chan struct{}, 1)
 	execPath, execErr := reload.ResolveExecutable()
-	if execErr == nil && !noWatch {
+	if execErr == nil && !s.Env.NoWatch {
 		go reload.WatchBinary(execPath, triggerReload, nil)
 		go func() {
 			for range triggerReload {

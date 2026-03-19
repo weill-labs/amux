@@ -238,7 +238,7 @@ func (s *Session) removeClient(cc *ClientConn) {
 			break
 		}
 	}
-	shouldExit := ExitUnattached && s.hadClient && len(s.clients) == 0 && !s.shutdown.Load()
+	shouldExit := s.exitServer != nil && s.exitServer.Env.ExitUnattached && s.hadClient && len(s.clients) == 0 && !s.shutdown.Load()
 	s.recalcSizeLocked()
 	s.mu.Unlock()
 	s.broadcastLayout()
@@ -250,16 +250,12 @@ func (s *Session) removeClient(cc *ClientConn) {
 	}
 }
 
-// ExitUnattached makes the server exit after all interactive clients disconnect
-// (provided at least one client connected first). Opt-in via AMUX_EXIT_UNATTACHED=1.
-// Used by test harnesses to prevent orphaned server processes.
-var ExitUnattached bool
-
 // BuildVersion is set by main at startup for version reporting in status.
 var BuildVersion string
 
 // Server listens on a Unix socket and manages sessions.
 type Server struct {
+	Env      ServerEnv
 	listener net.Listener
 	sessions map[string]*Session
 	sockPath string
