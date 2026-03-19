@@ -685,6 +685,77 @@ func TestRestoreResizesSiblingSubtreeDescendants(t *testing.T) {
 	}
 }
 
+func TestSplitRootSameDirectionResizesNestedChildren(t *testing.T) {
+	t.Parallel()
+
+	p1 := fakePaneID(1)
+	w := NewWindow(p1, 80, 24)
+
+	p2 := fakePaneID(2)
+	if _, err := w.SplitRoot(SplitVertical, p2); err != nil {
+		t.Fatalf("split root vertical: %v", err)
+	}
+
+	w.FocusPane(p1)
+	p3 := fakePaneID(3)
+	if _, err := w.Split(SplitHorizontal, p3); err != nil {
+		t.Fatalf("split left column horizontal: %v", err)
+	}
+
+	if _, err := w.SplitRoot(SplitVertical, fakePaneID(4)); err != nil {
+		t.Fatalf("split root vertical again: %v", err)
+	}
+
+	leftColumn := w.Root.Children[0]
+	if leftColumn.IsLeaf() {
+		t.Fatal("expected left column to remain a subtree")
+	}
+
+	for i, child := range leftColumn.Children {
+		if child.W != leftColumn.W {
+			t.Fatalf("left column child[%d] width = %d, want column width %d", i, child.W, leftColumn.W)
+		}
+	}
+}
+
+func TestSplitRootWrapResizesNestedOldRoot(t *testing.T) {
+	t.Parallel()
+
+	p1 := fakePaneID(1)
+	w := NewWindow(p1, 80, 24)
+
+	p2 := fakePaneID(2)
+	if _, err := w.SplitRoot(SplitVertical, p2); err != nil {
+		t.Fatalf("split root vertical: %v", err)
+	}
+
+	w.FocusPane(p1)
+	p3 := fakePaneID(3)
+	if _, err := w.Split(SplitHorizontal, p3); err != nil {
+		t.Fatalf("split left column horizontal: %v", err)
+	}
+
+	if _, err := w.SplitRoot(SplitHorizontal, fakePaneID(4)); err != nil {
+		t.Fatalf("split root horizontal: %v", err)
+	}
+
+	top := w.Root.Children[0]
+	if top.IsLeaf() {
+		t.Fatal("expected wrapped old root to be a subtree")
+	}
+
+	leftColumn := top.Children[0]
+	if leftColumn.IsLeaf() {
+		t.Fatal("expected left column to remain a subtree")
+	}
+
+	for i, child := range top.Children {
+		if child.H != top.H {
+			t.Fatalf("wrapped top child[%d] height = %d, want wrapped root height %d", i, child.H, top.H)
+		}
+	}
+}
+
 func TestResizePaneDelegation(t *testing.T) {
 	t.Parallel()
 	// Verify ResizeActive delegates to ResizePane correctly.
