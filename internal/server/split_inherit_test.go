@@ -43,7 +43,7 @@ func TestSplitInheritsRemoteHost(t *testing.T) {
 		Name: "pane-2", Host: "gpu-server", Color: "f5e0dc",
 	}, 40, 23,
 		sess.paneOutputCallback(),
-		sess.paneExitCallback(srv),
+		sess.paneExitCallback(),
 		func(data []byte) (int, error) { return len(data), nil },
 	)
 	sess.mu.Lock()

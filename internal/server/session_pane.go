@@ -73,12 +73,12 @@ func (s *Session) paneOutputCallback() func(uint32, []byte) {
 
 // paneExitCallback returns the standard onExit callback for panes.
 // When the last pane exits, the session sends MsgTypeExit and shuts down.
-func (s *Session) paneExitCallback(srv *Server) func(uint32) {
+func (s *Session) paneExitCallback() func(uint32) {
 	return func(paneID uint32) {
 		if s.shutdown.Load() {
 			return
 		}
-		s.enqueuePaneExit(srv, paneID)
+		s.enqueuePaneExit(paneID)
 	}
 }
 
@@ -103,7 +103,7 @@ func (s *Session) createPaneWithMeta(srv *Server, meta mux.PaneMeta, cols, rows 
 
 	pane, err := mux.NewPane(id, meta, cols, rows, s.Name,
 		s.paneOutputCallback(),
-		s.paneExitCallback(srv),
+		s.paneExitCallback(),
 	)
 	if err != nil {
 		return nil, err
@@ -135,7 +135,7 @@ func (s *Session) prepareRemotePane(srv *Server, hostName string, cols, rows int
 	// Create the proxy pane with a writeOverride that routes to the remote manager
 	pane := mux.NewProxyPane(id, meta, cols, rows,
 		s.paneOutputCallback(),
-		s.paneExitCallback(srv),
+		s.paneExitCallback(),
 		func(data []byte) (int, error) {
 			return len(data), s.RemoteManager.SendInput(id, data)
 		},

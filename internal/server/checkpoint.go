@@ -157,7 +157,7 @@ func NewServerFromCheckpoint(cp *checkpoint.ServerCheckpoint) (*Server, error) {
 		var pane *mux.Pane
 
 		onOutput := sess.paneOutputCallback()
-		onExit := sess.paneExitCallback(s)
+		onExit := sess.paneExitCallback()
 
 		if pc.IsProxy {
 			// Restore proxy pane with frozen content, mark as reconnecting.
