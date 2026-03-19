@@ -244,7 +244,7 @@ func TestBuildSSHConfigWiresHostKeyCallback(t *testing.T) {
 	}
 	writeTestKey(t, filepath.Join(sshDir, "id_ed25519"))
 
-	hc := NewHostConn("test", config_stub_host(), "hash", nil, nil, nil)
+	hc := NewHostConn("test", configStubHost(), "hash", nil, nil, nil)
 	defer hc.Close()
 
 	cfg, err := hc.buildSSHConfig()
@@ -281,7 +281,7 @@ func TestBuildSSHConfigInsecureEnvVar(t *testing.T) {
 	}
 	writeTestKey(t, filepath.Join(sshDir, "id_ed25519"))
 
-	hc := NewHostConn("test", config_stub_host(), "hash", nil, nil, nil)
+	hc := NewHostConn("test", configStubHost(), "hash", nil, nil, nil)
 	defer hc.Close()
 
 	cfg, err := hc.buildSSHConfig()
@@ -302,7 +302,7 @@ func TestBuildSSHConfigInsecureEnvVar(t *testing.T) {
 	}
 }
 
-// config_stub_host returns a minimal config.Host for wiring tests.
-func config_stub_host() config.Host {
+// configStubHost returns a minimal config.Host for wiring tests.
+func configStubHost() config.Host {
 	return config.Host{Type: "remote", Address: "10.0.0.1"}
 }

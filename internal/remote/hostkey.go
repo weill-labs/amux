@@ -28,10 +28,7 @@ func hostKeyCallback(knownHostsPath string) ssh.HostKeyCallback {
 			}
 		}
 
-		_, statErr := os.Stat(path)
-		fileExists := statErr == nil
-
-		if fileExists {
+		if _, err := os.Stat(path); err == nil {
 			cb, err := knownhosts.New(path)
 			if err != nil {
 				return fmt.Errorf("amux: failed to parse %s: %w", path, err)
