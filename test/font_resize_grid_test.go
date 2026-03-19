@@ -13,17 +13,10 @@ func TestFontResize_ThreeByThreeGridReturnsToOriginalLayout(t *testing.T) {
 	makeThreeByThreeGrid(t, h)
 
 	initial := capturePanePositions(h)
-
-	gen := h.generation()
-	h.outer.runCmd("resize-window", "120", "40")
-	h.waitLayout(gen)
+	resizeRoundTrip(t, h)
 
 	larger := capturePanePositions(h)
 	assertThreeByThreeGrid(t, larger)
-
-	gen = h.generation()
-	h.outer.runCmd("resize-window", "80", "24")
-	h.waitLayout(gen)
 
 	final := capturePanePositions(h)
 	assertThreeByThreeGrid(t, final)
@@ -41,18 +34,66 @@ func TestFontResize_UnevenGridReturnsToOriginalLayout(t *testing.T) {
 	makeGridUneven(t, h)
 
 	initial := capturePanePositions(h)
-
-	gen := h.generation()
-	h.outer.runCmd("resize-window", "120", "40")
-	h.waitLayout(gen)
-
-	gen = h.generation()
-	h.outer.runCmd("resize-window", "80", "24")
-	h.waitLayout(gen)
+	resizeRoundTrip(t, h)
 
 	final := capturePanePositions(h)
 	if diff := diffPanePositions(initial, final); diff != "" {
 		t.Fatalf("uneven grid drifted after grow/shrink cycle:\n%s", diff)
+	}
+}
+
+func TestFontResize_ZoomedGridReturnsToOriginalLayout(t *testing.T) {
+	t.Parallel()
+	h := newAmuxHarness(t)
+
+	makeThreeByThreeGrid(t, h)
+	makeGridUneven(t, h)
+
+	initial := capturePanePositions(h)
+
+	runLayoutCommand(t, h, "zoom", "pane-5")
+	resizeRoundTrip(t, h)
+	runLayoutCommand(t, h, "zoom", "pane-5")
+
+	final := capturePanePositions(h)
+	if diff := diffPanePositions(initial, final); diff != "" {
+		t.Fatalf("zoomed grid drifted after grow/shrink cycle:\n%s", diff)
+	}
+}
+
+func TestFontResize_MinimizeRestoreGridReturnsToOriginalLayout(t *testing.T) {
+	t.Parallel()
+	h := newAmuxHarness(t)
+
+	makeThreeByThreeGrid(t, h)
+	makeGridUneven(t, h)
+
+	initial := capturePanePositions(h)
+
+	runLayoutCommand(t, h, "minimize", "pane-1")
+	resizeRoundTrip(t, h)
+	runLayoutCommand(t, h, "restore", "pane-1")
+
+	final := capturePanePositions(h)
+	if diff := diffPanePositions(initial, final); diff != "" {
+		t.Fatalf("minimize/restore grid drifted after grow/shrink cycle:\n%s", diff)
+	}
+}
+
+func TestFontResize_RepeatedManualResizesReturnToBaseline(t *testing.T) {
+	t.Parallel()
+	h := newAmuxHarness(t)
+
+	makeThreeByThreeGrid(t, h)
+	for _, tc := range []struct {
+		name  string
+		apply func(*testing.T, *AmuxHarness)
+	}{
+		{name: "first", apply: makeGridVeryUneven},
+		{name: "second", apply: makeGridUnevenAgain},
+	} {
+		tc.apply(t, h)
+		assertRoundTripPreservesLayout(t, h, tc.name+" repeated-resize baseline")
 	}
 }
 
@@ -71,16 +112,37 @@ func makeThreeByThreeGrid(t *testing.T, h *AmuxHarness) {
 
 func makeGridUneven(t *testing.T, h *AmuxHarness) {
 	t.Helper()
+	applyResizeSteps(t, h, []resizeStep{
+		{pane: "pane-1", dir: "right", amount: "5"},
+		{pane: "pane-1", dir: "down", amount: "2"},
+		{pane: "pane-9", dir: "left", amount: "3"},
+	})
+}
 
-	if out := h.runCmd("resize-pane", "pane-1", "right", "5"); !strings.Contains(out, "Resized") {
-		t.Fatalf("resize-pane pane-1 right failed: %s", out)
-	}
-	if out := h.runCmd("resize-pane", "pane-1", "down", "2"); !strings.Contains(out, "Resized") {
-		t.Fatalf("resize-pane pane-1 down failed: %s", out)
-	}
-	if out := h.runCmd("resize-pane", "pane-9", "left", "3"); !strings.Contains(out, "Resized") {
-		t.Fatalf("resize-pane pane-9 left failed: %s", out)
-	}
+type resizeStep struct {
+	pane   string
+	dir    string
+	amount string
+}
+
+func makeGridVeryUneven(t *testing.T, h *AmuxHarness) {
+	t.Helper()
+	applyResizeSteps(t, h, []resizeStep{
+		{pane: "pane-1", dir: "right", amount: "5"},
+		{pane: "pane-1", dir: "down", amount: "2"},
+		{pane: "pane-9", dir: "left", amount: "3"},
+		{pane: "pane-4", dir: "down", amount: "1"},
+		{pane: "pane-8", dir: "up", amount: "2"},
+	})
+}
+
+func makeGridUnevenAgain(t *testing.T, h *AmuxHarness) {
+	t.Helper()
+	applyResizeSteps(t, h, []resizeStep{
+		{pane: "pane-2", dir: "left", amount: "2"},
+		{pane: "pane-7", dir: "up", amount: "1"},
+		{pane: "pane-6", dir: "right", amount: "1"},
+	})
 }
 
 func runLayoutCommand(t *testing.T, h *AmuxHarness, args ...string) {
@@ -91,6 +153,36 @@ func runLayoutCommand(t *testing.T, h *AmuxHarness, args ...string) {
 		t.Fatalf("%v failed: %s", args, out)
 	}
 	h.waitLayout(gen)
+}
+
+func resizeRoundTrip(t *testing.T, h *AmuxHarness) {
+	t.Helper()
+	gen := h.generation()
+	h.outer.runCmd("resize-window", "120", "40")
+	h.waitLayout(gen)
+
+	gen = h.generation()
+	h.outer.runCmd("resize-window", "80", "24")
+	h.waitLayout(gen)
+}
+
+func assertRoundTripPreservesLayout(t *testing.T, h *AmuxHarness, name string) {
+	t.Helper()
+	baseline := capturePanePositions(h)
+	resizeRoundTrip(t, h)
+	final := capturePanePositions(h)
+	if diff := diffPanePositions(baseline, final); diff != "" {
+		t.Fatalf("%s drifted after grow/shrink cycle:\n%s", name, diff)
+	}
+}
+
+func applyResizeSteps(t *testing.T, h *AmuxHarness, steps []resizeStep) {
+	t.Helper()
+	for _, step := range steps {
+		if out := h.runCmd("resize-pane", step.pane, step.dir, step.amount); !strings.Contains(out, "Resized") {
+			t.Fatalf("resize-pane %s %s failed: %s", step.pane, step.dir, out)
+		}
+	}
 }
 
 type panePos struct {
