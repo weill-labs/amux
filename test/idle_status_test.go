@@ -87,8 +87,12 @@ func TestWaitBusy_EventBased(t *testing.T) {
 	h.waitFor("pane-1", "INIT")
 	h.waitIdle("pane-1")
 
-	// Start a command and use waitBusy to detect it.
-	h.sendKeys("pane-1", "sleep 300", "Enter")
+	// Fork a long-running child first, then print a sentinel after the shell
+	// has actually transitioned to a busy process state. This avoids racing
+	// against the shell's echoed input, which can trigger activity before the
+	// child is fully visible in JSON capture.
+	h.sendKeys("pane-1", `sleep 300 & printf '\x57\x41\x49\x54_BUSY\n'; wait`, "Enter")
+	h.waitFor("pane-1", "WAIT_BUSY")
 	h.waitBusy("pane-1")
 
 	// Verify the pane is indeed busy via JSON capture.

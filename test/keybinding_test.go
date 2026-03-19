@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weill-labs/amux/internal/proto"
 	"github.com/weill-labs/amux/internal/server"
 )
 
@@ -323,6 +324,10 @@ w = "display-panes"
 	h.waitLayout(gen)
 
 	h.sendKeys("C-a", "w")
+	out := h.runCmd("wait-ui", proto.UIEventDisplayPanesShown, "--timeout", "3s")
+	if !strings.Contains(out, proto.UIEventDisplayPanesShown) {
+		t.Fatalf("expected display-panes shown event, got: %s\nScreen:\n%s", out, h.captureOuter())
+	}
 	if !h.waitFor("[2]", 3*time.Second) {
 		t.Fatalf("expected custom Ctrl-a w binding to show pane overlay, got:\n%s", h.captureOuter())
 	}
