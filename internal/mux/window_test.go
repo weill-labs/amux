@@ -1,6 +1,10 @@
 package mux
 
-import "testing"
+import (
+	"fmt"
+	"strings"
+	"testing"
+)
 
 // buildLayout creates a Window with manually positioned leaf cells for
 // testing directional focus. Each pane is placed at explicit (x,y,w,h)
@@ -458,6 +462,94 @@ func TestClosePaneRedistributesNestedSubtreeSizes(t *testing.T) {
 	}
 	if right.H != topSubtree.H {
 		t.Fatalf("right child height = %d, want subtree height %d", right.H, topSubtree.H)
+	}
+}
+
+func TestResizePanePreservesAdjacencyForFullWidthBottomPane(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		dir  string
+	}{
+		{name: "up", dir: "up"},
+		{name: "down", dir: "down"},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			p1 := fakePaneID(1)
+			w := NewWindow(p1, 80, 24)
+
+			panes := map[uint32]*Pane{1: p1}
+			mustPane := func(id uint32) *Pane {
+				p, ok := panes[id]
+				if !ok {
+					p = fakePaneID(id)
+					panes[id] = p
+				}
+				return p
+			}
+
+			if _, err := w.SplitRoot(SplitVertical, mustPane(2)); err != nil {
+				t.Fatalf("split root vertical: %v", err)
+			}
+			if _, err := w.SplitRoot(SplitVertical, mustPane(3)); err != nil {
+				t.Fatalf("split root vertical again: %v", err)
+			}
+
+			for _, id := range []uint32{1, 2, 3} {
+				w.FocusPane(mustPane(id))
+				if _, err := w.Split(SplitHorizontal, mustPane(uint32(len(panes)+1))); err != nil {
+					t.Fatalf("split horizontal for pane-%d: %v", id, err)
+				}
+				if _, err := w.Split(SplitHorizontal, mustPane(uint32(len(panes)+1))); err != nil {
+					t.Fatalf("split horizontal again for pane-%d: %v", id, err)
+				}
+			}
+
+			w.FocusPane(mustPane(9))
+			if _, err := w.SplitRoot(SplitHorizontal, mustPane(10)); err != nil {
+				t.Fatalf("split root horizontal: %v", err)
+			}
+
+			if !w.ResizePane(10, tt.dir, 2) {
+				t.Fatalf("resize pane-10 %s failed", tt.dir)
+			}
+
+			bottom := w.Root.FindPane(10)
+			if bottom == nil {
+				t.Fatal("pane-10 not found")
+			}
+
+			foundAdjacentAbove := false
+			var coords []string
+			w.Root.Walk(func(cell *LayoutCell) {
+				if cell.Pane == nil {
+					return
+				}
+				coords = append(coords,
+					fmt.Sprintf("pane-%d=(x=%d y=%d w=%d h=%d)", cell.Pane.ID, cell.X, cell.Y, cell.W, cell.H),
+				)
+				if cell.Pane.ID == 10 {
+					return
+				}
+				if cell.Y+cell.H+1 != bottom.Y {
+					return
+				}
+				if cell.X >= bottom.X+bottom.W || cell.X+cell.W <= bottom.X {
+					return
+				}
+				foundAdjacentAbove = true
+			})
+
+			if !foundAdjacentAbove {
+				t.Fatalf("resize %s left pane-10 with no adjacent pane above; %s", tt.dir, strings.Join(coords, "; "))
+			}
+		})
 	}
 }
 
