@@ -142,6 +142,21 @@ func buildMultiWindowRenderer(t *testing.T) *ClientRenderer {
 	return cr
 }
 
+func multiWindow80x23Zoomed(windowID, paneID uint32) *proto.LayoutSnapshot {
+	snap := multiWindow80x23()
+	for i := range snap.Windows {
+		if snap.Windows[i].ID == windowID {
+			snap.Windows[i].ZoomedPaneID = paneID
+			if snap.ActiveWindowID == windowID {
+				snap.ZoomedPaneID = paneID
+				snap.ActivePaneID = paneID
+				snap.Root = snap.Windows[i].Root
+			}
+		}
+	}
+	return snap
+}
+
 func TestClientRendererCapture(t *testing.T) {
 	t.Parallel()
 	cr := buildTestRenderer(t)
@@ -294,6 +309,111 @@ func TestClientRendererZoomedPaneSurvivesMetadataOnlyLayout(t *testing.T) {
 	lines := strings.Split(cr.CapturePaneText(2, false), "\n")
 	if len(lines) == 0 || lines[0] != wideLine {
 		t.Fatalf("pane-2 first line after idle layout = %q, want %q", lines[0], wideLine)
+	}
+}
+
+func TestClientRendererZoomedCopyModeSurvivesMetadataOnlyLayout(t *testing.T) {
+	t.Parallel()
+
+	cr := NewClientRenderer(80, 24)
+	cr.HandleLayout(twoPane80x23Zoomed(2))
+	cr.HandlePaneOutput(2, []byte("\033[2J\033[Hzoomed copy mode line"))
+	cr.EnterCopyMode(2)
+
+	cm := cr.CopyModeForPane(2)
+	if cm == nil {
+		t.Fatal("pane-2 copy mode missing")
+	}
+	if got, want := cm.ViewportHeight(), 22; got != want {
+		t.Fatalf("zoomed pane-2 copy mode height after initial layout = %d, want %d", got, want)
+	}
+
+	idleSnap := twoPane80x23Zoomed(2)
+	idleSnap.Panes[1].Idle = true
+	idleSnap.Windows[0].Panes[1].Idle = true
+	cr.HandleLayout(idleSnap)
+
+	cm = cr.CopyModeForPane(2)
+	if cm == nil {
+		t.Fatal("pane-2 copy mode missing after idle layout")
+	}
+	if got, want := cm.ViewportHeight(), 22; got != want {
+		t.Fatalf("zoomed pane-2 copy mode height after idle layout = %d, want %d", got, want)
+	}
+
+	if got, want := cr.CapturePaneText(2, false), "zoomed copy mode line"; !strings.Contains(got, want) {
+		t.Fatalf("pane-2 text after idle layout = %q, want substring %q", got, want)
+	}
+}
+
+func TestClientRendererZoomedPaneSurvivesMetadataOnlyLayoutMultiWindow(t *testing.T) {
+	t.Parallel()
+
+	cr := NewClientRenderer(80, 24)
+	cr.HandleLayout(multiWindow80x23Zoomed(1, 2))
+
+	const wideLine = "multi-window zoomed pane line that should remain wide after idle"
+	cr.HandlePaneOutput(2, []byte("\033[2J\033[H"+wideLine))
+
+	emu, ok := cr.Emulator(2)
+	if !ok {
+		t.Fatal("pane-2 emulator missing")
+	}
+	if w, h := emu.Size(); w != 80 || h != 22 {
+		t.Fatalf("zoomed pane-2 size after initial multi-window layout = %dx%d, want 80x22", w, h)
+	}
+
+	idleSnap := multiWindow80x23Zoomed(1, 2)
+	idleSnap.Windows[0].Panes[1].Idle = true
+	cr.HandleLayout(idleSnap)
+
+	emu, ok = cr.Emulator(2)
+	if !ok {
+		t.Fatal("pane-2 emulator missing after multi-window idle layout")
+	}
+	if w, h := emu.Size(); w != 80 || h != 22 {
+		t.Fatalf("zoomed pane-2 size after multi-window idle layout = %dx%d, want 80x22", w, h)
+	}
+
+	lines := strings.Split(cr.CapturePaneText(2, false), "\n")
+	if len(lines) == 0 || lines[0] != wideLine {
+		t.Fatalf("pane-2 first line after multi-window idle layout = %q, want %q", lines[0], wideLine)
+	}
+}
+
+func TestRescaleZoomedPaneForSmallerClient(t *testing.T) {
+	t.Parallel()
+
+	cr := NewClientRenderer(40, 12)
+	cr.HandleLayout(twoPane80x23Zoomed(2))
+
+	emu, ok := cr.Emulator(2)
+	if !ok {
+		t.Fatal("pane-2 emulator missing")
+	}
+	if w, h := emu.Size(); w != 40 || h != 10 {
+		t.Fatalf("zoomed pane-2 emulator size on smaller client = %dx%d, want 40x10", w, h)
+	}
+
+	const wideLine = "1234567890123456789012345678901234567890"
+	cr.HandlePaneOutput(2, []byte("\033[2J\033[H"+wideLine))
+
+	var capture proto.CaptureJSON
+	if err := json.Unmarshal([]byte(cr.CaptureJSON(nil)), &capture); err != nil {
+		t.Fatalf("JSON parse: %v", err)
+	}
+	if len(capture.Panes) != 1 {
+		t.Fatalf("zoomed smaller-client capture panes = %d, want 1", len(capture.Panes))
+	}
+	pos := capture.Panes[0].Position
+	if pos == nil {
+		t.Fatal("zoomed pane position missing")
+	}
+	if pos.Width != 40 || pos.Height != 11 {
+		t.Fatalf("zoomed pane position = %dx%d, want 40x11", pos.Width, pos.Height)
+	}
+	if got := capture.Panes[0].Content[0]; got != wideLine {
+		t.Fatalf("zoomed pane first line on smaller client = %q, want %q", got, wideLine)
 	}
 }
 
