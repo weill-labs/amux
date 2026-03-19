@@ -229,6 +229,43 @@ func (c *LayoutCell) ResizeAll(newW, newH int) {
 	c.FixOffsets()
 }
 
+// ResizeSubtree adjusts this cell and all descendants to the target size.
+// Use this when a caller may already have mutated c.W or c.H directly. Calling
+// ResizeAll with those already-updated dimensions can produce a zero delta and
+// leave descendants stale, so this first reconstructs the subtree's current
+// aggregate size from its children before applying the target dimensions.
+func (c *LayoutCell) ResizeSubtree(newW, newH int) {
+	if c == nil {
+		return
+	}
+	if c.IsLeaf() {
+		c.W = newW
+		c.H = newH
+		return
+	}
+	if len(c.Children) == 0 {
+		return
+	}
+
+	if c.Dir == SplitVertical {
+		totalW := len(c.Children) - 1
+		for _, child := range c.Children {
+			totalW += child.W
+		}
+		c.W = totalW
+		c.H = c.Children[0].H
+	} else {
+		totalH := len(c.Children) - 1
+		for _, child := range c.Children {
+			totalH += child.H
+		}
+		c.W = c.Children[0].W
+		c.H = totalH
+	}
+
+	c.ResizeAll(newW, newH)
+}
+
 func (c *LayoutCell) resizeCheck(axis SplitDir) int {
 	if c.IsLeaf() {
 		size := c.W
