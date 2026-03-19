@@ -176,6 +176,8 @@ No, and it doesn't aim to. amux implements what matters for human+agent pairing:
 go install github.com/weill-labs/amux@latest
 ```
 
+For local development builds, prefer `make build` instead of writing `go build` directly to `~/.local/bin/amux`. The atomic replace avoids transient invalid binaries during hot-reload on macOS.
+
 Single binary, no runtime dependencies.
 
 ## Quick Start

@@ -9,11 +9,11 @@
 
 ```bash
 make setup                         # activate repo git hooks
-go build -o ~/.local/bin/amux .    # build + install
+make build                         # build + install atomically
 go test ./...                       # run all tests
 ```
 
-Hot-reload: both client and server watch the binary and re-exec on changes. Running `go build` triggers automatic reload — panes and shells are preserved.
+Hot-reload: both client and server watch the binary and re-exec on changes. Use `make build` so the installed binary is replaced atomically before reload — panes and shells are preserved.
 
 To test manually after building:
 

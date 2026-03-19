@@ -62,7 +62,7 @@ See [README.md -- Philosophy](README.md#philosophy) for the project thesis and t
 
 ```bash
 make setup                         # activate repo git hooks
-go build -o ~/.local/bin/amux .    # build + install (client hot-reloads automatically)
+make build                         # build + install atomically (client hot-reloads automatically)
 go test ./...                      # run all tests
 ```
 
@@ -144,7 +144,7 @@ Trigger patterns for compositor bugs: long or truncated lines near pane boundari
 
 ### Hot-Reload
 
-Both client and server watch the binary and re-exec on changes (`reload.go`). Running `go build -o ~/.local/bin/amux .` triggers automatic reload of both -- panes and shells are preserved across server reloads via checkpoint and restore.
+Both client and server watch the binary and re-exec on changes (`reload.go`). Running `make build` replaces the installed binary atomically, which then triggers automatic reload of both -- panes and shells are preserved across server reloads via checkpoint and restore.
 
 Socket location: `/tmp/amux-$UID/<session-name>`
 
