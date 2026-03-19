@@ -956,6 +956,16 @@ func cmdWaitHook(ctx *CommandContext) {
 		ctx.replyErr(err.Error())
 		return
 	}
+	if paneName != "" {
+		ctx.Sess.mu.Lock()
+		pane, _, err := ctx.CC.resolvePaneAcrossWindowsLocked(ctx.Sess, paneName)
+		ctx.Sess.mu.Unlock()
+		if err != nil {
+			ctx.replyErr(err.Error())
+			return
+		}
+		paneName = pane.Meta.Name
+	}
 	record, ok := ctx.Sess.waitHook(afterGen, eventName, paneName, timeout)
 	if !ok {
 		target := eventName
