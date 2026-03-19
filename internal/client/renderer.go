@@ -137,6 +137,9 @@ func (r *Renderer) HandleLayout(snap *proto.LayoutSnapshot) bool {
 			if info, ok := r.paneInfo[cell.PaneID]; ok && info.Minimized {
 				return
 			}
+			if cell.PaneID == r.zoomedPaneID {
+				return
+			}
 			contentH := mux.PaneContentHeight(cell.H)
 			emu.Resize(cell.W, contentH)
 			if r.OnPaneResize != nil {

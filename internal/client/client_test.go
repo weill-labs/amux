@@ -52,6 +52,15 @@ func buildTestRenderer(t *testing.T) *ClientRenderer {
 	return cr
 }
 
+func twoPane80x23Zoomed(paneID uint32) *proto.LayoutSnapshot {
+	snap := twoPane80x23()
+	snap.ZoomedPaneID = paneID
+	if len(snap.Windows) > 0 {
+		snap.Windows[0].ZoomedPaneID = paneID
+	}
+	return snap
+}
+
 func buildManyPaneRenderer(t *testing.T, n int) *ClientRenderer {
 	t.Helper()
 	cr := NewClientRenderer(200, 24)
@@ -249,6 +258,42 @@ func TestClientRendererCapturePaneJSON(t *testing.T) {
 	empty := cr.CapturePaneJSON(999, nil)
 	if empty != "{}" {
 		t.Errorf("nonexistent pane should return {}, got %q", empty)
+	}
+}
+
+func TestClientRendererZoomedPaneSurvivesMetadataOnlyLayout(t *testing.T) {
+	t.Parallel()
+
+	cr := NewClientRenderer(80, 24)
+	cr.HandleLayout(twoPane80x23Zoomed(2))
+
+	const wideLine = "012345678901234567890123456789012345678901234567890123456789"
+	cr.HandlePaneOutput(2, []byte("\033[2J\033[H"+wideLine))
+
+	emu, ok := cr.Emulator(2)
+	if !ok {
+		t.Fatal("pane-2 emulator missing")
+	}
+	if w, h := emu.Size(); w != 80 || h != 22 {
+		t.Fatalf("zoomed pane-2 size after initial layout = %dx%d, want 80x22", w, h)
+	}
+
+	idleSnap := twoPane80x23Zoomed(2)
+	idleSnap.Panes[1].Idle = true
+	idleSnap.Windows[0].Panes[1].Idle = true
+	cr.HandleLayout(idleSnap)
+
+	emu, ok = cr.Emulator(2)
+	if !ok {
+		t.Fatal("pane-2 emulator missing after idle layout")
+	}
+	if w, h := emu.Size(); w != 80 || h != 22 {
+		t.Fatalf("zoomed pane-2 size after idle layout = %dx%d, want 80x22", w, h)
+	}
+
+	lines := strings.Split(cr.CapturePaneText(2, false), "\n")
+	if len(lines) == 0 || lines[0] != wideLine {
+		t.Fatalf("pane-2 first line after idle layout = %q, want %q", lines[0], wideLine)
 	}
 }
 
