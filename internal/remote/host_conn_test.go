@@ -15,32 +15,42 @@ import (
 	"github.com/weill-labs/amux/internal/config"
 )
 
+// testInActor runs fn inside the HostConn actor goroutine and waits for it
+// to complete. This is the sole mechanism for tests to inspect or mutate
+// actor-owned state safely.
+type testInActorEvent struct {
+	fn   func(*HostConn)
+	done chan struct{}
+}
+
+func (e testInActorEvent) handle(hc *HostConn) {
+	e.fn(hc)
+	close(e.done)
+}
+
+func testInActor(hc *HostConn, fn func(*HostConn)) {
+	done := make(chan struct{})
+	hc.enqueue(testInActorEvent{fn: fn, done: done})
+	<-done
+}
+
 func TestBuildEnsureServerCmd(t *testing.T) {
 	t.Parallel()
 
 	cmd := buildEnsureServerCmd("/tmp/amux-1000/default", "default@myhost")
 
-	// Must check for socket before starting
 	if !strings.Contains(cmd, `[ ! -S /tmp/amux-1000/default ]`) {
 		t.Error("command should check socket existence")
 	}
-
-	// Must respect AMUX_BIN env var override (used by test harness)
 	if !strings.Contains(cmd, "${AMUX_BIN:-") {
 		t.Error("command should check AMUX_BIN env var first")
 	}
-
-	// Must try ~/.local/bin/amux as fallback (deploy location)
 	if !strings.Contains(cmd, "~/.local/bin/amux") {
 		t.Error("command should try ~/.local/bin/amux as fallback")
 	}
-
-	// Must pass session name to _server
 	if !strings.Contains(cmd, `_server default@myhost`) {
 		t.Error("command should pass session name to _server")
 	}
-
-	// Must fall back to amux in PATH
 	if !strings.Contains(cmd, "command -v amux") {
 		t.Error("command should fall back to amux in PATH")
 	}
@@ -86,14 +96,12 @@ func TestRemoteSessionName(t *testing.T) {
 	}
 }
 
-func TestRemoteSocketPath(t *testing.T) {
+func TestSocketPath(t *testing.T) {
 	t.Parallel()
 
-	hc := &HostConn{remoteUID: "1000"}
-	path := hc.remoteSocketPath("default@myhost")
-
+	path := socketPath("1000", "default@myhost")
 	if path != "/tmp/amux-1000/default@myhost" {
-		t.Errorf("remoteSocketPath = %q, want /tmp/amux-1000/default@myhost", path)
+		t.Errorf("socketPath = %q, want /tmp/amux-1000/default@myhost", path)
 	}
 }
 
@@ -101,12 +109,18 @@ func TestNewHostConn(t *testing.T) {
 	t.Parallel()
 
 	cfg := config.Host{Type: "remote", Address: "10.0.0.1", User: "ubuntu"}
+	var mu sync.Mutex
 	called := false
 	hc := NewHostConn("test-host", cfg, "abc1234",
 		func(uint32, []byte) {},
 		func(uint32) {},
-		func(string, ConnState) { called = true },
+		func(string, ConnState) {
+			mu.Lock()
+			called = true
+			mu.Unlock()
+		},
 	)
+	defer hc.Close()
 
 	if hc.name != "test-host" {
 		t.Errorf("name = %q, want test-host", hc.name)
@@ -118,30 +132,46 @@ func TestNewHostConn(t *testing.T) {
 		t.Errorf("initial state = %q, want disconnected", hc.State())
 	}
 
-	// setState should trigger callback
-	hc.setState(Connecting)
-	if !called {
+	// setState through actor should trigger callback
+	testInActor(hc, func(hc *HostConn) {
+		hc.setState(Connecting)
+	})
+
+	mu.Lock()
+	c := called
+	mu.Unlock()
+	if !c {
 		t.Error("onStateChange callback not called")
 	}
-	if hc.state != Connecting {
-		t.Errorf("state after setState = %q, want connecting", hc.state)
+	if hc.State() != Connecting {
+		t.Errorf("state after setState = %q, want connecting", hc.State())
 	}
 }
 
 func TestHostConnStateTransitions(t *testing.T) {
 	t.Parallel()
 
+	var mu sync.Mutex
 	var transitions []ConnState
 	hc := NewHostConn("test", config.Host{}, "hash",
 		nil, nil,
-		func(_ string, s ConnState) { transitions = append(transitions, s) },
+		func(_ string, s ConnState) {
+			mu.Lock()
+			transitions = append(transitions, s)
+			mu.Unlock()
+		},
 	)
+	defer hc.Close()
 
-	hc.setState(Connecting)
-	hc.setState(Connected)
-	hc.setState(Reconnecting)
-	hc.setState(Disconnected)
+	testInActor(hc, func(hc *HostConn) {
+		hc.setState(Connecting)
+		hc.setState(Connected)
+		hc.setState(Reconnecting)
+		hc.setState(Disconnected)
+	})
 
+	mu.Lock()
+	defer mu.Unlock()
 	want := []ConnState{Connecting, Connected, Reconnecting, Disconnected}
 	if len(transitions) != len(want) {
 		t.Fatalf("got %d transitions, want %d", len(transitions), len(want))
@@ -157,30 +187,27 @@ func TestRemovePane(t *testing.T) {
 	t.Parallel()
 
 	hc := NewHostConn("test", config.Host{}, "hash", nil, nil, nil)
+	defer hc.Close()
 
-	// Manually register pane mappings (RegisterPane is on another branch)
-	hc.mu.Lock()
-	hc.localToRemote[10] = 100
-	hc.remoteToLocal[100] = 10
-	hc.localToRemote[20] = 200
-	hc.remoteToLocal[200] = 20
-	hc.mu.Unlock()
+	// Register pane mappings through actor
+	hc.RegisterPane(10, 100)
+	hc.RegisterPane(20, 200)
 
 	// Remove one mapping
 	hc.RemovePane(10)
 
-	hc.mu.Lock()
-	if _, ok := hc.localToRemote[10]; ok {
-		t.Error("localToRemote[10] should be deleted after RemovePane")
-	}
-	if _, ok := hc.remoteToLocal[100]; ok {
-		t.Error("remoteToLocal[100] should be deleted after RemovePane")
-	}
-	// Other mapping should survive
-	if hc.localToRemote[20] != 200 {
-		t.Errorf("localToRemote[20] = %d, want 200 (should survive)", hc.localToRemote[20])
-	}
-	hc.mu.Unlock()
+	// Verify via actor
+	testInActor(hc, func(hc *HostConn) {
+		if _, ok := hc.localToRemote[10]; ok {
+			t.Error("localToRemote[10] should be deleted after RemovePane")
+		}
+		if _, ok := hc.remoteToLocal[100]; ok {
+			t.Error("remoteToLocal[100] should be deleted after RemovePane")
+		}
+		if hc.localToRemote[20] != 200 {
+			t.Errorf("localToRemote[20] = %d, want 200 (should survive)", hc.localToRemote[20])
+		}
+	})
 
 	// Removing unknown pane should be a no-op
 	hc.RemovePane(999)
@@ -189,21 +216,30 @@ func TestRemovePane(t *testing.T) {
 func TestDisconnect(t *testing.T) {
 	t.Parallel()
 
+	var mu sync.Mutex
 	var lastState ConnState
 	hc := NewHostConn("test", config.Host{}, "hash",
 		nil, nil,
-		func(_ string, s ConnState) { lastState = s },
+		func(_ string, s ConnState) {
+			mu.Lock()
+			lastState = s
+			mu.Unlock()
+		},
 	)
+	defer hc.Close()
 
-	// Simulate connected state (no real SSH)
-	hc.mu.Lock()
-	hc.state = Connected
-	hc.mu.Unlock()
+	// Simulate connected state through actor
+	testInActor(hc, func(hc *HostConn) {
+		hc.state = Connected
+	})
 
 	hc.Disconnect()
 
-	if lastState != Disconnected {
-		t.Errorf("state after Disconnect = %q, want disconnected", lastState)
+	mu.Lock()
+	s := lastState
+	mu.Unlock()
+	if s != Disconnected {
+		t.Errorf("state after Disconnect = %q, want disconnected", s)
 	}
 }
 
@@ -220,43 +256,46 @@ func TestHandleDisconnect(t *testing.T) {
 			mu.Unlock()
 		},
 	)
+	defer hc.Close()
 
-	// Not connected — should be a no-op
-	hc.handleDisconnect()
+	// Not connected — readDisconnectEvent should be a no-op
+	testInActor(hc, func(hc *HostConn) {
+		(readDisconnectEvent{}).handle(hc)
+	})
 	mu.Lock()
 	if len(states) > 0 {
-		t.Error("handleDisconnect on non-connected should not fire callback")
+		t.Error("readDisconnectEvent on non-connected should not fire callback")
 	}
 	mu.Unlock()
 
 	// Simulate Connected state
-	hc.mu.Lock()
-	hc.state = Connected
-	hc.mu.Unlock()
+	testInActor(hc, func(hc *HostConn) {
+		hc.state = Connected
+	})
 
-	hc.handleDisconnect()
+	// Fire disconnect event through actor
+	testInActor(hc, func(hc *HostConn) {
+		(readDisconnectEvent{}).handle(hc)
+	})
 
-	// Should transition to Reconnecting (the immediate transition, before
-	// startReconnectLoop runs in its goroutine).
-	hc.mu.Lock()
-	s := hc.state
-	hc.mu.Unlock()
-	if s != Reconnecting {
-		t.Errorf("state after handleDisconnect = %q, want reconnecting", s)
+	if hc.State() != Reconnecting {
+		t.Errorf("state after readDisconnectEvent = %q, want reconnecting", hc.State())
 	}
 
-	// Calling again should be a no-op (already reconnecting)
+	// Second disconnect should be a no-op (already reconnecting)
 	mu.Lock()
 	countBefore := len(states)
 	mu.Unlock()
 
-	hc.handleDisconnect()
+	testInActor(hc, func(hc *HostConn) {
+		(readDisconnectEvent{}).handle(hc)
+	})
 
 	mu.Lock()
 	countAfter := len(states)
 	mu.Unlock()
 	if countAfter != countBefore {
-		t.Error("duplicate handleDisconnect should be a no-op")
+		t.Error("duplicate readDisconnectEvent should be a no-op")
 	}
 }
 
@@ -264,8 +303,8 @@ func TestSendInputDisconnected(t *testing.T) {
 	t.Parallel()
 
 	hc := NewHostConn("test", config.Host{}, "hash", nil, nil, nil)
+	defer hc.Close()
 
-	// No pane mapping, no connection — should silently return nil
 	err := hc.SendInput(42, []byte("hello"))
 	if err != nil {
 		t.Errorf("SendInput on disconnected = %v, want nil", err)
@@ -276,47 +315,43 @@ func TestSendResizeDisconnected(t *testing.T) {
 	t.Parallel()
 
 	hc := NewHostConn("test", config.Host{}, "hash", nil, nil, nil)
+	defer hc.Close()
 
-	// No pane mapping — should silently return nil
 	err := hc.SendResize(42, 80, 24)
 	if err != nil {
 		t.Errorf("SendResize on disconnected = %v, want nil", err)
 	}
 }
 
-func TestCloseConnsLocked(t *testing.T) {
+func TestCloseConns(t *testing.T) {
 	t.Parallel()
 
 	hc := NewHostConn("test", config.Host{}, "hash", nil, nil, nil)
+	defer hc.Close()
 
 	// With nil connections — should not panic
-	hc.mu.Lock()
-	hc.closeConnsLocked()
-	hc.mu.Unlock()
-
-	if hc.sshClient != nil {
-		t.Error("sshClient should be nil after closeConnsLocked")
-	}
-	if hc.amuxConn != nil {
-		t.Error("amuxConn should be nil after closeConnsLocked")
-	}
+	testInActor(hc, func(hc *HostConn) {
+		hc.closeConns()
+		if hc.sshClient != nil {
+			t.Error("sshClient should be nil after closeConns")
+		}
+		if hc.amuxConn != nil {
+			t.Error("amuxConn should be nil after closeConns")
+		}
+	})
 }
 
 func TestBuildSSHConfigWithIdentityFile(t *testing.T) {
-	// Cannot use t.Parallel — uses t.Setenv to clear SSH_AUTH_SOCK.
-
-	// Generate a temp ed25519 key
 	tmpDir := t.TempDir()
 	keyPath := filepath.Join(tmpDir, "id_ed25519")
 	writeTestKey(t, keyPath)
-
-	// Clear SSH agent so only the key file provides auth
 	t.Setenv("SSH_AUTH_SOCK", "")
 
 	hc := NewHostConn("test", config.Host{
 		IdentityFile: keyPath,
 		User:         "testuser",
 	}, "hash", nil, nil, nil)
+	defer hc.Close()
 
 	cfg, err := hc.buildSSHConfig()
 	if err != nil {
@@ -331,8 +366,6 @@ func TestBuildSSHConfigWithIdentityFile(t *testing.T) {
 }
 
 func TestBuildSSHConfigDefaultUser(t *testing.T) {
-	// Cannot use t.Parallel — uses t.Setenv.
-
 	tmpDir := t.TempDir()
 	keyPath := filepath.Join(tmpDir, "id_ed25519")
 	writeTestKey(t, keyPath)
@@ -341,6 +374,7 @@ func TestBuildSSHConfigDefaultUser(t *testing.T) {
 	hc := NewHostConn("test", config.Host{
 		IdentityFile: keyPath,
 	}, "hash", nil, nil, nil)
+	defer hc.Close()
 
 	cfg, err := hc.buildSSHConfig()
 	if err != nil {
@@ -352,12 +386,11 @@ func TestBuildSSHConfigDefaultUser(t *testing.T) {
 }
 
 func TestBuildSSHConfigNoAuth(t *testing.T) {
-	// Cannot use t.Parallel — uses t.Setenv.
-
 	t.Setenv("SSH_AUTH_SOCK", "")
-	t.Setenv("HOME", t.TempDir()) // no key files in this temp home
+	t.Setenv("HOME", t.TempDir())
 
 	hc := NewHostConn("test", config.Host{}, "hash", nil, nil, nil)
+	defer hc.Close()
 
 	_, err := hc.buildSSHConfig()
 	if err == nil {

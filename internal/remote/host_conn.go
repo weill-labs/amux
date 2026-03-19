@@ -5,7 +5,6 @@ import (
 	"net"
 	"os"
 	"strings"
-	"sync"
 	"time"
 
 	"golang.org/x/crypto/ssh"
@@ -18,39 +17,53 @@ import (
 // HostConn manages a single SSH connection to a remote host and multiplexes
 // all proxy panes on that host over a single amux wire protocol connection.
 //
+// All mutable state is owned by a single event-loop goroutine (the actor).
+// Public methods send events to the actor and optionally wait for replies.
+// This eliminates mutexes and the class of races they incompletely prevent
+// (e.g., duplicate connect attempts, state tearing between lock/unlock gaps).
+//
 // Two types of connections are used:
 //   - Persistent attach connection (amuxConn) for streaming pane output
 //   - One-shot connections for commands (spawn, resize) via runCommand()
 type HostConn struct {
+	// Immutable after construction — safe to read from any goroutine.
 	name      string
 	config    config.Host
 	buildHash string // local build hash for deploy decisions
 
-	mu        sync.Mutex
+	// Actor-owned state — accessed only from eventLoop goroutine.
 	state     ConnState
 	sshClient *ssh.Client
-	amuxConn  net.Conn   // persistent attach connection for pane I/O
-	writeMu   sync.Mutex // serializes writes to amuxConn
+	amuxConn  net.Conn // persistent attach connection for pane I/O
 
-	// Pane ID mapping: local ↔ remote
+	// Pane ID mapping: local ↔ remote (actor-owned)
 	remoteToLocal map[uint32]uint32
 	localToRemote map[uint32]uint32
 
 	// Session name for the remote amux server (includes local hostname)
 	sessionName  string
 	remoteUID    string // UID of the remote user (for socket path)
-	takeoverMode bool   // true when established via takeover (skip ensureRemoteServer on reconnect)
+	takeoverMode bool   // true when established via takeover
 
-	// Callbacks back to the local server
+	// Pending connect waiters — replied when connectDoneEvent arrives.
+	pendingConnectReplies []chan error
+
+	// Callbacks back to the local server (immutable after construction)
 	onPaneOutput  PaneOutputCallback
 	onPaneExit    PaneExitCallback
 	onStateChange StateChangeCallback
+
+	// Event loop channels
+	cmds chan hostEvent
+	stop chan struct{}
+	done chan struct{}
 }
 
-// NewHostConn creates a host connection (not yet connected).
+// NewHostConn creates a host connection (not yet connected) and starts its
+// event loop. Callers must call Close() when the connection is no longer needed.
 func NewHostConn(name string, cfg config.Host, buildHash string,
 	onOutput PaneOutputCallback, onExit PaneExitCallback, onStateChange StateChangeCallback) *HostConn {
-	return &HostConn{
+	hc := &HostConn{
 		name:          name,
 		config:        cfg,
 		buildHash:     buildHash,
@@ -61,10 +74,12 @@ func NewHostConn(name string, cfg config.Host, buildHash string,
 		onPaneExit:    onExit,
 		onStateChange: onStateChange,
 	}
+	hc.startEventLoop()
+	return hc
 }
 
 // shouldDeploy returns true if auto-deploy should run for this host.
-// Checks AMUX_NO_DEPLOY env var and the per-host deploy config opt-out.
+// Reads only immutable fields — safe from any goroutine.
 func (hc *HostConn) shouldDeploy() bool {
 	if os.Getenv("AMUX_NO_DEPLOY") == "1" {
 		return false
@@ -75,13 +90,17 @@ func (hc *HostConn) shouldDeploy() bool {
 	return hc.buildHash != ""
 }
 
-// State returns the current connection state. Thread-safe.
+// State returns the current connection state via the actor.
 func (hc *HostConn) State() ConnState {
-	hc.mu.Lock()
-	defer hc.mu.Unlock()
-	return hc.state
+	reply := make(chan ConnState, 1)
+	if !hc.enqueue(stateQuery{reply: reply}) {
+		return Disconnected
+	}
+	return <-reply
 }
 
+// setState updates the state and fires the callback.
+// Only called from the actor goroutine.
 func (hc *HostConn) setState(s ConnState) {
 	hc.state = s
 	if hc.onStateChange != nil {
@@ -91,44 +110,45 @@ func (hc *HostConn) setState(s ConnState) {
 
 // EnsureConnected establishes the SSH connection and amux tunnel if not already connected.
 func (hc *HostConn) EnsureConnected(sessionName string) error {
-	return hc.connectAndStart(func() error {
-		return hc.connect(sessionName)
-	})
-}
-
-// connectAndStart transitions through Connecting → Connected (or Disconnected on
-// error) and starts the readLoop on success. The supplied connectFn performs the
-// actual SSH dial and amux attach; both EnsureConnected and
-// EnsureConnectedForTakeover share this state-machine wrapper.
-func (hc *HostConn) connectAndStart(connectFn func() error) error {
-	hc.mu.Lock()
-	if hc.state == Connected {
-		hc.mu.Unlock()
-		return nil
+	reply := make(chan error, 1)
+	if !hc.enqueue(connectEvent{sessionName: sessionName, reply: reply}) {
+		return errHostConnClosed
 	}
-	hc.setState(Connecting)
-	hc.mu.Unlock()
-
-	if err := connectFn(); err != nil {
-		hc.mu.Lock()
-		hc.setState(Disconnected)
-		hc.mu.Unlock()
+	select {
+	case err := <-reply:
 		return err
+	case <-hc.done:
+		return errHostConnClosed
 	}
-
-	hc.mu.Lock()
-	hc.setState(Connected)
-	hc.mu.Unlock()
-
-	go hc.readLoop()
-	return nil
 }
 
-// connect establishes SSH and attaches to the remote amux server.
-func (hc *HostConn) connect(sessionName string) error {
+// EnsureConnectedForTakeover establishes SSH+amux for a takeover pane.
+// Unlike EnsureConnected, it skips ensureRemoteServer and waits for the socket.
+func (hc *HostConn) EnsureConnectedForTakeover(sessionName, remoteUID, sshAddr string) error {
+	reply := make(chan error, 1)
+	if !hc.enqueue(connectTakeoverEvent{
+		sessionName: sessionName,
+		remoteUID:   remoteUID,
+		sshAddr:     sshAddr,
+		reply:       reply,
+	}) {
+		return errHostConnClosed
+	}
+	select {
+	case err := <-reply:
+		return err
+	case <-hc.done:
+		return errHostConnClosed
+	}
+}
+
+// doConnect performs the SSH dial, deploy, server start, and amux attach.
+// Runs outside the actor in a spawned goroutine. Only reads immutable fields;
+// returns all results for the actor to apply.
+func (hc *HostConn) doConnect(sessionName string) (*connectOutcome, error) {
 	sshCfg, err := hc.buildSSHConfig()
 	if err != nil {
-		return fmt.Errorf("building SSH config: %w", err)
+		return nil, fmt.Errorf("building SSH config: %w", err)
 	}
 
 	addr := hc.config.Address
@@ -139,21 +159,15 @@ func (hc *HostConn) connect(sessionName string) error {
 
 	sshClient, err := ssh.Dial("tcp", addr, sshCfg)
 	if err != nil {
-		return fmt.Errorf("SSH dial: %w", err)
+		return nil, fmt.Errorf("SSH dial: %w", err)
 	}
 
 	// Query the remote user's UID for socket path construction.
-	// The remote amux server uses /tmp/amux-$UID/, and the remote UID
-	// differs from the local UID (e.g., macOS UID 501 vs Linux UID 1000).
 	remoteUID, err := sshOutput(sshClient, "id -u")
 	if err != nil {
 		sshClient.Close()
-		return fmt.Errorf("querying remote UID: %w", err)
+		return nil, fmt.Errorf("querying remote UID: %w", err)
 	}
-
-	hc.mu.Lock()
-	hc.remoteUID = remoteUID
-	hc.mu.Unlock()
 
 	// Deploy local binary to remote if needed (best-effort)
 	if hc.shouldDeploy() {
@@ -164,47 +178,234 @@ func (hc *HostConn) connect(sessionName string) error {
 
 	// Ensure remote amux server is running
 	remoteSession := remoteSessionName(sessionName)
-	if err := hc.ensureRemoteServer(sshClient, remoteSession); err != nil {
-		sshClient.Close()
-		return fmt.Errorf("starting remote server: %w", err)
-	}
+	sockPath := socketPath(remoteUID, remoteSession)
+	ensureRemoteServer(sshClient, sockPath, remoteSession)
 
 	// Persistent attach connection for streaming pane output.
-	// Try Unix socket forwarding first (OpenSSH); fall back to TCP via
-	// socat bridge (needed for Tailscale SSH which doesn't support
-	// direct-streamlocal@openssh.com).
-	remoteSock := hc.remoteSocketPath(remoteSession)
-	return hc.attachToSocket(sshClient, remoteSock, remoteSession)
+	amuxConn, err := hc.dialRemoteSocket(sshClient, sockPath)
+	if err != nil {
+		sshClient.Close()
+		return nil, fmt.Errorf("dialing remote socket %s: %w", sockPath, err)
+	}
+
+	if err := attachAndWait(amuxConn, remoteSession, 10*time.Second); err != nil {
+		amuxConn.Close()
+		sshClient.Close()
+		return nil, err
+	}
+
+	return &connectOutcome{
+		sshClient:   sshClient,
+		amuxConn:    amuxConn,
+		sessionName: remoteSession,
+		remoteUID:   remoteUID,
+	}, nil
 }
 
-// attachToSocket dials the remote amux socket, sends an MsgTypeAttach, and
-// stores the resulting connections. On failure it closes sshClient.
-// Shared by connect (normal) and connectTakeover (SSH takeover).
-func (hc *HostConn) attachToSocket(sshClient *ssh.Client, remoteSock, sessionName string) error {
+// doConnectTakeover performs the SSH dial and amux attach for a takeover.
+// Runs outside the actor in a spawned goroutine.
+func (hc *HostConn) doConnectTakeover(sessionName, remoteUID, sshAddr string) (*connectOutcome, error) {
+	sshCfg, err := hc.buildSSHConfig()
+	if err != nil {
+		return nil, fmt.Errorf("building SSH config: %w", err)
+	}
+
+	sshAddr = normalizeAddr(sshAddr)
+
+	sshClient, err := ssh.Dial("tcp", sshAddr, sshCfg)
+	if err != nil {
+		return nil, fmt.Errorf("SSH dial %s: %w", sshAddr, err)
+	}
+
+	remoteSock := socketPath(remoteUID, sessionName)
+	if err := waitForSocket(sshClient, remoteSock, 5*time.Second); err != nil {
+		sshClient.Close()
+		return nil, fmt.Errorf("waiting for remote socket %s: %w", remoteSock, err)
+	}
+
 	amuxConn, err := hc.dialRemoteSocket(sshClient, remoteSock)
 	if err != nil {
 		sshClient.Close()
-		return fmt.Errorf("dialing remote socket %s: %w", remoteSock, err)
+		return nil, fmt.Errorf("dialing remote socket %s: %w", remoteSock, err)
 	}
 
-	// Attach to the remote server and wait for the first layout, which
-	// guarantees the remote session has a window. Without the wait, a
-	// subsequent runCommand("spawn") can race with handleAttach on the
-	// remote server and fail with "no window".
 	if err := attachAndWait(amuxConn, sessionName, 10*time.Second); err != nil {
 		amuxConn.Close()
 		sshClient.Close()
-		return err
+		return nil, err
 	}
 
-	hc.mu.Lock()
-	hc.sshClient = sshClient
-	hc.amuxConn = amuxConn
-	hc.sessionName = sessionName
-	hc.mu.Unlock()
+	return &connectOutcome{
+		sshClient:   sshClient,
+		amuxConn:    amuxConn,
+		sessionName: sessionName,
+		remoteUID:   remoteUID,
+		takeover:    true,
+	}, nil
+}
 
+// Disconnect closes the SSH connection and marks state as disconnected.
+func (hc *HostConn) Disconnect() {
+	reply := make(chan struct{})
+	if !hc.enqueue(disconnectEvent{reply: reply}) {
+		return
+	}
+	<-reply
+}
+
+// Reconnect attempts to re-establish the connection.
+func (hc *HostConn) Reconnect(sessionName string) error {
+	reply := make(chan error, 1)
+	if !hc.enqueue(reconnectCmd{sessionName: sessionName, reply: reply}) {
+		return errHostConnClosed
+	}
+	select {
+	case err := <-reply:
+		return err
+	case <-hc.done:
+		return errHostConnClosed
+	}
+}
+
+// RegisterPane registers a local-to-remote pane ID mapping for a takeover proxy
+// pane. Must be called before EnsureConnectedForTakeover so that readLoop can
+// route MsgTypePaneOutput to the correct local pane immediately after connecting.
+func (hc *HostConn) RegisterPane(localPaneID, remotePaneID uint32) {
+	hc.enqueue(registerPaneEvent{localPaneID: localPaneID, remotePaneID: remotePaneID})
+}
+
+// RemovePane cleans up the pane ID mapping.
+func (hc *HostConn) RemovePane(localPaneID uint32) {
+	hc.enqueue(removePaneEvent{localPaneID: localPaneID})
+}
+
+// CreateRemotePane creates a new pane on the remote server via a one-shot
+// spawn command. Returns the remote pane ID.
+func (hc *HostConn) CreateRemotePane(localPaneID uint32) (uint32, error) {
+	output, err := hc.runCommand("spawn", []string{
+		"--name", fmt.Sprintf("remote-%d", localPaneID),
+	})
+	if err != nil {
+		return 0, err
+	}
+
+	remotePaneID, err := parseSpawnOutput(output)
+	if err != nil {
+		return 0, err
+	}
+
+	hc.RegisterPane(localPaneID, remotePaneID)
+	return remotePaneID, nil
+}
+
+// SendInput sends keyboard input to a specific remote pane.
+// The actor serializes writes to amuxConn, replacing the old writeMu.
+func (hc *HostConn) SendInput(localPaneID uint32, data []byte) error {
+	hc.enqueue(sendInputEvent{localPaneID: localPaneID, data: data})
 	return nil
 }
+
+// SendResize notifies the remote server about a pane resize via one-shot command.
+func (hc *HostConn) SendResize(localPaneID uint32, cols, rows int) error {
+	reply := make(chan bool, 1)
+	if !hc.enqueue(paneExistsQuery{localPaneID: localPaneID, reply: reply}) {
+		return nil
+	}
+	if !<-reply {
+		return nil
+	}
+
+	_, err := hc.runCommand("resize-window", []string{
+		fmt.Sprintf("%d", cols), fmt.Sprintf("%d", rows),
+	})
+	return err
+}
+
+// queryConnInfo retrieves connection info from the actor for one-shot commands.
+func (hc *HostConn) queryConnInfo() connInfoResult {
+	reply := make(chan connInfoResult, 1)
+	if !hc.enqueue(connInfoQuery{reply: reply}) {
+		return connInfoResult{}
+	}
+	return <-reply
+}
+
+// runCommand opens a one-shot connection to the remote amux server, sends a
+// command, reads the result, and closes the connection. This avoids racing
+// with the persistent readLoop on the attach connection.
+func (hc *HostConn) runCommand(cmdName string, cmdArgs []string) (string, error) {
+	info := hc.queryConnInfo()
+	if info.sshClient == nil {
+		return "", fmt.Errorf("not connected")
+	}
+
+	remoteSock := socketPath(info.remoteUID, info.sessionName)
+	conn, err := hc.dialRemoteSocket(info.sshClient, remoteSock)
+	if err != nil {
+		return "", fmt.Errorf("dialing remote socket: %w", err)
+	}
+	defer conn.Close()
+
+	if err := proto.WriteMsg(conn, &proto.Message{
+		Type:    proto.MsgTypeCommand,
+		CmdName: cmdName,
+		CmdArgs: cmdArgs,
+	}); err != nil {
+		return "", err
+	}
+
+	reply, err := proto.ReadMsg(conn)
+	if err != nil {
+		return "", err
+	}
+	if reply.CmdErr != "" {
+		return "", fmt.Errorf("%s", reply.CmdErr)
+	}
+	return reply.CmdOutput, nil
+}
+
+// readLoop reads messages from the persistent attach connection and dispatches
+// them through the actor. Runs in its own goroutine; exits when conn is closed
+// or returns an error.
+func (hc *HostConn) readLoop(conn net.Conn) {
+	for {
+		msg, err := proto.ReadMsg(conn)
+		if err != nil {
+			hc.enqueue(readDisconnectEvent{})
+			return
+		}
+
+		switch msg.Type {
+		case proto.MsgTypePaneOutput:
+			hc.enqueue(readPaneOutputEvent{
+				remotePaneID: msg.PaneID,
+				data:         msg.PaneData,
+			})
+
+		case proto.MsgTypeLayout:
+			// Layout is managed locally. We only care about pane output.
+
+		case proto.MsgTypeExit, proto.MsgTypeServerReload:
+			hc.enqueue(readDisconnectEvent{})
+			return
+		}
+	}
+}
+
+// closeConns closes any open amux/SSH connections.
+// Only called from the actor goroutine.
+func (hc *HostConn) closeConns() {
+	if hc.amuxConn != nil {
+		hc.amuxConn.Close()
+		hc.amuxConn = nil
+	}
+	if hc.sshClient != nil {
+		hc.sshClient.Close()
+		hc.sshClient = nil
+	}
+}
+
+// --- Pure/immutable helpers (safe from any goroutine) ---
 
 // attachAndWait sends MsgTypeAttach and blocks until the remote server
 // responds with a MsgTypeLayout, confirming the session window exists.
@@ -239,54 +440,22 @@ func waitForLayout(conn net.Conn, timeout time.Duration) error {
 	}
 }
 
-// runCommand opens a one-shot connection to the remote amux server, sends a
-// command, reads the result, and closes the connection. This avoids racing
-// with the persistent readLoop on the attach connection.
-func (hc *HostConn) runCommand(cmdName string, cmdArgs []string) (string, error) {
-	hc.mu.Lock()
-	sshClient := hc.sshClient
-	session := hc.sessionName
-	hc.mu.Unlock()
-
-	if sshClient == nil {
-		return "", fmt.Errorf("not connected")
+// parseSpawnOutput extracts the pane ID from "Spawned remote-N in pane M\n".
+func parseSpawnOutput(output string) (uint32, error) {
+	var id uint32
+	if idx := strings.LastIndex(output, "pane "); idx >= 0 {
+		fmt.Sscanf(output[idx:], "pane %d", &id)
 	}
-
-	remoteSock := hc.remoteSocketPath(session)
-	conn, err := hc.dialRemoteSocket(sshClient, remoteSock)
-	if err != nil {
-		return "", fmt.Errorf("dialing remote socket: %w", err)
+	if id == 0 {
+		return 0, fmt.Errorf("could not parse remote pane ID from: %s", output)
 	}
-	defer conn.Close()
-
-	if err := proto.WriteMsg(conn, &proto.Message{
-		Type:    proto.MsgTypeCommand,
-		CmdName: cmdName,
-		CmdArgs: cmdArgs,
-	}); err != nil {
-		return "", err
-	}
-
-	reply, err := proto.ReadMsg(conn)
-	if err != nil {
-		return "", err
-	}
-	if reply.CmdErr != "" {
-		return "", fmt.Errorf("%s", reply.CmdErr)
-	}
-	return reply.CmdOutput, nil
+	return id, nil
 }
 
 // buildSSHConfig builds the SSH client configuration using agent auth and key files.
-// When an identity_file is configured, it is tried first. This avoids issues
-// where the SSH agent holds keys that Go's crypto/ssh can't sign with
-// (e.g., macOS Keychain-backed keys), which would abort the handshake before
-// the explicit key file is ever tried.
 func (hc *HostConn) buildSSHConfig() (*ssh.ClientConfig, error) {
 	var authMethods []ssh.AuthMethod
 
-	// Load explicit identity file first (highest priority when configured),
-	// then default key paths as fallback.
 	keyPaths := []string{
 		os.ExpandEnv("$HOME/.ssh/id_ed25519"),
 		os.ExpandEnv("$HOME/.ssh/id_rsa"),
@@ -306,7 +475,6 @@ func (hc *HostConn) buildSSHConfig() (*ssh.ClientConfig, error) {
 		authMethods = append(authMethods, ssh.PublicKeys(signer))
 	}
 
-	// SSH agent as fallback — tried after explicit key files.
 	if sock := os.Getenv("SSH_AUTH_SOCK"); sock != "" {
 		conn, err := net.Dial("unix", sock)
 		if err == nil {
@@ -332,23 +500,18 @@ func (hc *HostConn) buildSSHConfig() (*ssh.ClientConfig, error) {
 }
 
 // ensureRemoteServer starts the remote amux server if it's not already running.
-func (hc *HostConn) ensureRemoteServer(client *ssh.Client, sessionName string) error {
+func ensureRemoteServer(client *ssh.Client, sockPath, sessionName string) {
 	sess, err := client.NewSession()
 	if err != nil {
-		return err
+		return
 	}
 	defer sess.Close()
-
-	sockPath := hc.remoteSocketPath(sessionName)
 	cmd := buildEnsureServerCmd(sockPath, sessionName)
-	// Ignore errors — the server may already be running
 	_ = sess.Run(cmd)
-	return nil
 }
 
 // buildEnsureServerCmd returns the shell command that starts amux _server if
-// the socket doesn't already exist. Checks AMUX_BIN env var first (set by
-// test harness), then ~/.local/bin/amux (where deploy installs), then PATH.
+// the socket doesn't already exist.
 func buildEnsureServerCmd(sockPath, sessionName string) string {
 	return fmt.Sprintf(
 		`if [ ! -S %s ]; then AMUX=${AMUX_BIN:-$(command -v ~/.local/bin/amux 2>/dev/null || command -v amux 2>/dev/null || echo amux)}; nohup "$AMUX" _server %s </dev/null >/dev/null 2>&1 & for i in 1 2 3 4 5 6 7 8 9 10; do [ -S %s ] && break; sleep 0.2; done; fi`,
@@ -356,218 +519,18 @@ func buildEnsureServerCmd(sockPath, sessionName string) string {
 	)
 }
 
-// readLoop reads messages from the persistent attach connection and dispatches them.
-func (hc *HostConn) readLoop() {
-	for {
-		hc.mu.Lock()
-		conn := hc.amuxConn
-		hc.mu.Unlock()
-
-		if conn == nil {
-			return
-		}
-
-		msg, err := proto.ReadMsg(conn)
-		if err != nil {
-			hc.handleDisconnect()
-			return
-		}
-
-		switch msg.Type {
-		case proto.MsgTypePaneOutput:
-			hc.mu.Lock()
-			localID, ok := hc.remoteToLocal[msg.PaneID]
-			hc.mu.Unlock()
-			if ok && hc.onPaneOutput != nil {
-				hc.onPaneOutput(localID, msg.PaneData)
-			}
-
-		case proto.MsgTypeLayout:
-			// Layout is managed locally. We only care about pane output.
-
-		case proto.MsgTypeExit, proto.MsgTypeServerReload:
-			// Connection ended or remote server is reloading — reconnect
-			hc.handleDisconnect()
-			return
-		}
-	}
+// socketPath returns the expected amux socket path on the remote host.
+func socketPath(remoteUID, sessionName string) string {
+	return fmt.Sprintf("/tmp/amux-%s/%s", remoteUID, sessionName)
 }
 
-// closeConnsLocked closes any open amux/SSH connections.
-// Caller must hold hc.mu.
-func (hc *HostConn) closeConnsLocked() {
-	if hc.amuxConn != nil {
-		hc.amuxConn.Close()
-		hc.amuxConn = nil
-	}
-	if hc.sshClient != nil {
-		hc.sshClient.Close()
-		hc.sshClient = nil
-	}
-}
-
-// handleDisconnect is called when the SSH/amux connection drops.
-// It sets state to Reconnecting (preventing duplicate reconnect loops),
-// closes stale connections, and starts the backoff loop.
-func (hc *HostConn) handleDisconnect() {
-	hc.mu.Lock()
-	if hc.state != Connected {
-		// Already disconnected or reconnecting — don't spawn another loop
-		hc.mu.Unlock()
-		return
-	}
-	hc.setState(Reconnecting)
-	hc.closeConnsLocked()
-	hc.mu.Unlock()
-
-	// Start reconnection in background
-	go hc.startReconnectLoop()
-}
-
-// CreateRemotePane creates a new pane on the remote server via a one-shot
-// spawn command. Returns the remote pane ID.
-func (hc *HostConn) CreateRemotePane(localPaneID uint32) (uint32, error) {
-	output, err := hc.runCommand("spawn", []string{
-		"--name", fmt.Sprintf("remote-%d", localPaneID),
-	})
+// remoteSessionName returns the session name to use on the remote server.
+func remoteSessionName(localSessionName string) string {
+	hostname, err := os.Hostname()
 	if err != nil {
-		return 0, err
+		hostname = "unknown"
 	}
-
-	remotePaneID, err := parseSpawnOutput(output)
-	if err != nil {
-		return 0, err
-	}
-
-	hc.mu.Lock()
-	hc.remoteToLocal[remotePaneID] = localPaneID
-	hc.localToRemote[localPaneID] = remotePaneID
-	hc.mu.Unlock()
-
-	return remotePaneID, nil
-}
-
-// parseSpawnOutput extracts the pane ID from "Spawned remote-N in pane M\n".
-func parseSpawnOutput(output string) (uint32, error) {
-	var id uint32
-	if idx := strings.LastIndex(output, "pane "); idx >= 0 {
-		fmt.Sscanf(output[idx:], "pane %d", &id)
-	}
-	if id == 0 {
-		return 0, fmt.Errorf("could not parse remote pane ID from: %s", output)
-	}
-	return id, nil
-}
-
-// SendInput sends keyboard input to a specific remote pane via the
-// persistent attach connection using MsgTypeInputPane.
-// Uses writeMu to serialize writes — proto.WriteMsg performs multiple
-// Write calls (header + body) which must not interleave.
-func (hc *HostConn) SendInput(localPaneID uint32, data []byte) error {
-	hc.mu.Lock()
-	conn := hc.amuxConn
-	remotePaneID, ok := hc.localToRemote[localPaneID]
-	hc.mu.Unlock()
-
-	if !ok || conn == nil {
-		return nil // silently drop input when disconnected
-	}
-
-	hc.writeMu.Lock()
-	defer hc.writeMu.Unlock()
-	return proto.WriteMsg(conn, &proto.Message{
-		Type:     proto.MsgTypeInputPane,
-		PaneID:   remotePaneID,
-		PaneData: data,
-	})
-}
-
-// SendResize notifies the remote server about a pane resize via one-shot command.
-func (hc *HostConn) SendResize(localPaneID uint32, cols, rows int) error {
-	hc.mu.Lock()
-	_, ok := hc.localToRemote[localPaneID]
-	hc.mu.Unlock()
-
-	if !ok {
-		return nil
-	}
-
-	_, err := hc.runCommand("resize-window", []string{
-		fmt.Sprintf("%d", cols), fmt.Sprintf("%d", rows),
-	})
-	return err
-}
-
-// RemovePane cleans up the pane ID mapping.
-func (hc *HostConn) RemovePane(localPaneID uint32) {
-	hc.mu.Lock()
-	defer hc.mu.Unlock()
-	if remoteID, ok := hc.localToRemote[localPaneID]; ok {
-		delete(hc.localToRemote, localPaneID)
-		delete(hc.remoteToLocal, remoteID)
-	}
-}
-
-// Disconnect closes the SSH connection and marks state as disconnected.
-func (hc *HostConn) Disconnect() {
-	hc.mu.Lock()
-	defer hc.mu.Unlock()
-	hc.closeConnsLocked()
-	hc.setState(Disconnected)
-}
-
-// Reconnect attempts to re-establish the connection.
-func (hc *HostConn) Reconnect(sessionName string) error {
-	hc.Disconnect()
-	return hc.EnsureConnected(sessionName)
-}
-
-// RegisterPane registers a local-to-remote pane ID mapping for a takeover proxy
-// pane. Must be called before EnsureConnectedForTakeover so that readLoop can
-// route MsgTypePaneOutput to the correct local pane immediately after connecting.
-func (hc *HostConn) RegisterPane(localPaneID, remotePaneID uint32) {
-	hc.mu.Lock()
-	defer hc.mu.Unlock()
-	hc.localToRemote[localPaneID] = remotePaneID
-	hc.remoteToLocal[remotePaneID] = localPaneID
-}
-
-// EnsureConnectedForTakeover establishes SSH+amux for a takeover pane.
-// Unlike EnsureConnected, it skips ensureRemoteServer and waits for the socket.
-func (hc *HostConn) EnsureConnectedForTakeover(sessionName, remoteUID, sshAddr string) error {
-	return hc.connectAndStart(func() error {
-		return hc.connectTakeover(sessionName, remoteUID, sshAddr)
-	})
-}
-
-// connectTakeover connects to a remote amux server that was started by tryTakeover.
-// Unlike connect(), it uses the explicit sshAddr and remoteUID, skips ensureRemoteServer,
-// and waits for the socket to appear instead of sleeping.
-func (hc *HostConn) connectTakeover(sessionName, remoteUID, sshAddr string) error {
-	sshCfg, err := hc.buildSSHConfig()
-	if err != nil {
-		return fmt.Errorf("building SSH config: %w", err)
-	}
-
-	sshAddr = normalizeAddr(sshAddr)
-
-	sshClient, err := ssh.Dial("tcp", sshAddr, sshCfg)
-	if err != nil {
-		return fmt.Errorf("SSH dial %s: %w", sshAddr, err)
-	}
-
-	hc.mu.Lock()
-	hc.remoteUID = remoteUID
-	hc.takeoverMode = true
-	hc.mu.Unlock()
-
-	remoteSock := hc.remoteSocketPath(sessionName)
-	if err := waitForSocket(sshClient, remoteSock, 5*time.Second); err != nil {
-		sshClient.Close()
-		return fmt.Errorf("waiting for remote socket %s: %w", remoteSock, err)
-	}
-
-	return hc.attachToSocket(sshClient, remoteSock, sessionName)
+	return localSessionName + "@" + hostname
 }
 
 // waitForSocket polls via SSH until sockPath exists on the remote host or timeout expires.
@@ -583,35 +546,13 @@ func waitForSocket(client *ssh.Client, sockPath string, timeout time.Duration) e
 	return fmt.Errorf("socket %s did not appear within %v", sockPath, timeout)
 }
 
-// remoteSessionName returns the session name to use on the remote server.
-// Includes the local hostname to prevent collisions from multiple local machines.
-func remoteSessionName(localSessionName string) string {
-	hostname, err := os.Hostname()
-	if err != nil {
-		hostname = "unknown"
-	}
-	return localSessionName + "@" + hostname
-}
-
-// remoteSocketPath returns the expected amux socket path on the remote host.
-// Uses the cached remote UID (queried during connect).
-func (hc *HostConn) remoteSocketPath(sessionName string) string {
-	return fmt.Sprintf("/tmp/amux-%s/%s", hc.remoteUID, sessionName)
-}
-
-// dialRemoteSocket connects to the remote amux Unix socket. It tries direct
-// Unix socket forwarding first (works with OpenSSH), then falls back to
-// launching socat on the remote to bridge a TCP port to the socket (needed
-// for Tailscale SSH which doesn't support direct-streamlocal@openssh.com).
+// dialRemoteSocket connects to the remote amux Unix socket.
 func (hc *HostConn) dialRemoteSocket(client *ssh.Client, sockPath string) (net.Conn, error) {
-	// Try direct Unix socket forwarding first
 	conn, err := client.Dial("unix", sockPath)
 	if err == nil {
 		return conn, nil
 	}
 
-	// Fallback: start socat on the remote to bridge TCP→Unix socket.
-	// Pick a high ephemeral port and have socat listen on localhost only.
 	port, socatErr := hc.startSocatBridge(client, sockPath)
 	if socatErr != nil {
 		return nil, fmt.Errorf("unix dial failed (%w) and socat fallback failed (%w)", err, socatErr)
@@ -625,10 +566,8 @@ func (hc *HostConn) dialRemoteSocket(client *ssh.Client, sockPath string) (net.C
 }
 
 // startSocatBridge launches socat on the remote to bridge a TCP port to the
-// Unix socket. Returns the port number. The socat process exits when the
-// TCP connection closes.
+// Unix socket.
 func (hc *HostConn) startSocatBridge(client *ssh.Client, sockPath string) (int, error) {
-	// Find a free port and start socat
 	out, err := sshOutput(client, fmt.Sprintf(
 		`port=$(python3 -c "import socket; s=socket.socket(); s.bind(('',0)); print(s.getsockname()[1]); s.close()" 2>/dev/null || shuf -i 49152-65535 -n 1); `+
 			`nohup socat TCP-LISTEN:$port,bind=127.0.0.1,fork,reuseaddr UNIX-CONNECT:%s </dev/null >/dev/null 2>&1 & `+
