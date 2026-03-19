@@ -81,6 +81,57 @@ prefix = "C-b"
 	}
 }
 
+func TestTmuxPresetUsesTmuxBindings(t *testing.T) {
+	t.Parallel()
+
+	h := newAmuxHarnessWithConfig(t, `
+[keys]
+preset = "tmux"
+`)
+
+	gen := h.generation()
+	h.sendKeys("C-b", "%")
+	h.waitLayout(gen)
+
+	lines := h.captureAmuxContentLines()
+	found := false
+	for _, line := range lines {
+		if strings.Contains(line, "[pane-1]") && strings.Contains(line, "[pane-2]") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("Ctrl-b %% should split with tmux preset\n%s", strings.Join(lines, "\n"))
+	}
+
+	h.sendKeys("C-b", "q")
+	if !h.waitFor("[2]", 3*time.Second) {
+		t.Fatalf("Ctrl-b q should show pane labels with tmux preset, got:\n%s", h.captureOuter())
+	}
+}
+
+func TestTmuxPresetReservesMarkPaneKey(t *testing.T) {
+	t.Parallel()
+
+	h := newAmuxHarnessWithConfig(t, `
+[keys]
+preset = "tmux"
+`)
+
+	h.sendKeys("C-b", "m")
+	h.sendKeys("e", "c", "h", "o", " ", "TMUX_M_OK", "Enter")
+
+	if !h.waitFor("TMUX_M_OK", 3*time.Second) {
+		t.Fatalf("expected TMUX_M_OK after tmux preset m test\nScreen:\n%s", h.captureOuter())
+	}
+
+	screen := h.captureOuter()
+	if strings.Contains(screen, "mecho TMUX_M_OK") {
+		t.Fatalf("Ctrl-b m should not leak literal input with tmux preset\nScreen:\n%s", screen)
+	}
+}
+
 func TestCustomPrefixOldPrefixPassthrough(t *testing.T) {
 	t.Parallel()
 
@@ -229,6 +280,26 @@ w = "display-panes"
 	h.sendKeys("C-a", "w")
 	if !h.waitFor("[2]", 3*time.Second) {
 		t.Fatalf("expected custom Ctrl-a w binding to show pane overlay, got:\n%s", h.captureOuter())
+	}
+}
+
+func TestCustomChooseWindowBinding(t *testing.T) {
+	t.Parallel()
+
+	h := newAmuxHarnessWithConfig(t, `
+[keys]
+unbind = ["w"]
+
+[keys.bind]
+W = "choose-window"
+`)
+
+	h.runCmd("new-window", "--name", "logs")
+	h.runCmd("select-window", "1")
+
+	h.sendKeys("C-a", "W")
+	if !h.waitFor("choose-window", 3*time.Second) {
+		t.Fatalf("expected custom Ctrl-a W binding to show chooser, got:\n%s", h.captureOuter())
 	}
 }
 

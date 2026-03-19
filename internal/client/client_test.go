@@ -52,6 +52,15 @@ func buildTestRenderer(t *testing.T) *ClientRenderer {
 	return cr
 }
 
+func twoPane80x23Zoomed(paneID uint32) *proto.LayoutSnapshot {
+	snap := twoPane80x23()
+	snap.ZoomedPaneID = paneID
+	if len(snap.Windows) > 0 {
+		snap.Windows[0].ZoomedPaneID = paneID
+	}
+	return snap
+}
+
 func buildManyPaneRenderer(t *testing.T, n int) *ClientRenderer {
 	t.Helper()
 	cr := NewClientRenderer(200, 24)
@@ -84,6 +93,68 @@ func buildManyPaneRenderer(t *testing.T, n int) *ClientRenderer {
 		Panes: panes,
 	})
 	return cr
+}
+
+func multiWindow80x23() *proto.LayoutSnapshot {
+	window1Root := proto.CellSnapshot{
+		X: 0, Y: 0, W: 80, H: 23,
+		Dir: int(mux.SplitVertical),
+		Children: []proto.CellSnapshot{
+			{X: 0, Y: 0, W: 39, H: 23, IsLeaf: true, Dir: -1, PaneID: 1},
+			{X: 40, Y: 0, W: 39, H: 23, IsLeaf: true, Dir: -1, PaneID: 2},
+		},
+	}
+	window2Root := proto.CellSnapshot{
+		X: 0, Y: 0, W: 80, H: 23,
+		IsLeaf: true, Dir: -1, PaneID: 3,
+	}
+	return &proto.LayoutSnapshot{
+		SessionName:  "test",
+		ActivePaneID: 1,
+		Width:        80,
+		Height:       23,
+		Root:         window1Root,
+		Windows: []proto.WindowSnapshot{
+			{
+				ID: 1, Name: "editor", Index: 1, ActivePaneID: 1,
+				Root: window1Root,
+				Panes: []proto.PaneSnapshot{
+					{ID: 1, Name: "pane-1", Host: "local", Task: "server", Color: "f5e0dc"},
+					{ID: 2, Name: "pane-2", Host: "gpu-box", Task: "train", Color: "f2cdcd"},
+				},
+			},
+			{
+				ID: 2, Name: "logs", Index: 2, ActivePaneID: 3,
+				Root: window2Root,
+				Panes: []proto.PaneSnapshot{
+					{ID: 3, Name: "pane-3", Host: "local", Task: "tail", Color: "cba6f7"},
+				},
+			},
+		},
+		ActiveWindowID: 1,
+	}
+}
+
+func buildMultiWindowRenderer(t *testing.T) *ClientRenderer {
+	t.Helper()
+	cr := NewClientRenderer(80, 24)
+	cr.HandleLayout(multiWindow80x23())
+	return cr
+}
+
+func multiWindow80x23Zoomed(windowID, paneID uint32) *proto.LayoutSnapshot {
+	snap := multiWindow80x23()
+	for i := range snap.Windows {
+		if snap.Windows[i].ID == windowID {
+			snap.Windows[i].ZoomedPaneID = paneID
+			if snap.ActiveWindowID == windowID {
+				snap.ZoomedPaneID = paneID
+				snap.ActivePaneID = paneID
+				snap.Root = snap.Windows[i].Root
+			}
+		}
+	}
+	return snap
 }
 
 func TestClientRendererCapture(t *testing.T) {
@@ -202,6 +273,147 @@ func TestClientRendererCapturePaneJSON(t *testing.T) {
 	empty := cr.CapturePaneJSON(999, nil)
 	if empty != "{}" {
 		t.Errorf("nonexistent pane should return {}, got %q", empty)
+	}
+}
+
+func TestClientRendererZoomedPaneSurvivesMetadataOnlyLayout(t *testing.T) {
+	t.Parallel()
+
+	cr := NewClientRenderer(80, 24)
+	cr.HandleLayout(twoPane80x23Zoomed(2))
+
+	const wideLine = "012345678901234567890123456789012345678901234567890123456789"
+	cr.HandlePaneOutput(2, []byte("\033[2J\033[H"+wideLine))
+
+	emu, ok := cr.Emulator(2)
+	if !ok {
+		t.Fatal("pane-2 emulator missing")
+	}
+	if w, h := emu.Size(); w != 80 || h != 22 {
+		t.Fatalf("zoomed pane-2 size after initial layout = %dx%d, want 80x22", w, h)
+	}
+
+	idleSnap := twoPane80x23Zoomed(2)
+	idleSnap.Panes[1].Idle = true
+	idleSnap.Windows[0].Panes[1].Idle = true
+	cr.HandleLayout(idleSnap)
+
+	emu, ok = cr.Emulator(2)
+	if !ok {
+		t.Fatal("pane-2 emulator missing after idle layout")
+	}
+	if w, h := emu.Size(); w != 80 || h != 22 {
+		t.Fatalf("zoomed pane-2 size after idle layout = %dx%d, want 80x22", w, h)
+	}
+
+	lines := strings.Split(cr.CapturePaneText(2, false), "\n")
+	if len(lines) == 0 || lines[0] != wideLine {
+		t.Fatalf("pane-2 first line after idle layout = %q, want %q", lines[0], wideLine)
+	}
+}
+
+func TestClientRendererZoomedCopyModeSurvivesMetadataOnlyLayout(t *testing.T) {
+	t.Parallel()
+
+	cr := NewClientRenderer(80, 24)
+	cr.HandleLayout(twoPane80x23Zoomed(2))
+	cr.HandlePaneOutput(2, []byte("\033[2J\033[Hzoomed copy mode line"))
+	cr.EnterCopyMode(2)
+
+	cm := cr.CopyModeForPane(2)
+	if cm == nil {
+		t.Fatal("pane-2 copy mode missing")
+	}
+	if got, want := cm.ViewportHeight(), 22; got != want {
+		t.Fatalf("zoomed pane-2 copy mode height after initial layout = %d, want %d", got, want)
+	}
+
+	idleSnap := twoPane80x23Zoomed(2)
+	idleSnap.Panes[1].Idle = true
+	idleSnap.Windows[0].Panes[1].Idle = true
+	cr.HandleLayout(idleSnap)
+
+	cm = cr.CopyModeForPane(2)
+	if cm == nil {
+		t.Fatal("pane-2 copy mode missing after idle layout")
+	}
+	if got, want := cm.ViewportHeight(), 22; got != want {
+		t.Fatalf("zoomed pane-2 copy mode height after idle layout = %d, want %d", got, want)
+	}
+
+	if got, want := cr.CapturePaneText(2, false), "zoomed copy mode line"; !strings.Contains(got, want) {
+		t.Fatalf("pane-2 text after idle layout = %q, want substring %q", got, want)
+	}
+}
+
+func TestClientRendererZoomedPaneSurvivesMetadataOnlyLayoutMultiWindow(t *testing.T) {
+	t.Parallel()
+
+	cr := NewClientRenderer(80, 24)
+	cr.HandleLayout(multiWindow80x23Zoomed(1, 2))
+
+	const wideLine = "multi-window zoomed pane line that should remain wide after idle"
+	cr.HandlePaneOutput(2, []byte("\033[2J\033[H"+wideLine))
+
+	emu, ok := cr.Emulator(2)
+	if !ok {
+		t.Fatal("pane-2 emulator missing")
+	}
+	if w, h := emu.Size(); w != 80 || h != 22 {
+		t.Fatalf("zoomed pane-2 size after initial multi-window layout = %dx%d, want 80x22", w, h)
+	}
+
+	idleSnap := multiWindow80x23Zoomed(1, 2)
+	idleSnap.Windows[0].Panes[1].Idle = true
+	cr.HandleLayout(idleSnap)
+
+	emu, ok = cr.Emulator(2)
+	if !ok {
+		t.Fatal("pane-2 emulator missing after multi-window idle layout")
+	}
+	if w, h := emu.Size(); w != 80 || h != 22 {
+		t.Fatalf("zoomed pane-2 size after multi-window idle layout = %dx%d, want 80x22", w, h)
+	}
+
+	lines := strings.Split(cr.CapturePaneText(2, false), "\n")
+	if len(lines) == 0 || lines[0] != wideLine {
+		t.Fatalf("pane-2 first line after multi-window idle layout = %q, want %q", lines[0], wideLine)
+	}
+}
+
+func TestRescaleZoomedPaneForSmallerClient(t *testing.T) {
+	t.Parallel()
+
+	cr := NewClientRenderer(40, 12)
+	cr.HandleLayout(twoPane80x23Zoomed(2))
+
+	emu, ok := cr.Emulator(2)
+	if !ok {
+		t.Fatal("pane-2 emulator missing")
+	}
+	if w, h := emu.Size(); w != 40 || h != 10 {
+		t.Fatalf("zoomed pane-2 emulator size on smaller client = %dx%d, want 40x10", w, h)
+	}
+
+	const wideLine = "1234567890123456789012345678901234567890"
+	cr.HandlePaneOutput(2, []byte("\033[2J\033[H"+wideLine))
+
+	var capture proto.CaptureJSON
+	if err := json.Unmarshal([]byte(cr.CaptureJSON(nil)), &capture); err != nil {
+		t.Fatalf("JSON parse: %v", err)
+	}
+	if len(capture.Panes) != 1 {
+		t.Fatalf("zoomed smaller-client capture panes = %d, want 1", len(capture.Panes))
+	}
+	pos := capture.Panes[0].Position
+	if pos == nil {
+		t.Fatal("zoomed pane position missing")
+	}
+	if pos.Width != 40 || pos.Height != 11 {
+		t.Fatalf("zoomed pane position = %dx%d, want 40x11", pos.Width, pos.Height)
+	}
+	if got := capture.Panes[0].Content[0]; got != wideLine {
+		t.Fatalf("zoomed pane first line on smaller client = %q, want %q", got, wideLine)
 	}
 }
 
@@ -358,6 +570,94 @@ func TestDisplayPanesUIEvents(t *testing.T) {
 	}
 
 	want := []string{proto.UIEventDisplayPanesShown, proto.UIEventDisplayPanesHidden}
+	if len(events) != len(want) {
+		t.Fatalf("events = %v, want %v", events, want)
+	}
+	for i := range want {
+		if events[i] != want[i] {
+			t.Fatalf("events[%d] = %q, want %q", i, events[i], want[i])
+		}
+	}
+}
+
+func TestChooseWindowOverlayDisplayOnly(t *testing.T) {
+	t.Parallel()
+
+	cr := buildMultiWindowRenderer(t)
+	if !cr.ShowChooser(chooserModeWindow) {
+		t.Fatal("ShowChooser window should succeed")
+	}
+	cr.RenderDiff()
+
+	display := cr.CaptureDisplay()
+	if !strings.Contains(display, "choose-window") || !strings.Contains(display, "1:editor") {
+		t.Fatalf("display capture should include chooser overlay, got:\n%s", display)
+	}
+
+	plain := cr.Capture(true)
+	if strings.Contains(plain, "choose-window") {
+		t.Fatalf("plain capture should not include chooser overlay, got:\n%s", plain)
+	}
+}
+
+func TestChooseTreeFilterAndSelection(t *testing.T) {
+	t.Parallel()
+
+	cr := buildMultiWindowRenderer(t)
+	if !cr.ShowChooser(chooserModeTree) {
+		t.Fatal("ShowChooser tree should succeed")
+	}
+	cr.HandleChooserInput([]byte("gpu"))
+
+	overlay := cr.chooserOverlay()
+	if overlay == nil {
+		t.Fatal("chooser overlay should be active")
+	}
+	if len(overlay.Rows) < 2 {
+		t.Fatalf("filtered rows = %+v, want grouped window + pane rows", overlay.Rows)
+	}
+	if overlay.Rows[1].Text != "  * pane-2 @gpu-box train" && overlay.Rows[1].Text != "    pane-2 @gpu-box train" {
+		t.Fatalf("unexpected filtered pane row: %+v", overlay.Rows[1])
+	}
+
+	cmd := cr.selectChooser()
+	if cmd.command != "select-window" || len(cmd.args) != 1 || cmd.args[0] != "1" {
+		t.Fatalf("default filtered selection should land on parent window, got %+v", cmd)
+	}
+}
+
+func TestChooseTreeNavigationSelectsPane(t *testing.T) {
+	t.Parallel()
+
+	cr := buildMultiWindowRenderer(t)
+	if !cr.ShowChooser(chooserModeTree) {
+		t.Fatal("ShowChooser tree should succeed")
+	}
+	cr.HandleChooserInput([]byte("pane-3"))
+	cr.HandleChooserInput([]byte("j"))
+	cmd := cr.selectChooser()
+	if cmd.command != "focus" || len(cmd.args) != 1 || cmd.args[0] != "pane-3" {
+		t.Fatalf("pane selection = %+v, want focus pane-3", cmd)
+	}
+}
+
+func TestChooserUIEvents(t *testing.T) {
+	t.Parallel()
+
+	cr := buildMultiWindowRenderer(t)
+	var events []string
+	cr.OnUIEvent = func(name string) {
+		events = append(events, name)
+	}
+
+	if !cr.ShowChooser(chooserModeWindow) {
+		t.Fatal("ShowChooser window should succeed")
+	}
+	if !cr.HideChooser() {
+		t.Fatal("HideChooser should report a state change")
+	}
+
+	want := []string{proto.UIEventChooseWindowShown, proto.UIEventChooseWindowHidden}
 	if len(events) != len(want) {
 		t.Fatalf("events = %v, want %v", events, want)
 	}

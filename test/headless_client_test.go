@@ -3,7 +3,9 @@ package test
 import (
 	"fmt"
 	"net"
+	"strings"
 	"sync"
+	"testing"
 	"time"
 
 	"github.com/weill-labs/amux/internal/client"
@@ -21,10 +23,15 @@ type headlessClient struct {
 	readyOnce sync.Once
 }
 
+func dialHeadlessSocket(sockPath string, timeout time.Duration) (net.Conn, error) {
+	_ = timeout // timeout is exercised by the layout wait below in newHeadlessClient
+	return net.Dial("unix", sockPath)
+}
+
 // newHeadlessClient attaches to the server and starts a background message
 // loop. The connection stays alive until close() is called.
 func newHeadlessClient(sockPath, session string, cols, rows int) (*headlessClient, error) {
-	conn, err := net.Dial("unix", sockPath)
+	conn, err := dialHeadlessSocket(sockPath, 3*time.Second)
 	if err != nil {
 		return nil, err
 	}
@@ -106,5 +113,22 @@ func (hc *headlessClient) readLoop() {
 		case server.MsgTypeExit:
 			return
 		}
+	}
+}
+
+func TestParallelServerStartupKeepsAllSocketsAlive(t *testing.T) {
+	const servers = 16
+
+	for i := 0; i < servers; i++ {
+		i := i
+		t.Run(fmt.Sprintf("server-%02d", i), func(t *testing.T) {
+			t.Parallel()
+
+			h := newServerHarness(t)
+			screen := h.capture()
+			if !strings.Contains(screen, "[pane-1]") {
+				t.Fatalf("expected initial pane in capture\nScreen:\n%s", screen)
+			}
+		})
 	}
 }

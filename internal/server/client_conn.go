@@ -16,6 +16,7 @@ type ClientConn struct {
 	conn              net.Conn
 	ID                string
 	displayPanesShown bool
+	chooserMode       string
 	mu                sync.Mutex
 	closed            bool
 	cols              int // last reported terminal width

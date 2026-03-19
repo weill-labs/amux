@@ -437,7 +437,7 @@ func PaneContentHeight(cellH int) int {
 // For horizontal borders (horizontal split), delta is applied vertically.
 // Returns true if a resize was performed.
 func (w *Window) ResizeBorder(x, y, delta int) bool {
-	hit := w.Root.FindBorderAt(x, y)
+	hit := w.Root.FindBorderNear(x, y)
 	if hit == nil || delta == 0 {
 		return false
 	}

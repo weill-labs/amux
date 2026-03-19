@@ -101,11 +101,45 @@ func TestDefaultKeybindings(t *testing.T) {
 	if b, ok := kb.Bindings['q']; !ok || b.Action != "display-panes" {
 		t.Error("default: q should be bound to display-panes")
 	}
+	if b, ok := kb.Bindings['s']; !ok || b.Action != "choose-tree" {
+		t.Error("default: s should be bound to choose-tree")
+	}
+	if b, ok := kb.Bindings['w']; !ok || b.Action != "choose-window" {
+		t.Error("default: w should be bound to choose-window")
+	}
 	if b, ok := kb.Bindings['M']; !ok || b.Action != "toggle-minimize" {
 		t.Error("default: M should be bound to toggle-minimize")
 	}
 	if b, ok := kb.Bindings['m']; !ok || b.Action != "compat-bell" {
 		t.Error("default: m should be reserved with compat-bell")
+	}
+}
+
+func TestTmuxCompatKeybindings(t *testing.T) {
+	kb := TmuxCompatKeybindings()
+	if kb.Prefix != 0x02 {
+		t.Errorf("tmux preset prefix = %d, want 0x02 (Ctrl-b)", kb.Prefix)
+	}
+	if b, ok := kb.Bindings['"']; !ok || b.Action != "split" {
+		t.Error(`tmux preset: " should be bound to split`)
+	}
+	if b, ok := kb.Bindings['%']; !ok || b.Action != "split" || len(b.Args) != 1 || b.Args[0] != "v" {
+		t.Error(`tmux preset: % should be bound to split v`)
+	}
+	if b, ok := kb.Bindings['q']; !ok || b.Action != "display-panes" {
+		t.Error("tmux preset: q should be bound to display-panes")
+	}
+	if b, ok := kb.Bindings['m']; !ok || b.Action != "compat-bell" {
+		t.Error("tmux preset: m should be reserved with compat-bell")
+	}
+	if b, ok := kb.Bindings['s']; !ok || b.Action != "choose-tree" {
+		t.Error("tmux preset: s should be bound to choose-tree")
+	}
+	if b, ok := kb.Bindings['w']; !ok || b.Action != "choose-window" {
+		t.Error("tmux preset: w should be bound to choose-window")
+	}
+	if b, ok := kb.Bindings[0x0f]; !ok || b.Action != "rotate" {
+		t.Error("tmux preset: Ctrl-o should be bound to rotate")
 	}
 }
 
@@ -133,6 +167,37 @@ func TestBuildKeybindingsCustomPrefix(t *testing.T) {
 	}
 	if _, ok := kb.Bindings['\\']; !ok {
 		t.Error("default bindings should be preserved with custom prefix")
+	}
+}
+
+func TestBuildKeybindingsTmuxPreset(t *testing.T) {
+	kc := &KeyConfig{Preset: "tmux"}
+	kb, err := BuildKeybindings(kc)
+	if err != nil {
+		t.Fatalf("BuildKeybindings: %v", err)
+	}
+	if kb.Prefix != 0x02 {
+		t.Errorf("tmux preset prefix = %d, want 0x02", kb.Prefix)
+	}
+	if _, ok := kb.Bindings['"']; !ok {
+		t.Error(`tmux preset should bind "`)
+	}
+	if _, ok := kb.Bindings['\\']; ok {
+		t.Error(`tmux preset should not inherit amux default \ binding`)
+	}
+}
+
+func TestBuildKeybindingsTmuxPresetPrefixOverride(t *testing.T) {
+	kc := &KeyConfig{Preset: "tmux", Prefix: "C-a"}
+	kb, err := BuildKeybindings(kc)
+	if err != nil {
+		t.Fatalf("BuildKeybindings: %v", err)
+	}
+	if kb.Prefix != 0x01 {
+		t.Errorf("override prefix = %d, want 0x01", kb.Prefix)
+	}
+	if _, ok := kb.Bindings['"']; !ok {
+		t.Error(`tmux preset bindings should remain after prefix override`)
 	}
 }
 
@@ -201,6 +266,14 @@ func TestBuildKeybindingsInvalidPrefix(t *testing.T) {
 	_, err := BuildKeybindings(kc)
 	if err == nil {
 		t.Error("expected error for invalid prefix C-1")
+	}
+}
+
+func TestBuildKeybindingsUnknownPreset(t *testing.T) {
+	kc := &KeyConfig{Preset: "vim"}
+	_, err := BuildKeybindings(kc)
+	if err == nil {
+		t.Error("expected error for unknown preset")
 	}
 }
 

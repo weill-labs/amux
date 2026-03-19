@@ -7,7 +7,9 @@ import (
 	"sync/atomic"
 
 	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/vt"
+	"github.com/weill-labs/amux/internal/mouse"
 )
 
 // TerminalEmulator abstracts a virtual terminal emulator for pane rendering.
@@ -62,6 +64,37 @@ type TerminalEmulator interface {
 
 	// CellAt returns the raw cell at (col, row). Returns nil for out-of-bounds.
 	CellAt(col, row int) *uv.Cell
+
+	// IsAltScreen reports whether the pane is currently in alternate-screen mode.
+	IsAltScreen() bool
+
+	// MouseProtocol reports the pane's current application mouse-tracking mode.
+	MouseProtocol() MouseProtocol
+
+	// EncodeMouse returns the pane-local mouse escape sequence for the event.
+	// Returns nil when the pane is not accepting this mouse event.
+	EncodeMouse(ev mouse.Event, x, y int) []byte
+}
+
+// MouseTrackingMode is the pane's current application mouse-tracking mode.
+type MouseTrackingMode int
+
+const (
+	MouseTrackingNone MouseTrackingMode = iota
+	MouseTrackingStandard
+	MouseTrackingButton
+	MouseTrackingAny
+)
+
+// MouseProtocol describes how a pane wants mouse events encoded.
+type MouseProtocol struct {
+	Tracking MouseTrackingMode
+	SGR      bool
+}
+
+// Enabled reports whether the pane currently accepts mouse events.
+func (p MouseProtocol) Enabled() bool {
+	return p.Tracking != MouseTrackingNone
 }
 
 // vtEmulator wraps charmbracelet/x/vt.SafeEmulator.
@@ -71,7 +104,16 @@ type vtEmulator struct {
 	h            int
 	mu           sync.Mutex
 	cursorHidden atomic.Bool
+	altScreen    bool
+	mouseModes   uint8
+	mouseSGR     bool
 }
+
+const (
+	mouseModeStandard uint8 = 1 << iota
+	mouseModeButton
+	mouseModeAny
+)
 
 // NewVTEmulator creates a new terminal emulator with the given dimensions.
 func NewVTEmulator(width, height int) TerminalEmulator {
@@ -83,11 +125,50 @@ func NewVTEmulator(width, height int) TerminalEmulator {
 	// Track cursor visibility changes so CursorHidden() reflects the
 	// application's actual cursor state (e.g. \033[?25l / \033[?25h).
 	v.emu.SetCallbacks(vt.Callbacks{
+		AltScreen: func(on bool) {
+			v.mu.Lock()
+			v.altScreen = on
+			v.mu.Unlock()
+		},
 		CursorVisibility: func(visible bool) {
 			v.cursorHidden.Store(!visible)
 		},
+		EnableMode: func(mode ansi.Mode) {
+			v.setMouseMode(mode, true)
+		},
+		DisableMode: func(mode ansi.Mode) {
+			v.setMouseMode(mode, false)
+		},
 	})
 	return v
+}
+
+func (v *vtEmulator) setMouseMode(mode ansi.Mode, enabled bool) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+
+	switch mode {
+	case ansi.ModeMouseNormal:
+		if enabled {
+			v.mouseModes |= mouseModeStandard
+		} else {
+			v.mouseModes &^= mouseModeStandard
+		}
+	case ansi.ModeMouseButtonEvent:
+		if enabled {
+			v.mouseModes |= mouseModeButton
+		} else {
+			v.mouseModes &^= mouseModeButton
+		}
+	case ansi.ModeMouseAnyEvent:
+		if enabled {
+			v.mouseModes |= mouseModeAny
+		} else {
+			v.mouseModes &^= mouseModeAny
+		}
+	case ansi.ModeMouseExtSgr:
+		v.mouseSGR = enabled
+	}
 }
 
 func (v *vtEmulator) Write(data []byte) (int, error) {
@@ -179,6 +260,88 @@ func (v *vtEmulator) ScreenLineText(y int) string {
 
 func (v *vtEmulator) CellAt(col, row int) *uv.Cell {
 	return v.emu.CellAt(col, row)
+}
+
+func (v *vtEmulator) IsAltScreen() bool {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	return v.altScreen
+}
+
+func (v *vtEmulator) MouseProtocol() MouseProtocol {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+
+	proto := MouseProtocol{SGR: v.mouseSGR}
+	switch {
+	case v.mouseModes&mouseModeAny != 0:
+		proto.Tracking = MouseTrackingAny
+	case v.mouseModes&mouseModeButton != 0:
+		proto.Tracking = MouseTrackingButton
+	case v.mouseModes&mouseModeStandard != 0:
+		proto.Tracking = MouseTrackingStandard
+	default:
+		proto.Tracking = MouseTrackingNone
+	}
+	return proto
+}
+
+func (v *vtEmulator) EncodeMouse(ev mouse.Event, x, y int) []byte {
+	proto := v.MouseProtocol()
+	if !proto.Enabled() {
+		return nil
+	}
+	if x < 0 || y < 0 {
+		return nil
+	}
+
+	switch ev.Action {
+	case mouse.Motion:
+		if proto.Tracking != MouseTrackingButton && proto.Tracking != MouseTrackingAny {
+			return nil
+		}
+	case mouse.Release:
+		if proto.Tracking == MouseTrackingNone {
+			return nil
+		}
+	}
+
+	btn, ok := encodeMouseButton(ev.Button)
+	if !ok {
+		return nil
+	}
+	code := ansi.EncodeMouseButton(btn, ev.Action == mouse.Motion, ev.Shift, ev.Alt, ev.Ctrl)
+	if code == 0xff {
+		return nil
+	}
+
+	if proto.SGR {
+		return []byte(ansi.MouseSgr(code, x, y, ev.Action == mouse.Release))
+	}
+	return []byte(ansi.MouseX10(code, x, y))
+}
+
+func encodeMouseButton(btn mouse.Button) (ansi.MouseButton, bool) {
+	switch btn {
+	case mouse.ButtonLeft:
+		return ansi.MouseLeft, true
+	case mouse.ButtonMiddle:
+		return ansi.MouseMiddle, true
+	case mouse.ButtonRight:
+		return ansi.MouseRight, true
+	case mouse.ButtonNone:
+		return ansi.MouseNone, true
+	case mouse.ScrollUp:
+		return ansi.MouseWheelUp, true
+	case mouse.ScrollDown:
+		return ansi.MouseWheelDown, true
+	case mouse.ScrollLeft:
+		return ansi.MouseWheelLeft, true
+	case mouse.ScrollRight:
+		return ansi.MouseWheelRight, true
+	default:
+		return 0, false
+	}
 }
 
 func (v *vtEmulator) ScreenContains(substr string) bool {

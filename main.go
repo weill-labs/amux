@@ -292,7 +292,7 @@ Usage:
   amux [-s session] new [name]         Start a new named session
   amux [-s session] list               List panes with metadata
   amux [-s session] status             Show pane/window summary
-  amux [-s session] list-clients       List attached clients + display-panes state
+  amux [-s session] list-clients       List attached clients + client-local UI state
   amux [-s session] capture            Capture full composited screen
   amux [-s session] capture <pane>     Capture a single pane's output
   amux [-s session] capture --ansi     Capture with ANSI escape codes
@@ -327,7 +327,7 @@ Usage:
                                        Remove hook(s) for an event
   amux [-s session] list-hooks         List registered hooks
   amux [-s session] events [--filter type1,type2] [--pane <ref>] [--host <name>] [--client <id>]
-                                       Stream events as NDJSON (layout, idle, busy, display-panes-*)
+                                       Stream events as NDJSON (layout, idle, busy, display-panes-*, choose-*)
   amux [-s session] split --host HOST  Split with a remote pane on HOST
   amux [-s session] hosts              List configured remote hosts + status
   amux [-s session] disconnect <host>  Drop SSH connection to a host
@@ -369,6 +369,8 @@ Inside an amux session (defaults, configurable via config.toml):
   Ctrl-a c                           Create new window
   Ctrl-a n                           Next window
   Ctrl-a p                           Previous window
+  Ctrl-a s                           Open window/pane chooser
+  Ctrl-a w                           Open window chooser
   Ctrl-a q                           Show pane labels for quick jump
   Ctrl-a 1-9                         Select window by number
   Ctrl-a r                           Hot reload (re-exec binary)
@@ -438,20 +440,6 @@ func runServer(sessionName string) {
 	// Set up remote pane manager for all sessions
 	s.SetupRemoteManager(cfg, server.BuildVersion)
 
-	// Signal readiness on the fd specified by AMUX_READY_FD (used by
-	// test harness for deterministic startup without polling).
-	// Unset immediately so child processes (pane shells, inner amux)
-	// don't inherit it and accidentally close an unrelated fd.
-	if fdStr := os.Getenv("AMUX_READY_FD"); fdStr != "" {
-		os.Unsetenv("AMUX_READY_FD")
-		if fd, err := strconv.Atoi(fdStr); err == nil {
-			if ready := os.NewFile(uintptr(fd), "ready-signal"); ready != nil {
-				ready.Write([]byte("ready\n"))
-				ready.Close()
-			}
-		}
-	}
-
 	// Handle shutdown signals. The goroutine calls Shutdown() which closes
 	// the listener, unblocking Run() below.
 	sigCh := make(chan os.Signal, 1)
@@ -488,7 +476,28 @@ func runServer(sessionName string) {
 		}()
 	}
 
-	if err := s.Run(); err != nil {
+	runErr := make(chan error, 1)
+	go func() {
+		runErr <- s.Run()
+	}()
+
+	// Signal readiness on the fd specified by AMUX_READY_FD (used by
+	// test harness for deterministic startup without polling).
+	// The accept loop is already running here, so a ready signal now means
+	// clients can attach immediately instead of racing server startup.
+	// Unset immediately so child processes (pane shells, inner amux)
+	// don't inherit it and accidentally close an unrelated fd.
+	if fdStr := os.Getenv("AMUX_READY_FD"); fdStr != "" {
+		os.Unsetenv("AMUX_READY_FD")
+		if fd, err := strconv.Atoi(fdStr); err == nil {
+			if ready := os.NewFile(uintptr(fd), "ready-signal"); ready != nil {
+				ready.Write([]byte("ready\n"))
+				ready.Close()
+			}
+		}
+	}
+
+	if err := <-runErr; err != nil {
 		// listener closed is expected on shutdown
 		if !strings.Contains(err.Error(), "use of closed") {
 			fmt.Fprintf(os.Stderr, "amux server: %v\n", err)

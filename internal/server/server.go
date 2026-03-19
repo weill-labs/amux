@@ -305,8 +305,6 @@ func NewServer(sessionName string) (*Server, error) {
 		return nil, fmt.Errorf("creating socket dir: %w", err)
 	}
 
-	CleanStaleSockets()
-
 	sockPath := SocketPath(sessionName)
 
 	if _, err := os.Stat(sockPath); err == nil {
@@ -346,8 +344,6 @@ func NewServerFromCrashCheckpoint(sessionName string, cp *checkpoint.CrashCheckp
 	if err := os.MkdirAll(sockDir, 0700); err != nil {
 		return nil, fmt.Errorf("creating socket dir: %w", err)
 	}
-
-	CleanStaleSockets()
 
 	sockPath := SocketPath(sessionName)
 	// Clean up any stale socket from the crashed server

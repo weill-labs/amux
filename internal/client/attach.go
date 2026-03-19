@@ -225,7 +225,13 @@ func RunSession(sessionName string) error {
 		// Repeat key state — allows navigation/resize keys to repeat
 		// without re-pressing the prefix, matching tmux's -r behavior.
 		// Uses a deadline instead of a timer to avoid goroutine races.
-		const repeatTimeout = 500 * time.Millisecond
+		// AMUX_REPEAT_TIMEOUT overrides the default for tests.
+		repeatTimeout := 500 * time.Millisecond
+		if v := os.Getenv("AMUX_REPEAT_TIMEOUT"); v != "" {
+			if d, err := time.ParseDuration(v); err == nil {
+				repeatTimeout = d
+			}
+		}
 		var repeatKey byte
 		var repeatDeadline time.Time
 
@@ -243,6 +249,16 @@ func RunSession(sessionName string) error {
 		// execPrefixKey executes a prefix keybinding via the config-driven
 		// dispatch table. Returns true if the goroutine should exit (detach).
 		execPrefixKey := func(b byte, forward *[]byte) bool {
+			showChooser := func(mode chooserMode) {
+				if !cr.ShowChooser(mode) {
+					io.WriteString(os.Stdout, "\a")
+					return
+				}
+				if data := cr.RenderDiff(); data != "" {
+					io.WriteString(os.Stdout, data)
+				}
+			}
+
 			// Pressing the prefix key again sends the literal prefix byte
 			if b == kb.Prefix {
 				*forward = append(*forward, kb.Prefix)
@@ -287,6 +303,10 @@ func RunSession(sessionName string) error {
 					if data := cr.RenderDiff(); data != "" {
 						io.WriteString(os.Stdout, data)
 					}
+				case "choose-tree":
+					showChooser(chooserModeTree)
+				case "choose-window":
+					showChooser(chooserModeWindow)
 				case "compat-bell":
 					io.WriteString(os.Stdout, "\a")
 				default:
@@ -409,13 +429,23 @@ func RunSession(sessionName string) error {
 				raw = data
 			}
 
-			// If the active pane is in copy mode, route input there
-			if cm := cr.ActiveCopyMode(); cm != nil {
-				action := cm.HandleInput(raw)
+			var forward []byte
+			var copyInput []byte
+			shouldExit := false
+
+			flushCopyInput := func() {
+				if len(copyInput) == 0 {
+					return
+				}
+				cm := cr.ActiveCopyMode()
+				if cm == nil {
+					copyInput = nil
+					return
+				}
+				action := cm.HandleInput(copyInput)
 				paneID := cr.ActivePaneID()
+				copyInput = nil
 				switch action {
-				case copymode.ActionNone:
-					continue
 				case copymode.ActionExit:
 					cr.ExitCopyMode(paneID)
 				case copymode.ActionYank:
@@ -427,16 +457,26 @@ func RunSession(sessionName string) error {
 				if data := cr.RenderDiff(); data != "" {
 					io.WriteString(os.Stdout, data)
 				}
-				continue
 			}
 
-			var forward []byte
-			shouldExit := false
-
+			if cr.ChooserActive() {
+				action := cr.HandleChooserInput(raw)
+				if action.bell {
+					io.WriteString(os.Stdout, "\a")
+				}
+				if data := cr.RenderDiff(); data != "" {
+					io.WriteString(os.Stdout, data)
+				}
+				if action.command != "" {
+					sender.Command(action.command, action.args)
+				}
+				continue
+			}
 			for i := 0; i < len(raw) && !shouldExit; i++ {
 				ev, isMouse, flushed := mouseParser.Feed(raw[i])
 
 				if isMouse {
+					flushCopyInput()
 					// Flush any accumulated forward bytes before handling mouse
 					if len(forward) > 0 {
 						sender.Send(&proto.Message{
@@ -445,6 +485,11 @@ func RunSession(sessionName string) error {
 						forward = nil
 					}
 					HandleMouseEvent(ev, cr, sender, &drag)
+					if cr.IsDirty() {
+						if data := cr.RenderDiff(); data != "" {
+							io.WriteString(os.Stdout, data)
+						}
+					}
 					continue
 				}
 
@@ -457,6 +502,10 @@ func RunSession(sessionName string) error {
 						}
 						continue
 					}
+					if cr.ActiveCopyMode() != nil {
+						copyInput = append(copyInput, fb)
+						continue
+					}
 					if processKeyByte(fb, &forward) {
 						shouldExit = true
 						break
@@ -467,6 +516,11 @@ func RunSession(sessionName string) error {
 			if shouldExit {
 				return
 			}
+
+			if cr.ActiveCopyMode() != nil {
+				copyInput = append(copyInput, mouseParser.FlushPending()...)
+			}
+			flushCopyInput()
 
 			if len(forward) > 0 {
 				sender.Send(&proto.Message{

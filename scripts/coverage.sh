@@ -78,6 +78,10 @@ if [[ ${#profiles[@]} -gt 0 ]]; then
   echo ""
   tail -1 coverage-summary.txt
   echo ""
+  # Note: this Go-native summary will usually be higher than Codecov's
+  # reported percentage for the same uploaded profile. go tool cover reports
+  # statement/block coverage, while Codecov normalizes to line coverage and
+  # counts partial lines separately.
   grep -v '0.0%' coverage-summary.txt | head -40
 fi
 
