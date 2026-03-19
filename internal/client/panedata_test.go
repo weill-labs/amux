@@ -13,7 +13,7 @@ func TestPaneDataRenderScreen(t *testing.T) {
 	t.Parallel()
 
 	emu := mux.NewVTEmulator(20, 4)
-	if _, err := emu.Write([]byte("hello \033[7m \033[m")); err != nil {
+	if _, err := emu.Write([]byte("hello \033[7m \033[m\033[1D")); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 
@@ -33,7 +33,7 @@ func TestPaneDataCellAt(t *testing.T) {
 		t.Parallel()
 
 		emu := mux.NewVTEmulator(20, 4)
-		if _, err := emu.Write([]byte("hello \033[7m \033[m")); err != nil {
+		if _, err := emu.Write([]byte("hello \033[7m \033[m\033[1D")); err != nil {
 			t.Fatalf("Write: %v", err)
 		}
 
@@ -61,6 +61,24 @@ func TestPaneDataCellAt(t *testing.T) {
 		cell := pane.CellAt(1, 0, false)
 		if cell.Style.Attrs&uv.AttrReverse == 0 {
 			t.Fatal("inactive CellAt should preserve reverse-video for non-cursor highlights")
+		}
+	})
+
+	t.Run("inactive preserves isolated reverse video away from cursor", func(t *testing.T) {
+		t.Parallel()
+
+		emu := mux.NewVTEmulator(20, 4)
+		if _, err := emu.Write([]byte("hello \033[7m \033[m")); err != nil {
+			t.Fatalf("Write: %v", err)
+		}
+		if _, err := emu.Write([]byte("\033[1;1H")); err != nil {
+			t.Fatalf("Write cursor move: %v", err)
+		}
+
+		pane := &PaneData{Emu: emu}
+		cell := pane.CellAt(6, 0, false)
+		if cell.Style.Attrs&uv.AttrReverse == 0 {
+			t.Fatal("inactive CellAt should preserve off-cursor reverse-video space")
 		}
 	})
 }

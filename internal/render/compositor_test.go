@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/weill-labs/amux/internal/mux"
 )
 
@@ -34,6 +35,61 @@ func (f *fakePaneData) ConnStatus() string     { return "" }
 func (f *fakePaneData) InCopyMode() bool       { return false }
 func (f *fakePaneData) CopyModeSearch() string { return "" }
 func (f *fakePaneData) HasCursorBlock() bool   { return false }
+
+type cursorPaneData struct {
+	id    uint32
+	name  string
+	color string
+	emu   mux.TerminalEmulator
+}
+
+func (e *cursorPaneData) RenderScreen(active bool) string {
+	if !active {
+		return e.emu.RenderWithoutCursorBlock()
+	}
+	return e.emu.Render()
+}
+
+func (e *cursorPaneData) CellAt(col, row int, active bool) ScreenCell {
+	cell := CellFromUV(e.emu.CellAt(col, row))
+	if active {
+		return cell
+	}
+	cursorX, cursorY := e.emu.CursorPosition()
+	if col != cursorX || row != cursorY {
+		return cell
+	}
+	if cell.Style.Attrs&uv.AttrReverse == 0 || cell.Char != " " {
+		return cell
+	}
+	w, _ := e.emu.Size()
+	if col > 0 {
+		if left := e.emu.CellAt(col-1, row); left != nil && left.Style.Attrs&uv.AttrReverse != 0 {
+			return cell
+		}
+	}
+	if col < w-1 {
+		if right := e.emu.CellAt(col+1, row); right != nil && right.Style.Attrs&uv.AttrReverse != 0 {
+			return cell
+		}
+	}
+	cell.Style.Attrs &^= uv.AttrReverse
+	return cell
+}
+
+func (e *cursorPaneData) CursorPos() (int, int)  { return e.emu.CursorPosition() }
+func (e *cursorPaneData) CursorHidden() bool     { return e.emu.CursorHidden() }
+func (e *cursorPaneData) HasCursorBlock() bool   { return e.emu.HasCursorBlock() }
+func (e *cursorPaneData) ID() uint32             { return e.id }
+func (e *cursorPaneData) Name() string           { return e.name }
+func (e *cursorPaneData) Host() string           { return "local" }
+func (e *cursorPaneData) Task() string           { return "" }
+func (e *cursorPaneData) Color() string          { return e.color }
+func (e *cursorPaneData) Minimized() bool        { return false }
+func (e *cursorPaneData) Idle() bool             { return true }
+func (e *cursorPaneData) ConnStatus() string     { return "" }
+func (e *cursorPaneData) InCopyMode() bool       { return false }
+func (e *cursorPaneData) CopyModeSearch() string { return "" }
 
 func TestMinimizedPaneHidesCursor(t *testing.T) {
 	t.Parallel()
@@ -126,6 +182,32 @@ func TestRenderCursorEdgeCases(t *testing.T) {
 				t.Errorf("cursor visible = %v, want %v", hasCursor, tt.wantVisible)
 			}
 		})
+	}
+}
+
+func TestRenderCursorIgnoresOffCursorReverseVideoSpace(t *testing.T) {
+	t.Parallel()
+
+	width, height := 40, 5
+	root := mux.NewLeaf(&mux.Pane{ID: 1, Meta: mux.PaneMeta{Name: "pane-1"}}, 0, 0, width, height)
+	emu := mux.NewVTEmulator(width, height)
+	if _, err := emu.Write([]byte("hello \033[7m \033[m")); err != nil {
+		t.Fatalf("Write stale block: %v", err)
+	}
+	if _, err := emu.Write([]byte("\033[1;1H")); err != nil {
+		t.Fatalf("Write cursor move: %v", err)
+	}
+
+	comp := NewCompositor(width, height+GlobalBarHeight, "test")
+	output := comp.RenderFull(root, 1, func(id uint32) PaneData {
+		if id != 1 {
+			return nil
+		}
+		return &cursorPaneData{id: 1, name: "pane-1", color: "f5e0dc", emu: emu}
+	})
+
+	if !strings.Contains(output, ShowCursor) {
+		t.Fatal("cursor should remain visible when reverse-video space is away from the cursor")
 	}
 }
 
