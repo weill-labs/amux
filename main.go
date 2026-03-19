@@ -292,7 +292,7 @@ Usage:
   amux [-s session] new [name]         Start a new named session
   amux [-s session] list               List panes with metadata
   amux [-s session] status             Show pane/window summary
-  amux [-s session] list-clients       List attached clients + display-panes state
+  amux [-s session] list-clients       List attached clients + client-local UI state
   amux [-s session] capture            Capture full composited screen
   amux [-s session] capture <pane>     Capture a single pane's output
   amux [-s session] capture --ansi     Capture with ANSI escape codes
@@ -327,7 +327,7 @@ Usage:
                                        Remove hook(s) for an event
   amux [-s session] list-hooks         List registered hooks
   amux [-s session] events [--filter type1,type2] [--pane <ref>] [--host <name>] [--client <id>]
-                                       Stream events as NDJSON (layout, idle, busy, display-panes-*)
+                                       Stream events as NDJSON (layout, idle, busy, display-panes-*, choose-*)
   amux [-s session] split --host HOST  Split with a remote pane on HOST
   amux [-s session] hosts              List configured remote hosts + status
   amux [-s session] disconnect <host>  Drop SSH connection to a host
@@ -369,6 +369,8 @@ Inside an amux session (defaults, configurable via config.toml):
   Ctrl-a c                           Create new window
   Ctrl-a n                           Next window
   Ctrl-a p                           Previous window
+  Ctrl-a s                           Open window/pane chooser
+  Ctrl-a w                           Open window chooser
   Ctrl-a q                           Show pane labels for quick jump
   Ctrl-a 1-9                         Select window by number
   Ctrl-a r                           Hot reload (re-exec binary)

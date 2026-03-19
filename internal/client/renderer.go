@@ -218,11 +218,11 @@ func (r *Renderer) ClearPrevGrid() {
 // this is guaranteed: the interactive client calls both from the single
 // renderCoalesced goroutine, and the headless client is sequential.
 func (r *Renderer) RenderFull(paneLookup func(uint32) render.PaneData, clearScreen ...bool) string {
-	return r.RenderFullWithOverlay(paneLookup, nil, clearScreen...)
+	return r.RenderFullWithOverlay(paneLookup, render.OverlayState{}, clearScreen...)
 }
 
-// RenderFullWithOverlay is RenderFull plus an optional pane overlay layer.
-func (r *Renderer) RenderFullWithOverlay(paneLookup func(uint32) render.PaneData, overlay []render.PaneOverlayLabel, clearScreen ...bool) string {
+// RenderFullWithOverlay is RenderFull plus optional client-local overlays.
+func (r *Renderer) RenderFullWithOverlay(paneLookup func(uint32) render.PaneData, overlay render.OverlayState, clearScreen ...bool) string {
 	r.mu.Lock()
 	if r.layout == nil {
 		r.mu.Unlock()
@@ -243,11 +243,11 @@ func (r *Renderer) RenderFullWithOverlay(paneLookup func(uint32) render.PaneData
 // RenderDiff produces minimal ANSI output by diffing against the previous frame.
 // Returns empty string if no layout is available.
 func (r *Renderer) RenderDiff(paneLookup func(uint32) render.PaneData) string {
-	return r.RenderDiffWithOverlay(paneLookup, nil)
+	return r.RenderDiffWithOverlay(paneLookup, render.OverlayState{})
 }
 
-// RenderDiffWithOverlay is RenderDiff plus an optional pane overlay layer.
-func (r *Renderer) RenderDiffWithOverlay(paneLookup func(uint32) render.PaneData, overlay []render.PaneOverlayLabel) string {
+// RenderDiffWithOverlay is RenderDiff plus optional client-local overlays.
+func (r *Renderer) RenderDiffWithOverlay(paneLookup func(uint32) render.PaneData, overlay render.OverlayState) string {
 	r.mu.Lock()
 	if r.layout == nil {
 		r.mu.Unlock()
@@ -431,6 +431,16 @@ func (r *Renderer) VisibleLayout() *mux.LayoutCell {
 		return mux.NewLeafByID(r.zoomedPaneID, 0, 0, r.width, r.compositor.LayoutHeight())
 	}
 	return r.layout
+}
+
+// WindowSnapshots returns a copy of the current window snapshots and active
+// window ID from the latest layout.
+func (r *Renderer) WindowSnapshots() ([]proto.WindowSnapshot, uint32) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	windows := make([]proto.WindowSnapshot, len(r.windows))
+	copy(windows, r.windows)
+	return windows, r.activeWinID
 }
 
 // Emulator returns the terminal emulator for the given pane. Thread-safe.

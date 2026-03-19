@@ -302,13 +302,25 @@ func TestCurrentStateEventsIncludesClientUIState(t *testing.T) {
 		}
 	}
 
-	if len(got) != 2 {
-		t.Fatalf("got %d client UI events, want 2", len(got))
+	if len(got) != 6 {
+		t.Fatalf("got %d client UI events, want 6", len(got))
 	}
 	if got[0].Type != proto.UIEventDisplayPanesHidden || got[0].ClientID != "client-1" {
 		t.Fatalf("first client UI event = %#v, want hidden for client-1", got[0])
 	}
-	if got[1].Type != proto.UIEventDisplayPanesShown || got[1].ClientID != "client-2" {
-		t.Fatalf("second client UI event = %#v, want shown for client-2", got[1])
+	if got[1].Type != proto.UIEventChooseTreeHidden || got[1].ClientID != "client-1" {
+		t.Fatalf("second client UI event = %#v, want choose-tree-hidden for client-1", got[1])
+	}
+	if got[2].Type != proto.UIEventChooseWindowHidden || got[2].ClientID != "client-1" {
+		t.Fatalf("third client UI event = %#v, want choose-window-hidden for client-1", got[2])
+	}
+	if got[3].Type != proto.UIEventDisplayPanesShown || got[3].ClientID != "client-2" {
+		t.Fatalf("fourth client UI event = %#v, want shown for client-2", got[3])
+	}
+	if got[4].Type != proto.UIEventChooseTreeHidden || got[4].ClientID != "client-2" {
+		t.Fatalf("fifth client UI event = %#v, want choose-tree-hidden for client-2", got[4])
+	}
+	if got[5].Type != proto.UIEventChooseWindowHidden || got[5].ClientID != "client-2" {
+		t.Fatalf("sixth client UI event = %#v, want choose-window-hidden for client-2", got[5])
 	}
 }

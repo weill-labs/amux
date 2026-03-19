@@ -1199,9 +1199,9 @@ func cmdListClients(ctx *CommandContext) {
 	}
 
 	var output strings.Builder
-	output.WriteString(fmt.Sprintf("%-10s %-15s\n", "CLIENT", "DISPLAY_PANES"))
+	output.WriteString(fmt.Sprintf("%-10s %-15s %-10s\n", "CLIENT", "DISPLAY_PANES", "CHOOSER"))
 	for _, cc := range ctx.Sess.clients {
-		output.WriteString(fmt.Sprintf("%-10s %-15s\n", cc.ID, cc.displayPanesState()))
+		output.WriteString(fmt.Sprintf("%-10s %-15s %-10s\n", cc.ID, cc.displayPanesState(), cc.chooserState()))
 	}
 	ctx.reply(output.String())
 }

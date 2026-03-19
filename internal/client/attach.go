@@ -243,6 +243,16 @@ func RunSession(sessionName string) error {
 		// execPrefixKey executes a prefix keybinding via the config-driven
 		// dispatch table. Returns true if the goroutine should exit (detach).
 		execPrefixKey := func(b byte, forward *[]byte) bool {
+			showChooser := func(mode chooserMode) {
+				if !cr.ShowChooser(mode) {
+					io.WriteString(os.Stdout, "\a")
+					return
+				}
+				if data := cr.RenderDiff(); data != "" {
+					io.WriteString(os.Stdout, data)
+				}
+			}
+
 			// Pressing the prefix key again sends the literal prefix byte
 			if b == kb.Prefix {
 				*forward = append(*forward, kb.Prefix)
@@ -287,6 +297,10 @@ func RunSession(sessionName string) error {
 					if data := cr.RenderDiff(); data != "" {
 						io.WriteString(os.Stdout, data)
 					}
+				case "choose-tree":
+					showChooser(chooserModeTree)
+				case "choose-window":
+					showChooser(chooserModeWindow)
 				case "compat-bell":
 					io.WriteString(os.Stdout, "\a")
 				default:
@@ -426,6 +440,20 @@ func RunSession(sessionName string) error {
 				}
 				if data := cr.RenderDiff(); data != "" {
 					io.WriteString(os.Stdout, data)
+				}
+				continue
+			}
+
+			if cr.ChooserActive() {
+				action := cr.HandleChooserInput(raw)
+				if action.bell {
+					io.WriteString(os.Stdout, "\a")
+				}
+				if data := cr.RenderDiff(); data != "" {
+					io.WriteString(os.Stdout, data)
+				}
+				if action.command != "" {
+					sender.Command(action.command, action.args)
 				}
 				continue
 			}

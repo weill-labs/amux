@@ -86,6 +86,53 @@ func buildManyPaneRenderer(t *testing.T, n int) *ClientRenderer {
 	return cr
 }
 
+func multiWindow80x23() *proto.LayoutSnapshot {
+	window1Root := proto.CellSnapshot{
+		X: 0, Y: 0, W: 80, H: 23,
+		Dir: int(mux.SplitVertical),
+		Children: []proto.CellSnapshot{
+			{X: 0, Y: 0, W: 39, H: 23, IsLeaf: true, Dir: -1, PaneID: 1},
+			{X: 40, Y: 0, W: 39, H: 23, IsLeaf: true, Dir: -1, PaneID: 2},
+		},
+	}
+	window2Root := proto.CellSnapshot{
+		X: 0, Y: 0, W: 80, H: 23,
+		IsLeaf: true, Dir: -1, PaneID: 3,
+	}
+	return &proto.LayoutSnapshot{
+		SessionName:  "test",
+		ActivePaneID: 1,
+		Width:        80,
+		Height:       23,
+		Root:         window1Root,
+		Windows: []proto.WindowSnapshot{
+			{
+				ID: 1, Name: "editor", Index: 1, ActivePaneID: 1,
+				Root: window1Root,
+				Panes: []proto.PaneSnapshot{
+					{ID: 1, Name: "pane-1", Host: "local", Task: "server", Color: "f5e0dc"},
+					{ID: 2, Name: "pane-2", Host: "gpu-box", Task: "train", Color: "f2cdcd"},
+				},
+			},
+			{
+				ID: 2, Name: "logs", Index: 2, ActivePaneID: 3,
+				Root: window2Root,
+				Panes: []proto.PaneSnapshot{
+					{ID: 3, Name: "pane-3", Host: "local", Task: "tail", Color: "cba6f7"},
+				},
+			},
+		},
+		ActiveWindowID: 1,
+	}
+}
+
+func buildMultiWindowRenderer(t *testing.T) *ClientRenderer {
+	t.Helper()
+	cr := NewClientRenderer(80, 24)
+	cr.HandleLayout(multiWindow80x23())
+	return cr
+}
+
 func TestClientRendererCapture(t *testing.T) {
 	t.Parallel()
 	cr := buildTestRenderer(t)
@@ -358,6 +405,94 @@ func TestDisplayPanesUIEvents(t *testing.T) {
 	}
 
 	want := []string{proto.UIEventDisplayPanesShown, proto.UIEventDisplayPanesHidden}
+	if len(events) != len(want) {
+		t.Fatalf("events = %v, want %v", events, want)
+	}
+	for i := range want {
+		if events[i] != want[i] {
+			t.Fatalf("events[%d] = %q, want %q", i, events[i], want[i])
+		}
+	}
+}
+
+func TestChooseWindowOverlayDisplayOnly(t *testing.T) {
+	t.Parallel()
+
+	cr := buildMultiWindowRenderer(t)
+	if !cr.ShowChooser(chooserModeWindow) {
+		t.Fatal("ShowChooser window should succeed")
+	}
+	cr.RenderDiff()
+
+	display := cr.CaptureDisplay()
+	if !strings.Contains(display, "choose-window") || !strings.Contains(display, "1:editor") {
+		t.Fatalf("display capture should include chooser overlay, got:\n%s", display)
+	}
+
+	plain := cr.Capture(true)
+	if strings.Contains(plain, "choose-window") {
+		t.Fatalf("plain capture should not include chooser overlay, got:\n%s", plain)
+	}
+}
+
+func TestChooseTreeFilterAndSelection(t *testing.T) {
+	t.Parallel()
+
+	cr := buildMultiWindowRenderer(t)
+	if !cr.ShowChooser(chooserModeTree) {
+		t.Fatal("ShowChooser tree should succeed")
+	}
+	cr.HandleChooserInput([]byte("gpu"))
+
+	overlay := cr.chooserOverlay()
+	if overlay == nil {
+		t.Fatal("chooser overlay should be active")
+	}
+	if len(overlay.Rows) < 2 {
+		t.Fatalf("filtered rows = %+v, want grouped window + pane rows", overlay.Rows)
+	}
+	if overlay.Rows[1].Text != "  * pane-2 @gpu-box train" && overlay.Rows[1].Text != "    pane-2 @gpu-box train" {
+		t.Fatalf("unexpected filtered pane row: %+v", overlay.Rows[1])
+	}
+
+	cmd := cr.selectChooser()
+	if cmd.command != "select-window" || len(cmd.args) != 1 || cmd.args[0] != "1" {
+		t.Fatalf("default filtered selection should land on parent window, got %+v", cmd)
+	}
+}
+
+func TestChooseTreeNavigationSelectsPane(t *testing.T) {
+	t.Parallel()
+
+	cr := buildMultiWindowRenderer(t)
+	if !cr.ShowChooser(chooserModeTree) {
+		t.Fatal("ShowChooser tree should succeed")
+	}
+	cr.HandleChooserInput([]byte("pane-3"))
+	cr.HandleChooserInput([]byte("j"))
+	cmd := cr.selectChooser()
+	if cmd.command != "focus" || len(cmd.args) != 1 || cmd.args[0] != "pane-3" {
+		t.Fatalf("pane selection = %+v, want focus pane-3", cmd)
+	}
+}
+
+func TestChooserUIEvents(t *testing.T) {
+	t.Parallel()
+
+	cr := buildMultiWindowRenderer(t)
+	var events []string
+	cr.OnUIEvent = func(name string) {
+		events = append(events, name)
+	}
+
+	if !cr.ShowChooser(chooserModeWindow) {
+		t.Fatal("ShowChooser window should succeed")
+	}
+	if !cr.HideChooser() {
+		t.Fatal("HideChooser should report a state change")
+	}
+
+	want := []string{proto.UIEventChooseWindowShown, proto.UIEventChooseWindowHidden}
 	if len(events) != len(want) {
 		t.Fatalf("events = %v, want %v", events, want)
 	}
