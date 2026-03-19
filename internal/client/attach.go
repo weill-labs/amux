@@ -327,7 +327,6 @@ func RunSession(sessionName string) error {
 						if data := cr.RenderDiff(); data != "" {
 							io.WriteString(os.Stdout, data)
 						}
-						break
 					}
 					sender.Command(binding.Action, binding.Args)
 				case "compat-bell":
