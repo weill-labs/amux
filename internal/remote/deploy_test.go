@@ -1,7 +1,12 @@
 package remote
 
 import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -226,6 +231,104 @@ func TestUploadBinary(t *testing.T) {
 	}
 }
 
+func TestCrossCompileAndUploadBuildsAndUploadsBinary(t *testing.T) {
+	t.Parallel()
+	ts := startTestSSH(t)
+
+	modRoot := t.TempDir()
+	writeTestFile(t, filepath.Join(modRoot, "go.mod"), "module example.com/amux-test\n\ngo 1.20\n")
+	writeTestFile(t, filepath.Join(modRoot, "main.go"), "package main\n\nfunc main() {}\n")
+
+	fakeExe := filepath.Join(modRoot, "bin", "amux-test")
+	if err := os.MkdirAll(filepath.Dir(fakeExe), 0755); err != nil {
+		t.Fatalf("creating fake executable dir: %v", err)
+	}
+
+	targetOS, targetArch := testCrossCompileTarget()
+	err := crossCompileAndUploadWith(ts.Client, targetOS, targetArch,
+		func() (string, error) { return fakeExe, nil },
+	)
+	if err != nil {
+		t.Fatalf("crossCompileAndUploadWith error: %v", err)
+	}
+
+	uploaded := filepath.Join(ts.HomeDir, ".local", "bin", "amux")
+	info, err := os.Stat(uploaded)
+	if err != nil {
+		t.Fatalf("stat uploaded binary: %v", err)
+	}
+	if info.Size() == 0 {
+		t.Fatal("uploaded binary is empty")
+	}
+	if info.Mode()&0111 == 0 {
+		t.Fatal("uploaded binary should be executable")
+	}
+
+	matches, err := filepath.Glob(filepath.Join(ts.HomeDir, ".local", "bin", ".amux.tmp.*"))
+	if err != nil {
+		t.Fatalf("glob temp files: %v", err)
+	}
+	if len(matches) != 0 {
+		t.Fatalf("temp upload files left behind: %v", matches)
+	}
+}
+
+func TestDownloadReleaseBinaryInstallsRemoteArchive(t *testing.T) {
+	t.Parallel()
+	ts := startTestSSH(t)
+
+	const (
+		version = "0.1.0"
+		goos    = "linux"
+		goarch  = "amd64"
+		script  = "#!/bin/sh\necho release-binary\n"
+	)
+	wantPath := fmt.Sprintf("/downloads/v%s/amux_%s_%s_%s.tar.gz", version, version, goos, goarch)
+	requestedPath := make(chan string, 1)
+	archive := fakeReleaseArchive(t, script)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestedPath <- r.URL.Path
+		w.Header().Set("Content-Type", "application/gzip")
+		_, _ = w.Write(archive)
+	}))
+	defer server.Close()
+
+	err := downloadReleaseBinaryWith(ts.Client, goos, goarch, version,
+		func(version, goos, goarch string) string {
+			return fmt.Sprintf("%s/downloads/v%s/amux_%s_%s_%s.tar.gz", server.URL, version, version, goos, goarch)
+		},
+	)
+	if err != nil {
+		t.Fatalf("downloadReleaseBinaryWith error: %v", err)
+	}
+	select {
+	case gotPath := <-requestedPath:
+		if gotPath != wantPath {
+			t.Fatalf("release request path = %q, want %q", gotPath, wantPath)
+		}
+	default:
+		t.Fatal("release server was not requested")
+	}
+
+	installed := filepath.Join(ts.HomeDir, ".local", "bin", "amux")
+	data, err := os.ReadFile(installed)
+	if err != nil {
+		t.Fatalf("reading installed release binary: %v", err)
+	}
+	if string(data) != script {
+		t.Fatalf("installed release binary = %q, want %q", string(data), script)
+	}
+
+	matches, err := filepath.Glob(filepath.Join(ts.HomeDir, ".local", "bin", ".amux.tmp.*"))
+	if err != nil {
+		t.Fatalf("glob temp files: %v", err)
+	}
+	if len(matches) != 0 {
+		t.Fatalf("temp release files left behind: %v", matches)
+	}
+}
+
 func TestUploadBinaryFileNotFound(t *testing.T) {
 	t.Parallel()
 	ts := startTestSSH(t)
@@ -330,4 +433,48 @@ func TestDeployBinarySameArch(t *testing.T) {
 	if len(matches) != 0 {
 		t.Fatalf("temp deploy files left behind: %v", matches)
 	}
+}
+
+func writeTestFile(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatalf("writing %s: %v", path, err)
+	}
+}
+
+func testCrossCompileTarget() (string, string) {
+	if runtime.GOOS != "linux" {
+		return "linux", "amd64"
+	}
+	if runtime.GOARCH == "amd64" {
+		return "linux", "arm64"
+	}
+	return "linux", "amd64"
+}
+
+func fakeReleaseArchive(t *testing.T, content string) []byte {
+	t.Helper()
+
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+
+	if err := tw.WriteHeader(&tar.Header{
+		Name: "amux",
+		Mode: 0755,
+		Size: int64(len(content)),
+	}); err != nil {
+		t.Fatalf("writing tar header: %v", err)
+	}
+	if _, err := tw.Write([]byte(content)); err != nil {
+		t.Fatalf("writing tar content: %v", err)
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatalf("closing tar writer: %v", err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatalf("closing gzip writer: %v", err)
+	}
+
+	return buf.Bytes()
 }
