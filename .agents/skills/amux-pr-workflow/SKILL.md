@@ -20,7 +20,7 @@ Use this skill when the task involves `git push`, `gh pr create`, `gh pr merge`,
 - If a rebase triggers broad noisy local failures, verify with a targeted regression slice before making invasive code changes.
 - After merge, verify local state explicitly: confirm the checkout is on `main`, the worktree is clean, and `HEAD` matches `origin/main`.
 - After merge, any follow-up fix goes on a fresh branch and PR. Do not make extra commits on local `main`.
-- After merge, run the `postmortem` skill as an actual workflow, not just a brief retrospective in the final message.
+- After merge, explicitly invoke the `postmortem` skill workflow. A short manual summary does not count. Turn action items into issues or doc updates.
 - If the `postmortem` skill is skipped, say so explicitly and give the reason. Do not imply it was done.
 
 ## Workflow
@@ -37,7 +37,7 @@ Use this skill when the task involves `git push`, `gh pr create`, `gh pr merge`,
 10. Before merging, re-check the live PR state and mergeability after the latest green checks. If `main` moved, fetch and rebase again before merging.
 11. After merge, verify local state with `git branch --show-current`, `git status --short --branch`, and `git rev-parse HEAD origin/main`. If needed, run `git checkout main && git pull --ff-only`.
 12. If you discover a follow-up fix after merge, create a fresh branch before editing.
-13. After merge, explicitly invoke the `postmortem` skill to capture learnings, pain points, and follow-up actions.
+13. After merge, explicitly invoke the `postmortem` skill to capture learnings, pain points, and follow-up actions. Do not substitute a brief ad hoc summary.
 14. In the final merge closeout, state either the logged `postmortem` path or the explicit reason it was skipped.
 
 ## Output Checklist
@@ -52,5 +52,5 @@ Use this skill when the task involves `git push`, `gh pr create`, `gh pr merge`,
 - Benchmark baseline section added when relevant.
 - Local post-merge state verified.
 - Follow-up fixes kept off local `main`.
-- `postmortem` skill run after merge, or a clear skip reason is stated.
+- `postmortem` skill explicitly invoked after merge, or a clear skip reason is stated.
 - If `postmortem` ran, the log path is reported.
