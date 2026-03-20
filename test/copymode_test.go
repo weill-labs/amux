@@ -124,7 +124,7 @@ func TestCopyModeCLI(t *testing.T) {
 	h.waitUI(proto.UIEventCopyModeHidden, 3*time.Second)
 }
 
-func TestCopyModeEscapeExit(t *testing.T) {
+func TestCopyModeEscapeClearsSelection(t *testing.T) {
 	t.Parallel()
 	h := newAmuxHarness(t)
 
@@ -132,10 +132,19 @@ func TestCopyModeEscapeExit(t *testing.T) {
 	h.sendKeys("C-a", "[")
 	h.waitUI(proto.UIEventCopyModeShown, 3*time.Second)
 
-	// Exit with Escape
-	h.sendKeys("Escape")
+	// Start a selection so Escape has something to clear.
+	h.sendKeys("Space", "l")
+	if !h.waitFor("[copy]", 2*time.Second) {
+		t.Fatalf("expected copy mode to remain active after selection.\nScreen:\n%s", h.captureOuter())
+	}
 
-	// Verify copy mode exits (poll outer pane)
+	// Escape should clear selection, not exit copy mode.
+	h.sendKeys("Escape")
+	if waitForOuterGone(h, "[copy]", 500*time.Millisecond) {
+		t.Fatalf("Escape should not exit copy mode.\nScreen:\n%s", h.captureOuter())
+	}
+
+	h.sendKeys("q")
 	h.waitUI(proto.UIEventCopyModeHidden, 3*time.Second)
 }
 
@@ -233,8 +242,8 @@ for i in $(seq -w 1 50); do echo "ALPHA BRAVO CHARLIE $i"; done
 		t.Fatalf("expected [copy] indicator\nScreen:\n%s", h.captureOuter())
 	}
 
-	// Exercise word motions: W (forward), B (backward), E (end of word).
-	for _, key := range []string{"W", "W", "B", "E"} {
+	// Exercise tmux vi word motions: w/b/e for words and W/B/E for WORDs.
+	for _, key := range []string{"w", "e", "b", "W", "W", "B", "E"} {
 		h.sendKeys(key)
 		if !h.waitFor("[copy]", 2*time.Second) {
 			t.Fatalf("[copy] disappeared after %s\nScreen:\n%s", key, h.captureOuter())

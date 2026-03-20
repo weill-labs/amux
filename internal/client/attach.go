@@ -443,6 +443,14 @@ func RunSession(sessionName string) error {
 		for {
 			var raw []byte
 			localInput := false
+			var wordCopyTimer <-chan time.Time
+			if !drag.PendingWordCopyAt.IsZero() {
+				wait := time.Until(drag.PendingWordCopyAt)
+				if wait < 0 {
+					wait = 0
+				}
+				wordCopyTimer = time.After(wait)
+			}
 			select {
 			case data, ok := <-stdinCh:
 				if !ok {
@@ -452,6 +460,17 @@ func RunSession(sessionName string) error {
 				localInput = true
 			case data := <-injectCh:
 				raw = data
+			case <-wordCopyTimer:
+				if drag.PendingWordCopyPaneID != 0 {
+					cr.CopyModeCopySelection(drag.PendingWordCopyPaneID)
+					drag.PendingWordCopyPaneID = 0
+					drag.PendingWordCopyAt = time.Time{}
+					drag.ClickCount = 0
+					if data := cr.RenderDiff(); data != "" {
+						io.WriteString(os.Stdout, data)
+					}
+				}
+				continue
 			}
 			cr.SetInputIdle(false)
 
@@ -481,10 +500,7 @@ func RunSession(sessionName string) error {
 				case copymode.ActionExit:
 					cr.ExitCopyMode(paneID)
 				case copymode.ActionYank:
-					if text := cm.SelectedText(); text != "" {
-						CopyToClipboard(text)
-					}
-					cr.ExitCopyMode(paneID)
+					cr.CopyModeCopySelection(paneID)
 				}
 				if data := cr.RenderDiff(); data != "" {
 					io.WriteString(os.Stdout, data)
@@ -577,6 +593,8 @@ func RunSession(sessionName string) error {
 		return nil
 	}
 }
+
+var copyToClipboard = CopyToClipboard
 
 // CopyToClipboard copies text to the system clipboard.
 func CopyToClipboard(text string) {

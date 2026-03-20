@@ -281,6 +281,77 @@ PY
 	}
 }
 
+func TestMouseDragCopiesSelectionInCopyMode(t *testing.T) {
+	t.Parallel()
+
+	h := newAmuxHarness(t)
+
+	scriptPath := writeMouseScript(t, h, "mouse-copy", `#!/bin/bash
+echo "MOUSE COPY TARGET"
+`)
+	h.sendKeys(scriptPath, "Enter")
+	if !h.waitFor("MOUSE COPY TARGET", 3*time.Second) {
+		t.Fatalf("expected copy target output.\nScreen:\n%s", h.captureOuter())
+	}
+
+	h.sendKeys("C-a", "[")
+	h.waitUI(proto.UIEventCopyModeShown, 3*time.Second)
+
+	y := 2
+	h.sendMouseSGR(0, 1, y, true)
+	h.sendMouseSGR(32, 5, y, true)
+	h.sendMouseSGR(0, 5, y, false)
+
+	h.waitUI(proto.UIEventCopyModeHidden, 3*time.Second)
+}
+
+func TestMouseDoubleClickCopiesWordInCopyMode(t *testing.T) {
+	t.Parallel()
+
+	h := newAmuxHarness(t)
+
+	scriptPath := writeMouseScript(t, h, "mouse-double", `#!/bin/bash
+echo "DOUBLE CLICK TARGET"
+`)
+	h.sendKeys(scriptPath, "Enter")
+	if !h.waitFor("DOUBLE CLICK TARGET", 3*time.Second) {
+		t.Fatalf("expected double-click target output.\nScreen:\n%s", h.captureOuter())
+	}
+
+	h.sendKeys("C-a", "[")
+	h.waitUI(proto.UIEventCopyModeShown, 3*time.Second)
+
+	y := 2
+	h.clickAt(2, y)
+	h.clickAt(2, y)
+
+	h.waitUI(proto.UIEventCopyModeHidden, 3*time.Second)
+}
+
+func TestMouseTripleClickCopiesLineInCopyMode(t *testing.T) {
+	t.Parallel()
+
+	h := newAmuxHarness(t)
+
+	scriptPath := writeMouseScript(t, h, "mouse-triple", `#!/bin/bash
+echo "TRIPLE CLICK TARGET"
+`)
+	h.sendKeys(scriptPath, "Enter")
+	if !h.waitFor("TRIPLE CLICK TARGET", 3*time.Second) {
+		t.Fatalf("expected triple-click target output.\nScreen:\n%s", h.captureOuter())
+	}
+
+	h.sendKeys("C-a", "[")
+	h.waitUI(proto.UIEventCopyModeShown, 3*time.Second)
+
+	y := 2
+	h.clickAt(2, y)
+	h.clickAt(2, y)
+	h.clickAt(2, y)
+
+	h.waitUI(proto.UIEventCopyModeHidden, 3*time.Second)
+}
+
 func TestMouseScrollWheelIgnoredInAltScreenWithoutMouseMode(t *testing.T) {
 	t.Parallel()
 	h := newAmuxHarness(t)

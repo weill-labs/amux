@@ -1,6 +1,9 @@
 package copymode
 
-import "strings"
+import (
+	"strconv"
+	"strings"
+)
 
 // ANSI escapes for copy mode highlighting.
 const (
@@ -69,13 +72,18 @@ func (cm *CopyMode) RenderViewport() string {
 
 		// Mark selection.
 		if cm.selecting && absIdx >= selStartY && absIdx <= selEndY {
-			colStart := 0
-			colEnd := len(runes)
-			if absIdx == selStartY {
-				colStart = selStartX
-			}
-			if absIdx == selEndY {
+			colStart, colEnd := 0, len(runes)
+			switch {
+			case cm.rectSelect:
+				colStart = min(selStartX, len(runes))
 				colEnd = min(selEndX+1, len(runes))
+			default:
+				if absIdx == selStartY {
+					colStart = selStartX
+				}
+				if absIdx == selEndY {
+					colEnd = min(selEndX+1, len(runes))
+				}
 			}
 			for col := colStart; col < colEnd; col++ {
 				styles[col] |= styleSelection
@@ -141,10 +149,22 @@ func renderStyledLine(runes []rune, styles []charStyle) string {
 // SearchBarText returns the search prompt to display in the status bar.
 // Returns empty string when not actively searching.
 func (cm *CopyMode) SearchBarText() string {
-	if !cm.searching {
-		return ""
+	var parts []string
+	switch cm.prompt {
+	case promptSearchForward:
+		parts = append(parts, "/"+cm.promptBuf)
+	case promptSearchBackward:
+		parts = append(parts, "?"+cm.promptBuf)
+	case promptGotoLine:
+		parts = append(parts, ":"+cm.promptBuf)
 	}
-	return "/" + cm.searchBuf
+	if cm.pendingCount > 0 && cm.prompt == promptNone {
+		parts = append(parts, strconv.Itoa(cm.pendingCount))
+	}
+	if cm.showPosition {
+		parts = append(parts, "["+strconv.Itoa(cm.oy)+"/"+strconv.Itoa(cm.maxOY())+"]")
+	}
+	return strings.Join(parts, " ")
 }
 
 // padOrTruncate ensures s is exactly width characters (rune-based),
