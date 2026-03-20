@@ -94,6 +94,10 @@ Commit design specs and implementation plans to the feature branch, not main. Co
 
 After creating or updating a PR, run a review pass and a simplification pass before considering the work done. Claude Code gets hook reminders for this. Codex users should use the repo PR workflow skill or perform the steps explicitly.
 
+### User Handoffs
+
+Before stopping to wait for user input, suggest the next concrete action the user should take or approve. Do not end at "waiting on you" without a specific next step.
+
 ### Merge Conflict Resolution
 
 After resolving merge conflicts, run `go vet ./...` locally before committing. Git auto-merge can silently produce duplicate declarations (e.g., methods defined in both sides) that compile but fail vet.
