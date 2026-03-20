@@ -145,11 +145,12 @@ func (s *Session) buildCrashCheckpoint() *checkpoint.CrashCheckpoint {
 
 		var cwdWork []pidEntry
 		for _, p := range s.Panes {
+			history, screen, _ := p.HistoryScreenSnapshot()
 			ps := checkpoint.CrashPaneState{
 				ID:        p.ID,
 				Meta:      p.Meta,
-				History:   p.ScrollbackLines(),
-				Screen:    p.RenderScreen(),
+				History:   history,
+				Screen:    screen,
 				CreatedAt: p.CreatedAt(),
 				IsProxy:   p.IsProxy(),
 			}

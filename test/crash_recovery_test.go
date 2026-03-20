@@ -270,12 +270,21 @@ func makeThreeByThreeGridServer(t *testing.T, h *ServerHarness) {
 // ---------------------------------------------------------------------------
 
 // waitForCrashCheckpoint polls until the crash checkpoint file exists.
-// Uses the existing waitForFile from hooks_test.go (returns bool).
+// Crash checkpoint tests share a single state directory across parallel runs,
+// so plain polling is more reliable here than fsnotify.
 func waitForCrashCheckpoint(t *testing.T, path string, timeout time.Duration) {
 	t.Helper()
-	if !waitForFile(t, path, timeout) {
-		t.Fatalf("crash checkpoint %s did not appear within %v", path, timeout)
+
+	deadline := time.Now().Add(timeout)
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(path); err == nil {
+			return
+		}
+		<-ticker.C
 	}
+	t.Fatalf("crash checkpoint %s did not appear within %v", path, timeout)
 }
 
 // paneNames returns a comma-joined string of pane names from a capture (layout order).

@@ -76,8 +76,8 @@ func (s *Session) captureHistory(cc *ClientConn, args []string) *Message {
 		return &Message{Type: MsgTypeCmdResult, CmdErr: err.Error()}
 	}
 	pane := snap.pane
+	textSnap := pane.CaptureSnapshot()
 
-	col, row := pane.CursorPos()
 	capturePane := proto.CapturePane{
 		ID:         pane.ID,
 		Name:       pane.Meta.Name,
@@ -89,12 +89,12 @@ func (s *Session) captureHistory(cc *ClientConn, args []string) *Message {
 		Color:      pane.Meta.Color,
 		ConnStatus: pane.Meta.Remote,
 		Cursor: proto.CaptureCursor{
-			Col:    col,
-			Row:    row,
-			Hidden: pane.CursorHidden(),
+			Col:    textSnap.CursorCol,
+			Row:    textSnap.CursorRow,
+			Hidden: textSnap.CursorHidden,
 		},
-		Content: pane.ContentLines(),
-		History: pane.ScrollbackLines(),
+		Content: textSnap.Content,
+		History: textSnap.History,
 	}
 	if !snap.inWindow {
 		capturePane.Active = false

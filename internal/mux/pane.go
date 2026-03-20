@@ -69,6 +69,16 @@ type Pane struct {
 	idleSince    time.Time // when the current idle period began
 }
 
+// CaptureSnapshot is a consistent plain-text snapshot of a pane's retained
+// history, visible screen, and cursor state.
+type CaptureSnapshot struct {
+	History      []string
+	Content      []string
+	CursorCol    int
+	CursorRow    int
+	CursorHidden bool
+}
+
 // NewPane creates a new pane running the user's shell but does NOT start
 // the read/drain/wait goroutines. Call Start() after releasing any locks
 // that the onOutput/onExit callbacks might need.
@@ -338,6 +348,22 @@ func (p *Pane) HistoryScreenSnapshot() (history []string, screen string, seq uin
 	p.snapshotMu.Lock()
 	defer p.snapshotMu.Unlock()
 	return p.combinedScrollbackLocked(), RenderWithCursor(p.emulator), p.outputSeq.Load()
+}
+
+// CaptureSnapshot returns a consistent plain-text snapshot of retained
+// scrollback, visible screen content, and cursor state.
+func (p *Pane) CaptureSnapshot() CaptureSnapshot {
+	p.snapshotMu.Lock()
+	defer p.snapshotMu.Unlock()
+
+	col, row := p.emulator.CursorPosition()
+	return CaptureSnapshot{
+		History:      p.combinedScrollbackLocked(),
+		Content:      EmulatorContentLines(p.emulator),
+		CursorCol:    col,
+		CursorRow:    row,
+		CursorHidden: p.emulator.CursorHidden(),
+	}
 }
 
 // RenderWithoutCursorBlock returns the screen with the cursor cell's

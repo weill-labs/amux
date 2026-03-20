@@ -47,7 +47,7 @@ func (s *Session) recalcSize() {
 func (s *Session) broadcastNow(msg *Message) {
 	clients := append([]*ClientConn(nil), s.clients...)
 	for _, c := range clients {
-		c.Send(msg)
+		c.sendBroadcast(msg)
 	}
 }
 
@@ -75,9 +75,7 @@ func (s *Session) broadcastPaneOutputNow(paneID uint32, data []byte, seq uint64)
 	clients := append([]*ClientConn(nil), s.clients...)
 	msg := &Message{Type: MsgTypePaneOutput, PaneID: paneID, PaneData: data}
 	for _, c := range clients {
-		if c.allowPaneOutput(paneID, seq) {
-			c.Send(msg)
-		}
+		c.sendPaneOutput(msg, paneID, seq)
 	}
 	s.notifyPaneOutputSubs(paneID)
 	s.trackPaneActivity(paneID)

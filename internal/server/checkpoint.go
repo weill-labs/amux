@@ -48,11 +48,12 @@ func (s *Server) Reload(execPath string) error {
 		}
 
 		for _, p := range sess.Panes {
+			history, screen, _ := p.HistoryScreenSnapshot()
 			pc := checkpoint.PaneCheckpoint{
 				ID:        p.ID,
 				Meta:      p.Meta,
-				History:   p.ScrollbackLines(),
-				Screen:    p.RenderScreen(),
+				History:   history,
+				Screen:    screen,
 				CreatedAt: p.CreatedAt(),
 				IsProxy:   p.IsProxy(),
 			}
