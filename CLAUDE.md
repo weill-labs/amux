@@ -102,6 +102,8 @@ After resolving merge conflicts, run `go vet ./...` locally before committing. G
 
 GitHub PRs for this repo are squash-only. `gh pr merge --merge` and `gh pr merge --rebase` will fail.
 
+After merging, verify local state explicitly: check that the checkout is on `main`, the worktree is clean, and `HEAD` matches `origin/main`. If you need another change after the merge, start a fresh branch and PR instead of committing follow-up fixes on local `main`.
+
 ### Include Baseline Numbers In Performance PRs
 
 When creating PRs that add or modify benchmarks, include a `Baseline numbers` section in the PR description with representative results in a markdown table. Include the hardware (for example, `Apple M4, macOS`) for context. Development run results are ephemeral -- the PR description is the permanent record.

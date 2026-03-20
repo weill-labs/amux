@@ -11,20 +11,25 @@ Use this skill when the task involves `git push`, `gh pr create`, `gh pr merge`,
 
 - Rebase onto `origin/main` before the first push: `git fetch origin main && git rebase origin/main`.
 - This repo is squash-only on GitHub. Use `gh pr merge --squash`; merge and rebase merges will fail.
+- Prefer `gh pr create --body-file ...` for multiline PR descriptions, especially when they include backticks or code fences.
 - Do not present a PR as done until it has had both a review pass and a simplification pass.
 - If benchmarks changed, add a `Baseline numbers` section to the PR description with representative results and hardware.
+- After merge, verify local state explicitly: confirm the checkout is on `main`, the worktree is clean, and `HEAD` matches `origin/main`.
+- After merge, any follow-up fix goes on a fresh branch and PR. Do not make extra commits on local `main`.
 - After merge, run the `postmortem` skill and turn action items into issues or doc updates.
 
 ## Workflow
 
 1. Confirm the relevant tests ran and note any gaps.
 2. If this is the first push for the branch, rebase onto `origin/main`.
-3. Create or update the PR.
+3. Create or update the PR. Use `gh pr create --body-file ...` when the body is multiline.
 4. Run a review pass. Prefer `codex review` when available.
 5. Run a simplification pass focused on unnecessary complexity and cleanup opportunities.
 6. If the change affects layout math or resize behavior, compare against tmux before adding new layout state or diverging from tmux semantics.
 7. If the change touched benchmarks, add baseline numbers before calling the PR ready.
-8. After merge, explicitly invoke the `postmortem` skill to capture learnings, pain points, and follow-up actions.
+8. After merge, verify local state with `git branch --show-current`, `git status --short --branch`, and `git rev-parse HEAD origin/main`. If needed, run `git checkout main && git pull --ff-only`.
+9. If you discover a follow-up fix after merge, create a fresh branch before editing.
+10. After merge, explicitly invoke the `postmortem` skill to capture learnings, pain points, and follow-up actions.
 
 ## Output Checklist
 
@@ -34,4 +39,6 @@ Use this skill when the task involves `git push`, `gh pr create`, `gh pr merge`,
 - Simplification pass completed.
 - Squash merge policy followed.
 - Benchmark baseline section added when relevant.
+- Local post-merge state verified.
+- Follow-up fixes kept off local `main`.
 - `postmortem` skill run after merge.
