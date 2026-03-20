@@ -25,6 +25,16 @@ func TestSummarizeTakeoverAttachError(t *testing.T) {
 			err:  errors.New("amux: waiting for remote socket /tmp/amux-1000/default@host: timeout"),
 			want: "waiting for remote socket /tmp/amux-1000/default@host: timeout",
 		},
+		{
+			name: "nil error falls back",
+			err:  nil,
+			want: "takeover failed",
+		},
+		{
+			name: "blank error falls back",
+			err:  errors.New(" \n "),
+			want: "takeover failed",
+		},
 	}
 
 	for _, tt := range tests {
@@ -44,6 +54,16 @@ func TestFormatTakeoverFailureNotice(t *testing.T) {
 @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@`)
 	got := formatTakeoverFailureNotice("gpu-box", "10.0.0.5:22", err)
 	want := "takeover gpu-box (10.0.0.5:22): SSH host key verification failed for 10.0.0.5"
+	if got != want {
+		t.Fatalf("notice = %q, want %q", got, want)
+	}
+}
+
+func TestFormatTakeoverFailureNoticeDefaultsToRemoteTarget(t *testing.T) {
+	t.Parallel()
+
+	got := formatTakeoverFailureNotice("", "", errors.New("amux: timeout"))
+	want := "takeover remote: timeout"
 	if got != want {
 		t.Fatalf("notice = %q, want %q", got, want)
 	}
