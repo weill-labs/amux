@@ -400,32 +400,45 @@ func dirName(d mux.SplitDir) string {
 	return "horizontal"
 }
 
-// parseEventsArgs parses --filter, --pane, --host, and --client flags for the events command.
-func parseEventsArgs(args []string) eventFilter {
-	var f eventFilter
+// eventsArgs holds parsed arguments for the events command.
+type eventsArgs struct {
+	filter   eventFilter
+	throttle time.Duration
+}
+
+// parseEventsArgs parses --filter, --pane, --host, --client, and --throttle flags for the events command.
+func parseEventsArgs(args []string) eventsArgs {
+	ea := eventsArgs{throttle: DefaultEventThrottle}
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--filter":
 			if i+1 < len(args) {
 				i++
-				f.Types = strings.Split(args[i], ",")
+				ea.filter.Types = strings.Split(args[i], ",")
 			}
 		case "--pane":
 			if i+1 < len(args) {
 				i++
-				f.PaneName = args[i]
+				ea.filter.PaneName = args[i]
 			}
 		case "--host":
 			if i+1 < len(args) {
 				i++
-				f.Host = args[i]
+				ea.filter.Host = args[i]
 			}
 		case "--client":
 			if i+1 < len(args) {
 				i++
-				f.ClientID = args[i]
+				ea.filter.ClientID = args[i]
+			}
+		case "--throttle":
+			if i+1 < len(args) {
+				i++
+				if d, err := time.ParseDuration(args[i]); err == nil {
+					ea.throttle = d
+				}
 			}
 		}
 	}
-	return f
+	return ea
 }

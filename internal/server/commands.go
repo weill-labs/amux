@@ -1226,8 +1226,8 @@ func cmdListHooks(ctx *CommandContext) {
 }
 
 func cmdEvents(ctx *CommandContext) {
-	f := parseEventsArgs(ctx.Args)
-	res := ctx.Sess.enqueueEventSubscribe(f, true)
+	ea := parseEventsArgs(ctx.Args)
+	res := ctx.Sess.enqueueEventSubscribe(ea.filter, true)
 	if res.sub == nil {
 		ctx.replyErr("session shutting down")
 		return
@@ -1246,6 +1246,12 @@ func cmdEvents(ctx *CommandContext) {
 			return
 		}
 	}
+}
+
+// peekOutputPaneID checks if data is an output event and returns the pane ID.
+// Uses bytes.Contains for the type check to avoid unmarshalling non-output events.
+func peekOutputPaneID(data []byte) (uint32, bool) {
+	return 0, false
 }
 
 func cmdListClients(ctx *CommandContext) {

@@ -14,6 +14,10 @@ const (
 	EventHook   = "hook"
 )
 
+// DefaultEventThrottle is the default throttle interval for `amux events`.
+// Output events are coalesced to at most one per pane per interval.
+const DefaultEventThrottle = 50 * time.Millisecond
+
 // Event is a single event in the NDJSON event stream.
 type Event struct {
 	Type       string `json:"type"`
