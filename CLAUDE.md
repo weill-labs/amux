@@ -90,6 +90,8 @@ Regenerate goldens after intentional rendering changes: `cd test && go test -run
 
 Rebase onto `origin/main` before the first push (`git fetch origin main && git rebase origin/main`). Multiple features often land in parallel; rebasing before push avoids repeated merge conflict resolution after the PR is open.
 
+If a PR is already open and `git fetch origin main` or `git pull` advances `origin/main`, refresh that PR branch onto `origin/main` before treating it as current again. After the refresh, rerun verification on the rebased branch before pushing.
+
 ### Specs And Plans On Feature Branches
 
 Commit design specs and implementation plans to the feature branch, not main. Committing to main before creating the feature branch causes divergent branches on subsequent pulls.
@@ -97,6 +99,8 @@ Commit design specs and implementation plans to the feature branch, not main. Co
 ### Review Before Done
 
 After creating or updating a PR, run a review pass and a simplification pass before considering the work done. Claude Code gets hook reminders for this. Codex users should use the repo PR workflow skill or perform the steps explicitly.
+
+Prefer external review tooling like `codex review` when it returns promptly, but do not block the PR on it. If the tool stalls or is unavailable, do a manual diff review and say that explicitly.
 
 If a change in this repo is ready for review, open the PR proactively instead of asking whether to make one.
 
