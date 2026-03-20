@@ -24,7 +24,7 @@ PTY output (raw bytes)
   (for humans)      (for agents)
 ```
 
-Retained pane history is server-owned. Clients hydrate that history on attach and keep their own local copy-mode state (scroll position, search, selection) on top of it. That means history survives detach/reattach, hot reload, and crash recovery, while each viewer can still browse independently.
+Retained pane history is server-owned. Clients hydrate that history on attach and keep their own local copy-mode state (scroll position, search, selection) on top of it. That means history survives detach/reattach, hot reload, and crash recovery, while each viewer can still browse independently. Crash recovery restores a fresh shell for each local pane; retained history always survives, and the last visible screen is only replayed when the checkpointed pane was already idle at a shell prompt.
 
 ## Install
 
@@ -129,7 +129,7 @@ amux capture --history pane-1
 amux capture --history --format json pane-1
 ```
 
-`capture pane-1` returns the pane's current visible screen. `capture --history pane-1` returns the full browsable buffer for that pane: retained scrollback followed by the current screen. The JSON form keeps those separate as `history` and `content`.
+`capture pane-1` returns the pane's current visible screen. `capture --history pane-1` returns the full browsable buffer for that pane: retained scrollback followed by the current screen. The JSON form keeps those separate as `history` and `content`. After crash recovery, `history` includes any archived pre-crash visible screen from panes whose foreground process was lost.
 
 Because retained history is server-owned, `capture --history` works after detach/reattach, after `reload-server`, and after crash recovery, and it does not require an attached interactive client. Copy mode remains per-client UI state over that shared history.
 

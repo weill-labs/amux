@@ -252,6 +252,70 @@ func TestCrashRecovery_PreservesHistoryCapture(t *testing.T) {
 	}
 }
 
+func TestCrashRecovery_ReplaysVisibleScreenForIdleShellPane(t *testing.T) {
+	t.Parallel()
+
+	h := newServerHarnessPersistent(t)
+	cpPath := h.crashCheckpointPath()
+
+	h.sendKeys("pane-1", `printf 'IDLE_SCREEN_MARKER\n'`, "Enter")
+	h.waitFor("pane-1", "IDLE_SCREEN_MARKER")
+	waitForCrashCheckpoint(t, cpPath, 5*time.Second)
+
+	if h.client != nil {
+		h.client.close()
+		h.client = nil
+	}
+	h.cmd.Process.Signal(syscall.SIGKILL)
+	h.cmd.Wait()
+	h.cmd = nil
+
+	h2 := startServerForSession(t, h.session, h.home)
+
+	out := h2.runCmd("capture", "pane-1")
+	if !strings.Contains(out, "IDLE_SCREEN_MARKER") {
+		t.Fatalf("idle shell pane should replay visible screen after crash recovery, got:\n%s", out)
+	}
+}
+
+func TestCrashRecovery_BusyPaneShowsRecoveryNoticeInsteadOfReplayingStaleScreen(t *testing.T) {
+	t.Parallel()
+
+	h := newServerHarnessPersistent(t)
+	cpPath := h.crashCheckpointPath()
+
+	h.sendKeys("pane-1", `printf '\033[2J\033[HCRASH_BUSY_FRAME\n'; sleep 300`, "Enter")
+	h.waitFor("pane-1", "CRASH_BUSY_FRAME")
+	h.waitBusy("pane-1")
+	waitForCrashCheckpoint(t, cpPath, 5*time.Second)
+
+	if h.client != nil {
+		h.client.close()
+		h.client = nil
+	}
+	h.cmd.Process.Signal(syscall.SIGKILL)
+	h.cmd.Wait()
+	h.cmd = nil
+
+	h2 := startServerForSession(t, h.session, h.home)
+
+	paneOut := h2.runCmd("capture", "pane-1")
+	if strings.Contains(paneOut, "CRASH_BUSY_FRAME") {
+		t.Fatalf("busy pane should not replay stale visible screen after crash recovery, got:\n%s", paneOut)
+	}
+	if !strings.Contains(paneOut, "previous process lost during crash recovery") {
+		t.Fatalf("busy pane should show crash-recovery notice, got:\n%s", paneOut)
+	}
+
+	historyOut := h2.runCmd("capture", "--history", "pane-1")
+	if !strings.Contains(historyOut, "amux: archived pre-crash visible screen") {
+		t.Fatalf("history capture should include archived pre-crash marker, got:\n%s", historyOut)
+	}
+	if !strings.Contains(historyOut, "CRASH_BUSY_FRAME") {
+		t.Fatalf("history capture should preserve archived pre-crash visible output, got:\n%s", historyOut)
+	}
+}
+
 func makeThreeByThreeGridServer(t *testing.T, h *ServerHarness) {
 	t.Helper()
 

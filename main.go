@@ -491,7 +491,7 @@ func runServer(sessionName string, managedTakeover bool) {
 
 	triggerReload := make(chan struct{}, 1)
 	execPath, execErr := reload.ResolveExecutable()
-	if execErr == nil && !s.Env.NoWatch {
+	if execErr == nil && !s.Env.NoWatch && reload.ShouldWatchBinary(execPath) {
 		go reload.WatchBinary(execPath, triggerReload, nil)
 		go func() {
 			for range triggerReload {

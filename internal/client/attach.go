@@ -47,15 +47,8 @@ func RunSession(sessionName string) error {
 
 	sockPath := server.SocketPath(sessionName)
 
-	// Start server daemon if no socket exists
-	if !server.SocketAlive(sockPath) {
-		if err := server.StartDaemon(sessionName); err != nil {
-			return fmt.Errorf("starting server: %w", err)
-		}
-		// Wait for socket to appear
-		if err := server.WaitForSocket(sockPath, 5*time.Second); err != nil {
-			return err
-		}
+	if err := server.EnsureDaemon(sessionName, 5*time.Second); err != nil {
+		return err
 	}
 
 	conn, err := net.Dial("unix", sockPath)
@@ -112,7 +105,7 @@ func RunSession(sessionName string) error {
 	// client so only the inner client responds to binary changes).
 	triggerReload := make(chan struct{}, 1)
 	execPath, execErr := reload.ResolveExecutable()
-	if execErr == nil && os.Getenv("AMUX_NO_WATCH") != "1" {
+	if execErr == nil && os.Getenv("AMUX_NO_WATCH") != "1" && reload.ShouldWatchBinary(execPath) {
 		go reload.WatchBinary(execPath, triggerReload, nil)
 	}
 
