@@ -65,8 +65,9 @@ func TestHotReloadKeybinding(t *testing.T) {
 	}
 }
 
+// Binary-rebuild hot-reload tests share the installed test binary path used by
+// the outer harness, so they must stay serial.
 func TestHotReloadAutoDetect(t *testing.T) {
-	t.Parallel()
 	h := newAmuxHarness(t)
 
 	h.sendKeys("echo AUTORLD", "Enter")
@@ -90,8 +91,6 @@ func TestHotReloadAutoDetect(t *testing.T) {
 }
 
 func TestHotReloadIgnoresBinaryRewriteWhenInstallMetadataPointsAtDifferentRepo(t *testing.T) {
-	t.Parallel()
-
 	privateDir := t.TempDir()
 	privateBin := filepath.Join(privateDir, "amux")
 	if err := buildAmux(privateBin); err != nil {
@@ -170,7 +169,6 @@ func TestServerHotReload(t *testing.T) {
 }
 
 func TestServerAutoReload(t *testing.T) {
-	t.Parallel()
 	h := newAmuxHarness(t)
 
 	h.sendKeys("echo SRVAUTO", "Enter")
