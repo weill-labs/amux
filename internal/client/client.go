@@ -117,7 +117,8 @@ func (cr *ClientRenderer) SetInputIdle(idle bool) {
 // HandlePaneOutput feeds raw PTY data into a pane's local emulator.
 func (cr *ClientRenderer) HandlePaneOutput(paneID uint32, data []byte) {
 	cr.renderer.HandlePaneOutput(paneID, data)
-	cr.reduceUI(uiActionPaneOutput{})
+	result := cr.reduceUI(uiActionPaneOutput{})
+	cr.emitUIEvents(result.uiEvents)
 }
 
 // Render produces ANSI output compositing all panes. Returns empty if no layout.
@@ -169,11 +170,13 @@ func (cr *ClientRenderer) overlayState() render.OverlayState {
 }
 
 func (cr *ClientRenderer) ShowPrefixMessage(msg string) {
-	cr.reduceUI(uiActionSetMessage{message: msg})
+	result := cr.reduceUI(uiActionSetMessage{message: msg})
+	cr.emitUIEvents(result.uiEvents)
 }
 
 func (cr *ClientRenderer) ClearPrefixMessage() {
-	cr.reduceUI(uiActionClearMessage{})
+	result := cr.reduceUI(uiActionClearMessage{})
+	cr.emitUIEvents(result.uiEvents)
 }
 
 func (cr *ClientRenderer) prefixMessage() string {
@@ -446,16 +449,21 @@ func (cr *ClientRenderer) ShowCommandError(text string) bool {
 	if text == "" {
 		return false
 	}
-	cr.reduceUI(uiActionSetMessage{message: text})
+	result := cr.reduceUI(uiActionSetMessage{message: text})
+	cr.emitUIEvents(result.uiEvents)
 	return true
 }
 
 func (cr *ClientRenderer) ClearCommandFeedback() bool {
 	cr.mu.Lock()
 	changed := cr.ui.message != ""
-	cr.ui.reduce(uiActionClearMessage{})
 	cr.mu.Unlock()
-	return changed
+	if !changed {
+		return false
+	}
+	result := cr.reduceUI(uiActionClearMessage{})
+	cr.emitUIEvents(result.uiEvents)
+	return true
 }
 
 // EnterCopyMode enters copy mode for the given pane. Thread-safe.

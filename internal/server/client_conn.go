@@ -13,19 +13,20 @@ import (
 
 // ClientConn manages a single client connection to the server.
 type ClientConn struct {
-	conn              net.Conn
-	ID                string
-	displayPanesShown bool
-	chooserMode       string
-	copyModeShown     bool
-	inputIdle         bool
-	mu                sync.Mutex
-	closed            bool
-	cols              int // last reported terminal width
-	rows              int // last reported terminal height
-	bootstrapping     bool
-	minOutputSeq      map[uint32]uint64
-	pendingMessages   []pendingMessage
+	conn               net.Conn
+	ID                 string
+	displayPanesShown  bool
+	prefixMessageShown bool
+	chooserMode        string
+	copyModeShown      bool
+	inputIdle          bool
+	mu                 sync.Mutex
+	closed             bool
+	cols               int // last reported terminal width
+	rows               int // last reported terminal height
+	bootstrapping      bool
+	minOutputSeq       map[uint32]uint64
+	pendingMessages    []pendingMessage
 }
 
 type pendingMessage struct {

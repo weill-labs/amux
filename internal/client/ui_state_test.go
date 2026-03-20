@@ -32,6 +32,7 @@ func TestClientUIStateReduceLayoutStructureChangeClearsTransientUI(t *testing.T)
 	assertUIEvents(t, effects.uiEvents, []string{
 		proto.UIEventDisplayPanesHidden,
 		proto.UIEventChooseWindowHidden,
+		proto.UIEventPrefixMessageHidden,
 	})
 }
 

@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/creack/pty"
 	"golang.org/x/crypto/ssh"
@@ -96,6 +97,7 @@ func startTestSSHServer(t *testing.T, authorizedKey ssh.PublicKey) string {
 	t.Cleanup(func() {
 		ln.Close()
 		wg.Wait()
+		killAmuxServersForHome(homeDir)
 	})
 
 	wg.Add(1)
@@ -115,6 +117,45 @@ func startTestSSHServer(t *testing.T, authorizedKey ssh.PublicKey) string {
 	}()
 
 	return ln.Addr().String()
+}
+
+func amuxServerPIDsForHome(homeDir string) []string {
+	out, err := exec.Command("pgrep", "-f", "amux _server ").Output()
+	if err != nil {
+		return nil
+	}
+
+	var pids []string
+	for _, pid := range strings.Fields(string(out)) {
+		psOut, err := exec.Command("ps", "eww", "-p", pid, "-o", "command=").Output()
+		if err != nil {
+			continue
+		}
+		if strings.Contains(string(psOut), "HOME="+homeDir) {
+			pids = append(pids, pid)
+		}
+	}
+	return pids
+}
+
+func killAmuxServersForHome(homeDir string) {
+	for _, pid := range amuxServerPIDsForHome(homeDir) {
+		_ = exec.Command("kill", pid).Run()
+	}
+
+	deadline := time.After(2 * time.Second)
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if len(amuxServerPIDsForHome(homeDir)) == 0 {
+			return
+		}
+		select {
+		case <-deadline:
+			return
+		case <-ticker.C:
+		}
+	}
 }
 
 // handleSSHConn performs the SSH handshake and dispatches channels.

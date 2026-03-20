@@ -842,6 +842,54 @@ func TestPrefixMessageDisplayOnly(t *testing.T) {
 	}
 }
 
+func TestPrefixMessageUIEvents(t *testing.T) {
+	t.Parallel()
+
+	cr := buildTestRenderer(t)
+	var events []string
+	cr.OnUIEvent = func(name string) {
+		events = append(events, name)
+	}
+
+	cr.ShowPrefixMessage("No binding for C-a f")
+	cr.ShowPrefixMessage("No binding for C-a g")
+	cr.ClearPrefixMessage()
+	cr.ClearPrefixMessage()
+
+	want := []string{proto.UIEventPrefixMessageShown, proto.UIEventPrefixMessageHidden}
+	if len(events) != len(want) {
+		t.Fatalf("events = %v, want %v", events, want)
+	}
+	for i := range want {
+		if events[i] != want[i] {
+			t.Fatalf("events[%d] = %q, want %q", i, events[i], want[i])
+		}
+	}
+}
+
+func TestHandlePaneOutputClearsPrefixMessageEmitsHidden(t *testing.T) {
+	t.Parallel()
+
+	cr := buildTestRenderer(t)
+	var events []string
+	cr.OnUIEvent = func(name string) {
+		events = append(events, name)
+	}
+
+	cr.ShowPrefixMessage("No binding for C-a f")
+	cr.HandlePaneOutput(1, []byte("shell output"))
+
+	want := []string{proto.UIEventPrefixMessageShown, proto.UIEventPrefixMessageHidden}
+	if len(events) != len(want) {
+		t.Fatalf("events = %v, want %v", events, want)
+	}
+	for i := range want {
+		if events[i] != want[i] {
+			t.Fatalf("events[%d] = %q, want %q", i, events[i], want[i])
+		}
+	}
+}
+
 func TestChooseTreeFilterAndSelection(t *testing.T) {
 	t.Parallel()
 
@@ -998,6 +1046,29 @@ func TestHandleLayoutPreservesDisplayPanesOnNonStructuralChange(t *testing.T) {
 	}
 	if events[0] != proto.UIEventDisplayPanesShown {
 		t.Fatalf("events[0] = %q, want %q", events[0], proto.UIEventDisplayPanesShown)
+	}
+}
+
+func TestHandleLayoutClearsPrefixMessageEmitsHidden(t *testing.T) {
+	t.Parallel()
+
+	cr := buildTestRenderer(t)
+	var events []string
+	cr.OnUIEvent = func(name string) {
+		events = append(events, name)
+	}
+	cr.ShowPrefixMessage("No binding for C-a f")
+
+	cr.HandleLayout(twoPane80x23())
+
+	want := []string{proto.UIEventPrefixMessageShown, proto.UIEventPrefixMessageHidden}
+	if len(events) != len(want) {
+		t.Fatalf("events = %v, want %v", events, want)
+	}
+	for i := range want {
+		if events[i] != want[i] {
+			t.Fatalf("events[%d] = %q, want %q", i, events[i], want[i])
+		}
 	}
 }
 
