@@ -195,6 +195,43 @@ func TestEnsureInitialWindowCreatesPaneWithoutClient(t *testing.T) {
 	pane.Close()
 }
 
+func TestEnsureInitialWindowReturnsErrorWithoutSession(t *testing.T) {
+	t.Parallel()
+
+	srv := &Server{sessions: map[string]*Session{}}
+	if err := srv.EnsureInitialWindow(80, 24); err == nil || err.Error() != "no session" {
+		t.Fatalf("EnsureInitialWindow error = %v, want no session", err)
+	}
+}
+
+func TestEnsureInitialWindowIsNoOpWhenSessionAlreadyInitialized(t *testing.T) {
+	t.Parallel()
+
+	sess := newSession("test-managed-startup-noop")
+	srv := &Server{sessions: map[string]*Session{sess.Name: sess}}
+	defer stopSessionBackgroundLoops(t, sess)
+
+	if err := srv.EnsureInitialWindow(80, 24); err != nil {
+		t.Fatalf("first EnsureInitialWindow: %v", err)
+	}
+	if err := srv.EnsureInitialWindow(120, 40); err != nil {
+		t.Fatalf("second EnsureInitialWindow: %v", err)
+	}
+
+	pane := mustSessionQuery(t, sess, func(sess *Session) *mux.Pane {
+		if len(sess.Windows) != 1 {
+			t.Fatalf("window count = %d, want 1", len(sess.Windows))
+		}
+		if len(sess.Panes) != 1 {
+			t.Fatalf("pane count = %d, want 1", len(sess.Panes))
+		}
+		return sess.Panes[0]
+	})
+
+	sess.shutdown.Store(true)
+	pane.Close()
+}
+
 func TestEnqueueAttachClientReturnsOnSessionShutdown(t *testing.T) {
 	t.Parallel()
 
