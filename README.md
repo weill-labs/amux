@@ -3,7 +3,9 @@
 [![CI](https://github.com/weill-labs/amux/actions/workflows/ci.yml/badge.svg)](https://github.com/weill-labs/amux/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/weill-labs/amux/graph/badge.svg?token=RY0CPn9v7g)](https://codecov.io/gh/weill-labs/amux)
 
-GUIs force screenshots and vision models. Headless APIs cut the human out. amux sits in between: a shared TUI where humans use keybindings and agents use CLI commands — same panes, same state.
+GUIs force screenshots and vision models. Headless APIs cut the human out.
+
+**amux** is a shared TUI grid where humans use keybindings and agents use CLI commands. Same panes, same state.
 
 Structured JSON capture, blocking waits, and push-based events — no polling, no screen-scraping.
 
@@ -11,7 +13,7 @@ Structured JSON capture, blocking waits, and push-based events — no polling, n
 
 ## How it works
 
-The VT emulator's parsed state is the single source of truth, rendered two ways:
+The VT emulator's parsed state is the source of truth, rendered two ways:
 
 ```
 PTY output (raw bytes)
@@ -27,8 +29,6 @@ PTY output (raw bytes)
 ```bash
 go install github.com/weill-labs/amux@latest
 ```
-
-Single binary, no runtime dependencies.
 
 ## Quick Start
 
@@ -111,7 +111,7 @@ amux capture --format json pane-1
 
 ### Wait Commands
 
-Block until a condition is met — no polling loops.
+Block until a condition is met. No polling.
 
 | Command | Description | Default timeout |
 |---------|-------------|-----------------|
@@ -140,11 +140,9 @@ Use `amux list-clients` to discover attached client IDs for `--client` and `wait
 {"type":"busy","ts":"2025-06-15T10:30:05.789Z","pane_id":2,"pane_name":"pane-2","host":"lambda-a100"}
 ```
 
-Event types: `layout`, `output`, `idle`, `busy`. New subscribers receive the current state as an initial snapshot — no events are missed between subscribe and the first real event.
+Event types: `layout`, `output`, `idle`, `busy`. New subscribers receive the current state as an initial snapshot, so no events are missed between subscribe and the first real event.
 
 ### Agent Loop Example
-
-A concrete example combining send, wait, and capture:
 
 ```bash
 #!/usr/bin/env bash
@@ -183,7 +181,7 @@ fi
 Control mode still delivers raw pane content and requires polling. amux has blocking waits (`wait-idle`, `wait-for`) and push-based events — an agent subscribes once and reacts to state changes without polling.
 
 **Why not headless (expect/pexpect)?**
-Headless tools cut the human out of the loop. The amux thesis is that humans and agents work better together on a shared screen in real time. Both see the same panes, both can act on them.
+Headless tools cut the human out of the loop. Humans and agents work better on a shared screen. Both see the same panes, both can act on them.
 
 **Does amux support all tmux features?**
 No, and it doesn't aim to. amux implements what matters for human+agent pairing: splits, windows, zoom, minimize, remote hosts, searchable choosers, and the agent API. If you need tmux's full feature set (session groups, advanced hooks), use tmux.
@@ -342,7 +340,7 @@ Built-in presets:
 
 ## AI Agent Support
 
-Shared repo guidance lives in [AGENTS.md](AGENTS.md). This is the canonical instruction file for coding agents in this repo.
+Shared repo guidance lives in [AGENTS.md](AGENTS.md). This is the instruction file for coding agents in this repo.
 
 - Claude Code also loads repo automation from `.claude/settings.json` and `.claude/hooks/`.
 - Codex reads `AGENTS.md` and can discover repo skills from `.agents/skills/`.
