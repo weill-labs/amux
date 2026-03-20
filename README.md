@@ -5,7 +5,7 @@
 
 GUIs force screenshots and vision models. Headless APIs cut the human out.
 
-amux is a shared TUI where humans use keybindings and agents use CLI commands. Same panes, same state.
+amux is a shared TUI grid where humans use keybindings and agents use CLI commands. Same panes, same state.
 
 Structured JSON capture, blocking waits, and push-based events — no polling, no screen-scraping.
 
