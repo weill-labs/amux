@@ -15,6 +15,7 @@ Use this skill when the task involves `git push`, `gh pr create`, `gh pr merge`,
 - This repo is squash-only on GitHub. Use `gh pr merge --squash`; merge and rebase merges will fail.
 - GitHub auto-merge is disabled on this repo. Wait for green checks, then merge manually.
 - Prefer `gh pr create --body-file ...` for multiline PR descriptions, especially when they include backticks or code fences.
+- In `amux`, if the change is ready for review, open the PR proactively instead of asking whether to make one.
 - Do not present a PR as done until it has had both a review pass and a simplification pass.
 - If benchmarks changed, add a `Baseline numbers` section to the PR description with representative results and hardware.
 - If a rebase triggers broad noisy local failures, verify with a targeted regression slice before making invasive code changes.
@@ -27,7 +28,7 @@ Use this skill when the task involves `git push`, `gh pr create`, `gh pr merge`,
 
 1. Confirm the relevant tests ran and note any gaps.
 2. If this is the first push for the branch, rebase onto `origin/main`.
-3. Create or update the PR. Use `gh pr create --body-file ...` when the body is multiline.
+3. Create or update the PR as soon as the branch is ready for review. Use `gh pr create --body-file ...` when the body is multiline.
 4. Run a review pass. Prefer `codex review` when available.
 5. Run a simplification pass focused on unnecessary complexity and cleanup opportunities.
 6. If the branch had to be rebased or conflict-resolved after the PR was open, rerun both passes on that rebased diff before pushing again.
