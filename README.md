@@ -30,8 +30,6 @@ PTY output (raw bytes)
 go install github.com/weill-labs/amux@latest
 ```
 
-Single binary, no runtime dependencies.
-
 ## Quick Start
 
 **Human**
