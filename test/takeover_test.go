@@ -95,7 +95,8 @@ func TestTakeoverAttachFailureLeavesSSHPaneVisible(t *testing.T) {
 	if len(c.Panes) != 1 || c.Panes[0].Name != "pane-1" {
 		t.Fatalf("failed takeover should leave only the raw SSH pane\ncapture:\n%s", h.capture())
 	}
-	if !strings.Contains(c.Notice, "SSH dial 127.0.0.1:1") {
+	const wantNoticePrefix = "takeover badhost (127.0.0.1:1): "
+	if !strings.HasPrefix(c.Notice, wantNoticePrefix) || len(c.Notice) == len(wantNoticePrefix) {
 		t.Fatalf("expected takeover failure notice in JSON capture, got %+v", c)
 	}
 	if screen := h.capture(); !strings.Contains(screen, "takeover badhost") {
@@ -131,7 +132,7 @@ func TestTakeoverAttachHostKeyMismatchShowsNotice(t *testing.T) {
 func TestTakeoverFailureNoticeExpires(t *testing.T) {
 	t.Parallel()
 
-	h := newServerHarnessWithOptions(t, 80, 24, "", true, "AMUX_NOTICE_DURATION=75ms")
+	h := newServerHarnessWithOptions(t, 80, 24, "", true, "AMUX_NOTICE_DURATION=500ms")
 	h.sendKeys("pane-1",
 		`printf '\033]999;amux-takeover;{"session":"default@badhost","host":"badhost","uid":"1","ssh_address":"127.0.0.1:1","ssh_user":"nobody","panes":[{"id":1,"name":"pane-1","cols":80,"rows":22}]}\007'`,
 		"Enter",
