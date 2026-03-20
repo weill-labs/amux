@@ -487,26 +487,9 @@ func TestEventsThrottleCoalesces(t *testing.T) {
 	h.sendKeys("pane-1", "seq 1 100", "Enter")
 
 	// Collect output events for 500ms — enough for ~10 ticker intervals.
-	var count int
-	deadline := time.After(500 * time.Millisecond)
-	for {
-		ev := readEvent(t, scanner, 600*time.Millisecond)
-		if ev.TimedOut {
-			break
-		}
-		if ev.Type == "output" {
-			count++
-		}
-		select {
-		case <-deadline:
-			goto done
-		default:
-		}
-	}
-done:
+	count := countEvents(t, scanner, "output", 500*time.Millisecond)
 	// With 50ms throttle over 500ms, we expect roughly 10 events (one per tick).
 	// Without throttle, we'd get one event per PTY write (~100+).
-	// Assert that throttle cut the event count significantly.
 	if count > 30 {
 		t.Errorf("expected throttle to coalesce output events, got %d (want <30)", count)
 	}
@@ -529,23 +512,7 @@ func TestEventsThrottleDisabled(t *testing.T) {
 	h.sendKeys("pane-1", "seq 1 50", "Enter")
 
 	// Collect output events for 500ms.
-	var count int
-	deadline := time.After(500 * time.Millisecond)
-	for {
-		ev := readEvent(t, scanner, 600*time.Millisecond)
-		if ev.TimedOut {
-			break
-		}
-		if ev.Type == "output" {
-			count++
-		}
-		select {
-		case <-deadline:
-			goto done
-		default:
-		}
-	}
-done:
+	count := countEvents(t, scanner, "output", 500*time.Millisecond)
 	// With throttle disabled, output events pass through without delay.
 	// PTY batching means even rapid output produces only a handful of events.
 	if count < 1 {
