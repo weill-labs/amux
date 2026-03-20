@@ -183,6 +183,48 @@ func TestHostConnStateTransitions(t *testing.T) {
 	}
 }
 
+func TestReconnectTargetUsesStoredConnectAddr(t *testing.T) {
+	t.Parallel()
+
+	hc := NewHostConn("test-remote", config.Host{Address: "wrong-host"}, "hash", nil, nil, nil)
+	defer hc.Close()
+
+	testInActor(hc, func(hc *HostConn) {
+		hc.sessionName = "default@test"
+		hc.remoteUID = "1000"
+		hc.connectAddr = "127.0.0.1:2222"
+		hc.takeoverMode = true
+
+		target := hc.reconnectTarget()
+		if target.sessionName != "default@test" {
+			t.Fatalf("target.sessionName = %q, want default@test", target.sessionName)
+		}
+		if target.remoteUID != "1000" {
+			t.Fatalf("target.remoteUID = %q, want 1000", target.remoteUID)
+		}
+		if target.connectAddr != "127.0.0.1:2222" {
+			t.Fatalf("target.connectAddr = %q, want 127.0.0.1:2222", target.connectAddr)
+		}
+		if !target.takeover {
+			t.Fatal("target.takeover = false, want true")
+		}
+	})
+}
+
+func TestReconnectTargetFallsBackToHostName(t *testing.T) {
+	t.Parallel()
+
+	hc := NewHostConn("test-remote", config.Host{}, "hash", nil, nil, nil)
+	defer hc.Close()
+
+	testInActor(hc, func(hc *HostConn) {
+		target := hc.reconnectTarget()
+		if target.connectAddr != "test-remote:22" {
+			t.Fatalf("target.connectAddr = %q, want test-remote:22", target.connectAddr)
+		}
+	})
+}
+
 func TestRemovePane(t *testing.T) {
 	t.Parallel()
 

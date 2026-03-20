@@ -12,6 +12,8 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
+const remoteInstallPath = "$HOME/.local/bin/amux"
+
 // DeployBinary ensures the remote host has a matching amux binary.
 // Strategy:
 //  1. Remote hash matches local → skip (already up to date)
@@ -152,10 +154,7 @@ func downloadReleaseBinary(client *ssh.Client, goos, goarch, version string) err
 	url := fmt.Sprintf("https://github.com/weill-labs/amux/releases/download/v%s/%s", version, archiveName)
 
 	// Try remote curl: download directly on the remote host
-	remoteCmd := fmt.Sprintf(
-		`mkdir -p ~/.local/bin && cd /tmp && curl -fsSL %q -o %q && tar xzf %q amux && mv amux ~/.local/bin/amux && chmod +x ~/.local/bin/amux && rm -f %q`,
-		url, archiveName, archiveName, archiveName,
-	)
+	remoteCmd := remoteReleaseInstallCmd(url, archiveName)
 	if err := sshRunErr(client, remoteCmd); err == nil {
 		return nil
 	}
@@ -199,8 +198,6 @@ func uploadBinary(client *ssh.Client, localPath string) error {
 		return fmt.Errorf("reading local binary: %w", err)
 	}
 
-	sshRun(client, "mkdir -p ~/.local/bin")
-
 	sess, err := client.NewSession()
 	if err != nil {
 		return err
@@ -208,11 +205,25 @@ func uploadBinary(client *ssh.Client, localPath string) error {
 	defer sess.Close()
 
 	sess.Stdin = bytes.NewReader(data)
-	if err := sess.Run("cat > ~/.local/bin/amux && chmod +x ~/.local/bin/amux"); err != nil {
+	if err := sess.Run(remoteInstallStdinCmd(remoteInstallPath)); err != nil {
 		return fmt.Errorf("uploading binary: %w", err)
 	}
 
 	return nil
+}
+
+func remoteInstallStdinCmd(destPath string) string {
+	return fmt.Sprintf(
+		`set -eu; dir=$(dirname %q); mkdir -p "$dir"; tmp=$(mktemp "$dir/.amux.tmp.XXXXXX"); cleanup() { rm -f "$tmp"; }; trap cleanup EXIT; cat > "$tmp"; chmod +x "$tmp"; mv "$tmp" %q; trap - EXIT`,
+		destPath, destPath,
+	)
+}
+
+func remoteReleaseInstallCmd(url, archiveName string) string {
+	return fmt.Sprintf(
+		`set -eu; dir=$(dirname %q); mkdir -p "$dir"; tmp=$(mktemp "$dir/.amux.tmp.XXXXXX"); archive=$(mktemp "/tmp/%s.XXXXXX"); extract=$(mktemp -d "/tmp/amux-extract.XXXXXX"); cleanup() { rm -f "$tmp" "$archive"; rm -rf "$extract"; }; trap cleanup EXIT; curl -fsSL %q -o "$archive"; tar xzf "$archive" -C "$extract" amux; chmod +x "$extract/amux"; mv "$extract/amux" "$tmp"; mv "$tmp" %q; trap - EXIT`,
+		remoteInstallPath, archiveName, url, remoteInstallPath,
+	)
 }
 
 // sshOutput runs a command on the remote and returns trimmed stdout.
