@@ -38,6 +38,10 @@ trap cleanup EXIT
 go build -o "$tmp" .
 
 if [[ $(uname -s) == Darwin ]]; then
+	# Strip com.apple.provenance xattr that macOS Sequoia sets on files
+	# created in SSH sessions. Without this, taskgated rejects ad-hoc
+	# signed binaries at launch (SIGKILL "Code Signature Invalid").
+	xattr -d com.apple.provenance "$tmp" 2>/dev/null || true
 	if ! codesign -f -s - "$tmp" >/dev/null 2>&1; then
 		echo "amux build: codesign failed for $tmp" >&2
 		exit 1
