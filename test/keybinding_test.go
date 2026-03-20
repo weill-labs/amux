@@ -232,6 +232,9 @@ unbind = ["o"]
 	if !h.waitFor("[pane-2]", 3*time.Second) {
 		t.Fatalf("expected post-split UI before testing unbound-key feedback, got:\n%s", h.captureOuter())
 	}
+	if out := h.runCmd("wait-idle", "pane-2", "--timeout", "10s"); strings.Contains(out, "timeout") || strings.Contains(out, "not found") {
+		t.Fatalf("expected split pane to go idle before unbound-key feedback test, got: %s\nouter:\n%s", strings.TrimSpace(out), h.captureOuter())
+	}
 	h.sendKeys("C-a", "o")
 	if ev := mustReadEvent(t, scanner, 5*time.Second); ev.Type != proto.UIEventPrefixMessageShown {
 		t.Fatalf("unbound-key event: got %q, want %q", ev.Type, proto.UIEventPrefixMessageShown)
