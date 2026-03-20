@@ -32,6 +32,10 @@ See [README.md -- Philosophy](README.md#philosophy) for the project thesis and t
 
 **Integration tests for end-to-end behavior.** The harness in `test/server_harness_test.go` drives amux directly over the Unix socket -- no tmux dependency. Tests run in ~6s total.
 
+**Tests that mutate package globals must stay serial.** If a test overrides package-level hooks or globals (for example `copyToClipboard`), do not call `t.Parallel()` in that test. Parallel siblings will race on shared state and produce misleading failures under `-race`.
+
+**Use the persistent harness when server lifetime matters.** Prefer `newServerHarnessPersistent()` for integration tests that must keep the server alive independent of client detach timing or transient attachment windows. Use the default harness when exit-on-unattached behavior is part of the behavior under test.
+
 **Guard against impossible states.** Minimize checks that at least one pane stays non-minimized. Restore caps height at available space. Focus fallback finds nearest pane when strict overlap matching fails.
 
 **Save/restore cursor state in copy mode motions.** Compound motions (word, paragraph, etc.) call `moveDown()`/`moveUp()` in scanning loops. These helpers mutate `cy`/`oy` on each call, so the caller must save both values before the loop and restore them when returning `ActionNone`. Otherwise the cursor drifts silently on failed motions.
@@ -107,6 +111,8 @@ After resolving merge conflicts, run `go vet ./...` locally before committing. G
 GitHub PRs for this repo are squash-only. `gh pr merge --merge` and `gh pr merge --rebase` will fail.
 
 After merging, verify local state explicitly: check that the checkout is on `main`, the worktree is clean, and `HEAD` matches `origin/main`. If you need another change after the merge, start a fresh branch and PR instead of committing follow-up fixes on local `main`.
+
+After merging, explicitly run the `postmortem` skill. A short manual recap is not a substitute for the postmortem workflow.
 
 ### Include Baseline Numbers In Performance PRs
 
