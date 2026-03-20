@@ -87,17 +87,17 @@ func TestNormalizeAddr(t *testing.T) {
 	}
 }
 
-func TestRemoteSessionName(t *testing.T) {
+func TestManagedSessionName(t *testing.T) {
 	t.Parallel()
 
-	name := remoteSessionName("default")
+	name := ManagedSessionName("default")
 	hostname, _ := os.Hostname()
 
 	if !strings.HasPrefix(name, "default@") {
-		t.Errorf("remoteSessionName should start with session name, got %q", name)
+		t.Errorf("ManagedSessionName should start with session name, got %q", name)
 	}
 	if !strings.HasSuffix(name, "@"+hostname) {
-		t.Errorf("remoteSessionName should end with @hostname, got %q", name)
+		t.Errorf("ManagedSessionName should end with @hostname, got %q", name)
 	}
 }
 
