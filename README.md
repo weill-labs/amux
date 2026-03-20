@@ -3,7 +3,9 @@
 [![CI](https://github.com/weill-labs/amux/actions/workflows/ci.yml/badge.svg)](https://github.com/weill-labs/amux/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/weill-labs/amux/graph/badge.svg?token=RY0CPn9v7g)](https://codecov.io/gh/weill-labs/amux)
 
-GUIs force screenshots and vision models. Headless APIs cut the human out. amux sits in between: a shared TUI where humans use keybindings and agents use CLI commands — same panes, same state.
+GUIs force screenshots and vision models. Headless APIs cut the human out.
+
+amux is a shared TUI where humans use keybindings and agents use CLI commands. Same panes, same state.
 
 Structured JSON capture, blocking waits, and push-based events — no polling, no screen-scraping.
 
@@ -11,7 +13,7 @@ Structured JSON capture, blocking waits, and push-based events — no polling, n
 
 ## How it works
 
-The VT emulator's parsed state is the single source of truth, rendered two ways:
+The VT emulator's parsed state is the source of truth, rendered two ways:
 
 ```
 PTY output (raw bytes)
