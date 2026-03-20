@@ -50,6 +50,7 @@ func TestCrashRoundTrip(t *testing.T) {
 				Meta:      mux.PaneMeta{Name: "pane-1", Host: "local", Color: "f38ba8"},
 				Cols:      39,
 				Rows:      22,
+				History:   []string{"old-1", "old-2"},
 				Screen:    "hello world",
 				CreatedAt: now,
 				Cwd:       "/home/user/project",
@@ -59,6 +60,7 @@ func TestCrashRoundTrip(t *testing.T) {
 				Meta:      mux.PaneMeta{Name: "pane-2", Host: "remote", Task: "TASK-1", Color: "a6e3a1", Minimized: true, RestoreH: 12},
 				Cols:      39,
 				Rows:      22,
+				History:   []string{"remote-old-1"},
 				Screen:    "$ echo test\ntest",
 				CreatedAt: now,
 				IsProxy:   true,
@@ -115,6 +117,15 @@ func TestCrashRoundTrip(t *testing.T) {
 		}
 		if got.Rows != want.Rows {
 			t.Errorf("PaneStates[%d].Rows = %d, want %d", i, got.Rows, want.Rows)
+		}
+		if len(got.History) != len(want.History) {
+			t.Errorf("PaneStates[%d].History len = %d, want %d", i, len(got.History), len(want.History))
+		} else {
+			for j := range want.History {
+				if got.History[j] != want.History[j] {
+					t.Errorf("PaneStates[%d].History[%d] = %q, want %q", i, j, got.History[j], want.History[j])
+				}
+			}
 		}
 		if got.Screen != want.Screen {
 			t.Errorf("PaneStates[%d].Screen = %q, want %q", i, got.Screen, want.Screen)

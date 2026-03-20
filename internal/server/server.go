@@ -115,7 +115,7 @@ type Session struct {
 
 // buildCrashCheckpoint builds a crash checkpoint from the current session state.
 // Unlike the hot-reload checkpoint, this omits FDs/PIDs (they can't survive a crash)
-// and captures screen content and cwd for each pane.
+// and captures retained history, screen content, and cwd for each pane.
 func (s *Session) buildCrashCheckpoint() *checkpoint.CrashCheckpoint {
 	type pidEntry struct {
 		index int
@@ -145,10 +145,12 @@ func (s *Session) buildCrashCheckpoint() *checkpoint.CrashCheckpoint {
 
 		var cwdWork []pidEntry
 		for _, p := range s.Panes {
+			history, screen, _ := p.HistoryScreenSnapshot()
 			ps := checkpoint.CrashPaneState{
 				ID:        p.ID,
 				Meta:      p.Meta,
-				Screen:    p.RenderScreen(),
+				History:   history,
+				Screen:    screen,
 				CreatedAt: p.CreatedAt(),
 				IsProxy:   p.IsProxy(),
 			}
@@ -187,8 +189,8 @@ func (s *Session) buildCrashCheckpoint() *checkpoint.CrashCheckpoint {
 }
 
 // startCrashCheckpointLoop starts the background goroutine that writes crash
-// checkpoints on layout changes (debounced 500ms) and periodic screen content
-// snapshots (every 30s).
+// checkpoints on layout and pane-output changes (debounced 500ms) and periodic
+// full snapshots (every 30s).
 func (s *Session) startCrashCheckpointLoop() {
 	// Ensure the checkpoint directory exists before tests or tooling watch it.
 	// Writes still happen lazily on layout changes.
@@ -201,7 +203,7 @@ func (s *Session) startCrashCheckpointLoop() {
 	go s.crashCheckpointLoop()
 }
 
-// crashCheckpointLoop debounces layout-change triggers and writes crash
+// crashCheckpointLoop debounces checkpoint triggers and writes crash
 // checkpoints periodically. Runs until crashCheckpointStop is closed.
 func (s *Session) crashCheckpointLoop() {
 	defer close(s.crashCheckpointDone)
@@ -420,6 +422,7 @@ func NewServerFromCrashCheckpoint(sessionName string, cp *checkpoint.CrashCheckp
 		if !ps.CreatedAt.IsZero() {
 			pane.SetCreatedAt(ps.CreatedAt)
 		}
+		pane.SetRetainedHistory(ps.History)
 
 		// Replay last-known screen content so user/agent sees where they left off
 		if ps.Screen != "" {
@@ -560,6 +563,7 @@ func (s *Server) handleAttach(conn net.Conn, msg *Message) {
 
 	cc := NewClientConn(conn)
 	cc.ID = fmt.Sprintf("client-%d", sess.clientCounter.Add(1))
+	cc.startBootstrap()
 
 	cols, rows := msg.Cols, msg.Rows
 	if cols <= 0 {
@@ -575,9 +579,15 @@ func (s *Server) handleAttach(conn net.Conn, msg *Message) {
 	}
 
 	cc.Send(&Message{Type: MsgTypeLayout, Layout: res.snap})
-	for _, pr := range res.paneRenders {
-		cc.Send(&Message{Type: MsgTypePaneOutput, PaneID: pr.paneID, PaneData: pr.data})
+	bootstrapSeqs := make(map[uint32]uint64, len(res.paneSnapshots))
+	for _, ps := range res.paneSnapshots {
+		if len(ps.history) > 0 {
+			cc.Send(&Message{Type: MsgTypePaneHistory, PaneID: ps.paneID, History: ps.history})
+		}
+		cc.Send(&Message{Type: MsgTypePaneOutput, PaneID: ps.paneID, PaneData: ps.screen})
+		bootstrapSeqs[ps.paneID] = ps.outputSeq
 	}
+	cc.finishBootstrap(bootstrapSeqs)
 
 	// Broadcast layout to other clients so they see the updated dimensions.
 	sess.broadcastLayout()

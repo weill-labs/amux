@@ -39,6 +39,10 @@ func TestRoundTrip(t *testing.T) {
 				PID:    1234,
 				Cols:   39,
 				Rows:   22,
+				History: []string{
+					"old-1",
+					"old-2",
+				},
 				Screen: "hello world",
 			},
 			{
@@ -48,6 +52,9 @@ func TestRoundTrip(t *testing.T) {
 				PID:    5678,
 				Cols:   39,
 				Rows:   22,
+				History: []string{
+					"remote-old-1",
+				},
 				Screen: "$ echo test\ntest",
 			},
 		},
@@ -101,6 +108,14 @@ func TestRoundTrip(t *testing.T) {
 		}
 		if got.Rows != want.Rows {
 			t.Errorf("Pane[%d].Rows = %d, want %d", i, got.Rows, want.Rows)
+		}
+		if len(got.History) != len(want.History) {
+			t.Fatalf("Pane[%d].History len = %d, want %d", i, len(got.History), len(want.History))
+		}
+		for j := range want.History {
+			if got.History[j] != want.History[j] {
+				t.Errorf("Pane[%d].History[%d] = %q, want %q", i, j, got.History[j], want.History[j])
+			}
 		}
 		if got.Screen != want.Screen {
 			t.Errorf("Pane[%d].Screen = %q, want %q", i, got.Screen, want.Screen)

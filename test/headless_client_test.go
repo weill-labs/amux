@@ -103,6 +103,9 @@ func (hc *headlessClient) readLoop() {
 		case server.MsgTypeLayout:
 			hc.renderer.HandleLayout(msg.Layout)
 			hc.readyOnce.Do(func() { close(hc.ready) })
+		case server.MsgTypePaneHistory:
+			// Headless clients only serve screen captures, so retained history
+			// bootstrap can be ignored here.
 		case server.MsgTypePaneOutput:
 			hc.renderer.HandlePaneOutput(msg.PaneID, msg.PaneData)
 		case server.MsgTypeCaptureRequest:

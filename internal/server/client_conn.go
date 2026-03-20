@@ -23,6 +23,15 @@ type ClientConn struct {
 	closed            bool
 	cols              int // last reported terminal width
 	rows              int // last reported terminal height
+	bootstrapping     bool
+	minOutputSeq      map[uint32]uint64
+	pendingMessages   []pendingMessage
+}
+
+type pendingMessage struct {
+	msg       *Message
+	paneID    uint32
+	outputSeq uint64
 }
 
 // NewClientConn wraps a net.Conn for protocol communication.
@@ -34,10 +43,7 @@ func NewClientConn(conn net.Conn) *ClientConn {
 func (cc *ClientConn) Send(msg *Message) error {
 	cc.mu.Lock()
 	defer cc.mu.Unlock()
-	if cc.closed {
-		return nil
-	}
-	return WriteMsg(cc.conn, msg)
+	return cc.writeLocked(msg)
 }
 
 // Close shuts down the connection.
@@ -48,6 +54,101 @@ func (cc *ClientConn) Close() {
 		cc.closed = true
 		cc.conn.Close()
 	}
+}
+
+func (cc *ClientConn) startBootstrap() {
+	cc.mu.Lock()
+	defer cc.mu.Unlock()
+	cc.bootstrapping = true
+	cc.minOutputSeq = make(map[uint32]uint64)
+	cc.pendingMessages = nil
+}
+
+func (cc *ClientConn) finishBootstrap(minOutputSeq map[uint32]uint64) {
+	cc.mu.Lock()
+	defer cc.mu.Unlock()
+
+	cc.minOutputSeq = cloneMinOutputSeq(minOutputSeq)
+	for _, pending := range cc.pendingMessages {
+		if pending.outputSeq != 0 && pending.outputSeq <= cc.minOutputSeq[pending.paneID] {
+			continue
+		}
+		if err := cc.writeLocked(pending.msg); err != nil {
+			break
+		}
+	}
+	cc.pendingMessages = nil
+	cc.bootstrapping = false
+}
+
+func (cc *ClientConn) sendBroadcast(msg *Message) {
+	cc.mu.Lock()
+	defer cc.mu.Unlock()
+	if cc.closed {
+		return
+	}
+	if cc.bootstrapping {
+		cc.pendingMessages = append(cc.pendingMessages, pendingMessage{msg: cloneMessage(msg)})
+		return
+	}
+	_ = cc.writeLocked(msg)
+}
+
+func (cc *ClientConn) sendPaneOutput(msg *Message, paneID uint32, seq uint64) {
+	cc.mu.Lock()
+	defer cc.mu.Unlock()
+	if cc.closed {
+		return
+	}
+	if cc.bootstrapping {
+		cc.pendingMessages = append(cc.pendingMessages, pendingMessage{
+			msg:       cloneMessage(msg),
+			paneID:    paneID,
+			outputSeq: seq,
+		})
+		return
+	}
+	if seq != 0 && seq <= cc.minOutputSeq[paneID] {
+		return
+	}
+	_ = cc.writeLocked(msg)
+}
+
+func (cc *ClientConn) isBootstrapping() bool {
+	cc.mu.Lock()
+	defer cc.mu.Unlock()
+	return cc.bootstrapping
+}
+
+func (cc *ClientConn) writeLocked(msg *Message) error {
+	if cc.closed {
+		return nil
+	}
+	return WriteMsg(cc.conn, msg)
+}
+
+func cloneMinOutputSeq(src map[uint32]uint64) map[uint32]uint64 {
+	if len(src) == 0 {
+		return make(map[uint32]uint64)
+	}
+	dst := make(map[uint32]uint64, len(src))
+	for paneID, seq := range src {
+		dst[paneID] = seq
+	}
+	return dst
+}
+
+func cloneMessage(msg *Message) *Message {
+	if msg == nil {
+		return nil
+	}
+	cp := *msg
+	cp.Input = append([]byte(nil), msg.Input...)
+	cp.CmdArgs = append([]string(nil), msg.CmdArgs...)
+	cp.RenderData = append([]byte(nil), msg.RenderData...)
+	cp.PaneData = append([]byte(nil), msg.PaneData...)
+	cp.History = append([]string(nil), msg.History...)
+	return &cp
 }
 
 // readLoop reads messages from the client and dispatches them to the session.

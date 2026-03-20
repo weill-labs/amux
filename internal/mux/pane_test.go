@@ -54,3 +54,30 @@ func TestContentLinesStripsANSI(t *testing.T) {
 		t.Errorf("line 0: got %q, want %q", lines[0], "RED normal")
 	}
 }
+
+func TestCaptureSnapshotIncludesHistoryContentAndCursor(t *testing.T) {
+	emu := NewVTEmulatorWithDrain(12, 2)
+
+	p := &Pane{
+		ID:       1,
+		emulator: emu,
+	}
+	p.SetRetainedHistory([]string{"base-1"})
+
+	emu.Write([]byte("line-1\r\nline-2\r\nline-3"))
+
+	snap := p.CaptureSnapshot()
+
+	if got := snap.History; len(got) != 2 || got[0] != "base-1" || got[1] != "line-1" {
+		t.Fatalf("History = %#v, want [base-1 line-1]", got)
+	}
+	if got := snap.Content; len(got) != 2 || got[0] != "line-2" || got[1] != "line-3" {
+		t.Fatalf("Content = %#v, want [line-2 line-3]", got)
+	}
+	if snap.CursorCol != len("line-3") || snap.CursorRow != 1 {
+		t.Fatalf("Cursor = (%d,%d), want (%d,1)", snap.CursorCol, snap.CursorRow, len("line-3"))
+	}
+	if snap.CursorHidden {
+		t.Fatal("CursorHidden = true, want false")
+	}
+}

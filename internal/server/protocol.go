@@ -39,6 +39,9 @@ const (
 
 	// Client → Server — transient client-local UI state transitions
 	MsgTypeUIEvent = proto.MsgTypeUIEvent
+
+	// Server → Client — retained pane history bootstrap during attach.
+	MsgTypePaneHistory = proto.MsgTypePaneHistory
 )
 
 // WriteMsg encodes and writes a message to w.

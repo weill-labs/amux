@@ -61,12 +61,12 @@ func (s *Session) removePane(id uint32) {
 }
 
 // paneOutputCallback returns the standard onOutput callback for panes.
-func (s *Session) paneOutputCallback() func(uint32, []byte) {
-	return func(paneID uint32, data []byte) {
+func (s *Session) paneOutputCallback() func(uint32, []byte, uint64) {
+	return func(paneID uint32, data []byte, seq uint64) {
 		if s.shutdown.Load() {
 			return
 		}
-		s.enqueuePaneOutput(paneID, data)
+		s.enqueuePaneOutput(paneID, data, seq)
 	}
 }
 

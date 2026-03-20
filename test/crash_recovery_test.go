@@ -212,6 +212,46 @@ func TestCrashRecovery_FocusUpFromRestoredFullWidthBottomPane(t *testing.T) {
 	}
 }
 
+func TestCrashRecovery_PreservesHistoryCapture(t *testing.T) {
+	t.Parallel()
+
+	h := newServerHarnessPersistent(t)
+	cpPath := checkpoint.CrashCheckpointPath(h.session)
+	waitForCrashCheckpoint(t, cpPath, 5*time.Second)
+	preCrashCP := readCrashCheckpoint(t, cpPath)
+
+	scriptPath := filepath.Join(os.TempDir(), fmt.Sprintf("amux-crash-history-%s.sh", h.session))
+	if err := os.WriteFile(scriptPath, []byte("#!/bin/bash\nfor i in $(seq -w 1 45); do echo \"CRASHHIST-$i\"; done\n"), 0755); err != nil {
+		t.Fatalf("writing history script: %v", err)
+	}
+	t.Cleanup(func() { os.Remove(scriptPath) })
+
+	h.sendKeys("pane-1", scriptPath, "Enter")
+	h.waitFor("pane-1", "CRASHHIST-45")
+
+	before := h.runCmd("capture", "--history", "pane-1")
+	if !strings.Contains(before, "CRASHHIST-01") {
+		t.Fatalf("history capture before crash should include earliest retained line, got:\n%s", before)
+	}
+
+	_ = waitForFreshCrashCheckpoint(t, cpPath, preCrashCP, 5*time.Second)
+
+	if h.client != nil {
+		h.client.close()
+		h.client = nil
+	}
+	h.cmd.Process.Signal(syscall.SIGKILL)
+	h.cmd.Wait()
+	h.cmd = nil
+
+	h2 := startServerForSession(t, h.session)
+
+	after := h2.runCmd("capture", "--history", "pane-1")
+	if !strings.Contains(after, "CRASHHIST-01") || !strings.Contains(after, "CRASHHIST-45") {
+		t.Fatalf("history capture should survive crash recovery, got:\n%s", after)
+	}
+}
+
 func makeThreeByThreeGridServer(t *testing.T, h *ServerHarness) {
 	t.Helper()
 
@@ -230,12 +270,21 @@ func makeThreeByThreeGridServer(t *testing.T, h *ServerHarness) {
 // ---------------------------------------------------------------------------
 
 // waitForCrashCheckpoint polls until the crash checkpoint file exists.
-// Uses the existing waitForFile from hooks_test.go (returns bool).
+// Crash checkpoint tests share a single state directory across parallel runs,
+// so plain polling is more reliable here than fsnotify.
 func waitForCrashCheckpoint(t *testing.T, path string, timeout time.Duration) {
 	t.Helper()
-	if !waitForFile(t, path, timeout) {
-		t.Fatalf("crash checkpoint %s did not appear within %v", path, timeout)
+
+	deadline := time.Now().Add(timeout)
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(path); err == nil {
+			return
+		}
+		<-ticker.C
 	}
+	t.Fatalf("crash checkpoint %s did not appear within %v", path, timeout)
 }
 
 // paneNames returns a comma-joined string of pane names from a capture (layout order).

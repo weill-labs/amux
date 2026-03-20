@@ -35,11 +35,18 @@ type paneRender struct {
 	data   []byte
 }
 
+type attachPaneSnapshot struct {
+	paneID    uint32
+	history   []string
+	screen    []byte
+	outputSeq uint64
+}
+
 type attachResult struct {
-	snap        *proto.LayoutSnapshot
-	paneRenders []paneRender
-	newPane     *mux.Pane
-	err         error
+	snap          *proto.LayoutSnapshot
+	paneSnapshots []attachPaneSnapshot
+	newPane       *mux.Pane
+	err           error
 }
 
 type attachClientEvent struct {
@@ -110,10 +117,11 @@ func (e resizeClientEvent) handle(s *Session) {
 type paneOutputEvent struct {
 	paneID uint32
 	data   []byte
+	seq    uint64
 }
 
 func (e paneOutputEvent) handle(s *Session) {
-	s.broadcastPaneOutputNow(e.paneID, e.data)
+	s.broadcastPaneOutputNow(e.paneID, e.data, e.seq)
 }
 
 type paneExitEvent struct {
@@ -326,8 +334,8 @@ func (s *Session) enqueueResizeClient(cc *ClientConn, cols, rows int) {
 	s.enqueueEvent(resizeClientEvent{cc: cc, cols: cols, rows: rows})
 }
 
-func (s *Session) enqueuePaneOutput(paneID uint32, data []byte) {
-	s.enqueueEvent(paneOutputEvent{paneID: paneID, data: data})
+func (s *Session) enqueuePaneOutput(paneID uint32, data []byte, seq uint64) {
+	s.enqueueEvent(paneOutputEvent{paneID: paneID, data: data, seq: seq})
 }
 
 func (s *Session) enqueuePaneExit(paneID uint32) {
@@ -529,9 +537,12 @@ func (s *Session) handleAttachEvent(srv *Server, cc *ClientConn, cols, rows int)
 
 	res.snap = s.snapshotLayout(idleSnap)
 	for _, p := range s.Panes {
-		res.paneRenders = append(res.paneRenders, paneRender{
-			paneID: p.ID,
-			data:   []byte(p.RenderScreen()),
+		history, screen, seq := p.HistoryScreenSnapshot()
+		res.paneSnapshots = append(res.paneSnapshots, attachPaneSnapshot{
+			paneID:    p.ID,
+			history:   history,
+			screen:    []byte(screen),
+			outputSeq: seq,
 		})
 	}
 

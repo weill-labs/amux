@@ -36,6 +36,7 @@ type CrashPaneState struct {
 	Meta      mux.PaneMeta `json:"meta"`
 	Cols      int          `json:"cols"`
 	Rows      int          `json:"rows"`
+	History   []string     `json:"history,omitempty"`
 	Screen    string       `json:"screen"`
 	CreatedAt time.Time    `json:"created_at"`
 	IsProxy   bool         `json:"is_proxy"`

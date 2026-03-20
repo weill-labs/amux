@@ -50,7 +50,7 @@ func (ctx *CommandContext) replyCommandMutation(res commandMutationResult) {
 		ctx.Sess.broadcastLayout()
 	}
 	for _, pr := range res.paneRenders {
-		ctx.Sess.broadcastPaneOutput(pr.paneID, pr.data)
+		ctx.Sess.broadcastPaneOutput(pr.paneID, pr.data, 0)
 	}
 	if res.output != "" {
 		ctx.reply(res.output)
@@ -265,6 +265,10 @@ func cmdFocus(ctx *CommandContext) {
 }
 
 func cmdCapture(ctx *CommandContext) {
+	if parseCaptureArgs(ctx.Args).historyMode {
+		ctx.CC.Send(ctx.Sess.captureHistory(ctx.CC, ctx.Args))
+		return
+	}
 	result := ctx.Sess.forwardCapture(ctx.Args)
 	ctx.CC.Send(result)
 }
