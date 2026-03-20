@@ -10,6 +10,8 @@ Use this skill when the task involves `git push`, `gh pr create`, `gh pr merge`,
 ## Rules
 
 - Rebase onto `origin/main` before the first push: `git fetch origin main && git rebase origin/main`.
+- Do not `git pull` a dirty local `main`. If `main` has local changes, start the next branch from fresh `origin/main` instead of updating that checkout in place.
+- Do not use `git worktree` unless the user explicitly asks for it.
 - If `git fetch origin main` or `git pull` advances `origin/main` while a PR branch is open, refresh that branch onto `origin/main` before treating the PR as current again.
 - If the PR drifts after opening and you rebase or resolve conflicts, rerun the review pass and simplification pass on the rebased diff before calling the PR ready again.
 - In non-interactive sessions, prefer `GIT_EDITOR=true git rebase --continue` so rebase continuation does not stall in `vim`.
@@ -29,7 +31,7 @@ Use this skill when the task involves `git push`, `gh pr create`, `gh pr merge`,
 ## Workflow
 
 1. Confirm the relevant tests ran and note any gaps.
-2. If this is the first push for the branch, rebase onto `origin/main`. If the PR is already open and a fetch/pull advanced `origin/main`, refresh the branch onto `origin/main` before continuing.
+2. If this is the first push for the branch, rebase onto `origin/main`. If the local `main` checkout is dirty, do not update it in place; create the next branch directly from `origin/main`. If the PR is already open and a fetch/pull advanced `origin/main`, refresh the branch onto `origin/main` before continuing.
 3. Create or update the PR as soon as the branch is ready for review. Use `gh pr create --body-file ...` when the body is multiline.
 4. Run a review pass. Prefer `codex review` when available, but if it stalls, do a manual diff review and state that explicitly.
 5. Run a simplification pass focused on unnecessary complexity and cleanup opportunities.

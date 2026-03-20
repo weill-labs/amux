@@ -90,6 +90,8 @@ Regenerate goldens after intentional rendering changes: `cd test && go test -run
 
 Rebase onto `origin/main` before the first push (`git fetch origin main && git rebase origin/main`). Multiple features often land in parallel; rebasing before push avoids repeated merge conflict resolution after the PR is open.
 
+Do not `git pull` a dirty local `main`. If `main` has uncommitted work, leave it alone and start the next change from a fresh branch based on `origin/main` instead. Do not use `git worktree` unless the user explicitly asks for it.
+
 If a PR is already open and `git fetch origin main` or `git pull` advances `origin/main`, refresh that PR branch onto `origin/main` before treating it as current again. After the refresh, rerun verification on the rebased branch before pushing.
 
 ### Specs And Plans On Feature Branches
