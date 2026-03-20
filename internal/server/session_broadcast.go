@@ -236,6 +236,7 @@ func (s *Session) snapshotLayout(idleSnap map[uint32]bool) *proto.LayoutSnapshot
 
 	snap := w.SnapshotLayout(s.Name)
 	snap.ActiveWindowID = s.ActiveWindowID
+	snap.Notice = s.notice
 
 	for i, win := range s.Windows {
 		snap.Windows = append(snap.Windows, win.SnapshotWindow(i+1))

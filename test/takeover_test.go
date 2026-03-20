@@ -1,16 +1,21 @@
 package test
 
 import (
+	"crypto/ed25519"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/weill-labs/amux/internal/proto"
 	"github.com/weill-labs/amux/internal/server"
+	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/knownhosts"
 )
 
 // TestTakeoverBidirectionalIO verifies the full SSH takeover I/O pipeline:
@@ -86,9 +91,56 @@ func TestTakeoverAttachFailureLeavesSSHPaneVisible(t *testing.T) {
 		t.Fatalf("failed takeover should not splice proxy panes\nlist:\n%s", list)
 	}
 
-	c := h.captureJSON()
+	c := waitForSessionNotice(t, h, "takeover badhost", "5s")
 	if len(c.Panes) != 1 || c.Panes[0].Name != "pane-1" {
 		t.Fatalf("failed takeover should leave only the raw SSH pane\ncapture:\n%s", h.capture())
+	}
+	if !strings.Contains(c.Notice, "SSH dial 127.0.0.1:1") {
+		t.Fatalf("expected takeover failure notice in JSON capture, got %+v", c)
+	}
+	if screen := h.capture(); !strings.Contains(screen, "takeover badhost") {
+		t.Fatalf("expected takeover failure notice in rendered capture\ncapture:\n%s", screen)
+	}
+}
+
+func TestTakeoverAttachHostKeyMismatchShowsNotice(t *testing.T) {
+	t.Parallel()
+
+	addr, keyFile := setupTestSSH(t)
+	h := newServerHarnessWithConfig(t, 80, 24, remoteTestConfig(addr, keyFile))
+	writeMismatchedKnownHost(t, h.home, addr)
+
+	_, port, _ := net.SplitHostPort(addr)
+	sshCmd := fmt.Sprintf(
+		"ssh -i %s -p %s -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null 127.0.0.1 amux",
+		keyFile, port)
+	h.sendKeys("pane-1", sshCmd, "Enter")
+
+	c := waitForSessionNotice(t, h, "SSH host key verification failed", "5s")
+	if strings.Contains(h.runCmd("list"), "@") {
+		t.Fatalf("host-key mismatch should not splice proxy panes\nlist:\n%s", h.runCmd("list"))
+	}
+	if !strings.Contains(c.Notice, addr) {
+		t.Fatalf("notice should include target address %s, got %q", addr, c.Notice)
+	}
+	if !strings.Contains(c.Notice, "SSH host key verification failed") {
+		t.Fatalf("notice should include host-key failure, got %q", c.Notice)
+	}
+}
+
+func TestTakeoverFailureNoticeExpires(t *testing.T) {
+	t.Parallel()
+
+	h := newServerHarnessWithOptions(t, 80, 24, "", true, "AMUX_NOTICE_DURATION=75ms")
+	h.sendKeys("pane-1",
+		`printf '\033]999;amux-takeover;{"session":"default@badhost","host":"badhost","uid":"1","ssh_address":"127.0.0.1:1","ssh_user":"nobody","panes":[{"id":1,"name":"pane-1","cols":80,"rows":22}]}\007'`,
+		"Enter",
+	)
+
+	waitForSessionNotice(t, h, "takeover badhost", "5s")
+	waitForSessionNoticeGone(t, h, "5s")
+	if c := h.captureJSON(); c.Notice != "" {
+		t.Fatalf("expected session notice to expire, got %+v", c)
 	}
 }
 
@@ -233,6 +285,54 @@ func waitForPaneConnStatus(t *testing.T, h *ServerHarness, paneName, wantStatus,
 	t.Fatalf("pane %s did not reach conn_status=%s\ncapture:\n%s", paneName, wantStatus, h.capture())
 }
 
+func waitForSessionNotice(t *testing.T, h *ServerHarness, substr, timeout string) proto.CaptureJSON {
+	t.Helper()
+
+	deadline := time.Now().Add(parseTestDuration(t, timeout))
+	gen := h.generation()
+	for time.Now().Before(deadline) {
+		capture := h.captureJSON()
+		if strings.Contains(capture.Notice, substr) {
+			return capture
+		}
+
+		waitFor := time.Until(deadline)
+		if waitFor > 250*time.Millisecond {
+			waitFor = 250 * time.Millisecond
+		}
+		if !h.waitLayoutOrTimeout(gen, waitFor.String()) {
+			continue
+		}
+		gen = h.generation()
+	}
+
+	t.Fatalf("session notice %q did not appear\ncapture:\n%s", substr, h.capture())
+	return proto.CaptureJSON{}
+}
+
+func waitForSessionNoticeGone(t *testing.T, h *ServerHarness, timeout string) {
+	t.Helper()
+
+	deadline := time.Now().Add(parseTestDuration(t, timeout))
+	gen := h.generation()
+	for time.Now().Before(deadline) {
+		if h.captureJSON().Notice == "" {
+			return
+		}
+
+		waitFor := time.Until(deadline)
+		if waitFor > 250*time.Millisecond {
+			waitFor = 250 * time.Millisecond
+		}
+		if !h.waitLayoutOrTimeout(gen, waitFor.String()) {
+			continue
+		}
+		gen = h.generation()
+	}
+
+	t.Fatalf("session notice did not clear\ncapture:\n%s", h.capture())
+}
+
 func takeoverCaptureJSON(h *ServerHarness) (proto.CaptureJSON, bool) {
 	h.tb.Helper()
 
@@ -256,4 +356,26 @@ func parseTestDuration(t *testing.T, s string) time.Duration {
 		t.Fatalf("ParseDuration(%q): %v", s, err)
 	}
 	return d
+}
+
+func writeMismatchedKnownHost(t *testing.T, home, addr string) {
+	t.Helper()
+
+	pub, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generating mismatched host key: %v", err)
+	}
+	key, err := ssh.NewPublicKey(pub)
+	if err != nil {
+		t.Fatalf("ssh.NewPublicKey: %v", err)
+	}
+
+	sshDir := filepath.Join(home, ".ssh")
+	if err := os.MkdirAll(sshDir, 0o700); err != nil {
+		t.Fatalf("creating ssh dir: %v", err)
+	}
+	line := knownhosts.Line([]string{knownhosts.Normalize(addr)}, key)
+	if err := os.WriteFile(filepath.Join(sshDir, "known_hosts"), []byte(line+"\n"), 0o600); err != nil {
+		t.Fatalf("writing known_hosts: %v", err)
+	}
 }
