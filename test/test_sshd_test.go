@@ -37,13 +37,29 @@ func startTestSSHServer(t *testing.T, authorizedKey ssh.PublicKey) string {
 	// On CI runners the binary is in a temp dir not in PATH.
 	execEnv := os.Environ()
 	binDir := filepath.Dir(amuxBin)
+	homeDir := t.TempDir()
+	sawPath := false
+	sawHome := false
 	if !strings.Contains(os.Getenv("PATH"), binDir) {
 		for i, e := range execEnv {
 			if strings.HasPrefix(e, "PATH=") {
+				sawPath = true
 				execEnv[i] = "PATH=" + binDir + ":" + e[5:]
 				break
 			}
 		}
+	}
+	for i, e := range execEnv {
+		if strings.HasPrefix(e, "HOME=") {
+			sawHome = true
+			execEnv[i] = "HOME=" + homeDir
+		}
+	}
+	if !sawPath {
+		execEnv = append(execEnv, "PATH="+binDir+":"+os.Getenv("PATH"))
+	}
+	if !sawHome {
+		execEnv = append(execEnv, "HOME="+homeDir)
 	}
 	// Override the binary used by buildEnsureServerCmd so the remote server
 	// always uses the test binary, not a stale ~/.local/bin/amux.

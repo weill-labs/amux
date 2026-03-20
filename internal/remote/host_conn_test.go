@@ -50,6 +50,9 @@ func TestBuildEnsureServerCmd(t *testing.T) {
 	if !strings.Contains(cmd, "~/.local/bin/amux") {
 		t.Error("command should try ~/.local/bin/amux as fallback")
 	}
+	if !strings.Contains(cmd, "install-terminfo") {
+		t.Error("command should install terminfo before starting the remote server")
+	}
 	if !strings.Contains(cmd, `_server default@myhost`) {
 		t.Error("command should pass session name to _server")
 	}

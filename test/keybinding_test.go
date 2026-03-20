@@ -223,9 +223,14 @@ unbind = ["o"]
 `)
 
 	h.splitV()
+	if !h.waitFor("[pane-2]", 3*time.Second) {
+		t.Fatalf("expected post-split UI before testing unbound-key feedback, got:\n%s", h.captureOuter())
+	}
 	h.sendKeys("C-a", "o")
 
-	if !h.waitFor("No binding for C-a o", 3*time.Second) {
+	if !h.waitForOuterFunc(func(s string) bool {
+		return strings.Contains(s, "No binding for C-a o")
+	}, 3*time.Second) {
 		t.Fatalf("expected unbound-key feedback, got:\n%s", h.captureOuter())
 	}
 	h.assertActive("pane-2")
@@ -237,7 +242,9 @@ func TestUnsupportedPrefixKeyShowsFeedback(t *testing.T) {
 	h := newAmuxHarness(t)
 	h.sendKeys("C-a", "f")
 
-	if !h.waitFor("No binding for C-a f", 3*time.Second) {
+	if !h.waitForOuterFunc(func(s string) bool {
+		return strings.Contains(s, "No binding for C-a f")
+	}, 3*time.Second) {
 		t.Fatalf("expected unsupported-key feedback, got:\n%s", h.captureOuter())
 	}
 	h.assertActive("pane-1")
@@ -249,7 +256,9 @@ func TestUnsupportedPrefixKeyFeedbackClearsOnLiteralPrefix(t *testing.T) {
 	h := newAmuxHarness(t)
 	h.sendKeys("C-a", "f")
 
-	if !h.waitFor("No binding for C-a f", 3*time.Second) {
+	if !h.waitForOuterFunc(func(s string) bool {
+		return strings.Contains(s, "No binding for C-a f")
+	}, 3*time.Second) {
 		t.Fatalf("expected unsupported-key feedback, got:\n%s", h.captureOuter())
 	}
 

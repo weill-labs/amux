@@ -24,6 +24,7 @@ type ServerHarness struct {
 	tb       testing.TB
 	session  string
 	cmd      *exec.Cmd
+	home     string
 	coverDir string          // per-test GOCOVERDIR subdirectory (avoids coverage metadata races)
 	client   *headlessClient // attached headless client for capture
 }
@@ -76,7 +77,9 @@ func newServerHarnessWithOptions(tb testing.TB, cols, rows int, configContent st
 
 	cmd := exec.Command(amuxBin, "_server", session)
 	cmd.ExtraFiles = []*os.File{writePipe} // fd 3 in child
-	env := append(os.Environ(), "AMUX_READY_FD=3", "AMUX_NO_WATCH=1")
+	home := newTestHome(tb)
+	env := upsertEnv(os.Environ(), "HOME", home)
+	env = append(env, "AMUX_READY_FD=3", "AMUX_NO_WATCH=1")
 	if exitUnattached {
 		env = append(env, "AMUX_EXIT_UNATTACHED=1")
 	}
@@ -99,12 +102,7 @@ func newServerHarnessWithOptions(tb testing.TB, cols, rows int, configContent st
 	if gocoverDir != "" {
 		coverDir = filepath.Join(gocoverDir, session)
 		os.MkdirAll(coverDir, 0755)
-		for i, e := range env {
-			if strings.HasPrefix(e, "GOCOVERDIR=") {
-				env[i] = "GOCOVERDIR=" + coverDir
-				break
-			}
-		}
+		env = upsertEnv(env, "GOCOVERDIR", coverDir)
 	}
 	cmd.Env = env
 
@@ -137,7 +135,7 @@ func newServerHarnessWithOptions(tb testing.TB, cols, rows int, configContent st
 		tb.Fatalf("server ready signal not received: err=%v, buf=%q", err, string(buf[:n]))
 	}
 
-	h := &ServerHarness{tb: tb, session: session, cmd: cmd, coverDir: coverDir}
+	h := &ServerHarness{tb: tb, session: session, cmd: cmd, home: home, coverDir: coverDir}
 	tb.Cleanup(h.cleanup)
 
 	// Attach a headless client — seeds the first pane and stays connected
@@ -175,6 +173,9 @@ func (h *ServerHarness) cleanup() {
 	socketDir := server.SocketDir()
 	os.Remove(filepath.Join(socketDir, h.session))
 	os.Remove(filepath.Join(socketDir, h.session+".log"))
+	if h.home != "" {
+		_ = os.RemoveAll(h.home)
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -186,11 +187,18 @@ func (h *ServerHarness) runCmd(args ...string) string {
 	h.tb.Helper()
 	cmdArgs := append([]string{"-s", h.session}, args...)
 	cmd := exec.Command(amuxBin, cmdArgs...)
+	env := upsertEnv(os.Environ(), "HOME", h.home)
 	if h.coverDir != "" {
-		cmd.Env = append(os.Environ(), "GOCOVERDIR="+h.coverDir)
+		env = upsertEnv(env, "GOCOVERDIR", h.coverDir)
 	}
+	cmd.Env = env
 	out, _ := cmd.CombinedOutput()
 	return string(out)
+}
+
+func (h *ServerHarness) crashCheckpointPath() string {
+	h.tb.Helper()
+	return filepath.Join(h.home, ".local", "state", "amux", h.session+".json")
 }
 
 // capture returns the server-side composited screen (plain text 2D grid).
@@ -307,14 +315,12 @@ func (h *ServerHarness) waitBusy(pane string) {
 	}
 }
 
-// startLongSleep starts a background sleep in the named pane and waits for a
-// sentinel marker to confirm the child process exists. This is more reliable
-// than waitBusy under parallel test load because it uses output-based detection
-// (waitFor) instead of pgrep.
+// startLongSleep starts a long-running command in the named pane and waits
+// until the server reports a child process for that pane.
 func (h *ServerHarness) startLongSleep(pane string) {
 	h.tb.Helper()
-	h.sendKeys(pane, `sleep 300 & printf '\x42\x55\x53\x59_OK\n'; wait`, "Enter")
-	h.waitFor(pane, "BUSY_OK")
+	h.sendKeys(pane, "sleep 300", "Enter")
+	h.waitBusy(pane)
 }
 
 // waitIdle blocks until the named pane becomes idle (no activity for DefaultIdleTimeout).

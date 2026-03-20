@@ -8,6 +8,46 @@ import (
 	"testing"
 )
 
+func envWithHome(home string) []string {
+	env := append([]string{}, os.Environ()...)
+	replaced := false
+	for i, e := range env {
+		if strings.HasPrefix(e, "HOME=") {
+			env[i] = "HOME=" + home
+			replaced = true
+			break
+		}
+	}
+	if !replaced {
+		env = append(env, "HOME="+home)
+	}
+	return env
+}
+
+func TestBuildInstallInstallsTerminfo(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	dest := filepath.Join(t.TempDir(), "amux")
+
+	cmd := exec.Command("bash", "scripts/build-install.sh", dest)
+	cmd.Env = envWithHome(home)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("build install failed: %v\n%s", err, out)
+	}
+
+	verify := exec.Command("infocmp", "-A", filepath.Join(home, ".terminfo"), "amux")
+	verify.Env = envWithHome(home)
+	termOut, err := verify.CombinedOutput()
+	if err != nil {
+		t.Fatalf("infocmp amux failed: %v\n%s", err, termOut)
+	}
+	if !strings.Contains(string(termOut), "amux") {
+		t.Fatalf("infocmp output missing amux entry:\n%s", termOut)
+	}
+}
+
 func TestBuildInstallRefusesCrossCheckoutOverwrite(t *testing.T) {
 	t.Parallel()
 
@@ -18,6 +58,7 @@ func TestBuildInstallRefusesCrossCheckoutOverwrite(t *testing.T) {
 	}
 
 	cmd := exec.Command("bash", "scripts/build-install.sh", dest)
+	cmd.Env = envWithHome(t.TempDir())
 	out, err := cmd.CombinedOutput()
 	if err == nil {
 		t.Fatalf("expected cross-checkout install to fail\n%s", out)
@@ -41,7 +82,7 @@ func TestBuildInstallForceOverridesCrossCheckoutMetadata(t *testing.T) {
 	}
 
 	cmd := exec.Command("bash", "scripts/build-install.sh", dest)
-	cmd.Env = append(os.Environ(), "AMUX_INSTALL_FORCE=1")
+	cmd.Env = append(envWithHome(t.TempDir()), "AMUX_INSTALL_FORCE=1")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("forced install failed: %v\n%s", err, out)
@@ -71,6 +112,7 @@ func TestBuildInstallRewritesInvalidMetadata(t *testing.T) {
 	}
 
 	cmd := exec.Command("bash", "scripts/build-install.sh", dest)
+	cmd.Env = envWithHome(t.TempDir())
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("install with invalid metadata failed: %v\n%s", err, out)
