@@ -96,3 +96,24 @@ func mustReadEvent(t *testing.T, scanner *bufio.Scanner, timeout time.Duration) 
 	}
 	return ev
 }
+
+// countEvents counts events of the given type received within a time window.
+func countEvents(t *testing.T, scanner *bufio.Scanner, eventType string, window time.Duration) int {
+	t.Helper()
+	var count int
+	deadline := time.After(window)
+	for {
+		ev := readEvent(t, scanner, window+100*time.Millisecond)
+		if ev.TimedOut {
+			return count
+		}
+		if ev.Type == eventType {
+			count++
+		}
+		select {
+		case <-deadline:
+			return count
+		default:
+		}
+	}
+}

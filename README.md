@@ -146,7 +146,7 @@ All accept `--timeout <duration>` (e.g., `--timeout 30s`).
 Subscribe to real-time session events as NDJSON:
 
 ```bash
-amux events [--filter layout,idle,busy,display-panes-shown,choose-window-shown] [--pane pane-1] [--host lambda-a100] [--client client-1]
+amux events [--filter layout,idle,busy,display-panes-shown,choose-window-shown] [--pane pane-1] [--host lambda-a100] [--client client-1] [--throttle 50ms]
 ```
 
 Use `amux list-clients` to discover attached client IDs for `--client` and `wait-ui`.
@@ -157,7 +157,7 @@ Use `amux list-clients` to discover attached client IDs for `--client` and `wait
 {"type":"busy","ts":"2025-06-15T10:30:05.789Z","pane_id":2,"pane_name":"pane-2","host":"lambda-a100"}
 ```
 
-Event types: `layout`, `output`, `idle`, `busy`. New subscribers receive the current state as an initial snapshot, so no events are missed between subscribe and the first real event.
+Event types: `layout`, `output`, `idle`, `busy`. New subscribers receive the current state as an initial snapshot, so no events are missed between subscribe and the first real event. Output events are throttled to at most one per pane per `--throttle` interval (default 50ms). Non-output events pass through immediately. Use `--throttle 0s` to disable throttling.
 
 ### Agent Loop Example
 
@@ -253,7 +253,7 @@ All commands accept `-s <session>` to target a specific session. Panes are refer
 | `amux wait-clipboard [--after N] [--timeout 3s]` | Block until clipboard content changes |
 | `amux wait-ui <event> [--client id] [--timeout 5s]` | Block until a client-local UI state is reached |
 | `amux generation` | Show current layout generation counter |
-| `amux events [--filter type,...] [--pane ref] [--host name] [--client id]` | Stream events as NDJSON |
+| `amux events [--filter type,...] [--pane ref] [--host name] [--client id] [--throttle 50ms]` | Stream events as NDJSON (output throttled) |
 | `amux list-clients` | List attached clients and client-local UI state |
 
 ### Windows

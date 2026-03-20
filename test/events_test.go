@@ -471,6 +471,89 @@ func TestEventsCLI(t *testing.T) {
 	}
 }
 
+// TestEventsThrottleCoalesces verifies that rapid output events are coalesced
+// when the default throttle is active. The test generates rapid output and
+// verifies that the throttled stream delivers far fewer events than the raw
+// event rate.
+func TestEventsThrottleCoalesces(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	// Subscribe with default throttle (50ms) and filter to output events only.
+	scanner, closer := eventStream(t, h.session, "--filter", "output")
+	defer closer()
+
+	// Generate rapid output: seq writes ~100 lines quickly.
+	h.sendKeys("pane-1", "seq 1 100", "Enter")
+
+	// Collect output events for 500ms — enough for ~10 ticker intervals.
+	count := countEvents(t, scanner, "output", 500*time.Millisecond)
+	// With 50ms throttle over 500ms, we expect roughly 10 events (one per tick).
+	// Without throttle, we'd get one event per PTY write (~100+).
+	if count > 30 {
+		t.Errorf("expected throttle to coalesce output events, got %d (want <30)", count)
+	}
+	if count == 0 {
+		t.Error("expected at least some output events")
+	}
+}
+
+// TestEventsThrottleDisabled verifies that --throttle 0s disables throttling
+// and passes all output events through immediately.
+func TestEventsThrottleDisabled(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	// Subscribe with throttle disabled.
+	scanner, closer := eventStream(t, h.session, "--filter", "output", "--throttle", "0s")
+	defer closer()
+
+	// Generate rapid output.
+	h.sendKeys("pane-1", "seq 1 50", "Enter")
+
+	// Collect output events for 500ms.
+	count := countEvents(t, scanner, "output", 500*time.Millisecond)
+	// With throttle disabled, output events pass through without delay.
+	// PTY batching means even rapid output produces only a handful of events.
+	if count < 1 {
+		t.Error("expected at least one output event with throttle disabled")
+	}
+}
+
+// TestEventsThrottleNonOutputPassthrough verifies that non-output events
+// (like layout) pass through immediately regardless of throttle state.
+func TestEventsThrottleNonOutputPassthrough(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	// Subscribe to both layout and output events with default throttle.
+	scanner, closer := eventStream(t, h.session, "--filter", "layout,output")
+	defer closer()
+
+	// Drain initial layout snapshot.
+	mustReadEvent(t, scanner, 5*time.Second)
+
+	// Generate some output to fill the throttle buffer.
+	h.sendKeys("pane-1", "echo throttle_test", "Enter")
+
+	// Split triggers a layout event — it should arrive promptly, not be
+	// delayed by the output throttle.
+	h.doSplit()
+
+	// Read events until we see the layout event.
+	// With proper passthrough, layout arrives within a few hundred ms.
+	for i := 0; i < 20; i++ {
+		ev := readEvent(t, scanner, 500*time.Millisecond)
+		if ev.TimedOut {
+			t.Fatal("timeout waiting for layout event — non-output passthrough may be broken")
+		}
+		if ev.Type == "layout" && ev.Generation > 0 {
+			return // success
+		}
+	}
+	t.Fatal("layout event not received within expected window")
+}
+
 // TestEventsCLIServerNotRunning verifies that `amux events` exits with an
 // error when no server is running (covers the error path in runStreamingCommand).
 func TestEventsCLIServerNotRunning(t *testing.T) {

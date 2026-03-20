@@ -264,38 +264,100 @@ func TestEmitEventAfterRemove(t *testing.T) {
 func TestParseEventsArgs(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name string
-		args []string
-		want eventFilter
+		name         string
+		args         []string
+		wantFilter   eventFilter
+		wantThrottle time.Duration
 	}{
-		{"empty", nil, eventFilter{}},
-		{"filter", []string{"--filter", "layout,idle"}, eventFilter{Types: []string{"layout", "idle"}}},
-		{"pane", []string{"--pane", "pane-1"}, eventFilter{PaneName: "pane-1"}},
-		{"host", []string{"--host", "gpu-box"}, eventFilter{Host: "gpu-box"}},
-		{"client", []string{"--client", "client-2"}, eventFilter{ClientID: "client-2"}},
+		{"empty", nil, eventFilter{}, DefaultEventThrottle},
+		{"filter", []string{"--filter", "layout,idle"}, eventFilter{Types: []string{"layout", "idle"}}, DefaultEventThrottle},
+		{"pane", []string{"--pane", "pane-1"}, eventFilter{PaneName: "pane-1"}, DefaultEventThrottle},
+		{"host", []string{"--host", "gpu-box"}, eventFilter{Host: "gpu-box"}, DefaultEventThrottle},
+		{"client", []string{"--client", "client-2"}, eventFilter{ClientID: "client-2"}, DefaultEventThrottle},
 		{"combined", []string{"--filter", "idle", "--pane", "pane-1", "--host", "local", "--client", "client-2"},
-			eventFilter{Types: []string{"idle"}, PaneName: "pane-1", Host: "local", ClientID: "client-2"}},
+			eventFilter{Types: []string{"idle"}, PaneName: "pane-1", Host: "local", ClientID: "client-2"}, DefaultEventThrottle},
+		{"throttle_custom", []string{"--throttle", "100ms"}, eventFilter{}, 100 * time.Millisecond},
+		{"throttle_disabled", []string{"--throttle", "0s"}, eventFilter{}, 0},
+		{"throttle_invalid", []string{"--throttle", "bogus"}, eventFilter{}, DefaultEventThrottle},
+		{"throttle_with_filter", []string{"--filter", "output", "--throttle", "200ms"},
+			eventFilter{Types: []string{"output"}}, 200 * time.Millisecond},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			got := parseEventsArgs(tt.args)
-			if len(got.Types) != len(tt.want.Types) {
-				t.Errorf("Types: got %v, want %v", got.Types, tt.want.Types)
+			if len(got.filter.Types) != len(tt.wantFilter.Types) {
+				t.Errorf("Types: got %v, want %v", got.filter.Types, tt.wantFilter.Types)
 			}
-			for i := range got.Types {
-				if got.Types[i] != tt.want.Types[i] {
-					t.Errorf("Types[%d]: got %q, want %q", i, got.Types[i], tt.want.Types[i])
+			for i := range got.filter.Types {
+				if got.filter.Types[i] != tt.wantFilter.Types[i] {
+					t.Errorf("Types[%d]: got %q, want %q", i, got.filter.Types[i], tt.wantFilter.Types[i])
 				}
 			}
-			if got.PaneName != tt.want.PaneName {
-				t.Errorf("PaneName: got %q, want %q", got.PaneName, tt.want.PaneName)
+			if got.filter.PaneName != tt.wantFilter.PaneName {
+				t.Errorf("PaneName: got %q, want %q", got.filter.PaneName, tt.wantFilter.PaneName)
 			}
-			if got.Host != tt.want.Host {
-				t.Errorf("Host: got %q, want %q", got.Host, tt.want.Host)
+			if got.filter.Host != tt.wantFilter.Host {
+				t.Errorf("Host: got %q, want %q", got.filter.Host, tt.wantFilter.Host)
 			}
-			if got.ClientID != tt.want.ClientID {
-				t.Errorf("ClientID: got %q, want %q", got.ClientID, tt.want.ClientID)
+			if got.filter.ClientID != tt.wantFilter.ClientID {
+				t.Errorf("ClientID: got %q, want %q", got.filter.ClientID, tt.wantFilter.ClientID)
+			}
+			if got.throttle != tt.wantThrottle {
+				t.Errorf("throttle: got %v, want %v", got.throttle, tt.wantThrottle)
+			}
+		})
+	}
+}
+
+func TestPeekOutputPaneID(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name   string
+		data   []byte
+		wantID uint32
+		wantOK bool
+	}{
+		{
+			"output_event",
+			[]byte(`{"type":"output","pane_id":3,"pane_name":"pane-3"}`),
+			3,
+			true,
+		},
+		{
+			"layout_event",
+			[]byte(`{"type":"layout","generation":5}`),
+			0,
+			false,
+		},
+		{
+			"idle_event",
+			[]byte(`{"type":"idle","pane_id":1,"pane_name":"pane-1"}`),
+			0,
+			false,
+		},
+		{
+			"output_pane_zero",
+			[]byte(`{"type":"output","pane_id":0}`),
+			0,
+			true,
+		},
+		{
+			"empty",
+			[]byte{},
+			0,
+			false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			id, ok := peekOutputPaneID(tt.data)
+			if ok != tt.wantOK {
+				t.Errorf("ok: got %v, want %v", ok, tt.wantOK)
+			}
+			if id != tt.wantID {
+				t.Errorf("id: got %d, want %d", id, tt.wantID)
 			}
 		})
 	}
