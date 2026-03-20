@@ -47,15 +47,8 @@ func RunSession(sessionName string) error {
 
 	sockPath := server.SocketPath(sessionName)
 
-	// Start server daemon if no socket exists
-	if !server.SocketAlive(sockPath) {
-		if err := server.StartDaemon(sessionName); err != nil {
-			return fmt.Errorf("starting server: %w", err)
-		}
-		// Wait for socket to appear
-		if err := server.WaitForSocket(sockPath, 5*time.Second); err != nil {
-			return err
-		}
+	if err := server.EnsureDaemon(sessionName, 5*time.Second); err != nil {
+		return err
 	}
 
 	conn, err := net.Dial("unix", sockPath)
