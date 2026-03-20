@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/weill-labs/amux/internal/hooks"
+	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
 	"github.com/weill-labs/amux/internal/render"
 )
@@ -22,10 +23,10 @@ type hookResultRecord struct {
 	Error      string
 }
 
-// recalcSizeLocked resizes all windows to the maximum terminal dimensions
-// across connected clients ("largest client wins"). Smaller clients clip
-// out-of-bounds cells locally. Caller must hold s.mu.
-func (s *Session) recalcSizeLocked() {
+// recalcSize resizes all windows to the maximum terminal dimensions across
+// connected clients ("largest client wins"). Smaller clients clip out-of-bounds
+// cells locally. Event-loop only.
+func (s *Session) recalcSize() {
 	var maxCols, maxRows int
 	for _, c := range s.clients {
 		maxCols = max(maxCols, c.cols)
@@ -43,16 +44,19 @@ func (s *Session) recalcSizeLocked() {
 	}
 }
 
-// broadcast sends a message to all connected clients.
-func (s *Session) broadcast(msg *Message) {
-	s.mu.Lock()
-	clients := make([]*ClientConn, len(s.clients))
-	copy(clients, s.clients)
-	s.mu.Unlock()
-
+func (s *Session) broadcastNow(msg *Message) {
+	clients := append([]*ClientConn(nil), s.clients...)
 	for _, c := range clients {
 		c.Send(msg)
 	}
+}
+
+// broadcast sends a message to all connected clients.
+func (s *Session) broadcast(msg *Message) {
+	_, _ = enqueueSessionQuery(s, func(s *Session) (struct{}, error) {
+		s.broadcastNow(msg)
+		return struct{}{}, nil
+	})
 }
 
 // clipboardCallback returns the onClipboard callback for panes in this session.
@@ -67,62 +71,93 @@ func (s *Session) clipboardCallback() func(paneID uint32, data []byte) {
 	}
 }
 
-// broadcastPaneOutput sends raw PTY output for one pane to all clients,
-// notifies any wait-for subscribers, and tracks pane activity for hooks.
-func (s *Session) broadcastPaneOutput(paneID uint32, data []byte) {
-	s.broadcast(&Message{Type: MsgTypePaneOutput, PaneID: paneID, PaneData: data})
+func (s *Session) broadcastPaneOutputNow(paneID uint32, data []byte) {
+	s.broadcastNow(&Message{Type: MsgTypePaneOutput, PaneID: paneID, PaneData: data})
 	s.notifyPaneOutputSubs(paneID)
 	s.trackPaneActivity(paneID)
 
-	// Emit output event for event stream subscribers.
-	s.mu.Lock()
 	var paneName, host string
-	if p := s.findPaneLocked(paneID); p != nil {
+	if p := s.findPaneByID(paneID); p != nil {
 		paneName = p.Meta.Name
 		host = p.Meta.Host
 	}
-	s.mu.Unlock()
 	s.emitEvent(Event{Type: EventOutput, PaneID: paneID, PaneName: paneName, Host: host})
 }
 
-// broadcastPaneOutputLocked sends raw PTY output to all clients.
-// Caller must hold s.mu.
-func (s *Session) broadcastPaneOutputLocked(paneID uint32, data []byte) {
-	clients := make([]*ClientConn, len(s.clients))
-	copy(clients, s.clients)
-	msg := &Message{Type: MsgTypePaneOutput, PaneID: paneID, PaneData: data}
-	for _, c := range clients {
-		c.Send(msg)
+// broadcastPaneOutput sends raw PTY output for one pane to all clients,
+// notifies any wait-for subscribers, and tracks pane activity for hooks.
+func (s *Session) broadcastPaneOutput(paneID uint32, data []byte) {
+	_, _ = enqueueSessionQuery(s, func(s *Session) (struct{}, error) {
+		s.broadcastPaneOutputNow(paneID, data)
+		return struct{}{}, nil
+	})
+}
+
+func (s *Session) notifyLayoutWaiters(gen uint64) {
+	for id, waiter := range s.layoutWaiters {
+		if gen <= waiter.afterGen {
+			continue
+		}
+		waiter.reply <- gen
+		delete(s.layoutWaiters, id)
 	}
 }
 
-// broadcastLayout sends the current layout snapshot to all clients
-// and increments the layout generation counter.
-func (s *Session) broadcastLayout() {
+func (s *Session) notifyClipboardWaiters(gen uint64, payload string) {
+	for id, waiter := range s.clipboardWaiters {
+		if gen <= waiter.afterGen {
+			continue
+		}
+		waiter.reply <- payload
+		delete(s.clipboardWaiters, id)
+	}
+}
+
+func (s *Session) matchHookResult(afterGen uint64, eventName, paneName string) (hookResultRecord, bool) {
+	for _, record := range s.hookResults {
+		if record.Generation <= afterGen {
+			continue
+		}
+		if eventName != "" && record.Event != eventName {
+			continue
+		}
+		if paneName != "" && record.PaneName != paneName {
+			continue
+		}
+		return record, true
+	}
+	return hookResultRecord{}, false
+}
+
+func (s *Session) notifyHookWaiters(record hookResultRecord) {
+	for id, waiter := range s.hookWaiters {
+		if record.Generation <= waiter.afterGen {
+			continue
+		}
+		if waiter.eventName != "" && record.Event != waiter.eventName {
+			continue
+		}
+		if waiter.paneName != "" && record.PaneName != waiter.paneName {
+			continue
+		}
+		waiter.reply <- record
+		delete(s.hookWaiters, id)
+	}
+}
+
+func (s *Session) broadcastLayoutNow() {
 	idleSnap := s.snapshotIdleState()
-	s.mu.Lock()
 	s.assertPaneLayoutConsistency()
-	snap := s.snapshotLayoutLocked(idleSnap)
+	snap := s.snapshotLayout(idleSnap)
 	if snap == nil {
-		s.mu.Unlock()
 		return
 	}
-	clients := make([]*ClientConn, len(s.clients))
-	copy(clients, s.clients)
-	s.mu.Unlock()
 
-	// Increment generation and wake any wait-layout waiters.
-	s.generationMu.Lock()
 	gen := s.generation.Add(1)
-	s.generationCond.Broadcast()
-	s.generationMu.Unlock()
+	s.notifyLayoutWaiters(gen)
 
-	msg := &Message{Type: MsgTypeLayout, Layout: snap}
-	for _, c := range clients {
-		c.Send(msg)
-	}
+	s.broadcastNow(&Message{Type: MsgTypeLayout, Layout: snap})
 
-	// Emit layout event for event stream subscribers.
 	activePaneName := ""
 	if snap.ActivePaneID != 0 {
 		for _, p := range snap.Panes {
@@ -132,28 +167,29 @@ func (s *Session) broadcastLayout() {
 			}
 		}
 	}
-	// Enqueue through the event loop — broadcastLayout can be called from
-	// command handler goroutines outside the event loop, but emitEvent
-	// must only touch eventSubs from within the loop.
-	s.enqueueEvent(emitCmd{ev: Event{Type: EventLayout, Generation: gen, ActivePane: activePaneName}})
+	s.emitEvent(Event{Type: EventLayout, Generation: gen, ActivePane: activePaneName})
 
-	// Signal crash checkpoint loop (non-blocking — drop if already pending)
 	select {
 	case s.crashCheckpointTrigger <- struct{}{}:
 	default:
 	}
 }
 
+// broadcastLayout sends the current layout snapshot to all clients
+// and increments the layout generation counter.
+func (s *Session) broadcastLayout() {
+	_, _ = enqueueSessionQuery(s, func(s *Session) (struct{}, error) {
+		s.broadcastLayoutNow()
+		return struct{}{}, nil
+	})
+}
+
 // snapshotIdleState returns a copy of the session's idle state map.
-// Must be called before acquiring s.mu to maintain lock ordering:
-// trackPaneActivity holds idle.mu then acquires s.mu (via buildPaneEnv),
-// so callers must acquire idle.mu before s.mu.
 func (s *Session) snapshotIdleState() map[uint32]bool {
 	return s.idle.SnapshotState()
 }
 
 // snapshotIdleFull returns copies of both idle state and since maps.
-// Same lock ordering requirement as snapshotIdleState.
 func (s *Session) snapshotIdleFull() (map[uint32]bool, map[uint32]time.Time) {
 	return s.idle.SnapshotFull()
 }
@@ -182,24 +218,20 @@ func errorString(err error) string {
 	return err.Error()
 }
 
-// snapshotLayoutLocked builds a LayoutSnapshot with multi-window data.
-// Caller must hold s.mu.
-func (s *Session) snapshotLayoutLocked(idleSnap map[uint32]bool) *proto.LayoutSnapshot {
+// snapshotLayout builds a LayoutSnapshot with multi-window data.
+func (s *Session) snapshotLayout(idleSnap map[uint32]bool) *proto.LayoutSnapshot {
 	w := s.ActiveWindow()
 	if w == nil {
 		return nil
 	}
 
-	// Build legacy single-window fields for the active window
 	snap := w.SnapshotLayout(s.Name)
 	snap.ActiveWindowID = s.ActiveWindowID
 
-	// Build multi-window snapshots
 	for i, win := range s.Windows {
 		snap.Windows = append(snap.Windows, win.SnapshotWindow(i+1))
 	}
 
-	// Stamp idle state from the pre-acquired snapshot.
 	for i := range snap.Panes {
 		snap.Panes[i].Idle = idleSnap[snap.Panes[i].ID]
 	}
@@ -215,7 +247,7 @@ func (s *Session) snapshotLayoutLocked(idleSnap map[uint32]bool) *proto.LayoutSn
 // assertPaneLayoutConsistency checks that every non-dormant pane in the flat
 // registry exists in some window's layout tree. Logs a warning for each
 // violation — these indicate the dual data-structure divergence that causes
-// ghost panes (LAB-210). Caller must hold s.mu.
+// ghost panes (LAB-210).
 func (s *Session) assertPaneLayoutConsistency() int {
 	n := 0
 	for _, p := range s.Panes {
@@ -259,20 +291,18 @@ func (s *Session) trackPaneActivity(paneID uint32) {
 			PaneName: env["AMUX_PANE_NAME"],
 			Host:     env["AMUX_HOST"],
 		})
-		s.broadcastLayout()
+		s.broadcastLayoutNow()
 	}
 }
 
 // buildPaneEnv builds the environment variable map for a hook invocation.
-// Acquires s.mu internally to look up pane metadata.
 func (s *Session) buildPaneEnv(paneID uint32, event hooks.Event) map[string]string {
 	env := map[string]string{
 		"AMUX_PANE_ID": fmt.Sprintf("%d", paneID),
 		"AMUX_EVENT":   string(event),
 	}
 
-	s.mu.Lock()
-	if p := s.findPaneLocked(paneID); p != nil {
+	if p := s.findPaneByID(paneID); p != nil {
 		env["AMUX_PANE_NAME"] = p.Meta.Name
 		if p.Meta.Task != "" {
 			env["AMUX_TASK"] = p.Meta.Task
@@ -281,19 +311,18 @@ func (s *Session) buildPaneEnv(paneID uint32, event hooks.Event) map[string]stri
 			env["AMUX_HOST"] = p.Meta.Host
 		}
 	}
-	s.mu.Unlock()
 
 	return env
 }
 
 // paneScreenContains checks whether the screen of the given pane contains
-// the substring. Thread-safe: looks up the pane under s.mu, then reads the
-// cell grid directly (no ANSI round-trip) outside the lock.
+// the substring. It resolves the pane through the session event loop, then
+// inspects the emulator outside the event loop.
 func (s *Session) paneScreenContains(paneID uint32, substr string) bool {
-	s.mu.Lock()
-	pane := s.findPaneLocked(paneID)
-	s.mu.Unlock()
-	if pane == nil {
+	pane, err := enqueueSessionQuery(s, func(s *Session) (*mux.Pane, error) {
+		return s.findPaneByID(paneID), nil
+	})
+	if err != nil || pane == nil {
 		return false
 	}
 	return pane.ScreenContains(substr)
@@ -301,82 +330,151 @@ func (s *Session) paneScreenContains(paneID uint32, substr string) bool {
 
 // waitGeneration blocks until the layout generation exceeds afterGen or
 // timeout expires. Returns the current generation and whether it matched.
-// All checks happen under generationMu to avoid TOCTOU races with Broadcast.
 func (s *Session) waitGeneration(afterGen uint64, timeout time.Duration) (uint64, bool) {
-	deadline := time.Now().Add(timeout)
-	timer := time.AfterFunc(timeout, func() {
-		s.generationMu.Lock()
-		s.generationCond.Broadcast()
-		s.generationMu.Unlock()
-	})
-	defer timer.Stop()
+	type waitRegistration struct {
+		gen      uint64
+		waiterID uint64
+		reply    chan uint64
+	}
+	type waitState struct {
+		gen     uint64
+		matched bool
+	}
 
-	s.generationMu.Lock()
-	defer s.generationMu.Unlock()
-	for {
+	reg, err := enqueueSessionQuery(s, func(s *Session) (waitRegistration, error) {
 		gen := s.generation.Load()
 		if gen > afterGen {
-			return gen, true
+			return waitRegistration{gen: gen}, nil
 		}
-		if time.Now().After(deadline) {
-			return gen, false
+		reply := make(chan uint64, 1)
+		waiterID := s.waiterCounter.Add(1)
+		s.layoutWaiters[waiterID] = layoutWaiter{afterGen: afterGen, reply: reply}
+		return waitRegistration{waiterID: waiterID, reply: reply}, nil
+	})
+	if err != nil {
+		return 0, false
+	}
+	if reg.reply == nil {
+		return reg.gen, true
+	}
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	select {
+	case gen := <-reg.reply:
+		return gen, true
+	case <-timer.C:
+		state, err := enqueueSessionQuery(s, func(s *Session) (waitState, error) {
+			delete(s.layoutWaiters, reg.waiterID)
+			gen := s.generation.Load()
+			return waitState{gen: gen, matched: gen > afterGen}, nil
+		})
+		if err != nil {
+			return 0, false
 		}
-		s.generationCond.Wait()
+		return state.gen, state.matched
 	}
 }
 
 // waitClipboard blocks until the clipboard generation exceeds afterGen or
 // timeout expires. Returns the last clipboard payload and whether it matched.
 func (s *Session) waitClipboard(afterGen uint64, timeout time.Duration) (string, bool) {
-	deadline := time.Now().Add(timeout)
-	timer := time.AfterFunc(timeout, func() {
-		s.clipboardMu.Lock()
-		s.clipboardCond.Broadcast()
-		s.clipboardMu.Unlock()
-	})
-	defer timer.Stop()
+	type waitRegistration struct {
+		payload  string
+		waiterID uint64
+		reply    chan string
+	}
+	type waitState struct {
+		payload string
+		matched bool
+	}
 
-	s.clipboardMu.Lock()
-	defer s.clipboardMu.Unlock()
-	for {
+	reg, err := enqueueSessionQuery(s, func(s *Session) (waitRegistration, error) {
 		gen := s.clipboardGen.Load()
 		if gen > afterGen {
-			return s.lastClipboardB64, true
+			return waitRegistration{payload: s.lastClipboardB64}, nil
 		}
-		if time.Now().After(deadline) {
+		reply := make(chan string, 1)
+		waiterID := s.waiterCounter.Add(1)
+		s.clipboardWaiters[waiterID] = clipboardWaiter{afterGen: afterGen, reply: reply}
+		return waitRegistration{waiterID: waiterID, reply: reply}, nil
+	})
+	if err != nil {
+		return "", false
+	}
+	if reg.reply == nil {
+		return reg.payload, true
+	}
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	select {
+	case payload := <-reg.reply:
+		return payload, true
+	case <-timer.C:
+		state, err := enqueueSessionQuery(s, func(s *Session) (waitState, error) {
+			delete(s.clipboardWaiters, reg.waiterID)
+			if s.clipboardGen.Load() > afterGen {
+				return waitState{payload: s.lastClipboardB64, matched: true}, nil
+			}
+			return waitState{}, nil
+		})
+		if err != nil {
 			return "", false
 		}
-		s.clipboardCond.Wait()
+		return state.payload, state.matched
 	}
 }
 
 func (s *Session) waitHook(afterGen uint64, eventName, paneName string, timeout time.Duration) (hookResultRecord, bool) {
-	deadline := time.Now().Add(timeout)
-	timer := time.AfterFunc(timeout, func() {
-		s.hookMu.Lock()
-		s.hookCond.Broadcast()
-		s.hookMu.Unlock()
+	type waitRegistration struct {
+		record   hookResultRecord
+		waiterID uint64
+		reply    chan hookResultRecord
+	}
+	type waitState struct {
+		record  hookResultRecord
+		matched bool
+	}
+
+	reg, err := enqueueSessionQuery(s, func(s *Session) (waitRegistration, error) {
+		if record, ok := s.matchHookResult(afterGen, eventName, paneName); ok {
+			return waitRegistration{record: record}, nil
+		}
+		reply := make(chan hookResultRecord, 1)
+		waiterID := s.waiterCounter.Add(1)
+		s.hookWaiters[waiterID] = hookWaiter{
+			afterGen:  afterGen,
+			eventName: eventName,
+			paneName:  paneName,
+			reply:     reply,
+		}
+		return waitRegistration{waiterID: waiterID, reply: reply}, nil
 	})
+	if err != nil {
+		return hookResultRecord{}, false
+	}
+	if reg.reply == nil {
+		return reg.record, true
+	}
+
+	timer := time.NewTimer(timeout)
 	defer timer.Stop()
 
-	s.hookMu.Lock()
-	defer s.hookMu.Unlock()
-	for {
-		for _, record := range s.hookResults {
-			if record.Generation <= afterGen {
-				continue
-			}
-			if eventName != "" && record.Event != eventName {
-				continue
-			}
-			if paneName != "" && record.PaneName != paneName {
-				continue
-			}
-			return record, true
-		}
-		if time.Now().After(deadline) {
+	select {
+	case record := <-reg.reply:
+		return record, true
+	case <-timer.C:
+		state, err := enqueueSessionQuery(s, func(s *Session) (waitState, error) {
+			delete(s.hookWaiters, reg.waiterID)
+			record, ok := s.matchHookResult(afterGen, eventName, paneName)
+			return waitState{record: record, matched: ok}, nil
+		})
+		if err != nil {
 			return hookResultRecord{}, false
 		}
-		s.hookCond.Wait()
+		return state.record, state.matched
 	}
 }

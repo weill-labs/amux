@@ -18,9 +18,12 @@ func (s *Session) SetupRemoteManager(cfg *config.Config, buildHash string) {
 	mgr.SetCallbacks(
 		// onPaneOutput: feed remote output into the proxy pane's emulator
 		func(localPaneID uint32, data []byte) {
-			s.mu.Lock()
-			pane := s.findPaneLocked(localPaneID)
-			s.mu.Unlock()
+			pane, err := enqueueSessionQuery(s, func(s *Session) (*mux.Pane, error) {
+				return s.findPaneByID(localPaneID), nil
+			})
+			if err != nil {
+				return
+			}
 			if pane != nil {
 				pane.FeedOutput(data)
 			}
@@ -53,60 +56,63 @@ func (s *Session) takeoverCallback(srv *Server) func(paneID uint32, req mux.Take
 // handleTakeover processes a takeover request from a nested amux.
 // It runs asynchronously (called via goroutine from the readLoop callback).
 func (s *Session) handleTakeover(srv *Server, sshPaneID uint32, req mux.TakeoverRequest) {
-	s.mu.Lock()
-
-	// Guard against duplicate takeover for the same pane (e.g., the remote
-	// emits the sequence twice during reconnect).
-	if s.takenOverPanes[sshPaneID] {
-		s.mu.Unlock()
-		return
+	type takeoverStart struct {
+		sshPane  *mux.Pane
+		hostname string
 	}
-	s.takenOverPanes[sshPaneID] = true
-
-	sshPane := s.findPaneLocked(sshPaneID)
-	if sshPane == nil {
-		s.mu.Unlock()
-		return
+	type takeoverLayout struct {
+		cols  int
+		cellH int
 	}
 
-	// Verify the SSH pane is still in a window's layout
-	w := s.FindWindowByPaneID(sshPaneID)
-	if w == nil {
-		s.mu.Unlock()
+	start, err := enqueueSessionQuery(s, func(s *Session) (takeoverStart, error) {
+		if s.takenOverPanes[sshPaneID] {
+			return takeoverStart{}, nil
+		}
+		sshPane := s.findPaneByID(sshPaneID)
+		if sshPane == nil {
+			return takeoverStart{}, nil
+		}
+		if s.FindWindowByPaneID(sshPaneID) == nil {
+			return takeoverStart{}, nil
+		}
+		s.takenOverPanes[sshPaneID] = true
+
+		hostname := req.Host
+		if hostname == "" {
+			hostname = "remote"
+		}
+		return takeoverStart{sshPane: sshPane, hostname: hostname}, nil
+	})
+	if err != nil || start.sshPane == nil {
 		return
 	}
-	s.mu.Unlock()
 
 	// Send ack through the SSH PTY's stdin — carries the agreed session name
 	// so the remote amux starts its server at the right socket path.
-	sshPane.Write([]byte(mux.FormatTakeoverAck(req.Session) + "\n"))
+	start.sshPane.Write([]byte(mux.FormatTakeoverAck(req.Session) + "\n"))
 
-	hostname := req.Host
-	if hostname == "" {
-		hostname = "remote"
-	}
-
-	// Re-acquire lock and read fresh cell dimensions (may have changed
-	// during the unlocked period due to resize events).
-	s.mu.Lock()
-	w = s.FindWindowByPaneID(sshPaneID)
-	if w == nil {
-		s.mu.Unlock()
+	layout, err := enqueueSessionQuery(s, func(s *Session) (takeoverLayout, error) {
+		w := s.FindWindowByPaneID(sshPaneID)
+		if w == nil {
+			return takeoverLayout{}, fmt.Errorf("pane %d not in any window", sshPaneID)
+		}
+		cell := w.Root.FindPane(sshPaneID)
+		if cell == nil {
+			return takeoverLayout{}, fmt.Errorf("pane %d not in layout", sshPaneID)
+		}
+		return takeoverLayout{cols: cell.W, cellH: cell.H}, nil
+	})
+	if err != nil {
 		return
 	}
-	cell := w.Root.FindPane(sshPaneID)
-	if cell == nil {
-		s.mu.Unlock()
-		return
-	}
-	cols, cellH := cell.W, cell.H
 
 	// Build proxy panes for the remote session. If the request has no
 	// panes (remote just started), create one default pane.
 	remotePanes := req.Panes
 	if len(remotePanes) == 0 {
 		remotePanes = []mux.TakeoverPane{
-			{ID: 1, Name: "pane-1", Cols: cols, Rows: mux.PaneContentHeight(cellH)},
+			{ID: 1, Name: "pane-1", Cols: layout.cols, Rows: mux.PaneContentHeight(layout.cellH)},
 		}
 	}
 
@@ -114,14 +120,14 @@ func (s *Session) handleTakeover(srv *Server, sshPaneID uint32, req mux.Takeover
 	for _, rp := range remotePanes {
 		id := s.counter.Add(1)
 		meta := mux.PaneMeta{
-			Name:   fmt.Sprintf("%s@%s", rp.Name, hostname),
-			Host:   hostname,
+			Name:   fmt.Sprintf("%s@%s", rp.Name, start.hostname),
+			Host:   start.hostname,
 			Color:  config.CatppuccinMocha[(id-1)%uint32(len(config.CatppuccinMocha))],
 			Remote: string(remote.Connected),
 		}
 
 		// writeOverride routes input through the RemoteManager → SSH → remote amux.
-		proxyPane := mux.NewProxyPane(id, meta, cols, mux.PaneContentHeight(cellH),
+		proxyPane := mux.NewProxyPane(id, meta, layout.cols, mux.PaneContentHeight(layout.cellH),
 			s.paneOutputCallback(),
 			s.paneExitCallback(),
 			func(data []byte) (int, error) {
@@ -135,37 +141,44 @@ func (s *Session) handleTakeover(srv *Server, sshPaneID uint32, req mux.Takeover
 	}
 
 	// Splice the proxy panes into the layout, replacing the SSH pane
-	for _, pp := range proxyPanes {
-		s.Panes = append(s.Panes, pp)
-	}
-	_, spliceErr := w.SplicePane(sshPaneID, proxyPanes)
-	if spliceErr != nil {
-		for _, pp := range proxyPanes {
-			s.removePane(pp.ID)
+	res := s.enqueueCommandMutation(func(s *Session) commandMutationResult {
+		w := s.FindWindowByPaneID(sshPaneID)
+		if w == nil {
+			return commandMutationResult{err: fmt.Errorf("pane %d not in any window", sshPaneID)}
 		}
-		s.mu.Unlock()
+		for _, pp := range proxyPanes {
+			s.Panes = append(s.Panes, pp)
+		}
+		if _, err := w.SplicePane(sshPaneID, proxyPanes); err != nil {
+			for _, pp := range proxyPanes {
+				s.removePane(pp.ID)
+			}
+			return commandMutationResult{err: err}
+		}
+		if sshPane := s.findPaneByID(sshPaneID); sshPane != nil {
+			sshPane.Meta.Dormant = true
+		}
+		return commandMutationResult{broadcastLayout: true}
+	})
+	if res.err != nil {
 		return
 	}
-
-	// The SSH pane stays in the panes list (dormant) — its PTY maintains
-	// the SSH connection for unsplice fallback.
-	sshPane.Meta.Dormant = true
-	s.mu.Unlock()
-
-	s.broadcastLayout()
+	if res.broadcastLayout {
+		s.broadcastLayout()
+	}
 
 	// Wire bidirectional I/O: connect back to the remote amux server via SSH
 	// and register pane mappings so SendInput/FeedOutput flow correctly.
 	// Also deploy the updated binary so the remote amux hot-reloads.
 	if s.RemoteManager != nil && req.SSHAddress != "" {
-		go s.RemoteManager.DeployToAddress(hostname, req.SSHAddress, req.SSHUser)
+		go s.RemoteManager.DeployToAddress(start.hostname, req.SSHAddress, req.SSHUser)
 
 		paneMappings := make(map[uint32]uint32, len(proxyPanes))
 		for i, pp := range proxyPanes {
 			paneMappings[pp.ID] = remotePanes[i].ID
 		}
 		if err := s.RemoteManager.AttachForTakeover(
-			hostname, req.SSHAddress, req.SSHUser, req.UID, req.Session, paneMappings,
+			start.hostname, req.SSHAddress, req.SSHUser, req.UID, req.Session, paneMappings,
 		); err != nil {
 			fmt.Fprintf(os.Stderr, "amux: takeover AttachForTakeover: %v\n", err)
 		}
@@ -176,40 +189,39 @@ func (s *Session) handleTakeover(srv *Server, sshPaneID uint32, req mux.Takeover
 // client and waits for its response. The client renders from its own
 // emulators — the rendering source of truth. For JSON captures, the server
 // gathers agent status (one pgrep call per pane) and includes it in the
-// request. Serialized via captureMu so concurrent callers don't clobber.
+// request. The session actor serializes capture dispatch.
 func (s *Session) forwardCapture(args []string) *Message {
-	s.captureMu.Lock()
-	defer s.captureMu.Unlock()
+	type captureSnapshot struct {
+		client      *ClientConn
+		statusPanes []*mux.Pane
+	}
 
 	// Wait briefly for a client to attach (covers post-reload reconnection).
-	// The loop acquires s.mu; on success it remains held through the snapshot below.
 	const maxRetries = 10
-	var client *ClientConn
-	for attempt := range maxRetries {
-		s.mu.Lock()
-		if len(s.clients) > 0 {
-			// Use the first attached client. In practice there's one interactive
-			// client at a time; if multiple attach, the first is authoritative.
-			client = s.clients[0]
+	var snap captureSnapshot
+	var err error
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		snap, err = enqueueSessionQuery(s, func(s *Session) (captureSnapshot, error) {
+			if len(s.clients) == 0 {
+				return captureSnapshot{}, nil
+			}
+			snap := captureSnapshot{client: s.clients[0]}
+			if slices.Contains(args, "json") {
+				snap.statusPanes = append([]*mux.Pane(nil), s.Panes...)
+			}
+			return snap, nil
+		})
+		if err != nil {
+			return &Message{Type: MsgTypeCmdResult, CmdErr: err.Error()}
+		}
+		if snap.client != nil {
 			break
 		}
-		s.mu.Unlock()
 		if attempt == maxRetries-1 {
 			return &Message{Type: MsgTypeCmdResult, CmdErr: "no client attached"}
 		}
 		time.Sleep(300 * time.Millisecond)
 	}
-
-	ch := make(chan *Message, 1)
-	s.captureResult = ch
-
-	// For JSON captures, snapshot pane list while holding the lock.
-	var statusPanes []*mux.Pane
-	if slices.Contains(args, "json") {
-		statusPanes = make([]*mux.Pane, len(s.Panes))
-		copy(statusPanes, s.Panes)
-	}
-	s.mu.Unlock()
 
 	// Gather agent status. Call AgentStatus() for each pane, then use
 	// cached idleState to stabilize the result: when both the idle timer
@@ -218,11 +230,11 @@ func (s *Session) forwardCapture(args []string) *Message {
 	// shell children under parallel load, while still trusting pgrep for
 	// busy panes (including silent long-running processes like sleep).
 	var agentStatus map[uint32]proto.PaneAgentStatus
-	if len(statusPanes) > 0 {
+	if len(snap.statusPanes) > 0 {
 		_, sinceSnap := s.snapshotIdleFull()
 
-		agentStatus = make(map[uint32]proto.PaneAgentStatus, len(statusPanes))
-		for _, p := range statusPanes {
+		agentStatus = make(map[uint32]proto.PaneAgentStatus, len(snap.statusPanes))
+		for _, p := range snap.statusPanes {
 			st := p.AgentStatus()
 			pas := proto.PaneAgentStatus{
 				Idle:           st.Idle,
@@ -243,38 +255,95 @@ func (s *Session) forwardCapture(args []string) *Message {
 		}
 	}
 
-	client.Send(&Message{
-		Type:        MsgTypeCaptureRequest,
-		CmdArgs:     args,
-		AgentStatus: agentStatus,
-	})
+	req := &captureRequest{
+		id:          s.captureCounter.Add(1),
+		client:      snap.client,
+		args:        append([]string(nil), args...),
+		agentStatus: agentStatus,
+		reply:       make(chan *Message, 1),
+	}
+	if err := s.enqueueCaptureRequest(req); err != nil {
+		return &Message{Type: MsgTypeCmdResult, CmdErr: err.Error()}
+	}
 
-	defer func() {
-		s.mu.Lock()
-		s.captureResult = nil
-		s.mu.Unlock()
-	}()
-
+	timer := time.NewTimer(3 * time.Second)
+	defer timer.Stop()
 	select {
-	case resp := <-ch:
+	case resp := <-req.reply:
 		return &Message{Type: MsgTypeCmdResult, CmdOutput: resp.CmdOutput, CmdErr: resp.CmdErr}
-	case <-time.After(3 * time.Second):
+	case <-timer.C:
+		s.cancelCaptureRequest(req.id)
 		return &Message{Type: MsgTypeCmdResult, CmdErr: "capture timed out (client unresponsive)"}
+	case <-s.sessionEventDone:
+		return &Message{Type: MsgTypeCmdResult, CmdErr: errSessionShuttingDown.Error()}
 	}
 }
 
 // routeCaptureResponse delivers a capture response from the interactive client
 // to the waiting forwardCapture caller. Thread-safe.
 func (s *Session) routeCaptureResponse(msg *Message) {
-	s.mu.Lock()
-	ch := s.captureResult
-	s.mu.Unlock()
-	if ch != nil {
+	_, _ = enqueueSessionQuery(s, func(s *Session) (struct{}, error) {
+		if s.captureCurrent == nil {
+			return struct{}{}, nil
+		}
+		req := s.captureCurrent
+		s.captureCurrent = nil
 		select {
-		case ch <- msg:
+		case req.reply <- msg:
 		default:
 		}
+		s.startNextCaptureRequest()
+		return struct{}{}, nil
+	})
+}
+
+func (s *Session) captureRequestMessage(req *captureRequest) *Message {
+	return &Message{
+		Type:        MsgTypeCaptureRequest,
+		CmdArgs:     req.args,
+		AgentStatus: req.agentStatus,
 	}
+}
+
+func (s *Session) startNextCaptureRequest() {
+	if s.captureCurrent != nil || len(s.captureQueue) == 0 {
+		return
+	}
+	next := s.captureQueue[0]
+	s.captureQueue = s.captureQueue[1:]
+	s.captureCurrent = next
+	next.client.Send(s.captureRequestMessage(next))
+}
+
+func (s *Session) enqueueCaptureRequest(req *captureRequest) error {
+	_, err := enqueueSessionQuery(s, func(s *Session) (struct{}, error) {
+		if s.captureCurrent == nil {
+			s.captureCurrent = req
+			req.client.Send(s.captureRequestMessage(req))
+			return struct{}{}, nil
+		}
+		s.captureQueue = append(s.captureQueue, req)
+		return struct{}{}, nil
+	})
+	return err
+}
+
+func (s *Session) cancelCaptureRequest(id uint64) {
+	_, _ = enqueueSessionQuery(s, func(s *Session) (struct{}, error) {
+		if s.captureCurrent != nil && s.captureCurrent.id == id {
+			s.captureCurrent = nil
+			s.startNextCaptureRequest()
+			return struct{}{}, nil
+		}
+		for i, req := range s.captureQueue {
+			if req.id != id {
+				continue
+			}
+			s.captureQueue = append(s.captureQueue[:i], s.captureQueue[i+1:]...)
+			break
+		}
+		return struct{}{}, nil
+	})
 }
 
 // formatIdleSince returns an RFC3339 string for a non-zero time, or "".

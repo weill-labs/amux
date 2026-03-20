@@ -3,7 +3,6 @@ package server
 import (
 	"encoding/json"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -159,8 +158,8 @@ func TestResolveWaitHookPaneName(t *testing.T) {
 func TestWaitHookTimeout(t *testing.T) {
 	t.Parallel()
 
-	sess := &Session{}
-	sess.hookCond = sync.NewCond(&sess.hookMu)
+	sess := newSession("test-wait-hook-timeout")
+	defer stopSessionBackgroundLoops(t, sess)
 
 	if _, ok := sess.waitHook(0, "on-idle", "pane-1", 20*time.Millisecond); ok {
 		t.Fatal("waitHook should time out when no matching hook arrives")
@@ -172,7 +171,6 @@ func TestHookResultEventTrimsHistoryAndEmitsHookEvent(t *testing.T) {
 
 	sess := newSession("test-hook-result-event")
 	stopSessionBackgroundLoops(t, sess)
-	sess.hookCond = sync.NewCond(&sess.hookMu)
 
 	for i := 0; i < 128; i++ {
 		sess.hookResults = append(sess.hookResults, hookResultRecord{Generation: uint64(i + 1)})

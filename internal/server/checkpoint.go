@@ -32,57 +32,56 @@ func (s *Server) Reload(execPath string) error {
 	sess.shutdown.Store(true)
 
 	// Build checkpoint
-	idleSnap := sess.snapshotIdleState()
-	sess.mu.Lock()
-	if len(sess.Windows) == 0 {
-		sess.mu.Unlock()
-		sess.shutdown.Store(false)
-		return fmt.Errorf("no window to checkpoint")
-	}
-
-	snap := sess.snapshotLayoutLocked(idleSnap)
-	cp := &checkpoint.ServerCheckpoint{
-		SessionName:   sess.Name,
-		Counter:       sess.counter.Load(),
-		WindowCounter: sess.windowCounter.Load(),
-		Generation:    sess.generation.Load(),
-		Layout:        *snap,
-	}
-
-	for _, p := range sess.Panes {
-		pc := checkpoint.PaneCheckpoint{
-			ID:        p.ID,
-			Meta:      p.Meta,
-			Screen:    p.RenderScreen(),
-			CreatedAt: p.CreatedAt(),
-			IsProxy:   p.IsProxy(),
+	cp, err := enqueueSessionQuery(sess, func(sess *Session) (*checkpoint.ServerCheckpoint, error) {
+		if len(sess.Windows) == 0 {
+			return nil, fmt.Errorf("no window to checkpoint")
 		}
-		if p.IsProxy() {
-			// Proxy panes have no PTY or process to inherit
-			pc.PtmxFd = -1
-			pc.PID = 0
-		} else {
-			pc.PtmxFd = p.PtmxFd()
-			pc.PID = p.ProcessPid()
+
+		idleSnap := sess.snapshotIdleState()
+		snap := sess.snapshotLayout(idleSnap)
+		cp := &checkpoint.ServerCheckpoint{
+			SessionName:   sess.Name,
+			Counter:       sess.counter.Load(),
+			WindowCounter: sess.windowCounter.Load(),
+			Generation:    sess.generation.Load(),
+			Layout:        *snap,
 		}
-		// For minimized panes, save the emulator's actual dimensions
-		// (pre-minimize size) so the emulator is restored at the correct
-		// size after hot-reload. The cell dimensions are shrunk to just
-		// the status line, which would garble output if used.
-		if p.Meta.Minimized {
-			pc.Cols, pc.Rows = p.EmulatorSize()
-		} else {
-			for _, w := range sess.Windows {
-				if cell := w.Root.FindPane(p.ID); cell != nil {
-					pc.Cols = cell.W
-					pc.Rows = mux.PaneContentHeight(cell.H)
-					break
+
+		for _, p := range sess.Panes {
+			pc := checkpoint.PaneCheckpoint{
+				ID:        p.ID,
+				Meta:      p.Meta,
+				Screen:    p.RenderScreen(),
+				CreatedAt: p.CreatedAt(),
+				IsProxy:   p.IsProxy(),
+			}
+			if p.IsProxy() {
+				pc.PtmxFd = -1
+				pc.PID = 0
+			} else {
+				pc.PtmxFd = p.PtmxFd()
+				pc.PID = p.ProcessPid()
+			}
+			if p.Meta.Minimized {
+				pc.Cols, pc.Rows = p.EmulatorSize()
+			} else {
+				for _, w := range sess.Windows {
+					if cell := w.Root.FindPane(p.ID); cell != nil {
+						pc.Cols = cell.W
+						pc.Rows = mux.PaneContentHeight(cell.H)
+						break
+					}
 				}
 			}
+			cp.Panes = append(cp.Panes, pc)
 		}
-		cp.Panes = append(cp.Panes, pc)
+
+		return cp, nil
+	})
+	if err != nil {
+		sess.shutdown.Store(false)
+		return err
 	}
-	sess.mu.Unlock()
 
 	// Get listener FD
 	lnFd, err := listenerFd(s.listener)
@@ -240,30 +239,52 @@ func NewServerFromCheckpoint(cp *checkpoint.ServerCheckpoint) (*Server, error) {
 	// Force TUI apps to do a full screen redraw via SIGWINCH.
 	// Skip minimized panes and proxy panes (no PTY to SIGWINCH).
 	go func() {
-		resizeVisible := func(heightAdj int) {
-			for _, w := range sess.Windows {
-				for _, p := range sess.Panes {
-					if p.Meta.Minimized || p.IsProxy() {
-						continue
-					}
-					if cell := w.Root.FindPane(p.ID); cell != nil {
-						p.Resize(cell.W, mux.PaneContentHeight(cell.H)+heightAdj)
+		type resizeTarget struct {
+			pane *mux.Pane
+			cols int
+			rows int
+		}
+		type replayTarget struct {
+			pane *mux.Pane
+			data string
+		}
+
+		resizeVisible := func(heightAdj int) bool {
+			targets, err := enqueueSessionQuery(sess, func(sess *Session) ([]resizeTarget, error) {
+				var targets []resizeTarget
+				for _, w := range sess.Windows {
+					for _, p := range sess.Panes {
+						if p.Meta.Minimized || p.IsProxy() {
+							continue
+						}
+						if cell := w.Root.FindPane(p.ID); cell != nil {
+							targets = append(targets, resizeTarget{
+								pane: p,
+								cols: cell.W,
+								rows: mux.PaneContentHeight(cell.H) + heightAdj,
+							})
+						}
 					}
 				}
+				return targets, nil
+			})
+			if err != nil {
+				return false
 			}
+			for _, target := range targets {
+				target.pane.Resize(target.cols, target.rows)
+			}
+			return true
 		}
 
 		time.Sleep(500 * time.Millisecond)
-		sess.mu.Lock()
-		defer sess.mu.Unlock()
-
-		resizeVisible(-1) // Shrink by 1 row to trigger SIGWINCH
-
-		sess.mu.Unlock()
+		if !resizeVisible(-1) {
+			return
+		}
 		time.Sleep(200 * time.Millisecond)
-		sess.mu.Lock()
-
-		resizeVisible(0) // Restore original size
+		if !resizeVisible(0) {
+			return
+		}
 
 		// Re-replay saved screen data for minimized panes. The readLoop
 		// may have fed buffered PTY output into their emulators, garbling
@@ -271,12 +292,24 @@ func NewServerFromCheckpoint(cp *checkpoint.ServerCheckpoint) (*Server, error) {
 		// first so the replay starts from a known state.
 		// Also broadcast the replay to clients so their emulators stay
 		// in sync with the server.
-		for _, p := range sess.Panes {
-			if screen, ok := minimizedScreens[p.ID]; ok {
-				replayData := "\033[H\033[2J" + screen
-				p.ReplayScreen(replayData)
-				sess.broadcastPaneOutputLocked(p.ID, []byte(replayData))
+		replays, err := enqueueSessionQuery(sess, func(sess *Session) ([]replayTarget, error) {
+			var replays []replayTarget
+			for _, p := range sess.Panes {
+				if screen, ok := minimizedScreens[p.ID]; ok {
+					replays = append(replays, replayTarget{
+						pane: p,
+						data: "\033[H\033[2J" + screen,
+					})
+				}
 			}
+			return replays, nil
+		})
+		if err != nil {
+			return
+		}
+		for _, replay := range replays {
+			replay.pane.ReplayScreen(replay.data)
+			sess.broadcastPaneOutput(replay.pane.ID, []byte(replay.data))
 		}
 	}()
 

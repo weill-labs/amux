@@ -93,10 +93,8 @@ func TestKillOrphanedPaneViaFallback(t *testing.T) {
 	w := mux.NewWindow(pane1, 80, 24)
 	w.ID = sess.windowCounter.Add(1)
 	w.Name = "window-1"
-	sess.mu.Lock()
 	sess.Windows = append(sess.Windows, w)
 	sess.ActiveWindowID = w.ID
-	sess.mu.Unlock()
 
 	// Create an orphaned pane: add to flat registry but NOT to any window layout.
 	// This simulates a dormant SSH takeover pane or a pane orphaned by a race.
@@ -108,21 +106,27 @@ func TestKillOrphanedPaneViaFallback(t *testing.T) {
 		sess.paneExitCallback(),
 		func(data []byte) (int, error) { return len(data), nil },
 	)
-	sess.mu.Lock()
 	sess.Panes = append(sess.Panes, orphanPane)
-	sess.mu.Unlock()
 
 	// Verify the orphan is in the flat registry but not in any layout tree.
-	sess.mu.Lock()
-	if sess.FindWindowByPaneID(orphanID) != nil {
-		sess.mu.Unlock()
+	state := mustSessionQuery(t, sess, func(sess *Session) struct {
+		inWindow bool
+		hasPane  bool
+	} {
+		return struct {
+			inWindow bool
+			hasPane  bool
+		}{
+			inWindow: sess.FindWindowByPaneID(orphanID) != nil,
+			hasPane:  sess.hasPane(orphanID),
+		}
+	})
+	if state.inWindow {
 		t.Fatal("orphan pane should NOT be in any window layout")
 	}
-	if !sess.hasPane(orphanID) {
-		sess.mu.Unlock()
+	if !state.hasPane {
 		t.Fatal("orphan pane should be in Session.Panes")
 	}
-	sess.mu.Unlock()
 	assertSessionLayoutConsistent(t, sess, orphanID)
 
 	// Send "kill orphan-pane" through the command path via net.Pipe.
@@ -167,9 +171,9 @@ func TestKillOrphanedPaneViaFallback(t *testing.T) {
 	}
 
 	// Verify the orphan is gone from the flat registry.
-	sess.mu.Lock()
-	stillExists := sess.hasPane(orphanID)
-	sess.mu.Unlock()
+	stillExists := mustSessionQuery(t, sess, func(sess *Session) bool {
+		return sess.hasPane(orphanID)
+	})
 	if stillExists {
 		t.Error("orphan pane should be removed from Session.Panes after kill")
 	}

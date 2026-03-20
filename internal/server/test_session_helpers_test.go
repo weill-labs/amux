@@ -24,3 +24,15 @@ func stopSessionBackgroundLoops(t *testing.T, sess *Session) {
 	}
 	stopCrashCheckpointLoop(t, sess)
 }
+
+func mustSessionQuery[T any](t *testing.T, sess *Session, fn func(*Session) T) T {
+	t.Helper()
+
+	value, err := enqueueSessionQuery(sess, func(sess *Session) (T, error) {
+		return fn(sess), nil
+	})
+	if err != nil {
+		t.Fatalf("enqueueSessionQuery: %v", err)
+	}
+	return value
+}

@@ -158,9 +158,9 @@ func TestPaneExitCallbackEnqueuesRemoval(t *testing.T) {
 	sess.paneExitCallback()(p2.ID)
 
 	waitUntil(t, func() bool {
-		sess.mu.Lock()
-		defer sess.mu.Unlock()
-		return !sess.hasPane(p2.ID) && w.PaneCount() == 1
+		return mustSessionQuery(t, sess, func(sess *Session) bool {
+			return !sess.hasPane(p2.ID) && w.PaneCount() == 1
+		})
 	})
 }
 

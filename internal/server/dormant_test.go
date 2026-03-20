@@ -73,7 +73,6 @@ func TestCmdListShowsDormant(t *testing.T) {
 	w := mux.NewWindow(pane1, 80, 24)
 	w.ID = sess.windowCounter.Add(1)
 	w.Name = "window-1"
-	sess.mu.Lock()
 	sess.Windows = append(sess.Windows, w)
 	sess.ActiveWindowID = w.ID
 
@@ -87,7 +86,6 @@ func TestCmdListShowsDormant(t *testing.T) {
 		func(data []byte) (int, error) { return len(data), nil },
 	)
 	sess.Panes = append(sess.Panes, dormantPane)
-	sess.mu.Unlock()
 
 	// Run the list command via net.Pipe.
 	serverConn, clientConn := net.Pipe()

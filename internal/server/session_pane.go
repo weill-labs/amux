@@ -23,7 +23,6 @@ func (s *Session) hasPane(id uint32) bool {
 // findPaneByRef searches the flat Panes list for a pane matching the reference.
 // This finds panes that may not be in any window's layout tree (e.g., dormant
 // SSH takeover panes or orphaned panes from race conditions).
-// Caller must hold s.mu.
 func (s *Session) findPaneByRef(ref string) *mux.Pane {
 	// Exact match by name or numeric ID
 	for _, p := range s.Panes {
@@ -40,8 +39,8 @@ func (s *Session) findPaneByRef(ref string) *mux.Pane {
 	return nil
 }
 
-// findPaneLocked finds a pane by ID. Caller must hold s.mu.
-func (s *Session) findPaneLocked(id uint32) *mux.Pane {
+// findPaneByID finds a pane by ID.
+func (s *Session) findPaneByID(id uint32) *mux.Pane {
 	for _, p := range s.Panes {
 		if p.ID == id {
 			return p
@@ -151,9 +150,9 @@ func (s *Session) prepareRemotePane(srv *Server, hostName string, cols, rows int
 	return pane, nil
 }
 
-// insertPreparedPaneIntoActiveWindowLocked registers a pre-created pane in the
-// session and inserts it into the active window layout. Caller must hold s.mu.
-func (s *Session) insertPreparedPaneIntoActiveWindowLocked(pane *mux.Pane, dir mux.SplitDir, rootLevel bool) error {
+// insertPreparedPaneIntoActiveWindow registers a pre-created pane in the
+// session and inserts it into the active window layout.
+func (s *Session) insertPreparedPaneIntoActiveWindow(pane *mux.Pane, dir mux.SplitDir, rootLevel bool) error {
 	w := s.ActiveWindow()
 	if w == nil {
 		return fmt.Errorf("no window")

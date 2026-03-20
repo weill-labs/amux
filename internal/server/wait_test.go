@@ -1,16 +1,14 @@
 package server
 
 import (
-	"runtime"
-	"sync"
 	"testing"
 	"time"
 )
 
 func TestWaitGeneration_AlreadyPast(t *testing.T) {
 	t.Parallel()
-	sess := &Session{}
-	sess.generationCond = sync.NewCond(&sess.generationMu)
+	sess := newSession("test-wait-generation-past")
+	defer stopSessionBackgroundLoops(t, sess)
 	sess.generation.Store(5)
 
 	gen, ok := sess.waitGeneration(3, time.Second)
@@ -24,31 +22,28 @@ func TestWaitGeneration_AlreadyPast(t *testing.T) {
 
 func TestWaitGeneration_WakesOnIncrement(t *testing.T) {
 	t.Parallel()
-	sess := &Session{}
-	sess.generationCond = sync.NewCond(&sess.generationMu)
-	sess.generation.Store(0)
+	sess := newSession("test-wait-generation-increment")
+	defer stopSessionBackgroundLoops(t, sess)
 
 	done := make(chan struct{})
 	var result uint64
 	var resultOk bool
-	ready := make(chan struct{})
 	go func() {
-		close(ready)
 		result, resultOk = sess.waitGeneration(0, 5*time.Second)
 		close(done)
 	}()
 
-	// Wait for the goroutine to be scheduled. Gosched gives it a chance to
-	// enter Wait, but the waitGeneration loop handles the case where the
-	// broadcast fires before Wait is reached.
-	<-ready
-	runtime.Gosched()
+	waitUntil(t, func() bool {
+		return mustSessionQuery(t, sess, func(sess *Session) bool {
+			return len(sess.layoutWaiters) == 1
+		})
+	})
 
-	// Simulate broadcastLayout incrementing generation.
-	sess.generationMu.Lock()
-	sess.generation.Add(1)
-	sess.generationCond.Broadcast()
-	sess.generationMu.Unlock()
+	sess.enqueueCommandMutation(func(s *Session) commandMutationResult {
+		gen := s.generation.Add(1)
+		s.notifyLayoutWaiters(gen)
+		return commandMutationResult{}
+	})
 
 	select {
 	case <-done:
@@ -65,9 +60,8 @@ func TestWaitGeneration_WakesOnIncrement(t *testing.T) {
 
 func TestWaitGeneration_Timeout(t *testing.T) {
 	t.Parallel()
-	sess := &Session{}
-	sess.generationCond = sync.NewCond(&sess.generationMu)
-	sess.generation.Store(0)
+	sess := newSession("test-wait-generation-timeout")
+	defer stopSessionBackgroundLoops(t, sess)
 
 	gen, ok := sess.waitGeneration(0, 100*time.Millisecond)
 	if ok {

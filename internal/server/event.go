@@ -66,11 +66,7 @@ func (f eventFilter) matches(ev Event) bool {
 // without missing events that occurred before subscription. All events are
 // stamped with the current timestamp.
 func (s *Session) currentStateEvents() []Event {
-	// Snapshot idle state before acquiring s.mu (lock ordering: idle.mu before s.mu).
 	idleSnap := s.idle.SnapshotState()
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	var events []Event
