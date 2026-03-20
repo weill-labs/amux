@@ -17,7 +17,9 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/creack/pty"
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/term"
 )
 
 // startTestSSHServer starts a lightweight in-process SSH server that:
@@ -138,11 +140,49 @@ func handleSSHConn(tcpConn net.Conn, config *ssh.ServerConfig, execEnv []string)
 	}
 }
 
-// handleSession handles SSH session channels (exec requests).
+type ptyRequest struct {
+	Term     string
+	Cols     uint32
+	Rows     uint32
+	WidthPx  uint32
+	HeightPx uint32
+	Modes    string
+}
+
+type windowChangeRequest struct {
+	Cols     uint32
+	Rows     uint32
+	WidthPx  uint32
+	HeightPx uint32
+}
+
+// handleSession handles SSH session channels (exec and interactive shell requests).
 func handleSession(ch ssh.Channel, reqs <-chan *ssh.Request, execEnv []string) {
 	defer ch.Close()
+	winSize := &pty.Winsize{Cols: 80, Rows: 24}
+
 	for req := range reqs {
 		switch req.Type {
+		case "env":
+			req.Reply(true, nil)
+
+		case "pty-req":
+			var ptyReq ptyRequest
+			if err := ssh.Unmarshal(req.Payload, &ptyReq); err != nil {
+				req.Reply(false, nil)
+				continue
+			}
+			winSize = &pty.Winsize{
+				Cols: uint16(max(1, ptyReq.Cols)),
+				Rows: uint16(max(1, ptyReq.Rows)),
+			}
+			req.Reply(true, nil)
+
+		case "shell":
+			req.Reply(true, nil)
+			runShellSession(ch, reqs, execEnv, winSize)
+			return
+
 		case "exec":
 			if len(req.Payload) < 4 {
 				req.Reply(false, nil)
@@ -179,6 +219,109 @@ func handleSession(ch ssh.Channel, reqs <-chan *ssh.Request, execEnv []string) {
 			}
 		}
 	}
+}
+
+func runShellSession(ch ssh.Channel, reqs <-chan *ssh.Request, execEnv []string, size *pty.Winsize) {
+	var sizeMu sync.RWMutex
+	currentSize := *size
+
+	go func() {
+		for req := range reqs {
+			switch req.Type {
+			case "window-change":
+				var wc windowChangeRequest
+				if err := ssh.Unmarshal(req.Payload, &wc); err == nil {
+					sizeMu.Lock()
+					currentSize = pty.Winsize{
+						Cols: uint16(max(1, wc.Cols)),
+						Rows: uint16(max(1, wc.Rows)),
+					}
+					sizeMu.Unlock()
+				}
+				if req.WantReply {
+					req.Reply(true, nil)
+				}
+			case "signal":
+				if req.WantReply {
+					req.Reply(true, nil)
+				}
+			default:
+				if req.WantReply {
+					req.Reply(false, nil)
+				}
+			}
+		}
+	}()
+
+	term := term.NewTerminal(ch, "AMUX_TEST_SSH_PROMPT$ ")
+	for {
+		line, err := term.ReadLine()
+		if err != nil {
+			sendExitStatus(ch, 0)
+			return
+		}
+
+		line = strings.TrimSpace(line)
+		switch {
+		case line == "":
+			continue
+		case line == "exit":
+			sendExitStatus(ch, 0)
+			return
+		case strings.HasPrefix(line, "echo "):
+			_, _ = io.WriteString(ch, strings.TrimPrefix(line, "echo ")+"\r\n")
+		default:
+			sizeMu.RLock()
+			ws := currentSize
+			sizeMu.RUnlock()
+			sendExitStatus(ch, runShellCommand(ch, line, execEnv, &ws))
+			return
+		}
+	}
+}
+
+func sendExitStatus(ch ssh.Channel, exitCode int) {
+	exitMsg := make([]byte, 4)
+	binary.BigEndian.PutUint32(exitMsg, uint32(exitCode))
+	ch.SendRequest("exit-status", false, exitMsg)
+}
+
+type crToLFWriter struct {
+	w io.Writer
+}
+
+func runShellCommand(ch ssh.Channel, command string, execEnv []string, size *pty.Winsize) int {
+	cmd := exec.Command("sh", "-c", command)
+	cmd.Env = append(append([]string{}, execEnv...), "TERM=xterm-256color")
+
+	ptmx, err := pty.StartWithSize(cmd, size)
+	if err != nil {
+		_, _ = io.WriteString(ch, err.Error()+"\r\n")
+		return 1
+	}
+	defer ptmx.Close()
+
+	done := make(chan struct{})
+	go func() {
+		_, _ = io.Copy(ch, ptmx)
+		close(done)
+	}()
+	go func() {
+		_, _ = io.Copy(ptmx, ch)
+	}()
+
+	exitCode := 0
+	if err := cmd.Wait(); err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			exitCode = exitErr.ExitCode()
+		} else {
+			exitCode = 1
+		}
+	}
+
+	_ = ptmx.Close()
+	<-done
+	return exitCode
 }
 
 // streamLocalData is the wire format for direct-streamlocal@openssh.com.

@@ -104,6 +104,7 @@ func (s *Session) handleTakeover(srv *Server, sshPaneID uint32, req mux.Takeover
 	// Build proxy panes for the remote session. If the request has no
 	// panes (remote just started), create one default pane.
 	remotePanes := req.Panes
+	needsInitialResize := len(remotePanes) == 0
 	if len(remotePanes) == 0 {
 		remotePanes = []mux.TakeoverPane{
 			{ID: 1, Name: "pane-1", Cols: cols, Rows: mux.PaneContentHeight(cellH)},
@@ -168,6 +169,8 @@ func (s *Session) handleTakeover(srv *Server, sshPaneID uint32, req mux.Takeover
 			hostname, req.SSHAddress, req.SSHUser, req.UID, req.Session, paneMappings,
 		); err != nil {
 			fmt.Fprintf(os.Stderr, "amux: takeover AttachForTakeover: %v\n", err)
+		} else if needsInitialResize && len(proxyPanes) > 0 {
+			_ = s.RemoteManager.SendResize(proxyPanes[0].ID, cols, mux.PaneContentHeight(cellH))
 		}
 	}
 }

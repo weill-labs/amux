@@ -21,6 +21,7 @@ func TestTakeoverBidirectionalIO(t *testing.T) {
 
 	addr, keyFile := setupTestSSH(t)
 	h := newServerHarnessWithConfig(t, 80, 24, remoteTestConfig(addr, keyFile))
+	existingProxyPanes := takeoverProxyPaneNames(h)
 
 	// SSH into the test server and run amux. The remote amux detects SSH_CONNECTION,
 	// emits an OSC 999 takeover sequence to stdout (the SSH PTY), and waits for ack.
@@ -33,34 +34,35 @@ func TestTakeoverBidirectionalIO(t *testing.T) {
 		keyFile, port)
 	h.sendKeys("pane-1", sshCmd, "Enter")
 
-	// Wait for a takeover proxy pane to appear. Proxy pane names have the form
-	// "<remote-pane-name>@<hostname>" (set by handleTakeover). The initial local
-	// pane is named "pane-1" with no "@", so this correctly identifies only
-	// takeover proxy panes.
-	gen := h.generation()
-	var proxyPaneName string
-	for h.waitLayoutOrTimeout(gen, "5s") {
-		c := h.captureJSON()
-		for _, p := range c.Panes {
-			if strings.Contains(p.Name, "@") {
-				proxyPaneName = p.Name
-				break
-			}
-		}
-		if proxyPaneName != "" {
-			break
-		}
-		gen = h.generation()
-	}
-	if proxyPaneName == "" {
-		t.Fatalf("takeover proxy pane did not appear; list:\n%s", h.runCmd("list"))
-	}
+	proxyPaneName := waitForTakeoverProxyPane(t, h, existingProxyPanes)
 
 	// Verify bidirectional I/O: the proxy pane must accept keystrokes and show
 	// their output. This is the core regression: proxy panes were created but
 	// non-interactive (input went to SSH stdin → ignored, output never routed back).
 	h.sendKeys(proxyPaneName, "echo TAKEOVER_IO_OK", "Enter")
 	h.waitForTimeout(proxyPaneName, "TAKEOVER_IO_OK", "5s")
+}
+
+func TestTakeoverFromInteractiveSSHShell(t *testing.T) {
+	t.Parallel()
+
+	addr, keyFile := setupTestSSH(t)
+	h := newServerHarnessWithConfig(t, 80, 24, remoteTestConfig(addr, keyFile))
+
+	_, port, _ := net.SplitHostPort(addr)
+	sshCmd := fmt.Sprintf(
+		"ssh -tt -i %s -p %s -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null 127.0.0.1",
+		keyFile, port)
+	h.sendKeys("pane-1", sshCmd, "Enter")
+	h.sendKeys("pane-1", "echo SSH_SHELL_READY", "Enter")
+	h.waitForTimeout("pane-1", "SSH_SHELL_READY", "5s")
+
+	existingProxyPanes := takeoverProxyPaneNames(h)
+	h.sendKeys("pane-1", "amux", "Enter")
+
+	proxyPaneName := waitForTakeoverProxyPane(t, h, existingProxyPanes)
+	h.sendKeys(proxyPaneName, "echo TAKEOVER_SHELL_OK", "Enter")
+	h.waitForTimeout(proxyPaneName, "TAKEOVER_SHELL_OK", "5s")
 }
 
 // TestTakeoverAfterServerReload is a regression test for the bug where
@@ -104,4 +106,43 @@ func TestTakeoverAfterServerReload(t *testing.T) {
 		gen = h.generation()
 	}
 	t.Errorf("takeover after reload: expected pane@%s in list output\n%s", hostname, h.runCmd("list"))
+}
+
+func waitForTakeoverProxyPane(t *testing.T, h *ServerHarness, existing map[string]struct{}) string {
+	t.Helper()
+
+	gen := h.generation()
+	for h.waitLayoutOrTimeout(gen, "5s") {
+		if proxyPaneName := firstNewTakeoverProxyPane(h, existing); proxyPaneName != "" {
+			return proxyPaneName
+		}
+		gen = h.generation()
+	}
+
+	t.Fatalf("takeover proxy pane did not appear\nlist:\n%s\npane-1:\n%s",
+		h.runCmd("list"), h.runCmd("capture", "pane-1"))
+	return ""
+}
+
+func firstNewTakeoverProxyPane(h *ServerHarness, existing map[string]struct{}) string {
+	for _, p := range h.captureJSON().Panes {
+		if !strings.Contains(p.Name, "@") {
+			continue
+		}
+		if _, ok := existing[p.Name]; ok {
+			continue
+		}
+		return p.Name
+	}
+	return ""
+}
+
+func takeoverProxyPaneNames(h *ServerHarness) map[string]struct{} {
+	names := make(map[string]struct{})
+	for _, p := range h.captureJSON().Panes {
+		if strings.Contains(p.Name, "@") {
+			names[p.Name] = struct{}{}
+		}
+	}
+	return names
 }

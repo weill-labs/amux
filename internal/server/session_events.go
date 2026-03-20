@@ -54,6 +54,29 @@ func (e attachClientEvent) handle(s *Session) {
 	e.reply <- s.handleAttachEvent(e.srv, e.cc, e.cols, e.rows)
 }
 
+// ensureInitialWindowLocked creates the first window and pane for an empty
+// session using the provided terminal size. Caller must hold s.mu.
+func (s *Session) ensureInitialWindowLocked(srv *Server, cols, rows int) (*mux.Pane, error) {
+	if len(s.Windows) > 0 {
+		return nil, nil
+	}
+
+	layoutH := rows - render.GlobalBarHeight
+	paneH := mux.PaneContentHeight(layoutH)
+	pane, err := s.createPane(srv, cols, paneH)
+	if err != nil {
+		return nil, err
+	}
+
+	winID := s.windowCounter.Add(1)
+	w := mux.NewWindow(pane, cols, layoutH)
+	w.ID = winID
+	w.Name = fmt.Sprintf(WindowNameFormat, winID)
+	s.Windows = append(s.Windows, w)
+	s.ActiveWindowID = winID
+	return pane, nil
+}
+
 type commandMutationEvent struct {
 	fn    func(*Session) commandMutationResult
 	reply chan commandMutationResult
@@ -523,22 +546,12 @@ func (s *Session) handleAttachEvent(srv *Server, cc *ClientConn, cols, rows int)
 
 	res := attachResult{}
 
-	if len(s.Windows) == 0 {
-		layoutH := rows - render.GlobalBarHeight
-		paneH := mux.PaneContentHeight(layoutH)
-		pane, err := s.createPane(srv, cols, paneH)
-		if err != nil {
-			res.err = err
-			return res
-		}
-		winID := s.windowCounter.Add(1)
-		w := mux.NewWindow(pane, cols, layoutH)
-		w.ID = winID
-		w.Name = fmt.Sprintf(WindowNameFormat, winID)
-		s.Windows = append(s.Windows, w)
-		s.ActiveWindowID = winID
-		res.newPane = pane
+	pane, err := s.ensureInitialWindowLocked(srv, cols, rows)
+	if err != nil {
+		res.err = err
+		return res
 	}
+	res.newPane = pane
 
 	s.clients = append(s.clients, cc)
 	s.hadClient = true

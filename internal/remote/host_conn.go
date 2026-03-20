@@ -441,8 +441,9 @@ func attachAndWait(conn net.Conn, session string, timeout time.Duration) error {
 	return nil
 }
 
-// waitForLayout reads messages from conn until a MsgTypeLayout arrives,
-// confirming the remote server has a window. Non-layout messages are discarded.
+// waitForLayout reads messages from conn until a usable MsgTypeLayout arrives,
+// confirming the remote server has an active window with at least one pane.
+// Non-layout or unusable layout messages are discarded until timeout.
 func waitForLayout(conn net.Conn, timeout time.Duration) error {
 	conn.SetReadDeadline(time.Now().Add(timeout))
 	defer conn.SetReadDeadline(time.Time{})
@@ -451,10 +452,30 @@ func waitForLayout(conn net.Conn, timeout time.Duration) error {
 		if err != nil {
 			return err
 		}
-		if msg.Type == proto.MsgTypeLayout {
+		if msg.Type == proto.MsgTypeLayout && layoutReady(msg.Layout) {
 			return nil
 		}
 	}
+}
+
+func layoutReady(layout *proto.LayoutSnapshot) bool {
+	if layout == nil {
+		return false
+	}
+
+	if len(layout.Windows) == 0 {
+		return layout.ActivePaneID != 0 && len(layout.Panes) > 0
+	}
+	if layout.ActiveWindowID == 0 {
+		return false
+	}
+	for _, win := range layout.Windows {
+		if win.ID != layout.ActiveWindowID {
+			continue
+		}
+		return win.ActivePaneID != 0 && len(win.Panes) > 0
+	}
+	return false
 }
 
 // parseSpawnOutput extracts the pane ID from "Spawned remote-N in pane M\n".
@@ -577,14 +598,22 @@ func (hc *HostConn) dialRemoteSocket(client *ssh.Client, sockPath string) (net.C
 		return conn, nil
 	}
 
-	port, socatErr := hc.startSocatBridge(client, sockPath)
-	if socatErr != nil {
-		return nil, fmt.Errorf("unix dial failed (%w) and socat fallback failed (%w)", err, socatErr)
-	}
-
-	tcpConn, tcpErr := client.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+	tcpConn, tcpErr := hc.dialRemoteSocketTCP(client, sockPath)
 	if tcpErr != nil {
 		return nil, fmt.Errorf("unix dial failed (%w) and TCP fallback failed (%w)", err, tcpErr)
+	}
+	return tcpConn, nil
+}
+
+func (hc *HostConn) dialRemoteSocketTCP(client *ssh.Client, sockPath string) (net.Conn, error) {
+	port, err := hc.startSocatBridge(client, sockPath)
+	if err != nil {
+		return nil, err
+	}
+
+	tcpConn, err := client.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+	if err != nil {
+		return nil, err
 	}
 	return tcpConn, nil
 }

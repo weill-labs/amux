@@ -601,3 +601,26 @@ func (s *Server) handleOneShot(conn net.Conn, msg *Message) {
 
 	cc.handleCommand(s, sess, msg)
 }
+
+// EnsureInitialWindow creates the first window and pane for the first session
+// if the session is currently empty. This is used by takeover-managed startup,
+// where a remote server must be ready before any interactive client attaches.
+func (s *Server) EnsureInitialWindow(cols, rows int) error {
+	s.mu.Lock()
+	sess := s.firstSession()
+	s.mu.Unlock()
+	if sess == nil {
+		return fmt.Errorf("no session")
+	}
+
+	sess.mu.Lock()
+	pane, err := sess.ensureInitialWindowLocked(s, cols, rows)
+	sess.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	if pane != nil {
+		pane.Start()
+	}
+	return nil
+}

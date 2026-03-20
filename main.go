@@ -17,6 +17,7 @@ import (
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/reload"
 	"github.com/weill-labs/amux/internal/server"
+	"golang.org/x/sys/unix"
 )
 
 // sessionName is the global session name, set by -s flag or defaulting to "default".
@@ -82,7 +83,7 @@ func main() {
 		if len(args) > 1 {
 			name = args[1]
 		}
-		runServer(name)
+		runServer(name, false)
 
 	case "attach":
 		name, _ := parseAttachArgs(args[1:])
@@ -396,7 +397,7 @@ See https://github.com/weill-labs/amux for config format.`)
 // Built-in multiplexer: server daemon
 // ---------------------------------------------------------------------------
 
-func runServer(sessionName string) {
+func runServer(sessionName string, managedTakeover bool) {
 	server.BuildVersion = buildVersion()
 
 	var s *server.Server
@@ -452,6 +453,13 @@ func runServer(sessionName string) {
 	// them. Values are re-exported in Reload() before syscall.Exec.
 	// Must be set before event loops can observe Env (e.g., exit-unattached).
 	s.Env = server.ReadServerEnv()
+
+	if managedTakeover {
+		if err := s.EnsureInitialWindow(server.DefaultTermCols, server.DefaultTermRows); err != nil {
+			fmt.Fprintf(os.Stderr, "amux server: initializing managed takeover session: %v\n", err)
+			os.Exit(1)
+		}
+	}
 
 	// Set up remote pane manager for all sessions
 	s.SetupRemoteManager(cfg, server.BuildVersion)
@@ -620,36 +628,57 @@ func tryTakeover(sessionName string) bool {
 
 	os.Stdout.Write(mux.FormatTakeoverSequence(req))
 
-	type readResult struct {
-		data []byte
-		err  error
-	}
-	ch := make(chan readResult, 1)
-	go func() {
-		buf := make([]byte, 256) // enough for session-carrying ack
-		n, err := os.Stdin.Read(buf)
-		ch <- readResult{data: buf[:n], err: err}
-	}()
-
-	select {
-	case result := <-ch:
-		if result.err != nil || len(result.data) == 0 {
-			return false
-		}
-		// Try session-carrying ack (new format); fall back to fixed ack (legacy).
-		ackData := string(result.data)
-		session, ok := mux.ParseTakeoverAck(ackData)
-		if !ok && strings.Contains(ackData, mux.TakeoverAck) {
-			session = req.Session
-			ok = true
-		}
-		if !ok {
-			return false
-		}
-		fmt.Fprintf(os.Stderr, "amux: takeover acked, entering managed mode\n")
-		runServer(session)
-		return true
-	case <-time.After(2 * time.Second):
+	session, ok := waitForTakeoverAck(os.Stdin, req.Session, 2*time.Second)
+	if !ok {
 		return false
+	}
+	fmt.Fprintf(os.Stderr, "amux: takeover acked, entering managed mode\n")
+	runServer(session, true)
+	return true
+}
+
+func waitForTakeoverAck(stdin *os.File, fallbackSession string, timeout time.Duration) (string, bool) {
+	const maxTakeoverAckBuffer = 4 * 1024
+
+	fd := int32(stdin.Fd())
+	deadline := time.Now().Add(timeout)
+	buf := make([]byte, 0, 256)
+	tmp := make([]byte, 256)
+
+	for {
+		if session, ok := mux.FindTakeoverAck(buf, fallbackSession); ok {
+			return session, true
+		}
+
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return "", false
+		}
+
+		timeoutMS := int((remaining + time.Millisecond - 1) / time.Millisecond)
+		n, err := unix.Poll([]unix.PollFd{{Fd: fd, Events: unix.POLLIN}}, timeoutMS)
+		if err != nil {
+			if err == syscall.EINTR {
+				continue
+			}
+			return "", false
+		}
+		if n == 0 {
+			return "", false
+		}
+
+		readN, readErr := stdin.Read(tmp)
+		if readN > 0 {
+			buf = append(buf, tmp[:readN]...)
+			if len(buf) > maxTakeoverAckBuffer {
+				buf = append(buf[:0], buf[len(buf)-maxTakeoverAckBuffer:]...)
+			}
+		}
+		if readErr != nil {
+			if session, ok := mux.FindTakeoverAck(buf, fallbackSession); ok {
+				return session, true
+			}
+			return "", false
+		}
 	}
 }
