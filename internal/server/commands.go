@@ -125,6 +125,7 @@ var commandRegistry = map[string]CommandHandler{
 	"wait-for":        cmdWaitFor,
 	"wait-idle":       cmdWaitIdle,
 	"wait-busy":       cmdWaitBusy,
+	"ui-gen":          cmdUIGen,
 	"wait-ui":         cmdWaitUI,
 	"set-hook":        cmdSetHook,
 	"unset-hook":      cmdUnsetHook,
@@ -867,6 +868,37 @@ func cmdHookGen(ctx *CommandContext) {
 	ctx.reply(fmt.Sprintf("%d\n", gen))
 }
 
+func parseUIGenArgs(args []string) (clientID string, err error) {
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--client":
+			if i+1 >= len(args) {
+				return "", fmt.Errorf("missing value for --client")
+			}
+			i++
+			clientID = args[i]
+		default:
+			return "", fmt.Errorf("unknown flag: %s", args[i])
+		}
+	}
+	return clientID, nil
+}
+
+func cmdUIGen(ctx *CommandContext) {
+	requestedClientID, err := parseUIGenArgs(ctx.Args)
+	if err != nil {
+		ctx.replyErr(err.Error())
+		return
+	}
+
+	client, err := ctx.Sess.queryUIClient(requestedClientID, "")
+	if err != nil {
+		ctx.replyErr(err.Error())
+		return
+	}
+	ctx.reply(fmt.Sprintf("%d\n", client.currentGen))
+}
+
 func parseWaitHookArgs(args []string) (eventName, paneName string, afterGen uint64, timeout time.Duration, err error) {
 	if len(args) < 1 {
 		return "", "", 0, 0, fmt.Errorf("usage: wait-hook <event> [--pane <pane>] [--after N] [--timeout <duration>]")
@@ -1112,26 +1144,48 @@ func cmdWaitBusy(ctx *CommandContext) {
 	}
 }
 
-func parseWaitUIArgs(args []string) (eventName, clientID string, timeout time.Duration, err error) {
+func parseWaitUIArgs(args []string) (eventName, clientID string, afterGen uint64, afterSet bool, timeout time.Duration, err error) {
 	if len(args) < 1 {
-		return "", "", 0, fmt.Errorf("usage: wait-ui <event> [--client <id>] [--timeout <duration>]")
+		return "", "", 0, false, 0, fmt.Errorf("usage: wait-ui <event> [--client <id>] [--after N] [--timeout <duration>]")
 	}
 	eventName = args[0]
-	timeout, err = parseTimeout(args, 1, 5*time.Second)
-	if err != nil {
-		return "", "", 0, err
-	}
+	timeout = 5 * time.Second
 	for i := 1; i < len(args); i++ {
-		if args[i] == "--client" && i+1 < len(args) {
+		switch args[i] {
+		case "--client":
+			if i+1 >= len(args) {
+				return "", "", 0, false, 0, fmt.Errorf("missing value for --client")
+			}
 			i++
 			clientID = args[i]
+		case "--after":
+			if i+1 >= len(args) {
+				return "", "", 0, false, 0, fmt.Errorf("missing value for --after")
+			}
+			i++
+			afterSet = true
+			afterGen, err = strconv.ParseUint(args[i], 10, 64)
+			if err != nil {
+				return "", "", 0, false, 0, fmt.Errorf("invalid --after generation: %s", args[i])
+			}
+		case "--timeout":
+			if i+1 >= len(args) {
+				return "", "", 0, false, 0, fmt.Errorf("missing value for --timeout")
+			}
+			i++
+			timeout, err = time.ParseDuration(args[i])
+			if err != nil {
+				return "", "", 0, false, 0, fmt.Errorf("invalid timeout: %s", args[i])
+			}
+		default:
+			return "", "", 0, false, 0, fmt.Errorf("unknown flag: %s", args[i])
 		}
 	}
-	return eventName, clientID, timeout, nil
+	return eventName, clientID, afterGen, afterSet, timeout, nil
 }
 
 func cmdWaitUI(ctx *CommandContext) {
-	eventName, requestedClientID, timeout, err := parseWaitUIArgs(ctx.Args)
+	eventName, requestedClientID, afterGen, afterSet, timeout, err := parseWaitUIArgs(ctx.Args)
 	if err != nil {
 		ctx.replyErr(err.Error())
 		return
@@ -1148,7 +1202,7 @@ func cmdWaitUI(ctx *CommandContext) {
 	}
 	defer ctx.Sess.enqueueEventUnsubscribe(subscription.sub)
 
-	if subscription.currentMatch {
+	if subscription.currentMatch && (!afterSet || subscription.currentGen > afterGen) {
 		ctx.reply(eventName + "\n")
 		return
 	}

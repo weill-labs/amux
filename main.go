@@ -189,6 +189,8 @@ func main() {
 		runServerCommand("rename-window", []string{args[1]})
 	case "generation":
 		runServerCommand("generation", nil)
+	case "ui-gen":
+		runServerCommand("ui-gen", args[1:])
 	case "wait-layout":
 		runServerCommand("wait-layout", args[1:])
 	case "wait-for":
@@ -211,7 +213,7 @@ func main() {
 		runServerCommand("wait-busy", args[1:])
 	case "wait-ui":
 		if len(args) < 2 {
-			fmt.Fprintf(os.Stderr, "usage: amux wait-ui <event> [--client <id>] [--timeout <duration>]\n")
+			fmt.Fprintf(os.Stderr, "usage: amux wait-ui <event> [--client <id>] [--after N] [--timeout <duration>]\n")
 			os.Exit(1)
 		}
 		runServerCommand("wait-ui", args[1:])
@@ -354,6 +356,8 @@ Usage:
   amux [-s session] unsplice <host>    Revert SSH takeover for a host
   amux [-s session] reload-server      Hot-reload the server (preserves panes)
   amux [-s session] generation         Show current layout generation counter
+  amux [-s session] ui-gen [--client <id>]
+                                       Show current client UI generation counter
   amux [-s session] wait-layout [--after N] [--timeout 3s]
                                        Block until layout generation > N
   amux [-s session] wait-for <pane> <substring> [--timeout 3s]
@@ -362,7 +366,7 @@ Usage:
                                        Block until pane has child processes
   amux [-s session] wait-idle <pane> [--timeout 5s]
                                        Block until pane becomes idle
-  amux [-s session] wait-ui <event> [--client <id>] [--timeout 5s]
+  amux [-s session] wait-ui <event> [--client <id>] [--after N] [--timeout 5s]
                                        Block until a client-local UI state is reached
   amux [-s session] hook-gen          Show current hook completion generation
   amux [-s session] wait-hook <event> [--pane <ref>] [--after N] [--timeout 5s]

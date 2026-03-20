@@ -142,6 +142,84 @@ func TestParseWaitHookArgs(t *testing.T) {
 	}
 }
 
+func TestParseUIGenArgs(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		args       []string
+		wantClient string
+		wantErr    string
+	}{
+		{name: "no args"},
+		{name: "client", args: []string{"--client", "client-2"}, wantClient: "client-2"},
+		{name: "missing client value", args: []string{"--client"}, wantErr: "missing value for --client"},
+		{name: "unknown flag", args: []string{"--wat"}, wantErr: "unknown flag: --wat"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := parseUIGenArgs(tt.args)
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("parseUIGenArgs(%v) error = %v, want substring %q", tt.args, err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("parseUIGenArgs(%v): %v", tt.args, err)
+			}
+			if got != tt.wantClient {
+				t.Fatalf("client = %q, want %q", got, tt.wantClient)
+			}
+		})
+	}
+}
+
+func TestParseWaitUIArgs(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		args      []string
+		wantEvent string
+		wantID    string
+		wantAfter uint64
+		wantSet   bool
+		wantDur   time.Duration
+		wantErr   string
+	}{
+		{name: "missing event", wantErr: "usage: wait-ui"},
+		{name: "missing client value", args: []string{"input-idle", "--client"}, wantErr: "missing value for --client"},
+		{name: "missing after value", args: []string{"input-idle", "--after"}, wantErr: "missing value for --after"},
+		{name: "invalid after value", args: []string{"input-idle", "--after", "abc"}, wantErr: "invalid --after generation: abc"},
+		{name: "missing timeout value", args: []string{"input-idle", "--timeout"}, wantErr: "missing value for --timeout"},
+		{name: "invalid timeout", args: []string{"input-idle", "--timeout", "later"}, wantErr: "invalid timeout: later"},
+		{name: "unknown flag", args: []string{"input-idle", "--wat"}, wantErr: "unknown flag: --wat"},
+		{name: "all flags", args: []string{"input-idle", "--client", "client-3", "--after", "9", "--timeout", "250ms"}, wantEvent: "input-idle", wantID: "client-3", wantAfter: 9, wantSet: true, wantDur: 250 * time.Millisecond},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			event, clientID, afterGen, afterSet, timeout, err := parseWaitUIArgs(tt.args)
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("parseWaitUIArgs(%v) error = %v, want substring %q", tt.args, err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("parseWaitUIArgs(%v): %v", tt.args, err)
+			}
+			if event != tt.wantEvent || clientID != tt.wantID || afterGen != tt.wantAfter || afterSet != tt.wantSet || timeout != tt.wantDur {
+				t.Fatalf("parsed = (%q, %q, %d, %t, %v), want (%q, %q, %d, %t, %v)", event, clientID, afterGen, afterSet, timeout, tt.wantEvent, tt.wantID, tt.wantAfter, tt.wantSet, tt.wantDur)
+			}
+		})
+	}
+}
+
 func TestResolveWaitHookPaneName(t *testing.T) {
 	t.Parallel()
 

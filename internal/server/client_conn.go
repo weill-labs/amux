@@ -20,6 +20,7 @@ type ClientConn struct {
 	chooserMode        string
 	copyModeShown      bool
 	inputIdle          bool
+	uiGeneration       uint64
 	mu                 sync.Mutex
 	closed             bool
 	cols               int // last reported terminal width

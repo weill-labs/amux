@@ -309,6 +309,24 @@ func TestWaitUIInputIdleAfterTypeKeys(t *testing.T) {
 	}
 }
 
+func TestWaitUIAfterRequiresFreshInputCycle(t *testing.T) {
+	t.Parallel()
+
+	h := newAmuxHarness(t)
+	after := strings.TrimSpace(h.runCmd("ui-gen"))
+
+	out := h.runCmd("wait-ui", proto.UIEventInputIdle, "--after", after, "--timeout", "200ms")
+	if !strings.Contains(out, "timeout waiting for "+proto.UIEventInputIdle) {
+		t.Fatalf("wait-ui --after without new input should time out, got: %q", out)
+	}
+
+	h.sendKeys("Enter")
+	out = h.runCmd("wait-ui", proto.UIEventInputIdle, "--after", after, "--timeout", "3s")
+	if !strings.Contains(out, proto.UIEventInputIdle) {
+		t.Fatalf("wait-ui --after output = %q", out)
+	}
+}
+
 func TestWaitHookOnIdle(t *testing.T) {
 	t.Parallel()
 

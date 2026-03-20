@@ -52,6 +52,9 @@ func TestQueryUIClient(t *testing.T) {
 		if !snap.currentMatch {
 			t.Fatal("copy-mode-shown should match for client-2")
 		}
+		if snap.currentGen != 0 {
+			t.Fatalf("currentGen = %d, want 0 before any UI transitions", snap.currentGen)
+		}
 	})
 
 	t.Run("unknown explicit client", func(t *testing.T) {
@@ -93,6 +96,31 @@ func TestQueryUIClient(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "client-1") || !strings.Contains(err.Error(), "client-2") {
 			t.Fatalf("queryUIClient ambiguous error should list both client IDs, got %v", err)
+		}
+	})
+
+	t.Run("empty event still returns generation", func(t *testing.T) {
+		t.Parallel()
+
+		sess := newSession("test-query-ui-client-generation")
+		stopCrashCheckpointLoop(t, sess)
+		defer stopSessionBackgroundLoops(t, sess)
+
+		cc := &ClientConn{ID: "client-1", inputIdle: true, uiGeneration: 7}
+		mustSessionQuery(t, sess, func(sess *Session) struct{} {
+			sess.clients = []*ClientConn{cc}
+			return struct{}{}
+		})
+
+		snap, err := sess.queryUIClient("", "")
+		if err != nil {
+			t.Fatalf("queryUIClient generation: %v", err)
+		}
+		if snap.currentMatch {
+			t.Fatal("empty event should not report a current match")
+		}
+		if snap.currentGen != 7 {
+			t.Fatalf("currentGen = %d, want 7", snap.currentGen)
 		}
 	})
 }
