@@ -89,6 +89,51 @@ func TestHotReloadAutoDetect(t *testing.T) {
 	}
 }
 
+func TestHotReloadIgnoresBinaryRewriteWhenInstallMetadataPointsAtDifferentRepo(t *testing.T) {
+	t.Parallel()
+
+	privateDir := t.TempDir()
+	privateBin := filepath.Join(privateDir, "amux")
+	if err := buildAmux(privateBin); err != nil {
+		t.Fatalf("building private amux binary: %v", err)
+	}
+
+	otherRepo := filepath.Join(t.TempDir(), "amux-other")
+	if err := os.MkdirAll(filepath.Join(otherRepo, ".git"), 0755); err != nil {
+		t.Fatalf("creating fake repo root: %v", err)
+	}
+	meta := []byte("source_repo=" + otherRepo + "\n")
+	if err := os.WriteFile(privateBin+".install-meta", meta, 0644); err != nil {
+		t.Fatalf("writing install metadata: %v", err)
+	}
+
+	h := newAmuxHarnessWithBin(t, privateBin)
+
+	initialIDs := waitForClientIDs(t, h, 5*time.Second, 1)
+	initialID := initialIDs[0]
+
+	if err := buildAmux(privateBin); err != nil {
+		t.Fatalf("rewriting private amux binary: %v", err)
+	}
+
+	assertClientIDsStable(t, h, []string{initialID}, 3*time.Second)
+	if !h.waitForOuterFunc(func(screen string) bool {
+		return strings.Contains(screen, "[pane-")
+	}, 3*time.Second) {
+		t.Fatalf("inner UI should remain rendered after ignored binary rewrite\nScreen:\n%s", h.captureOuter())
+	}
+
+	h.sendKeys("echo NO_MISMATCH_RELOAD", "Enter")
+	if !h.waitFor("NO_MISMATCH_RELOAD", 5*time.Second) {
+		t.Fatalf("inner client should still own input after ignored binary rewrite\nScreen:\n%s", h.captureOuter())
+	}
+
+	finalIDs := parseClientIDs(h.runCmd("list-clients"))
+	if len(finalIDs) != 1 || finalIDs[0] != initialID {
+		t.Fatalf("list-clients after ignored binary rewrite = %v, want [%s]", finalIDs, initialID)
+	}
+}
+
 func TestServerHotReload(t *testing.T) {
 	t.Parallel()
 	h := newAmuxHarness(t)
@@ -210,6 +255,62 @@ func TestServerReloadPreservesHistoryCapture(t *testing.T) {
 	if !strings.Contains(after, "RLDHIST-01") || !strings.Contains(after, "RLDHIST-45") {
 		t.Fatalf("history capture should survive reload, got:\n%s", after)
 	}
+}
+
+func waitForClientIDs(t *testing.T, h *AmuxHarness, timeout time.Duration, wantCount int) []string {
+	t.Helper()
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		ids := parseClientIDs(h.runCmd("list-clients"))
+		if len(ids) == wantCount {
+			return ids
+		}
+
+		select {
+		case <-timer.C:
+			t.Fatalf("client count did not reach %d within %v, last list-clients output:\n%s", wantCount, timeout, h.runCmd("list-clients"))
+		case <-ticker.C:
+		}
+	}
+}
+
+func assertClientIDsStable(t *testing.T, h *AmuxHarness, want []string, duration time.Duration) {
+	t.Helper()
+
+	timer := time.NewTimer(duration)
+	defer timer.Stop()
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		got := parseClientIDs(h.runCmd("list-clients"))
+		if !stringSlicesEqual(got, want) {
+			t.Fatalf("client IDs changed during ignored binary rewrite window: got %v, want %v\nouter:\n%s", got, want, h.captureOuter())
+		}
+
+		select {
+		case <-timer.C:
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+func stringSlicesEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func TestServerReloadPreservesConfiguredHistoryLimit(t *testing.T) {
