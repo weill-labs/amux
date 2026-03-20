@@ -1,7 +1,9 @@
 package server
 
 import (
+	"bytes"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -1251,7 +1253,16 @@ func cmdEvents(ctx *CommandContext) {
 // peekOutputPaneID checks if data is an output event and returns the pane ID.
 // Uses bytes.Contains for the type check to avoid unmarshalling non-output events.
 func peekOutputPaneID(data []byte) (uint32, bool) {
-	return 0, false
+	if !bytes.Contains(data, []byte(`"type":"output"`)) {
+		return 0, false
+	}
+	var partial struct {
+		PaneID uint32 `json:"pane_id"`
+	}
+	if err := json.Unmarshal(data, &partial); err != nil {
+		return 0, false
+	}
+	return partial.PaneID, true
 }
 
 func cmdListClients(ctx *CommandContext) {
