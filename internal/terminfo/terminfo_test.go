@@ -1,10 +1,12 @@
 package terminfo
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -43,16 +45,16 @@ func TestInstallMissingTic(t *testing.T) {
 }
 
 func TestInstallMissingHome(t *testing.T) {
-	t.Setenv("HOME", "")
-	t.Setenv("USER", "")
-	t.Setenv("LOGNAME", "")
+	prev := userHomeDir
+	userHomeDir = func() (string, error) { return "", nil }
+	t.Cleanup(func() { userHomeDir = prev })
 
 	err := Install()
 	if err == nil {
-		t.Fatal("Install() error = nil, want missing HOME error")
+		t.Fatal("Install() error = nil, want empty HOME error")
 	}
-	if !strings.Contains(err.Error(), "home directory") {
-		t.Fatalf("Install() error = %q, want home-directory guidance", err)
+	if !strings.Contains(err.Error(), "HOME is empty") {
+		t.Fatalf("Install() error = %q, want empty-HOME guidance", err)
 	}
 }
 
@@ -141,5 +143,58 @@ func TestInstallCompileFailureWithoutMessage(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "compiling amux terminfo") {
 		t.Fatalf("Install() error = %q, want compile failure prefix", err)
+	}
+}
+
+func TestInstallFlockFailure(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	prev := flockFile
+	flockFile = func(_ *os.File, how int) error {
+		if how == syscall.LOCK_EX {
+			return errors.New("lock failed")
+		}
+		return nil
+	}
+	t.Cleanup(func() { flockFile = prev })
+
+	err := Install()
+	if err == nil {
+		t.Fatal("Install() error = nil, want flock failure")
+	}
+	if !strings.Contains(err.Error(), "locking amux terminfo install") {
+		t.Fatalf("Install() error = %q, want flock failure", err)
+	}
+}
+
+func TestInstallWriteSourceFailure(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	prev := writeTempSource
+	writeTempSource = func(_ *os.File, _ string) error { return errors.New("write failed") }
+	t.Cleanup(func() { writeTempSource = prev })
+
+	err := Install()
+	if err == nil {
+		t.Fatal("Install() error = nil, want write failure")
+	}
+	if !strings.Contains(err.Error(), "writing temp terminfo source") {
+		t.Fatalf("Install() error = %q, want write failure", err)
+	}
+}
+
+func TestInstallCloseSourceFailure(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	prev := closeTempSource
+	closeTempSource = func(_ *os.File) error { return errors.New("close failed") }
+	t.Cleanup(func() { closeTempSource = prev })
+
+	err := Install()
+	if err == nil {
+		t.Fatal("Install() error = nil, want close failure")
+	}
+	if !strings.Contains(err.Error(), "closing temp terminfo source") {
+		t.Fatalf("Install() error = %q, want close failure", err)
 	}
 }

@@ -15,10 +15,20 @@ const Name = "amux"
 //go:embed amux.terminfo
 var source string
 
+var (
+	userHomeDir     = os.UserHomeDir
+	flockFile       = func(f *os.File, how int) error { return syscall.Flock(int(f.Fd()), how) }
+	writeTempSource = func(f *os.File, content string) error {
+		_, err := f.WriteString(content)
+		return err
+	}
+	closeTempSource = func(f *os.File) error { return f.Close() }
+)
+
 // Install compiles the embedded amux terminfo entry into ~/.terminfo.
 // It is safe to run repeatedly.
 func Install() error {
-	home, err := os.UserHomeDir()
+	home, err := userHomeDir()
 	if err != nil {
 		return fmt.Errorf("finding home directory for %s terminfo install: %w", Name, err)
 	}
@@ -35,10 +45,10 @@ func Install() error {
 		return fmt.Errorf("opening %s terminfo lock: %w", Name, err)
 	}
 	defer lockFile.Close()
-	if err := syscall.Flock(int(lockFile.Fd()), syscall.LOCK_EX); err != nil {
+	if err := flockFile(lockFile, syscall.LOCK_EX); err != nil {
 		return fmt.Errorf("locking %s terminfo install: %w", Name, err)
 	}
-	defer syscall.Flock(int(lockFile.Fd()), syscall.LOCK_UN)
+	defer flockFile(lockFile, syscall.LOCK_UN)
 
 	tic, err := exec.LookPath("tic")
 	if err != nil {
@@ -52,11 +62,11 @@ func Install() error {
 	tmpPath := tmp.Name()
 	defer os.Remove(tmpPath)
 
-	if _, err := tmp.WriteString(source); err != nil {
-		tmp.Close()
+	if err := writeTempSource(tmp, source); err != nil {
+		closeTempSource(tmp)
 		return fmt.Errorf("writing temp terminfo source: %w", err)
 	}
-	if err := tmp.Close(); err != nil {
+	if err := closeTempSource(tmp); err != nil {
 		return fmt.Errorf("closing temp terminfo source: %w", err)
 	}
 
