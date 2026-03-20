@@ -46,11 +46,9 @@ func (cr *ClientRenderer) ShowDisplayPanes() bool {
 		targets[key] = paneID
 	}
 
-	cr.mu.Lock()
-	result := cr.ui.reduce(uiActionShowDisplayPanes{
+	result := cr.reduceUI(uiActionShowDisplayPanes{
 		displayPanes: &displayPanesState{labels: labels, targets: targets},
 	})
-	cr.mu.Unlock()
 	cr.emitUIEvents(result.uiEvents)
 	return true
 }

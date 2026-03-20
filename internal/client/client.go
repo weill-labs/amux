@@ -92,6 +92,12 @@ func (cr *ClientRenderer) emitUIEvents(names []string) {
 	}
 }
 
+func (cr *ClientRenderer) reduceUI(action any) clientUIResult {
+	cr.mu.Lock()
+	defer cr.mu.Unlock()
+	return cr.ui.reduce(action)
+}
+
 func (cr *ClientRenderer) captureUIState() *proto.CaptureUI {
 	cr.mu.Lock()
 	defer cr.mu.Unlock()
@@ -99,18 +105,14 @@ func (cr *ClientRenderer) captureUIState() *proto.CaptureUI {
 }
 
 func (cr *ClientRenderer) SetInputIdle(idle bool) {
-	cr.mu.Lock()
-	result := cr.ui.reduce(uiActionSetInputIdle{idle: idle})
-	cr.mu.Unlock()
+	result := cr.reduceUI(uiActionSetInputIdle{idle: idle})
 	cr.emitUIEvents(result.uiEvents)
 }
 
 // HandlePaneOutput feeds raw PTY data into a pane's local emulator.
 func (cr *ClientRenderer) HandlePaneOutput(paneID uint32, data []byte) {
 	cr.renderer.HandlePaneOutput(paneID, data)
-	cr.mu.Lock()
-	cr.ui.reduce(uiActionPaneOutput{})
-	cr.mu.Unlock()
+	cr.reduceUI(uiActionPaneOutput{})
 }
 
 // Render produces ANSI output compositing all panes. Returns empty if no layout.
@@ -162,15 +164,11 @@ func (cr *ClientRenderer) overlayState() render.OverlayState {
 }
 
 func (cr *ClientRenderer) ShowPrefixMessage(msg string) {
-	cr.mu.Lock()
-	cr.ui.reduce(uiActionSetMessage{message: msg})
-	cr.mu.Unlock()
+	cr.reduceUI(uiActionSetMessage{message: msg})
 }
 
 func (cr *ClientRenderer) ClearPrefixMessage() {
-	cr.mu.Lock()
-	cr.ui.reduce(uiActionClearMessage{})
-	cr.mu.Unlock()
+	cr.reduceUI(uiActionClearMessage{})
 }
 
 func (cr *ClientRenderer) prefixMessage() string {
@@ -363,9 +361,7 @@ func (cr *ClientRenderer) ShowCommandError(text string) bool {
 	if text == "" {
 		return false
 	}
-	cr.mu.Lock()
-	cr.ui.reduce(uiActionSetMessage{message: text})
-	cr.mu.Unlock()
+	cr.reduceUI(uiActionSetMessage{message: text})
 	return true
 }
 
@@ -396,9 +392,7 @@ func (cr *ClientRenderer) EnterCopyMode(paneID uint32) {
 		emu:         emu,
 		baseHistory: baseHistory,
 	}, w, h, curRow)
-	cr.mu.Lock()
-	result := cr.ui.reduce(uiActionEnterCopyMode{paneID: paneID, mode: cm})
-	cr.mu.Unlock()
+	result := cr.reduceUI(uiActionEnterCopyMode{paneID: paneID, mode: cm})
 	cr.emitUIEvents(result.uiEvents)
 }
 
@@ -416,9 +410,7 @@ func (cr *ClientRenderer) InCopyMode(paneID uint32) bool {
 
 // ExitCopyMode exits copy mode for the given pane. Thread-safe.
 func (cr *ClientRenderer) ExitCopyMode(paneID uint32) {
-	cr.mu.Lock()
-	result := cr.ui.reduce(uiActionExitCopyMode{paneID: paneID})
-	cr.mu.Unlock()
+	result := cr.reduceUI(uiActionExitCopyMode{paneID: paneID})
 	cr.emitUIEvents(result.uiEvents)
 }
 

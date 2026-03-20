@@ -89,9 +89,7 @@ func (cr *ClientRenderer) ShowChooser(mode chooserMode) bool {
 	}
 	state.rebuild()
 
-	cr.mu.Lock()
-	result := cr.ui.reduce(uiActionShowChooser{chooser: state})
-	cr.mu.Unlock()
+	result := cr.reduceUI(uiActionShowChooser{chooser: state})
 	cr.emitUIEvents(result.uiEvents)
 	return true
 }
