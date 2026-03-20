@@ -22,6 +22,9 @@ func waitForFile(t *testing.T, path string, timeout time.Duration) bool {
 	defer watcher.Close()
 
 	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatalf("mkdir %s: %v", dir, err)
+	}
 	if err := watcher.Add(dir); err != nil {
 		t.Fatalf("watch %s: %v", dir, err)
 	}
@@ -58,6 +61,9 @@ func waitForFileContent(t *testing.T, path string, timeout time.Duration) string
 	defer watcher.Close()
 
 	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatalf("mkdir %s: %v", dir, err)
+	}
 	if err := watcher.Add(dir); err != nil {
 		t.Fatalf("watch %s: %v", dir, err)
 	}

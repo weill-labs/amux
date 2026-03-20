@@ -50,11 +50,9 @@ func TestQueuedCommandRenameWindow(t *testing.T) {
 	defer cleanup()
 
 	w := newTestWindowWithPanes(t, sess, 1, "window-1", newTestPane(sess, 1, "pane-1"))
-	sess.mu.Lock()
 	sess.Windows = []*mux.Window{w}
 	sess.ActiveWindowID = w.ID
 	sess.Panes = w.Panes()
-	sess.mu.Unlock()
 
 	before := sess.generation.Load()
 	res := runTestCommand(t, srv, sess, "rename-window", "renamed")
@@ -82,11 +80,9 @@ func TestQueuedCommandResizeWindow(t *testing.T) {
 
 	w1 := newTestWindowWithPanes(t, sess, 1, "window-1", newTestPane(sess, 1, "pane-1"))
 	w2 := newTestWindowWithPanes(t, sess, 2, "window-2", newTestPane(sess, 2, "pane-2"))
-	sess.mu.Lock()
 	sess.Windows = []*mux.Window{w1, w2}
 	sess.ActiveWindowID = w1.ID
 	sess.Panes = append(w1.Panes(), w2.Panes()...)
-	sess.mu.Unlock()
 
 	before := sess.generation.Load()
 	res := runTestCommand(t, srv, sess, "resize-window", "120", "40")
@@ -118,11 +114,9 @@ func TestQueuedCommandFocusAcrossWindows(t *testing.T) {
 	p2 := newTestPane(sess, 2, "pane-2")
 	w1 := newTestWindowWithPanes(t, sess, 1, "window-1", p1)
 	w2 := newTestWindowWithPanes(t, sess, 2, "window-2", p2)
-	sess.mu.Lock()
 	sess.Windows = []*mux.Window{w1, w2}
 	sess.ActiveWindowID = w1.ID
 	sess.Panes = []*mux.Pane{p1, p2}
-	sess.mu.Unlock()
 
 	before := sess.generation.Load()
 	res := runTestCommand(t, srv, sess, "focus", "pane-2")
@@ -133,7 +127,9 @@ func TestQueuedCommandFocusAcrossWindows(t *testing.T) {
 	if !strings.Contains(res.output, "Focused pane-2") {
 		t.Fatalf("focus output = %q", res.output)
 	}
-	if sess.ActiveWindowID != w2.ID || w2.ActivePane.ID != p2.ID {
+	if !mustSessionQuery(t, sess, func(sess *Session) bool {
+		return sess.ActiveWindowID == w2.ID && w2.ActivePane.ID == p2.ID
+	}) {
 		t.Fatalf("expected focus to move to window %d pane %d", w2.ID, p2.ID)
 	}
 	if sess.generation.Load() <= before {
@@ -151,11 +147,9 @@ func TestQueuedCommandToggleMinimize(t *testing.T) {
 	p1 := newTestPane(sess, 1, "pane-1")
 	p2 := newTestPane(sess, 2, "pane-2")
 	w := newTestWindowWithPanes(t, sess, 1, "window-1", p1, p2)
-	sess.mu.Lock()
 	sess.Windows = []*mux.Window{w}
 	sess.ActiveWindowID = w.ID
 	sess.Panes = []*mux.Pane{p1, p2}
-	sess.mu.Unlock()
 
 	before := sess.generation.Load()
 	res := runTestCommand(t, srv, sess, "toggle-minimize")
@@ -189,11 +183,9 @@ func TestQueuedCommandNewWindow(t *testing.T) {
 	w := mux.NewWindow(p1, 80, 23)
 	w.ID = 1
 	w.Name = "window-1"
-	sess.mu.Lock()
 	sess.Windows = []*mux.Window{w}
 	sess.ActiveWindowID = w.ID
 	sess.Panes = []*mux.Pane{p1}
-	sess.mu.Unlock()
 
 	before := sess.generation.Load()
 	res := runTestCommand(t, srv, sess, "new-window", "--name", "second")
@@ -206,9 +198,9 @@ func TestQueuedCommandNewWindow(t *testing.T) {
 	}
 
 	waitUntil(t, func() bool {
-		sess.mu.Lock()
-		defer sess.mu.Unlock()
-		return len(sess.Windows) == 2 && sess.ActiveWindowID == sess.Windows[1].ID && len(sess.Panes) == 2
+		return mustSessionQuery(t, sess, func(sess *Session) bool {
+			return len(sess.Windows) == 2 && sess.ActiveWindowID == sess.Windows[1].ID && len(sess.Panes) == 2
+		})
 	})
 	if sess.generation.Load() <= before {
 		t.Fatal("expected layout generation to increment")
@@ -230,11 +222,9 @@ func TestQueuedCommandSpawnLocal(t *testing.T) {
 	w := mux.NewWindow(p1, 80, 23)
 	w.ID = 1
 	w.Name = "window-1"
-	sess.mu.Lock()
 	sess.Windows = []*mux.Window{w}
 	sess.ActiveWindowID = w.ID
 	sess.Panes = []*mux.Pane{p1}
-	sess.mu.Unlock()
 
 	before := sess.generation.Load()
 	res := runTestCommand(t, srv, sess, "spawn", "--name", "worker-1", "--task", "build")
@@ -247,24 +237,24 @@ func TestQueuedCommandSpawnLocal(t *testing.T) {
 	}
 
 	waitUntil(t, func() bool {
-		sess.mu.Lock()
-		defer sess.mu.Unlock()
-		return len(sess.Panes) == 2
+		return mustSessionQuery(t, sess, func(sess *Session) bool {
+			return len(sess.Panes) == 2
+		})
 	})
-	sess.mu.Lock()
-	found := false
-	for _, p := range sess.Panes {
-		if p.Meta.Name == "worker-1" && p.Meta.Task == "build" {
-			found = true
+	found := mustSessionQuery(t, sess, func(sess *Session) bool {
+		for _, p := range sess.Panes {
+			if p.Meta.Name == "worker-1" && p.Meta.Task == "build" {
+				return true
+			}
 		}
-	}
+		return false
+	})
 	if !found {
 		t.Fatal("expected spawned pane metadata to be present")
 	}
 	if sess.generation.Load() <= before {
 		t.Fatal("expected layout generation to increment")
 	}
-	sess.mu.Unlock()
 	assertSessionLayoutConsistent(t, sess)
 }
 
@@ -277,11 +267,9 @@ func TestQueuedCommandKillOrphanPane(t *testing.T) {
 	p1 := newTestPane(sess, 1, "pane-1")
 	w := newTestWindowWithPanes(t, sess, 1, "window-1", p1)
 	orphan := newTestPane(sess, 2, "orphan-pane")
-	sess.mu.Lock()
 	sess.Windows = []*mux.Window{w}
 	sess.ActiveWindowID = w.ID
 	sess.Panes = []*mux.Pane{p1, orphan}
-	sess.mu.Unlock()
 
 	before := sess.generation.Load()
 	res := runTestCommand(t, srv, sess, "kill", "orphan-pane")
@@ -293,20 +281,27 @@ func TestQueuedCommandKillOrphanPane(t *testing.T) {
 		t.Fatalf("kill output = %q", res.output)
 	}
 
-	sess.mu.Lock()
-	if sess.hasPane(orphan.ID) {
-		sess.mu.Unlock()
+	state := mustSessionQuery(t, sess, func(sess *Session) struct {
+		hasOrphan bool
+		windowsOK bool
+	} {
+		return struct {
+			hasOrphan bool
+			windowsOK bool
+		}{
+			hasOrphan: sess.hasPane(orphan.ID),
+			windowsOK: len(sess.Windows) == 1 && sess.Windows[0].PaneCount() == 1,
+		}
+	})
+	if state.hasOrphan {
 		t.Fatal("expected orphan pane to be removed")
 	}
-	if len(sess.Windows) != 1 || sess.Windows[0].PaneCount() != 1 {
-		sess.mu.Unlock()
+	if !state.windowsOK {
 		t.Fatal("expected window layout to remain intact")
 	}
 	if sess.generation.Load() <= before {
-		sess.mu.Unlock()
 		t.Fatal("expected layout generation to increment")
 	}
-	sess.mu.Unlock()
 	assertSessionLayoutConsistent(t, sess)
 }
 
@@ -324,11 +319,9 @@ func TestQueuedCommandInjectProxyAndUnsplice(t *testing.T) {
 	w := mux.NewWindow(p1, 80, 23)
 	w.ID = 1
 	w.Name = "window-1"
-	sess.mu.Lock()
 	sess.Windows = []*mux.Window{w}
 	sess.ActiveWindowID = w.ID
 	sess.Panes = []*mux.Pane{p1}
-	sess.mu.Unlock()
 
 	beforeInject := sess.generation.Load()
 	injectRes := runTestCommand(t, srv, sess, "_inject-proxy", "fake-host")
@@ -342,14 +335,14 @@ func TestQueuedCommandInjectProxyAndUnsplice(t *testing.T) {
 		t.Fatal("expected layout generation to increment after inject")
 	}
 
-	var proxyID uint32
-	sess.mu.Lock()
-	for _, p := range sess.Panes {
-		if p.IsProxy() && p.Meta.Host == "fake-host" {
-			proxyID = p.ID
+	proxyID := mustSessionQuery(t, sess, func(sess *Session) uint32 {
+		for _, p := range sess.Panes {
+			if p.IsProxy() && p.Meta.Host == "fake-host" {
+				return p.ID
+			}
 		}
-	}
-	sess.mu.Unlock()
+		return 0
+	})
 	if proxyID == 0 {
 		t.Fatal("expected injected proxy pane to exist")
 	}
@@ -364,17 +357,17 @@ func TestQueuedCommandInjectProxyAndUnsplice(t *testing.T) {
 	}
 
 	waitUntil(t, func() bool {
-		sess.mu.Lock()
-		defer sess.mu.Unlock()
-		if sess.hasPane(proxyID) {
-			return false
-		}
-		for _, p := range sess.Panes {
-			if !p.IsProxy() && p.ID != p1.ID {
-				return true
+		return mustSessionQuery(t, sess, func(sess *Session) bool {
+			if sess.hasPane(proxyID) {
+				return false
 			}
-		}
-		return false
+			for _, p := range sess.Panes {
+				if !p.IsProxy() && p.ID != p1.ID {
+					return true
+				}
+			}
+			return false
+		})
 	})
 	if sess.generation.Load() <= beforeUnsplice {
 		t.Fatal("expected layout generation to increment after unsplice")
@@ -390,11 +383,9 @@ func TestQueuedPreparedRemotePaneInsert(t *testing.T) {
 
 	p1 := newTestPane(sess, 1, "pane-1")
 	w := newTestWindowWithPanes(t, sess, 1, "window-1", p1)
-	sess.mu.Lock()
 	sess.Windows = []*mux.Window{w}
 	sess.ActiveWindowID = w.ID
 	sess.Panes = []*mux.Pane{p1}
-	sess.mu.Unlock()
 
 	proxy := mux.NewProxyPane(2, mux.PaneMeta{
 		Name:  "pane-2",
@@ -405,10 +396,7 @@ func TestQueuedPreparedRemotePaneInsert(t *testing.T) {
 	})
 
 	res := sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
-		sess.mu.Lock()
-		defer sess.mu.Unlock()
-
-		if err := sess.insertPreparedPaneIntoActiveWindowLocked(proxy, mux.SplitVertical, false); err != nil {
+		if err := sess.insertPreparedPaneIntoActiveWindow(proxy, mux.SplitVertical, false); err != nil {
 			return commandMutationResult{err: err}
 		}
 		return commandMutationResult{
@@ -420,20 +408,30 @@ func TestQueuedPreparedRemotePaneInsert(t *testing.T) {
 		t.Fatalf("enqueueCommandMutation insert error: %v", res.err)
 	}
 
-	sess.mu.Lock()
-	if len(sess.Panes) != 2 {
-		sess.mu.Unlock()
-		t.Fatalf("expected 2 panes, got %d", len(sess.Panes))
+	state := mustSessionQuery(t, sess, func(sess *Session) struct {
+		paneCount int
+		hasProxy  bool
+		inLayout  bool
+	} {
+		return struct {
+			paneCount int
+			hasProxy  bool
+			inLayout  bool
+		}{
+			paneCount: len(sess.Panes),
+			hasProxy:  sess.hasPane(proxy.ID),
+			inLayout:  w.Root.FindPane(proxy.ID) != nil,
+		}
+	})
+	if state.paneCount != 2 {
+		t.Fatalf("expected 2 panes, got %d", state.paneCount)
 	}
-	if !sess.hasPane(proxy.ID) {
-		sess.mu.Unlock()
+	if !state.hasProxy {
 		t.Fatal("expected prepared proxy pane to be registered")
 	}
-	if w.Root.FindPane(proxy.ID) == nil {
-		sess.mu.Unlock()
+	if !state.inLayout {
 		t.Fatal("expected prepared proxy pane to be inserted into active window")
 	}
-	sess.mu.Unlock()
 	assertSessionLayoutConsistent(t, sess)
 }
 
@@ -445,9 +443,9 @@ func newCommandTestSession(t *testing.T) (*Server, *Session, func()) {
 	srv := &Server{sessions: map[string]*Session{sess.Name: sess}}
 	cleanup := func() {
 		sess.shutdown.Store(true)
-		sess.mu.Lock()
-		panes := append([]*mux.Pane(nil), sess.Panes...)
-		sess.mu.Unlock()
+		panes := mustSessionQuery(t, sess, func(sess *Session) []*mux.Pane {
+			return append([]*mux.Pane(nil), sess.Panes...)
+		})
 		for _, p := range panes {
 			p.Close()
 		}
@@ -521,13 +519,13 @@ func runTestCommand(t *testing.T, srv *Server, sess *Session, name string, args 
 	})
 
 	select {
-	case res := <-results:
-		return res
+	case result := <-results:
+		return result
 	case <-time.After(5 * time.Second):
 		t.Fatalf("timeout waiting for %s result", name)
+		return struct {
+			output string
+			cmdErr string
+		}{}
 	}
-	return struct {
-		output string
-		cmdErr string
-	}{}
 }

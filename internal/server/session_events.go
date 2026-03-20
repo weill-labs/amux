@@ -101,12 +101,10 @@ type resizeClientEvent struct {
 }
 
 func (e resizeClientEvent) handle(s *Session) {
-	s.mu.Lock()
 	e.cc.cols = e.cols
 	e.cc.rows = e.rows
-	s.recalcSizeLocked()
-	s.mu.Unlock()
-	s.broadcastLayout()
+	s.recalcSize()
+	s.broadcastLayoutNow()
 }
 
 type paneOutputEvent struct {
@@ -115,7 +113,7 @@ type paneOutputEvent struct {
 }
 
 func (e paneOutputEvent) handle(s *Session) {
-	s.broadcastPaneOutput(e.paneID, e.data)
+	s.broadcastPaneOutputNow(e.paneID, e.data)
 }
 
 type paneExitEvent struct {
@@ -126,21 +124,17 @@ func (e paneExitEvent) handle(s *Session) {
 	if s.shutdown.Load() {
 		return
 	}
-	s.mu.Lock()
 	if !s.hasPane(e.paneID) {
-		s.mu.Unlock()
 		return
 	}
 	if len(s.Panes) <= 1 {
-		s.mu.Unlock()
-		s.broadcast(&Message{Type: MsgTypeExit})
+		s.broadcastNow(&Message{Type: MsgTypeExit})
 		s.wantShutdown = true
 		return
 	}
 	s.removePane(e.paneID)
 	s.closePaneInWindow(e.paneID)
-	s.mu.Unlock()
-	s.broadcastLayout()
+	s.broadcastLayoutNow()
 }
 
 type clipboardEvent struct {
@@ -152,13 +146,10 @@ func (e clipboardEvent) handle(s *Session) {
 	if s.shutdown.Load() {
 		return
 	}
-	s.broadcast(&Message{Type: MsgTypeClipboard, PaneID: e.paneID, PaneData: e.data})
-
-	s.clipboardMu.Lock()
 	s.lastClipboardB64 = string(e.data)
-	s.clipboardGen.Add(1)
-	s.clipboardCond.Broadcast()
-	s.clipboardMu.Unlock()
+	gen := s.clipboardGen.Add(1)
+	s.notifyClipboardWaiters(gen, s.lastClipboardB64)
+	s.broadcastNow(&Message{Type: MsgTypeClipboard, PaneID: e.paneID, PaneData: e.data})
 }
 
 type idleTimeoutEvent struct {
@@ -175,7 +166,7 @@ func (e idleTimeoutEvent) handle(s *Session) {
 		PaneName: env["AMUX_PANE_NAME"],
 		Host:     env["AMUX_HOST"],
 	})
-	s.broadcastLayout()
+	s.broadcastLayoutNow()
 }
 
 type takeoverEvent struct {
@@ -196,15 +187,12 @@ func (e remotePaneExitEvent) handle(s *Session) {
 	if s.shutdown.Load() {
 		return
 	}
-	s.mu.Lock()
 	if !s.hasPane(e.paneID) {
-		s.mu.Unlock()
 		return
 	}
 	s.removePane(e.paneID)
 	s.closePaneInWindow(e.paneID)
-	s.mu.Unlock()
-	s.broadcastLayout()
+	s.broadcastLayoutNow()
 }
 
 type remoteStateChangeEvent struct {
@@ -213,14 +201,12 @@ type remoteStateChangeEvent struct {
 }
 
 func (e remoteStateChangeEvent) handle(s *Session) {
-	s.mu.Lock()
 	for _, p := range s.Panes {
 		if p.Meta.Host == e.hostName && p.IsProxy() {
 			p.Meta.Remote = string(e.state)
 		}
 	}
-	s.mu.Unlock()
-	s.broadcastLayout()
+	s.broadcastLayoutNow()
 }
 
 type hookResultEvent struct {
@@ -228,14 +214,12 @@ type hookResultEvent struct {
 }
 
 func (e hookResultEvent) handle(s *Session) {
-	s.hookMu.Lock()
 	e.record.Generation = s.hookGen.Add(1)
 	s.hookResults = append(s.hookResults, e.record)
 	if len(s.hookResults) > 128 {
 		s.hookResults = append([]hookResultRecord(nil), s.hookResults[len(s.hookResults)-128:]...)
 	}
-	s.hookCond.Broadcast()
-	s.hookMu.Unlock()
+	s.notifyHookWaiters(e.record)
 
 	s.emitEvent(Event{
 		Type:       EventHook,
@@ -452,10 +436,8 @@ type uiEventCmd struct {
 }
 
 func (e uiEventCmd) handle(s *Session) {
-	s.mu.Lock()
 	changed, err := e.cc.applyUIEvent(e.uiEvent)
 	clientID := e.cc.ID
-	s.mu.Unlock()
 	if err != nil {
 		e.cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: err.Error()})
 		return
@@ -484,16 +466,6 @@ func (s *Session) emitEvent(ev Event) {
 			}
 		}
 	}
-}
-
-// emitCmd routes an emitEvent call through the event loop.
-// Used by broadcastLayout which can be called from any goroutine.
-type emitCmd struct {
-	ev Event
-}
-
-func (e emitCmd) handle(s *Session) {
-	s.emitEvent(e.ev)
 }
 
 // --- Enqueue helpers ---
@@ -538,8 +510,6 @@ func (s *Session) enqueueUIEvent(cc *ClientConn, uiEvent string) {
 
 func (s *Session) handleAttachEvent(srv *Server, cc *ClientConn, cols, rows int) attachResult {
 	idleSnap := s.snapshotIdleState()
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	cc.cols = cols
 	cc.rows = rows
@@ -555,9 +525,9 @@ func (s *Session) handleAttachEvent(srv *Server, cc *ClientConn, cols, rows int)
 
 	s.clients = append(s.clients, cc)
 	s.hadClient = true
-	s.recalcSizeLocked()
+	s.recalcSize()
 
-	res.snap = s.snapshotLayoutLocked(idleSnap)
+	res.snap = s.snapshotLayout(idleSnap)
 	for _, p := range s.Panes {
 		res.paneRenders = append(res.paneRenders, paneRender{
 			paneID: p.ID,

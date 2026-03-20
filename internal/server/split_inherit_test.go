@@ -32,10 +32,8 @@ func TestSplitInheritsRemoteHost(t *testing.T) {
 	w := mux.NewWindow(pane1, 80, 24)
 	w.ID = sess.windowCounter.Add(1)
 	w.Name = "window-1"
-	sess.mu.Lock()
 	sess.Windows = append(sess.Windows, w)
 	sess.ActiveWindowID = w.ID
-	sess.mu.Unlock()
 
 	// Create a proxy pane simulating a remote connection
 	proxyID := sess.counter.Add(1)
@@ -46,11 +44,9 @@ func TestSplitInheritsRemoteHost(t *testing.T) {
 		sess.paneExitCallback(),
 		func(data []byte) (int, error) { return len(data), nil },
 	)
-	sess.mu.Lock()
 	sess.Panes = append(sess.Panes, proxyPane)
 	w.Split(mux.SplitHorizontal, proxyPane)
 	w.FocusPane(proxyPane) // make proxy pane active
-	sess.mu.Unlock()
 
 	// Send the split command through handleCommand with a pipe to capture the response.
 	// handleCommand may send layout broadcasts before the cmd result, so drain

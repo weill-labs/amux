@@ -68,7 +68,6 @@ func (s *Session) PrevWindow() {
 }
 
 // ResolveWindow finds a window by 1-based index, exact name, or name prefix.
-// Caller must hold s.mu.
 func (s *Session) ResolveWindow(ref string) *mux.Window {
 	// Try as 1-based index
 	if idx, err := strconv.Atoi(ref); err == nil {
@@ -95,7 +94,7 @@ func (s *Session) ResolveWindow(ref string) *mux.Window {
 // closePaneInWindow removes a pane from its window's layout. If the pane
 // is the last one in the window, the window itself is destroyed and focus
 // moves to the first remaining window. Returns the name of the closed window,
-// or "" if only the pane was removed. Caller must hold s.mu.
+// or "" if only the pane was removed.
 func (s *Session) closePaneInWindow(paneID uint32) string {
 	w := s.FindWindowByPaneID(paneID)
 	if w == nil {

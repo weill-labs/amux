@@ -41,14 +41,13 @@ type Session struct {
 	clientCounter  atomic.Uint32
 	counter        atomic.Uint32 // pane ID counter
 	windowCounter  atomic.Uint32 // window ID counter
-	mu             sync.Mutex
 	shutdown       atomic.Bool
 
 	// Layout generation counter — incremented on every broadcastLayout.
 	// Used by wait-layout to block until a layout change occurs.
-	generation     atomic.Uint64
-	generationMu   sync.Mutex
-	generationCond *sync.Cond
+	generation    atomic.Uint64
+	waiterCounter atomic.Uint64
+	layoutWaiters map[uint64]layoutWaiter
 
 	// Per-pane output subscribers — used by wait-for to block until
 	// a substring appears in a pane's screen content.
@@ -58,16 +57,14 @@ type Session struct {
 	// Clipboard generation counter — incremented on every OSC 52 clipboard
 	// event. Used by wait-clipboard to block until a clipboard write occurs.
 	clipboardGen     atomic.Uint64
-	clipboardMu      sync.Mutex
-	clipboardCond    *sync.Cond
-	lastClipboardB64 string // last clipboard payload (base64), protected by clipboardMu
+	lastClipboardB64 string // actor-owned clipboard payload (base64)
+	clipboardWaiters map[uint64]clipboardWaiter
 
 	// Hook completion history — incremented on every hook result.
 	// Used by hook-gen and wait-hook to block until matching hook work finishes.
 	hookGen     atomic.Uint64
-	hookMu      sync.Mutex
-	hookCond    *sync.Cond
 	hookResults []hookResultRecord
+	hookWaiters map[uint64]hookWaiter
 
 	// Hook system — session-level, not checkpointed.
 	Hooks *hooks.Registry
@@ -83,15 +80,15 @@ type Session struct {
 
 	// SSH takeover tracking — pane IDs that have already been taken over.
 	// Prevents duplicate takeover if the remote emits the sequence twice.
-	// Protected by s.mu.
+	// Only accessed from the session event loop.
 	takenOverPanes map[uint32]bool
 
 	// Capture forwarding — routes capture requests through the attached
 	// interactive client so the result reflects client-side emulator state.
-	// captureMu serializes capture requests; captureResult is the one-shot
-	// response channel for the in-flight request (protected by s.mu).
-	captureMu     sync.Mutex
-	captureResult chan *Message
+	// The event loop owns the single in-flight request and queued requests.
+	captureCounter atomic.Uint64
+	captureCurrent *captureRequest
+	captureQueue   []*captureRequest
 
 	// Crash checkpoint — non-blocking trigger from broadcastLayout().
 	// The crashCheckpointLoop goroutine debounces and writes periodically.
@@ -120,74 +117,84 @@ type Session struct {
 // Unlike the hot-reload checkpoint, this omits FDs/PIDs (they can't survive a crash)
 // and captures screen content and cwd for each pane.
 func (s *Session) buildCrashCheckpoint() *checkpoint.CrashCheckpoint {
-	s.mu.Lock()
-	if len(s.Windows) == 0 {
-		s.mu.Unlock()
-		return nil
-	}
-
-	idleSnap := make(map[uint32]bool) // empty — crash checkpoint doesn't need idle state
-	snap := s.snapshotLayoutLocked(idleSnap)
-	cp := &checkpoint.CrashCheckpoint{
-		Version:       checkpoint.CrashVersion,
-		SessionName:   s.Name,
-		Counter:       s.counter.Load(),
-		WindowCounter: s.windowCounter.Load(),
-		Generation:    s.generation.Load(),
-		Layout:        *snap,
-		Timestamp:     time.Now(),
-	}
-
-	// Collect pane state and PIDs under the lock (fast).
-	// Cwd resolution (lsof on macOS) happens after releasing the lock
-	// to avoid blocking session operations for hundreds of milliseconds.
 	type pidEntry struct {
 		index int
 		pid   int
 	}
-	var cwdWork []pidEntry
+	type crashSnapshot struct {
+		cp      *checkpoint.CrashCheckpoint
+		cwdWork []pidEntry
+	}
 
-	for _, p := range s.Panes {
-		ps := checkpoint.CrashPaneState{
-			ID:        p.ID,
-			Meta:      p.Meta,
-			Screen:    p.RenderScreen(),
-			CreatedAt: p.CreatedAt(),
-			IsProxy:   p.IsProxy(),
+	snap, err := enqueueSessionQuery(s, func(s *Session) (crashSnapshot, error) {
+		if len(s.Windows) == 0 {
+			return crashSnapshot{}, nil
 		}
 
-		if p.Meta.Minimized {
-			ps.Cols, ps.Rows = p.EmulatorSize()
-		} else {
-			for _, w := range s.Windows {
-				if cell := w.Root.FindPane(p.ID); cell != nil {
-					ps.Cols = cell.W
-					ps.Rows = mux.PaneContentHeight(cell.H)
-					break
+		idleSnap := make(map[uint32]bool)
+		layout := s.snapshotLayout(idleSnap)
+		cp := &checkpoint.CrashCheckpoint{
+			Version:       checkpoint.CrashVersion,
+			SessionName:   s.Name,
+			Counter:       s.counter.Load(),
+			WindowCounter: s.windowCounter.Load(),
+			Generation:    s.generation.Load(),
+			Layout:        *layout,
+			Timestamp:     time.Now(),
+		}
+
+		var cwdWork []pidEntry
+		for _, p := range s.Panes {
+			ps := checkpoint.CrashPaneState{
+				ID:        p.ID,
+				Meta:      p.Meta,
+				Screen:    p.RenderScreen(),
+				CreatedAt: p.CreatedAt(),
+				IsProxy:   p.IsProxy(),
+			}
+
+			if p.Meta.Minimized {
+				ps.Cols, ps.Rows = p.EmulatorSize()
+			} else {
+				for _, w := range s.Windows {
+					if cell := w.Root.FindPane(p.ID); cell != nil {
+						ps.Cols = cell.W
+						ps.Rows = mux.PaneContentHeight(cell.H)
+						break
+					}
 				}
 			}
+
+			if !p.IsProxy() {
+				cwdWork = append(cwdWork, pidEntry{index: len(cp.PaneStates), pid: p.ProcessPid()})
+			}
+
+			cp.PaneStates = append(cp.PaneStates, ps)
 		}
 
-		if !p.IsProxy() {
-			cwdWork = append(cwdWork, pidEntry{index: len(cp.PaneStates), pid: p.ProcessPid()})
-		}
-
-		cp.PaneStates = append(cp.PaneStates, ps)
+		return crashSnapshot{cp: cp, cwdWork: cwdWork}, nil
+	})
+	if err != nil || snap.cp == nil {
+		return nil
 	}
-	s.mu.Unlock()
 
 	// Resolve cwds outside the lock (lsof can be slow on macOS)
-	for _, w := range cwdWork {
-		cp.PaneStates[w.index].Cwd = mux.PaneCwd(w.pid)
+	for _, w := range snap.cwdWork {
+		snap.cp.PaneStates[w.index].Cwd = mux.PaneCwd(w.pid)
 	}
 
-	return cp
+	return snap.cp
 }
 
 // startCrashCheckpointLoop starts the background goroutine that writes crash
 // checkpoints on layout changes (debounced 500ms) and periodic screen content
 // snapshots (every 30s).
 func (s *Session) startCrashCheckpointLoop() {
+	// Ensure the checkpoint directory exists before tests or tooling watch it.
+	// Writes still happen lazily on layout changes.
+	if err := os.MkdirAll(checkpoint.CrashCheckpointDir(), 0700); err != nil {
+		fmt.Fprintf(os.Stderr, "amux: crash checkpoint dir: %v\n", err)
+	}
 	s.crashCheckpointTrigger = make(chan struct{}, 1)
 	s.crashCheckpointStop = make(chan struct{})
 	s.crashCheckpointDone = make(chan struct{})
@@ -244,7 +251,6 @@ func (s *Session) writeCrashCheckpoint() {
 // removeClient removes a client from the session and recalculates
 // the session size in case the largest client disconnected.
 func (s *Session) removeClient(cc *ClientConn) {
-	s.mu.Lock()
 	for i, c := range s.clients {
 		if c == cc {
 			s.clients = append(s.clients[:i], s.clients[i+1:]...)
@@ -252,12 +258,11 @@ func (s *Session) removeClient(cc *ClientConn) {
 		}
 	}
 	shouldExit := s.exitServer != nil && s.exitServer.Env.ExitUnattached && s.hadClient && len(s.clients) == 0 && !s.shutdown.Load()
-	s.recalcSizeLocked()
-	s.mu.Unlock()
+	s.recalcSize()
 	if shouldExit {
 		s.wantShutdown = true
 	}
-	s.broadcastLayout()
+	s.broadcastLayoutNow()
 }
 
 // BuildVersion is set by main at startup for version reporting in status.
@@ -294,12 +299,12 @@ func SocketPath(session string) string {
 // newSession creates a Session with all fields initialized.
 func newSession(name string) *Session {
 	sess := &Session{Name: name}
-	sess.generationCond = sync.NewCond(&sess.generationMu)
-	sess.clipboardCond = sync.NewCond(&sess.clipboardMu)
-	sess.hookCond = sync.NewCond(&sess.hookMu)
 	sess.Hooks = hooks.NewRegistry()
 	sess.idle = NewIdleTracker()
 	sess.takenOverPanes = make(map[uint32]bool)
+	sess.layoutWaiters = make(map[uint64]layoutWaiter)
+	sess.clipboardWaiters = make(map[uint64]clipboardWaiter)
+	sess.hookWaiters = make(map[uint64]hookWaiter)
 	sess.startCrashCheckpointLoop()
 	sess.startEventLoop()
 	return sess
@@ -512,10 +517,8 @@ func (s *Server) Shutdown() {
 		if sess.RemoteManager != nil {
 			sess.RemoteManager.Shutdown()
 		}
-		sess.mu.Lock()
 		panes := make([]*mux.Pane, len(sess.Panes))
 		copy(panes, sess.Panes)
-		sess.mu.Unlock()
 		for _, p := range panes {
 			p.Close()
 		}
