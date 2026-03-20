@@ -616,14 +616,27 @@ func (s *Server) EnsureInitialWindow(cols, rows int) error {
 		return fmt.Errorf("no session")
 	}
 
-	sess.mu.Lock()
-	pane, err := sess.ensureInitialWindowLocked(s, cols, rows)
-	sess.mu.Unlock()
-	if err != nil {
-		return err
+	res := sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
+		pane, err := sess.ensureInitialWindowLocked(s, cols, rows)
+		if err != nil {
+			return commandMutationResult{err: err}
+		}
+		if pane == nil {
+			return commandMutationResult{}
+		}
+		return commandMutationResult{
+			startPanes:      []*mux.Pane{pane},
+			broadcastLayout: true,
+		}
+	})
+	if res.err != nil {
+		return res.err
 	}
-	if pane != nil {
+	for _, pane := range res.startPanes {
 		pane.Start()
+	}
+	if res.broadcastLayout {
+		sess.broadcastLayout()
 	}
 	return nil
 }

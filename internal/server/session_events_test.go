@@ -176,20 +176,20 @@ func TestEnsureInitialWindowCreatesPaneWithoutClient(t *testing.T) {
 	}
 
 	waitUntil(t, func() bool {
-		sess.mu.Lock()
-		defer sess.mu.Unlock()
-		return len(sess.Windows) == 1 && len(sess.Panes) == 1 && sess.ActiveWindow() != nil
+		return mustSessionQuery(t, sess, func(sess *Session) bool {
+			return len(sess.Windows) == 1 && len(sess.Panes) == 1 && sess.ActiveWindow() != nil
+		})
 	})
 
-	sess.mu.Lock()
-	pane := sess.Panes[0]
-	if sess.ActiveWindowID == 0 {
-		t.Fatal("active window id = 0, want non-zero")
-	}
+	pane := mustSessionQuery(t, sess, func(sess *Session) *mux.Pane {
+		if sess.ActiveWindowID == 0 {
+			t.Fatal("active window id = 0, want non-zero")
+		}
+		return sess.Panes[0]
+	})
 	if pane.Meta.Name != "pane-1" {
 		t.Fatalf("pane name = %q, want pane-1", pane.Meta.Name)
 	}
-	sess.mu.Unlock()
 
 	sess.shutdown.Store(true)
 	pane.Close()

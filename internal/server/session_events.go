@@ -55,7 +55,7 @@ func (e attachClientEvent) handle(s *Session) {
 }
 
 // ensureInitialWindowLocked creates the first window and pane for an empty
-// session using the provided terminal size. Caller must hold s.mu.
+// session using the provided terminal size. Event-loop only.
 func (s *Session) ensureInitialWindowLocked(srv *Server, cols, rows int) (*mux.Pane, error) {
 	if len(s.Windows) > 0 {
 		return nil, nil
