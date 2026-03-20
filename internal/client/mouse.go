@@ -190,7 +190,7 @@ func HandleMouseEvent(ev mouse.Event, cr *ClientRenderer, sender *messageSender,
 						cr.CopyModeSetCursor(target.paneID, target.localX, target.localY)
 						if cm.SelectWord() == copymode.ActionRedraw {
 							cr.mu.Lock()
-							cr.dirty = true
+							cr.ui.dirty = true
 							cr.mu.Unlock()
 						}
 					}
@@ -203,7 +203,7 @@ func HandleMouseEvent(ev mouse.Event, cr *ClientRenderer, sender *messageSender,
 						cr.CopyModeSetCursor(target.paneID, target.localX, target.localY)
 						if cm.SelectLine() == copymode.ActionRedraw {
 							cr.mu.Lock()
-							cr.dirty = true
+							cr.ui.dirty = true
 							cr.mu.Unlock()
 						}
 					}
