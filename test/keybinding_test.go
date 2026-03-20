@@ -35,7 +35,7 @@ func newAmuxHarnessWithConfig(t *testing.T, configContent string) *AmuxHarness {
 
 	// Launch inner amux with AMUX_CONFIG set
 	outer.sendKeys("pane-1", fmt.Sprintf("AMUX_CONFIG=%s %s -s %s", configPath, amuxBin, inner), "Enter")
-	outer.waitFor("pane-1", "[pane-")
+	outer.waitForTimeout("pane-1", "[pane-", "30s")
 
 	t.Cleanup(func() {
 		// Best-effort detach (only works with default prefix).
@@ -322,6 +322,9 @@ w = "display-panes"
 	gen := h.generation()
 	h.sendKeys("C-a", "\\")
 	h.waitLayout(gen)
+	if !h.waitFor("[pane-2]", 3*time.Second) {
+		t.Fatalf("expected inner client to render split before display-panes, got:\n%s", h.captureOuter())
+	}
 
 	h.sendKeys("C-a", "w")
 	out := h.runCmd("wait-ui", proto.UIEventDisplayPanesShown, "--timeout", "3s")
