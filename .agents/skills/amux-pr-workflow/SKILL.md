@@ -10,6 +10,8 @@ Use this skill when the task involves `git push`, `gh pr create`, `gh pr merge`,
 ## Rules
 
 - Rebase onto `origin/main` before the first push: `git fetch origin main && git rebase origin/main`.
+- If the PR drifts after opening and you rebase or resolve conflicts, rerun the review pass and simplification pass on the rebased diff before calling the PR ready again.
+- In non-interactive sessions, prefer `GIT_EDITOR=true git rebase --continue` so rebase continuation does not stall in `vim`.
 - This repo is squash-only on GitHub. Use `gh pr merge --squash`; merge and rebase merges will fail.
 - GitHub auto-merge is disabled on this repo. Wait for green checks, then merge manually.
 - Prefer `gh pr create --body-file ...` for multiline PR descriptions, especially when they include backticks or code fences.
@@ -27,13 +29,14 @@ Use this skill when the task involves `git push`, `gh pr create`, `gh pr merge`,
 3. Create or update the PR. Use `gh pr create --body-file ...` when the body is multiline.
 4. Run a review pass. Prefer `codex review` when available.
 5. Run a simplification pass focused on unnecessary complexity and cleanup opportunities.
-6. If the change affects layout math or resize behavior, compare against tmux before adding new layout state or diverging from tmux semantics.
-7. If the change touched benchmarks, add baseline numbers before calling the PR ready.
-8. If a rebase causes broad noisy local failures, run a targeted regression slice that represents the suspected regression before making invasive code changes.
-9. Before merging, re-check the live PR state and mergeability after the latest green checks. If `main` moved, fetch and rebase again before merging.
-10. After merge, verify local state with `git branch --show-current`, `git status --short --branch`, and `git rev-parse HEAD origin/main`. If needed, run `git checkout main && git pull --ff-only`.
-11. If you discover a follow-up fix after merge, create a fresh branch before editing.
-12. After merge, explicitly invoke the `postmortem` skill to capture learnings, pain points, and follow-up actions.
+6. If the branch had to be rebased or conflict-resolved after the PR was open, rerun both passes on that rebased diff before pushing again.
+7. If the change affects layout math or resize behavior, compare against tmux before adding new layout state or diverging from tmux semantics.
+8. If the change touched benchmarks, add baseline numbers before calling the PR ready.
+9. If a rebase causes broad noisy local failures, run a targeted regression slice that represents the suspected regression before making invasive code changes.
+10. Before merging, re-check the live PR state and mergeability after the latest green checks. If `main` moved, fetch and rebase again before merging.
+11. After merge, verify local state with `git branch --show-current`, `git status --short --branch`, and `git rev-parse HEAD origin/main`. If needed, run `git checkout main && git pull --ff-only`.
+12. If you discover a follow-up fix after merge, create a fresh branch before editing.
+13. After merge, explicitly invoke the `postmortem` skill to capture learnings, pain points, and follow-up actions.
 
 ## Output Checklist
 
@@ -41,6 +44,7 @@ Use this skill when the task involves `git push`, `gh pr create`, `gh pr merge`,
 - Rebase-before-first-push handled or explicitly not needed.
 - Review pass completed.
 - Simplification pass completed.
+- Review/simplification rerun after any post-open rebase or conflict resolution.
 - Squash merge policy followed.
 - Final mergeability check handled before merge.
 - Benchmark baseline section added when relevant.
