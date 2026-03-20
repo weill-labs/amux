@@ -49,6 +49,8 @@ type HostConn struct {
 
 	// Pending connect waiters — replied when connectDoneEvent arrives.
 	pendingConnectReplies []chan error
+	pendingInputs         []pendingPaneInput
+	bufferPendingInputs   bool
 
 	// Callbacks back to the local server (immutable after construction)
 	onPaneOutput  PaneOutputCallback
@@ -79,6 +81,11 @@ func NewHostConn(name string, cfg config.Host, buildHash string,
 	}
 	hc.startEventLoop()
 	return hc
+}
+
+type pendingPaneInput struct {
+	localPaneID uint32
+	data        []byte
 }
 
 // shouldDeploy returns true if auto-deploy should run for this host.
@@ -148,6 +155,13 @@ func (hc *HostConn) EnsureConnectedForTakeover(sessionName, remoteUID, sshAddr s
 	case <-hc.done:
 		return errHostConnClosed
 	}
+}
+
+// BeginInputBuffering preserves pane input until the persistent amux attach
+// connection is ready. SSH takeover uses this so proxy panes can accept
+// keystrokes immediately after they appear without dropping them on the floor.
+func (hc *HostConn) BeginInputBuffering() {
+	hc.enqueue(beginInputBufferingEvent{})
 }
 
 // doConnect performs the SSH dial, deploy, server start, and amux attach.
@@ -425,6 +439,30 @@ func (hc *HostConn) closeConns() {
 	if hc.sshClient != nil {
 		hc.sshClient.Close()
 		hc.sshClient = nil
+	}
+}
+
+func (hc *HostConn) sendInputNow(localPaneID uint32, data []byte) {
+	remotePaneID, ok := hc.localToRemote[localPaneID]
+	if !ok || hc.amuxConn == nil {
+		return
+	}
+	proto.WriteMsg(hc.amuxConn, &proto.Message{
+		Type:     proto.MsgTypeInputPane,
+		PaneID:   remotePaneID,
+		PaneData: data,
+	})
+}
+
+func (hc *HostConn) flushPendingInputs() {
+	if hc.amuxConn == nil || len(hc.pendingInputs) == 0 {
+		return
+	}
+
+	pending := hc.pendingInputs
+	hc.pendingInputs = nil
+	for _, input := range pending {
+		hc.sendInputNow(input.localPaneID, input.data)
 	}
 }
 

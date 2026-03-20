@@ -4,6 +4,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/pem"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/weill-labs/amux/internal/config"
+	"github.com/weill-labs/amux/internal/proto"
 )
 
 // testInActor runs fn inside the HostConn actor goroutine and waits for it
@@ -363,6 +365,70 @@ func TestSendResizeDisconnected(t *testing.T) {
 	if err != nil {
 		t.Errorf("SendResize on disconnected = %v, want nil", err)
 	}
+}
+
+func TestBufferedInputFlushesAfterConnect(t *testing.T) {
+	t.Parallel()
+
+	hc := NewHostConn("test", config.Host{}, "hash", nil, nil, nil)
+	defer hc.Close()
+
+	serverConn, clientConn := net.Pipe()
+	defer serverConn.Close()
+
+	hc.BeginInputBuffering()
+	hc.RegisterPane(42, 100)
+	if err := hc.SendInput(42, []byte("hello")); err != nil {
+		t.Fatalf("SendInput while buffering: %v", err)
+	}
+	if err := hc.SendInput(42, []byte(" world")); err != nil {
+		t.Fatalf("SendInput while buffering: %v", err)
+	}
+
+	testInActor(hc, func(hc *HostConn) {
+		if got := len(hc.pendingInputs); got != 2 {
+			t.Fatalf("pendingInputs = %d, want 2", got)
+		}
+	})
+
+	done := make(chan struct{})
+	go func() {
+		testInActor(hc, func(hc *HostConn) {
+			hc.applyOutcome(&connectOutcome{
+				amuxConn:    clientConn,
+				sessionName: "session",
+				remoteUID:   "1000",
+				takeover:    true,
+			})
+		})
+		close(done)
+	}()
+
+	msg, err := proto.ReadMsg(serverConn)
+	if err != nil {
+		t.Fatalf("ReadMsg first buffered input: %v", err)
+	}
+	if msg.Type != proto.MsgTypeInputPane || msg.PaneID != 100 || string(msg.PaneData) != "hello" {
+		t.Fatalf("first buffered message = %#v, want input pane 100 hello", msg)
+	}
+
+	msg, err = proto.ReadMsg(serverConn)
+	if err != nil {
+		t.Fatalf("ReadMsg second buffered input: %v", err)
+	}
+	if msg.Type != proto.MsgTypeInputPane || msg.PaneID != 100 || string(msg.PaneData) != " world" {
+		t.Fatalf("second buffered message = %#v, want input pane 100 world", msg)
+	}
+	<-done
+
+	testInActor(hc, func(hc *HostConn) {
+		if got := len(hc.pendingInputs); got != 0 {
+			t.Fatalf("pendingInputs after flush = %d, want 0", got)
+		}
+		if hc.bufferPendingInputs {
+			t.Fatal("bufferPendingInputs = true after successful connect, want false")
+		}
+	})
 }
 
 func TestCloseConns(t *testing.T) {
