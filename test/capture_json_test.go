@@ -2,6 +2,8 @@ package test
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -267,8 +269,15 @@ func TestCaptureJSON_PreservesGraphemeClusters(t *testing.T) {
 	h := newServerHarness(t)
 
 	line := "GRAPHEMES: Λ̊ 👍🏻 🤷‍♂️ 🇸🇪"
-	h.sendKeys("pane-1", "clear; printf '"+line+"\\n'", "Enter")
-	h.waitFor("pane-1", "GRAPHEMES:")
+	doneMarker := "GRAPHEMES_DONE"
+	scriptPath := filepath.Join(t.TempDir(), "graphemes.sh")
+	script := "#!/bin/sh\nclear\nprintf '%s\\n' '" + line + "' '" + doneMarker + "'\n"
+	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
+		t.Fatalf("writing grapheme script: %v", err)
+	}
+
+	h.sendKeys("pane-1", "sh "+scriptPath, "Enter")
+	h.waitFor("pane-1", doneMarker)
 
 	pane := captureJSONPane(t, h, "pane-1")
 	found := false
