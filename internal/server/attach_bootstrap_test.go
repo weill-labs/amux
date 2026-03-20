@@ -149,7 +149,7 @@ func readInitialAttachReplay(t *testing.T, conn net.Conn, replay *attachReplaySt
 
 	var layout *proto.LayoutSnapshot
 	for layout == nil {
-		msg := readAttachMsgWithTimeout(t, conn)
+		msg := readMsgWithTimeout(t, conn)
 		if msg.Type != MsgTypeLayout {
 			continue
 		}
@@ -159,7 +159,7 @@ func readInitialAttachReplay(t *testing.T, conn net.Conn, replay *attachReplaySt
 
 	replayed := 0
 	for replayed < len(layout.Panes) {
-		msg := readAttachMsgWithTimeout(t, conn)
+		msg := readMsgWithTimeout(t, conn)
 		switch msg.Type {
 		case MsgTypePaneHistory:
 			replay.HandlePaneHistory(msg.PaneID, msg.History)
@@ -179,7 +179,7 @@ func drainAttachMessages(t *testing.T, conn net.Conn, replay *attachReplayState,
 
 	layouts := 0
 	for layouts < wantLayouts {
-		msg := readAttachMsgWithTimeout(t, conn)
+		msg := readMsgWithTimeout(t, conn)
 		switch msg.Type {
 		case MsgTypeLayout:
 			replay.HandleLayout(msg.Layout)
@@ -254,9 +254,7 @@ func assertAttachReplayPaneMatchesSnapshot(t *testing.T, replay *attachReplaySta
 		t.Fatalf("pane %d cursor = col=%d row=%d hidden=%v, want col=%d row=%d hidden=%v", paneID, col, row, hidden, want.CursorCol, want.CursorRow, want.CursorHidden)
 	}
 
-	lines := append([]string(nil), replay.histories[paneID]...)
-	lines = append(lines, mux.EmulatorScrollbackLines(emu)...)
-	lines = append(lines, content...)
+	lines := replay.lines(paneID)
 	wantLines := append([]string(nil), want.History...)
 	wantLines = append(wantLines, want.Content...)
 	if got, wantTotal := len(lines), len(wantLines); got != wantTotal {
@@ -284,22 +282,6 @@ func waitForSignal(t *testing.T, ch <-chan struct{}, label string) {
 	case <-time.After(time.Second):
 		t.Fatalf("timeout waiting for %s", label)
 	}
-}
-
-func readAttachMsgWithTimeout(t *testing.T, conn net.Conn) *Message {
-	t.Helper()
-
-	if err := conn.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
-		t.Fatalf("SetReadDeadline: %v", err)
-	}
-	defer conn.SetReadDeadline(time.Time{})
-
-	msg, err := ReadMsg(conn)
-	if err != nil {
-		t.Fatalf("ReadMsg: %v", err)
-	}
-
-	return msg
 }
 
 func newAttachTestPane(sess *Session, id uint32, name string, cols, rows int) *mux.Pane {
@@ -416,4 +398,11 @@ func (r *attachReplayState) HandlePaneOutput(paneID uint32, data []byte) {
 	if _, err := emu.Write(data); err != nil {
 		panic(err)
 	}
+}
+
+func (r *attachReplayState) lines(paneID uint32) []string {
+	lines := append([]string(nil), r.histories[paneID]...)
+	lines = append(lines, mux.EmulatorScrollbackLines(r.emulators[paneID])...)
+	lines = append(lines, mux.EmulatorContentLines(r.emulators[paneID])...)
+	return lines
 }
