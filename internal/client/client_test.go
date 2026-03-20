@@ -3,6 +3,7 @@ package client
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -26,6 +27,37 @@ func twoPane80x23() *proto.LayoutSnapshot {
 	panes := []proto.PaneSnapshot{
 		{ID: 1, Name: "pane-1", Host: "local", Color: "f5e0dc"},
 		{ID: 2, Name: "pane-2", Host: "local", Color: "f2cdcd"},
+	}
+	return &proto.LayoutSnapshot{
+		SessionName:  "test",
+		ActivePaneID: 1,
+		Width:        80,
+		Height:       23,
+		Root:         root,
+		Panes:        panes,
+		Windows: []proto.WindowSnapshot{{
+			ID: 1, Name: "window-1", Index: 1, ActivePaneID: 1,
+			Root:  root,
+			Panes: panes,
+		}},
+		ActiveWindowID: 1,
+	}
+}
+
+func threePane80x23() *proto.LayoutSnapshot {
+	root := proto.CellSnapshot{
+		X: 0, Y: 0, W: 80, H: 23,
+		Dir: int(mux.SplitVertical),
+		Children: []proto.CellSnapshot{
+			{X: 0, Y: 0, W: 26, H: 23, IsLeaf: true, Dir: -1, PaneID: 1},
+			{X: 27, Y: 0, W: 26, H: 23, IsLeaf: true, Dir: -1, PaneID: 2},
+			{X: 54, Y: 0, W: 26, H: 23, IsLeaf: true, Dir: -1, PaneID: 3},
+		},
+	}
+	panes := []proto.PaneSnapshot{
+		{ID: 1, Name: "pane-1", Host: "local", Color: "f5e0dc"},
+		{ID: 2, Name: "pane-2", Host: "local", Color: "f2cdcd"},
+		{ID: 3, Name: "pane-3", Host: "local", Color: "cba6f7"},
 	}
 	return &proto.LayoutSnapshot{
 		SessionName:  "test",
@@ -140,6 +172,18 @@ func buildMultiWindowRenderer(t *testing.T) *ClientRenderer {
 	cr := NewClientRenderer(80, 24)
 	cr.HandleLayout(multiWindow80x23())
 	return cr
+}
+
+func assertClientEffectKinds(t *testing.T, effects []clientEffect, want []clientEffectKind) {
+	t.Helper()
+
+	got := make([]clientEffectKind, len(effects))
+	for i := range effects {
+		got[i] = effects[i].kind
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("effect kinds = %v, want %v", got, want)
+	}
 }
 
 func multiWindow80x23Zoomed(windowID, paneID uint32) *proto.LayoutSnapshot {
@@ -518,6 +562,92 @@ func TestHandleLayoutClearsCommandFeedback(t *testing.T) {
 	if strings.Contains(display, "cannot minimize: pane has no stacked siblings") {
 		t.Fatalf("layout update should clear command feedback, got:\n%s", display)
 	}
+}
+
+func TestHandleRenderMsgLayoutReturnsEffects(t *testing.T) {
+	t.Parallel()
+
+	cr := buildTestRenderer(t)
+	if !cr.ShowDisplayPanes() {
+		t.Fatal("ShowDisplayPanes should succeed")
+	}
+
+	effects := cr.handleRenderMsg(&RenderMsg{Typ: RenderMsgLayout, Layout: threePane80x23()})
+	assertClientEffectKinds(t, effects, []clientEffectKind{
+		clientEffectEmitUIEvents,
+		clientEffectClearPrevGrid,
+		clientEffectStopScheduledRender,
+		clientEffectRenderNow,
+	})
+	if !reflect.DeepEqual(effects[0].uiEvents, []string{proto.UIEventDisplayPanesHidden}) {
+		t.Fatalf("ui events = %v, want [%q]", effects[0].uiEvents, proto.UIEventDisplayPanesHidden)
+	}
+	if cr.DisplayPanesActive() {
+		t.Fatal("display panes should be cleared after structural layout change")
+	}
+}
+
+func TestHandleRenderMsgPaneOutputSchedulesRender(t *testing.T) {
+	t.Parallel()
+
+	cr := buildTestRenderer(t)
+
+	effects := cr.handleRenderMsg(&RenderMsg{Typ: RenderMsgPaneOutput, PaneID: 1, Data: []byte("more output")})
+	assertClientEffectKinds(t, effects, []clientEffectKind{clientEffectScheduleRender})
+}
+
+func TestHandleRenderMsgCopyModeReturnsImmediateRenderEffects(t *testing.T) {
+	t.Parallel()
+
+	cr := buildTestRenderer(t)
+
+	effects := cr.handleRenderMsg(&RenderMsg{Typ: RenderMsgCopyMode, PaneID: 1})
+	assertClientEffectKinds(t, effects, []clientEffectKind{
+		clientEffectEmitUIEvents,
+		clientEffectStopScheduledRender,
+		clientEffectRenderNow,
+	})
+	if !reflect.DeepEqual(effects[0].uiEvents, []string{proto.UIEventCopyModeShown}) {
+		t.Fatalf("ui events = %v, want [%q]", effects[0].uiEvents, proto.UIEventCopyModeShown)
+	}
+	if !cr.InCopyMode(1) {
+		t.Fatal("pane-1 should be in copy mode")
+	}
+}
+
+func TestHandleRenderMsgCommandErrorReturnsBellAndRenderEffects(t *testing.T) {
+	t.Parallel()
+
+	cr := buildTestRenderer(t)
+
+	effects := cr.handleRenderMsg(&RenderMsg{Typ: RenderMsgCmdError, Text: "cannot minimize: pane has no stacked siblings"})
+	assertClientEffectKinds(t, effects, []clientEffectKind{
+		clientEffectStopScheduledRender,
+		clientEffectBell,
+		clientEffectRenderNow,
+	})
+
+	effects = cr.handleRenderMsg(&RenderMsg{Typ: RenderMsgCmdError, Text: " \t "})
+	if len(effects) != 0 {
+		t.Fatalf("blank command error should produce no effects, got %v", effects)
+	}
+}
+
+func TestHandleRenderMsgExitRendersOnlyWhenDirty(t *testing.T) {
+	t.Parallel()
+
+	cr := buildTestRenderer(t)
+
+	effects := cr.handleRenderMsg(&RenderMsg{Typ: RenderMsgExit})
+	assertClientEffectKinds(t, effects, []clientEffectKind{
+		clientEffectRenderNow,
+		clientEffectExit,
+	})
+
+	cr.RenderDiff()
+
+	effects = cr.handleRenderMsg(&RenderMsg{Typ: RenderMsgExit})
+	assertClientEffectKinds(t, effects, []clientEffectKind{clientEffectExit})
 }
 
 func TestToggleMinimizeBlockedReasonVerticalSplit(t *testing.T) {
