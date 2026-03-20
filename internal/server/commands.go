@@ -1140,20 +1140,14 @@ func cmdWaitUI(ctx *CommandContext) {
 		return
 	}
 
-	client, err := ctx.Sess.queryUIClient(requestedClientID, eventName)
+	subscription, err := ctx.Sess.enqueueUIWaitSubscribe(requestedClientID, eventName)
 	if err != nil {
 		ctx.replyErr(err.Error())
 		return
 	}
+	defer ctx.Sess.enqueueEventUnsubscribe(subscription.sub)
 
-	res := ctx.Sess.enqueueEventSubscribe(eventFilter{Types: []string{eventName}, ClientID: client.clientID}, false)
-	if res.sub == nil {
-		ctx.replyErr("session shutting down")
-		return
-	}
-	defer ctx.Sess.enqueueEventUnsubscribe(res.sub)
-
-	if client.currentMatch {
+	if subscription.currentMatch {
 		ctx.reply(eventName + "\n")
 		return
 	}
@@ -1161,10 +1155,10 @@ func cmdWaitUI(ctx *CommandContext) {
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
 	select {
-	case <-res.sub.ch:
+	case <-subscription.sub.ch:
 		ctx.reply(eventName + "\n")
 	case <-timer.C:
-		ctx.replyErr(fmt.Sprintf("timeout waiting for %s on %s", eventName, client.clientID))
+		ctx.replyErr(fmt.Sprintf("timeout waiting for %s on %s", eventName, subscription.clientID))
 	}
 }
 

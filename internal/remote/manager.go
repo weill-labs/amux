@@ -180,6 +180,8 @@ func (m *Manager) AttachForTakeover(hostName, sshAddr, sshUser, remoteUID, sessi
 	}
 	m.mu.Unlock()
 
+	hc.BeginInputBuffering()
+
 	// Register ALL pane mappings before connecting so readLoop routes output correctly
 	// from the first message. If we connected first, early output from any pane not
 	// yet registered would be silently dropped.

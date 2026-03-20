@@ -57,6 +57,40 @@ type uiClientSnapshot struct {
 	currentMatch bool
 }
 
+// resolveUIClientSnapshot must run on the session event loop. It resolves the
+// target client and snapshots whether it already matches the requested UI
+// event, so callers can combine resolution with subscription atomically.
+func (s *Session) resolveUIClientSnapshot(requestedClientID, eventName string) (uiClientSnapshot, error) {
+	if len(s.clients) == 0 {
+		return uiClientSnapshot{}, fmt.Errorf("no client attached")
+	}
+	if requestedClientID != "" {
+		for _, cc := range s.clients {
+			if cc.ID == requestedClientID {
+				return uiClientSnapshot{
+					client:       cc,
+					clientID:     cc.ID,
+					currentMatch: cc.matchesUIEvent(eventName),
+				}, nil
+			}
+		}
+		return uiClientSnapshot{}, fmt.Errorf("unknown client: %s", requestedClientID)
+	}
+	if len(s.clients) == 1 {
+		cc := s.clients[0]
+		return uiClientSnapshot{
+			client:       cc,
+			clientID:     cc.ID,
+			currentMatch: cc.matchesUIEvent(eventName),
+		}, nil
+	}
+	ids := make([]string, 0, len(s.clients))
+	for _, cc := range s.clients {
+		ids = append(ids, cc.ID)
+	}
+	return uiClientSnapshot{}, fmt.Errorf("multiple clients attached; specify --client (%s)", strings.Join(ids, ", "))
+}
+
 func (s *Session) resolvePaneAcrossWindows(ref string) (*mux.Pane, *mux.Window, error) {
 	w := s.ActiveWindow()
 	if w == nil {
@@ -211,34 +245,7 @@ func (s *Session) queryClientList() ([]clientListEntry, error) {
 
 func (s *Session) queryUIClient(requestedClientID, eventName string) (uiClientSnapshot, error) {
 	return enqueueSessionQuery(s, func(s *Session) (uiClientSnapshot, error) {
-		if len(s.clients) == 0 {
-			return uiClientSnapshot{}, fmt.Errorf("no client attached")
-		}
-		if requestedClientID != "" {
-			for _, cc := range s.clients {
-				if cc.ID == requestedClientID {
-					return uiClientSnapshot{
-						client:       cc,
-						clientID:     cc.ID,
-						currentMatch: cc.matchesUIEvent(eventName),
-					}, nil
-				}
-			}
-			return uiClientSnapshot{}, fmt.Errorf("unknown client: %s", requestedClientID)
-		}
-		if len(s.clients) == 1 {
-			cc := s.clients[0]
-			return uiClientSnapshot{
-				client:       cc,
-				clientID:     cc.ID,
-				currentMatch: cc.matchesUIEvent(eventName),
-			}, nil
-		}
-		ids := make([]string, 0, len(s.clients))
-		for _, cc := range s.clients {
-			ids = append(ids, cc.ID)
-		}
-		return uiClientSnapshot{}, fmt.Errorf("multiple clients attached; specify --client (%s)", strings.Join(ids, ", "))
+		return s.resolveUIClientSnapshot(requestedClientID, eventName)
 	})
 }
 

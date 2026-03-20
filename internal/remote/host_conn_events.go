@@ -5,8 +5,6 @@ import (
 	"net"
 
 	"golang.org/x/crypto/ssh"
-
-	"github.com/weill-labs/amux/internal/proto"
 )
 
 var errHostConnClosed = errors.New("host connection closed")
@@ -137,6 +135,8 @@ func (e connectDoneEvent) handle(hc *HostConn) {
 		if hc.state == Connecting {
 			hc.setState(Disconnected)
 		}
+		hc.bufferPendingInputs = false
+		hc.pendingInputs = nil
 		hc.drainPendingReplies(e.err)
 		return
 	}
@@ -144,6 +144,8 @@ func (e connectDoneEvent) handle(hc *HostConn) {
 	if hc.state != Connecting {
 		// Explicit disconnect arrived while connecting -- discard the result.
 		e.outcome.closeConns()
+		hc.bufferPendingInputs = false
+		hc.pendingInputs = nil
 		hc.drainPendingReplies(errHostConnClosed)
 		return
 	}
@@ -186,6 +188,12 @@ type registerPaneEvent struct {
 	remotePaneID uint32
 }
 
+type beginInputBufferingEvent struct{}
+
+func (e beginInputBufferingEvent) handle(hc *HostConn) {
+	hc.bufferPendingInputs = true
+}
+
 func (e registerPaneEvent) handle(hc *HostConn) {
 	hc.localToRemote[e.localPaneID] = e.remotePaneID
 	hc.remoteToLocal[e.remotePaneID] = e.localPaneID
@@ -210,16 +218,19 @@ type sendInputEvent struct {
 }
 
 func (e sendInputEvent) handle(hc *HostConn) {
-	remotePaneID, ok := hc.localToRemote[e.localPaneID]
-	if !ok || hc.amuxConn == nil {
+	if _, ok := hc.localToRemote[e.localPaneID]; !ok {
 		return
 	}
-	// Actor serializes all writes — replaces the old writeMu.
-	proto.WriteMsg(hc.amuxConn, &proto.Message{
-		Type:     proto.MsgTypeInputPane,
-		PaneID:   remotePaneID,
-		PaneData: e.data,
-	})
+	if hc.amuxConn == nil {
+		if hc.bufferPendingInputs || hc.state == Connecting || hc.state == Reconnecting {
+			hc.pendingInputs = append(hc.pendingInputs, pendingPaneInput{
+				localPaneID: e.localPaneID,
+				data:        append([]byte(nil), e.data...),
+			})
+		}
+		return
+	}
+	hc.sendInputNow(e.localPaneID, e.data)
 }
 
 type readPaneOutputEvent struct {
@@ -279,6 +290,8 @@ func (hc *HostConn) applyOutcome(o *connectOutcome) {
 		hc.takeoverMode = true
 	}
 	hc.setState(Connected)
+	hc.bufferPendingInputs = false
+	hc.flushPendingInputs()
 	go hc.readLoop(hc.amuxConn)
 }
 
@@ -296,6 +309,8 @@ func (hc *HostConn) drainPendingReplies(err error) {
 func (hc *HostConn) disconnectAndDrainPending() {
 	hc.closeConns()
 	hc.setState(Disconnected)
+	hc.bufferPendingInputs = false
+	hc.pendingInputs = nil
 	hc.drainPendingReplies(errHostConnClosed)
 }
 
