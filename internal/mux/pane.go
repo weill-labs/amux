@@ -45,9 +45,10 @@ type Pane struct {
 	process  *os.Process // set for restored panes (where cmd is nil)
 	emulator TerminalEmulator
 
-	snapshotMu  sync.Mutex
-	outputSeq   atomic.Uint64
-	baseHistory []string
+	snapshotMu      sync.Mutex
+	outputSeq       atomic.Uint64
+	baseHistory     []string
+	scrollbackLines int
 
 	// writeOverride, when non-nil, receives Write() calls instead of the PTY.
 	// Used by proxy panes to route input over SSH to a remote amux server.
@@ -83,6 +84,12 @@ type CaptureSnapshot struct {
 // the read/drain/wait goroutines. Call Start() after releasing any locks
 // that the onOutput/onExit callbacks might need.
 func NewPane(id uint32, meta PaneMeta, cols, rows int, sessionName string, onOutput func(uint32, []byte, uint64), onExit func(uint32)) (*Pane, error) {
+	return NewPaneWithScrollback(id, meta, cols, rows, sessionName, DefaultScrollbackLines, onOutput, onExit)
+}
+
+// NewPaneWithScrollback creates a new pane with an explicit retained
+// scrollback limit.
+func NewPaneWithScrollback(id uint32, meta PaneMeta, cols, rows int, sessionName string, scrollbackLines int, onOutput func(uint32, []byte, uint64), onExit func(uint32)) (*Pane, error) {
 	shell := os.Getenv("SHELL")
 	if shell == "" {
 		shell = "/bin/bash"
@@ -106,17 +113,18 @@ func NewPane(id uint32, meta PaneMeta, cols, rows int, sessionName string, onOut
 		return nil, err
 	}
 
-	emu := NewVTEmulator(cols, rows)
+	emu := NewVTEmulatorWithScrollback(cols, rows, scrollbackLines)
 
 	return &Pane{
-		ID:        id,
-		Meta:      meta,
-		ptmx:      ptmx,
-		cmd:       cmd,
-		emulator:  emu,
-		onOutput:  onOutput,
-		onExit:    onExit,
-		createdAt: time.Now(),
+		ID:              id,
+		Meta:            meta,
+		ptmx:            ptmx,
+		cmd:             cmd,
+		emulator:        emu,
+		onOutput:        onOutput,
+		onExit:          onExit,
+		createdAt:       time.Now(),
+		scrollbackLines: effectiveScrollbackLines(scrollbackLines),
 	}, nil
 }
 
@@ -125,6 +133,12 @@ func NewPane(id uint32, meta PaneMeta, cols, rows int, sessionName string, onOut
 // No new shell is spawned — the existing shell survives the exec.
 // The drain goroutine starts immediately to prevent deadlock during screen replay.
 func RestorePane(id uint32, meta PaneMeta, ptmxFd, pid, cols, rows int, onOutput func(uint32, []byte, uint64), onExit func(uint32)) (*Pane, error) {
+	return RestorePaneWithScrollback(id, meta, ptmxFd, pid, cols, rows, DefaultScrollbackLines, onOutput, onExit)
+}
+
+// RestorePaneWithScrollback restores a pane with an explicit retained
+// scrollback limit.
+func RestorePaneWithScrollback(id uint32, meta PaneMeta, ptmxFd, pid, cols, rows int, scrollbackLines int, onOutput func(uint32, []byte, uint64), onExit func(uint32)) (*Pane, error) {
 	ptmx := os.NewFile(uintptr(ptmxFd), fmt.Sprintf("ptmx-%d", id))
 	if ptmx == nil {
 		return nil, fmt.Errorf("invalid FD %d for pane %d", ptmxFd, id)
@@ -135,18 +149,19 @@ func RestorePane(id uint32, meta PaneMeta, ptmxFd, pid, cols, rows int, onOutput
 		return nil, fmt.Errorf("finding process %d for pane %d: %w", pid, id, err)
 	}
 
-	emu := NewVTEmulator(cols, rows)
+	emu := NewVTEmulatorWithScrollback(cols, rows, scrollbackLines)
 
 	p := &Pane{
-		ID:           id,
-		Meta:         meta,
-		ptmx:         ptmx,
-		process:      proc,
-		emulator:     emu,
-		drainStarted: true,
-		onOutput:     onOutput,
-		onExit:       onExit,
-		createdAt:    time.Now(),
+		ID:              id,
+		Meta:            meta,
+		ptmx:            ptmx,
+		process:         proc,
+		emulator:        emu,
+		drainStarted:    true,
+		onOutput:        onOutput,
+		onExit:          onExit,
+		createdAt:       time.Now(),
+		scrollbackLines: effectiveScrollbackLines(scrollbackLines),
 	}
 
 	// Start drain immediately so screen replay doesn't deadlock
@@ -426,6 +441,10 @@ func (p *Pane) OutputSeq() uint64 {
 func (p *Pane) SetRetainedHistory(lines []string) {
 	p.snapshotMu.Lock()
 	defer p.snapshotMu.Unlock()
+	limit := effectiveScrollbackLines(p.scrollbackLines)
+	if len(lines) > limit {
+		lines = lines[len(lines)-limit:]
+	}
 	p.baseHistory = append([]string(nil), lines...)
 }
 
@@ -465,17 +484,26 @@ func (p *Pane) Close() error {
 func NewProxyPane(id uint32, meta PaneMeta, cols, rows int,
 	onOutput func(uint32, []byte, uint64), onExit func(uint32),
 	writeOverride func([]byte) (int, error)) *Pane {
+	return NewProxyPaneWithScrollback(id, meta, cols, rows, DefaultScrollbackLines, onOutput, onExit, writeOverride)
+}
 
-	emu := NewVTEmulator(cols, rows)
+// NewProxyPaneWithScrollback creates a proxy pane with an explicit retained
+// scrollback limit.
+func NewProxyPaneWithScrollback(id uint32, meta PaneMeta, cols, rows int,
+	scrollbackLines int, onOutput func(uint32, []byte, uint64), onExit func(uint32),
+	writeOverride func([]byte) (int, error)) *Pane {
+
+	emu := NewVTEmulatorWithScrollback(cols, rows, scrollbackLines)
 	p := &Pane{
-		ID:            id,
-		Meta:          meta,
-		emulator:      emu,
-		writeOverride: writeOverride,
-		onOutput:      onOutput,
-		onExit:        onExit,
-		createdAt:     time.Now(),
-		drainStarted:  true, // no PTY responses to drain
+		ID:              id,
+		Meta:            meta,
+		emulator:        emu,
+		writeOverride:   writeOverride,
+		onOutput:        onOutput,
+		onExit:          onExit,
+		createdAt:       time.Now(),
+		drainStarted:    true, // no PTY responses to drain
+		scrollbackLines: effectiveScrollbackLines(scrollbackLines),
 	}
 	// Start drain goroutine for emulator responses (DA replies etc.)
 	// that would otherwise block the emulator's pipe.
@@ -511,15 +539,16 @@ func (p *Pane) FeedOutput(data []byte) {
 
 func (p *Pane) combinedScrollbackLocked() []string {
 	live := EmulatorScrollbackLines(p.emulator)
+	limit := effectiveScrollbackLines(p.scrollbackLines)
 	total := len(p.baseHistory) + len(live)
-	if total <= DefaultScrollbackLines {
+	if total <= limit {
 		out := make([]string, 0, total)
 		out = append(out, p.baseHistory...)
 		out = append(out, live...)
 		return out
 	}
 
-	drop := total - DefaultScrollbackLines
+	drop := total - limit
 	baseStart := 0
 	liveStart := 0
 	if drop >= len(p.baseHistory) {
@@ -529,7 +558,7 @@ func (p *Pane) combinedScrollbackLocked() []string {
 		baseStart = drop
 	}
 
-	out := make([]string, 0, DefaultScrollbackLines)
+	out := make([]string, 0, limit)
 	out = append(out, p.baseHistory[baseStart:]...)
 	out = append(out, live[liveStart:]...)
 	return out

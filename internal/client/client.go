@@ -20,19 +20,27 @@ import (
 type ClientRenderer struct {
 	renderer *Renderer
 
-	mu          sync.Mutex
-	baseHistory map[uint32][]string
-	ui          clientUIState
-	copyBuffer  string
-	OnUIEvent   func(string)
+	mu              sync.Mutex
+	baseHistory     map[uint32][]string
+	ui              clientUIState
+	copyBuffer      string
+	scrollbackLines int
+	OnUIEvent       func(string)
 }
 
 // NewClientRenderer creates a client renderer for the given terminal dimensions.
 func NewClientRenderer(width, height int) *ClientRenderer {
+	return NewClientRendererWithScrollback(width, height, mux.DefaultScrollbackLines)
+}
+
+// NewClientRendererWithScrollback creates a client renderer with an explicit
+// retained scrollback limit shared by local emulators and copy mode.
+func NewClientRendererWithScrollback(width, height, scrollbackLines int) *ClientRenderer {
 	cr := &ClientRenderer{
-		renderer:    New(width, height),
-		baseHistory: make(map[uint32][]string),
-		ui:          newClientUIState(),
+		renderer:        NewWithScrollback(width, height, scrollbackLines),
+		baseHistory:     make(map[uint32][]string),
+		ui:              newClientUIState(),
+		scrollbackLines: scrollbackLines,
 	}
 	// Resize copy modes when the renderer resizes emulators during layout.
 	cr.renderer.OnPaneResize = func(paneID uint32, w, h int) {
@@ -487,8 +495,9 @@ func (cr *ClientRenderer) enterCopyModeResult(paneID uint32) clientUIResult {
 	w, h := emu.Size()
 	_, curRow := emu.CursorPosition()
 	cm := copymode.New(&historyEmulator{
-		emu:         emu,
-		baseHistory: baseHistory,
+		emu:             emu,
+		baseHistory:     baseHistory,
+		scrollbackLines: cr.scrollbackLines,
 	}, w, h, curRow)
 	return cr.reduceUI(uiActionEnterCopyMode{paneID: paneID, mode: cm})
 }

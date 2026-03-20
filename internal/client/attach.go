@@ -44,6 +44,7 @@ func RunSession(sessionName string) error {
 	if err != nil {
 		return fmt.Errorf("invalid keybindings: %w", err)
 	}
+	scrollbackLines := cfg.EffectiveScrollbackLines()
 
 	sockPath := server.SocketPath(sessionName)
 
@@ -92,7 +93,7 @@ func RunSession(sessionName string) error {
 	}()
 
 	// Client-side renderer with per-pane emulators
-	cr := NewClientRenderer(cols, rows)
+	cr := NewClientRendererWithScrollback(cols, rows, scrollbackLines)
 	cr.OnUIEvent = func(name string) {
 		_ = sender.Send(&proto.Message{
 			Type:    proto.MsgTypeUIEvent,

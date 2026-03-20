@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/BurntSushi/toml"
+	"github.com/weill-labs/amux/internal/mux"
 )
 
 // CatppuccinMocha accent palette in official order (catppuccin.com/palette).
@@ -70,8 +71,9 @@ type Host struct {
 
 // Config is the top-level amux configuration.
 type Config struct {
-	Hosts map[string]Host `toml:"hosts"`
-	Keys  KeyConfig       `toml:"keys"`
+	ScrollbackLines *int            `toml:"scrollback_lines"`
+	Hosts           map[string]Host `toml:"hosts"`
+	Keys            KeyConfig       `toml:"keys"`
 }
 
 // DefaultPath returns the default config file path.
@@ -107,6 +109,10 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("parsing config: %w", err)
 	}
 
+	if _, err := ResolveScrollbackLines(cfg.ScrollbackLines); err != nil {
+		return nil, err
+	}
+
 	// Auto-assign colors for hosts without explicit color
 	for name, host := range cfg.Hosts {
 		if host.Color == "" {
@@ -116,6 +122,32 @@ func Load(path string) (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// ResolveScrollbackLines validates a configured scrollback limit and returns
+// the effective value. Zero means "use the built-in default".
+func ResolveScrollbackLines(lines *int) (int, error) {
+	switch {
+	case lines == nil:
+		return mux.DefaultScrollbackLines, nil
+	case *lines < 1:
+		return 0, fmt.Errorf("scrollback_lines must be >= 1")
+	default:
+		return *lines, nil
+	}
+}
+
+// EffectiveScrollbackLines returns the resolved retained scrollback limit,
+// falling back to the built-in default for nil configs or unset values.
+func (c *Config) EffectiveScrollbackLines() int {
+	if c == nil {
+		return mux.DefaultScrollbackLines
+	}
+	lines, err := ResolveScrollbackLines(c.ScrollbackLines)
+	if err != nil {
+		return mux.DefaultScrollbackLines
+	}
+	return lines
 }
 
 // ColorForHost deterministically picks a Catppuccin color based on hostname.
