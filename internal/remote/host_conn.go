@@ -641,7 +641,7 @@ func socketPath(remoteUID, sessionName string) string {
 	return fmt.Sprintf("/tmp/amux-%s/%s", remoteUID, sessionName)
 }
 
-// remoteSessionName returns the session name to use on the remote server.
+// ManagedSessionName returns the session name to use on the remote server.
 func ManagedSessionName(localSessionName string) string {
 	hostname, err := os.Hostname()
 	if err != nil {

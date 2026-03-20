@@ -38,6 +38,18 @@ func (cc *ClientConn) applyUIEvent(name string) (bool, error) {
 		}
 		cc.displayPanesShown = false
 		return true, nil
+	case proto.UIEventPrefixMessageShown:
+		if cc.prefixMessageShown {
+			return false, nil
+		}
+		cc.prefixMessageShown = true
+		return true, nil
+	case proto.UIEventPrefixMessageHidden:
+		if !cc.prefixMessageShown {
+			return false, nil
+		}
+		cc.prefixMessageShown = false
+		return true, nil
 	case proto.UIEventCopyModeShown:
 		if cc.copyModeShown {
 			return false, nil
@@ -81,6 +93,10 @@ func (cc *ClientConn) matchesUIEvent(name string) bool {
 		return cc.displayPanesShown
 	case proto.UIEventDisplayPanesHidden:
 		return !cc.displayPanesShown
+	case proto.UIEventPrefixMessageShown:
+		return cc.prefixMessageShown
+	case proto.UIEventPrefixMessageHidden:
+		return !cc.prefixMessageShown
 	case proto.UIEventCopyModeShown:
 		return cc.copyModeShown
 	case proto.UIEventCopyModeHidden:
@@ -117,6 +133,10 @@ func (cc *ClientConn) currentUIEvents() []Event {
 		events[0].Type = proto.UIEventDisplayPanesShown
 	}
 
+	prefixMessageEvent := proto.UIEventPrefixMessageHidden
+	if cc.prefixMessageShown {
+		prefixMessageEvent = proto.UIEventPrefixMessageShown
+	}
 	copyModeEvent := proto.UIEventCopyModeHidden
 	if cc.copyModeShown {
 		copyModeEvent = proto.UIEventCopyModeShown
@@ -127,6 +147,7 @@ func (cc *ClientConn) currentUIEvents() []Event {
 	}
 
 	events = append(events,
+		Event{Type: prefixMessageEvent, ClientID: cc.ID},
 		Event{Type: copyModeEvent, ClientID: cc.ID},
 		Event{Type: inputEvent, ClientID: cc.ID},
 		Event{Type: chooserSnapshotEvent(chooserTree, cc.chooserMode), ClientID: cc.ID},

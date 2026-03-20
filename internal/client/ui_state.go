@@ -69,12 +69,23 @@ func (st *clientUIState) reduce(action any) clientUIResult {
 	case uiActionSetInputIdle:
 		return st.reduceSetInputIdle(action)
 	case uiActionPaneOutput:
+		if st.message == "" {
+			st.dirty = true
+			return clientUIResult{}
+		}
 		st.message = ""
 		st.dirty = true
-		return clientUIResult{}
+		return clientUIResult{uiEvents: []string{proto.UIEventPrefixMessageHidden}}
 	case uiActionSetMessage:
+		wasVisible := st.message != ""
 		st.message = action.message
 		st.dirty = true
+		if !wasVisible && action.message != "" {
+			return clientUIResult{uiEvents: []string{proto.UIEventPrefixMessageShown}}
+		}
+		if wasVisible && action.message == "" {
+			return clientUIResult{uiEvents: []string{proto.UIEventPrefixMessageHidden}}
+		}
 		return clientUIResult{}
 	case uiActionClearMessage:
 		if st.message == "" {
@@ -82,7 +93,7 @@ func (st *clientUIState) reduce(action any) clientUIResult {
 		}
 		st.message = ""
 		st.dirty = true
-		return clientUIResult{}
+		return clientUIResult{uiEvents: []string{proto.UIEventPrefixMessageHidden}}
 	case uiActionShowDisplayPanes:
 		wasActive := st.displayPanes != nil
 		st.displayPanes = action.displayPanes
@@ -144,7 +155,10 @@ func (st *clientUIState) reduceHandleLayout(action uiActionHandleLayout) clientU
 			st.chooser = nil
 		}
 	}
-	st.message = ""
+	if st.message != "" {
+		st.message = ""
+		result.uiEvents = append(result.uiEvents, proto.UIEventPrefixMessageHidden)
+	}
 	st.dirty = true
 	return result
 }
