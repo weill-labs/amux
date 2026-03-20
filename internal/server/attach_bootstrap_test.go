@@ -1,41 +1,39 @@
-package server_test
+package server
 
 import (
-	"encoding/json"
 	"net"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/weill-labs/amux/internal/client"
+	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
-	"github.com/weill-labs/amux/internal/server"
 )
 
 func TestHandleAttachFlushesQueuedPaneOutputAfterBootstrap(t *testing.T) {
 	t.Parallel()
 
-	srv, sess, cleanup := server.NewCommandTestSessionForTest(t)
+	srv, sess, cleanup := newCommandTestSession(t)
 	defer cleanup()
 
-	pane := server.NewProxyPaneForTest(sess, 1, "pane-1", 80, 2)
+	pane := newAttachTestPane(sess, 1, "pane-1", 80, 2)
 
 	w := mux.NewWindow(pane, 80, 3)
 	w.ID = 1
 	w.Name = "window-1"
-	if err := server.SetLayoutStateForTest(sess, []*mux.Window{w}, w.ID, []*mux.Pane{pane}); err != nil {
-		t.Fatalf("SetLayoutStateForTest: %v", err)
+	if err := setAttachTestLayout(sess, []*mux.Window{w}, w.ID, []*mux.Pane{pane}); err != nil {
+		t.Fatalf("setAttachTestLayout: %v", err)
 	}
 	pane.FeedOutput([]byte("line-1\r\nline-2\r\nline-3"))
 
-	clientConn, cr, paused, release, done := startPausedAttach(t, srv, sess, 80, 4)
+	clientConn, replay, paused, release, done := startPausedAttach(t, srv, sess, 80, 4)
 	defer closeAttach(t, clientConn, release, done)
 
-	readInitialAttachReplay(t, clientConn, cr)
+	readInitialAttachReplay(t, clientConn, replay)
 	waitForPause(t, paused)
 
-	outputCh, unsubscribe := server.SubscribePaneOutputForTest(sess, pane.ID)
+	outputCh, unsubscribe := subscribeAttachTestPaneOutput(sess, pane.ID)
 	defer unsubscribe()
 
 	pane.FeedOutput([]byte("\r\nline-4\r\nline-5"))
@@ -44,41 +42,41 @@ func TestHandleAttachFlushesQueuedPaneOutputAfterBootstrap(t *testing.T) {
 	want := pane.CaptureSnapshot()
 
 	release()
-	drainAttachMessages(t, clientConn, cr, 1)
+	drainAttachMessages(t, clientConn, replay, 1)
 
-	assertClientPaneMatchesSnapshot(t, cr, pane.ID, want)
+	assertAttachReplayPaneMatchesSnapshot(t, replay, pane.ID, want)
 }
 
 func TestHandleAttachAppliesQueuedLayoutAfterConcurrentSplit(t *testing.T) {
 	t.Parallel()
 
-	srv, sess, cleanup := server.NewCommandTestSessionForTest(t)
+	srv, sess, cleanup := newCommandTestSession(t)
 	defer cleanup()
 
-	pane1 := server.NewProxyPaneForTest(sess, 1, "pane-1", 80, 2)
+	pane1 := newAttachTestPane(sess, 1, "pane-1", 80, 2)
 
 	w := mux.NewWindow(pane1, 80, 3)
 	w.ID = 1
 	w.Name = "window-1"
-	if err := server.SetLayoutStateForTest(sess, []*mux.Window{w}, w.ID, []*mux.Pane{pane1}); err != nil {
-		t.Fatalf("SetLayoutStateForTest: %v", err)
+	if err := setAttachTestLayout(sess, []*mux.Window{w}, w.ID, []*mux.Pane{pane1}); err != nil {
+		t.Fatalf("setAttachTestLayout: %v", err)
 	}
 	pane1.FeedOutput([]byte("before-1\r\nbefore-2\r\nbefore-3"))
 
-	clientConn, cr, paused, release, done := startPausedAttach(t, srv, sess, 80, 4)
+	clientConn, replay, paused, release, done := startPausedAttach(t, srv, sess, 80, 4)
 	defer closeAttach(t, clientConn, release, done)
 
-	readInitialAttachReplay(t, clientConn, cr)
+	readInitialAttachReplay(t, clientConn, replay)
 	waitForPause(t, paused)
 
-	pane2 := server.NewProxyPaneForTest(sess, 2, "pane-2", 80, 2)
-	if err := server.QueuePreparedSplitForTest(sess, pane2, mux.SplitVertical, false); err != nil {
-		t.Fatalf("QueuePreparedSplitForTest: %v", err)
+	pane2 := newAttachTestPane(sess, 2, "pane-2", 80, 2)
+	if err := queueAttachTestSplit(sess, pane2, mux.SplitVertical, false); err != nil {
+		t.Fatalf("queueAttachTestSplit: %v", err)
 	}
 
-	pane1Ch, unsubscribePane1 := server.SubscribePaneOutputForTest(sess, pane1.ID)
+	pane1Ch, unsubscribePane1 := subscribeAttachTestPaneOutput(sess, pane1.ID)
 	defer unsubscribePane1()
-	pane2Ch, unsubscribePane2 := server.SubscribePaneOutputForTest(sess, pane2.ID)
+	pane2Ch, unsubscribePane2 := subscribeAttachTestPaneOutput(sess, pane2.ID)
 	defer unsubscribePane2()
 
 	pane1.FeedOutput([]byte("\r\nsplit-pane-1"))
@@ -86,22 +84,22 @@ func TestHandleAttachAppliesQueuedLayoutAfterConcurrentSplit(t *testing.T) {
 	waitForSignal(t, pane1Ch, "pane-1 queued output")
 	waitForSignal(t, pane2Ch, "pane-2 queued output")
 
-	wantLayout, err := server.SnapshotLayoutForTest(sess)
+	wantLayout, err := snapshotAttachTestLayout(sess)
 	if err != nil {
-		t.Fatalf("SnapshotLayoutForTest: %v", err)
+		t.Fatalf("snapshotAttachTestLayout: %v", err)
 	}
 	wantPane1 := pane1.CaptureSnapshot()
 	wantPane2 := pane2.CaptureSnapshot()
 
 	release()
-	drainAttachMessages(t, clientConn, cr, 2)
+	drainAttachMessages(t, clientConn, replay, 2)
 
-	assertClientLayoutMatchesSnapshot(t, cr, wantLayout)
-	assertClientPaneMatchesSnapshot(t, cr, pane1.ID, wantPane1)
-	assertClientPaneMatchesSnapshot(t, cr, pane2.ID, wantPane2)
+	assertAttachReplayLayoutMatchesSnapshot(t, replay, wantLayout)
+	assertAttachReplayPaneMatchesSnapshot(t, replay, pane1.ID, wantPane1)
+	assertAttachReplayPaneMatchesSnapshot(t, replay, pane2.ID, wantPane2)
 }
 
-func startPausedAttach(t *testing.T, srv *server.Server, sess *server.Session, cols, rows int) (net.Conn, *client.ClientRenderer, <-chan struct{}, func(), <-chan struct{}) {
+func startPausedAttach(t *testing.T, srv *Server, sess *Session, cols, rows int) (net.Conn, *attachReplayState, <-chan struct{}, func(), <-chan struct{}) {
 	t.Helper()
 
 	serverConn, clientConn := net.Pipe()
@@ -110,22 +108,22 @@ func startPausedAttach(t *testing.T, srv *server.Server, sess *server.Session, c
 	var releaseOnce sync.Once
 	done := make(chan struct{})
 
-	server.SetAttachBootstrapHookForTest(srv, func() {
+	srv.attachBootstrapHook = func() {
 		close(paused)
 		<-release
-	})
+	}
 
 	go func() {
 		defer close(done)
-		server.HandleAttachForTest(srv, serverConn, &server.Message{
-			Type:    server.MsgTypeAttach,
+		srv.handleAttach(serverConn, &Message{
+			Type:    MsgTypeAttach,
 			Session: sess.Name,
 			Cols:    cols,
 			Rows:    rows,
 		})
 	}()
 
-	return clientConn, client.NewClientRenderer(cols, rows), paused, func() {
+	return clientConn, newAttachReplayState(), paused, func() {
 		releaseOnce.Do(func() { close(release) })
 	}, done
 }
@@ -135,7 +133,7 @@ func closeAttach(t *testing.T, clientConn net.Conn, release func(), done <-chan 
 
 	release()
 	if clientConn != nil {
-		_ = server.WriteMsg(clientConn, &server.Message{Type: server.MsgTypeDetach})
+		_ = WriteMsg(clientConn, &Message{Type: MsgTypeDetach})
 		_ = clientConn.Close()
 	}
 
@@ -146,27 +144,27 @@ func closeAttach(t *testing.T, clientConn net.Conn, release func(), done <-chan 
 	}
 }
 
-func readInitialAttachReplay(t *testing.T, conn net.Conn, cr *client.ClientRenderer) *proto.LayoutSnapshot {
+func readInitialAttachReplay(t *testing.T, conn net.Conn, replay *attachReplayState) *proto.LayoutSnapshot {
 	t.Helper()
 
 	var layout *proto.LayoutSnapshot
 	for layout == nil {
-		msg := readMsgWithTimeout(t, conn)
-		if msg.Type != server.MsgTypeLayout {
+		msg := readAttachMsgWithTimeout(t, conn)
+		if msg.Type != MsgTypeLayout {
 			continue
 		}
 		layout = msg.Layout
-		cr.HandleLayout(layout)
+		replay.HandleLayout(layout)
 	}
 
 	replayed := 0
 	for replayed < len(layout.Panes) {
-		msg := readMsgWithTimeout(t, conn)
+		msg := readAttachMsgWithTimeout(t, conn)
 		switch msg.Type {
-		case server.MsgTypePaneHistory:
-			cr.HandlePaneHistory(msg.PaneID, msg.History)
-		case server.MsgTypePaneOutput:
-			cr.HandlePaneOutput(msg.PaneID, msg.PaneData)
+		case MsgTypePaneHistory:
+			replay.HandlePaneHistory(msg.PaneID, msg.History)
+		case MsgTypePaneOutput:
+			replay.HandlePaneOutput(msg.PaneID, msg.PaneData)
 			replayed++
 		default:
 			t.Fatalf("unexpected bootstrap message: %+v", msg)
@@ -176,93 +174,96 @@ func readInitialAttachReplay(t *testing.T, conn net.Conn, cr *client.ClientRende
 	return layout
 }
 
-func drainAttachMessages(t *testing.T, conn net.Conn, cr *client.ClientRenderer, wantLayouts int) {
+func drainAttachMessages(t *testing.T, conn net.Conn, replay *attachReplayState, wantLayouts int) {
 	t.Helper()
 
 	layouts := 0
 	for layouts < wantLayouts {
-		msg := readMsgWithTimeout(t, conn)
+		msg := readAttachMsgWithTimeout(t, conn)
 		switch msg.Type {
-		case server.MsgTypeLayout:
-			cr.HandleLayout(msg.Layout)
+		case MsgTypeLayout:
+			replay.HandleLayout(msg.Layout)
 			layouts++
-		case server.MsgTypePaneHistory:
-			cr.HandlePaneHistory(msg.PaneID, msg.History)
-		case server.MsgTypePaneOutput:
-			cr.HandlePaneOutput(msg.PaneID, msg.PaneData)
+		case MsgTypePaneHistory:
+			replay.HandlePaneHistory(msg.PaneID, msg.History)
+		case MsgTypePaneOutput:
+			replay.HandlePaneOutput(msg.PaneID, msg.PaneData)
 		default:
 			t.Fatalf("unexpected post-bootstrap message: %+v", msg)
 		}
 	}
 }
 
-func assertClientLayoutMatchesSnapshot(t *testing.T, cr *client.ClientRenderer, want *proto.LayoutSnapshot) {
+func assertAttachReplayLayoutMatchesSnapshot(t *testing.T, replay *attachReplayState, want *proto.LayoutSnapshot) {
 	t.Helper()
 
-	var capture proto.CaptureJSON
-	if err := json.Unmarshal([]byte(cr.CaptureJSON(nil)), &capture); err != nil {
-		t.Fatalf("unmarshal CaptureJSON: %v", err)
+	if replay.layout == nil {
+		t.Fatal("missing replayed layout")
 	}
 
-	if got, wantCount := len(capture.Panes), len(want.Panes); got != wantCount {
-		t.Fatalf("capture pane count = %d, want %d", got, wantCount)
+	got := replay.layout
+	if got, wantCount := len(got.Panes), len(want.Panes); got != wantCount {
+		t.Fatalf("layout pane count = %d, want %d", got, wantCount)
 	}
 
-	for _, pane := range capture.Panes {
-		cell := proto.FindCellInSnapshot(want.Root, pane.ID)
-		if cell == nil {
-			t.Fatalf("pane %d missing from layout snapshot", pane.ID)
+	for _, pane := range want.Panes {
+		gotCell := proto.FindCellInSnapshot(got.Root, pane.ID)
+		if gotCell == nil {
+			t.Fatalf("pane %d missing from replayed layout", pane.ID)
 		}
-		if pane.Position == nil {
-			t.Fatalf("pane %d missing capture position", pane.ID)
+		wantCell := proto.FindCellInSnapshot(want.Root, pane.ID)
+		if wantCell == nil {
+			t.Fatalf("pane %d missing from expected layout", pane.ID)
 		}
-		if got, wantPos := pane.Position.X, cell.X; got != wantPos {
+		if got, wantPos := gotCell.X, wantCell.X; got != wantPos {
 			t.Fatalf("pane %d x = %d, want %d", pane.ID, got, wantPos)
 		}
-		if got, wantPos := pane.Position.Y, cell.Y; got != wantPos {
+		if got, wantPos := gotCell.Y, wantCell.Y; got != wantPos {
 			t.Fatalf("pane %d y = %d, want %d", pane.ID, got, wantPos)
 		}
-		if got, wantPos := pane.Position.Width, cell.W; got != wantPos {
+		if got, wantPos := gotCell.W, wantCell.W; got != wantPos {
 			t.Fatalf("pane %d width = %d, want %d", pane.ID, got, wantPos)
 		}
-		if got, wantPos := pane.Position.Height, cell.H; got != wantPos {
+		if got, wantPos := gotCell.H, wantCell.H; got != wantPos {
 			t.Fatalf("pane %d height = %d, want %d", pane.ID, got, wantPos)
 		}
 	}
 }
 
-func assertClientPaneMatchesSnapshot(t *testing.T, cr *client.ClientRenderer, paneID uint32, want mux.CaptureSnapshot) {
+func assertAttachReplayPaneMatchesSnapshot(t *testing.T, replay *attachReplayState, paneID uint32, want mux.CaptureSnapshot) {
 	t.Helper()
 
-	var pane proto.CapturePane
-	if err := json.Unmarshal([]byte(cr.CapturePaneJSON(paneID, nil)), &pane); err != nil {
-		t.Fatalf("unmarshal CapturePaneJSON(%d): %v", paneID, err)
+	emu := replay.emulators[paneID]
+	if emu == nil {
+		t.Fatalf("missing replay emulator for pane %d", paneID)
 	}
-	if len(pane.Content) != len(want.Content) {
-		t.Fatalf("pane %d content rows = %d, want %d", paneID, len(pane.Content), len(want.Content))
+
+	content := mux.EmulatorContentLines(emu)
+	if len(content) != len(want.Content) {
+		t.Fatalf("pane %d content rows = %d, want %d", paneID, len(content), len(want.Content))
 	}
 	for i, wantLine := range want.Content {
-		if got := pane.Content[i]; got != wantLine {
+		if got := content[i]; got != wantLine {
 			t.Fatalf("pane %d content[%d] = %q, want %q", paneID, i, got, wantLine)
 		}
 	}
-	if pane.Cursor.Col != want.CursorCol || pane.Cursor.Row != want.CursorRow || pane.Cursor.Hidden != want.CursorHidden {
-		t.Fatalf("pane %d cursor = %+v, want col=%d row=%d hidden=%v", paneID, pane.Cursor, want.CursorCol, want.CursorRow, want.CursorHidden)
+
+	col, row := emu.CursorPosition()
+	hidden := emu.CursorHidden()
+	if col != want.CursorCol || row != want.CursorRow || hidden != want.CursorHidden {
+		t.Fatalf("pane %d cursor = col=%d row=%d hidden=%v, want col=%d row=%d hidden=%v", paneID, col, row, hidden, want.CursorCol, want.CursorRow, want.CursorHidden)
 	}
 
-	cr.EnterCopyMode(paneID)
-	cm := cr.CopyModeForPane(paneID)
-	if cm == nil {
-		t.Fatalf("copy mode missing for pane %d", paneID)
-	}
-
+	lines := append([]string(nil), replay.histories[paneID]...)
+	lines = append(lines, mux.EmulatorScrollbackLines(emu)...)
+	lines = append(lines, content...)
 	wantLines := append([]string(nil), want.History...)
 	wantLines = append(wantLines, want.Content...)
-	if got, wantTotal := cm.TotalLines(), len(wantLines); got != wantTotal {
+	if got, wantTotal := len(lines), len(wantLines); got != wantTotal {
 		t.Fatalf("pane %d total lines = %d, want %d", paneID, got, wantTotal)
 	}
 	for i, wantLine := range wantLines {
-		if got := cm.LineText(i); got != wantLine {
+		if got := lines[i]; got != wantLine {
 			t.Fatalf("pane %d line %d = %q, want %q", paneID, i, got, wantLine)
 		}
 	}
@@ -285,7 +286,7 @@ func waitForSignal(t *testing.T, ch <-chan struct{}, label string) {
 	}
 }
 
-func readMsgWithTimeout(t *testing.T, conn net.Conn) *server.Message {
+func readAttachMsgWithTimeout(t *testing.T, conn net.Conn) *Message {
 	t.Helper()
 
 	if err := conn.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
@@ -293,10 +294,126 @@ func readMsgWithTimeout(t *testing.T, conn net.Conn) *server.Message {
 	}
 	defer conn.SetReadDeadline(time.Time{})
 
-	msg, err := server.ReadMsg(conn)
+	msg, err := ReadMsg(conn)
 	if err != nil {
 		t.Fatalf("ReadMsg: %v", err)
 	}
 
 	return msg
+}
+
+func newAttachTestPane(sess *Session, id uint32, name string, cols, rows int) *mux.Pane {
+	return mux.NewProxyPane(id, mux.PaneMeta{
+		Name:  name,
+		Host:  mux.DefaultHost,
+		Color: config.CatppuccinMocha[(id-1)%uint32(len(config.CatppuccinMocha))],
+	}, cols, rows, sess.paneOutputCallback(), sess.paneExitCallback(), func(data []byte) (int, error) {
+		return len(data), nil
+	})
+}
+
+func setAttachTestLayout(sess *Session, windows []*mux.Window, activeWindowID uint32, panes []*mux.Pane) error {
+	_, err := enqueueSessionQuery(sess, func(sess *Session) (struct{}, error) {
+		sess.Windows = windows
+		sess.ActiveWindowID = activeWindowID
+		sess.Panes = panes
+		return struct{}{}, nil
+	})
+	return err
+}
+
+func subscribeAttachTestPaneOutput(sess *Session, paneID uint32) (chan struct{}, func()) {
+	ch := sess.enqueuePaneOutputSubscribe(paneID)
+	cleanup := func() {}
+	if ch != nil {
+		cleanup = func() {
+			sess.enqueuePaneOutputUnsubscribe(paneID, ch)
+		}
+	}
+	return ch, cleanup
+}
+
+func queueAttachTestSplit(sess *Session, pane *mux.Pane, dir mux.SplitDir, rootLevel bool) error {
+	res := sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
+		if err := sess.insertPreparedPaneIntoActiveWindow(pane, dir, rootLevel); err != nil {
+			return commandMutationResult{err: err}
+		}
+		return commandMutationResult{broadcastLayout: true}
+	})
+	if res.err != nil {
+		return res.err
+	}
+	if res.broadcastLayout {
+		sess.broadcastLayout()
+	}
+	return nil
+}
+
+func snapshotAttachTestLayout(sess *Session) (*proto.LayoutSnapshot, error) {
+	return enqueueSessionQuery(sess, func(sess *Session) (*proto.LayoutSnapshot, error) {
+		idleSnap := sess.snapshotIdleState()
+		return sess.snapshotLayout(idleSnap), nil
+	})
+}
+
+type attachReplayState struct {
+	layout    *proto.LayoutSnapshot
+	emulators map[uint32]mux.TerminalEmulator
+	histories map[uint32][]string
+}
+
+func newAttachReplayState() *attachReplayState {
+	return &attachReplayState{
+		emulators: make(map[uint32]mux.TerminalEmulator),
+		histories: make(map[uint32][]string),
+	}
+}
+
+func (r *attachReplayState) HandleLayout(layout *proto.LayoutSnapshot) {
+	r.layout = layout
+
+	allPanes := layout.Panes
+	activeRoot := layout.Root
+	if len(layout.Windows) > 0 {
+		allPanes = nil
+		for _, ws := range layout.Windows {
+			allPanes = append(allPanes, ws.Panes...)
+			if ws.ID == layout.ActiveWindowID {
+				activeRoot = ws.Root
+			}
+		}
+	}
+
+	paneIDs := make(map[uint32]struct{}, len(allPanes))
+	for _, pane := range allPanes {
+		paneIDs[pane.ID] = struct{}{}
+		w, h := proto.FindPaneDimensions(layout, activeRoot, pane.ID, mux.PaneContentHeight)
+		if emu, ok := r.emulators[pane.ID]; ok {
+			emu.Resize(w, h)
+			continue
+		}
+		r.emulators[pane.ID] = mux.NewVTEmulatorWithDrainAndScrollback(w, h, mux.DefaultScrollbackLines)
+	}
+
+	for paneID := range r.emulators {
+		if _, ok := paneIDs[paneID]; ok {
+			continue
+		}
+		delete(r.emulators, paneID)
+		delete(r.histories, paneID)
+	}
+}
+
+func (r *attachReplayState) HandlePaneHistory(paneID uint32, history []string) {
+	r.histories[paneID] = append([]string(nil), history...)
+}
+
+func (r *attachReplayState) HandlePaneOutput(paneID uint32, data []byte) {
+	emu := r.emulators[paneID]
+	if emu == nil {
+		panic("pane output before layout for attach replay")
+	}
+	if _, err := emu.Write(data); err != nil {
+		panic(err)
+	}
 }
