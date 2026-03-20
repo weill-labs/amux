@@ -49,6 +49,12 @@ func NewClientRenderer(width, height int) *ClientRenderer {
 // HandleLayout processes a layout snapshot from the server. Returns true if the
 // layout structure changed (panes moved/resized/added/removed).
 func (cr *ClientRenderer) HandleLayout(snap *proto.LayoutSnapshot) bool {
+	structureChanged, result := cr.handleLayoutResult(snap)
+	cr.emitUIEvents(result.uiEvents)
+	return structureChanged
+}
+
+func (cr *ClientRenderer) handleLayoutResult(snap *proto.LayoutSnapshot) (bool, clientUIResult) {
 	structureChanged := cr.renderer.HandleLayout(snap)
 	validPanes := make(map[uint32]bool)
 	for _, ps := range snap.Panes {
@@ -67,8 +73,7 @@ func (cr *ClientRenderer) HandleLayout(snap *proto.LayoutSnapshot) bool {
 	}
 	result := cr.ui.reduce(uiActionHandleLayout{structureChanged: structureChanged})
 	cr.mu.Unlock()
-	cr.emitUIEvents(result.uiEvents)
-	return structureChanged
+	return structureChanged, result
 }
 
 // HandlePaneHistory stores retained server history for a pane during attach
@@ -273,36 +278,157 @@ type RenderMsg struct {
 	Text   string
 }
 
+type clientEffectKind int
+
+const (
+	clientEffectEmitUIEvents clientEffectKind = iota
+	clientEffectClearPrevGrid
+	clientEffectStopScheduledRender
+	clientEffectScheduleRender
+	clientEffectRenderNow
+	clientEffectBell
+	clientEffectWriteText
+	clientEffectExit
+)
+
+type clientEffect struct {
+	kind     clientEffectKind
+	text     string
+	uiEvents []string
+}
+
+type clientRenderLoopState struct {
+	renderTimer *time.Timer
+	renderC     <-chan time.Time
+	useFull     bool
+}
+
+func (st *clientRenderLoopState) stopScheduledRender() {
+	if st.renderTimer == nil {
+		return
+	}
+	st.renderTimer.Stop()
+	st.renderTimer = nil
+	st.renderC = nil
+}
+
+func (st *clientRenderLoopState) scheduleRender() {
+	if st.renderTimer != nil {
+		return
+	}
+	st.renderTimer = time.NewTimer(16 * time.Millisecond)
+	st.renderC = st.renderTimer.C
+}
+
+func (cr *ClientRenderer) handleRenderMsg(msg *RenderMsg) []clientEffect {
+	switch msg.Typ {
+	case RenderMsgLayout:
+		structureChanged, result := cr.handleLayoutResult(msg.Layout)
+		var effects []clientEffect
+		if len(result.uiEvents) > 0 {
+			effects = append(effects, clientEffect{
+				kind:     clientEffectEmitUIEvents,
+				uiEvents: result.uiEvents,
+			})
+		}
+		if structureChanged {
+			effects = append(effects, clientEffect{kind: clientEffectClearPrevGrid})
+		}
+		effects = append(effects,
+			clientEffect{kind: clientEffectStopScheduledRender},
+			clientEffect{kind: clientEffectRenderNow},
+		)
+		return effects
+	case RenderMsgPaneOutput:
+		cr.HandlePaneOutput(msg.PaneID, msg.Data)
+		return []clientEffect{{kind: clientEffectScheduleRender}}
+	case RenderMsgCopyMode:
+		result := cr.enterCopyModeResult(msg.PaneID)
+		var effects []clientEffect
+		if len(result.uiEvents) > 0 {
+			effects = append(effects, clientEffect{
+				kind:     clientEffectEmitUIEvents,
+				uiEvents: result.uiEvents,
+			})
+		}
+		effects = append(effects,
+			clientEffect{kind: clientEffectStopScheduledRender},
+			clientEffect{kind: clientEffectRenderNow},
+		)
+		return effects
+	case RenderMsgBell:
+		return []clientEffect{{kind: clientEffectBell}}
+	case RenderMsgClipboard:
+		return []clientEffect{{
+			kind: clientEffectWriteText,
+			text: string(msg.Data),
+		}}
+	case RenderMsgCmdError:
+		if !cr.ShowCommandError(msg.Text) {
+			return nil
+		}
+		return []clientEffect{
+			{kind: clientEffectStopScheduledRender},
+			{kind: clientEffectBell},
+			{kind: clientEffectRenderNow},
+		}
+	case RenderMsgExit:
+		var effects []clientEffect
+		if cr.IsDirty() {
+			effects = append(effects, clientEffect{kind: clientEffectRenderNow})
+		}
+		effects = append(effects, clientEffect{kind: clientEffectExit})
+		return effects
+	default:
+		return nil
+	}
+}
+
+func (cr *ClientRenderer) executeRenderEffects(state *clientRenderLoopState, effects []clientEffect, write func(string)) bool {
+	for _, effect := range effects {
+		switch effect.kind {
+		case clientEffectEmitUIEvents:
+			cr.emitUIEvents(effect.uiEvents)
+		case clientEffectClearPrevGrid:
+			cr.renderer.ClearPrevGrid()
+		case clientEffectStopScheduledRender:
+			state.stopScheduledRender()
+		case clientEffectScheduleRender:
+			state.scheduleRender()
+		case clientEffectRenderNow:
+			cr.renderNow(state, write)
+		case clientEffectBell:
+			write("\x07")
+		case clientEffectWriteText:
+			write(effect.text)
+		case clientEffectExit:
+			return true
+		}
+	}
+	return false
+}
+
+func (cr *ClientRenderer) renderNow(state *clientRenderLoopState, write func(string)) {
+	var data string
+	if state.useFull {
+		data = cr.Render()
+	} else {
+		data = cr.RenderDiff()
+	}
+	if data != "" {
+		write(data)
+	}
+	state.renderTimer = nil
+	state.renderC = nil
+}
+
 // RenderCoalesced runs a select loop that reads messages from msgCh,
 // updates the client renderer, and coalesces renders at ~60fps.
 // Uses the diff renderer for flicker-free incremental updates. Layout
 // changes that move/resize panes clear the previous grid to force a
 // full repaint through the diff engine.
 func (cr *ClientRenderer) RenderCoalesced(msgCh <-chan *RenderMsg, write func(string)) {
-	var renderTimer *time.Timer
-	var renderC <-chan time.Time
-
-	useFull := os.Getenv("AMUX_RENDER") == "full"
-	doRender := func() {
-		var data string
-		if useFull {
-			data = cr.Render()
-		} else {
-			data = cr.RenderDiff()
-		}
-		if data != "" {
-			write(data)
-		}
-		renderTimer = nil
-		renderC = nil
-	}
-
-	scheduleRender := func() {
-		if renderTimer == nil {
-			renderTimer = time.NewTimer(16 * time.Millisecond)
-			renderC = renderTimer.C
-		}
-	}
+	state := &clientRenderLoopState{useFull: os.Getenv("AMUX_RENDER") == "full"}
 
 	for {
 		select {
@@ -310,48 +436,11 @@ func (cr *ClientRenderer) RenderCoalesced(msgCh <-chan *RenderMsg, write func(st
 			if !ok {
 				return
 			}
-			switch msg.Typ {
-			case RenderMsgLayout:
-				structureChanged := cr.HandleLayout(msg.Layout)
-				// When pane positions/sizes changed, clear prevGrid so the
-				// diff engine does a full repaint (no stale cells).
-				if structureChanged {
-					cr.renderer.ClearPrevGrid()
-				}
-				if renderTimer != nil {
-					renderTimer.Stop()
-				}
-				doRender()
-			case RenderMsgPaneOutput:
-				cr.HandlePaneOutput(msg.PaneID, msg.Data)
-				scheduleRender()
-			case RenderMsgCopyMode:
-				cr.EnterCopyMode(msg.PaneID)
-				if renderTimer != nil {
-					renderTimer.Stop()
-				}
-				doRender()
-			case RenderMsgBell:
-				write("\x07")
-			case RenderMsgClipboard:
-				write(string(msg.Data))
-			case RenderMsgCmdError:
-				if cr.ShowCommandError(msg.Text) {
-					if renderTimer != nil {
-						renderTimer.Stop()
-					}
-					write("\x07")
-					doRender()
-				}
-			case RenderMsgExit:
-				// Final render before exit
-				if cr.IsDirty() {
-					doRender()
-				}
+			if cr.executeRenderEffects(state, cr.handleRenderMsg(msg), write) {
 				return
 			}
-		case <-renderC:
-			doRender()
+		case <-state.renderC:
+			cr.renderNow(state, write)
 		}
 	}
 }
@@ -375,14 +464,19 @@ func (cr *ClientRenderer) ClearCommandFeedback() bool {
 
 // EnterCopyMode enters copy mode for the given pane. Thread-safe.
 func (cr *ClientRenderer) EnterCopyMode(paneID uint32) {
+	result := cr.enterCopyModeResult(paneID)
+	cr.emitUIEvents(result.uiEvents)
+}
+
+func (cr *ClientRenderer) enterCopyModeResult(paneID uint32) clientUIResult {
 	emu, ok := cr.renderer.Emulator(paneID)
 	if !ok {
-		return
+		return clientUIResult{}
 	}
 	cr.mu.Lock()
 	if cr.ui.copyModes[paneID] != nil {
 		cr.mu.Unlock()
-		return // already in copy mode
+		return clientUIResult{} // already in copy mode
 	}
 	baseHistory := append([]string(nil), cr.baseHistory[paneID]...)
 	cr.mu.Unlock()
@@ -392,8 +486,7 @@ func (cr *ClientRenderer) EnterCopyMode(paneID uint32) {
 		emu:         emu,
 		baseHistory: baseHistory,
 	}, w, h, curRow)
-	result := cr.reduceUI(uiActionEnterCopyMode{paneID: paneID, mode: cm})
-	cr.emitUIEvents(result.uiEvents)
+	return cr.reduceUI(uiActionEnterCopyMode{paneID: paneID, mode: cm})
 }
 
 // CopyModeForPane returns the copy mode for the given pane, or nil. Thread-safe.
