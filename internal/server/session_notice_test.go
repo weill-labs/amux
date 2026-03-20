@@ -27,45 +27,25 @@ func TestShowSessionNoticeLifecycle(t *testing.T) {
 }
 
 func TestShowSessionNoticeReplacementIgnoresStaleTimer(t *testing.T) {
-	sess := newSession("test-session-notice-replacement")
-	stopCrashCheckpointLoop(t, sess)
-	defer stopSessionBackgroundLoops(t, sess)
+	sess := &Session{idle: NewIdleTracker(), takenOverPanes: make(map[uint32]bool)}
 
-	sess.showSessionNotice("first")
-	firstToken := uint64(0)
-	waitUntil(t, func() bool {
-		firstToken = mustSessionQuery(t, sess, func(sess *Session) uint64 {
-			if sess.notice != "first" {
-				return 0
-			}
-			return sess.noticeToken
-		})
-		return firstToken != 0
-	})
+	firstReply := make(chan sessionNoticeSetResult, 1)
+	sessionNoticeSetCmd{message: "first", reply: firstReply}.handle(sess)
+	firstToken := (<-firstReply).token
 
-	sess.showSessionNotice("second")
-	secondToken := uint64(0)
-	waitUntil(t, func() bool {
-		secondToken = mustSessionQuery(t, sess, func(sess *Session) uint64 {
-			if sess.notice != "second" {
-				return 0
-			}
-			return sess.noticeToken
-		})
-		return secondToken != 0 && secondToken != firstToken
-	})
+	secondReply := make(chan sessionNoticeSetResult, 1)
+	sessionNoticeSetCmd{message: "second", reply: secondReply}.handle(sess)
+	secondToken := (<-secondReply).token
 
-	sess.enqueueSessionNoticeClear(firstToken)
-	if got := mustSessionQuery(t, sess, func(sess *Session) string { return sess.notice }); got != "second" {
+	sessionNoticeClearCmd{token: firstToken}.handle(sess)
+	if got := sess.notice; got != "second" {
 		t.Fatalf("notice after stale clear = %q, want %q", got, "second")
 	}
 
-	sess.enqueueSessionNoticeClear(secondToken)
-	waitUntil(t, func() bool {
-		return mustSessionQuery(t, sess, func(sess *Session) string {
-			return sess.notice
-		}) == ""
-	})
+	sessionNoticeClearCmd{token: secondToken}.handle(sess)
+	if got := sess.notice; got != "" {
+		t.Fatalf("notice after matching clear = %q, want empty", got)
+	}
 }
 
 func TestShowSessionNoticeIgnoresEmptyMessage(t *testing.T) {
