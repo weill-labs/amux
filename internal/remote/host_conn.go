@@ -44,6 +44,7 @@ type HostConn struct {
 	// Session name for the remote amux server (includes local hostname)
 	sessionName  string
 	remoteUID    string // UID of the remote user (for socket path)
+	connectAddr  string // normalized SSH address used by the current connection
 	takeoverMode bool   // true when established via takeover
 
 	// Pending connect waiters — replied when connectDoneEvent arrives.
@@ -153,16 +154,19 @@ func (hc *HostConn) EnsureConnectedForTakeover(sessionName, remoteUID, sshAddr s
 // Runs outside the actor in a spawned goroutine. Only reads immutable fields;
 // returns all results for the actor to apply.
 func (hc *HostConn) doConnect(sessionName string) (*connectOutcome, error) {
+	return hc.doConnectWithAddr(sessionName, "")
+}
+
+// doConnectWithAddr performs the SSH dial, deploy, server start, and amux attach
+// using the supplied address. If addr is empty, the configured host address or
+// HostConn name is used.
+func (hc *HostConn) doConnectWithAddr(sessionName, addr string) (*connectOutcome, error) {
 	sshCfg, err := hc.buildSSHConfig()
 	if err != nil {
 		return nil, fmt.Errorf("building SSH config: %w", err)
 	}
 
-	addr := hc.config.Address
-	if addr == "" {
-		addr = hc.name
-	}
-	addr = normalizeAddr(addr)
+	addr = normalizedDialAddr(hc.name, addr, hc.config.Address)
 
 	sshClient, err := ssh.Dial("tcp", addr, sshCfg)
 	if err != nil {
@@ -206,6 +210,7 @@ func (hc *HostConn) doConnect(sessionName string) (*connectOutcome, error) {
 		amuxConn:    amuxConn,
 		sessionName: remoteSession,
 		remoteUID:   remoteUID,
+		connectAddr: addr,
 	}, nil
 }
 
@@ -247,6 +252,7 @@ func (hc *HostConn) doConnectTakeover(sessionName, remoteUID, sshAddr string) (*
 		amuxConn:    amuxConn,
 		sessionName: sessionName,
 		remoteUID:   remoteUID,
+		connectAddr: sshAddr,
 		takeover:    true,
 	}, nil
 }
@@ -649,4 +655,21 @@ func normalizeAddr(addr string) string {
 		return addr + ":22"
 	}
 	return addr
+}
+
+func addrOrFallback(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func normalizedDialAddr(hostName string, candidates ...string) string {
+	addr := addrOrFallback(candidates...)
+	if addr == "" {
+		addr = hostName
+	}
+	return normalizeAddr(addr)
 }

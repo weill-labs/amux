@@ -26,6 +26,7 @@ type connectOutcome struct {
 	amuxConn    net.Conn
 	sessionName string
 	remoteUID   string
+	connectAddr string
 	takeover    bool
 }
 
@@ -174,7 +175,7 @@ func (e reconnectCmd) handle(hc *HostConn) {
 
 	// Start a new connect.
 	hc.startConnect(e.reply, func() (*connectOutcome, error) {
-		return hc.doConnect(e.sessionName)
+		return hc.doConnectWithAddr(e.sessionName, hc.connectAddr)
 	})
 }
 
@@ -243,11 +244,7 @@ func (e readDisconnectEvent) handle(hc *HostConn) {
 	hc.closeConns()
 
 	// Capture reconnect parameters before spawning the goroutine.
-	sessionName := hc.sessionName
-	remoteUID := hc.remoteUID
-	isTakeover := hc.takeoverMode
-	sshAddr := normalizeAddr(hc.config.Address)
-	go hc.reconnectLoop(sessionName, remoteUID, isTakeover, sshAddr)
+	go hc.reconnectLoop(hc.reconnectTarget())
 }
 
 // reconnectDoneEvent is sent by the reconnect goroutine on success.
@@ -277,6 +274,7 @@ func (hc *HostConn) applyOutcome(o *connectOutcome) {
 	hc.amuxConn = o.amuxConn
 	hc.sessionName = o.sessionName
 	hc.remoteUID = o.remoteUID
+	hc.connectAddr = o.connectAddr
 	if o.takeover {
 		hc.takeoverMode = true
 	}
@@ -299,6 +297,26 @@ func (hc *HostConn) disconnectAndDrainPending() {
 	hc.closeConns()
 	hc.setState(Disconnected)
 	hc.drainPendingReplies(errHostConnClosed)
+}
+
+type reconnectTarget struct {
+	sessionName string
+	remoteUID   string
+	connectAddr string
+	takeover    bool
+}
+
+func (hc *HostConn) reconnectTarget() reconnectTarget {
+	connectAddr := hc.connectAddr
+	if connectAddr == "" {
+		connectAddr = normalizedDialAddr(hc.name, hc.config.Address)
+	}
+	return reconnectTarget{
+		sessionName: hc.sessionName,
+		remoteUID:   hc.remoteUID,
+		connectAddr: connectAddr,
+		takeover:    hc.takeoverMode,
+	}
 }
 
 // --- Event loop ---

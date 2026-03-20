@@ -216,6 +216,14 @@ func TestUploadBinary(t *testing.T) {
 	if info.Mode()&0111 == 0 {
 		t.Error("uploaded binary should be executable")
 	}
+
+	matches, err := filepath.Glob(filepath.Join(ts.HomeDir, ".local", "bin", ".amux.tmp.*"))
+	if err != nil {
+		t.Fatalf("glob temp files: %v", err)
+	}
+	if len(matches) != 0 {
+		t.Fatalf("temp upload files left behind: %v", matches)
+	}
 }
 
 func TestUploadBinaryFileNotFound(t *testing.T) {
@@ -313,5 +321,13 @@ func TestDeployBinarySameArch(t *testing.T) {
 	uploaded := filepath.Join(ts.HomeDir, ".local", "bin", "amux")
 	if _, err := os.Stat(uploaded); err != nil {
 		t.Errorf("expected binary at %s after deploy: %v", uploaded, err)
+	}
+
+	matches, err := filepath.Glob(filepath.Join(ts.HomeDir, ".local", "bin", ".amux.tmp.*"))
+	if err != nil {
+		t.Fatalf("glob temp files: %v", err)
+	}
+	if len(matches) != 0 {
+		t.Fatalf("temp deploy files left behind: %v", matches)
 	}
 }

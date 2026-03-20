@@ -5,6 +5,7 @@ import (
 	"net"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestTakeoverBidirectionalIO verifies the full SSH takeover I/O pipeline:
@@ -63,6 +64,32 @@ func TestTakeoverFromInteractiveSSHShell(t *testing.T) {
 	proxyPaneName := waitForTakeoverProxyPane(t, h, existingProxyPanes)
 	h.sendKeys(proxyPaneName, "echo TAKEOVER_SHELL_OK", "Enter")
 	h.waitForTimeout(proxyPaneName, "TAKEOVER_SHELL_OK", "5s")
+}
+
+func TestTakeoverReconnectAfterRemoteReload(t *testing.T) {
+	t.Parallel()
+
+	addr, keyFile := setupTestSSH(t)
+	h := newServerHarnessWithConfig(t, 80, 24, remoteTestConfig(addr, keyFile))
+	existingProxyPanes := takeoverProxyPaneNames(h)
+
+	_, port, _ := net.SplitHostPort(addr)
+	sshCmd := fmt.Sprintf(
+		"ssh -i %s -p %s -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null 127.0.0.1 amux",
+		keyFile, port)
+	h.sendKeys("pane-1", sshCmd, "Enter")
+
+	proxyPaneName := waitForTakeoverProxyPane(t, h, existingProxyPanes)
+	h.sendKeys(proxyPaneName, "echo TAKEOVER_BEFORE_RELOAD", "Enter")
+	h.waitForTimeout(proxyPaneName, "TAKEOVER_BEFORE_RELOAD", "5s")
+
+	gen := h.generation()
+	h.sendKeys(proxyPaneName, "amux reload-server", "Enter")
+	h.waitLayoutTimeout(gen, "10s")
+	waitForPaneConnStatus(t, h, proxyPaneName, "connected", "10s")
+
+	h.sendKeys(proxyPaneName, "echo TAKEOVER_AFTER_RELOAD", "Enter")
+	h.waitForTimeout(proxyPaneName, "TAKEOVER_AFTER_RELOAD", "10s")
 }
 
 // TestTakeoverAfterServerReload is a regression test for the bug where
@@ -145,4 +172,40 @@ func takeoverProxyPaneNames(h *ServerHarness) map[string]struct{} {
 		}
 	}
 	return names
+}
+
+func waitForPaneConnStatus(t *testing.T, h *ServerHarness, paneName, wantStatus, timeout string) {
+	t.Helper()
+
+	deadline := time.Now().Add(parseTestDuration(t, timeout))
+	gen := h.generation()
+	for time.Now().Before(deadline) {
+		c := h.captureJSON()
+		for _, p := range c.Panes {
+			if p.Name == paneName && p.ConnStatus == wantStatus {
+				return
+			}
+		}
+
+		waitFor := time.Until(deadline)
+		if waitFor > 250*time.Millisecond {
+			waitFor = 250 * time.Millisecond
+		}
+		if !h.waitLayoutOrTimeout(gen, waitFor.String()) {
+			continue
+		}
+		gen = h.generation()
+	}
+
+	t.Fatalf("pane %s did not reach conn_status=%s\ncapture:\n%s", paneName, wantStatus, h.capture())
+}
+
+func parseTestDuration(t *testing.T, s string) time.Duration {
+	t.Helper()
+
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		t.Fatalf("ParseDuration(%q): %v", s, err)
+	}
+	return d
 }

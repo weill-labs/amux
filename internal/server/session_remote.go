@@ -169,10 +169,9 @@ func (s *Session) handleTakeover(srv *Server, sshPaneID uint32, req mux.Takeover
 
 	// Wire bidirectional I/O: connect back to the remote amux server via SSH
 	// and register pane mappings so SendInput/FeedOutput flow correctly.
-	// Also deploy the updated binary so the remote amux hot-reloads.
+	// Delay deploy until the attach is established so the running managed
+	// session is not perturbed during its first client attach.
 	if s.RemoteManager != nil && req.SSHAddress != "" {
-		go s.RemoteManager.DeployToAddress(start.hostname, req.SSHAddress, req.SSHUser)
-
 		paneMappings := make(map[uint32]uint32, len(proxyPanes))
 		for i, pp := range proxyPanes {
 			paneMappings[pp.ID] = remotePanes[i].ID
@@ -181,8 +180,11 @@ func (s *Session) handleTakeover(srv *Server, sshPaneID uint32, req mux.Takeover
 			start.hostname, req.SSHAddress, req.SSHUser, req.UID, req.Session, paneMappings,
 		); err != nil {
 			fmt.Fprintf(os.Stderr, "amux: takeover AttachForTakeover: %v\n", err)
-		} else if needsInitialResize && len(proxyPanes) > 0 {
-			_ = s.RemoteManager.SendResize(proxyPanes[0].ID, layout.cols, mux.PaneContentHeight(layout.cellH))
+		} else {
+			if needsInitialResize && len(proxyPanes) > 0 {
+				_ = s.RemoteManager.SendResize(proxyPanes[0].ID, layout.cols, mux.PaneContentHeight(layout.cellH))
+			}
+			go s.RemoteManager.DeployToAddress(start.hostname, req.SSHAddress, req.SSHUser)
 		}
 	}
 }

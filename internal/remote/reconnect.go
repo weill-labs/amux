@@ -15,7 +15,7 @@ const (
 // It attempts to reconnect with exponential backoff, posting the result
 // to the actor on success. Exits when the actor state changes away from
 // Reconnecting (e.g., explicit Disconnect).
-func (hc *HostConn) reconnectLoop(sessionName, remoteUID string, isTakeover bool, sshAddr string) {
+func (hc *HostConn) reconnectLoop(target reconnectTarget) {
 	delay := initialBackoff
 	for attempt := 0; ; attempt++ {
 		time.Sleep(delay)
@@ -27,10 +27,10 @@ func (hc *HostConn) reconnectLoop(sessionName, remoteUID string, isTakeover bool
 
 		var outcome *connectOutcome
 		var err error
-		if isTakeover {
-			outcome, err = hc.doConnectTakeover(sessionName, remoteUID, sshAddr)
+		if target.takeover {
+			outcome, err = hc.doConnectTakeover(target.sessionName, target.remoteUID, target.connectAddr)
 		} else {
-			outcome, err = hc.doConnect(sessionName)
+			outcome, err = hc.doConnectWithAddr(target.sessionName, target.connectAddr)
 		}
 
 		if err == nil {
