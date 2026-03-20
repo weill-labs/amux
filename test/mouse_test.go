@@ -56,13 +56,15 @@ func TestMouseClickInsideZoomedPaneDoesNotUnzoom(t *testing.T) {
 	h := newAmuxHarness(t)
 
 	h.splitH()
+	gen := h.generation()
 	h.runCmd("zoom", "pane-2")
+	h.waitLayout(gen)
 
 	h.assertScreen("pane-2 should be zoomed before click", func(s string) bool {
 		return strings.Contains(s, "[pane-2]") && !strings.Contains(s, "[pane-1]")
 	})
 
-	gen := h.generation()
+	gen = h.generation()
 	h.clickAt(40, 3)
 
 	if h.waitLayoutOrTimeout(gen, "500ms") {
