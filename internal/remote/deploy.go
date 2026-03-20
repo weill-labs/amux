@@ -14,6 +14,8 @@ import (
 
 const remoteInstallPath = "$HOME/.local/bin/amux"
 
+type commandFactory func(name string, args ...string) *exec.Cmd
+
 // DeployBinary ensures the remote host has a matching amux binary.
 // Strategy:
 //  1. Remote hash matches local → skip (already up to date)
@@ -94,11 +96,15 @@ func parseUnameArch(unameSM string) (goos, goarch string, err error) {
 	return goos, goarch, nil
 }
 
-// crossCompileAndUpload builds amux for the target OS/arch via `go build` and uploads it.
-// TODO(LAB-239): Add happy-path tests (fake go.mod + minimal main.go in temp dir).
 func crossCompileAndUpload(client *ssh.Client, goos, goarch string) error {
+	return crossCompileAndUploadWith(client, goos, goarch, os.Executable, exec.Command)
+}
+
+// crossCompileAndUploadWith builds amux for the target OS/arch via `go build`
+// and uploads it using injectable dependencies for testing.
+func crossCompileAndUploadWith(client *ssh.Client, goos, goarch string, executablePath func() (string, error), makeCmd commandFactory) error {
 	// Find the module root (where go.mod lives)
-	localExe, err := os.Executable()
+	localExe, err := executablePath()
 	if err != nil {
 		return err
 	}
@@ -115,7 +121,7 @@ func crossCompileAndUpload(client *ssh.Client, goos, goarch string) error {
 	tmpFile.Close()
 	defer os.Remove(tmpBin)
 
-	cmd := exec.Command("go", "build", "-o", tmpBin, ".")
+	cmd := makeCmd("go", "build", "-o", tmpBin, ".")
 	cmd.Dir = modRoot
 	cmd.Env = append(os.Environ(),
 		"GOOS="+goos,
@@ -143,15 +149,15 @@ func findModuleRoot(dir string) string {
 	}
 }
 
-// downloadReleaseBinary tries to download a pre-built binary from GitHub releases.
-// Tries remote curl first (fastest), falls back to local download + upload.
-// NOTE: version must be a semver tag (e.g., "0.1.0") for the URL to resolve.
-// During development, buildHash is a git commit hash, so this path will 404 —
-// cross-compile is the primary stopgap until tagged releases are published.
-// TODO(LAB-239): Add happy-path tests (httptest.Server serving a fake tarball).
 func downloadReleaseBinary(client *ssh.Client, goos, goarch, version string) error {
+	return downloadReleaseBinaryWith(client, goos, goarch, version, releaseBinaryURL, exec.Command)
+}
+
+// downloadReleaseBinaryWith downloads a pre-built binary from a release URL.
+// Tries remote curl first (fastest), falls back to local download + upload.
+func downloadReleaseBinaryWith(client *ssh.Client, goos, goarch, version string, releaseURL func(version, goos, goarch string) string, makeCmd commandFactory) error {
 	archiveName := fmt.Sprintf("amux_%s_%s_%s.tar.gz", version, goos, goarch)
-	url := fmt.Sprintf("https://github.com/weill-labs/amux/releases/download/v%s/%s", version, archiveName)
+	url := releaseURL(version, goos, goarch)
 
 	// Try remote curl: download directly on the remote host
 	remoteCmd := remoteReleaseInstallCmd(url, archiveName)
@@ -167,18 +173,27 @@ func downloadReleaseBinary(client *ssh.Client, goos, goarch, version string) err
 	defer os.RemoveAll(tmpDir)
 
 	archivePath := filepath.Join(tmpDir, archiveName)
-	dlCmd := exec.Command("curl", "-fsSL", url, "-o", archivePath)
+	dlCmd := makeCmd("curl", "-fsSL", url, "-o", archivePath)
 	if out, err := dlCmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("downloading release: %w: %s", err, out)
 	}
 
 	binPath := filepath.Join(tmpDir, "amux")
-	extractCmd := exec.Command("tar", "xzf", archivePath, "-C", tmpDir, "amux")
+	extractCmd := makeCmd("tar", "xzf", archivePath, "-C", tmpDir, "amux")
 	if out, err := extractCmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("extracting release: %w: %s", err, out)
 	}
 
 	return uploadBinary(client, binPath)
+}
+
+// releaseBinaryURL returns the GitHub releases URL for a published amux archive.
+// NOTE: version must be a semver tag (e.g., "0.1.0") for the URL to resolve.
+// During development, buildHash is a git commit hash, so this path will 404;
+// cross-compile is the primary stopgap until tagged releases are published.
+func releaseBinaryURL(version, goos, goarch string) string {
+	archiveName := fmt.Sprintf("amux_%s_%s_%s.tar.gz", version, goos, goarch)
+	return fmt.Sprintf("https://github.com/weill-labs/amux/releases/download/v%s/%s", version, archiveName)
 }
 
 // remoteBuildHash checks the remote amux binary's build hash.
