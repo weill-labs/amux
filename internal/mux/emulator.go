@@ -76,6 +76,10 @@ type TerminalEmulator interface {
 	EncodeMouse(ev mouse.Event, x, y int) []byte
 }
 
+// DefaultScrollbackLines is the retained history limit used by amux for pane
+// scrollback on both server and client emulators.
+const DefaultScrollbackLines = 10000
+
 // MouseTrackingMode is the pane's current application mouse-tracking mode.
 type MouseTrackingMode int
 
@@ -122,6 +126,7 @@ func NewVTEmulator(width, height int) TerminalEmulator {
 		w:   width,
 		h:   height,
 	}
+	v.emu.SetScrollbackSize(DefaultScrollbackLines)
 	// Track cursor visibility changes so CursorHidden() reflects the
 	// application's actual cursor state (e.g. \033[?25l / \033[?25h).
 	v.emu.SetCallbacks(vt.Callbacks{
@@ -445,6 +450,16 @@ func EmulatorContentLines(emu TerminalEmulator) []string {
 		result[y] = emu.ScreenLineText(y)
 	}
 	return result
+}
+
+// EmulatorScrollbackLines returns retained plain-text scrollback lines from
+// oldest to newest.
+func EmulatorScrollbackLines(emu TerminalEmulator) []string {
+	lines := make([]string, emu.ScrollbackLen())
+	for y := range len(lines) {
+		lines[y] = emu.ScrollbackLineText(y)
+	}
+	return lines
 }
 
 // RenderWithCursor returns the emulator's screen using explicit cursor

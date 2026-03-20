@@ -304,6 +304,8 @@ Usage:
   amux [-s session] list-clients       List attached clients + client-local UI state
   amux [-s session] capture            Capture full composited screen
   amux [-s session] capture <pane>     Capture a single pane's output
+  amux [-s session] capture --history <pane>
+                                       Capture a pane's retained history + visible screen
   amux [-s session] capture --ansi     Capture with ANSI escape codes
   amux [-s session] capture --colors   Capture border color map
   amux [-s session] send-keys <pane> <keys>...

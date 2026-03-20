@@ -34,10 +34,16 @@ func waitForFile(t *testing.T, path string, timeout time.Duration) bool {
 
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
 	for {
+		if _, err := os.Stat(path); err == nil {
+			return true
+		}
 		select {
 		case <-timer.C:
 			return false
+		case <-ticker.C:
 		case event := <-watcher.Events:
 			if filepath.Clean(event.Name) != filepath.Clean(path) {
 				continue
@@ -73,10 +79,16 @@ func waitForFileContent(t *testing.T, path string, timeout time.Duration) string
 
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
 	for {
+		if data, err := os.ReadFile(path); err == nil && len(data) > 0 {
+			return string(data)
+		}
 		select {
 		case <-timer.C:
 			return ""
+		case <-ticker.C:
 		case event := <-watcher.Events:
 			if filepath.Clean(event.Name) != filepath.Clean(path) {
 				continue

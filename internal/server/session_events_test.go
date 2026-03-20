@@ -94,6 +94,79 @@ func TestHandleAttachAndResizeThroughSessionQueue(t *testing.T) {
 	}
 }
 
+func TestHandleAttachSendsPaneHistoryBeforePaneOutput(t *testing.T) {
+	t.Parallel()
+
+	sess := newSession("test-attach-history")
+	stopCrashCheckpointLoop(t, sess)
+	pane := mux.NewProxyPane(1, mux.PaneMeta{
+		Name:  "pane-1",
+		Host:  mux.DefaultHost,
+		Color: "f5e0dc",
+	}, 80, 2, nil, nil, func(data []byte) (int, error) { return len(data), nil })
+	pane.FeedOutput([]byte("line-1\r\nline-2\r\nline-3\r\nline-4\r\n"))
+
+	w := mux.NewWindow(pane, 80, 3)
+	w.ID = 1
+	w.Name = "window-1"
+	sess.Windows = []*mux.Window{w}
+	sess.ActiveWindowID = w.ID
+	sess.Panes = []*mux.Pane{pane}
+
+	srv := &Server{sessions: map[string]*Session{sess.Name: sess}}
+	serverConn, clientConn := net.Pipe()
+	defer clientConn.Close()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		srv.handleAttach(serverConn, &Message{
+			Type:    MsgTypeAttach,
+			Session: sess.Name,
+			Cols:    80,
+			Rows:    24,
+		})
+	}()
+
+	if msg := readMsgWithTimeout(t, clientConn); msg.Type != MsgTypeLayout {
+		t.Fatalf("first message type = %v, want layout", msg.Type)
+	}
+
+	msg := readMsgWithTimeout(t, clientConn)
+	if msg.Type != MsgTypePaneHistory {
+		t.Fatalf("second message type = %v, want pane history", msg.Type)
+	}
+	if msg.PaneID != pane.ID {
+		t.Fatalf("history pane id = %d, want %d", msg.PaneID, pane.ID)
+	}
+	if len(msg.History) == 0 || msg.History[0] != "line-1" {
+		t.Fatalf("history = %#v, want oldest line retained", msg.History)
+	}
+
+	msg = readMsgWithTimeout(t, clientConn)
+	if msg.Type != MsgTypePaneOutput {
+		t.Fatalf("third message type = %v, want pane output", msg.Type)
+	}
+	if !bytes.Contains(msg.PaneData, []byte("line-4")) {
+		t.Fatalf("pane output = %q, want latest screen content", msg.PaneData)
+	}
+
+	readUntil(t, clientConn, func(msg *Message) bool {
+		return msg.Type == MsgTypeLayout && msg.Layout != nil &&
+			msg.Layout.Width == 80 && msg.Layout.Height == 23
+	})
+
+	if err := WriteMsg(clientConn, &Message{Type: MsgTypeDetach}); err != nil {
+		t.Fatalf("WriteMsg detach: %v", err)
+	}
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("handleAttach did not exit after detach")
+	}
+}
+
 func TestPaneOutputCallbackEnqueuesOutputNotifications(t *testing.T) {
 	t.Parallel()
 
@@ -112,7 +185,7 @@ func TestPaneOutputCallbackEnqueuesOutputNotifications(t *testing.T) {
 	waitCh := sess.enqueuePaneOutputSubscribe(pane.ID)
 	defer sess.enqueuePaneOutputUnsubscribe(pane.ID, waitCh)
 
-	sess.paneOutputCallback()(pane.ID, []byte("hello"))
+	sess.paneOutputCallback()(pane.ID, []byte("hello"), 1)
 
 	select {
 	case <-waitCh:

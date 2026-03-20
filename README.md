@@ -24,6 +24,8 @@ PTY output (raw bytes)
   (for humans)      (for agents)
 ```
 
+Retained pane history is server-owned. Clients hydrate that history on attach and keep their own local copy-mode state (scroll position, search, selection) on top of it. That means history survives detach/reattach, hot reload, and crash recovery, while each viewer can still browse independently.
+
 ## Install
 
 ```bash
@@ -50,6 +52,9 @@ amux -s my-project attach
 ```bash
 # Inspect the current session
 amux capture --format json
+
+# Capture the full browsable buffer for one pane
+amux capture --history pane-1
 
 # Send a command to a pane and wait for it to finish
 amux send-keys pane-1 "ls" Enter
@@ -108,6 +113,18 @@ Capture a single pane:
 ```bash
 amux capture --format json pane-1
 ```
+
+History-aware pane capture:
+
+```bash
+amux capture pane-1
+amux capture --history pane-1
+amux capture --history --format json pane-1
+```
+
+`capture pane-1` returns the pane's current visible screen. `capture --history pane-1` returns the full browsable buffer for that pane: retained scrollback followed by the current screen. The JSON form keeps those separate as `history` and `content`.
+
+Because retained history is server-owned, `capture --history` works after detach/reattach, after `reload-server`, and after crash recovery, and it does not require an attached interactive client. Copy mode remains per-client UI state over that shared history.
 
 ### Wait Commands
 
@@ -224,7 +241,9 @@ All commands accept `-s <session>` to target a specific session. Panes are refer
 | Command | Description |
 |---------|-------------|
 | `amux capture [pane]` | Capture screen output (text) |
+| `amux capture --history <pane>` | Capture retained scrollback plus visible screen |
 | `amux capture --format json [pane]` | Structured JSON capture |
+| `amux capture --history --format json <pane>` | Pane JSON with separate `history` and visible `content` |
 | `amux capture --ansi [pane]` | Capture with ANSI escape codes |
 | `amux capture --colors` | Capture border color map |
 | `amux wait-idle <pane> [--timeout 5s]` | Block until pane becomes idle |

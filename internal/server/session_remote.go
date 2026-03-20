@@ -8,7 +8,6 @@ import (
 
 	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/mux"
-	"github.com/weill-labs/amux/internal/proto"
 	"github.com/weill-labs/amux/internal/remote"
 )
 
@@ -205,11 +204,15 @@ func (s *Session) forwardCapture(args []string) *Message {
 	var err error
 	for attempt := 0; attempt < maxRetries; attempt++ {
 		snap, err = enqueueSessionQuery(s, func(s *Session) (captureSnapshot, error) {
-			if len(s.clients) == 0 {
-				return captureSnapshot{}, nil
+			var snap captureSnapshot
+			for _, cc := range s.clients {
+				if cc.isBootstrapping() {
+					continue
+				}
+				snap.client = cc
+				break
 			}
-			snap := captureSnapshot{client: s.clients[0]}
-			if slices.Contains(args, "json") {
+			if snap.client != nil && slices.Contains(args, "json") {
 				snap.statusPanes = append([]*mux.Pane(nil), s.Panes...)
 			}
 			return snap, nil
@@ -226,37 +229,7 @@ func (s *Session) forwardCapture(args []string) *Message {
 		time.Sleep(300 * time.Millisecond)
 	}
 
-	// Gather agent status. Call AgentStatus() for each pane, then use
-	// cached idleState to stabilize the result: when both the idle timer
-	// and pgrep agree the pane is idle, use the server's cached timestamp
-	// and shell name. This avoids pgrep false positives from transient
-	// shell children under parallel load, while still trusting pgrep for
-	// busy panes (including silent long-running processes like sleep).
-	var agentStatus map[uint32]proto.PaneAgentStatus
-	if len(snap.statusPanes) > 0 {
-		_, sinceSnap := s.snapshotIdleFull()
-
-		agentStatus = make(map[uint32]proto.PaneAgentStatus, len(snap.statusPanes))
-		for _, p := range snap.statusPanes {
-			st := p.AgentStatus()
-			pas := proto.PaneAgentStatus{
-				Idle:           st.Idle,
-				IdleSince:      formatIdleSince(st.IdleSince),
-				CurrentCommand: st.CurrentCommand,
-				ChildPIDs:      nonNilPIDs(st.ChildPIDs),
-			}
-			// When pgrep confirms idle, use cached timestamp to avoid
-			// race where pgrep sees idle but idleSince was just reset.
-			if st.Idle {
-				if t, ok := sinceSnap[p.ID]; ok {
-					pas.IdleSince = formatIdleSince(t)
-				}
-				pas.CurrentCommand = p.ShellName()
-				pas.ChildPIDs = []int{}
-			}
-			agentStatus[p.ID] = pas
-		}
-	}
+	agentStatus := s.captureAgentStatus(snap.statusPanes)
 
 	req := &captureRequest{
 		id:          s.captureCounter.Add(1),

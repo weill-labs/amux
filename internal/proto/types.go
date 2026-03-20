@@ -98,6 +98,7 @@ type CapturePane struct {
 	Position  *CapturePos   `json:"position,omitempty"`
 	Cursor    CaptureCursor `json:"cursor"`
 	Content   []string      `json:"content"`
+	History   []string      `json:"history,omitempty"`
 	CopyMode  bool          `json:"copy_mode,omitempty"`
 
 	// ConnStatus is the remote connection state: "", "connected", "reconnecting", "disconnected".

@@ -51,6 +51,7 @@ func (s *Server) Reload(execPath string) error {
 			pc := checkpoint.PaneCheckpoint{
 				ID:        p.ID,
 				Meta:      p.Meta,
+				History:   p.ScrollbackLines(),
 				Screen:    p.RenderScreen(),
 				CreatedAt: p.CreatedAt(),
 				IsProxy:   p.IsProxy(),
@@ -189,6 +190,7 @@ func NewServerFromCheckpoint(cp *checkpoint.ServerCheckpoint) (*Server, error) {
 		if !pc.CreatedAt.IsZero() {
 			pane.SetCreatedAt(pc.CreatedAt)
 		}
+		pane.SetRetainedHistory(pc.History)
 		pane.ReplayScreen(pc.Screen)
 		paneMap[pc.ID] = pane
 		sess.Panes = append(sess.Panes, pane)
@@ -309,7 +311,7 @@ func NewServerFromCheckpoint(cp *checkpoint.ServerCheckpoint) (*Server, error) {
 		}
 		for _, replay := range replays {
 			replay.pane.ReplayScreen(replay.data)
-			sess.broadcastPaneOutput(replay.pane.ID, []byte(replay.data))
+			sess.broadcastPaneOutput(replay.pane.ID, []byte(replay.data), 0)
 		}
 	}()
 

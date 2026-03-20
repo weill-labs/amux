@@ -22,6 +22,7 @@ type ClientRenderer struct {
 
 	mu           sync.Mutex
 	dirty        bool
+	baseHistory  map[uint32][]string
 	copyModes    map[uint32]*copymode.CopyMode // per-pane copy mode state (nil = not in copy mode)
 	displayPanes *displayPanesState
 	chooser      *chooserState
@@ -33,9 +34,10 @@ type ClientRenderer struct {
 // NewClientRenderer creates a client renderer for the given terminal dimensions.
 func NewClientRenderer(width, height int) *ClientRenderer {
 	cr := &ClientRenderer{
-		renderer:  New(width, height),
-		copyModes: make(map[uint32]*copymode.CopyMode),
-		inputIdle: true,
+		renderer:    New(width, height),
+		baseHistory: make(map[uint32][]string),
+		copyModes:   make(map[uint32]*copymode.CopyMode),
+		inputIdle:   true,
 	}
 	// Resize copy modes when the renderer resizes emulators during layout.
 	cr.renderer.OnPaneResize = func(paneID uint32, w, h int) {
@@ -55,6 +57,15 @@ func (cr *ClientRenderer) HandleLayout(snap *proto.LayoutSnapshot) bool {
 	structureChanged := cr.renderer.HandleLayout(snap)
 	clearedDisplayPanes := false
 	clearedChooser := ""
+	validPanes := make(map[uint32]bool)
+	for _, ps := range snap.Panes {
+		validPanes[ps.ID] = true
+	}
+	for _, ws := range snap.Windows {
+		for _, ps := range ws.Panes {
+			validPanes[ps.ID] = true
+		}
+	}
 	cr.mu.Lock()
 	if structureChanged && cr.displayPanes != nil {
 		clearedDisplayPanes = true
@@ -63,6 +74,11 @@ func (cr *ClientRenderer) HandleLayout(snap *proto.LayoutSnapshot) bool {
 	if structureChanged && cr.chooser != nil {
 		clearedChooser = cr.chooser.mode.hiddenEvent()
 		cr.chooser = nil
+	}
+	for paneID := range cr.baseHistory {
+		if !validPanes[paneID] {
+			delete(cr.baseHistory, paneID)
+		}
 	}
 	cr.message = ""
 	cr.dirty = true
@@ -74,6 +90,15 @@ func (cr *ClientRenderer) HandleLayout(snap *proto.LayoutSnapshot) bool {
 		cr.emitUIEvent(clearedChooser)
 	}
 	return structureChanged
+}
+
+// HandlePaneHistory stores retained server history for a pane during attach
+// bootstrap. History is oldest-first and excludes the current visible screen.
+func (cr *ClientRenderer) HandlePaneHistory(paneID uint32, lines []string) {
+	history := append([]string(nil), lines...)
+	cr.mu.Lock()
+	cr.baseHistory[paneID] = history
+	cr.mu.Unlock()
 }
 
 func (cr *ClientRenderer) emitUIEvent(name string) {
@@ -409,9 +434,13 @@ func (cr *ClientRenderer) EnterCopyMode(paneID uint32) {
 		cr.mu.Unlock()
 		return // already in copy mode
 	}
+	baseHistory := append([]string(nil), cr.baseHistory[paneID]...)
 	w, h := emu.Size()
 	_, curRow := emu.CursorPosition()
-	cr.copyModes[paneID] = copymode.New(emu, w, h, curRow)
+	cr.copyModes[paneID] = copymode.New(&historyEmulator{
+		emu:         emu,
+		baseHistory: baseHistory,
+	}, w, h, curRow)
 	cr.dirty = true
 	nowActive := len(cr.copyModes) > 0
 	cr.mu.Unlock()

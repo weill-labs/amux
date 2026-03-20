@@ -152,6 +152,8 @@ func RunSession(sessionName string) error {
 			switch msg.Type {
 			case proto.MsgTypeLayout:
 				msgCh <- &RenderMsg{Typ: RenderMsgLayout, Layout: msg.Layout}
+			case proto.MsgTypePaneHistory:
+				cr.HandlePaneHistory(msg.PaneID, msg.History)
 			case proto.MsgTypePaneOutput:
 				msgCh <- &RenderMsg{Typ: RenderMsgPaneOutput, PaneID: msg.PaneID, Data: msg.PaneData}
 			case proto.MsgTypeCmdResult:

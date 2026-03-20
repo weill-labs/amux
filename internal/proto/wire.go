@@ -41,6 +41,9 @@ const (
 
 	// Client → Server — transient client-local UI state transitions
 	MsgTypeUIEvent MsgType = 24
+
+	// Server → Client — retained pane history bootstrap during attach.
+	MsgTypePaneHistory MsgType = 25
 )
 
 // Message is the wire protocol envelope. Only the fields relevant to
@@ -75,6 +78,9 @@ type Message struct {
 	// MsgTypePaneOutput, MsgTypeInputPane
 	PaneID   uint32
 	PaneData []byte
+
+	// MsgTypePaneHistory
+	History []string
 
 	// MsgTypeLayout
 	Layout *LayoutSnapshot

@@ -1,9 +1,15 @@
 package test
 
 import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/weill-labs/amux/internal/proto"
 )
 
 func TestCapture(t *testing.T) {
@@ -35,6 +41,88 @@ func TestCapturePane(t *testing.T) {
 	output := h.runCmd("capture", "pane-1")
 	if !strings.Contains(output, "OUTPUTMARKER") {
 		t.Errorf("amux capture <pane> should contain OUTPUTMARKER, got:\n%s", output)
+	}
+}
+
+func TestCapturePaneHistory(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	scriptPath := filepath.Join(os.TempDir(), fmt.Sprintf("amux-history-%s.sh", h.session))
+	if err := os.WriteFile(scriptPath, []byte("#!/bin/bash\nfor i in $(seq -w 1 50); do echo \"HISTORY-$i\"; done\n"), 0755); err != nil {
+		t.Fatalf("writing history script: %v", err)
+	}
+	t.Cleanup(func() { os.Remove(scriptPath) })
+
+	h.sendKeys("pane-1", scriptPath, "Enter")
+	h.waitFor("pane-1", "HISTORY-50")
+
+	plain := h.runCmd("capture", "pane-1")
+	if strings.Contains(plain, "HISTORY-01") {
+		t.Fatalf("plain pane capture should not include off-screen history, got:\n%s", plain)
+	}
+
+	out := h.runCmd("capture", "--history", "pane-1")
+	if !strings.Contains(out, "HISTORY-01") || !strings.Contains(out, "HISTORY-50") {
+		t.Fatalf("history capture should contain full browsable buffer, got:\n%s", out)
+	}
+}
+
+func TestCapturePaneHistoryJSON(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	scriptPath := filepath.Join(os.TempDir(), fmt.Sprintf("amux-history-json-%s.sh", h.session))
+	if err := os.WriteFile(scriptPath, []byte("#!/bin/bash\nfor i in $(seq -w 1 40); do echo \"JSONHIST-$i\"; done\n"), 0755); err != nil {
+		t.Fatalf("writing history script: %v", err)
+	}
+	t.Cleanup(func() { os.Remove(scriptPath) })
+
+	h.sendKeys("pane-1", scriptPath, "Enter")
+	h.waitFor("pane-1", "JSONHIST-40")
+
+	out := h.runCmd("capture", "--history", "--format", "json", "pane-1")
+	var pane proto.CapturePane
+	if err := json.Unmarshal([]byte(out), &pane); err != nil {
+		t.Fatalf("json.Unmarshal: %v\noutput:\n%s", err, out)
+	}
+	if len(pane.History) == 0 {
+		t.Fatalf("history JSON should include retained history, got: %+v", pane)
+	}
+	if joined := strings.Join(pane.History, "\n"); !strings.Contains(joined, "JSONHIST-01") {
+		t.Fatalf("history should include retained off-screen lines, got:\n%s", joined)
+	}
+	if joined := strings.Join(pane.Content, "\n"); !strings.Contains(joined, "JSONHIST-40") {
+		t.Fatalf("content should include visible screen, got:\n%s", joined)
+	}
+	if strings.Join(pane.Content, "\n") == "" {
+		t.Fatal("content should not be empty")
+	}
+}
+
+func TestCapturePaneHistoryWithoutAttachedClient(t *testing.T) {
+	t.Parallel()
+	h := newServerHarnessPersistent(t)
+
+	scriptPath := filepath.Join(os.TempDir(), fmt.Sprintf("amux-history-headless-%s.sh", h.session))
+	if err := os.WriteFile(scriptPath, []byte("#!/bin/bash\nfor i in $(seq -w 1 35); do echo \"NOCLIENT-$i\"; done\n"), 0755); err != nil {
+		t.Fatalf("writing history script: %v", err)
+	}
+	t.Cleanup(func() { os.Remove(scriptPath) })
+
+	h.sendKeys("pane-1", scriptPath, "Enter")
+	h.waitFor("pane-1", "NOCLIENT-35")
+
+	h.client.close()
+	h.client = nil
+
+	if out := h.runCmd("capture", "pane-1"); !strings.Contains(out, "no client attached") {
+		t.Fatalf("screen capture without client should still fail, got: %s", out)
+	}
+
+	out := h.runCmd("capture", "--history", "pane-1")
+	if !strings.Contains(out, "NOCLIENT-01") || !strings.Contains(out, "NOCLIENT-35") {
+		t.Fatalf("history capture should work without attached client, got:\n%s", out)
 	}
 }
 

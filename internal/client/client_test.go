@@ -932,6 +932,25 @@ func TestHandleCaptureRequest(t *testing.T) {
 	}
 }
 
+func TestClientRendererCopyModeUsesPaneHistory(t *testing.T) {
+	t.Parallel()
+
+	cr := buildTestRenderer(t)
+	cr.HandlePaneHistory(1, []string{"old-1", "old-2"})
+
+	cr.EnterCopyMode(1)
+	cm := cr.CopyModeForPane(1)
+	if cm == nil {
+		t.Fatal("copy mode should exist for pane-1")
+	}
+	if got := cm.LineText(0); got != "old-1" {
+		t.Fatalf("LineText(0) = %q, want %q", got, "old-1")
+	}
+	if got := cm.LineText(1); got != "old-2" {
+		t.Fatalf("LineText(1) = %q, want %q", got, "old-2")
+	}
+}
+
 func TestHandleCaptureRequest_DisplayFlag(t *testing.T) {
 	t.Parallel()
 	cr := buildTestRenderer(t)

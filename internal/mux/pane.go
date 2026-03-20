@@ -45,13 +45,17 @@ type Pane struct {
 	process  *os.Process // set for restored panes (where cmd is nil)
 	emulator TerminalEmulator
 
+	snapshotMu  sync.Mutex
+	outputSeq   atomic.Uint64
+	baseHistory []string
+
 	// writeOverride, when non-nil, receives Write() calls instead of the PTY.
 	// Used by proxy panes to route input over SSH to a remote amux server.
 	writeOverride func([]byte) (int, error)
 
 	closed         atomic.Bool
 	drainStarted   bool
-	onOutput       func(paneID uint32, data []byte)
+	onOutput       func(paneID uint32, data []byte, seq uint64)
 	onExit         func(paneID uint32)
 	onClipboard    func(paneID uint32, data []byte)
 	onTakeover     func(paneID uint32, req TakeoverRequest)
@@ -68,7 +72,7 @@ type Pane struct {
 // NewPane creates a new pane running the user's shell but does NOT start
 // the read/drain/wait goroutines. Call Start() after releasing any locks
 // that the onOutput/onExit callbacks might need.
-func NewPane(id uint32, meta PaneMeta, cols, rows int, sessionName string, onOutput func(uint32, []byte), onExit func(uint32)) (*Pane, error) {
+func NewPane(id uint32, meta PaneMeta, cols, rows int, sessionName string, onOutput func(uint32, []byte, uint64), onExit func(uint32)) (*Pane, error) {
 	shell := os.Getenv("SHELL")
 	if shell == "" {
 		shell = "/bin/bash"
@@ -110,7 +114,7 @@ func NewPane(id uint32, meta PaneMeta, cols, rows int, sessionName string, onOut
 // It wraps an existing PTY master FD and finds the running shell process by PID.
 // No new shell is spawned — the existing shell survives the exec.
 // The drain goroutine starts immediately to prevent deadlock during screen replay.
-func RestorePane(id uint32, meta PaneMeta, ptmxFd, pid, cols, rows int, onOutput func(uint32, []byte), onExit func(uint32)) (*Pane, error) {
+func RestorePane(id uint32, meta PaneMeta, ptmxFd, pid, cols, rows int, onOutput func(uint32, []byte, uint64), onExit func(uint32)) (*Pane, error) {
 	ptmx := os.NewFile(uintptr(ptmxFd), fmt.Sprintf("ptmx-%d", id))
 	if ptmx == nil {
 		return nil, fmt.Errorf("invalid FD %d for pane %d", ptmxFd, id)
@@ -190,6 +194,8 @@ func (p *Pane) ProcessPid() int {
 
 // ReplayScreen feeds screen data into the emulator to restore visual state.
 func (p *Pane) ReplayScreen(data string) {
+	p.snapshotMu.Lock()
+	defer p.snapshotMu.Unlock()
 	p.emulator.Write([]byte(data))
 }
 
@@ -236,11 +242,14 @@ func (p *Pane) readLoop() {
 				}
 			}
 
-			// Feed emulator for screen state tracking (enables reattach)
+			// Feed emulator for screen state tracking (enables reattach).
+			p.snapshotMu.Lock()
 			p.emulator.Write(data)
+			seq := p.outputSeq.Add(1)
+			p.snapshotMu.Unlock()
 
 			if p.onOutput != nil {
-				p.onOutput(p.ID, data)
+				p.onOutput(p.ID, data, seq)
 			}
 		}
 		if err != nil {
@@ -323,6 +332,14 @@ func (p *Pane) RenderScreen() string {
 	return RenderWithCursor(p.emulator)
 }
 
+// HistoryScreenSnapshot returns a consistent snapshot of retained scrollback,
+// current screen, and the latest live-output sequence included in that state.
+func (p *Pane) HistoryScreenSnapshot() (history []string, screen string, seq uint64) {
+	p.snapshotMu.Lock()
+	defer p.snapshotMu.Unlock()
+	return p.combinedScrollbackLocked(), RenderWithCursor(p.emulator), p.outputSeq.Load()
+}
+
 // RenderWithoutCursorBlock returns the screen with the cursor cell's
 // reverse-video attribute cleared, so inactive panes don't show a block cursor.
 func (p *Pane) RenderWithoutCursorBlock() string {
@@ -365,6 +382,27 @@ func (p *Pane) ContentLines() []string {
 	return EmulatorContentLines(p.emulator)
 }
 
+// ScrollbackLines returns retained plain-text scrollback lines from oldest to
+// newest.
+func (p *Pane) ScrollbackLines() []string {
+	p.snapshotMu.Lock()
+	defer p.snapshotMu.Unlock()
+	return p.combinedScrollbackLocked()
+}
+
+// OutputSeq reports the latest live-output sequence applied to the emulator.
+func (p *Pane) OutputSeq() uint64 {
+	return p.outputSeq.Load()
+}
+
+// SetRetainedHistory replaces the retained pre-attach/pre-reload history base
+// for this pane. New live scrollback from the emulator is combined on top.
+func (p *Pane) SetRetainedHistory(lines []string) {
+	p.snapshotMu.Lock()
+	defer p.snapshotMu.Unlock()
+	p.baseHistory = append([]string(nil), lines...)
+}
+
 // ScreenContains returns true if substr appears in the pane's visible screen
 // content, matching across soft-wrapped lines.
 func (p *Pane) ScreenContains(substr string) bool {
@@ -399,7 +437,7 @@ func (p *Pane) Close() error {
 // It has an emulator for local screen state but no PTY or shell process.
 // Input is routed through writeOverride; output is fed via FeedOutput().
 func NewProxyPane(id uint32, meta PaneMeta, cols, rows int,
-	onOutput func(uint32, []byte), onExit func(uint32),
+	onOutput func(uint32, []byte, uint64), onExit func(uint32),
 	writeOverride func([]byte) (int, error)) *Pane {
 
 	emu := NewVTEmulator(cols, rows)
@@ -436,10 +474,39 @@ func (p *Pane) drainResponsesDiscard() {
 // and broadcasts it to connected clients. Called by the remote host connection
 // when it receives pane output from the remote amux server.
 func (p *Pane) FeedOutput(data []byte) {
+	p.snapshotMu.Lock()
 	p.emulator.Write(data)
+	seq := p.outputSeq.Add(1)
+	p.snapshotMu.Unlock()
 	if p.onOutput != nil {
-		p.onOutput(p.ID, data)
+		p.onOutput(p.ID, data, seq)
 	}
+}
+
+func (p *Pane) combinedScrollbackLocked() []string {
+	live := EmulatorScrollbackLines(p.emulator)
+	total := len(p.baseHistory) + len(live)
+	if total <= DefaultScrollbackLines {
+		out := make([]string, 0, total)
+		out = append(out, p.baseHistory...)
+		out = append(out, live...)
+		return out
+	}
+
+	drop := total - DefaultScrollbackLines
+	baseStart := 0
+	liveStart := 0
+	if drop >= len(p.baseHistory) {
+		baseStart = len(p.baseHistory)
+		liveStart = drop - len(p.baseHistory)
+	} else {
+		baseStart = drop
+	}
+
+	out := make([]string, 0, DefaultScrollbackLines)
+	out = append(out, p.baseHistory[baseStart:]...)
+	out = append(out, live[liveStart:]...)
+	return out
 }
 
 // IsProxy returns true if this is a proxy pane (no local PTY).

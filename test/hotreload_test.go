@@ -157,6 +157,37 @@ func TestServerReloadWithMinimizedPane(t *testing.T) {
 	}
 }
 
+func TestServerReloadPreservesHistoryCapture(t *testing.T) {
+	t.Parallel()
+	h := newAmuxHarness(t)
+
+	scriptPath := filepath.Join(os.TempDir(), fmt.Sprintf("amux-reload-history-%s.sh", h.session))
+	if err := os.WriteFile(scriptPath, []byte("#!/bin/bash\nfor i in $(seq -w 1 45); do echo \"RLDHIST-$i\"; done\n"), 0755); err != nil {
+		t.Fatalf("writing history script: %v", err)
+	}
+	t.Cleanup(func() { os.Remove(scriptPath) })
+
+	h.sendKeys(scriptPath, "Enter")
+	if !h.waitFor("RLDHIST-45", 5*time.Second) {
+		t.Fatalf("expected scrollback source before reload\nScreen:\n%s", h.captureOuter())
+	}
+
+	before := h.runCmd("capture", "--history", "pane-1")
+	if !strings.Contains(before, "RLDHIST-01") {
+		t.Fatalf("history capture before reload should include earliest retained line, got:\n%s", before)
+	}
+
+	h.runCmd("reload-server")
+	if !h.waitFor("[pane-", 5*time.Second) {
+		t.Fatalf("session did not recover after reload\nScreen:\n%s", h.captureOuter())
+	}
+
+	after := h.runCmd("capture", "--history", "pane-1")
+	if !strings.Contains(after, "RLDHIST-01") || !strings.Contains(after, "RLDHIST-45") {
+		t.Fatalf("history capture should survive reload, got:\n%s", after)
+	}
+}
+
 func TestServerReloadMinimizedPanePreservesContent(t *testing.T) {
 	t.Parallel()
 	h := newAmuxHarness(t)

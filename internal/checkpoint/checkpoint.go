@@ -21,6 +21,7 @@ type PaneCheckpoint struct {
 	PID       int // Shell process PID (for waitLoop); 0 for proxy panes
 	Cols      int
 	Rows      int
+	History   []string  // retained scrollback lines (oldest first)
 	Screen    string    // RenderScreen() ANSI output for replay
 	CreatedAt time.Time // Pane creation time (preserved across reloads)
 	IsProxy   bool      // true for remote proxy panes (no PTY/process)

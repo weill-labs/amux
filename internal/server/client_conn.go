@@ -23,6 +23,8 @@ type ClientConn struct {
 	closed            bool
 	cols              int // last reported terminal width
 	rows              int // last reported terminal height
+	bootstrapping     bool
+	minOutputSeq      map[uint32]uint64
 }
 
 // NewClientConn wraps a net.Conn for protocol communication.
@@ -48,6 +50,38 @@ func (cc *ClientConn) Close() {
 		cc.closed = true
 		cc.conn.Close()
 	}
+}
+
+func (cc *ClientConn) startBootstrap() {
+	cc.mu.Lock()
+	defer cc.mu.Unlock()
+	cc.bootstrapping = true
+	cc.minOutputSeq = make(map[uint32]uint64)
+}
+
+func (cc *ClientConn) finishBootstrap(minOutputSeq map[uint32]uint64) {
+	cc.mu.Lock()
+	defer cc.mu.Unlock()
+	cc.bootstrapping = false
+	cc.minOutputSeq = minOutputSeq
+}
+
+func (cc *ClientConn) allowPaneOutput(paneID uint32, seq uint64) bool {
+	cc.mu.Lock()
+	defer cc.mu.Unlock()
+	if cc.bootstrapping {
+		return false
+	}
+	if seq == 0 {
+		return true
+	}
+	return seq > cc.minOutputSeq[paneID]
+}
+
+func (cc *ClientConn) isBootstrapping() bool {
+	cc.mu.Lock()
+	defer cc.mu.Unlock()
+	return cc.bootstrapping
 }
 
 // readLoop reads messages from the client and dispatches them to the session.

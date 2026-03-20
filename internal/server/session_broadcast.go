@@ -71,8 +71,14 @@ func (s *Session) clipboardCallback() func(paneID uint32, data []byte) {
 	}
 }
 
-func (s *Session) broadcastPaneOutputNow(paneID uint32, data []byte) {
-	s.broadcastNow(&Message{Type: MsgTypePaneOutput, PaneID: paneID, PaneData: data})
+func (s *Session) broadcastPaneOutputNow(paneID uint32, data []byte, seq uint64) {
+	clients := append([]*ClientConn(nil), s.clients...)
+	msg := &Message{Type: MsgTypePaneOutput, PaneID: paneID, PaneData: data}
+	for _, c := range clients {
+		if c.allowPaneOutput(paneID, seq) {
+			c.Send(msg)
+		}
+	}
 	s.notifyPaneOutputSubs(paneID)
 	s.trackPaneActivity(paneID)
 
@@ -82,13 +88,18 @@ func (s *Session) broadcastPaneOutputNow(paneID uint32, data []byte) {
 		host = p.Meta.Host
 	}
 	s.emitEvent(Event{Type: EventOutput, PaneID: paneID, PaneName: paneName, Host: host})
+
+	select {
+	case s.crashCheckpointTrigger <- struct{}{}:
+	default:
+	}
 }
 
 // broadcastPaneOutput sends raw PTY output for one pane to all clients,
 // notifies any wait-for subscribers, and tracks pane activity for hooks.
-func (s *Session) broadcastPaneOutput(paneID uint32, data []byte) {
+func (s *Session) broadcastPaneOutput(paneID uint32, data []byte, seq uint64) {
 	_, _ = enqueueSessionQuery(s, func(s *Session) (struct{}, error) {
-		s.broadcastPaneOutputNow(paneID, data)
+		s.broadcastPaneOutputNow(paneID, data, seq)
 		return struct{}{}, nil
 	})
 }
