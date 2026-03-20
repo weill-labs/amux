@@ -20,14 +20,14 @@ func TestHandleAttachFlushesQueuedPaneOutputAfterBootstrap(t *testing.T) {
 	defer cleanup()
 
 	pane := server.NewProxyPaneForTest(sess, 1, "pane-1", 80, 2)
-	pane.FeedOutput([]byte("line-1\r\nline-2\r\nline-3"))
 
 	w := mux.NewWindow(pane, 80, 3)
 	w.ID = 1
 	w.Name = "window-1"
-	sess.Windows = []*mux.Window{w}
-	sess.ActiveWindowID = w.ID
-	sess.Panes = []*mux.Pane{pane}
+	if err := server.SetLayoutStateForTest(sess, []*mux.Window{w}, w.ID, []*mux.Pane{pane}); err != nil {
+		t.Fatalf("SetLayoutStateForTest: %v", err)
+	}
+	pane.FeedOutput([]byte("line-1\r\nline-2\r\nline-3"))
 
 	clientConn, cr, paused, release, done := startPausedAttach(t, srv, sess, 80, 4)
 	defer closeAttach(t, clientConn, release, done)
@@ -56,14 +56,14 @@ func TestHandleAttachAppliesQueuedLayoutAfterConcurrentSplit(t *testing.T) {
 	defer cleanup()
 
 	pane1 := server.NewProxyPaneForTest(sess, 1, "pane-1", 80, 2)
-	pane1.FeedOutput([]byte("before-1\r\nbefore-2\r\nbefore-3"))
 
 	w := mux.NewWindow(pane1, 80, 3)
 	w.ID = 1
 	w.Name = "window-1"
-	sess.Windows = []*mux.Window{w}
-	sess.ActiveWindowID = w.ID
-	sess.Panes = []*mux.Pane{pane1}
+	if err := server.SetLayoutStateForTest(sess, []*mux.Window{w}, w.ID, []*mux.Pane{pane1}); err != nil {
+		t.Fatalf("SetLayoutStateForTest: %v", err)
+	}
+	pane1.FeedOutput([]byte("before-1\r\nbefore-2\r\nbefore-3"))
 
 	clientConn, cr, paused, release, done := startPausedAttach(t, srv, sess, 80, 4)
 	defer closeAttach(t, clientConn, release, done)

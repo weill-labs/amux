@@ -31,6 +31,16 @@ func NewProxyPaneForTest(sess *Session, id uint32, name string, cols, rows int) 
 	})
 }
 
+func SetLayoutStateForTest(sess *Session, windows []*mux.Window, activeWindowID uint32, panes []*mux.Pane) error {
+	_, err := enqueueSessionQuery(sess, func(sess *Session) (struct{}, error) {
+		sess.Windows = windows
+		sess.ActiveWindowID = activeWindowID
+		sess.Panes = panes
+		return struct{}{}, nil
+	})
+	return err
+}
+
 func SubscribePaneOutputForTest(sess *Session, paneID uint32) (chan struct{}, func()) {
 	ch := sess.enqueuePaneOutputSubscribe(paneID)
 	cleanup := func() {}
