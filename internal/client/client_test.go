@@ -907,7 +907,7 @@ func TestPrefixMessageUIEvents(t *testing.T) {
 	}
 }
 
-func TestHandlePaneOutputClearsPrefixMessageEmitsHidden(t *testing.T) {
+func TestHandlePaneOutputPreservesPrefixMessage(t *testing.T) {
 	t.Parallel()
 
 	cr := buildTestRenderer(t)
@@ -918,8 +918,13 @@ func TestHandlePaneOutputClearsPrefixMessageEmitsHidden(t *testing.T) {
 
 	cr.ShowPrefixMessage("No binding for C-a f")
 	cr.HandlePaneOutput(1, []byte("shell output"))
+	cr.RenderDiff()
 
-	want := []string{proto.UIEventPrefixMessageShown, proto.UIEventPrefixMessageHidden}
+	if !strings.Contains(cr.CaptureDisplay(), "No binding for C-a f") {
+		t.Fatalf("pane output should not clear prefix message, got:\n%s", cr.CaptureDisplay())
+	}
+
+	want := []string{proto.UIEventPrefixMessageShown}
 	if len(events) != len(want) {
 		t.Fatalf("events = %v, want %v", events, want)
 	}
@@ -927,6 +932,27 @@ func TestHandlePaneOutputClearsPrefixMessageEmitsHidden(t *testing.T) {
 		if events[i] != want[i] {
 			t.Fatalf("events[%d] = %q, want %q", i, events[i], want[i])
 		}
+	}
+}
+
+func TestClearPrefixMessageClearsDisplay(t *testing.T) {
+	t.Parallel()
+
+	cr := buildTestRenderer(t)
+	cr.ShowPrefixMessage("No binding for C-a f")
+	cr.RenderDiff()
+
+	if !cr.ClearPrefixMessage() {
+		t.Fatal("ClearPrefixMessage should report a state change")
+	}
+	cr.RenderDiff()
+
+	display := cr.CaptureDisplay()
+	if strings.Contains(display, "No binding for C-a f") {
+		t.Fatalf("display capture should clear prefix message, got:\n%s", display)
+	}
+	if cr.ClearPrefixMessage() {
+		t.Fatal("second ClearPrefixMessage should report no change")
 	}
 }
 

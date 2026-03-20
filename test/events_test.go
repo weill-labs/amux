@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -313,18 +314,15 @@ func TestWaitUIAfterRequiresFreshInputCycle(t *testing.T) {
 	t.Parallel()
 
 	h := newAmuxHarness(t)
-	after := strings.TrimSpace(h.runCmd("ui-gen"))
+	after := h.uiGen()
 
-	out := h.runCmd("wait-ui", proto.UIEventInputIdle, "--after", after, "--timeout", "200ms")
+	out := h.runCmd("wait-ui", proto.UIEventInputIdle, "--after", strconv.FormatUint(after, 10), "--timeout", "200ms")
 	if !strings.Contains(out, "timeout waiting for "+proto.UIEventInputIdle) {
 		t.Fatalf("wait-ui --after without new input should time out, got: %q", out)
 	}
 
 	h.sendKeys("Enter")
-	out = h.runCmd("wait-ui", proto.UIEventInputIdle, "--after", after, "--timeout", "3s")
-	if !strings.Contains(out, proto.UIEventInputIdle) {
-		t.Fatalf("wait-ui --after output = %q", out)
-	}
+	h.waitUIAfter(proto.UIEventInputIdle, after, 3*time.Second)
 }
 
 func TestWaitHookOnIdle(t *testing.T) {
