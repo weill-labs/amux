@@ -129,13 +129,22 @@ jobs:
           source: ./
           destination: ./site-root
 
+      - name: Prepare writable publish directory
+        id: publish_dir
+        if: steps.artifact.outputs.found == 'true'
+        run: |
+          set -euo pipefail
+          publish_dir=$(mktemp -d)
+          cp -R site-root/. "$publish_dir"/
+          echo "path=$publish_dir" >> "$GITHUB_OUTPUT"
+
       - name: Sync dashboard files
         id: site
         if: steps.artifact.outputs.found == 'true'
         run: |
           set -euo pipefail
           data_dir="${{ steps.data.outputs.path }}"
-          site_dir=site-root
+          site_dir="${{ steps.publish_dir.outputs.path }}"
 
           mkdir -p "$data_dir/benchmarks" "$site_dir/benchmarks"
 
