@@ -370,6 +370,17 @@ type eventSubscribeResult struct {
 	initialState [][]byte // JSON-encoded initial events (only when sendInitial is true)
 }
 
+type uiWaitSubscription struct {
+	sub          *eventSub
+	clientID     string
+	currentMatch bool
+}
+
+type uiWaitSubscribeResult struct {
+	subscription uiWaitSubscription
+	err          error
+}
+
 type eventSubscribeCmd struct {
 	filter      eventFilter
 	sendInitial bool // if true, compute and return current-state events atomically
@@ -390,6 +401,32 @@ func (e eventSubscribeCmd) handle(s *Session) {
 		}
 	}
 	e.reply <- result
+}
+
+type uiWaitSubscribeCmd struct {
+	requestedClientID string
+	eventName         string
+	reply             chan uiWaitSubscribeResult
+}
+
+func (e uiWaitSubscribeCmd) handle(s *Session) {
+	client, err := s.resolveUIClientSnapshot(e.requestedClientID, e.eventName)
+	if err != nil {
+		e.reply <- uiWaitSubscribeResult{err: err}
+		return
+	}
+
+	sub := &eventSub{
+		ch:     make(chan []byte, 64),
+		filter: eventFilter{Types: []string{e.eventName}, ClientID: client.clientID},
+	}
+	s.eventSubs = append(s.eventSubs, sub)
+
+	e.reply <- uiWaitSubscribeResult{subscription: uiWaitSubscription{
+		sub:          sub,
+		clientID:     client.clientID,
+		currentMatch: client.currentMatch,
+	}}
 }
 
 type eventUnsubscribeCmd struct {
@@ -488,6 +525,41 @@ func (s *Session) enqueueEventSubscribe(f eventFilter, sendInitial bool) eventSu
 		return res
 	case <-s.sessionEventDone:
 		return eventSubscribeResult{}
+	}
+}
+
+// enqueueUIWaitSubscribe resolves the target client, installs the event
+// subscription, and snapshots whether the client already matches the requested
+// UI state in one event-loop turn. That closes the race where a UI transition
+// could land between a separate query and subscribe call.
+func (s *Session) enqueueUIWaitSubscribe(requestedClientID, eventName string) (uiWaitSubscription, error) {
+	var zero uiWaitSubscription
+
+	reply := make(chan uiWaitSubscribeResult, 1)
+	if !s.enqueueEvent(uiWaitSubscribeCmd{
+		requestedClientID: requestedClientID,
+		eventName:         eventName,
+		reply:             reply,
+	}) {
+		return zero, errSessionShuttingDown
+	}
+
+	select {
+	case res := <-reply:
+		if res.err != nil {
+			return zero, res.err
+		}
+		return res.subscription, nil
+	case <-s.sessionEventDone:
+		select {
+		case res := <-reply:
+			if res.err != nil {
+				return zero, res.err
+			}
+			return res.subscription, nil
+		default:
+			return zero, errSessionShuttingDown
+		}
 	}
 }
 

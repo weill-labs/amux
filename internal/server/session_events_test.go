@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/weill-labs/amux/internal/mux"
+	"github.com/weill-labs/amux/internal/proto"
 	"github.com/weill-labs/amux/internal/render"
 )
 
@@ -354,6 +355,88 @@ func TestEnqueueAttachClientReturnsOnSessionShutdown(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("enqueueAttachClient did not return after shutdown")
+	}
+}
+
+func TestEnqueueUIWaitSubscribeAvoidsStaleSnapshotGap(t *testing.T) {
+	t.Parallel()
+
+	sess := newSession("test-ui-wait-subscribe")
+	stopCrashCheckpointLoop(t, sess)
+	defer stopSessionBackgroundLoops(t, sess)
+
+	cc := &ClientConn{ID: "client-1", copyModeShown: true, inputIdle: true}
+	mustSessionQuery(t, sess, func(sess *Session) struct{} {
+		sess.clients = []*ClientConn{cc}
+		return struct{}{}
+	})
+
+	stale, err := sess.queryUIClient("", proto.UIEventCopyModeHidden)
+	if err != nil {
+		t.Fatalf("queryUIClient: %v", err)
+	}
+	if stale.currentMatch {
+		t.Fatal("stale hidden snapshot matched while copy mode was still shown")
+	}
+
+	sess.enqueueUIEvent(cc, proto.UIEventCopyModeHidden)
+	waitUntil(t, func() bool {
+		return mustSessionQuery(t, sess, func(sess *Session) bool {
+			return len(sess.clients) == 1 && !sess.clients[0].copyModeShown
+		})
+	})
+
+	naiveSub := sess.enqueueEventSubscribe(eventFilter{
+		Types:    []string{proto.UIEventCopyModeHidden},
+		ClientID: cc.ID,
+	}, false)
+	defer sess.enqueueEventUnsubscribe(naiveSub.sub)
+	select {
+	case <-naiveSub.sub.ch:
+		t.Fatal("naive subscribe unexpectedly observed an already-emitted hidden event")
+	default:
+	}
+
+	atomicSub, err := sess.enqueueUIWaitSubscribe("", proto.UIEventCopyModeHidden)
+	if err != nil {
+		t.Fatalf("enqueueUIWaitSubscribe: %v", err)
+	}
+	defer sess.enqueueEventUnsubscribe(atomicSub.sub)
+	if atomicSub.clientID != cc.ID {
+		t.Fatalf("client id = %q, want %q", atomicSub.clientID, cc.ID)
+	}
+	if !atomicSub.currentMatch {
+		t.Fatal("atomic subscribe should see the already-hidden state")
+	}
+
+	sess.enqueueUIEvent(cc, proto.UIEventCopyModeShown)
+	waitUntil(t, func() bool {
+		return mustSessionQuery(t, sess, func(sess *Session) bool {
+			return len(sess.clients) == 1 && sess.clients[0].copyModeShown
+		})
+	})
+
+	futureSub, err := sess.enqueueUIWaitSubscribe("", proto.UIEventCopyModeHidden)
+	if err != nil {
+		t.Fatalf("enqueueUIWaitSubscribe future: %v", err)
+	}
+	defer sess.enqueueEventUnsubscribe(futureSub.sub)
+	if futureSub.currentMatch {
+		t.Fatal("hidden state should not match while copy mode is shown")
+	}
+
+	sess.enqueueUIEvent(cc, proto.UIEventCopyModeHidden)
+	select {
+	case data := <-futureSub.sub.ch:
+		var ev Event
+		if err := json.Unmarshal(data, &ev); err != nil {
+			t.Fatalf("json.Unmarshal: %v", err)
+		}
+		if ev.Type != proto.UIEventCopyModeHidden || ev.ClientID != cc.ID {
+			t.Fatalf("future event = %+v, want copy-mode-hidden on %s", ev, cc.ID)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("atomic subscribe did not receive future hidden event")
 	}
 }
 
