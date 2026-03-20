@@ -119,6 +119,7 @@ type Session struct {
 func (s *Session) buildCrashCheckpoint() *checkpoint.CrashCheckpoint {
 	type pidEntry struct {
 		index int
+		pane  *mux.Pane
 		pid   int
 	}
 	type crashSnapshot struct {
@@ -168,7 +169,7 @@ func (s *Session) buildCrashCheckpoint() *checkpoint.CrashCheckpoint {
 			}
 
 			if !p.IsProxy() {
-				cwdWork = append(cwdWork, pidEntry{index: len(cp.PaneStates), pid: p.ProcessPid()})
+				cwdWork = append(cwdWork, pidEntry{index: len(cp.PaneStates), pane: p, pid: p.ProcessPid()})
 			}
 
 			cp.PaneStates = append(cp.PaneStates, ps)
@@ -183,6 +184,9 @@ func (s *Session) buildCrashCheckpoint() *checkpoint.CrashCheckpoint {
 	// Resolve cwds outside the lock (lsof can be slow on macOS)
 	for _, w := range snap.cwdWork {
 		snap.cp.PaneStates[w.index].Cwd = mux.PaneCwd(w.pid)
+		status := w.pane.AgentStatus()
+		snap.cp.PaneStates[w.index].WasIdle = status.Idle
+		snap.cp.PaneStates[w.index].Command = status.CurrentCommand
 	}
 
 	return snap.cp
@@ -426,12 +430,8 @@ func NewServerFromCrashCheckpoint(sessionName string, cp *checkpoint.CrashCheckp
 		if !ps.CreatedAt.IsZero() {
 			pane.SetCreatedAt(ps.CreatedAt)
 		}
-		pane.SetRetainedHistory(ps.History)
-
-		// Replay last-known screen content so user/agent sees where they left off
-		if ps.Screen != "" {
-			pane.ReplayScreen(ps.Screen)
-		}
+		pane.SetRetainedHistory(restoreCrashHistory(ps))
+		replayCrashRecoveredScreen(pane, ps)
 
 		paneMap[ps.ID] = pane
 		sess.Panes = append(sess.Panes, pane)

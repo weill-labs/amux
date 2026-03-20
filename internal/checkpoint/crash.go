@@ -38,6 +38,8 @@ type CrashPaneState struct {
 	Rows      int          `json:"rows"`
 	History   []string     `json:"history,omitempty"`
 	Screen    string       `json:"screen"`
+	WasIdle   bool         `json:"was_idle,omitempty"`
+	Command   string       `json:"current_command,omitempty"`
 	CreatedAt time.Time    `json:"created_at"`
 	IsProxy   bool         `json:"is_proxy"`
 	Cwd       string       `json:"cwd,omitempty"`
