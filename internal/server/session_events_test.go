@@ -232,6 +232,28 @@ func TestEnsureInitialWindowIsNoOpWhenSessionAlreadyInitialized(t *testing.T) {
 	pane.Close()
 }
 
+func TestEnsureInitialWindowReturnsPaneCreationError(t *testing.T) {
+	t.Setenv("SHELL", "/definitely/missing-shell")
+
+	sess := newSession("test-managed-startup-error")
+	srv := &Server{sessions: map[string]*Session{sess.Name: sess}}
+	defer stopSessionBackgroundLoops(t, sess)
+
+	if err := srv.EnsureInitialWindow(80, 24); err == nil {
+		t.Fatal("EnsureInitialWindow error = nil, want pane creation error")
+	}
+
+	mustSessionQuery(t, sess, func(sess *Session) struct{} {
+		if len(sess.Windows) != 0 {
+			t.Fatalf("window count = %d, want 0", len(sess.Windows))
+		}
+		if len(sess.Panes) != 0 {
+			t.Fatalf("pane count = %d, want 0", len(sess.Panes))
+		}
+		return struct{}{}
+	})
+}
+
 func TestEnqueueAttachClientReturnsOnSessionShutdown(t *testing.T) {
 	t.Parallel()
 
