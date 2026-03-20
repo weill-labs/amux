@@ -29,10 +29,8 @@ func TestIdleStatus_BusyWhileRunning(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)
 
-	// Background sleep first, then echo sentinel. The sentinel only prints
-	// after the shell has forked the child, so pgrep will see it.
-	h.sendKeys("pane-1", `sleep 30 & printf '\x42\x55\x53\x59_OK\n'; wait`, "Enter")
-	h.waitFor("pane-1", "BUSY_OK")
+	h.sendKeys("pane-1", "sleep 30", "Enter")
+	h.waitBusy("pane-1")
 
 	out := h.runCmd("capture", "--format", "json")
 	var capture proto.CaptureJSON
@@ -57,9 +55,8 @@ func TestIdleStatus_BusyWithMultiplePanes(t *testing.T) {
 
 	h.splitV()
 
-	// Make pane-1 busy. Background sleep first, then echo sentinel.
-	h.sendKeys("pane-1", `sleep 30 & printf '\x42\x55\x53\x59_OK\n'; wait`, "Enter")
-	h.waitFor("pane-1", "BUSY_OK")
+	h.sendKeys("pane-1", "sleep 30", "Enter")
+	h.waitBusy("pane-1")
 
 	out := h.runCmd("capture", "--format", "json")
 	var capture proto.CaptureJSON
@@ -87,12 +84,8 @@ func TestWaitBusy_EventBased(t *testing.T) {
 	h.waitFor("pane-1", "INIT")
 	h.waitIdle("pane-1")
 
-	// Fork a long-running child first, then print a sentinel after the shell
-	// has actually transitioned to a busy process state. This avoids racing
-	// against the shell's echoed input, which can trigger activity before the
-	// child is fully visible in JSON capture.
-	h.sendKeys("pane-1", `sleep 300 & printf '\x57\x41\x49\x54_BUSY\n'; wait`, "Enter")
-	h.waitFor("pane-1", "WAIT_BUSY")
+	// wait-busy should block until a real child exists, not just prompt echo.
+	h.sendKeys("pane-1", "sleep 300", "Enter")
 	h.waitBusy("pane-1")
 
 	// Verify the pane is indeed busy via JSON capture.
