@@ -320,42 +320,38 @@ func (st *clientRenderLoopState) scheduleRender() {
 	st.renderC = st.renderTimer.C
 }
 
+func appendUIEventEffect(effects []clientEffect, uiEvents []string) []clientEffect {
+	if len(uiEvents) == 0 {
+		return effects
+	}
+	return append(effects, clientEffect{
+		kind:     clientEffectEmitUIEvents,
+		uiEvents: uiEvents,
+	})
+}
+
+func appendStopAndRenderNow(effects []clientEffect) []clientEffect {
+	return append(effects,
+		clientEffect{kind: clientEffectStopScheduledRender},
+		clientEffect{kind: clientEffectRenderNow},
+	)
+}
+
 func (cr *ClientRenderer) handleRenderMsg(msg *RenderMsg) []clientEffect {
 	switch msg.Typ {
 	case RenderMsgLayout:
 		structureChanged, result := cr.handleLayoutResult(msg.Layout)
-		var effects []clientEffect
-		if len(result.uiEvents) > 0 {
-			effects = append(effects, clientEffect{
-				kind:     clientEffectEmitUIEvents,
-				uiEvents: result.uiEvents,
-			})
-		}
+		effects := appendUIEventEffect(nil, result.uiEvents)
 		if structureChanged {
 			effects = append(effects, clientEffect{kind: clientEffectClearPrevGrid})
 		}
-		effects = append(effects,
-			clientEffect{kind: clientEffectStopScheduledRender},
-			clientEffect{kind: clientEffectRenderNow},
-		)
-		return effects
+		return appendStopAndRenderNow(effects)
 	case RenderMsgPaneOutput:
 		cr.HandlePaneOutput(msg.PaneID, msg.Data)
 		return []clientEffect{{kind: clientEffectScheduleRender}}
 	case RenderMsgCopyMode:
 		result := cr.enterCopyModeResult(msg.PaneID)
-		var effects []clientEffect
-		if len(result.uiEvents) > 0 {
-			effects = append(effects, clientEffect{
-				kind:     clientEffectEmitUIEvents,
-				uiEvents: result.uiEvents,
-			})
-		}
-		effects = append(effects,
-			clientEffect{kind: clientEffectStopScheduledRender},
-			clientEffect{kind: clientEffectRenderNow},
-		)
-		return effects
+		return appendStopAndRenderNow(appendUIEventEffect(nil, result.uiEvents))
 	case RenderMsgBell:
 		return []clientEffect{{kind: clientEffectBell}}
 	case RenderMsgClipboard:
