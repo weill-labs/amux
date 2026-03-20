@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -1243,11 +1244,60 @@ func cmdEvents(ctx *CommandContext) {
 		}
 	}
 
-	for data := range res.sub.ch {
-		if err := ctx.CC.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: string(data) + "\n"}); err != nil {
-			return
+	if ea.throttle <= 0 {
+		// No throttle: pass all events through immediately.
+		for data := range res.sub.ch {
+			if err := ctx.CC.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: string(data) + "\n"}); err != nil {
+				return
+			}
+		}
+		return
+	}
+
+	// Throttle: coalesce output events, pass non-output through immediately.
+	ticker := time.NewTicker(ea.throttle)
+	defer ticker.Stop()
+	pending := make(map[uint32][]byte) // pane ID → last output event JSON
+
+	for {
+		select {
+		case data, ok := <-res.sub.ch:
+			if !ok {
+				return
+			}
+			if paneID, isOutput := peekOutputPaneID(data); isOutput {
+				pending[paneID] = data
+			} else {
+				if err := ctx.CC.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: string(data) + "\n"}); err != nil {
+					return
+				}
+			}
+		case <-ticker.C:
+			if err := flushPendingOutputEvents(ctx, pending); err != nil {
+				return
+			}
 		}
 	}
+}
+
+// flushPendingOutputEvents sends all pending output events in sorted pane ID
+// order, then clears the map.
+func flushPendingOutputEvents(ctx *CommandContext, pending map[uint32][]byte) error {
+	if len(pending) == 0 {
+		return nil
+	}
+	ids := make([]uint32, 0, len(pending))
+	for id := range pending {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	for _, id := range ids {
+		if err := ctx.CC.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: string(pending[id]) + "\n"}); err != nil {
+			return err
+		}
+		delete(pending, id)
+	}
+	return nil
 }
 
 // peekOutputPaneID checks if data is an output event and returns the pane ID.
