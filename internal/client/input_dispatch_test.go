@@ -5,10 +5,20 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weill-labs/amux/internal/copymode"
 	"github.com/weill-labs/amux/internal/mouse"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
 )
+
+func stubCopyToClipboard(t *testing.T, fn func(string)) {
+	t.Helper()
+	prevCopyToClipboard := copyToClipboard
+	copyToClipboard = fn
+	t.Cleanup(func() {
+		copyToClipboard = prevCopyToClipboard
+	})
+}
 
 func readCommandMessage(t *testing.T, conn net.Conn) *proto.Message {
 	t.Helper()
@@ -97,8 +107,6 @@ func TestHandleMouseEventClickSendsFocusCommand(t *testing.T) {
 }
 
 func TestHandleMouseEventCopyModeDragCopiesSelectionAndExits(t *testing.T) {
-	t.Parallel()
-
 	cr := buildTestRenderer(t)
 	cr.EnterCopyMode(1)
 
@@ -112,12 +120,8 @@ func TestHandleMouseEventCopyModeDragCopiesSelectionAndExits(t *testing.T) {
 	var drag DragState
 
 	var copied string
-	prevCopyToClipboard := copyToClipboard
-	copyToClipboard = func(text string) {
+	stubCopyToClipboard(t, func(text string) {
 		copied = text
-	}
-	t.Cleanup(func() {
-		copyToClipboard = prevCopyToClipboard
 	})
 
 	y := mux.StatusLineRows
@@ -196,8 +200,6 @@ func TestHandleMouseEventCopyModeDoubleClickSelectsWordAndArmsCopy(t *testing.T)
 }
 
 func TestHandleMouseEventCopyModeTripleClickCopiesLine(t *testing.T) {
-	t.Parallel()
-
 	cr := buildTestRenderer(t)
 	cr.EnterCopyMode(1)
 
@@ -211,12 +213,8 @@ func TestHandleMouseEventCopyModeTripleClickCopiesLine(t *testing.T) {
 	var drag DragState
 
 	var copied string
-	prevCopyToClipboard := copyToClipboard
-	copyToClipboard = func(text string) {
+	stubCopyToClipboard(t, func(text string) {
 		copied = text
-	}
-	t.Cleanup(func() {
-		copyToClipboard = prevCopyToClipboard
 	})
 
 	y := mux.StatusLineRows
@@ -240,5 +238,88 @@ func TestHandleMouseEventCopyModeTripleClickCopiesLine(t *testing.T) {
 	}
 	if cr.InCopyMode(1) {
 		t.Fatal("pane-1 should exit copy mode after triple-click line copy")
+	}
+}
+
+func TestCopyModeHelpersSetCursorStartSelectionAndCopy(t *testing.T) {
+	cr := buildTestRenderer(t)
+	cr.EnterCopyMode(1)
+
+	if action := cr.CopyModeSetCursor(1, 1, 0); action != copymode.ActionRedraw {
+		t.Fatalf("CopyModeSetCursor() = %d, want ActionRedraw", action)
+	}
+	if !cr.IsDirty() {
+		t.Fatal("CopyModeSetCursor should mark the renderer dirty")
+	}
+
+	if action := cr.CopyModeStartSelection(1); action != copymode.ActionRedraw {
+		t.Fatalf("CopyModeStartSelection() = %d, want ActionRedraw", action)
+	}
+
+	cm := cr.CopyModeForPane(1)
+	if cm == nil {
+		t.Fatal("pane-1 copy mode missing")
+	}
+	if action := cm.HandleInput([]byte{'l', 'y'}); action != copymode.ActionYank {
+		t.Fatalf("selection yank = %d, want ActionYank", action)
+	}
+
+	var copied string
+	stubCopyToClipboard(t, func(text string) {
+		copied = text
+	})
+
+	cr.CopyModeCopySelection(1)
+	if copied != "el" {
+		t.Fatalf("copied text = %q, want %q", copied, "el")
+	}
+	if cr.InCopyMode(1) {
+		t.Fatal("pane-1 should exit copy mode after copy")
+	}
+}
+
+func TestCopyModeCopySelectionAppendsCopyBuffer(t *testing.T) {
+	cr := buildTestRenderer(t)
+
+	var copied []string
+	stubCopyToClipboard(t, func(text string) {
+		copied = append(copied, text)
+	})
+
+	cr.EnterCopyMode(1)
+	cm := cr.CopyModeForPane(1)
+	if cm == nil {
+		t.Fatal("pane-1 copy mode missing")
+	}
+	cr.CopyModeSetCursor(1, 0, 0)
+	cr.CopyModeStartSelection(1)
+	if action := cm.HandleInput([]byte{'l', 'y'}); action != copymode.ActionYank {
+		t.Fatalf("initial yank = %d, want ActionYank", action)
+	}
+	cr.CopyModeCopySelection(1)
+
+	cr.EnterCopyMode(1)
+	cm = cr.CopyModeForPane(1)
+	if cm == nil {
+		t.Fatal("pane-1 copy mode missing after re-enter")
+	}
+	cr.CopyModeSetCursor(1, 2, 0)
+	cr.CopyModeStartSelection(1)
+	if action := cm.HandleInput([]byte{'l', 'A'}); action != copymode.ActionYank {
+		t.Fatalf("append yank = %d, want ActionYank", action)
+	}
+	cr.CopyModeCopySelection(1)
+
+	if len(copied) != 2 {
+		t.Fatalf("clipboard writes = %d, want 2", len(copied))
+	}
+	if copied[0] != "he" {
+		t.Fatalf("first clipboard write = %q, want %q", copied[0], "he")
+	}
+	if copied[1] != "hell" {
+		t.Fatalf("second clipboard write = %q, want %q", copied[1], "hell")
+	}
+	if cr.copyBuffer != "hell" {
+		t.Fatalf("copyBuffer = %q, want %q", cr.copyBuffer, "hell")
 	}
 }
