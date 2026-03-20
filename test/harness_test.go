@@ -83,6 +83,31 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
+func upsertEnv(env []string, key, value string) []string {
+	prefix := key + "="
+	for i, e := range env {
+		if strings.HasPrefix(e, prefix) {
+			env[i] = prefix + value
+			return env
+		}
+	}
+	return append(env, prefix+value)
+}
+
+func newTestHome(tb testing.TB) string {
+	tb.Helper()
+	home := filepath.Join(tb.TempDir(), "home")
+	for _, dir := range []string{
+		home,
+		filepath.Join(home, ".local", "state", "amux"),
+	} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			tb.Fatalf("creating test home dir %s: %v", dir, err)
+		}
+	}
+	return home
+}
+
 // cleanupStaleTestSessions removes orphaned amux server processes, sockets,
 // and log files left behind by previous test runs that were killed by a
 // timeout panic.

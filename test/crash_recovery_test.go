@@ -46,7 +46,7 @@ func TestCrashRecovery_LayoutRestored(t *testing.T) {
 	preWindowName := preJSON.Window.Name
 
 	// Wait for crash checkpoint file to appear
-	cpPath := checkpoint.CrashCheckpointPath(h.session)
+	cpPath := h.crashCheckpointPath()
 	waitForCrashCheckpoint(t, cpPath, 5*time.Second)
 	preCrashCP := readCrashCheckpoint(t, cpPath)
 
@@ -67,7 +67,7 @@ func TestCrashRecovery_LayoutRestored(t *testing.T) {
 	}
 
 	// Start a NEW server for the same session — should auto-recover
-	h2 := startServerForSession(t, h.session)
+	h2 := startServerForSession(t, h.session, h.home)
 
 	// Verify layout was restored
 	postJSON := h2.captureJSON()
@@ -112,7 +112,7 @@ func TestCrashRecovery_CleanShutdown(t *testing.T) {
 	h.splitV()
 
 	// Wait for crash checkpoint to appear
-	cpPath := checkpoint.CrashCheckpointPath(h.session)
+	cpPath := h.crashCheckpointPath()
 	waitForCrashCheckpoint(t, cpPath, 5*time.Second)
 
 	// Verify checkpoint exists
@@ -155,7 +155,7 @@ func TestCrashRecovery_CheckpointIsValidJSON(t *testing.T) {
 	h := newServerHarness(t)
 	h.splitV()
 
-	cpPath := checkpoint.CrashCheckpointPath(h.session)
+	cpPath := h.crashCheckpointPath()
 	waitForCrashCheckpoint(t, cpPath, 5*time.Second)
 
 	data, err := os.ReadFile(cpPath)
@@ -192,7 +192,7 @@ func TestCrashRecovery_FocusUpFromRestoredFullWidthBottomPane(t *testing.T) {
 	h.doSplit("root")
 	h.assertActive("pane-10")
 
-	cpPath := checkpoint.CrashCheckpointPath(h.session)
+	cpPath := h.crashCheckpointPath()
 	waitForCrashCheckpoint(t, cpPath, 5*time.Second)
 
 	if h.client != nil {
@@ -203,7 +203,7 @@ func TestCrashRecovery_FocusUpFromRestoredFullWidthBottomPane(t *testing.T) {
 	h.cmd.Wait()
 	h.cmd = nil
 
-	h2 := startServerForSession(t, h.session)
+	h2 := startServerForSession(t, h.session, h.home)
 	h2.assertActive("pane-10")
 
 	out := h2.runCmd("focus", "up")
@@ -216,7 +216,7 @@ func TestCrashRecovery_PreservesHistoryCapture(t *testing.T) {
 	t.Parallel()
 
 	h := newServerHarnessPersistent(t)
-	cpPath := checkpoint.CrashCheckpointPath(h.session)
+	cpPath := h.crashCheckpointPath()
 	waitForCrashCheckpoint(t, cpPath, 5*time.Second)
 	preCrashCP := readCrashCheckpoint(t, cpPath)
 
@@ -244,7 +244,7 @@ func TestCrashRecovery_PreservesHistoryCapture(t *testing.T) {
 	h.cmd.Wait()
 	h.cmd = nil
 
-	h2 := startServerForSession(t, h.session)
+	h2 := startServerForSession(t, h.session, h.home)
 
 	after := h2.runCmd("capture", "--history", "pane-1")
 	if !strings.Contains(after, "CRASHHIST-01") || !strings.Contains(after, "CRASHHIST-45") {
@@ -338,7 +338,7 @@ func waitForFreshCrashCheckpoint(t *testing.T, path string, prev checkpoint.Cras
 // startServerForSession starts a new server process for an existing session
 // (used after crash to test recovery). Returns a harness connected to the
 // recovered server.
-func startServerForSession(t *testing.T, session string) *ServerHarness {
+func startServerForSession(t *testing.T, session, home string) *ServerHarness {
 	t.Helper()
 
 	// Create pipe for the server's ready signal.
@@ -349,7 +349,8 @@ func startServerForSession(t *testing.T, session string) *ServerHarness {
 
 	cmd := exec.Command(amuxBin, "_server", session)
 	cmd.ExtraFiles = []*os.File{writePipe}
-	env := append(os.Environ(), "AMUX_READY_FD=3", "AMUX_NO_WATCH=1", "AMUX_EXIT_UNATTACHED=1")
+	env := upsertEnv(os.Environ(), "HOME", home)
+	env = append(env, "AMUX_READY_FD=3", "AMUX_NO_WATCH=1", "AMUX_EXIT_UNATTACHED=1")
 
 	// Per-test cover dir
 	var coverDir string
@@ -358,12 +359,7 @@ func startServerForSession(t *testing.T, session string) *ServerHarness {
 		rand.Read(b[:])
 		coverDir = filepath.Join(gocoverDir, fmt.Sprintf("recover-%x", b))
 		os.MkdirAll(coverDir, 0755)
-		for i, e := range env {
-			if strings.HasPrefix(e, "GOCOVERDIR=") {
-				env[i] = "GOCOVERDIR=" + coverDir
-				break
-			}
-		}
+		env = upsertEnv(env, "GOCOVERDIR", coverDir)
 	}
 	cmd.Env = env
 
@@ -397,7 +393,7 @@ func startServerForSession(t *testing.T, session string) *ServerHarness {
 		t.Fatalf("recovered server ready signal not received: err=%v, buf=%q\nserver log:\n%s", err, string(buf[:n]), string(logData))
 	}
 
-	h := &ServerHarness{tb: t, session: session, cmd: cmd, coverDir: coverDir}
+	h := &ServerHarness{tb: t, session: session, cmd: cmd, home: home, coverDir: coverDir}
 	t.Cleanup(h.cleanup)
 
 	// Attach headless client

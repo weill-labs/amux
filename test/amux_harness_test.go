@@ -403,9 +403,11 @@ func (h *AmuxHarness) runCmd(args ...string) string {
 	h.tb.Helper()
 	cmdArgs := append([]string{"-s", h.inner}, args...)
 	cmd := exec.Command(amuxBin, cmdArgs...)
+	env := upsertEnv(os.Environ(), "HOME", h.outer.home)
 	if h.outer.coverDir != "" {
-		cmd.Env = append(os.Environ(), "GOCOVERDIR="+h.outer.coverDir)
+		env = upsertEnv(env, "GOCOVERDIR", h.outer.coverDir)
 	}
+	cmd.Env = env
 	out, _ := cmd.CombinedOutput()
 	return string(out)
 }

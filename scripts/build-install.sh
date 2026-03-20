@@ -48,6 +48,11 @@ if [[ $(uname -s) == Darwin ]]; then
 	fi
 fi
 
+if ! "$tmp" install-terminfo; then
+	echo "amux build: install-terminfo failed" >&2
+	exit 1
+fi
+
 cat >"$meta_tmp" <<EOF
 source_repo=$repo_root
 repo_name=$repo_name

@@ -32,6 +32,13 @@ Retained pane history is server-owned. Clients hydrate that history on attach an
 go install github.com/weill-labs/amux@latest
 ```
 
+On first server start, `amux` installs its `amux` terminfo entry into `~/.terminfo`.
+This requires `tic` from ncurses. You can also run it explicitly:
+
+```bash
+amux install-terminfo
+```
+
 ## Quick Start
 
 **Human**

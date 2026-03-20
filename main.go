@@ -17,6 +17,7 @@ import (
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/reload"
 	"github.com/weill-labs/amux/internal/server"
+	"github.com/weill-labs/amux/internal/terminfo"
 	"golang.org/x/sys/unix"
 )
 
@@ -75,6 +76,13 @@ func main() {
 			fmt.Println(buildVersion())
 		} else {
 			fmt.Printf("amux build: %s\n", buildVersion())
+		}
+		return
+
+	case "install-terminfo":
+		if err := terminfo.Install(); err != nil {
+			fmt.Fprintf(os.Stderr, "amux install-terminfo: %v\n", err)
+			os.Exit(1)
 		}
 		return
 
@@ -359,6 +367,7 @@ Usage:
   amux [-s session] hook-gen          Show current hook completion generation
   amux [-s session] wait-hook <event> [--pane <ref>] [--after N] [--timeout 5s]
                                        Block until a matching hook completes
+  amux install-terminfo                Install amux terminfo into ~/.terminfo
   amux version                         Show build version
 
 Panes can be referenced by name (pane-1) or ID (1).
@@ -401,6 +410,11 @@ See https://github.com/weill-labs/amux for config format.`)
 
 func runServer(sessionName string, managedTakeover bool) {
 	server.BuildVersion = buildVersion()
+
+	if err := terminfo.EnsureInstalled(); err != nil {
+		fmt.Fprintf(os.Stderr, "amux server: %v\n", err)
+		os.Exit(1)
+	}
 
 	var s *server.Server
 	var err error

@@ -90,7 +90,7 @@ func NewPane(id uint32, meta PaneMeta, cols, rows int, sessionName string, onOut
 
 	cmd := exec.Command(shell, "-l")
 	cmd.Env = append(os.Environ(),
-		"TERM=xterm-256color",
+		"TERM=amux",
 		"AMUX_PANE=1",
 		"AMUX_SESSION="+sessionName,
 	)

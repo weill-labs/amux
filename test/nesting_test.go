@@ -16,6 +16,10 @@ func TestNestingEnvVarSet(t *testing.T) {
 	// Verify AMUX_PANE is still set (regression check)
 	h.sendKeys("pane-1", "echo AMUX_PANE=$AMUX_PANE", "Enter")
 	h.waitFor("pane-1", "AMUX_PANE=1")
+
+	// Pane shells always identify themselves as amux.
+	h.sendKeys("pane-1", "echo TERM=$TERM", "Enter")
+	h.waitFor("pane-1", "TERM=amux")
 }
 
 func TestNestingSameSessionBlocked(t *testing.T) {

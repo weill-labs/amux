@@ -37,6 +37,17 @@ func TestRemotePaneViaSSH(t *testing.T) {
 		t.Fatalf("remote pane should accept input: %s", out)
 	}
 
+	// Remote shells should also see TERM=amux and a resolvable amux terminfo entry.
+	h.sendKeys("pane-2", "echo TERM=$TERM; infocmp amux >/dev/null && echo REMOTE_TERMINFO_OK", "Enter")
+	out = h.runCmd("wait-for", "pane-2", "TERM=amux", "--timeout", "5s")
+	if strings.Contains(out, "timeout") {
+		t.Fatalf("remote pane should run with TERM=amux: %s", out)
+	}
+	out = h.runCmd("wait-for", "pane-2", "REMOTE_TERMINFO_OK", "--timeout", "5s")
+	if strings.Contains(out, "timeout") {
+		t.Fatalf("remote pane should resolve amux terminfo: %s", out)
+	}
+
 	// Verify host metadata is visible in list command
 	listOut := h.runCmd("list")
 	if !strings.Contains(listOut, "test-remote") {
