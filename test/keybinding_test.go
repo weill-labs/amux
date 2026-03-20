@@ -222,11 +222,20 @@ func TestCustomUnbindKeyShowsFeedback(t *testing.T) {
 unbind = ["o"]
 `)
 
+	scanner, closer := eventStream(t, h.session, "--filter", proto.UIEventPrefixMessageHidden+","+proto.UIEventPrefixMessageShown, "--client", "client-1")
+	defer closer()
+	if ev := mustReadEvent(t, scanner, 5*time.Second); ev.Type != proto.UIEventPrefixMessageHidden {
+		t.Fatalf("initial prefix-message state: got %q, want %q", ev.Type, proto.UIEventPrefixMessageHidden)
+	}
+
 	h.splitV()
 	if !h.waitFor("[pane-2]", 3*time.Second) {
 		t.Fatalf("expected post-split UI before testing unbound-key feedback, got:\n%s", h.captureOuter())
 	}
 	h.sendKeys("C-a", "o")
+	if ev := mustReadEvent(t, scanner, 5*time.Second); ev.Type != proto.UIEventPrefixMessageShown {
+		t.Fatalf("unbound-key event: got %q, want %q", ev.Type, proto.UIEventPrefixMessageShown)
+	}
 
 	if !h.waitForOuterFunc(func(s string) bool {
 		return strings.Contains(s, "No binding for C-a o")
@@ -240,7 +249,15 @@ func TestUnsupportedPrefixKeyShowsFeedback(t *testing.T) {
 	t.Parallel()
 
 	h := newAmuxHarness(t)
+	scanner, closer := eventStream(t, h.session, "--filter", proto.UIEventPrefixMessageHidden+","+proto.UIEventPrefixMessageShown, "--client", "client-1")
+	defer closer()
+	if ev := mustReadEvent(t, scanner, 5*time.Second); ev.Type != proto.UIEventPrefixMessageHidden {
+		t.Fatalf("initial prefix-message state: got %q, want %q", ev.Type, proto.UIEventPrefixMessageHidden)
+	}
 	h.sendKeys("C-a", "f")
+	if ev := mustReadEvent(t, scanner, 5*time.Second); ev.Type != proto.UIEventPrefixMessageShown {
+		t.Fatalf("unsupported-key event: got %q, want %q", ev.Type, proto.UIEventPrefixMessageShown)
+	}
 
 	if !h.waitForOuterFunc(func(s string) bool {
 		return strings.Contains(s, "No binding for C-a f")
@@ -254,7 +271,15 @@ func TestUnsupportedPrefixKeyFeedbackClearsOnLiteralPrefix(t *testing.T) {
 	t.Parallel()
 
 	h := newAmuxHarness(t)
+	scanner, closer := eventStream(t, h.session, "--filter", proto.UIEventPrefixMessageHidden+","+proto.UIEventPrefixMessageShown, "--client", "client-1")
+	defer closer()
+	if ev := mustReadEvent(t, scanner, 5*time.Second); ev.Type != proto.UIEventPrefixMessageHidden {
+		t.Fatalf("initial prefix-message state: got %q, want %q", ev.Type, proto.UIEventPrefixMessageHidden)
+	}
 	h.sendKeys("C-a", "f")
+	if ev := mustReadEvent(t, scanner, 5*time.Second); ev.Type != proto.UIEventPrefixMessageShown {
+		t.Fatalf("unsupported-key event: got %q, want %q", ev.Type, proto.UIEventPrefixMessageShown)
+	}
 
 	if !h.waitForOuterFunc(func(s string) bool {
 		return strings.Contains(s, "No binding for C-a f")
@@ -263,6 +288,9 @@ func TestUnsupportedPrefixKeyFeedbackClearsOnLiteralPrefix(t *testing.T) {
 	}
 
 	h.sendKeys("C-a", "C-a")
+	if ev := mustReadEvent(t, scanner, 5*time.Second); ev.Type != proto.UIEventPrefixMessageHidden {
+		t.Fatalf("literal-prefix clear event: got %q, want %q", ev.Type, proto.UIEventPrefixMessageHidden)
+	}
 	if !waitForOuterGone(h, "No binding for C-a f", 3*time.Second) {
 		t.Fatalf("expected unsupported-key feedback to clear after literal prefix\nScreen:\n%s", h.captureOuter())
 	}

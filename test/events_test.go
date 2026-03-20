@@ -200,6 +200,31 @@ func TestEventsClientUISnapshotAndUpdates(t *testing.T) {
 	}
 }
 
+func TestEventsPrefixMessageUISnapshotAndUpdates(t *testing.T) {
+	t.Parallel()
+
+	h := newServerHarness(t)
+	scanner, closer := eventStream(t, h.session, "--filter", proto.UIEventPrefixMessageHidden+","+proto.UIEventPrefixMessageShown, "--client", "client-1")
+	defer closer()
+
+	ev := mustReadEvent(t, scanner, 5*time.Second)
+	if ev.Type != proto.UIEventPrefixMessageHidden {
+		t.Fatalf("initial prefix-message state: got %q, want %q", ev.Type, proto.UIEventPrefixMessageHidden)
+	}
+	if ev.ClientID != "client-1" {
+		t.Fatalf("client_id: got %q, want client-1", ev.ClientID)
+	}
+
+	h.client.sendUIEvent(proto.UIEventPrefixMessageShown)
+	ev = mustReadEvent(t, scanner, 5*time.Second)
+	if ev.Type != proto.UIEventPrefixMessageShown {
+		t.Fatalf("updated prefix-message state: got %q, want %q", ev.Type, proto.UIEventPrefixMessageShown)
+	}
+	if ev.ClientID != "client-1" {
+		t.Fatalf("client_id: got %q, want client-1", ev.ClientID)
+	}
+}
+
 func TestEventsFilterClient(t *testing.T) {
 	t.Parallel()
 
@@ -240,6 +265,19 @@ func TestWaitUIImmediateHidden(t *testing.T) {
 	}
 	if !strings.Contains(out, proto.UIEventDisplayPanesHidden) {
 		t.Fatalf("wait-ui hidden output = %q", out)
+	}
+}
+
+func TestWaitUIImmediatePrefixMessageHidden(t *testing.T) {
+	t.Parallel()
+
+	h := newServerHarness(t)
+	out := h.runCmd("wait-ui", proto.UIEventPrefixMessageHidden, "--timeout", "1s")
+	if strings.Contains(out, "timeout") {
+		t.Fatalf("wait-ui prefix-message-hidden should return immediately, got: %s", out)
+	}
+	if !strings.Contains(out, proto.UIEventPrefixMessageHidden) {
+		t.Fatalf("wait-ui prefix-message-hidden output = %q", out)
 	}
 }
 

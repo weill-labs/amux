@@ -10,12 +10,24 @@ import (
 	"github.com/weill-labs/amux/internal/proto"
 )
 
-func TestClientConnApplyUIEventCopyModeAndInputIdle(t *testing.T) {
+func TestClientConnApplyUIEventPrefixMessageCopyModeAndInputIdle(t *testing.T) {
 	t.Parallel()
 
 	cc := NewClientConn(nil)
 
-	changed, err := cc.applyUIEvent(proto.UIEventCopyModeShown)
+	changed, err := cc.applyUIEvent(proto.UIEventPrefixMessageShown)
+	if err != nil || !changed {
+		t.Fatalf("apply prefix-message-shown = (%v, %v), want (true, nil)", changed, err)
+	}
+	changed, err = cc.applyUIEvent(proto.UIEventPrefixMessageShown)
+	if err != nil || changed {
+		t.Fatalf("repeat prefix-message-shown = (%v, %v), want (false, nil)", changed, err)
+	}
+	if !cc.matchesUIEvent(proto.UIEventPrefixMessageShown) {
+		t.Fatal("prefix-message-shown should match after apply")
+	}
+
+	changed, err = cc.applyUIEvent(proto.UIEventCopyModeShown)
 	if err != nil || !changed {
 		t.Fatalf("apply copy-mode-shown = (%v, %v), want (true, nil)", changed, err)
 	}
@@ -39,6 +51,10 @@ func TestClientConnApplyUIEventCopyModeAndInputIdle(t *testing.T) {
 		t.Fatal("input-busy should match after apply")
 	}
 
+	changed, err = cc.applyUIEvent(proto.UIEventPrefixMessageHidden)
+	if err != nil || !changed {
+		t.Fatalf("apply prefix-message-hidden = (%v, %v), want (true, nil)", changed, err)
+	}
 	changed, err = cc.applyUIEvent(proto.UIEventCopyModeHidden)
 	if err != nil || !changed {
 		t.Fatalf("apply copy-mode-hidden = (%v, %v), want (true, nil)", changed, err)
@@ -46,6 +62,9 @@ func TestClientConnApplyUIEventCopyModeAndInputIdle(t *testing.T) {
 	changed, err = cc.applyUIEvent(proto.UIEventInputIdle)
 	if err != nil || !changed {
 		t.Fatalf("apply input-idle = (%v, %v), want (true, nil)", changed, err)
+	}
+	if !cc.matchesUIEvent(proto.UIEventPrefixMessageHidden) {
+		t.Fatal("prefix-message-hidden should match after hide")
 	}
 	if !cc.matchesUIEvent(proto.UIEventCopyModeHidden) {
 		t.Fatal("copy-mode-hidden should match after hide")
@@ -55,20 +74,22 @@ func TestClientConnApplyUIEventCopyModeAndInputIdle(t *testing.T) {
 	}
 }
 
-func TestClientConnCurrentUIEventsIncludesBusyAndCopyModeShown(t *testing.T) {
+func TestClientConnCurrentUIEventsIncludesPrefixMessageBusyAndCopyModeShown(t *testing.T) {
 	t.Parallel()
 
 	cc := &ClientConn{
-		ID:                "client-1",
-		displayPanesShown: true,
-		copyModeShown:     true,
-		inputIdle:         false,
-		chooserMode:       chooserWindow,
+		ID:                 "client-1",
+		displayPanesShown:  true,
+		prefixMessageShown: true,
+		copyModeShown:      true,
+		inputIdle:          false,
+		chooserMode:        chooserWindow,
 	}
 
 	got := cc.currentUIEvents()
 	want := []string{
 		proto.UIEventDisplayPanesShown,
+		proto.UIEventPrefixMessageShown,
 		proto.UIEventCopyModeShown,
 		proto.UIEventInputBusy,
 		proto.UIEventChooseTreeHidden,
