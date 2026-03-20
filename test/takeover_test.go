@@ -63,6 +63,27 @@ func TestTakeoverBidirectionalIO(t *testing.T) {
 	h.waitForTimeout(proxyPaneName, "TAKEOVER_IO_OK", "5s")
 }
 
+func TestTakeoverFromInteractiveSSHShell(t *testing.T) {
+	t.Parallel()
+
+	addr, keyFile := setupTestSSH(t)
+	h := newServerHarnessWithConfig(t, 80, 24, remoteTestConfig(addr, keyFile))
+
+	_, port, _ := net.SplitHostPort(addr)
+	sshCmd := fmt.Sprintf(
+		"ssh -tt -i %s -p %s -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null 127.0.0.1",
+		keyFile, port)
+	h.sendKeys("pane-1", sshCmd, "Enter")
+	h.sendKeys("pane-1", "echo SSH_SHELL_READY", "Enter")
+	h.waitForTimeout("pane-1", "SSH_SHELL_READY", "5s")
+
+	h.sendKeys("pane-1", "amux", "Enter")
+
+	proxyPaneName := waitForTakeoverProxyPane(t, h)
+	h.sendKeys(proxyPaneName, "echo TAKEOVER_SHELL_OK", "Enter")
+	h.waitForTimeout(proxyPaneName, "TAKEOVER_SHELL_OK", "5s")
+}
+
 // TestTakeoverAfterServerReload is a regression test for the bug where
 // NewServerFromCheckpoint didn't call SetOnTakeover on restored panes.
 // Without the fix, pane.onTakeover == nil after a reload, so the readLoop
@@ -104,4 +125,23 @@ func TestTakeoverAfterServerReload(t *testing.T) {
 		gen = h.generation()
 	}
 	t.Errorf("takeover after reload: expected pane@%s in list output\n%s", hostname, h.runCmd("list"))
+}
+
+func waitForTakeoverProxyPane(t *testing.T, h *ServerHarness) string {
+	t.Helper()
+
+	gen := h.generation()
+	for h.waitLayoutOrTimeout(gen, "5s") {
+		c := h.captureJSON()
+		for _, p := range c.Panes {
+			if strings.Contains(p.Name, "@") {
+				return p.Name
+			}
+		}
+		gen = h.generation()
+	}
+
+	t.Fatalf("takeover proxy pane did not appear\nlist:\n%s\npane-1:\n%s",
+		h.runCmd("list"), h.runCmd("capture", "pane-1"))
+	return ""
 }

@@ -33,6 +33,9 @@ const TakeoverAck = "\x1b]999;amux-takeover-ack\x07"
 // takeoverAckPrefix is the OSC prefix for a session-carrying ack.
 const takeoverAckPrefix = "\x1b]999;amux-takeover-ack;"
 
+var takeoverAckPrefixBytes = []byte(takeoverAckPrefix)
+var legacyTakeoverAckBytes = []byte(TakeoverAck)
+
 // FormatTakeoverAck builds the ack sequence carrying the agreed remote session name.
 // The remote amux reads the session name from the ack and calls runServer with it,
 // ensuring both sides agree on the Unix socket path.
@@ -57,6 +60,34 @@ func ParseTakeoverAck(data string) (string, bool) {
 		return "", false
 	}
 	return session, true
+}
+
+// FindTakeoverAck scans a byte buffer for a takeover ack sequence.
+// It accepts session-carrying acks anywhere in the buffer, and falls back
+// to the provided session name for legacy fixed-format acks.
+func FindTakeoverAck(data []byte, fallbackSession string) (string, bool) {
+	if session, ok := findSessionTakeoverAck(data); ok {
+		return session, true
+	}
+	if fallbackSession != "" && bytes.Contains(data, legacyTakeoverAckBytes) {
+		return fallbackSession, true
+	}
+	return "", false
+}
+
+func findSessionTakeoverAck(data []byte) (string, bool) {
+	for start := 0; start < len(data); {
+		idx := bytes.Index(data[start:], takeoverAckPrefixBytes)
+		if idx < 0 {
+			return "", false
+		}
+		idx += start
+		if session, ok := ParseTakeoverAck(string(data[idx:])); ok {
+			return session, true
+		}
+		start = idx + 1
+	}
+	return "", false
 }
 
 // amuxControlPrefix is the OSC 999 prefix for amux control sequences.

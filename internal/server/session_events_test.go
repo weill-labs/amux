@@ -164,6 +164,37 @@ func TestPaneExitCallbackEnqueuesRemoval(t *testing.T) {
 	})
 }
 
+func TestEnsureInitialWindowCreatesPaneWithoutClient(t *testing.T) {
+	t.Parallel()
+
+	sess := newSession("test-managed-startup")
+	srv := &Server{sessions: map[string]*Session{sess.Name: sess}}
+	defer stopSessionBackgroundLoops(t, sess)
+
+	if err := srv.EnsureInitialWindow(80, 24); err != nil {
+		t.Fatalf("EnsureInitialWindow: %v", err)
+	}
+
+	waitUntil(t, func() bool {
+		sess.mu.Lock()
+		defer sess.mu.Unlock()
+		return len(sess.Windows) == 1 && len(sess.Panes) == 1 && sess.ActiveWindow() != nil
+	})
+
+	sess.mu.Lock()
+	pane := sess.Panes[0]
+	if sess.ActiveWindowID == 0 {
+		t.Fatal("active window id = 0, want non-zero")
+	}
+	if pane.Meta.Name != "pane-1" {
+		t.Fatalf("pane name = %q, want pane-1", pane.Meta.Name)
+	}
+	sess.mu.Unlock()
+
+	sess.shutdown.Store(true)
+	pane.Close()
+}
+
 func TestEnqueueAttachClientReturnsOnSessionShutdown(t *testing.T) {
 	t.Parallel()
 

@@ -257,6 +257,73 @@ func TestParseTakeoverAckRejectsOldFormat(t *testing.T) {
 	}
 }
 
+func TestFindTakeoverAck(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		chunks   []string
+		fallback string
+		want     string
+		ok       bool
+	}{
+		{
+			name:     "session ack",
+			chunks:   []string{FormatTakeoverAck("default@host")},
+			fallback: "ignored",
+			want:     "default@host",
+			ok:       true,
+		},
+		{
+			name:     "split session ack",
+			chunks:   []string{"noise \x1b]999;amux-take", "over-ack;default@host\x07"},
+			fallback: "ignored",
+			want:     "default@host",
+			ok:       true,
+		},
+		{
+			name:     "session ack with trailing newline",
+			chunks:   []string{FormatTakeoverAck("default@host") + "\n"},
+			fallback: "ignored",
+			want:     "default@host",
+			ok:       true,
+		},
+		{
+			name:     "legacy ack uses fallback session",
+			chunks:   []string{"prefix " + TakeoverAck + "\n"},
+			fallback: "default@legacy-host",
+			want:     "default@legacy-host",
+			ok:       true,
+		},
+		{
+			name:     "incomplete ack",
+			chunks:   []string{"\x1b]999;amux-takeover-ack;default@host"},
+			fallback: "ignored",
+			want:     "",
+			ok:       false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var buf []byte
+			for _, chunk := range tt.chunks {
+				buf = append(buf, chunk...)
+			}
+
+			got, ok := FindTakeoverAck(buf, tt.fallback)
+			if ok != tt.ok {
+				t.Fatalf("FindTakeoverAck(...)=(_, %v), want %v", ok, tt.ok)
+			}
+			if got != tt.want {
+				t.Fatalf("FindTakeoverAck(...) = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestTakeoverRequestSSHFields(t *testing.T) {
 	t.Parallel()
 	// Verify SSHAddress and SSHUser are carried through JSON round-trip

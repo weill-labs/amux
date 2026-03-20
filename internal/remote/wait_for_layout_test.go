@@ -9,6 +9,26 @@ import (
 	"github.com/weill-labs/amux/internal/proto"
 )
 
+func testLayoutSnapshot() *proto.LayoutSnapshot {
+	return &proto.LayoutSnapshot{
+		ActivePaneID:   1,
+		ActiveWindowID: 1,
+		Panes: []proto.PaneSnapshot{
+			{ID: 1, Name: "pane-1"},
+		},
+		Windows: []proto.WindowSnapshot{
+			{
+				ID:           1,
+				Name:         "window-1",
+				ActivePaneID: 1,
+				Panes: []proto.PaneSnapshot{
+					{ID: 1, Name: "pane-1"},
+				},
+			},
+		},
+	}
+}
+
 func TestWaitForLayout(t *testing.T) {
 	t.Parallel()
 
@@ -19,7 +39,7 @@ func TestWaitForLayout(t *testing.T) {
 		defer client.Close()
 
 		go func() {
-			proto.WriteMsg(server, &proto.Message{Type: proto.MsgTypeLayout})
+			proto.WriteMsg(server, &proto.Message{Type: proto.MsgTypeLayout, Layout: testLayoutSnapshot()})
 		}()
 
 		if err := waitForLayout(client, 5*time.Second); err != nil {
@@ -35,7 +55,23 @@ func TestWaitForLayout(t *testing.T) {
 
 		go func() {
 			proto.WriteMsg(server, &proto.Message{Type: proto.MsgTypePaneOutput, PaneID: 1, PaneData: []byte("hello")})
+			proto.WriteMsg(server, &proto.Message{Type: proto.MsgTypeLayout, Layout: testLayoutSnapshot()})
+		}()
+
+		if err := waitForLayout(client, 5*time.Second); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("skips unusable layout messages", func(t *testing.T) {
+		t.Parallel()
+		server, client := net.Pipe()
+		defer server.Close()
+		defer client.Close()
+
+		go func() {
 			proto.WriteMsg(server, &proto.Message{Type: proto.MsgTypeLayout})
+			proto.WriteMsg(server, &proto.Message{Type: proto.MsgTypeLayout, Layout: testLayoutSnapshot()})
 		}()
 
 		if err := waitForLayout(client, 5*time.Second); err != nil {
@@ -84,7 +120,7 @@ func TestAttachAndWait(t *testing.T) {
 				return
 			}
 			// Reply with layout
-			proto.WriteMsg(server, &proto.Message{Type: proto.MsgTypeLayout})
+			proto.WriteMsg(server, &proto.Message{Type: proto.MsgTypeLayout, Layout: testLayoutSnapshot()})
 		}()
 
 		if err := attachAndWait(client, "test-session", 5*time.Second); err != nil {
@@ -115,6 +151,26 @@ func TestAttachAndWait(t *testing.T) {
 		go func() {
 			// Read the attach, then close without sending layout
 			proto.ReadMsg(server)
+			server.Close()
+		}()
+
+		err := attachAndWait(client, "test-session", 5*time.Second)
+		if err == nil {
+			t.Fatal("expected error")
+		}
+		if !strings.Contains(err.Error(), "waiting for remote layout") {
+			t.Fatalf("expected layout error, got: %v", err)
+		}
+	})
+
+	t.Run("returns error when only unusable layout arrives", func(t *testing.T) {
+		t.Parallel()
+		server, client := net.Pipe()
+		defer client.Close()
+
+		go func() {
+			proto.ReadMsg(server)
+			proto.WriteMsg(server, &proto.Message{Type: proto.MsgTypeLayout})
 			server.Close()
 		}()
 
