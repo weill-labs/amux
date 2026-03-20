@@ -9,6 +9,7 @@ type LayoutSnapshot struct {
 	SessionName  string         `json:"session_name"`
 	ActivePaneID uint32         `json:"active_pane_id"`
 	ZoomedPaneID uint32         `json:"zoomed_pane_id"`
+	Notice       string         `json:"notice,omitempty"`
 	Root         CellSnapshot   `json:"root"`
 	Panes        []PaneSnapshot `json:"panes"`
 	Width        int            `json:"width"`
@@ -66,6 +67,7 @@ type CaptureJSON struct {
 	Window  CaptureWindow `json:"window"`
 	Width   int           `json:"width"`
 	Height  int           `json:"height"`
+	Notice  string        `json:"notice,omitempty"`
 	Panes   []CapturePane `json:"panes"`
 	UI      *CaptureUI    `json:"ui,omitempty"`
 }

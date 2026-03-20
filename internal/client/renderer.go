@@ -21,18 +21,19 @@ import (
 // and raw pane output from the server, maintains local terminal emulators
 // per pane, and uses the compositor to produce ANSI output.
 type Renderer struct {
-	mu           sync.Mutex
-	emulators    map[uint32]mux.TerminalEmulator
-	paneInfo     map[uint32]proto.PaneSnapshot
-	layout       *mux.LayoutCell
-	activePaneID uint32
-	zoomedPaneID uint32
-	sessionName  string
-	compositor   *render.Compositor
-	width        int // full terminal width
-	height       int // full terminal height
-	windows      []proto.WindowSnapshot
-	activeWinID  uint32
+	mu            sync.Mutex
+	emulators     map[uint32]mux.TerminalEmulator
+	paneInfo      map[uint32]proto.PaneSnapshot
+	layout        *mux.LayoutCell
+	activePaneID  uint32
+	zoomedPaneID  uint32
+	sessionName   string
+	sessionNotice string
+	compositor    *render.Compositor
+	width         int // full terminal width
+	height        int // full terminal height
+	windows       []proto.WindowSnapshot
+	activeWinID   uint32
 
 	// OnPaneResize is called during HandleLayout for each non-minimized pane
 	// after its emulator is resized. The main package uses this to resize
@@ -78,6 +79,7 @@ func (r *Renderer) HandleLayout(snap *proto.LayoutSnapshot) bool {
 	oldFP := r.layoutFingerprint()
 
 	r.sessionName = snap.SessionName
+	r.sessionNotice = snap.Notice
 	r.activePaneID = snap.ActivePaneID
 	r.zoomedPaneID = snap.ZoomedPaneID
 
@@ -239,6 +241,7 @@ func (r *Renderer) RenderFullWithOverlay(paneLookup func(uint32) render.PaneData
 		root = mux.NewLeafByID(r.zoomedPaneID, 0, 0, r.width, r.compositor.LayoutHeight())
 	}
 	comp := r.compositor
+	overlay = r.mergeOverlayLocked(overlay)
 	r.mu.Unlock()
 
 	return comp.RenderFullWithOverlay(root, activePaneID, paneLookup, overlay, clearScreen...)
@@ -264,6 +267,7 @@ func (r *Renderer) RenderDiffWithOverlay(paneLookup func(uint32) render.PaneData
 		root = mux.NewLeafByID(r.zoomedPaneID, 0, 0, r.width, r.compositor.LayoutHeight())
 	}
 	comp := r.compositor
+	overlay = r.mergeOverlayLocked(overlay)
 	r.mu.Unlock()
 
 	return comp.RenderDiffWithOverlay(root, activePaneID, paneLookup, overlay)
@@ -280,7 +284,7 @@ func (r *Renderer) Capture(stripANSI bool) string {
 	}
 
 	root, activePaneID := r.captureRootLocked()
-	raw := r.compositor.RenderFull(root, activePaneID, r.paneLookupLocked, true)
+	raw := r.compositor.RenderFullWithOverlay(root, activePaneID, r.paneLookupLocked, r.mergeOverlayLocked(render.OverlayState{}), true)
 
 	if stripANSI {
 		return render.MaterializeGrid(raw, r.width, r.height)
@@ -308,7 +312,7 @@ func (r *Renderer) CaptureColorMap() string {
 	}
 
 	root, activePaneID := r.captureRootLocked()
-	raw := r.compositor.RenderFull(root, activePaneID, r.paneLookupLocked, true)
+	raw := r.compositor.RenderFullWithOverlay(root, activePaneID, r.paneLookupLocked, r.mergeOverlayLocked(render.OverlayState{}), true)
 	return render.ExtractColorMap(raw, r.width, r.height) + "\n"
 }
 
@@ -328,6 +332,7 @@ func (r *Renderer) CaptureJSON(agentStatus map[uint32]proto.PaneAgentStatus) str
 		Session: r.sessionName,
 		Width:   r.width,
 		Height:  r.height,
+		Notice:  r.sessionNotice,
 	}
 	for _, ws := range r.windows {
 		if ws.ID == r.activeWinID {
@@ -517,6 +522,13 @@ func (r *Renderer) paneLookupLocked(paneID uint32) render.PaneData {
 		return nil
 	}
 	return &PaneData{Emu: emu, Info: info}
+}
+
+func (r *Renderer) mergeOverlayLocked(overlay render.OverlayState) render.OverlayState {
+	if overlay.Message == "" {
+		overlay.Message = r.sessionNotice
+	}
+	return overlay
 }
 
 // HandleCaptureRequest processes capture args and returns a proto.Message

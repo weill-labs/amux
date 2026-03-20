@@ -25,7 +25,8 @@ type ServerHarness struct {
 	session  string
 	cmd      *exec.Cmd
 	home     string
-	coverDir string          // per-test GOCOVERDIR subdirectory (avoids coverage metadata races)
+	coverDir string // per-test GOCOVERDIR subdirectory (avoids coverage metadata races)
+	extraEnv []string
 	client   *headlessClient // attached headless client for capture
 }
 
@@ -63,7 +64,7 @@ func newServerHarnessWithConfig(tb testing.TB, cols, rows int, configContent str
 
 // newServerHarnessWithOptions is the shared constructor. When exitUnattached
 // is true the server self-terminates after all clients disconnect.
-func newServerHarnessWithOptions(tb testing.TB, cols, rows int, configContent string, exitUnattached bool) *ServerHarness {
+func newServerHarnessWithOptions(tb testing.TB, cols, rows int, configContent string, exitUnattached bool, extraEnv ...string) *ServerHarness {
 	tb.Helper()
 	var b [4]byte
 	rand.Read(b[:])
@@ -83,6 +84,7 @@ func newServerHarnessWithOptions(tb testing.TB, cols, rows int, configContent st
 	if exitUnattached {
 		env = append(env, "AMUX_EXIT_UNATTACHED=1")
 	}
+	env = append(env, extraEnv...)
 
 	// Write config to a temp file and pass via AMUX_CONFIG if provided.
 	if configContent != "" {
@@ -135,7 +137,7 @@ func newServerHarnessWithOptions(tb testing.TB, cols, rows int, configContent st
 		tb.Fatalf("server ready signal not received: err=%v, buf=%q", err, string(buf[:n]))
 	}
 
-	h := &ServerHarness{tb: tb, session: session, cmd: cmd, home: home, coverDir: coverDir}
+	h := &ServerHarness{tb: tb, session: session, cmd: cmd, home: home, coverDir: coverDir, extraEnv: append([]string(nil), extraEnv...)}
 	tb.Cleanup(h.cleanup)
 
 	// Attach a headless client — seeds the first pane and stays connected
@@ -191,6 +193,7 @@ func (h *ServerHarness) runCmd(args ...string) string {
 	if h.coverDir != "" {
 		env = upsertEnv(env, "GOCOVERDIR", h.coverDir)
 	}
+	env = append(env, h.extraEnv...)
 	cmd.Env = env
 	out, _ := cmd.CombinedOutput()
 	return string(out)

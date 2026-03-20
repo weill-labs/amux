@@ -83,6 +83,11 @@ type Session struct {
 	// Only accessed from the session event loop.
 	takenOverPanes map[uint32]bool
 
+	// Session notice — server-owned transient message shown in the global bar.
+	// Used for async failures such as SSH takeover attach errors.
+	notice      string
+	noticeToken uint64
+
 	// Capture forwarding — routes capture requests through the attached
 	// interactive client so the result reflects client-side emulator state.
 	// The event loop owns the single in-flight request and queued requests.

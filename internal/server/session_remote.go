@@ -97,6 +97,10 @@ func (s *Session) handleTakeover(srv *Server, sshPaneID uint32, req mux.Takeover
 			return commandMutationResult{}
 		})
 	}
+	failTakeover := func(err error) {
+		clearTakeoverPending()
+		s.showSessionNotice(formatTakeoverFailureNotice(start.hostname, req.SSHAddress, err))
+	}
 
 	// Send ack through the SSH PTY's stdin — carries the agreed session name
 	// so the remote amux starts its server at the right socket path.
@@ -114,6 +118,7 @@ func (s *Session) handleTakeover(srv *Server, sshPaneID uint32, req mux.Takeover
 		return takeoverLayout{cols: cell.W, cellH: cell.H}, nil
 	})
 	if err != nil {
+		failTakeover(err)
 		return
 	}
 
@@ -164,7 +169,11 @@ func (s *Session) handleTakeover(srv *Server, sshPaneID uint32, req mux.Takeover
 	// Delay deploy and visible splice until the attach is established so a
 	// failed or stale remote session never replaces the raw SSH pane.
 	if s.RemoteManager == nil || req.SSHAddress == "" {
-		clearTakeoverPending()
+		err := fmt.Errorf("missing SSH takeover connection details")
+		if s.RemoteManager == nil {
+			err = fmt.Errorf("remote manager unavailable")
+		}
+		failTakeover(err)
 		return
 	}
 
@@ -177,7 +186,7 @@ func (s *Session) handleTakeover(srv *Server, sshPaneID uint32, req mux.Takeover
 	); err != nil {
 		fmt.Fprintf(os.Stderr, "amux: takeover AttachForTakeover: %v\n", err)
 		removeRemoteMappings()
-		clearTakeoverPending()
+		failTakeover(err)
 		return
 	}
 	if needsInitialResize && len(proxyPanes) > 0 {
@@ -207,7 +216,7 @@ func (s *Session) handleTakeover(srv *Server, sshPaneID uint32, req mux.Takeover
 	})
 	if res.err != nil {
 		removeRemoteMappings()
-		clearTakeoverPending()
+		failTakeover(res.err)
 		return
 	}
 	if res.broadcastLayout {

@@ -548,6 +548,46 @@ func TestCommandFeedbackAppearsInDisplayCapture(t *testing.T) {
 	}
 }
 
+func TestSessionNoticeAppearsInDisplayCapture(t *testing.T) {
+	t.Parallel()
+
+	cr := buildTestRenderer(t)
+	snap := twoPane80x23()
+	snap.Notice = "takeover badhost (127.0.0.1:1): SSH dial 127.0.0.1:1"
+	cr.HandleLayout(snap)
+
+	if got := cr.RenderDiff(); got == "" {
+		t.Fatal("RenderDiff with session notice should produce output")
+	}
+
+	display := cr.CaptureDisplay()
+	if !strings.Contains(display, "takeover badhost") {
+		t.Fatalf("display capture should contain session notice, got:\n%s", display)
+	}
+}
+
+func TestCommandFeedbackOverridesSessionNotice(t *testing.T) {
+	t.Parallel()
+
+	cr := buildTestRenderer(t)
+	snap := twoPane80x23()
+	snap.Notice = "takeover badhost (127.0.0.1:1): SSH dial 127.0.0.1:1"
+	cr.HandleLayout(snap)
+	cr.ShowCommandError("cannot minimize: pane has no stacked siblings")
+
+	if got := cr.RenderDiff(); got == "" {
+		t.Fatal("RenderDiff with command feedback and session notice should produce output")
+	}
+
+	display := cr.CaptureDisplay()
+	if !strings.Contains(display, "cannot minimize: pane has no stacked siblings") {
+		t.Fatalf("display capture should contain command feedback, got:\n%s", display)
+	}
+	if strings.Contains(display, "takeover badhost") {
+		t.Fatalf("session notice should not override command feedback, got:\n%s", display)
+	}
+}
+
 func TestHandleLayoutClearsCommandFeedback(t *testing.T) {
 	t.Parallel()
 
