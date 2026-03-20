@@ -20,16 +20,11 @@ import (
 type ClientRenderer struct {
 	renderer *Renderer
 
-	mu           sync.Mutex
-	dirty        bool
-	baseHistory  map[uint32][]string
-	copyModes    map[uint32]*copymode.CopyMode // per-pane copy mode state (nil = not in copy mode)
-	displayPanes *displayPanesState
-	chooser      *chooserState
-	message      string
-	inputIdle    bool
-	copyBuffer   string
-	OnUIEvent    func(string)
+	mu          sync.Mutex
+	baseHistory map[uint32][]string
+	ui          clientUIState
+	copyBuffer  string
+	OnUIEvent   func(string)
 }
 
 // NewClientRenderer creates a client renderer for the given terminal dimensions.
@@ -37,13 +32,12 @@ func NewClientRenderer(width, height int) *ClientRenderer {
 	cr := &ClientRenderer{
 		renderer:    New(width, height),
 		baseHistory: make(map[uint32][]string),
-		copyModes:   make(map[uint32]*copymode.CopyMode),
-		inputIdle:   true,
+		ui:          newClientUIState(),
 	}
 	// Resize copy modes when the renderer resizes emulators during layout.
 	cr.renderer.OnPaneResize = func(paneID uint32, w, h int) {
 		cr.mu.Lock()
-		cm := cr.copyModes[paneID]
+		cm := cr.ui.copyModes[paneID]
 		cr.mu.Unlock()
 		if cm != nil {
 			cm.Resize(w, h)
@@ -56,8 +50,6 @@ func NewClientRenderer(width, height int) *ClientRenderer {
 // layout structure changed (panes moved/resized/added/removed).
 func (cr *ClientRenderer) HandleLayout(snap *proto.LayoutSnapshot) bool {
 	structureChanged := cr.renderer.HandleLayout(snap)
-	clearedDisplayPanes := false
-	clearedChooser := ""
 	validPanes := make(map[uint32]bool)
 	for _, ps := range snap.Panes {
 		validPanes[ps.ID] = true
@@ -68,28 +60,14 @@ func (cr *ClientRenderer) HandleLayout(snap *proto.LayoutSnapshot) bool {
 		}
 	}
 	cr.mu.Lock()
-	if structureChanged && cr.displayPanes != nil {
-		clearedDisplayPanes = true
-		cr.displayPanes = nil
-	}
-	if structureChanged && cr.chooser != nil {
-		clearedChooser = cr.chooser.mode.hiddenEvent()
-		cr.chooser = nil
-	}
 	for paneID := range cr.baseHistory {
 		if !validPanes[paneID] {
 			delete(cr.baseHistory, paneID)
 		}
 	}
-	cr.message = ""
-	cr.dirty = true
+	result := cr.ui.reduce(uiActionHandleLayout{structureChanged: structureChanged})
 	cr.mu.Unlock()
-	if clearedDisplayPanes {
-		cr.emitUIEvent(proto.UIEventDisplayPanesHidden)
-	}
-	if clearedChooser != "" {
-		cr.emitUIEvent(clearedChooser)
-	}
+	cr.emitUIEvents(result.uiEvents)
 	return structureChanged
 }
 
@@ -108,45 +86,30 @@ func (cr *ClientRenderer) emitUIEvent(name string) {
 	}
 }
 
+func (cr *ClientRenderer) emitUIEvents(names []string) {
+	for _, name := range names {
+		cr.emitUIEvent(name)
+	}
+}
+
 func (cr *ClientRenderer) captureUIState() *proto.CaptureUI {
 	cr.mu.Lock()
 	defer cr.mu.Unlock()
-
-	chooser := ""
-	if cr.chooser != nil {
-		chooser = string(cr.chooser.mode)
-	}
-	return &proto.CaptureUI{
-		CopyMode:     len(cr.copyModes) > 0,
-		DisplayPanes: cr.displayPanes != nil,
-		Chooser:      chooser,
-		InputIdle:    cr.inputIdle,
-	}
+	return cr.ui.captureUI()
 }
 
 func (cr *ClientRenderer) SetInputIdle(idle bool) {
 	cr.mu.Lock()
-	changed := cr.inputIdle != idle
-	cr.inputIdle = idle
+	result := cr.ui.reduce(uiActionSetInputIdle{idle: idle})
 	cr.mu.Unlock()
-	if !changed {
-		return
-	}
-	if idle {
-		cr.emitUIEvent(proto.UIEventInputIdle)
-		return
-	}
-	cr.emitUIEvent(proto.UIEventInputBusy)
+	cr.emitUIEvents(result.uiEvents)
 }
 
 // HandlePaneOutput feeds raw PTY data into a pane's local emulator.
 func (cr *ClientRenderer) HandlePaneOutput(paneID uint32, data []byte) {
 	cr.renderer.HandlePaneOutput(paneID, data)
 	cr.mu.Lock()
-	if cr.message != "" {
-		cr.message = ""
-	}
-	cr.dirty = true
+	cr.ui.reduce(uiActionPaneOutput{})
 	cr.mu.Unlock()
 }
 
@@ -156,7 +119,7 @@ func (cr *ClientRenderer) HandlePaneOutput(paneID uint32, data []byte) {
 // flicker during incremental updates like copy mode navigation.
 func (cr *ClientRenderer) Render(clearScreen ...bool) string {
 	cr.mu.Lock()
-	cr.dirty = false
+	cr.ui.markRendered()
 	cr.mu.Unlock()
 
 	return cr.renderer.RenderFullWithOverlay(cr.paneLookup(), cr.overlayState(), clearScreen...)
@@ -166,7 +129,7 @@ func (cr *ClientRenderer) Render(clearScreen ...bool) string {
 // This is the primary render path — no screen clearing, no flicker.
 func (cr *ClientRenderer) RenderDiff() string {
 	cr.mu.Lock()
-	cr.dirty = false
+	cr.ui.markRendered()
 	cr.mu.Unlock()
 
 	return cr.renderer.RenderDiffWithOverlay(cr.paneLookup(), cr.overlayState())
@@ -184,7 +147,7 @@ func (cr *ClientRenderer) paneLookup() func(uint32) render.PaneData {
 			return nil
 		}
 		cr.mu.Lock()
-		cm := cr.copyModes[paneID]
+		cm := cr.ui.copyModes[paneID]
 		cr.mu.Unlock()
 		return &clientPaneData{emu: emu, info: info, cm: cm}
 	}
@@ -200,32 +163,27 @@ func (cr *ClientRenderer) overlayState() render.OverlayState {
 
 func (cr *ClientRenderer) ShowPrefixMessage(msg string) {
 	cr.mu.Lock()
-	defer cr.mu.Unlock()
-	cr.message = msg
-	cr.dirty = true
+	cr.ui.reduce(uiActionSetMessage{message: msg})
+	cr.mu.Unlock()
 }
 
 func (cr *ClientRenderer) ClearPrefixMessage() {
 	cr.mu.Lock()
-	defer cr.mu.Unlock()
-	if cr.message == "" {
-		return
-	}
-	cr.message = ""
-	cr.dirty = true
+	cr.ui.reduce(uiActionClearMessage{})
+	cr.mu.Unlock()
 }
 
 func (cr *ClientRenderer) prefixMessage() string {
 	cr.mu.Lock()
 	defer cr.mu.Unlock()
-	return cr.message
+	return cr.ui.message
 }
 
 // IsDirty returns true if there is new data to render.
 func (cr *ClientRenderer) IsDirty() bool {
 	cr.mu.Lock()
 	defer cr.mu.Unlock()
-	return cr.dirty
+	return cr.ui.dirty
 }
 
 // Resize updates the client's terminal dimensions.
@@ -406,21 +364,17 @@ func (cr *ClientRenderer) ShowCommandError(text string) bool {
 		return false
 	}
 	cr.mu.Lock()
-	defer cr.mu.Unlock()
-	cr.message = text
-	cr.dirty = true
+	cr.ui.reduce(uiActionSetMessage{message: text})
+	cr.mu.Unlock()
 	return true
 }
 
 func (cr *ClientRenderer) ClearCommandFeedback() bool {
 	cr.mu.Lock()
-	defer cr.mu.Unlock()
-	if cr.message == "" {
-		return false
-	}
-	cr.message = ""
-	cr.dirty = true
-	return true
+	changed := cr.ui.message != ""
+	cr.ui.reduce(uiActionClearMessage{})
+	cr.mu.Unlock()
+	return changed
 }
 
 // EnterCopyMode enters copy mode for the given pane. Thread-safe.
@@ -430,31 +384,29 @@ func (cr *ClientRenderer) EnterCopyMode(paneID uint32) {
 		return
 	}
 	cr.mu.Lock()
-	wasActive := len(cr.copyModes) > 0
-	if cr.copyModes[paneID] != nil {
+	if cr.ui.copyModes[paneID] != nil {
 		cr.mu.Unlock()
 		return // already in copy mode
 	}
 	baseHistory := append([]string(nil), cr.baseHistory[paneID]...)
+	cr.mu.Unlock()
 	w, h := emu.Size()
 	_, curRow := emu.CursorPosition()
-	cr.copyModes[paneID] = copymode.New(&historyEmulator{
+	cm := copymode.New(&historyEmulator{
 		emu:         emu,
 		baseHistory: baseHistory,
 	}, w, h, curRow)
-	cr.dirty = true
-	nowActive := len(cr.copyModes) > 0
+	cr.mu.Lock()
+	result := cr.ui.reduce(uiActionEnterCopyMode{paneID: paneID, mode: cm})
 	cr.mu.Unlock()
-	if !wasActive && nowActive {
-		cr.emitUIEvent(proto.UIEventCopyModeShown)
-	}
+	cr.emitUIEvents(result.uiEvents)
 }
 
 // CopyModeForPane returns the copy mode for the given pane, or nil. Thread-safe.
 func (cr *ClientRenderer) CopyModeForPane(paneID uint32) *copymode.CopyMode {
 	cr.mu.Lock()
 	defer cr.mu.Unlock()
-	return cr.copyModes[paneID]
+	return cr.ui.copyModes[paneID]
 }
 
 // InCopyMode reports whether the pane is currently in copy mode. Thread-safe.
@@ -465,14 +417,9 @@ func (cr *ClientRenderer) InCopyMode(paneID uint32) bool {
 // ExitCopyMode exits copy mode for the given pane. Thread-safe.
 func (cr *ClientRenderer) ExitCopyMode(paneID uint32) {
 	cr.mu.Lock()
-	wasVisible := len(cr.copyModes) > 0
-	delete(cr.copyModes, paneID)
-	cr.dirty = true
-	nowVisible := len(cr.copyModes) > 0
+	result := cr.ui.reduce(uiActionExitCopyMode{paneID: paneID})
 	cr.mu.Unlock()
-	if wasVisible && !nowVisible {
-		cr.emitUIEvent(proto.UIEventCopyModeHidden)
-	}
+	cr.emitUIEvents(result.uiEvents)
 }
 
 // ActiveCopyMode returns the copy mode for the active pane, or nil. Thread-safe.
@@ -480,7 +427,7 @@ func (cr *ClientRenderer) ActiveCopyMode() *copymode.CopyMode {
 	activePaneID := cr.renderer.ActivePaneID()
 	cr.mu.Lock()
 	defer cr.mu.Unlock()
-	return cr.copyModes[activePaneID]
+	return cr.ui.copyModes[activePaneID]
 }
 
 // VisibleLayout returns the layout tree currently visible to the user.
@@ -512,7 +459,7 @@ func (cr *ClientRenderer) WheelScrollCopyMode(paneID uint32, lines int, up bool)
 		cr.ExitCopyMode(paneID)
 	case copymode.ActionRedraw:
 		cr.mu.Lock()
-		cr.dirty = true
+		cr.ui.dirty = true
 		cr.mu.Unlock()
 	}
 	return action
@@ -527,7 +474,7 @@ func (cr *ClientRenderer) CopyModeSetCursor(paneID uint32, col, row int) copymod
 	action := cm.SetCursor(col, row)
 	if action == copymode.ActionRedraw {
 		cr.mu.Lock()
-		cr.dirty = true
+		cr.ui.dirty = true
 		cr.mu.Unlock()
 	}
 	return action
@@ -542,7 +489,7 @@ func (cr *ClientRenderer) CopyModeStartSelection(paneID uint32) copymode.Action 
 	action := cm.StartSelection()
 	if action == copymode.ActionRedraw {
 		cr.mu.Lock()
-		cr.dirty = true
+		cr.ui.dirty = true
 		cr.mu.Unlock()
 	}
 	return action

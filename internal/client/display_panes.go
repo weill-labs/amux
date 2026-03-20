@@ -2,7 +2,6 @@ package client
 
 import (
 	"github.com/weill-labs/amux/internal/mux"
-	"github.com/weill-labs/amux/internal/proto"
 	"github.com/weill-labs/amux/internal/render"
 )
 
@@ -17,7 +16,7 @@ type displayPanesState struct {
 func (cr *ClientRenderer) DisplayPanesActive() bool {
 	cr.mu.Lock()
 	defer cr.mu.Unlock()
-	return cr.displayPanes != nil
+	return cr.ui.displayPanes != nil
 }
 
 // ShowDisplayPanes activates the pane overlay for the active layout.
@@ -48,28 +47,22 @@ func (cr *ClientRenderer) ShowDisplayPanes() bool {
 	}
 
 	cr.mu.Lock()
-	wasActive := cr.displayPanes != nil
-	cr.displayPanes = &displayPanesState{labels: labels, targets: targets}
-	cr.dirty = true
+	result := cr.ui.reduce(uiActionShowDisplayPanes{
+		displayPanes: &displayPanesState{labels: labels, targets: targets},
+	})
 	cr.mu.Unlock()
-	if !wasActive {
-		cr.emitUIEvent(proto.UIEventDisplayPanesShown)
-	}
+	cr.emitUIEvents(result.uiEvents)
 	return true
 }
 
 // HideDisplayPanes clears the pane overlay.
 func (cr *ClientRenderer) HideDisplayPanes() bool {
 	cr.mu.Lock()
-	if cr.displayPanes == nil {
-		cr.mu.Unlock()
-		return false
-	}
-	cr.displayPanes = nil
-	cr.dirty = true
+	changed := cr.ui.displayPanes != nil
+	result := cr.ui.reduce(uiActionHideDisplayPanes{})
 	cr.mu.Unlock()
-	cr.emitUIEvent(proto.UIEventDisplayPanesHidden)
-	return true
+	cr.emitUIEvents(result.uiEvents)
+	return changed
 }
 
 // ResolveDisplayPaneKey resolves a single key byte against the active pane
@@ -80,20 +73,20 @@ func (cr *ClientRenderer) ResolveDisplayPaneKey(b byte) (uint32, bool) {
 	}
 	cr.mu.Lock()
 	defer cr.mu.Unlock()
-	if cr.displayPanes == nil {
+	if cr.ui.displayPanes == nil {
 		return 0, false
 	}
-	paneID, ok := cr.displayPanes.targets[b]
+	paneID, ok := cr.ui.displayPanes.targets[b]
 	return paneID, ok
 }
 
 func (cr *ClientRenderer) overlayLabels() []render.PaneOverlayLabel {
 	cr.mu.Lock()
 	defer cr.mu.Unlock()
-	if cr.displayPanes == nil {
+	if cr.ui.displayPanes == nil {
 		return nil
 	}
-	labels := make([]render.PaneOverlayLabel, len(cr.displayPanes.labels))
-	copy(labels, cr.displayPanes.labels)
+	labels := make([]render.PaneOverlayLabel, len(cr.ui.displayPanes.labels))
+	copy(labels, cr.ui.displayPanes.labels)
 	return labels
 }

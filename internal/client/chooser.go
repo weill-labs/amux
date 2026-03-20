@@ -73,7 +73,7 @@ func (m chooserMode) hiddenEvent() string {
 func (cr *ClientRenderer) ChooserActive() bool {
 	cr.mu.Lock()
 	defer cr.mu.Unlock()
-	return cr.chooser != nil
+	return cr.ui.chooser != nil
 }
 
 func (cr *ClientRenderer) ShowChooser(mode chooserMode) bool {
@@ -81,7 +81,6 @@ func (cr *ClientRenderer) ShowChooser(mode chooserMode) bool {
 	if len(windows) == 0 {
 		return false
 	}
-	cr.HideDisplayPanes()
 
 	state := &chooserState{
 		mode:        mode,
@@ -91,32 +90,19 @@ func (cr *ClientRenderer) ShowChooser(mode chooserMode) bool {
 	state.rebuild()
 
 	cr.mu.Lock()
-	previous := cr.chooser
-	cr.chooser = state
-	cr.dirty = true
+	result := cr.ui.reduce(uiActionShowChooser{chooser: state})
 	cr.mu.Unlock()
-
-	if previous == nil || previous.mode != mode {
-		if previous != nil {
-			cr.emitUIEvent(previous.mode.hiddenEvent())
-		}
-		cr.emitUIEvent(mode.shownEvent())
-	}
+	cr.emitUIEvents(result.uiEvents)
 	return true
 }
 
 func (cr *ClientRenderer) HideChooser() bool {
 	cr.mu.Lock()
-	if cr.chooser == nil {
-		cr.mu.Unlock()
-		return false
-	}
-	mode := cr.chooser.mode
-	cr.chooser = nil
-	cr.dirty = true
+	changed := cr.ui.chooser != nil
+	result := cr.ui.reduce(uiActionHideChooser{})
 	cr.mu.Unlock()
-	cr.emitUIEvent(mode.hiddenEvent())
-	return true
+	cr.emitUIEvents(result.uiEvents)
+	return changed
 }
 
 func (cr *ClientRenderer) HandleChooserInput(raw []byte) chooserCommand {
@@ -125,7 +111,7 @@ func (cr *ClientRenderer) HandleChooserInput(raw []byte) chooserCommand {
 	}
 
 	cr.mu.Lock()
-	state := cr.chooser
+	state := cr.ui.chooser
 	cr.mu.Unlock()
 	if state == nil {
 		return chooserCommand{}
@@ -156,7 +142,7 @@ func (cr *ClientRenderer) HandleChooserInput(raw []byte) chooserCommand {
 			result = cr.moveChooser(-1)
 		case b == 'q':
 			cr.mu.Lock()
-			queryEmpty := cr.chooser != nil && cr.chooser.query == ""
+			queryEmpty := cr.ui.chooser != nil && cr.ui.chooser.query == ""
 			cr.mu.Unlock()
 			if queryEmpty {
 				cr.HideChooser()
@@ -175,42 +161,42 @@ func (cr *ClientRenderer) HandleChooserInput(raw []byte) chooserCommand {
 func (cr *ClientRenderer) chooserOverlay() *render.ChooserOverlay {
 	cr.mu.Lock()
 	defer cr.mu.Unlock()
-	if cr.chooser == nil {
+	if cr.ui.chooser == nil {
 		return nil
 	}
-	rows := make([]render.ChooserOverlayRow, len(cr.chooser.rows))
-	for i, row := range cr.chooser.rows {
+	rows := make([]render.ChooserOverlayRow, len(cr.ui.chooser.rows))
+	for i, row := range cr.ui.chooser.rows {
 		rows[i] = render.ChooserOverlayRow{
 			Text:       row.text,
 			Selectable: row.selectable,
 		}
 	}
 	return &render.ChooserOverlay{
-		Title:    cr.chooser.mode.title(),
-		Query:    cr.chooser.query,
+		Title:    cr.ui.chooser.mode.title(),
+		Query:    cr.ui.chooser.query,
 		Rows:     rows,
-		Selected: cr.chooser.selected,
+		Selected: cr.ui.chooser.selected,
 	}
 }
 
 func (cr *ClientRenderer) moveChooser(delta int) chooserCommand {
 	cr.mu.Lock()
 	defer cr.mu.Unlock()
-	if cr.chooser == nil {
+	if cr.ui.chooser == nil {
 		return chooserCommand{}
 	}
-	next := cr.chooser.selected
-	for i := 0; i < len(cr.chooser.rows); i++ {
+	next := cr.ui.chooser.selected
+	for i := 0; i < len(cr.ui.chooser.rows); i++ {
 		next += delta
 		if next < 0 {
-			next = len(cr.chooser.rows) - 1
+			next = len(cr.ui.chooser.rows) - 1
 		}
-		if next >= len(cr.chooser.rows) {
+		if next >= len(cr.ui.chooser.rows) {
 			next = 0
 		}
-		if cr.chooser.rows[next].selectable {
-			cr.chooser.selected = next
-			cr.dirty = true
+		if cr.ui.chooser.rows[next].selectable {
+			cr.ui.chooser.selected = next
+			cr.ui.dirty = true
 			return chooserCommand{}
 		}
 	}
@@ -220,36 +206,34 @@ func (cr *ClientRenderer) moveChooser(delta int) chooserCommand {
 func (cr *ClientRenderer) editChooserQuery(backspace int, ch byte) {
 	cr.mu.Lock()
 	defer cr.mu.Unlock()
-	if cr.chooser == nil {
+	if cr.ui.chooser == nil {
 		return
 	}
 	if backspace < 0 {
-		if len(cr.chooser.query) > 0 {
-			cr.chooser.query = cr.chooser.query[:len(cr.chooser.query)-1]
+		if len(cr.ui.chooser.query) > 0 {
+			cr.ui.chooser.query = cr.ui.chooser.query[:len(cr.ui.chooser.query)-1]
 		}
 	} else if ch != 0 {
-		cr.chooser.query += string(ch)
+		cr.ui.chooser.query += string(ch)
 	}
-	cr.chooser.rebuild()
-	cr.dirty = true
+	cr.ui.chooser.rebuild()
+	cr.ui.dirty = true
 }
 
 func (cr *ClientRenderer) selectChooser() chooserCommand {
 	cr.mu.Lock()
-	if cr.chooser == nil || cr.chooser.selected < 0 || cr.chooser.selected >= len(cr.chooser.rows) {
+	if cr.ui.chooser == nil || cr.ui.chooser.selected < 0 || cr.ui.chooser.selected >= len(cr.ui.chooser.rows) {
 		cr.mu.Unlock()
 		return chooserCommand{bell: true}
 	}
-	row := cr.chooser.rows[cr.chooser.selected]
-	mode := cr.chooser.mode
+	row := cr.ui.chooser.rows[cr.ui.chooser.selected]
 	if !row.selectable {
 		cr.mu.Unlock()
 		return chooserCommand{bell: true}
 	}
-	cr.chooser = nil
-	cr.dirty = true
+	result := cr.ui.reduce(uiActionHideChooser{})
 	cr.mu.Unlock()
-	cr.emitUIEvent(mode.hiddenEvent())
+	cr.emitUIEvents(result.uiEvents)
 	return chooserCommand{command: row.command, args: row.args}
 }
 
