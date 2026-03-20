@@ -14,8 +14,6 @@ import (
 
 const remoteInstallPath = "$HOME/.local/bin/amux"
 
-type commandFactory func(name string, args ...string) *exec.Cmd
-
 // DeployBinary ensures the remote host has a matching amux binary.
 // Strategy:
 //  1. Remote hash matches local → skip (already up to date)
@@ -97,12 +95,12 @@ func parseUnameArch(unameSM string) (goos, goarch string, err error) {
 }
 
 func crossCompileAndUpload(client *ssh.Client, goos, goarch string) error {
-	return crossCompileAndUploadWith(client, goos, goarch, os.Executable, exec.Command)
+	return crossCompileAndUploadWith(client, goos, goarch, os.Executable)
 }
 
 // crossCompileAndUploadWith builds amux for the target OS/arch via `go build`
-// and uploads it using injectable dependencies for testing.
-func crossCompileAndUploadWith(client *ssh.Client, goos, goarch string, executablePath func() (string, error), makeCmd commandFactory) error {
+// and uploads it using an injectable executable-path lookup for testing.
+func crossCompileAndUploadWith(client *ssh.Client, goos, goarch string, executablePath func() (string, error)) error {
 	// Find the module root (where go.mod lives)
 	localExe, err := executablePath()
 	if err != nil {
@@ -121,7 +119,7 @@ func crossCompileAndUploadWith(client *ssh.Client, goos, goarch string, executab
 	tmpFile.Close()
 	defer os.Remove(tmpBin)
 
-	cmd := makeCmd("go", "build", "-o", tmpBin, ".")
+	cmd := exec.Command("go", "build", "-o", tmpBin, ".")
 	cmd.Dir = modRoot
 	cmd.Env = append(os.Environ(),
 		"GOOS="+goos,
@@ -150,12 +148,12 @@ func findModuleRoot(dir string) string {
 }
 
 func downloadReleaseBinary(client *ssh.Client, goos, goarch, version string) error {
-	return downloadReleaseBinaryWith(client, goos, goarch, version, releaseBinaryURL, exec.Command)
+	return downloadReleaseBinaryWith(client, goos, goarch, version, releaseBinaryURL)
 }
 
 // downloadReleaseBinaryWith downloads a pre-built binary from a release URL.
 // Tries remote curl first (fastest), falls back to local download + upload.
-func downloadReleaseBinaryWith(client *ssh.Client, goos, goarch, version string, releaseURL func(version, goos, goarch string) string, makeCmd commandFactory) error {
+func downloadReleaseBinaryWith(client *ssh.Client, goos, goarch, version string, releaseURL func(version, goos, goarch string) string) error {
 	archiveName := fmt.Sprintf("amux_%s_%s_%s.tar.gz", version, goos, goarch)
 	url := releaseURL(version, goos, goarch)
 
@@ -173,13 +171,13 @@ func downloadReleaseBinaryWith(client *ssh.Client, goos, goarch, version string,
 	defer os.RemoveAll(tmpDir)
 
 	archivePath := filepath.Join(tmpDir, archiveName)
-	dlCmd := makeCmd("curl", "-fsSL", url, "-o", archivePath)
+	dlCmd := exec.Command("curl", "-fsSL", url, "-o", archivePath)
 	if out, err := dlCmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("downloading release: %w: %s", err, out)
 	}
 
 	binPath := filepath.Join(tmpDir, "amux")
-	extractCmd := makeCmd("tar", "xzf", archivePath, "-C", tmpDir, "amux")
+	extractCmd := exec.Command("tar", "xzf", archivePath, "-C", tmpDir, "amux")
 	if out, err := extractCmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("extracting release: %w: %s", err, out)
 	}

@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"testing"
@@ -248,7 +247,6 @@ func TestCrossCompileAndUploadBuildsAndUploadsBinary(t *testing.T) {
 	targetOS, targetArch := testCrossCompileTarget()
 	err := crossCompileAndUploadWith(ts.Client, targetOS, targetArch,
 		func() (string, error) { return fakeExe, nil },
-		exec.Command,
 	)
 	if err != nil {
 		t.Fatalf("crossCompileAndUploadWith error: %v", err)
@@ -300,7 +298,6 @@ func TestDownloadReleaseBinaryInstallsRemoteArchive(t *testing.T) {
 		func(version, goos, goarch string) string {
 			return fmt.Sprintf("%s/downloads/v%s/amux_%s_%s_%s.tar.gz", server.URL, version, version, goos, goarch)
 		},
-		exec.Command,
 	)
 	if err != nil {
 		t.Fatalf("downloadReleaseBinaryWith error: %v", err)
