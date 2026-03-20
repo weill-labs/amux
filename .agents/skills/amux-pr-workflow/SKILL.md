@@ -10,6 +10,7 @@ Use this skill when the task involves `git push`, `gh pr create`, `gh pr merge`,
 ## Rules
 
 - Rebase onto `origin/main` before the first push: `git fetch origin main && git rebase origin/main`.
+- If `git fetch origin main` or `git pull` advances `origin/main` while a PR branch is open, refresh that branch onto `origin/main` before treating the PR as current again.
 - If the PR drifts after opening and you rebase or resolve conflicts, rerun the review pass and simplification pass on the rebased diff before calling the PR ready again.
 - In non-interactive sessions, prefer `GIT_EDITOR=true git rebase --continue` so rebase continuation does not stall in `vim`.
 - This repo is squash-only on GitHub. Use `gh pr merge --squash`; merge and rebase merges will fail.
@@ -17,6 +18,7 @@ Use this skill when the task involves `git push`, `gh pr create`, `gh pr merge`,
 - Prefer `gh pr create --body-file ...` for multiline PR descriptions, especially when they include backticks or code fences.
 - In `amux`, if the change is ready for review, open the PR proactively instead of asking whether to make one.
 - Do not present a PR as done until it has had both a review pass and a simplification pass.
+- If `codex review` or other external review tooling stalls, fall back to a manual diff review and say so explicitly.
 - If benchmarks changed, add a `Baseline numbers` section to the PR description with representative results and hardware.
 - If a rebase triggers broad noisy local failures, verify with a targeted regression slice before making invasive code changes.
 - After merge, verify local state explicitly: confirm the checkout is on `main`, the worktree is clean, and `HEAD` matches `origin/main`.
@@ -27,9 +29,9 @@ Use this skill when the task involves `git push`, `gh pr create`, `gh pr merge`,
 ## Workflow
 
 1. Confirm the relevant tests ran and note any gaps.
-2. If this is the first push for the branch, rebase onto `origin/main`.
+2. If this is the first push for the branch, rebase onto `origin/main`. If the PR is already open and a fetch/pull advanced `origin/main`, refresh the branch onto `origin/main` before continuing.
 3. Create or update the PR as soon as the branch is ready for review. Use `gh pr create --body-file ...` when the body is multiline.
-4. Run a review pass. Prefer `codex review` when available.
+4. Run a review pass. Prefer `codex review` when available, but if it stalls, do a manual diff review and state that explicitly.
 5. Run a simplification pass focused on unnecessary complexity and cleanup opportunities.
 6. If the branch had to be rebased or conflict-resolved after the PR was open, rerun both passes on that rebased diff before pushing again.
 7. If the change affects layout math or resize behavior, compare against tmux before adding new layout state or diverging from tmux semantics.
@@ -45,6 +47,7 @@ Use this skill when the task involves `git push`, `gh pr create`, `gh pr merge`,
 
 - Tests run, or an explicit testing gap is called out.
 - Rebase-before-first-push handled or explicitly not needed.
+- Open PR branches refreshed after any fetch/pull that advanced `origin/main`.
 - Review pass completed.
 - Simplification pass completed.
 - Review/simplification rerun after any post-open rebase or conflict resolution.
