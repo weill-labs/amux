@@ -53,7 +53,7 @@ Shipping v0.1.0 breaks the cycle and introduces real feedback.
 | # | Prerequisite | Owner | Depends on | Target |
 |---|-------------|-------|-----------|--------|
 | 1 | Merge PR #252 (v0.1.0 prep) | Agent | CI green | Day 1 |
-| 2 | Resolve open PRs (#283, #284, #285, #286 + any new) | Agents | Each PR's CI | Day 1-2 |
+| 2 | Resolve all open PRs (list shifts daily — check `gh pr list`) | Agents | Each PR's CI | Day 1-2 |
 | 3 | Flaky test stabilization | Agents (amux4, amux5, amux8) | — | Day 1-2 |
 | 4 | Create `weill-labs/homebrew-tap` repo + add `brews:` to `.goreleaser.yaml` | Agent | — | Day 2 |
 | 5 | Test full `brew install` flow end-to-end | Human | #4 | Day 2 |
