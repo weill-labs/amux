@@ -51,6 +51,23 @@ func TestClientUIStateReduceSetInputIdleEmitsOnlyOnChange(t *testing.T) {
 	assertUIEvents(t, effects.uiEvents, []string{proto.UIEventInputIdle})
 }
 
+func TestClientUIStateReducePaneOutputPreservesMessage(t *testing.T) {
+	t.Parallel()
+
+	st := newClientUIState()
+	st.message = "cannot minimize"
+
+	effects := st.reduce(uiActionPaneOutput{})
+
+	if st.message != "cannot minimize" {
+		t.Fatalf("message = %q, want preserved command feedback", st.message)
+	}
+	if !st.dirty {
+		t.Fatal("pane output should mark state dirty")
+	}
+	assertUIEvents(t, effects.uiEvents, nil)
+}
+
 func TestClientUIStateReduceShowChooserHidesDisplayPanesAndEmitsTransitions(t *testing.T) {
 	t.Parallel()
 

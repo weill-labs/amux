@@ -378,6 +378,9 @@ func TestEnqueueUIWaitSubscribeAvoidsStaleSnapshotGap(t *testing.T) {
 	if stale.currentMatch {
 		t.Fatal("stale hidden snapshot matched while copy mode was still shown")
 	}
+	if stale.currentGen != 0 {
+		t.Fatalf("stale currentGen = %d, want 0 before UI changes", stale.currentGen)
+	}
 
 	sess.enqueueUIEvent(cc, proto.UIEventCopyModeHidden)
 	waitUntil(t, func() bool {
@@ -408,6 +411,9 @@ func TestEnqueueUIWaitSubscribeAvoidsStaleSnapshotGap(t *testing.T) {
 	if !atomicSub.currentMatch {
 		t.Fatal("atomic subscribe should see the already-hidden state")
 	}
+	if atomicSub.currentGen != 1 {
+		t.Fatalf("atomic currentGen = %d, want 1 after hide", atomicSub.currentGen)
+	}
 
 	sess.enqueueUIEvent(cc, proto.UIEventCopyModeShown)
 	waitUntil(t, func() bool {
@@ -424,6 +430,9 @@ func TestEnqueueUIWaitSubscribeAvoidsStaleSnapshotGap(t *testing.T) {
 	if futureSub.currentMatch {
 		t.Fatal("hidden state should not match while copy mode is shown")
 	}
+	if futureSub.currentGen != 2 {
+		t.Fatalf("future currentGen = %d, want 2 after show", futureSub.currentGen)
+	}
 
 	sess.enqueueUIEvent(cc, proto.UIEventCopyModeHidden)
 	select {
@@ -437,6 +446,31 @@ func TestEnqueueUIWaitSubscribeAvoidsStaleSnapshotGap(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("atomic subscribe did not receive future hidden event")
+	}
+}
+
+func TestUIEventCmdIncrementsClientGenerationOnlyOnRealChanges(t *testing.T) {
+	t.Parallel()
+
+	sess := newSession("test-ui-event-generation")
+	stopCrashCheckpointLoop(t, sess)
+	defer stopSessionBackgroundLoops(t, sess)
+
+	cc := &ClientConn{ID: "client-1", inputIdle: true}
+
+	uiEventCmd{cc: cc, uiEvent: proto.UIEventInputBusy}.handle(sess)
+	if cc.uiGeneration != 1 {
+		t.Fatalf("uiGeneration after first busy = %d, want 1", cc.uiGeneration)
+	}
+
+	uiEventCmd{cc: cc, uiEvent: proto.UIEventInputBusy}.handle(sess)
+	if cc.uiGeneration != 1 {
+		t.Fatalf("uiGeneration after duplicate busy = %d, want 1", cc.uiGeneration)
+	}
+
+	uiEventCmd{cc: cc, uiEvent: proto.UIEventInputIdle}.handle(sess)
+	if cc.uiGeneration != 2 {
+		t.Fatalf("uiGeneration after idle = %d, want 2", cc.uiGeneration)
 	}
 }
 

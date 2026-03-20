@@ -265,17 +265,25 @@ func RunSession(sessionName string) error {
 					io.WriteString(os.Stdout, data)
 				}
 			}
+			clearPrefixMessage := func() {
+				if !cr.ClearPrefixMessage() {
+					return
+				}
+				if data := cr.RenderDiff(); data != "" {
+					io.WriteString(os.Stdout, data)
+				}
+			}
 
 			// Pressing the prefix key again sends the literal prefix byte
 			if b == kb.Prefix {
-				cr.ClearPrefixMessage()
+				clearPrefixMessage()
 				*forward = append(*forward, kb.Prefix)
 				return false
 			}
 
 			// Look up binding in dispatch table
 			if binding, ok := kb.Bindings[b]; ok {
-				cr.ClearPrefixMessage()
+				clearPrefixMessage()
 				switch binding.Action {
 				case "detach":
 					if len(*forward) > 0 {

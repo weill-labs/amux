@@ -374,6 +374,7 @@ type uiWaitSubscription struct {
 	sub          *eventSub
 	clientID     string
 	currentMatch bool
+	currentGen   uint64
 }
 
 type uiWaitSubscribeResult struct {
@@ -426,6 +427,7 @@ func (e uiWaitSubscribeCmd) handle(s *Session) {
 		sub:          sub,
 		clientID:     client.clientID,
 		currentMatch: client.currentMatch,
+		currentGen:   client.currentGen,
 	}}
 }
 
@@ -488,6 +490,7 @@ func (e uiEventCmd) handle(s *Session) {
 		return
 	}
 	if changed {
+		e.cc.uiGeneration++
 		s.emitEvent(Event{Type: e.uiEvent, ClientID: clientID})
 	}
 }

@@ -69,13 +69,8 @@ func (st *clientUIState) reduce(action any) clientUIResult {
 	case uiActionSetInputIdle:
 		return st.reduceSetInputIdle(action)
 	case uiActionPaneOutput:
-		if st.message == "" {
-			st.dirty = true
-			return clientUIResult{}
-		}
-		st.message = ""
 		st.dirty = true
-		return clientUIResult{uiEvents: []string{proto.UIEventPrefixMessageHidden}}
+		return clientUIResult{}
 	case uiActionSetMessage:
 		wasVisible := st.message != ""
 		st.message = action.message

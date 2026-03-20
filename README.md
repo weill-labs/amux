@@ -144,7 +144,8 @@ Block until a condition is met. No polling.
 | `wait-for <pane> <substring>` | Block until substring appears in pane content | 10s |
 | `wait-layout [--after N]` | Block until layout generation exceeds N | 3s |
 | `wait-clipboard [--after N]` | Block until clipboard content changes | 3s |
-| `wait-ui <event> [--client client-1]` | Block until a client-local UI state is reached | 5s |
+| `wait-ui <event> [--client client-1] [--after N]` | Block until a client-local UI state is reached | 5s |
+| `ui-gen [--client client-1]` | Show the current client UI generation counter | n/a |
 
 All accept `--timeout <duration>` (e.g., `--timeout 30s`).
 
@@ -258,7 +259,8 @@ All commands accept `-s <session>` to target a specific session. Panes are refer
 | `amux wait-for <pane> <substring> [--timeout 10s]` | Block until substring appears in pane |
 | `amux wait-layout [--after N] [--timeout 3s]` | Block until layout generation > N |
 | `amux wait-clipboard [--after N] [--timeout 3s]` | Block until clipboard content changes |
-| `amux wait-ui <event> [--client id] [--timeout 5s]` | Block until a client-local UI state is reached |
+| `amux wait-ui <event> [--client id] [--after N] [--timeout 5s]` | Block until a client-local UI state is reached |
+| `amux ui-gen [--client id]` | Show current client UI generation counter |
 | `amux generation` | Show current layout generation counter |
 | `amux events [--filter type,...] [--pane ref] [--host name] [--client id] [--throttle 50ms]` | Stream events as NDJSON (output throttled) |
 | `amux list-clients` | List attached clients and client-local UI state |

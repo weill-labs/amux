@@ -182,9 +182,16 @@ func (cr *ClientRenderer) ShowPrefixMessage(msg string) {
 	cr.emitUIEvents(result.uiEvents)
 }
 
-func (cr *ClientRenderer) ClearPrefixMessage() {
+func (cr *ClientRenderer) ClearPrefixMessage() bool {
+	cr.mu.Lock()
+	changed := cr.ui.message != ""
+	cr.mu.Unlock()
+	if !changed {
+		return false
+	}
 	result := cr.reduceUI(uiActionClearMessage{})
 	cr.emitUIEvents(result.uiEvents)
+	return true
 }
 
 func (cr *ClientRenderer) prefixMessage() string {

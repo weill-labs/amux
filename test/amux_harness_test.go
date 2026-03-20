@@ -20,6 +20,7 @@ import (
 //
 // Synchronization:
 //   - Layout changes: generation() + sendKeys() + waitLayout() (zero polling)
+//   - Client UI overlays: uiGen() + sendKeys() + waitUIAfter()
 //   - Shell output: waitFor(substr, timeout) via outer wait-for (blocking)
 //   - No time.Sleep for synchronization
 type AmuxHarness struct {
@@ -139,6 +140,16 @@ func (h *AmuxHarness) generation() uint64 {
 	return n
 }
 
+func (h *AmuxHarness) uiGen() uint64 {
+	h.tb.Helper()
+	out := strings.TrimSpace(h.runCmd("ui-gen"))
+	n, err := strconv.ParseUint(out, 10, 64)
+	if err != nil {
+		h.tb.Fatalf("parsing inner ui-gen: %v (output: %q)", err, out)
+	}
+	return n
+}
+
 // waitLayout blocks until the inner layout generation exceeds afterGen.
 func (h *AmuxHarness) waitLayout(afterGen uint64) {
 	h.tb.Helper()
@@ -170,6 +181,25 @@ func (h *AmuxHarness) waitUI(event string, timeout time.Duration) {
 	out := h.runCmd("wait-ui", event, "--timeout", timeout.String())
 	if strings.Contains(out, "timeout") {
 		h.tb.Fatalf("wait-ui %s timed out\nouter:\n%s", event, h.captureOuter())
+	}
+	if !strings.Contains(out, event) {
+		h.tb.Fatalf("wait-ui %s output = %q", event, out)
+	}
+}
+
+func (h *AmuxHarness) waitUIAfter(event string, afterGen uint64, timeout time.Duration) {
+	h.tb.Helper()
+	out := h.runCmd(
+		"wait-ui",
+		event,
+		"--after", strconv.FormatUint(afterGen, 10),
+		"--timeout", timeout.String(),
+	)
+	if strings.Contains(out, "timeout") {
+		h.tb.Fatalf("wait-ui %s --after %d timed out\nouter:\n%s", event, afterGen, h.captureOuter())
+	}
+	if !strings.Contains(out, event) {
+		h.tb.Fatalf("wait-ui %s --after %d output = %q", event, afterGen, out)
 	}
 }
 

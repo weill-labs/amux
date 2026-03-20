@@ -55,6 +55,7 @@ type uiClientSnapshot struct {
 	client       *ClientConn
 	clientID     string
 	currentMatch bool
+	currentGen   uint64
 }
 
 // resolveUIClientSnapshot must run on the session event loop. It resolves the
@@ -67,10 +68,15 @@ func (s *Session) resolveUIClientSnapshot(requestedClientID, eventName string) (
 	if requestedClientID != "" {
 		for _, cc := range s.clients {
 			if cc.ID == requestedClientID {
+				currentMatch := false
+				if eventName != "" {
+					currentMatch = cc.matchesUIEvent(eventName)
+				}
 				return uiClientSnapshot{
 					client:       cc,
 					clientID:     cc.ID,
-					currentMatch: cc.matchesUIEvent(eventName),
+					currentMatch: currentMatch,
+					currentGen:   cc.uiGeneration,
 				}, nil
 			}
 		}
@@ -78,10 +84,15 @@ func (s *Session) resolveUIClientSnapshot(requestedClientID, eventName string) (
 	}
 	if len(s.clients) == 1 {
 		cc := s.clients[0]
+		currentMatch := false
+		if eventName != "" {
+			currentMatch = cc.matchesUIEvent(eventName)
+		}
 		return uiClientSnapshot{
 			client:       cc,
 			clientID:     cc.ID,
-			currentMatch: cc.matchesUIEvent(eventName),
+			currentMatch: currentMatch,
+			currentGen:   cc.uiGeneration,
 		}, nil
 	}
 	ids := make([]string, 0, len(s.clients))
