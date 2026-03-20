@@ -183,7 +183,7 @@ func (s *Session) handleTakeover(srv *Server, sshPaneID uint32, req mux.Takeover
 		); err != nil {
 			fmt.Fprintf(os.Stderr, "amux: takeover AttachForTakeover: %v\n", err)
 		} else if needsInitialResize && len(proxyPanes) > 0 {
-			_ = s.RemoteManager.SendResize(proxyPanes[0].ID, cols, mux.PaneContentHeight(cellH))
+			_ = s.RemoteManager.SendResize(proxyPanes[0].ID, layout.cols, mux.PaneContentHeight(layout.cellH))
 		}
 	}
 }

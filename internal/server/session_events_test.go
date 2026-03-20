@@ -176,23 +176,82 @@ func TestEnsureInitialWindowCreatesPaneWithoutClient(t *testing.T) {
 	}
 
 	waitUntil(t, func() bool {
-		sess.mu.Lock()
-		defer sess.mu.Unlock()
-		return len(sess.Windows) == 1 && len(sess.Panes) == 1 && sess.ActiveWindow() != nil
+		return mustSessionQuery(t, sess, func(sess *Session) bool {
+			return len(sess.Windows) == 1 && len(sess.Panes) == 1 && sess.ActiveWindow() != nil
+		})
 	})
 
-	sess.mu.Lock()
-	pane := sess.Panes[0]
-	if sess.ActiveWindowID == 0 {
-		t.Fatal("active window id = 0, want non-zero")
-	}
+	pane := mustSessionQuery(t, sess, func(sess *Session) *mux.Pane {
+		if sess.ActiveWindowID == 0 {
+			t.Fatal("active window id = 0, want non-zero")
+		}
+		return sess.Panes[0]
+	})
 	if pane.Meta.Name != "pane-1" {
 		t.Fatalf("pane name = %q, want pane-1", pane.Meta.Name)
 	}
-	sess.mu.Unlock()
 
 	sess.shutdown.Store(true)
 	pane.Close()
+}
+
+func TestEnsureInitialWindowReturnsErrorWithoutSession(t *testing.T) {
+	t.Parallel()
+
+	srv := &Server{sessions: map[string]*Session{}}
+	if err := srv.EnsureInitialWindow(80, 24); err == nil || err.Error() != "no session" {
+		t.Fatalf("EnsureInitialWindow error = %v, want no session", err)
+	}
+}
+
+func TestEnsureInitialWindowIsNoOpWhenSessionAlreadyInitialized(t *testing.T) {
+	t.Parallel()
+
+	sess := newSession("test-managed-startup-noop")
+	srv := &Server{sessions: map[string]*Session{sess.Name: sess}}
+	defer stopSessionBackgroundLoops(t, sess)
+
+	if err := srv.EnsureInitialWindow(80, 24); err != nil {
+		t.Fatalf("first EnsureInitialWindow: %v", err)
+	}
+	if err := srv.EnsureInitialWindow(120, 40); err != nil {
+		t.Fatalf("second EnsureInitialWindow: %v", err)
+	}
+
+	pane := mustSessionQuery(t, sess, func(sess *Session) *mux.Pane {
+		if len(sess.Windows) != 1 {
+			t.Fatalf("window count = %d, want 1", len(sess.Windows))
+		}
+		if len(sess.Panes) != 1 {
+			t.Fatalf("pane count = %d, want 1", len(sess.Panes))
+		}
+		return sess.Panes[0]
+	})
+
+	sess.shutdown.Store(true)
+	pane.Close()
+}
+
+func TestEnsureInitialWindowReturnsPaneCreationError(t *testing.T) {
+	t.Setenv("SHELL", "/definitely/missing-shell")
+
+	sess := newSession("test-managed-startup-error")
+	srv := &Server{sessions: map[string]*Session{sess.Name: sess}}
+	defer stopSessionBackgroundLoops(t, sess)
+
+	if err := srv.EnsureInitialWindow(80, 24); err == nil {
+		t.Fatal("EnsureInitialWindow error = nil, want pane creation error")
+	}
+
+	mustSessionQuery(t, sess, func(sess *Session) struct{} {
+		if len(sess.Windows) != 0 {
+			t.Fatalf("window count = %d, want 0", len(sess.Windows))
+		}
+		if len(sess.Panes) != 0 {
+			t.Fatalf("pane count = %d, want 0", len(sess.Panes))
+		}
+		return struct{}{}
+	})
 }
 
 func TestEnqueueAttachClientReturnsOnSessionShutdown(t *testing.T) {
