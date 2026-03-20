@@ -126,6 +126,19 @@ func TestCapturePaneHistoryWithoutAttachedClient(t *testing.T) {
 	}
 }
 
+func TestCapturePaneHistoryRejectsInvalidFlags(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	if out := h.runCmd("capture", "--history", "--ansi", "pane-1"); !strings.Contains(out, "--history is mutually exclusive with --ansi, --colors, and --display") {
+		t.Fatalf("history capture with invalid flags should fail, got:\n%s", out)
+	}
+
+	if out := h.runCmd("capture", "--history"); !strings.Contains(out, "--history requires a pane target") {
+		t.Fatalf("history capture without pane should fail, got:\n%s", out)
+	}
+}
+
 func TestCapturePaneANSI(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)

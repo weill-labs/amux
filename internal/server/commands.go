@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	caputil "github.com/weill-labs/amux/internal/capture"
 	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/hooks"
 	"github.com/weill-labs/amux/internal/mux"
@@ -268,7 +269,7 @@ func cmdFocus(ctx *CommandContext) {
 }
 
 func cmdCapture(ctx *CommandContext) {
-	if parseCaptureArgs(ctx.Args).historyMode {
+	if caputil.ParseArgs(ctx.Args).HistoryMode {
 		ctx.CC.Send(ctx.Sess.captureHistory(ctx.CC, ctx.Args))
 		return
 	}
