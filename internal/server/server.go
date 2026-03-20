@@ -277,6 +277,10 @@ type Server struct {
 	sessions map[string]*Session
 	sockPath string
 	mu       sync.Mutex
+
+	// attachBootstrapHook is a test-only hook invoked after the initial
+	// attach replay is sent but before bootstrap flushes queued messages.
+	attachBootstrapHook func()
 }
 
 // firstSession returns any session from the map, or nil.
@@ -586,6 +590,9 @@ func (s *Server) handleAttach(conn net.Conn, msg *Message) {
 		}
 		cc.Send(&Message{Type: MsgTypePaneOutput, PaneID: ps.paneID, PaneData: ps.screen})
 		bootstrapSeqs[ps.paneID] = ps.outputSeq
+	}
+	if s.attachBootstrapHook != nil {
+		s.attachBootstrapHook()
 	}
 	cc.finishBootstrap(bootstrapSeqs)
 
