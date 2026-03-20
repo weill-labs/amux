@@ -127,7 +127,7 @@ func TestCursorBlockOnlyInActivePane(t *testing.T) {
 
 func TestCaptureIdleIndicator(t *testing.T) {
 	t.Parallel()
-	h := newServerHarness(t)
+	h := newServerHarnessPersistent(t)
 
 	// Split so pane-1 becomes inactive (pane-2 gets focus)
 	h.splitV()
