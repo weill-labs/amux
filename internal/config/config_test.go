@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/weill-labs/amux/internal/mux"
 )
 
 func TestLoadMissing(t *testing.T) {
@@ -174,5 +176,50 @@ type = "local"
 	h := cfg.Hosts["no-color-host"]
 	if h.Color == "" {
 		t.Error("expected auto-assigned color, got empty")
+	}
+}
+
+func TestLoadScrollbackLines(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	if err := os.WriteFile(path, []byte("scrollback_lines = 2048\n"), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if cfg.ScrollbackLines == nil || *cfg.ScrollbackLines != 2048 {
+		t.Fatalf("ScrollbackLines = %v, want 2048", cfg.ScrollbackLines)
+	}
+	if got := cfg.EffectiveScrollbackLines(); got != 2048 {
+		t.Fatalf("EffectiveScrollbackLines() = %d, want 2048", got)
+	}
+}
+
+func TestLoadRejectsZeroScrollbackLines(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	if err := os.WriteFile(path, []byte("scrollback_lines = 0\n"), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	if _, err := Load(path); err == nil {
+		t.Fatal("Load should reject scrollback_lines = 0")
+	}
+}
+
+func TestEffectiveScrollbackLinesDefaultsWhenUnset(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{}
+	if got := cfg.EffectiveScrollbackLines(); got != mux.DefaultScrollbackLines {
+		t.Fatalf("EffectiveScrollbackLines() = %d, want %d", got, mux.DefaultScrollbackLines)
 	}
 }
