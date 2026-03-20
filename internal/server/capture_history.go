@@ -4,53 +4,15 @@ import (
 	"encoding/json"
 	"strings"
 
+	caputil "github.com/weill-labs/amux/internal/capture"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
 )
 
-type captureHistoryArgs struct {
-	includeANSI bool
-	colorMap    bool
-	formatJSON  bool
-	displayMode bool
-	historyMode bool
-	paneRef     string
-}
-
-func parseCaptureArgs(args []string) captureHistoryArgs {
-	var req captureHistoryArgs
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--ansi":
-			req.includeANSI = true
-		case "--colors":
-			req.colorMap = true
-		case "--display":
-			req.displayMode = true
-		case "--history":
-			req.historyMode = true
-		case "--format":
-			if i+1 < len(args) && args[i+1] == "json" {
-				req.formatJSON = true
-				i++
-			}
-		default:
-			req.paneRef = args[i]
-		}
-	}
-	return req
-}
-
 func (s *Session) captureHistory(cc *ClientConn, args []string) *Message {
-	req := parseCaptureArgs(args)
-	if !req.historyMode {
-		return &Message{Type: MsgTypeCmdResult, CmdErr: "internal error: captureHistory called without --history"}
-	}
-	if req.includeANSI || req.colorMap || req.displayMode {
-		return &Message{Type: MsgTypeCmdResult, CmdErr: "--history is mutually exclusive with --ansi, --colors, and --display"}
-	}
-	if req.paneRef == "" {
-		return &Message{Type: MsgTypeCmdResult, CmdErr: "--history requires a pane target"}
+	req := caputil.ParseArgs(args)
+	if err := caputil.ValidateHistoryRequest(req); err != nil {
+		return &Message{Type: MsgTypeCmdResult, CmdErr: err.Error()}
 	}
 
 	type historySnapshot struct {
@@ -60,7 +22,7 @@ func (s *Session) captureHistory(cc *ClientConn, args []string) *Message {
 		zoomed   bool
 	}
 	snap, err := enqueueSessionQuery(s, func(s *Session) (historySnapshot, error) {
-		pane, w, err := cc.resolvePaneAcrossWindowsLocked(s, req.paneRef)
+		pane, w, err := cc.resolvePaneAcrossWindowsLocked(s, req.PaneRef)
 		if err != nil {
 			return historySnapshot{}, err
 		}
@@ -78,7 +40,7 @@ func (s *Session) captureHistory(cc *ClientConn, args []string) *Message {
 	pane := snap.pane
 	textSnap := pane.CaptureSnapshot()
 
-	capturePane := proto.CapturePane{
+	capturePane := caputil.BuildPane(caputil.PaneInput{
 		ID:         pane.ID,
 		Name:       pane.Meta.Name,
 		Active:     snap.active,
@@ -95,14 +57,13 @@ func (s *Session) captureHistory(cc *ClientConn, args []string) *Message {
 		},
 		Content: textSnap.Content,
 		History: textSnap.History,
-	}
+	}, s.captureAgentStatus([]*mux.Pane{pane}))
 	if !snap.inWindow {
 		capturePane.Active = false
 		capturePane.Zoomed = false
 	}
-	capturePane.ApplyAgentStatus(s.captureAgentStatus([]*mux.Pane{pane}))
 
-	if req.formatJSON {
+	if req.FormatJSON {
 		out, _ := json.MarshalIndent(capturePane, "", "  ")
 		return &Message{Type: MsgTypeCmdResult, CmdOutput: string(out) + "\n"}
 	}

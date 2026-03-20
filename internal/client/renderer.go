@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 
+	caputil "github.com/weill-labs/amux/internal/capture"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
 	"github.com/weill-labs/amux/internal/render"
@@ -484,7 +485,7 @@ func (r *Renderer) buildCapturePaneLocked(paneID uint32, agentStatus map[uint32]
 		return proto.CapturePane{}, false
 	}
 	col, row := emu.CursorPosition()
-	cp := proto.CapturePane{
+	cp := caputil.BuildPane(caputil.PaneInput{
 		ID:         info.ID,
 		Name:       info.Name,
 		Active:     info.ID == r.activePaneID,
@@ -500,8 +501,7 @@ func (r *Renderer) buildCapturePaneLocked(paneID uint32, agentStatus map[uint32]
 			Hidden: emu.CursorHidden(),
 		},
 		Content: mux.EmulatorContentLines(emu),
-	}
-	cp.ApplyAgentStatus(agentStatus)
+	}, agentStatus)
 	return cp, true
 }
 
@@ -523,36 +523,13 @@ func (r *Renderer) paneLookupLocked(paneID uint32) render.PaneData {
 // with the rendered output. This is the shared implementation used by both
 // the live client (main package) and the headless test client.
 func (r *Renderer) HandleCaptureRequest(args []string, agentStatus map[uint32]proto.PaneAgentStatus) *proto.Message {
-	var includeANSI, colorMap, formatJSON, displayMode bool
-	var paneRef string
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--ansi":
-			includeANSI = true
-		case "--colors":
-			colorMap = true
-		case "--display":
-			displayMode = true
-		case "--format":
-			if i+1 < len(args) && args[i+1] == "json" {
-				formatJSON = true
-				i++ // consume "json"
-			}
-		default:
-			paneRef = args[i]
-		}
-	}
-
-	if (includeANSI && colorMap) || (includeANSI && formatJSON) || (colorMap && formatJSON) {
+	req := caputil.ParseArgs(args)
+	if err := caputil.ValidateScreenRequest(req); err != nil {
 		return &proto.Message{Type: proto.MsgTypeCaptureResponse,
-			CmdErr: "--ansi, --colors, and --format json are mutually exclusive"}
+			CmdErr: err.Error()}
 	}
 
-	if displayMode {
-		if includeANSI || colorMap || formatJSON || paneRef != "" {
-			return &proto.Message{Type: proto.MsgTypeCaptureResponse,
-				CmdErr: "--display is mutually exclusive with other flags"}
-		}
+	if req.DisplayMode {
 		out := r.CaptureDisplay()
 		if out == "" {
 			out = "(no previous grid — diff renderer has not run yet)"
@@ -560,32 +537,32 @@ func (r *Renderer) HandleCaptureRequest(args []string, agentStatus map[uint32]pr
 		return &proto.Message{Type: proto.MsgTypeCaptureResponse, CmdOutput: out + "\n"}
 	}
 
-	if paneRef != "" {
-		if colorMap {
+	if req.PaneRef != "" {
+		if req.ColorMap {
 			return &proto.Message{Type: proto.MsgTypeCaptureResponse,
 				CmdErr: "--colors is only supported for full screen capture"}
 		}
-		paneID := r.ResolvePaneID(paneRef)
+		paneID := r.ResolvePaneID(req.PaneRef)
 		if paneID == 0 {
 			return &proto.Message{Type: proto.MsgTypeCaptureResponse,
-				CmdErr: fmt.Sprintf("pane %q not found", paneRef)}
+				CmdErr: fmt.Sprintf("pane %q not found", req.PaneRef)}
 		}
 		var out string
-		if formatJSON {
+		if req.FormatJSON {
 			out = r.CapturePaneJSON(paneID, agentStatus)
 		} else {
-			out = r.CapturePaneText(paneID, includeANSI)
+			out = r.CapturePaneText(paneID, req.IncludeANSI)
 		}
 		return &proto.Message{Type: proto.MsgTypeCaptureResponse, CmdOutput: out + "\n"}
 	}
 
 	var out string
-	if formatJSON {
+	if req.FormatJSON {
 		out = r.CaptureJSON(agentStatus) + "\n"
-	} else if colorMap {
+	} else if req.ColorMap {
 		out = r.CaptureColorMap()
 	} else {
-		out = r.Capture(!includeANSI)
+		out = r.Capture(!req.IncludeANSI)
 	}
 	return &proto.Message{Type: proto.MsgTypeCaptureResponse, CmdOutput: out}
 }
