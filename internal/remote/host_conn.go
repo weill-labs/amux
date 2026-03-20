@@ -202,7 +202,7 @@ func (hc *HostConn) doConnectWithAddr(sessionName, addr string) (*connectOutcome
 	}
 
 	// Ensure remote amux server is running
-	remoteSession := remoteSessionName(sessionName)
+	remoteSession := ManagedSessionName(sessionName)
 	sockPath := socketPath(remoteUID, remoteSession)
 	if err := ensureRemoteServer(sshClient, sockPath, remoteSession); err != nil {
 		sshClient.Close()
@@ -217,6 +217,11 @@ func (hc *HostConn) doConnectWithAddr(sessionName, addr string) (*connectOutcome
 	}
 
 	if err := attachAndWait(amuxConn, remoteSession, 10*time.Second); err != nil {
+		amuxConn.Close()
+		sshClient.Close()
+		return nil, err
+	}
+	if err := hc.validateRemoteSessionHasPanes(sshClient, sockPath, remoteSession); err != nil {
 		amuxConn.Close()
 		sshClient.Close()
 		return nil, err
@@ -259,6 +264,11 @@ func (hc *HostConn) doConnectTakeover(sessionName, remoteUID, sshAddr string) (*
 	}
 
 	if err := attachAndWait(amuxConn, sessionName, 10*time.Second); err != nil {
+		amuxConn.Close()
+		sshClient.Close()
+		return nil, err
+	}
+	if err := hc.validateRemoteSessionHasPanes(sshClient, remoteSock, sessionName); err != nil {
 		amuxConn.Close()
 		sshClient.Close()
 		return nil, err
@@ -380,7 +390,11 @@ func (hc *HostConn) runCommand(cmdName string, cmdArgs []string) (string, error)
 	}
 
 	remoteSock := socketPath(info.remoteUID, info.sessionName)
-	conn, err := hc.dialRemoteSocket(info.sshClient, remoteSock)
+	return hc.runSocketCommand(info.sshClient, remoteSock, cmdName, cmdArgs)
+}
+
+func (hc *HostConn) runSocketCommand(client *ssh.Client, sockPath, cmdName string, cmdArgs []string) (string, error) {
+	conn, err := hc.dialRemoteSocket(client, sockPath)
 	if err != nil {
 		return "", fmt.Errorf("dialing remote socket: %w", err)
 	}
@@ -402,6 +416,17 @@ func (hc *HostConn) runCommand(cmdName string, cmdArgs []string) (string, error)
 		return "", fmt.Errorf("%s", reply.CmdErr)
 	}
 	return reply.CmdOutput, nil
+}
+
+func (hc *HostConn) validateRemoteSessionHasPanes(client *ssh.Client, sockPath, sessionName string) error {
+	output, err := hc.runSocketCommand(client, sockPath, "list", nil)
+	if err != nil {
+		return fmt.Errorf("listing remote panes for %s: %w", sessionName, err)
+	}
+	if strings.TrimSpace(output) == "No panes." {
+		return fmt.Errorf("remote session %q has no panes", sessionName)
+	}
+	return nil
 }
 
 // readLoop reads messages from the persistent attach connection and dispatches
@@ -617,7 +642,7 @@ func socketPath(remoteUID, sessionName string) string {
 }
 
 // remoteSessionName returns the session name to use on the remote server.
-func remoteSessionName(localSessionName string) string {
+func ManagedSessionName(localSessionName string) string {
 	hostname, err := os.Hostname()
 	if err != nil {
 		hostname = "unknown"

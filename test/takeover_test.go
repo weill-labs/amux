@@ -1,11 +1,16 @@
 package test
 
 import (
+	"encoding/json"
 	"fmt"
 	"net"
+	"os"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/weill-labs/amux/internal/proto"
+	"github.com/weill-labs/amux/internal/server"
 )
 
 // TestTakeoverBidirectionalIO verifies the full SSH takeover I/O pipeline:
@@ -66,6 +71,27 @@ func TestTakeoverFromInteractiveSSHShell(t *testing.T) {
 	h.waitForTimeout(proxyPaneName, "TAKEOVER_SHELL_OK", "5s")
 }
 
+func TestTakeoverAttachFailureLeavesSSHPaneVisible(t *testing.T) {
+	t.Parallel()
+
+	h := newServerHarness(t)
+	h.sendKeys("pane-1",
+		`printf '\033]999;amux-takeover;{"session":"default@badhost","host":"badhost","uid":"1","ssh_address":"127.0.0.1:1","ssh_user":"nobody","panes":[{"id":1,"name":"pane-1","cols":80,"rows":22}]}\007'`,
+		"Enter",
+	)
+	h.waitIdle("pane-1")
+
+	list := h.runCmd("list")
+	if strings.Contains(list, "@badhost") {
+		t.Fatalf("failed takeover should not splice proxy panes\nlist:\n%s", list)
+	}
+
+	c := h.captureJSON()
+	if len(c.Panes) != 1 || c.Panes[0].Name != "pane-1" {
+		t.Fatalf("failed takeover should leave only the raw SSH pane\ncapture:\n%s", h.capture())
+	}
+}
+
 func TestTakeoverReconnectAfterRemoteReload(t *testing.T) {
 	t.Parallel()
 
@@ -94,45 +120,27 @@ func TestTakeoverReconnectAfterRemoteReload(t *testing.T) {
 
 // TestTakeoverAfterServerReload is a regression test for the bug where
 // NewServerFromCheckpoint didn't call SetOnTakeover on restored panes.
-// Without the fix, pane.onTakeover == nil after a reload, so the readLoop
-// silently ignores all SSH takeover sequences (OSC 999) instead of calling
-// handleTakeover.
+// Without the fix, an SSH takeover emitted after a reload is silently ignored
+// instead of invoking handleTakeover.
 func TestTakeoverAfterServerReload(t *testing.T) {
 	t.Parallel()
-	h := newServerHarness(t)
 
-	// Trigger a server hot-reload (checkpoint + syscall.Exec — same PID,
-	// new process image). The headless client connection drops on exec;
-	// the new server inherits the listener FD so connections are queued
-	// in the OS backlog immediately.
+	addr, keyFile := setupTestSSH(t)
+	h := newServerHarnessWithConfig(t, 80, 24, remoteTestConfig(addr, keyFile))
+
 	h.runCmd("reload-server")
+	_ = h.generation()
 
-	// Capture generation immediately after reload (new server starts at 0).
-	// h.generation() also validates the server is accepting connections —
-	// if it can't connect it calls t.Fatalf.
-	gen := h.generation()
+	existingProxyPanes := map[string]struct{}{}
+	_, port, _ := net.SplitHostPort(addr)
+	sshCmd := fmt.Sprintf(
+		"ssh -i %s -p %s -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null 127.0.0.1 amux",
+		keyFile, port)
+	h.sendKeys("pane-1", sshCmd, "Enter")
 
-	// Have pane-1 emit an SSH takeover sequence. In production, the remote
-	// amux binary prints this to its stdout (the SSH PTY); here the local
-	// shell does the same thing. The server's readLoop detects the OSC 999
-	// sequence and calls handleTakeover.
-	const hostname = "testhost"
-	h.sendKeys("pane-1",
-		`printf '\033]999;amux-takeover;{"session":"s","host":"testhost","uid":"1","panes":[{"id":1,"name":"pane-1","cols":80,"rows":22}]}\007'`,
-		"Enter")
-
-	// The idle→busy pane-activity transition calls broadcastLayout, and
-	// handleTakeover calls it again after splicing — so we may see multiple
-	// layout bumps before the takeover completes. Loop until the proxy pane
-	// appears or no more layout changes arrive.
-	for h.waitLayoutOrTimeout(gen, "5s") {
-		list := h.runCmd("list")
-		if strings.Contains(list, hostname) {
-			return // takeover fired correctly
-		}
-		gen = h.generation()
-	}
-	t.Errorf("takeover after reload: expected pane@%s in list output\n%s", hostname, h.runCmd("list"))
+	proxyPaneName := waitForTakeoverProxyPane(t, h, existingProxyPanes)
+	h.sendKeys(proxyPaneName, "echo TAKEOVER_AFTER_RELOAD_OK", "Enter")
+	h.waitForTimeout(proxyPaneName, "TAKEOVER_AFTER_RELOAD_OK", "5s")
 }
 
 func waitForTakeoverProxyPane(t *testing.T, h *ServerHarness, existing map[string]struct{}) string {
@@ -146,27 +154,51 @@ func waitForTakeoverProxyPane(t *testing.T, h *ServerHarness, existing map[strin
 		gen = h.generation()
 	}
 
+	logPath := fmt.Sprintf("%s/%s.log", server.SocketDir(), h.session)
+	logData, _ := os.ReadFile(logPath)
 	t.Fatalf("takeover proxy pane did not appear\nlist:\n%s\npane-1:\n%s",
-		h.runCmd("list"), h.runCmd("capture", "pane-1"))
+		h.runCmd("list"), h.runCmd("capture", "pane-1")+"\nserver log:\n"+string(logData))
 	return ""
 }
 
 func firstNewTakeoverProxyPane(h *ServerHarness, existing map[string]struct{}) string {
-	for _, p := range h.captureJSON().Panes {
-		if !strings.Contains(p.Name, "@") {
+	capture, ok := takeoverCaptureJSON(h)
+	if ok {
+		for _, p := range capture.Panes {
+			if !strings.Contains(p.Name, "@") {
+				continue
+			}
+			if _, ok := existing[p.Name]; ok {
+				continue
+			}
+			return p.Name
+		}
+	}
+
+	for _, line := range strings.Split(h.runCmd("list"), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
 			continue
 		}
-		if _, ok := existing[p.Name]; ok {
+		name := fields[1]
+		if !strings.Contains(name, "@") {
 			continue
 		}
-		return p.Name
+		if _, ok := existing[name]; ok {
+			continue
+		}
+		return name
 	}
 	return ""
 }
 
 func takeoverProxyPaneNames(h *ServerHarness) map[string]struct{} {
 	names := make(map[string]struct{})
-	for _, p := range h.captureJSON().Panes {
+	capture, ok := takeoverCaptureJSON(h)
+	if !ok {
+		return names
+	}
+	for _, p := range capture.Panes {
 		if strings.Contains(p.Name, "@") {
 			names[p.Name] = struct{}{}
 		}
@@ -180,10 +212,11 @@ func waitForPaneConnStatus(t *testing.T, h *ServerHarness, paneName, wantStatus,
 	deadline := time.Now().Add(parseTestDuration(t, timeout))
 	gen := h.generation()
 	for time.Now().Before(deadline) {
-		c := h.captureJSON()
-		for _, p := range c.Panes {
-			if p.Name == paneName && p.ConnStatus == wantStatus {
-				return
+		if c, ok := takeoverCaptureJSON(h); ok {
+			for _, p := range c.Panes {
+				if p.Name == paneName && p.ConnStatus == wantStatus {
+					return
+				}
 			}
 		}
 
@@ -198,6 +231,21 @@ func waitForPaneConnStatus(t *testing.T, h *ServerHarness, paneName, wantStatus,
 	}
 
 	t.Fatalf("pane %s did not reach conn_status=%s\ncapture:\n%s", paneName, wantStatus, h.capture())
+}
+
+func takeoverCaptureJSON(h *ServerHarness) (proto.CaptureJSON, bool) {
+	h.tb.Helper()
+
+	out := h.runCmd("capture", "--format", "json")
+	if strings.Contains(out, "no client attached") {
+		return proto.CaptureJSON{}, false
+	}
+
+	var capture proto.CaptureJSON
+	if err := json.Unmarshal([]byte(out), &capture); err != nil {
+		h.tb.Fatalf("captureJSON: %v\nraw: %s", err, out)
+	}
+	return capture, true
 }
 
 func parseTestDuration(t *testing.T, s string) time.Duration {

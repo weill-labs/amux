@@ -56,8 +56,9 @@ func (s *Session) takeoverCallback(srv *Server) func(paneID uint32, req mux.Take
 // It runs asynchronously (called via goroutine from the readLoop callback).
 func (s *Session) handleTakeover(srv *Server, sshPaneID uint32, req mux.TakeoverRequest) {
 	type takeoverStart struct {
-		sshPane  *mux.Pane
-		hostname string
+		sshPane        *mux.Pane
+		hostname       string
+		managedSession string
 	}
 	type takeoverLayout struct {
 		cols  int
@@ -81,15 +82,25 @@ func (s *Session) handleTakeover(srv *Server, sshPaneID uint32, req mux.Takeover
 		if hostname == "" {
 			hostname = "remote"
 		}
-		return takeoverStart{sshPane: sshPane, hostname: hostname}, nil
+		return takeoverStart{
+			sshPane:        sshPane,
+			hostname:       hostname,
+			managedSession: remote.ManagedSessionName(s.Name),
+		}, nil
 	})
 	if err != nil || start.sshPane == nil {
 		return
 	}
+	clearTakeoverPending := func() {
+		s.enqueueCommandMutation(func(s *Session) commandMutationResult {
+			delete(s.takenOverPanes, sshPaneID)
+			return commandMutationResult{}
+		})
+	}
 
 	// Send ack through the SSH PTY's stdin — carries the agreed session name
 	// so the remote amux starts its server at the right socket path.
-	start.sshPane.Write([]byte(mux.FormatTakeoverAck(req.Session) + "\n"))
+	start.sshPane.Write([]byte(mux.FormatTakeoverAck(start.managedSession) + "\n"))
 
 	layout, err := enqueueSessionQuery(s, func(s *Session) (takeoverLayout, error) {
 		w := s.FindWindowByPaneID(sshPaneID)
@@ -139,8 +150,42 @@ func (s *Session) handleTakeover(srv *Server, sshPaneID uint32, req mux.Takeover
 		)
 		proxyPanes = append(proxyPanes, proxyPane)
 	}
+	removeRemoteMappings := func() {
+		if s.RemoteManager == nil {
+			return
+		}
+		for _, pp := range proxyPanes {
+			s.RemoteManager.RemovePane(pp.ID)
+		}
+	}
 
-	// Splice the proxy panes into the layout, replacing the SSH pane
+	// Wire bidirectional I/O: connect back to the remote amux server via SSH
+	// and register pane mappings so SendInput/FeedOutput flow correctly.
+	// Delay deploy and visible splice until the attach is established so a
+	// failed or stale remote session never replaces the raw SSH pane.
+	if s.RemoteManager == nil || req.SSHAddress == "" {
+		clearTakeoverPending()
+		return
+	}
+
+	paneMappings := make(map[uint32]uint32, len(proxyPanes))
+	for i, pp := range proxyPanes {
+		paneMappings[pp.ID] = remotePanes[i].ID
+	}
+	if err := s.RemoteManager.AttachForTakeover(
+		start.hostname, req.SSHAddress, req.SSHUser, req.UID, start.managedSession, paneMappings,
+	); err != nil {
+		fmt.Fprintf(os.Stderr, "amux: takeover AttachForTakeover: %v\n", err)
+		removeRemoteMappings()
+		clearTakeoverPending()
+		return
+	}
+	if needsInitialResize && len(proxyPanes) > 0 {
+		_ = s.RemoteManager.SendResize(proxyPanes[0].ID, layout.cols, mux.PaneContentHeight(layout.cellH))
+	}
+
+	// Splice the proxy panes into the layout only after the remote attach has
+	// been validated. This keeps the raw SSH pane visible on takeover failure.
 	res := s.enqueueCommandMutation(func(s *Session) commandMutationResult {
 		w := s.FindWindowByPaneID(sshPaneID)
 		if w == nil {
@@ -161,32 +206,15 @@ func (s *Session) handleTakeover(srv *Server, sshPaneID uint32, req mux.Takeover
 		return commandMutationResult{broadcastLayout: true}
 	})
 	if res.err != nil {
+		removeRemoteMappings()
+		clearTakeoverPending()
 		return
 	}
 	if res.broadcastLayout {
 		s.broadcastLayout()
 	}
 
-	// Wire bidirectional I/O: connect back to the remote amux server via SSH
-	// and register pane mappings so SendInput/FeedOutput flow correctly.
-	// Delay deploy until the attach is established so the running managed
-	// session is not perturbed during its first client attach.
-	if s.RemoteManager != nil && req.SSHAddress != "" {
-		paneMappings := make(map[uint32]uint32, len(proxyPanes))
-		for i, pp := range proxyPanes {
-			paneMappings[pp.ID] = remotePanes[i].ID
-		}
-		if err := s.RemoteManager.AttachForTakeover(
-			start.hostname, req.SSHAddress, req.SSHUser, req.UID, req.Session, paneMappings,
-		); err != nil {
-			fmt.Fprintf(os.Stderr, "amux: takeover AttachForTakeover: %v\n", err)
-		} else {
-			if needsInitialResize && len(proxyPanes) > 0 {
-				_ = s.RemoteManager.SendResize(proxyPanes[0].ID, layout.cols, mux.PaneContentHeight(layout.cellH))
-			}
-			go s.RemoteManager.DeployToAddress(start.hostname, req.SSHAddress, req.SSHUser)
-		}
-	}
+	go s.RemoteManager.DeployToAddress(start.hostname, req.SSHAddress, req.SSHUser)
 }
 
 // forwardCapture sends a capture request to the first attached interactive
