@@ -149,7 +149,7 @@ Start pragmatic: `-count=5` for microbenchmarks, `-count=7` for integration benc
 
 ### Trend visualization
 
-`gobenchdata` generates a trend chart on GitHub Pages at `https://weill-labs.github.io/amux/`. Shows ns/op, B/op, and allocs/op over time for each microbenchmark.
+`gobenchdata` generates a trend chart on GitHub Pages at `https://weill-labs.github.io/amux/benchmarks/`. Shows ns/op, B/op, and allocs/op over time for each microbenchmark.
 
 ### Local workflow
 

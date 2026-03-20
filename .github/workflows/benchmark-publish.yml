@@ -24,6 +24,8 @@ jobs:
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - uses: actions/checkout@v6.0.2
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
 
       - name: Download benchmark artifact
         id: download
@@ -99,13 +101,33 @@ jobs:
         run: |
           set -euo pipefail
           data_dir="${{ steps.data.outputs.path }}"
+          history_dir="$data_dir/benchmarks"
+          history_file="$history_dir/benchmarks.json"
 
-          if [[ -f "$data_dir/benchmarks.json" ]]; then
-            gobenchdata merge "$data_dir/benchmarks.json" benchmark-results/bench-current.json --json "$data_dir/benchmarks-merged.json"
-            mv "$data_dir/benchmarks-merged.json" "$data_dir/benchmarks.json"
+          mkdir -p "$history_dir"
+
+          if [[ -f "$history_file" ]]; then
+            gobenchdata merge "$history_file" benchmark-results/bench-current.json --json "$history_dir/benchmarks-merged.json"
+            mv "$history_dir/benchmarks-merged.json" "$history_file"
+          elif [[ -f "$data_dir/benchmarks.json" ]]; then
+            gobenchdata merge "$data_dir/benchmarks.json" benchmark-results/bench-current.json --json "$history_dir/benchmarks-merged.json"
+            mv "$history_dir/benchmarks-merged.json" "$history_file"
           else
-            cp benchmark-results/bench-current.json "$data_dir/benchmarks.json"
+            cp benchmark-results/bench-current.json "$history_file"
           fi
+
+      - name: Configure GitHub Pages
+        if: steps.artifact.outputs.found == 'true'
+        id: pages
+        continue-on-error: true
+        uses: actions/configure-pages@v5
+
+      - name: Build project site
+        if: steps.artifact.outputs.found == 'true'
+        uses: actions/jekyll-build-pages@v1
+        with:
+          source: ./
+          destination: ./site-root
 
       - name: Sync dashboard files
         id: site
@@ -113,22 +135,24 @@ jobs:
         run: |
           set -euo pipefail
           data_dir="${{ steps.data.outputs.path }}"
-          site_dir=$(mktemp -d)
+          site_dir=site-root
 
-          cp docs/benchmark/index.html "$data_dir/index.html"
-          cp benchmark-results/benchmark-run.json "$data_dir/latest-run.json"
-          cp benchmark-results/bench-all.txt "$data_dir/bench-all.txt"
-          touch "$data_dir/.nojekyll"
+          mkdir -p "$data_dir/benchmarks" "$site_dir/benchmarks"
 
-          if [[ ! -f "$data_dir/benchmarks.json" ]]; then
-            echo '[]' > "$data_dir/benchmarks.json"
+          rm -f "$data_dir/index.html" "$data_dir/latest-run.json" "$data_dir/bench-all.txt" "$data_dir/benchmarks.json" "$data_dir/.nojekyll"
+
+          cp docs/benchmark/index.html "$data_dir/benchmarks/index.html"
+          cp benchmark-results/benchmark-run.json "$data_dir/benchmarks/latest-run.json"
+          cp benchmark-results/bench-all.txt "$data_dir/benchmarks/bench-all.txt"
+
+          if [[ ! -f "$data_dir/benchmarks/benchmarks.json" ]]; then
+            echo '[]' > "$data_dir/benchmarks/benchmarks.json"
           fi
 
-          cp "$data_dir/index.html" "$site_dir/index.html"
-          cp "$data_dir/latest-run.json" "$site_dir/latest-run.json"
-          cp "$data_dir/bench-all.txt" "$site_dir/bench-all.txt"
-          cp "$data_dir/benchmarks.json" "$site_dir/benchmarks.json"
-          cp "$data_dir/.nojekyll" "$site_dir/.nojekyll"
+          cp "$data_dir/benchmarks/index.html" "$site_dir/benchmarks/index.html"
+          cp "$data_dir/benchmarks/latest-run.json" "$site_dir/benchmarks/latest-run.json"
+          cp "$data_dir/benchmarks/bench-all.txt" "$site_dir/benchmarks/bench-all.txt"
+          cp "$data_dir/benchmarks/benchmarks.json" "$site_dir/benchmarks/benchmarks.json"
           echo "path=$site_dir" >> "$GITHUB_OUTPUT"
 
       - name: Commit benchmark data
@@ -139,7 +163,7 @@ jobs:
           set -euo pipefail
           data_dir="${{ steps.data.outputs.path }}"
 
-          git -C "$data_dir" add benchmarks.json latest-run.json bench-all.txt index.html .nojekyll
+          git -C "$data_dir" add -A .
           if git -C "$data_dir" diff --cached --quiet; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
             exit 0
@@ -148,12 +172,6 @@ jobs:
           git -C "$data_dir" commit -m "Update benchmark data for ${{ steps.manifest.outputs.head_sha }} [skip ci]"
           git -C "$data_dir" push origin HEAD:benchmark-data
           echo "changed=true" >> "$GITHUB_OUTPUT"
-
-      - name: Configure GitHub Pages
-        if: steps.artifact.outputs.found == 'true'
-        id: pages
-        continue-on-error: true
-        uses: actions/configure-pages@v5
 
       - name: Upload GitHub Pages artifact
         if: steps.artifact.outputs.found == 'true'
