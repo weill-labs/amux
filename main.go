@@ -422,8 +422,10 @@ func runServer(sessionName string, managedTakeover bool) {
 	// Load config for remote host definitions
 	cfg, cfgErr := config.Load(config.DefaultPath())
 	if cfgErr != nil {
+		fmt.Fprintf(os.Stderr, "amux server: loading config: %v\n", cfgErr)
 		cfg = &config.Config{Hosts: make(map[string]config.Host)}
 	}
+	scrollbackLines := cfg.EffectiveScrollbackLines()
 
 	// Check for checkpoint restore (after server hot-reload)
 	if cpPath := os.Getenv("AMUX_CHECKPOINT"); cpPath != "" {
@@ -433,7 +435,7 @@ func runServer(sessionName string, managedTakeover bool) {
 			fmt.Fprintf(os.Stderr, "amux server: reading checkpoint: %v\n", readErr)
 			os.Exit(1)
 		}
-		s, err = server.NewServerFromCheckpoint(cp)
+		s, err = server.NewServerFromCheckpointWithScrollback(cp, scrollbackLines)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "amux server: restoring from checkpoint: %v\n", err)
 			os.Exit(1)
@@ -444,21 +446,21 @@ func runServer(sessionName string, managedTakeover bool) {
 		if readErr != nil {
 			fmt.Fprintf(os.Stderr, "amux server: unreadable crash checkpoint, starting fresh: %v\n", readErr)
 			os.Remove(crashPath) // remove stale checkpoint to avoid warning on every startup
-			s, err = server.NewServer(sessionName)
+			s, err = server.NewServerWithScrollback(sessionName, scrollbackLines)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "amux server: %v\n", err)
 				os.Exit(1)
 			}
 		} else {
 			fmt.Fprintf(os.Stderr, "amux server: recovering crashed session %q\n", sessionName)
-			s, err = server.NewServerFromCrashCheckpoint(sessionName, crashCP)
+			s, err = server.NewServerFromCrashCheckpointWithScrollback(sessionName, crashCP, scrollbackLines)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "amux server: crash recovery: %v\n", err)
 				os.Exit(1)
 			}
 		}
 	} else {
-		s, err = server.NewServer(sessionName)
+		s, err = server.NewServerWithScrollback(sessionName, scrollbackLines)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "amux server: %v\n", err)
 			os.Exit(1)

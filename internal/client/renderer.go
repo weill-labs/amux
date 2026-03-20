@@ -21,19 +21,20 @@ import (
 // and raw pane output from the server, maintains local terminal emulators
 // per pane, and uses the compositor to produce ANSI output.
 type Renderer struct {
-	mu            sync.Mutex
-	emulators     map[uint32]mux.TerminalEmulator
-	paneInfo      map[uint32]proto.PaneSnapshot
-	layout        *mux.LayoutCell
-	activePaneID  uint32
-	zoomedPaneID  uint32
-	sessionName   string
-	sessionNotice string
-	compositor    *render.Compositor
-	width         int // full terminal width
-	height        int // full terminal height
-	windows       []proto.WindowSnapshot
-	activeWinID   uint32
+	mu              sync.Mutex
+	emulators       map[uint32]mux.TerminalEmulator
+	paneInfo        map[uint32]proto.PaneSnapshot
+	layout          *mux.LayoutCell
+	activePaneID    uint32
+	zoomedPaneID    uint32
+	sessionName     string
+	sessionNotice   string
+	compositor      *render.Compositor
+	width           int // full terminal width
+	height          int // full terminal height
+	windows         []proto.WindowSnapshot
+	activeWinID     uint32
+	scrollbackLines int
 
 	// OnPaneResize is called during HandleLayout for each non-minimized pane
 	// after its emulator is resized. The main package uses this to resize
@@ -43,12 +44,18 @@ type Renderer struct {
 
 // New creates a Renderer for the given terminal dimensions.
 func New(width, height int) *Renderer {
+	return NewWithScrollback(width, height, mux.DefaultScrollbackLines)
+}
+
+// NewWithScrollback creates a Renderer with an explicit retained scrollback limit.
+func NewWithScrollback(width, height, scrollbackLines int) *Renderer {
 	return &Renderer{
-		emulators:  make(map[uint32]mux.TerminalEmulator),
-		paneInfo:   make(map[uint32]proto.PaneSnapshot),
-		compositor: render.NewCompositor(width, height, ""),
-		width:      width,
-		height:     height,
+		emulators:       make(map[uint32]mux.TerminalEmulator),
+		paneInfo:        make(map[uint32]proto.PaneSnapshot),
+		compositor:      render.NewCompositor(width, height, ""),
+		width:           width,
+		height:          height,
+		scrollbackLines: scrollbackLines,
 	}
 }
 
@@ -117,7 +124,7 @@ func (r *Renderer) HandleLayout(snap *proto.LayoutSnapshot) bool {
 			} else {
 				w, h = proto.FindPaneDimensions(snap, activeRoot, ps.ID, mux.PaneContentHeight)
 			}
-			r.emulators[ps.ID] = mux.NewVTEmulatorWithDrain(w, h)
+			r.emulators[ps.ID] = mux.NewVTEmulatorWithDrainAndScrollback(w, h, r.scrollbackLines)
 		}
 	}
 

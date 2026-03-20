@@ -129,6 +129,12 @@ func (s *Server) Reload(execPath string) error {
 
 // NewServerFromCheckpoint restores a server from a checkpoint after exec.
 func NewServerFromCheckpoint(cp *checkpoint.ServerCheckpoint) (*Server, error) {
+	return NewServerFromCheckpointWithScrollback(cp, mux.DefaultScrollbackLines)
+}
+
+// NewServerFromCheckpointWithScrollback restores a server from a checkpoint
+// using an explicit retained scrollback limit for restored panes.
+func NewServerFromCheckpointWithScrollback(cp *checkpoint.ServerCheckpoint, scrollbackLines int) (*Server, error) {
 	// Reconstruct listener from inherited FD
 	listenerFile := os.NewFile(uintptr(cp.ListenerFd), "listener")
 	if listenerFile == nil {
@@ -140,7 +146,7 @@ func NewServerFromCheckpoint(cp *checkpoint.ServerCheckpoint) (*Server, error) {
 	}
 	listenerFile.Close() // FileListener dups the FD
 
-	sess := newSession(cp.SessionName)
+	sess := newSessionWithScrollback(cp.SessionName, scrollbackLines)
 	sess.counter.Store(cp.Counter)
 	sess.windowCounter.Store(cp.WindowCounter)
 	sess.generation.Store(cp.Generation)
@@ -165,7 +171,7 @@ func NewServerFromCheckpoint(cp *checkpoint.ServerCheckpoint) (*Server, error) {
 			// The remote manager will re-establish the SSH connection.
 			meta := pc.Meta
 			meta.Remote = string(remote.Reconnecting)
-			pane = mux.NewProxyPane(pc.ID, meta, pc.Cols, pc.Rows,
+			pane = mux.NewProxyPaneWithScrollback(pc.ID, meta, pc.Cols, pc.Rows, sess.scrollbackLines,
 				onOutput, onExit,
 				func(data []byte) (int, error) {
 					// writeOverride will be reconnected by the remote manager
@@ -177,7 +183,7 @@ func NewServerFromCheckpoint(cp *checkpoint.ServerCheckpoint) (*Server, error) {
 			)
 		} else {
 			var restoreErr error
-			pane, restoreErr = mux.RestorePane(pc.ID, pc.Meta, pc.PtmxFd, pc.PID, pc.Cols, pc.Rows,
+			pane, restoreErr = mux.RestorePaneWithScrollback(pc.ID, pc.Meta, pc.PtmxFd, pc.PID, pc.Cols, pc.Rows, sess.scrollbackLines,
 				onOutput, onExit,
 			)
 			if restoreErr != nil {

@@ -115,7 +115,8 @@ type Session struct {
 	// (last client disconnected, last pane exited). The event loop checks
 	// this after each event and triggers shutdown asynchronously — never
 	// from inside the handler, which would deadlock.
-	wantShutdown bool
+	wantShutdown    bool
+	scrollbackLines int
 }
 
 // buildCrashCheckpoint builds a crash checkpoint from the current session state.
@@ -313,7 +314,11 @@ func SocketPath(session string) string {
 
 // newSession creates a Session with all fields initialized.
 func newSession(name string) *Session {
-	sess := &Session{Name: name}
+	return newSessionWithScrollback(name, mux.DefaultScrollbackLines)
+}
+
+func newSessionWithScrollback(name string, scrollbackLines int) *Session {
+	sess := &Session{Name: name, scrollbackLines: scrollbackLines}
 	sess.Hooks = hooks.NewRegistry()
 	sess.idle = NewIdleTracker()
 	sess.takenOverPanes = make(map[uint32]bool)
@@ -327,6 +332,12 @@ func newSession(name string) *Session {
 
 // NewServer creates a new server listening on a Unix socket for the given session.
 func NewServer(sessionName string) (*Server, error) {
+	return NewServerWithScrollback(sessionName, mux.DefaultScrollbackLines)
+}
+
+// NewServerWithScrollback creates a new server with an explicit retained
+// scrollback limit for all panes in the session.
+func NewServerWithScrollback(sessionName string, scrollbackLines int) (*Server, error) {
 	sockDir := SocketDir()
 	if err := os.MkdirAll(sockDir, 0700); err != nil {
 		return nil, fmt.Errorf("creating socket dir: %w", err)
@@ -350,7 +361,7 @@ func NewServer(sessionName string) (*Server, error) {
 	}
 	os.Chmod(sockPath, 0700)
 
-	sess := newSession(sessionName)
+	sess := newSessionWithScrollback(sessionName, scrollbackLines)
 
 	s := &Server{
 		listener: listener,
@@ -367,6 +378,12 @@ func NewServer(sessionName string) (*Server, error) {
 // restored), and replays last-known screen content. Proxy panes are recreated
 // with "reconnecting" status.
 func NewServerFromCrashCheckpoint(sessionName string, cp *checkpoint.CrashCheckpoint) (*Server, error) {
+	return NewServerFromCrashCheckpointWithScrollback(sessionName, cp, mux.DefaultScrollbackLines)
+}
+
+// NewServerFromCrashCheckpointWithScrollback restores a server from a crash
+// checkpoint with an explicit retained scrollback limit.
+func NewServerFromCrashCheckpointWithScrollback(sessionName string, cp *checkpoint.CrashCheckpoint, scrollbackLines int) (*Server, error) {
 	sockDir := SocketDir()
 	if err := os.MkdirAll(sockDir, 0700); err != nil {
 		return nil, fmt.Errorf("creating socket dir: %w", err)
@@ -382,7 +399,7 @@ func NewServerFromCrashCheckpoint(sessionName string, cp *checkpoint.CrashCheckp
 	}
 	os.Chmod(sockPath, 0700)
 
-	sess := newSession(sessionName)
+	sess := newSessionWithScrollback(sessionName, scrollbackLines)
 	sess.counter.Store(cp.Counter)
 	sess.windowCounter.Store(cp.WindowCounter)
 	sess.generation.Store(cp.Generation)
@@ -407,7 +424,7 @@ func NewServerFromCrashCheckpoint(sessionName string, cp *checkpoint.CrashCheckp
 			// The remote manager will re-establish the SSH connection.
 			meta := ps.Meta
 			meta.Remote = string(remote.Reconnecting)
-			pane = mux.NewProxyPane(ps.ID, meta, ps.Cols, ps.Rows,
+			pane = mux.NewProxyPaneWithScrollback(ps.ID, meta, ps.Cols, ps.Rows, sess.scrollbackLines,
 				onOutput, onExit,
 				func(data []byte) (int, error) {
 					if sess.RemoteManager != nil {
@@ -421,7 +438,7 @@ func NewServerFromCrashCheckpoint(sessionName string, cp *checkpoint.CrashCheckp
 			meta := ps.Meta
 			meta.Dir = ps.Cwd // set cwd for the new shell
 			var newErr error
-			pane, newErr = mux.NewPane(ps.ID, meta, ps.Cols, ps.Rows, sessionName,
+			pane, newErr = mux.NewPaneWithScrollback(ps.ID, meta, ps.Cols, ps.Rows, sessionName, sess.scrollbackLines,
 				onOutput, onExit,
 			)
 			if newErr != nil {

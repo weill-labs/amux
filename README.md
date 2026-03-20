@@ -129,7 +129,7 @@ amux capture --history pane-1
 amux capture --history --format json pane-1
 ```
 
-`capture pane-1` returns the pane's current visible screen. `capture --history pane-1` returns the full browsable buffer for that pane: retained scrollback followed by the current screen. The JSON form keeps those separate as `history` and `content`. After crash recovery, `history` includes any archived pre-crash visible screen from panes whose foreground process was lost.
+`capture pane-1` returns the pane's current visible screen. `capture --history pane-1` returns the full browsable buffer for that pane: retained scrollback followed by the current screen. The JSON form keeps those separate as `history` and `content`. By default amux retains up to `10000` scrollback lines per pane; override that with `scrollback_lines` in `config.toml`. After crash recovery, `history` includes any archived pre-crash visible screen from panes whose foreground process was lost.
 
 Because retained history is server-owned, `capture --history` works after detach/reattach, after `reload-server`, and after crash recovery, and it does not require an attached interactive client. Copy mode remains per-client UI state over that shared history.
 
@@ -324,6 +324,12 @@ Default prefix: `Ctrl-a`. Configurable via `~/.config/amux/config.toml` (see [Co
 ## Configuration
 
 Config file: `~/.config/amux/config.toml` (or set `AMUX_CONFIG` env var).
+
+### Session
+
+```toml
+scrollback_lines = 10000   # optional: retained history per pane (default: 10000, must be >= 1)
+```
 
 ### Remote Hosts
 

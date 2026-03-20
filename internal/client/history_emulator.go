@@ -7,8 +7,9 @@ import (
 // historyEmulator presents retained server history plus post-attach emulator
 // scrollback as one scrollback source for client-local copy mode.
 type historyEmulator struct {
-	emu         mux.TerminalEmulator
-	baseHistory []string
+	emu             mux.TerminalEmulator
+	baseHistory     []string
+	scrollbackLines int
 }
 
 func (h *historyEmulator) Size() (width, height int) {
@@ -39,11 +40,15 @@ func (h *historyEmulator) ScrollbackLineText(y int) string {
 func (h *historyEmulator) starts() (baseStart, liveStart int) {
 	liveLen := h.emu.ScrollbackLen()
 	total := len(h.baseHistory) + liveLen
-	if total <= mux.DefaultScrollbackLines {
+	limit := h.scrollbackLines
+	if limit <= 0 {
+		limit = mux.DefaultScrollbackLines
+	}
+	if total <= limit {
 		return 0, 0
 	}
 
-	drop := total - mux.DefaultScrollbackLines
+	drop := total - limit
 	if drop >= len(h.baseHistory) {
 		return len(h.baseHistory), drop - len(h.baseHistory)
 	}

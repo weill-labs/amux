@@ -1529,7 +1529,7 @@ func cmdInjectProxy(ctx *CommandContext) {
 			Host:  hostName,
 			Color: config.CatppuccinMocha[0], // Rosewater
 		}
-		proxyPane := mux.NewProxyPane(id, meta, w.Width/2, mux.PaneContentHeight(w.Height),
+		proxyPane := mux.NewProxyPaneWithScrollback(id, meta, w.Width/2, mux.PaneContentHeight(w.Height), sess.scrollbackLines,
 			sess.paneOutputCallback(),
 			sess.paneExitCallback(),
 			func(data []byte) (int, error) { return len(data), nil },

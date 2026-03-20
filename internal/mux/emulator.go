@@ -80,6 +80,13 @@ type TerminalEmulator interface {
 // scrollback on both server and client emulators.
 const DefaultScrollbackLines = 10000
 
+func effectiveScrollbackLines(scrollbackLines int) int {
+	if scrollbackLines <= 0 {
+		return DefaultScrollbackLines
+	}
+	return scrollbackLines
+}
+
 // MouseTrackingMode is the pane's current application mouse-tracking mode.
 type MouseTrackingMode int
 
@@ -121,12 +128,18 @@ const (
 
 // NewVTEmulator creates a new terminal emulator with the given dimensions.
 func NewVTEmulator(width, height int) TerminalEmulator {
+	return NewVTEmulatorWithScrollback(width, height, DefaultScrollbackLines)
+}
+
+// NewVTEmulatorWithScrollback creates a terminal emulator with an explicit
+// retained scrollback limit.
+func NewVTEmulatorWithScrollback(width, height, scrollbackLines int) TerminalEmulator {
 	v := &vtEmulator{
 		emu: vt.NewSafeEmulator(width, height),
 		w:   width,
 		h:   height,
 	}
-	v.emu.SetScrollbackSize(DefaultScrollbackLines)
+	v.emu.SetScrollbackSize(effectiveScrollbackLines(scrollbackLines))
 	// Track cursor visibility changes so CursorHidden() reflects the
 	// application's actual cursor state (e.g. \033[?25l / \033[?25h).
 	v.emu.SetCallbacks(vt.Callbacks{
@@ -428,7 +441,13 @@ func (v *vtEmulator) HasCursorBlock() bool {
 // drains its own response pipe. Suitable for client-side emulators that
 // don't have a PTY to forward responses to.
 func NewVTEmulatorWithDrain(width, height int) TerminalEmulator {
-	emu := NewVTEmulator(width, height)
+	return NewVTEmulatorWithDrainAndScrollback(width, height, DefaultScrollbackLines)
+}
+
+// NewVTEmulatorWithDrainAndScrollback creates a self-draining emulator with
+// an explicit retained scrollback limit.
+func NewVTEmulatorWithDrainAndScrollback(width, height, scrollbackLines int) TerminalEmulator {
+	emu := NewVTEmulatorWithScrollback(width, height, scrollbackLines)
 	go func() {
 		buf := make([]byte, 1024)
 		for {

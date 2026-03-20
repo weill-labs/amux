@@ -100,7 +100,7 @@ func (s *Session) createPaneWithMeta(srv *Server, meta mux.PaneMeta, cols, rows 
 		meta.Color = config.CatppuccinMocha[(id-1)%uint32(len(config.CatppuccinMocha))]
 	}
 
-	pane, err := mux.NewPane(id, meta, cols, rows, s.Name,
+	pane, err := mux.NewPaneWithScrollback(id, meta, cols, rows, s.Name, s.scrollbackLines,
 		s.paneOutputCallback(),
 		s.paneExitCallback(),
 	)
@@ -132,7 +132,7 @@ func (s *Session) prepareRemotePane(srv *Server, hostName string, cols, rows int
 	}
 
 	// Create the proxy pane with a writeOverride that routes to the remote manager
-	pane := mux.NewProxyPane(id, meta, cols, rows,
+	pane := mux.NewProxyPaneWithScrollback(id, meta, cols, rows, s.scrollbackLines,
 		s.paneOutputCallback(),
 		s.paneExitCallback(),
 		func(data []byte) (int, error) {
