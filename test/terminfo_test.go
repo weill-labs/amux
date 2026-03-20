@@ -30,3 +30,33 @@ func TestInstallTerminfoCommand(t *testing.T) {
 		t.Fatalf("infocmp output missing amux entry:\n%s", out)
 	}
 }
+
+func TestInstallTerminfoCommandFailsWithoutTic(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	cmd := exec.Command(amuxBin, "install-terminfo")
+	cmd.Env = upsertEnv(upsertEnv(os.Environ(), "HOME", home), "PATH", t.TempDir())
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("install-terminfo unexpectedly succeeded:\n%s", out)
+	}
+	if !strings.Contains(string(out), "amux install-terminfo:") {
+		t.Fatalf("missing install-terminfo failure prefix:\n%s", out)
+	}
+}
+
+func TestServerBootstrapFailsWithoutTic(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	cmd := exec.Command(amuxBin, "_server", "terminfo-fail")
+	cmd.Env = upsertEnv(upsertEnv(os.Environ(), "HOME", home), "PATH", t.TempDir())
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("server bootstrap unexpectedly succeeded:\n%s", out)
+	}
+	if !strings.Contains(string(out), "amux server:") {
+		t.Fatalf("missing server bootstrap failure prefix:\n%s", out)
+	}
+}
