@@ -75,6 +75,30 @@ func threePane80x23() *proto.LayoutSnapshot {
 	}
 }
 
+func singlePane20x3() *proto.LayoutSnapshot {
+	root := proto.CellSnapshot{
+		X: 0, Y: 0, W: 20, H: 3,
+		IsLeaf: true, Dir: -1, PaneID: 1,
+	}
+	panes := []proto.PaneSnapshot{
+		{ID: 1, Name: "pane-1", Host: "local", Color: "f5e0dc"},
+	}
+	return &proto.LayoutSnapshot{
+		SessionName:  "test",
+		ActivePaneID: 1,
+		Width:        20,
+		Height:       3,
+		Root:         root,
+		Panes:        panes,
+		Windows: []proto.WindowSnapshot{{
+			ID: 1, Name: "window-1", Index: 1, ActivePaneID: 1,
+			Root:  root,
+			Panes: panes,
+		}},
+		ActiveWindowID: 1,
+	}
+}
+
 // buildTestRenderer creates a ClientRenderer with two panes in a vertical split.
 func buildTestRenderer(t *testing.T) *ClientRenderer {
 	t.Helper()
@@ -1189,6 +1213,31 @@ func TestClientRendererCopyModeUsesPaneHistory(t *testing.T) {
 	}
 	if got := cm.LineText(1); got != "old-2" {
 		t.Fatalf("LineText(1) = %q, want %q", got, "old-2")
+	}
+}
+
+func TestClientRendererCopyModeRespectsScrollbackLimitAfterHydration(t *testing.T) {
+	t.Parallel()
+
+	cr := NewClientRendererWithScrollback(20, 4, 2)
+	cr.HandleLayout(singlePane20x3())
+	cr.HandlePaneHistory(1, []string{"old-1", "old-2", "old-3"})
+	cr.HandlePaneOutput(1, []byte("cur-1\r\ncur-2\r\ncur-3\r\ncur-4"))
+
+	cr.EnterCopyMode(1)
+	cm := cr.CopyModeForPane(1)
+	if cm == nil {
+		t.Fatal("copy mode should exist for pane-1")
+	}
+	if got := cm.TotalLines(); got != 4 {
+		t.Fatalf("TotalLines() = %d, want 4", got)
+	}
+
+	want := []string{"cur-1", "cur-2", "cur-3", "cur-4"}
+	for i, wantLine := range want {
+		if got := cm.LineText(i); got != wantLine {
+			t.Fatalf("LineText(%d) = %q, want %q", i, got, wantLine)
+		}
 	}
 }
 

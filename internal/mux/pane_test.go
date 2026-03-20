@@ -81,3 +81,27 @@ func TestCaptureSnapshotIncludesHistoryContentAndCursor(t *testing.T) {
 		t.Fatal("CursorHidden = true, want false")
 	}
 }
+
+func TestCaptureSnapshotRespectsScrollbackLimit(t *testing.T) {
+	t.Parallel()
+
+	emu := NewVTEmulatorWithDrainAndScrollback(12, 2, 2)
+
+	p := &Pane{
+		ID:              1,
+		emulator:        emu,
+		scrollbackLines: 2,
+	}
+	p.SetRetainedHistory([]string{"base-1", "base-2", "base-3"})
+
+	emu.Write([]byte("line-1\r\nline-2\r\nline-3"))
+
+	snap := p.CaptureSnapshot()
+
+	if got := snap.History; len(got) != 2 || got[0] != "base-3" || got[1] != "line-1" {
+		t.Fatalf("History = %#v, want [base-3 line-1]", got)
+	}
+	if got := snap.Content; len(got) != 2 || got[0] != "line-2" || got[1] != "line-3" {
+		t.Fatalf("Content = %#v, want [line-2 line-3]", got)
+	}
+}

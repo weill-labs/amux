@@ -1,13 +1,37 @@
 package test
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/weill-labs/amux/internal/proto"
 )
+
+func captureHistoryPaneFromAmux(tb testing.TB, h *AmuxHarness, pane string) proto.CapturePane {
+	tb.Helper()
+
+	out := h.runCmd("capture", "--history", "--format", "json", pane)
+	var capture proto.CapturePane
+	if err := json.Unmarshal([]byte(out), &capture); err != nil {
+		tb.Fatalf("capture history JSON: %v\nraw:\n%s", err, out)
+	}
+	return capture
+}
+
+func linesWithPrefix(lines []string, prefix string) []string {
+	var out []string
+	for _, line := range lines {
+		if strings.Contains(line, prefix) {
+			out = append(out, line)
+		}
+	}
+	return out
+}
 
 func TestHotReloadKeybinding(t *testing.T) {
 	t.Parallel()
@@ -185,6 +209,48 @@ func TestServerReloadPreservesHistoryCapture(t *testing.T) {
 	after := h.runCmd("capture", "--history", "pane-1")
 	if !strings.Contains(after, "RLDHIST-01") || !strings.Contains(after, "RLDHIST-45") {
 		t.Fatalf("history capture should survive reload, got:\n%s", after)
+	}
+}
+
+func TestServerReloadPreservesConfiguredHistoryLimit(t *testing.T) {
+	t.Parallel()
+
+	h := newAmuxHarnessWithConfig(t, `
+scrollback_lines = 5
+`)
+
+	scriptPath := filepath.Join(os.TempDir(), fmt.Sprintf("amux-reload-history-limit-%s.sh", h.session))
+	if err := os.WriteFile(scriptPath, []byte("#!/bin/bash\nfor i in $(seq -w 1 45); do echo \"RLDCFG-$i\"; done\n"), 0755); err != nil {
+		t.Fatalf("writing history script: %v", err)
+	}
+	t.Cleanup(func() { os.Remove(scriptPath) })
+
+	h.sendKeys(scriptPath, "Enter")
+	if !h.waitFor("RLDCFG-45", 5*time.Second) {
+		t.Fatalf("expected scrollback source before reload\nScreen:\n%s", h.captureOuter())
+	}
+
+	before := captureHistoryPaneFromAmux(t, h, "pane-1")
+	if got := len(linesWithPrefix(before.History, "RLDCFG-")); got != 5 {
+		t.Fatalf("history markers before reload = %d, want 5\nhistory=%v", got, before.History)
+	}
+
+	h.runCmd("reload-server")
+	if !h.waitFor("[pane-", 5*time.Second) {
+		t.Fatalf("session did not recover after reload\nScreen:\n%s", h.captureOuter())
+	}
+
+	after := captureHistoryPaneFromAmux(t, h, "pane-1")
+	if got := len(linesWithPrefix(after.History, "RLDCFG-")); got != 5 {
+		t.Fatalf("history markers after reload = %d, want 5\nhistory=%v", got, after.History)
+	}
+
+	all := append(append([]string(nil), after.History...), after.Content...)
+	if strings.Contains(strings.Join(all, "\n"), "RLDCFG-01") {
+		t.Fatalf("oldest marker should not survive configured history cap, got:\n%v", all)
+	}
+	if !strings.Contains(strings.Join(all, "\n"), "RLDCFG-45") {
+		t.Fatalf("latest marker should survive reload, got:\n%v", all)
 	}
 }
 
