@@ -166,6 +166,15 @@ type idleTimeoutEvent struct {
 
 func (e idleTimeoutEvent) handle(s *Session) {
 	s.idle.MarkIdle(e.paneID)
+
+	// Refresh CWD/branch off the event loop to avoid blocking on lsof/git
+	if p := s.findPaneByID(e.paneID); p != nil && !p.IsProxy() {
+		go func() {
+			cwd, branch := p.DetectCwdBranch()
+			s.enqueueEvent(cwdBranchResultEvent{paneID: e.paneID, cwd: cwd, branch: branch})
+		}()
+	}
+
 	env := s.buildPaneEnv(e.paneID, hooks.OnIdle)
 	s.fireHooks(hooks.OnIdle, env)
 	s.emitEvent(Event{
@@ -175,6 +184,19 @@ func (e idleTimeoutEvent) handle(s *Session) {
 		Host:     env["AMUX_HOST"],
 	})
 	s.broadcastLayoutNow()
+}
+
+type cwdBranchResultEvent struct {
+	paneID uint32
+	cwd    string
+	branch string
+}
+
+func (e cwdBranchResultEvent) handle(s *Session) {
+	if p := s.findPaneByID(e.paneID); p != nil {
+		p.ApplyCwdBranch(e.cwd, e.branch)
+		s.broadcastLayoutNow()
+	}
 }
 
 type takeoverEvent struct {
