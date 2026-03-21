@@ -347,7 +347,7 @@ func makeThreeByThreeGridServer(t *testing.T, h *ServerHarness) {
 func waitForCrashCheckpointPath(t *testing.T, home, session string, timeout time.Duration) string {
 	t.Helper()
 
-	checkpointDir := filepath.Join(home, ".local", "state", "amux")
+	checkpointDir := crashCheckpointDir(home)
 	suffix := "_" + session + ".json"
 	deadline := time.Now().Add(timeout)
 	ticker := time.NewTicker(50 * time.Millisecond)
@@ -381,7 +381,11 @@ func waitForCrashCheckpointPath(t *testing.T, home, session string, timeout time
 }
 
 func crashCheckpointPathTimestamped(home, session string, startTime time.Time) string {
-	return filepath.Join(home, ".local", "state", "amux", startTime.Format("20060102-150405")+"_"+session+".json")
+	return filepath.Join(crashCheckpointDir(home), startTime.Format("20060102-150405")+"_"+session+".json")
+}
+
+func crashCheckpointDir(home string) string {
+	return filepath.Join(home, ".local", "state", "amux")
 }
 
 func waitForCrashCheckpointMatch(t *testing.T, path string, timeout time.Duration, desc string, match func(cp checkpoint.CrashCheckpoint) bool) checkpoint.CrashCheckpoint {

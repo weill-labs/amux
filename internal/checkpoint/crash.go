@@ -130,7 +130,8 @@ func ReadCrash(path string) (*CrashCheckpoint, error) {
 // FindCrashCheckpoints returns all crash checkpoint files for the given
 // session, sorted newest-first by timestamped filename.
 func FindCrashCheckpoints(session string) []string {
-	entries, err := os.ReadDir(CrashCheckpointDir())
+	dir := CrashCheckpointDir()
+	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil
 	}
@@ -144,7 +145,7 @@ func FindCrashCheckpoints(session string) []string {
 		if !strings.HasSuffix(entry.Name(), suffix) {
 			continue
 		}
-		paths = append(paths, filepath.Join(CrashCheckpointDir(), entry.Name()))
+		paths = append(paths, filepath.Join(dir, entry.Name()))
 	}
 	sort.Sort(sort.Reverse(sort.StringSlice(paths)))
 	return paths
