@@ -85,6 +85,7 @@ func BenchmarkSessionBroadcastLayout(b *testing.B) {
 		b.Run(fmt.Sprintf("panes_%d", panes), func(b *testing.B) {
 			sess := benchSessionWithPanes(panes)
 			sess.clients = []*ClientConn{NewClientConn(discardConn{})}
+			defer sess.clients[0].Close()
 
 			b.ReportAllocs()
 			b.ResetTimer()

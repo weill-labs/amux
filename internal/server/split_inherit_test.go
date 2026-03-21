@@ -55,6 +55,7 @@ func TestSplitInheritsRemoteHost(t *testing.T) {
 	defer serverConn.Close()
 	defer clientConn.Close()
 	cc := NewClientConn(serverConn)
+	defer cc.Close()
 
 	type cmdResult struct {
 		output, err string

@@ -491,6 +491,7 @@ func runTestCommand(t *testing.T, srv *Server, sess *Session, name string, args 
 	defer serverConn.Close()
 	defer clientConn.Close()
 	cc := NewClientConn(serverConn)
+	defer cc.Close()
 
 	results := make(chan struct {
 		output string

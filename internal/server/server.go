@@ -575,6 +575,7 @@ func (s *Server) handleAttach(conn net.Conn, msg *Message) {
 
 	cc := NewClientConn(conn)
 	cc.ID = fmt.Sprintf("client-%d", sess.clientCounter.Add(1))
+	cc.initTypeKeyQueue()
 	cc.startBootstrap()
 
 	cols, rows := msg.Cols, msg.Rows
