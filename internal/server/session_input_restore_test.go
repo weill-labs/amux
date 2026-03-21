@@ -14,8 +14,6 @@ import (
 )
 
 func TestNewServerFromCheckpointWithScrollbackRefreshesInputTarget(t *testing.T) {
-	t.Parallel()
-
 	socketPath := filepath.Join("/tmp", fmt.Sprintf("amux-restore-%d.sock", time.Now().UnixNano()))
 	listener, err := net.Listen("unix", socketPath)
 	if err != nil {
@@ -61,8 +59,6 @@ func TestNewServerFromCheckpointWithScrollbackRefreshesInputTarget(t *testing.T)
 }
 
 func TestNewServerFromCrashCheckpointWithScrollbackRefreshesInputTarget(t *testing.T) {
-	t.Parallel()
-
 	sessionName := fmt.Sprintf("crash-input-target-%d", time.Now().UnixNano())
 	pane, layout := restoreTestLayout()
 	cp := &ckpt.CrashCheckpoint{
