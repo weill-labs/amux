@@ -97,6 +97,14 @@ func (r *Renderer) HandleLayout(snap *proto.LayoutSnapshot) bool {
 		}
 
 		next.layout = mux.RebuildLayout(activeRoot)
+		clientLayoutH := next.height - render.GlobalBarHeight
+		if next.layout != nil && (snap.Width != next.width || snap.Height != clientLayoutH) {
+			// Rescale the client-side layout before resizing emulators so wrap
+			// and cursor metadata match this client's window, not the server's
+			// max-size snapshot.
+			next.layout.ResizeAll(next.width, clientLayoutH)
+		}
+
 		if next.layout != nil {
 			next.layout.Walk(func(cell *mux.LayoutCell) {
 				emu := next.emulators[cell.PaneID]
@@ -115,11 +123,6 @@ func (r *Renderer) HandleLayout(snap *proto.LayoutSnapshot) bool {
 					r.OnPaneResize(cell.PaneID, cell.W, contentH)
 				}
 			})
-		}
-
-		clientLayoutH := next.height - render.GlobalBarHeight
-		if next.layout != nil && (snap.Width != next.width || snap.Height != clientLayoutH) {
-			next.layout.ResizeAll(next.width, clientLayoutH)
 		}
 
 		st.compositor.SetSessionName(snap.SessionName)
