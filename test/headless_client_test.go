@@ -17,11 +17,13 @@ import (
 // and responds to MsgTypeCaptureRequest. It runs without a terminal —
 // used by ServerHarness so capture always routes through a client.
 type headlessClient struct {
-	conn      net.Conn
-	renderer  *client.Renderer
-	done      chan struct{}
-	ready     chan struct{} // closed after first MsgTypeLayout is processed
-	readyOnce sync.Once
+	conn       net.Conn
+	renderer   *client.Renderer
+	cmdResults chan *server.Message
+	cmdMu      sync.Mutex
+	done       chan struct{}
+	ready      chan struct{} // closed after first MsgTypeLayout is processed
+	readyOnce  sync.Once
 }
 
 func dialHeadlessSocket(sockPath string, timeout time.Duration) (net.Conn, error) {
@@ -52,10 +54,11 @@ func newHeadlessClient(sockPath, session string, cols, rows int) (*headlessClien
 	}
 
 	hc := &headlessClient{
-		conn:     conn,
-		renderer: newTestRenderer(cols, rows),
-		done:     make(chan struct{}),
-		ready:    make(chan struct{}),
+		conn:       conn,
+		renderer:   newTestRenderer(cols, rows),
+		cmdResults: make(chan *server.Message, 16),
+		done:       make(chan struct{}),
+		ready:      make(chan struct{}),
 	}
 
 	go hc.readLoop()
@@ -87,6 +90,28 @@ func (hc *headlessClient) sendUIEvent(name string) {
 	})
 }
 
+// runCommand sends a server command over the attached client connection and
+// waits for the single CmdResult reply.
+func (hc *headlessClient) runCommand(cmdName string, args ...string) *server.Message {
+	hc.cmdMu.Lock()
+	defer hc.cmdMu.Unlock()
+
+	if err := server.WriteMsg(hc.conn, &server.Message{
+		Type:    server.MsgTypeCommand,
+		CmdName: cmdName,
+		CmdArgs: args,
+	}); err != nil {
+		return &server.Message{Type: server.MsgTypeCmdResult, CmdErr: err.Error()}
+	}
+
+	select {
+	case msg := <-hc.cmdResults:
+		return msg
+	case <-time.After(10 * time.Second):
+		return &server.Message{Type: server.MsgTypeCmdResult, CmdErr: "timeout waiting for command result"}
+	}
+}
+
 // capture returns a plain-text rendering from the client's local emulators.
 func (hc *headlessClient) capture() string {
 	return hc.renderer.Capture(true)
@@ -108,6 +133,8 @@ func (hc *headlessClient) readLoop() {
 		case server.MsgTypeLayout:
 			hc.renderer.HandleLayout(msg.Layout)
 			hc.readyOnce.Do(func() { close(hc.ready) })
+		case server.MsgTypeCmdResult:
+			hc.cmdResults <- msg
 		case server.MsgTypePaneHistory:
 			// Headless clients only serve screen captures, so retained history
 			// bootstrap can be ignored here.
@@ -138,5 +165,17 @@ func TestParallelServerStartupKeepsAllSocketsAlive(t *testing.T) {
 				t.Fatalf("expected initial pane in capture\nScreen:\n%s", screen)
 			}
 		})
+	}
+}
+
+func TestHeadlessClientRunCommand(t *testing.T) {
+	h := newServerHarness(t)
+
+	msg := h.client.runCommand("list")
+	if msg.CmdErr != "" {
+		t.Fatalf("list command failed: %s", msg.CmdErr)
+	}
+	if !strings.Contains(msg.CmdOutput, "pane-1") {
+		t.Fatalf("list output = %q, want pane-1", msg.CmdOutput)
 	}
 }
