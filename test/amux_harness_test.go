@@ -24,15 +24,23 @@ import (
 //   - Shell output: waitFor(substr, timeout) via outer wait-for (blocking)
 //   - No time.Sleep for synchronization
 type AmuxHarness struct {
-	outer   *ServerHarness
-	inner   string // inner session name
-	tb      testing.TB
-	session string // alias for inner, used by extractFrame
+	outer    *ServerHarness
+	inner    string // inner session name
+	innerBin string
+	tb       testing.TB
+	session  string // alias for inner, used by extractFrame
 }
 
 // newAmuxHarness starts an outer amux server, launches an inner amux inside
 // the outer pane, and waits for the inner amux to render its first pane.
 func newAmuxHarness(tb testing.TB, envVars ...string) *AmuxHarness {
+	tb.Helper()
+	return newAmuxHarnessWithBin(tb, amuxBin, envVars...)
+}
+
+// newAmuxHarnessWithBin launches the inner amux from binPath instead of the
+// default test binary. The outer harness still uses the standard test binary.
+func newAmuxHarnessWithBin(tb testing.TB, binPath string, envVars ...string) *AmuxHarness {
 	tb.Helper()
 	outer := newServerHarness(tb)
 
@@ -40,7 +48,7 @@ func newAmuxHarness(tb testing.TB, envVars ...string) *AmuxHarness {
 	rand.Read(b[:])
 	inner := fmt.Sprintf("t-%x", b)
 
-	h := &AmuxHarness{outer: outer, inner: inner, tb: tb, session: inner}
+	h := &AmuxHarness{outer: outer, inner: inner, innerBin: binPath, tb: tb, session: inner}
 
 	// Export any extra environment variables before launching the inner amux.
 	for _, ev := range envVars {
@@ -48,7 +56,7 @@ func newAmuxHarness(tb testing.TB, envVars ...string) *AmuxHarness {
 	}
 
 	// Launch inner amux inside the outer pane.
-	outer.sendKeys("pane-1", amuxBin+" -s "+inner, "Enter")
+	outer.sendKeys("pane-1", binPath+" -s "+inner, "Enter")
 
 	// Wait for the inner amux client to render (status bar appears in outer
 	// pane). Once the client has rendered, the inner server is guaranteed to
@@ -432,7 +440,7 @@ func (h *AmuxHarness) globalBarAmux() string {
 func (h *AmuxHarness) runCmd(args ...string) string {
 	h.tb.Helper()
 	cmdArgs := append([]string{"-s", h.inner}, args...)
-	cmd := exec.Command(amuxBin, cmdArgs...)
+	cmd := exec.Command(h.innerBin, cmdArgs...)
 	env := upsertEnv(os.Environ(), "HOME", h.outer.home)
 	if h.outer.coverDir != "" {
 		env = upsertEnv(env, "GOCOVERDIR", h.outer.coverDir)
