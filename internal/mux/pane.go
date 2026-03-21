@@ -31,6 +31,8 @@ type PaneMeta struct {
 	MinimizedSeq uint64 `json:"minimized_seq,omitempty"` // monotonic counter for LIFO restore ordering
 	Dormant      bool   `json:"dormant,omitempty"`       // pane is in Session.Panes but not in any window layout (e.g., SSH takeover host)
 	Dir          string `json:"dir,omitempty"`           // working directory override for new shell
+	GitBranch    string `json:"git_branch,omitempty"`    // cached git branch (auto-detected or manually set)
+	PR           string `json:"pr,omitempty"`            // PR number (set via escape sequence or CLI)
 }
 
 // Pane manages a PTY, its terminal emulator, and metadata.
@@ -66,6 +68,10 @@ type Pane struct {
 	createdAt        time.Time
 	lastBusySeenUnix atomic.Int64 // UnixNano; last time process tree showed busy
 	idleSinceUnix    atomic.Int64 // UnixNano; when the current idle period began
+
+	// CWD/branch detection
+	liveCwd          string // last-detected CWD, not checkpointed
+	metaManualBranch bool   // true when GitBranch was set via escape sequence or CLI
 }
 
 type paneBaseHistory struct {
@@ -235,6 +241,34 @@ func (p *Pane) ProcessPid() int {
 		return p.process.Pid
 	}
 	return 0
+}
+
+// DetectCwdBranch returns the current CWD and git branch without mutating state.
+// Safe to call from any goroutine.
+func (p *Pane) DetectCwdBranch() (cwd, branch string) {
+	pid := p.ProcessPid()
+	if pid == 0 {
+		return "", ""
+	}
+	cwd = PaneCwd(pid)
+	if cwd == "" {
+		return "", ""
+	}
+	branch = GitBranch(cwd)
+	return cwd, branch
+}
+
+// ApplyCwdBranch updates cached CWD/branch. Only call from the session event loop.
+func (p *Pane) ApplyCwdBranch(cwd, branch string) {
+	p.liveCwd = cwd
+	if !p.metaManualBranch {
+		p.Meta.GitBranch = branch
+	}
+}
+
+// LiveCwd returns the last-detected working directory.
+func (p *Pane) LiveCwd() string {
+	return p.liveCwd
 }
 
 // ReplayScreen feeds screen data into the emulator to restore visual state.

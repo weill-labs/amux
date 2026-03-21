@@ -3,6 +3,7 @@
 package mux
 
 import (
+	"context"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -15,11 +16,13 @@ func PaneCwd(pid int) string {
 	if pid <= 0 {
 		return ""
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), processTimeout)
+	defer cancel()
 	// lsof -a -p PID -d cwd -Fn outputs:
 	//   p<PID>
 	//   fcwd
 	//   n/path/to/cwd
-	out, err := exec.Command("lsof", "-a", "-p", strconv.Itoa(pid), "-d", "cwd", "-Fn").Output()
+	out, err := exec.CommandContext(ctx, "lsof", "-a", "-p", strconv.Itoa(pid), "-d", "cwd", "-Fn").Output()
 	if err != nil {
 		return ""
 	}
