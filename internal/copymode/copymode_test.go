@@ -1609,6 +1609,32 @@ func TestSearchAgainAndMatchCopyWithoutSelection(t *testing.T) {
 	}
 }
 
+func TestSearchMatchCopyUsesRuneColumns(t *testing.T) {
+	t.Parallel()
+
+	emu := newFakeEmulator(40, 1)
+	emu.screen = []string{"  ⏵⏵ bypass permissions"}
+	cm := New(emu, 40, 1, 0)
+
+	cm.HandleInput([]byte{'/'})
+	cm.HandleInput([]byte("bypass"))
+	cm.HandleInput([]byte{'\r'})
+
+	if cx, cy := cm.CursorPos(); cx != 5 || cy != 0 {
+		t.Fatalf("CursorPos after search = (%d,%d), want (5,0)", cx, cy)
+	}
+	if got := cm.SelectedText(); got != "bypass" {
+		t.Fatalf("SelectedText on unicode-prefixed match = %q, want %q", got, "bypass")
+	}
+	if action := cm.HandleInput([]byte{'\r'}); action != ActionYank {
+		t.Fatalf("Enter on unicode-prefixed search match = %d, want ActionYank", action)
+	}
+	text, appendCopy := cm.ConsumeCopyText()
+	if text != "bypass" || appendCopy {
+		t.Fatalf("ConsumeCopyText() = (%q,%v), want (%q,false)", text, appendCopy, "bypass")
+	}
+}
+
 func TestSearchWordUnderCursorSkipsWhitespace(t *testing.T) {
 	t.Parallel()
 

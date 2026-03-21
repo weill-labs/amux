@@ -774,23 +774,25 @@ func (cm *CopyMode) runSearch(directions ...bool) {
 		forward = directions[0]
 	}
 
-	query := strings.ToLower(cm.searchQuery)
+	queryRunes := []rune(strings.ToLower(cm.searchQuery))
+	queryLen := len(queryRunes)
+	if queryLen == 0 {
+		return
+	}
 	total := cm.TotalLines()
 
 	for i := 0; i < total; i++ {
-		line := strings.ToLower(cm.lineText(i))
-		off := 0
-		for {
-			idx := strings.Index(line[off:], query)
-			if idx < 0 {
-				break
+		lineRunes := []rune(strings.ToLower(cm.lineText(i)))
+		for idx := 0; idx+queryLen <= len(lineRunes); idx++ {
+			if !runeSliceHasPrefix(lineRunes[idx:], queryRunes) {
+				continue
 			}
 			cm.matches = append(cm.matches, Match{
 				LineIdx: i,
-				Col:     off + idx,
-				Len:     len(cm.searchQuery),
+				Col:     idx,
+				Len:     queryLen,
 			})
-			off += idx + len(query)
+			idx += queryLen - 1
 		}
 	}
 
@@ -820,6 +822,18 @@ func (cm *CopyMode) runSearch(directions ...bool) {
 		}
 	}
 	cm.scrollToMatch()
+}
+
+func runeSliceHasPrefix(line, query []rune) bool {
+	if len(query) > len(line) {
+		return false
+	}
+	for i := range query {
+		if line[i] != query[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // nextMatch advances to the next search match (wrapping around).
