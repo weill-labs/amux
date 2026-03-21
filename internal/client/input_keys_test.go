@@ -124,3 +124,25 @@ func TestForwardedBytesForDecodedInput(t *testing.T) {
 		})
 	}
 }
+
+func TestForwardedBytesForDecodedInputUsesRawForNonKeyPress(t *testing.T) {
+	t.Parallel()
+
+	raw := []byte("paste")
+	decoded := decodedInputEvent{raw: raw}
+	if got := forwardedBytesForDecodedInput(decoded); !bytes.Equal(got, raw) {
+		t.Fatalf("forwardedBytesForDecodedInput(non-keypress) = %q, want %q", got, raw)
+	}
+}
+
+func TestForwardedBytesForDecodedInputFallsBackToRawWhenNormalizationIsEmpty(t *testing.T) {
+	t.Parallel()
+
+	decoded := decodedInputEvent{
+		event: uv.KeyPressEvent{},
+		raw:   nil,
+	}
+	if got := forwardedBytesForDecodedInput(decoded); len(got) != 0 {
+		t.Fatalf("forwardedBytesForDecodedInput(empty raw) = %q, want empty", got)
+	}
+}
