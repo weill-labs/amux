@@ -20,17 +20,6 @@ const (
 	matchOff       = "\033[49;22m" // reset background + bold
 )
 
-// style flags for per-character highlighting.
-type charStyle uint8
-
-const (
-	styleNone         charStyle = 0
-	styleSelection    charStyle = 1 << 0
-	styleMatch        charStyle = 1 << 1
-	styleCurrentMatch charStyle = 1 << 2
-	styleCursor       charStyle = 1 << 3
-)
-
 // RenderViewport returns the viewport content as a newline-separated string
 // (no trailing newline), suitable for the compositor's blitPane.
 func (cm *CopyMode) RenderViewport() string {
@@ -68,50 +57,6 @@ func (cm *CopyMode) RenderViewport() string {
 	return buf.String()
 }
 
-// renderStyledLine emits a line with ANSI escapes based on per-character styles.
-// Minimizes escape sequences by tracking the current style state.
-func renderStyledLine(runes []rune, styles []charStyle) string {
-	var buf strings.Builder
-	buf.Grow(len(runes) * 2) // rough estimate
-
-	var cur charStyle
-	for i, r := range runes {
-		s := styles[i]
-		if s != cur {
-			// Close previous style.
-			if cur != styleNone {
-				if cur&styleCursor != 0 {
-					buf.WriteString(reverseOff)
-				}
-				if cur&(styleSelection|styleMatch|styleCurrentMatch) != 0 {
-					buf.WriteString(matchOff)
-				}
-			}
-			// Open new style. Cursor (reverse video) takes visual priority;
-			// search match bg takes priority over selection bg.
-			if s&styleCursor != 0 {
-				buf.WriteString(reverseOn)
-			} else if s&styleCurrentMatch != 0 {
-				buf.WriteString(matchCurrentBg)
-			} else if s&styleMatch != 0 {
-				buf.WriteString(matchBg)
-			} else if s&styleSelection != 0 {
-				buf.WriteString(selectionBg)
-			}
-			cur = s
-		}
-		buf.WriteRune(r)
-	}
-	// Close trailing style.
-	if cur&styleCursor != 0 {
-		buf.WriteString(reverseOff)
-	}
-	if cur&(styleSelection|styleMatch|styleCurrentMatch) != 0 {
-		buf.WriteString(matchOff)
-	}
-	return buf.String()
-}
-
 // SearchBarText returns the search prompt to display in the status bar.
 // Returns empty string when not actively searching.
 func (cm *CopyMode) SearchBarText() string {
@@ -131,14 +76,4 @@ func (cm *CopyMode) SearchBarText() string {
 		parts = append(parts, "["+strconv.Itoa(cm.oy)+"/"+strconv.Itoa(cm.maxOY())+"]")
 	}
 	return strings.Join(parts, " ")
-}
-
-// padOrTruncate ensures s is exactly width characters (rune-based),
-// padding with spaces or truncating as needed.
-func padOrTruncate(s string, width int) string {
-	runes := []rune(s)
-	if len(runes) >= width {
-		return string(runes[:width])
-	}
-	return s + strings.Repeat(" ", width-len(runes))
 }
