@@ -23,9 +23,9 @@ import (
 // CommandHandler processes a single CLI command.
 type CommandHandler func(ctx *CommandContext)
 
-// tokenKeyGap is a small pacing gap before injected special keys like Enter.
-// Some interactive TUIs only react correctly when submit/control keys arrive
-// on a later input tick rather than in the same burst as preceding text.
+// tokenKeyGap is a small pacing gap before injected submit/control keys.
+// Some interactive TUIs only react correctly when Enter or Ctrl-key input
+// arrives on a later input tick rather than in the same burst as preceding text.
 const tokenKeyGap = 50 * time.Millisecond
 
 // CommandContext provides all state a command handler needs.
@@ -1076,10 +1076,7 @@ func cmdWaitIdle(ctx *CommandContext) {
 		if !pane.AgentStatus().Idle {
 			return false, nil
 		}
-		// Filter transient pgrep misses on long-lived quiet children by
-		// requiring two consecutive idle observations before returning.
-		time.Sleep(50 * time.Millisecond)
-		return pane.AgentStatus().Idle, nil
+		return true, nil
 	}
 
 	res := ctx.Sess.enqueueEventSubscribe(eventFilter{Types: []string{EventIdle}, PaneName: paneName}, false)
@@ -1637,10 +1634,10 @@ func encodeKeyChunks(hexMode bool, keys []string) ([]encodedKeyChunk, error) {
 }
 
 func pacedKeyToken(key string) bool {
-	if _, ok := specialKeys[key]; ok {
+	if key == "Enter" {
 		return true
 	}
-	if len(key) == 3 && (key[0] == 'C' || key[0] == 'c' || key[0] == 'M' || key[0] == 'm') && key[1] == '-' {
+	if len(key) == 3 && (key[0] == 'C' || key[0] == 'c') && key[1] == '-' {
 		return true
 	}
 	return false

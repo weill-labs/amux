@@ -52,3 +52,29 @@ func TestParseKey(t *testing.T) {
 		})
 	}
 }
+
+func TestPacedKeyToken(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		key  string
+		want bool
+	}{
+		{name: "enter", key: "Enter", want: true},
+		{name: "ctrl key", key: "C-c", want: true},
+		{name: "lowercase ctrl prefix", key: "c-d", want: true},
+		{name: "arrow key", key: "Up", want: false},
+		{name: "escape", key: "Escape", want: false},
+		{name: "meta key", key: "M-a", want: false},
+		{name: "literal text", key: "hello", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := pacedKeyToken(tt.key); got != tt.want {
+				t.Fatalf("pacedKeyToken(%q) = %v, want %v", tt.key, got, tt.want)
+			}
+		})
+	}
+}
