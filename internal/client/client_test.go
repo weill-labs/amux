@@ -296,6 +296,23 @@ func TestClientRendererCaptureJSON(t *testing.T) {
 	}
 }
 
+func TestRendererCaptureJSONValueMatchesCaptureJSON(t *testing.T) {
+	t.Parallel()
+	cr := buildTestRenderer(t)
+
+	status := map[uint32]proto.PaneAgentStatus{
+		1: {Idle: true, CurrentCommand: "bash", ChildPIDs: []int{}},
+	}
+	capture, ok := cr.renderer.captureJSONValue(status)
+	if !ok {
+		t.Fatal("captureJSONValue returned no layout")
+	}
+
+	if got, want := marshalIndented(capture), cr.renderer.CaptureJSON(status); got != want {
+		t.Fatalf("captureJSONValue output mismatch\n got: %s\nwant: %s", got, want)
+	}
+}
+
 func TestClientRendererCaptureJSONIncludesChooserAndInputBusy(t *testing.T) {
 	t.Parallel()
 	cr := buildMultiWindowRenderer(t)
@@ -366,6 +383,38 @@ func TestClientRendererCapturePaneJSON(t *testing.T) {
 	empty := cr.CapturePaneJSON(999, nil)
 	if empty != "{}" {
 		t.Errorf("nonexistent pane should return {}, got %q", empty)
+	}
+}
+
+func TestRendererCapturePaneValueMatchesCapturePaneJSON(t *testing.T) {
+	t.Parallel()
+	cr := buildTestRenderer(t)
+
+	status := map[uint32]proto.PaneAgentStatus{
+		1: {Idle: true, CurrentCommand: "bash", ChildPIDs: []int{}},
+	}
+	pane, ok := cr.renderer.capturePaneValue(1, status)
+	if !ok {
+		t.Fatal("capturePaneValue returned no pane")
+	}
+
+	if got, want := marshalIndented(pane), cr.renderer.CapturePaneJSON(1, status); got != want {
+		t.Fatalf("capturePaneValue output mismatch\n got: %s\nwant: %s", got, want)
+	}
+}
+
+func TestClientRendererCapturePaneJSONIncludesCopyMode(t *testing.T) {
+	t.Parallel()
+	cr := buildTestRenderer(t)
+
+	cr.EnterCopyMode(1)
+
+	var pane proto.CapturePane
+	if err := json.Unmarshal([]byte(cr.CapturePaneJSON(1, nil)), &pane); err != nil {
+		t.Fatalf("JSON parse: %v", err)
+	}
+	if !pane.CopyMode {
+		t.Fatal("copy_mode = false, want true")
 	}
 }
 

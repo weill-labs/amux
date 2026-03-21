@@ -1,13 +1,13 @@
 package client
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
 	"sync"
 	"time"
 
+	caputil "github.com/weill-labs/amux/internal/capture"
 	"github.com/weill-labs/amux/internal/copymode"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
@@ -229,13 +229,12 @@ func (cr *ClientRenderer) CaptureColorMap() string {
 
 // CaptureJSON renders a structured JSON capture from client-side emulators.
 func (cr *ClientRenderer) CaptureJSON(agentStatus map[uint32]proto.PaneAgentStatus) string {
-	var capture proto.CaptureJSON
-	if err := json.Unmarshal([]byte(cr.renderer.CaptureJSON(agentStatus)), &capture); err != nil {
-		return cr.renderer.CaptureJSON(agentStatus)
+	capture, ok := cr.renderer.captureJSONValue(agentStatus)
+	if !ok {
+		return "{}"
 	}
 	capture.UI = cr.captureUIState()
-	out, _ := json.MarshalIndent(capture, "", "  ")
-	return string(out)
+	return marshalIndented(capture)
 }
 
 // CapturePaneText returns a single pane's content from client-side emulators.
@@ -245,18 +244,12 @@ func (cr *ClientRenderer) CapturePaneText(paneID uint32, includeANSI bool) strin
 
 // CapturePaneJSON returns a single pane's JSON from client-side emulators.
 func (cr *ClientRenderer) CapturePaneJSON(paneID uint32, agentStatus map[uint32]proto.PaneAgentStatus) string {
-	base := cr.renderer.CapturePaneJSON(paneID, agentStatus)
-	if strings.TrimSpace(base) == "{}" {
-		return base
-	}
-
-	var pane proto.CapturePane
-	if err := json.Unmarshal([]byte(base), &pane); err != nil {
-		return base
+	pane, ok := cr.renderer.capturePaneValue(paneID, agentStatus)
+	if !ok {
+		return "{}"
 	}
 	pane.CopyMode = cr.InCopyMode(paneID)
-	out, _ := json.MarshalIndent(pane, "", "  ")
-	return string(out)
+	return marshalIndented(pane)
 }
 
 // ResolvePaneID resolves a pane reference to an ID from client-side state.
@@ -634,32 +627,14 @@ func (cr *ClientRenderer) copyModeCopy(cm *copymode.CopyMode) {
 // HandleCaptureRequest processes a capture request forwarded from the server.
 // It renders from the client-side emulators and returns a response message.
 func (cr *ClientRenderer) HandleCaptureRequest(args []string, agentStatus map[uint32]proto.PaneAgentStatus) *proto.Message {
-	var includeANSI, colorMap, formatJSON, displayMode bool
-	var paneRef string
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--ansi":
-			includeANSI = true
-		case "--colors":
-			colorMap = true
-		case "--display":
-			displayMode = true
-		case "--format":
-			if i+1 < len(args) && args[i+1] == "json" {
-				formatJSON = true
-				i++
-			}
-		default:
-			paneRef = args[i]
-		}
-	}
-	if !formatJSON || includeANSI || colorMap || displayMode {
+	req := caputil.ParseArgs(args)
+	if !req.FormatJSON || req.IncludeANSI || req.ColorMap || req.DisplayMode {
 		return cr.renderer.HandleCaptureRequest(args, agentStatus)
 	}
-	if paneRef != "" {
-		paneID := cr.ResolvePaneID(paneRef)
+	if req.PaneRef != "" {
+		paneID := cr.ResolvePaneID(req.PaneRef)
 		if paneID == 0 {
-			return &proto.Message{Type: proto.MsgTypeCaptureResponse, CmdErr: fmt.Sprintf("pane %q not found", paneRef)}
+			return &proto.Message{Type: proto.MsgTypeCaptureResponse, CmdErr: fmt.Sprintf("pane %q not found", req.PaneRef)}
 		}
 		return &proto.Message{Type: proto.MsgTypeCaptureResponse, CmdOutput: cr.CapturePaneJSON(paneID, agentStatus) + "\n"}
 	}

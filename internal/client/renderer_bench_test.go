@@ -1,0 +1,178 @@
+package client
+
+import (
+	"fmt"
+	"testing"
+
+	"github.com/weill-labs/amux/internal/config"
+	"github.com/weill-labs/amux/internal/mux"
+	"github.com/weill-labs/amux/internal/proto"
+)
+
+func benchTerminalPayload(n int) []byte {
+	fragments := []string{
+		"\033[32m$ \033[0mls -la\r\n",
+		"\033[1;34mdrwxr-xr-x\033[0m  5 user staff  160 Mar 15 10:00 \033[1;34m.\033[0m\r\n",
+		"\033[1;34mdrwxr-xr-x\033[0m  3 user staff   96 Mar 14 09:00 \033[1;34m..\033[0m\r\n",
+		"\033[0;32m-rw-r--r--\033[0m  1 user staff 1234 Mar 15 10:00 \033[0mmain.go\033[0m\r\n",
+		"\033[0;32m-rw-r--r--\033[0m  1 user staff  567 Mar 14 09:30 \033[0;33mREADME.md\033[0m\r\n",
+		"\033[0;32m-rwxr-xr-x\033[0m  1 user staff 8901 Mar 15 09:50 \033[0;31mamux\033[0m\r\n",
+	}
+
+	buf := make([]byte, 0, n)
+	for len(buf) < n {
+		for _, f := range fragments {
+			buf = append(buf, f...)
+			if len(buf) >= n {
+				break
+			}
+		}
+	}
+	return buf[:n]
+}
+
+func benchLayoutSnapshot(n, width, height int) *proto.LayoutSnapshot {
+	panes := make([]proto.PaneSnapshot, 0, n)
+	for i := 1; i <= n; i++ {
+		panes = append(panes, proto.PaneSnapshot{
+			ID:    uint32(i),
+			Name:  fmt.Sprintf("pane-%d", i),
+			Host:  "local",
+			Color: config.CatppuccinMocha[(i-1)%len(config.CatppuccinMocha)],
+		})
+	}
+
+	var root proto.CellSnapshot
+	if n == 1 {
+		root = proto.CellSnapshot{
+			X: 0, Y: 0, W: width, H: height,
+			IsLeaf: true, Dir: -1, PaneID: 1,
+		}
+	} else {
+		root = proto.CellSnapshot{
+			X: 0, Y: 0, W: width, H: height,
+			Dir: int(mux.SplitVertical),
+		}
+		x := 0
+		cellW := (width - (n - 1)) / n
+		for i := 1; i <= n; i++ {
+			w := cellW
+			if i == n {
+				w = width - x
+			}
+			root.Children = append(root.Children, proto.CellSnapshot{
+				X: x, Y: 0, W: w, H: height,
+				IsLeaf: true, Dir: -1, PaneID: uint32(i),
+			})
+			x += w + 1
+		}
+	}
+
+	window := proto.WindowSnapshot{
+		ID:           1,
+		Name:         "window-1",
+		Index:        1,
+		ActivePaneID: 1,
+		Root:         root,
+		Panes:        panes,
+	}
+
+	return &proto.LayoutSnapshot{
+		SessionName:    "bench",
+		ActivePaneID:   1,
+		Width:          width,
+		Height:         height,
+		Root:           root,
+		Panes:          panes,
+		Windows:        []proto.WindowSnapshot{window},
+		ActiveWindowID: 1,
+	}
+}
+
+func benchRendererWithContent(n int) (*Renderer, map[uint32]proto.PaneAgentStatus) {
+	const width = 200
+	const layoutHeight = 23
+
+	r := NewWithScrollback(width, layoutHeight+1, mux.DefaultScrollbackLines)
+	snap := benchLayoutSnapshot(n, width, layoutHeight)
+	r.HandleLayout(snap)
+
+	payload := benchTerminalPayload(80 * 24)
+	status := make(map[uint32]proto.PaneAgentStatus, n)
+	for _, pane := range snap.Panes {
+		r.HandlePaneOutput(pane.ID, payload)
+		status[pane.ID] = proto.PaneAgentStatus{
+			Idle:           true,
+			CurrentCommand: "bash",
+			ChildPIDs:      []int{},
+		}
+	}
+
+	return r, status
+}
+
+func BenchmarkRendererHandlePaneOutput(b *testing.B) {
+	for _, size := range []int{256, 4096, 32768} {
+		b.Run(fmt.Sprintf("bytes_%d", size), func(b *testing.B) {
+			r, _ := benchRendererWithContent(1)
+			payload := benchTerminalPayload(size)
+
+			b.SetBytes(int64(size))
+			b.ReportAllocs()
+			b.ResetTimer()
+			for b.Loop() {
+				r.HandlePaneOutput(1, payload)
+			}
+		})
+	}
+}
+
+func BenchmarkRendererCaptureJSON(b *testing.B) {
+	for _, panes := range []int{1, 20} {
+		b.Run(fmt.Sprintf("panes_%d/build", panes), func(b *testing.B) {
+			r, status := benchRendererWithContent(panes)
+
+			b.ReportAllocs()
+			b.ResetTimer()
+			for b.Loop() {
+				if _, ok := r.captureJSONValue(status); !ok {
+					b.Fatal("captureJSONValue returned no layout")
+				}
+			}
+		})
+
+		b.Run(fmt.Sprintf("panes_%d/marshal", panes), func(b *testing.B) {
+			r, status := benchRendererWithContent(panes)
+			capture, ok := r.captureJSONValue(status)
+			if !ok {
+				b.Fatal("captureJSONValue returned no layout")
+			}
+
+			b.ReportAllocs()
+			b.ResetTimer()
+			for b.Loop() {
+				marshalIndented(capture)
+			}
+		})
+	}
+}
+
+func BenchmarkRendererHandleLayout(b *testing.B) {
+	const width = 200
+	const layoutHeight = 23
+
+	base := benchLayoutSnapshot(1, width, layoutHeight)
+	for _, panes := range []int{4, 10, 20} {
+		target := benchLayoutSnapshot(panes, width, layoutHeight)
+		b.Run(fmt.Sprintf("panes_%d", panes), func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				b.StopTimer()
+				r := NewWithScrollback(width, layoutHeight+1, mux.DefaultScrollbackLines)
+				r.HandleLayout(base)
+				b.StartTimer()
+				r.HandleLayout(target)
+			}
+		})
+	}
+}

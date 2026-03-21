@@ -323,14 +323,19 @@ func (r *Renderer) CaptureColorMap() string {
 	return render.ExtractColorMap(raw, r.width, r.height) + "\n"
 }
 
-// CaptureJSON renders a structured JSON capture from client-side emulators.
-// Agent status (idle, current_command, child_pids) comes from the server.
-func (r *Renderer) CaptureJSON(agentStatus map[uint32]proto.PaneAgentStatus) string {
+func marshalIndented(v any) string {
+	out, _ := json.MarshalIndent(v, "", "  ")
+	return string(out)
+}
+
+// captureJSONValue builds the structured JSON capture payload.
+// Returns false when no layout is available.
+func (r *Renderer) captureJSONValue(agentStatus map[uint32]proto.PaneAgentStatus) (proto.CaptureJSON, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	if r.layout == nil {
-		return "{}"
+		return proto.CaptureJSON{}, false
 	}
 
 	root, _ := r.captureRootLocked()
@@ -365,8 +370,17 @@ func (r *Renderer) CaptureJSON(agentStatus map[uint32]proto.PaneAgentStatus) str
 		capture.Panes = append(capture.Panes, cp)
 	})
 
-	out, _ := json.MarshalIndent(capture, "", "  ")
-	return string(out)
+	return capture, true
+}
+
+// CaptureJSON renders a structured JSON capture from client-side emulators.
+// Agent status (idle, current_command, child_pids) comes from the server.
+func (r *Renderer) CaptureJSON(agentStatus map[uint32]proto.PaneAgentStatus) string {
+	capture, ok := r.captureJSONValue(agentStatus)
+	if !ok {
+		return "{}"
+	}
+	return marshalIndented(capture)
 }
 
 // CapturePaneText returns a single pane's content from client-side emulators.
@@ -384,17 +398,21 @@ func (r *Renderer) CapturePaneText(paneID uint32, includeANSI bool) string {
 	return strings.Join(mux.EmulatorContentLines(emu), "\n")
 }
 
-// CapturePaneJSON returns a single pane's JSON from client-side emulators.
-func (r *Renderer) CapturePaneJSON(paneID uint32, agentStatus map[uint32]proto.PaneAgentStatus) string {
+// capturePaneValue builds the structured JSON payload for a single pane.
+// Returns false when the pane is not found.
+func (r *Renderer) capturePaneValue(paneID uint32, agentStatus map[uint32]proto.PaneAgentStatus) (proto.CapturePane, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	return r.buildCapturePaneLocked(paneID, agentStatus)
+}
 
-	cp, ok := r.buildCapturePaneLocked(paneID, agentStatus)
+// CapturePaneJSON returns a single pane's JSON from client-side emulators.
+func (r *Renderer) CapturePaneJSON(paneID uint32, agentStatus map[uint32]proto.PaneAgentStatus) string {
+	cp, ok := r.capturePaneValue(paneID, agentStatus)
 	if !ok {
 		return "{}"
 	}
-	out, _ := json.MarshalIndent(cp, "", "  ")
-	return string(out)
+	return marshalIndented(cp)
 }
 
 // ResolvePaneID resolves a pane reference to an ID from client-side state.
