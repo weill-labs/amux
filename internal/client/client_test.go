@@ -1576,3 +1576,38 @@ func TestRescaleLayoutForSmallerClient(t *testing.T) {
 		}
 	}
 }
+
+func TestRescaleLayoutForSmallerClientResizesEmulators(t *testing.T) {
+	t.Parallel()
+
+	cr := NewClientRenderer(40, 12)
+	cr.HandleLayout(twoPane80x23())
+
+	emu, ok := cr.Emulator(1)
+	if !ok {
+		t.Fatal("pane-1 emulator missing")
+	}
+	if w, h := emu.Size(); w != 19 || h != 10 {
+		t.Fatalf("pane-1 emulator size on smaller client = %dx%d, want 19x10", w, h)
+	}
+
+	const wideLine = "1234567890123456789012345678901234567890"
+	cr.HandlePaneOutput(1, []byte("\033[2J\033[H"+wideLine))
+
+	var pane proto.CapturePane
+	if err := json.Unmarshal([]byte(cr.CapturePaneJSON(1, nil)), &pane); err != nil {
+		t.Fatalf("CapturePaneJSON parse: %v", err)
+	}
+	wantLines := []string{wideLine[:19], wideLine[19:38], wideLine[38:]}
+	if len(pane.Content) < len(wantLines) {
+		t.Fatalf("pane content lines = %d, want at least %d", len(pane.Content), len(wantLines))
+	}
+	for i, want := range wantLines {
+		if got := pane.Content[i]; got != want {
+			t.Fatalf("pane line %d = %q, want %q", i, got, want)
+		}
+	}
+	if got := pane.Cursor; got.Col != 2 || got.Row != 2 {
+		t.Fatalf("pane cursor = (%d,%d), want (2,2)", got.Col, got.Row)
+	}
+}
