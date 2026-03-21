@@ -106,6 +106,198 @@ func TestHandleMouseEventClickSendsFocusCommand(t *testing.T) {
 	<-done
 }
 
+func TestPaneAllowsMouseCopySelection(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		setup func(*ClientRenderer)
+		pane  uint32
+		want  bool
+	}{
+		{
+			name: "missing pane",
+			pane: 99,
+			want: false,
+		},
+		{
+			name: "regular pane",
+			pane: 1,
+			want: true,
+		},
+		{
+			name: "alt screen pane",
+			setup: func(cr *ClientRenderer) {
+				cr.HandlePaneOutput(1, []byte("\x1b[?1049h"))
+			},
+			pane: 1,
+			want: false,
+		},
+		{
+			name: "app mouse pane",
+			setup: func(cr *ClientRenderer) {
+				cr.HandlePaneOutput(1, []byte("\x1b[?1002h\x1b[?1006h"))
+			},
+			pane: 1,
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cr := buildTestRenderer(t)
+			if tt.setup != nil {
+				tt.setup(cr)
+			}
+
+			if got := paneAllowsMouseCopySelection(cr, tt.pane); got != tt.want {
+				t.Fatalf("paneAllowsMouseCopySelection(%d) = %v, want %v", tt.pane, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestHandleMouseEventBorderPressClearsCopyDragState(t *testing.T) {
+	t.Parallel()
+
+	cr := buildTestRenderer(t)
+	layout := cr.VisibleLayout()
+	if layout == nil {
+		t.Fatal("visible layout missing")
+	}
+
+	borderX := -1
+	for x := 0; x < 80; x++ {
+		if layout.FindBorderAt(x, 5) != nil {
+			borderX = x
+			break
+		}
+	}
+	if borderX < 0 {
+		t.Fatal("expected a vertical border in the test layout")
+	}
+
+	var drag DragState
+	drag.CopyModeActive = true
+	drag.CopyModePaneID = 1
+	drag.CopyMoved = true
+
+	HandleMouseEvent(mouse.Event{
+		Action: mouse.Press,
+		Button: mouse.ButtonLeft,
+		X:      borderX,
+		Y:      5,
+	}, cr, nil, &drag)
+
+	if !drag.Active {
+		t.Fatal("border press should start a resize drag")
+	}
+	if drag.CopyModeActive {
+		t.Fatal("border press should clear copy-mode drag state")
+	}
+	if drag.CopyModePaneID != 0 {
+		t.Fatalf("border press should clear copy-mode pane id, got %d", drag.CopyModePaneID)
+	}
+}
+
+func TestHandleMouseEventDragStartsCopyModeAndCopiesSelection(t *testing.T) {
+	cr := buildTestRenderer(t)
+
+	clientConn, serverConn := net.Pipe()
+	t.Cleanup(func() {
+		clientConn.Close()
+		serverConn.Close()
+	})
+
+	sender := newMessageSender(clientConn)
+	var drag DragState
+
+	var copied string
+	stubCopyToClipboard(t, func(text string) {
+		copied = text
+	})
+
+	y := mux.StatusLineRows
+	HandleMouseEvent(mouse.Event{
+		Action: mouse.Press,
+		Button: mouse.ButtonLeft,
+		X:      0,
+		Y:      y,
+	}, cr, sender, &drag)
+
+	if cr.InCopyMode(1) {
+		t.Fatal("pane-1 should not enter copy mode until the drag moves")
+	}
+
+	HandleMouseEvent(mouse.Event{
+		Action: mouse.Motion,
+		Button: mouse.ButtonLeft,
+		X:      4,
+		Y:      y,
+		LastX:  0,
+		LastY:  y,
+	}, cr, sender, &drag)
+
+	cm := cr.CopyModeForPane(1)
+	if cm == nil {
+		t.Fatal("pane-1 should enter copy mode on mouse drag")
+	}
+	if got := cm.SelectedText(); got != "hello" {
+		t.Fatalf("selected text during drag = %q, want %q", got, "hello")
+	}
+
+	HandleMouseEvent(mouse.Event{
+		Action: mouse.Release,
+		Button: mouse.ButtonLeft,
+		X:      4,
+		Y:      y,
+		LastX:  4,
+		LastY:  y,
+	}, cr, sender, &drag)
+
+	if copied != "hello" {
+		t.Fatalf("copied text = %q, want %q", copied, "hello")
+	}
+	if cr.InCopyMode(1) {
+		t.Fatal("pane-1 should exit copy mode after mouse drag copy")
+	}
+}
+
+func TestHandleMouseEventDragMotionWithMissingPaneDoesNotEnterCopyMode(t *testing.T) {
+	t.Parallel()
+
+	cr := NewClientRenderer(80, 24)
+	cr.HandleLayout(&proto.LayoutSnapshot{
+		SessionName:  "test",
+		ActivePaneID: 99,
+		Width:        80,
+		Height:       23,
+		Root: proto.CellSnapshot{
+			X: 0, Y: 0, W: 80, H: 23,
+			IsLeaf: true, Dir: -1, PaneID: 99,
+		},
+	})
+
+	var drag DragState
+	drag.CopyModePaneID = 99
+
+	HandleMouseEvent(mouse.Event{
+		Action: mouse.Motion,
+		Button: mouse.ButtonLeft,
+		X:      1,
+		Y:      mux.StatusLineRows,
+	}, cr, nil, &drag)
+
+	if cr.InCopyMode(99) {
+		t.Fatal("missing pane should not enter copy mode on mouse drag")
+	}
+	if drag.CopyModeActive {
+		t.Fatal("missing pane should leave copy-mode drag inactive")
+	}
+}
+
 func TestHandleMouseEventCopyModeDragCopiesSelectionAndExits(t *testing.T) {
 	cr := buildTestRenderer(t)
 	cr.EnterCopyMode(1)
