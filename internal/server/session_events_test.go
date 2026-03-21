@@ -209,6 +209,65 @@ func TestPaneOutputCallbackEnqueuesOutputNotifications(t *testing.T) {
 	}
 }
 
+func TestMetaCallbackEnqueuesMetaUpdate(t *testing.T) {
+	t.Parallel()
+
+	sess := newSession("test-meta-callback")
+	stopCrashCheckpointLoop(t, sess)
+	defer stopSessionBackgroundLoops(t, sess)
+
+	pane := newProxyPane(1, mux.PaneMeta{
+		Name:  "pane-1",
+		Host:  mux.DefaultHost,
+		Color: "f5e0dc",
+	}, 80, 23, nil, nil, func(data []byte) (int, error) { return len(data), nil })
+	w := mux.NewWindow(pane, 80, 23)
+	w.ID = 1
+	w.Name = "window-1"
+	sess.Windows = []*mux.Window{w}
+	sess.ActiveWindowID = w.ID
+	sess.Panes = []*mux.Pane{pane}
+
+	task := "deploy"
+	sess.metaCallback()(pane.ID, mux.MetaUpdate{Task: &task})
+
+	waitUntil(t, func() bool {
+		return mustSessionQuery(t, sess, func(sess *Session) bool {
+			return sess.Panes[0].Meta.Task == "deploy"
+		})
+	})
+}
+
+func TestMetaCallbackIgnoredDuringShutdown(t *testing.T) {
+	t.Parallel()
+
+	sess := newSession("test-meta-shutdown")
+	stopCrashCheckpointLoop(t, sess)
+	defer stopSessionBackgroundLoops(t, sess)
+
+	pane := newProxyPane(1, mux.PaneMeta{
+		Name:  "pane-1",
+		Host:  mux.DefaultHost,
+		Color: "f5e0dc",
+	}, 80, 23, nil, nil, func(data []byte) (int, error) { return len(data), nil })
+	sess.Panes = []*mux.Pane{pane}
+
+	sess.shutdown.Store(true)
+
+	task := "should-not-apply"
+	sess.metaCallback()(pane.ID, mux.MetaUpdate{Task: &task})
+
+	// The callback early-returns during shutdown, so the event is never enqueued.
+	// Verify by doing a round-trip through the event loop — if the meta event
+	// were queued, it would be processed before our query.
+	got := mustSessionQuery(t, sess, func(sess *Session) string {
+		return sess.Panes[0].Meta.Task
+	})
+	if got == "should-not-apply" {
+		t.Fatal("metaCallback should be suppressed during shutdown")
+	}
+}
+
 func TestPaneExitCallbackEnqueuesRemoval(t *testing.T) {
 	t.Parallel()
 
@@ -550,6 +609,157 @@ func TestEnqueueUIWaitSubscribeAvoidsStaleSnapshotGap(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("atomic subscribe did not receive future hidden event")
 	}
+}
+
+func TestMetaUpdateEventSetsTaskAndPR(t *testing.T) {
+	t.Parallel()
+
+	sess := newSession("test-meta-update-task-pr")
+	stopCrashCheckpointLoop(t, sess)
+	defer stopSessionBackgroundLoops(t, sess)
+
+	pane := newProxyPane(1, mux.PaneMeta{
+		Name:  "pane-1",
+		Host:  mux.DefaultHost,
+		Color: "f5e0dc",
+	}, 80, 23, nil, nil, func(data []byte) (int, error) { return len(data), nil })
+	w := mux.NewWindow(pane, 80, 23)
+	w.ID = 1
+	w.Name = "window-1"
+	sess.Windows = []*mux.Window{w}
+	sess.ActiveWindowID = w.ID
+	sess.Panes = []*mux.Pane{pane}
+
+	task := "deploy"
+	pr := "99"
+	metaUpdateEvent{paneID: 1, update: mux.MetaUpdate{Task: &task, PR: &pr}}.handle(sess)
+
+	if pane.Meta.Task != "deploy" {
+		t.Fatalf("task = %q, want %q", pane.Meta.Task, "deploy")
+	}
+	if pane.Meta.PR != "99" {
+		t.Fatalf("pr = %q, want %q", pane.Meta.PR, "99")
+	}
+}
+
+func TestMetaUpdateEventSetsBranchManual(t *testing.T) {
+	t.Parallel()
+
+	sess := newSession("test-meta-update-branch")
+	stopCrashCheckpointLoop(t, sess)
+	defer stopSessionBackgroundLoops(t, sess)
+
+	pane := newProxyPane(1, mux.PaneMeta{
+		Name:  "pane-1",
+		Host:  mux.DefaultHost,
+		Color: "f5e0dc",
+	}, 80, 23, nil, nil, func(data []byte) (int, error) { return len(data), nil })
+	w := mux.NewWindow(pane, 80, 23)
+	w.ID = 1
+	w.Name = "window-1"
+	sess.Windows = []*mux.Window{w}
+	sess.ActiveWindowID = w.ID
+	sess.Panes = []*mux.Pane{pane}
+
+	branch := "feat/manual"
+	metaUpdateEvent{paneID: 1, update: mux.MetaUpdate{Branch: &branch}}.handle(sess)
+
+	if pane.Meta.GitBranch != "feat/manual" {
+		t.Fatalf("git_branch = %q, want %q", pane.Meta.GitBranch, "feat/manual")
+	}
+
+	// Auto-detect should not override manual branch
+	pane.ApplyCwdBranch("/tmp", "auto-branch")
+	if pane.Meta.GitBranch != "feat/manual" {
+		t.Fatalf("git_branch after auto-detect = %q, want manual to be preserved", pane.Meta.GitBranch)
+	}
+}
+
+func TestMetaUpdateEventClearsBranch(t *testing.T) {
+	t.Parallel()
+
+	sess := newSession("test-meta-clear-branch")
+	stopCrashCheckpointLoop(t, sess)
+	defer stopSessionBackgroundLoops(t, sess)
+
+	pane := newProxyPane(1, mux.PaneMeta{
+		Name:      "pane-1",
+		Host:      mux.DefaultHost,
+		Color:     "f5e0dc",
+		GitBranch: "old-branch",
+	}, 80, 23, nil, nil, func(data []byte) (int, error) { return len(data), nil })
+	pane.SetMetaManualBranch(true)
+	w := mux.NewWindow(pane, 80, 23)
+	w.ID = 1
+	w.Name = "window-1"
+	sess.Windows = []*mux.Window{w}
+	sess.ActiveWindowID = w.ID
+	sess.Panes = []*mux.Pane{pane}
+
+	empty := ""
+	metaUpdateEvent{paneID: 1, update: mux.MetaUpdate{Branch: &empty}}.handle(sess)
+
+	if pane.Meta.GitBranch != "" {
+		t.Fatalf("git_branch = %q, want empty after clear", pane.Meta.GitBranch)
+	}
+
+	// After clearing, auto-detect should work again
+	pane.ApplyCwdBranch("/tmp", "auto-branch")
+	if pane.Meta.GitBranch != "auto-branch" {
+		t.Fatalf("git_branch = %q, want auto-detect to resume after clear", pane.Meta.GitBranch)
+	}
+}
+
+func TestMetaUpdateEventIgnoresMissingPane(t *testing.T) {
+	t.Parallel()
+
+	sess := newSession("test-meta-missing-pane")
+	stopCrashCheckpointLoop(t, sess)
+	defer stopSessionBackgroundLoops(t, sess)
+
+	// No panes in session; should not panic
+	task := "x"
+	metaUpdateEvent{paneID: 999, update: mux.MetaUpdate{Task: &task}}.handle(sess)
+}
+
+func TestCwdBranchResultEventUpdatesPane(t *testing.T) {
+	t.Parallel()
+
+	sess := newSession("test-cwd-branch-result")
+	stopCrashCheckpointLoop(t, sess)
+	defer stopSessionBackgroundLoops(t, sess)
+
+	pane := newProxyPane(1, mux.PaneMeta{
+		Name:  "pane-1",
+		Host:  mux.DefaultHost,
+		Color: "f5e0dc",
+	}, 80, 23, nil, nil, func(data []byte) (int, error) { return len(data), nil })
+	w := mux.NewWindow(pane, 80, 23)
+	w.ID = 1
+	w.Name = "window-1"
+	sess.Windows = []*mux.Window{w}
+	sess.ActiveWindowID = w.ID
+	sess.Panes = []*mux.Pane{pane}
+
+	cwdBranchResultEvent{paneID: 1, cwd: "/home/user/repo", branch: "main"}.handle(sess)
+
+	if pane.LiveCwd() != "/home/user/repo" {
+		t.Fatalf("liveCwd = %q, want %q", pane.LiveCwd(), "/home/user/repo")
+	}
+	if pane.Meta.GitBranch != "main" {
+		t.Fatalf("git_branch = %q, want %q", pane.Meta.GitBranch, "main")
+	}
+}
+
+func TestCwdBranchResultEventIgnoresMissingPane(t *testing.T) {
+	t.Parallel()
+
+	sess := newSession("test-cwd-branch-missing")
+	stopCrashCheckpointLoop(t, sess)
+	defer stopSessionBackgroundLoops(t, sess)
+
+	// No panes; should not panic
+	cwdBranchResultEvent{paneID: 999, cwd: "/tmp", branch: "main"}.handle(sess)
 }
 
 func TestUIEventCmdIncrementsClientGenerationOnlyOnRealChanges(t *testing.T) {

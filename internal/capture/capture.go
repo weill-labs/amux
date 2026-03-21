@@ -81,6 +81,9 @@ type PaneInput struct {
 	Task       string
 	Color      string
 	ConnStatus string
+	Cwd        string
+	GitBranch  string
+	PR         string
 	Cursor     proto.CaptureCursor
 	Content    []string
 	History    []string
@@ -98,6 +101,9 @@ func BuildPane(input PaneInput, agentStatus map[uint32]proto.PaneAgentStatus) pr
 		Task:       input.Task,
 		Color:      input.Color,
 		ConnStatus: input.ConnStatus,
+		Cwd:        input.Cwd,
+		GitBranch:  input.GitBranch,
+		PR:         input.PR,
 		Cursor:     input.Cursor,
 		Content:    append([]string(nil), input.Content...),
 		History:    append([]string(nil), input.History...),

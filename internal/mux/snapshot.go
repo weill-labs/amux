@@ -57,6 +57,8 @@ func (p *Pane) ToSnapshot() proto.PaneSnapshot {
 		Color:      p.Meta.Color,
 		Minimized:  p.Meta.Minimized,
 		ConnStatus: p.Meta.Remote,
+		GitBranch:  p.Meta.GitBranch,
+		PR:         p.Meta.PR,
 	}
 	if p.Meta.Minimized {
 		ps.EmuWidth, ps.EmuHeight = p.EmulatorSize()

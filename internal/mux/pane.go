@@ -31,6 +31,8 @@ type PaneMeta struct {
 	MinimizedSeq uint64 `json:"minimized_seq,omitempty"` // monotonic counter for LIFO restore ordering
 	Dormant      bool   `json:"dormant,omitempty"`       // pane is in Session.Panes but not in any window layout (e.g., SSH takeover host)
 	Dir          string `json:"dir,omitempty"`           // working directory override for new shell
+	GitBranch    string `json:"git_branch,omitempty"`    // cached git branch (auto-detected or manually set)
+	PR           string `json:"pr,omitempty"`            // PR number (set via escape sequence or CLI)
 }
 
 // Pane manages a PTY, its terminal emulator, and metadata.
@@ -59,13 +61,19 @@ type Pane struct {
 	onExit         func(paneID uint32)
 	onClipboard    func(paneID uint32, data []byte)
 	onTakeover     func(paneID uint32, req TakeoverRequest)
+	onMetaUpdate   func(paneID uint32, update MetaUpdate)
 	osc52Scanner   OSC52Scanner
 	controlScanner AmuxControlScanner
+	metaScanner    AmuxMetaScanner
 
 	// Idle tracking (LAB-159)
 	createdAt        time.Time
 	lastBusySeenUnix atomic.Int64 // UnixNano; last time process tree showed busy
 	idleSinceUnix    atomic.Int64 // UnixNano; when the current idle period began
+
+	// CWD/branch detection
+	liveCwd          string // last-detected CWD, not checkpointed
+	metaManualBranch bool   // true when GitBranch was set via escape sequence or CLI
 }
 
 type paneBaseHistory struct {
@@ -94,7 +102,7 @@ func NewPaneWithScrollback(id uint32, meta PaneMeta, cols, rows int, sessionName
 	cmd := exec.Command(shell, "-l")
 	cmd.Env = append(os.Environ(),
 		"TERM=amux",
-		"AMUX_PANE=1",
+		fmt.Sprintf("AMUX_PANE=%d", id),
 		"AMUX_SESSION="+sessionName,
 	)
 	if meta.Dir != "" {
@@ -237,6 +245,39 @@ func (p *Pane) ProcessPid() int {
 	return 0
 }
 
+// DetectCwdBranch returns the current CWD and git branch without mutating state.
+// Safe to call from any goroutine.
+func (p *Pane) DetectCwdBranch() (cwd, branch string) {
+	pid := p.ProcessPid()
+	if pid == 0 {
+		return "", ""
+	}
+	cwd = PaneCwd(pid)
+	if cwd == "" {
+		return "", ""
+	}
+	branch = GitBranch(cwd)
+	return cwd, branch
+}
+
+// ApplyCwdBranch updates cached CWD/branch. Only call from the session event loop.
+func (p *Pane) ApplyCwdBranch(cwd, branch string) {
+	p.liveCwd = cwd
+	if !p.metaManualBranch {
+		p.Meta.GitBranch = branch
+	}
+}
+
+// LiveCwd returns the last-detected working directory.
+func (p *Pane) LiveCwd() string {
+	return p.liveCwd
+}
+
+// SetMetaManualBranch controls whether auto-refresh should update GitBranch.
+func (p *Pane) SetMetaManualBranch(manual bool) {
+	p.metaManualBranch = manual
+}
+
 // ReplayScreen feeds screen data into the emulator to restore visual state.
 func (p *Pane) ReplayScreen(data string) {
 	p.beginSnapshotMutation()
@@ -266,6 +307,12 @@ func (p *Pane) SetOnTakeover(fn func(paneID uint32, req TakeoverRequest)) {
 	p.onTakeover = fn
 }
 
+// SetOnMetaUpdate sets the callback invoked when an amux-meta escape
+// sequence is detected in pane output. Must be called before Start().
+func (p *Pane) SetOnMetaUpdate(fn func(paneID uint32, update MetaUpdate)) {
+	p.onMetaUpdate = fn
+}
+
 // readLoop reads PTY output, feeds the emulator, and notifies the callback.
 func (p *Pane) readLoop() {
 	buf := make([]byte, 32*1024)
@@ -284,6 +331,12 @@ func (p *Pane) readLoop() {
 			if p.onTakeover != nil {
 				for _, req := range p.controlScanner.Scan(data) {
 					p.onTakeover(p.ID, req)
+				}
+			}
+
+			if p.onMetaUpdate != nil {
+				for _, update := range p.metaScanner.Scan(data) {
+					p.onMetaUpdate(p.ID, update)
 				}
 			}
 

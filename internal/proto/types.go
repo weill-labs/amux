@@ -53,6 +53,8 @@ type PaneSnapshot struct {
 	Minimized  bool   `json:"minimized"`
 	Idle       bool   `json:"idle"`
 	ConnStatus string `json:"conn_status,omitempty"` // "", "connected", "reconnecting", "disconnected" (remote panes only)
+	GitBranch  string `json:"git_branch,omitempty"`
+	PR         string `json:"pr,omitempty"`
 
 	// EmuWidth/EmuHeight are set for minimized panes to record the
 	// pre-minimize emulator dimensions. Clients use these to create
@@ -106,6 +108,11 @@ type CapturePane struct {
 	// ConnStatus is the remote connection state: "", "connected", "reconnecting", "disconnected".
 	// Empty for local panes.
 	ConnStatus string `json:"conn_status,omitempty"`
+
+	// CWD/branch metadata.
+	Cwd       string `json:"cwd,omitempty"`
+	GitBranch string `json:"git_branch,omitempty"`
+	PR        string `json:"pr,omitempty"`
 
 	// Agent status fields (LAB-159).
 	// Idle is true when no foreground command is running in the pane.

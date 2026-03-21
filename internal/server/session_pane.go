@@ -142,6 +142,7 @@ func (s *Session) createPaneWithMeta(srv *Server, meta mux.PaneMeta, cols, rows 
 
 	pane.SetOnClipboard(s.clipboardCallback())
 	pane.SetOnTakeover(s.takeoverCallback(srv))
+	pane.SetOnMetaUpdate(s.metaCallback())
 
 	s.Panes = append(s.Panes, pane)
 	return pane, nil

@@ -82,6 +82,93 @@ func TestCaptureSnapshotIncludesHistoryContentAndCursor(t *testing.T) {
 	}
 }
 
+func TestApplyCwdBranchUpdatesAutoDetectedFields(t *testing.T) {
+	t.Parallel()
+
+	p := &Pane{ID: 1, Meta: PaneMeta{Name: "pane-1"}}
+
+	p.ApplyCwdBranch("/home/user/repo", "main")
+
+	if p.LiveCwd() != "/home/user/repo" {
+		t.Fatalf("LiveCwd() = %q, want %q", p.LiveCwd(), "/home/user/repo")
+	}
+	if p.Meta.GitBranch != "main" {
+		t.Fatalf("GitBranch = %q, want %q", p.Meta.GitBranch, "main")
+	}
+}
+
+func TestApplyCwdBranchRespectsManualOverride(t *testing.T) {
+	t.Parallel()
+
+	p := &Pane{ID: 1, Meta: PaneMeta{Name: "pane-1", GitBranch: "manual-branch"}}
+	p.SetMetaManualBranch(true)
+
+	p.ApplyCwdBranch("/tmp", "auto-branch")
+
+	if p.LiveCwd() != "/tmp" {
+		t.Fatalf("LiveCwd() = %q, want CWD to always update", p.LiveCwd())
+	}
+	if p.Meta.GitBranch != "manual-branch" {
+		t.Fatalf("GitBranch = %q, want manual override preserved", p.Meta.GitBranch)
+	}
+}
+
+func TestSetMetaManualBranchToggle(t *testing.T) {
+	t.Parallel()
+
+	p := &Pane{ID: 1, Meta: PaneMeta{Name: "pane-1"}}
+
+	// Initially auto-detect works
+	p.ApplyCwdBranch("/tmp", "auto")
+	if p.Meta.GitBranch != "auto" {
+		t.Fatalf("GitBranch = %q, want auto", p.Meta.GitBranch)
+	}
+
+	// Set manual
+	p.SetMetaManualBranch(true)
+	p.Meta.GitBranch = "manual"
+	p.ApplyCwdBranch("/tmp", "auto-2")
+	if p.Meta.GitBranch != "manual" {
+		t.Fatalf("GitBranch = %q, want manual preserved", p.Meta.GitBranch)
+	}
+
+	// Clear manual
+	p.SetMetaManualBranch(false)
+	p.ApplyCwdBranch("/tmp", "auto-3")
+	if p.Meta.GitBranch != "auto-3" {
+		t.Fatalf("GitBranch = %q, want auto-detect resumed", p.Meta.GitBranch)
+	}
+}
+
+func TestSetOnMetaUpdateCallback(t *testing.T) {
+	t.Parallel()
+
+	p := &Pane{ID: 42}
+	var received []MetaUpdate
+	p.SetOnMetaUpdate(func(paneID uint32, update MetaUpdate) {
+		if paneID != 42 {
+			t.Errorf("paneID = %d, want 42", paneID)
+		}
+		received = append(received, update)
+	})
+
+	task := "build"
+	seq := FormatMetaSequence(MetaUpdate{Task: &task})
+
+	// Feed the escape sequence through the scanner directly
+	updates := p.metaScanner.Scan(seq)
+	for _, u := range updates {
+		p.onMetaUpdate(p.ID, u)
+	}
+
+	if len(received) != 1 {
+		t.Fatalf("received %d callbacks, want 1", len(received))
+	}
+	if *received[0].Task != "build" {
+		t.Fatalf("task = %q, want %q", *received[0].Task, "build")
+	}
+}
+
 func TestCaptureSnapshotRespectsScrollbackLimit(t *testing.T) {
 	t.Parallel()
 

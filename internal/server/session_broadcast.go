@@ -66,6 +66,16 @@ func (s *Session) clipboardCallback() func(paneID uint32, data []byte) {
 	}
 }
 
+// metaCallback returns the onMetaUpdate callback for panes in this session.
+func (s *Session) metaCallback() func(paneID uint32, update mux.MetaUpdate) {
+	return func(paneID uint32, update mux.MetaUpdate) {
+		if s.shutdown.Load() {
+			return
+		}
+		s.enqueueEvent(metaUpdateEvent{paneID: paneID, update: update})
+	}
+}
+
 func (s *Session) broadcastPaneOutputNow(paneID uint32, data []byte, seq uint64) {
 	clients := append([]*ClientConn(nil), s.clients...)
 	msg := &Message{Type: MsgTypePaneOutput, PaneID: paneID, PaneData: data}

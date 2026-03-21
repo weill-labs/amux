@@ -222,6 +222,15 @@ type idleTimeoutEvent struct {
 
 func (e idleTimeoutEvent) handle(s *Session) {
 	s.idle.MarkIdle(e.paneID)
+
+	// Refresh CWD/branch off the event loop to avoid blocking on lsof/git
+	if p := s.findPaneByID(e.paneID); p != nil && !p.IsProxy() {
+		go func() {
+			cwd, branch := p.DetectCwdBranch()
+			s.enqueueEvent(cwdBranchResultEvent{paneID: e.paneID, cwd: cwd, branch: branch})
+		}()
+	}
+
 	env := s.buildPaneEnv(e.paneID, hooks.OnIdle)
 	s.fireHooks(hooks.OnIdle, env)
 	s.emitEvent(Event{
@@ -230,6 +239,47 @@ func (e idleTimeoutEvent) handle(s *Session) {
 		PaneName: env["AMUX_PANE_NAME"],
 		Host:     env["AMUX_HOST"],
 	})
+	s.broadcastLayoutNow()
+}
+
+type cwdBranchResultEvent struct {
+	paneID uint32
+	cwd    string
+	branch string
+}
+
+func (e cwdBranchResultEvent) handle(s *Session) {
+	if p := s.findPaneByID(e.paneID); p != nil {
+		p.ApplyCwdBranch(e.cwd, e.branch)
+		s.broadcastLayoutNow()
+	}
+}
+
+type metaUpdateEvent struct {
+	paneID uint32
+	update mux.MetaUpdate
+}
+
+func (e metaUpdateEvent) handle(s *Session) {
+	p := s.findPaneByID(e.paneID)
+	if p == nil {
+		return
+	}
+	if e.update.Task != nil {
+		p.Meta.Task = *e.update.Task
+	}
+	if e.update.PR != nil {
+		p.Meta.PR = *e.update.PR
+	}
+	if e.update.Branch != nil {
+		if *e.update.Branch == "" {
+			p.SetMetaManualBranch(false)
+			p.Meta.GitBranch = ""
+		} else {
+			p.Meta.GitBranch = *e.update.Branch
+			p.SetMetaManualBranch(true)
+		}
+	}
 	s.broadcastLayoutNow()
 }
 

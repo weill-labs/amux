@@ -28,6 +28,8 @@ type paneListEntry struct {
 	host       string
 	windowName string
 	task       string
+	gitBranch  string
+	pr         string
 	active     bool
 }
 
@@ -186,10 +188,12 @@ func (s *Session) queryPaneList() ([]paneListEntry, error) {
 		w := s.ActiveWindow()
 		for _, p := range s.Panes {
 			entry := paneListEntry{
-				paneID: p.ID,
-				name:   p.Meta.Name,
-				host:   p.Meta.Host,
-				task:   p.Meta.Task,
+				paneID:    p.ID,
+				name:      p.Meta.Name,
+				host:      p.Meta.Host,
+				task:      p.Meta.Task,
+				gitBranch: p.Meta.GitBranch,
+				pr:        p.Meta.PR,
 			}
 			if w != nil && w.ActivePane != nil && w.ActivePane.ID == p.ID {
 				entry.active = true
