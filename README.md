@@ -133,26 +133,6 @@ amux capture --history --format json pane-1
 
 Because retained history is server-owned, `capture --history` works after detach/reattach, after `reload-server`, and after crash recovery, and it does not require an attached interactive client. Copy mode remains per-client UI state over that shared history.
 
-### Manual Codex Probe
-
-When debugging interactive TUIs in `pane-1` that may detach the last client or
-leave child processes behind, keep one human client attached in a fresh named
-session and run the probe helper from a second terminal:
-
-```bash
-SESSION=codex-manual-$(date +%H%M%S)
-amux new "$SESSION"                     # terminal A
-scripts/codex-yolo-probe.sh "$SESSION"  # terminal B
-```
-
-The helper runs the `codex --yolo` loop with `send-keys`, `wait-busy`,
-`wait-idle`, `list-clients`, and `capture --history --format json`, then exits
-non-zero if those signals contradict each other.
-
-In current Codex builds, a first `Ctrl-C` often just clears the prompt and a
-second `Ctrl-C` exits. The helper retries once before treating that as
-suspicious, which matches plain terminal behavior outside amux.
-
 ### Wait Commands
 
 Block until a condition is met. No polling.

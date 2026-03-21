@@ -24,22 +24,6 @@ amux                              # start or reattach to a session
 amux capture --format json        # structured JSON output for agents
 ```
 
-For interactive TUI regressions in `pane-1` such as `codex --yolo`, use a
-fresh named session and keep one human client attached while probing from a
-second terminal:
-
-```bash
-SESSION=codex-manual-$(date +%H%M%S)
-amux new "$SESSION"                       # terminal A, leave attached
-scripts/codex-yolo-probe.sh "$SESSION"   # terminal B
-```
-
-The helper drives `send-keys`, `wait-busy`, `wait-idle`, `list-clients`, and
-`capture --history --format json` in one repeatable loop. It refuses to use
-`default` unless you opt in with `AMUX_PROBE_ALLOW_DEFAULT=1`.
-Current Codex builds may consume the first `Ctrl-C` to clear the prompt and
-only exit on the second; the helper retries once before flagging the run.
-
 ## AI Agents
 
 - Shared repo instructions live in `AGENTS.md`.
