@@ -28,7 +28,7 @@ func (a discardAddr) Network() string { return "discard" }
 func (a discardAddr) String() string  { return string(a) }
 
 func benchProxyPane(id uint32) *mux.Pane {
-	return mux.NewProxyPane(id, mux.PaneMeta{
+	return newProxyPane(id, mux.PaneMeta{
 		Name:  fmt.Sprintf("pane-%d", id),
 		Host:  mux.DefaultHost,
 		Color: config.CatppuccinMocha[(id-1)%uint32(len(config.CatppuccinMocha))],

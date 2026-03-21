@@ -9,10 +9,14 @@ import (
 	"github.com/weill-labs/amux/internal/proto"
 )
 
+func newTestVTEmulator(width, height int) mux.TerminalEmulator {
+	return mux.NewVTEmulatorWithScrollback(width, height, mux.DefaultScrollbackLines)
+}
+
 func TestPaneDataRenderScreen(t *testing.T) {
 	t.Parallel()
 
-	emu := mux.NewVTEmulator(20, 4)
+	emu := newTestVTEmulator(20, 4)
 	if _, err := emu.Write([]byte("hello \033[7m \033[m\033[1D")); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
@@ -32,7 +36,7 @@ func TestPaneDataCellAt(t *testing.T) {
 	t.Run("inactive strips isolated cursor block", func(t *testing.T) {
 		t.Parallel()
 
-		emu := mux.NewVTEmulator(20, 4)
+		emu := newTestVTEmulator(20, 4)
 		if _, err := emu.Write([]byte("hello \033[7m \033[m\033[1D")); err != nil {
 			t.Fatalf("Write: %v", err)
 		}
@@ -52,7 +56,7 @@ func TestPaneDataCellAt(t *testing.T) {
 	t.Run("inactive preserves multi-cell reverse video", func(t *testing.T) {
 		t.Parallel()
 
-		emu := mux.NewVTEmulator(20, 4)
+		emu := newTestVTEmulator(20, 4)
 		if _, err := emu.Write([]byte("\033[7mselected\033[m")); err != nil {
 			t.Fatalf("Write: %v", err)
 		}
@@ -67,7 +71,7 @@ func TestPaneDataCellAt(t *testing.T) {
 	t.Run("inactive preserves isolated reverse video away from cursor", func(t *testing.T) {
 		t.Parallel()
 
-		emu := mux.NewVTEmulator(20, 4)
+		emu := newTestVTEmulator(20, 4)
 		if _, err := emu.Write([]byte("hello \033[7m \033[m")); err != nil {
 			t.Fatalf("Write: %v", err)
 		}
@@ -86,7 +90,7 @@ func TestPaneDataCellAt(t *testing.T) {
 func TestPaneDataAccessors(t *testing.T) {
 	t.Parallel()
 
-	emu := mux.NewVTEmulator(20, 4)
+	emu := newTestVTEmulator(20, 4)
 	pane := &PaneData{
 		Emu: emu,
 		Info: proto.PaneSnapshot{

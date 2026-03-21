@@ -127,11 +127,6 @@ func (s *Server) Reload(execPath string) error {
 	return fmt.Errorf("server exec: %w", execErr)
 }
 
-// NewServerFromCheckpoint restores a server from a checkpoint after exec.
-func NewServerFromCheckpoint(cp *checkpoint.ServerCheckpoint) (*Server, error) {
-	return NewServerFromCheckpointWithScrollback(cp, mux.DefaultScrollbackLines)
-}
-
 // NewServerFromCheckpointWithScrollback restores a server from a checkpoint
 // using an explicit retained scrollback limit for restored panes.
 func NewServerFromCheckpointWithScrollback(cp *checkpoint.ServerCheckpoint, scrollbackLines int) (*Server, error) {

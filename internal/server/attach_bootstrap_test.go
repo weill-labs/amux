@@ -285,7 +285,7 @@ func waitForSignal(t *testing.T, ch <-chan struct{}, label string) {
 }
 
 func newAttachTestPane(sess *Session, id uint32, name string, cols, rows int) *mux.Pane {
-	return mux.NewProxyPane(id, mux.PaneMeta{
+	return newProxyPane(id, mux.PaneMeta{
 		Name:  name,
 		Host:  mux.DefaultHost,
 		Color: config.CatppuccinMocha[(id-1)%uint32(len(config.CatppuccinMocha))],

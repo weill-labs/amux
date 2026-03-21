@@ -190,7 +190,7 @@ func TestRenderCursorIgnoresOffCursorReverseVideoSpace(t *testing.T) {
 
 	width, height := 40, 5
 	root := mux.NewLeaf(&mux.Pane{ID: 1, Meta: mux.PaneMeta{Name: "pane-1"}}, 0, 0, width, height)
-	emu := mux.NewVTEmulator(width, height)
+	emu := mux.NewVTEmulatorWithScrollback(width, height, mux.DefaultScrollbackLines)
 	if _, err := emu.Write([]byte("hello \033[7m \033[m")); err != nil {
 		t.Fatalf("Write stale block: %v", err)
 	}

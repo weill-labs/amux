@@ -387,7 +387,7 @@ func TestQueuedPreparedRemotePaneInsert(t *testing.T) {
 	sess.ActiveWindowID = w.ID
 	sess.Panes = []*mux.Pane{p1}
 
-	proxy := mux.NewProxyPane(2, mux.PaneMeta{
+	proxy := newProxyPane(2, mux.PaneMeta{
 		Name:  "pane-2",
 		Host:  "gpu-server",
 		Color: config.CatppuccinMocha[1],
@@ -455,7 +455,7 @@ func newCommandTestSession(t *testing.T) (*Server, *Session, func()) {
 }
 
 func newTestPane(sess *Session, id uint32, name string) *mux.Pane {
-	return mux.NewProxyPane(id, mux.PaneMeta{
+	return newProxyPane(id, mux.PaneMeta{
 		Name:  name,
 		Host:  mux.DefaultHost,
 		Color: config.CatppuccinMocha[(id-1)%uint32(len(config.CatppuccinMocha))],

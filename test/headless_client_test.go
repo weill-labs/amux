@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/weill-labs/amux/internal/client"
+	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/server"
 )
 
@@ -26,6 +27,10 @@ type headlessClient struct {
 func dialHeadlessSocket(sockPath string, timeout time.Duration) (net.Conn, error) {
 	_ = timeout // timeout is exercised by the layout wait below in newHeadlessClient
 	return net.Dial("unix", sockPath)
+}
+
+func newTestRenderer(cols, rows int) *client.Renderer {
+	return client.NewWithScrollback(cols, rows, mux.DefaultScrollbackLines)
 }
 
 // newHeadlessClient attaches to the server and starts a background message
@@ -48,7 +53,7 @@ func newHeadlessClient(sockPath, session string, cols, rows int) (*headlessClien
 
 	hc := &headlessClient{
 		conn:     conn,
-		renderer: client.New(cols, rows),
+		renderer: newTestRenderer(cols, rows),
 		done:     make(chan struct{}),
 		ready:    make(chan struct{}),
 	}

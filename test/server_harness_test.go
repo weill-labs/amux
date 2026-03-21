@@ -276,12 +276,6 @@ func (h *ServerHarness) assertInactive(name string) {
 	}
 }
 
-// activePaneName returns the name of the active pane from JSON capture.
-func (h *ServerHarness) activePaneName() string {
-	h.tb.Helper()
-	return activePaneNameFor(h.tb, h.captureJSON())
-}
-
 // globalBar returns the global bar line from the capture.
 func (h *ServerHarness) globalBar() string {
 	h.tb.Helper()

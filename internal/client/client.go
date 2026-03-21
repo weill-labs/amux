@@ -28,11 +28,6 @@ type ClientRenderer struct {
 	OnUIEvent       func(string)
 }
 
-// NewClientRenderer creates a client renderer for the given terminal dimensions.
-func NewClientRenderer(width, height int) *ClientRenderer {
-	return NewClientRendererWithScrollback(width, height, mux.DefaultScrollbackLines)
-}
-
 // NewClientRendererWithScrollback creates a client renderer with an explicit
 // retained scrollback limit shared by local emulators and copy mode.
 func NewClientRendererWithScrollback(width, height, scrollbackLines int) *ClientRenderer {
@@ -52,14 +47,6 @@ func NewClientRendererWithScrollback(width, height, scrollbackLines int) *Client
 		}
 	}
 	return cr
-}
-
-// HandleLayout processes a layout snapshot from the server. Returns true if the
-// layout structure changed (panes moved/resized/added/removed).
-func (cr *ClientRenderer) HandleLayout(snap *proto.LayoutSnapshot) bool {
-	structureChanged, result := cr.handleLayoutResult(snap)
-	cr.emitUIEvents(result.uiEvents)
-	return structureChanged
 }
 
 func (cr *ClientRenderer) handleLayoutResult(snap *proto.LayoutSnapshot) (bool, clientUIResult) {
@@ -212,21 +199,6 @@ func (cr *ClientRenderer) Resize(width, height int) {
 	cr.renderer.Resize(width, height)
 }
 
-// Capture renders the full composited screen from client-side emulators.
-func (cr *ClientRenderer) Capture(stripANSI bool) string {
-	return cr.renderer.Capture(stripANSI)
-}
-
-// CaptureDisplay returns what the diff renderer thinks the terminal displays.
-func (cr *ClientRenderer) CaptureDisplay() string {
-	return cr.renderer.CaptureDisplay()
-}
-
-// CaptureColorMap renders a color map from client-side emulators.
-func (cr *ClientRenderer) CaptureColorMap() string {
-	return cr.renderer.CaptureColorMap()
-}
-
 // CaptureJSON renders a structured JSON capture from client-side emulators.
 func (cr *ClientRenderer) CaptureJSON(agentStatus map[uint32]proto.PaneAgentStatus) string {
 	capture, ok := cr.renderer.captureJSONValue(agentStatus)
@@ -235,11 +207,6 @@ func (cr *ClientRenderer) CaptureJSON(agentStatus map[uint32]proto.PaneAgentStat
 	}
 	capture.UI = cr.captureUIState()
 	return marshalIndented(capture)
-}
-
-// CapturePaneText returns a single pane's content from client-side emulators.
-func (cr *ClientRenderer) CapturePaneText(paneID uint32, includeANSI bool) string {
-	return cr.renderer.CapturePaneText(paneID, includeANSI)
 }
 
 // CapturePaneJSON returns a single pane's JSON from client-side emulators.

@@ -49,12 +49,6 @@ func NewCompositor(width, height int, sessionName string) *Compositor {
 	return &Compositor{width: width, height: height, sessionName: sessionName, debug: debugDefault}
 }
 
-// SetDebug enables or disables debug mode. When enabled, BuildGrid creates
-// grids that record out-of-bounds writes for later inspection via OOBWrites().
-func (c *Compositor) SetDebug(on bool) {
-	c.debug = on
-}
-
 // Resize updates the compositor's terminal dimensions.
 func (c *Compositor) Resize(width, height int) {
 	c.width = width
@@ -76,23 +70,14 @@ func (c *Compositor) LayoutHeight() int {
 	return c.height - GlobalBarHeight
 }
 
-// ClearScreen returns ANSI sequences to clear the screen and home the cursor.
-func ClearScreen() string {
-	return ClearAll + CursorHome
-}
-
-// RenderFull composes all panes, status lines, and borders into ANSI output.
-// lookup maps pane IDs to their rendering data. Client provides emulator-backed
-// adapters; server could provide Pane wrappers.
+// RenderFullWithOverlay composes all panes, status lines, and borders into ANSI
+// output plus optional client-local overlays. lookup maps pane IDs to their
+// rendering data. Client provides emulator-backed adapters; server could
+// provide Pane wrappers.
 //
 // When clearScreen is true the entire terminal is erased before drawing. This
 // is required after layout changes (panes move/resize) but should be skipped
 // for incremental updates (pane output, copy mode navigation) to avoid flicker.
-func (c *Compositor) RenderFull(root *mux.LayoutCell, activePaneID uint32, lookup func(uint32) PaneData, clearScreen ...bool) string {
-	return c.RenderFullWithOverlay(root, activePaneID, lookup, OverlayState{}, clearScreen...)
-}
-
-// RenderFullWithOverlay is RenderFull plus optional client-local overlays.
 func (c *Compositor) RenderFullWithOverlay(root *mux.LayoutCell, activePaneID uint32, lookup func(uint32) PaneData, overlay OverlayState, clearScreen ...bool) string {
 	var buf strings.Builder
 	buf.Grow(c.width * c.height * 4) // pre-allocate for typical ANSI output
@@ -166,14 +151,10 @@ func (c *Compositor) RenderFullWithOverlay(root *mux.LayoutCell, activePaneID ui
 	return buf.String()
 }
 
-// RenderDiff composes all panes into a cell grid, diffs against the previous
-// frame, and returns minimal ANSI output for the changed cells. On the first
-// call (or after Resize), prevGrid is nil and every cell is emitted.
-func (c *Compositor) RenderDiff(root *mux.LayoutCell, activePaneID uint32, lookup func(uint32) PaneData) string {
-	return c.RenderDiffWithOverlay(root, activePaneID, lookup, OverlayState{})
-}
-
-// RenderDiffWithOverlay is RenderDiff plus optional client-local overlays.
+// RenderDiffWithOverlay composes all panes into a cell grid, diffs against the
+// previous frame, and returns minimal ANSI output for the changed cells plus
+// optional client-local overlays. On the first call (or after Resize), prevGrid
+// is nil and every cell is emitted.
 func (c *Compositor) RenderDiffWithOverlay(root *mux.LayoutCell, activePaneID uint32, lookup func(uint32) PaneData, overlay OverlayState) string {
 	newGrid := c.buildGridWithOverlay(root, activePaneID, lookup, overlay)
 	changes := DiffGrid(c.prevGrid, newGrid)
@@ -197,12 +178,6 @@ func (c *Compositor) RenderDiffWithOverlay(root *mux.LayoutCell, activePaneID ui
 	c.renderCursorDiff(&buf, root, activePaneID, lookup)
 
 	return buf.String()
-}
-
-// LastGrid returns the most recent grid produced by RenderDiff.
-// Returns nil before the first render.
-func (c *Compositor) LastGrid() *ScreenGrid {
-	return c.prevGrid
 }
 
 // ClearPrevGrid forces a full repaint on the next RenderDiff call.

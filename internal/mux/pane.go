@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -80,15 +79,9 @@ type CaptureSnapshot struct {
 	CursorHidden bool
 }
 
-// NewPane creates a new pane running the user's shell but does NOT start
-// the read/drain/wait goroutines. Call Start() after releasing any locks
-// that the onOutput/onExit callbacks might need.
-func NewPane(id uint32, meta PaneMeta, cols, rows int, sessionName string, onOutput func(uint32, []byte, uint64), onExit func(uint32)) (*Pane, error) {
-	return NewPaneWithScrollback(id, meta, cols, rows, sessionName, DefaultScrollbackLines, onOutput, onExit)
-}
-
-// NewPaneWithScrollback creates a new pane with an explicit retained
-// scrollback limit.
+// NewPaneWithScrollback creates a new pane running the user's shell but does
+// NOT start the read/drain/wait goroutines. Call Start() after releasing any
+// locks that the onOutput/onExit callbacks might need.
 func NewPaneWithScrollback(id uint32, meta PaneMeta, cols, rows int, sessionName string, scrollbackLines int, onOutput func(uint32, []byte, uint64), onExit func(uint32)) (*Pane, error) {
 	shell := os.Getenv("SHELL")
 	if shell == "" {
@@ -128,16 +121,11 @@ func NewPaneWithScrollback(id uint32, meta PaneMeta, cols, rows int, sessionName
 	}, nil
 }
 
-// RestorePane creates a pane from inherited file descriptors after server reload.
-// It wraps an existing PTY master FD and finds the running shell process by PID.
-// No new shell is spawned — the existing shell survives the exec.
-// The drain goroutine starts immediately to prevent deadlock during screen replay.
-func RestorePane(id uint32, meta PaneMeta, ptmxFd, pid, cols, rows int, onOutput func(uint32, []byte, uint64), onExit func(uint32)) (*Pane, error) {
-	return RestorePaneWithScrollback(id, meta, ptmxFd, pid, cols, rows, DefaultScrollbackLines, onOutput, onExit)
-}
-
-// RestorePaneWithScrollback restores a pane with an explicit retained
-// scrollback limit.
+// RestorePaneWithScrollback creates a pane from inherited file descriptors
+// after server reload using an explicit retained scrollback limit. It wraps an
+// existing PTY master FD and finds the running shell process by PID. No new
+// shell is spawned — the existing shell survives the exec. The drain goroutine
+// starts immediately to prevent deadlock during screen replay.
 func RestorePaneWithScrollback(id uint32, meta PaneMeta, ptmxFd, pid, cols, rows int, scrollbackLines int, onOutput func(uint32, []byte, uint64), onExit func(uint32)) (*Pane, error) {
 	ptmx := os.NewFile(uintptr(ptmxFd), fmt.Sprintf("ptmx-%d", id))
 	if ptmx == nil {
@@ -460,13 +448,6 @@ func (p *Pane) ScreenContains(substr string) bool {
 	return p.emulator.ScreenContains(substr)
 }
 
-var ansiRe = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]|\x1b\][^\x07]*\x07|\x1b[()][0-9A-B]`)
-
-// StripANSI removes ANSI escape sequences from a string.
-func StripANSI(s string) string {
-	return ansiRe.ReplaceAllString(s, "")
-}
-
 // Close terminates the pane's shell and PTY.
 // For proxy panes (no PTY), Close() just marks the pane as closed.
 func (p *Pane) Close() error {
@@ -482,15 +463,6 @@ func (p *Pane) Close() error {
 		return nil
 	}
 	return p.ptmx.Close()
-}
-
-// NewProxyPane creates a pane that proxies I/O to a remote amux server.
-// It has an emulator for local screen state but no PTY or shell process.
-// Input is routed through writeOverride; output is fed via FeedOutput().
-func NewProxyPane(id uint32, meta PaneMeta, cols, rows int,
-	onOutput func(uint32, []byte, uint64), onExit func(uint32),
-	writeOverride func([]byte) (int, error)) *Pane {
-	return NewProxyPaneWithScrollback(id, meta, cols, rows, DefaultScrollbackLines, onOutput, onExit, writeOverride)
 }
 
 // NewProxyPaneWithScrollback creates a proxy pane with an explicit retained

@@ -226,7 +226,7 @@ func TestResolveWaitHookPaneName(t *testing.T) {
 	sess := newSession("test-resolve-wait-hook-pane")
 	stopCrashCheckpointLoop(t, sess)
 
-	pane := mux.NewProxyPane(1, mux.PaneMeta{
+	pane := newProxyPane(1, mux.PaneMeta{
 		Name:  "pane-1",
 		Host:  mux.DefaultHost,
 		Color: "f5e0dc",

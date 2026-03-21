@@ -171,11 +171,6 @@ func (p *Parser) Feed(b byte) (Event, bool, []byte) {
 	return Event{}, false, []byte{b}
 }
 
-// InProgress returns true if the parser is mid-sequence.
-func (p *Parser) InProgress() bool {
-	return p.state != stateNone
-}
-
 // FlushPending resets the parser and returns any buffered bytes from an
 // incomplete non-mouse sequence candidate (for example, a lone Escape).
 func (p *Parser) FlushPending() []byte {

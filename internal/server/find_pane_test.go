@@ -25,7 +25,7 @@ func TestSessionFindPaneByRef(t *testing.T) {
 		{10, "agent-task"},
 	}
 	for _, p := range panes {
-		sess.Panes = append(sess.Panes, mux.NewProxyPane(
+		sess.Panes = append(sess.Panes, newProxyPane(
 			p.id,
 			mux.PaneMeta{Name: p.name, Host: mux.DefaultHost, Color: "f5e0dc"},
 			80,
@@ -99,7 +99,7 @@ func TestKillOrphanedPaneViaFallback(t *testing.T) {
 	// Create an orphaned pane: add to flat registry but NOT to any window layout.
 	// This simulates a dormant SSH takeover pane or a pane orphaned by a race.
 	orphanID := sess.counter.Add(1)
-	orphanPane := mux.NewProxyPane(orphanID, mux.PaneMeta{
+	orphanPane := newProxyPane(orphanID, mux.PaneMeta{
 		Name: "orphan-pane", Host: "remote", Color: "f5e0dc",
 	}, 80, 23,
 		sess.paneOutputCallback(),

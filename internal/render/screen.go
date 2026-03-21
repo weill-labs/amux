@@ -36,7 +36,7 @@ type OOBWrite struct {
 type ScreenGrid struct {
 	Width, Height int
 	Cells         []ScreenCell // Cells[y*Width + x]
-	Debug         bool         // when true, OOB Set() calls are recorded in OOBWrites
+	Debug         bool         // when true, OOB Set() calls are recorded for inspection in tests
 	oobWrites     []OOBWrite
 }
 
@@ -50,8 +50,7 @@ func NewScreenGrid(width, height int) *ScreenGrid {
 }
 
 // Set writes a cell at (x, y). Out-of-bounds writes are silently ignored.
-// When Debug is true, OOB writes are also recorded for later inspection
-// via OOBWrites().
+// When Debug is true, OOB writes are also recorded for later inspection.
 func (g *ScreenGrid) Set(x, y int, cell ScreenCell) {
 	if x >= 0 && x < g.Width && y >= 0 && y < g.Height {
 		g.Cells[y*g.Width+x] = cell
@@ -60,11 +59,6 @@ func (g *ScreenGrid) Set(x, y int, cell ScreenCell) {
 	if g.Debug {
 		g.oobWrites = append(g.oobWrites, OOBWrite{X: x, Y: y})
 	}
-}
-
-// OOBWrites returns all out-of-bounds Set() calls recorded when Debug is true.
-func (g *ScreenGrid) OOBWrites() []OOBWrite {
-	return g.oobWrites
 }
 
 // Get reads the cell at (x, y). Out-of-bounds returns a space cell.
@@ -169,12 +163,6 @@ func CellFromUV(c *uv.Cell) ScreenCell {
 		char = " "
 	}
 	return ScreenCell{Char: char, Style: c.Style, Width: c.Width}
-}
-
-// BuildGrid composes pane content, borders, status lines, and the global bar
-// into a ScreenGrid. This is the cell-level equivalent of RenderFull.
-func (c *Compositor) BuildGrid(root *mux.LayoutCell, activePaneID uint32, lookup func(uint32) PaneData) *ScreenGrid {
-	return c.buildGridWithOverlay(root, activePaneID, lookup, OverlayState{})
 }
 
 func (c *Compositor) buildGridWithOverlay(root *mux.LayoutCell, activePaneID uint32, lookup func(uint32) PaneData, overlay OverlayState) *ScreenGrid {

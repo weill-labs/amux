@@ -1,7 +1,6 @@
 package render
 
 import (
-	"fmt"
 	"strconv"
 	"strings"
 )
@@ -45,18 +44,8 @@ const (
 	ResetTitle     = "\033]0;\007"
 )
 
-// SetTitle returns an OSC escape to set the terminal title.
-func SetTitle(title string) string {
-	return fmt.Sprintf("\033]0;%s\007", title)
-}
-
-// CursorTo returns an ANSI escape to move the cursor to (row, col), 1-based.
-func CursorTo(row, col int) string {
-	return fmt.Sprintf("\033[%d;%dH", row, col)
-}
-
 // writeCursorTo writes a cursor-position escape directly into buf,
-// avoiding the string allocation that CursorTo produces.
+// avoiding per-call string allocations.
 func writeCursorTo(buf *strings.Builder, row, col int) {
 	buf.WriteString("\033[")
 	buf.WriteString(strconv.Itoa(row))
