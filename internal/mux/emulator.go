@@ -126,11 +126,6 @@ const (
 	mouseModeAny
 )
 
-// NewVTEmulator creates a new terminal emulator with the given dimensions.
-func NewVTEmulator(width, height int) TerminalEmulator {
-	return NewVTEmulatorWithScrollback(width, height, DefaultScrollbackLines)
-}
-
 // NewVTEmulatorWithScrollback creates a terminal emulator with an explicit
 // retained scrollback limit.
 func NewVTEmulatorWithScrollback(width, height, scrollbackLines int) TerminalEmulator {

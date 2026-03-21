@@ -2,7 +2,6 @@ package test
 
 import (
 	"encoding/json"
-	"strings"
 	"testing"
 
 	"github.com/weill-labs/amux/internal/proto"
@@ -50,22 +49,4 @@ func globalBarFromLines(lines []string) string {
 		}
 	}
 	return ""
-}
-
-func jsonCaptureContainsPane(capture proto.CaptureJSON, name string) bool {
-	for _, p := range capture.Panes {
-		if p.Name == name {
-			return true
-		}
-	}
-	return false
-}
-
-func captureContainsAll(screen string, needles ...string) bool {
-	for _, needle := range needles {
-		if !strings.Contains(screen, needle) {
-			return false
-		}
-	}
-	return true
 }

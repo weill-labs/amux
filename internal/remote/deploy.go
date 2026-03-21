@@ -254,16 +254,6 @@ func sshOutput(client *ssh.Client, cmd string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-// sshRun runs a command on the remote, ignoring errors.
-func sshRun(client *ssh.Client, cmd string) {
-	sess, err := client.NewSession()
-	if err != nil {
-		return
-	}
-	defer sess.Close()
-	sess.Run(cmd)
-}
-
 // sshRunErr runs a command on the remote and returns the error.
 func sshRunErr(client *ssh.Client, cmd string) error {
 	sess, err := client.NewSession()

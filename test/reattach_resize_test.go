@@ -81,7 +81,7 @@ func (h *ServerHarness) attachRendererAt(cols, rows int, afterLayout func(*clien
 		}
 	}
 
-	r := client.New(cols, rows)
+	r := newTestRenderer(cols, rows)
 	r.HandleLayout(layoutMsg.Layout)
 	if afterLayout != nil {
 		afterLayout(r)

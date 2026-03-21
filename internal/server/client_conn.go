@@ -205,10 +205,6 @@ func (cc *ClientConn) readLoop(srv *Server, sess *Session) {
 	}
 }
 
-func (cc *ClientConn) resolvePaneWindowLocked(sess *Session, cmdName string, args []string) (*mux.Pane, *mux.Window, error) {
-	return sess.resolvePaneWindow(cmdName, args)
-}
-
 // handleCommand dispatches CLI commands through the command registry.
 func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 	handler, ok := commandRegistry[msg.CmdName]
@@ -262,39 +258,6 @@ func (cc *ClientConn) splitRemotePane(srv *Server, sess *Session, hostName strin
 	}
 
 	return pane, nil
-}
-
-// resolvePane validates args and resolves a pane by name or ID.
-// Searches active window first, then all windows. Sends an error to the client
-// on failure.
-func (cc *ClientConn) resolvePane(sess *Session, cmdName string, args []string) *mux.Pane {
-	if len(args) < 1 {
-		cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: fmt.Sprintf("usage: %s <pane>", cmdName)})
-		return nil
-	}
-	pane, err := enqueueSessionQuery(sess, func(sess *Session) (*mux.Pane, error) {
-		pane, _, err := sess.resolvePaneAcrossWindows(args[0])
-		return pane, err
-	})
-	if err != nil {
-		cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: err.Error()})
-		return nil
-	}
-	return pane
-}
-
-// resolvePaneAcrossWindows resolves a pane reference, searching the active
-// window first, then all other windows.
-func (cc *ClientConn) resolvePaneAcrossWindows(sess *Session, cmdName string, ref string) *mux.Pane {
-	pane, err := enqueueSessionQuery(sess, func(sess *Session) (*mux.Pane, error) {
-		pane, _, err := sess.resolvePaneAcrossWindows(ref)
-		return pane, err
-	})
-	if err != nil {
-		cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: err.Error()})
-		return nil
-	}
-	return pane
 }
 
 // resolvePaneAcrossWindowsLocked resolves a pane reference, searching the active

@@ -31,7 +31,7 @@ func TestAssertPaneLayoutConsistency(t *testing.T) {
 			sess := newSession("test-consistency")
 			stopCrashCheckpointLoop(t, sess)
 
-			pane1 := mux.NewProxyPane(1, mux.PaneMeta{
+			pane1 := newProxyPane(1, mux.PaneMeta{
 				Name: "pane-1", Host: mux.DefaultHost, Color: "f5e0dc",
 			}, 80, 23, nil, nil, func(data []byte) (int, error) { return len(data), nil })
 			w := mux.NewWindow(pane1, 80, 24)
@@ -39,7 +39,7 @@ func TestAssertPaneLayoutConsistency(t *testing.T) {
 			sess.Windows = append(sess.Windows, w)
 			sess.Panes = append(sess.Panes, pane1)
 
-			extra := mux.NewProxyPane(2, mux.PaneMeta{
+			extra := newProxyPane(2, mux.PaneMeta{
 				Name: "extra-pane", Host: mux.DefaultHost, Color: "f2cdcd", Dormant: tt.dormant,
 			}, 80, 23, nil, nil, func(data []byte) (int, error) { return len(data), nil })
 			sess.Panes = append(sess.Panes, extra)
@@ -78,7 +78,7 @@ func TestCmdListShowsDormant(t *testing.T) {
 
 	// Add a dormant pane.
 	dormantID := sess.counter.Add(1)
-	dormantPane := mux.NewProxyPane(dormantID, mux.PaneMeta{
+	dormantPane := newProxyPane(dormantID, mux.PaneMeta{
 		Name: "ssh-conn", Dormant: true, Color: "f5e0dc",
 	}, 80, 23,
 		sess.paneOutputCallback(),

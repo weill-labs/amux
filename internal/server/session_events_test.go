@@ -18,7 +18,7 @@ func TestHandleAttachAndResizeThroughSessionQueue(t *testing.T) {
 
 	sess := newSession("test-attach-resize")
 	stopCrashCheckpointLoop(t, sess)
-	pane := mux.NewProxyPane(1, mux.PaneMeta{
+	pane := newProxyPane(1, mux.PaneMeta{
 		Name:  "pane-1",
 		Host:  mux.DefaultHost,
 		Color: "f5e0dc",
@@ -100,7 +100,7 @@ func TestHandleAttachSendsPaneHistoryBeforePaneOutput(t *testing.T) {
 
 	sess := newSession("test-attach-history")
 	stopCrashCheckpointLoop(t, sess)
-	pane := mux.NewProxyPane(1, mux.PaneMeta{
+	pane := newProxyPane(1, mux.PaneMeta{
 		Name:  "pane-1",
 		Host:  mux.DefaultHost,
 		Color: "f5e0dc",
@@ -173,7 +173,7 @@ func TestPaneOutputCallbackEnqueuesOutputNotifications(t *testing.T) {
 
 	sess := newSession("test-pane-output")
 	stopCrashCheckpointLoop(t, sess)
-	pane := mux.NewProxyPane(1, mux.PaneMeta{
+	pane := newProxyPane(1, mux.PaneMeta{
 		Name:  "pane-1",
 		Host:  "local",
 		Color: "f5e0dc",
@@ -213,10 +213,10 @@ func TestPaneExitCallbackEnqueuesRemoval(t *testing.T) {
 
 	sess := newSession("test-pane-exit")
 	stopCrashCheckpointLoop(t, sess)
-	p1 := mux.NewProxyPane(1, mux.PaneMeta{Name: "pane-1", Host: "local", Color: "f5e0dc"}, 80, 23, nil, nil, func(data []byte) (int, error) {
+	p1 := newProxyPane(1, mux.PaneMeta{Name: "pane-1", Host: "local", Color: "f5e0dc"}, 80, 23, nil, nil, func(data []byte) (int, error) {
 		return len(data), nil
 	})
-	p2 := mux.NewProxyPane(2, mux.PaneMeta{Name: "pane-2", Host: "local", Color: "f2cdcd"}, 80, 23, nil, nil, func(data []byte) (int, error) {
+	p2 := newProxyPane(2, mux.PaneMeta{Name: "pane-2", Host: "local", Color: "f2cdcd"}, 80, 23, nil, nil, func(data []byte) (int, error) {
 		return len(data), nil
 	})
 	w := mux.NewWindow(p1, 80, 23)

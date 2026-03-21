@@ -37,7 +37,7 @@ func TestSplitInheritsRemoteHost(t *testing.T) {
 
 	// Create a proxy pane simulating a remote connection
 	proxyID := sess.counter.Add(1)
-	proxyPane := mux.NewProxyPane(proxyID, mux.PaneMeta{
+	proxyPane := newProxyPane(proxyID, mux.PaneMeta{
 		Name: "pane-2", Host: "gpu-server", Color: "f5e0dc",
 	}, 40, 23,
 		sess.paneOutputCallback(),

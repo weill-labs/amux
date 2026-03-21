@@ -426,12 +426,6 @@ func (h *AmuxHarness) globalBar() string {
 	return globalBarFromLines(h.lines())
 }
 
-// globalBarAmux returns the global bar from the inner capture.
-func (h *AmuxHarness) globalBarAmux() string {
-	h.tb.Helper()
-	return h.globalBar()
-}
-
 // ---------------------------------------------------------------------------
 // CLI commands — executed against the inner server
 // ---------------------------------------------------------------------------

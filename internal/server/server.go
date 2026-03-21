@@ -312,11 +312,6 @@ func SocketPath(session string) string {
 	return filepath.Join(SocketDir(), session)
 }
 
-// newSession creates a Session with all fields initialized.
-func newSession(name string) *Session {
-	return newSessionWithScrollback(name, mux.DefaultScrollbackLines)
-}
-
 func newSessionWithScrollback(name string, scrollbackLines int) *Session {
 	sess := &Session{Name: name, scrollbackLines: scrollbackLines}
 	sess.Hooks = hooks.NewRegistry()
@@ -328,11 +323,6 @@ func newSessionWithScrollback(name string, scrollbackLines int) *Session {
 	sess.startCrashCheckpointLoop()
 	sess.startEventLoop()
 	return sess
-}
-
-// NewServer creates a new server listening on a Unix socket for the given session.
-func NewServer(sessionName string) (*Server, error) {
-	return NewServerWithScrollback(sessionName, mux.DefaultScrollbackLines)
 }
 
 // NewServerWithScrollback creates a new server with an explicit retained
@@ -371,14 +361,6 @@ func NewServerWithScrollback(sessionName string, scrollbackLines int) (*Server, 
 	sess.exitServer = s
 
 	return s, nil
-}
-
-// NewServerFromCrashCheckpoint restores a server from a crash checkpoint.
-// Creates a new Unix socket, spawns fresh shells for each pane (with cwd
-// restored), and replays last-known screen content. Proxy panes are recreated
-// with "reconnecting" status.
-func NewServerFromCrashCheckpoint(sessionName string, cp *checkpoint.CrashCheckpoint) (*Server, error) {
-	return NewServerFromCrashCheckpointWithScrollback(sessionName, cp, mux.DefaultScrollbackLines)
 }
 
 // NewServerFromCrashCheckpointWithScrollback restores a server from a crash

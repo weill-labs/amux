@@ -1,6 +1,24 @@
 package server
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/weill-labs/amux/internal/mux"
+)
+
+func newSession(name string) *Session {
+	return newSessionWithScrollback(name, mux.DefaultScrollbackLines)
+}
+
+func NewServer(sessionName string) (*Server, error) {
+	return NewServerWithScrollback(sessionName, mux.DefaultScrollbackLines)
+}
+
+func newProxyPane(id uint32, meta mux.PaneMeta, cols, rows int,
+	onOutput func(uint32, []byte, uint64), onExit func(uint32),
+	writeOverride func([]byte) (int, error)) *mux.Pane {
+	return mux.NewProxyPaneWithScrollback(id, meta, cols, rows, mux.DefaultScrollbackLines, onOutput, onExit, writeOverride)
+}
 
 func stopCrashCheckpointLoop(t *testing.T, sess *Session) {
 	t.Helper()

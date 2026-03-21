@@ -42,11 +42,6 @@ type Renderer struct {
 	OnPaneResize func(paneID uint32, w, h int)
 }
 
-// New creates a Renderer for the given terminal dimensions.
-func New(width, height int) *Renderer {
-	return NewWithScrollback(width, height, mux.DefaultScrollbackLines)
-}
-
 // NewWithScrollback creates a Renderer with an explicit retained scrollback limit.
 func NewWithScrollback(width, height, scrollbackLines int) *Renderer {
 	return &Renderer{
@@ -219,22 +214,16 @@ func (r *Renderer) ClearPrevGrid() {
 	r.compositor.ClearPrevGrid()
 }
 
-// RenderFull produces ANSI output compositing all panes. The paneLookup
-// function maps pane IDs to PaneData — the caller provides this so it can
-// inject copy-mode overlays or other per-pane customization.
-// Returns empty string if no layout is available.
+// RenderFullWithOverlay produces ANSI output compositing all panes plus
+// optional client-local overlays. The paneLookup function maps pane IDs to
+// PaneData — the caller provides this so it can inject copy-mode overlays or
+// other per-pane customization. Returns empty string if no layout is available.
 //
 // The lock is released before calling into the compositor so the paneLookup
-// callback may safely call Emulator/PaneInfo without deadlocking.
-// Callers must ensure RenderFull and HandleLayout/Resize are not called
-// concurrently (the compositor is unprotected after unlock). In practice
-// this is guaranteed: the interactive client calls both from the single
-// renderCoalesced goroutine, and the headless client is sequential.
-func (r *Renderer) RenderFull(paneLookup func(uint32) render.PaneData, clearScreen ...bool) string {
-	return r.RenderFullWithOverlay(paneLookup, render.OverlayState{}, clearScreen...)
-}
-
-// RenderFullWithOverlay is RenderFull plus optional client-local overlays.
+// callback may safely call Emulator/PaneInfo without deadlocking. Callers must
+// ensure render and layout mutation are not concurrent; in practice the
+// interactive client renders from a single goroutine and the headless client is
+// sequential.
 func (r *Renderer) RenderFullWithOverlay(paneLookup func(uint32) render.PaneData, overlay render.OverlayState, clearScreen ...bool) string {
 	r.mu.Lock()
 	if r.layout == nil {
@@ -254,13 +243,9 @@ func (r *Renderer) RenderFullWithOverlay(paneLookup func(uint32) render.PaneData
 	return comp.RenderFullWithOverlay(root, activePaneID, paneLookup, overlay, clearScreen...)
 }
 
-// RenderDiff produces minimal ANSI output by diffing against the previous frame.
-// Returns empty string if no layout is available.
-func (r *Renderer) RenderDiff(paneLookup func(uint32) render.PaneData) string {
-	return r.RenderDiffWithOverlay(paneLookup, render.OverlayState{})
-}
-
-// RenderDiffWithOverlay is RenderDiff plus optional client-local overlays.
+// RenderDiffWithOverlay produces minimal ANSI output by diffing against the
+// previous frame, plus optional client-local overlays. Returns empty string if
+// no layout is available.
 func (r *Renderer) RenderDiffWithOverlay(paneLookup func(uint32) render.PaneData, overlay render.OverlayState) string {
 	r.mu.Lock()
 	if r.layout == nil {
