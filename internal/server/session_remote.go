@@ -3,9 +3,9 @@ package server
 import (
 	"fmt"
 	"os"
-	"slices"
 	"time"
 
+	caputil "github.com/weill-labs/amux/internal/capture"
 	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/remote"
@@ -236,6 +236,7 @@ func (s *Session) forwardCapture(args []string) *Message {
 		client      *ClientConn
 		statusPanes []*mux.Pane
 	}
+	captureReq := caputil.ParseArgs(args)
 
 	// Wait briefly for a client to attach (covers post-reload reconnection).
 	const maxRetries = 10
@@ -251,8 +252,15 @@ func (s *Session) forwardCapture(args []string) *Message {
 				snap.client = cc
 				break
 			}
-			if snap.client != nil && slices.Contains(args, "json") {
-				snap.statusPanes = append([]*mux.Pane(nil), s.Panes...)
+			if snap.client != nil && captureReq.FormatJSON {
+				if captureReq.PaneRef != "" {
+					pane, _, err := s.resolvePaneAcrossWindows(captureReq.PaneRef)
+					if err == nil {
+						snap.statusPanes = []*mux.Pane{pane}
+					}
+				} else {
+					snap.statusPanes = append([]*mux.Pane(nil), s.Panes...)
+				}
 			}
 			return snap, nil
 		})

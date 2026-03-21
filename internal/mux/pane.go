@@ -268,10 +268,7 @@ func (p *Pane) readLoop() {
 			}
 
 			// Feed emulator for screen state tracking (enables reattach).
-			p.snapshotMu.Lock()
-			p.emulator.Write(data)
-			seq := p.outputSeq.Add(1)
-			p.snapshotMu.Unlock()
+			seq := p.applyOutput(data)
 
 			if p.onOutput != nil {
 				p.onOutput(p.ID, data, seq)
@@ -298,6 +295,15 @@ func (p *Pane) drainResponses() {
 			return
 		}
 	}
+}
+
+// applyOutput feeds PTY bytes into the retained emulator state and returns the
+// monotonically increasing output sequence included in that state.
+func (p *Pane) applyOutput(data []byte) uint64 {
+	p.snapshotMu.Lock()
+	defer p.snapshotMu.Unlock()
+	p.emulator.Write(data)
+	return p.outputSeq.Add(1)
 }
 
 // waitLoop waits for the shell process to exit.
@@ -528,10 +534,7 @@ func (p *Pane) drainResponsesDiscard() {
 // and broadcasts it to connected clients. Called by the remote host connection
 // when it receives pane output from the remote amux server.
 func (p *Pane) FeedOutput(data []byte) {
-	p.snapshotMu.Lock()
-	p.emulator.Write(data)
-	seq := p.outputSeq.Add(1)
-	p.snapshotMu.Unlock()
+	seq := p.applyOutput(data)
 	if p.onOutput != nil {
 		p.onOutput(p.ID, data, seq)
 	}
