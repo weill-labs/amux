@@ -49,6 +49,11 @@ type attachResult struct {
 	err           error
 }
 
+type ensureInitialWindowResult struct {
+	newPane       *mux.Pane
+	layoutChanged bool
+}
+
 type attachClientEvent struct {
 	srv   *Server
 	cc    *ClientConn
@@ -61,18 +66,56 @@ func (e attachClientEvent) handle(s *Session) {
 	e.reply <- s.handleAttachEvent(e.srv, e.cc, e.cols, e.rows)
 }
 
-// ensureInitialWindowLocked creates the first window and pane for an empty
-// session using the provided terminal size. Event-loop only.
-func (s *Session) ensureInitialWindowLocked(srv *Server, cols, rows int) (*mux.Pane, error) {
+func (s *Session) recoverInitialWindowFromOrphansLocked(cols, rows int) (bool, error) {
 	if len(s.Windows) > 0 {
-		return nil, nil
+		return false, nil
+	}
+
+	var orphans []*mux.Pane
+	for _, pane := range s.Panes {
+		if pane.Meta.Dormant || s.FindWindowByPaneID(pane.ID) != nil {
+			continue
+		}
+		orphans = append(orphans, pane)
+	}
+	if len(orphans) == 0 {
+		return false, nil
+	}
+
+	layoutH := rows - render.GlobalBarHeight
+	winID := s.windowCounter.Add(1)
+	w := mux.NewWindow(orphans[0], cols, layoutH)
+	w.ID = winID
+	w.Name = fmt.Sprintf(WindowNameFormat, winID)
+	for _, pane := range orphans[1:] {
+		if _, err := w.Split(mux.SplitVertical, pane); err != nil {
+			return false, err
+		}
+	}
+	s.Windows = append(s.Windows, w)
+	s.ActiveWindowID = winID
+	return true, nil
+}
+
+// ensureInitialWindowLocked creates the first window and pane for an empty
+// session using the provided terminal size. If orphaned panes already exist
+// without any window, it rehabilitates them into a recovery window instead of
+// allocating a fresh pane. Event-loop only.
+func (s *Session) ensureInitialWindowLocked(srv *Server, cols, rows int) (ensureInitialWindowResult, error) {
+	if len(s.Windows) > 0 {
+		return ensureInitialWindowResult{}, nil
+	}
+	if recovered, err := s.recoverInitialWindowFromOrphansLocked(cols, rows); err != nil {
+		return ensureInitialWindowResult{}, err
+	} else if recovered {
+		return ensureInitialWindowResult{layoutChanged: true}, nil
 	}
 
 	layoutH := rows - render.GlobalBarHeight
 	paneH := mux.PaneContentHeight(layoutH)
 	pane, err := s.createPane(srv, cols, paneH)
 	if err != nil {
-		return nil, err
+		return ensureInitialWindowResult{}, err
 	}
 
 	winID := s.windowCounter.Add(1)
@@ -81,7 +124,7 @@ func (s *Session) ensureInitialWindowLocked(srv *Server, cols, rows int) (*mux.P
 	w.Name = fmt.Sprintf(WindowNameFormat, winID)
 	s.Windows = append(s.Windows, w)
 	s.ActiveWindowID = winID
-	return pane, nil
+	return ensureInitialWindowResult{newPane: pane, layoutChanged: true}, nil
 }
 
 type commandMutationEvent struct {
@@ -603,16 +646,19 @@ func (s *Session) handleAttachEvent(srv *Server, cc *ClientConn, cols, rows int)
 
 	res := attachResult{}
 
-	pane, err := s.ensureInitialWindowLocked(srv, cols, rows)
+	initRes, err := s.ensureInitialWindowLocked(srv, cols, rows)
 	if err != nil {
 		res.err = err
 		return res
 	}
-	res.newPane = pane
+	res.newPane = initRes.newPane
 
 	s.clients = append(s.clients, cc)
 	s.hadClient = true
 	s.recalcSize()
+	if initRes.layoutChanged {
+		s.broadcastLayoutNow()
+	}
 
 	res.snap = s.snapshotLayout(idleSnap)
 	for _, p := range s.Panes {
