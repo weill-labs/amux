@@ -440,6 +440,7 @@ func NewServerFromCrashCheckpointWithScrollback(sessionName string, cp *checkpoi
 		}
 
 		pane.SetOnClipboard(sess.clipboardCallback())
+		pane.SetOnMetaUpdate(sess.metaCallback())
 
 		if !ps.CreatedAt.IsZero() {
 			pane.SetCreatedAt(ps.CreatedAt)

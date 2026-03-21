@@ -199,6 +199,34 @@ func (e cwdBranchResultEvent) handle(s *Session) {
 	}
 }
 
+type metaUpdateEvent struct {
+	paneID uint32
+	update mux.MetaUpdate
+}
+
+func (e metaUpdateEvent) handle(s *Session) {
+	p := s.findPaneByID(e.paneID)
+	if p == nil {
+		return
+	}
+	if e.update.Task != nil {
+		p.Meta.Task = *e.update.Task
+	}
+	if e.update.PR != nil {
+		p.Meta.PR = *e.update.PR
+	}
+	if e.update.Branch != nil {
+		if *e.update.Branch == "" {
+			p.SetMetaManualBranch(false)
+			p.Meta.GitBranch = ""
+		} else {
+			p.Meta.GitBranch = *e.update.Branch
+			p.SetMetaManualBranch(true)
+		}
+	}
+	s.broadcastLayoutNow()
+}
+
 type takeoverEvent struct {
 	srv    *Server
 	paneID uint32

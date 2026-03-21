@@ -61,8 +61,10 @@ type Pane struct {
 	onExit         func(paneID uint32)
 	onClipboard    func(paneID uint32, data []byte)
 	onTakeover     func(paneID uint32, req TakeoverRequest)
+	onMetaUpdate   func(paneID uint32, update MetaUpdate)
 	osc52Scanner   OSC52Scanner
 	controlScanner AmuxControlScanner
+	metaScanner    AmuxMetaScanner
 
 	// Idle tracking (LAB-159)
 	createdAt        time.Time
@@ -271,6 +273,11 @@ func (p *Pane) LiveCwd() string {
 	return p.liveCwd
 }
 
+// SetMetaManualBranch controls whether auto-refresh should update GitBranch.
+func (p *Pane) SetMetaManualBranch(manual bool) {
+	p.metaManualBranch = manual
+}
+
 // ReplayScreen feeds screen data into the emulator to restore visual state.
 func (p *Pane) ReplayScreen(data string) {
 	p.beginSnapshotMutation()
@@ -300,6 +307,12 @@ func (p *Pane) SetOnTakeover(fn func(paneID uint32, req TakeoverRequest)) {
 	p.onTakeover = fn
 }
 
+// SetOnMetaUpdate sets the callback invoked when an amux-meta escape
+// sequence is detected in pane output. Must be called before Start().
+func (p *Pane) SetOnMetaUpdate(fn func(paneID uint32, update MetaUpdate)) {
+	p.onMetaUpdate = fn
+}
+
 // readLoop reads PTY output, feeds the emulator, and notifies the callback.
 func (p *Pane) readLoop() {
 	buf := make([]byte, 32*1024)
@@ -318,6 +331,12 @@ func (p *Pane) readLoop() {
 			if p.onTakeover != nil {
 				for _, req := range p.controlScanner.Scan(data) {
 					p.onTakeover(p.ID, req)
+				}
+			}
+
+			if p.onMetaUpdate != nil {
+				for _, update := range p.metaScanner.Scan(data) {
+					p.onMetaUpdate(p.ID, update)
 				}
 			}
 

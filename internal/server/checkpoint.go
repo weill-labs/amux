@@ -187,6 +187,7 @@ func NewServerFromCheckpointWithScrollback(cp *checkpoint.ServerCheckpoint, scro
 
 		pane.SetOnClipboard(sess.clipboardCallback())
 		pane.SetOnTakeover(sess.takeoverCallback(s))
+		pane.SetOnMetaUpdate(sess.metaCallback())
 
 		if !pc.CreatedAt.IsZero() {
 			pane.SetCreatedAt(pc.CreatedAt)
