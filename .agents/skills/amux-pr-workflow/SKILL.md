@@ -19,6 +19,7 @@ Use this skill when the task involves `git push`, `gh pr create`, `gh pr merge`,
 - GitHub auto-merge is disabled on this repo. Wait for green checks, then merge manually.
 - Prefer `gh pr create --body-file ...` for multiline PR descriptions, especially when they include backticks or code fences.
 - In `amux`, if the change is ready for review, open the PR proactively instead of asking whether to make one.
+- Once a PR is open, keep related follow-up fixes on that PR branch. Do not leave a relevant fix only on a side branch or local branch after reporting PR status.
 - Do not present a PR as done until it has had both a review pass and a simplification pass.
 - If `codex review` or other external review tooling stalls, fall back to a manual diff review and say so explicitly.
 - If benchmarks changed, add a `Baseline numbers` section to the PR description with representative results and hardware.
@@ -33,7 +34,7 @@ Use this skill when the task involves `git push`, `gh pr create`, `gh pr merge`,
 
 1. Confirm the relevant tests ran and note any gaps.
 2. If this is the first push for the branch, rebase onto `origin/main`. If the local `main` checkout is dirty, do not update it in place; create the next branch directly from `origin/main`. If the PR is already open and a fetch/pull advanced `origin/main`, refresh the branch onto `origin/main` before continuing.
-3. Create or update the PR as soon as the branch is ready for review. Use `gh pr create --body-file ...` when the body is multiline.
+3. Create or update the PR as soon as the branch is ready for review. Use `gh pr create --body-file ...` when the body is multiline. If the PR is already open and you make a related fix, commit it on that PR branch, rerun the relevant verification slice, and push before reporting status.
 4. Run a review pass. Prefer `codex review` when available, but if it stalls, do a manual diff review and state that explicitly.
 5. Run a simplification pass focused on unnecessary complexity and cleanup opportunities.
 6. If the branch had to be rebased or conflict-resolved after the PR was open, rerun both passes on that rebased diff before pushing again.
@@ -51,6 +52,7 @@ Use this skill when the task involves `git push`, `gh pr create`, `gh pr merge`,
 - Tests run, or an explicit testing gap is called out.
 - Rebase-before-first-push handled or explicitly not needed.
 - Open PR branches refreshed after any fetch/pull that advanced `origin/main`.
+- Related follow-up fixes pushed to the already-open PR branch before PR status is reported complete.
 - Review pass completed.
 - Simplification pass completed.
 - Review/simplification rerun after any post-open rebase or conflict resolution.
