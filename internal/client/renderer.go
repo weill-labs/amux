@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"sync"
+	"sync/atomic"
 
 	caputil "github.com/weill-labs/amux/internal/capture"
 	"github.com/weill-labs/amux/internal/mux"
@@ -21,19 +21,8 @@ import (
 // and raw pane output from the server, maintains local terminal emulators
 // per pane, and uses the compositor to produce ANSI output.
 type Renderer struct {
-	mu              sync.Mutex
-	emulators       map[uint32]mux.TerminalEmulator
-	paneInfo        map[uint32]proto.PaneSnapshot
-	layout          *mux.LayoutCell
-	activePaneID    uint32
-	zoomedPaneID    uint32
-	sessionName     string
-	sessionNotice   string
-	compositor      *render.Compositor
-	width           int // full terminal width
-	height          int // full terminal height
-	windows         []proto.WindowSnapshot
-	activeWinID     uint32
+	state           atomic.Pointer[rendererSnapshot]
+	commands        chan rendererCommand
 	scrollbackLines int
 
 	// OnPaneResize is called during HandleLayout for each non-minimized pane
@@ -44,29 +33,14 @@ type Renderer struct {
 
 // NewWithScrollback creates a Renderer with an explicit retained scrollback limit.
 func NewWithScrollback(width, height, scrollbackLines int) *Renderer {
-	return &Renderer{
-		emulators:       make(map[uint32]mux.TerminalEmulator),
-		paneInfo:        make(map[uint32]proto.PaneSnapshot),
-		compositor:      render.NewCompositor(width, height, ""),
-		width:           width,
-		height:          height,
+	r := &Renderer{
+		commands:        make(chan rendererCommand),
 		scrollbackLines: scrollbackLines,
 	}
-}
-
-// layoutFingerprint returns a string encoding the layout structure: pane IDs,
-// positions, sizes, zoom state, and dimensions. Two layouts with the same
-// fingerprint can be rendered without clearing the screen.
-func (r *Renderer) layoutFingerprint() string {
-	if r.layout == nil {
-		return ""
-	}
-	var b strings.Builder
-	fmt.Fprintf(&b, "%d,%d,%d;", r.width, r.height, r.zoomedPaneID)
-	r.layout.Walk(func(cell *mux.LayoutCell) {
-		fmt.Fprintf(&b, "%d:%d,%d,%d,%d;", cell.CellPaneID(), cell.X, cell.Y, cell.W, cell.H)
-	})
-	return b.String()
+	initial := newRendererSnapshot(width, height, scrollbackLines)
+	r.state.Store(initial)
+	go r.actorLoop(initial, width, height)
+	return r
 }
 
 // HandleLayout processes a layout snapshot from the server. Creates/removes
@@ -75,143 +49,133 @@ func (r *Renderer) layoutFingerprint() string {
 // changed (panes moved/resized/added/removed), false for metadata-only updates
 // like focus changes.
 func (r *Renderer) HandleLayout(snap *proto.LayoutSnapshot) bool {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	return withRendererActorValue(r, func(st *rendererActorState) bool {
+		prev := st.snapshot
+		oldFP := prev.layoutFingerprint()
 
-	oldFP := r.layoutFingerprint()
+		next := &rendererSnapshot{
+			emulators:       make(map[uint32]mux.TerminalEmulator),
+			paneInfo:        make(map[uint32]proto.PaneSnapshot),
+			sessionName:     snap.SessionName,
+			sessionNotice:   snap.Notice,
+			activePaneID:    snap.ActivePaneID,
+			zoomedPaneID:    snap.ZoomedPaneID,
+			width:           prev.width,
+			height:          prev.height,
+			activeWinID:     snap.ActiveWindowID,
+			scrollbackLines: prev.scrollbackLines,
+		}
 
-	r.sessionName = snap.SessionName
-	r.sessionNotice = snap.Notice
-	r.activePaneID = snap.ActivePaneID
-	r.zoomedPaneID = snap.ZoomedPaneID
-
-	// Collect all pane snapshots across all windows (or from legacy fields)
-	allPanes := snap.Panes
-	activeRoot := snap.Root
-	if len(snap.Windows) > 0 {
-		allPanes = nil
-		r.windows = snap.Windows
-		r.activeWinID = snap.ActiveWindowID
-		for _, ws := range snap.Windows {
-			allPanes = append(allPanes, ws.Panes...)
-			if ws.ID == snap.ActiveWindowID {
-				activeRoot = ws.Root
-				r.activePaneID = ws.ActivePaneID
+		allPanes := snap.Panes
+		activeRoot := snap.Root
+		if len(snap.Windows) > 0 {
+			next.windows = cloneWindowSnapshots(snap.Windows)
+			allPanes = nil
+			for _, ws := range snap.Windows {
+				allPanes = append(allPanes, ws.Panes...)
+				if ws.ID == snap.ActiveWindowID {
+					activeRoot = ws.Root
+					next.activePaneID = ws.ActivePaneID
+				}
 			}
 		}
-	}
 
-	// Build map of current pane IDs from snapshot
-	newPaneIDs := make(map[uint32]bool, len(allPanes))
-	for _, ps := range allPanes {
-		newPaneIDs[ps.ID] = true
-		r.paneInfo[ps.ID] = ps
-	}
-
-	// Create emulators for new panes
-	for _, ps := range allPanes {
-		if _, exists := r.emulators[ps.ID]; !exists {
-			var w, h int
-			if ps.Minimized && ps.EmuWidth > 0 && ps.EmuHeight > 0 {
-				// Use pre-minimize emulator dimensions so replayed
-				// screen content isn't truncated into a tiny emulator.
-				w, h = ps.EmuWidth, ps.EmuHeight
-			} else {
-				w, h = proto.FindPaneDimensions(snap, activeRoot, ps.ID, mux.PaneContentHeight)
+		for _, ps := range allPanes {
+			next.paneInfo[ps.ID] = ps
+			emu := prev.emulators[ps.ID]
+			if emu == nil {
+				var w, h int
+				if ps.Minimized && ps.EmuWidth > 0 && ps.EmuHeight > 0 {
+					w, h = ps.EmuWidth, ps.EmuHeight
+				} else {
+					w, h = proto.FindPaneDimensions(snap, activeRoot, ps.ID, mux.PaneContentHeight)
+				}
+				emu = mux.NewVTEmulatorWithDrainAndScrollback(w, h, prev.scrollbackLines)
 			}
-			r.emulators[ps.ID] = mux.NewVTEmulatorWithDrainAndScrollback(w, h, r.scrollbackLines)
+			next.emulators[ps.ID] = emu
 		}
-	}
 
-	// Remove stale emulators (only remove panes that no longer exist in any window)
-	for id := range r.emulators {
-		if !newPaneIDs[id] {
-			delete(r.emulators, id)
-			delete(r.paneInfo, id)
+		next.layout = mux.RebuildLayout(activeRoot)
+		if next.layout != nil {
+			next.layout.Walk(func(cell *mux.LayoutCell) {
+				emu := next.emulators[cell.PaneID]
+				if emu == nil {
+					return
+				}
+				if info, ok := next.paneInfo[cell.PaneID]; ok && info.Minimized {
+					return
+				}
+				if cell.PaneID == next.zoomedPaneID {
+					return
+				}
+				contentH := mux.PaneContentHeight(cell.H)
+				emu.Resize(cell.W, contentH)
+				if r.OnPaneResize != nil {
+					r.OnPaneResize(cell.PaneID, cell.W, contentH)
+				}
+			})
 		}
-	}
 
-	// Rebuild layout tree from the active window's root
-	r.layout = mux.RebuildLayout(activeRoot)
+		clientLayoutH := next.height - render.GlobalBarHeight
+		if next.layout != nil && (snap.Width != next.width || snap.Height != clientLayoutH) {
+			next.layout.ResizeAll(next.width, clientLayoutH)
+		}
 
-	// Resize emulators to match their layout cells.
-	// Minimized panes are skipped — their emulators stay at pre-minimize
-	// dimensions so TUI app output is processed at the correct size.
-	r.layout.Walk(func(cell *mux.LayoutCell) {
-		if emu, ok := r.emulators[cell.PaneID]; ok {
-			if info, ok := r.paneInfo[cell.PaneID]; ok && info.Minimized {
-				return
+		st.compositor.SetSessionName(snap.SessionName)
+		if len(snap.Windows) > 0 {
+			windows := make([]render.WindowInfo, len(snap.Windows))
+			for i, ws := range snap.Windows {
+				windows[i] = render.WindowInfo{
+					Index:    ws.Index,
+					Name:     ws.Name,
+					IsActive: ws.ID == snap.ActiveWindowID,
+					Panes:    len(ws.Panes),
+				}
 			}
-			if cell.PaneID == r.zoomedPaneID {
-				return
-			}
-			contentH := mux.PaneContentHeight(cell.H)
-			emu.Resize(cell.W, contentH)
-			if r.OnPaneResize != nil {
-				r.OnPaneResize(cell.PaneID, cell.W, contentH)
+			st.compositor.SetWindows(windows)
+		} else {
+			st.compositor.SetWindows(nil)
+		}
+
+		if next.zoomedPaneID != 0 {
+			if emu := next.emulators[next.zoomedPaneID]; emu != nil {
+				layoutH := st.compositor.LayoutHeight()
+				emu.Resize(next.width, mux.PaneContentHeight(layoutH))
 			}
 		}
+
+		st.snapshot = next
+		r.publishSnapshot(next)
+		return next.layoutFingerprint() != oldFP
 	})
-
-	// Rescale layout to fit this client's terminal. The server layout may be
-	// larger (sized to the biggest client); proportional rescaling ensures all
-	// panes are visible. Emulators stay at server resolution for PTY fidelity.
-	clientLayoutH := r.height - render.GlobalBarHeight
-	if r.layout != nil && (snap.Width != r.width || snap.Height != clientLayoutH) {
-		r.layout.ResizeAll(r.width, clientLayoutH)
-	}
-
-	r.compositor.SetSessionName(snap.SessionName)
-
-	// Pass window info for the global bar
-	if len(snap.Windows) > 0 {
-		windows := make([]render.WindowInfo, len(snap.Windows))
-		for i, ws := range snap.Windows {
-			windows[i] = render.WindowInfo{
-				Index:    ws.Index,
-				Name:     ws.Name,
-				IsActive: ws.ID == snap.ActiveWindowID,
-				Panes:    len(ws.Panes),
-			}
-		}
-		r.compositor.SetWindows(windows)
-	}
-
-	// When zoomed, resize the zoomed emulator to full window size
-	if r.zoomedPaneID != 0 {
-		if emu, ok := r.emulators[r.zoomedPaneID]; ok {
-			layoutH := r.compositor.LayoutHeight()
-			emu.Resize(r.width, mux.PaneContentHeight(layoutH))
-		}
-	}
-
-	return r.layoutFingerprint() != oldFP
 }
 
 // HandlePaneOutput feeds raw PTY data into a pane's local emulator.
 func (r *Renderer) HandlePaneOutput(paneID uint32, data []byte) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	if emu, ok := r.emulators[paneID]; ok {
-		emu.Write(data)
-	}
+	r.withActor(func(st *rendererActorState) {
+		if emu := st.snapshot.emulators[paneID]; emu != nil {
+			emu.Write(data)
+		}
+	})
 }
 
 // Resize updates the client's terminal dimensions.
 func (r *Renderer) Resize(width, height int) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.width = width
-	r.height = height
-	r.compositor.Resize(width, height)
+	r.withActor(func(st *rendererActorState) {
+		next := *st.snapshot
+		next.width = width
+		next.height = height
+		st.compositor.Resize(width, height)
+		st.snapshot = &next
+		r.publishSnapshot(&next)
+	})
 }
 
 // ClearPrevGrid forces a full repaint on the next RenderDiff call.
 func (r *Renderer) ClearPrevGrid() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.compositor.ClearPrevGrid()
+	r.withActor(func(st *rendererActorState) {
+		st.compositor.ClearPrevGrid()
+	})
 }
 
 // RenderFullWithOverlay produces ANSI output compositing all panes plus
@@ -225,63 +189,49 @@ func (r *Renderer) ClearPrevGrid() {
 // interactive client renders from a single goroutine and the headless client is
 // sequential.
 func (r *Renderer) RenderFullWithOverlay(paneLookup func(uint32) render.PaneData, overlay render.OverlayState, clearScreen ...bool) string {
-	r.mu.Lock()
-	if r.layout == nil {
-		r.mu.Unlock()
-		return ""
-	}
-
-	root := r.layout
-	activePaneID := r.activePaneID
-	if r.zoomedPaneID != 0 {
-		root = mux.NewLeafByID(r.zoomedPaneID, 0, 0, r.width, r.compositor.LayoutHeight())
-	}
-	comp := r.compositor
-	overlay = r.mergeOverlayLocked(overlay)
-	r.mu.Unlock()
-
-	return comp.RenderFullWithOverlay(root, activePaneID, paneLookup, overlay, clearScreen...)
+	return withRendererActorValue(r, func(st *rendererActorState) string {
+		snap := st.snapshot
+		if snap.layout == nil {
+			return ""
+		}
+		root, activePaneID := snap.captureRoot(st.compositor.LayoutHeight())
+		overlay = r.mergeOverlay(snap, overlay)
+		return st.compositor.RenderFullWithOverlay(root, activePaneID, paneLookup, overlay, clearScreen...)
+	})
 }
 
 // RenderDiffWithOverlay produces minimal ANSI output by diffing against the
 // previous frame, plus optional client-local overlays. Returns empty string if
 // no layout is available.
 func (r *Renderer) RenderDiffWithOverlay(paneLookup func(uint32) render.PaneData, overlay render.OverlayState) string {
-	r.mu.Lock()
-	if r.layout == nil {
-		r.mu.Unlock()
-		return ""
-	}
-
-	root := r.layout
-	activePaneID := r.activePaneID
-	if r.zoomedPaneID != 0 {
-		root = mux.NewLeafByID(r.zoomedPaneID, 0, 0, r.width, r.compositor.LayoutHeight())
-	}
-	comp := r.compositor
-	overlay = r.mergeOverlayLocked(overlay)
-	r.mu.Unlock()
-
-	return comp.RenderDiffWithOverlay(root, activePaneID, paneLookup, overlay)
+	return withRendererActorValue(r, func(st *rendererActorState) string {
+		snap := st.snapshot
+		if snap.layout == nil {
+			return ""
+		}
+		root, activePaneID := snap.captureRoot(st.compositor.LayoutHeight())
+		overlay = r.mergeOverlay(snap, overlay)
+		return st.compositor.RenderDiffWithOverlay(root, activePaneID, paneLookup, overlay)
+	})
 }
 
 // Capture renders the full composited screen from client-side emulators.
 // If stripANSI is true, returns a plain-text grid preserving visual layout.
 func (r *Renderer) Capture(stripANSI bool) string {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	if r.layout == nil {
-		return ""
-	}
-
-	root, activePaneID := r.captureRootLocked()
-	raw := r.compositor.RenderFullWithOverlay(root, activePaneID, r.paneLookupLocked, r.mergeOverlayLocked(render.OverlayState{}), true)
-
-	if stripANSI {
-		return render.MaterializeGrid(raw, r.width, r.height)
-	}
-	return raw
+	return withRendererActorValue(r, func(st *rendererActorState) string {
+		snap := st.snapshot
+		if snap.layout == nil {
+			return ""
+		}
+		root, activePaneID := snap.captureRoot(st.compositor.LayoutHeight())
+		raw := st.compositor.RenderFullWithOverlay(root, activePaneID, func(paneID uint32) render.PaneData {
+			return r.paneLookupSnapshot(snap, paneID)
+		}, r.mergeOverlay(snap, render.OverlayState{}), true)
+		if stripANSI {
+			return render.MaterializeGrid(raw, snap.width, snap.height)
+		}
+		return raw
+	})
 }
 
 // CaptureDisplay returns what the diff renderer thinks the terminal displays.
@@ -289,23 +239,24 @@ func (r *Renderer) Capture(stripANSI bool) string {
 // so a diff between Capture() and CaptureDisplay() reveals exactly where the
 // diff renderer diverges from ground truth.
 func (r *Renderer) CaptureDisplay() string {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.compositor.PrevGridText()
+	return withRendererActorValue(r, func(st *rendererActorState) string {
+		return st.compositor.PrevGridText()
+	})
 }
 
 // CaptureColorMap renders a color map from client-side emulators.
 func (r *Renderer) CaptureColorMap() string {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	if r.layout == nil {
-		return ""
-	}
-
-	root, activePaneID := r.captureRootLocked()
-	raw := r.compositor.RenderFullWithOverlay(root, activePaneID, r.paneLookupLocked, r.mergeOverlayLocked(render.OverlayState{}), true)
-	return render.ExtractColorMap(raw, r.width, r.height) + "\n"
+	return withRendererActorValue(r, func(st *rendererActorState) string {
+		snap := st.snapshot
+		if snap.layout == nil {
+			return ""
+		}
+		root, activePaneID := snap.captureRoot(st.compositor.LayoutHeight())
+		raw := st.compositor.RenderFullWithOverlay(root, activePaneID, func(paneID uint32) render.PaneData {
+			return r.paneLookupSnapshot(snap, paneID)
+		}, r.mergeOverlay(snap, render.OverlayState{}), true)
+		return render.ExtractColorMap(raw, snap.width, snap.height) + "\n"
+	})
 }
 
 func marshalIndented(v any) string {
@@ -316,23 +267,21 @@ func marshalIndented(v any) string {
 // captureJSONValue builds the structured JSON capture payload.
 // Returns false when no layout is available.
 func (r *Renderer) captureJSONValue(agentStatus map[uint32]proto.PaneAgentStatus) (proto.CaptureJSON, bool) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	if r.layout == nil {
+	snap := r.loadSnapshot()
+	if snap.layout == nil {
 		return proto.CaptureJSON{}, false
 	}
 
-	root, _ := r.captureRootLocked()
+	root, _ := snap.captureRoot(snap.height - render.GlobalBarHeight)
 
 	capture := proto.CaptureJSON{
-		Session: r.sessionName,
-		Width:   r.width,
-		Height:  r.height,
-		Notice:  r.sessionNotice,
+		Session: snap.sessionName,
+		Width:   snap.width,
+		Height:  snap.height,
+		Notice:  snap.sessionNotice,
 	}
-	for _, ws := range r.windows {
-		if ws.ID == r.activeWinID {
+	for _, ws := range snap.windows {
+		if ws.ID == snap.activeWinID {
 			capture.Window = proto.CaptureWindow{
 				ID: ws.ID, Name: ws.Name, Index: ws.Index,
 			}
@@ -345,7 +294,7 @@ func (r *Renderer) captureJSONValue(agentStatus map[uint32]proto.PaneAgentStatus
 		if paneID == 0 {
 			return
 		}
-		cp, ok := r.buildCapturePaneLocked(paneID, agentStatus)
+		cp, ok := r.buildCapturePane(snap, paneID, agentStatus)
 		if !ok {
 			return
 		}
@@ -370,10 +319,8 @@ func (r *Renderer) CaptureJSON(agentStatus map[uint32]proto.PaneAgentStatus) str
 
 // CapturePaneText returns a single pane's content from client-side emulators.
 func (r *Renderer) CapturePaneText(paneID uint32, includeANSI bool) string {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	emu, ok := r.emulators[paneID]
+	snap := r.loadSnapshot()
+	emu, ok := snap.emulators[paneID]
 	if !ok {
 		return ""
 	}
@@ -386,9 +333,7 @@ func (r *Renderer) CapturePaneText(paneID uint32, includeANSI bool) string {
 // capturePaneValue builds the structured JSON payload for a single pane.
 // Returns false when the pane is not found.
 func (r *Renderer) capturePaneValue(paneID uint32, agentStatus map[uint32]proto.PaneAgentStatus) (proto.CapturePane, bool) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.buildCapturePaneLocked(paneID, agentStatus)
+	return r.buildCapturePane(r.loadSnapshot(), paneID, agentStatus)
 }
 
 // CapturePaneJSON returns a single pane's JSON from client-side emulators.
@@ -402,18 +347,17 @@ func (r *Renderer) CapturePaneJSON(paneID uint32, agentStatus map[uint32]proto.P
 
 // ResolvePaneID resolves a pane reference to an ID from client-side state.
 func (r *Renderer) ResolvePaneID(ref string) uint32 {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	snap := r.loadSnapshot()
 
 	// Try numeric ID
 	if id, err := strconv.ParseUint(ref, 10, 32); err == nil {
-		if _, ok := r.paneInfo[uint32(id)]; ok {
+		if _, ok := snap.paneInfo[uint32(id)]; ok {
 			return uint32(id)
 		}
 	}
 	// Try name or prefix match
 	var prefixMatch uint32
-	for _, info := range r.paneInfo {
+	for _, info := range snap.paneInfo {
 		if info.Name == ref {
 			return info.ID
 		}
@@ -426,76 +370,46 @@ func (r *Renderer) ResolvePaneID(ref string) uint32 {
 
 // ActivePaneID returns the active pane ID. Thread-safe.
 func (r *Renderer) ActivePaneID() uint32 {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.activePaneID
+	return r.loadSnapshot().activePaneID
 }
 
 // Layout returns the current layout tree. Thread-safe.
 func (r *Renderer) Layout() *mux.LayoutCell {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.layout
+	return r.loadSnapshot().layout
 }
 
 // VisibleLayout returns the layout tree currently visible to the user.
 // In zoom mode, this is a synthetic single-pane root for the zoomed pane.
 func (r *Renderer) VisibleLayout() *mux.LayoutCell {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.layout == nil {
-		return nil
-	}
-	if r.zoomedPaneID != 0 {
-		return mux.NewLeafByID(r.zoomedPaneID, 0, 0, r.width, r.compositor.LayoutHeight())
-	}
-	return r.layout
+	snap := r.loadSnapshot()
+	return snap.visibleLayout(snap.height - render.GlobalBarHeight)
 }
 
 // WindowSnapshots returns a copy of the current window snapshots and active
 // window ID from the latest layout.
 func (r *Renderer) WindowSnapshots() ([]proto.WindowSnapshot, uint32) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	windows := make([]proto.WindowSnapshot, len(r.windows))
-	copy(windows, r.windows)
-	return windows, r.activeWinID
+	snap := r.loadSnapshot()
+	return cloneWindowSnapshots(snap.windows), snap.activeWinID
 }
 
 // Emulator returns the terminal emulator for the given pane. Thread-safe.
 func (r *Renderer) Emulator(paneID uint32) (mux.TerminalEmulator, bool) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	emu, ok := r.emulators[paneID]
+	emu, ok := r.loadSnapshot().emulators[paneID]
 	return emu, ok
 }
 
 // PaneInfo returns the pane snapshot for the given pane. Thread-safe.
 func (r *Renderer) PaneInfo(paneID uint32) (proto.PaneSnapshot, bool) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	info, ok := r.paneInfo[paneID]
+	info, ok := r.loadSnapshot().paneInfo[paneID]
 	return info, ok
 }
 
-// captureRootLocked returns the layout root and active pane ID for capture.
-// Caller must hold r.mu.
-func (r *Renderer) captureRootLocked() (*mux.LayoutCell, uint32) {
-	root := r.layout
-	if r.zoomedPaneID != 0 {
-		root = mux.NewLeafByID(r.zoomedPaneID, 0, 0, r.width, r.compositor.LayoutHeight())
-	}
-	return root, r.activePaneID
-}
-
-// buildCapturePaneLocked builds a CapturePane from emulator state for the given pane.
-// Returns false if the pane or its emulator is not found. Caller must hold r.mu.
-func (r *Renderer) buildCapturePaneLocked(paneID uint32, agentStatus map[uint32]proto.PaneAgentStatus) (proto.CapturePane, bool) {
-	emu, ok := r.emulators[paneID]
+func (r *Renderer) buildCapturePane(snap *rendererSnapshot, paneID uint32, agentStatus map[uint32]proto.PaneAgentStatus) (proto.CapturePane, bool) {
+	emu, ok := snap.emulators[paneID]
 	if !ok {
 		return proto.CapturePane{}, false
 	}
-	info, ok := r.paneInfo[paneID]
+	info, ok := snap.paneInfo[paneID]
 	if !ok {
 		return proto.CapturePane{}, false
 	}
@@ -503,9 +417,9 @@ func (r *Renderer) buildCapturePaneLocked(paneID uint32, agentStatus map[uint32]
 	cp := caputil.BuildPane(caputil.PaneInput{
 		ID:         info.ID,
 		Name:       info.Name,
-		Active:     info.ID == r.activePaneID,
+		Active:     info.ID == snap.activePaneID,
 		Minimized:  info.Minimized,
-		Zoomed:     info.ID == r.zoomedPaneID,
+		Zoomed:     info.ID == snap.zoomedPaneID,
 		Host:       info.Host,
 		Task:       info.Task,
 		Color:      info.Color,
@@ -520,23 +434,21 @@ func (r *Renderer) buildCapturePaneLocked(paneID uint32, agentStatus map[uint32]
 	return cp, true
 }
 
-// paneLookupLocked returns a PaneData for the given pane ID using the basic
-// adapter (no copy mode). Caller must hold r.mu.
-func (r *Renderer) paneLookupLocked(paneID uint32) render.PaneData {
-	emu, ok := r.emulators[paneID]
+func (r *Renderer) paneLookupSnapshot(snap *rendererSnapshot, paneID uint32) render.PaneData {
+	emu, ok := snap.emulators[paneID]
 	if !ok {
 		return nil
 	}
-	info, ok := r.paneInfo[paneID]
+	info, ok := snap.paneInfo[paneID]
 	if !ok {
 		return nil
 	}
 	return &PaneData{Emu: emu, Info: info}
 }
 
-func (r *Renderer) mergeOverlayLocked(overlay render.OverlayState) render.OverlayState {
+func (r *Renderer) mergeOverlay(snap *rendererSnapshot, overlay render.OverlayState) render.OverlayState {
 	if overlay.Message == "" {
-		overlay.Message = r.sessionNotice
+		overlay.Message = snap.sessionNotice
 	}
 	return overlay
 }

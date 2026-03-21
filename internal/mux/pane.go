@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -44,9 +44,9 @@ type Pane struct {
 	process  *os.Process // set for restored panes (where cmd is nil)
 	emulator TerminalEmulator
 
-	snapshotMu      sync.Mutex
 	outputSeq       atomic.Uint64
-	baseHistory     []string
+	snapshotSeq     atomic.Uint64
+	baseHistory     atomic.Pointer[paneBaseHistory]
 	scrollbackLines int
 
 	// writeOverride, when non-nil, receives Write() calls instead of the PTY.
@@ -66,6 +66,10 @@ type Pane struct {
 	createdAt        time.Time
 	lastBusySeenUnix atomic.Int64 // UnixNano; last time process tree showed busy
 	idleSinceUnix    atomic.Int64 // UnixNano; when the current idle period began
+}
+
+type paneBaseHistory struct {
+	lines []string
 }
 
 // CaptureSnapshot is a consistent plain-text snapshot of a pane's retained
@@ -107,7 +111,7 @@ func NewPaneWithScrollback(id uint32, meta PaneMeta, cols, rows int, sessionName
 
 	emu := NewVTEmulatorWithScrollback(cols, rows, scrollbackLines)
 
-	return &Pane{
+	p := &Pane{
 		ID:              id,
 		Meta:            meta,
 		ptmx:            ptmx,
@@ -117,7 +121,9 @@ func NewPaneWithScrollback(id uint32, meta PaneMeta, cols, rows int, sessionName
 		onExit:          onExit,
 		createdAt:       time.Now(),
 		scrollbackLines: effectiveScrollbackLines(scrollbackLines),
-	}, nil
+	}
+	p.baseHistory.Store(&paneBaseHistory{})
+	return p, nil
 }
 
 // RestorePaneWithScrollback creates a pane from inherited file descriptors
@@ -150,6 +156,7 @@ func RestorePaneWithScrollback(id uint32, meta PaneMeta, ptmxFd, pid, cols, rows
 		createdAt:       time.Now(),
 		scrollbackLines: effectiveScrollbackLines(scrollbackLines),
 	}
+	p.baseHistory.Store(&paneBaseHistory{})
 
 	// Start drain immediately so screen replay doesn't deadlock
 	// on the emulator's unbuffered response pipe.
@@ -166,6 +173,32 @@ func (p *Pane) CreatedAt() time.Time {
 // SetCreatedAt overrides the creation time (used to restore from checkpoint).
 func (p *Pane) SetCreatedAt(t time.Time) {
 	p.createdAt = t
+}
+
+func (p *Pane) beginSnapshotMutation() {
+	p.snapshotSeq.Add(1)
+}
+
+func (p *Pane) endSnapshotMutation() {
+	p.snapshotSeq.Add(1)
+}
+
+func (p *Pane) waitForStableSnapshot() uint64 {
+	for {
+		seq := p.snapshotSeq.Load()
+		if seq%2 == 0 {
+			return seq
+		}
+		runtime.Gosched()
+	}
+}
+
+func (p *Pane) loadBaseHistory() []string {
+	base := p.baseHistory.Load()
+	if base == nil {
+		return nil
+	}
+	return base.lines
 }
 
 // PtmxFd returns the file descriptor number for the PTY master.
@@ -206,9 +239,9 @@ func (p *Pane) ProcessPid() int {
 
 // ReplayScreen feeds screen data into the emulator to restore visual state.
 func (p *Pane) ReplayScreen(data string) {
-	p.snapshotMu.Lock()
-	defer p.snapshotMu.Unlock()
+	p.beginSnapshotMutation()
 	p.emulator.Write([]byte(data))
+	p.endSnapshotMutation()
 }
 
 // Start launches the goroutines that read PTY output and wait for exit.
@@ -287,10 +320,11 @@ func (p *Pane) drainResponses() {
 // applyOutput feeds PTY bytes into the retained emulator state and returns the
 // monotonically increasing output sequence included in that state.
 func (p *Pane) applyOutput(data []byte) uint64 {
-	p.snapshotMu.Lock()
-	defer p.snapshotMu.Unlock()
+	p.beginSnapshotMutation()
 	p.emulator.Write(data)
-	return p.outputSeq.Add(1)
+	seq := p.outputSeq.Add(1)
+	p.endSnapshotMutation()
+	return seq
 }
 
 // waitLoop waits for the shell process to exit.
@@ -324,6 +358,8 @@ func (p *Pane) EmulatorSize() (cols, rows int) {
 
 // Resize changes the PTY and emulator dimensions.
 func (p *Pane) Resize(cols, rows int) error {
+	p.beginSnapshotMutation()
+	defer p.endSnapshotMutation()
 	if p.emulator != nil {
 		p.emulator.Resize(cols, rows)
 	}
@@ -353,24 +389,35 @@ func (p *Pane) RenderScreen() string {
 // HistoryScreenSnapshot returns a consistent snapshot of retained scrollback,
 // current screen, and the latest live-output sequence included in that state.
 func (p *Pane) HistoryScreenSnapshot() (history []string, screen string, seq uint64) {
-	p.snapshotMu.Lock()
-	defer p.snapshotMu.Unlock()
-	return p.combinedScrollbackLocked(), RenderWithCursor(p.emulator), p.outputSeq.Load()
+	for {
+		before := p.waitForStableSnapshot()
+		history = p.combinedScrollback(p.loadBaseHistory())
+		screen = RenderWithCursor(p.emulator)
+		seq = p.outputSeq.Load()
+		after := p.snapshotSeq.Load()
+		if before == after && after%2 == 0 {
+			return history, screen, seq
+		}
+	}
 }
 
 // CaptureSnapshot returns a consistent plain-text snapshot of retained
 // scrollback, visible screen content, and cursor state.
 func (p *Pane) CaptureSnapshot() CaptureSnapshot {
-	p.snapshotMu.Lock()
-	defer p.snapshotMu.Unlock()
-
-	col, row := p.emulator.CursorPosition()
-	return CaptureSnapshot{
-		History:      p.combinedScrollbackLocked(),
-		Content:      EmulatorContentLines(p.emulator),
-		CursorCol:    col,
-		CursorRow:    row,
-		CursorHidden: p.emulator.CursorHidden(),
+	for {
+		before := p.waitForStableSnapshot()
+		col, row := p.emulator.CursorPosition()
+		snap := CaptureSnapshot{
+			History:      p.combinedScrollback(p.loadBaseHistory()),
+			Content:      EmulatorContentLines(p.emulator),
+			CursorCol:    col,
+			CursorRow:    row,
+			CursorHidden: p.emulator.CursorHidden(),
+		}
+		after := p.snapshotSeq.Load()
+		if before == after && after%2 == 0 {
+			return snap
+		}
 	}
 }
 
@@ -419,9 +466,14 @@ func (p *Pane) ContentLines() []string {
 // ScrollbackLines returns retained plain-text scrollback lines from oldest to
 // newest.
 func (p *Pane) ScrollbackLines() []string {
-	p.snapshotMu.Lock()
-	defer p.snapshotMu.Unlock()
-	return p.combinedScrollbackLocked()
+	for {
+		before := p.waitForStableSnapshot()
+		lines := p.combinedScrollback(p.loadBaseHistory())
+		after := p.snapshotSeq.Load()
+		if before == after && after%2 == 0 {
+			return lines
+		}
+	}
 }
 
 // OutputSeq reports the latest live-output sequence applied to the emulator.
@@ -432,13 +484,13 @@ func (p *Pane) OutputSeq() uint64 {
 // SetRetainedHistory replaces the retained pre-attach/pre-reload history base
 // for this pane. New live scrollback from the emulator is combined on top.
 func (p *Pane) SetRetainedHistory(lines []string) {
-	p.snapshotMu.Lock()
-	defer p.snapshotMu.Unlock()
+	p.beginSnapshotMutation()
+	defer p.endSnapshotMutation()
 	limit := effectiveScrollbackLines(p.scrollbackLines)
 	if len(lines) > limit {
 		lines = lines[len(lines)-limit:]
 	}
-	p.baseHistory = append([]string(nil), lines...)
+	p.baseHistory.Store(&paneBaseHistory{lines: append([]string(nil), lines...)})
 }
 
 // ScreenContains returns true if substr appears in the pane's visible screen
@@ -482,6 +534,7 @@ func NewProxyPaneWithScrollback(id uint32, meta PaneMeta, cols, rows int,
 		drainStarted:    true, // no PTY responses to drain
 		scrollbackLines: effectiveScrollbackLines(scrollbackLines),
 	}
+	p.baseHistory.Store(&paneBaseHistory{})
 	// Start drain goroutine for emulator responses (DA replies etc.)
 	// that would otherwise block the emulator's pipe.
 	go p.drainResponsesDiscard()
@@ -511,13 +564,13 @@ func (p *Pane) FeedOutput(data []byte) {
 	}
 }
 
-func (p *Pane) combinedScrollbackLocked() []string {
+func (p *Pane) combinedScrollback(baseHistory []string) []string {
 	live := EmulatorScrollbackLines(p.emulator)
 	limit := effectiveScrollbackLines(p.scrollbackLines)
-	total := len(p.baseHistory) + len(live)
+	total := len(baseHistory) + len(live)
 	if total <= limit {
 		out := make([]string, 0, total)
-		out = append(out, p.baseHistory...)
+		out = append(out, baseHistory...)
 		out = append(out, live...)
 		return out
 	}
@@ -525,15 +578,15 @@ func (p *Pane) combinedScrollbackLocked() []string {
 	drop := total - limit
 	baseStart := 0
 	liveStart := 0
-	if drop >= len(p.baseHistory) {
-		baseStart = len(p.baseHistory)
-		liveStart = drop - len(p.baseHistory)
+	if drop >= len(baseHistory) {
+		baseStart = len(baseHistory)
+		liveStart = drop - len(baseHistory)
 	} else {
 		baseStart = drop
 	}
 
 	out := make([]string, 0, limit)
-	out = append(out, p.baseHistory[baseStart:]...)
+	out = append(out, baseHistory[baseStart:]...)
 	out = append(out, live[liveStart:]...)
 	return out
 }

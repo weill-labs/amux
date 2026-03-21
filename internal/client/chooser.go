@@ -71,9 +71,7 @@ func (m chooserMode) hiddenEvent() string {
 }
 
 func (cr *ClientRenderer) ChooserActive() bool {
-	cr.mu.Lock()
-	defer cr.mu.Unlock()
-	return cr.ui.chooser != nil
+	return cr.loadState().ui.chooser != nil
 }
 
 func (cr *ClientRenderer) ShowChooser(mode chooserMode) bool {
@@ -95,10 +93,10 @@ func (cr *ClientRenderer) ShowChooser(mode chooserMode) bool {
 }
 
 func (cr *ClientRenderer) HideChooser() bool {
-	cr.mu.Lock()
-	changed := cr.ui.chooser != nil
-	result := cr.ui.reduce(uiActionHideChooser{})
-	cr.mu.Unlock()
+	changed, result := updateClientStateValue(cr, func(next *clientSnapshot) (bool, clientUIResult) {
+		changed := next.ui.chooser != nil
+		return changed, next.ui.reduce(uiActionHideChooser{})
+	})
 	cr.emitUIEvents(result.uiEvents)
 	return changed
 }
@@ -108,9 +106,7 @@ func (cr *ClientRenderer) HandleChooserInput(raw []byte) chooserCommand {
 		return chooserCommand{}
 	}
 
-	cr.mu.Lock()
-	state := cr.ui.chooser
-	cr.mu.Unlock()
+	state := cr.loadState().ui.chooser
 	if state == nil {
 		return chooserCommand{}
 	}
@@ -139,9 +135,10 @@ func (cr *ClientRenderer) HandleChooserInput(raw []byte) chooserCommand {
 		case b == 'k':
 			result = cr.moveChooser(-1)
 		case b == 'q':
-			cr.mu.Lock()
-			queryEmpty := cr.ui.chooser != nil && cr.ui.chooser.query == ""
-			cr.mu.Unlock()
+			queryEmpty := false
+			if state := cr.loadState().ui.chooser; state != nil {
+				queryEmpty = state.query == ""
+			}
 			if queryEmpty {
 				cr.HideChooser()
 				return chooserCommand{}
@@ -157,82 +154,86 @@ func (cr *ClientRenderer) HandleChooserInput(raw []byte) chooserCommand {
 }
 
 func (cr *ClientRenderer) chooserOverlay() *render.ChooserOverlay {
-	cr.mu.Lock()
-	defer cr.mu.Unlock()
-	if cr.ui.chooser == nil {
+	return cr.chooserOverlayFromSnapshot(cr.loadState())
+}
+
+func (cr *ClientRenderer) chooserOverlayFromSnapshot(state *clientSnapshot) *render.ChooserOverlay {
+	if state.ui.chooser == nil {
 		return nil
 	}
-	rows := make([]render.ChooserOverlayRow, len(cr.ui.chooser.rows))
-	for i, row := range cr.ui.chooser.rows {
+	rows := make([]render.ChooserOverlayRow, len(state.ui.chooser.rows))
+	for i, row := range state.ui.chooser.rows {
 		rows[i] = render.ChooserOverlayRow{
 			Text:       row.text,
 			Selectable: row.selectable,
 		}
 	}
 	return &render.ChooserOverlay{
-		Title:    cr.ui.chooser.mode.title(),
-		Query:    cr.ui.chooser.query,
+		Title:    state.ui.chooser.mode.title(),
+		Query:    state.ui.chooser.query,
 		Rows:     rows,
-		Selected: cr.ui.chooser.selected,
+		Selected: state.ui.chooser.selected,
 	}
 }
 
 func (cr *ClientRenderer) moveChooser(delta int) chooserCommand {
-	cr.mu.Lock()
-	defer cr.mu.Unlock()
-	if cr.ui.chooser == nil {
-		return chooserCommand{}
-	}
-	next := cr.ui.chooser.selected
-	for i := 0; i < len(cr.ui.chooser.rows); i++ {
-		next += delta
-		if next < 0 {
-			next = len(cr.ui.chooser.rows) - 1
+	command, _ := updateClientStateValue(cr, func(next *clientSnapshot) (chooserCommand, clientUIResult) {
+		if next.ui.chooser == nil {
+			return chooserCommand{}, clientUIResult{}
 		}
-		if next >= len(cr.ui.chooser.rows) {
-			next = 0
+		next.ui.chooser = cloneChooserState(next.ui.chooser)
+		selected := next.ui.chooser.selected
+		for i := 0; i < len(next.ui.chooser.rows); i++ {
+			selected += delta
+			if selected < 0 {
+				selected = len(next.ui.chooser.rows) - 1
+			}
+			if selected >= len(next.ui.chooser.rows) {
+				selected = 0
+			}
+			if next.ui.chooser.rows[selected].selectable {
+				next.ui.chooser.selected = selected
+				next.ui.dirty = true
+				return chooserCommand{}, clientUIResult{}
+			}
 		}
-		if cr.ui.chooser.rows[next].selectable {
-			cr.ui.chooser.selected = next
-			cr.ui.dirty = true
-			return chooserCommand{}
-		}
-	}
-	return chooserCommand{bell: true}
+		return chooserCommand{bell: true}, clientUIResult{}
+	})
+	return command
 }
 
 func (cr *ClientRenderer) editChooserQuery(backspace int, ch byte) {
-	cr.mu.Lock()
-	defer cr.mu.Unlock()
-	if cr.ui.chooser == nil {
-		return
-	}
-	if backspace < 0 {
-		if len(cr.ui.chooser.query) > 0 {
-			cr.ui.chooser.query = cr.ui.chooser.query[:len(cr.ui.chooser.query)-1]
+	cr.updateState(func(next *clientSnapshot) clientUIResult {
+		if next.ui.chooser == nil {
+			return clientUIResult{}
 		}
-	} else if ch != 0 {
-		cr.ui.chooser.query += string(ch)
-	}
-	cr.ui.chooser.rebuild()
-	cr.ui.dirty = true
+		next.ui.chooser = cloneChooserState(next.ui.chooser)
+		if backspace < 0 {
+			if len(next.ui.chooser.query) > 0 {
+				next.ui.chooser.query = next.ui.chooser.query[:len(next.ui.chooser.query)-1]
+			}
+		} else if ch != 0 {
+			next.ui.chooser.query += string(ch)
+		}
+		next.ui.chooser.rebuild()
+		next.ui.dirty = true
+		return clientUIResult{}
+	})
 }
 
 func (cr *ClientRenderer) selectChooser() chooserCommand {
-	cr.mu.Lock()
-	if cr.ui.chooser == nil || cr.ui.chooser.selected < 0 || cr.ui.chooser.selected >= len(cr.ui.chooser.rows) {
-		cr.mu.Unlock()
-		return chooserCommand{bell: true}
-	}
-	row := cr.ui.chooser.rows[cr.ui.chooser.selected]
-	if !row.selectable {
-		cr.mu.Unlock()
-		return chooserCommand{bell: true}
-	}
-	result := cr.ui.reduce(uiActionHideChooser{})
-	cr.mu.Unlock()
+	command, result := updateClientStateValue(cr, func(next *clientSnapshot) (chooserCommand, clientUIResult) {
+		if next.ui.chooser == nil || next.ui.chooser.selected < 0 || next.ui.chooser.selected >= len(next.ui.chooser.rows) {
+			return chooserCommand{bell: true}, clientUIResult{}
+		}
+		row := next.ui.chooser.rows[next.ui.chooser.selected]
+		if !row.selectable {
+			return chooserCommand{bell: true}, clientUIResult{}
+		}
+		return chooserCommand{command: row.command, args: row.args}, next.ui.reduce(uiActionHideChooser{})
+	})
 	cr.emitUIEvents(result.uiEvents)
-	return chooserCommand{command: row.command, args: row.args}
+	return command
 }
 
 func (st *chooserState) rebuild() {

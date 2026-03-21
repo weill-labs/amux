@@ -319,7 +319,7 @@ func TestCopyModeCopySelectionAppendsCopyBuffer(t *testing.T) {
 	if copied[1] != "hell" {
 		t.Fatalf("second clipboard write = %q, want %q", copied[1], "hell")
 	}
-	if cr.copyBuffer != "hell" {
-		t.Fatalf("copyBuffer = %q, want %q", cr.copyBuffer, "hell")
+	if got := cr.CopyBuffer(); got != "hell" {
+		t.Fatalf("copyBuffer = %q, want %q", got, "hell")
 	}
 }
