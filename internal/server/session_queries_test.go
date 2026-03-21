@@ -237,6 +237,12 @@ func TestQueryClientListIncludesCapabilities(t *testing.T) {
 			if len(clients) != 1 {
 				t.Fatalf("len(queryClientList) = %d, want 1", len(clients))
 			}
+			if got := clients[0].size; got != "0x0" {
+				t.Fatalf("size = %q, want 0x0", got)
+			}
+			if !clients[0].sizeOwner {
+				t.Fatal("sizeOwner = false, want true")
+			}
 			if got := clients[0].capabilities; got != tt.want {
 				t.Fatalf("capabilities = %q, want %q", got, tt.want)
 			}

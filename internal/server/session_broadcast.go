@@ -23,24 +23,19 @@ type hookResultRecord struct {
 	Error      string
 }
 
-// recalcSize resizes all windows to the maximum terminal dimensions across
-// connected clients ("largest client wins"). Smaller clients clip out-of-bounds
-// cells locally. Event-loop only.
+// recalcSize resizes all windows to the latest active client's terminal size,
+// matching tmux's "window-size latest" behavior. Event-loop only.
 func (s *Session) recalcSize() {
-	var maxCols, maxRows int
-	for _, c := range s.clients {
-		maxCols = max(maxCols, c.cols)
-		maxRows = max(maxRows, c.rows)
-	}
-	if maxCols == 0 || maxRows == 0 {
+	sizeClient := s.effectiveSizeClient()
+	if sizeClient == nil || sizeClient.cols == 0 || sizeClient.rows == 0 {
 		return
 	}
-	layoutH := maxRows - render.GlobalBarHeight
-	if aw := s.ActiveWindow(); aw != nil && maxCols == aw.Width && layoutH == aw.Height {
+	layoutH := sizeClient.rows - render.GlobalBarHeight
+	if aw := s.ActiveWindow(); aw != nil && sizeClient.cols == aw.Width && layoutH == aw.Height {
 		return
 	}
 	for _, w := range s.Windows {
-		w.Resize(maxCols, layoutH)
+		w.Resize(sizeClient.cols, layoutH)
 	}
 }
 

@@ -32,7 +32,7 @@ func (h *ServerHarness) assertLayoutSize(cols, rows, wantW, wantH int) {
 	}
 }
 
-func TestMultiClientLargestWins(t *testing.T) {
+func TestMultiClientLatestAttachWins(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t) // 80×24
 
@@ -43,8 +43,8 @@ func TestMultiClientLargestWins(t *testing.T) {
 	gen := h.generation()
 	h.waitLayout(gen)
 
-	// Layout should stay at 80×23 (the larger client's dimensions).
-	h.assertLayoutSize(80, 24, 80, 23)
+	// Layout should follow the newly attached client.
+	h.assertLayoutSize(60, 20, 60, 19)
 	assertCaptureConsistent(t, h.captureJSON())
 
 	// Disconnect the small client — removeClient broadcasts layout.
@@ -114,18 +114,18 @@ func TestMultiClientResizeRecalculates(t *testing.T) {
 	h.waitLayout(gen)
 
 	// Send a resize from the primary (80×24) client, shrinking it to 70×20.
-	// The large client (120×40) is still the max, so layout stays at 120×39.
+	// The client with the latest activity should now own the session size.
 	gen = h.generation()
 	h.client.resize(70, 20)
 	h.waitLayout(gen)
 
-	h.assertLayoutSize(120, 40, 120, 39)
+	h.assertLayoutSize(70, 20, 70, 19)
 	assertCaptureConsistent(t, h.captureJSON())
 
 	large.close()
 }
 
-func TestMultiClientLargestClientShrinkRecalculates(t *testing.T) {
+func TestMultiClientLatestClientShrinkRecalculates(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t) // 80x24
 
@@ -136,6 +136,6 @@ func TestMultiClientLargestClientShrinkRecalculates(t *testing.T) {
 	large.resize(70, 20)
 	h.waitLayout(gen)
 
-	h.assertLayoutSize(80, 24, 80, 23)
+	h.assertLayoutSize(70, 20, 70, 19)
 	assertCaptureConsistent(t, h.captureJSON())
 }

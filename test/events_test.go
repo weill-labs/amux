@@ -397,10 +397,10 @@ func TestListClientsShowsDisplayPanesState(t *testing.T) {
 	h.client.sendUIEvent(proto.UIEventChooseWindowShown)
 
 	out := h.runCmd("list-clients")
-	if !strings.Contains(out, "CLIENT") || !strings.Contains(out, "DISPLAY_PANES") || !strings.Contains(out, "CHOOSER") || !strings.Contains(out, "CAPABILITIES") {
+	if !strings.Contains(out, "CLIENT") || !strings.Contains(out, "OWNER") || !strings.Contains(out, "SIZE") || !strings.Contains(out, "DISPLAY_PANES") || !strings.Contains(out, "CHOOSER") || !strings.Contains(out, "CAPABILITIES") {
 		t.Fatalf("unexpected list-clients header: %s", out)
 	}
-	if !strings.Contains(out, "client-1") || !strings.Contains(out, "shown") || !strings.Contains(out, "window") || !strings.Contains(out, "hyperlinks") {
+	if !strings.Contains(out, "client-1") || !strings.Contains(out, "*") || !strings.Contains(out, "80x24") || !strings.Contains(out, "shown") || !strings.Contains(out, "window") || !strings.Contains(out, "hyperlinks") {
 		t.Fatalf("list-clients should report shown state, got: %s", out)
 	}
 }

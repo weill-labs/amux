@@ -1423,9 +1423,13 @@ func cmdListClients(ctx *CommandContext) {
 	}
 
 	var output strings.Builder
-	output.WriteString(fmt.Sprintf("%-10s %-15s %-10s %s\n", "CLIENT", "DISPLAY_PANES", "CHOOSER", "CAPABILITIES"))
+	output.WriteString(fmt.Sprintf("%-10s %-8s %-15s %-10s %-10s %s\n", "CLIENT", "OWNER", "SIZE", "DISPLAY_PANES", "CHOOSER", "CAPABILITIES"))
 	for _, cc := range clients {
-		output.WriteString(fmt.Sprintf("%-10s %-15s %-10s %s\n", cc.id, cc.displayPanes, cc.chooser, cc.capabilities))
+		owner := ""
+		if cc.sizeOwner {
+			owner = "*"
+		}
+		output.WriteString(fmt.Sprintf("%-10s %-8s %-15s %-10s %-10s %s\n", cc.id, owner, cc.size, cc.displayPanes, cc.chooser, cc.capabilities))
 	}
 	ctx.reply(output.String())
 }

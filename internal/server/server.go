@@ -39,6 +39,7 @@ type Session struct {
 	ActiveWindowID uint32        // which window is displayed
 	Panes          []*mux.Pane   // flat list of ALL panes across all windows
 	clients        []*ClientConn
+	sizeClient     atomic.Pointer[ClientConn] // latest active client whose terminal size owns the session
 	clientCounter  atomic.Uint32
 	counter        atomic.Uint32 // pane ID counter
 	windowCounter  atomic.Uint32 // window ID counter
@@ -266,14 +267,52 @@ func (s *Session) writeCrashCheckpoint() {
 	}
 }
 
+func (s *Session) hasClient(cc *ClientConn) bool {
+	for _, c := range s.clients {
+		if c == cc {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Session) currentSizeClient() *ClientConn {
+	return s.sizeClient.Load()
+}
+
+func (s *Session) noteClientActivity(cc *ClientConn) bool {
+	if cc == nil || !s.hasClient(cc) || s.currentSizeClient() == cc {
+		return false
+	}
+	s.sizeClient.Store(cc)
+	return true
+}
+
+func (s *Session) effectiveSizeClient() *ClientConn {
+	if cc := s.currentSizeClient(); cc != nil && s.hasClient(cc) {
+		return cc
+	}
+	if len(s.clients) == 0 {
+		s.sizeClient.Store(nil)
+		return nil
+	}
+	// Fall back to the most recently attached remaining client.
+	cc := s.clients[len(s.clients)-1]
+	s.sizeClient.Store(cc)
+	return cc
+}
+
 // removeClient removes a client from the session and recalculates
-// the session size in case the largest client disconnected.
+// the session size if the active size owner disconnected.
 func (s *Session) removeClient(cc *ClientConn) {
 	for i, c := range s.clients {
 		if c == cc {
 			s.clients = append(s.clients[:i], s.clients[i+1:]...)
 			break
 		}
+	}
+	if s.currentSizeClient() == cc {
+		s.sizeClient.Store(nil)
 	}
 	shouldExit := s.exitServer != nil && s.exitServer.Env.ExitUnattached && s.hadClient && len(s.clients) == 0 && !s.shutdown.Load()
 	s.recalcSize()

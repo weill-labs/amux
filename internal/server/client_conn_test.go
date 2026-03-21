@@ -252,6 +252,76 @@ func TestClientConnInputDoesNotBlockOnBusySessionActor(t *testing.T) {
 	}
 }
 
+func TestClientConnActiveInputPaneForWriteSwitchesSessionSizeToLatestClient(t *testing.T) {
+	t.Parallel()
+
+	sess := newSession("test-client-input-latest-size")
+	stopCrashCheckpointLoop(t, sess)
+	defer stopSessionBackgroundLoops(t, sess)
+
+	pane := newProxyPane(1, mux.PaneMeta{
+		Name:  "pane-1",
+		Host:  mux.DefaultHost,
+		Color: "f5e0dc",
+	}, 80, 23, nil, nil, func(data []byte) (int, error) {
+		return len(data), nil
+	})
+	w := mux.NewWindow(pane, 80, 23)
+	w.ID = 1
+	w.Name = "window-1"
+
+	owner := NewClientConn(discardConn{})
+	t.Cleanup(owner.Close)
+	owner.ID = "client-1"
+	owner.cols = 80
+	owner.rows = 24
+
+	cc := NewClientConn(discardConn{})
+	t.Cleanup(cc.Close)
+	cc.ID = "client-2"
+	cc.cols = 60
+	cc.rows = 20
+
+	res := sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
+		sess.Windows = []*mux.Window{w}
+		sess.ActiveWindowID = w.ID
+		sess.Panes = []*mux.Pane{pane}
+		sess.clients = []*ClientConn{owner, cc}
+		sess.sizeClient.Store(owner)
+		return commandMutationResult{}
+	})
+	if res.err != nil {
+		t.Fatalf("setup session: %v", res.err)
+	}
+
+	if got := cc.activeInputPaneForWrite(sess); got != pane {
+		t.Fatalf("activeInputPaneForWrite = %v, want pane-1", got)
+	}
+
+	state := mustSessionQuery(t, sess, func(sess *Session) struct {
+		width  int
+		height int
+		owner  *ClientConn
+	} {
+		w := sess.ActiveWindow()
+		return struct {
+			width  int
+			height int
+			owner  *ClientConn
+		}{
+			width:  w.Width,
+			height: w.Height,
+			owner:  sess.currentSizeClient(),
+		}
+	})
+	if state.width != 60 || state.height != 19 {
+		t.Fatalf("active window size = %dx%d, want 60x19", state.width, state.height)
+	}
+	if state.owner != cc {
+		t.Fatalf("size owner = %v, want client-2", state.owner)
+	}
+}
+
 func TestClientConnInputTargetTracksFocusAndWindowChanges(t *testing.T) {
 	t.Parallel()
 
