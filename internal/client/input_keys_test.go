@@ -79,3 +79,48 @@ func TestDecodeInputEventsKittyCtrlA(t *testing.T) {
 		t.Fatalf("decoded key = %q, want ctrl+a", key.Keystroke())
 	}
 }
+
+func TestForwardedBytesForDecodedInput(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		input []byte
+		want  []byte
+	}{
+		{
+			name:  "kitty ctrl-c forwards legacy byte",
+			input: []byte("\x1b[99;5u"),
+			want:  []byte{0x03},
+		},
+		{
+			name:  "kitty alt-h forwards legacy escape sequence",
+			input: []byte("\x1b[104;3u"),
+			want:  []byte{0x1b, 'h'},
+		},
+		{
+			name:  "plain text stays unchanged",
+			input: []byte("x"),
+			want:  []byte("x"),
+		},
+		{
+			name:  "unmapped kitty key stays raw",
+			input: []byte("\x1b[97;9u"),
+			want:  []byte("\x1b[97;9u"),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			events := decodeInputEvents(tt.input)
+			if len(events) != 1 {
+				t.Fatalf("len(events) = %d, want 1", len(events))
+			}
+			if got := forwardedBytesForDecodedInput(events[0]); !bytes.Equal(got, tt.want) {
+				t.Fatalf("forwardedBytesForDecodedInput(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}

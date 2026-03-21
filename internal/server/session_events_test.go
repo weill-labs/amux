@@ -306,6 +306,44 @@ func TestEnsureInitialWindowIsNoOpWhenSessionAlreadyInitialized(t *testing.T) {
 	pane.Close()
 }
 
+func TestEnsureInitialWindowReusesOrphanedPanes(t *testing.T) {
+	t.Parallel()
+
+	sess := newSession("test-managed-startup-orphans")
+	srv := &Server{sessions: map[string]*Session{sess.Name: sess}}
+	defer stopSessionBackgroundLoops(t, sess)
+
+	orphans := []*mux.Pane{
+		newProxyPane(1, mux.PaneMeta{Name: "pane-1", Host: mux.DefaultHost, Color: "f5e0dc"}, 80, 23, nil, nil, func(data []byte) (int, error) { return len(data), nil }),
+		newProxyPane(2, mux.PaneMeta{Name: "pane-2", Host: mux.DefaultHost, Color: "f2cdcd"}, 80, 23, nil, nil, func(data []byte) (int, error) { return len(data), nil }),
+	}
+
+	mustSessionQuery(t, sess, func(sess *Session) struct{} {
+		sess.Panes = append(sess.Panes, orphans...)
+		return struct{}{}
+	})
+
+	if err := srv.EnsureInitialWindow(80, 24); err != nil {
+		t.Fatalf("EnsureInitialWindow: %v", err)
+	}
+
+	mustSessionQuery(t, sess, func(sess *Session) struct{} {
+		if len(sess.Windows) != 1 {
+			t.Fatalf("window count = %d, want 1", len(sess.Windows))
+		}
+		if len(sess.Panes) != len(orphans) {
+			t.Fatalf("pane count = %d, want %d", len(sess.Panes), len(orphans))
+		}
+		for _, pane := range orphans {
+			if sess.FindWindowByPaneID(pane.ID) == nil {
+				t.Fatalf("pane %d should be rehabilitated into a window", pane.ID)
+			}
+		}
+		return struct{}{}
+	})
+	assertSessionLayoutConsistent(t, sess)
+}
+
 func TestEnsureInitialWindowReturnsPaneCreationError(t *testing.T) {
 	t.Setenv("SHELL", "/definitely/missing-shell")
 
