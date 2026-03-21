@@ -3,6 +3,7 @@ package checkpoint
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 
 func TestCrashRoundTrip(t *testing.T) {
 	now := time.Now().Truncate(time.Millisecond)
+	startTime := time.Date(2026, time.January, 2, 3, 4, 5, 0, time.UTC)
 	cp := &CrashCheckpoint{
 		Version:       CrashVersion,
 		SessionName:   "test-session",
@@ -72,11 +74,11 @@ func TestCrashRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", dir)
 
-	if err := WriteCrash(cp, "test-session"); err != nil {
+	if err := WriteCrash(cp, "test-session", startTime); err != nil {
 		t.Fatalf("WriteCrash: %v", err)
 	}
 
-	path := CrashCheckpointPath("test-session")
+	path := CrashCheckpointPathTimestamped("test-session", startTime)
 	got, err := ReadCrash(path)
 	if err != nil {
 		t.Fatalf("ReadCrash: %v", err)
@@ -156,6 +158,7 @@ func TestCrashRoundTrip(t *testing.T) {
 func TestCrashAtomicWrite(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", dir)
+	startTime := time.Date(2026, time.January, 2, 3, 4, 5, 0, time.UTC)
 
 	cp := &CrashCheckpoint{
 		Version:     CrashVersion,
@@ -163,18 +166,18 @@ func TestCrashAtomicWrite(t *testing.T) {
 		Timestamp:   time.Now(),
 	}
 
-	if err := WriteCrash(cp, "atomic-test"); err != nil {
+	if err := WriteCrash(cp, "atomic-test", startTime); err != nil {
 		t.Fatalf("WriteCrash: %v", err)
 	}
 
-	path := CrashCheckpointPath("atomic-test")
+	path := CrashCheckpointPathTimestamped("atomic-test", startTime)
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("checkpoint file should exist: %v", err)
 	}
 
 	// Overwrite with new data — should be atomic (no partial writes)
 	cp.Counter = 99
-	if err := WriteCrash(cp, "atomic-test"); err != nil {
+	if err := WriteCrash(cp, "atomic-test", startTime); err != nil {
 		t.Fatalf("WriteCrash overwrite: %v", err)
 	}
 
@@ -190,42 +193,93 @@ func TestCrashAtomicWrite(t *testing.T) {
 func TestCrashVersionValidation(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", dir)
+	startTime := time.Date(2026, time.January, 2, 3, 4, 5, 0, time.UTC)
 
 	cp := &CrashCheckpoint{
 		Version:     999, // invalid version
 		SessionName: "bad-version",
 	}
 
-	if err := WriteCrash(cp, "bad-version"); err != nil {
+	if err := WriteCrash(cp, "bad-version", startTime); err != nil {
 		t.Fatalf("WriteCrash: %v", err)
 	}
 
-	path := CrashCheckpointPath("bad-version")
+	path := CrashCheckpointPathTimestamped("bad-version", startTime)
 	if _, err := ReadCrash(path); err == nil {
 		t.Error("expected error reading checkpoint with invalid version")
 	}
 }
 
-func TestCrashRemove(t *testing.T) {
+func TestCrashCheckpointPathTimestamped(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", dir)
+
+	startTime := time.Date(2026, time.March, 21, 12, 34, 56, 789, time.UTC)
+	got := CrashCheckpointPathTimestamped("default", startTime)
+	want := filepath.Join(dir, "amux", "20260321-123456_default.json")
+	if got != want {
+		t.Fatalf("CrashCheckpointPathTimestamped() = %q, want %q", got, want)
+	}
+}
+
+func TestFindCrashCheckpointsNewestFirst(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", dir)
+
+	checkpointDir := CrashCheckpointDir()
+	if err := os.MkdirAll(checkpointDir, 0700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	session := "default"
+	startTimes := []time.Time{
+		time.Date(2026, time.March, 21, 12, 34, 54, 0, time.UTC),
+		time.Date(2026, time.March, 21, 12, 34, 56, 0, time.UTC),
+		time.Date(2026, time.March, 21, 12, 34, 55, 0, time.UTC),
+	}
+	for _, startTime := range startTimes {
+		path := CrashCheckpointPathTimestamped(session, startTime)
+		if err := os.WriteFile(path, []byte("{}"), 0600); err != nil {
+			t.Fatalf("WriteFile(%q): %v", path, err)
+		}
+	}
+	otherPath := CrashCheckpointPathTimestamped("other", time.Date(2026, time.March, 21, 12, 34, 57, 0, time.UTC))
+	if err := os.WriteFile(otherPath, []byte("{}"), 0600); err != nil {
+		t.Fatalf("WriteFile(%q): %v", otherPath, err)
+	}
+
+	got := FindCrashCheckpoints(session)
+	want := []string{
+		CrashCheckpointPathTimestamped(session, time.Date(2026, time.March, 21, 12, 34, 56, 0, time.UTC)),
+		CrashCheckpointPathTimestamped(session, time.Date(2026, time.March, 21, 12, 34, 55, 0, time.UTC)),
+		CrashCheckpointPathTimestamped(session, time.Date(2026, time.March, 21, 12, 34, 54, 0, time.UTC)),
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("FindCrashCheckpoints() = %v, want %v", got, want)
+	}
+}
+
+func TestCrashRemoveFile(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", dir)
+	startTime := time.Date(2026, time.January, 2, 3, 4, 5, 0, time.UTC)
 
 	cp := &CrashCheckpoint{
 		Version:     CrashVersion,
 		SessionName: "remove-test",
 	}
 
-	if err := WriteCrash(cp, "remove-test"); err != nil {
+	if err := WriteCrash(cp, "remove-test", startTime); err != nil {
 		t.Fatalf("WriteCrash: %v", err)
 	}
 
-	path := CrashCheckpointPath("remove-test")
+	path := CrashCheckpointPathTimestamped("remove-test", startTime)
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("checkpoint should exist: %v", err)
 	}
 
-	if err := RemoveCrash("remove-test"); err != nil {
-		t.Fatalf("RemoveCrash: %v", err)
+	if err := RemoveCrashFile(path); err != nil {
+		t.Fatalf("RemoveCrashFile: %v", err)
 	}
 
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
@@ -259,17 +313,18 @@ func TestCrashCheckpointDir(t *testing.T) {
 func TestReadCrashDoesNotDelete(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", dir)
+	startTime := time.Date(2026, time.January, 2, 3, 4, 5, 0, time.UTC)
 
 	cp := &CrashCheckpoint{
 		Version:     CrashVersion,
 		SessionName: "persist-test",
 	}
 
-	if err := WriteCrash(cp, "persist-test"); err != nil {
+	if err := WriteCrash(cp, "persist-test", startTime); err != nil {
 		t.Fatalf("WriteCrash: %v", err)
 	}
 
-	path := CrashCheckpointPath("persist-test")
+	path := CrashCheckpointPathTimestamped("persist-test", startTime)
 
 	// Read should NOT delete the file (unlike hot-reload checkpoint)
 	if _, err := ReadCrash(path); err != nil {

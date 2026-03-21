@@ -84,8 +84,8 @@ func SocketAlive(sockPath string) bool {
 // session AND the server socket is stale or missing. Returns the checkpoint
 // path if a crashed session is detected, or "" if no recovery is needed.
 func DetectCrashedSession(sessionName string) string {
-	cpPath := checkpoint.CrashCheckpointPath(sessionName)
-	if _, err := os.Stat(cpPath); err != nil {
+	cpPaths := checkpoint.FindCrashCheckpoints(sessionName)
+	if len(cpPaths) == 0 {
 		return "" // no crash checkpoint
 	}
 
@@ -94,7 +94,7 @@ func DetectCrashedSession(sessionName string) string {
 		return "" // server is running — no crash
 	}
 
-	return cpPath
+	return cpPaths[0]
 }
 
 // WaitForSocket polls until the socket becomes available.

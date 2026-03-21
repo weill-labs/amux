@@ -473,7 +473,7 @@ func runServer(sessionName string, managedTakeover bool) {
 		crashCP, readErr := checkpoint.ReadCrash(crashPath)
 		if readErr != nil {
 			fmt.Fprintf(os.Stderr, "amux server: unreadable crash checkpoint, starting fresh: %v\n", readErr)
-			os.Remove(crashPath) // remove stale checkpoint to avoid warning on every startup
+			_ = checkpoint.RemoveCrashFile(crashPath) // remove stale checkpoint to avoid warning on every startup
 			s, err = server.NewServerWithScrollback(sessionName, scrollbackLines)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "amux server: %v\n", err)
@@ -481,7 +481,7 @@ func runServer(sessionName string, managedTakeover bool) {
 			}
 		} else {
 			fmt.Fprintf(os.Stderr, "amux server: recovering crashed session %q\n", sessionName)
-			s, err = server.NewServerFromCrashCheckpointWithScrollback(sessionName, crashCP, scrollbackLines)
+			s, err = server.NewServerFromCrashCheckpointWithScrollback(sessionName, crashCP, crashPath, scrollbackLines)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "amux server: crash recovery: %v\n", err)
 				os.Exit(1)
