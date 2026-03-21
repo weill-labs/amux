@@ -3,6 +3,7 @@ package test
 import (
 	"fmt"
 	"net"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -19,11 +20,16 @@ import (
 type headlessClient struct {
 	conn       net.Conn
 	renderer   *client.Renderer
+	cmdReqs    chan headlessCommand
 	cmdResults chan *server.Message
-	cmdMu      sync.Mutex
 	done       chan struct{}
 	ready      chan struct{} // closed after first MsgTypeLayout is processed
 	readyOnce  sync.Once
+}
+
+type headlessCommand struct {
+	msg   *server.Message
+	reply chan *server.Message
 }
 
 func dialHeadlessSocket(sockPath string, timeout time.Duration) (net.Conn, error) {
@@ -56,11 +62,13 @@ func newHeadlessClient(sockPath, session string, cols, rows int) (*headlessClien
 	hc := &headlessClient{
 		conn:       conn,
 		renderer:   newTestRenderer(cols, rows),
+		cmdReqs:    make(chan headlessCommand),
 		cmdResults: make(chan *server.Message, 16),
 		done:       make(chan struct{}),
 		ready:      make(chan struct{}),
 	}
 
+	go hc.commandLoop()
 	go hc.readLoop()
 
 	// Block until the server sends the first layout, guaranteeing the
@@ -93,32 +101,61 @@ func (hc *headlessClient) sendUIEvent(name string) {
 // runCommand sends a server command over the attached client connection and
 // waits for the single CmdResult reply.
 func (hc *headlessClient) runCommand(cmdName string, args ...string) *server.Message {
-	hc.cmdMu.Lock()
-	defer hc.cmdMu.Unlock()
-
-	if err := server.WriteMsg(hc.conn, &server.Message{
-		Type:    server.MsgTypeCommand,
-		CmdName: cmdName,
-		CmdArgs: args,
-	}); err != nil {
-		return &server.Message{Type: server.MsgTypeCmdResult, CmdErr: err.Error()}
+	req := headlessCommand{
+		msg: &server.Message{
+			Type:    server.MsgTypeCommand,
+			CmdName: cmdName,
+			CmdArgs: args,
+		},
+		reply: make(chan *server.Message, 1),
 	}
 
 	select {
-	case msg := <-hc.cmdResults:
+	case hc.cmdReqs <- req:
+	case <-hc.done:
+		return &server.Message{Type: server.MsgTypeCmdResult, CmdErr: "headless client closed"}
+	}
+
+	select {
+	case msg := <-req.reply:
 		return msg
 	case <-time.After(10 * time.Second):
 		return &server.Message{Type: server.MsgTypeCmdResult, CmdErr: "timeout waiting for command result"}
+	case <-hc.done:
+		select {
+		case msg := <-req.reply:
+			return msg
+		default:
+			return &server.Message{Type: server.MsgTypeCmdResult, CmdErr: "headless client closed"}
+		}
 	}
 }
 
-// capture returns a plain-text rendering from the client's local emulators.
-func (hc *headlessClient) capture() string {
-	return hc.renderer.Capture(true)
+func (hc *headlessClient) commandLoop() {
+	for {
+		select {
+		case <-hc.done:
+			return
+		case req := <-hc.cmdReqs:
+			if err := server.WriteMsg(hc.conn, req.msg); err != nil {
+				req.reply <- &server.Message{Type: server.MsgTypeCmdResult, CmdErr: err.Error()}
+				_ = hc.conn.Close()
+				return
+			}
+
+			select {
+			case msg := <-hc.cmdResults:
+				req.reply <- msg
+			case <-hc.done:
+				req.reply <- &server.Message{Type: server.MsgTypeCmdResult, CmdErr: "headless client closed"}
+				return
+			}
+		}
+	}
 }
 
 func (hc *headlessClient) close() {
-	hc.conn.Close()
+	_ = hc.conn.Close()
 	<-hc.done
 }
 
@@ -151,6 +188,11 @@ func (hc *headlessClient) readLoop() {
 	}
 }
 
+// capture returns a plain-text rendering from the client's local emulators.
+func (hc *headlessClient) capture() string {
+	return hc.renderer.Capture(true)
+}
+
 func TestParallelServerStartupKeepsAllSocketsAlive(t *testing.T) {
 	const servers = 16
 
@@ -177,5 +219,52 @@ func TestHeadlessClientRunCommand(t *testing.T) {
 	}
 	if !strings.Contains(msg.CmdOutput, "pane-1") {
 		t.Fatalf("list output = %q, want pane-1", msg.CmdOutput)
+	}
+}
+
+func TestHeadlessClientRunCommandConcurrent(t *testing.T) {
+	h := newServerHarness(t)
+
+	results := make(chan *server.Message, 2)
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		results <- h.client.runCommand("list")
+	}()
+	go func() {
+		defer wg.Done()
+		results <- h.client.runCommand("generation")
+	}()
+
+	wg.Wait()
+	close(results)
+
+	var sawList bool
+	var sawGeneration bool
+	for msg := range results {
+		if msg.CmdErr != "" {
+			t.Fatalf("concurrent command failed: %s", msg.CmdErr)
+		}
+
+		output := strings.TrimSpace(msg.CmdOutput)
+		switch {
+		case strings.Contains(output, "pane-1"):
+			sawList = true
+		default:
+			if _, err := strconv.ParseUint(output, 10, 64); err == nil {
+				sawGeneration = true
+				continue
+			}
+			t.Fatalf("unexpected command output: %q", output)
+		}
+	}
+
+	if !sawList {
+		t.Fatal("did not receive list output from concurrent commands")
+	}
+	if !sawGeneration {
+		t.Fatal("did not receive generation output from concurrent commands")
 	}
 }
