@@ -327,6 +327,12 @@ Default prefix: `Ctrl-a`. Configurable via `~/.config/amux/config.toml` (see [Co
 
 Config file: `~/.config/amux/config.toml` (or set `AMUX_CONFIG` env var).
 
+For attach-time terminal capability negotiation, you can override auto-detection
+with `AMUX_CLIENT_CAPABILITIES`. Use a comma-separated list of capability names:
+`kitty_keyboard`, `hyperlinks`, `rich_underline`, `cursor_metadata`,
+`prompt_markers`, `graphics_placeholder`. Special values: `all`,
+`legacy`/`none`, and `-name` or `!name` to disable a specific capability.
+
 ### Session
 
 ```toml

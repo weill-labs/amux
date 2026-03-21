@@ -135,6 +135,19 @@ func TestNonMouseEscapeFlushes(t *testing.T) {
 	}
 }
 
+func TestNonMouseCSIUFlushesAsSingleSequence(t *testing.T) {
+	p := &Parser{}
+
+	events, flushed := feedAll(t, p, []byte("\033[97;5u"))
+
+	if len(events) != 0 {
+		t.Errorf("expected 0 events, got %d", len(events))
+	}
+	if string(flushed) != "\033[97;5u" {
+		t.Errorf("flushed: got %q, want %q", flushed, "\033[97;5u")
+	}
+}
+
 func TestNormalInputFlushes(t *testing.T) {
 	p := &Parser{}
 	events, flushed := feedAll(t, p, []byte("hello"))

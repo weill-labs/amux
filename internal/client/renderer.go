@@ -58,6 +58,7 @@ func (r *Renderer) HandleLayout(snap *proto.LayoutSnapshot) bool {
 			paneInfo:        make(map[uint32]proto.PaneSnapshot),
 			sessionName:     snap.SessionName,
 			sessionNotice:   snap.Notice,
+			capabilities:    prev.capabilities,
 			activePaneID:    snap.ActivePaneID,
 			zoomedPaneID:    snap.ZoomedPaneID,
 			width:           prev.width,
@@ -169,6 +170,21 @@ func (r *Renderer) Resize(width, height int) {
 		st.snapshot = &next
 		r.publishSnapshot(&next)
 	})
+}
+
+// SetCapabilities stores the negotiated attach capabilities for this client.
+func (r *Renderer) SetCapabilities(caps proto.ClientCapabilities) {
+	r.withActor(func(st *rendererActorState) {
+		next := *st.snapshot
+		next.capabilities = caps
+		st.snapshot = &next
+		r.publishSnapshot(&next)
+	})
+}
+
+// Capabilities returns the negotiated attach capabilities for this client.
+func (r *Renderer) Capabilities() proto.ClientCapabilities {
+	return r.loadSnapshot().capabilities
 }
 
 // ClearPrevGrid forces a full repaint on the next RenderDiff call.
@@ -325,7 +341,7 @@ func (r *Renderer) CapturePaneText(paneID uint32, includeANSI bool) string {
 		return ""
 	}
 	if includeANSI {
-		return emu.Render()
+		return filterRenderedANSI(emu.Render(), snap.capabilities)
 	}
 	return strings.Join(mux.EmulatorContentLines(emu), "\n")
 }
@@ -443,7 +459,7 @@ func (r *Renderer) paneLookupSnapshot(snap *rendererSnapshot, paneID uint32) ren
 	if !ok {
 		return nil
 	}
-	return &PaneData{Emu: emu, Info: info}
+	return &PaneData{Emu: emu, Info: info, Capabilities: snap.capabilities}
 }
 
 func (r *Renderer) mergeOverlay(snap *rendererSnapshot, overlay render.OverlayState) render.OverlayState {

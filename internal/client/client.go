@@ -43,6 +43,21 @@ func NewClientRendererWithScrollback(width, height, scrollbackLines int) *Client
 	return cr
 }
 
+func (cr *ClientRenderer) SetCapabilities(caps proto.ClientCapabilities) {
+	cr.renderer.SetCapabilities(caps)
+}
+
+func (cr *ClientRenderer) Capabilities() proto.ClientCapabilities {
+	return cr.renderer.Capabilities()
+}
+
+// HandleLayout processes a layout snapshot from the server. Returns true if the
+// layout structure changed (panes moved/resized/added/removed).
+func (cr *ClientRenderer) HandleLayout(snap *proto.LayoutSnapshot) bool {
+	structureChanged, result := cr.handleLayoutResult(snap)
+	cr.emitUIEvents(result.uiEvents)
+	return structureChanged
+}
 func (cr *ClientRenderer) handleLayoutResult(snap *proto.LayoutSnapshot) (bool, clientUIResult) {
 	structureChanged := cr.renderer.HandleLayout(snap)
 	validPanes := make(map[uint32]bool)
@@ -146,7 +161,7 @@ func (cr *ClientRenderer) paneLookup(state *clientSnapshot) func(uint32) render.
 			return nil
 		}
 		cm := state.ui.copyModes[paneID]
-		return &clientPaneData{emu: emu, info: info, cm: cm}
+		return &clientPaneData{emu: emu, info: info, cm: cm, caps: rendererState.capabilities}
 	}
 }
 
@@ -607,16 +622,19 @@ type clientPaneData struct {
 	emu  mux.TerminalEmulator
 	info proto.PaneSnapshot
 	cm   *copymode.CopyMode // nil when not in copy mode
+	caps proto.ClientCapabilities
 }
 
 func (c *clientPaneData) RenderScreen(active bool) string {
+	var rendered string
 	if c.cm != nil {
-		return c.cm.RenderViewport()
+		rendered = c.cm.RenderViewport()
+	} else if !active {
+		rendered = c.emu.RenderWithoutCursorBlock()
+	} else {
+		rendered = c.emu.Render()
 	}
-	if !active {
-		return c.emu.RenderWithoutCursorBlock()
-	}
-	return c.emu.Render()
+	return filterRenderedANSI(rendered, c.caps)
 }
 
 func (c *clientPaneData) CellAt(col, row int, active bool) render.ScreenCell {

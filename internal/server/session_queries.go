@@ -49,6 +49,7 @@ type clientListEntry struct {
 	id           string
 	displayPanes string
 	chooser      string
+	capabilities string
 }
 
 type uiClientSnapshot struct {
@@ -248,6 +249,7 @@ func (s *Session) queryClientList() ([]clientListEntry, error) {
 				id:           cc.ID,
 				displayPanes: cc.displayPanesState(),
 				chooser:      cc.chooserState(),
+				capabilities: cc.capabilitySummary(),
 			})
 		}
 		return entries, nil

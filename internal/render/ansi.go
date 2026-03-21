@@ -37,6 +37,15 @@ const (
 	MouseDisable = "\033[?1006l\033[?1002l"
 )
 
+// Kitty keyboard protocol mode sequences.
+const (
+	// KittyKeyboardEnable enables the kitty keyboard protocol in level 1 mode.
+	KittyKeyboardEnable = "\033[>1u"
+
+	// KittyKeyboardDisable restores legacy keyboard reporting.
+	KittyKeyboardDisable = "\033[<u"
+)
+
 // OSC (Operating System Command) sequences for terminal title.
 const (
 	AltScreenEnter = "\033[?1049h"

@@ -11,6 +11,7 @@ import (
 
 	"github.com/weill-labs/amux/internal/client"
 	"github.com/weill-labs/amux/internal/mux"
+	"github.com/weill-labs/amux/internal/proto"
 	"github.com/weill-labs/amux/internal/server"
 )
 
@@ -49,11 +50,13 @@ func newHeadlessClient(sockPath, session string, cols, rows int) (*headlessClien
 		return nil, err
 	}
 
+	caps := proto.KnownClientCapabilities()
 	if err := server.WriteMsg(conn, &server.Message{
-		Type:    server.MsgTypeAttach,
-		Session: session,
-		Cols:    cols,
-		Rows:    rows,
+		Type:               server.MsgTypeAttach,
+		Session:            session,
+		Cols:               cols,
+		Rows:               rows,
+		AttachCapabilities: &caps,
 	}); err != nil {
 		conn.Close()
 		return nil, err
@@ -67,6 +70,7 @@ func newHeadlessClient(sockPath, session string, cols, rows int) (*headlessClien
 		done:       make(chan struct{}),
 		ready:      make(chan struct{}),
 	}
+	hc.renderer.SetCapabilities(proto.NegotiateClientCapabilities(&caps))
 
 	go hc.commandLoop()
 	go hc.readLoop()

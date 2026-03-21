@@ -12,6 +12,7 @@ import (
 	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/hooks"
 	"github.com/weill-labs/amux/internal/mux"
+	"github.com/weill-labs/amux/internal/proto"
 	"github.com/weill-labs/amux/internal/remote"
 )
 
@@ -600,6 +601,7 @@ func (s *Server) handleAttach(conn net.Conn, msg *Message) {
 	cc := NewClientConn(conn)
 	cc.ID = fmt.Sprintf("client-%d", sess.clientCounter.Add(1))
 	cc.initTypeKeyQueue()
+	cc.setNegotiatedCapabilities(proto.NegotiateClientCapabilities(msg.AttachCapabilities))
 	cc.startBootstrap()
 
 	cols, rows := msg.Cols, msg.Rows

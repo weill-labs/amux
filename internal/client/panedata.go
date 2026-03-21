@@ -14,15 +14,19 @@ var _ render.PaneData = (*PaneData)(nil)
 // interface. This is the basic adapter without copy mode support — the main
 // package wraps this with copy mode overlay.
 type PaneData struct {
-	Emu  mux.TerminalEmulator
-	Info proto.PaneSnapshot
+	Emu          mux.TerminalEmulator
+	Info         proto.PaneSnapshot
+	Capabilities proto.ClientCapabilities
 }
 
 func (p *PaneData) RenderScreen(active bool) string {
+	var rendered string
 	if !active {
-		return p.Emu.RenderWithoutCursorBlock()
+		rendered = p.Emu.RenderWithoutCursorBlock()
+	} else {
+		rendered = p.Emu.Render()
 	}
-	return p.Emu.Render()
+	return filterRenderedANSI(rendered, p.Capabilities)
 }
 
 func (p *PaneData) CellAt(col, row int, active bool) render.ScreenCell {

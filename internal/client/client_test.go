@@ -108,6 +108,24 @@ func buildTestRenderer(t *testing.T) *ClientRenderer {
 	return cr
 }
 
+func TestClientRendererCapabilities(t *testing.T) {
+	t.Parallel()
+
+	caps := proto.ClientCapabilities{
+		KittyKeyboard:  true,
+		Hyperlinks:     true,
+		PromptMarkers:  true,
+		CursorMetadata: true,
+	}
+
+	cr := NewClientRenderer(80, 24)
+	cr.SetCapabilities(caps)
+
+	if got := cr.Capabilities(); got != caps {
+		t.Fatalf("Capabilities() = %+v, want %+v", got, caps)
+	}
+}
+
 func twoPane80x23Zoomed(paneID uint32) *proto.LayoutSnapshot {
 	snap := twoPane80x23()
 	snap.ZoomedPaneID = paneID
@@ -373,6 +391,36 @@ func TestClientRendererCapturePaneText(t *testing.T) {
 	empty := cr.CapturePaneText(999, false)
 	if empty != "" {
 		t.Error("nonexistent pane should return empty")
+	}
+}
+
+func TestClientRendererCapturePaneTextStripsHyperlinksWhenUnsupported(t *testing.T) {
+	t.Parallel()
+
+	cr := NewClientRenderer(80, 24)
+	cr.HandleLayout(twoPane80x23())
+	cr.HandlePaneOutput(1, []byte("\033]8;;https://example.com\033\\test-link\033]8;;\033\\"))
+
+	ansi := cr.CapturePaneText(1, true)
+	if strings.Contains(ansi, "\033]8;") {
+		t.Fatalf("CapturePaneText should strip OSC 8 when hyperlinks are unsupported, got %q", ansi)
+	}
+	if !strings.Contains(ansi, "test-link") {
+		t.Fatalf("CapturePaneText should preserve visible link text, got %q", ansi)
+	}
+}
+
+func TestClientRendererCapturePaneTextPreservesHyperlinksWhenSupported(t *testing.T) {
+	t.Parallel()
+
+	cr := NewClientRenderer(80, 24)
+	cr.SetCapabilities(proto.ClientCapabilities{Hyperlinks: true})
+	cr.HandleLayout(twoPane80x23())
+	cr.HandlePaneOutput(1, []byte("\033]8;;https://example.com\033\\test-link\033]8;;\033\\"))
+
+	ansi := cr.CapturePaneText(1, true)
+	if !strings.Contains(ansi, "\033]8;") {
+		t.Fatalf("CapturePaneText should preserve OSC 8 when hyperlinks are supported, got %q", ansi)
 	}
 }
 
