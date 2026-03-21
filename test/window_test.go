@@ -141,17 +141,13 @@ func TestWindowSwitchResyncsStaleCursorState(t *testing.T) {
 			t.Parallel()
 
 			h := newServerHarnessWithSize(t, 255, 62)
-			if !h.waitForFunc(func(s string) bool { return strings.Contains(s, "$") }, 3*time.Second) {
-				t.Fatalf("expected initial prompt in pane-1\ncapture:\n%s", h.capture())
-			}
+			h.waitForTimeout("pane-1", "$", "3s")
 
 			healthyCapture := h.captureJSON()
 			healthy := h.jsonPane(healthyCapture, "pane-1")
 
 			h.runCmd("new-window")
-			if !h.waitForFunc(func(s string) bool { return strings.Contains(s, "$") }, 3*time.Second) {
-				t.Fatalf("expected prompt in pane-2 after new-window\ncapture:\n%s", h.capture())
-			}
+			h.waitForTimeout("pane-2", "$", "3s")
 
 			// Simulate stale client-side cursor state for the hidden pane in window 1.
 			h.client.renderer.HandlePaneOutput(1, []byte("\033[1;24H"))

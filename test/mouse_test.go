@@ -140,6 +140,17 @@ func firstMarkerNumber(screen, prefix string) int {
 	return 0
 }
 
+func outerTextCoords(screen, substr string) (x, y int, ok bool) {
+	for row, line := range strings.Split(screen, "\n") {
+		col := strings.Index(line, substr)
+		if col < 0 {
+			continue
+		}
+		return col + 1, row + 1, true
+	}
+	return 0, 0, false
+}
+
 func TestMouseHorizontalBorderDrag(t *testing.T) {
 	t.Parallel()
 	h := newAmuxHarness(t)
@@ -324,13 +335,18 @@ func TestMouseDragAutomaticallyEntersCopyModeAndCopiesSelection(t *testing.T) {
 		t.Fatalf("parsing outer clipboard generation %q: %v", genStr, err)
 	}
 
-	y := 2
-	h.sendMouseSGR(0, 1, y, true)
-	h.sendMouseSGR(32, 5, y, true)
+	screen := h.captureOuter()
+	startX, y, ok := outerTextCoords(screen, "hello from mouse")
+	if !ok {
+		t.Fatalf("expected visible mouse copy target in outer capture.\nScreen:\n%s", screen)
+	}
+	endX := startX + len("hello") - 1
+	h.sendMouseSGR(0, startX, y, true)
+	h.sendMouseSGR(32, endX, y, true)
 
 	h.waitUI(proto.UIEventCopyModeShown, 3*time.Second)
 
-	h.sendMouseSGR(0, 5, y, false)
+	h.sendMouseSGR(0, endX, y, false)
 
 	h.waitUI(proto.UIEventCopyModeHidden, 3*time.Second)
 

@@ -630,7 +630,7 @@ func RunSession(sessionName string) error {
 							}
 							continue
 						}
-						forward = append(forward, decoded.raw...)
+						forward = append(forward, forwardedBytesForDecodedInput(decoded)...)
 						continue
 					}
 

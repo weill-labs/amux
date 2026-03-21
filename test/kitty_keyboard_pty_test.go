@@ -34,8 +34,8 @@ func TestPTYClientKittyKeyboardChangesPaneBytes(t *testing.T) {
 			name:      "kitty keyboard",
 			env:       "AMUX_CLIENT_CAPABILITIES=kitty_keyboard",
 			wantKitty: true,
-			readBytes: 7,
-			wantHex:   "1b5b39383b3575",
+			readBytes: 1,
+			wantHex:   "02",
 		},
 	}
 

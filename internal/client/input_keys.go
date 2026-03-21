@@ -43,6 +43,18 @@ func normalizeLocalInput(raw []byte) []byte {
 	return out
 }
 
+func forwardedBytesForDecodedInput(decoded decodedInputEvent) []byte {
+	if _, ok := decoded.event.(uv.KeyPressEvent); !ok {
+		return append([]byte(nil), decoded.raw...)
+	}
+
+	normalized := normalizeLocalInput(decoded.raw)
+	if len(normalized) == 0 {
+		return append([]byte(nil), decoded.raw...)
+	}
+	return normalized
+}
+
 func keyPressMatchesByte(key uv.KeyPressEvent, want byte) bool {
 	legacy := legacyBytesForKeyPress(key)
 	return len(legacy) == 1 && legacy[0] == want

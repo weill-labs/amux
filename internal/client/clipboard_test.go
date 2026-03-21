@@ -63,6 +63,7 @@ func TestOSC52ClipboardSequence(t *testing.T) {
 
 func TestCopyToClipboardPrefersOSC52OverSystemClipboardWhenSSH(t *testing.T) {
 	t.Setenv("SSH_CONNECTION", "1")
+	t.Setenv("TMUX", "")
 
 	prevStdout := clipboardStdout
 	prevRun := runClipboardCommand
@@ -109,6 +110,8 @@ func TestCopyToClipboardWrapsOSC52ForTmuxWhenSSH(t *testing.T) {
 }
 
 func TestCopyToClipboardFallsBackToOSC52WhenSystemClipboardFails(t *testing.T) {
+	t.Setenv("TMUX", "")
+
 	prevStdout := clipboardStdout
 	prevRun := runClipboardCommand
 	var wrote bytes.Buffer

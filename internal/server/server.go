@@ -712,17 +712,18 @@ func (s *Server) EnsureInitialWindow(cols, rows int) error {
 	}
 
 	res := sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
-		pane, err := sess.ensureInitialWindowLocked(s, cols, rows)
+		initRes, err := sess.ensureInitialWindowLocked(s, cols, rows)
 		if err != nil {
 			return commandMutationResult{err: err}
 		}
-		if pane == nil {
+		if !initRes.layoutChanged {
 			return commandMutationResult{}
 		}
-		return commandMutationResult{
-			startPanes:      []*mux.Pane{pane},
-			broadcastLayout: true,
+		res := commandMutationResult{broadcastLayout: true}
+		if initRes.newPane != nil {
+			res.startPanes = []*mux.Pane{initRes.newPane}
 		}
+		return res
 	})
 	if res.err != nil {
 		return res.err
