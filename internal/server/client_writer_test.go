@@ -252,6 +252,56 @@ func TestClientWriterBroadcastCommandHandleNilReply(t *testing.T) {
 	}
 }
 
+func TestClientWriterBroadcastCommandSignalsReply(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		state      clientWriterState
+		conn       net.Conn
+		wantReturn bool
+	}{
+		{
+			name:       "closed",
+			state:      clientWriterState{closed: true, minOutputSeq: make(map[uint32]uint64)},
+			wantReturn: true,
+		},
+		{
+			name:       "bootstrapping",
+			state:      clientWriterState{bootstrapping: true, minOutputSeq: make(map[uint32]uint64)},
+			wantReturn: false,
+		},
+		{
+			name:       "ready",
+			state:      clientWriterState{minOutputSeq: make(map[uint32]uint64)},
+			conn:       discardConn{},
+			wantReturn: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			reply := make(chan struct{}, 1)
+			cmd := clientWriterBroadcastCommand{
+				msg:   &Message{Type: MsgTypeLayout},
+				reply: reply,
+			}
+
+			if got := cmd.handle(&tt.state, tt.conn); got != tt.wantReturn {
+				t.Fatalf("handle() = %v, want %v", got, tt.wantReturn)
+			}
+
+			select {
+			case <-reply:
+			case <-time.After(time.Second):
+				t.Fatal("handle() did not signal reply")
+			}
+		})
+	}
+}
+
 func TestClientWriterNilHelpersAreNoops(t *testing.T) {
 	t.Parallel()
 
