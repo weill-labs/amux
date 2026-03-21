@@ -23,8 +23,17 @@ func (s *Server) Reload(execPath string) error {
 		return fmt.Errorf("no session to reload")
 	}
 
-	// Broadcast reload notice to clients
-	sess.broadcast(&Message{Type: MsgTypeServerReload})
+	clients, err := enqueueSessionQuery(sess, func(sess *Session) ([]*ClientConn, error) {
+		return append([]*ClientConn(nil), sess.clients...), nil
+	})
+	if err != nil {
+		return err
+	}
+	// Deliver the reload notice before exec so attached clients re-exec and
+	// reconnect instead of falling back to their parent shell.
+	for _, c := range clients {
+		c.sendBroadcastSync(&Message{Type: MsgTypeServerReload})
+	}
 
 	// Stop PTY read broadcasts
 	sess.shutdown.Store(true)

@@ -93,6 +93,10 @@ func (cc *ClientConn) sendBroadcast(msg *Message) {
 	cc.ensureWriter().sendBroadcast(msg)
 }
 
+func (cc *ClientConn) sendBroadcastSync(msg *Message) {
+	cc.ensureWriter().sendBroadcastSync(msg)
+}
+
 func (cc *ClientConn) sendPaneOutput(msg *Message, paneID uint32, seq uint64) {
 	cc.ensureWriter().sendPaneOutput(msg, paneID, seq)
 }
