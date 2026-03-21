@@ -189,3 +189,57 @@ func TestEnqueueUIWaitSubscribeErrors(t *testing.T) {
 		}
 	})
 }
+
+func TestQueryClientListIncludesCapabilities(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		cc   *ClientConn
+		want string
+	}{
+		{
+			name: "legacy client",
+			cc: &ClientConn{
+				ID:        "client-1",
+				inputIdle: true,
+			},
+			want: "legacy",
+		},
+		{
+			name: "modern client",
+			cc: &ClientConn{
+				ID:           "client-2",
+				inputIdle:    true,
+				capabilities: proto.ClientCapabilities{Hyperlinks: true, PromptMarkers: true},
+			},
+			want: "hyperlinks,prompt_markers",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			sess := newSession("test-query-client-list-capabilities")
+			stopCrashCheckpointLoop(t, sess)
+			defer stopSessionBackgroundLoops(t, sess)
+
+			mustSessionQuery(t, sess, func(sess *Session) struct{} {
+				sess.clients = []*ClientConn{tt.cc}
+				return struct{}{}
+			})
+
+			clients, err := sess.queryClientList()
+			if err != nil {
+				t.Fatalf("queryClientList: %v", err)
+			}
+			if len(clients) != 1 {
+				t.Fatalf("len(queryClientList) = %d, want 1", len(clients))
+			}
+			if got := clients[0].capabilities; got != tt.want {
+				t.Fatalf("capabilities = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}

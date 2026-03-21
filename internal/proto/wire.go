@@ -60,6 +60,9 @@ type Message struct {
 
 	// MsgTypeAttach
 	Session string
+	// AttachCapabilities is optional. Nil means the client used the legacy
+	// attach path and did not advertise explicit capability support.
+	AttachCapabilities *ClientCapabilities
 
 	// MsgTypeCommand
 	CmdName string

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/weill-labs/amux/internal/mux"
+	"github.com/weill-labs/amux/internal/proto"
 )
 
 // ClientConn manages a single client connection to the server.
@@ -24,6 +25,7 @@ type ClientConn struct {
 	rows               int // last reported terminal height
 	writer             *clientWriter
 	typeKeyQueue       *pacedInputQueue
+	capabilities       proto.ClientCapabilities
 }
 
 type pendingMessage struct {
@@ -39,6 +41,14 @@ func NewClientConn(conn net.Conn) *ClientConn {
 		inputIdle: true,
 		writer:    newClientWriter(conn),
 	}
+}
+
+func (cc *ClientConn) setNegotiatedCapabilities(caps proto.ClientCapabilities) {
+	cc.capabilities = caps
+}
+
+func (cc *ClientConn) capabilitySummary() string {
+	return cc.capabilities.Summary()
 }
 
 // Send writes a message to the client. Thread-safe.

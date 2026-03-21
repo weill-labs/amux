@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/copymode"
 	"github.com/weill-labs/amux/internal/mouse"
@@ -29,6 +30,27 @@ func handleDisplayPaneSelection(cr *ClientRenderer, sender *messageSender, b byt
 	if ok {
 		sender.Command("focus", []string{fmt.Sprintf("%d", paneID)})
 	}
+}
+
+func terminalEnterSequence(caps proto.ClientCapabilities) string {
+	var b strings.Builder
+	b.WriteString(render.AltScreenEnter)
+	b.WriteString(render.MouseEnable)
+	if caps.KittyKeyboard {
+		b.WriteString(render.KittyKeyboardEnable)
+	}
+	return b.String()
+}
+
+func terminalExitSequence(caps proto.ClientCapabilities) string {
+	var b strings.Builder
+	if caps.KittyKeyboard {
+		b.WriteString(render.KittyKeyboardDisable)
+	}
+	b.WriteString(render.MouseDisable)
+	b.WriteString(render.AltScreenExit)
+	b.WriteString(render.ResetTitle)
+	return b.String()
 }
 
 // RunSession connects to an existing server or starts one, then enters raw
@@ -70,11 +92,14 @@ func RunSession(sessionName string) error {
 	}
 
 	// Send attach
+	attachCaps := advertisedAttachCapabilities()
+	negotiatedAttachCaps := proto.NegotiateClientCapabilities(attachCaps)
 	if err := sender.Send(&proto.Message{
-		Type:    proto.MsgTypeAttach,
-		Session: sessionName,
-		Cols:    cols,
-		Rows:    rows,
+		Type:               proto.MsgTypeAttach,
+		Session:            sessionName,
+		Cols:               cols,
+		Rows:               rows,
+		AttachCapabilities: attachCaps,
 	}); err != nil {
 		return fmt.Errorf("sending attach: %w", err)
 	}
@@ -84,17 +109,15 @@ func RunSession(sessionName string) error {
 	if err != nil {
 		return fmt.Errorf("raw mode: %w", err)
 	}
-	os.Stdout.Write([]byte(render.AltScreenEnter))
-	os.Stdout.Write([]byte(render.MouseEnable))
+	os.Stdout.Write([]byte(terminalEnterSequence(negotiatedAttachCaps)))
 	defer func() {
-		os.Stdout.Write([]byte(render.MouseDisable))
-		os.Stdout.Write([]byte(render.AltScreenExit))
-		os.Stdout.Write([]byte(render.ResetTitle))
+		os.Stdout.Write([]byte(terminalExitSequence(negotiatedAttachCaps)))
 		term.Restore(fd, oldState)
 	}()
 
 	// Client-side renderer with per-pane emulators
 	cr := NewClientRendererWithScrollback(cols, rows, scrollbackLines)
+	cr.SetCapabilities(negotiatedAttachCaps)
 	cr.OnUIEvent = func(name string) {
 		_ = sender.Send(&proto.Message{
 			Type:    proto.MsgTypeUIEvent,
@@ -426,6 +449,36 @@ func RunSession(sessionName string) error {
 			return false
 		}
 
+		shouldHandleKeyLocally := func(key byte) bool {
+			if prefix || repeatKey != 0 {
+				return true
+			}
+			if key == kb.Prefix {
+				return true
+			}
+			_, ok := altHJKL[key]
+			return altEsc && ok
+		}
+
+		processKeyBytes := func(data []byte, forward *[]byte) bool {
+			for _, b := range data {
+				if processKeyByte(b, forward) {
+					return true
+				}
+			}
+			return false
+		}
+
+		shouldHandleDecodedKeyLocally := func(key uv.KeyPressEvent) bool {
+			if prefix || repeatKey != 0 {
+				return true
+			}
+			if keyPressMatchesByte(key, kb.Prefix) {
+				return true
+			}
+			return key.MatchString("alt+h", "alt+j", "alt+k", "alt+l")
+		}
+
 		// Read stdin in a dedicated goroutine, sending chunks on stdinCh.
 		// This allows the main input loop to select between stdin and
 		// injected keystrokes from type-keys.
@@ -511,7 +564,7 @@ func RunSession(sessionName string) error {
 			}
 
 			if cr.ChooserActive() {
-				action := cr.HandleChooserInput(raw)
+				action := cr.HandleChooserInput(normalizeLocalInput(raw))
 				if action.bell {
 					io.WriteString(os.Stdout, "\a")
 				}
@@ -546,22 +599,50 @@ func RunSession(sessionName string) error {
 				}
 
 				// Process flushed bytes (normal input that passed through parser)
-				for _, fb := range flushed {
+				for _, decoded := range decodeInputEvents(flushed) {
+					normalized := normalizeLocalInput(decoded.raw)
+					if len(normalized) == 0 {
+						normalized = decoded.raw
+					}
+
 					if cr.DisplayPanesActive() {
-						handleDisplayPaneSelection(cr, sender, fb)
+						if len(normalized) > 0 {
+							handleDisplayPaneSelection(cr, sender, normalized[0])
+						} else {
+							cr.HideDisplayPanes()
+						}
 						if data := cr.RenderDiff(); data != "" {
 							io.WriteString(os.Stdout, data)
 						}
 						continue
 					}
+
 					if cr.ActiveCopyMode() != nil {
-						copyInput = append(copyInput, fb)
+						copyInput = append(copyInput, normalized...)
 						continue
 					}
-					if processKeyByte(fb, &forward) {
-						shouldExit = true
-						break
+
+					if key, ok := decoded.event.(uv.KeyPressEvent); ok {
+						if shouldHandleDecodedKeyLocally(key) {
+							if processKeyBytes(normalized, &forward) {
+								shouldExit = true
+								break
+							}
+							continue
+						}
+						forward = append(forward, decoded.raw...)
+						continue
 					}
+
+					if len(decoded.raw) == 1 && shouldHandleKeyLocally(decoded.raw[0]) {
+						if processKeyByte(decoded.raw[0], &forward) {
+							shouldExit = true
+							break
+						}
+						continue
+					}
+
+					forward = append(forward, decoded.raw...)
 				}
 			}
 
@@ -571,7 +652,7 @@ func RunSession(sessionName string) error {
 			}
 
 			if cr.ActiveCopyMode() != nil {
-				copyInput = append(copyInput, mouseParser.FlushPending()...)
+				copyInput = append(copyInput, normalizeLocalInput(mouseParser.FlushPending())...)
 			}
 			flushCopyInput()
 
@@ -590,7 +671,7 @@ func RunSession(sessionName string) error {
 		return nil
 	case <-triggerReload:
 		if execPath != "" {
-			ExecSelf(execPath, sender, fd, oldState)
+			ExecSelf(execPath, sender, fd, oldState, negotiatedAttachCaps)
 		}
 		// ExecSelf replaces the process; if we get here, exec failed fatally
 		return nil
@@ -635,7 +716,7 @@ func formatKeyName(b byte) string {
 
 // ExecSelf replaces the current process with the binary at execPath.
 // Pre-validates the binary before tearing down the connection.
-func ExecSelf(execPath string, sender *messageSender, fd int, oldState *term.State) {
+func ExecSelf(execPath string, sender *messageSender, fd int, oldState *term.State, caps proto.ClientCapabilities) {
 	// Pre-validate: binary must exist and be accessible
 	if _, err := os.Stat(execPath); err != nil {
 		return
@@ -647,9 +728,7 @@ func ExecSelf(execPath string, sender *messageSender, fd int, oldState *term.Sta
 
 	// Restore terminal state
 	term.Restore(fd, oldState)
-	os.Stdout.Write([]byte(render.MouseDisable))
-	os.Stdout.Write([]byte(render.AltScreenExit))
-	os.Stdout.Write([]byte(render.ResetTitle))
+	os.Stdout.Write([]byte(terminalExitSequence(caps)))
 
 	// Flush coverage data before exec (which replaces the process image
 	// without running atexit handlers). No-op if not built with -cover.

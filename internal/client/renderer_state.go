@@ -17,6 +17,7 @@ type rendererSnapshot struct {
 	zoomedPaneID    uint32
 	sessionName     string
 	sessionNotice   string
+	capabilities    proto.ClientCapabilities
 	width           int
 	height          int
 	windows         []proto.WindowSnapshot

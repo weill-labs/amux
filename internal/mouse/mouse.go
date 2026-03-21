@@ -90,6 +90,7 @@ const (
 	stateEsc                // saw \033
 	stateBracket            // saw \033[
 	stateLt                 // saw \033[<
+	stateCSI                // saw \033[ and a non-mouse CSI sequence
 	stateParams             // accumulating digits and semicolons
 )
 
@@ -124,8 +125,33 @@ func (p *Parser) Feed(b byte) (Event, bool, []byte) {
 			p.buf = append(p.buf, b)
 			return Event{}, false, nil
 		}
-		// CSI but not mouse — flush
+		if isCSIFinalByte(b) {
+			p.buf = append(p.buf, b)
+			saved := p.flush(0)
+			return Event{}, false, saved
+		}
+		if isCSIIntermediateByte(b) || isCSIParamByte(b) {
+			p.state = stateCSI
+			p.buf = append(p.buf, b)
+			return Event{}, false, nil
+		}
 		saved := p.flush(b)
+		return Event{}, false, saved
+
+	case stateCSI:
+		p.buf = append(p.buf, b)
+		if len(p.buf) > 64 {
+			saved := p.flush(0)
+			return Event{}, false, saved
+		}
+		if isCSIFinalByte(b) {
+			saved := p.flush(0)
+			return Event{}, false, saved
+		}
+		if isCSIIntermediateByte(b) || isCSIParamByte(b) {
+			return Event{}, false, nil
+		}
+		saved := p.flush(0)
 		return Event{}, false, saved
 
 	case stateLt:
@@ -260,4 +286,16 @@ func splitSemicolons(b []byte) [][]byte {
 	}
 	parts = append(parts, b[start:])
 	return parts
+}
+
+func isCSIParamByte(b byte) bool {
+	return b >= 0x30 && b <= 0x3f
+}
+
+func isCSIIntermediateByte(b byte) bool {
+	return b >= 0x20 && b <= 0x2f
+}
+
+func isCSIFinalByte(b byte) bool {
+	return b >= 0x40 && b <= 0x7e
 }

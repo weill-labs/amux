@@ -30,6 +30,42 @@ func TestPaneDataRenderScreen(t *testing.T) {
 	}
 }
 
+func TestPaneDataRenderScreenStripsOSC8HyperlinksWhenUnsupported(t *testing.T) {
+	t.Parallel()
+
+	emu := newTestVTEmulator(40, 4)
+	if _, err := emu.Write([]byte("\033]8;;https://example.com\033\\test-link\033]8;;\033\\")); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+
+	pane := &PaneData{Emu: emu}
+	got := pane.RenderScreen(true)
+	if strings.Contains(got, "\033]8;") {
+		t.Fatalf("RenderScreen should strip OSC 8 when hyperlinks are unsupported, got %q", got)
+	}
+	if !strings.Contains(got, "test-link") {
+		t.Fatalf("RenderScreen should preserve visible link text, got %q", got)
+	}
+}
+
+func TestPaneDataRenderScreenPreservesOSC8HyperlinksWhenSupported(t *testing.T) {
+	t.Parallel()
+
+	emu := newTestVTEmulator(40, 4)
+	if _, err := emu.Write([]byte("\033]8;;https://example.com\033\\test-link\033]8;;\033\\")); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+
+	pane := &PaneData{
+		Emu:          emu,
+		Capabilities: proto.ClientCapabilities{Hyperlinks: true},
+	}
+	got := pane.RenderScreen(true)
+	if !strings.Contains(got, "\033]8;") {
+		t.Fatalf("RenderScreen should preserve OSC 8 when hyperlinks are supported, got %q", got)
+	}
+}
+
 func TestPaneDataCellAt(t *testing.T) {
 	t.Parallel()
 

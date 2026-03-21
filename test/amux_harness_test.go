@@ -125,6 +125,15 @@ func (h *AmuxHarness) sendKeys(keys ...string) {
 	h.outer.runCmd(args...)
 }
 
+func (h *AmuxHarness) sendKeysHex(data []byte) {
+	h.tb.Helper()
+	var hexParts []string
+	for _, b := range data {
+		hexParts = append(hexParts, fmt.Sprintf("%02x", b))
+	}
+	h.outer.runCmd("send-keys", "pane-1", "--hex", strings.Join(hexParts, ""))
+}
+
 // ---------------------------------------------------------------------------
 // Synchronization — zero-polling primitives on the inner server
 // ---------------------------------------------------------------------------

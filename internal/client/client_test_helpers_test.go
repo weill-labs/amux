@@ -1,18 +1,9 @@
 package client
 
-import (
-	"github.com/weill-labs/amux/internal/mux"
-	"github.com/weill-labs/amux/internal/proto"
-)
+import "github.com/weill-labs/amux/internal/mux"
 
 func NewClientRenderer(width, height int) *ClientRenderer {
 	return NewClientRendererWithScrollback(width, height, mux.DefaultScrollbackLines)
-}
-
-func (cr *ClientRenderer) HandleLayout(snap *proto.LayoutSnapshot) bool {
-	structureChanged, result := cr.handleLayoutResult(snap)
-	cr.emitUIEvents(result.uiEvents)
-	return structureChanged
 }
 
 func (cr *ClientRenderer) Capture(stripANSI bool) string {
