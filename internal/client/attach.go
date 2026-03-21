@@ -5,7 +5,6 @@ import (
 	"io"
 	"net"
 	"os"
-	"os/exec"
 	"os/signal"
 	"runtime/coverage"
 	"strings"
@@ -679,22 +678,6 @@ func RunSession(sessionName string) error {
 }
 
 var copyToClipboard = CopyToClipboard
-
-// CopyToClipboard copies text to the system clipboard.
-func CopyToClipboard(text string) {
-	// Try pbcopy (macOS), then xclip (Linux), then xsel (Linux)
-	for _, cmd := range [][]string{
-		{"pbcopy"},
-		{"xclip", "-selection", "clipboard"},
-		{"xsel", "--clipboard", "--input"},
-	} {
-		c := exec.Command(cmd[0], cmd[1:]...)
-		c.Stdin = strings.NewReader(text)
-		if c.Run() == nil {
-			return
-		}
-	}
-}
 
 func formatUnboundPrefixMessage(prefix, key byte) string {
 	return "No binding for " + formatKeyName(prefix) + " " + formatKeyName(key)
