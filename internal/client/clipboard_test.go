@@ -5,6 +5,8 @@ import (
 	"errors"
 	"reflect"
 	"testing"
+
+	"github.com/charmbracelet/x/ansi"
 )
 
 func TestPreferOSC52Clipboard(t *testing.T) {
@@ -82,6 +84,30 @@ func TestCopyToClipboardPrefersOSC52OverSystemClipboardWhenSSH(t *testing.T) {
 	}
 }
 
+func TestCopyToClipboardWrapsOSC52ForTmuxWhenSSH(t *testing.T) {
+	t.Setenv("SSH_CONNECTION", "1")
+	t.Setenv("TMUX", "/tmp/tmux-501/default,1,0")
+
+	prevStdout := clipboardStdout
+	prevRun := runClipboardCommand
+	var wrote bytes.Buffer
+	clipboardStdout = &wrote
+	runClipboardCommand = func(cmd []string, text string) error {
+		t.Fatalf("runClipboardCommand(%v, %q) should not run under SSH", cmd, text)
+		return nil
+	}
+	t.Cleanup(func() {
+		clipboardStdout = prevStdout
+		runClipboardCommand = prevRun
+	})
+
+	CopyToClipboard("remote copy")
+
+	if got, want := wrote.String(), ansi.TmuxPassthrough(osc52ClipboardSequence("remote copy")); got != want {
+		t.Fatalf("clipboard output = %q, want %q", got, want)
+	}
+}
+
 func TestCopyToClipboardFallsBackToOSC52WhenSystemClipboardFails(t *testing.T) {
 	prevStdout := clipboardStdout
 	prevRun := runClipboardCommand
@@ -98,6 +124,28 @@ func TestCopyToClipboardFallsBackToOSC52WhenSystemClipboardFails(t *testing.T) {
 	CopyToClipboard("fallback copy")
 
 	if got, want := wrote.String(), osc52ClipboardSequence("fallback copy"); got != want {
+		t.Fatalf("clipboard output = %q, want %q", got, want)
+	}
+}
+
+func TestCopyToClipboardWrapsFallbackOSC52ForTmux(t *testing.T) {
+	t.Setenv("TMUX", "/tmp/tmux-501/default,1,0")
+
+	prevStdout := clipboardStdout
+	prevRun := runClipboardCommand
+	var wrote bytes.Buffer
+	clipboardStdout = &wrote
+	runClipboardCommand = func(cmd []string, text string) error {
+		return errors.New("clipboard unavailable")
+	}
+	t.Cleanup(func() {
+		clipboardStdout = prevStdout
+		runClipboardCommand = prevRun
+	})
+
+	CopyToClipboard("fallback copy")
+
+	if got, want := wrote.String(), ansi.TmuxPassthrough(osc52ClipboardSequence("fallback copy")); got != want {
 		t.Fatalf("clipboard output = %q, want %q", got, want)
 	}
 }
@@ -190,4 +238,19 @@ func TestTrySystemClipboardFallsThroughCommands(t *testing.T) {
 
 func TestWriteOSC52ClipboardNilWriter(t *testing.T) {
 	writeOSC52Clipboard(nil, "ignored")
+}
+
+func TestOSC52ClipboardOutputWrapsForTmux(t *testing.T) {
+	t.Parallel()
+
+	lookup := func(key string) (string, bool) {
+		if key == "TMUX" {
+			return "/tmp/tmux-501/default,1,0", true
+		}
+		return "", false
+	}
+
+	if got, want := osc52ClipboardOutput(lookup, "hello"), ansi.TmuxPassthrough(osc52ClipboardSequence("hello")); got != want {
+		t.Fatalf("osc52ClipboardOutput() = %q, want %q", got, want)
+	}
 }

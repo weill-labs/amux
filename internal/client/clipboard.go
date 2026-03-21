@@ -6,6 +6,8 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+
+	"github.com/charmbracelet/x/ansi"
 )
 
 var clipboardStdout io.Writer = os.Stdout
@@ -54,9 +56,17 @@ func writeOSC52Clipboard(w io.Writer, text string) {
 	if w == nil {
 		return
 	}
-	_, _ = io.WriteString(w, osc52ClipboardSequence(text))
+	_, _ = io.WriteString(w, osc52ClipboardOutput(os.LookupEnv, text))
 }
 
 func osc52ClipboardSequence(text string) string {
 	return "\x1b]52;c;" + base64.StdEncoding.EncodeToString([]byte(text)) + "\a"
+}
+
+func osc52ClipboardOutput(lookup envLookup, text string) string {
+	seq := osc52ClipboardSequence(text)
+	if envSet(lookup, "TMUX") {
+		return ansi.TmuxPassthrough(seq)
+	}
+	return seq
 }
