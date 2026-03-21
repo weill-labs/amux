@@ -16,6 +16,16 @@ func TestNormalizeLocalInput(t *testing.T) {
 		want  []byte
 	}{
 		{
+			name:  "kitty ctrl-d c0",
+			input: []byte("\x1b[4;5u"),
+			want:  []byte{0x04},
+		},
+		{
+			name:  "kitty ctrl-u c0",
+			input: []byte("\x1b[21;5u"),
+			want:  []byte{0x15},
+		},
+		{
 			name:  "kitty ctrl-a",
 			input: []byte("\x1b[97;5u"),
 			want:  []byte{0x01},
