@@ -28,6 +28,7 @@ type ClientConn struct {
 	bootstrapping      bool
 	minOutputSeq       map[uint32]uint64
 	pendingMessages    []pendingMessage
+	typeKeyQueue       *pacedInputQueue
 }
 
 type pendingMessage struct {
@@ -51,11 +52,40 @@ func (cc *ClientConn) Send(msg *Message) error {
 // Close shuts down the connection.
 func (cc *ClientConn) Close() {
 	cc.mu.Lock()
-	defer cc.mu.Unlock()
-	if !cc.closed {
-		cc.closed = true
-		cc.conn.Close()
+	if cc.closed {
+		cc.mu.Unlock()
+		return
 	}
+	cc.closed = true
+	conn := cc.conn
+	queue := cc.typeKeyQueue
+	cc.mu.Unlock()
+	if queue != nil {
+		queue.close()
+	}
+	conn.Close()
+}
+
+func (cc *ClientConn) enqueueTypeKeys(chunks []encodedKeyChunk) error {
+	queue := cc.typeKeyQueueForInput()
+	if queue == nil {
+		return errPacedInputClosed
+	}
+	return queue.enqueue(chunks)
+}
+
+func (cc *ClientConn) typeKeyQueueForInput() *pacedInputQueue {
+	cc.mu.Lock()
+	defer cc.mu.Unlock()
+	if cc.closed {
+		return nil
+	}
+	if cc.typeKeyQueue == nil {
+		cc.typeKeyQueue = newPacedInputQueue("client "+cc.ID, func(data []byte) error {
+			return cc.Send(&Message{Type: MsgTypeTypeKeys, Input: data})
+		})
+	}
+	return cc.typeKeyQueue
 }
 
 func (cc *ClientConn) startBootstrap() {

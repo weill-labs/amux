@@ -507,16 +507,12 @@ func cmdSendKeys(ctx *CommandContext) {
 		return
 	}
 	total := 0
-	for i, chunk := range chunks {
-		if i > 0 && chunk.paceBefore {
-			time.Sleep(tokenKeyGap)
-		}
-		n, err := pane.pane.Write(chunk.data)
-		total += n
-		if err != nil {
-			ctx.replyErr(err.Error())
-			return
-		}
+	for _, chunk := range chunks {
+		total += len(chunk.data)
+	}
+	if err := ctx.Sess.enqueuePacedPaneInput(pane.pane, chunks); err != nil {
+		ctx.replyErr(err.Error())
+		return
 	}
 	ctx.reply(fmt.Sprintf("Sent %d bytes to %s\n", total, pane.paneName))
 }
@@ -1582,12 +1578,12 @@ func cmdTypeKeys(ctx *CommandContext) {
 	}
 
 	total := 0
-	for i, chunk := range chunks {
-		if i > 0 && chunk.paceBefore {
-			time.Sleep(tokenKeyGap)
-		}
-		client.Send(&Message{Type: MsgTypeTypeKeys, Input: chunk.data})
+	for _, chunk := range chunks {
 		total += len(chunk.data)
+	}
+	if err := client.enqueueTypeKeys(chunks); err != nil {
+		ctx.replyErr(err.Error())
+		return
 	}
 	ctx.reply(fmt.Sprintf("Typed %d bytes\n", total))
 }

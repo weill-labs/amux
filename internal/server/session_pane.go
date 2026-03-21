@@ -57,7 +57,39 @@ func (s *Session) removePane(id uint32) {
 			break
 		}
 	}
+	if queue := s.pacedPanes[id]; queue != nil {
+		queue.close()
+		delete(s.pacedPanes, id)
+	}
 	s.idle.StopTimer(id)
+}
+
+func (s *Session) enqueuePacedPaneInput(pane *mux.Pane, chunks []encodedKeyChunk) error {
+	queue, err := enqueueSessionQuery(s, func(sess *Session) (*pacedInputQueue, error) {
+		if !sess.hasPane(pane.ID) {
+			return nil, fmt.Errorf("%s not found", pane.Meta.Name)
+		}
+		return sess.pacedPaneQueue(pane), nil
+	})
+	if err != nil {
+		return err
+	}
+	return queue.enqueue(chunks)
+}
+
+func (s *Session) pacedPaneQueue(pane *mux.Pane) *pacedInputQueue {
+	if s.pacedPanes == nil {
+		s.pacedPanes = make(map[uint32]*pacedInputQueue)
+	}
+	if queue := s.pacedPanes[pane.ID]; queue != nil {
+		return queue
+	}
+	queue := newPacedInputQueue("pane "+pane.Meta.Name, func(data []byte) error {
+		_, err := pane.Write(data)
+		return err
+	})
+	s.pacedPanes[pane.ID] = queue
+	return queue
 }
 
 // paneOutputCallback returns the standard onOutput callback for panes.

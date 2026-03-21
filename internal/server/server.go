@@ -74,6 +74,10 @@ type Session struct {
 	// Only accessed from the session event loop (no mutex needed).
 	eventSubs []*eventSub
 
+	// Per-pane paced input queues serialize delayed send-keys batches.
+	// Only accessed from the session event loop (no mutex needed).
+	pacedPanes map[uint32]*pacedInputQueue
+
 	// Remote pane management — manages SSH connections to remote hosts.
 	// Nil when no config is loaded or no remote hosts are defined.
 	RemoteManager *remote.Manager
