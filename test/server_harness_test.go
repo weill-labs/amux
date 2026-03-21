@@ -320,8 +320,8 @@ func (h *ServerHarness) startLongSleep(pane string) {
 	h.waitBusy(pane)
 }
 
-// waitIdle blocks until the named pane becomes idle (no activity for DefaultIdleTimeout).
-// Uses the server's wait-idle command (event-based, zero polling).
+// waitIdle blocks until the named pane has emitted an idle transition and no
+// foreground child process is still running.
 func (h *ServerHarness) waitIdle(pane string) {
 	h.tb.Helper()
 	out := h.runCmd("wait-idle", pane, "--timeout", "10s")
