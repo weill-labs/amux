@@ -45,16 +45,22 @@ type clientWriterBroadcastCommand struct {
 
 func (c clientWriterBroadcastCommand) handle(state *clientWriterState, conn net.Conn) bool {
 	if state.closed {
-		c.reply <- struct{}{}
+		if c.reply != nil {
+			c.reply <- struct{}{}
+		}
 		return true
 	}
 	if state.bootstrapping {
 		state.pendingMessages = append(state.pendingMessages, pendingMessage{msg: cloneMessage(c.msg)})
-		c.reply <- struct{}{}
+		if c.reply != nil {
+			c.reply <- struct{}{}
+		}
 		return false
 	}
 	_ = writeClientMessage(state, conn, c.msg)
-	c.reply <- struct{}{}
+	if c.reply != nil {
+		c.reply <- struct{}{}
+	}
 	return state.closed
 }
 
@@ -182,11 +188,10 @@ func (w *clientWriter) sendBroadcast(msg *Message) {
 	if w == nil {
 		return
 	}
-	reply := make(chan struct{}, 1)
-	if !w.enqueue(clientWriterBroadcastCommand{msg: msg, reply: reply}) {
+	if !w.enqueueAsync(clientWriterBroadcastCommand{msg: msg}) {
+		w.dropSlowClient()
 		return
 	}
-	<-reply
 }
 
 func (w *clientWriter) sendPaneOutput(msg *Message, paneID uint32, seq uint64) {

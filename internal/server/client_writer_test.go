@@ -141,6 +141,35 @@ func TestClientWriterSendPaneOutputDropsSlowClientWhenQueueFull(t *testing.T) {
 	}
 }
 
+func TestClientWriterSendBroadcastDropsSlowClientWhenQueueFull(t *testing.T) {
+	t.Parallel()
+
+	serverConn, clientConn := net.Pipe()
+	t.Cleanup(func() { serverConn.Close() })
+	t.Cleanup(func() { clientConn.Close() })
+
+	w := &clientWriter{
+		conn:     serverConn,
+		commands: make(chan clientWriterCommand, 1),
+		stop:     make(chan struct{}),
+		done:     make(chan struct{}),
+	}
+	w.commands <- testClientWriterCommand{}
+
+	w.sendBroadcast(&Message{Type: MsgTypeLayout})
+
+	select {
+	case <-w.stop:
+	case <-time.After(time.Second):
+		t.Fatal("sendBroadcast did not stop a slow client")
+	}
+
+	_, err := clientConn.Write([]byte("x"))
+	if err == nil {
+		t.Fatal("client connection remained open after dropping slow client")
+	}
+}
+
 func TestClientWriterNilHelpersAreNoops(t *testing.T) {
 	t.Parallel()
 
