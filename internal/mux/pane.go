@@ -94,7 +94,7 @@ func NewPaneWithScrollback(id uint32, meta PaneMeta, cols, rows int, sessionName
 	cmd := exec.Command(shell, "-l")
 	cmd.Env = append(os.Environ(),
 		"TERM=amux",
-		"AMUX_PANE=1",
+		fmt.Sprintf("AMUX_PANE=%d", id),
 		"AMUX_SESSION="+sessionName,
 	)
 	if meta.Dir != "" {

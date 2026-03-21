@@ -13,9 +13,14 @@ func TestNestingEnvVarSet(t *testing.T) {
 	h.sendKeys("pane-1", "echo AMUX_SESSION=$AMUX_SESSION", "Enter")
 	h.waitFor("pane-1", "AMUX_SESSION="+h.session)
 
-	// Verify AMUX_PANE is still set (regression check)
+	// Verify AMUX_PANE contains the actual pane ID (not hardcoded "1")
 	h.sendKeys("pane-1", "echo AMUX_PANE=$AMUX_PANE", "Enter")
-	h.waitFor("pane-1", "AMUX_PANE=1")
+	h.waitFor("pane-1", "AMUX_PANE=1") // pane-1 has ID 1
+
+	// Spawn a second pane and verify it gets a different AMUX_PANE value
+	h.splitH()
+	h.sendKeys("pane-2", "echo AMUX_PANE=$AMUX_PANE", "Enter")
+	h.waitFor("pane-2", "AMUX_PANE=2") // pane-2 has ID 2
 
 	// Pane shells always identify themselves as amux.
 	h.sendKeys("pane-1", "echo TERM=$TERM", "Enter")
