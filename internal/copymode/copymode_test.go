@@ -525,6 +525,39 @@ func TestRenderViewportPreservesBaseANSIStyle(t *testing.T) {
 	assertSameColor(t, cell.Style.Fg, green)
 }
 
+func TestRenderViewportResetsTrailingStyle(t *testing.T) {
+	t.Parallel()
+
+	emu := newFakeEmulator(1, 1)
+	green := ansi.BasicColor(2)
+	emu.screen = []string{"a"}
+	emu.screenCells[[2]int{0, 0}] = render.ScreenCell{
+		Char:  "a",
+		Width: 1,
+		Style: uv.Style{Fg: green},
+	}
+
+	cm := New(emu, 1, 1, 0)
+	rendered := cm.RenderViewport()
+
+	term := vt.NewSafeEmulator(2, 1)
+	term.Write([]byte(rendered + "X"))
+
+	trailing := term.CellAt(1, 0)
+	if trailing == nil {
+		t.Fatal("CellAt(1, 0) = nil, want trailing cell")
+	}
+	if trailing.Content != "X" {
+		t.Fatalf("CellAt(1, 0).Content = %q, want %q", trailing.Content, "X")
+	}
+	if trailing.Style.Attrs&uv.AttrReverse != 0 {
+		t.Fatalf("CellAt(1, 0).Style.Attrs = %v, want no reverse video", trailing.Style.Attrs)
+	}
+	if trailing.Style.Fg != nil {
+		t.Fatalf("CellAt(1, 0).Style.Fg = %v, want nil default fg", trailing.Style.Fg)
+	}
+}
+
 func TestLineSelectHighlighting(t *testing.T) {
 	emu := newFakeEmulator(20, 3)
 	emu.screen = []string{"hello world foo", "second line here", "third line text"}
@@ -1002,6 +1035,23 @@ func TestCellAt_PreservesScrollbackStyle(t *testing.T) {
 		t.Fatal("scrollback cell should preserve its foreground color")
 	}
 	assertSameColor(t, cell.Style.Fg, blue)
+}
+
+func TestCellAt_NormalizesEmptyCharAndNegativeWidth(t *testing.T) {
+	t.Parallel()
+
+	emu := newFakeEmulator(10, 1)
+	emu.screen = []string{"x"}
+	emu.screenCells[[2]int{0, 0}] = render.ScreenCell{Char: "", Width: -1}
+
+	cm := New(emu, 10, 1, 0)
+	cell := cm.CellAt(0, 0)
+	if cell.Char != " " {
+		t.Fatalf("CellAt(0, 0).Char = %q, want space", cell.Char)
+	}
+	if cell.Width != 1 {
+		t.Fatalf("CellAt(0, 0).Width = %d, want 1", cell.Width)
+	}
 }
 
 func TestCellAt_SearchMatch(t *testing.T) {

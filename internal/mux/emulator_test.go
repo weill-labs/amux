@@ -444,6 +444,9 @@ func TestScrollbackCellAt(t *testing.T) {
 	if got := emu.ScrollbackCellAt(99, 0); got != nil {
 		t.Fatalf("ScrollbackCellAt(99, 0) = %#v, want nil", got)
 	}
+	if got := emu.ScrollbackCellAt(-1, 0); got != nil {
+		t.Fatalf("ScrollbackCellAt(-1, 0) = %#v, want nil", got)
+	}
 }
 
 func TestScreenContains(t *testing.T) {

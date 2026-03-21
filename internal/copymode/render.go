@@ -43,9 +43,6 @@ func (cm *CopyMode) RenderViewport() string {
 			prevStyle = &styleCopy
 
 			char := cell.Char
-			if char == "" {
-				char = " "
-			}
 			buf.WriteString(char)
 		}
 	}
