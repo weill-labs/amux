@@ -290,11 +290,11 @@ func TestCrashRecovery_BusyPaneShowsRecoveryNoticeInsteadOfReplayingStaleScreen(
 	h := newServerHarnessPersistent(t)
 	cpPath := h.crashCheckpointPath()
 
-	h.sendKeys("pane-1", `printf '\033[2J\033[HCRASH_BUSY_FRAME\n'; sleep 300`, "Enter")
+	h.sendKeys("pane-1", `printf '\033[2J\033[HCRASH_BUSY_FRAME\n'; while true; do sleep 1; printf '\033[0m'; done`, "Enter")
 	h.waitFor("pane-1", "CRASH_BUSY_FRAME")
 	h.waitBusy("pane-1")
 	_ = waitForCrashCheckpointMatch(t, cpPath, 5*time.Second, "checkpoint containing busy frame", func(cp checkpoint.CrashCheckpoint) bool {
-		return crashCheckpointPaneContains(cp, "pane-1", "CRASH_BUSY_FRAME")
+		return crashCheckpointPaneContains(cp, "pane-1", "CRASH_BUSY_FRAME") && !crashCheckpointPaneWasIdle(cp, "pane-1")
 	})
 
 	if h.client != nil {
@@ -441,6 +441,11 @@ func crashCheckpointPaneContains(cp checkpoint.CrashCheckpoint, paneName string,
 func crashCheckpointPaneNamed(cp checkpoint.CrashCheckpoint, paneName string) bool {
 	_, ok := findCrashCheckpointPane(cp, paneName)
 	return ok
+}
+
+func crashCheckpointPaneWasIdle(cp checkpoint.CrashCheckpoint, paneName string) bool {
+	ps, ok := findCrashCheckpointPane(cp, paneName)
+	return ok && ps.WasIdle
 }
 
 func crashCheckpointWindowName(cp checkpoint.CrashCheckpoint) string {

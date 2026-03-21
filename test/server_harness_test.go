@@ -387,6 +387,31 @@ func (h *ServerHarness) waitForFunc(fn func(string) bool, timeout time.Duration)
 	return false
 }
 
+// waitForPaneContent polls the client-rendered pane capture until substr
+// appears in the named pane's content or timeout elapses.
+func (h *ServerHarness) waitForPaneContent(pane, substr string, timeout time.Duration) {
+	h.tb.Helper()
+
+	deadline := time.Now().Add(timeout)
+	ticker := time.NewTicker(25 * time.Millisecond)
+	defer ticker.Stop()
+	for time.Now().Before(deadline) {
+		c := h.captureJSON()
+		for _, p := range c.Panes {
+			if p.Name != pane {
+				continue
+			}
+			if strings.Contains(strings.Join(p.Content, "\n"), substr) {
+				return
+			}
+			break
+		}
+		<-ticker.C
+	}
+
+	h.tb.Fatalf("pane %s content did not contain %q within %v\ncapture:\n%s", pane, substr, timeout, h.capture())
+}
+
 // ---------------------------------------------------------------------------
 // Split helpers — synchronous via CLI, no keybinding simulation
 // ---------------------------------------------------------------------------
