@@ -97,6 +97,34 @@ func TestClientUIStateReduceTransitions(t *testing.T) {
 			wantEvents: []string{proto.UIEventPrefixMessageHidden},
 		},
 		{
+			name: "non-structural layout change preserves chooser and input state",
+			setup: func(st *clientUIState) {
+				st.chooser = &chooserState{mode: chooserModeTree}
+				st.message = "cannot minimize"
+				st.inputIdle = false
+			},
+			action: uiActionHandleLayout{structureChanged: false},
+			wantState: clientUIStateSnapshot{
+				dirty:           true,
+				chooser:         string(chooserModeTree),
+				copyModePaneIDs: []uint32{},
+				inputIdle:       false,
+			},
+			wantEvents: []string{proto.UIEventPrefixMessageHidden},
+		},
+		{
+			name: "layout update without transient UI only marks dirty",
+			setup: func(st *clientUIState) {
+				st.inputIdle = false
+			},
+			action: uiActionHandleLayout{structureChanged: false},
+			wantState: clientUIStateSnapshot{
+				dirty:           true,
+				copyModePaneIDs: []uint32{},
+				inputIdle:       false,
+			},
+		},
+		{
 			name: "pane output preserves message and marks dirty",
 			setup: func(st *clientUIState) {
 				st.message = "No binding for C-a f"
@@ -119,6 +147,32 @@ func TestClientUIStateReduceTransitions(t *testing.T) {
 				inputIdle:       true,
 			},
 			wantEvents: []string{proto.UIEventPrefixMessageShown},
+		},
+		{
+			name: "setting a new visible message replaces text without re-emitting shown",
+			setup: func(st *clientUIState) {
+				st.message = "No binding for C-a f"
+			},
+			action: uiActionSetMessage{message: "No binding for C-a g"},
+			wantState: clientUIStateSnapshot{
+				dirty:           true,
+				message:         "No binding for C-a g",
+				copyModePaneIDs: []uint32{},
+				inputIdle:       true,
+			},
+		},
+		{
+			name: "setting message empty hides prefix state",
+			setup: func(st *clientUIState) {
+				st.message = "cannot minimize"
+			},
+			action: uiActionSetMessage{message: ""},
+			wantState: clientUIStateSnapshot{
+				dirty:           true,
+				copyModePaneIDs: []uint32{},
+				inputIdle:       true,
+			},
+			wantEvents: []string{proto.UIEventPrefixMessageHidden},
 		},
 		{
 			name: "clear message removes text and marks dirty",
@@ -164,6 +218,14 @@ func TestClientUIStateReduceTransitions(t *testing.T) {
 				inputIdle:       true,
 			},
 			wantEvents: []string{proto.UIEventDisplayPanesHidden},
+		},
+		{
+			name:   "hide display panes is a no-op when already hidden",
+			action: uiActionHideDisplayPanes{},
+			wantState: clientUIStateSnapshot{
+				copyModePaneIDs: []uint32{},
+				inputIdle:       true,
+			},
 		},
 		{
 			name: "show chooser hides display panes and emits transitions",
@@ -224,6 +286,14 @@ func TestClientUIStateReduceTransitions(t *testing.T) {
 				inputIdle:       true,
 			},
 			wantEvents: []string{proto.UIEventChooseWindowHidden},
+		},
+		{
+			name:   "hide chooser is a no-op when already hidden",
+			action: uiActionHideChooser{},
+			wantState: clientUIStateSnapshot{
+				copyModePaneIDs: []uint32{},
+				inputIdle:       true,
+			},
 		},
 		{
 			name: "first copy mode enters active state",
