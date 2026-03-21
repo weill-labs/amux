@@ -170,6 +170,59 @@ func TestClientWriterSendBroadcastDropsSlowClientWhenQueueFull(t *testing.T) {
 	}
 }
 
+func TestClientWriterBroadcastCommandHandleNilReply(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		state       clientWriterState
+		conn        net.Conn
+		wantReturn  bool
+		wantClosed  bool
+		wantPending int
+	}{
+		{
+			name:       "closed",
+			state:      clientWriterState{closed: true, minOutputSeq: make(map[uint32]uint64)},
+			wantReturn: true,
+			wantClosed: true,
+		},
+		{
+			name:        "bootstrapping",
+			state:       clientWriterState{bootstrapping: true, minOutputSeq: make(map[uint32]uint64)},
+			wantReturn:  false,
+			wantClosed:  false,
+			wantPending: 1,
+		},
+		{
+			name:       "ready",
+			state:      clientWriterState{minOutputSeq: make(map[uint32]uint64)},
+			conn:       discardConn{},
+			wantReturn: false,
+			wantClosed: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cmd := clientWriterBroadcastCommand{msg: &Message{Type: MsgTypeLayout}}
+			got := cmd.handle(&tt.state, tt.conn)
+
+			if got != tt.wantReturn {
+				t.Fatalf("handle() = %v, want %v", got, tt.wantReturn)
+			}
+			if tt.state.closed != tt.wantClosed {
+				t.Fatalf("state.closed = %v, want %v", tt.state.closed, tt.wantClosed)
+			}
+			if len(tt.state.pendingMessages) != tt.wantPending {
+				t.Fatalf("len(state.pendingMessages) = %d, want %d", len(tt.state.pendingMessages), tt.wantPending)
+			}
+		})
+	}
+}
+
 func TestClientWriterNilHelpersAreNoops(t *testing.T) {
 	t.Parallel()
 
