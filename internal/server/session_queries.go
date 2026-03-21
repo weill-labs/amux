@@ -49,6 +49,8 @@ type clientListEntry struct {
 	id           string
 	displayPanes string
 	chooser      string
+	size         string
+	sizeOwner    bool
 	capabilities string
 }
 
@@ -244,11 +246,19 @@ func (s *Session) queryWindowList() ([]windowListEntry, error) {
 func (s *Session) queryClientList() ([]clientListEntry, error) {
 	return enqueueSessionQuery(s, func(s *Session) ([]clientListEntry, error) {
 		entries := make([]clientListEntry, 0, len(s.clients))
+		sizeOwner := s.currentSizeClient()
+		if sizeOwner == nil || !s.hasClient(sizeOwner) {
+			if len(s.clients) > 0 {
+				sizeOwner = s.clients[len(s.clients)-1]
+			}
+		}
 		for _, cc := range s.clients {
 			entries = append(entries, clientListEntry{
 				id:           cc.ID,
 				displayPanes: cc.displayPanesState(),
 				chooser:      cc.chooserState(),
+				size:         fmt.Sprintf("%dx%d", cc.cols, cc.rows),
+				sizeOwner:    cc == sizeOwner,
 				capabilities: cc.capabilitySummary(),
 			})
 		}

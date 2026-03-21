@@ -110,6 +110,19 @@ type resizeClientEvent struct {
 func (e resizeClientEvent) handle(s *Session) {
 	e.cc.cols = e.cols
 	e.cc.rows = e.rows
+	s.noteClientActivity(e.cc)
+	s.recalcSize()
+	s.broadcastLayoutNow()
+}
+
+type clientActivityEvent struct {
+	cc *ClientConn
+}
+
+func (e clientActivityEvent) handle(s *Session) {
+	if !s.noteClientActivity(e.cc) {
+		return
+	}
 	s.recalcSize()
 	s.broadcastLayoutNow()
 }
@@ -487,11 +500,16 @@ type uiEventCmd struct {
 }
 
 func (e uiEventCmd) handle(s *Session) {
+	activityChanged := s.noteClientActivity(e.cc)
 	changed, err := e.cc.applyUIEvent(e.uiEvent)
 	clientID := e.cc.ID
 	if err != nil {
 		e.cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: err.Error()})
 		return
+	}
+	if activityChanged {
+		s.recalcSize()
+		s.broadcastLayoutNow()
 	}
 	if changed {
 		e.cc.uiGeneration++
@@ -595,6 +613,10 @@ func (s *Session) enqueueUIEvent(cc *ClientConn, uiEvent string) {
 	s.enqueueEvent(uiEventCmd{cc: cc, uiEvent: uiEvent})
 }
 
+func (s *Session) enqueueClientActivity(cc *ClientConn) {
+	s.enqueueEvent(clientActivityEvent{cc: cc})
+}
+
 func (s *Session) handleAttachEvent(srv *Server, cc *ClientConn, cols, rows int) attachResult {
 	idleSnap := s.snapshotIdleState()
 
@@ -612,6 +634,7 @@ func (s *Session) handleAttachEvent(srv *Server, cc *ClientConn, cols, rows int)
 
 	s.clients = append(s.clients, cc)
 	s.hadClient = true
+	s.noteClientActivity(cc)
 	s.recalcSize()
 
 	res.snap = s.snapshotLayout(idleSnap)

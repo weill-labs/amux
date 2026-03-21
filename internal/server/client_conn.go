@@ -129,6 +129,31 @@ func cloneMessage(msg *Message) *Message {
 	return &cp
 }
 
+func (cc *ClientConn) activeInputPaneForWrite(sess *Session) *mux.Pane {
+	pane := sess.inputTargetPane()
+	if pane == nil {
+		return nil
+	}
+	sizeClient := sess.currentSizeClient()
+	if sizeClient == nil || sizeClient == cc {
+		return pane
+	}
+
+	pane, err := enqueueSessionQuery(sess, func(sess *Session) (*mux.Pane, error) {
+		if s := sess.currentSizeClient(); s == nil || s != cc {
+			if sess.noteClientActivity(cc) {
+				sess.recalcSize()
+				sess.broadcastLayoutNow()
+			}
+		}
+		return sess.inputTargetPane(), nil
+	})
+	if err != nil {
+		return nil
+	}
+	return pane
+}
+
 // readLoop reads messages from the client and dispatches them to the session.
 func (cc *ClientConn) readLoop(srv *Server, sess *Session) {
 	defer func() {
@@ -144,7 +169,7 @@ func (cc *ClientConn) readLoop(srv *Server, sess *Session) {
 
 		switch msg.Type {
 		case MsgTypeInput:
-			if pane := sess.inputTargetPane(); pane != nil {
+			if pane := cc.activeInputPaneForWrite(sess); pane != nil {
 				pane.Write(msg.Input)
 			}
 
@@ -176,6 +201,7 @@ func (cc *ClientConn) readLoop(srv *Server, sess *Session) {
 
 // handleCommand dispatches CLI commands through the command registry.
 func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
+	sess.enqueueClientActivity(cc)
 	handler, ok := commandRegistry[msg.CmdName]
 	if !ok {
 		cc.Send(&Message{Type: MsgTypeCmdResult,
