@@ -101,6 +101,17 @@ func forwardMouseToPane(cr *ClientRenderer, sender *messageSender, target *paneM
 	return true
 }
 
+func paneAllowsMouseCopySelection(cr *ClientRenderer, paneID uint32) bool {
+	emu, ok := cr.Emulator(paneID)
+	if !ok {
+		return false
+	}
+	if emu.IsAltScreen() {
+		return false
+	}
+	return !emu.MouseProtocol().Enabled()
+}
+
 // HandleMouseEvent dispatches a parsed mouse event to the appropriate action:
 // click-to-focus, border drag, or scroll wheel.
 func HandleMouseEvent(ev mouse.Event, cr *ClientRenderer, sender *messageSender, drag *DragState) {
@@ -116,11 +127,15 @@ func HandleMouseEvent(ev mouse.Event, cr *ClientRenderer, sender *messageSender,
 		if hit := layout.FindBorderAt(ev.X, ev.Y); hit != nil {
 			drag.Active = true
 			drag.CopyModeActive = false
+			drag.CopyModePaneID = 0
 			drag.BorderX = ev.X
 			drag.BorderY = ev.Y
 			drag.BorderDir = hit.Dir
 		} else if target := mouseTargetAt(layout, ev.X, ev.Y); target != nil {
 			focusPane(sender, target.paneID, cr.ActivePaneID())
+			drag.CopyModeActive = false
+			drag.CopyModePaneID = 0
+			drag.CopyMoved = false
 			if cr.InCopyMode(target.paneID) && target.inContent {
 				drag.CopyModeActive = true
 				drag.CopyModePaneID = target.paneID
@@ -128,6 +143,10 @@ func HandleMouseEvent(ev mouse.Event, cr *ClientRenderer, sender *messageSender,
 				drag.CopyStartY = target.localY
 				drag.CopyMoved = false
 				cr.CopyModeSetCursor(target.paneID, target.localX, target.localY)
+			} else if target.inContent && paneAllowsMouseCopySelection(cr, target.paneID) {
+				drag.CopyModePaneID = target.paneID
+				drag.CopyStartX = target.localX
+				drag.CopyStartY = target.localY
 			}
 		}
 
@@ -151,10 +170,17 @@ func HandleMouseEvent(ev mouse.Event, cr *ClientRenderer, sender *messageSender,
 			}
 		}
 
-	case ev.Action == mouse.Motion && drag.CopyModeActive:
+	case ev.Action == mouse.Motion && drag.CopyModePaneID != 0:
 		target := mouseTargetAt(layout, ev.X, ev.Y)
 		if target == nil || !target.inContent || target.paneID != drag.CopyModePaneID {
 			return
+		}
+		if !drag.CopyModeActive {
+			cr.EnterCopyMode(drag.CopyModePaneID)
+			if !cr.InCopyMode(drag.CopyModePaneID) {
+				return
+			}
+			drag.CopyModeActive = true
 		}
 		if !drag.CopyMoved {
 			cr.CopyModeSetCursor(drag.CopyModePaneID, drag.CopyStartX, drag.CopyStartY)
@@ -165,49 +191,53 @@ func HandleMouseEvent(ev mouse.Event, cr *ClientRenderer, sender *messageSender,
 
 	case ev.Action == mouse.Release:
 		drag.Active = false
-		if drag.CopyModeActive {
-			if drag.CopyMoved {
-				drag.PendingWordCopyPaneID = 0
-				drag.PendingWordCopyAt = time.Time{}
-				drag.ClickCount = 0
-				cr.CopyModeCopySelection(drag.CopyModePaneID)
-			} else if target := mouseTargetAt(layout, ev.X, ev.Y); target != nil && target.inContent && target.paneID == drag.CopyModePaneID {
-				now := time.Now()
-				if target.localX == drag.LastClickX &&
-					target.localY == drag.LastClickY &&
-					now.Sub(drag.LastClickAt) <= mouseMultiClickWindow {
-					drag.ClickCount++
-				} else {
-					drag.ClickCount = 1
-				}
-				drag.LastClickAt = now
-				drag.LastClickX = target.localX
-				drag.LastClickY = target.localY
-
-				switch drag.ClickCount {
-				case 2:
-					if cm := cr.CopyModeForPane(target.paneID); cm != nil {
-						cr.CopyModeSetCursor(target.paneID, target.localX, target.localY)
-						if cm.SelectWord() == copymode.ActionRedraw {
-							cr.markDirty()
-						}
-					}
-					drag.PendingWordCopyPaneID = target.paneID
-					drag.PendingWordCopyAt = now.Add(mouseWordCopyDelay)
-				case 3:
+		if drag.CopyModePaneID != 0 {
+			if drag.CopyModeActive {
+				if drag.CopyMoved {
 					drag.PendingWordCopyPaneID = 0
 					drag.PendingWordCopyAt = time.Time{}
-					if cm := cr.CopyModeForPane(target.paneID); cm != nil {
-						cr.CopyModeSetCursor(target.paneID, target.localX, target.localY)
-						if cm.SelectLine() == copymode.ActionRedraw {
-							cr.markDirty()
-						}
-					}
-					cr.CopyModeCopySelection(target.paneID)
 					drag.ClickCount = 0
+					cr.CopyModeCopySelection(drag.CopyModePaneID)
+				} else if target := mouseTargetAt(layout, ev.X, ev.Y); target != nil && target.inContent && target.paneID == drag.CopyModePaneID {
+					now := time.Now()
+					if target.localX == drag.LastClickX &&
+						target.localY == drag.LastClickY &&
+						now.Sub(drag.LastClickAt) <= mouseMultiClickWindow {
+						drag.ClickCount++
+					} else {
+						drag.ClickCount = 1
+					}
+					drag.LastClickAt = now
+					drag.LastClickX = target.localX
+					drag.LastClickY = target.localY
+
+					switch drag.ClickCount {
+					case 2:
+						if cm := cr.CopyModeForPane(target.paneID); cm != nil {
+							cr.CopyModeSetCursor(target.paneID, target.localX, target.localY)
+							if cm.SelectWord() == copymode.ActionRedraw {
+								cr.markDirty()
+							}
+						}
+						drag.PendingWordCopyPaneID = target.paneID
+						drag.PendingWordCopyAt = now.Add(mouseWordCopyDelay)
+					case 3:
+						drag.PendingWordCopyPaneID = 0
+						drag.PendingWordCopyAt = time.Time{}
+						if cm := cr.CopyModeForPane(target.paneID); cm != nil {
+							cr.CopyModeSetCursor(target.paneID, target.localX, target.localY)
+							if cm.SelectLine() == copymode.ActionRedraw {
+								cr.markDirty()
+							}
+						}
+						cr.CopyModeCopySelection(target.paneID)
+						drag.ClickCount = 0
+					}
 				}
 			}
 			drag.CopyModeActive = false
+			drag.CopyModePaneID = 0
+			drag.CopyMoved = false
 		}
 
 	case ev.Button == mouse.ScrollUp:
