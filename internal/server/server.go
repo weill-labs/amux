@@ -42,6 +42,7 @@ type Session struct {
 	counter        atomic.Uint32 // pane ID counter
 	windowCounter  atomic.Uint32 // window ID counter
 	shutdown       atomic.Bool
+	inputTarget    atomic.Pointer[mux.Pane] // cached active pane for low-latency input writes
 
 	// Layout generation counter — incremented on every broadcastLayout.
 	// Used by wait-layout to block until a layout change occurs.
@@ -471,6 +472,7 @@ func NewServerFromCrashCheckpointWithScrollback(sessionName string, cp *checkpoi
 		sess.Windows = append(sess.Windows, w)
 		sess.ActiveWindowID = winID
 	}
+	sess.refreshInputTarget()
 
 	// Start PTY read loops for all panes
 	for _, p := range sess.Panes {

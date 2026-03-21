@@ -218,6 +218,7 @@ func NewServerFromCheckpointWithScrollback(cp *checkpoint.ServerCheckpoint, scro
 		sess.Windows = append(sess.Windows, w)
 		sess.ActiveWindowID = winID
 	}
+	sess.refreshInputTarget()
 
 	// Start PTY read loops for all restored panes (skip proxy panes)
 	for _, p := range sess.Panes {

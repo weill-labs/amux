@@ -1,6 +1,11 @@
 package server
 
-import "net"
+import (
+	"net"
+	"sync"
+)
+
+const clientWriterQueueSize = 256
 
 type clientWriterState struct {
 	closed          bool
@@ -16,7 +21,11 @@ type clientWriterCommand interface {
 type clientWriter struct {
 	conn     net.Conn
 	commands chan clientWriterCommand
+	stop     chan struct{}
 	done     chan struct{}
+
+	closeOnce sync.Once
+	stopOnce  sync.Once
 }
 
 type clientWriterSendCommand struct {
@@ -53,12 +62,10 @@ type clientWriterPaneOutputCommand struct {
 	msg    *Message
 	paneID uint32
 	seq    uint64
-	reply  chan struct{}
 }
 
 func (c clientWriterPaneOutputCommand) handle(state *clientWriterState, conn net.Conn) bool {
 	if state.closed {
-		c.reply <- struct{}{}
 		return true
 	}
 	if state.bootstrapping {
@@ -67,15 +74,12 @@ func (c clientWriterPaneOutputCommand) handle(state *clientWriterState, conn net
 			paneID:    c.paneID,
 			outputSeq: c.seq,
 		})
-		c.reply <- struct{}{}
 		return false
 	}
 	if c.seq != 0 && c.seq <= state.minOutputSeq[c.paneID] {
-		c.reply <- struct{}{}
 		return false
 	}
 	_ = writeClientMessage(state, conn, c.msg)
-	c.reply <- struct{}{}
 	return state.closed
 }
 
@@ -128,28 +132,14 @@ func (c clientWriterBootstrappingQuery) handle(state *clientWriterState, _ net.C
 	return state.closed
 }
 
-type clientWriterCloseCommand struct {
-	reply chan struct{}
-}
-
-func (c clientWriterCloseCommand) handle(state *clientWriterState, conn net.Conn) bool {
-	if !state.closed {
-		state.closed = true
-		if conn != nil {
-			_ = conn.Close()
-		}
-	}
-	c.reply <- struct{}{}
-	return true
-}
-
 func newClientWriter(conn net.Conn) *clientWriter {
 	if conn == nil {
 		return nil
 	}
 	w := &clientWriter{
 		conn:     conn,
-		commands: make(chan clientWriterCommand),
+		commands: make(chan clientWriterCommand, clientWriterQueueSize),
+		stop:     make(chan struct{}),
 		done:     make(chan struct{}),
 	}
 	go w.loop()
@@ -162,12 +152,17 @@ func (w *clientWriter) loop() {
 	state := clientWriterState{
 		minOutputSeq: make(map[uint32]uint64),
 	}
-	for cmd := range w.commands {
-		if cmd == nil {
-			continue
-		}
-		if cmd.handle(&state, w.conn) {
+	for {
+		select {
+		case <-w.stop:
 			return
+		case cmd := <-w.commands:
+			if cmd == nil {
+				continue
+			}
+			if cmd.handle(&state, w.conn) {
+				return
+			}
 		}
 	}
 }
@@ -198,11 +193,10 @@ func (w *clientWriter) sendPaneOutput(msg *Message, paneID uint32, seq uint64) {
 	if w == nil {
 		return
 	}
-	reply := make(chan struct{}, 1)
-	if !w.enqueue(clientWriterPaneOutputCommand{msg: msg, paneID: paneID, seq: seq, reply: reply}) {
+	if !w.enqueueAsync(clientWriterPaneOutputCommand{msg: msg, paneID: paneID, seq: seq}) {
+		w.dropSlowClient()
 		return
 	}
-	<-reply
 }
 
 func (w *clientWriter) startBootstrap() {
@@ -245,20 +239,72 @@ func (w *clientWriter) close() {
 	if w == nil {
 		return
 	}
-	reply := make(chan struct{}, 1)
-	if !w.enqueue(clientWriterCloseCommand{reply: reply}) {
-		return
-	}
-	<-reply
+	w.forceCloseConn()
+	w.requestStop()
+	<-w.done
 }
 
 func (w *clientWriter) enqueue(cmd clientWriterCommand) bool {
 	select {
+	case <-w.stop:
+		return false
+	case <-w.done:
+		return false
+	default:
+	}
+
+	select {
+	case <-w.stop:
+		return false
 	case <-w.done:
 		return false
 	case w.commands <- cmd:
 		return true
 	}
+}
+
+func (w *clientWriter) enqueueAsync(cmd clientWriterCommand) bool {
+	select {
+	case <-w.stop:
+		return false
+	case <-w.done:
+		return false
+	default:
+	}
+
+	select {
+	case <-w.stop:
+		return false
+	case <-w.done:
+		return false
+	case w.commands <- cmd:
+		return true
+	default:
+		return false
+	}
+}
+
+func (w *clientWriter) forceCloseConn() {
+	if w == nil {
+		return
+	}
+	w.closeOnce.Do(func() {
+		if w.conn != nil {
+			_ = w.conn.Close()
+		}
+	})
+}
+
+func (w *clientWriter) requestStop() {
+	if w == nil {
+		return
+	}
+	w.stopOnce.Do(func() { close(w.stop) })
+}
+
+func (w *clientWriter) dropSlowClient() {
+	w.forceCloseConn()
+	w.requestStop()
 }
 
 func writeClientMessage(state *clientWriterState, conn net.Conn, msg *Message) error {

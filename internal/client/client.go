@@ -21,6 +21,7 @@ type ClientRenderer struct {
 	renderer *Renderer
 
 	state           atomic.Pointer[clientSnapshot]
+	recentInputUnix atomic.Int64
 	scrollbackLines int
 	OnUIEvent       func(string)
 }
@@ -287,10 +288,14 @@ type clientEffect struct {
 	uiEvents []string
 }
 
+var renderFrameInterval = 16 * time.Millisecond
+var renderPriorityWindow = 40 * time.Millisecond
+
 type clientRenderLoopState struct {
 	renderTimer *time.Timer
 	renderC     <-chan time.Time
 	useFull     bool
+	lastRender  time.Time
 }
 
 func (st *clientRenderLoopState) stopScheduledRender() {
@@ -302,11 +307,28 @@ func (st *clientRenderLoopState) stopScheduledRender() {
 	st.renderC = nil
 }
 
+func (st *clientRenderLoopState) shouldRenderNow() bool {
+	if st.renderTimer != nil {
+		return false
+	}
+	if st.lastRender.IsZero() {
+		return true
+	}
+	return time.Since(st.lastRender) >= renderFrameInterval
+}
+
 func (st *clientRenderLoopState) scheduleRender() {
 	if st.renderTimer != nil {
 		return
 	}
-	st.renderTimer = time.NewTimer(16 * time.Millisecond)
+	delay := renderFrameInterval
+	if !st.lastRender.IsZero() {
+		delay -= time.Since(st.lastRender)
+		if delay < 0 {
+			delay = 0
+		}
+	}
+	st.renderTimer = time.NewTimer(delay)
 	st.renderC = st.renderTimer.C
 }
 
@@ -338,6 +360,9 @@ func (cr *ClientRenderer) handleRenderMsg(msg *RenderMsg) []clientEffect {
 		return appendStopAndRenderNow(effects)
 	case RenderMsgPaneOutput:
 		cr.HandlePaneOutput(msg.PaneID, msg.Data)
+		if cr.shouldPrioritizePaneOutput(msg.PaneID) {
+			return appendStopAndRenderNow(nil)
+		}
 		return []clientEffect{{kind: clientEffectScheduleRender}}
 	case RenderMsgCopyMode:
 		result := cr.enterCopyModeResult(msg.PaneID)
@@ -380,7 +405,11 @@ func (cr *ClientRenderer) executeRenderEffects(state *clientRenderLoopState, eff
 		case clientEffectStopScheduledRender:
 			state.stopScheduledRender()
 		case clientEffectScheduleRender:
-			state.scheduleRender()
+			if state.shouldRenderNow() {
+				cr.renderNow(state, write)
+			} else {
+				state.scheduleRender()
+			}
 		case clientEffectRenderNow:
 			cr.renderNow(state, write)
 		case clientEffectBell:
@@ -404,8 +433,24 @@ func (cr *ClientRenderer) renderNow(state *clientRenderLoopState, write func(str
 	if data != "" {
 		write(data)
 	}
+	state.lastRender = time.Now()
 	state.renderTimer = nil
 	state.renderC = nil
+}
+
+func (cr *ClientRenderer) MarkLocalInput() {
+	cr.recentInputUnix.Store(time.Now().UnixNano())
+}
+
+func (cr *ClientRenderer) shouldPrioritizePaneOutput(paneID uint32) bool {
+	if paneID == 0 || paneID != cr.ActivePaneID() {
+		return false
+	}
+	ts := cr.recentInputUnix.Load()
+	if ts == 0 {
+		return false
+	}
+	return time.Since(time.Unix(0, ts)) <= renderPriorityWindow
 }
 
 // RenderCoalesced runs a select loop that reads messages from msgCh,
