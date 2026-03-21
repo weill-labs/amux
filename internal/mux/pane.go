@@ -63,10 +63,9 @@ type Pane struct {
 	controlScanner AmuxControlScanner
 
 	// Idle tracking (LAB-159)
-	idleMu       sync.Mutex
-	createdAt    time.Time
-	lastBusySeen time.Time // last time process tree showed busy
-	idleSince    time.Time // when the current idle period began
+	createdAt        time.Time
+	lastBusySeenUnix atomic.Int64 // UnixNano; last time process tree showed busy
+	idleSinceUnix    atomic.Int64 // UnixNano; when the current idle period began
 }
 
 // CaptureSnapshot is a consistent plain-text snapshot of a pane's retained

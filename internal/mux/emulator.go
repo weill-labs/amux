@@ -3,7 +3,6 @@ package mux
 import (
 	"fmt"
 	"strings"
-	"sync"
 	"sync/atomic"
 
 	uv "github.com/charmbracelet/ultraviolet"
@@ -111,19 +110,18 @@ func (p MouseProtocol) Enabled() bool {
 // vtEmulator wraps charmbracelet/x/vt.SafeEmulator.
 type vtEmulator struct {
 	emu          *vt.SafeEmulator
-	w            int
-	h            int
-	mu           sync.Mutex
+	w            atomic.Int32
+	h            atomic.Int32
 	cursorHidden atomic.Bool
-	altScreen    bool
-	mouseModes   uint8
-	mouseSGR     bool
+	altScreen    atomic.Bool
+	mouseFlags   atomic.Uint32
 }
 
 const (
-	mouseModeStandard uint8 = 1 << iota
+	mouseModeStandard uint32 = 1 << iota
 	mouseModeButton
 	mouseModeAny
+	mouseModeSGR
 )
 
 // NewVTEmulatorWithScrollback creates a terminal emulator with an explicit
@@ -131,17 +129,15 @@ const (
 func NewVTEmulatorWithScrollback(width, height, scrollbackLines int) TerminalEmulator {
 	v := &vtEmulator{
 		emu: vt.NewSafeEmulator(width, height),
-		w:   width,
-		h:   height,
 	}
+	v.w.Store(int32(width))
+	v.h.Store(int32(height))
 	v.emu.SetScrollbackSize(effectiveScrollbackLines(scrollbackLines))
 	// Track cursor visibility changes so CursorHidden() reflects the
 	// application's actual cursor state (e.g. \033[?25l / \033[?25h).
 	v.emu.SetCallbacks(vt.Callbacks{
 		AltScreen: func(on bool) {
-			v.mu.Lock()
-			v.altScreen = on
-			v.mu.Unlock()
+			v.altScreen.Store(on)
 		},
 		CursorVisibility: func(visible bool) {
 			v.cursorHidden.Store(!visible)
@@ -157,30 +153,30 @@ func NewVTEmulatorWithScrollback(width, height, scrollbackLines int) TerminalEmu
 }
 
 func (v *vtEmulator) setMouseMode(mode ansi.Mode, enabled bool) {
-	v.mu.Lock()
-	defer v.mu.Unlock()
-
+	var bit uint32
 	switch mode {
 	case ansi.ModeMouseNormal:
-		if enabled {
-			v.mouseModes |= mouseModeStandard
-		} else {
-			v.mouseModes &^= mouseModeStandard
-		}
+		bit = mouseModeStandard
 	case ansi.ModeMouseButtonEvent:
-		if enabled {
-			v.mouseModes |= mouseModeButton
-		} else {
-			v.mouseModes &^= mouseModeButton
-		}
+		bit = mouseModeButton
 	case ansi.ModeMouseAnyEvent:
-		if enabled {
-			v.mouseModes |= mouseModeAny
-		} else {
-			v.mouseModes &^= mouseModeAny
-		}
+		bit = mouseModeAny
 	case ansi.ModeMouseExtSgr:
-		v.mouseSGR = enabled
+		bit = mouseModeSGR
+	default:
+		return
+	}
+	for {
+		current := v.mouseFlags.Load()
+		next := current
+		if enabled {
+			next |= bit
+		} else {
+			next &^= bit
+		}
+		if v.mouseFlags.CompareAndSwap(current, next) {
+			return
+		}
 	}
 }
 
@@ -197,17 +193,13 @@ func (v *vtEmulator) Render() string {
 }
 
 func (v *vtEmulator) Resize(width, height int) {
-	v.mu.Lock()
-	v.w = width
-	v.h = height
-	v.mu.Unlock()
+	v.w.Store(int32(width))
+	v.h.Store(int32(height))
 	v.emu.Resize(width, height)
 }
 
 func (v *vtEmulator) Size() (int, int) {
-	v.mu.Lock()
-	defer v.mu.Unlock()
-	return v.w, v.h
+	return int(v.w.Load()), int(v.h.Load())
 }
 
 func (v *vtEmulator) CursorPosition() (col, row int) {
@@ -265,9 +257,7 @@ func (v *vtEmulator) screenLineTextInner(w, y int) string {
 }
 
 func (v *vtEmulator) ScreenLineText(y int) string {
-	v.mu.Lock()
-	w := v.w
-	v.mu.Unlock()
+	w := int(v.w.Load())
 	return v.screenLineTextInner(w, y)
 }
 
@@ -276,22 +266,18 @@ func (v *vtEmulator) CellAt(col, row int) *uv.Cell {
 }
 
 func (v *vtEmulator) IsAltScreen() bool {
-	v.mu.Lock()
-	defer v.mu.Unlock()
-	return v.altScreen
+	return v.altScreen.Load()
 }
 
 func (v *vtEmulator) MouseProtocol() MouseProtocol {
-	v.mu.Lock()
-	defer v.mu.Unlock()
-
-	proto := MouseProtocol{SGR: v.mouseSGR}
+	flags := v.mouseFlags.Load()
+	proto := MouseProtocol{SGR: flags&mouseModeSGR != 0}
 	switch {
-	case v.mouseModes&mouseModeAny != 0:
+	case flags&mouseModeAny != 0:
 		proto.Tracking = MouseTrackingAny
-	case v.mouseModes&mouseModeButton != 0:
+	case flags&mouseModeButton != 0:
 		proto.Tracking = MouseTrackingButton
-	case v.mouseModes&mouseModeStandard != 0:
+	case flags&mouseModeStandard != 0:
 		proto.Tracking = MouseTrackingStandard
 	default:
 		proto.Tracking = MouseTrackingNone
@@ -358,9 +344,7 @@ func encodeMouseButton(btn mouse.Button) (ansi.MouseButton, bool) {
 }
 
 func (v *vtEmulator) ScreenContains(substr string) bool {
-	v.mu.Lock()
-	w, h := v.w, v.h
-	v.mu.Unlock()
+	w, h := int(v.w.Load()), int(v.h.Load())
 	// Join all lines without separators — terminal output is a continuous
 	// stream and column-boundary wraps are visual, not logical.
 	var buf strings.Builder
@@ -397,9 +381,7 @@ func (v *vtEmulator) isCursorBlock(x, y, w int) bool {
 }
 
 func (v *vtEmulator) currentCursorBlock() (x, y int, ok bool) {
-	v.mu.Lock()
-	w, h := v.w, v.h
-	v.mu.Unlock()
+	w, h := int(v.w.Load()), int(v.h.Load())
 
 	x, y = v.CursorPosition()
 	if x < 0 || y < 0 || x >= w || y >= h {

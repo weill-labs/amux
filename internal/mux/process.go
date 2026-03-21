@@ -21,7 +21,7 @@ type AgentStatus struct {
 
 // AgentStatus inspects the pane's process tree and returns its current status.
 // Uses pgrep/ps for portable macOS+Linux support. Safe to call without
-// holding any session-level locks — only acquires the pane's internal idleMu.
+// holding any session-level locks.
 //
 // When idle, CurrentCommand reports the shell name (e.g., "bash").
 // When busy, CurrentCommand reports the foreground child's name.
@@ -43,9 +43,8 @@ func (p *Pane) AgentStatus() AgentStatus {
 	// Skip retry for panes that have been idle longer to avoid catching
 	// transient shell children during prompt processing.
 	if len(children) == 0 {
-		p.idleMu.Lock()
-		recentlyBusy := !p.lastBusySeen.IsZero() && time.Since(p.lastBusySeen) < 500*time.Millisecond
-		p.idleMu.Unlock()
+		lastBusySeen := loadUnixTime(&p.lastBusySeenUnix)
+		recentlyBusy := !lastBusySeen.IsZero() && time.Since(lastBusySeen) < 500*time.Millisecond
 		if recentlyBusy {
 			time.Sleep(10 * time.Millisecond)
 			children = childPIDs(shellPid)
@@ -97,26 +96,41 @@ func (p *Pane) AgentStatus() AgentStatus {
 
 	// Populate idle_since from tracked state
 	if status.Idle {
-		p.idleMu.Lock()
-		if p.lastBusySeen.IsZero() {
+		lastBusySeen := loadUnixTime(&p.lastBusySeenUnix)
+		idleSince := loadUnixTime(&p.idleSinceUnix)
+		if lastBusySeen.IsZero() {
 			// Never seen busy — idle since pane creation
 			status.IdleSince = p.createdAt
-		} else if p.idleSince.IsZero() || p.idleSince.Before(p.lastBusySeen) {
+		} else if idleSince.IsZero() || idleSince.Before(lastBusySeen) {
 			// First time we see idle after being busy
-			p.idleSince = time.Now()
-			status.IdleSince = p.idleSince
+			now := time.Now()
+			storeUnixTime(&p.idleSinceUnix, now)
+			status.IdleSince = now
 		} else {
-			status.IdleSince = p.idleSince
+			status.IdleSince = idleSince
 		}
-		p.idleMu.Unlock()
 	} else {
-		p.idleMu.Lock()
-		p.lastBusySeen = time.Now()
-		p.idleSince = time.Time{} // reset
-		p.idleMu.Unlock()
+		storeUnixTime(&p.lastBusySeenUnix, time.Now())
+		storeUnixTime(&p.idleSinceUnix, time.Time{}) // reset
 	}
 
 	return status
+}
+
+func loadUnixTime(v interface{ Load() int64 }) time.Time {
+	nano := v.Load()
+	if nano == 0 {
+		return time.Time{}
+	}
+	return time.Unix(0, nano)
+}
+
+func storeUnixTime(v interface{ Store(int64) }, ts time.Time) {
+	if ts.IsZero() {
+		v.Store(0)
+		return
+	}
+	v.Store(ts.UnixNano())
 }
 
 // childPIDs returns the PIDs of direct children of the given process.

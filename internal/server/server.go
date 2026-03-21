@@ -5,7 +5,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -290,15 +289,13 @@ type Server struct {
 	listener net.Listener
 	sessions map[string]*Session
 	sockPath string
-	mu       sync.Mutex
 
 	// attachBootstrapHook is a test-only hook invoked after the initial
 	// attach replay is sent but before bootstrap flushes queued messages.
 	attachBootstrapHook func()
 }
 
-// firstSession returns any session from the map, or nil.
-// Caller must hold s.mu.
+// firstSession returns any session from the immutable session map, or nil.
 func (s *Server) firstSession() *Session {
 	for _, sess := range s.sessions {
 		return sess
@@ -482,8 +479,6 @@ func NewServerFromCrashCheckpointWithScrollback(sessionName string, cp *checkpoi
 
 // SetupRemoteManager initializes the remote manager for all sessions.
 func (s *Server) SetupRemoteManager(cfg *config.Config, buildHash string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	for _, sess := range s.sessions {
 		sess.SetupRemoteManager(cfg, buildHash)
 	}
@@ -505,8 +500,6 @@ func (s *Server) Shutdown() {
 	s.listener.Close()
 	os.Remove(s.sockPath)
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	for _, sess := range s.sessions {
 		sess.shutdown.Store(true)
 
@@ -564,9 +557,7 @@ func (s *Server) handleAttach(conn net.Conn, msg *Message) {
 		sessionName = "default"
 	}
 
-	s.mu.Lock()
 	sess, ok := s.sessions[sessionName]
-	s.mu.Unlock()
 
 	if !ok {
 		conn.Close()
@@ -619,9 +610,7 @@ func (s *Server) handleOneShot(conn net.Conn, msg *Message) {
 	cc := NewClientConn(conn)
 	defer cc.Close()
 
-	s.mu.Lock()
 	sess := s.firstSession()
-	s.mu.Unlock()
 
 	if sess == nil {
 		cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "no session"})
@@ -635,9 +624,7 @@ func (s *Server) handleOneShot(conn net.Conn, msg *Message) {
 // if the session is currently empty. This is used by takeover-managed startup,
 // where a remote server must be ready before any interactive client attaches.
 func (s *Server) EnsureInitialWindow(cols, rows int) error {
-	s.mu.Lock()
 	sess := s.firstSession()
-	s.mu.Unlock()
 	if sess == nil {
 		return fmt.Errorf("no session")
 	}

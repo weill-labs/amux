@@ -149,7 +149,8 @@ func (s *Session) createPaneWithMeta(srv *Server, meta mux.PaneMeta, cols, rows 
 
 // prepareRemotePane creates and connects a proxy pane that routes I/O to a
 // remote host, but does not register it in session state or any window.
-// Caller must NOT hold s.mu (the remote manager needs to make SSH calls).
+// Caller must run this outside the session event loop (the remote manager
+// needs to make SSH calls).
 func (s *Session) prepareRemotePane(srv *Server, hostName string, cols, rows int) (*mux.Pane, error) {
 	if s.RemoteManager == nil {
 		return nil, fmt.Errorf("no remote hosts configured")

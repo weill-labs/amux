@@ -58,6 +58,7 @@ func RunSession(sessionName string) error {
 	}
 	defer conn.Close()
 	sender := newMessageSender(conn)
+	defer sender.Close()
 
 	fd := int(os.Stdin.Fd())
 	cols, rows, _ := term.GetSize(fd)
