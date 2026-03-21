@@ -45,8 +45,13 @@ func TestForwardCaptureAgentStatusScope(t *testing.T) {
 			pane1 := newTestPane(sess, 1, "pane-1")
 			pane2 := newTestPane(sess, 2, "pane-2")
 			w := newTestWindowWithPanes(t, sess, 1, "window-1", pane1, pane2)
-			if err := SetLayoutStateForTest(sess, []*mux.Window{w}, w.ID, []*mux.Pane{pane1, pane2}); err != nil {
-				t.Fatalf("SetLayoutStateForTest: %v", err)
+			if _, err := enqueueSessionQuery(sess, func(sess *Session) (struct{}, error) {
+				sess.Windows = []*mux.Window{w}
+				sess.ActiveWindowID = w.ID
+				sess.Panes = []*mux.Pane{pane1, pane2}
+				return struct{}{}, nil
+			}); err != nil {
+				t.Fatalf("enqueueSessionQuery: %v", err)
 			}
 
 			serverConn, clientConn := net.Pipe()
