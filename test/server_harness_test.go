@@ -143,9 +143,10 @@ func newServerHarnessWithOptions(tb testing.TB, cols, rows int, configContent st
 	n, err := readPipe.Read(buf)
 	readPipe.Close()
 	if err != nil || !strings.Contains(string(buf[:n]), "ready") {
+		logData, _ := os.ReadFile(logPath)
 		cmd.Process.Kill()
 		shutdownReadPipe.Close()
-		tb.Fatalf("server ready signal not received: err=%v, buf=%q", err, string(buf[:n]))
+		tb.Fatalf("server ready signal not received: err=%v, buf=%q\nserver log:\n%s", err, string(buf[:n]), string(logData))
 	}
 
 	h := &ServerHarness{

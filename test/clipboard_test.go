@@ -85,6 +85,8 @@ func TestClipboardOSC52STTerminator(t *testing.T) {
 }
 
 func TestCopyModeClipboardUsesOSC52WhenInnerClientRunsOverSSH(t *testing.T) {
+	t.Parallel()
+
 	h := newAmuxHarness(t, "SSH_CONNECTION=1")
 
 	h.sendKeys("echo SSH-COPY-TEST", "Enter")
@@ -128,6 +130,8 @@ func TestCopyModeClipboardUsesOSC52WhenInnerClientRunsOverSSH(t *testing.T) {
 }
 
 func TestCopyModeClipboardUsesTmuxPassthroughWhenInnerClientRunsOverSSHInTmux(t *testing.T) {
+	t.Parallel()
+
 	h := newAmuxHarness(t, "SSH_CONNECTION=1", "TMUX=/tmp/tmux-test")
 
 	h.sendKeys("echo TMUX_CLIP_COPY", "Enter")

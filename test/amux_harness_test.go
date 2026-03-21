@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -31,6 +32,8 @@ type AmuxHarness struct {
 	session  string // alias for inner, used by extractFrame
 }
 
+var nestedHarnessStartupMu sync.Mutex
+
 // newAmuxHarness starts an outer amux server, launches an inner amux inside
 // the outer pane, and waits for the inner amux to render its first pane.
 func newAmuxHarness(tb testing.TB, envVars ...string) *AmuxHarness {
@@ -42,6 +45,9 @@ func newAmuxHarness(tb testing.TB, envVars ...string) *AmuxHarness {
 // default test binary. The outer harness still uses the standard test binary.
 func newAmuxHarnessWithBin(tb testing.TB, binPath string, envVars ...string) *AmuxHarness {
 	tb.Helper()
+	nestedHarnessStartupMu.Lock()
+	defer nestedHarnessStartupMu.Unlock()
+
 	outer := newServerHarness(tb)
 
 	var b [4]byte
