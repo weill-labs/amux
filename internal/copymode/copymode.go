@@ -15,6 +15,8 @@ type TerminalEmulator interface {
 	ScrollbackLen() int
 	ScrollbackLineText(y int) string // plain text of scrollback line y (0=oldest)
 	ScreenLineText(y int) string     // plain text of screen line y (0=top row)
+	ScrollbackCellAt(col, row int) render.ScreenCell
+	ScreenCellAt(col, row int) render.ScreenCell
 }
 
 // Match represents a single search hit in the scrollback/screen buffer.
@@ -760,6 +762,14 @@ func (cm *CopyMode) lineText(absIdx int) string {
 	return cm.emu.ScreenLineText(screenRow)
 }
 
+func (cm *CopyMode) baseCellAt(col, absIdx int) render.ScreenCell {
+	sbLen := cm.emu.ScrollbackLen()
+	if absIdx < sbLen {
+		return cm.emu.ScrollbackCellAt(col, absIdx)
+	}
+	return cm.emu.ScreenCellAt(col, absIdx-sbLen)
+}
+
 // runSearch finds all case-insensitive occurrences of searchQuery across
 // all lines and jumps to the nearest match at or below the current cursor.
 func (cm *CopyMode) runSearch(directions ...bool) {
@@ -891,15 +901,13 @@ var (
 // the cursor are overlaid as style changes.
 func (cm *CopyMode) CellAt(col, viewportRow int) render.ScreenCell {
 	absIdx := cm.FirstVisibleLine() + viewportRow
-	line := cm.lineText(absIdx)
-	runes := []rune(line)
-
-	char := " "
-	if col < len(runes) {
-		char = string(runes[col])
+	sc := cm.baseCellAt(col, absIdx)
+	if sc.Char == "" {
+		sc.Char = " "
 	}
-
-	sc := render.ScreenCell{Char: char, Width: 1}
+	if sc.Width < 0 {
+		sc.Width = 1
+	}
 
 	// Selection overlay.
 	if cm.selecting {

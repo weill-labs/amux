@@ -3,6 +3,8 @@ package copymode
 import (
 	"strconv"
 	"strings"
+
+	uv "github.com/charmbracelet/ultraviolet"
 )
 
 // ANSI escapes for copy mode highlighting.
@@ -32,74 +34,38 @@ const (
 // RenderViewport returns the viewport content as a newline-separated string
 // (no trailing newline), suitable for the compositor's blitPane.
 func (cm *CopyMode) RenderViewport() string {
-	total := cm.TotalLines()
-	firstVisible := max(0, total-cm.height-cm.oy)
+	var buf strings.Builder
+	buf.Grow(cm.width * cm.height * 2)
 
-	// Precompute normalized selection range for highlighting.
-	selStartY, selStartX, selEndY, selEndX := cm.normalizedSelection()
-
-	lines := make([]string, cm.height)
+	var prevStyle *uv.Style
 	for row := 0; row < cm.height; row++ {
-		absIdx := firstVisible + row
-		var line string
-		if absIdx < total {
-			line = cm.lineText(absIdx)
+		if row > 0 {
+			buf.WriteByte('\n')
 		}
-
-		// Pad or truncate to viewport width.
-		line = padOrTruncate(line, cm.width)
-		runes := []rune(line)
-
-		// Build per-character style flags on the plain text, then render
-		// all ANSI escapes in a single pass. This avoids corruption from
-		// earlier highlighting inserting escapes that shift column indices.
-		styles := make([]charStyle, len(runes))
-
-		// Mark search matches.
-		for i, m := range cm.matches {
-			if m.LineIdx != absIdx {
+		for col := 0; col < cm.width; col++ {
+			cell := cm.CellAt(col, row)
+			if cell.Width == 0 {
 				continue
 			}
-			end := min(m.Col+m.Len, len(runes))
-			flag := styleMatch
-			if i == cm.matchIdx {
-				flag = styleCurrentMatch
+			if diff := uv.StyleDiff(prevStyle, &cell.Style); diff != "" {
+				buf.WriteString(diff)
 			}
-			for col := m.Col; col < end; col++ {
-				styles[col] |= flag
-			}
-		}
+			styleCopy := cell.Style
+			prevStyle = &styleCopy
 
-		// Mark selection.
-		if cm.selecting && absIdx >= selStartY && absIdx <= selEndY {
-			colStart, colEnd := 0, len(runes)
-			switch {
-			case cm.rectSelect:
-				colStart = min(selStartX, len(runes))
-				colEnd = min(selEndX+1, len(runes))
-			default:
-				if absIdx == selStartY {
-					colStart = selStartX
-				}
-				if absIdx == selEndY {
-					colEnd = min(selEndX+1, len(runes))
-				}
+			char := cell.Char
+			if char == "" {
+				char = " "
 			}
-			for col := colStart; col < colEnd; col++ {
-				styles[col] |= styleSelection
-			}
+			buf.WriteString(char)
 		}
-
-		// Mark cursor character.
-		if row == cm.cy && cm.cx < len(runes) {
-			styles[cm.cx] |= styleCursor
-		}
-
-		// Render with ANSI escapes.
-		lines[row] = renderStyledLine(runes, styles)
 	}
-
-	return strings.Join(lines, "\n")
+	if prevStyle != nil {
+		if diff := uv.StyleDiff(prevStyle, &uv.Style{}); diff != "" {
+			buf.WriteString(diff)
+		}
+	}
+	return buf.String()
 }
 
 // renderStyledLine emits a line with ANSI escapes based on per-character styles.
