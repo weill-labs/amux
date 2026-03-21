@@ -256,12 +256,11 @@ func TestClientRendererCaptureJSON(t *testing.T) {
 	t.Parallel()
 	cr := buildTestRenderer(t)
 
-	cr.renderer.mu.Lock()
-	info := cr.renderer.paneInfo[2]
-	info.Host = "test-remote"
-	info.ConnStatus = "connected"
-	cr.renderer.paneInfo[2] = info
-	cr.renderer.mu.Unlock()
+	snap := twoPane80x23()
+	snap.Panes[1].Host = "test-remote"
+	snap.Panes[1].ConnStatus = "connected"
+	snap.Windows[0].Panes[1] = snap.Panes[1]
+	cr.HandleLayout(snap)
 
 	out := cr.CaptureJSON(nil)
 	var capture proto.CaptureJSON

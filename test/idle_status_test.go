@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/weill-labs/amux/internal/proto"
+	"github.com/weill-labs/amux/internal/server"
 )
 
 func TestIdleStatus_ShellAtPrompt(t *testing.T) {
@@ -166,5 +168,25 @@ func TestWaitIdle_AlreadyIdle(t *testing.T) {
 	out := h.runCmd("wait-idle", "pane-1", "--timeout", "1s")
 	if strings.Contains(out, "timeout") {
 		t.Error("wait-idle should return immediately when pane is already idle")
+	}
+}
+
+func TestWaitIdle_DoesNotTreatQuietBusyPaneAsIdle(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	h.startLongSleep("pane-1")
+
+	out := h.runCmd("wait-idle", "pane-1", "--timeout", (server.DefaultIdleTimeout + time.Second).String())
+	if !strings.Contains(out, "timeout") {
+		t.Fatalf("wait-idle should not return for a quiet but still-running child, got: %s", out)
+	}
+
+	pane := captureJSONPane(t, h, "pane-1")
+	if pane.Idle {
+		t.Error("quiet pane with a running child should still report busy")
+	}
+	if len(pane.ChildPIDs) == 0 {
+		t.Error("quiet pane should still report child_pids while the child is running")
 	}
 }

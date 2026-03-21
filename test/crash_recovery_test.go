@@ -44,10 +44,15 @@ func TestCrashRecovery_LayoutRestored(t *testing.T) {
 	preJSON := h.captureJSON()
 	prePaneCount := len(preJSON.Panes)
 	preWindowName := preJSON.Window.Name
+	preNames := paneNames(preJSON)
 
-	// Wait for crash checkpoint file to appear
 	cpPath := h.crashCheckpointPath()
-	waitForCrashCheckpoint(t, cpPath, 5*time.Second)
+	_ = waitForCrashCheckpointMatch(t, cpPath, 5*time.Second, "checkpoint with split layout and renamed window", func(cp checkpoint.CrashCheckpoint) bool {
+		return crashCheckpointWindowName(cp) == preWindowName &&
+			len(cp.PaneStates) == prePaneCount &&
+			crashCheckpointPaneContains(cp, "pane-1", "PANE1_MARKER") &&
+			crashCheckpointPaneContains(cp, "pane-2", "PANE2_MARKER")
+	})
 	preCrashCP := readCrashCheckpoint(t, cpPath)
 
 	// Detach the headless client before kill so it doesn't interfere
@@ -79,7 +84,6 @@ func TestCrashRecovery_LayoutRestored(t *testing.T) {
 	}
 
 	// Verify pane names and colors were preserved
-	preNames := paneNames(preJSON)
 	postNames := paneNames(postJSON)
 	if preNames != postNames {
 		t.Errorf("pane names: got %q, want %q", postNames, preNames)
@@ -101,7 +105,7 @@ func TestCrashRecovery_LayoutRestored(t *testing.T) {
 	}
 }
 
-// TestCrashRecovery_CleanShutdown verifies that a clean SIGTERM shutdown
+// TestCrashRecovery_CleanShutdown verifies that a clean shutdown
 // removes the crash checkpoint file (no stale checkpoint left behind).
 func TestCrashRecovery_CleanShutdown(t *testing.T) {
 	t.Parallel()
@@ -120,14 +124,14 @@ func TestCrashRecovery_CleanShutdown(t *testing.T) {
 		t.Fatalf("checkpoint should exist: %v", err)
 	}
 
-	// Clean shutdown (SIGTERM) — handled by harness cleanup
-	// The test cleanup sends SIGTERM, which calls Shutdown(), which removes the checkpoint.
-	// We trigger it manually here to verify.
+	// Trigger a clean shutdown explicitly and wait for the server's
+	// shutdown-complete signal before asserting on filesystem cleanup.
 	if h.client != nil {
 		h.client.close()
 		h.client = nil
 	}
 	h.cmd.Process.Signal(os.Interrupt)
+	h.waitForShutdownSignal(5 * time.Second)
 	done := make(chan struct{})
 	go func() {
 		h.cmd.Wait()
@@ -143,7 +147,7 @@ func TestCrashRecovery_CleanShutdown(t *testing.T) {
 
 	// Verify checkpoint file was removed
 	if _, err := os.Stat(cpPath); !os.IsNotExist(err) {
-		t.Errorf("crash checkpoint should be removed after clean shutdown, err=%v", err)
+		t.Fatalf("crash checkpoint %s should be removed after clean shutdown, err=%v", cpPath, err)
 	}
 }
 
@@ -193,7 +197,11 @@ func TestCrashRecovery_FocusUpFromRestoredFullWidthBottomPane(t *testing.T) {
 	h.assertActive("pane-10")
 
 	cpPath := h.crashCheckpointPath()
-	waitForCrashCheckpoint(t, cpPath, 5*time.Second)
+	_ = waitForCrashCheckpointMatch(t, cpPath, 5*time.Second, "checkpoint with pane-10 active", func(cp checkpoint.CrashCheckpoint) bool {
+		return len(cp.PaneStates) == 10 &&
+			crashCheckpointPaneNamed(cp, "pane-10") &&
+			crashCheckpointActivePaneName(cp) == "pane-10"
+	})
 
 	if h.client != nil {
 		h.client.close()
@@ -227,14 +235,12 @@ func TestCrashRecovery_PreservesHistoryCapture(t *testing.T) {
 	t.Cleanup(func() { os.Remove(scriptPath) })
 
 	h.sendKeys("pane-1", scriptPath, "Enter")
-	h.waitFor("pane-1", "CRASHHIST-45")
-
-	before := h.runCmd("capture", "--history", "pane-1")
+	before := waitForHistoryCaptureContains(t, h, "pane-1", "CRASHHIST-45", 10*time.Second)
 	if !strings.Contains(before, "CRASHHIST-01") {
 		t.Fatalf("history capture before crash should include earliest retained line, got:\n%s", before)
 	}
 
-	_ = waitForFreshCrashCheckpoint(t, cpPath, preCrashCP, 5*time.Second)
+	_ = waitForCrashCheckpointPaneContains(t, cpPath, "pane-1", preCrashCP, 5*time.Second, "CRASHHIST-01", "CRASHHIST-45")
 
 	if h.client != nil {
 		h.client.close()
@@ -260,7 +266,9 @@ func TestCrashRecovery_ReplaysVisibleScreenForIdleShellPane(t *testing.T) {
 
 	h.sendKeys("pane-1", `printf 'IDLE_SCREEN_MARKER\n'`, "Enter")
 	h.waitFor("pane-1", "IDLE_SCREEN_MARKER")
-	waitForCrashCheckpoint(t, cpPath, 5*time.Second)
+	_ = waitForCrashCheckpointMatch(t, cpPath, 5*time.Second, "checkpoint containing idle screen marker", func(cp checkpoint.CrashCheckpoint) bool {
+		return crashCheckpointPaneContains(cp, "pane-1", "IDLE_SCREEN_MARKER")
+	})
 
 	if h.client != nil {
 		h.client.close()
@@ -284,10 +292,12 @@ func TestCrashRecovery_BusyPaneShowsRecoveryNoticeInsteadOfReplayingStaleScreen(
 	h := newServerHarnessPersistent(t)
 	cpPath := h.crashCheckpointPath()
 
-	h.sendKeys("pane-1", `printf '\033[2J\033[HCRASH_BUSY_FRAME\n'; sleep 300`, "Enter")
+	h.sendKeys("pane-1", `printf '\033[2J\033[HCRASH_BUSY_FRAME\n'; while true; do sleep 1; printf '\033[0m'; done`, "Enter")
 	h.waitFor("pane-1", "CRASH_BUSY_FRAME")
 	h.waitBusy("pane-1")
-	waitForCrashCheckpoint(t, cpPath, 5*time.Second)
+	_ = waitForCrashCheckpointMatch(t, cpPath, 5*time.Second, "checkpoint containing busy frame", func(cp checkpoint.CrashCheckpoint) bool {
+		return crashCheckpointPaneContains(cp, "pane-1", "CRASH_BUSY_FRAME") && !crashCheckpointPaneWasIdle(cp, "pane-1")
+	})
 
 	if h.client != nil {
 		h.client.close()
@@ -351,6 +361,104 @@ func waitForCrashCheckpoint(t *testing.T, path string, timeout time.Duration) {
 	t.Fatalf("crash checkpoint %s did not appear within %v", path, timeout)
 }
 
+func waitForCrashCheckpointMatch(t *testing.T, path string, timeout time.Duration, desc string, match func(cp checkpoint.CrashCheckpoint) bool) checkpoint.CrashCheckpoint {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(path); err == nil {
+			cp := readCrashCheckpoint(t, path)
+			if match(cp) {
+				return cp
+			}
+		}
+		<-ticker.C
+	}
+
+	cp := readCrashCheckpoint(t, path)
+	t.Fatalf("crash checkpoint %s did not reach %s within %v; latest timestamp=%s generation=%d", path, desc, timeout, cp.Timestamp.Format(time.RFC3339Nano), cp.Generation)
+	return checkpoint.CrashCheckpoint{}
+}
+
+func waitForHistoryCaptureContains(t *testing.T, h *ServerHarness, pane, substr string, timeout time.Duration) string {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	ticker := time.NewTicker(25 * time.Millisecond)
+	defer ticker.Stop()
+	for time.Now().Before(deadline) {
+		out := h.runCmd("capture", "--history", pane)
+		if strings.Contains(out, substr) {
+			return out
+		}
+		<-ticker.C
+	}
+
+	out := h.runCmd("capture", "--history", pane)
+	t.Fatalf("history capture for %s did not contain %q within %v, got:\n%s", pane, substr, timeout, out)
+	return ""
+}
+
+func waitForCrashCheckpointPaneContains(t *testing.T, path, paneName string, prev checkpoint.CrashCheckpoint, timeout time.Duration, substrs ...string) checkpoint.CrashCheckpoint {
+	t.Helper()
+
+	return waitForCrashCheckpointMatch(t, path, timeout, fmt.Sprintf("fresh checkpoint containing %v for %s", substrs, paneName), func(cp checkpoint.CrashCheckpoint) bool {
+		return (cp.Timestamp.After(prev.Timestamp) || cp.Generation > prev.Generation) && crashCheckpointPaneContains(cp, paneName, substrs...)
+	})
+}
+
+func crashCheckpointPaneContains(cp checkpoint.CrashCheckpoint, paneName string, substrs ...string) bool {
+	ps, ok := findCrashCheckpointPane(cp, paneName)
+	if !ok {
+		return false
+	}
+	text := strings.Join(ps.History, "\n") + "\n" + ps.Screen
+	for _, substr := range substrs {
+		if !strings.Contains(text, substr) {
+			return false
+		}
+	}
+	return true
+}
+
+func crashCheckpointPaneNamed(cp checkpoint.CrashCheckpoint, paneName string) bool {
+	_, ok := findCrashCheckpointPane(cp, paneName)
+	return ok
+}
+
+func crashCheckpointPaneWasIdle(cp checkpoint.CrashCheckpoint, paneName string) bool {
+	ps, ok := findCrashCheckpointPane(cp, paneName)
+	return ok && ps.WasIdle
+}
+
+func crashCheckpointWindowName(cp checkpoint.CrashCheckpoint) string {
+	if len(cp.Layout.Windows) == 0 {
+		return ""
+	}
+	return cp.Layout.Windows[0].Name
+}
+
+func crashCheckpointActivePaneName(cp checkpoint.CrashCheckpoint) string {
+	for _, ps := range cp.PaneStates {
+		if ps.ID == cp.Layout.ActivePaneID {
+			return ps.Meta.Name
+		}
+	}
+	return ""
+}
+
+func findCrashCheckpointPane(cp checkpoint.CrashCheckpoint, paneName string) (checkpoint.CrashPaneState, bool) {
+	for _, ps := range cp.PaneStates {
+		if ps.Meta.Name != paneName {
+			continue
+		}
+		return ps, true
+	}
+	return checkpoint.CrashPaneState{}, false
+}
+
 // paneNames returns a comma-joined string of pane names from a capture (layout order).
 func paneNames(c proto.CaptureJSON) string {
 	var names []string
@@ -405,16 +513,22 @@ func waitForFreshCrashCheckpoint(t *testing.T, path string, prev checkpoint.Cras
 func startServerForSession(t *testing.T, session, home string) *ServerHarness {
 	t.Helper()
 
-	// Create pipe for the server's ready signal.
+	// Create pipes for deterministic startup and clean-shutdown signals.
 	readPipe, writePipe, err := os.Pipe()
 	if err != nil {
 		t.Fatalf("creating ready pipe: %v", err)
 	}
+	shutdownReadPipe, shutdownWritePipe, err := os.Pipe()
+	if err != nil {
+		readPipe.Close()
+		writePipe.Close()
+		t.Fatalf("creating shutdown pipe: %v", err)
+	}
 
 	cmd := exec.Command(amuxBin, "_server", session)
-	cmd.ExtraFiles = []*os.File{writePipe}
+	cmd.ExtraFiles = []*os.File{writePipe, shutdownWritePipe}
 	env := upsertEnv(os.Environ(), "HOME", home)
-	env = append(env, "AMUX_READY_FD=3", "AMUX_NO_WATCH=1", "AMUX_EXIT_UNATTACHED=1")
+	env = append(env, "AMUX_READY_FD=3", "AMUX_SHUTDOWN_FD=4", "AMUX_NO_WATCH=1", "AMUX_EXIT_UNATTACHED=1")
 
 	// Per-test cover dir
 	var coverDir string
@@ -441,9 +555,12 @@ func startServerForSession(t *testing.T, session, home string) *ServerHarness {
 		logFile.Close()
 		readPipe.Close()
 		writePipe.Close()
+		shutdownReadPipe.Close()
+		shutdownWritePipe.Close()
 		t.Fatalf("starting recovered server: %v", err)
 	}
 	writePipe.Close()
+	shutdownWritePipe.Close()
 	logFile.Close()
 
 	readPipe.SetReadDeadline(time.Now().Add(10 * time.Second))
@@ -452,12 +569,13 @@ func startServerForSession(t *testing.T, session, home string) *ServerHarness {
 	readPipe.Close()
 	if err != nil || !strings.Contains(string(buf[:n]), "ready") {
 		cmd.Process.Kill()
+		shutdownReadPipe.Close()
 		// Print server log for debugging
 		logData, _ := os.ReadFile(logPath)
 		t.Fatalf("recovered server ready signal not received: err=%v, buf=%q\nserver log:\n%s", err, string(buf[:n]), string(logData))
 	}
 
-	h := &ServerHarness{tb: t, session: session, cmd: cmd, home: home, coverDir: coverDir}
+	h := &ServerHarness{tb: t, session: session, cmd: cmd, home: home, coverDir: coverDir, shutdownPipe: shutdownReadPipe}
 	t.Cleanup(h.cleanup)
 
 	// Attach headless client

@@ -1,44 +1,44 @@
 package server
 
 import (
-	"sync"
+	"sync/atomic"
 	"time"
 )
 
 // IdleTracker manages per-pane idle timers and state transitions.
-//
-// Lock ordering: IdleTracker.mu must be acquired before Session.mu
-// when both are needed. This prevents deadlocks with trackPaneActivity,
-// which acquires idle.mu then calls buildPaneEnv (which needs s.mu).
 type IdleTracker struct {
-	mu     sync.Mutex
 	timers map[uint32]*time.Timer
 	state  map[uint32]bool
 	since  map[uint32]time.Time
+	snap   atomic.Pointer[idleSnapshot]
+}
+
+type idleSnapshot struct {
+	state map[uint32]bool
+	since map[uint32]time.Time
 }
 
 // NewIdleTracker creates an IdleTracker with initialized maps.
 func NewIdleTracker() *IdleTracker {
-	return &IdleTracker{
+	t := &IdleTracker{
 		timers: make(map[uint32]*time.Timer),
 		state:  make(map[uint32]bool),
 		since:  make(map[uint32]time.Time),
 	}
+	t.publish()
+	return t
 }
 
 // IsIdle returns whether the pane is currently idle.
 func (t *IdleTracker) IsIdle(id uint32) bool {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	return t.state[id]
+	return t.loadSnapshot().state[id]
 }
 
 // SnapshotState returns a copy of the idle state map.
 func (t *IdleTracker) SnapshotState() map[uint32]bool {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	snap := make(map[uint32]bool, len(t.state))
-	for id, idle := range t.state {
+	state := t.loadSnapshot().state
+	snap := make(map[uint32]bool, len(state))
+	for id, idle := range state {
 		snap[id] = idle
 	}
 	return snap
@@ -46,14 +46,13 @@ func (t *IdleTracker) SnapshotState() map[uint32]bool {
 
 // SnapshotFull returns copies of both state and since maps.
 func (t *IdleTracker) SnapshotFull() (map[uint32]bool, map[uint32]time.Time) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	stateSnap := make(map[uint32]bool, len(t.state))
-	sinceSnap := make(map[uint32]time.Time, len(t.since))
-	for id, idle := range t.state {
+	snap := t.loadSnapshot()
+	stateSnap := make(map[uint32]bool, len(snap.state))
+	sinceSnap := make(map[uint32]time.Time, len(snap.since))
+	for id, idle := range snap.state {
 		stateSnap[id] = idle
 	}
-	for id, ts := range t.since {
+	for id, ts := range snap.since {
 		sinceSnap[id] = ts
 	}
 	return stateSnap, sinceSnap
@@ -62,15 +61,13 @@ func (t *IdleTracker) SnapshotFull() (map[uint32]bool, map[uint32]time.Time) {
 // TrackActivity handles a PTY output event for a pane. If the pane was
 // idle, it transitions to busy and returns true. The idle timer is reset
 // (or created). The onIdle callback fires asynchronously when the pane
-// has been quiet for the given timeout.
+// has been quiet for the given timeout. Event-loop only.
 func (t *IdleTracker) TrackActivity(paneID uint32, timeout time.Duration, onIdle func()) bool {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
 	wasIdle := t.state[paneID]
 	if wasIdle {
 		t.state[paneID] = false
 		delete(t.since, paneID)
+		t.publish()
 	}
 
 	if timer, ok := t.timers[paneID]; ok {
@@ -82,22 +79,44 @@ func (t *IdleTracker) TrackActivity(paneID uint32, timeout time.Duration, onIdle
 	return wasIdle
 }
 
-// MarkIdle sets a pane as idle with the current timestamp.
+// MarkIdle sets a pane as idle with the current timestamp. Event-loop only.
 func (t *IdleTracker) MarkIdle(paneID uint32) {
-	t.mu.Lock()
 	t.state[paneID] = true
 	t.since[paneID] = time.Now()
-	t.mu.Unlock()
+	t.publish()
 }
 
-// StopTimer cleans up the idle timer and state for a closed pane.
+// StopTimer cleans up the idle timer and state for a closed pane. Event-loop only.
 func (t *IdleTracker) StopTimer(paneID uint32) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
 	if timer, ok := t.timers[paneID]; ok {
 		timer.Stop()
 		delete(t.timers, paneID)
+	}
+	if _, ok := t.state[paneID]; ok {
 		delete(t.state, paneID)
 		delete(t.since, paneID)
+		t.publish()
 	}
+}
+
+func (t *IdleTracker) loadSnapshot() *idleSnapshot {
+	if snap := t.snap.Load(); snap != nil {
+		return snap
+	}
+	return &idleSnapshot{
+		state: map[uint32]bool{},
+		since: map[uint32]time.Time{},
+	}
+}
+
+func (t *IdleTracker) publish() {
+	state := make(map[uint32]bool, len(t.state))
+	for id, idle := range t.state {
+		state[id] = idle
+	}
+	since := make(map[uint32]time.Time, len(t.since))
+	for id, ts := range t.since {
+		since[id] = ts
+	}
+	t.snap.Store(&idleSnapshot{state: state, since: since})
 }

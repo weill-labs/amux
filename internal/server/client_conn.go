@@ -5,7 +5,6 @@ import (
 	"net"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/weill-labs/amux/internal/mux"
@@ -21,13 +20,10 @@ type ClientConn struct {
 	copyModeShown      bool
 	inputIdle          bool
 	uiGeneration       uint64
-	mu                 sync.Mutex
-	closed             bool
 	cols               int // last reported terminal width
 	rows               int // last reported terminal height
-	bootstrapping      bool
-	minOutputSeq       map[uint32]uint64
-	pendingMessages    []pendingMessage
+	writer             *clientWriter
+	typeKeyQueue       *pacedInputQueue
 }
 
 type pendingMessage struct {
@@ -38,95 +34,65 @@ type pendingMessage struct {
 
 // NewClientConn wraps a net.Conn for protocol communication.
 func NewClientConn(conn net.Conn) *ClientConn {
-	return &ClientConn{conn: conn, inputIdle: true}
+	return &ClientConn{
+		conn:      conn,
+		inputIdle: true,
+		writer:    newClientWriter(conn),
+	}
 }
 
 // Send writes a message to the client. Thread-safe.
 func (cc *ClientConn) Send(msg *Message) error {
-	cc.mu.Lock()
-	defer cc.mu.Unlock()
-	return cc.writeLocked(msg)
+	return cc.ensureWriter().send(msg)
 }
 
 // Close shuts down the connection.
 func (cc *ClientConn) Close() {
-	cc.mu.Lock()
-	defer cc.mu.Unlock()
-	if !cc.closed {
-		cc.closed = true
-		cc.conn.Close()
+	if cc.typeKeyQueue != nil {
+		cc.typeKeyQueue.close()
 	}
+	cc.ensureWriter().close()
+}
+
+func (cc *ClientConn) enqueueTypeKeys(chunks []encodedKeyChunk) error {
+	queue := cc.typeKeyQueue
+	if queue == nil {
+		return errPacedInputClosed
+	}
+	return queue.enqueue(chunks)
+}
+
+func (cc *ClientConn) initTypeKeyQueue() {
+	if cc.typeKeyQueue != nil {
+		return
+	}
+	cc.typeKeyQueue = newPacedInputQueue("client "+cc.ID, func(data []byte) error {
+		return cc.Send(&Message{Type: MsgTypeTypeKeys, Input: data})
+	})
 }
 
 func (cc *ClientConn) startBootstrap() {
-	cc.mu.Lock()
-	defer cc.mu.Unlock()
-	cc.bootstrapping = true
-	cc.minOutputSeq = make(map[uint32]uint64)
-	cc.pendingMessages = nil
+	cc.ensureWriter().startBootstrap()
 }
 
 func (cc *ClientConn) finishBootstrap(minOutputSeq map[uint32]uint64) {
-	cc.mu.Lock()
-	defer cc.mu.Unlock()
-
-	cc.minOutputSeq = cloneMinOutputSeq(minOutputSeq)
-	for _, pending := range cc.pendingMessages {
-		if pending.outputSeq != 0 && pending.outputSeq <= cc.minOutputSeq[pending.paneID] {
-			continue
-		}
-		if err := cc.writeLocked(pending.msg); err != nil {
-			break
-		}
-	}
-	cc.pendingMessages = nil
-	cc.bootstrapping = false
+	cc.ensureWriter().finishBootstrap(minOutputSeq)
 }
 
 func (cc *ClientConn) sendBroadcast(msg *Message) {
-	cc.mu.Lock()
-	defer cc.mu.Unlock()
-	if cc.closed {
-		return
-	}
-	if cc.bootstrapping {
-		cc.pendingMessages = append(cc.pendingMessages, pendingMessage{msg: cloneMessage(msg)})
-		return
-	}
-	_ = cc.writeLocked(msg)
+	cc.ensureWriter().sendBroadcast(msg)
 }
 
 func (cc *ClientConn) sendPaneOutput(msg *Message, paneID uint32, seq uint64) {
-	cc.mu.Lock()
-	defer cc.mu.Unlock()
-	if cc.closed {
-		return
-	}
-	if cc.bootstrapping {
-		cc.pendingMessages = append(cc.pendingMessages, pendingMessage{
-			msg:       cloneMessage(msg),
-			paneID:    paneID,
-			outputSeq: seq,
-		})
-		return
-	}
-	if seq != 0 && seq <= cc.minOutputSeq[paneID] {
-		return
-	}
-	_ = cc.writeLocked(msg)
+	cc.ensureWriter().sendPaneOutput(msg, paneID, seq)
 }
 
 func (cc *ClientConn) isBootstrapping() bool {
-	cc.mu.Lock()
-	defer cc.mu.Unlock()
-	return cc.bootstrapping
+	return cc.ensureWriter().isBootstrapping()
 }
 
-func (cc *ClientConn) writeLocked(msg *Message) error {
-	if cc.closed {
-		return nil
-	}
-	return WriteMsg(cc.conn, msg)
+func (cc *ClientConn) ensureWriter() *clientWriter {
+	return cc.writer
 }
 
 func cloneMinOutputSeq(src map[uint32]uint64) map[uint32]uint64 {

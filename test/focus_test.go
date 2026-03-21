@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/weill-labs/amux/internal/proto"
 )
@@ -49,7 +50,7 @@ func TestFocusResyncsStaleCursorState(t *testing.T) {
 
 	h.splitV()
 	h.splitH()
-	h.waitFor("pane-2", "$")
+	h.waitForPaneContent("pane-2", "$", 10*time.Second)
 
 	healthyCapture := h.captureJSON()
 	healthy := h.jsonPane(healthyCapture, "pane-2")

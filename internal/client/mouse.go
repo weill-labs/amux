@@ -189,9 +189,7 @@ func HandleMouseEvent(ev mouse.Event, cr *ClientRenderer, sender *messageSender,
 					if cm := cr.CopyModeForPane(target.paneID); cm != nil {
 						cr.CopyModeSetCursor(target.paneID, target.localX, target.localY)
 						if cm.SelectWord() == copymode.ActionRedraw {
-							cr.mu.Lock()
-							cr.ui.dirty = true
-							cr.mu.Unlock()
+							cr.markDirty()
 						}
 					}
 					drag.PendingWordCopyPaneID = target.paneID
@@ -202,9 +200,7 @@ func HandleMouseEvent(ev mouse.Event, cr *ClientRenderer, sender *messageSender,
 					if cm := cr.CopyModeForPane(target.paneID); cm != nil {
 						cr.CopyModeSetCursor(target.paneID, target.localX, target.localY)
 						if cm.SelectLine() == copymode.ActionRedraw {
-							cr.mu.Lock()
-							cr.ui.dirty = true
-							cr.mu.Unlock()
+							cr.markDirty()
 						}
 					}
 					cr.CopyModeCopySelection(target.paneID)

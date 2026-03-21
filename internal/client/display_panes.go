@@ -14,9 +14,7 @@ type displayPanesState struct {
 
 // DisplayPanesActive reports whether the pane overlay is active.
 func (cr *ClientRenderer) DisplayPanesActive() bool {
-	cr.mu.Lock()
-	defer cr.mu.Unlock()
-	return cr.ui.displayPanes != nil
+	return cr.loadState().ui.displayPanes != nil
 }
 
 // ShowDisplayPanes activates the pane overlay for the active layout.
@@ -55,10 +53,10 @@ func (cr *ClientRenderer) ShowDisplayPanes() bool {
 
 // HideDisplayPanes clears the pane overlay.
 func (cr *ClientRenderer) HideDisplayPanes() bool {
-	cr.mu.Lock()
-	changed := cr.ui.displayPanes != nil
-	result := cr.ui.reduce(uiActionHideDisplayPanes{})
-	cr.mu.Unlock()
+	changed, result := updateClientStateValue(cr, func(next *clientSnapshot) (bool, clientUIResult) {
+		changed := next.ui.displayPanes != nil
+		return changed, next.ui.reduce(uiActionHideDisplayPanes{})
+	})
 	cr.emitUIEvents(result.uiEvents)
 	return changed
 }
@@ -69,22 +67,23 @@ func (cr *ClientRenderer) ResolveDisplayPaneKey(b byte) (uint32, bool) {
 	if b >= 'A' && b <= 'Z' {
 		b = b - 'A' + 'a'
 	}
-	cr.mu.Lock()
-	defer cr.mu.Unlock()
-	if cr.ui.displayPanes == nil {
+	state := cr.loadState()
+	if state.ui.displayPanes == nil {
 		return 0, false
 	}
-	paneID, ok := cr.ui.displayPanes.targets[b]
+	paneID, ok := state.ui.displayPanes.targets[b]
 	return paneID, ok
 }
 
 func (cr *ClientRenderer) overlayLabels() []render.PaneOverlayLabel {
-	cr.mu.Lock()
-	defer cr.mu.Unlock()
-	if cr.ui.displayPanes == nil {
+	return cr.overlayLabelsFromSnapshot(cr.loadState())
+}
+
+func (cr *ClientRenderer) overlayLabelsFromSnapshot(state *clientSnapshot) []render.PaneOverlayLabel {
+	if state.ui.displayPanes == nil {
 		return nil
 	}
-	labels := make([]render.PaneOverlayLabel, len(cr.ui.displayPanes.labels))
-	copy(labels, cr.ui.displayPanes.labels)
+	labels := make([]render.PaneOverlayLabel, len(state.ui.displayPanes.labels))
+	copy(labels, state.ui.displayPanes.labels)
 	return labels
 }

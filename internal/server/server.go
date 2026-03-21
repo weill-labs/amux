@@ -5,7 +5,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -73,6 +72,10 @@ type Session struct {
 	// Event stream — used by `amux events` for push-based notifications.
 	// Only accessed from the session event loop (no mutex needed).
 	eventSubs []*eventSub
+
+	// Per-pane paced input queues serialize delayed send-keys batches.
+	// Only accessed from the session event loop (no mutex needed).
+	pacedPanes map[uint32]*pacedInputQueue
 
 	// Remote pane management — manages SSH connections to remote hosts.
 	// Nil when no config is loaded or no remote hosts are defined.
@@ -286,15 +289,18 @@ type Server struct {
 	listener net.Listener
 	sessions map[string]*Session
 	sockPath string
-	mu       sync.Mutex
+
+	// Shutdown is serialized with atomics so concurrent callers all observe
+	// one cleanup pass and later callers can wait for completion.
+	shutdownState atomic.Uint32
+	shutdownDone  chan struct{}
 
 	// attachBootstrapHook is a test-only hook invoked after the initial
 	// attach replay is sent but before bootstrap flushes queued messages.
 	attachBootstrapHook func()
 }
 
-// firstSession returns any session from the map, or nil.
-// Caller must hold s.mu.
+// firstSession returns any session from the immutable session map, or nil.
 func (s *Server) firstSession() *Session {
 	for _, sess := range s.sessions {
 		return sess
@@ -354,9 +360,10 @@ func NewServerWithScrollback(sessionName string, scrollbackLines int) (*Server, 
 	sess := newSessionWithScrollback(sessionName, scrollbackLines)
 
 	s := &Server{
-		listener: listener,
-		sessions: map[string]*Session{sessionName: sess},
-		sockPath: sockPath,
+		listener:     listener,
+		sessions:     map[string]*Session{sessionName: sess},
+		sockPath:     sockPath,
+		shutdownDone: make(chan struct{}),
 	}
 	sess.exitServer = s
 
@@ -387,9 +394,10 @@ func NewServerFromCrashCheckpointWithScrollback(sessionName string, cp *checkpoi
 	sess.generation.Store(cp.Generation)
 
 	s := &Server{
-		listener: listener,
-		sessions: map[string]*Session{sessionName: sess},
-		sockPath: sockPath,
+		listener:     listener,
+		sessions:     map[string]*Session{sessionName: sess},
+		sockPath:     sockPath,
+		shutdownDone: make(chan struct{}),
 	}
 	sess.exitServer = s
 
@@ -478,8 +486,6 @@ func NewServerFromCrashCheckpointWithScrollback(sessionName string, cp *checkpoi
 
 // SetupRemoteManager initializes the remote manager for all sessions.
 func (s *Server) SetupRemoteManager(cfg *config.Config, buildHash string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	for _, sess := range s.sessions {
 		sess.SetupRemoteManager(cfg, buildHash)
 	}
@@ -496,13 +502,37 @@ func (s *Server) Run() error {
 	}
 }
 
-// Shutdown cleans up the server socket, remote connections, and panes.
 func (s *Server) Shutdown() {
+	if s == nil {
+		return
+	}
+	for {
+		switch s.shutdownState.Load() {
+		case 0:
+			if s.shutdownState.CompareAndSwap(0, 1) {
+				s.shutdown()
+				s.shutdownState.Store(2)
+				if s.shutdownDone != nil {
+					close(s.shutdownDone)
+				}
+				return
+			}
+		case 1:
+			if s.shutdownDone != nil {
+				<-s.shutdownDone
+			}
+			return
+		case 2:
+			return
+		}
+	}
+}
+
+// shutdown cleans up the server socket, remote connections, and panes.
+func (s *Server) shutdown() {
 	s.listener.Close()
 	os.Remove(s.sockPath)
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	for _, sess := range s.sessions {
 		sess.shutdown.Store(true)
 
@@ -560,9 +590,7 @@ func (s *Server) handleAttach(conn net.Conn, msg *Message) {
 		sessionName = "default"
 	}
 
-	s.mu.Lock()
 	sess, ok := s.sessions[sessionName]
-	s.mu.Unlock()
 
 	if !ok {
 		conn.Close()
@@ -571,6 +599,7 @@ func (s *Server) handleAttach(conn net.Conn, msg *Message) {
 
 	cc := NewClientConn(conn)
 	cc.ID = fmt.Sprintf("client-%d", sess.clientCounter.Add(1))
+	cc.initTypeKeyQueue()
 	cc.startBootstrap()
 
 	cols, rows := msg.Cols, msg.Rows
@@ -614,9 +643,7 @@ func (s *Server) handleOneShot(conn net.Conn, msg *Message) {
 	cc := NewClientConn(conn)
 	defer cc.Close()
 
-	s.mu.Lock()
 	sess := s.firstSession()
-	s.mu.Unlock()
 
 	if sess == nil {
 		cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "no session"})
@@ -630,9 +657,7 @@ func (s *Server) handleOneShot(conn net.Conn, msg *Message) {
 // if the session is currently empty. This is used by takeover-managed startup,
 // where a remote server must be ready before any interactive client attaches.
 func (s *Server) EnsureInitialWindow(cols, rows int) error {
-	s.mu.Lock()
 	sess := s.firstSession()
-	s.mu.Unlock()
 	if sess == nil {
 		return fmt.Errorf("no session")
 	}

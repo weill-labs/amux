@@ -16,6 +16,7 @@ func TestClientConnQueuesBroadcastsDuringBootstrap(t *testing.T) {
 	t.Cleanup(func() { clientConn.Close() })
 
 	cc := NewClientConn(serverConn)
+	t.Cleanup(cc.Close)
 	cc.startBootstrap()
 
 	layout := &Message{
@@ -67,6 +68,7 @@ func TestClientConnDropsStaleQueuedPaneOutputAfterBootstrap(t *testing.T) {
 	t.Cleanup(func() { clientConn.Close() })
 
 	cc := NewClientConn(serverConn)
+	t.Cleanup(cc.Close)
 	cc.startBootstrap()
 	cc.sendPaneOutput(&Message{Type: MsgTypePaneOutput, PaneID: 3, PaneData: []byte("stale")}, 3, 5)
 
@@ -100,6 +102,42 @@ func TestClientConnDropsStaleQueuedPaneOutputAfterBootstrap(t *testing.T) {
 	case <-sendDone:
 	case <-time.After(time.Second):
 		t.Fatal("sendPaneOutput did not return")
+	}
+}
+
+func TestClientConnBootstrappingStateTracksLifecycle(t *testing.T) {
+	t.Parallel()
+
+	serverConn, clientConn := net.Pipe()
+	t.Cleanup(func() { serverConn.Close() })
+	t.Cleanup(func() { clientConn.Close() })
+
+	cc := NewClientConn(serverConn)
+	t.Cleanup(cc.Close)
+
+	if cc.isBootstrapping() {
+		t.Fatal("new client should not report bootstrapping")
+	}
+
+	cc.startBootstrap()
+	if !cc.isBootstrapping() {
+		t.Fatal("startBootstrap should report bootstrapping")
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		cc.finishBootstrap(nil)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("finishBootstrap did not return")
+	}
+
+	if cc.isBootstrapping() {
+		t.Fatal("finishBootstrap should clear bootstrapping state")
 	}
 }
 

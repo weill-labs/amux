@@ -23,6 +23,11 @@ import (
 // CommandHandler processes a single CLI command.
 type CommandHandler func(ctx *CommandContext)
 
+// tokenKeyGap is a small pacing gap before injected submit/control keys.
+// Some interactive TUIs only react correctly when Enter or Ctrl-key input
+// arrives on a later input tick rather than in the same burst as preceding text.
+const tokenKeyGap = 50 * time.Millisecond
+
 // CommandContext provides all state a command handler needs.
 type CommandContext struct {
 	CC   *ClientConn
@@ -487,7 +492,7 @@ func cmdSendKeys(ctx *CommandContext) {
 		return
 	}
 	hexMode, keys := parseKeyArgs(ctx.Args[1:])
-	data, err := encodeKeys(hexMode, keys)
+	chunks, err := encodeKeyChunks(hexMode, keys)
 	if err != nil {
 		ctx.replyErr(err.Error())
 		return
@@ -501,8 +506,15 @@ func cmdSendKeys(ctx *CommandContext) {
 		}
 		return
 	}
-	pane.pane.Write(data)
-	ctx.reply(fmt.Sprintf("Sent %d bytes to %s\n", len(data), pane.paneName))
+	total := 0
+	for _, chunk := range chunks {
+		total += len(chunk.data)
+	}
+	if err := ctx.Sess.enqueuePacedPaneInput(pane.pane, chunks); err != nil {
+		ctx.replyErr(err.Error())
+		return
+	}
+	ctx.reply(fmt.Sprintf("Sent %d bytes to %s\n", total, pane.paneName))
 }
 
 func cmdStatus(ctx *CommandContext) {
@@ -1047,6 +1059,22 @@ func cmdWaitIdle(ctx *CommandContext) {
 	paneID := pane.paneID
 	paneName := pane.paneName
 
+	checkIdle := func() (bool, error) {
+		pane, err := enqueueSessionQuery(ctx.Sess, func(sess *Session) (*mux.Pane, error) {
+			return sess.findPaneByID(paneID), nil
+		})
+		if err != nil {
+			return false, err
+		}
+		if pane == nil {
+			return false, fmt.Errorf("pane %q disappeared while waiting to become idle", paneRef)
+		}
+		if !pane.AgentStatus().Idle {
+			return false, nil
+		}
+		return true, nil
+	}
+
 	res := ctx.Sess.enqueueEventSubscribe(eventFilter{Types: []string{EventIdle}, PaneName: paneName}, false)
 	if res.sub == nil {
 		ctx.replyErr("session shutting down")
@@ -1055,17 +1083,36 @@ func cmdWaitIdle(ctx *CommandContext) {
 	defer ctx.Sess.enqueueEventUnsubscribe(res.sub)
 
 	if ctx.Sess.idle.IsIdle(paneID) {
-		ctx.reply("idle\n")
-		return
+		idle, err := checkIdle()
+		if err != nil {
+			ctx.replyErr(err.Error())
+			return
+		}
+		if idle {
+			ctx.reply("idle\n")
+			return
+		}
 	}
 
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
-	select {
-	case <-res.sub.ch:
-		ctx.reply("idle\n")
-	case <-timer.C:
-		ctx.replyErr(fmt.Sprintf("timeout waiting for %s to become idle", paneRef))
+
+	for {
+		select {
+		case <-res.sub.ch:
+			idle, err := checkIdle()
+			if err != nil {
+				ctx.replyErr(err.Error())
+				return
+			}
+			if idle {
+				ctx.reply("idle\n")
+				return
+			}
+		case <-timer.C:
+			ctx.replyErr(fmt.Sprintf("timeout waiting for %s to become idle", paneRef))
+			return
+		}
 	}
 }
 
@@ -1518,7 +1565,7 @@ func cmdTypeKeys(ctx *CommandContext) {
 		ctx.replyErr("usage: type-keys [--hex] <keys>...")
 		return
 	}
-	data, err := encodeKeys(hexMode, keys)
+	chunks, err := encodeKeyChunks(hexMode, keys)
 	if err != nil {
 		ctx.replyErr(err.Error())
 		return
@@ -1530,8 +1577,15 @@ func cmdTypeKeys(ctx *CommandContext) {
 		return
 	}
 
-	client.Send(&Message{Type: MsgTypeTypeKeys, Input: data})
-	ctx.reply(fmt.Sprintf("Typed %d bytes\n", len(data)))
+	total := 0
+	for _, chunk := range chunks {
+		total += len(chunk.data)
+	}
+	if err := client.enqueueTypeKeys(chunks); err != nil {
+		ctx.replyErr(err.Error())
+		return
+	}
+	ctx.reply(fmt.Sprintf("Typed %d bytes\n", total))
 }
 
 // parseKeyArgs splits args into a hex-mode flag and the remaining key tokens.
@@ -1546,24 +1600,43 @@ func parseKeyArgs(args []string) (hexMode bool, keys []string) {
 	return hexMode, keys
 }
 
-// encodeKeys converts key tokens to raw bytes. In hex mode, tokens are
-// hex-decoded; otherwise each token is passed through parseKey.
-func encodeKeys(hexMode bool, keys []string) ([]byte, error) {
-	var data []byte
+type encodedKeyChunk struct {
+	data       []byte
+	paceBefore bool
+}
+
+// encodeKeyChunks converts key tokens to raw byte chunks while preserving
+// token boundaries. In hex mode, tokens are hex-decoded; otherwise each token
+// is passed through parseKey.
+func encodeKeyChunks(hexMode bool, keys []string) ([]encodedKeyChunk, error) {
+	var chunks []encodedKeyChunk
 	if hexMode {
 		for _, hexStr := range keys {
 			b, err := hex.DecodeString(hexStr)
 			if err != nil {
 				return nil, fmt.Errorf("invalid hex: %s", hexStr)
 			}
-			data = append(data, b...)
+			chunks = append(chunks, encodedKeyChunk{data: b})
 		}
 	} else {
 		for _, key := range keys {
-			data = append(data, parseKey(key)...)
+			chunks = append(chunks, encodedKeyChunk{
+				data:       parseKey(key),
+				paceBefore: pacedKeyToken(key),
+			})
 		}
 	}
-	return data, nil
+	return chunks, nil
+}
+
+func pacedKeyToken(key string) bool {
+	if key == "Enter" {
+		return true
+	}
+	if len(key) == 3 && (key[0] == 'C' || key[0] == 'c') && key[1] == '-' {
+		return true
+	}
+	return false
 }
 
 func cmdInjectProxy(ctx *CommandContext) {
