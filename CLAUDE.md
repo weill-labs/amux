@@ -79,6 +79,8 @@ The integration test harness makes this fast (~6s for the full suite).
 
 Tests should read like specs. Minimize logic in assertions so a human can read the test and immediately understand what behavior is expected. Prefer golden file comparisons (`assertGolden`) over inline predicate functions -- the golden file is the spec, viewable as a standalone document. Use table-driven tests for unit tests with multiple cases -- define a `tests` slice of structs, iterate with `t.Run(tt.name, ...)`, and call `t.Parallel()` in each subtest.
 
+When a change adds a new test or modifies an existing test, run that targeted test slice with `-count=100` before calling the work done. Treat any failure in those repeated runs as a flake to investigate, not as an acceptable one-off.
+
 **Golden files** live in `test/testdata/`. Two types:
 
 - `.golden` -- structural layout frame (status lines, borders, global bar). Open one and you see the expected screen layout.
