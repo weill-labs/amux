@@ -23,48 +23,34 @@ import (
 	"golang.org/x/term"
 )
 
+type testSSHServerOptions struct {
+	preloadAmux bool
+}
+
+type testSSHServer struct {
+	Addr    string
+	HomeDir string
+}
+
+type testSSHFixture struct {
+	Addr    string
+	KeyFile string
+	HomeDir string
+}
+
 // startTestSSHServer starts a lightweight in-process SSH server that:
 //   - Listens on localhost:0 (random port)
 //   - Accepts public key auth with the given authorized key
 //   - Handles "session"/"exec" requests by running commands via sh -c
 //   - Handles "direct-streamlocal@openssh.com" by dialing Unix sockets
 //
-// Returns the server address (host:port).
+// Returns the server address (host:port) and remote HOME directory.
 // The server is shut down via t.Cleanup.
-func startTestSSHServer(t *testing.T, authorizedKey ssh.PublicKey) string {
+func startTestSSHServer(t *testing.T, authorizedKey ssh.PublicKey, opts testSSHServerOptions) testSSHServer {
 	t.Helper()
 
-	// Build env for exec'd commands with the test amux binary in PATH.
-	// On CI runners the binary is in a temp dir not in PATH.
-	execEnv := os.Environ()
-	binDir := filepath.Dir(amuxBin)
 	homeDir := t.TempDir()
-	sawPath := false
-	sawHome := false
-	if !strings.Contains(os.Getenv("PATH"), binDir) {
-		for i, e := range execEnv {
-			if strings.HasPrefix(e, "PATH=") {
-				sawPath = true
-				execEnv[i] = "PATH=" + binDir + ":" + e[5:]
-				break
-			}
-		}
-	}
-	for i, e := range execEnv {
-		if strings.HasPrefix(e, "HOME=") {
-			sawHome = true
-			execEnv[i] = "HOME=" + homeDir
-		}
-	}
-	if !sawPath {
-		execEnv = append(execEnv, "PATH="+binDir+":"+os.Getenv("PATH"))
-	}
-	if !sawHome {
-		execEnv = append(execEnv, "HOME="+homeDir)
-	}
-	// Override the binary used by buildEnsureServerCmd so the remote server
-	// always uses the test binary, not a stale ~/.local/bin/amux.
-	execEnv = append(execEnv, "AMUX_BIN="+amuxBin)
+	execEnv := buildTestSSHExecEnv(homeDir, opts)
 
 	// Generate ed25519 host key
 	_, hostPriv, err := ed25519.GenerateKey(rand.Reader)
@@ -116,7 +102,39 @@ func startTestSSHServer(t *testing.T, authorizedKey ssh.PublicKey) string {
 		}
 	}()
 
-	return ln.Addr().String()
+	return testSSHServer{
+		Addr:    ln.Addr().String(),
+		HomeDir: homeDir,
+	}
+}
+
+func buildTestSSHExecEnv(homeDir string, opts testSSHServerOptions) []string {
+	execEnv := append([]string{}, os.Environ()...)
+	execEnv = upsertEnv(execEnv, "HOME", homeDir)
+
+	if !opts.preloadAmux {
+		// Keep only base system tools on PATH so the remote starts without any
+		// usable amux binary unless HostConn auto-deploy uploads one.
+		execEnv = upsertEnv(execEnv, "PATH", "/usr/bin:/bin")
+		return removeEnv(execEnv, "AMUX_BIN")
+	}
+
+	execEnv = upsertEnv(execEnv, "PATH", filepath.Dir(amuxBin)+":"+os.Getenv("PATH"))
+	// Force the happy-path fixture to use the freshly built test binary rather
+	// than any previously installed amux on the machine.
+	return upsertEnv(execEnv, "AMUX_BIN", amuxBin)
+}
+
+func removeEnv(env []string, key string) []string {
+	prefix := key + "="
+	filtered := env[:0]
+	for _, entry := range env {
+		if strings.HasPrefix(entry, prefix) {
+			continue
+		}
+		filtered = append(filtered, entry)
+	}
+	return filtered
 }
 
 func amuxServerPIDsForHome(homeDir string) []string {
@@ -449,9 +467,22 @@ func generateTestKeyPair(t *testing.T) (ssh.PublicKey, []byte) {
 // manipulation required — works identically on macOS and Linux.
 func setupTestSSH(t *testing.T) (addr string, keyFile string) {
 	t.Helper()
+	fixture := setupTestSSHWithOptions(t, testSSHServerOptions{preloadAmux: true})
+	return fixture.Addr, fixture.KeyFile
+}
 
+// setupTestSSHNoPreload starts the SSH fixture without AMUX_BIN and without
+// a preloaded amux in PATH. Remote connect must deploy ~/.local/bin/amux to
+// make the session functional.
+func setupTestSSHNoPreload(t *testing.T) testSSHFixture {
+	t.Helper()
+	return setupTestSSHWithOptions(t, testSSHServerOptions{})
+}
+
+func setupTestSSHWithOptions(t *testing.T, opts testSSHServerOptions) testSSHFixture {
+	t.Helper()
 	pubKey, privPEM := generateTestKeyPair(t)
-	addr = startTestSSHServer(t, pubKey)
+	server := startTestSSHServer(t, pubKey, opts)
 
 	// Write private key to a temp file for the amux identity_file config
 	keyPath := filepath.Join(t.TempDir(), "id_test")
@@ -459,7 +490,11 @@ func setupTestSSH(t *testing.T) (addr string, keyFile string) {
 		t.Fatalf("writing test key: %v", err)
 	}
 
-	return addr, keyPath
+	return testSSHFixture{
+		Addr:    server.Addr,
+		KeyFile: keyPath,
+		HomeDir: server.HomeDir,
+	}
 }
 
 // remoteTestConfig returns a TOML config with a "test-remote" host pointing
