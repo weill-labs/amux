@@ -1,6 +1,7 @@
 package test
 
 import (
+	"encoding/base64"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -305,6 +306,47 @@ echo "MOUSE COPY TARGET"
 	h.sendMouseSGR(0, 5, y, false)
 
 	h.waitUI(proto.UIEventCopyModeHidden, 3*time.Second)
+}
+
+func TestMouseDragAutomaticallyEntersCopyModeAndCopiesSelection(t *testing.T) {
+	t.Parallel()
+
+	h := newAmuxHarness(t, "SSH_CONNECTION=1")
+
+	h.sendKeys("printf '\\033[2J\\033[Hhello from mouse\\n'; sleep 0.2", "Enter")
+	if !h.waitFor("hello from mouse", 3*time.Second) {
+		t.Fatalf("expected mouse copy target output.\nScreen:\n%s", h.captureOuter())
+	}
+
+	genStr := strings.TrimSpace(h.outer.runCmd("clipboard-gen"))
+	gen, err := strconv.ParseUint(genStr, 10, 64)
+	if err != nil {
+		t.Fatalf("parsing outer clipboard generation %q: %v", genStr, err)
+	}
+
+	y := 2
+	h.sendMouseSGR(0, 1, y, true)
+	h.sendMouseSGR(32, 5, y, true)
+
+	h.waitUI(proto.UIEventCopyModeShown, 3*time.Second)
+
+	h.sendMouseSGR(0, 5, y, false)
+
+	h.waitUI(proto.UIEventCopyModeHidden, 3*time.Second)
+
+	out := strings.TrimSpace(h.outer.runCmd("wait-clipboard", "--after", strconv.FormatUint(gen, 10), "--timeout", "5s"))
+	if strings.Contains(out, "timeout") {
+		t.Fatalf("outer wait-clipboard timed out\nOuter:\n%s", h.captureOuter())
+	}
+
+	b64 := extractOSC52Base64(out)
+	decoded, err := base64.StdEncoding.DecodeString(b64)
+	if err != nil {
+		t.Fatalf("decoding clipboard base64 %q (from %q): %v", b64, out, err)
+	}
+	if got, want := string(decoded), "hello"; got != want {
+		t.Fatalf("clipboard via auto mouse copy = %q, want %q", got, want)
+	}
 }
 
 func TestMouseDoubleClickCopiesWordInCopyMode(t *testing.T) {

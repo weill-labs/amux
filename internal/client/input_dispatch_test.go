@@ -106,6 +106,69 @@ func TestHandleMouseEventClickSendsFocusCommand(t *testing.T) {
 	<-done
 }
 
+func TestHandleMouseEventDragStartsCopyModeAndCopiesSelection(t *testing.T) {
+	cr := buildTestRenderer(t)
+
+	clientConn, serverConn := net.Pipe()
+	t.Cleanup(func() {
+		clientConn.Close()
+		serverConn.Close()
+	})
+
+	sender := newMessageSender(clientConn)
+	var drag DragState
+
+	var copied string
+	stubCopyToClipboard(t, func(text string) {
+		copied = text
+	})
+
+	y := mux.StatusLineRows
+	HandleMouseEvent(mouse.Event{
+		Action: mouse.Press,
+		Button: mouse.ButtonLeft,
+		X:      0,
+		Y:      y,
+	}, cr, sender, &drag)
+
+	if cr.InCopyMode(1) {
+		t.Fatal("pane-1 should not enter copy mode until the drag moves")
+	}
+
+	HandleMouseEvent(mouse.Event{
+		Action: mouse.Motion,
+		Button: mouse.ButtonLeft,
+		X:      4,
+		Y:      y,
+		LastX:  0,
+		LastY:  y,
+	}, cr, sender, &drag)
+
+	cm := cr.CopyModeForPane(1)
+	if cm == nil {
+		t.Fatal("pane-1 should enter copy mode on mouse drag")
+	}
+	if got := cm.SelectedText(); got != "hello" {
+		t.Fatalf("selected text during drag = %q, want %q", got, "hello")
+	}
+
+	HandleMouseEvent(mouse.Event{
+		Action: mouse.Release,
+		Button: mouse.ButtonLeft,
+		X:      4,
+		Y:      y,
+		LastX:  4,
+		LastY:  y,
+	}, cr, sender, &drag)
+
+	if copied != "hello" {
+		t.Fatalf("copied text = %q, want %q", copied, "hello")
+	}
+	if cr.InCopyMode(1) {
+		t.Fatal("pane-1 should exit copy mode after mouse drag copy")
+	}
+}
+
 func TestHandleMouseEventCopyModeDragCopiesSelectionAndExits(t *testing.T) {
 	cr := buildTestRenderer(t)
 	cr.EnterCopyMode(1)
