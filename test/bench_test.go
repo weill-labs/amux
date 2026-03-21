@@ -205,7 +205,10 @@ func BenchmarkInputLatency(b *testing.B) {
 }
 
 // ---------------------------------------------------------------------------
-// BenchmarkThroughput — high-bandwidth output rendering
+// BenchmarkThroughput — high-bandwidth output via CLI round-trips.
+// This includes two short-lived `amux` command processes per iteration
+// (`send-keys` and `wait-for`), so it measures harness overhead as well
+// as the underlying pane-output path.
 // ---------------------------------------------------------------------------
 
 func BenchmarkThroughput(b *testing.B) {
@@ -234,6 +237,30 @@ func BenchmarkThroughput(b *testing.B) {
 					break
 				}
 				time.Sleep(5 * time.Millisecond)
+			}
+		}
+	})
+}
+
+// BenchmarkThroughputPersistent isolates the pane-output path by sending
+// commands over the already-attached headless client connection instead of
+// spawning fresh `amux` processes for each iteration.
+func BenchmarkThroughputPersistent(b *testing.B) {
+	b.Run("amux", func(b *testing.B) {
+		b.StopTimer()
+		h := newServerHarness(b)
+		b.StartTimer()
+		for i := range b.N {
+			marker := fmt.Sprintf("DONE-%04d", i)
+
+			msg := h.client.runCommand("send-keys", "pane-1", fmt.Sprintf("seq 1 10000; echo %s", marker), "Enter")
+			if msg.CmdErr != "" {
+				b.Fatalf("send-keys failed: %s", msg.CmdErr)
+			}
+
+			msg = h.client.runCommand("wait-for", "pane-1", marker, "--timeout", "30s")
+			if msg.CmdErr != "" {
+				b.Fatalf("wait-for failed: %s", msg.CmdErr)
 			}
 		}
 	})
@@ -510,4 +537,3 @@ func BenchmarkDetectLayoutChange(b *testing.B) {
 		}
 	})
 }
-
