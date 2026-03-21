@@ -249,6 +249,12 @@ func main() {
 		runServerCommand("unset-hook", args[1:])
 	case "list-hooks":
 		runServerCommand("list-hooks", nil)
+	case "set-meta":
+		if len(args) < 3 {
+			fmt.Fprintf(os.Stderr, "usage: amux set-meta <pane> key=value [key=value...]\n")
+			os.Exit(1)
+		}
+		runServerCommand("set-meta", args[1:])
 
 	case "events":
 		runStreamingCommand("events", args[1:])
