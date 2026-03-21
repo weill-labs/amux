@@ -259,6 +259,10 @@ func (s *Session) eventLoop() {
 			if ev != nil {
 				ev.handle(s)
 			}
+			// Keep the active input target in sync with actor-owned focus/window
+			// state so the common input path can avoid a round-trip through the
+			// session queue.
+			s.refreshInputTarget()
 			if s.wantShutdown {
 				// Trigger shutdown asynchronously — Shutdown() waits
 				// on sessionEventDone, so we must return first.

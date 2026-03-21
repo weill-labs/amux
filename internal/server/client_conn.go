@@ -144,14 +144,7 @@ func (cc *ClientConn) readLoop(srv *Server, sess *Session) {
 
 		switch msg.Type {
 		case MsgTypeInput:
-			pane, err := enqueueSessionQuery(sess, func(sess *Session) (*mux.Pane, error) {
-				w := sess.ActiveWindow()
-				if w == nil {
-					return nil, nil
-				}
-				return w.ActivePane, nil
-			})
-			if err == nil && pane != nil {
+			if pane := sess.inputTargetPane(); pane != nil {
 				pane.Write(msg.Input)
 			}
 
