@@ -155,15 +155,19 @@ func cmdList(ctx *CommandContext) {
 	if len(entries) == 0 {
 		output = "No panes.\n"
 	} else {
-		output = fmt.Sprintf("%-6s %-20s %-15s %-10s %s\n", "PANE", "NAME", "HOST", "WINDOW", "TASK")
+		output = fmt.Sprintf("%-6s %-20s %-15s %-30s %-10s %s\n", "PANE", "NAME", "HOST", "BRANCH", "WINDOW", "TASK")
 		for _, p := range entries {
 			active := " "
 			if p.active {
 				active = "*"
 			}
-			output += fmt.Sprintf("%-6s %-20s %-15s %-10s %s\n",
+			branch := p.gitBranch
+			if p.pr != "" {
+				branch += " #" + p.pr
+			}
+			output += fmt.Sprintf("%-6s %-20s %-15s %-30s %-10s %s\n",
 				fmt.Sprintf("%s%d", active, p.paneID),
-				p.name, p.host, p.windowName, p.task)
+				p.name, p.host, branch, p.windowName, p.task)
 		}
 	}
 	ctx.reply(output)
