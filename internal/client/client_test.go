@@ -949,6 +949,180 @@ func TestRenderCoalescedCommandErrorShowsFeedback(t *testing.T) {
 	}
 }
 
+func TestRenderCoalescedPaneOutputRendersImmediatelyAfterIdle(t *testing.T) {
+	// Cannot use t.Parallel — mutates renderFrameInterval.
+	prevInterval := renderFrameInterval
+	renderFrameInterval = 250 * time.Millisecond
+	defer func() { renderFrameInterval = prevInterval }()
+
+	cr := buildTestRenderer(t)
+	msgCh := make(chan *RenderMsg, 2)
+	rendered := make(chan time.Time, 1)
+	done := make(chan struct{})
+
+	go func() {
+		cr.RenderCoalesced(msgCh, func(string) {
+			select {
+			case rendered <- time.Now():
+			default:
+			}
+		})
+		close(done)
+	}()
+
+	start := time.Now()
+	msgCh <- &RenderMsg{Typ: RenderMsgPaneOutput, PaneID: 1, Data: []byte("test output")}
+
+	select {
+	case ts := <-rendered:
+		if ts.Sub(start) >= 100*time.Millisecond {
+			t.Fatalf("first pane output rendered after %v, want immediate render well below frame interval %v", ts.Sub(start), renderFrameInterval)
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatalf("first pane output did not render immediately; frame interval is %v", renderFrameInterval)
+	}
+
+	msgCh <- &RenderMsg{Typ: RenderMsgExit}
+	close(msgCh)
+	<-done
+}
+
+func TestRenderCoalescedPaneOutputRespectsFrameBudget(t *testing.T) {
+	// Cannot use t.Parallel — mutates renderFrameInterval.
+	prevInterval := renderFrameInterval
+	renderFrameInterval = 50 * time.Millisecond
+	defer func() { renderFrameInterval = prevInterval }()
+
+	cr := buildTestRenderer(t)
+	msgCh := make(chan *RenderMsg, 4)
+	rendered := make(chan time.Time, 4)
+	done := make(chan struct{})
+
+	go func() {
+		cr.RenderCoalesced(msgCh, func(string) {
+			rendered <- time.Now()
+		})
+		close(done)
+	}()
+
+	msgCh <- &RenderMsg{Typ: RenderMsgPaneOutput, PaneID: 1, Data: []byte("first")}
+	first := <-rendered
+
+	msgCh <- &RenderMsg{Typ: RenderMsgPaneOutput, PaneID: 1, Data: []byte(" second")}
+
+	select {
+	case ts := <-rendered:
+		t.Fatalf("second pane output rendered too early after %v", ts.Sub(first))
+	case <-time.After(15 * time.Millisecond):
+	}
+
+	select {
+	case ts := <-rendered:
+		if delta := ts.Sub(first); delta < 35*time.Millisecond {
+			t.Fatalf("second pane output rendered after %v, want it deferred close to frame interval %v", delta, renderFrameInterval)
+		}
+	case <-time.After(150 * time.Millisecond):
+		t.Fatalf("second pane output did not render within frame interval %v", renderFrameInterval)
+	}
+
+	msgCh <- &RenderMsg{Typ: RenderMsgExit}
+	close(msgCh)
+	<-done
+}
+
+func TestRenderCoalescedPrioritizesActivePaneOutputAfterLocalInput(t *testing.T) {
+	// Cannot use t.Parallel — mutates timing globals.
+	prevInterval := renderFrameInterval
+	prevWindow := renderPriorityWindow
+	renderFrameInterval = 250 * time.Millisecond
+	renderPriorityWindow = 250 * time.Millisecond
+	defer func() {
+		renderFrameInterval = prevInterval
+		renderPriorityWindow = prevWindow
+	}()
+
+	cr := buildTestRenderer(t)
+	msgCh := make(chan *RenderMsg, 4)
+	rendered := make(chan time.Time, 4)
+	done := make(chan struct{})
+
+	go func() {
+		cr.RenderCoalesced(msgCh, func(string) {
+			rendered <- time.Now()
+		})
+		close(done)
+	}()
+
+	msgCh <- &RenderMsg{Typ: RenderMsgPaneOutput, PaneID: 2, Data: []byte("background")}
+	<-rendered
+
+	cr.MarkLocalInput()
+	start := time.Now()
+	msgCh <- &RenderMsg{Typ: RenderMsgPaneOutput, PaneID: 1, Data: []byte("typed")}
+
+	select {
+	case ts := <-rendered:
+		if ts.Sub(start) >= 100*time.Millisecond {
+			t.Fatalf("active pane output rendered after %v, want immediate render while priority window %v is active", ts.Sub(start), renderPriorityWindow)
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatalf("active pane output did not bypass frame budget after local input")
+	}
+
+	msgCh <- &RenderMsg{Typ: RenderMsgExit}
+	close(msgCh)
+	<-done
+}
+
+func TestRenderCoalescedDoesNotPrioritizeBackgroundPaneAfterLocalInput(t *testing.T) {
+	// Cannot use t.Parallel — mutates timing globals.
+	prevInterval := renderFrameInterval
+	prevWindow := renderPriorityWindow
+	renderFrameInterval = 50 * time.Millisecond
+	renderPriorityWindow = 250 * time.Millisecond
+	defer func() {
+		renderFrameInterval = prevInterval
+		renderPriorityWindow = prevWindow
+	}()
+
+	cr := buildTestRenderer(t)
+	msgCh := make(chan *RenderMsg, 4)
+	rendered := make(chan time.Time, 4)
+	done := make(chan struct{})
+
+	go func() {
+		cr.RenderCoalesced(msgCh, func(string) {
+			rendered <- time.Now()
+		})
+		close(done)
+	}()
+
+	msgCh <- &RenderMsg{Typ: RenderMsgPaneOutput, PaneID: 1, Data: []byte("seed")}
+	first := <-rendered
+
+	cr.MarkLocalInput()
+	msgCh <- &RenderMsg{Typ: RenderMsgPaneOutput, PaneID: 2, Data: []byte("background")}
+
+	select {
+	case ts := <-rendered:
+		t.Fatalf("background pane output rendered too early after %v", ts.Sub(first))
+	case <-time.After(15 * time.Millisecond):
+	}
+
+	select {
+	case ts := <-rendered:
+		if delta := ts.Sub(first); delta < 25*time.Millisecond {
+			t.Fatalf("background pane output rendered after %v, want it to remain frame-limited", delta)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatalf("background pane output did not render within frame interval %v", renderFrameInterval)
+	}
+
+	msgCh <- &RenderMsg{Typ: RenderMsgExit}
+	close(msgCh)
+	<-done
+}
+
 func TestDisplayPanesOverlayDisplayOnly(t *testing.T) {
 	t.Parallel()
 

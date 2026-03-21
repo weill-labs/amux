@@ -513,6 +513,7 @@ func RunSession(sessionName string) error {
 				}
 				raw = data
 				localInput = true
+				cr.MarkLocalInput()
 			case data := <-injectCh:
 				raw = data
 			case <-wordCopyTimer:

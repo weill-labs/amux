@@ -91,6 +91,11 @@ func TestClientConnDropsStaleQueuedPaneOutputAfterBootstrap(t *testing.T) {
 		defer close(sendDone)
 		cc.sendPaneOutput(&Message{Type: MsgTypePaneOutput, PaneID: 3, PaneData: []byte("fresh")}, 3, 6)
 	}()
+	select {
+	case <-sendDone:
+	case <-time.After(time.Second):
+		t.Fatal("sendPaneOutput blocked before client read")
+	}
 	msg := readMsgWithTimeout(t, clientConn)
 	if msg.Type != MsgTypePaneOutput {
 		t.Fatalf("message type = %v, want pane output", msg.Type)
@@ -98,10 +103,36 @@ func TestClientConnDropsStaleQueuedPaneOutputAfterBootstrap(t *testing.T) {
 	if string(msg.PaneData) != "fresh" {
 		t.Fatalf("pane output = %q, want fresh", string(msg.PaneData))
 	}
+}
+
+func TestClientConnSendPaneOutputDoesNotBlockOnUnreadClient(t *testing.T) {
+	t.Parallel()
+
+	serverConn, clientConn := net.Pipe()
+	t.Cleanup(func() { serverConn.Close() })
+	t.Cleanup(func() { clientConn.Close() })
+
+	cc := NewClientConn(serverConn)
+	t.Cleanup(cc.Close)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		cc.sendPaneOutput(&Message{Type: MsgTypePaneOutput, PaneID: 9, PaneData: []byte("hello")}, 9, 1)
+	}()
+
 	select {
-	case <-sendDone:
-	case <-time.After(time.Second):
-		t.Fatal("sendPaneOutput did not return")
+	case <-done:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("sendPaneOutput blocked on unread client")
+	}
+
+	msg := readMsgWithTimeout(t, clientConn)
+	if msg.Type != MsgTypePaneOutput {
+		t.Fatalf("message type = %v, want pane output", msg.Type)
+	}
+	if msg.PaneID != 9 || string(msg.PaneData) != "hello" {
+		t.Fatalf("pane output = pane %d %q, want pane 9 hello", msg.PaneID, string(msg.PaneData))
 	}
 }
 
