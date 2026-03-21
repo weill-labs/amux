@@ -704,6 +704,7 @@ func TestHandleRenderMsgEffects(t *testing.T) {
 				if !cr.ShowDisplayPanes() {
 					t.Fatal("ShowDisplayPanes should succeed")
 				}
+				cr.ShowPrefixMessage("No binding for C-a f")
 			},
 			msg: &RenderMsg{Typ: RenderMsgLayout, Layout: threePane80x23()},
 			wantKinds: []clientEffectKind{
@@ -712,11 +713,17 @@ func TestHandleRenderMsgEffects(t *testing.T) {
 				clientEffectStopScheduledRender,
 				clientEffectRenderNow,
 			},
-			wantUIEvents: []string{proto.UIEventDisplayPanesHidden},
+			wantUIEvents: []string{
+				proto.UIEventDisplayPanesHidden,
+				proto.UIEventPrefixMessageHidden,
+			},
 			assert: func(t *testing.T, cr *ClientRenderer, _ []clientEffect) {
 				t.Helper()
 				if cr.DisplayPanesActive() {
 					t.Fatal("display panes should be cleared after structural layout change")
+				}
+				if got := cr.prefixMessage(); got != "" {
+					t.Fatalf("structural layout change should clear prefix message, got %q", got)
 				}
 			},
 		},
@@ -775,6 +782,21 @@ func TestHandleRenderMsgEffects(t *testing.T) {
 				t.Helper()
 				if !cr.InCopyMode(1) {
 					t.Fatal("pane-1 should be in copy mode")
+				}
+			},
+		},
+		{
+			name: "additional copy-mode pane renders immediately without re-emitting shown",
+			prepare: func(_ *testing.T, cr *ClientRenderer) {
+				cr.EnterCopyMode(1)
+			},
+			msg:          &RenderMsg{Typ: RenderMsgCopyMode, PaneID: 2},
+			wantKinds:    []clientEffectKind{clientEffectStopScheduledRender, clientEffectRenderNow},
+			wantUIEvents: []string{},
+			assert: func(t *testing.T, cr *ClientRenderer, _ []clientEffect) {
+				t.Helper()
+				if !cr.InCopyMode(1) || !cr.InCopyMode(2) {
+					t.Fatal("both panes should be in copy mode after entering a second pane")
 				}
 			},
 		},
