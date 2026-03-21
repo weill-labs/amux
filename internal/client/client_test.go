@@ -210,6 +210,16 @@ func assertClientEffectKinds(t *testing.T, effects []clientEffect, want []client
 	}
 }
 
+func collectClientEffectUIEvents(effects []clientEffect) []string {
+	var uiEvents []string
+	for _, effect := range effects {
+		if effect.kind == clientEffectEmitUIEvents {
+			uiEvents = append(uiEvents, effect.uiEvents...)
+		}
+	}
+	return uiEvents
+}
+
 func multiWindow80x23Zoomed(windowID, paneID uint32) *proto.LayoutSnapshot {
 	snap := multiWindow80x23()
 	for i := range snap.Windows {
@@ -628,90 +638,160 @@ func TestHandleLayoutClearsCommandFeedback(t *testing.T) {
 	}
 }
 
-func TestHandleRenderMsgLayoutReturnsEffects(t *testing.T) {
+func TestHandleRenderMsgEffects(t *testing.T) {
 	t.Parallel()
 
-	cr := buildTestRenderer(t)
-	if !cr.ShowDisplayPanes() {
-		t.Fatal("ShowDisplayPanes should succeed")
+	tests := []struct {
+		name         string
+		prepare      func(*testing.T, *ClientRenderer)
+		msg          *RenderMsg
+		wantKinds    []clientEffectKind
+		wantUIEvents []string
+		assert       func(*testing.T, *ClientRenderer, []clientEffect)
+	}{
+		{
+			name: "structural layout change clears overlay and repaints immediately",
+			prepare: func(t *testing.T, cr *ClientRenderer) {
+				if !cr.ShowDisplayPanes() {
+					t.Fatal("ShowDisplayPanes should succeed")
+				}
+			},
+			msg: &RenderMsg{Typ: RenderMsgLayout, Layout: threePane80x23()},
+			wantKinds: []clientEffectKind{
+				clientEffectEmitUIEvents,
+				clientEffectClearPrevGrid,
+				clientEffectStopScheduledRender,
+				clientEffectRenderNow,
+			},
+			wantUIEvents: []string{proto.UIEventDisplayPanesHidden},
+			assert: func(t *testing.T, cr *ClientRenderer, _ []clientEffect) {
+				t.Helper()
+				if cr.DisplayPanesActive() {
+					t.Fatal("display panes should be cleared after structural layout change")
+				}
+			},
+		},
+		{
+			name: "non-structural layout change preserves overlay and skips grid clear",
+			prepare: func(t *testing.T, cr *ClientRenderer) {
+				if !cr.ShowDisplayPanes() {
+					t.Fatal("ShowDisplayPanes should succeed")
+				}
+				cr.ShowCommandError("cannot minimize")
+			},
+			msg: &RenderMsg{Typ: RenderMsgLayout, Layout: twoPane80x23()},
+			wantKinds: []clientEffectKind{
+				clientEffectEmitUIEvents,
+				clientEffectStopScheduledRender,
+				clientEffectRenderNow,
+			},
+			wantUIEvents: []string{proto.UIEventPrefixMessageHidden},
+			assert: func(t *testing.T, cr *ClientRenderer, _ []clientEffect) {
+				t.Helper()
+				if !cr.DisplayPanesActive() {
+					t.Fatal("display panes should survive a non-structural layout change")
+				}
+				if got := cr.prefixMessage(); got != "" {
+					t.Fatalf("layout update should clear command feedback, got %q", got)
+				}
+			},
+		},
+		{
+			name: "pane output preserves message and schedules render",
+			prepare: func(_ *testing.T, cr *ClientRenderer) {
+				cr.ShowPrefixMessage("No binding for C-a f")
+			},
+			msg:       &RenderMsg{Typ: RenderMsgPaneOutput, PaneID: 1, Data: []byte("more output")},
+			wantKinds: []clientEffectKind{clientEffectScheduleRender},
+			assert: func(t *testing.T, cr *ClientRenderer, _ []clientEffect) {
+				t.Helper()
+				if got := cr.prefixMessage(); got != "No binding for C-a f" {
+					t.Fatalf("pane output should preserve the prefix message, got %q", got)
+				}
+				if !cr.IsDirty() {
+					t.Fatal("pane output should leave the renderer dirty until the scheduled render runs")
+				}
+			},
+		},
+		{
+			name: "copy mode returns immediate render effects",
+			msg:  &RenderMsg{Typ: RenderMsgCopyMode, PaneID: 1},
+			wantKinds: []clientEffectKind{
+				clientEffectEmitUIEvents,
+				clientEffectStopScheduledRender,
+				clientEffectRenderNow,
+			},
+			wantUIEvents: []string{proto.UIEventCopyModeShown},
+			assert: func(t *testing.T, cr *ClientRenderer, _ []clientEffect) {
+				t.Helper()
+				if !cr.InCopyMode(1) {
+					t.Fatal("pane-1 should be in copy mode")
+				}
+			},
+		},
+		{
+			name: "command error trims text and rings bell",
+			msg:  &RenderMsg{Typ: RenderMsgCmdError, Text: "  cannot minimize  \n"},
+			wantKinds: []clientEffectKind{
+				clientEffectStopScheduledRender,
+				clientEffectBell,
+				clientEffectRenderNow,
+			},
+			assert: func(t *testing.T, cr *ClientRenderer, _ []clientEffect) {
+				t.Helper()
+				if got := cr.prefixMessage(); got != "cannot minimize" {
+					t.Fatalf("command feedback = %q, want %q", got, "cannot minimize")
+				}
+			},
+		},
+		{
+			name:      "blank command error is ignored",
+			msg:       &RenderMsg{Typ: RenderMsgCmdError, Text: " \t "},
+			wantKinds: []clientEffectKind{},
+			assert: func(t *testing.T, cr *ClientRenderer, _ []clientEffect) {
+				t.Helper()
+				if got := cr.prefixMessage(); got != "" {
+					t.Fatalf("blank command error should not set command feedback, got %q", got)
+				}
+			},
+		},
+		{
+			name: "dirty exit renders before exiting",
+			msg:  &RenderMsg{Typ: RenderMsgExit},
+			wantKinds: []clientEffectKind{
+				clientEffectRenderNow,
+				clientEffectExit,
+			},
+		},
+		{
+			name: "clean exit skips the final render",
+			prepare: func(_ *testing.T, cr *ClientRenderer) {
+				cr.RenderDiff()
+			},
+			msg:       &RenderMsg{Typ: RenderMsgExit},
+			wantKinds: []clientEffectKind{clientEffectExit},
+		},
 	}
 
-	effects := cr.handleRenderMsg(&RenderMsg{Typ: RenderMsgLayout, Layout: threePane80x23()})
-	assertClientEffectKinds(t, effects, []clientEffectKind{
-		clientEffectEmitUIEvents,
-		clientEffectClearPrevGrid,
-		clientEffectStopScheduledRender,
-		clientEffectRenderNow,
-	})
-	if !reflect.DeepEqual(effects[0].uiEvents, []string{proto.UIEventDisplayPanesHidden}) {
-		t.Fatalf("ui events = %v, want [%q]", effects[0].uiEvents, proto.UIEventDisplayPanesHidden)
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cr := buildTestRenderer(t)
+			if tt.prepare != nil {
+				tt.prepare(t, cr)
+			}
+
+			effects := cr.handleRenderMsg(tt.msg)
+
+			assertClientEffectKinds(t, effects, tt.wantKinds)
+			assertUIEvents(t, collectClientEffectUIEvents(effects), tt.wantUIEvents)
+			if tt.assert != nil {
+				tt.assert(t, cr, effects)
+			}
+		})
 	}
-	if cr.DisplayPanesActive() {
-		t.Fatal("display panes should be cleared after structural layout change")
-	}
-}
-
-func TestHandleRenderMsgPaneOutputSchedulesRender(t *testing.T) {
-	t.Parallel()
-
-	cr := buildTestRenderer(t)
-
-	effects := cr.handleRenderMsg(&RenderMsg{Typ: RenderMsgPaneOutput, PaneID: 1, Data: []byte("more output")})
-	assertClientEffectKinds(t, effects, []clientEffectKind{clientEffectScheduleRender})
-}
-
-func TestHandleRenderMsgCopyModeReturnsImmediateRenderEffects(t *testing.T) {
-	t.Parallel()
-
-	cr := buildTestRenderer(t)
-
-	effects := cr.handleRenderMsg(&RenderMsg{Typ: RenderMsgCopyMode, PaneID: 1})
-	assertClientEffectKinds(t, effects, []clientEffectKind{
-		clientEffectEmitUIEvents,
-		clientEffectStopScheduledRender,
-		clientEffectRenderNow,
-	})
-	if !reflect.DeepEqual(effects[0].uiEvents, []string{proto.UIEventCopyModeShown}) {
-		t.Fatalf("ui events = %v, want [%q]", effects[0].uiEvents, proto.UIEventCopyModeShown)
-	}
-	if !cr.InCopyMode(1) {
-		t.Fatal("pane-1 should be in copy mode")
-	}
-}
-
-func TestHandleRenderMsgCommandErrorReturnsBellAndRenderEffects(t *testing.T) {
-	t.Parallel()
-
-	cr := buildTestRenderer(t)
-
-	effects := cr.handleRenderMsg(&RenderMsg{Typ: RenderMsgCmdError, Text: "cannot minimize: pane has no stacked siblings"})
-	assertClientEffectKinds(t, effects, []clientEffectKind{
-		clientEffectStopScheduledRender,
-		clientEffectBell,
-		clientEffectRenderNow,
-	})
-
-	effects = cr.handleRenderMsg(&RenderMsg{Typ: RenderMsgCmdError, Text: " \t "})
-	if len(effects) != 0 {
-		t.Fatalf("blank command error should produce no effects, got %v", effects)
-	}
-}
-
-func TestHandleRenderMsgExitRendersOnlyWhenDirty(t *testing.T) {
-	t.Parallel()
-
-	cr := buildTestRenderer(t)
-
-	effects := cr.handleRenderMsg(&RenderMsg{Typ: RenderMsgExit})
-	assertClientEffectKinds(t, effects, []clientEffectKind{
-		clientEffectRenderNow,
-		clientEffectExit,
-	})
-
-	cr.RenderDiff()
-
-	effects = cr.handleRenderMsg(&RenderMsg{Typ: RenderMsgExit})
-	assertClientEffectKinds(t, effects, []clientEffectKind{clientEffectExit})
 }
 
 func TestToggleMinimizeBlockedReasonVerticalSplit(t *testing.T) {
