@@ -3,6 +3,7 @@ package client
 import (
 	"bytes"
 	"errors"
+	"reflect"
 	"testing"
 )
 
@@ -99,4 +100,94 @@ func TestCopyToClipboardFallsBackToOSC52WhenSystemClipboardFails(t *testing.T) {
 	if got, want := wrote.String(), osc52ClipboardSequence("fallback copy"); got != want {
 		t.Fatalf("clipboard output = %q, want %q", got, want)
 	}
+}
+
+func TestCopyToClipboardUsesSystemClipboardOutsideSSH(t *testing.T) {
+	t.Setenv("SSH_CONNECTION", "")
+	t.Setenv("SSH_CLIENT", "")
+	t.Setenv("SSH_TTY", "")
+
+	prevStdout := clipboardStdout
+	prevRun := runClipboardCommand
+	var wrote bytes.Buffer
+	var calls [][]string
+	clipboardStdout = &wrote
+	runClipboardCommand = func(cmd []string, text string) error {
+		calls = append(calls, append([]string(nil), cmd...))
+		if text != "local copy" {
+			t.Fatalf("clipboard text = %q, want %q", text, "local copy")
+		}
+		return nil
+	}
+	t.Cleanup(func() {
+		clipboardStdout = prevStdout
+		runClipboardCommand = prevRun
+	})
+
+	CopyToClipboard("local copy")
+
+	if wrote.Len() != 0 {
+		t.Fatalf("clipboard stdout = %q, want empty", wrote.String())
+	}
+	if want := [][]string{{"pbcopy"}}; !reflect.DeepEqual(calls, want) {
+		t.Fatalf("clipboard commands = %v, want %v", calls, want)
+	}
+}
+
+func TestCopyToClipboardEmptyTextDoesNothing(t *testing.T) {
+	t.Setenv("SSH_CONNECTION", "1")
+
+	prevStdout := clipboardStdout
+	prevRun := runClipboardCommand
+	var wrote bytes.Buffer
+	clipboardStdout = &wrote
+	runClipboardCommand = func(cmd []string, text string) error {
+		t.Fatalf("runClipboardCommand(%v, %q) should not run for empty text", cmd, text)
+		return nil
+	}
+	t.Cleanup(func() {
+		clipboardStdout = prevStdout
+		runClipboardCommand = prevRun
+	})
+
+	CopyToClipboard("")
+
+	if wrote.Len() != 0 {
+		t.Fatalf("clipboard stdout = %q, want empty", wrote.String())
+	}
+}
+
+func TestTrySystemClipboardFallsThroughCommands(t *testing.T) {
+	prevRun := runClipboardCommand
+	var calls [][]string
+	runClipboardCommand = func(cmd []string, text string) error {
+		calls = append(calls, append([]string(nil), cmd...))
+		if text != "fallback order" {
+			t.Fatalf("clipboard text = %q, want %q", text, "fallback order")
+		}
+		if len(calls) < 3 {
+			return errors.New("missing binary")
+		}
+		return nil
+	}
+	t.Cleanup(func() {
+		runClipboardCommand = prevRun
+	})
+
+	if !trySystemClipboard("fallback order") {
+		t.Fatal("trySystemClipboard() = false, want true")
+	}
+
+	want := [][]string{
+		{"pbcopy"},
+		{"xclip", "-selection", "clipboard"},
+		{"xsel", "--clipboard", "--input"},
+	}
+	if !reflect.DeepEqual(calls, want) {
+		t.Fatalf("clipboard commands = %v, want %v", calls, want)
+	}
+}
+
+func TestWriteOSC52ClipboardNilWriter(t *testing.T) {
+	writeOSC52Clipboard(nil, "ignored")
 }
