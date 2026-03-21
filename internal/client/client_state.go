@@ -89,7 +89,6 @@ func (cr *ClientRenderer) updateState(apply func(*clientSnapshot) clientUIResult
 }
 
 func updateClientStateValue[T any](cr *ClientRenderer, apply func(*clientSnapshot) (T, clientUIResult)) (T, clientUIResult) {
-	var zero T
 	for {
 		prev := cr.loadState()
 		next := cloneClientSnapshot(prev)
@@ -97,9 +96,7 @@ func updateClientStateValue[T any](cr *ClientRenderer, apply func(*clientSnapsho
 		if cr.state.CompareAndSwap(prev, &next) {
 			return value, result
 		}
-		zero = value
 	}
-	return zero, clientUIResult{}
 }
 
 func (cr *ClientRenderer) markDirty() {
