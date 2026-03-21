@@ -100,6 +100,21 @@ If a PR is already open and `git fetch origin main` or `git pull` advances `orig
 
 Commit design specs and implementation plans to the feature branch, not main. Committing to main before creating the feature branch causes divergent branches on subsequent pulls.
 
+### PR Title And Description
+
+PR title and description are the permanent record of why a change was made. Write them for a reviewer seeing the diff for the first time.
+
+**Title**: State what changed in imperative mood, under 70 characters. Example: "Timestamp crash checkpoint filenames to prevent overwriting". Omit ticket prefixes like `LAB-314:` — link tickets in the description body instead.
+
+**Description** must include four sections:
+
+1. **Motivation** -- Why this change? What broke, what was missing, or what user need does it address? One to three sentences.
+2. **Summary** -- What changed? Bullet the key changes. Describe the PR as a complete unit, not per-commit.
+3. **Testing** -- How was it verified? Include the exact test commands a reviewer can copy-paste.
+4. **Review focus** -- What should reviewers look at? Call out non-obvious design decisions, edge cases, or areas where you are least confident.
+
+Use matter-of-fact language. State what the PR does, not how good it is. Avoid vague qualifiers like "robust", "comprehensive", "elegant", or "production-ready". If a Linear issue exists, add `Closes LAB-NNN` at the bottom.
+
 ### Review Before Done
 
 After creating or updating a PR, run a review pass and a simplification pass before considering the work done. Claude Code gets hook reminders for this. Codex users should use the repo PR workflow skill or perform the steps explicitly.
