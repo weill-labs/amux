@@ -142,9 +142,7 @@ func TestCrashRecovery_CleanShutdown(t *testing.T) {
 	h.cmd = nil // prevent double cleanup
 
 	// Verify checkpoint file was removed
-	if _, err := os.Stat(cpPath); !os.IsNotExist(err) {
-		t.Errorf("crash checkpoint should be removed after clean shutdown, err=%v", err)
-	}
+	waitForCrashCheckpointRemoved(t, cpPath, 5*time.Second)
 }
 
 // TestCrashRecovery_CheckpointIsValidJSON verifies the crash checkpoint file
@@ -349,6 +347,23 @@ func waitForCrashCheckpoint(t *testing.T, path string, timeout time.Duration) {
 		<-ticker.C
 	}
 	t.Fatalf("crash checkpoint %s did not appear within %v", path, timeout)
+}
+
+func waitForCrashCheckpointRemoved(t *testing.T, path string, timeout time.Duration) {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	ticker := time.NewTicker(25 * time.Millisecond)
+	defer ticker.Stop()
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			return
+		}
+		<-ticker.C
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("crash checkpoint %s was not removed within %v, err=%v", path, timeout, err)
+	}
 }
 
 // paneNames returns a comma-joined string of pane names from a capture (layout order).
