@@ -137,6 +137,34 @@ func TestClientConnSendPaneOutputDoesNotBlockOnUnreadClient(t *testing.T) {
 	}
 }
 
+func TestClientConnSendBroadcastSyncDeliversMessage(t *testing.T) {
+	t.Parallel()
+
+	serverConn, clientConn := net.Pipe()
+	t.Cleanup(func() { serverConn.Close() })
+	t.Cleanup(func() { clientConn.Close() })
+
+	cc := NewClientConn(serverConn)
+	t.Cleanup(cc.Close)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		cc.sendBroadcastSync(&Message{Type: MsgTypeServerReload})
+	}()
+
+	msg := readMsgWithTimeout(t, clientConn)
+	if msg.Type != MsgTypeServerReload {
+		t.Fatalf("message type = %v, want server reload", msg.Type)
+	}
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("sendBroadcastSync did not return after delivery")
+	}
+}
+
 func TestClientConnBootstrappingStateTracksLifecycle(t *testing.T) {
 	t.Parallel()
 
