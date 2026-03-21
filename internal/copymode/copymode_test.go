@@ -6,6 +6,9 @@ import (
 	"testing"
 
 	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/charmbracelet/x/ansi"
+	"github.com/charmbracelet/x/vt"
+	"github.com/weill-labs/amux/internal/render"
 )
 
 // fakeEmulator implements TerminalEmulator for testing.
@@ -13,6 +16,8 @@ type fakeEmulator struct {
 	width, height int
 	screen        []string // current screen lines (plain text)
 	scrollback    []string // scrollback lines (0=oldest)
+	screenCells   map[[2]int]render.ScreenCell
+	scrollCells   map[[2]int]render.ScreenCell
 }
 
 func newFakeEmulator(w, h int) *fakeEmulator {
@@ -20,7 +25,13 @@ func newFakeEmulator(w, h int) *fakeEmulator {
 	for i := range screen {
 		screen[i] = ""
 	}
-	return &fakeEmulator{width: w, height: h, screen: screen}
+	return &fakeEmulator{
+		width:       w,
+		height:      h,
+		screen:      screen,
+		screenCells: make(map[[2]int]render.ScreenCell),
+		scrollCells: make(map[[2]int]render.ScreenCell),
+	}
 }
 
 func (e *fakeEmulator) Size() (int, int) {
@@ -43,6 +54,34 @@ func (e *fakeEmulator) ScreenLineText(y int) string {
 		return ""
 	}
 	return e.screen[y]
+}
+
+func (e *fakeEmulator) ScreenCellAt(col, row int) render.ScreenCell {
+	if row < 0 || row >= len(e.screen) {
+		return render.ScreenCell{Char: " ", Width: 1}
+	}
+	if cell, ok := e.screenCells[[2]int{col, row}]; ok {
+		return cell
+	}
+	return plainTextCell(e.screen[row], col)
+}
+
+func (e *fakeEmulator) ScrollbackCellAt(col, row int) render.ScreenCell {
+	if row < 0 || row >= len(e.scrollback) {
+		return render.ScreenCell{Char: " ", Width: 1}
+	}
+	if cell, ok := e.scrollCells[[2]int{col, row}]; ok {
+		return cell
+	}
+	return plainTextCell(e.scrollback[row], col)
+}
+
+func plainTextCell(line string, col int) render.ScreenCell {
+	runes := []rune(line)
+	if col < 0 || col >= len(runes) {
+		return render.ScreenCell{Char: " ", Width: 1}
+	}
+	return render.ScreenCell{Char: string(runes[col]), Width: 1}
 }
 
 func TestNewCopyMode(t *testing.T) {
@@ -401,15 +440,25 @@ func TestRenderCursorSingleChar(t *testing.T) {
 	cm.cx = 2                // cursor on column 2
 
 	rendered := cm.RenderViewport()
-	lines := strings.Split(rendered, "\n")
+	term := replayViewport(rendered, 10, 3)
 
-	// Row 1 should have reverse video around just the 'r' (column 2 of "world")
-	if !strings.Contains(lines[1], reverseOn+"r"+reverseOff) {
-		t.Errorf("expected single-char cursor on 'r', got: %q", lines[1])
+	cursor := term.CellAt(2, 1)
+	if cursor == nil {
+		t.Fatal("CellAt(2, 1) = nil, want cursor cell")
 	}
-	// Row 0 should NOT have reverse video
-	if strings.Contains(lines[0], reverseOn) {
-		t.Errorf("non-cursor row should not have reverse video, got: %q", lines[0])
+	if cursor.Content != "r" {
+		t.Fatalf("CellAt(2, 1).Content = %q, want %q", cursor.Content, "r")
+	}
+	if cursor.Style.Attrs&uv.AttrReverse == 0 {
+		t.Fatalf("CellAt(2, 1).Style.Attrs = %v, want reverse video", cursor.Style.Attrs)
+	}
+
+	other := term.CellAt(0, 0)
+	if other == nil {
+		t.Fatal("CellAt(0, 0) = nil, want plain cell")
+	}
+	if other.Style.Attrs&uv.AttrReverse != 0 {
+		t.Fatalf("CellAt(0, 0).Style.Attrs = %v, want no reverse video", other.Style.Attrs)
 	}
 }
 
@@ -446,6 +495,69 @@ func TestSelectionHighlighting(t *testing.T) {
 	}
 }
 
+func TestRenderViewportPreservesBaseANSIStyle(t *testing.T) {
+	t.Parallel()
+
+	emu := newFakeEmulator(10, 2)
+	emu.screen = []string{"hello", "world"}
+	green := ansi.BasicColor(2)
+	emu.screenCells[[2]int{1, 0}] = render.ScreenCell{
+		Char:  "e",
+		Width: 1,
+		Style: uv.Style{Fg: green},
+	}
+
+	cm := New(emu, 10, 2, 1) // keep the cursor off row 0
+	rendered := cm.RenderViewport()
+
+	term := replayViewport(rendered, 10, 2)
+
+	cell := term.CellAt(1, 0)
+	if cell == nil {
+		t.Fatal("CellAt(1, 0) = nil, want styled cell")
+	}
+	if cell.Content != "e" {
+		t.Fatalf("CellAt(1, 0).Content = %q, want %q", cell.Content, "e")
+	}
+	if cell.Style.Fg == nil {
+		t.Fatal("CellAt(1, 0).Style.Fg = nil, want green")
+	}
+	assertSameColor(t, cell.Style.Fg, green)
+}
+
+func TestRenderViewportResetsTrailingStyle(t *testing.T) {
+	t.Parallel()
+
+	emu := newFakeEmulator(1, 1)
+	green := ansi.BasicColor(2)
+	emu.screen = []string{"a"}
+	emu.screenCells[[2]int{0, 0}] = render.ScreenCell{
+		Char:  "a",
+		Width: 1,
+		Style: uv.Style{Fg: green},
+	}
+
+	cm := New(emu, 1, 1, 0)
+	rendered := cm.RenderViewport()
+
+	term := vt.NewSafeEmulator(2, 1)
+	term.Write([]byte(rendered + "X"))
+
+	trailing := term.CellAt(1, 0)
+	if trailing == nil {
+		t.Fatal("CellAt(1, 0) = nil, want trailing cell")
+	}
+	if trailing.Content != "X" {
+		t.Fatalf("CellAt(1, 0).Content = %q, want %q", trailing.Content, "X")
+	}
+	if trailing.Style.Attrs&uv.AttrReverse != 0 {
+		t.Fatalf("CellAt(1, 0).Style.Attrs = %v, want no reverse video", trailing.Style.Attrs)
+	}
+	if trailing.Style.Fg != nil {
+		t.Fatalf("CellAt(1, 0).Style.Fg = %v, want nil default fg", trailing.Style.Fg)
+	}
+}
+
 func TestLineSelectHighlighting(t *testing.T) {
 	emu := newFakeEmulator(20, 3)
 	emu.screen = []string{"hello world foo", "second line here", "third line text"}
@@ -463,31 +575,36 @@ func TestLineSelectHighlighting(t *testing.T) {
 	}
 
 	rendered := cm.RenderViewport()
-	lines := strings.Split(rendered, "\n")
+	term := replayViewport(rendered, 20, 3)
 
 	// First line should be fully highlighted (selection covers entire line)
-	if !strings.Contains(lines[0], selectionBg) {
-		t.Errorf("selected line should have selection bg, got: %q", lines[0])
+	first := term.CellAt(0, 0)
+	if first == nil || first.Style.Bg == nil {
+		t.Fatalf("line 0 should have selection bg, got %#v", first)
 	}
 	// Second line should NOT have selection highlight
-	if strings.Contains(lines[1], selectionBg) {
-		t.Errorf("unselected line should not have selection bg, got: %q", lines[1])
+	second := term.CellAt(0, 1)
+	if second != nil && second.Style.Bg != nil {
+		t.Fatalf("line 1 should not have selection bg, got %#v", second)
 	}
 
 	// Extend selection down
 	cm.HandleInput([]byte{'j'})
 	rendered = cm.RenderViewport()
-	lines = strings.Split(rendered, "\n")
+	term = replayViewport(rendered, 20, 3)
 
 	// Both lines 0 and 1 should have full-line highlighting
-	if !strings.Contains(lines[0], selectionBg) {
-		t.Errorf("first selected line should have selection bg, got: %q", lines[0])
+	first = term.CellAt(0, 0)
+	if first == nil || first.Style.Bg == nil {
+		t.Fatalf("line 0 should have selection bg after extend, got %#v", first)
 	}
-	if !strings.Contains(lines[1], selectionBg) {
-		t.Errorf("second selected line should have selection bg, got: %q", lines[1])
+	second = term.CellAt(0, 1)
+	if second == nil || second.Style.Bg == nil {
+		t.Fatalf("line 1 should have selection bg after extend, got %#v", second)
 	}
-	if strings.Contains(lines[2], selectionBg) {
-		t.Errorf("unselected line should not have selection bg, got: %q", lines[2])
+	third := term.CellAt(0, 2)
+	if third != nil && third.Style.Bg != nil {
+		t.Fatalf("line 2 should not have selection bg, got %#v", third)
 	}
 }
 
@@ -871,6 +988,72 @@ func TestCellAt_Selection(t *testing.T) {
 	}
 }
 
+func TestCellAt_SelectionPreservesForegroundStyle(t *testing.T) {
+	t.Parallel()
+
+	emu := newFakeEmulator(10, 3)
+	emu.screen = []string{"hello", "world", "test!"}
+	red := ansi.BasicColor(1)
+	emu.screenCells[[2]int{2, 0}] = render.ScreenCell{
+		Char:  "l",
+		Width: 1,
+		Style: uv.Style{Fg: red},
+	}
+
+	cm := New(emu, 10, 3, 0)
+	cm.cx = 2
+	cm.HandleInput([]byte{'v', 'l'})
+
+	cell := cm.CellAt(2, 0)
+	if cell.Style.Bg == nil {
+		t.Fatal("selected cell should have a selection background")
+	}
+	if cell.Style.Fg == nil {
+		t.Fatal("selected cell should preserve its foreground color")
+	}
+	assertSameColor(t, cell.Style.Fg, red)
+}
+
+func TestCellAt_PreservesScrollbackStyle(t *testing.T) {
+	t.Parallel()
+
+	emu := newFakeEmulator(10, 2)
+	emu.scrollback = []string{"older"}
+	emu.screen = []string{"live", "tail"}
+	blue := ansi.BasicColor(4)
+	emu.scrollCells[[2]int{1, 0}] = render.ScreenCell{
+		Char:  "l",
+		Width: 1,
+		Style: uv.Style{Fg: blue},
+	}
+
+	cm := New(emu, 10, 2, 1)
+	cm.HandleInput([]byte{'g'})
+
+	cell := cm.CellAt(1, 0)
+	if cell.Style.Fg == nil {
+		t.Fatal("scrollback cell should preserve its foreground color")
+	}
+	assertSameColor(t, cell.Style.Fg, blue)
+}
+
+func TestCellAt_NormalizesEmptyCharAndNegativeWidth(t *testing.T) {
+	t.Parallel()
+
+	emu := newFakeEmulator(10, 1)
+	emu.screen = []string{"x"}
+	emu.screenCells[[2]int{0, 0}] = render.ScreenCell{Char: "", Width: -1}
+
+	cm := New(emu, 10, 1, 0)
+	cell := cm.CellAt(0, 0)
+	if cell.Char != " " {
+		t.Fatalf("CellAt(0, 0).Char = %q, want space", cell.Char)
+	}
+	if cell.Width != 1 {
+		t.Fatalf("CellAt(0, 0).Width = %d, want 1", cell.Width)
+	}
+}
+
 func TestCellAt_SearchMatch(t *testing.T) {
 	t.Parallel()
 	emu := newFakeEmulator(20, 3)
@@ -893,6 +1076,24 @@ func TestCellAt_SearchMatch(t *testing.T) {
 	if noMatch.Style.Bg != nil {
 		t.Error("non-match cell should have nil Bg")
 	}
+}
+
+func assertSameColor(t *testing.T, got, want interface{ RGBA() (r, g, b, a uint32) }) {
+	t.Helper()
+	gotR, gotG, gotB, gotA := got.RGBA()
+	wantR, wantG, wantB, wantA := want.RGBA()
+	if gotR != wantR || gotG != wantG || gotB != wantB || gotA != wantA {
+		t.Fatalf("color = (%d,%d,%d,%d), want (%d,%d,%d,%d)",
+			gotR, gotG, gotB, gotA, wantR, wantG, wantB, wantA)
+	}
+}
+
+func replayViewport(rendered string, width, height int) *vt.SafeEmulator {
+	term := vt.NewSafeEmulator(width, height)
+	for row, line := range strings.Split(rendered, "\n") {
+		term.Write([]byte(fmt.Sprintf("\033[%d;1H%s", row+1, line)))
+	}
+	return term
 }
 
 // --- Vim motion tests (LAB-236) ---

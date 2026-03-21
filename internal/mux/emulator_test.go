@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/weill-labs/amux/internal/mouse"
 )
 
@@ -413,6 +414,38 @@ func TestScreenLineTextTrailingSpaces(t *testing.T) {
 	// Should not have trailing spaces (the remaining 75 columns)
 	if got != "hello" {
 		t.Errorf("ScreenLineText(0) = %q, want %q", got, "hello")
+	}
+}
+
+func TestScrollbackCellAt(t *testing.T) {
+	t.Parallel()
+
+	emu := NewVTEmulatorWithDrainAndScrollback(20, 1, 10)
+	if _, err := emu.Write([]byte("\033[31mred\033[0m\r\nnext")); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+
+	cell := emu.ScrollbackCellAt(0, 0)
+	if cell == nil {
+		t.Fatal("ScrollbackCellAt(0, 0) = nil, want styled cell")
+	}
+	if cell.Content != "r" {
+		t.Fatalf("ScrollbackCellAt(0, 0).Content = %q, want %q", cell.Content, "r")
+	}
+	if cell.Style.Fg == nil {
+		t.Fatal("ScrollbackCellAt(0, 0).Style.Fg = nil, want red")
+	}
+	gotR, gotG, gotB, gotA := cell.Style.Fg.RGBA()
+	wantR, wantG, wantB, wantA := ansi.BasicColor(1).RGBA()
+	if gotR != wantR || gotG != wantG || gotB != wantB || gotA != wantA {
+		t.Fatalf("ScrollbackCellAt(0, 0).Style.Fg = (%d,%d,%d,%d), want (%d,%d,%d,%d)",
+			gotR, gotG, gotB, gotA, wantR, wantG, wantB, wantA)
+	}
+	if got := emu.ScrollbackCellAt(99, 0); got != nil {
+		t.Fatalf("ScrollbackCellAt(99, 0) = %#v, want nil", got)
+	}
+	if got := emu.ScrollbackCellAt(-1, 0); got != nil {
+		t.Fatalf("ScrollbackCellAt(-1, 0) = %#v, want nil", got)
 	}
 }
 

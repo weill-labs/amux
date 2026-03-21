@@ -2,6 +2,7 @@ package client
 
 import (
 	"github.com/weill-labs/amux/internal/mux"
+	"github.com/weill-labs/amux/internal/render"
 )
 
 // historyEmulator presents retained server history plus post-attach emulator
@@ -18,6 +19,10 @@ func (h *historyEmulator) Size() (width, height int) {
 
 func (h *historyEmulator) ScreenLineText(y int) string {
 	return h.emu.ScreenLineText(y)
+}
+
+func (h *historyEmulator) ScreenCellAt(col, row int) render.ScreenCell {
+	return render.CellFromUV(h.emu.CellAt(col, row))
 }
 
 func (h *historyEmulator) ScrollbackLen() int {
@@ -37,6 +42,18 @@ func (h *historyEmulator) ScrollbackLineText(y int) string {
 	return h.emu.ScrollbackLineText(liveStart + y - baseLen)
 }
 
+func (h *historyEmulator) ScrollbackCellAt(col, row int) render.ScreenCell {
+	baseStart, liveStart := h.starts()
+	baseLen := len(h.baseHistory) - baseStart
+	if row < 0 {
+		return render.ScreenCell{Char: " ", Width: 1}
+	}
+	if row < baseLen {
+		return plainTextHistoryCell(h.baseHistory[baseStart+row], col)
+	}
+	return render.CellFromUV(h.emu.ScrollbackCellAt(col, liveStart+row-baseLen))
+}
+
 func (h *historyEmulator) starts() (baseStart, liveStart int) {
 	liveLen := h.emu.ScrollbackLen()
 	total := len(h.baseHistory) + liveLen
@@ -53,4 +70,12 @@ func (h *historyEmulator) starts() (baseStart, liveStart int) {
 		return len(h.baseHistory), drop - len(h.baseHistory)
 	}
 	return drop, 0
+}
+
+func plainTextHistoryCell(line string, col int) render.ScreenCell {
+	runes := []rune(line)
+	if col < 0 || col >= len(runes) {
+		return render.ScreenCell{Char: " ", Width: 1}
+	}
+	return render.ScreenCell{Char: string(runes[col]), Width: 1}
 }

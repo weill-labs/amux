@@ -45,6 +45,10 @@ type TerminalEmulator interface {
 	// ScrollbackLineText returns the plain text of scrollback line y (0=oldest).
 	ScrollbackLineText(y int) string
 
+	// ScrollbackCellAt returns the raw cell at (col, row) in retained
+	// scrollback (0=oldest row). Returns nil for out-of-bounds.
+	ScrollbackCellAt(col, row int) *uv.Cell
+
 	// RenderWithoutCursorBlock renders the screen with the cursor cell's
 	// reverse-video attribute cleared. Used for inactive pane rendering so
 	// app-drawn block cursors don't appear in unfocused panes.
@@ -231,6 +235,19 @@ func (v *vtEmulator) ScrollbackLineText(y int) string {
 		}
 	}
 	return buf.String()
+}
+
+func (v *vtEmulator) ScrollbackCellAt(col, row int) *uv.Cell {
+	sb := v.emu.Scrollback()
+	if sb == nil || row < 0 || row >= sb.Len() || col < 0 {
+		return nil
+	}
+	line := sb.Line(row)
+	if line == nil || col >= len(line) {
+		return nil
+	}
+	cell := line[col]
+	return &cell
 }
 
 // screenLineTextInner extracts plain text from screen row y across w columns.
