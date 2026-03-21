@@ -40,6 +40,9 @@ func (s *Session) captureHistory(cc *ClientConn, args []string) *Message {
 	pane := snap.pane
 	textSnap := pane.CaptureSnapshot()
 
+	// Gather fresh CWD for capture (pure getter, no mutation)
+	captureCwd, _ := pane.DetectCwdBranch()
+
 	capturePane := caputil.BuildPane(caputil.PaneInput{
 		ID:         pane.ID,
 		Name:       pane.Meta.Name,
@@ -50,6 +53,9 @@ func (s *Session) captureHistory(cc *ClientConn, args []string) *Message {
 		Task:       pane.Meta.Task,
 		Color:      pane.Meta.Color,
 		ConnStatus: pane.Meta.Remote,
+		Cwd:        captureCwd,
+		GitBranch:  pane.Meta.GitBranch,
+		PR:         pane.Meta.PR,
 		Cursor: proto.CaptureCursor{
 			Col:    textSnap.CursorCol,
 			Row:    textSnap.CursorRow,

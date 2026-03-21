@@ -443,6 +443,8 @@ func (r *Renderer) buildCapturePane(snap *rendererSnapshot, paneID uint32, agent
 		Task:       info.Task,
 		Color:      info.Color,
 		ConnStatus: info.ConnStatus,
+		GitBranch:  info.GitBranch,
+		PR:         info.PR,
 		Cursor: proto.CaptureCursor{
 			Col:    col,
 			Row:    row,
