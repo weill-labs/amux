@@ -776,9 +776,6 @@ func (cm *CopyMode) runSearch(directions ...bool) {
 
 	queryRunes := []rune(strings.ToLower(cm.searchQuery))
 	queryLen := len(queryRunes)
-	if queryLen == 0 {
-		return
-	}
 	total := cm.TotalLines()
 
 	for i := 0; i < total; i++ {
@@ -825,9 +822,6 @@ func (cm *CopyMode) runSearch(directions ...bool) {
 }
 
 func runeSliceHasPrefix(line, query []rune) bool {
-	if len(query) > len(line) {
-		return false
-	}
 	for i := range query {
 		if line[i] != query[i] {
 			return false
