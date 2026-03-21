@@ -1123,6 +1123,60 @@ func TestRenderCoalescedDoesNotPrioritizeBackgroundPaneAfterLocalInput(t *testin
 	<-done
 }
 
+func TestClientRenderLoopStateShouldRenderNowReturnsFalseWithPendingTimer(t *testing.T) {
+	t.Parallel()
+
+	timer := time.NewTimer(time.Hour)
+	defer timer.Stop()
+
+	state := clientRenderLoopState{
+		renderTimer: timer,
+		renderC:     timer.C,
+	}
+	if state.shouldRenderNow() {
+		t.Fatal("shouldRenderNow() = true, want false when a timer is already pending")
+	}
+}
+
+func TestClientRenderLoopStateScheduleRenderDoesNotReplacePendingTimer(t *testing.T) {
+	t.Parallel()
+
+	timer := time.NewTimer(time.Hour)
+	defer timer.Stop()
+
+	state := clientRenderLoopState{
+		renderTimer: timer,
+		renderC:     timer.C,
+	}
+	state.scheduleRender()
+
+	if state.renderTimer != timer {
+		t.Fatal("scheduleRender replaced an existing timer")
+	}
+	if state.renderC != timer.C {
+		t.Fatal("scheduleRender replaced an existing timer channel")
+	}
+}
+
+func TestClientRenderLoopStateScheduleRenderClampsPastDueDelayToZero(t *testing.T) {
+	// Cannot use t.Parallel — mutates renderFrameInterval.
+	prevInterval := renderFrameInterval
+	renderFrameInterval = 100 * time.Millisecond
+	defer func() { renderFrameInterval = prevInterval }()
+
+	state := clientRenderLoopState{
+		lastRender: time.Now().Add(-2 * renderFrameInterval),
+	}
+	state.scheduleRender()
+	defer state.stopScheduledRender()
+
+	select {
+	case <-state.renderC:
+	case <-time.After(20 * time.Millisecond):
+		t.Fatal("scheduleRender did not fire immediately for an overdue render")
+	}
+}
+
 func TestDisplayPanesOverlayDisplayOnly(t *testing.T) {
 	t.Parallel()
 
