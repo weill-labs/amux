@@ -1,6 +1,7 @@
 package test
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -66,6 +67,40 @@ for i in $(seq -w 1 50); do echo "SCROLLTEST-$i"; done
 
 	// Exit copy mode
 	h.sendKeys("q")
+}
+
+func TestCopyModeKittyCtrlUDHalfPageScroll(t *testing.T) {
+	t.Parallel()
+	h := newAmuxHarness(t)
+
+	h.runCmd("resize-window", "80", "14")
+
+	scriptPath := filepath.Join(os.TempDir(), fmt.Sprintf("amux-kitty-half-page-%s.sh", h.session))
+	os.WriteFile(scriptPath, []byte(`#!/bin/bash
+for i in $(seq -w 1 40); do echo "KITTYHALF-$i"; done
+`), 0755)
+	t.Cleanup(func() { os.Remove(scriptPath) })
+
+	h.sendKeys(scriptPath, "Enter")
+	if !h.waitFor("KITTYHALF-40", 5*time.Second) {
+		t.Fatalf("expected KITTYHALF-40 in output\nScreen:\n%s", h.captureOuter())
+	}
+
+	h.sendKeys("C-a", "[")
+	h.waitUI(proto.UIEventCopyModeShown, 3*time.Second)
+
+	h.sendKeysHex(bytes.Repeat([]byte("\x1b[21;5u"), 10))
+	if !h.waitFor("KITTYHALF-01", 3*time.Second) {
+		t.Fatalf("expected KITTYHALF-01 after kitty Ctrl-u scrolls up\nScreen:\n%s", h.captureOuter())
+	}
+
+	h.sendKeysHex(bytes.Repeat([]byte("\x1b[4;5u"), 10))
+	if !h.waitFor("KITTYHALF-40", 3*time.Second) {
+		t.Fatalf("expected KITTYHALF-40 after kitty Ctrl-d scrolls down\nScreen:\n%s", h.captureOuter())
+	}
+
+	h.sendKeys("q")
+	h.waitUI(proto.UIEventCopyModeHidden, 3*time.Second)
 }
 
 func TestCopyModeSearch(t *testing.T) {
