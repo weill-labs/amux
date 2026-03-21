@@ -21,13 +21,14 @@ import (
 // CLI commands are synchronous: after runCmd("split") returns, capture()
 // immediately reflects the split. Zero polling, zero time.Sleep.
 type ServerHarness struct {
-	tb       testing.TB
-	session  string
-	cmd      *exec.Cmd
-	home     string
-	coverDir string // per-test GOCOVERDIR subdirectory (avoids coverage metadata races)
-	extraEnv []string
-	client   *headlessClient // attached headless client for capture
+	tb           testing.TB
+	session      string
+	cmd          *exec.Cmd
+	home         string
+	coverDir     string // per-test GOCOVERDIR subdirectory (avoids coverage metadata races)
+	extraEnv     []string
+	client       *headlessClient // attached headless client for capture
+	shutdownPipe *os.File
 }
 
 // newServerHarnessWithSize starts a server harness with a custom terminal size.
@@ -70,17 +71,23 @@ func newServerHarnessWithOptions(tb testing.TB, cols, rows int, configContent st
 	rand.Read(b[:])
 	session := fmt.Sprintf("t-%x", b)
 
-	// Create pipe for the server's ready signal.
+	// Create pipes for deterministic startup and clean-shutdown signals.
 	readPipe, writePipe, err := os.Pipe()
 	if err != nil {
 		tb.Fatalf("creating ready pipe: %v", err)
 	}
+	shutdownReadPipe, shutdownWritePipe, err := os.Pipe()
+	if err != nil {
+		readPipe.Close()
+		writePipe.Close()
+		tb.Fatalf("creating shutdown pipe: %v", err)
+	}
 
 	cmd := exec.Command(amuxBin, "_server", session)
-	cmd.ExtraFiles = []*os.File{writePipe} // fd 3 in child
+	cmd.ExtraFiles = []*os.File{writePipe, shutdownWritePipe} // fds 3 and 4 in child
 	home := newTestHome(tb)
 	env := upsertEnv(os.Environ(), "HOME", home)
-	env = append(env, "AMUX_READY_FD=3", "AMUX_NO_WATCH=1")
+	env = append(env, "AMUX_READY_FD=3", "AMUX_SHUTDOWN_FD=4", "AMUX_NO_WATCH=1")
 	if exitUnattached {
 		env = append(env, "AMUX_EXIT_UNATTACHED=1")
 	}
@@ -122,9 +129,12 @@ func newServerHarnessWithOptions(tb testing.TB, cols, rows int, configContent st
 		logFile.Close()
 		readPipe.Close()
 		writePipe.Close()
+		shutdownReadPipe.Close()
+		shutdownWritePipe.Close()
 		tb.Fatalf("starting server: %v", err)
 	}
 	writePipe.Close() // close write end in parent
+	shutdownWritePipe.Close()
 	logFile.Close()
 
 	// Block until server signals readiness (after net.Listen succeeds).
@@ -134,10 +144,19 @@ func newServerHarnessWithOptions(tb testing.TB, cols, rows int, configContent st
 	readPipe.Close()
 	if err != nil || !strings.Contains(string(buf[:n]), "ready") {
 		cmd.Process.Kill()
+		shutdownReadPipe.Close()
 		tb.Fatalf("server ready signal not received: err=%v, buf=%q", err, string(buf[:n]))
 	}
 
-	h := &ServerHarness{tb: tb, session: session, cmd: cmd, home: home, coverDir: coverDir, extraEnv: append([]string(nil), extraEnv...)}
+	h := &ServerHarness{
+		tb:           tb,
+		session:      session,
+		cmd:          cmd,
+		home:         home,
+		coverDir:     coverDir,
+		extraEnv:     append([]string(nil), extraEnv...),
+		shutdownPipe: shutdownReadPipe,
+	}
 	tb.Cleanup(h.cleanup)
 
 	// Attach a headless client — seeds the first pane and stays connected
@@ -172,6 +191,10 @@ func (h *ServerHarness) cleanup() {
 			h.cmd.Process.Kill()
 		}
 	}
+	if h.shutdownPipe != nil {
+		h.shutdownPipe.Close()
+		h.shutdownPipe = nil
+	}
 	socketDir := server.SocketDir()
 	os.Remove(filepath.Join(socketDir, h.session))
 	os.Remove(filepath.Join(socketDir, h.session+".log"))
@@ -202,6 +225,21 @@ func (h *ServerHarness) runCmd(args ...string) string {
 func (h *ServerHarness) crashCheckpointPath() string {
 	h.tb.Helper()
 	return filepath.Join(h.home, ".local", "state", "amux", h.session+".json")
+}
+
+func (h *ServerHarness) waitForShutdownSignal(timeout time.Duration) {
+	h.tb.Helper()
+	if h.shutdownPipe == nil {
+		h.tb.Fatal("shutdown signal pipe not configured")
+	}
+	h.shutdownPipe.SetReadDeadline(time.Now().Add(timeout))
+	buf := make([]byte, 64)
+	n, err := h.shutdownPipe.Read(buf)
+	h.shutdownPipe.Close()
+	h.shutdownPipe = nil
+	if err != nil || !strings.Contains(string(buf[:n]), "shutdown") {
+		h.tb.Fatalf("server shutdown signal not received: err=%v, buf=%q", err, string(buf[:n]))
+	}
 }
 
 // capture returns the server-side composited screen (plain text 2D grid).

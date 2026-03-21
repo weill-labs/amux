@@ -408,6 +408,30 @@ Keybindings are configurable via ~/.config/amux/config.toml (or AMUX_CONFIG env 
 See https://github.com/weill-labs/amux for config format.`)
 }
 
+func openSignalFD(envVar, name string) *os.File {
+	fdStr := os.Getenv(envVar)
+	if fdStr == "" {
+		return nil
+	}
+	os.Unsetenv(envVar)
+	fd, err := strconv.Atoi(fdStr)
+	if err != nil {
+		return nil
+	}
+	return os.NewFile(uintptr(fd), name)
+}
+
+func writeSignalFD(f **os.File, msg string) {
+	if *f == nil {
+		return
+	}
+	if msg != "" {
+		_, _ = (*f).Write([]byte(msg))
+	}
+	(*f).Close()
+	*f = nil
+}
+
 // ---------------------------------------------------------------------------
 // Built-in multiplexer: server daemon
 // ---------------------------------------------------------------------------
@@ -475,6 +499,10 @@ func runServer(sessionName string, managedTakeover bool) {
 	// them. Values are re-exported in Reload() before syscall.Exec.
 	// Must be set before event loops can observe Env (e.g., exit-unattached).
 	s.Env = server.ReadServerEnv()
+	readySignal := openSignalFD("AMUX_READY_FD", "ready-signal")
+	shutdownSignal := openSignalFD("AMUX_SHUTDOWN_FD", "shutdown-signal")
+	defer writeSignalFD(&readySignal, "")
+	defer writeSignalFD(&shutdownSignal, "")
 
 	if managedTakeover {
 		if err := s.EnsureInitialWindow(server.DefaultTermCols, server.DefaultTermRows); err != nil {
@@ -513,34 +541,21 @@ func runServer(sessionName string, managedTakeover bool) {
 		runErr <- s.Run()
 	}()
 
-	// Signal readiness on the fd specified by AMUX_READY_FD (used by
-	// test harness for deterministic startup without polling).
-	// The accept loop is already running here, so a ready signal now means
-	// clients can attach immediately instead of racing server startup.
-	// Unset immediately so child processes (pane shells, inner amux)
-	// don't inherit it and accidentally close an unrelated fd.
-	if fdStr := os.Getenv("AMUX_READY_FD"); fdStr != "" {
-		os.Unsetenv("AMUX_READY_FD")
-		if fd, err := strconv.Atoi(fdStr); err == nil {
-			if ready := os.NewFile(uintptr(fd), "ready-signal"); ready != nil {
-				ready.Write([]byte("ready\n"))
-				ready.Close()
-			}
-		}
-	}
+	// Signal readiness after the accept loop starts so tests can attach
+	// deterministically without racing startup.
+	writeSignalFD(&readySignal, "ready\n")
 
-	if err := <-runErr; err != nil {
+	runResult := <-runErr
+	s.Shutdown()
+	writeSignalFD(&shutdownSignal, "shutdown\n")
+
+	if runResult != nil {
 		// listener closed is expected on shutdown
-		if !strings.Contains(err.Error(), "use of closed") {
-			fmt.Fprintf(os.Stderr, "amux server: %v\n", err)
+		if !strings.Contains(runResult.Error(), "use of closed") {
+			fmt.Fprintf(os.Stderr, "amux server: %v\n", runResult)
 			os.Exit(1)
 		}
 	}
-
-	// Ensure cleanup runs regardless of what closed the listener (signal,
-	// exit-unattached, etc.). Shutdown is idempotent: if the signal
-	// goroutine already called it, this is a no-op.
-	s.Shutdown()
 }
 
 // ---------------------------------------------------------------------------

@@ -290,6 +290,11 @@ type Server struct {
 	sessions map[string]*Session
 	sockPath string
 
+	// Shutdown is serialized with atomics so concurrent callers all observe
+	// one cleanup pass and later callers can wait for completion.
+	shutdownState atomic.Uint32
+	shutdownDone  chan struct{}
+
 	// attachBootstrapHook is a test-only hook invoked after the initial
 	// attach replay is sent but before bootstrap flushes queued messages.
 	attachBootstrapHook func()
@@ -355,9 +360,10 @@ func NewServerWithScrollback(sessionName string, scrollbackLines int) (*Server, 
 	sess := newSessionWithScrollback(sessionName, scrollbackLines)
 
 	s := &Server{
-		listener: listener,
-		sessions: map[string]*Session{sessionName: sess},
-		sockPath: sockPath,
+		listener:     listener,
+		sessions:     map[string]*Session{sessionName: sess},
+		sockPath:     sockPath,
+		shutdownDone: make(chan struct{}),
 	}
 	sess.exitServer = s
 
@@ -388,9 +394,10 @@ func NewServerFromCrashCheckpointWithScrollback(sessionName string, cp *checkpoi
 	sess.generation.Store(cp.Generation)
 
 	s := &Server{
-		listener: listener,
-		sessions: map[string]*Session{sessionName: sess},
-		sockPath: sockPath,
+		listener:     listener,
+		sessions:     map[string]*Session{sessionName: sess},
+		sockPath:     sockPath,
+		shutdownDone: make(chan struct{}),
 	}
 	sess.exitServer = s
 
@@ -495,8 +502,34 @@ func (s *Server) Run() error {
 	}
 }
 
-// Shutdown cleans up the server socket, remote connections, and panes.
 func (s *Server) Shutdown() {
+	if s == nil {
+		return
+	}
+	for {
+		switch s.shutdownState.Load() {
+		case 0:
+			if s.shutdownState.CompareAndSwap(0, 1) {
+				s.shutdown()
+				s.shutdownState.Store(2)
+				if s.shutdownDone != nil {
+					close(s.shutdownDone)
+				}
+				return
+			}
+		case 1:
+			if s.shutdownDone != nil {
+				<-s.shutdownDone
+			}
+			return
+		case 2:
+			return
+		}
+	}
+}
+
+// shutdown cleans up the server socket, remote connections, and panes.
+func (s *Server) shutdown() {
 	s.listener.Close()
 	os.Remove(s.sockPath)
 

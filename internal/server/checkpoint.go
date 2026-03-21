@@ -145,9 +145,10 @@ func NewServerFromCheckpointWithScrollback(cp *checkpoint.ServerCheckpoint, scro
 	sess.generation.Store(cp.Generation)
 
 	s := &Server{
-		listener: listener,
-		sessions: map[string]*Session{cp.SessionName: sess},
-		sockPath: SocketPath(cp.SessionName),
+		listener:     listener,
+		sessions:     map[string]*Session{cp.SessionName: sess},
+		sockPath:     SocketPath(cp.SessionName),
+		shutdownDone: make(chan struct{}),
 	}
 	sess.exitServer = s
 

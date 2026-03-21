@@ -105,7 +105,7 @@ func TestCrashRecovery_LayoutRestored(t *testing.T) {
 	}
 }
 
-// TestCrashRecovery_CleanShutdown verifies that a clean SIGTERM shutdown
+// TestCrashRecovery_CleanShutdown verifies that a clean shutdown
 // removes the crash checkpoint file (no stale checkpoint left behind).
 func TestCrashRecovery_CleanShutdown(t *testing.T) {
 	t.Parallel()
@@ -124,14 +124,14 @@ func TestCrashRecovery_CleanShutdown(t *testing.T) {
 		t.Fatalf("checkpoint should exist: %v", err)
 	}
 
-	// Clean shutdown (SIGTERM) — handled by harness cleanup
-	// The test cleanup sends SIGTERM, which calls Shutdown(), which removes the checkpoint.
-	// We trigger it manually here to verify.
+	// Trigger a clean shutdown explicitly and wait for the server's
+	// shutdown-complete signal before asserting on filesystem cleanup.
 	if h.client != nil {
 		h.client.close()
 		h.client = nil
 	}
 	h.cmd.Process.Signal(os.Interrupt)
+	h.waitForShutdownSignal(5 * time.Second)
 	done := make(chan struct{})
 	go func() {
 		h.cmd.Wait()
@@ -146,7 +146,9 @@ func TestCrashRecovery_CleanShutdown(t *testing.T) {
 	h.cmd = nil // prevent double cleanup
 
 	// Verify checkpoint file was removed
-	waitForCrashCheckpointRemoved(t, cpPath, 5*time.Second)
+	if _, err := os.Stat(cpPath); !os.IsNotExist(err) {
+		t.Fatalf("crash checkpoint %s should be removed after clean shutdown, err=%v", cpPath, err)
+	}
 }
 
 // TestCrashRecovery_CheckpointIsValidJSON verifies the crash checkpoint file
@@ -380,23 +382,6 @@ func waitForCrashCheckpointMatch(t *testing.T, path string, timeout time.Duratio
 	return checkpoint.CrashCheckpoint{}
 }
 
-func waitForCrashCheckpointRemoved(t *testing.T, path string, timeout time.Duration) {
-	t.Helper()
-
-	deadline := time.Now().Add(timeout)
-	ticker := time.NewTicker(25 * time.Millisecond)
-	defer ticker.Stop()
-	for time.Now().Before(deadline) {
-		if _, err := os.Stat(path); os.IsNotExist(err) {
-			return
-		}
-		<-ticker.C
-	}
-	if _, err := os.Stat(path); !os.IsNotExist(err) {
-		t.Fatalf("crash checkpoint %s was not removed within %v, err=%v", path, timeout, err)
-	}
-}
-
 func waitForHistoryCaptureContains(t *testing.T, h *ServerHarness, pane, substr string, timeout time.Duration) string {
 	t.Helper()
 
@@ -528,16 +513,22 @@ func waitForFreshCrashCheckpoint(t *testing.T, path string, prev checkpoint.Cras
 func startServerForSession(t *testing.T, session, home string) *ServerHarness {
 	t.Helper()
 
-	// Create pipe for the server's ready signal.
+	// Create pipes for deterministic startup and clean-shutdown signals.
 	readPipe, writePipe, err := os.Pipe()
 	if err != nil {
 		t.Fatalf("creating ready pipe: %v", err)
 	}
+	shutdownReadPipe, shutdownWritePipe, err := os.Pipe()
+	if err != nil {
+		readPipe.Close()
+		writePipe.Close()
+		t.Fatalf("creating shutdown pipe: %v", err)
+	}
 
 	cmd := exec.Command(amuxBin, "_server", session)
-	cmd.ExtraFiles = []*os.File{writePipe}
+	cmd.ExtraFiles = []*os.File{writePipe, shutdownWritePipe}
 	env := upsertEnv(os.Environ(), "HOME", home)
-	env = append(env, "AMUX_READY_FD=3", "AMUX_NO_WATCH=1", "AMUX_EXIT_UNATTACHED=1")
+	env = append(env, "AMUX_READY_FD=3", "AMUX_SHUTDOWN_FD=4", "AMUX_NO_WATCH=1", "AMUX_EXIT_UNATTACHED=1")
 
 	// Per-test cover dir
 	var coverDir string
@@ -564,9 +555,12 @@ func startServerForSession(t *testing.T, session, home string) *ServerHarness {
 		logFile.Close()
 		readPipe.Close()
 		writePipe.Close()
+		shutdownReadPipe.Close()
+		shutdownWritePipe.Close()
 		t.Fatalf("starting recovered server: %v", err)
 	}
 	writePipe.Close()
+	shutdownWritePipe.Close()
 	logFile.Close()
 
 	readPipe.SetReadDeadline(time.Now().Add(10 * time.Second))
@@ -575,12 +569,13 @@ func startServerForSession(t *testing.T, session, home string) *ServerHarness {
 	readPipe.Close()
 	if err != nil || !strings.Contains(string(buf[:n]), "ready") {
 		cmd.Process.Kill()
+		shutdownReadPipe.Close()
 		// Print server log for debugging
 		logData, _ := os.ReadFile(logPath)
 		t.Fatalf("recovered server ready signal not received: err=%v, buf=%q\nserver log:\n%s", err, string(buf[:n]), string(logData))
 	}
 
-	h := &ServerHarness{tb: t, session: session, cmd: cmd, home: home, coverDir: coverDir}
+	h := &ServerHarness{tb: t, session: session, cmd: cmd, home: home, coverDir: coverDir, shutdownPipe: shutdownReadPipe}
 	t.Cleanup(h.cleanup)
 
 	// Attach headless client
