@@ -194,6 +194,18 @@ func (w *clientWriter) sendBroadcast(msg *Message) {
 	}
 }
 
+func (w *clientWriter) sendBroadcastSync(msg *Message) {
+	if w == nil {
+		return
+	}
+	reply := make(chan struct{}, 1)
+	if !w.enqueueAsync(clientWriterBroadcastCommand{msg: msg, reply: reply}) {
+		w.dropSlowClient()
+		return
+	}
+	<-reply
+}
+
 func (w *clientWriter) sendPaneOutput(msg *Message, paneID uint32, seq uint64) {
 	if w == nil {
 		return
