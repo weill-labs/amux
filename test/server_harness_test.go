@@ -223,11 +223,6 @@ func (h *ServerHarness) runCmd(args ...string) string {
 	return string(out)
 }
 
-func (h *ServerHarness) crashCheckpointPath() string {
-	h.tb.Helper()
-	return filepath.Join(h.home, ".local", "state", "amux", h.session+".json")
-}
-
 func (h *ServerHarness) waitForShutdownSignal(timeout time.Duration) {
 	h.tb.Helper()
 	if h.shutdownPipe == nil {

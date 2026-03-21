@@ -46,7 +46,7 @@ func TestCrashRecovery_LayoutRestored(t *testing.T) {
 	preWindowName := preJSON.Window.Name
 	preNames := paneNames(preJSON)
 
-	cpPath := h.crashCheckpointPath()
+	cpPath := waitForCrashCheckpointPath(t, h.home, h.session, 5*time.Second)
 	_ = waitForCrashCheckpointMatch(t, cpPath, 5*time.Second, "checkpoint with split layout and renamed window", func(cp checkpoint.CrashCheckpoint) bool {
 		return crashCheckpointWindowName(cp) == preWindowName &&
 			len(cp.PaneStates) == prePaneCount &&
@@ -99,7 +99,8 @@ func TestCrashRecovery_LayoutRestored(t *testing.T) {
 	// durable invariant is that recovery replaces the stale checkpoint with a
 	// fresh one from the recovered session rather than relying on the pre-crash
 	// file indefinitely.
-	postCrashCP := waitForFreshCrashCheckpoint(t, cpPath, preCrashCP, 5*time.Second)
+	recoveredPath := crashCheckpointPathTimestamped(h.home, h.session, preCrashCP.Timestamp)
+	postCrashCP := waitForFreshCrashCheckpoint(t, recoveredPath, preCrashCP, 5*time.Second)
 	if postCrashCP.SessionName != h.session {
 		t.Errorf("refreshed crash checkpoint session = %q, want %q", postCrashCP.SessionName, h.session)
 	}
@@ -116,8 +117,7 @@ func TestCrashRecovery_CleanShutdown(t *testing.T) {
 	h.splitV()
 
 	// Wait for crash checkpoint to appear
-	cpPath := h.crashCheckpointPath()
-	waitForCrashCheckpoint(t, cpPath, 5*time.Second)
+	cpPath := waitForCrashCheckpointPath(t, h.home, h.session, 5*time.Second)
 
 	// Verify checkpoint exists
 	if _, err := os.Stat(cpPath); err != nil {
@@ -159,8 +159,7 @@ func TestCrashRecovery_CheckpointIsValidJSON(t *testing.T) {
 	h := newServerHarness(t)
 	h.splitV()
 
-	cpPath := h.crashCheckpointPath()
-	waitForCrashCheckpoint(t, cpPath, 5*time.Second)
+	cpPath := waitForCrashCheckpointPath(t, h.home, h.session, 5*time.Second)
 
 	data, err := os.ReadFile(cpPath)
 	if err != nil {
@@ -196,7 +195,7 @@ func TestCrashRecovery_FocusUpFromRestoredFullWidthBottomPane(t *testing.T) {
 	h.doSplit("root")
 	h.assertActive("pane-10")
 
-	cpPath := h.crashCheckpointPath()
+	cpPath := waitForCrashCheckpointPath(t, h.home, h.session, 5*time.Second)
 	_ = waitForCrashCheckpointMatch(t, cpPath, 5*time.Second, "checkpoint with pane-10 active", func(cp checkpoint.CrashCheckpoint) bool {
 		return len(cp.PaneStates) == 10 &&
 			crashCheckpointPaneNamed(cp, "pane-10") &&
@@ -224,8 +223,7 @@ func TestCrashRecovery_PreservesHistoryCapture(t *testing.T) {
 	t.Parallel()
 
 	h := newServerHarnessPersistent(t)
-	cpPath := h.crashCheckpointPath()
-	waitForCrashCheckpoint(t, cpPath, 5*time.Second)
+	cpPath := waitForCrashCheckpointPath(t, h.home, h.session, 5*time.Second)
 	preCrashCP := readCrashCheckpoint(t, cpPath)
 
 	scriptPath := filepath.Join(os.TempDir(), fmt.Sprintf("amux-crash-history-%s.sh", h.session))
@@ -262,7 +260,7 @@ func TestCrashRecovery_ReplaysVisibleScreenForIdleShellPane(t *testing.T) {
 	t.Parallel()
 
 	h := newServerHarnessPersistent(t)
-	cpPath := h.crashCheckpointPath()
+	cpPath := waitForCrashCheckpointPath(t, h.home, h.session, 5*time.Second)
 
 	h.sendKeys("pane-1", `printf 'IDLE_SCREEN_MARKER\n'`, "Enter")
 	h.waitFor("pane-1", "IDLE_SCREEN_MARKER")
@@ -290,7 +288,7 @@ func TestCrashRecovery_BusyPaneShowsRecoveryNoticeInsteadOfReplayingStaleScreen(
 	t.Parallel()
 
 	h := newServerHarnessPersistent(t)
-	cpPath := h.crashCheckpointPath()
+	cpPath := waitForCrashCheckpointPath(t, h.home, h.session, 5*time.Second)
 
 	h.sendKeys("pane-1", `printf '\033[2J\033[HCRASH_BUSY_FRAME\n'; while true; do sleep 1; printf '\033[0m'; done`, "Enter")
 	h.waitFor("pane-1", "CRASH_BUSY_FRAME")
@@ -343,22 +341,47 @@ func makeThreeByThreeGridServer(t *testing.T, h *ServerHarness) {
 // Helpers
 // ---------------------------------------------------------------------------
 
-// waitForCrashCheckpoint polls until the crash checkpoint file exists.
-// Crash checkpoint tests share a single state directory across parallel runs,
-// so plain polling is more reliable here than fsnotify.
-func waitForCrashCheckpoint(t *testing.T, path string, timeout time.Duration) {
+// waitForCrashCheckpointPath polls until the newest crash checkpoint path for
+// the session appears. Crash checkpoint tests share a single state directory
+// across parallel runs, so plain polling is more reliable here than fsnotify.
+func waitForCrashCheckpointPath(t *testing.T, home, session string, timeout time.Duration) string {
 	t.Helper()
 
+	checkpointDir := filepath.Join(home, ".local", "state", "amux")
+	suffix := "_" + session + ".json"
 	deadline := time.Now().Add(timeout)
 	ticker := time.NewTicker(50 * time.Millisecond)
 	defer ticker.Stop()
 	for time.Now().Before(deadline) {
-		if _, err := os.Stat(path); err == nil {
-			return
+		entries, err := os.ReadDir(checkpointDir)
+		if err == nil {
+			var newest string
+			for _, entry := range entries {
+				if entry.IsDir() {
+					continue
+				}
+				name := entry.Name()
+				if !strings.HasSuffix(name, suffix) {
+					continue
+				}
+				path := filepath.Join(checkpointDir, name)
+				if newest == "" || path > newest {
+					newest = path
+				}
+			}
+			if newest != "" {
+				return newest
+			}
 		}
 		<-ticker.C
 	}
-	t.Fatalf("crash checkpoint %s did not appear within %v", path, timeout)
+
+	t.Fatalf("crash checkpoint for session %s in %s did not appear within %v", session, checkpointDir, timeout)
+	return ""
+}
+
+func crashCheckpointPathTimestamped(home, session string, startTime time.Time) string {
+	return filepath.Join(home, ".local", "state", "amux", startTime.Format("20060102-150405")+"_"+session+".json")
 }
 
 func waitForCrashCheckpointMatch(t *testing.T, path string, timeout time.Duration, desc string, match func(cp checkpoint.CrashCheckpoint) bool) checkpoint.CrashCheckpoint {

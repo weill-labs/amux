@@ -60,6 +60,7 @@ func TestNewServerFromCheckpointWithScrollbackRefreshesInputTarget(t *testing.T)
 
 func TestNewServerFromCrashCheckpointWithScrollbackRefreshesInputTarget(t *testing.T) {
 	sessionName := fmt.Sprintf("crash-input-target-%d", time.Now().UnixNano())
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	pane, layout := restoreTestLayout()
 	cp := &ckpt.CrashCheckpoint{
 		Version:       ckpt.CrashVersion,
@@ -77,13 +78,18 @@ func TestNewServerFromCrashCheckpointWithScrollbackRefreshesInputTarget(t *testi
 		Timestamp: time.Now(),
 	}
 
-	srv, err := NewServerFromCrashCheckpointWithScrollback(sessionName, cp, mux.DefaultScrollbackLines)
+	crashPath := ckpt.CrashCheckpointPathTimestamped(sessionName, cp.Timestamp)
+	srv, err := NewServerFromCrashCheckpointWithScrollback(sessionName, cp, crashPath, mux.DefaultScrollbackLines)
 	if err != nil {
 		t.Fatalf("NewServerFromCrashCheckpointWithScrollback: %v", err)
 	}
 	defer srv.Shutdown()
 
-	assertSessionInputTarget(t, srv.firstSession(), pane.ID)
+	sess := srv.firstSession()
+	assertSessionInputTarget(t, sess, pane.ID)
+	if !sess.startedAt.Equal(cp.Timestamp) {
+		t.Fatalf("session startedAt = %v, want %v", sess.startedAt, cp.Timestamp)
+	}
 }
 
 func restoreTestLayout() (*mux.Pane, proto.LayoutSnapshot) {

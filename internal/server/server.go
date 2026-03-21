@@ -34,6 +34,7 @@ const WindowNameFormat = "window-%d"
 // Session holds the state for one amux session.
 type Session struct {
 	Name           string
+	startedAt      time.Time
 	Windows        []*mux.Window // ordered list of windows
 	ActiveWindowID uint32        // which window is displayed
 	Panes          []*mux.Pane   // flat list of ALL panes across all windows
@@ -260,7 +261,7 @@ func (s *Session) writeCrashCheckpoint() {
 	if cp == nil {
 		return
 	}
-	if err := checkpoint.WriteCrash(cp, s.Name); err != nil {
+	if err := checkpoint.WriteCrash(cp, s.Name, s.startedAt); err != nil {
 		fmt.Fprintf(os.Stderr, "amux: crash checkpoint write: %v\n", err)
 	}
 }
@@ -321,7 +322,11 @@ func SocketPath(session string) string {
 }
 
 func newSessionWithScrollback(name string, scrollbackLines int) *Session {
-	sess := &Session{Name: name, scrollbackLines: scrollbackLines}
+	sess := &Session{
+		Name:            name,
+		startedAt:       time.Now(),
+		scrollbackLines: scrollbackLines,
+	}
 	sess.Hooks = hooks.NewRegistry()
 	sess.idle = NewIdleTracker()
 	sess.takenOverPanes = make(map[uint32]bool)
@@ -374,7 +379,7 @@ func NewServerWithScrollback(sessionName string, scrollbackLines int) (*Server, 
 
 // NewServerFromCrashCheckpointWithScrollback restores a server from a crash
 // checkpoint with an explicit retained scrollback limit.
-func NewServerFromCrashCheckpointWithScrollback(sessionName string, cp *checkpoint.CrashCheckpoint, scrollbackLines int) (*Server, error) {
+func NewServerFromCrashCheckpointWithScrollback(sessionName string, cp *checkpoint.CrashCheckpoint, crashPath string, scrollbackLines int) (*Server, error) {
 	sockDir := SocketDir()
 	if err := os.MkdirAll(sockDir, 0700); err != nil {
 		return nil, fmt.Errorf("creating socket dir: %w", err)
@@ -391,6 +396,7 @@ func NewServerFromCrashCheckpointWithScrollback(sessionName string, cp *checkpoi
 	os.Chmod(sockPath, 0700)
 
 	sess := newSessionWithScrollback(sessionName, scrollbackLines)
+	sess.startedAt = cp.Timestamp
 	sess.counter.Store(cp.Counter)
 	sess.windowCounter.Store(cp.WindowCounter)
 	sess.generation.Store(cp.Generation)
@@ -482,7 +488,7 @@ func NewServerFromCrashCheckpointWithScrollback(sessionName string, cp *checkpoi
 	}
 
 	// Remove crash checkpoint — recovery is complete
-	checkpoint.RemoveCrash(sessionName)
+	_ = checkpoint.RemoveCrashFile(crashPath)
 
 	return s, nil
 }
@@ -556,7 +562,7 @@ func (s *Server) shutdown() {
 		}
 
 		// Clean shutdown: remove crash checkpoint (no recovery needed)
-		checkpoint.RemoveCrash(sess.Name)
+		_ = checkpoint.RemoveCrashFile(checkpoint.CrashCheckpointPathTimestamped(sess.Name, sess.startedAt))
 
 		if sess.RemoteManager != nil {
 			sess.RemoteManager.Shutdown()

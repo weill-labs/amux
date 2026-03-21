@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -8,6 +9,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/weill-labs/amux/internal/checkpoint"
 )
 
 func cleanStaleSocketsIn(dir string) {
@@ -157,5 +160,29 @@ func TestEnsureDaemonStartsServerOnceUnderConcurrency(t *testing.T) {
 	}
 	if got := starts.Load(); got != 1 {
 		t.Fatalf("startDaemon called %d times, want 1", got)
+	}
+}
+
+func TestDetectCrashedSessionReturnsNewestCheckpoint(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+
+	session := fmt.Sprintf("detect-crashed-%d", time.Now().UnixNano())
+	socketPath := SocketPath(session)
+	_ = os.Remove(socketPath)
+	t.Cleanup(func() { _ = os.Remove(socketPath) })
+
+	older := checkpoint.CrashCheckpointPathTimestamped(session, time.Date(2026, time.March, 21, 12, 34, 55, 0, time.UTC))
+	newer := checkpoint.CrashCheckpointPathTimestamped(session, time.Date(2026, time.March, 21, 12, 34, 56, 0, time.UTC))
+	for _, path := range []string{older, newer} {
+		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+			t.Fatalf("MkdirAll(%q): %v", filepath.Dir(path), err)
+		}
+		if err := os.WriteFile(path, []byte("{}"), 0600); err != nil {
+			t.Fatalf("WriteFile(%q): %v", path, err)
+		}
+	}
+
+	if got := DetectCrashedSession(session); got != newer {
+		t.Fatalf("DetectCrashedSession() = %q, want %q", got, newer)
 	}
 }

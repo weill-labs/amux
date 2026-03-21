@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/weill-labs/amux/internal/mux"
@@ -55,14 +57,18 @@ func CrashCheckpointDir() string {
 	return filepath.Join(home, ".local", "state", "amux")
 }
 
-// CrashCheckpointPath returns the full path for a session's crash checkpoint.
-func CrashCheckpointPath(session string) string {
-	return filepath.Join(CrashCheckpointDir(), session+".json")
+// CrashCheckpointPathTimestamped returns the full path for a session's crash
+// checkpoint, namespaced by the session start time.
+func CrashCheckpointPathTimestamped(session string, startTime time.Time) string {
+	return filepath.Join(
+		CrashCheckpointDir(),
+		fmt.Sprintf("%s_%s.json", startTime.Format("20060102-150405"), session),
+	)
 }
 
 // WriteCrash atomically writes a crash checkpoint to disk.
 // Uses temp file + rename for atomicity (no partial writes on crash).
-func WriteCrash(cp *CrashCheckpoint, session string) error {
+func WriteCrash(cp *CrashCheckpoint, session string, startTime time.Time) error {
 	dir := CrashCheckpointDir()
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return fmt.Errorf("creating checkpoint dir: %w", err)
@@ -91,7 +97,7 @@ func WriteCrash(cp *CrashCheckpoint, session string) error {
 	}
 
 	// Atomic rename
-	dest := CrashCheckpointPath(session)
+	dest := CrashCheckpointPathTimestamped(session, startTime)
 	if err := os.Rename(tmpPath, dest); err != nil {
 		os.Remove(tmpPath)
 		return fmt.Errorf("renaming crash checkpoint: %w", err)
@@ -102,7 +108,7 @@ func WriteCrash(cp *CrashCheckpoint, session string) error {
 
 // ReadCrash reads and validates a crash checkpoint from the given path.
 // Unlike the hot-reload Read(), this does NOT delete the file — the caller
-// is responsible for calling RemoveCrash() after successful recovery.
+// is responsible for calling RemoveCrashFile() after successful recovery.
 func ReadCrash(path string) (*CrashCheckpoint, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -121,7 +127,30 @@ func ReadCrash(path string) (*CrashCheckpoint, error) {
 	return &cp, nil
 }
 
-// RemoveCrash deletes the crash checkpoint file for a session.
-func RemoveCrash(session string) error {
-	return os.Remove(CrashCheckpointPath(session))
+// FindCrashCheckpoints returns all crash checkpoint files for the given
+// session, sorted newest-first by timestamped filename.
+func FindCrashCheckpoints(session string) []string {
+	entries, err := os.ReadDir(CrashCheckpointDir())
+	if err != nil {
+		return nil
+	}
+
+	suffix := "_" + session + ".json"
+	paths := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		if !strings.HasSuffix(entry.Name(), suffix) {
+			continue
+		}
+		paths = append(paths, filepath.Join(CrashCheckpointDir(), entry.Name()))
+	}
+	sort.Sort(sort.Reverse(sort.StringSlice(paths)))
+	return paths
+}
+
+// RemoveCrashFile deletes the crash checkpoint file at the given path.
+func RemoveCrashFile(path string) error {
+	return os.Remove(path)
 }
