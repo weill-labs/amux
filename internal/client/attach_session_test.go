@@ -388,13 +388,6 @@ func TestRunSessionHandlesServerMessagesAndInteractiveInput(t *testing.T) {
 		t.Fatalf("attach capabilities = %+v, want negotiated ghostty features", attach.AttachCapabilities)
 	}
 
-	resize := h.waitMessage(t, func(msg *proto.Message) bool {
-		return msg.Type == proto.MsgTypeResize
-	})
-	if resize.Cols != 40 || resize.Rows != 12 {
-		t.Fatalf("resize size = %dx%d, want 40x12", resize.Cols, resize.Rows)
-	}
-
 	h.output.waitContains(t, render.AltScreenEnter)
 
 	h.send(t, &proto.Message{Type: proto.MsgTypeLayout, Layout: sessionLayoutSnapshot(h.session)})
@@ -403,6 +396,13 @@ func TestRunSessionHandlesServerMessagesAndInteractiveInput(t *testing.T) {
 	h.send(t, &proto.Message{Type: proto.MsgTypePaneOutput, PaneID: 2, PaneData: []byte("peer")})
 	h.output.waitContains(t, "pane-1")
 	h.output.waitContains(t, "next")
+
+	resize := h.waitMessage(t, func(msg *proto.Message) bool {
+		return msg.Type == proto.MsgTypeResize
+	})
+	if resize.Cols != 40 || resize.Rows != 12 {
+		t.Fatalf("resize size = %dx%d, want 40x12", resize.Cols, resize.Rows)
+	}
 
 	h.writeInput(t, []byte("\x1b[I"))
 	h.waitMessage(t, func(msg *proto.Message) bool {

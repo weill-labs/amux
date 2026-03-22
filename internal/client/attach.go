@@ -32,6 +32,25 @@ type attachBootstrapMessage struct {
 	data    []byte
 }
 
+func newAttachBootstrapMessage(msg *proto.Message) (attachBootstrapMessage, bool) {
+	switch msg.Type {
+	case proto.MsgTypePaneHistory:
+		return attachBootstrapMessage{
+			typ:     msg.Type,
+			paneID:  msg.PaneID,
+			history: append([]string(nil), msg.History...),
+		}, true
+	case proto.MsgTypePaneOutput:
+		return attachBootstrapMessage{
+			typ:    msg.Type,
+			paneID: msg.PaneID,
+			data:   append([]byte(nil), msg.PaneData...),
+		}, true
+	default:
+		return attachBootstrapMessage{}, false
+	}
+}
+
 func attachBootstrapPaneCount(layout *proto.LayoutSnapshot) int {
 	if layout == nil {
 		return 0
@@ -46,6 +65,19 @@ func attachBootstrapPaneCount(layout *proto.LayoutSnapshot) int {
 	return count
 }
 
+func applyAttachBootstrapMessage(cr *ClientRenderer, msg attachBootstrapMessage) int {
+	switch msg.typ {
+	case proto.MsgTypePaneHistory:
+		cr.HandlePaneHistory(msg.paneID, msg.history)
+		return 0
+	case proto.MsgTypePaneOutput:
+		cr.HandlePaneOutput(msg.paneID, msg.data)
+		return 1
+	default:
+		return 0
+	}
+}
+
 func readAttachBootstrap(conn net.Conn, cr *ClientRenderer) error {
 	var layout *proto.LayoutSnapshot
 	var buffered []attachBootstrapMessage
@@ -58,20 +90,12 @@ func readAttachBootstrap(conn net.Conn, cr *ClientRenderer) error {
 		switch msg.Type {
 		case proto.MsgTypeLayout:
 			layout = msg.Layout
-		case proto.MsgTypePaneHistory:
-			buffered = append(buffered, attachBootstrapMessage{
-				typ:     msg.Type,
-				paneID:  msg.PaneID,
-				history: append([]string(nil), msg.History...),
-			})
-		case proto.MsgTypePaneOutput:
-			buffered = append(buffered, attachBootstrapMessage{
-				typ:    msg.Type,
-				paneID: msg.PaneID,
-				data:   append([]byte(nil), msg.PaneData...),
-			})
 		default:
-			return fmt.Errorf("unexpected attach bootstrap message type %d before layout", msg.Type)
+			bufferedMsg, ok := newAttachBootstrapMessage(msg)
+			if !ok {
+				return fmt.Errorf("unexpected attach bootstrap message type %d before layout", msg.Type)
+			}
+			buffered = append(buffered, bufferedMsg)
 		}
 	}
 
@@ -79,13 +103,7 @@ func readAttachBootstrap(conn net.Conn, cr *ClientRenderer) error {
 
 	remainingOutputs := attachBootstrapPaneCount(layout)
 	for _, msg := range buffered {
-		switch msg.typ {
-		case proto.MsgTypePaneHistory:
-			cr.HandlePaneHistory(msg.paneID, msg.history)
-		case proto.MsgTypePaneOutput:
-			cr.HandlePaneOutput(msg.paneID, msg.data)
-			remainingOutputs--
-		}
+		remainingOutputs -= applyAttachBootstrapMessage(cr, msg)
 	}
 
 	for remainingOutputs > 0 {
@@ -93,15 +111,11 @@ func readAttachBootstrap(conn net.Conn, cr *ClientRenderer) error {
 		if err != nil {
 			return err
 		}
-		switch msg.Type {
-		case proto.MsgTypePaneHistory:
-			cr.HandlePaneHistory(msg.PaneID, msg.History)
-		case proto.MsgTypePaneOutput:
-			cr.HandlePaneOutput(msg.PaneID, msg.PaneData)
-			remainingOutputs--
-		default:
+		bufferedMsg, ok := newAttachBootstrapMessage(msg)
+		if !ok {
 			return fmt.Errorf("unexpected attach bootstrap message type %d after layout", msg.Type)
 		}
+		remainingOutputs -= applyAttachBootstrapMessage(cr, bufferedMsg)
 	}
 
 	return nil
