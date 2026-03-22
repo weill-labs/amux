@@ -80,4 +80,67 @@ func TestRewrapHistoryBuffer(t *testing.T) {
 			t.Fatalf("Cursor = (%d,%d), want (1,8)", got.Cursor.Row, got.Cursor.Col)
 		}
 	})
+
+	t.Run("returns zero cursor for empty buffers", func(t *testing.T) {
+		t.Parallel()
+
+		got := RewrapHistoryBuffer(nil, nil, nil, proto.CaptureCursor{Row: 9, Col: 9}, 80)
+		if got.Cursor.Row != 0 || got.Cursor.Col != 0 {
+			t.Fatalf("Cursor = (%d,%d), want (0,0)", got.Cursor.Row, got.Cursor.Col)
+		}
+		if len(got.History) != 0 || len(got.Content) != 0 {
+			t.Fatalf("History/Content = %#v/%#v, want empty", got.History, got.Content)
+		}
+	})
+
+	t.Run("keeps logical lines unwrapped when target width is disabled", func(t *testing.T) {
+		t.Parallel()
+
+		content := []HistoryLine{
+			{Text: "alpha", SourceWidth: 5},
+			{Text: "beta", SourceWidth: 4},
+		}
+
+		got := RewrapHistoryBuffer(nil, nil, content, proto.CaptureCursor{Row: 1, Col: 2}, 0)
+		if want := []string{"alpha", "beta"}; !reflect.DeepEqual(got.Content, want) {
+			t.Fatalf("Content = %#v, want %#v", got.Content, want)
+		}
+		if got.Cursor.Row != 1 || got.Cursor.Col != 2 {
+			t.Fatalf("Cursor = (%d,%d), want (1,2)", got.Cursor.Row, got.Cursor.Col)
+		}
+	})
+
+	t.Run("counts prior wrapped content rows when remapping the cursor", func(t *testing.T) {
+		t.Parallel()
+
+		content := []HistoryLine{
+			{Text: "abcdef", SourceWidth: 6},
+			{Text: "gh", SourceWidth: 2},
+		}
+
+		got := RewrapHistoryBuffer(nil, nil, content, proto.CaptureCursor{Row: 1, Col: 1}, 3)
+		if want := []string{"abc", "def", "gh"}; !reflect.DeepEqual(got.Content, want) {
+			t.Fatalf("Content = %#v, want %#v", got.Content, want)
+		}
+		if got.Cursor.Row != 2 || got.Cursor.Col != 1 {
+			t.Fatalf("Cursor = (%d,%d), want (2,1)", got.Cursor.Row, got.Cursor.Col)
+		}
+	})
+
+	t.Run("counts empty prior content rows as one line when remapping the cursor", func(t *testing.T) {
+		t.Parallel()
+
+		content := []HistoryLine{
+			{Text: "", SourceWidth: 4},
+			{Text: "next", SourceWidth: 4},
+		}
+
+		got := RewrapHistoryBuffer(nil, nil, content, proto.CaptureCursor{Row: 1, Col: 0}, 3)
+		if want := []string{"", "nex", "t"}; !reflect.DeepEqual(got.Content, want) {
+			t.Fatalf("Content = %#v, want %#v", got.Content, want)
+		}
+		if got.Cursor.Row != 1 || got.Cursor.Col != 0 {
+			t.Fatalf("Cursor = (%d,%d), want (1,0)", got.Cursor.Row, got.Cursor.Col)
+		}
+	})
 }
