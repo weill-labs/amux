@@ -2,6 +2,9 @@ package test
 
 import (
 	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -171,6 +174,93 @@ func TestZoomResyncsStaleCursorState(t *testing.T) {
 				t.Fatalf("pane-2 cursor col after %s = %d, want %d", tt.name, got, want)
 			}
 		})
+	}
+}
+
+func TestZoomRedrawsAltScreenPaneAtExpandedSize(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	h.splitH()
+
+	tmpDir := t.TempDir()
+	logPath := filepath.Join(tmpDir, "zoom-redraw.log")
+	scriptPath := filepath.Join(tmpDir, "zoom-redraw.sh")
+	script := fmt.Sprintf(`#!/usr/bin/env python3
+import os
+import signal
+import sys
+import threading
+import time
+
+log_file = %q
+draw_count = 0
+
+sys.stdout.write('\033[?1049h')
+sys.stdout.flush()
+
+def draw(*_args):
+    global draw_count
+    draw_count += 1
+    size = os.get_terminal_size()
+    size_marker = f"DRAW {draw_count} SIZE {size.columns}x{size.lines}"
+    bottom_marker = f"BOTTOM {size.columns}x{size.lines}"
+    with open(log_file, "a", encoding="utf-8") as fh:
+        fh.write(size_marker + "\n")
+    sys.stdout.write('\033[2J\033[H' + size_marker + '\n')
+    sys.stdout.write(f'\033[{size.lines};1H{bottom_marker}')
+    sys.stdout.flush()
+
+signal.signal(signal.SIGWINCH, draw)
+draw()
+threading.Timer(0.2, lambda: os.kill(os.getpid(), signal.SIGWINCH)).start()
+
+while True:
+    time.sleep(60)
+`, logPath)
+	if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
+		t.Fatalf("write alt-screen zoom script: %v", err)
+	}
+
+	h.sendKeys("pane-1", scriptPath, "Enter")
+	h.waitForTimeout("pane-1", "DRAW 2 SIZE ", "10s")
+
+	gen := h.generation()
+	output := h.runCmd("zoom", "pane-1")
+	if !strings.Contains(output, "Zoomed") {
+		t.Fatalf("zoom should confirm, got:\n%s", output)
+	}
+	h.waitLayout(gen)
+
+	capture := h.captureJSON()
+	pane := h.jsonPane(capture, "pane-1")
+	if pane.Position == nil {
+		t.Fatal("pane-1 position missing after zoom")
+	}
+	wantRows := pane.Position.Height - 1
+	wantSize := fmt.Sprintf("SIZE %dx%d", pane.Position.Width, wantRows)
+	wantBottom := fmt.Sprintf("BOTTOM %dx%d", pane.Position.Width, wantRows)
+
+	if !h.waitForCaptureJSON(func(c proto.CaptureJSON) bool {
+		for _, p := range c.Panes {
+			if p.Name != "pane-1" {
+				continue
+			}
+			if len(p.Content) < wantRows {
+				return false
+			}
+			return strings.Contains(p.Content[0], wantSize) && p.Content[wantRows-1] == wantBottom
+		}
+		return false
+	}, 5*time.Second) {
+		logData, _ := os.ReadFile(logPath)
+		t.Fatalf(
+			"zoomed alt-screen pane did not redraw to expanded size %s / %s\nlog:\n%s\ncapture:\n%s",
+			wantSize,
+			wantBottom,
+			logData,
+			h.capture(),
+		)
 	}
 }
 
