@@ -33,14 +33,17 @@ type WindowSnapshot struct {
 
 // CellSnapshot is a serializable layout tree node.
 type CellSnapshot struct {
-	X        int            `json:"x"`
-	Y        int            `json:"y"`
-	W        int            `json:"w"`
-	H        int            `json:"h"`
-	IsLeaf   bool           `json:"is_leaf"`
-	Dir      int            `json:"dir"`     // -1 for leaf, 0 for SplitVertical, 1 for SplitHorizontal
-	PaneID   uint32         `json:"pane_id"` // only for leaves
-	Children []CellSnapshot `json:"children,omitempty"`
+	X               int            `json:"x"`
+	Y               int            `json:"y"`
+	W               int            `json:"w"`
+	H               int            `json:"h"`
+	IsLeaf          bool           `json:"is_leaf"`
+	Dir             int            `json:"dir"`     // -1 for leaf, 0 for SplitVertical, 1 for SplitHorizontal
+	PaneID          uint32         `json:"pane_id"` // only for leaves
+	DissolveHost    bool           `json:"dissolve_host,omitempty"`
+	DissolvedColumn bool           `json:"dissolved_column,omitempty"`
+	RestoreW        int            `json:"restore_w,omitempty"`
+	Children        []CellSnapshot `json:"children,omitempty"`
 }
 
 // PaneSnapshot holds metadata for one pane.

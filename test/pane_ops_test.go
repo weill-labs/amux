@@ -228,7 +228,7 @@ func TestMinimizeLastPaneInColumnFails(t *testing.T) {
 	h.runCmd("focus", "pane-1")
 	h.splitH()
 
-	output := h.runCmd("minimize", "pane-2")
+	output := h.runCmd("minimize", "pane-3")
 	if !strings.Contains(output, "Minimized") {
 		t.Fatalf("first minimize should succeed, got:\n%s", output)
 	}
