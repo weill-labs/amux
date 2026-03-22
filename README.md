@@ -105,6 +105,10 @@ Returns a JSON object with session metadata, window info, and per-pane state:
       "zoomed": false,
       "host": "local",
       "task": "",
+      "meta": {
+        "prs": [42],
+        "issues": ["LAB-338"]
+      },
       "color": "f5e0dc",
       "position": {"x": 0, "y": 0, "width": 100, "height": 49},
       "cursor": {"col": 12, "row": 24, "hidden": false},
@@ -117,6 +121,8 @@ Returns a JSON object with session metadata, window info, and per-pane state:
   ]
 }
 ```
+
+Pane JSON includes a nested `meta` object for user-managed metadata: `task`, `git_branch`, `pr`, tracked `prs`, and tracked `issues`. The legacy top-level `task`, `git_branch`, and `pr` fields remain for compatibility.
 
 Capture a single pane:
 
@@ -247,6 +253,9 @@ All commands accept `-s <session>` to target a specific session. Panes are refer
 | `amux swap forward\|backward` | Swap active pane with neighbor |
 | `amux rotate [--reverse]` | Rotate pane positions |
 | `amux copy-mode [pane]` | Enter copy/scroll mode |
+| `amux set-meta <pane> key=value...` | Set single-value pane metadata (`task`, `branch`, `pr`) |
+| `amux add-meta <pane> key=value...` | Add pane metadata values (`pr=NUMBER`, `issue=ID`) |
+| `amux rm-meta <pane> key=value...` | Remove pane metadata values (`pr=NUMBER`, `issue=ID`) |
 
 ### Agent API
 

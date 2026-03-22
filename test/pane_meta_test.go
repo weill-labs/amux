@@ -21,6 +21,23 @@ func decodeJSONMap(t *testing.T, raw string) map[string]any {
 	return got
 }
 
+func waitForJSONMap(t *testing.T, timeout time.Duration, capture func() string) map[string]any {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	var last string
+	for time.Now().Before(deadline) {
+		last = capture()
+		var got map[string]any
+		if err := json.Unmarshal([]byte(last), &got); err == nil {
+			return got
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for JSON capture within %v\nlast output:\n%s", timeout, last)
+	return nil
+}
+
 func decodeJSONList(t *testing.T, value any, name string) []any {
 	t.Helper()
 
@@ -244,7 +261,9 @@ func TestPaneMetaSurvivesReloadServer(t *testing.T) {
 		t.Fatalf("pane metadata should survive reload, got:\n%s", list)
 	}
 
-	pane := decodeJSONMap(t, h.runCmd("capture", "--format", "json", "pane-1"))
+	pane := waitForJSONMap(t, 5*time.Second, func() string {
+		return h.runCmd("capture", "--format", "json", "pane-1")
+	})
 	meta := paneMetaJSON(t, pane)
 	if got := jsonIntList(t, meta, "prs"); !reflect.DeepEqual(got, []int{42}) {
 		t.Fatalf("post-reload meta.prs = %v, want [42]", got)
