@@ -86,6 +86,92 @@ func TestSwapCLI(t *testing.T) {
 	}
 }
 
+func TestSwapTreeCLI(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	h.splitV()
+	h.runCmd("focus", "pane-1")
+	h.splitH()
+
+	out := h.runCmd("swap-tree", "pane-1", "pane-2")
+	if strings.Contains(out, "unknown command") {
+		t.Fatalf("swap-tree command not recognized: %s", out)
+	}
+
+	c := h.captureJSON()
+	p1 := h.jsonPane(c, "pane-1")
+	p2 := h.jsonPane(c, "pane-2")
+	p3 := h.jsonPane(c, "pane-3")
+
+	if !(p2.Position.X < p1.Position.X && p2.Position.X < p3.Position.X) {
+		t.Fatalf("swap-tree should move full-height pane-2 left of pane-1/pane-3: p1=%+v p2=%+v p3=%+v", p1.Position, p2.Position, p3.Position)
+	}
+	if p1.Position.X != p3.Position.X {
+		t.Fatalf("swap-tree should keep pane-1 and pane-3 in the same moved column: p1=%+v p3=%+v", p1.Position, p3.Position)
+	}
+	if p1.Position.Y >= p3.Position.Y {
+		t.Fatalf("swap-tree should preserve stacked order in moved column: p1=%+v p3=%+v", p1.Position, p3.Position)
+	}
+}
+
+func TestSwapTreeCLIRejectsSameRootBranch(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	h.splitV()
+	h.runCmd("focus", "pane-1")
+	h.splitH()
+
+	out := h.runCmd("swap-tree", "pane-1", "pane-3")
+	if !strings.Contains(out, "same root-level group") {
+		t.Fatalf("expected same-root-group error, got: %s", out)
+	}
+}
+
+func TestMoveBeforeCLI(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	h.splitV()
+	h.splitV()
+	h.runCmd("focus", "pane-1")
+	h.splitH()
+
+	if out := h.runCmd("resize-pane", "pane-1", "right", "6"); !strings.Contains(out, "Resized") {
+		t.Fatalf("expected resize confirmation, got: %s", out)
+	}
+
+	before := h.captureJSON()
+	beforePane1 := h.jsonPane(before, "pane-1")
+	beforePane3 := h.jsonPane(before, "pane-3")
+	beforePane4 := h.jsonPane(before, "pane-4")
+
+	out := h.runCmd("move", "pane-3", "--before", "pane-1")
+	if strings.Contains(out, "unknown command") {
+		t.Fatalf("move command not recognized: %s", out)
+	}
+
+	after := h.captureJSON()
+	p1 := h.jsonPane(after, "pane-1")
+	p2 := h.jsonPane(after, "pane-2")
+	p3 := h.jsonPane(after, "pane-3")
+	p4 := h.jsonPane(after, "pane-4")
+
+	if !(p3.Position.X < p1.Position.X && p1.Position.X < p2.Position.X) {
+		t.Fatalf("move before should reorder root branches to pane-3 | pane-1 subtree | pane-2: p1=%+v p2=%+v p3=%+v", p1.Position, p2.Position, p3.Position)
+	}
+	if p1.Position.X != p4.Position.X {
+		t.Fatalf("move before should keep pane-1 and pane-4 stacked in one moved branch: p1=%+v p4=%+v", p1.Position, p4.Position)
+	}
+	if p1.Position.Width != beforePane1.Position.Width || p4.Position.Width != beforePane4.Position.Width {
+		t.Fatalf("move before should preserve moved subtree width: before p1=%+v p4=%+v after p1=%+v p4=%+v", beforePane1.Position, beforePane4.Position, p1.Position, p4.Position)
+	}
+	if p3.Position.Width != beforePane3.Position.Width {
+		t.Fatalf("move before should preserve pane-3 branch width: before=%+v after=%+v", beforePane3.Position, p3.Position)
+	}
+}
+
 func TestRotate(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)
