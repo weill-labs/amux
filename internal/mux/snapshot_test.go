@@ -3,6 +3,7 @@ package mux
 import (
 	"bytes"
 	"encoding/gob"
+	"reflect"
 	"testing"
 
 	"github.com/weill-labs/amux/internal/proto"
@@ -188,5 +189,49 @@ func TestRebuildFromSnapshotFallbackActive(t *testing.T) {
 	}
 	if w.ActivePane != p1 {
 		t.Errorf("ActivePane = pane %d, want 1", w.ActivePane.ID)
+	}
+}
+
+func TestPaneToSnapshotIncludesMetaCollections(t *testing.T) {
+	t.Parallel()
+
+	pane := &Pane{
+		ID: 7,
+		Meta: PaneMeta{
+			Name:      "pane-7",
+			Host:      "local",
+			Task:      "build",
+			Color:     "f38ba8",
+			GitBranch: "feat/meta",
+			PR:        "99",
+		},
+	}
+	metaValue := reflect.ValueOf(&pane.Meta).Elem()
+	prsField := metaValue.FieldByName("PRs")
+	if !prsField.IsValid() {
+		t.Fatal("PaneMeta.PRs field missing")
+	}
+	prsField.Set(reflect.ValueOf([]int{42, 73}))
+	issuesField := metaValue.FieldByName("Issues")
+	if !issuesField.IsValid() {
+		t.Fatal("PaneMeta.Issues field missing")
+	}
+	issuesField.Set(reflect.ValueOf([]string{"LAB-338", "LAB-412"}))
+
+	snap := pane.ToSnapshot()
+	snapValue := reflect.ValueOf(snap)
+	gotPRs := snapValue.FieldByName("PRs")
+	if !gotPRs.IsValid() {
+		t.Fatal("PaneSnapshot.PRs field missing")
+	}
+	if gotPRs.Len() != 2 || gotPRs.Index(0).Int() != 42 || gotPRs.Index(1).Int() != 73 {
+		t.Fatalf("snapshot PRs = %#v, want [42 73]", gotPRs.Interface())
+	}
+	gotIssues := snapValue.FieldByName("Issues")
+	if !gotIssues.IsValid() {
+		t.Fatal("PaneSnapshot.Issues field missing")
+	}
+	if gotIssues.Len() != 2 || gotIssues.Index(0).String() != "LAB-338" || gotIssues.Index(1).String() != "LAB-412" {
+		t.Fatalf("snapshot Issues = %#v, want [LAB-338 LAB-412]", gotIssues.Interface())
 	}
 }

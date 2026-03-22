@@ -1,6 +1,7 @@
 package capture
 
 import (
+	"encoding/json"
 	"reflect"
 	"testing"
 
@@ -159,6 +160,8 @@ func TestBuildPane(t *testing.T) {
 		Task:       "task",
 		Color:      "f5e0dc",
 		ConnStatus: "connected",
+		GitBranch:  "feat/meta",
+		PR:         "99",
 		Cursor: proto.CaptureCursor{
 			Col:    4,
 			Row:    2,
@@ -187,6 +190,8 @@ func TestBuildPane(t *testing.T) {
 		Task:       "task",
 		Color:      "f5e0dc",
 		ConnStatus: "connected",
+		GitBranch:  "feat/meta",
+		PR:         "99",
 		Cursor: proto.CaptureCursor{
 			Col:    4,
 			Row:    2,
@@ -201,6 +206,32 @@ func TestBuildPane(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("BuildPane() = %+v, want %+v", got, want)
+	}
+
+	data, err := json.Marshal(got)
+	if err != nil {
+		t.Fatalf("json.Marshal: %v", err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+	metaValue, ok := payload["meta"]
+	if !ok {
+		t.Fatalf("BuildPane JSON missing meta field: %#v", payload)
+	}
+	meta, ok := metaValue.(map[string]any)
+	if !ok {
+		t.Fatalf("meta = %#v, want map", metaValue)
+	}
+	if meta["task"] != "task" {
+		t.Fatalf("meta.task = %#v, want %q", meta["task"], "task")
+	}
+	if meta["git_branch"] != "feat/meta" {
+		t.Fatalf("meta.git_branch = %#v, want %q", meta["git_branch"], "feat/meta")
+	}
+	if meta["pr"] != "99" {
+		t.Fatalf("meta.pr = %#v, want %q", meta["pr"], "99")
 	}
 
 	input.Content[0] = "mutated"
