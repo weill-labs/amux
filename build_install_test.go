@@ -1,6 +1,7 @@
 package main_test
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -24,6 +25,47 @@ func envWithHome(home string) []string {
 	return env
 }
 
+func envWithHomeAndBranch(t *testing.T, home, branch string, extra ...string) []string {
+	t.Helper()
+
+	env := envWithHome(home)
+	gitPath, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatalf("look up git: %v", err)
+	}
+
+	fakeGitDir := t.TempDir()
+	fakeGit := filepath.Join(fakeGitDir, "git")
+	script := fmt.Sprintf(`#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${1:-}" == "rev-parse" && "${2:-}" == "--abbrev-ref" && "${3:-}" == "HEAD" ]]; then
+	printf '%%s\n' %q
+	exit 0
+fi
+
+exec %q "$@"
+`, branch, gitPath)
+	if err := os.WriteFile(fakeGit, []byte(script), 0755); err != nil {
+		t.Fatalf("write fake git: %v", err)
+	}
+
+	pathValue := fakeGitDir
+	replaced := false
+	for i, e := range env {
+		if strings.HasPrefix(e, "PATH=") {
+			env[i] = "PATH=" + fakeGitDir + string(os.PathListSeparator) + strings.TrimPrefix(e, "PATH=")
+			replaced = true
+			break
+		}
+	}
+	if !replaced {
+		env = append(env, "PATH="+pathValue)
+	}
+
+	return append(env, extra...)
+}
+
 func TestBuildInstallInstallsTerminfo(t *testing.T) {
 	t.Parallel()
 
@@ -31,7 +73,7 @@ func TestBuildInstallInstallsTerminfo(t *testing.T) {
 	dest := filepath.Join(t.TempDir(), "amux")
 
 	cmd := exec.Command("bash", "scripts/build-install.sh", dest)
-	cmd.Env = envWithHome(home)
+	cmd.Env = envWithHomeAndBranch(t, home, "main")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("build install failed: %v\n%s", err, out)
@@ -58,7 +100,7 @@ func TestBuildInstallRefusesCrossCheckoutOverwrite(t *testing.T) {
 	}
 
 	cmd := exec.Command("bash", "scripts/build-install.sh", dest)
-	cmd.Env = envWithHome(t.TempDir())
+	cmd.Env = envWithHomeAndBranch(t, t.TempDir(), "main")
 	out, err := cmd.CombinedOutput()
 	if err == nil {
 		t.Fatalf("expected cross-checkout install to fail\n%s", out)
@@ -82,7 +124,7 @@ func TestBuildInstallForceOverridesCrossCheckoutMetadata(t *testing.T) {
 	}
 
 	cmd := exec.Command("bash", "scripts/build-install.sh", dest)
-	cmd.Env = append(envWithHome(t.TempDir()), "AMUX_INSTALL_FORCE=1")
+	cmd.Env = envWithHomeAndBranch(t, t.TempDir(), "lab-348-test", "AMUX_INSTALL_FORCE=1")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("forced install failed: %v\n%s", err, out)
@@ -101,6 +143,25 @@ func TestBuildInstallForceOverridesCrossCheckoutMetadata(t *testing.T) {
 	}
 }
 
+func TestBuildInstallRefusesNonMainBranch(t *testing.T) {
+	t.Parallel()
+
+	dest := filepath.Join(t.TempDir(), "amux")
+
+	cmd := exec.Command("bash", "scripts/build-install.sh", dest)
+	cmd.Env = envWithHomeAndBranch(t, t.TempDir(), "lab-348-test")
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("expected non-main install to fail\n%s", out)
+	}
+	if !strings.Contains(string(out), "refusing to install from branch") {
+		t.Fatalf("expected branch refusal message, got:\n%s", out)
+	}
+	if _, statErr := os.Stat(dest); !os.IsNotExist(statErr) {
+		t.Fatalf("expected %s to remain absent, stat err=%v", dest, statErr)
+	}
+}
+
 func TestBuildInstallRewritesInvalidMetadata(t *testing.T) {
 	t.Parallel()
 
@@ -112,7 +173,7 @@ func TestBuildInstallRewritesInvalidMetadata(t *testing.T) {
 	}
 
 	cmd := exec.Command("bash", "scripts/build-install.sh", dest)
-	cmd.Env = envWithHome(t.TempDir())
+	cmd.Env = envWithHomeAndBranch(t, t.TempDir(), "main")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("install with invalid metadata failed: %v\n%s", err, out)

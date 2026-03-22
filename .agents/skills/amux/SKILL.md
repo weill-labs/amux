@@ -274,10 +274,10 @@ Key fields for agent orchestration:
 
 ## CI-Style Commands Inside amux
 
-When running tests or CI-like commands from within an amux session, the `AMUX_SESSION` environment variable can cause nesting issues. Strip it:
+Never run `make build` from an agent. It installs the shared amux binary and can hot-reload unrelated sessions. When running compile checks or tests from within an amux session, strip `AMUX_SESSION` and `TMUX`:
 
 ```bash
-env -u AMUX_SESSION -u TMUX make test
+env -u AMUX_SESSION -u TMUX go build ./...
 env -u AMUX_SESSION -u TMUX go test ./...
 ```
 
