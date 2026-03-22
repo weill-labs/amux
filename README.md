@@ -176,7 +176,7 @@ All accept `--timeout <duration>` (e.g., `--timeout 30s`).
 Subscribe to real-time session events as NDJSON:
 
 ```bash
-amux events [--filter layout,idle,busy,display-panes-shown,choose-window-shown] [--pane pane-1] [--host lambda-a100] [--client client-1] [--throttle 50ms] [--no-reconnect]
+amux events [--filter layout,idle,busy,client-connect,client-disconnect,display-panes-shown,choose-window-shown] [--pane pane-1] [--host lambda-a100] [--client client-1] [--throttle 50ms] [--no-reconnect]
 ```
 
 Use `amux list-clients` to discover attached client IDs for `--client` and `wait-ui`.
@@ -185,10 +185,12 @@ Use `amux list-clients` to discover attached client IDs for `--client` and `wait
 {"type":"layout","ts":"2025-06-15T10:30:00.123Z","generation":42,"active_pane":"pane-1"}
 {"type":"idle","ts":"2025-06-15T10:30:01.456Z","pane_id":2,"pane_name":"pane-2","host":"lambda-a100"}
 {"type":"busy","ts":"2025-06-15T10:30:05.789Z","pane_id":2,"pane_name":"pane-2","host":"lambda-a100"}
+{"type":"client-connect","ts":"2025-06-15T10:30:05.900Z","client_id":"client-2"}
+{"type":"client-disconnect","ts":"2025-06-15T10:30:06.000Z","client_id":"client-2","reason":"explicit-detach"}
 {"type":"reconnect","ts":"2025-06-15T10:30:06.000Z"}
 ```
 
-Event types: `layout`, `output`, `idle`, `busy`, `reconnect`. By default `amux events` reconnects automatically after a dropped stream, emits a client-generated `reconnect` event, and resubscribes after exponential backoff. Use `--no-reconnect` for scripts that want exit-on-disconnect. New subscribers receive the current state as an initial snapshot, so no events are missed between subscribe and the first real event. Output events are throttled to at most one per pane per `--throttle` interval (default 50ms). Non-output events pass through immediately. Use `--throttle 0s` to disable throttling.
+Event types: `layout`, `output`, `idle`, `busy`, `hook`, `client-connect`, `client-disconnect`, and the client-generated `reconnect` event used by the CLI auto-reconnect path. By default `amux events` reconnects automatically after a dropped stream, emits a client-generated `reconnect` event, and resubscribes after exponential backoff. Use `--no-reconnect` for scripts that want exit-on-disconnect. New subscribers receive the current state as an initial snapshot, including already-attached clients as `client-connect` events, so no events are missed between subscribe and the first real event. Output events are throttled to at most one per pane per `--throttle` interval (default 50ms). Non-output events pass through immediately. Use `--throttle 0s` to disable throttling.
 
 ### Agent Loop Example
 

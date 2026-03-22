@@ -212,8 +212,9 @@ func (cc *clientConn) activeInputPaneForWrite(sess *Session) *mux.Pane {
 
 // readLoop reads messages from the client and dispatches them to the session.
 func (cc *clientConn) readLoop(srv *Server, sess *Session) {
+	detachReason := DisconnectReasonSocketError
 	defer func() {
-		sess.enqueueDetachClient(cc)
+		sess.enqueueDetachClient(cc, detachReason)
 		cc.Close()
 	}()
 
@@ -244,6 +245,7 @@ func (cc *clientConn) readLoop(srv *Server, sess *Session) {
 
 		case MsgTypeDetach:
 			cc.markDisconnectReason(disconnectReasonClientDetach)
+			detachReason = DisconnectReasonExplicitDetach
 			return
 
 		case MsgTypeCommand:

@@ -148,11 +148,16 @@ func (e commandMutationEvent) handle(s *Session) {
 }
 
 type detachClientEvent struct {
-	cc *clientConn
+	cc     *clientConn
+	reason string
 }
 
 func (e detachClientEvent) handle(s *Session) {
+	if !s.hasClient(e.cc) {
+		return
+	}
 	s.appendConnectionLog(connectionLogEventDetach, e.cc.ID, e.cc.cols, e.cc.rows, e.cc.disconnectReasonValue())
+	s.emitClientDisconnectEvent(e.cc, e.reason)
 	s.removeClient(e.cc)
 }
 
@@ -448,8 +453,8 @@ func (s *Session) enqueueCommandMutation(fn func(*Session) commandMutationResult
 	}
 }
 
-func (s *Session) enqueueDetachClient(cc *clientConn) {
-	s.enqueueEvent(detachClientEvent{cc: cc})
+func (s *Session) enqueueDetachClient(cc *clientConn, reason string) {
+	s.enqueueEvent(detachClientEvent{cc: cc, reason: reason})
 }
 
 func (s *Session) enqueueResizeClient(cc *clientConn, cols, rows int) {
@@ -731,6 +736,37 @@ func (s *Session) enqueueClientActivity(cc *clientConn) {
 	s.enqueueEvent(clientActivityEvent{cc: cc})
 }
 
+func (s *Session) emitClientConnectEvent(cc *clientConn) {
+	if cc == nil {
+		return
+	}
+	s.emitEvent(Event{Type: EventClientConnect, ClientID: cc.ID})
+}
+
+func (s *Session) emitClientDisconnectEvent(cc *clientConn, reason string) {
+	if cc == nil {
+		return
+	}
+	s.emitEvent(Event{
+		Type:     EventClientDisconnect,
+		ClientID: cc.ID,
+		Reason:   reason,
+	})
+}
+
+// disconnectClientsForReload preserves the current layout snapshot by removing
+// clients without recalculating the live session size or broadcasting layout.
+func (s *Session) disconnectClientsForReload(clients []*clientConn) {
+	for _, cc := range clients {
+		if !s.hasClient(cc) {
+			continue
+		}
+		s.appendConnectionLog(connectionLogEventDetach, cc.ID, cc.cols, cc.rows, DisconnectReasonServerReload)
+		s.emitClientDisconnectEvent(cc, DisconnectReasonServerReload)
+		s.removeClientWithoutLayout(cc)
+	}
+}
+
 func (s *Session) handleAttachEvent(srv *Server, cc *clientConn, cols, rows int) attachResult {
 	idleSnap := s.snapshotIdleState()
 
@@ -750,6 +786,7 @@ func (s *Session) handleAttachEvent(srv *Server, cc *clientConn, cols, rows int)
 	s.hadClient = true
 	s.appendConnectionLog(connectionLogEventAttach, cc.ID, cc.cols, cc.rows, "")
 	s.noteClientActivity(cc)
+	s.emitClientConnectEvent(cc)
 	s.recalcSize()
 	if initRes.layoutChanged {
 		s.broadcastLayoutNow()

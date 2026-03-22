@@ -7,11 +7,19 @@ import (
 
 // Event types emitted by the event stream.
 const (
-	EventLayout = "layout"
-	EventOutput = "output"
-	EventIdle   = "idle"
-	EventBusy   = "busy"
-	EventHook   = "hook"
+	EventLayout           = "layout"
+	EventOutput           = "output"
+	EventIdle             = "idle"
+	EventBusy             = "busy"
+	EventHook             = "hook"
+	EventClientConnect    = "client-connect"
+	EventClientDisconnect = "client-disconnect"
+)
+
+const (
+	DisconnectReasonServerReload   = "server-reload"
+	DisconnectReasonExplicitDetach = "explicit-detach"
+	DisconnectReasonSocketError    = "socket-error"
 )
 
 // DefaultEventThrottle is the default throttle interval for `amux events`.
@@ -28,6 +36,7 @@ type Event struct {
 	Host       string `json:"host,omitempty"`
 	ActivePane string `json:"active_pane,omitempty"`
 	ClientID   string `json:"client_id,omitempty"`
+	Reason     string `json:"reason,omitempty"`
 	HookEvent  string `json:"hook_event,omitempty"`
 	Command    string `json:"command,omitempty"`
 	Success    bool   `json:"success,omitempty"`
@@ -104,6 +113,11 @@ func (s *Session) currentStateEvents() []Event {
 	}
 
 	for _, cc := range s.clients {
+		events = append(events, Event{
+			Type:      EventClientConnect,
+			Timestamp: now,
+			ClientID:  cc.ID,
+		})
 		for _, ev := range cc.currentUIEvents() {
 			ev.Timestamp = now
 			events = append(events, ev)

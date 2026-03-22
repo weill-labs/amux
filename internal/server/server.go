@@ -306,6 +306,14 @@ func (s *Session) effectiveSizeClient() *clientConn {
 // removeClient removes a client from the session and recalculates
 // the session size if the active size owner disconnected.
 func (s *Session) removeClient(cc *clientConn) {
+	s.removeClientWithLayout(cc, true)
+}
+
+func (s *Session) removeClientWithoutLayout(cc *clientConn) {
+	s.removeClientWithLayout(cc, false)
+}
+
+func (s *Session) removeClientWithLayout(cc *clientConn, broadcastLayout bool) {
 	for i, c := range s.clients {
 		if c == cc {
 			s.clients = append(s.clients[:i], s.clients[i+1:]...)
@@ -314,6 +322,9 @@ func (s *Session) removeClient(cc *clientConn) {
 	}
 	if s.currentSizeClient() == cc {
 		s.sizeClient.Store(nil)
+	}
+	if !broadcastLayout {
+		return
 	}
 	shouldExit := s.exitServer != nil && s.exitServer.Env.ExitUnattached && s.hadClient && len(s.clients) == 0 && !s.shutdown.Load()
 	s.recalcSize()

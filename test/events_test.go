@@ -254,6 +254,115 @@ func TestEventsFilterClient(t *testing.T) {
 	}
 }
 
+func TestEventsClientConnectSnapshot(t *testing.T) {
+	t.Parallel()
+
+	h := newServerHarness(t)
+	scanner, closer := eventStream(t, h.session, "--filter", server.EventClientConnect, "--client", "client-1")
+	defer closer()
+
+	ev := mustReadEvent(t, scanner, 5*time.Second)
+	if ev.Type != server.EventClientConnect {
+		t.Fatalf("initial event type = %q, want %q", ev.Type, server.EventClientConnect)
+	}
+	if ev.ClientID != "client-1" {
+		t.Fatalf("client_id = %q, want client-1", ev.ClientID)
+	}
+}
+
+func TestEventsClientConnectOnAttach(t *testing.T) {
+	t.Parallel()
+
+	h := newServerHarness(t)
+	scanner, closer := eventStream(t, h.session, "--filter", server.EventClientConnect)
+	defer closer()
+
+	initial := mustReadEvent(t, scanner, 5*time.Second)
+	if initial.Type != server.EventClientConnect || initial.ClientID != "client-1" {
+		t.Fatalf("initial event = %+v, want client-connect for client-1", initial)
+	}
+
+	second, err := newHeadlessClient(server.SocketPath(h.session), h.session, 80, 24)
+	if err != nil {
+		t.Fatalf("attaching second client: %v", err)
+	}
+	defer second.close()
+
+	ev := mustReadEvent(t, scanner, 5*time.Second)
+	if ev.Type != server.EventClientConnect {
+		t.Fatalf("attach event type = %q, want %q", ev.Type, server.EventClientConnect)
+	}
+	if ev.ClientID == "" || ev.ClientID == "client-1" {
+		t.Fatalf("attach event client_id = %q, want second client id", ev.ClientID)
+	}
+}
+
+func TestEventsClientDisconnectExplicitDetach(t *testing.T) {
+	t.Parallel()
+
+	h := newServerHarness(t)
+	second, err := newHeadlessClient(server.SocketPath(h.session), h.session, 80, 24)
+	if err != nil {
+		t.Fatalf("attaching second client: %v", err)
+	}
+	defer second.close()
+
+	clients := parseClientIDs(h.runCmd("list-clients"))
+	if len(clients) != 2 {
+		t.Fatalf("attached clients = %v, want 2", clients)
+	}
+	secondID := clients[1]
+
+	scanner, closer := eventStream(t, h.session, "--filter", server.EventClientConnect+","+server.EventClientDisconnect, "--client", secondID)
+	defer closer()
+
+	ev := mustReadEvent(t, scanner, 5*time.Second)
+	if ev.Type != server.EventClientConnect || ev.ClientID != secondID {
+		t.Fatalf("initial event = %+v, want client-connect for %s", ev, secondID)
+	}
+
+	if err := server.WriteMsg(second.conn, &server.Message{Type: server.MsgTypeDetach}); err != nil {
+		t.Fatalf("sending detach: %v", err)
+	}
+	<-second.done
+
+	ev = mustReadEvent(t, scanner, 5*time.Second)
+	if ev.Type != server.EventClientDisconnect || ev.ClientID != secondID || ev.Reason != server.DisconnectReasonExplicitDetach {
+		t.Fatalf("disconnect event = %+v, want explicit detach for %s", ev, secondID)
+	}
+}
+
+func TestEventsClientDisconnectSocketError(t *testing.T) {
+	t.Parallel()
+
+	h := newServerHarness(t)
+	second, err := newHeadlessClient(server.SocketPath(h.session), h.session, 80, 24)
+	if err != nil {
+		t.Fatalf("attaching second client: %v", err)
+	}
+
+	clients := parseClientIDs(h.runCmd("list-clients"))
+	if len(clients) != 2 {
+		t.Fatalf("attached clients = %v, want 2", clients)
+	}
+	secondID := clients[1]
+
+	scanner, closer := eventStream(t, h.session, "--filter", server.EventClientConnect+","+server.EventClientDisconnect, "--client", secondID)
+	defer closer()
+
+	ev := mustReadEvent(t, scanner, 5*time.Second)
+	if ev.Type != server.EventClientConnect || ev.ClientID != secondID {
+		t.Fatalf("initial event = %+v, want client-connect for %s", ev, secondID)
+	}
+
+	second.close()
+
+	ev = mustReadEvent(t, scanner, 5*time.Second)
+	if ev.Type != server.EventClientDisconnect || ev.ClientID != secondID || ev.Reason != server.DisconnectReasonSocketError {
+		t.Fatalf("disconnect event = %+v, want socket-error for %s", ev, secondID)
+	}
+}
+
 func TestWaitUIImmediateHidden(t *testing.T) {
 	t.Parallel()
 
