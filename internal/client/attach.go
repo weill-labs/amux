@@ -78,6 +78,65 @@ func applyAttachBootstrapMessage(cr *ClientRenderer, msg attachBootstrapMessage)
 	}
 }
 
+const attachBootstrapCorrectionDeadline = 50 * time.Millisecond
+
+func resetAttachBootstrapDeadline(conn net.Conn) error {
+	return conn.SetReadDeadline(time.Time{})
+}
+
+func readImmediateAttachCorrection(conn net.Conn, cr *ClientRenderer) error {
+	if err := conn.SetReadDeadline(time.Now().Add(attachBootstrapCorrectionDeadline)); err != nil {
+		return err
+	}
+
+	msg, err := proto.ReadMsg(conn)
+	if err != nil {
+		if err := resetAttachBootstrapDeadline(conn); err != nil {
+			return err
+		}
+		if ne, ok := err.(net.Error); ok && ne.Timeout() {
+			return nil
+		}
+		return err
+	}
+
+	if msg.Type != proto.MsgTypeLayout {
+		if err := resetAttachBootstrapDeadline(conn); err != nil {
+			return err
+		}
+		return fmt.Errorf("unexpected attach bootstrap correction message type %d", msg.Type)
+	}
+	cr.HandleLayout(msg.Layout)
+
+	for {
+		if err := conn.SetReadDeadline(time.Now().Add(attachBootstrapCorrectionDeadline)); err != nil {
+			return err
+		}
+		msg, err := proto.ReadMsg(conn)
+		if err != nil {
+			if err := resetAttachBootstrapDeadline(conn); err != nil {
+				return err
+			}
+			if ne, ok := err.(net.Error); ok && ne.Timeout() {
+				return nil
+			}
+			return err
+		}
+		if msg.Type == proto.MsgTypeLayout {
+			cr.HandleLayout(msg.Layout)
+			continue
+		}
+		bufferedMsg, ok := newAttachBootstrapMessage(msg)
+		if !ok {
+			if err := resetAttachBootstrapDeadline(conn); err != nil {
+				return err
+			}
+			return fmt.Errorf("unexpected attach bootstrap correction message type %d", msg.Type)
+		}
+		applyAttachBootstrapMessage(cr, bufferedMsg)
+	}
+}
+
 func readAttachBootstrap(conn net.Conn, cr *ClientRenderer) error {
 	var layout *proto.LayoutSnapshot
 	var buffered []attachBootstrapMessage
@@ -118,7 +177,7 @@ func readAttachBootstrap(conn net.Conn, cr *ClientRenderer) error {
 		remainingOutputs -= applyAttachBootstrapMessage(cr, bufferedMsg)
 	}
 
-	return nil
+	return readImmediateAttachCorrection(conn, cr)
 }
 
 func handleDisplayPaneSelection(cr *ClientRenderer, sender *messageSender, b byte) {

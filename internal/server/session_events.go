@@ -845,6 +845,11 @@ func (s *Session) handleAttachEvent(srv *Server, cc *clientConn, cols, rows int)
 	cc.rows = rows
 
 	res := attachResult{}
+	oldWidth, oldHeight := 0, 0
+	if w := s.activeWindow(); w != nil {
+		oldWidth = w.Width
+		oldHeight = w.Height
+	}
 
 	initRes, err := s.ensureInitialWindowLocked(srv, cols, rows)
 	if err != nil {
@@ -859,7 +864,11 @@ func (s *Session) handleAttachEvent(srv *Server, cc *clientConn, cols, rows int)
 	s.noteClientActivity(cc)
 	s.emitClientConnectEvent(cc)
 	s.recalcSize()
-	if initRes.layoutChanged {
+	resized := false
+	if w := s.activeWindow(); w != nil {
+		resized = w.Width != oldWidth || w.Height != oldHeight
+	}
+	if initRes.layoutChanged || resized {
 		s.broadcastLayoutNow()
 	}
 
