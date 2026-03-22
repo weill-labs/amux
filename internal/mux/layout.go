@@ -99,7 +99,7 @@ func (c *LayoutCell) Split(dir SplitDir, newPane *Pane) (*LayoutCell, error) {
 		newLeaf.Parent = c.Parent
 
 		// Insert after c in parent's children
-		idx := c.indexInParent()
+		idx := c.IndexInParent()
 		parent := c.Parent
 		parent.Children = append(parent.Children, nil)
 		copy(parent.Children[idx+2:], parent.Children[idx+1:])
@@ -146,7 +146,7 @@ func (c *LayoutCell) Close() *LayoutCell {
 	}
 
 	parent := c.Parent
-	idx := c.indexInParent()
+	idx := c.IndexInParent()
 
 	// Remove from parent
 	parent.Children = append(parent.Children[:idx], parent.Children[idx+1:]...)
@@ -174,7 +174,7 @@ func (c *LayoutCell) Close() *LayoutCell {
 		only.H = parent.H
 
 		if parent.Parent != nil {
-			pidx := parent.indexInParent()
+			pidx := parent.IndexInParent()
 			parent.Parent.Children[pidx] = only
 		} else {
 			// only becomes the new root — caller must update window.Root
@@ -622,7 +622,9 @@ func (c *LayoutCell) distributeEqual() {
 	}
 }
 
-func (c *LayoutCell) indexInParent() int {
+// IndexInParent returns the index of this cell within its parent's Children
+// slice, or -1 if the cell has no parent.
+func (c *LayoutCell) IndexInParent() int {
 	if c.Parent == nil {
 		return -1
 	}

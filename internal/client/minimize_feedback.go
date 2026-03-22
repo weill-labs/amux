@@ -46,14 +46,7 @@ func (cr *ClientRenderer) toggleMinimizeBlockedReason() string {
 	if column.Parent.Dir != mux.SplitVertical {
 		return minimizeNoStackedSiblingsReason
 	}
-	idx := -1
-	for i, child := range column.Parent.Children {
-		if child == column {
-			idx = i
-			break
-		}
-	}
-	if idx == len(column.Parent.Children)-1 {
+	if column.IndexInParent() == len(column.Parent.Children)-1 {
 		return minimizeRightmostColumnReason
 	}
 

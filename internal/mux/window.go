@@ -525,7 +525,7 @@ func (w *Window) ResizePane(paneID uint32, direction string, delta int) bool {
 	cell := leaf
 	for cell.Parent != nil {
 		if cell.Parent.Dir == axis {
-			idx := cell.indexInParent()
+			idx := cell.IndexInParent()
 			siblings := cell.Parent.Children
 
 			// tmux convention: resize the border adjacent to this cell.
@@ -665,7 +665,7 @@ func (w *Window) rootChildForPaneID(paneID uint32) (*LayoutCell, int, error) {
 	for cell.Parent != w.Root {
 		cell = cell.Parent
 	}
-	return cell, cell.indexInParent(), nil
+	return cell, cell.IndexInParent(), nil
 }
 
 func (w *Window) finishTreeMutation() {
@@ -835,8 +835,9 @@ func (w *Window) activeCellIndex(cells []*LayoutCell) int {
 }
 
 // Minimize shrinks a pane's layout cell to just the status line (header only).
-// Only allowed in horizontal splits with at least one non-minimized sibling.
-// Auto-unzooms if a pane is zoomed.
+// If visible siblings remain in the column, the pane is minimized in-place.
+// If the pane is the last visible in a non-rightmost column, the column is
+// dissolved into the next column to the right. Auto-unzooms if zoomed.
 func (w *Window) Minimize(paneID uint32) error {
 	if w.ZoomedPaneID != 0 {
 		w.Unzoom()
@@ -879,7 +880,7 @@ func (w *Window) Minimize(paneID uint32) error {
 	if column.Parent.Dir != SplitVertical {
 		return fmt.Errorf("cannot minimize: pane has no stacked siblings")
 	}
-	if column.indexInParent() == len(column.Parent.Children)-1 {
+	if column.IndexInParent() == len(column.Parent.Children)-1 {
 		return fmt.Errorf("cannot minimize: pane is in the rightmost column")
 	}
 
@@ -955,6 +956,9 @@ func (w *Window) Restore(paneID uint32) error {
 	if dissolved := w.dissolvedColumnRoot(cell); dissolved != nil {
 		w.reconstituteDissolvedColumn(dissolved)
 		cell = w.Root.FindPane(paneID)
+		if cell == nil {
+			return fmt.Errorf("pane %d lost during column reconstitution", paneID)
+		}
 	}
 
 	savedH := cell.Pane.Meta.RestoreH

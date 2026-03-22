@@ -38,7 +38,7 @@ func (w *Window) ensureDissolveHost(slot *LayoutCell) *LayoutCell {
 	}
 
 	parent := slot.Parent
-	idx := slot.indexInParent()
+	idx := slot.IndexInParent()
 	host := &LayoutCell{
 		X: slot.X, Y: slot.Y, W: slot.W, H: slot.H,
 		Dir:          SplitHorizontal,
@@ -59,16 +59,18 @@ func (w *Window) makeDissolveHost(base *LayoutCell, dissolved []*LayoutCell) *La
 	if len(dissolved) == 0 {
 		return base
 	}
+	children := make([]*LayoutCell, 0, 1+len(dissolved))
+	children = append(children, base)
+	children = append(children, dissolved...)
 	host := &LayoutCell{
 		X: base.X, Y: base.Y, W: base.W, H: base.H,
 		Dir:          SplitHorizontal,
 		DissolveHost: true,
+		Children:     children,
 	}
-	host.Children = append(host.Children, base)
 	base.Parent = host
 	for _, child := range dissolved {
 		child.Parent = host
-		host.Children = append(host.Children, child)
 	}
 	return host
 }
@@ -77,16 +79,13 @@ func (w *Window) prependDissolved(host *LayoutCell, groups []*LayoutCell) {
 	if host == nil || len(groups) == 0 {
 		return
 	}
-	children := make([]*LayoutCell, 0, 1+len(groups)+len(host.Children))
+	children := make([]*LayoutCell, 0, len(groups)+len(host.Children))
 	children = append(children, host.Children[0])
 	for _, group := range groups {
 		group.Parent = host
 		children = append(children, group)
 	}
-	for _, child := range host.Children[1:] {
-		child.Parent = host
-		children = append(children, child)
-	}
+	children = append(children, host.Children[1:]...)
 	host.Children = children
 }
 
@@ -119,7 +118,7 @@ func (w *Window) setCellSize(cell *LayoutCell, width, height int) {
 
 func (w *Window) dissolveColumn(column *LayoutCell) {
 	parent := column.Parent
-	idx := column.indexInParent()
+	idx := column.IndexInParent()
 	host := w.ensureDissolveHost(parent.Children[idx+1])
 	w.prependDissolved(host, w.dissolveGroups(column))
 
@@ -129,7 +128,7 @@ func (w *Window) dissolveColumn(column *LayoutCell) {
 		host.W = parent.W
 		host.H = parent.H
 		if parent.Parent != nil {
-			gidx := parent.indexInParent()
+			gidx := parent.IndexInParent()
 			host.Parent = parent.Parent
 			parent.Parent.Children[gidx] = host
 		} else {
@@ -187,7 +186,7 @@ func (w *Window) reconstituteDissolvedColumn(dissolved *LayoutCell) {
 		restoreW = dissolved.W
 	}
 
-	idx := dissolved.indexInParent()
+	idx := dissolved.IndexInParent()
 	leftGroups := append([]*LayoutCell(nil), host.Children[1:idx]...)
 	rightGroups := append([]*LayoutCell(nil), host.Children[idx+1:]...)
 	base := host.Children[0]
@@ -209,12 +208,11 @@ func (w *Window) reconstituteDissolvedColumn(dissolved *LayoutCell) {
 		hostAfter = host
 	}
 
-	slot := host
-	parent := slot.Parent
-	leftW, rightW := splitRestoreWidths(slot.W, restoreW)
+	parent := host.Parent
+	leftW, rightW := splitRestoreWidths(host.W, restoreW)
 	if parent == nil {
-		w.setCellSize(visible, leftW, slot.H)
-		w.setCellSize(hostAfter, rightW, slot.H)
+		w.setCellSize(visible, leftW, host.H)
+		w.setCellSize(hostAfter, rightW, host.H)
 		newRoot := &LayoutCell{
 			X: 0, Y: 0, W: w.Width, H: w.Height,
 			Dir:      SplitVertical,
@@ -226,14 +224,14 @@ func (w *Window) reconstituteDissolvedColumn(dissolved *LayoutCell) {
 		return
 	}
 
-	slotIdx := slot.indexInParent()
+	hostIdx := host.IndexInParent()
 	w.setCellSize(visible, leftW, parent.H)
 	w.setCellSize(hostAfter, rightW, parent.H)
 	visible.Parent = parent
 	hostAfter.Parent = parent
 
-	children := append([]*LayoutCell{}, parent.Children[:slotIdx]...)
+	children := append([]*LayoutCell{}, parent.Children[:hostIdx]...)
 	children = append(children, visible, hostAfter)
-	children = append(children, parent.Children[slotIdx+1:]...)
+	children = append(children, parent.Children[hostIdx+1:]...)
 	parent.Children = children
 }
