@@ -55,6 +55,86 @@ func TestSpawn(t *testing.T) {
 	}
 }
 
+func TestSpawnWhileZoomedKeepsZoomAndFocus(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	h.splitH()
+	h.runCmd("zoom", "pane-1")
+
+	output := h.runCmd("spawn", "--name", "bg-worker", "--task", "TASK-42")
+	if !strings.Contains(output, "bg-worker") {
+		t.Fatalf("spawn should report agent name, got:\n%s", output)
+	}
+
+	h.assertScreen("zoomed spawn should keep only pane-1 visible", func(s string) bool {
+		return strings.Contains(s, "[pane-1]") && !strings.Contains(s, "[pane-2]") &&
+			!strings.Contains(s, "[bg-worker]")
+	})
+
+	capture := h.captureJSON()
+	p1 := h.jsonPane(capture, "pane-1")
+	if !p1.Active || !p1.Zoomed {
+		t.Fatalf("pane-1 state after spawn = active:%v zoomed:%v, want true/true", p1.Active, p1.Zoomed)
+	}
+	listOut := h.runCmd("list")
+	if !strings.Contains(listOut, "bg-worker") {
+		t.Fatalf("list should include bg-worker after zoomed spawn, got:\n%s", listOut)
+	}
+
+	h.runCmd("zoom", "pane-1")
+	h.assertScreen("unzoom should reveal the spawned background pane", func(s string) bool {
+		return strings.Contains(s, "[pane-1]") && strings.Contains(s, "[pane-2]") &&
+			strings.Contains(s, "[bg-worker]")
+	})
+}
+
+func TestSplitBackgroundKeepsFocus(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	h.splitH()
+	h.runCmd("focus", "pane-1")
+
+	output := h.runCmd("split", "--background", "--name", "bg-split")
+	if !strings.Contains(output, "bg-split") {
+		t.Fatalf("split should report the new pane name, got:\n%s", output)
+	}
+
+	capture := h.captureJSON()
+	p1 := h.jsonPane(capture, "pane-1")
+	if !p1.Active {
+		t.Fatal("pane-1 should remain active after split --background")
+	}
+	h.jsonPane(capture, "bg-split")
+	h.assertScreen("background split should still be visible when not zoomed", func(s string) bool {
+		return strings.Contains(s, "[pane-1]") && strings.Contains(s, "[bg-split]")
+	})
+}
+
+func TestSpawnBackgroundKeepsFocus(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	h.splitH()
+	h.runCmd("focus", "pane-1")
+
+	output := h.runCmd("spawn", "--background", "--name", "bg-worker", "--task", "TASK-42")
+	if !strings.Contains(output, "bg-worker") {
+		t.Fatalf("spawn should report the new pane name, got:\n%s", output)
+	}
+
+	capture := h.captureJSON()
+	p1 := h.jsonPane(capture, "pane-1")
+	if !p1.Active {
+		t.Fatal("pane-1 should remain active after spawn --background")
+	}
+	h.jsonPane(capture, "bg-worker")
+	h.assertScreen("background spawn should still be visible when not zoomed", func(s string) bool {
+		return strings.Contains(s, "[pane-1]") && strings.Contains(s, "[bg-worker]")
+	})
+}
+
 func TestMinimizeRestore(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)

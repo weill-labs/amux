@@ -348,6 +348,45 @@ func TestWindowZoomResolvePaneToggleMinimizeAndResizeBorder(t *testing.T) {
 	}
 }
 
+func TestWindowSplitWithOptionsBackgroundPreservesZoomAndFocus(t *testing.T) {
+	t.Parallel()
+
+	p1 := &Pane{ID: 1, Meta: PaneMeta{Name: "pane-1", Host: DefaultHost, Color: "f5e0dc"}, emulator: NewVTEmulatorWithScrollback(10, 5, DefaultScrollbackLines)}
+	p2 := &Pane{ID: 2, Meta: PaneMeta{Name: "pane-2", Host: DefaultHost, Color: "f2cdcd"}, emulator: NewVTEmulatorWithScrollback(10, 5, DefaultScrollbackLines)}
+	p3 := &Pane{ID: 3, Meta: PaneMeta{Name: "pane-3", Host: DefaultHost, Color: "cba6f7"}, emulator: NewVTEmulatorWithScrollback(10, 5, DefaultScrollbackLines)}
+
+	w := NewWindow(p1, 80, 24)
+	if _, err := w.SplitRoot(SplitHorizontal, p2); err != nil {
+		t.Fatalf("SplitRoot: %v", err)
+	}
+	if err := w.Zoom(1); err != nil {
+		t.Fatalf("Zoom: %v", err)
+	}
+
+	if _, err := w.SplitWithOptions(SplitVertical, p3, SplitOptions{Background: true}); err != nil {
+		t.Fatalf("SplitWithOptions: %v", err)
+	}
+	if w.ZoomedPaneID != 1 {
+		t.Fatalf("ZoomedPaneID = %d, want 1", w.ZoomedPaneID)
+	}
+	if w.ActivePane != p1 {
+		t.Fatalf("active pane = %v, want pane-1", w.ActivePane)
+	}
+	if w.Root.FindPane(3) == nil {
+		t.Fatal("pane-3 should be present in the layout tree")
+	}
+	if cols, rows := p1.EmulatorSize(); cols != 80 || rows != 23 {
+		t.Fatalf("zoomed pane size = %dx%d, want 80x23", cols, rows)
+	}
+	cell3 := w.Root.FindPane(3)
+	if cell3 == nil {
+		t.Fatal("pane-3 cell = nil, want visible leaf in layout tree")
+	}
+	if cols, rows := p3.EmulatorSize(); cols != cell3.W || rows != PaneContentHeight(cell3.H) {
+		t.Fatalf("background pane size = %dx%d, want %dx%d", cols, rows, cell3.W, PaneContentHeight(cell3.H))
+	}
+}
+
 func TestSnapshotWindowAndRebuildWindowFromSnapshot(t *testing.T) {
 	t.Parallel()
 
