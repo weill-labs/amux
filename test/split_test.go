@@ -4,6 +4,9 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/weill-labs/amux/internal/proto"
 )
 
 func TestSplitVertical(t *testing.T) {
@@ -174,9 +177,12 @@ func TestExitAfterDoubleRootVSplit(t *testing.T) {
 	h.splitRootV()
 	h.splitRootV()
 
-	gen := h.generation()
 	h.sendKeys("pane-3", "exit", "Enter")
-	h.waitLayout(gen)
+	if !h.waitForCaptureJSON(func(c proto.CaptureJSON) bool {
+		return len(c.Panes) == 2
+	}, 10*time.Second) {
+		t.Fatalf("timed out waiting for pane exit\ncapture:\n%s", h.capture())
+	}
 
 	c := h.captureJSON()
 	if len(c.Panes) != 2 {

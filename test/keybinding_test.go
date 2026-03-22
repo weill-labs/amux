@@ -240,9 +240,7 @@ unbind = ["o"]
 		t.Fatalf("unbound-key event: got %q, want %q", ev.Type, proto.UIEventPrefixMessageShown)
 	}
 
-	if !h.waitForOuterFunc(func(s string) bool {
-		return strings.Contains(s, "No binding for C-a o")
-	}, 3*time.Second) {
+	if !h.waitFor("No binding for C-a o", 3*time.Second) {
 		t.Fatalf("expected unbound-key feedback, got:\n%s", h.captureOuter())
 	}
 	h.assertActive("pane-2")
@@ -265,9 +263,7 @@ func TestUnsupportedPrefixKeyShowsFeedback(t *testing.T) {
 		t.Fatalf("unsupported-key event: got %q, want %q", ev.Type, proto.UIEventPrefixMessageShown)
 	}
 
-	if !h.waitForOuterFunc(func(s string) bool {
-		return strings.Contains(s, "No binding for C-a f")
-	}, 3*time.Second) {
+	if !h.waitFor("No binding for C-a f", 3*time.Second) {
 		t.Fatalf("expected unsupported-key feedback, got:\n%s", h.captureOuter())
 	}
 	h.assertActive("pane-1")
@@ -290,9 +286,7 @@ func TestUnsupportedPrefixKeyFeedbackClearsOnLiteralPrefix(t *testing.T) {
 		t.Fatalf("unsupported-key event: got %q, want %q", ev.Type, proto.UIEventPrefixMessageShown)
 	}
 
-	if !h.waitForOuterFunc(func(s string) bool {
-		return strings.Contains(s, "No binding for C-a f")
-	}, 3*time.Second) {
+	if !h.waitFor("No binding for C-a f", 3*time.Second) {
 		t.Fatalf("expected unsupported-key feedback, got:\n%s", h.captureOuter())
 	}
 

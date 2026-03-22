@@ -82,7 +82,7 @@ func TestClientUIStateReduceTransitions(t *testing.T) {
 			},
 		},
 		{
-			name: "non-structural layout change preserves overlays but clears message",
+			name: "non-structural layout change preserves overlays and message",
 			setup: func(st *clientUIState) {
 				st.displayPanes = &displayPanesState{}
 				st.message = "cannot minimize"
@@ -91,10 +91,10 @@ func TestClientUIStateReduceTransitions(t *testing.T) {
 			wantState: clientUIStateSnapshot{
 				dirty:           true,
 				displayPanes:    true,
+				message:         "cannot minimize",
 				copyModePaneIDs: []uint32{},
 				inputIdle:       true,
 			},
-			wantEvents: []string{proto.UIEventPrefixMessageHidden},
 		},
 		{
 			name: "non-structural layout change preserves chooser and input state",
@@ -107,10 +107,10 @@ func TestClientUIStateReduceTransitions(t *testing.T) {
 			wantState: clientUIStateSnapshot{
 				dirty:           true,
 				chooser:         string(chooserModeTree),
+				message:         "cannot minimize",
 				copyModePaneIDs: []uint32{},
 				inputIdle:       false,
 			},
-			wantEvents: []string{proto.UIEventPrefixMessageHidden},
 		},
 		{
 			name: "layout update without transient UI only marks dirty",

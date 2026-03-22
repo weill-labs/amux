@@ -421,6 +421,30 @@ func (h *ServerHarness) waitForFunc(fn func(string) bool, timeout time.Duration)
 	return false
 }
 
+// waitForCaptureJSON polls JSON capture until fn returns true or timeout.
+// It waits on layout generation bumps between capture checks instead of sleeping.
+func (h *ServerHarness) waitForCaptureJSON(fn func(proto.CaptureJSON) bool, timeout time.Duration) bool {
+	h.tb.Helper()
+
+	deadline := time.Now().Add(timeout)
+	gen := h.generation()
+	for time.Now().Before(deadline) {
+		capture := h.captureJSON()
+		if fn(capture) {
+			return true
+		}
+		waitFor := time.Until(deadline)
+		if waitFor > 250*time.Millisecond {
+			waitFor = 250 * time.Millisecond
+		}
+		if !h.waitLayoutOrTimeout(gen, waitFor.String()) {
+			continue
+		}
+		gen = h.generation()
+	}
+	return false
+}
+
 // waitForPaneContent polls the client-rendered pane capture until substr
 // appears in the named pane's content or timeout elapses.
 func (h *ServerHarness) waitForPaneContent(pane, substr string, timeout time.Duration) {

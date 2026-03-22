@@ -764,19 +764,19 @@ func TestCommandFeedbackOverridesSessionNotice(t *testing.T) {
 	}
 }
 
-func TestHandleLayoutClearsCommandFeedback(t *testing.T) {
+func TestStructuralHandleLayoutClearsCommandFeedback(t *testing.T) {
 	t.Parallel()
 
 	cr := buildTestRenderer(t)
 	cr.ShowCommandError("cannot minimize: pane has no stacked siblings")
 	cr.RenderDiff()
 
-	cr.HandleLayout(twoPane80x23())
+	cr.HandleLayout(threePane80x23())
 	cr.RenderDiff()
 
 	display := cr.CaptureDisplay()
 	if strings.Contains(display, "cannot minimize: pane has no stacked siblings") {
-		t.Fatalf("layout update should clear command feedback, got:\n%s", display)
+		t.Fatalf("structural layout update should clear command feedback, got:\n%s", display)
 	}
 }
 
@@ -821,7 +821,7 @@ func TestHandleRenderMsgEffects(t *testing.T) {
 			},
 		},
 		{
-			name: "non-structural layout change preserves overlay and skips grid clear",
+			name: "non-structural layout change preserves overlay message and skips grid clear",
 			prepare: func(t *testing.T, cr *ClientRenderer) {
 				if !cr.ShowDisplayPanes() {
 					t.Fatal("ShowDisplayPanes should succeed")
@@ -830,18 +830,16 @@ func TestHandleRenderMsgEffects(t *testing.T) {
 			},
 			msg: &RenderMsg{Typ: RenderMsgLayout, Layout: twoPane80x23()},
 			wantKinds: []clientEffectKind{
-				clientEffectEmitUIEvents,
 				clientEffectStopScheduledRender,
 				clientEffectRenderNow,
 			},
-			wantUIEvents: []string{proto.UIEventPrefixMessageHidden},
 			assert: func(t *testing.T, cr *ClientRenderer, _ []clientEffect) {
 				t.Helper()
 				if !cr.DisplayPanesActive() {
 					t.Fatal("display panes should survive a non-structural layout change")
 				}
-				if got := cr.prefixMessage(); got != "" {
-					t.Fatalf("layout update should clear command feedback, got %q", got)
+				if got := cr.prefixMessage(); got != "cannot minimize" {
+					t.Fatalf("metadata-only layout update should preserve command feedback, got %q", got)
 				}
 			},
 		},
@@ -1611,7 +1609,7 @@ func TestHandleLayoutPreservesDisplayPanesOnNonStructuralChange(t *testing.T) {
 	}
 }
 
-func TestHandleLayoutClearsPrefixMessageEmitsHidden(t *testing.T) {
+func TestStructuralHandleLayoutClearsPrefixMessageEmitsHidden(t *testing.T) {
 	t.Parallel()
 
 	cr := buildTestRenderer(t)
@@ -1621,7 +1619,7 @@ func TestHandleLayoutClearsPrefixMessageEmitsHidden(t *testing.T) {
 	}
 	cr.ShowPrefixMessage("No binding for C-a f")
 
-	cr.HandleLayout(twoPane80x23())
+	cr.HandleLayout(threePane80x23())
 
 	want := []string{proto.UIEventPrefixMessageShown, proto.UIEventPrefixMessageHidden}
 	if len(events) != len(want) {
