@@ -177,6 +177,8 @@ var commandRegistry = map[string]CommandHandler{
 	"resize-pane":     cmdResizePane,
 	"resize-window":   cmdResizeWindow,
 	"swap":            cmdSwap,
+	"swap-tree":       cmdSwapTree,
+	"move":            cmdMove,
 	"rotate":          cmdRotate,
 	"copy-mode":       cmdCopyMode,
 	"generation":      cmdGeneration,
@@ -1091,6 +1093,89 @@ func cmdSwap(ctx *CommandContext) {
 			return commandMutationResult{err: err}
 		}
 		return commandMutationResult{output: "Swapped\n", broadcastLayout: true}
+	}))
+}
+
+func cmdSwapTree(ctx *CommandContext) {
+	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
+		if len(ctx.Args) != 2 {
+			return commandMutationResult{err: fmt.Errorf("usage: swap-tree <pane1> <pane2>")}
+		}
+
+		w := sess.ActiveWindow()
+		if w == nil {
+			return commandMutationResult{err: fmt.Errorf("no session")}
+		}
+
+		pane1 := w.ResolvePane(ctx.Args[0])
+		if pane1 == nil {
+			return commandMutationResult{err: fmt.Errorf("pane %q not found", ctx.Args[0])}
+		}
+		pane2 := w.ResolvePane(ctx.Args[1])
+		if pane2 == nil {
+			return commandMutationResult{err: fmt.Errorf("pane %q not found", ctx.Args[1])}
+		}
+		if err := w.SwapTree(pane1.ID, pane2.ID); err != nil {
+			return commandMutationResult{err: err}
+		}
+
+		return commandMutationResult{output: "Swapped tree\n", broadcastLayout: true}
+	}))
+}
+
+const moveUsage = "usage: move <pane> --before <target> | move <pane> --after <target>"
+
+func parseMoveArgs(args []string) (paneRef, targetRef string, before bool, err error) {
+	if len(args) != 3 {
+		return "", "", false, fmt.Errorf(moveUsage)
+	}
+
+	paneRef = args[0]
+	targetRef = args[2]
+
+	switch args[1] {
+	case "--before":
+		before = true
+	case "--after":
+	default:
+		return "", "", false, fmt.Errorf(moveUsage)
+	}
+
+	return paneRef, targetRef, before, nil
+}
+
+func cmdMove(ctx *CommandContext) {
+	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
+		paneRef, targetRef, before, err := parseMoveArgs(ctx.Args)
+		if err != nil {
+			return commandMutationResult{err: err}
+		}
+
+		w := sess.ActiveWindow()
+		if w == nil {
+			return commandMutationResult{err: fmt.Errorf("no session")}
+		}
+
+		pane := w.ResolvePane(paneRef)
+		if pane == nil {
+			return commandMutationResult{err: fmt.Errorf("pane %q not found", paneRef)}
+		}
+		target := w.ResolvePane(targetRef)
+		if target == nil {
+			return commandMutationResult{err: fmt.Errorf("pane %q not found", targetRef)}
+		}
+		if err := w.MovePane(pane.ID, target.ID, before); err != nil {
+			return commandMutationResult{err: err}
+		}
+
+		pos := "after"
+		if before {
+			pos = "before"
+		}
+		return commandMutationResult{
+			output:          fmt.Sprintf("Moved %s %s %s\n", pane.Meta.Name, pos, target.Meta.Name),
+			broadcastLayout: true,
+		}
 	}))
 }
 

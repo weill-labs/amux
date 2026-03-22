@@ -956,6 +956,340 @@ func TestSwapPanesNotFound(t *testing.T) {
 	}
 }
 
+func TestRootChildForPaneID(t *testing.T) {
+	t.Parallel()
+
+	p1 := fakePaneID(1)
+	w := NewWindow(p1, 120, 24)
+
+	p2 := fakePaneID(2)
+	if _, err := w.SplitRoot(SplitVertical, p2); err != nil {
+		t.Fatalf("split root vertical: %v", err)
+	}
+
+	w.FocusPane(p1)
+	p3 := fakePaneID(3)
+	if _, err := w.Split(SplitHorizontal, p3); err != nil {
+		t.Fatalf("split left column horizontal: %v", err)
+	}
+
+	tests := []struct {
+		name     string
+		paneID   uint32
+		wantIdx  int
+		wantCell *LayoutCell
+	}{
+		{name: "top pane", paneID: 1, wantIdx: 0, wantCell: w.Root.Children[0]},
+		{name: "bottom pane in same branch", paneID: 3, wantIdx: 0, wantCell: w.Root.Children[0]},
+		{name: "right pane", paneID: 2, wantIdx: 1, wantCell: w.Root.Children[1]},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cell, idx, err := w.rootChildForPaneID(tt.paneID)
+			if err != nil {
+				t.Fatalf("rootChildForPaneID(%d): %v", tt.paneID, err)
+			}
+			if idx != tt.wantIdx {
+				t.Fatalf("rootChildForPaneID(%d) index = %d, want %d", tt.paneID, idx, tt.wantIdx)
+			}
+			if cell != tt.wantCell {
+				t.Fatalf("rootChildForPaneID(%d) returned unexpected root child", tt.paneID)
+			}
+		})
+	}
+}
+
+func TestRootChildForPaneIDErrors(t *testing.T) {
+	t.Parallel()
+
+	w := NewWindow(fakePaneID(1), 120, 24)
+	if _, _, err := w.rootChildForPaneID(1); err == nil || !strings.Contains(err.Error(), "window has no root-level split") {
+		t.Fatalf("rootChildForPaneID without root split = %v, want root-level split error", err)
+	}
+
+	if _, err := w.SplitRoot(SplitVertical, fakePaneID(2)); err != nil {
+		t.Fatalf("split root vertical: %v", err)
+	}
+	if _, _, err := w.rootChildForPaneID(99); err == nil || !strings.Contains(err.Error(), "pane 99 not found") {
+		t.Fatalf("rootChildForPaneID missing pane = %v, want pane not found", err)
+	}
+}
+
+func TestSwapTree(t *testing.T) {
+	t.Parallel()
+
+	p1 := fakePaneID(1)
+	w := NewWindow(p1, 120, 24)
+
+	p2 := fakePaneID(2)
+	if _, err := w.SplitRoot(SplitVertical, p2); err != nil {
+		t.Fatalf("split root vertical: %v", err)
+	}
+
+	w.FocusPane(p1)
+	p3 := fakePaneID(3)
+	if _, err := w.Split(SplitHorizontal, p3); err != nil {
+		t.Fatalf("split left column horizontal: %v", err)
+	}
+
+	if !w.ResizePane(1, "right", 7) {
+		t.Fatal("resize pane-1 right should succeed")
+	}
+
+	leftW := w.Root.Children[0].W
+	rightW := w.Root.Children[1].W
+	w.FocusPane(p1)
+
+	if err := w.SwapTree(1, 2); err != nil {
+		t.Fatalf("SwapTree: %v", err)
+	}
+
+	if got := w.Root.Children[0].FindPane(2); got == nil {
+		t.Fatal("left root child should now contain pane-2")
+	}
+	if got := w.Root.Children[1].FindPane(1); got == nil {
+		t.Fatal("right root child should now contain pane-1 subtree")
+	}
+	if got := w.Root.Children[1].FindPane(3); got == nil {
+		t.Fatal("right root child should preserve pane-3 subtree member")
+	}
+	if got := w.Root.Children[0].W; got != rightW {
+		t.Fatalf("moved pane-2 branch width = %d, want %d", got, rightW)
+	}
+	if got := w.Root.Children[1].W; got != leftW {
+		t.Fatalf("moved pane-1 subtree width = %d, want %d", got, leftW)
+	}
+	if w.ActivePane != p1 {
+		t.Fatalf("active pane = %v, want pane-1 pointer", w.ActivePane)
+	}
+}
+
+func TestSwapTreeErrorPaths(t *testing.T) {
+	t.Parallel()
+
+	t.Run("no root split", func(t *testing.T) {
+		t.Parallel()
+
+		w := NewWindow(fakePaneID(1), 80, 24)
+		if err := w.SwapTree(1, 2); err == nil || !strings.Contains(err.Error(), "window has no root-level split") {
+			t.Fatalf("SwapTree without root split = %v, want root-level split error", err)
+		}
+	})
+
+	t.Run("missing pane", func(t *testing.T) {
+		t.Parallel()
+
+		w := NewWindow(fakePaneID(1), 80, 24)
+		if _, err := w.SplitRoot(SplitVertical, fakePaneID(2)); err != nil {
+			t.Fatalf("split root vertical: %v", err)
+		}
+		if err := w.SwapTree(1, 99); err == nil || !strings.Contains(err.Error(), "pane 99 not found") {
+			t.Fatalf("SwapTree missing pane = %v, want pane not found", err)
+		}
+	})
+}
+
+func TestSwapTreeRejectsSameRootBranch(t *testing.T) {
+	t.Parallel()
+
+	p1 := fakePaneID(1)
+	w := NewWindow(p1, 120, 24)
+
+	p2 := fakePaneID(2)
+	if _, err := w.SplitRoot(SplitVertical, p2); err != nil {
+		t.Fatalf("split root vertical: %v", err)
+	}
+
+	w.FocusPane(p1)
+	p3 := fakePaneID(3)
+	if _, err := w.Split(SplitHorizontal, p3); err != nil {
+		t.Fatalf("split left column horizontal: %v", err)
+	}
+
+	err := w.SwapTree(1, 3)
+	if err == nil {
+		t.Fatal("expected same-branch swap-tree error")
+	}
+	if !strings.Contains(err.Error(), "same root-level group") {
+		t.Fatalf("SwapTree same-branch error = %q, want same root-level group", err.Error())
+	}
+}
+
+func TestSwapTreeAutoUnzooms(t *testing.T) {
+	t.Parallel()
+
+	w := NewWindow(fakePaneID(1), 80, 24)
+	if _, err := w.SplitRoot(SplitVertical, fakePaneID(2)); err != nil {
+		t.Fatalf("split root vertical: %v", err)
+	}
+
+	if err := w.Zoom(2); err != nil {
+		t.Fatalf("zoom pane-2: %v", err)
+	}
+	if err := w.SwapTree(1, 2); err != nil {
+		t.Fatalf("SwapTree while zoomed: %v", err)
+	}
+	if w.ZoomedPaneID != 0 {
+		t.Fatalf("swap should auto-unzoom, got ZoomedPaneID=%d", w.ZoomedPaneID)
+	}
+}
+
+func TestMovePaneBefore(t *testing.T) {
+	t.Parallel()
+
+	p1 := fakePaneID(1)
+	w := NewWindow(p1, 120, 24)
+
+	p2 := fakePaneID(2)
+	if _, err := w.SplitRoot(SplitVertical, p2); err != nil {
+		t.Fatalf("split root vertical: %v", err)
+	}
+	p3 := fakePaneID(3)
+	if _, err := w.SplitRoot(SplitVertical, p3); err != nil {
+		t.Fatalf("split root vertical again: %v", err)
+	}
+
+	w.FocusPane(p1)
+	p4 := fakePaneID(4)
+	if _, err := w.Split(SplitHorizontal, p4); err != nil {
+		t.Fatalf("split left column horizontal: %v", err)
+	}
+
+	if !w.ResizePane(1, "right", 6) {
+		t.Fatal("resize pane-1 right should succeed")
+	}
+
+	leftW := w.Root.Children[0].W
+	middleW := w.Root.Children[1].W
+	rightW := w.Root.Children[2].W
+
+	w.FocusPane(p1)
+	if err := w.MovePane(3, 1, true); err != nil {
+		t.Fatalf("MovePane before: %v", err)
+	}
+
+	if got := w.Root.Children[0].FindPane(3); got == nil {
+		t.Fatal("first root child should now contain pane-3")
+	}
+	if got := w.Root.Children[1].FindPane(1); got == nil {
+		t.Fatal("second root child should now contain pane-1 subtree")
+	}
+	if got := w.Root.Children[1].FindPane(4); got == nil {
+		t.Fatal("second root child should preserve pane-4 subtree member")
+	}
+	if got := w.Root.Children[2].FindPane(2); got == nil {
+		t.Fatal("third root child should now contain pane-2")
+	}
+	if got := w.Root.Children[0].W; got != rightW {
+		t.Fatalf("pane-3 branch width after move = %d, want %d", got, rightW)
+	}
+	if got := w.Root.Children[1].W; got != leftW {
+		t.Fatalf("pane-1 subtree width after move = %d, want %d", got, leftW)
+	}
+	if got := w.Root.Children[2].W; got != middleW {
+		t.Fatalf("pane-2 branch width after move = %d, want %d", got, middleW)
+	}
+	if w.ActivePane != p1 {
+		t.Fatalf("active pane = %v, want pane-1 pointer", w.ActivePane)
+	}
+}
+
+func TestMovePaneErrorPaths(t *testing.T) {
+	t.Parallel()
+
+	t.Run("missing source pane", func(t *testing.T) {
+		t.Parallel()
+
+		w := NewWindow(fakePaneID(1), 80, 24)
+		if _, err := w.SplitRoot(SplitVertical, fakePaneID(2)); err != nil {
+			t.Fatalf("split root vertical: %v", err)
+		}
+		if err := w.MovePane(99, 1, true); err == nil || !strings.Contains(err.Error(), "pane 99 not found") {
+			t.Fatalf("MovePane missing source = %v, want pane not found", err)
+		}
+	})
+
+	t.Run("missing target pane", func(t *testing.T) {
+		t.Parallel()
+
+		w := NewWindow(fakePaneID(1), 80, 24)
+		if _, err := w.SplitRoot(SplitVertical, fakePaneID(2)); err != nil {
+			t.Fatalf("split root vertical: %v", err)
+		}
+		if err := w.MovePane(1, 99, true); err == nil || !strings.Contains(err.Error(), "pane 99 not found") {
+			t.Fatalf("MovePane missing target = %v, want pane not found", err)
+		}
+	})
+
+	t.Run("same root branch", func(t *testing.T) {
+		t.Parallel()
+
+		w := NewWindow(fakePaneID(1), 120, 24)
+		if _, err := w.SplitRoot(SplitVertical, fakePaneID(2)); err != nil {
+			t.Fatalf("split root vertical: %v", err)
+		}
+		w.FocusPane(w.Root.Children[0].Pane)
+		if _, err := w.Split(SplitHorizontal, fakePaneID(3)); err != nil {
+			t.Fatalf("split left column horizontal: %v", err)
+		}
+
+		if err := w.MovePane(1, 3, true); err == nil || !strings.Contains(err.Error(), "same root-level group") {
+			t.Fatalf("MovePane same branch = %v, want same root-level group", err)
+		}
+	})
+}
+
+func TestMovePaneAutoUnzooms(t *testing.T) {
+	t.Parallel()
+
+	p1 := fakePaneID(1)
+	w := NewWindow(p1, 80, 24)
+
+	p2 := fakePaneID(2)
+	if _, err := w.SplitRoot(SplitVertical, p2); err != nil {
+		t.Fatalf("split root vertical: %v", err)
+	}
+
+	if err := w.Zoom(2); err != nil {
+		t.Fatalf("zoom pane-2: %v", err)
+	}
+	if err := w.MovePane(2, 1, true); err != nil {
+		t.Fatalf("MovePane while zoomed: %v", err)
+	}
+	if w.ZoomedPaneID != 0 {
+		t.Fatalf("move should auto-unzoom, got ZoomedPaneID=%d", w.ZoomedPaneID)
+	}
+}
+
+func TestMovePaneAfter(t *testing.T) {
+	t.Parallel()
+
+	p1 := fakePaneID(1)
+	w := NewWindow(p1, 120, 24)
+
+	p2 := fakePaneID(2)
+	if _, err := w.SplitRoot(SplitVertical, p2); err != nil {
+		t.Fatalf("split root vertical: %v", err)
+	}
+	p3 := fakePaneID(3)
+	if _, err := w.SplitRoot(SplitVertical, p3); err != nil {
+		t.Fatalf("split root vertical again: %v", err)
+	}
+
+	if err := w.MovePane(1, 3, false); err != nil {
+		t.Fatalf("MovePane after: %v", err)
+	}
+
+	ids := collectPaneIDs(w)
+	if ids[0] != 2 || ids[1] != 3 || ids[2] != 1 {
+		t.Fatalf("after move after: %v, want [2 3 1]", ids)
+	}
+}
+
 func TestSwapPaneForward(t *testing.T) {
 	t.Parallel()
 	p1 := fakePaneID(1)

@@ -152,6 +152,18 @@ func main() {
 			os.Exit(1)
 		}
 		runServerCommand("swap", args[1:])
+	case "swap-tree":
+		if len(args) != 3 {
+			fmt.Fprintf(os.Stderr, "usage: amux swap-tree <pane1> <pane2>\n")
+			os.Exit(1)
+		}
+		runServerCommand("swap-tree", args[1:])
+	case "move":
+		if len(args) < 4 {
+			fmt.Fprintf(os.Stderr, "usage: amux move <pane> --before <target> | move <pane> --after <target>\n")
+			os.Exit(1)
+		}
+		runServerCommand("move", args[1:])
 	case "rotate":
 		runServerCommand("rotate", args[1:])
 	case "resize-pane":
@@ -438,6 +450,11 @@ Usage:
   amux [-s session] spawn --name NAME  Spawn a new agent pane
   amux [-s session] zoom [pane]        Toggle zoom (maximize) a pane
   amux [-s session] swap <p1> <p2>     Swap two panes by name or ID
+  amux [-s session] swap-tree <p1> <p2>
+                                       Swap the root-level groups containing two panes
+  amux [-s session] move <pane> --before <target>
+  amux [-s session] move <pane> --after <target>
+                                       Move a pane's root-level group before or after another
   amux [-s session] rotate             Rotate pane positions forward
   amux [-s session] rotate --reverse   Rotate pane positions backward
   amux [-s session] minimize <pane>    Minimize a pane
