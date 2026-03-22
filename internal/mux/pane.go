@@ -443,6 +443,14 @@ func (p *Pane) Resize(cols, rows int) error {
 	if p.emulator != nil {
 		p.emulator.Resize(cols, rows)
 	}
+	if err := p.resizePTY(cols, rows); err != nil {
+		return err
+	}
+	p.notifyResizeSignal()
+	return nil
+}
+
+func (p *Pane) resizePTY(cols, rows int) error {
 	if p.ptmx == nil {
 		return nil
 	}
