@@ -440,13 +440,18 @@ func (p *Pane) EmulatorSize() (cols, rows int) {
 func (p *Pane) Resize(cols, rows int) error {
 	p.beginSnapshotMutation()
 	defer p.endSnapshotMutation()
+	sizeChanged := true
 	if p.emulator != nil {
+		currentCols, currentRows := p.emulator.Size()
+		sizeChanged = currentCols != cols || currentRows != rows
 		p.emulator.Resize(cols, rows)
 	}
 	if err := p.resizePTY(cols, rows); err != nil {
 		return err
 	}
-	p.notifyResizeSignal()
+	if sizeChanged {
+		p.notifyResizeSignal()
+	}
 	return nil
 }
 
