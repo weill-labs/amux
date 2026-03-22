@@ -192,6 +192,7 @@ var commandRegistry = map[string]CommandHandler{
 	"wait-hook":       cmdWaitHook,
 	"wait-for":        cmdWaitFor,
 	"wait-ready":      cmdWaitReady,
+	"wait-vt-idle":    cmdWaitVTIdle,
 	"wait-idle":       cmdWaitIdle,
 	"wait-busy":       cmdWaitBusy,
 	"ui-gen":          cmdUIGen,

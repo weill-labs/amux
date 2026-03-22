@@ -64,3 +64,15 @@ func TestMainWaitReadyUsage(t *testing.T) {
 		t.Fatalf("wait-ready usage output = %q", out)
 	}
 }
+
+func TestMainWaitVTIdleUsage(t *testing.T) {
+	t.Parallel()
+
+	out, code := runMainUsage(t, "wait-vt-idle")
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1\n%s", code, out)
+	}
+	if !strings.Contains(out, "usage: amux wait-vt-idle <pane> [--settle <duration>] [--timeout <duration>]") {
+		t.Fatalf("wait-vt-idle usage output = %q", out)
+	}
+}

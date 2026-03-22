@@ -71,8 +71,9 @@ type Session struct {
 	hookWaiters map[uint64]hookWaiter
 
 	// Hook system — session-level, not checkpointed.
-	Hooks *hooks.Registry
-	idle  *idleTracker
+	Hooks  *hooks.Registry
+	idle   *idleTracker
+	vtIdle *VTIdleTracker
 
 	// Event stream — used by `amux events` for push-based notifications.
 	// Only accessed from the session event loop (no mutex needed).
@@ -381,6 +382,7 @@ func newSessionWithScrollback(name string, scrollbackLines int) *Session {
 	}
 	sess.Hooks = hooks.NewRegistry()
 	sess.idle = newIdleTracker()
+	sess.vtIdle = NewVTIdleTracker()
 	sess.takenOverPanes = make(map[uint32]bool)
 	sess.layoutWaiters = make(map[uint64]layoutWaiter)
 	sess.clipboardWaiters = make(map[uint64]clipboardWaiter)

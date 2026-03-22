@@ -236,6 +236,12 @@ func main() {
 			os.Exit(1)
 		}
 		runServerCommand("wait-ready", args[1:])
+	case "wait-vt-idle":
+		if len(args) < 2 {
+			fmt.Fprintf(os.Stderr, "usage: amux wait-vt-idle <pane> [--settle <duration>] [--timeout <duration>]\n")
+			os.Exit(1)
+		}
+		runServerCommand("wait-vt-idle", args[1:])
 	case "wait-idle":
 		if len(args) < 2 {
 			fmt.Fprintf(os.Stderr, "usage: amux wait-idle <pane> [--timeout <duration>]\n")
@@ -484,7 +490,7 @@ Usage:
                                        Remove hook(s) for an event
   amux [-s session] list-hooks         List registered hooks
   amux [-s session] events [--filter type1,type2] [--pane <ref>] [--host <name>] [--client <id>] [--no-reconnect]
-                                       Stream events as NDJSON (layout, idle, busy, hook, client-connect, client-disconnect, display-panes-*, choose-*, copy-mode-*, input-*, reconnect)
+                                       Stream events as NDJSON (layout, output, idle, busy, vt-idle, hook, client-connect, client-disconnect, display-panes-*, choose-*, copy-mode-*, input-*, reconnect)
   amux [-s session] split [root] [--vertical|--horizontal] [--name NAME] [--host HOST]
                                        Split active pane (default: horizontal)
   amux [-s session] hosts              List configured remote hosts + status
@@ -501,6 +507,8 @@ Usage:
                                        Block until substring appears in pane
   amux [-s session] wait-ready <pane> [--timeout 10s] [--continue-known-dialogs]
                                        Block until an agent pane reaches its input prompt
+  amux [-s session] wait-vt-idle <pane> [--settle 2s] [--timeout 60s]
+                                       Block until pane VT output quiesces
   amux [-s session] wait-busy <pane> [--timeout 5s]
                                        Block until pane has child processes
   amux [-s session] wait-idle <pane> [--timeout 5s]

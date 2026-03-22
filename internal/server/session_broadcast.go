@@ -83,6 +83,7 @@ func (s *Session) broadcastPaneOutputNow(paneID uint32, data []byte, seq uint64)
 		c.sendPaneOutput(msg, paneID, seq)
 	}
 	s.notifyPaneOutputSubs(paneID)
+	s.trackPaneVTIdle(paneID)
 	s.trackPaneActivity(paneID)
 
 	var paneName, host string
@@ -286,6 +287,15 @@ func (s *Session) notifyPaneOutputSubs(paneID uint32) {
 		default:
 		}
 	}
+}
+
+func (s *Session) trackPaneVTIdle(paneID uint32) {
+	if s.vtIdle == nil {
+		return
+	}
+	s.vtIdle.TrackOutput(paneID, defaultVTIdleSettle, func(lastOutput time.Time) {
+		s.enqueueVTIdleTimeout(paneID, lastOutput)
+	})
 }
 
 // trackPaneActivity is called on every PTY output. It resets the idle timer
