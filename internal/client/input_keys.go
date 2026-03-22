@@ -85,6 +85,7 @@ func hasActivityInput(raw []byte) bool {
 func legacyBytesForKeyPress(key uv.KeyPressEvent) []byte {
 	k := key.Key()
 	mod := normalizedLegacyKeyMod(k.Mod)
+	code := legacyCtrlRune(k)
 
 	// Shifted printable keys should still behave like their textual byte form
 	// for local bindings such as prefix + M.
@@ -106,15 +107,15 @@ func legacyBytesForKeyPress(key uv.KeyPressEvent) []byte {
 		if seq := legacySpecialKeySequence(k.Code); len(seq) > 0 {
 			return append([]byte{0x1b}, seq...)
 		}
-		if ascii, ok := asciiRuneByte(legacyCtrlRune(k)); ok {
+		if ascii, ok := asciiRuneByte(code); ok {
 			return []byte{0x1b, ascii}
 		}
 	case uv.ModCtrl:
-		if b, ok := legacyCtrlByte(legacyCtrlRune(k)); ok {
+		if b, ok := legacyCtrlByte(code); ok {
 			return []byte{b}
 		}
 	case uv.ModCtrl | uv.ModAlt:
-		if b, ok := legacyCtrlByte(legacyCtrlRune(k)); ok {
+		if b, ok := legacyCtrlByte(code); ok {
 			return []byte{0x1b, b}
 		}
 	}
@@ -126,13 +127,6 @@ func normalizedLegacyKeyMod(mod uv.KeyMod) uv.KeyMod {
 	mod &^= uv.ModCapsLock | uv.ModNumLock | uv.ModScrollLock
 	if mod&uv.ModCtrl != 0 {
 		mod &^= uv.ModShift
-		return mod
-	}
-	if mod&uv.ModAlt != 0 {
-		return mod
-	}
-	if mod&^uv.ModShift == 0 {
-		return mod
 	}
 	return mod
 }
@@ -195,6 +189,8 @@ func asciiRuneByte(r rune) (byte, bool) {
 }
 
 func legacyCtrlByte(code rune) (byte, bool) {
+	// Match tmux input_key_vt10x's Ctrl+printable fallback map for keys that
+	// cannot be represented as distinct C0 controls in legacy mode.
 	if ascii, ok := asciiRuneByte(code); ok {
 		switch ascii {
 		case '1', '!':

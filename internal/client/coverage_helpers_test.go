@@ -187,7 +187,10 @@ func TestLegacyKeyHelpersAndClientPaneDataAccessors(t *testing.T) {
 		{code: uv.KeyTab, want: '\t', ok: true},
 		{code: uv.KeyEnter, want: '\r', ok: true},
 		{code: uv.KeyBackspace, want: 0x08, ok: true},
-		{code: '1', want: 0x00, ok: false},
+		{code: '1', want: '1', ok: true},
+		{code: '3', want: 0x1b, ok: true},
+		{code: '9', want: '9', ok: true},
+		{code: '/', want: 0x1f, ok: true},
 	}
 	for _, tt := range ctrlTests {
 		got, ok := legacyCtrlByte(tt.code)
