@@ -174,51 +174,61 @@ func cmdList(ctx *CommandContext) {
 	ctx.reply(output)
 }
 
-func cmdSplit(ctx *CommandContext) {
-	rootLevel := false
-	dir := mux.SplitHorizontal
-	var hostName, name string
-	for i := 0; i < len(ctx.Args); i++ {
-		switch ctx.Args[i] {
+type splitCommandArgs struct {
+	rootLevel bool
+	dir       mux.SplitDir
+	hostName  string
+	name      string
+}
+
+func parseSplitCommandArgs(args []string) splitCommandArgs {
+	parsed := splitCommandArgs{dir: mux.SplitHorizontal}
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
 		case "v":
-			dir = mux.SplitVertical
+			parsed.dir = mux.SplitVertical
 		case "root":
-			rootLevel = true
+			parsed.rootLevel = true
 		case "--host":
-			if i+1 < len(ctx.Args) {
+			if i+1 < len(args) {
 				i++
-				hostName = ctx.Args[i]
+				parsed.hostName = args[i]
 			}
 		case "--name":
-			if i+1 < len(ctx.Args) {
+			if i+1 < len(args) {
 				i++
-				name = ctx.Args[i]
+				parsed.name = args[i]
 			}
 		}
 	}
+	return parsed
+}
+
+func cmdSplit(ctx *CommandContext) {
+	args := parseSplitCommandArgs(ctx.Args)
 	// If no --host flag, inherit the active pane's host when it's a
 	// remote proxy pane. Splitting a remote pane should stay remote.
-	if hostName == "" {
+	if args.hostName == "" {
 		snap, err := ctx.Sess.queryActiveWindowSnapshot()
 		if err == nil {
-			hostName = snap.proxyHost
+			args.hostName = snap.proxyHost
 		}
 	}
 
-	if hostName != "" {
-		pane, err := ctx.CC.splitRemotePane(ctx.Srv, ctx.Sess, hostName, dir, rootLevel, name)
+	if args.hostName != "" {
+		pane, err := ctx.CC.splitRemotePane(ctx.Srv, ctx.Sess, args.hostName, args.dir, args.rootLevel, args.name)
 		if err != nil {
 			ctx.replyErr(err.Error())
 			return
 		}
-		ctx.reply(fmt.Sprintf("Split %s: new remote pane %s @%s\n", dirName(dir), pane.Meta.Name, hostName))
+		ctx.reply(fmt.Sprintf("Split %s: new remote pane %s @%s\n", dirName(args.dir), pane.Meta.Name, args.hostName))
 	} else {
 		activePid, _, _, err := ctx.activeWindowSnapshot()
 		if err != nil {
 			ctx.replyErr(err.Error())
 			return
 		}
-		meta := mux.PaneMeta{Name: name, Dir: mux.PaneCwd(activePid)}
+		meta := mux.PaneMeta{Name: args.name, Dir: mux.PaneCwd(activePid)}
 		ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
 			w := sess.ActiveWindow()
 			if w == nil {
@@ -228,10 +238,10 @@ func cmdSplit(ctx *CommandContext) {
 			if err != nil {
 				return commandMutationResult{err: err}
 			}
-			if rootLevel {
-				_, err = w.SplitRoot(dir, pane)
+			if args.rootLevel {
+				_, err = w.SplitRoot(args.dir, pane)
 			} else {
-				_, err = w.Split(dir, pane)
+				_, err = w.Split(args.dir, pane)
 			}
 			if err != nil {
 				sess.removePane(pane.ID)
@@ -239,7 +249,7 @@ func cmdSplit(ctx *CommandContext) {
 				return commandMutationResult{err: err}
 			}
 			return commandMutationResult{
-				output:          fmt.Sprintf("Split %s: new pane %s\n", dirName(dir), pane.Meta.Name),
+				output:          fmt.Sprintf("Split %s: new pane %s\n", dirName(args.dir), pane.Meta.Name),
 				broadcastLayout: true,
 				startPanes:      []*mux.Pane{pane},
 			}
