@@ -2,6 +2,7 @@ package client
 
 import (
 	"net"
+	"strings"
 	"testing"
 	"time"
 
@@ -30,6 +31,49 @@ func readCommandMessage(t *testing.T, conn net.Conn) *proto.Message {
 		t.Fatalf("read command message: %v", err)
 	}
 	return msg
+}
+
+func buildMultiWindowRendererAt(t *testing.T, activeWindowID uint32) *ClientRenderer {
+	t.Helper()
+
+	snap := multiWindow80x23()
+	snap.ActiveWindowID = activeWindowID
+	for _, ws := range snap.Windows {
+		if ws.ID == activeWindowID {
+			snap.ActivePaneID = ws.ActivePaneID
+			snap.Root = ws.Root
+			break
+		}
+	}
+
+	cr := NewClientRenderer(80, 24)
+	cr.HandleLayout(snap)
+	return cr
+}
+
+func globalBarClickColumn(t *testing.T, cr *ClientRenderer, label string) int {
+	t.Helper()
+
+	lines := strings.Split(cr.Capture(true), "\n")
+	if len(lines) == 0 {
+		t.Fatal("capture should include a global bar")
+	}
+	bar := lines[len(lines)-1]
+	col := strings.Index(bar, label)
+	if col < 0 {
+		t.Fatalf("global bar %q missing %q", bar, label)
+	}
+	return col
+}
+
+func globalBarRow(t *testing.T, cr *ClientRenderer) int {
+	t.Helper()
+
+	layout := cr.VisibleLayout()
+	if layout == nil {
+		t.Fatal("visible layout missing")
+	}
+	return layout.H
 }
 
 func TestHandleDisplayPaneSelectionSendsFocusCommand(t *testing.T) {
@@ -104,6 +148,131 @@ func TestHandleMouseEventClickSendsFocusCommand(t *testing.T) {
 		t.Fatalf("command args = %v, want [2]", msg.CmdArgs)
 	}
 	<-done
+}
+
+func TestHandleMouseEventGlobalBarClickSendsSelectWindowCommand(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		activeWindow uint32
+		clickLabel   string
+		wantWindow   string
+	}{
+		{
+			name:         "click second tab from first window",
+			activeWindow: 1,
+			clickLabel:   "2:logs",
+			wantWindow:   "2",
+		},
+		{
+			name:         "click first tab from second window",
+			activeWindow: 2,
+			clickLabel:   "1:editor",
+			wantWindow:   "1",
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cr := buildMultiWindowRendererAt(t, tt.activeWindow)
+
+			clientConn, serverConn := net.Pipe()
+			t.Cleanup(func() {
+				clientConn.Close()
+				serverConn.Close()
+			})
+
+			sender := newMessageSender(clientConn)
+			t.Cleanup(sender.Close)
+
+			var drag DragState
+			x := globalBarClickColumn(t, cr, tt.clickLabel)
+			y := globalBarRow(t, cr)
+
+			done := make(chan struct{})
+			go func() {
+				HandleMouseEvent(mouse.Event{
+					Action: mouse.Press,
+					Button: mouse.ButtonLeft,
+					X:      x,
+					Y:      y,
+				}, cr, sender, &drag)
+				close(done)
+			}()
+
+			msg := readCommandMessage(t, serverConn)
+			if msg.Type != proto.MsgTypeCommand {
+				t.Fatalf("message type = %d, want %d", msg.Type, proto.MsgTypeCommand)
+			}
+			if msg.CmdName != "select-window" {
+				t.Fatalf("command = %q, want select-window", msg.CmdName)
+			}
+			if len(msg.CmdArgs) != 1 || msg.CmdArgs[0] != tt.wantWindow {
+				t.Fatalf("command args = %v, want [%s]", msg.CmdArgs, tt.wantWindow)
+			}
+			<-done
+		})
+	}
+}
+
+func TestHandleMouseEventGlobalBarClickOutsideTabsDoesNothing(t *testing.T) {
+	t.Parallel()
+
+	cr := buildMultiWindowRenderer(t)
+
+	clientConn, serverConn := net.Pipe()
+	t.Cleanup(func() {
+		clientConn.Close()
+		serverConn.Close()
+	})
+
+	sender := newMessageSender(clientConn)
+	t.Cleanup(sender.Close)
+
+	var drag DragState
+	x := globalBarClickColumn(t, cr, "panes")
+	y := globalBarRow(t, cr)
+
+	HandleMouseEvent(mouse.Event{
+		Action: mouse.Press,
+		Button: mouse.ButtonLeft,
+		X:      x,
+		Y:      y,
+	}, cr, sender, &drag)
+
+	assertNoMessage(t, serverConn)
+}
+
+func TestHandleMouseEventGlobalBarClickSingleWindowDoesNothing(t *testing.T) {
+	t.Parallel()
+
+	cr := buildTestRenderer(t)
+
+	clientConn, serverConn := net.Pipe()
+	t.Cleanup(func() {
+		clientConn.Close()
+		serverConn.Close()
+	})
+
+	sender := newMessageSender(clientConn)
+	t.Cleanup(sender.Close)
+
+	var drag DragState
+	x := globalBarClickColumn(t, cr, "amux")
+	y := globalBarRow(t, cr)
+
+	HandleMouseEvent(mouse.Event{
+		Action: mouse.Press,
+		Button: mouse.ButtonLeft,
+		X:      x,
+		Y:      y,
+	}, cr, sender, &drag)
+
+	assertNoMessage(t, serverConn)
 }
 
 func TestPaneAllowsMouseCopySelection(t *testing.T) {
