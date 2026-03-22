@@ -75,6 +75,9 @@ amux events --filter idle
 
 # Discover attached clients
 amux list-clients
+
+# Inspect recent client attach/detach history
+amux connection-log
 ```
 
 ## Agent API
@@ -277,6 +280,7 @@ All commands accept `-s <session>` to target a specific session. Panes are refer
 | `amux generation` | Show current layout generation counter |
 | `amux events [--filter type,...] [--pane ref] [--host name] [--client id] [--throttle 50ms]` | Stream events as NDJSON (output throttled) |
 | `amux list-clients` | List attached clients and client-local UI state |
+| `amux connection-log` | Show recent client attach/detach history |
 
 ### Windows
 

@@ -1,10 +1,13 @@
 package server
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/weill-labs/amux/internal/mux"
@@ -26,6 +29,8 @@ type ClientConn struct {
 	writer             *clientWriter
 	typeKeyQueue       *pacedInputQueue
 	capabilities       proto.ClientCapabilities
+	disconnectReasonMu sync.Mutex
+	disconnectReason   string
 }
 
 type pendingMessage struct {
@@ -36,11 +41,14 @@ type pendingMessage struct {
 
 // NewClientConn wraps a net.Conn for protocol communication.
 func NewClientConn(conn net.Conn) *ClientConn {
-	return &ClientConn{
+	cc := &ClientConn{
 		conn:      conn,
 		inputIdle: true,
-		writer:    newClientWriter(conn),
 	}
+	cc.writer = newClientWriter(conn, func() {
+		cc.markDisconnectReason("slow client")
+	})
+	return cc
 }
 
 func (cc *ClientConn) setNegotiatedCapabilities(caps proto.ClientCapabilities) {
@@ -109,6 +117,41 @@ func (cc *ClientConn) ensureWriter() *clientWriter {
 	return cc.writer
 }
 
+func (cc *ClientConn) markDisconnectReason(reason string) {
+	if cc == nil || reason == "" {
+		return
+	}
+	cc.disconnectReasonMu.Lock()
+	defer cc.disconnectReasonMu.Unlock()
+	if cc.disconnectReason == "" {
+		cc.disconnectReason = reason
+	}
+}
+
+func (cc *ClientConn) disconnectReasonValue() string {
+	if cc == nil {
+		return ""
+	}
+	cc.disconnectReasonMu.Lock()
+	defer cc.disconnectReasonMu.Unlock()
+	return cc.disconnectReason
+}
+
+func (cc *ClientConn) finalizeDisconnectReason(sess *Session, err error) {
+	if err == nil || cc.disconnectReasonValue() != "" {
+		return
+	}
+	if sess != nil && sess.shutdown.Load() {
+		cc.markDisconnectReason("server shutdown")
+		return
+	}
+	if errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed) || strings.Contains(err.Error(), "use of closed network connection") {
+		cc.markDisconnectReason("connection closed")
+		return
+	}
+	cc.markDisconnectReason(err.Error())
+}
+
 func cloneMinOutputSeq(src map[uint32]uint64) map[uint32]uint64 {
 	if len(src) == 0 {
 		return make(map[uint32]uint64)
@@ -168,6 +211,7 @@ func (cc *ClientConn) readLoop(srv *Server, sess *Session) {
 	for {
 		msg, err := ReadMsg(cc.conn)
 		if err != nil {
+			cc.finalizeDisconnectReason(sess, err)
 			return
 		}
 
@@ -190,6 +234,7 @@ func (cc *ClientConn) readLoop(srv *Server, sess *Session) {
 			}
 
 		case MsgTypeDetach:
+			cc.markDisconnectReason("client detach")
 			return
 
 		case MsgTypeCommand:
