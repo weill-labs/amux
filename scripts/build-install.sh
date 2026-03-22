@@ -20,6 +20,20 @@ refuse_cross_checkout_overwrite() {
 	exit 1
 }
 
+refuse_non_main_branch_install() {
+	echo "amux build: refusing to install from branch $branch" >&2
+	echo "  current repo: $repo_root" >&2
+	echo "Use go build ./... for compilation checks and go test for verification." >&2
+	echo "Use AMUX_INSTALL_FORCE=1 make build to replace the shared binary intentionally." >&2
+	exit 1
+}
+
+if [[ "${AMUX_INSTALL_FORCE:-0}" != "1" && "$branch" != "main" ]]; then
+	refuse_non_main_branch_install
+fi
+
+mkdir -p "$dest_dir"
+
 if [[ "${AMUX_INSTALL_FORCE:-0}" != "1" && -f "$meta_path" ]]; then
 	current_source="$(awk -F= '$1=="source_repo"{print substr($0, index($0, "=") + 1)}' "$meta_path")"
 	if [[ -n "$current_source" && "$current_source" != "$repo_root" ]]; then
