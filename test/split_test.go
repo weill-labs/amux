@@ -83,7 +83,6 @@ func TestSplitNamedPane(t *testing.T) {
 }
 
 func TestSplitVerticalFlag(t *testing.T) {
-	t.Parallel()
 	h := newServerHarness(t)
 
 	h.doSplit("--vertical")
@@ -101,7 +100,6 @@ func TestSplitVerticalFlag(t *testing.T) {
 }
 
 func TestSplitHorizontalFlag(t *testing.T) {
-	t.Parallel()
 	h := newServerHarness(t)
 
 	h.doSplit("--horizontal")
@@ -119,7 +117,6 @@ func TestSplitHorizontalFlag(t *testing.T) {
 }
 
 func TestRootSplitVerticalFlag(t *testing.T) {
-	t.Parallel()
 	h := newServerHarness(t)
 
 	h.splitH()
