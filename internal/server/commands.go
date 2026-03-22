@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -207,16 +208,26 @@ var commandRegistry = map[string]CommandHandler{
 }
 
 func cmdList(ctx *CommandContext) {
+	args, err := parseListCommandArgs(ctx.Args)
+	if err != nil {
+		ctx.replyErr(err.Error())
+		return
+	}
 	entries, err := ctx.Sess.queryPaneList()
 	if err != nil {
 		ctx.replyErr(err.Error())
 		return
 	}
+	home, _ := os.UserHomeDir()
 	var output string
 	if len(entries) == 0 {
 		output = "No panes.\n"
 	} else {
-		output = fmt.Sprintf("%-6s %-20s %-15s %-30s %-10s %-12s %s\n", "PANE", "NAME", "HOST", "BRANCH", "WINDOW", "TASK", "META")
+		if args.showCwd {
+			output = fmt.Sprintf("%-6s %-20s %-15s %-30s %-36s %-10s %-12s %s\n", "PANE", "NAME", "HOST", "BRANCH", "CWD", "WINDOW", "TASK", "META")
+		} else {
+			output = fmt.Sprintf("%-6s %-20s %-15s %-30s %-10s %-12s %s\n", "PANE", "NAME", "HOST", "BRANCH", "WINDOW", "TASK", "META")
+		}
 		for _, p := range entries {
 			active := " "
 			if p.active {
@@ -226,14 +237,139 @@ func cmdList(ctx *CommandContext) {
 			if p.pr != "" {
 				branch += " #" + p.pr
 			}
-			output += fmt.Sprintf("%-6s %-20s %-15s %-30s %-10s %-12s %s\n",
-				fmt.Sprintf("%s%d", active, p.paneID),
-				p.name, p.host, branch, p.windowName, p.task, formatMetaCollections(p.prs, p.issues))
+			if args.showCwd {
+				output += fmt.Sprintf("%-6s %-20s %-15s %-30s %-36s %-10s %-12s %s\n",
+					fmt.Sprintf("%s%d", active, p.paneID),
+					p.name, p.host, branch, formatListCwd(p.cwd, home, 36), p.windowName, p.task, formatMetaCollections(p.prs, p.issues))
+			} else {
+				output += fmt.Sprintf("%-6s %-20s %-15s %-30s %-10s %-12s %s\n",
+					fmt.Sprintf("%s%d", active, p.paneID),
+					p.name, p.host, branch, p.windowName, p.task, formatMetaCollections(p.prs, p.issues))
+			}
 		}
 	}
 	ctx.reply(output)
 }
 
+type listCommandArgs struct {
+	showCwd bool
+}
+
+func parseListCommandArgs(args []string) (listCommandArgs, error) {
+	parsed := listCommandArgs{showCwd: true}
+	for _, arg := range args {
+		switch arg {
+		case "--no-cwd":
+			parsed.showCwd = false
+		default:
+			return listCommandArgs{}, fmt.Errorf("usage: list [--no-cwd]")
+		}
+	}
+	return parsed, nil
+}
+
+func formatListCwd(cwd, home string, max int) string {
+	if cwd == "" || max <= 0 {
+		return ""
+	}
+	short := collapseListHome(cwd, home)
+	if len([]rune(short)) <= max {
+		return short
+	}
+	if strings.HasPrefix(short, "~/") {
+		return truncateListPathSegments(short, "~/…/", max)
+	}
+	return truncateListPathSegments(short, "…/", max)
+}
+
+func collapseListHome(cwd, home string) string {
+	if short, ok := collapseListHomePrefix(cwd, home); ok {
+		return short
+	}
+
+	resolvedHome, err := filepath.EvalSymlinks(home)
+	if err != nil {
+		return cwd
+	}
+	if short, ok := collapseListHomePrefix(cwd, resolvedHome); ok {
+		return short
+	}
+
+	resolvedCwd, err := filepath.EvalSymlinks(cwd)
+	if err != nil {
+		return cwd
+	}
+	if short, ok := collapseListHomePrefix(resolvedCwd, resolvedHome); ok {
+		return short
+	}
+	return cwd
+}
+
+func collapseListHomePrefix(cwd, home string) (string, bool) {
+	if home == "" {
+		return "", false
+	}
+	if cwd == home {
+		return "~", true
+	}
+	if strings.HasPrefix(cwd, home+"/") {
+		return "~" + strings.TrimPrefix(cwd, home), true
+	}
+	return "", false
+}
+
+func truncateListPathSegments(path, prefix string, max int) string {
+	if len([]rune(prefix)) >= max {
+		return truncateListPrefix(prefix, max)
+	}
+
+	remaining := max - len([]rune(prefix))
+	parts := strings.Split(path, "/")
+	switch {
+	case strings.HasPrefix(path, "~/"):
+		parts = parts[2:]
+	case strings.HasPrefix(path, "/"):
+		parts = parts[1:]
+	}
+
+	tail := ""
+	for i := len(parts) - 1; i >= 0; i-- {
+		candidate := parts[i]
+		if tail != "" {
+			candidate += "/" + tail
+		}
+		if len([]rune(candidate)) > remaining {
+			break
+		}
+		tail = candidate
+	}
+	if tail == "" && len(parts) > 0 {
+		tail = truncateListTail(parts[len(parts)-1], remaining)
+	}
+	return prefix + tail
+}
+
+func truncateListPrefix(s string, max int) string {
+	if max <= 0 {
+		return ""
+	}
+	runes := []rune(s)
+	if len(runes) <= max {
+		return s
+	}
+	return string(runes[:max])
+}
+
+func truncateListTail(s string, max int) string {
+	if max <= 0 {
+		return ""
+	}
+	runes := []rune(s)
+	if len(runes) <= max {
+		return s
+	}
+	return string(runes[len(runes)-max:])
+}
 func cmdSplit(ctx *CommandContext) {
 	args, err := parseSplitCommandArgs(ctx.Args)
 	if err != nil {

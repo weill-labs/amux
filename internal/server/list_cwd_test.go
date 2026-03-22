@@ -43,7 +43,7 @@ func TestFormatListCwd(t *testing.T) {
 			cwd:  "/Users/alice/src/clients/alpha/beta/gamma/delta/amux54",
 			home: "/Users/alice",
 			max:  20,
-			want: "~/…/gamma/delta/amux54",
+			want: "~/…/delta/amux54",
 		},
 		{
 			name: "long non-home path keeps tail",
@@ -67,8 +67,7 @@ func TestFormatListCwd(t *testing.T) {
 }
 
 func TestCmdListIncludesCwdAndSupportsNoCwd(t *testing.T) {
-	t.Parallel()
-
+	t.Setenv("HOME", "/Users/alice")
 	srv, sess, cleanup := newCommandTestSession(t)
 	defer cleanup()
 
@@ -87,7 +86,7 @@ func TestCmdListIncludesCwdAndSupportsNoCwd(t *testing.T) {
 	if withCwd.cmdErr != "" {
 		t.Fatalf("list error: %s", withCwd.cmdErr)
 	}
-	for _, want := range []string{"CWD", "~/…/gamma/delta/amux54", "~/src/clients/worker", "build"} {
+	for _, want := range []string{"CWD", "~/…/alpha/beta/gamma/delta/amux54", "~/src/clients/worker", "build"} {
 		if !strings.Contains(withCwd.output, want) {
 			t.Fatalf("list output missing %q:\n%s", want, withCwd.output)
 		}
