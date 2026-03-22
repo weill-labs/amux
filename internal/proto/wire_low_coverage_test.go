@@ -112,7 +112,7 @@ func TestWriteReadMsgAllMessageTypes(t *testing.T) {
 		{
 			name: "capture request",
 			msg: Message{
-				Type:   MsgTypeCaptureRequest,
+				Type:    MsgTypeCaptureRequest,
 				CmdArgs: []string{"--format", "json"},
 				AgentStatus: map[uint32]PaneAgentStatus{
 					2: {
@@ -155,16 +155,11 @@ func TestWriteReadCommandMessagePreservesActorPaneID(t *testing.T) {
 	t.Parallel()
 
 	msg := Message{
-		Type:    MsgTypeCommand,
-		CmdName: "capture",
-		CmdArgs: []string{"shared"},
+		Type:        MsgTypeCommand,
+		CmdName:     "capture",
+		CmdArgs:     []string{"shared"},
+		ActorPaneID: 42,
 	}
-
-	field := reflect.ValueOf(&msg).Elem().FieldByName("ActorPaneID")
-	if !field.IsValid() {
-		t.Fatal("Message missing ActorPaneID field")
-	}
-	field.SetUint(42)
 
 	var buf bytes.Buffer
 	if err := WriteMsg(&buf, &msg); err != nil {
@@ -176,12 +171,8 @@ func TestWriteReadCommandMessagePreservesActorPaneID(t *testing.T) {
 		t.Fatalf("ReadMsg: %v", err)
 	}
 
-	gotField := reflect.ValueOf(got).Elem().FieldByName("ActorPaneID")
-	if !gotField.IsValid() {
-		t.Fatal("decoded message missing ActorPaneID field")
-	}
-	if gotID := gotField.Uint(); gotID != 42 {
-		t.Fatalf("ActorPaneID = %d, want 42", gotID)
+	if got.ActorPaneID != 42 {
+		t.Fatalf("ActorPaneID = %d, want 42", got.ActorPaneID)
 	}
 }
 
@@ -417,11 +408,11 @@ func TestFindPaneDimensions(t *testing.T) {
 	contentHeight := func(h int) int { return h - 1 }
 
 	tests := []struct {
-		name      string
-		active    CellSnapshot
-		paneID    uint32
-		wantW     int
-		wantH     int
+		name   string
+		active CellSnapshot
+		paneID uint32
+		wantW  int
+		wantH  int
 	}{
 		{name: "active root match", active: activeRoot, paneID: 2, wantW: 60, wantH: 19},
 		{name: "finds pane in other window", active: CellSnapshot{}, paneID: 2, wantW: 80, wantH: 23},

@@ -1,6 +1,9 @@
 package test
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestExplicitPaneCommandsPreferActorWindowWithoutChangingFocus(t *testing.T) {
 	t.Parallel()
@@ -30,7 +33,7 @@ func TestExplicitPaneCommandsPreferActorWindowWithoutChangingFocus(t *testing.T)
 
 	h.sendKeys("3", amuxBin+" -s "+h.session+" send-keys shared 'echo ACTOR_ROUTE' Enter", "Enter")
 	h.waitFor("4", "ACTOR_ROUTE")
-	if paneOne := h.runCmd("capture", "2"); contains(paneOne, "ACTOR_ROUTE") {
+	if paneOne := h.runCmd("capture", "2"); strings.Contains(paneOne, "ACTOR_ROUTE") {
 		t.Fatalf("window-1 shared pane should not receive actor-routed input:\n%s", paneOne)
 	}
 
@@ -43,17 +46,4 @@ func TestExplicitPaneCommandsPreferActorWindowWithoutChangingFocus(t *testing.T)
 	if got := h.captureJSON().Window.Index; got != 1 {
 		t.Fatalf("active window index = %d, want 1 after actor-targeted commands", got)
 	}
-}
-
-func contains(s, substr string) bool {
-	return len(substr) > 0 && len(s) > 0 && (func() bool { return stringIndex(s, substr) >= 0 })()
-}
-
-func stringIndex(s, substr string) int {
-	for i := 0; i+len(substr) <= len(s); i++ {
-		if s[i:i+len(substr)] == substr {
-			return i
-		}
-	}
-	return -1
 }

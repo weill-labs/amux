@@ -3,7 +3,6 @@ package server
 import (
 	"bytes"
 	"net"
-	"reflect"
 	"testing"
 	"time"
 
@@ -20,16 +19,6 @@ func newActorRecordingPane(sess *Session, id uint32, name string, sink *bytes.Bu
 		_, _ = sink.Write(data)
 		return len(data), nil
 	})
-}
-
-func setActorPaneIDForTest(t *testing.T, msg *Message, paneID uint32) {
-	t.Helper()
-
-	field := reflect.ValueOf(msg).Elem().FieldByName("ActorPaneID")
-	if !field.IsValid() {
-		t.Fatal("Message missing ActorPaneID field")
-	}
-	field.SetUint(uint64(paneID))
 }
 
 func runTestCommandWithActor(t *testing.T, srv *Server, sess *Session, actorPaneID uint32, name string, args ...string) struct {
@@ -65,11 +54,11 @@ func runTestCommandWithActor(t *testing.T, srv *Server, sess *Session, actorPane
 	}()
 
 	msg := &Message{
-		Type:    MsgTypeCommand,
-		CmdName: name,
-		CmdArgs: args,
+		Type:        MsgTypeCommand,
+		CmdName:     name,
+		CmdArgs:     args,
+		ActorPaneID: actorPaneID,
 	}
-	setActorPaneIDForTest(t, msg, actorPaneID)
 
 	go cc.handleCommand(srv, sess, msg)
 

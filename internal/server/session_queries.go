@@ -73,7 +73,6 @@ type uiClientSnapshot struct {
 }
 
 type actorPaneContext struct {
-	pane   *mux.Pane
 	window *mux.Window
 }
 
@@ -125,15 +124,11 @@ func (s *Session) actorPaneContext(actorPaneID uint32) actorPaneContext {
 	if actorPaneID == 0 {
 		return actorPaneContext{}
 	}
-	pane := s.findPaneByID(actorPaneID)
-	if pane == nil {
-		return actorPaneContext{}
-	}
 	window := s.findWindowByPaneID(actorPaneID)
 	if window == nil {
 		return actorPaneContext{}
 	}
-	return actorPaneContext{pane: pane, window: window}
+	return actorPaneContext{window: window}
 }
 
 func appendUniqueWindow(windows []*mux.Window, seen map[uint32]struct{}, window *mux.Window) []*mux.Window {
@@ -176,10 +171,6 @@ func (s *Session) resolvePaneAcrossWindowsForActor(actorPaneID uint32, ref strin
 	return nil, nil, fmt.Errorf("pane %q not found", ref)
 }
 
-func (s *Session) resolvePaneAcrossWindows(ref string) (*mux.Pane, *mux.Window, error) {
-	return s.resolvePaneAcrossWindowsForActor(0, ref)
-}
-
 func (s *Session) resolvePaneWindowForActor(actorPaneID uint32, cmdName string, args []string) (*mux.Pane, *mux.Window, error) {
 	if len(args) < 1 {
 		return nil, nil, fmt.Errorf("usage: %s <pane>", cmdName)
@@ -192,10 +183,6 @@ func (s *Session) resolvePaneWindowForActor(actorPaneID uint32, cmdName string, 
 		return nil, nil, fmt.Errorf("pane not in any window")
 	}
 	return pane, w, nil
-}
-
-func (s *Session) resolvePaneWindow(cmdName string, args []string) (*mux.Pane, *mux.Window, error) {
-	return s.resolvePaneWindowForActor(0, cmdName, args)
 }
 
 func (s *Session) windowForActor(actorPaneID uint32) *mux.Window {

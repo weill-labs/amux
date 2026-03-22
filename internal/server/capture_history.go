@@ -32,10 +32,6 @@ func (s *Session) resolveCapturePaneTargetForActor(actorPaneID uint32, ref strin
 	})
 }
 
-func (s *Session) resolveCapturePaneTarget(ref string) (capturePaneTarget, error) {
-	return s.resolveCapturePaneTargetForActor(0, ref)
-}
-
 func (s *Session) buildServerCapturePane(target capturePaneTarget, req caputil.Request, includeHistory bool) proto.CapturePane {
 	textSnap := target.pane.CaptureSnapshot()
 	cursor := proto.CaptureCursor{
