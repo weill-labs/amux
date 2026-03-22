@@ -304,9 +304,6 @@ func (cc *clientConn) splitRemotePane(srv *Server, sess *Session, hostName strin
 		return commandMutationResult{broadcastLayout: true}
 	})
 	if res.err != nil {
-		if sess.RemoteManager != nil {
-			sess.RemoteManager.RemovePane(pane.ID)
-		}
 		pane.Close()
 		return nil, res.err
 	}

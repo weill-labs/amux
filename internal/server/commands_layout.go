@@ -12,8 +12,10 @@ import (
 	layoutcmd "github.com/weill-labs/amux/internal/server/commands/layout"
 )
 
-const killArgsUsage = "[--cleanup] [--timeout <duration>] [pane]"
-const defaultKillCleanupTimeout = 5 * time.Second
+const (
+	killArgsUsage             = "[--cleanup] [--timeout <duration>] [pane]"
+	defaultKillCleanupTimeout = 5 * time.Second
+)
 
 type killArgError struct {
 	msg   string

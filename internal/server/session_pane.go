@@ -281,9 +281,6 @@ func (s *Session) insertPreparedPaneIntoActiveWindow(pane *mux.Pane, dir mux.Spl
 	}
 	if err != nil {
 		s.removePane(pane.ID)
-		if s.RemoteManager != nil && pane.IsProxy() {
-			s.RemoteManager.RemovePane(pane.ID)
-		}
 		return err
 	}
 	return nil
