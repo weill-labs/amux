@@ -20,6 +20,8 @@ type PaneData interface {
 	HasCursorBlock() bool
 	ID() uint32
 	Name() string
+	PRs() []string
+	Issues() []string
 	Host() string
 	Task() string
 	Color() string

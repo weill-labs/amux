@@ -717,6 +717,8 @@ func (c *clientPaneData) HasCursorBlock() bool {
 
 func (c *clientPaneData) ID() uint32         { return c.info.ID }
 func (c *clientPaneData) Name() string       { return c.info.Name }
+func (c *clientPaneData) PRs() []string      { return c.info.PRs }
+func (c *clientPaneData) Issues() []string   { return c.info.Issues }
 func (c *clientPaneData) Host() string       { return c.info.Host }
 func (c *clientPaneData) Task() string       { return c.info.Task }
 func (c *clientPaneData) Color() string      { return c.info.Color }

@@ -353,6 +353,8 @@ func (e *emuPaneData) CursorHidden() bool     { return e.cursorHidden }
 func (e *emuPaneData) HasCursorBlock() bool   { return false }
 func (e *emuPaneData) ID() uint32             { return e.id }
 func (e *emuPaneData) Name() string           { return e.name }
+func (e *emuPaneData) PRs() []string          { return nil }
+func (e *emuPaneData) Issues() []string       { return nil }
 func (e *emuPaneData) Host() string           { return "local" }
 func (e *emuPaneData) Task() string           { return "" }
 func (e *emuPaneData) Color() string          { return e.color }
