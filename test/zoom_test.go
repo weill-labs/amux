@@ -353,6 +353,56 @@ while True:
 	}
 }
 
+func TestZoomedPaneReattachUsesZoomWidthOnSecondClient(t *testing.T) {
+	t.Parallel()
+
+	h := newServerHarnessPersistent(t)
+	h.splitV()
+
+	gen := h.generation()
+	output := h.runCmd("zoom", "pane-2")
+	if !strings.Contains(output, "Zoomed") {
+		t.Fatalf("zoom should confirm, got:\n%s", output)
+	}
+	h.waitLayout(gen)
+
+	const wideLine = "LAB352-01234567890123456789012345678901234567890123456789012345"
+	h.sendKeys("pane-2", "clear; printf '%s\\n' '"+wideLine+"'", "Enter")
+	h.waitIdle("pane-2")
+	if !h.waitForCaptureJSON(func(c proto.CaptureJSON) bool {
+		for _, p := range c.Panes {
+			if p.Name != "pane-2" || len(p.Content) == 0 {
+				continue
+			}
+			return p.Content[0] == wideLine
+		}
+		return false
+	}, 5*time.Second) {
+		t.Fatalf("first client never settled on zoomed replay content %q\ncapture:\n%s", wideLine, h.capture())
+	}
+
+	healthy := h.captureJSON()
+	healthyPane := h.jsonPane(healthy, "pane-2")
+	if got := healthyPane.Content[0]; got != wideLine {
+		t.Fatalf("first client pane-2 first line = %q, want %q", got, wideLine)
+	}
+	if healthyPane.Position == nil {
+		t.Fatal("first client pane-2 position missing")
+	}
+	if got := healthyPane.Position.Width; got != 80 {
+		t.Fatalf("first client zoomed pane width = %d, want 80", got)
+	}
+
+	h.client.close()
+	h.client = nil
+
+	client := newPTYClientHarnessWithReadyOutput(t, h, "[pane-2]")
+	secondScreen := client.screen(80, 24)
+	if !strings.Contains(secondScreen, wideLine) {
+		t.Fatalf("second client did not preserve zoom width for replayed content %q\nscreen:\n%s", wideLine, secondScreen)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Keybinding tests — AmuxHarness (client for prefix key processing)
 // ---------------------------------------------------------------------------

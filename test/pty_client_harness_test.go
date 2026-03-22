@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/creack/pty"
+	"github.com/charmbracelet/x/vt"
 	"github.com/weill-labs/amux/internal/render"
 )
 
@@ -29,6 +30,11 @@ type ptyClientHarness struct {
 }
 
 func newPTYClientHarness(tb testing.TB, server *ServerHarness, envVars ...string) *ptyClientHarness {
+	tb.Helper()
+	return newPTYClientHarnessWithReadyOutput(tb, server, "[pane-1]", envVars...)
+}
+
+func newPTYClientHarnessWithReadyOutput(tb testing.TB, server *ServerHarness, readySubstr string, envVars ...string) *ptyClientHarness {
 	tb.Helper()
 
 	cmd := exec.Command(amuxBin, "-s", server.session)
@@ -65,8 +71,8 @@ func newPTYClientHarness(tb testing.TB, server *ServerHarness, envVars ...string
 
 	tb.Cleanup(h.cleanup)
 
-	if !h.waitForOutput("[pane-1]", 10*time.Second) {
-		tb.Fatalf("PTY client did not render initial pane\nOutput:\n%s", h.outputString())
+	if !h.waitForOutput(readySubstr, 10*time.Second) {
+		tb.Fatalf("PTY client did not render ready output %q\nOutput:\n%s", readySubstr, h.outputString())
 	}
 
 	return h
@@ -112,6 +118,15 @@ func (h *ptyClientHarness) outputBytes() []byte {
 
 func (h *ptyClientHarness) outputString() string {
 	return string(h.outputBytes())
+}
+
+func (h *ptyClientHarness) screen(width, height int) string {
+	h.tb.Helper()
+	term := vt.NewSafeEmulator(width, height)
+	if _, err := term.Write(h.outputBytes()); err != nil {
+		h.tb.Fatalf("replay PTY output: %v", err)
+	}
+	return render.MaterializeGrid(term.Render(), width, height)
 }
 
 func (h *ptyClientHarness) waitError() error {
