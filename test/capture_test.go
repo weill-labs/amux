@@ -137,6 +137,66 @@ func TestCapturePaneHistoryRejectsInvalidFlags(t *testing.T) {
 	if out := h.runCmd("capture", "--history"); !strings.Contains(out, "--history requires a pane target") {
 		t.Fatalf("history capture without pane should fail, got:\n%s", out)
 	}
+
+	if out := h.runCmd("capture", "--rewrap", "80", "pane-1"); !strings.Contains(out, "--rewrap requires --history") {
+		t.Fatalf("rewrap without history should fail, got:\n%s", out)
+	}
+
+	if out := h.runCmd("capture", "--history", "--rewrap", "0", "pane-1"); !strings.Contains(out, "--rewrap requires a positive integer width") {
+		t.Fatalf("history capture with invalid rewrap width should fail, got:\n%s", out)
+	}
+}
+
+func TestCapturePaneHistoryRewrapsNarrowLiveHistoryAndContent(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	h.runCmd("resize-window", "20", "4")
+	scriptPath := filepath.Join(os.TempDir(), fmt.Sprintf("amux-history-rewrap-%s.sh", h.session))
+	script := "#!/bin/bash\n" +
+		"printf 'history narrow panes should rewrap cleanly for agents to read\\n'\n" +
+		"printf 'visible content should also rewrap cleanly for agents to read\\n'\n"
+	if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
+		t.Fatalf("writing rewrap history script: %v", err)
+	}
+	t.Cleanup(func() { os.Remove(scriptPath) })
+
+	h.sendKeys("pane-1", scriptPath, "Enter")
+	h.waitFor("pane-1", "visible content")
+
+	raw := h.runCmd("capture", "--history", "pane-1")
+	if strings.Contains(raw, "history narrow panes should rewrap cleanly") {
+		t.Fatalf("raw history should still contain narrow-width breaks, got:\n%s", raw)
+	}
+
+	rewrapped := h.runCmd("capture", "--history", "--rewrap", "80", "pane-1")
+	if !strings.Contains(rewrapped, "history narrow panes should rewrap cleanly for agents to read") {
+		t.Fatalf("rewrapped history should reconstruct the full history line, got:\n%s", rewrapped)
+	}
+	if !strings.Contains(rewrapped, "visible content should also rewrap cleanly for agents to read") {
+		t.Fatalf("rewrapped history should reconstruct visible content too, got:\n%s", rewrapped)
+	}
+}
+
+func TestCapturePaneHistoryJSONRewrapsCursorAndContent(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	h.runCmd("resize-window", "20", "4")
+	h.sendKeys("pane-1", `printf '12345678901234567890abcdefghij'`, "Enter")
+	h.waitFor("pane-1", "abcdefghij")
+
+	out := h.runCmd("capture", "--history", "--rewrap", "80", "--format", "json", "pane-1")
+	var pane proto.CapturePane
+	if err := json.Unmarshal([]byte(out), &pane); err != nil {
+		t.Fatalf("json.Unmarshal: %v\noutput:\n%s", err, out)
+	}
+	if joined := strings.Join(pane.Content, "\n"); !strings.Contains(joined, "12345678901234567890abcdefghij") {
+		t.Fatalf("rewrapped JSON content should reconstruct the full visible line, got:\n%s", joined)
+	}
+	if pane.Cursor.Row != 0 || pane.Cursor.Col != len("12345678901234567890abcdefghij") {
+		t.Fatalf("rewrapped JSON cursor = (%d,%d), want (0,%d)", pane.Cursor.Row, pane.Cursor.Col, len("12345678901234567890abcdefghij"))
+	}
 }
 
 func TestCapturePaneANSI(t *testing.T) {
