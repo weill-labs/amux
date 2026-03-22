@@ -326,13 +326,13 @@ func TestForwardCaptureJSONReturnsSessionShuttingDownWhileWaiting(t *testing.T) 
 		}
 	}()
 
-	serverConn, clientConn := net.Pipe()
-	cc := NewClientConn(serverConn)
+	serverConn, clientEnd := net.Pipe()
+	cc := newClientConn(serverConn)
 	defer cc.Close()
-	defer clientConn.Close()
+	defer clientEnd.Close()
 
 	if _, err := enqueueSessionQuery(sess, func(sess *Session) (struct{}, error) {
-		sess.clients = []*ClientConn{cc}
+		sess.clients = []*clientConn{cc}
 		return struct{}{}, nil
 	}); err != nil {
 		t.Fatalf("enqueueSessionQuery: %v", err)
@@ -343,7 +343,7 @@ func TestForwardCaptureJSONReturnsSessionShuttingDownWhileWaiting(t *testing.T) 
 		respCh <- sess.forwardCapture([]string{"--format", "json"})
 	}()
 
-	msg := readCaptureRequestForTest(t, clientConn)
+	msg := readCaptureRequestForTest(t, clientEnd)
 	if msg.Type != MsgTypeCaptureRequest {
 		t.Fatalf("message type = %v, want capture request", msg.Type)
 	}
@@ -383,10 +383,10 @@ func TestForwardCaptureJSONStressUnderPaneOutput(t *testing.T) {
 		t.Fatalf("enqueueSessionQuery: %v", err)
 	}
 
-	serverConn, clientConn := net.Pipe()
-	cc := NewClientConn(serverConn)
+	serverConn, clientEnd := net.Pipe()
+	cc := newClientConn(serverConn)
 	defer cc.Close()
-	defer clientConn.Close()
+	defer clientEnd.Close()
 
 	var stateMu sync.Mutex
 	var layout *proto.LayoutSnapshot
@@ -396,7 +396,7 @@ func TestForwardCaptureJSONStressUnderPaneOutput(t *testing.T) {
 	go func() {
 		defer close(clientDone)
 		for {
-			msg, err := ReadMsg(clientConn)
+			msg, err := ReadMsg(clientEnd)
 			if err != nil {
 				return
 			}
@@ -424,7 +424,7 @@ func TestForwardCaptureJSONStressUnderPaneOutput(t *testing.T) {
 						},
 					}
 					data, _ := json.MarshalIndent(errResp, "", "  ")
-					if err := WriteMsg(clientConn, &Message{Type: MsgTypeCaptureResponse, CmdOutput: string(data) + "\n"}); err != nil {
+					if err := WriteMsg(clientEnd, &Message{Type: MsgTypeCaptureResponse, CmdOutput: string(data) + "\n"}); err != nil {
 						return
 					}
 					continue
@@ -442,7 +442,7 @@ func TestForwardCaptureJSONStressUnderPaneOutput(t *testing.T) {
 					})
 				}
 				data, _ := json.MarshalIndent(capture, "", "  ")
-				if err := WriteMsg(clientConn, &Message{Type: MsgTypeCaptureResponse, CmdOutput: string(data) + "\n"}); err != nil {
+				if err := WriteMsg(clientEnd, &Message{Type: MsgTypeCaptureResponse, CmdOutput: string(data) + "\n"}); err != nil {
 					return
 				}
 			}
@@ -463,7 +463,7 @@ func TestForwardCaptureJSONStressUnderPaneOutput(t *testing.T) {
 	}()
 
 	if _, err := enqueueSessionQuery(sess, func(sess *Session) (struct{}, error) {
-		sess.clients = []*ClientConn{cc}
+		sess.clients = []*clientConn{cc}
 		return struct{}{}, nil
 	}); err != nil {
 		t.Fatalf("enqueueSessionQuery: %v", err)
