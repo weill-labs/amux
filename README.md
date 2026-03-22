@@ -67,6 +67,9 @@ amux capture --history pane-1
 amux send-keys pane-1 "ls" Enter
 amux wait-idle pane-1
 
+# Broadcast the same command to multiple panes
+amux broadcast --panes pane-1,pane-2 "make test" Enter
+
 # Subscribe to state changes
 amux events --filter idle
 
@@ -239,6 +242,7 @@ All commands accept `-s <session>` to target a specific session. Panes are refer
 | `amux restore <pane>` | Restore a minimized pane |
 | `amux kill [pane]` | Kill a pane (default: active) |
 | `amux send-keys <pane> [--hex] <keys>...` | Send keystrokes to a pane |
+| `amux broadcast (--panes <pane,pane,...> \| --window <index\|name> \| --match <glob>) [--hex] <keys>...` | Send the same keystrokes to multiple panes |
 | `amux swap <p1> <p2>` | Swap two panes |
 | `amux swap forward\|backward` | Swap active pane with neighbor |
 | `amux rotate [--reverse]` | Rotate pane positions |

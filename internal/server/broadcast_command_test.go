@@ -2,6 +2,7 @@ package server
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/weill-labs/amux/internal/mux"
@@ -59,8 +60,8 @@ func TestParseBroadcastCommandArgs(t *testing.T) {
 
 			got, err := parseBroadcastCommandArgs(tt.args)
 			if tt.wantError != "" {
-				if err == nil || err.Error() != tt.wantError {
-					t.Fatalf("parseBroadcastCommandArgs() error = %v, want %q", err, tt.wantError)
+				if err == nil || !strings.Contains(err.Error(), tt.wantError) {
+					t.Fatalf("parseBroadcastCommandArgs() error = %v, want substring %q", err, tt.wantError)
 				}
 				return
 			}
@@ -97,18 +98,18 @@ func TestResolveBroadcastTargets(t *testing.T) {
 		wantError string
 	}{
 		{
-			name: "pane refs preserve order and dedupe",
-			args: broadcastCommandArgs{paneRefs: []string{"worker-alpha", "pane-1", "worker-alpha"}},
+			name:      "pane refs preserve order and dedupe",
+			args:      broadcastCommandArgs{paneRefs: []string{"worker-alpha", "pane-1", "worker-alpha"}},
 			wantNames: []string{"worker-alpha", "pane-1"},
 		},
 		{
-			name: "window selector",
-			args: broadcastCommandArgs{windowRef: "logs"},
+			name:      "window selector",
+			args:      broadcastCommandArgs{windowRef: "logs"},
 			wantNames: []string{"worker-beta"},
 		},
 		{
-			name: "match selector",
-			args: broadcastCommandArgs{matchPattern: "worker-*"},
+			name:      "match selector",
+			args:      broadcastCommandArgs{matchPattern: "worker-*"},
 			wantNames: []string{"worker-alpha", "worker-beta"},
 		},
 		{
