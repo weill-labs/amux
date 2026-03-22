@@ -19,10 +19,11 @@ type clientWriterCommand interface {
 }
 
 type clientWriter struct {
-	conn     net.Conn
-	commands chan clientWriterCommand
-	stop     chan struct{}
-	done     chan struct{}
+	conn       net.Conn
+	commands   chan clientWriterCommand
+	stop       chan struct{}
+	done       chan struct{}
+	onSlowDrop func()
 
 	closeOnce sync.Once
 	stopOnce  sync.Once
@@ -138,15 +139,16 @@ func (c clientWriterBootstrappingQuery) handle(state *clientWriterState, _ net.C
 	return state.closed
 }
 
-func newClientWriter(conn net.Conn) *clientWriter {
+func newClientWriter(conn net.Conn, onSlowDrop func()) *clientWriter {
 	if conn == nil {
 		return nil
 	}
 	w := &clientWriter{
-		conn:     conn,
-		commands: make(chan clientWriterCommand, clientWriterQueueSize),
-		stop:     make(chan struct{}),
-		done:     make(chan struct{}),
+		conn:       conn,
+		commands:   make(chan clientWriterCommand, clientWriterQueueSize),
+		stop:       make(chan struct{}),
+		done:       make(chan struct{}),
+		onSlowDrop: onSlowDrop,
 	}
 	go w.loop()
 	return w
@@ -320,6 +322,9 @@ func (w *clientWriter) requestStop() {
 }
 
 func (w *clientWriter) dropSlowClient() {
+	if w != nil && w.onSlowDrop != nil {
+		w.onSlowDrop()
+	}
 	w.forceCloseConn()
 	w.requestStop()
 }

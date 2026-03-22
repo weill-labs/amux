@@ -167,6 +167,7 @@ var commandRegistry = map[string]CommandHandler{
 	"new-window":      cmdNewWindow,
 	"list-windows":    cmdListWindows,
 	"list-clients":    cmdListClients,
+	"connection-log":  cmdConnectionLog,
 	"select-window":   cmdSelectWindow,
 	"next-window":     cmdNextWindow,
 	"prev-window":     cmdPrevWindow,
@@ -1782,6 +1783,37 @@ func cmdListClients(ctx *CommandContext) {
 			owner = "*"
 		}
 		output.WriteString(fmt.Sprintf("%-10s %-8s %-15s %-10s %-10s %s\n", cc.id, owner, cc.size, cc.displayPanes, cc.chooser, cc.capabilities))
+	}
+	ctx.reply(output.String())
+}
+
+func cmdConnectionLog(ctx *CommandContext) {
+	entries, err := ctx.Sess.queryConnectionLog()
+	if err != nil {
+		ctx.replyErr(err.Error())
+		return
+	}
+	if len(entries) == 0 {
+		ctx.reply("No client connections recorded.\n")
+		return
+	}
+
+	var output strings.Builder
+	output.WriteString(fmt.Sprintf("%-30s %-8s %-10s %-6s %-6s %s\n", "TS", "EVENT", "CLIENT", "COLS", "ROWS", "REASON"))
+	for _, entry := range entries {
+		reason := entry.DisconnectReason
+		if reason == "" {
+			reason = "-"
+		}
+		output.WriteString(fmt.Sprintf(
+			"%-30s %-8s %-10s %-6d %-6d %s\n",
+			entry.Timestamp.UTC().Format(time.RFC3339Nano),
+			entry.Event,
+			entry.ClientID,
+			entry.Cols,
+			entry.Rows,
+			reason,
+		))
 	}
 	ctx.reply(output.String())
 }
