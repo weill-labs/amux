@@ -1,6 +1,7 @@
 package test
 
 import (
+	"bytes"
 	"encoding/json"
 	"net"
 	"testing"
@@ -187,6 +188,57 @@ func TestReattachResizeShrink(t *testing.T) {
 	}
 }
 
+func TestReattachResizeBroadcastsLayoutBeforeFirstResizeRedraw(t *testing.T) {
+	t.Parallel()
+
+	h := newServerHarness(t)
+	h.startResizeAwareApp("pane-1")
+
+	existingConn := attachClientForConnectionLog(t, h.session, 80, 24)
+	defer existingConn.Close()
+
+	sockPath := server.SocketPath(h.session)
+	attachConn, err := net.Dial("unix", sockPath)
+	if err != nil {
+		t.Fatalf("dial second attach: %v", err)
+	}
+	defer attachConn.Close()
+
+	if err := server.WriteMsg(attachConn, &server.Message{
+		Type:    server.MsgTypeAttach,
+		Session: h.session,
+		Cols:    120,
+		Rows:    40,
+	}); err != nil {
+		t.Fatalf("write second attach: %v", err)
+	}
+
+	first := readProtocolMsg(t, existingConn)
+	if first.Type != server.MsgTypeLayout {
+		t.Fatalf("first message type = %v, want layout before resize redraw output", first.Type)
+	}
+	if first.Layout == nil || first.Layout.Width != 120 || first.Layout.Height != 39 {
+		t.Fatalf("layout = %+v, want 120x39 snapshot", first.Layout)
+	}
+
+	wantSize := []byte("SIZE 120x38")
+	wantBottom := []byte("BOTTOM 120x38")
+	var paneData []byte
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		msg := readProtocolMsg(t, existingConn)
+		if msg.Type != server.MsgTypePaneOutput || msg.PaneID != 1 {
+			continue
+		}
+		paneData = append(paneData, msg.PaneData...)
+		if bytes.Contains(paneData, wantSize) && bytes.Contains(paneData, wantBottom) {
+			return
+		}
+	}
+
+	t.Fatalf("resize redraw output never contained %q and %q", wantSize, wantBottom)
+}
+
 func TestAttachResyncsStaleCursorState(t *testing.T) {
 	t.Parallel()
 	h := newServerHarnessWithSize(t, 255, 62)
@@ -221,4 +273,49 @@ func TestAttachResyncsStaleCursorState(t *testing.T) {
 	if got, want := after.Cursor.Col, healthy.Cursor.Col; got != want {
 		t.Fatalf("pane-2 cursor col after attach = %d, want %d", got, want)
 	}
+}
+
+func (h *ServerHarness) startResizeAwareApp(pane string) {
+	h.tb.Helper()
+
+	script := `python3 - <<'PY'
+import os
+import signal
+import sys
+import time
+
+def draw(*_args):
+    size = os.get_terminal_size()
+    size_marker = f"SIZE {size.columns}x{size.lines}"
+    bottom_marker = f"BOTTOM {size.columns}x{size.lines}"
+    sys.stdout.write('\033[2J\033[H' + size_marker + '\n')
+    sys.stdout.write(f'\033[{size.lines};1H{bottom_marker}')
+    sys.stdout.flush()
+
+signal.signal(signal.SIGWINCH, draw)
+size = os.get_terminal_size()
+ready = f"READY {size.columns}x{size.lines}"
+sys.stdout.write(ready)
+sys.stdout.flush()
+
+while True:
+    time.sleep(60)
+PY`
+
+	h.sendKeys(pane, script, "Enter")
+	h.waitForTimeout(pane, "READY ", "10s")
+}
+
+func readProtocolMsg(t *testing.T, conn net.Conn) *server.Message {
+	t.Helper()
+	if err := conn.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		t.Fatalf("SetReadDeadline: %v", err)
+	}
+	defer conn.SetReadDeadline(time.Time{})
+
+	msg, err := server.ReadMsg(conn)
+	if err != nil {
+		t.Fatalf("ReadMsg: %v", err)
+	}
+	return msg
 }
