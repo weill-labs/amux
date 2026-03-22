@@ -611,6 +611,10 @@ func runServerCommand(cmdName string, args []string) {
 	}
 	defer conn.Close()
 
+	if cmdName == "reload-server" {
+		args = prependReloadExecPathArg(args)
+	}
+
 	if err := server.WriteMsg(conn, &server.Message{
 		Type:    server.MsgTypeCommand,
 		CmdName: cmdName,
@@ -631,6 +635,14 @@ func runServerCommand(cmdName string, args []string) {
 		os.Exit(1)
 	}
 	fmt.Print(reply.CmdOutput)
+}
+
+func prependReloadExecPathArg(args []string) []string {
+	execPath, err := reload.ResolveExecutable()
+	if err != nil {
+		return args
+	}
+	return append([]string{"--exec-path", execPath}, args...)
 }
 
 // checkNesting exits with an error if we're inside the same amux session

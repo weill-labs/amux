@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -17,6 +16,7 @@ import (
 	"github.com/weill-labs/amux/internal/hooks"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
+	"github.com/weill-labs/amux/internal/reload"
 	"github.com/weill-labs/amux/internal/render"
 )
 
@@ -1535,20 +1535,35 @@ func cmdReconnect(ctx *CommandContext) {
 }
 
 func cmdReloadServer(ctx *CommandContext) {
-	execPath, err := os.Executable()
+	execPath, err := requestedReloadExecPath(ctx.Args)
 	if err != nil {
 		ctx.replyErr(fmt.Sprintf("reload: %v", err))
 		return
 	}
-	execPath, err = filepath.EvalSymlinks(execPath)
-	if err != nil {
-		ctx.replyErr(fmt.Sprintf("reload: %v", err))
-		return
+	if execPath == "" {
+		execPath, err = reload.ResolveExecutable()
+		if err != nil {
+			ctx.replyErr(fmt.Sprintf("reload: %v", err))
+			return
+		}
 	}
 	ctx.reply("Server reloading...\n")
 	if err := ctx.Srv.Reload(execPath); err != nil {
 		ctx.replyErr(err.Error())
 	}
+}
+
+func requestedReloadExecPath(args []string) (string, error) {
+	for i := 0; i < len(args); i++ {
+		if args[i] != "--exec-path" {
+			continue
+		}
+		if i+1 >= len(args) {
+			return "", fmt.Errorf("missing value for --exec-path")
+		}
+		return filepath.EvalSymlinks(args[i+1])
+	}
+	return "", nil
 }
 
 func cmdUnsplice(ctx *CommandContext) {
