@@ -3,6 +3,7 @@ package test
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestSpawnLocalPane(t *testing.T) {
@@ -41,6 +42,21 @@ func TestKillLastPaneExitsSession(t *testing.T) {
 	if !strings.Contains(out, "session exiting") {
 		t.Fatalf("expected session exit message, got: %s", out)
 	}
+}
+
+func TestKillCleanupLastPaneExitsSession(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	h.sendKeys("pane-1", "trap 'sleep 0.3; exit 0' TERM; while :; do sleep 1; done", "Enter")
+	h.waitBusy("pane-1")
+
+	out := h.runCmd("kill", "--cleanup", "--timeout", "100ms", "pane-1")
+	if !strings.Contains(out, "Cleaning up pane-1") {
+		t.Fatalf("expected cleanup confirmation, got: %s", out)
+	}
+
+	h.waitForShutdownSignal(5 * time.Second)
 }
 
 func TestResizeWindow(t *testing.T) {

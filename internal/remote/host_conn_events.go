@@ -5,6 +5,8 @@ import (
 	"net"
 
 	"golang.org/x/crypto/ssh"
+
+	"github.com/weill-labs/amux/internal/proto"
 )
 
 var errHostConnClosed = errors.New("host connection closed")
@@ -75,6 +77,21 @@ type paneExistsQuery struct {
 func (e paneExistsQuery) handle(hc *HostConn) {
 	_, ok := hc.localToRemote[e.localPaneID]
 	e.reply <- ok
+}
+
+type remotePaneIDResult struct {
+	remotePaneID uint32
+	ok           bool
+}
+
+type remotePaneIDQuery struct {
+	localPaneID uint32
+	reply       chan remotePaneIDResult
+}
+
+func (e remotePaneIDQuery) handle(hc *HostConn) {
+	remotePaneID, ok := hc.localToRemote[e.localPaneID]
+	e.reply <- remotePaneIDResult{remotePaneID: remotePaneID, ok: ok}
 }
 
 // --- Connect events ---
@@ -242,6 +259,45 @@ func (e readPaneOutputEvent) handle(hc *HostConn) {
 	localID, ok := hc.remoteToLocal[e.remotePaneID]
 	if ok && hc.onPaneOutput != nil {
 		hc.onPaneOutput(localID, e.data)
+	}
+}
+
+type readLayoutEvent struct {
+	layout *proto.LayoutSnapshot
+}
+
+func (e readLayoutEvent) handle(hc *HostConn) {
+	if e.layout == nil {
+		return
+	}
+
+	present := make(map[uint32]struct{}, len(e.layout.Panes))
+	for _, pane := range e.layout.Panes {
+		present[pane.ID] = struct{}{}
+	}
+	if len(present) == 0 {
+		for _, win := range e.layout.Windows {
+			for _, pane := range win.Panes {
+				present[pane.ID] = struct{}{}
+			}
+		}
+	}
+
+	var exited []uint32
+	for remotePaneID, localPaneID := range hc.remoteToLocal {
+		if _, ok := present[remotePaneID]; ok {
+			continue
+		}
+		delete(hc.remoteToLocal, remotePaneID)
+		delete(hc.localToRemote, localPaneID)
+		exited = append(exited, localPaneID)
+	}
+
+	if hc.onPaneExit == nil {
+		return
+	}
+	for _, localPaneID := range exited {
+		hc.onPaneExit(localPaneID)
 	}
 }
 

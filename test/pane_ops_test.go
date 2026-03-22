@@ -290,6 +290,31 @@ func TestKill(t *testing.T) {
 	}
 }
 
+func TestKillCleanup(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	h.splitV()
+	h.sendKeys("pane-2", "trap 'sleep 0.3; exit 0' TERM; while :; do sleep 1; done", "Enter")
+	h.waitBusy("pane-2")
+
+	gen := h.generation()
+	output := h.runCmd("kill", "--cleanup", "--timeout", "100ms", "pane-2")
+	if !strings.Contains(output, "Cleaning up pane-2") {
+		t.Fatalf("kill --cleanup should confirm, got:\n%s", output)
+	}
+
+	capture := h.capture()
+	if !strings.Contains(capture, "[pane-2]") {
+		t.Fatalf("pane-2 should remain visible until cleanup completes, got:\n%s", capture)
+	}
+
+	h.waitLayout(gen)
+	h.assertScreen("pane-2 should be gone after cleanup completes", func(s string) bool {
+		return strings.Contains(s, "[pane-1]") && !strings.Contains(s, "[pane-2]")
+	})
+}
+
 func TestKillOrphanedPane(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)

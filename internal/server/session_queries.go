@@ -22,6 +22,12 @@ type resolvedPaneRef struct {
 	windowID uint32
 }
 
+type killTargetSnapshot struct {
+	paneID   uint32
+	paneName string
+	proxy    bool
+}
+
 type paneListEntry struct {
 	paneID     uint32
 	name       string
@@ -182,6 +188,30 @@ func (s *Session) queryResolvedPane(ref string) (resolvedPaneRef, error) {
 			snap.windowID = w.ID
 		}
 		return snap, nil
+	})
+}
+
+func (s *Session) queryKillTarget(ref string) (killTargetSnapshot, error) {
+	return enqueueSessionQuery(s, func(s *Session) (killTargetSnapshot, error) {
+		var pane *mux.Pane
+		if ref == "" {
+			w := s.activeWindow()
+			if w == nil || w.ActivePane == nil {
+				return killTargetSnapshot{}, nil
+			}
+			pane = w.ActivePane
+		} else {
+			var err error
+			pane, _, err = s.resolvePaneAcrossWindows(ref)
+			if err != nil {
+				return killTargetSnapshot{}, err
+			}
+		}
+		return killTargetSnapshot{
+			paneID:   pane.ID,
+			paneName: pane.Meta.Name,
+			proxy:    pane.IsProxy(),
+		}, nil
 	})
 }
 

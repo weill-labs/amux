@@ -4,11 +4,21 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/remote"
 )
+
+type paneRemovalResult struct {
+	pane            *mux.Pane
+	paneName        string
+	closedWindow    string
+	broadcastLayout bool
+	sendExit        bool
+}
 
 // hasPane checks if a pane ID is still in the session's pane list.
 func (s *Session) hasPane(id uint32) bool {
@@ -51,20 +61,86 @@ func (s *Session) findPaneByID(id uint32) *mux.Pane {
 
 // removePane removes a pane from the flat list by ID and cleans up its idle timer.
 func (s *Session) removePane(id uint32) {
+	var pane *mux.Pane
 	for i, p := range s.Panes {
 		if p.ID == id {
+			pane = p
 			s.Panes = append(s.Panes[:i], s.Panes[i+1:]...)
 			break
 		}
+	}
+	if timer := s.pendingKillCleanups[id]; timer != nil {
+		timer.Stop()
+		delete(s.pendingKillCleanups, id)
 	}
 	if queue := s.pacedPanes[id]; queue != nil {
 		queue.close()
 		delete(s.pacedPanes, id)
 	}
+	delete(s.paneOutputSubs, id)
+	delete(s.takenOverPanes, id)
 	s.idle.StopTimer(id)
 	if s.vtIdle != nil {
 		s.vtIdle.StopTimer(id)
 	}
+	if pane == nil {
+		return
+	}
+	if pane.IsProxy() && s.RemoteManager != nil {
+		s.RemoteManager.RemovePane(id)
+	}
+	s.prunePaneEventSubs(pane.Meta.Name)
+}
+
+func (s *Session) prunePaneEventSubs(paneName string) {
+	if paneName == "" || len(s.eventSubs) == 0 {
+		return
+	}
+	subs := s.eventSubs[:0]
+	for _, sub := range s.eventSubs {
+		if sub.filter.PaneName == paneName {
+			continue
+		}
+		subs = append(subs, sub)
+	}
+	s.eventSubs = subs
+}
+
+func (s *Session) beginPaneCleanupKill(pane *mux.Pane, timeout time.Duration) error {
+	if pane == nil {
+		return nil
+	}
+	if s.pendingKillCleanups == nil {
+		s.pendingKillCleanups = make(map[uint32]*time.Timer)
+	}
+	if _, exists := s.pendingKillCleanups[pane.ID]; exists {
+		return fmt.Errorf("%s cleanup already pending", pane.Meta.Name)
+	}
+	if err := pane.SignalForegroundProcessGroup(syscall.SIGTERM); err != nil {
+		return err
+	}
+	s.pendingKillCleanups[pane.ID] = time.AfterFunc(timeout, func() {
+		s.enqueuePaneCleanupTimeout(pane.ID)
+	})
+	return nil
+}
+
+func (s *Session) finalizePaneRemoval(paneID uint32) paneRemovalResult {
+	pane := s.findPaneByID(paneID)
+	if pane == nil {
+		return paneRemovalResult{}
+	}
+	result := paneRemovalResult{
+		pane:     pane,
+		paneName: pane.Meta.Name,
+		sendExit: len(s.Panes) <= 1,
+	}
+	s.removePane(paneID)
+	result.closedWindow = s.closePaneInWindow(paneID)
+	if !result.sendExit {
+		result.broadcastLayout = true
+	}
+	return result
 }
 
 func (s *Session) enqueuePacedPaneInput(pane *mux.Pane, chunks []encodedKeyChunk) error {
@@ -205,9 +281,6 @@ func (s *Session) insertPreparedPaneIntoActiveWindow(pane *mux.Pane, dir mux.Spl
 	}
 	if err != nil {
 		s.removePane(pane.ID)
-		if s.RemoteManager != nil && pane.IsProxy() {
-			s.RemoteManager.RemovePane(pane.ID)
-		}
 		return err
 	}
 	return nil

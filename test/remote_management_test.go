@@ -167,3 +167,29 @@ func TestRemotePaneKill(t *testing.T) {
 	}
 	assertCaptureConsistent(t, c)
 }
+
+func TestRemotePaneKillCleanup(t *testing.T) {
+	t.Parallel()
+
+	h := newRemoteHarness(t)
+	splitRemotePane(t, h)
+
+	h.sendKeys("pane-2", "echo REMOTE_CLEANUP_READY; trap 'sleep 0.3; exit 0' TERM; while :; do sleep 1; done", "Enter")
+	h.waitForTimeout("pane-2", "REMOTE_CLEANUP_READY", "5s")
+
+	gen := h.generation()
+	out := h.runCmd("kill", "--cleanup", "--timeout", "100ms", "pane-2")
+	if strings.Contains(out, "error") || strings.Contains(out, "Error") {
+		t.Fatalf("kill --cleanup pane-2 failed: %s", out)
+	}
+	if !strings.Contains(out, "Cleaning up pane-2") {
+		t.Fatalf("kill --cleanup should confirm, got: %s", out)
+	}
+
+	h.waitLayoutTimeout(gen, "10s")
+	c := h.captureJSON()
+	if len(c.Panes) != 1 {
+		t.Fatalf("expected 1 pane after cleanup kill, got %d", len(c.Panes))
+	}
+	assertCaptureConsistent(t, c)
+}

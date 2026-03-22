@@ -14,19 +14,6 @@ const (
 	iocParamMask  = (1 << iocParamShift) - 1
 )
 
-func (p *Pane) notifyResizeSignal() {
-	// Darwin updates the PTY size via TIOCSWINSZ, but the foreground job
-	// does not reliably see SIGWINCH when we resize through the master FD.
-	// Resolve the slave path and signal the current foreground process group
-	// directly so alt-screen TUIs redraw after pane resizes.
-	pgrp, err := p.foregroundProcessGroup()
-	if err != nil || pgrp <= 0 {
-		return
-	}
-
-	_ = syscall.Kill(-pgrp, syscall.SIGWINCH)
-}
-
 func (p *Pane) foregroundProcessGroup() (int, error) {
 	if p.ptmx == nil {
 		return 0, nil

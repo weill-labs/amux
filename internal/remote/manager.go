@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"time"
 
 	"golang.org/x/crypto/ssh"
 
@@ -238,6 +239,15 @@ func (m *Manager) SendResize(localPaneID uint32, cols, rows int) error {
 		return nil // ignore resize for unknown panes
 	}
 	return hc.SendResize(localPaneID, cols, rows)
+}
+
+// KillPane forwards a kill request to the remote pane mapped to localPaneID.
+func (m *Manager) KillPane(localPaneID uint32, cleanup bool, timeout time.Duration) error {
+	hc := m.hostConnForPane(localPaneID)
+	if hc == nil {
+		return fmt.Errorf("no remote host for local pane %d", localPaneID)
+	}
+	return hc.KillPane(localPaneID, cleanup, timeout)
 }
 
 // RemovePane cleans up the local→remote mapping when a proxy pane is closed.

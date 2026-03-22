@@ -223,7 +223,7 @@ func TestHostConnRunCommandAndCreateRemotePaneDialErrors(t *testing.T) {
 }
 
 func TestHostConnReadLoopHandlesOutputAndDisconnectPaths(t *testing.T) {
-	t.Run("routes pane output and ignores layouts", func(t *testing.T) {
+	t.Run("routes pane output through layout", func(t *testing.T) {
 		outputs := make(chan []byte, 1)
 		hc := NewHostConn("test", config.Host{}, "", func(_ uint32, data []byte) {
 			outputs <- append([]byte(nil), data...)
@@ -240,7 +240,12 @@ func TestHostConnReadLoopHandlesOutputAndDisconnectPaths(t *testing.T) {
 			close(done)
 		}()
 
-		if err := proto.WriteMsg(serverConn, &proto.Message{Type: proto.MsgTypeLayout, Layout: testLayoutSnapshot()}); err != nil {
+		// Send a layout that includes remote pane 100 so the mapping
+		// survives layout-based disappearance detection.
+		layout := testLayoutSnapshot()
+		layout.Panes = append(layout.Panes, proto.PaneSnapshot{ID: 100, Name: "pane-100"})
+		layout.Windows[0].Panes = append(layout.Windows[0].Panes, proto.PaneSnapshot{ID: 100, Name: "pane-100"})
+		if err := proto.WriteMsg(serverConn, &proto.Message{Type: proto.MsgTypeLayout, Layout: layout}); err != nil {
 			t.Fatalf("WriteMsg layout: %v", err)
 		}
 		if err := proto.WriteMsg(serverConn, &proto.Message{Type: proto.MsgTypePaneOutput, PaneID: 100, PaneData: []byte("hello")}); err != nil {
@@ -254,6 +259,70 @@ func TestHostConnReadLoopHandlesOutputAndDisconnectPaths(t *testing.T) {
 			}
 		case <-time.After(time.Second):
 			t.Fatal("timed out waiting for pane output")
+		}
+
+		serverConn.Close()
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Fatal("readLoop did not exit after connection close")
+		}
+	})
+
+	t.Run("layout disappearance removes mapped pane", func(t *testing.T) {
+		exits := make(chan uint32, 1)
+		hc := NewHostConn("test", config.Host{}, "", nil, func(localPaneID uint32) {
+			exits <- localPaneID
+		}, nil)
+		defer hc.Close()
+		hc.RegisterPane(10, 100)
+		hc.RegisterPane(20, 200)
+
+		serverConn, clientConn := net.Pipe()
+		defer serverConn.Close()
+
+		done := make(chan struct{})
+		go func() {
+			hc.readLoop(clientConn)
+			close(done)
+		}()
+
+		layout := testLayoutSnapshot()
+		layout.Panes = []proto.PaneSnapshot{{ID: 200, Name: "pane-200"}}
+		layout.Windows[0].Panes = []proto.PaneSnapshot{{ID: 200, Name: "pane-200"}}
+		layout.ActivePaneID = 200
+		layout.Windows[0].ActivePaneID = 200
+		if err := proto.WriteMsg(serverConn, &proto.Message{Type: proto.MsgTypeLayout, Layout: layout}); err != nil {
+			t.Fatalf("WriteMsg layout: %v", err)
+		}
+
+		select {
+		case got := <-exits:
+			if got != 10 {
+				t.Fatalf("exit callback local pane = %d, want 10", got)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("timed out waiting for pane exit callback after layout disappearance")
+		}
+
+		var (
+			pane10Present  bool
+			remote100Exist bool
+			pane20RemoteID uint32
+		)
+		testInActor(hc, func(hc *HostConn) {
+			_, pane10Present = hc.localToRemote[10]
+			_, remote100Exist = hc.remoteToLocal[100]
+			pane20RemoteID = hc.localToRemote[20]
+		})
+		if pane10Present {
+			t.Fatal("localToRemote[10] should be removed after layout disappearance")
+		}
+		if remote100Exist {
+			t.Fatal("remoteToLocal[100] should be removed after layout disappearance")
+		}
+		if pane20RemoteID != 200 {
+			t.Fatalf("localToRemote[20] = %d, want 200", pane20RemoteID)
 		}
 
 		serverConn.Close()
