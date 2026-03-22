@@ -293,6 +293,90 @@ func sessionLayoutSnapshot(session string) *proto.LayoutSnapshot {
 	return snap
 }
 
+func TestAttachBootstrapHelpers(t *testing.T) {
+	t.Parallel()
+
+	t.Run("newAttachBootstrapMessage copies payloads", func(t *testing.T) {
+		t.Parallel()
+
+		historyMsg := &proto.Message{
+			Type:    proto.MsgTypePaneHistory,
+			PaneID:  7,
+			History: []string{"older", "newer"},
+		}
+		historyBootstrap, ok := newAttachBootstrapMessage(historyMsg)
+		if !ok {
+			t.Fatal("history message should be accepted")
+		}
+		historyMsg.History[0] = "mutated"
+		if historyBootstrap.typ != proto.MsgTypePaneHistory || historyBootstrap.paneID != 7 {
+			t.Fatalf("history bootstrap = %+v, want pane history for pane 7", historyBootstrap)
+		}
+		if len(historyBootstrap.history) != 2 || historyBootstrap.history[0] != "older" {
+			t.Fatalf("history bootstrap copy = %q, want original history", historyBootstrap.history)
+		}
+
+		outputMsg := &proto.Message{
+			Type:     proto.MsgTypePaneOutput,
+			PaneID:   9,
+			PaneData: []byte("wide"),
+		}
+		outputBootstrap, ok := newAttachBootstrapMessage(outputMsg)
+		if !ok {
+			t.Fatal("output message should be accepted")
+		}
+		outputMsg.PaneData[0] = 'n'
+		if outputBootstrap.typ != proto.MsgTypePaneOutput || outputBootstrap.paneID != 9 {
+			t.Fatalf("output bootstrap = %+v, want pane output for pane 9", outputBootstrap)
+		}
+		if string(outputBootstrap.data) != "wide" {
+			t.Fatalf("output bootstrap copy = %q, want %q", outputBootstrap.data, "wide")
+		}
+
+		if _, ok := newAttachBootstrapMessage(&proto.Message{Type: proto.MsgTypeLayout}); ok {
+			t.Fatal("layout message should not be treated as a bootstrap replay payload")
+		}
+	})
+
+	t.Run("attachBootstrapPaneCount handles nil legacy and multi-window snapshots", func(t *testing.T) {
+		t.Parallel()
+
+		tests := []struct {
+			name   string
+			layout *proto.LayoutSnapshot
+			want   int
+		}{
+			{name: "nil", layout: nil, want: 0},
+			{
+				name: "legacy panes",
+				layout: &proto.LayoutSnapshot{
+					Panes: []proto.PaneSnapshot{{ID: 1}, {ID: 2}},
+				},
+				want: 2,
+			},
+			{name: "multi-window", layout: multiWindow80x23Zoomed(1, 2), want: 3},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				t.Parallel()
+				if got := attachBootstrapPaneCount(tt.layout); got != tt.want {
+					t.Fatalf("attachBootstrapPaneCount() = %d, want %d", got, tt.want)
+				}
+			})
+		}
+	})
+
+	t.Run("applyAttachBootstrapMessage ignores unexpected types", func(t *testing.T) {
+		t.Parallel()
+
+		cr := NewClientRenderer(20, 4)
+		if got := applyAttachBootstrapMessage(cr, attachBootstrapMessage{typ: proto.MsgTypeBell}); got != 0 {
+			t.Fatalf("applyAttachBootstrapMessage() = %d, want 0 for unexpected type", got)
+		}
+	})
+}
+
 func TestReadAttachBootstrapAppliesZoomedReplayBeforeReturn(t *testing.T) {
 	t.Parallel()
 
@@ -360,6 +444,54 @@ func TestReadAttachBootstrapAppliesZoomedReplayBeforeReturn(t *testing.T) {
 	history := cr.loadState().baseHistory[2]
 	if len(history) != 1 || history[0] != "older-zoomed-line" {
 		t.Fatalf("pane-2 bootstrap history = %q, want %q", history, []string{"older-zoomed-line"})
+	}
+}
+
+func TestReadAttachBootstrapRejectsUnexpectedMessages(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		messages []*proto.Message
+		wantErr  string
+	}{
+		{
+			name:     "before layout",
+			messages: []*proto.Message{{Type: proto.MsgTypeBell}},
+			wantErr:  "before layout",
+		},
+		{
+			name: "after layout",
+			messages: []*proto.Message{
+				{Type: proto.MsgTypeLayout, Layout: singlePane20x3()},
+				{Type: proto.MsgTypeBell},
+			},
+			wantErr: "after layout",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			serverConn, clientConn := net.Pipe()
+			t.Cleanup(func() {
+				_ = serverConn.Close()
+				_ = clientConn.Close()
+			})
+
+			go func() {
+				for _, msg := range tt.messages {
+					_ = proto.WriteMsg(serverConn, msg)
+				}
+				_ = serverConn.Close()
+			}()
+
+			err := readAttachBootstrap(clientConn, NewClientRenderer(20, 4))
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("readAttachBootstrap() error = %v, want substring %q", err, tt.wantErr)
+			}
+		})
 	}
 }
 
