@@ -537,15 +537,11 @@ func cmdSendKeys(ctx *CommandContext) {
 		}
 		return
 	}
-	total := 0
-	for _, chunk := range chunks {
-		total += len(chunk.data)
-	}
 	if err := ctx.Sess.enqueuePacedPaneInput(pane.pane, chunks); err != nil {
 		ctx.replyErr(err.Error())
 		return
 	}
-	ctx.reply(fmt.Sprintf("Sent %d bytes to %s\n", total, pane.paneName))
+	ctx.reply(fmt.Sprintf("Sent %d bytes to %s\n", totalEncodedKeyBytes(chunks), pane.paneName))
 }
 
 type broadcastCommandArgs struct {
@@ -1916,15 +1912,11 @@ func cmdTypeKeys(ctx *CommandContext) {
 		return
 	}
 
-	total := 0
-	for _, chunk := range chunks {
-		total += len(chunk.data)
-	}
 	if err := client.enqueueTypeKeys(chunks); err != nil {
 		ctx.replyErr(err.Error())
 		return
 	}
-	ctx.reply(fmt.Sprintf("Typed %d bytes\n", total))
+	ctx.reply(fmt.Sprintf("Typed %d bytes\n", totalEncodedKeyBytes(chunks)))
 }
 
 // parseKeyArgs splits args into a hex-mode flag and the remaining key tokens.
