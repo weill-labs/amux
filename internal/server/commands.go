@@ -32,6 +32,8 @@ const tokenKeyGap = 50 * time.Millisecond
 
 const broadcastUsage = "usage: broadcast (--panes <pane,pane,...> | --window <index|name> | --match <glob>) [--hex] <keys>..."
 
+const listCwdWidth = 36
+
 // ReloadServerExecPathFlag carries the requesting CLI's resolved executable
 // path so the server can re-exec that binary instead of its original launch
 // path when the two differ.
@@ -219,36 +221,7 @@ func cmdList(ctx *CommandContext) {
 		return
 	}
 	home, _ := os.UserHomeDir()
-	var output string
-	if len(entries) == 0 {
-		output = "No panes.\n"
-	} else {
-		if args.showCwd {
-			output = fmt.Sprintf("%-6s %-20s %-15s %-30s %-36s %-10s %-12s %s\n", "PANE", "NAME", "HOST", "BRANCH", "CWD", "WINDOW", "TASK", "META")
-		} else {
-			output = fmt.Sprintf("%-6s %-20s %-15s %-30s %-10s %-12s %s\n", "PANE", "NAME", "HOST", "BRANCH", "WINDOW", "TASK", "META")
-		}
-		for _, p := range entries {
-			active := " "
-			if p.active {
-				active = "*"
-			}
-			branch := p.gitBranch
-			if p.pr != "" {
-				branch += " #" + p.pr
-			}
-			if args.showCwd {
-				output += fmt.Sprintf("%-6s %-20s %-15s %-30s %-36s %-10s %-12s %s\n",
-					fmt.Sprintf("%s%d", active, p.paneID),
-					p.name, p.host, branch, formatListCwd(p.cwd, home, 36), p.windowName, p.task, formatMetaCollections(p.prs, p.issues))
-			} else {
-				output += fmt.Sprintf("%-6s %-20s %-15s %-30s %-10s %-12s %s\n",
-					fmt.Sprintf("%s%d", active, p.paneID),
-					p.name, p.host, branch, p.windowName, p.task, formatMetaCollections(p.prs, p.issues))
-			}
-		}
-	}
-	ctx.reply(output)
+	ctx.reply(formatPaneList(entries, home, args.showCwd))
 }
 
 type listCommandArgs struct {
@@ -266,6 +239,47 @@ func parseListCommandArgs(args []string) (listCommandArgs, error) {
 		}
 	}
 	return parsed, nil
+}
+
+func formatPaneList(entries []paneListEntry, home string, showCwd bool) string {
+	if len(entries) == 0 {
+		return "No panes.\n"
+	}
+
+	var buf strings.Builder
+	if showCwd {
+		fmt.Fprintf(&buf, "%-6s %-20s %-15s %-30s %-36s %-10s %-12s %s\n", "PANE", "NAME", "HOST", "BRANCH", "CWD", "WINDOW", "TASK", "META")
+	} else {
+		fmt.Fprintf(&buf, "%-6s %-20s %-15s %-30s %-10s %-12s %s\n", "PANE", "NAME", "HOST", "BRANCH", "WINDOW", "TASK", "META")
+	}
+	for _, entry := range entries {
+		fmt.Fprint(&buf, formatPaneListRow(entry, home, showCwd))
+	}
+	return buf.String()
+}
+
+func formatPaneListRow(entry paneListEntry, home string, showCwd bool) string {
+	active := " "
+	if entry.active {
+		active = "*"
+	}
+	paneID := fmt.Sprintf("%s%d", active, entry.paneID)
+	branch := formatPaneListBranch(entry)
+	meta := formatMetaCollections(entry.prs, entry.issues)
+	if showCwd {
+		return fmt.Sprintf("%-6s %-20s %-15s %-30s %-36s %-10s %-12s %s\n",
+			paneID, entry.name, entry.host, branch, formatListCwd(entry.cwd, home, listCwdWidth), entry.windowName, entry.task, meta)
+	}
+	return fmt.Sprintf("%-6s %-20s %-15s %-30s %-10s %-12s %s\n",
+		paneID, entry.name, entry.host, branch, entry.windowName, entry.task, meta)
+}
+
+func formatPaneListBranch(entry paneListEntry) string {
+	branch := entry.gitBranch
+	if entry.pr != "" {
+		branch += " #" + entry.pr
+	}
+	return branch
 }
 
 func formatListCwd(cwd, home string, max int) string {
@@ -370,6 +384,7 @@ func truncateListTail(s string, max int) string {
 	}
 	return string(runes[len(runes)-max:])
 }
+
 func cmdSplit(ctx *CommandContext) {
 	args, err := parseSplitCommandArgs(ctx.Args)
 	if err != nil {

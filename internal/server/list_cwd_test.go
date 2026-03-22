@@ -1,6 +1,8 @@
 package server
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -63,6 +65,26 @@ func TestFormatListCwd(t *testing.T) {
 				t.Fatalf("formatListCwd(%q, %q, %d) = %q, want %q", tt.cwd, tt.home, tt.max, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestFormatListCwdCollapsesResolvedHome(t *testing.T) {
+	t.Parallel()
+
+	realHome := t.TempDir()
+	cwd := filepath.Join(realHome, "src", "amux54")
+	if err := os.MkdirAll(cwd, 0o755); err != nil {
+		t.Fatalf("MkdirAll(%q): %v", cwd, err)
+	}
+
+	linkDir := t.TempDir()
+	linkHome := filepath.Join(linkDir, "home")
+	if err := os.Symlink(realHome, linkHome); err != nil {
+		t.Fatalf("Symlink(%q, %q): %v", realHome, linkHome, err)
+	}
+
+	if got := formatListCwd(cwd, linkHome, 36); got != "~/src/amux54" {
+		t.Fatalf("formatListCwd(%q, %q, 36) = %q, want %q", cwd, linkHome, got, "~/src/amux54")
 	}
 }
 
