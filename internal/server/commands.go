@@ -1253,7 +1253,7 @@ func cmdSwapTree(ctx *CommandContext) {
 			return commandMutationResult{err: fmt.Errorf("usage: swap-tree <pane1> <pane2>")}
 		}
 
-		w := sess.ActiveWindow()
+		w := sess.activeWindow()
 		if w == nil {
 			return commandMutationResult{err: fmt.Errorf("no session")}
 		}
@@ -1302,7 +1302,7 @@ func cmdMove(ctx *CommandContext) {
 			return commandMutationResult{err: err}
 		}
 
-		w := sess.ActiveWindow()
+		w := sess.activeWindow()
 		if w == nil {
 			return commandMutationResult{err: fmt.Errorf("no session")}
 		}
