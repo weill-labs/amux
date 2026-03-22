@@ -713,8 +713,8 @@ func TestDisconnectClientsForReloadEmitsDisconnectWithoutLayoutMutation(t *testi
 		}{
 			clientCount: len(sess.clients),
 			sizeOwner:   sess.currentSizeClient(),
-			width:       sess.ActiveWindow().Width,
-			height:      sess.ActiveWindow().Height,
+			width:       sess.activeWindow().Width,
+			height:      sess.activeWindow().Height,
 			generation:  sess.generation.Load(),
 		}
 	})
