@@ -14,6 +14,13 @@ import (
 	"github.com/weill-labs/amux/internal/proto"
 )
 
+const (
+	disconnectReasonClientDetach = "client detach"
+	disconnectReasonSlowClient   = "slow client"
+	disconnectReasonClosed       = "connection closed"
+	disconnectReasonShutdown     = "server shutdown"
+)
+
 // ClientConn manages a single client connection to the server.
 type ClientConn struct {
 	conn               net.Conn
@@ -46,7 +53,7 @@ func NewClientConn(conn net.Conn) *ClientConn {
 		inputIdle: true,
 	}
 	cc.writer = newClientWriter(conn, func() {
-		cc.markDisconnectReason("slow client")
+		cc.markDisconnectReason(disconnectReasonSlowClient)
 	})
 	return cc
 }
@@ -141,15 +148,17 @@ func (cc *ClientConn) finalizeDisconnectReason(sess *Session, err error) {
 	if err == nil || cc.disconnectReasonValue() != "" {
 		return
 	}
+	cc.markDisconnectReason(disconnectReasonForReadError(sess, err))
+}
+
+func disconnectReasonForReadError(sess *Session, err error) string {
 	if sess != nil && sess.shutdown.Load() {
-		cc.markDisconnectReason("server shutdown")
-		return
+		return disconnectReasonShutdown
 	}
 	if errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed) || strings.Contains(err.Error(), "use of closed network connection") {
-		cc.markDisconnectReason("connection closed")
-		return
+		return disconnectReasonClosed
 	}
-	cc.markDisconnectReason(err.Error())
+	return err.Error()
 }
 
 func cloneMinOutputSeq(src map[uint32]uint64) map[uint32]uint64 {
@@ -234,7 +243,7 @@ func (cc *ClientConn) readLoop(srv *Server, sess *Session) {
 			}
 
 		case MsgTypeDetach:
-			cc.markDisconnectReason("client detach")
+			cc.markDisconnectReason(disconnectReasonClientDetach)
 			return
 
 		case MsgTypeCommand:

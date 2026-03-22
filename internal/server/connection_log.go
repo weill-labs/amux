@@ -4,6 +4,11 @@ import "time"
 
 const defaultConnectionLogSize = 100
 
+const (
+	connectionLogEventAttach = "attach"
+	connectionLogEventDetach = "detach"
+)
+
 type ConnectionLogEntry struct {
 	Timestamp        time.Time
 	Event            string

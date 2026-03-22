@@ -141,7 +141,7 @@ type detachClientEvent struct {
 }
 
 func (e detachClientEvent) handle(s *Session) {
-	s.appendConnectionLog("detach", e.cc.ID, e.cc.cols, e.cc.rows, e.cc.disconnectReasonValue())
+	s.appendConnectionLog(connectionLogEventDetach, e.cc.ID, e.cc.cols, e.cc.rows, e.cc.disconnectReasonValue())
 	s.removeClient(e.cc)
 }
 
@@ -737,7 +737,7 @@ func (s *Session) handleAttachEvent(srv *Server, cc *ClientConn, cols, rows int)
 
 	s.clients = append(s.clients, cc)
 	s.hadClient = true
-	s.appendConnectionLog("attach", cc.ID, cc.cols, cc.rows, "")
+	s.appendConnectionLog(connectionLogEventAttach, cc.ID, cc.cols, cc.rows, "")
 	s.noteClientActivity(cc)
 	s.recalcSize()
 	if initRes.layoutChanged {
