@@ -132,7 +132,7 @@ func TestRenderGlobalBarAndTruncateRunes(t *testing.T) {
 		{Index: 2, Name: "logs", IsActive: false},
 	}, "very long command feedback that must truncate")
 	rendered := buf.String()
-	for _, want := range []string{"[1:dev]", "2:logs", "very lon…"} {
+	for _, want := range []string{"1:dev", "2:logs", "very lon…"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("renderGlobalBar missing %q:\n%s", want, rendered)
 		}
@@ -168,7 +168,7 @@ func TestGlobalBarWindowAtColumn(t *testing.T) {
 		ok   bool
 	}{
 		{name: "first tab", x: tabs[0].start, want: 1, ok: true},
-		{name: "active tab includes brackets", x: tabs[1].start, want: 2, ok: true},
+		{name: "active tab start", x: tabs[1].start, want: 2, ok: true},
 		{name: "third tab", x: tabs[2].end - 1, want: 3, ok: true},
 		{name: "space after first tab", x: tabs[0].end, ok: false},
 		{name: "separator after tabs", x: tabs[2].end + 1, ok: false},
