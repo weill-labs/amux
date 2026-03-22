@@ -31,7 +31,7 @@ func setupWaitReadyTestPane(t *testing.T, writeOverride func([]byte) (int, error
 }
 
 func codexReadyScreen(placeholder string) string {
-	return "\x1b[2J\x1b[H" + strings.Repeat("\r\n", 19) + "› " + placeholder
+	return "\x1b[?25h\x1b[2J\x1b[H" + strings.Repeat("\r\n", 19) + "› " + placeholder
 }
 
 func codexTrustDialogScreen(path string) string {

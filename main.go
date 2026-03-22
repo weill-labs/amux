@@ -163,7 +163,7 @@ func main() {
 		runServerCommand(args[0], []string{args[1]})
 	case "send-keys":
 		if len(args) < 3 {
-			fmt.Fprintf(os.Stderr, "usage: amux send-keys <pane> <keys>...\n")
+			fmt.Fprintf(os.Stderr, "usage: amux send-keys <pane> [--wait-ready] [--continue-known-dialogs] [--hex] <keys>...\n")
 			os.Exit(1)
 		}
 		runServerCommand("send-keys", args[1:])
@@ -213,6 +213,12 @@ func main() {
 			os.Exit(1)
 		}
 		runServerCommand("wait-for", args[1:])
+	case "wait-ready":
+		if len(args) < 2 {
+			fmt.Fprintln(os.Stderr, "usage: amux wait-ready <pane> [--timeout <duration>] [--continue-known-dialogs]")
+			os.Exit(1)
+		}
+		runServerCommand("wait-ready", args[1:])
 	case "wait-idle":
 		if len(args) < 2 {
 			fmt.Fprintf(os.Stderr, "usage: amux wait-idle <pane> [--timeout <duration>]\n")
@@ -405,7 +411,7 @@ Usage:
                                        Capture a pane's retained history + visible screen
   amux [-s session] capture --ansi     Capture with ANSI escape codes
   amux [-s session] capture --colors   Capture border color map
-  amux [-s session] send-keys <pane> <keys>...
+  amux [-s session] send-keys <pane> [--wait-ready] [--continue-known-dialogs] [--hex] <keys>...
                                        Send keystrokes to a pane
   amux [-s session] broadcast (--panes <pane,pane,...> | --window <index|name> | --match <glob>) [--hex] <keys>...
                                        Send the same keystrokes to multiple panes
@@ -452,6 +458,8 @@ Usage:
                                        Block until layout generation > N
   amux [-s session] wait-for <pane> <substring> [--timeout 3s]
                                        Block until substring appears in pane
+  amux [-s session] wait-ready <pane> [--timeout 10s] [--continue-known-dialogs]
+                                       Block until an agent pane reaches its input prompt
   amux [-s session] wait-busy <pane> [--timeout 5s]
                                        Block until pane has child processes
   amux [-s session] wait-idle <pane> [--timeout 5s]
