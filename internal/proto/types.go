@@ -45,16 +45,18 @@ type CellSnapshot struct {
 
 // PaneSnapshot holds metadata for one pane.
 type PaneSnapshot struct {
-	ID         uint32 `json:"id"`
-	Name       string `json:"name"`
-	Host       string `json:"host"`
-	Task       string `json:"task"`
-	Color      string `json:"color"`
-	Minimized  bool   `json:"minimized"`
-	Idle       bool   `json:"idle"`
-	ConnStatus string `json:"conn_status,omitempty"` // "", "connected", "reconnecting", "disconnected" (remote panes only)
-	GitBranch  string `json:"git_branch,omitempty"`
-	PR         string `json:"pr,omitempty"`
+	ID         uint32   `json:"id"`
+	Name       string   `json:"name"`
+	Host       string   `json:"host"`
+	Task       string   `json:"task"`
+	Color      string   `json:"color"`
+	Minimized  bool     `json:"minimized"`
+	Idle       bool     `json:"idle"`
+	ConnStatus string   `json:"conn_status,omitempty"` // "", "connected", "reconnecting", "disconnected" (remote panes only)
+	GitBranch  string   `json:"git_branch,omitempty"`
+	PR         string   `json:"pr,omitempty"`
+	PRs        []string `json:"prs,omitempty"`
+	Issues     []string `json:"issues,omitempty"`
 
 	// EmuWidth/EmuHeight are set for minimized panes to record the
 	// pre-minimize emulator dimensions. Clients use these to create

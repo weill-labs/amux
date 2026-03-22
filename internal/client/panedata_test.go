@@ -1,6 +1,7 @@
 package client
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -132,6 +133,8 @@ func TestPaneDataAccessors(t *testing.T) {
 		Info: proto.PaneSnapshot{
 			ID:         7,
 			Name:       "pane-7",
+			PRs:        []string{"42", "314"},
+			Issues:     []string{"LAB-339"},
 			Host:       "buildbox",
 			Task:       "tail -f",
 			Color:      "89dceb",
@@ -146,6 +149,12 @@ func TestPaneDataAccessors(t *testing.T) {
 	}
 	if got := pane.Name(); got != "pane-7" {
 		t.Fatalf("Name() = %q, want pane-7", got)
+	}
+	if got := pane.PRs(); !reflect.DeepEqual(got, []string{"42", "314"}) {
+		t.Fatalf("PRs() = %v, want [42 314]", got)
+	}
+	if got := pane.Issues(); !reflect.DeepEqual(got, []string{"LAB-339"}) {
+		t.Fatalf("Issues() = %v, want [LAB-339]", got)
 	}
 	if got := pane.Host(); got != "buildbox" {
 		t.Fatalf("Host() = %q, want buildbox", got)

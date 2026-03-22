@@ -12,6 +12,8 @@ import (
 type statusPaneData struct {
 	id           uint32
 	name         string
+	prs          []string
+	issues       []string
 	host         string
 	task         string
 	color        string
@@ -31,6 +33,8 @@ func (p *statusPaneData) CursorPos() (int, int)  { return 0, 0 }
 func (p *statusPaneData) CursorHidden() bool     { return p.cursorHidden }
 func (p *statusPaneData) ID() uint32             { return p.id }
 func (p *statusPaneData) Name() string           { return p.name }
+func (p *statusPaneData) PRs() []string          { return p.prs }
+func (p *statusPaneData) Issues() []string       { return p.issues }
 func (p *statusPaneData) Host() string           { return p.host }
 func (p *statusPaneData) Task() string           { return p.task }
 func (p *statusPaneData) Color() string          { return p.color }
@@ -104,6 +108,55 @@ func TestRenderPaneStatusVariants(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestRenderPaneStatusShowsMetadata(t *testing.T) {
+	t.Parallel()
+
+	cell := mux.NewLeaf(&mux.Pane{ID: 1}, 0, 0, 60, 3)
+	var buf strings.Builder
+	renderPaneStatus(&buf, cell, true, &statusPaneData{
+		id:     1,
+		name:   "pane-1",
+		prs:    []string{"42", "314"},
+		issues: []string{"LAB-339"},
+		host:   "gpu-box",
+		task:   "train",
+		color:  config.TextColorHex,
+	})
+
+	line := MaterializeGrid(buf.String(), cell.W, 1)
+	for _, want := range []string{"[pane-1]", "#42, #314, LAB-339", "@gpu-box", "train"} {
+		if !strings.Contains(line, want) {
+			t.Fatalf("status line %q missing %q", line, want)
+		}
+	}
+}
+
+func TestRenderPaneStatusTruncatesMetadata(t *testing.T) {
+	t.Parallel()
+
+	cell := mux.NewLeaf(&mux.Pane{ID: 1}, 0, 0, 34, 3)
+	var buf strings.Builder
+	renderPaneStatus(&buf, cell, false, &statusPaneData{
+		id:     1,
+		name:   "pane-1",
+		prs:    []string{"101", "202"},
+		issues: []string{"LAB-339", "LAB-340"},
+		host:   "gpu",
+		task:   "sync",
+		color:  config.TextColorHex,
+	})
+
+	line := strings.TrimRight(MaterializeGrid(buf.String(), cell.W, 1), " ")
+	for _, want := range []string{"#101", "…", "@gpu", "sync"} {
+		if !strings.Contains(line, want) {
+			t.Fatalf("status line %q missing %q", line, want)
+		}
+	}
+	if strings.Contains(line, ", …") {
+		t.Fatalf("status line %q should trim trailing separators before ellipsis", line)
 	}
 }
 
@@ -363,6 +416,38 @@ func TestBuildStatusCellsPreservesRemoteMetadata(t *testing.T) {
 	}
 	line := strings.TrimRight(row.String(), " ")
 	for _, want := range []string{"@remote-host", "sync", "⚡"} {
+		if !strings.Contains(line, want) {
+			t.Fatalf("status row %q missing %q", line, want)
+		}
+	}
+}
+
+func TestBuildStatusCellsShowsPaneMetadata(t *testing.T) {
+	t.Parallel()
+
+	cell := mux.NewLeaf(&mux.Pane{ID: 1}, 0, 0, 56, 4)
+	grid := NewScreenGrid(56, 4)
+	buildStatusCells(grid, cell, false, &statusPaneData{
+		id:         1,
+		name:       "pane-1",
+		prs:        []string{"42", "314"},
+		issues:     []string{"LAB-339"},
+		host:       "remote-host",
+		task:       "sync",
+		color:      config.TextColorHex,
+		connStatus: "connected",
+	})
+
+	var row strings.Builder
+	for x := 0; x < 56; x++ {
+		ch := grid.Get(x, 0).Char
+		if ch == "" {
+			ch = " "
+		}
+		row.WriteString(ch)
+	}
+	line := strings.TrimRight(row.String(), " ")
+	for _, want := range []string{"#42, #314, LAB-339", "@remote-host", "sync", "⚡"} {
 		if !strings.Contains(line, want) {
 			t.Fatalf("status row %q missing %q", line, want)
 		}

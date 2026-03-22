@@ -5,6 +5,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/mattn/go-runewidth"
 	"github.com/weill-labs/amux/internal/mux"
 )
 
@@ -63,6 +64,8 @@ func renderPaneStatus(buf *strings.Builder, cell *mux.LayoutCell, isActive bool,
 	buf.WriteString("]")
 	buf.WriteString(NoBold)
 
+	metaText := paneStatusMetadata(pd, availableMetadataWidth(cell.W, pd))
+
 	// Copy mode indicator + search prompt
 	if pd.InCopyMode() {
 		buf.WriteString(" ")
@@ -73,6 +76,12 @@ func renderPaneStatus(buf *strings.Builder, cell *mux.LayoutCell, isActive bool,
 		} else {
 			buf.WriteString("[copy]")
 		}
+	}
+
+	if metaText != "" {
+		buf.WriteString(TextFg)
+		buf.WriteString(" ")
+		buf.WriteString(metaText)
 	}
 
 	// Host (only if not mux.DefaultHost)
@@ -105,21 +114,9 @@ func renderPaneStatus(buf *strings.Builder, cell *mux.LayoutCell, isActive bool,
 	}
 
 	// Fill remaining width with spaces
-	usedWidth := 2 + len(pd.Name()) + 2 // "● [name]"
-	if pd.InCopyMode() {
-		usedWidth += 7 // " [copy]"
-		if search := pd.CopyModeSearch(); search != "" {
-			usedWidth += 1 + len(search) // " /query"
-		}
-	}
-	if pd.Host() != "" && pd.Host() != mux.DefaultHost {
-		usedWidth += 2 + len(pd.Host())
-	}
-	if cs := pd.ConnStatus(); cs != "" {
-		usedWidth += 2 // " ⚡" or " ⟳" or " ✕" (space + 1 rune)
-	}
-	if pd.Task() != "" {
-		usedWidth += 1 + len(pd.Task())
+	usedWidth := paneStatusUsedWidthWithoutMetadata(pd)
+	if metaText != "" {
+		usedWidth += 1 + runewidth.StringWidth(metaText)
 	}
 	remaining := cell.W - usedWidth
 	if remaining > 0 {
@@ -141,6 +138,87 @@ func truncateRunes(s string, max int) string {
 		return string(runes[:1])
 	}
 	return string(runes[:max-1]) + "…"
+}
+
+func paneStatusMetadata(pd PaneData, maxWidth int) string {
+	items := paneStatusMetadataItems(pd.PRs(), pd.Issues())
+	if len(items) == 0 || maxWidth < 2 {
+		return ""
+	}
+
+	text := strings.Join(items, ", ")
+	if runewidth.StringWidth(text) <= maxWidth {
+		return text
+	}
+
+	var buf strings.Builder
+	usedWidth := 0
+	for _, r := range text {
+		runeWidth := runewidth.RuneWidth(r)
+		if runeWidth <= 0 {
+			runeWidth = 1
+		}
+		if usedWidth+runeWidth > maxWidth-1 {
+			break
+		}
+		buf.WriteRune(r)
+		usedWidth += runeWidth
+	}
+
+	prefix := strings.TrimRight(buf.String(), ", ")
+	if prefix == "" {
+		return ""
+	}
+	return prefix + "…"
+}
+
+func paneStatusMetadataItems(prs, issues []string) []string {
+	items := make([]string, 0, len(prs)+len(issues))
+	for _, pr := range prs {
+		pr = strings.TrimSpace(pr)
+		if pr == "" {
+			continue
+		}
+		if !strings.HasPrefix(pr, "#") {
+			pr = "#" + pr
+		}
+		items = append(items, pr)
+	}
+	for _, issue := range issues {
+		issue = strings.TrimSpace(issue)
+		if issue == "" {
+			continue
+		}
+		items = append(items, issue)
+	}
+	return items
+}
+
+func availableMetadataWidth(cellWidth int, pd PaneData) int {
+	if len(paneStatusMetadataItems(pd.PRs(), pd.Issues())) == 0 {
+		return 0
+	}
+	return cellWidth - paneStatusUsedWidthWithoutMetadata(pd) - 1
+}
+
+func paneStatusUsedWidthWithoutMetadata(pd PaneData) int {
+	usedWidth := 2 + runewidth.StringWidth(pd.Name()) + 2 // "● [name]"
+	if pd.InCopyMode() {
+		usedWidth += 7 // " [copy]"
+		if search := pd.CopyModeSearch(); search != "" {
+			usedWidth += 1 + runewidth.StringWidth(search)
+		}
+	}
+	if pd.Host() != "" && pd.Host() != mux.DefaultHost {
+		usedWidth += 2 + runewidth.StringWidth(pd.Host())
+	}
+	if cs := pd.ConnStatus(); cs != "" {
+		usedWidth += 2 // " ⚡" or " ⟳" or " ✕"
+	}
+	if pd.Task() != "" {
+		usedWidth += 1 + runewidth.StringWidth(pd.Task())
+	}
+	return usedWidth
 }
 
 func buildGlobalBarWindowTabs(windows []WindowInfo) []globalBarWindowTab {

@@ -70,6 +70,8 @@ func (p *PaneData) CursorHidden() bool        { return p.Emu.CursorHidden() }
 func (p *PaneData) HasCursorBlock() bool      { return p.Emu.HasCursorBlock() }
 func (p *PaneData) ID() uint32                { return p.Info.ID }
 func (p *PaneData) Name() string              { return p.Info.Name }
+func (p *PaneData) PRs() []string             { return p.Info.PRs }
+func (p *PaneData) Issues() []string          { return p.Info.Issues }
 func (p *PaneData) Host() string              { return p.Info.Host }
 func (p *PaneData) Task() string              { return p.Info.Task }
 func (p *PaneData) Color() string             { return p.Info.Color }

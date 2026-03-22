@@ -275,6 +275,8 @@ func buildStatusCells(g *ScreenGrid, cell *mux.LayoutCell, isActive bool, pd Pan
 	}
 	chars = appendStyledStr(chars, "["+pd.Name()+"]", nameStyle)
 
+	metaText := paneStatusMetadata(pd, availableMetadataWidth(cell.W, pd))
+
 	// Copy mode indicator
 	if pd.InCopyMode() {
 		chars = appendStyledStr(chars, " ", uv.Style{Bg: bg})
@@ -283,6 +285,11 @@ func buildStatusCells(g *ScreenGrid, cell *mux.LayoutCell, isActive bool, pd Pan
 			chars = appendStyledStr(chars, " ", uv.Style{Bg: bg})
 			chars = appendStyledStr(chars, search, yellowStyle)
 		}
+	}
+
+	if metaText != "" {
+		chars = appendStyledStr(chars, " ", uv.Style{Bg: bg})
+		chars = appendStyledStr(chars, metaText, textStyle)
 	}
 
 	// Host

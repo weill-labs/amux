@@ -716,6 +716,26 @@ func TestCaptureDisplay(t *testing.T) {
 	}
 }
 
+func TestCaptureDisplayShowsPaneMetadata(t *testing.T) {
+	t.Parallel()
+
+	cr := NewClientRenderer(80, 24)
+	snap := singlePane20xN(23)
+	snap.Panes[0].PRs = []string{"42", "314"}
+	snap.Panes[0].Issues = []string{"LAB-339"}
+	snap.Windows[0].Panes[0].PRs = []string{"42", "314"}
+	snap.Windows[0].Panes[0].Issues = []string{"LAB-339"}
+
+	cr.HandleLayout(snap)
+	cr.HandlePaneOutput(1, []byte("metadata display"))
+	cr.RenderDiff()
+
+	display := cr.CaptureDisplay()
+	if !strings.Contains(display, "#42, #314, LAB-339") {
+		t.Fatalf("display should contain pane metadata, got:\n%s", display)
+	}
+}
+
 func TestCommandFeedbackAppearsInDisplayCapture(t *testing.T) {
 	t.Parallel()
 

@@ -25,18 +25,20 @@ func paneShellEnv(id uint32, sessionName string) []string {
 
 // PaneMeta holds amux metadata for a pane.
 type PaneMeta struct {
-	Name         string `json:"name"`
-	Host         string `json:"host"`
-	Task         string `json:"task,omitempty"`
-	Remote       string `json:"remote,omitempty"`
-	Color        string `json:"color"`
-	Minimized    bool   `json:"minimized,omitempty"`
-	RestoreH     int    `json:"restore_h,omitempty"`     // saved height before minimize
-	MinimizedSeq uint64 `json:"minimized_seq,omitempty"` // monotonic counter for LIFO restore ordering
-	Dormant      bool   `json:"dormant,omitempty"`       // pane is in Session.Panes but not in any window layout (e.g., SSH takeover host)
-	Dir          string `json:"dir,omitempty"`           // working directory override for new shell
-	GitBranch    string `json:"git_branch,omitempty"`    // cached git branch (auto-detected or manually set)
-	PR           string `json:"pr,omitempty"`            // PR number (set via escape sequence or CLI)
+	Name         string   `json:"name"`
+	Host         string   `json:"host"`
+	Task         string   `json:"task,omitempty"`
+	Remote       string   `json:"remote,omitempty"`
+	Color        string   `json:"color"`
+	Minimized    bool     `json:"minimized,omitempty"`
+	RestoreH     int      `json:"restore_h,omitempty"`     // saved height before minimize
+	MinimizedSeq uint64   `json:"minimized_seq,omitempty"` // monotonic counter for LIFO restore ordering
+	Dormant      bool     `json:"dormant,omitempty"`       // pane is in Session.Panes but not in any window layout (e.g., SSH takeover host)
+	Dir          string   `json:"dir,omitempty"`           // working directory override for new shell
+	GitBranch    string   `json:"git_branch,omitempty"`    // cached git branch (auto-detected or manually set)
+	PR           string   `json:"pr,omitempty"`            // PR number (set via escape sequence or CLI)
+	PRs          []string `json:"prs,omitempty"`           // PR numbers for status rendering
+	Issues       []string `json:"issues,omitempty"`        // issue IDs for status rendering
 }
 
 // Pane manages a PTY, its terminal emulator, and metadata.
