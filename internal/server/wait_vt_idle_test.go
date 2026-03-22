@@ -78,11 +78,11 @@ func setupWaitVTIdleTestPane(t *testing.T) (*Server, *Session, *mux.Pane, func()
 func TestCmdWaitVTIdleUsage(t *testing.T) {
 	t.Parallel()
 
-	srv, sess, cleanup := newCommandTestSession(t)
+	_, sess, cleanup := newCommandTestSession(t)
 	defer cleanup()
 
-	res := runTestCommand(t, srv, sess, "wait-vt-idle")
-	if got := res.cmdErr; got != "usage: wait-vt-idle <pane> [--settle <duration>] [--timeout <duration>]" {
+	msg := runOneShotCommand(t, sess, nil, cmdWaitVTIdle)
+	if got := msg.CmdErr; got != "usage: wait-vt-idle <pane> [--settle <duration>] [--timeout <duration>]" {
 		t.Fatalf("wait-vt-idle usage error = %q", got)
 	}
 }
@@ -164,13 +164,13 @@ func TestParseWaitVTIdleArgs(t *testing.T) {
 func TestCmdWaitVTIdleImmediateWhenAlreadySettled(t *testing.T) {
 	t.Parallel()
 
-	srv, sess, pane, cleanup := setupWaitVTIdleTestPane(t)
+	_, sess, pane, cleanup := setupWaitVTIdleTestPane(t)
 	defer cleanup()
 
 	pane.SetCreatedAt(time.Now().Add(-time.Second))
 
-	res := runTestCommand(t, srv, sess, "wait-vt-idle", "pane-1", "--settle", "20ms", "--timeout", "100ms")
-	if got := strings.TrimSpace(res.output); got != "vt-idle" {
+	msg := runOneShotCommand(t, sess, []string{"pane-1", "--settle", "20ms", "--timeout", "100ms"}, cmdWaitVTIdle)
+	if got := strings.TrimSpace(msg.CmdOutput); got != "vt-idle" {
 		t.Fatalf("wait-vt-idle output = %q, want vt-idle", got)
 	}
 }
