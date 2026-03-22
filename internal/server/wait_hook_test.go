@@ -242,17 +242,17 @@ func TestResolveWaitHookPaneName(t *testing.T) {
 
 	ctx := &CommandContext{CC: newClientConn(nil), Sess: sess}
 
-	name, err := resolveWaitHookPaneName(ctx, "")
-	if err != nil || name != "" {
-		t.Fatalf("resolve empty ref = (%q, %v), want (\"\", nil)", name, err)
+	resolved, err := resolveWaitHookPane(ctx, "")
+	if err != nil || resolved.paneName != "" {
+		t.Fatalf("resolve empty ref = (%q, %v), want (\"\", nil)", resolved.paneName, err)
 	}
 
-	name, err = resolveWaitHookPaneName(ctx, "1")
+	resolved, err = resolveWaitHookPane(ctx, "1")
 	if err != nil {
 		t.Fatalf("resolve numeric ref: %v", err)
 	}
-	if name != "pane-1" {
-		t.Fatalf("resolve numeric ref = %q, want %q", name, "pane-1")
+	if resolved.paneName != "pane-1" {
+		t.Fatalf("resolve numeric ref = %q, want %q", resolved.paneName, "pane-1")
 	}
 }
 

@@ -17,7 +17,7 @@ func cmdSetMeta(ctx *CommandContext) {
 	kvPairs := ctx.Args[1:]
 
 	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
-		pane, _, err := sess.resolvePaneAcrossWindows(paneRef)
+		pane, _, err := sess.resolvePaneAcrossWindowsForActor(ctx.ActorPaneID, paneRef)
 		if err != nil {
 			return commandMutationResult{err: err}
 		}
@@ -60,7 +60,7 @@ func cmdAddMeta(ctx *CommandContext) {
 	}
 
 	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
-		pane, _, err := sess.resolvePaneAcrossWindows(paneRef)
+		pane, _, err := sess.resolvePaneAcrossWindowsForActor(ctx.ActorPaneID, paneRef)
 		if err != nil {
 			return commandMutationResult{err: err}
 		}
@@ -91,7 +91,7 @@ func cmdRmMeta(ctx *CommandContext) {
 	}
 
 	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
-		pane, _, err := sess.resolvePaneAcrossWindows(paneRef)
+		pane, _, err := sess.resolvePaneAcrossWindowsForActor(ctx.ActorPaneID, paneRef)
 		if err != nil {
 			return commandMutationResult{err: err}
 		}

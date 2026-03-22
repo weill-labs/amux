@@ -65,8 +65,9 @@ type Message struct {
 	AttachCapabilities *ClientCapabilities
 
 	// MsgTypeCommand
-	CmdName string
-	CmdArgs []string
+	CmdName     string
+	CmdArgs     []string
+	ActorPaneID uint32
 
 	// MsgTypeRender
 	RenderData []byte

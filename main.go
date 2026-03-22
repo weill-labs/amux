@@ -858,11 +858,7 @@ func connectStreamingCommand(cmdName string, args []string) (net.Conn, error) {
 		return nil, err
 	}
 
-	if err := server.WriteMsg(conn, &server.Message{
-		Type:    server.MsgTypeCommand,
-		CmdName: cmdName,
-		CmdArgs: args,
-	}); err != nil {
+	if err := server.WriteMsg(conn, newCommandMessage(cmdName, args)); err != nil {
 		conn.Close()
 		return nil, err
 	}
@@ -898,11 +894,7 @@ func runServerCommand(cmdName string, args []string) {
 		args = prependReloadExecPathArg(args)
 	}
 
-	if err := server.WriteMsg(conn, &server.Message{
-		Type:    server.MsgTypeCommand,
-		CmdName: cmdName,
-		CmdArgs: args,
-	}); err != nil {
+	if err := server.WriteMsg(conn, newCommandMessage(cmdName, args)); err != nil {
 		fmt.Fprintf(os.Stderr, "amux %s: %v\n", cmdName, err)
 		os.Exit(1)
 	}
@@ -926,6 +918,27 @@ func prependReloadExecPathArg(args []string) []string {
 		return args
 	}
 	return append([]string{server.ReloadServerExecPathFlag, execPath}, args...)
+}
+
+func newCommandMessage(cmdName string, args []string) *server.Message {
+	return &server.Message{
+		Type:        server.MsgTypeCommand,
+		CmdName:     cmdName,
+		CmdArgs:     args,
+		ActorPaneID: actorPaneIDFromEnv(),
+	}
+}
+
+func actorPaneIDFromEnv() uint32 {
+	raw := os.Getenv("AMUX_PANE")
+	if raw == "" {
+		return 0
+	}
+	id, err := strconv.ParseUint(raw, 10, 32)
+	if err != nil {
+		return 0
+	}
+	return uint32(id)
 }
 
 // checkNesting exits with an error if we're inside the same amux session

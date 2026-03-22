@@ -148,7 +148,7 @@ func TestForwardCapturePaneFallsBackWithoutClient(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			resp := sess.capturePaneWithFallback(tt.args)
+			resp := sess.capturePaneWithFallback(0, tt.args)
 			if resp.CmdErr != "" {
 				t.Fatalf("capturePaneWithFallback(%v) error: %s", tt.args, resp.CmdErr)
 			}
@@ -707,7 +707,7 @@ func startForwardCaptureForTest(t *testing.T, sess *Session, args []string) (*Me
 func startCapturePaneWithFallbackForTest(t *testing.T, sess *Session, args []string) (*Message, <-chan *Message) {
 	t.Helper()
 	return startCaptureCallForTest(t, sess, func() *Message {
-		return sess.capturePaneWithFallback(args)
+		return sess.capturePaneWithFallback(0, args)
 	})
 }
 

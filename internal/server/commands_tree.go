@@ -14,7 +14,7 @@ func parseMoveArgs(args []string) (paneRef, targetRef string, before bool, err e
 
 func cmdSwap(ctx *CommandContext) {
 	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
-		w := sess.activeWindow()
+		w := sess.windowForActor(ctx.ActorPaneID)
 		if w == nil {
 			return commandMutationResult{err: fmt.Errorf("no session")}
 		}
@@ -51,7 +51,7 @@ func cmdSwapTree(ctx *CommandContext) {
 			return commandMutationResult{err: fmt.Errorf("usage: swap-tree <pane1> <pane2>")}
 		}
 
-		w := sess.activeWindow()
+		w := sess.windowForActor(ctx.ActorPaneID)
 		if w == nil {
 			return commandMutationResult{err: fmt.Errorf("no session")}
 		}
@@ -79,7 +79,7 @@ func cmdMove(ctx *CommandContext) {
 			return commandMutationResult{err: err}
 		}
 
-		w := sess.activeWindow()
+		w := sess.windowForActor(ctx.ActorPaneID)
 		if w == nil {
 			return commandMutationResult{err: fmt.Errorf("no session")}
 		}
