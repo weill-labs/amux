@@ -12,7 +12,7 @@ func TestPTYClientTextInputEchoesInPane(t *testing.T) {
 	h := newServerHarness(t)
 	client := newPTYClientHarness(t, h)
 
-	token := fmt.Sprintf("cover-input-%d", time.Now().UnixNano())
+	token := fmt.Sprintf("ci-%d", time.Now().UnixNano()%1_000_000)
 	client.sendText(token)
 
 	if !client.waitForOutput(token, 5*time.Second) {
