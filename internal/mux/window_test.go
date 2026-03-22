@@ -1160,6 +1160,31 @@ func TestMovePaneAutoUnzooms(t *testing.T) {
 	}
 }
 
+func TestMovePaneAfter(t *testing.T) {
+	t.Parallel()
+
+	p1 := fakePaneID(1)
+	w := NewWindow(p1, 120, 24)
+
+	p2 := fakePaneID(2)
+	if _, err := w.SplitRoot(SplitVertical, p2); err != nil {
+		t.Fatalf("split root vertical: %v", err)
+	}
+	p3 := fakePaneID(3)
+	if _, err := w.SplitRoot(SplitVertical, p3); err != nil {
+		t.Fatalf("split root vertical again: %v", err)
+	}
+
+	if err := w.MovePane(1, 3, false); err != nil {
+		t.Fatalf("MovePane after: %v", err)
+	}
+
+	ids := collectPaneIDs(w)
+	if ids[0] != 2 || ids[1] != 3 || ids[2] != 1 {
+		t.Fatalf("after move after: %v, want [2 3 1]", ids)
+	}
+}
+
 func TestSwapPaneForward(t *testing.T) {
 	t.Parallel()
 	p1 := fakePaneID(1)

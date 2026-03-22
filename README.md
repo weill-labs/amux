@@ -241,8 +241,12 @@ All commands accept `-s <session>` to target a specific session. Panes are refer
 | `amux send-keys <pane> [--hex] <keys>...` | Send keystrokes to a pane |
 | `amux swap <p1> <p2>` | Swap two panes |
 | `amux swap forward\|backward` | Swap active pane with neighbor |
+| `amux swap-tree <p1> <p2>` | Swap the root-level groups containing two panes |
+| `amux move <pane> --before\|--after <target>` | Move a pane's root-level group before or after another |
 | `amux rotate [--reverse]` | Rotate pane positions |
 | `amux copy-mode [pane]` | Enter copy/scroll mode |
+
+`swap-tree` and `move` treat each pane ref as identifying the root-level group that contains that pane, so moving `pane-3` can move an entire column or row rather than only one leaf cell.
 
 ### Agent API
 

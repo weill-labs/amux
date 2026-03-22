@@ -820,9 +820,11 @@ func cmdSwapTree(ctx *CommandContext) {
 	}))
 }
 
+const moveUsage = "usage: move <pane> --before <target> | move <pane> --after <target>"
+
 func parseMoveArgs(args []string) (paneRef, targetRef string, before bool, err error) {
 	if len(args) < 3 {
-		return "", "", false, fmt.Errorf("usage: move <pane> --before <target> | move <pane> --after <target>")
+		return "", "", false, fmt.Errorf(moveUsage)
 	}
 
 	paneRef = args[0]
@@ -832,7 +834,7 @@ func parseMoveArgs(args []string) (paneRef, targetRef string, before bool, err e
 		switch args[i] {
 		case "--before":
 			if haveBefore || haveAfter || i+1 >= len(args) {
-				return "", "", false, fmt.Errorf("usage: move <pane> --before <target> | move <pane> --after <target>")
+				return "", "", false, fmt.Errorf(moveUsage)
 			}
 			haveBefore = true
 			before = true
@@ -840,18 +842,18 @@ func parseMoveArgs(args []string) (paneRef, targetRef string, before bool, err e
 			i++
 		case "--after":
 			if haveBefore || haveAfter || i+1 >= len(args) {
-				return "", "", false, fmt.Errorf("usage: move <pane> --before <target> | move <pane> --after <target>")
+				return "", "", false, fmt.Errorf(moveUsage)
 			}
 			haveAfter = true
 			targetRef = args[i+1]
 			i++
 		default:
-			return "", "", false, fmt.Errorf("usage: move <pane> --before <target> | move <pane> --after <target>")
+			return "", "", false, fmt.Errorf(moveUsage)
 		}
 	}
 
 	if targetRef == "" {
-		return "", "", false, fmt.Errorf("usage: move <pane> --before <target> | move <pane> --after <target>")
+		return "", "", false, fmt.Errorf(moveUsage)
 	}
 
 	return paneRef, targetRef, before, nil

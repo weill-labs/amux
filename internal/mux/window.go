@@ -651,6 +651,12 @@ func (w *Window) rootChildForPaneID(paneID uint32) (*LayoutCell, int, error) {
 	return cell, idx, nil
 }
 
+func (w *Window) finishTreeMutation() {
+	w.Root.FixOffsets()
+	w.normalizeMinimizedLayout()
+	w.resizePTYs()
+}
+
 // SwapPanes exchanges the Pane pointers of two layout cells and resizes PTYs
 // to match their new cell dimensions.
 // Both the Pane struct and its Meta travel together (swap-with-meta semantics).
@@ -690,9 +696,7 @@ func (w *Window) SwapTree(id1, id2 uint32) error {
 	}
 
 	w.Root.Children[idx1], w.Root.Children[idx2] = w.Root.Children[idx2], w.Root.Children[idx1]
-	w.Root.FixOffsets()
-	w.normalizeMinimizedLayout()
-	w.resizePTYs()
+	w.finishTreeMutation()
 	return nil
 }
 
@@ -732,9 +736,7 @@ func (w *Window) MovePane(paneID, targetPaneID uint32, before bool) error {
 	children[insertIdx] = moving
 	w.Root.Children = children
 
-	w.Root.FixOffsets()
-	w.normalizeMinimizedLayout()
-	w.resizePTYs()
+	w.finishTreeMutation()
 	return nil
 }
 

@@ -87,7 +87,6 @@ func TestSwapCLI(t *testing.T) {
 }
 
 func TestSwapTreeCLI(t *testing.T) {
-	t.Parallel()
 	h := newServerHarness(t)
 
 	h.splitV()
@@ -116,7 +115,6 @@ func TestSwapTreeCLI(t *testing.T) {
 }
 
 func TestSwapTreeCLIRejectsSameRootBranch(t *testing.T) {
-	t.Parallel()
 	h := newServerHarness(t)
 
 	h.splitV()
@@ -130,7 +128,6 @@ func TestSwapTreeCLIRejectsSameRootBranch(t *testing.T) {
 }
 
 func TestMoveBeforeCLI(t *testing.T) {
-	t.Parallel()
 	h := newServerHarness(t)
 
 	h.splitV()
@@ -169,6 +166,27 @@ func TestMoveBeforeCLI(t *testing.T) {
 	}
 	if p3.Position.Width != beforePane3.Position.Width {
 		t.Fatalf("move before should preserve pane-3 branch width: before=%+v after=%+v", beforePane3.Position, p3.Position)
+	}
+}
+
+func TestMoveAfterCLI(t *testing.T) {
+	h := newServerHarness(t)
+
+	h.splitV()
+	h.splitV()
+
+	out := h.runCmd("move", "pane-1", "--after", "pane-3")
+	if strings.Contains(out, "unknown command") {
+		t.Fatalf("move command not recognized: %s", out)
+	}
+
+	c := h.captureJSON()
+	p1 := h.jsonPane(c, "pane-1")
+	p2 := h.jsonPane(c, "pane-2")
+	p3 := h.jsonPane(c, "pane-3")
+
+	if !(p2.Position.X < p3.Position.X && p3.Position.X < p1.Position.X) {
+		t.Fatalf("move after should reorder root branches to pane-2 | pane-3 | pane-1: p1=%+v p2=%+v p3=%+v", p1.Position, p2.Position, p3.Position)
 	}
 }
 

@@ -130,3 +130,32 @@ func TestReloadServer(t *testing.T) {
 		t.Fatalf("pane-1 should survive reload, got:\n%s", list)
 	}
 }
+
+func TestSwapTreeUsage(t *testing.T) {
+	h := newServerHarness(t)
+
+	out := h.runCmd("swap-tree", "pane-1")
+	if !strings.Contains(out, "usage: amux swap-tree <pane1> <pane2>") {
+		t.Fatalf("expected swap-tree usage error, got: %s", out)
+	}
+}
+
+func TestMoveUsage(t *testing.T) {
+	h := newServerHarness(t)
+
+	out := h.runCmd("move", "pane-1", "--before")
+	if !strings.Contains(out, "usage: amux move <pane> --before <target> | move <pane> --after <target>") {
+		t.Fatalf("expected move usage error, got: %s", out)
+	}
+}
+
+func TestMoveRejectsConflictingFlags(t *testing.T) {
+	h := newServerHarness(t)
+
+	h.splitV()
+
+	out := h.runCmd("move", "pane-1", "--before", "pane-2", "--after", "pane-2")
+	if !strings.Contains(out, "usage: move <pane> --before <target> | move <pane> --after <target>") {
+		t.Fatalf("expected move parser usage error, got: %s", out)
+	}
+}
