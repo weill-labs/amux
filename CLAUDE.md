@@ -168,6 +168,8 @@ Use `amux capture --format json` to inspect composited output programmatically. 
 3. If the zoomed view is clean but the unzoomed view is corrupted, the bug is in the compositor or diff renderer (cell-grid boundary calculation, status bar overlay, or border compositing)
 4. If the zoomed view is also corrupted, the bug is in the terminal emulator or PTY output
 
+For cursor bugs in TUIs that may draw their own cursor (for example, Claude Code), compare `amux capture --format json` with `amux capture --ansi pane-N`. If ANSI shows a reverse-video block in pane content but JSON reports a stale cursor position, treat the app-drawn cursor as the visible source of truth and debug cursor-block detection separately from emulator cursor metadata.
+
 Trigger patterns for compositor bugs: long or truncated lines near pane boundaries, status bar overlays adjacent to wrapped content, and high-frequency output (for example, `htop` or progress bars).
 
 ### Hot-Reload
