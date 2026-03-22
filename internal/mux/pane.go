@@ -665,6 +665,17 @@ func (p *Pane) SetRetainedHistory(lines []string) {
 	p.baseHistory.Store(&paneBaseHistory{lines: append([]string(nil), lines...)})
 }
 
+// ResetState clears retained pane history and resets the terminal emulator to a
+// blank default screen without touching the underlying PTY or process.
+func (p *Pane) ResetState() {
+	p.beginSnapshotMutation()
+	defer p.endSnapshotMutation()
+	p.baseHistory.Store(&paneBaseHistory{})
+	if p.emulator != nil {
+		p.emulator.Reset()
+	}
+}
+
 // ScreenContains returns true if substr appears in the pane's visible screen
 // content, matching across soft-wrapped lines.
 func (p *Pane) ScreenContains(substr string) bool {

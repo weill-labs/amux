@@ -224,9 +224,6 @@ func TestResetCommandBroadcastsClearedHistoryAndBlankScreen(t *testing.T) {
 	w := mux.NewWindow(pane, 80, 23)
 	w.ID = 1
 	w.Name = "window-1"
-	sess.Windows = []*mux.Window{w}
-	sess.ActiveWindowID = w.ID
-	sess.Panes = []*mux.Pane{pane}
 
 	serverConn, peerConn := net.Pipe()
 	cc := newClientConn(serverConn)
@@ -234,6 +231,9 @@ func TestResetCommandBroadcastsClearedHistoryAndBlankScreen(t *testing.T) {
 	defer cc.Close()
 	defer peerConn.Close()
 	mustSessionQuery(t, sess, func(sess *Session) struct{} {
+		sess.Windows = []*mux.Window{w}
+		sess.ActiveWindowID = w.ID
+		sess.Panes = []*mux.Pane{pane}
 		sess.clients = []*clientConn{cc}
 		return struct{}{}
 	})

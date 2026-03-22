@@ -232,7 +232,7 @@ func TestVTEmulatorResetClearsScreenScrollbackAndModes(t *testing.T) {
 	t.Parallel()
 
 	emu := NewVTEmulatorWithDrainAndScrollback(10, 3, 4)
-	emu.Write([]byte("line-1\r\nline-2\r\nline-3"))
+	emu.Write([]byte("line-1\r\nline-2\r\nline-3\r\nline-4"))
 	emu.Write([]byte("\x1b[?1049h\x1b[?1002h\x1b[?1006h\x1b[?25l"))
 
 	if !emu.IsAltScreen() {

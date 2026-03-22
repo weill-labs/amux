@@ -80,6 +80,10 @@ func (s *Session) broadcastPaneOutputNow(paneID uint32, data []byte, seq uint64)
 	clients := append([]*clientConn(nil), s.clients...)
 	msg := &Message{Type: MsgTypePaneOutput, PaneID: paneID, PaneData: data}
 	for _, c := range clients {
+		if seq == 0 {
+			c.sendPaneMessage(msg)
+			continue
+		}
 		c.sendPaneOutput(msg, paneID, seq)
 	}
 	s.notifyPaneOutputSubs(paneID)
@@ -92,6 +96,19 @@ func (s *Session) broadcastPaneOutputNow(paneID uint32, data []byte, seq uint64)
 		host = p.Meta.Host
 	}
 	s.emitEvent(Event{Type: EventOutput, PaneID: paneID, PaneName: paneName, Host: host})
+
+	select {
+	case s.crashCheckpointTrigger <- struct{}{}:
+	default:
+	}
+}
+
+func (s *Session) broadcastPaneHistoryNow(paneID uint32, history []string) {
+	clients := append([]*clientConn(nil), s.clients...)
+	msg := &Message{Type: MsgTypePaneHistory, PaneID: paneID, History: append([]string(nil), history...)}
+	for _, c := range clients {
+		c.sendPaneMessage(msg)
+	}
 
 	select {
 	case s.crashCheckpointTrigger <- struct{}{}:

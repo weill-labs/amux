@@ -328,6 +328,35 @@ func cmdRestore(ctx *CommandContext) {
 	}))
 }
 
+func cmdReset(ctx *CommandContext) {
+	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
+		if len(ctx.Args) < 1 {
+			return commandMutationResult{err: fmt.Errorf("usage: reset <pane>")}
+		}
+		pane, w, err := sess.resolvePaneAcrossWindows(ctx.Args[0])
+		if err != nil {
+			return commandMutationResult{err: err}
+		}
+
+		pane.ResetState()
+
+		res := commandMutationResult{
+			output: fmt.Sprintf("Reset %s\n", pane.Meta.Name),
+			paneHistories: []paneHistoryUpdate{{
+				paneID:  pane.ID,
+				history: nil,
+			}},
+		}
+		if w != nil {
+			res.paneRenders = []paneRender{{
+				paneID: pane.ID,
+				data:   append([]byte("\x1bc"), []byte(pane.RenderScreen())...),
+			}}
+		}
+		return res
+	}))
+}
+
 func cmdToggleMinimize(ctx *CommandContext) {
 	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
 		w := sess.activeWindow()

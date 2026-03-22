@@ -91,6 +91,22 @@ func (c clientWriterPaneOutputCommand) handle(state *clientWriterState, conn net
 	return state.closed
 }
 
+type clientWriterPaneMessageCommand struct {
+	msg *Message
+}
+
+func (c clientWriterPaneMessageCommand) handle(state *clientWriterState, conn net.Conn) bool {
+	if state.closed {
+		return true
+	}
+	if state.bootstrapping {
+		state.pendingMessages = append(state.pendingMessages, pendingMessage{msg: cloneMessage(c.msg)})
+		return false
+	}
+	_ = writeClientMessage(state, conn, c.msg)
+	return state.closed
+}
+
 type clientWriterStartBootstrapCommand struct {
 	reply chan struct{}
 }
@@ -274,6 +290,16 @@ func (w *clientWriter) sendPaneOutput(msg *Message, paneID uint32, seq uint64) {
 		return
 	}
 	if !w.enqueueAsyncPane(clientWriterPaneOutputCommand{msg: msg, paneID: paneID, seq: seq}) {
+		w.dropSlowClient()
+		return
+	}
+}
+
+func (w *clientWriter) sendPaneMessage(msg *Message) {
+	if w == nil {
+		return
+	}
+	if !w.enqueueAsyncPane(clientWriterPaneMessageCommand{msg: msg}) {
 		w.dropSlowClient()
 		return
 	}

@@ -172,7 +172,7 @@ func main() {
 			os.Exit(1)
 		}
 		runServerCommand("resize-pane", args[1:])
-	case "minimize", "restore", "focus":
+	case "minimize", "restore", "reset", "focus":
 		if len(args) < 2 {
 			fmt.Fprintf(os.Stderr, "usage: amux %s <pane>\n", args[0])
 			os.Exit(1)
@@ -478,6 +478,7 @@ Usage:
   amux [-s session] rotate --reverse   Rotate pane positions backward
   amux [-s session] minimize <pane>    Minimize a pane
   amux [-s session] restore <pane>     Restore a minimized pane
+  amux [-s session] reset <pane>       Clear pane history and reset terminal state
   amux [-s session] resize-pane <pane> <dir> [n]
                                        Resize pane (dir: left/right/up/down)
   amux [-s session] kill <pane>        Kill a pane

@@ -62,6 +62,7 @@ var commandRegistry = map[string]CommandHandler{
 	"zoom":            cmdZoom,
 	"minimize":        cmdMinimize,
 	"restore":         cmdRestore,
+	"reset":           cmdReset,
 	"toggle-minimize": cmdToggleMinimize,
 	"kill":            cmdKill,
 	"send-keys":       cmdSendKeys,
