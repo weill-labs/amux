@@ -151,6 +151,40 @@ func TestWriteReadMsgAllMessageTypes(t *testing.T) {
 	}
 }
 
+func TestWriteReadCommandMessagePreservesActorPaneID(t *testing.T) {
+	t.Parallel()
+
+	msg := Message{
+		Type:    MsgTypeCommand,
+		CmdName: "capture",
+		CmdArgs: []string{"shared"},
+	}
+
+	field := reflect.ValueOf(&msg).Elem().FieldByName("ActorPaneID")
+	if !field.IsValid() {
+		t.Fatal("Message missing ActorPaneID field")
+	}
+	field.SetUint(42)
+
+	var buf bytes.Buffer
+	if err := WriteMsg(&buf, &msg); err != nil {
+		t.Fatalf("WriteMsg: %v", err)
+	}
+
+	got, err := ReadMsg(&buf)
+	if err != nil {
+		t.Fatalf("ReadMsg: %v", err)
+	}
+
+	gotField := reflect.ValueOf(got).Elem().FieldByName("ActorPaneID")
+	if !gotField.IsValid() {
+		t.Fatal("decoded message missing ActorPaneID field")
+	}
+	if gotID := gotField.Uint(); gotID != 42 {
+		t.Fatalf("ActorPaneID = %d, want 42", gotID)
+	}
+}
+
 type failAfterWriter struct {
 	remaining int
 	err       error
