@@ -599,6 +599,109 @@ func TestCommandSplitSpawnKillAndEvents(t *testing.T) {
 	}
 }
 
+func TestCommandSplitParsesDirectionFlags(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		args       []string
+		setup      func(t *testing.T, srv *Server, sess *Session)
+		wantErr    string
+		wantOutput string
+		wantDir    mux.SplitDir
+		wantPanes  int
+	}{
+		{
+			name:       "vertical flag",
+			args:       []string{"--vertical"},
+			wantOutput: "Split vertical: new pane",
+			wantDir:    mux.SplitVertical,
+			wantPanes:  2,
+		},
+		{
+			name:       "horizontal flag",
+			args:       []string{"--horizontal"},
+			wantOutput: "Split horizontal: new pane",
+			wantDir:    mux.SplitHorizontal,
+			wantPanes:  2,
+		},
+		{
+			name: "root vertical flag",
+			args: []string{"root", "--vertical"},
+			setup: func(t *testing.T, srv *Server, sess *Session) {
+				res := runTestCommand(t, srv, sess, "split")
+				if res.cmdErr != "" {
+					t.Fatalf("initial split failed: %s", res.cmdErr)
+				}
+			},
+			wantOutput: "Split vertical: new pane",
+			wantDir:    mux.SplitVertical,
+			wantPanes:  3,
+		},
+		{
+			name:       "legacy vertical shorthand",
+			args:       []string{"v"},
+			wantOutput: "Split vertical: new pane",
+			wantDir:    mux.SplitVertical,
+			wantPanes:  2,
+		},
+		{
+			name:    "conflicting directions",
+			args:    []string{"--vertical", "--horizontal"},
+			wantErr: "conflicting split directions",
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			srv, sess, cleanup := newCommandTestSession(t)
+			defer cleanup()
+
+			p1, err := sess.createPane(srv, 80, 23)
+			if err != nil {
+				t.Fatalf("createPane: %v", err)
+			}
+			p1.Start()
+			w := mux.NewWindow(p1, 80, 23)
+			w.ID = 1
+			w.Name = "main"
+			sess.Windows = []*mux.Window{w}
+			sess.ActiveWindowID = w.ID
+			sess.Panes = []*mux.Pane{p1}
+
+			if tt.setup != nil {
+				tt.setup(t, srv, sess)
+			}
+
+			res := runTestCommand(t, srv, sess, "split", tt.args...)
+			if tt.wantErr != "" {
+				if !strings.Contains(res.cmdErr, tt.wantErr) {
+					t.Fatalf("split %v error = %q, want substring %q", tt.args, res.cmdErr, tt.wantErr)
+				}
+				return
+			}
+			if res.cmdErr != "" {
+				t.Fatalf("split %v cmdErr = %q", tt.args, res.cmdErr)
+			}
+			if !strings.Contains(res.output, tt.wantOutput) {
+				t.Fatalf("split %v output = %q, want substring %q", tt.args, res.output, tt.wantOutput)
+			}
+
+			if got := mustSessionQuery(t, sess, func(sess *Session) mux.SplitDir {
+				return sess.ActiveWindow().Root.Dir
+			}); got != tt.wantDir {
+				t.Fatalf("split %v root dir = %v, want %v", tt.args, got, tt.wantDir)
+			}
+			if got := mustSessionQuery(t, sess, func(sess *Session) int { return len(sess.Panes) }); got != tt.wantPanes {
+				t.Fatalf("split %v pane count = %d, want %d", tt.args, got, tt.wantPanes)
+			}
+		})
+	}
+}
+
 func TestFlushPendingOutputEventsAndHelpers(t *testing.T) {
 	t.Parallel()
 

@@ -89,6 +89,58 @@ func (ctx *CommandContext) activeWindowSnapshot() (activePid, width, height int,
 	return snap.activePID, snap.width, snap.height, nil
 }
 
+type splitCommandArgs struct {
+	rootLevel bool
+	dir       mux.SplitDir
+	hostName  string
+	name      string
+}
+
+func parseSplitCommandArgs(args []string) (splitCommandArgs, error) {
+	parsed := splitCommandArgs{dir: mux.SplitHorizontal}
+	hasExplicitDir := false
+
+	setDir := func(next mux.SplitDir) error {
+		if hasExplicitDir && parsed.dir != next {
+			return fmt.Errorf("conflicting split directions")
+		}
+		parsed.dir = next
+		hasExplicitDir = true
+		return nil
+	}
+
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "root":
+			parsed.rootLevel = true
+		case "v", "--vertical":
+			if err := setDir(mux.SplitVertical); err != nil {
+				return splitCommandArgs{}, err
+			}
+		case "--horizontal":
+			if err := setDir(mux.SplitHorizontal); err != nil {
+				return splitCommandArgs{}, err
+			}
+		case "--host":
+			if i+1 >= len(args) {
+				return splitCommandArgs{}, fmt.Errorf("--host requires a value")
+			}
+			parsed.hostName = args[i+1]
+			i++
+		case "--name":
+			if i+1 >= len(args) {
+				return splitCommandArgs{}, fmt.Errorf("--name requires a value")
+			}
+			parsed.name = args[i+1]
+			i++
+		default:
+			return splitCommandArgs{}, fmt.Errorf("unknown split arg %q", args[i])
+		}
+	}
+
+	return parsed, nil
+}
+
 func activePaneRender(w *mux.Window) []paneRender {
 	if w == nil || w.ActivePane == nil {
 		return nil
@@ -181,38 +233,12 @@ func cmdList(ctx *CommandContext) {
 	ctx.reply(output)
 }
 
-type splitCommandArgs struct {
-	rootLevel bool
-	dir       mux.SplitDir
-	hostName  string
-	name      string
-}
-
-func parseSplitCommandArgs(args []string) splitCommandArgs {
-	parsed := splitCommandArgs{dir: mux.SplitHorizontal}
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "v":
-			parsed.dir = mux.SplitVertical
-		case "root":
-			parsed.rootLevel = true
-		case "--host":
-			if i+1 < len(args) {
-				i++
-				parsed.hostName = args[i]
-			}
-		case "--name":
-			if i+1 < len(args) {
-				i++
-				parsed.name = args[i]
-			}
-		}
-	}
-	return parsed
-}
-
 func cmdSplit(ctx *CommandContext) {
-	args := parseSplitCommandArgs(ctx.Args)
+	args, err := parseSplitCommandArgs(ctx.Args)
+	if err != nil {
+		ctx.replyErr(err.Error())
+		return
+	}
 	// If no --host flag, inherit the active pane's host when it's a
 	// remote proxy pane. Splitting a remote pane should stay remote.
 	if args.hostName == "" {

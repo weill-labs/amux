@@ -82,6 +82,62 @@ func TestSplitNamedPane(t *testing.T) {
 	}
 }
 
+func TestSplitVerticalFlag(t *testing.T) {
+	h := newServerHarness(t)
+
+	h.doSplit("--vertical")
+
+	c := h.captureJSON()
+	p1 := h.jsonPane(c, "pane-1")
+	p2 := h.jsonPane(c, "pane-2")
+
+	if p1.Position.X >= p2.Position.X {
+		t.Errorf("pane-1 (x=%d) should be left of pane-2 (x=%d)", p1.Position.X, p2.Position.X)
+	}
+	if p1.Position.Y != p2.Position.Y {
+		t.Errorf("pane-1 (y=%d) and pane-2 (y=%d) should be on same row", p1.Position.Y, p2.Position.Y)
+	}
+}
+
+func TestSplitHorizontalFlag(t *testing.T) {
+	h := newServerHarness(t)
+
+	h.doSplit("--horizontal")
+
+	c := h.captureJSON()
+	p1 := h.jsonPane(c, "pane-1")
+	p2 := h.jsonPane(c, "pane-2")
+
+	if p1.Position.Y >= p2.Position.Y {
+		t.Errorf("pane-1 (y=%d) should be above pane-2 (y=%d)", p1.Position.Y, p2.Position.Y)
+	}
+	if p1.Position.X != p2.Position.X {
+		t.Errorf("pane-1 (x=%d) and pane-2 (x=%d) should be in same column", p1.Position.X, p2.Position.X)
+	}
+}
+
+func TestRootSplitVerticalFlag(t *testing.T) {
+	h := newServerHarness(t)
+
+	h.splitH()
+	h.doSplit("root", "--vertical")
+
+	c := h.captureJSON()
+	p1 := h.jsonPane(c, "pane-1")
+	p2 := h.jsonPane(c, "pane-2")
+	p3 := h.jsonPane(c, "pane-3")
+
+	if p3.Position.X <= p1.Position.X {
+		t.Errorf("pane-3 (x=%d) should be right of pane-1 (x=%d)", p3.Position.X, p1.Position.X)
+	}
+	if p3.Position.X <= p2.Position.X {
+		t.Errorf("pane-3 (x=%d) should be right of pane-2 (x=%d)", p3.Position.X, p2.Position.X)
+	}
+	if p1.Position.Y >= p2.Position.Y {
+		t.Errorf("pane-1 (y=%d) should be above pane-2 (y=%d)", p1.Position.Y, p2.Position.Y)
+	}
+}
+
 func TestRootSplitVertical(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)

@@ -231,7 +231,7 @@ All commands accept `-s <session>` to target a specific session. Panes are refer
 | Command | Description |
 |---------|-------------|
 | `amux list` | List panes with metadata |
-| `amux split [root] [v] [--name NAME] [--host HOST]` | Split active pane (default: horizontal) |
+| `amux split [root] [--vertical\|--horizontal] [--name NAME] [--host HOST]` | Split active pane (default: horizontal) |
 | `amux focus <pane\|direction>` | Focus by name, ID, or direction (left/right/up/down/next) |
 | `amux spawn --name NAME [--host HOST] [--task TASK]` | Spawn a new named pane |
 | `amux zoom [pane]` | Toggle zoom on a pane |
@@ -282,7 +282,7 @@ All commands accept `-s <session>` to target a specific session. Panes are refer
 | Command | Description |
 |---------|-------------|
 | `amux hosts` | List configured remote hosts and connection status |
-| `amux split [root] [v] [--name NAME] [--host HOST]` | Split locally or with a remote pane on HOST |
+| `amux split [root] [--vertical\|--horizontal] [--name NAME] --host HOST` | Split with a remote pane on HOST |
 | `amux disconnect <host>` | Drop SSH connection to a host |
 | `amux reconnect <host>` | Reconnect to a remote host |
 | `amux unsplice <host>` | Revert SSH takeover, replace remote panes with local |
