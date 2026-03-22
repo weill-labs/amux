@@ -97,15 +97,15 @@ type CaptureHistoryLine struct {
 // CaptureSnapshot is a consistent plain-text snapshot of a pane's retained
 // history, visible screen, and cursor state.
 type CaptureSnapshot struct {
-	BaseHistory  []string
-	LiveHistory  []CaptureHistoryLine
-	History      []string
-	ContentRows  []CaptureHistoryLine
-	Content      []string
-	Width        int
-	CursorCol    int
-	CursorRow    int
-	CursorHidden bool
+	BaseHistory    []string
+	LiveHistory    []CaptureHistoryLine
+	History        []string
+	ContentRows    []CaptureHistoryLine
+	Content        []string
+	Width          int
+	CursorCol      int
+	CursorRow      int
+	CursorHidden   bool
 	CursorBlockCol int
 	CursorBlockRow int
 	HasCursorBlock bool
@@ -322,6 +322,11 @@ func (p *Pane) SetMetaManualBranch(manual bool) {
 	p.metaManualBranch = manual
 }
 
+// MetaManualBranch reports whether GitBranch is pinned by user metadata.
+func (p *Pane) MetaManualBranch() bool {
+	return p.metaManualBranch
+}
+
 // ReplayScreen feeds screen data into the emulator to restore visual state.
 func (p *Pane) ReplayScreen(data string) {
 	p.beginSnapshotMutation()
@@ -523,15 +528,15 @@ func (p *Pane) CaptureSnapshot() CaptureSnapshot {
 		width, _ := p.emulator.Size()
 		col, row := p.emulator.CursorPosition()
 		snap := CaptureSnapshot{
-			BaseHistory:  append([]string(nil), baseHistory...),
-			LiveHistory:  append([]CaptureHistoryLine(nil), liveHistory...),
-			History:      history,
-			ContentRows:  append([]CaptureHistoryLine(nil), contentRows...),
-			Content:      captureHistoryLineText(contentRows),
-			Width:        width,
-			CursorCol:    col,
-			CursorRow:    row,
-			CursorHidden: p.emulator.CursorHidden(),
+			BaseHistory:    append([]string(nil), baseHistory...),
+			LiveHistory:    append([]CaptureHistoryLine(nil), liveHistory...),
+			History:        history,
+			ContentRows:    append([]CaptureHistoryLine(nil), contentRows...),
+			Content:        captureHistoryLineText(contentRows),
+			Width:          width,
+			CursorCol:      col,
+			CursorRow:      row,
+			CursorHidden:   p.emulator.CursorHidden(),
 			HasCursorBlock: false,
 		}
 		if blockCol, blockRow, ok := p.emulator.CursorBlockPosition(); ok {

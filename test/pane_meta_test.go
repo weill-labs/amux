@@ -3,6 +3,7 @@ package test
 import (
 	"encoding/json"
 	"reflect"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -146,6 +147,103 @@ func paneMetaCollections(t *testing.T, meta any) ([]int, []string) {
 	return prs, issues
 }
 
+func assertPaneMetaValues(t *testing.T, pane map[string]any) {
+	t.Helper()
+
+	meta := paneMetaJSON(t, pane)
+	if got := jsonStringValue(t, meta, "task"); got != "ship" {
+		t.Fatalf("meta.task = %q, want ship", got)
+	}
+	if got := jsonStringValue(t, meta, "git_branch"); got != "main" {
+		t.Fatalf("meta.git_branch = %q, want main", got)
+	}
+	if got := jsonStringValue(t, meta, "pr"); got != "99" {
+		t.Fatalf("meta.pr = %q, want 99", got)
+	}
+	if got := jsonIntList(t, meta, "prs"); !reflect.DeepEqual(got, []int{42}) {
+		t.Fatalf("meta.prs = %v, want [42]", got)
+	}
+	if got := jsonStringList(t, meta, "issues"); !reflect.DeepEqual(got, []string{"LAB-338"}) {
+		t.Fatalf("meta.issues = %v, want [LAB-338]", got)
+	}
+}
+
+func tryPaneCaptureJSON(runCmd func(...string) string, pane string) (map[string]any, bool) {
+	raw := runCmd("capture", "--format", "json", pane)
+	var got map[string]any
+	if err := json.Unmarshal([]byte(raw), &got); err != nil {
+		return nil, false
+	}
+	return got, true
+}
+
+func waitForPaneCaptureJSON(t *testing.T, pane string, timeout time.Duration, runCmd func(...string) string) map[string]any {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if got, ok := tryPaneCaptureJSON(runCmd, pane); ok {
+			return got
+		}
+	}
+	t.Fatalf("timed out waiting for pane %s JSON capture within %v", pane, timeout)
+	return nil
+}
+
+func tryGeneration(runCmd func(...string) string) (uint64, bool) {
+	out := strings.TrimSpace(runCmd("generation"))
+	n, err := strconv.ParseUint(out, 10, 64)
+	return n, err == nil
+}
+
+func waitForGeneration(t *testing.T, pane string, runCmd func(...string) string) uint64 {
+	t.Helper()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		waitForPaneCaptureJSON(t, pane, time.Second, runCmd)
+		if gen, ok := tryGeneration(runCmd); ok {
+			return gen
+		}
+	}
+	t.Fatalf("generation command did not recover for %s within 5s", pane)
+	return 0
+}
+
+func waitForPaneIdle(t *testing.T, pane string, runCmd func(...string) string) {
+	t.Helper()
+
+	deadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) {
+		out := runCmd("wait-idle", pane, "--timeout", "10s")
+		if strings.Contains(out, "server not running") {
+			continue
+		}
+		if strings.Contains(out, "timeout") || strings.Contains(out, "not found") {
+			t.Fatalf("wait-idle %s: %s", pane, strings.TrimSpace(out))
+		}
+		return
+	}
+	t.Fatalf("wait-idle %s did not recover within 15s", pane)
+}
+
+func waitForPostIdleRefresh(t *testing.T, pane string, runCmd func(...string) string, generation func() uint64, waitLayoutOrTimeout func(uint64, string) bool) {
+	t.Helper()
+
+	before := waitForGeneration(t, pane, runCmd)
+	waitForPaneIdle(t, pane, runCmd)
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		gen := generation()
+		if gen >= before+2 {
+			return
+		}
+		_ = waitLayoutOrTimeout(gen, "250ms")
+	}
+	t.Fatalf("pane %s did not reach post-idle metadata refresh (generation before=%d after=%d)", pane, before, generation())
+}
+
 func TestAddMetaTracksPanePRsAndIssues(t *testing.T) {
 	t.Parallel()
 
@@ -191,7 +289,6 @@ func TestPaneMetaCLIUsageErrors(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -289,21 +386,12 @@ func TestPaneMetaSurvivesReloadServer(t *testing.T) {
 		t.Fatalf("session did not recover after reload-server\nScreen:\n%s", h.captureOuter())
 	}
 
-	list := h.runCmd("list")
-	if !strings.Contains(list, "prs=[42]") || !strings.Contains(list, "issues=[LAB-338]") {
-		t.Fatalf("pane metadata should survive reload, got:\n%s", list)
-	}
+	waitForPostIdleRefresh(t, "pane-1", h.runCmd, h.generation, h.waitLayoutOrTimeout)
 
 	pane := waitForJSONMap(t, 5*time.Second, func() string {
 		return h.runCmd("capture", "--format", "json", "pane-1")
 	})
-	meta := paneMetaJSON(t, pane)
-	if got := jsonIntList(t, meta, "prs"); !reflect.DeepEqual(got, []int{42}) {
-		t.Fatalf("post-reload meta.prs = %v, want [42]", got)
-	}
-	if got := jsonStringList(t, meta, "issues"); !reflect.DeepEqual(got, []string{"LAB-338"}) {
-		t.Fatalf("post-reload meta.issues = %v, want [LAB-338]", got)
-	}
+	assertPaneMetaValues(t, pane)
 }
 
 func TestPaneMetaSurvivesCrashRecovery(t *testing.T) {
@@ -318,6 +406,9 @@ func TestPaneMetaSurvivesCrashRecovery(t *testing.T) {
 	_ = waitForCrashCheckpointMatch(t, cpPath, 5*time.Second, "checkpoint with pane metadata", func(cp checkpoint.CrashCheckpoint) bool {
 		ps, ok := findCrashCheckpointPane(cp, "pane-1")
 		if !ok {
+			return false
+		}
+		if ps.Meta.Task != "ship" || ps.Meta.GitBranch != "main" || ps.Meta.PR != "99" {
 			return false
 		}
 		prs, issues := paneMetaCollections(t, ps.Meta)
@@ -335,12 +426,7 @@ func TestPaneMetaSurvivesCrashRecovery(t *testing.T) {
 	h.cmd = nil
 
 	h2 := startServerForSession(t, h.session, h.home)
+	waitForPostIdleRefresh(t, "pane-1", h2.runCmd, h2.generation, h2.waitLayoutOrTimeout)
 	pane := decodeJSONMap(t, h2.runCmd("capture", "--history", "--format", "json", "pane-1"))
-	meta := paneMetaJSON(t, pane)
-	if got := jsonIntList(t, meta, "prs"); !reflect.DeepEqual(got, []int{42}) {
-		t.Fatalf("post-crash meta.prs = %v, want [42]", got)
-	}
-	if got := jsonStringList(t, meta, "issues"); !reflect.DeepEqual(got, []string{"LAB-338"}) {
-		t.Fatalf("post-crash meta.issues = %v, want [LAB-338]", got)
-	}
+	assertPaneMetaValues(t, pane)
 }
