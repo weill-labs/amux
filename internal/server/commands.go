@@ -65,12 +65,6 @@ func (ctx *CommandContext) replyCommandMutation(res commandMutationResult) {
 	for _, pane := range res.closePanes {
 		pane.Close()
 	}
-	if res.broadcastLayout {
-		ctx.Sess.broadcastLayout()
-	}
-	for _, pr := range res.paneRenders {
-		ctx.Sess.broadcastPaneOutput(pr.paneID, pr.data, 0)
-	}
 	if res.output != "" {
 		ctx.reply(res.output)
 	} else {

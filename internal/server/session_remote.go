@@ -219,9 +219,6 @@ func (s *Session) handleTakeover(srv *Server, sshPaneID uint32, req mux.Takeover
 		failTakeover(res.err)
 		return
 	}
-	if res.broadcastLayout {
-		s.broadcastLayout()
-	}
 
 	go s.RemoteManager.DeployToAddress(start.hostname, req.SSHAddress, req.SSHUser)
 }

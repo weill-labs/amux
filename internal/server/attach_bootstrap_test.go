@@ -325,9 +325,6 @@ func queueAttachTestSplit(sess *Session, pane *mux.Pane, dir mux.SplitDir, rootL
 	if res.err != nil {
 		return res.err
 	}
-	if res.broadcastLayout {
-		sess.broadcastLayout()
-	}
 	return nil
 }
 

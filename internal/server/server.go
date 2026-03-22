@@ -732,8 +732,5 @@ func (s *Server) EnsureInitialWindow(cols, rows int) error {
 	for _, pane := range res.startPanes {
 		pane.Start()
 	}
-	if res.broadcastLayout {
-		sess.broadcastLayout()
-	}
 	return nil
 }
