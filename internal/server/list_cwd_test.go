@@ -27,6 +27,13 @@ func TestFormatListCwd(t *testing.T) {
 			want: "",
 		},
 		{
+			name: "non-positive width",
+			cwd:  "/Users/alice/src/amux54",
+			home: "/Users/alice",
+			max:  0,
+			want: "",
+		},
+		{
 			name: "exact home",
 			cwd:  "/Users/alice",
 			home: "/Users/alice",
@@ -53,6 +60,20 @@ func TestFormatListCwd(t *testing.T) {
 			home: "/Users/alice",
 			max:  18,
 			want: "…/delta/amux54",
+		},
+		{
+			name: "tiny width truncates prefix",
+			cwd:  "/Users/alice/src/amux54",
+			home: "/Users/alice",
+			max:  3,
+			want: "~/…",
+		},
+		{
+			name: "single long segment truncates tail",
+			cwd:  "/Users/alice/superlongsegmentname",
+			home: "/Users/alice",
+			max:  8,
+			want: "~/…/",
 		},
 	}
 
@@ -85,6 +106,23 @@ func TestFormatListCwdCollapsesResolvedHome(t *testing.T) {
 
 	if got := formatListCwd(cwd, linkHome, 36); got != "~/src/amux54" {
 		t.Fatalf("formatListCwd(%q, %q, 36) = %q, want %q", cwd, linkHome, got, "~/src/amux54")
+	}
+}
+
+func TestFormatPaneListEmpty(t *testing.T) {
+	t.Parallel()
+
+	if got := formatPaneList(nil, "/Users/alice", true); got != "No panes.\n" {
+		t.Fatalf("formatPaneList(nil) = %q, want %q", got, "No panes.\n")
+	}
+}
+
+func TestFormatPaneListBranchIncludesPR(t *testing.T) {
+	t.Parallel()
+
+	entry := paneListEntry{gitBranch: "main", pr: "42"}
+	if got := formatPaneListBranch(entry); got != "main #42" {
+		t.Fatalf("formatPaneListBranch(%+v) = %q, want %q", entry, got, "main #42")
 	}
 }
 
