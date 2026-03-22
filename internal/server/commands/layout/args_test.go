@@ -1,6 +1,7 @@
 package layout
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/weill-labs/amux/internal/mux"
@@ -138,7 +139,7 @@ func TestParseSpawnArgs(t *testing.T) {
 			if err != nil {
 				t.Fatalf("ParseSpawnArgs(%v): %v", tt.args, err)
 			}
-			if got != tt.want {
+			if !reflect.DeepEqual(got, tt.want) {
 				t.Fatalf("ParseSpawnArgs(%v) = %+v, want %+v", tt.args, got, tt.want)
 			}
 		})

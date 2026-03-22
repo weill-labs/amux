@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -319,105 +318,6 @@ func (cc *clientConn) splitRemotePane(srv *Server, sess *Session, hostName strin
 // window first, then all other windows, then the flat pane registry.
 func (cc *clientConn) resolvePaneAcrossWindowsLocked(sess *Session, ref string) (*mux.Pane, *mux.Window, error) {
 	return sess.resolvePaneAcrossWindows(ref)
-}
-
-// parseWaitArgs extracts --after and --timeout flags from command arguments.
-// Used by wait-layout and wait-clipboard which share the same flag syntax.
-func parseWaitArgs(args []string) (afterGen uint64, timeout time.Duration, err error) {
-	timeout = 3 * time.Second
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--after":
-			if i+1 < len(args) {
-				i++
-				afterGen, err = strconv.ParseUint(args[i], 10, 64)
-				if err != nil {
-					return 0, 0, fmt.Errorf("invalid generation: %s", args[i])
-				}
-			}
-		case "--timeout":
-			if i+1 < len(args) {
-				i++
-				timeout, err = time.ParseDuration(args[i])
-				if err != nil {
-					return 0, 0, fmt.Errorf("invalid timeout: %s", args[i])
-				}
-			}
-		}
-	}
-	return afterGen, timeout, nil
-}
-
-// parseTimeout extracts --timeout from args starting at the given offset.
-// Returns the parsed duration or the provided default.
-// Used by wait-for, wait-idle, and wait-busy.
-func parseTimeout(args []string, startIdx int, defaultTimeout time.Duration) (time.Duration, error) {
-	for i := startIdx; i < len(args); i++ {
-		if args[i] == "--timeout" && i+1 < len(args) {
-			i++
-			d, err := time.ParseDuration(args[i])
-			if err != nil {
-				return 0, fmt.Errorf("invalid timeout: %s", args[i])
-			}
-			return d, nil
-		}
-	}
-	return defaultTimeout, nil
-}
-
-// parseKey converts a key name to its byte representation.
-// Supports special key names (Enter, Tab, C-x, Escape, etc.)
-// and literal text (sent as-is).
-func parseKey(key string) []byte {
-	// Check special key names (case-sensitive, matching tmux conventions)
-	if b, ok := specialKeys[key]; ok {
-		return b
-	}
-
-	// C-x / C-X → Ctrl+letter (ASCII control code)
-	if len(key) == 3 && (key[0] == 'C' || key[0] == 'c') && key[1] == '-' {
-		ch := key[2]
-		if ch >= 'a' && ch <= 'z' {
-			return []byte{ch - 'a' + 1}
-		}
-		if ch >= 'A' && ch <= 'Z' {
-			return []byte{ch - 'A' + 1}
-		}
-	}
-
-	// M-x / M-X → Alt+key (ESC prefix)
-	if len(key) == 3 && (key[0] == 'M' || key[0] == 'm') && key[1] == '-' {
-		return []byte{0x1b, key[2]}
-	}
-
-	// Literal text
-	return []byte(key)
-}
-
-// specialKeys maps tmux-compatible key names to byte sequences.
-var specialKeys = map[string][]byte{
-	"Enter":    {'\r'},
-	"Tab":      {'\t'},
-	"Escape":   {0x1b},
-	"Space":    {' '},
-	"BSpace":   {0x7f},
-	"Up":       {0x1b, '[', 'A'},
-	"Down":     {0x1b, '[', 'B'},
-	"Right":    {0x1b, '[', 'C'},
-	"Left":     {0x1b, '[', 'D'},
-	"Home":     {0x1b, '[', 'H'},
-	"End":      {0x1b, '[', 'F'},
-	"PageUp":   {0x1b, '[', '5', '~'},
-	"PageDown": {0x1b, '[', '6', '~'},
-	"Delete":   {0x1b, '[', '3', '~'},
-	"Insert":   {0x1b, '[', '2', '~'},
-}
-
-func dirName(d mux.SplitDir) string {
-	if d == mux.SplitVertical {
-		return "vertical"
-	}
-	return "horizontal"
 }
 
 // eventsArgs holds parsed arguments for the events command.
