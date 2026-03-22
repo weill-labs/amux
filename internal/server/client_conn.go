@@ -271,7 +271,7 @@ func (cc *clientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 			CmdErr: fmt.Sprintf("unknown command: %s", msg.CmdName)})
 		return
 	}
-	handler(&CommandContext{CC: cc, Srv: srv, Sess: sess, Args: msg.CmdArgs})
+	handler(&CommandContext{CC: cc, Srv: srv, Sess: sess, Args: msg.CmdArgs, ActorPaneID: msg.ActorPaneID})
 }
 
 // splitRemotePane prepares a proxy pane connected to a remote host, then
@@ -315,11 +315,6 @@ func (cc *clientConn) splitRemotePane(srv *Server, sess *Session, hostName strin
 	return pane, nil
 }
 
-// resolvePaneAcrossWindowsLocked resolves a pane reference, searching the active
-// window first, then all other windows, then the flat pane registry.
-func (cc *clientConn) resolvePaneAcrossWindowsLocked(sess *Session, ref string) (*mux.Pane, *mux.Window, error) {
-	return sess.resolvePaneAcrossWindows(ref)
-}
 
 // eventsArgs holds parsed arguments for the events command.
 type eventsArgs struct {

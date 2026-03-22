@@ -72,6 +72,10 @@ type uiClientSnapshot struct {
 	currentGen   uint64
 }
 
+type actorPaneContext struct {
+	window *mux.Window
+}
+
 // resolveUIClientSnapshot must run on the session event loop. It resolves the
 // target client and snapshots whether it already matches the requested UI
 // event, so callers can combine resolution with subscription atomically.
@@ -116,20 +120,49 @@ func (s *Session) resolveUIClientSnapshot(requestedClientID, eventName string) (
 	return uiClientSnapshot{}, fmt.Errorf("multiple clients attached; specify --client (%s)", strings.Join(ids, ", "))
 }
 
-func (s *Session) resolvePaneAcrossWindows(ref string) (*mux.Pane, *mux.Window, error) {
-	w := s.activeWindow()
-	if w == nil {
+func (s *Session) actorPaneContext(actorPaneID uint32) actorPaneContext {
+	if actorPaneID == 0 {
+		return actorPaneContext{}
+	}
+	window := s.findWindowByPaneID(actorPaneID)
+	if window == nil {
+		return actorPaneContext{}
+	}
+	return actorPaneContext{window: window}
+}
+
+func appendUniqueWindow(windows []*mux.Window, seen map[uint32]struct{}, window *mux.Window) []*mux.Window {
+	if window == nil {
+		return windows
+	}
+	if _, ok := seen[window.ID]; ok {
+		return windows
+	}
+	seen[window.ID] = struct{}{}
+	return append(windows, window)
+}
+
+func (s *Session) explicitPaneSearchWindows(actorPaneID uint32) []*mux.Window {
+	seen := make(map[uint32]struct{}, len(s.Windows))
+	var windows []*mux.Window
+
+	actor := s.actorPaneContext(actorPaneID)
+	windows = appendUniqueWindow(windows, seen, actor.window)
+	windows = appendUniqueWindow(windows, seen, s.activeWindow())
+	for _, window := range s.Windows {
+		windows = appendUniqueWindow(windows, seen, window)
+	}
+	return windows
+}
+
+func (s *Session) resolvePaneAcrossWindowsForActor(actorPaneID uint32, ref string) (*mux.Pane, *mux.Window, error) {
+	windows := s.explicitPaneSearchWindows(actorPaneID)
+	if len(windows) == 0 {
 		return nil, nil, fmt.Errorf("no session")
 	}
-	if pane := w.ResolvePane(ref); pane != nil {
-		return pane, w, nil
-	}
-	for _, win := range s.Windows {
-		if win.ID == w.ID {
-			continue
-		}
-		if pane := win.ResolvePane(ref); pane != nil {
-			return pane, win, nil
+	for _, window := range windows {
+		if pane := window.ResolvePane(ref); pane != nil {
+			return pane, window, nil
 		}
 	}
 	if pane := s.findPaneByRef(ref); pane != nil {
@@ -138,11 +171,11 @@ func (s *Session) resolvePaneAcrossWindows(ref string) (*mux.Pane, *mux.Window, 
 	return nil, nil, fmt.Errorf("pane %q not found", ref)
 }
 
-func (s *Session) resolvePaneWindow(cmdName string, args []string) (*mux.Pane, *mux.Window, error) {
+func (s *Session) resolvePaneWindowForActor(actorPaneID uint32, cmdName string, args []string) (*mux.Pane, *mux.Window, error) {
 	if len(args) < 1 {
 		return nil, nil, fmt.Errorf("usage: %s <pane>", cmdName)
 	}
-	pane, w, err := s.resolvePaneAcrossWindows(args[0])
+	pane, w, err := s.resolvePaneAcrossWindowsForActor(actorPaneID, args[0])
 	if err != nil {
 		return nil, nil, err
 	}
@@ -150,6 +183,14 @@ func (s *Session) resolvePaneWindow(cmdName string, args []string) (*mux.Pane, *
 		return nil, nil, fmt.Errorf("pane not in any window")
 	}
 	return pane, w, nil
+}
+
+func (s *Session) windowForActor(actorPaneID uint32) *mux.Window {
+	actor := s.actorPaneContext(actorPaneID)
+	if actor.window != nil {
+		return actor.window
+	}
+	return s.activeWindow()
 }
 
 func (s *Session) queryActiveWindowSnapshot() (activeWindowSnapshot, error) {
@@ -172,9 +213,9 @@ func (s *Session) queryActiveWindowSnapshot() (activeWindowSnapshot, error) {
 	})
 }
 
-func (s *Session) queryResolvedPane(ref string) (resolvedPaneRef, error) {
+func (s *Session) queryResolvedPaneForActor(actorPaneID uint32, ref string) (resolvedPaneRef, error) {
 	return enqueueSessionQuery(s, func(s *Session) (resolvedPaneRef, error) {
-		pane, w, err := s.resolvePaneAcrossWindows(ref)
+		pane, w, err := s.resolvePaneAcrossWindowsForActor(actorPaneID, ref)
 		if err != nil {
 			return resolvedPaneRef{}, err
 		}
@@ -191,18 +232,18 @@ func (s *Session) queryResolvedPane(ref string) (resolvedPaneRef, error) {
 	})
 }
 
-func (s *Session) queryKillTarget(ref string) (killTargetSnapshot, error) {
+func (s *Session) queryKillTarget(actorPaneID uint32, ref string) (killTargetSnapshot, error) {
 	return enqueueSessionQuery(s, func(s *Session) (killTargetSnapshot, error) {
 		var pane *mux.Pane
 		if ref == "" {
-			w := s.activeWindow()
+			w := s.windowForActor(actorPaneID)
 			if w == nil || w.ActivePane == nil {
 				return killTargetSnapshot{}, nil
 			}
 			pane = w.ActivePane
 		} else {
 			var err error
-			pane, _, err = s.resolvePaneAcrossWindows(ref)
+			pane, _, err = s.resolvePaneAcrossWindowsForActor(actorPaneID, ref)
 			if err != nil {
 				return killTargetSnapshot{}, err
 			}

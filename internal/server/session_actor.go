@@ -51,6 +51,7 @@ type clipboardWaiter struct {
 type hookWaiter struct {
 	afterGen  uint64
 	eventName string
+	paneID    uint32
 	paneName  string
 	reply     chan hookResultRecord
 }

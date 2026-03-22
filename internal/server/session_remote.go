@@ -242,6 +242,10 @@ func (s *Session) handleTakeover(srv *Server, sshPaneID uint32, req mux.Takeover
 // gathers agent status (one pgrep call per pane) and includes it in the
 // request. The session actor serializes capture dispatch.
 func (s *Session) forwardCapture(args []string) *Message {
+	return s.forwardCaptureForActor(0, args)
+}
+
+func (s *Session) forwardCaptureForActor(actorPaneID uint32, args []string) *Message {
 	captureReq := caputil.ParseArgs(args)
 	jsonErrorResult := func(code, message string) *Message {
 		return &Message{
@@ -254,7 +258,7 @@ func (s *Session) forwardCapture(args []string) *Message {
 	var snap captureClientSnapshot
 	var err error
 	for attempt := 0; attempt < captureAttachMaxRetries; attempt++ {
-		snap, err = s.captureClientSnapshot(captureReq, nil)
+		snap, err = s.captureClientSnapshotForActor(captureReq, actorPaneID, nil)
 		if err != nil {
 			if captureReq.FormatJSON {
 				return jsonErrorResult("session_shutting_down", err.Error())
@@ -280,6 +284,10 @@ func (s *Session) forwardCapture(args []string) *Message {
 }
 
 func (s *Session) captureClientSnapshot(req caputil.Request, target *capturePaneTarget) (captureClientSnapshot, error) {
+	return s.captureClientSnapshotForActor(req, 0, target)
+}
+
+func (s *Session) captureClientSnapshotForActor(req caputil.Request, actorPaneID uint32, target *capturePaneTarget) (captureClientSnapshot, error) {
 	return enqueueSessionQuery(s, func(s *Session) (captureClientSnapshot, error) {
 		var snap captureClientSnapshot
 		for _, cc := range s.clients {
@@ -297,7 +305,7 @@ func (s *Session) captureClientSnapshot(req caputil.Request, target *capturePane
 			return snap, nil
 		}
 		if req.PaneRef != "" {
-			pane, _, err := s.resolvePaneAcrossWindows(req.PaneRef)
+			pane, _, err := s.resolvePaneAcrossWindowsForActor(actorPaneID, req.PaneRef)
 			if err == nil {
 				snap.statusPanes = []*mux.Pane{pane}
 			}
@@ -362,13 +370,13 @@ func (s *Session) runClientCaptureRequest(args []string, captureReq caputil.Requ
 	}
 }
 
-func (s *Session) capturePaneWithFallback(args []string) *Message {
+func (s *Session) capturePaneWithFallback(actorPaneID uint32, args []string) *Message {
 	req := caputil.ParseArgs(args)
 	if err := caputil.ValidateScreenRequest(req); err != nil {
 		return &Message{Type: MsgTypeCmdResult, CmdErr: err.Error()}
 	}
 
-	target, err := s.resolveCapturePaneTarget(req.PaneRef)
+	target, err := s.resolveCapturePaneTargetForActor(actorPaneID, req.PaneRef)
 	if err != nil {
 		return &Message{Type: MsgTypeCmdResult, CmdErr: err.Error()}
 	}

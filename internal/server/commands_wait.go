@@ -95,15 +95,11 @@ func cmdUIGen(ctx *CommandContext) {
 	ctx.reply(fmt.Sprintf("%d\n", client.currentGen))
 }
 
-func resolveWaitHookPaneName(ctx *CommandContext, ref string) (string, error) {
+func resolveWaitHookPane(ctx *CommandContext, ref string) (resolvedPaneRef, error) {
 	if ref == "" {
-		return "", nil
+		return resolvedPaneRef{}, nil
 	}
-	pane, err := ctx.Sess.queryResolvedPane(ref)
-	if err != nil {
-		return "", err
-	}
-	return pane.paneName, nil
+	return ctx.Sess.queryResolvedPaneForActor(ctx.ActorPaneID, ref)
 }
 
 func cmdWaitHook(ctx *CommandContext) {
@@ -112,12 +108,13 @@ func cmdWaitHook(ctx *CommandContext) {
 		ctx.replyErr(err.Error())
 		return
 	}
-	paneName, err = resolveWaitHookPaneName(ctx, paneName)
+	pane, err := resolveWaitHookPane(ctx, paneName)
 	if err != nil {
 		ctx.replyErr(err.Error())
 		return
 	}
-	record, ok := ctx.Sess.waitHook(afterGen, eventName, paneName, timeout)
+	paneName = pane.paneName
+	record, ok := ctx.Sess.waitHookForPane(afterGen, eventName, pane.paneID, paneName, timeout)
 	if !ok {
 		target := eventName
 		if paneName != "" {
@@ -146,7 +143,7 @@ func cmdWaitFor(ctx *CommandContext) {
 		return
 	}
 
-	pane, err := ctx.Sess.queryResolvedPane(paneRef)
+	pane, err := ctx.Sess.queryResolvedPaneForActor(ctx.ActorPaneID,paneRef)
 	if err != nil {
 		ctx.replyErr(err.Error())
 		return
@@ -193,7 +190,7 @@ func cmdWaitIdle(ctx *CommandContext) {
 		return
 	}
 
-	pane, err := ctx.Sess.queryResolvedPane(paneRef)
+	pane, err := ctx.Sess.queryResolvedPaneForActor(ctx.ActorPaneID,paneRef)
 	if err != nil {
 		ctx.replyErr(err.Error())
 		return
@@ -270,7 +267,7 @@ func cmdWaitBusy(ctx *CommandContext) {
 		return
 	}
 
-	pane, err := ctx.Sess.queryResolvedPane(paneRef)
+	pane, err := ctx.Sess.queryResolvedPaneForActor(ctx.ActorPaneID,paneRef)
 	if err != nil {
 		ctx.replyErr(err.Error())
 		return

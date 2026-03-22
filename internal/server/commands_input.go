@@ -78,7 +78,7 @@ func cmdSendKeys(ctx *CommandContext) {
 		ctx.replyErr(err.Error())
 		return
 	}
-	pane, err := ctx.Sess.queryResolvedPane(ctx.Args[0])
+	pane, err := ctx.Sess.queryResolvedPaneForActor(ctx.ActorPaneID, ctx.Args[0])
 	if err != nil {
 		ctx.replyErr(err.Error())
 		return
@@ -120,7 +120,7 @@ func cmdBroadcast(ctx *CommandContext) {
 		return
 	}
 
-	targets, err := resolveBroadcastTargets(ctx.Sess, parsed)
+	targets, err := resolveBroadcastTargetsForActor(ctx.Sess, ctx.ActorPaneID, parsed)
 	if err != nil {
 		ctx.replyErr(err.Error())
 		return
@@ -215,10 +215,14 @@ func splitBroadcastPaneRefs(raw string) []string {
 }
 
 func resolveBroadcastTargets(sess *Session, args broadcastCommandArgs) ([]resolvedPaneRef, error) {
+	return resolveBroadcastTargetsForActor(sess, 0, args)
+}
+
+func resolveBroadcastTargetsForActor(sess *Session, actorPaneID uint32, args broadcastCommandArgs) ([]resolvedPaneRef, error) {
 	return enqueueSessionQuery(sess, func(sess *Session) ([]resolvedPaneRef, error) {
 		switch {
 		case len(args.paneRefs) > 0:
-			return resolveBroadcastPaneRefs(sess, args.paneRefs)
+			return resolveBroadcastPaneRefs(sess, actorPaneID, args.paneRefs)
 		case args.windowRef != "":
 			return resolveBroadcastWindowTargets(sess, args.windowRef)
 		case args.matchPattern != "":
@@ -229,11 +233,11 @@ func resolveBroadcastTargets(sess *Session, args broadcastCommandArgs) ([]resolv
 	})
 }
 
-func resolveBroadcastPaneRefs(sess *Session, refs []string) ([]resolvedPaneRef, error) {
+func resolveBroadcastPaneRefs(sess *Session, actorPaneID uint32, refs []string) ([]resolvedPaneRef, error) {
 	targets := make([]resolvedPaneRef, 0, len(refs))
 	seen := make(map[uint32]struct{}, len(refs))
 	for _, ref := range refs {
-		pane, window, err := sess.resolvePaneAcrossWindows(ref)
+		pane, window, err := sess.resolvePaneAcrossWindowsForActor(actorPaneID, ref)
 		if err != nil {
 			return nil, err
 		}

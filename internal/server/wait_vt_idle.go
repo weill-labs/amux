@@ -68,7 +68,7 @@ func cmdWaitVTIdle(ctx *CommandContext) {
 		return
 	}
 
-	pane, err := ctx.Sess.queryResolvedPane(paneRef)
+	pane, err := ctx.Sess.queryResolvedPaneForActor(ctx.ActorPaneID, paneRef)
 	if err != nil {
 		ctx.replyErr(err.Error())
 		return

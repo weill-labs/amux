@@ -145,12 +145,15 @@ func (s *Session) notifyClipboardWaiters(gen uint64, payload string) {
 	}
 }
 
-func (s *Session) matchHookResult(afterGen uint64, eventName, paneName string) (hookResultRecord, bool) {
+func (s *Session) matchHookResult(afterGen uint64, eventName string, paneID uint32, paneName string) (hookResultRecord, bool) {
 	for _, record := range s.hookResults {
 		if record.Generation <= afterGen {
 			continue
 		}
 		if eventName != "" && record.Event != eventName {
+			continue
+		}
+		if paneID != 0 && record.PaneID != 0 && record.PaneID != paneID {
 			continue
 		}
 		if paneName != "" && record.PaneName != paneName {
@@ -167,6 +170,9 @@ func (s *Session) notifyHookWaiters(record hookResultRecord) {
 			continue
 		}
 		if waiter.eventName != "" && record.Event != waiter.eventName {
+			continue
+		}
+		if waiter.paneID != 0 && record.PaneID != 0 && record.PaneID != waiter.paneID {
 			continue
 		}
 		if waiter.paneName != "" && record.PaneName != waiter.paneName {
@@ -471,6 +477,10 @@ func (s *Session) waitClipboard(afterGen uint64, timeout time.Duration) (string,
 }
 
 func (s *Session) waitHook(afterGen uint64, eventName, paneName string, timeout time.Duration) (hookResultRecord, bool) {
+	return s.waitHookForPane(afterGen, eventName, 0, paneName, timeout)
+}
+
+func (s *Session) waitHookForPane(afterGen uint64, eventName string, paneID uint32, paneName string, timeout time.Duration) (hookResultRecord, bool) {
 	type waitRegistration struct {
 		record   hookResultRecord
 		waiterID uint64
@@ -482,7 +492,7 @@ func (s *Session) waitHook(afterGen uint64, eventName, paneName string, timeout 
 	}
 
 	reg, err := enqueueSessionQuery(s, func(s *Session) (waitRegistration, error) {
-		if record, ok := s.matchHookResult(afterGen, eventName, paneName); ok {
+		if record, ok := s.matchHookResult(afterGen, eventName, paneID, paneName); ok {
 			return waitRegistration{record: record}, nil
 		}
 		reply := make(chan hookResultRecord, 1)
@@ -490,6 +500,7 @@ func (s *Session) waitHook(afterGen uint64, eventName, paneName string, timeout 
 		s.hookWaiters[waiterID] = hookWaiter{
 			afterGen:  afterGen,
 			eventName: eventName,
+			paneID:    paneID,
 			paneName:  paneName,
 			reply:     reply,
 		}
@@ -511,7 +522,7 @@ func (s *Session) waitHook(afterGen uint64, eventName, paneName string, timeout 
 	case <-timer.C:
 		state, err := enqueueSessionQuery(s, func(s *Session) (waitState, error) {
 			delete(s.hookWaiters, reg.waiterID)
-			record, ok := s.matchHookResult(afterGen, eventName, paneName)
+			record, ok := s.matchHookResult(afterGen, eventName, paneID, paneName)
 			return waitState{record: record, matched: ok}, nil
 		})
 		if err != nil {

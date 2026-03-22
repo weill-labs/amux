@@ -182,7 +182,7 @@ func cmdFocus(ctx *CommandContext) {
 				paneRenders:     activePaneRender(w),
 			}
 		default:
-			pane, pw, err := sess.resolvePaneAcrossWindows(direction)
+			pane, pw, err := sess.resolvePaneAcrossWindowsForActor(ctx.ActorPaneID, direction)
 			if err != nil {
 				return commandMutationResult{err: err}
 			}
@@ -266,6 +266,11 @@ func cmdSpawn(ctx *CommandContext) {
 func cmdZoom(ctx *CommandContext) {
 	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
 		w := sess.activeWindow()
+		if len(ctx.Args) > 0 {
+			// When zooming a named pane, resolve from the actor's window.
+			// Zoom without args always toggles in the active window.
+			w = sess.windowForActor(ctx.ActorPaneID)
+		}
 		if w == nil {
 			return commandMutationResult{err: fmt.Errorf("no session")}
 		}
@@ -298,7 +303,7 @@ func cmdZoom(ctx *CommandContext) {
 
 func cmdMinimize(ctx *CommandContext) {
 	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
-		p, w, err := sess.resolvePaneWindow("minimize", ctx.Args)
+		p, w, err := sess.resolvePaneWindowForActor(ctx.ActorPaneID, "minimize", ctx.Args)
 		if err != nil {
 			return commandMutationResult{err: err}
 		}
@@ -314,7 +319,7 @@ func cmdMinimize(ctx *CommandContext) {
 
 func cmdRestore(ctx *CommandContext) {
 	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
-		p, w, err := sess.resolvePaneWindow("restore", ctx.Args)
+		p, w, err := sess.resolvePaneWindowForActor(ctx.ActorPaneID, "restore", ctx.Args)
 		if err != nil {
 			return commandMutationResult{err: err}
 		}
@@ -385,7 +390,7 @@ func cmdKill(ctx *CommandContext) {
 		return
 	}
 
-	target, err := ctx.Sess.queryKillTarget(opts.paneRef)
+	target, err := ctx.Sess.queryKillTarget(ctx.ActorPaneID, opts.paneRef)
 	if err != nil {
 		ctx.replyErr(err.Error())
 		return
@@ -470,7 +475,7 @@ func cmdCopyMode(ctx *CommandContext) {
 		ctx.reply(fmt.Sprintf("Copy mode entered for %s\n", pane.paneName))
 		return
 	}
-	pane, err := ctx.Sess.queryResolvedPane(ctx.Args[0])
+	pane, err := ctx.Sess.queryResolvedPaneForActor(ctx.ActorPaneID, ctx.Args[0])
 	if err != nil {
 		ctx.replyErr(err.Error())
 		return
@@ -644,7 +649,7 @@ func cmdResizePane(ctx *CommandContext) {
 		}
 	}
 	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
-		p, w, err := sess.resolvePaneWindow("resize-pane", ctx.Args[:1])
+		p, w, err := sess.resolvePaneWindowForActor(ctx.ActorPaneID, "resize-pane", ctx.Args[:1])
 		if err != nil {
 			return commandMutationResult{err: err}
 		}

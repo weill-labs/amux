@@ -53,6 +53,7 @@ type eventSub struct {
 // eventFilter controls which events a subscriber receives.
 type eventFilter struct {
 	Types    []string // event types to include (empty = all)
+	PaneID   uint32   // match pane ID (0 = all panes)
 	PaneName string   // match pane name (empty = all panes)
 	Host     string   // match host (empty = all hosts)
 	ClientID string   // match client ID (empty = all clients)
@@ -61,6 +62,9 @@ type eventFilter struct {
 // matches returns true if the event passes the filter.
 func (f eventFilter) matches(ev Event) bool {
 	if len(f.Types) > 0 && !slices.Contains(f.Types, ev.Type) {
+		return false
+	}
+	if f.PaneID != 0 && ev.PaneID != f.PaneID {
 		return false
 	}
 	if f.PaneName != "" && ev.PaneName != f.PaneName {

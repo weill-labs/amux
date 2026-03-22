@@ -16,9 +16,9 @@ type capturePaneTarget struct {
 	zoomed   bool
 }
 
-func (s *Session) resolveCapturePaneTarget(ref string) (capturePaneTarget, error) {
+func (s *Session) resolveCapturePaneTargetForActor(actorPaneID uint32, ref string) (capturePaneTarget, error) {
 	return enqueueSessionQuery(s, func(s *Session) (capturePaneTarget, error) {
-		pane, w, err := s.resolvePaneAcrossWindows(ref)
+		pane, w, err := s.resolvePaneAcrossWindowsForActor(actorPaneID, ref)
 		if err != nil {
 			return capturePaneTarget{}, err
 		}
@@ -115,13 +115,13 @@ func (s *Session) capturePaneDirect(args []string, target capturePaneTarget) *Me
 	}
 }
 
-func (s *Session) captureHistory(args []string) *Message {
+func (s *Session) captureHistory(actorPaneID uint32, args []string) *Message {
 	req := caputil.ParseArgs(args)
 	if err := caputil.ValidateHistoryRequest(req); err != nil {
 		return &Message{Type: MsgTypeCmdResult, CmdErr: err.Error()}
 	}
 
-	target, err := s.resolveCapturePaneTarget(req.PaneRef)
+	target, err := s.resolveCapturePaneTargetForActor(actorPaneID, req.PaneRef)
 	if err != nil {
 		return &Message{Type: MsgTypeCmdResult, CmdErr: err.Error()}
 	}
