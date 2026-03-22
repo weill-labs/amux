@@ -240,7 +240,7 @@ func appendStyledStr(chars []styledChar, s string, style uv.Style) []styledChar 
 // buildStatusCells writes the per-pane status line into the grid cell-by-cell.
 func buildStatusCells(g *ScreenGrid, cell *mux.LayoutCell, isActive bool, pd PaneData) {
 	y := cell.Y
-	bg := hexToColor(config.Surface0Hex)
+	bg := hexToColor(statusBarBgHex(pd.Color(), isActive))
 	idle := !isActive && pd.Idle()
 
 	dimStyle := uv.Style{Fg: hexToColor(config.DimColorHex), Bg: bg}
@@ -251,6 +251,8 @@ func buildStatusCells(g *ScreenGrid, cell *mux.LayoutCell, isActive bool, pd Pan
 	redStyle := uv.Style{Fg: hexToColor(config.RedHex), Bg: bg}
 	paneBold := paneStyle
 	paneBold.Attrs |= uv.AttrBold
+	textBold := textStyle
+	textBold.Attrs |= uv.AttrBold
 
 	var chars []styledChar
 
@@ -263,11 +265,11 @@ func buildStatusCells(g *ScreenGrid, cell *mux.LayoutCell, isActive bool, pd Pan
 		chars = appendStyledStr(chars, "○", dimStyle)
 	}
 
-	// Space + name
+	// Space + name: active=bold+text (accent is in bg), inactive+busy=text, inactive+idle=dim
 	chars = appendStyledStr(chars, " ", uv.Style{Bg: bg})
 	var nameStyle uv.Style
 	if isActive {
-		nameStyle = paneBold
+		nameStyle = textBold
 	} else if idle {
 		nameStyle = dimStyle
 	} else {

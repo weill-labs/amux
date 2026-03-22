@@ -362,6 +362,7 @@ func init() {
 	}
 	hexColorCache.Store(config.DimColorHex, computeANSI(config.DimColorHex))
 	hexColorCache.Store(config.TextColorHex, computeANSI(config.TextColorHex))
+	hexColorCache.Store("bg:"+config.Surface0Hex, computeANSIBg(config.Surface0Hex))
 }
 
 // computeANSI converts a 6-digit hex color to an ANSI truecolor escape.
@@ -385,5 +386,28 @@ func hexToANSI(hex string) string {
 	}
 	result := computeANSI(hex)
 	hexColorCache.Store(hex, result)
+	return result
+}
+
+// computeANSIBg converts a 6-digit hex color to an ANSI truecolor background escape.
+func computeANSIBg(hex string) string {
+	r, _ := strconv.ParseUint(hex[0:2], 16, 8)
+	g, _ := strconv.ParseUint(hex[2:4], 16, 8)
+	b, _ := strconv.ParseUint(hex[4:6], 16, 8)
+	return fmt.Sprintf("\033[48;2;%d;%d;%dm", r, g, b)
+}
+
+// hexToANSIBg converts a 6-digit hex color to an ANSI truecolor background escape.
+// Results are cached with a "bg:" prefix in the shared color cache.
+func hexToANSIBg(hex string) string {
+	if len(hex) < 6 {
+		return Surface0Bg
+	}
+	key := "bg:" + hex
+	if cached, ok := hexColorCache.Load(key); ok {
+		return cached.(string)
+	}
+	result := computeANSIBg(hex)
+	hexColorCache.Store(key, result)
 	return result
 }

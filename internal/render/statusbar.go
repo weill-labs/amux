@@ -21,10 +21,10 @@ const GlobalBarHeight = 1
 func renderPaneStatus(buf *strings.Builder, cell *mux.LayoutCell, isActive bool, pd PaneData) {
 	writeCursorTo(buf, cell.Y+1, cell.X+1)
 
-	// Background: subtle dark surface
-	buf.WriteString(Surface0Bg)
-
 	color := pd.Color()
+
+	// Background: pane-tinted surface (active=25% blend, inactive=12%)
+	buf.WriteString(hexToANSIBg(statusBarBgHex(color, isActive)))
 	idle := !isActive && pd.Idle() // call once — may fork pgrep on server side
 
 	// Status icon: active=●, inactive+busy=○, inactive+idle=◇
@@ -39,11 +39,11 @@ func renderPaneStatus(buf *strings.Builder, cell *mux.LayoutCell, isActive bool,
 		buf.WriteString("○")
 	}
 
-	// Name: active=bold+color, inactive+busy=text, inactive+idle=dim
+	// Name: active=bold+text (accent is in the bg), inactive+busy=text, inactive+idle=dim
 	buf.WriteString(" ")
 	if isActive {
 		buf.WriteString(Bold)
-		buf.WriteString(hexToANSI(color))
+		buf.WriteString(TextFg)
 	} else if idle {
 		buf.WriteString(DimFg)
 	} else {
