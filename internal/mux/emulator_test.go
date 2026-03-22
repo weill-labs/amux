@@ -228,6 +228,33 @@ func TestHasCursorBlock(t *testing.T) {
 			t.Error("HasCursorBlock() = true for off-cursor reverse video, want false")
 		}
 	})
+
+	t.Run("true for isolated reverse-video space above lower-left reported cursor", func(t *testing.T) {
+		t.Parallel()
+		emu := NewVTEmulator(40, 10)
+		emu.Write([]byte("hello \033[7m \033[m"))
+		emu.Write([]byte("\033[2;1H"))
+		if !emu.HasCursorBlock() {
+			t.Error("HasCursorBlock() = false with fallback cursor block, want true")
+		}
+	})
+}
+
+func TestRenderWithoutCursorBlockFallsBackFromLowerLeftCursor(t *testing.T) {
+	t.Parallel()
+
+	emu := NewVTEmulator(40, 10)
+	emu.Write([]byte("hello \033[7m \033[m"))
+	emu.Write([]byte("\033[2;1H"))
+
+	stripped := emu.RenderWithoutCursorBlock()
+	if strings.Contains(stripped, "\033[7m") {
+		t.Fatal("RenderWithoutCursorBlock() should strip fallback cursor block")
+	}
+
+	if normal := emu.Render(); !strings.Contains(normal, "\033[7m") {
+		t.Fatal("Render() should preserve reverse-video block after fallback stripping")
+	}
 }
 
 func TestMouseProtocolTracking(t *testing.T) {

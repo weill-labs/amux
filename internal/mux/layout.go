@@ -266,6 +266,73 @@ func (c *LayoutCell) ResizeSubtree(newW, newH int) {
 	c.ResizeAll(newW, newH)
 }
 
+// NormalizeMinimizedHeights restores the invariant that minimized panes in a
+// horizontal split occupy only their status line. Any reclaimed height is
+// redistributed to direct non-minimized siblings in walk order.
+func (c *LayoutCell) NormalizeMinimizedHeights(isMinimized func(*LayoutCell) bool) {
+	if c == nil || c.IsLeaf() {
+		return
+	}
+
+	for _, child := range c.Children {
+		child.NormalizeMinimizedHeights(isMinimized)
+	}
+
+	if c.Dir != SplitHorizontal {
+		return
+	}
+
+	targets := make([]int, len(c.Children))
+	flexible := make([]int, 0, len(c.Children))
+	total := 0
+	for i, child := range c.Children {
+		targets[i] = child.H
+		if isMinimized(child) {
+			targets[i] = StatusLineRows
+		} else {
+			flexible = append(flexible, i)
+		}
+		total += targets[i]
+	}
+	if len(flexible) == 0 {
+		return
+	}
+
+	remaining := c.H - (len(c.Children) - 1) - total
+	for remaining > 0 {
+		for _, idx := range flexible {
+			if remaining == 0 {
+				break
+			}
+			targets[idx]++
+			remaining--
+		}
+	}
+
+	changed := false
+	for i, child := range c.Children {
+		targetH := targets[i]
+		if child.W == c.W && child.H == targetH {
+			continue
+		}
+		changed = true
+		c.resizeHorizontalChild(child, targetH, isMinimized)
+	}
+	if changed {
+		c.FixOffsets()
+	}
+}
+
+func (c *LayoutCell) resizeHorizontalChild(child *LayoutCell, targetH int, isMinimized func(*LayoutCell) bool) {
+	if child.IsLeaf() {
+		child.W = c.W
+		child.H = targetH
+		return
+	}
+	child.ResizeSubtree(c.W, targetH)
+	child.NormalizeMinimizedHeights(isMinimized)
+}
+
 func (c *LayoutCell) resizeCheck(axis SplitDir) int {
 	if c.IsLeaf() {
 		size := c.W

@@ -405,9 +405,39 @@ func (v *vtEmulator) currentCursorBlock() (x, y int, ok bool) {
 		return 0, 0, false
 	}
 	if !v.isCursorBlock(x, y, w) {
-		return 0, 0, false
+		return v.fallbackCursorBlock(x, y, w, h)
 	}
 	return x, y, true
+}
+
+func (v *vtEmulator) fallbackCursorBlock(cursorX, cursorY, w, h int) (x, y int, ok bool) {
+	if cursorX != 0 {
+		return 0, 0, false
+	}
+
+	foundX, foundY := -1, -1
+	for yy := 0; yy < h; yy++ {
+		for xx := 0; xx < w; xx++ {
+			if !v.isCursorBlock(xx, yy, w) {
+				continue
+			}
+			// Claude Code sometimes leaves the reported cursor at column 0 on a
+			// later status/footer row while still drawing its real prompt cursor
+			// as an isolated reverse-video space above. Only trust this fallback
+			// when there is a single such candidate above the reported cursor.
+			if yy >= cursorY {
+				return 0, 0, false
+			}
+			if foundX != -1 {
+				return 0, 0, false
+			}
+			foundX, foundY = xx, yy
+		}
+	}
+	if foundX == -1 {
+		return 0, 0, false
+	}
+	return foundX, foundY, true
 }
 
 func (v *vtEmulator) RenderWithoutCursorBlock() string {

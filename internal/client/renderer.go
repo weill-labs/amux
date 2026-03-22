@@ -104,6 +104,7 @@ func (r *Renderer) HandleLayout(snap *proto.LayoutSnapshot) bool {
 			// max-size snapshot.
 			next.layout.ResizeAll(next.width, clientLayoutH)
 		}
+		normalizeMinimizedLayout(next.layout, next.paneInfo)
 
 		if next.layout != nil {
 			next.layout.Walk(func(cell *mux.LayoutCell) {
@@ -472,6 +473,16 @@ func (r *Renderer) mergeOverlay(snap *rendererSnapshot, overlay render.OverlaySt
 		overlay.Message = snap.sessionNotice
 	}
 	return overlay
+}
+
+func normalizeMinimizedLayout(root *mux.LayoutCell, paneInfo map[uint32]proto.PaneSnapshot) {
+	if root == nil {
+		return
+	}
+	root.NormalizeMinimizedHeights(func(c *mux.LayoutCell) bool {
+		info, ok := paneInfo[c.CellPaneID()]
+		return ok && info.Minimized
+	})
 }
 
 // HandleCaptureRequest processes capture args and returns a proto.Message

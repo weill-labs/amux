@@ -96,6 +96,7 @@ func (w *Window) SplitRoot(dir SplitDir, newPane *Pane) (*Pane, error) {
 	}
 
 	w.Root.FixOffsets()
+	w.normalizeMinimizedLayout()
 
 	w.resizePTYs()
 
@@ -137,6 +138,8 @@ func (w *Window) Split(dir SplitDir, newPane *Pane) (*Pane, error) {
 	}
 
 	w.Root.FixOffsets()
+	w.normalizeMinimizedLayout()
+	w.resizePTYs()
 	w.setActive(newPane)
 
 	return newPane, nil
@@ -188,6 +191,7 @@ func (w *Window) ClosePane(paneID uint32) error {
 
 	// Propagate sizes to all children after redistribution
 	w.Root.ResizeAll(w.Width, w.Height)
+	w.normalizeMinimizedLayout()
 
 	// Update active pane if the closed pane was active
 	if w.ActivePane.ID == paneID {
@@ -234,6 +238,7 @@ func (w *Window) Resize(width, height int) {
 	w.Width = width
 	w.Height = height
 	w.Root.ResizeAll(width, height)
+	w.normalizeMinimizedLayout()
 
 	w.resizePTYs()
 
@@ -449,6 +454,7 @@ func (w *Window) ResizeBorder(x, y, delta int) bool {
 	}
 
 	w.Root.FixOffsets()
+	w.normalizeMinimizedLayout()
 	w.resizePTYs()
 	return true
 }
@@ -558,6 +564,7 @@ func (w *Window) resizeBetween(grower, donor *LayoutCell, axis SplitDir, delta i
 	}
 
 	w.Root.FixOffsets()
+	w.normalizeMinimizedLayout()
 	w.resizePTYs()
 	return true
 }
@@ -569,6 +576,15 @@ func (w *Window) resizePTYs() {
 		if c.Pane != nil && !c.Pane.Meta.Minimized {
 			c.Pane.Resize(c.W, PaneContentHeight(c.H))
 		}
+	})
+}
+
+func (w *Window) normalizeMinimizedLayout() {
+	if w.Root == nil {
+		return
+	}
+	w.Root.NormalizeMinimizedHeights(func(c *LayoutCell) bool {
+		return c.IsLeaf() && c.Pane != nil && c.Pane.Meta.Minimized
 	})
 }
 
@@ -774,6 +790,7 @@ func (w *Window) Minimize(paneID uint32) error {
 	}
 
 	w.Root.FixOffsets()
+	w.normalizeMinimizedLayout()
 	return nil
 }
 
@@ -867,6 +884,7 @@ func (w *Window) Restore(paneID uint32) error {
 	cell.Pane.Resize(cell.W, PaneContentHeight(cell.H))
 
 	w.Root.FixOffsets()
+	w.normalizeMinimizedLayout()
 	return nil
 }
 
