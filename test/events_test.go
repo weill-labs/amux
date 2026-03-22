@@ -1,8 +1,6 @@
 package test
 
 import (
-	"bufio"
-	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -446,82 +444,34 @@ func TestEventsCLI(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)
 
-	// Spawn `amux events --filter layout` as a subprocess
-	cmd := exec.Command(amuxBin, "-s", h.session, "events", "--filter", "layout")
-	if h.coverDir != "" {
-		cmd.Env = append(os.Environ(), "GOCOVERDIR="+h.coverDir)
-	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		t.Fatalf("stdout pipe: %v", err)
-	}
-	cmd.Stderr = os.Stderr
-	if err := cmd.Start(); err != nil {
-		t.Fatalf("start: %v", err)
-	}
-
-	scanner := bufio.NewScanner(stdout)
+	proc := startEventsCLI(t, h, nil, "--filter", "layout", "--no-reconnect")
 
 	// Read initial layout snapshot from CLI stdout
-	done := make(chan eventJSON, 1)
-	go func() {
-		if scanner.Scan() {
-			var ev eventJSON
-			json.Unmarshal(scanner.Bytes(), &ev)
-			done <- ev
-		}
-	}()
-
-	select {
-	case ev := <-done:
-		if ev.Type != "layout" {
-			t.Errorf("first CLI event type: got %q, want layout", ev.Type)
-		}
-		if ev.ActivePane == "" {
-			t.Error("CLI layout event should have active_pane")
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("timeout reading first event from CLI")
+	ev := mustReadEvent(t, proc.scanner, 5*time.Second)
+	if ev.Type != "layout" {
+		t.Errorf("first CLI event type: got %q, want layout", ev.Type)
+	}
+	if ev.ActivePane == "" {
+		t.Error("CLI layout event should have active_pane")
 	}
 
 	// Trigger a layout change and verify it arrives
 	h.doSplit()
 
-	done2 := make(chan eventJSON, 1)
-	go func() {
-		if scanner.Scan() {
-			var ev eventJSON
-			json.Unmarshal(scanner.Bytes(), &ev)
-			done2 <- ev
-		}
-	}()
-
-	select {
-	case ev := <-done2:
-		if ev.Type != "layout" {
-			t.Errorf("second CLI event type: got %q, want layout", ev.Type)
-		}
-		if ev.Generation == 0 {
-			t.Error("CLI layout event should have non-zero generation")
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("timeout reading layout event from CLI after split")
+	ev = mustReadEvent(t, proc.scanner, 5*time.Second)
+	if ev.Type != "layout" {
+		t.Errorf("second CLI event type: got %q, want layout", ev.Type)
+	}
+	if ev.Generation == 0 {
+		t.Error("CLI layout event should have non-zero generation")
 	}
 
 	// Shut down the server so the events client exits normally (via broken
 	// pipe / EOF), allowing the -cover runtime to flush coverage data.
 	// Kill sends SIGKILL which skips coverage flush.
 	h.cmd.Process.Signal(os.Interrupt)
-	waitDone := make(chan struct{})
-	go func() {
-		cmd.Wait()
-		close(waitDone)
-	}()
-	select {
-	case <-waitDone:
-	case <-time.After(5 * time.Second):
-		cmd.Process.Kill()
-		cmd.Wait()
+	if err := proc.wait(5 * time.Second); err != nil {
+		t.Fatalf("events CLI exited with error: %v\nstderr:\n%s", err, proc.stderrString())
 	}
 }
 

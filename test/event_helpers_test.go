@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"sync"
 	"testing"
 	"time"
 
@@ -72,7 +73,9 @@ type eventsCLIProcess struct {
 	cmd     *exec.Cmd
 	scanner *bufio.Scanner
 	stderr  bytes.Buffer
-	waitErr chan error
+	done    chan struct{}
+	mu      sync.Mutex
+	waitErr error
 }
 
 func startEventsCLI(t *testing.T, h *ServerHarness, env []string, args ...string) *eventsCLIProcess {
@@ -98,7 +101,7 @@ func startEventsCLI(t *testing.T, h *ServerHarness, env []string, args ...string
 		t:       t,
 		cmd:     cmd,
 		scanner: bufio.NewScanner(stdout),
-		waitErr: make(chan error, 1),
+		done:    make(chan struct{}),
 	}
 	cmd.Stderr = &proc.stderr
 
@@ -107,15 +110,21 @@ func startEventsCLI(t *testing.T, h *ServerHarness, env []string, args ...string
 	}
 
 	go func() {
-		proc.waitErr <- cmd.Wait()
+		err := cmd.Wait()
+		proc.mu.Lock()
+		proc.waitErr = err
+		proc.mu.Unlock()
+		close(proc.done)
 	}()
 
 	t.Cleanup(func() {
-		if cmd.ProcessState != nil {
+		select {
+		case <-proc.done:
 			return
+		default:
 		}
 		_ = cmd.Process.Kill()
-		<-proc.waitErr
+		<-proc.done
 	})
 
 	return proc
@@ -125,7 +134,10 @@ func (p *eventsCLIProcess) wait(timeout time.Duration) error {
 	p.t.Helper()
 
 	select {
-	case err := <-p.waitErr:
+	case <-p.done:
+		p.mu.Lock()
+		err := p.waitErr
+		p.mu.Unlock()
 		return err
 	case <-time.After(timeout):
 		p.t.Fatalf("timeout waiting for events CLI exit")
