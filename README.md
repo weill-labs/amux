@@ -138,10 +138,14 @@ History-aware pane capture:
 ```bash
 amux capture pane-1
 amux capture --history pane-1
+amux capture --history --rewrap 120 pane-1
 amux capture --history --format json pane-1
+amux capture --history --rewrap 120 --format json pane-1
 ```
 
-`capture pane-1` returns the pane's current visible screen. `capture --history pane-1` returns the full browsable buffer for that pane: retained scrollback followed by the current screen. The JSON form keeps those separate as `history` and `content`. By default amux retains up to `10000` scrollback lines per pane; override that with `scrollback_lines` in `config.toml`. After crash recovery, `history` includes any archived pre-crash visible screen from panes whose foreground process was lost.
+`capture pane-1` returns the pane's current visible screen. `capture --history pane-1` returns the full browsable buffer for that pane: retained scrollback followed by the current screen. `capture --history --rewrap WIDTH pane-1` best-effort reconstructs narrow-pane rows at a wider width, which is useful when agent output was captured in dense layouts. The JSON form keeps history and visible content separate as `history` and `content`, and `--rewrap` applies there too. By default amux retains up to `10000` scrollback lines per pane; override that with `scrollback_lines` in `config.toml`. After crash recovery, `history` includes any archived pre-crash visible screen from panes whose foreground process was lost.
+
+`--rewrap` is exact for live rows captured in the current process lifetime, where amux tracks the width each scrollback row was wrapped at. Restored/base history from attach bootstrap, reload checkpoints, and crash checkpoints is still stored as raw text rows, so rewrap can only improve live rows and current visible content. Hard newlines that happened exactly at pane width remain ambiguous without tmux-style wrapped-line metadata.
 
 Because retained history is server-owned, `capture --history` works after detach/reattach, after `reload-server`, and after crash recovery, and it does not require an attached interactive client. Copy mode remains per-client UI state over that shared history.
 
@@ -270,8 +274,10 @@ All commands accept `-s <session>` to target a specific session. Panes are refer
 |---------|-------------|
 | `amux capture [pane]` | Capture screen output (text) |
 | `amux capture --history <pane>` | Capture retained scrollback plus visible screen |
+| `amux capture --history --rewrap <width> <pane>` | Best-effort rewrap retained history and visible content to a wider width |
 | `amux capture --format json [pane]` | Structured JSON capture |
 | `amux capture --history --format json <pane>` | Pane JSON with separate `history` and visible `content` |
+| `amux capture --history --rewrap <width> --format json <pane>` | Pane JSON rewrapped to the requested width |
 | `amux capture --ansi [pane]` | Capture with ANSI escape codes |
 | `amux capture --colors` | Capture border color map |
 | `amux wait-idle <pane> [--timeout 5s]` | Block until pane becomes idle |

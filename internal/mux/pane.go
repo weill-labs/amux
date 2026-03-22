@@ -548,17 +548,8 @@ func (p *Pane) CaptureSnapshot() CaptureSnapshot {
 
 func (p *Pane) captureScrollback(baseHistory []string, liveHistory []CaptureHistoryLine) ([]string, []CaptureHistoryLine, []string) {
 	limit := effectiveScrollbackLines(p.scrollbackLines)
-	total := len(baseHistory) + len(liveHistory)
-	if total > limit {
-		drop := total - limit
-		baseStart := 0
-		liveStart := 0
-		if drop >= len(baseHistory) {
-			baseStart = len(baseHistory)
-			liveStart = drop - len(baseHistory)
-		} else {
-			baseStart = drop
-		}
+	baseStart, liveStart := trimScrollbackStarts(len(baseHistory), len(liveHistory), limit)
+	if baseStart > 0 || liveStart > 0 {
 		baseHistory = baseHistory[baseStart:]
 		liveHistory = liveHistory[liveStart:]
 	}
@@ -569,6 +560,19 @@ func (p *Pane) captureScrollback(baseHistory []string, liveHistory []CaptureHist
 		history = append(history, line.Text)
 	}
 	return baseHistory, liveHistory, history
+}
+
+func trimScrollbackStarts(baseLen, liveLen, limit int) (baseStart, liveStart int) {
+	total := baseLen + liveLen
+	if total <= limit {
+		return 0, 0
+	}
+
+	drop := total - limit
+	if drop >= baseLen {
+		return baseLen, drop - baseLen
+	}
+	return drop, 0
 }
 
 func captureHistoryLineText(lines []CaptureHistoryLine) []string {
@@ -730,22 +734,13 @@ func (p *Pane) FeedOutput(data []byte) {
 func (p *Pane) combinedScrollback(baseHistory []string) []string {
 	live := EmulatorScrollbackLines(p.emulator)
 	limit := effectiveScrollbackLines(p.scrollbackLines)
-	total := len(baseHistory) + len(live)
-	if total <= limit {
+	baseStart, liveStart := trimScrollbackStarts(len(baseHistory), len(live), limit)
+	if baseStart == 0 && liveStart == 0 {
+		total := len(baseHistory) + len(live)
 		out := make([]string, 0, total)
 		out = append(out, baseHistory...)
 		out = append(out, live...)
 		return out
-	}
-
-	drop := total - limit
-	baseStart := 0
-	liveStart := 0
-	if drop >= len(baseHistory) {
-		baseStart = len(baseHistory)
-		liveStart = drop - len(baseHistory)
-	} else {
-		baseStart = drop
 	}
 
 	out := make([]string, 0, limit)
