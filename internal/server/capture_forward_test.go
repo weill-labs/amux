@@ -186,6 +186,183 @@ func TestForwardCaptureJSONNoClientReturnsErrorObject(t *testing.T) {
 	assertJSONErrorResponse(t, resp.CmdOutput, "no_client_attached")
 }
 
+func TestForwardCaptureJSONNoClientRetriesBeforeErrorObject(t *testing.T) {
+	_, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	prevRetries := captureAttachMaxRetries
+	prevDelay := captureAttachRetryDelay
+	captureAttachMaxRetries = 2
+	captureAttachRetryDelay = 0
+	defer func() {
+		captureAttachMaxRetries = prevRetries
+		captureAttachRetryDelay = prevDelay
+	}()
+
+	resp := sess.forwardCapture([]string{"--format", "json"})
+	if resp.CmdErr != "" {
+		t.Fatalf("forwardCapture error: %s", resp.CmdErr)
+	}
+	assertJSONErrorResponse(t, resp.CmdOutput, "no_client_attached")
+}
+
+func TestForwardCaptureJSONReturnsSessionShuttingDownBeforeAttach(t *testing.T) {
+	t.Parallel()
+
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	close(stop)
+	close(done)
+
+	sess := &Session{
+		sessionEventStop: stop,
+		sessionEventDone: done,
+	}
+
+	resp := sess.forwardCapture([]string{"--format", "json"})
+	if resp.CmdErr != "" {
+		t.Fatalf("forwardCapture error: %s", resp.CmdErr)
+	}
+	assertJSONErrorResponse(t, resp.CmdOutput, "session_shutting_down")
+}
+
+func TestForwardCaptureJSONHandlesNilAndErrResponses(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		routeResponse func(*Session)
+		assert        func(*testing.T, *Message)
+	}{
+		{
+			name: "nil response",
+			routeResponse: func(sess *Session) {
+				sess.routeCaptureResponse(nil)
+			},
+			assert: func(t *testing.T, resp *Message) {
+				t.Helper()
+				if resp.CmdErr != "" {
+					t.Fatalf("forwardCapture error: %s", resp.CmdErr)
+				}
+				assertJSONErrorResponse(t, resp.CmdOutput, "invalid_capture_response")
+			},
+		},
+		{
+			name: "cmd err",
+			routeResponse: func(sess *Session) {
+				sess.routeCaptureResponse(&Message{Type: MsgTypeCaptureResponse, CmdErr: "boom"})
+			},
+			assert: func(t *testing.T, resp *Message) {
+				t.Helper()
+				if resp.CmdErr != "boom" {
+					t.Fatalf("forwardCapture cmdErr = %q, want boom", resp.CmdErr)
+				}
+				if resp.CmdOutput != "" {
+					t.Fatalf("forwardCapture output = %q, want empty", resp.CmdOutput)
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, sess, cleanup := newCommandTestSession(t)
+			defer cleanup()
+
+			msg, respCh := startForwardCaptureForTest(t, sess, []string{"--format", "json"})
+			if msg.Type != MsgTypeCaptureRequest {
+				t.Fatalf("message type = %v, want capture request", msg.Type)
+			}
+
+			tt.routeResponse(sess)
+
+			select {
+			case resp := <-respCh:
+				tt.assert(t, resp)
+			case <-time.After(time.Second):
+				t.Fatal("forwardCapture did not return")
+			}
+		})
+	}
+}
+
+func TestForwardCaptureJSONTimeoutReturnsErrorObject(t *testing.T) {
+	_, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	prevTimeout := captureResponseTimeout
+	captureResponseTimeout = time.Millisecond
+	defer func() {
+		captureResponseTimeout = prevTimeout
+	}()
+
+	msg, respCh := startForwardCaptureForTest(t, sess, []string{"--format", "json"})
+	if msg.Type != MsgTypeCaptureRequest {
+		t.Fatalf("message type = %v, want capture request", msg.Type)
+	}
+
+	select {
+	case resp := <-respCh:
+		if resp.CmdErr != "" {
+			t.Fatalf("forwardCapture error: %s", resp.CmdErr)
+		}
+		assertJSONErrorResponse(t, resp.CmdOutput, "capture_timeout")
+	case <-time.After(time.Second):
+		t.Fatal("forwardCapture did not return")
+	}
+}
+
+func TestForwardCaptureJSONReturnsSessionShuttingDownWhileWaiting(t *testing.T) {
+	t.Parallel()
+
+	sess := newSession("test-forward-capture-shutdown")
+	stopCrashCheckpointLoop(t, sess)
+	stopped := false
+	defer func() {
+		if !stopped {
+			stopSessionBackgroundLoops(t, sess)
+		}
+	}()
+
+	serverConn, clientConn := net.Pipe()
+	cc := NewClientConn(serverConn)
+	defer cc.Close()
+	defer clientConn.Close()
+
+	if _, err := enqueueSessionQuery(sess, func(sess *Session) (struct{}, error) {
+		sess.clients = []*ClientConn{cc}
+		return struct{}{}, nil
+	}); err != nil {
+		t.Fatalf("enqueueSessionQuery: %v", err)
+	}
+
+	respCh := make(chan *Message, 1)
+	go func() {
+		respCh <- sess.forwardCapture([]string{"--format", "json"})
+	}()
+
+	msg := readCaptureRequestForTest(t, clientConn)
+	if msg.Type != MsgTypeCaptureRequest {
+		t.Fatalf("message type = %v, want capture request", msg.Type)
+	}
+
+	close(sess.sessionEventStop)
+	<-sess.sessionEventDone
+	stopped = true
+
+	select {
+	case resp := <-respCh:
+		if resp.CmdErr != "" {
+			t.Fatalf("forwardCapture error: %s", resp.CmdErr)
+		}
+		assertJSONErrorResponse(t, resp.CmdOutput, "session_shutting_down")
+	case <-time.After(time.Second):
+		t.Fatal("forwardCapture did not return")
+	}
+}
+
 func TestForwardCaptureJSONStressUnderPaneOutput(t *testing.T) {
 	t.Parallel()
 

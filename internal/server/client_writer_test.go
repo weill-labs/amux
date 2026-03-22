@@ -94,6 +94,111 @@ func TestClientWriterLoopStopsWhenCommandRequestsExit(t *testing.T) {
 	}
 }
 
+func TestClientWriterLoopStopsWhenPaneCommandRequestsExit(t *testing.T) {
+	t.Parallel()
+
+	handled := make(chan struct{})
+	w := &clientWriter{
+		commands:     make(chan clientWriterCommand, 1),
+		paneCommands: make(chan clientWriterCommand, 1),
+		stop:         make(chan struct{}),
+		done:         make(chan struct{}),
+	}
+	go w.loop()
+
+	w.paneCommands <- testClientWriterCommand{handled: handled, ret: true}
+
+	select {
+	case <-handled:
+	case <-time.After(time.Second):
+		t.Fatal("clientWriter pane command was not handled")
+	}
+
+	select {
+	case <-w.done:
+	case <-time.After(time.Second):
+		t.Fatal("clientWriter loop did not exit after pane command requested stop")
+	}
+}
+
+func TestClientWriterBootstrappingSkipsNilPaneCommands(t *testing.T) {
+	t.Parallel()
+
+	handled := make(chan struct{})
+	w := &clientWriter{
+		conn:         discardConn{},
+		commands:     make(chan clientWriterCommand, 1),
+		paneCommands: make(chan clientWriterCommand, 1),
+		stop:         make(chan struct{}),
+		done:         make(chan struct{}),
+	}
+	go w.loop()
+	defer w.close()
+
+	w.startBootstrap()
+
+	var cmd clientWriterCommand
+	w.paneCommands <- cmd
+	w.commands <- testClientWriterCommand{handled: handled}
+
+	select {
+	case <-handled:
+	case <-time.After(time.Second):
+		t.Fatal("clientWriter loop did not continue after a nil pane command while bootstrapping")
+	}
+}
+
+func TestClientWriterBootstrappingStopsWhenPaneCommandRequestsExit(t *testing.T) {
+	t.Parallel()
+
+	handled := make(chan struct{})
+	w := &clientWriter{
+		conn:         discardConn{},
+		commands:     make(chan clientWriterCommand, 1),
+		paneCommands: make(chan clientWriterCommand, 1),
+		stop:         make(chan struct{}),
+		done:         make(chan struct{}),
+	}
+	go w.loop()
+
+	w.startBootstrap()
+	w.paneCommands <- testClientWriterCommand{handled: handled, ret: true}
+
+	select {
+	case <-handled:
+	case <-time.After(time.Second):
+		t.Fatal("bootstrapping pane command was not handled")
+	}
+
+	select {
+	case <-w.done:
+	case <-time.After(time.Second):
+		t.Fatal("clientWriter loop did not exit after bootstrapping pane command requested stop")
+	}
+}
+
+func TestClientWriterBootstrappingStopsOnRequestStop(t *testing.T) {
+	t.Parallel()
+
+	w := &clientWriter{
+		conn:         discardConn{},
+		commands:     make(chan clientWriterCommand, 1),
+		paneCommands: make(chan clientWriterCommand, 1),
+		stop:         make(chan struct{}),
+		done:         make(chan struct{}),
+	}
+	go w.loop()
+
+	w.startBootstrap()
+	w.requestStop()
+
+	select {
+	case <-w.done:
+	case <-time.After(time.Second):
+		t.Fatal("clientWriter loop did not exit after stop during bootstrap")
+	}
+}
+
 func TestClientWriterEnqueueReturnsFalseWhenStoppedOrDone(t *testing.T) {
 	t.Parallel()
 
