@@ -22,7 +22,7 @@ func TestPaneDataRenderScreen(t *testing.T) {
 		t.Fatalf("Write: %v", err)
 	}
 
-	pane := &PaneData{Emu: emu}
+	pane := &clientPaneData{emu: emu}
 	if got := pane.RenderScreen(true); !strings.Contains(got, "\033[7m") {
 		t.Fatal("active RenderScreen should preserve reverse-video cursor block")
 	}
@@ -39,7 +39,7 @@ func TestPaneDataRenderScreenStripsOSC8HyperlinksWhenUnsupported(t *testing.T) {
 		t.Fatalf("Write: %v", err)
 	}
 
-	pane := &PaneData{Emu: emu}
+	pane := &clientPaneData{emu: emu}
 	got := pane.RenderScreen(true)
 	if strings.Contains(got, "\033]8;") {
 		t.Fatalf("RenderScreen should strip OSC 8 when hyperlinks are unsupported, got %q", got)
@@ -57,9 +57,9 @@ func TestPaneDataRenderScreenPreservesOSC8HyperlinksWhenSupported(t *testing.T) 
 		t.Fatalf("Write: %v", err)
 	}
 
-	pane := &PaneData{
-		Emu:          emu,
-		Capabilities: proto.ClientCapabilities{Hyperlinks: true},
+	pane := &clientPaneData{
+		emu:  emu,
+		caps: proto.ClientCapabilities{Hyperlinks: true},
 	}
 	got := pane.RenderScreen(true)
 	if !strings.Contains(got, "\033]8;") {
@@ -78,7 +78,7 @@ func TestPaneDataCellAt(t *testing.T) {
 			t.Fatalf("Write: %v", err)
 		}
 
-		pane := &PaneData{Emu: emu}
+		pane := &clientPaneData{emu: emu}
 		active := pane.CellAt(6, 0, true)
 		if active.Style.Attrs&uv.AttrReverse == 0 {
 			t.Fatal("active CellAt should keep reverse-video attribute")
@@ -98,7 +98,7 @@ func TestPaneDataCellAt(t *testing.T) {
 			t.Fatalf("Write: %v", err)
 		}
 
-		pane := &PaneData{Emu: emu}
+		pane := &clientPaneData{emu: emu}
 		cell := pane.CellAt(1, 0, false)
 		if cell.Style.Attrs&uv.AttrReverse == 0 {
 			t.Fatal("inactive CellAt should preserve reverse-video for non-cursor highlights")
@@ -116,7 +116,7 @@ func TestPaneDataCellAt(t *testing.T) {
 			t.Fatalf("Write cursor move: %v", err)
 		}
 
-		pane := &PaneData{Emu: emu}
+		pane := &clientPaneData{emu: emu}
 		cell := pane.CellAt(6, 0, false)
 		if cell.Style.Attrs&uv.AttrReverse == 0 {
 			t.Fatal("inactive CellAt should preserve off-cursor reverse-video space")
@@ -128,9 +128,9 @@ func TestPaneDataAccessors(t *testing.T) {
 	t.Parallel()
 
 	emu := newTestVTEmulator(20, 4)
-	pane := &PaneData{
-		Emu: emu,
-		Info: proto.PaneSnapshot{
+	pane := &clientPaneData{
+		emu: emu,
+		info: proto.PaneSnapshot{
 			ID:         7,
 			Name:       "pane-7",
 			PRs:        []int{42, 314},

@@ -31,7 +31,7 @@ func (s *Session) recalcSize() {
 		return
 	}
 	layoutH := sizeClient.rows - render.GlobalBarHeight
-	if aw := s.ActiveWindow(); aw != nil && sizeClient.cols == aw.Width && layoutH == aw.Height {
+	if aw := s.activeWindow(); aw != nil && sizeClient.cols == aw.Width && layoutH == aw.Height {
 		return
 	}
 	for _, w := range s.Windows {
@@ -40,7 +40,7 @@ func (s *Session) recalcSize() {
 }
 
 func (s *Session) broadcastNow(msg *Message) {
-	clients := append([]*ClientConn(nil), s.clients...)
+	clients := append([]*clientConn(nil), s.clients...)
 	for _, c := range clients {
 		c.sendBroadcast(msg)
 	}
@@ -77,7 +77,7 @@ func (s *Session) metaCallback() func(paneID uint32, update mux.MetaUpdate) {
 }
 
 func (s *Session) broadcastPaneOutputNow(paneID uint32, data []byte, seq uint64) {
-	clients := append([]*ClientConn(nil), s.clients...)
+	clients := append([]*clientConn(nil), s.clients...)
 	msg := &Message{Type: MsgTypePaneOutput, PaneID: paneID, PaneData: data}
 	for _, c := range clients {
 		c.sendPaneOutput(msg, paneID, seq)
@@ -234,7 +234,7 @@ func errorString(err error) string {
 
 // snapshotLayout builds a LayoutSnapshot with multi-window data.
 func (s *Session) snapshotLayout(idleSnap map[uint32]bool) *proto.LayoutSnapshot {
-	w := s.ActiveWindow()
+	w := s.activeWindow()
 	if w == nil {
 		return nil
 	}
@@ -269,7 +269,7 @@ func (s *Session) assertPaneLayoutConsistency() int {
 		if p.Meta.Dormant {
 			continue
 		}
-		if s.FindWindowByPaneID(p.ID) == nil {
+		if s.findWindowByPaneID(p.ID) == nil {
 			log.Printf("[amux] consistency warning: pane %d (%s) is non-dormant but not in any window layout", p.ID, p.Meta.Name)
 			n++
 		}

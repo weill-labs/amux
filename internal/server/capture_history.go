@@ -9,7 +9,7 @@ import (
 	"github.com/weill-labs/amux/internal/proto"
 )
 
-func (s *Session) captureHistory(cc *ClientConn, args []string) *Message {
+func (s *Session) captureHistory(cc *clientConn, args []string) *Message {
 	req := caputil.ParseArgs(args)
 	if err := caputil.ValidateHistoryRequest(req); err != nil {
 		return &Message{Type: MsgTypeCmdResult, CmdErr: err.Error()}
@@ -26,7 +26,7 @@ func (s *Session) captureHistory(cc *ClientConn, args []string) *Message {
 		if err != nil {
 			return historySnapshot{}, err
 		}
-		activeWindow := s.ActiveWindow()
+		activeWindow := s.activeWindow()
 		return historySnapshot{
 			pane:     pane,
 			inWindow: w != nil,

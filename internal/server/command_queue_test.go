@@ -487,10 +487,10 @@ func runTestCommand(t *testing.T, srv *Server, sess *Session, name string, args 
 } {
 	t.Helper()
 
-	serverConn, clientConn := net.Pipe()
+	serverConn, peerConn := net.Pipe()
 	defer serverConn.Close()
-	defer clientConn.Close()
-	cc := NewClientConn(serverConn)
+	defer peerConn.Close()
+	cc := newClientConn(serverConn)
 	defer cc.Close()
 
 	results := make(chan struct {
@@ -499,7 +499,7 @@ func runTestCommand(t *testing.T, srv *Server, sess *Session, name string, args 
 	}, 1)
 	go func() {
 		for {
-			msg, err := ReadMsg(clientConn)
+			msg, err := ReadMsg(peerConn)
 			if err != nil {
 				return
 			}

@@ -21,8 +21,8 @@ const (
 	disconnectReasonShutdown     = "server shutdown"
 )
 
-// ClientConn manages a single client connection to the server.
-type ClientConn struct {
+// clientConn manages a single client connection to the server.
+type clientConn struct {
 	conn               net.Conn
 	ID                 string
 	displayPanesShown  bool
@@ -46,9 +46,9 @@ type pendingMessage struct {
 	outputSeq uint64
 }
 
-// NewClientConn wraps a net.Conn for protocol communication.
-func NewClientConn(conn net.Conn) *ClientConn {
-	cc := &ClientConn{
+// newClientConn wraps a net.Conn for protocol communication.
+func newClientConn(conn net.Conn) *clientConn {
+	cc := &clientConn{
 		conn:      conn,
 		inputIdle: true,
 	}
@@ -58,28 +58,28 @@ func NewClientConn(conn net.Conn) *ClientConn {
 	return cc
 }
 
-func (cc *ClientConn) setNegotiatedCapabilities(caps proto.ClientCapabilities) {
+func (cc *clientConn) setNegotiatedCapabilities(caps proto.ClientCapabilities) {
 	cc.capabilities = caps
 }
 
-func (cc *ClientConn) capabilitySummary() string {
+func (cc *clientConn) capabilitySummary() string {
 	return cc.capabilities.Summary()
 }
 
 // Send writes a message to the client. Thread-safe.
-func (cc *ClientConn) Send(msg *Message) error {
+func (cc *clientConn) Send(msg *Message) error {
 	return cc.ensureWriter().send(msg)
 }
 
 // Close shuts down the connection.
-func (cc *ClientConn) Close() {
+func (cc *clientConn) Close() {
 	if cc.typeKeyQueue != nil {
 		cc.typeKeyQueue.close()
 	}
 	cc.ensureWriter().close()
 }
 
-func (cc *ClientConn) enqueueTypeKeys(chunks []encodedKeyChunk) error {
+func (cc *clientConn) enqueueTypeKeys(chunks []encodedKeyChunk) error {
 	queue := cc.typeKeyQueue
 	if queue == nil {
 		return errPacedInputClosed
@@ -87,7 +87,7 @@ func (cc *ClientConn) enqueueTypeKeys(chunks []encodedKeyChunk) error {
 	return queue.enqueue(chunks)
 }
 
-func (cc *ClientConn) initTypeKeyQueue() {
+func (cc *clientConn) initTypeKeyQueue() {
 	if cc.typeKeyQueue != nil {
 		return
 	}
@@ -96,35 +96,35 @@ func (cc *ClientConn) initTypeKeyQueue() {
 	})
 }
 
-func (cc *ClientConn) startBootstrap() {
+func (cc *clientConn) startBootstrap() {
 	cc.ensureWriter().startBootstrap()
 }
 
-func (cc *ClientConn) finishBootstrap(minOutputSeq map[uint32]uint64) {
+func (cc *clientConn) finishBootstrap(minOutputSeq map[uint32]uint64) {
 	cc.ensureWriter().finishBootstrap(minOutputSeq)
 }
 
-func (cc *ClientConn) sendBroadcast(msg *Message) {
+func (cc *clientConn) sendBroadcast(msg *Message) {
 	cc.ensureWriter().sendBroadcast(msg)
 }
 
-func (cc *ClientConn) sendBroadcastSync(msg *Message) {
+func (cc *clientConn) sendBroadcastSync(msg *Message) {
 	cc.ensureWriter().sendBroadcastSync(msg)
 }
 
-func (cc *ClientConn) sendPaneOutput(msg *Message, paneID uint32, seq uint64) {
+func (cc *clientConn) sendPaneOutput(msg *Message, paneID uint32, seq uint64) {
 	cc.ensureWriter().sendPaneOutput(msg, paneID, seq)
 }
 
-func (cc *ClientConn) isBootstrapping() bool {
+func (cc *clientConn) isBootstrapping() bool {
 	return cc.ensureWriter().isBootstrapping()
 }
 
-func (cc *ClientConn) ensureWriter() *clientWriter {
+func (cc *clientConn) ensureWriter() *clientWriter {
 	return cc.writer
 }
 
-func (cc *ClientConn) markDisconnectReason(reason string) {
+func (cc *clientConn) markDisconnectReason(reason string) {
 	if cc == nil || reason == "" {
 		return
 	}
@@ -135,7 +135,7 @@ func (cc *ClientConn) markDisconnectReason(reason string) {
 	}
 }
 
-func (cc *ClientConn) disconnectReasonValue() string {
+func (cc *clientConn) disconnectReasonValue() string {
 	if cc == nil {
 		return ""
 	}
@@ -144,7 +144,7 @@ func (cc *ClientConn) disconnectReasonValue() string {
 	return cc.disconnectReason
 }
 
-func (cc *ClientConn) finalizeDisconnectReason(sess *Session, err error) {
+func (cc *clientConn) finalizeDisconnectReason(sess *Session, err error) {
 	if err == nil || cc.disconnectReasonValue() != "" {
 		return
 	}
@@ -185,7 +185,7 @@ func cloneMessage(msg *Message) *Message {
 	return &cp
 }
 
-func (cc *ClientConn) activeInputPaneForWrite(sess *Session) *mux.Pane {
+func (cc *clientConn) activeInputPaneForWrite(sess *Session) *mux.Pane {
 	pane := sess.inputTargetPane()
 	if pane == nil {
 		return nil
@@ -211,7 +211,7 @@ func (cc *ClientConn) activeInputPaneForWrite(sess *Session) *mux.Pane {
 }
 
 // readLoop reads messages from the client and dispatches them to the session.
-func (cc *ClientConn) readLoop(srv *Server, sess *Session) {
+func (cc *clientConn) readLoop(srv *Server, sess *Session) {
 	defer func() {
 		sess.enqueueDetachClient(cc)
 		cc.Close()
@@ -258,7 +258,7 @@ func (cc *ClientConn) readLoop(srv *Server, sess *Session) {
 }
 
 // handleCommand dispatches CLI commands through the command registry.
-func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
+func (cc *clientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 	sess.enqueueClientActivity(cc)
 	handler, ok := commandRegistry[msg.CmdName]
 	if !ok {
@@ -271,14 +271,14 @@ func (cc *ClientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 
 // splitRemotePane prepares a proxy pane connected to a remote host, then
 // inserts it into the active window through the session event loop.
-func (cc *ClientConn) splitRemotePane(srv *Server, sess *Session, hostName string, dir mux.SplitDir, rootLevel bool, name string) (*mux.Pane, error) {
+func (cc *clientConn) splitRemotePane(srv *Server, sess *Session, hostName string, dir mux.SplitDir, rootLevel bool, name string) (*mux.Pane, error) {
 	type activeWindowSize struct {
 		width  int
 		height int
 	}
 
 	size, err := enqueueSessionQuery(sess, func(sess *Session) (activeWindowSize, error) {
-		w := sess.ActiveWindow()
+		w := sess.activeWindow()
 		if w == nil {
 			return activeWindowSize{}, fmt.Errorf("no window")
 		}
@@ -315,7 +315,7 @@ func (cc *ClientConn) splitRemotePane(srv *Server, sess *Session, hostName strin
 
 // resolvePaneAcrossWindowsLocked resolves a pane reference, searching the active
 // window first, then all other windows, then the flat pane registry.
-func (cc *ClientConn) resolvePaneAcrossWindowsLocked(sess *Session, ref string) (*mux.Pane, *mux.Window, error) {
+func (cc *clientConn) resolvePaneAcrossWindowsLocked(sess *Session, ref string) (*mux.Pane, *mux.Window, error) {
 	return sess.resolvePaneAcrossWindows(ref)
 }
 

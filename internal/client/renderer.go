@@ -456,7 +456,7 @@ func (r *Renderer) paneLookupSnapshot(snap *rendererSnapshot, paneID uint32) ren
 	if !ok {
 		return nil
 	}
-	return &PaneData{Emu: emu, Info: info, Capabilities: snap.capabilities}
+	return &clientPaneData{emu: emu, info: info, caps: snap.capabilities}
 }
 
 func (r *Renderer) mergeOverlay(snap *rendererSnapshot, overlay render.OverlayState) render.OverlayState {

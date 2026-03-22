@@ -18,13 +18,13 @@ func TestCmdReloadServerWithRequestedExecPath(t *testing.T) {
 		t.Fatalf("WriteFile(%q): %v", execPath, err)
 	}
 
-	serverConn, clientConn := net.Pipe()
+	serverConn, peerConn := net.Pipe()
 	t.Cleanup(func() {
-		_ = clientConn.Close()
+		_ = peerConn.Close()
 		_ = serverConn.Close()
 	})
 
-	cc := NewClientConn(serverConn)
+	cc := newClientConn(serverConn)
 	t.Cleanup(func() { cc.Close() })
 
 	done := make(chan struct{})
@@ -37,12 +37,12 @@ func TestCmdReloadServerWithRequestedExecPath(t *testing.T) {
 		})
 	}()
 
-	msg := readMsgWithTimeout(t, clientConn)
+	msg := readMsgWithTimeout(t, peerConn)
 	if got := msg.CmdOutput; got != "Server reloading...\n" {
 		t.Fatalf("first reply = %q, want reload notice", got)
 	}
 
-	msg = readMsgWithTimeout(t, clientConn)
+	msg = readMsgWithTimeout(t, peerConn)
 	if got := msg.CmdErr; got != "no session to reload" {
 		t.Fatalf("second reply = %q, want no session error", got)
 	}
@@ -57,13 +57,13 @@ func TestCmdReloadServerWithRequestedExecPath(t *testing.T) {
 func TestCmdReloadServerWithoutRequestedExecPathFallsBack(t *testing.T) {
 	t.Parallel()
 
-	serverConn, clientConn := net.Pipe()
+	serverConn, peerConn := net.Pipe()
 	t.Cleanup(func() {
-		_ = clientConn.Close()
+		_ = peerConn.Close()
 		_ = serverConn.Close()
 	})
 
-	cc := NewClientConn(serverConn)
+	cc := newClientConn(serverConn)
 	t.Cleanup(func() { cc.Close() })
 
 	done := make(chan struct{})
@@ -75,12 +75,12 @@ func TestCmdReloadServerWithoutRequestedExecPathFallsBack(t *testing.T) {
 		})
 	}()
 
-	msg := readMsgWithTimeout(t, clientConn)
+	msg := readMsgWithTimeout(t, peerConn)
 	if got := msg.CmdOutput; got != "Server reloading...\n" {
 		t.Fatalf("first reply = %q, want reload notice", got)
 	}
 
-	msg = readMsgWithTimeout(t, clientConn)
+	msg = readMsgWithTimeout(t, peerConn)
 	if got := msg.CmdErr; got != "no session to reload" {
 		t.Fatalf("second reply = %q, want no session error", got)
 	}

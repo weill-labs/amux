@@ -43,7 +43,7 @@ var resolveServerReloadExecPath = reload.ResolveExecutable
 
 // CommandContext provides all state a command handler needs.
 type CommandContext struct {
-	CC   *ClientConn
+	CC   *clientConn
 	Srv  *Server
 	Sess *Session
 	Args []string
@@ -418,7 +418,7 @@ func cmdSplit(ctx *CommandContext) {
 		}
 		meta := mux.PaneMeta{Name: args.name, Dir: mux.PaneCwd(activePid)}
 		ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
-			w := sess.ActiveWindow()
+			w := sess.activeWindow()
 			if w == nil {
 				return commandMutationResult{err: fmt.Errorf("no window")}
 			}
@@ -451,7 +451,7 @@ func cmdFocus(ctx *CommandContext) {
 		direction = ctx.Args[0]
 	}
 	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
-		w := sess.ActiveWindow()
+		w := sess.activeWindow()
 		if w == nil {
 			return commandMutationResult{err: fmt.Errorf("no session")}
 		}
@@ -541,7 +541,7 @@ func cmdSpawn(ctx *CommandContext) {
 			meta.Dir = mux.PaneCwd(activePid)
 		}
 		ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
-			w := sess.ActiveWindow()
+			w := sess.activeWindow()
 			if w == nil {
 				return commandMutationResult{err: fmt.Errorf("no window")}
 			}
@@ -565,7 +565,7 @@ func cmdSpawn(ctx *CommandContext) {
 
 func cmdZoom(ctx *CommandContext) {
 	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
-		w := sess.ActiveWindow()
+		w := sess.activeWindow()
 		if w == nil {
 			return commandMutationResult{err: fmt.Errorf("no session")}
 		}
@@ -630,7 +630,7 @@ func cmdRestore(ctx *CommandContext) {
 
 func cmdToggleMinimize(ctx *CommandContext) {
 	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
-		w := sess.ActiveWindow()
+		w := sess.activeWindow()
 		if w == nil {
 			return commandMutationResult{err: fmt.Errorf("no active window")}
 		}
@@ -653,7 +653,7 @@ func cmdKill(ctx *CommandContext) {
 	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
 		var pane *mux.Pane
 		if len(ctx.Args) == 0 {
-			w := sess.ActiveWindow()
+			w := sess.activeWindow()
 			if w != nil {
 				pane = w.ActivePane
 			}
@@ -881,7 +881,7 @@ func resolveBroadcastPaneRefs(sess *Session, refs []string) ([]resolvedPaneRef, 
 }
 
 func resolveBroadcastWindowTargets(sess *Session, ref string) ([]resolvedPaneRef, error) {
-	window := sess.ResolveWindow(ref)
+	window := sess.resolveWindow(ref)
 	if window == nil {
 		return nil, fmt.Errorf("window %q not found", ref)
 	}
@@ -911,7 +911,7 @@ func resolveBroadcastMatchTargets(sess *Session, pattern string) ([]resolvedPane
 		if !matched {
 			continue
 		}
-		targets = appendBroadcastTarget(targets, seen, pane, sess.FindWindowByPaneID(pane.ID))
+		targets = appendBroadcastTarget(targets, seen, pane, sess.findWindowByPaneID(pane.ID))
 	}
 	if len(targets) == 0 {
 		return nil, fmt.Errorf("broadcast: no panes match %q", pattern)
@@ -1009,7 +1009,7 @@ func cmdNewWindow(ctx *CommandContext) {
 	}
 	meta := mux.PaneMeta{Dir: mux.PaneCwd(activePid)}
 	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
-		w := sess.ActiveWindow()
+		w := sess.activeWindow()
 		if w == nil {
 			return commandMutationResult{err: fmt.Errorf("no session")}
 		}
@@ -1064,7 +1064,7 @@ func cmdSelectWindow(ctx *CommandContext) {
 	ref := ctx.Args[0]
 
 	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
-		w := sess.ResolveWindow(ref)
+		w := sess.resolveWindow(ref)
 		if w == nil {
 			return commandMutationResult{err: fmt.Errorf("window %q not found", ref)}
 		}
@@ -1079,22 +1079,22 @@ func cmdSelectWindow(ctx *CommandContext) {
 
 func cmdNextWindow(ctx *CommandContext) {
 	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
-		sess.NextWindow()
+		sess.nextWindow()
 		return commandMutationResult{
 			output:          "Next window\n",
 			broadcastLayout: true,
-			paneRenders:     activePaneRender(sess.ActiveWindow()),
+			paneRenders:     activePaneRender(sess.activeWindow()),
 		}
 	}))
 }
 
 func cmdPrevWindow(ctx *CommandContext) {
 	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
-		sess.PrevWindow()
+		sess.prevWindow()
 		return commandMutationResult{
 			output:          "Previous window\n",
 			broadcastLayout: true,
-			paneRenders:     activePaneRender(sess.ActiveWindow()),
+			paneRenders:     activePaneRender(sess.activeWindow()),
 		}
 	}))
 }
@@ -1106,7 +1106,7 @@ func cmdRenameWindow(ctx *CommandContext) {
 	}
 	name := ctx.Args[0]
 	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
-		w := sess.ActiveWindow()
+		w := sess.activeWindow()
 		if w == nil {
 			return commandMutationResult{err: fmt.Errorf("no window")}
 		}
@@ -1131,7 +1131,7 @@ func cmdResizeBorder(ctx *CommandContext) {
 		return
 	}
 	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
-		if w := sess.ActiveWindow(); w != nil {
+		if w := sess.activeWindow(); w != nil {
 			w.ResizeBorder(x, y, delta)
 		}
 		return commandMutationResult{broadcastLayout: true}
@@ -1150,7 +1150,7 @@ func cmdResizeActive(ctx *CommandContext) {
 		return
 	}
 	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
-		if w := sess.ActiveWindow(); w != nil {
+		if w := sess.activeWindow(); w != nil {
 			w.ResizeActive(direction, delta)
 		}
 		return commandMutationResult{broadcastLayout: true}
@@ -1216,7 +1216,7 @@ func cmdResizeWindow(ctx *CommandContext) {
 
 func cmdSwap(ctx *CommandContext) {
 	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
-		w := sess.ActiveWindow()
+		w := sess.activeWindow()
 		if w == nil {
 			return commandMutationResult{err: fmt.Errorf("no session")}
 		}
@@ -1332,7 +1332,7 @@ func cmdMove(ctx *CommandContext) {
 
 func cmdRotate(ctx *CommandContext) {
 	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
-		w := sess.ActiveWindow()
+		w := sess.activeWindow()
 		if w == nil {
 			return commandMutationResult{err: fmt.Errorf("no session")}
 		}
@@ -1352,7 +1352,7 @@ func cmdRotate(ctx *CommandContext) {
 func cmdCopyMode(ctx *CommandContext) {
 	if len(ctx.Args) == 0 {
 		pane, err := enqueueSessionQuery(ctx.Sess, func(sess *Session) (resolvedPaneRef, error) {
-			w := sess.ActiveWindow()
+			w := sess.activeWindow()
 			if w == nil || w.ActivePane == nil {
 				return resolvedPaneRef{}, fmt.Errorf("no active pane")
 			}
@@ -2144,7 +2144,7 @@ func cmdUnsplice(ctx *CommandContext) {
 	hostName := ctx.Args[0]
 
 	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
-		w := sess.ActiveWindow()
+		w := sess.activeWindow()
 		if w == nil {
 			return commandMutationResult{err: fmt.Errorf("no active window")}
 		}
@@ -2444,7 +2444,7 @@ func cmdInjectProxy(ctx *CommandContext) {
 	}
 	hostName := ctx.Args[0]
 	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
-		w := sess.ActiveWindow()
+		w := sess.activeWindow()
 		if w == nil {
 			return commandMutationResult{err: fmt.Errorf("no window")}
 		}

@@ -30,16 +30,16 @@ func findCrashPaneState(t *testing.T, cp *checkpoint.CrashCheckpoint, name strin
 	return checkpoint.CrashPaneState{}
 }
 
-func newCaptureTestClient(t *testing.T) (*ClientConn, net.Conn, func()) {
+func newCaptureTestClient(t *testing.T) (*clientConn, net.Conn, func()) {
 	t.Helper()
 
-	serverConn, clientConn := net.Pipe()
-	cc := NewClientConn(serverConn)
+	serverConn, peerConn := net.Pipe()
+	cc := newClientConn(serverConn)
 	cleanup := func() {
 		cc.Close()
-		_ = clientConn.Close()
+		_ = peerConn.Close()
 	}
-	return cc, clientConn, cleanup
+	return cc, peerConn, cleanup
 }
 
 func TestCrashCheckpointBuildAndWrite(t *testing.T) {
@@ -321,7 +321,7 @@ func TestPrepareRemotePaneAndInsertPreparedPane(t *testing.T) {
 	}
 
 	inserted := mustSessionQuery(t, sess, func(sess *Session) bool {
-		return sess.findPaneByID(prepared.ID) != nil && sess.ActiveWindow().Root.FindPane(prepared.ID) != nil
+		return sess.findPaneByID(prepared.ID) != nil && sess.activeWindow().Root.FindPane(prepared.ID) != nil
 	})
 	if !inserted {
 		t.Fatal("prepared pane should be inserted into session and layout")
@@ -342,20 +342,20 @@ func TestServerHandleConnAndSetupRemoteManager(t *testing.T) {
 		t.Fatal("SetupRemoteManager should install a manager on the session")
 	}
 
-	serverConn, clientConn := net.Pipe()
+	serverConn, peerConn := net.Pipe()
 	done := make(chan struct{})
 	go func() {
 		srv.handleConn(serverConn)
 		close(done)
 	}()
 
-	if err := proto.WriteMsg(clientConn, &Message{Type: MsgTypeCommand, CmdName: "status"}); err != nil {
+	if err := proto.WriteMsg(peerConn, &Message{Type: MsgTypeCommand, CmdName: "status"}); err != nil {
 		t.Fatalf("WriteMsg command: %v", err)
 	}
-	if err := clientConn.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+	if err := peerConn.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
 		t.Fatalf("SetReadDeadline: %v", err)
 	}
-	resp, err := ReadMsg(clientConn)
+	resp, err := ReadMsg(peerConn)
 	if err != nil {
 		t.Fatalf("ReadMsg response: %v", err)
 	}
@@ -383,7 +383,7 @@ func TestServerHandleConnAndSetupRemoteManager(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("handleConn did not close unknown message type")
 	}
-	_ = clientConn.Close()
+	_ = peerConn.Close()
 	_ = clientConn2.Close()
 }
 

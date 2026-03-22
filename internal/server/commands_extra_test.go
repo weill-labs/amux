@@ -15,8 +15,8 @@ import (
 func runOneShotCommand(t *testing.T, sess *Session, args []string, fn func(*CommandContext)) *Message {
 	t.Helper()
 
-	serverConn, clientConn := net.Pipe()
-	cc := NewClientConn(serverConn)
+	serverConn, peerConn := net.Pipe()
+	cc := newClientConn(serverConn)
 	cc.ID = "cmd-client"
 
 	done := make(chan struct{})
@@ -25,7 +25,7 @@ func runOneShotCommand(t *testing.T, sess *Session, args []string, fn func(*Comm
 		fn(&CommandContext{CC: cc, Sess: sess, Args: args})
 	}()
 
-	msg := readMsgWithTimeout(t, clientConn)
+	msg := readMsgWithTimeout(t, peerConn)
 	select {
 	case <-done:
 	case <-time.After(time.Second):
@@ -33,7 +33,7 @@ func runOneShotCommand(t *testing.T, sess *Session, args []string, fn func(*Comm
 	}
 
 	cc.Close()
-	_ = clientConn.Close()
+	_ = peerConn.Close()
 	_ = serverConn.Close()
 	return msg
 }
@@ -206,13 +206,13 @@ func TestCmdWaitUIUnknownImmediateAndTimeout(t *testing.T) {
 		stopCrashCheckpointLoop(t, sess)
 		defer stopSessionBackgroundLoops(t, sess)
 
-		serverConn, clientConn := net.Pipe()
-		cc := NewClientConn(serverConn)
+		serverConn, peerConn := net.Pipe()
+		cc := newClientConn(serverConn)
 		cc.ID = "client-1"
 		cc.copyModeShown = true
 		cc.uiGeneration = 3
 		mustSessionQuery(t, sess, func(sess *Session) struct{} {
-			sess.clients = []*ClientConn{cc}
+			sess.clients = []*clientConn{cc}
 			return struct{}{}
 		})
 
@@ -222,7 +222,7 @@ func TestCmdWaitUIUnknownImmediateAndTimeout(t *testing.T) {
 			cmdWaitUI(&CommandContext{CC: cc, Sess: sess, Args: []string{"copy-mode-shown", "--after", "2"}})
 		}()
 
-		msg := readMsgWithTimeout(t, clientConn)
+		msg := readMsgWithTimeout(t, peerConn)
 		if got := msg.CmdOutput; got != "copy-mode-shown\n" {
 			t.Fatalf("cmdWaitUI immediate output = %q", got)
 		}
@@ -234,7 +234,7 @@ func TestCmdWaitUIUnknownImmediateAndTimeout(t *testing.T) {
 		}
 
 		cc.Close()
-		_ = clientConn.Close()
+		_ = peerConn.Close()
 		_ = serverConn.Close()
 	})
 
@@ -245,12 +245,12 @@ func TestCmdWaitUIUnknownImmediateAndTimeout(t *testing.T) {
 		stopCrashCheckpointLoop(t, sess)
 		defer stopSessionBackgroundLoops(t, sess)
 
-		serverConn, clientConn := net.Pipe()
-		cc := NewClientConn(serverConn)
+		serverConn, peerConn := net.Pipe()
+		cc := newClientConn(serverConn)
 		cc.ID = "client-2"
 		cc.inputIdle = true
 		mustSessionQuery(t, sess, func(sess *Session) struct{} {
-			sess.clients = []*ClientConn{cc}
+			sess.clients = []*clientConn{cc}
 			return struct{}{}
 		})
 
@@ -260,7 +260,7 @@ func TestCmdWaitUIUnknownImmediateAndTimeout(t *testing.T) {
 			cmdWaitUI(&CommandContext{CC: cc, Sess: sess, Args: []string{"input-busy", "--timeout", "20ms"}})
 		}()
 
-		msg := readMsgWithTimeout(t, clientConn)
+		msg := readMsgWithTimeout(t, peerConn)
 		if got := msg.CmdErr; got != "timeout waiting for input-busy on client-2" {
 			t.Fatalf("cmdWaitUI timeout error = %q", got)
 		}
@@ -272,7 +272,7 @@ func TestCmdWaitUIUnknownImmediateAndTimeout(t *testing.T) {
 		}
 
 		cc.Close()
-		_ = clientConn.Close()
+		_ = peerConn.Close()
 		_ = serverConn.Close()
 	})
 }
@@ -300,7 +300,7 @@ func TestCmdListClientsFormatsClientsAndEmptyState(t *testing.T) {
 		stopCrashCheckpointLoop(t, sess)
 		defer stopSessionBackgroundLoops(t, sess)
 
-		cc1 := &ClientConn{
+		cc1 := &clientConn{
 			ID:                "client-1",
 			displayPanesShown: true,
 			cols:              80,
@@ -308,7 +308,7 @@ func TestCmdListClientsFormatsClientsAndEmptyState(t *testing.T) {
 			capabilities:      proto.ClientCapabilities{Hyperlinks: true},
 			inputIdle:         true,
 		}
-		cc2 := &ClientConn{
+		cc2 := &clientConn{
 			ID:          "client-2",
 			chooserMode: chooserWindow,
 			cols:        60,
@@ -316,7 +316,7 @@ func TestCmdListClientsFormatsClientsAndEmptyState(t *testing.T) {
 			inputIdle:   true,
 		}
 		mustSessionQuery(t, sess, func(sess *Session) struct{} {
-			sess.clients = []*ClientConn{cc1, cc2}
+			sess.clients = []*clientConn{cc1, cc2}
 			sess.sizeClient.Store(cc2)
 			return struct{}{}
 		})
@@ -430,8 +430,8 @@ func TestCmdEventsStreamsAndThrottlesOutput(t *testing.T) {
 		})
 		sess.Panes = []*mux.Pane{pane}
 
-		serverConn, clientConn := net.Pipe()
-		cc := NewClientConn(serverConn)
+		serverConn, peerConn := net.Pipe()
+		cc := newClientConn(serverConn)
 		done := make(chan struct{})
 		go func() {
 			defer close(done)
@@ -439,16 +439,16 @@ func TestCmdEventsStreamsAndThrottlesOutput(t *testing.T) {
 		}()
 
 		for i := 0; i < 2; i++ {
-			_ = readCmdResultEvent(t, clientConn)
+			_ = readCmdResultEvent(t, peerConn)
 		}
 
 		sess.paneOutputCallback()(pane.ID, []byte("hello"), 1)
-		ev := readCmdResultEvent(t, clientConn)
+		ev := readCmdResultEvent(t, peerConn)
 		if ev.Type != EventOutput || ev.PaneID != pane.ID || ev.PaneName != "pane-1" {
 			t.Fatalf("output event = %+v", ev)
 		}
 
-		_ = clientConn.Close()
+		_ = peerConn.Close()
 		sess.paneOutputCallback()(pane.ID, []byte("again"), 2)
 
 		select {
@@ -476,8 +476,8 @@ func TestCmdEventsStreamsAndThrottlesOutput(t *testing.T) {
 		})
 		sess.Panes = []*mux.Pane{pane1, pane2}
 
-		serverConn, clientConn := net.Pipe()
-		cc := NewClientConn(serverConn)
+		serverConn, peerConn := net.Pipe()
+		cc := newClientConn(serverConn)
 		done := make(chan struct{})
 		go func() {
 			defer close(done)
@@ -485,15 +485,15 @@ func TestCmdEventsStreamsAndThrottlesOutput(t *testing.T) {
 		}()
 
 		for i := 0; i < 3; i++ {
-			_ = readCmdResultEvent(t, clientConn)
+			_ = readCmdResultEvent(t, peerConn)
 		}
 
 		sess.paneOutputCallback()(pane2.ID, []byte("pane2"), 1)
 		sess.paneOutputCallback()(pane1.ID, []byte("pane1"), 1)
 		sess.paneOutputCallback()(pane1.ID, []byte("pane1 again"), 2)
 
-		first := readCmdResultEvent(t, clientConn)
-		second := readCmdResultEvent(t, clientConn)
+		first := readCmdResultEvent(t, peerConn)
+		second := readCmdResultEvent(t, peerConn)
 		if first.Type != EventOutput || second.Type != EventOutput {
 			t.Fatalf("expected output events, got %+v and %+v", first, second)
 		}
@@ -501,7 +501,7 @@ func TestCmdEventsStreamsAndThrottlesOutput(t *testing.T) {
 			t.Fatalf("throttled pane order = [%d %d], want [%d %d]", first.PaneID, second.PaneID, pane1.ID, pane2.ID)
 		}
 
-		_ = clientConn.Close()
+		_ = peerConn.Close()
 		sess.paneOutputCallback()(pane1.ID, []byte("final"), 3)
 
 		select {

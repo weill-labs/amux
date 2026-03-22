@@ -57,8 +57,8 @@ func TestHandleAttachStoresNegotiatedCapabilities(t *testing.T) {
 			sess.Panes = []*mux.Pane{pane}
 
 			srv := &Server{sessions: map[string]*Session{sess.Name: sess}}
-			serverConn, clientConn := net.Pipe()
-			defer clientConn.Close()
+			serverConn, peerConn := net.Pipe()
+			defer peerConn.Close()
 
 			done := make(chan struct{})
 			go func() {
@@ -72,9 +72,9 @@ func TestHandleAttachStoresNegotiatedCapabilities(t *testing.T) {
 				})
 			}()
 
-			readMsgWithTimeout(t, clientConn)
-			readMsgWithTimeout(t, clientConn)
-			readUntil(t, clientConn, func(msg *Message) bool {
+			readMsgWithTimeout(t, peerConn)
+			readMsgWithTimeout(t, peerConn)
+			readUntil(t, peerConn, func(msg *Message) bool {
 				return msg.Type == MsgTypeLayout
 			})
 
@@ -89,7 +89,7 @@ func TestHandleAttachStoresNegotiatedCapabilities(t *testing.T) {
 				t.Fatalf("capabilities = %q, want %q", got, tt.want)
 			}
 
-			if err := WriteMsg(clientConn, &Message{Type: MsgTypeDetach}); err != nil {
+			if err := WriteMsg(peerConn, &Message{Type: MsgTypeDetach}); err != nil {
 				t.Fatalf("WriteMsg detach: %v", err)
 			}
 

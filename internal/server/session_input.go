@@ -3,7 +3,7 @@ package server
 import "github.com/weill-labs/amux/internal/mux"
 
 func (s *Session) activeInputPane() *mux.Pane {
-	w := s.ActiveWindow()
+	w := s.activeWindow()
 	if w == nil {
 		return nil
 	}

@@ -23,8 +23,8 @@ func (s *Server) Reload(execPath string) error {
 		return fmt.Errorf("no session to reload")
 	}
 
-	clients, err := enqueueSessionQuery(sess, func(sess *Session) ([]*ClientConn, error) {
-		return append([]*ClientConn(nil), sess.clients...), nil
+	clients, err := enqueueSessionQuery(sess, func(sess *Session) ([]*clientConn, error) {
+		return append([]*clientConn(nil), sess.clients...), nil
 	})
 	if err != nil {
 		return err

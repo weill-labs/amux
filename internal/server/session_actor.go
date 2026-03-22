@@ -57,7 +57,7 @@ type hookWaiter struct {
 
 type captureRequest struct {
 	id          uint64
-	client      *ClientConn
+	client      *clientConn
 	args        []string
 	agentStatus map[uint32]proto.PaneAgentStatus
 	reply       chan *Message

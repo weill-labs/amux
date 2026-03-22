@@ -38,9 +38,9 @@ type Session struct {
 	Windows        []*mux.Window // ordered list of windows
 	ActiveWindowID uint32        // which window is displayed
 	Panes          []*mux.Pane   // flat list of ALL panes across all windows
-	clients        []*ClientConn
+	clients        []*clientConn
 	connectionLog  *ConnectionLog
-	sizeClient     atomic.Pointer[ClientConn] // latest active client whose terminal size owns the session
+	sizeClient     atomic.Pointer[clientConn] // latest active client whose terminal size owns the session
 	clientCounter  atomic.Uint32
 	counter        atomic.Uint32 // pane ID counter
 	windowCounter  atomic.Uint32 // window ID counter
@@ -72,7 +72,7 @@ type Session struct {
 
 	// Hook system — session-level, not checkpointed.
 	Hooks *hooks.Registry
-	idle  *IdleTracker
+	idle  *idleTracker
 
 	// Event stream — used by `amux events` for push-based notifications.
 	// Only accessed from the session event loop (no mutex needed).
@@ -268,7 +268,7 @@ func (s *Session) writeCrashCheckpoint() {
 	}
 }
 
-func (s *Session) hasClient(cc *ClientConn) bool {
+func (s *Session) hasClient(cc *clientConn) bool {
 	for _, c := range s.clients {
 		if c == cc {
 			return true
@@ -277,11 +277,11 @@ func (s *Session) hasClient(cc *ClientConn) bool {
 	return false
 }
 
-func (s *Session) currentSizeClient() *ClientConn {
+func (s *Session) currentSizeClient() *clientConn {
 	return s.sizeClient.Load()
 }
 
-func (s *Session) noteClientActivity(cc *ClientConn) bool {
+func (s *Session) noteClientActivity(cc *clientConn) bool {
 	if cc == nil || !s.hasClient(cc) || s.currentSizeClient() == cc {
 		return false
 	}
@@ -289,7 +289,7 @@ func (s *Session) noteClientActivity(cc *ClientConn) bool {
 	return true
 }
 
-func (s *Session) effectiveSizeClient() *ClientConn {
+func (s *Session) effectiveSizeClient() *clientConn {
 	if cc := s.currentSizeClient(); cc != nil && s.hasClient(cc) {
 		return cc
 	}
@@ -305,7 +305,7 @@ func (s *Session) effectiveSizeClient() *ClientConn {
 
 // removeClient removes a client from the session and recalculates
 // the session size if the active size owner disconnected.
-func (s *Session) removeClient(cc *ClientConn) {
+func (s *Session) removeClient(cc *clientConn) {
 	for i, c := range s.clients {
 		if c == cc {
 			s.clients = append(s.clients[:i], s.clients[i+1:]...)
@@ -369,7 +369,7 @@ func newSessionWithScrollback(name string, scrollbackLines int) *Session {
 		connectionLog:   newConnectionLog(defaultConnectionLogSize),
 	}
 	sess.Hooks = hooks.NewRegistry()
-	sess.idle = NewIdleTracker()
+	sess.idle = newIdleTracker()
 	sess.takenOverPanes = make(map[uint32]bool)
 	sess.layoutWaiters = make(map[uint64]layoutWaiter)
 	sess.clipboardWaiters = make(map[uint64]clipboardWaiter)
@@ -648,7 +648,7 @@ func (s *Server) handleAttach(conn net.Conn, msg *Message) {
 		return
 	}
 
-	cc := NewClientConn(conn)
+	cc := newClientConn(conn)
 	cc.ID = fmt.Sprintf("client-%d", sess.clientCounter.Add(1))
 	cc.initTypeKeyQueue()
 	cc.setNegotiatedCapabilities(proto.NegotiateClientCapabilities(msg.AttachCapabilities))
@@ -692,7 +692,7 @@ func (s *Server) handleAttach(conn net.Conn, msg *Message) {
 }
 
 func (s *Server) handleOneShot(conn net.Conn, msg *Message) {
-	cc := NewClientConn(conn)
+	cc := newClientConn(conn)
 	defer cc.Close()
 
 	sess := s.firstSession()

@@ -578,7 +578,7 @@ func writeSignalFD(f **os.File, msg string) {
 func runServer(sessionName string, managedTakeover bool) {
 	server.BuildVersion = buildVersion()
 
-	if err := terminfo.EnsureInstalled(); err != nil {
+	if err := terminfo.Install(); err != nil {
 		fmt.Fprintf(os.Stderr, "amux server: %v\n", err)
 		os.Exit(1)
 	}

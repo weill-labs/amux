@@ -59,7 +59,7 @@ func benchSessionWithPanes(n int) *Session {
 		Windows:        []*mux.Window{w},
 		ActiveWindowID: w.ID,
 		Panes:          panes,
-		idle:           NewIdleTracker(),
+		idle:           newIdleTracker(),
 		layoutWaiters:  make(map[uint64]layoutWaiter),
 	}
 }
@@ -84,7 +84,7 @@ func BenchmarkSessionBroadcastLayout(b *testing.B) {
 	for _, panes := range []int{1, 4, 20} {
 		b.Run(fmt.Sprintf("panes_%d", panes), func(b *testing.B) {
 			sess := benchSessionWithPanes(panes)
-			sess.clients = []*ClientConn{NewClientConn(discardConn{})}
+			sess.clients = []*clientConn{newClientConn(discardConn{})}
 			defer sess.clients[0].Close()
 
 			b.ReportAllocs()

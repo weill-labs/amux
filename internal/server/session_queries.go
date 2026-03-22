@@ -60,7 +60,7 @@ type clientListEntry struct {
 }
 
 type uiClientSnapshot struct {
-	client       *ClientConn
+	client       *clientConn
 	clientID     string
 	currentMatch bool
 	currentGen   uint64
@@ -111,7 +111,7 @@ func (s *Session) resolveUIClientSnapshot(requestedClientID, eventName string) (
 }
 
 func (s *Session) resolvePaneAcrossWindows(ref string) (*mux.Pane, *mux.Window, error) {
-	w := s.ActiveWindow()
+	w := s.activeWindow()
 	if w == nil {
 		return nil, nil, fmt.Errorf("no session")
 	}
@@ -127,7 +127,7 @@ func (s *Session) resolvePaneAcrossWindows(ref string) (*mux.Pane, *mux.Window, 
 		}
 	}
 	if pane := s.findPaneByRef(ref); pane != nil {
-		return pane, s.FindWindowByPaneID(pane.ID), nil
+		return pane, s.findWindowByPaneID(pane.ID), nil
 	}
 	return nil, nil, fmt.Errorf("pane %q not found", ref)
 }
@@ -148,7 +148,7 @@ func (s *Session) resolvePaneWindow(cmdName string, args []string) (*mux.Pane, *
 
 func (s *Session) queryActiveWindowSnapshot() (activeWindowSnapshot, error) {
 	return enqueueSessionQuery(s, func(s *Session) (activeWindowSnapshot, error) {
-		w := s.ActiveWindow()
+		w := s.activeWindow()
 		if w == nil {
 			return activeWindowSnapshot{}, fmt.Errorf("no window")
 		}
@@ -188,7 +188,7 @@ func (s *Session) queryResolvedPane(ref string) (resolvedPaneRef, error) {
 func (s *Session) queryPaneList() ([]paneListEntry, error) {
 	return enqueueSessionQuery(s, func(s *Session) ([]paneListEntry, error) {
 		entries := make([]paneListEntry, 0, len(s.Panes))
-		w := s.ActiveWindow()
+		w := s.activeWindow()
 		for _, p := range s.Panes {
 			entry := paneListEntry{
 				paneID:    p.ID,
@@ -211,7 +211,7 @@ func (s *Session) queryPaneList() ([]paneListEntry, error) {
 			case p.Meta.Dormant:
 				entry.windowName = "(dormant)"
 			default:
-				if pw := s.FindWindowByPaneID(p.ID); pw != nil {
+				if pw := s.findWindowByPaneID(p.ID); pw != nil {
 					entry.windowName = pw.Name
 				}
 			}
@@ -232,7 +232,7 @@ func (s *Session) querySessionStatus() (sessionStatusSnapshot, error) {
 				snap.minimized++
 			}
 		}
-		if w := s.ActiveWindow(); w != nil && w.ZoomedPaneID != 0 {
+		if w := s.activeWindow(); w != nil && w.ZoomedPaneID != 0 {
 			if pane := s.findPaneByID(w.ZoomedPaneID); pane != nil {
 				snap.zoomed = pane.Meta.Name
 			}
@@ -291,8 +291,8 @@ func (s *Session) queryUIClient(requestedClientID, eventName string) (uiClientSn
 	})
 }
 
-func (s *Session) queryFirstClient() (*ClientConn, error) {
-	return enqueueSessionQuery(s, func(s *Session) (*ClientConn, error) {
+func (s *Session) queryFirstClient() (*clientConn, error) {
+	return enqueueSessionQuery(s, func(s *Session) (*clientConn, error) {
 		if len(s.clients) == 0 {
 			return nil, fmt.Errorf("no client attached")
 		}

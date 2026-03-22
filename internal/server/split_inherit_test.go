@@ -51,10 +51,10 @@ func TestSplitInheritsRemoteHost(t *testing.T) {
 	// Send the split command through handleCommand with a pipe to capture the response.
 	// handleCommand may send layout broadcasts before the cmd result, so drain
 	// messages asynchronously and pick out the MsgTypeCmdResult.
-	serverConn, clientConn := net.Pipe()
+	serverConn, peerConn := net.Pipe()
 	defer serverConn.Close()
-	defer clientConn.Close()
-	cc := NewClientConn(serverConn)
+	defer peerConn.Close()
+	cc := newClientConn(serverConn)
 	defer cc.Close()
 
 	type cmdResult struct {
@@ -63,7 +63,7 @@ func TestSplitInheritsRemoteHost(t *testing.T) {
 	results := make(chan cmdResult, 1)
 	go func() {
 		for {
-			msg, err := ReadMsg(clientConn)
+			msg, err := ReadMsg(peerConn)
 			if err != nil {
 				return
 			}

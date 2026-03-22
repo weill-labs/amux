@@ -78,7 +78,7 @@ func TestCopyToClipboardPrefersOSC52OverSystemClipboardWhenSSH(t *testing.T) {
 		runClipboardCommand = prevRun
 	})
 
-	CopyToClipboard("remote copy")
+	copyToClipboardLocal("remote copy")
 
 	if got, want := wrote.String(), osc52ClipboardSequence("remote copy"); got != want {
 		t.Fatalf("clipboard output = %q, want %q", got, want)
@@ -102,7 +102,7 @@ func TestCopyToClipboardWrapsOSC52ForTmuxWhenSSH(t *testing.T) {
 		runClipboardCommand = prevRun
 	})
 
-	CopyToClipboard("remote copy")
+	copyToClipboardLocal("remote copy")
 
 	if got, want := wrote.String(), ansi.TmuxPassthrough(osc52ClipboardSequence("remote copy")); got != want {
 		t.Fatalf("clipboard output = %q, want %q", got, want)
@@ -124,7 +124,7 @@ func TestCopyToClipboardFallsBackToOSC52WhenSystemClipboardFails(t *testing.T) {
 		runClipboardCommand = prevRun
 	})
 
-	CopyToClipboard("fallback copy")
+	copyToClipboardLocal("fallback copy")
 
 	if got, want := wrote.String(), osc52ClipboardSequence("fallback copy"); got != want {
 		t.Fatalf("clipboard output = %q, want %q", got, want)
@@ -146,7 +146,7 @@ func TestCopyToClipboardWrapsFallbackOSC52ForTmux(t *testing.T) {
 		runClipboardCommand = prevRun
 	})
 
-	CopyToClipboard("fallback copy")
+	copyToClipboardLocal("fallback copy")
 
 	if got, want := wrote.String(), ansi.TmuxPassthrough(osc52ClipboardSequence("fallback copy")); got != want {
 		t.Fatalf("clipboard output = %q, want %q", got, want)
@@ -175,7 +175,7 @@ func TestCopyToClipboardUsesSystemClipboardOutsideSSH(t *testing.T) {
 		runClipboardCommand = prevRun
 	})
 
-	CopyToClipboard("local copy")
+	copyToClipboardLocal("local copy")
 
 	if wrote.Len() != 0 {
 		t.Fatalf("clipboard stdout = %q, want empty", wrote.String())
@@ -201,7 +201,7 @@ func TestCopyToClipboardEmptyTextDoesNothing(t *testing.T) {
 		runClipboardCommand = prevRun
 	})
 
-	CopyToClipboard("")
+	copyToClipboardLocal("")
 
 	if wrote.Len() != 0 {
 		t.Fatalf("clipboard stdout = %q, want empty", wrote.String())

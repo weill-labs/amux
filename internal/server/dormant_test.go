@@ -88,10 +88,10 @@ func TestCmdListShowsDormant(t *testing.T) {
 	sess.Panes = append(sess.Panes, dormantPane)
 
 	// Run the list command via net.Pipe.
-	serverConn, clientConn := net.Pipe()
+	serverConn, peerConn := net.Pipe()
 	defer serverConn.Close()
-	defer clientConn.Close()
-	cc := NewClientConn(serverConn)
+	defer peerConn.Close()
+	cc := newClientConn(serverConn)
 	defer cc.Close()
 
 	type cmdResult struct {
@@ -100,7 +100,7 @@ func TestCmdListShowsDormant(t *testing.T) {
 	results := make(chan cmdResult, 1)
 	go func() {
 		for {
-			msg, err := ReadMsg(clientConn)
+			msg, err := ReadMsg(peerConn)
 			if err != nil {
 				return
 			}

@@ -660,9 +660,8 @@ func (cr *ClientRenderer) HandleCaptureRequest(args []string, agentStatus map[ui
 	return &proto.Message{Type: proto.MsgTypeCaptureResponse, CmdOutput: cr.CaptureJSON(agentStatus) + "\n"}
 }
 
-// clientPaneData adapts an emulator + snapshot metadata for the PaneData interface.
-// This version includes copy mode overlay — the shared PaneData in the client
-// package does not.
+// clientPaneData adapts an emulator + snapshot metadata for the render.PaneData
+// interface, including optional copy mode overlay.
 type clientPaneData struct {
 	emu  mux.TerminalEmulator
 	info proto.PaneSnapshot

@@ -7,8 +7,8 @@ import (
 	"github.com/weill-labs/amux/internal/mux"
 )
 
-// ActiveWindow returns the currently active window, or nil.
-func (s *Session) ActiveWindow() *mux.Window {
+// activeWindow returns the currently active window, or nil.
+func (s *Session) activeWindow() *mux.Window {
 	for _, w := range s.Windows {
 		if w.ID == s.ActiveWindowID {
 			return w
@@ -20,8 +20,8 @@ func (s *Session) ActiveWindow() *mux.Window {
 	return nil
 }
 
-// FindWindowByPaneID returns the window containing the given pane, or nil.
-func (s *Session) FindWindowByPaneID(paneID uint32) *mux.Window {
+// findWindowByPaneID returns the window containing the given pane, or nil.
+func (s *Session) findWindowByPaneID(paneID uint32) *mux.Window {
 	for _, w := range s.Windows {
 		if w.Root.FindPane(paneID) != nil {
 			return w
@@ -30,8 +30,8 @@ func (s *Session) FindWindowByPaneID(paneID uint32) *mux.Window {
 	return nil
 }
 
-// RemoveWindow removes a window from the list by ID.
-func (s *Session) RemoveWindow(windowID uint32) {
+// removeWindow removes a window from the list by ID.
+func (s *Session) removeWindow(windowID uint32) {
 	for i, w := range s.Windows {
 		if w.ID == windowID {
 			s.Windows = append(s.Windows[:i], s.Windows[i+1:]...)
@@ -40,8 +40,8 @@ func (s *Session) RemoveWindow(windowID uint32) {
 	}
 }
 
-// NextWindow switches to the next window (wrapping).
-func (s *Session) NextWindow() {
+// nextWindow switches to the next window (wrapping).
+func (s *Session) nextWindow() {
 	if len(s.Windows) <= 1 {
 		return
 	}
@@ -53,8 +53,8 @@ func (s *Session) NextWindow() {
 	}
 }
 
-// PrevWindow switches to the previous window (wrapping).
-func (s *Session) PrevWindow() {
+// prevWindow switches to the previous window (wrapping).
+func (s *Session) prevWindow() {
 	if len(s.Windows) <= 1 {
 		return
 	}
@@ -67,8 +67,8 @@ func (s *Session) PrevWindow() {
 	}
 }
 
-// ResolveWindow finds a window by 1-based index, exact name, or name prefix.
-func (s *Session) ResolveWindow(ref string) *mux.Window {
+// resolveWindow finds a window by 1-based index, exact name, or name prefix.
+func (s *Session) resolveWindow(ref string) *mux.Window {
 	// Try as 1-based index
 	if idx, err := strconv.Atoi(ref); err == nil {
 		if idx >= 1 && idx <= len(s.Windows) {
@@ -96,14 +96,14 @@ func (s *Session) ResolveWindow(ref string) *mux.Window {
 // moves to the first remaining window. Returns the name of the closed window,
 // or "" if only the pane was removed.
 func (s *Session) closePaneInWindow(paneID uint32) string {
-	w := s.FindWindowByPaneID(paneID)
+	w := s.findWindowByPaneID(paneID)
 	if w == nil {
 		return ""
 	}
 	if w.PaneCount() <= 1 {
 		wasActive := w.ID == s.ActiveWindowID
 		windowName := w.Name
-		s.RemoveWindow(w.ID)
+		s.removeWindow(w.ID)
 		if wasActive && len(s.Windows) > 0 {
 			s.ActiveWindowID = s.Windows[0].ID
 		}

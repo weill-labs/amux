@@ -76,7 +76,7 @@ func (s *Session) currentStateEvents() []Event {
 	var events []Event
 
 	// Current layout state
-	w := s.ActiveWindow()
+	w := s.activeWindow()
 	activePaneName := ""
 	if w != nil && w.ActivePane != nil {
 		activePaneName = w.ActivePane.Meta.Name

@@ -34,10 +34,10 @@ func TestQueryUIClient(t *testing.T) {
 		stopCrashCheckpointLoop(t, sess)
 		defer stopSessionBackgroundLoops(t, sess)
 
-		cc1 := &ClientConn{ID: "client-1", inputIdle: true}
-		cc2 := &ClientConn{ID: "client-2", copyModeShown: true, inputIdle: true}
+		cc1 := &clientConn{ID: "client-1", inputIdle: true}
+		cc2 := &clientConn{ID: "client-2", copyModeShown: true, inputIdle: true}
 		mustSessionQuery(t, sess, func(sess *Session) struct{} {
-			sess.clients = []*ClientConn{cc1, cc2}
+			sess.clients = []*clientConn{cc1, cc2}
 			return struct{}{}
 		})
 
@@ -67,7 +67,7 @@ func TestQueryUIClient(t *testing.T) {
 		defer stopSessionBackgroundLoops(t, sess)
 
 		mustSessionQuery(t, sess, func(sess *Session) struct{} {
-			sess.clients = []*ClientConn{{ID: "client-1", inputIdle: true}}
+			sess.clients = []*clientConn{{ID: "client-1", inputIdle: true}}
 			return struct{}{}
 		})
 
@@ -85,7 +85,7 @@ func TestQueryUIClient(t *testing.T) {
 		defer stopSessionBackgroundLoops(t, sess)
 
 		mustSessionQuery(t, sess, func(sess *Session) struct{} {
-			sess.clients = []*ClientConn{
+			sess.clients = []*clientConn{
 				{ID: "client-1", inputIdle: true},
 				{ID: "client-2", inputIdle: true},
 			}
@@ -108,9 +108,9 @@ func TestQueryUIClient(t *testing.T) {
 		stopCrashCheckpointLoop(t, sess)
 		defer stopSessionBackgroundLoops(t, sess)
 
-		cc := &ClientConn{ID: "client-1", inputIdle: true, uiGeneration: 7}
+		cc := &clientConn{ID: "client-1", inputIdle: true, uiGeneration: 7}
 		mustSessionQuery(t, sess, func(sess *Session) struct{} {
-			sess.clients = []*ClientConn{cc}
+			sess.clients = []*clientConn{cc}
 			return struct{}{}
 		})
 
@@ -151,7 +151,7 @@ func TestEnqueueUIWaitSubscribeErrors(t *testing.T) {
 		defer stopSessionBackgroundLoops(t, sess)
 
 		mustSessionQuery(t, sess, func(sess *Session) struct{} {
-			sess.clients = []*ClientConn{{ID: "client-1", inputIdle: true}}
+			sess.clients = []*clientConn{{ID: "client-1", inputIdle: true}}
 			return struct{}{}
 		})
 
@@ -197,12 +197,12 @@ func TestQueryClientListIncludesCapabilities(t *testing.T) {
 
 	tests := []struct {
 		name string
-		cc   *ClientConn
+		cc   *clientConn
 		want string
 	}{
 		{
 			name: "legacy client",
-			cc: &ClientConn{
+			cc: &clientConn{
 				ID:        "client-1",
 				inputIdle: true,
 			},
@@ -210,7 +210,7 @@ func TestQueryClientListIncludesCapabilities(t *testing.T) {
 		},
 		{
 			name: "modern client",
-			cc: &ClientConn{
+			cc: &clientConn{
 				ID:           "client-2",
 				inputIdle:    true,
 				capabilities: proto.ClientCapabilities{Hyperlinks: true, PromptMarkers: true},
@@ -228,7 +228,7 @@ func TestQueryClientListIncludesCapabilities(t *testing.T) {
 			defer stopSessionBackgroundLoops(t, sess)
 
 			mustSessionQuery(t, sess, func(sess *Session) struct{} {
-				sess.clients = []*ClientConn{tt.cc}
+				sess.clients = []*clientConn{tt.cc}
 				return struct{}{}
 			})
 

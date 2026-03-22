@@ -27,7 +27,7 @@ func TestShowSessionNoticeLifecycle(t *testing.T) {
 }
 
 func TestShowSessionNoticeReplacementIgnoresStaleTimer(t *testing.T) {
-	sess := &Session{idle: NewIdleTracker(), takenOverPanes: make(map[uint32]bool)}
+	sess := &Session{idle: newIdleTracker(), takenOverPanes: make(map[uint32]bool)}
 
 	firstReply := make(chan sessionNoticeSetResult, 1)
 	sessionNoticeSetCmd{message: "first", reply: firstReply}.handle(sess)

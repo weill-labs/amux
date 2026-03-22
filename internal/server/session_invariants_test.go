@@ -16,7 +16,7 @@ func assertSessionLayoutConsistent(t *testing.T, sess *Session, allowedOrphans .
 
 	mustSessionQuery(t, sess, func(sess *Session) struct{} {
 		if len(sess.Windows) > 0 {
-			if sess.ActiveWindow() == nil {
+			if sess.activeWindow() == nil {
 				t.Fatal("active window id does not resolve to a window")
 			}
 		}

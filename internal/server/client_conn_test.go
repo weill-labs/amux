@@ -12,11 +12,11 @@ import (
 func TestClientConnQueuesBroadcastsDuringBootstrap(t *testing.T) {
 	t.Parallel()
 
-	serverConn, clientConn := net.Pipe()
+	serverConn, peerConn := net.Pipe()
 	t.Cleanup(func() { serverConn.Close() })
-	t.Cleanup(func() { clientConn.Close() })
+	t.Cleanup(func() { peerConn.Close() })
 
-	cc := NewClientConn(serverConn)
+	cc := newClientConn(serverConn)
 	t.Cleanup(cc.Close)
 	cc.startBootstrap()
 
@@ -30,7 +30,7 @@ func TestClientConnQueuesBroadcastsDuringBootstrap(t *testing.T) {
 	cc.sendBroadcast(layout)
 	cc.sendPaneOutput(&Message{Type: MsgTypePaneOutput, PaneID: 7, PaneData: []byte("live-output")}, 7, 9)
 
-	assertNoClientMessage(t, clientConn)
+	assertNoClientMessage(t, peerConn)
 
 	done := make(chan struct{})
 	go func() {
@@ -38,7 +38,7 @@ func TestClientConnQueuesBroadcastsDuringBootstrap(t *testing.T) {
 		cc.finishBootstrap(map[uint32]uint64{7: 5})
 	}()
 
-	msg := readMsgWithTimeout(t, clientConn)
+	msg := readMsgWithTimeout(t, peerConn)
 	if msg.Type != MsgTypeLayout {
 		t.Fatalf("first message type = %v, want layout", msg.Type)
 	}
@@ -46,7 +46,7 @@ func TestClientConnQueuesBroadcastsDuringBootstrap(t *testing.T) {
 		t.Fatalf("layout = %+v, want 80x23", msg.Layout)
 	}
 
-	msg = readMsgWithTimeout(t, clientConn)
+	msg = readMsgWithTimeout(t, peerConn)
 	if msg.Type != MsgTypePaneOutput {
 		t.Fatalf("second message type = %v, want pane output", msg.Type)
 	}
@@ -64,11 +64,11 @@ func TestClientConnQueuesBroadcastsDuringBootstrap(t *testing.T) {
 func TestClientConnDropsStaleQueuedPaneOutputAfterBootstrap(t *testing.T) {
 	t.Parallel()
 
-	serverConn, clientConn := net.Pipe()
+	serverConn, peerConn := net.Pipe()
 	t.Cleanup(func() { serverConn.Close() })
-	t.Cleanup(func() { clientConn.Close() })
+	t.Cleanup(func() { peerConn.Close() })
 
-	cc := NewClientConn(serverConn)
+	cc := newClientConn(serverConn)
 	t.Cleanup(cc.Close)
 	cc.startBootstrap()
 	cc.sendPaneOutput(&Message{Type: MsgTypePaneOutput, PaneID: 3, PaneData: []byte("stale")}, 3, 5)
@@ -85,7 +85,7 @@ func TestClientConnDropsStaleQueuedPaneOutputAfterBootstrap(t *testing.T) {
 		t.Fatal("finishBootstrap did not return")
 	}
 
-	assertNoClientMessage(t, clientConn)
+	assertNoClientMessage(t, peerConn)
 
 	sendDone := make(chan struct{})
 	go func() {
@@ -97,7 +97,7 @@ func TestClientConnDropsStaleQueuedPaneOutputAfterBootstrap(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("sendPaneOutput blocked before client read")
 	}
-	msg := readMsgWithTimeout(t, clientConn)
+	msg := readMsgWithTimeout(t, peerConn)
 	if msg.Type != MsgTypePaneOutput {
 		t.Fatalf("message type = %v, want pane output", msg.Type)
 	}
@@ -109,11 +109,11 @@ func TestClientConnDropsStaleQueuedPaneOutputAfterBootstrap(t *testing.T) {
 func TestClientConnSendPaneOutputDoesNotBlockOnUnreadClient(t *testing.T) {
 	t.Parallel()
 
-	serverConn, clientConn := net.Pipe()
+	serverConn, peerConn := net.Pipe()
 	t.Cleanup(func() { serverConn.Close() })
-	t.Cleanup(func() { clientConn.Close() })
+	t.Cleanup(func() { peerConn.Close() })
 
-	cc := NewClientConn(serverConn)
+	cc := newClientConn(serverConn)
 	t.Cleanup(cc.Close)
 
 	done := make(chan struct{})
@@ -128,7 +128,7 @@ func TestClientConnSendPaneOutputDoesNotBlockOnUnreadClient(t *testing.T) {
 		t.Fatal("sendPaneOutput blocked on unread client")
 	}
 
-	msg := readMsgWithTimeout(t, clientConn)
+	msg := readMsgWithTimeout(t, peerConn)
 	if msg.Type != MsgTypePaneOutput {
 		t.Fatalf("message type = %v, want pane output", msg.Type)
 	}
@@ -140,11 +140,11 @@ func TestClientConnSendPaneOutputDoesNotBlockOnUnreadClient(t *testing.T) {
 func TestClientConnSendBroadcastSyncDeliversMessage(t *testing.T) {
 	t.Parallel()
 
-	serverConn, clientConn := net.Pipe()
+	serverConn, peerConn := net.Pipe()
 	t.Cleanup(func() { serverConn.Close() })
-	t.Cleanup(func() { clientConn.Close() })
+	t.Cleanup(func() { peerConn.Close() })
 
-	cc := NewClientConn(serverConn)
+	cc := newClientConn(serverConn)
 	t.Cleanup(cc.Close)
 
 	done := make(chan struct{})
@@ -153,7 +153,7 @@ func TestClientConnSendBroadcastSyncDeliversMessage(t *testing.T) {
 		cc.sendBroadcastSync(&Message{Type: MsgTypeServerReload})
 	}()
 
-	msg := readMsgWithTimeout(t, clientConn)
+	msg := readMsgWithTimeout(t, peerConn)
 	if msg.Type != MsgTypeServerReload {
 		t.Fatalf("message type = %v, want server reload", msg.Type)
 	}
@@ -168,11 +168,11 @@ func TestClientConnSendBroadcastSyncDeliversMessage(t *testing.T) {
 func TestClientConnBootstrappingStateTracksLifecycle(t *testing.T) {
 	t.Parallel()
 
-	serverConn, clientConn := net.Pipe()
+	serverConn, peerConn := net.Pipe()
 	t.Cleanup(func() { serverConn.Close() })
-	t.Cleanup(func() { clientConn.Close() })
+	t.Cleanup(func() { peerConn.Close() })
 
-	cc := NewClientConn(serverConn)
+	cc := newClientConn(serverConn)
 	t.Cleanup(cc.Close)
 
 	if cc.isBootstrapping() {
@@ -242,11 +242,11 @@ func TestClientConnInputDoesNotBlockOnBusySessionActor(t *testing.T) {
 		t.Fatal("blocking event did not start")
 	}
 
-	serverConn, clientConn := net.Pipe()
-	t.Cleanup(func() { clientConn.Close() })
+	serverConn, peerConn := net.Pipe()
+	t.Cleanup(func() { peerConn.Close() })
 	t.Cleanup(func() { serverConn.Close() })
 
-	cc := NewClientConn(serverConn)
+	cc := newClientConn(serverConn)
 	t.Cleanup(cc.Close)
 
 	done := make(chan struct{})
@@ -255,7 +255,7 @@ func TestClientConnInputDoesNotBlockOnBusySessionActor(t *testing.T) {
 		cc.readLoop(&Server{}, sess)
 	}()
 
-	if err := WriteMsg(clientConn, &Message{Type: MsgTypeInput, Input: []byte("hello")}); err != nil {
+	if err := WriteMsg(peerConn, &Message{Type: MsgTypeInput, Input: []byte("hello")}); err != nil {
 		t.Fatalf("WriteMsg input: %v", err)
 	}
 
@@ -269,7 +269,7 @@ func TestClientConnInputDoesNotBlockOnBusySessionActor(t *testing.T) {
 	}
 
 	close(release)
-	if err := WriteMsg(clientConn, &Message{Type: MsgTypeDetach}); err != nil {
+	if err := WriteMsg(peerConn, &Message{Type: MsgTypeDetach}); err != nil {
 		t.Fatalf("WriteMsg detach: %v", err)
 	}
 
@@ -298,13 +298,13 @@ func TestClientConnActiveInputPaneForWriteSwitchesSessionSizeToLatestClient(t *t
 	w.ID = 1
 	w.Name = "window-1"
 
-	owner := NewClientConn(discardConn{})
+	owner := newClientConn(discardConn{})
 	t.Cleanup(owner.Close)
 	owner.ID = "client-1"
 	owner.cols = 80
 	owner.rows = 24
 
-	cc := NewClientConn(discardConn{})
+	cc := newClientConn(discardConn{})
 	t.Cleanup(cc.Close)
 	cc.ID = "client-2"
 	cc.cols = 60
@@ -314,7 +314,7 @@ func TestClientConnActiveInputPaneForWriteSwitchesSessionSizeToLatestClient(t *t
 		sess.Windows = []*mux.Window{w}
 		sess.ActiveWindowID = w.ID
 		sess.Panes = []*mux.Pane{pane}
-		sess.clients = []*ClientConn{owner, cc}
+		sess.clients = []*clientConn{owner, cc}
 		sess.sizeClient.Store(owner)
 		return commandMutationResult{}
 	})
@@ -329,13 +329,13 @@ func TestClientConnActiveInputPaneForWriteSwitchesSessionSizeToLatestClient(t *t
 	state := mustSessionQuery(t, sess, func(sess *Session) struct {
 		width  int
 		height int
-		owner  *ClientConn
+		owner  *clientConn
 	} {
-		w := sess.ActiveWindow()
+		w := sess.activeWindow()
 		return struct {
 			width  int
 			height int
-			owner  *ClientConn
+			owner  *clientConn
 		}{
 			width:  w.Width,
 			height: w.Height,
@@ -395,11 +395,11 @@ func TestClientConnInputTargetTracksFocusAndWindowChanges(t *testing.T) {
 		t.Fatalf("setup session: %v", res.err)
 	}
 
-	serverConn, clientConn := net.Pipe()
-	t.Cleanup(func() { clientConn.Close() })
+	serverConn, peerConn := net.Pipe()
+	t.Cleanup(func() { peerConn.Close() })
 	t.Cleanup(func() { serverConn.Close() })
 
-	cc := NewClientConn(serverConn)
+	cc := newClientConn(serverConn)
 	t.Cleanup(cc.Close)
 
 	done := make(chan struct{})
@@ -408,7 +408,7 @@ func TestClientConnInputTargetTracksFocusAndWindowChanges(t *testing.T) {
 		cc.readLoop(&Server{}, sess)
 	}()
 
-	assertReadLoopInputWrite(t, clientConn, pane1Writes, "one")
+	assertReadLoopInputWrite(t, peerConn, pane1Writes, "one")
 
 	res = sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
 		window1.FocusPane(pane2)
@@ -417,7 +417,7 @@ func TestClientConnInputTargetTracksFocusAndWindowChanges(t *testing.T) {
 	if res.err != nil {
 		t.Fatalf("focus pane-2: %v", res.err)
 	}
-	assertReadLoopInputWrite(t, clientConn, pane2Writes, "two")
+	assertReadLoopInputWrite(t, peerConn, pane2Writes, "two")
 
 	res = sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
 		sess.ActiveWindowID = window2.ID
@@ -426,9 +426,9 @@ func TestClientConnInputTargetTracksFocusAndWindowChanges(t *testing.T) {
 	if res.err != nil {
 		t.Fatalf("switch window: %v", res.err)
 	}
-	assertReadLoopInputWrite(t, clientConn, pane3Writes, "three")
+	assertReadLoopInputWrite(t, peerConn, pane3Writes, "three")
 
-	if err := WriteMsg(clientConn, &Message{Type: MsgTypeDetach}); err != nil {
+	if err := WriteMsg(peerConn, &Message{Type: MsgTypeDetach}); err != nil {
 		t.Fatalf("WriteMsg detach: %v", err)
 	}
 

@@ -73,7 +73,7 @@ func (s *Session) handleTakeover(srv *Server, sshPaneID uint32, req mux.Takeover
 		if sshPane == nil {
 			return takeoverStart{}, nil
 		}
-		if s.FindWindowByPaneID(sshPaneID) == nil {
+		if s.findWindowByPaneID(sshPaneID) == nil {
 			return takeoverStart{}, nil
 		}
 		s.takenOverPanes[sshPaneID] = true
@@ -107,7 +107,7 @@ func (s *Session) handleTakeover(srv *Server, sshPaneID uint32, req mux.Takeover
 	start.sshPane.Write([]byte(mux.FormatTakeoverAck(start.managedSession) + "\n"))
 
 	layout, err := enqueueSessionQuery(s, func(s *Session) (takeoverLayout, error) {
-		w := s.FindWindowByPaneID(sshPaneID)
+		w := s.findWindowByPaneID(sshPaneID)
 		if w == nil {
 			return takeoverLayout{}, fmt.Errorf("pane %d not in any window", sshPaneID)
 		}
@@ -196,7 +196,7 @@ func (s *Session) handleTakeover(srv *Server, sshPaneID uint32, req mux.Takeover
 	// Splice the proxy panes into the layout only after the remote attach has
 	// been validated. This keeps the raw SSH pane visible on takeover failure.
 	res := s.enqueueCommandMutation(func(s *Session) commandMutationResult {
-		w := s.FindWindowByPaneID(sshPaneID)
+		w := s.findWindowByPaneID(sshPaneID)
 		if w == nil {
 			return commandMutationResult{err: fmt.Errorf("pane %d not in any window", sshPaneID)}
 		}
@@ -230,7 +230,7 @@ func (s *Session) handleTakeover(srv *Server, sshPaneID uint32, req mux.Takeover
 // request. The session actor serializes capture dispatch.
 func (s *Session) forwardCapture(args []string) *Message {
 	type captureSnapshot struct {
-		client      *ClientConn
+		client      *clientConn
 		statusPanes []*mux.Pane
 	}
 	captureReq := caputil.ParseArgs(args)
@@ -255,7 +255,7 @@ func (s *Session) forwardCapture(args []string) *Message {
 					if err == nil {
 						snap.statusPanes = []*mux.Pane{pane}
 					}
-				} else if activeWindow := s.ActiveWindow(); activeWindow != nil {
+				} else if activeWindow := s.activeWindow(); activeWindow != nil {
 					snap.statusPanes = append([]*mux.Pane(nil), activeWindow.Panes()...)
 				}
 			}

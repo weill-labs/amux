@@ -82,8 +82,3 @@ func Install() error {
 
 	return nil
 }
-
-// EnsureInstalled installs the embedded terminfo entry if possible.
-func EnsureInstalled() error {
-	return Install()
-}

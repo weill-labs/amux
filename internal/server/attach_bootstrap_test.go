@@ -27,10 +27,10 @@ func TestHandleAttachFlushesQueuedPaneOutputAfterBootstrap(t *testing.T) {
 	}
 	pane.FeedOutput([]byte("line-1\r\nline-2\r\nline-3"))
 
-	clientConn, replay, paused, release, done := startPausedAttach(t, srv, sess, 80, 4)
-	defer closeAttach(t, clientConn, release, done)
+	peerConn, replay, paused, release, done := startPausedAttach(t, srv, sess, 80, 4)
+	defer closeAttach(t, peerConn, release, done)
 
-	readInitialAttachReplay(t, clientConn, replay)
+	readInitialAttachReplay(t, peerConn, replay)
 	waitForPause(t, paused)
 
 	outputCh, unsubscribe := subscribeAttachTestPaneOutput(sess, pane.ID)
@@ -42,7 +42,7 @@ func TestHandleAttachFlushesQueuedPaneOutputAfterBootstrap(t *testing.T) {
 	want := pane.CaptureSnapshot()
 
 	release()
-	drainAttachMessages(t, clientConn, replay, 1)
+	drainAttachMessages(t, peerConn, replay, 1)
 
 	assertAttachReplayPaneMatchesSnapshot(t, replay, pane.ID, want)
 }
@@ -63,10 +63,10 @@ func TestHandleAttachAppliesQueuedLayoutAfterConcurrentSplit(t *testing.T) {
 	}
 	pane1.FeedOutput([]byte("before-1\r\nbefore-2\r\nbefore-3"))
 
-	clientConn, replay, paused, release, done := startPausedAttach(t, srv, sess, 80, 4)
-	defer closeAttach(t, clientConn, release, done)
+	peerConn, replay, paused, release, done := startPausedAttach(t, srv, sess, 80, 4)
+	defer closeAttach(t, peerConn, release, done)
 
-	readInitialAttachReplay(t, clientConn, replay)
+	readInitialAttachReplay(t, peerConn, replay)
 	waitForPause(t, paused)
 
 	pane2 := newAttachTestPane(sess, 2, "pane-2", 80, 2)
@@ -92,7 +92,7 @@ func TestHandleAttachAppliesQueuedLayoutAfterConcurrentSplit(t *testing.T) {
 	wantPane2 := pane2.CaptureSnapshot()
 
 	release()
-	drainAttachMessages(t, clientConn, replay, 2)
+	drainAttachMessages(t, peerConn, replay, 2)
 
 	assertAttachReplayLayoutMatchesSnapshot(t, replay, wantLayout)
 	assertAttachReplayPaneMatchesSnapshot(t, replay, pane1.ID, wantPane1)
@@ -102,7 +102,7 @@ func TestHandleAttachAppliesQueuedLayoutAfterConcurrentSplit(t *testing.T) {
 func startPausedAttach(t *testing.T, srv *Server, sess *Session, cols, rows int) (net.Conn, *attachReplayState, <-chan struct{}, func(), <-chan struct{}) {
 	t.Helper()
 
-	serverConn, clientConn := net.Pipe()
+	serverConn, peerConn := net.Pipe()
 	paused := make(chan struct{})
 	release := make(chan struct{})
 	var releaseOnce sync.Once
@@ -123,18 +123,18 @@ func startPausedAttach(t *testing.T, srv *Server, sess *Session, cols, rows int)
 		})
 	}()
 
-	return clientConn, newAttachReplayState(), paused, func() {
+	return peerConn, newAttachReplayState(), paused, func() {
 		releaseOnce.Do(func() { close(release) })
 	}, done
 }
 
-func closeAttach(t *testing.T, clientConn net.Conn, release func(), done <-chan struct{}) {
+func closeAttach(t *testing.T, peerConn net.Conn, release func(), done <-chan struct{}) {
 	t.Helper()
 
 	release()
-	if clientConn != nil {
-		_ = WriteMsg(clientConn, &Message{Type: MsgTypeDetach})
-		_ = clientConn.Close()
+	if peerConn != nil {
+		_ = WriteMsg(peerConn, &Message{Type: MsgTypeDetach})
+		_ = peerConn.Close()
 	}
 
 	select {
