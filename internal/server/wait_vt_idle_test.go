@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"net"
 	"strings"
 	"testing"
@@ -86,6 +87,94 @@ func TestCmdWaitVTIdleUsage(t *testing.T) {
 	}
 }
 
+func TestParseWaitVTIdleArgs(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		args     []string
+		wantPane string
+		wantOpts waitVTIdleOptions
+		wantErr  string
+	}{
+		{
+			name:     "defaults",
+			args:     []string{"pane-1"},
+			wantPane: "pane-1",
+			wantOpts: waitVTIdleOptions{settle: defaultVTIdleSettle, timeout: DefaultVTIdleTimeout},
+		},
+		{
+			name:     "custom settle and timeout",
+			args:     []string{"pane-2", "--settle", "25ms", "--timeout", "3s"},
+			wantPane: "pane-2",
+			wantOpts: waitVTIdleOptions{settle: 25 * time.Millisecond, timeout: 3 * time.Second},
+		},
+		{
+			name:    "missing settle value",
+			args:    []string{"pane-1", "--settle"},
+			wantErr: "missing value for --settle",
+		},
+		{
+			name:    "invalid settle",
+			args:    []string{"pane-1", "--settle", "later"},
+			wantErr: "invalid settle: later",
+		},
+		{
+			name:    "missing timeout value",
+			args:    []string{"pane-1", "--timeout"},
+			wantErr: "missing value for --timeout",
+		},
+		{
+			name:    "invalid timeout",
+			args:    []string{"pane-1", "--timeout", "soon"},
+			wantErr: "invalid timeout: soon",
+		},
+		{
+			name:    "unknown flag",
+			args:    []string{"pane-1", "--bogus"},
+			wantErr: "unknown flag: --bogus",
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			gotPane, gotOpts, err := parseWaitVTIdleArgs(tt.args)
+			if tt.wantErr != "" {
+				if err == nil || err.Error() != tt.wantErr {
+					t.Fatalf("parseWaitVTIdleArgs(%v) error = %v, want %q", tt.args, err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("parseWaitVTIdleArgs(%v) error = %v", tt.args, err)
+			}
+			if gotPane != tt.wantPane {
+				t.Fatalf("pane = %q, want %q", gotPane, tt.wantPane)
+			}
+			if gotOpts != tt.wantOpts {
+				t.Fatalf("opts = %#v, want %#v", gotOpts, tt.wantOpts)
+			}
+		})
+	}
+}
+
+func TestCmdWaitVTIdleImmediateWhenAlreadySettled(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, pane, cleanup := setupWaitVTIdleTestPane(t)
+	defer cleanup()
+
+	pane.SetCreatedAt(time.Now().Add(-time.Second))
+
+	res := runTestCommand(t, srv, sess, "wait-vt-idle", "pane-1", "--settle", "20ms", "--timeout", "100ms")
+	if got := strings.TrimSpace(res.output); got != "vt-idle" {
+		t.Fatalf("wait-vt-idle output = %q, want vt-idle", got)
+	}
+}
+
 func TestCmdWaitVTIdleTimeout(t *testing.T) {
 	t.Parallel()
 
@@ -130,4 +219,70 @@ func TestCmdWaitVTIdleResetsSettleTimerOnOutput(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("wait-vt-idle command did not return after settling")
 	}
+}
+
+func TestPaneOutputCallbackEmitsVTIdleEventAfterQuiescence(t *testing.T) {
+	origSettle := defaultVTIdleSettle
+	defaultVTIdleSettle = 20 * time.Millisecond
+	t.Cleanup(func() { defaultVTIdleSettle = origSettle })
+
+	sess := newSession("test-vt-idle-event")
+	stopCrashCheckpointLoop(t, sess)
+	defer stopSessionBackgroundLoops(t, sess)
+
+	pane := newProxyPane(1, mux.PaneMeta{
+		Name:  "pane-1",
+		Host:  mux.DefaultHost,
+		Color: config.CatppuccinMocha[0],
+	}, 80, 23, sess.paneOutputCallback(), nil, func(data []byte) (int, error) {
+		return len(data), nil
+	})
+	sess.Panes = []*mux.Pane{pane}
+
+	res := sess.enqueueEventSubscribe(eventFilter{Types: []string{EventVTIdle}}, false)
+	defer sess.enqueueEventUnsubscribe(res.sub)
+
+	pane.FeedOutput([]byte("hello"))
+
+	select {
+	case data := <-res.sub.ch:
+		var ev Event
+		if err := json.Unmarshal(data, &ev); err != nil {
+			t.Fatalf("json.Unmarshal: %v", err)
+		}
+		if ev.Type != EventVTIdle || ev.PaneID != pane.ID || ev.PaneName != "pane-1" || ev.Host != mux.DefaultHost {
+			t.Fatalf("unexpected vt-idle event: %+v", ev)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("vt-idle event was not emitted")
+	}
+}
+
+func TestCurrentStateEventsIncludeVTIdleForSettledPane(t *testing.T) {
+	origSettle := defaultVTIdleSettle
+	defaultVTIdleSettle = 20 * time.Millisecond
+	t.Cleanup(func() { defaultVTIdleSettle = origSettle })
+
+	sess := newSession("test-vt-idle-snapshot")
+	stopCrashCheckpointLoop(t, sess)
+	defer stopSessionBackgroundLoops(t, sess)
+
+	pane := newProxyPane(1, mux.PaneMeta{
+		Name:  "pane-1",
+		Host:  mux.DefaultHost,
+		Color: config.CatppuccinMocha[0],
+	}, 80, 23, nil, nil, func(data []byte) (int, error) {
+		return len(data), nil
+	})
+	pane.SetCreatedAt(time.Now().Add(-time.Second))
+	sess.Panes = []*mux.Pane{pane}
+
+	events := sess.currentStateEvents()
+	for _, ev := range events {
+		if ev.Type == EventVTIdle && ev.PaneID == pane.ID && ev.PaneName == "pane-1" {
+			return
+		}
+	}
+
+	t.Fatalf("currentStateEvents did not include vt-idle for pane %d", pane.ID)
 }

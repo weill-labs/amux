@@ -159,6 +159,7 @@ Block until a condition is met. No polling.
 | Command | Description | Default timeout |
 |---------|-------------|-----------------|
 | `wait-idle <pane>` | Block until pane has no foreground process | 5s |
+| `wait-vt-idle <pane>` | Block until pane terminal output settles | 60s |
 | `wait-busy <pane>` | Block until pane has a child process | 5s |
 | `wait-for <pane> <substring>` | Block until substring appears in pane content | 10s |
 | `wait-ready <pane>` | Block until an agent prompt is ready for input | 10s |
@@ -167,7 +168,7 @@ Block until a condition is met. No polling.
 | `wait-ui <event> [--client client-1] [--after N]` | Block until a client-local UI state is reached | 5s |
 | `ui-gen [--client client-1]` | Show the current client UI generation counter | n/a |
 
-All accept `--timeout <duration>` (e.g., `--timeout 30s`).
+`wait-vt-idle` also accepts `--settle <duration>` (default `2s`). All wait commands accept `--timeout <duration>` (e.g., `--timeout 30s`).
 
 `wait-ready` looks for common agent prompt rows (`>`, `›`, `❯`) at the active input cursor. For Codex's trust / prompt-injection screen, `wait-ready` reports the blocker by default and `--continue-known-dialogs` sends one `Enter` before resuming the wait.
 
@@ -176,7 +177,7 @@ All accept `--timeout <duration>` (e.g., `--timeout 30s`).
 Subscribe to real-time session events as NDJSON:
 
 ```bash
-amux events [--filter layout,idle,busy,client-connect,client-disconnect,display-panes-shown,choose-window-shown] [--pane pane-1] [--host lambda-a100] [--client client-1] [--throttle 50ms] [--no-reconnect]
+amux events [--filter layout,idle,busy,vt-idle,client-connect,client-disconnect,display-panes-shown,choose-window-shown] [--pane pane-1] [--host lambda-a100] [--client client-1] [--throttle 50ms] [--no-reconnect]
 ```
 
 Use `amux list-clients` to discover attached client IDs for `--client` and `wait-ui`.
@@ -185,12 +186,13 @@ Use `amux list-clients` to discover attached client IDs for `--client` and `wait
 {"type":"layout","ts":"2025-06-15T10:30:00.123Z","generation":42,"active_pane":"pane-1"}
 {"type":"idle","ts":"2025-06-15T10:30:01.456Z","pane_id":2,"pane_name":"pane-2","host":"lambda-a100"}
 {"type":"busy","ts":"2025-06-15T10:30:05.789Z","pane_id":2,"pane_name":"pane-2","host":"lambda-a100"}
+{"type":"vt-idle","ts":"2025-06-15T10:30:05.850Z","pane_id":2,"pane_name":"pane-2","host":"lambda-a100"}
 {"type":"client-connect","ts":"2025-06-15T10:30:05.900Z","client_id":"client-2"}
 {"type":"client-disconnect","ts":"2025-06-15T10:30:06.000Z","client_id":"client-2","reason":"explicit-detach"}
 {"type":"reconnect","ts":"2025-06-15T10:30:06.000Z"}
 ```
 
-Event types: `layout`, `output`, `idle`, `busy`, `hook`, `client-connect`, `client-disconnect`, and the client-generated `reconnect` event used by the CLI auto-reconnect path. By default `amux events` reconnects automatically after a dropped stream, emits a client-generated `reconnect` event, and resubscribes after exponential backoff. Use `--no-reconnect` for scripts that want exit-on-disconnect. New subscribers receive the current state as an initial snapshot, including already-attached clients as `client-connect` events, so no events are missed between subscribe and the first real event. Output events are throttled to at most one per pane per `--throttle` interval (default 50ms). Non-output events pass through immediately. Use `--throttle 0s` to disable throttling.
+Event types: `layout`, `output`, `idle`, `busy`, `vt-idle`, `hook`, `client-connect`, `client-disconnect`, and the client-generated `reconnect` event used by the CLI auto-reconnect path. By default `amux events` reconnects automatically after a dropped stream, emits a client-generated `reconnect` event, and resubscribes after exponential backoff. Use `--no-reconnect` for scripts that want exit-on-disconnect. New subscribers receive the current state as an initial snapshot, including already-attached clients as `client-connect` events, so no events are missed between subscribe and the first real event. Output events are throttled to at most one per pane per `--throttle` interval (default 50ms). Non-output events pass through immediately. Use `--throttle 0s` to disable throttling. `vt-idle` uses a fixed `2s` settle window in the stream.
 
 ### Agent Loop Example
 
@@ -290,6 +292,7 @@ All commands accept `-s <session>` to target a specific session. Panes are refer
 | `amux capture --ansi [pane]` | Capture with ANSI escape codes |
 | `amux capture --colors` | Capture border color map |
 | `amux wait-idle <pane> [--timeout 5s]` | Block until pane becomes idle |
+| `amux wait-vt-idle <pane> [--settle 2s] [--timeout 60s]` | Block until pane VT output quiesces |
 | `amux wait-busy <pane> [--timeout 5s]` | Block until pane has child processes |
 | `amux wait-for <pane> <substring> [--timeout 10s]` | Block until substring appears in pane |
 | `amux wait-ready <pane> [--timeout 10s] [--continue-known-dialogs]` | Block until an agent prompt is ready for input |
