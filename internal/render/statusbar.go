@@ -11,6 +11,15 @@ import (
 // GlobalBarHeight is the number of rows reserved for the global status bar.
 const GlobalBarHeight = 1
 
+const globalBarPrefixVisibleWidth = 8 // " amux │ "
+
+type globalBarWindowTab struct {
+	window  WindowInfo
+	display string
+	start   int
+	end     int
+}
+
 // renderPaneStatus draws a per-pane status line at the top of a pane cell.
 // Format: ● [name] @host task
 //
@@ -134,6 +143,43 @@ func truncateRunes(s string, max int) string {
 	return string(runes[:max-1]) + "…"
 }
 
+func buildGlobalBarWindowTabs(windows []WindowInfo) []globalBarWindowTab {
+	if len(windows) <= 1 {
+		return nil
+	}
+
+	tabs := make([]globalBarWindowTab, 0, len(windows))
+	col := globalBarPrefixVisibleWidth
+	for _, w := range windows {
+		label := strconv.Itoa(w.Index) + ":" + w.Name
+		display := label
+		if w.IsActive {
+			display = "[" + label + "]"
+		}
+
+		width := utf8.RuneCountInString(display)
+		tabs = append(tabs, globalBarWindowTab{
+			window:  w,
+			display: display,
+			start:   col,
+			end:     col + width,
+		})
+		col += width + 1
+	}
+	return tabs
+}
+
+// GlobalBarWindowAtColumn resolves a 0-based terminal column within the
+// rendered global bar to the corresponding window tab.
+func GlobalBarWindowAtColumn(windows []WindowInfo, x int) (WindowInfo, bool) {
+	for _, tab := range buildGlobalBarWindowTabs(windows) {
+		if x >= tab.start && x < tab.end {
+			return tab.window, true
+		}
+	}
+	return WindowInfo{}, false
+}
+
 // renderGlobalBar draws the global status bar at the bottom of the terminal.
 func renderGlobalBar(buf *strings.Builder, sessionName string, paneCount int, width, yPos int, windows []WindowInfo, message string) {
 	writeCursorTo(buf, yPos+1, 1)
@@ -142,27 +188,26 @@ func renderGlobalBar(buf *strings.Builder, sessionName string, paneCount int, wi
 	buf.WriteString(Surface0Bg + TextFg)
 
 	now := timeNow().Format("15:04")
+	tabs := buildGlobalBarWindowTabs(windows)
 
 	left := " " + Bold + "amux" + NoBold + " │ "
-	leftVisible := 8 // " amux │ "
+	leftVisible := globalBarPrefixVisibleWidth
 
 	// Show window tabs if there are multiple windows
-	if len(windows) > 1 {
-		for _, w := range windows {
-			tab := strconv.Itoa(w.Index) + ":" + w.Name
-			if w.IsActive {
-				left += Bold + "[" + tab + "]" + NoBold + " "
-				leftVisible += len(tab) + 3 // "[tab] "
+	if len(tabs) > 0 {
+		for _, tab := range tabs {
+			if tab.window.IsActive {
+				left += Bold + tab.display + NoBold + " "
 			} else {
-				left += tab + " "
-				leftVisible += len(tab) + 1
+				left += tab.display + " "
 			}
+			leftVisible += utf8.RuneCountInString(tab.display) + 1
 		}
 		left += "│ "
 		leftVisible += 2
 	} else {
 		left += sessionName + " "
-		leftVisible += len(sessionName) + 1
+		leftVisible += utf8.RuneCountInString(sessionName) + 1
 	}
 
 	right := ""
