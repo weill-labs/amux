@@ -264,6 +264,95 @@ while True:
 	}
 }
 
+func TestZoomFirstResizeSignalRedrawsAtExpandedWidth(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	h.splitV()
+
+	tmpDir := t.TempDir()
+	logPath := filepath.Join(tmpDir, "zoom-first-resize.log")
+	scriptPath := filepath.Join(tmpDir, "zoom-first-resize.sh")
+	script := fmt.Sprintf(`#!/usr/bin/env python3
+import os
+import signal
+import sys
+import time
+
+log_file = %q
+
+sys.stdout.write('\033[?1049h')
+sys.stdout.flush()
+
+def record(marker):
+    with open(log_file, "a", encoding="utf-8") as fh:
+        fh.write(marker + "\n")
+
+def draw(*_args):
+    size = os.get_terminal_size()
+    size_marker = f"SIZE {size.columns}x{size.lines}"
+    bottom_marker = f"BOTTOM {size.columns}x{size.lines}"
+    record(size_marker)
+    sys.stdout.write('\033[2J\033[H' + size_marker + '\n')
+    sys.stdout.write(f'\033[{size.lines};1H{bottom_marker}')
+    sys.stdout.flush()
+
+signal.signal(signal.SIGWINCH, draw)
+size = os.get_terminal_size()
+ready = f"READY {size.columns}x{size.lines}"
+record(ready)
+sys.stdout.write(ready)
+sys.stdout.flush()
+
+while True:
+    time.sleep(60)
+`, logPath)
+	if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
+		t.Fatalf("write one-shot zoom script: %v", err)
+	}
+
+	h.sendKeys("pane-1", scriptPath, "Enter")
+	h.waitForTimeout("pane-1", "READY ", "10s")
+
+	gen := h.generation()
+	output := h.runCmd("zoom", "pane-1")
+	if !strings.Contains(output, "Zoomed") {
+		t.Fatalf("zoom should confirm, got:\n%s", output)
+	}
+	h.waitLayout(gen)
+
+	capture := h.captureJSON()
+	pane := h.jsonPane(capture, "pane-1")
+	if pane.Position == nil {
+		t.Fatal("pane-1 position missing after zoom")
+	}
+	wantRows := pane.Position.Height - 1
+	wantSize := fmt.Sprintf("SIZE %dx%d", pane.Position.Width, wantRows)
+	wantBottom := fmt.Sprintf("BOTTOM %dx%d", pane.Position.Width, wantRows)
+
+	if !h.waitForCaptureJSON(func(c proto.CaptureJSON) bool {
+		for _, p := range c.Panes {
+			if p.Name != "pane-1" {
+				continue
+			}
+			if len(p.Content) < wantRows {
+				return false
+			}
+			return strings.Contains(p.Content[0], wantSize) && p.Content[wantRows-1] == wantBottom
+		}
+		return false
+	}, 5*time.Second) {
+		logData, _ := os.ReadFile(logPath)
+		t.Fatalf(
+			"zoomed pane did not redraw to expanded width on first resize signal %s / %s\nlog:\n%s\ncapture:\n%s",
+			wantSize,
+			wantBottom,
+			logData,
+			h.capture(),
+		)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Keybinding tests — AmuxHarness (client for prefix key processing)
 // ---------------------------------------------------------------------------

@@ -209,6 +209,57 @@ func TestPaneOutputCallbackEnqueuesOutputNotifications(t *testing.T) {
 	}
 }
 
+func TestCommandMutationBroadcastsLayoutBeforeQueuedPaneOutput(t *testing.T) {
+	t.Parallel()
+
+	sess := newSession("test-command-layout-before-output")
+	t.Cleanup(func() { stopSessionBackgroundLoops(t, sess) })
+
+	pane := newProxyPane(1, mux.PaneMeta{
+		Name:  "pane-1",
+		Host:  mux.DefaultHost,
+		Color: "f5e0dc",
+	}, 80, 23, nil, nil, func(data []byte) (int, error) { return len(data), nil })
+
+	w := mux.NewWindow(pane, 80, 24-render.GlobalBarHeight)
+	w.ID = 1
+	w.Name = "window-1"
+	sess.Windows = []*mux.Window{w}
+	sess.ActiveWindowID = w.ID
+	sess.Panes = []*mux.Pane{pane}
+
+	serverConn, clientConn := net.Pipe()
+	t.Cleanup(func() { _ = clientConn.Close() })
+
+	cc := NewClientConn(serverConn)
+	t.Cleanup(cc.Close)
+	sess.clients = []*ClientConn{cc}
+
+	res := sess.enqueueCommandMutation(func(s *Session) commandMutationResult {
+		s.enqueuePaneOutput(pane.ID, []byte("queued-output"), 1)
+		return commandMutationResult{broadcastLayout: true}
+	})
+	if res.err != nil {
+		t.Fatalf("enqueueCommandMutation error = %v", res.err)
+	}
+
+	first := readMsgWithTimeout(t, clientConn)
+	if first.Type != MsgTypeLayout {
+		t.Fatalf("first message type = %v, want layout before pane output", first.Type)
+	}
+	if first.Layout == nil || first.Layout.Width != 80 || first.Layout.Height != 23 {
+		t.Fatalf("layout = %+v, want 80x23 snapshot", first.Layout)
+	}
+
+	second := readMsgWithTimeout(t, clientConn)
+	if second.Type != MsgTypePaneOutput {
+		t.Fatalf("second message type = %v, want pane output", second.Type)
+	}
+	if second.PaneID != pane.ID || string(second.PaneData) != "queued-output" {
+		t.Fatalf("pane output = pane %d %q, want pane %d queued-output", second.PaneID, string(second.PaneData), pane.ID)
+	}
+}
+
 func TestMetaCallbackEnqueuesMetaUpdate(t *testing.T) {
 	t.Parallel()
 
