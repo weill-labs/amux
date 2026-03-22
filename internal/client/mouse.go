@@ -8,6 +8,7 @@ import (
 	"github.com/weill-labs/amux/internal/mouse"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
+	"github.com/weill-labs/amux/internal/render"
 )
 
 // DragState tracks an in-progress border drag. The border direction is
@@ -112,12 +113,50 @@ func paneAllowsMouseCopySelection(cr *ClientRenderer, paneID uint32) bool {
 	return !emu.MouseProtocol().Enabled()
 }
 
+func globalBarWindowInfos(cr *ClientRenderer) []render.WindowInfo {
+	windows, activeWindowID := cr.renderer.WindowSnapshots()
+	if len(windows) == 0 {
+		return nil
+	}
+
+	infos := make([]render.WindowInfo, len(windows))
+	for i, ws := range windows {
+		infos[i] = render.WindowInfo{
+			Index:    ws.Index,
+			Name:     ws.Name,
+			IsActive: ws.ID == activeWindowID,
+			Panes:    len(ws.Panes),
+		}
+	}
+	return infos
+}
+
+func handleGlobalBarClick(ev mouse.Event, layout *mux.LayoutCell, cr *ClientRenderer, sender *messageSender) bool {
+	if ev.Action != mouse.Press || ev.Button != mouse.ButtonLeft || layout == nil || ev.Y != layout.H {
+		return false
+	}
+
+	windows := globalBarWindowInfos(cr)
+	if len(windows) <= 1 {
+		return true
+	}
+
+	window, ok := render.GlobalBarWindowAtColumn(windows, ev.X)
+	if ok && !window.IsActive && sender != nil {
+		sender.Command("select-window", []string{fmt.Sprintf("%d", window.Index)})
+	}
+	return true
+}
+
 // HandleMouseEvent dispatches a parsed mouse event to the appropriate action:
 // click-to-focus, border drag, or scroll wheel.
 func HandleMouseEvent(ev mouse.Event, cr *ClientRenderer, sender *messageSender, drag *DragState) {
 	layout := cr.VisibleLayout()
 
 	if layout == nil {
+		return
+	}
+	if handleGlobalBarClick(ev, layout, cr, sender) {
 		return
 	}
 

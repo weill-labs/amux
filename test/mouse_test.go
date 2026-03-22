@@ -151,6 +151,16 @@ func outerTextCoords(screen, substr string) (x, y int, ok bool) {
 	return 0, 0, false
 }
 
+func windowTabCoords(t *testing.T, screen, label string) (x, y int) {
+	t.Helper()
+
+	x, y, ok := outerTextCoords(screen, label)
+	if !ok {
+		t.Fatalf("expected window tab %q in screen.\nScreen:\n%s", label, screen)
+	}
+	return x + len(label)/2, y
+}
+
 func TestMouseHorizontalBorderDrag(t *testing.T) {
 	t.Parallel()
 	h := newAmuxHarness(t)
@@ -174,6 +184,91 @@ func TestMouseHorizontalBorderDrag(t *testing.T) {
 	if newBorderRow <= borderRow {
 		t.Errorf("border should have moved down: was at %d, now at %d.\nScreen:\n%s",
 			borderRow, newBorderRow, h.captureAmux())
+	}
+}
+
+func TestMouseClickWindowTabsSwitchWindows(t *testing.T) {
+	t.Parallel()
+
+	h := newAmuxHarness(t)
+
+	h.runCmd("rename-window", "main")
+
+	h.sendKeys("C-a", "c")
+	if !h.waitFor("[pane-2]", 3*time.Second) {
+		t.Fatalf("window 2 did not appear.\nScreen:\n%s", h.capture())
+	}
+	h.runCmd("rename-window", "bugs")
+
+	h.sendKeys("C-a", "c")
+	if !h.waitFor("[pane-3]", 3*time.Second) {
+		t.Fatalf("window 3 did not appear.\nScreen:\n%s", h.capture())
+	}
+	h.runCmd("rename-window", "docs")
+
+	tests := []struct {
+		label    string
+		wantPane string
+	}{
+		{label: "1:main", wantPane: "[pane-1]"},
+		{label: "2:bugs", wantPane: "[pane-2]"},
+		{label: "3:docs", wantPane: "[pane-3]"},
+	}
+
+	for _, tt := range tests {
+		screen := h.captureOuter()
+		x, y := windowTabCoords(t, screen, tt.label)
+		h.clickAt(x, y)
+		if !h.waitFor(tt.wantPane, 3*time.Second) {
+			t.Fatalf("clicking %s should show %s.\nScreen:\n%s", tt.label, tt.wantPane, h.capture())
+		}
+	}
+}
+
+func TestMouseClickGlobalBarOutsideTabsDoesNothing(t *testing.T) {
+	t.Parallel()
+
+	h := newAmuxHarness(t)
+
+	h.sendKeys("C-a", "c")
+	if !h.waitFor("[pane-2]", 3*time.Second) {
+		t.Fatalf("window 2 did not appear.\nScreen:\n%s", h.capture())
+	}
+
+	screen := h.captureOuter()
+	x, y, ok := outerTextCoords(screen, "panes")
+	if !ok {
+		t.Fatalf("expected panes count in global bar.\nScreen:\n%s", screen)
+	}
+
+	gen := h.generation()
+	h.clickAt(x, y)
+	if h.waitLayoutOrTimeout(gen, "500ms") {
+		t.Fatalf("clicking outside window tabs should not change layout.\nScreen:\n%s", h.capture())
+	}
+	if got := h.activePaneName(); got != "pane-2" {
+		t.Fatalf("active pane after outside click = %s, want pane-2", got)
+	}
+}
+
+func TestMouseClickGlobalBarSingleWindowDoesNothing(t *testing.T) {
+	t.Parallel()
+
+	h := newAmuxHarness(t)
+
+	screen := h.captureOuter()
+	x, y, ok := outerTextCoords(screen, "amux")
+	if !ok {
+		t.Fatalf("expected amux prefix in global bar.\nScreen:\n%s", screen)
+	}
+
+	gen := h.generation()
+	h.clickAt(x, y)
+	if h.waitLayoutOrTimeout(gen, "500ms") {
+		t.Fatalf("clicking the single-window global bar should not change layout.\nScreen:\n%s", h.capture())
+	}
+	if got := h.activePaneName(); got != "pane-1" {
+		t.Fatalf("active pane after single-window click = %s, want pane-1", got)
 	}
 }
 
