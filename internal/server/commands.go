@@ -823,36 +823,18 @@ func cmdSwapTree(ctx *CommandContext) {
 const moveUsage = "usage: move <pane> --before <target> | move <pane> --after <target>"
 
 func parseMoveArgs(args []string) (paneRef, targetRef string, before bool, err error) {
-	if len(args) < 3 {
+	if len(args) != 3 {
 		return "", "", false, fmt.Errorf(moveUsage)
 	}
 
 	paneRef = args[0]
-	var haveBefore, haveAfter bool
+	targetRef = args[2]
 
-	for i := 1; i < len(args); i++ {
-		switch args[i] {
-		case "--before":
-			if haveBefore || haveAfter || i+1 >= len(args) {
-				return "", "", false, fmt.Errorf(moveUsage)
-			}
-			haveBefore = true
-			before = true
-			targetRef = args[i+1]
-			i++
-		case "--after":
-			if haveBefore || haveAfter || i+1 >= len(args) {
-				return "", "", false, fmt.Errorf(moveUsage)
-			}
-			haveAfter = true
-			targetRef = args[i+1]
-			i++
-		default:
-			return "", "", false, fmt.Errorf(moveUsage)
-		}
-	}
-
-	if targetRef == "" {
+	switch args[1] {
+	case "--before":
+		before = true
+	case "--after":
+	default:
 		return "", "", false, fmt.Errorf(moveUsage)
 	}
 

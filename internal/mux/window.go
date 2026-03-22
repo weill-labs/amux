@@ -636,19 +636,10 @@ func (w *Window) rootChildForPaneID(paneID uint32) (*LayoutCell, int, error) {
 	}
 
 	cell := leaf
-	for cell.Parent != nil && cell.Parent != w.Root {
+	for cell.Parent != w.Root {
 		cell = cell.Parent
 	}
-	if cell.Parent != w.Root {
-		return nil, -1, fmt.Errorf("pane %d is not in a root-level group", paneID)
-	}
-
-	idx := cell.indexInParent()
-	if idx < 0 {
-		return nil, -1, fmt.Errorf("pane %d root-level group not found", paneID)
-	}
-
-	return cell, idx, nil
+	return cell, cell.indexInParent(), nil
 }
 
 func (w *Window) finishTreeMutation() {

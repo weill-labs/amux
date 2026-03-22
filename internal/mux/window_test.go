@@ -1003,6 +1003,22 @@ func TestRootChildForPaneID(t *testing.T) {
 	}
 }
 
+func TestRootChildForPaneIDErrors(t *testing.T) {
+	t.Parallel()
+
+	w := NewWindow(fakePaneID(1), 120, 24)
+	if _, _, err := w.rootChildForPaneID(1); err == nil || !strings.Contains(err.Error(), "window has no root-level split") {
+		t.Fatalf("rootChildForPaneID without root split = %v, want root-level split error", err)
+	}
+
+	if _, err := w.SplitRoot(SplitVertical, fakePaneID(2)); err != nil {
+		t.Fatalf("split root vertical: %v", err)
+	}
+	if _, _, err := w.rootChildForPaneID(99); err == nil || !strings.Contains(err.Error(), "pane 99 not found") {
+		t.Fatalf("rootChildForPaneID missing pane = %v, want pane not found", err)
+	}
+}
+
 func TestSwapTree(t *testing.T) {
 	t.Parallel()
 
@@ -1052,6 +1068,31 @@ func TestSwapTree(t *testing.T) {
 	}
 }
 
+func TestSwapTreeErrorPaths(t *testing.T) {
+	t.Parallel()
+
+	t.Run("no root split", func(t *testing.T) {
+		t.Parallel()
+
+		w := NewWindow(fakePaneID(1), 80, 24)
+		if err := w.SwapTree(1, 2); err == nil || !strings.Contains(err.Error(), "window has no root-level split") {
+			t.Fatalf("SwapTree without root split = %v, want root-level split error", err)
+		}
+	})
+
+	t.Run("missing pane", func(t *testing.T) {
+		t.Parallel()
+
+		w := NewWindow(fakePaneID(1), 80, 24)
+		if _, err := w.SplitRoot(SplitVertical, fakePaneID(2)); err != nil {
+			t.Fatalf("split root vertical: %v", err)
+		}
+		if err := w.SwapTree(1, 99); err == nil || !strings.Contains(err.Error(), "pane 99 not found") {
+			t.Fatalf("SwapTree missing pane = %v, want pane not found", err)
+		}
+	})
+}
+
 func TestSwapTreeRejectsSameRootBranch(t *testing.T) {
 	t.Parallel()
 
@@ -1075,6 +1116,25 @@ func TestSwapTreeRejectsSameRootBranch(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "same root-level group") {
 		t.Fatalf("SwapTree same-branch error = %q, want same root-level group", err.Error())
+	}
+}
+
+func TestSwapTreeAutoUnzooms(t *testing.T) {
+	t.Parallel()
+
+	w := NewWindow(fakePaneID(1), 80, 24)
+	if _, err := w.SplitRoot(SplitVertical, fakePaneID(2)); err != nil {
+		t.Fatalf("split root vertical: %v", err)
+	}
+
+	if err := w.Zoom(2); err != nil {
+		t.Fatalf("zoom pane-2: %v", err)
+	}
+	if err := w.SwapTree(1, 2); err != nil {
+		t.Fatalf("SwapTree while zoomed: %v", err)
+	}
+	if w.ZoomedPaneID != 0 {
+		t.Fatalf("swap should auto-unzoom, got ZoomedPaneID=%d", w.ZoomedPaneID)
 	}
 }
 
@@ -1136,6 +1196,51 @@ func TestMovePaneBefore(t *testing.T) {
 	if w.ActivePane != p1 {
 		t.Fatalf("active pane = %v, want pane-1 pointer", w.ActivePane)
 	}
+}
+
+func TestMovePaneErrorPaths(t *testing.T) {
+	t.Parallel()
+
+	t.Run("missing source pane", func(t *testing.T) {
+		t.Parallel()
+
+		w := NewWindow(fakePaneID(1), 80, 24)
+		if _, err := w.SplitRoot(SplitVertical, fakePaneID(2)); err != nil {
+			t.Fatalf("split root vertical: %v", err)
+		}
+		if err := w.MovePane(99, 1, true); err == nil || !strings.Contains(err.Error(), "pane 99 not found") {
+			t.Fatalf("MovePane missing source = %v, want pane not found", err)
+		}
+	})
+
+	t.Run("missing target pane", func(t *testing.T) {
+		t.Parallel()
+
+		w := NewWindow(fakePaneID(1), 80, 24)
+		if _, err := w.SplitRoot(SplitVertical, fakePaneID(2)); err != nil {
+			t.Fatalf("split root vertical: %v", err)
+		}
+		if err := w.MovePane(1, 99, true); err == nil || !strings.Contains(err.Error(), "pane 99 not found") {
+			t.Fatalf("MovePane missing target = %v, want pane not found", err)
+		}
+	})
+
+	t.Run("same root branch", func(t *testing.T) {
+		t.Parallel()
+
+		w := NewWindow(fakePaneID(1), 120, 24)
+		if _, err := w.SplitRoot(SplitVertical, fakePaneID(2)); err != nil {
+			t.Fatalf("split root vertical: %v", err)
+		}
+		w.FocusPane(w.Root.Children[0].Pane)
+		if _, err := w.Split(SplitHorizontal, fakePaneID(3)); err != nil {
+			t.Fatalf("split left column horizontal: %v", err)
+		}
+
+		if err := w.MovePane(1, 3, true); err == nil || !strings.Contains(err.Error(), "same root-level group") {
+			t.Fatalf("MovePane same branch = %v, want same root-level group", err)
+		}
+	})
 }
 
 func TestMovePaneAutoUnzooms(t *testing.T) {
