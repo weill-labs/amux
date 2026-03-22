@@ -284,7 +284,7 @@ func TestGlobalBarMultipleWindows(t *testing.T) {
 				{Index: 1, Name: "main", IsActive: true, Panes: 2},
 				{Index: 2, Name: "logs", IsActive: false, Panes: 1},
 			},
-			want: []string{"[1:main]", "2:logs"},
+			want: []string{"1:main", "2:logs"},
 		},
 		{
 			name: "three windows middle active",
@@ -293,7 +293,7 @@ func TestGlobalBarMultipleWindows(t *testing.T) {
 				{Index: 2, Name: "test", IsActive: true, Panes: 3},
 				{Index: 3, Name: "logs", IsActive: false, Panes: 1},
 			},
-			want: []string{"1:code", "[2:test]", "3:logs"},
+			want: []string{"1:code", "2:test", "3:logs"},
 		},
 	}
 

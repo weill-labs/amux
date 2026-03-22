@@ -6,6 +6,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/mattn/go-runewidth"
+	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/mux"
 )
 
@@ -231,9 +232,6 @@ func buildGlobalBarWindowTabs(windows []WindowInfo) []globalBarWindowTab {
 	for _, w := range windows {
 		label := strconv.Itoa(w.Index) + ":" + w.Name
 		display := label
-		if w.IsActive {
-			display = "[" + label + "]"
-		}
 
 		width := utf8.RuneCountInString(display)
 		tabs = append(tabs, globalBarWindowTab{
@@ -245,6 +243,13 @@ func buildGlobalBarWindowTabs(windows []WindowInfo) []globalBarWindowTab {
 		col += width + 1
 	}
 	return tabs
+}
+
+func globalBarTabColorHex(window WindowInfo) string {
+	if window.IsActive {
+		return config.BlueHex
+	}
+	return config.TextColorHex
 }
 
 // GlobalBarWindowAtColumn resolves a 0-based terminal column within the
@@ -274,11 +279,15 @@ func renderGlobalBar(buf *strings.Builder, sessionName string, paneCount int, wi
 	// Show window tabs if there are multiple windows
 	if len(tabs) > 0 {
 		for _, tab := range tabs {
+			left += hexToANSI(globalBarTabColorHex(tab.window))
 			if tab.window.IsActive {
-				left += Bold + tab.display + NoBold + " "
-			} else {
-				left += tab.display + " "
+				left += Bold
 			}
+			left += tab.display
+			if tab.window.IsActive {
+				left += NoBold
+			}
+			left += TextFg + " "
 			leftVisible += utf8.RuneCountInString(tab.display) + 1
 		}
 		left += "│ "

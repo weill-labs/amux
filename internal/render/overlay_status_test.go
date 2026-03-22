@@ -472,6 +472,69 @@ func TestBuildGlobalBarCellsTruncatesMessages(t *testing.T) {
 	}
 }
 
+func TestBuildGlobalBarCellsColorsActiveTab(t *testing.T) {
+	t.Parallel()
+
+	grid := NewScreenGrid(40, 1)
+	buildGlobalBarCells(grid, "session", 2, 40, 0, []WindowInfo{
+		{Index: 1, Name: "dev", IsActive: true},
+		{Index: 2, Name: "logs", IsActive: false},
+	}, "")
+
+	activeStart := findRowLabel(grid, 0, 40, "1:dev")
+	if activeStart < 0 {
+		t.Fatal("active tab label missing from global bar")
+	}
+	inactiveStart := findRowLabel(grid, 0, 40, "2:logs")
+	if inactiveStart < 0 {
+		t.Fatal("inactive tab label missing from global bar")
+	}
+
+	wantActive := hexToColor(config.BlueHex)
+	wantInactive := hexToColor(config.TextColorHex)
+	for i := 0; i < len("1:dev"); i++ {
+		cell := grid.Get(activeStart+i, 0)
+		if cell.Style.Fg == nil {
+			t.Fatal("active tab cells should have a foreground color")
+		}
+		got, ok := cell.Style.Fg.(interface {
+			RGBA() (uint32, uint32, uint32, uint32)
+		})
+		if !ok || !sameColor(got, wantActive) {
+			t.Fatalf("active tab cell %q should use the active tab color", cell.Char)
+		}
+	}
+	for i := 0; i < len("2:logs"); i++ {
+		cell := grid.Get(inactiveStart+i, 0)
+		if cell.Style.Fg == nil {
+			t.Fatal("inactive tab cells should have a foreground color")
+		}
+		got, ok := cell.Style.Fg.(interface {
+			RGBA() (uint32, uint32, uint32, uint32)
+		})
+		if !ok || !sameColor(got, wantInactive) {
+			t.Fatalf("inactive tab cell %q should use the default text color", cell.Char)
+		}
+	}
+}
+
+func findRowLabel(grid *ScreenGrid, y, width int, label string) int {
+	labelRunes := []rune(label)
+	for x := 0; x+len(labelRunes) <= width; x++ {
+		match := true
+		for i, want := range labelRunes {
+			if got := []rune(grid.Get(x+i, y).Char); len(got) != 1 || got[0] != want {
+				match = false
+				break
+			}
+		}
+		if match {
+			return x
+		}
+	}
+	return -1
+}
+
 func TestPadOrTrim(t *testing.T) {
 	t.Parallel()
 
