@@ -369,6 +369,17 @@ func TestZoomedPaneReattachUsesZoomWidthOnSecondClient(t *testing.T) {
 	const wideLine = "LAB352-01234567890123456789012345678901234567890123456789012345"
 	h.sendKeys("pane-2", "clear; printf '%s\\n' '"+wideLine+"'", "Enter")
 	h.waitIdle("pane-2")
+	if !h.waitForCaptureJSON(func(c proto.CaptureJSON) bool {
+		for _, p := range c.Panes {
+			if p.Name != "pane-2" || len(p.Content) == 0 {
+				continue
+			}
+			return p.Content[0] == wideLine
+		}
+		return false
+	}, 5*time.Second) {
+		t.Fatalf("first client never settled on zoomed replay content %q\ncapture:\n%s", wideLine, h.capture())
+	}
 
 	healthy := h.captureJSON()
 	healthyPane := h.jsonPane(healthy, "pane-2")
