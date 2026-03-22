@@ -126,6 +126,52 @@ func TestClientRendererCapabilities(t *testing.T) {
 	}
 }
 
+func TestClientRendererHandleLayoutKeepsMinimizedPaneCollapsed(t *testing.T) {
+	t.Parallel()
+
+	root := proto.CellSnapshot{
+		X: 0, Y: 0, W: 80, H: 23,
+		Dir: int(mux.SplitHorizontal),
+		Children: []proto.CellSnapshot{
+			{X: 0, Y: 0, W: 80, H: 11, IsLeaf: true, Dir: -1, PaneID: 1},
+			{X: 0, Y: 12, W: 80, H: 11, IsLeaf: true, Dir: -1, PaneID: 2},
+		},
+	}
+	panes := []proto.PaneSnapshot{
+		{ID: 1, Name: "pane-1", Host: "local", Color: "f5e0dc", Minimized: true},
+		{ID: 2, Name: "pane-2", Host: "local", Color: "f2cdcd"},
+	}
+
+	cr := NewClientRenderer(80, 24)
+	cr.HandleLayout(&proto.LayoutSnapshot{
+		SessionName:  "test",
+		ActivePaneID: 1,
+		Width:        80,
+		Height:       23,
+		Root:         root,
+		Panes:        panes,
+		Windows: []proto.WindowSnapshot{{
+			ID: 1, Name: "window-1", Index: 1, ActivePaneID: 1,
+			Root:  root,
+			Panes: panes,
+		}},
+		ActiveWindowID: 1,
+	})
+
+	layout := cr.renderer.Layout()
+	top := layout.FindByPaneID(1)
+	bottom := layout.FindByPaneID(2)
+	if top == nil || bottom == nil {
+		t.Fatal("expected both panes after layout")
+	}
+	if top.H != mux.StatusLineRows {
+		t.Fatalf("minimized pane height after rescale = %d, want %d", top.H, mux.StatusLineRows)
+	}
+	if bottom.H != 21 {
+		t.Fatalf("visible pane height after rescale = %d, want 21", bottom.H)
+	}
+}
+
 func twoPane80x23Zoomed(paneID uint32) *proto.LayoutSnapshot {
 	snap := twoPane80x23()
 	snap.ZoomedPaneID = paneID

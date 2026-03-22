@@ -685,6 +685,120 @@ func TestRestoreResizesSiblingSubtreeDescendants(t *testing.T) {
 	}
 }
 
+func TestResizeKeepsMinimizedPaneCollapsed(t *testing.T) {
+	t.Parallel()
+
+	p1 := fakePaneID(1)
+	w := NewWindow(p1, 80, 24)
+
+	p2 := fakePaneID(2)
+	if _, err := w.SplitRoot(SplitHorizontal, p2); err != nil {
+		t.Fatalf("split root horizontal: %v", err)
+	}
+
+	if err := w.Minimize(p1.ID); err != nil {
+		t.Fatalf("minimize pane-1: %v", err)
+	}
+
+	w.Resize(80, 30)
+
+	top := w.Root.FindPane(p1.ID)
+	bottom := w.Root.FindPane(p2.ID)
+	if top == nil || bottom == nil {
+		t.Fatal("expected both panes after resize")
+	}
+	if top.H != StatusLineRows {
+		t.Fatalf("minimized pane height after resize = %d, want %d", top.H, StatusLineRows)
+	}
+	if bottom.H != 28 {
+		t.Fatalf("visible pane height after resize = %d, want 28", bottom.H)
+	}
+}
+
+func TestSplitKeepsExistingMinimizedPaneCollapsed(t *testing.T) {
+	t.Parallel()
+
+	p1 := fakePaneID(1)
+	w := NewWindow(p1, 80, 24)
+
+	p2 := fakePaneID(2)
+	if _, err := w.SplitRoot(SplitHorizontal, p2); err != nil {
+		t.Fatalf("split root horizontal: %v", err)
+	}
+	if err := w.Minimize(p1.ID); err != nil {
+		t.Fatalf("minimize pane-1: %v", err)
+	}
+
+	w.FocusPane(p2)
+	p3 := fakePaneID(3)
+	if _, err := w.Split(SplitHorizontal, p3); err != nil {
+		t.Fatalf("split pane-2 horizontal: %v", err)
+	}
+
+	top := w.Root.FindPane(p1.ID)
+	middle := w.Root.FindPane(p2.ID)
+	bottom := w.Root.FindPane(p3.ID)
+	if top == nil || middle == nil || bottom == nil {
+		t.Fatal("expected all panes after split")
+	}
+	if top.H != StatusLineRows {
+		t.Fatalf("minimized pane height after split = %d, want %d", top.H, StatusLineRows)
+	}
+	if got := middle.H + bottom.H; got != 21 {
+		t.Fatalf("non-minimized pane heights after split sum to %d, want 21", got)
+	}
+}
+
+func TestCloseAutoRestoreKeepsOtherMinimizedPaneCollapsed(t *testing.T) {
+	t.Parallel()
+
+	p1 := fakePaneID(1)
+	w := NewWindow(p1, 80, 24)
+
+	p2 := fakePaneID(2)
+	if _, err := w.SplitRoot(SplitHorizontal, p2); err != nil {
+		t.Fatalf("split root horizontal: %v", err)
+	}
+
+	w.FocusPane(p2)
+	p3 := fakePaneID(3)
+	if _, err := w.Split(SplitHorizontal, p3); err != nil {
+		t.Fatalf("split pane-2 horizontal: %v", err)
+	}
+
+	if err := w.Minimize(p1.ID); err != nil {
+		t.Fatalf("minimize pane-1: %v", err)
+	}
+	if err := w.Minimize(p3.ID); err != nil {
+		t.Fatalf("minimize pane-3: %v", err)
+	}
+	if err := w.ClosePane(p2.ID); err != nil {
+		t.Fatalf("close pane-2: %v", err)
+	}
+
+	var minimized, restored *LayoutCell
+	w.Root.Walk(func(c *LayoutCell) {
+		if c.Pane == nil {
+			return
+		}
+		if c.Pane.Meta.Minimized {
+			minimized = c
+			return
+		}
+		restored = c
+	})
+
+	if minimized == nil || restored == nil {
+		t.Fatalf("expected one minimized and one restored pane, got minimized=%v restored=%v", minimized != nil, restored != nil)
+	}
+	if minimized.H != StatusLineRows {
+		t.Fatalf("remaining minimized pane height after close = %d, want %d", minimized.H, StatusLineRows)
+	}
+	if restored.H != 22 {
+		t.Fatalf("auto-restored pane height after close = %d, want 22", restored.H)
+	}
+}
+
 func TestSplitRootSameDirectionResizesNestedChildren(t *testing.T) {
 	t.Parallel()
 
