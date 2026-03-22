@@ -8,24 +8,19 @@ import (
 )
 
 func TestGitBranch(t *testing.T) {
-	t.Parallel()
-
 	t.Run("empty dir", func(t *testing.T) {
-		t.Parallel()
 		if got := GitBranch(""); got != "" {
 			t.Errorf("GitBranch(\"\") = %q, want \"\"", got)
 		}
 	})
 
 	t.Run("nonexistent dir", func(t *testing.T) {
-		t.Parallel()
 		if got := GitBranch("/nonexistent-path-xyz"); got != "" {
 			t.Errorf("GitBranch(nonexistent) = %q, want \"\"", got)
 		}
 	})
 
 	t.Run("not a git repo", func(t *testing.T) {
-		t.Parallel()
 		dir := t.TempDir()
 		if got := GitBranch(dir); got != "" {
 			t.Errorf("GitBranch(non-repo) = %q, want \"\"", got)
@@ -33,7 +28,6 @@ func TestGitBranch(t *testing.T) {
 	})
 
 	t.Run("git repo returns branch", func(t *testing.T) {
-		t.Parallel()
 		dir := t.TempDir()
 
 		// Disable git auto-maintenance so commit does not leave a background
