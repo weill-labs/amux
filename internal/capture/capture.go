@@ -1,8 +1,10 @@
 package capture
 
 import (
+	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/weill-labs/amux/internal/proto"
 )
@@ -138,4 +140,34 @@ func BuildPane(input PaneInput, agentStatus map[uint32]proto.PaneAgentStatus) pr
 	}
 	cp.ApplyAgentStatus(agentStatus)
 	return cp
+}
+
+func marshalIndented(v any) string {
+	out, _ := json.MarshalIndent(v, "", "  ")
+	return string(out)
+}
+
+// JSONErrorOutput builds a capture-shaped JSON error payload.
+func JSONErrorOutput(singlePane bool, code, message string) string {
+	errPayload := &proto.CaptureError{Code: code, Message: message}
+	if singlePane {
+		return marshalIndented(proto.CapturePane{Error: errPayload})
+	}
+	return marshalIndented(proto.CaptureJSON{Error: errPayload})
+}
+
+// ValidateJSONOutput rejects blank, invalid, and empty-object JSON responses.
+func ValidateJSONOutput(raw string) error {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return fmt.Errorf("capture response was empty")
+	}
+	var body map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(trimmed), &body); err != nil {
+		return fmt.Errorf("capture response was not valid JSON: %w", err)
+	}
+	if len(body) == 0 {
+		return fmt.Errorf("capture response was an empty JSON object")
+	}
+	return nil
 }

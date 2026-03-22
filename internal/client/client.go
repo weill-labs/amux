@@ -216,7 +216,7 @@ func (cr *ClientRenderer) Resize(width, height int) {
 func (cr *ClientRenderer) CaptureJSON(agentStatus map[uint32]proto.PaneAgentStatus) string {
 	capture, ok := cr.renderer.captureJSONValue(agentStatus)
 	if !ok {
-		return "{}"
+		return caputil.JSONErrorOutput(false, "state_unavailable", "capture state is unavailable because no layout is ready")
 	}
 	capture.UI = cr.captureUIState()
 	return marshalIndented(capture)
@@ -226,7 +226,7 @@ func (cr *ClientRenderer) CaptureJSON(agentStatus map[uint32]proto.PaneAgentStat
 func (cr *ClientRenderer) CapturePaneJSON(paneID uint32, agentStatus map[uint32]proto.PaneAgentStatus) string {
 	pane, ok := cr.renderer.capturePaneValue(paneID, agentStatus)
 	if !ok {
-		return "{}"
+		return caputil.JSONErrorOutput(true, "state_unavailable", "pane capture state is unavailable")
 	}
 	pane.CopyMode = cr.InCopyMode(paneID)
 	return marshalIndented(pane)

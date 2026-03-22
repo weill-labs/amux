@@ -321,7 +321,7 @@ func (r *Renderer) captureJSONValue(agentStatus map[uint32]proto.PaneAgentStatus
 func (r *Renderer) CaptureJSON(agentStatus map[uint32]proto.PaneAgentStatus) string {
 	capture, ok := r.captureJSONValue(agentStatus)
 	if !ok {
-		return "{}"
+		return caputil.JSONErrorOutput(false, "state_unavailable", "capture state is unavailable because no layout is ready")
 	}
 	return marshalIndented(capture)
 }
@@ -349,7 +349,7 @@ func (r *Renderer) capturePaneValue(paneID uint32, agentStatus map[uint32]proto.
 func (r *Renderer) CapturePaneJSON(paneID uint32, agentStatus map[uint32]proto.PaneAgentStatus) string {
 	cp, ok := r.capturePaneValue(paneID, agentStatus)
 	if !ok {
-		return "{}"
+		return caputil.JSONErrorOutput(true, "state_unavailable", "pane capture state is unavailable")
 	}
 	return marshalIndented(cp)
 }

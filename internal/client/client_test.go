@@ -377,6 +377,58 @@ func TestClientRendererCaptureJSON(t *testing.T) {
 	}
 }
 
+func TestClientRendererCaptureJSONReturnsErrorObjectWithoutLayout(t *testing.T) {
+	t.Parallel()
+
+	cr := NewClientRenderer(80, 24)
+
+	var capture struct {
+		Error *struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	out := cr.CaptureJSON(nil)
+	if err := json.Unmarshal([]byte(out), &capture); err != nil {
+		t.Fatalf("JSON parse: %v\nraw: %s", err, out)
+	}
+	if capture.Error == nil {
+		t.Fatalf("capture should return an error object when layout is unavailable, got: %s", out)
+	}
+	if capture.Error.Code != "state_unavailable" {
+		t.Fatalf("error code = %q, want state_unavailable", capture.Error.Code)
+	}
+	if capture.Error.Message == "" {
+		t.Fatal("error message should be non-empty")
+	}
+}
+
+func TestRendererCaptureJSONReturnsErrorObjectWithoutLayout(t *testing.T) {
+	t.Parallel()
+
+	r := NewWithScrollback(80, 24, mux.DefaultScrollbackLines)
+
+	var capture struct {
+		Error *struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	out := r.CaptureJSON(nil)
+	if err := json.Unmarshal([]byte(out), &capture); err != nil {
+		t.Fatalf("JSON parse: %v\nraw: %s", err, out)
+	}
+	if capture.Error == nil {
+		t.Fatalf("capture should return an error object when layout is unavailable, got: %s", out)
+	}
+	if capture.Error.Code != "state_unavailable" {
+		t.Fatalf("error code = %q, want state_unavailable", capture.Error.Code)
+	}
+	if capture.Error.Message == "" {
+		t.Fatal("error message should be non-empty")
+	}
+}
+
 func TestRendererCaptureJSONValueMatchesCaptureJSON(t *testing.T) {
 	t.Parallel()
 	cr := buildTestRenderer(t)
@@ -491,9 +543,69 @@ func TestClientRendererCapturePaneJSON(t *testing.T) {
 		t.Errorf("name: got %q, want pane-1", cp.Name)
 	}
 
+	var missing struct {
+		Error *struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
 	empty := cr.CapturePaneJSON(999, nil)
-	if empty != "{}" {
-		t.Errorf("nonexistent pane should return {}, got %q", empty)
+	if err := json.Unmarshal([]byte(empty), &missing); err != nil {
+		t.Fatalf("missing pane JSON parse: %v", err)
+	}
+	if missing.Error == nil || missing.Error.Code != "state_unavailable" {
+		t.Errorf("nonexistent pane should return a state_unavailable error, got %q", empty)
+	}
+}
+
+func TestClientRendererCapturePaneJSONReturnsErrorObjectWithoutLayout(t *testing.T) {
+	t.Parallel()
+
+	cr := NewClientRenderer(80, 24)
+
+	var pane struct {
+		Error *struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	out := cr.CapturePaneJSON(1, nil)
+	if err := json.Unmarshal([]byte(out), &pane); err != nil {
+		t.Fatalf("JSON parse: %v\nraw: %s", err, out)
+	}
+	if pane.Error == nil {
+		t.Fatalf("pane capture should return an error object when state is unavailable, got: %s", out)
+	}
+	if pane.Error.Code != "state_unavailable" {
+		t.Fatalf("error code = %q, want state_unavailable", pane.Error.Code)
+	}
+	if pane.Error.Message == "" {
+		t.Fatal("error message should be non-empty")
+	}
+}
+
+func TestRendererCapturePaneJSONReturnsErrorObjectWithoutLayout(t *testing.T) {
+	t.Parallel()
+
+	r := NewWithScrollback(80, 24, mux.DefaultScrollbackLines)
+
+	var pane struct {
+		Error *struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	out := r.CapturePaneJSON(1, nil)
+	if err := json.Unmarshal([]byte(out), &pane); err != nil {
+		t.Fatalf("JSON parse: %v\nraw: %s", err, out)
+	}
+	if pane.Error == nil {
+		t.Fatalf("pane capture should return an error object when state is unavailable, got: %s", out)
+	}
+	if pane.Error.Code != "state_unavailable" {
+		t.Fatalf("error code = %q, want state_unavailable", pane.Error.Code)
+	}
+	if pane.Error.Message == "" {
+		t.Fatal("error message should be non-empty")
 	}
 }
 
