@@ -147,7 +147,7 @@ func TestCommandPaneMutationsAndMetadata(t *testing.T) {
 	if zoomRes.cmdErr != "" || !strings.Contains(zoomRes.output, "Zoomed pane-2") {
 		t.Fatalf("zoom result = %#v", zoomRes)
 	}
-	if got := mustSessionQuery(t, sess, func(sess *Session) uint32 { return sess.ActiveWindow().ZoomedPaneID }); got != p2.ID {
+	if got := mustSessionQuery(t, sess, func(sess *Session) uint32 { return sess.activeWindow().ZoomedPaneID }); got != p2.ID {
 		t.Fatalf("zoomed pane = %d, want %d", got, p2.ID)
 	}
 
@@ -460,11 +460,11 @@ func TestCommandWaitHooksClientsAndTypeKeys(t *testing.T) {
 	sess.clipboardGen.Store(5)
 	sess.lastClipboardB64 = "clip-data"
 
-	serverConn, clientConn := net.Pipe()
+	serverConn, peerConn := net.Pipe()
 	defer serverConn.Close()
-	defer clientConn.Close()
+	defer peerConn.Close()
 
-	uiClient := NewClientConn(serverConn)
+	uiClient := newClientConn(serverConn)
 	defer uiClient.Close()
 	uiClient.ID = "client-1"
 	uiClient.cols = 100
@@ -475,7 +475,7 @@ func TestCommandWaitHooksClientsAndTypeKeys(t *testing.T) {
 	uiClient.setNegotiatedCapabilities(proto.ClientCapabilities{KittyKeyboard: true, Hyperlinks: true})
 	uiClient.initTypeKeyQueue()
 
-	sess.clients = []*ClientConn{uiClient}
+	sess.clients = []*clientConn{uiClient}
 	sess.sizeClient.Store(uiClient)
 
 	genRes := runTestCommand(t, srv, sess, "generation")
@@ -559,11 +559,11 @@ func TestCommandWaitHooksClientsAndTypeKeys(t *testing.T) {
 	}
 	readCh := make(chan typeKeyRead, 1)
 	go func() {
-		if err := clientConn.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+		if err := peerConn.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
 			readCh <- typeKeyRead{err: err}
 			return
 		}
-		msg, err := ReadMsg(clientConn)
+		msg, err := ReadMsg(peerConn)
 		readCh <- typeKeyRead{msg: msg, err: err}
 	}()
 
@@ -633,11 +633,11 @@ func TestCommandSplitSpawnKillAndEvents(t *testing.T) {
 		t.Fatalf("pane count after kill = %d, want 2", got)
 	}
 
-	serverConn, clientConn := net.Pipe()
+	serverConn, peerConn := net.Pipe()
 	defer serverConn.Close()
-	defer clientConn.Close()
+	defer peerConn.Close()
 
-	cc := NewClientConn(serverConn)
+	cc := newClientConn(serverConn)
 	defer cc.Close()
 	done := make(chan struct{})
 	go func() {
@@ -654,12 +654,12 @@ func TestCommandSplitSpawnKillAndEvents(t *testing.T) {
 		return struct{}{}
 	})
 
-	msg := mustReadMessage(t, clientConn)
+	msg := mustReadMessage(t, peerConn)
 	if msg.Type != MsgTypeCmdResult || !strings.Contains(msg.CmdOutput, `"type":"layout"`) {
 		t.Fatalf("events message = %#v", msg)
 	}
 
-	_ = clientConn.Close()
+	_ = peerConn.Close()
 	mustSessionQuery(t, sess, func(sess *Session) struct{} {
 		sess.emitEvent(Event{Type: EventLayout, Generation: 10})
 		return struct{}{}
@@ -763,7 +763,7 @@ func TestCommandSplitParsesDirectionFlags(t *testing.T) {
 			}
 
 			if got := mustSessionQuery(t, sess, func(sess *Session) mux.SplitDir {
-				return sess.ActiveWindow().Root.Dir
+				return sess.activeWindow().Root.Dir
 			}); got != tt.wantDir {
 				t.Fatalf("split %v root dir = %v, want %v", tt.args, got, tt.wantDir)
 			}
@@ -777,11 +777,11 @@ func TestCommandSplitParsesDirectionFlags(t *testing.T) {
 func TestFlushPendingOutputEventsAndHelpers(t *testing.T) {
 	t.Parallel()
 
-	serverConn, clientConn := net.Pipe()
+	serverConn, peerConn := net.Pipe()
 	defer serverConn.Close()
-	defer clientConn.Close()
+	defer peerConn.Close()
 
-	cc := NewClientConn(serverConn)
+	cc := newClientConn(serverConn)
 	defer cc.Close()
 
 	ctx := &CommandContext{CC: cc}
@@ -796,16 +796,16 @@ func TestFlushPendingOutputEventsAndHelpers(t *testing.T) {
 	}
 	readCh := make(chan flushRead, 1)
 	go func() {
-		if err := clientConn.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+		if err := peerConn.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
 			readCh <- flushRead{err: err}
 			return
 		}
-		msg1, err := ReadMsg(clientConn)
+		msg1, err := ReadMsg(peerConn)
 		if err != nil {
 			readCh <- flushRead{err: err}
 			return
 		}
-		msg2, err := ReadMsg(clientConn)
+		msg2, err := ReadMsg(peerConn)
 		readCh <- flushRead{msgs: []*Message{msg1, msg2}, err: err}
 	}()
 
@@ -892,23 +892,23 @@ func TestSessionWindowHelpers(t *testing.T) {
 	sess.Windows = []*mux.Window{w1, w2}
 	sess.ActiveWindowID = w1.ID
 
-	if got := sess.ResolveWindow("2"); got != w2 {
-		t.Fatalf("ResolveWindow(2) = %#v, want logs window", got)
+	if got := sess.resolveWindow("2"); got != w2 {
+		t.Fatalf("resolveWindow(2) = %#v, want logs window", got)
 	}
-	if got := sess.ResolveWindow("main"); got != w1 {
-		t.Fatalf("ResolveWindow(main) = %#v, want main window", got)
+	if got := sess.resolveWindow("main"); got != w1 {
+		t.Fatalf("resolveWindow(main) = %#v, want main window", got)
 	}
-	if got := sess.ResolveWindow("lo"); got != w2 {
-		t.Fatalf("ResolveWindow(lo) = %#v, want logs window", got)
+	if got := sess.resolveWindow("lo"); got != w2 {
+		t.Fatalf("resolveWindow(lo) = %#v, want logs window", got)
 	}
 
-	sess.NextWindow()
+	sess.nextWindow()
 	if sess.ActiveWindowID != w2.ID {
-		t.Fatalf("NextWindow active = %d, want %d", sess.ActiveWindowID, w2.ID)
+		t.Fatalf("nextWindow active = %d, want %d", sess.ActiveWindowID, w2.ID)
 	}
-	sess.PrevWindow()
+	sess.prevWindow()
 	if sess.ActiveWindowID != w1.ID {
-		t.Fatalf("PrevWindow active = %d, want %d", sess.ActiveWindowID, w1.ID)
+		t.Fatalf("prevWindow active = %d, want %d", sess.ActiveWindowID, w1.ID)
 	}
 
 	if got := sess.closePaneInWindow(p3.ID); got != "logs" {
@@ -925,9 +925,9 @@ func TestSessionWindowHelpers(t *testing.T) {
 		t.Fatalf("main pane count after close = %d, want 1", w1.PaneCount())
 	}
 
-	sess.RemoveWindow(w1.ID)
+	sess.removeWindow(w1.ID)
 	if len(sess.Windows) != 0 {
-		t.Fatalf("RemoveWindow left %d windows, want 0", len(sess.Windows))
+		t.Fatalf("removeWindow left %d windows, want 0", len(sess.Windows))
 	}
 }
 

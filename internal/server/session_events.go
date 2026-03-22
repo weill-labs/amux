@@ -56,7 +56,7 @@ type ensureInitialWindowResult struct {
 
 type attachClientEvent struct {
 	srv   *Server
-	cc    *ClientConn
+	cc    *clientConn
 	cols  int
 	rows  int
 	reply chan attachResult
@@ -73,7 +73,7 @@ func (s *Session) recoverInitialWindowFromOrphansLocked(cols, rows int) (bool, e
 
 	var orphans []*mux.Pane
 	for _, pane := range s.Panes {
-		if pane.Meta.Dormant || s.FindWindowByPaneID(pane.ID) != nil {
+		if pane.Meta.Dormant || s.findWindowByPaneID(pane.ID) != nil {
 			continue
 		}
 		orphans = append(orphans, pane)
@@ -148,7 +148,7 @@ func (e commandMutationEvent) handle(s *Session) {
 }
 
 type detachClientEvent struct {
-	cc *ClientConn
+	cc *clientConn
 }
 
 func (e detachClientEvent) handle(s *Session) {
@@ -157,7 +157,7 @@ func (e detachClientEvent) handle(s *Session) {
 }
 
 type resizeClientEvent struct {
-	cc   *ClientConn
+	cc   *clientConn
 	cols int
 	rows int
 }
@@ -171,7 +171,7 @@ func (e resizeClientEvent) handle(s *Session) {
 }
 
 type clientActivityEvent struct {
-	cc *ClientConn
+	cc *clientConn
 }
 
 func (e clientActivityEvent) handle(s *Session) {
@@ -406,7 +406,7 @@ func (s *Session) enqueueEvent(ev sessionEvent) bool {
 	}
 }
 
-func (s *Session) enqueueAttachClient(srv *Server, cc *ClientConn, cols, rows int) attachResult {
+func (s *Session) enqueueAttachClient(srv *Server, cc *clientConn, cols, rows int) attachResult {
 	reply := make(chan attachResult, 1)
 	if !s.enqueueEvent(attachClientEvent{
 		srv:   srv,
@@ -448,11 +448,11 @@ func (s *Session) enqueueCommandMutation(fn func(*Session) commandMutationResult
 	}
 }
 
-func (s *Session) enqueueDetachClient(cc *ClientConn) {
+func (s *Session) enqueueDetachClient(cc *clientConn) {
 	s.enqueueEvent(detachClientEvent{cc: cc})
 }
 
-func (s *Session) enqueueResizeClient(cc *ClientConn, cols, rows int) {
+func (s *Session) enqueueResizeClient(cc *clientConn, cols, rows int) {
 	s.enqueueEvent(resizeClientEvent{cc: cc, cols: cols, rows: rows})
 }
 
@@ -600,7 +600,7 @@ func (e paneOutputUnsubscribeCmd) handle(s *Session) {
 // --- UI events through the event loop ---
 
 type uiEventCmd struct {
-	cc      *ClientConn
+	cc      *clientConn
 	uiEvent string
 }
 
@@ -723,15 +723,15 @@ func (s *Session) enqueuePaneOutputUnsubscribe(paneID uint32, ch chan struct{}) 
 	s.enqueueEvent(paneOutputUnsubscribeCmd{paneID: paneID, ch: ch})
 }
 
-func (s *Session) enqueueUIEvent(cc *ClientConn, uiEvent string) {
+func (s *Session) enqueueUIEvent(cc *clientConn, uiEvent string) {
 	s.enqueueEvent(uiEventCmd{cc: cc, uiEvent: uiEvent})
 }
 
-func (s *Session) enqueueClientActivity(cc *ClientConn) {
+func (s *Session) enqueueClientActivity(cc *clientConn) {
 	s.enqueueEvent(clientActivityEvent{cc: cc})
 }
 
-func (s *Session) handleAttachEvent(srv *Server, cc *ClientConn, cols, rows int) attachResult {
+func (s *Session) handleAttachEvent(srv *Server, cc *clientConn, cols, rows int) attachResult {
 	idleSnap := s.snapshotIdleState()
 
 	cc.cols = cols

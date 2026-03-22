@@ -34,8 +34,8 @@ func TestHandleAttachAndResizeThroughSessionQueue(t *testing.T) {
 	sess.Panes = []*mux.Pane{pane}
 
 	srv := &Server{sessions: map[string]*Session{sess.Name: sess}}
-	serverConn, clientConn := net.Pipe()
-	defer clientConn.Close()
+	serverConn, peerConn := net.Pipe()
+	defer peerConn.Close()
 
 	done := make(chan struct{})
 	go func() {
@@ -48,7 +48,7 @@ func TestHandleAttachAndResizeThroughSessionQueue(t *testing.T) {
 		})
 	}()
 
-	msg := readMsgWithTimeout(t, clientConn)
+	msg := readMsgWithTimeout(t, peerConn)
 	if msg.Type != MsgTypeLayout {
 		t.Fatalf("first message type = %v, want layout", msg.Type)
 	}
@@ -56,7 +56,7 @@ func TestHandleAttachAndResizeThroughSessionQueue(t *testing.T) {
 		t.Fatalf("initial layout size = %dx%d, want 80x23", msg.Layout.Width, msg.Layout.Height)
 	}
 
-	msg = readMsgWithTimeout(t, clientConn)
+	msg = readMsgWithTimeout(t, peerConn)
 	if msg.Type != MsgTypePaneOutput {
 		t.Fatalf("second message type = %v, want pane output", msg.Type)
 	}
@@ -68,16 +68,16 @@ func TestHandleAttachAndResizeThroughSessionQueue(t *testing.T) {
 	}
 
 	// handleAttach broadcasts a post-attach layout after the initial snapshot.
-	readUntil(t, clientConn, func(msg *Message) bool {
+	readUntil(t, peerConn, func(msg *Message) bool {
 		return msg.Type == MsgTypeLayout && msg.Layout != nil &&
 			msg.Layout.Width == 80 && msg.Layout.Height == 23
 	})
 
-	if err := WriteMsg(clientConn, &Message{Type: MsgTypeResize, Cols: 100, Rows: 30}); err != nil {
+	if err := WriteMsg(peerConn, &Message{Type: MsgTypeResize, Cols: 100, Rows: 30}); err != nil {
 		t.Fatalf("WriteMsg resize: %v", err)
 	}
 
-	resized := readUntil(t, clientConn, func(msg *Message) bool {
+	resized := readUntil(t, peerConn, func(msg *Message) bool {
 		return msg.Type == MsgTypeLayout && msg.Layout != nil &&
 			msg.Layout.Width == 100 && msg.Layout.Height == 29
 	})
@@ -85,7 +85,7 @@ func TestHandleAttachAndResizeThroughSessionQueue(t *testing.T) {
 		t.Fatalf("active window id = %d, want %d", resized.Layout.ActiveWindowID, w.ID)
 	}
 
-	if err := WriteMsg(clientConn, &Message{Type: MsgTypeDetach}); err != nil {
+	if err := WriteMsg(peerConn, &Message{Type: MsgTypeDetach}); err != nil {
 		t.Fatalf("WriteMsg detach: %v", err)
 	}
 
@@ -116,8 +116,8 @@ func TestHandleAttachSendsPaneHistoryBeforePaneOutput(t *testing.T) {
 	sess.Panes = []*mux.Pane{pane}
 
 	srv := &Server{sessions: map[string]*Session{sess.Name: sess}}
-	serverConn, clientConn := net.Pipe()
-	defer clientConn.Close()
+	serverConn, peerConn := net.Pipe()
+	defer peerConn.Close()
 
 	done := make(chan struct{})
 	go func() {
@@ -130,11 +130,11 @@ func TestHandleAttachSendsPaneHistoryBeforePaneOutput(t *testing.T) {
 		})
 	}()
 
-	if msg := readMsgWithTimeout(t, clientConn); msg.Type != MsgTypeLayout {
+	if msg := readMsgWithTimeout(t, peerConn); msg.Type != MsgTypeLayout {
 		t.Fatalf("first message type = %v, want layout", msg.Type)
 	}
 
-	msg := readMsgWithTimeout(t, clientConn)
+	msg := readMsgWithTimeout(t, peerConn)
 	if msg.Type != MsgTypePaneHistory {
 		t.Fatalf("second message type = %v, want pane history", msg.Type)
 	}
@@ -145,7 +145,7 @@ func TestHandleAttachSendsPaneHistoryBeforePaneOutput(t *testing.T) {
 		t.Fatalf("history = %#v, want oldest line retained", msg.History)
 	}
 
-	msg = readMsgWithTimeout(t, clientConn)
+	msg = readMsgWithTimeout(t, peerConn)
 	if msg.Type != MsgTypePaneOutput {
 		t.Fatalf("third message type = %v, want pane output", msg.Type)
 	}
@@ -153,12 +153,12 @@ func TestHandleAttachSendsPaneHistoryBeforePaneOutput(t *testing.T) {
 		t.Fatalf("pane output = %q, want latest screen content", msg.PaneData)
 	}
 
-	readUntil(t, clientConn, func(msg *Message) bool {
+	readUntil(t, peerConn, func(msg *Message) bool {
 		return msg.Type == MsgTypeLayout && msg.Layout != nil &&
 			msg.Layout.Width == 80 && msg.Layout.Height == 23
 	})
 
-	if err := WriteMsg(clientConn, &Message{Type: MsgTypeDetach}); err != nil {
+	if err := WriteMsg(peerConn, &Message{Type: MsgTypeDetach}); err != nil {
 		t.Fatalf("WriteMsg detach: %v", err)
 	}
 
@@ -228,12 +228,12 @@ func TestCommandMutationBroadcastsLayoutBeforeQueuedPaneOutput(t *testing.T) {
 	sess.ActiveWindowID = w.ID
 	sess.Panes = []*mux.Pane{pane}
 
-	serverConn, clientConn := net.Pipe()
-	t.Cleanup(func() { _ = clientConn.Close() })
+	serverConn, peerConn := net.Pipe()
+	t.Cleanup(func() { _ = peerConn.Close() })
 
-	cc := NewClientConn(serverConn)
+	cc := newClientConn(serverConn)
 	t.Cleanup(cc.Close)
-	sess.clients = []*ClientConn{cc}
+	sess.clients = []*clientConn{cc}
 
 	res := sess.enqueueCommandMutation(func(s *Session) commandMutationResult {
 		s.enqueuePaneOutput(pane.ID, []byte("queued-output"), 1)
@@ -243,7 +243,7 @@ func TestCommandMutationBroadcastsLayoutBeforeQueuedPaneOutput(t *testing.T) {
 		t.Fatalf("enqueueCommandMutation error = %v", res.err)
 	}
 
-	first := readMsgWithTimeout(t, clientConn)
+	first := readMsgWithTimeout(t, peerConn)
 	if first.Type != MsgTypeLayout {
 		t.Fatalf("first message type = %v, want layout before pane output", first.Type)
 	}
@@ -251,7 +251,7 @@ func TestCommandMutationBroadcastsLayoutBeforeQueuedPaneOutput(t *testing.T) {
 		t.Fatalf("layout = %+v, want 80x23 snapshot", first.Layout)
 	}
 
-	second := readMsgWithTimeout(t, clientConn)
+	second := readMsgWithTimeout(t, peerConn)
 	if second.Type != MsgTypePaneOutput {
 		t.Fatalf("second message type = %v, want pane output", second.Type)
 	}
@@ -362,7 +362,7 @@ func TestEnsureInitialWindowCreatesPaneWithoutClient(t *testing.T) {
 
 	waitUntil(t, func() bool {
 		return mustSessionQuery(t, sess, func(sess *Session) bool {
-			return len(sess.Windows) == 1 && len(sess.Panes) == 1 && sess.ActiveWindow() != nil
+			return len(sess.Windows) == 1 && len(sess.Panes) == 1 && sess.activeWindow() != nil
 		})
 	})
 
@@ -448,11 +448,11 @@ func TestEnsureInitialWindowReusesOrphanedPanes(t *testing.T) {
 			t.Fatalf("pane count = %d, want %d", len(sess.Panes), len(orphans)+1)
 		}
 		for _, pane := range orphans {
-			if sess.FindWindowByPaneID(pane.ID) == nil {
+			if sess.findWindowByPaneID(pane.ID) == nil {
 				t.Fatalf("pane %d should be rehabilitated into a window", pane.ID)
 			}
 		}
-		if sess.FindWindowByPaneID(dormant.ID) != nil {
+		if sess.findWindowByPaneID(dormant.ID) != nil {
 			t.Fatalf("dormant pane %d should stay out of the recovery window", dormant.ID)
 		}
 		return struct{}{}
@@ -511,7 +511,7 @@ func TestEnsureInitialWindowReturnsOrphanRecoveryError(t *testing.T) {
 			t.Fatalf("window count = %d, want 0", len(sess.Windows))
 		}
 		for _, pane := range orphans {
-			if sess.FindWindowByPaneID(pane.ID) != nil {
+			if sess.findWindowByPaneID(pane.ID) != nil {
 				t.Fatalf("pane %d should remain orphaned after recovery error", pane.ID)
 			}
 		}
@@ -552,7 +552,7 @@ func TestEnqueueAttachClientReturnsOnSessionShutdown(t *testing.T) {
 
 	resultCh := make(chan attachResult, 1)
 	go func() {
-		resultCh <- sess.enqueueAttachClient(&Server{}, NewClientConn(nil), 80, 24)
+		resultCh <- sess.enqueueAttachClient(&Server{}, newClientConn(nil), 80, 24)
 	}()
 
 	waitUntil(t, func() bool {
@@ -578,9 +578,9 @@ func TestEnqueueUIWaitSubscribeAvoidsStaleSnapshotGap(t *testing.T) {
 	stopCrashCheckpointLoop(t, sess)
 	defer stopSessionBackgroundLoops(t, sess)
 
-	cc := &ClientConn{ID: "client-1", copyModeShown: true, inputIdle: true}
+	cc := &clientConn{ID: "client-1", copyModeShown: true, inputIdle: true}
 	mustSessionQuery(t, sess, func(sess *Session) struct{} {
-		sess.clients = []*ClientConn{cc}
+		sess.clients = []*clientConn{cc}
 		return struct{}{}
 	})
 
@@ -820,7 +820,7 @@ func TestUIEventCmdIncrementsClientGenerationOnlyOnRealChanges(t *testing.T) {
 	stopCrashCheckpointLoop(t, sess)
 	defer stopSessionBackgroundLoops(t, sess)
 
-	cc := &ClientConn{ID: "client-1", inputIdle: true}
+	cc := &clientConn{ID: "client-1", inputIdle: true}
 
 	uiEventCmd{cc: cc, uiEvent: proto.UIEventInputBusy}.handle(sess)
 	if cc.uiGeneration != 1 {
@@ -845,7 +845,7 @@ func TestUIEventCmdClientFocusAlwaysIncrementsGeneration(t *testing.T) {
 	stopCrashCheckpointLoop(t, sess)
 	defer stopSessionBackgroundLoops(t, sess)
 
-	cc := &ClientConn{ID: "client-1", inputIdle: true}
+	cc := &clientConn{ID: "client-1", inputIdle: true}
 
 	uiEventCmd{cc: cc, uiEvent: proto.UIEventClientFocusGained}.handle(sess)
 	if cc.uiGeneration != 1 {

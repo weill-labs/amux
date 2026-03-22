@@ -15,7 +15,7 @@ import (
 func TestClientConnApplyUIEventPrefixMessageCopyModeAndInputIdle(t *testing.T) {
 	t.Parallel()
 
-	cc := NewClientConn(nil)
+	cc := newClientConn(nil)
 
 	changed, err := cc.applyUIEvent(proto.UIEventPrefixMessageShown)
 	if err != nil || !changed {
@@ -79,7 +79,7 @@ func TestClientConnApplyUIEventPrefixMessageCopyModeAndInputIdle(t *testing.T) {
 func TestClientConnCurrentUIEventsIncludesPrefixMessageBusyAndCopyModeShown(t *testing.T) {
 	t.Parallel()
 
-	cc := &ClientConn{
+	cc := &clientConn{
 		ID:                 "client-1",
 		displayPanesShown:  true,
 		prefixMessageShown: true,
@@ -240,7 +240,7 @@ func TestResolveWaitHookPaneName(t *testing.T) {
 	sess.ActiveWindowID = w.ID
 	sess.Panes = []*mux.Pane{pane}
 
-	ctx := &CommandContext{CC: NewClientConn(nil), Sess: sess}
+	ctx := &CommandContext{CC: newClientConn(nil), Sess: sess}
 
 	name, err := resolveWaitHookPaneName(ctx, "")
 	if err != nil || name != "" {

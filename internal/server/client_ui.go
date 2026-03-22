@@ -8,7 +8,7 @@ const (
 	chooserWindow = "window"
 )
 
-func (cc *ClientConn) applyUIEvent(name string) (bool, error) {
+func (cc *clientConn) applyUIEvent(name string) (bool, error) {
 	mode, shown, ok := chooserEventState(name)
 	if ok {
 		if shown {
@@ -79,7 +79,7 @@ func (cc *ClientConn) applyUIEvent(name string) (bool, error) {
 	}
 }
 
-func (cc *ClientConn) matchesUIEvent(name string) bool {
+func (cc *clientConn) matchesUIEvent(name string) bool {
 	mode, shown, ok := chooserEventState(name)
 	if ok {
 		if shown {
@@ -110,21 +110,21 @@ func (cc *ClientConn) matchesUIEvent(name string) bool {
 	}
 }
 
-func (cc *ClientConn) displayPanesState() string {
+func (cc *clientConn) displayPanesState() string {
 	if cc.displayPanesShown {
 		return "shown"
 	}
 	return "hidden"
 }
 
-func (cc *ClientConn) chooserState() string {
+func (cc *clientConn) chooserState() string {
 	if cc.chooserMode == chooserHidden {
 		return "hidden"
 	}
 	return cc.chooserMode
 }
 
-func (cc *ClientConn) currentUIEvents() []Event {
+func (cc *clientConn) currentUIEvents() []Event {
 	events := []Event{{
 		Type:     proto.UIEventDisplayPanesHidden,
 		ClientID: cc.ID,

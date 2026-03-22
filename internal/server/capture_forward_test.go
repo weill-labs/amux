@@ -130,18 +130,18 @@ func readCaptureRequestForTest(t *testing.T, conn net.Conn) *Message {
 func startForwardCaptureForTest(t *testing.T, sess *Session, args []string) (*Message, <-chan *Message) {
 	t.Helper()
 
-	serverConn, clientConn := net.Pipe()
+	serverConn, peerConn := net.Pipe()
 	t.Cleanup(func() {
-		clientConn.Close()
+		peerConn.Close()
 		serverConn.Close()
 	})
-	cc := NewClientConn(serverConn)
+	cc := newClientConn(serverConn)
 	t.Cleanup(func() {
 		cc.Close()
 	})
 
 	if _, err := enqueueSessionQuery(sess, func(sess *Session) (struct{}, error) {
-		sess.clients = []*ClientConn{cc}
+		sess.clients = []*clientConn{cc}
 		return struct{}{}, nil
 	}); err != nil {
 		t.Fatalf("enqueueSessionQuery: %v", err)
@@ -152,7 +152,7 @@ func startForwardCaptureForTest(t *testing.T, sess *Session, args []string) (*Me
 		respCh <- sess.forwardCapture(args)
 	}()
 
-	return readCaptureRequestForTest(t, clientConn), respCh
+	return readCaptureRequestForTest(t, peerConn), respCh
 }
 
 func deliverCaptureResponseForTest(t *testing.T, sess *Session, respCh <-chan *Message) {

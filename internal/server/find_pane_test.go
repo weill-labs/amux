@@ -117,7 +117,7 @@ func TestKillOrphanedPaneViaFallback(t *testing.T) {
 			inWindow bool
 			hasPane  bool
 		}{
-			inWindow: sess.FindWindowByPaneID(orphanID) != nil,
+			inWindow: sess.findWindowByPaneID(orphanID) != nil,
 			hasPane:  sess.hasPane(orphanID),
 		}
 	})
@@ -130,10 +130,10 @@ func TestKillOrphanedPaneViaFallback(t *testing.T) {
 	assertSessionLayoutConsistent(t, sess, orphanID)
 
 	// Send "kill orphan-pane" through the command path via net.Pipe.
-	serverConn, clientConn := net.Pipe()
+	serverConn, peerConn := net.Pipe()
 	defer serverConn.Close()
-	defer clientConn.Close()
-	cc := NewClientConn(serverConn)
+	defer peerConn.Close()
+	cc := newClientConn(serverConn)
 	defer cc.Close()
 
 	type cmdResult struct {
@@ -142,7 +142,7 @@ func TestKillOrphanedPaneViaFallback(t *testing.T) {
 	results := make(chan cmdResult, 1)
 	go func() {
 		for {
-			msg, err := ReadMsg(clientConn)
+			msg, err := ReadMsg(peerConn)
 			if err != nil {
 				return
 			}

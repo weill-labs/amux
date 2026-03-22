@@ -115,9 +115,9 @@ func TestClientWriterEnqueueReturnsFalseWhenStoppedOrDone(t *testing.T) {
 func TestClientWriterSendPaneOutputDropsSlowClientWhenQueueFull(t *testing.T) {
 	t.Parallel()
 
-	serverConn, clientConn := net.Pipe()
+	serverConn, peerConn := net.Pipe()
 	t.Cleanup(func() { serverConn.Close() })
-	t.Cleanup(func() { clientConn.Close() })
+	t.Cleanup(func() { peerConn.Close() })
 
 	w := &clientWriter{
 		conn:     serverConn,
@@ -135,7 +135,7 @@ func TestClientWriterSendPaneOutputDropsSlowClientWhenQueueFull(t *testing.T) {
 		t.Fatal("sendPaneOutput did not stop a slow client")
 	}
 
-	_, err := clientConn.Write([]byte("x"))
+	_, err := peerConn.Write([]byte("x"))
 	if err == nil {
 		t.Fatal("client connection remained open after dropping slow client")
 	}
@@ -144,9 +144,9 @@ func TestClientWriterSendPaneOutputDropsSlowClientWhenQueueFull(t *testing.T) {
 func TestClientWriterSendBroadcastDropsSlowClientWhenQueueFull(t *testing.T) {
 	t.Parallel()
 
-	serverConn, clientConn := net.Pipe()
+	serverConn, peerConn := net.Pipe()
 	t.Cleanup(func() { serverConn.Close() })
-	t.Cleanup(func() { clientConn.Close() })
+	t.Cleanup(func() { peerConn.Close() })
 
 	w := &clientWriter{
 		conn:     serverConn,
@@ -164,7 +164,7 @@ func TestClientWriterSendBroadcastDropsSlowClientWhenQueueFull(t *testing.T) {
 		t.Fatal("sendBroadcast did not stop a slow client")
 	}
 
-	_, err := clientConn.Write([]byte("x"))
+	_, err := peerConn.Write([]byte("x"))
 	if err == nil {
 		t.Fatal("client connection remained open after dropping slow client")
 	}
@@ -173,9 +173,9 @@ func TestClientWriterSendBroadcastDropsSlowClientWhenQueueFull(t *testing.T) {
 func TestClientWriterSendBroadcastSyncDropsSlowClientWhenQueueFull(t *testing.T) {
 	t.Parallel()
 
-	serverConn, clientConn := net.Pipe()
+	serverConn, peerConn := net.Pipe()
 	t.Cleanup(func() { serverConn.Close() })
-	t.Cleanup(func() { clientConn.Close() })
+	t.Cleanup(func() { peerConn.Close() })
 
 	w := &clientWriter{
 		conn:     serverConn,
@@ -193,7 +193,7 @@ func TestClientWriterSendBroadcastSyncDropsSlowClientWhenQueueFull(t *testing.T)
 		t.Fatal("sendBroadcastSync did not stop a slow client")
 	}
 
-	_, err := clientConn.Write([]byte("x"))
+	_, err := peerConn.Write([]byte("x"))
 	if err == nil {
 		t.Fatal("client connection remained open after dropping slow client")
 	}
