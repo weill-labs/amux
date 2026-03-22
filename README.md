@@ -249,7 +249,7 @@ All commands accept `-s <session>` to target a specific session. Panes are refer
 
 | Command | Description |
 |---------|-------------|
-| `amux list` | List panes with metadata |
+| `amux list [--no-cwd]` | List panes with metadata (including cwd by default) |
 | `amux split [root] [--vertical\|--horizontal] [--name NAME] [--host HOST]` | Split active pane (default: horizontal) |
 | `amux focus <pane\|direction>` | Focus by name, ID, or direction (left/right/up/down/next) |
 | `amux spawn --name NAME [--host HOST] [--task TASK]` | Spawn a new named pane |

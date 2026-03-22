@@ -129,7 +129,7 @@ func main() {
 		}
 		runServerCommand("split", splitArgs)
 	case "list":
-		runServerCommand("list", nil)
+		runServerCommand("list", args[1:])
 	case "status":
 		runServerCommand("status", nil)
 	case "list-clients":
@@ -431,7 +431,7 @@ Usage:
   amux [-s session]                    Start or attach to amux session
   amux [-s session] attach [session]   Attach to a session
   amux [-s session] new [name]         Start a new named session
-  amux [-s session] list               List panes with metadata
+  amux [-s session] list [--no-cwd]    List panes with metadata
   amux [-s session] status             Show pane/window summary
   amux [-s session] list-clients       List attached clients + client-local UI state
   amux [-s session] connection-log     Show recent client attach/detach history
