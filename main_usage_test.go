@@ -103,3 +103,15 @@ func TestMainKillUsageRejectsTimeoutWithoutCleanup(t *testing.T) {
 		t.Fatalf("kill usage output = %q", out)
 	}
 }
+
+func TestMainResetUsage(t *testing.T) {
+	t.Parallel()
+
+	out, code := runMainUsage(t, "reset")
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1\n%s", code, out)
+	}
+	if !strings.Contains(out, "usage: amux reset <pane>") {
+		t.Fatalf("reset usage output = %q", out)
+	}
+}

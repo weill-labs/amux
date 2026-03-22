@@ -1,6 +1,9 @@
 package test
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -265,6 +268,48 @@ func TestMinimizeRestorePreservesContent(t *testing.T) {
 	afterCapture := h.runCmd("capture", "pane-1")
 	if !strings.Contains(afterCapture, "PRESERVE_TEST_MARKER") {
 		t.Fatalf("pane content should be preserved after minimize/restore, got:\n%s", afterCapture)
+	}
+}
+
+func TestResetClearsPaneStateAndAcceptsNewOutput(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	scriptPath := filepath.Join(os.TempDir(), fmt.Sprintf("amux-reset-history-%s.sh", h.session))
+	if err := os.WriteFile(scriptPath, []byte("#!/bin/bash\nfor i in $(seq -w 1 25); do echo \"RESET-HIST-$i\"; done\n"), 0755); err != nil {
+		t.Fatalf("writing history script: %v", err)
+	}
+	t.Cleanup(func() { os.Remove(scriptPath) })
+
+	h.sendKeys("pane-1", scriptPath, "Enter")
+	h.waitFor("pane-1", "RESET-HIST-25")
+
+	beforeHistory := h.runCmd("capture", "--history", "pane-1")
+	if !strings.Contains(beforeHistory, "RESET-HIST-01") || !strings.Contains(beforeHistory, "RESET-HIST-25") {
+		t.Fatalf("history before reset should contain old output, got:\n%s", beforeHistory)
+	}
+
+	out := h.runCmd("reset", "pane-1")
+	if !strings.Contains(out, "Reset pane-1") {
+		t.Fatalf("reset output = %q, want confirmation", out)
+	}
+
+	afterPane := h.runCmd("capture", "pane-1")
+	if strings.Contains(afterPane, "RESET-HIST-25") {
+		t.Fatalf("pane capture should be cleared after reset, got:\n%s", afterPane)
+	}
+
+	afterHistory := h.runCmd("capture", "--history", "pane-1")
+	if strings.Contains(afterHistory, "RESET-HIST-01") || strings.Contains(afterHistory, "RESET-HIST-25") {
+		t.Fatalf("history capture should be cleared after reset, got:\n%s", afterHistory)
+	}
+
+	h.sendKeys("pane-1", "echo RESET-NEW-OUTPUT", "Enter")
+	h.waitFor("pane-1", "RESET-NEW-OUTPUT")
+
+	finalPane := h.runCmd("capture", "pane-1")
+	if !strings.Contains(finalPane, "RESET-NEW-OUTPUT") {
+		t.Fatalf("pane capture should include new output after reset, got:\n%s", finalPane)
 	}
 }
 
