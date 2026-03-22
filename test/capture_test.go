@@ -142,6 +142,10 @@ func TestCapturePaneHistoryRejectsInvalidFlags(t *testing.T) {
 		t.Fatalf("rewrap without history should fail, got:\n%s", out)
 	}
 
+	if out := h.runCmd("capture", "--history", "--rewrap", "pane-1"); !strings.Contains(out, "--rewrap requires a positive integer width") {
+		t.Fatalf("history capture with missing rewrap width should fail, got:\n%s", out)
+	}
+
 	if out := h.runCmd("capture", "--history", "--rewrap", "0", "pane-1"); !strings.Contains(out, "--rewrap requires a positive integer width") {
 		t.Fatalf("history capture with invalid rewrap width should fail, got:\n%s", out)
 	}

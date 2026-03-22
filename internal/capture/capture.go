@@ -79,11 +79,11 @@ func ValidateHistoryRequest(req Request) error {
 	if req.IncludeANSI || req.ColorMap || req.DisplayMode {
 		return fmt.Errorf("--history is mutually exclusive with --ansi, --colors, and --display")
 	}
-	if req.PaneRef == "" {
-		return fmt.Errorf("--history requires a pane target")
-	}
 	if req.RewrapSpecified && req.RewrapWidth <= 0 {
 		return fmt.Errorf("--rewrap requires a positive integer width")
+	}
+	if req.PaneRef == "" {
+		return fmt.Errorf("--history requires a pane target")
 	}
 	return nil
 }
