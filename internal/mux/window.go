@@ -625,6 +625,32 @@ func (w *Window) ResolvePane(ref string) *Pane {
 	return nil
 }
 
+func (w *Window) rootChildForPaneID(paneID uint32) (*LayoutCell, int, error) {
+	if w.Root == nil || w.Root.IsLeaf() {
+		return nil, -1, fmt.Errorf("window has no root-level split")
+	}
+
+	leaf := w.Root.FindPane(paneID)
+	if leaf == nil {
+		return nil, -1, fmt.Errorf("pane %d not found", paneID)
+	}
+
+	cell := leaf
+	for cell.Parent != nil && cell.Parent != w.Root {
+		cell = cell.Parent
+	}
+	if cell.Parent != w.Root {
+		return nil, -1, fmt.Errorf("pane %d is not in a root-level group", paneID)
+	}
+
+	idx := cell.indexInParent()
+	if idx < 0 {
+		return nil, -1, fmt.Errorf("pane %d root-level group not found", paneID)
+	}
+
+	return cell, idx, nil
+}
+
 // SwapPanes exchanges the Pane pointers of two layout cells and resizes PTYs
 // to match their new cell dimensions.
 // Both the Pane struct and its Meta travel together (swap-with-meta semantics).
@@ -641,6 +667,73 @@ func (w *Window) SwapPanes(id1, id2 uint32) error {
 		return fmt.Errorf("pane %d not found", id2)
 	}
 	cell1.Pane, cell2.Pane = cell2.Pane, cell1.Pane
+	w.resizePTYs()
+	return nil
+}
+
+// SwapTree swaps the root-level groups containing the given panes.
+func (w *Window) SwapTree(id1, id2 uint32) error {
+	_, idx1, err := w.rootChildForPaneID(id1)
+	if err != nil {
+		return err
+	}
+	_, idx2, err := w.rootChildForPaneID(id2)
+	if err != nil {
+		return err
+	}
+	if idx1 == idx2 {
+		return fmt.Errorf("panes %d and %d are in the same root-level group", id1, id2)
+	}
+
+	if w.ZoomedPaneID != 0 {
+		w.Unzoom()
+	}
+
+	w.Root.Children[idx1], w.Root.Children[idx2] = w.Root.Children[idx2], w.Root.Children[idx1]
+	w.Root.FixOffsets()
+	w.normalizeMinimizedLayout()
+	w.resizePTYs()
+	return nil
+}
+
+// MovePane moves the root-level group containing paneID before or after the
+// root-level group containing targetPaneID.
+func (w *Window) MovePane(paneID, targetPaneID uint32, before bool) error {
+	_, fromIdx, err := w.rootChildForPaneID(paneID)
+	if err != nil {
+		return err
+	}
+	_, targetIdx, err := w.rootChildForPaneID(targetPaneID)
+	if err != nil {
+		return err
+	}
+	if fromIdx == targetIdx {
+		return fmt.Errorf("panes %d and %d are in the same root-level group", paneID, targetPaneID)
+	}
+
+	if w.ZoomedPaneID != 0 {
+		w.Unzoom()
+	}
+
+	children := w.Root.Children
+	moving := children[fromIdx]
+	children = append(children[:fromIdx], children[fromIdx+1:]...)
+
+	insertIdx := targetIdx
+	if !before {
+		insertIdx = targetIdx + 1
+	}
+	if fromIdx < targetIdx {
+		insertIdx--
+	}
+
+	children = append(children, nil)
+	copy(children[insertIdx+1:], children[insertIdx:])
+	children[insertIdx] = moving
+	w.Root.Children = children
+
+	w.Root.FixOffsets()
+	w.normalizeMinimizedLayout()
 	w.resizePTYs()
 	return nil
 }
