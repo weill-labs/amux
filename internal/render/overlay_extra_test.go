@@ -148,6 +148,55 @@ func TestRenderGlobalBarAndTruncateRunes(t *testing.T) {
 	}
 }
 
+func TestGlobalBarWindowAtColumn(t *testing.T) {
+	t.Parallel()
+
+	windows := []WindowInfo{
+		{Index: 1, Name: "main", IsActive: false},
+		{Index: 2, Name: "bugs", IsActive: true},
+		{Index: 3, Name: "docs", IsActive: false},
+	}
+	tabs := buildGlobalBarWindowTabs(windows)
+	if len(tabs) != 3 {
+		t.Fatalf("len(tabs) = %d, want 3", len(tabs))
+	}
+
+	tests := []struct {
+		name string
+		x    int
+		want int
+		ok   bool
+	}{
+		{name: "first tab", x: tabs[0].start, want: 1, ok: true},
+		{name: "active tab includes brackets", x: tabs[1].start, want: 2, ok: true},
+		{name: "third tab", x: tabs[2].end - 1, want: 3, ok: true},
+		{name: "space after first tab", x: tabs[0].end, ok: false},
+		{name: "separator after tabs", x: tabs[2].end + 1, ok: false},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, ok := GlobalBarWindowAtColumn(windows, tt.x)
+			if ok != tt.ok {
+				t.Fatalf("GlobalBarWindowAtColumn(..., %d) ok = %v, want %v", tt.x, ok, tt.ok)
+			}
+			if !tt.ok {
+				return
+			}
+			if got.Index != tt.want {
+				t.Fatalf("GlobalBarWindowAtColumn(..., %d) = %d, want %d", tt.x, got.Index, tt.want)
+			}
+		})
+	}
+
+	if _, ok := GlobalBarWindowAtColumn([]WindowInfo{{Index: 1, Name: "solo", IsActive: true}}, globalBarPrefixVisibleWidth); ok {
+		t.Fatal("single-window global bar should not expose a clickable tab")
+	}
+}
+
 func TestCompositorHelpersAndClipLine(t *testing.T) {
 	t.Parallel()
 
