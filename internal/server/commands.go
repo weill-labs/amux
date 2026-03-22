@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -17,6 +16,7 @@ import (
 	"github.com/weill-labs/amux/internal/hooks"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
+	"github.com/weill-labs/amux/internal/reload"
 	"github.com/weill-labs/amux/internal/render"
 )
 
@@ -27,6 +27,13 @@ type CommandHandler func(ctx *CommandContext)
 // Some interactive TUIs only react correctly when Enter or Ctrl-key input
 // arrives on a later input tick rather than in the same burst as preceding text.
 const tokenKeyGap = 50 * time.Millisecond
+
+// ReloadServerExecPathFlag carries the requesting CLI's resolved executable
+// path so the server can re-exec that binary instead of its original launch
+// path when the two differ.
+const ReloadServerExecPathFlag = "--exec-path"
+
+var resolveServerReloadExecPath = reload.ResolveExecutable
 
 // CommandContext provides all state a command handler needs.
 type CommandContext struct {
@@ -1550,20 +1557,35 @@ func cmdReconnect(ctx *CommandContext) {
 }
 
 func cmdReloadServer(ctx *CommandContext) {
-	execPath, err := os.Executable()
+	execPath, err := requestedReloadExecPath(ctx.Args)
 	if err != nil {
 		ctx.replyErr(fmt.Sprintf("reload: %v", err))
 		return
 	}
-	execPath, err = filepath.EvalSymlinks(execPath)
-	if err != nil {
-		ctx.replyErr(fmt.Sprintf("reload: %v", err))
-		return
+	if execPath == "" {
+		execPath, err = resolveServerReloadExecPath()
+		if err != nil {
+			ctx.replyErr(fmt.Sprintf("reload: %v", err))
+			return
+		}
 	}
 	ctx.reply("Server reloading...\n")
 	if err := ctx.Srv.Reload(execPath); err != nil {
 		ctx.replyErr(err.Error())
 	}
+}
+
+func requestedReloadExecPath(args []string) (string, error) {
+	for i := 0; i < len(args); i++ {
+		if args[i] != ReloadServerExecPathFlag {
+			continue
+		}
+		if i+1 >= len(args) {
+			return "", fmt.Errorf("missing value for %s", ReloadServerExecPathFlag)
+		}
+		return filepath.EvalSymlinks(args[i+1])
+	}
+	return "", nil
 }
 
 func cmdUnsplice(ctx *CommandContext) {

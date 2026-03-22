@@ -26,12 +26,19 @@ var gocoverOwned bool
 // Set AMUX_TEST_RACE=1 to build with -race (enables race detection in
 // the server binary itself, not just the test code).
 func buildAmux(binPath string) error {
+	return buildAmuxWithCommit(binPath, "")
+}
+
+func buildAmuxWithCommit(binPath, buildCommit string) error {
 	args := []string{"build"}
 	if os.Getenv("AMUX_TEST_RACE") == "1" {
 		args = append(args, "-race")
 	}
 	if os.Getenv("GOCOVERDIR") != "" {
 		args = append(args, "-cover", "-covermode=atomic")
+	}
+	if buildCommit != "" {
+		args = append(args, "-ldflags", "-X main.BuildCommit="+buildCommit)
 	}
 	args = append(args, "-o", binPath, "..")
 	out, err := exec.Command("go", args...).CombinedOutput()

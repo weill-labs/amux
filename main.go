@@ -24,6 +24,8 @@ import (
 // sessionName is the global session name, set by -s flag or defaulting to "default".
 var sessionName = "default"
 
+var resolveReloadExecPath = reload.ResolveExecutable
+
 // BuildCommit can be set via -ldflags "-X main.BuildCommit=abc1234".
 // Falls back to VCS info from runtime/debug at startup.
 var BuildCommit string
@@ -612,6 +614,10 @@ func runServerCommand(cmdName string, args []string) {
 	}
 	defer conn.Close()
 
+	if cmdName == "reload-server" {
+		args = prependReloadExecPathArg(args)
+	}
+
 	if err := server.WriteMsg(conn, &server.Message{
 		Type:    server.MsgTypeCommand,
 		CmdName: cmdName,
@@ -632,6 +638,14 @@ func runServerCommand(cmdName string, args []string) {
 		os.Exit(1)
 	}
 	fmt.Print(reply.CmdOutput)
+}
+
+func prependReloadExecPathArg(args []string) []string {
+	execPath, err := resolveReloadExecPath()
+	if err != nil {
+		return args
+	}
+	return append([]string{server.ReloadServerExecPathFlag, execPath}, args...)
 }
 
 // checkNesting exits with an error if we're inside the same amux session
