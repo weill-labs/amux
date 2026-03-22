@@ -183,6 +183,119 @@ func TestMetaCollectionCommandsUsageAndErrors(t *testing.T) {
 	}
 }
 
+func TestKillCommandUsageAndSubscriptionCleanup(t *testing.T) {
+	t.Parallel()
+
+	t.Run("usage and parse errors", func(t *testing.T) {
+		t.Parallel()
+
+		tests := []struct {
+			name       string
+			args       []string
+			wantSubstr string
+		}{
+			{
+				name:       "timeout requires cleanup",
+				args:       []string{"--timeout", "1s"},
+				wantSubstr: "usage: kill [--cleanup] [--timeout <duration>] [pane]",
+			},
+			{
+				name:       "invalid timeout",
+				args:       []string{"--cleanup", "--timeout", "bogus", "pane-1"},
+				wantSubstr: "invalid timeout: bogus",
+			},
+			{
+				name:       "extra pane argument",
+				args:       []string{"pane-1", "pane-2"},
+				wantSubstr: "usage: kill [--cleanup] [--timeout <duration>] [pane]",
+			},
+			{
+				name:       "unknown flag",
+				args:       []string{"--bogus"},
+				wantSubstr: "unknown flag: --bogus",
+			},
+		}
+
+		for _, tt := range tests {
+			tt := tt
+			t.Run(tt.name, func(t *testing.T) {
+				t.Parallel()
+
+				srv, sess, cleanup := newCommandTestSession(t)
+				defer cleanup()
+
+				pane1 := newTestPane(sess, 1, "pane-1")
+				pane2 := newTestPane(sess, 2, "pane-2")
+				window := newTestWindowWithPanes(t, sess, 1, "main", pane1, pane2)
+				sess.Windows = []*mux.Window{window}
+				sess.ActiveWindowID = window.ID
+				sess.Panes = []*mux.Pane{pane1, pane2}
+
+				res := runTestCommand(t, srv, sess, "kill", tt.args...)
+				if !strings.Contains(res.cmdErr, tt.wantSubstr) {
+					t.Fatalf("kill error = %q, want substring %q", res.cmdErr, tt.wantSubstr)
+				}
+			})
+		}
+	})
+
+	t.Run("plain kill prunes pane subscriptions", func(t *testing.T) {
+		t.Parallel()
+
+		srv, sess, cleanup := newCommandTestSession(t)
+		defer cleanup()
+
+		pane1 := newTestPane(sess, 1, "pane-1")
+		pane2 := newTestPane(sess, 2, "pane-2")
+		window := newTestWindowWithPanes(t, sess, 1, "main", pane1, pane2)
+		sess.Windows = []*mux.Window{window}
+		sess.ActiveWindowID = window.ID
+		sess.Panes = []*mux.Pane{pane1, pane2}
+
+		sub := sess.enqueueEventSubscribe(eventFilter{PaneName: "pane-2"}, false)
+		waitCh := sess.enqueuePaneOutputSubscribe(pane2.ID)
+		defer sess.enqueueEventUnsubscribe(sub.sub)
+		defer sess.enqueuePaneOutputUnsubscribe(pane2.ID, waitCh)
+
+		res := runTestCommand(t, srv, sess, "kill", "pane-2")
+		if res.cmdErr != "" || !strings.Contains(res.output, "Killed pane-2") {
+			t.Fatalf("kill result = %#v", res)
+		}
+
+		state := mustSessionQuery(t, sess, func(sess *Session) struct {
+			hasEventSub      bool
+			outputSubCount   int
+			remainingPaneCnt int
+		} {
+			hasEventSub := false
+			for _, existing := range sess.eventSubs {
+				if existing.filter.PaneName == "pane-2" {
+					hasEventSub = true
+					break
+				}
+			}
+			return struct {
+				hasEventSub      bool
+				outputSubCount   int
+				remainingPaneCnt int
+			}{
+				hasEventSub:      hasEventSub,
+				outputSubCount:   len(sess.paneOutputSubs[pane2.ID]),
+				remainingPaneCnt: len(sess.Panes),
+			}
+		})
+		if state.hasEventSub {
+			t.Fatal("pane-specific event subscription should be removed when the pane is killed")
+		}
+		if state.outputSubCount != 0 {
+			t.Fatalf("pane output subscribers after kill = %d, want 0", state.outputSubCount)
+		}
+		if state.remainingPaneCnt != 1 {
+			t.Fatalf("pane count after kill = %d, want 1", state.remainingPaneCnt)
+		}
+	})
+}
+
 func TestCmdWaitUIUnknownImmediateAndTimeout(t *testing.T) {
 	t.Parallel()
 

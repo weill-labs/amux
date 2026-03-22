@@ -76,3 +76,30 @@ func TestMainWaitVTIdleUsage(t *testing.T) {
 		t.Fatalf("wait-vt-idle usage output = %q", out)
 	}
 }
+
+func TestMainKillAllowsImplicitActivePane(t *testing.T) {
+	t.Parallel()
+
+	out, code := runMainUsage(t, "kill")
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1\n%s", code, out)
+	}
+	if strings.Contains(out, "usage: amux kill") {
+		t.Fatalf("kill should accept an omitted pane, got usage output:\n%s", out)
+	}
+	if !strings.Contains(out, "amux kill: server not running") {
+		t.Fatalf("kill without a running server should attempt the command, got:\n%s", out)
+	}
+}
+
+func TestMainKillUsageRejectsTimeoutWithoutCleanup(t *testing.T) {
+	t.Parallel()
+
+	out, code := runMainUsage(t, "kill", "--timeout", "1s")
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1\n%s", code, out)
+	}
+	if !strings.Contains(out, "usage: amux kill [--cleanup] [--timeout <duration>] [pane]") {
+		t.Fatalf("kill usage output = %q", out)
+	}
+}
