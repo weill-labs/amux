@@ -111,6 +111,71 @@ func TestForwardCaptureAgentStatusScope(t *testing.T) {
 	}
 }
 
+func TestForwardCaptureFullScreenJSONUsesActiveWindowPanesOnly(t *testing.T) {
+	t.Parallel()
+
+	_, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	pane1 := newTestPane(sess, 1, "pane-1")
+	pane2 := newTestPane(sess, 2, "pane-2")
+	pane3 := newTestPane(sess, 3, "pane-3")
+	window1 := newTestWindowWithPanes(t, sess, 1, "window-1", pane1, pane2)
+	window2 := newTestWindowWithPanes(t, sess, 2, "window-2", pane3)
+	if _, err := enqueueSessionQuery(sess, func(sess *Session) (struct{}, error) {
+		sess.Windows = []*mux.Window{window1, window2}
+		sess.ActiveWindowID = window1.ID
+		sess.Panes = []*mux.Pane{pane1, pane2, pane3}
+		return struct{}{}, nil
+	}); err != nil {
+		t.Fatalf("enqueueSessionQuery: %v", err)
+	}
+
+	serverConn, clientConn := net.Pipe()
+	defer clientConn.Close()
+	cc := NewClientConn(serverConn)
+	defer cc.Close()
+
+	if _, err := enqueueSessionQuery(sess, func(sess *Session) (struct{}, error) {
+		sess.clients = []*ClientConn{cc}
+		return struct{}{}, nil
+	}); err != nil {
+		t.Fatalf("enqueueSessionQuery: %v", err)
+	}
+
+	respCh := make(chan *Message, 1)
+	go func() {
+		respCh <- sess.forwardCapture([]string{"--format", "json"})
+	}()
+
+	msg := readCaptureRequestForTest(t, clientConn)
+	gotIDs := make([]uint32, 0, len(msg.AgentStatus))
+	for paneID := range msg.AgentStatus {
+		gotIDs = append(gotIDs, paneID)
+	}
+	slices.Sort(gotIDs)
+	if want := []uint32{1, 2}; !slices.Equal(gotIDs, want) {
+		t.Fatalf("agent status pane IDs = %v, want %v", gotIDs, want)
+	}
+
+	sess.routeCaptureResponse(&Message{
+		Type:      MsgTypeCaptureResponse,
+		CmdOutput: "ok",
+	})
+
+	select {
+	case resp := <-respCh:
+		if resp.CmdErr != "" {
+			t.Fatalf("forwardCapture error: %s", resp.CmdErr)
+		}
+		if resp.CmdOutput != "ok" {
+			t.Fatalf("forwardCapture output = %q, want ok", resp.CmdOutput)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("forwardCapture did not return")
+	}
+}
+
 func readCaptureRequestForTest(t *testing.T, conn net.Conn) *Message {
 	t.Helper()
 
