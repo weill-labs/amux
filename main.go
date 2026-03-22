@@ -167,6 +167,12 @@ func main() {
 			os.Exit(1)
 		}
 		runServerCommand("send-keys", args[1:])
+	case "broadcast":
+		if len(args) < 2 {
+			fmt.Fprintf(os.Stderr, "usage: amux broadcast (--panes <pane,pane,...> | --window <index|name> | --match <glob>) [--hex] <keys>...\n")
+			os.Exit(1)
+		}
+		runServerCommand("broadcast", args[1:])
 	case "type-keys":
 		if len(args) < 2 {
 			fmt.Fprintf(os.Stderr, "usage: amux type-keys [--hex] <keys>...\n")
@@ -401,6 +407,8 @@ Usage:
   amux [-s session] capture --colors   Capture border color map
   amux [-s session] send-keys <pane> <keys>...
                                        Send keystrokes to a pane
+  amux [-s session] broadcast (--panes <pane,pane,...> | --window <index|name> | --match <glob>) [--hex] <keys>...
+                                       Send the same keystrokes to multiple panes
   amux [-s session] type-keys [--hex] <keys>...
                                        Type keys through client input pipeline
   amux [-s session] spawn --name NAME  Spawn a new agent pane
