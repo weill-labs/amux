@@ -51,12 +51,13 @@ func (s *Server) Reload(execPath string) error {
 		for _, p := range sess.Panes {
 			history, screen, _ := p.HistoryScreenSnapshot()
 			pc := checkpoint.PaneCheckpoint{
-				ID:        p.ID,
-				Meta:      p.Meta,
-				History:   history,
-				Screen:    screen,
-				CreatedAt: p.CreatedAt(),
-				IsProxy:   p.IsProxy(),
+				ID:           p.ID,
+				Meta:         p.Meta,
+				ManualBranch: p.MetaManualBranch(),
+				History:      history,
+				Screen:       screen,
+				CreatedAt:    p.CreatedAt(),
+				IsProxy:      p.IsProxy(),
 			}
 			if p.IsProxy() {
 				pc.PtmxFd = -1
@@ -142,6 +143,10 @@ func (s *Server) Reload(execPath string) error {
 	return fmt.Errorf("server exec: %w", execErr)
 }
 
+func restorePaneRuntimeState(pane *mux.Pane, manualBranch bool) {
+	pane.SetMetaManualBranch(manualBranch)
+}
+
 // NewServerFromCheckpointWithScrollback restores a server from a checkpoint
 // using an explicit retained scrollback limit for restored panes.
 func NewServerFromCheckpointWithScrollback(cp *checkpoint.ServerCheckpoint, scrollbackLines int) (*Server, error) {
@@ -205,6 +210,7 @@ func NewServerFromCheckpointWithScrollback(cp *checkpoint.ServerCheckpoint, scro
 		pane.SetOnClipboard(sess.clipboardCallback())
 		pane.SetOnTakeover(sess.takeoverCallback(s))
 		pane.SetOnMetaUpdate(sess.metaCallback())
+		restorePaneRuntimeState(pane, pc.ManualBranch)
 
 		if !pc.CreatedAt.IsZero() {
 			pane.SetCreatedAt(pc.CreatedAt)
