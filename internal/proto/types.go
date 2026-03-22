@@ -74,6 +74,7 @@ type CaptureJSON struct {
 	Notice  string        `json:"notice,omitempty"`
 	Panes   []CapturePane `json:"panes"`
 	UI      *CaptureUI    `json:"ui,omitempty"`
+	Error   *CaptureError `json:"error,omitempty"`
 }
 
 // CaptureUI holds client-local UI state for JSON capture.
@@ -98,6 +99,12 @@ type CaptureMeta struct {
 	PR        string   `json:"pr,omitempty"`
 	PRs       []int    `json:"prs,omitempty"`
 	Issues    []string `json:"issues,omitempty"`
+}
+
+// CaptureError describes an unavailable or invalid JSON capture result.
+type CaptureError struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
 }
 
 // CapturePane holds one pane's metadata, cursor, and content for JSON output.
@@ -138,6 +145,8 @@ type CapturePane struct {
 	// ChildPIDs lists the direct child PIDs of the pane's shell process.
 	// These are ephemeral OS-level PIDs — they change across captures.
 	ChildPIDs []int `json:"child_pids"`
+
+	Error *CaptureError `json:"error,omitempty"`
 }
 
 // PaneAgentStatus holds process-level status for a pane, gathered by the
