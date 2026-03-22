@@ -211,6 +211,31 @@ func TestRenderCursorIgnoresOffCursorReverseVideoSpace(t *testing.T) {
 	}
 }
 
+func TestBlitPaneClipsContentToVisibleLayoutHeight(t *testing.T) {
+	t.Parallel()
+
+	root := mux.NewLeaf(&mux.Pane{ID: 1, Meta: mux.PaneMeta{Name: "pane-1"}}, 0, 0, 20, 5)
+	comp := NewCompositor(20, 4, "test")
+
+	output := comp.RenderFull(root, 1, func(id uint32) PaneData {
+		if id != 1 {
+			return nil
+		}
+		return &fakePaneData{
+			id:     1,
+			name:   "pane-1",
+			screen: "line-1\nline-2\nline-3\nline-4",
+		}
+	})
+
+	if strings.Contains(output, "\033[4;1Hline-3") {
+		t.Fatalf("pane content should not be blitted onto the global bar row:\n%s", output)
+	}
+	if strings.Contains(output, "\033[5;1Hline-4") {
+		t.Fatalf("pane content should not be blitted below the terminal:\n%s", output)
+	}
+}
+
 func TestHexToANSI(t *testing.T) {
 	t.Parallel()
 

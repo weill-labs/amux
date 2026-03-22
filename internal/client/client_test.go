@@ -99,6 +99,30 @@ func singlePane20x3() *proto.LayoutSnapshot {
 	}
 }
 
+func singlePane20x5() *proto.LayoutSnapshot {
+	root := proto.CellSnapshot{
+		X: 0, Y: 0, W: 20, H: 5,
+		IsLeaf: true, Dir: -1, PaneID: 1,
+	}
+	panes := []proto.PaneSnapshot{
+		{ID: 1, Name: "pane-1", Host: "local", Color: "f5e0dc"},
+	}
+	return &proto.LayoutSnapshot{
+		SessionName:  "test",
+		ActivePaneID: 1,
+		Width:        20,
+		Height:       5,
+		Root:         root,
+		Panes:        panes,
+		Windows: []proto.WindowSnapshot{{
+			ID: 1, Name: "window-1", Index: 1, ActivePaneID: 1,
+			Root:  root,
+			Panes: panes,
+		}},
+		ActiveWindowID: 1,
+	}
+}
+
 // buildTestRenderer creates a ClientRenderer with two panes in a vertical split.
 func buildTestRenderer(t *testing.T) *ClientRenderer {
 	t.Helper()
@@ -1881,6 +1905,46 @@ func TestRescaleLayoutForSmallerClientResizesEmulators(t *testing.T) {
 	}
 	if got := pane.Cursor; got.Col != 2 || got.Row != 2 {
 		t.Fatalf("pane cursor = (%d,%d), want (2,2)", got.Col, got.Row)
+	}
+}
+
+func TestClientRendererResizeRescalesLayoutImmediately(t *testing.T) {
+	t.Parallel()
+
+	cr := NewClientRenderer(20, 6)
+	cr.HandleLayout(singlePane20x5())
+
+	cr.Resize(20, 4)
+
+	layout := cr.VisibleLayout()
+	if layout == nil {
+		t.Fatal("VisibleLayout() = nil, want single pane layout")
+	}
+	if layout.H != 3 {
+		t.Fatalf("layout height after resize = %d, want 3", layout.H)
+	}
+
+	text := cr.Capture(true)
+	lines := strings.Split(text, "\n")
+	if len(lines) != 4 {
+		t.Fatalf("capture lines after resize = %d, want 4", len(lines))
+	}
+}
+
+func TestClientRendererResizeResizesEmulatorImmediately(t *testing.T) {
+	t.Parallel()
+
+	cr := NewClientRenderer(20, 6)
+	cr.HandleLayout(singlePane20x5())
+
+	cr.Resize(20, 4)
+
+	emu, ok := cr.Emulator(1)
+	if !ok {
+		t.Fatal("Emulator(1) = missing")
+	}
+	if w, h := emu.Size(); w != 20 || h != 2 {
+		t.Fatalf("emulator size after resize = %dx%d, want 20x2", w, h)
 	}
 }
 
