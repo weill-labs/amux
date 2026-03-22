@@ -214,6 +214,7 @@ func TestForwardCaptureJSONStressUnderPaneOutput(t *testing.T) {
 	var stateMu sync.Mutex
 	var layout *proto.LayoutSnapshot
 	layoutReady := make(chan struct{}, 1)
+	captureReady := make(chan chan struct{}, 5)
 	clientDone := make(chan struct{})
 	go func() {
 		defer close(clientDone)
@@ -235,6 +236,9 @@ func TestForwardCaptureJSONStressUnderPaneOutput(t *testing.T) {
 				stateMu.Lock()
 				snap := layout
 				stateMu.Unlock()
+				responseGate := make(chan struct{})
+				captureReady <- responseGate
+				<-responseGate
 				if snap == nil {
 					errResp := proto.CaptureJSON{
 						Error: &proto.CaptureError{
@@ -297,19 +301,27 @@ func TestForwardCaptureJSONStressUnderPaneOutput(t *testing.T) {
 
 	panes := []*mux.Pane{pane1, pane2, pane3, pane4}
 	started := make(chan uint32, len(panes))
+	const captureIterations = 5
+	const writesPerCapture = 3
 	var writers sync.WaitGroup
+	stepChans := make([]chan struct{}, 0, len(panes))
 	for idx, pane := range panes {
+		stepCh := make(chan struct{}, captureIterations*writesPerCapture)
+		stepChans = append(stepChans, stepCh)
 		writers.Add(1)
-		go func(p *mux.Pane, label string) {
+		go func(p *mux.Pane, label string, steps <-chan struct{}) {
 			defer writers.Done()
-			for i := 0; i < 40; i++ {
+			totalWrites := 1 + captureIterations*writesPerCapture
+			for i := 0; i < totalWrites; i++ {
+				if i > 0 {
+					<-steps
+				}
 				p.FeedOutput([]byte(fmt.Sprintf("%s-%03d\n", label, i)))
 				if i == 0 {
 					started <- p.ID
 				}
-				time.Sleep(2 * time.Millisecond)
 			}
-		}(pane, fmt.Sprintf("LOAD%d", idx+1))
+		}(pane, fmt.Sprintf("LOAD%d", idx+1), stepCh)
 	}
 
 	for range panes {
@@ -320,8 +332,29 @@ func TestForwardCaptureJSONStressUnderPaneOutput(t *testing.T) {
 		}
 	}
 
-	for i := 0; i < 5; i++ {
-		result := runTestCommand(t, srv, sess, "capture", "--format", "json")
+	for i := 0; i < captureIterations; i++ {
+		results := make(chan struct {
+			output string
+			cmdErr string
+		}, 1)
+		go func() {
+			results <- runTestCommand(t, srv, sess, "capture", "--format", "json")
+		}()
+
+		var responseGate chan struct{}
+		select {
+		case responseGate = <-captureReady:
+		case <-time.After(time.Second):
+			t.Fatalf("capture iteration %d did not reach fake client", i)
+		}
+		for step := 0; step < writesPerCapture; step++ {
+			for _, steps := range stepChans {
+				steps <- struct{}{}
+			}
+		}
+		close(responseGate)
+
+		result := <-results
 		if result.cmdErr != "" {
 			t.Fatalf("capture iteration %d returned error: %s", i, result.cmdErr)
 		}
@@ -462,5 +495,28 @@ func assertJSONErrorResponse(t *testing.T, raw, wantCode string) {
 	}
 	if capture.Error.Message == "" {
 		t.Fatal("error message should be non-empty")
+	}
+}
+
+func TestEnsureTrailingNewline(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{name: "appends newline", in: "json", want: "json\n"},
+		{name: "preserves newline", in: "json\n", want: "json\n"},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := ensureTrailingNewline(tt.in); got != tt.want {
+				t.Fatalf("ensureTrailingNewline(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
 	}
 }

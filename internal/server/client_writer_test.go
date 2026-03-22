@@ -129,6 +129,9 @@ func TestClientWriterEnqueueReturnsFalseWhenStoppedOrDone(t *testing.T) {
 			if w.enqueueAsync(testClientWriterCommand{}) {
 				t.Fatal("enqueueAsync() = true, want false")
 			}
+			if w.enqueueAsyncPane(testClientWriterCommand{}) {
+				t.Fatal("enqueueAsyncPane() = true, want false")
+			}
 		})
 	}
 }

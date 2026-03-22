@@ -288,6 +288,9 @@ func (s *Session) forwardCapture(args []string) *Message {
 			}
 			return &Message{Type: MsgTypeCmdResult, CmdErr: "no client attached"}
 		}
+		// Client capture can race with hot-reload reattach. A short backoff
+		// avoids busy-spinning the actor while giving the interactive client
+		// a chance to reconnect and serve the capture request.
 		time.Sleep(captureAttachRetryDelay)
 	}
 

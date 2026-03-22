@@ -3,6 +3,7 @@ package capture
 import (
 	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/weill-labs/amux/internal/proto"
@@ -272,5 +273,78 @@ func TestBuildPane(t *testing.T) {
 	input.History[0] = "mutated"
 	if got.Content[0] != "screen-1" || got.History[0] != "history-1" {
 		t.Fatalf("BuildPane should copy slices, got content=%v history=%v", got.Content, got.History)
+	}
+}
+
+func TestJSONErrorOutput(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		singlePane bool
+	}{
+		{name: "full screen", singlePane: false},
+		{name: "single pane", singlePane: true},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			out := JSONErrorOutput(tt.singlePane, "state_unavailable", "capture state is unavailable")
+			var capture struct {
+				Error *struct {
+					Code    string `json:"code"`
+					Message string `json:"message"`
+				} `json:"error"`
+			}
+			if err := json.Unmarshal([]byte(out), &capture); err != nil {
+				t.Fatalf("json.Unmarshal(%q): %v", out, err)
+			}
+			if capture.Error == nil {
+				t.Fatalf("expected JSON error payload, got %q", out)
+			}
+			if capture.Error.Code != "state_unavailable" {
+				t.Fatalf("error.code = %q, want state_unavailable", capture.Error.Code)
+			}
+			if capture.Error.Message != "capture state is unavailable" {
+				t.Fatalf("error.message = %q, want capture state is unavailable", capture.Error.Message)
+			}
+		})
+	}
+}
+
+func TestValidateJSONOutput(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		raw     string
+		wantErr string
+	}{
+		{name: "blank", raw: " \n\t", wantErr: "capture response was empty"},
+		{name: "empty object", raw: "{}", wantErr: "capture response was an empty JSON object"},
+		{name: "invalid", raw: "{not-json}", wantErr: "capture response was not valid JSON"},
+		{name: "valid object", raw: "{\"session\":\"test\",\"panes\":[]}"},
+		{name: "valid error object", raw: JSONErrorOutput(false, "capture_timeout", "timed out")},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := ValidateJSONOutput(tt.raw)
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("ValidateJSONOutput(%q) error = %v, want nil", tt.raw, err)
+				}
+				return
+			}
+			if err == nil || !strings.HasPrefix(err.Error(), tt.wantErr) {
+				t.Fatalf("ValidateJSONOutput(%q) error = %v, want prefix %q", tt.raw, err, tt.wantErr)
+			}
+		})
 	}
 }
