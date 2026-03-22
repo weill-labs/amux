@@ -177,18 +177,23 @@ func cmdList(ctx *CommandContext) {
 func cmdSplit(ctx *CommandContext) {
 	rootLevel := false
 	dir := mux.SplitHorizontal
-	var hostName string
-	for _, arg := range ctx.Args {
-		switch arg {
+	var hostName, name string
+	for i := 0; i < len(ctx.Args); i++ {
+		switch ctx.Args[i] {
 		case "v":
 			dir = mux.SplitVertical
 		case "root":
 			rootLevel = true
-		}
-	}
-	for i := 0; i < len(ctx.Args)-1; i++ {
-		if ctx.Args[i] == "--host" {
-			hostName = ctx.Args[i+1]
+		case "--host":
+			if i+1 < len(ctx.Args) {
+				i++
+				hostName = ctx.Args[i]
+			}
+		case "--name":
+			if i+1 < len(ctx.Args) {
+				i++
+				name = ctx.Args[i]
+			}
 		}
 	}
 	// If no --host flag, inherit the active pane's host when it's a
@@ -201,7 +206,7 @@ func cmdSplit(ctx *CommandContext) {
 	}
 
 	if hostName != "" {
-		pane, err := ctx.CC.splitRemotePane(ctx.Srv, ctx.Sess, hostName, dir, rootLevel)
+		pane, err := ctx.CC.splitRemotePane(ctx.Srv, ctx.Sess, hostName, dir, rootLevel, name)
 		if err != nil {
 			ctx.replyErr(err.Error())
 			return
@@ -213,7 +218,7 @@ func cmdSplit(ctx *CommandContext) {
 			ctx.replyErr(err.Error())
 			return
 		}
-		meta := mux.PaneMeta{Dir: mux.PaneCwd(activePid)}
+		meta := mux.PaneMeta{Name: name, Dir: mux.PaneCwd(activePid)}
 		ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
 			w := sess.ActiveWindow()
 			if w == nil {
@@ -309,7 +314,7 @@ func cmdSpawn(ctx *CommandContext) {
 		return
 	}
 	if remoteHost != "" && remoteHost != mux.DefaultHost {
-		pane, err := ctx.CC.splitRemotePane(ctx.Srv, ctx.Sess, remoteHost, mux.SplitVertical, false)
+		pane, err := ctx.CC.splitRemotePane(ctx.Srv, ctx.Sess, remoteHost, mux.SplitVertical, false, meta.Name)
 		if err != nil {
 			ctx.replyErr(err.Error())
 			return
