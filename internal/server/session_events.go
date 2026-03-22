@@ -133,7 +133,18 @@ type commandMutationEvent struct {
 }
 
 func (e commandMutationEvent) handle(s *Session) {
-	e.reply <- e.fn(s)
+	res := e.fn(s)
+	if res.err == nil {
+		if res.broadcastLayout {
+			s.broadcastLayoutNow()
+			res.broadcastLayout = false
+		}
+		for _, pr := range res.paneRenders {
+			s.broadcastPaneOutputNow(pr.paneID, pr.data, 0)
+		}
+		res.paneRenders = nil
+	}
+	e.reply <- res
 }
 
 type detachClientEvent struct {
