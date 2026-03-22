@@ -110,6 +110,16 @@ func startTestSSHServer(t *testing.T, authorizedKey ssh.PublicKey, opts testSSHS
 
 func buildTestSSHExecEnv(homeDir string, opts testSSHServerOptions) []string {
 	execEnv := append([]string{}, os.Environ()...)
+	for _, key := range []string{
+		"AMUX_PANE",
+		"AMUX_SESSION",
+		"TMUX",
+		"SSH_CONNECTION",
+		"SSH_CLIENT",
+		"SSH_TTY",
+	} {
+		execEnv = removeEnv(execEnv, key)
+	}
 	execEnv = upsertEnv(execEnv, "HOME", homeDir)
 
 	if !opts.preloadAmux {
@@ -195,7 +205,7 @@ func handleSSHConn(tcpConn net.Conn, config *ssh.ServerConfig, execEnv []string)
 	remoteHost, remotePort, _ := net.SplitHostPort(remoteAddr)
 	localHost, localPort, _ := net.SplitHostPort(localAddr)
 	sshConnectionVal := fmt.Sprintf("%s %s %s %s", remoteHost, remotePort, localHost, localPort)
-	connEnv := append(append([]string{}, execEnv...), "SSH_CONNECTION="+sshConnectionVal)
+	connEnv := upsertEnv(append([]string{}, execEnv...), "SSH_CONNECTION", sshConnectionVal)
 
 	for newChannel := range chans {
 		switch newChannel.ChannelType() {

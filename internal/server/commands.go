@@ -1152,6 +1152,18 @@ func cmdWaitBusy(ctx *CommandContext) {
 		}
 		return !pane.AgentStatus().Idle, nil
 	}
+	checkBusyStatus := func() (mux.AgentStatus, error) {
+		pane, err := enqueueSessionQuery(ctx.Sess, func(sess *Session) (*mux.Pane, error) {
+			return sess.findPaneByID(paneID), nil
+		})
+		if err != nil {
+			return mux.AgentStatus{}, err
+		}
+		if pane == nil {
+			return mux.AgentStatus{}, fmt.Errorf("pane %q disappeared while waiting to become busy", paneRef)
+		}
+		return pane.AgentStatus(), nil
+	}
 
 	outputCh := ctx.Sess.enqueuePaneOutputSubscribe(paneID)
 	if outputCh == nil {
@@ -1166,14 +1178,33 @@ func cmdWaitBusy(ctx *CommandContext) {
 		return
 	}
 	if busy {
-		ctx.reply("busy\n")
-		return
+		// Require the same foreground child across two checks so transient
+		// prompt helpers do not satisfy wait-busy.
+		st, err := checkBusyStatus()
+		if err != nil {
+			ctx.replyErr(err.Error())
+			return
+		}
+		candidatePID := waitBusyForegroundPID(st)
+		if candidatePID != 0 {
+			time.Sleep(50 * time.Millisecond)
+			st2, err := checkBusyStatus()
+			if err != nil {
+				ctx.replyErr(err.Error())
+				return
+			}
+			if _, ready := waitBusyReady(candidatePID, st2); ready {
+				ctx.reply("busy\n")
+				return
+			}
+		}
 	}
 
 	timeoutTimer := time.NewTimer(timeout)
 	defer timeoutTimer.Stop()
 	ticker := time.NewTicker(50 * time.Millisecond)
 	defer ticker.Stop()
+	candidatePID := 0
 
 	for {
 		select {
@@ -1184,16 +1215,30 @@ func cmdWaitBusy(ctx *CommandContext) {
 			return
 		}
 
-		busy, err := checkBusy()
+		st, err := checkBusyStatus()
 		if err != nil {
 			ctx.replyErr(err.Error())
 			return
 		}
-		if busy {
+		nextPID, ready := waitBusyReady(candidatePID, st)
+		if ready {
 			ctx.reply("busy\n")
 			return
 		}
+		candidatePID = nextPID
 	}
+}
+
+func waitBusyForegroundPID(status mux.AgentStatus) int {
+	if status.Idle || len(status.ChildPIDs) == 0 {
+		return 0
+	}
+	return status.ChildPIDs[len(status.ChildPIDs)-1]
+}
+
+func waitBusyReady(candidatePID int, status mux.AgentStatus) (nextPID int, ready bool) {
+	nextPID = waitBusyForegroundPID(status)
+	return nextPID, nextPID != 0 && nextPID == candidatePID
 }
 
 func parseWaitUIArgs(args []string) (eventName, clientID string, afterGen uint64, afterSet bool, timeout time.Duration, err error) {

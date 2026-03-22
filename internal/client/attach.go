@@ -668,17 +668,19 @@ func RunSession(sessionName string) error {
 						continue
 					}
 
-					if cr.ActiveCopyMode() != nil {
-						copyInput = append(copyInput, normalized...)
-						continue
-					}
-
 					if key, ok := decoded.event.(uv.KeyPressEvent); ok {
 						if shouldHandleDecodedKeyLocally(key) {
+							// Prefix/repeat bindings should still win while copy
+							// mode is active, matching tmux behavior.
+							flushCopyInput()
 							if processKeyBytes(normalized, &forward) {
 								shouldExit = true
 								break
 							}
+							continue
+						}
+						if cr.ActiveCopyMode() != nil {
+							copyInput = append(copyInput, normalized...)
 							continue
 						}
 						forward = append(forward, forwardedBytesForDecodedInput(decoded)...)
@@ -686,10 +688,16 @@ func RunSession(sessionName string) error {
 					}
 
 					if len(decoded.raw) == 1 && shouldHandleKeyLocally(decoded.raw[0]) {
+						flushCopyInput()
 						if processKeyByte(decoded.raw[0], &forward) {
 							shouldExit = true
 							break
 						}
+						continue
+					}
+
+					if cr.ActiveCopyMode() != nil {
+						copyInput = append(copyInput, normalized...)
 						continue
 					}
 

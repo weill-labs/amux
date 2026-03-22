@@ -255,6 +255,50 @@ func TestCopyModeResizeSurvives(t *testing.T) {
 	h.waitUI(proto.UIEventCopyModeHidden, 3*time.Second)
 }
 
+func TestCopyModePrefixZoom(t *testing.T) {
+	t.Parallel()
+	h := newAmuxHarness(t)
+
+	h.splitH()
+
+	// Focus pane-1 so zooming has an obvious before/after screen shape.
+	gen := h.generation()
+	h.sendKeys("C-a", "k")
+	h.waitLayout(gen)
+
+	h.sendKeys("C-a", "[")
+	h.waitUI(proto.UIEventCopyModeShown, 3*time.Second)
+
+	gen = h.generation()
+	h.sendKeys("C-a", "z")
+	h.waitLayout(gen)
+
+	capture := h.captureJSON()
+	p1 := h.jsonPane(capture, "pane-1")
+	if !p1.Active {
+		t.Fatalf("pane-1 should remain active after prefix-z zoom, got %+v", p1)
+	}
+	if !p1.Zoomed {
+		t.Fatalf("pane-1 should be zoomed after prefix-z in copy mode, got %+v", p1)
+	}
+}
+
+func TestCopyModeKittyAltFocus(t *testing.T) {
+	t.Parallel()
+	h := newAmuxHarness(t, "AMUX_CLIENT_CAPABILITIES=kitty_keyboard")
+
+	h.splitV()
+	h.assertActive("pane-2")
+
+	h.sendKeys("C-a", "[")
+	h.waitUI(proto.UIEventCopyModeShown, 3*time.Second)
+
+	h.sendKeysHex([]byte("\x1b[104;3u"))
+	if !h.waitForActive("pane-1", 3*time.Second) {
+		t.Fatalf("expected kitty alt-h to focus pane-1 from copy mode\nScreen:\n%s", h.captureOuter())
+	}
+}
+
 func TestCopyModeVimMotions(t *testing.T) {
 	t.Parallel()
 	h := newAmuxHarness(t)

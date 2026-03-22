@@ -3,6 +3,8 @@ package server
 import (
 	"testing"
 	"time"
+
+	"github.com/weill-labs/amux/internal/mux"
 )
 
 func TestWaitGeneration_AlreadyPast(t *testing.T) {
@@ -119,5 +121,93 @@ func TestNotifyPaneOutputSubs(t *testing.T) {
 		t.Fatal("should not receive notification after unsubscribe")
 	case <-time.After(50 * time.Millisecond):
 		// ok
+	}
+}
+
+func TestWaitBusyForegroundPID(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		status mux.AgentStatus
+		want   int
+	}{
+		{
+			name:   "idle",
+			status: mux.AgentStatus{Idle: true, ChildPIDs: []int{12}},
+			want:   0,
+		},
+		{
+			name:   "no children",
+			status: mux.AgentStatus{Idle: false, ChildPIDs: nil},
+			want:   0,
+		},
+		{
+			name:   "last child is foreground",
+			status: mux.AgentStatus{ChildPIDs: []int{12, 34, 56}},
+			want:   56,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := waitBusyForegroundPID(tt.status); got != tt.want {
+				t.Fatalf("waitBusyForegroundPID(%+v) = %d, want %d", tt.status, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestWaitBusyReady(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		candidatePID int
+		status       mux.AgentStatus
+		wantNext     int
+		wantReady    bool
+	}{
+		{
+			name:         "zero candidate does not satisfy readiness",
+			candidatePID: 0,
+			status:       mux.AgentStatus{ChildPIDs: []int{91}},
+			wantNext:     91,
+			wantReady:    false,
+		},
+		{
+			name:         "different foreground child updates candidate",
+			candidatePID: 91,
+			status:       mux.AgentStatus{ChildPIDs: []int{104}},
+			wantNext:     104,
+			wantReady:    false,
+		},
+		{
+			name:         "same foreground child is ready",
+			candidatePID: 104,
+			status:       mux.AgentStatus{ChildPIDs: []int{104}},
+			wantNext:     104,
+			wantReady:    true,
+		},
+		{
+			name:         "idle clears candidate",
+			candidatePID: 104,
+			status:       mux.AgentStatus{Idle: true, ChildPIDs: []int{104}},
+			wantNext:     0,
+			wantReady:    false,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			gotNext, gotReady := waitBusyReady(tt.candidatePID, tt.status)
+			if gotNext != tt.wantNext || gotReady != tt.wantReady {
+				t.Fatalf("waitBusyReady(%d, %+v) = (%d, %t), want (%d, %t)", tt.candidatePID, tt.status, gotNext, gotReady, tt.wantNext, tt.wantReady)
+			}
+		})
 	}
 }
