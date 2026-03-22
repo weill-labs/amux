@@ -301,7 +301,7 @@ func TestPrepareRemotePaneAndInsertPreparedPane(t *testing.T) {
 	}
 
 	prepared := newStandaloneProxyPane(9, "pane-9")
-	if err := sess.insertPreparedPaneIntoActiveWindow(prepared, mux.SplitHorizontal, false); err == nil || err.Error() != "no window" {
+	if err := sess.insertPreparedPaneIntoActiveWindow(prepared, mux.SplitHorizontal, false, false); err == nil || err.Error() != "no window" {
 		t.Fatalf("insertPreparedPaneIntoActiveWindow without window error = %v, want no window", err)
 	}
 
@@ -316,7 +316,7 @@ func TestPrepareRemotePaneAndInsertPreparedPane(t *testing.T) {
 		t.Fatalf("enqueueSessionQuery: %v", err)
 	}
 
-	if err := sess.insertPreparedPaneIntoActiveWindow(prepared, mux.SplitVertical, true); err != nil {
+	if err := sess.insertPreparedPaneIntoActiveWindow(prepared, mux.SplitVertical, true, false); err != nil {
 		t.Fatalf("insertPreparedPaneIntoActiveWindow success path: %v", err)
 	}
 
@@ -325,6 +325,53 @@ func TestPrepareRemotePaneAndInsertPreparedPane(t *testing.T) {
 	})
 	if !inserted {
 		t.Fatal("prepared pane should be inserted into session and layout")
+	}
+}
+
+func TestInsertPreparedPaneIntoActiveWindowBackgroundPreservesZoomAndFocus(t *testing.T) {
+	t.Parallel()
+
+	_, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	pane1 := newStandaloneProxyPane(1, "pane-1")
+	pane2 := newStandaloneProxyPane(2, "pane-2")
+	prepared := newStandaloneProxyPane(3, "pane-3")
+
+	window := newTestWindowWithPanes(t, sess, 1, "main", pane1, pane2)
+	window.ActivePane = pane1
+	window.ZoomedPaneID = pane1.ID
+	if _, err := enqueueSessionQuery(sess, func(sess *Session) (struct{}, error) {
+		sess.Windows = []*mux.Window{window}
+		sess.ActiveWindowID = window.ID
+		sess.Panes = []*mux.Pane{pane1, pane2}
+		return struct{}{}, nil
+	}); err != nil {
+		t.Fatalf("enqueueSessionQuery: %v", err)
+	}
+
+	if err := sess.insertPreparedPaneIntoActiveWindow(prepared, mux.SplitVertical, false, true); err != nil {
+		t.Fatalf("insertPreparedPaneIntoActiveWindow background: %v", err)
+	}
+
+	state := mustSessionQuery(t, sess, func(sess *Session) struct {
+		activeID uint32
+		zoomedID uint32
+		hasPane  bool
+	} {
+		w := sess.activeWindow()
+		return struct {
+			activeID uint32
+			zoomedID uint32
+			hasPane  bool
+		}{
+			activeID: w.ActivePane.ID,
+			zoomedID: w.ZoomedPaneID,
+			hasPane:  w.Root.FindPane(prepared.ID) != nil,
+		}
+	})
+	if state.activeID != pane1.ID || state.zoomedID != pane1.ID || !state.hasPane {
+		t.Fatalf("background prepared pane insert state = %+v, want active pane-1, zoomed pane-1, pane present", state)
 	}
 }
 

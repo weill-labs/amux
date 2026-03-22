@@ -189,18 +189,19 @@ func (s *Session) prepareRemotePane(srv *Server, hostName string, cols, rows int
 
 // insertPreparedPaneIntoActiveWindow registers a pre-created pane in the
 // session and inserts it into the active window layout.
-func (s *Session) insertPreparedPaneIntoActiveWindow(pane *mux.Pane, dir mux.SplitDir, rootLevel bool) error {
+func (s *Session) insertPreparedPaneIntoActiveWindow(pane *mux.Pane, dir mux.SplitDir, rootLevel, background bool) error {
 	w := s.activeWindow()
 	if w == nil {
 		return fmt.Errorf("no window")
 	}
 
 	s.Panes = append(s.Panes, pane)
+	opts := mux.SplitOptions{Background: background || w.ZoomedPaneID != 0}
 	var err error
 	if rootLevel {
-		_, err = w.SplitRoot(dir, pane)
+		_, err = w.SplitRootWithOptions(dir, pane, opts)
 	} else {
-		_, err = w.Split(dir, pane)
+		_, err = w.SplitWithOptions(dir, pane, opts)
 	}
 	if err != nil {
 		s.removePane(pane.ID)

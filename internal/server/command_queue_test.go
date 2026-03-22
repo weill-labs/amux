@@ -396,7 +396,7 @@ func TestQueuedPreparedRemotePaneInsert(t *testing.T) {
 	})
 
 	res := sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
-		if err := sess.insertPreparedPaneIntoActiveWindow(proxy, mux.SplitVertical, false); err != nil {
+		if err := sess.insertPreparedPaneIntoActiveWindow(proxy, mux.SplitVertical, false, false); err != nil {
 			return commandMutationResult{err: err}
 		}
 		return commandMutationResult{

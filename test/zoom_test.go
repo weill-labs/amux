@@ -387,7 +387,7 @@ func TestZoomKeybinding(t *testing.T) {
 	})
 }
 
-func TestZoomAutoUnzoomOnSplit(t *testing.T) {
+func TestZoomSplitKeepsZoomAndFocus(t *testing.T) {
 	t.Parallel()
 	h := newAmuxHarness(t)
 
@@ -398,12 +398,28 @@ func TestZoomAutoUnzoomOnSplit(t *testing.T) {
 		return strings.Contains(s, "[pane-1]") && !strings.Contains(s, "[pane-2]")
 	})
 
-	// Split while zoomed should auto-unzoom
+	// Split while zoomed should keep the active pane zoomed and create the new pane in the background.
 	gen := h.generation()
 	h.sendKeys("C-a", "-")
 	h.waitLayout(gen)
 
-	h.assertScreen("split while zoomed should auto-unzoom and show all panes", func(s string) bool {
+	h.assertScreen("split while zoomed should keep only pane-1 visible", func(s string) bool {
+		return strings.Contains(s, "[pane-1]") && !strings.Contains(s, "[pane-2]") &&
+			!strings.Contains(s, "[pane-3]")
+	})
+
+	capture := h.captureJSON()
+	p1 := h.jsonPane(capture, "pane-1")
+	if !p1.Active || !p1.Zoomed {
+		t.Fatalf("pane-1 state after split = active:%v zoomed:%v, want true/true", p1.Active, p1.Zoomed)
+	}
+	listOut := h.runCmd("list")
+	if !strings.Contains(listOut, "pane-3") {
+		t.Fatalf("list should include pane-3 after zoomed split, got:\n%s", listOut)
+	}
+
+	h.runCmd("zoom", "pane-1")
+	h.assertScreen("unzoom should reveal the background split pane", func(s string) bool {
 		return strings.Contains(s, "[pane-1]") && strings.Contains(s, "[pane-2]") &&
 			strings.Contains(s, "[pane-3]")
 	})

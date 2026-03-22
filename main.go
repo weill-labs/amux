@@ -124,7 +124,7 @@ func main() {
 		splitArgs, err := parseSplitArgs(args[1:])
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "amux split: %v\n", err)
-			fmt.Fprintf(os.Stderr, "usage: amux split [root] [--vertical|--horizontal] [--name NAME] [--host HOST]\n")
+			fmt.Fprintf(os.Stderr, "usage: amux split [root] [--vertical|--horizontal] [--name NAME] [--host HOST] [--background]\n")
 			os.Exit(1)
 		}
 		runServerCommand("split", splitArgs)
@@ -363,13 +363,14 @@ func parseAttachArgs(args []string) (sessionName string, detachOthers bool) {
 	return
 }
 
-// parseSplitArgs parses args for "amux split [root] [--vertical|--horizontal] [--name NAME] [--host HOST]".
+// parseSplitArgs parses args for "amux split [root] [--vertical|--horizontal] [--name NAME] [--host HOST] [--background]".
 // It normalizes back to the legacy server arg shape so keybindings and direct
 // protocol callers can keep using "root" and "v".
 func parseSplitArgs(args []string) ([]string, error) {
 	rootLevel := false
 	hostName := ""
 	name := ""
+	background := false
 	dir := mux.SplitHorizontal
 	hasExplicitDir := false
 
@@ -406,6 +407,8 @@ func parseSplitArgs(args []string) ([]string, error) {
 			}
 			name = args[i+1]
 			i++
+		case "--background":
+			background = true
 		default:
 			return nil, fmt.Errorf("unknown split arg %q", args[i])
 		}
@@ -423,6 +426,9 @@ func parseSplitArgs(args []string) ([]string, error) {
 	}
 	if name != "" {
 		parsed = append(parsed, "--name", name)
+	}
+	if background {
+		parsed = append(parsed, "--background")
 	}
 	if len(parsed) == 0 {
 		return nil, nil
@@ -453,7 +459,8 @@ Usage:
                                        Send the same keystrokes to multiple panes
   amux [-s session] type-keys [--hex] <keys>...
                                        Type keys through client input pipeline
-  amux [-s session] spawn --name NAME  Spawn a new agent pane
+  amux [-s session] spawn --name NAME [--host HOST] [--task TASK] [--color COLOR] [--background]
+                                       Spawn a new agent pane
   amux [-s session] zoom [pane]        Toggle zoom (maximize) a pane
   amux [-s session] swap <p1> <p2>     Swap two panes by name or ID
   amux [-s session] swap-tree <p1> <p2>
@@ -491,7 +498,7 @@ Usage:
   amux [-s session] list-hooks         List registered hooks
   amux [-s session] events [--filter type1,type2] [--pane <ref>] [--host <name>] [--client <id>] [--no-reconnect]
                                        Stream events as NDJSON (layout, output, idle, busy, vt-idle, hook, client-connect, client-disconnect, display-panes-*, choose-*, copy-mode-*, input-*, reconnect)
-  amux [-s session] split [root] [--vertical|--horizontal] [--name NAME] [--host HOST]
+  amux [-s session] split [root] [--vertical|--horizontal] [--name NAME] [--host HOST] [--background]
                                        Split active pane (default: horizontal)
   amux [-s session] hosts              List configured remote hosts + status
   amux [-s session] disconnect <host>  Drop SSH connection to a host

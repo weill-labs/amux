@@ -671,6 +671,87 @@ func TestCommandSplitSpawnKillAndEvents(t *testing.T) {
 	}
 }
 
+func TestCommandSplitAndSpawnBackgroundPreserveZoomAndFocus(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	p1, err := sess.createPane(srv, 80, 23)
+	if err != nil {
+		t.Fatalf("createPane: %v", err)
+	}
+	p1.Start()
+	w := mux.NewWindow(p1, 80, 23)
+	w.ID = 1
+	w.Name = "main"
+	sess.Windows = []*mux.Window{w}
+	sess.ActiveWindowID = w.ID
+	sess.Panes = []*mux.Pane{p1}
+
+	splitRes := runTestCommand(t, srv, sess, "split")
+	if splitRes.cmdErr != "" {
+		t.Fatalf("initial split failed: %s", splitRes.cmdErr)
+	}
+	zoomRes := runTestCommand(t, srv, sess, "zoom", "pane-1")
+	if zoomRes.cmdErr != "" {
+		t.Fatalf("zoom failed: %s", zoomRes.cmdErr)
+	}
+
+	backgroundSplit := runTestCommand(t, srv, sess, "split", "--background", "--name", "bg-split")
+	if backgroundSplit.cmdErr != "" {
+		t.Fatalf("background split failed: %s", backgroundSplit.cmdErr)
+	}
+	stateAfterSplit := mustSessionQuery(t, sess, func(sess *Session) struct {
+		activeID uint32
+		zoomedID uint32
+		hasPane  bool
+	} {
+		w := sess.activeWindow()
+		return struct {
+			activeID uint32
+			zoomedID uint32
+			hasPane  bool
+		}{
+			activeID: w.ActivePane.ID,
+			zoomedID: w.ZoomedPaneID,
+			hasPane:  sess.findPaneByRef("bg-split") != nil,
+		}
+	})
+	if stateAfterSplit.activeID != p1.ID || stateAfterSplit.zoomedID != p1.ID || !stateAfterSplit.hasPane {
+		t.Fatalf("state after background split = %+v, want active pane-1, zoomed pane-1, bg-split present", stateAfterSplit)
+	}
+
+	backgroundSpawn := runTestCommand(t, srv, sess, "spawn", "--background", "--name", "bg-worker", "--task", "build")
+	if backgroundSpawn.cmdErr != "" {
+		t.Fatalf("background spawn failed: %s", backgroundSpawn.cmdErr)
+	}
+	stateAfterSpawn := mustSessionQuery(t, sess, func(sess *Session) struct {
+		activeID uint32
+		zoomedID uint32
+		task     string
+	} {
+		w := sess.activeWindow()
+		pane := sess.findPaneByRef("bg-worker")
+		task := ""
+		if pane != nil {
+			task = pane.Meta.Task
+		}
+		return struct {
+			activeID uint32
+			zoomedID uint32
+			task     string
+		}{
+			activeID: w.ActivePane.ID,
+			zoomedID: w.ZoomedPaneID,
+			task:     task,
+		}
+	})
+	if stateAfterSpawn.activeID != p1.ID || stateAfterSpawn.zoomedID != p1.ID || stateAfterSpawn.task != "build" {
+		t.Fatalf("state after background spawn = %+v, want active pane-1, zoomed pane-1, build task", stateAfterSpawn)
+	}
+}
+
 func TestCommandSplitParsesDirectionFlags(t *testing.T) {
 	t.Parallel()
 

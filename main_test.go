@@ -20,6 +20,8 @@ func TestParseSplitArgs(t *testing.T) {
 		{name: "horizontal flag", args: []string{"--horizontal"}, want: nil},
 		{name: "root vertical flag", args: []string{"root", "--vertical"}, want: []string{"root", "v"}},
 		{name: "host and vertical flag", args: []string{"--host", "gpu-server", "--vertical"}, want: []string{"v", "--host", "gpu-server"}},
+		{name: "background flag", args: []string{"--background"}, want: []string{"--background"}},
+		{name: "name and background", args: []string{"--name", "bg-pane", "--background"}, want: []string{"--name", "bg-pane", "--background"}},
 		{name: "legacy vertical shorthand", args: []string{"v"}, want: []string{"v"}},
 		{name: "mixed legacy and flag", args: []string{"v", "--vertical"}, want: []string{"v"}},
 		{name: "conflicting directions", args: []string{"--vertical", "--horizontal"}, wantErr: "conflicting split directions"},
