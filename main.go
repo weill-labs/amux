@@ -24,6 +24,8 @@ import (
 // sessionName is the global session name, set by -s flag or defaulting to "default".
 var sessionName = "default"
 
+var resolveReloadExecPath = reload.ResolveExecutable
+
 // BuildCommit can be set via -ldflags "-X main.BuildCommit=abc1234".
 // Falls back to VCS info from runtime/debug at startup.
 var BuildCommit string
@@ -638,7 +640,7 @@ func runServerCommand(cmdName string, args []string) {
 }
 
 func prependReloadExecPathArg(args []string) []string {
-	execPath, err := reload.ResolveExecutable()
+	execPath, err := resolveReloadExecPath()
 	if err != nil {
 		return args
 	}

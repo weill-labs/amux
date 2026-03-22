@@ -71,6 +71,32 @@ func runAmuxCommandWithBin(tb testing.TB, binPath, home, coverDir, session strin
 	return string(out)
 }
 
+func waitForOutput(tb testing.TB, timeout time.Duration, fn func() string, match func(string) bool) string {
+	tb.Helper()
+
+	last := fn()
+	if match(last) {
+		return last
+	}
+
+	deadline := time.NewTimer(timeout)
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer deadline.Stop()
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-deadline.C:
+			return last
+		case <-ticker.C:
+			last = fn()
+			if match(last) {
+				return last
+			}
+		}
+	}
+}
+
 func TestHotReloadKeybinding(t *testing.T) {
 	t.Parallel()
 	h := newAmuxHarness(t)
@@ -225,15 +251,11 @@ func TestReloadServerExecsReplacementBinaryAfterAtomicInstall(t *testing.T) {
 
 	h.runCmd("reload-server")
 
-	deadline := time.Now().Add(10 * time.Second)
-	var after string
-	for time.Now().Before(deadline) {
-		after = h.runCmd("status")
-		if strings.Contains(after, "build: newbuild") {
-			break
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
+	after := waitForOutput(t, 10*time.Second, func() string {
+		return h.runCmd("status")
+	}, func(out string) bool {
+		return strings.Contains(out, "build: newbuild")
+	})
 	if !strings.Contains(after, "build: newbuild") {
 		t.Fatalf("status after reload = %q, want new build marker", after)
 	}
@@ -262,15 +284,11 @@ func TestReloadServerUsesRequestingBinaryNotOriginalLaunchBinary(t *testing.T) {
 
 	runAmuxCommandWithBin(t, newBin, h.outer.home, h.outer.coverDir, h.inner, "reload-server")
 
-	deadline := time.Now().Add(10 * time.Second)
-	var after string
-	for time.Now().Before(deadline) {
-		after = runAmuxCommandWithBin(t, newBin, h.outer.home, h.outer.coverDir, h.inner, "status")
-		if strings.Contains(after, "build: newbuild") {
-			break
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
+	after := waitForOutput(t, 10*time.Second, func() string {
+		return runAmuxCommandWithBin(t, newBin, h.outer.home, h.outer.coverDir, h.inner, "status")
+	}, func(out string) bool {
+		return strings.Contains(out, "build: newbuild")
+	})
 	if !strings.Contains(after, "build: newbuild") {
 		t.Fatalf("status after reload = %q, want new build marker", after)
 	}

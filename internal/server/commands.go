@@ -33,6 +33,8 @@ const tokenKeyGap = 50 * time.Millisecond
 // path when the two differ.
 const ReloadServerExecPathFlag = "--exec-path"
 
+var resolveServerReloadExecPath = reload.ResolveExecutable
+
 // CommandContext provides all state a command handler needs.
 type CommandContext struct {
 	CC   *ClientConn
@@ -1546,7 +1548,7 @@ func cmdReloadServer(ctx *CommandContext) {
 		return
 	}
 	if execPath == "" {
-		execPath, err = reload.ResolveExecutable()
+		execPath, err = resolveServerReloadExecPath()
 		if err != nil {
 			ctx.replyErr(fmt.Sprintf("reload: %v", err))
 			return
