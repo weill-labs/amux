@@ -207,6 +207,8 @@ var commandRegistry = map[string]CommandHandler{
 	"_inject-proxy":   cmdInjectProxy,
 	"type-keys":       cmdTypeKeys,
 	"set-meta":        cmdSetMeta,
+	"add-meta":        cmdAddMeta,
+	"rm-meta":         cmdRmMeta,
 }
 
 func cmdList(ctx *CommandContext) {
@@ -219,7 +221,7 @@ func cmdList(ctx *CommandContext) {
 	if len(entries) == 0 {
 		output = "No panes.\n"
 	} else {
-		output = fmt.Sprintf("%-6s %-20s %-15s %-30s %-10s %s\n", "PANE", "NAME", "HOST", "BRANCH", "WINDOW", "TASK")
+		output = fmt.Sprintf("%-6s %-20s %-15s %-30s %-10s %-12s %s\n", "PANE", "NAME", "HOST", "BRANCH", "WINDOW", "TASK", "META")
 		for _, p := range entries {
 			active := " "
 			if p.active {
@@ -229,9 +231,9 @@ func cmdList(ctx *CommandContext) {
 			if p.pr != "" {
 				branch += " #" + p.pr
 			}
-			output += fmt.Sprintf("%-6s %-20s %-15s %-30s %-10s %s\n",
+			output += fmt.Sprintf("%-6s %-20s %-15s %-30s %-10s %-12s %s\n",
 				fmt.Sprintf("%s%d", active, p.paneID),
-				p.name, p.host, branch, p.windowName, p.task)
+				p.name, p.host, branch, p.windowName, p.task, formatMetaCollections(p.prs, p.issues))
 		}
 	}
 	ctx.reply(output)
@@ -2033,6 +2035,130 @@ func cmdSetMeta(ctx *CommandContext) {
 		}
 		return commandMutationResult{broadcastLayout: true}
 	}))
+}
+
+func cmdAddMeta(ctx *CommandContext) {
+	if len(ctx.Args) < 2 {
+		ctx.replyErr("usage: add-meta <pane> key=value [key=value...]")
+		return
+	}
+	paneRef := ctx.Args[0]
+	update, err := parseMetaCollectionArgs(ctx.Args[1:])
+	if err != nil {
+		ctx.replyErr(err.Error())
+		return
+	}
+
+	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
+		pane, _, err := sess.resolvePaneAcrossWindows(paneRef)
+		if err != nil {
+			return commandMutationResult{err: err}
+		}
+		for _, pr := range update.prs {
+			if !slices.Contains(pane.Meta.PRs, pr) {
+				pane.Meta.PRs = append(pane.Meta.PRs, pr)
+			}
+		}
+		for _, issue := range update.issues {
+			if !slices.Contains(pane.Meta.Issues, issue) {
+				pane.Meta.Issues = append(pane.Meta.Issues, issue)
+			}
+		}
+		return commandMutationResult{broadcastLayout: true}
+	}))
+}
+
+func cmdRmMeta(ctx *CommandContext) {
+	if len(ctx.Args) < 2 {
+		ctx.replyErr("usage: rm-meta <pane> key=value [key=value...]")
+		return
+	}
+	paneRef := ctx.Args[0]
+	update, err := parseMetaCollectionArgs(ctx.Args[1:])
+	if err != nil {
+		ctx.replyErr(err.Error())
+		return
+	}
+
+	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
+		pane, _, err := sess.resolvePaneAcrossWindows(paneRef)
+		if err != nil {
+			return commandMutationResult{err: err}
+		}
+		for _, pr := range update.prs {
+			pane.Meta.PRs = removeIntValue(pane.Meta.PRs, pr)
+		}
+		for _, issue := range update.issues {
+			pane.Meta.Issues = removeStringValue(pane.Meta.Issues, issue)
+		}
+		return commandMutationResult{broadcastLayout: true}
+	}))
+}
+
+type metaCollectionUpdate struct {
+	prs    []int
+	issues []string
+}
+
+func parseMetaCollectionArgs(kvPairs []string) (metaCollectionUpdate, error) {
+	var update metaCollectionUpdate
+	for _, kv := range kvPairs {
+		key, value, ok := strings.Cut(kv, "=")
+		if !ok {
+			return metaCollectionUpdate{}, fmt.Errorf("invalid key=value: %q", kv)
+		}
+		switch key {
+		case "pr":
+			pr, err := parseMetaPR(value)
+			if err != nil {
+				return metaCollectionUpdate{}, err
+			}
+			update.prs = append(update.prs, pr)
+		case "issue":
+			if value == "" {
+				return metaCollectionUpdate{}, fmt.Errorf("invalid issue value: %q", value)
+			}
+			update.issues = append(update.issues, value)
+		default:
+			return metaCollectionUpdate{}, fmt.Errorf("unknown meta key: %q (valid: pr, issue)", key)
+		}
+	}
+	return update, nil
+}
+
+func parseMetaPR(value string) (int, error) {
+	pr, err := strconv.Atoi(value)
+	if err != nil || pr <= 0 {
+		return 0, fmt.Errorf("invalid pr value: %q", value)
+	}
+	return pr, nil
+}
+
+func removeIntValue(values []int, target int) []int {
+	return slices.DeleteFunc(values, func(value int) bool {
+		return value == target
+	})
+}
+
+func removeStringValue(values []string, target string) []string {
+	return slices.DeleteFunc(values, func(value string) bool {
+		return value == target
+	})
+}
+
+func formatMetaCollections(prs []int, issues []string) string {
+	var parts []string
+	if len(prs) > 0 {
+		values := make([]string, 0, len(prs))
+		for _, pr := range prs {
+			values = append(values, strconv.Itoa(pr))
+		}
+		parts = append(parts, "prs=["+strings.Join(values, ",")+"]")
+	}
+	if len(issues) > 0 {
+		parts = append(parts, "issues=["+strings.Join(issues, ",")+"]")
+	}
+	return strings.Join(parts, " ")
 }
 
 func cmdInjectProxy(ctx *CommandContext) {

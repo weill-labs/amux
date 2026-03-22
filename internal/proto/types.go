@@ -55,7 +55,7 @@ type PaneSnapshot struct {
 	ConnStatus string   `json:"conn_status,omitempty"` // "", "connected", "reconnecting", "disconnected" (remote panes only)
 	GitBranch  string   `json:"git_branch,omitempty"`
 	PR         string   `json:"pr,omitempty"`
-	PRs        []string `json:"prs,omitempty"`
+	PRs        []int    `json:"prs,omitempty"`
 	Issues     []string `json:"issues,omitempty"`
 
 	// EmuWidth/EmuHeight are set for minimized panes to record the
@@ -91,6 +91,15 @@ type CaptureWindow struct {
 	Index int    `json:"index"`
 }
 
+// CaptureMeta holds user-managed pane metadata for JSON capture.
+type CaptureMeta struct {
+	Task      string   `json:"task,omitempty"`
+	GitBranch string   `json:"git_branch,omitempty"`
+	PR        string   `json:"pr,omitempty"`
+	PRs       []int    `json:"prs,omitempty"`
+	Issues    []string `json:"issues,omitempty"`
+}
+
 // CapturePane holds one pane's metadata, cursor, and content for JSON output.
 type CapturePane struct {
 	ID        uint32        `json:"id"`
@@ -101,6 +110,7 @@ type CapturePane struct {
 	Host      string        `json:"host"`
 	Task      string        `json:"task"`
 	Color     string        `json:"color"`
+	Meta      CaptureMeta   `json:"meta"`
 	Position  *CapturePos   `json:"position,omitempty"`
 	Cursor    CaptureCursor `json:"cursor"`
 	Content   []string      `json:"content"`
