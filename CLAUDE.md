@@ -67,6 +67,15 @@ amux capture --format json        # structured JSON for agents
 amux capture --format json pane-1 # single pane JSON
 ```
 
+### Working In amux
+
+When working in an amux pane, set pane metadata when you start a Linear issue and update it again after opening a PR. Pane shells already have `$AMUX_PANE` set, so use that directly:
+
+```bash
+amux add-meta "$AMUX_PANE" issue=LAB-XXX
+amux add-meta "$AMUX_PANE" pr=NUMBER issue=LAB-XXX
+```
+
 ### TDD Workflow
 
 All development follows red-green-refactor with **separate commits** for each phase:

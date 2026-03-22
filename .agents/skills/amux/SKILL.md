@@ -214,6 +214,16 @@ git reset HEAD .claude/worktrees/ .context/ 2>/dev/null
 rm -rf .claude/worktrees/ .context/ 2>/dev/null
 ```
 
+## Post-PR Protocol
+
+After opening a PR with `gh pr create`, set pane metadata for the current amux pane:
+
+```bash
+amux add-meta "$AMUX_PANE" pr=NUMBER issue=LAB-XXX
+```
+
+`$AMUX_PANE` is already set in pane shells. Replace `NUMBER` with the new PR number and `LAB-XXX` with the Linear issue ID.
+
 ## JSON Capture Structure
 
 The `--format json` output looks like:
