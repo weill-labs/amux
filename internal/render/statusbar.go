@@ -245,6 +245,13 @@ func buildGlobalBarWindowTabs(windows []WindowInfo) []globalBarWindowTab {
 	return tabs
 }
 
+func globalBarTabColorHex(window WindowInfo) string {
+	if window.IsActive {
+		return config.BlueHex
+	}
+	return config.TextColorHex
+}
+
 // GlobalBarWindowAtColumn resolves a 0-based terminal column within the
 // rendered global bar to the corresponding window tab.
 func GlobalBarWindowAtColumn(windows []WindowInfo, x int) (WindowInfo, bool) {
@@ -272,11 +279,15 @@ func renderGlobalBar(buf *strings.Builder, sessionName string, paneCount int, wi
 	// Show window tabs if there are multiple windows
 	if len(tabs) > 0 {
 		for _, tab := range tabs {
+			left += hexToANSI(globalBarTabColorHex(tab.window))
 			if tab.window.IsActive {
-				left += Bold + hexToANSI(config.BlueHex) + tab.display + NoBold + TextFg + " "
-			} else {
-				left += tab.display + " "
+				left += Bold
 			}
+			left += tab.display
+			if tab.window.IsActive {
+				left += NoBold
+			}
+			left += TextFg + " "
 			leftVisible += utf8.RuneCountInString(tab.display) + 1
 		}
 		left += "│ "

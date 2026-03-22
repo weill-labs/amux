@@ -361,8 +361,6 @@ func buildGlobalBarCells(g *ScreenGrid, sessionName string, paneCount int, width
 	baseStyle := uv.Style{Fg: textFg, Bg: bg}
 	boldStyle := baseStyle
 	boldStyle.Attrs |= uv.AttrBold
-	activeTabStyle := boldStyle
-	activeTabStyle.Fg = hexToColor(config.BlueHex)
 	errorStyle := uv.Style{Fg: redFg, Bg: bg}
 
 	var chars []styledChar
@@ -374,13 +372,13 @@ func buildGlobalBarCells(g *ScreenGrid, sessionName string, paneCount int, width
 
 	if tabs := buildGlobalBarWindowTabs(windows); len(tabs) > 0 {
 		for _, tab := range tabs {
+			style := baseStyle
 			if tab.window.IsActive {
-				chars = appendStyledStr(chars, tab.display, activeTabStyle)
-				chars = appendStyledStr(chars, " ", baseStyle)
-			} else {
-				chars = appendStyledStr(chars, tab.display, baseStyle)
-				chars = appendStyledStr(chars, " ", baseStyle)
+				style = boldStyle
 			}
+			style.Fg = hexToColor(globalBarTabColorHex(tab.window))
+			chars = appendStyledStr(chars, tab.display, style)
+			chars = appendStyledStr(chars, " ", baseStyle)
 		}
 		chars = appendStyledStr(chars, "│ ", baseStyle)
 	} else {
