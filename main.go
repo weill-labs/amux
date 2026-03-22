@@ -355,7 +355,8 @@ Usage:
   amux [-s session] list-hooks         List registered hooks
   amux [-s session] events [--filter type1,type2] [--pane <ref>] [--host <name>] [--client <id>]
                                        Stream events as NDJSON (layout, idle, busy, hook, display-panes-*, choose-*, copy-mode-*, input-*)
-  amux [-s session] split --host HOST  Split with a remote pane on HOST
+  amux [-s session] split [root] [v] [--name NAME] [--host HOST]
+                                       Split active pane (default: horizontal)
   amux [-s session] hosts              List configured remote hosts + status
   amux [-s session] disconnect <host>  Drop SSH connection to a host
   amux [-s session] reconnect <host>   Reconnect to a remote host
