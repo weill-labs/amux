@@ -52,6 +52,7 @@ const (
 	DimColorHex  = "6c7086" // Overlay 0 — inactive/dim borders
 	TextColorHex = "cdd6f4" // Text foreground
 	Surface0Hex  = "313244" // Surface 0 — status bar background
+	BlueHex      = "89b4fa" // Blue — active tab highlight
 	GreenHex     = "a6e3a1" // Green — status indicator
 	YellowHex    = "f9e2af" // Yellow — status indicator
 	RedHex       = "f38ba8" // Red — status indicator

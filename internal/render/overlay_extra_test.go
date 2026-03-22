@@ -132,7 +132,7 @@ func TestRenderGlobalBarAndTruncateRunes(t *testing.T) {
 		{Index: 2, Name: "logs", IsActive: false},
 	}, "very long command feedback that must truncate")
 	rendered := buf.String()
-	for _, want := range []string{"1:dev", "2:logs", "very lon…"} {
+	for _, want := range []string{"1:dev", "2:logs", "very long …"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("renderGlobalBar missing %q:\n%s", want, rendered)
 		}

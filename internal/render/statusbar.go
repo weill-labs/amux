@@ -6,6 +6,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/mattn/go-runewidth"
+	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/mux"
 )
 
@@ -231,9 +232,6 @@ func buildGlobalBarWindowTabs(windows []WindowInfo) []globalBarWindowTab {
 	for _, w := range windows {
 		label := strconv.Itoa(w.Index) + ":" + w.Name
 		display := label
-		if w.IsActive {
-			display = "[" + label + "]"
-		}
 
 		width := utf8.RuneCountInString(display)
 		tabs = append(tabs, globalBarWindowTab{
@@ -275,7 +273,7 @@ func renderGlobalBar(buf *strings.Builder, sessionName string, paneCount int, wi
 	if len(tabs) > 0 {
 		for _, tab := range tabs {
 			if tab.window.IsActive {
-				left += Bold + tab.display + NoBold + " "
+				left += Bold + hexToANSI(config.BlueHex) + tab.display + NoBold + TextFg + " "
 			} else {
 				left += tab.display + " "
 			}
