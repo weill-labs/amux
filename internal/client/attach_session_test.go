@@ -507,6 +507,11 @@ func TestRunSessionDetachFlushesPendingInput(t *testing.T) {
 	}
 	h.output.waitContains(t, render.AltScreenEnter)
 
+	h.send(t, &proto.Message{Type: proto.MsgTypeLayout, Layout: sessionLayoutSnapshot(h.session)})
+	h.send(t, &proto.Message{Type: proto.MsgTypePaneOutput, PaneID: 1, PaneData: []byte("left")})
+	h.send(t, &proto.Message{Type: proto.MsgTypePaneOutput, PaneID: 2, PaneData: []byte("right")})
+	h.output.waitContains(t, "left")
+
 	h.writeInput(t, []byte{'x', 0x01, 'd'})
 	h.waitMessage(t, func(msg *proto.Message) bool {
 		return msg.Type == proto.MsgTypeInput && string(msg.Input) == "x"
