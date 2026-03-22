@@ -192,6 +192,44 @@ func TestRebuildFromSnapshotFallbackActive(t *testing.T) {
 	}
 }
 
+func TestSnapshotRoundTripPreservesDissolvedColumnLayout(t *testing.T) {
+	t.Parallel()
+
+	p1 := &Pane{ID: 1, Meta: PaneMeta{Name: "pane-1", Host: "local", Color: "f38ba8"}}
+	p2 := &Pane{ID: 2, Meta: PaneMeta{Name: "pane-2", Host: "local", Color: "a6e3a1"}}
+	w := NewWindow(p1, 80, 24)
+	if _, err := w.SplitRoot(SplitVertical, p2); err != nil {
+		t.Fatalf("SplitRoot(vertical): %v", err)
+	}
+	if err := w.Minimize(p1.ID); err != nil {
+		t.Fatalf("Minimize(pane-1): %v", err)
+	}
+
+	snap := w.SnapshotWindow(1)
+	rebuilt := RebuildWindowFromSnapshot(snap, 80, 24, map[uint32]*Pane{1: p1, 2: p2})
+
+	dissolved := rebuilt.Root.FindPane(p1.ID)
+	host := rebuilt.Root.FindPane(p2.ID)
+	if dissolved == nil || host == nil {
+		t.Fatal("expected both panes after snapshot rebuild")
+	}
+	if dissolved.X != host.X {
+		t.Fatalf("dissolved pane x = %d, want host x %d after rebuild", dissolved.X, host.X)
+	}
+	if dissolved.Y <= host.Y {
+		t.Fatalf("dissolved pane y = %d, want below host y %d after rebuild", dissolved.Y, host.Y)
+	}
+
+	if err := rebuilt.Restore(p1.ID); err != nil {
+		t.Fatalf("Restore(pane-1): %v", err)
+	}
+	left := rebuilt.Root.FindPane(p1.ID)
+	right := rebuilt.Root.FindPane(p2.ID)
+	if left.X != 0 || right.X != 41 {
+		t.Fatalf("rebuilt restore positions = left:%d right:%d, want 0 and 41", left.X, right.X)
+	}
+}
+
 func TestPaneToSnapshotIncludesMetaCollections(t *testing.T) {
 	t.Parallel()
 
