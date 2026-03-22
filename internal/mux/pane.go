@@ -86,14 +86,26 @@ type paneBaseHistory struct {
 	lines []string
 }
 
+// CaptureHistoryLine is one retained scrollback row plus the width it was
+// wrapped at when it entered live scrollback.
+type CaptureHistoryLine struct {
+	Text        string
+	SourceWidth int
+	Filled      bool
+}
+
 // CaptureSnapshot is a consistent plain-text snapshot of a pane's retained
 // history, visible screen, and cursor state.
 type CaptureSnapshot struct {
-	History        []string
-	Content        []string
-	CursorCol      int
-	CursorRow      int
-	CursorHidden   bool
+	BaseHistory  []string
+	LiveHistory  []CaptureHistoryLine
+	History      []string
+	ContentRows  []CaptureHistoryLine
+	Content      []string
+	Width        int
+	CursorCol    int
+	CursorRow    int
+	CursorHidden bool
 	CursorBlockCol int
 	CursorBlockRow int
 	HasCursorBlock bool
@@ -504,13 +516,22 @@ func (p *Pane) HistoryScreenSnapshot() (history []string, screen string, seq uin
 func (p *Pane) CaptureSnapshot() CaptureSnapshot {
 	for {
 		before := p.waitForStableSnapshot()
+		baseHistory := p.loadBaseHistory()
+		liveHistory := EmulatorScrollbackHistoryLines(p.emulator)
+		baseHistory, liveHistory, history := p.captureScrollback(baseHistory, liveHistory)
+		contentRows := EmulatorContentHistoryLines(p.emulator)
+		width, _ := p.emulator.Size()
 		col, row := p.emulator.CursorPosition()
 		snap := CaptureSnapshot{
-			History:        p.combinedScrollback(p.loadBaseHistory()),
-			Content:        EmulatorContentLines(p.emulator),
-			CursorCol:      col,
-			CursorRow:      row,
-			CursorHidden:   p.emulator.CursorHidden(),
+			BaseHistory:  append([]string(nil), baseHistory...),
+			LiveHistory:  append([]CaptureHistoryLine(nil), liveHistory...),
+			History:      history,
+			ContentRows:  append([]CaptureHistoryLine(nil), contentRows...),
+			Content:      captureHistoryLineText(contentRows),
+			Width:        width,
+			CursorCol:    col,
+			CursorRow:    row,
+			CursorHidden: p.emulator.CursorHidden(),
 			HasCursorBlock: false,
 		}
 		if blockCol, blockRow, ok := p.emulator.CursorBlockPosition(); ok {
@@ -523,6 +544,39 @@ func (p *Pane) CaptureSnapshot() CaptureSnapshot {
 			return snap
 		}
 	}
+}
+
+func (p *Pane) captureScrollback(baseHistory []string, liveHistory []CaptureHistoryLine) ([]string, []CaptureHistoryLine, []string) {
+	limit := effectiveScrollbackLines(p.scrollbackLines)
+	total := len(baseHistory) + len(liveHistory)
+	if total > limit {
+		drop := total - limit
+		baseStart := 0
+		liveStart := 0
+		if drop >= len(baseHistory) {
+			baseStart = len(baseHistory)
+			liveStart = drop - len(baseHistory)
+		} else {
+			baseStart = drop
+		}
+		baseHistory = baseHistory[baseStart:]
+		liveHistory = liveHistory[liveStart:]
+	}
+
+	history := make([]string, 0, len(baseHistory)+len(liveHistory))
+	history = append(history, baseHistory...)
+	for _, line := range liveHistory {
+		history = append(history, line.Text)
+	}
+	return baseHistory, liveHistory, history
+}
+
+func captureHistoryLineText(lines []CaptureHistoryLine) []string {
+	text := make([]string, len(lines))
+	for i, line := range lines {
+		text[i] = line.Text
+	}
+	return text
 }
 
 // RenderWithoutCursorBlock returns the screen with the cursor cell's

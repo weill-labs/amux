@@ -2,18 +2,22 @@ package capture
 
 import (
 	"fmt"
+	"strconv"
 
 	"github.com/weill-labs/amux/internal/proto"
 )
 
 // Request is the parsed shape of amux capture flags.
 type Request struct {
-	IncludeANSI bool
-	ColorMap    bool
-	FormatJSON  bool
-	DisplayMode bool
-	HistoryMode bool
-	PaneRef     string
+	IncludeANSI     bool
+	ColorMap        bool
+	FormatJSON      bool
+	DisplayMode     bool
+	HistoryMode     bool
+	RewrapSpecified bool
+	RewrapRaw       string
+	RewrapWidth     int
+	PaneRef         string
 }
 
 // ParseArgs parses capture flags while preserving the existing loose CLI
@@ -30,6 +34,15 @@ func ParseArgs(args []string) Request {
 			req.DisplayMode = true
 		case "--history":
 			req.HistoryMode = true
+		case "--rewrap":
+			req.RewrapSpecified = true
+			if i+1 < len(args) {
+				req.RewrapRaw = args[i+1]
+				if width, err := strconv.Atoi(args[i+1]); err == nil {
+					req.RewrapWidth = width
+				}
+				i++
+			}
 		case "--format":
 			if i+1 < len(args) && args[i+1] == "json" {
 				req.FormatJSON = true
@@ -52,6 +65,9 @@ func ValidateScreenRequest(req Request) error {
 	if req.DisplayMode && (req.IncludeANSI || req.ColorMap || req.FormatJSON || req.HistoryMode || req.PaneRef != "") {
 		return fmt.Errorf("--display is mutually exclusive with other flags")
 	}
+	if req.RewrapSpecified {
+		return fmt.Errorf("--rewrap requires --history")
+	}
 	return nil
 }
 
@@ -65,6 +81,9 @@ func ValidateHistoryRequest(req Request) error {
 	}
 	if req.PaneRef == "" {
 		return fmt.Errorf("--history requires a pane target")
+	}
+	if req.RewrapSpecified && req.RewrapWidth <= 0 {
+		return fmt.Errorf("--rewrap requires a positive integer width")
 	}
 	return nil
 }

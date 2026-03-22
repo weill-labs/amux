@@ -96,12 +96,17 @@ func (s *Screen) Clear() {
 // be preserved in history.
 func (s *Screen) ClearWithScrollback() {
 	if s.scrollback != nil {
+		count := 0
 		// Save all lines that have content before clearing
 		for y := 0; y < s.buf.Height(); y++ {
 			line := s.buf.Line(y)
 			if line != nil && !s.isLineEmpty(line) {
 				s.scrollback.Push(line)
+				count++
 			}
+		}
+		if count > 0 && s.cb != nil && s.cb.ScrollbackPush != nil {
+			s.cb.ScrollbackPush(count, s.buf.Width())
 		}
 	}
 	s.Clear()
@@ -378,6 +383,9 @@ func (s *Screen) DeleteLine(n int) bool {
 		// Save lines that will be deleted
 		linesToSave := min(n, scroll.Max.Y-y)
 		s.scrollback.PushN(s.buf, y, linesToSave)
+		if linesToSave > 0 && s.cb != nil && s.cb.ScrollbackPush != nil {
+			s.cb.ScrollbackPush(linesToSave, s.buf.Width())
+		}
 	}
 
 	s.buf.DeleteLineArea(y, n, s.blankCell(), scroll)

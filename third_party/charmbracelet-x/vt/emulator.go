@@ -483,6 +483,9 @@ func (e *Emulator) ClearScrollback() {
 	sb := e.Scrollback()
 	if sb != nil {
 		sb.Clear()
+		if e.cb.ScrollbackClear != nil {
+			e.cb.ScrollbackClear()
+		}
 	}
 }
 

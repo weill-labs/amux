@@ -15,13 +15,13 @@ func TestRewrapHistoryBuffer(t *testing.T) {
 
 		base := []string{"persisted-narrow-fragment"}
 		live := []HistoryLine{
-			{Text: "01234567890123456789", SourceWidth: 20},
+			{Text: "01234567890123456789", SourceWidth: 20, Filled: true},
 			{Text: "abcdefghij", SourceWidth: 20},
 			{Text: "short hard break", SourceWidth: 20},
 		}
 		content := []HistoryLine{
-			{Text: "visible line at width", SourceWidth: 20},
-			{Text: " twenty", SourceWidth: 20},
+			{Text: "01234567890123456789", SourceWidth: 20, Filled: true},
+			{Text: "abcdefghij", SourceWidth: 20},
 			{Text: "", SourceWidth: 20},
 		}
 
@@ -34,7 +34,7 @@ func TestRewrapHistoryBuffer(t *testing.T) {
 		}; !reflect.DeepEqual(got.History, want) {
 			t.Fatalf("History = %#v, want %#v", got.History, want)
 		}
-		if want := []string{"visible line at width twenty", ""}; !reflect.DeepEqual(got.Content, want) {
+		if want := []string{"01234567890123456789abcdefghij", ""}; !reflect.DeepEqual(got.Content, want) {
 			t.Fatalf("Content = %#v, want %#v", got.Content, want)
 		}
 		if got.Cursor.Row != 0 || got.Cursor.Col != 26 {
@@ -46,10 +46,10 @@ func TestRewrapHistoryBuffer(t *testing.T) {
 		t.Parallel()
 
 		live := []HistoryLine{
-			{Text: "01234567890123456789", SourceWidth: 20},
+			{Text: "01234567890123456789", SourceWidth: 20, Filled: true},
 			{Text: "abcdefghij", SourceWidth: 20},
-			{Text: "ABCDEFGHIJ", SourceWidth: 10},
-			{Text: "KLMNOPQRST", SourceWidth: 10},
+			{Text: "ABCDEFGHIJ", SourceWidth: 10, Filled: true},
+			{Text: "KLMNOPQRST", SourceWidth: 10, Filled: true},
 			{Text: "tail", SourceWidth: 10},
 		}
 
@@ -67,7 +67,7 @@ func TestRewrapHistoryBuffer(t *testing.T) {
 		t.Parallel()
 
 		content := []HistoryLine{
-			{Text: "界界界界界", SourceWidth: 10},
+			{Text: "界界界界界", SourceWidth: 10, Filled: true},
 			{Text: "界界界界界", SourceWidth: 10},
 		}
 

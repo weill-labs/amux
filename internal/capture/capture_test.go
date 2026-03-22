@@ -30,16 +30,16 @@ func TestParseArgs(t *testing.T) {
 			args: []string{"--format", "json", "pane-2"},
 			want: Request{FormatJSON: true, PaneRef: "pane-2"},
 		},
-	{
-		name: "history pane",
-		args: []string{"--history", "pane-3"},
-		want: Request{HistoryMode: true, PaneRef: "pane-3"},
-	},
-	{
-		name: "history rewrap pane",
-		args: []string{"--history", "--rewrap", "80", "pane-3"},
-		want: Request{HistoryMode: true, RewrapSpecified: true, RewrapRaw: "80", RewrapWidth: 80, PaneRef: "pane-3"},
-	},
+		{
+			name: "history pane",
+			args: []string{"--history", "pane-3"},
+			want: Request{HistoryMode: true, PaneRef: "pane-3"},
+		},
+		{
+			name: "history rewrap pane",
+			args: []string{"--history", "--rewrap", "80", "pane-3"},
+			want: Request{HistoryMode: true, RewrapSpecified: true, RewrapRaw: "80", RewrapWidth: 80, PaneRef: "pane-3"},
+		},
 		{
 			name: "display",
 			args: []string{"--display"},
