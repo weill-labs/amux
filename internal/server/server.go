@@ -82,6 +82,9 @@ type Session struct {
 	// Per-pane paced input queues serialize delayed send-keys batches.
 	// Only accessed from the session event loop (no mutex needed).
 	pacedPanes map[uint32]*pacedInputQueue
+	// Pending cleanup kills waiting to escalate from SIGTERM to SIGKILL.
+	// Only accessed from the session event loop.
+	pendingKillCleanups map[uint32]*time.Timer
 
 	// Remote pane management — manages SSH connections to remote hosts.
 	// Nil when no config is loaded or no remote hosts are defined.

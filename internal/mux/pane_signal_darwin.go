@@ -19,12 +19,26 @@ func (p *Pane) notifyResizeSignal() {
 	// does not reliably see SIGWINCH when we resize through the master FD.
 	// Resolve the slave path and signal the current foreground process group
 	// directly so alt-screen TUIs redraw after pane resizes.
-	pgrp, err := p.foregroundProcessGroup()
-	if err != nil || pgrp <= 0 {
-		return
-	}
+	_ = p.SignalForegroundProcessGroup(syscall.SIGWINCH)
+}
 
-	_ = syscall.Kill(-pgrp, syscall.SIGWINCH)
+// SignalForegroundProcessGroup sends sig to the pane's foreground job, falling
+// back to the shell process when no foreground process group is available.
+func (p *Pane) SignalForegroundProcessGroup(sig syscall.Signal) error {
+	pgrp, err := p.foregroundProcessGroup()
+	if err == nil && pgrp > 0 {
+		return syscall.Kill(-pgrp, sig)
+	}
+	return p.SignalProcess(sig)
+}
+
+// SignalProcess sends sig directly to the pane's shell process.
+func (p *Pane) SignalProcess(sig syscall.Signal) error {
+	pid := p.ProcessPid()
+	if pid == 0 {
+		return nil
+	}
+	return syscall.Kill(pid, sig)
 }
 
 func (p *Pane) foregroundProcessGroup() (int, error) {

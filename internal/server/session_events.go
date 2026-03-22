@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"syscall"
 	"time"
 
 	"github.com/weill-labs/amux/internal/hooks"
@@ -205,17 +206,41 @@ func (e paneExitEvent) handle(s *Session) {
 	if s.shutdown.Load() {
 		return
 	}
-	if !s.hasPane(e.paneID) {
+	s.handleFinalizedPaneRemoval(e.paneID, false)
+}
+
+type paneCleanupTimeoutEvent struct {
+	paneID uint32
+}
+
+func (e paneCleanupTimeoutEvent) handle(s *Session) {
+	if s.shutdown.Load() {
 		return
 	}
-	if len(s.Panes) <= 1 {
+	pane := s.findPaneByID(e.paneID)
+	if pane == nil {
+		return
+	}
+	_ = pane.SignalForegroundProcessGroup(syscall.SIGKILL)
+	s.handleFinalizedPaneRemoval(e.paneID, true)
+}
+
+func (s *Session) handleFinalizedPaneRemoval(paneID uint32, closePane bool) {
+	removed := s.finalizePaneRemoval(paneID)
+	if removed.pane == nil {
+		return
+	}
+	if closePane {
+		_ = removed.pane.Close()
+	}
+	if removed.sendExit {
 		s.broadcastNow(&Message{Type: MsgTypeExit})
 		s.wantShutdown = true
 		return
 	}
-	s.removePane(e.paneID)
-	s.closePaneInWindow(e.paneID)
-	s.broadcastLayoutNow()
+	if removed.broadcastLayout {
+		s.broadcastLayoutNow()
+	}
 }
 
 type clipboardEvent struct {
@@ -341,12 +366,7 @@ func (e remotePaneExitEvent) handle(s *Session) {
 	if s.shutdown.Load() {
 		return
 	}
-	if !s.hasPane(e.paneID) {
-		return
-	}
-	s.removePane(e.paneID)
-	s.closePaneInWindow(e.paneID)
-	s.broadcastLayoutNow()
+	s.handleFinalizedPaneRemoval(e.paneID, false)
 }
 
 type remoteStateChangeEvent struct {
@@ -490,6 +510,10 @@ func (s *Session) enqueuePaneOutput(paneID uint32, data []byte, seq uint64) {
 
 func (s *Session) enqueuePaneExit(paneID uint32) {
 	s.enqueueEvent(paneExitEvent{paneID: paneID})
+}
+
+func (s *Session) enqueuePaneCleanupTimeout(paneID uint32) {
+	s.enqueueEvent(paneCleanupTimeoutEvent{paneID: paneID})
 }
 
 func (s *Session) enqueueClipboard(paneID uint32, data []byte) {

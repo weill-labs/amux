@@ -1,13 +1,93 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/render"
 	layoutcmd "github.com/weill-labs/amux/internal/server/commands/layout"
 )
+
+const killArgsUsage = "[--cleanup] [--timeout <duration>] [pane]"
+const defaultKillCleanupTimeout = 5 * time.Second
+
+type killArgError struct {
+	msg   string
+	usage bool
+}
+
+func (e *killArgError) Error() string { return e.msg }
+
+type killCommandArgs struct {
+	paneRef string
+	cleanup bool
+	timeout time.Duration
+}
+
+func newKillUsageError() error {
+	return &killArgError{msg: KillCommandUsage(""), usage: true}
+}
+
+// KillCommandUsage formats the user-facing usage string for the kill command.
+func KillCommandUsage(command string) string {
+	if command == "" {
+		return fmt.Sprintf("usage: kill %s", killArgsUsage)
+	}
+	return fmt.Sprintf("usage: %s kill %s", command, killArgsUsage)
+}
+
+// ValidateKillCommandArgs validates kill CLI arguments without mutating state.
+func ValidateKillCommandArgs(args []string) error {
+	_, err := parseKillCommandArgs(args)
+	return err
+}
+
+// FormatKillCommandError rewrites usage errors for the requested command name.
+func FormatKillCommandError(err error, command string) string {
+	var argErr *killArgError
+	if errors.As(err, &argErr) && argErr.usage {
+		return KillCommandUsage(command)
+	}
+	return err.Error()
+}
+
+func parseKillCommandArgs(args []string) (killCommandArgs, error) {
+	opts := killCommandArgs{timeout: defaultKillCleanupTimeout}
+	timeoutSet := false
+	for i := 0; i < len(args); i++ {
+		switch arg := args[i]; arg {
+		case "--cleanup":
+			opts.cleanup = true
+		case "--timeout":
+			if i+1 >= len(args) {
+				return killCommandArgs{}, newKillUsageError()
+			}
+			timeout, err := time.ParseDuration(args[i+1])
+			if err != nil {
+				return killCommandArgs{}, &killArgError{msg: fmt.Sprintf("invalid timeout: %s", args[i+1])}
+			}
+			opts.timeout = timeout
+			timeoutSet = true
+			i++
+		default:
+			if strings.HasPrefix(arg, "--") {
+				return killCommandArgs{}, &killArgError{msg: fmt.Sprintf("unknown flag: %s", arg)}
+			}
+			if opts.paneRef != "" {
+				return killCommandArgs{}, newKillUsageError()
+			}
+			opts.paneRef = arg
+		}
+	}
+	if timeoutSet && !opts.cleanup {
+		return killCommandArgs{}, newKillUsageError()
+	}
+	return opts, nil
+}
 
 func dirName(d mux.SplitDir) string {
 	return layoutcmd.DirName(d)
@@ -268,45 +348,69 @@ func cmdToggleMinimize(ctx *CommandContext) {
 }
 
 func cmdKill(ctx *CommandContext) {
+	opts, err := parseKillCommandArgs(ctx.Args)
+	if err != nil {
+		ctx.replyErr(err.Error())
+		return
+	}
+
+	target, err := ctx.Sess.queryKillTarget(opts.paneRef)
+	if err != nil {
+		ctx.replyErr(err.Error())
+		return
+	}
+	if target.paneID == 0 {
+		ctx.replyCommandMutation(commandMutationResult{})
+		return
+	}
+
+	if target.proxy && ctx.Sess.RemoteManager != nil {
+		if err := ctx.Sess.RemoteManager.KillPane(target.paneID, opts.cleanup, opts.timeout); err != nil {
+			ctx.replyErr(err.Error())
+			return
+		}
+		verb := "Killed"
+		if opts.cleanup {
+			verb = "Cleaning up"
+		}
+		ctx.reply(fmt.Sprintf("%s %s\n", verb, target.paneName))
+		return
+	}
+
 	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
-		var pane *mux.Pane
-		if len(ctx.Args) == 0 {
-			w := sess.activeWindow()
-			if w != nil {
-				pane = w.ActivePane
-			}
-		} else {
-			var err error
-			pane, _, err = sess.resolvePaneAcrossWindows(ctx.Args[0])
-			if err != nil {
+		pane := sess.findPaneByID(target.paneID)
+		if pane == nil {
+			return commandMutationResult{err: fmt.Errorf("pane %q not found", target.paneName)}
+		}
+		if opts.cleanup {
+			if err := sess.beginPaneCleanupKill(pane, opts.timeout); err != nil {
 				return commandMutationResult{err: err}
 			}
+			return commandMutationResult{
+				output: fmt.Sprintf("Cleaning up %s\n", pane.Meta.Name),
+			}
 		}
-		if pane == nil {
+
+		removed := sess.finalizePaneRemoval(pane.ID)
+		if removed.pane == nil {
 			return commandMutationResult{}
 		}
 
-		paneID := pane.ID
-		paneName := pane.Meta.Name
-		lastPane := len(sess.Panes) <= 1
-		sess.removePane(paneID)
-		closedWindow := sess.closePaneInWindow(paneID)
-
 		res := commandMutationResult{
-			closePanes: []*mux.Pane{pane},
+			closePanes: []*mux.Pane{removed.pane},
 		}
-		if lastPane {
-			res.output = fmt.Sprintf("Killed %s (session exiting)\n", paneName)
+		if removed.sendExit {
+			res.output = fmt.Sprintf("Killed %s (session exiting)\n", removed.paneName)
 			res.sendExit = true
 			res.shutdownServer = true
 			return res
 		}
 
-		res.broadcastLayout = true
-		if closedWindow != "" {
-			res.output = fmt.Sprintf("Killed %s (closed %s)\n", paneName, closedWindow)
+		res.broadcastLayout = removed.broadcastLayout
+		if removed.closedWindow != "" {
+			res.output = fmt.Sprintf("Killed %s (closed %s)\n", removed.paneName, removed.closedWindow)
 		} else {
-			res.output = fmt.Sprintf("Killed %s\n", paneName)
+			res.output = fmt.Sprintf("Killed %s\n", removed.paneName)
 		}
 		return res
 	}))

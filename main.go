@@ -172,12 +172,18 @@ func main() {
 			os.Exit(1)
 		}
 		runServerCommand("resize-pane", args[1:])
-	case "minimize", "restore", "kill", "focus":
+	case "minimize", "restore", "focus":
 		if len(args) < 2 {
 			fmt.Fprintf(os.Stderr, "usage: amux %s <pane>\n", args[0])
 			os.Exit(1)
 		}
 		runServerCommand(args[0], []string{args[1]})
+	case "kill":
+		if err := server.ValidateKillCommandArgs(args[1:]); err != nil {
+			fmt.Fprintf(os.Stderr, "%s\n", server.FormatKillCommandError(err, "amux"))
+			os.Exit(1)
+		}
+		runServerCommand("kill", args[1:])
 	case "send-keys":
 		if len(args) < 3 {
 			fmt.Fprintf(os.Stderr, "usage: amux send-keys <pane> [--wait-ready] [--continue-known-dialogs] [--hex] <keys>...\n")

@@ -380,6 +380,19 @@ func (hc *HostConn) queryConnInfo() connInfoResult {
 	}
 }
 
+func (hc *HostConn) queryRemotePaneID(localPaneID uint32) remotePaneIDResult {
+	reply := make(chan remotePaneIDResult, 1)
+	if !hc.enqueue(remotePaneIDQuery{localPaneID: localPaneID, reply: reply}) {
+		return remotePaneIDResult{}
+	}
+	select {
+	case result := <-reply:
+		return result
+	case <-hc.done:
+		return remotePaneIDResult{}
+	}
+}
+
 // runCommand opens a one-shot connection to the remote amux server, sends a
 // command, reads the result, and closes the connection. This avoids racing
 // with the persistent readLoop on the attach connection.
@@ -418,6 +431,22 @@ func (hc *HostConn) runSocketCommand(client *ssh.Client, sockPath, cmdName strin
 	return reply.CmdOutput, nil
 }
 
+// KillPane forwards a kill command to the mapped remote pane.
+func (hc *HostConn) KillPane(localPaneID uint32, cleanup bool, timeout time.Duration) error {
+	remotePane := hc.queryRemotePaneID(localPaneID)
+	if !remotePane.ok {
+		return fmt.Errorf("remote mapping for pane %d not found", localPaneID)
+	}
+
+	args := make([]string, 0, 4)
+	if cleanup {
+		args = append(args, "--cleanup", "--timeout", timeout.String())
+	}
+	args = append(args, fmt.Sprintf("%d", remotePane.remotePaneID))
+	_, err := hc.runCommand("kill", args)
+	return err
+}
+
 func (hc *HostConn) validateRemoteSessionHasPanes(client *ssh.Client, sockPath, sessionName string) error {
 	output, err := hc.runSocketCommand(client, sockPath, "list", nil)
 	if err != nil {
@@ -448,7 +477,7 @@ func (hc *HostConn) readLoop(conn net.Conn) {
 			})
 
 		case proto.MsgTypeLayout:
-			// Layout is managed locally. We only care about pane output.
+			hc.enqueue(readLayoutEvent{layout: msg.Layout})
 
 		case proto.MsgTypeExit, proto.MsgTypeServerReload:
 			hc.enqueue(readDisconnectEvent{})
