@@ -293,6 +293,76 @@ func sessionLayoutSnapshot(session string) *proto.LayoutSnapshot {
 	return snap
 }
 
+func TestReadAttachBootstrapAppliesZoomedReplayBeforeReturn(t *testing.T) {
+	t.Parallel()
+
+	serverConn, clientConn := net.Pipe()
+	t.Cleanup(func() {
+		_ = serverConn.Close()
+		_ = clientConn.Close()
+	})
+
+	cr := NewClientRenderer(80, 24)
+	layout := multiWindow80x23Zoomed(1, 2)
+
+	const zoomedLine = "LAB352-01234567890123456789012345678901234567890123456789012345"
+	const hiddenLine = "hidden-window-pane"
+
+	go func() {
+		_ = proto.WriteMsg(serverConn, &proto.Message{
+			Type:    proto.MsgTypePaneHistory,
+			PaneID:  2,
+			History: []string{"older-zoomed-line"},
+		})
+		_ = proto.WriteMsg(serverConn, &proto.Message{
+			Type:   proto.MsgTypeLayout,
+			Layout: layout,
+		})
+		_ = proto.WriteMsg(serverConn, &proto.Message{
+			Type:     proto.MsgTypePaneOutput,
+			PaneID:   1,
+			PaneData: []byte("\033[2J\033[Hpeer-pane"),
+		})
+		_ = proto.WriteMsg(serverConn, &proto.Message{
+			Type:     proto.MsgTypePaneOutput,
+			PaneID:   2,
+			PaneData: []byte("\033[2J\033[H" + zoomedLine),
+		})
+		_ = proto.WriteMsg(serverConn, &proto.Message{
+			Type:     proto.MsgTypePaneOutput,
+			PaneID:   3,
+			PaneData: []byte("\033[2J\033[H" + hiddenLine),
+		})
+	}()
+
+	if err := readAttachBootstrap(clientConn, cr); err != nil {
+		t.Fatalf("readAttachBootstrap: %v", err)
+	}
+
+	emu, ok := cr.Emulator(2)
+	if !ok {
+		t.Fatal("zoomed pane-2 emulator missing")
+	}
+	if w, h := emu.Size(); w != 80 || h != 22 {
+		t.Fatalf("zoomed pane-2 size after bootstrap = %dx%d, want 80x22", w, h)
+	}
+
+	lines := strings.Split(cr.renderer.CapturePaneText(2, false), "\n")
+	if len(lines) == 0 || lines[0] != zoomedLine {
+		t.Fatalf("zoomed pane-2 first line after bootstrap = %q, want %q", lines[0], zoomedLine)
+	}
+
+	hidden := strings.Split(cr.renderer.CapturePaneText(3, false), "\n")
+	if len(hidden) == 0 || hidden[0] != hiddenLine {
+		t.Fatalf("pane-3 first line after bootstrap = %q, want %q", hidden[0], hiddenLine)
+	}
+
+	history := cr.loadState().baseHistory[2]
+	if len(history) != 1 || history[0] != "older-zoomed-line" {
+		t.Fatalf("pane-2 bootstrap history = %q, want %q", history, []string{"older-zoomed-line"})
+	}
+}
+
 func TestRunSessionHandlesServerMessagesAndInteractiveInput(t *testing.T) {
 	t.Setenv("TERM_PROGRAM", "ghostty")
 
