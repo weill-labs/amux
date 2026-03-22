@@ -258,8 +258,8 @@ func (s *Session) forwardCapture(args []string) *Message {
 					if err == nil {
 						snap.statusPanes = []*mux.Pane{pane}
 					}
-				} else {
-					snap.statusPanes = append([]*mux.Pane(nil), s.Panes...)
+				} else if activeWindow := s.ActiveWindow(); activeWindow != nil {
+					snap.statusPanes = append([]*mux.Pane(nil), activeWindow.Panes()...)
 				}
 			}
 			return snap, nil
