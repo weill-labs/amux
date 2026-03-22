@@ -50,10 +50,12 @@ See [README.md -- Philosophy](README.md#philosophy) for the project thesis and t
 
 ```bash
 make setup                         # activate repo git hooks
-make build                         # build + install atomically (client hot-reloads automatically)
-make test                          # run all tests
+go build ./...                    # agent-safe compilation check
+go test ./...                     # agent-safe verification
 make coverage                      # merged unit + integration coverage (use this, not go test -coverprofile)
 ```
+
+**Agents must never run `make build`.** It installs the shared binary and can hot-reload unrelated sessions. Use `go build ./...` for compilation checks and `go test` for verification instead.
 
 **Reproduce CI from a clean shell when running inside `amux`/tmux.** Clipboard and harness behavior can change when `AMUX_SESSION` or `TMUX` are set. For CI-style verification from an attached pane, prefer `env -u AMUX_SESSION -u TMUX scripts/coverage.sh --ci`, and prefix other CI-style test commands the same way when you need the same environment.
 
@@ -183,9 +185,9 @@ Trigger patterns for compositor bugs: long or truncated lines near pane boundari
 
 ### Hot-Reload
 
-Both client and server watch the binary and re-exec on changes (`reload.go`). Running `make build` replaces the installed binary atomically, which then triggers automatic reload of both -- panes and shells are preserved across server reloads via checkpoint and restore.
+Both client and server watch the binary and re-exec on changes (`reload.go`). Running `make build` from `main` replaces the installed binary atomically, which then triggers automatic reload of both -- panes and shells are preserved across server reloads via checkpoint and restore.
 
-`make build` also writes install metadata and refuses to overwrite the shared `~/.local/bin/amux` when that metadata shows it was last installed from a different checkout. Use `AMUX_INSTALL_FORCE=1 make build` only when you intentionally want to replace the shared binary.
+`make build` is an install command, not a verification command. Agents must use `go build ./...` instead. The install step also writes metadata and refuses to overwrite the shared `~/.local/bin/amux` when the current branch is not `main` or when the existing metadata points at a different checkout. Use `AMUX_INSTALL_FORCE=1 make build` only when you intentionally want to replace the shared binary.
 
 Socket location: `/tmp/amux-$UID/<session-name>`
 
