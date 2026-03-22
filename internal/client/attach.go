@@ -246,7 +246,7 @@ func RunSession(sessionName string) error {
 		mouseParser := &mouse.Parser{}
 
 		// Mouse drag state — caches border direction from initial press
-		var drag DragState
+		var drag dragState
 
 		// arrowDirection maps CSI final bytes to focus directions.
 		arrowDirection := map[byte]string{
@@ -633,7 +633,7 @@ func RunSession(sessionName string) error {
 						})
 						forward = nil
 					}
-					HandleMouseEvent(ev, cr, sender, &drag)
+					handleMouseEvent(ev, cr, sender, &drag)
 					if cr.IsDirty() {
 						if data := cr.RenderDiff(); data != "" {
 							io.WriteString(os.Stdout, data)
@@ -744,7 +744,7 @@ func RunSession(sessionName string) error {
 	}
 }
 
-var copyToClipboard = CopyToClipboard
+var copyToClipboard = copyToClipboardLocal
 
 func formatUnboundPrefixMessage(prefix, key byte) string {
 	return "No binding for " + formatKeyName(prefix) + " " + formatKeyName(key)

@@ -18,10 +18,10 @@ var runClipboardCommand = func(cmd []string, text string) error {
 	return c.Run()
 }
 
-// CopyToClipboard copies text to the local clipboard when possible. When the
+// copyToClipboardLocal copies text to the local clipboard when possible. When the
 // interactive client is running under SSH, prefer OSC 52 so the clipboard write
 // lands back on the source terminal instead of the remote machine.
-func CopyToClipboard(text string) {
+func copyToClipboardLocal(text string) {
 	if text == "" {
 		return
 	}

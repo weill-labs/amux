@@ -11,10 +11,10 @@ import (
 	"github.com/weill-labs/amux/internal/render"
 )
 
-// DragState tracks an in-progress border drag. The border direction is
+// dragState tracks an in-progress border drag. The border direction is
 // cached from the initial press so motion events don't need to re-query
 // the layout (which may be stale during fast drags).
-type DragState struct {
+type dragState struct {
 	Active    bool
 	BorderX   int
 	BorderY   int
@@ -148,9 +148,9 @@ func handleGlobalBarClick(ev mouse.Event, layout *mux.LayoutCell, cr *ClientRend
 	return true
 }
 
-// HandleMouseEvent dispatches a parsed mouse event to the appropriate action:
+// handleMouseEvent dispatches a parsed mouse event to the appropriate action:
 // click-to-focus, border drag, or scroll wheel.
-func HandleMouseEvent(ev mouse.Event, cr *ClientRenderer, sender *messageSender, drag *DragState) {
+func handleMouseEvent(ev mouse.Event, cr *ClientRenderer, sender *messageSender, drag *dragState) {
 	layout := cr.VisibleLayout()
 
 	if layout == nil {

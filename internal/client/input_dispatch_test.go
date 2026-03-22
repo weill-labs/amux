@@ -125,10 +125,10 @@ func TestHandleMouseEventClickSendsFocusCommand(t *testing.T) {
 	})
 
 	sender := newMessageSender(clientConn)
-	var drag DragState
+	var drag dragState
 	done := make(chan struct{})
 	go func() {
-		HandleMouseEvent(mouse.Event{
+		handleMouseEvent(mouse.Event{
 			Action: mouse.Press,
 			Button: mouse.ButtonLeft,
 			X:      60,
@@ -189,13 +189,13 @@ func TestHandleMouseEventGlobalBarClickSendsSelectWindowCommand(t *testing.T) {
 			sender := newMessageSender(clientConn)
 			t.Cleanup(sender.Close)
 
-			var drag DragState
+			var drag dragState
 			x := globalBarClickColumn(t, cr, tt.clickLabel)
 			y := globalBarRow(t, cr)
 
 			done := make(chan struct{})
 			go func() {
-				HandleMouseEvent(mouse.Event{
+				handleMouseEvent(mouse.Event{
 					Action: mouse.Press,
 					Button: mouse.ButtonLeft,
 					X:      x,
@@ -233,11 +233,11 @@ func TestHandleMouseEventGlobalBarClickOutsideTabsDoesNothing(t *testing.T) {
 	sender := newMessageSender(clientConn)
 	t.Cleanup(sender.Close)
 
-	var drag DragState
+	var drag dragState
 	x := globalBarClickColumn(t, cr, "panes")
 	y := globalBarRow(t, cr)
 
-	HandleMouseEvent(mouse.Event{
+	handleMouseEvent(mouse.Event{
 		Action: mouse.Press,
 		Button: mouse.ButtonLeft,
 		X:      x,
@@ -261,11 +261,11 @@ func TestHandleMouseEventGlobalBarClickSingleWindowDoesNothing(t *testing.T) {
 	sender := newMessageSender(clientConn)
 	t.Cleanup(sender.Close)
 
-	var drag DragState
+	var drag dragState
 	x := globalBarClickColumn(t, cr, "amux")
 	y := globalBarRow(t, cr)
 
-	HandleMouseEvent(mouse.Event{
+	handleMouseEvent(mouse.Event{
 		Action: mouse.Press,
 		Button: mouse.ButtonLeft,
 		X:      x,
@@ -348,12 +348,12 @@ func TestHandleMouseEventBorderPressClearsCopyDragState(t *testing.T) {
 		t.Fatal("expected a vertical border in the test layout")
 	}
 
-	var drag DragState
+	var drag dragState
 	drag.CopyModeActive = true
 	drag.CopyModePaneID = 1
 	drag.CopyMoved = true
 
-	HandleMouseEvent(mouse.Event{
+	handleMouseEvent(mouse.Event{
 		Action: mouse.Press,
 		Button: mouse.ButtonLeft,
 		X:      borderX,
@@ -381,7 +381,7 @@ func TestHandleMouseEventDragStartsCopyModeAndCopiesSelection(t *testing.T) {
 	})
 
 	sender := newMessageSender(clientConn)
-	var drag DragState
+	var drag dragState
 
 	var copied string
 	stubCopyToClipboard(t, func(text string) {
@@ -389,7 +389,7 @@ func TestHandleMouseEventDragStartsCopyModeAndCopiesSelection(t *testing.T) {
 	})
 
 	y := mux.StatusLineRows
-	HandleMouseEvent(mouse.Event{
+	handleMouseEvent(mouse.Event{
 		Action: mouse.Press,
 		Button: mouse.ButtonLeft,
 		X:      0,
@@ -400,7 +400,7 @@ func TestHandleMouseEventDragStartsCopyModeAndCopiesSelection(t *testing.T) {
 		t.Fatal("pane-1 should not enter copy mode until the drag moves")
 	}
 
-	HandleMouseEvent(mouse.Event{
+	handleMouseEvent(mouse.Event{
 		Action: mouse.Motion,
 		Button: mouse.ButtonLeft,
 		X:      4,
@@ -417,7 +417,7 @@ func TestHandleMouseEventDragStartsCopyModeAndCopiesSelection(t *testing.T) {
 		t.Fatalf("selected text during drag = %q, want %q", got, "hello")
 	}
 
-	HandleMouseEvent(mouse.Event{
+	handleMouseEvent(mouse.Event{
 		Action: mouse.Release,
 		Button: mouse.ButtonLeft,
 		X:      4,
@@ -449,10 +449,10 @@ func TestHandleMouseEventDragMotionWithMissingPaneDoesNotEnterCopyMode(t *testin
 		},
 	})
 
-	var drag DragState
+	var drag dragState
 	drag.CopyModePaneID = 99
 
-	HandleMouseEvent(mouse.Event{
+	handleMouseEvent(mouse.Event{
 		Action: mouse.Motion,
 		Button: mouse.ButtonLeft,
 		X:      1,
@@ -478,7 +478,7 @@ func TestHandleMouseEventCopyModeDragCopiesSelectionAndExits(t *testing.T) {
 	})
 
 	sender := newMessageSender(clientConn)
-	var drag DragState
+	var drag dragState
 
 	var copied string
 	stubCopyToClipboard(t, func(text string) {
@@ -486,13 +486,13 @@ func TestHandleMouseEventCopyModeDragCopiesSelectionAndExits(t *testing.T) {
 	})
 
 	y := mux.StatusLineRows
-	HandleMouseEvent(mouse.Event{
+	handleMouseEvent(mouse.Event{
 		Action: mouse.Press,
 		Button: mouse.ButtonLeft,
 		X:      0,
 		Y:      y,
 	}, cr, sender, &drag)
-	HandleMouseEvent(mouse.Event{
+	handleMouseEvent(mouse.Event{
 		Action: mouse.Motion,
 		Button: mouse.ButtonLeft,
 		X:      4,
@@ -500,7 +500,7 @@ func TestHandleMouseEventCopyModeDragCopiesSelectionAndExits(t *testing.T) {
 		LastX:  0,
 		LastY:  y,
 	}, cr, sender, &drag)
-	HandleMouseEvent(mouse.Event{
+	handleMouseEvent(mouse.Event{
 		Action: mouse.Release,
 		Button: mouse.ButtonLeft,
 		X:      4,
@@ -530,17 +530,17 @@ func TestHandleMouseEventCopyModeDoubleClickSelectsWordAndArmsCopy(t *testing.T)
 	})
 
 	sender := newMessageSender(clientConn)
-	var drag DragState
+	var drag dragState
 
 	y := mux.StatusLineRows
 	for i := 0; i < 2; i++ {
-		HandleMouseEvent(mouse.Event{
+		handleMouseEvent(mouse.Event{
 			Action: mouse.Press,
 			Button: mouse.ButtonLeft,
 			X:      1,
 			Y:      y,
 		}, cr, sender, &drag)
-		HandleMouseEvent(mouse.Event{
+		handleMouseEvent(mouse.Event{
 			Action: mouse.Release,
 			Button: mouse.ButtonLeft,
 			X:      1,
@@ -571,7 +571,7 @@ func TestHandleMouseEventCopyModeTripleClickCopiesLine(t *testing.T) {
 	})
 
 	sender := newMessageSender(clientConn)
-	var drag DragState
+	var drag dragState
 
 	var copied string
 	stubCopyToClipboard(t, func(text string) {
@@ -580,13 +580,13 @@ func TestHandleMouseEventCopyModeTripleClickCopiesLine(t *testing.T) {
 
 	y := mux.StatusLineRows
 	for i := 0; i < 3; i++ {
-		HandleMouseEvent(mouse.Event{
+		handleMouseEvent(mouse.Event{
 			Action: mouse.Press,
 			Button: mouse.ButtonLeft,
 			X:      1,
 			Y:      y,
 		}, cr, sender, &drag)
-		HandleMouseEvent(mouse.Event{
+		handleMouseEvent(mouse.Event{
 			Action: mouse.Release,
 			Button: mouse.ButtonLeft,
 			X:      1,
