@@ -149,10 +149,12 @@ func (st *clientUIState) reduceHandleLayout(action uiActionHandleLayout) clientU
 			result.uiEvents = append(result.uiEvents, st.chooser.mode.hiddenEvent())
 			st.chooser = nil
 		}
-	}
-	if st.message != "" {
-		st.message = ""
-		result.uiEvents = append(result.uiEvents, proto.UIEventPrefixMessageHidden)
+		if st.message != "" {
+			// Metadata-only layout refreshes are common (idle/CWD/branch updates).
+			// Keep local feedback visible until the layout actually changes.
+			st.message = ""
+			result.uiEvents = append(result.uiEvents, proto.UIEventPrefixMessageHidden)
+		}
 	}
 	st.dirty = true
 	return result
