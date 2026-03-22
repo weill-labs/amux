@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"net"
 	"os"
@@ -23,6 +24,8 @@ import (
 
 // sessionName is the global session name, set by -s flag or defaulting to "default".
 var sessionName = "default"
+
+const reconnectEventType = "reconnect"
 
 var resolveReloadExecPath = reload.ResolveExecutable
 
@@ -283,7 +286,7 @@ func main() {
 		runServerCommand("rm-meta", args[1:])
 
 	case "events":
-		runStreamingCommand("events", args[1:])
+		runEventsCommand(args[1:])
 	case "hosts":
 		runServerCommand("hosts", nil)
 	case "disconnect":
@@ -454,8 +457,8 @@ Usage:
   amux [-s session] unset-hook <event> [index]
                                        Remove hook(s) for an event
   amux [-s session] list-hooks         List registered hooks
-  amux [-s session] events [--filter type1,type2] [--pane <ref>] [--host <name>] [--client <id>]
-                                       Stream events as NDJSON (layout, idle, busy, hook, display-panes-*, choose-*, copy-mode-*, input-*)
+  amux [-s session] events [--filter type1,type2] [--pane <ref>] [--host <name>] [--client <id>] [--no-reconnect]
+                                       Stream events as NDJSON (layout, idle, busy, hook, display-panes-*, choose-*, copy-mode-*, input-*, reconnect)
   amux [-s session] split [root] [--vertical|--horizontal] [--name NAME] [--host HOST]
                                        Split active pane (default: horizontal)
   amux [-s session] hosts              List configured remote hosts + status
@@ -674,27 +677,156 @@ func runServer(sessionName string, managedTakeover bool) {
 // MsgTypeCmdResult messages to stdout until the connection closes.
 // Used for long-lived commands like "events".
 func runStreamingCommand(cmdName string, args []string) {
-	sockPath := server.SocketPath(sessionName)
-	conn, err := net.Dial("unix", sockPath)
+	conn, err := connectStreamingCommand(cmdName, args)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "amux %s: server not running (run 'amux' first)\n", cmdName)
 		os.Exit(1)
 	}
-	defer conn.Close()
+	streamCommandOutput(conn, cmdName)
+}
+
+type eventsClientOptions struct {
+	reconnect      bool
+	initialBackoff time.Duration
+	maxBackoff     time.Duration
+	maxRetries     int
+}
+
+func defaultEventsClientOptions() eventsClientOptions {
+	return eventsClientOptions{
+		reconnect:      true,
+		initialBackoff: 1 * time.Second,
+		maxBackoff:     30 * time.Second,
+		maxRetries:     10,
+	}
+}
+
+func parseEventsClientArgs(args []string) ([]string, eventsClientOptions) {
+	opts := defaultEventsClientOptions()
+	serverArgs := make([]string, 0, len(args))
+	for _, arg := range args {
+		if arg == "--no-reconnect" {
+			opts.reconnect = false
+			continue
+		}
+		serverArgs = append(serverArgs, arg)
+	}
+
+	opts.initialBackoff = overrideDurationFromEnv("AMUX_EVENTS_RECONNECT_INITIAL_BACKOFF", opts.initialBackoff)
+	opts.maxBackoff = overrideDurationFromEnv("AMUX_EVENTS_RECONNECT_MAX_BACKOFF", opts.maxBackoff)
+	opts.maxRetries = overridePositiveIntFromEnv("AMUX_EVENTS_RECONNECT_MAX_RETRIES", opts.maxRetries)
+	if opts.maxBackoff < opts.initialBackoff {
+		opts.maxBackoff = opts.initialBackoff
+	}
+	return serverArgs, opts
+}
+
+func overrideDurationFromEnv(name string, fallback time.Duration) time.Duration {
+	value := os.Getenv(name)
+	if value == "" {
+		return fallback
+	}
+	d, err := time.ParseDuration(value)
+	if err != nil || d <= 0 {
+		return fallback
+	}
+	return d
+}
+
+func overridePositiveIntFromEnv(name string, fallback int) int {
+	value := os.Getenv(name)
+	if value == "" {
+		return fallback
+	}
+	n, err := strconv.Atoi(value)
+	if err != nil || n <= 0 {
+		return fallback
+	}
+	return n
+}
+
+func runEventsCommand(args []string) {
+	serverArgs, opts := parseEventsClientArgs(args)
+
+	conn, err := connectStreamingCommand("events", serverArgs)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "amux events: server not running (run 'amux' first)\n")
+		os.Exit(1)
+	}
+
+	for {
+		err := streamCommandOutput(conn, "events")
+		if !opts.reconnect {
+			return
+		}
+
+		emitReconnectEvent()
+		conn, err = reconnectStreamingCommand("events", serverArgs, opts)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "amux events: reconnect failed after %d attempts: %v\n", opts.maxRetries, err)
+			os.Exit(1)
+		}
+	}
+}
+
+func reconnectStreamingCommand(cmdName string, args []string, opts eventsClientOptions) (net.Conn, error) {
+	delay := opts.initialBackoff
+	var lastErr error
+	for attempt := 1; attempt <= opts.maxRetries; attempt++ {
+		time.Sleep(delay)
+
+		conn, err := connectStreamingCommand(cmdName, args)
+		if err == nil {
+			return conn, nil
+		}
+		lastErr = err
+
+		if delay < opts.maxBackoff {
+			delay *= 2
+			if delay > opts.maxBackoff {
+				delay = opts.maxBackoff
+			}
+		}
+	}
+	return nil, lastErr
+}
+
+func emitReconnectEvent() {
+	data, err := json.Marshal(server.Event{
+		Type:      reconnectEventType,
+		Timestamp: time.Now().UTC().Format(time.RFC3339Nano),
+	})
+	if err != nil {
+		return
+	}
+	fmt.Println(string(data))
+}
+
+func connectStreamingCommand(cmdName string, args []string) (net.Conn, error) {
+	sockPath := server.SocketPath(sessionName)
+	conn, err := net.Dial("unix", sockPath)
+	if err != nil {
+		return nil, err
+	}
 
 	if err := server.WriteMsg(conn, &server.Message{
 		Type:    server.MsgTypeCommand,
 		CmdName: cmdName,
 		CmdArgs: args,
 	}); err != nil {
-		fmt.Fprintf(os.Stderr, "amux %s: %v\n", cmdName, err)
-		os.Exit(1)
+		conn.Close()
+		return nil, err
 	}
+	return conn, nil
+}
+
+func streamCommandOutput(conn net.Conn, cmdName string) error {
+	defer conn.Close()
 
 	for {
 		msg, err := server.ReadMsg(conn)
 		if err != nil {
-			break // connection closed (server reload, shutdown, or pipe closed)
+			return err // connection closed (server reload, shutdown, or pipe closed)
 		}
 		if msg.CmdErr != "" {
 			fmt.Fprintf(os.Stderr, "amux %s: %s\n", cmdName, msg.CmdErr)

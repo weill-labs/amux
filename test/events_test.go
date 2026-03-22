@@ -1,8 +1,6 @@
 package test
 
 import (
-	"bufio"
-	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -446,82 +444,139 @@ func TestEventsCLI(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)
 
-	// Spawn `amux events --filter layout` as a subprocess
-	cmd := exec.Command(amuxBin, "-s", h.session, "events", "--filter", "layout")
-	if h.coverDir != "" {
-		cmd.Env = append(os.Environ(), "GOCOVERDIR="+h.coverDir)
-	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		t.Fatalf("stdout pipe: %v", err)
-	}
-	cmd.Stderr = os.Stderr
-	if err := cmd.Start(); err != nil {
-		t.Fatalf("start: %v", err)
-	}
-
-	scanner := bufio.NewScanner(stdout)
+	proc := startEventsCLI(t, h, nil, "--filter", "layout", "--no-reconnect")
 
 	// Read initial layout snapshot from CLI stdout
-	done := make(chan eventJSON, 1)
-	go func() {
-		if scanner.Scan() {
-			var ev eventJSON
-			json.Unmarshal(scanner.Bytes(), &ev)
-			done <- ev
-		}
-	}()
-
-	select {
-	case ev := <-done:
-		if ev.Type != "layout" {
-			t.Errorf("first CLI event type: got %q, want layout", ev.Type)
-		}
-		if ev.ActivePane == "" {
-			t.Error("CLI layout event should have active_pane")
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("timeout reading first event from CLI")
+	ev := mustReadEvent(t, proc.scanner, 5*time.Second)
+	if ev.Type != "layout" {
+		t.Errorf("first CLI event type: got %q, want layout", ev.Type)
+	}
+	if ev.ActivePane == "" {
+		t.Error("CLI layout event should have active_pane")
 	}
 
 	// Trigger a layout change and verify it arrives
 	h.doSplit()
 
-	done2 := make(chan eventJSON, 1)
-	go func() {
-		if scanner.Scan() {
-			var ev eventJSON
-			json.Unmarshal(scanner.Bytes(), &ev)
-			done2 <- ev
-		}
-	}()
-
-	select {
-	case ev := <-done2:
-		if ev.Type != "layout" {
-			t.Errorf("second CLI event type: got %q, want layout", ev.Type)
-		}
-		if ev.Generation == 0 {
-			t.Error("CLI layout event should have non-zero generation")
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("timeout reading layout event from CLI after split")
+	ev = mustReadEvent(t, proc.scanner, 5*time.Second)
+	if ev.Type != "layout" {
+		t.Errorf("second CLI event type: got %q, want layout", ev.Type)
+	}
+	if ev.Generation == 0 {
+		t.Error("CLI layout event should have non-zero generation")
 	}
 
 	// Shut down the server so the events client exits normally (via broken
 	// pipe / EOF), allowing the -cover runtime to flush coverage data.
 	// Kill sends SIGKILL which skips coverage flush.
 	h.cmd.Process.Signal(os.Interrupt)
-	waitDone := make(chan struct{})
-	go func() {
-		cmd.Wait()
-		close(waitDone)
-	}()
-	select {
-	case <-waitDone:
-	case <-time.After(5 * time.Second):
-		cmd.Process.Kill()
-		cmd.Wait()
+	if err := proc.wait(5 * time.Second); err != nil {
+		t.Fatalf("events CLI exited with error: %v\nstderr:\n%s", err, proc.stderrString())
+	}
+}
+
+func TestEventsCLIAutoReconnectAfterReload(t *testing.T) {
+	t.Parallel()
+
+	h := newServerHarnessPersistent(t)
+	proc := startEventsCLI(t, h, []string{
+		"AMUX_EVENTS_RECONNECT_INITIAL_BACKOFF=10ms",
+		"AMUX_EVENTS_RECONNECT_MAX_BACKOFF=20ms",
+	}, "--filter", "layout")
+
+	ev := mustReadEvent(t, proc.scanner, 5*time.Second)
+	if ev.Type != "layout" {
+		t.Fatalf("first CLI event type: got %q, want layout", ev.Type)
+	}
+
+	genBeforeReload := h.generation()
+	h.runCmd("reload-server")
+
+	ev = mustReadEvent(t, proc.scanner, 5*time.Second)
+	if ev.Type != "reconnect" {
+		t.Fatalf("event after reload: got %q, want reconnect", ev.Type)
+	}
+	if ev.Timestamp == "" {
+		t.Fatal("reconnect event should include timestamp")
+	}
+
+	ev = mustReadEvent(t, proc.scanner, 5*time.Second)
+	if ev.Type != "layout" {
+		t.Fatalf("post-reconnect event: got %q, want layout", ev.Type)
+	}
+	if ev.Generation < genBeforeReload {
+		t.Fatalf("post-reconnect generation = %d, want >= %d", ev.Generation, genBeforeReload)
+	}
+
+	genBeforeSplit := h.generation()
+	h.doSplit("v")
+
+	ev = mustReadEvent(t, proc.scanner, 5*time.Second)
+	if ev.Type != "layout" {
+		t.Fatalf("event after split: got %q, want layout", ev.Type)
+	}
+	if ev.Generation <= genBeforeSplit {
+		t.Fatalf("layout generation after split = %d, want > %d", ev.Generation, genBeforeSplit)
+	}
+}
+
+func TestEventsCLINoReconnectExitsOnReload(t *testing.T) {
+	t.Parallel()
+
+	h := newServerHarnessPersistent(t)
+	proc := startEventsCLI(t, h, nil, "--filter", "layout", "--no-reconnect")
+
+	ev := mustReadEvent(t, proc.scanner, 5*time.Second)
+	if ev.Type != "layout" {
+		t.Fatalf("first CLI event type: got %q, want layout", ev.Type)
+	}
+
+	h.runCmd("reload-server")
+
+	if err := proc.wait(5 * time.Second); err != nil {
+		t.Fatalf("events CLI exited with error: %v\nstderr:\n%s", err, proc.stderrString())
+	}
+
+	if ev := readEvent(t, proc.scanner, 200*time.Millisecond); !ev.TimedOut {
+		t.Fatalf("expected stream to exit without reconnect event, got %+v", ev)
+	}
+}
+
+func TestEventsCLIReconnectExitsAfterRetryCap(t *testing.T) {
+	t.Parallel()
+
+	h := newServerHarnessPersistent(t)
+	proc := startEventsCLI(t, h, []string{
+		"AMUX_EVENTS_RECONNECT_INITIAL_BACKOFF=10ms",
+		"AMUX_EVENTS_RECONNECT_MAX_BACKOFF=20ms",
+		"AMUX_EVENTS_RECONNECT_MAX_RETRIES=3",
+	}, "--filter", "layout")
+
+	ev := mustReadEvent(t, proc.scanner, 5*time.Second)
+	if ev.Type != "layout" {
+		t.Fatalf("first CLI event type: got %q, want layout", ev.Type)
+	}
+
+	if err := h.cmd.Process.Signal(os.Interrupt); err != nil {
+		t.Fatalf("stopping server: %v", err)
+	}
+	h.waitForShutdownSignal(5 * time.Second)
+
+	ev = mustReadEvent(t, proc.scanner, 5*time.Second)
+	if ev.Type != "reconnect" {
+		t.Fatalf("event after shutdown: got %q, want reconnect", ev.Type)
+	}
+
+	err := proc.wait(5 * time.Second)
+	exitErr, ok := err.(*exec.ExitError)
+	if !ok {
+		t.Fatalf("events CLI exit = %v, want nonzero exit", err)
+	}
+	if exitErr.ExitCode() != 1 {
+		t.Fatalf("events CLI exit code = %d, want 1", exitErr.ExitCode())
+	}
+	if !strings.Contains(proc.stderrString(), "reconnect failed") {
+		t.Fatalf("stderr = %q, want reconnect failure", proc.stderrString())
 	}
 }
 
