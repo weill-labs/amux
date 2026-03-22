@@ -84,38 +84,91 @@ func hasActivityInput(raw []byte) bool {
 
 func legacyBytesForKeyPress(key uv.KeyPressEvent) []byte {
 	k := key.Key()
+	mod := normalizedLegacyKeyMod(k.Mod)
 
 	// Shifted printable keys should still behave like their textual byte form
 	// for local bindings such as prefix + M.
-	if k.Text != "" && k.Mod&^(uv.ModShift|uv.ModCapsLock) == 0 {
+	if k.Text != "" && mod&^uv.ModShift == 0 {
 		if ascii := asciiTextBytes(k.Text); len(ascii) > 0 {
 			return ascii
 		}
 	}
 
-	switch k.Mod {
+	switch mod {
 	case 0:
 		if seq := legacySpecialKeySequence(k.Code); len(seq) > 0 {
 			return seq
 		}
 	case uv.ModAlt:
+		if ascii := legacyPrintableBytes(k); len(ascii) > 0 {
+			return append([]byte{0x1b}, ascii...)
+		}
 		if seq := legacySpecialKeySequence(k.Code); len(seq) > 0 {
 			return append([]byte{0x1b}, seq...)
 		}
-		if ascii, ok := asciiRuneByte(k.Code); ok {
+		if ascii, ok := asciiRuneByte(legacyCtrlRune(k)); ok {
 			return []byte{0x1b, ascii}
 		}
 	case uv.ModCtrl:
-		if b, ok := legacyCtrlByte(k.Code); ok {
+		if b, ok := legacyCtrlByte(legacyCtrlRune(k)); ok {
 			return []byte{b}
 		}
 	case uv.ModCtrl | uv.ModAlt:
-		if b, ok := legacyCtrlByte(k.Code); ok {
+		if b, ok := legacyCtrlByte(legacyCtrlRune(k)); ok {
 			return []byte{0x1b, b}
 		}
 	}
 
 	return nil
+}
+
+func normalizedLegacyKeyMod(mod uv.KeyMod) uv.KeyMod {
+	mod &^= uv.ModCapsLock | uv.ModNumLock | uv.ModScrollLock
+	if mod&uv.ModCtrl != 0 {
+		mod &^= uv.ModShift
+		return mod
+	}
+	if mod&uv.ModAlt != 0 {
+		return mod
+	}
+	if mod&^uv.ModShift == 0 {
+		return mod
+	}
+	return mod
+}
+
+func legacyPrintableBytes(k uv.Key) []byte {
+	if k.Text != "" {
+		if ascii := asciiTextBytes(k.Text); len(ascii) > 0 {
+			return ascii
+		}
+	}
+	if r := legacyCtrlRune(k); r != 0 {
+		if ascii, ok := asciiRuneByte(r); ok {
+			return []byte{ascii}
+		}
+	}
+	return nil
+}
+
+func legacyCtrlRune(k uv.Key) rune {
+	if k.ShiftedCode != 0 && k.Mod.Contains(uv.ModShift|uv.ModCtrl) {
+		return k.ShiftedCode
+	}
+	if k.ShiftedCode != 0 && k.Mod == uv.ModShift {
+		return k.ShiftedCode
+	}
+	if k.Code != 0 {
+		return k.Code
+	}
+	if k.Text == "" {
+		return 0
+	}
+	r, size := utf8.DecodeRuneInString(k.Text)
+	if r == utf8.RuneError || size != len(k.Text) {
+		return 0
+	}
+	return r
 }
 
 func asciiTextBytes(text string) []byte {
@@ -142,11 +195,42 @@ func asciiRuneByte(r rune) (byte, bool) {
 }
 
 func legacyCtrlByte(code rune) (byte, bool) {
+	if ascii, ok := asciiRuneByte(code); ok {
+		switch ascii {
+		case '1', '!':
+			return '1', true
+		case '9', '(':
+			return '9', true
+		case '0', ')':
+			return '0', true
+		case '=', '+':
+			return '=', true
+		case ';', ':':
+			return ';', true
+		case '\'', '"':
+			return '\'', true
+		case ',', '<':
+			return ',', true
+		case '.', '>':
+			return '.', true
+		case '/', '-':
+			return 0x1f, true
+		case '8', '?':
+			return 0x7f, true
+		case ' ', '2':
+			return 0x00, true
+		case '3', '4', '5', '6', '7':
+			return ascii - 0x18, true
+		}
+	}
+
 	switch {
 	case code >= 'a' && code <= 'z':
 		return byte(code-'a') + 1, true
 	case code >= 'A' && code <= 'Z':
 		return byte(code-'A') + 1, true
+	case code >= '@' && code <= '~':
+		return byte(code) & 0x1f, true
 	}
 
 	switch code {
