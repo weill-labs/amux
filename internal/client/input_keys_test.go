@@ -32,9 +32,34 @@ func TestNormalizeLocalInput(t *testing.T) {
 			want:  []byte{0x01},
 		},
 		{
+			name:  "kitty ctrl-shift-a falls back to ctrl-a",
+			input: []byte("\x1b[97;6;65u"),
+			want:  []byte{0x01},
+		},
+		{
+			name:  "kitty ctrl-9 falls back to printable byte",
+			input: []byte("\x1b[57;5u"),
+			want:  []byte("9"),
+		},
+		{
+			name:  "kitty ctrl-3 falls back to escape",
+			input: []byte("\x1b[51;5u"),
+			want:  []byte{0x1b},
+		},
+		{
+			name:  "kitty ctrl-slash falls back to unit separator",
+			input: []byte("\x1b[47;5u"),
+			want:  []byte{0x1f},
+		},
+		{
 			name:  "kitty alt-h",
 			input: []byte("\x1b[104;3u"),
 			want:  []byte{0x1b, 'h'},
+		},
+		{
+			name:  "kitty alt-shift-a preserves shifted printable",
+			input: []byte("\x1b[97;4;65u"),
+			want:  []byte{0x1b, 'A'},
 		},
 		{
 			name:  "kitty escape",
@@ -190,9 +215,29 @@ func TestForwardedBytesForDecodedInput(t *testing.T) {
 			want:  []byte{0x03},
 		},
 		{
+			name:  "kitty ctrl-shift-a forwards ctrl-a",
+			input: []byte("\x1b[97;6;65u"),
+			want:  []byte{0x01},
+		},
+		{
+			name:  "kitty ctrl-9 forwards printable fallback",
+			input: []byte("\x1b[57;5u"),
+			want:  []byte("9"),
+		},
+		{
+			name:  "kitty ctrl-slash forwards unit separator fallback",
+			input: []byte("\x1b[47;5u"),
+			want:  []byte{0x1f},
+		},
+		{
 			name:  "kitty alt-h forwards legacy escape sequence",
 			input: []byte("\x1b[104;3u"),
 			want:  []byte{0x1b, 'h'},
+		},
+		{
+			name:  "kitty alt-shift-a forwards shifted printable",
+			input: []byte("\x1b[97;4;65u"),
+			want:  []byte{0x1b, 'A'},
 		},
 		{
 			name:  "plain text stays unchanged",
@@ -240,5 +285,15 @@ func TestForwardedBytesForDecodedInputFallsBackToRawWhenNormalizationIsEmpty(t *
 	}
 	if got := forwardedBytesForDecodedInput(decoded); len(got) != 0 {
 		t.Fatalf("forwardedBytesForDecodedInput(empty raw) = %q, want empty", got)
+	}
+}
+
+func TestLegacyBytesForKeyPressUsesAltSpecialSequence(t *testing.T) {
+	t.Parallel()
+
+	key := uv.KeyPressEvent{Code: uv.KeyUp, Mod: uv.ModAlt}
+	want := []byte{0x1b, 0x1b, '[', 'A'}
+	if got := legacyBytesForKeyPress(key); !bytes.Equal(got, want) {
+		t.Fatalf("legacyBytesForKeyPress(alt+up) = %q, want %q", got, want)
 	}
 }

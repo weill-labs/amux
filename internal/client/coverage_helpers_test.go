@@ -187,7 +187,18 @@ func TestLegacyKeyHelpersAndClientPaneDataAccessors(t *testing.T) {
 		{code: uv.KeyTab, want: '\t', ok: true},
 		{code: uv.KeyEnter, want: '\r', ok: true},
 		{code: uv.KeyBackspace, want: 0x08, ok: true},
-		{code: '1', want: 0x00, ok: false},
+		{code: '1', want: '1', ok: true},
+		{code: '0', want: '0', ok: true},
+		{code: '=', want: '=', ok: true},
+		{code: ';', want: ';', ok: true},
+		{code: '\'', want: '\'', ok: true},
+		{code: ',', want: ',', ok: true},
+		{code: '.', want: '.', ok: true},
+		{code: '8', want: 0x7f, ok: true},
+		{code: '2', want: 0x00, ok: true},
+		{code: '3', want: 0x1b, ok: true},
+		{code: '9', want: '9', ok: true},
+		{code: '/', want: 0x1f, ok: true},
 	}
 	for _, tt := range ctrlTests {
 		got, ok := legacyCtrlByte(tt.code)
@@ -229,6 +240,12 @@ func TestLegacyKeyHelpersAndClientPaneDataAccessors(t *testing.T) {
 	}
 	if got, ok := asciiRuneByte('界'); ok || got != 0 {
 		t.Fatalf("asciiRuneByte('界') = (%d, %v), want (0, false)", got, ok)
+	}
+	if got := legacyCtrlRune(uv.Key{Text: "x"}); got != 'x' {
+		t.Fatalf("legacyCtrlRune(text) = %q, want 'x'", got)
+	}
+	if got := legacyCtrlRune(uv.Key{Code: 'a', ShiftedCode: 'A', Mod: uv.ModAlt | uv.ModShift}); got != 'A' {
+		t.Fatalf("legacyCtrlRune(shifted alt key) = %q, want 'A'", got)
 	}
 
 	cr := NewClientRenderer(20, 4)
