@@ -163,12 +163,13 @@ func (s *Session) buildCrashCheckpoint() *checkpoint.CrashCheckpoint {
 		for _, p := range s.Panes {
 			history, screen, _ := p.HistoryScreenSnapshot()
 			ps := checkpoint.CrashPaneState{
-				ID:        p.ID,
-				Meta:      p.Meta,
-				History:   history,
-				Screen:    screen,
-				CreatedAt: p.CreatedAt(),
-				IsProxy:   p.IsProxy(),
+				ID:           p.ID,
+				Meta:         p.Meta,
+				ManualBranch: p.MetaManualBranch(),
+				History:      history,
+				Screen:       screen,
+				CreatedAt:    p.CreatedAt(),
+				IsProxy:      p.IsProxy(),
 			}
 
 			if p.Meta.Minimized {
@@ -501,6 +502,7 @@ func NewServerFromCrashCheckpointWithScrollback(sessionName string, cp *checkpoi
 
 		pane.SetOnClipboard(sess.clipboardCallback())
 		pane.SetOnMetaUpdate(sess.metaCallback())
+		restorePaneRuntimeState(pane, ps.ManualBranch)
 
 		if !ps.CreatedAt.IsZero() {
 			pane.SetCreatedAt(ps.CreatedAt)

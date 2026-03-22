@@ -34,12 +34,13 @@ func TestRoundTrip(t *testing.T) {
 		},
 		Panes: []PaneCheckpoint{
 			{
-				ID:     1,
-				Meta:   mux.PaneMeta{Name: "pane-1", Host: "local", Color: "f38ba8"},
-				PtmxFd: 5,
-				PID:    1234,
-				Cols:   39,
-				Rows:   22,
+				ID:           1,
+				Meta:         mux.PaneMeta{Name: "pane-1", Host: "local", Color: "f38ba8"},
+				ManualBranch: true,
+				PtmxFd:       5,
+				PID:          1234,
+				Cols:         39,
+				Rows:         22,
 				History: []string{
 					"old-1",
 					"old-2",
@@ -99,6 +100,9 @@ func TestRoundTrip(t *testing.T) {
 		}
 		if got.Meta.RestoreH != want.Meta.RestoreH {
 			t.Errorf("Pane[%d].Meta.RestoreH = %d, want %d", i, got.Meta.RestoreH, want.Meta.RestoreH)
+		}
+		if got.ManualBranch != want.ManualBranch {
+			t.Errorf("Pane[%d].ManualBranch = %v, want %v", i, got.ManualBranch, want.ManualBranch)
 		}
 		if got.PtmxFd != want.PtmxFd {
 			t.Errorf("Pane[%d].PtmxFd = %d, want %d", i, got.PtmxFd, want.PtmxFd)
