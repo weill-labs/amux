@@ -712,25 +712,37 @@ func parseEventsClientArgs(args []string) ([]string, eventsClientOptions) {
 		serverArgs = append(serverArgs, arg)
 	}
 
-	if value := os.Getenv("AMUX_EVENTS_RECONNECT_INITIAL_BACKOFF"); value != "" {
-		if d, err := time.ParseDuration(value); err == nil && d > 0 {
-			opts.initialBackoff = d
-		}
-	}
-	if value := os.Getenv("AMUX_EVENTS_RECONNECT_MAX_BACKOFF"); value != "" {
-		if d, err := time.ParseDuration(value); err == nil && d > 0 {
-			opts.maxBackoff = d
-		}
-	}
-	if value := os.Getenv("AMUX_EVENTS_RECONNECT_MAX_RETRIES"); value != "" {
-		if retries, err := strconv.Atoi(value); err == nil && retries > 0 {
-			opts.maxRetries = retries
-		}
-	}
+	opts.initialBackoff = overrideDurationFromEnv("AMUX_EVENTS_RECONNECT_INITIAL_BACKOFF", opts.initialBackoff)
+	opts.maxBackoff = overrideDurationFromEnv("AMUX_EVENTS_RECONNECT_MAX_BACKOFF", opts.maxBackoff)
+	opts.maxRetries = overridePositiveIntFromEnv("AMUX_EVENTS_RECONNECT_MAX_RETRIES", opts.maxRetries)
 	if opts.maxBackoff < opts.initialBackoff {
 		opts.maxBackoff = opts.initialBackoff
 	}
 	return serverArgs, opts
+}
+
+func overrideDurationFromEnv(name string, fallback time.Duration) time.Duration {
+	value := os.Getenv(name)
+	if value == "" {
+		return fallback
+	}
+	d, err := time.ParseDuration(value)
+	if err != nil || d <= 0 {
+		return fallback
+	}
+	return d
+}
+
+func overridePositiveIntFromEnv(name string, fallback int) int {
+	value := os.Getenv(name)
+	if value == "" {
+		return fallback
+	}
+	n, err := strconv.Atoi(value)
+	if err != nil || n <= 0 {
+		return fallback
+	}
+	return n
 }
 
 func runEventsCommand(args []string) {
