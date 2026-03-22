@@ -24,11 +24,17 @@ type commandMutationResult struct {
 	output          string
 	err             error
 	broadcastLayout bool
+	paneHistories   []paneHistoryUpdate
 	paneRenders     []paneRender
 	startPanes      []*mux.Pane
 	closePanes      []*mux.Pane
 	sendExit        bool
 	shutdownServer  bool // handled by caller goroutine, not event loop
+}
+
+type paneHistoryUpdate struct {
+	paneID  uint32
+	history []string
 }
 
 type paneRender struct {
@@ -140,6 +146,10 @@ func (e commandMutationEvent) handle(s *Session) {
 			s.broadcastLayoutNow()
 			res.broadcastLayout = false
 		}
+		for _, ph := range res.paneHistories {
+			s.broadcastPaneHistoryNow(ph.paneID, ph.history)
+		}
+		res.paneHistories = nil
 		for _, pr := range res.paneRenders {
 			s.broadcastPaneOutputNow(pr.paneID, pr.data, 0)
 		}

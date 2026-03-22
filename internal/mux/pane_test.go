@@ -244,6 +244,50 @@ func TestCaptureSnapshotTracksLiveScrollbackSourceWidthsAcrossResize(t *testing.
 	}
 }
 
+func TestPaneResetStateClearsRetainedAndLiveHistory(t *testing.T) {
+	t.Parallel()
+
+	emu := NewVTEmulatorWithDrainAndScrollback(12, 2, 4)
+	p := &Pane{
+		ID:              1,
+		emulator:        emu,
+		scrollbackLines: 4,
+	}
+	p.SetRetainedHistory([]string{"base-1", "base-2"})
+
+	emu.Write([]byte("line-1\r\nline-2\r\nline-3"))
+
+	before := p.CaptureSnapshot()
+	if len(before.History) == 0 {
+		t.Fatal("history should be populated before reset")
+	}
+	if len(before.Content) == 0 || before.Content[0] == "" {
+		t.Fatal("content should be populated before reset")
+	}
+
+	p.ResetState()
+
+	after := p.CaptureSnapshot()
+	if len(after.BaseHistory) != 0 {
+		t.Fatalf("BaseHistory after reset = %#v, want empty", after.BaseHistory)
+	}
+	if len(after.LiveHistory) != 0 {
+		t.Fatalf("LiveHistory after reset = %#v, want empty", after.LiveHistory)
+	}
+	if len(after.History) != 0 {
+		t.Fatalf("History after reset = %#v, want empty", after.History)
+	}
+	if got := after.Content; len(got) != 2 || got[0] != "" || got[1] != "" {
+		t.Fatalf("Content after reset = %#v, want blank rows", got)
+	}
+	if after.CursorCol != 0 || after.CursorRow != 0 {
+		t.Fatalf("Cursor after reset = (%d,%d), want (0,0)", after.CursorCol, after.CursorRow)
+	}
+	if after.CursorHidden {
+		t.Fatal("CursorHidden after reset = true, want false")
+	}
+}
+
 func TestCaptureSnapshotTrimsLiveScrollbackWidthMetadataWithCap(t *testing.T) {
 	t.Parallel()
 

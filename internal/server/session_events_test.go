@@ -211,6 +211,69 @@ func TestHandleAttachSendsPaneHistoryBeforePaneOutput(t *testing.T) {
 	}
 }
 
+func TestResetCommandBroadcastsClearedHistoryAndBlankScreen(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	pane := newTestPane(sess, 1, "pane-1")
+	pane.SetRetainedHistory([]string{"base-1", "base-2"})
+	pane.FeedOutput([]byte("line-1\r\nline-2\r\nline-3"))
+
+	w := mux.NewWindow(pane, 80, 23)
+	w.ID = 1
+	w.Name = "window-1"
+
+	serverConn, peerConn := net.Pipe()
+	cc := newClientConn(serverConn)
+	cc.ID = "client-1"
+	defer cc.Close()
+	defer peerConn.Close()
+	mustSessionQuery(t, sess, func(sess *Session) struct{} {
+		sess.Windows = []*mux.Window{w}
+		sess.ActiveWindowID = w.ID
+		sess.Panes = []*mux.Pane{pane}
+		sess.clients = []*clientConn{cc}
+		return struct{}{}
+	})
+
+	res := runTestCommand(t, srv, sess, "reset", "pane-1")
+	if res.cmdErr != "" {
+		t.Fatalf("reset cmdErr = %q", res.cmdErr)
+	}
+	if !strings.Contains(res.output, "Reset pane-1") {
+		t.Fatalf("reset output = %q, want reset confirmation", res.output)
+	}
+
+	msg := readMsgWithTimeout(t, peerConn)
+	if msg.Type != MsgTypePaneHistory {
+		t.Fatalf("first broadcast type = %v, want pane history", msg.Type)
+	}
+	if msg.PaneID != pane.ID {
+		t.Fatalf("history pane id = %d, want %d", msg.PaneID, pane.ID)
+	}
+	if len(msg.History) != 0 {
+		t.Fatalf("history after reset = %#v, want empty", msg.History)
+	}
+
+	msg = readMsgWithTimeout(t, peerConn)
+	if msg.Type != MsgTypePaneOutput {
+		t.Fatalf("second broadcast type = %v, want pane output", msg.Type)
+	}
+	if msg.PaneID != pane.ID {
+		t.Fatalf("pane output id = %d, want %d", msg.PaneID, pane.ID)
+	}
+
+	emu := mux.NewVTEmulatorWithDrainAndScrollback(80, 22, mux.DefaultScrollbackLines)
+	if _, err := emu.Write(msg.PaneData); err != nil {
+		t.Fatalf("emulator write: %v", err)
+	}
+	if got := mux.EmulatorContentLines(emu); len(got) != 22 || got[0] != "" {
+		t.Fatalf("broadcast reset screen = %#v, want blank rows", got)
+	}
+}
+
 func TestPaneOutputCallbackEnqueuesOutputNotifications(t *testing.T) {
 	t.Parallel()
 

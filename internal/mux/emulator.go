@@ -37,6 +37,9 @@ type TerminalEmulator interface {
 	// Size returns the current width and height.
 	Size() (width, height int)
 
+	// Reset clears retained emulator state and restores terminal defaults.
+	Reset()
+
 	// CursorPosition returns cursor column and row (0-indexed).
 	CursorPosition() (col, row int)
 
@@ -253,6 +256,14 @@ func (v *vtEmulator) Resize(width, height int) {
 
 func (v *vtEmulator) Size() (int, int) {
 	return int(v.w.Load()), int(v.h.Load())
+}
+
+func (v *vtEmulator) Reset() {
+	v.emu.ClearScrollback()
+	_, _ = v.emu.Write([]byte("\x1bc"))
+	v.cursorHidden.Store(false)
+	v.altScreen.Store(false)
+	v.mouseFlags.Store(0)
 }
 
 func (v *vtEmulator) CursorPosition() (col, row int) {

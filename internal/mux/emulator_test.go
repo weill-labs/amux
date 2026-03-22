@@ -228,6 +228,51 @@ func TestScrollbackSourceWidthClearsWithScrollback(t *testing.T) {
 	}
 }
 
+func TestVTEmulatorResetClearsScreenScrollbackAndModes(t *testing.T) {
+	t.Parallel()
+
+	emu := NewVTEmulatorWithDrainAndScrollback(10, 3, 4)
+	emu.Write([]byte("line-1\r\nline-2\r\nline-3\r\nline-4"))
+	emu.Write([]byte("\x1b[?1049h\x1b[?1002h\x1b[?1006h\x1b[?25l"))
+
+	if !emu.IsAltScreen() {
+		t.Fatal("alternate screen should be enabled before reset")
+	}
+	if got := emu.MouseProtocol(); got.Tracking != MouseTrackingButton || !got.SGR {
+		t.Fatalf("MouseProtocol before reset = %+v, want button+SGR", got)
+	}
+	if !emu.CursorHidden() {
+		t.Fatal("cursor should be hidden before reset")
+	}
+	if got := emu.ScrollbackLen(); got == 0 {
+		t.Fatal("scrollback should contain history before reset")
+	}
+
+	emu.Reset()
+
+	if emu.IsAltScreen() {
+		t.Fatal("alternate screen should be disabled after reset")
+	}
+	if got := emu.MouseProtocol(); got.Enabled() || got.SGR {
+		t.Fatalf("MouseProtocol after reset = %+v, want disabled", got)
+	}
+	if emu.CursorHidden() {
+		t.Fatal("cursor should be visible after reset")
+	}
+	if got := emu.ScrollbackLen(); got != 0 {
+		t.Fatalf("ScrollbackLen() after reset = %d, want 0", got)
+	}
+	if got := emu.ScrollbackSourceWidth(0); got != 0 {
+		t.Fatalf("ScrollbackSourceWidth(0) after reset = %d, want 0", got)
+	}
+	if col, row := emu.CursorPosition(); col != 0 || row != 0 {
+		t.Fatalf("CursorPosition() after reset = (%d, %d), want (0, 0)", col, row)
+	}
+	if lines := EmulatorContentLines(emu); len(lines) != 3 || lines[0] != "" || lines[1] != "" || lines[2] != "" {
+		t.Fatalf("content after reset = %#v, want blank rows", lines)
+	}
+}
+
 func TestHasCursorBlock(t *testing.T) {
 	t.Parallel()
 

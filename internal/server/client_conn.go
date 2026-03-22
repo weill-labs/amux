@@ -115,6 +115,10 @@ func (cc *clientConn) sendPaneOutput(msg *Message, paneID uint32, seq uint64) {
 	cc.ensureWriter().sendPaneOutput(msg, paneID, seq)
 }
 
+func (cc *clientConn) sendPaneMessage(msg *Message) {
+	cc.ensureWriter().sendPaneMessage(msg)
+}
+
 func (cc *clientConn) isBootstrapping() bool {
 	return cc.ensureWriter().isBootstrapping()
 }
