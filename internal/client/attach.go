@@ -25,6 +25,88 @@ import (
 
 var termGetSize = term.GetSize
 
+type attachBootstrapMessage struct {
+	typ     proto.MsgType
+	paneID  uint32
+	history []string
+	data    []byte
+}
+
+func attachBootstrapPaneCount(layout *proto.LayoutSnapshot) int {
+	if layout == nil {
+		return 0
+	}
+	if len(layout.Windows) == 0 {
+		return len(layout.Panes)
+	}
+	count := 0
+	for _, ws := range layout.Windows {
+		count += len(ws.Panes)
+	}
+	return count
+}
+
+func readAttachBootstrap(conn net.Conn, cr *ClientRenderer) error {
+	var layout *proto.LayoutSnapshot
+	var buffered []attachBootstrapMessage
+
+	for layout == nil {
+		msg, err := proto.ReadMsg(conn)
+		if err != nil {
+			return err
+		}
+		switch msg.Type {
+		case proto.MsgTypeLayout:
+			layout = msg.Layout
+		case proto.MsgTypePaneHistory:
+			buffered = append(buffered, attachBootstrapMessage{
+				typ:     msg.Type,
+				paneID:  msg.PaneID,
+				history: append([]string(nil), msg.History...),
+			})
+		case proto.MsgTypePaneOutput:
+			buffered = append(buffered, attachBootstrapMessage{
+				typ:    msg.Type,
+				paneID: msg.PaneID,
+				data:   append([]byte(nil), msg.PaneData...),
+			})
+		default:
+			return fmt.Errorf("unexpected attach bootstrap message type %d before layout", msg.Type)
+		}
+	}
+
+	cr.HandleLayout(layout)
+
+	remainingOutputs := attachBootstrapPaneCount(layout)
+	for _, msg := range buffered {
+		switch msg.typ {
+		case proto.MsgTypePaneHistory:
+			cr.HandlePaneHistory(msg.paneID, msg.history)
+		case proto.MsgTypePaneOutput:
+			cr.HandlePaneOutput(msg.paneID, msg.data)
+			remainingOutputs--
+		}
+	}
+
+	for remainingOutputs > 0 {
+		msg, err := proto.ReadMsg(conn)
+		if err != nil {
+			return err
+		}
+		switch msg.Type {
+		case proto.MsgTypePaneHistory:
+			cr.HandlePaneHistory(msg.PaneID, msg.History)
+		case proto.MsgTypePaneOutput:
+			cr.HandlePaneOutput(msg.PaneID, msg.PaneData)
+			remainingOutputs--
+		default:
+			return fmt.Errorf("unexpected attach bootstrap message type %d after layout", msg.Type)
+		}
+	}
+
+	return nil
+}
+
 func handleDisplayPaneSelection(cr *ClientRenderer, sender *messageSender, b byte) {
 	paneID, ok := cr.ResolveDisplayPaneKey(b)
 	cr.HideDisplayPanes()
@@ -143,6 +225,12 @@ func RunSession(sessionName string) error {
 			Type:    proto.MsgTypeUIEvent,
 			UIEvent: name,
 		})
+	}
+	if err := readAttachBootstrap(conn, cr); err != nil {
+		return fmt.Errorf("reading attach bootstrap: %w", err)
+	}
+	if initial := cr.Render(true); initial != "" {
+		io.WriteString(os.Stdout, initial)
 	}
 
 	// Hot reload: resolve binary path once, start file watcher.
