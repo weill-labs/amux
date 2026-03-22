@@ -537,8 +537,13 @@ func cmdFocus(ctx *CommandContext) {
 }
 
 func cmdCapture(ctx *CommandContext) {
-	if caputil.ParseArgs(ctx.Args).HistoryMode {
-		ctx.CC.Send(ctx.Sess.captureHistory(ctx.CC, ctx.Args))
+	req := caputil.ParseArgs(ctx.Args)
+	if req.HistoryMode {
+		ctx.CC.Send(ctx.Sess.captureHistory(ctx.Args))
+		return
+	}
+	if req.PaneRef != "" {
+		ctx.CC.Send(ctx.Sess.capturePaneWithFallback(ctx.Args))
 		return
 	}
 	result := ctx.Sess.forwardCapture(ctx.Args)

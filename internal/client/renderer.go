@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 
 	caputil "github.com/weill-labs/amux/internal/capture"
@@ -24,6 +25,7 @@ type Renderer struct {
 	state           atomic.Pointer[rendererSnapshot]
 	commands        chan rendererCommand
 	scrollbackLines int
+	closeOnce       sync.Once
 
 	// OnPaneResize is called during HandleLayout for each non-minimized pane
 	// after its emulator is resized. The main package uses this to resize
@@ -41,6 +43,18 @@ func NewWithScrollback(width, height, scrollbackLines int) *Renderer {
 	r.state.Store(initial)
 	go r.actorLoop(initial, width, height)
 	return r
+}
+
+// Close shuts down the renderer actor loop and closes its pane emulators.
+func (r *Renderer) Close() {
+	r.closeOnce.Do(func() {
+		r.withActor(func(st *rendererActorState) {
+			for _, emu := range st.snapshot.emulators {
+				_ = emu.Close()
+			}
+		})
+		close(r.commands)
+	})
 }
 
 // HandleLayout processes a layout snapshot from the server. Creates/removes

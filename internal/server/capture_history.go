@@ -9,36 +9,31 @@ import (
 	"github.com/weill-labs/amux/internal/proto"
 )
 
-func (s *Session) captureHistory(cc *clientConn, args []string) *Message {
-	req := caputil.ParseArgs(args)
-	if err := caputil.ValidateHistoryRequest(req); err != nil {
-		return &Message{Type: MsgTypeCmdResult, CmdErr: err.Error()}
-	}
+type capturePaneTarget struct {
+	pane     *mux.Pane
+	inWindow bool
+	active   bool
+	zoomed   bool
+}
 
-	type historySnapshot struct {
-		pane     *mux.Pane
-		inWindow bool
-		active   bool
-		zoomed   bool
-	}
-	snap, err := enqueueSessionQuery(s, func(s *Session) (historySnapshot, error) {
-		pane, w, err := cc.resolvePaneAcrossWindowsLocked(s, req.PaneRef)
+func (s *Session) resolveCapturePaneTarget(ref string) (capturePaneTarget, error) {
+	return enqueueSessionQuery(s, func(s *Session) (capturePaneTarget, error) {
+		pane, w, err := s.resolvePaneAcrossWindows(ref)
 		if err != nil {
-			return historySnapshot{}, err
+			return capturePaneTarget{}, err
 		}
 		activeWindow := s.activeWindow()
-		return historySnapshot{
+		return capturePaneTarget{
 			pane:     pane,
 			inWindow: w != nil,
 			active:   activeWindow != nil && activeWindow.ActivePane != nil && activeWindow.ActivePane.ID == pane.ID,
 			zoomed:   activeWindow != nil && activeWindow.ZoomedPaneID == pane.ID,
 		}, nil
 	})
-	if err != nil {
-		return &Message{Type: MsgTypeCmdResult, CmdErr: err.Error()}
-	}
-	pane := snap.pane
-	textSnap := pane.CaptureSnapshot()
+}
+
+func (s *Session) buildServerCapturePane(target capturePaneTarget, req caputil.Request, includeHistory bool) proto.CapturePane {
+	textSnap := target.pane.CaptureSnapshot()
 	cursor := proto.CaptureCursor{
 		Col:    textSnap.CursorCol,
 		Row:    textSnap.CursorRow,
@@ -68,33 +63,69 @@ func (s *Session) captureHistory(cc *clientConn, args []string) *Message {
 		content = rewrapped.Content
 		cursor = rewrapped.Cursor
 	}
+	if !includeHistory {
+		history = nil
+	}
 
-	// Gather fresh CWD for capture (pure getter, no mutation)
-	captureCwd, _ := pane.DetectCwdBranch()
+	// Gather fresh CWD for capture (pure getter, no mutation).
+	captureCwd, _ := target.pane.DetectCwdBranch()
 
 	capturePane := caputil.BuildPane(caputil.PaneInput{
-		ID:         pane.ID,
-		Name:       pane.Meta.Name,
-		Active:     snap.active,
-		Minimized:  pane.Meta.Minimized,
-		Zoomed:     snap.zoomed,
-		Host:       pane.Meta.Host,
-		Task:       pane.Meta.Task,
-		Color:      pane.Meta.Color,
-		ConnStatus: pane.Meta.Remote,
+		ID:         target.pane.ID,
+		Name:       target.pane.Meta.Name,
+		Active:     target.active,
+		Minimized:  target.pane.Meta.Minimized,
+		Zoomed:     target.zoomed,
+		Host:       target.pane.Meta.Host,
+		Task:       target.pane.Meta.Task,
+		Color:      target.pane.Meta.Color,
+		ConnStatus: target.pane.Meta.Remote,
 		Cwd:        captureCwd,
-		GitBranch:  pane.Meta.GitBranch,
-		PR:         pane.Meta.PR,
-		PRs:        pane.Meta.PRs,
-		Issues:     pane.Meta.Issues,
+		GitBranch:  target.pane.Meta.GitBranch,
+		PR:         target.pane.Meta.PR,
+		PRs:        target.pane.Meta.PRs,
+		Issues:     target.pane.Meta.Issues,
 		Cursor:     cursor,
 		Content:    content,
 		History:    history,
-	}, s.captureAgentStatus([]*mux.Pane{pane}))
-	if !snap.inWindow {
+	}, s.captureAgentStatus([]*mux.Pane{target.pane}))
+	if !target.inWindow {
 		capturePane.Active = false
 		capturePane.Zoomed = false
 	}
+	return capturePane
+}
+
+func (s *Session) capturePaneDirect(args []string, target capturePaneTarget) *Message {
+	req := caputil.ParseArgs(args)
+	if err := caputil.ValidateScreenRequest(req); err != nil {
+		return &Message{Type: MsgTypeCmdResult, CmdErr: err.Error()}
+	}
+
+	capturePane := s.buildServerCapturePane(target, req, false)
+
+	switch {
+	case req.FormatJSON:
+		out, _ := json.MarshalIndent(capturePane, "", "  ")
+		return &Message{Type: MsgTypeCmdResult, CmdOutput: string(out) + "\n"}
+	case req.IncludeANSI:
+		return &Message{Type: MsgTypeCmdResult, CmdOutput: target.pane.Render() + "\n"}
+	default:
+		return &Message{Type: MsgTypeCmdResult, CmdOutput: strings.Join(capturePane.Content, "\n") + "\n"}
+	}
+}
+
+func (s *Session) captureHistory(args []string) *Message {
+	req := caputil.ParseArgs(args)
+	if err := caputil.ValidateHistoryRequest(req); err != nil {
+		return &Message{Type: MsgTypeCmdResult, CmdErr: err.Error()}
+	}
+
+	target, err := s.resolveCapturePaneTarget(req.PaneRef)
+	if err != nil {
+		return &Message{Type: MsgTypeCmdResult, CmdErr: err.Error()}
+	}
+	capturePane := s.buildServerCapturePane(target, req, true)
 
 	if req.FormatJSON {
 		out, _ := json.MarshalIndent(capturePane, "", "  ")

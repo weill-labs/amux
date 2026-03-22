@@ -86,7 +86,8 @@ func newServerHarnessWithOptions(tb testing.TB, cols, rows int, configContent st
 	cmd := exec.Command(amuxBin, "_server", session)
 	cmd.ExtraFiles = []*os.File{writePipe, shutdownWritePipe} // fds 3 and 4 in child
 	home := newTestHome(tb)
-	env := upsertEnv(os.Environ(), "HOME", home)
+	env := removeEnv(os.Environ(), "AMUX_EXIT_UNATTACHED")
+	env = upsertEnv(env, "HOME", home)
 	env = append(env, "AMUX_READY_FD=3", "AMUX_SHUTDOWN_FD=4", "AMUX_NO_WATCH=1")
 	if exitUnattached {
 		env = append(env, "AMUX_EXIT_UNATTACHED=1")

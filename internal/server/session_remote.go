@@ -9,6 +9,7 @@ import (
 	caputil "github.com/weill-labs/amux/internal/capture"
 	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/mux"
+	"github.com/weill-labs/amux/internal/proto"
 	"github.com/weill-labs/amux/internal/remote"
 )
 
@@ -17,6 +18,11 @@ var (
 	captureAttachRetryDelay = 300 * time.Millisecond
 	captureResponseTimeout  = 3 * time.Second
 )
+
+type captureClientSnapshot struct {
+	client      *clientConn
+	statusPanes []*mux.Pane
+}
 
 // SetupRemoteManager initializes the remote manager with callbacks.
 func (s *Session) SetupRemoteManager(cfg *config.Config, buildHash string) {
@@ -236,10 +242,6 @@ func (s *Session) handleTakeover(srv *Server, sshPaneID uint32, req mux.Takeover
 // gathers agent status (one pgrep call per pane) and includes it in the
 // request. The session actor serializes capture dispatch.
 func (s *Session) forwardCapture(args []string) *Message {
-	type captureSnapshot struct {
-		client      *clientConn
-		statusPanes []*mux.Pane
-	}
 	captureReq := caputil.ParseArgs(args)
 	jsonErrorResult := func(code, message string) *Message {
 		return &Message{
@@ -249,30 +251,10 @@ func (s *Session) forwardCapture(args []string) *Message {
 	}
 
 	// Wait briefly for a client to attach (covers post-reload reconnection).
-	var snap captureSnapshot
+	var snap captureClientSnapshot
 	var err error
 	for attempt := 0; attempt < captureAttachMaxRetries; attempt++ {
-		snap, err = enqueueSessionQuery(s, func(s *Session) (captureSnapshot, error) {
-			var snap captureSnapshot
-			for _, cc := range s.clients {
-				if cc.isBootstrapping() {
-					continue
-				}
-				snap.client = cc
-				break
-			}
-			if snap.client != nil && captureReq.FormatJSON {
-				if captureReq.PaneRef != "" {
-					pane, _, err := s.resolvePaneAcrossWindows(captureReq.PaneRef)
-					if err == nil {
-						snap.statusPanes = []*mux.Pane{pane}
-					}
-				} else if activeWindow := s.activeWindow(); activeWindow != nil {
-					snap.statusPanes = append([]*mux.Pane(nil), activeWindow.Panes()...)
-				}
-			}
-			return snap, nil
-		})
+		snap, err = s.captureClientSnapshot(captureReq, nil)
 		if err != nil {
 			if captureReq.FormatJSON {
 				return jsonErrorResult("session_shutting_down", err.Error())
@@ -294,17 +276,50 @@ func (s *Session) forwardCapture(args []string) *Message {
 		time.Sleep(captureAttachRetryDelay)
 	}
 
-	agentStatus := s.captureAgentStatus(snap.statusPanes)
+	return s.runClientCaptureRequest(args, captureReq, snap.client, s.captureAgentStatus(snap.statusPanes), jsonErrorResult)
+}
 
+func (s *Session) captureClientSnapshot(req caputil.Request, target *capturePaneTarget) (captureClientSnapshot, error) {
+	return enqueueSessionQuery(s, func(s *Session) (captureClientSnapshot, error) {
+		var snap captureClientSnapshot
+		for _, cc := range s.clients {
+			if cc.isBootstrapping() {
+				continue
+			}
+			snap.client = cc
+			break
+		}
+		if snap.client == nil || !req.FormatJSON {
+			return snap, nil
+		}
+		if target != nil {
+			snap.statusPanes = []*mux.Pane{target.pane}
+			return snap, nil
+		}
+		if req.PaneRef != "" {
+			pane, _, err := s.resolvePaneAcrossWindows(req.PaneRef)
+			if err == nil {
+				snap.statusPanes = []*mux.Pane{pane}
+			}
+			return snap, nil
+		}
+		if activeWindow := s.activeWindow(); activeWindow != nil {
+			snap.statusPanes = append([]*mux.Pane(nil), activeWindow.Panes()...)
+		}
+		return snap, nil
+	})
+}
+
+func (s *Session) runClientCaptureRequest(args []string, captureReq caputil.Request, client *clientConn, agentStatus map[uint32]proto.PaneAgentStatus, jsonErrorResult func(string, string) *Message) *Message {
 	req := &captureRequest{
 		id:          s.captureCounter.Add(1),
-		client:      snap.client,
+		client:      client,
 		args:        append([]string(nil), args...),
 		agentStatus: agentStatus,
 		reply:       make(chan *Message, 1),
 	}
 	if err := s.enqueueCaptureRequest(req); err != nil {
-		if captureReq.FormatJSON {
+		if captureReq.FormatJSON && jsonErrorResult != nil {
 			return jsonErrorResult("session_shutting_down", err.Error())
 		}
 		return &Message{Type: MsgTypeCmdResult, CmdErr: err.Error()}
@@ -316,28 +331,64 @@ func (s *Session) forwardCapture(args []string) *Message {
 	case resp := <-req.reply:
 		if captureReq.FormatJSON {
 			if resp == nil {
-				return jsonErrorResult("invalid_capture_response", "capture client returned no response")
+				if jsonErrorResult != nil {
+					return jsonErrorResult("invalid_capture_response", "capture client returned no response")
+				}
+				return &Message{Type: MsgTypeCmdResult, CmdErr: "capture client returned no response"}
 			}
 			if resp.CmdErr != "" {
 				return &Message{Type: MsgTypeCmdResult, CmdErr: resp.CmdErr}
 			}
 			if err := caputil.ValidateJSONOutput(resp.CmdOutput); err != nil {
-				return jsonErrorResult("invalid_capture_response", err.Error())
+				if jsonErrorResult != nil {
+					return jsonErrorResult("invalid_capture_response", err.Error())
+				}
+				return &Message{Type: MsgTypeCmdResult, CmdErr: err.Error()}
 			}
 			return &Message{Type: MsgTypeCmdResult, CmdOutput: ensureTrailingNewline(resp.CmdOutput)}
 		}
 		return &Message{Type: MsgTypeCmdResult, CmdOutput: resp.CmdOutput, CmdErr: resp.CmdErr}
 	case <-timer.C:
 		s.cancelCaptureRequest(req.id)
-		if captureReq.FormatJSON {
+		if captureReq.FormatJSON && jsonErrorResult != nil {
 			return jsonErrorResult("capture_timeout", "capture timed out (client unresponsive)")
 		}
 		return &Message{Type: MsgTypeCmdResult, CmdErr: "capture timed out (client unresponsive)"}
 	case <-s.sessionEventDone:
-		if captureReq.FormatJSON {
+		if captureReq.FormatJSON && jsonErrorResult != nil {
 			return jsonErrorResult("session_shutting_down", errSessionShuttingDown.Error())
 		}
 		return &Message{Type: MsgTypeCmdResult, CmdErr: errSessionShuttingDown.Error()}
+	}
+}
+
+func (s *Session) capturePaneWithFallback(args []string) *Message {
+	req := caputil.ParseArgs(args)
+	if err := caputil.ValidateScreenRequest(req); err != nil {
+		return &Message{Type: MsgTypeCmdResult, CmdErr: err.Error()}
+	}
+
+	target, err := s.resolveCapturePaneTarget(req.PaneRef)
+	if err != nil {
+		return &Message{Type: MsgTypeCmdResult, CmdErr: err.Error()}
+	}
+
+	snap, err := s.captureClientSnapshot(req, &target)
+	if err != nil {
+		return &Message{Type: MsgTypeCmdResult, CmdErr: err.Error()}
+	}
+	if snap.client == nil {
+		return s.capturePaneDirect(args, target)
+	}
+
+	resp := s.runClientCaptureRequest(args, req, snap.client, s.captureAgentStatus(snap.statusPanes), nil)
+	switch resp.CmdErr {
+	case "":
+		return resp
+	case fmt.Sprintf("pane %q not found", req.PaneRef), "capture timed out (client unresponsive)":
+		return s.capturePaneDirect(args, target)
+	default:
+		return resp
 	}
 }
 

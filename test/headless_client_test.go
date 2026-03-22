@@ -80,7 +80,7 @@ func newHeadlessClient(sockPath, session string, cols, rows int) (*headlessClien
 	select {
 	case <-hc.ready:
 	case <-time.After(10 * time.Second):
-		conn.Close()
+		hc.close()
 		return nil, fmt.Errorf("timeout waiting for first layout from server")
 	}
 	return hc, nil
@@ -161,6 +161,7 @@ func (hc *headlessClient) commandLoop() {
 func (hc *headlessClient) close() {
 	_ = hc.conn.Close()
 	<-hc.done
+	hc.renderer.Close()
 }
 
 func (hc *headlessClient) readLoop() {
