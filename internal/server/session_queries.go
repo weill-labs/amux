@@ -30,6 +30,8 @@ type paneListEntry struct {
 	task       string
 	gitBranch  string
 	pr         string
+	prs        []int
+	issues     []string
 	active     bool
 }
 
@@ -194,6 +196,8 @@ func (s *Session) queryPaneList() ([]paneListEntry, error) {
 				task:      p.Meta.Task,
 				gitBranch: p.Meta.GitBranch,
 				pr:        p.Meta.PR,
+				prs:       append([]int(nil), p.Meta.PRs...),
+				issues:    append([]string(nil), p.Meta.Issues...),
 			}
 			if w != nil && w.ActivePane != nil && w.ActivePane.ID == p.ID {
 				entry.active = true

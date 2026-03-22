@@ -70,6 +70,8 @@ func TestCrashRoundTrip(t *testing.T) {
 		},
 		Timestamp: now,
 	}
+	setMetaCollections(t, &cp.PaneStates[0].Meta, []int{42, 73}, []string{"LAB-338", "LAB-412"})
+	setMetaCollections(t, &cp.PaneStates[1].Meta, []int{99}, []string{"LAB-777"})
 
 	dir := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", dir)
@@ -140,6 +142,14 @@ func TestCrashRoundTrip(t *testing.T) {
 		}
 		if !got.CreatedAt.Equal(want.CreatedAt) {
 			t.Errorf("PaneStates[%d].CreatedAt = %v, want %v", i, got.CreatedAt, want.CreatedAt)
+		}
+		gotPRs, gotIssues := metaCollections(t, got.Meta)
+		wantPRs, wantIssues := metaCollections(t, want.Meta)
+		if !reflect.DeepEqual(gotPRs, wantPRs) {
+			t.Errorf("PaneStates[%d].Meta.PRs = %v, want %v", i, gotPRs, wantPRs)
+		}
+		if !reflect.DeepEqual(gotIssues, wantIssues) {
+			t.Errorf("PaneStates[%d].Meta.Issues = %v, want %v", i, gotIssues, wantIssues)
 		}
 	}
 

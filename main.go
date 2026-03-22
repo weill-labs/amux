@@ -269,6 +269,18 @@ func main() {
 			os.Exit(1)
 		}
 		runServerCommand("set-meta", args[1:])
+	case "add-meta":
+		if len(args) < 3 {
+			fmt.Fprintf(os.Stderr, "usage: amux add-meta <pane> key=value [key=value...]\n")
+			os.Exit(1)
+		}
+		runServerCommand("add-meta", args[1:])
+	case "rm-meta":
+		if len(args) < 3 {
+			fmt.Fprintf(os.Stderr, "usage: amux rm-meta <pane> key=value [key=value...]\n")
+			os.Exit(1)
+		}
+		runServerCommand("rm-meta", args[1:])
 
 	case "events":
 		runStreamingCommand("events", args[1:])
@@ -423,6 +435,12 @@ Usage:
   amux [-s session] kill <pane>        Kill a pane
   amux [-s session] focus <pane>       Focus a pane by name or ID
   amux [-s session] copy-mode <pane>   Enter copy/scroll mode for a pane
+  amux [-s session] set-meta <pane> key=value [key=value...]
+                                       Set single-value pane metadata (task, branch, pr)
+  amux [-s session] add-meta <pane> key=value [key=value...]
+                                       Add pane metadata values (pr=NUMBER, issue=ID)
+  amux [-s session] rm-meta <pane> key=value [key=value...]
+                                       Remove pane metadata values (pr=NUMBER, issue=ID)
   amux [-s session] new-window         Create a new window
   amux [-s session] list-windows       List all windows
   amux [-s session] select-window <n>  Switch to window by index or name

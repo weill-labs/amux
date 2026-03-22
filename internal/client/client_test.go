@@ -721,9 +721,9 @@ func TestCaptureDisplayShowsPaneMetadata(t *testing.T) {
 
 	cr := NewClientRenderer(80, 24)
 	snap := singlePane20xN(23)
-	snap.Panes[0].PRs = []string{"42", "314"}
+	snap.Panes[0].PRs = []int{42, 314}
 	snap.Panes[0].Issues = []string{"LAB-339"}
-	snap.Windows[0].Panes[0].PRs = []string{"42", "314"}
+	snap.Windows[0].Panes[0].PRs = []int{42, 314}
 	snap.Windows[0].Panes[0].Issues = []string{"LAB-339"}
 
 	cr.HandleLayout(snap)

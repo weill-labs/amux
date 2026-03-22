@@ -5,6 +5,7 @@ package server
 import (
 	"bytes"
 	"net"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -289,6 +290,77 @@ func TestCommandPaneMutationsAndMetadata(t *testing.T) {
 	}
 	if got := mustSessionQuery(t, sess, func(sess *Session) string { return sess.findPaneByID(p1.ID).Meta.GitBranch }); got != "" {
 		t.Fatalf("branch after clear = %q, want empty", got)
+	}
+
+	addMetaUsage := runTestCommand(t, srv, sess, "add-meta", "pane-1")
+	if addMetaUsage.cmdErr != "usage: add-meta <pane> key=value [key=value...]" {
+		t.Fatalf("add-meta usage error = %q", addMetaUsage.cmdErr)
+	}
+
+	addMetaInvalid := runTestCommand(t, srv, sess, "add-meta", "pane-1", "nope")
+	if addMetaInvalid.cmdErr != `invalid key=value: "nope"` {
+		t.Fatalf("add-meta invalid kv error = %q", addMetaInvalid.cmdErr)
+	}
+
+	addMetaBadPR := runTestCommand(t, srv, sess, "add-meta", "pane-1", "pr=abc")
+	if addMetaBadPR.cmdErr != `invalid pr value: "abc"` {
+		t.Fatalf("add-meta invalid pr error = %q", addMetaBadPR.cmdErr)
+	}
+
+	addMetaUnknown := runTestCommand(t, srv, sess, "add-meta", "pane-1", "task=ship")
+	if addMetaUnknown.cmdErr != `unknown meta key: "task" (valid: pr, issue)` {
+		t.Fatalf("add-meta unknown key error = %q", addMetaUnknown.cmdErr)
+	}
+
+	addMetaRes := runTestCommand(t, srv, sess, "add-meta", "pane-1", "pr=42", "issue=LAB-338", "pr=42", "issue=LAB-338")
+	if addMetaRes.cmdErr != "" {
+		t.Fatalf("add-meta error: %s", addMetaRes.cmdErr)
+	}
+	meta = mustSessionQuery(t, sess, func(sess *Session) mux.PaneMeta { return sess.findPaneByID(p1.ID).Meta })
+	if prs := reflect.ValueOf(meta).FieldByName("PRs"); !prs.IsValid() || prs.Len() != 1 || prs.Index(0).Int() != 42 {
+		t.Fatalf("pane PRs = %#v, want [42]", prs)
+	}
+	if issues := reflect.ValueOf(meta).FieldByName("Issues"); !issues.IsValid() || issues.Len() != 1 || issues.Index(0).String() != "LAB-338" {
+		t.Fatalf("pane Issues = %#v, want [LAB-338]", issues)
+	}
+
+	mustSessionQuery(t, sess, func(sess *Session) struct{} {
+		p := sess.findPaneByID(p1.ID)
+		reflect.ValueOf(&p.Meta).Elem().FieldByName("PRs").Set(reflect.ValueOf([]int{42, 42, 73}))
+		reflect.ValueOf(&p.Meta).Elem().FieldByName("Issues").Set(reflect.ValueOf([]string{"LAB-338", "LAB-338", "LAB-412"}))
+		return struct{}{}
+	})
+
+	rmMetaUsage := runTestCommand(t, srv, sess, "rm-meta", "pane-1")
+	if rmMetaUsage.cmdErr != "usage: rm-meta <pane> key=value [key=value...]" {
+		t.Fatalf("rm-meta usage error = %q", rmMetaUsage.cmdErr)
+	}
+
+	rmMetaInvalid := runTestCommand(t, srv, sess, "rm-meta", "pane-1", "nope")
+	if rmMetaInvalid.cmdErr != `invalid key=value: "nope"` {
+		t.Fatalf("rm-meta invalid kv error = %q", rmMetaInvalid.cmdErr)
+	}
+
+	rmMetaBadPR := runTestCommand(t, srv, sess, "rm-meta", "pane-1", "pr=abc")
+	if rmMetaBadPR.cmdErr != `invalid pr value: "abc"` {
+		t.Fatalf("rm-meta invalid pr error = %q", rmMetaBadPR.cmdErr)
+	}
+
+	rmMetaUnknown := runTestCommand(t, srv, sess, "rm-meta", "pane-1", "task=ship")
+	if rmMetaUnknown.cmdErr != `unknown meta key: "task" (valid: pr, issue)` {
+		t.Fatalf("rm-meta unknown key error = %q", rmMetaUnknown.cmdErr)
+	}
+
+	rmMetaRes := runTestCommand(t, srv, sess, "rm-meta", "pane-1", "pr=42", "issue=LAB-338")
+	if rmMetaRes.cmdErr != "" {
+		t.Fatalf("rm-meta error: %s", rmMetaRes.cmdErr)
+	}
+	meta = mustSessionQuery(t, sess, func(sess *Session) mux.PaneMeta { return sess.findPaneByID(p1.ID).Meta })
+	if prs := reflect.ValueOf(meta).FieldByName("PRs"); !prs.IsValid() || prs.Len() != 1 || prs.Index(0).Int() != 73 {
+		t.Fatalf("pane PRs after remove = %#v, want [73]", prs)
+	}
+	if issues := reflect.ValueOf(meta).FieldByName("Issues"); !issues.IsValid() || issues.Len() != 1 || issues.Index(0).String() != "LAB-412" {
+		t.Fatalf("pane Issues after remove = %#v, want [LAB-412]", issues)
 	}
 
 	assertSessionLayoutConsistent(t, sess)

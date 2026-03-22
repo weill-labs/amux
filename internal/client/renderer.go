@@ -435,6 +435,8 @@ func (r *Renderer) buildCapturePane(snap *rendererSnapshot, paneID uint32, agent
 		ConnStatus: info.ConnStatus,
 		GitBranch:  info.GitBranch,
 		PR:         info.PR,
+		PRs:        info.PRs,
+		Issues:     info.Issues,
 		Cursor: proto.CaptureCursor{
 			Col:    col,
 			Row:    row,

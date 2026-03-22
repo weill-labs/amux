@@ -37,8 +37,8 @@ type PaneMeta struct {
 	Dir          string   `json:"dir,omitempty"`           // working directory override for new shell
 	GitBranch    string   `json:"git_branch,omitempty"`    // cached git branch (auto-detected or manually set)
 	PR           string   `json:"pr,omitempty"`            // PR number (set via escape sequence or CLI)
-	PRs          []string `json:"prs,omitempty"`           // PR numbers for status rendering
-	Issues       []string `json:"issues,omitempty"`        // issue IDs for status rendering
+	PRs          []int    `json:"prs,omitempty"`           // tracked PR numbers (set via add-meta/rm-meta)
+	Issues       []string `json:"issues,omitempty"`        // tracked issue IDs (set via add-meta/rm-meta)
 }
 
 // Pane manages a PTY, its terminal emulator, and metadata.

@@ -56,6 +56,8 @@ func (s *Session) captureHistory(cc *ClientConn, args []string) *Message {
 		Cwd:        captureCwd,
 		GitBranch:  pane.Meta.GitBranch,
 		PR:         pane.Meta.PR,
+		PRs:        pane.Meta.PRs,
+		Issues:     pane.Meta.Issues,
 		Cursor: proto.CaptureCursor{
 			Col:    textSnap.CursorCol,
 			Row:    textSnap.CursorRow,

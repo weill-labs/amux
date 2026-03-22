@@ -1,6 +1,7 @@
 package checkpoint
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/weill-labs/amux/internal/mux"
@@ -59,6 +60,8 @@ func TestRoundTrip(t *testing.T) {
 			},
 		},
 	}
+	setMetaCollections(t, &cp.Panes[0].Meta, []int{42, 73}, []string{"LAB-338", "LAB-412"})
+	setMetaCollections(t, &cp.Panes[1].Meta, []int{99}, []string{"LAB-777"})
 
 	path, err := Write(cp)
 	if err != nil {
@@ -120,6 +123,14 @@ func TestRoundTrip(t *testing.T) {
 		if got.Screen != want.Screen {
 			t.Errorf("Pane[%d].Screen = %q, want %q", i, got.Screen, want.Screen)
 		}
+		gotPRs, gotIssues := metaCollections(t, got.Meta)
+		wantPRs, wantIssues := metaCollections(t, want.Meta)
+		if !reflect.DeepEqual(gotPRs, wantPRs) {
+			t.Errorf("Pane[%d].Meta.PRs = %v, want %v", i, gotPRs, wantPRs)
+		}
+		if !reflect.DeepEqual(gotIssues, wantIssues) {
+			t.Errorf("Pane[%d].Meta.Issues = %v, want %v", i, gotIssues, wantIssues)
+		}
 	}
 
 	// Verify layout was preserved
@@ -169,4 +180,44 @@ func TestWriteEmptyCheckpoint(t *testing.T) {
 	if len(got.Panes) != 0 {
 		t.Errorf("Panes = %d, want 0", len(got.Panes))
 	}
+}
+
+func setMetaCollections(t *testing.T, meta *mux.PaneMeta, prs []int, issues []string) {
+	t.Helper()
+
+	value := reflect.ValueOf(meta).Elem()
+	prsField := value.FieldByName("PRs")
+	if !prsField.IsValid() {
+		t.Fatal("PaneMeta.PRs field missing")
+	}
+	prsField.Set(reflect.ValueOf(prs))
+	issuesField := value.FieldByName("Issues")
+	if !issuesField.IsValid() {
+		t.Fatal("PaneMeta.Issues field missing")
+	}
+	issuesField.Set(reflect.ValueOf(issues))
+}
+
+func metaCollections(t *testing.T, meta mux.PaneMeta) ([]int, []string) {
+	t.Helper()
+
+	value := reflect.ValueOf(meta)
+	prsField := value.FieldByName("PRs")
+	if !prsField.IsValid() {
+		t.Fatal("PaneMeta.PRs field missing")
+	}
+	issuesField := value.FieldByName("Issues")
+	if !issuesField.IsValid() {
+		t.Fatal("PaneMeta.Issues field missing")
+	}
+
+	prs := make([]int, prsField.Len())
+	for i := 0; i < prsField.Len(); i++ {
+		prs[i] = int(prsField.Index(i).Int())
+	}
+	issues := make([]string, issuesField.Len())
+	for i := 0; i < issuesField.Len(); i++ {
+		issues[i] = issuesField.Index(i).String()
+	}
+	return prs, issues
 }
