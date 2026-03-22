@@ -24,6 +24,7 @@ type eventJSON struct {
 	Host       string `json:"host,omitempty"`
 	ActivePane string `json:"active_pane,omitempty"`
 	ClientID   string `json:"client_id,omitempty"`
+	Reason     string `json:"reason,omitempty"`
 	TimedOut   bool   `json:"-"` // set by readEvent on timeout
 }
 

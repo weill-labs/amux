@@ -484,7 +484,7 @@ Usage:
                                        Remove hook(s) for an event
   amux [-s session] list-hooks         List registered hooks
   amux [-s session] events [--filter type1,type2] [--pane <ref>] [--host <name>] [--client <id>] [--no-reconnect]
-                                       Stream events as NDJSON (layout, idle, busy, hook, display-panes-*, choose-*, copy-mode-*, input-*, reconnect)
+                                       Stream events as NDJSON (layout, idle, busy, hook, client-connect, client-disconnect, display-panes-*, choose-*, copy-mode-*, input-*, reconnect)
   amux [-s session] split [root] [--vertical|--horizontal] [--name NAME] [--host HOST]
                                        Split active pane (default: horizontal)
   amux [-s session] hosts              List configured remote hosts + status

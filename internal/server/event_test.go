@@ -142,6 +142,9 @@ func TestEventJSONOmitsZeroFields(t *testing.T) {
 	if _, ok := raw["host"]; ok {
 		t.Error("host should be omitted when empty")
 	}
+	if _, ok := raw["reason"]; ok {
+		t.Error("reason should be omitted when empty")
+	}
 }
 
 func TestEmitEventDelivery(t *testing.T) {
@@ -271,6 +274,8 @@ func TestParseEventsArgs(t *testing.T) {
 	}{
 		{"empty", nil, eventFilter{}, DefaultEventThrottle},
 		{"filter", []string{"--filter", "layout,idle"}, eventFilter{Types: []string{"layout", "idle"}}, DefaultEventThrottle},
+		{"client_lifecycle_filter", []string{"--filter", EventClientConnect + "," + EventClientDisconnect},
+			eventFilter{Types: []string{EventClientConnect, EventClientDisconnect}}, DefaultEventThrottle},
 		{"pane", []string{"--pane", "pane-1"}, eventFilter{PaneName: "pane-1"}, DefaultEventThrottle},
 		{"host", []string{"--host", "gpu-box"}, eventFilter{Host: "gpu-box"}, DefaultEventThrottle},
 		{"client", []string{"--client", "client-2"}, eventFilter{ClientID: "client-2"}, DefaultEventThrottle},
@@ -381,43 +386,49 @@ func TestCurrentStateEventsIncludesClientUIState(t *testing.T) {
 		}
 	}
 
-	if len(got) != 12 {
-		t.Fatalf("got %d client UI events, want 12", len(got))
+	if len(got) != 14 {
+		t.Fatalf("got %d client events, want 14", len(got))
 	}
-	if got[0].Type != proto.UIEventDisplayPanesHidden || got[0].ClientID != "client-1" {
-		t.Fatalf("first client UI event = %#v, want hidden for client-1", got[0])
+	if got[0].Type != EventClientConnect || got[0].ClientID != "client-1" {
+		t.Fatalf("first client event = %#v, want client-connect for client-1", got[0])
 	}
-	if got[1].Type != proto.UIEventPrefixMessageHidden || got[1].ClientID != "client-1" {
-		t.Fatalf("second client UI event = %#v, want prefix-message-hidden for client-1", got[1])
+	if got[1].Type != proto.UIEventDisplayPanesHidden || got[1].ClientID != "client-1" {
+		t.Fatalf("second client event = %#v, want hidden for client-1", got[1])
 	}
-	if got[2].Type != proto.UIEventCopyModeHidden || got[2].ClientID != "client-1" {
-		t.Fatalf("third client UI event = %#v, want copy-mode-hidden for client-1", got[2])
+	if got[2].Type != proto.UIEventPrefixMessageHidden || got[2].ClientID != "client-1" {
+		t.Fatalf("third client event = %#v, want prefix-message-hidden for client-1", got[2])
 	}
-	if got[3].Type != proto.UIEventInputIdle || got[3].ClientID != "client-1" {
-		t.Fatalf("fourth client UI event = %#v, want input-idle for client-1", got[3])
+	if got[3].Type != proto.UIEventCopyModeHidden || got[3].ClientID != "client-1" {
+		t.Fatalf("fourth client event = %#v, want copy-mode-hidden for client-1", got[3])
 	}
-	if got[4].Type != proto.UIEventChooseTreeHidden || got[4].ClientID != "client-1" {
-		t.Fatalf("fifth client UI event = %#v, want choose-tree-hidden for client-1", got[4])
+	if got[4].Type != proto.UIEventInputIdle || got[4].ClientID != "client-1" {
+		t.Fatalf("fifth client event = %#v, want input-idle for client-1", got[4])
 	}
-	if got[5].Type != proto.UIEventChooseWindowHidden || got[5].ClientID != "client-1" {
-		t.Fatalf("sixth client UI event = %#v, want choose-window-hidden for client-1", got[5])
+	if got[5].Type != proto.UIEventChooseTreeHidden || got[5].ClientID != "client-1" {
+		t.Fatalf("sixth client event = %#v, want choose-tree-hidden for client-1", got[5])
 	}
-	if got[6].Type != proto.UIEventDisplayPanesShown || got[6].ClientID != "client-2" {
-		t.Fatalf("seventh client UI event = %#v, want shown for client-2", got[6])
+	if got[6].Type != proto.UIEventChooseWindowHidden || got[6].ClientID != "client-1" {
+		t.Fatalf("seventh client event = %#v, want choose-window-hidden for client-1", got[6])
 	}
-	if got[7].Type != proto.UIEventPrefixMessageHidden || got[7].ClientID != "client-2" {
-		t.Fatalf("eighth client UI event = %#v, want prefix-message-hidden for client-2", got[7])
+	if got[7].Type != EventClientConnect || got[7].ClientID != "client-2" {
+		t.Fatalf("eighth client event = %#v, want client-connect for client-2", got[7])
 	}
-	if got[8].Type != proto.UIEventCopyModeHidden || got[8].ClientID != "client-2" {
-		t.Fatalf("ninth client UI event = %#v, want copy-mode-hidden for client-2", got[8])
+	if got[8].Type != proto.UIEventDisplayPanesShown || got[8].ClientID != "client-2" {
+		t.Fatalf("ninth client event = %#v, want shown for client-2", got[8])
 	}
-	if got[9].Type != proto.UIEventInputIdle || got[9].ClientID != "client-2" {
-		t.Fatalf("tenth client UI event = %#v, want input-idle for client-2", got[9])
+	if got[9].Type != proto.UIEventPrefixMessageHidden || got[9].ClientID != "client-2" {
+		t.Fatalf("tenth client event = %#v, want prefix-message-hidden for client-2", got[9])
 	}
-	if got[10].Type != proto.UIEventChooseTreeHidden || got[10].ClientID != "client-2" {
-		t.Fatalf("eleventh client UI event = %#v, want choose-tree-hidden for client-2", got[10])
+	if got[10].Type != proto.UIEventCopyModeHidden || got[10].ClientID != "client-2" {
+		t.Fatalf("eleventh client event = %#v, want copy-mode-hidden for client-2", got[10])
 	}
-	if got[11].Type != proto.UIEventChooseWindowHidden || got[11].ClientID != "client-2" {
-		t.Fatalf("twelfth client UI event = %#v, want choose-window-hidden for client-2", got[11])
+	if got[11].Type != proto.UIEventInputIdle || got[11].ClientID != "client-2" {
+		t.Fatalf("twelfth client event = %#v, want input-idle for client-2", got[11])
+	}
+	if got[12].Type != proto.UIEventChooseTreeHidden || got[12].ClientID != "client-2" {
+		t.Fatalf("thirteenth client event = %#v, want choose-tree-hidden for client-2", got[12])
+	}
+	if got[13].Type != proto.UIEventChooseWindowHidden || got[13].ClientID != "client-2" {
+		t.Fatalf("fourteenth client event = %#v, want choose-window-hidden for client-2", got[13])
 	}
 }

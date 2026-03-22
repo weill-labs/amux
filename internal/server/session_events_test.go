@@ -96,6 +96,48 @@ func TestHandleAttachAndResizeThroughSessionQueue(t *testing.T) {
 	}
 }
 
+func TestHandleAttachEventEmitsClientConnect(t *testing.T) {
+	t.Parallel()
+
+	sess := newSession("test-attach-connect-event")
+	stopCrashCheckpointLoop(t, sess)
+	defer stopSessionBackgroundLoops(t, sess)
+
+	pane := newProxyPane(1, mux.PaneMeta{
+		Name:  "pane-1",
+		Host:  mux.DefaultHost,
+		Color: "f5e0dc",
+	}, 80, 23, nil, nil, func(data []byte) (int, error) { return len(data), nil })
+	w := mux.NewWindow(pane, 80, 24-render.GlobalBarHeight)
+	w.ID = 1
+	w.Name = "window-1"
+	sess.Windows = []*mux.Window{w}
+	sess.ActiveWindowID = w.ID
+	sess.Panes = []*mux.Pane{pane}
+
+	res := sess.enqueueEventSubscribe(eventFilter{Types: []string{EventClientConnect}}, false)
+	defer sess.enqueueEventUnsubscribe(res.sub)
+
+	cc := &clientConn{ID: "client-1", inputIdle: true}
+	attachRes := sess.enqueueAttachClient(&Server{}, cc, 80, 24)
+	if attachRes.err != nil {
+		t.Fatalf("enqueueAttachClient: %v", attachRes.err)
+	}
+
+	select {
+	case data := <-res.sub.ch:
+		var ev Event
+		if err := json.Unmarshal(data, &ev); err != nil {
+			t.Fatalf("json.Unmarshal: %v", err)
+		}
+		if ev.Type != EventClientConnect || ev.ClientID != cc.ID {
+			t.Fatalf("connect event = %+v, want client-connect for %s", ev, cc.ID)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("client-connect event was not emitted")
+	}
+}
+
 func TestHandleAttachSendsPaneHistoryBeforePaneOutput(t *testing.T) {
 	t.Parallel()
 
@@ -568,6 +610,125 @@ func TestEnqueueAttachClientReturnsOnSessionShutdown(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("enqueueAttachClient did not return after shutdown")
+	}
+}
+
+func TestDetachClientEventEmitsDisconnectReason(t *testing.T) {
+	t.Parallel()
+
+	sess := newSession("test-detach-disconnect-event")
+	stopCrashCheckpointLoop(t, sess)
+	defer stopSessionBackgroundLoops(t, sess)
+
+	cc := &clientConn{ID: "client-1", inputIdle: true}
+	mustSessionQuery(t, sess, func(sess *Session) struct{} {
+		sess.clients = []*clientConn{cc}
+		return struct{}{}
+	})
+
+	res := sess.enqueueEventSubscribe(eventFilter{Types: []string{EventClientDisconnect}}, false)
+	defer sess.enqueueEventUnsubscribe(res.sub)
+
+	sess.enqueueDetachClient(cc, DisconnectReasonExplicitDetach)
+
+	select {
+	case data := <-res.sub.ch:
+		var ev Event
+		if err := json.Unmarshal(data, &ev); err != nil {
+			t.Fatalf("json.Unmarshal: %v", err)
+		}
+		if ev.Type != EventClientDisconnect || ev.ClientID != cc.ID || ev.Reason != DisconnectReasonExplicitDetach {
+			t.Fatalf("disconnect event = %+v, want explicit detach for %s", ev, cc.ID)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("client-disconnect event was not emitted")
+	}
+}
+
+func TestDisconnectClientsForReloadEmitsDisconnectWithoutLayoutMutation(t *testing.T) {
+	t.Parallel()
+
+	sess := newSession("test-reload-disconnect-events")
+	stopCrashCheckpointLoop(t, sess)
+	defer stopSessionBackgroundLoops(t, sess)
+
+	pane := newProxyPane(1, mux.PaneMeta{
+		Name:  "pane-1",
+		Host:  mux.DefaultHost,
+		Color: "f5e0dc",
+	}, 100, 29, nil, nil, func(data []byte) (int, error) { return len(data), nil })
+	w := mux.NewWindow(pane, 100, 29)
+	w.ID = 1
+	w.Name = "window-1"
+
+	cc1 := &clientConn{ID: "client-1", cols: 100, rows: 30, inputIdle: true}
+	cc2 := &clientConn{ID: "client-2", cols: 80, rows: 24, inputIdle: true}
+	mustSessionQuery(t, sess, func(sess *Session) struct{} {
+		sess.Windows = []*mux.Window{w}
+		sess.ActiveWindowID = w.ID
+		sess.Panes = []*mux.Pane{pane}
+		sess.clients = []*clientConn{cc1, cc2}
+		sess.sizeClient.Store(cc1)
+		return struct{}{}
+	})
+
+	res := sess.enqueueEventSubscribe(eventFilter{Types: []string{EventClientDisconnect}}, false)
+	defer sess.enqueueEventUnsubscribe(res.sub)
+
+	if _, err := enqueueSessionQuery(sess, func(sess *Session) (struct{}, error) {
+		sess.disconnectClientsForReload([]*clientConn{cc1, cc2})
+		return struct{}{}, nil
+	}); err != nil {
+		t.Fatalf("disconnectClientsForReload: %v", err)
+	}
+
+	for _, wantID := range []string{cc1.ID, cc2.ID} {
+		select {
+		case data := <-res.sub.ch:
+			var ev Event
+			if err := json.Unmarshal(data, &ev); err != nil {
+				t.Fatalf("json.Unmarshal: %v", err)
+			}
+			if ev.Type != EventClientDisconnect || ev.ClientID != wantID || ev.Reason != DisconnectReasonServerReload {
+				t.Fatalf("disconnect event = %+v, want server-reload for %s", ev, wantID)
+			}
+		case <-time.After(time.Second):
+			t.Fatalf("timeout waiting for reload disconnect event for %s", wantID)
+		}
+	}
+
+	state := mustSessionQuery(t, sess, func(sess *Session) struct {
+		clientCount int
+		sizeOwner   *clientConn
+		width       int
+		height      int
+		generation  uint64
+	} {
+		return struct {
+			clientCount int
+			sizeOwner   *clientConn
+			width       int
+			height      int
+			generation  uint64
+		}{
+			clientCount: len(sess.clients),
+			sizeOwner:   sess.currentSizeClient(),
+			width:       sess.ActiveWindow().Width,
+			height:      sess.ActiveWindow().Height,
+			generation:  sess.generation.Load(),
+		}
+	})
+	if state.clientCount != 0 {
+		t.Fatalf("client count after reload disconnect = %d, want 0", state.clientCount)
+	}
+	if state.sizeOwner != nil {
+		t.Fatalf("size owner after reload disconnect = %v, want nil", state.sizeOwner)
+	}
+	if state.width != 100 || state.height != 29 {
+		t.Fatalf("window size after reload disconnect = %dx%d, want 100x29", state.width, state.height)
+	}
+	if state.generation != 0 {
+		t.Fatalf("generation after reload disconnect = %d, want 0", state.generation)
 	}
 }
 

@@ -29,12 +29,6 @@ func (s *Server) Reload(execPath string) error {
 	if err != nil {
 		return err
 	}
-	// Deliver the reload notice before exec so attached clients re-exec and
-	// reconnect instead of falling back to their parent shell.
-	for _, c := range clients {
-		c.sendBroadcastSync(&Message{Type: MsgTypeServerReload})
-	}
-
 	// Stop PTY read broadcasts
 	sess.shutdown.Store(true)
 
@@ -113,6 +107,20 @@ func (s *Server) Reload(execPath string) error {
 		if !pc.IsProxy && pc.PtmxFd >= 0 {
 			clearCloexec(uintptr(pc.PtmxFd))
 		}
+	}
+
+	// Deliver the reload notice only after checkpointing succeeds so a failed
+	// checkpoint doesn't disrupt attached clients.
+	for _, c := range clients {
+		c.sendBroadcastSync(&Message{Type: MsgTypeServerReload})
+	}
+	if _, err := enqueueSessionQuery(sess, func(sess *Session) (struct{}, error) {
+		sess.disconnectClientsForReload(clients)
+		return struct{}{}, nil
+	}); err != nil {
+		sess.shutdown.Store(false)
+		os.Remove(cpPath)
+		return err
 	}
 
 	// Flush coverage data before exec (which replaces the process image
