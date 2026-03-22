@@ -19,6 +19,33 @@ const DefaultHost = "local"
 // PaneNameFormat is the format string for auto-assigned pane names.
 const PaneNameFormat = "pane-%d"
 
+func paneShellEnv(id uint32, sessionName string) []string {
+	env := make([]string, 0, len(os.Environ())+3)
+	for _, entry := range os.Environ() {
+		key, _, ok := strings.Cut(entry, "=")
+		if !ok {
+			env = append(env, entry)
+			continue
+		}
+		switch key {
+		case "TERM", "AMUX_PANE", "AMUX_SESSION":
+			// amux owns these values for pane shells.
+			continue
+		case "NO_COLOR", "CODEX_CI":
+			// These are launcher-context flags. Passing them through to an
+			// interactive pane makes nested tools like Codex suppress ANSI.
+			continue
+		}
+		env = append(env, entry)
+	}
+	env = append(env,
+		"TERM=amux",
+		fmt.Sprintf("AMUX_PANE=%d", id),
+		"AMUX_SESSION="+sessionName,
+	)
+	return env
+}
+
 // PaneMeta holds amux metadata for a pane.
 type PaneMeta struct {
 	Name         string `json:"name"`
@@ -100,11 +127,7 @@ func NewPaneWithScrollback(id uint32, meta PaneMeta, cols, rows int, sessionName
 	}
 
 	cmd := exec.Command(shell, "-l")
-	cmd.Env = append(os.Environ(),
-		"TERM=amux",
-		fmt.Sprintf("AMUX_PANE=%d", id),
-		"AMUX_SESSION="+sessionName,
-	)
+	cmd.Env = paneShellEnv(id, sessionName)
 	if meta.Dir != "" {
 		cmd.Dir = meta.Dir
 	}

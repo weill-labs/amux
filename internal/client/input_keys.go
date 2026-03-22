@@ -5,6 +5,7 @@ import (
 	"unicode/utf8"
 
 	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/weill-labs/amux/internal/proto"
 )
 
 type decodedInputEvent struct {
@@ -58,6 +59,27 @@ func forwardedBytesForDecodedInput(decoded decodedInputEvent) []byte {
 func keyPressMatchesByte(key uv.KeyPressEvent, want byte) bool {
 	legacy := legacyBytesForKeyPress(key)
 	return len(legacy) == 1 && legacy[0] == want
+}
+
+func clientUIEventForDecodedInput(decoded decodedInputEvent) (string, bool) {
+	switch decoded.event.(type) {
+	case uv.FocusEvent:
+		return proto.UIEventClientFocusGained, true
+	case uv.BlurEvent:
+		return "", true
+	default:
+		return "", false
+	}
+}
+
+func hasActivityInput(raw []byte) bool {
+	for _, decoded := range decodeInputEvents(raw) {
+		if _, handled := clientUIEventForDecodedInput(decoded); handled {
+			continue
+		}
+		return true
+	}
+	return false
 }
 
 func legacyBytesForKeyPress(key uv.KeyPressEvent) []byte {

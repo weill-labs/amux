@@ -14,6 +14,7 @@ const (
 	UIEventCopyModeHidden      = "copy-mode-hidden"
 	UIEventInputBusy           = "input-busy"
 	UIEventInputIdle           = "input-idle"
+	UIEventClientFocusGained   = "client-focus-gained"
 )
 
 // IsKnownUIEvent reports whether name is a supported client UI event.
@@ -24,7 +25,8 @@ func IsKnownUIEvent(name string) bool {
 		UIEventChooseTreeShown, UIEventChooseTreeHidden,
 		UIEventChooseWindowShown, UIEventChooseWindowHidden,
 		UIEventCopyModeShown, UIEventCopyModeHidden,
-		UIEventInputBusy, UIEventInputIdle:
+		UIEventInputBusy, UIEventInputIdle,
+		UIEventClientFocusGained:
 		return true
 	default:
 		return false

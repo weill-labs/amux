@@ -153,12 +153,12 @@ func TestTerminalEnterSequence(t *testing.T) {
 	}{
 		{
 			name: "legacy",
-			want: render.AltScreenEnter + render.MouseEnable,
+			want: render.AltScreenEnter + render.MouseEnable + render.FocusEnable,
 		},
 		{
 			name: "kitty keyboard",
 			caps: proto.ClientCapabilities{KittyKeyboard: true},
-			want: render.AltScreenEnter + render.MouseEnable + render.KittyKeyboardEnable,
+			want: render.AltScreenEnter + render.MouseEnable + render.FocusEnable + render.KittyKeyboardEnable,
 		},
 	}
 
@@ -183,12 +183,12 @@ func TestTerminalExitSequence(t *testing.T) {
 	}{
 		{
 			name: "legacy",
-			want: render.MouseDisable + render.AltScreenExit + render.ResetTitle,
+			want: render.FocusDisable + render.MouseDisable + render.AltScreenExit + render.ResetTitle,
 		},
 		{
 			name: "kitty keyboard",
 			caps: proto.ClientCapabilities{KittyKeyboard: true},
-			want: render.KittyKeyboardDisable + render.MouseDisable + render.AltScreenExit + render.ResetTitle,
+			want: render.KittyKeyboardDisable + render.FocusDisable + render.MouseDisable + render.AltScreenExit + render.ResetTitle,
 		},
 	}
 

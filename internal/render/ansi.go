@@ -37,6 +37,15 @@ const (
 	MouseDisable = "\033[?1006l\033[?1002l"
 )
 
+// Terminal focus reporting mode sequences.
+const (
+	// FocusEnable requests focus-in/focus-out reports as CSI I / CSI O.
+	FocusEnable = "\033[?1004h"
+
+	// FocusDisable turns off focus reporting.
+	FocusDisable = "\033[?1004l"
+)
+
 // Kitty keyboard protocol mode sequences.
 const (
 	// KittyKeyboardEnable enables the kitty keyboard protocol in level 1 mode.
