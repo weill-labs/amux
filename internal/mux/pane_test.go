@@ -217,3 +217,57 @@ func TestCaptureSnapshotIncludesCursorBlock(t *testing.T) {
 		t.Fatalf("CursorBlockPos() = (%d,%d,%t), want (2,0,true)", col, row, ok)
 	}
 }
+
+func TestCaptureSnapshotTracksLiveScrollbackSourceWidthsAcrossResize(t *testing.T) {
+	t.Parallel()
+
+	emu := NewVTEmulatorWithDrainAndScrollback(20, 1, 4)
+	p := &Pane{
+		ID:              1,
+		emulator:        emu,
+		scrollbackLines: 4,
+	}
+
+	emu.Write([]byte("01234567890123456789\r\n"))
+	emu.Resize(10, 1)
+	emu.Write([]byte("ABCDEFGHIJ\r\n"))
+
+	snap := p.CaptureSnapshot()
+	if len(snap.LiveHistory) != 2 {
+		t.Fatalf("LiveHistory len = %d, want 2", len(snap.LiveHistory))
+	}
+	if got := snap.LiveHistory[0]; got.Text != "01234567890123456789" || got.SourceWidth != 20 {
+		t.Fatalf("LiveHistory[0] = %#v, want text=%q width=20", got, "01234567890123456789")
+	}
+	if got := snap.LiveHistory[1]; got.Text != "ABCDEFGHIJ" || got.SourceWidth != 10 {
+		t.Fatalf("LiveHistory[1] = %#v, want text=%q width=10", got, "ABCDEFGHIJ")
+	}
+}
+
+func TestCaptureSnapshotTrimsLiveScrollbackWidthMetadataWithCap(t *testing.T) {
+	t.Parallel()
+
+	emu := NewVTEmulatorWithDrainAndScrollback(5, 1, 2)
+	p := &Pane{
+		ID:              1,
+		emulator:        emu,
+		scrollbackLines: 2,
+	}
+
+	emu.Write([]byte("11111\r\n"))
+	emu.Resize(6, 1)
+	emu.Write([]byte("222222\r\n"))
+	emu.Resize(7, 1)
+	emu.Write([]byte("3333333\r\n"))
+
+	snap := p.CaptureSnapshot()
+	if len(snap.LiveHistory) != 2 {
+		t.Fatalf("LiveHistory len = %d, want 2", len(snap.LiveHistory))
+	}
+	if got := snap.LiveHistory[0]; got.Text != "222222" || got.SourceWidth != 6 {
+		t.Fatalf("LiveHistory[0] = %#v, want text=%q width=6", got, "222222")
+	}
+	if got := snap.LiveHistory[1]; got.Text != "3333333" || got.SourceWidth != 7 {
+		t.Fatalf("LiveHistory[1] = %#v, want text=%q width=7", got, "3333333")
+	}
+}

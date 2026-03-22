@@ -211,6 +211,23 @@ func TestRenderWithoutCursorBlock(t *testing.T) {
 	})
 }
 
+func TestScrollbackSourceWidthClearsWithScrollback(t *testing.T) {
+	t.Parallel()
+
+	emu := NewVTEmulatorWithDrainAndScrollback(5, 1, 2).(*vtEmulator)
+	emu.Write([]byte("11111\r\n"))
+
+	if got := emu.ScrollbackSourceWidth(0); got != 5 {
+		t.Fatalf("ScrollbackSourceWidth(0) = %d, want 5", got)
+	}
+
+	emu.emu.ClearScrollback()
+
+	if got := emu.ScrollbackSourceWidth(0); got != 0 {
+		t.Fatalf("ScrollbackSourceWidth(0) after clear = %d, want 0", got)
+	}
+}
+
 func TestHasCursorBlock(t *testing.T) {
 	t.Parallel()
 

@@ -39,6 +39,35 @@ func (s *Session) captureHistory(cc *ClientConn, args []string) *Message {
 	}
 	pane := snap.pane
 	textSnap := pane.CaptureSnapshot()
+	cursor := proto.CaptureCursor{
+		Col:    textSnap.CursorCol,
+		Row:    textSnap.CursorRow,
+		Hidden: textSnap.CursorHidden,
+	}
+	history := textSnap.History
+	content := textSnap.Content
+	if req.RewrapSpecified {
+		liveHistory := make([]caputil.HistoryLine, len(textSnap.LiveHistory))
+		for i, line := range textSnap.LiveHistory {
+			liveHistory[i] = caputil.HistoryLine{
+				Text:        line.Text,
+				SourceWidth: line.SourceWidth,
+				Filled:      line.Filled,
+			}
+		}
+		contentRows := make([]caputil.HistoryLine, len(textSnap.ContentRows))
+		for i, line := range textSnap.ContentRows {
+			contentRows[i] = caputil.HistoryLine{
+				Text:        line.Text,
+				SourceWidth: textSnap.Width,
+				Filled:      line.Filled,
+			}
+		}
+		rewrapped := caputil.RewrapHistoryBuffer(textSnap.BaseHistory, liveHistory, contentRows, cursor, req.RewrapWidth)
+		history = rewrapped.History
+		content = rewrapped.Content
+		cursor = rewrapped.Cursor
+	}
 
 	// Gather fresh CWD for capture (pure getter, no mutation)
 	captureCwd, _ := pane.DetectCwdBranch()
@@ -58,13 +87,9 @@ func (s *Session) captureHistory(cc *ClientConn, args []string) *Message {
 		PR:         pane.Meta.PR,
 		PRs:        pane.Meta.PRs,
 		Issues:     pane.Meta.Issues,
-		Cursor: proto.CaptureCursor{
-			Col:    textSnap.CursorCol,
-			Row:    textSnap.CursorRow,
-			Hidden: textSnap.CursorHidden,
-		},
-		Content: textSnap.Content,
-		History: textSnap.History,
+		Cursor:     cursor,
+		Content:    content,
+		History:    history,
 	}, s.captureAgentStatus([]*mux.Pane{pane}))
 	if !snap.inWindow {
 		capturePane.Active = false

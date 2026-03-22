@@ -36,6 +36,11 @@ func TestParseArgs(t *testing.T) {
 			want: Request{HistoryMode: true, PaneRef: "pane-3"},
 		},
 		{
+			name: "history rewrap pane",
+			args: []string{"--history", "--rewrap", "80", "pane-3"},
+			want: Request{HistoryMode: true, RewrapSpecified: true, RewrapRaw: "80", RewrapWidth: 80, PaneRef: "pane-3"},
+		},
+		{
 			name: "display",
 			args: []string{"--display"},
 			want: Request{DisplayMode: true},
@@ -76,6 +81,11 @@ func TestValidateScreenRequest(t *testing.T) {
 			wantErr: "--display is mutually exclusive with other flags",
 		},
 		{
+			name:    "rewrap requires history",
+			req:     Request{RewrapSpecified: true, RewrapRaw: "80", RewrapWidth: 80, PaneRef: "pane-1"},
+			wantErr: "--rewrap requires --history",
+		},
+		{
 			name:    "display with history",
 			req:     Request{DisplayMode: true, HistoryMode: true},
 			wantErr: "--display is mutually exclusive with other flags",
@@ -113,6 +123,10 @@ func TestValidateHistoryRequest(t *testing.T) {
 			req:  Request{HistoryMode: true, PaneRef: "pane-1"},
 		},
 		{
+			name: "valid with rewrap",
+			req:  Request{HistoryMode: true, RewrapSpecified: true, RewrapRaw: "80", RewrapWidth: 80, PaneRef: "pane-1"},
+		},
+		{
 			name:    "missing history flag",
 			req:     Request{PaneRef: "pane-1"},
 			wantErr: "internal error: captureHistory called without --history",
@@ -126,6 +140,21 @@ func TestValidateHistoryRequest(t *testing.T) {
 			name:    "missing pane ref",
 			req:     Request{HistoryMode: true},
 			wantErr: "--history requires a pane target",
+		},
+		{
+			name:    "rewrap width missing",
+			req:     Request{HistoryMode: true, RewrapSpecified: true, PaneRef: "pane-1"},
+			wantErr: "--rewrap requires a positive integer width",
+		},
+		{
+			name:    "rewrap width invalid",
+			req:     Request{HistoryMode: true, RewrapSpecified: true, RewrapRaw: "wide", PaneRef: "pane-1"},
+			wantErr: "--rewrap requires a positive integer width",
+		},
+		{
+			name:    "rewrap width zero",
+			req:     Request{HistoryMode: true, RewrapSpecified: true, RewrapRaw: "0", RewrapWidth: 0, PaneRef: "pane-1"},
+			wantErr: "--rewrap requires a positive integer width",
 		},
 	}
 

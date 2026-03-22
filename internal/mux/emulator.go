@@ -3,6 +3,7 @@ package mux
 import (
 	"fmt"
 	"strings"
+	"sync"
 	"sync/atomic"
 
 	uv "github.com/charmbracelet/ultraviolet"
@@ -48,6 +49,10 @@ type TerminalEmulator interface {
 	// ScrollbackCellAt returns the raw cell at (col, row) in retained
 	// scrollback (0=oldest row). Returns nil for out-of-bounds.
 	ScrollbackCellAt(col, row int) *uv.Cell
+
+	// ScrollbackSourceWidth returns the pane width at which the scrollback row
+	// was originally wrapped. Returns zero when unknown.
+	ScrollbackSourceWidth(row int) int
 
 	// RenderWithoutCursorBlock renders the screen with the cursor cell's
 	// reverse-video attribute cleared. Used for inactive pane rendering so
@@ -118,12 +123,15 @@ func (p MouseProtocol) Enabled() bool {
 
 // vtEmulator wraps charmbracelet/x/vt.SafeEmulator.
 type vtEmulator struct {
-	emu          *vt.SafeEmulator
-	w            atomic.Int32
-	h            atomic.Int32
-	cursorHidden atomic.Bool
-	altScreen    atomic.Bool
-	mouseFlags   atomic.Uint32
+	emu              *vt.SafeEmulator
+	w                atomic.Int32
+	h                atomic.Int32
+	cursorHidden     atomic.Bool
+	altScreen        atomic.Bool
+	mouseFlags       atomic.Uint32
+	scrollbackMu     sync.Mutex
+	scrollbackWidths []int
+	scrollbackLimit  int
 }
 
 const (
@@ -136,12 +144,14 @@ const (
 // NewVTEmulatorWithScrollback creates a terminal emulator with an explicit
 // retained scrollback limit.
 func NewVTEmulatorWithScrollback(width, height, scrollbackLines int) TerminalEmulator {
+	limit := effectiveScrollbackLines(scrollbackLines)
 	v := &vtEmulator{
-		emu: vt.NewSafeEmulator(width, height),
+		emu:             vt.NewSafeEmulator(width, height),
+		scrollbackLimit: limit,
 	}
 	v.w.Store(int32(width))
 	v.h.Store(int32(height))
-	v.emu.SetScrollbackSize(effectiveScrollbackLines(scrollbackLines))
+	v.emu.SetScrollbackSize(limit)
 	// Track cursor visibility changes so CursorHidden() reflects the
 	// application's actual cursor state (e.g. \033[?25l / \033[?25h).
 	v.emu.SetCallbacks(vt.Callbacks{
@@ -157,8 +167,35 @@ func NewVTEmulatorWithScrollback(width, height, scrollbackLines int) TerminalEmu
 		DisableMode: func(mode ansi.Mode) {
 			v.setMouseMode(mode, false)
 		},
+		ScrollbackPush: func(count, width int) {
+			v.recordScrollbackPush(count, width)
+		},
+		ScrollbackClear: func() {
+			v.clearScrollbackWidths()
+		},
 	})
 	return v
+}
+
+func (v *vtEmulator) recordScrollbackPush(count, width int) {
+	if count <= 0 || width <= 0 {
+		return
+	}
+	v.scrollbackMu.Lock()
+	defer v.scrollbackMu.Unlock()
+	for range count {
+		v.scrollbackWidths = append(v.scrollbackWidths, width)
+	}
+	if overflow := len(v.scrollbackWidths) - v.scrollbackLimit; overflow > 0 {
+		copy(v.scrollbackWidths, v.scrollbackWidths[overflow:])
+		v.scrollbackWidths = v.scrollbackWidths[:len(v.scrollbackWidths)-overflow]
+	}
+}
+
+func (v *vtEmulator) clearScrollbackWidths() {
+	v.scrollbackMu.Lock()
+	defer v.scrollbackMu.Unlock()
+	v.scrollbackWidths = v.scrollbackWidths[:0]
 }
 
 func (v *vtEmulator) setMouseMode(mode ansi.Mode, enabled bool) {
@@ -253,6 +290,15 @@ func (v *vtEmulator) ScrollbackCellAt(col, row int) *uv.Cell {
 	}
 	cell := line[col]
 	return &cell
+}
+
+func (v *vtEmulator) ScrollbackSourceWidth(row int) int {
+	v.scrollbackMu.Lock()
+	defer v.scrollbackMu.Unlock()
+	if row < 0 || row >= len(v.scrollbackWidths) {
+		return 0
+	}
+	return v.scrollbackWidths[row]
 }
 
 // screenLineTextInner extracts plain text from screen row y across w columns.
@@ -512,6 +558,50 @@ func EmulatorScrollbackLines(emu TerminalEmulator) []string {
 		lines[y] = emu.ScrollbackLineText(y)
 	}
 	return lines
+}
+
+// EmulatorScrollbackHistoryLines returns retained scrollback rows with their
+// tracked source widths.
+func EmulatorScrollbackHistoryLines(emu TerminalEmulator) []CaptureHistoryLine {
+	lines := make([]CaptureHistoryLine, emu.ScrollbackLen())
+	for y := range len(lines) {
+		sourceWidth := emu.ScrollbackSourceWidth(y)
+		lines[y] = CaptureHistoryLine{
+			Text:        emu.ScrollbackLineText(y),
+			SourceWidth: sourceWidth,
+			Filled:      lineUsesFullWidth(sourceWidth, func(x int) *uv.Cell { return emu.ScrollbackCellAt(x, y) }),
+		}
+	}
+	return lines
+}
+
+// EmulatorContentHistoryLines returns visible screen rows with the width they
+// were wrapped at and whether they filled the available width.
+func EmulatorContentHistoryLines(emu TerminalEmulator) []CaptureHistoryLine {
+	width, rows := emu.Size()
+	lines := make([]CaptureHistoryLine, rows)
+	for y := 0; y < rows; y++ {
+		lines[y] = CaptureHistoryLine{
+			Text:        emu.ScreenLineText(y),
+			SourceWidth: width,
+			Filled:      lineUsesFullWidth(width, func(x int) *uv.Cell { return emu.CellAt(x, y) }),
+		}
+	}
+	return lines
+}
+
+func lineUsesFullWidth(width int, cellAt func(int) *uv.Cell) bool {
+	if width <= 0 {
+		return false
+	}
+	cell := cellAt(width - 1)
+	if cell == nil {
+		return false
+	}
+	if cell.Width == 0 {
+		return true
+	}
+	return cell.Content != "" || (!cell.IsZero() && !cell.Equal(&uv.EmptyCell))
 }
 
 // RenderWithCursor returns the emulator's screen using explicit cursor
