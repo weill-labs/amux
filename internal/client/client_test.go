@@ -1885,3 +1885,29 @@ func TestRescaleLayoutForSmallerClientResizesEmulators(t *testing.T) {
 		t.Fatalf("pane cursor = (%d,%d), want (2,2)", got.Col, got.Row)
 	}
 }
+
+func TestRescaleLayoutForSmallerClientClampsOversizedScrollRegion(t *testing.T) {
+	t.Parallel()
+
+	// The larger client owns the server PTY size, but this client still replays
+	// the pane into its smaller local emulator.
+	cr := NewClientRenderer(40, 12)
+	cr.HandleLayout(twoPane80x23())
+
+	emu, ok := cr.Emulator(1)
+	if !ok {
+		t.Fatal("pane-1 emulator missing")
+	}
+	if w, h := emu.Size(); w != 19 || h != 10 {
+		t.Fatalf("pane-1 emulator size on smaller client = %dx%d, want 19x10", w, h)
+	}
+
+	cr.HandlePaneOutput(1, []byte("\x1b[1;23r\x1b[H\x1bMok"))
+
+	if !emu.ScreenContains("ok") {
+		t.Fatalf("ScreenContains(%q) = false\nrender:\n%s", "ok", emu.Render())
+	}
+	if got := cr.RenderDiff(); got == "" {
+		t.Fatal("RenderDiff after oversized scroll region should produce output")
+	}
+}
