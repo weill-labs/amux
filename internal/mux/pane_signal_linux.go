@@ -5,7 +5,6 @@ package mux
 import (
 	"fmt"
 	"os"
-	"syscall"
 
 	"golang.org/x/sys/unix"
 )
@@ -19,7 +18,7 @@ func (p *Pane) foregroundProcessGroup() (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	tty, err := os.OpenFile(ttyPath, os.O_RDWR|syscall.O_NOCTTY, 0)
+	tty, err := os.OpenFile(ttyPath, os.O_RDWR|unix.O_NOCTTY, 0)
 	if err != nil {
 		return 0, err
 	}
