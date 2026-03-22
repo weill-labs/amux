@@ -118,7 +118,13 @@ func main() {
 		}
 
 	case "split":
-		runServerCommand("split", args[1:])
+		splitArgs, err := parseSplitArgs(args[1:])
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "amux split: %v\n", err)
+			fmt.Fprintf(os.Stderr, "usage: amux split [root] [--vertical|--horizontal] [--name NAME] [--host HOST]\n")
+			os.Exit(1)
+		}
+		runServerCommand("split", splitArgs)
 	case "list":
 		runServerCommand("list", nil)
 	case "status":
@@ -310,6 +316,73 @@ func parseAttachArgs(args []string) (sessionName string, detachOthers bool) {
 	return
 }
 
+// parseSplitArgs parses args for "amux split [root] [--vertical|--horizontal] [--name NAME] [--host HOST]".
+// It normalizes back to the legacy server arg shape so keybindings and direct
+// protocol callers can keep using "root" and "v".
+func parseSplitArgs(args []string) ([]string, error) {
+	rootLevel := false
+	hostName := ""
+	name := ""
+	dir := mux.SplitHorizontal
+	hasExplicitDir := false
+
+	setDir := func(next mux.SplitDir) error {
+		if hasExplicitDir && dir != next {
+			return fmt.Errorf("conflicting split directions")
+		}
+		dir = next
+		hasExplicitDir = true
+		return nil
+	}
+
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "root":
+			rootLevel = true
+		case "v", "--vertical":
+			if err := setDir(mux.SplitVertical); err != nil {
+				return nil, err
+			}
+		case "--horizontal":
+			if err := setDir(mux.SplitHorizontal); err != nil {
+				return nil, err
+			}
+		case "--host":
+			if i+1 >= len(args) {
+				return nil, fmt.Errorf("--host requires a value")
+			}
+			hostName = args[i+1]
+			i++
+		case "--name":
+			if i+1 >= len(args) {
+				return nil, fmt.Errorf("--name requires a value")
+			}
+			name = args[i+1]
+			i++
+		default:
+			return nil, fmt.Errorf("unknown split arg %q", args[i])
+		}
+	}
+
+	parsed := make([]string, 0, 4)
+	if rootLevel {
+		parsed = append(parsed, "root")
+	}
+	if dir == mux.SplitVertical {
+		parsed = append(parsed, "v")
+	}
+	if hostName != "" {
+		parsed = append(parsed, "--host", hostName)
+	}
+	if name != "" {
+		parsed = append(parsed, "--name", name)
+	}
+	if len(parsed) == 0 {
+		return nil, nil
+	}
+	return parsed, nil
+}
+
 func printUsage() {
 	fmt.Println(`amux — Agent-Centric Terminal Multiplexer
 
@@ -357,7 +430,7 @@ Usage:
   amux [-s session] list-hooks         List registered hooks
   amux [-s session] events [--filter type1,type2] [--pane <ref>] [--host <name>] [--client <id>]
                                        Stream events as NDJSON (layout, idle, busy, hook, display-panes-*, choose-*, copy-mode-*, input-*)
-  amux [-s session] split [root] [v] [--name NAME] [--host HOST]
+  amux [-s session] split [root] [--vertical|--horizontal] [--name NAME] [--host HOST]
                                        Split active pane (default: horizontal)
   amux [-s session] hosts              List configured remote hosts + status
   amux [-s session] disconnect <host>  Drop SSH connection to a host
