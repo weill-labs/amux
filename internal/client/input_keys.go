@@ -88,10 +88,14 @@ func legacyBytesForKeyPress(key uv.KeyPressEvent) []byte {
 	code := legacyCtrlRune(k)
 
 	// Shifted printable keys should still behave like their textual byte form
-	// for local bindings such as prefix + M.
-	if k.Text != "" && mod&^uv.ModShift == 0 {
-		if ascii := asciiTextBytes(k.Text); len(ascii) > 0 {
+	// for local bindings such as prefix + M, including alt-modified text that
+	// should preserve the shifted glyph.
+	if ascii := asciiTextBytes(k.Text); len(ascii) > 0 {
+		switch mod &^ uv.ModShift {
+		case 0:
 			return ascii
+		case uv.ModAlt:
+			return append([]byte{0x1b}, ascii...)
 		}
 	}
 
@@ -106,9 +110,6 @@ func legacyBytesForKeyPress(key uv.KeyPressEvent) []byte {
 		}
 		if seq := legacySpecialKeySequence(k.Code); len(seq) > 0 {
 			return append([]byte{0x1b}, seq...)
-		}
-		if ascii, ok := asciiRuneByte(code); ok {
-			return []byte{0x1b, ascii}
 		}
 	case uv.ModCtrl:
 		if b, ok := legacyCtrlByte(code); ok {
@@ -146,10 +147,7 @@ func legacyPrintableBytes(k uv.Key) []byte {
 }
 
 func legacyCtrlRune(k uv.Key) rune {
-	if k.ShiftedCode != 0 && k.Mod.Contains(uv.ModShift|uv.ModCtrl) {
-		return k.ShiftedCode
-	}
-	if k.ShiftedCode != 0 && k.Mod == uv.ModShift {
+	if k.ShiftedCode != 0 && k.Mod.Contains(uv.ModShift) {
 		return k.ShiftedCode
 	}
 	if k.Code != 0 {
