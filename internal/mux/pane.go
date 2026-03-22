@@ -20,30 +20,7 @@ const DefaultHost = "local"
 const PaneNameFormat = "pane-%d"
 
 func paneShellEnv(id uint32, sessionName string) []string {
-	env := make([]string, 0, len(os.Environ())+3)
-	for _, entry := range os.Environ() {
-		key, _, ok := strings.Cut(entry, "=")
-		if !ok {
-			env = append(env, entry)
-			continue
-		}
-		switch key {
-		case "TERM", "AMUX_PANE", "AMUX_SESSION":
-			// amux owns these values for pane shells.
-			continue
-		case "NO_COLOR", "CODEX_CI":
-			// These are launcher-context flags. Passing them through to an
-			// interactive pane makes nested tools like Codex suppress ANSI.
-			continue
-		}
-		env = append(env, entry)
-	}
-	env = append(env,
-		"TERM=amux",
-		fmt.Sprintf("AMUX_PANE=%d", id),
-		"AMUX_SESSION="+sessionName,
-	)
-	return env
+	return paneCommandEnv(os.Environ(), id, sessionName)
 }
 
 // PaneMeta holds amux metadata for a pane.
@@ -155,6 +132,33 @@ func NewPaneWithScrollback(id uint32, meta PaneMeta, cols, rows int, sessionName
 	}
 	p.baseHistory.Store(&paneBaseHistory{})
 	return p, nil
+}
+
+func paneCommandEnv(base []string, paneID uint32, sessionName string) []string {
+	env := make([]string, 0, len(base)+3)
+	for _, entry := range base {
+		key, _, ok := strings.Cut(entry, "=")
+		if !ok {
+			env = append(env, entry)
+			continue
+		}
+		switch key {
+		case "TERM", "AMUX_PANE", "AMUX_SESSION":
+			// amux owns these values for pane shells.
+			continue
+		case "NO_COLOR", "CODEX_CI":
+			// These are launcher-context flags. Passing them through to an
+			// interactive pane makes nested tools like Codex suppress ANSI.
+			continue
+		}
+		env = append(env, entry)
+	}
+	env = append(env,
+		"TERM=amux",
+		fmt.Sprintf("AMUX_PANE=%d", paneID),
+		"AMUX_SESSION="+sessionName,
+	)
+	return env
 }
 
 // RestorePaneWithScrollback creates a pane from inherited file descriptors
