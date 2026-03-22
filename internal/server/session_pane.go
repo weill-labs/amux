@@ -62,6 +62,9 @@ func (s *Session) removePane(id uint32) {
 		delete(s.pacedPanes, id)
 	}
 	s.idle.StopTimer(id)
+	if s.vtIdle != nil {
+		s.vtIdle.StopTimer(id)
+	}
 }
 
 func (s *Session) enqueuePacedPaneInput(pane *mux.Pane, chunks []encodedKeyChunk) error {

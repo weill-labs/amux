@@ -259,6 +259,29 @@ func (e idleTimeoutEvent) handle(s *Session) {
 	s.broadcastLayoutNow()
 }
 
+type vtIdleTimeoutEvent struct {
+	paneID     uint32
+	lastOutput time.Time
+}
+
+func (e vtIdleTimeoutEvent) handle(s *Session) {
+	if !s.vtIdle.MarkSettled(e.paneID, e.lastOutput) {
+		return
+	}
+
+	pane := s.findPaneByID(e.paneID)
+	if pane == nil {
+		return
+	}
+
+	s.emitEvent(Event{
+		Type:     EventVTIdle,
+		PaneID:   e.paneID,
+		PaneName: pane.Meta.Name,
+		Host:     pane.Meta.Host,
+	})
+}
+
 type cwdBranchResultEvent struct {
 	paneID uint32
 	cwd    string
@@ -475,6 +498,10 @@ func (s *Session) enqueueClipboard(paneID uint32, data []byte) {
 
 func (s *Session) enqueueIdleTimeout(paneID uint32) {
 	s.enqueueEvent(idleTimeoutEvent{paneID: paneID})
+}
+
+func (s *Session) enqueueVTIdleTimeout(paneID uint32, lastOutput time.Time) {
+	s.enqueueEvent(vtIdleTimeoutEvent{paneID: paneID, lastOutput: lastOutput})
 }
 
 func (s *Session) enqueueTakeover(srv *Server, paneID uint32, req mux.TakeoverRequest) {

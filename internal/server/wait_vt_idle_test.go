@@ -10,11 +10,11 @@ import (
 	"github.com/weill-labs/amux/internal/mux"
 )
 
-func startAsyncCommand(t *testing.T, srv *Server, sess *Session, name string, args ...string) (net.Conn, *ClientConn, <-chan struct{}) {
+func startAsyncCommand(t *testing.T, srv *Server, sess *Session, name string, args ...string) (net.Conn, *clientConn, <-chan struct{}) {
 	t.Helper()
 
 	serverConn, clientConn := net.Pipe()
-	cc := NewClientConn(serverConn)
+	cc := newClientConn(serverConn)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)

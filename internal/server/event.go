@@ -11,6 +11,7 @@ const (
 	EventOutput           = "output"
 	EventIdle             = "idle"
 	EventBusy             = "busy"
+	EventVTIdle           = "vt-idle"
 	EventHook             = "hook"
 	EventClientConnect    = "client-connect"
 	EventClientDisconnect = "client-disconnect"
@@ -81,7 +82,8 @@ func (f eventFilter) matches(ev Event) bool {
 func (s *Session) currentStateEvents() []Event {
 	idleSnap := s.idle.SnapshotState()
 
-	now := time.Now().UTC().Format(time.RFC3339Nano)
+	snapshotNow := time.Now()
+	now := snapshotNow.UTC().Format(time.RFC3339Nano)
 	var events []Event
 
 	// Current layout state
@@ -110,6 +112,15 @@ func (s *Session) currentStateEvents() []Event {
 			PaneName:  p.Meta.Name,
 			Host:      p.Meta.Host,
 		})
+		if s.vtIdle != nil && s.vtIdle.IsSettled(p.ID, p.CreatedAt(), defaultVTIdleSettle, snapshotNow) {
+			events = append(events, Event{
+				Type:      EventVTIdle,
+				Timestamp: now,
+				PaneID:    p.ID,
+				PaneName:  p.Meta.Name,
+				Host:      p.Meta.Host,
+			})
+		}
 	}
 
 	for _, cc := range s.clients {
