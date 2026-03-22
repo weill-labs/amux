@@ -594,6 +594,15 @@ type uiEventCmd struct {
 
 func (e uiEventCmd) handle(s *Session) {
 	activityChanged := s.noteClientActivity(e.cc)
+	if e.uiEvent == proto.UIEventClientFocusGained {
+		if activityChanged {
+			s.recalcSize()
+			s.broadcastLayoutNow()
+		}
+		e.cc.uiGeneration++
+		s.emitEvent(Event{Type: e.uiEvent, ClientID: e.cc.ID})
+		return
+	}
 	changed, err := e.cc.applyUIEvent(e.uiEvent)
 	clientID := e.cc.ID
 	if err != nil {

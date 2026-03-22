@@ -787,6 +787,26 @@ func TestUIEventCmdIncrementsClientGenerationOnlyOnRealChanges(t *testing.T) {
 	}
 }
 
+func TestUIEventCmdClientFocusAlwaysIncrementsGeneration(t *testing.T) {
+	t.Parallel()
+
+	sess := newSession("test-ui-event-client-focus")
+	stopCrashCheckpointLoop(t, sess)
+	defer stopSessionBackgroundLoops(t, sess)
+
+	cc := &ClientConn{ID: "client-1", inputIdle: true}
+
+	uiEventCmd{cc: cc, uiEvent: proto.UIEventClientFocusGained}.handle(sess)
+	if cc.uiGeneration != 1 {
+		t.Fatalf("uiGeneration after first client focus = %d, want 1", cc.uiGeneration)
+	}
+
+	uiEventCmd{cc: cc, uiEvent: proto.UIEventClientFocusGained}.handle(sess)
+	if cc.uiGeneration != 2 {
+		t.Fatalf("uiGeneration after second client focus = %d, want 2", cc.uiGeneration)
+	}
+}
+
 func readMsgWithTimeout(t *testing.T, conn net.Conn) *Message {
 	t.Helper()
 

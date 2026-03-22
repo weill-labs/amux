@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/weill-labs/amux/internal/proto"
 	"github.com/weill-labs/amux/internal/server"
 )
 
@@ -137,5 +138,29 @@ func TestMultiClientLatestClientShrinkRecalculates(t *testing.T) {
 	h.waitLayout(gen)
 
 	h.assertLayoutSize(70, 20, 70, 19)
+	assertCaptureConsistent(t, h.captureJSON())
+}
+
+func TestMultiClientFocusTransfersSizeOwnership(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t) // 80x24
+
+	large := h.attachClient(120, 40)
+	defer large.close()
+
+	gen := h.generation()
+	h.waitLayout(gen)
+	h.assertLayoutSize(120, 40, 120, 39)
+
+	gen = h.generation()
+	h.client.sendUIEvent(proto.UIEventClientFocusGained)
+	h.waitLayout(gen)
+	h.assertLayoutSize(80, 24, 80, 23)
+	assertCaptureConsistent(t, h.captureJSON())
+
+	gen = h.generation()
+	large.sendUIEvent(proto.UIEventClientFocusGained)
+	h.waitLayout(gen)
+	h.assertLayoutSize(120, 40, 120, 39)
 	assertCaptureConsistent(t, h.captureJSON())
 }

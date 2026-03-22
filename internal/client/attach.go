@@ -54,6 +54,7 @@ func terminalEnterSequence(caps proto.ClientCapabilities) string {
 	var b strings.Builder
 	b.WriteString(render.AltScreenEnter)
 	b.WriteString(render.MouseEnable)
+	b.WriteString(render.FocusEnable)
 	if caps.KittyKeyboard {
 		b.WriteString(render.KittyKeyboardEnable)
 	}
@@ -65,6 +66,7 @@ func terminalExitSequence(caps proto.ClientCapabilities) string {
 	if caps.KittyKeyboard {
 		b.WriteString(render.KittyKeyboardDisable)
 	}
+	b.WriteString(render.FocusDisable)
 	b.WriteString(render.MouseDisable)
 	b.WriteString(render.AltScreenExit)
 	b.WriteString(render.ResetTitle)
@@ -514,6 +516,7 @@ func RunSession(sessionName string) error {
 		for {
 			var raw []byte
 			localInput := false
+			localActivity := false
 			var wordCopyTimer <-chan time.Time
 			if !drag.PendingWordCopyAt.IsZero() {
 				wait := time.Until(drag.PendingWordCopyAt)
@@ -529,7 +532,6 @@ func RunSession(sessionName string) error {
 				}
 				raw = data
 				localInput = true
-				cr.MarkLocalInput()
 			case data := <-injectCh:
 				raw = data
 			case <-wordCopyTimer:
@@ -544,9 +546,32 @@ func RunSession(sessionName string) error {
 				}
 				continue
 			}
-			cr.SetInputIdle(false)
 
-			if localInput && cr.ClearCommandFeedback() {
+			if localInput {
+				localActivity = hasActivityInput(raw)
+				if localActivity {
+					cr.MarkLocalInput()
+				}
+			}
+
+			inputActivity := !localInput || localActivity
+			if inputActivity {
+				cr.SetInputIdle(false)
+			}
+
+			if localInput && !localActivity {
+				for _, decoded := range decodeInputEvents(raw) {
+					if uiEvent, handled := clientUIEventForDecodedInput(decoded); handled && uiEvent != "" {
+						sender.Send(&proto.Message{
+							Type:    proto.MsgTypeUIEvent,
+							UIEvent: uiEvent,
+						})
+					}
+				}
+				continue
+			}
+
+			if localActivity && cr.ClearCommandFeedback() {
 				if data := cr.RenderDiff(); data != "" {
 					io.WriteString(os.Stdout, data)
 				}
@@ -616,6 +641,16 @@ func RunSession(sessionName string) error {
 
 				// Process flushed bytes (normal input that passed through parser)
 				for _, decoded := range decodeInputEvents(flushed) {
+					if uiEvent, handled := clientUIEventForDecodedInput(decoded); handled {
+						if uiEvent != "" {
+							sender.Send(&proto.Message{
+								Type:    proto.MsgTypeUIEvent,
+								UIEvent: uiEvent,
+							})
+						}
+						continue
+					}
+
 					normalized := normalizeLocalInput(decoded.raw)
 					if len(normalized) == 0 {
 						normalized = decoded.raw
@@ -663,7 +698,9 @@ func RunSession(sessionName string) error {
 			}
 
 			if shouldExit {
-				cr.SetInputIdle(true)
+				if inputActivity {
+					cr.SetInputIdle(true)
+				}
 				return
 			}
 
@@ -677,7 +714,9 @@ func RunSession(sessionName string) error {
 					Type: proto.MsgTypeInput, Input: forward,
 				})
 			}
-			cr.SetInputIdle(true)
+			if inputActivity {
+				cr.SetInputIdle(true)
+			}
 		}
 	}()
 

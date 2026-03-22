@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/weill-labs/amux/internal/proto"
 )
 
 func TestNormalizeLocalInput(t *testing.T) {
@@ -77,6 +78,101 @@ func TestDecodeInputEventsKittyCtrlA(t *testing.T) {
 	}
 	if !key.MatchString("ctrl+a") {
 		t.Fatalf("decoded key = %q, want ctrl+a", key.Keystroke())
+	}
+}
+
+func TestDecodeInputEventsFocusAndBlur(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		input []byte
+		want  any
+	}{
+		{
+			name:  "focus",
+			input: []byte("\x1b[I"),
+			want:  uv.FocusEvent{},
+		},
+		{
+			name:  "blur",
+			input: []byte("\x1b[O"),
+			want:  uv.BlurEvent{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			events := decodeInputEvents(tt.input)
+			if len(events) != 1 {
+				t.Fatalf("len(events) = %d, want 1", len(events))
+			}
+			if got := events[0].event; got != tt.want {
+				t.Fatalf("event = %T, want %T", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestClientUIEventForDecodedInput(t *testing.T) {
+	t.Parallel()
+
+	focus := decodeInputEvents([]byte("\x1b[I"))[0]
+	if got, handled := clientUIEventForDecodedInput(focus); !handled || got != proto.UIEventClientFocusGained {
+		t.Fatalf("focus ui event = (%q, %v), want (%q, true)", got, handled, proto.UIEventClientFocusGained)
+	}
+
+	blur := decodeInputEvents([]byte("\x1b[O"))[0]
+	if got, handled := clientUIEventForDecodedInput(blur); !handled || got != "" {
+		t.Fatalf("blur ui event = (%q, %v), want (\"\", true)", got, handled)
+	}
+
+	key := decodeInputEvents([]byte("x"))[0]
+	if got, handled := clientUIEventForDecodedInput(key); handled || got != "" {
+		t.Fatalf("keypress ui event = (%q, %v), want (\"\", false)", got, handled)
+	}
+}
+
+func TestHasActivityInputIgnoresFocusEvents(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		input []byte
+		want  bool
+	}{
+		{
+			name:  "focus only",
+			input: []byte("\x1b[I"),
+			want:  false,
+		},
+		{
+			name:  "blur only",
+			input: []byte("\x1b[O"),
+			want:  false,
+		},
+		{
+			name:  "focus plus key",
+			input: []byte("\x1b[Ix"),
+			want:  true,
+		},
+		{
+			name:  "plain key",
+			input: []byte("x"),
+			want:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := hasActivityInput(tt.input); got != tt.want {
+				t.Fatalf("hasActivityInput(%q) = %v, want %v", tt.input, got, tt.want)
+			}
+		})
 	}
 }
 

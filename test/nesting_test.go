@@ -27,6 +27,26 @@ func TestNestingEnvVarSet(t *testing.T) {
 	h.waitFor("pane-1", "TERM=amux")
 }
 
+func TestPaneShellStripsColorSuppressorsFromServerEnv(t *testing.T) {
+	t.Parallel()
+
+	h := newServerHarnessWithOptions(t, 80, 24, "", true, "NO_COLOR=1", "CODEX_CI=1")
+
+	h.sendKeys("pane-1", `printf 'NO_COLOR=%s CODEX_CI=%s TERM=%s\n' "${NO_COLOR-unset}" "${CODEX_CI-unset}" "$TERM"`, "Enter")
+	h.waitFor("pane-1", "TERM=amux")
+
+	out := h.runCmd("capture", "pane-1")
+	if strings.Contains(out, "NO_COLOR=1") {
+		t.Fatalf("pane shell inherited NO_COLOR from server env:\n%s", out)
+	}
+	if strings.Contains(out, "CODEX_CI=1") {
+		t.Fatalf("pane shell inherited CODEX_CI from server env:\n%s", out)
+	}
+	if !strings.Contains(out, "NO_COLOR=unset CODEX_CI=unset TERM=amux") {
+		t.Fatalf("pane shell env missing expected sanitized output:\n%s", out)
+	}
+}
+
 func TestNestingSameSessionBlocked(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
