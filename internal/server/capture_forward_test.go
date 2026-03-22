@@ -669,7 +669,7 @@ func readCaptureRequestForTest(t *testing.T, conn net.Conn) *Message {
 	return msg
 }
 
-func startForwardCaptureForTest(t *testing.T, sess *Session, args []string) (*Message, <-chan *Message) {
+func startCaptureCallForTest(t *testing.T, sess *Session, call func() *Message) (*Message, <-chan *Message) {
 	t.Helper()
 
 	serverConn, peerConn := net.Pipe()
@@ -691,38 +691,24 @@ func startForwardCaptureForTest(t *testing.T, sess *Session, args []string) (*Me
 
 	respCh := make(chan *Message, 1)
 	go func() {
-		respCh <- sess.forwardCapture(args)
+		respCh <- call()
 	}()
 
 	return readCaptureRequestForTest(t, peerConn), respCh
 }
 
+func startForwardCaptureForTest(t *testing.T, sess *Session, args []string) (*Message, <-chan *Message) {
+	t.Helper()
+	return startCaptureCallForTest(t, sess, func() *Message {
+		return sess.forwardCapture(args)
+	})
+}
+
 func startCapturePaneWithFallbackForTest(t *testing.T, sess *Session, args []string) (*Message, <-chan *Message) {
 	t.Helper()
-
-	serverConn, peerConn := net.Pipe()
-	t.Cleanup(func() {
-		peerConn.Close()
-		serverConn.Close()
+	return startCaptureCallForTest(t, sess, func() *Message {
+		return sess.capturePaneWithFallback(args)
 	})
-	cc := newClientConn(serverConn)
-	t.Cleanup(func() {
-		cc.Close()
-	})
-
-	if _, err := enqueueSessionQuery(sess, func(sess *Session) (struct{}, error) {
-		sess.clients = []*clientConn{cc}
-		return struct{}{}, nil
-	}); err != nil {
-		t.Fatalf("enqueueSessionQuery: %v", err)
-	}
-
-	respCh := make(chan *Message, 1)
-	go func() {
-		respCh <- sess.capturePaneWithFallback(args)
-	}()
-
-	return readCaptureRequestForTest(t, peerConn), respCh
 }
 
 func deliverCaptureResponseForTest(t *testing.T, sess *Session, req *Message, respCh <-chan *Message) {
