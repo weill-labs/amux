@@ -54,24 +54,7 @@ func TestForwardCaptureAgentStatusScope(t *testing.T) {
 				t.Fatalf("enqueueSessionQuery: %v", err)
 			}
 
-			serverConn, clientConn := net.Pipe()
-			defer clientConn.Close()
-			cc := NewClientConn(serverConn)
-			defer cc.Close()
-
-			if _, err := enqueueSessionQuery(sess, func(sess *Session) (struct{}, error) {
-				sess.clients = []*ClientConn{cc}
-				return struct{}{}, nil
-			}); err != nil {
-				t.Fatalf("enqueueSessionQuery: %v", err)
-			}
-
-			respCh := make(chan *Message, 1)
-			go func() {
-				respCh <- sess.forwardCapture(tt.args)
-			}()
-
-			msg := readCaptureRequestForTest(t, clientConn)
+			msg, respCh := startForwardCaptureForTest(t, sess, tt.args)
 			if msg.Type != MsgTypeCaptureRequest {
 				t.Fatalf("message type = %v, want capture request", msg.Type)
 			}
@@ -91,22 +74,7 @@ func TestForwardCaptureAgentStatusScope(t *testing.T) {
 				}
 			}
 
-			sess.routeCaptureResponse(&Message{
-				Type:      MsgTypeCaptureResponse,
-				CmdOutput: "ok",
-			})
-
-			select {
-			case resp := <-respCh:
-				if resp.CmdErr != "" {
-					t.Fatalf("forwardCapture error: %s", resp.CmdErr)
-				}
-				if resp.CmdOutput != "ok" {
-					t.Fatalf("forwardCapture output = %q, want ok", resp.CmdOutput)
-				}
-			case <-time.After(time.Second):
-				t.Fatal("forwardCapture did not return")
-			}
+			deliverCaptureResponseForTest(t, sess, respCh)
 		})
 	}
 }
@@ -131,10 +99,46 @@ func TestForwardCaptureFullScreenJSONUsesActiveWindowPanesOnly(t *testing.T) {
 		t.Fatalf("enqueueSessionQuery: %v", err)
 	}
 
+	msg, respCh := startForwardCaptureForTest(t, sess, []string{"--format", "json"})
+	gotIDs := make([]uint32, 0, len(msg.AgentStatus))
+	for paneID := range msg.AgentStatus {
+		gotIDs = append(gotIDs, paneID)
+	}
+	slices.Sort(gotIDs)
+	if want := []uint32{1, 2}; !slices.Equal(gotIDs, want) {
+		t.Fatalf("agent status pane IDs = %v, want %v", gotIDs, want)
+	}
+
+	deliverCaptureResponseForTest(t, sess, respCh)
+}
+
+func readCaptureRequestForTest(t *testing.T, conn net.Conn) *Message {
+	t.Helper()
+
+	if err := conn.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+		t.Fatalf("SetReadDeadline: %v", err)
+	}
+	defer conn.SetReadDeadline(time.Time{})
+
+	msg, err := ReadMsg(conn)
+	if err != nil {
+		t.Fatalf("ReadMsg: %v", err)
+	}
+	return msg
+}
+
+func startForwardCaptureForTest(t *testing.T, sess *Session, args []string) (*Message, <-chan *Message) {
+	t.Helper()
+
 	serverConn, clientConn := net.Pipe()
-	defer clientConn.Close()
+	t.Cleanup(func() {
+		clientConn.Close()
+		serverConn.Close()
+	})
 	cc := NewClientConn(serverConn)
-	defer cc.Close()
+	t.Cleanup(func() {
+		cc.Close()
+	})
 
 	if _, err := enqueueSessionQuery(sess, func(sess *Session) (struct{}, error) {
 		sess.clients = []*ClientConn{cc}
@@ -145,18 +149,14 @@ func TestForwardCaptureFullScreenJSONUsesActiveWindowPanesOnly(t *testing.T) {
 
 	respCh := make(chan *Message, 1)
 	go func() {
-		respCh <- sess.forwardCapture([]string{"--format", "json"})
+		respCh <- sess.forwardCapture(args)
 	}()
 
-	msg := readCaptureRequestForTest(t, clientConn)
-	gotIDs := make([]uint32, 0, len(msg.AgentStatus))
-	for paneID := range msg.AgentStatus {
-		gotIDs = append(gotIDs, paneID)
-	}
-	slices.Sort(gotIDs)
-	if want := []uint32{1, 2}; !slices.Equal(gotIDs, want) {
-		t.Fatalf("agent status pane IDs = %v, want %v", gotIDs, want)
-	}
+	return readCaptureRequestForTest(t, clientConn), respCh
+}
+
+func deliverCaptureResponseForTest(t *testing.T, sess *Session, respCh <-chan *Message) {
+	t.Helper()
 
 	sess.routeCaptureResponse(&Message{
 		Type:      MsgTypeCaptureResponse,
@@ -174,19 +174,4 @@ func TestForwardCaptureFullScreenJSONUsesActiveWindowPanesOnly(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("forwardCapture did not return")
 	}
-}
-
-func readCaptureRequestForTest(t *testing.T, conn net.Conn) *Message {
-	t.Helper()
-
-	if err := conn.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
-		t.Fatalf("SetReadDeadline: %v", err)
-	}
-	defer conn.SetReadDeadline(time.Time{})
-
-	msg, err := ReadMsg(conn)
-	if err != nil {
-		t.Fatalf("ReadMsg: %v", err)
-	}
-	return msg
 }
