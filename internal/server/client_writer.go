@@ -19,11 +19,12 @@ type clientWriterCommand interface {
 }
 
 type clientWriter struct {
-	conn       net.Conn
-	commands   chan clientWriterCommand
-	stop       chan struct{}
-	done       chan struct{}
-	onSlowDrop func()
+	conn         net.Conn
+	commands     chan clientWriterCommand
+	paneCommands chan clientWriterCommand
+	stop         chan struct{}
+	done         chan struct{}
+	onSlowDrop   func()
 
 	closeOnce sync.Once
 	stopOnce  sync.Once
@@ -144,11 +145,12 @@ func newClientWriter(conn net.Conn, onSlowDrop func()) *clientWriter {
 		return nil
 	}
 	w := &clientWriter{
-		conn:       conn,
-		commands:   make(chan clientWriterCommand, clientWriterQueueSize),
-		stop:       make(chan struct{}),
-		done:       make(chan struct{}),
-		onSlowDrop: onSlowDrop,
+		conn:         conn,
+		commands:     make(chan clientWriterCommand, clientWriterQueueSize),
+		paneCommands: make(chan clientWriterCommand, clientWriterQueueSize),
+		stop:         make(chan struct{}),
+		done:         make(chan struct{}),
+		onSlowDrop:   onSlowDrop,
 	}
 	go w.loop()
 	return w
@@ -164,12 +166,71 @@ func (w *clientWriter) loop() {
 		select {
 		case <-w.stop:
 			return
+		default:
+		}
+
+		if state.bootstrapping {
+			select {
+			case <-w.stop:
+				return
+			case cmd := <-w.paneCommands:
+				if cmd == nil {
+					continue
+				}
+				if cmd.handle(&state, w.conn) {
+					return
+				}
+			default:
+				select {
+				case <-w.stop:
+					return
+				case cmd := <-w.paneCommands:
+					if cmd == nil {
+						continue
+					}
+					if cmd.handle(&state, w.conn) {
+						return
+					}
+				case cmd := <-w.commands:
+					if cmd == nil {
+						continue
+					}
+					if cmd.handle(&state, w.conn) {
+						return
+					}
+				}
+			}
+			continue
+		}
+
+		select {
+		case <-w.stop:
+			return
 		case cmd := <-w.commands:
 			if cmd == nil {
 				continue
 			}
 			if cmd.handle(&state, w.conn) {
 				return
+			}
+		default:
+			select {
+			case <-w.stop:
+				return
+			case cmd := <-w.commands:
+				if cmd == nil {
+					continue
+				}
+				if cmd.handle(&state, w.conn) {
+					return
+				}
+			case cmd := <-w.paneCommands:
+				if cmd == nil {
+					continue
+				}
+				if cmd.handle(&state, w.conn) {
+					return
+				}
 			}
 		}
 	}
@@ -212,7 +273,7 @@ func (w *clientWriter) sendPaneOutput(msg *Message, paneID uint32, seq uint64) {
 	if w == nil {
 		return
 	}
-	if !w.enqueueAsync(clientWriterPaneOutputCommand{msg: msg, paneID: paneID, seq: seq}) {
+	if !w.enqueueAsyncPane(clientWriterPaneOutputCommand{msg: msg, paneID: paneID, seq: seq}) {
 		w.dropSlowClient()
 		return
 	}
@@ -297,6 +358,27 @@ func (w *clientWriter) enqueueAsync(cmd clientWriterCommand) bool {
 	case <-w.done:
 		return false
 	case w.commands <- cmd:
+		return true
+	default:
+		return false
+	}
+}
+
+func (w *clientWriter) enqueueAsyncPane(cmd clientWriterCommand) bool {
+	select {
+	case <-w.stop:
+		return false
+	case <-w.done:
+		return false
+	default:
+	}
+
+	select {
+	case <-w.stop:
+		return false
+	case <-w.done:
+		return false
+	case w.paneCommands <- cmd:
 		return true
 	default:
 		return false

@@ -18,14 +18,33 @@ func (c testClientWriterCommand) handle(*clientWriterState, net.Conn) bool {
 	return c.ret
 }
 
+type orderedClientWriterCommand struct {
+	label   string
+	order   chan<- string
+	started chan<- struct{}
+	release <-chan struct{}
+}
+
+func (c orderedClientWriterCommand) handle(*clientWriterState, net.Conn) bool {
+	if c.started != nil {
+		close(c.started)
+	}
+	if c.release != nil {
+		<-c.release
+	}
+	c.order <- c.label
+	return false
+}
+
 func TestClientWriterLoopSkipsNilCommands(t *testing.T) {
 	t.Parallel()
 
 	handled := make(chan struct{})
 	w := &clientWriter{
-		commands: make(chan clientWriterCommand, 1),
-		stop:     make(chan struct{}),
-		done:     make(chan struct{}),
+		commands:     make(chan clientWriterCommand, 1),
+		paneCommands: make(chan clientWriterCommand, 1),
+		stop:         make(chan struct{}),
+		done:         make(chan struct{}),
 	}
 	go w.loop()
 
@@ -53,9 +72,10 @@ func TestClientWriterLoopStopsWhenCommandRequestsExit(t *testing.T) {
 
 	handled := make(chan struct{})
 	w := &clientWriter{
-		commands: make(chan clientWriterCommand, 1),
-		stop:     make(chan struct{}),
-		done:     make(chan struct{}),
+		commands:     make(chan clientWriterCommand, 1),
+		paneCommands: make(chan clientWriterCommand, 1),
+		stop:         make(chan struct{}),
+		done:         make(chan struct{}),
 	}
 	go w.loop()
 
@@ -91,9 +111,10 @@ func TestClientWriterEnqueueReturnsFalseWhenStoppedOrDone(t *testing.T) {
 			t.Parallel()
 
 			w := &clientWriter{
-				commands: make(chan clientWriterCommand, 1),
-				stop:     make(chan struct{}),
-				done:     make(chan struct{}),
+				commands:     make(chan clientWriterCommand, 1),
+				paneCommands: make(chan clientWriterCommand, 1),
+				stop:         make(chan struct{}),
+				done:         make(chan struct{}),
 			}
 			if tt.closeStop {
 				close(w.stop)
@@ -120,12 +141,13 @@ func TestClientWriterSendPaneOutputDropsSlowClientWhenQueueFull(t *testing.T) {
 	t.Cleanup(func() { peerConn.Close() })
 
 	w := &clientWriter{
-		conn:     serverConn,
-		commands: make(chan clientWriterCommand, 1),
-		stop:     make(chan struct{}),
-		done:     make(chan struct{}),
+		conn:         serverConn,
+		commands:     make(chan clientWriterCommand, 1),
+		paneCommands: make(chan clientWriterCommand, 1),
+		stop:         make(chan struct{}),
+		done:         make(chan struct{}),
 	}
-	w.commands <- testClientWriterCommand{}
+	w.paneCommands <- testClientWriterCommand{}
 
 	w.sendPaneOutput(&Message{Type: MsgTypePaneOutput, PaneID: 1, PaneData: []byte("x")}, 1, 1)
 
@@ -149,10 +171,11 @@ func TestClientWriterSendBroadcastDropsSlowClientWhenQueueFull(t *testing.T) {
 	t.Cleanup(func() { peerConn.Close() })
 
 	w := &clientWriter{
-		conn:     serverConn,
-		commands: make(chan clientWriterCommand, 1),
-		stop:     make(chan struct{}),
-		done:     make(chan struct{}),
+		conn:         serverConn,
+		commands:     make(chan clientWriterCommand, 1),
+		paneCommands: make(chan clientWriterCommand, 1),
+		stop:         make(chan struct{}),
+		done:         make(chan struct{}),
 	}
 	w.commands <- testClientWriterCommand{}
 
@@ -178,10 +201,11 @@ func TestClientWriterSendBroadcastSyncDropsSlowClientWhenQueueFull(t *testing.T)
 	t.Cleanup(func() { peerConn.Close() })
 
 	w := &clientWriter{
-		conn:     serverConn,
-		commands: make(chan clientWriterCommand, 1),
-		stop:     make(chan struct{}),
-		done:     make(chan struct{}),
+		conn:         serverConn,
+		commands:     make(chan clientWriterCommand, 1),
+		paneCommands: make(chan clientWriterCommand, 1),
+		stop:         make(chan struct{}),
+		done:         make(chan struct{}),
 	}
 	w.commands <- testClientWriterCommand{}
 
@@ -309,4 +333,63 @@ func TestClientWriterNilHelpersAreNoops(t *testing.T) {
 	w.forceCloseConn()
 	w.requestStop()
 	w.dropSlowClient()
+}
+
+func TestClientWriterPrioritizesControlMessagesOverPaneOutput(t *testing.T) {
+	t.Parallel()
+
+	order := make(chan string, 3)
+	firstStarted := make(chan struct{})
+	releaseFirst := make(chan struct{})
+
+	w := &clientWriter{
+		conn:         discardConn{},
+		commands:     make(chan clientWriterCommand, 2),
+		paneCommands: make(chan clientWriterCommand, 2),
+		stop:         make(chan struct{}),
+		done:         make(chan struct{}),
+	}
+	go w.loop()
+	defer w.close()
+
+	w.paneCommands <- orderedClientWriterCommand{
+		label:   "pane-1",
+		order:   order,
+		started: firstStarted,
+		release: releaseFirst,
+	}
+	w.paneCommands <- orderedClientWriterCommand{
+		label: "pane-2",
+		order: order,
+	}
+
+	select {
+	case <-firstStarted:
+	case <-time.After(time.Second):
+		t.Fatal("first pane output was not handled")
+	}
+
+	w.commands <- orderedClientWriterCommand{
+		label: "control",
+		order: order,
+	}
+	close(releaseFirst)
+
+	first := readLabelWithTimeout(t, order)
+	second := readLabelWithTimeout(t, order)
+	third := readLabelWithTimeout(t, order)
+	if first != "pane-1" || second != "control" || third != "pane-2" {
+		t.Fatalf("handle order = [%s %s %s], want [pane-1 control pane-2]", first, second, third)
+	}
+}
+
+func readLabelWithTimeout(t *testing.T, ch <-chan string) string {
+	t.Helper()
+	select {
+	case label := <-ch:
+		return label
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for queued command")
+		return ""
+	}
 }
