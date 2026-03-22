@@ -74,3 +74,52 @@ func TestPTYClientKittyKeyboardChangesPaneBytes(t *testing.T) {
 		})
 	}
 }
+
+func TestPTYClientKittyKeyboardPrintableCtrlFallbacks(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		input     []byte
+		readBytes int
+		wantHex   string
+	}{
+		{
+			name:      "ctrl-9 becomes printable 9",
+			input:     []byte("\x1b[57;5u"),
+			readBytes: 1,
+			wantHex:   "39",
+		},
+		{
+			name:      "ctrl-3 becomes escape",
+			input:     []byte("\x1b[51;5u"),
+			readBytes: 1,
+			wantHex:   "1b",
+		},
+		{
+			name:      "ctrl-slash becomes unit separator",
+			input:     []byte("\x1b[47;5u"),
+			readBytes: 1,
+			wantHex:   "1f",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newServerHarness(t)
+			client := newPTYClientHarness(t, h, "AMUX_CLIENT_CAPABILITIES=kitty_keyboard")
+
+			if !client.kittyKeyboardEnabled() {
+				t.Fatalf("expected kitty keyboard enable sequence\nOutput:\n%s", client.outputString())
+			}
+
+			h.sendKeys("pane-1", rawReadCommand(tt.readBytes), "Enter")
+			h.waitFor("pane-1", "READY")
+
+			client.write(tt.input)
+			h.waitForTimeout("pane-1", tt.wantHex, "5s")
+		})
+	}
+}
