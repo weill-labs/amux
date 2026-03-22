@@ -80,7 +80,8 @@ func TestMainWaitVTIdleUsage(t *testing.T) {
 func TestMainKillAllowsImplicitActivePane(t *testing.T) {
 	t.Parallel()
 
-	out, code := runMainUsage(t, "kill")
+	// Use a unique session name so the test never connects to a live server.
+	out, code := runMainUsage(t, "-s", "test-kill-no-server", "kill")
 	if code != 1 {
 		t.Fatalf("exit code = %d, want 1\n%s", code, out)
 	}
