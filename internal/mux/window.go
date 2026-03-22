@@ -25,6 +25,12 @@ type Window struct {
 	minimizeSeq  uint64 // monotonic counter for LIFO minimize ordering
 }
 
+// SplitOptions controls whether a new pane is created in the background.
+// Background splits keep the current active pane and preserve zoom state.
+type SplitOptions struct {
+	Background bool
+}
+
 // NewWindow creates a window with a single pane.
 func NewWindow(pane *Pane, width, height int) *Window {
 	root := NewLeaf(pane, 0, 0, width, height)
@@ -41,7 +47,13 @@ func NewWindow(pane *Pane, width, height int) *Window {
 // as a sibling (equal distribution). Otherwise, wraps the root in a new parent.
 // Auto-unzooms if a pane is zoomed.
 func (w *Window) SplitRoot(dir SplitDir, newPane *Pane) (*Pane, error) {
-	if w.ZoomedPaneID != 0 {
+	return w.SplitRootWithOptions(dir, newPane, SplitOptions{})
+}
+
+// SplitRootWithOptions splits the entire window at the root level with
+// explicit focus/zoom behavior control.
+func (w *Window) SplitRootWithOptions(dir SplitDir, newPane *Pane, opts SplitOptions) (*Pane, error) {
+	if w.ZoomedPaneID != 0 && !opts.Background {
 		w.Unzoom()
 	}
 	newLeaf := NewLeaf(newPane, 0, 0, 0, 0)
@@ -99,8 +111,11 @@ func (w *Window) SplitRoot(dir SplitDir, newPane *Pane) (*Pane, error) {
 	w.normalizeMinimizedLayout()
 
 	w.resizePTYs()
+	w.restoreZoomedPaneSize()
 
-	w.setActive(newPane)
+	if !opts.Background {
+		w.setActive(newPane)
+	}
 	return newPane, nil
 }
 
@@ -108,7 +123,12 @@ func (w *Window) SplitRoot(dir SplitDir, newPane *Pane) (*Pane, error) {
 // via the provided factory function. Returns the new pane.
 // Auto-unzooms if a pane is zoomed.
 func (w *Window) Split(dir SplitDir, newPane *Pane) (*Pane, error) {
-	if w.ZoomedPaneID != 0 {
+	return w.SplitWithOptions(dir, newPane, SplitOptions{})
+}
+
+// SplitWithOptions splits the active pane with explicit focus/zoom behavior control.
+func (w *Window) SplitWithOptions(dir SplitDir, newPane *Pane, opts SplitOptions) (*Pane, error) {
+	if w.ZoomedPaneID != 0 && !opts.Background {
 		w.Unzoom()
 	}
 	cell := w.Root.FindPane(w.ActivePane.ID)
@@ -140,7 +160,10 @@ func (w *Window) Split(dir SplitDir, newPane *Pane) (*Pane, error) {
 	w.Root.FixOffsets()
 	w.normalizeMinimizedLayout()
 	w.resizePTYs()
-	w.setActive(newPane)
+	w.restoreZoomedPaneSize()
+	if !opts.Background {
+		w.setActive(newPane)
+	}
 
 	return newPane, nil
 }
@@ -241,14 +264,7 @@ func (w *Window) Resize(width, height int) {
 	w.normalizeMinimizedLayout()
 
 	w.resizePTYs()
-
-	// If a pane is zoomed, its PTY should match the full window, not its cell
-	if w.ZoomedPaneID != 0 {
-		cell := w.Root.FindPane(w.ZoomedPaneID)
-		if cell != nil && cell.Pane != nil {
-			cell.Pane.Resize(width, PaneContentHeight(height))
-		}
-	}
+	w.restoreZoomedPaneSize()
 }
 
 // activePointCounter is a package-level monotonic counter for pane focus recency.
@@ -577,6 +593,16 @@ func (w *Window) resizePTYs() {
 			c.Pane.Resize(c.W, PaneContentHeight(c.H))
 		}
 	})
+}
+
+func (w *Window) restoreZoomedPaneSize() {
+	if w.ZoomedPaneID == 0 {
+		return
+	}
+	cell := w.Root.FindPane(w.ZoomedPaneID)
+	if cell != nil && cell.Pane != nil {
+		cell.Pane.Resize(w.Width, PaneContentHeight(w.Height))
+	}
 }
 
 func (w *Window) normalizeMinimizedLayout() {

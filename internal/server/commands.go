@@ -90,10 +90,11 @@ func (ctx *CommandContext) activeWindowSnapshot() (activePid, width, height int,
 }
 
 type splitCommandArgs struct {
-	rootLevel bool
-	dir       mux.SplitDir
-	hostName  string
-	name      string
+	rootLevel  bool
+	dir        mux.SplitDir
+	hostName   string
+	name       string
+	background bool
 }
 
 func parseSplitCommandArgs(args []string) (splitCommandArgs, error) {
@@ -133,11 +134,62 @@ func parseSplitCommandArgs(args []string) (splitCommandArgs, error) {
 			}
 			parsed.name = args[i+1]
 			i++
+		case "--background":
+			parsed.background = true
 		default:
 			return splitCommandArgs{}, fmt.Errorf("unknown split arg %q", args[i])
 		}
 	}
 
+	return parsed, nil
+}
+
+type spawnCommandArgs struct {
+	meta       mux.PaneMeta
+	background bool
+}
+
+func parseSpawnCommandArgs(args []string) (spawnCommandArgs, error) {
+	parsed := spawnCommandArgs{
+		meta: mux.PaneMeta{Host: mux.DefaultHost},
+	}
+
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--name":
+			if i+1 >= len(args) {
+				return spawnCommandArgs{}, fmt.Errorf("--name requires a value")
+			}
+			parsed.meta.Name = args[i+1]
+			i++
+		case "--host":
+			if i+1 >= len(args) {
+				return spawnCommandArgs{}, fmt.Errorf("--host requires a value")
+			}
+			parsed.meta.Host = args[i+1]
+			i++
+		case "--task":
+			if i+1 >= len(args) {
+				return spawnCommandArgs{}, fmt.Errorf("--task requires a value")
+			}
+			parsed.meta.Task = args[i+1]
+			i++
+		case "--color":
+			if i+1 >= len(args) {
+				return spawnCommandArgs{}, fmt.Errorf("--color requires a value")
+			}
+			parsed.meta.Color = args[i+1]
+			i++
+		case "--background":
+			parsed.background = true
+		default:
+			return spawnCommandArgs{}, fmt.Errorf("unknown spawn arg %q", args[i])
+		}
+	}
+
+	if parsed.meta.Name == "" {
+		return spawnCommandArgs{}, fmt.Errorf("--name is required")
+	}
 	return parsed, nil
 }
 
@@ -405,7 +457,7 @@ func cmdSplit(ctx *CommandContext) {
 	}
 
 	if args.hostName != "" {
-		pane, err := ctx.CC.splitRemotePane(ctx.Srv, ctx.Sess, args.hostName, args.dir, args.rootLevel, args.name)
+		pane, err := ctx.CC.splitRemotePane(ctx.Srv, ctx.Sess, args.hostName, args.dir, args.rootLevel, args.name, args.background)
 		if err != nil {
 			ctx.replyErr(err.Error())
 			return
@@ -427,10 +479,11 @@ func cmdSplit(ctx *CommandContext) {
 			if err != nil {
 				return commandMutationResult{err: err}
 			}
+			opts := mux.SplitOptions{Background: args.background || w.ZoomedPaneID != 0}
 			if args.rootLevel {
-				_, err = w.SplitRoot(args.dir, pane)
+				_, err = w.SplitRootWithOptions(args.dir, pane, opts)
 			} else {
-				_, err = w.Split(args.dir, pane)
+				_, err = w.SplitWithOptions(args.dir, pane, opts)
 			}
 			if err != nil {
 				sess.removePane(pane.ID)
@@ -493,27 +546,15 @@ func cmdCapture(ctx *CommandContext) {
 }
 
 func cmdSpawn(ctx *CommandContext) {
-	meta := mux.PaneMeta{Host: mux.DefaultHost}
-	var remoteHost string
-	for i := 0; i < len(ctx.Args)-1; i += 2 {
-		switch ctx.Args[i] {
-		case "--name":
-			meta.Name = ctx.Args[i+1]
-		case "--host":
-			meta.Host = ctx.Args[i+1]
-			remoteHost = ctx.Args[i+1]
-		case "--task":
-			meta.Task = ctx.Args[i+1]
-		case "--color":
-			meta.Color = ctx.Args[i+1]
-		}
-	}
-	if meta.Name == "" {
-		ctx.replyErr("--name is required")
+	args, err := parseSpawnCommandArgs(ctx.Args)
+	if err != nil {
+		ctx.replyErr(err.Error())
 		return
 	}
+
+	remoteHost := args.meta.Host
 	if remoteHost != "" && remoteHost != mux.DefaultHost {
-		pane, err := ctx.CC.splitRemotePane(ctx.Srv, ctx.Sess, remoteHost, mux.SplitVertical, false, meta.Name)
+		pane, err := ctx.CC.splitRemotePane(ctx.Srv, ctx.Sess, remoteHost, mux.SplitVertical, false, args.meta.Name, args.background)
 		if err != nil {
 			ctx.replyErr(err.Error())
 			return
@@ -523,12 +564,15 @@ func cmdSpawn(ctx *CommandContext) {
 			if registered == nil {
 				return commandMutationResult{err: fmt.Errorf("pane %q not found", pane.Meta.Name)}
 			}
-			registered.Meta.Name = meta.Name
-			if meta.Task != "" {
-				registered.Meta.Task = meta.Task
+			registered.Meta.Name = args.meta.Name
+			if args.meta.Task != "" {
+				registered.Meta.Task = args.meta.Task
+			}
+			if args.meta.Color != "" {
+				registered.Meta.Color = args.meta.Color
 			}
 			return commandMutationResult{
-				output:          fmt.Sprintf("Spawned %s in pane %d @%s\n", meta.Name, pane.ID, remoteHost),
+				output:          fmt.Sprintf("Spawned %s in pane %d @%s\n", args.meta.Name, pane.ID, remoteHost),
 				broadcastLayout: true,
 			}
 		}))
@@ -538,25 +582,25 @@ func cmdSpawn(ctx *CommandContext) {
 			ctx.replyErr(err.Error())
 			return
 		}
-		if meta.Dir == "" {
-			meta.Dir = mux.PaneCwd(activePid)
+		if args.meta.Dir == "" {
+			args.meta.Dir = mux.PaneCwd(activePid)
 		}
 		ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
 			w := sess.activeWindow()
 			if w == nil {
 				return commandMutationResult{err: fmt.Errorf("no window")}
 			}
-			pane, err := sess.createPaneWithMeta(ctx.Srv, meta, w.Width, mux.PaneContentHeight(w.Height))
+			pane, err := sess.createPaneWithMeta(ctx.Srv, args.meta, w.Width, mux.PaneContentHeight(w.Height))
 			if err != nil {
 				return commandMutationResult{err: err}
 			}
-			if _, err := w.Split(mux.SplitVertical, pane); err != nil {
+			if _, err := w.SplitWithOptions(mux.SplitVertical, pane, mux.SplitOptions{Background: args.background || w.ZoomedPaneID != 0}); err != nil {
 				sess.removePane(pane.ID)
 				pane.Close()
 				return commandMutationResult{err: err}
 			}
 			return commandMutationResult{
-				output:          fmt.Sprintf("Spawned %s in pane %d\n", meta.Name, pane.ID),
+				output:          fmt.Sprintf("Spawned %s in pane %d\n", args.meta.Name, pane.ID),
 				broadcastLayout: true,
 				startPanes:      []*mux.Pane{pane},
 			}
