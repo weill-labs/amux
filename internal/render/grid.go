@@ -1,6 +1,7 @@
 package render
 
 import (
+	"github.com/mattn/go-runewidth"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -109,11 +110,16 @@ func MaterializeGrid(ansiStream string, width, height int) string {
 			continue
 		}
 
-		// Decode UTF-8 rune and place on grid
+		// Decode UTF-8 rune and place on grid using display width so wide
+		// characters occupy the same number of columns they do in terminal output.
 		r, size := utf8.DecodeRuneInString(ansiStream[i:])
 		if row >= 0 && row < height && col >= 0 && col < width {
 			grid[row][col] = r
-			col++
+			rw := runewidth.RuneWidth(r)
+			if rw <= 0 {
+				rw = 1
+			}
+			col += rw
 		}
 		i += size
 	}

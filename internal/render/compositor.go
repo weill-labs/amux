@@ -7,6 +7,7 @@ import (
 	"sync"
 	"unicode/utf8"
 
+	"github.com/mattn/go-runewidth"
 	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/mux"
 )
@@ -340,12 +341,15 @@ func clipLine(line string, maxWidth int) string {
 			continue
 		}
 
-		if visible >= maxWidth {
+		r, size := utf8.DecodeRuneInString(line[i:])
+		width := runewidth.RuneWidth(r)
+		if width < 0 {
+			width = 0
+		}
+		if width > 0 && visible+width > maxWidth {
 			return line[:i]
 		}
-		visible++
-
-		_, size := utf8.DecodeRuneInString(line[i:])
+		visible += width
 		i += size
 	}
 	return line

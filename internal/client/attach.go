@@ -158,8 +158,11 @@ func RunSession(sessionName string) error {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGWINCH)
 	defer signal.Stop(sigCh)
+	// Capture initial size for the SIGWINCH goroutine to avoid racing
+	// with the recheck on line below.
+	initCols, initRows := cols, rows
 	go func() {
-		lastCols, lastRows := cols, rows
+		lastCols, lastRows := initCols, initRows
 		for range sigCh {
 			lastCols, lastRows = syncTerminalSize(fd, lastCols, lastRows, cr, sender)
 		}
