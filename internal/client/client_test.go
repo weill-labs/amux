@@ -75,9 +75,9 @@ func threePane80x23() *proto.LayoutSnapshot {
 	}
 }
 
-func singlePane20x3() *proto.LayoutSnapshot {
+func singlePane20xN(height int) *proto.LayoutSnapshot {
 	root := proto.CellSnapshot{
-		X: 0, Y: 0, W: 20, H: 3,
+		X: 0, Y: 0, W: 20, H: height,
 		IsLeaf: true, Dir: -1, PaneID: 1,
 	}
 	panes := []proto.PaneSnapshot{
@@ -87,7 +87,7 @@ func singlePane20x3() *proto.LayoutSnapshot {
 		SessionName:  "test",
 		ActivePaneID: 1,
 		Width:        20,
-		Height:       3,
+		Height:       height,
 		Root:         root,
 		Panes:        panes,
 		Windows: []proto.WindowSnapshot{{
@@ -99,28 +99,12 @@ func singlePane20x3() *proto.LayoutSnapshot {
 	}
 }
 
+func singlePane20x3() *proto.LayoutSnapshot {
+	return singlePane20xN(3)
+}
+
 func singlePane20x5() *proto.LayoutSnapshot {
-	root := proto.CellSnapshot{
-		X: 0, Y: 0, W: 20, H: 5,
-		IsLeaf: true, Dir: -1, PaneID: 1,
-	}
-	panes := []proto.PaneSnapshot{
-		{ID: 1, Name: "pane-1", Host: "local", Color: "f5e0dc"},
-	}
-	return &proto.LayoutSnapshot{
-		SessionName:  "test",
-		ActivePaneID: 1,
-		Width:        20,
-		Height:       5,
-		Root:         root,
-		Panes:        panes,
-		Windows: []proto.WindowSnapshot{{
-			ID: 1, Name: "window-1", Index: 1, ActivePaneID: 1,
-			Root:  root,
-			Panes: panes,
-		}},
-		ActiveWindowID: 1,
-	}
+	return singlePane20xN(5)
 }
 
 // buildTestRenderer creates a ClientRenderer with two panes in a vertical split.
