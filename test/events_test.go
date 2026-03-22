@@ -529,7 +529,10 @@ func TestEventsCLIAutoReconnectAfterReload(t *testing.T) {
 	t.Parallel()
 
 	h := newServerHarnessPersistent(t)
-	proc := startEventsCLI(t, h, nil, "--filter", "layout")
+	proc := startEventsCLI(t, h, []string{
+		"AMUX_EVENTS_RECONNECT_INITIAL_BACKOFF=10ms",
+		"AMUX_EVENTS_RECONNECT_MAX_BACKOFF=20ms",
+	}, "--filter", "layout")
 
 	ev := mustReadEvent(t, proc.scanner, 5*time.Second)
 	if ev.Type != "layout" {

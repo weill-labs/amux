@@ -163,7 +163,7 @@ All accept `--timeout <duration>` (e.g., `--timeout 30s`).
 Subscribe to real-time session events as NDJSON:
 
 ```bash
-amux events [--filter layout,idle,busy,display-panes-shown,choose-window-shown] [--pane pane-1] [--host lambda-a100] [--client client-1] [--throttle 50ms]
+amux events [--filter layout,idle,busy,display-panes-shown,choose-window-shown] [--pane pane-1] [--host lambda-a100] [--client client-1] [--throttle 50ms] [--no-reconnect]
 ```
 
 Use `amux list-clients` to discover attached client IDs for `--client` and `wait-ui`.
@@ -172,9 +172,10 @@ Use `amux list-clients` to discover attached client IDs for `--client` and `wait
 {"type":"layout","ts":"2025-06-15T10:30:00.123Z","generation":42,"active_pane":"pane-1"}
 {"type":"idle","ts":"2025-06-15T10:30:01.456Z","pane_id":2,"pane_name":"pane-2","host":"lambda-a100"}
 {"type":"busy","ts":"2025-06-15T10:30:05.789Z","pane_id":2,"pane_name":"pane-2","host":"lambda-a100"}
+{"type":"reconnect","ts":"2025-06-15T10:30:06.000Z"}
 ```
 
-Event types: `layout`, `output`, `idle`, `busy`. New subscribers receive the current state as an initial snapshot, so no events are missed between subscribe and the first real event. Output events are throttled to at most one per pane per `--throttle` interval (default 50ms). Non-output events pass through immediately. Use `--throttle 0s` to disable throttling.
+Event types: `layout`, `output`, `idle`, `busy`, `reconnect`. By default `amux events` reconnects automatically after a dropped stream, emits a client-generated `reconnect` event, and resubscribes after exponential backoff. Use `--no-reconnect` for scripts that want exit-on-disconnect. New subscribers receive the current state as an initial snapshot, so no events are missed between subscribe and the first real event. Output events are throttled to at most one per pane per `--throttle` interval (default 50ms). Non-output events pass through immediately. Use `--throttle 0s` to disable throttling.
 
 ### Agent Loop Example
 
@@ -275,7 +276,7 @@ All commands accept `-s <session>` to target a specific session. Panes are refer
 | `amux wait-ui <event> [--client id] [--after N] [--timeout 5s]` | Block until a client-local UI state is reached |
 | `amux ui-gen [--client id]` | Show current client UI generation counter |
 | `amux generation` | Show current layout generation counter |
-| `amux events [--filter type,...] [--pane ref] [--host name] [--client id] [--throttle 50ms]` | Stream events as NDJSON (output throttled) |
+| `amux events [--filter type,...] [--pane ref] [--host name] [--client id] [--throttle 50ms] [--no-reconnect]` | Stream events as NDJSON (output throttled, auto-reconnect by default) |
 | `amux list-clients` | List attached clients and client-local UI state |
 
 ### Windows
