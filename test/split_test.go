@@ -59,6 +59,29 @@ func TestSplitHorizontal(t *testing.T) {
 	}
 }
 
+func TestSplitNamedPane(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	h.doSplit("v", "--name", "worker-1")
+
+	c := h.captureJSON()
+	if len(c.Panes) != 2 {
+		t.Fatalf("expected 2 panes, got %d", len(c.Panes))
+	}
+
+	p1 := h.jsonPane(c, "pane-1")
+	p2 := h.jsonPane(c, "worker-1")
+
+	if p1.Position.X >= p2.Position.X {
+		t.Errorf("pane-1 (x=%d) should be left of worker-1 (x=%d)", p1.Position.X, p2.Position.X)
+	}
+
+	if p1.Position.Y != p2.Position.Y {
+		t.Errorf("pane-1 (y=%d) and worker-1 (y=%d) should be on same row", p1.Position.Y, p2.Position.Y)
+	}
+}
+
 func TestRootSplitVertical(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)
