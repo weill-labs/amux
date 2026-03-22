@@ -338,7 +338,7 @@ func cmdReset(ctx *CommandContext) {
 		if len(ctx.Args) < 1 {
 			return commandMutationResult{err: fmt.Errorf("usage: reset <pane>")}
 		}
-		pane, w, err := sess.resolvePaneAcrossWindows(ctx.Args[0])
+		pane, w, err := sess.resolvePaneAcrossWindowsForActor(ctx.ActorPaneID, ctx.Args[0])
 		if err != nil {
 			return commandMutationResult{err: err}
 		}
