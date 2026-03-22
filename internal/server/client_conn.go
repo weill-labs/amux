@@ -255,9 +255,6 @@ func (cc *ClientConn) splitRemotePane(srv *Server, sess *Session, hostName strin
 		pane.Close()
 		return nil, res.err
 	}
-	if res.broadcastLayout {
-		sess.broadcastLayout()
-	}
 
 	return pane, nil
 }

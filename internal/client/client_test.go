@@ -634,6 +634,42 @@ func TestClientRendererZoomedPaneSurvivesMetadataOnlyLayoutMultiWindow(t *testin
 	}
 }
 
+func TestRendererHandleLayoutCallsOnPaneResizeForZoomedPane(t *testing.T) {
+	t.Parallel()
+
+	r := NewWithScrollback(80, 24, mux.DefaultScrollbackLines)
+
+	type resizeCall struct {
+		paneID uint32
+		w      int
+		h      int
+	}
+	var calls []resizeCall
+	r.OnPaneResize = func(paneID uint32, w, h int) {
+		calls = append(calls, resizeCall{paneID: paneID, w: w, h: h})
+	}
+
+	r.HandleLayout(twoPane80x23Zoomed(2))
+
+	if len(calls) != 2 {
+		t.Fatalf("OnPaneResize calls = %d, want 2", len(calls))
+	}
+	if got := calls[0]; got != (resizeCall{paneID: 1, w: 39, h: 22}) {
+		t.Fatalf("first OnPaneResize call = %+v, want pane-1 at 39x22", got)
+	}
+	if got := calls[1]; got != (resizeCall{paneID: 2, w: 80, h: 22}) {
+		t.Fatalf("second OnPaneResize call = %+v, want zoomed pane-2 at 80x22", got)
+	}
+
+	emu, ok := r.Emulator(2)
+	if !ok {
+		t.Fatal("zoomed pane-2 emulator missing")
+	}
+	if w, h := emu.Size(); w != 80 || h != 22 {
+		t.Fatalf("zoomed pane-2 size after HandleLayout = %dx%d, want 80x22", w, h)
+	}
+}
+
 func TestRescaleZoomedPaneForSmallerClient(t *testing.T) {
 	t.Parallel()
 
