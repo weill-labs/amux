@@ -88,6 +88,28 @@ func TestRenderWithCursor(t *testing.T) {
 	}
 }
 
+func TestVTEmulatorClampsOversizedVerticalMargins(t *testing.T) {
+	t.Parallel()
+
+	emu := NewVTEmulatorWithDrain(10, 4)
+	emu.Write([]byte("\x1b[1;24r\x1b[H\x1bMok"))
+
+	if !emu.ScreenContains("ok") {
+		t.Fatalf("ScreenContains(%q) = false\nrender:\n%s", "ok", emu.Render())
+	}
+}
+
+func TestVTEmulatorClampsOversizedHorizontalMargins(t *testing.T) {
+	t.Parallel()
+
+	emu := NewVTEmulatorWithDrain(5, 4)
+	emu.Write([]byte("\x1b[?69h\x1b[1;24s\x1b[H\x1b[@x"))
+
+	if !emu.ScreenContains("x") {
+		t.Fatalf("ScreenContains(%q) = false\nrender:\n%s", "x", emu.Render())
+	}
+}
+
 func TestRenderWithCursorRoundTrip(t *testing.T) {
 	t.Parallel()
 	// Verify that RenderWithCursor output replays correctly into a fresh
