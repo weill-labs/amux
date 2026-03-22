@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -114,6 +115,102 @@ func TestForwardCaptureFullScreenJSONUsesActiveWindowPanesOnly(t *testing.T) {
 	}
 
 	deliverCaptureResponseForTest(t, sess, msg, respCh)
+}
+
+func TestForwardCapturePaneFallsBackWithoutClient(t *testing.T) {
+	t.Parallel()
+
+	_, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	pane := newTestPane(sess, 1, "pane-1")
+	pane.FeedOutput([]byte("\x1b[31mHEADLESS-ANSI\x1b[m\r\nHEADLESS-PLAIN\r\n"))
+	window := newTestWindowWithPanes(t, sess, 1, "window-1", pane)
+	if _, err := enqueueSessionQuery(sess, func(sess *Session) (struct{}, error) {
+		sess.Windows = []*mux.Window{window}
+		sess.ActiveWindowID = window.ID
+		sess.Panes = []*mux.Pane{pane}
+		return struct{}{}, nil
+	}); err != nil {
+		t.Fatalf("enqueueSessionQuery: %v", err)
+	}
+
+	tests := []struct {
+		name string
+		args []string
+		want string
+		json bool
+	}{
+		{name: "plain", args: []string{"pane-1"}, want: "HEADLESS-PLAIN"},
+		{name: "json", args: []string{"--format", "json", "pane-1"}, want: "HEADLESS-PLAIN", json: true},
+		{name: "ansi", args: []string{"--ansi", "pane-1"}, want: "\x1b[31m"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resp := sess.capturePaneWithFallback(tt.args)
+			if resp.CmdErr != "" {
+				t.Fatalf("capturePaneWithFallback(%v) error: %s", tt.args, resp.CmdErr)
+			}
+			if tt.json {
+				var pane proto.CapturePane
+				if err := json.Unmarshal([]byte(resp.CmdOutput), &pane); err != nil {
+					t.Fatalf("json.Unmarshal: %v\noutput:\n%s", err, resp.CmdOutput)
+				}
+				if pane.Name != "pane-1" {
+					t.Fatalf("pane.Name = %q, want pane-1", pane.Name)
+				}
+				if joined := strings.Join(pane.Content, "\n"); !strings.Contains(joined, tt.want) {
+					t.Fatalf("pane JSON missing %q\ncontent:\n%s", tt.want, joined)
+				}
+				return
+			}
+			if !strings.Contains(resp.CmdOutput, tt.want) {
+				t.Fatalf("capturePaneWithFallback(%v) missing %q\noutput:\n%s", tt.args, tt.want, resp.CmdOutput)
+			}
+		})
+	}
+}
+
+func TestForwardCapturePaneFallsBackWhenClientCannotResolvePane(t *testing.T) {
+	t.Parallel()
+
+	_, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	pane := newTestPane(sess, 1, "pane-1")
+	pane.FeedOutput([]byte("FALLBACK-CLIENT-NOT-FOUND\r\n"))
+	window := newTestWindowWithPanes(t, sess, 1, "window-1", pane)
+	if _, err := enqueueSessionQuery(sess, func(sess *Session) (struct{}, error) {
+		sess.Windows = []*mux.Window{window}
+		sess.ActiveWindowID = window.ID
+		sess.Panes = []*mux.Pane{pane}
+		return struct{}{}, nil
+	}); err != nil {
+		t.Fatalf("enqueueSessionQuery: %v", err)
+	}
+
+	msg, respCh := startCapturePaneWithFallbackForTest(t, sess, []string{"pane-1"})
+	if msg.Type != MsgTypeCaptureRequest {
+		t.Fatalf("message type = %v, want capture request", msg.Type)
+	}
+
+	sess.routeCaptureResponse(&Message{
+		Type:   MsgTypeCaptureResponse,
+		CmdErr: `pane "pane-1" not found`,
+	})
+
+	select {
+	case resp := <-respCh:
+		if resp.CmdErr != "" {
+			t.Fatalf("capturePaneWithFallback error: %s", resp.CmdErr)
+		}
+		if !strings.Contains(resp.CmdOutput, "FALLBACK-CLIENT-NOT-FOUND") {
+			t.Fatalf("capturePaneWithFallback output = %q, want server fallback content", resp.CmdOutput)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("capturePaneWithFallback did not return")
+	}
 }
 
 func TestForwardCaptureJSONWrapsBadClientResponses(t *testing.T) {
@@ -595,6 +692,34 @@ func startForwardCaptureForTest(t *testing.T, sess *Session, args []string) (*Me
 	respCh := make(chan *Message, 1)
 	go func() {
 		respCh <- sess.forwardCapture(args)
+	}()
+
+	return readCaptureRequestForTest(t, peerConn), respCh
+}
+
+func startCapturePaneWithFallbackForTest(t *testing.T, sess *Session, args []string) (*Message, <-chan *Message) {
+	t.Helper()
+
+	serverConn, peerConn := net.Pipe()
+	t.Cleanup(func() {
+		peerConn.Close()
+		serverConn.Close()
+	})
+	cc := newClientConn(serverConn)
+	t.Cleanup(func() {
+		cc.Close()
+	})
+
+	if _, err := enqueueSessionQuery(sess, func(sess *Session) (struct{}, error) {
+		sess.clients = []*clientConn{cc}
+		return struct{}{}, nil
+	}); err != nil {
+		t.Fatalf("enqueueSessionQuery: %v", err)
+	}
+
+	respCh := make(chan *Message, 1)
+	go func() {
+		respCh <- sess.capturePaneWithFallback(args)
 	}()
 
 	return readCaptureRequestForTest(t, peerConn), respCh

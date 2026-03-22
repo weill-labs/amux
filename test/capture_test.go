@@ -116,13 +116,108 @@ func TestCapturePaneHistoryWithoutAttachedClient(t *testing.T) {
 	h.client.close()
 	h.client = nil
 
-	if out := h.runCmd("capture", "pane-1"); !strings.Contains(out, "no client attached") {
-		t.Fatalf("screen capture without client should still fail, got: %s", out)
+	if out := h.runCmd("capture"); !strings.Contains(out, "no client attached") {
+		t.Fatalf("full-screen capture without client should still fail, got: %s", out)
 	}
 
-	out := h.runCmd("capture", "--history", "pane-1")
+	out := h.runCmd("capture", "pane-1")
+	if strings.Contains(out, "no client attached") {
+		t.Fatalf("pane capture without client should fall back to the server, got: %s", out)
+	}
+	if !strings.Contains(out, "NOCLIENT-35") {
+		t.Fatalf("pane capture should include visible content, got:\n%s", out)
+	}
+
+	jsonOut := h.runCmd("capture", "--format", "json", "pane-1")
+	var pane proto.CapturePane
+	if err := json.Unmarshal([]byte(jsonOut), &pane); err != nil {
+		t.Fatalf("json.Unmarshal: %v\noutput:\n%s", err, jsonOut)
+	}
+	if pane.Name != "pane-1" {
+		t.Fatalf("json pane name = %q, want pane-1", pane.Name)
+	}
+	if joined := strings.Join(pane.Content, "\n"); !strings.Contains(joined, "NOCLIENT-35") {
+		t.Fatalf("pane JSON should include visible content, got:\n%s", joined)
+	}
+
+	out = h.runCmd("capture", "--history", "pane-1")
 	if !strings.Contains(out, "NOCLIENT-01") || !strings.Contains(out, "NOCLIENT-35") {
 		t.Fatalf("history capture should work without attached client, got:\n%s", out)
+	}
+}
+
+func TestCapturePaneAfterKillAndRespawnWithoutAttachedClient(t *testing.T) {
+	t.Parallel()
+	h := newServerHarnessPersistent(t)
+
+	seedPane := func(name, marker string) {
+		t.Helper()
+		h.sendKeys(name, "echo "+marker, "Enter")
+		h.waitFor(name, marker)
+	}
+
+	finalMarkers := map[string]string{
+		"pane-1": "M01",
+	}
+	seedPane("pane-1", finalMarkers["pane-1"])
+
+	for i := 2; i <= 10; i++ {
+		name := fmt.Sprintf("worker-%02d", i)
+		if out := h.runCmd("spawn", "--name", name); !strings.Contains(out, "Spawned") {
+			t.Fatalf("spawn %s failed: %s", name, out)
+		}
+		marker := fmt.Sprintf("M%02d", i)
+		finalMarkers[name] = marker
+		seedPane(name, marker)
+	}
+
+	h.client.close()
+	h.client = nil
+
+	for _, name := range []string{"worker-02", "worker-04", "worker-06", "worker-08", "worker-10"} {
+		if out := h.runCmd("kill", name); !strings.Contains(out, "Killed") {
+			t.Fatalf("kill %s failed: %s", name, out)
+		}
+		delete(finalMarkers, name)
+	}
+
+	for i := 11; i <= 15; i++ {
+		name := fmt.Sprintf("worker-%02d", i)
+		if out := h.runCmd("spawn", "--name", name); !strings.Contains(out, "Spawned") {
+			t.Fatalf("spawn %s failed: %s", name, out)
+		}
+		marker := fmt.Sprintf("M%02d", i)
+		finalMarkers[name] = marker
+		seedPane(name, marker)
+	}
+
+	listOut := h.runCmd("list")
+	for name := range finalMarkers {
+		if !strings.Contains(listOut, name) {
+			t.Fatalf("list should contain %s, got:\n%s", name, listOut)
+		}
+	}
+
+	for name, marker := range finalMarkers {
+		out := h.runCmd("capture", name)
+		if strings.Contains(out, "no client attached") {
+			t.Fatalf("pane capture %s should not require a client, got: %s", name, out)
+		}
+		if !strings.Contains(strings.ReplaceAll(out, "\n", ""), marker) {
+			t.Fatalf("pane capture %s missing marker %q\ncapture:\n%s", name, marker, out)
+		}
+
+		jsonOut := h.runCmd("capture", "--format", "json", name)
+		var pane proto.CapturePane
+		if err := json.Unmarshal([]byte(jsonOut), &pane); err != nil {
+			t.Fatalf("json.Unmarshal(%s): %v\noutput:\n%s", name, err, jsonOut)
+		}
+		if pane.Name != name {
+			t.Fatalf("json pane name = %q, want %q", pane.Name, name)
+		}
+		if joined := strings.Join(pane.Content, "\n"); !strings.Contains(strings.ReplaceAll(joined, "\n", ""), marker) {
+			t.Fatalf("pane JSON %s missing marker %q\ncontent:\n%s", name, marker, joined)
+		}
 	}
 }
 
