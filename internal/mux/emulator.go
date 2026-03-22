@@ -25,6 +25,9 @@ type TerminalEmulator interface {
 	// Read is not called, Write blocks on the first response.
 	Read(p []byte) (int, error)
 
+	// Close stops the emulator and releases any background readers.
+	Close() error
+
 	// Render returns the full screen as an ANSI-formatted string.
 	Render() string
 
@@ -232,6 +235,10 @@ func (v *vtEmulator) Write(data []byte) (int, error) {
 
 func (v *vtEmulator) Read(p []byte) (int, error) {
 	return v.emu.Read(p)
+}
+
+func (v *vtEmulator) Close() error {
+	return v.emu.Close()
 }
 
 func (v *vtEmulator) Render() string {
