@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -31,6 +32,43 @@ func linesWithPrefix(lines []string, prefix string) []string {
 		}
 	}
 	return out
+}
+
+func buildAmuxAtomic(binPath, buildCommit string) error {
+	tmp, err := os.CreateTemp(filepath.Dir(binPath), ".amux-reload-*")
+	if err != nil {
+		return fmt.Errorf("creating temp binary path: %w", err)
+	}
+	tmpPath := tmp.Name()
+	if closeErr := tmp.Close(); closeErr != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("closing temp binary path: %w", closeErr)
+	}
+	if err := os.Remove(tmpPath); err != nil {
+		return fmt.Errorf("removing temp placeholder: %w", err)
+	}
+	if err := buildAmuxWithCommit(tmpPath, buildCommit); err != nil {
+		os.Remove(tmpPath)
+		return err
+	}
+	if err := os.Rename(tmpPath, binPath); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("renaming rebuilt binary into place: %w", err)
+	}
+	return nil
+}
+
+func runAmuxCommandWithBin(tb testing.TB, binPath, home, coverDir, session string, args ...string) string {
+	tb.Helper()
+	cmdArgs := append([]string{"-s", session}, args...)
+	cmd := exec.Command(binPath, cmdArgs...)
+	env := upsertEnv(os.Environ(), "HOME", home)
+	if coverDir != "" {
+		env = upsertEnv(env, "GOCOVERDIR", coverDir)
+	}
+	cmd.Env = env
+	out, _ := cmd.CombinedOutput()
+	return string(out)
 }
 
 func TestHotReloadKeybinding(t *testing.T) {
@@ -165,6 +203,79 @@ func TestServerHotReload(t *testing.T) {
 	listOut := h.runCmd("list")
 	if !strings.Contains(listOut, "pane-1") || !strings.Contains(listOut, "pane-2") {
 		t.Errorf("list should show both panes after reload, got:\n%s", listOut)
+	}
+}
+
+func TestReloadServerExecsReplacementBinaryAfterAtomicInstall(t *testing.T) {
+	privateBin := filepath.Join(t.TempDir(), "amux")
+	if err := buildAmuxWithCommit(privateBin, "oldbuild"); err != nil {
+		t.Fatalf("building old amux binary: %v", err)
+	}
+
+	h := newAmuxHarnessWithBin(t, privateBin)
+
+	before := h.runCmd("status")
+	if !strings.Contains(before, "build: oldbuild") {
+		t.Fatalf("status before reload = %q, want old build marker", before)
+	}
+
+	if err := buildAmuxAtomic(privateBin, "newbuild"); err != nil {
+		t.Fatalf("atomically rebuilding amux binary: %v", err)
+	}
+
+	h.runCmd("reload-server")
+
+	deadline := time.Now().Add(10 * time.Second)
+	var after string
+	for time.Now().Before(deadline) {
+		after = h.runCmd("status")
+		if strings.Contains(after, "build: newbuild") {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if !strings.Contains(after, "build: newbuild") {
+		t.Fatalf("status after reload = %q, want new build marker", after)
+	}
+	if strings.Contains(after, "build: oldbuild") {
+		t.Fatalf("status after reload should not report old build, got %q", after)
+	}
+}
+
+func TestReloadServerUsesRequestingBinaryNotOriginalLaunchBinary(t *testing.T) {
+	oldBin := filepath.Join(t.TempDir(), "old-amux")
+	if err := buildAmuxWithCommit(oldBin, "oldbuild"); err != nil {
+		t.Fatalf("building old amux binary: %v", err)
+	}
+
+	newBin := filepath.Join(t.TempDir(), "new-amux")
+	if err := buildAmuxWithCommit(newBin, "newbuild"); err != nil {
+		t.Fatalf("building new amux binary: %v", err)
+	}
+
+	h := newAmuxHarnessWithBin(t, oldBin)
+
+	before := runAmuxCommandWithBin(t, newBin, h.outer.home, h.outer.coverDir, h.inner, "status")
+	if !strings.Contains(before, "build: oldbuild") {
+		t.Fatalf("status before reload = %q, want old build marker", before)
+	}
+
+	runAmuxCommandWithBin(t, newBin, h.outer.home, h.outer.coverDir, h.inner, "reload-server")
+
+	deadline := time.Now().Add(10 * time.Second)
+	var after string
+	for time.Now().Before(deadline) {
+		after = runAmuxCommandWithBin(t, newBin, h.outer.home, h.outer.coverDir, h.inner, "status")
+		if strings.Contains(after, "build: newbuild") {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if !strings.Contains(after, "build: newbuild") {
+		t.Fatalf("status after reload = %q, want new build marker", after)
+	}
+	if strings.Contains(after, "build: oldbuild") {
+		t.Fatalf("status after reload should not report old build, got %q", after)
 	}
 }
 
