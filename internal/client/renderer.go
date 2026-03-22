@@ -105,26 +105,7 @@ func (r *Renderer) HandleLayout(snap *proto.LayoutSnapshot) bool {
 			next.layout.ResizeAll(next.width, clientLayoutH)
 		}
 		normalizeMinimizedLayout(next.layout, next.paneInfo)
-
-		if next.layout != nil {
-			next.layout.Walk(func(cell *mux.LayoutCell) {
-				emu := next.emulators[cell.PaneID]
-				if emu == nil {
-					return
-				}
-				if info, ok := next.paneInfo[cell.PaneID]; ok && info.Minimized {
-					return
-				}
-				if cell.PaneID == next.zoomedPaneID {
-					return
-				}
-				contentH := mux.PaneContentHeight(cell.H)
-				emu.Resize(cell.W, contentH)
-				if r.OnPaneResize != nil {
-					r.OnPaneResize(cell.PaneID, cell.W, contentH)
-				}
-			})
-		}
+		r.resizeSnapshotEmulators(next)
 
 		st.compositor.SetSessionName(snap.SessionName)
 		if len(snap.Windows) > 0 {
@@ -167,10 +148,18 @@ func (r *Renderer) HandlePaneOutput(paneID uint32, data []byte) {
 // Resize updates the client's terminal dimensions.
 func (r *Renderer) Resize(width, height int) {
 	r.withActor(func(st *rendererActorState) {
-		next := *st.snapshot
+		prev := st.snapshot
+		next := *prev
 		next.width = width
 		next.height = height
+		if prev.layout != nil {
+			next.layout = mux.CloneLayout(prev.layout)
+			layoutH := height - render.GlobalBarHeight
+			next.layout.ResizeAll(width, layoutH)
+			normalizeMinimizedLayout(next.layout, next.paneInfo)
+		}
 		st.compositor.Resize(width, height)
+		r.resizeSnapshotEmulators(&next)
 		st.snapshot = &next
 		r.publishSnapshot(&next)
 	})
@@ -483,6 +472,38 @@ func normalizeMinimizedLayout(root *mux.LayoutCell, paneInfo map[uint32]proto.Pa
 		info, ok := paneInfo[c.CellPaneID()]
 		return ok && info.Minimized
 	})
+}
+
+func (r *Renderer) resizeSnapshotEmulators(next *rendererSnapshot) {
+	if next.layout != nil {
+		next.layout.Walk(func(cell *mux.LayoutCell) {
+			emu := next.emulators[cell.PaneID]
+			if emu == nil {
+				return
+			}
+			if info, ok := next.paneInfo[cell.PaneID]; ok && info.Minimized {
+				return
+			}
+			if cell.PaneID == next.zoomedPaneID {
+				return
+			}
+			contentH := mux.PaneContentHeight(cell.H)
+			emu.Resize(cell.W, contentH)
+			if r.OnPaneResize != nil {
+				r.OnPaneResize(cell.PaneID, cell.W, contentH)
+			}
+		})
+	}
+	if next.zoomedPaneID != 0 {
+		if emu := next.emulators[next.zoomedPaneID]; emu != nil {
+			layoutH := next.height - render.GlobalBarHeight
+			contentH := mux.PaneContentHeight(layoutH)
+			emu.Resize(next.width, contentH)
+			if r.OnPaneResize != nil {
+				r.OnPaneResize(next.zoomedPaneID, next.width, contentH)
+			}
+		}
+	}
 }
 
 // HandleCaptureRequest processes capture args and returns a proto.Message

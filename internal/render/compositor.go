@@ -238,6 +238,9 @@ func (c *Compositor) renderCursorDiff(buf *strings.Builder, root *mux.LayoutCell
 		return // keep cursor hidden
 	}
 	col, row := pd.CursorPos()
+	if row < 0 || row >= c.visibleContentHeight(cell) {
+		return
+	}
 	absRow := cell.Y + mux.StatusLineRows + row + 1
 	absCol := cell.X + col + 1
 	buf.WriteString(Reset)
@@ -267,6 +270,9 @@ func (c *Compositor) renderCursor(buf *strings.Builder, root *mux.LayoutCell, ac
 		return // keep cursor hidden (HideCursor was written at start of render)
 	}
 	col, row := pd.CursorPos()
+	if row < 0 || row >= c.visibleContentHeight(cell) {
+		return
+	}
 	absRow := cell.Y + mux.StatusLineRows + row + 1
 	absCol := cell.X + col + 1
 	writeCursorTo(buf, absRow, absCol)
@@ -278,7 +284,7 @@ func (c *Compositor) renderCursor(buf *strings.Builder, root *mux.LayoutCell, ac
 // from bleeding into adjacent panes.
 func (c *Compositor) blitPane(buf *strings.Builder, cell *mux.LayoutCell, rendered string) {
 	lines := strings.Split(rendered, "\n")
-	contentH := mux.PaneContentHeight(cell.H)
+	contentH := c.visibleContentHeight(cell)
 
 	for i, line := range lines {
 		if i >= contentH {
@@ -290,6 +296,18 @@ func (c *Compositor) blitPane(buf *strings.Builder, cell *mux.LayoutCell, render
 			buf.WriteString(clipLine(line, cell.W))
 		}
 	}
+}
+
+func (c *Compositor) visibleContentHeight(cell *mux.LayoutCell) int {
+	contentH := mux.PaneContentHeight(cell.H)
+	maxVisible := c.LayoutHeight() - cell.Y - mux.StatusLineRows
+	if maxVisible < 0 {
+		return 0
+	}
+	if contentH > maxVisible {
+		return maxVisible
+	}
+	return contentH
 }
 
 // clipLine truncates an ANSI-escaped line to at most maxWidth visible

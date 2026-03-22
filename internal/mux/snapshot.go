@@ -130,6 +130,31 @@ func RebuildFromSnapshot(snap proto.LayoutSnapshot, paneMap map[uint32]*Pane) *W
 	return w
 }
 
+// CloneLayout deep-copies a layout tree, preserving pane pointers and pane IDs.
+// The copy has the same geometry as the original but can be resized or mutated
+// independently.
+func CloneLayout(root *LayoutCell) *LayoutCell {
+	if root == nil {
+		return nil
+	}
+	clone := &LayoutCell{
+		X:      root.X,
+		Y:      root.Y,
+		W:      root.W,
+		H:      root.H,
+		Dir:    root.Dir,
+		Pane:   root.Pane,
+		PaneID: root.PaneID,
+		isLeaf: root.isLeaf,
+	}
+	for _, child := range root.Children {
+		childClone := CloneLayout(child)
+		childClone.Parent = clone
+		clone.Children = append(clone.Children, childClone)
+	}
+	return clone
+}
+
 // RebuildWindowFromSnapshot creates a server-side Window from a WindowSnapshot.
 func RebuildWindowFromSnapshot(ws proto.WindowSnapshot, width, height int, paneMap map[uint32]*Pane) *Window {
 	root := rebuildCellWithPanes(ws.Root, paneMap)
