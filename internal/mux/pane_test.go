@@ -192,3 +192,28 @@ func TestCaptureSnapshotRespectsScrollbackLimit(t *testing.T) {
 		t.Fatalf("Content = %#v, want [line-2 line-3]", got)
 	}
 }
+
+func TestCaptureSnapshotIncludesCursorBlock(t *testing.T) {
+	t.Parallel()
+
+	emu := NewVTEmulatorWithDrain(6, 2)
+	p := &Pane{
+		ID:       1,
+		emulator: emu,
+	}
+
+	emu.Write([]byte("\x1b[2J\x1b[H❯ \x1b[7m \x1b[m\x1b[?25l\x1b[2;1H"))
+
+	snap := p.CaptureSnapshot()
+	if !snap.HasCursorBlock {
+		t.Fatal("HasCursorBlock = false, want true")
+	}
+	if snap.CursorBlockCol != 2 || snap.CursorBlockRow != 0 {
+		t.Fatalf("cursor block = (%d,%d), want (2,0)", snap.CursorBlockCol, snap.CursorBlockRow)
+	}
+
+	col, row, ok := p.CursorBlockPos()
+	if !ok || col != 2 || row != 0 {
+		t.Fatalf("CursorBlockPos() = (%d,%d,%t), want (2,0,true)", col, row, ok)
+	}
+}

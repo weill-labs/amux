@@ -89,11 +89,14 @@ type paneBaseHistory struct {
 // CaptureSnapshot is a consistent plain-text snapshot of a pane's retained
 // history, visible screen, and cursor state.
 type CaptureSnapshot struct {
-	History      []string
-	Content      []string
-	CursorCol    int
-	CursorRow    int
-	CursorHidden bool
+	History        []string
+	Content        []string
+	CursorCol      int
+	CursorRow      int
+	CursorHidden   bool
+	CursorBlockCol int
+	CursorBlockRow int
+	HasCursorBlock bool
 }
 
 // NewPaneWithScrollback creates a new pane running the user's shell but does
@@ -503,11 +506,17 @@ func (p *Pane) CaptureSnapshot() CaptureSnapshot {
 		before := p.waitForStableSnapshot()
 		col, row := p.emulator.CursorPosition()
 		snap := CaptureSnapshot{
-			History:      p.combinedScrollback(p.loadBaseHistory()),
-			Content:      EmulatorContentLines(p.emulator),
-			CursorCol:    col,
-			CursorRow:    row,
-			CursorHidden: p.emulator.CursorHidden(),
+			History:        p.combinedScrollback(p.loadBaseHistory()),
+			Content:        EmulatorContentLines(p.emulator),
+			CursorCol:      col,
+			CursorRow:      row,
+			CursorHidden:   p.emulator.CursorHidden(),
+			HasCursorBlock: false,
+		}
+		if blockCol, blockRow, ok := p.emulator.CursorBlockPosition(); ok {
+			snap.CursorBlockCol = blockCol
+			snap.CursorBlockRow = blockRow
+			snap.HasCursorBlock = true
 		}
 		after := p.snapshotSeq.Load()
 		if before == after && after%2 == 0 {
@@ -525,6 +534,11 @@ func (p *Pane) RenderWithoutCursorBlock() string {
 // HasCursorBlock returns true if the pane contains an app-rendered block cursor.
 func (p *Pane) HasCursorBlock() bool {
 	return p.emulator.HasCursorBlock()
+}
+
+// CursorBlockPos returns the app-drawn block cursor position, if present.
+func (p *Pane) CursorBlockPos() (col, row int, ok bool) {
+	return p.emulator.CursorBlockPosition()
 }
 
 // CursorPos returns the cursor position within this pane (0-indexed).

@@ -185,6 +185,7 @@ var commandRegistry = map[string]CommandHandler{
 	"hook-gen":        cmdHookGen,
 	"wait-hook":       cmdWaitHook,
 	"wait-for":        cmdWaitFor,
+	"wait-ready":      cmdWaitReady,
 	"wait-idle":       cmdWaitIdle,
 	"wait-busy":       cmdWaitBusy,
 	"ui-gen":          cmdUIGen,
@@ -541,23 +542,36 @@ func cmdKill(ctx *CommandContext) {
 
 func cmdSendKeys(ctx *CommandContext) {
 	if len(ctx.Args) < 2 {
-		ctx.replyErr("usage: send-keys <pane> [--hex] <keys>...")
+		ctx.replyErr("usage: send-keys <pane> [--wait-ready] [--continue-known-dialogs] [--hex] <keys>...")
 		return
 	}
-	hexMode, keys := parseKeyArgs(ctx.Args[1:])
-	chunks, err := encodeKeyChunks(hexMode, keys)
+	opts, err := parseSendKeysArgs(ctx.Args[1:])
+	if err != nil {
+		ctx.replyErr(err.Error())
+		return
+	}
+	if len(opts.keys) == 0 {
+		ctx.replyErr("usage: send-keys <pane> [--wait-ready] [--continue-known-dialogs] [--hex] <keys>...")
+		return
+	}
+	chunks, err := encodeKeyChunks(opts.hexMode, opts.keys)
 	if err != nil {
 		ctx.replyErr(err.Error())
 		return
 	}
 	pane, err := ctx.Sess.queryResolvedPane(ctx.Args[0])
 	if err != nil {
-		if len(ctx.Args) < 1 {
-			ctx.replyErr("usage: send-keys <pane> [--hex] <keys>...")
-		} else {
-			ctx.replyErr(err.Error())
-		}
+		ctx.replyErr(err.Error())
 		return
+	}
+	if opts.waitReady {
+		if err := waitForPaneReady(ctx.Sess, ctx.Args[0], pane, waitReadyOptions{
+			timeout:              10 * time.Second,
+			continueKnownDialogs: opts.continueKnownDialogs,
+		}); err != nil {
+			ctx.replyErr(err.Error())
+			return
+		}
 	}
 	if err := ctx.Sess.enqueuePacedPaneInput(pane.pane, chunks); err != nil {
 		ctx.replyErr(err.Error())

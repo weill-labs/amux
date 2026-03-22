@@ -58,6 +58,11 @@ type TerminalEmulator interface {
 	// reverse-video space cell (an app-rendered block cursor).
 	HasCursorBlock() bool
 
+	// CursorBlockPosition returns the app-drawn block cursor cell position
+	// when one is present. The boolean is false when no isolated block cursor
+	// can be identified.
+	CursorBlockPosition() (col, row int, ok bool)
+
 	// ScreenLineText returns the plain text of screen line y (0=top row).
 	// Continuation cells (Width==0) are skipped, trailing spaces trimmed.
 	ScreenLineText(y int) string
@@ -459,6 +464,10 @@ func (v *vtEmulator) RenderWithoutCursorBlock() string {
 func (v *vtEmulator) HasCursorBlock() bool {
 	_, _, ok := v.currentCursorBlock()
 	return ok
+}
+
+func (v *vtEmulator) CursorBlockPosition() (col, row int, ok bool) {
+	return v.currentCursorBlock()
 }
 
 // NewVTEmulatorWithDrain creates a terminal emulator that automatically

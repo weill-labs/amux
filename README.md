@@ -70,6 +70,9 @@ amux wait-idle pane-1
 # Broadcast the same command to multiple panes
 amux broadcast --panes pane-1,pane-2 "make test" Enter
 
+# Send a task to an agent pane after it reaches its prompt
+amux send-keys pane-31 --wait-ready "Fix the auth timeout bug" Enter
+
 # Subscribe to state changes
 amux events --filter idle
 
@@ -151,12 +154,15 @@ Block until a condition is met. No polling.
 | `wait-idle <pane>` | Block until pane has no foreground process | 5s |
 | `wait-busy <pane>` | Block until pane has a child process | 5s |
 | `wait-for <pane> <substring>` | Block until substring appears in pane content | 10s |
+| `wait-ready <pane>` | Block until an agent prompt is ready for input | 10s |
 | `wait-layout [--after N]` | Block until layout generation exceeds N | 3s |
 | `wait-clipboard [--after N]` | Block until clipboard content changes | 3s |
 | `wait-ui <event> [--client client-1] [--after N]` | Block until a client-local UI state is reached | 5s |
 | `ui-gen [--client client-1]` | Show the current client UI generation counter | n/a |
 
 All accept `--timeout <duration>` (e.g., `--timeout 30s`).
+
+`wait-ready` looks for common agent prompt rows (`>`, `›`, `❯`) at the active input cursor. For Codex's trust / prompt-injection screen, `wait-ready` reports the blocker by default and `--continue-known-dialogs` sends one `Enter` before resuming the wait.
 
 ### Event Stream
 
@@ -248,7 +254,7 @@ All commands accept `-s <session>` to target a specific session. Panes are refer
 | `amux minimize <pane>` | Minimize a pane |
 | `amux restore <pane>` | Restore a minimized pane |
 | `amux kill [pane]` | Kill a pane (default: active) |
-| `amux send-keys <pane> [--hex] <keys>...` | Send keystrokes to a pane |
+| `amux send-keys <pane> [--wait-ready] [--continue-known-dialogs] [--hex] <keys>...` | Send keystrokes to a pane |
 | `amux broadcast (--panes <pane,pane,...> \| --window <index\|name> \| --match <glob>) [--hex] <keys>...` | Send the same keystrokes to multiple panes |
 | `amux swap <p1> <p2>` | Swap two panes |
 | `amux swap forward\|backward` | Swap active pane with neighbor |
@@ -271,6 +277,7 @@ All commands accept `-s <session>` to target a specific session. Panes are refer
 | `amux wait-idle <pane> [--timeout 5s]` | Block until pane becomes idle |
 | `amux wait-busy <pane> [--timeout 5s]` | Block until pane has child processes |
 | `amux wait-for <pane> <substring> [--timeout 10s]` | Block until substring appears in pane |
+| `amux wait-ready <pane> [--timeout 10s] [--continue-known-dialogs]` | Block until an agent prompt is ready for input |
 | `amux wait-layout [--after N] [--timeout 3s]` | Block until layout generation > N |
 | `amux wait-clipboard [--after N] [--timeout 3s]` | Block until clipboard content changes |
 | `amux wait-ui <event> [--client id] [--after N] [--timeout 5s]` | Block until a client-local UI state is reached |

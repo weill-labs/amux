@@ -50,6 +50,12 @@ amux type-keys pane-1 Enter
 # Send raw keystrokes directly to PTY (bypasses client)
 amux send-keys pane-1 'ls -la' Enter
 
+# Wait for an agent prompt before sending a task
+amux wait-ready pane-31 --timeout 30s
+
+# Or fold readiness into the send itself
+amux send-keys pane-31 --wait-ready 'Fix the bug in auth.go' Enter
+
 # Special keys
 amux type-keys pane-1 Escape
 amux type-keys pane-1 C-c        # Ctrl-C
@@ -117,14 +123,14 @@ When delegating work to an agent (codex, claude, grok) running in a pane, follow
 
 ### 1. Confirm the agent is ready
 
-Before typing a task, verify the agent is at its input prompt. Each agent has a prompt marker:
+Before typing a task, verify the agent is at its input prompt:
 
 ```bash
-# For codex — wait for the ">" prompt
-amux wait-for pane-31 ">" --timeout 30s
+# Prompt-aware wait for codex / claude / grok panes
+amux wait-ready pane-31 --timeout 30s
 
-# For claude — wait for the ">" prompt
-amux wait-for pane-5 ">" --timeout 30s
+# Codex trust dialog: fail fast by default, or auto-continue if you want
+amux wait-ready pane-31 --continue-known-dialogs --timeout 30s
 
 # Generic — capture and check the last lines
 amux capture --format json pane-31 | python3 -c "
@@ -144,11 +150,12 @@ amux type-keys pane-31 C-u    # Kill line — clears any partial input
 ### 3. Send the task
 
 ```bash
-amux type-keys pane-31 'Fix the bug in auth.go where tokens expire too early'
-amux type-keys pane-31 Enter
+# One-shot delegation with readiness wait built in
+amux send-keys pane-31 --wait-ready --continue-known-dialogs \
+  'Fix the bug in auth.go where tokens expire too early' Enter
 ```
 
-For long prompts, `type-keys` handles the full string — no need to chunk it.
+If you already ran `wait-ready`, you can also send the task with `type-keys` or plain `send-keys`.
 
 ### 4. Monitor progress
 
@@ -279,8 +286,8 @@ env -u AMUX_SESSION -u TMUX go test ./...
 When sending prompts to agents (codex, claude), use `send-keys` — it sends the text and Enter in one call. `type-keys` goes through the client input pipeline which can be slower and introduce translation issues.
 
 ```bash
-# Preferred — one call, fast
-amux send-keys 32 "Fix the bug in auth.go" Enter
+# Preferred — one call, fast, and readiness-aware
+amux send-keys 32 --wait-ready "Fix the bug in auth.go" Enter
 
 # Also works but slower
 amux type-keys 32 'Fix the bug in auth.go'
