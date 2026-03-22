@@ -525,6 +525,108 @@ func TestEventsCLI(t *testing.T) {
 	}
 }
 
+func TestEventsCLIAutoReconnectAfterReload(t *testing.T) {
+	t.Parallel()
+
+	h := newServerHarnessPersistent(t)
+	proc := startEventsCLI(t, h, nil, "--filter", "layout")
+
+	ev := mustReadEvent(t, proc.scanner, 5*time.Second)
+	if ev.Type != "layout" {
+		t.Fatalf("first CLI event type: got %q, want layout", ev.Type)
+	}
+
+	genBeforeReload := h.generation()
+	h.runCmd("reload-server")
+
+	ev = mustReadEvent(t, proc.scanner, 5*time.Second)
+	if ev.Type != "reconnect" {
+		t.Fatalf("event after reload: got %q, want reconnect", ev.Type)
+	}
+	if ev.Timestamp == "" {
+		t.Fatal("reconnect event should include timestamp")
+	}
+
+	ev = mustReadEvent(t, proc.scanner, 5*time.Second)
+	if ev.Type != "layout" {
+		t.Fatalf("post-reconnect event: got %q, want layout", ev.Type)
+	}
+	if ev.Generation < genBeforeReload {
+		t.Fatalf("post-reconnect generation = %d, want >= %d", ev.Generation, genBeforeReload)
+	}
+
+	genBeforeSplit := h.generation()
+	h.doSplit("v")
+
+	ev = mustReadEvent(t, proc.scanner, 5*time.Second)
+	if ev.Type != "layout" {
+		t.Fatalf("event after split: got %q, want layout", ev.Type)
+	}
+	if ev.Generation <= genBeforeSplit {
+		t.Fatalf("layout generation after split = %d, want > %d", ev.Generation, genBeforeSplit)
+	}
+}
+
+func TestEventsCLINoReconnectExitsOnReload(t *testing.T) {
+	t.Parallel()
+
+	h := newServerHarnessPersistent(t)
+	proc := startEventsCLI(t, h, nil, "--filter", "layout", "--no-reconnect")
+
+	ev := mustReadEvent(t, proc.scanner, 5*time.Second)
+	if ev.Type != "layout" {
+		t.Fatalf("first CLI event type: got %q, want layout", ev.Type)
+	}
+
+	h.runCmd("reload-server")
+
+	if err := proc.wait(5 * time.Second); err != nil {
+		t.Fatalf("events CLI exited with error: %v\nstderr:\n%s", err, proc.stderrString())
+	}
+
+	if ev := readEvent(t, proc.scanner, 200*time.Millisecond); !ev.TimedOut {
+		t.Fatalf("expected stream to exit without reconnect event, got %+v", ev)
+	}
+}
+
+func TestEventsCLIReconnectExitsAfterRetryCap(t *testing.T) {
+	t.Parallel()
+
+	h := newServerHarnessPersistent(t)
+	proc := startEventsCLI(t, h, []string{
+		"AMUX_EVENTS_RECONNECT_INITIAL_BACKOFF=10ms",
+		"AMUX_EVENTS_RECONNECT_MAX_BACKOFF=20ms",
+		"AMUX_EVENTS_RECONNECT_MAX_RETRIES=3",
+	}, "--filter", "layout")
+
+	ev := mustReadEvent(t, proc.scanner, 5*time.Second)
+	if ev.Type != "layout" {
+		t.Fatalf("first CLI event type: got %q, want layout", ev.Type)
+	}
+
+	if err := h.cmd.Process.Signal(os.Interrupt); err != nil {
+		t.Fatalf("stopping server: %v", err)
+	}
+	h.waitForShutdownSignal(5 * time.Second)
+
+	ev = mustReadEvent(t, proc.scanner, 5*time.Second)
+	if ev.Type != "reconnect" {
+		t.Fatalf("event after shutdown: got %q, want reconnect", ev.Type)
+	}
+
+	err := proc.wait(5 * time.Second)
+	exitErr, ok := err.(*exec.ExitError)
+	if !ok {
+		t.Fatalf("events CLI exit = %v, want nonzero exit", err)
+	}
+	if exitErr.ExitCode() != 1 {
+		t.Fatalf("events CLI exit code = %d, want 1", exitErr.ExitCode())
+	}
+	if !strings.Contains(proc.stderrString(), "reconnect failed") {
+		t.Fatalf("stderr = %q, want reconnect failure", proc.stderrString())
+	}
+}
+
 // TestEventsThrottleCoalesces verifies that rapid output events are coalesced
 // when the default throttle is active. The test generates rapid output and
 // verifies that the throttled stream delivers far fewer events than the raw

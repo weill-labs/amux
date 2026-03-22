@@ -2,8 +2,11 @@ package test
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"net"
+	"os"
+	"os/exec"
 	"testing"
 	"time"
 
@@ -62,6 +65,77 @@ func eventStream(t *testing.T, session string, args ...string) (*bufio.Scanner, 
 		pr.Close()
 	}
 	return scanner, closer
+}
+
+type eventsCLIProcess struct {
+	t       testing.TB
+	cmd     *exec.Cmd
+	scanner *bufio.Scanner
+	stderr  bytes.Buffer
+	waitErr chan error
+}
+
+func startEventsCLI(t *testing.T, h *ServerHarness, env []string, args ...string) *eventsCLIProcess {
+	t.Helper()
+
+	cmdArgs := append([]string{"-s", h.session, "events"}, args...)
+	cmd := exec.Command(amuxBin, cmdArgs...)
+
+	envVars := upsertEnv(os.Environ(), "HOME", h.home)
+	if h.coverDir != "" {
+		envVars = upsertEnv(envVars, "GOCOVERDIR", h.coverDir)
+	}
+	envVars = append(envVars, h.extraEnv...)
+	envVars = append(envVars, env...)
+	cmd.Env = envVars
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatalf("stdout pipe: %v", err)
+	}
+
+	proc := &eventsCLIProcess{
+		t:       t,
+		cmd:     cmd,
+		scanner: bufio.NewScanner(stdout),
+		waitErr: make(chan error, 1),
+	}
+	cmd.Stderr = &proc.stderr
+
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start events CLI: %v", err)
+	}
+
+	go func() {
+		proc.waitErr <- cmd.Wait()
+	}()
+
+	t.Cleanup(func() {
+		if cmd.ProcessState != nil {
+			return
+		}
+		_ = cmd.Process.Kill()
+		<-proc.waitErr
+	})
+
+	return proc
+}
+
+func (p *eventsCLIProcess) wait(timeout time.Duration) error {
+	p.t.Helper()
+
+	select {
+	case err := <-p.waitErr:
+		return err
+	case <-time.After(timeout):
+		p.t.Fatalf("timeout waiting for events CLI exit")
+		return nil
+	}
+}
+
+func (p *eventsCLIProcess) stderrString() string {
+	p.t.Helper()
+	return p.stderr.String()
 }
 
 // readEvent reads the next event from the scanner within timeout.
