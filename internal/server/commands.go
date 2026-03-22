@@ -28,6 +28,11 @@ type CommandHandler func(ctx *CommandContext)
 // arrives on a later input tick rather than in the same burst as preceding text.
 const tokenKeyGap = 50 * time.Millisecond
 
+// ReloadServerExecPathFlag carries the requesting CLI's resolved executable
+// path so the server can re-exec that binary instead of its original launch
+// path when the two differ.
+const ReloadServerExecPathFlag = "--exec-path"
+
 // CommandContext provides all state a command handler needs.
 type CommandContext struct {
 	CC   *ClientConn
@@ -1555,11 +1560,11 @@ func cmdReloadServer(ctx *CommandContext) {
 
 func requestedReloadExecPath(args []string) (string, error) {
 	for i := 0; i < len(args); i++ {
-		if args[i] != "--exec-path" {
+		if args[i] != ReloadServerExecPathFlag {
 			continue
 		}
 		if i+1 >= len(args) {
-			return "", fmt.Errorf("missing value for --exec-path")
+			return "", fmt.Errorf("missing value for %s", ReloadServerExecPathFlag)
 		}
 		return filepath.EvalSymlinks(args[i+1])
 	}

@@ -642,7 +642,7 @@ func prependReloadExecPathArg(args []string) []string {
 	if err != nil {
 		return args
 	}
-	return append([]string{"--exec-path", execPath}, args...)
+	return append([]string{server.ReloadServerExecPathFlag, execPath}, args...)
 }
 
 // checkNesting exits with an error if we're inside the same amux session
