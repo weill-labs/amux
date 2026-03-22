@@ -1,6 +1,8 @@
 package client
 
 import (
+	"strconv"
+
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
@@ -70,7 +72,7 @@ func (p *PaneData) CursorHidden() bool        { return p.Emu.CursorHidden() }
 func (p *PaneData) HasCursorBlock() bool      { return p.Emu.HasCursorBlock() }
 func (p *PaneData) ID() uint32                { return p.Info.ID }
 func (p *PaneData) Name() string              { return p.Info.Name }
-func (p *PaneData) PRs() []string             { return p.Info.PRs }
+func (p *PaneData) PRs() []string             { return formatPRNumbers(p.Info.PRs) }
 func (p *PaneData) Issues() []string          { return p.Info.Issues }
 func (p *PaneData) Host() string              { return p.Info.Host }
 func (p *PaneData) Task() string              { return p.Info.Task }
@@ -80,3 +82,14 @@ func (p *PaneData) Idle() bool                { return p.Info.Idle }
 func (p *PaneData) ConnStatus() string        { return p.Info.ConnStatus }
 func (p *PaneData) InCopyMode() bool          { return false }
 func (p *PaneData) CopyModeSearch() string    { return "" }
+
+func formatPRNumbers(prs []int) []string {
+	if len(prs) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(prs))
+	for _, pr := range prs {
+		out = append(out, strconv.Itoa(pr))
+	}
+	return out
+}

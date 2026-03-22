@@ -133,7 +133,7 @@ func TestPaneDataAccessors(t *testing.T) {
 		Info: proto.PaneSnapshot{
 			ID:         7,
 			Name:       "pane-7",
-			PRs:        []string{"42", "314"},
+			PRs:        []int{42, 314},
 			Issues:     []string{"LAB-339"},
 			Host:       "buildbox",
 			Task:       "tail -f",

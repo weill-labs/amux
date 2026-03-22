@@ -170,6 +170,39 @@ func TestAddMetaTracksPanePRsAndIssues(t *testing.T) {
 	}
 }
 
+func TestPaneMetaCLIUsageErrors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "add-meta usage",
+			args: []string{"add-meta"},
+			want: "usage: amux add-meta <pane> key=value [key=value...]",
+		},
+		{
+			name: "rm-meta usage",
+			args: []string{"rm-meta"},
+			want: "usage: amux rm-meta <pane> key=value [key=value...]",
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newServerHarness(t)
+			if out := h.runCmd(tt.args...); !strings.Contains(out, tt.want) {
+				t.Fatalf("%s output = %q, want substring %q", tt.name, out, tt.want)
+			}
+		})
+	}
+}
+
 func TestRmMetaRemovesPanePRsAndIssues(t *testing.T) {
 	t.Parallel()
 
