@@ -15,21 +15,30 @@ const (
 )
 
 func (p *Pane) notifyResizeSignal() {
-	if p.ptmx == nil {
-		return
-	}
-
 	// Darwin updates the PTY size via TIOCSWINSZ, but the foreground job
 	// does not reliably see SIGWINCH when we resize through the master FD.
 	// Resolve the slave path and signal the current foreground process group
 	// directly so alt-screen TUIs redraw after pane resizes.
+	pgrp, err := p.foregroundProcessGroup()
+	if err != nil || pgrp <= 0 {
+		return
+	}
+
+	_ = syscall.Kill(-pgrp, syscall.SIGWINCH)
+}
+
+func (p *Pane) foregroundProcessGroup() (int, error) {
+	if p.ptmx == nil {
+		return 0, nil
+	}
+
 	ttyPath, err := p.ttyPath()
 	if err != nil {
-		return
+		return 0, err
 	}
 	tty, err := os.OpenFile(ttyPath, os.O_RDWR|syscall.O_NOCTTY, 0)
 	if err != nil {
-		return
+		return 0, err
 	}
 	defer tty.Close()
 
@@ -40,11 +49,10 @@ func (p *Pane) notifyResizeSignal() {
 		uintptr(syscall.TIOCGPGRP),
 		uintptr(unsafe.Pointer(&pgrp)),
 	)
-	if errno != 0 || pgrp <= 0 {
-		return
+	if errno != 0 {
+		return 0, errno
 	}
-
-	_ = syscall.Kill(-int(pgrp), syscall.SIGWINCH)
+	return int(pgrp), nil
 }
 
 func (p *Pane) ttyPath() (string, error) {
