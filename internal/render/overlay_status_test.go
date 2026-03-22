@@ -490,7 +490,7 @@ func TestBuildGlobalBarCellsColorsActiveTab(t *testing.T) {
 		t.Fatal("inactive tab label missing from global bar")
 	}
 
-	wantActive := hexToColor(config.CatppuccinMocha[12])
+	wantActive := hexToColor(config.BlueHex)
 	wantInactive := hexToColor(config.TextColorHex)
 	for i := 0; i < len("1:dev"); i++ {
 		cell := grid.Get(activeStart+i, 0)
