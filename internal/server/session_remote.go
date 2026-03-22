@@ -3,12 +3,19 @@ package server
 import (
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	caputil "github.com/weill-labs/amux/internal/capture"
 	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/remote"
+)
+
+var (
+	captureAttachMaxRetries = 10
+	captureAttachRetryDelay = 300 * time.Millisecond
+	captureResponseTimeout  = 3 * time.Second
 )
 
 // SetupRemoteManager initializes the remote manager with callbacks.
@@ -234,12 +241,17 @@ func (s *Session) forwardCapture(args []string) *Message {
 		statusPanes []*mux.Pane
 	}
 	captureReq := caputil.ParseArgs(args)
+	jsonErrorResult := func(code, message string) *Message {
+		return &Message{
+			Type:      MsgTypeCmdResult,
+			CmdOutput: caputil.JSONErrorOutput(captureReq.PaneRef != "", code, message) + "\n",
+		}
+	}
 
 	// Wait briefly for a client to attach (covers post-reload reconnection).
-	const maxRetries = 10
 	var snap captureSnapshot
 	var err error
-	for attempt := 0; attempt < maxRetries; attempt++ {
+	for attempt := 0; attempt < captureAttachMaxRetries; attempt++ {
 		snap, err = enqueueSessionQuery(s, func(s *Session) (captureSnapshot, error) {
 			var snap captureSnapshot
 			for _, cc := range s.clients {
@@ -262,15 +274,21 @@ func (s *Session) forwardCapture(args []string) *Message {
 			return snap, nil
 		})
 		if err != nil {
+			if captureReq.FormatJSON {
+				return jsonErrorResult("session_shutting_down", err.Error())
+			}
 			return &Message{Type: MsgTypeCmdResult, CmdErr: err.Error()}
 		}
 		if snap.client != nil {
 			break
 		}
-		if attempt == maxRetries-1 {
+		if attempt == captureAttachMaxRetries-1 {
+			if captureReq.FormatJSON {
+				return jsonErrorResult("no_client_attached", "no client attached")
+			}
 			return &Message{Type: MsgTypeCmdResult, CmdErr: "no client attached"}
 		}
-		time.Sleep(300 * time.Millisecond)
+		time.Sleep(captureAttachRetryDelay)
 	}
 
 	agentStatus := s.captureAgentStatus(snap.statusPanes)
@@ -283,20 +301,48 @@ func (s *Session) forwardCapture(args []string) *Message {
 		reply:       make(chan *Message, 1),
 	}
 	if err := s.enqueueCaptureRequest(req); err != nil {
+		if captureReq.FormatJSON {
+			return jsonErrorResult("session_shutting_down", err.Error())
+		}
 		return &Message{Type: MsgTypeCmdResult, CmdErr: err.Error()}
 	}
 
-	timer := time.NewTimer(3 * time.Second)
+	timer := time.NewTimer(captureResponseTimeout)
 	defer timer.Stop()
 	select {
 	case resp := <-req.reply:
+		if captureReq.FormatJSON {
+			if resp == nil {
+				return jsonErrorResult("invalid_capture_response", "capture client returned no response")
+			}
+			if resp.CmdErr != "" {
+				return &Message{Type: MsgTypeCmdResult, CmdErr: resp.CmdErr}
+			}
+			if err := caputil.ValidateJSONOutput(resp.CmdOutput); err != nil {
+				return jsonErrorResult("invalid_capture_response", err.Error())
+			}
+			return &Message{Type: MsgTypeCmdResult, CmdOutput: ensureTrailingNewline(resp.CmdOutput)}
+		}
 		return &Message{Type: MsgTypeCmdResult, CmdOutput: resp.CmdOutput, CmdErr: resp.CmdErr}
 	case <-timer.C:
 		s.cancelCaptureRequest(req.id)
+		if captureReq.FormatJSON {
+			return jsonErrorResult("capture_timeout", "capture timed out (client unresponsive)")
+		}
 		return &Message{Type: MsgTypeCmdResult, CmdErr: "capture timed out (client unresponsive)"}
 	case <-s.sessionEventDone:
+		if captureReq.FormatJSON {
+			return jsonErrorResult("session_shutting_down", errSessionShuttingDown.Error())
+		}
 		return &Message{Type: MsgTypeCmdResult, CmdErr: errSessionShuttingDown.Error()}
 	}
+}
+
+func ensureTrailingNewline(s string) string {
+	if strings.HasSuffix(s, "\n") {
+		return s
+	}
+	return s + "\n"
 }
 
 // routeCaptureResponse delivers a capture response from the interactive client
