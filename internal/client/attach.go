@@ -23,12 +23,31 @@ import (
 	"golang.org/x/term"
 )
 
+var termGetSize = term.GetSize
+
 func handleDisplayPaneSelection(cr *ClientRenderer, sender *messageSender, b byte) {
 	paneID, ok := cr.ResolveDisplayPaneKey(b)
 	cr.HideDisplayPanes()
 	if ok {
 		sender.Command("focus", []string{fmt.Sprintf("%d", paneID)})
 	}
+}
+
+func syncTerminalSize(fd int, prevCols, prevRows int, cr *ClientRenderer, sender *messageSender) (int, int) {
+	c, r, _ := termGetSize(fd)
+	if c <= 0 || r <= 0 {
+		return prevCols, prevRows
+	}
+	if c == prevCols && r == prevRows {
+		return prevCols, prevRows
+	}
+	cr.Resize(c, r)
+	_ = sender.Send(&proto.Message{
+		Type: proto.MsgTypeResize,
+		Cols: c,
+		Rows: r,
+	})
+	return c, r
 }
 
 func terminalEnterSequence(caps proto.ClientCapabilities) string {
@@ -82,7 +101,7 @@ func RunSession(sessionName string) error {
 	defer sender.Close()
 
 	fd := int(os.Stdin.Fd())
-	cols, rows, _ := term.GetSize(fd)
+	cols, rows, _ := termGetSize(fd)
 	if cols <= 0 {
 		cols = server.DefaultTermCols
 	}
@@ -136,19 +155,16 @@ func RunSession(sessionName string) error {
 	// Forward SIGWINCH to server and update client renderer
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGWINCH)
+	defer signal.Stop(sigCh)
 	go func() {
+		lastCols, lastRows := cols, rows
 		for range sigCh {
-			c, r, _ := term.GetSize(fd)
-			if c > 0 && r > 0 {
-				cr.Resize(c, r)
-				sender.Send(&proto.Message{
-					Type: proto.MsgTypeResize,
-					Cols: c,
-					Rows: r,
-				})
-			}
+			lastCols, lastRows = syncTerminalSize(fd, lastCols, lastRows, cr, sender)
 		}
 	}()
+	// Recheck once after the handler is live so startup-time size changes
+	// (common on mobile/SSH clients) are not lost before the first SIGWINCH.
+	cols, rows = syncTerminalSize(fd, cols, rows, cr, sender)
 
 	// Channel for injecting keystrokes from type-keys (server → client).
 	injectCh := make(chan []byte, 16)
