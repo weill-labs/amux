@@ -285,7 +285,8 @@ func handleSession(ctx context.Context, ch ssh.Channel, reqs <-chan *ssh.Request
 			command := string(req.Payload[4 : 4+cmdLen])
 			req.Reply(true, nil)
 
-			cmd := exec.CommandContext(ctx, "sh", "-c", command)
+			execCtx, execCancel := context.WithTimeout(ctx, sshCmdTimeout)
+			cmd := exec.CommandContext(execCtx, "sh", "-c", command)
 			cmd.Env = upsertEnv(append([]string{}, execEnv...), "TERM", termType)
 			cmd.Stdout = ch
 			cmd.Stderr = ch.Stderr()
@@ -299,6 +300,7 @@ func handleSession(ctx context.Context, ch ssh.Channel, reqs <-chan *ssh.Request
 					exitCode = 1
 				}
 			}
+			execCancel()
 
 			// Send exit-status
 			exitMsg := make([]byte, 4)
@@ -383,11 +385,20 @@ type crToLFWriter struct {
 	w io.Writer
 }
 
+// sshCmdTimeout bounds any single exec/shell command spawned by the test SSH
+// server. It must exceed the longest server-side wait (wait-idle 20s) but stay
+// well under the 300s CI binary timeout so a wedged command is killed before
+// the global timeout fires.
+const sshCmdTimeout = 60 * time.Second
+
 func runShellCommand(ctx context.Context, ch ssh.Channel, command string, execEnv []string, size *pty.Winsize, termType string) int {
-	cmd := exec.CommandContext(ctx, "sh", "-c", command)
+	cmdCtx, cancel := context.WithTimeout(ctx, sshCmdTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(cmdCtx, "sh", "-c", command)
 	cmd.Env = upsertEnv(append([]string{}, execEnv...), "TERM", termType)
-	// Ensure the child process group is killed when the context is cancelled,
-	// so children of "sh -c ..." don't outlive the test.
+	// Kill the child immediately when the context fires so children of
+	// "sh -c ..." don't outlive the test or the per-command deadline.
 	cmd.Cancel = func() error {
 		return cmd.Process.Kill()
 	}
