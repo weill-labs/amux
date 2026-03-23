@@ -196,6 +196,32 @@ func TestTakeoverAfterServerReload(t *testing.T) {
 	h.waitForTimeout(proxyPaneName, "TAKEOVER_AFTER_RELOAD_OK", "5s")
 }
 
+// TestTakeoverSkippedWhenTermNotAmux verifies that the takeover gate correctly
+// skips takeover when TERM is not "amux" (e.g., SSH from a phone or plain terminal).
+// SSH without -t means no pty-req, so TERM stays as xterm-256color on the remote.
+func TestTakeoverSkippedWhenTermNotAmux(t *testing.T) {
+	t.Parallel()
+
+	addr, keyFile := setupTestSSH(t)
+	h := newServerHarnessWithConfig(t, 80, 24, remoteTestConfig(addr, keyFile))
+	existingProxyPanes := takeoverProxyPaneNames(h)
+
+	// SSH without -t: no pty-req sent, so TERM defaults to xterm-256color.
+	// The remote amux should NOT attempt takeover (TERM != "amux").
+	// Without a PTY the remote amux will fail to attach, but the point is
+	// that tryTakeover is never called and no proxy panes appear.
+	_, port, _ := net.SplitHostPort(addr)
+	sshCmd := fmt.Sprintf(
+		"ssh -i %s -p %s -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null 127.0.0.1 amux 2>&1; echo NO_TAKEOVER_DONE",
+		keyFile, port)
+	h.sendKeys("pane-1", sshCmd, "Enter")
+	h.waitForTimeout("pane-1", "NO_TAKEOVER_DONE", "5s")
+
+	if name := firstNewTakeoverProxyPane(h, existingProxyPanes); name != "" {
+		t.Fatalf("takeover should not trigger without TERM=amux, but got proxy pane %s", name)
+	}
+}
+
 func waitForTakeoverProxyPane(t *testing.T, h *ServerHarness, existing map[string]struct{}) string {
 	t.Helper()
 
