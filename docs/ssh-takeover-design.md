@@ -65,9 +65,10 @@ The local amux's `readLoop()` already scans PTY output (for OSC 52). A new scann
 ### How the Remote Detects It's Nested
 
 When `amux` starts (either as client or server), it checks:
-1. Is `AMUX_PANE=1` set? (Same-host nesting — always set in amux pane shells)
-2. If not, is the terminal a PTY connected to an SSH session? Check `SSH_CONNECTION` env var.
-3. If both `SSH_CONNECTION` is set AND the user runs `amux`, emit the takeover sequence.
+1. Is `AMUX_PANE` set? (Same-host nesting — always set in amux pane shells — skip takeover)
+2. Is `TERM=amux`? (amux pane shells set `TERM=amux`; SSH forwards `TERM` by default, so this reliably indicates the SSH session originated from an amux pane)
+3. Is `SSH_CONNECTION` set? (Confirms this is an SSH session)
+4. If all three conditions are met (`SSH_CONNECTION` set, `TERM=amux`, `AMUX_PANE` not set), emit the takeover sequence.
 
 The remote `amux` emits the takeover sequence, then **waits** for an acknowledgment before proceeding. If no ack arrives within 2 seconds (e.g., running outside amux, or in a terminal that doesn't understand the sequence), it falls back to normal behavior (standalone session).
 

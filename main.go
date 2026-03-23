@@ -60,9 +60,7 @@ func main() {
 	}
 
 	if len(args) == 0 {
-		// Nested detection: if running inside an SSH session (but not
-		// inside a local amux pane on the same host), attempt takeover.
-		if os.Getenv("SSH_CONNECTION") != "" && os.Getenv("AMUX_PANE") == "" {
+		if shouldAttemptTakeover() {
 			if tryTakeover(sessionName) {
 				return // takeover succeeded — managed mode started
 			}
@@ -951,6 +949,13 @@ func checkNesting(target string) {
 		fmt.Fprintf(os.Stderr, "  unset AMUX_SESSION to override\n")
 		os.Exit(1)
 	}
+}
+
+// shouldAttemptTakeover reports whether the current process should try SSH
+// takeover. Requires all three: in an SSH session, TERM=amux (forwarded via
+// pty-req from an amux pane), and not already inside a remote amux pane.
+func shouldAttemptTakeover() bool {
+	return os.Getenv("SSH_CONNECTION") != "" && os.Getenv("TERM") == "amux" && os.Getenv("AMUX_PANE") == ""
 }
 
 // tryTakeover attempts an SSH session takeover. It emits a takeover sequence
