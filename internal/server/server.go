@@ -40,6 +40,7 @@ type Session struct {
 	Panes          []*mux.Pane   // flat list of ALL panes across all windows
 	clients        []*clientConn
 	connectionLog  *ConnectionLog
+	paneLog        *PaneLog
 	sizeClient     atomic.Pointer[clientConn] // latest active client whose terminal size owns the session
 	clientCounter  atomic.Uint32
 	counter        atomic.Uint32 // pane ID counter
@@ -383,6 +384,7 @@ func newSessionWithScrollback(name string, scrollbackLines int) *Session {
 		startedAt:       time.Now(),
 		scrollbackLines: scrollbackLines,
 		connectionLog:   newConnectionLog(defaultConnectionLogSize),
+		paneLog:         newPaneLog(defaultPaneLogSize),
 	}
 	sess.Hooks = hooks.NewRegistry()
 	sess.idle = newIdleTracker()

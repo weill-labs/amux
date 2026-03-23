@@ -118,7 +118,7 @@ func TestNewHostConn(t *testing.T) {
 	called := false
 	hc := NewHostConn("test-host", cfg, "abc1234",
 		func(uint32, []byte) {},
-		func(uint32) {},
+		func(uint32, string) {},
 		func(string, ConnState) {
 			mu.Lock()
 			called = true

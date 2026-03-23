@@ -154,3 +154,34 @@ func cmdConnectionLog(ctx *CommandContext) {
 	}
 	ctx.reply(output.String())
 }
+
+func cmdPaneLog(ctx *CommandContext) {
+	entries, err := ctx.Sess.queryPaneLog()
+	if err != nil {
+		ctx.replyErr(err.Error())
+		return
+	}
+	if len(entries) == 0 {
+		ctx.reply("No pane lifecycle events recorded.\n")
+		return
+	}
+
+	var output strings.Builder
+	output.WriteString(fmt.Sprintf("%-30s %-8s %-5s %-12s %-10s %s\n", "TS", "EVENT", "ID", "PANE", "HOST", "REASON"))
+	for _, entry := range entries {
+		reason := entry.ExitReason
+		if reason == "" {
+			reason = "-"
+		}
+		output.WriteString(fmt.Sprintf(
+			"%-30s %-8s %-5d %-12s %-10s %s\n",
+			entry.Timestamp.UTC().Format(time.RFC3339Nano),
+			entry.Event,
+			entry.PaneID,
+			entry.PaneName,
+			entry.Host,
+			reason,
+		))
+	}
+	ctx.reply(output.String())
+}

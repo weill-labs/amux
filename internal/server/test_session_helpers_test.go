@@ -15,7 +15,7 @@ func NewServer(sessionName string) (*Server, error) {
 }
 
 func newProxyPane(id uint32, meta mux.PaneMeta, cols, rows int,
-	onOutput func(uint32, []byte, uint64), onExit func(uint32),
+	onOutput func(uint32, []byte, uint64), onExit func(uint32, string),
 	writeOverride func([]byte) (int, error)) *mux.Pane {
 	return mux.NewProxyPaneWithScrollback(id, meta, cols, rows, mux.DefaultScrollbackLines, onOutput, onExit, writeOverride)
 }

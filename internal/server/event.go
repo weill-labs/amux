@@ -15,6 +15,7 @@ const (
 	EventHook             = "hook"
 	EventClientConnect    = "client-connect"
 	EventClientDisconnect = "client-disconnect"
+	EventPaneExit         = "pane-exit"
 )
 
 const (

@@ -445,7 +445,7 @@ func TestPaneExitCallbackEnqueuesRemoval(t *testing.T) {
 	sess.ActiveWindowID = w.ID
 	sess.Panes = []*mux.Pane{p1, p2}
 
-	sess.paneExitCallback()(p2.ID)
+	sess.paneExitCallback()(p2.ID, "exit 0")
 
 	waitUntil(t, func() bool {
 		return mustSessionQuery(t, sess, func(sess *Session) bool {

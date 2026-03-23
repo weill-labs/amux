@@ -356,6 +356,12 @@ func (s *Session) queryConnectionLog() ([]ConnectionLogEntry, error) {
 	})
 }
 
+func (s *Session) queryPaneLog() ([]PaneLogEntry, error) {
+	return enqueueSessionQuery(s, func(s *Session) ([]PaneLogEntry, error) {
+		return s.ensurePaneLog().Snapshot(), nil
+	})
+}
+
 func (s *Session) queryUIClient(requestedClientID, eventName string) (uiClientSnapshot, error) {
 	return enqueueSessionQuery(s, func(s *Session) (uiClientSnapshot, error) {
 		return s.resolveUIClientSnapshot(requestedClientID, eventName)
