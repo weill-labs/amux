@@ -41,11 +41,11 @@ func (s *Session) SetupRemoteManager(cfg *config.Config, buildHash string) {
 			}
 		},
 		// onPaneExit: clean up when a remote pane exits
-		func(localPaneID uint32) {
+		func(localPaneID uint32, reason string) {
 			if s.shutdown.Load() {
 				return
 			}
-			s.enqueueRemotePaneExit(localPaneID)
+			s.enqueueRemotePaneExit(localPaneID, reason)
 		},
 		// onStateChange: update pane metadata when connection state changes
 		func(hostName string, state remote.ConnState) {

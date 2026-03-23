@@ -134,6 +134,8 @@ func main() {
 		runServerCommand("list-clients", nil)
 	case "connection-log":
 		runServerCommand("connection-log", nil)
+	case "pane-log":
+		runServerCommand("pane-log", nil)
 	case "capture":
 		runServerCommand("capture", args[1:])
 	case "copy-mode":
@@ -451,6 +453,7 @@ Usage:
   amux [-s session] status             Show pane/window summary
   amux [-s session] list-clients       List attached clients + client-local UI state
   amux [-s session] connection-log     Show recent client attach/detach history
+  amux [-s session] pane-log           Show pane create/exit history with exit reasons
   amux [-s session] capture            Capture full composited screen
   amux [-s session] capture <pane>     Capture a single pane's output
   amux [-s session] capture --history <pane>

@@ -183,12 +183,12 @@ func (s *Session) paneOutputCallback() func(uint32, []byte, uint64) {
 
 // paneExitCallback returns the standard onExit callback for panes.
 // When the last pane exits, the session sends MsgTypeExit and shuts down.
-func (s *Session) paneExitCallback() func(uint32) {
-	return func(paneID uint32) {
+func (s *Session) paneExitCallback() func(uint32, string) {
+	return func(paneID uint32, reason string) {
 		if s.shutdown.Load() {
 			return
 		}
-		s.enqueuePaneExit(paneID)
+		s.enqueuePaneExit(paneID, reason)
 	}
 }
 
@@ -224,6 +224,7 @@ func (s *Session) createPaneWithMeta(srv *Server, meta mux.PaneMeta, cols, rows 
 	pane.SetOnMetaUpdate(s.metaCallback())
 
 	s.Panes = append(s.Panes, pane)
+	s.appendPaneLog(paneLogEventCreate, pane, "")
 	return pane, nil
 }
 

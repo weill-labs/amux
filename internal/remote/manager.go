@@ -32,7 +32,7 @@ type PaneCreatedCallback func(localPaneID, remotePaneID uint32)
 type PaneOutputCallback func(localPaneID uint32, data []byte)
 
 // PaneExitCallback is called when a remote pane exits.
-type PaneExitCallback func(localPaneID uint32)
+type PaneExitCallback func(localPaneID uint32, reason string)
 
 // StateChangeCallback is called when a host's connection state changes.
 type StateChangeCallback func(hostName string, state ConnState)

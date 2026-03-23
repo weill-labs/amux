@@ -1,6 +1,7 @@
 package mux
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -64,7 +65,7 @@ type Pane struct {
 	closed         atomic.Bool
 	drainStarted   bool
 	onOutput       func(paneID uint32, data []byte, seq uint64)
-	onExit         func(paneID uint32)
+	onExit         func(paneID uint32, reason string)
 	onClipboard    func(paneID uint32, data []byte)
 	onTakeover     func(paneID uint32, req TakeoverRequest)
 	onMetaUpdate   func(paneID uint32, update MetaUpdate)
@@ -114,7 +115,7 @@ type CaptureSnapshot struct {
 // NewPaneWithScrollback creates a new pane running the user's shell but does
 // NOT start the read/drain/wait goroutines. Call Start() after releasing any
 // locks that the onOutput/onExit callbacks might need.
-func NewPaneWithScrollback(id uint32, meta PaneMeta, cols, rows int, sessionName string, scrollbackLines int, onOutput func(uint32, []byte, uint64), onExit func(uint32)) (*Pane, error) {
+func NewPaneWithScrollback(id uint32, meta PaneMeta, cols, rows int, sessionName string, scrollbackLines int, onOutput func(uint32, []byte, uint64), onExit func(uint32, string)) (*Pane, error) {
 	shell := os.Getenv("SHELL")
 	if shell == "" {
 		shell = "/bin/bash"
@@ -183,7 +184,7 @@ func paneCommandEnv(base []string, paneID uint32, sessionName string) []string {
 // existing PTY master FD and finds the running shell process by PID. No new
 // shell is spawned — the existing shell survives the exec. The drain goroutine
 // starts immediately to prevent deadlock during screen replay.
-func RestorePaneWithScrollback(id uint32, meta PaneMeta, ptmxFd, pid, cols, rows int, scrollbackLines int, onOutput func(uint32, []byte, uint64), onExit func(uint32)) (*Pane, error) {
+func RestorePaneWithScrollback(id uint32, meta PaneMeta, ptmxFd, pid, cols, rows int, scrollbackLines int, onOutput func(uint32, []byte, uint64), onExit func(uint32, string)) (*Pane, error) {
 	ptmx := os.NewFile(uintptr(ptmxFd), fmt.Sprintf("ptmx-%d", id))
 	if ptmx == nil {
 		return nil, fmt.Errorf("invalid FD %d for pane %d", ptmxFd, id)
@@ -431,14 +432,32 @@ func (p *Pane) applyOutput(data []byte) uint64 {
 
 // waitLoop waits for the shell process to exit.
 func (p *Pane) waitLoop() {
+	var err error
 	if p.cmd != nil {
-		p.cmd.Wait()
+		err = p.cmd.Wait()
 	} else if p.process != nil {
-		p.process.Wait()
+		_, err = p.process.Wait()
 	}
 	if p.onExit != nil {
-		p.onExit(p.ID)
+		p.onExit(p.ID, formatExitReason(err))
 	}
+}
+
+// formatExitReason turns a Wait() error into a human-readable exit reason.
+func formatExitReason(err error) string {
+	if err == nil {
+		return "exit 0"
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		if status, ok := exitErr.Sys().(syscall.WaitStatus); ok {
+			if status.Signaled() {
+				return "signal: " + status.Signal().String()
+			}
+		}
+		return fmt.Sprintf("exit %d", exitErr.ExitCode())
+	}
+	return err.Error()
 }
 
 // Write sends input data to the PTY (from client keyboard input).
@@ -702,7 +721,7 @@ func (p *Pane) Close() error {
 // NewProxyPaneWithScrollback creates a proxy pane with an explicit retained
 // scrollback limit.
 func NewProxyPaneWithScrollback(id uint32, meta PaneMeta, cols, rows int,
-	scrollbackLines int, onOutput func(uint32, []byte, uint64), onExit func(uint32),
+	scrollbackLines int, onOutput func(uint32, []byte, uint64), onExit func(uint32, string),
 	writeOverride func([]byte) (int, error)) *Pane {
 
 	emu := NewVTEmulatorWithScrollback(cols, rows, scrollbackLines)

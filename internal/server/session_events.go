@@ -210,13 +210,14 @@ func (e paneOutputEvent) handle(s *Session) {
 
 type paneExitEvent struct {
 	paneID uint32
+	reason string
 }
 
 func (e paneExitEvent) handle(s *Session) {
 	if s.shutdown.Load() {
 		return
 	}
-	s.handleFinalizedPaneRemoval(e.paneID, false)
+	s.handleFinalizedPaneRemoval(e.paneID, false, e.reason)
 }
 
 type paneCleanupTimeoutEvent struct {
@@ -232,14 +233,22 @@ func (e paneCleanupTimeoutEvent) handle(s *Session) {
 		return
 	}
 	_ = pane.SignalForegroundProcessGroup(syscall.SIGKILL)
-	s.handleFinalizedPaneRemoval(e.paneID, true)
+	s.handleFinalizedPaneRemoval(e.paneID, true, "cleanup timeout")
 }
 
-func (s *Session) handleFinalizedPaneRemoval(paneID uint32, closePane bool) {
+func (s *Session) handleFinalizedPaneRemoval(paneID uint32, closePane bool, reason string) {
 	removed := s.finalizePaneRemoval(paneID)
 	if removed.pane == nil {
 		return
 	}
+	s.appendPaneLog(paneLogEventExit, removed.pane, reason)
+	s.emitEvent(Event{
+		Type:     EventPaneExit,
+		PaneID:   paneID,
+		PaneName: removed.paneName,
+		Host:     removed.pane.Meta.Host,
+		Reason:   reason,
+	})
 	if closePane {
 		_ = removed.pane.Close()
 	}
@@ -370,13 +379,14 @@ func (e takeoverEvent) handle(s *Session) {
 
 type remotePaneExitEvent struct {
 	paneID uint32
+	reason string
 }
 
 func (e remotePaneExitEvent) handle(s *Session) {
 	if s.shutdown.Load() {
 		return
 	}
-	s.handleFinalizedPaneRemoval(e.paneID, false)
+	s.handleFinalizedPaneRemoval(e.paneID, false, e.reason)
 }
 
 type remoteStateChangeEvent struct {
@@ -518,8 +528,8 @@ func (s *Session) enqueuePaneOutput(paneID uint32, data []byte, seq uint64) {
 	s.enqueueEvent(paneOutputEvent{paneID: paneID, data: data, seq: seq})
 }
 
-func (s *Session) enqueuePaneExit(paneID uint32) {
-	s.enqueueEvent(paneExitEvent{paneID: paneID})
+func (s *Session) enqueuePaneExit(paneID uint32, reason string) {
+	s.enqueueEvent(paneExitEvent{paneID: paneID, reason: reason})
 }
 
 func (s *Session) enqueuePaneCleanupTimeout(paneID uint32) {
@@ -542,8 +552,8 @@ func (s *Session) enqueueTakeover(srv *Server, paneID uint32, req mux.TakeoverRe
 	s.enqueueEvent(takeoverEvent{srv: srv, paneID: paneID, req: req})
 }
 
-func (s *Session) enqueueRemotePaneExit(paneID uint32) {
-	s.enqueueEvent(remotePaneExitEvent{paneID: paneID})
+func (s *Session) enqueueRemotePaneExit(paneID uint32, reason string) {
+	s.enqueueEvent(remotePaneExitEvent{paneID: paneID, reason: reason})
 }
 
 func (s *Session) enqueueRemoteStateChange(hostName string, state remote.ConnState) {

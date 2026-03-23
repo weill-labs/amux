@@ -297,7 +297,7 @@ func (e readLayoutEvent) handle(hc *HostConn) {
 		return
 	}
 	for _, localPaneID := range exited {
-		hc.onPaneExit(localPaneID)
+		hc.onPaneExit(localPaneID, "remote disconnect")
 	}
 }
 

@@ -73,6 +73,7 @@ var commandRegistry = map[string]CommandHandler{
 	"list-windows":    cmdListWindows,
 	"list-clients":    cmdListClients,
 	"connection-log":  cmdConnectionLog,
+	"pane-log":        cmdPaneLog,
 	"select-window":   cmdSelectWindow,
 	"next-window":     cmdNextWindow,
 	"prev-window":     cmdPrevWindow,

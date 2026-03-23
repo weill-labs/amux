@@ -432,6 +432,15 @@ func cmdKill(ctx *CommandContext) {
 			return commandMutationResult{}
 		}
 
+		sess.appendPaneLog(paneLogEventExit, removed.pane, "killed")
+		sess.emitEvent(Event{
+			Type:     EventPaneExit,
+			PaneID:   pane.ID,
+			PaneName: removed.paneName,
+			Host:     removed.pane.Meta.Host,
+			Reason:   "killed",
+		})
+
 		res := commandMutationResult{
 			closePanes: []*mux.Pane{removed.pane},
 		}

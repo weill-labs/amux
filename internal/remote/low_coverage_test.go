@@ -271,7 +271,7 @@ func TestHostConnReadLoopHandlesOutputAndDisconnectPaths(t *testing.T) {
 
 	t.Run("layout disappearance removes mapped pane", func(t *testing.T) {
 		exits := make(chan uint32, 1)
-		hc := NewHostConn("test", config.Host{}, "", nil, func(localPaneID uint32) {
+		hc := NewHostConn("test", config.Host{}, "", nil, func(localPaneID uint32, _ string) {
 			exits <- localPaneID
 		}, nil)
 		defer hc.Close()
