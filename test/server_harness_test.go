@@ -257,12 +257,11 @@ func (h *ServerHarness) runCmd(args ...string) string {
 	}
 	env = append(env, h.extraEnv...)
 	cmd.Env = env
-	out, err := cmd.CombinedOutput()
+	out, _ := cmd.CombinedOutput()
 	if ctx.Err() == context.DeadlineExceeded {
 		h.tb.Fatalf("runCmd timed out after %v: amux %s\noutput so far:\n%s",
 			runCmdTimeout, strings.Join(args, " "), string(out))
 	}
-	_ = err
 	return string(out)
 }
 

@@ -458,12 +458,11 @@ func (h *AmuxHarness) runCmd(args ...string) string {
 		env = upsertEnv(env, "GOCOVERDIR", h.outer.coverDir)
 	}
 	cmd.Env = env
-	out, err := cmd.CombinedOutput()
+	out, _ := cmd.CombinedOutput()
 	if ctx.Err() == context.DeadlineExceeded {
 		h.tb.Fatalf("runCmd timed out after %v: amux %s\noutput so far:\n%s",
 			runCmdTimeout, strings.Join(args, " "), string(out))
 	}
-	_ = err
 	return string(out)
 }
 
