@@ -1,6 +1,7 @@
 package test
 
 import (
+	"context"
 	"crypto/rand"
 	"fmt"
 	"os"
@@ -448,14 +449,21 @@ func (h *AmuxHarness) globalBar() string {
 // runCmd runs an amux CLI command targeting the inner session.
 func (h *AmuxHarness) runCmd(args ...string) string {
 	h.tb.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), runCmdTimeout)
+	defer cancel()
 	cmdArgs := append([]string{"-s", h.inner}, args...)
-	cmd := exec.Command(h.innerBin, cmdArgs...)
+	cmd := exec.CommandContext(ctx, h.innerBin, cmdArgs...)
 	env := upsertEnv(os.Environ(), "HOME", h.outer.home)
 	if h.outer.coverDir != "" {
 		env = upsertEnv(env, "GOCOVERDIR", h.outer.coverDir)
 	}
 	cmd.Env = env
-	out, _ := cmd.CombinedOutput()
+	out, err := cmd.CombinedOutput()
+	if ctx.Err() == context.DeadlineExceeded {
+		h.tb.Fatalf("runCmd timed out after %v: amux %s\noutput so far:\n%s",
+			runCmdTimeout, strings.Join(args, " "), string(out))
+	}
+	_ = err
 	return string(out)
 }
 

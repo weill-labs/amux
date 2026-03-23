@@ -1,6 +1,7 @@
 package test
 
 import (
+	"context"
 	"crypto/rand"
 	"fmt"
 	"os"
@@ -236,18 +237,32 @@ func killChildrenByPid(pid int) {
 // CLI command helpers — all synchronous, zero polling
 // ---------------------------------------------------------------------------
 
+// runCmdTimeout is the default per-command timeout. It must be longer than any
+// server-side --timeout flag (wait-idle uses 20s) but short enough that a stuck
+// command doesn't consume the entire test binary timeout (300s in CI).
+const runCmdTimeout = 30 * time.Second
+
 // runCmd executes an amux CLI command targeting this test's session.
+// The command is killed after runCmdTimeout to prevent a single stuck
+// CLI call from hanging the entire test suite.
 func (h *ServerHarness) runCmd(args ...string) string {
 	h.tb.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), runCmdTimeout)
+	defer cancel()
 	cmdArgs := append([]string{"-s", h.session}, args...)
-	cmd := exec.Command(amuxBin, cmdArgs...)
+	cmd := exec.CommandContext(ctx, amuxBin, cmdArgs...)
 	env := upsertEnv(os.Environ(), "HOME", h.home)
 	if h.coverDir != "" {
 		env = upsertEnv(env, "GOCOVERDIR", h.coverDir)
 	}
 	env = append(env, h.extraEnv...)
 	cmd.Env = env
-	out, _ := cmd.CombinedOutput()
+	out, err := cmd.CombinedOutput()
+	if ctx.Err() == context.DeadlineExceeded {
+		h.tb.Fatalf("runCmd timed out after %v: amux %s\noutput so far:\n%s",
+			runCmdTimeout, strings.Join(args, " "), string(out))
+	}
+	_ = err
 	return string(out)
 }
 
