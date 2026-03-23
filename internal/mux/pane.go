@@ -62,6 +62,7 @@ type Pane struct {
 	writeOverride func([]byte) (int, error)
 
 	closed         atomic.Bool
+	exitDone       chan struct{} // closed by waitLoop when the shell process exits
 	drainStarted   bool
 	onOutput       func(paneID uint32, data []byte, seq uint64)
 	onExit         func(paneID uint32)
@@ -142,6 +143,7 @@ func NewPaneWithScrollback(id uint32, meta PaneMeta, cols, rows int, sessionName
 		ptmx:            ptmx,
 		cmd:             cmd,
 		emulator:        emu,
+		exitDone:        make(chan struct{}),
 		onOutput:        onOutput,
 		onExit:          onExit,
 		createdAt:       time.Now(),
@@ -202,6 +204,7 @@ func RestorePaneWithScrollback(id uint32, meta PaneMeta, ptmxFd, pid, cols, rows
 		ptmx:            ptmx,
 		process:         proc,
 		emulator:        emu,
+		exitDone:        make(chan struct{}),
 		drainStarted:    true,
 		onOutput:        onOutput,
 		onExit:          onExit,
@@ -429,13 +432,15 @@ func (p *Pane) applyOutput(data []byte) uint64 {
 	return seq
 }
 
-// waitLoop waits for the shell process to exit.
+// waitLoop waits for the shell process to exit. Closes exitDone so that
+// Close() can detect the process has exited without a redundant cmd.Wait().
 func (p *Pane) waitLoop() {
 	if p.cmd != nil {
 		p.cmd.Wait()
 	} else if p.process != nil {
 		p.process.Wait()
 	}
+	close(p.exitDone)
 	if p.onExit != nil {
 		p.onExit(p.ID)
 	}
@@ -693,26 +698,14 @@ func (p *Pane) shellProcess() *os.Process {
 	return nil
 }
 
-// waitForExit waits for the shell process to exit. Safe to call concurrently
-// with the existing waitLoop goroutine — Go's cmd.Wait() handles this.
-func (p *Pane) waitForExit() <-chan struct{} {
-	ch := make(chan struct{})
-	go func() {
-		if p.cmd != nil {
-			p.cmd.Wait()
-		} else if p.process != nil {
-			p.process.Wait()
-		}
-		close(ch)
-	}()
-	return ch
-}
-
 // Close terminates the pane's shell and PTY, waiting for the process to exit.
 // Sends SIGHUP first, then closes the PTY master (which also delivers SIGHUP
 // to the slave side). If the process doesn't exit within 2 seconds, SIGKILL
 // is sent as a fallback to prevent orphaned shell processes.
 // For proxy panes (no PTY), Close() just marks the pane as closed.
+//
+// Uses the exitDone channel (closed by waitLoop) to detect process exit
+// without calling cmd.Wait() a second time, avoiding a data race.
 func (p *Pane) Close() error {
 	if p.closed.Swap(true) {
 		return nil
@@ -727,10 +720,10 @@ func (p *Pane) Close() error {
 	}
 	if proc != nil {
 		select {
-		case <-p.waitForExit():
+		case <-p.exitDone:
 		case <-time.After(2 * time.Second):
 			proc.Signal(syscall.SIGKILL)
-			<-p.waitForExit()
+			<-p.exitDone
 		}
 	}
 	return ptmxErr
@@ -743,11 +736,14 @@ func NewProxyPaneWithScrollback(id uint32, meta PaneMeta, cols, rows int,
 	writeOverride func([]byte) (int, error)) *Pane {
 
 	emu := NewVTEmulatorWithScrollback(cols, rows, scrollbackLines)
+	exitDone := make(chan struct{})
+	close(exitDone) // proxy panes have no process to wait for
 	p := &Pane{
 		ID:              id,
 		Meta:            meta,
 		emulator:        emu,
 		writeOverride:   writeOverride,
+		exitDone:        exitDone,
 		onOutput:        onOutput,
 		onExit:          onExit,
 		createdAt:       time.Now(),
