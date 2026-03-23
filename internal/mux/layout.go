@@ -31,6 +31,17 @@ type LayoutCell struct {
 	Parent   *LayoutCell
 	Children []*LayoutCell
 
+	// DissolveHost marks a horizontal wrapper whose first child is the visible
+	// host column and whose remaining children are dissolved columns that should
+	// remain collapsed below it.
+	DissolveHost bool
+
+	// DissolvedColumn marks a whole column subtree that has been dissolved into
+	// the next visible column to the right. RestoreW records the width to
+	// reassign when the column is reconstituted.
+	DissolvedColumn bool
+	RestoreW        int
+
 	isLeaf bool
 }
 
@@ -88,7 +99,7 @@ func (c *LayoutCell) Split(dir SplitDir, newPane *Pane) (*LayoutCell, error) {
 		newLeaf.Parent = c.Parent
 
 		// Insert after c in parent's children
-		idx := c.indexInParent()
+		idx := c.IndexInParent()
 		parent := c.Parent
 		parent.Children = append(parent.Children, nil)
 		copy(parent.Children[idx+2:], parent.Children[idx+1:])
@@ -135,7 +146,7 @@ func (c *LayoutCell) Close() *LayoutCell {
 	}
 
 	parent := c.Parent
-	idx := c.indexInParent()
+	idx := c.IndexInParent()
 
 	// Remove from parent
 	parent.Children = append(parent.Children[:idx], parent.Children[idx+1:]...)
@@ -163,7 +174,7 @@ func (c *LayoutCell) Close() *LayoutCell {
 		only.H = parent.H
 
 		if parent.Parent != nil {
-			pidx := parent.indexInParent()
+			pidx := parent.IndexInParent()
 			parent.Parent.Children[pidx] = only
 		} else {
 			// only becomes the new root — caller must update window.Root
@@ -287,7 +298,9 @@ func (c *LayoutCell) NormalizeMinimizedHeights(isMinimized func(*LayoutCell) boo
 	total := 0
 	for i, child := range c.Children {
 		targets[i] = child.H
-		if isMinimized(child) {
+		if child.DissolvedColumn {
+			targets[i] = child.collapsedHeight(isMinimized)
+		} else if isMinimized(child) {
 			targets[i] = StatusLineRows
 		} else {
 			flexible = append(flexible, i)
@@ -331,6 +344,43 @@ func (c *LayoutCell) resizeHorizontalChild(child *LayoutCell, targetH int, isMin
 	}
 	child.ResizeSubtree(c.W, targetH)
 	child.NormalizeMinimizedHeights(isMinimized)
+}
+
+func (c *LayoutCell) collapsedHeight(isMinimized func(*LayoutCell) bool) int {
+	if c == nil {
+		return 0
+	}
+	if c.IsLeaf() {
+		if isMinimized(c) || c.DissolvedColumn {
+			return StatusLineRows
+		}
+		return c.H
+	}
+
+	if c.Dir == SplitVertical {
+		height := 0
+		for _, child := range c.Children {
+			if childH := child.collapsedHeight(isMinimized); childH > height {
+				height = childH
+			}
+		}
+		if height == 0 {
+			return StatusLineRows
+		}
+		return height
+	}
+
+	height := 0
+	for i, child := range c.Children {
+		if i > 0 {
+			height++
+		}
+		height += child.collapsedHeight(isMinimized)
+	}
+	if height == 0 {
+		return StatusLineRows
+	}
+	return height
 }
 
 func (c *LayoutCell) resizeCheck(axis SplitDir) int {
@@ -572,7 +622,9 @@ func (c *LayoutCell) distributeEqual() {
 	}
 }
 
-func (c *LayoutCell) indexInParent() int {
+// IndexInParent returns the index of this cell within its parent's Children
+// slice, or -1 if the cell has no parent.
+func (c *LayoutCell) IndexInParent() int {
 	if c.Parent == nil {
 		return -1
 	}

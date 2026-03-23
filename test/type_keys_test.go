@@ -132,9 +132,10 @@ func TestTypeKeysMinimizeFailureShowsReasonInVerticalSplit(t *testing.T) {
 	if !h.waitFor("[pane-2]", 3*time.Second) {
 		t.Fatalf("expected split layout to render before minimize test\nScreen:\n%s", h.captureOuter())
 	}
+	h.runCmd("focus", "pane-2")
 	h.runCmd("type-keys", "C-a", "M")
 
-	msg := "left/right split"
+	msg := "rightmost column"
 	if !h.waitFor(msg, 3*time.Second) {
 		t.Fatalf("expected minimize failure reason in outer capture\nScreen:\n%s", h.captureOuter())
 	}
@@ -169,9 +170,10 @@ func TestMinimizeFailureFeedbackClearsOnNextLocalInput(t *testing.T) {
 	if !h.waitFor("[pane-2]", 3*time.Second) {
 		t.Fatalf("expected split layout to render before clear test\nScreen:\n%s", h.captureOuter())
 	}
+	h.runCmd("focus", "pane-2")
 	h.runCmd("type-keys", "C-a", "M")
 
-	msg := "left/right split"
+	msg := "rightmost column"
 	if !h.waitFor(msg, 3*time.Second) {
 		t.Fatalf("expected minimize failure reason before clear test\nScreen:\n%s", h.captureOuter())
 	}

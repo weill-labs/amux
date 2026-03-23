@@ -170,8 +170,33 @@ func TestMinimizeSoloPaneInColumnFails(t *testing.T) {
 	h.splitV()
 
 	output := h.runCmd("minimize", "pane-1")
-	if !strings.Contains(output, "left/right split") {
-		t.Errorf("minimizing sole pane in column should fail, got:\n%s", output)
+	if !strings.Contains(output, "Minimized") {
+		t.Fatalf("minimizing left column should dissolve successfully, got:\n%s", output)
+	}
+
+	c := h.captureJSON()
+	p1 := h.jsonPane(c, "pane-1")
+	p2 := h.jsonPane(c, "pane-2")
+	if p1.Position == nil || p2.Position == nil {
+		t.Fatalf("expected pane positions after dissolve, got %+v %+v", p1.Position, p2.Position)
+	}
+	if p1.Position.X != p2.Position.X {
+		t.Fatalf("dissolved pane x = %d, want host x %d", p1.Position.X, p2.Position.X)
+	}
+	if p1.Position.Y <= p2.Position.Y {
+		t.Fatalf("dissolved pane y = %d, want below host y %d", p1.Position.Y, p2.Position.Y)
+	}
+}
+
+func TestMinimizeRightmostColumnFails(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	h.splitV()
+
+	output := h.runCmd("minimize", "pane-2")
+	if !strings.Contains(output, "rightmost column") {
+		t.Errorf("minimizing rightmost column should fail, got:\n%s", output)
 	}
 
 	statusOut := h.runCmd("status")
@@ -199,19 +224,30 @@ func TestMinimizeLastPaneInColumnFails(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)
 
+	h.splitV()
+	h.runCmd("focus", "pane-1")
 	h.splitH()
 
-	output := h.runCmd("minimize", "pane-1")
+	output := h.runCmd("minimize", "pane-3")
 	if !strings.Contains(output, "Minimized") {
 		t.Fatalf("first minimize should succeed, got:\n%s", output)
 	}
 
-	output = h.runCmd("minimize", "pane-2")
-	if !strings.Contains(output, "last visible pane in this stacked group") {
-		t.Errorf("minimizing last visible pane in column should fail, got:\n%s", output)
+	output = h.runCmd("minimize", "pane-1")
+	if !strings.Contains(output, "Minimized") {
+		t.Fatalf("minimizing last visible pane should dissolve successfully, got:\n%s", output)
 	}
 
-	h.runCmd("restore", "pane-1")
+	c := h.captureJSON()
+	p1 := h.jsonPane(c, "pane-1")
+	p2 := h.jsonPane(c, "pane-2")
+	p3 := h.jsonPane(c, "pane-3")
+	if p1.Position == nil || p2.Position == nil || p3.Position == nil {
+		t.Fatalf("expected pane positions after dissolve")
+	}
+	if p1.Position.X != p3.Position.X || p2.Position.X != p3.Position.X {
+		t.Fatalf("dissolved panes x = (%d,%d), want host x %d", p1.Position.X, p2.Position.X, p3.Position.X)
+	}
 }
 
 func TestMinimizeShowsHeaderOnly(t *testing.T) {

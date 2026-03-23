@@ -40,13 +40,13 @@ func TestLayoutCellIDHelpers(t *testing.T) {
 	if got := root.FindByPaneID(99); got != nil {
 		t.Fatalf("FindByPaneID(99) = %+v, want nil", got)
 	}
-	if got := leafByID.indexInParent(); got != 0 {
+	if got := leafByID.IndexInParent(); got != 0 {
 		t.Fatalf("indexInParent(first child) = %d, want 0", got)
 	}
-	if got := leafWithPane.indexInParent(); got != 1 {
+	if got := leafWithPane.IndexInParent(); got != 1 {
 		t.Fatalf("indexInParent(second child) = %d, want 1", got)
 	}
-	if got := (&LayoutCell{}).indexInParent(); got != -1 {
+	if got := (&LayoutCell{}).IndexInParent(); got != -1 {
 		t.Fatalf("indexInParent(rootless) = %d, want -1", got)
 	}
 }

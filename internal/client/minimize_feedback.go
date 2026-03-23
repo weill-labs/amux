@@ -4,8 +4,7 @@ import "github.com/weill-labs/amux/internal/mux"
 
 const (
 	minimizeNoStackedSiblingsReason = "cannot minimize: pane has no stacked siblings"
-	minimizeLeftRightSplitReason    = "cannot minimize: pane is in a left/right split; minimize only works in stacked top/bottom groups"
-	minimizeLastVisibleReason       = "cannot minimize: pane is the last visible pane in this stacked group"
+	minimizeRightmostColumnReason   = "cannot minimize: pane is in the rightmost column"
 )
 
 func (cr *ClientRenderer) toggleMinimizeBlockedReason() string {
@@ -23,24 +22,32 @@ func (cr *ClientRenderer) toggleMinimizeBlockedReason() string {
 	if cell == nil {
 		return ""
 	}
-	if cell.Parent == nil {
+	column := cell
+	for column.Parent != nil && column.Parent.Dir == mux.SplitHorizontal {
+		column = column.Parent
+	}
+	if column.Parent == nil {
 		return minimizeNoStackedSiblingsReason
 	}
-	if cell.Parent.Dir != mux.SplitHorizontal {
-		return minimizeLeftRightSplitReason
+
+	hasVisiblePeer := false
+	column.Walk(func(c *mux.LayoutCell) {
+		if hasVisiblePeer || c.CellPaneID() == activePaneID {
+			return
+		}
+		if info, ok := cr.renderer.PaneInfo(c.CellPaneID()); ok && !info.Minimized {
+			hasVisiblePeer = true
+		}
+	})
+	if hasVisiblePeer {
+		return ""
 	}
 
-	visibleSiblings := 0
-	for _, sib := range cell.Parent.Children {
-		if sib == cell {
-			continue
-		}
-		if cr.subtreeHasVisiblePane(sib) {
-			visibleSiblings++
-		}
+	if column.Parent.Dir != mux.SplitVertical {
+		return minimizeNoStackedSiblingsReason
 	}
-	if visibleSiblings == 0 {
-		return minimizeLastVisibleReason
+	if column.IndexInParent() == len(column.Parent.Children)-1 {
+		return minimizeRightmostColumnReason
 	}
 
 	return ""

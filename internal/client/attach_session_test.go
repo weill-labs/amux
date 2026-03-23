@@ -562,6 +562,10 @@ func TestRunSessionHandlesServerMessagesAndInteractiveInput(t *testing.T) {
 	h.waitMessage(t, func(msg *proto.Message) bool {
 		return msg.Type == proto.MsgTypeUIEvent && msg.UIEvent == proto.UIEventDisplayPanesHidden
 	})
+	focusSnap := sessionLayoutSnapshot(h.session)
+	focusSnap.ActivePaneID = 2
+	focusSnap.Windows[0].ActivePaneID = 2
+	h.send(t, &proto.Message{Type: proto.MsgTypeLayout, Layout: focusSnap})
 
 	h.writeInput(t, []byte{0x01, '?'})
 	h.output.waitContains(t, "No binding for C-a ?")

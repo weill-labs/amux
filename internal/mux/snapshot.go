@@ -71,8 +71,11 @@ func (p *Pane) ToSnapshot() proto.PaneSnapshot {
 func snapshotCell(c *LayoutCell) proto.CellSnapshot {
 	cs := proto.CellSnapshot{
 		X: c.X, Y: c.Y, W: c.W, H: c.H,
-		IsLeaf: c.IsLeaf(),
-		Dir:    -1,
+		IsLeaf:          c.IsLeaf(),
+		Dir:             -1,
+		DissolveHost:    c.DissolveHost,
+		DissolvedColumn: c.DissolvedColumn,
+		RestoreW:        c.RestoreW,
 	}
 	if !c.IsLeaf() {
 		cs.Dir = int(c.Dir)
@@ -92,9 +95,12 @@ func snapshotCell(c *LayoutCell) proto.CellSnapshot {
 func RebuildLayout(cs proto.CellSnapshot) *LayoutCell {
 	cell := &LayoutCell{
 		X: cs.X, Y: cs.Y, W: cs.W, H: cs.H,
-		isLeaf: cs.IsLeaf,
-		Dir:    SplitDir(cs.Dir),
-		PaneID: cs.PaneID,
+		isLeaf:          cs.IsLeaf,
+		Dir:             SplitDir(cs.Dir),
+		PaneID:          cs.PaneID,
+		DissolveHost:    cs.DissolveHost,
+		DissolvedColumn: cs.DissolvedColumn,
+		RestoreW:        cs.RestoreW,
 	}
 	for _, childSnap := range cs.Children {
 		child := RebuildLayout(childSnap)
@@ -140,14 +146,17 @@ func CloneLayout(root *LayoutCell) *LayoutCell {
 		return nil
 	}
 	clone := &LayoutCell{
-		X:      root.X,
-		Y:      root.Y,
-		W:      root.W,
-		H:      root.H,
-		Dir:    root.Dir,
-		Pane:   root.Pane,
-		PaneID: root.PaneID,
-		isLeaf: root.isLeaf,
+		X:               root.X,
+		Y:               root.Y,
+		W:               root.W,
+		H:               root.H,
+		Dir:             root.Dir,
+		Pane:            root.Pane,
+		PaneID:          root.PaneID,
+		DissolveHost:    root.DissolveHost,
+		DissolvedColumn: root.DissolvedColumn,
+		RestoreW:        root.RestoreW,
+		isLeaf:          root.isLeaf,
 	}
 	for _, child := range root.Children {
 		childClone := CloneLayout(child)
@@ -188,9 +197,12 @@ func RebuildWindowFromSnapshot(ws proto.WindowSnapshot, width, height int, paneM
 func rebuildCellWithPanes(cs proto.CellSnapshot, paneMap map[uint32]*Pane) *LayoutCell {
 	cell := &LayoutCell{
 		X: cs.X, Y: cs.Y, W: cs.W, H: cs.H,
-		isLeaf: cs.IsLeaf,
-		Dir:    SplitDir(cs.Dir),
-		PaneID: cs.PaneID,
+		isLeaf:          cs.IsLeaf,
+		Dir:             SplitDir(cs.Dir),
+		PaneID:          cs.PaneID,
+		DissolveHost:    cs.DissolveHost,
+		DissolvedColumn: cs.DissolvedColumn,
+		RestoreW:        cs.RestoreW,
 	}
 	if cs.IsLeaf {
 		if p, ok := paneMap[cs.PaneID]; ok {

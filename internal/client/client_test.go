@@ -1132,12 +1132,37 @@ func TestHandleRenderMsgEffects(t *testing.T) {
 	}
 }
 
-func TestToggleMinimizeBlockedReasonVerticalSplit(t *testing.T) {
+func TestToggleMinimizeBlockedReasonRightmostColumn(t *testing.T) {
 	t.Parallel()
 
 	cr := buildTestRenderer(t)
-	if got := cr.toggleMinimizeBlockedReason(); got != minimizeLeftRightSplitReason {
-		t.Fatalf("blocked reason = %q, want %q", got, minimizeLeftRightSplitReason)
+	snap := twoPane80x23()
+	cr.HandleLayout(&proto.LayoutSnapshot{
+		SessionName:  "test",
+		ActivePaneID: 2,
+		Width:        80,
+		Height:       23,
+		Root:         snap.Root,
+		Panes:        snap.Panes,
+		Windows: []proto.WindowSnapshot{{
+			ID: 1, Name: "window-1", Index: 1, ActivePaneID: 2,
+			Root:  snap.Root,
+			Panes: snap.Panes,
+		}},
+		ActiveWindowID: 1,
+	})
+	want := "cannot minimize: pane is in the rightmost column"
+	if got := cr.toggleMinimizeBlockedReason(); got != want {
+		t.Fatalf("blocked reason = %q, want %q", got, want)
+	}
+}
+
+func TestToggleMinimizeAllowsLeftColumnDissolve(t *testing.T) {
+	t.Parallel()
+
+	cr := buildTestRenderer(t)
+	if got := cr.toggleMinimizeBlockedReason(); got != "" {
+		t.Fatalf("blocked reason = %q, want empty", got)
 	}
 }
 

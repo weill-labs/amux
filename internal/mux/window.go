@@ -525,7 +525,7 @@ func (w *Window) ResizePane(paneID uint32, direction string, delta int) bool {
 	cell := leaf
 	for cell.Parent != nil {
 		if cell.Parent.Dir == axis {
-			idx := cell.indexInParent()
+			idx := cell.IndexInParent()
 			siblings := cell.Parent.Children
 
 			// tmux convention: resize the border adjacent to this cell.
@@ -665,7 +665,7 @@ func (w *Window) rootChildForPaneID(paneID uint32) (*LayoutCell, int, error) {
 	for cell.Parent != w.Root {
 		cell = cell.Parent
 	}
-	return cell, cell.indexInParent(), nil
+	return cell, cell.IndexInParent(), nil
 }
 
 func (w *Window) finishTreeMutation() {
@@ -835,8 +835,9 @@ func (w *Window) activeCellIndex(cells []*LayoutCell) int {
 }
 
 // Minimize shrinks a pane's layout cell to just the status line (header only).
-// Only allowed in horizontal splits with at least one non-minimized sibling.
-// Auto-unzooms if a pane is zoomed.
+// If visible siblings remain in the column, the pane is minimized in-place.
+// If the pane is the last visible in a non-rightmost column, the column is
+// dissolved into the next column to the right. Auto-unzooms if zoomed.
 func (w *Window) Minimize(paneID uint32) error {
 	if w.ZoomedPaneID != 0 {
 		w.Unzoom()
@@ -849,60 +850,45 @@ func (w *Window) Minimize(paneID uint32) error {
 		return fmt.Errorf("pane already minimized")
 	}
 
-	// Only allow minimize in horizontal splits (stacked panes).
-	// A pane at root or in a vertical split (left/right) has no stacked
-	// sibling to absorb the reclaimed height.
-	if cell.Parent == nil {
+	column := w.columnRoot(cell)
+	if column == nil {
+		return fmt.Errorf("pane %d not found", paneID)
+	}
+	if w.columnHasVisibleLeafAfterMinimize(column, paneID) {
+		w.minimizeLeaf(cell)
+		reclaimed := cell.Pane.Meta.RestoreH - cell.H
+		if reclaimed > 0 && cell.Parent != nil {
+			for _, sib := range cell.Parent.Children {
+				if sib == cell {
+					continue
+				}
+				if sib.HasNonMinimizedLeaf() {
+					w.setCellSize(sib, sib.W, sib.H+reclaimed)
+					break
+				}
+			}
+		}
+		w.Root.FixOffsets()
+		w.normalizeMinimizedLayout()
+		w.resizePTYs()
+		return nil
+	}
+
+	if column.Parent == nil {
 		return fmt.Errorf("cannot minimize: pane has no stacked siblings")
 	}
-	if cell.Parent.Dir != SplitHorizontal {
-		return fmt.Errorf("cannot minimize: pane is in a left/right split; minimize only works in stacked top/bottom groups")
+	if column.Parent.Dir != SplitVertical {
+		return fmt.Errorf("cannot minimize: pane has no stacked siblings")
+	}
+	if column.IndexInParent() == len(column.Parent.Children)-1 {
+		return fmt.Errorf("cannot minimize: pane is in the rightmost column")
 	}
 
-	// Require at least one non-minimized sibling to remain visible.
-	nonMinSibs := 0
-	for _, sib := range cell.Parent.Children {
-		if sib == cell {
-			continue
-		}
-		if sib.HasNonMinimizedLeaf() {
-			nonMinSibs++
-		}
-	}
-	if nonMinSibs == 0 {
-		return fmt.Errorf("cannot minimize: pane is the last visible pane in this stacked group")
-	}
-
-	cell.Pane.Meta.Minimized = true
-	cell.Pane.Meta.RestoreH = cell.H
-	w.minimizeSeq++
-	cell.Pane.Meta.MinimizedSeq = w.minimizeSeq
-
-	cell.H = StatusLineRows
-	// Don't resize the PTY — TUI apps (Claude Code, vim, etc.) may not
-	// recover properly from being resized to 1 row. The PTY and emulator
-	// stay at their original dimensions; only the layout cell shrinks.
-
-	reclaimed := cell.Pane.Meta.RestoreH - cell.H
-	if reclaimed > 0 {
-		for _, sib := range cell.Parent.Children {
-			if sib == cell {
-				continue
-			}
-			if sib.HasNonMinimizedLeaf() {
-				sib.H += reclaimed
-				if !sib.IsLeaf() {
-					sib.ResizeSubtree(sib.W, sib.H)
-				} else if sib.Pane != nil {
-					sib.Pane.Resize(sib.W, PaneContentHeight(sib.H))
-				}
-				break
-			}
-		}
-	}
-
+	w.minimizeLeaf(cell)
+	w.dissolveColumn(column)
 	w.Root.FixOffsets()
 	w.normalizeMinimizedLayout()
+	w.resizePTYs()
 	return nil
 }
 
@@ -967,6 +953,14 @@ func (w *Window) Restore(paneID uint32) error {
 		return fmt.Errorf("pane is not minimized")
 	}
 
+	if dissolved := w.dissolvedColumnRoot(cell); dissolved != nil {
+		w.reconstituteDissolvedColumn(dissolved)
+		cell = w.Root.FindPane(paneID)
+		if cell == nil {
+			return fmt.Errorf("pane %d lost during column reconstitution", paneID)
+		}
+	}
+
 	savedH := cell.Pane.Meta.RestoreH
 	if savedH <= 0 {
 		savedH = DefaultRestoreHeight
@@ -993,10 +987,10 @@ func (w *Window) Restore(paneID uint32) error {
 	cell.Pane.Meta.Minimized = false
 	cell.Pane.Meta.RestoreH = 0
 	cell.Pane.Meta.MinimizedSeq = 0
-	cell.Pane.Resize(cell.W, PaneContentHeight(cell.H))
 
 	w.Root.FixOffsets()
 	w.normalizeMinimizedLayout()
+	w.resizePTYs()
 	return nil
 }
 

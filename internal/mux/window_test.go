@@ -152,24 +152,28 @@ func TestMinimizeErrorReasons(t *testing.T) {
 		},
 		{
 			name: "left right split is unsupported",
-			err:  "cannot minimize: pane is in a left/right split; minimize only works in stacked top/bottom groups",
+			err:  "cannot minimize: pane is in the rightmost column",
 			run: func() error {
 				w := NewWindow(fakePaneID(1), 80, 24)
 				if _, err := w.SplitRoot(SplitVertical, fakePaneID(2)); err != nil {
 					t.Fatalf("SplitRoot(vertical): %v", err)
 				}
-				return w.Minimize(1)
+				return w.Minimize(2)
 			},
 		},
 		{
-			name: "last visible pane in stacked group",
-			err:  "cannot minimize: pane is the last visible pane in this stacked group",
+			name: "rightmost stacked column cannot dissolve",
+			err:  "cannot minimize: pane is in the rightmost column",
 			run: func() error {
 				w := NewWindow(fakePaneID(1), 80, 24)
-				if _, err := w.SplitRoot(SplitHorizontal, fakePaneID(2)); err != nil {
-					t.Fatalf("SplitRoot(horizontal): %v", err)
+				if _, err := w.SplitRoot(SplitVertical, fakePaneID(2)); err != nil {
+					t.Fatalf("SplitRoot(vertical): %v", err)
 				}
-				if err := w.Minimize(1); err != nil {
+				w.FocusPane(w.Root.FindPane(2).Pane)
+				if _, err := w.Split(SplitHorizontal, fakePaneID(3)); err != nil {
+					t.Fatalf("Split(horizontal): %v", err)
+				}
+				if err := w.Minimize(3); err != nil {
 					t.Fatalf("first Minimize: %v", err)
 				}
 				return w.Minimize(2)
@@ -188,6 +192,249 @@ func TestMinimizeErrorReasons(t *testing.T) {
 				t.Fatalf("error = %q, want substring %q", err.Error(), tt.err)
 			}
 		})
+	}
+}
+
+func TestMinimizeDissolvesSinglePaneColumnIntoNextColumn(t *testing.T) {
+	t.Parallel()
+
+	p1 := fakePaneID(1)
+	p2 := fakePaneID(2)
+	w := NewWindow(p1, 80, 24)
+	if _, err := w.SplitRoot(SplitVertical, p2); err != nil {
+		t.Fatalf("split root vertical: %v", err)
+	}
+
+	if err := w.Minimize(p1.ID); err != nil {
+		t.Fatalf("minimize pane-1: %v", err)
+	}
+
+	left := w.Root.FindPane(p1.ID)
+	right := w.Root.FindPane(p2.ID)
+	if left == nil || right == nil {
+		t.Fatal("expected both panes after dissolve")
+	}
+	if !left.Pane.Meta.Minimized {
+		t.Fatal("pane-1 should be minimized after dissolve")
+	}
+	if left.X != right.X {
+		t.Fatalf("dissolved pane x = %d, want host column x %d", left.X, right.X)
+	}
+	if left.Y <= right.Y {
+		t.Fatalf("dissolved pane y = %d, want below host y %d", left.Y, right.Y)
+	}
+	if right.W != 80 {
+		t.Fatalf("host column width = %d, want full width 80", right.W)
+	}
+}
+
+func TestRestoreReconstitutesDissolvedColumn(t *testing.T) {
+	t.Parallel()
+
+	p1 := fakePaneID(1)
+	p2 := fakePaneID(2)
+	w := NewWindow(p1, 80, 24)
+	if _, err := w.SplitRoot(SplitVertical, p2); err != nil {
+		t.Fatalf("split root vertical: %v", err)
+	}
+	if err := w.Minimize(p1.ID); err != nil {
+		t.Fatalf("minimize pane-1: %v", err)
+	}
+
+	if err := w.Restore(p1.ID); err != nil {
+		t.Fatalf("restore pane-1: %v", err)
+	}
+
+	left := w.Root.FindPane(p1.ID)
+	right := w.Root.FindPane(p2.ID)
+	if left == nil || right == nil {
+		t.Fatal("expected both panes after restore")
+	}
+	if left.Pane.Meta.Minimized {
+		t.Fatal("pane-1 should be restored")
+	}
+	if left.X != 0 || left.Y != 0 {
+		t.Fatalf("pane-1 position = (%d,%d), want (0,0)", left.X, left.Y)
+	}
+	if left.W != 40 {
+		t.Fatalf("pane-1 width = %d, want original width 40", left.W)
+	}
+	if right.X != 41 || right.W != 39 {
+		t.Fatalf("pane-2 geometry = x:%d w:%d, want x:41 w:39", right.X, right.W)
+	}
+}
+
+func TestMinimizeLastVisiblePaneDissolvesWholeColumn(t *testing.T) {
+	t.Parallel()
+
+	p1 := fakePaneID(1)
+	p2 := fakePaneID(2)
+	p3 := fakePaneID(3)
+	w := NewWindow(p1, 80, 24)
+	if _, err := w.SplitRoot(SplitVertical, p2); err != nil {
+		t.Fatalf("split root vertical: %v", err)
+	}
+	w.FocusPane(p1)
+	if _, err := w.Split(SplitHorizontal, p3); err != nil {
+		t.Fatalf("split left column horizontal: %v", err)
+	}
+	if err := w.Minimize(p3.ID); err != nil {
+		t.Fatalf("minimize pane-3: %v", err)
+	}
+
+	if err := w.Minimize(p1.ID); err != nil {
+		t.Fatalf("minimize pane-1: %v", err)
+	}
+
+	host := w.Root.FindPane(p2.ID)
+	top := w.Root.FindPane(p1.ID)
+	bottom := w.Root.FindPane(p3.ID)
+	if host == nil || top == nil || bottom == nil {
+		t.Fatal("expected all panes after dissolve")
+	}
+	if top.X != host.X || bottom.X != host.X {
+		t.Fatalf("dissolved column x positions = (%d,%d), want host x %d", top.X, bottom.X, host.X)
+	}
+	if top.Y <= host.Y {
+		t.Fatalf("top dissolved pane y = %d, want below host y %d", top.Y, host.Y)
+	}
+	if bottom.Y <= top.Y {
+		t.Fatalf("bottom dissolved pane y = %d, want below top dissolved pane y %d", bottom.Y, top.Y)
+	}
+}
+
+func TestRestoreDissolvedColumnKeepsMinimizedPeersAttached(t *testing.T) {
+	t.Parallel()
+
+	p1 := fakePaneID(1)
+	p2 := fakePaneID(2)
+	p3 := fakePaneID(3)
+	w := NewWindow(p1, 80, 24)
+	if _, err := w.SplitRoot(SplitVertical, p2); err != nil {
+		t.Fatalf("split root vertical: %v", err)
+	}
+	w.FocusPane(p1)
+	if _, err := w.Split(SplitHorizontal, p3); err != nil {
+		t.Fatalf("split left column horizontal: %v", err)
+	}
+	if err := w.Minimize(p3.ID); err != nil {
+		t.Fatalf("minimize pane-3: %v", err)
+	}
+	if err := w.Minimize(p1.ID); err != nil {
+		t.Fatalf("minimize pane-1: %v", err)
+	}
+
+	if err := w.Restore(p1.ID); err != nil {
+		t.Fatalf("restore pane-1: %v", err)
+	}
+
+	leftVisible := w.Root.FindPane(p1.ID)
+	leftMinimized := w.Root.FindPane(p3.ID)
+	right := w.Root.FindPane(p2.ID)
+	if leftVisible == nil || leftMinimized == nil || right == nil {
+		t.Fatal("expected all panes after restore")
+	}
+	if leftVisible.X != leftMinimized.X {
+		t.Fatalf("left column x positions = (%d,%d), want equal", leftVisible.X, leftMinimized.X)
+	}
+	if leftVisible.X >= right.X {
+		t.Fatalf("left column x = %d, want left of right column x %d", leftVisible.X, right.X)
+	}
+	if leftMinimized.Y <= leftVisible.Y {
+		t.Fatalf("minimized peer y = %d, want below restored pane y %d", leftMinimized.Y, leftVisible.Y)
+	}
+	if leftMinimized.H != StatusLineRows {
+		t.Fatalf("minimized peer height = %d, want %d", leftMinimized.H, StatusLineRows)
+	}
+}
+
+func TestMinimizeHostedColumnCarriesDissolvedPeersRight(t *testing.T) {
+	t.Parallel()
+
+	p1 := fakePaneID(1)
+	p2 := fakePaneID(2)
+	p3 := fakePaneID(3)
+	w := NewWindow(p1, 80, 24)
+	if _, err := w.SplitRoot(SplitVertical, p2); err != nil {
+		t.Fatalf("split root vertical: %v", err)
+	}
+	if _, err := w.SplitRoot(SplitVertical, p3); err != nil {
+		t.Fatalf("split root vertical again: %v", err)
+	}
+	if err := w.Minimize(p1.ID); err != nil {
+		t.Fatalf("minimize pane-1: %v", err)
+	}
+
+	if err := w.Minimize(p2.ID); err != nil {
+		t.Fatalf("minimize pane-2: %v", err)
+	}
+
+	a := w.Root.FindPane(p1.ID)
+	b := w.Root.FindPane(p2.ID)
+	c := w.Root.FindPane(p3.ID)
+	if a == nil || b == nil || c == nil {
+		t.Fatal("expected all panes after carry-right dissolve")
+	}
+	if a.X != c.X || b.X != c.X {
+		t.Fatalf("carried panes x positions = (%d,%d), want host x %d", a.X, b.X, c.X)
+	}
+	if !(a.Y > c.Y && b.Y > a.Y) {
+		t.Fatalf("carried panes y positions = host:%d a:%d b:%d, want host < a < b", c.Y, a.Y, b.Y)
+	}
+}
+
+func TestRestoreOutOfOrderPreservesColumnOrder(t *testing.T) {
+	t.Parallel()
+
+	p1 := fakePaneID(1)
+	p2 := fakePaneID(2)
+	p3 := fakePaneID(3)
+	p4 := fakePaneID(4)
+	w := NewWindow(p1, 80, 24)
+	if _, err := w.SplitRoot(SplitVertical, p2); err != nil {
+		t.Fatalf("split root vertical: %v", err)
+	}
+	if _, err := w.SplitRoot(SplitVertical, p3); err != nil {
+		t.Fatalf("split root vertical again: %v", err)
+	}
+	if _, err := w.SplitRoot(SplitVertical, p4); err != nil {
+		t.Fatalf("split root vertical third time: %v", err)
+	}
+	if err := w.Minimize(p1.ID); err != nil {
+		t.Fatalf("minimize pane-1: %v", err)
+	}
+	if err := w.Minimize(p2.ID); err != nil {
+		t.Fatalf("minimize pane-2: %v", err)
+	}
+	if err := w.Minimize(p3.ID); err != nil {
+		t.Fatalf("minimize pane-3: %v", err)
+	}
+
+	if err := w.Restore(p2.ID); err != nil {
+		t.Fatalf("restore pane-2: %v", err)
+	}
+
+	a := w.Root.FindPane(p1.ID)
+	b := w.Root.FindPane(p2.ID)
+	c := w.Root.FindPane(p3.ID)
+	d := w.Root.FindPane(p4.ID)
+	if a == nil || b == nil || c == nil || d == nil {
+		t.Fatal("expected all panes after out-of-order restore")
+	}
+	if a.X != b.X {
+		t.Fatalf("pane-1 x = %d, want restored pane-2 x %d", a.X, b.X)
+	}
+	if c.X != d.X {
+		t.Fatalf("pane-3 x = %d, want host pane-4 x %d", c.X, d.X)
+	}
+	if !(b.X < d.X) {
+		t.Fatalf("restored pane-2 x = %d, want left of pane-4 x %d", b.X, d.X)
+	}
+	if !(a.Y > b.Y) {
+		t.Fatalf("pane-1 y = %d, want below restored pane-2 y %d", a.Y, b.Y)
+	}
+	if !(c.Y > d.Y) {
+		t.Fatalf("pane-3 y = %d, want below pane-4 y %d", c.Y, d.Y)
 	}
 }
 
