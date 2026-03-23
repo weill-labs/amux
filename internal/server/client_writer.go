@@ -5,7 +5,7 @@ import (
 	"sync"
 )
 
-const clientWriterQueueSize = 256
+const clientWriterQueueSize = 4096
 
 type clientWriterState struct {
 	closed          bool
@@ -24,7 +24,6 @@ type clientWriter struct {
 	paneCommands chan clientWriterCommand
 	stop         chan struct{}
 	done         chan struct{}
-	onSlowDrop   func()
 
 	closeOnce sync.Once
 	stopOnce  sync.Once
@@ -156,7 +155,7 @@ func (c clientWriterBootstrappingQuery) handle(state *clientWriterState, _ net.C
 	return state.closed
 }
 
-func newClientWriter(conn net.Conn, onSlowDrop func()) *clientWriter {
+func newClientWriter(conn net.Conn) *clientWriter {
 	if conn == nil {
 		return nil
 	}
@@ -166,7 +165,6 @@ func newClientWriter(conn net.Conn, onSlowDrop func()) *clientWriter {
 		paneCommands: make(chan clientWriterCommand, clientWriterQueueSize),
 		stop:         make(chan struct{}),
 		done:         make(chan struct{}),
-		onSlowDrop:   onSlowDrop,
 	}
 	go w.loop()
 	return w
@@ -267,10 +265,7 @@ func (w *clientWriter) sendBroadcast(msg *Message) {
 	if w == nil {
 		return
 	}
-	if !w.enqueueAsync(clientWriterBroadcastCommand{msg: msg}) {
-		w.dropSlowClient()
-		return
-	}
+	w.enqueueAsync(clientWriterBroadcastCommand{msg: msg})
 }
 
 func (w *clientWriter) sendBroadcastSync(msg *Message) {
@@ -279,7 +274,6 @@ func (w *clientWriter) sendBroadcastSync(msg *Message) {
 	}
 	reply := make(chan struct{}, 1)
 	if !w.enqueueAsync(clientWriterBroadcastCommand{msg: msg, reply: reply}) {
-		w.dropSlowClient()
 		return
 	}
 	<-reply
@@ -289,20 +283,14 @@ func (w *clientWriter) sendPaneOutput(msg *Message, paneID uint32, seq uint64) {
 	if w == nil {
 		return
 	}
-	if !w.enqueueAsyncPane(clientWriterPaneOutputCommand{msg: msg, paneID: paneID, seq: seq}) {
-		w.dropSlowClient()
-		return
-	}
+	w.enqueueAsyncPane(clientWriterPaneOutputCommand{msg: msg, paneID: paneID, seq: seq})
 }
 
 func (w *clientWriter) sendPaneMessage(msg *Message) {
 	if w == nil {
 		return
 	}
-	if !w.enqueueAsyncPane(clientWriterPaneMessageCommand{msg: msg}) {
-		w.dropSlowClient()
-		return
-	}
+	w.enqueueAsyncPane(clientWriterPaneMessageCommand{msg: msg})
 }
 
 func (w *clientWriter) startBootstrap() {
@@ -427,14 +415,6 @@ func (w *clientWriter) requestStop() {
 		return
 	}
 	w.stopOnce.Do(func() { close(w.stop) })
-}
-
-func (w *clientWriter) dropSlowClient() {
-	if w != nil && w.onSlowDrop != nil {
-		w.onSlowDrop()
-	}
-	w.forceCloseConn()
-	w.requestStop()
 }
 
 func writeClientMessage(state *clientWriterState, conn net.Conn, msg *Message) error {

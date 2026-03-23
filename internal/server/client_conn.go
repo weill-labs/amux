@@ -51,9 +51,7 @@ func newClientConn(conn net.Conn) *clientConn {
 		conn:      conn,
 		inputIdle: true,
 	}
-	cc.writer = newClientWriter(conn, func() {
-		cc.markDisconnectReason(disconnectReasonSlowClient)
-	})
+	cc.writer = newClientWriter(conn)
 	return cc
 }
 
