@@ -161,10 +161,26 @@ func cleanupStaleTestSessions() {
 		}
 	}
 
-	// Clean up stale sockets and log files (only if socket is not alive)
+	// Kill orphaned client processes still connected to dead test sockets.
+	// These survive after their server is killed because they hold open
+	// Unix socket connections. Use a single lsof call for efficiency.
+	killOrphanedTestClients(socketDir)
+
+	// Clean up stale sockets, log files, and lock files
 	entries, _ := os.ReadDir(socketDir)
 	for _, e := range entries {
 		name := e.Name()
+
+		// Clean up .start.lock files for test/bench sessions and
+		// client startup locks (c<digits>.start.lock)
+		if strings.HasSuffix(name, ".start.lock") {
+			base := strings.TrimSuffix(name, ".start.lock")
+			if isTestSession(base) || isBenchSession(base) || isClientLock(base) {
+				os.Remove(filepath.Join(socketDir, name))
+				continue
+			}
+		}
+
 		base := strings.TrimSuffix(name, ".log")
 		if isTestSession(base) || isBenchSession(base) {
 			sockPath := filepath.Join(socketDir, base)
@@ -173,6 +189,52 @@ func cleanupStaleTestSessions() {
 			}
 		}
 	}
+}
+
+// killOrphanedTestClients kills amux client processes connected to dead test
+// session sockets. Uses a single lsof call to find all amux Unix socket
+// connections, then kills those connected to stale test session paths.
+func killOrphanedTestClients(socketDir string) {
+	out, err := exec.Command("lsof", "-U", "-c", "amux", "-F", "pn").Output()
+	if err != nil {
+		return
+	}
+
+	// Parse lsof -F output: "p<pid>\n" followed by "n<path>\n" lines
+	var currentPid string
+	for _, line := range strings.Split(string(out), "\n") {
+		if strings.HasPrefix(line, "p") {
+			currentPid = line[1:]
+		} else if strings.HasPrefix(line, "n") && currentPid != "" {
+			sockPath := line[1:]
+			if !strings.HasPrefix(sockPath, socketDir+"/") {
+				continue
+			}
+			session := filepath.Base(sockPath)
+			// Strip @hostname suffix for remote session sockets (e.g., t-abc12345@mbp)
+			if at := strings.Index(session, "@"); at >= 0 {
+				session = session[:at]
+			}
+			if !isTestSession(session) && !isBenchSession(session) {
+				continue
+			}
+			// The server is already dead (we killed it above), so kill the client
+			exec.Command("kill", currentPid).Run()
+		}
+	}
+}
+
+// isClientLock returns true if name matches the client startup lock pattern: c<digits>
+func isClientLock(name string) bool {
+	if len(name) < 2 || name[0] != 'c' {
+		return false
+	}
+	for _, ch := range name[1:] {
+		if ch < '0' || ch > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // isSocketAlive checks if a Unix socket is accepting connections.

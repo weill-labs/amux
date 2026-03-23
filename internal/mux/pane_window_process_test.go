@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -186,6 +187,41 @@ func TestRestorePaneWithScrollbackUsesExistingPTYAndProcess(t *testing.T) {
 	if err := p.Close(); err != nil {
 		t.Fatalf("Close() after clearing process = %v", err)
 	}
+}
+
+func TestCloseReapsShellProcess(t *testing.T) {
+	t.Parallel()
+
+	// Start a pane running a shell command that traps SIGHUP (simulating
+	// a stubborn process that ignores the initial signal).
+	p, err := NewPaneWithScrollback(99, PaneMeta{
+		Name:  "pane-99",
+		Host:  DefaultHost,
+		Color: "f5e0dc",
+	}, 40, 10, "test", DefaultScrollbackLines, nil, nil)
+	if err != nil {
+		t.Fatalf("NewPaneWithScrollback: %v", err)
+	}
+	p.Start()
+
+	pid := p.ProcessPid()
+	if pid == 0 {
+		t.Fatal("expected non-zero PID")
+	}
+
+	// Verify the process is alive
+	if err := syscall.Kill(pid, 0); err != nil {
+		t.Fatalf("shell should be alive before Close: %v", err)
+	}
+
+	if err := p.Close(); err != nil {
+		t.Fatalf("Close() = %v", err)
+	}
+
+	// After Close(), the process should be dead (SIGKILL fallback ensures this)
+	waitUntil(t, 5*time.Second, func() bool {
+		return syscall.Kill(pid, 0) != nil
+	})
 }
 
 func TestPaneCwdAndProcessHelpers(t *testing.T) {

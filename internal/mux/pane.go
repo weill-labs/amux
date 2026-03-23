@@ -682,21 +682,58 @@ func (p *Pane) ScreenContains(substr string) bool {
 	return p.emulator.ScreenContains(substr)
 }
 
-// Close terminates the pane's shell and PTY.
+// shellProcess returns the *os.Process for the pane's shell, or nil for proxy panes.
+func (p *Pane) shellProcess() *os.Process {
+	if p.cmd != nil {
+		return p.cmd.Process
+	}
+	if p.process != nil {
+		return p.process
+	}
+	return nil
+}
+
+// waitForExit waits for the shell process to exit. Safe to call concurrently
+// with the existing waitLoop goroutine — Go's cmd.Wait() handles this.
+func (p *Pane) waitForExit() <-chan struct{} {
+	ch := make(chan struct{})
+	go func() {
+		if p.cmd != nil {
+			p.cmd.Wait()
+		} else if p.process != nil {
+			p.process.Wait()
+		}
+		close(ch)
+	}()
+	return ch
+}
+
+// Close terminates the pane's shell and PTY, waiting for the process to exit.
+// Sends SIGHUP first, then closes the PTY master (which also delivers SIGHUP
+// to the slave side). If the process doesn't exit within 2 seconds, SIGKILL
+// is sent as a fallback to prevent orphaned shell processes.
 // For proxy panes (no PTY), Close() just marks the pane as closed.
 func (p *Pane) Close() error {
 	if p.closed.Swap(true) {
 		return nil
 	}
-	if p.cmd != nil {
-		p.cmd.Process.Signal(syscall.SIGHUP)
-	} else if p.process != nil {
-		p.process.Signal(syscall.SIGHUP)
+	proc := p.shellProcess()
+	if proc != nil {
+		proc.Signal(syscall.SIGHUP)
 	}
-	if p.ptmx == nil {
-		return nil
+	var ptmxErr error
+	if p.ptmx != nil {
+		ptmxErr = p.ptmx.Close()
 	}
-	return p.ptmx.Close()
+	if proc != nil {
+		select {
+		case <-p.waitForExit():
+		case <-time.After(2 * time.Second):
+			proc.Signal(syscall.SIGKILL)
+			<-p.waitForExit()
+		}
+	}
+	return ptmxErr
 }
 
 // NewProxyPaneWithScrollback creates a proxy pane with an explicit retained

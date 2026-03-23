@@ -5,6 +5,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -629,9 +630,15 @@ func (s *Server) shutdown() {
 		}
 		panes := make([]*mux.Pane, len(sess.Panes))
 		copy(panes, sess.Panes)
+		var wg sync.WaitGroup
 		for _, p := range panes {
-			p.Close()
+			wg.Add(1)
+			go func(p *mux.Pane) {
+				defer wg.Done()
+				p.Close()
+			}(p)
 		}
+		wg.Wait()
 	}
 }
 

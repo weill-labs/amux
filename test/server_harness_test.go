@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -175,12 +176,15 @@ func newServerHarnessWithOptions(tb testing.TB, cols, rows int, configContent st
 }
 
 // cleanup detaches the headless client, sends SIGTERM for graceful shutdown
-// (coverage flush), then cleans up the socket and log files.
+// (coverage flush), then cleans up the socket and log files. As a fallback,
+// kills the server's process group to prevent orphaned pane shells.
 func (h *ServerHarness) cleanup() {
 	if h.client != nil {
 		h.client.close()
 	}
+	var serverPid int
 	if h.cmd != nil && h.cmd.Process != nil {
+		serverPid = h.cmd.Process.Pid
 		h.cmd.Process.Signal(os.Interrupt)
 		done := make(chan struct{})
 		go func() {
@@ -193,6 +197,14 @@ func (h *ServerHarness) cleanup() {
 			h.cmd.Process.Kill()
 		}
 	}
+	// Kill any orphaned pane shells that survived the server shutdown.
+	// The server and its pane children share a process group (no Setsid),
+	// so kill(-pgid) reaches them all. Follow up with pgrep as a fallback
+	// in case the process group changed.
+	if serverPid != 0 {
+		syscall.Kill(-serverPid, syscall.SIGKILL)
+		killChildrenByPid(serverPid)
+	}
 	if h.shutdownPipe != nil {
 		h.shutdownPipe.Close()
 		h.shutdownPipe = nil
@@ -202,6 +214,21 @@ func (h *ServerHarness) cleanup() {
 	os.Remove(filepath.Join(socketDir, h.session+".log"))
 	if h.home != "" {
 		_ = os.RemoveAll(h.home)
+	}
+}
+
+// killChildrenByPid sends SIGKILL to all direct children of the given PID.
+// Used as a fallback when process group kill doesn't reach all descendants.
+func killChildrenByPid(pid int) {
+	out, err := exec.Command("pgrep", "-P", strconv.Itoa(pid)).Output()
+	if err != nil {
+		return
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		line = strings.TrimSpace(line)
+		if childPid, err := strconv.Atoi(line); err == nil {
+			syscall.Kill(childPid, syscall.SIGKILL)
+		}
 	}
 }
 
