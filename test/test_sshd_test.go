@@ -246,6 +246,8 @@ func handleSession(ch ssh.Channel, reqs <-chan *ssh.Request, execEnv []string) {
 	defer ch.Close()
 	winSize := &pty.Winsize{Cols: 80, Rows: 24}
 
+	termType := "xterm-256color"
+
 	for req := range reqs {
 		switch req.Type {
 		case "env":
@@ -261,11 +263,14 @@ func handleSession(ch ssh.Channel, reqs <-chan *ssh.Request, execEnv []string) {
 				Cols: uint16(max(1, ptyReq.Cols)),
 				Rows: uint16(max(1, ptyReq.Rows)),
 			}
+			if ptyReq.Term != "" {
+				termType = ptyReq.Term
+			}
 			req.Reply(true, nil)
 
 		case "shell":
 			req.Reply(true, nil)
-			runShellSession(ch, reqs, execEnv, winSize)
+			runShellSession(ch, reqs, execEnv, winSize, termType)
 			return
 
 		case "exec":
@@ -278,7 +283,7 @@ func handleSession(ch ssh.Channel, reqs <-chan *ssh.Request, execEnv []string) {
 			req.Reply(true, nil)
 
 			cmd := exec.Command("sh", "-c", command)
-			cmd.Env = execEnv
+			cmd.Env = upsertEnv(append([]string{}, execEnv...), "TERM", termType)
 			cmd.Stdout = ch
 			cmd.Stderr = ch.Stderr()
 			cmd.Stdin = ch
@@ -306,7 +311,7 @@ func handleSession(ch ssh.Channel, reqs <-chan *ssh.Request, execEnv []string) {
 	}
 }
 
-func runShellSession(ch ssh.Channel, reqs <-chan *ssh.Request, execEnv []string, size *pty.Winsize) {
+func runShellSession(ch ssh.Channel, reqs <-chan *ssh.Request, execEnv []string, size *pty.Winsize, termType string) {
 	var sizeMu sync.RWMutex
 	currentSize := *size
 
@@ -359,7 +364,7 @@ func runShellSession(ch ssh.Channel, reqs <-chan *ssh.Request, execEnv []string,
 			sizeMu.RLock()
 			ws := currentSize
 			sizeMu.RUnlock()
-			sendExitStatus(ch, runShellCommand(ch, line, execEnv, &ws))
+			sendExitStatus(ch, runShellCommand(ch, line, execEnv, &ws, termType))
 			return
 		}
 	}
@@ -375,9 +380,9 @@ type crToLFWriter struct {
 	w io.Writer
 }
 
-func runShellCommand(ch ssh.Channel, command string, execEnv []string, size *pty.Winsize) int {
+func runShellCommand(ch ssh.Channel, command string, execEnv []string, size *pty.Winsize, termType string) int {
 	cmd := exec.Command("sh", "-c", command)
-	cmd.Env = append(append([]string{}, execEnv...), "TERM=xterm-256color")
+	cmd.Env = append(append([]string{}, execEnv...), "TERM="+termType)
 
 	ptmx, err := pty.StartWithSize(cmd, size)
 	if err != nil {

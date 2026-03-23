@@ -41,7 +41,7 @@ func TestTakeoverBidirectionalIO(t *testing.T) {
 	// to wire bidirectional I/O.
 	_, port, _ := net.SplitHostPort(addr)
 	sshCmd := fmt.Sprintf(
-		"ssh -i %s -p %s -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null 127.0.0.1 amux",
+		"ssh -t -i %s -p %s -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null 127.0.0.1 amux",
 		keyFile, port)
 	h.sendKeys("pane-1", sshCmd, "Enter")
 
@@ -113,7 +113,7 @@ func TestTakeoverAttachHostKeyMismatchShowsNotice(t *testing.T) {
 
 	_, port, _ := net.SplitHostPort(addr)
 	sshCmd := fmt.Sprintf(
-		"ssh -i %s -p %s -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null 127.0.0.1 amux",
+		"ssh -t -i %s -p %s -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null 127.0.0.1 amux",
 		keyFile, port)
 	h.sendKeys("pane-1", sshCmd, "Enter")
 
@@ -154,7 +154,7 @@ func TestTakeoverReconnectAfterRemoteReload(t *testing.T) {
 
 	_, port, _ := net.SplitHostPort(addr)
 	sshCmd := fmt.Sprintf(
-		"ssh -i %s -p %s -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null 127.0.0.1 amux",
+		"ssh -t -i %s -p %s -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null 127.0.0.1 amux",
 		keyFile, port)
 	h.sendKeys("pane-1", sshCmd, "Enter")
 
@@ -187,7 +187,7 @@ func TestTakeoverAfterServerReload(t *testing.T) {
 	existingProxyPanes := map[string]struct{}{}
 	_, port, _ := net.SplitHostPort(addr)
 	sshCmd := fmt.Sprintf(
-		"ssh -i %s -p %s -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null 127.0.0.1 amux",
+		"ssh -t -i %s -p %s -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null 127.0.0.1 amux",
 		keyFile, port)
 	h.sendKeys("pane-1", sshCmd, "Enter")
 

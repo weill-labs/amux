@@ -60,9 +60,9 @@ func main() {
 	}
 
 	if len(args) == 0 {
-		// Nested detection: if running inside an SSH session (but not
-		// inside a local amux pane on the same host), attempt takeover.
-		if os.Getenv("SSH_CONNECTION") != "" && os.Getenv("AMUX_PANE") == "" {
+		// Takeover detection: if this SSH session originated from an amux
+		// pane (TERM=amux, forwarded via pty-req), attempt takeover.
+		if os.Getenv("SSH_CONNECTION") != "" && os.Getenv("TERM") == "amux" && os.Getenv("AMUX_PANE") == "" {
 			if tryTakeover(sessionName) {
 				return // takeover succeeded — managed mode started
 			}
