@@ -218,6 +218,12 @@ func (e paneExitEvent) handle(s *Session) {
 	if s.shutdown.Load() {
 		return
 	}
+	// If the pane is in the undo stack (soft-closed), finalize it there
+	// instead of going through the normal removal path.
+	if pane := s.finalizeClosedPane(e.paneID); pane != nil {
+		_ = pane.Close()
+		return
+	}
 	s.handleFinalizedPaneRemoval(e.paneID, false, e.reason)
 }
 
@@ -235,6 +241,24 @@ func (e paneCleanupTimeoutEvent) handle(s *Session) {
 	}
 	_ = pane.SignalForegroundProcessGroup(syscall.SIGKILL)
 	s.handleFinalizedPaneRemoval(e.paneID, true, "cleanup timeout")
+}
+
+type undoExpiryEvent struct {
+	paneID uint32
+}
+
+func (e undoExpiryEvent) handle(s *Session) {
+	if s.shutdown.Load() {
+		return
+	}
+	pane := s.finalizeClosedPane(e.paneID)
+	if pane != nil {
+		_ = pane.Close()
+	}
+}
+
+func (s *Session) enqueueUndoExpiry(paneID uint32) {
+	s.enqueueEvent(undoExpiryEvent{paneID: paneID})
 }
 
 func (s *Session) handleFinalizedPaneRemoval(paneID uint32, closePane bool, reason string) {

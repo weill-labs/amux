@@ -20,6 +20,16 @@ type paneRemovalResult struct {
 	sendExit        bool
 }
 
+// closedPaneRecord holds state for a soft-closed pane awaiting undo or
+// final cleanup. The pane's PTY stays alive during the grace period.
+type closedPaneRecord struct {
+	pane     *mux.Pane
+	windowID uint32 // window pane was in (may no longer exist)
+}
+
+// defaultUndoGracePeriod is how long a soft-closed pane stays undoable.
+var defaultUndoGracePeriod = 30 * time.Second
+
 // hasPane checks if a pane ID is still in the session's pane list.
 func (s *Session) hasPane(id uint32) bool {
 	for _, p := range s.Panes {
@@ -141,6 +151,124 @@ func (s *Session) finalizePaneRemoval(paneID uint32) paneRemovalResult {
 		result.broadcastLayout = true
 	}
 	return result
+}
+
+// softClosePane removes a pane from the layout and pushes it onto the
+// closed-pane stack. The PTY stays alive for the grace period, allowing undo.
+// Returns a paneRemovalResult describing the layout change.
+func (s *Session) softClosePane(paneID uint32) paneRemovalResult {
+	pane := s.findPaneByID(paneID)
+	if pane == nil {
+		return paneRemovalResult{}
+	}
+
+	result := paneRemovalResult{
+		pane:     pane,
+		paneName: pane.Meta.Name,
+		sendExit: len(s.Panes) <= 1,
+	}
+
+	// If this is the last pane, fall through to hard close (cannot undo).
+	if result.sendExit {
+		return s.finalizePaneRemoval(paneID)
+	}
+
+	// Find which window owns the pane (before removing from layout).
+	var windowID uint32
+	if w := s.findWindowByPaneID(paneID); w != nil {
+		windowID = w.ID
+	}
+
+	// Remove pane from the layout tree.
+	result.closedWindow = s.closePaneInWindow(paneID)
+	result.broadcastLayout = true
+
+	// Remove from Session.Panes so list/find commands don't see it,
+	// but don't call removePane (which would close the PTY).
+	for i, p := range s.Panes {
+		if p.ID == paneID {
+			s.Panes = append(s.Panes[:i], s.Panes[i+1:]...)
+			break
+		}
+	}
+	// Clean up subscriptions and tracking for the now-invisible pane.
+	delete(s.paneOutputSubs, paneID)
+	delete(s.takenOverPanes, paneID)
+	s.idle.StopTimer(paneID)
+	if s.vtIdle != nil {
+		s.vtIdle.StopTimer(paneID)
+	}
+	s.prunePaneEventSubs(pane.Meta.Name)
+
+	// Push onto undo stack.
+	s.closedPanes = append(s.closedPanes, closedPaneRecord{
+		pane:     pane,
+		windowID: windowID,
+	})
+
+	// Start grace period timer.
+	if s.closedPaneTimers == nil {
+		s.closedPaneTimers = make(map[uint32]*time.Timer)
+	}
+	s.closedPaneTimers[paneID] = time.AfterFunc(defaultUndoGracePeriod, func() {
+		s.enqueueUndoExpiry(paneID)
+	})
+
+	return result
+}
+
+// undoClosePane pops the most recently soft-closed pane and re-inserts it
+// into the active window's layout.
+func (s *Session) undoClosePane() (pane *mux.Pane, err error) {
+	if len(s.closedPanes) == 0 {
+		return nil, fmt.Errorf("no closed pane to undo")
+	}
+
+	// Pop most recent.
+	idx := len(s.closedPanes) - 1
+	rec := s.closedPanes[idx]
+	s.closedPanes = s.closedPanes[:idx]
+
+	// Cancel the grace period timer.
+	if timer := s.closedPaneTimers[rec.pane.ID]; timer != nil {
+		timer.Stop()
+		delete(s.closedPaneTimers, rec.pane.ID)
+	}
+
+	// Re-add to Session.Panes so it's visible again.
+	s.Panes = append(s.Panes, rec.pane)
+
+	// Re-insert into the active window.
+	w := s.activeWindow()
+	if w == nil {
+		return nil, fmt.Errorf("no active window")
+	}
+
+	opts := mux.SplitOptions{Background: false}
+	if w.ZoomedPaneID != 0 {
+		opts.Background = true
+	}
+	if _, err := w.SplitWithOptions(mux.SplitVertical, rec.pane, opts); err != nil {
+		return nil, err
+	}
+	return rec.pane, nil
+}
+
+// finalizeClosedPane removes a soft-closed pane from the undo stack and
+// returns it for final cleanup (PTY close). The pane was already removed
+// from Session.Panes during soft close.
+func (s *Session) finalizeClosedPane(paneID uint32) *mux.Pane {
+	for i, rec := range s.closedPanes {
+		if rec.pane.ID == paneID {
+			s.closedPanes = append(s.closedPanes[:i], s.closedPanes[i+1:]...)
+			if timer := s.closedPaneTimers[paneID]; timer != nil {
+				timer.Stop()
+				delete(s.closedPaneTimers, paneID)
+			}
+			return rec.pane
+		}
+	}
+	return nil
 }
 
 func (s *Session) enqueuePacedPaneInput(pane *mux.Pane, chunks []encodedKeyChunk) error {
