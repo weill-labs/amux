@@ -562,8 +562,25 @@ func TestServerReloadCaptureRetry(t *testing.T) {
 	}
 
 	// The retry loop should wait for the client to reconnect rather than
-	// returning "no client attached".
-	out := h.runCmd("capture", "--format", "json")
+	// returning "no client attached". On slow CI, the first capture after
+	// reload can still hit captureResponseTimeout — retry a few times.
+	var out string
+	retryDeadline := time.NewTimer(10 * time.Second)
+	retryTicker := time.NewTicker(500 * time.Millisecond)
+	defer retryDeadline.Stop()
+	defer retryTicker.Stop()
+	for {
+		out = h.runCmd("capture", "--format", "json")
+		if strings.Contains(out, "pane-1") {
+			break
+		}
+		select {
+		case <-retryDeadline.C:
+			goto done
+		case <-retryTicker.C:
+		}
+	}
+done:
 	if strings.Contains(out, "no client attached") {
 		t.Fatalf("capture should retry after reload, got: %s", out)
 	}

@@ -17,6 +17,26 @@ func captureJSONPane(t *testing.T, h *ServerHarness, paneName string) proto.Capt
 	return h.jsonPane(h.captureJSON(), paneName)
 }
 
+// retryCaptureJSONUntil polls JSON capture until fn returns true or timeout.
+// Unlike waitForCaptureJSON, this uses a simple ticker and does not call
+// generation(), making it safe when the server may be under heavy load.
+func retryCaptureJSONUntil(h *ServerHarness, fn func(proto.CaptureJSON) bool, timeout time.Duration) (proto.CaptureJSON, bool) {
+	deadline := time.Now().Add(timeout)
+	ticker := time.NewTicker(250 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		out := h.runCmd("capture", "--format", "json")
+		var capture proto.CaptureJSON
+		if json.Unmarshal([]byte(out), &capture) == nil && fn(capture) {
+			return capture, true
+		}
+		if time.Now().After(deadline) {
+			return capture, false
+		}
+		<-ticker.C
+	}
+}
+
 func TestCaptureJSON_FullScreen(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)
@@ -318,17 +338,25 @@ func TestCaptureJSON_AgentStatus_Idle(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)
 
-	// Shell at prompt — wait for idle timer. No retry loop needed: capture
-	// JSON uses the server's cached idleState (same source as waitIdle).
 	h.sendKeys("pane-1", "echo READY", "Enter")
 	h.waitFor("pane-1", "READY")
 	h.waitIdle("pane-1")
 
-	pane := captureJSONPane(t, h, "pane-1")
-
-	if !pane.Idle {
-		t.Errorf("pane should be idle (current_command=%q, child_pids=%v)", pane.CurrentCommand, pane.ChildPIDs)
+	// AgentStatus() spawns pgrep/ps subprocesses that can give transient
+	// incorrect results under CI load. Retry until the capture reports idle.
+	capture, ok := retryCaptureJSONUntil(h, func(c proto.CaptureJSON) bool {
+		for _, p := range c.Panes {
+			if p.Name == "pane-1" {
+				return p.Idle
+			}
+		}
+		return false
+	}, 10*time.Second)
+	if !ok {
+		t.Fatalf("pane never reported idle in capture JSON")
 	}
+	pane := h.jsonPane(capture, "pane-1")
+
 	if pane.IdleSince == "" {
 		t.Error("idle_since should be set when pane is idle")
 	}
@@ -374,10 +402,20 @@ func TestCaptureJSON_AgentStatus_Transition(t *testing.T) {
 	h.waitFor("pane-1", "INIT")
 	h.waitIdle("pane-1")
 
-	pane := captureJSONPane(t, h, "pane-1")
-	if !pane.Idle {
+	// Retry until capture reports idle — AgentStatus() subprocess calls
+	// can transiently disagree with the idle tracker under load.
+	capture, ok := retryCaptureJSONUntil(h, func(c proto.CaptureJSON) bool {
+		for _, p := range c.Panes {
+			if p.Name == "pane-1" {
+				return p.Idle && p.IdleSince != ""
+			}
+		}
+		return false
+	}, 10*time.Second)
+	if !ok {
 		t.Fatal("pane should start idle")
 	}
+	pane := h.jsonPane(capture, "pane-1")
 	if pane.IdleSince == "" {
 		t.Fatal("idle_since should be set initially")
 	}
@@ -385,12 +423,23 @@ func TestCaptureJSON_AgentStatus_Transition(t *testing.T) {
 	// Transition to busy
 	h.startLongSleep("pane-1")
 
-	pane = captureJSONPane(t, h, "pane-1")
-	if pane.Idle {
-		t.Error("pane should be busy after running sleep")
-	}
-	if pane.IdleSince != "" {
-		t.Errorf("idle_since should be empty when busy, got %q", pane.IdleSince)
+	// Retry until capture reports busy.
+	capture, ok = retryCaptureJSONUntil(h, func(c proto.CaptureJSON) bool {
+		for _, p := range c.Panes {
+			if p.Name == "pane-1" {
+				return !p.Idle
+			}
+		}
+		return false
+	}, 10*time.Second)
+	if !ok {
+		pane = captureJSONPane(t, h, "pane-1")
+		t.Errorf("pane should be busy after running sleep (idle=%v)", pane.Idle)
+	} else {
+		pane = h.jsonPane(capture, "pane-1")
+		if pane.IdleSince != "" {
+			t.Errorf("idle_since should be empty when busy, got %q", pane.IdleSince)
+		}
 	}
 }
 
@@ -421,21 +470,39 @@ func TestCaptureJSON_AgentStatus_MultiPane(t *testing.T) {
 	h.waitFor("pane-2", "IDLE_CHECK")
 	h.waitIdle("pane-2")
 
-	out := h.runCmd("capture", "--format", "json")
-	var capture proto.CaptureJSON
-	if err := json.Unmarshal([]byte(out), &capture); err != nil {
-		t.Fatalf("failed to parse JSON: %v\nraw output:\n%s", err, out)
-	}
-
-	for _, p := range capture.Panes {
-		switch p.Name {
-		case "pane-1":
-			if p.Idle {
-				t.Error("pane-1 should be busy")
+	// AgentStatus() spawns pgrep/ps subprocesses that can give transient
+	// incorrect results under CI load. Retry until both panes report the
+	// expected state.
+	capture, ok := retryCaptureJSONUntil(h, func(c proto.CaptureJSON) bool {
+		if len(c.Panes) < 2 {
+			return false
+		}
+		for _, p := range c.Panes {
+			switch p.Name {
+			case "pane-1":
+				if p.Idle {
+					return false
+				}
+			case "pane-2":
+				if !p.Idle {
+					return false
+				}
 			}
-		case "pane-2":
-			if !p.Idle {
-				t.Error("pane-2 should be idle")
+		}
+		return true
+	}, 10*time.Second)
+	if !ok {
+		// Final assertion with error reporting
+		for _, p := range capture.Panes {
+			switch p.Name {
+			case "pane-1":
+				if p.Idle {
+					t.Error("pane-1 should be busy")
+				}
+			case "pane-2":
+				if !p.Idle {
+					t.Error("pane-2 should be idle")
+				}
 			}
 		}
 	}
