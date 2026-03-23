@@ -4,7 +4,7 @@ Date: 2026-03-23. Companion doc: [competitive-landscape-2026-03.md](../competiti
 
 ## Context
 
-People run 12-24 parallel AI agents in tmux and it's painful. Five core pain points emerged from X/Twitter sentiment analysis (31 sources, March 2026):
+People run 12-24 parallel AI agents in tmux and it's painful. Five core pain points emerged from X/Twitter sentiment analysis (31 sources, March 2026). See [competitive-landscape-2026-03.md](../competitive-landscape-2026-03.md) for full analysis.
 
 1. **Persistence & resilience** — sessions die, state handoff is brutal
 2. **Monitoring & visibility** — pane-hopping at 15+ agents is exhausting
@@ -12,7 +12,7 @@ People run 12-24 parallel AI agents in tmux and it's painful. Five core pain poi
 4. **Reliability & nudging** — agents go idle/derail, need constant babysitting
 5. **Usability & scaling** — agent-spawned sessions break MCP, poor multi-machine support
 
-amux already addresses #1 (checkpoint/restore) and has strong foundations for the rest. This spec proposes features to close the remaining gaps, organized by pain point.
+amux already addresses #1 (checkpoint/restore) and has strong foundations for the rest.
 
 ## Existing Foundation
 
