@@ -801,6 +801,18 @@ func RunSession(sessionName string) error {
 				return false
 			}
 
+			// decodeAndDispatch decodes raw bytes into input events and
+			// dispatches each through dispatchDecoded. Returns true if any
+			// event triggers exit (detach).
+			decodeAndDispatch := func(data []byte) bool {
+				for _, decoded := range decodeInputEvents(data) {
+					if dispatchDecoded(decoded) {
+						return true
+					}
+				}
+				return false
+			}
+
 			if cr.ChooserActive() {
 				action := cr.HandleChooserInput(normalizeLocalInput(raw))
 				if action.bell {
@@ -836,12 +848,7 @@ func RunSession(sessionName string) error {
 					continue
 				}
 
-				for _, decoded := range decodeInputEvents(flushed) {
-					if dispatchDecoded(decoded) {
-						shouldExit = true
-						break
-					}
-				}
+				shouldExit = decodeAndDispatch(flushed)
 			}
 
 			// Flush any bytes the mouse parser is holding from an
@@ -850,12 +857,7 @@ func RunSession(sessionName string) error {
 			// end of a read stays buffered and coalesces with the next
 			// read's first byte — turning Esc then j into Alt+j.
 			if !shouldExit {
-				for _, decoded := range decodeInputEvents(mouseParser.FlushPending()) {
-					if dispatchDecoded(decoded) {
-						shouldExit = true
-						break
-					}
-				}
+				shouldExit = decodeAndDispatch(mouseParser.FlushPending())
 			}
 
 			if shouldExit {
