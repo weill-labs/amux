@@ -21,8 +21,8 @@ func TestConnectionLogCLI(t *testing.T) {
 	if err := server.WriteMsg(conn, &server.Message{Type: server.MsgTypeDetach}); err != nil {
 		t.Fatalf("WriteMsg detach: %v", err)
 	}
-	_ = conn.Close()
 	h.waitLayout(gen)
+	_ = conn.Close()
 
 	out := h.runCmd("connection-log")
 	for _, want := range []string{
