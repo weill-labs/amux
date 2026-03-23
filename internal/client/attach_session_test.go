@@ -542,7 +542,7 @@ func TestReadImmediateAttachCorrectionReturnsErrorOnConnectionClose(t *testing.T
 	}
 }
 
-func TestReadImmediateAttachCorrectionRejectsUnexpectedMessageType(t *testing.T) {
+func TestReadImmediateAttachCorrectionEndsOnUnknownMessageType(t *testing.T) {
 	t.Parallel()
 
 	serverConn, clientConn := net.Pipe()
@@ -555,13 +555,12 @@ func TestReadImmediateAttachCorrectionRejectsUnexpectedMessageType(t *testing.T)
 	go func() {
 		_ = proto.WriteMsg(serverConn, &proto.Message{Type: proto.MsgTypeLayout, Layout: layout})
 		_ = proto.WriteMsg(serverConn, &proto.Message{Type: proto.MsgTypePaneOutput, PaneID: 1, PaneData: []byte("hi")})
-		// Send an unexpected message type during the correction window.
+		// Unknown message type during correction window ends the phase gracefully.
 		_ = proto.WriteMsg(serverConn, &proto.Message{Type: proto.MsgTypeBell})
 	}()
 
-	err := readAttachBootstrap(clientConn, NewClientRenderer(20, 4))
-	if err == nil || !strings.Contains(err.Error(), "unexpected attach bootstrap correction message type") {
-		t.Fatalf("got err=%v, want 'unexpected attach bootstrap correction message type'", err)
+	if err := readAttachBootstrap(clientConn, NewClientRenderer(20, 4)); err != nil {
+		t.Fatalf("readAttachBootstrap returned error for unknown correction message: %v", err)
 	}
 }
 
