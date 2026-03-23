@@ -60,10 +60,8 @@ func main() {
 	}
 
 	if len(args) == 0 {
-		if shouldAttemptTakeover() {
-			if tryTakeover(sessionName) {
-				return // takeover succeeded — managed mode started
-			}
+		if tryTakeover(sessionName) {
+			return // takeover succeeded — managed mode started
 		}
 		checkNesting(sessionName)
 		if err := client.RunSession(sessionName); err != nil {
@@ -958,11 +956,14 @@ func shouldAttemptTakeover() bool {
 	return os.Getenv("SSH_CONNECTION") != "" && os.Getenv("TERM") == "amux" && os.Getenv("AMUX_PANE") == ""
 }
 
-// tryTakeover attempts an SSH session takeover. It emits a takeover sequence
-// to stdout and waits up to 2 seconds for an ack from a local amux on stdin.
-// If acked, it starts the server in managed mode (no TUI) and returns true.
-// If no ack, returns false and the caller should proceed with normal startup.
+// tryTakeover attempts an SSH session takeover. Returns false immediately if
+// the environment doesn't indicate an SSH session from an amux pane. Otherwise
+// emits a takeover sequence to stdout and waits up to 2 seconds for an ack.
+// If acked, starts the server in managed mode (no TUI) and returns true.
 func tryTakeover(sessionName string) bool {
+	if !shouldAttemptTakeover() {
+		return false
+	}
 	hostname, _ := os.Hostname()
 
 	req := mux.TakeoverRequest{
