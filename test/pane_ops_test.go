@@ -622,8 +622,8 @@ func TestShutdownLeavesNoOrphans(t *testing.T) {
 	h := newServerHarnessPersistent(t)
 
 	// Create 3 panes
-	h.runCmd("split")
-	h.runCmd("split")
+	h.runCmd("split", "pane-1")
+	h.runCmd("split", "pane-1")
 	c := h.captureJSON()
 	if len(c.Panes) != 3 {
 		t.Fatalf("expected 3 panes, got %d", len(c.Panes))
