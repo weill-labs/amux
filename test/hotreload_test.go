@@ -554,8 +554,15 @@ func TestServerReloadCaptureRetry(t *testing.T) {
 
 	h.runCmd("reload-server")
 
-	// Issue capture immediately — the retry loop should wait for the
-	// client to reconnect rather than returning "no client attached".
+	// Wait for the client to reattach after reload before issuing capture.
+	// On slow CI runners the reattach can take longer than the server-side
+	// captureResponseTimeout (3s), causing a spurious "client unresponsive".
+	if !h.waitFor("[pane-", 5*time.Second) {
+		t.Fatalf("session did not recover after reload\nScreen:\n%s", h.captureOuter())
+	}
+
+	// The retry loop should wait for the client to reconnect rather than
+	// returning "no client attached".
 	out := h.runCmd("capture", "--format", "json")
 	if strings.Contains(out, "no client attached") {
 		t.Fatalf("capture should retry after reload, got: %s", out)
