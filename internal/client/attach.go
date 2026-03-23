@@ -78,6 +78,38 @@ func applyAttachBootstrapMessage(cr *ClientRenderer, msg attachBootstrapMessage)
 	}
 }
 
+// attachBootstrapCorrectionWindow is the maximum time readImmediateAttachCorrection
+// waits for post-bootstrap layout corrections from the server. Override in tests
+// to avoid the 50ms-per-attach overhead.
+var attachBootstrapCorrectionWindow = 50 * time.Millisecond
+
+func readImmediateAttachCorrection(conn net.Conn, cr *ClientRenderer) error {
+	if err := conn.SetReadDeadline(time.Now().Add(attachBootstrapCorrectionWindow)); err != nil {
+		return err
+	}
+	defer conn.SetReadDeadline(time.Time{}) //nolint:errcheck // best-effort reset
+	for {
+		msg, err := proto.ReadMsg(conn)
+		if err != nil {
+			if ne, ok := err.(net.Error); ok && ne.Timeout() {
+				return nil
+			}
+			return err
+		}
+		if msg.Type == proto.MsgTypeLayout {
+			cr.HandleLayout(msg.Layout)
+			continue
+		}
+		bufferedMsg, ok := newAttachBootstrapMessage(msg)
+		if !ok {
+			// Unknown message types (bell, copy-mode, etc.) end the
+			// correction window — they belong to the normal message loop.
+			return nil
+		}
+		applyAttachBootstrapMessage(cr, bufferedMsg)
+	}
+}
+
 func readAttachBootstrap(conn net.Conn, cr *ClientRenderer) error {
 	var layout *proto.LayoutSnapshot
 	var buffered []attachBootstrapMessage
@@ -118,7 +150,7 @@ func readAttachBootstrap(conn net.Conn, cr *ClientRenderer) error {
 		remainingOutputs -= applyAttachBootstrapMessage(cr, bufferedMsg)
 	}
 
-	return nil
+	return readImmediateAttachCorrection(conn, cr)
 }
 
 func handleDisplayPaneSelection(cr *ClientRenderer, sender *messageSender, b byte) {

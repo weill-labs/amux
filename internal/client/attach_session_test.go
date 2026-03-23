@@ -447,6 +447,123 @@ func TestReadAttachBootstrapAppliesZoomedReplayBeforeReturn(t *testing.T) {
 	}
 }
 
+func TestReadAttachBootstrapAppliesImmediateReattachResizeCorrectionBeforeReturn(t *testing.T) {
+	t.Parallel()
+
+	serverConn, clientConn := net.Pipe()
+	done := make(chan struct{})
+	t.Cleanup(func() {
+		_ = serverConn.Close()
+		_ = clientConn.Close()
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Fatal("attach bootstrap writer did not exit")
+		}
+	})
+
+	root := proto.CellSnapshot{
+		X: 0, Y: 0, W: 120, H: 39,
+		IsLeaf: true, Dir: -1, PaneID: 1,
+	}
+	panes := []proto.PaneSnapshot{
+		{ID: 1, Name: "pane-1", Host: "local", Color: "f5e0dc"},
+	}
+	layout := &proto.LayoutSnapshot{
+		SessionName:  "test",
+		ActivePaneID: 1,
+		Width:        120,
+		Height:       39,
+		Root:         root,
+		Panes:        panes,
+		Windows: []proto.WindowSnapshot{{
+			ID: 1, Name: "window-1", Index: 1, ActivePaneID: 1,
+			Root:  root,
+			Panes: panes,
+		}},
+		ActiveWindowID: 1,
+	}
+
+	const staleLine = "READY 80x22"
+	const resizedLine = "SIZE 120x38"
+
+	go func() {
+		defer close(done)
+		msgs := []*proto.Message{
+			{Type: proto.MsgTypeLayout, Layout: layout},
+			{Type: proto.MsgTypePaneOutput, PaneID: 1, PaneData: []byte("\033[2J\033[H" + staleLine)},
+			{Type: proto.MsgTypeLayout, Layout: layout},
+			{Type: proto.MsgTypePaneOutput, PaneID: 1, PaneData: []byte("\033[2J\033[H" + resizedLine)},
+		}
+		for _, msg := range msgs {
+			if err := proto.WriteMsg(serverConn, msg); err != nil {
+				return
+			}
+		}
+	}()
+
+	cr := NewClientRenderer(120, 40)
+	if err := readAttachBootstrap(clientConn, cr); err != nil {
+		t.Fatalf("readAttachBootstrap: %v", err)
+	}
+
+	emu, ok := cr.Emulator(1)
+	if !ok {
+		t.Fatal("pane-1 emulator missing")
+	}
+	if w, h := emu.Size(); w != 120 || h != 38 {
+		t.Fatalf("pane-1 emulator size after bootstrap = %dx%d, want 120x38", w, h)
+	}
+
+	lines := strings.Split(cr.renderer.CapturePaneText(1, false), "\n")
+	if len(lines) == 0 || lines[0] != resizedLine {
+		t.Fatalf("pane-1 first line after bootstrap = %q, want %q", lines[0], resizedLine)
+	}
+}
+
+func TestReadImmediateAttachCorrectionReturnsErrorOnConnectionClose(t *testing.T) {
+	t.Parallel()
+
+	serverConn, clientConn := net.Pipe()
+	t.Cleanup(func() { _ = clientConn.Close() })
+
+	// Send a valid bootstrap (layout + pane output), then close immediately
+	// so the correction loop gets a read error (not a timeout).
+	layout := singlePane20x3()
+	go func() {
+		_ = proto.WriteMsg(serverConn, &proto.Message{Type: proto.MsgTypeLayout, Layout: layout})
+		_ = proto.WriteMsg(serverConn, &proto.Message{Type: proto.MsgTypePaneOutput, PaneID: 1, PaneData: []byte("hi")})
+		_ = serverConn.Close()
+	}()
+
+	err := readAttachBootstrap(clientConn, NewClientRenderer(20, 4))
+	if err == nil {
+		t.Fatal("expected error from closed connection during correction window")
+	}
+}
+
+func TestReadImmediateAttachCorrectionEndsOnUnknownMessageType(t *testing.T) {
+	t.Parallel()
+
+	serverConn, clientConn := net.Pipe()
+	t.Cleanup(func() {
+		_ = serverConn.Close()
+		_ = clientConn.Close()
+	})
+
+	layout := singlePane20x3()
+	go func() {
+		_ = proto.WriteMsg(serverConn, &proto.Message{Type: proto.MsgTypeLayout, Layout: layout})
+		_ = proto.WriteMsg(serverConn, &proto.Message{Type: proto.MsgTypePaneOutput, PaneID: 1, PaneData: []byte("hi")})
+		// Unknown message type during correction window ends the phase gracefully.
+		_ = proto.WriteMsg(serverConn, &proto.Message{Type: proto.MsgTypeBell})
+	}()
+
+	if err := readAttachBootstrap(clientConn, NewClientRenderer(20, 4)); err != nil {
+		t.Fatalf("readAttachBootstrap returned error for unknown correction message: %v", err)
+	}
+}
+
 func TestReadAttachBootstrapRejectsUnexpectedMessages(t *testing.T) {
 	t.Parallel()
 

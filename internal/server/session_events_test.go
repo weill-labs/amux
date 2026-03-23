@@ -365,6 +365,72 @@ func TestCommandMutationBroadcastsLayoutBeforeQueuedPaneOutput(t *testing.T) {
 	}
 }
 
+func TestHandleAttachBroadcastsResizeLayoutBeforeQueuedPaneOutput(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	pane := newAttachTestPane(sess, 1, "pane-1", 80, 23)
+	w := mux.NewWindow(pane, 80, 24-render.GlobalBarHeight)
+	w.ID = 1
+	w.Name = "window-1"
+	if err := setAttachTestLayout(sess, []*mux.Window{w}, w.ID, []*mux.Pane{pane}); err != nil {
+		t.Fatalf("setAttachTestLayout: %v", err)
+	}
+
+	serverConn, peerConn := net.Pipe()
+	t.Cleanup(func() {
+		_ = peerConn.Close()
+	})
+
+	existing := newClientConn(serverConn)
+	existing.ID = "client-1"
+	existing.cols = 80
+	existing.rows = 24
+	t.Cleanup(existing.Close)
+
+	mustSessionQuery(t, sess, func(sess *Session) struct{} {
+		sess.clients = []*clientConn{existing}
+		sess.hadClient = true
+		sess.sizeClient.Store(existing)
+		return struct{}{}
+	})
+
+	attachConn, replay, paused, release, done := startPausedAttach(t, srv, sess, 120, 40)
+	t.Cleanup(func() {
+		release()
+		_ = attachConn.Close()
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			// Best-effort cleanup for the red path: the failure this test cares
+			// about is message ordering on the already-attached peer.
+		}
+	})
+
+	readInitialAttachReplay(t, attachConn, replay)
+	waitForPause(t, paused)
+
+	pane.FeedOutput([]byte("resize-redraw"))
+
+	first := readMsgWithTimeout(t, peerConn)
+	if first.Type != MsgTypeLayout {
+		t.Fatalf("first message type = %v, want layout before queued pane output", first.Type)
+	}
+	if first.Layout == nil || first.Layout.Width != 120 || first.Layout.Height != 39 {
+		t.Fatalf("layout = %+v, want 120x39 snapshot", first.Layout)
+	}
+
+	second := readMsgWithTimeout(t, peerConn)
+	if second.Type != MsgTypePaneOutput {
+		t.Fatalf("second message type = %v, want pane output", second.Type)
+	}
+	if second.PaneID != pane.ID || string(second.PaneData) != "resize-redraw" {
+		t.Fatalf("pane output = pane %d %q, want pane %d resize-redraw", second.PaneID, string(second.PaneData), pane.ID)
+	}
+}
+
 func TestMetaCallbackEnqueuesMetaUpdate(t *testing.T) {
 	t.Parallel()
 

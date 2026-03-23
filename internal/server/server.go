@@ -707,9 +707,10 @@ func (s *Server) handleAttach(conn net.Conn, msg *Message) {
 		s.attachBootstrapHook()
 	}
 	cc.finishBootstrap(bootstrapSeqs)
-
-	// Broadcast layout to other clients so they see the updated dimensions.
-	sess.broadcastLayout()
+	if !res.layoutBroadcasted {
+		// Broadcast layout to other clients so they see the new client.
+		sess.broadcastLayout()
+	}
 
 	if res.newPane != nil {
 		res.newPane.Start()
