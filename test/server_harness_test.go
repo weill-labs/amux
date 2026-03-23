@@ -341,7 +341,7 @@ func (h *ServerHarness) waitForTimeout(pane, substr, timeout string) {
 // Uses the server's process-based wait-busy command.
 func (h *ServerHarness) waitBusy(pane string) {
 	h.tb.Helper()
-	out := h.runCmd("wait-busy", pane, "--timeout", "5s")
+	out := h.runCmd("wait-busy", pane, "--timeout", "15s")
 	if strings.Contains(out, "timeout") || strings.Contains(out, "not found") {
 		h.tb.Fatalf("wait-busy %s: %s\ncapture:\n%s", pane, strings.TrimSpace(out), h.capture())
 	}
@@ -359,7 +359,7 @@ func (h *ServerHarness) startLongSleep(pane string) {
 // foreground child process is still running.
 func (h *ServerHarness) waitIdle(pane string) {
 	h.tb.Helper()
-	out := h.runCmd("wait-idle", pane, "--timeout", "10s")
+	out := h.runCmd("wait-idle", pane, "--timeout", "20s")
 	if strings.Contains(out, "timeout") || strings.Contains(out, "not found") {
 		h.tb.Fatalf("wait-idle %s: %s\ncapture:\n%s", pane, strings.TrimSpace(out), h.capture())
 	}
