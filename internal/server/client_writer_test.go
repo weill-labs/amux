@@ -241,15 +241,10 @@ func TestClientWriterEnqueueReturnsFalseWhenStoppedOrDone(t *testing.T) {
 	}
 }
 
-func TestClientWriterSendPaneOutputDropsSlowClientWhenQueueFull(t *testing.T) {
+func TestClientWriterSendPaneOutputDropsFrameWhenQueueFull(t *testing.T) {
 	t.Parallel()
 
-	serverConn, peerConn := net.Pipe()
-	t.Cleanup(func() { serverConn.Close() })
-	t.Cleanup(func() { peerConn.Close() })
-
 	w := &clientWriter{
-		conn:         serverConn,
 		commands:     make(chan clientWriterCommand, 1),
 		paneCommands: make(chan clientWriterCommand, 1),
 		stop:         make(chan struct{}),
@@ -261,25 +256,15 @@ func TestClientWriterSendPaneOutputDropsSlowClientWhenQueueFull(t *testing.T) {
 
 	select {
 	case <-w.stop:
-	case <-time.After(time.Second):
-		t.Fatal("sendPaneOutput did not stop a slow client")
-	}
-
-	_, err := peerConn.Write([]byte("x"))
-	if err == nil {
-		t.Fatal("client connection remained open after dropping slow client")
+		t.Fatal("sendPaneOutput stopped the writer; want frame drop only")
+	default:
 	}
 }
 
-func TestClientWriterSendBroadcastDropsSlowClientWhenQueueFull(t *testing.T) {
+func TestClientWriterSendBroadcastDropsFrameWhenQueueFull(t *testing.T) {
 	t.Parallel()
 
-	serverConn, peerConn := net.Pipe()
-	t.Cleanup(func() { serverConn.Close() })
-	t.Cleanup(func() { peerConn.Close() })
-
 	w := &clientWriter{
-		conn:         serverConn,
 		commands:     make(chan clientWriterCommand, 1),
 		paneCommands: make(chan clientWriterCommand, 1),
 		stop:         make(chan struct{}),
@@ -291,25 +276,15 @@ func TestClientWriterSendBroadcastDropsSlowClientWhenQueueFull(t *testing.T) {
 
 	select {
 	case <-w.stop:
-	case <-time.After(time.Second):
-		t.Fatal("sendBroadcast did not stop a slow client")
-	}
-
-	_, err := peerConn.Write([]byte("x"))
-	if err == nil {
-		t.Fatal("client connection remained open after dropping slow client")
+		t.Fatal("sendBroadcast stopped the writer; want frame drop only")
+	default:
 	}
 }
 
-func TestClientWriterSendBroadcastSyncDropsSlowClientWhenQueueFull(t *testing.T) {
+func TestClientWriterSendBroadcastSyncDropsFrameWhenQueueFull(t *testing.T) {
 	t.Parallel()
 
-	serverConn, peerConn := net.Pipe()
-	t.Cleanup(func() { serverConn.Close() })
-	t.Cleanup(func() { peerConn.Close() })
-
 	w := &clientWriter{
-		conn:         serverConn,
 		commands:     make(chan clientWriterCommand, 1),
 		paneCommands: make(chan clientWriterCommand, 1),
 		stop:         make(chan struct{}),
@@ -317,17 +292,22 @@ func TestClientWriterSendBroadcastSyncDropsSlowClientWhenQueueFull(t *testing.T)
 	}
 	w.commands <- testClientWriterCommand{}
 
-	w.sendBroadcastSync(&Message{Type: MsgTypeServerReload})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		w.sendBroadcastSync(&Message{Type: MsgTypeServerReload})
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("sendBroadcastSync blocked instead of dropping frame")
+	}
 
 	select {
 	case <-w.stop:
-	case <-time.After(time.Second):
-		t.Fatal("sendBroadcastSync did not stop a slow client")
-	}
-
-	_, err := peerConn.Write([]byte("x"))
-	if err == nil {
-		t.Fatal("client connection remained open after dropping slow client")
+		t.Fatal("sendBroadcastSync stopped the writer; want frame drop only")
+	default:
 	}
 }
 
@@ -440,7 +420,6 @@ func TestClientWriterNilHelpersAreNoops(t *testing.T) {
 	var w *clientWriter
 	w.forceCloseConn()
 	w.requestStop()
-	w.dropSlowClient()
 }
 
 func TestClientWriterPrioritizesControlMessagesOverPaneOutput(t *testing.T) {
