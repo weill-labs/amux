@@ -557,7 +557,7 @@ func TestServerReloadCaptureRetry(t *testing.T) {
 	// Wait for the client to reattach after reload before issuing capture.
 	// On slow CI runners the reattach can take longer than the server-side
 	// captureResponseTimeout (3s), causing a spurious "client unresponsive".
-	if !h.waitFor("[pane-", 5*time.Second) {
+	if !h.waitFor("[pane-", 15*time.Second) {
 		t.Fatalf("session did not recover after reload\nScreen:\n%s", h.captureOuter())
 	}
 
