@@ -234,11 +234,9 @@ func (s *Session) undoClosePane() (pane *mux.Pane, err error) {
 		return nil, fmt.Errorf("no active window")
 	}
 
-	opts := mux.SplitOptions{Background: false}
-	if w.ZoomedPaneID != 0 {
-		opts.Background = true
-	}
-	if _, err := w.SplitWithOptions(mux.SplitVertical, rec.pane, opts); err != nil {
+	if _, err := w.SplitWithOptions(mux.SplitVertical, rec.pane, mux.SplitOptions{
+		Background: w.ZoomedPaneID != 0,
+	}); err != nil {
 		return nil, err
 	}
 	return rec.pane, nil
