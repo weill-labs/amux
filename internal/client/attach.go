@@ -85,29 +85,6 @@ func resetAttachBootstrapDeadline(conn net.Conn) error {
 }
 
 func readImmediateAttachCorrection(conn net.Conn, cr *ClientRenderer) error {
-	if err := conn.SetReadDeadline(time.Now().Add(attachBootstrapCorrectionDeadline)); err != nil {
-		return err
-	}
-
-	msg, err := proto.ReadMsg(conn)
-	if err != nil {
-		if err := resetAttachBootstrapDeadline(conn); err != nil {
-			return err
-		}
-		if ne, ok := err.(net.Error); ok && ne.Timeout() {
-			return nil
-		}
-		return err
-	}
-
-	if msg.Type != proto.MsgTypeLayout {
-		if err := resetAttachBootstrapDeadline(conn); err != nil {
-			return err
-		}
-		return fmt.Errorf("unexpected attach bootstrap correction message type %d", msg.Type)
-	}
-	cr.HandleLayout(msg.Layout)
-
 	for {
 		if err := conn.SetReadDeadline(time.Now().Add(attachBootstrapCorrectionDeadline)); err != nil {
 			return err
