@@ -102,7 +102,9 @@ func readImmediateAttachCorrection(conn net.Conn, cr *ClientRenderer) error {
 		}
 		bufferedMsg, ok := newAttachBootstrapMessage(msg)
 		if !ok {
-			return fmt.Errorf("unexpected attach bootstrap correction message type %d", msg.Type)
+			// Unknown message types (bell, copy-mode, etc.) end the
+			// correction window — they belong to the normal message loop.
+			return nil
 		}
 		applyAttachBootstrapMessage(cr, bufferedMsg)
 	}
