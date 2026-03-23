@@ -21,9 +21,15 @@ func TestParseSplitArgs(t *testing.T) {
 			want: SplitArgs{Dir: mux.SplitHorizontal},
 		},
 		{
-			name: "parses root and vertical flags",
-			args: []string{"root", "--vertical", "--host", "dev", "--name", "worker", "--background"},
+			name: "pane ref",
+			args: []string{"--pane", "pane-1"},
+			want: SplitArgs{PaneRef: "pane-1", Dir: mux.SplitHorizontal},
+		},
+		{
+			name: "pane ref with all flags",
+			args: []string{"--pane", "pane-1", "root", "--vertical", "--host", "dev", "--name", "worker", "--background"},
 			want: SplitArgs{
+				PaneRef:    "pane-1",
 				RootLevel:  true,
 				Dir:        mux.SplitVertical,
 				HostName:   "dev",
@@ -45,6 +51,11 @@ func TestParseSplitArgs(t *testing.T) {
 			name:    "rejects missing host value",
 			args:    []string{"--host"},
 			wantErr: "--host requires a value",
+		},
+		{
+			name:    "rejects missing pane value",
+			args:    []string{"--pane"},
+			wantErr: "--pane requires a value",
 		},
 		{
 			name:    "rejects unknown arg",
