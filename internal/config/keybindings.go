@@ -58,7 +58,7 @@ func DefaultKeybindings() *Keybindings {
 			// Future tmux-compatible mark-pane behavior can claim this key.
 			'm': {Action: "compat-bell"},
 			'M': {Action: "toggle-minimize"},
-			'u': {Action: "undo"},
+			'U': {Action: "undo"},
 			'[': {Action: "copy-mode"},
 			'c': {Action: "new-window"},
 			'n': {Action: "next-window"},
