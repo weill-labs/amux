@@ -382,7 +382,7 @@ type crToLFWriter struct {
 
 func runShellCommand(ch ssh.Channel, command string, execEnv []string, size *pty.Winsize, termType string) int {
 	cmd := exec.Command("sh", "-c", command)
-	cmd.Env = append(append([]string{}, execEnv...), "TERM="+termType)
+	cmd.Env = upsertEnv(append([]string{}, execEnv...), "TERM", termType)
 
 	ptmx, err := pty.StartWithSize(cmd, size)
 	if err != nil {
