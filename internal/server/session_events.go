@@ -50,10 +50,11 @@ type attachPaneSnapshot struct {
 }
 
 type attachResult struct {
-	snap          *proto.LayoutSnapshot
-	paneSnapshots []attachPaneSnapshot
-	newPane       *mux.Pane
-	err           error
+	snap              *proto.LayoutSnapshot
+	paneSnapshots     []attachPaneSnapshot
+	newPane           *mux.Pane
+	layoutBroadcasted bool
+	err               error
 }
 
 type ensureInitialWindowResult struct {
@@ -845,8 +846,9 @@ func (s *Session) handleAttachEvent(srv *Server, cc *clientConn, cols, rows int)
 	cc.rows = rows
 
 	res := attachResult{}
+	w := s.activeWindow()
 	oldWidth, oldHeight := 0, 0
-	if w := s.activeWindow(); w != nil {
+	if w != nil {
 		oldWidth = w.Width
 		oldHeight = w.Height
 	}
@@ -864,12 +866,12 @@ func (s *Session) handleAttachEvent(srv *Server, cc *clientConn, cols, rows int)
 	s.noteClientActivity(cc)
 	s.emitClientConnectEvent(cc)
 	s.recalcSize()
-	resized := false
-	if w := s.activeWindow(); w != nil {
-		resized = w.Width != oldWidth || w.Height != oldHeight
+	if aw := s.activeWindow(); aw != nil {
+		res.layoutBroadcasted = aw.Width != oldWidth || aw.Height != oldHeight
 	}
-	if initRes.layoutChanged || resized {
+	if initRes.layoutChanged || res.layoutBroadcasted {
 		s.broadcastLayoutNow()
+		res.layoutBroadcasted = true
 	}
 
 	res.snap = s.snapshotLayout(idleSnap)

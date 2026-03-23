@@ -78,22 +78,19 @@ func applyAttachBootstrapMessage(cr *ClientRenderer, msg attachBootstrapMessage)
 	}
 }
 
-const attachBootstrapCorrectionDeadline = 50 * time.Millisecond
-
-func resetAttachBootstrapDeadline(conn net.Conn) error {
-	return conn.SetReadDeadline(time.Time{})
-}
+// attachBootstrapCorrectionWindow is the maximum time readImmediateAttachCorrection
+// waits for post-bootstrap layout corrections from the server. Override in tests
+// to avoid the 50ms-per-attach overhead.
+var attachBootstrapCorrectionWindow = 50 * time.Millisecond
 
 func readImmediateAttachCorrection(conn net.Conn, cr *ClientRenderer) error {
+	if err := conn.SetReadDeadline(time.Now().Add(attachBootstrapCorrectionWindow)); err != nil {
+		return err
+	}
+	defer conn.SetReadDeadline(time.Time{}) //nolint:errcheck // best-effort reset
 	for {
-		if err := conn.SetReadDeadline(time.Now().Add(attachBootstrapCorrectionDeadline)); err != nil {
-			return err
-		}
 		msg, err := proto.ReadMsg(conn)
 		if err != nil {
-			if err := resetAttachBootstrapDeadline(conn); err != nil {
-				return err
-			}
 			if ne, ok := err.(net.Error); ok && ne.Timeout() {
 				return nil
 			}
@@ -105,9 +102,6 @@ func readImmediateAttachCorrection(conn net.Conn, cr *ClientRenderer) error {
 		}
 		bufferedMsg, ok := newAttachBootstrapMessage(msg)
 		if !ok {
-			if err := resetAttachBootstrapDeadline(conn); err != nil {
-				return err
-			}
 			return fmt.Errorf("unexpected attach bootstrap correction message type %d", msg.Type)
 		}
 		applyAttachBootstrapMessage(cr, bufferedMsg)

@@ -521,6 +521,50 @@ func TestReadAttachBootstrapAppliesImmediateReattachResizeCorrectionBeforeReturn
 	}
 }
 
+func TestReadImmediateAttachCorrectionReturnsErrorOnConnectionClose(t *testing.T) {
+	t.Parallel()
+
+	serverConn, clientConn := net.Pipe()
+	t.Cleanup(func() { _ = clientConn.Close() })
+
+	// Send a valid bootstrap (layout + pane output), then close immediately
+	// so the correction loop gets a read error (not a timeout).
+	layout := singlePane20x3()
+	go func() {
+		_ = proto.WriteMsg(serverConn, &proto.Message{Type: proto.MsgTypeLayout, Layout: layout})
+		_ = proto.WriteMsg(serverConn, &proto.Message{Type: proto.MsgTypePaneOutput, PaneID: 1, PaneData: []byte("hi")})
+		_ = serverConn.Close()
+	}()
+
+	err := readAttachBootstrap(clientConn, NewClientRenderer(20, 4))
+	if err == nil {
+		t.Fatal("expected error from closed connection during correction window")
+	}
+}
+
+func TestReadImmediateAttachCorrectionRejectsUnexpectedMessageType(t *testing.T) {
+	t.Parallel()
+
+	serverConn, clientConn := net.Pipe()
+	t.Cleanup(func() {
+		_ = serverConn.Close()
+		_ = clientConn.Close()
+	})
+
+	layout := singlePane20x3()
+	go func() {
+		_ = proto.WriteMsg(serverConn, &proto.Message{Type: proto.MsgTypeLayout, Layout: layout})
+		_ = proto.WriteMsg(serverConn, &proto.Message{Type: proto.MsgTypePaneOutput, PaneID: 1, PaneData: []byte("hi")})
+		// Send an unexpected message type during the correction window.
+		_ = proto.WriteMsg(serverConn, &proto.Message{Type: proto.MsgTypeBell})
+	}()
+
+	err := readAttachBootstrap(clientConn, NewClientRenderer(20, 4))
+	if err == nil || !strings.Contains(err.Error(), "unexpected attach bootstrap correction message type") {
+		t.Fatalf("got err=%v, want 'unexpected attach bootstrap correction message type'", err)
+	}
+}
+
 func TestReadAttachBootstrapRejectsUnexpectedMessages(t *testing.T) {
 	t.Parallel()
 

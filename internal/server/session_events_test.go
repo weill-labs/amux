@@ -390,14 +390,12 @@ func TestHandleAttachBroadcastsResizeLayoutBeforeQueuedPaneOutput(t *testing.T) 
 	existing.rows = 24
 	t.Cleanup(existing.Close)
 
-	if _, err := enqueueSessionQuery(sess, func(sess *Session) (struct{}, error) {
+	mustSessionQuery(t, sess, func(sess *Session) struct{} {
 		sess.clients = []*clientConn{existing}
 		sess.hadClient = true
 		sess.sizeClient.Store(existing)
-		return struct{}{}, nil
-	}); err != nil {
-		t.Fatalf("enqueueSessionQuery: %v", err)
-	}
+		return struct{}{}
+	})
 
 	attachConn, replay, paused, release, done := startPausedAttach(t, srv, sess, 120, 40)
 	t.Cleanup(func() {
