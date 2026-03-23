@@ -23,8 +23,7 @@ type paneRemovalResult struct {
 // closedPaneRecord holds state for a soft-closed pane awaiting undo or
 // final cleanup. The pane's PTY stays alive during the grace period.
 type closedPaneRecord struct {
-	pane     *mux.Pane
-	windowID uint32 // window pane was in (may no longer exist)
+	pane *mux.Pane
 }
 
 // defaultUndoGracePeriod is how long a soft-closed pane stays undoable.
@@ -173,12 +172,6 @@ func (s *Session) softClosePane(paneID uint32) paneRemovalResult {
 		return s.finalizePaneRemoval(paneID)
 	}
 
-	// Find which window owns the pane (before removing from layout).
-	var windowID uint32
-	if w := s.findWindowByPaneID(paneID); w != nil {
-		windowID = w.ID
-	}
-
 	// Remove pane from the layout tree.
 	result.closedWindow = s.closePaneInWindow(paneID)
 	result.broadcastLayout = true
@@ -201,10 +194,7 @@ func (s *Session) softClosePane(paneID uint32) paneRemovalResult {
 	s.prunePaneEventSubs(pane.Meta.Name)
 
 	// Push onto undo stack.
-	s.closedPanes = append(s.closedPanes, closedPaneRecord{
-		pane:     pane,
-		windowID: windowID,
-	})
+	s.closedPanes = append(s.closedPanes, closedPaneRecord{pane: pane})
 
 	// Start grace period timer.
 	if s.closedPaneTimers == nil {
