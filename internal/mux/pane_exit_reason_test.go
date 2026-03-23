@@ -1,6 +1,7 @@
 package mux
 
 import (
+	"fmt"
 	"os/exec"
 	"testing"
 )
@@ -32,10 +33,7 @@ func TestFormatExitReason(t *testing.T) {
 // the given code.
 func exitError(t *testing.T, code int) *exec.ExitError {
 	t.Helper()
-	cmd := exec.Command("sh", "-c", "exit "+string(rune('0'+code)))
-	if code > 9 {
-		cmd = exec.Command("sh", "-c", "exit "+itoa(code))
-	}
+	cmd := exec.Command("sh", "-c", fmt.Sprintf("exit %d", code))
 	err := cmd.Run()
 	if err == nil {
 		t.Fatalf("expected exit %d, got nil error", code)
@@ -45,16 +43,4 @@ func exitError(t *testing.T, code int) *exec.ExitError {
 		t.Fatalf("expected *exec.ExitError, got %T", err)
 	}
 	return exitErr
-}
-
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	s := ""
-	for n > 0 {
-		s = string(rune('0'+n%10)) + s
-		n /= 10
-	}
-	return s
 }
