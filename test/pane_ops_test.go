@@ -3,9 +3,14 @@ package test
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 )
 
 // ---------------------------------------------------------------------------
@@ -608,4 +613,71 @@ func TestMinimizeReclaimGoesToVisibleSibling(t *testing.T) {
 	// Restore for cleanup
 	h.runCmd("restore", "pane-1")
 	h.runCmd("restore", "pane-2")
+}
+
+// TestShutdownLeavesNoOrphans verifies that when a server shuts down, all
+// pane shell processes are reaped — no orphaned children survive.
+func TestShutdownLeavesNoOrphans(t *testing.T) {
+	t.Parallel()
+	h := newServerHarnessPersistent(t)
+
+	// Create 3 panes
+	h.runCmd("split")
+	h.runCmd("split")
+	c := h.captureJSON()
+	if len(c.Panes) != 3 {
+		t.Fatalf("expected 3 panes, got %d", len(c.Panes))
+	}
+
+	// Collect child PIDs of the server before shutdown
+	serverPid := h.cmd.Process.Pid
+	childPids := childPidsOf(serverPid)
+	if len(childPids) == 0 {
+		t.Fatal("server should have child processes (pane shells)")
+	}
+
+	// Trigger graceful shutdown
+	h.cmd.Process.Signal(os.Interrupt)
+	done := make(chan struct{})
+	go func() {
+		h.cmd.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		h.cmd.Process.Kill()
+		t.Fatal("server didn't shut down within 10 seconds")
+	}
+
+	// Verify all child PIDs are dead (poll instead of sleep)
+	deadline := time.Now().Add(5 * time.Second)
+	for _, pid := range childPids {
+		for time.Now().Before(deadline) {
+			if syscall.Kill(pid, 0) != nil {
+				break
+			}
+			runtime.Gosched()
+		}
+		if err := syscall.Kill(pid, 0); err == nil {
+			t.Errorf("child PID %d still alive after server shutdown", pid)
+			syscall.Kill(pid, syscall.SIGKILL)
+		}
+	}
+}
+
+// childPidsOf returns PIDs of direct children of the given process.
+func childPidsOf(pid int) []int {
+	out, err := exec.Command("pgrep", "-P", strconv.Itoa(pid)).Output()
+	if err != nil {
+		return nil
+	}
+	var pids []int
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		line = strings.TrimSpace(line)
+		if p, err := strconv.Atoi(line); err == nil {
+			pids = append(pids, p)
+		}
+	}
+	return pids
 }

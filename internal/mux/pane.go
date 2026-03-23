@@ -63,6 +63,7 @@ type Pane struct {
 	writeOverride func([]byte) (int, error)
 
 	closed         atomic.Bool
+	exitDone       chan struct{} // closed by waitLoop when the shell process exits
 	drainStarted   bool
 	onOutput       func(paneID uint32, data []byte, seq uint64)
 	onExit         func(paneID uint32, reason string)
@@ -143,6 +144,7 @@ func NewPaneWithScrollback(id uint32, meta PaneMeta, cols, rows int, sessionName
 		ptmx:            ptmx,
 		cmd:             cmd,
 		emulator:        emu,
+		exitDone:        make(chan struct{}),
 		onOutput:        onOutput,
 		onExit:          onExit,
 		createdAt:       time.Now(),
@@ -203,6 +205,7 @@ func RestorePaneWithScrollback(id uint32, meta PaneMeta, ptmxFd, pid, cols, rows
 		ptmx:            ptmx,
 		process:         proc,
 		emulator:        emu,
+		exitDone:        make(chan struct{}),
 		drainStarted:    true,
 		onOutput:        onOutput,
 		onExit:          onExit,
@@ -430,7 +433,8 @@ func (p *Pane) applyOutput(data []byte) uint64 {
 	return seq
 }
 
-// waitLoop waits for the shell process to exit.
+// waitLoop waits for the shell process to exit. Closes exitDone so that
+// Close() can detect the process has exited without a redundant cmd.Wait().
 func (p *Pane) waitLoop() {
 	var err error
 	if p.cmd != nil {
@@ -438,6 +442,7 @@ func (p *Pane) waitLoop() {
 	} else if p.process != nil {
 		_, err = p.process.Wait()
 	}
+	close(p.exitDone)
 	if p.onExit != nil {
 		p.onExit(p.ID, formatExitReason(err))
 	}
@@ -701,21 +706,46 @@ func (p *Pane) ScreenContains(substr string) bool {
 	return p.emulator.ScreenContains(substr)
 }
 
-// Close terminates the pane's shell and PTY.
+// shellProcess returns the *os.Process for the pane's shell, or nil for proxy panes.
+func (p *Pane) shellProcess() *os.Process {
+	if p.cmd != nil {
+		return p.cmd.Process
+	}
+	if p.process != nil {
+		return p.process
+	}
+	return nil
+}
+
+// Close terminates the pane's shell and PTY, waiting for the process to exit.
+// Sends SIGHUP first, then closes the PTY master (which also delivers SIGHUP
+// to the slave side). If the process doesn't exit within 2 seconds, SIGKILL
+// is sent as a fallback to prevent orphaned shell processes.
 // For proxy panes (no PTY), Close() just marks the pane as closed.
+//
+// Uses the exitDone channel (closed by waitLoop) to detect process exit
+// without calling cmd.Wait() a second time, avoiding a data race.
 func (p *Pane) Close() error {
 	if p.closed.Swap(true) {
 		return nil
 	}
-	if p.cmd != nil {
-		p.cmd.Process.Signal(syscall.SIGHUP)
-	} else if p.process != nil {
-		p.process.Signal(syscall.SIGHUP)
+	proc := p.shellProcess()
+	if proc != nil {
+		proc.Signal(syscall.SIGHUP)
 	}
-	if p.ptmx == nil {
-		return nil
+	var ptmxErr error
+	if p.ptmx != nil {
+		ptmxErr = p.ptmx.Close()
 	}
-	return p.ptmx.Close()
+	if proc != nil {
+		select {
+		case <-p.exitDone:
+		case <-time.After(2 * time.Second):
+			proc.Signal(syscall.SIGKILL)
+			<-p.exitDone
+		}
+	}
+	return ptmxErr
 }
 
 // NewProxyPaneWithScrollback creates a proxy pane with an explicit retained
@@ -725,11 +755,14 @@ func NewProxyPaneWithScrollback(id uint32, meta PaneMeta, cols, rows int,
 	writeOverride func([]byte) (int, error)) *Pane {
 
 	emu := NewVTEmulatorWithScrollback(cols, rows, scrollbackLines)
+	exitDone := make(chan struct{})
+	close(exitDone) // proxy panes have no process to wait for
 	p := &Pane{
 		ID:              id,
 		Meta:            meta,
 		emulator:        emu,
 		writeOverride:   writeOverride,
+		exitDone:        exitDone,
 		onOutput:        onOutput,
 		onExit:          onExit,
 		createdAt:       time.Now(),
