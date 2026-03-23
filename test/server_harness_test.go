@@ -516,13 +516,27 @@ func (h *ServerHarness) waitForPaneContent(pane, substr string, timeout time.Dur
 // Split helpers — synchronous via CLI, no keybinding simulation
 // ---------------------------------------------------------------------------
 
-// doSplit runs a split CLI command, waits for the layout generation to bump
-// (ensuring the headless client has received the broadcast), and fails the
-// test if the command errors.
+// activePaneName returns the name of the currently active pane via JSON capture.
+func (h *ServerHarness) activePaneName() string {
+	h.tb.Helper()
+	c := h.captureJSON()
+	for _, p := range c.Panes {
+		if p.Active {
+			return p.Name
+		}
+	}
+	h.tb.Fatal("no active pane found in capture")
+	return ""
+}
+
+// doSplit runs a split CLI command targeting the active pane, waits for the
+// layout generation to bump (ensuring the headless client has received the
+// broadcast), and fails the test if the command errors.
 func (h *ServerHarness) doSplit(args ...string) {
 	h.tb.Helper()
 	gen := h.generation()
-	cmdArgs := append([]string{"split"}, args...)
+	pane := h.activePaneName()
+	cmdArgs := append([]string{"split", pane}, args...)
 	out := h.runCmd(cmdArgs...)
 	if strings.Contains(out, "error") || strings.Contains(out, "cannot") {
 		h.tb.Fatalf("split %v failed: %s", args, out)
@@ -539,6 +553,19 @@ func (h *ServerHarness) doFocus(args ...string) string {
 	out := h.runCmd(cmdArgs...)
 	h.waitLayout(gen)
 	return out
+}
+
+// doSplitPane is like doSplit but takes an explicit pane name instead of querying
+// the active pane. Use this when the capture may be stale (e.g., after reload).
+func (h *ServerHarness) doSplitPane(pane string, args ...string) {
+	h.tb.Helper()
+	gen := h.generation()
+	cmdArgs := append([]string{"split", pane}, args...)
+	out := h.runCmd(cmdArgs...)
+	if strings.Contains(out, "error") || strings.Contains(out, "cannot") {
+		h.tb.Fatalf("split %s %v failed: %s", pane, args, out)
+	}
+	h.waitLayout(gen)
 }
 
 func (h *ServerHarness) splitV()     { h.tb.Helper(); h.doSplit("v") }

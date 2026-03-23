@@ -7,6 +7,7 @@ import (
 )
 
 type SplitArgs struct {
+	PaneRef    string // explicit target pane to split (empty = use actor context)
 	RootLevel  bool
 	Dir        mux.SplitDir
 	HostName   string
@@ -53,6 +54,12 @@ func ParseSplitArgs(args []string) (SplitArgs, error) {
 			i++
 		case "--background":
 			parsed.Background = true
+		case "--pane":
+			if i+1 >= len(args) {
+				return SplitArgs{}, fmt.Errorf("--pane requires a value")
+			}
+			parsed.PaneRef = args[i+1]
+			i++
 		default:
 			return SplitArgs{}, fmt.Errorf("unknown split arg %q", args[i])
 		}

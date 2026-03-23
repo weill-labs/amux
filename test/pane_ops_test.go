@@ -104,7 +104,7 @@ func TestSplitBackgroundKeepsFocus(t *testing.T) {
 	h.splitH()
 	h.runCmd("focus", "pane-1")
 
-	output := h.runCmd("split", "--background", "--name", "bg-split")
+	output := h.runCmd("split", "pane-1", "--background", "--name", "bg-split")
 	if !strings.Contains(output, "bg-split") {
 		t.Fatalf("split should report the new pane name, got:\n%s", output)
 	}

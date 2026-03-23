@@ -111,11 +111,19 @@ func cmdSplit(ctx *CommandContext) {
 		ctx.replyErr(err.Error())
 		return
 	}
-	if args.HostName == "" {
-		snap, err := ctx.Sess.queryActiveWindowSnapshot()
-		if err == nil {
-			args.HostName = snap.proxyHost
-		}
+	if args.PaneRef == "" {
+		ctx.replyErr("pane argument required")
+		return
+	}
+
+	resolved, err := ctx.Sess.queryResolvedPaneForActor(ctx.ActorPaneID, args.PaneRef)
+	if err != nil {
+		ctx.replyErr(err.Error())
+		return
+	}
+
+	if args.HostName == "" && resolved.pane.IsProxy() {
+		args.HostName = resolved.pane.Meta.Host
 	}
 
 	if args.HostName != "" {
@@ -128,16 +136,16 @@ func cmdSplit(ctx *CommandContext) {
 		return
 	}
 
-	activePid, _, _, err := ctx.activeWindowSnapshot()
-	if err != nil {
-		ctx.replyErr(err.Error())
-		return
-	}
-	meta := mux.PaneMeta{Name: args.Name, Dir: mux.PaneCwd(activePid)}
+	targetPaneID := resolved.paneID
+	meta := mux.PaneMeta{Name: args.Name, Dir: mux.PaneCwd(resolved.pane.ProcessPid())}
 	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
-		w := sess.activeWindow()
+		targetPane := sess.findPaneByID(targetPaneID)
+		if targetPane == nil {
+			return commandMutationResult{err: fmt.Errorf("pane not found")}
+		}
+		w := sess.findWindowByPaneID(targetPaneID)
 		if w == nil {
-			return commandMutationResult{err: fmt.Errorf("no window")}
+			return commandMutationResult{err: fmt.Errorf("pane not in any window")}
 		}
 		pane, err := sess.createPaneWithMeta(ctx.Srv, meta, w.Width, mux.PaneContentHeight(w.Height))
 		if err != nil {

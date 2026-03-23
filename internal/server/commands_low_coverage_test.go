@@ -604,7 +604,7 @@ func TestCommandSplitSpawnKillAndEvents(t *testing.T) {
 		t.Fatalf("spawn usage error = %q", spawnUsage.cmdErr)
 	}
 
-	splitRes := runTestCommand(t, srv, sess, "split", "root", "v")
+	splitRes := runTestCommand(t, srv, sess, "split", "--pane", "pane-1", "root", "v")
 	if splitRes.cmdErr != "" || !strings.Contains(splitRes.output, "Split vertical: new pane") {
 		t.Fatalf("split result = %#v", splitRes)
 	}
@@ -689,7 +689,7 @@ func TestCommandSplitAndSpawnBackgroundPreserveZoomAndFocus(t *testing.T) {
 	sess.ActiveWindowID = w.ID
 	sess.Panes = []*mux.Pane{p1}
 
-	splitRes := runTestCommand(t, srv, sess, "split")
+	splitRes := runTestCommand(t, srv, sess, "split", "--pane", "pane-1")
 	if splitRes.cmdErr != "" {
 		t.Fatalf("initial split failed: %s", splitRes.cmdErr)
 	}
@@ -698,7 +698,7 @@ func TestCommandSplitAndSpawnBackgroundPreserveZoomAndFocus(t *testing.T) {
 		t.Fatalf("zoom failed: %s", zoomRes.cmdErr)
 	}
 
-	backgroundSplit := runTestCommand(t, srv, sess, "split", "--background", "--name", "bg-split")
+	backgroundSplit := runTestCommand(t, srv, sess, "split", "--pane", "pane-1", "--background", "--name", "bg-split")
 	if backgroundSplit.cmdErr != "" {
 		t.Fatalf("background split failed: %s", backgroundSplit.cmdErr)
 	}
@@ -769,23 +769,23 @@ func TestCommandSplitParsesDirectionFlags(t *testing.T) {
 	}{
 		{
 			name:       "vertical flag",
-			args:       []string{"--vertical"},
+			args:       []string{"--pane", "pane-1", "--vertical"},
 			wantOutput: "Split vertical: new pane",
 			wantDir:    mux.SplitVertical,
 			wantPanes:  2,
 		},
 		{
 			name:       "horizontal flag",
-			args:       []string{"--horizontal"},
+			args:       []string{"--pane", "pane-1", "--horizontal"},
 			wantOutput: "Split horizontal: new pane",
 			wantDir:    mux.SplitHorizontal,
 			wantPanes:  2,
 		},
 		{
 			name: "root vertical flag",
-			args: []string{"root", "--vertical"},
+			args: []string{"--pane", "pane-1", "root", "--vertical"},
 			setup: func(t *testing.T, srv *Server, sess *Session) {
-				res := runTestCommand(t, srv, sess, "split")
+				res := runTestCommand(t, srv, sess, "split", "--pane", "pane-1")
 				if res.cmdErr != "" {
 					t.Fatalf("initial split failed: %s", res.cmdErr)
 				}
@@ -796,14 +796,14 @@ func TestCommandSplitParsesDirectionFlags(t *testing.T) {
 		},
 		{
 			name:       "legacy vertical shorthand",
-			args:       []string{"v"},
+			args:       []string{"--pane", "pane-1", "v"},
 			wantOutput: "Split vertical: new pane",
 			wantDir:    mux.SplitVertical,
 			wantPanes:  2,
 		},
 		{
 			name:    "conflicting directions",
-			args:    []string{"--vertical", "--horizontal"},
+			args:    []string{"--pane", "pane-1", "--vertical", "--horizontal"},
 			wantErr: "conflicting split directions",
 		},
 	}

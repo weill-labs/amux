@@ -507,6 +507,13 @@ func RunSession(sessionName string) error {
 						}
 					}
 					sender.Command(binding.Action, binding.Args)
+				case "split":
+					// Inject active pane name — split requires an explicit target.
+					args := binding.Args
+					if name := cr.ActivePaneName(); name != "" {
+						args = append([]string{"--pane", name}, args...)
+					}
+					sender.Command(binding.Action, args)
 				case "compat-bell":
 					io.WriteString(os.Stdout, "\a")
 				default:

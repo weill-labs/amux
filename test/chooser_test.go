@@ -102,7 +102,7 @@ func TestChooseTreeDismissesOnLayoutChange(t *testing.T) {
 	}
 
 	gen := h.generation()
-	h.runCmd("split")
+	h.runCmd("split", "pane-1")
 	h.waitLayout(gen)
 
 	out := h.runCmd("wait-ui", proto.UIEventChooseTreeHidden, "--timeout", "3s")

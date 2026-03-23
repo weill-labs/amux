@@ -618,7 +618,7 @@ func TestEventsCLIAutoReconnectAfterReload(t *testing.T) {
 	}
 
 	genBeforeSplit := h.generation()
-	h.doSplit("v")
+	h.doSplitPane("pane-1", "v")
 
 	ev = mustReadEvent(t, proc.scanner, 5*time.Second)
 	if ev.Type != "layout" {

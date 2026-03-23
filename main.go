@@ -120,7 +120,7 @@ func main() {
 		splitArgs, err := parseSplitArgs(args[1:])
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "amux split: %v\n", err)
-			fmt.Fprintf(os.Stderr, "usage: amux split [root] [--vertical|--horizontal] [--name NAME] [--host HOST] [--background]\n")
+			fmt.Fprintf(os.Stderr, "usage: amux split <pane> [root] [--vertical|--horizontal] [--name NAME] [--host HOST] [--background]\n")
 			os.Exit(1)
 		}
 		runServerCommand("split", splitArgs)
@@ -369,13 +369,15 @@ func parseAttachArgs(args []string) (sessionName string, detachOthers bool) {
 	return
 }
 
-// parseSplitArgs parses args for "amux split [root] [--vertical|--horizontal] [--name NAME] [--host HOST] [--background]".
+// parseSplitArgs parses args for "amux split <pane> [root] [--vertical|--horizontal] [--name NAME] [--host HOST] [--background]".
+// The pane arg is mandatory — defaults to $AMUX_PANE when omitted.
 // It normalizes back to the legacy server arg shape so keybindings and direct
 // protocol callers can keep using "root" and "v".
 func parseSplitArgs(args []string) ([]string, error) {
 	rootLevel := false
 	hostName := ""
 	name := ""
+	paneRef := ""
 	background := false
 	dir := mux.SplitHorizontal
 	hasExplicitDir := false
@@ -416,11 +418,20 @@ func parseSplitArgs(args []string) ([]string, error) {
 		case "--background":
 			background = true
 		default:
-			return nil, fmt.Errorf("unknown split arg %q", args[i])
+			if paneRef == "" && !strings.HasPrefix(args[i], "-") {
+				paneRef = args[i]
+			} else {
+				return nil, fmt.Errorf("unknown split arg %q", args[i])
+			}
 		}
 	}
 
-	parsed := make([]string, 0, 4)
+	if paneRef == "" {
+		return nil, fmt.Errorf("pane argument required")
+	}
+
+	parsed := make([]string, 0, 6)
+	parsed = append(parsed, "--pane", paneRef)
 	if rootLevel {
 		parsed = append(parsed, "root")
 	}
@@ -507,8 +518,8 @@ Usage:
   amux [-s session] list-hooks         List registered hooks
   amux [-s session] events [--filter type1,type2] [--pane <ref>] [--host <name>] [--client <id>] [--no-reconnect]
                                        Stream events as NDJSON (layout, output, idle, busy, vt-idle, hook, client-connect, client-disconnect, display-panes-*, choose-*, copy-mode-*, input-*, reconnect)
-  amux [-s session] split [root] [--vertical|--horizontal] [--name NAME] [--host HOST] [--background]
-                                       Split active pane (default: horizontal)
+  amux [-s session] split <pane> [root] [--vertical|--horizontal] [--name NAME] [--host HOST] [--background]
+                                       Split a pane (horizontal by default)
   amux [-s session] hosts              List configured remote hosts + status
   amux [-s session] disconnect <host>  Drop SSH connection to a host
   amux [-s session] reconnect <host>   Reconnect to a remote host
