@@ -29,7 +29,9 @@ func TestIdleStatus_ShellAtPrompt(t *testing.T) {
 
 func TestIdleStatus_BusyWhileRunning(t *testing.T) {
 	t.Parallel()
-	h := newServerHarness(t)
+	// Full-screen JSON capture depends on an attached client, so keep the
+	// server alive if the client briefly disconnects during the capture round-trip.
+	h := newServerHarnessPersistent(t)
 
 	h.sendKeys("pane-1", "sleep 30", "Enter")
 	h.waitBusy("pane-1")
@@ -53,7 +55,9 @@ func TestIdleStatus_BusyWhileRunning(t *testing.T) {
 
 func TestIdleStatus_BusyWithMultiplePanes(t *testing.T) {
 	t.Parallel()
-	h := newServerHarness(t)
+	// This test asserts busy state via full-screen JSON capture rather than
+	// exit-unattached behavior, so use the persistent harness to avoid shutdown races.
+	h := newServerHarnessPersistent(t)
 
 	h.splitV()
 

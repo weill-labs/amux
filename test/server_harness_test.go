@@ -85,6 +85,9 @@ func newServerHarnessWithOptions(tb testing.TB, cols, rows int, configContent st
 	}
 
 	cmd := exec.Command(amuxBin, "_server", session)
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Setpgid: true, // make the server the process-group leader for cleanup
+	}
 	cmd.ExtraFiles = []*os.File{writePipe, shutdownWritePipe} // fds 3 and 4 in child
 	home := newTestHome(tb)
 	env := removeEnv(os.Environ(), "AMUX_EXIT_UNATTACHED")
@@ -198,9 +201,9 @@ func (h *ServerHarness) cleanup() {
 		}
 	}
 	// Kill any orphaned pane shells that survived the server shutdown.
-	// The server and its pane children share a process group (no Setsid),
-	// so kill(-pgid) reaches them all. Follow up with pgrep as a fallback
-	// in case the process group changed.
+	// The harness starts the server in its own process group, so kill(-pid)
+	// reaches the server and any pane descendants that stayed behind.
+	// Follow up with pgrep as a fallback in case descendants escaped the group.
 	if serverPid != 0 {
 		syscall.Kill(-serverPid, syscall.SIGKILL)
 		killChildrenByPid(serverPid)
