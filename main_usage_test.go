@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"strings"
@@ -26,9 +27,10 @@ func TestMainCLIUsageHelper(t *testing.T) {
 func runMainUsage(t *testing.T, args ...string) (output string, exitCode int) {
 	t.Helper()
 
-	cmdArgs := append([]string{"-test.run=TestMainCLIUsageHelper", "--"}, args...)
+	session := isolatedMainUsageSession(t.Name())
+	cmdArgs := append([]string{"-test.run=TestMainCLIUsageHelper", "--", "-s", session}, args...)
 	cmd := exec.Command(os.Args[0], cmdArgs...)
-	cmd.Env = append(os.Environ(), "AMUX_MAIN_HELPER=1")
+	cmd.Env = isolatedMainUsageEnv()
 	out, err := cmd.CombinedOutput()
 	if err == nil {
 		return string(out), 0
@@ -39,6 +41,59 @@ func runMainUsage(t *testing.T, args ...string) (output string, exitCode int) {
 		t.Fatalf("helper error = %v\n%s", err, out)
 	}
 	return string(out), exitErr.ExitCode()
+}
+
+func isolatedMainUsageSession(testName string) string {
+	var b strings.Builder
+	for _, r := range testName {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+		default:
+			b.WriteByte('-')
+		}
+		if b.Len() >= 32 {
+			break
+		}
+	}
+	suffix := strings.Trim(b.String(), "-")
+	if suffix == "" {
+		suffix = "main-usage"
+	}
+	return fmt.Sprintf("usage-%d-%s", os.Getpid(), suffix)
+}
+
+func isolatedMainUsageEnv() []string {
+	env := append([]string{}, os.Environ()...)
+	for _, key := range []string{
+		"AMUX_MAIN_HELPER",
+		"AMUX_PANE",
+		"AMUX_SESSION",
+		"TMUX",
+		"SSH_CONNECTION",
+		"SSH_CLIENT",
+		"SSH_TTY",
+		"TERM",
+	} {
+		env = removeEnvKey(env, key)
+	}
+	env = append(env,
+		"AMUX_MAIN_HELPER=1",
+		"TERM=xterm-256color",
+	)
+	return env
+}
+
+func removeEnvKey(env []string, key string) []string {
+	prefix := key + "="
+	filtered := env[:0]
+	for _, entry := range env {
+		if strings.HasPrefix(entry, prefix) {
+			continue
+		}
+		filtered = append(filtered, entry)
+	}
+	return filtered
 }
 
 func TestMainSendKeysUsageIncludesWaitReadyFlags(t *testing.T) {
