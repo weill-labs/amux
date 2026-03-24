@@ -85,6 +85,10 @@ jobs:
         if: steps.changes.outputs.code_changed == 'true'
         run: scripts/check-startup-invariants.sh
 
+      - name: Check test invariants
+        if: steps.changes.outputs.code_changed == 'true'
+        run: bash scripts/check-test-invariants.sh
+
       - name: Install go-junit-report
         if: steps.changes.outputs.code_changed == 'true'
         run: |
@@ -101,6 +105,9 @@ jobs:
       - name: Convert test results to JUnit XML
         if: ${{ !cancelled() && steps.changes.outputs.code_changed == 'true' }}
         run: |
+          if [ -f root-results.json ]; then
+            go-junit-report -parser gojson -in root-results.json -out root-results.junit.xml
+          fi
           if [ -f unit-results.json ]; then
             go-junit-report -parser gojson -in unit-results.json -out unit-results.junit.xml
           fi
@@ -112,7 +119,7 @@ jobs:
         if: ${{ !cancelled() && steps.changes.outputs.code_changed == 'true' }}
         uses: codecov/codecov-action@v5.5.3
         with:
-          files: unit-results.junit.xml,integration-results.junit.xml
+          files: root-results.junit.xml,unit-results.junit.xml,integration-results.junit.xml
           report_type: test_results
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
@@ -151,6 +158,7 @@ jobs:
           name: coverage-artifacts
           if-no-files-found: ignore
           path: |
+            root-coverage.txt
             unit-coverage.txt
             integration-coverage.txt
             merged-coverage.txt
@@ -164,7 +172,7 @@ jobs:
         if: always() && steps.changes.outputs.code_changed == 'true'
         run: |
           total=$(jq -r 'select(.Action=="pass" and .Test) | .Elapsed' \
-            unit-results.json integration-results.json \
+            root-results.json unit-results.json integration-results.json \
             | awk '{s+=$1} END {printf "%.2f", s}')
           {
             echo '## Test Timing'
@@ -172,7 +180,7 @@ jobs:
             echo '| Test | Duration |'
             echo '|------|----------|'
             jq -r 'select(.Action=="pass" and .Test) | "| \(.Test) | \(.Elapsed)s |"' \
-              unit-results.json integration-results.json \
+              root-results.json unit-results.json integration-results.json \
               | sort -t'|' -k3 -rn
             echo ''
             echo "**Total: ${total}s**"

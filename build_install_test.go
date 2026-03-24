@@ -22,6 +22,7 @@ func envWithHome(home string) []string {
 	if !replaced {
 		env = append(env, "HOME="+home)
 	}
+	env = upsertEnv(env, "GOFLAGS", appendGoFlag(envValue(env, "GOFLAGS"), "-modcacherw"))
 	return env
 }
 
@@ -124,4 +125,37 @@ func repoRoot(t *testing.T) string {
 		t.Fatalf("repo root: %v\n%s", err, out)
 	}
 	return strings.TrimSpace(string(out))
+}
+
+func envValue(env []string, key string) string {
+	prefix := key + "="
+	for _, entry := range env {
+		if strings.HasPrefix(entry, prefix) {
+			return strings.TrimPrefix(entry, prefix)
+		}
+	}
+	return ""
+}
+
+func upsertEnv(env []string, key, value string) []string {
+	prefix := key + "="
+	for i, entry := range env {
+		if strings.HasPrefix(entry, prefix) {
+			env[i] = prefix + value
+			return env
+		}
+	}
+	return append(env, prefix+value)
+}
+
+func appendGoFlag(current, flag string) string {
+	if current == "" {
+		return flag
+	}
+	for _, existing := range strings.Fields(current) {
+		if existing == flag {
+			return current
+		}
+	}
+	return current + " " + flag
 }
