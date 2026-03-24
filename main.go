@@ -22,8 +22,15 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// sessionName is the global session name, set by -s flag or defaulting to "default".
-var sessionName = "default"
+// sessionName is the global session name, set by -s flag, $AMUX_SESSION env var, or defaulting to "default".
+var sessionName = sessionFromEnv()
+
+func sessionFromEnv() string {
+	if s := os.Getenv("AMUX_SESSION"); s != "" {
+		return s
+	}
+	return "default"
+}
 
 const reconnectEventType = "reconnect"
 
