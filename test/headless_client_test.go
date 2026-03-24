@@ -3,6 +3,8 @@ package test
 import (
 	"fmt"
 	"net"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -76,12 +78,19 @@ func newHeadlessClient(sockPath, session string, cols, rows int) (*headlessClien
 	go hc.readLoop()
 
 	// Block until the server sends the first layout, guaranteeing the
-	// window and initial pane exist before any test code runs.
+	// window exists before any test code runs. Then require a successful
+	// command round-trip on the attached connection so the server has
+	// finished attach bootstrap and entered its per-client read loop.
 	select {
 	case <-hc.ready:
 	case <-time.After(10 * time.Second):
 		hc.close()
 		return nil, fmt.Errorf("timeout waiting for first layout from server")
+	}
+	msg := hc.runCommand("generation")
+	if msg.CmdErr != "" {
+		hc.close()
+		return nil, fmt.Errorf("headless client did not reach command-ready state: %s", msg.CmdErr)
 	}
 	return hc, nil
 }
@@ -190,6 +199,116 @@ func (hc *headlessClient) readLoop() {
 		case server.MsgTypeExit:
 			return
 		}
+	}
+}
+
+func TestNewHeadlessClientWaitsForCommandReadyState(t *testing.T) {
+	t.Parallel()
+
+	socketDir := filepath.Join(os.TempDir(), "amux-headless-test")
+	if err := os.MkdirAll(socketDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(%s): %v", socketDir, err)
+	}
+	sockPath := filepath.Join(socketDir, fmt.Sprintf("c-%d.sock", time.Now().UnixNano()))
+	listener, err := net.Listen("unix", sockPath)
+	if err != nil {
+		t.Fatalf("Listen(unix): %v", err)
+	}
+	t.Cleanup(func() {
+		_ = listener.Close()
+		_ = os.Remove(sockPath)
+	})
+
+	serverReady := make(chan struct{})
+	releaseCmdRead := make(chan struct{})
+	serverDone := make(chan struct{})
+
+	go func() {
+		defer close(serverDone)
+
+		conn, err := listener.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+
+		msg, err := server.ReadMsg(conn)
+		if err != nil {
+			return
+		}
+		if msg.Type != server.MsgTypeAttach {
+			return
+		}
+
+		layout := &proto.LayoutSnapshot{
+			SessionName: "test",
+			Width:       80,
+			Height:      23,
+			Root: proto.CellSnapshot{
+				X:      0,
+				Y:      0,
+				W:      80,
+				H:      23,
+				IsLeaf: true,
+				Dir:    -1,
+				PaneID: 1,
+			},
+			Panes: []proto.PaneSnapshot{{ID: 1, Name: "pane-1"}},
+		}
+		if err := server.WriteMsg(conn, &server.Message{Type: server.MsgTypeLayout, Layout: layout}); err != nil {
+			return
+		}
+		close(serverReady)
+
+		<-releaseCmdRead
+
+		cmd, err := server.ReadMsg(conn)
+		if err != nil {
+			return
+		}
+		if cmd.Type != server.MsgTypeCommand || cmd.CmdName != "generation" {
+			return
+		}
+		_ = server.WriteMsg(conn, &server.Message{Type: server.MsgTypeCmdResult, CmdOutput: "1\n"})
+		time.Sleep(20 * time.Millisecond)
+	}()
+
+	clientReady := make(chan error, 1)
+	go func() {
+		hc, err := newHeadlessClient(sockPath, "test", 80, 24)
+		if err == nil {
+			hc.close()
+		}
+		clientReady <- err
+	}()
+
+	select {
+	case <-serverReady:
+	case <-time.After(time.Second):
+		t.Fatal("fake server did not send initial layout")
+	}
+
+	select {
+	case err := <-clientReady:
+		t.Fatalf("newHeadlessClient returned before command ready state: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(releaseCmdRead)
+
+	select {
+	case err := <-clientReady:
+		if err != nil {
+			t.Fatalf("newHeadlessClient error: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("newHeadlessClient did not become ready after command round-trip")
+	}
+
+	select {
+	case <-serverDone:
+	case <-time.After(time.Second):
+		t.Fatal("fake server did not exit")
 	}
 }
 
