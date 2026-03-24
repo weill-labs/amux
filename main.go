@@ -370,7 +370,7 @@ func parseAttachArgs(args []string) (sessionName string, detachOthers bool) {
 }
 
 // parseSplitArgs parses args for "amux split <pane> [root] [--vertical|--horizontal] [--name NAME] [--host HOST] [--background]".
-// The pane arg is mandatory — defaults to $AMUX_PANE when omitted.
+// The pane arg is mandatory.
 // It normalizes back to the legacy server arg shape so keybindings and direct
 // protocol callers can keep using "root" and "v".
 func parseSplitArgs(args []string) ([]string, error) {

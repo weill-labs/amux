@@ -127,14 +127,23 @@ func (w *Window) Split(dir SplitDir, newPane *Pane) (*Pane, error) {
 
 // SplitWithOptions splits the active pane with explicit focus/zoom behavior control.
 func (w *Window) SplitWithOptions(dir SplitDir, newPane *Pane, opts SplitOptions) (*Pane, error) {
+	return w.SplitPaneWithOptions(w.ActivePane.ID, dir, newPane, opts)
+}
+
+// SplitPaneWithOptions splits the specified pane with explicit focus/zoom
+// behavior control.
+func (w *Window) SplitPaneWithOptions(targetPaneID uint32, dir SplitDir, newPane *Pane, opts SplitOptions) (*Pane, error) {
 	if w.ZoomedPaneID != 0 && !opts.Background {
 		w.Unzoom()
 	}
-	cell := w.Root.FindPane(w.ActivePane.ID)
+	cell := w.Root.FindPane(targetPaneID)
 	if cell == nil {
-		return nil, fmt.Errorf("active pane %d not found in layout", w.ActivePane.ID)
+		return nil, fmt.Errorf("pane %d not found in layout", targetPaneID)
 	}
+	return w.splitCellWithOptions(cell, dir, newPane, opts)
+}
 
+func (w *Window) splitCellWithOptions(cell *LayoutCell, dir SplitDir, newPane *Pane, opts SplitOptions) (*Pane, error) {
 	newCell, err := cell.Split(dir, newPane)
 	if err != nil {
 		return nil, err
@@ -152,8 +161,8 @@ func (w *Window) SplitWithOptions(dir SplitDir, newPane *Pane, opts SplitOptions
 	} else if len(cell.Children) > 0 {
 		existingCell = cell.Children[0]
 	}
-	if existingCell != nil {
-		w.ActivePane.Resize(existingCell.W, PaneContentHeight(existingCell.H))
+	if existingCell != nil && existingCell.Pane != nil {
+		existingCell.Pane.Resize(existingCell.W, PaneContentHeight(existingCell.H))
 	}
 
 	w.Root.FixOffsets()

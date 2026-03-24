@@ -139,10 +139,6 @@ func cmdSplit(ctx *CommandContext) {
 	targetPaneID := resolved.paneID
 	meta := mux.PaneMeta{Name: args.Name, Dir: mux.PaneCwd(resolved.pane.ProcessPid())}
 	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
-		targetPane := sess.findPaneByID(targetPaneID)
-		if targetPane == nil {
-			return commandMutationResult{err: fmt.Errorf("pane not found")}
-		}
 		w := sess.findWindowByPaneID(targetPaneID)
 		if w == nil {
 			return commandMutationResult{err: fmt.Errorf("pane not in any window")}
@@ -155,7 +151,7 @@ func cmdSplit(ctx *CommandContext) {
 		if args.RootLevel {
 			_, err = w.SplitRootWithOptions(args.Dir, pane, opts)
 		} else {
-			_, err = w.SplitWithOptions(args.Dir, pane, opts)
+			_, err = w.SplitPaneWithOptions(targetPaneID, args.Dir, pane, opts)
 		}
 		if err != nil {
 			sess.removePane(pane.ID)
