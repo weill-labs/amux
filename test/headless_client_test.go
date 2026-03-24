@@ -78,21 +78,22 @@ func newHeadlessClient(sockPath, session string, cols, rows int) (*headlessClien
 	go hc.readLoop()
 
 	// Block until the server sends the first layout, guaranteeing the
-	// window exists before any test code runs. Then require a successful
-	// command round-trip on the attached connection so the server has
-	// finished attach bootstrap and entered its per-client read loop.
+	// window and initial pane exist before any test code runs.
 	select {
 	case <-hc.ready:
 	case <-time.After(10 * time.Second):
 		hc.close()
 		return nil, fmt.Errorf("timeout waiting for first layout from server")
 	}
+	return hc, nil
+}
+
+func (hc *headlessClient) waitCommandReady() error {
 	msg := hc.runCommand("generation")
 	if msg.CmdErr != "" {
-		hc.close()
-		return nil, fmt.Errorf("headless client did not reach command-ready state: %s", msg.CmdErr)
+		return fmt.Errorf("headless client did not reach command-ready state: %s", msg.CmdErr)
 	}
-	return hc, nil
+	return nil
 }
 
 // resize sends a MsgTypeResize to the server, simulating a terminal resize.
@@ -277,6 +278,7 @@ func TestNewHeadlessClientWaitsForCommandReadyState(t *testing.T) {
 	go func() {
 		hc, err := newHeadlessClient(sockPath, "test", 80, 24)
 		if err == nil {
+			err = hc.waitCommandReady()
 			hc.close()
 		}
 		clientReady <- err

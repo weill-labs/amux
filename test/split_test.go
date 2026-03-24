@@ -179,6 +179,9 @@ func TestRootSplitHorizontal(t *testing.T) {
 
 	// Root horizontal split: top row (pane-1 + pane-2 side by side), bottom row (pane-3)
 	h.splitRootH()
+	if err := h.client.waitCommandReady(); err != nil {
+		t.Fatalf("headless client not command-ready before capture: %v", err)
+	}
 
 	c := h.captureJSON()
 	if len(c.Panes) != 3 {
