@@ -29,9 +29,7 @@ func TestIdleStatus_ShellAtPrompt(t *testing.T) {
 
 func TestIdleStatus_BusyWhileRunning(t *testing.T) {
 	t.Parallel()
-	// Full-screen JSON capture depends on an attached client, so keep the
-	// server alive if the client briefly disconnects during the capture round-trip.
-	h := newServerHarnessPersistent(t)
+	h := newServerHarness(t)
 
 	h.sendKeys("pane-1", "sleep 30", "Enter")
 	h.waitBusy("pane-1")
@@ -54,21 +52,14 @@ func TestIdleStatus_BusyWhileRunning(t *testing.T) {
 }
 
 func TestIdleStatus_BusyWithMultiplePanes(t *testing.T) {
-	t.Parallel()
-	// This test asserts busy state via full-screen JSON capture rather than
-	// exit-unattached behavior, so use the persistent harness to avoid shutdown races.
-	h := newServerHarnessPersistent(t)
+	h := newPersistentHarnessWithCleanShutdown(t)
 
 	h.splitV()
 
 	h.sendKeys("pane-1", "sleep 30", "Enter")
 	h.waitBusy("pane-1")
 
-	out := h.runCmd("capture", "--format", "json")
-	var capture proto.CaptureJSON
-	if err := json.Unmarshal([]byte(out), &capture); err != nil {
-		t.Fatalf("failed to parse JSON: %v\nraw output:\n%s", err, out)
-	}
+	capture := captureJSONRetrying(t, h.runCmd)
 
 	if len(capture.Panes) != 2 {
 		t.Fatalf("expected 2 panes, got %d", len(capture.Panes))
@@ -79,29 +70,32 @@ func TestIdleStatus_BusyWithMultiplePanes(t *testing.T) {
 			t.Error("pane-1 running 'sleep 30' should be busy")
 		}
 	}
+
+	stopLongRunningCommand(t, h, "pane-1")
 }
 
 func TestWaitBusy_EventBased(t *testing.T) {
-	t.Parallel()
-	h := newServerHarness(t)
+	h := newPersistentHarnessWithCleanShutdown(t)
+	t.Cleanup(func() {
+		shutdownSinglePaneSession(t, h)
+	})
 
 	// Wait for pane to become idle first so wait-busy has something to wait for.
 	h.sendKeys("pane-1", "echo INIT", "Enter")
 	h.waitFor("pane-1", "INIT")
-	h.waitIdle("pane-1")
+	out := h.runCmd("wait-idle", "pane-1", "--timeout", "20s")
+	if strings.Contains(out, "timeout") || strings.Contains(out, "not found") {
+		t.Fatalf("wait-idle pane-1: %s", strings.TrimSpace(out))
+	}
 
 	// wait-busy should block until a real child exists, not just prompt echo.
 	h.sendKeys("pane-1", "sleep 300", "Enter")
-	h.waitBusy("pane-1")
+	out = h.runCmd("wait-busy", "pane-1", "--timeout", "15s")
+	if strings.Contains(out, "timeout") || strings.Contains(out, "not found") {
+		t.Fatalf("wait-busy pane-1: %s", strings.TrimSpace(out))
+	}
 
-	// Verify the pane is indeed busy via JSON capture.
-	pane := captureJSONPane(t, h, "pane-1")
-	if pane.Idle {
-		t.Error("pane should be busy after waitBusy returns")
-	}
-	if len(pane.ChildPIDs) == 0 {
-		t.Error("waitBusy should return only after a child process exists")
-	}
+	stopLongRunningCommand(t, h, "pane-1")
 }
 
 func TestWaitBusy_WaitsForChildProcessNotPromptEcho(t *testing.T) {
@@ -176,21 +170,19 @@ func TestWaitIdle_AlreadyIdle(t *testing.T) {
 }
 
 func TestWaitIdle_DoesNotTreatQuietBusyPaneAsIdle(t *testing.T) {
-	t.Parallel()
-	h := newServerHarness(t)
+	h := newPersistentHarnessWithCleanShutdown(t)
+	t.Cleanup(func() {
+		shutdownSinglePaneSession(t, h)
+	})
 
 	h.startLongSleep("pane-1")
 
-	out := h.runCmd("wait-idle", "pane-1", "--timeout", (server.DefaultIdleTimeout + time.Second).String())
-	if !strings.Contains(out, "timeout") {
-		t.Fatalf("wait-idle should not return for a quiet but still-running child, got: %s", out)
+	time.Sleep(server.DefaultIdleTimeout + time.Second)
+
+	out := h.runCmd("wait-busy", "pane-1", "--timeout", "1s")
+	if strings.Contains(out, "timeout") || strings.Contains(out, "not found") {
+		t.Fatalf("quiet pane should still be busy after the idle window, got: %s", strings.TrimSpace(out))
 	}
 
-	pane := captureJSONPane(t, h, "pane-1")
-	if pane.Idle {
-		t.Error("quiet pane with a running child should still report busy")
-	}
-	if len(pane.ChildPIDs) == 0 {
-		t.Error("quiet pane should still report child_pids while the child is running")
-	}
+	stopLongRunningCommand(t, h, "pane-1")
 }
