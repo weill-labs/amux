@@ -855,6 +855,28 @@ func TestClientRendererResolvePaneIDRejectsAmbiguousExactNames(t *testing.T) {
 	}
 }
 
+func TestClientRendererActivePaneName(t *testing.T) {
+	t.Parallel()
+
+	t.Run("known active pane", func(t *testing.T) {
+		t.Parallel()
+
+		cr := buildTestRenderer(t)
+		if got := cr.ActivePaneName(); got != "pane-1" {
+			t.Fatalf("ActivePaneName() = %q, want %q", got, "pane-1")
+		}
+	})
+
+	t.Run("unknown without layout", func(t *testing.T) {
+		t.Parallel()
+
+		cr := NewClientRenderer(80, 24)
+		if got := cr.ActivePaneName(); got != "" {
+			t.Fatalf("ActivePaneName() without layout = %q, want empty string", got)
+		}
+	})
+}
+
 func TestCaptureDisplay(t *testing.T) {
 	t.Parallel()
 
