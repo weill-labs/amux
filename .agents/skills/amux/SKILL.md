@@ -14,17 +14,49 @@ description: >
 
 amux is a terminal multiplexer designed for AI agents. It runs a background server that owns PTYs, while clients connect over a Unix socket. This skill covers using amux as an orchestration layer — capturing pane content, delegating tasks, and monitoring agent progress.
 
-## Session Targeting
+## Session Targeting (MANDATORY)
 
-All amux commands accept `-s <session>` to target a specific session by name. When running inside an amux pane, the `$AMUX_SESSION` env var is already set — pass it with `-s "$AMUX_SESSION"` to ensure commands reach the correct session, especially when multiple sessions are running. When `$AMUX_SESSION` is not set, omit `-s` entirely to use the default session (`amux -s ""` will fail).
+**RULE: If `$AMUX_SESSION` is set in the environment, you MUST pass `-s "$AMUX_SESSION"` on EVERY `amux` command. Never omit it.** Without `-s`, the CLI falls back to default session discovery which may target the wrong session or fail entirely. When `$AMUX_SESSION` is not set, omit `-s` entirely (`amux -s ""` will fail).
 
 ```bash
-# Inside an amux pane (AMUX_SESSION is set)
+# CORRECT — always pass -s when AMUX_SESSION is set
+amux -s "$AMUX_SESSION" capture --format json
+amux -s "$AMUX_SESSION" list
+amux -s "$AMUX_SESSION" wait-idle pane-1 --timeout 60s
+
+# WRONG — never omit -s when AMUX_SESSION is set
+amux capture --format json        # ← will target wrong session
+amux list                         # ← will target wrong session
+```
+
+## Current Pane Identity
+
+When running inside an amux pane, `$AMUX_PANE` is set to the name of the current pane (e.g., `pane-1`). Use this to reference your own pane without hardcoding a name:
+
+```bash
+# Set metadata on your own pane
+amux -s "$AMUX_SESSION" add-meta "$AMUX_PANE" issue=LAB-XXX pr=42
+
+# Capture your own pane
+amux -s "$AMUX_SESSION" capture --format json "$AMUX_PANE"
+```
+
+## Discovering Other Panes
+
+To see what other panes exist and what they're doing:
+
+```bash
+# List all panes with metadata (name, host, task, status)
+amux -s "$AMUX_SESSION" list
+
+# Full session JSON — all panes with content, agent status, git branch, cwd
 amux -s "$AMUX_SESSION" capture --format json
 
-# Target a specific session by name
-amux -s mysession list
+# Inspect a specific sibling pane
+amux -s "$AMUX_SESSION" capture --format json pane-3
 ```
+
+The session-wide JSON capture is the best way to get a complete picture — it includes every pane's content, cursor position, `agent_status.idle`, `current_command`, `cwd`, and `git_branch`. Use single-pane capture when you only need one pane's state and want to avoid parsing the full session.
 
 ## Quick Reference
 
