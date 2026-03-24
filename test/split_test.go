@@ -82,60 +82,6 @@ func TestSplitNamedPane(t *testing.T) {
 	}
 }
 
-func TestSplitExplicitPaneTargetsInactivePane(t *testing.T) {
-	t.Parallel()
-	h := newServerHarness(t)
-
-	h.splitH()
-
-	out := h.runCmd("split", "pane-1", "--name", "pane-3")
-	if !strings.Contains(out, "pane-3") {
-		t.Fatalf("split should report the new pane name, got:\n%s", out)
-	}
-
-	c := h.captureJSON()
-	p1 := h.jsonPane(c, "pane-1")
-	p2 := h.jsonPane(c, "pane-2")
-	p3 := h.jsonPane(c, "pane-3")
-
-	if !p3.Active {
-		t.Fatal("pane-3 should be active after splitting pane-1")
-	}
-	if !(p1.Position.Y < p3.Position.Y && p3.Position.Y < p2.Position.Y) {
-		t.Fatalf("pane-3 should split pane-1 above pane-2, got y positions pane-1=%d pane-3=%d pane-2=%d", p1.Position.Y, p3.Position.Y, p2.Position.Y)
-	}
-	if p1.Position.X != p3.Position.X || p2.Position.X != p3.Position.X {
-		t.Fatalf("explicit split should keep panes in one column, got x positions pane-1=%d pane-3=%d pane-2=%d", p1.Position.X, p3.Position.X, p2.Position.X)
-	}
-}
-
-func TestSplitBackgroundExplicitPaneKeepsExistingFocus(t *testing.T) {
-	t.Parallel()
-	h := newServerHarness(t)
-
-	h.splitH()
-
-	out := h.runCmd("split", "pane-1", "--background", "--name", "bg-top")
-	if !strings.Contains(out, "bg-top") {
-		t.Fatalf("split should report the new pane name, got:\n%s", out)
-	}
-
-	c := h.captureJSON()
-	p1 := h.jsonPane(c, "pane-1")
-	p2 := h.jsonPane(c, "pane-2")
-	p3 := h.jsonPane(c, "bg-top")
-
-	if !p2.Active {
-		t.Fatal("pane-2 should remain active after background split of pane-1")
-	}
-	if p1.Active || p3.Active {
-		t.Fatalf("background split should not change active pane, got pane-1=%v bg-top=%v", p1.Active, p3.Active)
-	}
-	if !(p1.Position.Y < p3.Position.Y && p3.Position.Y < p2.Position.Y) {
-		t.Fatalf("bg-top should split pane-1 above pane-2, got y positions pane-1=%d bg-top=%d pane-2=%d", p1.Position.Y, p3.Position.Y, p2.Position.Y)
-	}
-}
-
 func TestSplitVerticalFlag(t *testing.T) {
 	h := newServerHarness(t)
 

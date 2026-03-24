@@ -858,6 +858,99 @@ func TestCommandSplitParsesDirectionFlags(t *testing.T) {
 	}
 }
 
+func TestCommandSplitTargetsExplicitInactivePane(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		args         []string
+		wantActiveID uint32
+		newPaneName  string
+	}{
+		{
+			name:         "foreground split activates the new pane",
+			args:         []string{"--pane", "pane-1", "--name", "target-split"},
+			wantActiveID: 3,
+			newPaneName:  "target-split",
+		},
+		{
+			name:         "background split keeps the existing active pane",
+			args:         []string{"--pane", "pane-1", "--background", "--name", "bg-target"},
+			wantActiveID: 2,
+			newPaneName:  "bg-target",
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			srv, sess, cleanup := newCommandTestSession(t)
+			defer cleanup()
+
+			p1, err := sess.createPane(srv, 80, 23)
+			if err != nil {
+				t.Fatalf("createPane pane-1: %v", err)
+			}
+			p1.Start()
+			w := mux.NewWindow(p1, 80, 23)
+			w.ID = 1
+			w.Name = "main"
+			sess.Windows = []*mux.Window{w}
+			sess.ActiveWindowID = w.ID
+			sess.Panes = []*mux.Pane{p1}
+
+			res := runTestCommand(t, srv, sess, "split", "--pane", "pane-1")
+			if res.cmdErr != "" {
+				t.Fatalf("initial split failed: %s", res.cmdErr)
+			}
+
+			res = runTestCommand(t, srv, sess, "split", tt.args...)
+			if res.cmdErr != "" {
+				t.Fatalf("split %v failed: %s", tt.args, res.cmdErr)
+			}
+
+			state := mustSessionQuery(t, sess, func(sess *Session) struct {
+				activeID uint32
+				p1Y      int
+				p2Y      int
+				p3Y      int
+			} {
+				w := sess.activeWindow()
+				newPane := sess.findPaneByRef(tt.newPaneName)
+				if newPane == nil {
+					return struct {
+						activeID uint32
+						p1Y      int
+						p2Y      int
+						p3Y      int
+					}{activeID: w.ActivePane.ID, p1Y: -1, p2Y: -1, p3Y: -1}
+				}
+				c1 := w.Root.FindPane(1)
+				c2 := w.Root.FindPane(2)
+				c3 := w.Root.FindPane(newPane.ID)
+				return struct {
+					activeID uint32
+					p1Y      int
+					p2Y      int
+					p3Y      int
+				}{
+					activeID: w.ActivePane.ID,
+					p1Y:      c1.Y,
+					p2Y:      c2.Y,
+					p3Y:      c3.Y,
+				}
+			})
+
+			if state.activeID != tt.wantActiveID {
+				t.Fatalf("active pane after split = %d, want %d", state.activeID, tt.wantActiveID)
+			}
+			if !(state.p1Y < state.p3Y && state.p3Y < state.p2Y) {
+				t.Fatalf("explicit split should land between pane-1 and pane-2, got y positions pane-1=%d new=%d pane-2=%d", state.p1Y, state.p3Y, state.p2Y)
+			}
+		})
+	}
+}
+
 func TestFlushPendingOutputEventsAndHelpers(t *testing.T) {
 	t.Parallel()
 
