@@ -741,6 +741,78 @@ func RunSession(sessionName string) error {
 				}
 			}
 
+			// dispatchDecoded routes one decoded input event through local
+			// key handling, copy mode, or pane forwarding. Returns true if
+			// the input goroutine should exit (detach).
+			dispatchDecoded := func(decoded decodedInputEvent) bool {
+				if uiEvent, handled := clientUIEventForDecodedInput(decoded); handled {
+					if uiEvent != "" {
+						sender.Send(&proto.Message{
+							Type:    proto.MsgTypeUIEvent,
+							UIEvent: uiEvent,
+						})
+					}
+					return false
+				}
+
+				normalized := normalizeLocalInput(decoded.raw)
+				if len(normalized) == 0 {
+					normalized = decoded.raw
+				}
+
+				if cr.DisplayPanesActive() {
+					if len(normalized) > 0 {
+						handleDisplayPaneSelection(cr, sender, normalized[0])
+					} else {
+						cr.HideDisplayPanes()
+					}
+					if data := cr.RenderDiff(); data != "" {
+						io.WriteString(os.Stdout, data)
+					}
+					return false
+				}
+
+				if key, ok := decoded.event.(uv.KeyPressEvent); ok {
+					if shouldHandleDecodedKeyLocally(key) {
+						// Prefix/repeat bindings should still win while copy
+						// mode is active, matching tmux behavior.
+						flushCopyInput()
+						return processKeyBytes(normalized, &forward)
+					}
+					if cr.ActiveCopyMode() != nil {
+						copyInput = append(copyInput, normalized...)
+						return false
+					}
+					forward = append(forward, forwardedBytesForDecodedInput(decoded)...)
+					return false
+				}
+
+				if len(decoded.raw) == 1 && shouldHandleKeyLocally(decoded.raw[0]) {
+					flushCopyInput()
+					return processKeyByte(decoded.raw[0], &forward)
+				}
+
+				if cr.ActiveCopyMode() != nil {
+					copyInput = append(copyInput, normalized...)
+					return false
+				}
+
+				forward = append(forward, decoded.raw...)
+				return false
+			}
+
+			// decodeAndDispatch decodes raw bytes into input events and
+			// dispatches each through dispatchDecoded. Returns true if any
+			// event triggers exit (detach).
+			decodeAndDispatch := func(data []byte) bool {
+				for _, decoded := range decodeInputEvents(data) {
+					if dispatchDecoded(decoded) {
+						return true
+					}
+				}
+				return false
+			}
+
 			if cr.ChooserActive() {
 				action := cr.HandleChooserInput(normalizeLocalInput(raw))
 				if action.bell {
@@ -776,70 +848,16 @@ func RunSession(sessionName string) error {
 					continue
 				}
 
-				// Process flushed bytes (normal input that passed through parser)
-				for _, decoded := range decodeInputEvents(flushed) {
-					if uiEvent, handled := clientUIEventForDecodedInput(decoded); handled {
-						if uiEvent != "" {
-							sender.Send(&proto.Message{
-								Type:    proto.MsgTypeUIEvent,
-								UIEvent: uiEvent,
-							})
-						}
-						continue
-					}
+				shouldExit = decodeAndDispatch(flushed)
+			}
 
-					normalized := normalizeLocalInput(decoded.raw)
-					if len(normalized) == 0 {
-						normalized = decoded.raw
-					}
-
-					if cr.DisplayPanesActive() {
-						if len(normalized) > 0 {
-							handleDisplayPaneSelection(cr, sender, normalized[0])
-						} else {
-							cr.HideDisplayPanes()
-						}
-						if data := cr.RenderDiff(); data != "" {
-							io.WriteString(os.Stdout, data)
-						}
-						continue
-					}
-
-					if key, ok := decoded.event.(uv.KeyPressEvent); ok {
-						if shouldHandleDecodedKeyLocally(key) {
-							// Prefix/repeat bindings should still win while copy
-							// mode is active, matching tmux behavior.
-							flushCopyInput()
-							if processKeyBytes(normalized, &forward) {
-								shouldExit = true
-								break
-							}
-							continue
-						}
-						if cr.ActiveCopyMode() != nil {
-							copyInput = append(copyInput, normalized...)
-							continue
-						}
-						forward = append(forward, forwardedBytesForDecodedInput(decoded)...)
-						continue
-					}
-
-					if len(decoded.raw) == 1 && shouldHandleKeyLocally(decoded.raw[0]) {
-						flushCopyInput()
-						if processKeyByte(decoded.raw[0], &forward) {
-							shouldExit = true
-							break
-						}
-						continue
-					}
-
-					if cr.ActiveCopyMode() != nil {
-						copyInput = append(copyInput, normalized...)
-						continue
-					}
-
-					forward = append(forward, decoded.raw...)
-				}
+			// Flush any bytes the mouse parser is holding from an
+			// incomplete escape sequence (typically a bare \x1b from a
+			// standalone Escape press). Without this, a lone Escape at the
+			// end of a read stays buffered and coalesces with the next
+			// read's first byte — turning Esc then j into Alt+j.
+			if !shouldExit {
+				shouldExit = decodeAndDispatch(mouseParser.FlushPending())
 			}
 
 			if shouldExit {
@@ -849,9 +867,6 @@ func RunSession(sessionName string) error {
 				return
 			}
 
-			if cr.ActiveCopyMode() != nil {
-				copyInput = append(copyInput, normalizeLocalInput(mouseParser.FlushPending())...)
-			}
 			flushCopyInput()
 
 			if len(forward) > 0 {
