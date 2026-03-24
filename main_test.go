@@ -62,7 +62,7 @@ func TestResolveSessionName(t *testing.T) {
 		envSession  string
 		want        string
 	}{
-		{name: "default when unset", want: "default"},
+		{name: "default when unset", want: defaultSessionName},
 		{name: "use AMUX_SESSION when flag omitted", envSession: "current-session", want: "current-session"},
 		{name: "explicit session without env", explicit: "other-session", explicitSet: true, want: "other-session"},
 		{name: "explicit session beats AMUX_SESSION", explicit: "other-session", explicitSet: true, envSession: "current-session", want: "other-session"},

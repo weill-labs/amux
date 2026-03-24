@@ -363,6 +363,8 @@ func main() {
 	}
 }
 
+// resolveSessionName chooses the session for this invocation.
+// Explicit -s wins, then AMUX_SESSION, then the default session.
 func resolveSessionName(explicit string, explicitSet bool) string {
 	if explicitSet {
 		return explicit
