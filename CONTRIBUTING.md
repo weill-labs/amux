@@ -5,17 +5,15 @@
 - Go 1.25+
 - tmux (optional, only needed for comparison benchmarks)
 
-## Build
+## Install
 
 ```bash
 make setup                         # activate repo git hooks
-make build                         # build + install atomically
+make install                       # install amux
 go test ./...                       # run all tests
 ```
 
-Hot-reload: both client and server watch the binary and re-exec on changes. Use `make build` so the installed binary is replaced atomically before reload, preserving panes and shells.
-
-`make build` records which checkout last installed `~/.local/bin/amux` and refuses to overwrite it when that install metadata points at a different checkout, unless you opt in with `AMUX_INSTALL_FORCE=1 make build`.
+Hot-reload: both client and server watch the binary and re-exec on changes. Use `make install` so the installed binary is replaced atomically before reload, preserving panes and shells.
 
 To test manually after building:
 

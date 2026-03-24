@@ -1,14 +1,11 @@
-.PHONY: setup build test bench coverage release-dry-run
+.PHONY: setup install bench coverage release-dry-run
 
 setup: ## Configure git hooks and install tools
 	git config core.hooksPath .githooks
 	@echo "Hooks activated from .githooks/"
 
-build: ## Build and install amux
-	scripts/build-install.sh
-
-test: ## Run all tests
-	go test ./... -timeout 120s
+install: ## Install amux
+	scripts/install.sh
 
 bench: ## Run microbenchmarks
 	go test -bench=. -benchmem -count=3 -run='^$$' ./internal/... -timeout 120s
