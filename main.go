@@ -22,8 +22,10 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// sessionName is the global session name, set by -s flag or defaulting to "default".
-var sessionName = "default"
+const defaultSessionName = "default"
+
+// sessionName is the global session name for this invocation.
+var sessionName = defaultSessionName
 
 const reconnectEventType = "reconnect"
 
@@ -49,15 +51,20 @@ func buildVersion() string {
 }
 
 func main() {
+	sessionName = defaultSessionName
+	sessionNameSet := false
+
 	// Extract global -s flag before subcommand parsing
 	args := os.Args[1:]
 	for i := 0; i < len(args); i++ {
 		if args[i] == "-s" && i+1 < len(args) {
 			sessionName = args[i+1]
+			sessionNameSet = true
 			args = append(args[:i], args[i+2:]...)
 			break
 		}
 	}
+	sessionName = resolveSessionName(sessionName, sessionNameSet)
 
 	if len(args) == 0 {
 		if shouldAttemptTakeover() {
@@ -354,6 +361,16 @@ func main() {
 		printUsage()
 		os.Exit(1)
 	}
+}
+
+func resolveSessionName(explicit string, explicitSet bool) string {
+	if explicitSet {
+		return explicit
+	}
+	if envSession := os.Getenv("AMUX_SESSION"); envSession != "" {
+		return envSession
+	}
+	return defaultSessionName
 }
 
 // parseAttachArgs parses args for "amux attach [-d] [session]".
