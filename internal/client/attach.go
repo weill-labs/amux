@@ -279,14 +279,10 @@ func RunSession(sessionName string) error {
 		io.WriteString(os.Stdout, initial)
 	}
 
-	// Hot reload: resolve binary path once, start file watcher.
-	// AMUX_NO_WATCH=1 disables watching (used by test harness for the outer
-	// client so only the inner client responds to binary changes).
+	// Resolve the current binary once so explicit reloads and server reload
+	// notices can re-exec the client into the replacement binary.
 	triggerReload := make(chan struct{}, 1)
-	execPath, execErr := reload.ResolveExecutable()
-	if execErr == nil && os.Getenv("AMUX_NO_WATCH") != "1" && reload.ShouldWatchBinary(execPath) {
-		go reload.WatchBinary(execPath, triggerReload, nil)
-	}
+	execPath, _ := reload.ResolveExecutable()
 
 	// Forward SIGWINCH to server and update client renderer
 	sigCh := make(chan os.Signal, 1)
