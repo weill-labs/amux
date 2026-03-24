@@ -448,7 +448,7 @@ func TestZoomSplitKeepsZoomAndFocus(t *testing.T) {
 		return strings.Contains(s, "[pane-1]") && !strings.Contains(s, "[pane-2]")
 	})
 
-	// Split while zoomed should keep the active pane zoomed and create the new pane in the background.
+	// Split while zoomed should keep the active pane zoomed and create the new pane off-screen until unzoom.
 	gen := h.generation()
 	h.sendKeys("C-a", "-")
 	h.waitLayout(gen)
@@ -469,7 +469,7 @@ func TestZoomSplitKeepsZoomAndFocus(t *testing.T) {
 	}
 
 	h.runCmd("zoom", "pane-1")
-	h.assertScreen("unzoom should reveal the background split pane", func(s string) bool {
+	h.assertScreen("unzoom should reveal the split pane", func(s string) bool {
 		return strings.Contains(s, "[pane-1]") && strings.Contains(s, "[pane-2]") &&
 			strings.Contains(s, "[pane-3]")
 	})

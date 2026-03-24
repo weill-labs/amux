@@ -24,10 +24,10 @@ type Window struct {
 	minimizeSeq  uint64 // monotonic counter for LIFO minimize ordering
 }
 
-// SplitOptions controls whether a new pane is created in the background.
-// Background splits keep the current active pane and preserve zoom state.
+// SplitOptions controls whether the existing active pane keeps focus.
+// KeepFocus preserves zoom state and leaves the active pane unchanged.
 type SplitOptions struct {
-	Background bool
+	KeepFocus bool
 }
 
 // NewWindow creates a window with a single pane.
@@ -52,7 +52,7 @@ func (w *Window) SplitRoot(dir SplitDir, newPane *Pane) (*Pane, error) {
 // SplitRootWithOptions splits the entire window at the root level with
 // explicit focus/zoom behavior control.
 func (w *Window) SplitRootWithOptions(dir SplitDir, newPane *Pane, opts SplitOptions) (*Pane, error) {
-	if w.ZoomedPaneID != 0 && !opts.Background {
+	if w.ZoomedPaneID != 0 && !opts.KeepFocus {
 		w.Unzoom()
 	}
 	newLeaf := NewLeaf(newPane, 0, 0, 0, 0)
@@ -112,7 +112,7 @@ func (w *Window) SplitRootWithOptions(dir SplitDir, newPane *Pane, opts SplitOpt
 	w.resizePTYs()
 	w.restoreZoomedPaneSize()
 
-	if !opts.Background {
+	if !opts.KeepFocus {
 		w.setActive(newPane)
 	}
 	return newPane, nil
@@ -133,7 +133,7 @@ func (w *Window) SplitWithOptions(dir SplitDir, newPane *Pane, opts SplitOptions
 // SplitPaneWithOptions splits the specified pane with explicit focus/zoom
 // behavior control.
 func (w *Window) SplitPaneWithOptions(targetPaneID uint32, dir SplitDir, newPane *Pane, opts SplitOptions) (*Pane, error) {
-	if w.ZoomedPaneID != 0 && !opts.Background {
+	if w.ZoomedPaneID != 0 && !opts.KeepFocus {
 		w.Unzoom()
 	}
 	cell := w.Root.FindPane(targetPaneID)
@@ -169,7 +169,7 @@ func (w *Window) splitCellWithOptions(cell *LayoutCell, dir SplitDir, newPane *P
 	w.normalizeMinimizedLayout()
 	w.resizePTYs()
 	w.restoreZoomedPaneSize()
-	if !opts.Background {
+	if !opts.KeepFocus {
 		w.setActive(newPane)
 	}
 

@@ -328,7 +328,7 @@ func TestPrepareRemotePaneAndInsertPreparedPane(t *testing.T) {
 	}
 }
 
-func TestInsertPreparedPaneIntoActiveWindowBackgroundPreservesZoomAndFocus(t *testing.T) {
+func TestInsertPreparedPaneIntoActiveWindowKeepFocusPreservesZoomAndFocus(t *testing.T) {
 	t.Parallel()
 
 	_, sess, cleanup := newCommandTestSession(t)
@@ -351,7 +351,7 @@ func TestInsertPreparedPaneIntoActiveWindowBackgroundPreservesZoomAndFocus(t *te
 	}
 
 	if err := sess.insertPreparedPaneIntoActiveWindow(prepared, mux.SplitVertical, false, true); err != nil {
-		t.Fatalf("insertPreparedPaneIntoActiveWindow background: %v", err)
+		t.Fatalf("insertPreparedPaneIntoActiveWindow keepFocus: %v", err)
 	}
 
 	state := mustSessionQuery(t, sess, func(sess *Session) struct {
@@ -371,7 +371,7 @@ func TestInsertPreparedPaneIntoActiveWindowBackgroundPreservesZoomAndFocus(t *te
 		}
 	})
 	if state.activeID != pane1.ID || state.zoomedID != pane1.ID || !state.hasPane {
-		t.Fatalf("background prepared pane insert state = %+v, want active pane-1, zoomed pane-1, pane present", state)
+		t.Fatalf("keepFocus prepared pane insert state = %+v, want active pane-1, zoomed pane-1, pane present", state)
 	}
 }
 

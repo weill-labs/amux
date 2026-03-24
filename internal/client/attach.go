@@ -507,13 +507,8 @@ func RunSession(sessionName string) error {
 						}
 					}
 					sender.Command(binding.Action, binding.Args)
-				case "split":
-					// Inject active pane name — split requires an explicit target.
-					args := binding.Args
-					if name := cr.ActivePaneName(); name != "" {
-						args = append([]string{"--pane", name}, args...)
-					}
-					sender.Command(binding.Action, args)
+				case "split", "split-focus":
+					sender.Command(binding.Action, splitBindingArgs(cr, binding))
 				case "compat-bell":
 					io.WriteString(os.Stdout, "\a")
 				default:
@@ -896,6 +891,15 @@ func RunSession(sessionName string) error {
 	}
 }
 
+func splitBindingArgs(cr *ClientRenderer, binding config.Binding) []string {
+	args := append([]string(nil), binding.Args...)
+	if name := cr.ActivePaneName(); name != "" {
+		args = append([]string{name}, args...)
+	}
+	return args
+}
+
+var copyToClipboard = copyToClipboardLocal
 func formatUnboundPrefixMessage(prefix, key byte) string {
 	return "No binding for " + formatKeyName(prefix) + " " + formatKeyName(key)
 }

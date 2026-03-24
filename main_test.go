@@ -15,18 +15,19 @@ func TestParseSplitArgs(t *testing.T) {
 		want    []string
 		wantErr string
 	}{
-		{name: "pane only", args: []string{"pane-1"}, want: []string{"--pane", "pane-1"}},
-		{name: "pane horizontal", args: []string{"pane-1", "--horizontal"}, want: []string{"--pane", "pane-1"}},
-		{name: "pane vertical", args: []string{"pane-1", "--vertical"}, want: []string{"--pane", "pane-1", "v"}},
-		{name: "pane root vertical", args: []string{"pane-1", "root", "--vertical"}, want: []string{"--pane", "pane-1", "root", "v"}},
-		{name: "pane host vertical", args: []string{"pane-1", "--host", "gpu-server", "--vertical"}, want: []string{"--pane", "pane-1", "v", "--host", "gpu-server"}},
-		{name: "pane background", args: []string{"pane-1", "--background"}, want: []string{"--pane", "pane-1", "--background"}},
-		{name: "pane name background", args: []string{"pane-1", "--name", "bg-pane", "--background"}, want: []string{"--pane", "pane-1", "--name", "bg-pane", "--background"}},
-		{name: "pane legacy vertical", args: []string{"pane-1", "v"}, want: []string{"--pane", "pane-1", "v"}},
-		{name: "numeric pane id", args: []string{"42"}, want: []string{"--pane", "42"}},
+		{name: "pane only", args: []string{"pane-1"}, want: []string{"pane-1"}},
+		{name: "pane horizontal", args: []string{"pane-1", "--horizontal"}, want: []string{"pane-1"}},
+		{name: "pane vertical", args: []string{"pane-1", "--vertical"}, want: []string{"pane-1", "v"}},
+		{name: "pane root vertical", args: []string{"pane-1", "root", "--vertical"}, want: []string{"pane-1", "root", "v"}},
+		{name: "pane host vertical", args: []string{"pane-1", "--host", "gpu-server", "--vertical"}, want: []string{"pane-1", "v", "--host", "gpu-server"}},
+		{name: "pane named", args: []string{"pane-1", "--name", "worker"}, want: []string{"pane-1", "--name", "worker"}},
+		{name: "pane legacy vertical", args: []string{"pane-1", "v"}, want: []string{"pane-1", "v"}},
+		{name: "numeric pane id", args: []string{"42"}, want: []string{"42"}},
 		{name: "no args", args: nil, wantErr: "pane argument required"},
 		{name: "flags only", args: []string{"--vertical"}, wantErr: "pane argument required"},
 		{name: "conflicting directions", args: []string{"pane-1", "--vertical", "--horizontal"}, wantErr: "conflicting split directions"},
+		{name: "legacy background rejected", args: []string{"pane-1", "--background"}, wantErr: `unknown split arg "--background"`},
+		{name: "legacy pane flag rejected", args: []string{"--pane", "pane-1"}, wantErr: `unknown split arg "--pane"`},
 		{name: "missing host value", args: []string{"pane-1", "--host"}, wantErr: "--host requires a value"},
 		{name: "two pane refs", args: []string{"pane-1", "pane-2"}, wantErr: "unknown split arg"},
 	}

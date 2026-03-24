@@ -232,7 +232,7 @@ func (s *Session) undoClosePane() (pane *mux.Pane, err error) {
 	}
 
 	if _, err := w.SplitWithOptions(mux.SplitVertical, rec.pane, mux.SplitOptions{
-		Background: w.ZoomedPaneID != 0,
+		KeepFocus: w.ZoomedPaneID != 0,
 	}); err != nil {
 		return nil, err
 	}
@@ -379,14 +379,14 @@ func (s *Session) prepareRemotePane(srv *Server, hostName string, cols, rows int
 
 // insertPreparedPaneIntoActiveWindow registers a pre-created pane in the
 // session and inserts it into the active window layout.
-func (s *Session) insertPreparedPaneIntoActiveWindow(pane *mux.Pane, dir mux.SplitDir, rootLevel, background bool) error {
+func (s *Session) insertPreparedPaneIntoActiveWindow(pane *mux.Pane, dir mux.SplitDir, rootLevel, keepFocus bool) error {
 	w := s.activeWindow()
 	if w == nil {
 		return fmt.Errorf("no window")
 	}
 
 	s.Panes = append(s.Panes, pane)
-	opts := mux.SplitOptions{Background: background || w.ZoomedPaneID != 0}
+	opts := mux.SplitOptions{KeepFocus: keepFocus || w.ZoomedPaneID != 0}
 	var err error
 	if rootLevel {
 		_, err = w.SplitRootWithOptions(dir, pane, opts)

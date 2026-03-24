@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/copymode"
 	"github.com/weill-labs/amux/internal/mouse"
 	"github.com/weill-labs/amux/internal/mux"
@@ -105,6 +106,23 @@ func TestHandleDisplayPaneSelectionSendsFocusCommand(t *testing.T) {
 	<-done
 	if cr.DisplayPanesActive() {
 		t.Fatal("display-panes overlay should hide after selection")
+	}
+}
+
+func TestSplitBindingArgsInjectsActivePane(t *testing.T) {
+	t.Parallel()
+
+	cr := buildTestRenderer(t)
+
+	got := splitBindingArgs(cr, config.Binding{Action: "split-focus", Args: []string{"root", "v"}})
+	want := []string{"pane-1", "root", "v"}
+	if len(got) != len(want) {
+		t.Fatalf("splitBindingArgs length = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("splitBindingArgs[%d] = %q, want %q (full=%v)", i, got[i], want[i], got)
+		}
 	}
 }
 

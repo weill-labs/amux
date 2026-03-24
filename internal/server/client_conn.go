@@ -274,7 +274,7 @@ func (cc *clientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 
 // splitRemotePane prepares a proxy pane connected to a remote host, then
 // inserts it into the active window through the session event loop.
-func (cc *clientConn) splitRemotePane(srv *Server, sess *Session, hostName string, dir mux.SplitDir, rootLevel bool, name string, background bool) (*mux.Pane, error) {
+func (cc *clientConn) splitRemotePane(srv *Server, sess *Session, hostName string, dir mux.SplitDir, rootLevel bool, name string, keepFocus bool) (*mux.Pane, error) {
 	type activeWindowSize struct {
 		width  int
 		height int
@@ -300,7 +300,7 @@ func (cc *clientConn) splitRemotePane(srv *Server, sess *Session, hostName strin
 	}
 
 	res := sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
-		if err := sess.insertPreparedPaneIntoActiveWindow(pane, dir, rootLevel, background); err != nil {
+		if err := sess.insertPreparedPaneIntoActiveWindow(pane, dir, rootLevel, keepFocus); err != nil {
 			return commandMutationResult{err: err}
 		}
 		return commandMutationResult{broadcastLayout: true}
@@ -312,7 +312,6 @@ func (cc *clientConn) splitRemotePane(srv *Server, sess *Session, hostName strin
 
 	return pane, nil
 }
-
 
 // eventsArgs holds parsed arguments for the events command.
 type eventsArgs struct {

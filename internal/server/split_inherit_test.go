@@ -77,7 +77,7 @@ func TestSplitInheritsRemoteHost(t *testing.T) {
 	go cc.handleCommand(srv, sess, &Message{
 		Type:    MsgTypeCommand,
 		CmdName: "split",
-		CmdArgs: []string{"--pane", "pane-2"},
+		CmdArgs: []string{"pane-2"},
 	})
 
 	// With the fix: the split tries to create a remote pane on gpu-server,

@@ -37,10 +37,10 @@ func DefaultKeybindings() *Keybindings {
 	return &Keybindings{
 		Prefix: 0x01, // Ctrl-a
 		Bindings: map[byte]Binding{
-			'\\': {Action: "split", Args: []string{"v"}},
-			'-':  {Action: "split"},
-			'|':  {Action: "split", Args: []string{"root", "v"}},
-			'_':  {Action: "split", Args: []string{"root"}},
+			'\\': {Action: "split-focus", Args: []string{"v"}},
+			'-':  {Action: "split-focus"},
+			'|':  {Action: "split-focus", Args: []string{"root", "v"}},
+			'_':  {Action: "split-focus", Args: []string{"root"}},
 			'}':  {Action: "swap", Args: []string{"forward"}},
 			'{':  {Action: "swap", Args: []string{"backward"}},
 			'o':  {Action: "focus", Args: []string{"next"}},
@@ -86,8 +86,8 @@ func TmuxCompatKeybindings() *Keybindings {
 	return &Keybindings{
 		Prefix: 0x02, // Ctrl-b
 		Bindings: map[byte]Binding{
-			'"':  {Action: "split"},
-			'%':  {Action: "split", Args: []string{"v"}},
+			'"':  {Action: "split-focus"},
+			'%':  {Action: "split-focus", Args: []string{"v"}},
 			'o':  {Action: "focus", Args: []string{"next"}},
 			'x':  {Action: "kill"},
 			'z':  {Action: "zoom"},
@@ -120,9 +120,9 @@ func TmuxCompatKeybindings() *Keybindings {
 // forwarded as server commands are both included.
 // Keep in sync with server/client_conn.go handleCommand().
 var knownActions = map[string]bool{
-	"split": true, "focus": true, "swap": true, "zoom": true,
+	"split": true, "split-focus": true, "focus": true, "swap": true, "zoom": true,
 	"rotate": true, "minimize": true, "restore": true, "kill": true,
-	"spawn": true, "send-keys": true, "resize-active": true,
+	"spawn": true, "spawn-focus": true, "send-keys": true, "resize-active": true,
 	"toggle-minimize": true, "new-window": true, "next-window": true,
 	"prev-window": true, "select-window": true, "rename-window": true,
 	"display-panes": true, "choose-tree": true, "choose-window": true,

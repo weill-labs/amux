@@ -258,9 +258,9 @@ All commands accept `-s <session>` to target a specific session. Panes are refer
 | Command | Description |
 |---------|-------------|
 | `amux list [--no-cwd]` | List panes with metadata (including cwd by default) |
-| `amux split <pane> [root] [--vertical\|--horizontal] [--name NAME] [--host HOST] [--background]` | Split a pane (default: horizontal) |
+| `amux split <pane> [root] [--vertical\|--horizontal] [--name NAME] [--host HOST]` | Split a pane without changing focus (default: horizontal) |
 | `amux focus <pane\|direction>` | Focus by name, ID, or direction (left/right/up/down/next) |
-| `amux spawn --name NAME [--host HOST] [--task TASK] [--background]` | Spawn a new named pane |
+| `amux spawn --name NAME [--host HOST] [--task TASK]` | Spawn a new named pane without changing focus |
 | `amux zoom [pane]` | Toggle zoom on a pane |
 | `amux minimize <pane>` | Minimize a pane |
 | `amux restore <pane>` | Restore a minimized pane |
@@ -278,7 +278,7 @@ All commands accept `-s <session>` to target a specific session. Panes are refer
 | `amux rm-meta <pane> key=value...` | Remove pane metadata values (`pr=NUMBER`, `issue=ID`) |
 
 `swap-tree` and `move` treat each pane ref as identifying the root-level group that contains that pane, so moving `pane-3` can move an entire column or row rather than only one leaf cell.
-`split --background` and `spawn --background` create the pane without changing focus. When the active pane is zoomed, `split` and `spawn` background the new pane automatically and keep the zoom in place.
+`split` and `spawn` are pure layout mutations: they create the pane but do not change focus. Use `amux focus <pane|direction>` when you want a focus change explicitly. When the active pane is zoomed, `split` and `spawn` preserve the zoom and keep the focused pane unchanged.
 
 ### Agent API
 
@@ -324,7 +324,7 @@ All commands accept `-s <session>` to target a specific session. Panes are refer
 | Command | Description |
 |---------|-------------|
 | `amux hosts` | List configured remote hosts and connection status |
-| `amux split <pane> [root] [--vertical\|--horizontal] [--name NAME] --host HOST [--background]` | Split a pane with a remote pane on HOST |
+| `amux split <pane> [root] [--vertical\|--horizontal] [--name NAME] --host HOST` | Split a pane with a remote pane on HOST without changing focus |
 | `amux disconnect <host>` | Drop SSH connection to a host |
 | `amux reconnect <host>` | Reconnect to a remote host |
 | `amux unsplice <host>` | Revert SSH takeover, replace remote panes with local |
@@ -407,12 +407,12 @@ prefix = "C-b"              # change prefix to Ctrl-b (default: Ctrl-a)
 unbind = ["M", "["]         # remove default bindings
 
 [keys.bind]
-"s" = "split v"             # bind Ctrl-b s to vertical split
+"s" = "split-focus v"       # bind Ctrl-b s to vertical split and focus the new pane
 "q" = "kill"                # bind Ctrl-b q to kill pane
 "m" = "toggle-minimize"     # restore the pre-LAB-241 minimize key if desired
 ```
 
-Key format: single character (`d`, `\\`, `-`) or Ctrl combo (`C-a`, `C-b`). Actions match CLI command names (e.g., `split`, `focus left`, `zoom`, `kill`).
+Key format: single character (`d`, `\\`, `-`) or Ctrl combo (`C-a`, `C-b`). Actions usually match CLI command names (for example `split`, `focus left`, `zoom`, `kill`). Keybindings also support `split-focus` and `spawn-focus` for interactive bindings that should focus the new pane.
 
 Built-in presets:
 - `amux` (default): the native amux keymap documented in `amux version`

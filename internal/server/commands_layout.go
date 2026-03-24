@@ -105,7 +105,7 @@ func activePaneRender(w *mux.Window) []paneRender {
 	}}
 }
 
-func cmdSplit(ctx *CommandContext) {
+func runSplit(ctx *CommandContext, keepFocus bool) {
 	args, err := layoutcmd.ParseSplitArgs(ctx.Args)
 	if err != nil {
 		ctx.replyErr(err.Error())
@@ -127,7 +127,7 @@ func cmdSplit(ctx *CommandContext) {
 	}
 
 	if args.HostName != "" {
-		pane, err := ctx.CC.splitRemotePane(ctx.Srv, ctx.Sess, args.HostName, args.Dir, args.RootLevel, args.Name, args.Background)
+		pane, err := ctx.CC.splitRemotePane(ctx.Srv, ctx.Sess, args.HostName, args.Dir, args.RootLevel, args.Name, keepFocus)
 		if err != nil {
 			ctx.replyErr(err.Error())
 			return
@@ -147,7 +147,7 @@ func cmdSplit(ctx *CommandContext) {
 		if err != nil {
 			return commandMutationResult{err: err}
 		}
-		opts := mux.SplitOptions{Background: args.Background || w.ZoomedPaneID != 0}
+		opts := mux.SplitOptions{KeepFocus: keepFocus || w.ZoomedPaneID != 0}
 		if args.RootLevel {
 			_, err = w.SplitRootWithOptions(args.Dir, pane, opts)
 		} else {
@@ -164,6 +164,14 @@ func cmdSplit(ctx *CommandContext) {
 			startPanes:      []*mux.Pane{pane},
 		}
 	}))
+}
+
+func cmdSplit(ctx *CommandContext) {
+	runSplit(ctx, true)
+}
+
+func cmdSplitFocus(ctx *CommandContext) {
+	runSplit(ctx, false)
 }
 
 func cmdFocus(ctx *CommandContext) {
@@ -203,7 +211,7 @@ func cmdFocus(ctx *CommandContext) {
 	}))
 }
 
-func cmdSpawn(ctx *CommandContext) {
+func runSpawn(ctx *CommandContext, keepFocus bool) {
 	args, err := layoutcmd.ParseSpawnArgs(ctx.Args)
 	if err != nil {
 		ctx.replyErr(err.Error())
@@ -212,7 +220,7 @@ func cmdSpawn(ctx *CommandContext) {
 
 	remoteHost := args.Meta.Host
 	if remoteHost != "" && remoteHost != mux.DefaultHost {
-		pane, err := ctx.CC.splitRemotePane(ctx.Srv, ctx.Sess, remoteHost, mux.SplitVertical, false, args.Meta.Name, args.Background)
+		pane, err := ctx.CC.splitRemotePane(ctx.Srv, ctx.Sess, remoteHost, mux.SplitVertical, false, args.Meta.Name, keepFocus)
 		if err != nil {
 			ctx.replyErr(err.Error())
 			return
@@ -254,7 +262,7 @@ func cmdSpawn(ctx *CommandContext) {
 		if err != nil {
 			return commandMutationResult{err: err}
 		}
-		if _, err := w.SplitWithOptions(mux.SplitVertical, pane, mux.SplitOptions{Background: args.Background || w.ZoomedPaneID != 0}); err != nil {
+		if _, err := w.SplitWithOptions(mux.SplitVertical, pane, mux.SplitOptions{KeepFocus: keepFocus || w.ZoomedPaneID != 0}); err != nil {
 			sess.removePane(pane.ID)
 			pane.Close()
 			return commandMutationResult{err: err}
@@ -265,6 +273,14 @@ func cmdSpawn(ctx *CommandContext) {
 			startPanes:      []*mux.Pane{pane},
 		}
 	}))
+}
+
+func cmdSpawn(ctx *CommandContext) {
+	runSpawn(ctx, true)
+}
+
+func cmdSpawnFocus(ctx *CommandContext) {
+	runSpawn(ctx, false)
 }
 
 func cmdZoom(ctx *CommandContext) {

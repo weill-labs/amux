@@ -604,7 +604,7 @@ func TestCommandSplitSpawnKillAndEvents(t *testing.T) {
 		t.Fatalf("spawn usage error = %q", spawnUsage.cmdErr)
 	}
 
-	splitRes := runTestCommand(t, srv, sess, "split", "--pane", "pane-1", "root", "v")
+	splitRes := runTestCommand(t, srv, sess, "split", "pane-1", "root", "v")
 	if splitRes.cmdErr != "" || !strings.Contains(splitRes.output, "Split vertical: new pane") {
 		t.Fatalf("split result = %#v", splitRes)
 	}
@@ -671,7 +671,7 @@ func TestCommandSplitSpawnKillAndEvents(t *testing.T) {
 	}
 }
 
-func TestCommandSplitAndSpawnBackgroundPreserveZoomAndFocus(t *testing.T) {
+func TestCommandSplitAndSpawnKeepZoomAndFocus(t *testing.T) {
 	t.Parallel()
 
 	srv, sess, cleanup := newCommandTestSession(t)
@@ -689,7 +689,7 @@ func TestCommandSplitAndSpawnBackgroundPreserveZoomAndFocus(t *testing.T) {
 	sess.ActiveWindowID = w.ID
 	sess.Panes = []*mux.Pane{p1}
 
-	splitRes := runTestCommand(t, srv, sess, "split", "--pane", "pane-1")
+	splitRes := runTestCommand(t, srv, sess, "split", "pane-1")
 	if splitRes.cmdErr != "" {
 		t.Fatalf("initial split failed: %s", splitRes.cmdErr)
 	}
@@ -698,9 +698,9 @@ func TestCommandSplitAndSpawnBackgroundPreserveZoomAndFocus(t *testing.T) {
 		t.Fatalf("zoom failed: %s", zoomRes.cmdErr)
 	}
 
-	backgroundSplit := runTestCommand(t, srv, sess, "split", "--pane", "pane-1", "--background", "--name", "bg-split")
-	if backgroundSplit.cmdErr != "" {
-		t.Fatalf("background split failed: %s", backgroundSplit.cmdErr)
+	keptFocusSplit := runTestCommand(t, srv, sess, "split", "pane-1", "--name", "bg-split")
+	if keptFocusSplit.cmdErr != "" {
+		t.Fatalf("split failed: %s", keptFocusSplit.cmdErr)
 	}
 	stateAfterSplit := mustSessionQuery(t, sess, func(sess *Session) struct {
 		activeID uint32
@@ -722,12 +722,12 @@ func TestCommandSplitAndSpawnBackgroundPreserveZoomAndFocus(t *testing.T) {
 		}
 	})
 	if stateAfterSplit.activeID != p1.ID || stateAfterSplit.zoomedID != p1.ID || !stateAfterSplit.hasPane {
-		t.Fatalf("state after background split = %+v, want active pane-1, zoomed pane-1, bg-split present", stateAfterSplit)
+		t.Fatalf("state after split = %+v, want active pane-1, zoomed pane-1, bg-split present", stateAfterSplit)
 	}
 
-	backgroundSpawn := runTestCommand(t, srv, sess, "spawn", "--background", "--name", "bg-worker", "--task", "build")
-	if backgroundSpawn.cmdErr != "" {
-		t.Fatalf("background spawn failed: %s", backgroundSpawn.cmdErr)
+	keptFocusSpawn := runTestCommand(t, srv, sess, "spawn", "--name", "bg-worker", "--task", "build")
+	if keptFocusSpawn.cmdErr != "" {
+		t.Fatalf("spawn failed: %s", keptFocusSpawn.cmdErr)
 	}
 	stateAfterSpawn := mustSessionQuery(t, sess, func(sess *Session) struct {
 		activeID uint32
@@ -751,7 +751,7 @@ func TestCommandSplitAndSpawnBackgroundPreserveZoomAndFocus(t *testing.T) {
 		}
 	})
 	if stateAfterSpawn.activeID != p1.ID || stateAfterSpawn.zoomedID != p1.ID || stateAfterSpawn.task != "build" {
-		t.Fatalf("state after background spawn = %+v, want active pane-1, zoomed pane-1, build task", stateAfterSpawn)
+		t.Fatalf("state after spawn = %+v, want active pane-1, zoomed pane-1, build task", stateAfterSpawn)
 	}
 }
 
@@ -769,23 +769,23 @@ func TestCommandSplitParsesDirectionFlags(t *testing.T) {
 	}{
 		{
 			name:       "vertical flag",
-			args:       []string{"--pane", "pane-1", "--vertical"},
+			args:       []string{"pane-1", "--vertical"},
 			wantOutput: "Split vertical: new pane",
 			wantDir:    mux.SplitVertical,
 			wantPanes:  2,
 		},
 		{
 			name:       "horizontal flag",
-			args:       []string{"--pane", "pane-1", "--horizontal"},
+			args:       []string{"pane-1", "--horizontal"},
 			wantOutput: "Split horizontal: new pane",
 			wantDir:    mux.SplitHorizontal,
 			wantPanes:  2,
 		},
 		{
 			name: "root vertical flag",
-			args: []string{"--pane", "pane-1", "root", "--vertical"},
+			args: []string{"pane-1", "root", "--vertical"},
 			setup: func(t *testing.T, srv *Server, sess *Session) {
-				res := runTestCommand(t, srv, sess, "split", "--pane", "pane-1")
+				res := runTestCommand(t, srv, sess, "split", "pane-1")
 				if res.cmdErr != "" {
 					t.Fatalf("initial split failed: %s", res.cmdErr)
 				}
@@ -796,14 +796,14 @@ func TestCommandSplitParsesDirectionFlags(t *testing.T) {
 		},
 		{
 			name:       "legacy vertical shorthand",
-			args:       []string{"--pane", "pane-1", "v"},
+			args:       []string{"pane-1", "v"},
 			wantOutput: "Split vertical: new pane",
 			wantDir:    mux.SplitVertical,
 			wantPanes:  2,
 		},
 		{
 			name:    "conflicting directions",
-			args:    []string{"--pane", "pane-1", "--vertical", "--horizontal"},
+			args:    []string{"pane-1", "--vertical", "--horizontal"},
 			wantErr: "conflicting split directions",
 		},
 	}
@@ -863,21 +863,24 @@ func TestCommandSplitTargetsExplicitInactivePane(t *testing.T) {
 
 	tests := []struct {
 		name         string
+		command      string
 		args         []string
 		wantActiveID uint32
 		newPaneName  string
 	}{
 		{
-			name:         "foreground split activates the new pane",
-			args:         []string{"--pane", "pane-1", "--name", "target-split"},
-			wantActiveID: 3,
+			name:         "pure split keeps the existing active pane",
+			command:      "split",
+			args:         []string{"pane-1", "--name", "target-split"},
+			wantActiveID: 2,
 			newPaneName:  "target-split",
 		},
 		{
-			name:         "background split keeps the existing active pane",
-			args:         []string{"--pane", "pane-1", "--background", "--name", "bg-target"},
-			wantActiveID: 2,
-			newPaneName:  "bg-target",
+			name:         "split-focus activates the new pane",
+			command:      "split-focus",
+			args:         []string{"pane-1", "--name", "focus-target"},
+			wantActiveID: 3,
+			newPaneName:  "focus-target",
 		},
 	}
 
@@ -899,14 +902,18 @@ func TestCommandSplitTargetsExplicitInactivePane(t *testing.T) {
 			sess.ActiveWindowID = w.ID
 			sess.Panes = []*mux.Pane{p1}
 
-			res := runTestCommand(t, srv, sess, "split", "--pane", "pane-1")
+			res := runTestCommand(t, srv, sess, "split", "pane-1")
 			if res.cmdErr != "" {
 				t.Fatalf("initial split failed: %s", res.cmdErr)
 			}
-
-			res = runTestCommand(t, srv, sess, "split", tt.args...)
+			res = runTestCommand(t, srv, sess, "focus", "pane-2")
 			if res.cmdErr != "" {
-				t.Fatalf("split %v failed: %s", tt.args, res.cmdErr)
+				t.Fatalf("focus pane-2 failed: %s", res.cmdErr)
+			}
+
+			res = runTestCommand(t, srv, sess, tt.command, tt.args...)
+			if res.cmdErr != "" {
+				t.Fatalf("%s %v failed: %s", tt.command, tt.args, res.cmdErr)
 			}
 
 			state := mustSessionQuery(t, sess, func(sess *Session) struct {
@@ -946,6 +953,74 @@ func TestCommandSplitTargetsExplicitInactivePane(t *testing.T) {
 			}
 			if !(state.p1Y < state.p3Y && state.p3Y < state.p2Y) {
 				t.Fatalf("explicit split should land between pane-1 and pane-2, got y positions pane-1=%d new=%d pane-2=%d", state.p1Y, state.p3Y, state.p2Y)
+			}
+		})
+	}
+}
+
+func TestCommandSpawnFocusModes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		command      string
+		args         []string
+		wantActiveID uint32
+	}{
+		{
+			name:         "spawn keeps the existing active pane",
+			command:      "spawn",
+			args:         []string{"--name", "worker-pure", "--task", "build"},
+			wantActiveID: 1,
+		},
+		{
+			name:         "spawn-focus activates the new pane",
+			command:      "spawn-focus",
+			args:         []string{"--name", "worker-focus", "--task", "build"},
+			wantActiveID: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			srv, sess, cleanup := newCommandTestSession(t)
+			defer cleanup()
+
+			p1, err := sess.createPane(srv, 80, 23)
+			if err != nil {
+				t.Fatalf("createPane: %v", err)
+			}
+			p1.Start()
+			w := mux.NewWindow(p1, 80, 23)
+			w.ID = 1
+			w.Name = "main"
+			sess.Windows = []*mux.Window{w}
+			sess.ActiveWindowID = w.ID
+			sess.Panes = []*mux.Pane{p1}
+
+			res := runTestCommand(t, srv, sess, tt.command, tt.args...)
+			if res.cmdErr != "" {
+				t.Fatalf("%s %v failed: %s", tt.command, tt.args, res.cmdErr)
+			}
+
+			state := mustSessionQuery(t, sess, func(sess *Session) struct {
+				activeID uint32
+				hasPane  bool
+			} {
+				w := sess.activeWindow()
+				return struct {
+					activeID uint32
+					hasPane  bool
+				}{
+					activeID: w.ActivePane.ID,
+					hasPane:  sess.findPaneByRef(tt.args[1]) != nil,
+				}
+			})
+			if state.activeID != tt.wantActiveID || !state.hasPane {
+				t.Fatalf("%s state = %+v, want active %d with spawned pane present", tt.command, state, tt.wantActiveID)
 			}
 		})
 	}
