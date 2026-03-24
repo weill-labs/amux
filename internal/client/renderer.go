@@ -110,6 +110,15 @@ func (r *Renderer) HandleLayout(snap *proto.LayoutSnapshot) bool {
 			next.emulators[ps.ID] = emu
 		}
 
+		// Close emulators for panes that no longer exist in the layout.
+		// Each emulator has a drain goroutine that blocks on io.Pipe.Read;
+		// without Close() the goroutine and pipe FDs leak.
+		for id, emu := range prev.emulators {
+			if _, exists := next.emulators[id]; !exists {
+				_ = emu.Close()
+			}
+		}
+
 		next.layout = mux.RebuildLayout(activeRoot)
 		clientLayoutH := next.height - render.GlobalBarHeight
 		if next.layout != nil && (snap.Width != next.width || snap.Height != clientLayoutH) {
