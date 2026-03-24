@@ -21,13 +21,21 @@ import (
 // and responds to MsgTypeCaptureRequest. It runs without a terminal —
 // used by ServerHarness so capture always routes through a client.
 type headlessClient struct {
+	sockPath   string
+	session    string
+	cols       int
+	rows       int
+	caps       proto.ClientCapabilities
+	connMu     sync.RWMutex
 	conn       net.Conn
 	renderer   *client.Renderer
 	cmdReqs    chan headlessCommand
 	cmdResults chan *server.Message
 	done       chan struct{}
+	stopped    chan struct{}
 	ready      chan struct{} // closed after first MsgTypeLayout is processed
 	readyOnce  sync.Once
+	closeOnce  sync.Once
 }
 
 type headlessCommand struct {
@@ -47,32 +55,24 @@ func newTestRenderer(cols, rows int) *client.Renderer {
 // newHeadlessClient attaches to the server and starts a background message
 // loop. The connection stays alive until close() is called.
 func newHeadlessClient(sockPath, session string, cols, rows int) (*headlessClient, error) {
-	conn, err := dialHeadlessSocket(sockPath, 3*time.Second)
-	if err != nil {
-		return nil, err
-	}
-
 	caps := proto.KnownClientCapabilities()
-	if err := server.WriteMsg(conn, &server.Message{
-		Type:               server.MsgTypeAttach,
-		Session:            session,
-		Cols:               cols,
-		Rows:               rows,
-		AttachCapabilities: &caps,
-	}); err != nil {
-		conn.Close()
-		return nil, err
-	}
-
 	hc := &headlessClient{
-		conn:       conn,
+		sockPath:   sockPath,
+		session:    session,
+		cols:       cols,
+		rows:       rows,
+		caps:       caps,
 		renderer:   newTestRenderer(cols, rows),
 		cmdReqs:    make(chan headlessCommand),
 		cmdResults: make(chan *server.Message, 16),
 		done:       make(chan struct{}),
+		stopped:    make(chan struct{}),
 		ready:      make(chan struct{}),
 	}
 	hc.renderer.SetCapabilities(proto.NegotiateClientCapabilities(&caps))
+	if err := hc.reconnect(3 * time.Second); err != nil {
+		return nil, err
+	}
 
 	go hc.commandLoop()
 	go hc.readLoop()
@@ -88,6 +88,69 @@ func newHeadlessClient(sockPath, session string, cols, rows int) (*headlessClien
 	return hc, nil
 }
 
+func (hc *headlessClient) currentConn() net.Conn {
+	hc.connMu.RLock()
+	defer hc.connMu.RUnlock()
+	return hc.conn
+}
+
+func (hc *headlessClient) replaceConn(conn net.Conn) {
+	hc.connMu.Lock()
+	hc.conn = conn
+	hc.connMu.Unlock()
+}
+
+func (hc *headlessClient) clearConn(conn net.Conn) {
+	hc.connMu.Lock()
+	if hc.conn == conn {
+		hc.conn = nil
+	}
+	hc.connMu.Unlock()
+}
+
+func (hc *headlessClient) isClosed() bool {
+	select {
+	case <-hc.done:
+		return true
+	default:
+		return false
+	}
+}
+
+func (hc *headlessClient) reconnect(timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	var lastErr error
+	for time.Now().Before(deadline) {
+		if hc.isClosed() {
+			return fmt.Errorf("headless client closed")
+		}
+
+		conn, err := dialHeadlessSocket(hc.sockPath, 250*time.Millisecond)
+		if err == nil {
+			if err := server.WriteMsg(conn, &server.Message{
+				Type:               server.MsgTypeAttach,
+				Session:            hc.session,
+				Cols:               hc.cols,
+				Rows:               hc.rows,
+				AttachCapabilities: &hc.caps,
+			}); err == nil {
+				hc.replaceConn(conn)
+				return nil
+			}
+			lastErr = err
+			conn.Close()
+		} else {
+			lastErr = err
+		}
+
+		time.Sleep(25 * time.Millisecond)
+	}
+	if lastErr == nil {
+		lastErr = fmt.Errorf("timeout waiting for socket")
+	}
+	return fmt.Errorf("reconnect headless client: %w", lastErr)
+}
+
 func (hc *headlessClient) waitCommandReady() error {
 	msg := hc.runCommand("generation")
 	if msg.CmdErr != "" {
@@ -98,7 +161,11 @@ func (hc *headlessClient) waitCommandReady() error {
 
 // resize sends a MsgTypeResize to the server, simulating a terminal resize.
 func (hc *headlessClient) resize(cols, rows int) {
-	server.WriteMsg(hc.conn, &server.Message{
+	conn := hc.currentConn()
+	if conn == nil {
+		return
+	}
+	server.WriteMsg(conn, &server.Message{
 		Type: server.MsgTypeResize,
 		Cols: cols,
 		Rows: rows,
@@ -106,7 +173,11 @@ func (hc *headlessClient) resize(cols, rows int) {
 }
 
 func (hc *headlessClient) sendUIEvent(name string) {
-	server.WriteMsg(hc.conn, &server.Message{
+	conn := hc.currentConn()
+	if conn == nil {
+		return
+	}
+	server.WriteMsg(conn, &server.Message{
 		Type:    server.MsgTypeUIEvent,
 		UIEvent: name,
 	})
@@ -151,10 +222,16 @@ func (hc *headlessClient) commandLoop() {
 		case <-hc.done:
 			return
 		case req := <-hc.cmdReqs:
-			if err := server.WriteMsg(hc.conn, req.msg); err != nil {
+			conn := hc.currentConn()
+			if conn == nil {
+				req.reply <- &server.Message{Type: server.MsgTypeCmdResult, CmdErr: "headless client not connected"}
+				continue
+			}
+			if err := server.WriteMsg(conn, req.msg); err != nil {
 				req.reply <- &server.Message{Type: server.MsgTypeCmdResult, CmdErr: err.Error()}
-				_ = hc.conn.Close()
-				return
+				hc.clearConn(conn)
+				_ = conn.Close()
+				continue
 			}
 
 			select {
@@ -169,17 +246,38 @@ func (hc *headlessClient) commandLoop() {
 }
 
 func (hc *headlessClient) close() {
-	_ = hc.conn.Close()
-	<-hc.done
-	hc.renderer.Close()
+	hc.closeOnce.Do(func() {
+		close(hc.done)
+		if conn := hc.currentConn(); conn != nil {
+			_ = conn.Close()
+		}
+		<-hc.stopped
+		hc.renderer.Close()
+	})
 }
 
 func (hc *headlessClient) readLoop() {
-	defer close(hc.done)
+	defer close(hc.stopped)
 	for {
-		msg, err := server.ReadMsg(hc.conn)
+		conn := hc.currentConn()
+		if conn == nil {
+			if err := hc.reconnect(10 * time.Second); err != nil {
+				if hc.isClosed() {
+					return
+				}
+				return
+			}
+			continue
+		}
+
+		msg, err := server.ReadMsg(conn)
 		if err != nil {
-			return
+			if hc.isClosed() {
+				return
+			}
+			hc.clearConn(conn)
+			_ = conn.Close()
+			continue
 		}
 		switch msg.Type {
 		case server.MsgTypeLayout:
@@ -197,6 +295,9 @@ func (hc *headlessClient) readLoop() {
 			server.WriteMsg(hc.conn, resp)
 		case server.MsgTypeTypeKeys:
 			// no-op: headless client doesn't process keystrokes
+		case server.MsgTypeServerReload:
+			hc.clearConn(conn)
+			_ = conn.Close()
 		case server.MsgTypeExit:
 			return
 		}

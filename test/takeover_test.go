@@ -182,7 +182,11 @@ func TestTakeoverAfterServerReload(t *testing.T) {
 	h := newServerHarnessWithConfig(t, 80, 24, remoteTestConfig(addr, keyFile))
 
 	h.runCmd("reload-server")
-	_ = h.generation()
+	if !h.waitForFunc(func(s string) bool {
+		return strings.Contains(s, "[pane-1]")
+	}, 15*time.Second) {
+		t.Fatalf("session did not recover after reload-server\ncapture:\n%s", h.capture())
+	}
 
 	existingProxyPanes := map[string]struct{}{}
 	_, port, _ := net.SplitHostPort(addr)
