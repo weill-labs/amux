@@ -88,6 +88,12 @@ type Session struct {
 	// Only accessed from the session event loop.
 	pendingKillCleanups map[uint32]*time.Timer
 
+	// Soft-closed panes awaiting undo or final cleanup.
+	// Stack order: most recent close is last. Only accessed from the
+	// session event loop (no mutex needed).
+	closedPanes      []closedPaneRecord
+	closedPaneTimers map[uint32]*time.Timer
+
 	// Remote pane management — manages SSH connections to remote hosts.
 	// Nil when no config is loaded or no remote hosts are defined.
 	RemoteManager *remote.Manager
