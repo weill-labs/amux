@@ -12,13 +12,8 @@ import (
 	"github.com/weill-labs/amux/internal/proto"
 )
 
-func stubCopyToClipboard(t *testing.T, fn func(string)) {
-	t.Helper()
-	prevCopyToClipboard := copyToClipboard
-	copyToClipboard = fn
-	t.Cleanup(func() {
-		copyToClipboard = prevCopyToClipboard
-	})
+func stubCopyToClipboard(cr *ClientRenderer, fn func(string)) {
+	cr.CopyToClipboard = fn
 }
 
 func readCommandMessage(t *testing.T, conn net.Conn) *proto.Message {
@@ -384,7 +379,7 @@ func TestHandleMouseEventDragStartsCopyModeAndCopiesSelection(t *testing.T) {
 	var drag dragState
 
 	var copied string
-	stubCopyToClipboard(t, func(text string) {
+	stubCopyToClipboard(cr, func(text string) {
 		copied = text
 	})
 
@@ -481,7 +476,7 @@ func TestHandleMouseEventCopyModeDragCopiesSelectionAndExits(t *testing.T) {
 	var drag dragState
 
 	var copied string
-	stubCopyToClipboard(t, func(text string) {
+	stubCopyToClipboard(cr, func(text string) {
 		copied = text
 	})
 
@@ -574,7 +569,7 @@ func TestHandleMouseEventCopyModeTripleClickCopiesLine(t *testing.T) {
 	var drag dragState
 
 	var copied string
-	stubCopyToClipboard(t, func(text string) {
+	stubCopyToClipboard(cr, func(text string) {
 		copied = text
 	})
 
@@ -626,7 +621,7 @@ func TestCopyModeHelpersSetCursorStartSelectionAndCopy(t *testing.T) {
 	}
 
 	var copied string
-	stubCopyToClipboard(t, func(text string) {
+	stubCopyToClipboard(cr, func(text string) {
 		copied = text
 	})
 
@@ -643,7 +638,7 @@ func TestCopyModeCopySelectionAppendsCopyBuffer(t *testing.T) {
 	cr := buildTestRenderer(t)
 
 	var copied []string
-	stubCopyToClipboard(t, func(text string) {
+	stubCopyToClipboard(cr, func(text string) {
 		copied = append(copied, text)
 	})
 

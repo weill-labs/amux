@@ -126,18 +126,18 @@ func TestCmdReloadServerRejectsUnreadableRequestedExecPath(t *testing.T) {
 }
 
 func TestCmdReloadServerReportsFallbackResolverError(t *testing.T) {
-	origResolve := resolveServerReloadExecPath
-	resolveServerReloadExecPath = func() (string, error) {
-		return "", errors.New("boom")
-	}
-	defer func() { resolveServerReloadExecPath = origResolve }()
+	t.Parallel()
 
 	sess := newSession("reload-resolve-fail")
 	stopCrashCheckpointLoop(t, sess)
 	defer stopSessionBackgroundLoops(t, sess)
 
 	msg := runOneShotCommand(t, sess, nil, func(ctx *CommandContext) {
-		ctx.Srv = &Server{}
+		ctx.Srv = &Server{
+			ResolveReloadExecPath: func() (string, error) {
+				return "", errors.New("boom")
+			},
+		}
 		cmdReloadServer(ctx)
 	})
 	if got := msg.CmdErr; got != "reload: boom" {

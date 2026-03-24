@@ -32,7 +32,7 @@ See [README.md -- Philosophy](README.md#philosophy) for the project thesis and t
 
 **Integration tests for end-to-end behavior.** The harness in `test/server_harness_test.go` drives amux directly over the Unix socket -- no tmux dependency. Tests run in ~6s total.
 
-**Tests that mutate package globals must stay serial.** If a test overrides package-level hooks or globals (for example `copyToClipboard`), do not call `t.Parallel()` in that test. Parallel siblings will race on shared state and produce misleading failures under `-race`.
+**Inject dependencies, do not add package-level `var` for test seams.** When production code needs a swappable dependency (e.g., clipboard command, time function, exec resolver), pass it as a function parameter or struct field -- never as a mutable package-level `var`. Tests pass stubs directly; production call sites pass the real implementation. This keeps tests parallel and eliminates shared mutable state. See PR #388 for the canonical pattern.
 
 **Use the persistent harness when server lifetime matters.** Prefer `newServerHarnessPersistent()` for integration tests that must keep the server alive independent of client detach timing or transient attachment windows. Use the default harness when exit-on-unattached behavior is part of the behavior under test.
 

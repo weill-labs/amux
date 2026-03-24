@@ -65,20 +65,16 @@ func TestCopyToClipboardPrefersOSC52OverSystemClipboardWhenSSH(t *testing.T) {
 	t.Setenv("SSH_CONNECTION", "1")
 	t.Setenv("TMUX", "")
 
-	prevStdout := clipboardStdout
-	prevRun := runClipboardCommand
 	var wrote bytes.Buffer
-	clipboardStdout = &wrote
-	runClipboardCommand = func(cmd []string, text string) error {
-		t.Fatalf("runClipboardCommand(%v, %q) should not run under SSH", cmd, text)
-		return nil
+	deps := clipboardDeps{
+		stdout: &wrote,
+		runCmd: func(cmd []string, text string) error {
+			t.Fatalf("runClipboardCommand(%v, %q) should not run under SSH", cmd, text)
+			return nil
+		},
 	}
-	t.Cleanup(func() {
-		clipboardStdout = prevStdout
-		runClipboardCommand = prevRun
-	})
 
-	copyToClipboardLocal("remote copy")
+	copyToClipboardLocal(deps, "remote copy")
 
 	if got, want := wrote.String(), osc52ClipboardSequence("remote copy"); got != want {
 		t.Fatalf("clipboard output = %q, want %q", got, want)
@@ -89,20 +85,16 @@ func TestCopyToClipboardWrapsOSC52ForTmuxWhenSSH(t *testing.T) {
 	t.Setenv("SSH_CONNECTION", "1")
 	t.Setenv("TMUX", "/tmp/tmux-501/default,1,0")
 
-	prevStdout := clipboardStdout
-	prevRun := runClipboardCommand
 	var wrote bytes.Buffer
-	clipboardStdout = &wrote
-	runClipboardCommand = func(cmd []string, text string) error {
-		t.Fatalf("runClipboardCommand(%v, %q) should not run under SSH", cmd, text)
-		return nil
+	deps := clipboardDeps{
+		stdout: &wrote,
+		runCmd: func(cmd []string, text string) error {
+			t.Fatalf("runClipboardCommand(%v, %q) should not run under SSH", cmd, text)
+			return nil
+		},
 	}
-	t.Cleanup(func() {
-		clipboardStdout = prevStdout
-		runClipboardCommand = prevRun
-	})
 
-	copyToClipboardLocal("remote copy")
+	copyToClipboardLocal(deps, "remote copy")
 
 	if got, want := wrote.String(), ansi.TmuxPassthrough(osc52ClipboardSequence("remote copy")); got != want {
 		t.Fatalf("clipboard output = %q, want %q", got, want)
@@ -112,19 +104,15 @@ func TestCopyToClipboardWrapsOSC52ForTmuxWhenSSH(t *testing.T) {
 func TestCopyToClipboardFallsBackToOSC52WhenSystemClipboardFails(t *testing.T) {
 	t.Setenv("TMUX", "")
 
-	prevStdout := clipboardStdout
-	prevRun := runClipboardCommand
 	var wrote bytes.Buffer
-	clipboardStdout = &wrote
-	runClipboardCommand = func(cmd []string, text string) error {
-		return errors.New("clipboard unavailable")
+	deps := clipboardDeps{
+		stdout: &wrote,
+		runCmd: func(cmd []string, text string) error {
+			return errors.New("clipboard unavailable")
+		},
 	}
-	t.Cleanup(func() {
-		clipboardStdout = prevStdout
-		runClipboardCommand = prevRun
-	})
 
-	copyToClipboardLocal("fallback copy")
+	copyToClipboardLocal(deps, "fallback copy")
 
 	if got, want := wrote.String(), osc52ClipboardSequence("fallback copy"); got != want {
 		t.Fatalf("clipboard output = %q, want %q", got, want)
@@ -134,19 +122,15 @@ func TestCopyToClipboardFallsBackToOSC52WhenSystemClipboardFails(t *testing.T) {
 func TestCopyToClipboardWrapsFallbackOSC52ForTmux(t *testing.T) {
 	t.Setenv("TMUX", "/tmp/tmux-501/default,1,0")
 
-	prevStdout := clipboardStdout
-	prevRun := runClipboardCommand
 	var wrote bytes.Buffer
-	clipboardStdout = &wrote
-	runClipboardCommand = func(cmd []string, text string) error {
-		return errors.New("clipboard unavailable")
+	deps := clipboardDeps{
+		stdout: &wrote,
+		runCmd: func(cmd []string, text string) error {
+			return errors.New("clipboard unavailable")
+		},
 	}
-	t.Cleanup(func() {
-		clipboardStdout = prevStdout
-		runClipboardCommand = prevRun
-	})
 
-	copyToClipboardLocal("fallback copy")
+	copyToClipboardLocal(deps, "fallback copy")
 
 	if got, want := wrote.String(), ansi.TmuxPassthrough(osc52ClipboardSequence("fallback copy")); got != want {
 		t.Fatalf("clipboard output = %q, want %q", got, want)
@@ -158,24 +142,20 @@ func TestCopyToClipboardUsesSystemClipboardOutsideSSH(t *testing.T) {
 	t.Setenv("SSH_CLIENT", "")
 	t.Setenv("SSH_TTY", "")
 
-	prevStdout := clipboardStdout
-	prevRun := runClipboardCommand
 	var wrote bytes.Buffer
 	var calls [][]string
-	clipboardStdout = &wrote
-	runClipboardCommand = func(cmd []string, text string) error {
-		calls = append(calls, append([]string(nil), cmd...))
-		if text != "local copy" {
-			t.Fatalf("clipboard text = %q, want %q", text, "local copy")
-		}
-		return nil
+	deps := clipboardDeps{
+		stdout: &wrote,
+		runCmd: func(cmd []string, text string) error {
+			calls = append(calls, append([]string(nil), cmd...))
+			if text != "local copy" {
+				t.Fatalf("clipboard text = %q, want %q", text, "local copy")
+			}
+			return nil
+		},
 	}
-	t.Cleanup(func() {
-		clipboardStdout = prevStdout
-		runClipboardCommand = prevRun
-	})
 
-	copyToClipboardLocal("local copy")
+	copyToClipboardLocal(deps, "local copy")
 
 	if wrote.Len() != 0 {
 		t.Fatalf("clipboard stdout = %q, want empty", wrote.String())
@@ -188,20 +168,16 @@ func TestCopyToClipboardUsesSystemClipboardOutsideSSH(t *testing.T) {
 func TestCopyToClipboardEmptyTextDoesNothing(t *testing.T) {
 	t.Setenv("SSH_CONNECTION", "1")
 
-	prevStdout := clipboardStdout
-	prevRun := runClipboardCommand
 	var wrote bytes.Buffer
-	clipboardStdout = &wrote
-	runClipboardCommand = func(cmd []string, text string) error {
-		t.Fatalf("runClipboardCommand(%v, %q) should not run for empty text", cmd, text)
-		return nil
+	deps := clipboardDeps{
+		stdout: &wrote,
+		runCmd: func(cmd []string, text string) error {
+			t.Fatalf("runClipboardCommand(%v, %q) should not run for empty text", cmd, text)
+			return nil
+		},
 	}
-	t.Cleanup(func() {
-		clipboardStdout = prevStdout
-		runClipboardCommand = prevRun
-	})
 
-	copyToClipboardLocal("")
+	copyToClipboardLocal(deps, "")
 
 	if wrote.Len() != 0 {
 		t.Fatalf("clipboard stdout = %q, want empty", wrote.String())
@@ -209,9 +185,10 @@ func TestCopyToClipboardEmptyTextDoesNothing(t *testing.T) {
 }
 
 func TestTrySystemClipboardFallsThroughCommands(t *testing.T) {
-	prevRun := runClipboardCommand
+	t.Parallel()
+
 	var calls [][]string
-	runClipboardCommand = func(cmd []string, text string) error {
+	runCmd := func(cmd []string, text string) error {
 		calls = append(calls, append([]string(nil), cmd...))
 		if text != "fallback order" {
 			t.Fatalf("clipboard text = %q, want %q", text, "fallback order")
@@ -221,11 +198,8 @@ func TestTrySystemClipboardFallsThroughCommands(t *testing.T) {
 		}
 		return nil
 	}
-	t.Cleanup(func() {
-		runClipboardCommand = prevRun
-	})
 
-	if !trySystemClipboard("fallback order") {
+	if !trySystemClipboard(runCmd, "fallback order") {
 		t.Fatal("trySystemClipboard() = false, want true")
 	}
 
