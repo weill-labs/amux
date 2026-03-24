@@ -266,14 +266,11 @@ func (s *Session) queryPaneList() ([]paneListEntry, error) {
 				name:      p.Meta.Name,
 				host:      p.Meta.Host,
 				task:      p.Meta.Task,
-				cwd:       p.LiveCwd(),
+				cwd:       effectivePaneCwd(p),
 				gitBranch: p.Meta.GitBranch,
 				pr:        p.Meta.PR,
 				prs:       append([]int(nil), p.Meta.PRs...),
 				issues:    append([]string(nil), p.Meta.Issues...),
-			}
-			if entry.cwd == "" {
-				entry.cwd = p.Meta.Dir
 			}
 			if w != nil && w.ActivePane != nil && w.ActivePane.ID == p.ID {
 				entry.active = true
