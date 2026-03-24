@@ -2,6 +2,7 @@ package test
 
 import (
 	"bytes"
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/binary"
@@ -79,8 +80,10 @@ func startTestSSHServer(t *testing.T, authorizedKey ssh.PublicKey, opts testSSHS
 		t.Fatalf("listening: %v", err)
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
 	var wg sync.WaitGroup
 	t.Cleanup(func() {
+		cancel()
 		ln.Close()
 		wg.Wait()
 		killAmuxServersForHome(homeDir)
@@ -97,7 +100,7 @@ func startTestSSHServer(t *testing.T, authorizedKey ssh.PublicKey, opts testSSHS
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				handleSSHConn(tcpConn, config, execEnv)
+				handleSSHConn(ctx, tcpConn, config, execEnv)
 			}()
 		}
 	}()
@@ -187,7 +190,7 @@ func killAmuxServersForHome(homeDir string) {
 }
 
 // handleSSHConn performs the SSH handshake and dispatches channels.
-func handleSSHConn(tcpConn net.Conn, config *ssh.ServerConfig, execEnv []string) {
+func handleSSHConn(ctx context.Context, tcpConn net.Conn, config *ssh.ServerConfig, execEnv []string) {
 	defer tcpConn.Close()
 
 	sshConn, chans, reqs, err := ssh.NewServerConn(tcpConn, config)
@@ -214,7 +217,7 @@ func handleSSHConn(tcpConn net.Conn, config *ssh.ServerConfig, execEnv []string)
 			if err != nil {
 				continue
 			}
-			go handleSession(ch, chReqs, connEnv)
+			go handleSession(ctx, ch, chReqs, connEnv)
 
 		case "direct-streamlocal@openssh.com":
 			handleStreamLocal(newChannel)
@@ -242,7 +245,7 @@ type windowChangeRequest struct {
 }
 
 // handleSession handles SSH session channels (exec and interactive shell requests).
-func handleSession(ch ssh.Channel, reqs <-chan *ssh.Request, execEnv []string) {
+func handleSession(ctx context.Context, ch ssh.Channel, reqs <-chan *ssh.Request, execEnv []string) {
 	defer ch.Close()
 	winSize := &pty.Winsize{Cols: 80, Rows: 24}
 
@@ -270,7 +273,7 @@ func handleSession(ch ssh.Channel, reqs <-chan *ssh.Request, execEnv []string) {
 
 		case "shell":
 			req.Reply(true, nil)
-			runShellSession(ch, reqs, execEnv, winSize, termType)
+			runShellSession(ctx, ch, reqs, execEnv, winSize, termType)
 			return
 
 		case "exec":
@@ -282,7 +285,8 @@ func handleSession(ch ssh.Channel, reqs <-chan *ssh.Request, execEnv []string) {
 			command := string(req.Payload[4 : 4+cmdLen])
 			req.Reply(true, nil)
 
-			cmd := exec.Command("sh", "-c", command)
+			execCtx, execCancel := context.WithTimeout(ctx, sshCmdTimeout)
+			cmd := exec.CommandContext(execCtx, "sh", "-c", command)
 			cmd.Env = upsertEnv(append([]string{}, execEnv...), "TERM", termType)
 			cmd.Stdout = ch
 			cmd.Stderr = ch.Stderr()
@@ -296,6 +300,7 @@ func handleSession(ch ssh.Channel, reqs <-chan *ssh.Request, execEnv []string) {
 					exitCode = 1
 				}
 			}
+			execCancel()
 
 			// Send exit-status
 			exitMsg := make([]byte, 4)
@@ -311,7 +316,7 @@ func handleSession(ch ssh.Channel, reqs <-chan *ssh.Request, execEnv []string) {
 	}
 }
 
-func runShellSession(ch ssh.Channel, reqs <-chan *ssh.Request, execEnv []string, size *pty.Winsize, termType string) {
+func runShellSession(ctx context.Context, ch ssh.Channel, reqs <-chan *ssh.Request, execEnv []string, size *pty.Winsize, termType string) {
 	var sizeMu sync.RWMutex
 	currentSize := *size
 
@@ -364,7 +369,7 @@ func runShellSession(ch ssh.Channel, reqs <-chan *ssh.Request, execEnv []string,
 			sizeMu.RLock()
 			ws := currentSize
 			sizeMu.RUnlock()
-			sendExitStatus(ch, runShellCommand(ch, line, execEnv, &ws, termType))
+			sendExitStatus(ch, runShellCommand(ctx, ch, line, execEnv, &ws, termType))
 			return
 		}
 	}
@@ -380,9 +385,23 @@ type crToLFWriter struct {
 	w io.Writer
 }
 
-func runShellCommand(ch ssh.Channel, command string, execEnv []string, size *pty.Winsize, termType string) int {
-	cmd := exec.Command("sh", "-c", command)
+// sshCmdTimeout bounds any single exec/shell command spawned by the test SSH
+// server. It must exceed the longest server-side wait (wait-idle 20s) but stay
+// well under the 300s CI binary timeout so a wedged command is killed before
+// the global timeout fires.
+const sshCmdTimeout = 60 * time.Second
+
+func runShellCommand(ctx context.Context, ch ssh.Channel, command string, execEnv []string, size *pty.Winsize, termType string) int {
+	cmdCtx, cancel := context.WithTimeout(ctx, sshCmdTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(cmdCtx, "sh", "-c", command)
 	cmd.Env = upsertEnv(append([]string{}, execEnv...), "TERM", termType)
+	// Kill the child immediately when the context fires so children of
+	// "sh -c ..." don't outlive the test or the per-command deadline.
+	cmd.Cancel = func() error {
+		return cmd.Process.Kill()
+	}
 
 	ptmx, err := pty.StartWithSize(cmd, size)
 	if err != nil {
@@ -409,6 +428,7 @@ func runShellCommand(ch ssh.Channel, command string, execEnv []string, size *pty
 		}
 	}
 
+	// Close PTY master to unblock the io.Copy(ch, ptmx) goroutine.
 	_ = ptmx.Close()
 	<-done
 	return exitCode
