@@ -167,19 +167,29 @@ func cmdPaneLog(ctx *CommandContext) {
 	}
 
 	var output strings.Builder
-	output.WriteString(fmt.Sprintf("%-30s %-8s %-5s %-12s %-10s %s\n", "TS", "EVENT", "ID", "PANE", "HOST", "REASON"))
+	output.WriteString(fmt.Sprintf("%-30s %-8s %-5s %-12s %-10s %-40s %-24s %s\n", "TS", "EVENT", "ID", "PANE", "HOST", "CWD", "GIT_BRANCH", "REASON"))
 	for _, entry := range entries {
+		cwd := entry.Cwd
+		if cwd == "" {
+			cwd = "-"
+		}
+		gitBranch := entry.GitBranch
+		if gitBranch == "" {
+			gitBranch = "-"
+		}
 		reason := entry.ExitReason
 		if reason == "" {
 			reason = "-"
 		}
 		output.WriteString(fmt.Sprintf(
-			"%-30s %-8s %-5d %-12s %-10s %s\n",
+			"%-30s %-8s %-5d %-12s %-10s %-40s %-24s %s\n",
 			entry.Timestamp.UTC().Format(time.RFC3339Nano),
 			entry.Event,
 			entry.PaneID,
 			entry.PaneName,
 			entry.Host,
+			cwd,
+			gitBranch,
 			reason,
 		))
 	}

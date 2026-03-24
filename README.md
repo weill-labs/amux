@@ -305,6 +305,7 @@ All commands accept `-s <session>` to target a specific session. Panes are refer
 | `amux events [--filter type,...] [--pane ref] [--host name] [--client id] [--throttle 50ms] [--no-reconnect]` | Stream events as NDJSON (output throttled, auto-reconnect by default) |
 | `amux list-clients` | List attached clients and client-local UI state |
 | `amux connection-log` | Show recent client attach/detach history |
+| `amux pane-log` | Show recent pane create/exit history with exit cwd, git branch, and reason |
 
 ### Windows
 

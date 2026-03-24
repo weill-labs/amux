@@ -20,6 +20,8 @@ type PaneLogEntry struct {
 	PaneID     uint32
 	PaneName   string
 	Host       string
+	Cwd        string
+	GitBranch  string
 	ExitReason string
 }
 
@@ -77,13 +79,28 @@ func (s *Session) ensurePaneLog() *PaneLog {
 	return s.paneLog
 }
 
+func effectivePaneCwd(pane *mux.Pane) string {
+	if pane == nil {
+		return ""
+	}
+	if cwd := pane.LiveCwd(); cwd != "" {
+		return cwd
+	}
+	return pane.Meta.Dir
+}
+
 func (s *Session) appendPaneLog(event string, pane *mux.Pane, reason string) {
-	s.ensurePaneLog().Append(PaneLogEntry{
+	entry := PaneLogEntry{
 		Timestamp:  time.Now().UTC(),
 		Event:      event,
 		PaneID:     pane.ID,
 		PaneName:   pane.Meta.Name,
 		Host:       pane.Meta.Host,
 		ExitReason: reason,
-	})
+	}
+	if event == paneLogEventExit {
+		entry.Cwd = effectivePaneCwd(pane)
+		entry.GitBranch = pane.Meta.GitBranch
+	}
+	s.ensurePaneLog().Append(entry)
 }
