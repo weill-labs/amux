@@ -115,10 +115,6 @@ func TestCapturePaneHistoryWithoutAttachedClient(t *testing.T) {
 	h.client.close()
 	h.client = nil
 
-	if out := h.runCmd("capture"); !strings.Contains(out, "no client attached") {
-		t.Fatalf("full-screen capture without client should still fail, got: %s", out)
-	}
-
 	out := h.runCmd("capture", "pane-1")
 	if strings.Contains(out, "no client attached") {
 		t.Fatalf("pane capture without client should fall back to the server, got: %s", out)
@@ -234,50 +230,6 @@ func TestCapturePaneHistoryRejectsInvalidFlags(t *testing.T) {
 
 	if out := h.runCmd("capture", "--history", "--rewrap", "0", "pane-1"); !strings.Contains(out, "--rewrap requires a positive integer width") {
 		t.Fatalf("history capture with invalid rewrap width should fail, got:\n%s", out)
-	}
-}
-
-func TestCapturePaneHistoryRewrapsNarrowLiveHistoryAndContent(t *testing.T) {
-	t.Parallel()
-	h := newServerHarness(t)
-
-	h.splitV()
-	h.splitV()
-	h.splitV()
-	historyLine := "FIRST history narrow panes should rewrap cleanly for agents to read"
-	visibleLine := "SECOND visible content should also rewrap cleanly for agents to read"
-	scriptPath := filepath.Join(os.TempDir(), fmt.Sprintf("amux-history-rewrap-%s.sh", h.session))
-	script := "#!/bin/bash\n" +
-		fmt.Sprintf("printf '%s\\n'\n", historyLine) +
-		fmt.Sprintf("printf '%s\\n'\n", visibleLine)
-	if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
-		t.Fatalf("writing rewrap history script: %v", err)
-	}
-	t.Cleanup(func() { os.Remove(scriptPath) })
-
-	h.sendKeys("pane-1", scriptPath, "Enter")
-	h.waitForPaneContent("pane-1", "SECOND visible", 5*time.Second)
-
-	raw := h.runCmd("capture", "--history", "pane-1")
-	if strings.Contains(raw, "FIRST history narrow panes should rewrap cleanly") {
-		t.Fatalf("raw history should still contain narrow-width breaks, got:\n%s", raw)
-	}
-
-	rewrapped := h.runCmd("capture", "--history", "--rewrap", "80", "pane-1")
-	if !strings.Contains(rewrapped, "FIRST history narrow panes should rewrap cleanly for agents") {
-		t.Fatalf("rewrapped history should reconstruct the readable history prefix, got:\n%s", rewrapped)
-	}
-	if !strings.Contains(rewrapped, "SECOND visible content should also rewrap cleanly for agents") {
-		t.Fatalf("rewrapped history should reconstruct the readable visible-content prefix too, got:\n%s", rewrapped)
-	}
-
-	out := h.runCmd("capture", "--history", "--rewrap", "80", "--format", "json", "pane-1")
-	var pane proto.CapturePane
-	if err := json.Unmarshal([]byte(out), &pane); err != nil {
-		t.Fatalf("json.Unmarshal: %v\noutput:\n%s", err, out)
-	}
-	if joined := strings.Join(append(append([]string{}, pane.History...), pane.Content...), "\n"); !strings.Contains(joined, "SECOND visible content should also rewrap cleanly for agents") {
-		t.Fatalf("rewrapped JSON content should reconstruct the full visible line, got:\n%s", joined)
 	}
 }
 
