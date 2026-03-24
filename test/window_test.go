@@ -141,13 +141,13 @@ func TestWindowSwitchResyncsStaleCursorState(t *testing.T) {
 			t.Parallel()
 
 			h := newServerHarnessWithSize(t, 255, 62)
-			h.waitForTimeout("pane-1", "$", "3s")
+			h.waitFor("pane-1", "$")
 
 			healthyCapture := h.captureJSON()
 			healthy := h.jsonPane(healthyCapture, "pane-1")
 
 			h.runCmd("new-window")
-			h.waitForTimeout("pane-2", "$", "3s")
+			h.waitFor("pane-2", "$")
 
 			// Simulate stale client-side cursor state for the hidden pane in window 1.
 			h.client.renderer.HandlePaneOutput(1, []byte("\033[1;24H"))

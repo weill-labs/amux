@@ -529,9 +529,11 @@ func (h *ServerHarness) activePaneName() string {
 	return ""
 }
 
-// doSplit runs a split CLI command targeting the active pane, waits for the
-// layout generation to bump (ensuring the headless client has received the
-// broadcast), and fails the test if the command errors.
+// doSplit is a layout-construction helper for tests. It runs the public split
+// CLI command against the active pane, waits for the resulting layout update,
+// then explicitly focuses the newly created pane so repeated calls keep
+// building from the latest leaf. Tests that need raw split semantics should
+// call runCmd("split", ...) directly.
 func (h *ServerHarness) doSplit(args ...string) {
 	h.tb.Helper()
 	gen := h.generation()
@@ -542,6 +544,11 @@ func (h *ServerHarness) doSplit(args ...string) {
 		h.tb.Fatalf("split %v failed: %s", args, out)
 	}
 	h.waitLayout(gen)
+	if created := splitCreatedPaneName(out); created != "" {
+		h.doFocus(created)
+		return
+	}
+	h.tb.Fatalf("split %v created no detectable new pane; output: %s", args, out)
 }
 
 // doFocus runs a focus command and waits for the layout generation to bump
@@ -555,8 +562,9 @@ func (h *ServerHarness) doFocus(args ...string) string {
 	return out
 }
 
-// doSplitPane is like doSplit but takes an explicit pane name instead of querying
-// the active pane. Use this when the capture may be stale (e.g., after reload).
+// doSplitPane is like doSplit but takes an explicit pane name instead of
+// querying the active pane. Use this when the capture may be stale
+// (for example after reload).
 func (h *ServerHarness) doSplitPane(pane string, args ...string) {
 	h.tb.Helper()
 	gen := h.generation()
@@ -566,6 +574,25 @@ func (h *ServerHarness) doSplitPane(pane string, args ...string) {
 		h.tb.Fatalf("split %s %v failed: %s", pane, args, out)
 	}
 	h.waitLayout(gen)
+	if created := splitCreatedPaneName(out); created != "" {
+		h.doFocus(created)
+		return
+	}
+	h.tb.Fatalf("split %s %v created no detectable new pane; output: %s", pane, args, out)
+}
+
+func splitCreatedPaneName(output string) string {
+	for _, marker := range []string{"new remote pane ", "new pane "} {
+		idx := strings.Index(output, marker)
+		if idx < 0 {
+			continue
+		}
+		rest := strings.TrimSpace(output[idx+len(marker):])
+		if fields := strings.Fields(rest); len(fields) > 0 {
+			return fields[0]
+		}
+	}
+	return ""
 }
 
 func (h *ServerHarness) splitV()     { h.tb.Helper(); h.doSplit("v") }

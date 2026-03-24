@@ -246,7 +246,7 @@ func TestCapturePaneHistoryRewrapsNarrowLiveHistoryAndContent(t *testing.T) {
 	h.splitV()
 	historyLine := "FIRST history narrow panes should rewrap cleanly for agents to read"
 	visibleLine := "SECOND visible content should also rewrap cleanly for agents to read"
-	scriptPath := filepath.Join(os.TempDir(), fmt.Sprintf("amux-history-rewrap-%s.sh", h.session))
+	scriptPath := filepath.Join(os.TempDir(), fmt.Sprintf("rw-%s.sh", h.session))
 	script := "#!/bin/bash\n" +
 		fmt.Sprintf("printf '%s\\n'\n", historyLine) +
 		fmt.Sprintf("printf '%s\\n'\n", visibleLine)
