@@ -77,7 +77,7 @@ bash scripts/check-test-invariants.sh
 
 # Reject new mutable package-level vars (test seams) — inject via struct/param instead
 if [ -n "$STAGED" ]; then
-    GLOBALS_VIOLATIONS=$(bash scripts/lint-globals.sh 2>&1)
+    GLOBALS_VIOLATIONS=$(STAGED_ONLY=1 bash scripts/lint-globals.sh 2>&1)
     if [ $? -ne 0 ]; then
         echo "$GLOBALS_VIOLATIONS"
         exit 1
