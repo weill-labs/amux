@@ -27,8 +27,6 @@ var sessionName = "default"
 
 const reconnectEventType = "reconnect"
 
-var resolveReloadExecPath = reload.ResolveExecutable
-
 // BuildCommit can be set via -ldflags "-X main.BuildCommit=abc1234".
 // Falls back to VCS info from runtime/debug at startup.
 var BuildCommit string
@@ -896,7 +894,7 @@ func runServerCommand(cmdName string, args []string) {
 	defer conn.Close()
 
 	if cmdName == "reload-server" {
-		args = prependReloadExecPathArg(args)
+		args = prependReloadExecPathArg(reload.ResolveExecutable, args)
 	}
 
 	if err := server.WriteMsg(conn, newCommandMessage(cmdName, args)); err != nil {
@@ -917,8 +915,8 @@ func runServerCommand(cmdName string, args []string) {
 	fmt.Print(reply.CmdOutput)
 }
 
-func prependReloadExecPathArg(args []string) []string {
-	execPath, err := resolveReloadExecPath()
+func prependReloadExecPathArg(resolve func() (string, error), args []string) []string {
+	execPath, err := resolve()
 	if err != nil {
 		return args
 	}
