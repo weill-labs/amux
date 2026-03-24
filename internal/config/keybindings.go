@@ -58,6 +58,7 @@ func DefaultKeybindings() *Keybindings {
 			// Future tmux-compatible mark-pane behavior can claim this key.
 			'm': {Action: "compat-bell"},
 			'M': {Action: "toggle-minimize"},
+			'U': {Action: "undo"},
 			'[': {Action: "copy-mode"},
 			'c': {Action: "new-window"},
 			'n': {Action: "next-window"},
@@ -125,6 +126,7 @@ var knownActions = map[string]bool{
 	"toggle-minimize": true, "new-window": true, "next-window": true,
 	"prev-window": true, "select-window": true, "rename-window": true,
 	"display-panes": true, "choose-tree": true, "choose-window": true,
+	"undo":   true,
 	"detach": true, "reload": true, "copy-mode": true,
 }
 

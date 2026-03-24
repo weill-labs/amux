@@ -427,7 +427,7 @@ func cmdKill(ctx *CommandContext) {
 			}
 		}
 
-		removed := sess.finalizePaneRemoval(pane.ID)
+		removed := sess.softClosePane(pane.ID)
 		if removed.pane == nil {
 			return commandMutationResult{}
 		}
@@ -441,23 +441,38 @@ func cmdKill(ctx *CommandContext) {
 			Reason:   "killed",
 		})
 
-		res := commandMutationResult{
-			closePanes: []*mux.Pane{removed.pane},
-		}
+		// If the last pane was killed, session exits — no undo possible.
 		if removed.sendExit {
-			res.output = fmt.Sprintf("Killed %s (session exiting)\n", removed.paneName)
-			res.sendExit = true
-			res.shutdownServer = true
-			return res
+			return commandMutationResult{
+				closePanes:     []*mux.Pane{removed.pane},
+				output:         fmt.Sprintf("Killed %s (session exiting)\n", removed.paneName),
+				sendExit:       true,
+				shutdownServer: true,
+			}
 		}
 
-		res.broadcastLayout = removed.broadcastLayout
+		res := commandMutationResult{
+			broadcastLayout: removed.broadcastLayout,
+		}
 		if removed.closedWindow != "" {
 			res.output = fmt.Sprintf("Killed %s (closed %s)\n", removed.paneName, removed.closedWindow)
 		} else {
 			res.output = fmt.Sprintf("Killed %s\n", removed.paneName)
 		}
 		return res
+	}))
+}
+
+func cmdUndo(ctx *CommandContext) {
+	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
+		pane, err := sess.undoClosePane()
+		if err != nil {
+			return commandMutationResult{err: err}
+		}
+		return commandMutationResult{
+			output:          fmt.Sprintf("Restored %s\n", pane.Meta.Name),
+			broadcastLayout: true,
+		}
 	}))
 }
 

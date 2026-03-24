@@ -153,6 +153,8 @@ func main() {
 		runServerCommand("copy-mode", []string{args[1]})
 	case "zoom":
 		runServerCommand("zoom", args[1:])
+	case "undo":
+		runServerCommand("undo", args[1:])
 	case "swap":
 		if len(args) < 2 {
 			fmt.Fprintf(os.Stderr, "usage: amux swap <pane1> <pane2> | swap forward | swap backward\n")
@@ -472,7 +474,7 @@ Usage:
   amux [-s session] status             Show pane/window summary
   amux [-s session] list-clients       List attached clients + client-local UI state
   amux [-s session] connection-log     Show recent client attach/detach history
-  amux [-s session] pane-log           Show pane create/exit history with exit reasons
+  amux [-s session] pane-log           Show pane create/exit history with exit cwd/branch context
   amux [-s session] capture            Capture full composited screen
   amux [-s session] capture <pane>     Capture a single pane's output
   amux [-s session] capture --history <pane>
@@ -502,6 +504,7 @@ Usage:
   amux [-s session] resize-pane <pane> <dir> [n]
                                        Resize pane (dir: left/right/up/down)
   amux [-s session] kill <pane>        Kill a pane
+  amux [-s session] undo              Undo last pane close
   amux [-s session] focus <pane>       Focus a pane by name or ID
   amux [-s session] copy-mode <pane>   Enter copy/scroll mode for a pane
   amux [-s session] set-meta <pane> key=value [key=value...]

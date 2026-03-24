@@ -380,6 +380,34 @@ func TestAltHJKLFocusVertical(t *testing.T) {
 	h.assertActive("pane-2")
 }
 
+// TestEscapeThenJDoesNotFocus verifies that pressing Escape followed by j
+// (in separate keystrokes) does NOT trigger alt+j focus navigation. The mouse
+// parser must flush its buffered \x1b at the end of each read so that a bare
+// Escape is forwarded to the pane rather than coalescing with the next byte.
+func TestEscapeThenJDoesNotFocus(t *testing.T) {
+	t.Parallel()
+	h := newAmuxHarness(t)
+
+	// Split horizontally: pane-1 (top) / pane-2 (bottom, active)
+	h.splitH()
+	h.assertActive("pane-2")
+
+	// Send Escape and j as separate keystrokes. We use wait-ui input-idle
+	// between them to guarantee the client finishes processing the Escape
+	// read before we send j — ensuring they land in separate reads.
+	gen := h.uiGen()
+	h.sendKeys("Escape")
+	h.waitUIAfter(proto.UIEventInputIdle, gen, 3*time.Second)
+
+	gen = h.uiGen()
+	h.sendKeys("j")
+	h.waitUIAfter(proto.UIEventInputIdle, gen, 3*time.Second)
+
+	// Focus should NOT have moved — Escape and j should both be forwarded
+	// to the active pane as literal input.
+	h.assertActive("pane-2")
+}
+
 func TestPrefixArrowFocusVertical(t *testing.T) {
 	t.Parallel()
 	h := newAmuxHarness(t)
