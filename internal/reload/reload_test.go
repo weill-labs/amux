@@ -5,7 +5,129 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/fsnotify/fsnotify"
 )
+
+func TestResetDebounceTimerCreatesTimer(t *testing.T) {
+	t.Parallel()
+
+	timer := resetDebounceTimer(nil, 20*time.Millisecond)
+	defer func() {
+		if !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
+	}()
+
+	select {
+	case <-timer.C:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("expected debounce timer to fire")
+	}
+}
+
+func TestResetDebounceTimerDrainsExpiredUnreadTimer(t *testing.T) {
+	t.Parallel()
+
+	timer := time.NewTimer(20 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
+
+	timer = resetDebounceTimer(timer, 80*time.Millisecond)
+	defer func() {
+		if !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
+	}()
+
+	select {
+	case <-timer.C:
+		t.Fatal("debounce timer should not fire immediately after reset")
+	case <-time.After(30 * time.Millisecond):
+	}
+}
+
+func TestResetDebounceTimerHandlesExpiredDrainedTimer(t *testing.T) {
+	t.Parallel()
+
+	timer := time.NewTimer(20 * time.Millisecond)
+	select {
+	case <-timer.C:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("expected timer to expire before reset")
+	}
+
+	timer = resetDebounceTimer(timer, 80*time.Millisecond)
+	defer func() {
+		if !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
+	}()
+
+	select {
+	case <-timer.C:
+		t.Fatal("debounce timer should not fire immediately after drained reset")
+	case <-time.After(30 * time.Millisecond):
+	}
+}
+
+func TestWatchEventMatchesTarget(t *testing.T) {
+	t.Parallel()
+
+	if !watchEventMatchesTarget(fsnotify.Event{Name: "/tmp/amux", Op: fsnotify.Write}, "amux") {
+		t.Fatal("write event for target binary should match")
+	}
+	if !watchEventMatchesTarget(fsnotify.Event{Name: "/tmp/amux", Op: fsnotify.Create}, "amux") {
+		t.Fatal("create event for target binary should match")
+	}
+	if watchEventMatchesTarget(fsnotify.Event{Name: "/tmp/other", Op: fsnotify.Write}, "amux") {
+		t.Fatal("write event for a different file should not match")
+	}
+	if watchEventMatchesTarget(fsnotify.Event{Name: "/tmp/amux", Op: fsnotify.Remove}, "amux") {
+		t.Fatal("non-write/create event for target binary should not match")
+	}
+}
+
+func TestDrainPendingReloadEvents(t *testing.T) {
+	t.Parallel()
+
+	events := make(chan fsnotify.Event, 4)
+	errors := make(chan error, 2)
+	events <- fsnotify.Event{Name: "/tmp/other", Op: fsnotify.Write}
+	events <- fsnotify.Event{Name: "/tmp/amux", Op: fsnotify.Write}
+	errors <- nil
+
+	if !drainPendingReloadEvents(events, errors, "amux") {
+		t.Fatal("drain should report a matching pending reload event")
+	}
+	if len(events) != 0 {
+		t.Fatalf("drain should consume all pending events, got %d left", len(events))
+	}
+	if len(errors) != 0 {
+		t.Fatalf("drain should consume pending errors, got %d left", len(errors))
+	}
+}
+
+func TestDrainPendingReloadEventsNoMatch(t *testing.T) {
+	t.Parallel()
+
+	events := make(chan fsnotify.Event, 2)
+	errors := make(chan error, 1)
+	events <- fsnotify.Event{Name: "/tmp/other", Op: fsnotify.Write}
+	errors <- nil
+
+	if drainPendingReloadEvents(events, errors, "amux") {
+		t.Fatal("drain should ignore unrelated pending events")
+	}
+}
 
 func TestWatchBinaryDebounce(t *testing.T) {
 	// Create a temp directory with a fake binary

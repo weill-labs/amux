@@ -20,6 +20,45 @@ func ResolveExecutable() (string, error) {
 	return filepath.EvalSymlinks(exe)
 }
 
+func resetDebounceTimer(timer *time.Timer, delay time.Duration) *time.Timer {
+	if timer == nil {
+		return time.NewTimer(delay)
+	}
+	if !timer.Stop() {
+		select {
+		case <-timer.C:
+		default:
+		}
+	}
+	timer.Reset(delay)
+	return timer
+}
+
+func watchEventMatchesTarget(event fsnotify.Event, base string) bool {
+	return filepath.Base(event.Name) == base && event.Op&(fsnotify.Write|fsnotify.Create) != 0
+}
+
+func drainPendingReloadEvents(events <-chan fsnotify.Event, errors <-chan error, base string) bool {
+	drained := false
+	for {
+		select {
+		case event, ok := <-events:
+			if !ok {
+				return drained
+			}
+			if watchEventMatchesTarget(event, base) {
+				drained = true
+			}
+		case _, ok := <-errors:
+			if !ok {
+				return drained
+			}
+		default:
+			return drained
+		}
+	}
+}
+
 // WatchBinary watches for changes to the binary at execPath and sends on
 // triggerReload when a change is detected (with 200ms debounce).
 // If ready is non-nil, it is closed after the file watcher is registered.
@@ -51,37 +90,25 @@ func WatchBinary(execPath string, triggerReload chan<- struct{}, ready chan<- st
 	var debounce *time.Timer
 	var debounceC <-chan time.Time
 
-	resetDebounce := func() {
-		if debounce == nil {
-			debounce = time.NewTimer(200 * time.Millisecond)
-		} else {
-			if !debounce.Stop() {
-				select {
-				case <-debounce.C:
-				default:
-				}
-			}
-			debounce.Reset(200 * time.Millisecond)
-		}
-		debounceC = debounce.C
-	}
-
 	for {
 		select {
 		case event, ok := <-watcher.Events:
 			if !ok {
 				return
 			}
-			if filepath.Base(event.Name) != base {
+			if !watchEventMatchesTarget(event, base) {
 				continue
 			}
-			if event.Op&(fsnotify.Write|fsnotify.Create) == 0 {
-				continue
-			}
-			resetDebounce()
+			debounce = resetDebounceTimer(debounce, 200*time.Millisecond)
+			debounceC = debounce.C
 
 		case <-debounceC:
 			debounceC = nil
+			if drainPendingReloadEvents(watcher.Events, watcher.Errors, base) {
+				debounce = resetDebounceTimer(debounce, 200*time.Millisecond)
+				debounceC = debounce.C
+				continue
+			}
 			select {
 			case triggerReload <- struct{}{}:
 			default:
