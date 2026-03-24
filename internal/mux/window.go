@@ -2,7 +2,6 @@ package mux
 
 import (
 	"fmt"
-	"strings"
 	"sync/atomic"
 )
 
@@ -636,19 +635,21 @@ func (w *Window) Panes() []*Pane {
 	return panes
 }
 
-// ResolvePane finds a pane by name or numeric ID string.
-func (w *Window) ResolvePane(ref string) *Pane {
-	for _, p := range w.Panes() {
-		if p.Meta.Name == ref || fmt.Sprintf("%d", p.ID) == ref {
-			return p
-		}
+// ResolvePane finds a pane by exact name or numeric ID string.
+func (w *Window) ResolvePane(ref string) (*Pane, error) {
+	panes := w.Panes()
+	candidates := make([]PaneRefCandidate, 0, len(panes))
+	byID := make(map[uint32]*Pane, len(panes))
+	for _, pane := range panes {
+		candidates = append(candidates, PaneRefCandidate{ID: pane.ID, Name: pane.Meta.Name})
+		byID[pane.ID] = pane
 	}
-	for _, p := range w.Panes() {
-		if strings.HasPrefix(p.Meta.Name, ref) {
-			return p
-		}
+
+	paneID, err := ResolvePaneRef(ref, candidates)
+	if err != nil {
+		return nil, err
 	}
-	return nil
+	return byID[paneID], nil
 }
 
 func (w *Window) rootChildForPaneID(paneID uint32) (*LayoutCell, int, error) {

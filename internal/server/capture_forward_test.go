@@ -172,7 +172,7 @@ func TestForwardCapturePaneFallsBackWithoutClient(t *testing.T) {
 	}
 }
 
-func TestForwardCapturePaneFallsBackWhenClientCannotResolvePane(t *testing.T) {
+func TestForwardCapturePaneUsesResolvedNumericID(t *testing.T) {
 	t.Parallel()
 
 	_, sess, cleanup := newCommandTestSession(t)
@@ -190,27 +190,15 @@ func TestForwardCapturePaneFallsBackWhenClientCannotResolvePane(t *testing.T) {
 		t.Fatalf("enqueueSessionQuery: %v", err)
 	}
 
-	msg, respCh := startCapturePaneWithFallbackForTest(t, sess, []string{"pane-1"})
+	msg, respCh := startCapturePaneWithFallbackForTest(t, sess, []string{"--format", "json", "pane-1"})
 	if msg.Type != MsgTypeCaptureRequest {
 		t.Fatalf("message type = %v, want capture request", msg.Type)
 	}
-
-	sess.routeCaptureResponse(&Message{
-		Type:   MsgTypeCaptureResponse,
-		CmdErr: `pane "pane-1" not found`,
-	})
-
-	select {
-	case resp := <-respCh:
-		if resp.CmdErr != "" {
-			t.Fatalf("capturePaneWithFallback error: %s", resp.CmdErr)
-		}
-		if !strings.Contains(resp.CmdOutput, "FALLBACK-CLIENT-NOT-FOUND") {
-			t.Fatalf("capturePaneWithFallback output = %q, want server fallback content", resp.CmdOutput)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("capturePaneWithFallback did not return")
+	if want := []string{"--format", "json", "1"}; !slices.Equal(msg.CmdArgs, want) {
+		t.Fatalf("capture request args = %v, want %v", msg.CmdArgs, want)
 	}
+
+	deliverCaptureResponseForTest(t, sess, msg, respCh)
 }
 
 func TestForwardCaptureJSONWrapsBadClientResponses(t *testing.T) {

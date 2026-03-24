@@ -160,15 +160,44 @@ func (s *Session) resolvePaneAcrossWindowsForActor(actorPaneID uint32, ref strin
 	if len(windows) == 0 {
 		return nil, nil, fmt.Errorf("no session")
 	}
+
+	seen := make(map[uint32]struct{}, len(s.Panes))
 	for _, window := range windows {
-		if pane := window.ResolvePane(ref); pane != nil {
-			return pane, window, nil
+		panes := window.Panes()
+		candidates := make([]mux.PaneRefCandidate, 0, len(panes))
+		byID := make(map[uint32]*mux.Pane, len(panes))
+		for _, pane := range panes {
+			seen[pane.ID] = struct{}{}
+			candidates = append(candidates, mux.PaneRefCandidate{ID: pane.ID, Name: pane.Meta.Name})
+			byID[pane.ID] = pane
+		}
+		paneID, err := mux.ResolvePaneRef(ref, candidates)
+		switch {
+		case err == nil:
+			return byID[paneID], window, nil
+		case err.Error() == fmt.Sprintf("pane %q not found", ref):
+			continue
+		default:
+			return nil, nil, err
 		}
 	}
-	if pane := s.findPaneByRef(ref); pane != nil {
-		return pane, s.findWindowByPaneID(pane.ID), nil
+
+	candidates := make([]mux.PaneRefCandidate, 0, len(s.Panes))
+	byID := make(map[uint32]*mux.Pane, len(s.Panes))
+	for _, pane := range s.Panes {
+		if _, ok := seen[pane.ID]; ok {
+			continue
+		}
+		candidates = append(candidates, mux.PaneRefCandidate{ID: pane.ID, Name: pane.Meta.Name})
+		byID[pane.ID] = pane
 	}
-	return nil, nil, fmt.Errorf("pane %q not found", ref)
+
+	paneID, err := mux.ResolvePaneRef(ref, candidates)
+	if err != nil {
+		return nil, nil, err
+	}
+	pane := byID[paneID]
+	return pane, s.findWindowByPaneID(paneID), nil
 }
 
 func (s *Session) resolvePaneWindowForActor(actorPaneID uint32, cmdName string, args []string) (*mux.Pane, *mux.Window, error) {

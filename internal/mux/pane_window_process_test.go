@@ -323,14 +323,14 @@ func TestWindowZoomResolvePaneToggleMinimizeAndResizeBorder(t *testing.T) {
 	if got := w.PaneCount(); got != 2 {
 		t.Fatalf("PaneCount() = %d, want 2", got)
 	}
-	if got := w.ResolvePane("pane-2"); got != p2 {
-		t.Fatalf("ResolvePane(name) = %+v, want pane-2", got)
+	if got, err := w.ResolvePane("pane-2"); err != nil || got != p2 {
+		t.Fatalf("ResolvePane(name) = (%+v, %v), want (%+v, nil)", got, err, p2)
 	}
-	if got := w.ResolvePane("2"); got != p2 {
-		t.Fatalf("ResolvePane(id) = %+v, want pane-2", got)
+	if got, err := w.ResolvePane("2"); err != nil || got != p2 {
+		t.Fatalf("ResolvePane(id) = (%+v, %v), want (%+v, nil)", got, err, p2)
 	}
-	if got := w.ResolvePane("pane-"); got == nil {
-		t.Fatal("ResolvePane(prefix) = nil, want a matching pane")
+	if _, err := w.ResolvePane("pane-"); err == nil || err.Error() != `pane "pane-" not found` {
+		t.Fatalf("ResolvePane(prefix) error = %v, want pane not found", err)
 	}
 
 	if err := w.Zoom(1); err != nil {
@@ -381,6 +381,21 @@ func TestWindowZoomResolvePaneToggleMinimizeAndResizeBorder(t *testing.T) {
 	}
 	if w.ResizeBorder(-1, -1, 5) {
 		t.Fatal("ResizeBorder should fail for coordinates outside any border")
+	}
+}
+
+func TestWindowResolvePaneRejectsAmbiguousExactNames(t *testing.T) {
+	t.Parallel()
+
+	p1 := &Pane{ID: 1, Meta: PaneMeta{Name: "shared", Host: DefaultHost, Color: "f5e0dc"}, emulator: NewVTEmulatorWithScrollback(10, 5, DefaultScrollbackLines)}
+	p2 := &Pane{ID: 2, Meta: PaneMeta{Name: "shared", Host: DefaultHost, Color: "f2cdcd"}, emulator: NewVTEmulatorWithScrollback(10, 5, DefaultScrollbackLines)}
+	w := NewWindow(p1, 80, 24)
+	if _, err := w.SplitRoot(SplitHorizontal, p2); err != nil {
+		t.Fatalf("SplitRoot: %v", err)
+	}
+
+	if _, err := w.ResolvePane("shared"); err == nil || !strings.Contains(err.Error(), `pane "shared" is ambiguous`) {
+		t.Fatalf("ResolvePane(shared) error = %v, want ambiguous", err)
 	}
 }
 

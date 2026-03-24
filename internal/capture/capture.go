@@ -57,6 +57,36 @@ func ParseArgs(args []string) Request {
 	return req
 }
 
+// ArgsForRequest reconstructs a normalized CLI arg list from a parsed request.
+func ArgsForRequest(req Request) []string {
+	args := make([]string, 0, 8)
+	if req.IncludeANSI {
+		args = append(args, "--ansi")
+	}
+	if req.ColorMap {
+		args = append(args, "--colors")
+	}
+	if req.DisplayMode {
+		args = append(args, "--display")
+	}
+	if req.HistoryMode {
+		args = append(args, "--history")
+	}
+	if req.RewrapSpecified {
+		args = append(args, "--rewrap")
+		if req.RewrapRaw != "" {
+			args = append(args, req.RewrapRaw)
+		}
+	}
+	if req.FormatJSON {
+		args = append(args, "--format", "json")
+	}
+	if req.PaneRef != "" {
+		args = append(args, req.PaneRef)
+	}
+	return args
+}
+
 // ValidateScreenRequest applies the shared client-routed capture validation.
 func ValidateScreenRequest(req Request) error {
 	if (req.IncludeANSI && req.ColorMap) ||

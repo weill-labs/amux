@@ -23,6 +23,8 @@ func TestSessionFindPaneByRef(t *testing.T) {
 		{1, "pane-1"},
 		{2, "pane-2"},
 		{10, "agent-task"},
+		{11, "shared"},
+		{12, "shared"},
 	}
 	for _, p := range panes {
 		sess.Panes = append(sess.Panes, newProxyPane(
@@ -37,28 +39,35 @@ func TestSessionFindPaneByRef(t *testing.T) {
 	}
 
 	tests := []struct {
-		name   string
-		ref    string
-		wantID uint32
+		name    string
+		ref     string
+		wantID  uint32
+		wantErr string
 	}{
-		{"exact name", "pane-1", 1},
-		{"exact name 2", "agent-task", 10},
-		{"numeric ID", "2", 2},
-		{"numeric ID 10", "10", 10},
-		{"prefix match", "pane-", 1}, // first prefix match
-		{"prefix match agent", "agent", 10},
-		{"no match", "nonexistent", 0},
+		{name: "exact name", ref: "pane-1", wantID: 1},
+		{name: "exact name 2", ref: "agent-task", wantID: 10},
+		{name: "numeric ID", ref: "2", wantID: 2},
+		{name: "numeric ID 10", ref: "10", wantID: 10},
+		{name: "prefix no longer matches", ref: "pane-", wantErr: `pane "pane-" not found`},
+		{name: "no match", ref: "nonexistent", wantErr: `pane "nonexistent" not found`},
+		{name: "ambiguous exact name", ref: "shared", wantErr: `pane "shared" is ambiguous`},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got := sess.findPaneByRef(tt.ref)
-			if tt.wantID == 0 {
+			got, err := sess.findPaneByRef(tt.ref)
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("findPaneByRef(%q) error = %v, want substring %q", tt.ref, err, tt.wantErr)
+				}
 				if got != nil {
-					t.Errorf("findPaneByRef(%q) = pane %d, want nil", tt.ref, got.ID)
+					t.Fatalf("findPaneByRef(%q) = pane %d, want nil", tt.ref, got.ID)
 				}
 				return
+			}
+			if err != nil {
+				t.Fatalf("findPaneByRef(%q) error = %v", tt.ref, err)
 			}
 			if got == nil {
 				t.Fatalf("findPaneByRef(%q) = nil, want pane %d", tt.ref, tt.wantID)
