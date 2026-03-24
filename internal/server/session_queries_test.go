@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
 )
 
@@ -125,6 +126,39 @@ func TestQueryUIClient(t *testing.T) {
 			t.Fatalf("currentGen = %d, want 7", snap.currentGen)
 		}
 	})
+}
+
+func TestResolvePaneAcrossWindowsForActorRejectsAmbiguousExactNames(t *testing.T) {
+	t.Parallel()
+
+	sess := newSession("test-resolve-pane-ambiguous")
+	stopCrashCheckpointLoop(t, sess)
+	defer stopSessionBackgroundLoops(t, sess)
+
+	p1 := newTestPane(sess, 1, "shared")
+	p2 := newTestPane(sess, 2, "active")
+	p3 := newTestPane(sess, 3, "actor")
+	p4 := newTestPane(sess, 4, "shared")
+
+	w1 := newTestWindowWithPanes(t, sess, 1, "window-1", p1, p2)
+	w1.FocusPane(p2)
+	w2 := newTestWindowWithPanes(t, sess, 2, "window-2", p3, p4)
+	w2.FocusPane(p3)
+
+	mustSessionQuery(t, sess, func(sess *Session) struct{} {
+		sess.Windows = []*mux.Window{w1, w2}
+		sess.ActiveWindowID = w1.ID
+		sess.Panes = []*mux.Pane{p1, p2, p3, p4}
+		return struct{}{}
+	})
+
+	_, err := enqueueSessionQuery(sess, func(sess *Session) (struct{}, error) {
+		_, _, err := sess.resolvePaneAcrossWindowsForActor(p3.ID, "shared")
+		return struct{}{}, err
+	})
+	if err == nil || !strings.Contains(err.Error(), `pane "shared" is ambiguous`) {
+		t.Fatalf("resolvePaneAcrossWindowsForActor(shared) error = %v, want ambiguous", err)
+	}
 }
 
 func TestEnqueueUIWaitSubscribeErrors(t *testing.T) {

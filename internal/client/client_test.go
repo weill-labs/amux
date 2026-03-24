@@ -75,6 +75,14 @@ func threePane80x23() *proto.LayoutSnapshot {
 	}
 }
 
+func duplicateNameTwoPane80x23(name string) *proto.LayoutSnapshot {
+	snap := twoPane80x23()
+	for i := range snap.Panes {
+		snap.Panes[i].Name = name
+	}
+	return snap
+}
+
 func singlePane20xN(height int) *proto.LayoutSnapshot {
 	root := proto.CellSnapshot{
 		X: 0, Y: 0, W: 20, H: height,
@@ -822,17 +830,28 @@ func TestClientRendererResolvePaneID(t *testing.T) {
 	t.Parallel()
 	cr := buildTestRenderer(t)
 
-	if id := cr.ResolvePaneID("1"); id != 1 {
-		t.Errorf("numeric: got %d, want 1", id)
+	if id, err := cr.ResolvePaneID("1"); err != nil || id != 1 {
+		t.Errorf("numeric: got (%d, %v), want (1, nil)", id, err)
 	}
-	if id := cr.ResolvePaneID("pane-2"); id != 2 {
-		t.Errorf("name: got %d, want 2", id)
+	if id, err := cr.ResolvePaneID("pane-2"); err != nil || id != 2 {
+		t.Errorf("name: got (%d, %v), want (2, nil)", id, err)
 	}
-	if id := cr.ResolvePaneID("pane-"); id == 0 {
-		t.Error("prefix match should find a pane")
+	if _, err := cr.ResolvePaneID("pane-"); err == nil || !strings.Contains(err.Error(), `pane "pane-" not found`) {
+		t.Fatalf("prefix resolution error = %v, want pane not found", err)
 	}
-	if id := cr.ResolvePaneID("nonexistent"); id != 0 {
-		t.Errorf("nonexistent: got %d, want 0", id)
+	if _, err := cr.ResolvePaneID("nonexistent"); err == nil || !strings.Contains(err.Error(), `pane "nonexistent" not found`) {
+		t.Fatalf("nonexistent resolution error = %v, want pane not found", err)
+	}
+}
+
+func TestClientRendererResolvePaneIDRejectsAmbiguousExactNames(t *testing.T) {
+	t.Parallel()
+
+	cr := NewClientRenderer(80, 24)
+	cr.HandleLayout(duplicateNameTwoPane80x23("shared"))
+
+	if _, err := cr.ResolvePaneID("shared"); err == nil || !strings.Contains(err.Error(), `pane "shared" is ambiguous`) {
+		t.Fatalf("ResolvePaneID(shared) error = %v, want ambiguous", err)
 	}
 }
 
@@ -1875,8 +1894,8 @@ func TestHandleCaptureRequest(t *testing.T) {
 
 	// Nonexistent pane
 	resp = cr.HandleCaptureRequest([]string{"nope"}, nil)
-	if resp.CmdErr == "" {
-		t.Error("nonexistent pane should error")
+	if resp.CmdErr == "" || !strings.Contains(resp.CmdErr, `pane "nope" not found`) {
+		t.Fatalf("CmdErr = %q, want pane not found", resp.CmdErr)
 	}
 
 	// --colors with pane ref
@@ -1891,6 +1910,13 @@ func TestHandleCaptureRequest(t *testing.T) {
 	}
 	if !strings.Contains(resp.CmdErr, `pane "nope" not found`) {
 		t.Fatalf("CmdErr = %q, want pane not found", resp.CmdErr)
+	}
+
+	dup := NewClientRenderer(80, 24)
+	dup.HandleLayout(duplicateNameTwoPane80x23("shared"))
+	resp = dup.HandleCaptureRequest([]string{"shared"}, nil)
+	if resp.CmdErr == "" || !strings.Contains(resp.CmdErr, `pane "shared" is ambiguous`) {
+		t.Fatalf("ambiguous pane capture CmdErr = %q, want ambiguous", resp.CmdErr)
 	}
 }
 

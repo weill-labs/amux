@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"net"
+	"strings"
 	"testing"
 	"time"
 
@@ -74,7 +75,7 @@ func runTestCommandWithActor(t *testing.T, srv *Server, sess *Session, actorPane
 	}
 }
 
-func TestSendKeysPrefersActorWindowForDuplicatePaneNames(t *testing.T) {
+func TestSendKeysRejectsAmbiguousPaneNamesAcrossWindows(t *testing.T) {
 	t.Parallel()
 
 	srv, sess, cleanup := newCommandTestSession(t)
@@ -98,18 +99,18 @@ func TestSendKeysPrefersActorWindowForDuplicatePaneNames(t *testing.T) {
 	sess.Panes = []*mux.Pane{p1, p2, p3, p4}
 
 	res := runTestCommandWithActor(t, srv, sess, p3.ID, "send-keys", "shared", "echo ACTOR", "Enter")
-	if res.cmdErr != "" {
-		t.Fatalf("send-keys error: %s", res.cmdErr)
+	if !strings.Contains(res.cmdErr, `pane "shared" is ambiguous`) {
+		t.Fatalf("send-keys error = %q, want ambiguous", res.cmdErr)
 	}
 	if activeSink.Len() != 0 {
 		t.Fatalf("active window shared pane wrote %q, want none", activeSink.String())
 	}
-	if got := actorSink.String(); got != "echo ACTOR\r" {
-		t.Fatalf("actor window shared pane writes = %q, want %q", got, "echo ACTOR\r")
+	if got := actorSink.String(); got != "" {
+		t.Fatalf("actor window shared pane writes = %q, want none", got)
 	}
 }
 
-func TestZoomPrefersActorWindowForDuplicatePaneNames(t *testing.T) {
+func TestZoomResolvesWithinActorWindowOnly(t *testing.T) {
 	t.Parallel()
 
 	srv, sess, cleanup := newCommandTestSession(t)
