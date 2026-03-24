@@ -53,3 +53,29 @@ func TestParseSplitArgs(t *testing.T) {
 		})
 	}
 }
+
+func TestResolveSessionName(t *testing.T) {
+	tests := []struct {
+		name        string
+		explicit    string
+		explicitSet bool
+		envSession  string
+		want        string
+	}{
+		{name: "default when unset", want: "default"},
+		{name: "use AMUX_SESSION when flag omitted", envSession: "current-session", want: "current-session"},
+		{name: "explicit session without env", explicit: "other-session", explicitSet: true, want: "other-session"},
+		{name: "explicit session beats AMUX_SESSION", explicit: "other-session", explicitSet: true, envSession: "current-session", want: "other-session"},
+		{name: "explicit empty session still beats AMUX_SESSION", explicit: "", explicitSet: true, envSession: "current-session", want: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("AMUX_SESSION", tt.envSession)
+
+			if got := resolveSessionName(tt.explicit, tt.explicitSet); got != tt.want {
+				t.Fatalf("resolveSessionName(%q, %t) = %q, want %q", tt.explicit, tt.explicitSet, got, tt.want)
+			}
+		})
+	}
+}
