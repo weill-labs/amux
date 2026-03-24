@@ -3,6 +3,7 @@ package render
 import (
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/mattn/go-runewidth"
@@ -264,13 +265,13 @@ func GlobalBarWindowAtColumn(windows []WindowInfo, x int) (WindowInfo, bool) {
 }
 
 // renderGlobalBar draws the global status bar at the bottom of the terminal.
-func renderGlobalBar(buf *strings.Builder, sessionName string, paneCount int, width, yPos int, windows []WindowInfo, message string) {
+func renderGlobalBar(buf *strings.Builder, sessionName string, paneCount int, width, yPos int, windows []WindowInfo, message string, now time.Time) {
 	writeCursorTo(buf, yPos+1, 1)
 
 	// Catppuccin surface0 bg, text fg
 	buf.WriteString(Surface0Bg + TextFg)
 
-	now := timeNow().Format("15:04")
+	nowStr := now.Format("15:04")
 	tabs := buildGlobalBarWindowTabs(windows)
 
 	left := " " + Bold + "amux" + NoBold + " │ "
@@ -306,7 +307,7 @@ func renderGlobalBar(buf *strings.Builder, sessionName string, paneCount int, wi
 		message = ""
 	} else {
 		paneCountStr := strconv.Itoa(paneCount)
-		right = " " + paneCountStr + " panes │ " + now + " "
+		right = " " + paneCountStr + " panes │ " + nowStr + " "
 	}
 	rightVisible := utf8.RuneCountInString(right)
 

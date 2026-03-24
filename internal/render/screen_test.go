@@ -434,13 +434,15 @@ func oracleCheck(comp *Compositor, display *vt.SafeEmulator, root *mux.LayoutCel
 	return ""
 }
 
-func init() {
-	// Freeze time for deterministic oracle tests (global bar shows HH:MM).
-	frozen := time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC)
-	timeNow = func() time.Time { return frozen }
+// frozenTime is the deterministic clock used in screen/compositor oracle tests.
+var frozenTime = time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC)
 
-	// All compositors created during tests record OOB grid writes.
-	debugDefault = true
+// newTestCompositor creates a compositor with frozen time and debug OOB recording.
+func newTestCompositor(width, height int, sessionName string) *Compositor {
+	c := NewCompositor(width, height, sessionName)
+	c.TimeNow = func() time.Time { return frozenTime }
+	c.debug = true
+	return c
 }
 
 func TestScreenGrid_SetDebugRecordsOOB(t *testing.T) {
@@ -501,7 +503,7 @@ func TestRenderDiff_InitialPaint(t *testing.T) {
 		return nil
 	}
 
-	comp := NewCompositor(width, totalH, "test")
+	comp := newTestCompositor(width, totalH, "test")
 	display := vt.NewSafeEmulator(width, totalH)
 
 	if err := oracleCheck(comp, display, root, 1, lookup, width, totalH); err != "" {
@@ -524,7 +526,7 @@ func TestRenderDiff_PaneOutput(t *testing.T) {
 		return nil
 	}
 
-	comp := NewCompositor(width, totalH, "test")
+	comp := newTestCompositor(width, totalH, "test")
 	display := vt.NewSafeEmulator(width, totalH)
 
 	// Initial paint.
@@ -574,7 +576,7 @@ func TestRenderDiff_FocusChange(t *testing.T) {
 		return nil
 	}
 
-	comp := NewCompositor(width, totalH, "test")
+	comp := newTestCompositor(width, totalH, "test")
 	display := vt.NewSafeEmulator(width, totalH)
 
 	// Initial render with pane-1 active.
@@ -603,7 +605,7 @@ func TestRenderDiff_Backspace(t *testing.T) {
 		return nil
 	}
 
-	comp := NewCompositor(width, totalH, "test")
+	comp := newTestCompositor(width, totalH, "test")
 	display := vt.NewSafeEmulator(width, totalH)
 
 	// Initial paint.
@@ -634,7 +636,7 @@ func TestRenderDiff_Resize(t *testing.T) {
 		return nil
 	}
 
-	comp := NewCompositor(width, totalH, "test")
+	comp := newTestCompositor(width, totalH, "test")
 	display := vt.NewSafeEmulator(width, totalH)
 
 	// Initial paint.
@@ -687,7 +689,7 @@ func TestPrevGridText(t *testing.T) {
 		return nil
 	}
 
-	comp := NewCompositor(width, totalH, "test")
+	comp := newTestCompositor(width, totalH, "test")
 
 	// Before any render, PrevGridText returns empty.
 	if got := comp.PrevGridText(); got != "" {
@@ -825,7 +827,7 @@ func TestRenderDiff_ColorOracle(t *testing.T) {
 		return nil
 	}
 
-	comp := NewCompositor(width, totalH, "test")
+	comp := newTestCompositor(width, totalH, "test")
 	diffDisplay := vt.NewSafeEmulator(width, totalH)
 
 	// First render: prevGrid is nil so DiffGrid returns all cells.
@@ -852,7 +854,7 @@ func TestRenderDiff_ColorOracle_IncrementalUpdate(t *testing.T) {
 		return nil
 	}
 
-	comp := NewCompositor(width, totalH, "test")
+	comp := newTestCompositor(width, totalH, "test")
 	diffDisplay := vt.NewSafeEmulator(width, totalH)
 
 	// Initial render: populate prevGrid and prime the diff display.
@@ -1015,7 +1017,7 @@ func TestRenderDiff_LongLines(t *testing.T) {
 		return nil
 	}
 
-	comp := NewCompositor(width, totalH, "test")
+	comp := newTestCompositor(width, totalH, "test")
 	display := vt.NewSafeEmulator(width, totalH)
 
 	if err := oracleCheck(comp, display, root, 1, lookup, width, totalH); err != "" {
@@ -1048,7 +1050,7 @@ func TestRenderDiff_LongLines_TwoPanes(t *testing.T) {
 	)
 	lookup := twoPaneLookup(pane1Emu, pane2Emu)
 
-	comp := NewCompositor(width, totalH, "test")
+	comp := newTestCompositor(width, totalH, "test")
 	display := vt.NewSafeEmulator(width, totalH)
 
 	// Initial paint.
@@ -1089,7 +1091,7 @@ func TestRenderDiff_ColorOracle_LongLines(t *testing.T) {
 	)
 	lookup := twoPaneLookup(pane1Emu, pane2Emu)
 
-	comp := NewCompositor(width, totalH, "test")
+	comp := newTestCompositor(width, totalH, "test")
 	diffDisplay := vt.NewSafeEmulator(width, totalH)
 
 	if mismatches := colorOracleCheck(comp, diffDisplay, root, 1, lookup, width, totalH); len(mismatches) > 0 {
@@ -1141,7 +1143,7 @@ func TestRenderDiff_LongLines_NinePanes(t *testing.T) {
 		return nil
 	}
 
-	comp := NewCompositor(width, totalH, "test")
+	comp := newTestCompositor(width, totalH, "test")
 	display := vt.NewSafeEmulator(width, totalH)
 
 	// Text oracle.
@@ -1195,7 +1197,7 @@ func TestRenderDiff_ColorOracle_TwoPanes(t *testing.T) {
 		return nil
 	}
 
-	comp := NewCompositor(width, totalH, "test")
+	comp := newTestCompositor(width, totalH, "test")
 	diffDisplay := vt.NewSafeEmulator(width, totalH)
 
 	// Initial paint with both panes.
@@ -1416,7 +1418,7 @@ func FuzzCompositor(f *testing.F) {
 			return nil
 		}
 
-		comp := NewCompositor(width, totalH, "fuzz")
+		comp := newTestCompositor(width, totalH, "fuzz")
 		display := vt.NewSafeEmulator(width, totalH)
 
 		// Oracle check: RenderFull vs RenderDiff text comparison + OOB detection.

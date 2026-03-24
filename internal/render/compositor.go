@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 	"unicode/utf8"
 
 	"github.com/mattn/go-runewidth"
@@ -26,7 +27,8 @@ type Compositor struct {
 	height      int
 	sessionName string
 	windows     []WindowInfo
-	debug       bool // when true, BuildGrid creates grids with Debug=true
+	debug       bool             // when true, BuildGrid creates grids with Debug=true
+	TimeNow     func() time.Time // returns current time; nil defaults to time.Now
 
 	// Cached border map — rebuilt only when layout root changes.
 	cachedBorderMap  *borderMap
@@ -41,13 +43,17 @@ func (c *Compositor) SetWindows(windows []WindowInfo) {
 	c.windows = windows
 }
 
-// debugDefault controls whether new compositors start with debug mode enabled.
-// Tests set this to true in init() so all compositors record OOB grid writes.
-var debugDefault bool
-
 // NewCompositor creates a compositor for the given terminal dimensions.
 func NewCompositor(width, height int, sessionName string) *Compositor {
-	return &Compositor{width: width, height: height, sessionName: sessionName, debug: debugDefault}
+	return &Compositor{width: width, height: height, sessionName: sessionName}
+}
+
+// now returns the current time using the compositor's clock or time.Now.
+func (c *Compositor) now() time.Time {
+	if c.TimeNow != nil {
+		return c.TimeNow()
+	}
+	return time.Now()
 }
 
 // Resize updates the compositor's terminal dimensions.
@@ -137,7 +143,7 @@ func (c *Compositor) RenderFullWithOverlay(root *mux.LayoutCell, activePaneID ui
 	}
 
 	// Global status bar at bottom
-	renderGlobalBar(&buf, c.sessionName, paneCount, c.width, c.height-1, c.windows, overlay.Message)
+	renderGlobalBar(&buf, c.sessionName, paneCount, c.width, c.height-1, c.windows, overlay.Message, c.now())
 	if overlay.Chooser != nil {
 		renderChooserOverlay(&buf, c.width, c.height, overlay.Chooser)
 	}

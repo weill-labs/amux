@@ -12,9 +12,6 @@ import (
 	"github.com/weill-labs/amux/internal/mux"
 )
 
-// timeNow returns the current time. Overridable in tests.
-var timeNow = time.Now
-
 // ScreenCell represents a single cell in the composited screen grid.
 type ScreenCell struct {
 	Char  string   // grapheme cluster ("" treated as space)
@@ -215,7 +212,7 @@ func (c *Compositor) buildGridWithOverlay(root *mux.LayoutCell, activePaneID uin
 	}
 
 	// Global bar cells.
-	buildGlobalBarCells(g, c.sessionName, paneCount, c.width, c.height-1, c.windows, overlay.Message)
+	buildGlobalBarCells(g, c.sessionName, paneCount, c.width, c.height-1, c.windows, overlay.Message, c.now())
 	if overlay.Chooser != nil {
 		buildChooserOverlayCells(g, overlay.Chooser)
 	}
@@ -354,7 +351,7 @@ func buildBorderCells(g *ScreenGrid, bm *borderMap, activePaneID uint32, activeC
 }
 
 // buildGlobalBarCells writes the global status bar into the grid.
-func buildGlobalBarCells(g *ScreenGrid, sessionName string, paneCount int, width, yPos int, windows []WindowInfo, message string) {
+func buildGlobalBarCells(g *ScreenGrid, sessionName string, paneCount int, width, yPos int, windows []WindowInfo, message string, now time.Time) {
 	bg := hexToColor(config.Surface0Hex)
 	textFg := hexToColor(config.TextColorHex)
 	redFg := hexToColor(config.RedHex)
@@ -394,7 +391,7 @@ func buildGlobalBarCells(g *ScreenGrid, sessionName string, paneCount int, width
 		message = ""
 	} else {
 		paneCountStr := strconv.Itoa(paneCount)
-		now := timeNow().Format("15:04")
+		now := now.Format("15:04")
 		rightText = " " + paneCountStr + " panes │ " + now + " "
 	}
 

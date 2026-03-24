@@ -23,6 +23,7 @@ type ClientRenderer struct {
 	recentInputUnix atomic.Int64
 	scrollbackLines int
 	OnUIEvent       func(string)
+	CopyToClipboard func(string) // called when copy mode copies text; nil uses default
 }
 
 // NewClientRendererWithScrollback creates a client renderer with an explicit
@@ -635,7 +636,11 @@ func (cr *ClientRenderer) copyModeCopy(cm *copymode.CopyMode) {
 		return text, clientUIResult{}
 	})
 
-	copyToClipboard(text)
+	if cr.CopyToClipboard != nil {
+		cr.CopyToClipboard(text)
+	} else {
+		copyToClipboardLocal(defaultClipboardDeps(), text)
+	}
 }
 
 func (cr *ClientRenderer) CopyBuffer() string {

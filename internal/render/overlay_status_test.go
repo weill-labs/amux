@@ -3,6 +3,7 @@ package render
 import (
 	"strings"
 	"testing"
+	"time"
 
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/weill-labs/amux/internal/config"
@@ -458,7 +459,7 @@ func TestBuildGlobalBarCellsTruncatesMessages(t *testing.T) {
 	t.Parallel()
 
 	grid := NewScreenGrid(28, 2)
-	buildGlobalBarCells(grid, "session", 2, 28, 1, nil, "error 漢字 details")
+	buildGlobalBarCells(grid, "session", 2, 28, 1, nil, "error 漢字 details", time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC))
 	var row strings.Builder
 	for x := 0; x < 28; x++ {
 		ch := grid.Get(x, 1).Char
@@ -479,7 +480,7 @@ func TestBuildGlobalBarCellsColorsActiveTab(t *testing.T) {
 	buildGlobalBarCells(grid, "session", 2, 40, 0, []WindowInfo{
 		{Index: 1, Name: "dev", IsActive: true},
 		{Index: 2, Name: "logs", IsActive: false},
-	}, "")
+	}, "", time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC))
 
 	activeStart := findRowLabel(grid, 0, 40, "1:dev")
 	if activeStart < 0 {

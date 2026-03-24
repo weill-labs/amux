@@ -893,8 +893,6 @@ func RunSession(sessionName string) error {
 	}
 }
 
-var copyToClipboard = copyToClipboardLocal
-
 func formatUnboundPrefixMessage(prefix, key byte) string {
 	return "No binding for " + formatKeyName(prefix) + " " + formatKeyName(key)
 }

@@ -10,42 +10,52 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-var clipboardStdout io.Writer = os.Stdout
+// clipboardDeps holds injectable dependencies for clipboard operations.
+type clipboardDeps struct {
+	stdout io.Writer
+	runCmd func(cmd []string, text string) error
+}
 
-var runClipboardCommand = func(cmd []string, text string) error {
-	c := exec.Command(cmd[0], cmd[1:]...)
-	c.Stdin = strings.NewReader(text)
-	return c.Run()
+// defaultClipboardDeps returns the production clipboard dependencies.
+func defaultClipboardDeps() clipboardDeps {
+	return clipboardDeps{
+		stdout: os.Stdout,
+		runCmd: func(cmd []string, text string) error {
+			c := exec.Command(cmd[0], cmd[1:]...)
+			c.Stdin = strings.NewReader(text)
+			return c.Run()
+		},
+	}
 }
 
 // copyToClipboardLocal copies text to the local clipboard when possible. When the
 // interactive client is running under SSH, prefer OSC 52 so the clipboard write
 // lands back on the source terminal instead of the remote machine.
-func copyToClipboardLocal(text string) {
+func copyToClipboardLocal(deps clipboardDeps, text string) {
 	if text == "" {
 		return
 	}
 	if preferOSC52Clipboard(os.LookupEnv) {
-		writeOSC52Clipboard(clipboardStdout, text)
+		writeOSC52Clipboard(deps.stdout, text)
 		return
 	}
-	if trySystemClipboard(text) {
+	if trySystemClipboard(deps.runCmd, text) {
 		return
 	}
-	writeOSC52Clipboard(clipboardStdout, text)
+	writeOSC52Clipboard(deps.stdout, text)
 }
 
 func preferOSC52Clipboard(lookup envLookup) bool {
 	return envSet(lookup, "SSH_CONNECTION") || envSet(lookup, "SSH_CLIENT") || envSet(lookup, "SSH_TTY")
 }
 
-func trySystemClipboard(text string) bool {
+func trySystemClipboard(runCmd func([]string, string) error, text string) bool {
 	for _, cmd := range [][]string{
 		{"pbcopy"},
 		{"xclip", "-selection", "clipboard"},
 		{"xsel", "--clipboard", "--input"},
 	} {
-		if runClipboardCommand(cmd, text) == nil {
+		if runCmd(cmd, text) == nil {
 			return true
 		}
 	}
