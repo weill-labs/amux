@@ -161,44 +161,43 @@ func (s *Session) resolvePaneAcrossWindowsForActor(actorPaneID uint32, ref strin
 		return nil, nil, fmt.Errorf("no session")
 	}
 
-	type paneResolutionCandidate struct {
-		pane   *mux.Pane
-		window *mux.Window
-	}
-	ordered := make([]paneResolutionCandidate, 0, len(s.Panes))
-	candidates := make([]mux.PaneRefCandidate, 0, len(s.Panes))
 	seen := make(map[uint32]struct{}, len(s.Panes))
-
 	for _, window := range windows {
-		for _, pane := range window.Panes() {
-			if _, ok := seen[pane.ID]; ok {
-				continue
-			}
+		panes := window.Panes()
+		candidates := make([]mux.PaneRefCandidate, 0, len(panes))
+		byID := make(map[uint32]*mux.Pane, len(panes))
+		for _, pane := range panes {
 			seen[pane.ID] = struct{}{}
-			ordered = append(ordered, paneResolutionCandidate{pane: pane, window: window})
 			candidates = append(candidates, mux.PaneRefCandidate{ID: pane.ID, Name: pane.Meta.Name})
+			byID[pane.ID] = pane
+		}
+		paneID, err := mux.ResolvePaneRef(ref, candidates)
+		switch {
+		case err == nil:
+			return byID[paneID], window, nil
+		case err.Error() == fmt.Sprintf("pane %q not found", ref):
+			continue
+		default:
+			return nil, nil, err
 		}
 	}
 
+	candidates := make([]mux.PaneRefCandidate, 0, len(s.Panes))
+	byID := make(map[uint32]*mux.Pane, len(s.Panes))
 	for _, pane := range s.Panes {
 		if _, ok := seen[pane.ID]; ok {
 			continue
 		}
-		seen[pane.ID] = struct{}{}
-		ordered = append(ordered, paneResolutionCandidate{pane: pane})
 		candidates = append(candidates, mux.PaneRefCandidate{ID: pane.ID, Name: pane.Meta.Name})
+		byID[pane.ID] = pane
 	}
 
 	paneID, err := mux.ResolvePaneRef(ref, candidates)
 	if err != nil {
 		return nil, nil, err
 	}
-	for _, candidate := range ordered {
-		if candidate.pane.ID == paneID {
-			return candidate.pane, candidate.window, nil
-		}
-	}
-	return nil, nil, fmt.Errorf("pane %q not found", ref)
+	pane := byID[paneID]
+	return pane, s.findWindowByPaneID(paneID), nil
 }
 
 func (s *Session) resolvePaneWindowForActor(actorPaneID uint32, cmdName string, args []string) (*mux.Pane, *mux.Window, error) {
