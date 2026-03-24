@@ -9,7 +9,7 @@
 
 ```bash
 make setup                         # activate repo git hooks
-make install                       # build + install atomically
+make install                       # install amux
 go test ./...                       # run all tests
 ```
 

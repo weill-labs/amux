@@ -72,7 +72,7 @@ func TestBuildInstallInstallsTerminfo(t *testing.T) {
 	home := t.TempDir()
 	dest := filepath.Join(t.TempDir(), "amux")
 
-	cmd := exec.Command("bash", "scripts/build-install.sh", dest)
+	cmd := exec.Command("bash", "scripts/install.sh", dest)
 	cmd.Env = envWithHomeAndBranch(t, home, "main")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -100,7 +100,7 @@ func TestBuildInstallRewritesInvalidMetadata(t *testing.T) {
 		t.Fatalf("write meta: %v", err)
 	}
 
-	cmd := exec.Command("bash", "scripts/build-install.sh", dest)
+	cmd := exec.Command("bash", "scripts/install.sh", dest)
 	cmd.Env = envWithHomeAndBranch(t, t.TempDir(), "main")
 	out, err := cmd.CombinedOutput()
 	if err != nil {

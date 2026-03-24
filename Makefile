@@ -4,8 +4,8 @@ setup: ## Configure git hooks and install tools
 	git config core.hooksPath .githooks
 	@echo "Hooks activated from .githooks/"
 
-install: ## Build and install amux
-	scripts/build-install.sh
+install: ## Install amux
+	scripts/install.sh
 
 bench: ## Run microbenchmarks
 	go test -bench=. -benchmem -count=3 -run='^$$' ./internal/... -timeout 120s

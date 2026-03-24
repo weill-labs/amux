@@ -50,7 +50,7 @@ See [README.md -- Philosophy](README.md#philosophy) for the project thesis and t
 
 ```bash
 make setup                         # activate repo git hooks
-make install                       # build + install atomically (client hot-reloads automatically)
+make install                       # install amux (client hot-reloads automatically)
 go test ./... -timeout 120s        # run all tests
 make coverage                      # merged unit + integration coverage (use this, not go test -coverprofile)
 ```
