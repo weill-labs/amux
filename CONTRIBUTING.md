@@ -51,6 +51,8 @@ go test -v -run TestYourFeature ./test/ -timeout 30s
 
 Use table-driven tests with `t.Run(tt.name, ...)` and `t.Parallel()`. See `layout_test.go`, `window_test.go`, `emulator_test.go` for examples.
 
+Root CLI subprocess tests must use the shared hermetic helper in the root package tests. Do not open-code `exec.Command(os.Args[0], ...)` or inherit ambient `AMUX_SESSION` / `TMUX` state in those tests.
+
 ### Golden files
 
 Golden files live in `test/testdata/`:

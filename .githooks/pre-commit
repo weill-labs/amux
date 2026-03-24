@@ -72,6 +72,9 @@ if [ -n "$SKIP_ADDITIONS" ]; then
     exit 1
 fi
 
+# Root CLI subprocess tests must stay hermetic.
+bash scripts/check-test-invariants.sh
+
 # Validate YAML syntax on staged workflow files
 STAGED_YAML=$(git diff --cached --name-only --diff-filter=ACM | grep '\.github/workflows/.*\.yml$')
 if [ -n "$STAGED_YAML" ]; then

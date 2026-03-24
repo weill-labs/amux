@@ -92,6 +92,8 @@ Tests should read like specs. Minimize logic in assertions so a human can read t
 
 When a change adds a new test or modifies an existing test, run that targeted test slice with `-count=100` before calling the work done. Treat any failure in those repeated runs as a flake to investigate, not as an acceptable one-off.
 
+**Root CLI subprocess tests must use the shared hermetic helper.** Do not open-code `exec.Command(os.Args[0], ...)` or inherit ambient `AMUX_SESSION` / `TMUX` state in root package tests; route those tests through the shared helper so they always run with an isolated session and scrubbed env.
+
 **Golden files** live in `test/testdata/`. Two types:
 
 - `.golden` -- structural layout frame (status lines, borders, global bar). Open one and you see the expected screen layout.
