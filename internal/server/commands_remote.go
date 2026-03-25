@@ -162,7 +162,7 @@ func cmdInjectProxy(ctx *CommandContext) {
 		meta := mux.PaneMeta{
 			Name:  fmt.Sprintf(mux.PaneNameFormat, id),
 			Host:  hostName,
-			Color: config.CatppuccinMocha[0],
+			Color: config.AccentColor(0),
 		}
 		proxyPane := mux.NewProxyPaneWithScrollback(id, meta, w.Width/2, mux.PaneContentHeight(w.Height), sess.scrollbackLines,
 			sess.paneOutputCallback(),

@@ -152,7 +152,7 @@ func (s *Session) handleTakeover(srv *Server, sshPaneID uint32, req mux.Takeover
 		meta := mux.PaneMeta{
 			Name:   fmt.Sprintf("%s@%s", rp.Name, start.hostname),
 			Host:   start.hostname,
-			Color:  config.CatppuccinMocha[(id-1)%uint32(len(config.CatppuccinMocha))],
+			Color:  config.AccentColor(id - 1),
 			Remote: string(remote.Connected),
 		}
 

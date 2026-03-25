@@ -146,11 +146,9 @@ func newRunSessionHarness(t *testing.T, sizeFn func(int) (int, int, error)) *run
 		runErr:   make(chan error, 1),
 	}
 
-	stubTermGetSize(t, sizeFn)
-
 	go h.acceptLoop()
 	go func() {
-		h.runErr <- RunSession(session)
+		h.runErr <- RunSession(session, sizeFn)
 	}()
 
 	t.Cleanup(func() {

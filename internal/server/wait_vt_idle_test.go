@@ -64,7 +64,7 @@ func setupWaitVTIdleTestPane(t *testing.T) (*Server, *Session, *mux.Pane, func()
 	pane := newProxyPane(1, mux.PaneMeta{
 		Name:  "pane-1",
 		Host:  mux.DefaultHost,
-		Color: config.CatppuccinMocha[0],
+		Color: config.AccentColor(0),
 	}, 80, 23, sess.paneOutputCallback(), sess.paneExitCallback(), func(data []byte) (int, error) {
 		return len(data), nil
 	})
@@ -101,7 +101,7 @@ func TestParseWaitVTIdleArgs(t *testing.T) {
 			name:     "defaults",
 			args:     []string{"pane-1"},
 			wantPane: "pane-1",
-			wantOpts: waitVTIdleOptions{settle: defaultVTIdleSettle, timeout: DefaultVTIdleTimeout},
+			wantOpts: waitVTIdleOptions{settle: DefaultVTIdleSettle, timeout: DefaultVTIdleTimeout},
 		},
 		{
 			name:     "custom settle and timeout",
@@ -222,18 +222,17 @@ func TestCmdWaitVTIdleResetsSettleTimerOnOutput(t *testing.T) {
 }
 
 func TestPaneOutputCallbackEmitsVTIdleEventAfterQuiescence(t *testing.T) {
-	origSettle := defaultVTIdleSettle
-	defaultVTIdleSettle = 20 * time.Millisecond
-	t.Cleanup(func() { defaultVTIdleSettle = origSettle })
+	t.Parallel()
 
 	sess := newSession("test-vt-idle-event")
+	sess.VTIdleSettle = 20 * time.Millisecond
 	stopCrashCheckpointLoop(t, sess)
 	defer stopSessionBackgroundLoops(t, sess)
 
 	pane := newProxyPane(1, mux.PaneMeta{
 		Name:  "pane-1",
 		Host:  mux.DefaultHost,
-		Color: config.CatppuccinMocha[0],
+		Color: config.AccentColor(0),
 	}, 80, 23, sess.paneOutputCallback(), nil, func(data []byte) (int, error) {
 		return len(data), nil
 	})
@@ -259,18 +258,17 @@ func TestPaneOutputCallbackEmitsVTIdleEventAfterQuiescence(t *testing.T) {
 }
 
 func TestCurrentStateEventsIncludeVTIdleForSettledPane(t *testing.T) {
-	origSettle := defaultVTIdleSettle
-	defaultVTIdleSettle = 20 * time.Millisecond
-	t.Cleanup(func() { defaultVTIdleSettle = origSettle })
+	t.Parallel()
 
 	sess := newSession("test-vt-idle-snapshot")
+	sess.VTIdleSettle = 20 * time.Millisecond
 	stopCrashCheckpointLoop(t, sess)
 	defer stopSessionBackgroundLoops(t, sess)
 
 	pane := newProxyPane(1, mux.PaneMeta{
 		Name:  "pane-1",
 		Host:  mux.DefaultHost,
-		Color: config.CatppuccinMocha[0],
+		Color: config.AccentColor(0),
 	}, 80, 23, nil, nil, func(data []byte) (int, error) {
 		return len(data), nil
 	})

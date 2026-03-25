@@ -316,7 +316,7 @@ func (s *Session) trackPaneVTIdle(paneID uint32) {
 	if s.vtIdle == nil {
 		return
 	}
-	s.vtIdle.TrackOutput(paneID, defaultVTIdleSettle, func(lastOutput time.Time) {
+	s.vtIdle.TrackOutput(paneID, s.vtIdleSettle(), func(lastOutput time.Time) {
 		s.enqueueVTIdleTimeout(paneID, lastOutput)
 	})
 }

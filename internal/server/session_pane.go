@@ -24,9 +24,6 @@ type closedPaneRecord struct {
 	pane *mux.Pane
 }
 
-// defaultUndoGracePeriod is how long a soft-closed pane stays undoable.
-var defaultUndoGracePeriod = 30 * time.Second
-
 // hasPane checks if a pane ID is still in the session's pane list.
 func (s *Session) hasPane(id uint32) bool {
 	for _, p := range s.Panes {
@@ -197,7 +194,7 @@ func (s *Session) softClosePane(paneID uint32) paneRemovalResult {
 	if s.closedPaneTimers == nil {
 		s.closedPaneTimers = make(map[uint32]*time.Timer)
 	}
-	s.closedPaneTimers[paneID] = time.AfterFunc(defaultUndoGracePeriod, func() {
+	s.closedPaneTimers[paneID] = time.AfterFunc(s.undoGracePeriod(), func() {
 		s.enqueueUndoExpiry(paneID)
 	})
 
@@ -321,7 +318,7 @@ func (s *Session) createPaneWithMeta(srv *Server, meta mux.PaneMeta, cols, rows 
 		meta.Host = mux.DefaultHost
 	}
 	if meta.Color == "" {
-		meta.Color = config.CatppuccinMocha[(id-1)%uint32(len(config.CatppuccinMocha))]
+		meta.Color = config.AccentColor(id - 1)
 	}
 
 	pane, err := mux.NewPaneWithScrollback(id, meta, cols, rows, s.Name, s.scrollbackLines,

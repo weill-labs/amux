@@ -538,7 +538,7 @@ func TestCmdEventsStreamsAndThrottlesOutput(t *testing.T) {
 		stopCrashCheckpointLoop(t, sess)
 		defer stopSessionBackgroundLoops(t, sess)
 
-		pane := newProxyPane(1, mux.PaneMeta{Name: "pane-1", Host: mux.DefaultHost, Color: config.CatppuccinMocha[0]}, 80, 23, nil, nil, func(data []byte) (int, error) {
+		pane := newProxyPane(1, mux.PaneMeta{Name: "pane-1", Host: mux.DefaultHost, Color: config.AccentColor(0)}, 80, 23, nil, nil, func(data []byte) (int, error) {
 			return len(data), nil
 		})
 		sess.Panes = []*mux.Pane{pane}
@@ -581,10 +581,10 @@ func TestCmdEventsStreamsAndThrottlesOutput(t *testing.T) {
 		stopCrashCheckpointLoop(t, sess)
 		defer stopSessionBackgroundLoops(t, sess)
 
-		pane1 := newProxyPane(1, mux.PaneMeta{Name: "pane-1", Host: mux.DefaultHost, Color: config.CatppuccinMocha[0]}, 80, 23, nil, nil, func(data []byte) (int, error) {
+		pane1 := newProxyPane(1, mux.PaneMeta{Name: "pane-1", Host: mux.DefaultHost, Color: config.AccentColor(0)}, 80, 23, nil, nil, func(data []byte) (int, error) {
 			return len(data), nil
 		})
-		pane2 := newProxyPane(2, mux.PaneMeta{Name: "pane-2", Host: mux.DefaultHost, Color: config.CatppuccinMocha[1]}, 80, 23, nil, nil, func(data []byte) (int, error) {
+		pane2 := newProxyPane(2, mux.PaneMeta{Name: "pane-2", Host: mux.DefaultHost, Color: config.AccentColor(1)}, 80, 23, nil, nil, func(data []byte) (int, error) {
 			return len(data), nil
 		})
 		sess.Panes = []*mux.Pane{pane1, pane2}

@@ -10,8 +10,9 @@ import (
 	"github.com/weill-labs/amux/internal/mux"
 )
 
-// CatppuccinMocha accent palette in official order (catppuccin.com/palette).
-var CatppuccinMocha = []string{
+// catppuccinMocha is the accent palette in official order (catppuccin.com/palette).
+// Unexported to prevent mutation; access via AccentColor/NumAccentColors.
+var catppuccinMocha = [...]string{
 	"f5e0dc", // Rosewater
 	"f2cdcd", // Flamingo
 	"f5c2e7", // Pink
@@ -28,9 +29,24 @@ var CatppuccinMocha = []string{
 	"b4befe", // Lavender
 }
 
-// CatppuccinLetters maps each hex color to a single-letter abbreviation
+// NumAccentColors is the number of colors in the Catppuccin Mocha accent palette.
+const NumAccentColors = 14
+
+// AccentColor returns the hex color at index i (mod palette size).
+func AccentColor(i uint32) string {
+	return catppuccinMocha[i%NumAccentColors]
+}
+
+// AccentColors returns a copy of the full palette.
+func AccentColors() []string {
+	out := make([]string, NumAccentColors)
+	copy(out, catppuccinMocha[:])
+	return out
+}
+
+// catppuccinLetters maps each hex color to a single-letter abbreviation
 // for use in color map output (e.g., `amux capture --colors`).
-var CatppuccinLetters = map[string]byte{
+var catppuccinLetters = map[string]byte{
 	"f5e0dc": 'R', // Rosewater
 	"f2cdcd": 'F', // Flamingo
 	"f5c2e7": 'P', // Pink
@@ -45,6 +61,13 @@ var CatppuccinLetters = map[string]byte{
 	"74c7ec": 'B', // Sapphire
 	"89b4fa": 'U', // Blue
 	"b4befe": 'L', // Lavender
+}
+
+// AccentColorLetter returns the single-letter abbreviation for a hex color,
+// or 0 if the color is not in the palette.
+func AccentColorLetter(hex string) (byte, bool) {
+	l, ok := catppuccinLetters[hex]
+	return l, ok
 }
 
 // Named hex color constants from the Catppuccin Mocha palette.
@@ -154,7 +177,7 @@ func (c *Config) EffectiveScrollbackLines() int {
 // ColorForHost deterministically picks a Catppuccin color based on hostname.
 func ColorForHost(hostname string) string {
 	h := crc32.ChecksumIEEE([]byte(hostname))
-	return CatppuccinMocha[h%uint32(len(CatppuccinMocha))]
+	return AccentColor(h)
 }
 
 // HostUser returns the SSH user for a host, defaulting to "ubuntu".
