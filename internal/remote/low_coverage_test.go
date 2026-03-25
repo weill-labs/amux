@@ -333,6 +333,40 @@ func TestHostConnReadLoopHandlesOutputAndDisconnectPaths(t *testing.T) {
 		}
 	})
 
+	t.Run("takeover mode ignores non-ready layout during reload", func(t *testing.T) {
+		exits := make(chan uint32, 1)
+		hc := NewHostConn("test", config.Host{}, "", nil, func(localPaneID uint32, _ string) {
+			exits <- localPaneID
+		}, nil)
+		defer hc.Close()
+		hc.RegisterPane(10, 100)
+
+		testInActor(hc, func(hc *HostConn) {
+			hc.takeoverMode = true
+			(readLayoutEvent{layout: &proto.LayoutSnapshot{}}).handle(hc)
+		})
+
+		select {
+		case got := <-exits:
+			t.Fatalf("exit callback local pane = %d, want no callback", got)
+		default:
+		}
+
+		var (
+			remotePaneID uint32
+			ok           bool
+		)
+		testInActor(hc, func(hc *HostConn) {
+			remotePaneID, ok = hc.localToRemote[10]
+		})
+		if !ok {
+			t.Fatal("localToRemote[10] should remain registered after non-ready takeover layout")
+		}
+		if remotePaneID != 100 {
+			t.Fatalf("localToRemote[10] = %d, want 100", remotePaneID)
+		}
+	})
+
 	t.Run("returns on explicit exit message", func(t *testing.T) {
 		hc := NewHostConn("test", config.Host{}, "", nil, nil, nil)
 		defer hc.Close()

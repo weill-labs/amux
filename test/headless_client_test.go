@@ -27,6 +27,7 @@ type headlessClient struct {
 	rows       int
 	caps       proto.ClientCapabilities
 	connMu     sync.RWMutex
+	writeMu    sync.Mutex
 	conn       net.Conn
 	renderer   *client.Renderer
 	cmdReqs    chan headlessCommand
@@ -92,6 +93,15 @@ func (hc *headlessClient) currentConn() net.Conn {
 	hc.connMu.RLock()
 	defer hc.connMu.RUnlock()
 	return hc.conn
+}
+
+func (hc *headlessClient) writeConn(conn net.Conn, msg *server.Message) error {
+	if conn == nil {
+		return fmt.Errorf("headless client not connected")
+	}
+	hc.writeMu.Lock()
+	defer hc.writeMu.Unlock()
+	return server.WriteMsg(conn, msg)
 }
 
 func (hc *headlessClient) replaceConn(conn net.Conn) {
@@ -165,7 +175,7 @@ func (hc *headlessClient) resize(cols, rows int) {
 	if conn == nil {
 		return
 	}
-	server.WriteMsg(conn, &server.Message{
+	_ = hc.writeConn(conn, &server.Message{
 		Type: server.MsgTypeResize,
 		Cols: cols,
 		Rows: rows,
@@ -177,7 +187,7 @@ func (hc *headlessClient) sendUIEvent(name string) {
 	if conn == nil {
 		return
 	}
-	server.WriteMsg(conn, &server.Message{
+	_ = hc.writeConn(conn, &server.Message{
 		Type:    server.MsgTypeUIEvent,
 		UIEvent: name,
 	})
@@ -227,7 +237,7 @@ func (hc *headlessClient) commandLoop() {
 				req.reply <- &server.Message{Type: server.MsgTypeCmdResult, CmdErr: "headless client not connected"}
 				continue
 			}
-			if err := server.WriteMsg(conn, req.msg); err != nil {
+			if err := hc.writeConn(conn, req.msg); err != nil {
 				req.reply <- &server.Message{Type: server.MsgTypeCmdResult, CmdErr: err.Error()}
 				hc.clearConn(conn)
 				_ = conn.Close()
@@ -292,7 +302,10 @@ func (hc *headlessClient) readLoop() {
 			hc.renderer.HandlePaneOutput(msg.PaneID, msg.PaneData)
 		case server.MsgTypeCaptureRequest:
 			resp := hc.renderer.HandleCaptureRequest(msg.CmdArgs, msg.AgentStatus)
-			server.WriteMsg(hc.conn, resp)
+			if err := hc.writeConn(conn, resp); err != nil {
+				hc.clearConn(conn)
+				_ = conn.Close()
+			}
 		case server.MsgTypeTypeKeys:
 			// no-op: headless client doesn't process keystrokes
 		case server.MsgTypeServerReload:

@@ -86,6 +86,7 @@ func newServerHarnessWithOptions(tb testing.TB, cols, rows int, configContent st
 	}
 
 	cmd := exec.Command(amuxBin, "_server", session)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.ExtraFiles = []*os.File{writePipe, shutdownWritePipe} // fds 3 and 4 in child
 	home := newTestHome(tb)
 	env := removeEnv(os.Environ(), "AMUX_EXIT_UNATTACHED")
@@ -184,25 +185,30 @@ func (h *ServerHarness) cleanup() {
 		h.client.close()
 	}
 	var serverPid int
+	timedOut := false
 	if h.cmd != nil && h.cmd.Process != nil {
 		serverPid = h.cmd.Process.Pid
-		h.cmd.Process.Signal(os.Interrupt)
 		done := make(chan struct{})
 		go func() {
 			h.cmd.Wait()
 			close(done)
 		}()
+
 		select {
 		case <-done:
-		case <-time.After(3 * time.Second):
-			h.cmd.Process.Kill()
+		case <-time.After(50 * time.Millisecond):
+			_ = h.cmd.Process.Signal(os.Interrupt)
+			select {
+			case <-done:
+			case <-time.After(3 * time.Second):
+				timedOut = true
+				_ = h.cmd.Process.Kill()
+			}
 		}
 	}
-	// Kill any orphaned pane shells that survived the server shutdown.
-	// The server and its pane children share a process group (no Setsid),
-	// so kill(-pgid) reaches them all. Follow up with pgrep as a fallback
-	// in case the process group changed.
-	if serverPid != 0 {
+	// If graceful shutdown timed out, kill the harness process group as a
+	// fallback so orphaned pane shells cannot leak into later tests.
+	if serverPid != 0 && timedOut {
 		syscall.Kill(-serverPid, syscall.SIGKILL)
 		killChildrenByPid(serverPid)
 	}
