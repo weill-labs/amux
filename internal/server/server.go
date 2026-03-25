@@ -398,6 +398,21 @@ type Server struct {
 	// ResolveReloadExecPath resolves the executable path for server reload.
 	// Defaults to reload.ResolveExecutable; tests inject stubs.
 	ResolveReloadExecPath func() (string, error)
+
+	// commands overrides the default commandRegistry for handler lookup.
+	// When nil, handleCommand falls back to the package-level registry.
+	commands map[string]CommandHandler
+}
+
+// lookupCommand returns the handler for the given command name, consulting the
+// server-level override first, then the package-level commandRegistry.
+func (s *Server) lookupCommand(name string) (CommandHandler, bool) {
+	if s.commands != nil {
+		h, ok := s.commands[name]
+		return h, ok
+	}
+	h, ok := commandRegistry[name]
+	return h, ok
 }
 
 // firstSession returns any session from the immutable session map, or nil.

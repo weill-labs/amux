@@ -271,7 +271,7 @@ func (cc *clientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 		}
 	}()
 	sess.enqueueClientActivity(cc)
-	handler, ok := commandRegistry[msg.CmdName]
+	handler, ok := srv.lookupCommand(msg.CmdName)
 	if !ok {
 		cc.Send(&Message{Type: MsgTypeCmdResult,
 			CmdErr: fmt.Sprintf("unknown command: %s", msg.CmdName)})
