@@ -401,18 +401,18 @@ func TestManagerCreatePaneAndAttachForTakeoverFailures(t *testing.T) {
 			IdentityFile: keyPath,
 		},
 	}}
-	mgr := NewManager(cfg, "build-hash")
-	mgr.SetCallbacks(nil, nil, nil)
-	t.Cleanup(mgr.Shutdown)
+	mgr := newTestManager(t, cfg, "build-hash")
 
 	if _, err := mgr.CreatePane("dev", 41, "default"); err == nil || !strings.Contains(err.Error(), "connecting to dev: SSH dial") {
 		t.Fatalf("CreatePane() error = %v, want SSH dial failure", err)
 	}
 
-	mgr.mu.Lock()
-	hostConn := mgr.hosts["dev"]
-	localHost := mgr.localToHost[41]
-	mgr.mu.Unlock()
+	var hostConn *HostConn
+	var localHost string
+	testInManagerActor(t, mgr, func(m *Manager) {
+		hostConn = m.hosts["dev"]
+		localHost = m.localToHost[41]
+	})
 	if hostConn == nil || localHost != "dev" {
 		t.Fatalf("manager state after CreatePane = host=%v localToHost=%q, want installed host and dev mapping", hostConn != nil, localHost)
 	}
@@ -425,10 +425,12 @@ func TestManagerCreatePaneAndAttachForTakeoverFailures(t *testing.T) {
 		t.Fatalf("AttachForTakeover() error = %v, want SSH dial failure", err)
 	}
 
-	mgr.mu.Lock()
-	host51 := mgr.localToHost[51]
-	host52 := mgr.localToHost[52]
-	mgr.mu.Unlock()
+	var host51 string
+	var host52 string
+	testInManagerActor(t, mgr, func(m *Manager) {
+		host51 = m.localToHost[51]
+		host52 = m.localToHost[52]
+	})
 	if host51 != "dev" || host52 != "dev" {
 		t.Fatalf("takeover mappings = (%q, %q), want both dev", host51, host52)
 	}

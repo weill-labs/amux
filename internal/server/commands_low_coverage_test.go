@@ -945,7 +945,7 @@ func TestCommandHostsAndRemoteErrors(t *testing.T) {
 			"local":    {Type: "local"},
 		},
 	}
-	sess.RemoteManager = remote.NewManager(cfg, "")
+	sess.RemoteManager = remote.NewManager(cfg, "", remote.ManagerDeps{NewHostConn: remote.NewHostConn})
 
 	hostsRes := runTestCommand(t, srv, sess, "hosts")
 	if hostsRes.cmdErr != "" || !strings.Contains(hostsRes.output, "remote-a") || !strings.Contains(hostsRes.output, "disconnected") {

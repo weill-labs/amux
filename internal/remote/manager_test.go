@@ -8,6 +8,35 @@ import (
 	"github.com/weill-labs/amux/internal/config"
 )
 
+type testInManagerActorEvent struct {
+	fn   func(*Manager)
+	done chan struct{}
+}
+
+func (e testInManagerActorEvent) handle(m *Manager) bool {
+	e.fn(m)
+	close(e.done)
+	return false
+}
+
+func testInManagerActor(t *testing.T, m *Manager, fn func(*Manager)) {
+	t.Helper()
+
+	done := make(chan struct{})
+	if !m.enqueue(testInManagerActorEvent{fn: fn, done: done}) {
+		t.Fatal("manager actor stopped")
+	}
+	<-done
+}
+
+func newTestManager(t *testing.T, cfg *config.Config, buildHash string) *Manager {
+	t.Helper()
+
+	m := NewManager(cfg, buildHash, ManagerDeps{NewHostConn: NewHostConn})
+	t.Cleanup(m.Shutdown)
+	return m
+}
+
 // installTestHost creates a HostConn in the given state and installs it into the
 // manager. The HostConn is registered for cleanup via t.Cleanup.
 func installTestHost(t *testing.T, m *Manager, name string, cfg config.Host, state ConnState) *HostConn {
@@ -17,9 +46,9 @@ func installTestHost(t *testing.T, m *Manager, name string, cfg config.Host, sta
 	if state != Disconnected {
 		testInActor(hc, func(hc *HostConn) { hc.state = state })
 	}
-	m.mu.Lock()
-	m.hosts[name] = hc
-	m.mu.Unlock()
+	testInManagerActor(t, m, func(m *Manager) {
+		m.hosts[name] = hc
+	})
 	return hc
 }
 
@@ -30,7 +59,7 @@ func TestNewManager(t *testing.T) {
 		"dev": {Type: "remote", Address: "10.0.0.1"},
 	}}
 
-	m := NewManager(cfg, "abc1234")
+	m := newTestManager(t, cfg, "abc1234")
 
 	if m.Config() != cfg {
 		t.Error("Config() should return the original config")
@@ -47,7 +76,7 @@ func TestManagerHostStatus(t *testing.T) {
 		"dev":   {Type: "remote", Address: "10.0.0.1"},
 		"local": {Type: "local"},
 	}}
-	m := NewManager(cfg, "hash")
+	m := newTestManager(t, cfg, "hash")
 
 	if s := m.HostStatus("dev"); s != Disconnected {
 		t.Errorf("HostStatus(dev) = %q, want disconnected", s)
@@ -68,7 +97,7 @@ func TestManagerAllHostStatus(t *testing.T) {
 		"prod":  {Type: "remote", Address: "10.0.0.2"},
 		"local": {Type: "local"},
 	}}
-	m := NewManager(cfg, "hash")
+	m := newTestManager(t, cfg, "hash")
 
 	installTestHost(t, m, "dev", cfg.Hosts["dev"], Connected)
 
@@ -91,16 +120,16 @@ func TestManagerConnStatusForPane(t *testing.T) {
 	cfg := &config.Config{Hosts: map[string]config.Host{
 		"dev": {Type: "remote", Address: "10.0.0.1"},
 	}}
-	m := NewManager(cfg, "hash")
+	m := newTestManager(t, cfg, "hash")
 
 	if s := m.ConnStatusForPane(42); s != "" {
 		t.Errorf("ConnStatusForPane(42) = %q, want empty", s)
 	}
 
 	installTestHost(t, m, "dev", cfg.Hosts["dev"], Connected)
-	m.mu.Lock()
-	m.localToHost[42] = "dev"
-	m.mu.Unlock()
+	testInManagerActor(t, m, func(m *Manager) {
+		m.localToHost[42] = "dev"
+	})
 
 	if s := m.ConnStatusForPane(42); s != "connected" {
 		t.Errorf("ConnStatusForPane(42) = %q, want connected", s)
@@ -113,21 +142,23 @@ func TestManagerRemovePane(t *testing.T) {
 	cfg := &config.Config{Hosts: map[string]config.Host{
 		"dev": {Type: "remote", Address: "10.0.0.1"},
 	}}
-	m := NewManager(cfg, "hash")
+	m := newTestManager(t, cfg, "hash")
 
 	hc := installTestHost(t, m, "dev", cfg.Hosts["dev"], Disconnected)
 	hc.RegisterPane(42, 100)
-	m.mu.Lock()
-	m.localToHost[42] = "dev"
-	m.mu.Unlock()
+	testInManagerActor(t, m, func(m *Manager) {
+		m.localToHost[42] = "dev"
+	})
 
 	m.RemovePane(42)
 
-	m.mu.Lock()
-	if _, ok := m.localToHost[42]; ok {
+	removed := true
+	testInManagerActor(t, m, func(m *Manager) {
+		_, removed = m.localToHost[42]
+	})
+	if removed {
 		t.Error("localToHost[42] should be deleted")
 	}
-	m.mu.Unlock()
 
 	testInActor(hc, func(hc *HostConn) {
 		if _, ok := hc.localToRemote[42]; ok {
@@ -145,8 +176,7 @@ func TestManagerCreatePaneErrors(t *testing.T) {
 		"dev":   {Type: "remote", Address: "10.0.0.1"},
 		"local": {Type: "local"},
 	}}
-	m := NewManager(cfg, "hash")
-	m.SetCallbacks(nil, nil, nil)
+	m := newTestManager(t, cfg, "hash")
 
 	_, err := m.CreatePane("unknown", 1, "default")
 	if err == nil {
@@ -166,7 +196,7 @@ func TestManagerShutdown(t *testing.T) {
 		"dev":  {Type: "remote", Address: "10.0.0.1"},
 		"prod": {Type: "remote", Address: "10.0.0.2"},
 	}}
-	m := NewManager(cfg, "hash")
+	m := newTestManager(t, cfg, "hash")
 
 	// installTestHost registers cleanup, but Shutdown will close these first.
 	hc1 := installTestHost(t, m, "dev", cfg.Hosts["dev"], Connected)
@@ -185,7 +215,7 @@ func TestManagerShutdown(t *testing.T) {
 func TestManagerSendInputUnknownPane(t *testing.T) {
 	t.Parallel()
 
-	m := NewManager(&config.Config{Hosts: map[string]config.Host{}}, "hash")
+	m := newTestManager(t, &config.Config{Hosts: map[string]config.Host{}}, "hash")
 
 	err := m.SendInput(999, []byte("hello"))
 	if err == nil {
@@ -196,7 +226,7 @@ func TestManagerSendInputUnknownPane(t *testing.T) {
 func TestManagerSendResizeUnknownPane(t *testing.T) {
 	t.Parallel()
 
-	m := NewManager(&config.Config{Hosts: map[string]config.Host{}}, "hash")
+	m := newTestManager(t, &config.Config{Hosts: map[string]config.Host{}}, "hash")
 
 	err := m.SendResize(999, 80, 24)
 	if err != nil {
@@ -210,7 +240,7 @@ func TestManagerDisconnectAndReconnectHost(t *testing.T) {
 	cfg := &config.Config{Hosts: map[string]config.Host{
 		"dev": {Type: "remote", Address: "10.0.0.1"},
 	}}
-	m := NewManager(cfg, "hash")
+	m := newTestManager(t, cfg, "hash")
 
 	if err := m.DisconnectHost("unknown"); err == nil {
 		t.Error("DisconnectHost unknown should error")
@@ -233,7 +263,7 @@ func TestDeployToAddressEmptyBuildHash(t *testing.T) {
 	t.Parallel()
 
 	cfg := &config.Config{Hosts: map[string]config.Host{}}
-	m := NewManager(cfg, "")
+	m := newTestManager(t, cfg, "")
 	m.DeployToAddress("host", "10.0.0.1:22", "ubuntu")
 }
 
@@ -244,7 +274,7 @@ func TestDeployToAddressDeployDisabled(t *testing.T) {
 	cfg := &config.Config{Hosts: map[string]config.Host{
 		"dev": {Type: "remote", Address: "10.0.0.1", Deploy: &f},
 	}}
-	m := NewManager(cfg, "abc1234")
+	m := newTestManager(t, cfg, "abc1234")
 	m.DeployToAddress("dev", "10.0.0.1:22", "ubuntu")
 }
 
@@ -261,7 +291,7 @@ func TestDeployToAddressViaSSH(t *testing.T) {
 			IdentityFile: ts.KeyFile,
 		},
 	}}
-	m := NewManager(cfg, "deployhash")
+	m := newTestManager(t, cfg, "deployhash")
 	m.DeployToAddress("test-host", ts.Addr, "testuser")
 
 	uploaded := filepath.Join(ts.HomeDir, ".local", "bin", "amux")
@@ -274,7 +304,7 @@ func TestDeployToAddressHostNotInConfig(t *testing.T) {
 	ts := startTestSSH(t)
 
 	cfg := &config.Config{Hosts: map[string]config.Host{}}
-	m := NewManager(cfg, "deployhash")
+	m := newTestManager(t, cfg, "deployhash")
 
 	fakeHome := t.TempDir()
 	sshDir := filepath.Join(fakeHome, ".ssh")
@@ -309,7 +339,7 @@ func TestDeployToAddressBuildSSHConfigError(t *testing.T) {
 	cfg := &config.Config{Hosts: map[string]config.Host{
 		"noauth": {Type: "remote", Address: "127.0.0.1:22"},
 	}}
-	m := NewManager(cfg, "somehash")
+	m := newTestManager(t, cfg, "somehash")
 	m.DeployToAddress("noauth", "127.0.0.1:22", "testuser")
 }
 
@@ -364,7 +394,7 @@ func TestFindHostByAddress(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			cfg := &config.Config{Hosts: tt.hosts}
-			m := NewManager(cfg, "hash")
+			m := newTestManager(t, cfg, "hash")
 			gotName, _, gotFound := m.findHostByAddress(tt.sshAddr)
 			if gotFound != tt.wantFound {
 				t.Errorf("found = %v, want %v", gotFound, tt.wantFound)
