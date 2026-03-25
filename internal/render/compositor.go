@@ -373,9 +373,7 @@ func computeANSI(hex string) string {
 }
 
 // hexToANSI converts a 6-digit hex color to an ANSI truecolor escape.
-// Results are cached — repeated calls for the same hex value are free.
-// Pre-populated at init with the Catppuccin Mocha palette; unknown colors
-// are computed on first use and cached.
+// Palette colors are pre-cached at init; unknown colors are computed inline.
 func hexToANSI(hex string) string {
 	if len(hex) < 6 {
 		return DimFg
