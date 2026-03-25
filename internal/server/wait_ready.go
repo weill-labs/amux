@@ -24,6 +24,7 @@ type waitReadyOptions struct {
 
 type sendKeysOptions struct {
 	waitReady            bool
+	waitTimeout          time.Duration
 	continueKnownDialogs bool
 	hexMode              bool
 	keys                 []string
@@ -89,15 +90,37 @@ func parseWaitReadyArgs(args []string) (string, waitReadyOptions, error) {
 }
 
 func parseSendKeysArgs(args []string) (sendKeysOptions, error) {
-	opts := sendKeysOptions{}
+	opts := sendKeysOptions{waitTimeout: 10 * time.Second}
+	timeoutSet := false
 	i := 0
 	for i < len(args) {
 		switch args[i] {
-		case "--wait-ready":
+		case "--wait":
+			if i+1 >= len(args) {
+				return sendKeysOptions{}, fmt.Errorf("missing value for --wait")
+			}
+			i++
+			if args[i] != "ready" {
+				return sendKeysOptions{}, fmt.Errorf("send-keys: unsupported --wait target %q (want ready)", args[i])
+			}
 			opts.waitReady = true
 			i++
+		case "--wait-ready":
+			return sendKeysOptions{}, fmt.Errorf("send-keys: --wait-ready was removed; use --wait ready")
 		case "--continue-known-dialogs":
 			opts.continueKnownDialogs = true
+			i++
+		case "--timeout":
+			if i+1 >= len(args) {
+				return sendKeysOptions{}, fmt.Errorf("missing value for --timeout")
+			}
+			i++
+			timeout, err := time.ParseDuration(args[i])
+			if err != nil {
+				return sendKeysOptions{}, fmt.Errorf("invalid timeout: %s", args[i])
+			}
+			opts.waitTimeout = timeout
+			timeoutSet = true
 			i++
 		case "--hex":
 			opts.hexMode = true
@@ -109,7 +132,10 @@ func parseSendKeysArgs(args []string) (sendKeysOptions, error) {
 	}
 
 	if opts.continueKnownDialogs && !opts.waitReady {
-		return sendKeysOptions{}, fmt.Errorf("send-keys: --continue-known-dialogs requires --wait-ready")
+		return sendKeysOptions{}, fmt.Errorf("send-keys: --continue-known-dialogs requires --wait ready")
+	}
+	if timeoutSet && !opts.waitReady {
+		return sendKeysOptions{}, fmt.Errorf("send-keys: --timeout requires --wait ready")
 	}
 	return opts, nil
 }

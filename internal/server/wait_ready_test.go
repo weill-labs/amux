@@ -141,9 +141,10 @@ func TestParseSendKeysArgs(t *testing.T) {
 	}{
 		{
 			name: "wait ready and keys",
-			args: []string{"--wait-ready", "--continue-known-dialogs", "--hex", "6869", "Enter"},
+			args: []string{"--wait", "ready", "--continue-known-dialogs", "--timeout", "25ms", "--hex", "6869", "Enter"},
 			want: sendKeysOptions{
 				waitReady:            true,
+				waitTimeout:          25 * time.Millisecond,
 				continueKnownDialogs: true,
 				hexMode:              true,
 				keys:                 []string{"6869", "Enter"},
@@ -151,15 +152,21 @@ func TestParseSendKeysArgs(t *testing.T) {
 		},
 		{
 			name: "literal args after first key",
-			args: []string{"task", "--wait-ready"},
+			args: []string{"task", "--wait", "ready"},
 			want: sendKeysOptions{
-				keys: []string{"task", "--wait-ready"},
+				waitTimeout: 10 * time.Second,
+				keys:        []string{"task", "--wait", "ready"},
 			},
 		},
 		{
 			name:    "continue requires wait ready",
 			args:    []string{"--continue-known-dialogs", "task"},
-			wantErr: "send-keys: --continue-known-dialogs requires --wait-ready",
+			wantErr: "send-keys: --continue-known-dialogs requires --wait ready",
+		},
+		{
+			name:    "legacy flag rejected",
+			args:    []string{"--wait-ready", "task"},
+			wantErr: "send-keys: --wait-ready was removed; use --wait ready",
 		},
 	}
 
@@ -179,6 +186,7 @@ func TestParseSendKeysArgs(t *testing.T) {
 				t.Fatalf("parseSendKeysArgs(%v) error = %v", tt.args, err)
 			}
 			if got.waitReady != tt.want.waitReady ||
+				got.waitTimeout != tt.want.waitTimeout ||
 				got.continueKnownDialogs != tt.want.continueKnownDialogs ||
 				got.hexMode != tt.want.hexMode ||
 				strings.Join(got.keys, "|") != strings.Join(tt.want.keys, "|") {
@@ -287,7 +295,7 @@ func TestWaitReadyRejectsUnknownContinueFlagCombination(t *testing.T) {
 	pane.FeedOutput([]byte(codexReadyScreen("Summarize recent commits")))
 
 	res := runTestCommand(t, srv, sess, "send-keys", "pane-1", "--continue-known-dialogs", "ship it")
-	if got := res.cmdErr; got != "send-keys: --continue-known-dialogs requires --wait-ready" {
+	if got := res.cmdErr; got != "send-keys: --continue-known-dialogs requires --wait ready" {
 		t.Fatalf("send-keys flag error = %q", got)
 	}
 }
@@ -299,7 +307,7 @@ func TestSendKeysWaitReadyUsage(t *testing.T) {
 	defer cleanup()
 
 	res := runTestCommand(t, srv, sess, "send-keys", "pane-1")
-	if got := res.cmdErr; got != "usage: send-keys <pane> [--wait-ready] [--continue-known-dialogs] [--hex] <keys>..." {
+	if got := res.cmdErr; got != "usage: send-keys <pane> [--wait ready] [--continue-known-dialogs] [--timeout <duration>] [--hex] <keys>..." {
 		t.Fatalf("send-keys usage error = %q", got)
 	}
 }
@@ -310,7 +318,7 @@ func TestSendKeysWaitReadyMissingPane(t *testing.T) {
 	srv, sess, _, cleanup := setupWaitReadyTestPane(t, nil)
 	defer cleanup()
 
-	res := runTestCommand(t, srv, sess, "send-keys", "missing", "--wait-ready", "ship it")
+	res := runTestCommand(t, srv, sess, "send-keys", "missing", "--wait", "ready", "ship it")
 	if !strings.Contains(res.cmdErr, "not found") {
 		t.Fatalf("send-keys missing pane error = %q", res.cmdErr)
 	}
@@ -458,7 +466,7 @@ func TestSendKeysWaitReadyContinuesKnownDialogBeforeSendingInput(t *testing.T) {
 	pane = createdPane
 	pane.FeedOutput([]byte(codexTrustDialogScreen("/tmp/untrusted")))
 
-	res := runTestCommand(t, srv, sess, "send-keys", "pane-1", "--wait-ready", "--continue-known-dialogs", "ship it", "Enter")
+	res := runTestCommand(t, srv, sess, "send-keys", "pane-1", "--wait", "ready", "--continue-known-dialogs", "ship it", "Enter")
 	if res.cmdErr != "" || strings.TrimSpace(res.output) != "Sent 8 bytes to pane-1" {
 		t.Fatalf("send-keys result = %#v", res)
 	}

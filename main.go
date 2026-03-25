@@ -136,11 +136,7 @@ func main() {
 	case "capture":
 		runSessionCommand("capture", args[1:])
 	case "copy-mode":
-		if len(args) < 2 {
-			fmt.Fprintf(os.Stderr, "usage: amux copy-mode <pane>\n")
-			os.Exit(1)
-		}
-		runSessionCommand("copy-mode", []string{args[1]})
+		runSessionCommand("copy-mode", args[1:])
 	case "cursor":
 		if len(args) < 2 {
 			fmt.Fprintln(os.Stderr, "usage: amux cursor <layout|clipboard|hook|ui> [--client <id>]")
@@ -191,7 +187,7 @@ func main() {
 		runSessionCommand("kill", args[1:])
 	case "send-keys":
 		if len(args) < 3 {
-			fmt.Fprintf(os.Stderr, "usage: amux send-keys <pane> [--wait-ready] [--continue-known-dialogs] [--hex] <keys>...\n")
+			fmt.Fprintf(os.Stderr, "usage: amux send-keys <pane> [--wait ready] [--continue-known-dialogs] [--timeout <duration>] [--hex] <keys>...\n")
 			os.Exit(1)
 		}
 		runSessionCommand("send-keys", args[1:])
@@ -203,7 +199,7 @@ func main() {
 		runSessionCommand("broadcast", args[1:])
 	case "type-keys":
 		if len(args) < 2 {
-			fmt.Fprintf(os.Stderr, "usage: amux type-keys [--hex] <keys>...\n")
+			fmt.Fprintf(os.Stderr, "usage: amux type-keys [--wait ui=input-idle] [--timeout <duration>] [--hex] <keys>...\n")
 			os.Exit(1)
 		}
 		runSessionCommand("type-keys", args[1:])
@@ -445,11 +441,11 @@ Usage:
                                        Capture a pane's retained history + visible screen
   amux [-s session] capture --ansi     Capture with ANSI escape codes
   amux [-s session] capture --colors   Capture border color map
-  amux [-s session] send-keys <pane> [--wait-ready] [--continue-known-dialogs] [--hex] <keys>...
+  amux [-s session] send-keys <pane> [--wait ready] [--continue-known-dialogs] [--timeout <duration>] [--hex] <keys>...
                                        Send keystrokes to a pane
   amux [-s session] broadcast (--panes <pane,pane,...> | --window <index|name> | --match <glob>) [--hex] <keys>...
                                        Send the same keystrokes to multiple panes
-  amux [-s session] type-keys [--hex] <keys>...
+  amux [-s session] type-keys [--wait ui=input-idle] [--timeout <duration>] [--hex] <keys>...
                                        Type keys through client input pipeline
   amux [-s session] spawn --name NAME [--host HOST] [--task TASK] [--color COLOR]
                                        Spawn a new agent pane without changing focus
@@ -470,7 +466,8 @@ Usage:
   amux [-s session] kill <pane>        Kill a pane
   amux [-s session] undo              Undo last pane close
   amux [-s session] focus <pane>       Focus a pane by name or ID
-  amux [-s session] copy-mode <pane>   Enter copy/scroll mode for a pane
+  amux [-s session] copy-mode [pane] [--wait ui=copy-mode-shown] [--timeout <duration>]
+                                       Enter copy/scroll mode for a pane
   amux [-s session] set-meta <pane> key=value [key=value...]
                                        Set single-value pane metadata (task, branch, pr)
   amux [-s session] add-meta <pane> key=value [key=value...]

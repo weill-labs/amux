@@ -98,6 +98,215 @@ func TestHookCommandsRoundTrip(t *testing.T) {
 	}
 }
 
+func TestParseTypeKeysArgs(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		args    []string
+		want    typeKeysOptions
+		wantErr string
+	}{
+		{
+			name: "wait and timeout",
+			args: []string{"--wait", "ui=input-idle", "--timeout", "25ms", "--hex", "6162"},
+			want: typeKeysOptions{
+				waitInputIdle: true,
+				waitTimeout:   25 * time.Millisecond,
+				hexMode:       true,
+				keys:          []string{"6162"},
+			},
+		},
+		{
+			name: "literal args after first key",
+			args: []string{"hello", "--wait", "ui=input-idle"},
+			want: typeKeysOptions{
+				waitTimeout: defaultCommandUIWaitTimeout,
+				keys:        []string{"hello", "--wait", "ui=input-idle"},
+			},
+		},
+		{
+			name:    "timeout requires wait",
+			args:    []string{"--timeout", "10ms", "hello"},
+			wantErr: "type-keys: --timeout requires --wait ui=input-idle",
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := parseTypeKeysArgs(tt.args)
+			if tt.wantErr != "" {
+				if err == nil || err.Error() != tt.wantErr {
+					t.Fatalf("parseTypeKeysArgs(%v) error = %v, want %q", tt.args, err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("parseTypeKeysArgs(%v): %v", tt.args, err)
+			}
+			if got.waitInputIdle != tt.want.waitInputIdle ||
+				got.waitTimeout != tt.want.waitTimeout ||
+				got.hexMode != tt.want.hexMode ||
+				strings.Join(got.keys, "|") != strings.Join(tt.want.keys, "|") {
+				t.Fatalf("parsed = %#v, want %#v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestParseCopyModeArgs(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		args    []string
+		want    copyModeOptions
+		wantErr string
+	}{
+		{
+			name: "pane wait and timeout",
+			args: []string{"pane-2", "--wait", "ui=copy-mode-shown", "--timeout", "40ms"},
+			want: copyModeOptions{
+				paneRef:           "pane-2",
+				waitCopyModeShown: true,
+				waitTimeout:       40 * time.Millisecond,
+			},
+		},
+		{
+			name: "active pane defaults",
+			args: nil,
+			want: copyModeOptions{waitTimeout: defaultCommandUIWaitTimeout},
+		},
+		{
+			name:    "timeout requires wait",
+			args:    []string{"--timeout", "10ms"},
+			wantErr: "copy-mode: --timeout requires --wait ui=copy-mode-shown",
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := parseCopyModeArgs(tt.args)
+			if tt.wantErr != "" {
+				if err == nil || err.Error() != tt.wantErr {
+					t.Fatalf("parseCopyModeArgs(%v) error = %v, want %q", tt.args, err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("parseCopyModeArgs(%v): %v", tt.args, err)
+			}
+			if got != tt.want {
+				t.Fatalf("parsed = %#v, want %#v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCmdTypeKeysWaitsForInputIdle(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	uiServerConn, uiPeerConn := net.Pipe()
+	defer uiServerConn.Close()
+	defer uiPeerConn.Close()
+
+	uiClient := newClientConn(uiServerConn)
+	uiClient.ID = "client-1"
+	uiClient.inputIdle = true
+	uiClient.uiGeneration = 1
+	uiClient.setNegotiatedCapabilities(proto.ClientCapabilities{KittyKeyboard: true, Hyperlinks: true})
+	uiClient.initTypeKeyQueue()
+	defer uiClient.Close()
+
+	mustSessionQuery(t, sess, func(sess *Session) struct{} {
+		sess.clients = []*clientConn{uiClient}
+		return struct{}{}
+	})
+
+	cmdPeerConn, _, done := startAsyncCommand(t, srv, sess, "type-keys", "--wait", "ui=input-idle", "--timeout", "100ms", "ab")
+
+	typeKeysMsg := readMsgWithTimeout(t, uiPeerConn)
+	if typeKeysMsg.Type != MsgTypeTypeKeys || string(typeKeysMsg.Input) != "ab" {
+		t.Fatalf("type-keys message = %#v", typeKeysMsg)
+	}
+
+	select {
+	case <-done:
+		t.Fatal("type-keys returned before fresh input-idle")
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	sess.enqueueUIEvent(uiClient, proto.UIEventInputBusy)
+	sess.enqueueUIEvent(uiClient, proto.UIEventInputIdle)
+
+	result := readMsgWithTimeout(t, cmdPeerConn)
+	if got := result.CmdOutput; got != "Typed 2 bytes\n" {
+		t.Fatalf("type-keys output = %q", got)
+	}
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("type-keys wait command did not return")
+	}
+}
+
+func TestCmdCopyModeWaitsForShown(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, _, cleanup := setupWaitReadyTestPane(t, nil)
+	defer cleanup()
+
+	uiServerConn, uiPeerConn := net.Pipe()
+	defer uiServerConn.Close()
+	defer uiPeerConn.Close()
+
+	uiClient := newClientConn(uiServerConn)
+	uiClient.ID = "client-1"
+	uiClient.uiGeneration = 2
+	defer uiClient.Close()
+
+	mustSessionQuery(t, sess, func(sess *Session) struct{} {
+		sess.clients = []*clientConn{uiClient}
+		return struct{}{}
+	})
+
+	cmdPeerConn, _, done := startAsyncCommand(t, srv, sess, "copy-mode", "pane-1", "--wait", "ui=copy-mode-shown", "--timeout", "100ms")
+
+	copyModeMsg := readMsgWithTimeout(t, uiPeerConn)
+	if copyModeMsg.Type != MsgTypeCopyMode || copyModeMsg.PaneID != 1 {
+		t.Fatalf("copy-mode message = %#v", copyModeMsg)
+	}
+
+	select {
+	case <-done:
+		t.Fatal("copy-mode returned before copy-mode-shown")
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	sess.enqueueUIEvent(uiClient, proto.UIEventCopyModeShown)
+
+	result := readMsgWithTimeout(t, cmdPeerConn)
+	if got := result.CmdOutput; got != "Copy mode entered for pane-1\n" {
+		t.Fatalf("copy-mode output = %q", got)
+	}
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("copy-mode wait command did not return")
+	}
+}
+
 func TestMetaCollectionCommandsUsageAndErrors(t *testing.T) {
 	t.Parallel()
 

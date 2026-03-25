@@ -42,9 +42,9 @@ printf '\nTASK:%s\n' "$task"
 		t.Fatalf("wait-ready should report trust dialog blocker, got:\n%s", out)
 	}
 
-	out := h.runCmd("send-keys", "pane-1", "--wait-ready", "--continue-known-dialogs", "ship it", "Enter")
+	out := h.runCmd("send-keys", "pane-1", "--wait", "ready", "--continue-known-dialogs", "ship it", "Enter")
 	if strings.TrimSpace(out) != "Sent 8 bytes to pane-1" {
-		t.Fatalf("send-keys --wait-ready output = %q", out)
+		t.Fatalf("send-keys --wait ready output = %q", out)
 	}
 
 	h.waitFor("pane-1", "TASK:ship it")

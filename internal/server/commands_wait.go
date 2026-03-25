@@ -490,6 +490,11 @@ func waitForUIEvent(sess *Session, requestedClientID, eventName string, afterGen
 	}
 }
 
+func waitForNextUIEvent(sess *Session, client uiClientSnapshot, eventName string, timeout time.Duration) error {
+	_, err := waitForUIEvent(sess, client.clientID, eventName, client.currentGen, true, timeout)
+	return err
+}
+
 func cmdWaitUI(ctx *CommandContext) {
 	eventName, requestedClientID, afterGen, afterSet, timeout, err := parseWaitUIArgs(ctx.Args)
 	if err != nil {

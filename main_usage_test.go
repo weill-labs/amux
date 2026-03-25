@@ -32,7 +32,7 @@ func TestMainSendKeysUsageIncludesWaitReadyFlags(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("exit code = %d, want 1\n%s", code, out)
 	}
-	if !strings.Contains(out, "usage: amux send-keys <pane> [--wait-ready] [--continue-known-dialogs] [--hex] <keys>...") {
+	if !strings.Contains(out, "usage: amux send-keys <pane> [--wait ready] [--continue-known-dialogs] [--timeout <duration>] [--hex] <keys>...") {
 		t.Fatalf("usage output missing wait-ready flags:\n%s", out)
 	}
 }
