@@ -48,6 +48,16 @@ func TestKittyKeyboardChooserEscape(t *testing.T) {
 	h := newServerHarnessPersistent(t)
 	h.client.close()
 	h.client = nil
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		if len(parseClientIDs(h.runCmd("list-clients"))) == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("expected persistent harness to detach the headless client before PTY attach, got:\n%s", h.runCmd("list-clients"))
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 	client := newPTYClientHarness(t, h, "AMUX_CLIENT_CAPABILITIES=kitty_keyboard")
 
 	client.write([]byte("\x1b[97;5u"))
