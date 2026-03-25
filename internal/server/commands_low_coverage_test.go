@@ -923,8 +923,8 @@ func TestCommandSplitTargetsExplicitInactivePane(t *testing.T) {
 				p3Y      int
 			} {
 				w := sess.activeWindow()
-				newPane := sess.findPaneByRef(tt.newPaneName)
-				if newPane == nil {
+				newPane, err := sess.findPaneByRef(tt.newPaneName)
+				if err != nil {
 					return struct {
 						activeID uint32
 						p1Y      int
@@ -1016,7 +1016,10 @@ func TestCommandSpawnFocusModes(t *testing.T) {
 					hasPane  bool
 				}{
 					activeID: w.ActivePane.ID,
-					hasPane:  sess.findPaneByRef(tt.args[1]) != nil,
+					hasPane: func() bool {
+						_, err := sess.findPaneByRef(tt.args[1])
+						return err == nil
+					}(),
 				}
 			})
 			if state.activeID != tt.wantActiveID || !state.hasPane {
