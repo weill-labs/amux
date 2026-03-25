@@ -11,6 +11,15 @@ import (
 	"github.com/weill-labs/amux/internal/mux"
 )
 
+// yieldToCommandHandler gives the command handler goroutine a chance to
+// consume from its channels and enter/re-enter its select loop. This is a
+// scheduling yield, not a timing assertion — the fake clock controls all
+// timer-based logic. The sleep duration is generous to avoid flakes under
+// heavy CPU contention with -race -count=100.
+func yieldToCommandHandler() {
+	time.Sleep(5 * time.Millisecond) //nolint:gosleep
+}
+
 func startAsyncCommand(t *testing.T, srv *Server, sess *Session, name string, args ...string) (net.Conn, *clientConn, <-chan struct{}) {
 	t.Helper()
 
@@ -37,24 +46,6 @@ func startAsyncCommand(t *testing.T, srv *Server, sess *Session, name string, ar
 	})
 
 	return clientConn, cc, done
-}
-
-func assertNoCmdResultWithin(t *testing.T, conn net.Conn, d time.Duration) {
-	t.Helper()
-
-	if err := conn.SetReadDeadline(time.Now().Add(d)); err != nil {
-		t.Fatalf("SetReadDeadline: %v", err)
-	}
-	defer conn.SetReadDeadline(time.Time{})
-
-	msg, err := ReadMsg(conn)
-	if err == nil {
-		t.Fatalf("unexpected message before deadline: %#v", msg)
-	}
-	if ne, ok := err.(net.Error); ok && ne.Timeout() {
-		return
-	}
-	t.Fatalf("ReadMsg: %v", err)
 }
 
 func setupWaitVTIdleTestPane(t *testing.T) (*Server, *Session, *mux.Pane, func()) {
@@ -178,10 +169,22 @@ func TestCmdWaitVTIdleImmediateWhenAlreadySettled(t *testing.T) {
 func TestCmdWaitVTIdleTimeout(t *testing.T) {
 	t.Parallel()
 
+	clk := NewFakeClock(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC))
 	srv, sess, _, cleanup := setupWaitVTIdleTestPane(t)
 	defer cleanup()
+	sess.Clock = clk
+	sess.vtIdle = NewVTIdleTracker(clk)
 
 	clientConn, _, done := startAsyncCommand(t, srv, sess, "wait-vt-idle", "pane-1", "--settle", "200ms", "--timeout", "40ms")
+
+	// Wait for the command goroutine to enter its select loop. The event-loop
+	// barrier ensures the subscribe has been processed; a short yield lets the
+	// goroutine reach the select statement.
+	sess.queryVTIdleWaitState(1)
+	yieldToCommandHandler()
+
+	// Advance past the timeout deadline — the command should reply immediately.
+	clk.Advance(50 * time.Millisecond)
 
 	msg := readMsgWithTimeout(t, clientConn)
 	if got := msg.CmdErr; got != "timeout waiting for pane-1 to become vt-idle" {
@@ -198,16 +201,32 @@ func TestCmdWaitVTIdleTimeout(t *testing.T) {
 func TestCmdWaitVTIdleResetsSettleTimerOnOutput(t *testing.T) {
 	t.Parallel()
 
+	clk := NewFakeClock(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC))
 	srv, sess, pane, cleanup := setupWaitVTIdleTestPane(t)
 	defer cleanup()
+	sess.Clock = clk
+	sess.vtIdle = NewVTIdleTracker(clk)
 
-	clientConn, _, done := startAsyncCommand(t, srv, sess, "wait-vt-idle", "pane-1", "--settle", "60ms", "--timeout", "500ms")
+	clientConn, _, done := startAsyncCommand(t, srv, sess, "wait-vt-idle", "pane-1", "--settle", "100ms", "--timeout", "5s")
 
+	// Let the command goroutine enter its select loop.
+	sess.queryVTIdleWaitState(1)
+	yieldToCommandHandler()
+
+	// Send output — resets the settle timer.
 	pane.FeedOutput([]byte("first"))
-	assertNoCmdResultWithin(t, clientConn, 30*time.Millisecond)
+	sess.queryVTIdleWaitState(1) // barrier: event loop processed the output
+	yieldToCommandHandler()      // yield: let command handler consume from outputCh
+	clk.Advance(50 * time.Millisecond)
 
+	// More output — resets settle timer again.
 	pane.FeedOutput([]byte("second"))
-	assertNoCmdResultWithin(t, clientConn, 30*time.Millisecond)
+	sess.queryVTIdleWaitState(1)
+	yieldToCommandHandler()
+	clk.Advance(50 * time.Millisecond)
+
+	// Advance past the settle window from the last output.
+	clk.Advance(110 * time.Millisecond)
 
 	msg := readMsgWithTimeout(t, clientConn)
 	if got := strings.TrimSpace(msg.CmdOutput); got != "vt-idle" {

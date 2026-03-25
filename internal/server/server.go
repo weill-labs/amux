@@ -97,6 +97,7 @@ type Session struct {
 	// Configurable timing — zero values use defaults. Tests inject short durations.
 	VTIdleSettle    time.Duration // default: 2s
 	UndoGracePeriod time.Duration // default: 30s
+	Clock           Clock         // nil uses RealClock
 
 	// Remote pane management — manages SSH connections to remote hosts.
 	// Nil when no config is loaded or no remote hosts are defined.
@@ -141,6 +142,13 @@ type Session struct {
 	// from inside the handler, which would deadlock.
 	wantShutdown    bool
 	scrollbackLines int
+}
+
+func (s *Session) clock() Clock {
+	if s.Clock != nil {
+		return s.Clock
+	}
+	return RealClock{}
 }
 
 func (s *Session) vtIdleSettle() time.Duration {
@@ -420,7 +428,7 @@ func newSessionWithScrollback(name string, scrollbackLines int) *Session {
 	}
 	sess.Hooks = hooks.NewRegistry()
 	sess.idle = newIdleTracker()
-	sess.vtIdle = NewVTIdleTracker()
+	sess.vtIdle = NewVTIdleTracker(sess.clock())
 	sess.takenOverPanes = make(map[uint32]bool)
 	sess.layoutWaiters = make(map[uint64]layoutWaiter)
 	sess.clipboardWaiters = make(map[uint64]clipboardWaiter)
