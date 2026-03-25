@@ -382,6 +382,15 @@ type paneOutputWaitStart struct {
 	exists  bool
 }
 
+func (s *Session) addPaneOutputSubscriber(paneID uint32) chan struct{} {
+	ch := make(chan struct{}, 1)
+	if s.paneOutputSubs == nil {
+		s.paneOutputSubs = make(map[uint32][]chan struct{})
+	}
+	s.paneOutputSubs[paneID] = append(s.paneOutputSubs[paneID], ch)
+	return ch
+}
+
 // beginPaneOutputWait atomically registers a pane-output subscriber and checks
 // the pane screen for the target substring inside the session actor. This
 // avoids the lost-wakeup race where output lands between an initial
@@ -392,11 +401,7 @@ func (s *Session) beginPaneOutputWait(paneID uint32, substr string) (paneOutputW
 		if pane == nil {
 			return paneOutputWaitStart{}, nil
 		}
-		ch := make(chan struct{}, 1)
-		if s.paneOutputSubs == nil {
-			s.paneOutputSubs = make(map[uint32][]chan struct{})
-		}
-		s.paneOutputSubs[paneID] = append(s.paneOutputSubs[paneID], ch)
+		ch := s.addPaneOutputSubscriber(paneID)
 		return paneOutputWaitStart{
 			ch:      ch,
 			matched: pane.ScreenContains(substr),
