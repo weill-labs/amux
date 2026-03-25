@@ -1,6 +1,7 @@
 package server
 
 import (
+	"maps"
 	"strings"
 	"testing"
 )
@@ -14,10 +15,7 @@ func TestHandleCommandPanicSendsError(t *testing.T) {
 	// Inject a panicking command into this server's registry only —
 	// no mutation of the shared package-level commandRegistry.
 	const cmdName = "__test_panic__"
-	srv.commands = make(map[string]CommandHandler, len(commandRegistry)+1)
-	for k, v := range commandRegistry {
-		srv.commands[k] = v
-	}
+	srv.commands = maps.Clone(commandRegistry)
 	srv.commands[cmdName] = func(ctx *CommandContext) {
 		panic("boom")
 	}
