@@ -141,6 +141,12 @@ func main() {
 			os.Exit(1)
 		}
 		runSessionCommand("copy-mode", []string{args[1]})
+	case "cursor":
+		if len(args) < 2 {
+			fmt.Fprintln(os.Stderr, "usage: amux cursor <layout|clipboard|hook|ui> [--client <id>]")
+			os.Exit(1)
+		}
+		runSessionCommand("cursor", args[1:])
 	case "zoom":
 		runSessionCommand("zoom", args[1:])
 	case "undo":
@@ -223,60 +229,12 @@ func main() {
 			os.Exit(1)
 		}
 		runSessionCommand("rename-window", []string{args[1]})
-	case "generation":
-		runSessionCommand("generation", nil)
-	case "ui-gen":
-		runSessionCommand("ui-gen", args[1:])
-	case "wait-layout":
-		runSessionCommand("wait-layout", args[1:])
-	case "wait-for":
-		if len(args) < 3 {
-			fmt.Fprintf(os.Stderr, "usage: amux wait-for <pane> <substring> [--timeout <duration>]\n")
-			os.Exit(1)
-		}
-		runSessionCommand("wait-for", args[1:])
-	case "wait-ready":
+	case "wait":
 		if len(args) < 2 {
-			fmt.Fprintln(os.Stderr, "usage: amux wait-ready <pane> [--timeout <duration>] [--continue-known-dialogs]")
+			fmt.Fprintln(os.Stderr, "usage: amux wait <idle|busy|vt-idle|ready|content|layout|clipboard|hook|ui> ...")
 			os.Exit(1)
 		}
-		runSessionCommand("wait-ready", args[1:])
-	case "wait-vt-idle":
-		if len(args) < 2 {
-			fmt.Fprintf(os.Stderr, "usage: amux wait-vt-idle <pane> [--settle <duration>] [--timeout <duration>]\n")
-			os.Exit(1)
-		}
-		runSessionCommand("wait-vt-idle", args[1:])
-	case "wait-idle":
-		if len(args) < 2 {
-			fmt.Fprintf(os.Stderr, "usage: amux wait-idle <pane> [--timeout <duration>]\n")
-			os.Exit(1)
-		}
-		runSessionCommand("wait-idle", args[1:])
-	case "wait-busy":
-		if len(args) < 2 {
-			fmt.Fprintf(os.Stderr, "usage: amux wait-busy <pane> [--timeout <duration>]\n")
-			os.Exit(1)
-		}
-		runSessionCommand("wait-busy", args[1:])
-	case "wait-ui":
-		if len(args) < 2 {
-			fmt.Fprintf(os.Stderr, "usage: amux wait-ui <event> [--client <id>] [--after N] [--timeout <duration>]\n")
-			os.Exit(1)
-		}
-		runSessionCommand("wait-ui", args[1:])
-	case "hook-gen":
-		runSessionCommand("hook-gen", nil)
-	case "wait-hook":
-		if len(args) < 2 {
-			fmt.Fprintf(os.Stderr, "usage: amux wait-hook <event> [--pane <pane>] [--after N] [--timeout <duration>]\n")
-			os.Exit(1)
-		}
-		runSessionCommand("wait-hook", args[1:])
-	case "clipboard-gen":
-		runSessionCommand("clipboard-gen", nil)
-	case "wait-clipboard":
-		runSessionCommand("wait-clipboard", args[1:])
+		runSessionCommand("wait", args[1:])
 	case "resize-window":
 		if len(args) < 3 {
 			fmt.Fprintf(os.Stderr, "usage: amux resize-window <cols> <rows>\n")
@@ -541,25 +499,28 @@ Usage:
   amux [-s session] reconnect <host>   Reconnect to a remote host
   amux [-s session] unsplice <host>    Revert SSH takeover for a host
   amux [-s session] reload-server      Hot-reload the server (preserves panes)
-  amux [-s session] generation         Show current layout generation counter
-  amux [-s session] ui-gen [--client <id>]
-                                       Show current client UI generation counter
-  amux [-s session] wait-layout [--after N] [--timeout 3s]
-                                       Block until layout generation > N
-  amux [-s session] wait-for <pane> <substring> [--timeout 3s]
+  amux [-s session] cursor layout      Show current layout cursor
+  amux [-s session] cursor clipboard   Show current clipboard cursor
+  amux [-s session] cursor hook        Show current hook cursor
+  amux [-s session] cursor ui [--client <id>]
+                                       Show current client UI cursor
+  amux [-s session] wait layout [--after N] [--timeout 3s]
+                                       Block until the next layout change after the cursor
+  amux [-s session] wait clipboard [--after N] [--timeout 3s]
+                                       Block until the next clipboard write after the cursor
+  amux [-s session] wait content <pane> <substring> [--timeout 3s]
                                        Block until substring appears in pane
-  amux [-s session] wait-ready <pane> [--timeout 10s] [--continue-known-dialogs]
+  amux [-s session] wait ready <pane> [--timeout 10s] [--continue-known-dialogs]
                                        Block until an agent pane reaches its input prompt
-  amux [-s session] wait-vt-idle <pane> [--settle 2s] [--timeout 60s]
+  amux [-s session] wait vt-idle <pane> [--settle 2s] [--timeout 60s]
                                        Block until pane VT output quiesces
-  amux [-s session] wait-busy <pane> [--timeout 5s]
+  amux [-s session] wait busy <pane> [--timeout 5s]
                                        Block until pane has child processes
-  amux [-s session] wait-idle <pane> [--timeout 5s]
+  amux [-s session] wait idle <pane> [--timeout 5s]
                                        Block until pane becomes idle
-  amux [-s session] wait-ui <event> [--client <id>] [--after N] [--timeout 5s]
+  amux [-s session] wait ui <event> [--client <id>] [--after N] [--timeout 5s]
                                        Block until a client-local UI state is reached
-  amux [-s session] hook-gen          Show current hook completion generation
-  amux [-s session] wait-hook <event> [--pane <ref>] [--after N] [--timeout 5s]
+  amux [-s session] wait hook <event> [--pane <ref>] [--after N] [--timeout 5s]
                                        Block until a matching hook completes
   amux install-terminfo                Install amux terminfo into ~/.terminfo
   amux version                         Show build version

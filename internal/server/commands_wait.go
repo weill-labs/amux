@@ -10,7 +10,18 @@ import (
 	waitcmd "github.com/weill-labs/amux/internal/server/commands/wait"
 )
 
-func parseWaitArgs(args []string) (afterGen uint64, timeout time.Duration, err error) {
+const (
+	waitCommandUsage   = "usage: wait <idle|busy|vt-idle|ready|content|layout|clipboard|hook|ui> ..."
+	cursorCommandUsage = "usage: cursor <layout|clipboard|hook|ui> [--client <id>]"
+)
+
+func waitSubcommandContext(ctx *CommandContext, args []string) *CommandContext {
+	sub := *ctx
+	sub.Args = args
+	return &sub
+}
+
+func parseWaitArgs(args []string) (afterGen uint64, afterSet bool, timeout time.Duration, err error) {
 	return waitcmd.ParseWaitArgs(args)
 }
 
@@ -38,6 +49,56 @@ func waitBusyReady(candidatePID int, status mux.AgentStatus) (nextPID int, ready
 	return waitcmd.WaitBusyReady(candidatePID, status)
 }
 
+func cmdCursor(ctx *CommandContext) {
+	if len(ctx.Args) == 0 {
+		ctx.replyErr(cursorCommandUsage)
+		return
+	}
+
+	switch ctx.Args[0] {
+	case "layout":
+		cmdGeneration(waitSubcommandContext(ctx, ctx.Args[1:]))
+	case "clipboard":
+		cmdClipboardGen(waitSubcommandContext(ctx, ctx.Args[1:]))
+	case "hook":
+		cmdHookGen(waitSubcommandContext(ctx, ctx.Args[1:]))
+	case "ui":
+		cmdUIGen(waitSubcommandContext(ctx, ctx.Args[1:]))
+	default:
+		ctx.replyErr(fmt.Sprintf("unknown cursor kind: %s", ctx.Args[0]))
+	}
+}
+
+func cmdWait(ctx *CommandContext) {
+	if len(ctx.Args) == 0 {
+		ctx.replyErr(waitCommandUsage)
+		return
+	}
+
+	switch ctx.Args[0] {
+	case "layout":
+		cmdWaitLayout(waitSubcommandContext(ctx, ctx.Args[1:]))
+	case "clipboard":
+		cmdWaitClipboard(waitSubcommandContext(ctx, ctx.Args[1:]))
+	case "hook":
+		cmdWaitHook(waitSubcommandContext(ctx, ctx.Args[1:]))
+	case "content":
+		cmdWaitFor(waitSubcommandContext(ctx, ctx.Args[1:]))
+	case "ready":
+		cmdWaitReady(waitSubcommandContext(ctx, ctx.Args[1:]))
+	case "vt-idle":
+		cmdWaitVTIdle(waitSubcommandContext(ctx, ctx.Args[1:]))
+	case "idle":
+		cmdWaitIdle(waitSubcommandContext(ctx, ctx.Args[1:]))
+	case "busy":
+		cmdWaitBusy(waitSubcommandContext(ctx, ctx.Args[1:]))
+	case "ui":
+		cmdWaitUI(waitSubcommandContext(ctx, ctx.Args[1:]))
+	default:
+		ctx.replyErr(fmt.Sprintf("unknown wait kind: %s", ctx.Args[0]))
+	}
+}
+
 func cmdGeneration(ctx *CommandContext) {
 	gen := ctx.Sess.generation.Load()
 	ctx.reply(fmt.Sprintf("%d\n", gen))
@@ -60,12 +121,20 @@ func cmdLayoutJSON(ctx *CommandContext) {
 }
 
 func cmdWaitLayout(ctx *CommandContext) {
-	afterGen, timeout, err := parseWaitArgs(ctx.Args)
+	afterGen, afterSet, timeout, err := parseWaitArgs(ctx.Args)
 	if err != nil {
 		ctx.replyErr(err.Error())
 		return
 	}
-	gen, ok := ctx.Sess.waitGeneration(afterGen, timeout)
+	var (
+		gen uint64
+		ok  bool
+	)
+	if afterSet {
+		gen, ok = ctx.Sess.waitGeneration(afterGen, timeout)
+	} else {
+		gen, ok = ctx.Sess.waitGenerationAfterCurrent(timeout)
+	}
 	if !ok {
 		ctx.replyErr(fmt.Sprintf("timeout waiting for generation > %d (current: %d)", afterGen, gen))
 		return
@@ -79,12 +148,20 @@ func cmdClipboardGen(ctx *CommandContext) {
 }
 
 func cmdWaitClipboard(ctx *CommandContext) {
-	afterGen, timeout, err := parseWaitArgs(ctx.Args)
+	afterGen, afterSet, timeout, err := parseWaitArgs(ctx.Args)
 	if err != nil {
 		ctx.replyErr(err.Error())
 		return
 	}
-	data, ok := ctx.Sess.waitClipboard(afterGen, timeout)
+	var (
+		data string
+		ok   bool
+	)
+	if afterSet {
+		data, ok = ctx.Sess.waitClipboard(afterGen, timeout)
+	} else {
+		data, ok = ctx.Sess.waitClipboardAfterCurrent(timeout)
+	}
 	if !ok {
 		ctx.replyErr("timeout waiting for clipboard event")
 		return
@@ -131,7 +208,15 @@ func cmdWaitHook(ctx *CommandContext) {
 		return
 	}
 	paneName = pane.paneName
-	record, ok := ctx.Sess.waitHookForPane(afterGen, eventName, pane.paneID, paneName, timeout)
+	var (
+		record hookResultRecord
+		ok     bool
+	)
+	if hasAfterFlag(ctx.Args) {
+		record, ok = ctx.Sess.waitHookForPane(afterGen, eventName, pane.paneID, paneName, timeout)
+	} else {
+		record, ok = ctx.Sess.waitHookForPaneAfterCurrent(eventName, pane.paneID, paneName, timeout)
+	}
 	if !ok {
 		target := eventName
 		if paneName != "" {
@@ -149,7 +234,7 @@ func cmdWaitHook(ctx *CommandContext) {
 
 func cmdWaitFor(ctx *CommandContext) {
 	if len(ctx.Args) < 2 {
-		ctx.replyErr("usage: wait-for <pane> <substring> [--timeout <duration>]")
+		ctx.replyErr("usage: wait content <pane> <substring> [--timeout <duration>]")
 		return
 	}
 	paneRef := ctx.Args[0]
@@ -200,7 +285,7 @@ func cmdWaitFor(ctx *CommandContext) {
 
 func cmdWaitIdle(ctx *CommandContext) {
 	if len(ctx.Args) < 1 {
-		ctx.replyErr("usage: wait-idle <pane> [--timeout <duration>]")
+		ctx.replyErr("usage: wait idle <pane> [--timeout <duration>]")
 		return
 	}
 	paneRef := ctx.Args[0]
@@ -216,7 +301,6 @@ func cmdWaitIdle(ctx *CommandContext) {
 		return
 	}
 	paneID := pane.paneID
-	paneName := pane.paneName
 
 	checkIdle := func() (bool, error) {
 		pane, err := enqueueSessionQuery(ctx.Sess, func(sess *Session) (*mux.Pane, error) {
@@ -234,14 +318,14 @@ func cmdWaitIdle(ctx *CommandContext) {
 		return true, nil
 	}
 
-	res := ctx.Sess.enqueueEventSubscribe(eventFilter{Types: []string{EventIdle}, PaneName: paneName}, false)
+	res := ctx.Sess.enqueueEventSubscribe(eventFilter{Types: []string{EventIdle}, PaneID: paneID}, true)
 	if res.sub == nil {
 		ctx.replyErr("session shutting down")
 		return
 	}
 	defer ctx.Sess.enqueueEventUnsubscribe(res.sub)
 
-	if ctx.Sess.idle.IsIdle(paneID) {
+	if len(res.initialState) > 0 {
 		idle, err := checkIdle()
 		if err != nil {
 			ctx.replyErr(err.Error())
@@ -277,7 +361,7 @@ func cmdWaitIdle(ctx *CommandContext) {
 
 func cmdWaitBusy(ctx *CommandContext) {
 	if len(ctx.Args) < 1 {
-		ctx.replyErr("usage: wait-busy <pane> [--timeout <duration>]")
+		ctx.replyErr("usage: wait busy <pane> [--timeout <duration>]")
 		return
 	}
 	paneRef := ctx.Args[0]
@@ -381,35 +465,49 @@ func cmdWaitBusy(ctx *CommandContext) {
 	}
 }
 
-func cmdWaitUI(ctx *CommandContext) {
-	eventName, requestedClientID, afterGen, afterSet, timeout, err := parseWaitUIArgs(ctx.Args)
-	if err != nil {
-		ctx.replyErr(err.Error())
-		return
-	}
+func waitForUIEvent(sess *Session, requestedClientID, eventName string, afterGen uint64, afterSet bool, timeout time.Duration) (string, error) {
 	if !proto.IsKnownUIEvent(eventName) {
-		ctx.replyErr(errUnknownUIEvent(eventName).Error())
-		return
+		return "", errUnknownUIEvent(eventName)
 	}
 
-	subscription, err := ctx.Sess.enqueueUIWaitSubscribe(requestedClientID, eventName)
+	subscription, err := sess.enqueueUIWaitSubscribe(requestedClientID, eventName)
 	if err != nil {
-		ctx.replyErr(err.Error())
-		return
+		return "", err
 	}
-	defer ctx.Sess.enqueueEventUnsubscribe(subscription.sub)
+	defer sess.enqueueEventUnsubscribe(subscription.sub)
 
 	if subscription.currentMatch && (!afterSet || subscription.currentGen > afterGen) {
-		ctx.reply(eventName + "\n")
-		return
+		return subscription.clientID, nil
 	}
 
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
 	select {
 	case <-subscription.sub.ch:
-		ctx.reply(eventName + "\n")
+		return subscription.clientID, nil
 	case <-timer.C:
-		ctx.replyErr(fmt.Sprintf("timeout waiting for %s on %s", eventName, subscription.clientID))
+		return "", fmt.Errorf("timeout waiting for %s on %s", eventName, subscription.clientID)
 	}
+}
+
+func cmdWaitUI(ctx *CommandContext) {
+	eventName, requestedClientID, afterGen, afterSet, timeout, err := parseWaitUIArgs(ctx.Args)
+	if err != nil {
+		ctx.replyErr(err.Error())
+		return
+	}
+	if _, err := waitForUIEvent(ctx.Sess, requestedClientID, eventName, afterGen, afterSet, timeout); err != nil {
+		ctx.replyErr(err.Error())
+		return
+	}
+	ctx.reply(eventName + "\n")
+}
+
+func hasAfterFlag(args []string) bool {
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--after" {
+			return true
+		}
+	}
+	return false
 }

@@ -459,6 +459,16 @@ func (s *Session) waitGeneration(afterGen uint64, timeout time.Duration) (uint64
 	}
 }
 
+func (s *Session) waitGenerationAfterCurrent(timeout time.Duration) (uint64, bool) {
+	afterGen, err := enqueueSessionQuery(s, func(s *Session) (uint64, error) {
+		return s.generation.Load(), nil
+	})
+	if err != nil {
+		return 0, false
+	}
+	return s.waitGeneration(afterGen, timeout)
+}
+
 // waitClipboard blocks until the clipboard generation exceeds afterGen or
 // timeout expires. Returns the last clipboard payload and whether it matched.
 func (s *Session) waitClipboard(afterGen uint64, timeout time.Duration) (string, bool) {
@@ -510,8 +520,28 @@ func (s *Session) waitClipboard(afterGen uint64, timeout time.Duration) (string,
 	}
 }
 
+func (s *Session) waitClipboardAfterCurrent(timeout time.Duration) (string, bool) {
+	afterGen, err := enqueueSessionQuery(s, func(s *Session) (uint64, error) {
+		return s.clipboardGen.Load(), nil
+	})
+	if err != nil {
+		return "", false
+	}
+	return s.waitClipboard(afterGen, timeout)
+}
+
 func (s *Session) waitHook(afterGen uint64, eventName, paneName string, timeout time.Duration) (hookResultRecord, bool) {
 	return s.waitHookForPane(afterGen, eventName, 0, paneName, timeout)
+}
+
+func (s *Session) waitHookForPaneAfterCurrent(eventName string, paneID uint32, paneName string, timeout time.Duration) (hookResultRecord, bool) {
+	afterGen, err := enqueueSessionQuery(s, func(s *Session) (uint64, error) {
+		return s.hookGen.Load(), nil
+	})
+	if err != nil {
+		return hookResultRecord{}, false
+	}
+	return s.waitHookForPane(afterGen, eventName, paneID, paneName, timeout)
 }
 
 func (s *Session) waitHookForPane(afterGen uint64, eventName string, paneID uint32, paneName string, timeout time.Duration) (hookResultRecord, bool) {

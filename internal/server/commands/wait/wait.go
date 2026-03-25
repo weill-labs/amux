@@ -9,29 +9,34 @@ import (
 	"github.com/weill-labs/amux/internal/mux"
 )
 
-func ParseWaitArgs(args []string) (afterGen uint64, timeout time.Duration, err error) {
+func ParseWaitArgs(args []string) (afterGen uint64, afterSet bool, timeout time.Duration, err error) {
 	timeout = 3 * time.Second
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--after":
-			if i+1 < len(args) {
-				i++
-				afterGen, err = strconv.ParseUint(args[i], 10, 64)
-				if err != nil {
-					return 0, 0, fmt.Errorf("invalid generation: %s", args[i])
-				}
+			if i+1 >= len(args) {
+				return 0, false, 0, fmt.Errorf("missing value for --after")
+			}
+			i++
+			afterSet = true
+			afterGen, err = strconv.ParseUint(args[i], 10, 64)
+			if err != nil {
+				return 0, false, 0, fmt.Errorf("invalid generation: %s", args[i])
 			}
 		case "--timeout":
-			if i+1 < len(args) {
-				i++
-				timeout, err = time.ParseDuration(args[i])
-				if err != nil {
-					return 0, 0, fmt.Errorf("invalid timeout: %s", args[i])
-				}
+			if i+1 >= len(args) {
+				return 0, false, 0, fmt.Errorf("missing value for --timeout")
 			}
+			i++
+			timeout, err = time.ParseDuration(args[i])
+			if err != nil {
+				return 0, false, 0, fmt.Errorf("invalid timeout: %s", args[i])
+			}
+		default:
+			return 0, false, 0, fmt.Errorf("unknown flag: %s", args[i])
 		}
 	}
-	return afterGen, timeout, nil
+	return afterGen, afterSet, timeout, nil
 }
 
 func ParseTimeout(args []string, startIdx int, defaultTimeout time.Duration) (time.Duration, error) {
@@ -66,7 +71,7 @@ func ParseUIGenArgs(args []string) (clientID string, err error) {
 
 func ParseWaitUIArgs(args []string) (eventName, clientID string, afterGen uint64, afterSet bool, timeout time.Duration, err error) {
 	if len(args) < 1 {
-		return "", "", 0, false, 0, fmt.Errorf("usage: wait-ui <event> [--client <id>] [--after N] [--timeout <duration>]")
+		return "", "", 0, false, 0, fmt.Errorf("usage: wait ui <event> [--client <id>] [--after N] [--timeout <duration>]")
 	}
 	eventName = args[0]
 	timeout = 5 * time.Second
@@ -106,7 +111,7 @@ func ParseWaitUIArgs(args []string) (eventName, clientID string, afterGen uint64
 
 func ParseWaitHookArgs(args []string) (eventName, paneName string, afterGen uint64, timeout time.Duration, err error) {
 	if len(args) < 1 {
-		return "", "", 0, 0, fmt.Errorf("usage: wait-hook <event> [--pane <pane>] [--after N] [--timeout <duration>]")
+		return "", "", 0, 0, fmt.Errorf("usage: wait hook <event> [--pane <pane>] [--after N] [--timeout <duration>]")
 	}
 	eventName = args[0]
 	timeout = 5 * time.Second

@@ -77,6 +77,157 @@ func TestWaitGeneration_Timeout(t *testing.T) {
 	}
 }
 
+func TestWaitGenerationAfterCurrent_WaitsForNextGeneration(t *testing.T) {
+	t.Parallel()
+	sess := newSession("test-wait-generation-after-current")
+	defer stopSessionBackgroundLoops(t, sess)
+	sess.generation.Store(5)
+
+	done := make(chan struct{})
+	var result uint64
+	var resultOk bool
+	go func() {
+		result, resultOk = sess.waitGenerationAfterCurrent(5 * time.Second)
+		close(done)
+	}()
+
+	waitUntil(t, func() bool {
+		return mustSessionQuery(t, sess, func(sess *Session) bool {
+			if len(sess.layoutWaiters) != 1 {
+				return false
+			}
+			for _, waiter := range sess.layoutWaiters {
+				return waiter.afterGen == 5
+			}
+			return false
+		})
+	})
+
+	sess.enqueueCommandMutation(func(s *Session) commandMutationResult {
+		gen := s.generation.Add(1)
+		s.notifyLayoutWaiters(gen)
+		return commandMutationResult{}
+	})
+
+	select {
+	case <-done:
+		if !resultOk {
+			t.Fatal("expected ok=true")
+		}
+		if result != 6 {
+			t.Fatalf("expected generation 6, got %d", result)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("waitGenerationAfterCurrent did not return after increment")
+	}
+}
+
+func TestWaitClipboardAfterCurrent_WaitsForNextClipboard(t *testing.T) {
+	t.Parallel()
+	sess := newSession("test-wait-clipboard-after-current")
+	defer stopSessionBackgroundLoops(t, sess)
+	sess.clipboardGen.Store(5)
+	sess.lastClipboardB64 = "old"
+
+	done := make(chan struct{})
+	var result string
+	var resultOk bool
+	go func() {
+		result, resultOk = sess.waitClipboardAfterCurrent(5 * time.Second)
+		close(done)
+	}()
+
+	waitUntil(t, func() bool {
+		return mustSessionQuery(t, sess, func(sess *Session) bool {
+			if len(sess.clipboardWaiters) != 1 {
+				return false
+			}
+			for _, waiter := range sess.clipboardWaiters {
+				return waiter.afterGen == 5
+			}
+			return false
+		})
+	})
+
+	sess.enqueueCommandMutation(func(s *Session) commandMutationResult {
+		gen := s.clipboardGen.Add(1)
+		s.lastClipboardB64 = "new"
+		s.notifyClipboardWaiters(gen, "new")
+		return commandMutationResult{}
+	})
+
+	select {
+	case <-done:
+		if !resultOk {
+			t.Fatal("expected ok=true")
+		}
+		if result != "new" {
+			t.Fatalf("expected payload %q, got %q", "new", result)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("waitClipboardAfterCurrent did not return after update")
+	}
+}
+
+func TestWaitHookForPaneAfterCurrent_WaitsForNextMatchingHook(t *testing.T) {
+	t.Parallel()
+	sess := newSession("test-wait-hook-after-current")
+	defer stopSessionBackgroundLoops(t, sess)
+	sess.hookGen.Store(7)
+	sess.hookResults = []hookResultRecord{{
+		Generation: 7,
+		Event:      "on-idle",
+		PaneID:     1,
+		PaneName:   "pane-1",
+	}}
+
+	done := make(chan struct{})
+	var result hookResultRecord
+	var resultOk bool
+	go func() {
+		result, resultOk = sess.waitHookForPaneAfterCurrent("on-idle", 1, "pane-1", 5*time.Second)
+		close(done)
+	}()
+
+	waitUntil(t, func() bool {
+		return mustSessionQuery(t, sess, func(sess *Session) bool {
+			if len(sess.hookWaiters) != 1 {
+				return false
+			}
+			for _, waiter := range sess.hookWaiters {
+				return waiter.afterGen == 7 && waiter.eventName == "on-idle" && waiter.paneID == 1 && waiter.paneName == "pane-1"
+			}
+			return false
+		})
+	})
+
+	sess.enqueueCommandMutation(func(s *Session) commandMutationResult {
+		record := hookResultRecord{
+			Generation: 8,
+			Event:      "on-idle",
+			PaneID:     1,
+			PaneName:   "pane-1",
+			Success:    true,
+		}
+		s.hookGen.Store(record.Generation)
+		s.hookResults = append(s.hookResults, record)
+		s.notifyHookWaiters(record)
+		return commandMutationResult{}
+	})
+
+	select {
+	case <-done:
+		if !resultOk {
+			t.Fatal("expected ok=true")
+		}
+		if result.Generation != 8 {
+			t.Fatalf("expected generation 8, got %d", result.Generation)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("waitHookForPaneAfterCurrent did not return after matching hook")
+	}
+}
+
 func TestNotifyPaneOutputSubs(t *testing.T) {
 	t.Parallel()
 	sess := newSession("test-pane-output-subs")
