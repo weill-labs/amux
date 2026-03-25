@@ -164,6 +164,13 @@ func TestRestorePaneWithScrollbackUsesExistingPTYAndProcess(t *testing.T) {
 		t.Fatalf("pty.Open: %v", err)
 	}
 	defer tty.Close()
+	paneFD, err := syscall.Dup(int(ptmx.Fd()))
+	if err != nil {
+		t.Fatalf("dup ptmx fd: %v", err)
+	}
+	if err := ptmx.Close(); err != nil {
+		t.Fatalf("close original ptmx: %v", err)
+	}
 
 	cmd := exec.Command("sleep", "5")
 	if err := cmd.Start(); err != nil {
@@ -182,13 +189,13 @@ func TestRestorePaneWithScrollbackUsesExistingPTYAndProcess(t *testing.T) {
 		Name:  "pane-9",
 		Host:  DefaultHost,
 		Color: "f2cdcd",
-	}, int(ptmx.Fd()), cmd.Process.Pid, 10, 4, DefaultScrollbackLines, nil, nil)
+	}, paneFD, cmd.Process.Pid, 10, 4, DefaultScrollbackLines, nil, nil)
 	if err != nil {
 		t.Fatalf("RestorePaneWithScrollback: %v", err)
 	}
 
-	if got := p.PtmxFd(); got != int(ptmx.Fd()) {
-		t.Fatalf("PtmxFd() = %d, want %d", got, ptmx.Fd())
+	if got := p.PtmxFd(); got != paneFD {
+		t.Fatalf("PtmxFd() = %d, want %d", got, paneFD)
 	}
 	if got := p.ProcessPid(); got != cmd.Process.Pid {
 		t.Fatalf("ProcessPid() = %d, want %d", got, cmd.Process.Pid)
@@ -210,6 +217,9 @@ func TestRestorePaneWithScrollbackUsesExistingPTYAndProcess(t *testing.T) {
 		t.Fatalf("Render() = %q, want replayed content", p.Render())
 	}
 
+	if err := p.ptmx.Close(); err != nil {
+		t.Fatalf("close pane ptmx: %v", err)
+	}
 	p.ptmx = nil
 	if err := p.Resize(12, 5); err != nil {
 		t.Fatalf("Resize(): %v", err)
