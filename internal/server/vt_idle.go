@@ -17,11 +17,7 @@ type VTIdleTracker struct {
 	settled    map[uint32]bool
 }
 
-func NewVTIdleTracker() *VTIdleTracker {
-	return NewVTIdleTrackerWithClock(RealClock{})
-}
-
-func NewVTIdleTrackerWithClock(clock Clock) *VTIdleTracker {
+func NewVTIdleTracker(clock Clock) *VTIdleTracker {
 	return &VTIdleTracker{
 		clock:      clock,
 		timers:     make(map[uint32]Timer),
