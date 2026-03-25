@@ -18,7 +18,7 @@ func parseWaitVTIdleArgs(args []string) (string, waitVTIdleOptions, error) {
 	}
 
 	opts := waitVTIdleOptions{
-		settle:  defaultVTIdleSettle,
+		settle:  DefaultVTIdleSettle,
 		timeout: DefaultVTIdleTimeout,
 	}
 	for i := 1; i < len(args); i++ {

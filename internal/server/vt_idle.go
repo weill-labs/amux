@@ -2,9 +2,8 @@ package server
 
 import "time"
 
-// defaultVTIdleSettle is the settle window used by wait-vt-idle and the
-// vt-idle event stream. Tests may override it.
-var defaultVTIdleSettle = 2 * time.Second
+// DefaultVTIdleSettle is the default settle window for VT idle tracking.
+const DefaultVTIdleSettle = 2 * time.Second
 
 // DefaultVTIdleTimeout is the default timeout for wait-vt-idle.
 const DefaultVTIdleTimeout = 60 * time.Second

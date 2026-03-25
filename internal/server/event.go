@@ -117,7 +117,7 @@ func (s *Session) currentStateEvents() []Event {
 			PaneName:  p.Meta.Name,
 			Host:      p.Meta.Host,
 		})
-		if s.vtIdle != nil && s.vtIdle.IsSettled(p.ID, p.CreatedAt(), defaultVTIdleSettle, snapshotNow) {
+		if s.vtIdle != nil && s.vtIdle.IsSettled(p.ID, p.CreatedAt(), s.vtIdleSettle(), snapshotNow) {
 			events = append(events, Event{
 				Type:      EventVTIdle,
 				Timestamp: now,

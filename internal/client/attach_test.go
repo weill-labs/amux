@@ -10,15 +10,6 @@ import (
 	"github.com/weill-labs/amux/internal/render"
 )
 
-func stubTermGetSize(t *testing.T, fn func(int) (int, int, error)) {
-	t.Helper()
-	prev := termGetSize
-	termGetSize = fn
-	t.Cleanup(func() {
-		termGetSize = prev
-	})
-}
-
 func readResizeMessage(t *testing.T, conn net.Conn) *proto.Message {
 	t.Helper()
 	if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
@@ -56,9 +47,9 @@ func TestSyncTerminalSizeSendsResizeWhenSizeChanges(t *testing.T) {
 	t.Cleanup(sender.Close)
 
 	cr := NewClientRenderer(80, 24)
-	stubTermGetSize(t, func(int) (int, int, error) {
+	getSize := func(int) (int, int, error) {
 		return 40, 12, nil
-	})
+	}
 
 	type sizeResult struct {
 		cols int
@@ -66,7 +57,7 @@ func TestSyncTerminalSizeSendsResizeWhenSizeChanges(t *testing.T) {
 	}
 	done := make(chan sizeResult, 1)
 	go func() {
-		cols, rows := syncTerminalSize(0, 80, 24, cr, sender)
+		cols, rows := syncTerminalSize(0, 80, 24, cr, sender, getSize)
 		done <- sizeResult{cols: cols, rows: rows}
 	}()
 
@@ -126,9 +117,8 @@ func TestSyncTerminalSizeSkipsUnchangedOrInvalidSizes(t *testing.T) {
 			t.Cleanup(sender.Close)
 
 			cr := NewClientRenderer(80, 24)
-			stubTermGetSize(t, tt.fn)
 
-			cols, rows := syncTerminalSize(0, 80, 24, cr, sender)
+			cols, rows := syncTerminalSize(0, 80, 24, cr, sender, tt.fn)
 			if cols != 80 || rows != 24 {
 				t.Fatalf("syncTerminalSize returned %dx%d, want 80x24", cols, rows)
 			}
