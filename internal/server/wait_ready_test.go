@@ -159,9 +159,34 @@ func TestParseSendKeysArgs(t *testing.T) {
 			},
 		},
 		{
+			name:    "missing wait value",
+			args:    []string{"--wait"},
+			wantErr: "missing value for --wait",
+		},
+		{
+			name:    "unsupported wait target",
+			args:    []string{"--wait", "ui=input-idle", "task"},
+			wantErr: `send-keys: unsupported --wait target "ui=input-idle" (want ready)`,
+		},
+		{
+			name:    "missing timeout value",
+			args:    []string{"--wait", "ready", "--timeout"},
+			wantErr: "missing value for --timeout",
+		},
+		{
+			name:    "invalid timeout value",
+			args:    []string{"--wait", "ready", "--timeout", "later"},
+			wantErr: "invalid timeout: later",
+		},
+		{
 			name:    "continue requires wait ready",
 			args:    []string{"--continue-known-dialogs", "task"},
 			wantErr: "send-keys: --continue-known-dialogs requires --wait ready",
+		},
+		{
+			name:    "timeout requires wait ready",
+			args:    []string{"--timeout", "10ms", "task"},
+			wantErr: "send-keys: --timeout requires --wait ready",
 		},
 		{
 			name:    "legacy flag rejected",
