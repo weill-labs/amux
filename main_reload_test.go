@@ -2,6 +2,8 @@ package main
 
 import (
 	"errors"
+	"os/exec"
+	"strings"
 	"testing"
 
 	"github.com/weill-labs/amux/internal/reload"
@@ -40,5 +42,29 @@ func TestPrependReloadExecPathArgLeavesArgsUnchangedOnResolverError(t *testing.T
 	}, args)
 	if len(got) != 1 || got[0] != "reload-server" {
 		t.Fatalf("prependReloadExecPathArg() = %v, want %v", got, args)
+	}
+}
+
+func TestMainCheckpointReloadStartsServerWithoutSubcommand(t *testing.T) {
+	t.Parallel()
+
+	cmd := newHermeticMainCmd(t)
+	cmd.Env = append(cmd.Env, "AMUX_CHECKPOINT=/definitely/missing")
+
+	out, err := cmd.CombinedOutput()
+	exitErr, ok := err.(*exec.ExitError)
+	if !ok {
+		t.Fatalf("helper error = %v\n%s", err, out)
+	}
+	if exitErr.ExitCode() != 1 {
+		t.Fatalf("exit code = %d, want 1\n%s", exitErr.ExitCode(), out)
+	}
+
+	output := string(out)
+	if !strings.Contains(output, "amux server: reading checkpoint:") {
+		t.Fatalf("expected checkpoint reload to route into server startup, got:\n%s", output)
+	}
+	if strings.Contains(output, "amux: server not running") {
+		t.Fatalf("checkpoint reload should not fall back to client attach path:\n%s", output)
 	}
 }
