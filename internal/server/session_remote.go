@@ -14,10 +14,10 @@ import (
 	"github.com/weill-labs/amux/internal/remote"
 )
 
-var (
-	captureAttachMaxRetries = 10
-	captureAttachRetryDelay = 300 * time.Millisecond
-	captureResponseTimeout  = 3 * time.Second
+const (
+	defaultCaptureAttachMaxRetries = 10
+	defaultCaptureAttachRetryDelay = 300 * time.Millisecond
+	defaultCaptureResponseTimeout  = 3 * time.Second
 )
 
 type captureClientSnapshot struct {
@@ -27,10 +27,10 @@ type captureClientSnapshot struct {
 
 // SetupRemoteManager initializes the remote manager with callbacks.
 func (s *Session) SetupRemoteManager(cfg *config.Config, buildHash string) {
-	mgr := remote.NewManager(cfg, buildHash)
-	mgr.SetCallbacks(
+	mgr := remote.NewManager(cfg, buildHash, remote.ManagerDeps{
+		NewHostConn: remote.NewHostConn,
 		// onPaneOutput: feed remote output into the proxy pane's emulator
-		func(localPaneID uint32, data []byte) {
+		OnPaneOutput: func(localPaneID uint32, data []byte) {
 			pane, err := enqueueSessionQuery(s, func(s *Session) (*mux.Pane, error) {
 				return s.findPaneByID(localPaneID), nil
 			})
@@ -42,17 +42,17 @@ func (s *Session) SetupRemoteManager(cfg *config.Config, buildHash string) {
 			}
 		},
 		// onPaneExit: clean up when a remote pane exits
-		func(localPaneID uint32, reason string) {
+		OnPaneExit: func(localPaneID uint32, reason string) {
 			if s.shutdown.Load() {
 				return
 			}
 			s.enqueueRemotePaneExit(localPaneID, reason)
 		},
 		// onStateChange: update pane metadata when connection state changes
-		func(hostName string, state remote.ConnState) {
+		OnStateChange: func(hostName string, state remote.ConnState) {
 			s.enqueueRemoteStateChange(hostName, state)
 		},
-	)
+	})
 	s.RemoteManager = mgr
 }
 
@@ -68,7 +68,7 @@ func (s *Session) takeoverCallback(srv *Server) func(paneID uint32, req mux.Take
 
 // handleTakeover processes a takeover request from a nested amux.
 // It runs asynchronously (called via goroutine from the readLoop callback).
-func (s *Session) handleTakeover(srv *Server, sshPaneID uint32, req mux.TakeoverRequest) {
+func (s *Session) handleTakeover(sshPaneID uint32, req mux.TakeoverRequest) {
 	type takeoverStart struct {
 		sshPane        *mux.Pane
 		hostname       string
@@ -258,7 +258,9 @@ func (s *Session) forwardCaptureForActor(actorPaneID uint32, args []string) *Mes
 	// Wait briefly for a client to attach (covers post-reload reconnection).
 	var snap captureClientSnapshot
 	var err error
-	for attempt := 0; attempt < captureAttachMaxRetries; attempt++ {
+	maxRetries := s.captureAttachMaxRetries()
+	retryDelay := s.captureAttachRetryDelay()
+	for attempt := 0; attempt < maxRetries; attempt++ {
 		snap, err = s.captureClientSnapshotForActor(captureReq, actorPaneID, nil)
 		if err != nil {
 			if captureReq.FormatJSON {
@@ -269,7 +271,7 @@ func (s *Session) forwardCaptureForActor(actorPaneID uint32, args []string) *Mes
 		if snap.client != nil {
 			break
 		}
-		if attempt == captureAttachMaxRetries-1 {
+		if attempt == maxRetries-1 {
 			if captureReq.FormatJSON {
 				return jsonErrorResult("no_client_attached", "no client attached")
 			}
@@ -278,7 +280,7 @@ func (s *Session) forwardCaptureForActor(actorPaneID uint32, args []string) *Mes
 		// Client capture can race with hot-reload reattach. A short backoff
 		// avoids busy-spinning the actor while giving the interactive client
 		// a chance to reconnect and serve the capture request.
-		time.Sleep(captureAttachRetryDelay)
+		time.Sleep(retryDelay)
 	}
 
 	return s.runClientCaptureRequest(args, captureReq, snap.client, s.captureAgentStatus(snap.statusPanes), jsonErrorResult)
@@ -334,7 +336,7 @@ func (s *Session) runClientCaptureRequest(args []string, captureReq caputil.Requ
 		return &Message{Type: MsgTypeCmdResult, CmdErr: err.Error()}
 	}
 
-	timer := time.NewTimer(captureResponseTimeout)
+	timer := time.NewTimer(s.captureResponseTimeout())
 	defer timer.Stop()
 	select {
 	case resp := <-req.reply:

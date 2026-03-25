@@ -23,8 +23,7 @@ import (
 	"golang.org/x/term"
 )
 
-// sessionName is the global session name, set by -s flag or defaulting to "default".
-var sessionName = "default"
+const defaultSessionName = "default"
 
 const reconnectEventType = "reconnect"
 
@@ -48,24 +47,23 @@ func buildVersion() string {
 }
 
 func main() {
-	// Extract global -s flag before subcommand parsing
-	args := os.Args[1:]
-	for i := 0; i < len(args); i++ {
-		if args[i] == "-s" && i+1 < len(args) {
-			sessionName = args[i+1]
-			args = append(args[:i], args[i+2:]...)
-			break
-		}
+	resolvedSessionName, args := resolveInvocationSession(os.Args[1:])
+	runSessionCommand := func(cmdName string, cmdArgs []string) {
+		runServerCommand(resolvedSessionName, cmdName, cmdArgs)
+	}
+	if os.Getenv("AMUX_CHECKPOINT") != "" {
+		runServer(resolvedSessionName, false)
+		return
 	}
 
 	if len(args) == 0 {
 		if shouldAttemptTakeover() {
-			if tryTakeover(sessionName) {
+			if tryTakeover(resolvedSessionName) {
 				return // takeover succeeded — managed mode started
 			}
 		}
-		checkNesting(sessionName)
-		if err := client.RunSession(sessionName, term.GetSize); err != nil {
+		checkNesting(resolvedSessionName)
+		if err := client.RunSession(resolvedSessionName, term.GetSize); err != nil {
 			fmt.Fprintf(os.Stderr, "amux: %v\n", err)
 			os.Exit(1)
 		}
@@ -89,7 +87,7 @@ func main() {
 		return
 
 	case "_server":
-		name := sessionName
+		name := resolvedSessionName
 		if len(args) > 1 {
 			name = args[1]
 		}
@@ -98,7 +96,7 @@ func main() {
 	case "attach":
 		name, _ := parseAttachArgs(args[1:])
 		if name == "" {
-			name = sessionName
+			name = resolvedSessionName
 		}
 		checkNesting(name)
 		if err := client.RunSession(name, term.GetSize); err != nil {
@@ -107,7 +105,7 @@ func main() {
 		}
 
 	case "new":
-		name := sessionName
+		name := resolvedSessionName
 		if len(args) > 1 {
 			name = args[1]
 		}
@@ -121,229 +119,231 @@ func main() {
 		splitArgs, err := parseSplitArgs(args[1:])
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "amux split: %v\n", err)
-			fmt.Fprintf(os.Stderr, "usage: amux split [root] [--vertical|--horizontal] [--name NAME] [--host HOST] [--background]\n")
+			fmt.Fprintf(os.Stderr, "usage: amux split <pane> [root] [--vertical|--horizontal] [--name NAME] [--host HOST]\n")
 			os.Exit(1)
 		}
-		runServerCommand("split", splitArgs)
+		runSessionCommand("split", splitArgs)
 	case "list":
-		runServerCommand("list", args[1:])
+		runSessionCommand("list", args[1:])
 	case "status":
-		runServerCommand("status", nil)
+		runSessionCommand("status", nil)
 	case "list-clients":
-		runServerCommand("list-clients", nil)
+		runSessionCommand("list-clients", nil)
 	case "connection-log":
-		runServerCommand("connection-log", nil)
+		runSessionCommand("connection-log", nil)
 	case "pane-log":
-		runServerCommand("pane-log", nil)
+		runSessionCommand("pane-log", nil)
 	case "capture":
-		runServerCommand("capture", args[1:])
+		runSessionCommand("capture", args[1:])
 	case "copy-mode":
 		if len(args) < 2 {
 			fmt.Fprintf(os.Stderr, "usage: amux copy-mode <pane>\n")
 			os.Exit(1)
 		}
-		runServerCommand("copy-mode", []string{args[1]})
+		runSessionCommand("copy-mode", []string{args[1]})
 	case "zoom":
-		runServerCommand("zoom", args[1:])
+		runSessionCommand("zoom", args[1:])
 	case "undo":
-		runServerCommand("undo", args[1:])
+		runSessionCommand("undo", args[1:])
 	case "swap":
 		if len(args) < 2 {
 			fmt.Fprintf(os.Stderr, "usage: amux swap <pane1> <pane2> | swap forward | swap backward\n")
 			os.Exit(1)
 		}
-		runServerCommand("swap", args[1:])
+		runSessionCommand("swap", args[1:])
 	case "swap-tree":
 		if len(args) != 3 {
 			fmt.Fprintf(os.Stderr, "usage: amux swap-tree <pane1> <pane2>\n")
 			os.Exit(1)
 		}
-		runServerCommand("swap-tree", args[1:])
+		runSessionCommand("swap-tree", args[1:])
 	case "move":
 		if len(args) < 4 {
 			fmt.Fprintf(os.Stderr, "usage: amux move <pane> --before <target> | move <pane> --after <target>\n")
 			os.Exit(1)
 		}
-		runServerCommand("move", args[1:])
+		runSessionCommand("move", args[1:])
 	case "rotate":
-		runServerCommand("rotate", args[1:])
+		runSessionCommand("rotate", args[1:])
 	case "resize-pane":
 		if len(args) < 3 {
 			fmt.Fprintf(os.Stderr, "usage: amux resize-pane <pane> <direction> [delta]\n")
 			os.Exit(1)
 		}
-		runServerCommand("resize-pane", args[1:])
+		runSessionCommand("resize-pane", args[1:])
 	case "minimize", "restore", "reset", "focus":
 		if len(args) < 2 {
 			fmt.Fprintf(os.Stderr, "usage: amux %s <pane>\n", args[0])
 			os.Exit(1)
 		}
-		runServerCommand(args[0], []string{args[1]})
+		runSessionCommand(args[0], []string{args[1]})
 	case "kill":
 		if err := server.ValidateKillCommandArgs(args[1:]); err != nil {
 			fmt.Fprintf(os.Stderr, "%s\n", server.FormatKillCommandError(err, "amux"))
 			os.Exit(1)
 		}
-		runServerCommand("kill", args[1:])
+		runSessionCommand("kill", args[1:])
 	case "send-keys":
 		if len(args) < 3 {
 			fmt.Fprintf(os.Stderr, "usage: amux send-keys <pane> [--wait-ready] [--continue-known-dialogs] [--hex] <keys>...\n")
 			os.Exit(1)
 		}
-		runServerCommand("send-keys", args[1:])
+		runSessionCommand("send-keys", args[1:])
 	case "broadcast":
 		if len(args) < 2 {
 			fmt.Fprintf(os.Stderr, "usage: amux broadcast (--panes <pane,pane,...> | --window <index|name> | --match <glob>) [--hex] <keys>...\n")
 			os.Exit(1)
 		}
-		runServerCommand("broadcast", args[1:])
+		runSessionCommand("broadcast", args[1:])
 	case "type-keys":
 		if len(args) < 2 {
 			fmt.Fprintf(os.Stderr, "usage: amux type-keys [--hex] <keys>...\n")
 			os.Exit(1)
 		}
-		runServerCommand("type-keys", args[1:])
+		runSessionCommand("type-keys", args[1:])
 	case "spawn":
-		runServerCommand("spawn", args[1:])
+		runSessionCommand("spawn", args[1:])
 	case "new-window":
-		runServerCommand("new-window", args[1:])
+		runSessionCommand("new-window", args[1:])
 	case "list-windows":
-		runServerCommand("list-windows", nil)
+		runSessionCommand("list-windows", nil)
 	case "select-window":
 		if len(args) < 2 {
 			fmt.Fprintf(os.Stderr, "usage: amux select-window <index|name>\n")
 			os.Exit(1)
 		}
-		runServerCommand("select-window", []string{args[1]})
+		runSessionCommand("select-window", []string{args[1]})
 	case "next-window":
-		runServerCommand("next-window", nil)
+		runSessionCommand("next-window", nil)
 	case "prev-window":
-		runServerCommand("prev-window", nil)
+		runSessionCommand("prev-window", nil)
 	case "rename-window":
 		if len(args) < 2 {
 			fmt.Fprintf(os.Stderr, "usage: amux rename-window <name>\n")
 			os.Exit(1)
 		}
-		runServerCommand("rename-window", []string{args[1]})
+		runSessionCommand("rename-window", []string{args[1]})
 	case "generation":
-		runServerCommand("generation", nil)
+		runSessionCommand("generation", nil)
 	case "ui-gen":
-		runServerCommand("ui-gen", args[1:])
+		runSessionCommand("ui-gen", args[1:])
 	case "wait-layout":
-		runServerCommand("wait-layout", args[1:])
+		runSessionCommand("wait-layout", args[1:])
 	case "wait-for":
 		if len(args) < 3 {
 			fmt.Fprintf(os.Stderr, "usage: amux wait-for <pane> <substring> [--timeout <duration>]\n")
 			os.Exit(1)
 		}
-		runServerCommand("wait-for", args[1:])
+		runSessionCommand("wait-for", args[1:])
 	case "wait-ready":
 		if len(args) < 2 {
 			fmt.Fprintln(os.Stderr, "usage: amux wait-ready <pane> [--timeout <duration>] [--continue-known-dialogs]")
 			os.Exit(1)
 		}
-		runServerCommand("wait-ready", args[1:])
+		runSessionCommand("wait-ready", args[1:])
 	case "wait-vt-idle":
 		if len(args) < 2 {
 			fmt.Fprintf(os.Stderr, "usage: amux wait-vt-idle <pane> [--settle <duration>] [--timeout <duration>]\n")
 			os.Exit(1)
 		}
-		runServerCommand("wait-vt-idle", args[1:])
+		runSessionCommand("wait-vt-idle", args[1:])
 	case "wait-idle":
 		if len(args) < 2 {
 			fmt.Fprintf(os.Stderr, "usage: amux wait-idle <pane> [--timeout <duration>]\n")
 			os.Exit(1)
 		}
-		runServerCommand("wait-idle", args[1:])
+		runSessionCommand("wait-idle", args[1:])
 	case "wait-busy":
 		if len(args) < 2 {
 			fmt.Fprintf(os.Stderr, "usage: amux wait-busy <pane> [--timeout <duration>]\n")
 			os.Exit(1)
 		}
-		runServerCommand("wait-busy", args[1:])
+		runSessionCommand("wait-busy", args[1:])
 	case "wait-ui":
 		if len(args) < 2 {
 			fmt.Fprintf(os.Stderr, "usage: amux wait-ui <event> [--client <id>] [--after N] [--timeout <duration>]\n")
 			os.Exit(1)
 		}
-		runServerCommand("wait-ui", args[1:])
+		runSessionCommand("wait-ui", args[1:])
 	case "hook-gen":
-		runServerCommand("hook-gen", nil)
+		runSessionCommand("hook-gen", nil)
 	case "wait-hook":
 		if len(args) < 2 {
 			fmt.Fprintf(os.Stderr, "usage: amux wait-hook <event> [--pane <pane>] [--after N] [--timeout <duration>]\n")
 			os.Exit(1)
 		}
-		runServerCommand("wait-hook", args[1:])
+		runSessionCommand("wait-hook", args[1:])
 	case "clipboard-gen":
-		runServerCommand("clipboard-gen", nil)
+		runSessionCommand("clipboard-gen", nil)
 	case "wait-clipboard":
-		runServerCommand("wait-clipboard", args[1:])
+		runSessionCommand("wait-clipboard", args[1:])
 	case "resize-window":
 		if len(args) < 3 {
 			fmt.Fprintf(os.Stderr, "usage: amux resize-window <cols> <rows>\n")
 			os.Exit(1)
 		}
-		runServerCommand("resize-window", args[1:])
+		runSessionCommand("resize-window", args[1:])
 	case "set-hook":
 		if len(args) < 3 {
 			fmt.Fprintf(os.Stderr, "usage: amux set-hook <event> <command>\n")
 			os.Exit(1)
 		}
-		runServerCommand("set-hook", args[1:])
+		runSessionCommand("set-hook", args[1:])
 	case "unset-hook":
 		if len(args) < 2 {
 			fmt.Fprintf(os.Stderr, "usage: amux unset-hook <event> [index]\n")
 			os.Exit(1)
 		}
-		runServerCommand("unset-hook", args[1:])
+		runSessionCommand("unset-hook", args[1:])
 	case "list-hooks":
-		runServerCommand("list-hooks", nil)
+		runSessionCommand("list-hooks", nil)
 	case "set-meta":
 		if len(args) < 3 {
 			fmt.Fprintf(os.Stderr, "usage: amux set-meta <pane> key=value [key=value...]\n")
 			os.Exit(1)
 		}
-		runServerCommand("set-meta", args[1:])
+		runSessionCommand("set-meta", args[1:])
 	case "add-meta":
 		if len(args) < 3 {
 			fmt.Fprintf(os.Stderr, "usage: amux add-meta <pane> key=value [key=value...]\n")
 			os.Exit(1)
 		}
-		runServerCommand("add-meta", args[1:])
+		runSessionCommand("add-meta", args[1:])
 	case "rm-meta":
 		if len(args) < 3 {
 			fmt.Fprintf(os.Stderr, "usage: amux rm-meta <pane> key=value [key=value...]\n")
 			os.Exit(1)
 		}
-		runServerCommand("rm-meta", args[1:])
+		runSessionCommand("rm-meta", args[1:])
 
 	case "events":
-		runEventsCommand(args[1:])
+		runEventsCommand(resolvedSessionName, args[1:])
 	case "hosts":
-		runServerCommand("hosts", nil)
+		runSessionCommand("hosts", nil)
 	case "disconnect":
 		if len(args) < 2 {
 			fmt.Fprintf(os.Stderr, "usage: amux disconnect <host>\n")
 			os.Exit(1)
 		}
-		runServerCommand("disconnect", []string{args[1]})
+		runSessionCommand("disconnect", []string{args[1]})
 	case "reconnect":
 		if len(args) < 2 {
 			fmt.Fprintf(os.Stderr, "usage: amux reconnect <host>\n")
 			os.Exit(1)
 		}
-		runServerCommand("reconnect", []string{args[1]})
+		runSessionCommand("reconnect", []string{args[1]})
 	case "unsplice":
 		if len(args) < 2 {
 			fmt.Fprintf(os.Stderr, "usage: amux unsplice <host>\n")
 			os.Exit(1)
 		}
-		runServerCommand("unsplice", []string{args[1]})
+		runSessionCommand("unsplice", []string{args[1]})
 	case "reload-server":
-		runServerCommand("reload-server", nil)
+		runSessionCommand("reload-server", nil)
+	case "_layout-json":
+		runSessionCommand("_layout-json", nil)
 	case "_inject-proxy":
-		runServerCommand("_inject-proxy", args[1:])
+		runSessionCommand("_inject-proxy", args[1:])
 	case "dashboard":
 		fmt.Fprintln(os.Stderr, "amux dashboard: not yet migrated to built-in mux")
 		os.Exit(1)
@@ -355,6 +355,31 @@ func main() {
 		printUsage()
 		os.Exit(1)
 	}
+}
+
+// resolveSessionName chooses the session for this invocation.
+// Explicit -s wins, then AMUX_SESSION, then the default session.
+func resolveSessionName(explicit string, explicitSet bool) string {
+	if explicitSet {
+		return explicit
+	}
+	if envSession := os.Getenv("AMUX_SESSION"); envSession != "" {
+		return envSession
+	}
+	return defaultSessionName
+}
+
+func resolveInvocationSession(args []string) (string, []string) {
+	explicit := defaultSessionName
+	explicitSet := false
+	for i := 0; i < len(args); i++ {
+		if args[i] == "-s" && i+1 < len(args) {
+			explicit = args[i+1]
+			explicitSet = true
+			return resolveSessionName(explicit, explicitSet), append(args[:i], args[i+2:]...)
+		}
+	}
+	return resolveSessionName(explicit, explicitSet), args
 }
 
 // parseAttachArgs parses args for "amux attach [-d] [session]".
@@ -370,14 +395,14 @@ func parseAttachArgs(args []string) (sessionName string, detachOthers bool) {
 	return
 }
 
-// parseSplitArgs parses args for "amux split [root] [--vertical|--horizontal] [--name NAME] [--host HOST] [--background]".
-// It normalizes back to the legacy server arg shape so keybindings and direct
-// protocol callers can keep using "root" and "v".
+// parseSplitArgs parses args for "amux split <pane> [root] [--vertical|--horizontal] [--name NAME] [--host HOST]".
+// The pane arg is mandatory.
+// It canonicalizes args for the server command parser.
 func parseSplitArgs(args []string) ([]string, error) {
 	rootLevel := false
 	hostName := ""
 	name := ""
-	background := false
+	paneRef := ""
 	dir := mux.SplitHorizontal
 	hasExplicitDir := false
 
@@ -414,14 +439,21 @@ func parseSplitArgs(args []string) ([]string, error) {
 			}
 			name = args[i+1]
 			i++
-		case "--background":
-			background = true
 		default:
-			return nil, fmt.Errorf("unknown split arg %q", args[i])
+			if paneRef == "" && !strings.HasPrefix(args[i], "-") {
+				paneRef = args[i]
+			} else {
+				return nil, fmt.Errorf("unknown split arg %q", args[i])
+			}
 		}
 	}
 
-	parsed := make([]string, 0, 4)
+	if paneRef == "" {
+		return nil, fmt.Errorf("pane argument required")
+	}
+
+	parsed := make([]string, 0, 5)
+	parsed = append(parsed, paneRef)
 	if rootLevel {
 		parsed = append(parsed, "root")
 	}
@@ -433,12 +465,6 @@ func parseSplitArgs(args []string) ([]string, error) {
 	}
 	if name != "" {
 		parsed = append(parsed, "--name", name)
-	}
-	if background {
-		parsed = append(parsed, "--background")
-	}
-	if len(parsed) == 0 {
-		return nil, nil
 	}
 	return parsed, nil
 }
@@ -467,8 +493,8 @@ Usage:
                                        Send the same keystrokes to multiple panes
   amux [-s session] type-keys [--hex] <keys>...
                                        Type keys through client input pipeline
-  amux [-s session] spawn --name NAME [--host HOST] [--task TASK] [--color COLOR] [--background]
-                                       Spawn a new agent pane
+  amux [-s session] spawn --name NAME [--host HOST] [--task TASK] [--color COLOR]
+                                       Spawn a new agent pane without changing focus
   amux [-s session] zoom [pane]        Toggle zoom (maximize) a pane
   amux [-s session] swap <p1> <p2>     Swap two panes by name or ID
   amux [-s session] swap-tree <p1> <p2>
@@ -508,8 +534,8 @@ Usage:
   amux [-s session] list-hooks         List registered hooks
   amux [-s session] events [--filter type1,type2] [--pane <ref>] [--host <name>] [--client <id>] [--no-reconnect]
                                        Stream events as NDJSON (layout, output, idle, busy, vt-idle, hook, client-connect, client-disconnect, display-panes-*, choose-*, copy-mode-*, input-*, reconnect)
-  amux [-s session] split [root] [--vertical|--horizontal] [--name NAME] [--host HOST] [--background]
-                                       Split active pane (default: horizontal)
+  amux [-s session] split <pane> [root] [--vertical|--horizontal] [--name NAME] [--host HOST]
+                                       Split a pane without changing focus
   amux [-s session] hosts              List configured remote hosts + status
   amux [-s session] disconnect <host>  Drop SSH connection to a host
   amux [-s session] reconnect <host>   Reconnect to a remote host
@@ -729,8 +755,8 @@ func runServer(sessionName string, managedTakeover bool) {
 // runStreamingCommand opens a persistent connection to the server and streams
 // MsgTypeCmdResult messages to stdout until the connection closes.
 // Used for long-lived commands like "events".
-func runStreamingCommand(cmdName string, args []string) {
-	conn, err := connectStreamingCommand(cmdName, args)
+func runStreamingCommand(sessionName, cmdName string, args []string) {
+	conn, err := connectStreamingCommand(sessionName, cmdName, args)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "amux %s: server not running (run 'amux' first)\n", cmdName)
 		os.Exit(1)
@@ -798,10 +824,10 @@ func overridePositiveIntFromEnv(name string, fallback int) int {
 	return n
 }
 
-func runEventsCommand(args []string) {
+func runEventsCommand(sessionName string, args []string) {
 	serverArgs, opts := parseEventsClientArgs(args)
 
-	conn, err := connectStreamingCommand("events", serverArgs)
+	conn, err := connectStreamingCommand(sessionName, "events", serverArgs)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "amux events: server not running (run 'amux' first)\n")
 		os.Exit(1)
@@ -814,7 +840,7 @@ func runEventsCommand(args []string) {
 		}
 
 		emitReconnectEvent()
-		conn, err = reconnectStreamingCommand("events", serverArgs, opts)
+		conn, err = reconnectStreamingCommand(sessionName, "events", serverArgs, opts)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "amux events: reconnect failed after %d attempts: %v\n", opts.maxRetries, err)
 			os.Exit(1)
@@ -822,13 +848,13 @@ func runEventsCommand(args []string) {
 	}
 }
 
-func reconnectStreamingCommand(cmdName string, args []string, opts eventsClientOptions) (net.Conn, error) {
+func reconnectStreamingCommand(sessionName, cmdName string, args []string, opts eventsClientOptions) (net.Conn, error) {
 	delay := opts.initialBackoff
 	var lastErr error
 	for attempt := 1; attempt <= opts.maxRetries; attempt++ {
 		time.Sleep(delay)
 
-		conn, err := connectStreamingCommand(cmdName, args)
+		conn, err := connectStreamingCommand(sessionName, cmdName, args)
 		if err == nil {
 			return conn, nil
 		}
@@ -855,7 +881,7 @@ func emitReconnectEvent() {
 	fmt.Println(string(data))
 }
 
-func connectStreamingCommand(cmdName string, args []string) (net.Conn, error) {
+func connectStreamingCommand(sessionName, cmdName string, args []string) (net.Conn, error) {
 	sockPath := server.SocketPath(sessionName)
 	conn, err := net.Dial("unix", sockPath)
 	if err != nil {
@@ -885,7 +911,7 @@ func streamCommandOutput(conn net.Conn, cmdName string) error {
 	}
 }
 
-func runServerCommand(cmdName string, args []string) {
+func runServerCommand(sessionName, cmdName string, args []string) {
 	sockPath := server.SocketPath(sessionName)
 	conn, err := net.Dial("unix", sockPath)
 	if err != nil {

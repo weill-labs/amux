@@ -10,14 +10,14 @@ func TestExplicitPaneCommandsPreferActorWindowWithoutChangingFocus(t *testing.T)
 
 	h := newServerHarness(t)
 
-	if out := h.runCmd("spawn", "--background", "--name", "shared"); out == "" {
+	if out := h.runCmd("spawn", "--name", "shared"); out == "" {
 		t.Fatal("spawn shared in window-1 should report success")
 	}
 
 	if out := h.runCmd("new-window", "--name", "window-2"); out == "" {
 		t.Fatal("new-window should report success")
 	}
-	if out := h.runCmd("spawn", "--background", "--name", "shared"); out == "" {
+	if out := h.runCmd("spawn", "--name", "shared"); out == "" {
 		t.Fatal("spawn shared in window-2 should report success")
 	}
 

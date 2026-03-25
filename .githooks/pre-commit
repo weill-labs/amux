@@ -84,6 +84,15 @@ if [ -n "$STAGED" ]; then
     fi
 fi
 
+# Reject new sync.Mutex/RWMutex/Map — use actor model instead
+if [ -n "$STAGED" ]; then
+    SYNC_VIOLATIONS=$(STAGED_ONLY=1 bash scripts/lint-sync.sh 2>&1)
+    if [ $? -ne 0 ]; then
+        echo "$SYNC_VIOLATIONS"
+        exit 1
+    fi
+fi
+
 # Validate YAML syntax on staged workflow files
 STAGED_YAML=$(git diff --cached --name-only --diff-filter=ACM | grep '\.github/workflows/.*\.yml$')
 if [ -n "$STAGED_YAML" ]; then

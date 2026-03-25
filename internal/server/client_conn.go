@@ -4,7 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -15,7 +17,6 @@ import (
 
 const (
 	disconnectReasonClientDetach = "client detach"
-	disconnectReasonSlowClient   = "slow client"
 	disconnectReasonClosed       = "connection closed"
 	disconnectReasonShutdown     = "server shutdown"
 )
@@ -262,6 +263,13 @@ func (cc *clientConn) readLoop(srv *Server, sess *Session) {
 
 // handleCommand dispatches CLI commands through the command registry.
 func (cc *clientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[amux] panic in command %q: %v\n%s", msg.CmdName, r, debug.Stack())
+			cc.Send(&Message{Type: MsgTypeCmdResult,
+				CmdErr: fmt.Sprintf("internal error: panic in command %q", msg.CmdName)})
+		}
+	}()
 	sess.enqueueClientActivity(cc)
 	handler, ok := commandRegistry[msg.CmdName]
 	if !ok {
@@ -274,7 +282,7 @@ func (cc *clientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 
 // splitRemotePane prepares a proxy pane connected to a remote host, then
 // inserts it into the active window through the session event loop.
-func (cc *clientConn) splitRemotePane(srv *Server, sess *Session, hostName string, dir mux.SplitDir, rootLevel bool, name string, background bool) (*mux.Pane, error) {
+func (cc *clientConn) splitRemotePane(sess *Session, hostName string, dir mux.SplitDir, rootLevel bool, name string, keepFocus bool) (*mux.Pane, error) {
 	type activeWindowSize struct {
 		width  int
 		height int
@@ -291,7 +299,7 @@ func (cc *clientConn) splitRemotePane(srv *Server, sess *Session, hostName strin
 		return nil, err
 	}
 
-	pane, err := sess.prepareRemotePane(srv, hostName, size.width, mux.PaneContentHeight(size.height))
+	pane, err := sess.prepareRemotePane(hostName, size.width, mux.PaneContentHeight(size.height))
 	if err != nil {
 		return nil, err
 	}
@@ -300,7 +308,7 @@ func (cc *clientConn) splitRemotePane(srv *Server, sess *Session, hostName strin
 	}
 
 	res := sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
-		if err := sess.insertPreparedPaneIntoActiveWindow(pane, dir, rootLevel, background); err != nil {
+		if err := sess.insertPreparedPaneIntoActiveWindow(pane, dir, rootLevel, keepFocus); err != nil {
 			return commandMutationResult{err: err}
 		}
 		return commandMutationResult{broadcastLayout: true}
@@ -312,7 +320,6 @@ func (cc *clientConn) splitRemotePane(srv *Server, sess *Session, hostName strin
 
 	return pane, nil
 }
-
 
 // eventsArgs holds parsed arguments for the events command.
 type eventsArgs struct {

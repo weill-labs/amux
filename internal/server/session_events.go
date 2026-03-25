@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
+	"runtime/debug"
 	"syscall"
 	"time"
 
@@ -141,7 +143,7 @@ type commandMutationEvent struct {
 }
 
 func (e commandMutationEvent) handle(s *Session) {
-	res := e.fn(s)
+	res := recoverCommandMutation(e.fn, s)
 	if res.err == nil {
 		if res.broadcastLayout {
 			s.broadcastLayoutNow()
@@ -157,6 +159,18 @@ func (e commandMutationEvent) handle(s *Session) {
 		res.paneRenders = nil
 	}
 	e.reply <- res
+}
+
+// recoverCommandMutation calls fn and converts any panic into an error result
+// so the event loop keeps running and the reply channel is always written.
+func recoverCommandMutation(fn func(*Session) commandMutationResult, s *Session) (res commandMutationResult) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[amux] panic in command mutation: %v\n%s", r, debug.Stack())
+			res = commandMutationResult{err: fmt.Errorf("internal error: %v", r)}
+		}
+	}()
+	return fn(s)
 }
 
 type detachClientEvent struct {
@@ -399,7 +413,7 @@ type takeoverEvent struct {
 }
 
 func (e takeoverEvent) handle(s *Session) {
-	go s.handleTakeover(e.srv, e.paneID, e.req)
+	go s.handleTakeover(e.paneID, e.req)
 }
 
 type remotePaneExitEvent struct {

@@ -95,8 +95,12 @@ type Session struct {
 	closedPaneTimers map[uint32]*time.Timer
 
 	// Configurable timing — zero values use defaults. Tests inject short durations.
-	VTIdleSettle    time.Duration // default: 2s
-	UndoGracePeriod time.Duration // default: 30s
+	VTIdleSettle            time.Duration // default: 2s
+	UndoGracePeriod         time.Duration // default: 30s
+	CaptureAttachMaxRetries int           // default: 10
+	CaptureAttachRetryDelay time.Duration // default: 300ms
+	CaptureResponseTimeout  time.Duration // default: 3s
+	Clock                   Clock         // nil uses RealClock
 
 	// Remote pane management — manages SSH connections to remote hosts.
 	// Nil when no config is loaded or no remote hosts are defined.
@@ -143,6 +147,13 @@ type Session struct {
 	scrollbackLines int
 }
 
+func (s *Session) clock() Clock {
+	if s.Clock != nil {
+		return s.Clock
+	}
+	return RealClock{}
+}
+
 func (s *Session) vtIdleSettle() time.Duration {
 	if s.VTIdleSettle != 0 {
 		return s.VTIdleSettle
@@ -158,6 +169,27 @@ func (s *Session) undoGracePeriod() time.Duration {
 		return s.UndoGracePeriod
 	}
 	return DefaultUndoGracePeriod
+}
+
+func (s *Session) captureAttachMaxRetries() int {
+	if s.CaptureAttachMaxRetries != 0 {
+		return s.CaptureAttachMaxRetries
+	}
+	return defaultCaptureAttachMaxRetries
+}
+
+func (s *Session) captureAttachRetryDelay() time.Duration {
+	if s.CaptureAttachRetryDelay != 0 {
+		return s.CaptureAttachRetryDelay
+	}
+	return defaultCaptureAttachRetryDelay
+}
+
+func (s *Session) captureResponseTimeout() time.Duration {
+	if s.CaptureResponseTimeout != 0 {
+		return s.CaptureResponseTimeout
+	}
+	return defaultCaptureResponseTimeout
 }
 
 // buildCrashCheckpoint builds a crash checkpoint from the current session state.
@@ -420,7 +452,7 @@ func newSessionWithScrollback(name string, scrollbackLines int) *Session {
 	}
 	sess.Hooks = hooks.NewRegistry()
 	sess.idle = newIdleTracker()
-	sess.vtIdle = NewVTIdleTracker()
+	sess.vtIdle = NewVTIdleTracker(sess.clock())
 	sess.takenOverPanes = make(map[uint32]bool)
 	sess.layoutWaiters = make(map[uint64]layoutWaiter)
 	sess.clipboardWaiters = make(map[uint64]clipboardWaiter)

@@ -100,13 +100,13 @@ func TestFontResize_RepeatedManualResizesReturnToBaseline(t *testing.T) {
 func makeThreeByThreeGrid(t *testing.T, h *AmuxHarness) {
 	t.Helper()
 
-	runLayoutCommand(t, h, "split", "v", "root")
-	runLayoutCommand(t, h, "split", "v", "root")
+	runLayoutCommand(t, h, "split", "pane-1", "v", "root")
+	runLayoutCommand(t, h, "split", "pane-1", "v", "root")
 
 	for _, pane := range []string{"pane-1", "pane-2", "pane-3"} {
 		runLayoutCommand(t, h, "focus", pane)
-		runLayoutCommand(t, h, "split")
-		runLayoutCommand(t, h, "split")
+		runLayoutCommand(t, h, "split", pane)
+		runLayoutCommand(t, h, "split", pane)
 	}
 }
 

@@ -269,7 +269,8 @@ func TestFocusUpFromFullWidthBottomPane(t *testing.T) {
 
 	// Root split creates a new full-width pane below the existing 3x3 grid.
 	runLayoutCommand(t, h, "focus", "pane-9")
-	runLayoutCommand(t, h, "split", "root")
+	runLayoutCommand(t, h, "split", "pane-9", "root")
+	runLayoutCommand(t, h, "focus", "pane-10")
 
 	h.assertActive("pane-10")
 
@@ -288,7 +289,8 @@ func TestFocusUpFromFullWidthBottomPaneAfterResizeRoundTrip(t *testing.T) {
 
 	makeThreeByThreeGrid(t, h)
 	runLayoutCommand(t, h, "focus", "pane-9")
-	runLayoutCommand(t, h, "split", "root")
+	runLayoutCommand(t, h, "split", "pane-9", "root")
+	runLayoutCommand(t, h, "focus", "pane-10")
 	resizeRoundTrip(t, h)
 
 	h.assertActive("pane-10")
@@ -309,7 +311,8 @@ func TestFocusUpFromFullWidthBottomPaneInUnevenGrid(t *testing.T) {
 	makeThreeByThreeGrid(t, h)
 	makeGridUneven(t, h)
 	runLayoutCommand(t, h, "focus", "pane-9")
-	runLayoutCommand(t, h, "split", "root")
+	runLayoutCommand(t, h, "split", "pane-9", "root")
+	runLayoutCommand(t, h, "focus", "pane-10")
 
 	h.assertActive("pane-10")
 
@@ -342,7 +345,8 @@ func TestFocusUpFromFullWidthBottomPaneAfterVerticalPaneResize(t *testing.T) {
 
 			makeThreeByThreeGrid(t, h)
 			runLayoutCommand(t, h, "focus", "pane-9")
-			runLayoutCommand(t, h, "split", "root")
+			runLayoutCommand(t, h, "split", "pane-9", "root")
+			runLayoutCommand(t, h, "focus", "pane-10")
 			runLayoutCommand(t, h, "resize-pane", "pane-10", tt.dir, "2")
 
 			h.assertActive("pane-10")

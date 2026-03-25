@@ -38,13 +38,6 @@ func NewClientRendererWithScrollback(width, height, scrollbackLines int) *Client
 		scrollbackLines: scrollbackLines,
 	}
 	cr.state.Store(newClientSnapshot())
-	// Resize copy modes when the renderer resizes emulators during layout.
-	cr.renderer.OnPaneResize = func(paneID uint32, w, h int) {
-		cm := cr.CopyModeForPane(paneID)
-		if cm != nil {
-			cm.Resize(w, h)
-		}
-	}
 	return cr
 }
 
@@ -65,6 +58,7 @@ func (cr *ClientRenderer) HandleLayout(snap *proto.LayoutSnapshot) bool {
 }
 func (cr *ClientRenderer) handleLayoutResult(snap *proto.LayoutSnapshot) (bool, clientUIResult) {
 	structureChanged := cr.renderer.HandleLayout(snap)
+	cr.syncCopyModeSizes()
 	validPanes := make(map[uint32]bool)
 	for _, ps := range snap.Panes {
 		validPanes[ps.ID] = true
@@ -214,6 +208,7 @@ func (cr *ClientRenderer) IsDirty() bool {
 // Resize updates the client's terminal dimensions.
 func (cr *ClientRenderer) Resize(width, height int) {
 	cr.renderer.Resize(width, height)
+	cr.syncCopyModeSizes()
 }
 
 // CaptureJSON renders a structured JSON capture from client-side emulators.
@@ -246,6 +241,11 @@ func (cr *ClientRenderer) ActivePaneID() uint32 {
 	return cr.renderer.ActivePaneID()
 }
 
+// ActivePaneName returns the active pane's name, or "" if unknown. Thread-safe.
+func (cr *ClientRenderer) ActivePaneName() string {
+	return cr.renderer.ActivePaneName()
+}
+
 // Layout returns the current layout tree. Thread-safe.
 func (cr *ClientRenderer) Layout() *mux.LayoutCell {
 	return cr.renderer.Layout()
@@ -262,6 +262,7 @@ const (
 	RenderMsgExit
 	RenderMsgCopyMode
 	RenderMsgCmdError
+	RenderMsgLocalAction
 )
 
 // RenderMsg is an internal message type for the render coalescing loop.
@@ -271,6 +272,15 @@ type RenderMsg struct {
 	PaneID uint32
 	Data   []byte
 	Text   string
+	Local  localRenderFunc
+	Reply  chan any
+}
+
+type localRenderFunc func(*ClientRenderer) localRenderResult
+
+type localRenderResult struct {
+	effects []clientEffect
+	value   any
 }
 
 type clientEffectKind int
@@ -402,6 +412,26 @@ func (cr *ClientRenderer) handleRenderMsg(msg *RenderMsg) []clientEffect {
 	}
 }
 
+func (cr *ClientRenderer) handleLocalRenderMsg(state *clientRenderLoopState, msg *RenderMsg, write func(string)) bool {
+	if msg.Local == nil {
+		if msg.Reply != nil {
+			msg.Reply <- nil
+		}
+		return false
+	}
+	result := msg.Local(cr)
+	if cr.executeRenderEffects(state, result.effects, write) {
+		if msg.Reply != nil {
+			msg.Reply <- result.value
+		}
+		return true
+	}
+	if msg.Reply != nil {
+		msg.Reply <- result.value
+	}
+	return false
+}
+
 func (cr *ClientRenderer) executeRenderEffects(state *clientRenderLoopState, effects []clientEffect, write func(string)) bool {
 	for _, effect := range effects {
 		switch effect.kind {
@@ -484,12 +514,30 @@ func (cr *ClientRenderer) RenderCoalesced(msgCh <-chan *RenderMsg, write func(st
 			if !ok {
 				return
 			}
+			if msg.Typ == RenderMsgLocalAction {
+				if cr.handleLocalRenderMsg(state, msg, write) {
+					return
+				}
+				continue
+			}
 			if cr.executeRenderEffects(state, cr.handleRenderMsg(msg), write) {
 				return
 			}
 		case <-state.renderC:
 			cr.renderNow(state, write)
 		}
+	}
+}
+
+func (cr *ClientRenderer) syncCopyModeSizes() {
+	state := cr.loadState()
+	for paneID, cm := range state.ui.copyModes {
+		emu, ok := cr.renderer.Emulator(paneID)
+		if !ok || cm == nil {
+			continue
+		}
+		w, h := emu.Size()
+		cm.Resize(w, h)
 	}
 }
 

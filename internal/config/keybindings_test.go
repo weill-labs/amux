@@ -50,7 +50,9 @@ func TestParseAction(t *testing.T) {
 		err    bool
 	}{
 		{"split", "split", nil, false},
+		{"split-focus", "split-focus", nil, false},
 		{"split v", "split", []string{"v"}, false},
+		{"spawn-focus --name worker", "spawn-focus", []string{"--name", "worker"}, false},
 		{"split root v", "split", []string{"root", "v"}, false},
 		{"focus next", "focus", []string{"next"}, false},
 		{"detach", "detach", nil, false},
@@ -89,8 +91,8 @@ func TestDefaultKeybindings(t *testing.T) {
 	if kb.Prefix != 0x01 {
 		t.Errorf("default prefix = %d, want 0x01 (Ctrl-a)", kb.Prefix)
 	}
-	if b, ok := kb.Bindings['\\']; !ok || b.Action != "split" {
-		t.Error("default: \\ should be bound to split")
+	if b, ok := kb.Bindings['\\']; !ok || b.Action != "split-focus" {
+		t.Error("default: \\ should be bound to split-focus")
 	}
 	if b, ok := kb.Bindings['d']; !ok || b.Action != "detach" {
 		t.Error("default: d should be bound to detach")
@@ -120,11 +122,11 @@ func TestTmuxCompatKeybindings(t *testing.T) {
 	if kb.Prefix != 0x02 {
 		t.Errorf("tmux preset prefix = %d, want 0x02 (Ctrl-b)", kb.Prefix)
 	}
-	if b, ok := kb.Bindings['"']; !ok || b.Action != "split" {
-		t.Error(`tmux preset: " should be bound to split`)
+	if b, ok := kb.Bindings['"']; !ok || b.Action != "split-focus" {
+		t.Error(`tmux preset: " should be bound to split-focus`)
 	}
-	if b, ok := kb.Bindings['%']; !ok || b.Action != "split" || len(b.Args) != 1 || b.Args[0] != "v" {
-		t.Error(`tmux preset: % should be bound to split v`)
+	if b, ok := kb.Bindings['%']; !ok || b.Action != "split-focus" || len(b.Args) != 1 || b.Args[0] != "v" {
+		t.Error(`tmux preset: % should be bound to split-focus v`)
 	}
 	if b, ok := kb.Bindings['q']; !ok || b.Action != "display-panes" {
 		t.Error("tmux preset: q should be bound to display-panes")
@@ -220,6 +222,25 @@ func TestBuildKeybindingsAddBinding(t *testing.T) {
 	}
 	if _, ok := kb.Bindings['\\']; !ok {
 		t.Error("default \\ binding should still exist")
+	}
+}
+
+func TestBuildKeybindingsAllowsFocusActions(t *testing.T) {
+	kc := &KeyConfig{
+		Bind: map[string]string{
+			"s": "split-focus root v",
+			"S": "spawn-focus --name worker",
+		},
+	}
+	kb, err := BuildKeybindings(kc)
+	if err != nil {
+		t.Fatalf("BuildKeybindings: %v", err)
+	}
+	if got := kb.Bindings['s']; got.Action != "split-focus" {
+		t.Fatalf("s action = %q, want split-focus", got.Action)
+	}
+	if got := kb.Bindings['S']; got.Action != "spawn-focus" {
+		t.Fatalf("S action = %q, want spawn-focus", got.Action)
 	}
 }
 

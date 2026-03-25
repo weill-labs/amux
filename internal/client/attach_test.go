@@ -57,7 +57,7 @@ func TestSyncTerminalSizeSendsResizeWhenSizeChanges(t *testing.T) {
 	}
 	done := make(chan sizeResult, 1)
 	go func() {
-		cols, rows := syncTerminalSize(0, 80, 24, cr, sender, getSize)
+		cols, rows := syncTerminalSize(0, 80, 24, cr, sender, getSize, nil)
 		done <- sizeResult{cols: cols, rows: rows}
 	}()
 
@@ -118,7 +118,7 @@ func TestSyncTerminalSizeSkipsUnchangedOrInvalidSizes(t *testing.T) {
 
 			cr := NewClientRenderer(80, 24)
 
-			cols, rows := syncTerminalSize(0, 80, 24, cr, sender, tt.fn)
+			cols, rows := syncTerminalSize(0, 80, 24, cr, sender, tt.fn, nil)
 			if cols != 80 || rows != 24 {
 				t.Fatalf("syncTerminalSize returned %dx%d, want 80x24", cols, rows)
 			}

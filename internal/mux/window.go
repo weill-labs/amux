@@ -3,6 +3,8 @@ package mux
 import (
 	"fmt"
 	"sync/atomic"
+
+	"github.com/weill-labs/amux/internal/debugowner"
 )
 
 // StatusLineRows is the number of rows reserved for the per-pane status line.
@@ -13,7 +15,13 @@ const StatusLineRows = 1
 const DefaultRestoreHeight = 12
 
 // Window holds the layout tree and active pane for one window.
+//
+// Concurrency:
+// Window is owned by the server session event loop. No Window methods are safe
+// for concurrent use; callers must serialize all reads and writes through the
+// session queue/query helpers or otherwise guarantee exclusive access.
 type Window struct {
+	owner        debugowner.Checker
 	ID           uint32
 	Name         string
 	Root         *LayoutCell
@@ -24,10 +32,10 @@ type Window struct {
 	minimizeSeq  uint64 // monotonic counter for LIFO minimize ordering
 }
 
-// SplitOptions controls whether a new pane is created in the background.
-// Background splits keep the current active pane and preserve zoom state.
+// SplitOptions controls whether the existing active pane keeps focus.
+// KeepFocus preserves zoom state and leaves the active pane unchanged.
 type SplitOptions struct {
-	Background bool
+	KeepFocus bool
 }
 
 // NewWindow creates a window with a single pane.
@@ -41,18 +49,24 @@ func NewWindow(pane *Pane, width, height int) *Window {
 	}
 }
 
+func (w *Window) assertOwner(method string) {
+	w.owner.Assert("mux.Window", method)
+}
+
 // SplitRoot splits the entire window at the root level.
 // If the root already has the same split direction, the new pane is added
 // as a sibling (equal distribution). Otherwise, wraps the root in a new parent.
 // Auto-unzooms if a pane is zoomed.
 func (w *Window) SplitRoot(dir SplitDir, newPane *Pane) (*Pane, error) {
+	w.assertOwner("SplitRoot")
 	return w.SplitRootWithOptions(dir, newPane, SplitOptions{})
 }
 
 // SplitRootWithOptions splits the entire window at the root level with
 // explicit focus/zoom behavior control.
 func (w *Window) SplitRootWithOptions(dir SplitDir, newPane *Pane, opts SplitOptions) (*Pane, error) {
-	if w.ZoomedPaneID != 0 && !opts.Background {
+	w.assertOwner("SplitRootWithOptions")
+	if w.ZoomedPaneID != 0 && !opts.KeepFocus {
 		w.Unzoom()
 	}
 	newLeaf := NewLeaf(newPane, 0, 0, 0, 0)
@@ -112,7 +126,7 @@ func (w *Window) SplitRootWithOptions(dir SplitDir, newPane *Pane, opts SplitOpt
 	w.resizePTYs()
 	w.restoreZoomedPaneSize()
 
-	if !opts.Background {
+	if !opts.KeepFocus {
 		w.setActive(newPane)
 	}
 	return newPane, nil
@@ -122,19 +136,31 @@ func (w *Window) SplitRootWithOptions(dir SplitDir, newPane *Pane, opts SplitOpt
 // via the provided factory function. Returns the new pane.
 // Auto-unzooms if a pane is zoomed.
 func (w *Window) Split(dir SplitDir, newPane *Pane) (*Pane, error) {
+	w.assertOwner("Split")
 	return w.SplitWithOptions(dir, newPane, SplitOptions{})
 }
 
 // SplitWithOptions splits the active pane with explicit focus/zoom behavior control.
 func (w *Window) SplitWithOptions(dir SplitDir, newPane *Pane, opts SplitOptions) (*Pane, error) {
-	if w.ZoomedPaneID != 0 && !opts.Background {
+	w.assertOwner("SplitWithOptions")
+	return w.SplitPaneWithOptions(w.ActivePane.ID, dir, newPane, opts)
+}
+
+// SplitPaneWithOptions splits the specified pane with explicit focus/zoom
+// behavior control.
+func (w *Window) SplitPaneWithOptions(targetPaneID uint32, dir SplitDir, newPane *Pane, opts SplitOptions) (*Pane, error) {
+	w.assertOwner("SplitPaneWithOptions")
+	if w.ZoomedPaneID != 0 && !opts.KeepFocus {
 		w.Unzoom()
 	}
-	cell := w.Root.FindPane(w.ActivePane.ID)
+	cell := w.Root.FindPane(targetPaneID)
 	if cell == nil {
-		return nil, fmt.Errorf("active pane %d not found in layout", w.ActivePane.ID)
+		return nil, fmt.Errorf("pane %d not found in layout", targetPaneID)
 	}
+	return w.splitCellWithOptions(cell, dir, newPane, opts)
+}
 
+func (w *Window) splitCellWithOptions(cell *LayoutCell, dir SplitDir, newPane *Pane, opts SplitOptions) (*Pane, error) {
 	newCell, err := cell.Split(dir, newPane)
 	if err != nil {
 		return nil, err
@@ -152,15 +178,15 @@ func (w *Window) SplitWithOptions(dir SplitDir, newPane *Pane, opts SplitOptions
 	} else if len(cell.Children) > 0 {
 		existingCell = cell.Children[0]
 	}
-	if existingCell != nil {
-		w.ActivePane.Resize(existingCell.W, PaneContentHeight(existingCell.H))
+	if existingCell != nil && existingCell.Pane != nil {
+		existingCell.Pane.Resize(existingCell.W, PaneContentHeight(existingCell.H))
 	}
 
 	w.Root.FixOffsets()
 	w.normalizeMinimizedLayout()
 	w.resizePTYs()
 	w.restoreZoomedPaneSize()
-	if !opts.Background {
+	if !opts.KeepFocus {
 		w.setActive(newPane)
 	}
 
@@ -170,6 +196,7 @@ func (w *Window) SplitWithOptions(dir SplitDir, newPane *Pane, opts SplitOptions
 // ClosePane removes a pane from the layout and reclaims its space.
 // If the closed pane was zoomed, zoom is automatically cleared.
 func (w *Window) ClosePane(paneID uint32) error {
+	w.assertOwner("ClosePane")
 	cell := w.Root.FindPane(paneID)
 	if cell == nil {
 		return fmt.Errorf("pane %d not found", paneID)
@@ -257,6 +284,7 @@ func (w *Window) autoRestoreOne(root *LayoutCell) {
 
 // Resize adjusts the layout to fit new terminal dimensions.
 func (w *Window) Resize(width, height int) {
+	w.assertOwner("Resize")
 	w.Width = width
 	w.Height = height
 	w.Root.ResizeAll(width, height)
@@ -279,6 +307,7 @@ func (w *Window) setActive(p *Pane) {
 // Used by the server when focusing by name or ID.
 // Auto-unzooms if a pane is zoomed and the target is a different pane.
 func (w *Window) FocusPane(p *Pane) {
+	w.assertOwner("FocusPane")
 	if w.ZoomedPaneID != 0 && p.ID != w.ZoomedPaneID {
 		w.Unzoom()
 	}
@@ -289,6 +318,7 @@ func (w *Window) FocusPane(p *Pane) {
 // Uses tmux-style adjacency + perpendicular overlap + wrapping + recency tiebreaker.
 // Auto-unzooms if a pane is zoomed.
 func (w *Window) Focus(direction string) {
+	w.assertOwner("Focus")
 	if w.ZoomedPaneID != 0 {
 		w.Unzoom()
 	}
@@ -432,6 +462,7 @@ func PaneContentHeight(cellH int) int {
 // For horizontal borders (horizontal split), delta is applied vertically.
 // Returns true if a resize was performed.
 func (w *Window) ResizeBorder(x, y, delta int) bool {
+	w.assertOwner("ResizeBorder")
 	hit := w.Root.FindBorderNear(x, y)
 	if hit == nil || delta == 0 {
 		return false
@@ -480,6 +511,7 @@ func (w *Window) ResizeBorder(x, y, delta int) bool {
 // direction is "left", "right", "up", or "down".
 // Returns true if a resize was performed.
 func (w *Window) ResizeActive(direction string, delta int) bool {
+	w.assertOwner("ResizeActive")
 	if w.ActivePane == nil {
 		return false
 	}
@@ -490,6 +522,7 @@ func (w *Window) ResizeActive(direction string, delta int) bool {
 // direction is "left", "right", "up", or "down". delta is the number of cells to move.
 // Returns true if a resize was performed.
 func (w *Window) ResizePane(paneID uint32, direction string, delta int) bool {
+	w.assertOwner("ResizePane")
 	if delta <= 0 {
 		return false
 	}
@@ -679,6 +712,7 @@ func (w *Window) finishTreeMutation() {
 // to match their new cell dimensions.
 // Both the Pane struct and its Meta travel together (swap-with-meta semantics).
 func (w *Window) SwapPanes(id1, id2 uint32) error {
+	w.assertOwner("SwapPanes")
 	if id1 == id2 {
 		return nil
 	}
@@ -697,6 +731,7 @@ func (w *Window) SwapPanes(id1, id2 uint32) error {
 
 // SwapTree swaps the root-level groups containing the given panes.
 func (w *Window) SwapTree(id1, id2 uint32) error {
+	w.assertOwner("SwapTree")
 	_, idx1, err := w.rootChildForPaneID(id1)
 	if err != nil {
 		return err
@@ -721,6 +756,7 @@ func (w *Window) SwapTree(id1, id2 uint32) error {
 // MovePane moves the root-level group containing paneID before or after the
 // root-level group containing targetPaneID.
 func (w *Window) MovePane(paneID, targetPaneID uint32, before bool) error {
+	w.assertOwner("MovePane")
 	_, fromIdx, err := w.rootChildForPaneID(paneID)
 	if err != nil {
 		return err
@@ -760,6 +796,7 @@ func (w *Window) MovePane(paneID, targetPaneID uint32, before bool) error {
 
 // SwapPaneForward swaps the active pane with the next pane in walk order.
 func (w *Window) SwapPaneForward() error {
+	w.assertOwner("SwapPaneForward")
 	cells := w.paneLeaves()
 	if len(cells) <= 1 {
 		return nil
@@ -774,6 +811,7 @@ func (w *Window) SwapPaneForward() error {
 
 // SwapPaneBackward swaps the active pane with the previous pane in walk order.
 func (w *Window) SwapPaneBackward() error {
+	w.assertOwner("SwapPaneBackward")
 	cells := w.paneLeaves()
 	if len(cells) <= 1 {
 		return nil
@@ -791,6 +829,7 @@ func (w *Window) SwapPaneBackward() error {
 // gets the pane from the previous cell, with the last pane wrapping to the
 // first cell.
 func (w *Window) RotatePanes(forward bool) {
+	w.assertOwner("RotatePanes")
 	cells := w.paneLeaves()
 	if len(cells) <= 1 {
 		return
@@ -840,6 +879,7 @@ func (w *Window) activeCellIndex(cells []*LayoutCell) int {
 // If the pane is the last visible in a non-rightmost column, the column is
 // dissolved into the next column to the right. Auto-unzooms if zoomed.
 func (w *Window) Minimize(paneID uint32) error {
+	w.assertOwner("Minimize")
 	if w.ZoomedPaneID != 0 {
 		w.Unzoom()
 	}
@@ -897,6 +937,7 @@ func (w *Window) Minimize(paneID uint32) error {
 // intact; the ZoomedPaneID field tells the client to render only this pane.
 // The zoomed pane's PTY is resized to the full window dimensions.
 func (w *Window) Zoom(paneID uint32) error {
+	w.assertOwner("Zoom")
 	if w.ZoomedPaneID == paneID {
 		return w.Unzoom()
 	}
@@ -928,6 +969,7 @@ func (w *Window) Zoom(paneID uint32) error {
 // Unzoom restores the normal multi-pane view. The zoomed pane's PTY is
 // resized back to match its layout cell.
 func (w *Window) Unzoom() error {
+	w.assertOwner("Unzoom")
 	if w.ZoomedPaneID == 0 {
 		return fmt.Errorf("no pane is zoomed")
 	}
@@ -946,6 +988,7 @@ func (w *Window) Unzoom() error {
 
 // Restore expands a minimized pane back to its saved height.
 func (w *Window) Restore(paneID uint32) error {
+	w.assertOwner("Restore")
 	cell := w.Root.FindPane(paneID)
 	if cell == nil {
 		return fmt.Errorf("pane %d not found", paneID)
@@ -998,6 +1041,7 @@ func (w *Window) Restore(paneID uint32) error {
 // ToggleMinimize toggles the active pane's minimized state.
 // Returns the affected pane's name and whether it was minimized (true) or restored (false).
 func (w *Window) ToggleMinimize() (name string, minimized bool, err error) {
+	w.assertOwner("ToggleMinimize")
 	if w.ActivePane == nil {
 		return "", false, fmt.Errorf("no active pane")
 	}
@@ -1029,6 +1073,7 @@ func (w *Window) recoverMinimizeSeq() {
 // new panes. The original cell's dimensions are preserved.
 // Returns the list of newly created layout cells.
 func (w *Window) SplicePane(oldPaneID uint32, newPanes []*Pane) ([]*LayoutCell, error) {
+	w.assertOwner("SplicePane")
 	if len(newPanes) == 0 {
 		return nil, fmt.Errorf("no panes to splice")
 	}
@@ -1098,6 +1143,7 @@ func (w *Window) SplicePane(oldPaneID uint32, newPanes []*Pane) ([]*LayoutCell, 
 // proxy panes for a specific host) with a single pane. Used to revert
 // a takeover and restore the original SSH pane.
 func (w *Window) UnsplicePane(hostName string, replacement *Pane) error {
+	w.assertOwner("UnsplicePane")
 	allProxyLeavesForHost := func(cell *LayoutCell) bool {
 		if cell == nil {
 			return false
