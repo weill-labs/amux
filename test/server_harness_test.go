@@ -48,13 +48,11 @@ func newServerHarnessWithSize(tb testing.TB, cols, rows int) *ServerHarness {
 
 // newServerHarness starts a server daemon with a unique session name,
 // waits for the ready signal, and seeds the first pane. Safe for parallel tests.
+// Default to a persistent server so transient client reconnect gaps do not
+// tear down the session mid-test.
 func newServerHarness(tb testing.TB) *ServerHarness {
-	return newServerHarnessImpl(tb, 80, 24)
-}
-
-func newServerHarnessImpl(tb testing.TB, cols, rows int) *ServerHarness {
 	tb.Helper()
-	return newServerHarnessWithConfig(tb, cols, rows, "")
+	return newServerHarnessWithOptions(tb, 80, 24, "", false)
 }
 
 // newServerHarnessPersistent starts a server that does NOT exit when all
@@ -70,7 +68,14 @@ func newServerHarnessPersistent(tb testing.TB) *ServerHarness {
 // Pass an empty configContent to start with the default (no) config.
 func newServerHarnessWithConfig(tb testing.TB, cols, rows int, configContent string) *ServerHarness {
 	tb.Helper()
-	return newServerHarnessWithOptions(tb, cols, rows, configContent, true)
+	return newServerHarnessWithOptions(tb, cols, rows, configContent, false)
+}
+
+// newServerHarnessExitUnattached starts a server that exits when all clients
+// disconnect. Use this only in tests that explicitly exercise exit-unattached.
+func newServerHarnessExitUnattached(tb testing.TB) *ServerHarness {
+	tb.Helper()
+	return newServerHarnessWithOptions(tb, 80, 24, "", true)
 }
 
 // newServerHarnessWithOptions is the shared constructor. When exitUnattached
