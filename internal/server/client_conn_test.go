@@ -314,8 +314,8 @@ func TestClientConnActiveInputPaneForWriteSwitchesSessionSizeToLatestClient(t *t
 		sess.Windows = []*mux.Window{w}
 		sess.ActiveWindowID = w.ID
 		sess.Panes = []*mux.Pane{pane}
-		sess.clients = []*clientConn{owner, cc}
-		sess.sizeClient.Store(owner)
+		sess.ensureClientManager().setClientsForTest(owner, cc)
+		sess.ensureClientManager().setSizeOwnerForTest(owner)
 		return commandMutationResult{}
 	})
 	if res.err != nil {

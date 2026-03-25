@@ -155,18 +155,11 @@ func TestCaptureQueueLifecycle(t *testing.T) {
 		current uint64
 		queue   []uint64
 	} {
-		var queue []uint64
-		for _, req := range sess.captureQueue {
-			queue = append(queue, req.id)
-		}
-		current := uint64(0)
-		if sess.captureCurrent != nil {
-			current = sess.captureCurrent.id
-		}
+		state := sess.ensureCaptureForwarder().snapshot()
 		return struct {
 			current uint64
 			queue   []uint64
-		}{current: current, queue: queue}
+		}{current: state.currentID, queue: state.queuedIDs}
 	})
 	if stateAfterQueueCancel.current != req1.id || len(stateAfterQueueCancel.queue) != 1 || stateAfterQueueCancel.queue[0] != req3.id {
 		t.Fatalf("capture state after queue cancel = %#v", stateAfterQueueCancel)
@@ -186,14 +179,11 @@ func TestCaptureQueueLifecycle(t *testing.T) {
 		current uint64
 		queue   int
 	} {
-		current := uint64(0)
-		if sess.captureCurrent != nil {
-			current = sess.captureCurrent.id
-		}
+		state := sess.ensureCaptureForwarder().snapshot()
 		return struct {
 			current uint64
 			queue   int
-		}{current: current, queue: len(sess.captureQueue)}
+		}{current: state.currentID, queue: state.queueLen}
 	})
 	if stateAfterPromote.current != req3.id || stateAfterPromote.queue != 0 {
 		t.Fatalf("capture state after promote = %#v", stateAfterPromote)
@@ -204,10 +194,11 @@ func TestCaptureQueueLifecycle(t *testing.T) {
 		hasCurrent bool
 		queue      int
 	} {
+		state := sess.ensureCaptureForwarder().snapshot()
 		return struct {
 			hasCurrent bool
 			queue      int
-		}{hasCurrent: sess.captureCurrent != nil, queue: len(sess.captureQueue)}
+		}{hasCurrent: state.hasCurrent, queue: state.queueLen}
 	})
 	if finalState.hasCurrent || finalState.queue != 0 {
 		t.Fatalf("final capture state = %#v, want empty queue", finalState)

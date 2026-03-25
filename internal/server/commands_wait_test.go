@@ -249,7 +249,7 @@ func TestWaitForUIEventCurrentMatchWithoutAfterReturnsImmediately(t *testing.T) 
 	defer cc.Close()
 
 	mustSessionQuery(t, sess, func(sess *Session) struct{} {
-		sess.clients = []*clientConn{cc}
+		sess.ensureClientManager().setClientsForTest(cc)
 		return struct{}{}
 	})
 
@@ -276,7 +276,7 @@ func TestWaitForNextUIEventWaitsForFreshTransition(t *testing.T) {
 	defer cc.Close()
 
 	mustSessionQuery(t, sess, func(sess *Session) struct{} {
-		sess.clients = []*clientConn{cc}
+		sess.ensureClientManager().setClientsForTest(cc)
 		return struct{}{}
 	})
 
@@ -323,10 +323,7 @@ func TestCmdWaitTransitionCommandsDefaultToNextChange(t *testing.T) {
 
 		waitUntil(t, func() bool {
 			return mustSessionQuery(t, sess, func(sess *Session) bool {
-				for _, waiter := range sess.layoutWaiters {
-					return waiter.afterGen == 4
-				}
-				return false
+				return sess.waiters.layoutWaiterRegistered(4)
 			})
 		})
 
@@ -359,17 +356,13 @@ func TestCmdWaitTransitionCommandsDefaultToNextChange(t *testing.T) {
 
 		srv, sess, cleanup := newCommandTestSession(t)
 		defer cleanup()
-		sess.clipboardGen.Store(2)
-		sess.lastClipboardB64 = "old"
+		sess.waiters.setClipboardStateForTest(2, "old")
 
 		peerConn, _, done := startAsyncCommand(t, srv, sess, "wait", "clipboard", "--timeout", "5s")
 
 		waitUntil(t, func() bool {
 			return mustSessionQuery(t, sess, func(sess *Session) bool {
-				for _, waiter := range sess.clipboardWaiters {
-					return waiter.afterGen == 2
-				}
-				return false
+				return sess.waiters.clipboardWaiterRegistered(2)
 			})
 		})
 
@@ -380,9 +373,7 @@ func TestCmdWaitTransitionCommandsDefaultToNextChange(t *testing.T) {
 		}
 
 		sess.enqueueCommandMutation(func(s *Session) commandMutationResult {
-			gen := s.clipboardGen.Add(1)
-			s.lastClipboardB64 = "new"
-			s.notifyClipboardWaiters(gen, "new")
+			s.waiters.recordClipboard([]byte("new"))
 			return commandMutationResult{}
 		})
 
@@ -409,16 +400,13 @@ func TestCmdWaitTransitionCommandsDefaultToNextChange(t *testing.T) {
 		sess.Windows = []*mux.Window{w}
 		sess.ActiveWindowID = w.ID
 		sess.Panes = []*mux.Pane{pane}
-		sess.hookGen.Store(7)
+		sess.waiters.setHookStateForTest(7, nil)
 
 		peerConn, _, done := startAsyncCommand(t, srv, sess, "wait", "hook", "on-idle", "--pane", "pane-1", "--timeout", "5s")
 
 		waitUntil(t, func() bool {
 			return mustSessionQuery(t, sess, func(sess *Session) bool {
-				for _, waiter := range sess.hookWaiters {
-					return waiter.afterGen == 7 && waiter.eventName == "on-idle" && waiter.paneID == 1
-				}
-				return false
+				return sess.waiters.hookWaiterRegistered(7, "on-idle", 1, "pane-1")
 			})
 		})
 
@@ -429,16 +417,12 @@ func TestCmdWaitTransitionCommandsDefaultToNextChange(t *testing.T) {
 		}
 
 		sess.enqueueCommandMutation(func(s *Session) commandMutationResult {
-			record := hookResultRecord{
-				Generation: 8,
-				Event:      "on-idle",
-				PaneID:     1,
-				PaneName:   "pane-1",
-				Success:    true,
-			}
-			s.hookGen.Store(record.Generation)
-			s.hookResults = append(s.hookResults, record)
-			s.notifyHookWaiters(record)
+			s.waiters.appendHookResult(hookResultRecord{
+				Event:    "on-idle",
+				PaneID:   1,
+				PaneName: "pane-1",
+				Success:  true,
+			})
 			return commandMutationResult{}
 		})
 

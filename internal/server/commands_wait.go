@@ -143,7 +143,7 @@ func cmdWaitLayout(ctx *CommandContext) {
 }
 
 func cmdClipboardGen(ctx *CommandContext) {
-	gen := ctx.Sess.clipboardGen.Load()
+	gen := ctx.Sess.clipboardGeneration()
 	ctx.reply(fmt.Sprintf("%d\n", gen))
 }
 
@@ -170,7 +170,7 @@ func cmdWaitClipboard(ctx *CommandContext) {
 }
 
 func cmdHookGen(ctx *CommandContext) {
-	gen := ctx.Sess.hookGen.Load()
+	gen := ctx.Sess.hookGeneration()
 	ctx.reply(fmt.Sprintf("%d\n", gen))
 }
 

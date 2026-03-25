@@ -293,7 +293,7 @@ func (s *Session) captureClientSnapshot(req caputil.Request, target *capturePane
 func (s *Session) captureClientSnapshotForActor(req caputil.Request, actorPaneID uint32, target *capturePaneTarget) (captureClientSnapshot, error) {
 	return enqueueSessionQuery(s, func(s *Session) (captureClientSnapshot, error) {
 		var snap captureClientSnapshot
-		for _, cc := range s.clients {
+		for _, cc := range s.ensureClientManager().snapshotClients() {
 			if cc.isBootstrapping() {
 				continue
 			}
@@ -323,7 +323,7 @@ func (s *Session) captureClientSnapshotForActor(req caputil.Request, actorPaneID
 
 func (s *Session) runClientCaptureRequest(args []string, captureReq caputil.Request, client *clientConn, agentStatus map[uint32]proto.PaneAgentStatus, jsonErrorResult func(string, string) *Message) *Message {
 	req := &captureRequest{
-		id:          s.captureCounter.Add(1),
+		id:          s.ensureCaptureForwarder().nextRequestID(),
 		client:      client,
 		args:        append([]string(nil), args...),
 		agentStatus: agentStatus,
@@ -418,16 +418,9 @@ func ensureTrailingNewline(s string) string {
 // to the waiting forwardCapture caller. Thread-safe.
 func (s *Session) routeCaptureResponse(msg *Message) {
 	_, _ = enqueueSessionQuery(s, func(s *Session) (struct{}, error) {
-		if s.captureCurrent == nil {
-			return struct{}{}, nil
-		}
-		req := s.captureCurrent
-		s.captureCurrent = nil
-		select {
-		case req.reply <- msg:
-		default:
-		}
-		s.startNextCaptureRequest()
+		s.ensureCaptureForwarder().routeResponse(msg, func(req *captureRequest) {
+			req.client.Send(s.captureRequestMessage(req))
+		})
 		return struct{}{}, nil
 	})
 }
@@ -441,23 +434,16 @@ func (s *Session) captureRequestMessage(req *captureRequest) *Message {
 }
 
 func (s *Session) startNextCaptureRequest() {
-	if s.captureCurrent != nil || len(s.captureQueue) == 0 {
-		return
-	}
-	next := s.captureQueue[0]
-	s.captureQueue = s.captureQueue[1:]
-	s.captureCurrent = next
-	next.client.Send(s.captureRequestMessage(next))
+	s.ensureCaptureForwarder().startNext(func(req *captureRequest) {
+		req.client.Send(s.captureRequestMessage(req))
+	})
 }
 
 func (s *Session) enqueueCaptureRequest(req *captureRequest) error {
 	_, err := enqueueSessionQuery(s, func(s *Session) (struct{}, error) {
-		if s.captureCurrent == nil {
-			s.captureCurrent = req
+		s.ensureCaptureForwarder().enqueue(req, func(req *captureRequest) {
 			req.client.Send(s.captureRequestMessage(req))
-			return struct{}{}, nil
-		}
-		s.captureQueue = append(s.captureQueue, req)
+		})
 		return struct{}{}, nil
 	})
 	return err
@@ -465,18 +451,9 @@ func (s *Session) enqueueCaptureRequest(req *captureRequest) error {
 
 func (s *Session) cancelCaptureRequest(id uint64) {
 	_, _ = enqueueSessionQuery(s, func(s *Session) (struct{}, error) {
-		if s.captureCurrent != nil && s.captureCurrent.id == id {
-			s.captureCurrent = nil
-			s.startNextCaptureRequest()
-			return struct{}{}, nil
-		}
-		for i, req := range s.captureQueue {
-			if req.id != id {
-				continue
-			}
-			s.captureQueue = append(s.captureQueue[:i], s.captureQueue[i+1:]...)
-			break
-		}
+		s.ensureCaptureForwarder().cancel(id, func(req *captureRequest) {
+			req.client.Send(s.captureRequestMessage(req))
+		})
 		return struct{}{}, nil
 	})
 }

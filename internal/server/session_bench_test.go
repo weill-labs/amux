@@ -60,7 +60,7 @@ func benchSessionWithPanes(n int) *Session {
 		ActiveWindowID: w.ID,
 		Panes:          panes,
 		idle:           newIdleTracker(),
-		layoutWaiters:  make(map[uint64]layoutWaiter),
+		waiters:        newWaiterManager(),
 	}
 }
 
@@ -84,8 +84,9 @@ func BenchmarkSessionBroadcastLayout(b *testing.B) {
 	for _, panes := range []int{1, 4, 20} {
 		b.Run(fmt.Sprintf("panes_%d", panes), func(b *testing.B) {
 			sess := benchSessionWithPanes(panes)
-			sess.clients = []*clientConn{newClientConn(discardConn{})}
-			defer sess.clients[0].Close()
+			cc := newClientConn(discardConn{})
+			sess.ensureClientManager().setClientsForTest(cc)
+			defer cc.Close()
 
 			b.ReportAllocs()
 			b.ResetTimer()

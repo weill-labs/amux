@@ -40,7 +40,7 @@ func (s *Session) recalcSize() {
 }
 
 func (s *Session) broadcastNow(msg *Message) {
-	clients := append([]*clientConn(nil), s.clients...)
+	clients := s.ensureClientManager().snapshotClients()
 	for _, c := range clients {
 		c.sendBroadcast(msg)
 	}
@@ -77,7 +77,7 @@ func (s *Session) metaCallback() func(paneID uint32, update mux.MetaUpdate) {
 }
 
 func (s *Session) broadcastPaneOutputNow(paneID uint32, data []byte, seq uint64) {
-	clients := append([]*clientConn(nil), s.clients...)
+	clients := s.ensureClientManager().snapshotClients()
 	msg := &Message{Type: MsgTypePaneOutput, PaneID: paneID, PaneData: data}
 	for _, c := range clients {
 		if seq == 0 {
@@ -104,7 +104,7 @@ func (s *Session) broadcastPaneOutputNow(paneID uint32, data []byte, seq uint64)
 }
 
 func (s *Session) broadcastPaneHistoryNow(paneID uint32, history []string) {
-	clients := append([]*clientConn(nil), s.clients...)
+	clients := s.ensureClientManager().snapshotClients()
 	msg := &Message{Type: MsgTypePaneHistory, PaneID: paneID, History: append([]string(nil), history...)}
 	for _, c := range clients {
 		c.sendPaneMessage(msg)
@@ -126,61 +126,19 @@ func (s *Session) broadcastPaneOutput(paneID uint32, data []byte, seq uint64) {
 }
 
 func (s *Session) notifyLayoutWaiters(gen uint64) {
-	for id, waiter := range s.layoutWaiters {
-		if gen <= waiter.afterGen {
-			continue
-		}
-		waiter.reply <- gen
-		delete(s.layoutWaiters, id)
-	}
+	s.ensureWaiters().notifyLayoutWaiters(gen)
 }
 
 func (s *Session) notifyClipboardWaiters(gen uint64, payload string) {
-	for id, waiter := range s.clipboardWaiters {
-		if gen <= waiter.afterGen {
-			continue
-		}
-		waiter.reply <- payload
-		delete(s.clipboardWaiters, id)
-	}
+	s.ensureWaiters().notifyClipboardWaiters(gen, payload)
 }
 
 func (s *Session) matchHookResult(afterGen uint64, eventName string, paneID uint32, paneName string) (hookResultRecord, bool) {
-	for _, record := range s.hookResults {
-		if record.Generation <= afterGen {
-			continue
-		}
-		if eventName != "" && record.Event != eventName {
-			continue
-		}
-		if paneID != 0 && record.PaneID != 0 && record.PaneID != paneID {
-			continue
-		}
-		if paneName != "" && record.PaneName != paneName {
-			continue
-		}
-		return record, true
-	}
-	return hookResultRecord{}, false
+	return s.ensureWaiters().matchHookResult(afterGen, eventName, paneID, paneName)
 }
 
 func (s *Session) notifyHookWaiters(record hookResultRecord) {
-	for id, waiter := range s.hookWaiters {
-		if record.Generation <= waiter.afterGen {
-			continue
-		}
-		if waiter.eventName != "" && record.Event != waiter.eventName {
-			continue
-		}
-		if waiter.paneID != 0 && record.PaneID != 0 && record.PaneID != waiter.paneID {
-			continue
-		}
-		if waiter.paneName != "" && record.PaneName != waiter.paneName {
-			continue
-		}
-		waiter.reply <- record
-		delete(s.hookWaiters, id)
-	}
+	s.ensureWaiters().notifyHookWaiters(record)
 }
 
 func (s *Session) broadcastLayoutNow() {
@@ -304,12 +262,7 @@ func (s *Session) assertPaneLayoutConsistency() int {
 // notifyPaneOutputSubs wakes all wait-for subscribers for the given pane.
 // Only called from the event loop (paneOutputEvent); no mutex needed.
 func (s *Session) notifyPaneOutputSubs(paneID uint32) {
-	for _, ch := range s.paneOutputSubs[paneID] {
-		select {
-		case ch <- struct{}{}:
-		default:
-		}
-	}
+	s.ensureWaiters().notifyPaneOutputSubs(paneID)
 }
 
 func (s *Session) trackPaneVTIdle(paneID uint32) {
@@ -376,19 +329,8 @@ func (s *Session) paneScreenContains(paneID uint32, substr string) bool {
 	return pane.ScreenContains(substr)
 }
 
-type paneOutputWaitStart struct {
-	ch      chan struct{}
-	matched bool
-	exists  bool
-}
-
 func (s *Session) addPaneOutputSubscriber(paneID uint32) chan struct{} {
-	ch := make(chan struct{}, 1)
-	if s.paneOutputSubs == nil {
-		s.paneOutputSubs = make(map[uint32][]chan struct{})
-	}
-	s.paneOutputSubs[paneID] = append(s.paneOutputSubs[paneID], ch)
-	return ch
+	return s.ensureWaiters().addPaneOutputSubscriber(paneID)
 }
 
 // beginPaneOutputWait atomically registers a pane-output subscriber and checks
@@ -396,138 +338,27 @@ func (s *Session) addPaneOutputSubscriber(paneID uint32) chan struct{} {
 // avoids the lost-wakeup race where output lands between an initial
 // ScreenContains check and later subscription registration.
 func (s *Session) beginPaneOutputWait(paneID uint32, substr string) (paneOutputWaitStart, error) {
-	return enqueueSessionQuery(s, func(s *Session) (paneOutputWaitStart, error) {
-		pane := s.findPaneByID(paneID)
-		if pane == nil {
-			return paneOutputWaitStart{}, nil
-		}
-		ch := s.addPaneOutputSubscriber(paneID)
-		return paneOutputWaitStart{
-			ch:      ch,
-			matched: pane.ScreenContains(substr),
-			exists:  true,
-		}, nil
-	})
+	return s.ensureWaiters().beginPaneOutputWait(s, paneID, substr)
 }
 
 // waitGeneration blocks until the layout generation exceeds afterGen or
 // timeout expires. Returns the current generation and whether it matched.
 func (s *Session) waitGeneration(afterGen uint64, timeout time.Duration) (uint64, bool) {
-	type waitRegistration struct {
-		gen      uint64
-		waiterID uint64
-		reply    chan uint64
-	}
-	type waitState struct {
-		gen     uint64
-		matched bool
-	}
-
-	reg, err := enqueueSessionQuery(s, func(s *Session) (waitRegistration, error) {
-		gen := s.generation.Load()
-		if gen > afterGen {
-			return waitRegistration{gen: gen}, nil
-		}
-		reply := make(chan uint64, 1)
-		waiterID := s.waiterCounter.Add(1)
-		s.layoutWaiters[waiterID] = layoutWaiter{afterGen: afterGen, reply: reply}
-		return waitRegistration{waiterID: waiterID, reply: reply}, nil
-	})
-	if err != nil {
-		return 0, false
-	}
-	if reg.reply == nil {
-		return reg.gen, true
-	}
-
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
-
-	select {
-	case gen := <-reg.reply:
-		return gen, true
-	case <-timer.C:
-		state, err := enqueueSessionQuery(s, func(s *Session) (waitState, error) {
-			delete(s.layoutWaiters, reg.waiterID)
-			gen := s.generation.Load()
-			return waitState{gen: gen, matched: gen > afterGen}, nil
-		})
-		if err != nil {
-			return 0, false
-		}
-		return state.gen, state.matched
-	}
+	return s.ensureWaiters().waitGeneration(s, afterGen, timeout)
 }
 
 func (s *Session) waitGenerationAfterCurrent(timeout time.Duration) (uint64, bool) {
-	afterGen, err := enqueueSessionQuery(s, func(s *Session) (uint64, error) {
-		return s.generation.Load(), nil
-	})
-	if err != nil {
-		return 0, false
-	}
-	return s.waitGeneration(afterGen, timeout)
+	return s.ensureWaiters().waitGenerationAfterCurrent(s, timeout)
 }
 
 // waitClipboard blocks until the clipboard generation exceeds afterGen or
 // timeout expires. Returns the last clipboard payload and whether it matched.
 func (s *Session) waitClipboard(afterGen uint64, timeout time.Duration) (string, bool) {
-	type waitRegistration struct {
-		payload  string
-		waiterID uint64
-		reply    chan string
-	}
-	type waitState struct {
-		payload string
-		matched bool
-	}
-
-	reg, err := enqueueSessionQuery(s, func(s *Session) (waitRegistration, error) {
-		gen := s.clipboardGen.Load()
-		if gen > afterGen {
-			return waitRegistration{payload: s.lastClipboardB64}, nil
-		}
-		reply := make(chan string, 1)
-		waiterID := s.waiterCounter.Add(1)
-		s.clipboardWaiters[waiterID] = clipboardWaiter{afterGen: afterGen, reply: reply}
-		return waitRegistration{waiterID: waiterID, reply: reply}, nil
-	})
-	if err != nil {
-		return "", false
-	}
-	if reg.reply == nil {
-		return reg.payload, true
-	}
-
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
-
-	select {
-	case payload := <-reg.reply:
-		return payload, true
-	case <-timer.C:
-		state, err := enqueueSessionQuery(s, func(s *Session) (waitState, error) {
-			delete(s.clipboardWaiters, reg.waiterID)
-			if s.clipboardGen.Load() > afterGen {
-				return waitState{payload: s.lastClipboardB64, matched: true}, nil
-			}
-			return waitState{}, nil
-		})
-		if err != nil {
-			return "", false
-		}
-		return state.payload, state.matched
-	}
+	return s.ensureWaiters().waitClipboard(s, afterGen, timeout)
 }
 
 func (s *Session) waitClipboardAfterCurrent(timeout time.Duration) (string, bool) {
-	afterGen, err := enqueueSessionQuery(s, func(s *Session) (uint64, error) {
-		return s.clipboardGen.Load(), nil
-	})
-	if err != nil {
-		return "", false
-	}
-	return s.waitClipboard(afterGen, timeout)
+	return s.ensureWaiters().waitClipboardAfterCurrent(s, timeout)
 }
 
 func (s *Session) waitHook(afterGen uint64, eventName, paneName string, timeout time.Duration) (hookResultRecord, bool) {
@@ -535,63 +366,9 @@ func (s *Session) waitHook(afterGen uint64, eventName, paneName string, timeout 
 }
 
 func (s *Session) waitHookForPaneAfterCurrent(eventName string, paneID uint32, paneName string, timeout time.Duration) (hookResultRecord, bool) {
-	afterGen, err := enqueueSessionQuery(s, func(s *Session) (uint64, error) {
-		return s.hookGen.Load(), nil
-	})
-	if err != nil {
-		return hookResultRecord{}, false
-	}
-	return s.waitHookForPane(afterGen, eventName, paneID, paneName, timeout)
+	return s.ensureWaiters().waitHookForPaneAfterCurrent(s, eventName, paneID, paneName, timeout)
 }
 
 func (s *Session) waitHookForPane(afterGen uint64, eventName string, paneID uint32, paneName string, timeout time.Duration) (hookResultRecord, bool) {
-	type waitRegistration struct {
-		record   hookResultRecord
-		waiterID uint64
-		reply    chan hookResultRecord
-	}
-	type waitState struct {
-		record  hookResultRecord
-		matched bool
-	}
-
-	reg, err := enqueueSessionQuery(s, func(s *Session) (waitRegistration, error) {
-		if record, ok := s.matchHookResult(afterGen, eventName, paneID, paneName); ok {
-			return waitRegistration{record: record}, nil
-		}
-		reply := make(chan hookResultRecord, 1)
-		waiterID := s.waiterCounter.Add(1)
-		s.hookWaiters[waiterID] = hookWaiter{
-			afterGen:  afterGen,
-			eventName: eventName,
-			paneID:    paneID,
-			paneName:  paneName,
-			reply:     reply,
-		}
-		return waitRegistration{waiterID: waiterID, reply: reply}, nil
-	})
-	if err != nil {
-		return hookResultRecord{}, false
-	}
-	if reg.reply == nil {
-		return reg.record, true
-	}
-
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
-
-	select {
-	case record := <-reg.reply:
-		return record, true
-	case <-timer.C:
-		state, err := enqueueSessionQuery(s, func(s *Session) (waitState, error) {
-			delete(s.hookWaiters, reg.waiterID)
-			record, ok := s.matchHookResult(afterGen, eventName, paneID, paneName)
-			return waitState{record: record, matched: ok}, nil
-		})
-		if err != nil {
-			return hookResultRecord{}, false
-		}
-		return state.record, state.matched
-	}
+	return s.ensureWaiters().waitHookForPane(s, afterGen, eventName, paneID, paneName, timeout)
 }

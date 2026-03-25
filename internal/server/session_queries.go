@@ -80,11 +80,12 @@ type actorPaneContext struct {
 // target client and snapshots whether it already matches the requested UI
 // event, so callers can combine resolution with subscription atomically.
 func (s *Session) resolveUIClientSnapshot(requestedClientID, eventName string) (uiClientSnapshot, error) {
-	if len(s.clients) == 0 {
+	clients := s.ensureClientManager().clients
+	if len(clients) == 0 {
 		return uiClientSnapshot{}, fmt.Errorf("no client attached")
 	}
 	if requestedClientID != "" {
-		for _, cc := range s.clients {
+		for _, cc := range clients {
 			if cc.ID == requestedClientID {
 				currentMatch := false
 				if eventName != "" {
@@ -100,8 +101,8 @@ func (s *Session) resolveUIClientSnapshot(requestedClientID, eventName string) (
 		}
 		return uiClientSnapshot{}, fmt.Errorf("unknown client: %s", requestedClientID)
 	}
-	if len(s.clients) == 1 {
-		cc := s.clients[0]
+	if len(clients) == 1 {
+		cc := clients[0]
 		currentMatch := false
 		if eventName != "" {
 			currentMatch = cc.matchesUIEvent(eventName)
@@ -113,8 +114,8 @@ func (s *Session) resolveUIClientSnapshot(requestedClientID, eventName string) (
 			currentGen:   cc.uiGeneration,
 		}, nil
 	}
-	ids := make([]string, 0, len(s.clients))
-	for _, cc := range s.clients {
+	ids := make([]string, 0, len(clients))
+	for _, cc := range clients {
 		ids = append(ids, cc.ID)
 	}
 	return uiClientSnapshot{}, fmt.Errorf("multiple clients attached; specify --client (%s)", strings.Join(ids, ", "))
@@ -355,14 +356,15 @@ func (s *Session) queryWindowList() ([]windowListEntry, error) {
 
 func (s *Session) queryClientList() ([]clientListEntry, error) {
 	return enqueueSessionQuery(s, func(s *Session) ([]clientListEntry, error) {
-		entries := make([]clientListEntry, 0, len(s.clients))
+		clients := s.ensureClientManager().clients
+		entries := make([]clientListEntry, 0, len(clients))
 		sizeOwner := s.currentSizeClient()
 		if sizeOwner == nil || !s.hasClient(sizeOwner) {
-			if len(s.clients) > 0 {
-				sizeOwner = s.clients[len(s.clients)-1]
+			if len(clients) > 0 {
+				sizeOwner = clients[len(clients)-1]
 			}
 		}
-		for _, cc := range s.clients {
+		for _, cc := range clients {
 			entries = append(entries, clientListEntry{
 				id:           cc.ID,
 				displayPanes: cc.displayPanesState(),
@@ -396,9 +398,9 @@ func (s *Session) queryUIClient(requestedClientID, eventName string) (uiClientSn
 
 func (s *Session) queryFirstClient() (*clientConn, error) {
 	return enqueueSessionQuery(s, func(s *Session) (*clientConn, error) {
-		if len(s.clients) == 0 {
+		if s.ensureClientManager().clientCount() == 0 {
 			return nil, fmt.Errorf("no client attached")
 		}
-		return s.clients[0], nil
+		return s.ensureClientManager().firstClient(), nil
 	})
 }

@@ -184,6 +184,28 @@ func mustReadEvent(t *testing.T, scanner *bufio.Scanner, timeout time.Duration) 
 	return ev
 }
 
+func mustReadMatchingEvent(t *testing.T, scanner *bufio.Scanner, timeout time.Duration, description string, match func(eventJSON) bool) eventJSON {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	var last eventJSON
+	for {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			t.Fatalf("timeout reading %s; last event: %+v", description, last)
+		}
+
+		ev := readEvent(t, scanner, remaining)
+		if ev.TimedOut {
+			t.Fatalf("timeout reading %s; last event: %+v", description, last)
+		}
+		last = ev
+		if match(ev) {
+			return ev
+		}
+	}
+}
+
 // countEvents counts events of the given type received within a time window.
 func countEvents(t *testing.T, scanner *bufio.Scanner, eventType string, window time.Duration) int {
 	t.Helper()

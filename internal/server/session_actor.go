@@ -56,24 +56,6 @@ func enqueueSessionQuery[T any](s *Session, fn func(*Session) (T, error)) (T, er
 	}
 }
 
-type layoutWaiter struct {
-	afterGen uint64
-	reply    chan uint64
-}
-
-type clipboardWaiter struct {
-	afterGen uint64
-	reply    chan string
-}
-
-type hookWaiter struct {
-	afterGen  uint64
-	eventName string
-	paneID    uint32
-	paneName  string
-	reply     chan hookResultRecord
-}
-
 type captureRequest struct {
 	id          uint64
 	client      *clientConn

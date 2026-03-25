@@ -128,7 +128,7 @@ func (s *Session) currentStateEvents() []Event {
 		}
 	}
 
-	for _, cc := range s.clients {
+	for _, cc := range s.ensureClientManager().snapshotClients() {
 		events = append(events, Event{
 			Type:      EventClientConnect,
 			Timestamp: now,

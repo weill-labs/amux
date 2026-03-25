@@ -8,7 +8,7 @@ import (
 	"github.com/weill-labs/amux/internal/mux"
 )
 
-// waitUndoStackEmpty polls the session event loop until closedPanes is empty
+// waitUndoStackEmpty polls the session event loop until the undo stack is empty
 // or the deadline expires.
 func waitUndoStackEmpty(t *testing.T, sess *Session, deadline time.Duration) {
 	t.Helper()
@@ -16,14 +16,14 @@ func waitUndoStackEmpty(t *testing.T, sess *Session, deadline time.Duration) {
 	defer timer.Stop()
 	for {
 		count := mustSessionQuery(t, sess, func(sess *Session) int {
-			return len(sess.closedPanes)
+			return sess.ensureUndoManager().closedPaneCount()
 		})
 		if count == 0 {
 			return
 		}
 		select {
 		case <-timer.C:
-			t.Fatalf("closedPanes not empty after %v", deadline)
+			t.Fatalf("undo stack not empty after %v", deadline)
 		default:
 		}
 	}

@@ -380,18 +380,18 @@ func TestCommandCaptureHistoryAndWaitCommands(t *testing.T) {
 	sess.Windows = []*mux.Window{w}
 	sess.ActiveWindowID = w.ID
 	sess.Panes = []*mux.Pane{p1}
-	sess.hookGen.Store(6)
+	sess.waiters.setHookStateForTest(6, nil)
 	mustSessionQuery(t, sess, func(sess *Session) struct{} {
 		sess.idle.MarkIdle(p1.ID)
 		return struct{}{}
 	})
 	mustSessionQuery(t, sess, func(sess *Session) struct{} {
-		sess.hookResults = []hookResultRecord{{
+		sess.waiters.setHookStateForTest(6, []hookResultRecord{{
 			Generation: 6,
 			Event:      "on-idle",
 			PaneName:   "pane-1",
 			Success:    true,
-		}}
+		}})
 		return struct{}{}
 	})
 
@@ -458,8 +458,7 @@ func TestCommandWaitHooksClientsAndTypeKeys(t *testing.T) {
 	sess.ActiveWindowID = w.ID
 	sess.Panes = []*mux.Pane{p1}
 	sess.generation.Store(7)
-	sess.clipboardGen.Store(5)
-	sess.lastClipboardB64 = "clip-data"
+	sess.waiters.setClipboardStateForTest(5, "clip-data")
 
 	serverConn, peerConn := net.Pipe()
 	defer serverConn.Close()
@@ -476,8 +475,8 @@ func TestCommandWaitHooksClientsAndTypeKeys(t *testing.T) {
 	uiClient.setNegotiatedCapabilities(proto.ClientCapabilities{KittyKeyboard: true, Hyperlinks: true})
 	uiClient.initTypeKeyQueue()
 
-	sess.clients = []*clientConn{uiClient}
-	sess.sizeClient.Store(uiClient)
+	sess.ensureClientManager().setClientsForTest(uiClient)
+	sess.ensureClientManager().setSizeOwnerForTest(uiClient)
 
 	genRes := runTestCommand(t, srv, sess, "cursor", "layout")
 	if genRes.cmdErr != "" || strings.TrimSpace(genRes.output) != "7" {

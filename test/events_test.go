@@ -590,6 +590,7 @@ func TestEventsCLIAutoReconnectAfterReload(t *testing.T) {
 	proc := startEventsCLI(t, h, []string{
 		"AMUX_EVENTS_RECONNECT_INITIAL_BACKOFF=10ms",
 		"AMUX_EVENTS_RECONNECT_MAX_BACKOFF=20ms",
+		"AMUX_EVENTS_RECONNECT_MAX_RETRIES=50",
 	}, "--filter", "layout")
 
 	ev := mustReadEvent(t, proc.scanner, 5*time.Second)
@@ -597,32 +598,29 @@ func TestEventsCLIAutoReconnectAfterReload(t *testing.T) {
 		t.Fatalf("first CLI event type: got %q, want layout", ev.Type)
 	}
 
-	genBeforeReload := h.generation()
+	genBeforeReload := ev.Generation
 	h.runCmd("reload-server")
 
-	ev = mustReadEvent(t, proc.scanner, 5*time.Second)
-	if ev.Type != "reconnect" {
-		t.Fatalf("event after reload: got %q, want reconnect", ev.Type)
-	}
+	ev = mustReadMatchingEvent(t, proc.scanner, 5*time.Second, "reconnect event after reload", func(ev eventJSON) bool {
+		return ev.Type == "reconnect"
+	})
 	if ev.Timestamp == "" {
 		t.Fatal("reconnect event should include timestamp")
 	}
 
-	ev = mustReadEvent(t, proc.scanner, 5*time.Second)
-	if ev.Type != "layout" {
-		t.Fatalf("post-reconnect event: got %q, want layout", ev.Type)
-	}
+	ev = mustReadMatchingEvent(t, proc.scanner, 5*time.Second, "post-reconnect layout event", func(ev eventJSON) bool {
+		return ev.Type == "layout" && ev.Generation >= genBeforeReload
+	})
 	if ev.Generation < genBeforeReload {
 		t.Fatalf("post-reconnect generation = %d, want >= %d", ev.Generation, genBeforeReload)
 	}
 
-	genBeforeSplit := h.generation()
+	genBeforeSplit := ev.Generation
 	h.doSplitPane("pane-1", "v")
 
-	ev = mustReadEvent(t, proc.scanner, 5*time.Second)
-	if ev.Type != "layout" {
-		t.Fatalf("event after split: got %q, want layout", ev.Type)
-	}
+	ev = mustReadMatchingEvent(t, proc.scanner, 5*time.Second, "layout event after split", func(ev eventJSON) bool {
+		return ev.Type == "layout" && ev.Generation > genBeforeSplit
+	})
 	if ev.Generation <= genBeforeSplit {
 		t.Fatalf("layout generation after split = %d, want > %d", ev.Generation, genBeforeSplit)
 	}

@@ -373,7 +373,7 @@ func TestCurrentStateEventsIncludesClientUIState(t *testing.T) {
 
 	sess := newSession("test-ui-state")
 	stopCrashCheckpointLoop(t, sess)
-	sess.clients = append(sess.clients,
+	sess.ensureClientManager().setClientsForTest(
 		&clientConn{ID: "client-1", inputIdle: true},
 		&clientConn{ID: "client-2", displayPanesShown: true, inputIdle: true},
 	)

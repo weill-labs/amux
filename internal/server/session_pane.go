@@ -2,7 +2,6 @@ package server
 
 import (
 	"fmt"
-	"syscall"
 	"time"
 
 	"github.com/weill-labs/amux/internal/config"
@@ -16,12 +15,6 @@ type paneRemovalResult struct {
 	closedWindow    string
 	broadcastLayout bool
 	sendExit        bool
-}
-
-// closedPaneRecord holds state for a soft-closed pane awaiting undo or
-// final cleanup. The pane's PTY stays alive during the grace period.
-type closedPaneRecord struct {
-	pane *mux.Pane
 }
 
 // hasPane checks if a pane ID is still in the session's pane list.
@@ -72,15 +65,9 @@ func (s *Session) removePane(id uint32) {
 			break
 		}
 	}
-	if timer := s.pendingKillCleanups[id]; timer != nil {
-		timer.Stop()
-		delete(s.pendingKillCleanups, id)
-	}
-	if queue := s.pacedPanes[id]; queue != nil {
-		queue.close()
-		delete(s.pacedPanes, id)
-	}
-	delete(s.paneOutputSubs, id)
+	s.ensureUndoManager().removePane(id)
+	s.ensureInputRouter().removePane(id)
+	s.ensureWaiters().removePane(id)
 	delete(s.takenOverPanes, id)
 	s.idle.StopTimer(id)
 	if s.vtIdle != nil {
@@ -110,22 +97,7 @@ func (s *Session) prunePaneEventSubs(paneName string) {
 }
 
 func (s *Session) beginPaneCleanupKill(pane *mux.Pane, timeout time.Duration) error {
-	if pane == nil {
-		return nil
-	}
-	if s.pendingKillCleanups == nil {
-		s.pendingKillCleanups = make(map[uint32]*time.Timer)
-	}
-	if _, exists := s.pendingKillCleanups[pane.ID]; exists {
-		return fmt.Errorf("%s cleanup already pending", pane.Meta.Name)
-	}
-	if err := pane.SignalForegroundProcessGroup(syscall.SIGTERM); err != nil {
-		return err
-	}
-	s.pendingKillCleanups[pane.ID] = time.AfterFunc(timeout, func() {
-		s.enqueuePaneCleanupTimeout(pane.ID)
-	})
-	return nil
+	return s.ensureUndoManager().beginPaneCleanupKill(s, pane, timeout)
 }
 
 func (s *Session) finalizePaneRemoval(paneID uint32) paneRemovalResult {
@@ -179,7 +151,7 @@ func (s *Session) softClosePane(paneID uint32) paneRemovalResult {
 		}
 	}
 	// Clean up subscriptions and tracking for the now-invisible pane.
-	delete(s.paneOutputSubs, paneID)
+	s.ensureWaiters().removePane(paneID)
 	delete(s.takenOverPanes, paneID)
 	s.idle.StopTimer(paneID)
 	if s.vtIdle != nil {
@@ -187,16 +159,7 @@ func (s *Session) softClosePane(paneID uint32) paneRemovalResult {
 	}
 	s.prunePaneEventSubs(pane.Meta.Name)
 
-	// Push onto undo stack.
-	s.closedPanes = append(s.closedPanes, closedPaneRecord{pane: pane})
-
-	// Start grace period timer.
-	if s.closedPaneTimers == nil {
-		s.closedPaneTimers = make(map[uint32]*time.Timer)
-	}
-	s.closedPaneTimers[paneID] = time.AfterFunc(s.undoGracePeriod(), func() {
-		s.enqueueUndoExpiry(paneID)
-	})
+	s.ensureUndoManager().trackSoftClosedPane(s, pane)
 
 	return result
 }
@@ -204,23 +167,13 @@ func (s *Session) softClosePane(paneID uint32) paneRemovalResult {
 // undoClosePane pops the most recently soft-closed pane and re-inserts it
 // into the active window's layout.
 func (s *Session) undoClosePane() (pane *mux.Pane, err error) {
-	if len(s.closedPanes) == 0 {
-		return nil, fmt.Errorf("no closed pane to undo")
-	}
-
-	// Pop most recent.
-	idx := len(s.closedPanes) - 1
-	rec := s.closedPanes[idx]
-	s.closedPanes = s.closedPanes[:idx]
-
-	// Cancel the grace period timer.
-	if timer := s.closedPaneTimers[rec.pane.ID]; timer != nil {
-		timer.Stop()
-		delete(s.closedPaneTimers, rec.pane.ID)
+	pane, err = s.ensureUndoManager().popClosedPane()
+	if err != nil {
+		return nil, err
 	}
 
 	// Re-add to Session.Panes so it's visible again.
-	s.Panes = append(s.Panes, rec.pane)
+	s.Panes = append(s.Panes, pane)
 
 	// Re-insert into the active window.
 	w := s.activeWindow()
@@ -228,57 +181,19 @@ func (s *Session) undoClosePane() (pane *mux.Pane, err error) {
 		return nil, fmt.Errorf("no active window")
 	}
 
-	if _, err := w.SplitWithOptions(mux.SplitVertical, rec.pane, mux.SplitOptions{
+	if _, err := w.SplitWithOptions(mux.SplitVertical, pane, mux.SplitOptions{
 		KeepFocus: w.ZoomedPaneID != 0,
 	}); err != nil {
 		return nil, err
 	}
-	return rec.pane, nil
+	return pane, nil
 }
 
 // finalizeClosedPane removes a soft-closed pane from the undo stack and
 // returns it for final cleanup (PTY close). The pane was already removed
 // from Session.Panes during soft close.
 func (s *Session) finalizeClosedPane(paneID uint32) *mux.Pane {
-	for i, rec := range s.closedPanes {
-		if rec.pane.ID == paneID {
-			s.closedPanes = append(s.closedPanes[:i], s.closedPanes[i+1:]...)
-			if timer := s.closedPaneTimers[paneID]; timer != nil {
-				timer.Stop()
-				delete(s.closedPaneTimers, paneID)
-			}
-			return rec.pane
-		}
-	}
-	return nil
-}
-
-func (s *Session) enqueuePacedPaneInput(pane *mux.Pane, chunks []encodedKeyChunk) error {
-	queue, err := enqueueSessionQuery(s, func(sess *Session) (*pacedInputQueue, error) {
-		if !sess.hasPane(pane.ID) {
-			return nil, fmt.Errorf("%s not found", pane.Meta.Name)
-		}
-		return sess.pacedPaneQueue(pane), nil
-	})
-	if err != nil {
-		return err
-	}
-	return queue.enqueue(chunks)
-}
-
-func (s *Session) pacedPaneQueue(pane *mux.Pane) *pacedInputQueue {
-	if s.pacedPanes == nil {
-		s.pacedPanes = make(map[uint32]*pacedInputQueue)
-	}
-	if queue := s.pacedPanes[pane.ID]; queue != nil {
-		return queue
-	}
-	queue := newPacedInputQueue("pane "+pane.Meta.Name, func(data []byte) error {
-		_, err := pane.Write(data)
-		return err
-	})
-	s.pacedPanes[pane.ID] = queue
-	return queue
+	return s.ensureUndoManager().finalizeClosedPane(paneID)
 }
 
 // paneOutputCallback returns the standard onOutput callback for panes.

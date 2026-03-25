@@ -188,28 +188,7 @@ func cloneMessage(msg *Message) *Message {
 }
 
 func (cc *clientConn) activeInputPaneForWrite(sess *Session) *mux.Pane {
-	pane := sess.inputTargetPane()
-	if pane == nil {
-		return nil
-	}
-	sizeClient := sess.currentSizeClient()
-	if sizeClient == nil || sizeClient == cc {
-		return pane
-	}
-
-	pane, err := enqueueSessionQuery(sess, func(sess *Session) (*mux.Pane, error) {
-		if s := sess.currentSizeClient(); s == nil || s != cc {
-			if sess.noteClientActivity(cc) {
-				sess.recalcSize()
-				sess.broadcastLayoutNow()
-			}
-		}
-		return sess.inputTargetPane(), nil
-	})
-	if err != nil {
-		return nil
-	}
-	return pane
+	return sess.activeInputPaneForWrite(cc)
 }
 
 // readLoop reads messages from the client and dispatches them to the session.

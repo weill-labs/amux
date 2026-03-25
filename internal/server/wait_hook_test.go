@@ -273,9 +273,11 @@ func TestHookResultEventTrimsHistoryAndEmitsHookEvent(t *testing.T) {
 	sess := newSession("test-hook-result-event")
 	stopSessionBackgroundLoops(t, sess)
 
+	results := make([]hookResultRecord, 0, 128)
 	for i := 0; i < 128; i++ {
-		sess.hookResults = append(sess.hookResults, hookResultRecord{Generation: uint64(i + 1)})
+		results = append(results, hookResultRecord{Generation: uint64(i + 1)})
 	}
+	sess.waiters.setHookStateForTest(0, results)
 	sub := &eventSub{ch: make(chan []byte, 1)}
 	sess.eventSubs = []*eventSub{sub}
 
@@ -290,11 +292,12 @@ func TestHookResultEventTrimsHistoryAndEmitsHookEvent(t *testing.T) {
 		},
 	}.handle(sess)
 
-	if len(sess.hookResults) != 128 {
-		t.Fatalf("len(hookResults) = %d, want 128", len(sess.hookResults))
+	retained := sess.waiters.retainedHookResults()
+	if len(retained) != 128 {
+		t.Fatalf("len(hookResults) = %d, want 128", len(retained))
 	}
-	if sess.hookResults[0].Generation != 2 {
-		t.Fatalf("first retained generation = %d, want 2", sess.hookResults[0].Generation)
+	if retained[0].Generation != 2 {
+		t.Fatalf("first retained generation = %d, want 2", retained[0].Generation)
 	}
 	select {
 	case data := <-sub.ch:
