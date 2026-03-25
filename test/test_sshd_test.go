@@ -571,3 +571,51 @@ func currentUser() string {
 	}
 	return u.Username
 }
+
+func newTestSSHClient(t *testing.T, fixture testSSHFixture) *ssh.Client {
+	t.Helper()
+
+	keyPEM, err := os.ReadFile(fixture.KeyFile)
+	if err != nil {
+		t.Fatalf("reading test SSH key: %v", err)
+	}
+	signer, err := ssh.ParsePrivateKey(keyPEM)
+	if err != nil {
+		t.Fatalf("parsing test SSH key: %v", err)
+	}
+
+	client, err := ssh.Dial("tcp", fixture.Addr, &ssh.ClientConfig{
+		User:            currentUser(),
+		Auth:            []ssh.AuthMethod{ssh.PublicKeys(signer)},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		Timeout:         5 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("dialing test SSH server: %v", err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+	return client
+}
+
+func TestSSHExecBackgroundChildDoesNotHoldSessionOpen(t *testing.T) {
+	fixture := setupTestSSHWithOptions(t, testSSHServerOptions{preloadAmux: true})
+	client := newTestSSHClient(t, fixture)
+
+	session, err := client.NewSession()
+	if err != nil {
+		t.Fatalf("creating SSH session: %v", err)
+	}
+	defer session.Close()
+
+	start := time.Now()
+	out, err := session.CombinedOutput("sleep 2 & echo SSH_EXEC_READY")
+	if err != nil {
+		t.Fatalf("running SSH exec command: %v\noutput:\n%s", err, string(out))
+	}
+	if !strings.Contains(string(out), "SSH_EXEC_READY") {
+		t.Fatalf("expected SSH exec output to contain readiness marker, got:\n%s", string(out))
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("SSH exec waited %v for a background child that should not hold the session open", elapsed)
+	}
+}
