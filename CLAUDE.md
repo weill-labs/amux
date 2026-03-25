@@ -146,6 +146,10 @@ If you ran `$postmortem`, provide the log path, summarize the key learnings, lis
 
 After resolving merge conflicts, run `go vet ./...` locally before committing. Git auto-merge can silently produce duplicate declarations (e.g., methods defined in both sides) that compile but fail vet.
 
+### Verify Mergeability Before Declaring PRs Ready
+
+Before telling the user a PR is safe to merge, check for merge conflicts with main: `git fetch origin main && git merge-tree --write-tree origin/main origin/BRANCH`. If there are conflicts, rebase the branch onto `origin/main` and resolve them before declaring ready.
+
 ### Merge Policy
 
 GitHub PRs for this repo are squash-only. `gh pr merge --merge` and `gh pr merge --rebase` will fail.
