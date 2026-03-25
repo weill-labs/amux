@@ -132,13 +132,13 @@ func TestDisplayPanesWaitUIShownAndHidden(t *testing.T) {
 	h.splitV()
 
 	h.sendKeys("C-a", "q")
-	out := h.runCmd("wait-ui", proto.UIEventDisplayPanesShown, "--timeout", "3s")
+	out := h.runCmd("wait", "ui", proto.UIEventDisplayPanesShown, "--timeout", "3s")
 	if !strings.Contains(out, proto.UIEventDisplayPanesShown) {
 		t.Fatalf("wait-ui shown output = %q", out)
 	}
 
 	h.sendKeys("1")
-	out = h.runCmd("wait-ui", proto.UIEventDisplayPanesHidden, "--timeout", "3s")
+	out = h.runCmd("wait", "ui", proto.UIEventDisplayPanesHidden, "--timeout", "3s")
 	if !strings.Contains(out, proto.UIEventDisplayPanesHidden) {
 		t.Fatalf("wait-ui hidden output = %q", out)
 	}

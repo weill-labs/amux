@@ -227,7 +227,7 @@ func TestCaptureJSON_ClientUIState(t *testing.T) {
 	h := newAmuxHarness(t)
 
 	h.runCmd("type-keys", "C-a", "q")
-	h.runCmd("wait-ui", proto.UIEventDisplayPanesShown, "--timeout", "3s")
+	h.runCmd("wait", "ui", proto.UIEventDisplayPanesShown, "--timeout", "3s")
 
 	out := h.runCmd("capture", "--format", "json")
 

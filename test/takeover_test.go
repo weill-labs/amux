@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -149,7 +150,7 @@ func TestTakeoverReconnectAfterRemoteReload(t *testing.T) {
 	t.Parallel()
 
 	addr, keyFile := setupTestSSH(t)
-	h := newServerHarnessWithConfig(t, 80, 24, remoteTestConfig(addr, keyFile))
+	h := newServerHarnessWithOptions(t, 80, 24, remoteTestConfig(addr, keyFile), false)
 	existingProxyPanes := takeoverProxyPaneNames(h)
 
 	_, port, _ := net.SplitHostPort(addr)
@@ -159,6 +160,7 @@ func TestTakeoverReconnectAfterRemoteReload(t *testing.T) {
 	h.sendKeys("pane-1", sshCmd, "Enter")
 
 	proxyPaneName := waitForTakeoverProxyPane(t, h, existingProxyPanes)
+	waitForPaneConnStatus(t, h, proxyPaneName, "connected", "10s")
 	h.sendKeys(proxyPaneName, "echo TAKEOVER_BEFORE_RELOAD", "Enter")
 	h.waitForTimeout(proxyPaneName, "TAKEOVER_BEFORE_RELOAD", "5s")
 
@@ -182,7 +184,11 @@ func TestTakeoverAfterServerReload(t *testing.T) {
 	h := newServerHarnessWithConfig(t, 80, 24, remoteTestConfig(addr, keyFile))
 
 	h.runCmd("reload-server")
-	_ = h.generation()
+	if !h.waitForFunc(func(s string) bool {
+		return strings.Contains(s, "[pane-1]")
+	}, 15*time.Second) {
+		t.Fatalf("session did not recover after reload-server\ncapture:\n%s", h.capture())
+	}
 
 	existingProxyPanes := map[string]struct{}{}
 	_, port, _ := net.SplitHostPort(addr)
@@ -225,12 +231,12 @@ func TestTakeoverSkippedWhenTermNotAmux(t *testing.T) {
 func waitForTakeoverProxyPane(t *testing.T, h *ServerHarness, existing map[string]struct{}) string {
 	t.Helper()
 
-	gen := h.generation()
-	for h.waitLayoutOrTimeout(gen, "5s") {
+	gen := takeoverGeneration(t, h)
+	for takeoverWaitLayoutOrTimeout(h, gen, "5s") {
 		if proxyPaneName := firstNewTakeoverProxyPane(h, existing); proxyPaneName != "" {
 			return proxyPaneName
 		}
-		gen = h.generation()
+		gen = takeoverGeneration(t, h)
 	}
 
 	logPath := fmt.Sprintf("%s/%s.log", server.SocketDir(), h.session)
@@ -289,7 +295,7 @@ func waitForPaneConnStatus(t *testing.T, h *ServerHarness, paneName, wantStatus,
 	t.Helper()
 
 	deadline := time.Now().Add(parseTestDuration(t, timeout))
-	gen := h.generation()
+	gen := takeoverGeneration(t, h)
 	for time.Now().Before(deadline) {
 		if c, ok := takeoverCaptureJSON(h); ok {
 			for _, p := range c.Panes {
@@ -303,10 +309,10 @@ func waitForPaneConnStatus(t *testing.T, h *ServerHarness, paneName, wantStatus,
 		if waitFor > 250*time.Millisecond {
 			waitFor = 250 * time.Millisecond
 		}
-		if !h.waitLayoutOrTimeout(gen, waitFor.String()) {
+		if !takeoverWaitLayoutOrTimeout(h, gen, waitFor.String()) {
 			continue
 		}
-		gen = h.generation()
+		gen = takeoverGeneration(t, h)
 	}
 
 	t.Fatalf("pane %s did not reach conn_status=%s\ncapture:\n%s", paneName, wantStatus, h.capture())
@@ -316,7 +322,7 @@ func waitForSessionNotice(t *testing.T, h *ServerHarness, substr, timeout string
 	t.Helper()
 
 	deadline := time.Now().Add(parseTestDuration(t, timeout))
-	gen := h.generation()
+	gen := takeoverGeneration(t, h)
 	for time.Now().Before(deadline) {
 		capture := h.captureJSON()
 		if strings.Contains(capture.Notice, substr) {
@@ -327,10 +333,10 @@ func waitForSessionNotice(t *testing.T, h *ServerHarness, substr, timeout string
 		if waitFor > 250*time.Millisecond {
 			waitFor = 250 * time.Millisecond
 		}
-		if !h.waitLayoutOrTimeout(gen, waitFor.String()) {
+		if !takeoverWaitLayoutOrTimeout(h, gen, waitFor.String()) {
 			continue
 		}
-		gen = h.generation()
+		gen = takeoverGeneration(t, h)
 	}
 
 	t.Fatalf("session notice %q did not appear\ncapture:\n%s", substr, h.capture())
@@ -341,7 +347,7 @@ func waitForSessionNoticeGone(t *testing.T, h *ServerHarness, timeout string) {
 	t.Helper()
 
 	deadline := time.Now().Add(parseTestDuration(t, timeout))
-	gen := h.generation()
+	gen := takeoverGeneration(t, h)
 	for time.Now().Before(deadline) {
 		if h.captureJSON().Notice == "" {
 			return
@@ -351,10 +357,10 @@ func waitForSessionNoticeGone(t *testing.T, h *ServerHarness, timeout string) {
 		if waitFor > 250*time.Millisecond {
 			waitFor = 250 * time.Millisecond
 		}
-		if !h.waitLayoutOrTimeout(gen, waitFor.String()) {
+		if !takeoverWaitLayoutOrTimeout(h, gen, waitFor.String()) {
 			continue
 		}
-		gen = h.generation()
+		gen = takeoverGeneration(t, h)
 	}
 
 	t.Fatalf("session notice did not clear\ncapture:\n%s", h.capture())
@@ -364,7 +370,9 @@ func takeoverCaptureJSON(h *ServerHarness) (proto.CaptureJSON, bool) {
 	h.tb.Helper()
 
 	out := h.runCmd("capture", "--format", "json")
-	if strings.Contains(out, "no client attached") {
+	if strings.Contains(out, "no client attached") ||
+		strings.Contains(out, "amux capture: EOF") ||
+		strings.Contains(out, "amux capture: server not running") {
 		return proto.CaptureJSON{}, false
 	}
 
@@ -373,6 +381,34 @@ func takeoverCaptureJSON(h *ServerHarness) (proto.CaptureJSON, bool) {
 		h.tb.Fatalf("captureJSON: %v\nraw: %s", err, out)
 	}
 	return capture, true
+}
+
+func takeoverGeneration(t *testing.T, h *ServerHarness) uint64 {
+	t.Helper()
+
+	deadline := time.Now().Add(2 * time.Second)
+	var out string
+	for {
+		out = strings.TrimSpace(h.runCmd("cursor", "layout"))
+		n, err := strconv.ParseUint(out, 10, 64)
+		if err == nil {
+			return n
+		}
+		if !strings.Contains(out, "server not running") || time.Now().After(deadline) {
+			logPath := fmt.Sprintf("%s/%s.log", server.SocketDir(), h.session)
+			logData, _ := os.ReadFile(logPath)
+			t.Fatalf("parsing generation: %v (output: %q)\nserver log:\n%s", err, out, string(logData))
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+}
+
+func takeoverWaitLayoutOrTimeout(h *ServerHarness, afterGen uint64, timeout string) bool {
+	out := h.runCmd("wait", "layout", "--after", strconv.FormatUint(afterGen, 10), "--timeout", timeout)
+	if strings.Contains(out, "server not running") {
+		return false
+	}
+	return !strings.Contains(out, "timeout")
 }
 
 func parseTestDuration(t *testing.T, s string) time.Duration {

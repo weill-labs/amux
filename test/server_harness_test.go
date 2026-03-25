@@ -4,12 +4,14 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -30,8 +32,13 @@ type ServerHarness struct {
 	home         string
 	coverDir     string // per-test GOCOVERDIR subdirectory (avoids coverage metadata races)
 	extraEnv     []string
+	logPath      string
 	client       *headlessClient // attached headless client for capture
 	shutdownPipe *os.File
+
+	diagMu         sync.Mutex
+	currentWait    string
+	currentCommand string
 }
 
 // newServerHarnessWithSize starts a server harness with a custom terminal size.
@@ -87,6 +94,7 @@ func newServerHarnessWithOptions(tb testing.TB, cols, rows int, configContent st
 	}
 
 	cmd := exec.Command(amuxBin, "_server", session)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.ExtraFiles = []*os.File{writePipe, shutdownWritePipe} // fds 3 and 4 in child
 	home := newTestHome(tb)
 	env := removeEnv(os.Environ(), "AMUX_EXIT_UNATTACHED")
@@ -160,6 +168,7 @@ func newServerHarnessWithOptions(tb testing.TB, cols, rows int, configContent st
 		home:         home,
 		coverDir:     coverDir,
 		extraEnv:     append([]string(nil), extraEnv...),
+		logPath:      logPath,
 		shutdownPipe: shutdownReadPipe,
 	}
 	tb.Cleanup(h.cleanup)
@@ -185,25 +194,30 @@ func (h *ServerHarness) cleanup() {
 		h.client.close()
 	}
 	var serverPid int
+	timedOut := false
 	if h.cmd != nil && h.cmd.Process != nil {
 		serverPid = h.cmd.Process.Pid
-		h.cmd.Process.Signal(os.Interrupt)
 		done := make(chan struct{})
 		go func() {
 			h.cmd.Wait()
 			close(done)
 		}()
+
 		select {
 		case <-done:
-		case <-time.After(3 * time.Second):
-			h.cmd.Process.Kill()
+		case <-time.After(50 * time.Millisecond):
+			_ = h.cmd.Process.Signal(os.Interrupt)
+			select {
+			case <-done:
+			case <-time.After(3 * time.Second):
+				timedOut = true
+				_ = h.cmd.Process.Kill()
+			}
 		}
 	}
-	// Kill any orphaned pane shells that survived the server shutdown.
-	// The server and its pane children share a process group (no Setsid),
-	// so kill(-pgid) reaches them all. Follow up with pgrep as a fallback
-	// in case the process group changed.
-	if serverPid != 0 {
+	// If graceful shutdown timed out, kill the harness process group as a
+	// fallback so orphaned pane shells cannot leak into later tests.
+	if serverPid != 0 && timedOut {
 		syscall.Kill(-serverPid, syscall.SIGKILL)
 		killChildrenByPid(serverPid)
 	}
@@ -234,6 +248,227 @@ func killChildrenByPid(pid int) {
 	}
 }
 
+func (h *ServerHarness) pushWaitState(state string) func() {
+	h.diagMu.Lock()
+	prev := h.currentWait
+	h.currentWait = state
+	h.diagMu.Unlock()
+	return func() {
+		h.diagMu.Lock()
+		h.currentWait = prev
+		h.diagMu.Unlock()
+	}
+}
+
+func (h *ServerHarness) pushCommandState(state string) func() {
+	h.diagMu.Lock()
+	prev := h.currentCommand
+	h.currentCommand = state
+	h.diagMu.Unlock()
+	return func() {
+		h.diagMu.Lock()
+		h.currentCommand = prev
+		h.diagMu.Unlock()
+	}
+}
+
+func (h *ServerHarness) diagnosticState() (wait, cmd string) {
+	h.diagMu.Lock()
+	defer h.diagMu.Unlock()
+	return h.currentWait, h.currentCommand
+}
+
+func (h *ServerHarness) commandWithContext(ctx context.Context, args ...string) *exec.Cmd {
+	cmdArgs := append([]string{"-s", h.session}, args...)
+	cmd := exec.CommandContext(ctx, amuxBin, cmdArgs...)
+	env := upsertEnv(os.Environ(), "HOME", h.home)
+	if h.coverDir != "" {
+		env = upsertEnv(env, "GOCOVERDIR", h.coverDir)
+	}
+	env = append(env, h.extraEnv...)
+	cmd.Env = env
+	return cmd
+}
+
+func (h *ServerHarness) runCmdWithTimeout(timeout time.Duration, track bool, args ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	if track {
+		restore := h.pushCommandState("amux " + strings.Join(args, " "))
+		defer restore()
+	}
+
+	cmd := h.commandWithContext(ctx, args...)
+	out, err := cmd.CombinedOutput()
+	if ctx.Err() == context.DeadlineExceeded {
+		return string(out), fmt.Errorf("timed out after %v", timeout)
+	}
+	var exitErr *exec.ExitError
+	if err != nil && !errors.As(err, &exitErr) {
+		return string(out), err
+	}
+	return string(out), nil
+}
+
+func (h *ServerHarness) diagnosticProbe(args ...string) (string, error) {
+	return h.runCmdWithTimeout(diagnosticProbeTimeout, false, args...)
+}
+
+func (h *ServerHarness) diagnosticSnapshot(reason string) string {
+	wait, cmd := h.diagnosticState()
+	data := diagnosticSnapshotData{
+		TestName: h.tb.Name(),
+		Session:  h.session,
+		Wait:     wait,
+		Command:  cmd,
+	}
+
+	if out, err := h.diagnosticProbe("generation"); err != nil {
+		data.Generation = fmt.Sprintf("generation probe: %v", err)
+		if trimmed := strings.TrimSpace(out); trimmed != "" {
+			data.Generation += "\ngeneration output: " + truncateDiagnostic(trimmed, diagnosticOutputLimit)
+		}
+	} else {
+		data.Generation = "generation: " + strings.TrimSpace(out)
+	}
+
+	if out, err := h.diagnosticProbe("capture", "--format", "json"); err != nil {
+		data.JSONCaptureSummary = fmt.Sprintf("json capture probe: %v", err)
+		if trimmed := strings.TrimSpace(out); trimmed != "" {
+			data.JSONCaptureSummary += "\njson capture output:\n" + truncateDiagnostic(trimmed, diagnosticOutputLimit)
+		}
+	} else {
+		data.JSONCaptureSummary = summarizeDiagnosticCaptureJSON(out)
+	}
+
+	if out, err := h.diagnosticProbe("capture"); err != nil {
+		data.PlainCapture = fmt.Sprintf("plain capture probe: %v", err)
+		if trimmed := strings.TrimSpace(out); trimmed != "" {
+			data.PlainCapture += "\nplain capture output:\n" + truncateDiagnostic(trimmed, diagnosticOutputLimit)
+		}
+	} else {
+		data.PlainCapture = truncateDiagnostic(out, diagnosticOutputLimit)
+	}
+
+	data.ServerLogTail = h.serverLogTail(diagnosticLogTailBytes)
+	return formatDiagnosticSnapshot(reason, data)
+}
+
+type diagnosticSnapshotData struct {
+	TestName           string
+	Session            string
+	Wait               string
+	Command            string
+	Generation         string
+	JSONCaptureSummary string
+	PlainCapture       string
+	ServerLogTail      string
+}
+
+func formatDiagnosticSnapshot(reason string, data diagnosticSnapshotData) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "--- amux harness diagnostics: %s ---\n", reason)
+	fmt.Fprintf(&b, "test: %s\nsession: %s\n", data.TestName, data.Session)
+	if data.Wait != "" {
+		fmt.Fprintf(&b, "wait: %s\n", data.Wait)
+	}
+	if data.Command != "" {
+		fmt.Fprintf(&b, "command: %s\n", data.Command)
+	}
+	if data.Generation != "" {
+		fmt.Fprintf(&b, "%s\n", data.Generation)
+	}
+	if data.JSONCaptureSummary != "" {
+		fmt.Fprintf(&b, "\njson capture summary:\n%s\n", data.JSONCaptureSummary)
+	}
+	if data.PlainCapture != "" {
+		fmt.Fprintf(&b, "\nplain capture:\n%s\n", data.PlainCapture)
+	}
+	if data.ServerLogTail != "" {
+		fmt.Fprintf(&b, "\nserver log tail:\n%s\n", data.ServerLogTail)
+	}
+	return b.String()
+}
+
+func summarizeDiagnosticCaptureJSON(raw string) string {
+	var capture proto.CaptureJSON
+	if err := json.Unmarshal([]byte(raw), &capture); err != nil {
+		return fmt.Sprintf("unable to parse json capture: %v\nraw:\n%s", err, truncateDiagnostic(raw, diagnosticOutputLimit))
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "window=%d:%s index=%d size=%dx%d panes=%d notice=%q",
+		capture.Window.ID, capture.Window.Name, capture.Window.Index, capture.Width, capture.Height, len(capture.Panes), capture.Notice)
+	for _, pane := range capture.Panes {
+		pos := "unknown"
+		if pane.Position != nil {
+			pos = fmt.Sprintf("%d,%d %dx%d", pane.Position.X, pane.Position.Y, pane.Position.Width, pane.Position.Height)
+		}
+		var flags []string
+		if pane.Active {
+			flags = append(flags, "active")
+		}
+		if pane.Minimized {
+			flags = append(flags, "minimized")
+		}
+		if pane.Zoomed {
+			flags = append(flags, "zoomed")
+		}
+		if pane.CopyMode {
+			flags = append(flags, "copy")
+		}
+		flagText := ""
+		if len(flags) > 0 {
+			flagText = " flags=" + strings.Join(flags, ",")
+		}
+		firstLine := ""
+		if len(pane.Content) > 0 {
+			firstLine = truncateDiagnostic(strings.TrimRight(pane.Content[0], " "), 120)
+		}
+		fmt.Fprintf(&b, "\n- %s id=%d pos=%s cursor=%d,%d idle=%t cmd=%q%s",
+			pane.Name, pane.ID, pos, pane.Cursor.Col, pane.Cursor.Row, pane.Idle, pane.CurrentCommand, flagText)
+		if pane.ConnStatus != "" {
+			fmt.Fprintf(&b, " conn=%s", pane.ConnStatus)
+		}
+		if firstLine != "" {
+			fmt.Fprintf(&b, " first=%q", firstLine)
+		}
+		if pane.Error != nil {
+			fmt.Fprintf(&b, " error=%s:%s", pane.Error.Code, pane.Error.Message)
+		}
+	}
+	return b.String()
+}
+
+func (h *ServerHarness) serverLogTail(maxBytes int) string {
+	if h.logPath == "" {
+		return ""
+	}
+	data, err := os.ReadFile(h.logPath)
+	if err != nil || len(data) == 0 {
+		return ""
+	}
+	return tailDiagnostic(string(data), maxBytes)
+}
+
+func truncateDiagnostic(s string, max int) string {
+	if max <= 0 || len(s) <= max {
+		return s
+	}
+	return s[:max] + "\n...[truncated]..."
+}
+
+func tailDiagnostic(s string, max int) string {
+	if max <= 0 || len(s) <= max {
+		return s
+	}
+	s = s[len(s)-max:]
+	if idx := strings.IndexByte(s, '\n'); idx >= 0 && idx+1 < len(s) {
+		s = s[idx+1:]
+	}
+	return "...[truncated]...\n" + s
+}
+
 // ---------------------------------------------------------------------------
 // CLI command helpers — all synchronous, zero polling
 // ---------------------------------------------------------------------------
@@ -243,27 +478,23 @@ func killChildrenByPid(pid int) {
 // command doesn't consume the entire test binary timeout (300s in CI).
 const runCmdTimeout = 30 * time.Second
 
+const (
+	diagnosticProbeTimeout = 1500 * time.Millisecond
+	diagnosticLogTailBytes = 8 << 10
+	diagnosticOutputLimit  = 12 << 10
+)
+
 // runCmd executes an amux CLI command targeting this test's session.
 // The command is killed after runCmdTimeout to prevent a single stuck
 // CLI call from hanging the entire test suite.
 func (h *ServerHarness) runCmd(args ...string) string {
 	h.tb.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), runCmdTimeout)
-	defer cancel()
-	cmdArgs := append([]string{"-s", h.session}, args...)
-	cmd := exec.CommandContext(ctx, amuxBin, cmdArgs...)
-	env := upsertEnv(os.Environ(), "HOME", h.home)
-	if h.coverDir != "" {
-		env = upsertEnv(env, "GOCOVERDIR", h.coverDir)
+	out, err := h.runCmdWithTimeout(runCmdTimeout, true, args...)
+	if err != nil {
+		h.tb.Fatalf("runCmd failed for amux %s: %v\noutput so far:\n%s\n%s",
+			strings.Join(args, " "), err, out, h.diagnosticSnapshot("runCmd failure"))
 	}
-	env = append(env, h.extraEnv...)
-	cmd.Env = env
-	out, _ := cmd.CombinedOutput()
-	if ctx.Err() == context.DeadlineExceeded {
-		h.tb.Fatalf("runCmd timed out after %v: amux %s\noutput so far:\n%s",
-			runCmdTimeout, strings.Join(args, " "), string(out))
-	}
-	return string(out)
+	return out
 }
 
 func (h *ServerHarness) waitForShutdownSignal(timeout time.Duration) {
@@ -373,9 +604,11 @@ func (h *ServerHarness) waitFor(pane, substr string) {
 // waitForTimeout is like waitFor but with a custom timeout.
 func (h *ServerHarness) waitForTimeout(pane, substr, timeout string) {
 	h.tb.Helper()
-	out := h.runCmd("wait-for", pane, substr, "--timeout", timeout)
+	restore := h.pushWaitState(fmt.Sprintf("waiting for %s to contain %q (timeout %s)", pane, substr, timeout))
+	defer restore()
+	out := h.runCmd("wait", "content", pane, substr, "--timeout", timeout)
 	if strings.Contains(out, "timeout") || strings.Contains(out, "not found") {
-		h.tb.Fatalf("wait-for %q in %s: %s\ncapture:\n%s", substr, pane, strings.TrimSpace(out), h.capture())
+		h.tb.Fatalf("wait-for %q in %s: %s\n%s", substr, pane, strings.TrimSpace(out), h.diagnosticSnapshot("wait-for failure"))
 	}
 }
 
@@ -383,9 +616,11 @@ func (h *ServerHarness) waitForTimeout(pane, substr, timeout string) {
 // Uses the server's process-based wait-busy command.
 func (h *ServerHarness) waitBusy(pane string) {
 	h.tb.Helper()
-	out := h.runCmd("wait-busy", pane, "--timeout", "15s")
+	restore := h.pushWaitState(fmt.Sprintf("waiting for %s to become busy", pane))
+	defer restore()
+	out := h.runCmd("wait", "busy", pane, "--timeout", "15s")
 	if strings.Contains(out, "timeout") || strings.Contains(out, "not found") {
-		h.tb.Fatalf("wait-busy %s: %s\ncapture:\n%s", pane, strings.TrimSpace(out), h.capture())
+		h.tb.Fatalf("wait-busy %s: %s\n%s", pane, strings.TrimSpace(out), h.diagnosticSnapshot("wait-busy failure"))
 	}
 }
 
@@ -401,16 +636,18 @@ func (h *ServerHarness) startLongSleep(pane string) {
 // foreground child process is still running.
 func (h *ServerHarness) waitIdle(pane string) {
 	h.tb.Helper()
-	out := h.runCmd("wait-idle", pane, "--timeout", "20s")
+	restore := h.pushWaitState(fmt.Sprintf("waiting for %s to become idle", pane))
+	defer restore()
+	out := h.runCmd("wait", "idle", pane, "--timeout", "20s")
 	if strings.Contains(out, "timeout") || strings.Contains(out, "not found") {
-		h.tb.Fatalf("wait-idle %s: %s\ncapture:\n%s", pane, strings.TrimSpace(out), h.capture())
+		h.tb.Fatalf("wait-idle %s: %s\n%s", pane, strings.TrimSpace(out), h.diagnosticSnapshot("wait-idle failure"))
 	}
 }
 
 // generation returns the current layout generation counter.
 func (h *ServerHarness) generation() uint64 {
 	h.tb.Helper()
-	out := strings.TrimSpace(h.runCmd("generation"))
+	out := strings.TrimSpace(h.runCmd("cursor", "layout"))
 	n, err := strconv.ParseUint(out, 10, 64)
 	if err != nil {
 		h.tb.Fatalf("parsing generation: %v (output: %q)", err, out)
@@ -427,9 +664,11 @@ func (h *ServerHarness) waitLayout(afterGen uint64) {
 // waitLayoutTimeout is like waitLayout but with a custom timeout.
 func (h *ServerHarness) waitLayoutTimeout(afterGen uint64, timeout string) {
 	h.tb.Helper()
-	out := h.runCmd("wait-layout", "--after", strconv.FormatUint(afterGen, 10), "--timeout", timeout)
+	restore := h.pushWaitState(fmt.Sprintf("waiting for layout generation > %d (timeout %s)", afterGen, timeout))
+	defer restore()
+	out := h.runCmd("wait", "layout", "--after", strconv.FormatUint(afterGen, 10), "--timeout", timeout)
 	if strings.Contains(out, "timeout") {
-		h.tb.Fatalf("wait-layout timed out after generation %d\ncapture:\n%s", afterGen, h.capture())
+		h.tb.Fatalf("wait-layout timed out after generation %d\n%s", afterGen, h.diagnosticSnapshot("wait-layout failure"))
 	}
 }
 
@@ -438,7 +677,7 @@ func (h *ServerHarness) waitLayoutTimeout(afterGen uint64, timeout string) {
 // exit condition rather than a test failure.
 func (h *ServerHarness) waitLayoutOrTimeout(afterGen uint64, timeout string) bool {
 	h.tb.Helper()
-	out := h.runCmd("wait-layout", "--after", strconv.FormatUint(afterGen, 10), "--timeout", timeout)
+	out := h.runCmd("wait", "layout", "--after", strconv.FormatUint(afterGen, 10), "--timeout", timeout)
 	return !strings.Contains(out, "timeout")
 }
 
@@ -446,6 +685,8 @@ func (h *ServerHarness) waitLayoutOrTimeout(afterGen uint64, timeout string) boo
 // It waits on layout generation bumps between capture checks, avoiding sleep-based polling.
 func (h *ServerHarness) waitForFunc(fn func(string) bool, timeout time.Duration) bool {
 	h.tb.Helper()
+	restore := h.pushWaitState(fmt.Sprintf("waiting for plain capture predicate (timeout %v)", timeout))
+	defer restore()
 	deadline := time.Now().Add(timeout)
 	gen := h.generation()
 	for time.Now().Before(deadline) {
@@ -468,6 +709,8 @@ func (h *ServerHarness) waitForFunc(fn func(string) bool, timeout time.Duration)
 // It waits on layout generation bumps between capture checks instead of sleeping.
 func (h *ServerHarness) waitForCaptureJSON(fn func(proto.CaptureJSON) bool, timeout time.Duration) bool {
 	h.tb.Helper()
+	restore := h.pushWaitState(fmt.Sprintf("waiting for json capture predicate (timeout %v)", timeout))
+	defer restore()
 
 	deadline := time.Now().Add(timeout)
 	gen := h.generation()
@@ -492,6 +735,8 @@ func (h *ServerHarness) waitForCaptureJSON(fn func(proto.CaptureJSON) bool, time
 // appears in the named pane's content or timeout elapses.
 func (h *ServerHarness) waitForPaneContent(pane, substr string, timeout time.Duration) {
 	h.tb.Helper()
+	restore := h.pushWaitState(fmt.Sprintf("waiting for %s pane content to contain %q (timeout %v)", pane, substr, timeout))
+	defer restore()
 
 	deadline := time.Now().Add(timeout)
 	ticker := time.NewTicker(25 * time.Millisecond)
@@ -510,7 +755,7 @@ func (h *ServerHarness) waitForPaneContent(pane, substr string, timeout time.Dur
 		<-ticker.C
 	}
 
-	h.tb.Fatalf("pane %s content did not contain %q within %v\ncapture:\n%s", pane, substr, timeout, h.capture())
+	h.tb.Fatalf("pane %s content did not contain %q within %v\n%s", pane, substr, timeout, h.diagnosticSnapshot("waitForPaneContent failure"))
 }
 
 // ---------------------------------------------------------------------------
@@ -537,6 +782,8 @@ func (h *ServerHarness) activePaneName() string {
 // call runCmd("split", ...) directly.
 func (h *ServerHarness) doSplit(args ...string) {
 	h.tb.Helper()
+	restore := h.pushWaitState(fmt.Sprintf("waiting for split %v to create a new pane", args))
+	defer restore()
 	before := h.layoutSnapshot()
 	gen := h.generation()
 	pane, ok := activePaneNameFromLayout(before)
@@ -561,6 +808,8 @@ func (h *ServerHarness) doSplit(args ...string) {
 // (ensuring the headless client has received the broadcast).
 func (h *ServerHarness) doFocus(args ...string) string {
 	h.tb.Helper()
+	restore := h.pushWaitState(fmt.Sprintf("waiting for focus %v to update layout", args))
+	defer restore()
 	gen := h.generation()
 	cmdArgs := append([]string{"focus"}, args...)
 	out := h.runCmd(cmdArgs...)
@@ -573,6 +822,8 @@ func (h *ServerHarness) doFocus(args ...string) string {
 // (for example after reload).
 func (h *ServerHarness) doSplitPane(pane string, args ...string) {
 	h.tb.Helper()
+	restore := h.pushWaitState(fmt.Sprintf("waiting for split %s %v to create a new pane", pane, args))
+	defer restore()
 	before := h.layoutSnapshot()
 	gen := h.generation()
 	cmdArgs := append([]string{"split", pane}, args...)
@@ -680,6 +931,83 @@ func TestSplitCreatedPaneIDFromLayout(t *testing.T) {
 	}
 	if got, ok := splitCreatedPaneIDFromLayout(before, before); ok || got != 0 {
 		t.Fatalf("splitCreatedPaneIDFromLayout() without new pane = (%d, %t), want (0, false)", got, ok)
+	}
+}
+
+func TestFormatDiagnosticSnapshotIncludesWaitState(t *testing.T) {
+	t.Parallel()
+
+	snapshot := formatDiagnosticSnapshot("unit test", diagnosticSnapshotData{
+		TestName:           "TestFormatDiagnosticSnapshotIncludesWaitState",
+		Session:            "t-test",
+		Wait:               `waiting for pane-1 to contain "$"`,
+		Command:            `amux wait-for pane-1 "$" --timeout 10s`,
+		Generation:         "generation: 42",
+		JSONCaptureSummary: "window=1:main index=1 size=80x24 panes=1 notice=\"\"",
+		PlainCapture:       "[pane-1]\n$",
+		ServerLogTail:      "ready\n",
+	})
+
+	for _, want := range []string{
+		"--- amux harness diagnostics: unit test ---",
+		"test: TestFormatDiagnosticSnapshotIncludesWaitState",
+		"session: t-test",
+		`wait: waiting for pane-1 to contain "$"`,
+		`command: amux wait-for pane-1 "$" --timeout 10s`,
+		"generation: 42",
+		"json capture summary:",
+		"plain capture:",
+		"server log tail:",
+	} {
+		if !strings.Contains(snapshot, want) {
+			t.Fatalf("diagnostic snapshot missing %q\nsnapshot:\n%s", want, snapshot)
+		}
+	}
+}
+
+func TestSummarizeDiagnosticCaptureJSONIncludesPaneState(t *testing.T) {
+	t.Parallel()
+
+	raw, err := json.Marshal(proto.CaptureJSON{
+		Session: "t-test",
+		Window:  proto.CaptureWindow{ID: 1, Name: "main", Index: 1},
+		Width:   80,
+		Height:  24,
+		Panes: []proto.CapturePane{
+			{
+				ID:             1,
+				Name:           "pane-1",
+				Active:         true,
+				Position:       &proto.CapturePos{X: 0, Y: 0, Width: 80, Height: 23},
+				Cursor:         proto.CaptureCursor{Col: 7, Row: 0},
+				Content:        []string{"PROMPT$"},
+				Idle:           true,
+				CurrentCommand: "bash",
+			},
+			{
+				ID:             2,
+				Name:           "pane-2",
+				Position:       &proto.CapturePos{X: 0, Y: 0, Width: 40, Height: 10},
+				Cursor:         proto.CaptureCursor{Col: 0, Row: 0},
+				Content:        []string{"REMOTE"},
+				ConnStatus:     "reconnecting",
+				CurrentCommand: "ssh",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal capture json: %v", err)
+	}
+
+	summary := summarizeDiagnosticCaptureJSON(string(raw))
+	for _, want := range []string{
+		`window=1:main index=1 size=80x24 panes=2 notice=""`,
+		`- pane-1 id=1 pos=0,0 80x23 cursor=7,0 idle=true cmd="bash" flags=active first="PROMPT$"`,
+		`- pane-2 id=2 pos=0,0 40x10 cursor=0,0 idle=false cmd="ssh" conn=reconnecting first="REMOTE"`,
+	} {
+		if !strings.Contains(summary, want) {
+			t.Fatalf("capture summary missing %q\nsummary:\n%s", want, summary)
+		}
 	}
 }
 

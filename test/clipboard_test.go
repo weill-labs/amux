@@ -40,12 +40,12 @@ func osc52ClipboardSequence(text string) string {
 // clipboard event, and asserts the decoded content matches want.
 func assertClipboardOSC52(t *testing.T, h *AmuxHarness, printfArg, want string) {
 	t.Helper()
-	genStr := strings.TrimSpace(h.runCmd("clipboard-gen"))
+	genStr := strings.TrimSpace(h.runCmd("cursor", "clipboard"))
 	gen, _ := strconv.ParseUint(genStr, 10, 64)
 
 	h.sendKeys("printf '"+printfArg+"'", "Enter")
 
-	out := strings.TrimSpace(h.runCmd("wait-clipboard", "--after", strconv.FormatUint(gen, 10), "--timeout", "5s"))
+	out := strings.TrimSpace(h.runCmd("wait", "clipboard", "--after", strconv.FormatUint(gen, 10), "--timeout", "5s"))
 	if strings.Contains(out, "timeout") {
 		t.Fatalf("wait-clipboard timed out")
 	}
@@ -63,7 +63,7 @@ func assertClipboardOSC52(t *testing.T, h *AmuxHarness, printfArg, want string) 
 
 func waitClipboardAfter(t *testing.T, h *ServerHarness, afterGen uint64, timeout string) string {
 	t.Helper()
-	out := strings.TrimSpace(h.runCmd("wait-clipboard", "--after", strconv.FormatUint(afterGen, 10), "--timeout", timeout))
+	out := strings.TrimSpace(h.runCmd("wait", "clipboard", "--after", strconv.FormatUint(afterGen, 10), "--timeout", timeout))
 	if strings.Contains(out, "timeout") {
 		t.Fatalf("wait-clipboard timed out")
 	}
@@ -94,7 +94,7 @@ func TestCopyModeClipboardUsesOSC52WhenInnerClientRunsOverSSH(t *testing.T) {
 		t.Fatalf("expected SSH-COPY-TEST in output\nScreen:\n%s", h.captureOuter())
 	}
 
-	genStr := strings.TrimSpace(h.outer.runCmd("clipboard-gen"))
+	genStr := strings.TrimSpace(h.outer.runCmd("cursor", "clipboard"))
 	gen, err := strconv.ParseUint(genStr, 10, 64)
 	if err != nil {
 		t.Fatalf("parsing outer clipboard generation %q: %v", genStr, err)
@@ -143,7 +143,7 @@ func TestCopyModeClipboardUsesTmuxPassthroughWhenInnerClientRunsOverSSHInTmux(t 
 	defer rec.close()
 	rec.clearPane(1)
 
-	genStr := strings.TrimSpace(h.outer.runCmd("clipboard-gen"))
+	genStr := strings.TrimSpace(h.outer.runCmd("cursor", "clipboard"))
 	gen, err := strconv.ParseUint(genStr, 10, 64)
 	if err != nil {
 		t.Fatalf("parsing outer clipboard generation %q: %v", genStr, err)

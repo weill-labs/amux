@@ -321,10 +321,9 @@ func TestEventsClientDisconnectExplicitDetach(t *testing.T) {
 		t.Fatalf("initial event = %+v, want client-connect for %s", ev, secondID)
 	}
 
-	if err := server.WriteMsg(second.conn, &server.Message{Type: server.MsgTypeDetach}); err != nil {
+	if err := second.detach(); err != nil {
 		t.Fatalf("sending detach: %v", err)
 	}
-	<-second.done
 
 	ev = mustReadEvent(t, scanner, 5*time.Second)
 	if ev.Type != server.EventClientDisconnect || ev.ClientID != secondID || ev.Reason != server.DisconnectReasonExplicitDetach {
@@ -367,7 +366,7 @@ func TestWaitUIImmediateHidden(t *testing.T) {
 	t.Parallel()
 
 	h := newServerHarness(t)
-	out := h.runCmd("wait-ui", proto.UIEventDisplayPanesHidden, "--timeout", "1s")
+	out := h.runCmd("wait", "ui", proto.UIEventDisplayPanesHidden, "--timeout", "1s")
 	if strings.Contains(out, "timeout") {
 		t.Fatalf("wait-ui hidden should return immediately, got: %s", out)
 	}
@@ -380,7 +379,7 @@ func TestWaitUIImmediatePrefixMessageHidden(t *testing.T) {
 	t.Parallel()
 
 	h := newServerHarness(t)
-	out := h.runCmd("wait-ui", proto.UIEventPrefixMessageHidden, "--timeout", "1s")
+	out := h.runCmd("wait", "ui", proto.UIEventPrefixMessageHidden, "--timeout", "1s")
 	if strings.Contains(out, "timeout") {
 		t.Fatalf("wait-ui prefix-message-hidden should return immediately, got: %s", out)
 	}
@@ -405,7 +404,7 @@ func TestWaitUIInputIdleAfterTypeKeys(t *testing.T) {
 
 	h := newAmuxHarness(t)
 
-	out := h.runCmd("wait-ui", proto.UIEventInputIdle, "--timeout", "1s")
+	out := h.runCmd("wait", "ui", proto.UIEventInputIdle, "--timeout", "1s")
 	if !strings.Contains(out, proto.UIEventInputIdle) {
 		t.Fatalf("wait-ui input-idle output = %q", out)
 	}
@@ -423,7 +422,7 @@ func TestWaitUIAfterRequiresFreshInputCycle(t *testing.T) {
 	h := newAmuxHarness(t)
 	after := h.uiGen()
 
-	out := h.runCmd("wait-ui", proto.UIEventInputIdle, "--after", strconv.FormatUint(after, 10), "--timeout", "200ms")
+	out := h.runCmd("wait", "ui", proto.UIEventInputIdle, "--after", strconv.FormatUint(after, 10), "--timeout", "200ms")
 	if !strings.Contains(out, "timeout waiting for "+proto.UIEventInputIdle) {
 		t.Fatalf("wait-ui --after without new input should time out, got: %q", out)
 	}
@@ -439,12 +438,12 @@ func TestWaitHookOnIdle(t *testing.T) {
 	tmp := t.TempDir()
 	marker := filepath.Join(tmp, "hook-wait")
 
-	after := strings.TrimSpace(h.runCmd("hook-gen"))
+	after := strings.TrimSpace(h.runCmd("cursor", "hook"))
 	h.runCmd("set-hook", "on-idle", "touch "+marker)
 	h.sendKeys("pane-1", "echo HOOKWAIT", "Enter")
 	h.waitFor("pane-1", "HOOKWAIT")
 
-	out := h.runCmd("wait-hook", "on-idle", "--pane", "pane-1", "--after", after, "--timeout", "5s")
+	out := h.runCmd("wait", "hook", "on-idle", "--pane", "pane-1", "--after", after, "--timeout", "5s")
 	if strings.Contains(out, "timeout") {
 		t.Fatalf("wait-hook timed out: %s", out)
 	}
@@ -460,12 +459,12 @@ func TestWaitHookAcceptsNumericPaneRef(t *testing.T) {
 	tmp := t.TempDir()
 	marker := filepath.Join(tmp, "hook-wait-numeric")
 
-	after := strings.TrimSpace(h.runCmd("hook-gen"))
+	after := strings.TrimSpace(h.runCmd("cursor", "hook"))
 	h.runCmd("set-hook", "on-idle", "touch "+marker)
 	h.sendKeys("pane-1", "echo HOOKWAIT_NUMERIC", "Enter")
 	h.waitFor("pane-1", "HOOKWAIT_NUMERIC")
 
-	out := h.runCmd("wait-hook", "on-idle", "--pane", "1", "--after", after, "--timeout", "5s")
+	out := h.runCmd("wait", "hook", "on-idle", "--pane", "1", "--after", after, "--timeout", "5s")
 	if strings.Contains(out, "timeout") {
 		t.Fatalf("wait-hook with numeric pane ref timed out: %s", out)
 	}
@@ -485,7 +484,7 @@ func TestWaitUIRequiresClientWhenAmbiguous(t *testing.T) {
 	defer second.close()
 
 	clients := parseClientIDs(h.runCmd("list-clients"))
-	out := h.runCmd("wait-ui", proto.UIEventDisplayPanesHidden, "--timeout", "1s")
+	out := h.runCmd("wait", "ui", proto.UIEventDisplayPanesHidden, "--timeout", "1s")
 	if !strings.Contains(out, "multiple clients attached") {
 		t.Fatalf("expected ambiguous wait-ui error, got: %s", out)
 	}
@@ -535,7 +534,7 @@ func TestWaitUIImmediateChooseWindowHidden(t *testing.T) {
 	t.Parallel()
 
 	h := newServerHarness(t)
-	out := h.runCmd("wait-ui", proto.UIEventChooseWindowHidden, "--timeout", "1s")
+	out := h.runCmd("wait", "ui", proto.UIEventChooseWindowHidden, "--timeout", "1s")
 	if strings.Contains(out, "timeout") {
 		t.Fatalf("wait-ui choose-window-hidden should return immediately, got: %s", out)
 	}
