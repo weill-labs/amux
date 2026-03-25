@@ -79,3 +79,32 @@ func TestResolveSessionName(t *testing.T) {
 		})
 	}
 }
+
+func TestResolveInvocationSession(t *testing.T) {
+	tests := []struct {
+		name       string
+		args       []string
+		envSession string
+		wantName   string
+		wantArgs   []string
+	}{
+		{name: "default when unset", args: []string{"status"}, wantName: defaultSessionName, wantArgs: []string{"status"}},
+		{name: "uses AMUX_SESSION when flag omitted", args: []string{"status"}, envSession: "current-session", wantName: "current-session", wantArgs: []string{"status"}},
+		{name: "strips explicit session flag", args: []string{"-s", "other-session", "status"}, envSession: "current-session", wantName: "other-session", wantArgs: []string{"status"}},
+		{name: "strips explicit session flag from middle", args: []string{"events", "-s", "other-session", "--no-reconnect"}, wantName: "other-session", wantArgs: []string{"events", "--no-reconnect"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("AMUX_SESSION", tt.envSession)
+
+			gotName, gotArgs := resolveInvocationSession(tt.args)
+			if gotName != tt.wantName {
+				t.Fatalf("resolveInvocationSession(%v) session = %q, want %q", tt.args, gotName, tt.wantName)
+			}
+			if !reflect.DeepEqual(gotArgs, tt.wantArgs) {
+				t.Fatalf("resolveInvocationSession(%v) args = %v, want %v", tt.args, gotArgs, tt.wantArgs)
+			}
+		})
+	}
+}
