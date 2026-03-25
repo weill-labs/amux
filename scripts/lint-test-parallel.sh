@@ -10,18 +10,20 @@ EXCEPTION_PATTERN="^func TestMain\b|SubprocessHelper"
 
 if [ "${STAGED_ONLY:-}" = "1" ]; then
   # Get new func Test lines from the staged diff (added lines only).
+  files=$(git diff --cached --name-only --diff-filter=ACM -- '*_test.go' \
+    ':!third_party/' ':!vendor/' || true)
   new_funcs=$(git diff --cached --diff-filter=ACM -U0 -- '*_test.go' \
     ':!third_party/' ':!vendor/' |
-    grep -E '^\+func Test[A-Z]' | grep -vF '+++' |
+    grep -E '^\+func Test[A-Z]' |
     sed 's/^\+//' || true)
 else
   # Full scan: find all Test functions in modified test files.
-  modified=$(git diff --name-only HEAD -- '*_test.go' \
+  files=$(git diff --name-only HEAD -- '*_test.go' \
     ':!third_party/' ':!vendor/' 2>/dev/null || true)
-  if [ -z "$modified" ]; then
+  if [ -z "$files" ]; then
     exit 0
   fi
-  new_funcs=$(grep -hE '^func Test[A-Z]' $modified 2>/dev/null || true)
+  new_funcs=$(grep -hE '^func Test[A-Z]' $files 2>/dev/null || true)
 fi
 
 if [ -z "$new_funcs" ]; then
@@ -34,24 +36,21 @@ if [ -z "$new_funcs" ]; then
   exit 0
 fi
 
-# For each new test function, check if the staged file has t.Parallel()
+# For each new test function, check if the file has t.Parallel()
 # within the first few lines of the function body.
 violations=""
 while IFS= read -r func_line; do
   # Extract function name: "func TestFoo(t *testing.T) {" -> "TestFoo"
   func_name=$(echo "$func_line" | sed 's/func \(Test[A-Za-z0-9_]*\).*/\1/')
 
-  # Find which staged test files contain this function.
-  files=$(git diff --cached --name-only --diff-filter=ACM -- '*_test.go' \
-    ':!third_party/' ':!vendor/' || true)
   for f in $files; do
     [ -f "$f" ] || continue
     # Get the line number of the function declaration.
     line_num=$(grep -n "^func ${func_name}(" "$f" | head -1 | cut -d: -f1)
     [ -z "$line_num" ] && continue
 
-    # Check the next 5 lines for t.Parallel().
-    if ! sed -n "$((line_num+1)),$((line_num+5))p" "$f" | grep -q 't\.Parallel()'; then
+    # Check the next 10 lines for t.Parallel().
+    if ! sed -n "$((line_num+1)),$((line_num+10))p" "$f" | grep -q 't\.Parallel()'; then
       violations="${violations}\n  ${f}:${line_num}: ${func_name}"
     fi
     break
