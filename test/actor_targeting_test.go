@@ -40,7 +40,7 @@ func TestExplicitPaneCommandsPreferActorWindowWithoutChangingFocus(t *testing.T)
 	h.sendKeys("3", amuxBin+" -s "+h.session+" capture shared | grep WINDOW_TWO && echo CAPTURE_OK", "Enter")
 	h.waitFor("3", "CAPTURE_OK")
 
-	h.sendKeys("3", amuxBin+" -s "+h.session+" wait-for shared WINDOW_TWO --timeout 1s && echo WAIT_OK", "Enter")
+	h.sendKeys("3", amuxBin+" -s "+h.session+" wait content shared WINDOW_TWO --timeout 1s && echo WAIT_OK", "Enter")
 	h.waitFor("3", "WAIT_OK")
 
 	if got := h.captureJSON().Window.Index; got != 1 {

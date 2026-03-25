@@ -258,7 +258,7 @@ func BenchmarkThroughputPersistent(b *testing.B) {
 				b.Fatalf("send-keys failed: %s", msg.CmdErr)
 			}
 
-			msg = h.client.runCommand("wait-for", "pane-1", marker, "--timeout", "30s")
+			msg = h.client.runCommand("wait", "content", "pane-1", marker, "--timeout", "30s")
 			if msg.CmdErr != "" {
 				b.Fatalf("wait-for failed: %s", msg.CmdErr)
 			}

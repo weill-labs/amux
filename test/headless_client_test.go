@@ -162,7 +162,7 @@ func (hc *headlessClient) reconnect(timeout time.Duration) error {
 }
 
 func (hc *headlessClient) waitCommandReady() error {
-	msg := hc.runCommand("generation")
+	msg := hc.runCommand("cursor", "layout")
 	if msg.CmdErr != "" {
 		return fmt.Errorf("headless client did not reach command-ready state: %s", msg.CmdErr)
 	}
@@ -408,7 +408,7 @@ func TestNewHeadlessClientWaitsForCommandReadyState(t *testing.T) {
 		if err != nil {
 			return
 		}
-		if cmd.Type != server.MsgTypeCommand || cmd.CmdName != "generation" {
+		if cmd.Type != server.MsgTypeCommand || cmd.CmdName != "cursor" || len(cmd.CmdArgs) != 1 || cmd.CmdArgs[0] != "layout" {
 			return
 		}
 		_ = server.WriteMsg(conn, &server.Message{Type: server.MsgTypeCmdResult, CmdOutput: "1\n"})
@@ -502,7 +502,7 @@ func TestHeadlessClientRunCommandConcurrent(t *testing.T) {
 	}()
 	go func() {
 		defer wg.Done()
-		results <- h.client.runCommand("generation")
+		results <- h.client.runCommand("cursor", "layout")
 	}()
 
 	wg.Wait()

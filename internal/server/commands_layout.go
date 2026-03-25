@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/weill-labs/amux/internal/mux"
+	"github.com/weill-labs/amux/internal/proto"
 	"github.com/weill-labs/amux/internal/render"
 	layoutcmd "github.com/weill-labs/amux/internal/server/commands/layout"
 )
@@ -15,6 +16,7 @@ import (
 const (
 	killArgsUsage             = "[--cleanup] [--timeout <duration>] [pane]"
 	defaultKillCleanupTimeout = 5 * time.Second
+	copyModeUsage             = "usage: copy-mode [pane] [--wait ui=copy-mode-shown] [--timeout <duration>]"
 )
 
 type killArgError struct {
@@ -498,8 +500,15 @@ func cmdUndo(ctx *CommandContext) {
 }
 
 func cmdCopyMode(ctx *CommandContext) {
-	if len(ctx.Args) == 0 {
-		pane, err := enqueueSessionQuery(ctx.Sess, func(sess *Session) (resolvedPaneRef, error) {
+	opts, err := parseCopyModeArgs(ctx.Args)
+	if err != nil {
+		ctx.replyErr(err.Error())
+		return
+	}
+
+	var pane resolvedPaneRef
+	if opts.paneRef == "" {
+		pane, err = enqueueSessionQuery(ctx.Sess, func(sess *Session) (resolvedPaneRef, error) {
 			w := sess.activeWindow()
 			if w == nil || w.ActivePane == nil {
 				return resolvedPaneRef{}, fmt.Errorf("no active pane")
@@ -512,21 +521,81 @@ func cmdCopyMode(ctx *CommandContext) {
 				windowID: w.ID,
 			}, nil
 		})
-		if err != nil {
-			ctx.replyErr(err.Error())
-			return
-		}
-		ctx.Sess.broadcast(&Message{Type: MsgTypeCopyMode, PaneID: pane.paneID})
-		ctx.reply(fmt.Sprintf("Copy mode entered for %s\n", pane.paneName))
-		return
+	} else {
+		pane, err = ctx.Sess.queryResolvedPaneForActor(ctx.ActorPaneID, opts.paneRef)
 	}
-	pane, err := ctx.Sess.queryResolvedPaneForActor(ctx.ActorPaneID, ctx.Args[0])
 	if err != nil {
 		ctx.replyErr(err.Error())
 		return
 	}
+
+	var uiWait uiClientSnapshot
+	if opts.waitCopyModeShown {
+		uiWait, err = ctx.Sess.queryUIClient("", proto.UIEventCopyModeShown)
+		if err != nil {
+			ctx.replyErr(err.Error())
+			return
+		}
+	}
+
 	ctx.Sess.broadcast(&Message{Type: MsgTypeCopyMode, PaneID: pane.paneID})
+	if opts.waitCopyModeShown {
+		if err := waitForNextUIEvent(ctx.Sess, uiWait, proto.UIEventCopyModeShown, opts.waitTimeout); err != nil {
+			ctx.replyErr(err.Error())
+			return
+		}
+	}
 	ctx.reply(fmt.Sprintf("Copy mode entered for %s\n", pane.paneName))
+}
+
+type copyModeOptions struct {
+	paneRef           string
+	waitCopyModeShown bool
+	waitTimeout       time.Duration
+}
+
+func parseCopyModeArgs(args []string) (copyModeOptions, error) {
+	opts := copyModeOptions{waitTimeout: defaultCommandUIWaitTimeout}
+	timeoutSet := false
+
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--wait":
+			if i+1 >= len(args) {
+				return copyModeOptions{}, fmt.Errorf("missing value for --wait")
+			}
+			i++
+			if args[i] != "ui=copy-mode-shown" {
+				return copyModeOptions{}, fmt.Errorf("copy-mode: unsupported --wait target %q (want ui=copy-mode-shown)", args[i])
+			}
+			opts.waitCopyModeShown = true
+		case "--timeout":
+			if i+1 >= len(args) {
+				return copyModeOptions{}, fmt.Errorf("missing value for --timeout")
+			}
+			i++
+			timeout, err := time.ParseDuration(args[i])
+			if err != nil {
+				return copyModeOptions{}, fmt.Errorf("invalid timeout: %s", args[i])
+			}
+			opts.waitTimeout = timeout
+			timeoutSet = true
+		default:
+			if strings.HasPrefix(args[i], "-") {
+				return copyModeOptions{}, fmt.Errorf("unknown flag: %s", args[i])
+			}
+			if opts.paneRef != "" {
+				return copyModeOptions{}, fmt.Errorf(copyModeUsage)
+			}
+			opts.paneRef = args[i]
+		}
+	}
+
+	if timeoutSet && !opts.waitCopyModeShown {
+		return copyModeOptions{}, fmt.Errorf("copy-mode: --timeout requires --wait ui=copy-mode-shown")
+	}
+
+	return opts, nil
 }
 
 func cmdNewWindow(ctx *CommandContext) {

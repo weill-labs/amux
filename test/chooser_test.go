@@ -21,7 +21,7 @@ func TestChooseWindowShowsModalAndSelectsWindow(t *testing.T) {
 		t.Fatalf("expected choose-window modal, got:\n%s", h.captureOuter())
 	}
 
-	out := h.runCmd("wait-ui", proto.UIEventChooseWindowShown, "--timeout", "3s")
+	out := h.runCmd("wait", "ui", proto.UIEventChooseWindowShown, "--timeout", "3s")
 	if !strings.Contains(out, proto.UIEventChooseWindowShown) {
 		t.Fatalf("wait-ui shown output = %q", out)
 	}
@@ -33,7 +33,7 @@ func TestChooseWindowShowsModalAndSelectsWindow(t *testing.T) {
 	if got := h.captureJSON().Window.Name; got != "logs" {
 		t.Fatalf("selected window = %q, want logs", got)
 	}
-	out = h.runCmd("wait-ui", proto.UIEventChooseWindowHidden, "--timeout", "3s")
+	out = h.runCmd("wait", "ui", proto.UIEventChooseWindowHidden, "--timeout", "3s")
 	if !strings.Contains(out, proto.UIEventChooseWindowHidden) {
 		t.Fatalf("wait-ui hidden output = %q", out)
 	}
@@ -105,7 +105,7 @@ func TestChooseTreeDismissesOnLayoutChange(t *testing.T) {
 	h.runCmd("split", "pane-1")
 	h.waitLayout(gen)
 
-	out := h.runCmd("wait-ui", proto.UIEventChooseTreeHidden, "--timeout", "3s")
+	out := h.runCmd("wait", "ui", proto.UIEventChooseTreeHidden, "--timeout", "3s")
 	if !strings.Contains(out, proto.UIEventChooseTreeHidden) {
 		t.Fatalf("wait-ui hidden output = %q", out)
 	}

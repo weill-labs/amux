@@ -98,6 +98,442 @@ func TestHookCommandsRoundTrip(t *testing.T) {
 	}
 }
 
+func TestParseTypeKeysArgs(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		args    []string
+		want    typeKeysOptions
+		wantErr string
+	}{
+		{
+			name: "wait and timeout",
+			args: []string{"--wait", "ui=input-idle", "--timeout", "25ms", "--hex", "6162"},
+			want: typeKeysOptions{
+				waitInputIdle: true,
+				waitTimeout:   25 * time.Millisecond,
+				hexMode:       true,
+				keys:          []string{"6162"},
+			},
+		},
+		{
+			name: "literal args after first key",
+			args: []string{"hello", "--wait", "ui=input-idle"},
+			want: typeKeysOptions{
+				waitTimeout: defaultCommandUIWaitTimeout,
+				keys:        []string{"hello", "--wait", "ui=input-idle"},
+			},
+		},
+		{
+			name:    "missing wait value",
+			args:    []string{"--wait"},
+			wantErr: "missing value for --wait",
+		},
+		{
+			name:    "unsupported wait target",
+			args:    []string{"--wait", "ready", "hello"},
+			wantErr: `type-keys: unsupported --wait target "ready" (want ui=input-idle)`,
+		},
+		{
+			name:    "missing timeout value",
+			args:    []string{"--wait", "ui=input-idle", "--timeout"},
+			wantErr: "missing value for --timeout",
+		},
+		{
+			name:    "invalid timeout value",
+			args:    []string{"--wait", "ui=input-idle", "--timeout", "later"},
+			wantErr: "invalid timeout: later",
+		},
+		{
+			name:    "timeout requires wait",
+			args:    []string{"--timeout", "10ms", "hello"},
+			wantErr: "type-keys: --timeout requires --wait ui=input-idle",
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := parseTypeKeysArgs(tt.args)
+			if tt.wantErr != "" {
+				if err == nil || err.Error() != tt.wantErr {
+					t.Fatalf("parseTypeKeysArgs(%v) error = %v, want %q", tt.args, err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("parseTypeKeysArgs(%v): %v", tt.args, err)
+			}
+			if got.waitInputIdle != tt.want.waitInputIdle ||
+				got.waitTimeout != tt.want.waitTimeout ||
+				got.hexMode != tt.want.hexMode ||
+				strings.Join(got.keys, "|") != strings.Join(tt.want.keys, "|") {
+				t.Fatalf("parsed = %#v, want %#v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestParseCopyModeArgs(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		args    []string
+		want    copyModeOptions
+		wantErr string
+	}{
+		{
+			name: "pane wait and timeout",
+			args: []string{"pane-2", "--wait", "ui=copy-mode-shown", "--timeout", "40ms"},
+			want: copyModeOptions{
+				paneRef:           "pane-2",
+				waitCopyModeShown: true,
+				waitTimeout:       40 * time.Millisecond,
+			},
+		},
+		{
+			name: "active pane defaults",
+			args: nil,
+			want: copyModeOptions{waitTimeout: defaultCommandUIWaitTimeout},
+		},
+		{
+			name:    "missing wait value",
+			args:    []string{"--wait"},
+			wantErr: "missing value for --wait",
+		},
+		{
+			name:    "unsupported wait target",
+			args:    []string{"--wait", "ready"},
+			wantErr: `copy-mode: unsupported --wait target "ready" (want ui=copy-mode-shown)`,
+		},
+		{
+			name:    "missing timeout value",
+			args:    []string{"--wait", "ui=copy-mode-shown", "--timeout"},
+			wantErr: "missing value for --timeout",
+		},
+		{
+			name:    "invalid timeout value",
+			args:    []string{"--wait", "ui=copy-mode-shown", "--timeout", "later"},
+			wantErr: "invalid timeout: later",
+		},
+		{
+			name:    "unknown flag",
+			args:    []string{"--bogus"},
+			wantErr: "unknown flag: --bogus",
+		},
+		{
+			name:    "multiple pane refs",
+			args:    []string{"pane-1", "pane-2"},
+			wantErr: copyModeUsage,
+		},
+		{
+			name:    "timeout requires wait",
+			args:    []string{"--timeout", "10ms"},
+			wantErr: "copy-mode: --timeout requires --wait ui=copy-mode-shown",
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := parseCopyModeArgs(tt.args)
+			if tt.wantErr != "" {
+				if err == nil || err.Error() != tt.wantErr {
+					t.Fatalf("parseCopyModeArgs(%v) error = %v, want %q", tt.args, err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("parseCopyModeArgs(%v): %v", tt.args, err)
+			}
+			if got != tt.want {
+				t.Fatalf("parsed = %#v, want %#v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCmdTypeKeysWaitsForInputIdle(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	uiServerConn, uiPeerConn := net.Pipe()
+	defer uiServerConn.Close()
+	defer uiPeerConn.Close()
+
+	uiClient := newClientConn(uiServerConn)
+	uiClient.ID = "client-1"
+	uiClient.inputIdle = true
+	uiClient.uiGeneration = 1
+	uiClient.setNegotiatedCapabilities(proto.ClientCapabilities{KittyKeyboard: true, Hyperlinks: true})
+	uiClient.initTypeKeyQueue()
+	defer uiClient.Close()
+
+	mustSessionQuery(t, sess, func(sess *Session) struct{} {
+		sess.clients = []*clientConn{uiClient}
+		return struct{}{}
+	})
+
+	cmdPeerConn, _, done := startAsyncCommand(t, srv, sess, "type-keys", "--wait", "ui=input-idle", "--timeout", "100ms", "ab")
+
+	typeKeysMsg := readMsgWithTimeout(t, uiPeerConn)
+	if typeKeysMsg.Type != MsgTypeTypeKeys || string(typeKeysMsg.Input) != "ab" {
+		t.Fatalf("type-keys message = %#v", typeKeysMsg)
+	}
+
+	select {
+	case <-done:
+		t.Fatal("type-keys returned before fresh input-idle")
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	sess.enqueueUIEvent(uiClient, proto.UIEventInputBusy)
+	sess.enqueueUIEvent(uiClient, proto.UIEventInputIdle)
+
+	result := readMsgWithTimeout(t, cmdPeerConn)
+	if got := result.CmdOutput; got != "Typed 2 bytes\n" {
+		t.Fatalf("type-keys output = %q", got)
+	}
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("type-keys wait command did not return")
+	}
+}
+
+func TestCmdSendKeysShowsUsageWhenNoKeysProvided(t *testing.T) {
+	t.Parallel()
+
+	sess := newSession("test-send-keys-no-keys")
+	stopCrashCheckpointLoop(t, sess)
+	defer stopSessionBackgroundLoops(t, sess)
+
+	msg := runOneShotCommand(t, sess, []string{"pane-1", "--hex"}, cmdSendKeys)
+	if got := msg.CmdErr; got != sendKeysUsage {
+		t.Fatalf("send-keys usage error = %q", got)
+	}
+}
+
+func TestCmdTypeKeysErrorPaths(t *testing.T) {
+	t.Parallel()
+
+	t.Run("parse error", func(t *testing.T) {
+		t.Parallel()
+
+		sess := newSession("test-type-keys-parse-error")
+		stopCrashCheckpointLoop(t, sess)
+		defer stopSessionBackgroundLoops(t, sess)
+
+		msg := runOneShotCommand(t, sess, []string{"--wait"}, cmdTypeKeys)
+		if got := msg.CmdErr; got != "missing value for --wait" {
+			t.Fatalf("type-keys parse error = %q", got)
+		}
+	})
+
+	t.Run("usage when no keys provided", func(t *testing.T) {
+		t.Parallel()
+
+		sess := newSession("test-type-keys-no-keys")
+		stopCrashCheckpointLoop(t, sess)
+		defer stopSessionBackgroundLoops(t, sess)
+
+		msg := runOneShotCommand(t, sess, []string{"--hex"}, cmdTypeKeys)
+		if got := msg.CmdErr; got != typeKeysUsage {
+			t.Fatalf("type-keys usage error = %q", got)
+		}
+	})
+
+	t.Run("wait requires attached client", func(t *testing.T) {
+		t.Parallel()
+
+		sess := newSession("test-type-keys-no-client")
+		stopCrashCheckpointLoop(t, sess)
+		defer stopSessionBackgroundLoops(t, sess)
+
+		msg := runOneShotCommand(t, sess, []string{"--wait", "ui=input-idle", "--timeout", "25ms", "ab"}, cmdTypeKeys)
+		if got := msg.CmdErr; got != "no client attached" {
+			t.Fatalf("type-keys no-client error = %q", got)
+		}
+	})
+
+	t.Run("wait times out without fresh idle", func(t *testing.T) {
+		t.Parallel()
+
+		srv, sess, cleanup := newCommandTestSession(t)
+		defer cleanup()
+
+		uiServerConn, uiPeerConn := net.Pipe()
+		defer uiServerConn.Close()
+		defer uiPeerConn.Close()
+
+		uiClient := newClientConn(uiServerConn)
+		uiClient.ID = "client-1"
+		uiClient.inputIdle = true
+		uiClient.uiGeneration = 1
+		uiClient.initTypeKeyQueue()
+		defer uiClient.Close()
+
+		mustSessionQuery(t, sess, func(sess *Session) struct{} {
+			sess.clients = []*clientConn{uiClient}
+			return struct{}{}
+		})
+
+		cmdPeerConn, _, done := startAsyncCommand(t, srv, sess, "type-keys", "--wait", "ui=input-idle", "--timeout", "25ms", "ab")
+
+		typeKeysMsg := readMsgWithTimeout(t, uiPeerConn)
+		if typeKeysMsg.Type != MsgTypeTypeKeys || string(typeKeysMsg.Input) != "ab" {
+			t.Fatalf("type-keys message = %#v", typeKeysMsg)
+		}
+
+		result := readMsgWithTimeout(t, cmdPeerConn)
+		if got := result.CmdErr; got != "timeout waiting for input-idle on client-1" {
+			t.Fatalf("type-keys timeout error = %q", got)
+		}
+
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Fatal("type-keys timeout command did not return")
+		}
+	})
+}
+
+func TestCmdCopyModeWaitsForShown(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, _, cleanup := setupWaitReadyTestPane(t, nil)
+	defer cleanup()
+
+	uiServerConn, uiPeerConn := net.Pipe()
+	defer uiServerConn.Close()
+	defer uiPeerConn.Close()
+
+	uiClient := newClientConn(uiServerConn)
+	uiClient.ID = "client-1"
+	uiClient.uiGeneration = 2
+	defer uiClient.Close()
+
+	mustSessionQuery(t, sess, func(sess *Session) struct{} {
+		sess.clients = []*clientConn{uiClient}
+		return struct{}{}
+	})
+
+	cmdPeerConn, _, done := startAsyncCommand(t, srv, sess, "copy-mode", "pane-1", "--wait", "ui=copy-mode-shown", "--timeout", "100ms")
+
+	copyModeMsg := readMsgWithTimeout(t, uiPeerConn)
+	if copyModeMsg.Type != MsgTypeCopyMode || copyModeMsg.PaneID != 1 {
+		t.Fatalf("copy-mode message = %#v", copyModeMsg)
+	}
+
+	select {
+	case <-done:
+		t.Fatal("copy-mode returned before copy-mode-shown")
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	sess.enqueueUIEvent(uiClient, proto.UIEventCopyModeShown)
+
+	result := readMsgWithTimeout(t, cmdPeerConn)
+	if got := result.CmdOutput; got != "Copy mode entered for pane-1\n" {
+		t.Fatalf("copy-mode output = %q", got)
+	}
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("copy-mode wait command did not return")
+	}
+}
+
+func TestCmdCopyModeUsesActivePaneByDefault(t *testing.T) {
+	t.Parallel()
+
+	_, sess, _, cleanup := setupWaitReadyTestPane(t, nil)
+	defer cleanup()
+
+	msg := runOneShotCommand(t, sess, nil, cmdCopyMode)
+	if got := msg.CmdOutput; got != "Copy mode entered for pane-1\n" {
+		t.Fatalf("copy-mode default pane output = %q", got)
+	}
+}
+
+func TestCmdCopyModeErrorPaths(t *testing.T) {
+	t.Parallel()
+
+	t.Run("parse error", func(t *testing.T) {
+		t.Parallel()
+
+		sess := newSession("test-copy-mode-parse-error")
+		stopCrashCheckpointLoop(t, sess)
+		defer stopSessionBackgroundLoops(t, sess)
+
+		msg := runOneShotCommand(t, sess, []string{"--wait"}, cmdCopyMode)
+		if got := msg.CmdErr; got != "missing value for --wait" {
+			t.Fatalf("copy-mode parse error = %q", got)
+		}
+	})
+
+	t.Run("wait requires attached client", func(t *testing.T) {
+		t.Parallel()
+
+		_, sess, _, cleanup := setupWaitReadyTestPane(t, nil)
+		defer cleanup()
+
+		msg := runOneShotCommand(t, sess, []string{"pane-1", "--wait", "ui=copy-mode-shown", "--timeout", "25ms"}, cmdCopyMode)
+		if got := msg.CmdErr; got != "no client attached" {
+			t.Fatalf("copy-mode no-client error = %q", got)
+		}
+	})
+
+	t.Run("wait times out without copy-mode-shown", func(t *testing.T) {
+		t.Parallel()
+
+		srv, sess, _, cleanup := setupWaitReadyTestPane(t, nil)
+		defer cleanup()
+
+		uiServerConn, uiPeerConn := net.Pipe()
+		defer uiServerConn.Close()
+		defer uiPeerConn.Close()
+
+		uiClient := newClientConn(uiServerConn)
+		uiClient.ID = "client-1"
+		uiClient.uiGeneration = 1
+		defer uiClient.Close()
+
+		mustSessionQuery(t, sess, func(sess *Session) struct{} {
+			sess.clients = []*clientConn{uiClient}
+			return struct{}{}
+		})
+
+		cmdPeerConn, _, done := startAsyncCommand(t, srv, sess, "copy-mode", "pane-1", "--wait", "ui=copy-mode-shown", "--timeout", "25ms")
+
+		copyModeMsg := readMsgWithTimeout(t, uiPeerConn)
+		if copyModeMsg.Type != MsgTypeCopyMode || copyModeMsg.PaneID != 1 {
+			t.Fatalf("copy-mode message = %#v", copyModeMsg)
+		}
+
+		result := readMsgWithTimeout(t, cmdPeerConn)
+		if got := result.CmdErr; got != "timeout waiting for copy-mode-shown on client-1" {
+			t.Fatalf("copy-mode timeout error = %q", got)
+		}
+
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Fatal("copy-mode timeout command did not return")
+		}
+	})
+}
+
 func TestMetaCollectionCommandsUsageAndErrors(t *testing.T) {
 	t.Parallel()
 

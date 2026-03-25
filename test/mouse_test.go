@@ -424,7 +424,7 @@ func TestMouseDragAutomaticallyEntersCopyModeAndCopiesSelection(t *testing.T) {
 		t.Fatalf("expected mouse copy target output.\nScreen:\n%s", h.captureOuter())
 	}
 
-	genStr := strings.TrimSpace(h.outer.runCmd("clipboard-gen"))
+	genStr := strings.TrimSpace(h.outer.runCmd("cursor", "clipboard"))
 	gen, err := strconv.ParseUint(genStr, 10, 64)
 	if err != nil {
 		t.Fatalf("parsing outer clipboard generation %q: %v", genStr, err)
@@ -445,7 +445,7 @@ func TestMouseDragAutomaticallyEntersCopyModeAndCopiesSelection(t *testing.T) {
 
 	h.waitUI(proto.UIEventCopyModeHidden, 3*time.Second)
 
-	out := strings.TrimSpace(h.outer.runCmd("wait-clipboard", "--after", strconv.FormatUint(gen, 10), "--timeout", "5s"))
+	out := strings.TrimSpace(h.outer.runCmd("wait", "clipboard", "--after", strconv.FormatUint(gen, 10), "--timeout", "5s"))
 	if strings.Contains(out, "timeout") {
 		t.Fatalf("outer wait-clipboard timed out\nOuter:\n%s", h.captureOuter())
 	}

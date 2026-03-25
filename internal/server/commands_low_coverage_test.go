@@ -405,42 +405,42 @@ func TestCommandCaptureHistoryAndWaitCommands(t *testing.T) {
 		t.Fatalf("capture history result = %#v", captureRes)
 	}
 
-	waitForUsage := runTestCommand(t, srv, sess, "wait-for", "pane-1")
-	if waitForUsage.cmdErr != "usage: wait-for <pane> <substring> [--timeout <duration>]" {
+	waitForUsage := runTestCommand(t, srv, sess, "wait", "content", "pane-1")
+	if waitForUsage.cmdErr != "usage: wait content <pane> <substring> [--timeout <duration>]" {
 		t.Fatalf("wait-for usage error = %q", waitForUsage.cmdErr)
 	}
 
-	waitForRes := runTestCommand(t, srv, sess, "wait-for", "pane-1", "marker", "--timeout", "1ms")
+	waitForRes := runTestCommand(t, srv, sess, "wait", "content", "pane-1", "marker", "--timeout", "1ms")
 	if waitForRes.cmdErr != "" || strings.TrimSpace(waitForRes.output) != "matched" {
 		t.Fatalf("wait-for result = %#v", waitForRes)
 	}
 
-	waitIdleUsage := runTestCommand(t, srv, sess, "wait-idle")
-	if waitIdleUsage.cmdErr != "usage: wait-idle <pane> [--timeout <duration>]" {
+	waitIdleUsage := runTestCommand(t, srv, sess, "wait", "idle")
+	if waitIdleUsage.cmdErr != "usage: wait idle <pane> [--timeout <duration>]" {
 		t.Fatalf("wait-idle usage error = %q", waitIdleUsage.cmdErr)
 	}
 
-	waitIdleRes := runTestCommand(t, srv, sess, "wait-idle", "pane-1", "--timeout", "1ms")
+	waitIdleRes := runTestCommand(t, srv, sess, "wait", "idle", "pane-1", "--timeout", "1ms")
 	if waitIdleRes.cmdErr != "" || strings.TrimSpace(waitIdleRes.output) != "idle" {
 		t.Fatalf("wait-idle result = %#v", waitIdleRes)
 	}
 
-	waitBusyUsage := runTestCommand(t, srv, sess, "wait-busy")
-	if waitBusyUsage.cmdErr != "usage: wait-busy <pane> [--timeout <duration>]" {
+	waitBusyUsage := runTestCommand(t, srv, sess, "wait", "busy")
+	if waitBusyUsage.cmdErr != "usage: wait busy <pane> [--timeout <duration>]" {
 		t.Fatalf("wait-busy usage error = %q", waitBusyUsage.cmdErr)
 	}
 
-	waitBusyRes := runTestCommand(t, srv, sess, "wait-busy", "pane-1", "--timeout", "1ms")
+	waitBusyRes := runTestCommand(t, srv, sess, "wait", "busy", "pane-1", "--timeout", "1ms")
 	if !strings.Contains(waitBusyRes.cmdErr, "timeout waiting for pane-1 to become busy") {
 		t.Fatalf("wait-busy timeout error = %q", waitBusyRes.cmdErr)
 	}
 
-	hookGenRes := runTestCommand(t, srv, sess, "hook-gen")
+	hookGenRes := runTestCommand(t, srv, sess, "cursor", "hook")
 	if hookGenRes.cmdErr != "" || strings.TrimSpace(hookGenRes.output) != "6" {
 		t.Fatalf("hook-gen result = %#v", hookGenRes)
 	}
 
-	waitHookRes := runTestCommand(t, srv, sess, "wait-hook", "on-idle", "--pane", "pane-1", "--after", "5", "--timeout", "1ms")
+	waitHookRes := runTestCommand(t, srv, sess, "wait", "hook", "on-idle", "--pane", "pane-1", "--after", "5", "--timeout", "1ms")
 	if waitHookRes.cmdErr != "" || strings.TrimSpace(waitHookRes.output) != "6 on-idle pane-1 success" {
 		t.Fatalf("wait-hook result = %#v", waitHookRes)
 	}
@@ -479,7 +479,7 @@ func TestCommandWaitHooksClientsAndTypeKeys(t *testing.T) {
 	sess.clients = []*clientConn{uiClient}
 	sess.sizeClient.Store(uiClient)
 
-	genRes := runTestCommand(t, srv, sess, "generation")
+	genRes := runTestCommand(t, srv, sess, "cursor", "layout")
 	if genRes.cmdErr != "" || strings.TrimSpace(genRes.output) != "7" {
 		t.Fatalf("generation result = %#v", genRes)
 	}
@@ -496,42 +496,42 @@ func TestCommandWaitHooksClientsAndTypeKeys(t *testing.T) {
 		t.Fatalf("_layout-json snapshot = %+v, want active pane-1", layout)
 	}
 
-	waitLayoutRes := runTestCommand(t, srv, sess, "wait-layout", "--after", "6", "--timeout", "1ms")
+	waitLayoutRes := runTestCommand(t, srv, sess, "wait", "layout", "--after", "6", "--timeout", "1ms")
 	if waitLayoutRes.cmdErr != "" || strings.TrimSpace(waitLayoutRes.output) != "7" {
 		t.Fatalf("wait-layout result = %#v", waitLayoutRes)
 	}
 
-	waitLayoutTimeout := runTestCommand(t, srv, sess, "wait-layout", "--after", "99", "--timeout", "1ms")
+	waitLayoutTimeout := runTestCommand(t, srv, sess, "wait", "layout", "--after", "99", "--timeout", "1ms")
 	if !strings.Contains(waitLayoutTimeout.cmdErr, "timeout waiting for generation > 99") {
 		t.Fatalf("wait-layout timeout error = %q", waitLayoutTimeout.cmdErr)
 	}
 
-	clipGenRes := runTestCommand(t, srv, sess, "clipboard-gen")
+	clipGenRes := runTestCommand(t, srv, sess, "cursor", "clipboard")
 	if clipGenRes.cmdErr != "" || strings.TrimSpace(clipGenRes.output) != "5" {
 		t.Fatalf("clipboard-gen result = %#v", clipGenRes)
 	}
 
-	waitClipboardRes := runTestCommand(t, srv, sess, "wait-clipboard", "--after", "4", "--timeout", "1ms")
+	waitClipboardRes := runTestCommand(t, srv, sess, "wait", "clipboard", "--after", "4", "--timeout", "1ms")
 	if waitClipboardRes.cmdErr != "" || strings.TrimSpace(waitClipboardRes.output) != "clip-data" {
 		t.Fatalf("wait-clipboard result = %#v", waitClipboardRes)
 	}
 
-	waitClipboardTimeout := runTestCommand(t, srv, sess, "wait-clipboard", "--after", "99", "--timeout", "1ms")
+	waitClipboardTimeout := runTestCommand(t, srv, sess, "wait", "clipboard", "--after", "99", "--timeout", "1ms")
 	if waitClipboardTimeout.cmdErr != "timeout waiting for clipboard event" {
 		t.Fatalf("wait-clipboard timeout error = %q", waitClipboardTimeout.cmdErr)
 	}
 
-	uiGenRes := runTestCommand(t, srv, sess, "ui-gen", "--client", "client-1")
+	uiGenRes := runTestCommand(t, srv, sess, "cursor", "ui", "--client", "client-1")
 	if uiGenRes.cmdErr != "" || strings.TrimSpace(uiGenRes.output) != "2" {
 		t.Fatalf("ui-gen result = %#v", uiGenRes)
 	}
 
-	waitUIInvalid := runTestCommand(t, srv, sess, "wait-ui", "totally-unknown")
+	waitUIInvalid := runTestCommand(t, srv, sess, "wait", "ui", "totally-unknown")
 	if waitUIInvalid.cmdErr != "unknown ui event: totally-unknown" {
 		t.Fatalf("wait-ui invalid error = %q", waitUIInvalid.cmdErr)
 	}
 
-	waitUISuccess := runTestCommand(t, srv, sess, "wait-ui", proto.UIEventDisplayPanesShown, "--after", "1", "--timeout", "1ms")
+	waitUISuccess := runTestCommand(t, srv, sess, "wait", "ui", proto.UIEventDisplayPanesShown, "--after", "1", "--timeout", "1ms")
 	if waitUISuccess.cmdErr != "" || strings.TrimSpace(waitUISuccess.output) != proto.UIEventDisplayPanesShown {
 		t.Fatalf("wait-ui success result = %#v", waitUISuccess)
 	}

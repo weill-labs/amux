@@ -60,8 +60,8 @@ func TestWaitReadyUsage(t *testing.T) {
 	srv, sess, cleanup := newCommandTestSession(t)
 	defer cleanup()
 
-	res := runTestCommand(t, srv, sess, "wait-ready")
-	if got := res.cmdErr; got != "usage: wait-ready <pane> [--timeout <duration>] [--continue-known-dialogs]" {
+	res := runTestCommand(t, srv, sess, "wait", "ready")
+	if got := res.cmdErr; got != "usage: wait ready <pane> [--timeout <duration>] [--continue-known-dialogs]" {
 		t.Fatalf("wait-ready usage error = %q", got)
 	}
 }
@@ -141,9 +141,10 @@ func TestParseSendKeysArgs(t *testing.T) {
 	}{
 		{
 			name: "wait ready and keys",
-			args: []string{"--wait-ready", "--continue-known-dialogs", "--hex", "6869", "Enter"},
+			args: []string{"--wait", "ready", "--continue-known-dialogs", "--timeout", "25ms", "--hex", "6869", "Enter"},
 			want: sendKeysOptions{
 				waitReady:            true,
+				waitTimeout:          25 * time.Millisecond,
 				continueKnownDialogs: true,
 				hexMode:              true,
 				keys:                 []string{"6869", "Enter"},
@@ -151,15 +152,46 @@ func TestParseSendKeysArgs(t *testing.T) {
 		},
 		{
 			name: "literal args after first key",
-			args: []string{"task", "--wait-ready"},
+			args: []string{"task", "--wait", "ready"},
 			want: sendKeysOptions{
-				keys: []string{"task", "--wait-ready"},
+				waitTimeout: 10 * time.Second,
+				keys:        []string{"task", "--wait", "ready"},
 			},
+		},
+		{
+			name:    "missing wait value",
+			args:    []string{"--wait"},
+			wantErr: "missing value for --wait",
+		},
+		{
+			name:    "unsupported wait target",
+			args:    []string{"--wait", "ui=input-idle", "task"},
+			wantErr: `send-keys: unsupported --wait target "ui=input-idle" (want ready)`,
+		},
+		{
+			name:    "missing timeout value",
+			args:    []string{"--wait", "ready", "--timeout"},
+			wantErr: "missing value for --timeout",
+		},
+		{
+			name:    "invalid timeout value",
+			args:    []string{"--wait", "ready", "--timeout", "later"},
+			wantErr: "invalid timeout: later",
 		},
 		{
 			name:    "continue requires wait ready",
 			args:    []string{"--continue-known-dialogs", "task"},
-			wantErr: "send-keys: --continue-known-dialogs requires --wait-ready",
+			wantErr: "send-keys: --continue-known-dialogs requires --wait ready",
+		},
+		{
+			name:    "timeout requires wait ready",
+			args:    []string{"--timeout", "10ms", "task"},
+			wantErr: "send-keys: --timeout requires --wait ready",
+		},
+		{
+			name:    "legacy flag rejected",
+			args:    []string{"--wait-ready", "task"},
+			wantErr: "send-keys: --wait-ready was removed; use --wait ready",
 		},
 	}
 
@@ -179,6 +211,7 @@ func TestParseSendKeysArgs(t *testing.T) {
 				t.Fatalf("parseSendKeysArgs(%v) error = %v", tt.args, err)
 			}
 			if got.waitReady != tt.want.waitReady ||
+				got.waitTimeout != tt.want.waitTimeout ||
 				got.continueKnownDialogs != tt.want.continueKnownDialogs ||
 				got.hexMode != tt.want.hexMode ||
 				strings.Join(got.keys, "|") != strings.Join(tt.want.keys, "|") {
@@ -196,7 +229,7 @@ func TestWaitReadyMatchesCodexPrompt(t *testing.T) {
 
 	pane.FeedOutput([]byte(codexReadyScreen("Implement {feature}")))
 
-	res := runTestCommand(t, srv, sess, "wait-ready", "pane-1", "--timeout", "10ms")
+	res := runTestCommand(t, srv, sess, "wait", "ready", "pane-1", "--timeout", "10ms")
 	if res.cmdErr != "" || strings.TrimSpace(res.output) != "ready" {
 		t.Fatalf("wait-ready result = %#v", res)
 	}
@@ -210,7 +243,7 @@ func TestWaitReadyBlocksOnCodexTrustDialog(t *testing.T) {
 
 	pane.FeedOutput([]byte(codexTrustDialogScreen("/tmp/untrusted")))
 
-	res := runTestCommand(t, srv, sess, "wait-ready", "pane-1", "--timeout", "10ms")
+	res := runTestCommand(t, srv, sess, "wait", "ready", "pane-1", "--timeout", "10ms")
 	if !strings.Contains(res.cmdErr, "Codex trust dialog is blocking input in pane-1") {
 		t.Fatalf("wait-ready dialog error = %#v", res)
 	}
@@ -266,7 +299,7 @@ func TestWaitReadyCanContinueKnownCodexDialog(t *testing.T) {
 	pane = createdPane
 	pane.FeedOutput([]byte(codexTrustDialogScreen("/tmp/untrusted")))
 
-	res := runTestCommand(t, srv, sess, "wait-ready", "pane-1", "--continue-known-dialogs", "--timeout", "50ms")
+	res := runTestCommand(t, srv, sess, "wait", "ready", "pane-1", "--continue-known-dialogs", "--timeout", "50ms")
 	if res.cmdErr != "" || strings.TrimSpace(res.output) != "ready" {
 		t.Fatalf("wait-ready result = %#v", res)
 	}
@@ -287,7 +320,7 @@ func TestWaitReadyRejectsUnknownContinueFlagCombination(t *testing.T) {
 	pane.FeedOutput([]byte(codexReadyScreen("Summarize recent commits")))
 
 	res := runTestCommand(t, srv, sess, "send-keys", "pane-1", "--continue-known-dialogs", "ship it")
-	if got := res.cmdErr; got != "send-keys: --continue-known-dialogs requires --wait-ready" {
+	if got := res.cmdErr; got != "send-keys: --continue-known-dialogs requires --wait ready" {
 		t.Fatalf("send-keys flag error = %q", got)
 	}
 }
@@ -299,7 +332,7 @@ func TestSendKeysWaitReadyUsage(t *testing.T) {
 	defer cleanup()
 
 	res := runTestCommand(t, srv, sess, "send-keys", "pane-1")
-	if got := res.cmdErr; got != "usage: send-keys <pane> [--wait-ready] [--continue-known-dialogs] [--hex] <keys>..." {
+	if got := res.cmdErr; got != "usage: send-keys <pane> [--wait ready] [--continue-known-dialogs] [--timeout <duration>] [--hex] <keys>..." {
 		t.Fatalf("send-keys usage error = %q", got)
 	}
 }
@@ -310,7 +343,7 @@ func TestSendKeysWaitReadyMissingPane(t *testing.T) {
 	srv, sess, _, cleanup := setupWaitReadyTestPane(t, nil)
 	defer cleanup()
 
-	res := runTestCommand(t, srv, sess, "send-keys", "missing", "--wait-ready", "ship it")
+	res := runTestCommand(t, srv, sess, "send-keys", "missing", "--wait", "ready", "ship it")
 	if !strings.Contains(res.cmdErr, "not found") {
 		t.Fatalf("send-keys missing pane error = %q", res.cmdErr)
 	}
@@ -324,7 +357,7 @@ func TestWaitReadyUsesClaudeCursorBlockFallback(t *testing.T) {
 
 	pane.FeedOutput([]byte(claudePromptScreen()))
 
-	res := runTestCommand(t, srv, sess, "wait-ready", "pane-1", "--timeout", "10ms")
+	res := runTestCommand(t, srv, sess, "wait", "ready", "pane-1", "--timeout", "10ms")
 	if res.cmdErr != "" || strings.TrimSpace(res.output) != "ready" {
 		t.Fatalf("wait-ready Claude result = %#v", res)
 	}
@@ -428,7 +461,7 @@ func TestWaitReadyRejectsNumberedMenuRows(t *testing.T) {
 
 	pane.FeedOutput([]byte(numberedMenuScreen()))
 
-	res := runTestCommand(t, srv, sess, "wait-ready", "pane-1", "--timeout", "1ms")
+	res := runTestCommand(t, srv, sess, "wait", "ready", "pane-1", "--timeout", "1ms")
 	if !strings.Contains(res.cmdErr, "timeout waiting for pane-1 to become ready") {
 		t.Fatalf("wait-ready timeout = %#v", res)
 	}
@@ -458,7 +491,7 @@ func TestSendKeysWaitReadyContinuesKnownDialogBeforeSendingInput(t *testing.T) {
 	pane = createdPane
 	pane.FeedOutput([]byte(codexTrustDialogScreen("/tmp/untrusted")))
 
-	res := runTestCommand(t, srv, sess, "send-keys", "pane-1", "--wait-ready", "--continue-known-dialogs", "ship it", "Enter")
+	res := runTestCommand(t, srv, sess, "send-keys", "pane-1", "--wait", "ready", "--continue-known-dialogs", "ship it", "Enter")
 	if res.cmdErr != "" || strings.TrimSpace(res.output) != "Sent 8 bytes to pane-1" {
 		t.Fatalf("send-keys result = %#v", res)
 	}
