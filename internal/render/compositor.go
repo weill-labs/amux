@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -351,16 +350,18 @@ func clipLine(line string, maxWidth int) string {
 }
 
 // hexColorCache maps hex color strings (e.g. "f5e0dc") to precomputed
-// ANSI truecolor escapes. Uses sync.Map for thread-safe concurrent access
-// from multiple rendering goroutines.
-var hexColorCache sync.Map
+// ANSI truecolor escapes. Read-only after init — unknown colors are
+// computed inline via computeANSI (cheap: three ParseUint + one Sprintf).
+var hexColorCache = buildHexColorCache()
 
-func init() {
+func buildHexColorCache() map[string]string {
+	m := make(map[string]string, len(config.AccentColors())+2)
 	for _, hex := range config.AccentColors() {
-		hexColorCache.Store(hex, computeANSI(hex))
+		m[hex] = computeANSI(hex)
 	}
-	hexColorCache.Store(config.DimColorHex, computeANSI(config.DimColorHex))
-	hexColorCache.Store(config.TextColorHex, computeANSI(config.TextColorHex))
+	m[config.DimColorHex] = computeANSI(config.DimColorHex)
+	m[config.TextColorHex] = computeANSI(config.TextColorHex)
+	return m
 }
 
 // computeANSI converts a 6-digit hex color to an ANSI truecolor escape.
@@ -374,15 +375,13 @@ func computeANSI(hex string) string {
 // hexToANSI converts a 6-digit hex color to an ANSI truecolor escape.
 // Results are cached — repeated calls for the same hex value are free.
 // Pre-populated at init with the Catppuccin Mocha palette; unknown colors
-// are computed on first use and cached thread-safely.
+// are computed on first use and cached.
 func hexToANSI(hex string) string {
 	if len(hex) < 6 {
 		return DimFg
 	}
-	if cached, ok := hexColorCache.Load(hex); ok {
-		return cached.(string)
+	if cached, ok := hexColorCache[hex]; ok {
+		return cached
 	}
-	result := computeANSI(hex)
-	hexColorCache.Store(hex, result)
-	return result
+	return computeANSI(hex)
 }
