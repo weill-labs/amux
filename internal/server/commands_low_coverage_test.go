@@ -4,6 +4,7 @@ package server
 
 import (
 	"bytes"
+	"encoding/json"
 	"net"
 	"reflect"
 	"strings"
@@ -481,6 +482,18 @@ func TestCommandWaitHooksClientsAndTypeKeys(t *testing.T) {
 	genRes := runTestCommand(t, srv, sess, "generation")
 	if genRes.cmdErr != "" || strings.TrimSpace(genRes.output) != "7" {
 		t.Fatalf("generation result = %#v", genRes)
+	}
+
+	layoutJSONRes := runTestCommand(t, srv, sess, "_layout-json")
+	if layoutJSONRes.cmdErr != "" {
+		t.Fatalf("_layout-json result = %#v", layoutJSONRes)
+	}
+	var layout proto.LayoutSnapshot
+	if err := json.Unmarshal([]byte(layoutJSONRes.output), &layout); err != nil {
+		t.Fatalf("json.Unmarshal(_layout-json): %v\noutput:\n%s", err, layoutJSONRes.output)
+	}
+	if layout.ActivePaneID != 1 || len(layout.Panes) != 1 || layout.Panes[0].Name != "pane-1" {
+		t.Fatalf("_layout-json snapshot = %+v, want active pane-1", layout)
 	}
 
 	waitLayoutRes := runTestCommand(t, srv, sess, "wait-layout", "--after", "6", "--timeout", "1ms")

@@ -91,6 +91,7 @@ var commandRegistry = map[string]CommandHandler{
 	"rotate":          cmdRotate,
 	"copy-mode":       cmdCopyMode,
 	"generation":      cmdGeneration,
+	"_layout-json":    cmdLayoutJSON,
 	"wait-layout":     cmdWaitLayout,
 	"clipboard-gen":   cmdClipboardGen,
 	"wait-clipboard":  cmdWaitClipboard,

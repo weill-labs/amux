@@ -341,6 +341,8 @@ func main() {
 		runServerCommand("unsplice", []string{args[1]})
 	case "reload-server":
 		runServerCommand("reload-server", nil)
+	case "_layout-json":
+		runServerCommand("_layout-json", nil)
 	case "_inject-proxy":
 		runServerCommand("_inject-proxy", args[1:])
 	case "dashboard":

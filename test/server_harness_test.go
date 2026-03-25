@@ -3,6 +3,7 @@ package test
 import (
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -536,19 +537,24 @@ func (h *ServerHarness) activePaneName() string {
 // call runCmd("split", ...) directly.
 func (h *ServerHarness) doSplit(args ...string) {
 	h.tb.Helper()
+	before := h.layoutSnapshot()
 	gen := h.generation()
-	pane := h.activePaneName()
+	pane, ok := activePaneNameFromLayout(before)
+	if !ok {
+		h.tb.Fatal("no active pane found in layout snapshot")
+	}
 	cmdArgs := append([]string{"split", pane}, args...)
 	out := h.runCmd(cmdArgs...)
 	if strings.Contains(out, "error") || strings.Contains(out, "cannot") {
 		h.tb.Fatalf("split %v failed: %s", args, out)
 	}
 	h.waitLayout(gen)
-	if created := splitCreatedPaneName(out); created != "" {
-		h.doFocus(created)
+	after := h.layoutSnapshot()
+	if createdID, ok := splitCreatedPaneIDFromLayout(before, after); ok {
+		h.doFocus(strconv.FormatUint(uint64(createdID), 10))
 		return
 	}
-	h.tb.Fatalf("split %v created no detectable new pane; output: %s", args, out)
+	h.tb.Fatalf("split %v created no detectable new pane; output: %s\nbefore panes: %+v\nafter panes: %+v", args, out, layoutPanes(before), layoutPanes(after))
 }
 
 // doFocus runs a focus command and waits for the layout generation to bump
@@ -567,6 +573,7 @@ func (h *ServerHarness) doFocus(args ...string) string {
 // (for example after reload).
 func (h *ServerHarness) doSplitPane(pane string, args ...string) {
 	h.tb.Helper()
+	before := h.layoutSnapshot()
 	gen := h.generation()
 	cmdArgs := append([]string{"split", pane}, args...)
 	out := h.runCmd(cmdArgs...)
@@ -574,25 +581,106 @@ func (h *ServerHarness) doSplitPane(pane string, args ...string) {
 		h.tb.Fatalf("split %s %v failed: %s", pane, args, out)
 	}
 	h.waitLayout(gen)
-	if created := splitCreatedPaneName(out); created != "" {
-		h.doFocus(created)
+	after := h.layoutSnapshot()
+	if createdID, ok := splitCreatedPaneIDFromLayout(before, after); ok {
+		h.doFocus(strconv.FormatUint(uint64(createdID), 10))
 		return
 	}
-	h.tb.Fatalf("split %s %v created no detectable new pane; output: %s", pane, args, out)
+	h.tb.Fatalf("split %s %v created no detectable new pane; output: %s\nbefore panes: %+v\nafter panes: %+v", pane, args, out, layoutPanes(before), layoutPanes(after))
 }
 
-func splitCreatedPaneName(output string) string {
-	for _, marker := range []string{"new remote pane ", "new pane "} {
-		idx := strings.Index(output, marker)
-		if idx < 0 {
-			continue
-		}
-		rest := strings.TrimSpace(output[idx+len(marker):])
-		if fields := strings.Fields(rest); len(fields) > 0 {
-			return fields[0]
+func (h *ServerHarness) layoutSnapshot() *proto.LayoutSnapshot {
+	h.tb.Helper()
+	out := h.runCmd("_layout-json")
+	var layout proto.LayoutSnapshot
+	if err := json.Unmarshal([]byte(out), &layout); err != nil {
+		h.tb.Fatalf("layoutSnapshot: %v\nraw: %s", err, out)
+	}
+	return &layout
+}
+
+func activePaneNameFromLayout(layout *proto.LayoutSnapshot) (string, bool) {
+	if layout == nil {
+		return "", false
+	}
+	if len(layout.Windows) > 0 {
+		for _, ws := range layout.Windows {
+			if ws.ID != layout.ActiveWindowID {
+				continue
+			}
+			for _, p := range ws.Panes {
+				if p.ID == ws.ActivePaneID {
+					return p.Name, true
+				}
+			}
+			return "", false
 		}
 	}
-	return ""
+	for _, p := range layout.Panes {
+		if p.ID == layout.ActivePaneID {
+			return p.Name, true
+		}
+	}
+	return "", false
+}
+
+func layoutPanes(layout *proto.LayoutSnapshot) []proto.PaneSnapshot {
+	if layout == nil {
+		return nil
+	}
+	if len(layout.Windows) == 0 {
+		return layout.Panes
+	}
+	panes := make([]proto.PaneSnapshot, 0)
+	for _, ws := range layout.Windows {
+		panes = append(panes, ws.Panes...)
+	}
+	return panes
+}
+
+func splitCreatedPaneIDFromLayout(before, after *proto.LayoutSnapshot) (uint32, bool) {
+	beforeIDs := make(map[uint32]struct{}, len(layoutPanes(before)))
+	for _, p := range layoutPanes(before) {
+		beforeIDs[p.ID] = struct{}{}
+	}
+	var createdID uint32
+	createdCount := 0
+	for _, p := range layoutPanes(after) {
+		if _, ok := beforeIDs[p.ID]; ok {
+			continue
+		}
+		createdID = p.ID
+		createdCount++
+	}
+	if createdCount != 1 {
+		return 0, false
+	}
+	return createdID, true
+}
+
+func TestSplitCreatedPaneIDFromLayout(t *testing.T) {
+	t.Parallel()
+
+	before := &proto.LayoutSnapshot{
+		Panes: []proto.PaneSnapshot{
+			{ID: 1, Name: "pane-1"},
+			{ID: 2, Name: "pane-2"},
+		},
+	}
+	after := &proto.LayoutSnapshot{
+		Panes: []proto.PaneSnapshot{
+			{ID: 1, Name: "pane-1"},
+			{ID: 2, Name: "pane-2"},
+			{ID: 7, Name: "pane-7"},
+		},
+	}
+
+	if got, ok := splitCreatedPaneIDFromLayout(before, after); !ok || got != 7 {
+		t.Fatalf("splitCreatedPaneIDFromLayout() = (%d, %t), want (7, true)", got, ok)
+	}
+	if got, ok := splitCreatedPaneIDFromLayout(before, before); ok || got != 0 {
+		t.Fatalf("splitCreatedPaneIDFromLayout() without new pane = (%d, %t), want (0, false)", got, ok)
+	}
 }
 
 func (h *ServerHarness) splitV()     { h.tb.Helper(); h.doSplit("v") }
