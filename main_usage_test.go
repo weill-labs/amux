@@ -13,15 +13,15 @@ func TestMainUsageHelperIsolatesAmbientSessionEnv(t *testing.T) {
 	if !strings.Contains(strings.Join(cmd.Args, "\x00"), "\x00-s\x00"+hermeticMainSession(t.Name())+"\x00kill") {
 		t.Fatalf("helper args = %q, want injected isolated session before command", cmd.Args)
 	}
+	if got, want := strings.Join(cmd.Env, "\x00"), strings.Join(hermeticMainEnv(), "\x00"); got != want {
+		t.Fatalf("helper env = %q, want %q", cmd.Env, hermeticMainEnv())
+	}
 	for _, prefix := range []string{"AMUX_PANE=", "AMUX_SESSION=", "TMUX="} {
 		for _, entry := range cmd.Env {
 			if strings.HasPrefix(entry, prefix) {
 				t.Fatalf("helper env leaked %s in %q", prefix, entry)
 			}
 		}
-	}
-	if !strings.Contains(strings.Join(cmd.Env, "\x00"), "\x00AMUX_MAIN_HELPER=1") {
-		t.Fatalf("helper env missing AMUX_MAIN_HELPER=1: %q", cmd.Env)
 	}
 }
 
