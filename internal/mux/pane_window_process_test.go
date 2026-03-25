@@ -48,7 +48,7 @@ func newAgentStatusTestPane(t *testing.T) *Pane {
 
 	p := &Pane{
 		ID:              123,
-		Meta:            PaneMeta{Name: "pane-123", Host: DefaultHost, Color: "f5e0dc"},
+		Meta:            PaneMeta{Name: "pane-123", Host: DefaultHost},
 		ptmx:            ptmx,
 		cmd:             cmd,
 		emulator:        NewVTEmulatorWithScrollback(40, 10, DefaultScrollbackLines),
