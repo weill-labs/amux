@@ -7,7 +7,7 @@ var errManagerClosed = errors.New("manager closed")
 // managerEvent is processed sequentially by the Manager event loop.
 // All mutable Manager state is accessed only from within event handlers.
 type managerEvent interface {
-	handle(*Manager)
+	handle(*Manager) bool
 }
 
 type managerQueryResult[T any] struct {
@@ -20,9 +20,25 @@ type managerQueryEvent[T any] struct {
 	reply chan managerQueryResult[T]
 }
 
-func (e managerQueryEvent[T]) handle(m *Manager) {
+func (e managerQueryEvent[T]) handle(m *Manager) bool {
 	value, err := e.fn(m)
 	e.reply <- managerQueryResult[T]{value: value, err: err}
+	return false
+}
+
+type managerShutdownEvent struct {
+	reply chan []*HostConn
+}
+
+func (e managerShutdownEvent) handle(m *Manager) bool {
+	hosts := make([]*HostConn, 0, len(m.hosts))
+	for _, hc := range m.hosts {
+		hosts = append(hosts, hc)
+	}
+	m.hosts = make(map[string]*HostConn)
+	m.localToHost = make(map[uint32]string)
+	e.reply <- hosts
+	return true
 }
 
 func enqueueManagerQuery[T any](m *Manager, fn func(*Manager) (T, error)) (T, error) {
@@ -47,7 +63,7 @@ func enqueueManagerQuery[T any](m *Manager, fn func(*Manager) (T, error)) (T, er
 }
 
 func (m *Manager) startEventLoop() {
-	m.cmds = make(chan managerEvent, 256)
+	m.cmds = make(chan managerEvent)
 	m.stop = make(chan struct{})
 	m.done = make(chan struct{})
 	go m.eventLoop()
@@ -56,13 +72,12 @@ func (m *Manager) startEventLoop() {
 func (m *Manager) eventLoop() {
 	defer close(m.done)
 	for {
-		select {
-		case <-m.stop:
+		ev := <-m.cmds
+		if ev == nil {
+			continue
+		}
+		if ev.handle(m) {
 			return
-		case ev := <-m.cmds:
-			if ev != nil {
-				ev.handle(m)
-			}
 		}
 	}
 }

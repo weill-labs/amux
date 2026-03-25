@@ -13,9 +13,10 @@ type testInManagerActorEvent struct {
 	done chan struct{}
 }
 
-func (e testInManagerActorEvent) handle(m *Manager) {
+func (e testInManagerActorEvent) handle(m *Manager) bool {
 	e.fn(m)
 	close(e.done)
+	return false
 }
 
 func testInManagerActor(t *testing.T, m *Manager, fn func(*Manager)) {

@@ -388,42 +388,20 @@ func (m *Manager) ConnStatusForPane(localPaneID uint32) string {
 	return string(hc.State())
 }
 
-func (m *Manager) snapshotHostsForShutdown() []*HostConn {
-	reply := make(chan managerQueryResult[[]*HostConn], 1)
-
-	ev := managerQueryEvent[[]*HostConn]{
-		fn: func(m *Manager) ([]*HostConn, error) {
-			hosts := make([]*HostConn, 0, len(m.hosts))
-			for _, hc := range m.hosts {
-				hosts = append(hosts, hc)
-			}
-			m.hosts = make(map[string]*HostConn)
-			m.localToHost = make(map[uint32]string)
-			return hosts, nil
-		},
-		reply: reply,
-	}
-
-	select {
-	case <-m.stop:
-		return nil
-	case m.cmds <- ev:
-	}
-
-	select {
-	case res := <-reply:
-		return res.value
-	case <-m.done:
-		return nil
-	}
-}
-
 // Shutdown disconnects all remote hosts and stops their event loops.
 func (m *Manager) Shutdown() {
 	m.closeOnce.Do(func() {
 		m.closed.Store(true)
-		hosts := m.snapshotHostsForShutdown()
 		close(m.stop)
+
+		reply := make(chan []*HostConn, 1)
+		select {
+		case <-m.done:
+			return
+		case m.cmds <- managerShutdownEvent{reply: reply}:
+		}
+
+		hosts := <-reply
 		<-m.done
 
 		for _, hc := range hosts {
