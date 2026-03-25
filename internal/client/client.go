@@ -416,6 +416,9 @@ func (cr *ClientRenderer) handleLocalRenderMsg(state *clientRenderLoopState, msg
 	}
 	result := msg.Local(cr)
 	if cr.executeRenderEffects(state, result.effects, write) {
+		if msg.Reply != nil {
+			msg.Reply <- result.value
+		}
 		return true
 	}
 	if msg.Reply != nil {
