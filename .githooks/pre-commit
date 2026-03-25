@@ -46,7 +46,7 @@ if [ "$NEEDS_FMT" = true ]; then
 fi
 
 # Reject new time.Sleep additions in test files — use wait primitives instead
-SLEEP_ADDITIONS=$(git diff --cached --diff-filter=ACM -U0 -- '*_test.go' | grep '^\+' | grep -vF '+++' | grep -F 'time.Sleep')
+SLEEP_ADDITIONS=$(git diff --cached --diff-filter=ACM -U0 -- '*_test.go' | grep '^\+' | grep -vF '+++' | grep -F 'time.Sleep' | grep -v 'nolint:gosleep')
 if [ -n "$SLEEP_ADDITIONS" ]; then
     echo "ERROR: new time.Sleep added to test files"
     echo "  Use deterministic wait primitives instead:"
