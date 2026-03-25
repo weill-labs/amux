@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/mux"
 )
 
@@ -124,6 +125,72 @@ func TestNotifyPaneOutputSubs(t *testing.T) {
 	case <-time.After(50 * time.Millisecond):
 		// ok
 	}
+}
+
+func TestBeginPaneOutputWait(t *testing.T) {
+	t.Parallel()
+
+	t.Run("matches existing screen content", func(t *testing.T) {
+		t.Parallel()
+
+		sess := newSession("test-begin-pane-output-wait-matched")
+		defer stopSessionBackgroundLoops(t, sess)
+
+		pane := newProxyPane(1, mux.PaneMeta{Name: "pane-1", Host: mux.DefaultHost, Color: config.AccentColor(0)}, 80, 23, sess.paneOutputCallback(), sess.paneExitCallback(), func(data []byte) (int, error) {
+			return len(data), nil
+		})
+		sess.Panes = []*mux.Pane{pane}
+
+		pane.FeedOutput([]byte("hello"))
+		sess.enqueueCommandMutation(func(s *Session) commandMutationResult { return commandMutationResult{} })
+
+		start, err := sess.beginPaneOutputWait(pane.ID, "hello")
+		if err != nil {
+			t.Fatalf("beginPaneOutputWait error = %v", err)
+		}
+		if !start.exists {
+			t.Fatal("beginPaneOutputWait reported missing pane")
+		}
+		defer sess.enqueuePaneOutputUnsubscribe(pane.ID, start.ch)
+		if !start.matched {
+			t.Fatal("beginPaneOutputWait matched = false, want true")
+		}
+	})
+
+	t.Run("wakes subscribed waiter on later output", func(t *testing.T) {
+		t.Parallel()
+
+		sess := newSession("test-begin-pane-output-wait-notify")
+		defer stopSessionBackgroundLoops(t, sess)
+
+		pane := newProxyPane(1, mux.PaneMeta{Name: "pane-1", Host: mux.DefaultHost, Color: config.AccentColor(0)}, 80, 23, sess.paneOutputCallback(), sess.paneExitCallback(), func(data []byte) (int, error) {
+			return len(data), nil
+		})
+		sess.Panes = []*mux.Pane{pane}
+
+		start, err := sess.beginPaneOutputWait(pane.ID, "hello")
+		if err != nil {
+			t.Fatalf("beginPaneOutputWait error = %v", err)
+		}
+		if !start.exists {
+			t.Fatal("beginPaneOutputWait reported missing pane")
+		}
+		defer sess.enqueuePaneOutputUnsubscribe(pane.ID, start.ch)
+		if start.matched {
+			t.Fatal("beginPaneOutputWait matched = true, want false")
+		}
+
+		pane.FeedOutput([]byte("hello"))
+
+		select {
+		case <-start.ch:
+			if !sess.paneScreenContains(pane.ID, "hello") {
+				t.Fatal("paneScreenContains(hello) = false, want true after notification")
+			}
+		case <-time.After(time.Second):
+			t.Fatal("expected pane output notification")
+		}
+	})
 }
 
 func TestWaitBusyForegroundPID(t *testing.T) {

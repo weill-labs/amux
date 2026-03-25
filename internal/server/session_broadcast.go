@@ -376,6 +376,40 @@ func (s *Session) paneScreenContains(paneID uint32, substr string) bool {
 	return pane.ScreenContains(substr)
 }
 
+type paneOutputWaitStart struct {
+	ch      chan struct{}
+	matched bool
+	exists  bool
+}
+
+func (s *Session) addPaneOutputSubscriber(paneID uint32) chan struct{} {
+	ch := make(chan struct{}, 1)
+	if s.paneOutputSubs == nil {
+		s.paneOutputSubs = make(map[uint32][]chan struct{})
+	}
+	s.paneOutputSubs[paneID] = append(s.paneOutputSubs[paneID], ch)
+	return ch
+}
+
+// beginPaneOutputWait atomically registers a pane-output subscriber and checks
+// the pane screen for the target substring inside the session actor. This
+// avoids the lost-wakeup race where output lands between an initial
+// ScreenContains check and later subscription registration.
+func (s *Session) beginPaneOutputWait(paneID uint32, substr string) (paneOutputWaitStart, error) {
+	return enqueueSessionQuery(s, func(s *Session) (paneOutputWaitStart, error) {
+		pane := s.findPaneByID(paneID)
+		if pane == nil {
+			return paneOutputWaitStart{}, nil
+		}
+		ch := s.addPaneOutputSubscriber(paneID)
+		return paneOutputWaitStart{
+			ch:      ch,
+			matched: pane.ScreenContains(substr),
+			exists:  true,
+		}, nil
+	})
+}
+
 // waitGeneration blocks until the layout generation exceeds afterGen or
 // timeout expires. Returns the current generation and whether it matched.
 func (s *Session) waitGeneration(afterGen uint64, timeout time.Duration) (uint64, bool) {

@@ -689,11 +689,7 @@ type paneOutputSubscribeCmd struct {
 }
 
 func (e paneOutputSubscribeCmd) handle(s *Session) {
-	ch := make(chan struct{}, 1)
-	if s.paneOutputSubs == nil {
-		s.paneOutputSubs = make(map[uint32][]chan struct{})
-	}
-	s.paneOutputSubs[e.paneID] = append(s.paneOutputSubs[e.paneID], ch)
+	ch := s.addPaneOutputSubscriber(e.paneID)
 	e.reply <- ch
 }
 

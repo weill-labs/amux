@@ -167,23 +167,26 @@ func cmdWaitFor(ctx *CommandContext) {
 	}
 	paneID := pane.paneID
 
-	if ctx.Sess.paneScreenContains(paneID, substr) {
-		ctx.reply("matched\n")
-		return
-	}
-
-	ch := ctx.Sess.enqueuePaneOutputSubscribe(paneID)
-	if ch == nil {
+	start, err := ctx.Sess.beginPaneOutputWait(paneID, substr)
+	if err != nil {
 		ctx.replyErr("session shutting down")
 		return
 	}
-	defer ctx.Sess.enqueuePaneOutputUnsubscribe(paneID, ch)
+	if !start.exists {
+		ctx.replyErr(fmt.Sprintf("pane %q disappeared while waiting for %q", paneRef, substr))
+		return
+	}
+	defer ctx.Sess.enqueuePaneOutputUnsubscribe(paneID, start.ch)
+	if start.matched {
+		ctx.reply("matched\n")
+		return
+	}
 
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
 	for {
 		select {
-		case <-ch:
+		case <-start.ch:
 			if ctx.Sess.paneScreenContains(paneID, substr) {
 				ctx.reply("matched\n")
 				return
