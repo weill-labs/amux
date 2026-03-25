@@ -258,7 +258,7 @@ func TestForwardCaptureJSONNoClientReturnsErrorObject(t *testing.T) {
 	_, sess, cleanup := newCommandTestSession(t)
 	defer cleanup()
 
-	sess.CaptureAttachMaxRetries = 1
+	sess.captureTiming.attachMaxRetries = 1
 
 	resp := sess.forwardCapture([]string{"--format", "json"})
 	if resp.CmdErr != "" {
@@ -271,8 +271,8 @@ func TestForwardCaptureJSONNoClientRetriesBeforeErrorObject(t *testing.T) {
 	_, sess, cleanup := newCommandTestSession(t)
 	defer cleanup()
 
-	sess.CaptureAttachMaxRetries = 2
-	sess.CaptureAttachRetryDelay = 1 // non-zero to avoid default; effectively instant
+	sess.captureTiming.attachMaxRetries = 2
+	sess.captureTiming.attachRetryDelay = time.Nanosecond
 
 	resp := sess.forwardCapture([]string{"--format", "json"})
 	if resp.CmdErr != "" {
@@ -367,7 +367,7 @@ func TestForwardCaptureJSONTimeoutReturnsErrorObject(t *testing.T) {
 	_, sess, cleanup := newCommandTestSession(t)
 	defer cleanup()
 
-	sess.CaptureResponseTimeout = time.Millisecond
+	sess.captureTiming.responseTimeout = time.Millisecond
 
 	msg, respCh := startForwardCaptureForTest(t, sess, []string{"--format", "json"})
 	if msg.Type != MsgTypeCaptureRequest {
