@@ -24,6 +24,7 @@ func (c *FakeClock) Now() time.Time {
 }
 
 func (c *FakeClock) newFakeTimer(d time.Duration, fn func()) *fakeTimer {
+	// Caller must hold c.mu.
 	ft := &fakeTimer{
 		clock:    c,
 		deadline: c.now.Add(d),
@@ -48,14 +49,22 @@ func (c *FakeClock) AfterFunc(d time.Duration, f func()) Timer {
 
 // Advance moves the clock forward by d and fires all expired timers.
 // AfterFunc callbacks run synchronously; NewTimer channels receive a value.
+//
+// Lock order: c.mu is held only to snapshot and update the timer list.
+// Individual ft.mu locks are acquired after c.mu is released to avoid
+// lock-order inversion with fakeTimer.Reset (which acquires c.mu while
+// potentially holding ft.mu from the caller's resetTimer path).
 func (c *FakeClock) Advance(d time.Duration) {
 	c.mu.Lock()
 	c.now = c.now.Add(d)
 	now := c.now
+	snapshot := make([]*fakeTimer, len(c.timers))
+	copy(snapshot, c.timers)
+	c.mu.Unlock()
 
 	var ready []*fakeTimer
 	var remaining []*fakeTimer
-	for _, ft := range c.timers {
+	for _, ft := range snapshot {
 		ft.mu.Lock()
 		stopped := ft.stopped
 		pastDeadline := !ft.deadline.After(now)
@@ -69,6 +78,8 @@ func (c *FakeClock) Advance(d time.Duration) {
 			remaining = append(remaining, ft)
 		}
 	}
+
+	c.mu.Lock()
 	c.timers = remaining
 	c.mu.Unlock()
 
@@ -104,22 +115,20 @@ func (t *fakeTimer) Stop() bool {
 }
 
 func (t *fakeTimer) Reset(d time.Duration) bool {
+	// Lock order: c.mu first, then t.mu — same order as Advance.
+	t.clock.mu.Lock()
+	defer t.clock.mu.Unlock()
+
 	t.mu.Lock()
 	was := !t.stopped
 	t.stopped = false
-	// Drain any pending value.
+	t.deadline = t.clock.now.Add(d)
 	select {
 	case <-t.ch:
 	default:
 	}
 	t.mu.Unlock()
 
-	// Re-register with the clock at the new deadline.
-	t.clock.mu.Lock()
-	t.mu.Lock()
-	t.deadline = t.clock.now.Add(d)
-	t.mu.Unlock()
 	t.clock.timers = append(t.clock.timers, t)
-	t.clock.mu.Unlock()
 	return was
 }

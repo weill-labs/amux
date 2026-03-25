@@ -16,9 +16,9 @@ import (
 // scheduling yield, not a timing assertion — the fake clock controls all
 // timer-based logic. The sleep duration is generous to avoid flakes under
 // heavy CPU contention with -race -count=100.
-//
-//nolint:gocritic // intentional scheduling yield, not a timing assertion
-var yieldToCommandHandler = func() { time.Sleep(5 * time.Millisecond) } //nolint:gosleep
+func yieldToCommandHandler() {
+	time.Sleep(5 * time.Millisecond) //nolint:gosleep
+}
 
 func startAsyncCommand(t *testing.T, srv *Server, sess *Session, name string, args ...string) (net.Conn, *clientConn, <-chan struct{}) {
 	t.Helper()
@@ -46,24 +46,6 @@ func startAsyncCommand(t *testing.T, srv *Server, sess *Session, name string, ar
 	})
 
 	return clientConn, cc, done
-}
-
-func assertNoCmdResultWithin(t *testing.T, conn net.Conn, d time.Duration) {
-	t.Helper()
-
-	if err := conn.SetReadDeadline(time.Now().Add(d)); err != nil {
-		t.Fatalf("SetReadDeadline: %v", err)
-	}
-	defer conn.SetReadDeadline(time.Time{})
-
-	msg, err := ReadMsg(conn)
-	if err == nil {
-		t.Fatalf("unexpected message before deadline: %#v", msg)
-	}
-	if ne, ok := err.(net.Error); ok && ne.Timeout() {
-		return
-	}
-	t.Fatalf("ReadMsg: %v", err)
 }
 
 func setupWaitVTIdleTestPane(t *testing.T) (*Server, *Session, *mux.Pane, func()) {
@@ -191,7 +173,7 @@ func TestCmdWaitVTIdleTimeout(t *testing.T) {
 	srv, sess, _, cleanup := setupWaitVTIdleTestPane(t)
 	defer cleanup()
 	sess.Clock = clk
-	sess.vtIdle = NewVTIdleTrackerWithClock(clk)
+	sess.vtIdle = NewVTIdleTracker(clk)
 
 	clientConn, _, done := startAsyncCommand(t, srv, sess, "wait-vt-idle", "pane-1", "--settle", "200ms", "--timeout", "40ms")
 
@@ -223,7 +205,7 @@ func TestCmdWaitVTIdleResetsSettleTimerOnOutput(t *testing.T) {
 	srv, sess, pane, cleanup := setupWaitVTIdleTestPane(t)
 	defer cleanup()
 	sess.Clock = clk
-	sess.vtIdle = NewVTIdleTrackerWithClock(clk)
+	sess.vtIdle = NewVTIdleTracker(clk)
 
 	clientConn, _, done := startAsyncCommand(t, srv, sess, "wait-vt-idle", "pane-1", "--settle", "100ms", "--timeout", "5s")
 
