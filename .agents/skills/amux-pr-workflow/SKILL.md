@@ -28,6 +28,7 @@ Use this skill when the task involves `git push`, `gh pr create`, `gh pr merge`,
 - After merge, any follow-up fix goes on a fresh branch and PR. Do not make extra commits on local `main`.
 - After merge, explicitly run `$postmortem`. A short manual summary does not count. Turn action items into issues or doc updates.
 - Do not say `$postmortem` ran unless you have the logged `~/.local/share/postmortems/...` path.
+- In the final merge closeout, include the `$postmortem` log path, summarize the key learnings and concrete action items, and say whether they were implemented now or left as follow-up work.
 - If `$postmortem` is skipped, say so explicitly and give the reason. Do not imply it was done.
 
 ## Workflow
@@ -46,6 +47,7 @@ Use this skill when the task involves `git push`, `gh pr create`, `gh pr merge`,
 12. If you discover a follow-up fix after merge, create a fresh branch before editing.
 13. After merge, explicitly run `$postmortem` to capture learnings, pain points, and follow-up actions. Do not substitute a brief ad hoc summary.
 14. In the final merge closeout, state either the logged `$postmortem` path or the explicit reason it was skipped.
+15. If `$postmortem` ran, summarize the main learnings and follow-up actions in the user-facing closeout so the user gets the result directly, not only via the log file.
 
 ## Output Checklist
 
@@ -63,3 +65,4 @@ Use this skill when the task involves `git push`, `gh pr create`, `gh pr merge`,
 - Follow-up fixes kept off local `main`.
 - `$postmortem` explicitly run after merge, or a clear skip reason is stated.
 - If `$postmortem` ran, the log path is reported.
+- If `$postmortem` ran, the key learnings and action items are also summarized in the final handoff.
