@@ -23,8 +23,6 @@ import (
 	"golang.org/x/term"
 )
 
-var termGetSize = term.GetSize
-
 type attachBootstrapMessage struct {
 	typ     proto.MsgType
 	paneID  uint32
@@ -78,13 +76,10 @@ func applyAttachBootstrapMessage(cr *ClientRenderer, msg attachBootstrapMessage)
 	}
 }
 
-// attachBootstrapCorrectionWindow is the maximum time readImmediateAttachCorrection
-// waits for post-bootstrap layout corrections from the server. Override in tests
-// to avoid the 50ms-per-attach overhead.
-var attachBootstrapCorrectionWindow = 50 * time.Millisecond
+const defaultBootstrapCorrectionWindow = 50 * time.Millisecond
 
-func readImmediateAttachCorrection(conn net.Conn, cr *ClientRenderer) error {
-	if err := conn.SetReadDeadline(time.Now().Add(attachBootstrapCorrectionWindow)); err != nil {
+func readImmediateAttachCorrection(conn net.Conn, cr *ClientRenderer, timeout time.Duration) error {
+	if err := conn.SetReadDeadline(time.Now().Add(timeout)); err != nil {
 		return err
 	}
 	defer conn.SetReadDeadline(time.Time{}) //nolint:errcheck // best-effort reset
@@ -150,7 +145,7 @@ func readAttachBootstrap(conn net.Conn, cr *ClientRenderer) error {
 		remainingOutputs -= applyAttachBootstrapMessage(cr, bufferedMsg)
 	}
 
-	return readImmediateAttachCorrection(conn, cr)
+	return readImmediateAttachCorrection(conn, cr, defaultBootstrapCorrectionWindow)
 }
 
 func handleDisplayPaneSelection(cr *ClientRenderer, sender *messageSender, b byte) {
@@ -161,8 +156,8 @@ func handleDisplayPaneSelection(cr *ClientRenderer, sender *messageSender, b byt
 	}
 }
 
-func syncTerminalSize(fd int, prevCols, prevRows int, cr *ClientRenderer, sender *messageSender) (int, int) {
-	c, r, _ := termGetSize(fd)
+func syncTerminalSize(fd int, prevCols, prevRows int, cr *ClientRenderer, sender *messageSender, getSize func(int) (int, int, error)) (int, int) {
+	c, r, _ := getSize(fd)
 	if c <= 0 || r <= 0 {
 		return prevCols, prevRows
 	}
@@ -203,7 +198,7 @@ func terminalExitSequence(caps proto.ClientCapabilities) string {
 
 // RunSession connects to an existing server or starts one, then enters raw
 // terminal mode for interactive use.
-func RunSession(sessionName string) error {
+func RunSession(sessionName string, getTermSize func(int) (int, int, error)) error {
 	// Load config for keybindings
 	cfg, err := config.Load(config.DefaultPath())
 	if err != nil {
@@ -231,7 +226,7 @@ func RunSession(sessionName string) error {
 	defer sender.Close()
 
 	fd := int(os.Stdin.Fd())
-	cols, rows, _ := termGetSize(fd)
+	cols, rows, _ := getTermSize(fd)
 	if cols <= 0 {
 		cols = server.DefaultTermCols
 	}
@@ -279,14 +274,10 @@ func RunSession(sessionName string) error {
 		io.WriteString(os.Stdout, initial)
 	}
 
-	// Hot reload: resolve binary path once, start file watcher.
-	// AMUX_NO_WATCH=1 disables watching (used by test harness for the outer
-	// client so only the inner client responds to binary changes).
+	// Resolve the current binary once so explicit reloads and server reload
+	// notices can re-exec the client into the replacement binary.
 	triggerReload := make(chan struct{}, 1)
-	execPath, execErr := reload.ResolveExecutable()
-	if execErr == nil && os.Getenv("AMUX_NO_WATCH") != "1" && reload.ShouldWatchBinary(execPath) {
-		go reload.WatchBinary(execPath, triggerReload, nil)
-	}
+	execPath, _ := reload.ResolveExecutable()
 
 	// Forward SIGWINCH to server and update client renderer
 	sigCh := make(chan os.Signal, 1)
@@ -298,12 +289,12 @@ func RunSession(sessionName string) error {
 	go func() {
 		lastCols, lastRows := initCols, initRows
 		for range sigCh {
-			lastCols, lastRows = syncTerminalSize(fd, lastCols, lastRows, cr, sender)
+			lastCols, lastRows = syncTerminalSize(fd, lastCols, lastRows, cr, sender, getTermSize)
 		}
 	}()
 	// Recheck once after the handler is live so startup-time size changes
 	// (common on mobile/SSH clients) are not lost before the first SIGWINCH.
-	cols, rows = syncTerminalSize(fd, cols, rows, cr, sender)
+	cols, rows = syncTerminalSize(fd, cols, rows, cr, sender, getTermSize)
 
 	// Channel for injecting keystrokes from type-keys (server → client).
 	injectCh := make(chan []byte, 16)

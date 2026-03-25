@@ -20,7 +20,7 @@ func newRecordingPane(sess *Session, id uint32, name string, sink *bytes.Buffer)
 	return newProxyPane(id, mux.PaneMeta{
 		Name:  name,
 		Host:  mux.DefaultHost,
-		Color: config.CatppuccinMocha[(id-1)%uint32(len(config.CatppuccinMocha))],
+		Color: config.AccentColor(id - 1),
 	}, 80, 23, sess.paneOutputCallback(), sess.paneExitCallback(), func(data []byte) (int, error) {
 		_, _ = sink.Write(data)
 		return len(data), nil
@@ -31,7 +31,7 @@ func newStandaloneProxyPane(id uint32, name string) *mux.Pane {
 	return mux.NewProxyPaneWithScrollback(id, mux.PaneMeta{
 		Name:  name,
 		Host:  mux.DefaultHost,
-		Color: config.CatppuccinMocha[(id-1)%uint32(len(config.CatppuccinMocha))],
+		Color: config.AccentColor(id - 1),
 	}, 80, 23, mux.DefaultScrollbackLines, nil, nil, func(data []byte) (int, error) {
 		return len(data), nil
 	})

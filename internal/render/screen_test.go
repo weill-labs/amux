@@ -1339,8 +1339,7 @@ func FuzzCompositor(f *testing.F) {
 	f.Add([]byte{1, 0})
 	f.Add([]byte{2, 0, 1, 0, 2, 0, 1, 0})
 
-	colors := make([]string, len(config.CatppuccinMocha))
-	copy(colors, config.CatppuccinMocha)
+	colors := config.AccentColors()
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		width, height := 80, 24

@@ -3,10 +3,8 @@
 package reload
 
 import (
-	"bufio"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -22,75 +20,43 @@ func ResolveExecutable() (string, error) {
 	return filepath.EvalSymlinks(exe)
 }
 
-// ShouldWatchBinary reports whether hot reload should watch execPath from the
-// current working directory context. Installed shared binaries only watch when
-// launched from the checkout that last installed them.
-func ShouldWatchBinary(execPath string) bool {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return true
+func resetDebounceTimer(timer *time.Timer, delay time.Duration) *time.Timer {
+	if timer == nil {
+		return time.NewTimer(delay)
 	}
-	return shouldWatchBinary(execPath, cwd)
-}
-
-func shouldWatchBinary(execPath, cwd string) bool {
-	sourceRepo, ok := readInstallSourceRepo(execPath)
-	if !ok {
-		return true
-	}
-
-	repoRoot, ok := findRepoRoot(cwd)
-	if !ok {
-		return false
-	}
-
-	sourceRepo = cleanPath(sourceRepo)
-	repoRoot = cleanPath(repoRoot)
-	return sourceRepo != "" && repoRoot == sourceRepo
-}
-
-func readInstallSourceRepo(execPath string) (string, bool) {
-	f, err := os.Open(execPath + ".install-meta")
-	if err != nil {
-		return "", false
-	}
-	defer f.Close()
-
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if !strings.HasPrefix(line, "source_repo=") {
-			continue
+	if !timer.Stop() {
+		select {
+		case <-timer.C:
+		default:
 		}
-		return strings.TrimSpace(strings.TrimPrefix(line, "source_repo=")), true
 	}
-	return "", false
+	timer.Reset(delay)
+	return timer
 }
 
-func findRepoRoot(start string) (string, bool) {
-	dir := cleanPath(start)
-	for dir != "" && dir != string(filepath.Separator) {
-		gitPath := filepath.Join(dir, ".git")
-		if _, err := os.Stat(gitPath); err == nil {
-			return dir, true
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			break
-		}
-		dir = parent
-	}
-	return "", false
+func watchEventMatchesTarget(event fsnotify.Event, base string) bool {
+	return filepath.Base(event.Name) == base && event.Op&(fsnotify.Write|fsnotify.Create) != 0
 }
 
-func cleanPath(path string) string {
-	if path == "" {
-		return ""
+func drainPendingReloadEvents(events <-chan fsnotify.Event, errors <-chan error, base string) bool {
+	drained := false
+	for {
+		select {
+		case event, ok := <-events:
+			if !ok {
+				return drained
+			}
+			if watchEventMatchesTarget(event, base) {
+				drained = true
+			}
+		case _, ok := <-errors:
+			if !ok {
+				return drained
+			}
+		default:
+			return drained
+		}
 	}
-	if resolved, err := filepath.EvalSymlinks(path); err == nil {
-		return resolved
-	}
-	return filepath.Clean(path)
 }
 
 // WatchBinary watches for changes to the binary at execPath and sends on
@@ -122,6 +88,7 @@ func WatchBinary(execPath string, triggerReload chan<- struct{}, ready chan<- st
 	closeReady()
 
 	var debounce *time.Timer
+	var debounceC <-chan time.Time
 
 	for {
 		select {
@@ -129,22 +96,23 @@ func WatchBinary(execPath string, triggerReload chan<- struct{}, ready chan<- st
 			if !ok {
 				return
 			}
-			if filepath.Base(event.Name) != base {
+			if !watchEventMatchesTarget(event, base) {
 				continue
 			}
-			if event.Op&(fsnotify.Write|fsnotify.Create) == 0 {
+			debounce = resetDebounceTimer(debounce, 200*time.Millisecond)
+			debounceC = debounce.C
+
+		case <-debounceC:
+			debounceC = nil
+			if drainPendingReloadEvents(watcher.Events, watcher.Errors, base) {
+				debounce = resetDebounceTimer(debounce, 200*time.Millisecond)
+				debounceC = debounce.C
 				continue
 			}
-			// Reset debounce timer
-			if debounce != nil {
-				debounce.Stop()
+			select {
+			case triggerReload <- struct{}{}:
+			default:
 			}
-			debounce = time.AfterFunc(200*time.Millisecond, func() {
-				select {
-				case triggerReload <- struct{}{}:
-				default:
-				}
-			})
 
 		case _, ok := <-watcher.Errors:
 			if !ok {

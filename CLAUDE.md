@@ -140,6 +140,8 @@ If a change in this repo is ready for review, open the PR proactively instead of
 
 Before stopping to wait for user input, suggest the next concrete action the user should take or approve. Do not end at "waiting on you" without a specific next step.
 
+If you ran `$postmortem`, provide the log path, summarize the key learnings, list the concrete action items, and say whether you already implemented them or left them for follow-up.
+
 ### Merge Conflict Resolution
 
 After resolving merge conflicts, run `go vet ./...` locally before committing. Git auto-merge can silently produce duplicate declarations (e.g., methods defined in both sides) that compile but fail vet.
@@ -151,6 +153,8 @@ GitHub PRs for this repo are squash-only. `gh pr merge --merge` and `gh pr merge
 After merging, verify local state explicitly: check that the checkout is on `main`, the worktree is clean, and `HEAD` matches `origin/main`. If you need another change after the merge, start a fresh branch and PR instead of committing follow-up fixes on local `main`.
 
 After merging, explicitly run `$postmortem`. A short manual recap is not a substitute for the postmortem workflow, and do not claim it ran unless you have the logged `~/.local/share/postmortems/...` path.
+
+In the final merge closeout, tell the user what the postmortem found and what follow-up actions, if any, came out of it, alongside the logged path.
 
 ### Include Baseline Numbers In Performance PRs
 
