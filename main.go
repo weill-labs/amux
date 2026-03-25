@@ -20,6 +20,7 @@ import (
 	"github.com/weill-labs/amux/internal/server"
 	"github.com/weill-labs/amux/internal/terminfo"
 	"golang.org/x/sys/unix"
+	"golang.org/x/term"
 )
 
 // sessionName is the global session name, set by -s flag or defaulting to "default".
@@ -64,7 +65,7 @@ func main() {
 			}
 		}
 		checkNesting(sessionName)
-		if err := client.RunSession(sessionName); err != nil {
+		if err := client.RunSession(sessionName, term.GetSize); err != nil {
 			fmt.Fprintf(os.Stderr, "amux: %v\n", err)
 			os.Exit(1)
 		}
@@ -100,7 +101,7 @@ func main() {
 			name = sessionName
 		}
 		checkNesting(name)
-		if err := client.RunSession(name); err != nil {
+		if err := client.RunSession(name, term.GetSize); err != nil {
 			fmt.Fprintf(os.Stderr, "amux: %v\n", err)
 			os.Exit(1)
 		}
@@ -111,7 +112,7 @@ func main() {
 			name = args[1]
 		}
 		checkNesting(name)
-		if err := client.RunSession(name); err != nil {
+		if err := client.RunSession(name, term.GetSize); err != nil {
 			fmt.Fprintf(os.Stderr, "amux: %v\n", err)
 			os.Exit(1)
 		}

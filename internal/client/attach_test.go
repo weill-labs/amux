@@ -10,15 +10,6 @@ import (
 	"github.com/weill-labs/amux/internal/render"
 )
 
-func stubTermGetSize(t *testing.T, fn func(int) (int, int, error)) {
-	t.Helper()
-	prev := termGetSize
-	termGetSize = fn
-	t.Cleanup(func() {
-		termGetSize = prev
-	})
-}
-
 func readResizeMessage(t *testing.T, conn net.Conn) *proto.Message {
 	t.Helper()
 	if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {

@@ -23,11 +23,6 @@ import (
 	"golang.org/x/term"
 )
 
-// termGetSize is the terminal size function used by RunSession.
-// RunSession is the process-level entry point with no struct to inject into,
-// so this remains a package-level var. Tests override it via stubTermGetSize.
-var termGetSize = term.GetSize
-
 type attachBootstrapMessage struct {
 	typ     proto.MsgType
 	paneID  uint32
@@ -203,7 +198,7 @@ func terminalExitSequence(caps proto.ClientCapabilities) string {
 
 // RunSession connects to an existing server or starts one, then enters raw
 // terminal mode for interactive use.
-func RunSession(sessionName string) error {
+func RunSession(sessionName string, getTermSize func(int) (int, int, error)) error {
 	// Load config for keybindings
 	cfg, err := config.Load(config.DefaultPath())
 	if err != nil {
@@ -231,8 +226,7 @@ func RunSession(sessionName string) error {
 	defer sender.Close()
 
 	fd := int(os.Stdin.Fd())
-	getSize := termGetSize // capture once — goroutines use this copy
-	cols, rows, _ := getSize(fd)
+	cols, rows, _ := getTermSize(fd)
 	if cols <= 0 {
 		cols = server.DefaultTermCols
 	}
@@ -299,12 +293,12 @@ func RunSession(sessionName string) error {
 	go func() {
 		lastCols, lastRows := initCols, initRows
 		for range sigCh {
-			lastCols, lastRows = syncTerminalSize(fd, lastCols, lastRows, cr, sender, getSize)
+			lastCols, lastRows = syncTerminalSize(fd, lastCols, lastRows, cr, sender, getTermSize)
 		}
 	}()
 	// Recheck once after the handler is live so startup-time size changes
 	// (common on mobile/SSH clients) are not lost before the first SIGWINCH.
-	cols, rows = syncTerminalSize(fd, cols, rows, cr, sender, getSize)
+	cols, rows = syncTerminalSize(fd, cols, rows, cr, sender, getTermSize)
 
 	// Channel for injecting keystrokes from type-keys (server → client).
 	injectCh := make(chan []byte, 16)

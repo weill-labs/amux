@@ -13,7 +13,6 @@ ALLOWLIST=(
   "activePointCounter"               # mux/window.go — atomic counter, not a test seam
   "source"                           # terminfo/terminfo.go — embedded data
   "AllEvents"                        # hooks/hooks.go — read-only registry
-  "termGetSize"                      # client/attach.go — RunSession entry point, no struct to inject into
 )
 
 allowlist_pattern=$(printf "|%s" "${ALLOWLIST[@]}")
