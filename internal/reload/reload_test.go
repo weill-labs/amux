@@ -5,92 +5,127 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/fsnotify/fsnotify"
 )
 
-func TestShouldWatchBinary_NoInstallMetadata(t *testing.T) {
-	dir := t.TempDir()
-	binPath := filepath.Join(dir, "amux-test")
-	if err := os.WriteFile(binPath, []byte("v1"), 0755); err != nil {
-		t.Fatal(err)
-	}
+func TestResetDebounceTimerCreatesTimer(t *testing.T) {
+	t.Parallel()
 
-	if !shouldWatchBinary(binPath, dir) {
-		t.Fatal("should watch binary without install metadata")
+	timer := resetDebounceTimer(nil, 20*time.Millisecond)
+	defer func() {
+		if !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
+	}()
+
+	select {
+	case <-timer.C:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("expected debounce timer to fire")
 	}
 }
 
-func TestShouldWatchBinary_SharedInstallSameRepo(t *testing.T) {
-	execDir := t.TempDir()
-	binPath := filepath.Join(execDir, "amux")
-	if err := os.WriteFile(binPath, []byte("v1"), 0755); err != nil {
-		t.Fatal(err)
-	}
+func TestResetDebounceTimerDrainsExpiredUnreadTimer(t *testing.T) {
+	t.Parallel()
 
-	repoRoot := filepath.Join(t.TempDir(), "amux9")
-	if err := os.MkdirAll(filepath.Join(repoRoot, ".git"), 0755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(binPath+".install-meta", []byte("source_repo="+repoRoot+"\n"), 0644); err != nil {
-		t.Fatal(err)
-	}
+	timer := time.NewTimer(20 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
-	cwd := filepath.Join(repoRoot, "internal", "client")
-	if err := os.MkdirAll(cwd, 0755); err != nil {
-		t.Fatal(err)
-	}
+	timer = resetDebounceTimer(timer, 80*time.Millisecond)
+	defer func() {
+		if !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
+	}()
 
-	if !shouldWatchBinary(binPath, cwd) {
-		t.Fatal("should watch binary when cwd is inside source_repo")
+	select {
+	case <-timer.C:
+		t.Fatal("debounce timer should not fire immediately after reset")
+	case <-time.After(30 * time.Millisecond):
 	}
 }
 
-func TestShouldWatchBinary_SharedInstallDifferentRepo(t *testing.T) {
-	execDir := t.TempDir()
-	binPath := filepath.Join(execDir, "amux")
-	if err := os.WriteFile(binPath, []byte("v1"), 0755); err != nil {
-		t.Fatal(err)
+func TestResetDebounceTimerHandlesExpiredDrainedTimer(t *testing.T) {
+	t.Parallel()
+
+	timer := time.NewTimer(20 * time.Millisecond)
+	select {
+	case <-timer.C:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("expected timer to expire before reset")
 	}
 
-	sourceRepo := filepath.Join(t.TempDir(), "amux9")
-	if err := os.MkdirAll(filepath.Join(sourceRepo, ".git"), 0755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(binPath+".install-meta", []byte("source_repo="+sourceRepo+"\n"), 0644); err != nil {
-		t.Fatal(err)
-	}
+	timer = resetDebounceTimer(timer, 80*time.Millisecond)
+	defer func() {
+		if !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
+	}()
 
-	otherRepo := filepath.Join(t.TempDir(), "amux5")
-	if err := os.MkdirAll(filepath.Join(otherRepo, ".git"), 0755); err != nil {
-		t.Fatal(err)
-	}
-
-	if shouldWatchBinary(binPath, otherRepo) {
-		t.Fatal("should not watch binary when cwd repo differs from source_repo")
+	select {
+	case <-timer.C:
+		t.Fatal("debounce timer should not fire immediately after drained reset")
+	case <-time.After(30 * time.Millisecond):
 	}
 }
 
-func TestShouldWatchBinary_SharedInstallOutsideRepo(t *testing.T) {
-	execDir := t.TempDir()
-	binPath := filepath.Join(execDir, "amux")
-	if err := os.WriteFile(binPath, []byte("v1"), 0755); err != nil {
-		t.Fatal(err)
-	}
+func TestWatchEventMatchesTarget(t *testing.T) {
+	t.Parallel()
 
-	sourceRepo := filepath.Join(t.TempDir(), "amux9")
-	if err := os.MkdirAll(filepath.Join(sourceRepo, ".git"), 0755); err != nil {
-		t.Fatal(err)
+	if !watchEventMatchesTarget(fsnotify.Event{Name: "/tmp/amux", Op: fsnotify.Write}, "amux") {
+		t.Fatal("write event for target binary should match")
 	}
-	if err := os.WriteFile(binPath+".install-meta", []byte("source_repo="+sourceRepo+"\n"), 0644); err != nil {
-		t.Fatal(err)
+	if !watchEventMatchesTarget(fsnotify.Event{Name: "/tmp/amux", Op: fsnotify.Create}, "amux") {
+		t.Fatal("create event for target binary should match")
 	}
+	if watchEventMatchesTarget(fsnotify.Event{Name: "/tmp/other", Op: fsnotify.Write}, "amux") {
+		t.Fatal("write event for a different file should not match")
+	}
+	if watchEventMatchesTarget(fsnotify.Event{Name: "/tmp/amux", Op: fsnotify.Remove}, "amux") {
+		t.Fatal("non-write/create event for target binary should not match")
+	}
+}
 
-	plainDir := filepath.Join(t.TempDir(), "project")
-	if err := os.MkdirAll(plainDir, 0755); err != nil {
-		t.Fatal(err)
-	}
+func TestDrainPendingReloadEvents(t *testing.T) {
+	t.Parallel()
 
-	if shouldWatchBinary(binPath, plainDir) {
-		t.Fatal("should not watch shared installed binary outside source repo")
+	events := make(chan fsnotify.Event, 4)
+	errors := make(chan error, 2)
+	events <- fsnotify.Event{Name: "/tmp/other", Op: fsnotify.Write}
+	events <- fsnotify.Event{Name: "/tmp/amux", Op: fsnotify.Write}
+	errors <- nil
+
+	if !drainPendingReloadEvents(events, errors, "amux") {
+		t.Fatal("drain should report a matching pending reload event")
+	}
+	if len(events) != 0 {
+		t.Fatalf("drain should consume all pending events, got %d left", len(events))
+	}
+	if len(errors) != 0 {
+		t.Fatalf("drain should consume pending errors, got %d left", len(errors))
+	}
+}
+
+func TestDrainPendingReloadEventsNoMatch(t *testing.T) {
+	t.Parallel()
+
+	events := make(chan fsnotify.Event, 2)
+	errors := make(chan error, 1)
+	events <- fsnotify.Event{Name: "/tmp/other", Op: fsnotify.Write}
+	errors <- nil
+
+	if drainPendingReloadEvents(events, errors, "amux") {
+		t.Fatal("drain should ignore unrelated pending events")
 	}
 }
 

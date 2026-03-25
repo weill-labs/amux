@@ -154,10 +154,10 @@ func TestHotReloadAutoDetect(t *testing.T) {
 	}
 }
 
-func TestHotReloadIgnoresBinaryRewriteWhenInstallMetadataPointsAtDifferentRepo(t *testing.T) {
+func TestHotReloadRebuildConvergesFromOutsideRepoWithMismatchedInstallMetadata(t *testing.T) {
 	privateDir := t.TempDir()
 	privateBin := filepath.Join(privateDir, "amux")
-	if err := buildAmux(privateBin); err != nil {
+	if err := buildAmuxWithCommit(privateBin, "beforeoutside"); err != nil {
 		t.Fatalf("building private amux binary: %v", err)
 	}
 
@@ -170,30 +170,37 @@ func TestHotReloadIgnoresBinaryRewriteWhenInstallMetadataPointsAtDifferentRepo(t
 		t.Fatalf("writing install metadata: %v", err)
 	}
 
-	h := newAmuxHarnessWithBin(t, privateBin)
-
-	initialIDs := waitForClientIDs(t, h, 5*time.Second, 1)
-	initialID := initialIDs[0]
-
-	if err := buildAmux(privateBin); err != nil {
-		t.Fatalf("rewriting private amux binary: %v", err)
+	plainDir := filepath.Join(t.TempDir(), "plain-dir")
+	if err := os.MkdirAll(plainDir, 0755); err != nil {
+		t.Fatalf("creating plain launch dir: %v", err)
 	}
 
-	assertClientIDsStable(t, h, []string{initialID}, 3*time.Second)
-	if !h.waitForOuterFunc(func(screen string) bool {
-		return strings.Contains(screen, "[pane-")
-	}, 3*time.Second) {
-		t.Fatalf("inner UI should remain rendered after ignored binary rewrite\nScreen:\n%s", h.captureOuter())
+	h := newAmuxHarnessWithBinInDir(t, privateBin, plainDir)
+
+	if before := h.runCmd("status"); !strings.Contains(before, "build: beforeoutside") {
+		t.Fatalf("status before binary rewrite = %q, want before build marker", before)
+	}
+	waitForClientIDs(t, h, 5*time.Second, 1)
+
+	if err := buildAmuxAtomic(privateBin, "srvonlyreload"); err != nil {
+		t.Fatalf("rewriting private amux binary atomically: %v", err)
 	}
 
-	h.sendKeys("echo NO_MISMATCH_RELOAD", "Enter")
-	if !h.waitFor("NO_MISMATCH_RELOAD", 5*time.Second) {
-		t.Fatalf("inner client should still own input after ignored binary rewrite\nScreen:\n%s", h.captureOuter())
+	after := waitForOutput(t, 10*time.Second, func() string {
+		return h.runCmd("status")
+	}, func(out string) bool {
+		return strings.Contains(out, "build: srvonlyreload")
+	})
+	if !strings.Contains(after, "build: srvonlyreload") {
+		t.Fatalf("status after binary rewrite = %q, want new build marker", after)
 	}
 
-	finalIDs := parseClientIDs(h.runCmd("list-clients"))
-	if len(finalIDs) != 1 || finalIDs[0] != initialID {
-		t.Fatalf("list-clients after ignored binary rewrite = %v, want [%s]", finalIDs, initialID)
+	finalIDs := waitForClientIDs(t, h, 10*time.Second, 1)
+	assertClientIDsStable(t, h, finalIDs, 2*time.Second)
+
+	h.sendKeys("echo ONE_RELOAD_ONLY", "Enter")
+	if !h.waitFor("ONE_RELOAD_ONLY", 5*time.Second) {
+		t.Fatalf("inner client did not recover after binary rewrite\nScreen:\n%s", h.captureOuter())
 	}
 }
 
@@ -417,7 +424,7 @@ func assertClientIDsStable(t *testing.T, h *AmuxHarness, want []string, duration
 	for {
 		got := parseClientIDs(h.runCmd("list-clients"))
 		if !stringSlicesEqual(got, want) {
-			t.Fatalf("client IDs changed during ignored binary rewrite window: got %v, want %v\nouter:\n%s", got, want, h.captureOuter())
+			t.Fatalf("client IDs changed during reload convergence window: got %v, want %v\nouter:\n%s", got, want, h.captureOuter())
 		}
 
 		select {

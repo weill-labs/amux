@@ -46,6 +46,13 @@ func newAmuxHarness(tb testing.TB, envVars ...string) *AmuxHarness {
 // default test binary. The outer harness still uses the standard test binary.
 func newAmuxHarnessWithBin(tb testing.TB, binPath string, envVars ...string) *AmuxHarness {
 	tb.Helper()
+	return newAmuxHarnessWithBinInDir(tb, binPath, "", envVars...)
+}
+
+// newAmuxHarnessWithBinInDir launches the inner amux from binPath and, when
+// launchDir is non-empty, starts it from that working directory.
+func newAmuxHarnessWithBinInDir(tb testing.TB, binPath, launchDir string, envVars ...string) *AmuxHarness {
+	tb.Helper()
 	nestedHarnessStartupMu.Lock()
 	defer nestedHarnessStartupMu.Unlock()
 
@@ -62,8 +69,13 @@ func newAmuxHarnessWithBin(tb testing.TB, binPath string, envVars ...string) *Am
 		outer.sendKeys("pane-1", "export "+ev, "Enter")
 	}
 
+	if launchDir != "" {
+		outer.sendKeys("pane-1", fmt.Sprintf("cd %q && printf '__AMUX_CWD__%%s\\n' \"$PWD\"", launchDir), "Enter")
+		outer.waitForTimeout("pane-1", "__AMUX_CWD__"+launchDir, "10s")
+	}
+
 	// Launch inner amux inside the outer pane.
-	outer.sendKeys("pane-1", binPath+" -s "+inner, "Enter")
+	outer.sendKeys("pane-1", fmt.Sprintf("%q -s %s", binPath, inner), "Enter")
 
 	// Wait for the inner amux client to render (status bar appears in outer
 	// pane). Once the client has rendered, the inner server is guaranteed to
