@@ -1,11 +1,13 @@
 package hooks
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"sync"
+	"time"
 )
 
 // Event is a hook event type.
@@ -44,17 +46,27 @@ type Result struct {
 	Err     error
 }
 
+const (
+	// DefaultHookTimeout is the maximum time a hook command may run.
+	DefaultHookTimeout = 30 * time.Second
+	// maxConcurrentHooks limits the number of hooks running in parallel.
+	maxConcurrentHooks = 8
+)
+
 // Registry stores hooks and executes them on events.
 type Registry struct {
 	mu          sync.RWMutex
 	hooks       map[Event][]Entry
-	ErrorWriter io.Writer // if set, errors are written here instead of os.Stderr
+	ErrorWriter io.Writer     // if set, errors are written here instead of os.Stderr
+	HookTimeout time.Duration // per-hook timeout; zero uses DefaultHookTimeout
+	sem         chan struct{} // concurrency limiter
 }
 
 // NewRegistry creates an empty hook registry.
 func NewRegistry() *Registry {
 	return &Registry{
 		hooks: make(map[Event][]Entry),
+		sem:   make(chan struct{}, maxConcurrentHooks),
 	}
 }
 
@@ -100,15 +112,24 @@ func (r *Registry) Fire(event Event, env map[string]string) {
 }
 
 // FireWithCallback executes all hooks for an event asynchronously and invokes
-// onResult after each command completes.
+// onResult after each command completes. Hooks are bounded by a per-command
+// timeout and a concurrency limit.
 func (r *Registry) FireWithCallback(event Event, env map[string]string, onResult func(Result)) {
 	w := r.ErrorWriter
 	if w == nil {
 		w = os.Stderr
 	}
+	timeout := r.HookTimeout
+	if timeout == 0 {
+		timeout = DefaultHookTimeout
+	}
 	for _, entry := range r.List(event) {
 		go func(entry Entry) {
-			err := executeHook(entry.Command, env, w)
+			r.sem <- struct{}{}        // acquire
+			defer func() { <-r.sem }() // release
+			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			defer cancel()
+			err := executeHook(ctx, entry.Command, env, w)
 			if onResult != nil {
 				onResult(Result{Event: event, Command: entry.Command, Err: err})
 			}
@@ -117,9 +138,10 @@ func (r *Registry) FireWithCallback(event Event, env map[string]string, onResult
 }
 
 // executeHook runs a shell command with additional environment variables.
-// Errors are logged to stderr (the server's stderr goes to the session log).
-func executeHook(command string, env map[string]string, w io.Writer) error {
-	cmd := exec.Command("sh", "-c", command)
+// The context controls the maximum execution time — if the deadline expires,
+// the process tree is killed.
+func executeHook(ctx context.Context, command string, env map[string]string, w io.Writer) error {
+	cmd := exec.CommandContext(ctx, "sh", "-c", command)
 	cmd.Env = append(os.Environ(), mapToEnv(env)...)
 	if err := cmd.Run(); err != nil {
 		fmt.Fprintf(w, "hook %q failed: %v\n", command, err)

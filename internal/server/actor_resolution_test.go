@@ -14,7 +14,7 @@ func newActorRecordingPane(sess *Session, id uint32, name string, sink *bytes.Bu
 	return newProxyPane(id, mux.PaneMeta{
 		Name:  name,
 		Host:  mux.DefaultHost,
-		Color: config.CatppuccinMocha[(id-1)%uint32(len(config.CatppuccinMocha))],
+		Color: config.AccentColor(id - 1),
 	}, 80, 23, sess.paneOutputCallback(), sess.paneExitCallback(), func(data []byte) (int, error) {
 		_, _ = sink.Write(data)
 		return len(data), nil

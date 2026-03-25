@@ -38,7 +38,7 @@ func benchLayoutSnapshot(n, width, height int) *proto.LayoutSnapshot {
 			ID:    uint32(i),
 			Name:  fmt.Sprintf("pane-%d", i),
 			Host:  "local",
-			Color: config.CatppuccinMocha[(i-1)%len(config.CatppuccinMocha)],
+			Color: config.AccentColor(uint32(i - 1)),
 		})
 	}
 
