@@ -4,7 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -261,6 +263,13 @@ func (cc *clientConn) readLoop(srv *Server, sess *Session) {
 
 // handleCommand dispatches CLI commands through the command registry.
 func (cc *clientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[amux] panic in command %q: %v\n%s", msg.CmdName, r, debug.Stack())
+			cc.Send(&Message{Type: MsgTypeCmdResult,
+				CmdErr: fmt.Sprintf("internal error: panic in command %q", msg.CmdName)})
+		}
+	}()
 	sess.enqueueClientActivity(cc)
 	handler, ok := commandRegistry[msg.CmdName]
 	if !ok {
