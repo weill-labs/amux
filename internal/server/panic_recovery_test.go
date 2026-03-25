@@ -6,8 +6,7 @@ import (
 )
 
 func TestHandleCommandPanicSendsError(t *testing.T) {
-	t.Parallel()
-
+	// Not parallel: mutates the shared commandRegistry map.
 	srv, sess, cleanup := newCommandTestSession(t)
 	defer cleanup()
 
