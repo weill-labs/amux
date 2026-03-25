@@ -109,7 +109,7 @@ func TestSendKeysPrefersActorWindowForDuplicatePaneNames(t *testing.T) {
 	}
 }
 
-func TestZoomPrefersActorWindowForDuplicatePaneNames(t *testing.T) {
+func TestZoomResolvesWithinActorWindowOnly(t *testing.T) {
 	t.Parallel()
 
 	srv, sess, cleanup := newCommandTestSession(t)

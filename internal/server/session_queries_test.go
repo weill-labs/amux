@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
 )
 
@@ -125,6 +126,49 @@ func TestQueryUIClient(t *testing.T) {
 			t.Fatalf("currentGen = %d, want 7", snap.currentGen)
 		}
 	})
+}
+
+func TestResolvePaneAcrossWindowsForActorPrefersActorWindowForDuplicateNames(t *testing.T) {
+	t.Parallel()
+
+	sess := newSession("test-resolve-pane-actor-window")
+	stopCrashCheckpointLoop(t, sess)
+	defer stopSessionBackgroundLoops(t, sess)
+
+	p1 := newTestPane(sess, 1, "shared")
+	p2 := newTestPane(sess, 2, "active")
+	p3 := newTestPane(sess, 3, "actor")
+	p4 := newTestPane(sess, 4, "shared")
+
+	w1 := newTestWindowWithPanes(t, sess, 1, "window-1", p1, p2)
+	w1.FocusPane(p2)
+	w2 := newTestWindowWithPanes(t, sess, 2, "window-2", p3, p4)
+	w2.FocusPane(p3)
+
+	mustSessionQuery(t, sess, func(sess *Session) struct{} {
+		sess.Windows = []*mux.Window{w1, w2}
+		sess.ActiveWindowID = w1.ID
+		sess.Panes = []*mux.Pane{p1, p2, p3, p4}
+		return struct{}{}
+	})
+
+	resolved, err := enqueueSessionQuery(sess, func(sess *Session) (resolvedPaneRef, error) {
+		pane, window, err := sess.resolvePaneAcrossWindowsForActor(p3.ID, "shared")
+		if err != nil {
+			return resolvedPaneRef{}, err
+		}
+		return resolvedPaneRef{
+			paneID:   pane.ID,
+			paneName: pane.Meta.Name,
+			windowID: window.ID,
+		}, nil
+	})
+	if err != nil {
+		t.Fatalf("resolvePaneAcrossWindowsForActor(shared): %v", err)
+	}
+	if resolved.paneID != p4.ID || resolved.windowID != w2.ID {
+		t.Fatalf("resolvePaneAcrossWindowsForActor(shared) = pane %d window %d, want pane %d window %d", resolved.paneID, resolved.windowID, p4.ID, w2.ID)
+	}
 }
 
 func TestEnqueueUIWaitSubscribeErrors(t *testing.T) {

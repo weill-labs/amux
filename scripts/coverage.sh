@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Collect merged unit + integration test coverage (used by CI and `make coverage`).
+# Collect merged root + unit + integration test coverage (used by CI and `make coverage`).
 #
 # Integration tests launch amux as a subprocess inside tmux, so normal
 # -coverprofile can't track what the binary executes. This script uses
-# GOCOVERDIR for binary-level coverage, then merges both profiles.
+# GOCOVERDIR for binary-level coverage, then merges all profiles.
 #
 # Usage:
 #   scripts/coverage.sh          # local: run tests, print summary, clean up
@@ -20,16 +20,36 @@ if [[ "$CI_MODE" == true ]]; then
   # CI needs coverage files for Codecov upload and JSON for timing summary
   trap 'rm -rf "$COVDIR"' EXIT
 else
-  trap 'rm -rf "$COVDIR" unit-coverage.txt integration-coverage.txt merged-coverage.txt' EXIT
+  trap 'rm -rf "$COVDIR" root-coverage.txt unit-coverage.txt integration-coverage.txt merged-coverage.txt' EXIT
 fi
 
 # Track exit codes so both suites always run and coverage merges
 # even when one suite fails (matching the old CI behavior where
 # unit and integration tests were independent workflow steps).
+root_rc=0
 unit_rc=0
 integ_rc=0
 
+# --- Root package tests ---
+echo "=== Root package tests (poisoned ambient env) ==="
+root_args=(-race -coverprofile=root-coverage.txt -covermode=atomic . -timeout 60s)
+root_env=(
+  "AMUX_SESSION=ambient-default"
+  "AMUX_PANE=99"
+  "TMUX=/tmp/fake-tmux,123,0"
+  "SSH_CONNECTION=203.0.113.1 12345 203.0.113.2 22"
+  "SSH_CLIENT=203.0.113.1 12345 22"
+  "SSH_TTY=/dev/pts/9"
+  "TERM=amux-ci-poison"
+)
+if [[ "$CI_MODE" == true ]]; then
+  env "${root_env[@]}" go test -json "${root_args[@]}" | tee root-results.json || root_rc=$?
+else
+  env "${root_env[@]}" go test "${root_args[@]}" || root_rc=$?
+fi
+
 # --- Unit tests ---
+echo ""
 echo "=== Unit tests ==="
 unit_args=(-race -coverprofile=unit-coverage.txt -covermode=atomic ./internal/... -timeout 60s)
 if [[ "$CI_MODE" == true ]]; then
@@ -65,6 +85,7 @@ if find "$COVDIR" -name 'cov*' -print -quit | grep -q .; then
 fi
 
 profiles=()
+[[ -f root-coverage.txt ]] && profiles+=(root-coverage.txt)
 [[ -f unit-coverage.txt ]] && profiles+=(unit-coverage.txt)
 [[ -f integration-coverage.txt ]] && profiles+=(integration-coverage.txt)
 
@@ -91,6 +112,6 @@ if [[ ${#profiles[@]} -gt 0 ]]; then
 fi
 
 # Propagate test failures
-if (( unit_rc != 0 || integ_rc != 0 )); then
+if (( root_rc != 0 || unit_rc != 0 || integ_rc != 0 )); then
   exit 1
 fi

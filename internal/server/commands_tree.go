@@ -26,13 +26,13 @@ func cmdSwap(ctx *CommandContext) {
 		case len(ctx.Args) == 1 && ctx.Args[0] == "backward":
 			err = w.SwapPaneBackward()
 		case len(ctx.Args) == 2:
-			pane1 := w.ResolvePane(ctx.Args[0])
-			if pane1 == nil {
-				return commandMutationResult{err: fmt.Errorf("pane %q not found", ctx.Args[0])}
+			pane1, err := w.ResolvePane(ctx.Args[0])
+			if err != nil {
+				return commandMutationResult{err: err}
 			}
-			pane2 := w.ResolvePane(ctx.Args[1])
-			if pane2 == nil {
-				return commandMutationResult{err: fmt.Errorf("pane %q not found", ctx.Args[1])}
+			pane2, err := w.ResolvePane(ctx.Args[1])
+			if err != nil {
+				return commandMutationResult{err: err}
 			}
 			err = w.SwapPanes(pane1.ID, pane2.ID)
 		default:
@@ -56,13 +56,13 @@ func cmdSwapTree(ctx *CommandContext) {
 			return commandMutationResult{err: fmt.Errorf("no session")}
 		}
 
-		pane1 := w.ResolvePane(ctx.Args[0])
-		if pane1 == nil {
-			return commandMutationResult{err: fmt.Errorf("pane %q not found", ctx.Args[0])}
+		pane1, err := w.ResolvePane(ctx.Args[0])
+		if err != nil {
+			return commandMutationResult{err: err}
 		}
-		pane2 := w.ResolvePane(ctx.Args[1])
-		if pane2 == nil {
-			return commandMutationResult{err: fmt.Errorf("pane %q not found", ctx.Args[1])}
+		pane2, err := w.ResolvePane(ctx.Args[1])
+		if err != nil {
+			return commandMutationResult{err: err}
 		}
 		if err := w.SwapTree(pane1.ID, pane2.ID); err != nil {
 			return commandMutationResult{err: err}
@@ -84,13 +84,13 @@ func cmdMove(ctx *CommandContext) {
 			return commandMutationResult{err: fmt.Errorf("no session")}
 		}
 
-		pane := w.ResolvePane(paneRef)
-		if pane == nil {
-			return commandMutationResult{err: fmt.Errorf("pane %q not found", paneRef)}
+		pane, err := w.ResolvePane(paneRef)
+		if err != nil {
+			return commandMutationResult{err: err}
 		}
-		target := w.ResolvePane(targetRef)
-		if target == nil {
-			return commandMutationResult{err: fmt.Errorf("pane %q not found", targetRef)}
+		target, err := w.ResolvePane(targetRef)
+		if err != nil {
+			return commandMutationResult{err: err}
 		}
 		if err := w.MovePane(pane.ID, target.ID, before); err != nil {
 			return commandMutationResult{err: err}

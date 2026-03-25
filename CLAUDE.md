@@ -32,7 +32,7 @@ See [README.md -- Philosophy](README.md#philosophy) for the project thesis and t
 
 **Integration tests for end-to-end behavior.** The harness in `test/server_harness_test.go` drives amux directly over the Unix socket -- no tmux dependency. Tests run in ~6s total.
 
-**Tests that mutate package globals must stay serial.** If a test overrides package-level hooks or globals (for example `copyToClipboard`), do not call `t.Parallel()` in that test. Parallel siblings will race on shared state and produce misleading failures under `-race`.
+**Inject dependencies, do not add package-level `var` for test seams.** When production code needs a swappable dependency (e.g., clipboard command, time function, exec resolver), pass it as a function parameter or struct field -- never as a mutable package-level `var`. Tests pass stubs directly; production call sites pass the real implementation. This keeps tests parallel and eliminates shared mutable state. See PR #388 for the canonical pattern.
 
 **Use the persistent harness when server lifetime matters.** Prefer `newServerHarnessPersistent()` for integration tests that must keep the server alive independent of client detach timing or transient attachment windows. Use the default harness when exit-on-unattached behavior is part of the behavior under test.
 
@@ -50,12 +50,10 @@ See [README.md -- Philosophy](README.md#philosophy) for the project thesis and t
 
 ```bash
 make setup                         # activate repo git hooks
-go build ./...                    # agent-safe compilation check
-go test ./...                     # agent-safe verification
+make install                       # install amux (client hot-reloads automatically)
+go test ./... -timeout 120s        # run all tests
 make coverage                      # merged unit + integration coverage (use this, not go test -coverprofile)
 ```
-
-**Agents must never run `make build`.** It installs the shared binary and can hot-reload unrelated sessions. Use `go build ./...` for compilation checks and `go test` for verification instead.
 
 **Reproduce CI from a clean shell when running inside `amux`/tmux.** Clipboard and harness behavior can change when `AMUX_SESSION` or `TMUX` are set. For CI-style verification from an attached pane, prefer `env -u AMUX_SESSION -u TMUX scripts/coverage.sh --ci`, and prefix other CI-style test commands the same way when you need the same environment.
 
@@ -93,6 +91,8 @@ The integration test harness makes this fast (~6s for the full suite).
 Tests should read like specs. Minimize logic in assertions so a human can read the test and immediately understand what behavior is expected. Prefer golden file comparisons (`assertGolden`) over inline predicate functions -- the golden file is the spec, viewable as a standalone document. Use table-driven tests for unit tests with multiple cases -- define a `tests` slice of structs, iterate with `t.Run(tt.name, ...)`, and call `t.Parallel()` in each subtest.
 
 When a change adds a new test or modifies an existing test, run that targeted test slice with `-count=100` before calling the work done. Treat any failure in those repeated runs as a flake to investigate, not as an acceptable one-off.
+
+**Root CLI subprocess tests must use the shared hermetic helper.** Do not open-code `exec.Command(os.Args[0], ...)` or inherit ambient `AMUX_SESSION` / `TMUX` state in root package tests; route those tests through the shared helper so they always run with an isolated session and scrubbed env.
 
 **Golden files** live in `test/testdata/`. Two types:
 
@@ -185,9 +185,7 @@ Trigger patterns for compositor bugs: long or truncated lines near pane boundari
 
 ### Hot-Reload
 
-Both client and server watch the binary and re-exec on changes (`reload.go`). Running `make build` from `main` replaces the installed binary atomically, which then triggers automatic reload of both -- panes and shells are preserved across server reloads via checkpoint and restore.
-
-`make build` is an install command, not a verification command. Agents must use `go build ./...` instead. The install step also writes metadata and refuses to overwrite the shared `~/.local/bin/amux` when the current branch is not `main` or when the existing metadata points at a different checkout. Use `AMUX_INSTALL_FORCE=1 make build` only when you intentionally want to replace the shared binary.
+Both client and server watch the binary and re-exec on changes (`reload.go`). Running `make install` replaces the installed binary atomically, which then triggers automatic reload of both -- panes and shells are preserved across server reloads via checkpoint and restore.
 
 Socket location: `/tmp/amux-$UID/<session-name>`
 

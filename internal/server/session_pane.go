@@ -2,8 +2,6 @@ package server
 
 import (
 	"fmt"
-	"strconv"
-	"strings"
 	"syscall"
 	"time"
 
@@ -42,20 +40,19 @@ func (s *Session) hasPane(id uint32) bool {
 // findPaneByRef searches the flat Panes list for a pane matching the reference.
 // This finds panes that may not be in any window's layout tree (e.g., dormant
 // SSH takeover panes or orphaned panes from race conditions).
-func (s *Session) findPaneByRef(ref string) *mux.Pane {
-	// Exact match by name or numeric ID
-	for _, p := range s.Panes {
-		if p.Meta.Name == ref || strconv.FormatUint(uint64(p.ID), 10) == ref {
-			return p
-		}
+func (s *Session) findPaneByRef(ref string) (*mux.Pane, error) {
+	candidates := make([]mux.PaneRefCandidate, 0, len(s.Panes))
+	byID := make(map[uint32]*mux.Pane, len(s.Panes))
+	for _, pane := range s.Panes {
+		candidates = append(candidates, mux.PaneRefCandidate{ID: pane.ID, Name: pane.Meta.Name})
+		byID[pane.ID] = pane
 	}
-	// Prefix match
-	for _, p := range s.Panes {
-		if strings.HasPrefix(p.Meta.Name, ref) {
-			return p
-		}
+
+	paneID, err := mux.ResolvePaneRef(ref, candidates)
+	if err != nil {
+		return nil, err
 	}
-	return nil
+	return byID[paneID], nil
 }
 
 // findPaneByID finds a pane by ID.

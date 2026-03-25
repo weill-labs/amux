@@ -12,8 +12,6 @@ import (
 
 const ReloadServerExecPathFlag = remotecmd.ReloadServerExecPathFlag
 
-var resolveServerReloadExecPath = reload.ResolveExecutable
-
 func requestedReloadExecPath(args []string) (string, error) {
 	return remotecmd.RequestedReloadExecPath(args)
 }
@@ -75,7 +73,11 @@ func cmdReloadServer(ctx *CommandContext) {
 		return
 	}
 	if execPath == "" {
-		execPath, err = resolveServerReloadExecPath()
+		resolve := ctx.Srv.ResolveReloadExecPath
+		if resolve == nil {
+			resolve = reload.ResolveExecutable
+		}
+		execPath, err = resolve()
 		if err != nil {
 			ctx.replyErr(fmt.Sprintf("reload: %v", err))
 			return

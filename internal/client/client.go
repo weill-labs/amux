@@ -1,7 +1,6 @@
 package client
 
 import (
-	"fmt"
 	"os"
 	"strings"
 	"sync/atomic"
@@ -24,6 +23,7 @@ type ClientRenderer struct {
 	recentInputUnix atomic.Int64
 	scrollbackLines int
 	OnUIEvent       func(string)
+	CopyToClipboard func(string) // called when copy mode copies text; nil uses default
 }
 
 // NewClientRendererWithScrollback creates a client renderer with an explicit
@@ -233,7 +233,7 @@ func (cr *ClientRenderer) CapturePaneJSON(paneID uint32, agentStatus map[uint32]
 }
 
 // ResolvePaneID resolves a pane reference to an ID from client-side state.
-func (cr *ClientRenderer) ResolvePaneID(ref string) uint32 {
+func (cr *ClientRenderer) ResolvePaneID(ref string) (uint32, error) {
 	return cr.renderer.ResolvePaneID(ref)
 }
 
@@ -636,7 +636,11 @@ func (cr *ClientRenderer) copyModeCopy(cm *copymode.CopyMode) {
 		return text, clientUIResult{}
 	})
 
-	copyToClipboard(text)
+	if cr.CopyToClipboard != nil {
+		cr.CopyToClipboard(text)
+	} else {
+		copyToClipboardLocal(defaultClipboardDeps(), text)
+	}
 }
 
 func (cr *ClientRenderer) CopyBuffer() string {
@@ -651,9 +655,9 @@ func (cr *ClientRenderer) HandleCaptureRequest(args []string, agentStatus map[ui
 		return cr.renderer.HandleCaptureRequest(args, agentStatus)
 	}
 	if req.PaneRef != "" {
-		paneID := cr.ResolvePaneID(req.PaneRef)
-		if paneID == 0 {
-			return &proto.Message{Type: proto.MsgTypeCaptureResponse, CmdErr: fmt.Sprintf("pane %q not found", req.PaneRef)}
+		paneID, err := cr.ResolvePaneID(req.PaneRef)
+		if err != nil {
+			return &proto.Message{Type: proto.MsgTypeCaptureResponse, CmdErr: err.Error()}
 		}
 		return &proto.Message{Type: proto.MsgTypeCaptureResponse, CmdOutput: cr.CapturePaneJSON(paneID, agentStatus) + "\n"}
 	}

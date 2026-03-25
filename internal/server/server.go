@@ -365,6 +365,10 @@ type Server struct {
 	// attachBootstrapHook is a test-only hook invoked after the initial
 	// attach replay is sent but before bootstrap flushes queued messages.
 	attachBootstrapHook func()
+
+	// ResolveReloadExecPath resolves the executable path for server reload.
+	// Defaults to reload.ResolveExecutable; tests inject stubs.
+	ResolveReloadExecPath func() (string, error)
 }
 
 // firstSession returns any session from the immutable session map, or nil.

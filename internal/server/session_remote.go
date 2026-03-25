@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -389,11 +390,15 @@ func (s *Session) capturePaneWithFallback(actorPaneID uint32, args []string) *Me
 		return s.capturePaneDirect(args, target)
 	}
 
-	resp := s.runClientCaptureRequest(args, req, snap.client, s.captureAgentStatus(snap.statusPanes), nil)
+	clientReq := req
+	clientReq.PaneRef = strconv.FormatUint(uint64(target.pane.ID), 10)
+	clientArgs := caputil.ArgsForRequest(clientReq)
+
+	resp := s.runClientCaptureRequest(clientArgs, clientReq, snap.client, s.captureAgentStatus(snap.statusPanes), nil)
 	switch resp.CmdErr {
 	case "":
 		return resp
-	case fmt.Sprintf("pane %q not found", req.PaneRef), "capture timed out (client unresponsive)":
+	case "capture timed out (client unresponsive)":
 		return s.capturePaneDirect(args, target)
 	default:
 		return resp

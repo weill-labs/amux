@@ -12,6 +12,7 @@ import (
 type rendererSnapshot struct {
 	emulators       map[uint32]mux.TerminalEmulator
 	paneInfo        map[uint32]proto.PaneSnapshot
+	paneOrder       []uint32
 	layout          *mux.LayoutCell
 	activePaneID    uint32
 	zoomedPaneID    uint32

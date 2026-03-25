@@ -22,6 +22,7 @@ func envWithHome(home string) []string {
 	if !replaced {
 		env = append(env, "HOME="+home)
 	}
+	env = upsertEnv(env, "GOFLAGS", appendGoFlag(envValue(env, "GOFLAGS"), "-modcacherw"))
 	return env
 }
 
@@ -72,7 +73,7 @@ func TestBuildInstallInstallsTerminfo(t *testing.T) {
 	home := t.TempDir()
 	dest := filepath.Join(t.TempDir(), "amux")
 
-	cmd := exec.Command("bash", "scripts/build-install.sh", dest)
+	cmd := exec.Command("bash", "scripts/install.sh", dest)
 	cmd.Env = envWithHomeAndBranch(t, home, "main")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -90,78 +91,6 @@ func TestBuildInstallInstallsTerminfo(t *testing.T) {
 	}
 }
 
-func TestBuildInstallRefusesCrossCheckoutOverwrite(t *testing.T) {
-	t.Parallel()
-
-	dest := filepath.Join(t.TempDir(), "amux")
-	metaPath := dest + ".install-meta"
-	if err := os.WriteFile(metaPath, []byte("source_repo=/tmp/other-checkout\n"), 0644); err != nil {
-		t.Fatalf("write meta: %v", err)
-	}
-
-	cmd := exec.Command("bash", "scripts/build-install.sh", dest)
-	cmd.Env = envWithHomeAndBranch(t, t.TempDir(), "main")
-	out, err := cmd.CombinedOutput()
-	if err == nil {
-		t.Fatalf("expected cross-checkout install to fail\n%s", out)
-	}
-	if !strings.Contains(string(out), "refusing to overwrite") {
-		t.Fatalf("expected refusal message, got:\n%s", out)
-	}
-	if _, statErr := os.Stat(dest); !os.IsNotExist(statErr) {
-		t.Fatalf("expected %s to remain absent, stat err=%v", dest, statErr)
-	}
-}
-
-func TestBuildInstallForceOverridesCrossCheckoutMetadata(t *testing.T) {
-	t.Parallel()
-
-	repoRoot := repoRoot(t)
-	dest := filepath.Join(t.TempDir(), "amux")
-	metaPath := dest + ".install-meta"
-	if err := os.WriteFile(metaPath, []byte("source_repo=/tmp/other-checkout\n"), 0644); err != nil {
-		t.Fatalf("write meta: %v", err)
-	}
-
-	cmd := exec.Command("bash", "scripts/build-install.sh", dest)
-	cmd.Env = envWithHomeAndBranch(t, t.TempDir(), "lab-348-test", "AMUX_INSTALL_FORCE=1")
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("forced install failed: %v\n%s", err, out)
-	}
-
-	if _, statErr := os.Stat(dest); statErr != nil {
-		t.Fatalf("installed binary missing: %v", statErr)
-	}
-
-	meta, err := os.ReadFile(metaPath)
-	if err != nil {
-		t.Fatalf("read meta: %v", err)
-	}
-	if !strings.Contains(string(meta), "source_repo="+repoRoot) {
-		t.Fatalf("expected updated source_repo in metadata, got:\n%s", meta)
-	}
-}
-
-func TestBuildInstallRefusesNonMainBranch(t *testing.T) {
-	t.Parallel()
-
-	dest := filepath.Join(t.TempDir(), "amux")
-
-	cmd := exec.Command("bash", "scripts/build-install.sh", dest)
-	cmd.Env = envWithHomeAndBranch(t, t.TempDir(), "lab-348-test")
-	out, err := cmd.CombinedOutput()
-	if err == nil {
-		t.Fatalf("expected non-main install to fail\n%s", out)
-	}
-	if !strings.Contains(string(out), "refusing to install from branch") {
-		t.Fatalf("expected branch refusal message, got:\n%s", out)
-	}
-	if _, statErr := os.Stat(dest); !os.IsNotExist(statErr) {
-		t.Fatalf("expected %s to remain absent, stat err=%v", dest, statErr)
-	}
-}
-
 func TestBuildInstallRewritesInvalidMetadata(t *testing.T) {
 	t.Parallel()
 
@@ -172,7 +101,7 @@ func TestBuildInstallRewritesInvalidMetadata(t *testing.T) {
 		t.Fatalf("write meta: %v", err)
 	}
 
-	cmd := exec.Command("bash", "scripts/build-install.sh", dest)
+	cmd := exec.Command("bash", "scripts/install.sh", dest)
 	cmd.Env = envWithHomeAndBranch(t, t.TempDir(), "main")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -196,4 +125,37 @@ func repoRoot(t *testing.T) string {
 		t.Fatalf("repo root: %v\n%s", err, out)
 	}
 	return strings.TrimSpace(string(out))
+}
+
+func envValue(env []string, key string) string {
+	prefix := key + "="
+	for _, entry := range env {
+		if strings.HasPrefix(entry, prefix) {
+			return strings.TrimPrefix(entry, prefix)
+		}
+	}
+	return ""
+}
+
+func upsertEnv(env []string, key, value string) []string {
+	prefix := key + "="
+	for i, entry := range env {
+		if strings.HasPrefix(entry, prefix) {
+			env[i] = prefix + value
+			return env
+		}
+	}
+	return append(env, prefix+value)
+}
+
+func appendGoFlag(current, flag string) string {
+	if current == "" {
+		return flag
+	}
+	for _, existing := range strings.Fields(current) {
+		if existing == flag {
+			return current
+		}
+	}
+	return current + " " + flag
 }

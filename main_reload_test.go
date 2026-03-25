@@ -16,7 +16,7 @@ func TestPrependReloadExecPathArgIncludesResolvedExecutable(t *testing.T) {
 		t.Fatalf("ResolveExecutable() error = %v", err)
 	}
 
-	got := prependReloadExecPathArg([]string{"reload-server"})
+	got := prependReloadExecPathArg(reload.ResolveExecutable, []string{"reload-server"})
 	if len(got) != 3 {
 		t.Fatalf("len(prependReloadExecPathArg) = %d, want 3", len(got))
 	}
@@ -32,14 +32,12 @@ func TestPrependReloadExecPathArgIncludesResolvedExecutable(t *testing.T) {
 }
 
 func TestPrependReloadExecPathArgLeavesArgsUnchangedOnResolverError(t *testing.T) {
-	origResolve := resolveReloadExecPath
-	resolveReloadExecPath = func() (string, error) {
-		return "", errors.New("boom")
-	}
-	defer func() { resolveReloadExecPath = origResolve }()
+	t.Parallel()
 
 	args := []string{"reload-server"}
-	got := prependReloadExecPathArg(args)
+	got := prependReloadExecPathArg(func() (string, error) {
+		return "", errors.New("boom")
+	}, args)
 	if len(got) != 1 || got[0] != "reload-server" {
 		t.Fatalf("prependReloadExecPathArg() = %v, want %v", got, args)
 	}

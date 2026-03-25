@@ -149,7 +149,7 @@ func BenchmarkResolvePane(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 			for b.Loop() {
-				w.ResolvePane(target)
+				_, _ = w.ResolvePane(target)
 			}
 		})
 	}

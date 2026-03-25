@@ -276,9 +276,10 @@ func cmdZoom(ctx *CommandContext) {
 		}
 		var pane *mux.Pane
 		if len(ctx.Args) > 0 {
-			pane = w.ResolvePane(ctx.Args[0])
-			if pane == nil {
-				return commandMutationResult{err: fmt.Errorf("pane %q not found", ctx.Args[0])}
+			var err error
+			pane, err = w.ResolvePane(ctx.Args[0])
+			if err != nil {
+				return commandMutationResult{err: err}
 			}
 		} else {
 			pane = w.ActivePane

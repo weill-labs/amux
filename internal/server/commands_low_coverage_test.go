@@ -715,7 +715,10 @@ func TestCommandSplitAndSpawnBackgroundPreserveZoomAndFocus(t *testing.T) {
 		}{
 			activeID: w.ActivePane.ID,
 			zoomedID: w.ZoomedPaneID,
-			hasPane:  sess.findPaneByRef("bg-split") != nil,
+			hasPane: func() bool {
+				_, err := sess.findPaneByRef("bg-split")
+				return err == nil
+			}(),
 		}
 	})
 	if stateAfterSplit.activeID != p1.ID || stateAfterSplit.zoomedID != p1.ID || !stateAfterSplit.hasPane {
@@ -732,7 +735,7 @@ func TestCommandSplitAndSpawnBackgroundPreserveZoomAndFocus(t *testing.T) {
 		task     string
 	} {
 		w := sess.activeWindow()
-		pane := sess.findPaneByRef("bg-worker")
+		pane, _ := sess.findPaneByRef("bg-worker")
 		task := ""
 		if pane != nil {
 			task = pane.Meta.Task

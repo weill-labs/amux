@@ -118,9 +118,6 @@ func TestChooserOverlayRenderAndCells(t *testing.T) {
 
 func TestRenderGlobalBarAndTruncateRunes(t *testing.T) {
 	frozen := time.Date(2026, time.March, 22, 9, 41, 0, 0, time.UTC)
-	prevTimeNow := timeNow
-	timeNow = func() time.Time { return frozen }
-	defer func() { timeNow = prevTimeNow }()
 
 	if got := truncateRunes("abcdef", 4); got != "abc…" {
 		t.Fatalf("truncateRunes = %q, want %q", got, "abc…")
@@ -130,7 +127,7 @@ func TestRenderGlobalBarAndTruncateRunes(t *testing.T) {
 	renderGlobalBar(&buf, "main", 3, 36, 8, []WindowInfo{
 		{Index: 1, Name: "dev", IsActive: true},
 		{Index: 2, Name: "logs", IsActive: false},
-	}, "very long command feedback that must truncate")
+	}, "very long command feedback that must truncate", frozen)
 	rendered := buf.String()
 	for _, want := range []string{"1:dev", "2:logs", "very long …"} {
 		if !strings.Contains(rendered, want) {
@@ -139,7 +136,7 @@ func TestRenderGlobalBarAndTruncateRunes(t *testing.T) {
 	}
 
 	buf.Reset()
-	renderGlobalBar(&buf, "main", 7, 30, 8, nil, "")
+	renderGlobalBar(&buf, "main", 7, 30, 8, nil, "", frozen)
 	rendered = buf.String()
 	for _, want := range []string{" main ", "7 panes", "09:41"} {
 		if !strings.Contains(rendered, want) {

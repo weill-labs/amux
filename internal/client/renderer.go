@@ -6,8 +6,6 @@ package client
 
 import (
 	"encoding/json"
-	"fmt"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -94,8 +92,10 @@ func (r *Renderer) HandleLayout(snap *proto.LayoutSnapshot) bool {
 				}
 			}
 		}
+		next.paneOrder = make([]uint32, 0, len(allPanes))
 
 		for _, ps := range allPanes {
+			next.paneOrder = append(next.paneOrder, ps.ID)
 			next.paneInfo[ps.ID] = ps
 			emu := prev.emulators[ps.ID]
 			if emu == nil {
@@ -378,26 +378,18 @@ func (r *Renderer) CapturePaneJSON(paneID uint32, agentStatus map[uint32]proto.P
 }
 
 // ResolvePaneID resolves a pane reference to an ID from client-side state.
-func (r *Renderer) ResolvePaneID(ref string) uint32 {
+func (r *Renderer) ResolvePaneID(ref string) (uint32, error) {
 	snap := r.loadSnapshot()
 
-	// Try numeric ID
-	if id, err := strconv.ParseUint(ref, 10, 32); err == nil {
-		if _, ok := snap.paneInfo[uint32(id)]; ok {
-			return uint32(id)
+	candidates := make([]mux.PaneRefCandidate, 0, len(snap.paneOrder))
+	for _, paneID := range snap.paneOrder {
+		info, ok := snap.paneInfo[paneID]
+		if !ok {
+			continue
 		}
+		candidates = append(candidates, mux.PaneRefCandidate{ID: info.ID, Name: info.Name})
 	}
-	// Try name or prefix match
-	var prefixMatch uint32
-	for _, info := range snap.paneInfo {
-		if info.Name == ref {
-			return info.ID
-		}
-		if strings.HasPrefix(info.Name, ref) {
-			prefixMatch = info.ID
-		}
-	}
-	return prefixMatch
+	return mux.ResolvePaneRef(ref, candidates)
 }
 
 // ActivePaneID returns the active pane ID. Thread-safe.
@@ -554,10 +546,10 @@ func (r *Renderer) HandleCaptureRequest(args []string, agentStatus map[uint32]pr
 			return &proto.Message{Type: proto.MsgTypeCaptureResponse,
 				CmdErr: "--colors is only supported for full screen capture"}
 		}
-		paneID := r.ResolvePaneID(req.PaneRef)
-		if paneID == 0 {
+		paneID, err := r.ResolvePaneID(req.PaneRef)
+		if err != nil {
 			return &proto.Message{Type: proto.MsgTypeCaptureResponse,
-				CmdErr: fmt.Sprintf("pane %q not found", req.PaneRef)}
+				CmdErr: err.Error()}
 		}
 		var out string
 		if req.FormatJSON {
