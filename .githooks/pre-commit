@@ -93,6 +93,15 @@ if [ -n "$STAGED" ]; then
     fi
 fi
 
+# Reject new test functions missing t.Parallel()
+if [ -n "$STAGED" ]; then
+    PARALLEL_VIOLATIONS=$(STAGED_ONLY=1 bash scripts/lint-test-parallel.sh 2>&1)
+    if [ $? -ne 0 ]; then
+        echo "$PARALLEL_VIOLATIONS"
+        exit 1
+    fi
+fi
+
 # Validate YAML syntax on staged workflow files
 STAGED_YAML=$(git diff --cached --name-only --diff-filter=ACM | grep '\.github/workflows/.*\.yml$')
 if [ -n "$STAGED_YAML" ]; then
