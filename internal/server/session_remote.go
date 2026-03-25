@@ -68,7 +68,7 @@ func (s *Session) takeoverCallback(srv *Server) func(paneID uint32, req mux.Take
 
 // handleTakeover processes a takeover request from a nested amux.
 // It runs asynchronously (called via goroutine from the readLoop callback).
-func (s *Session) handleTakeover(srv *Server, sshPaneID uint32, req mux.TakeoverRequest) {
+func (s *Session) handleTakeover(sshPaneID uint32, req mux.TakeoverRequest) {
 	type takeoverStart struct {
 		sshPane        *mux.Pane
 		hostname       string
