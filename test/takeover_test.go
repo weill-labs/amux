@@ -160,6 +160,7 @@ func TestTakeoverReconnectAfterRemoteReload(t *testing.T) {
 	h.sendKeys("pane-1", sshCmd, "Enter")
 
 	proxyPaneName := waitForTakeoverProxyPane(t, h, existingProxyPanes)
+	waitForPaneConnStatus(t, h, proxyPaneName, "connected", "10s")
 	h.sendKeys(proxyPaneName, "echo TAKEOVER_BEFORE_RELOAD", "Enter")
 	h.waitForTimeout(proxyPaneName, "TAKEOVER_BEFORE_RELOAD", "5s")
 
