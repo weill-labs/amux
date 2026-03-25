@@ -1,6 +1,12 @@
 package server
 
-import "github.com/weill-labs/amux/internal/proto"
+import (
+	"fmt"
+	"log"
+	"runtime/debug"
+
+	"github.com/weill-labs/amux/internal/proto"
+)
 
 type sessionQueryResult[T any] struct {
 	value T
@@ -13,8 +19,20 @@ type sessionQueryEvent[T any] struct {
 }
 
 func (e sessionQueryEvent[T]) handle(s *Session) {
-	value, err := e.fn(s)
-	e.reply <- sessionQueryResult[T]{value: value, err: err}
+	e.reply <- recoverSessionQuery(e.fn, s)
+}
+
+// recoverSessionQuery calls fn and converts any panic into an error result
+// so the event loop keeps running and the reply channel is always written.
+func recoverSessionQuery[T any](fn func(*Session) (T, error), s *Session) (res sessionQueryResult[T]) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[amux] panic in session query: %v\n%s", r, debug.Stack())
+			res = sessionQueryResult[T]{err: fmt.Errorf("internal error: %v", r)}
+		}
+	}()
+	value, err := fn(s)
+	return sessionQueryResult[T]{value: value, err: err}
 }
 
 func enqueueSessionQuery[T any](s *Session, fn func(*Session) (T, error)) (T, error) {
