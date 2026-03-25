@@ -11,15 +11,6 @@ import (
 	"github.com/weill-labs/amux/internal/mux"
 )
 
-// yieldToCommandHandler gives the command handler goroutine a chance to
-// consume from its channels and enter/re-enter its select loop. This is a
-// scheduling yield, not a timing assertion — the fake clock controls all
-// timer-based logic. The sleep duration is generous to avoid flakes under
-// heavy CPU contention with -race -count=100.
-func yieldToCommandHandler() {
-	time.Sleep(5 * time.Millisecond) //nolint:gosleep
-}
-
 func startAsyncCommand(t *testing.T, srv *Server, sess *Session, name string, args ...string) (net.Conn, *clientConn, <-chan struct{}) {
 	t.Helper()
 
@@ -177,13 +168,12 @@ func TestCmdWaitVTIdleTimeout(t *testing.T) {
 
 	clientConn, _, done := startAsyncCommand(t, srv, sess, "wait-vt-idle", "pane-1", "--settle", "200ms", "--timeout", "40ms")
 
-	// Wait for the command goroutine to enter its select loop. The event-loop
-	// barrier ensures the subscribe has been processed; a short yield lets the
-	// goroutine reach the select statement.
-	sess.queryVTIdleWaitState(1)
-	yieldToCommandHandler()
+	// Wait for cmdWaitVTIdle to create its two timers (settle + timeout).
+	// Because fakeTimer.ch is buffered, Advance can fire a timer even if the
+	// goroutine hasn't entered its select yet.
+	clk.AwaitTimers(2)
 
-	// Advance past the timeout deadline — the command should reply immediately.
+	// Advance past the timeout deadline — fires into the buffered channel.
 	clk.Advance(50 * time.Millisecond)
 
 	msg := readMsgWithTimeout(t, clientConn)
@@ -209,20 +199,18 @@ func TestCmdWaitVTIdleResetsSettleTimerOnOutput(t *testing.T) {
 
 	clientConn, _, done := startAsyncCommand(t, srv, sess, "wait-vt-idle", "pane-1", "--settle", "100ms", "--timeout", "5s")
 
-	// Let the command goroutine enter its select loop.
-	sess.queryVTIdleWaitState(1)
-	yieldToCommandHandler()
+	// Wait for the two initial timers (settle + timeout).
+	clk.AwaitTimers(2)
 
-	// Send output — resets the settle timer.
+	// Send output — the event loop calls TrackOutput (AfterFunc, +1) and
+	// notifies the command handler which calls resetTimer (Reset, +1).
 	pane.FeedOutput([]byte("first"))
-	sess.queryVTIdleWaitState(1) // barrier: event loop processed the output
-	yieldToCommandHandler()      // yield: let command handler consume from outputCh
+	clk.AwaitTimers(4) // 2 initial + 1 AfterFunc + 1 Reset
 	clk.Advance(50 * time.Millisecond)
 
-	// More output — resets settle timer again.
+	// More output — same pattern: AfterFunc (+1) + Reset (+1).
 	pane.FeedOutput([]byte("second"))
-	sess.queryVTIdleWaitState(1)
-	yieldToCommandHandler()
+	clk.AwaitTimers(6) // 4 prev + 1 AfterFunc + 1 Reset
 	clk.Advance(50 * time.Millisecond)
 
 	// Advance past the settle window from the last output.
