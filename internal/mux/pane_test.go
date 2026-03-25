@@ -226,7 +226,9 @@ func TestCaptureSnapshotTracksLiveScrollbackSourceWidthsAcrossResize(t *testing.
 		ID:              1,
 		emulator:        emu,
 		scrollbackLines: 4,
+		scrollbackLimit: 4,
 	}
+	wireScrollbackCallbacks(p)
 
 	emu.Write([]byte("01234567890123456789\r\n"))
 	emu.Resize(10, 1)
@@ -296,7 +298,9 @@ func TestCaptureSnapshotTrimsLiveScrollbackWidthMetadataWithCap(t *testing.T) {
 		ID:              1,
 		emulator:        emu,
 		scrollbackLines: 2,
+		scrollbackLimit: 2,
 	}
+	wireScrollbackCallbacks(p)
 
 	emu.Write([]byte("11111\r\n"))
 	emu.Resize(6, 1)
@@ -313,5 +317,30 @@ func TestCaptureSnapshotTrimsLiveScrollbackWidthMetadataWithCap(t *testing.T) {
 	}
 	if got := snap.LiveHistory[1]; got.Text != "3333333" || got.SourceWidth != 7 {
 		t.Fatalf("LiveHistory[1] = %#v, want text=%q width=7", got, "3333333")
+	}
+}
+
+func TestPaneScrollbackWidthClearsWithScrollback(t *testing.T) {
+	t.Parallel()
+
+	emu := NewVTEmulatorWithDrainAndScrollback(5, 1, 2)
+	p := &Pane{
+		ID:              1,
+		emulator:        emu,
+		scrollbackLines: 2,
+		scrollbackLimit: 2,
+	}
+	wireScrollbackCallbacks(p)
+
+	emu.Write([]byte("11111\r\n"))
+
+	if got := p.ScrollbackSourceWidth(0); got != 5 {
+		t.Fatalf("ScrollbackSourceWidth(0) = %d, want 5", got)
+	}
+
+	emu.(*vtEmulator).emu.ClearScrollback()
+
+	if got := p.ScrollbackSourceWidth(0); got != 0 {
+		t.Fatalf("ScrollbackSourceWidth(0) after clear = %d, want 0", got)
 	}
 }

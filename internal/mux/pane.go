@@ -53,10 +53,12 @@ type Pane struct {
 	process  *os.Process // set for restored panes (where cmd is nil)
 	emulator TerminalEmulator
 
-	outputSeq       atomic.Uint64
-	snapshotSeq     atomic.Uint64
-	baseHistory     atomic.Pointer[paneBaseHistory]
-	scrollbackLines int
+	outputSeq        atomic.Uint64
+	snapshotSeq      atomic.Uint64
+	baseHistory      atomic.Pointer[paneBaseHistory]
+	scrollbackWidths atomic.Pointer[[]int]
+	scrollbackLines  int
+	scrollbackLimit  int
 
 	// writeOverride, when non-nil, receives Write() calls instead of the PTY.
 	// Used by proxy panes to route input over SSH to a remote amux server.
@@ -149,9 +151,20 @@ func NewPaneWithScrollback(id uint32, meta PaneMeta, cols, rows int, sessionName
 		onExit:          onExit,
 		createdAt:       time.Now(),
 		scrollbackLines: effectiveScrollbackLines(scrollbackLines),
+		scrollbackLimit: effectiveScrollbackLines(scrollbackLines),
 	}
 	p.baseHistory.Store(&paneBaseHistory{})
+	wireScrollbackCallbacks(p)
 	return p, nil
+}
+
+// wireScrollbackCallbacks connects the emulator's scrollback push/clear
+// callbacks to the pane's atomic width tracking.
+func wireScrollbackCallbacks(p *Pane) {
+	if vte, ok := p.emulator.(*vtEmulator); ok {
+		vte.scrollbackPushFn = p.recordScrollbackPush
+		vte.scrollbackClearFn = p.clearScrollbackWidths
+	}
 }
 
 func paneCommandEnv(base []string, paneID uint32, sessionName string) []string {
@@ -211,8 +224,10 @@ func RestorePaneWithScrollback(id uint32, meta PaneMeta, ptmxFd, pid, cols, rows
 		onExit:          onExit,
 		createdAt:       time.Now(),
 		scrollbackLines: effectiveScrollbackLines(scrollbackLines),
+		scrollbackLimit: effectiveScrollbackLines(scrollbackLines),
 	}
 	p.baseHistory.Store(&paneBaseHistory{})
+	wireScrollbackCallbacks(p)
 
 	// Start drain immediately so screen replay doesn't deadlock
 	// on the emulator's unbuffered response pipe.
@@ -255,6 +270,44 @@ func (p *Pane) loadBaseHistory() []string {
 		return nil
 	}
 	return base.lines
+}
+
+func (p *Pane) loadScrollbackWidths() []int {
+	if ptr := p.scrollbackWidths.Load(); ptr != nil {
+		return *ptr
+	}
+	return nil
+}
+
+func (p *Pane) recordScrollbackPush(count, width int) {
+	if count <= 0 || width <= 0 {
+		return
+	}
+	old := p.loadScrollbackWidths()
+	newWidths := make([]int, len(old), len(old)+count)
+	copy(newWidths, old)
+	for range count {
+		newWidths = append(newWidths, width)
+	}
+	if overflow := len(newWidths) - p.scrollbackLimit; overflow > 0 {
+		newWidths = newWidths[overflow:]
+	}
+	p.scrollbackWidths.Store(&newWidths)
+}
+
+func (p *Pane) clearScrollbackWidths() {
+	empty := make([]int, 0)
+	p.scrollbackWidths.Store(&empty)
+}
+
+// ScrollbackSourceWidth returns the pane width at which the scrollback row
+// was originally wrapped. Returns zero when unknown.
+func (p *Pane) ScrollbackSourceWidth(row int) int {
+	widths := p.loadScrollbackWidths()
+	if row < 0 || row >= len(widths) {
+		return 0
+	}
+	return widths[row]
 }
 
 // PtmxFd returns the file descriptor number for the PTY master.
@@ -546,7 +599,7 @@ func (p *Pane) CaptureSnapshot() CaptureSnapshot {
 	for {
 		before := p.waitForStableSnapshot()
 		baseHistory := p.loadBaseHistory()
-		liveHistory := EmulatorScrollbackHistoryLines(p.emulator)
+		liveHistory := EmulatorScrollbackHistoryLines(p.emulator, p.loadScrollbackWidths())
 		baseHistory, liveHistory, history := p.captureScrollback(baseHistory, liveHistory)
 		contentRows := EmulatorContentHistoryLines(p.emulator)
 		width, _ := p.emulator.Size()
@@ -695,6 +748,7 @@ func (p *Pane) ResetState() {
 	p.beginSnapshotMutation()
 	defer p.endSnapshotMutation()
 	p.baseHistory.Store(&paneBaseHistory{})
+	p.clearScrollbackWidths()
 	if p.emulator != nil {
 		p.emulator.Reset()
 	}
@@ -768,8 +822,10 @@ func NewProxyPaneWithScrollback(id uint32, meta PaneMeta, cols, rows int,
 		createdAt:       time.Now(),
 		drainStarted:    true, // no PTY responses to drain
 		scrollbackLines: effectiveScrollbackLines(scrollbackLines),
+		scrollbackLimit: effectiveScrollbackLines(scrollbackLines),
 	}
 	p.baseHistory.Store(&paneBaseHistory{})
+	wireScrollbackCallbacks(p)
 	// Start drain goroutine for emulator responses (DA replies etc.)
 	// that would otherwise block the emulator's pipe.
 	go p.drainResponsesDiscard()
