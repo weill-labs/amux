@@ -26,7 +26,7 @@ type ClientRenderer struct {
 	CopyToClipboard func(string) // called when copy mode copies text; nil uses default
 
 	// Render timing — configurable for tests. Zero values use defaults.
-	RenderFrameInterval  time.Duration
+	renderFrameInterval  time.Duration
 	renderPriorityWindow time.Duration
 }
 
@@ -469,7 +469,7 @@ func (cr *ClientRenderer) RenderCoalesced(msgCh <-chan *RenderMsg, write func(st
 	if cr.renderPriorityWindow == 0 {
 		cr.renderPriorityWindow = defaultRenderPriorityWindow
 	}
-	frameInterval := cr.RenderFrameInterval
+	frameInterval := cr.renderFrameInterval
 	if frameInterval == 0 {
 		frameInterval = defaultRenderFrameInterval
 	}

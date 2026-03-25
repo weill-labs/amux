@@ -150,11 +150,14 @@ func (s *Session) vtIdleSettle() time.Duration {
 	return DefaultVTIdleSettle
 }
 
+// DefaultUndoGracePeriod is how long a soft-closed pane stays undoable.
+const DefaultUndoGracePeriod = 30 * time.Second
+
 func (s *Session) undoGracePeriod() time.Duration {
 	if s.UndoGracePeriod != 0 {
 		return s.UndoGracePeriod
 	}
-	return 30 * time.Second
+	return DefaultUndoGracePeriod
 }
 
 // buildCrashCheckpoint builds a crash checkpoint from the current session state.
