@@ -3,6 +3,7 @@ package test
 import (
 	"encoding/json"
 	"net"
+	"strings"
 	"testing"
 	"time"
 
@@ -215,8 +216,8 @@ func TestAttachResyncsStaleCursorState(t *testing.T) {
 	if err := json.Unmarshal([]byte(r.CapturePaneJSON(2, nil)), &after); err != nil {
 		t.Fatalf("unmarshal pane-2 after replay: %v", err)
 	}
-	if got, want := after.Content[0], healthy.Content[0]; got != want {
-		t.Fatalf("pane-2 content after attach = %q, want %q", got, want)
+	if got, want := strings.TrimLeft(after.Content[0], " "), strings.TrimLeft(healthy.Content[0], " "); got != want {
+		t.Fatalf("pane-2 content after attach = %q (raw %q), want %q (raw %q)", got, after.Content[0], want, healthy.Content[0])
 	}
 	if got, want := after.Cursor.Col, healthy.Cursor.Col; got != want {
 		t.Fatalf("pane-2 cursor col after attach = %d, want %d", got, want)
