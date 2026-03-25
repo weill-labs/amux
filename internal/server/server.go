@@ -95,12 +95,13 @@ type Session struct {
 	closedPaneTimers map[uint32]*time.Timer
 
 	// Configurable timing — zero values use defaults. Tests inject short durations.
-	VTIdleSettle            time.Duration // default: 2s
-	UndoGracePeriod         time.Duration // default: 30s
-	CaptureAttachMaxRetries int           // default: 10
-	CaptureAttachRetryDelay time.Duration // default: 300ms
-	CaptureResponseTimeout  time.Duration // default: 3s
-	Clock                   Clock         // nil uses RealClock
+	VTIdleSettle    time.Duration // default: 2s
+	UndoGracePeriod time.Duration // default: 30s
+	Clock           Clock         // nil uses RealClock
+
+	// Internal capture timing overrides. Zero values use defaults.
+	// Tests inject short timings here instead of mutating package globals.
+	captureTiming captureTimingConfig
 
 	// Remote pane management — manages SSH connections to remote hosts.
 	// Nil when no config is loaded or no remote hosts are defined.
@@ -171,23 +172,29 @@ func (s *Session) undoGracePeriod() time.Duration {
 	return DefaultUndoGracePeriod
 }
 
+type captureTimingConfig struct {
+	attachMaxRetries int
+	attachRetryDelay time.Duration
+	responseTimeout  time.Duration
+}
+
 func (s *Session) captureAttachMaxRetries() int {
-	if s.CaptureAttachMaxRetries != 0 {
-		return s.CaptureAttachMaxRetries
+	if s.captureTiming.attachMaxRetries != 0 {
+		return s.captureTiming.attachMaxRetries
 	}
 	return defaultCaptureAttachMaxRetries
 }
 
 func (s *Session) captureAttachRetryDelay() time.Duration {
-	if s.CaptureAttachRetryDelay != 0 {
-		return s.CaptureAttachRetryDelay
+	if s.captureTiming.attachRetryDelay != 0 {
+		return s.captureTiming.attachRetryDelay
 	}
 	return defaultCaptureAttachRetryDelay
 }
 
 func (s *Session) captureResponseTimeout() time.Duration {
-	if s.CaptureResponseTimeout != 0 {
-		return s.CaptureResponseTimeout
+	if s.captureTiming.responseTimeout != 0 {
+		return s.captureTiming.responseTimeout
 	}
 	return defaultCaptureResponseTimeout
 }
