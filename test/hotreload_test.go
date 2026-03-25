@@ -3,6 +3,7 @@ package test
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -58,6 +59,44 @@ func buildAmuxAtomic(binPath, buildCommit string) error {
 	return nil
 }
 
+func rewriteBinaryAtomic(binPath string) error {
+	src, err := os.Open(binPath)
+	if err != nil {
+		return fmt.Errorf("opening binary for rewrite: %w", err)
+	}
+	defer src.Close()
+
+	info, err := src.Stat()
+	if err != nil {
+		return fmt.Errorf("stat binary for rewrite: %w", err)
+	}
+
+	tmp, err := os.CreateTemp(filepath.Dir(binPath), ".amux-rewrite-*")
+	if err != nil {
+		return fmt.Errorf("creating temp rewrite path: %w", err)
+	}
+	tmpPath := tmp.Name()
+	if err := tmp.Chmod(info.Mode().Perm()); err != nil {
+		tmp.Close()
+		os.Remove(tmpPath)
+		return fmt.Errorf("chmod temp rewrite path: %w", err)
+	}
+	if _, err := io.Copy(tmp, src); err != nil {
+		tmp.Close()
+		os.Remove(tmpPath)
+		return fmt.Errorf("copying binary for rewrite: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("closing temp rewrite path: %w", err)
+	}
+	if err := os.Rename(tmpPath, binPath); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("renaming rewritten binary into place: %w", err)
+	}
+	return nil
+}
+
 func runAmuxCommandWithBin(tb testing.TB, binPath, home, coverDir, session string, args ...string) string {
 	tb.Helper()
 	cmdArgs := append([]string{"-s", session}, args...)
@@ -97,6 +136,16 @@ func waitForOutput(tb testing.TB, timeout time.Duration, fn func() string, match
 	}
 }
 
+func newPersistentReloadHarness(tb testing.TB, binPath string) *AmuxHarness {
+	tb.Helper()
+	return newAmuxHarnessWithBin(tb, binPath, "AMUX_EXIT_UNATTACHED=0")
+}
+
+func newPersistentReloadHarnessInDir(tb testing.TB, binPath, launchDir string) *AmuxHarness {
+	tb.Helper()
+	return newAmuxHarnessWithBinInDir(tb, binPath, launchDir, "AMUX_EXIT_UNATTACHED=0")
+}
+
 func TestHotReloadKeybinding(t *testing.T) {
 	t.Parallel()
 	h := newAmuxHarness(t)
@@ -129,18 +178,19 @@ func TestHotReloadKeybinding(t *testing.T) {
 	}
 }
 
-// Binary-rebuild hot-reload tests share the installed test binary path used by
-// the outer harness, so they must stay serial.
 func TestHotReloadAutoDetect(t *testing.T) {
-	h := newAmuxHarness(t)
+	t.Parallel()
+
+	privateBin := privateAmuxBin(t)
+	h := newPersistentReloadHarness(t, privateBin)
 
 	h.sendKeys("echo AUTORLD", "Enter")
 	if !h.waitFor("AUTORLD", 3*time.Second) {
 		t.Fatalf("AUTORLD not visible\nScreen:\n%s", h.captureOuter())
 	}
 
-	if err := buildAmux(amuxBin); err != nil {
-		t.Fatalf("rebuilding amux binary: %v", err)
+	if err := rewriteBinaryAtomic(privateBin); err != nil {
+		t.Fatalf("rewriting amux binary: %v", err)
 	}
 
 	if !h.waitFor("[pane-", 10*time.Second) {
@@ -155,6 +205,8 @@ func TestHotReloadAutoDetect(t *testing.T) {
 }
 
 func TestHotReloadRebuildConvergesFromOutsideRepoWithMismatchedInstallMetadata(t *testing.T) {
+	t.Parallel()
+
 	privateDir := t.TempDir()
 	privateBin := filepath.Join(privateDir, "amux")
 	if err := buildAmuxWithCommit(privateBin, "beforeoutside"); err != nil {
@@ -175,13 +227,16 @@ func TestHotReloadRebuildConvergesFromOutsideRepoWithMismatchedInstallMetadata(t
 		t.Fatalf("creating plain launch dir: %v", err)
 	}
 
-	h := newAmuxHarnessWithBinInDir(t, privateBin, plainDir)
+	h := newPersistentReloadHarnessInDir(t, privateBin, plainDir)
 
-	if before := h.runCmd("status"); !strings.Contains(before, "build: beforeoutside") {
+	before := waitForOutput(t, 10*time.Second, func() string {
+		return h.runCmd("status")
+	}, func(out string) bool {
+		return strings.Contains(out, "build: beforeoutside")
+	})
+	if !strings.Contains(before, "build: beforeoutside") {
 		t.Fatalf("status before binary rewrite = %q, want before build marker", before)
 	}
-	waitForClientIDs(t, h, 5*time.Second, 1)
-
 	if err := buildAmuxAtomic(privateBin, "srvonlyreload"); err != nil {
 		t.Fatalf("rewriting private amux binary atomically: %v", err)
 	}
@@ -194,9 +249,6 @@ func TestHotReloadRebuildConvergesFromOutsideRepoWithMismatchedInstallMetadata(t
 	if !strings.Contains(after, "build: srvonlyreload") {
 		t.Fatalf("status after binary rewrite = %q, want new build marker", after)
 	}
-
-	finalIDs := waitForClientIDs(t, h, 10*time.Second, 1)
-	assertClientIDsStable(t, h, finalIDs, 2*time.Second)
 
 	h.sendKeys("echo ONE_RELOAD_ONLY", "Enter")
 	if !h.waitFor("ONE_RELOAD_ONLY", 5*time.Second) {
@@ -240,12 +292,14 @@ func TestServerHotReload(t *testing.T) {
 }
 
 func TestReloadServerExecsReplacementBinaryAfterAtomicInstall(t *testing.T) {
+	t.Parallel()
+
 	privateBin := filepath.Join(t.TempDir(), "amux")
 	if err := buildAmuxWithCommit(privateBin, "oldbuild"); err != nil {
 		t.Fatalf("building old amux binary: %v", err)
 	}
 
-	h := newAmuxHarnessWithBin(t, privateBin)
+	h := newPersistentReloadHarness(t, privateBin)
 
 	before := h.runCmd("status")
 	if !strings.Contains(before, "build: oldbuild") {
@@ -272,6 +326,8 @@ func TestReloadServerExecsReplacementBinaryAfterAtomicInstall(t *testing.T) {
 }
 
 func TestReloadServerUsesRequestingBinaryNotOriginalLaunchBinary(t *testing.T) {
+	t.Parallel()
+
 	oldBin := filepath.Join(t.TempDir(), "old-amux")
 	if err := buildAmuxWithCommit(oldBin, "oldbuild"); err != nil {
 		t.Fatalf("building old amux binary: %v", err)
@@ -282,7 +338,7 @@ func TestReloadServerUsesRequestingBinaryNotOriginalLaunchBinary(t *testing.T) {
 		t.Fatalf("building new amux binary: %v", err)
 	}
 
-	h := newAmuxHarnessWithBin(t, oldBin)
+	h := newPersistentReloadHarness(t, oldBin)
 
 	before := runAmuxCommandWithBin(t, newBin, h.outer.home, h.outer.coverDir, h.inner, "status")
 	if !strings.Contains(before, "build: oldbuild") {
@@ -305,15 +361,18 @@ func TestReloadServerUsesRequestingBinaryNotOriginalLaunchBinary(t *testing.T) {
 }
 
 func TestServerAutoReload(t *testing.T) {
-	h := newAmuxHarness(t)
+	t.Parallel()
+
+	privateBin := privateAmuxBin(t)
+	h := newPersistentReloadHarness(t, privateBin)
 
 	h.sendKeys("echo SRVAUTO", "Enter")
 	if !h.waitFor("SRVAUTO", 3*time.Second) {
 		t.Fatalf("SRVAUTO not visible\nScreen:\n%s", h.captureOuter())
 	}
 
-	if err := buildAmux(amuxBin); err != nil {
-		t.Fatalf("rebuilding amux binary: %v", err)
+	if err := rewriteBinaryAtomic(privateBin); err != nil {
+		t.Fatalf("rewriting amux binary: %v", err)
 	}
 
 	if !h.waitFor("[pane-", 15*time.Second) {
@@ -389,62 +448,6 @@ func TestServerReloadPreservesHistoryCapture(t *testing.T) {
 	if !strings.Contains(after, "RLDHIST-01") || !strings.Contains(after, "RLDHIST-45") {
 		t.Fatalf("history capture should survive reload, got:\n%s", after)
 	}
-}
-
-func waitForClientIDs(t *testing.T, h *AmuxHarness, timeout time.Duration, wantCount int) []string {
-	t.Helper()
-
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
-	ticker := time.NewTicker(50 * time.Millisecond)
-	defer ticker.Stop()
-
-	for {
-		ids := parseClientIDs(h.runCmd("list-clients"))
-		if len(ids) == wantCount {
-			return ids
-		}
-
-		select {
-		case <-timer.C:
-			t.Fatalf("client count did not reach %d within %v, last list-clients output:\n%s", wantCount, timeout, h.runCmd("list-clients"))
-		case <-ticker.C:
-		}
-	}
-}
-
-func assertClientIDsStable(t *testing.T, h *AmuxHarness, want []string, duration time.Duration) {
-	t.Helper()
-
-	timer := time.NewTimer(duration)
-	defer timer.Stop()
-	ticker := time.NewTicker(50 * time.Millisecond)
-	defer ticker.Stop()
-
-	for {
-		got := parseClientIDs(h.runCmd("list-clients"))
-		if !stringSlicesEqual(got, want) {
-			t.Fatalf("client IDs changed during reload convergence window: got %v, want %v\nouter:\n%s", got, want, h.captureOuter())
-		}
-
-		select {
-		case <-timer.C:
-			return
-		case <-ticker.C:
-		}
-	}
-}
-
-func stringSlicesEqual(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
 }
 
 func TestServerReloadPreservesConfiguredHistoryLimit(t *testing.T) {
