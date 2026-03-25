@@ -13,7 +13,7 @@ import (
 
 func waitForHook(t *testing.T, h *ServerHarness, event, pane string, after uint64) {
 	t.Helper()
-	args := []string{"wait-hook", event, "--after", strconv.FormatUint(after, 10), "--timeout", "5s"}
+	args := []string{"wait", "hook", event, "--after", strconv.FormatUint(after, 10), "--timeout", "5s"}
 	if pane != "" {
 		args = append(args, "--pane", pane)
 	}
@@ -105,7 +105,7 @@ func TestHookOnIdleFires(t *testing.T) {
 
 	tmp := t.TempDir()
 	marker := filepath.Join(tmp, "idle-fired")
-	after := strings.TrimSpace(h.runCmd("hook-gen"))
+	after := strings.TrimSpace(h.runCmd("cursor", "hook"))
 	afterGen, err := strconv.ParseUint(after, 10, 64)
 	if err != nil {
 		t.Fatalf("parse hook-gen: %v (output %q)", err, after)
@@ -139,7 +139,7 @@ func TestHookOnActivityFires(t *testing.T) {
 
 	tmp := t.TempDir()
 	marker := filepath.Join(tmp, "activity-fired")
-	after := strings.TrimSpace(h.runCmd("hook-gen"))
+	after := strings.TrimSpace(h.runCmd("cursor", "hook"))
 	afterGen, err := strconv.ParseUint(after, 10, 64)
 	if err != nil {
 		t.Fatalf("parse hook-gen: %v (output %q)", err, after)
@@ -169,7 +169,7 @@ func TestHookReceivesEnvVars(t *testing.T) {
 
 	tmp := t.TempDir()
 	envFile := filepath.Join(tmp, "hook-env")
-	after := strings.TrimSpace(h.runCmd("hook-gen"))
+	after := strings.TrimSpace(h.runCmd("cursor", "hook"))
 	afterGen, err := strconv.ParseUint(after, 10, 64)
 	if err != nil {
 		t.Fatalf("parse hook-gen: %v (output %q)", err, after)
@@ -199,7 +199,7 @@ func TestHookReceivesEnvVars(t *testing.T) {
 func TestHookFailingCommandLogsToSessionLog(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)
-	after := strings.TrimSpace(h.runCmd("hook-gen"))
+	after := strings.TrimSpace(h.runCmd("cursor", "hook"))
 	afterGen, err := strconv.ParseUint(after, 10, 64)
 	if err != nil {
 		t.Fatalf("parse hook-gen: %v (output %q)", err, after)

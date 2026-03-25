@@ -37,27 +37,27 @@ func TestMainSendKeysUsageIncludesWaitReadyFlags(t *testing.T) {
 	}
 }
 
-func TestMainWaitReadyUsage(t *testing.T) {
+func TestMainWaitUsage(t *testing.T) {
 	t.Parallel()
 
-	out, code := runHermeticMain(t, "wait-ready")
+	out, code := runHermeticMain(t, "wait")
 	if code != 1 {
 		t.Fatalf("exit code = %d, want 1\n%s", code, out)
 	}
-	if !strings.Contains(out, "usage: amux wait-ready <pane> [--timeout <duration>] [--continue-known-dialogs]") {
-		t.Fatalf("wait-ready usage output = %q", out)
+	if !strings.Contains(out, "usage: amux wait <idle|busy|vt-idle|ready|content|layout|clipboard|hook|ui> ...") {
+		t.Fatalf("wait usage output = %q", out)
 	}
 }
 
-func TestMainWaitVTIdleUsage(t *testing.T) {
+func TestMainCursorUsage(t *testing.T) {
 	t.Parallel()
 
-	out, code := runHermeticMain(t, "wait-vt-idle")
+	out, code := runHermeticMain(t, "cursor")
 	if code != 1 {
 		t.Fatalf("exit code = %d, want 1\n%s", code, out)
 	}
-	if !strings.Contains(out, "usage: amux wait-vt-idle <pane> [--settle <duration>] [--timeout <duration>]") {
-		t.Fatalf("wait-vt-idle usage output = %q", out)
+	if !strings.Contains(out, "usage: amux cursor <layout|clipboard|hook|ui> [--client <id>]") {
+		t.Fatalf("cursor usage output = %q", out)
 	}
 }
 

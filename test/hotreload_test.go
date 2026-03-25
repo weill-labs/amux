@@ -508,7 +508,7 @@ func TestServerReloadMinimizedPanePreservesContent(t *testing.T) {
 		t.Fatalf("session did not recover after reload\nScreen:\n%s", h.captureOuter())
 	}
 
-	if out := h.runCmd("wait-for", "pane-1", "RELOAD_MARKER", "--timeout", "10s"); strings.Contains(out, "timeout") {
+	if out := h.runCmd("wait", "content", "pane-1", "RELOAD_MARKER", "--timeout", "10s"); strings.Contains(out, "timeout") {
 		t.Fatalf("minimized pane emulator should not be garbled by SIGWINCH loop after reload, got:\n%s", h.runCmd("capture", "pane-1"))
 	}
 

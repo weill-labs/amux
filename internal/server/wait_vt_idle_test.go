@@ -64,7 +64,7 @@ func TestCmdWaitVTIdleUsage(t *testing.T) {
 	defer cleanup()
 
 	msg := runOneShotCommand(t, sess, nil, cmdWaitVTIdle)
-	if got := msg.CmdErr; got != "usage: wait-vt-idle <pane> [--settle <duration>] [--timeout <duration>]" {
+	if got := msg.CmdErr; got != "usage: wait vt-idle <pane> [--settle <duration>] [--timeout <duration>]" {
 		t.Fatalf("wait-vt-idle usage error = %q", got)
 	}
 }
@@ -166,7 +166,7 @@ func TestCmdWaitVTIdleTimeout(t *testing.T) {
 	sess.Clock = clk
 	sess.vtIdle = NewVTIdleTracker(clk)
 
-	clientConn, _, done := startAsyncCommand(t, srv, sess, "wait-vt-idle", "pane-1", "--settle", "200ms", "--timeout", "40ms")
+	clientConn, _, done := startAsyncCommand(t, srv, sess, "wait", "vt-idle", "pane-1", "--settle", "200ms", "--timeout", "40ms")
 
 	// Wait for cmdWaitVTIdle to create its two timers (settle + timeout).
 	// Because fakeTimer.ch is buffered, Advance can fire a timer even if the
@@ -197,7 +197,7 @@ func TestCmdWaitVTIdleResetsSettleTimerOnOutput(t *testing.T) {
 	sess.Clock = clk
 	sess.vtIdle = NewVTIdleTracker(clk)
 
-	clientConn, _, done := startAsyncCommand(t, srv, sess, "wait-vt-idle", "pane-1", "--settle", "100ms", "--timeout", "5s")
+	clientConn, _, done := startAsyncCommand(t, srv, sess, "wait", "vt-idle", "pane-1", "--settle", "100ms", "--timeout", "5s")
 
 	// Wait for the two initial timers (settle + timeout).
 	clk.AwaitTimers(2)

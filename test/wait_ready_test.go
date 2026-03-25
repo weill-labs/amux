@@ -38,7 +38,7 @@ printf '\nTASK:%s\n' "$task"
 	h.sendKeys("pane-1", scriptPath, "Enter")
 	h.waitFor("pane-1", "Do you trust the contents of this directory?")
 
-	if out := h.runCmd("wait-ready", "pane-1", "--timeout", "100ms"); !strings.Contains(out, "Codex trust dialog is blocking input in pane-1") {
+	if out := h.runCmd("wait", "ready", "pane-1", "--timeout", "100ms"); !strings.Contains(out, "Codex trust dialog is blocking input in pane-1") {
 		t.Fatalf("wait-ready should report trust dialog blocker, got:\n%s", out)
 	}
 

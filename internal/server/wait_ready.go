@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	waitReadyUsage = "usage: wait-ready <pane> [--timeout <duration>] [--continue-known-dialogs]"
+	waitReadyUsage = "usage: wait ready <pane> [--timeout <duration>] [--continue-known-dialogs]"
 
 	codexTrustDialogQuestion = "Do you trust the contents of this directory?"
 	codexTrustDialogWarning  = "higher risk of prompt injection."

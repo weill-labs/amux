@@ -60,8 +60,8 @@ func TestWaitReadyUsage(t *testing.T) {
 	srv, sess, cleanup := newCommandTestSession(t)
 	defer cleanup()
 
-	res := runTestCommand(t, srv, sess, "wait-ready")
-	if got := res.cmdErr; got != "usage: wait-ready <pane> [--timeout <duration>] [--continue-known-dialogs]" {
+	res := runTestCommand(t, srv, sess, "wait", "ready")
+	if got := res.cmdErr; got != "usage: wait ready <pane> [--timeout <duration>] [--continue-known-dialogs]" {
 		t.Fatalf("wait-ready usage error = %q", got)
 	}
 }
@@ -196,7 +196,7 @@ func TestWaitReadyMatchesCodexPrompt(t *testing.T) {
 
 	pane.FeedOutput([]byte(codexReadyScreen("Implement {feature}")))
 
-	res := runTestCommand(t, srv, sess, "wait-ready", "pane-1", "--timeout", "10ms")
+	res := runTestCommand(t, srv, sess, "wait", "ready", "pane-1", "--timeout", "10ms")
 	if res.cmdErr != "" || strings.TrimSpace(res.output) != "ready" {
 		t.Fatalf("wait-ready result = %#v", res)
 	}
@@ -210,7 +210,7 @@ func TestWaitReadyBlocksOnCodexTrustDialog(t *testing.T) {
 
 	pane.FeedOutput([]byte(codexTrustDialogScreen("/tmp/untrusted")))
 
-	res := runTestCommand(t, srv, sess, "wait-ready", "pane-1", "--timeout", "10ms")
+	res := runTestCommand(t, srv, sess, "wait", "ready", "pane-1", "--timeout", "10ms")
 	if !strings.Contains(res.cmdErr, "Codex trust dialog is blocking input in pane-1") {
 		t.Fatalf("wait-ready dialog error = %#v", res)
 	}
@@ -266,7 +266,7 @@ func TestWaitReadyCanContinueKnownCodexDialog(t *testing.T) {
 	pane = createdPane
 	pane.FeedOutput([]byte(codexTrustDialogScreen("/tmp/untrusted")))
 
-	res := runTestCommand(t, srv, sess, "wait-ready", "pane-1", "--continue-known-dialogs", "--timeout", "50ms")
+	res := runTestCommand(t, srv, sess, "wait", "ready", "pane-1", "--continue-known-dialogs", "--timeout", "50ms")
 	if res.cmdErr != "" || strings.TrimSpace(res.output) != "ready" {
 		t.Fatalf("wait-ready result = %#v", res)
 	}
@@ -324,7 +324,7 @@ func TestWaitReadyUsesClaudeCursorBlockFallback(t *testing.T) {
 
 	pane.FeedOutput([]byte(claudePromptScreen()))
 
-	res := runTestCommand(t, srv, sess, "wait-ready", "pane-1", "--timeout", "10ms")
+	res := runTestCommand(t, srv, sess, "wait", "ready", "pane-1", "--timeout", "10ms")
 	if res.cmdErr != "" || strings.TrimSpace(res.output) != "ready" {
 		t.Fatalf("wait-ready Claude result = %#v", res)
 	}
@@ -428,7 +428,7 @@ func TestWaitReadyRejectsNumberedMenuRows(t *testing.T) {
 
 	pane.FeedOutput([]byte(numberedMenuScreen()))
 
-	res := runTestCommand(t, srv, sess, "wait-ready", "pane-1", "--timeout", "1ms")
+	res := runTestCommand(t, srv, sess, "wait", "ready", "pane-1", "--timeout", "1ms")
 	if !strings.Contains(res.cmdErr, "timeout waiting for pane-1 to become ready") {
 		t.Fatalf("wait-ready timeout = %#v", res)
 	}

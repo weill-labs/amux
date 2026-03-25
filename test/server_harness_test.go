@@ -606,7 +606,7 @@ func (h *ServerHarness) waitForTimeout(pane, substr, timeout string) {
 	h.tb.Helper()
 	restore := h.pushWaitState(fmt.Sprintf("waiting for %s to contain %q (timeout %s)", pane, substr, timeout))
 	defer restore()
-	out := h.runCmd("wait-for", pane, substr, "--timeout", timeout)
+	out := h.runCmd("wait", "content", pane, substr, "--timeout", timeout)
 	if strings.Contains(out, "timeout") || strings.Contains(out, "not found") {
 		h.tb.Fatalf("wait-for %q in %s: %s\n%s", substr, pane, strings.TrimSpace(out), h.diagnosticSnapshot("wait-for failure"))
 	}
@@ -618,7 +618,7 @@ func (h *ServerHarness) waitBusy(pane string) {
 	h.tb.Helper()
 	restore := h.pushWaitState(fmt.Sprintf("waiting for %s to become busy", pane))
 	defer restore()
-	out := h.runCmd("wait-busy", pane, "--timeout", "15s")
+	out := h.runCmd("wait", "busy", pane, "--timeout", "15s")
 	if strings.Contains(out, "timeout") || strings.Contains(out, "not found") {
 		h.tb.Fatalf("wait-busy %s: %s\n%s", pane, strings.TrimSpace(out), h.diagnosticSnapshot("wait-busy failure"))
 	}
@@ -638,7 +638,7 @@ func (h *ServerHarness) waitIdle(pane string) {
 	h.tb.Helper()
 	restore := h.pushWaitState(fmt.Sprintf("waiting for %s to become idle", pane))
 	defer restore()
-	out := h.runCmd("wait-idle", pane, "--timeout", "20s")
+	out := h.runCmd("wait", "idle", pane, "--timeout", "20s")
 	if strings.Contains(out, "timeout") || strings.Contains(out, "not found") {
 		h.tb.Fatalf("wait-idle %s: %s\n%s", pane, strings.TrimSpace(out), h.diagnosticSnapshot("wait-idle failure"))
 	}
@@ -647,7 +647,7 @@ func (h *ServerHarness) waitIdle(pane string) {
 // generation returns the current layout generation counter.
 func (h *ServerHarness) generation() uint64 {
 	h.tb.Helper()
-	out := strings.TrimSpace(h.runCmd("generation"))
+	out := strings.TrimSpace(h.runCmd("cursor", "layout"))
 	n, err := strconv.ParseUint(out, 10, 64)
 	if err != nil {
 		h.tb.Fatalf("parsing generation: %v (output: %q)", err, out)
@@ -666,7 +666,7 @@ func (h *ServerHarness) waitLayoutTimeout(afterGen uint64, timeout string) {
 	h.tb.Helper()
 	restore := h.pushWaitState(fmt.Sprintf("waiting for layout generation > %d (timeout %s)", afterGen, timeout))
 	defer restore()
-	out := h.runCmd("wait-layout", "--after", strconv.FormatUint(afterGen, 10), "--timeout", timeout)
+	out := h.runCmd("wait", "layout", "--after", strconv.FormatUint(afterGen, 10), "--timeout", timeout)
 	if strings.Contains(out, "timeout") {
 		h.tb.Fatalf("wait-layout timed out after generation %d\n%s", afterGen, h.diagnosticSnapshot("wait-layout failure"))
 	}
@@ -677,7 +677,7 @@ func (h *ServerHarness) waitLayoutTimeout(afterGen uint64, timeout string) {
 // exit condition rather than a test failure.
 func (h *ServerHarness) waitLayoutOrTimeout(afterGen uint64, timeout string) bool {
 	h.tb.Helper()
-	out := h.runCmd("wait-layout", "--after", strconv.FormatUint(afterGen, 10), "--timeout", timeout)
+	out := h.runCmd("wait", "layout", "--after", strconv.FormatUint(afterGen, 10), "--timeout", timeout)
 	return !strings.Contains(out, "timeout")
 }
 

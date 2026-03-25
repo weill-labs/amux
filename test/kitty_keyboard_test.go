@@ -62,13 +62,13 @@ func TestKittyKeyboardChooserEscape(t *testing.T) {
 
 	client.write([]byte("\x1b[97;5u"))
 	client.sendText("s")
-	out := h.runCmd("wait-ui", proto.UIEventChooseTreeShown, "--timeout", "3s")
+	out := h.runCmd("wait", "ui", proto.UIEventChooseTreeShown, "--timeout", "3s")
 	if !strings.Contains(out, proto.UIEventChooseTreeShown) {
 		t.Fatalf("expected chooser shown event, got: %s\nOutput:\n%s", out, client.outputString())
 	}
 
 	client.write([]byte("\x1b[27u"))
-	out = h.runCmd("wait-ui", proto.UIEventChooseTreeHidden, "--timeout", "3s")
+	out = h.runCmd("wait", "ui", proto.UIEventChooseTreeHidden, "--timeout", "3s")
 	if !strings.Contains(out, proto.UIEventChooseTreeHidden) {
 		t.Fatalf("expected chooser hidden event after kitty escape, got: %s\nOutput:\n%s", out, client.outputString())
 	}

@@ -192,7 +192,7 @@ func TestParseWaitUIArgs(t *testing.T) {
 		wantDur   time.Duration
 		wantErr   string
 	}{
-		{name: "missing event", wantErr: "usage: wait-ui"},
+		{name: "missing event", wantErr: "usage: wait ui"},
 		{name: "missing client value", args: []string{"input-idle", "--client"}, wantErr: "missing value for --client"},
 		{name: "missing after value", args: []string{"input-idle", "--after"}, wantErr: "missing value for --after"},
 		{name: "invalid after value", args: []string{"input-idle", "--after", "abc"}, wantErr: "invalid --after generation: abc"},

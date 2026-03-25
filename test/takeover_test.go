@@ -389,7 +389,7 @@ func takeoverGeneration(t *testing.T, h *ServerHarness) uint64 {
 	deadline := time.Now().Add(2 * time.Second)
 	var out string
 	for {
-		out = strings.TrimSpace(h.runCmd("generation"))
+		out = strings.TrimSpace(h.runCmd("cursor", "layout"))
 		n, err := strconv.ParseUint(out, 10, 64)
 		if err == nil {
 			return n
@@ -404,7 +404,7 @@ func takeoverGeneration(t *testing.T, h *ServerHarness) uint64 {
 }
 
 func takeoverWaitLayoutOrTimeout(h *ServerHarness, afterGen uint64, timeout string) bool {
-	out := h.runCmd("wait-layout", "--after", strconv.FormatUint(afterGen, 10), "--timeout", timeout)
+	out := h.runCmd("wait", "layout", "--after", strconv.FormatUint(afterGen, 10), "--timeout", timeout)
 	if strings.Contains(out, "server not running") {
 		return false
 	}
