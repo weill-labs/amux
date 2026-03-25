@@ -270,6 +270,9 @@ func (e readLayoutEvent) handle(hc *HostConn) {
 	if e.layout == nil {
 		return
 	}
+	if hc.takeoverMode && !layoutReady(e.layout) {
+		return
+	}
 
 	present := make(map[uint32]struct{}, len(e.layout.Panes))
 	for _, pane := range e.layout.Panes {
