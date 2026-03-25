@@ -2,8 +2,10 @@ package capture
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/weill-labs/amux/internal/proto"
 )
 
@@ -81,6 +83,27 @@ func TestRewrapHistoryBuffer(t *testing.T) {
 		}
 	})
 
+	t.Run("rewraps readable history and visible lines from narrow rows", func(t *testing.T) {
+		t.Parallel()
+
+		historyLine := "FIRST history narrow panes should rewrap cleanly for agents to read"
+		visibleLine := "SECOND visible content should also rewrap cleanly for agents to read"
+		live := wrappedHistoryRows(historyLine, 18)
+		content := wrappedHistoryRows(visibleLine, 18)
+
+		got := RewrapHistoryBuffer(nil, live, content, proto.CaptureCursor{
+			Row: len(content) - 1,
+			Col: ansi.StringWidth(content[len(content)-1].Text),
+		}, 80)
+
+		if want := []string{historyLine}; !reflect.DeepEqual(got.History, want) {
+			t.Fatalf("History = %#v, want %#v", got.History, want)
+		}
+		if want := []string{visibleLine}; !reflect.DeepEqual(got.Content, want) {
+			t.Fatalf("Content = %#v, want %#v", got.Content, want)
+		}
+	})
+
 	t.Run("returns zero cursor for empty buffers", func(t *testing.T) {
 		t.Parallel()
 
@@ -143,4 +166,17 @@ func TestRewrapHistoryBuffer(t *testing.T) {
 			t.Fatalf("Cursor = (%d,%d), want (1,0)", got.Cursor.Row, got.Cursor.Col)
 		}
 	})
+}
+
+func wrappedHistoryRows(text string, width int) []HistoryLine {
+	rows := strings.Split(ansi.Hardwrap(text, width, true), "\n")
+	lines := make([]HistoryLine, len(rows))
+	for i, row := range rows {
+		lines[i] = HistoryLine{
+			Text:        row,
+			SourceWidth: width,
+			Filled:      i < len(rows)-1,
+		}
+	}
+	return lines
 }

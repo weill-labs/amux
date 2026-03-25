@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -40,6 +41,22 @@ func waitBusyReady(candidatePID int, status mux.AgentStatus) (nextPID int, ready
 func cmdGeneration(ctx *CommandContext) {
 	gen := ctx.Sess.generation.Load()
 	ctx.reply(fmt.Sprintf("%d\n", gen))
+}
+
+func cmdLayoutJSON(ctx *CommandContext) {
+	snap, err := enqueueSessionQuery(ctx.Sess, func(sess *Session) (*proto.LayoutSnapshot, error) {
+		return sess.snapshotLayout(nil), nil
+	})
+	if err != nil {
+		ctx.replyErr(err.Error())
+		return
+	}
+	data, err := json.MarshalIndent(snap, "", "  ")
+	if err != nil {
+		ctx.replyErr(err.Error())
+		return
+	}
+	ctx.reply(string(data) + "\n")
 }
 
 func cmdWaitLayout(ctx *CommandContext) {
@@ -143,7 +160,7 @@ func cmdWaitFor(ctx *CommandContext) {
 		return
 	}
 
-	pane, err := ctx.Sess.queryResolvedPaneForActor(ctx.ActorPaneID,paneRef)
+	pane, err := ctx.Sess.queryResolvedPaneForActor(ctx.ActorPaneID, paneRef)
 	if err != nil {
 		ctx.replyErr(err.Error())
 		return
@@ -190,7 +207,7 @@ func cmdWaitIdle(ctx *CommandContext) {
 		return
 	}
 
-	pane, err := ctx.Sess.queryResolvedPaneForActor(ctx.ActorPaneID,paneRef)
+	pane, err := ctx.Sess.queryResolvedPaneForActor(ctx.ActorPaneID, paneRef)
 	if err != nil {
 		ctx.replyErr(err.Error())
 		return
@@ -267,7 +284,7 @@ func cmdWaitBusy(ctx *CommandContext) {
 		return
 	}
 
-	pane, err := ctx.Sess.queryResolvedPaneForActor(ctx.ActorPaneID,paneRef)
+	pane, err := ctx.Sess.queryResolvedPaneForActor(ctx.ActorPaneID, paneRef)
 	if err != nil {
 		ctx.replyErr(err.Error())
 		return

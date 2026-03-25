@@ -219,7 +219,7 @@ func TestCaptureQueueLifecycle(t *testing.T) {
 func TestHandleTakeoverFailureWithoutRemoteManager(t *testing.T) {
 	t.Parallel()
 
-	srv, sess, cleanup := newCommandTestSession(t)
+	_, sess, cleanup := newCommandTestSession(t)
 	defer cleanup()
 
 	var writes bytes.Buffer
@@ -240,7 +240,7 @@ func TestHandleTakeoverFailureWithoutRemoteManager(t *testing.T) {
 		Panes:      []mux.TakeoverPane{{ID: 7, Name: "pane-7", Cols: 80, Rows: 23}},
 	}
 
-	sess.handleTakeover(srv, sshPane.ID, req)
+	sess.handleTakeover(sshPane.ID, req)
 
 	wantAck := mux.FormatTakeoverAck(remote.ManagedSessionName(sess.Name)) + "\n"
 	if got := writes.String(); got != wantAck {
@@ -277,10 +277,10 @@ func TestHandleTakeoverFailureWithoutRemoteManager(t *testing.T) {
 func TestPrepareRemotePaneAndInsertPreparedPane(t *testing.T) {
 	t.Parallel()
 
-	srv, sess, cleanup := newCommandTestSession(t)
+	_, sess, cleanup := newCommandTestSession(t)
 	defer cleanup()
 
-	if _, err := sess.prepareRemotePane(srv, "dev", 80, 23); err == nil || err.Error() != "no remote hosts configured" {
+	if _, err := sess.prepareRemotePane("dev", 80, 23); err == nil || err.Error() != "no remote hosts configured" {
 		t.Fatalf("prepareRemotePane without manager error = %v, want no remote hosts configured", err)
 	}
 
@@ -288,7 +288,7 @@ func TestPrepareRemotePaneAndInsertPreparedPane(t *testing.T) {
 		"dev": {Type: "remote", Address: "127.0.0.1:1"},
 	}}, "build-hash")
 
-	pane, err := sess.prepareRemotePane(srv, "dev", 80, 23)
+	pane, err := sess.prepareRemotePane("dev", 80, 23)
 	if err == nil || !strings.Contains(err.Error(), "connecting to dev:") {
 		t.Fatalf("prepareRemotePane remote error = %v, want remote connect failure", err)
 	}
@@ -328,7 +328,7 @@ func TestPrepareRemotePaneAndInsertPreparedPane(t *testing.T) {
 	}
 }
 
-func TestInsertPreparedPaneIntoActiveWindowBackgroundPreservesZoomAndFocus(t *testing.T) {
+func TestInsertPreparedPaneIntoActiveWindowKeepFocusPreservesZoomAndFocus(t *testing.T) {
 	t.Parallel()
 
 	_, sess, cleanup := newCommandTestSession(t)
@@ -351,7 +351,7 @@ func TestInsertPreparedPaneIntoActiveWindowBackgroundPreservesZoomAndFocus(t *te
 	}
 
 	if err := sess.insertPreparedPaneIntoActiveWindow(prepared, mux.SplitVertical, false, true); err != nil {
-		t.Fatalf("insertPreparedPaneIntoActiveWindow background: %v", err)
+		t.Fatalf("insertPreparedPaneIntoActiveWindow keepFocus: %v", err)
 	}
 
 	state := mustSessionQuery(t, sess, func(sess *Session) struct {
@@ -371,7 +371,7 @@ func TestInsertPreparedPaneIntoActiveWindowBackgroundPreservesZoomAndFocus(t *te
 		}
 	})
 	if state.activeID != pane1.ID || state.zoomedID != pane1.ID || !state.hasPane {
-		t.Fatalf("background prepared pane insert state = %+v, want active pane-1, zoomed pane-1, pane present", state)
+		t.Fatalf("keepFocus prepared pane insert state = %+v, want active pane-1, zoomed pane-1, pane present", state)
 	}
 }
 

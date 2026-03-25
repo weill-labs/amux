@@ -11,14 +11,16 @@ const DefaultVTIdleTimeout = 60 * time.Second
 // VTIdleTracker tracks per-pane VT output quiescence.
 // Event-loop only.
 type VTIdleTracker struct {
-	timers     map[uint32]*time.Timer
+	clock      Clock
+	timers     map[uint32]Timer
 	lastOutput map[uint32]time.Time
 	settled    map[uint32]bool
 }
 
-func NewVTIdleTracker() *VTIdleTracker {
+func NewVTIdleTracker(clock Clock) *VTIdleTracker {
 	return &VTIdleTracker{
-		timers:     make(map[uint32]*time.Timer),
+		clock:      clock,
+		timers:     make(map[uint32]Timer),
 		lastOutput: make(map[uint32]time.Time),
 		settled:    make(map[uint32]bool),
 	}
@@ -27,7 +29,7 @@ func NewVTIdleTracker() *VTIdleTracker {
 // TrackOutput records fresh VT output and schedules a vt-idle callback for the
 // settle window.
 func (t *VTIdleTracker) TrackOutput(paneID uint32, settle time.Duration, onSettled func(time.Time)) {
-	now := time.Now()
+	now := t.clock.Now()
 	t.lastOutput[paneID] = now
 	t.settled[paneID] = false
 
@@ -36,7 +38,7 @@ func (t *VTIdleTracker) TrackOutput(paneID uint32, settle time.Duration, onSettl
 	}
 
 	expected := now
-	t.timers[paneID] = time.AfterFunc(settle, func() {
+	t.timers[paneID] = t.clock.AfterFunc(settle, func() {
 		onSettled(expected)
 	})
 }

@@ -855,6 +855,28 @@ func TestClientRendererResolvePaneIDRejectsAmbiguousExactNames(t *testing.T) {
 	}
 }
 
+func TestClientRendererActivePaneName(t *testing.T) {
+	t.Parallel()
+
+	t.Run("known active pane", func(t *testing.T) {
+		t.Parallel()
+
+		cr := buildTestRenderer(t)
+		if got := cr.ActivePaneName(); got != "pane-1" {
+			t.Fatalf("ActivePaneName() = %q, want %q", got, "pane-1")
+		}
+	})
+
+	t.Run("unknown without layout", func(t *testing.T) {
+		t.Parallel()
+
+		cr := NewClientRenderer(80, 24)
+		if got := cr.ActivePaneName(); got != "" {
+			t.Fatalf("ActivePaneName() without layout = %q, want empty string", got)
+		}
+	})
+}
+
 func TestCaptureDisplay(t *testing.T) {
 	t.Parallel()
 
@@ -1210,6 +1232,43 @@ func TestRenderCoalescedCommandErrorShowsFeedback(t *testing.T) {
 	}
 	if !strings.Contains(cr.CaptureDisplay(), "cannot minimize: pane has no stacked siblings") {
 		t.Fatalf("display capture should contain command feedback, got:\n%s", cr.CaptureDisplay())
+	}
+}
+
+func TestRenderCoalescedLocalActionReplySentBeforeExit(t *testing.T) {
+	t.Parallel()
+
+	cr := buildTestRenderer(t)
+	msgCh := make(chan *RenderMsg, 1)
+	done := make(chan struct{})
+	go func() {
+		cr.RenderCoalesced(msgCh, func(string) {})
+		close(done)
+	}()
+
+	replyCh := make(chan string, 1)
+	go func() {
+		replyCh <- callLocalRenderAction[string](cr, msgCh, func(*ClientRenderer) localRenderResult {
+			return localRenderResult{
+				effects: []clientEffect{{kind: clientEffectExit}},
+				value:   "ok",
+			}
+		})
+	}()
+
+	select {
+	case got := <-replyCh:
+		if got != "ok" {
+			t.Fatalf("reply = %q, want %q", got, "ok")
+		}
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("local action reply blocked on exit")
+	}
+
+	select {
+	case <-done:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("render loop did not exit after local action exit effect")
 	}
 }
 

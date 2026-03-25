@@ -29,7 +29,7 @@ func TestSplitRemotePaneInheritsHost(t *testing.T) {
 
 	// Focus the proxy pane, then split WITHOUT --host
 	h.runCmd("focus", "pane-2")
-	out = h.runCmd("split")
+	out = h.runCmd("split", "pane-2")
 
 	// The split should try to create a remote pane on gpu-server.
 	// It will fail (no RemoteManager or config) but mentioning "gpu-server"

@@ -51,10 +51,10 @@ func parseWaitVTIdleArgs(args []string) (string, waitVTIdleOptions, error) {
 	return args[0], opts, nil
 }
 
-func resetTimer(timer *time.Timer, d time.Duration) {
+func resetTimer(timer Timer, d time.Duration) {
 	if !timer.Stop() {
 		select {
-		case <-timer.C:
+		case <-timer.C():
 		default:
 		}
 	}
@@ -92,17 +92,18 @@ func cmdWaitVTIdle(ctx *CommandContext) {
 		return
 	}
 
-	settleTimer := time.NewTimer(state.remaining(opts.settle, time.Now()))
+	clk := ctx.Sess.clock()
+	settleTimer := clk.NewTimer(state.remaining(opts.settle, clk.Now()))
 	defer settleTimer.Stop()
 
-	timeoutTimer := time.NewTimer(opts.timeout)
+	timeoutTimer := clk.NewTimer(opts.timeout)
 	defer timeoutTimer.Stop()
 
 	for {
 		select {
 		case <-outputCh:
 			resetTimer(settleTimer, opts.settle)
-		case <-settleTimer.C:
+		case <-settleTimer.C():
 			state, err := ctx.Sess.queryVTIdleWaitState(paneID)
 			if err != nil {
 				ctx.replyErr(err.Error())
@@ -113,13 +114,13 @@ func cmdWaitVTIdle(ctx *CommandContext) {
 				return
 			}
 
-			remaining := state.remaining(opts.settle, time.Now())
+			remaining := state.remaining(opts.settle, clk.Now())
 			if remaining == 0 {
 				ctx.reply("vt-idle\n")
 				return
 			}
 			settleTimer.Reset(remaining)
-		case <-timeoutTimer.C:
+		case <-timeoutTimer.C():
 			ctx.replyErr(fmt.Sprintf("timeout waiting for %s to become vt-idle", paneRef))
 			return
 		}

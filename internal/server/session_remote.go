@@ -27,10 +27,10 @@ type captureClientSnapshot struct {
 
 // SetupRemoteManager initializes the remote manager with callbacks.
 func (s *Session) SetupRemoteManager(cfg *config.Config, buildHash string) {
-	mgr := remote.NewManager(cfg, buildHash)
-	mgr.SetCallbacks(
+	mgr := remote.NewManager(cfg, buildHash, remote.ManagerDeps{
+		NewHostConn: remote.NewHostConn,
 		// onPaneOutput: feed remote output into the proxy pane's emulator
-		func(localPaneID uint32, data []byte) {
+		OnPaneOutput: func(localPaneID uint32, data []byte) {
 			pane, err := enqueueSessionQuery(s, func(s *Session) (*mux.Pane, error) {
 				return s.findPaneByID(localPaneID), nil
 			})
@@ -42,17 +42,17 @@ func (s *Session) SetupRemoteManager(cfg *config.Config, buildHash string) {
 			}
 		},
 		// onPaneExit: clean up when a remote pane exits
-		func(localPaneID uint32, reason string) {
+		OnPaneExit: func(localPaneID uint32, reason string) {
 			if s.shutdown.Load() {
 				return
 			}
 			s.enqueueRemotePaneExit(localPaneID, reason)
 		},
 		// onStateChange: update pane metadata when connection state changes
-		func(hostName string, state remote.ConnState) {
+		OnStateChange: func(hostName string, state remote.ConnState) {
 			s.enqueueRemoteStateChange(hostName, state)
 		},
-	)
+	})
 	s.RemoteManager = mgr
 }
 
@@ -68,7 +68,7 @@ func (s *Session) takeoverCallback(srv *Server) func(paneID uint32, req mux.Take
 
 // handleTakeover processes a takeover request from a nested amux.
 // It runs asynchronously (called via goroutine from the readLoop callback).
-func (s *Session) handleTakeover(srv *Server, sshPaneID uint32, req mux.TakeoverRequest) {
+func (s *Session) handleTakeover(sshPaneID uint32, req mux.TakeoverRequest) {
 	type takeoverStart struct {
 		sshPane        *mux.Pane
 		hostname       string

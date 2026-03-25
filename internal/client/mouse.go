@@ -150,7 +150,7 @@ func handleGlobalBarClick(ev mouse.Event, layout *mux.LayoutCell, cr *ClientRend
 
 // handleMouseEvent dispatches a parsed mouse event to the appropriate action:
 // click-to-focus, border drag, or scroll wheel.
-func handleMouseEvent(ev mouse.Event, cr *ClientRenderer, sender *messageSender, drag *dragState) {
+func handleMouseEvent(ev mouse.Event, cr *ClientRenderer, sender *messageSender, drag *dragState, msgCh chan<- *RenderMsg) {
 	layout := cr.VisibleLayout()
 
 	if layout == nil {
@@ -181,7 +181,10 @@ func handleMouseEvent(ev mouse.Event, cr *ClientRenderer, sender *messageSender,
 				drag.CopyStartX = target.localX
 				drag.CopyStartY = target.localY
 				drag.CopyMoved = false
-				cr.CopyModeSetCursor(target.paneID, target.localX, target.localY)
+				_ = callLocalRenderAction[struct{}](cr, msgCh, func(cr *ClientRenderer) localRenderResult {
+					cr.CopyModeSetCursor(target.paneID, target.localX, target.localY)
+					return renderNowResult()
+				})
 			} else if target.inContent && paneAllowsMouseCopySelection(cr, target.paneID) {
 				drag.CopyModePaneID = target.paneID
 				drag.CopyStartX = target.localX
@@ -215,18 +218,30 @@ func handleMouseEvent(ev mouse.Event, cr *ClientRenderer, sender *messageSender,
 			return
 		}
 		if !drag.CopyModeActive {
-			cr.EnterCopyMode(drag.CopyModePaneID)
-			if !cr.InCopyMode(drag.CopyModePaneID) {
+			entered := callLocalRenderAction[bool](cr, msgCh, func(cr *ClientRenderer) localRenderResult {
+				cr.EnterCopyMode(drag.CopyModePaneID)
+				return localRenderResult{
+					effects: renderNowResult().effects,
+					value:   cr.InCopyMode(drag.CopyModePaneID),
+				}
+			})
+			if !entered {
 				return
 			}
 			drag.CopyModeActive = true
 		}
-		if !drag.CopyMoved {
-			cr.CopyModeSetCursor(drag.CopyModePaneID, drag.CopyStartX, drag.CopyStartY)
-			cr.CopyModeStartSelection(drag.CopyModePaneID)
+		startSelection := !drag.CopyMoved
+		_ = callLocalRenderAction[struct{}](cr, msgCh, func(cr *ClientRenderer) localRenderResult {
+			if startSelection {
+				cr.CopyModeSetCursor(drag.CopyModePaneID, drag.CopyStartX, drag.CopyStartY)
+				cr.CopyModeStartSelection(drag.CopyModePaneID)
+			}
+			cr.CopyModeSetCursor(drag.CopyModePaneID, target.localX, target.localY)
+			return renderNowResult()
+		})
+		if startSelection {
 			drag.CopyMoved = true
 		}
-		cr.CopyModeSetCursor(drag.CopyModePaneID, target.localX, target.localY)
 
 	case ev.Action == mouse.Release:
 		drag.Active = false
@@ -236,7 +251,10 @@ func handleMouseEvent(ev mouse.Event, cr *ClientRenderer, sender *messageSender,
 					drag.PendingWordCopyPaneID = 0
 					drag.PendingWordCopyAt = time.Time{}
 					drag.ClickCount = 0
-					cr.CopyModeCopySelection(drag.CopyModePaneID)
+					_ = callLocalRenderAction[struct{}](cr, msgCh, func(cr *ClientRenderer) localRenderResult {
+						cr.CopyModeCopySelection(drag.CopyModePaneID)
+						return renderNowResult()
+					})
 				} else if target := mouseTargetAt(layout, ev.X, ev.Y); target != nil && target.inContent && target.paneID == drag.CopyModePaneID {
 					now := time.Now()
 					if target.localX == drag.LastClickX &&
@@ -252,24 +270,30 @@ func handleMouseEvent(ev mouse.Event, cr *ClientRenderer, sender *messageSender,
 
 					switch drag.ClickCount {
 					case 2:
-						if cm := cr.CopyModeForPane(target.paneID); cm != nil {
-							cr.CopyModeSetCursor(target.paneID, target.localX, target.localY)
-							if cm.SelectWord() == copymode.ActionRedraw {
-								cr.markDirty()
+						_ = callLocalRenderAction[struct{}](cr, msgCh, func(cr *ClientRenderer) localRenderResult {
+							if cm := cr.CopyModeForPane(target.paneID); cm != nil {
+								cr.CopyModeSetCursor(target.paneID, target.localX, target.localY)
+								if cm.SelectWord() == copymode.ActionRedraw {
+									cr.markDirty()
+								}
 							}
-						}
+							return renderNowResult()
+						})
 						drag.PendingWordCopyPaneID = target.paneID
 						drag.PendingWordCopyAt = now.Add(mouseWordCopyDelay)
 					case 3:
 						drag.PendingWordCopyPaneID = 0
 						drag.PendingWordCopyAt = time.Time{}
-						if cm := cr.CopyModeForPane(target.paneID); cm != nil {
-							cr.CopyModeSetCursor(target.paneID, target.localX, target.localY)
-							if cm.SelectLine() == copymode.ActionRedraw {
-								cr.markDirty()
+						_ = callLocalRenderAction[struct{}](cr, msgCh, func(cr *ClientRenderer) localRenderResult {
+							if cm := cr.CopyModeForPane(target.paneID); cm != nil {
+								cr.CopyModeSetCursor(target.paneID, target.localX, target.localY)
+								if cm.SelectLine() == copymode.ActionRedraw {
+									cr.markDirty()
+								}
 							}
-						}
-						cr.CopyModeCopySelection(target.paneID)
+							cr.CopyModeCopySelection(target.paneID)
+							return renderNowResult()
+						})
 						drag.ClickCount = 0
 					}
 				}
@@ -286,7 +310,13 @@ func handleMouseEvent(ev mouse.Event, cr *ClientRenderer, sender *messageSender,
 		}
 		if cr.InCopyMode(target.paneID) {
 			focusPane(sender, target.paneID, cr.ActivePaneID())
-			cr.WheelScrollCopyMode(target.paneID, wheelScrollLines, true)
+			_ = callLocalRenderAction[struct{}](cr, msgCh, func(cr *ClientRenderer) localRenderResult {
+				action := cr.WheelScrollCopyMode(target.paneID, wheelScrollLines, true)
+				if action == copymode.ActionNone {
+					return localRenderResult{}
+				}
+				return renderNowResult()
+			})
 			return
 		}
 
@@ -299,11 +329,14 @@ func handleMouseEvent(ev mouse.Event, cr *ClientRenderer, sender *messageSender,
 			}
 		}
 
-		cr.EnterCopyMode(target.paneID)
-		if cm := cr.CopyModeForPane(target.paneID); cm != nil {
-			cm.SetScrollExit(true)
-		}
-		cr.WheelScrollCopyMode(target.paneID, wheelScrollLines, true)
+		_ = callLocalRenderAction[struct{}](cr, msgCh, func(cr *ClientRenderer) localRenderResult {
+			cr.EnterCopyMode(target.paneID)
+			if cm := cr.CopyModeForPane(target.paneID); cm != nil {
+				cm.SetScrollExit(true)
+			}
+			cr.WheelScrollCopyMode(target.paneID, wheelScrollLines, true)
+			return renderNowResult()
+		})
 
 	case ev.Button == mouse.ScrollDown:
 		target := mouseTargetAt(layout, ev.X, ev.Y)
@@ -312,7 +345,13 @@ func handleMouseEvent(ev mouse.Event, cr *ClientRenderer, sender *messageSender,
 		}
 		if cr.InCopyMode(target.paneID) {
 			focusPane(sender, target.paneID, cr.ActivePaneID())
-			cr.WheelScrollCopyMode(target.paneID, wheelScrollLines, false)
+			_ = callLocalRenderAction[struct{}](cr, msgCh, func(cr *ClientRenderer) localRenderResult {
+				action := cr.WheelScrollCopyMode(target.paneID, wheelScrollLines, false)
+				if action == copymode.ActionNone {
+					return localRenderResult{}
+				}
+				return renderNowResult()
+			})
 			return
 		}
 		forwardMouseToPane(cr, sender, target, ev)

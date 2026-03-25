@@ -18,7 +18,7 @@ func newRemoteHarness(t *testing.T) *ServerHarness {
 func splitRemotePane(t *testing.T, h *ServerHarness) {
 	t.Helper()
 	gen := h.generation()
-	out := h.runCmd("split", "--host", "test-remote")
+	out := h.runCmd("split", "pane-1", "--host", "test-remote")
 	if strings.Contains(out, "error") || strings.Contains(out, "Error") {
 		t.Fatalf("remote split failed: %s", out)
 	}

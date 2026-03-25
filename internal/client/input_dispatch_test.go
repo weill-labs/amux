@@ -1,11 +1,13 @@
 package client
 
 import (
+	"bytes"
 	"net"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/copymode"
 	"github.com/weill-labs/amux/internal/mouse"
 	"github.com/weill-labs/amux/internal/mux"
@@ -26,6 +28,22 @@ func readCommandMessage(t *testing.T, conn net.Conn) *proto.Message {
 		t.Fatalf("read command message: %v", err)
 	}
 	return msg
+}
+
+func startTestRenderLoop(t *testing.T, cr *ClientRenderer) chan *RenderMsg {
+	t.Helper()
+
+	msgCh := make(chan *RenderMsg, 64)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		cr.RenderCoalesced(msgCh, func(string) {})
+	}()
+	t.Cleanup(func() {
+		msgCh <- &RenderMsg{Typ: RenderMsgExit}
+		<-done
+	})
+	return msgCh
 }
 
 func buildMultiWindowRendererAt(t *testing.T, activeWindowID uint32) *ClientRenderer {
@@ -88,7 +106,7 @@ func TestHandleDisplayPaneSelectionSendsFocusCommand(t *testing.T) {
 	sender := newMessageSender(clientConn)
 	done := make(chan struct{})
 	go func() {
-		handleDisplayPaneSelection(cr, sender, '2')
+		handleDisplayPaneSelection(cr, sender, '2', nil)
 		close(done)
 	}()
 
@@ -105,6 +123,112 @@ func TestHandleDisplayPaneSelectionSendsFocusCommand(t *testing.T) {
 	<-done
 	if cr.DisplayPanesActive() {
 		t.Fatal("display-panes overlay should hide after selection")
+	}
+}
+
+func TestSplitBindingArgsInjectsActivePane(t *testing.T) {
+	t.Parallel()
+
+	cr := buildTestRenderer(t)
+
+	got, ok := splitBindingArgs(cr, config.Binding{Action: "split-focus", Args: []string{"root", "v"}})
+	if !ok {
+		t.Fatal("splitBindingArgs should succeed when layout is ready")
+	}
+	want := []string{"pane-1", "root", "v"}
+	if len(got) != len(want) {
+		t.Fatalf("splitBindingArgs length = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("splitBindingArgs[%d] = %q, want %q (full=%v)", i, got[i], want[i], got)
+		}
+	}
+}
+
+func TestSplitBindingArgsRejectsUnknownActivePane(t *testing.T) {
+	t.Parallel()
+
+	cr := NewClientRenderer(80, 24)
+
+	if got, ok := splitBindingArgs(cr, config.Binding{Action: "split-focus", Args: []string{"v"}}); ok || got != nil {
+		t.Fatalf("splitBindingArgs without layout = (%v, %t), want (nil, false)", got, ok)
+	}
+}
+
+func TestHandleSplitBindingShowsErrorWhenLayoutNotReady(t *testing.T) {
+	t.Parallel()
+
+	cr := NewClientRenderer(80, 24)
+
+	clientConn, serverConn := net.Pipe()
+	t.Cleanup(func() {
+		clientConn.Close()
+		serverConn.Close()
+	})
+
+	sender := newMessageSender(clientConn)
+	t.Cleanup(sender.Close)
+
+	var rendered bytes.Buffer
+	handleSplitBinding(cr, sender, config.Binding{Action: "split-focus", Args: []string{"v"}}, &rendered)
+
+	if !strings.Contains(rendered.String(), "\a") {
+		t.Fatalf("split binding error should ring bell, got %q", rendered.String())
+	}
+	if got := cr.prefixMessage(); got != "cannot split: layout not ready yet" {
+		t.Fatalf("split binding feedback = %q, want %q", got, "cannot split: layout not ready yet")
+	}
+	if err := serverConn.SetReadDeadline(time.Now().Add(100 * time.Millisecond)); err != nil {
+		t.Fatalf("set read deadline: %v", err)
+	}
+	if _, err := proto.ReadMsg(serverConn); err == nil {
+		t.Fatal("split binding without layout should not send a command")
+	} else if ne, ok := err.(net.Error); !ok || !ne.Timeout() {
+		t.Fatalf("read command message error = %v, want timeout", err)
+	}
+}
+
+func TestHandleSplitBindingSendsCommandWhenLayoutReady(t *testing.T) {
+	t.Parallel()
+
+	cr := buildTestRenderer(t)
+
+	clientConn, serverConn := net.Pipe()
+	t.Cleanup(func() {
+		clientConn.Close()
+		serverConn.Close()
+	})
+
+	sender := newMessageSender(clientConn)
+	t.Cleanup(sender.Close)
+
+	var rendered bytes.Buffer
+	done := make(chan struct{})
+	go func() {
+		handleSplitBinding(cr, sender, config.Binding{Action: "split-focus", Args: []string{"root", "v"}}, &rendered)
+		close(done)
+	}()
+
+	msg := readCommandMessage(t, serverConn)
+	if msg.Type != proto.MsgTypeCommand {
+		t.Fatalf("message type = %d, want %d", msg.Type, proto.MsgTypeCommand)
+	}
+	if msg.CmdName != "split-focus" {
+		t.Fatalf("command = %q, want split-focus", msg.CmdName)
+	}
+	if want := []string{"pane-1", "root", "v"}; len(msg.CmdArgs) != len(want) {
+		t.Fatalf("command args length = %v, want %v", msg.CmdArgs, want)
+	} else {
+		for i := range want {
+			if msg.CmdArgs[i] != want[i] {
+				t.Fatalf("command args[%d] = %q, want %q (full=%v)", i, msg.CmdArgs[i], want[i], msg.CmdArgs)
+			}
+		}
+	}
+	<-done
+	if rendered.Len() != 0 {
+		t.Fatalf("successful split binding should not render immediate feedback, got %q", rendered.String())
 	}
 }
 
@@ -128,7 +252,7 @@ func TestHandleMouseEventClickSendsFocusCommand(t *testing.T) {
 			Button: mouse.ButtonLeft,
 			X:      60,
 			Y:      5,
-		}, cr, sender, &drag)
+		}, cr, sender, &drag, nil)
 		close(done)
 	}()
 
@@ -195,7 +319,7 @@ func TestHandleMouseEventGlobalBarClickSendsSelectWindowCommand(t *testing.T) {
 					Button: mouse.ButtonLeft,
 					X:      x,
 					Y:      y,
-				}, cr, sender, &drag)
+				}, cr, sender, &drag, nil)
 				close(done)
 			}()
 
@@ -237,7 +361,7 @@ func TestHandleMouseEventGlobalBarClickOutsideTabsDoesNothing(t *testing.T) {
 		Button: mouse.ButtonLeft,
 		X:      x,
 		Y:      y,
-	}, cr, sender, &drag)
+	}, cr, sender, &drag, nil)
 
 	assertNoMessage(t, serverConn)
 }
@@ -265,7 +389,7 @@ func TestHandleMouseEventGlobalBarClickSingleWindowDoesNothing(t *testing.T) {
 		Button: mouse.ButtonLeft,
 		X:      x,
 		Y:      y,
-	}, cr, sender, &drag)
+	}, cr, sender, &drag, nil)
 
 	assertNoMessage(t, serverConn)
 }
@@ -353,7 +477,7 @@ func TestHandleMouseEventBorderPressClearsCopyDragState(t *testing.T) {
 		Button: mouse.ButtonLeft,
 		X:      borderX,
 		Y:      5,
-	}, cr, nil, &drag)
+	}, cr, nil, &drag, nil)
 
 	if !drag.Active {
 		t.Fatal("border press should start a resize drag")
@@ -389,7 +513,7 @@ func TestHandleMouseEventDragStartsCopyModeAndCopiesSelection(t *testing.T) {
 		Button: mouse.ButtonLeft,
 		X:      0,
 		Y:      y,
-	}, cr, sender, &drag)
+	}, cr, sender, &drag, nil)
 
 	if cr.InCopyMode(1) {
 		t.Fatal("pane-1 should not enter copy mode until the drag moves")
@@ -402,7 +526,7 @@ func TestHandleMouseEventDragStartsCopyModeAndCopiesSelection(t *testing.T) {
 		Y:      y,
 		LastX:  0,
 		LastY:  y,
-	}, cr, sender, &drag)
+	}, cr, sender, &drag, nil)
 
 	cm := cr.CopyModeForPane(1)
 	if cm == nil {
@@ -419,13 +543,63 @@ func TestHandleMouseEventDragStartsCopyModeAndCopiesSelection(t *testing.T) {
 		Y:      y,
 		LastX:  4,
 		LastY:  y,
-	}, cr, sender, &drag)
+	}, cr, sender, &drag, nil)
 
 	if copied != "hello" {
 		t.Fatalf("copied text = %q, want %q", copied, "hello")
 	}
 	if cr.InCopyMode(1) {
 		t.Fatal("pane-1 should exit copy mode after mouse drag copy")
+	}
+}
+
+func TestHandleMouseEventQueuedDragStartsCopyModeAndCopiesSelection(t *testing.T) {
+	cr := buildTestRenderer(t)
+	msgCh := startTestRenderLoop(t, cr)
+
+	clientConn, serverConn := net.Pipe()
+	t.Cleanup(func() {
+		clientConn.Close()
+		serverConn.Close()
+	})
+
+	sender := newMessageSender(clientConn)
+	var drag dragState
+
+	var copied string
+	stubCopyToClipboard(cr, func(text string) {
+		copied = text
+	})
+
+	y := mux.StatusLineRows
+	handleMouseEvent(mouse.Event{
+		Action: mouse.Press,
+		Button: mouse.ButtonLeft,
+		X:      0,
+		Y:      y,
+	}, cr, sender, &drag, msgCh)
+	handleMouseEvent(mouse.Event{
+		Action: mouse.Motion,
+		Button: mouse.ButtonLeft,
+		X:      4,
+		Y:      y,
+		LastX:  0,
+		LastY:  y,
+	}, cr, sender, &drag, msgCh)
+	handleMouseEvent(mouse.Event{
+		Action: mouse.Release,
+		Button: mouse.ButtonLeft,
+		X:      4,
+		Y:      y,
+		LastX:  4,
+		LastY:  y,
+	}, cr, sender, &drag, msgCh)
+
+	if copied != "hello" {
+		t.Fatalf("copied text = %q, want %q", copied, "hello")
+	}
+	if cr.InCopyMode(1) {
+		t.Fatal("pane-1 should exit copy mode after queued mouse drag copy")
 	}
 }
 
@@ -452,7 +626,7 @@ func TestHandleMouseEventDragMotionWithMissingPaneDoesNotEnterCopyMode(t *testin
 		Button: mouse.ButtonLeft,
 		X:      1,
 		Y:      mux.StatusLineRows,
-	}, cr, nil, &drag)
+	}, cr, nil, &drag, nil)
 
 	if cr.InCopyMode(99) {
 		t.Fatal("missing pane should not enter copy mode on mouse drag")
@@ -486,7 +660,7 @@ func TestHandleMouseEventCopyModeDragCopiesSelectionAndExits(t *testing.T) {
 		Button: mouse.ButtonLeft,
 		X:      0,
 		Y:      y,
-	}, cr, sender, &drag)
+	}, cr, sender, &drag, nil)
 	handleMouseEvent(mouse.Event{
 		Action: mouse.Motion,
 		Button: mouse.ButtonLeft,
@@ -494,7 +668,7 @@ func TestHandleMouseEventCopyModeDragCopiesSelectionAndExits(t *testing.T) {
 		Y:      y,
 		LastX:  0,
 		LastY:  y,
-	}, cr, sender, &drag)
+	}, cr, sender, &drag, nil)
 	handleMouseEvent(mouse.Event{
 		Action: mouse.Release,
 		Button: mouse.ButtonLeft,
@@ -502,7 +676,7 @@ func TestHandleMouseEventCopyModeDragCopiesSelectionAndExits(t *testing.T) {
 		Y:      y,
 		LastX:  4,
 		LastY:  y,
-	}, cr, sender, &drag)
+	}, cr, sender, &drag, nil)
 
 	if copied != "hello" {
 		t.Fatalf("copied text = %q, want %q", copied, "hello")
@@ -534,13 +708,57 @@ func TestHandleMouseEventCopyModeDoubleClickSelectsWordAndArmsCopy(t *testing.T)
 			Button: mouse.ButtonLeft,
 			X:      1,
 			Y:      y,
-		}, cr, sender, &drag)
+		}, cr, sender, &drag, nil)
 		handleMouseEvent(mouse.Event{
 			Action: mouse.Release,
 			Button: mouse.ButtonLeft,
 			X:      1,
 			Y:      y,
-		}, cr, sender, &drag)
+		}, cr, sender, &drag, nil)
+	}
+
+	cm := cr.CopyModeForPane(1)
+	if cm == nil {
+		t.Fatal("pane-1 should remain in copy mode until delayed word copy fires")
+	}
+	if got := cm.SelectedText(); got != "hello" {
+		t.Fatalf("double click selected %q, want %q", got, "hello")
+	}
+	if drag.PendingWordCopyPaneID != 1 {
+		t.Fatalf("pending word copy pane = %d, want 1", drag.PendingWordCopyPaneID)
+	}
+}
+
+func TestHandleMouseEventQueuedCopyModeDoubleClickSelectsWordAndArmsCopy(t *testing.T) {
+	t.Parallel()
+
+	cr := buildTestRenderer(t)
+	cr.EnterCopyMode(1)
+	msgCh := startTestRenderLoop(t, cr)
+
+	clientConn, serverConn := net.Pipe()
+	t.Cleanup(func() {
+		clientConn.Close()
+		serverConn.Close()
+	})
+
+	sender := newMessageSender(clientConn)
+	var drag dragState
+
+	y := mux.StatusLineRows
+	for i := 0; i < 2; i++ {
+		handleMouseEvent(mouse.Event{
+			Action: mouse.Press,
+			Button: mouse.ButtonLeft,
+			X:      1,
+			Y:      y,
+		}, cr, sender, &drag, msgCh)
+		handleMouseEvent(mouse.Event{
+			Action: mouse.Release,
+			Button: mouse.ButtonLeft,
+			X:      1,
+			Y:      y,
+		}, cr, sender, &drag, msgCh)
 	}
 
 	cm := cr.CopyModeForPane(1)
@@ -580,13 +798,13 @@ func TestHandleMouseEventCopyModeTripleClickCopiesLine(t *testing.T) {
 			Button: mouse.ButtonLeft,
 			X:      1,
 			Y:      y,
-		}, cr, sender, &drag)
+		}, cr, sender, &drag, nil)
 		handleMouseEvent(mouse.Event{
 			Action: mouse.Release,
 			Button: mouse.ButtonLeft,
 			X:      1,
 			Y:      y,
-		}, cr, sender, &drag)
+		}, cr, sender, &drag, nil)
 	}
 
 	if copied != "hello from pane 1\n" {
@@ -594,6 +812,41 @@ func TestHandleMouseEventCopyModeTripleClickCopiesLine(t *testing.T) {
 	}
 	if cr.InCopyMode(1) {
 		t.Fatal("pane-1 should exit copy mode after triple-click line copy")
+	}
+}
+
+func TestHandleMouseEventQueuedScrollUpAndDownUsesCopyMode(t *testing.T) {
+	t.Parallel()
+
+	cr := buildTestRenderer(t)
+	msgCh := startTestRenderLoop(t, cr)
+
+	y := mux.StatusLineRows
+	handleMouseEvent(mouse.Event{
+		Button: mouse.ScrollUp,
+		X:      0,
+		Y:      y,
+	}, cr, nil, nil, msgCh)
+
+	if !cr.InCopyMode(1) {
+		t.Fatal("scroll up should enter copy mode on a regular pane")
+	}
+	cm := cr.CopyModeForPane(1)
+	if cm == nil {
+		t.Fatal("pane-1 copy mode missing after scroll up")
+	}
+	if !cm.ScrollExit() {
+		t.Fatal("scroll up should arm scroll-exit")
+	}
+
+	handleMouseEvent(mouse.Event{
+		Button: mouse.ScrollDown,
+		X:      0,
+		Y:      y,
+	}, cr, nil, nil, msgCh)
+
+	if cr.InCopyMode(1) {
+		t.Fatal("scroll down back to live view should exit copy mode when scroll-exit is armed")
 	}
 }
 

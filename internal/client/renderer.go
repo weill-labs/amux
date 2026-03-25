@@ -397,6 +397,15 @@ func (r *Renderer) ActivePaneID() uint32 {
 	return r.loadSnapshot().activePaneID
 }
 
+// ActivePaneName returns the active pane's name, or "" if unknown. Thread-safe.
+func (r *Renderer) ActivePaneName() string {
+	snap := r.loadSnapshot()
+	if info, ok := snap.paneInfo[snap.activePaneID]; ok {
+		return info.Name
+	}
+	return ""
+}
+
 // Layout returns the current layout tree. Thread-safe.
 func (r *Renderer) Layout() *mux.LayoutCell {
 	return r.loadSnapshot().layout
