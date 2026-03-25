@@ -399,7 +399,7 @@ type takeoverEvent struct {
 }
 
 func (e takeoverEvent) handle(s *Session) {
-	go s.handleTakeover(e.srv, e.paneID, e.req)
+	go s.handleTakeover(e.paneID, e.req)
 }
 
 type remotePaneExitEvent struct {

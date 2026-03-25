@@ -119,7 +119,7 @@ func cmdSplit(ctx *CommandContext) {
 	}
 
 	if args.HostName != "" {
-		pane, err := ctx.CC.splitRemotePane(ctx.Srv, ctx.Sess, args.HostName, args.Dir, args.RootLevel, args.Name, args.Background)
+		pane, err := ctx.CC.splitRemotePane(ctx.Sess, args.HostName, args.Dir, args.RootLevel, args.Name, args.Background)
 		if err != nil {
 			ctx.replyErr(err.Error())
 			return
@@ -208,7 +208,7 @@ func cmdSpawn(ctx *CommandContext) {
 
 	remoteHost := args.Meta.Host
 	if remoteHost != "" && remoteHost != mux.DefaultHost {
-		pane, err := ctx.CC.splitRemotePane(ctx.Srv, ctx.Sess, remoteHost, mux.SplitVertical, false, args.Meta.Name, args.Background)
+		pane, err := ctx.CC.splitRemotePane(ctx.Sess, remoteHost, mux.SplitVertical, false, args.Meta.Name, args.Background)
 		if err != nil {
 			ctx.replyErr(err.Error())
 			return

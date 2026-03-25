@@ -342,7 +342,7 @@ func (s *Session) createPaneWithMeta(srv *Server, meta mux.PaneMeta, cols, rows 
 // remote host, but does not register it in session state or any window.
 // Caller must run this outside the session event loop (the remote manager
 // needs to make SSH calls).
-func (s *Session) prepareRemotePane(_ *Server, hostName string, cols, rows int) (*mux.Pane, error) {
+func (s *Session) prepareRemotePane(hostName string, cols, rows int) (*mux.Pane, error) {
 	if s.RemoteManager == nil {
 		return nil, fmt.Errorf("no remote hosts configured")
 	}
