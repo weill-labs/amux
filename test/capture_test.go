@@ -248,6 +248,7 @@ func TestCapturePaneHistoryRewrapsNarrowLiveHistoryAndContent(t *testing.T) {
 	visibleLine := "SECOND visible content should also rewrap cleanly for agents to read"
 	scriptPath := filepath.Join(os.TempDir(), fmt.Sprintf("rw-%s.sh", h.session))
 	script := "#!/bin/bash\n" +
+		"printf '\\n'\n" +
 		fmt.Sprintf("printf '%s\\n'\n", historyLine) +
 		fmt.Sprintf("printf '%s\\n'\n", visibleLine)
 	if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
