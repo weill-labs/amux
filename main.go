@@ -50,6 +50,10 @@ func main() {
 	runSessionCommand := func(cmdName string, cmdArgs []string) {
 		runServerCommand(resolvedSessionName, cmdName, cmdArgs)
 	}
+	if os.Getenv("AMUX_CHECKPOINT") != "" {
+		runServer(resolvedSessionName, false)
+		return
+	}
 
 	if len(args) == 0 {
 		if shouldAttemptTakeover() {
