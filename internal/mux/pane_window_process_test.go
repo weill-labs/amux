@@ -4,7 +4,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"strings"
 	"syscall"
 	"testing"
@@ -33,6 +32,42 @@ func waitUntil(t *testing.T, timeout time.Duration, cond func() bool) {
 			}
 		}
 	}
+}
+
+func newAgentStatusTestPane(t *testing.T) *Pane {
+	t.Helper()
+
+	cmd := exec.Command("sh", "-c", `while IFS= read -r line; do eval "$line"; done`)
+	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{
+		Cols: 40,
+		Rows: 10,
+	})
+	if err != nil {
+		t.Fatalf("start agent-status test shell: %v", err)
+	}
+
+	p := &Pane{
+		ID:              123,
+		Meta:            PaneMeta{Name: "pane-123", Host: DefaultHost},
+		ptmx:            ptmx,
+		cmd:             cmd,
+		emulator:        NewVTEmulatorWithScrollback(40, 10, DefaultScrollbackLines),
+		exitDone:        make(chan struct{}),
+		createdAt:       time.Now().Add(-time.Minute),
+		scrollbackLines: effectiveScrollbackLines(DefaultScrollbackLines),
+		scrollbackLimit: effectiveScrollbackLines(DefaultScrollbackLines),
+	}
+	p.baseHistory.Store(&paneBaseHistory{})
+	wireScrollbackCallbacks(p)
+	p.Start()
+
+	t.Cleanup(func() {
+		if err := p.Close(); err != nil {
+			t.Errorf("Close() = %v, want nil", err)
+		}
+	})
+
+	return p
 }
 
 func TestProxyPaneFeedOutputSnapshotsAndClose(t *testing.T) {
@@ -254,56 +289,40 @@ func (a *atomicInt64) Store(v int64) { a.value = v }
 func TestAgentStatusTracksBusyAndIdle(t *testing.T) {
 	t.Parallel()
 
-	proc, err := os.FindProcess(os.Getpid())
-	if err != nil {
-		t.Fatalf("FindProcess: %v", err)
-	}
-
-	pane := &Pane{
-		process:   proc,
-		createdAt: time.Now().Add(-time.Minute),
-	}
+	pane := newAgentStatusTestPane(t)
 
 	idle := (&Pane{createdAt: pane.createdAt}).AgentStatus()
 	if !idle.Idle || len(idle.ChildPIDs) != 0 || !idle.IdleSince.Equal(pane.createdAt) {
 		t.Fatalf("idle-without-process = %+v, want idle since creation with no children", idle)
 	}
 
-	cmd := exec.Command("sleep", "5")
-	if err := cmd.Start(); err != nil {
-		t.Fatalf("start child: %v", err)
-	}
-	defer func() {
-		_ = cmd.Process.Kill()
-		_, _ = cmd.Process.Wait()
-	}()
-
 	waitUntil(t, time.Second, func() bool {
-		return slices.Contains(childPIDs(os.Getpid()), cmd.Process.Pid)
+		idle = pane.AgentStatus()
+		return idle.Idle && len(idle.ChildPIDs) == 0 && idle.CurrentCommand != ""
 	})
 
-	if got := processName(cmd.Process.Pid); got == "" {
-		t.Fatal("processName(child) = empty, want command name")
+	if _, err := pane.Write([]byte("sleep 30 & child=$!\n")); err != nil {
+		t.Fatalf("start child through shell: %v", err)
 	}
 
 	var busy AgentStatus
 	waitUntil(t, time.Second, func() bool {
 		busy = pane.AgentStatus()
-		return !busy.Idle && slices.Contains(busy.ChildPIDs, cmd.Process.Pid) && busy.CurrentCommand != ""
+		return !busy.Idle && len(busy.ChildPIDs) > 0 && busy.CurrentCommand != ""
 	})
 
-	if err := cmd.Process.Kill(); err != nil {
-		t.Fatalf("kill child: %v", err)
+	childPID := busy.ChildPIDs[len(busy.ChildPIDs)-1]
+	if got := processName(childPID); got == "" {
+		t.Fatal("processName(child) = empty, want command name")
 	}
-	_, _ = cmd.Process.Wait()
 
-	waitUntil(t, time.Second, func() bool {
-		return !slices.Contains(childPIDs(os.Getpid()), cmd.Process.Pid)
-	})
+	if _, err := pane.Write([]byte("kill \"$child\" 2>/dev/null\nwait \"$child\" 2>/dev/null\n")); err != nil {
+		t.Fatalf("kill child through shell: %v", err)
+	}
 
 	waitUntil(t, time.Second, func() bool {
 		idle = pane.AgentStatus()
-		return idle.Idle && idle.CurrentCommand != ""
+		return idle.Idle && len(idle.ChildPIDs) == 0 && idle.CurrentCommand != ""
 	})
 	if idle.IdleSince.IsZero() {
 		t.Fatal("idle AgentStatus IdleSince should be populated")
