@@ -324,6 +324,57 @@ func TestCrashRecovery_BusyPaneShowsRecoveryNoticeInsteadOfReplayingStaleScreen(
 	}
 }
 
+func TestWaitForCrashCheckpointPathSeesAtomicRenameNearTimeout(t *testing.T) {
+	t.Parallel()
+
+	home := newTestHome(t)
+	session := "rename-checkpoint"
+	startTime := time.Date(2026, time.March, 25, 12, 34, 56, 0, time.UTC)
+	dest := crashCheckpointPathTimestamped(home, session, startTime)
+
+	writeDone := make(chan error, 1)
+	go func() {
+		// Land just after the old helper's 50ms poll, but still before timeout.
+		// The watcher-based helper should still see the rename immediately.
+		delay := time.NewTimer(55 * time.Millisecond)
+		defer delay.Stop()
+		<-delay.C
+
+		tmp, err := os.CreateTemp(crashCheckpointDir(home), ".crash-*.json.tmp")
+		if err != nil {
+			writeDone <- fmt.Errorf("create temp checkpoint: %w", err)
+			return
+		}
+		tmpPath := tmp.Name()
+		if _, err := tmp.WriteString(`{"version":1}`); err != nil {
+			tmp.Close()
+			os.Remove(tmpPath)
+			writeDone <- fmt.Errorf("write temp checkpoint: %w", err)
+			return
+		}
+		if err := tmp.Close(); err != nil {
+			os.Remove(tmpPath)
+			writeDone <- fmt.Errorf("close temp checkpoint: %w", err)
+			return
+		}
+		if err := os.Rename(tmpPath, dest); err != nil {
+			os.Remove(tmpPath)
+			writeDone <- fmt.Errorf("rename temp checkpoint: %w", err)
+			return
+		}
+
+		writeDone <- nil
+	}()
+
+	got := waitForCrashCheckpointPath(t, home, session, 99*time.Millisecond)
+	if err := <-writeDone; err != nil {
+		t.Fatal(err)
+	}
+	if got != dest {
+		t.Fatalf("waitForCrashCheckpointPath() = %q, want %q", got, dest)
+	}
+}
+
 func makeThreeByThreeGridServer(t *testing.T, h *ServerHarness) {
 	t.Helper()
 
