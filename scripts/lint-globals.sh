@@ -13,6 +13,7 @@ ALLOWLIST=(
   "activePointCounter"               # mux/window.go — atomic counter, not a test seam
   "source"                           # terminfo/terminfo.go — embedded data
   "AllEvents"                        # hooks/hooks.go — read-only registry
+  "hexColorCache"                    # render/compositor.go — read-only after init, pre-computed palette
 )
 
 allowlist_pattern=$(printf "|%s" "${ALLOWLIST[@]}")

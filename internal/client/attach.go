@@ -902,8 +902,6 @@ func splitBindingArgs(cr *ClientRenderer, binding config.Binding) ([]string, boo
 	return append([]string{name}, args...), true
 }
 
-var copyToClipboard = copyToClipboardLocal
-
 func formatUnboundPrefixMessage(prefix, key byte) string {
 	return "No binding for " + formatKeyName(prefix) + " " + formatKeyName(key)
 }

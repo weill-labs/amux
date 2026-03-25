@@ -14,10 +14,10 @@ import (
 	"github.com/weill-labs/amux/internal/remote"
 )
 
-var (
-	captureAttachMaxRetries = 10
-	captureAttachRetryDelay = 300 * time.Millisecond
-	captureResponseTimeout  = 3 * time.Second
+const (
+	defaultCaptureAttachMaxRetries = 10
+	defaultCaptureAttachRetryDelay = 300 * time.Millisecond
+	defaultCaptureResponseTimeout  = 3 * time.Second
 )
 
 type captureClientSnapshot struct {
@@ -258,7 +258,9 @@ func (s *Session) forwardCaptureForActor(actorPaneID uint32, args []string) *Mes
 	// Wait briefly for a client to attach (covers post-reload reconnection).
 	var snap captureClientSnapshot
 	var err error
-	for attempt := 0; attempt < captureAttachMaxRetries; attempt++ {
+	maxRetries := s.captureAttachMaxRetries()
+	retryDelay := s.captureAttachRetryDelay()
+	for attempt := 0; attempt < maxRetries; attempt++ {
 		snap, err = s.captureClientSnapshotForActor(captureReq, actorPaneID, nil)
 		if err != nil {
 			if captureReq.FormatJSON {
@@ -269,7 +271,7 @@ func (s *Session) forwardCaptureForActor(actorPaneID uint32, args []string) *Mes
 		if snap.client != nil {
 			break
 		}
-		if attempt == captureAttachMaxRetries-1 {
+		if attempt == maxRetries-1 {
 			if captureReq.FormatJSON {
 				return jsonErrorResult("no_client_attached", "no client attached")
 			}
@@ -278,7 +280,7 @@ func (s *Session) forwardCaptureForActor(actorPaneID uint32, args []string) *Mes
 		// Client capture can race with hot-reload reattach. A short backoff
 		// avoids busy-spinning the actor while giving the interactive client
 		// a chance to reconnect and serve the capture request.
-		time.Sleep(captureAttachRetryDelay)
+		time.Sleep(retryDelay)
 	}
 
 	return s.runClientCaptureRequest(args, captureReq, snap.client, s.captureAgentStatus(snap.statusPanes), jsonErrorResult)
@@ -334,7 +336,7 @@ func (s *Session) runClientCaptureRequest(args []string, captureReq caputil.Requ
 		return &Message{Type: MsgTypeCmdResult, CmdErr: err.Error()}
 	}
 
-	timer := time.NewTimer(captureResponseTimeout)
+	timer := time.NewTimer(s.captureResponseTimeout())
 	defer timer.Stop()
 	select {
 	case resp := <-req.reply:
