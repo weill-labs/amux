@@ -232,7 +232,7 @@ unbind = ["o"]
 	if !h.waitFor("[pane-2]", 3*time.Second) {
 		t.Fatalf("expected post-split UI before testing unbound-key feedback, got:\n%s", h.captureOuter())
 	}
-	if out := h.runCmd("wait-idle", "pane-2", "--timeout", "10s"); strings.Contains(out, "timeout") || strings.Contains(out, "not found") {
+	if out := h.runCmd("wait", "idle", "pane-2", "--timeout", "10s"); strings.Contains(out, "timeout") || strings.Contains(out, "not found") {
 		t.Fatalf("expected split pane to go idle before unbound-key feedback test, got: %s\nouter:\n%s", strings.TrimSpace(out), h.captureOuter())
 	}
 	h.sendKeys("C-a", "o")
@@ -250,7 +250,7 @@ func TestUnsupportedPrefixKeyShowsFeedback(t *testing.T) {
 	t.Parallel()
 
 	h := newAmuxHarness(t)
-	if out := h.runCmd("wait-idle", "pane-1", "--timeout", "10s"); strings.Contains(out, "timeout") || strings.Contains(out, "not found") {
+	if out := h.runCmd("wait", "idle", "pane-1", "--timeout", "10s"); strings.Contains(out, "timeout") || strings.Contains(out, "not found") {
 		t.Fatalf("expected inner pane to go idle before unsupported-key feedback test, got: %s\nouter:\n%s", strings.TrimSpace(out), h.captureOuter())
 	}
 	scanner, closer := eventStream(t, h.session, "--filter", proto.UIEventPrefixMessageHidden+","+proto.UIEventPrefixMessageShown, "--client", "client-1")
@@ -273,7 +273,7 @@ func TestUnsupportedPrefixKeyFeedbackClearsOnLiteralPrefix(t *testing.T) {
 	t.Parallel()
 
 	h := newAmuxHarness(t)
-	if out := h.runCmd("wait-idle", "pane-1", "--timeout", "10s"); strings.Contains(out, "timeout") || strings.Contains(out, "not found") {
+	if out := h.runCmd("wait", "idle", "pane-1", "--timeout", "10s"); strings.Contains(out, "timeout") || strings.Contains(out, "not found") {
 		t.Fatalf("expected inner pane to go idle before unsupported-key clear test, got: %s\nouter:\n%s", strings.TrimSpace(out), h.captureOuter())
 	}
 	scanner, closer := eventStream(t, h.session, "--filter", proto.UIEventPrefixMessageHidden+","+proto.UIEventPrefixMessageShown, "--client", "client-1")
@@ -367,7 +367,7 @@ w = "display-panes"
 	}
 
 	h.sendKeys("C-a", "w")
-	out := h.runCmd("wait-ui", proto.UIEventDisplayPanesShown, "--timeout", "3s")
+	out := h.runCmd("wait", "ui", proto.UIEventDisplayPanesShown, "--timeout", "3s")
 	if !strings.Contains(out, proto.UIEventDisplayPanesShown) {
 		t.Fatalf("expected display-panes shown event, got: %s\nScreen:\n%s", out, h.captureOuter())
 	}

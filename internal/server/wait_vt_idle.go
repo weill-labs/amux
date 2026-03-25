@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-const waitVTIdleUsage = "usage: wait-vt-idle <pane> [--settle <duration>] [--timeout <duration>]"
+const waitVTIdleUsage = "usage: wait vt-idle <pane> [--settle <duration>] [--timeout <duration>]"
 
 type waitVTIdleOptions struct {
 	settle  time.Duration

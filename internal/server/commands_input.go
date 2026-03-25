@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/weill-labs/amux/internal/mux"
+	"github.com/weill-labs/amux/internal/proto"
 	keyscmd "github.com/weill-labs/amux/internal/server/commands/input/keys"
 )
 
@@ -17,7 +18,12 @@ import (
 // arrives on a later input tick rather than in the same burst as preceding text.
 const tokenKeyGap = 50 * time.Millisecond
 
-const broadcastUsage = "usage: broadcast (--panes <pane,pane,...> | --window <index|name> | --match <glob>) [--hex] <keys>..."
+const (
+	broadcastUsage              = "usage: broadcast (--panes <pane,pane,...> | --window <index|name> | --match <glob>) [--hex] <keys>..."
+	sendKeysUsage               = "usage: send-keys <pane> [--wait ready] [--continue-known-dialogs] [--timeout <duration>] [--hex] <keys>..."
+	typeKeysUsage               = "usage: type-keys [--wait ui=input-idle] [--timeout <duration>] [--hex] <keys>..."
+	defaultCommandUIWaitTimeout = 5 * time.Second
+)
 
 type encodedKeyChunk struct {
 	data       []byte
@@ -59,9 +65,60 @@ func totalEncodedKeyBytes(chunks []encodedKeyChunk) int {
 	return total
 }
 
+type typeKeysOptions struct {
+	waitInputIdle bool
+	waitTimeout   time.Duration
+	hexMode       bool
+	keys          []string
+}
+
+func parseTypeKeysArgs(args []string) (typeKeysOptions, error) {
+	opts := typeKeysOptions{waitTimeout: defaultCommandUIWaitTimeout}
+	timeoutSet := false
+
+	for i := 0; i < len(args); {
+		switch args[i] {
+		case "--wait":
+			if i+1 >= len(args) {
+				return typeKeysOptions{}, fmt.Errorf("missing value for --wait")
+			}
+			i++
+			if args[i] != "ui=input-idle" {
+				return typeKeysOptions{}, fmt.Errorf("type-keys: unsupported --wait target %q (want ui=input-idle)", args[i])
+			}
+			opts.waitInputIdle = true
+			i++
+		case "--timeout":
+			if i+1 >= len(args) {
+				return typeKeysOptions{}, fmt.Errorf("missing value for --timeout")
+			}
+			i++
+			timeout, err := time.ParseDuration(args[i])
+			if err != nil {
+				return typeKeysOptions{}, fmt.Errorf("invalid timeout: %s", args[i])
+			}
+			opts.waitTimeout = timeout
+			timeoutSet = true
+			i++
+		case "--hex":
+			opts.hexMode = true
+			i++
+		default:
+			opts.keys = append(opts.keys, args[i:]...)
+			i = len(args)
+		}
+	}
+
+	if timeoutSet && !opts.waitInputIdle {
+		return typeKeysOptions{}, fmt.Errorf("type-keys: --timeout requires --wait ui=input-idle")
+	}
+
+	return opts, nil
+}
+
 func cmdSendKeys(ctx *CommandContext) {
 	if len(ctx.Args) < 2 {
-		ctx.replyErr("usage: send-keys <pane> [--wait-ready] [--continue-known-dialogs] [--hex] <keys>...")
+		ctx.replyErr(sendKeysUsage)
 		return
 	}
 	opts, err := parseSendKeysArgs(ctx.Args[1:])
@@ -70,7 +127,7 @@ func cmdSendKeys(ctx *CommandContext) {
 		return
 	}
 	if len(opts.keys) == 0 {
-		ctx.replyErr("usage: send-keys <pane> [--wait-ready] [--continue-known-dialogs] [--hex] <keys>...")
+		ctx.replyErr(sendKeysUsage)
 		return
 	}
 	chunks, err := encodeKeyChunks(opts.hexMode, opts.keys)
@@ -85,7 +142,7 @@ func cmdSendKeys(ctx *CommandContext) {
 	}
 	if opts.waitReady {
 		if err := waitForPaneReady(ctx.Sess, ctx.Args[0], pane, waitReadyOptions{
-			timeout:              10 * time.Second,
+			timeout:              opts.waitTimeout,
 			continueKnownDialogs: opts.continueKnownDialogs,
 		}); err != nil {
 			ctx.replyErr(err.Error())
@@ -340,30 +397,49 @@ func enqueueBroadcastInput(sess *Session, targets []resolvedPaneRef, chunks []en
 }
 
 func cmdTypeKeys(ctx *CommandContext) {
-	if len(ctx.Args) == 0 {
-		ctx.replyErr("usage: type-keys [--hex] <keys>...")
+	opts, err := parseTypeKeysArgs(ctx.Args)
+	if err != nil {
+		ctx.replyErr(err.Error())
 		return
 	}
-	hexMode, keys := parseKeyArgs(ctx.Args)
-	if len(keys) == 0 {
-		ctx.replyErr("usage: type-keys [--hex] <keys>...")
+	if len(opts.keys) == 0 {
+		ctx.replyErr(typeKeysUsage)
 		return
 	}
-	chunks, err := encodeKeyChunks(hexMode, keys)
+	chunks, err := encodeKeyChunks(opts.hexMode, opts.keys)
 	if err != nil {
 		ctx.replyErr(err.Error())
 		return
 	}
 
-	client, err := ctx.Sess.queryFirstClient()
-	if err != nil {
-		ctx.replyErr(err.Error())
-		return
+	var (
+		client *clientConn
+		uiWait uiClientSnapshot
+	)
+	if opts.waitInputIdle {
+		uiWait, err = ctx.Sess.queryUIClient("", proto.UIEventInputIdle)
+		if err != nil {
+			ctx.replyErr(err.Error())
+			return
+		}
+		client = uiWait.client
+	} else {
+		client, err = ctx.Sess.queryFirstClient()
+		if err != nil {
+			ctx.replyErr(err.Error())
+			return
+		}
 	}
 
 	if err := client.enqueueTypeKeys(chunks); err != nil {
 		ctx.replyErr(err.Error())
 		return
+	}
+	if opts.waitInputIdle {
+		if err := waitForNextUIEvent(ctx.Sess, uiWait, proto.UIEventInputIdle, opts.waitTimeout); err != nil {
+			ctx.replyErr(err.Error())
+			return
+		}
 	}
 	ctx.reply(fmt.Sprintf("Typed %d bytes\n", totalEncodedKeyBytes(chunks)))
 }

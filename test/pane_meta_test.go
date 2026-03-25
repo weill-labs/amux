@@ -191,7 +191,7 @@ func waitForPaneCaptureJSON(t *testing.T, pane string, timeout time.Duration, ru
 }
 
 func tryGeneration(runCmd func(...string) string) (uint64, bool) {
-	out := strings.TrimSpace(runCmd("generation"))
+	out := strings.TrimSpace(runCmd("cursor", "layout"))
 	n, err := strconv.ParseUint(out, 10, 64)
 	return n, err == nil
 }
@@ -215,7 +215,7 @@ func waitForPaneIdle(t *testing.T, pane string, runCmd func(...string) string) {
 
 	deadline := time.Now().Add(15 * time.Second)
 	for time.Now().Before(deadline) {
-		out := runCmd("wait-idle", pane, "--timeout", "10s")
+		out := runCmd("wait", "idle", pane, "--timeout", "10s")
 		if strings.Contains(out, "server not running") {
 			continue
 		}

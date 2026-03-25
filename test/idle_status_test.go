@@ -150,7 +150,7 @@ func TestWaitBusy_AlreadyBusy(t *testing.T) {
 	// Start a command before calling wait-busy — should return immediately.
 	h.startLongSleep("pane-1")
 
-	out := h.runCmd("wait-busy", "pane-1", "--timeout", "1s")
+	out := h.runCmd("wait", "busy", "pane-1", "--timeout", "1s")
 	if strings.Contains(out, "timeout") {
 		t.Error("wait-busy should return immediately when pane is already busy")
 	}
@@ -165,7 +165,7 @@ func TestWaitIdle_AlreadyIdle(t *testing.T) {
 	h.waitFor("pane-1", "READY")
 	h.waitIdle("pane-1")
 
-	out := h.runCmd("wait-idle", "pane-1", "--timeout", "1s")
+	out := h.runCmd("wait", "idle", "pane-1", "--timeout", "1s")
 	if strings.Contains(out, "timeout") {
 		t.Error("wait-idle should return immediately when pane is already idle")
 	}
@@ -177,7 +177,7 @@ func TestWaitIdle_DoesNotTreatQuietBusyPaneAsIdle(t *testing.T) {
 
 	h.startLongSleep("pane-1")
 
-	out := h.runCmd("wait-idle", "pane-1", "--timeout", (server.DefaultIdleTimeout + time.Second).String())
+	out := h.runCmd("wait", "idle", "pane-1", "--timeout", (server.DefaultIdleTimeout + time.Second).String())
 	if !strings.Contains(out, "timeout") {
 		t.Fatalf("wait-idle should not return for a quiet but still-running child, got: %s", out)
 	}
