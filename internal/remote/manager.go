@@ -39,6 +39,12 @@ type StateChangeCallback func(hostName string, state ConnState)
 
 // Manager coordinates all remote host connections. It maps local pane IDs
 // to their remote counterparts and routes I/O through the appropriate HostConn.
+//
+// Concurrency:
+// After initialization, Manager's public methods are safe for concurrent use.
+// Internal host/pane maps are protected by mu, and each HostConn owns its own
+// actor state. SetCallbacks must be called before concurrent pane creation, and
+// callers must treat the Config pointer returned by Config as read-only.
 type Manager struct {
 	mu        sync.Mutex
 	hosts     map[string]*HostConn // keyed by config host name
