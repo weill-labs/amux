@@ -3,6 +3,7 @@ package test
 import (
 	"encoding/hex"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -46,6 +47,35 @@ func buildAmuxWithCommit(binPath, buildCommit string) error {
 		return fmt.Errorf("building amux: %v\n%s", err, out)
 	}
 	return nil
+}
+
+func privateAmuxBin(tb testing.TB) string {
+	tb.Helper()
+
+	src, err := os.Open(amuxBin)
+	if err != nil {
+		tb.Fatalf("opening shared amux binary: %v", err)
+	}
+	defer src.Close()
+
+	info, err := src.Stat()
+	if err != nil {
+		tb.Fatalf("stat shared amux binary: %v", err)
+	}
+
+	dstPath := filepath.Join(tb.TempDir(), "amux")
+	dst, err := os.OpenFile(dstPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, info.Mode().Perm())
+	if err != nil {
+		tb.Fatalf("creating private amux binary: %v", err)
+	}
+	if _, err := io.Copy(dst, src); err != nil {
+		dst.Close()
+		tb.Fatalf("copying private amux binary: %v", err)
+	}
+	if err := dst.Close(); err != nil {
+		tb.Fatalf("closing private amux binary: %v", err)
+	}
+	return dstPath
 }
 
 func TestMain(m *testing.M) {
