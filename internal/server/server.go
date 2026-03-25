@@ -39,38 +39,17 @@ type Session struct {
 	Windows        []*mux.Window // ordered list of windows
 	ActiveWindowID uint32        // which window is displayed
 	Panes          []*mux.Pane   // flat list of ALL panes across all windows
-	clients        []*clientConn
-	connectionLog  *ConnectionLog
+	clientState    *clientManager
 	paneLog        *PaneLog
-	sizeClient     atomic.Pointer[clientConn] // latest active client whose terminal size owns the session
-	clientCounter  atomic.Uint32
 	counter        atomic.Uint32 // pane ID counter
 	windowCounter  atomic.Uint32 // window ID counter
 	shutdown       atomic.Bool
-	inputTarget    atomic.Pointer[mux.Pane] // cached active pane for low-latency input writes
+	input          *inputRouter // cached active pane and paced input queues
 
 	// Layout generation counter — incremented on every broadcastLayout.
 	// Used by wait-layout to block until a layout change occurs.
-	generation    atomic.Uint64
-	waiterCounter atomic.Uint64
-	layoutWaiters map[uint64]layoutWaiter
-
-	// Per-pane output subscribers — used by wait-for to block until
-	// a substring appears in a pane's screen content.
-	// Only modified inside the session event loop (no mutex needed).
-	paneOutputSubs map[uint32][]chan struct{}
-
-	// Clipboard generation counter — incremented on every OSC 52 clipboard
-	// event. Used by wait-clipboard to block until a clipboard write occurs.
-	clipboardGen     atomic.Uint64
-	lastClipboardB64 string // actor-owned clipboard payload (base64)
-	clipboardWaiters map[uint64]clipboardWaiter
-
-	// Hook completion history — incremented on every hook result.
-	// Used by hook-gen and wait-hook to block until matching hook work finishes.
-	hookGen     atomic.Uint64
-	hookResults []hookResultRecord
-	hookWaiters map[uint64]hookWaiter
+	generation atomic.Uint64
+	waiters    *waiterManager
 
 	// Hook system — session-level, not checkpointed.
 	Hooks  *hooks.Registry
@@ -81,18 +60,7 @@ type Session struct {
 	// Only accessed from the session event loop (no mutex needed).
 	eventSubs []*eventSub
 
-	// Per-pane paced input queues serialize delayed send-keys batches.
-	// Only accessed from the session event loop (no mutex needed).
-	pacedPanes map[uint32]*pacedInputQueue
-	// Pending cleanup kills waiting to escalate from SIGTERM to SIGKILL.
-	// Only accessed from the session event loop.
-	pendingKillCleanups map[uint32]*time.Timer
-
-	// Soft-closed panes awaiting undo or final cleanup.
-	// Stack order: most recent close is last. Only accessed from the
-	// session event loop (no mutex needed).
-	closedPanes      []closedPaneRecord
-	closedPaneTimers map[uint32]*time.Timer
+	undo *undoManager
 
 	// Configurable timing — zero values use defaults. Tests inject short durations.
 	VTIdleSettle            time.Duration // default: 2s
@@ -119,9 +87,7 @@ type Session struct {
 	// Capture forwarding — routes capture requests through the attached
 	// interactive client so the result reflects client-side emulator state.
 	// The event loop owns the single in-flight request and queued requests.
-	captureCounter atomic.Uint64
-	captureCurrent *captureRequest
-	captureQueue   []*captureRequest
+	capture *captureForwarder
 
 	// Crash checkpoint — non-blocking trigger from broadcastLayout().
 	// The crashCheckpointLoop goroutine debounces and writes periodically.
@@ -335,38 +301,19 @@ func (s *Session) writeCrashCheckpoint() {
 }
 
 func (s *Session) hasClient(cc *clientConn) bool {
-	for _, c := range s.clients {
-		if c == cc {
-			return true
-		}
-	}
-	return false
+	return s.ensureClientManager().hasClient(cc)
 }
 
 func (s *Session) currentSizeClient() *clientConn {
-	return s.sizeClient.Load()
+	return s.ensureClientManager().currentSizeClient()
 }
 
 func (s *Session) noteClientActivity(cc *clientConn) bool {
-	if cc == nil || !s.hasClient(cc) || s.currentSizeClient() == cc {
-		return false
-	}
-	s.sizeClient.Store(cc)
-	return true
+	return s.ensureClientManager().noteClientActivity(cc)
 }
 
 func (s *Session) effectiveSizeClient() *clientConn {
-	if cc := s.currentSizeClient(); cc != nil && s.hasClient(cc) {
-		return cc
-	}
-	if len(s.clients) == 0 {
-		s.sizeClient.Store(nil)
-		return nil
-	}
-	// Fall back to the most recently attached remaining client.
-	cc := s.clients[len(s.clients)-1]
-	s.sizeClient.Store(cc)
-	return cc
+	return s.ensureClientManager().effectiveSizeClient()
 }
 
 // removeClient removes a client from the session and recalculates
@@ -380,19 +327,11 @@ func (s *Session) removeClientWithoutLayout(cc *clientConn) {
 }
 
 func (s *Session) removeClientWithLayout(cc *clientConn, broadcastLayout bool) {
-	for i, c := range s.clients {
-		if c == cc {
-			s.clients = append(s.clients[:i], s.clients[i+1:]...)
-			break
-		}
-	}
-	if s.currentSizeClient() == cc {
-		s.sizeClient.Store(nil)
-	}
+	remainingClients := s.ensureClientManager().removeClient(cc)
 	if !broadcastLayout {
 		return
 	}
-	shouldExit := s.exitServer != nil && s.exitServer.Env.ExitUnattached && s.hadClient && len(s.clients) == 0 && !s.shutdown.Load()
+	shouldExit := s.exitServer != nil && s.exitServer.Env.ExitUnattached && s.hadClient && remainingClients == 0 && !s.shutdown.Load()
 	s.recalcSize()
 	if shouldExit {
 		s.wantShutdown = true
@@ -462,16 +401,17 @@ func newSessionWithScrollback(name string, scrollbackLines int) *Session {
 		Name:            name,
 		startedAt:       time.Now(),
 		scrollbackLines: scrollbackLines,
-		connectionLog:   newConnectionLog(defaultConnectionLogSize),
+		clientState:     newClientManager(),
 		paneLog:         newPaneLog(defaultPaneLogSize),
 	}
 	sess.Hooks = hooks.NewRegistry()
 	sess.idle = newIdleTracker()
 	sess.vtIdle = NewVTIdleTracker(sess.clock())
 	sess.takenOverPanes = make(map[uint32]bool)
-	sess.layoutWaiters = make(map[uint64]layoutWaiter)
-	sess.clipboardWaiters = make(map[uint64]clipboardWaiter)
-	sess.hookWaiters = make(map[uint64]hookWaiter)
+	sess.waiters = newWaiterManager()
+	sess.capture = newCaptureForwarder()
+	sess.input = newInputRouter()
+	sess.undo = newUndoManager()
 	sess.startCrashCheckpointLoop()
 	sess.startEventLoop()
 	return sess
@@ -754,7 +694,7 @@ func (s *Server) handleAttach(conn net.Conn, msg *Message) {
 	}
 
 	cc := newClientConn(conn)
-	cc.ID = fmt.Sprintf("client-%d", sess.clientCounter.Add(1))
+	cc.ID = fmt.Sprintf("client-%d", sess.ensureClientManager().nextClientOrdinal())
 	cc.initTypeKeyQueue()
 	cc.setNegotiatedCapabilities(proto.NegotiateClientCapabilities(msg.AttachCapabilities))
 	cc.startBootstrap()

@@ -24,7 +24,7 @@ func (s *Server) Reload(execPath string) error {
 	}
 
 	clients, err := enqueueSessionQuery(sess, func(sess *Session) ([]*clientConn, error) {
-		return append([]*clientConn(nil), sess.clients...), nil
+		return sess.ensureClientManager().snapshotClients(), nil
 	})
 	if err != nil {
 		return err

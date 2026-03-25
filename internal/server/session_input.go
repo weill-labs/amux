@@ -11,9 +11,9 @@ func (s *Session) activeInputPane() *mux.Pane {
 }
 
 func (s *Session) refreshInputTarget() {
-	s.inputTarget.Store(s.activeInputPane())
+	s.ensureInputRouter().refreshTarget(s.activeInputPane())
 }
 
 func (s *Session) inputTargetPane() *mux.Pane {
-	return s.inputTarget.Load()
+	return s.ensureInputRouter().targetPane()
 }

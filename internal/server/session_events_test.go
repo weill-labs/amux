@@ -234,7 +234,7 @@ func TestResetCommandBroadcastsClearedHistoryAndBlankScreen(t *testing.T) {
 		sess.Windows = []*mux.Window{w}
 		sess.ActiveWindowID = w.ID
 		sess.Panes = []*mux.Pane{pane}
-		sess.clients = []*clientConn{cc}
+		sess.ensureClientManager().setClientsForTest(cc)
 		return struct{}{}
 	})
 
@@ -338,7 +338,7 @@ func TestCommandMutationBroadcastsLayoutBeforeQueuedPaneOutput(t *testing.T) {
 
 	cc := newClientConn(serverConn)
 	t.Cleanup(cc.Close)
-	sess.clients = []*clientConn{cc}
+	sess.ensureClientManager().setClientsForTest(cc)
 
 	res := sess.enqueueCommandMutation(func(s *Session) commandMutationResult {
 		s.enqueuePaneOutput(pane.ID, []byte("queued-output"), 1)
@@ -391,9 +391,9 @@ func TestHandleAttachBroadcastsResizeLayoutBeforeQueuedPaneOutput(t *testing.T) 
 	t.Cleanup(existing.Close)
 
 	mustSessionQuery(t, sess, func(sess *Session) struct{} {
-		sess.clients = []*clientConn{existing}
+		sess.ensureClientManager().setClientsForTest(existing)
 		sess.hadClient = true
-		sess.sizeClient.Store(existing)
+		sess.ensureClientManager().setSizeOwnerForTest(existing)
 		return struct{}{}
 	})
 
@@ -751,7 +751,7 @@ func TestDetachClientEventEmitsDisconnectReason(t *testing.T) {
 
 	cc := &clientConn{ID: "client-1", inputIdle: true}
 	mustSessionQuery(t, sess, func(sess *Session) struct{} {
-		sess.clients = []*clientConn{cc}
+		sess.ensureClientManager().setClientsForTest(cc)
 		return struct{}{}
 	})
 
@@ -796,8 +796,8 @@ func TestDisconnectClientsForReloadEmitsDisconnectWithoutLayoutMutation(t *testi
 		sess.Windows = []*mux.Window{w}
 		sess.ActiveWindowID = w.ID
 		sess.Panes = []*mux.Pane{pane}
-		sess.clients = []*clientConn{cc1, cc2}
-		sess.sizeClient.Store(cc1)
+		sess.ensureClientManager().setClientsForTest(cc1, cc2)
+		sess.ensureClientManager().setSizeOwnerForTest(cc1)
 		return struct{}{}
 	})
 
@@ -840,7 +840,7 @@ func TestDisconnectClientsForReloadEmitsDisconnectWithoutLayoutMutation(t *testi
 			height      int
 			generation  uint64
 		}{
-			clientCount: len(sess.clients),
+			clientCount: sess.ensureClientManager().clientCount(),
 			sizeOwner:   sess.currentSizeClient(),
 			width:       sess.activeWindow().Width,
 			height:      sess.activeWindow().Height,
@@ -870,7 +870,7 @@ func TestEnqueueUIWaitSubscribeAvoidsStaleSnapshotGap(t *testing.T) {
 
 	cc := &clientConn{ID: "client-1", copyModeShown: true, inputIdle: true}
 	mustSessionQuery(t, sess, func(sess *Session) struct{} {
-		sess.clients = []*clientConn{cc}
+		sess.ensureClientManager().setClientsForTest(cc)
 		return struct{}{}
 	})
 
@@ -888,7 +888,8 @@ func TestEnqueueUIWaitSubscribeAvoidsStaleSnapshotGap(t *testing.T) {
 	sess.enqueueUIEvent(cc, proto.UIEventCopyModeHidden)
 	waitUntil(t, func() bool {
 		return mustSessionQuery(t, sess, func(sess *Session) bool {
-			return len(sess.clients) == 1 && !sess.clients[0].copyModeShown
+			clients := sess.ensureClientManager().snapshotClients()
+			return len(clients) == 1 && !clients[0].copyModeShown
 		})
 	})
 
@@ -921,7 +922,8 @@ func TestEnqueueUIWaitSubscribeAvoidsStaleSnapshotGap(t *testing.T) {
 	sess.enqueueUIEvent(cc, proto.UIEventCopyModeShown)
 	waitUntil(t, func() bool {
 		return mustSessionQuery(t, sess, func(sess *Session) bool {
-			return len(sess.clients) == 1 && sess.clients[0].copyModeShown
+			clients := sess.ensureClientManager().snapshotClients()
+			return len(clients) == 1 && clients[0].copyModeShown
 		})
 	})
 

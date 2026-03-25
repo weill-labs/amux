@@ -310,9 +310,7 @@ func (e clipboardEvent) handle(s *Session) {
 	if s.shutdown.Load() {
 		return
 	}
-	s.lastClipboardB64 = string(e.data)
-	gen := s.clipboardGen.Add(1)
-	s.notifyClipboardWaiters(gen, s.lastClipboardB64)
+	s.ensureWaiters().recordClipboard(e.data)
 	s.broadcastNow(&Message{Type: MsgTypeClipboard, PaneID: e.paneID, PaneData: e.data})
 }
 
@@ -447,12 +445,7 @@ type hookResultEvent struct {
 }
 
 func (e hookResultEvent) handle(s *Session) {
-	e.record.Generation = s.hookGen.Add(1)
-	s.hookResults = append(s.hookResults, e.record)
-	if len(s.hookResults) > 128 {
-		s.hookResults = append([]hookResultRecord(nil), s.hookResults[len(s.hookResults)-128:]...)
-	}
-	s.notifyHookWaiters(e.record)
+	e.record = s.ensureWaiters().appendHookResult(e.record)
 
 	s.emitEvent(Event{
 		Type:       EventHook,
@@ -699,13 +692,7 @@ type paneOutputUnsubscribeCmd struct {
 }
 
 func (e paneOutputUnsubscribeCmd) handle(s *Session) {
-	subs := s.paneOutputSubs[e.paneID]
-	for i, sub := range subs {
-		if sub == e.ch {
-			s.paneOutputSubs[e.paneID] = append(subs[:i], subs[i+1:]...)
-			break
-		}
-	}
+	s.ensureWaiters().removePaneOutputSubscriber(e.paneID, e.ch)
 }
 
 // --- UI events through the event loop ---
@@ -894,7 +881,7 @@ func (s *Session) handleAttachEvent(srv *Server, cc *clientConn, cols, rows int)
 	}
 	res.newPane = initRes.newPane
 
-	s.clients = append(s.clients, cc)
+	s.ensureClientManager().addClient(cc)
 	s.hadClient = true
 	s.appendConnectionLog(connectionLogEventAttach, cc.ID, cc.cols, cc.rows, "")
 	s.noteClientActivity(cc)

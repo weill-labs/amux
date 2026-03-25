@@ -278,7 +278,7 @@ func TestCmdTypeKeysWaitsForInputIdle(t *testing.T) {
 	defer uiClient.Close()
 
 	mustSessionQuery(t, sess, func(sess *Session) struct{} {
-		sess.clients = []*clientConn{uiClient}
+		sess.ensureClientManager().setClientsForTest(uiClient)
 		return struct{}{}
 	})
 
@@ -383,7 +383,7 @@ func TestCmdTypeKeysErrorPaths(t *testing.T) {
 		defer uiClient.Close()
 
 		mustSessionQuery(t, sess, func(sess *Session) struct{} {
-			sess.clients = []*clientConn{uiClient}
+			sess.ensureClientManager().setClientsForTest(uiClient)
 			return struct{}{}
 		})
 
@@ -423,7 +423,7 @@ func TestCmdCopyModeWaitsForShown(t *testing.T) {
 	defer uiClient.Close()
 
 	mustSessionQuery(t, sess, func(sess *Session) struct{} {
-		sess.clients = []*clientConn{uiClient}
+		sess.ensureClientManager().setClientsForTest(uiClient)
 		return struct{}{}
 	})
 
@@ -510,7 +510,7 @@ func TestCmdCopyModeErrorPaths(t *testing.T) {
 		defer uiClient.Close()
 
 		mustSessionQuery(t, sess, func(sess *Session) struct{} {
-			sess.clients = []*clientConn{uiClient}
+			sess.ensureClientManager().setClientsForTest(uiClient)
 			return struct{}{}
 		})
 
@@ -716,7 +716,7 @@ func TestKillCommandUsageAndSubscriptionCleanup(t *testing.T) {
 				remainingPaneCnt int
 			}{
 				hasEventSub:      hasEventSub,
-				outputSubCount:   len(sess.paneOutputSubs[pane2.ID]),
+				outputSubCount:   sess.waiters.outputSubscriberCount(pane2.ID),
 				remainingPaneCnt: len(sess.Panes),
 			}
 		})
@@ -761,7 +761,7 @@ func TestCmdWaitUIUnknownImmediateAndTimeout(t *testing.T) {
 		cc.copyModeShown = true
 		cc.uiGeneration = 3
 		mustSessionQuery(t, sess, func(sess *Session) struct{} {
-			sess.clients = []*clientConn{cc}
+			sess.ensureClientManager().setClientsForTest(cc)
 			return struct{}{}
 		})
 
@@ -799,7 +799,7 @@ func TestCmdWaitUIUnknownImmediateAndTimeout(t *testing.T) {
 		cc.ID = "client-2"
 		cc.inputIdle = true
 		mustSessionQuery(t, sess, func(sess *Session) struct{} {
-			sess.clients = []*clientConn{cc}
+			sess.ensureClientManager().setClientsForTest(cc)
 			return struct{}{}
 		})
 
@@ -865,8 +865,8 @@ func TestCmdListClientsFormatsClientsAndEmptyState(t *testing.T) {
 			inputIdle:   true,
 		}
 		mustSessionQuery(t, sess, func(sess *Session) struct{} {
-			sess.clients = []*clientConn{cc1, cc2}
-			sess.sizeClient.Store(cc2)
+			sess.ensureClientManager().setClientsForTest(cc1, cc2)
+			sess.ensureClientManager().setSizeOwnerForTest(cc2)
 			return struct{}{}
 		})
 

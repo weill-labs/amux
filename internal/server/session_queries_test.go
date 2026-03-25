@@ -38,7 +38,7 @@ func TestQueryUIClient(t *testing.T) {
 		cc1 := &clientConn{ID: "client-1", inputIdle: true}
 		cc2 := &clientConn{ID: "client-2", copyModeShown: true, inputIdle: true}
 		mustSessionQuery(t, sess, func(sess *Session) struct{} {
-			sess.clients = []*clientConn{cc1, cc2}
+			sess.ensureClientManager().setClientsForTest(cc1, cc2)
 			return struct{}{}
 		})
 
@@ -68,7 +68,7 @@ func TestQueryUIClient(t *testing.T) {
 		defer stopSessionBackgroundLoops(t, sess)
 
 		mustSessionQuery(t, sess, func(sess *Session) struct{} {
-			sess.clients = []*clientConn{{ID: "client-1", inputIdle: true}}
+			sess.ensureClientManager().setClientsForTest(&clientConn{ID: "client-1", inputIdle: true})
 			return struct{}{}
 		})
 
@@ -86,10 +86,10 @@ func TestQueryUIClient(t *testing.T) {
 		defer stopSessionBackgroundLoops(t, sess)
 
 		mustSessionQuery(t, sess, func(sess *Session) struct{} {
-			sess.clients = []*clientConn{
-				{ID: "client-1", inputIdle: true},
-				{ID: "client-2", inputIdle: true},
-			}
+			sess.ensureClientManager().setClientsForTest(
+				&clientConn{ID: "client-1", inputIdle: true},
+				&clientConn{ID: "client-2", inputIdle: true},
+			)
 			return struct{}{}
 		})
 
@@ -111,7 +111,7 @@ func TestQueryUIClient(t *testing.T) {
 
 		cc := &clientConn{ID: "client-1", inputIdle: true, uiGeneration: 7}
 		mustSessionQuery(t, sess, func(sess *Session) struct{} {
-			sess.clients = []*clientConn{cc}
+			sess.ensureClientManager().setClientsForTest(cc)
 			return struct{}{}
 		})
 
@@ -195,7 +195,7 @@ func TestEnqueueUIWaitSubscribeErrors(t *testing.T) {
 		defer stopSessionBackgroundLoops(t, sess)
 
 		mustSessionQuery(t, sess, func(sess *Session) struct{} {
-			sess.clients = []*clientConn{{ID: "client-1", inputIdle: true}}
+			sess.ensureClientManager().setClientsForTest(&clientConn{ID: "client-1", inputIdle: true})
 			return struct{}{}
 		})
 
@@ -272,7 +272,7 @@ func TestQueryClientListIncludesCapabilities(t *testing.T) {
 			defer stopSessionBackgroundLoops(t, sess)
 
 			mustSessionQuery(t, sess, func(sess *Session) struct{} {
-				sess.clients = []*clientConn{tt.cc}
+				sess.ensureClientManager().setClientsForTest(tt.cc)
 				return struct{}{}
 			})
 

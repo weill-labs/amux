@@ -403,7 +403,7 @@ func TestForwardCaptureJSONReturnsSessionShuttingDownWhileWaiting(t *testing.T) 
 	defer clientEnd.Close()
 
 	if _, err := enqueueSessionQuery(sess, func(sess *Session) (struct{}, error) {
-		sess.clients = []*clientConn{cc}
+		sess.ensureClientManager().setClientsForTest(cc)
 		return struct{}{}, nil
 	}); err != nil {
 		t.Fatalf("enqueueSessionQuery: %v", err)
@@ -534,7 +534,7 @@ func TestForwardCaptureJSONStressUnderPaneOutput(t *testing.T) {
 	}()
 
 	if _, err := enqueueSessionQuery(sess, func(sess *Session) (struct{}, error) {
-		sess.clients = []*clientConn{cc}
+		sess.ensureClientManager().setClientsForTest(cc)
 		return struct{}{}, nil
 	}); err != nil {
 		t.Fatalf("enqueueSessionQuery: %v", err)
@@ -657,7 +657,7 @@ func startCaptureCallForTest(t *testing.T, sess *Session, call func() *Message) 
 	})
 
 	if _, err := enqueueSessionQuery(sess, func(sess *Session) (struct{}, error) {
-		sess.clients = []*clientConn{cc}
+		sess.ensureClientManager().setClientsForTest(cc)
 		return struct{}{}, nil
 	}); err != nil {
 		t.Fatalf("enqueueSessionQuery: %v", err)

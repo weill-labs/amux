@@ -65,10 +65,7 @@ func (l *ConnectionLog) Snapshot() []ConnectionLogEntry {
 }
 
 func (s *Session) ensureConnectionLog() *ConnectionLog {
-	if s.connectionLog == nil {
-		s.connectionLog = newConnectionLog(defaultConnectionLogSize)
-	}
-	return s.connectionLog
+	return s.ensureClientManager().ensureConnectionLog()
 }
 
 func (s *Session) appendConnectionLog(event, clientID string, cols, rows int, reason string) {

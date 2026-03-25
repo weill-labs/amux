@@ -40,7 +40,7 @@ func TestWaitGeneration_WakesOnIncrement(t *testing.T) {
 
 	waitUntil(t, func() bool {
 		return mustSessionQuery(t, sess, func(sess *Session) bool {
-			return len(sess.layoutWaiters) == 1
+			return sess.waiters.layoutWaiterRegistered(0)
 		})
 	})
 
@@ -93,13 +93,7 @@ func TestWaitGenerationAfterCurrent_WaitsForNextGeneration(t *testing.T) {
 
 	waitUntil(t, func() bool {
 		return mustSessionQuery(t, sess, func(sess *Session) bool {
-			if len(sess.layoutWaiters) != 1 {
-				return false
-			}
-			for _, waiter := range sess.layoutWaiters {
-				return waiter.afterGen == 5
-			}
-			return false
+			return sess.waiters.layoutWaiterRegistered(5)
 		})
 	})
 
@@ -126,8 +120,7 @@ func TestWaitClipboardAfterCurrent_WaitsForNextClipboard(t *testing.T) {
 	t.Parallel()
 	sess := newSession("test-wait-clipboard-after-current")
 	defer stopSessionBackgroundLoops(t, sess)
-	sess.clipboardGen.Store(5)
-	sess.lastClipboardB64 = "old"
+	sess.waiters.setClipboardStateForTest(5, "old")
 
 	done := make(chan struct{})
 	var result string
@@ -139,20 +132,12 @@ func TestWaitClipboardAfterCurrent_WaitsForNextClipboard(t *testing.T) {
 
 	waitUntil(t, func() bool {
 		return mustSessionQuery(t, sess, func(sess *Session) bool {
-			if len(sess.clipboardWaiters) != 1 {
-				return false
-			}
-			for _, waiter := range sess.clipboardWaiters {
-				return waiter.afterGen == 5
-			}
-			return false
+			return sess.waiters.clipboardWaiterRegistered(5)
 		})
 	})
 
 	sess.enqueueCommandMutation(func(s *Session) commandMutationResult {
-		gen := s.clipboardGen.Add(1)
-		s.lastClipboardB64 = "new"
-		s.notifyClipboardWaiters(gen, "new")
+		s.waiters.recordClipboard([]byte("new"))
 		return commandMutationResult{}
 	})
 
@@ -173,13 +158,12 @@ func TestWaitHookForPaneAfterCurrent_WaitsForNextMatchingHook(t *testing.T) {
 	t.Parallel()
 	sess := newSession("test-wait-hook-after-current")
 	defer stopSessionBackgroundLoops(t, sess)
-	sess.hookGen.Store(7)
-	sess.hookResults = []hookResultRecord{{
+	sess.waiters.setHookStateForTest(7, []hookResultRecord{{
 		Generation: 7,
 		Event:      "on-idle",
 		PaneID:     1,
 		PaneName:   "pane-1",
-	}}
+	}})
 
 	done := make(chan struct{})
 	var result hookResultRecord
@@ -191,27 +175,17 @@ func TestWaitHookForPaneAfterCurrent_WaitsForNextMatchingHook(t *testing.T) {
 
 	waitUntil(t, func() bool {
 		return mustSessionQuery(t, sess, func(sess *Session) bool {
-			if len(sess.hookWaiters) != 1 {
-				return false
-			}
-			for _, waiter := range sess.hookWaiters {
-				return waiter.afterGen == 7 && waiter.eventName == "on-idle" && waiter.paneID == 1 && waiter.paneName == "pane-1"
-			}
-			return false
+			return sess.waiters.hookWaiterRegistered(7, "on-idle", 1, "pane-1")
 		})
 	})
 
 	sess.enqueueCommandMutation(func(s *Session) commandMutationResult {
-		record := hookResultRecord{
-			Generation: 8,
-			Event:      "on-idle",
-			PaneID:     1,
-			PaneName:   "pane-1",
-			Success:    true,
-		}
-		s.hookGen.Store(record.Generation)
-		s.hookResults = append(s.hookResults, record)
-		s.notifyHookWaiters(record)
+		s.waiters.appendHookResult(hookResultRecord{
+			Event:    "on-idle",
+			PaneID:   1,
+			PaneName: "pane-1",
+			Success:  true,
+		})
 		return commandMutationResult{}
 	})
 

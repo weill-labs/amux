@@ -175,8 +175,8 @@ func TestCmdConnectionLogFormatsEntriesAndEmptyState(t *testing.T) {
 
 		base := time.Date(2026, time.March, 22, 12, 0, 0, 0, time.UTC)
 		mustSessionQuery(t, sess, func(sess *Session) struct{} {
-			sess.connectionLog = newConnectionLog(100)
-			sess.connectionLog.Append(ConnectionLogEntry{
+			log := sess.ensureClientManager().ensureConnectionLog()
+			log.Append(ConnectionLogEntry{
 				Timestamp:        base,
 				Event:            "attach",
 				ClientID:         "client-1",
@@ -184,7 +184,7 @@ func TestCmdConnectionLogFormatsEntriesAndEmptyState(t *testing.T) {
 				Rows:             24,
 				DisconnectReason: "",
 			})
-			sess.connectionLog.Append(ConnectionLogEntry{
+			log.Append(ConnectionLogEntry{
 				Timestamp:        base.Add(time.Second),
 				Event:            "detach",
 				ClientID:         "client-1",
