@@ -148,15 +148,26 @@ func readAttachBootstrap(conn net.Conn, cr *ClientRenderer) error {
 	return readImmediateAttachCorrection(conn, cr, defaultBootstrapCorrectionWindow)
 }
 
-func handleDisplayPaneSelection(cr *ClientRenderer, sender *messageSender, b byte) {
-	paneID, ok := cr.ResolveDisplayPaneKey(b)
-	cr.HideDisplayPanes()
-	if ok {
-		sender.Command("focus", []string{fmt.Sprintf("%d", paneID)})
+type displayPaneSelectionResult struct {
+	paneID uint32
+	ok     bool
+}
+
+func handleDisplayPaneSelection(cr *ClientRenderer, sender *messageSender, b byte, msgCh chan<- *RenderMsg) {
+	result := callLocalRenderAction[displayPaneSelectionResult](cr, msgCh, func(cr *ClientRenderer) localRenderResult {
+		paneID, ok := cr.ResolveDisplayPaneKey(b)
+		cr.HideDisplayPanes()
+		return localRenderResult{
+			effects: overlayRenderNowResult().effects,
+			value:   displayPaneSelectionResult{paneID: paneID, ok: ok},
+		}
+	})
+	if result.ok {
+		sender.Command("focus", []string{fmt.Sprintf("%d", result.paneID)})
 	}
 }
 
-func syncTerminalSize(fd int, prevCols, prevRows int, cr *ClientRenderer, sender *messageSender, getSize func(int) (int, int, error)) (int, int) {
+func syncTerminalSize(fd int, prevCols, prevRows int, cr *ClientRenderer, sender *messageSender, getSize func(int) (int, int, error), msgCh chan<- *RenderMsg) (int, int) {
 	c, r, _ := getSize(fd)
 	if c <= 0 || r <= 0 {
 		return prevCols, prevRows
@@ -164,7 +175,10 @@ func syncTerminalSize(fd int, prevCols, prevRows int, cr *ClientRenderer, sender
 	if c == prevCols && r == prevRows {
 		return prevCols, prevRows
 	}
-	cr.Resize(c, r)
+	_ = callLocalRenderAction[struct{}](cr, msgCh, func(cr *ClientRenderer) localRenderResult {
+		cr.Resize(c, r)
+		return localRenderResult{}
+	})
 	_ = sender.Send(&proto.Message{
 		Type: proto.MsgTypeResize,
 		Cols: c,
@@ -279,23 +293,6 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 	triggerReload := make(chan struct{}, 1)
 	execPath, _ := reload.ResolveExecutable()
 
-	// Forward SIGWINCH to server and update client renderer
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGWINCH)
-	defer signal.Stop(sigCh)
-	// Capture initial size for the SIGWINCH goroutine to avoid racing
-	// with the recheck on line below.
-	initCols, initRows := cols, rows
-	go func() {
-		lastCols, lastRows := initCols, initRows
-		for range sigCh {
-			lastCols, lastRows = syncTerminalSize(fd, lastCols, lastRows, cr, sender, getTermSize)
-		}
-	}()
-	// Recheck once after the handler is live so startup-time size changes
-	// (common on mobile/SSH clients) are not lost before the first SIGWINCH.
-	cols, rows = syncTerminalSize(fd, cols, rows, cr, sender, getTermSize)
-
 	// Channel for injecting keystrokes from type-keys (server → client).
 	injectCh := make(chan []byte, 16)
 
@@ -335,7 +332,9 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 			case proto.MsgTypeCaptureRequest:
 				// Server is forwarding a capture request — render from
 				// client-side emulators and send the result back.
-				resp := cr.HandleCaptureRequest(msg.CmdArgs, msg.AgentStatus)
+				resp := callLocalRenderAction[*proto.Message](cr, msgCh, func(cr *ClientRenderer) localRenderResult {
+					return localRenderResult{value: cr.HandleCaptureRequest(msg.CmdArgs, msg.AgentStatus)}
+				})
 				sender.Send(resp)
 			case proto.MsgTypeTypeKeys:
 				select {
@@ -360,6 +359,22 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 			io.WriteString(os.Stdout, data)
 		})
 	}()
+
+	// Forward SIGWINCH to server and update client renderer.
+	// The render loop is live before we start queueing local resize actions.
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGWINCH)
+	defer signal.Stop(sigCh)
+	initCols, initRows := cols, rows
+	go func() {
+		lastCols, lastRows := initCols, initRows
+		for range sigCh {
+			lastCols, lastRows = syncTerminalSize(fd, lastCols, lastRows, cr, sender, getTermSize, msgCh)
+		}
+	}()
+	// Recheck once after the handler is live so startup-time size changes
+	// (common on mobile/SSH clients) are not lost before the first SIGWINCH.
+	cols, rows = syncTerminalSize(fd, cols, rows, cr, sender, getTermSize, msgCh)
 
 	// Terminal → server: read input with mouse parsing + Ctrl-a prefix handling
 	go func() {
@@ -423,24 +438,18 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 					io.WriteString(os.Stdout, "\a")
 					return
 				}
-				if data := cr.RenderDiff(); data != "" {
-					io.WriteString(os.Stdout, data)
-				}
+				runLocalRenderAction(cr, msgCh, func(*ClientRenderer) localRenderResult { return overlayRenderNowResult() })
 			}
 			showPrefixMessage := func(key byte) {
 				cr.ShowPrefixMessage(formatUnboundPrefixMessage(kb.Prefix, key))
 				io.WriteString(os.Stdout, "\a")
-				if data := cr.RenderDiff(); data != "" {
-					io.WriteString(os.Stdout, data)
-				}
+				runLocalRenderAction(cr, msgCh, func(*ClientRenderer) localRenderResult { return overlayRenderNowResult() })
 			}
 			clearPrefixMessage := func() {
 				if !cr.ClearPrefixMessage() {
 					return
 				}
-				if data := cr.RenderDiff(); data != "" {
-					io.WriteString(os.Stdout, data)
-				}
+				runLocalRenderAction(cr, msgCh, func(*ClientRenderer) localRenderResult { return overlayRenderNowResult() })
 			}
 
 			// Pressing the prefix key again sends the literal prefix byte
@@ -475,10 +484,10 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 					default:
 					}
 				case "copy-mode":
-					cr.EnterCopyMode(cr.ActivePaneID())
-					if data := cr.RenderDiff(); data != "" {
-						io.WriteString(os.Stdout, data)
-					}
+					_ = callLocalRenderAction[struct{}](cr, msgCh, func(cr *ClientRenderer) localRenderResult {
+						cr.EnterCopyMode(cr.ActivePaneID())
+						return renderNowResult()
+					})
 				case "display-panes":
 					if cr.DisplayPanesActive() {
 						cr.HideDisplayPanes()
@@ -486,9 +495,7 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 						io.WriteString(os.Stdout, "\a")
 						break
 					}
-					if data := cr.RenderDiff(); data != "" {
-						io.WriteString(os.Stdout, data)
-					}
+					runLocalRenderAction(cr, msgCh, func(*ClientRenderer) localRenderResult { return overlayRenderNowResult() })
 				case "choose-tree":
 					showChooser(chooserModeTree)
 				case "choose-window":
@@ -497,9 +504,7 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 					if reason := cr.toggleMinimizeBlockedReason(); reason != "" {
 						cr.ShowCommandError(reason)
 						io.WriteString(os.Stdout, "\a")
-						if data := cr.RenderDiff(); data != "" {
-							io.WriteString(os.Stdout, data)
-						}
+						runLocalRenderAction(cr, msgCh, func(*ClientRenderer) localRenderResult { return overlayRenderNowResult() })
 					}
 					sender.Command(binding.Action, binding.Args)
 				case "split", "split-focus":
@@ -666,13 +671,13 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 				raw = data
 			case <-wordCopyTimer:
 				if drag.PendingWordCopyPaneID != 0 {
-					cr.CopyModeCopySelection(drag.PendingWordCopyPaneID)
+					_ = callLocalRenderAction[struct{}](cr, msgCh, func(cr *ClientRenderer) localRenderResult {
+						cr.CopyModeCopySelection(drag.PendingWordCopyPaneID)
+						return renderNowResult()
+					})
 					drag.PendingWordCopyPaneID = 0
 					drag.PendingWordCopyAt = time.Time{}
 					drag.ClickCount = 0
-					if data := cr.RenderDiff(); data != "" {
-						io.WriteString(os.Stdout, data)
-					}
 				}
 				continue
 			}
@@ -702,9 +707,7 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 			}
 
 			if localActivity && cr.ClearCommandFeedback() {
-				if data := cr.RenderDiff(); data != "" {
-					io.WriteString(os.Stdout, data)
-				}
+				runLocalRenderAction(cr, msgCh, func(*ClientRenderer) localRenderResult { return overlayRenderNowResult() })
 			}
 
 			var forward []byte
@@ -715,23 +718,23 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 				if len(copyInput) == 0 {
 					return
 				}
-				cm := cr.ActiveCopyMode()
-				if cm == nil {
-					copyInput = nil
-					return
-				}
-				action := cm.HandleInput(copyInput)
-				paneID := cr.ActivePaneID()
+				input := append([]byte(nil), copyInput...)
 				copyInput = nil
-				switch action {
-				case copymode.ActionExit:
-					cr.ExitCopyMode(paneID)
-				case copymode.ActionYank:
-					cr.CopyModeCopySelection(paneID)
-				}
-				if data := cr.RenderDiff(); data != "" {
-					io.WriteString(os.Stdout, data)
-				}
+				_ = callLocalRenderAction[struct{}](cr, msgCh, func(cr *ClientRenderer) localRenderResult {
+					cm := cr.ActiveCopyMode()
+					if cm == nil {
+						return localRenderResult{}
+					}
+					action := cm.HandleInput(input)
+					paneID := cr.ActivePaneID()
+					switch action {
+					case copymode.ActionExit:
+						cr.ExitCopyMode(paneID)
+					case copymode.ActionYank:
+						cr.CopyModeCopySelection(paneID)
+					}
+					return renderNowResult()
+				})
 			}
 
 			// dispatchDecoded routes one decoded input event through local
@@ -755,12 +758,10 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 
 				if cr.DisplayPanesActive() {
 					if len(normalized) > 0 {
-						handleDisplayPaneSelection(cr, sender, normalized[0])
+						handleDisplayPaneSelection(cr, sender, normalized[0], msgCh)
 					} else {
 						cr.HideDisplayPanes()
-					}
-					if data := cr.RenderDiff(); data != "" {
-						io.WriteString(os.Stdout, data)
+						runLocalRenderAction(cr, msgCh, func(*ClientRenderer) localRenderResult { return overlayRenderNowResult() })
 					}
 					return false
 				}
@@ -811,9 +812,7 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 				if action.bell {
 					io.WriteString(os.Stdout, "\a")
 				}
-				if data := cr.RenderDiff(); data != "" {
-					io.WriteString(os.Stdout, data)
-				}
+				runLocalRenderAction(cr, msgCh, func(*ClientRenderer) localRenderResult { return overlayRenderNowResult() })
 				if action.command != "" {
 					sender.Command(action.command, action.args)
 				}
@@ -832,12 +831,7 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 						})
 						forward = nil
 					}
-					handleMouseEvent(ev, cr, sender, &drag)
-					if cr.IsDirty() {
-						if data := cr.RenderDiff(); data != "" {
-							io.WriteString(os.Stdout, data)
-						}
-					}
+					handleMouseEvent(ev, cr, sender, &drag, msgCh)
 					continue
 				}
 

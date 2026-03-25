@@ -6,6 +6,7 @@ import (
 
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/weill-labs/amux/internal/debugowner"
 	"github.com/weill-labs/amux/internal/render"
 )
 
@@ -47,7 +48,14 @@ const (
 
 // CopyMode manages the state machine for scrollback browsing, search, and
 // text selection within a single pane.
+//
+// Concurrency:
+// CopyMode is not safe for concurrent use. Mutating methods and copy-mode-backed
+// reads must be serialized by the caller onto one goroutine. In the attached
+// client, the live owner is the client render loop after attach startup.
 type CopyMode struct {
+	owner debugowner.Checker
+
 	emu    TerminalEmulator
 	width  int // pane content width
 	height int // pane content height (viewport rows)
@@ -105,6 +113,10 @@ func New(emu TerminalEmulator, width, height, cursorRow int) *CopyMode {
 	}
 }
 
+func (cm *CopyMode) assertOwner(method string) {
+	cm.owner.Assert("copymode.CopyMode", method)
+}
+
 // HandleInput processes raw input bytes and returns the action the client
 // should take. When searching, printable keys build the query; otherwise
 // vi-style keys control scrolling, search, and selection.
@@ -113,6 +125,7 @@ func New(emu TerminalEmulator, width, height, cursorRow int) *CopyMode {
 // immediately (remaining bytes are dropped). ActionRedraw is accumulated
 // so that batched keystrokes (e.g. rapid "Vy") are fully handled.
 func (cm *CopyMode) HandleInput(data []byte) Action {
+	cm.assertOwner("HandleInput")
 	if len(data) == 0 {
 		return ActionNone
 	}
@@ -574,6 +587,7 @@ func (cm *CopyMode) SearchQuery() string {
 
 // SetScrollExit enables or disables auto-exit when scrolling back to live view.
 func (cm *CopyMode) SetScrollExit(enabled bool) {
+	cm.assertOwner("SetScrollExit")
 	cm.scrollExit = enabled
 }
 
@@ -589,6 +603,7 @@ func (cm *CopyMode) ScrollOffset() int {
 
 // WheelScrollUp scrolls the viewport upward without moving the copy-mode cursor.
 func (cm *CopyMode) WheelScrollUp(lines int) Action {
+	cm.assertOwner("WheelScrollUp")
 	if lines <= 0 {
 		return ActionNone
 	}
@@ -604,6 +619,7 @@ func (cm *CopyMode) WheelScrollUp(lines int) Action {
 // WheelScrollDown scrolls the viewport downward without moving the cursor.
 // When scroll-exit is armed, reaching live view exits copy mode.
 func (cm *CopyMode) WheelScrollDown(lines int) Action {
+	cm.assertOwner("WheelScrollDown")
 	if lines <= 0 {
 		return ActionNone
 	}
@@ -634,6 +650,7 @@ func (cm *CopyMode) TotalLines() int {
 
 // Resize updates the viewport dimensions.
 func (cm *CopyMode) Resize(width, height int) {
+	cm.assertOwner("Resize")
 	cm.width = width
 	cm.height = height
 	cm.oy = clamp(cm.oy, 0, cm.maxOY())
@@ -956,6 +973,7 @@ func (cm *CopyMode) CellAt(col, viewportRow int) render.ScreenCell {
 
 // SetCursor moves the copy-mode cursor to a viewport-relative position.
 func (cm *CopyMode) SetCursor(col, viewportRow int) Action {
+	cm.assertOwner("SetCursor")
 	row := clamp(viewportRow, 0, cm.height-1)
 	line := []rune(cm.lineText(cm.FirstVisibleLine() + row))
 	maxCol := 0
@@ -974,6 +992,7 @@ func (cm *CopyMode) SetCursor(col, viewportRow int) Action {
 
 // StartSelection begins a character selection at the current cursor position.
 func (cm *CopyMode) StartSelection() Action {
+	cm.assertOwner("StartSelection")
 	absY := cm.cursorAbsLine()
 	cm.lineSelect = false
 	cm.rectSelect = false
@@ -987,6 +1006,7 @@ func (cm *CopyMode) StartSelection() Action {
 
 // ClearSelection removes the current selection without exiting copy mode.
 func (cm *CopyMode) ClearSelection() Action {
+	cm.assertOwner("ClearSelection")
 	if !cm.selecting && !cm.lineSelect && !cm.rectSelect {
 		return ActionNone
 	}
@@ -998,6 +1018,7 @@ func (cm *CopyMode) ClearSelection() Action {
 
 // SelectLine begins a tmux-style line selection at the current cursor line.
 func (cm *CopyMode) SelectLine() Action {
+	cm.assertOwner("SelectLine")
 	absY := cm.cursorAbsLine()
 	cm.selecting = true
 	cm.lineSelect = true
@@ -1011,6 +1032,7 @@ func (cm *CopyMode) SelectLine() Action {
 
 // SelectWord begins a tmux-style word selection around the cursor.
 func (cm *CopyMode) SelectWord() Action {
+	cm.assertOwner("SelectWord")
 	line := cm.cursorLineRunes()
 	if len(line) == 0 {
 		return ActionNone
@@ -1047,6 +1069,7 @@ func (cm *CopyMode) SelectWord() Action {
 
 // ToggleRectangleSelection toggles tmux rectangle mode.
 func (cm *CopyMode) ToggleRectangleSelection() Action {
+	cm.assertOwner("ToggleRectangleSelection")
 	absY := cm.cursorAbsLine()
 	if !cm.selecting {
 		cm.selecting = true
@@ -1063,6 +1086,7 @@ func (cm *CopyMode) ToggleRectangleSelection() Action {
 
 // OtherEnd swaps the active and anchor selection endpoints.
 func (cm *CopyMode) OtherEnd() Action {
+	cm.assertOwner("OtherEnd")
 	if !cm.selecting {
 		return ActionNone
 	}
@@ -1081,6 +1105,7 @@ func (cm *CopyMode) queueCopyText(text string, append bool) {
 
 // ConsumeCopyText returns and clears any queued copy payload.
 func (cm *CopyMode) ConsumeCopyText() (string, bool) {
+	cm.assertOwner("ConsumeCopyText")
 	text, appendCopy := cm.copyText, cm.appendCopy
 	cm.copyText = ""
 	cm.appendCopy = false

@@ -127,7 +127,7 @@ func runSplit(ctx *CommandContext, keepFocus bool) {
 	}
 
 	if args.HostName != "" {
-		pane, err := ctx.CC.splitRemotePane(ctx.Srv, ctx.Sess, args.HostName, args.Dir, args.RootLevel, args.Name, keepFocus)
+		pane, err := ctx.CC.splitRemotePane(ctx.Sess, args.HostName, args.Dir, args.RootLevel, args.Name, keepFocus)
 		if err != nil {
 			ctx.replyErr(err.Error())
 			return
@@ -220,7 +220,7 @@ func runSpawn(ctx *CommandContext, keepFocus bool) {
 
 	remoteHost := args.Meta.Host
 	if remoteHost != "" && remoteHost != mux.DefaultHost {
-		pane, err := ctx.CC.splitRemotePane(ctx.Srv, ctx.Sess, remoteHost, mux.SplitVertical, false, args.Meta.Name, keepFocus)
+		pane, err := ctx.CC.splitRemotePane(ctx.Sess, remoteHost, mux.SplitVertical, false, args.Meta.Name, keepFocus)
 		if err != nil {
 			ctx.replyErr(err.Error())
 			return

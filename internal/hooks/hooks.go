@@ -54,6 +54,14 @@ const (
 )
 
 // Registry stores hooks and executes them on events.
+//
+// Concurrency:
+// Add, Remove, RemoveAll, List, Fire, and FireWithCallback are safe for
+// concurrent use. Fire and FireWithCallback launch hook commands in separate
+// goroutines, so hook execution and onResult callbacks happen asynchronously.
+// Callers must not mutate ErrorWriter or HookTimeout concurrently with firing
+// hooks, and any shared state touched by onResult must be synchronized by the
+// callback owner.
 type Registry struct {
 	mu          sync.RWMutex
 	hooks       map[Event][]Entry
