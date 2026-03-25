@@ -24,6 +24,10 @@ type ClientRenderer struct {
 	scrollbackLines int
 	OnUIEvent       func(string)
 	CopyToClipboard func(string) // called when copy mode copies text; nil uses default
+
+	// Render timing — configurable for tests. Zero values use defaults.
+	renderFrameInterval  time.Duration
+	renderPriorityWindow time.Duration
 }
 
 // NewClientRendererWithScrollback creates a client renderer with an explicit
@@ -288,14 +292,17 @@ type clientEffect struct {
 	uiEvents []string
 }
 
-var renderFrameInterval = 16 * time.Millisecond
-var renderPriorityWindow = 40 * time.Millisecond
+const (
+	defaultRenderFrameInterval  = 16 * time.Millisecond
+	defaultRenderPriorityWindow = 40 * time.Millisecond
+)
 
 type clientRenderLoopState struct {
-	renderTimer *time.Timer
-	renderC     <-chan time.Time
-	useFull     bool
-	lastRender  time.Time
+	renderTimer         *time.Timer
+	renderC             <-chan time.Time
+	useFull             bool
+	lastRender          time.Time
+	renderFrameInterval time.Duration
 }
 
 func (st *clientRenderLoopState) stopScheduledRender() {
@@ -314,14 +321,14 @@ func (st *clientRenderLoopState) shouldRenderNow() bool {
 	if st.lastRender.IsZero() {
 		return true
 	}
-	return time.Since(st.lastRender) >= renderFrameInterval
+	return time.Since(st.lastRender) >= st.renderFrameInterval
 }
 
 func (st *clientRenderLoopState) scheduleRender() {
 	if st.renderTimer != nil {
 		return
 	}
-	delay := renderFrameInterval
+	delay := st.renderFrameInterval
 	if !st.lastRender.IsZero() {
 		delay -= time.Since(st.lastRender)
 		if delay < 0 {
@@ -450,7 +457,7 @@ func (cr *ClientRenderer) shouldPrioritizePaneOutput(paneID uint32) bool {
 	if ts == 0 {
 		return false
 	}
-	return time.Since(time.Unix(0, ts)) <= renderPriorityWindow
+	return time.Since(time.Unix(0, ts)) <= cr.renderPriorityWindow
 }
 
 // RenderCoalesced runs a select loop that reads messages from msgCh,
@@ -459,7 +466,17 @@ func (cr *ClientRenderer) shouldPrioritizePaneOutput(paneID uint32) bool {
 // changes that move/resize panes clear the previous grid to force a
 // full repaint through the diff engine.
 func (cr *ClientRenderer) RenderCoalesced(msgCh <-chan *RenderMsg, write func(string)) {
-	state := &clientRenderLoopState{useFull: os.Getenv("AMUX_RENDER") == "full"}
+	if cr.renderPriorityWindow == 0 {
+		cr.renderPriorityWindow = defaultRenderPriorityWindow
+	}
+	frameInterval := cr.renderFrameInterval
+	if frameInterval == 0 {
+		frameInterval = defaultRenderFrameInterval
+	}
+	state := &clientRenderLoopState{
+		useFull:             os.Getenv("AMUX_RENDER") == "full",
+		renderFrameInterval: frameInterval,
+	}
 
 	for {
 		select {

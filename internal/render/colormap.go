@@ -37,48 +37,20 @@ func ExtractColorMap(ansiStream string, width, height int) string {
 	for i < len(ansiStream) {
 		b := ansiStream[i]
 
-		if b == '\033' && i+1 < len(ansiStream) {
-			next := ansiStream[i+1]
-
-			if next == '[' {
-				j := i + 2
-				for j < len(ansiStream) && ansiStream[j] >= 0x20 && ansiStream[j] <= 0x3F {
-					j++
-				}
-				if j < len(ansiStream) {
-					finalByte := ansiStream[j]
-					params := ansiStream[i+2 : j]
-
-					if finalByte == 'H' || finalByte == 'f' {
-						r, c := ParseCUP(params)
-						row = Clamp(r-1, 0, height-1)
-						col = Clamp(c-1, 0, width-1)
-					} else if finalByte == 'm' {
-						currentColor = extractFgHex(params, currentColor)
-					}
-					i = j + 1
-					continue
-				}
+		if b == '\033' && i+1 < len(ansiStream) && ansiStream[i+1] == '[' {
+			params, finalByte, end := CSIParams(ansiStream, i+2)
+			if finalByte == 'H' || finalByte == 'f' {
+				r, c := ParseCUP(params)
+				row = Clamp(r-1, 0, height-1)
+				col = Clamp(c-1, 0, width-1)
+			} else if finalByte == 'm' {
+				currentColor = extractFgHex(params, currentColor)
 			}
-
-			if next == ']' {
-				j := i + 2
-				for j < len(ansiStream) {
-					if ansiStream[j] == '\007' {
-						j++
-						break
-					}
-					if ansiStream[j] == '\033' && j+1 < len(ansiStream) && ansiStream[j+1] == '\\' {
-						j += 2
-						break
-					}
-					j++
-				}
-				i = j
-				continue
-			}
-
-			i += 2
+			i = end
+			continue
+		}
+		if b == '\033' {
+			i = skipANSISequence(ansiStream, i)
 			continue
 		}
 
@@ -143,7 +115,7 @@ func colorToLetter(hex string) byte {
 	if hex == "" || hex == config.DimColorHex {
 		return '.'
 	}
-	if l, ok := config.CatppuccinLetters[hex]; ok {
+	if l, ok := config.AccentColorLetter(hex); ok {
 		return l
 	}
 	if l, ok := knownNonBorderColors[hex]; ok {

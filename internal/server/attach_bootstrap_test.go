@@ -288,7 +288,7 @@ func newAttachTestPane(sess *Session, id uint32, name string, cols, rows int) *m
 	return newProxyPane(id, mux.PaneMeta{
 		Name:  name,
 		Host:  mux.DefaultHost,
-		Color: config.CatppuccinMocha[(id-1)%uint32(len(config.CatppuccinMocha))],
+		Color: config.AccentColor(id - 1),
 	}, cols, rows, sess.paneOutputCallback(), sess.paneExitCallback(), func(data []byte) (int, error) {
 		return len(data), nil
 	})

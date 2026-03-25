@@ -1,10 +1,11 @@
 package render
 
 import (
-	"github.com/mattn/go-runewidth"
 	"strconv"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/mattn/go-runewidth"
 )
 
 // MaterializeGrid replays an ANSI escape stream onto a 2D character grid
@@ -27,55 +28,19 @@ func MaterializeGrid(ansiStream string, width, height int) string {
 		b := ansiStream[i]
 
 		// ESC sequence
-		if b == '\033' && i+1 < len(ansiStream) {
-			next := ansiStream[i+1]
-
-			// CSI: \033[ ... final_byte
-			if next == '[' {
-				j := i + 2
-				// Collect parameter bytes and intermediate bytes
-				for j < len(ansiStream) && ansiStream[j] >= 0x20 && ansiStream[j] <= 0x3F {
-					j++
-				}
-				// Final byte
-				if j < len(ansiStream) {
-					finalByte := ansiStream[j]
-					params := ansiStream[i+2 : j]
-
-					if finalByte == 'H' || finalByte == 'f' {
-						// CUP: \033[row;colH (1-based) or \033[H (home)
-						r, c := ParseCUP(params)
-						row = Clamp(r-1, 0, height-1)
-						col = Clamp(c-1, 0, width-1)
-					}
-					// All other CSI sequences (SGR, clear, cursor visibility) — skip
-
-					i = j + 1
-					continue
-				}
+		if b == '\033' && i+1 < len(ansiStream) && ansiStream[i+1] == '[' {
+			// CSI: extract params to handle CUP positioning
+			params, finalByte, end := CSIParams(ansiStream, i+2)
+			if finalByte == 'H' || finalByte == 'f' {
+				r, c := ParseCUP(params)
+				row = Clamp(r-1, 0, height-1)
+				col = Clamp(c-1, 0, width-1)
 			}
-
-			// OSC: \033] ... BEL(\007) or ST(\033\\)
-			if next == ']' {
-				j := i + 2
-				for j < len(ansiStream) {
-					if ansiStream[j] == '\007' {
-						j++
-						break
-					}
-					if ansiStream[j] == '\033' && j+1 < len(ansiStream) && ansiStream[j+1] == '\\' {
-						j += 2
-						break
-					}
-					j++
-				}
-				i = j
-				continue
-			}
-
-			// Other ESC sequences (charset designation \033( \033) etc.)
-			// Skip ESC + one byte
-			i += 2
+			i = end
+			continue
+		}
+		if b == '\033' {
+			i = skipANSISequence(ansiStream, i)
 			continue
 		}
 

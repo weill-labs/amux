@@ -31,7 +31,7 @@ func benchProxyPane(id uint32) *mux.Pane {
 	return newProxyPane(id, mux.PaneMeta{
 		Name:  fmt.Sprintf("pane-%d", id),
 		Host:  mux.DefaultHost,
-		Color: config.CatppuccinMocha[(id-1)%uint32(len(config.CatppuccinMocha))],
+		Color: config.AccentColor(id - 1),
 	}, 80, 199, nil, nil, func(data []byte) (int, error) {
 		return len(data), nil
 	})
