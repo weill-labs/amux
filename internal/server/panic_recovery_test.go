@@ -1,21 +1,24 @@
 package server
 
 import (
+	"maps"
 	"strings"
 	"testing"
 )
 
 func TestHandleCommandPanicSendsError(t *testing.T) {
-	// Not parallel: mutates the shared commandRegistry map.
+	t.Parallel()
+
 	srv, sess, cleanup := newCommandTestSession(t)
 	defer cleanup()
 
-	// Register a command that panics.
+	// Inject a panicking command into this server's registry only —
+	// no mutation of the shared package-level commandRegistry.
 	const cmdName = "__test_panic__"
-	commandRegistry[cmdName] = func(ctx *CommandContext) {
+	srv.commands = maps.Clone(commandRegistry)
+	srv.commands[cmdName] = func(ctx *CommandContext) {
 		panic("boom")
 	}
-	t.Cleanup(func() { delete(commandRegistry, cmdName) })
 
 	// A panicking handler should return an error, not crash the session.
 	res := runTestCommand(t, srv, sess, cmdName)
