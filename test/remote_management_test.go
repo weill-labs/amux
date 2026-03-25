@@ -9,8 +9,12 @@ import (
 // Tests that need a remote host call splitRemotePane to create the connection.
 func newRemoteHarness(t *testing.T) *ServerHarness {
 	t.Helper()
-	addr, keyFile := setupTestSSH(t)
-	return newServerHarnessWithOptions(t, 80, 24, remoteTestConfig(addr, keyFile), false)
+	return newRemoteHarnessForFixture(t, setupTestSSHWithOptions(t, testSSHServerOptions{preloadAmux: true}))
+}
+
+func newRemoteHarnessForFixture(t *testing.T, fixture testSSHFixture) *ServerHarness {
+	t.Helper()
+	return newServerHarnessWithOptions(t, 80, 24, remoteTestConfig(fixture.Addr, fixture.KeyFile), false)
 }
 
 // splitRemotePane creates a remote pane on "test-remote" and waits for the
