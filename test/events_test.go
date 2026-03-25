@@ -321,10 +321,9 @@ func TestEventsClientDisconnectExplicitDetach(t *testing.T) {
 		t.Fatalf("initial event = %+v, want client-connect for %s", ev, secondID)
 	}
 
-	if err := server.WriteMsg(second.conn, &server.Message{Type: server.MsgTypeDetach}); err != nil {
+	if err := second.detach(); err != nil {
 		t.Fatalf("sending detach: %v", err)
 	}
-	<-second.done
 
 	ev = mustReadEvent(t, scanner, 5*time.Second)
 	if ev.Type != server.EventClientDisconnect || ev.ClientID != secondID || ev.Reason != server.DisconnectReasonExplicitDetach {

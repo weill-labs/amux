@@ -32,8 +32,8 @@ type headlessClient struct {
 	renderer   *client.Renderer
 	cmdReqs    chan headlessCommand
 	cmdResults chan *server.Message
+	closing    chan struct{}
 	done       chan struct{}
-	stopped    chan struct{}
 	ready      chan struct{} // closed after first MsgTypeLayout is processed
 	readyOnce  sync.Once
 	closeOnce  sync.Once
@@ -66,8 +66,8 @@ func newHeadlessClient(sockPath, session string, cols, rows int) (*headlessClien
 		renderer:   newTestRenderer(cols, rows),
 		cmdReqs:    make(chan headlessCommand),
 		cmdResults: make(chan *server.Message, 16),
+		closing:    make(chan struct{}),
 		done:       make(chan struct{}),
-		stopped:    make(chan struct{}),
 		ready:      make(chan struct{}),
 	}
 	hc.renderer.SetCapabilities(proto.NegotiateClientCapabilities(&caps))
@@ -118,9 +118,9 @@ func (hc *headlessClient) clearConn(conn net.Conn) {
 	hc.connMu.Unlock()
 }
 
-func (hc *headlessClient) isClosed() bool {
+func (hc *headlessClient) isClosing() bool {
 	select {
-	case <-hc.done:
+	case <-hc.closing:
 		return true
 	default:
 		return false
@@ -131,7 +131,7 @@ func (hc *headlessClient) reconnect(timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	var lastErr error
 	for time.Now().Before(deadline) {
-		if hc.isClosed() {
+		if hc.isClosing() {
 			return fmt.Errorf("headless client closed")
 		}
 
@@ -207,6 +207,8 @@ func (hc *headlessClient) runCommand(cmdName string, args ...string) *server.Mes
 
 	select {
 	case hc.cmdReqs <- req:
+	case <-hc.closing:
+		return &server.Message{Type: server.MsgTypeCmdResult, CmdErr: "headless client closed"}
 	case <-hc.done:
 		return &server.Message{Type: server.MsgTypeCmdResult, CmdErr: "headless client closed"}
 	}
@@ -216,6 +218,13 @@ func (hc *headlessClient) runCommand(cmdName string, args ...string) *server.Mes
 		return msg
 	case <-time.After(10 * time.Second):
 		return &server.Message{Type: server.MsgTypeCmdResult, CmdErr: "timeout waiting for command result"}
+	case <-hc.closing:
+		select {
+		case msg := <-req.reply:
+			return msg
+		default:
+			return &server.Message{Type: server.MsgTypeCmdResult, CmdErr: "headless client closed"}
+		}
 	case <-hc.done:
 		select {
 		case msg := <-req.reply:
@@ -229,6 +238,8 @@ func (hc *headlessClient) runCommand(cmdName string, args ...string) *server.Mes
 func (hc *headlessClient) commandLoop() {
 	for {
 		select {
+		case <-hc.closing:
+			return
 		case <-hc.done:
 			return
 		case req := <-hc.cmdReqs:
@@ -247,6 +258,9 @@ func (hc *headlessClient) commandLoop() {
 			select {
 			case msg := <-hc.cmdResults:
 				req.reply <- msg
+			case <-hc.closing:
+				req.reply <- &server.Message{Type: server.MsgTypeCmdResult, CmdErr: "headless client closed"}
+				return
 			case <-hc.done:
 				req.reply <- &server.Message{Type: server.MsgTypeCmdResult, CmdErr: "headless client closed"}
 				return
@@ -256,23 +270,36 @@ func (hc *headlessClient) commandLoop() {
 }
 
 func (hc *headlessClient) close() {
+	_ = hc.shutdown(false)
+}
+
+func (hc *headlessClient) detach() error {
+	return hc.shutdown(true)
+}
+
+func (hc *headlessClient) shutdown(sendDetach bool) error {
+	var err error
 	hc.closeOnce.Do(func() {
-		close(hc.done)
+		close(hc.closing)
 		if conn := hc.currentConn(); conn != nil {
+			if sendDetach {
+				err = hc.writeConn(conn, &server.Message{Type: server.MsgTypeDetach})
+			}
 			_ = conn.Close()
 		}
-		<-hc.stopped
+		<-hc.done
 		hc.renderer.Close()
 	})
+	return err
 }
 
 func (hc *headlessClient) readLoop() {
-	defer close(hc.stopped)
+	defer close(hc.done)
 	for {
 		conn := hc.currentConn()
 		if conn == nil {
 			if err := hc.reconnect(10 * time.Second); err != nil {
-				if hc.isClosed() {
+				if hc.isClosing() {
 					return
 				}
 				return
@@ -282,7 +309,7 @@ func (hc *headlessClient) readLoop() {
 
 		msg, err := server.ReadMsg(conn)
 		if err != nil {
-			if hc.isClosed() {
+			if hc.isClosing() {
 				return
 			}
 			hc.clearConn(conn)
