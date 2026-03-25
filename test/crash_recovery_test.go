@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fsnotify/fsnotify"
 	"github.com/weill-labs/amux/internal/checkpoint"
 	"github.com/weill-labs/amux/internal/proto"
 	"github.com/weill-labs/amux/internal/server"
@@ -392,43 +393,90 @@ func makeThreeByThreeGridServer(t *testing.T, h *ServerHarness) {
 // Helpers
 // ---------------------------------------------------------------------------
 
-// waitForCrashCheckpointPath polls until the newest crash checkpoint path for
-// the session appears. Crash checkpoint tests share a single state directory
-// across parallel runs, so plain polling is more reliable here than fsnotify.
+func newestCrashCheckpointPath(home, session string) string {
+	checkpointDir := crashCheckpointDir(home)
+	suffix := "_" + session + ".json"
+
+	entries, err := os.ReadDir(checkpointDir)
+	if err != nil {
+		return ""
+	}
+
+	var newest string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if !strings.HasSuffix(name, suffix) {
+			continue
+		}
+		path := filepath.Join(checkpointDir, name)
+		if newest == "" || path > newest {
+			newest = path
+		}
+	}
+	return newest
+}
+
+// waitForCrashCheckpointPath waits until the newest crash checkpoint path for
+// the session appears. Crash checkpoints are written with a temp file + rename,
+// so watch the directory for changes and periodically rescan as a fallback.
 func waitForCrashCheckpointPath(t *testing.T, home, session string, timeout time.Duration) string {
 	t.Helper()
 
 	checkpointDir := crashCheckpointDir(home)
-	suffix := "_" + session + ".json"
-	deadline := time.Now().Add(timeout)
-	ticker := time.NewTicker(50 * time.Millisecond)
-	defer ticker.Stop()
-	for time.Now().Before(deadline) {
-		entries, err := os.ReadDir(checkpointDir)
-		if err == nil {
-			var newest string
-			for _, entry := range entries {
-				if entry.IsDir() {
-					continue
-				}
-				name := entry.Name()
-				if !strings.HasSuffix(name, suffix) {
-					continue
-				}
-				path := filepath.Join(checkpointDir, name)
-				if newest == "" || path > newest {
-					newest = path
-				}
-			}
-			if newest != "" {
-				return newest
-			}
-		}
-		<-ticker.C
+	if newest := newestCrashCheckpointPath(home, session); newest != "" {
+		return newest
 	}
 
-	t.Fatalf("crash checkpoint for session %s in %s did not appear within %v", session, checkpointDir, timeout)
-	return ""
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	rescan := time.NewTicker(250 * time.Millisecond)
+	defer rescan.Stop()
+
+	var watchEvents <-chan fsnotify.Event
+	var watchErrors <-chan error
+	watcher, err := fsnotify.NewWatcher()
+	if err == nil {
+		defer watcher.Close()
+		if err := watcher.Add(checkpointDir); err == nil {
+			if newest := newestCrashCheckpointPath(home, session); newest != "" {
+				return newest
+			}
+			watchEvents = watcher.Events
+			watchErrors = watcher.Errors
+		}
+	}
+
+	for {
+		select {
+		case event, ok := <-watchEvents:
+			if !ok {
+				watchEvents = nil
+				watchErrors = nil
+				continue
+			}
+			if event.Op&(fsnotify.Create|fsnotify.Rename|fsnotify.Write) == 0 {
+				continue
+			}
+			if newest := newestCrashCheckpointPath(home, session); newest != "" {
+				return newest
+			}
+		case _, ok := <-watchErrors:
+			if !ok {
+				watchEvents = nil
+				watchErrors = nil
+			}
+		case <-rescan.C:
+			if newest := newestCrashCheckpointPath(home, session); newest != "" {
+				return newest
+			}
+		case <-timer.C:
+			t.Fatalf("crash checkpoint for session %s in %s did not appear within %v", session, checkpointDir, timeout)
+		}
+	}
 }
 
 func crashCheckpointPathTimestamped(home, session string, startTime time.Time) string {
