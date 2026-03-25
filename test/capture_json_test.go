@@ -293,12 +293,11 @@ func TestCaptureJSON_PreservesGraphemeClusters(t *testing.T) {
 }
 
 func TestCaptureJSON_AgentStatus_Busy(t *testing.T) {
-	t.Parallel()
-	h := newServerHarness(t)
+	h := newPersistentHarnessWithCleanShutdown(t)
 
 	h.startLongSleep("pane-1")
 
-	pane1 := captureJSONPane(t, h, "pane-1")
+	pane1 := capturePaneJSONRetrying(t, "pane-1", h.runAttachedCmd)
 
 	if pane1.Idle {
 		t.Errorf("pane should not be idle (current_command=%q, child_pids=%v)", pane1.CurrentCommand, pane1.ChildPIDs)
@@ -312,11 +311,12 @@ func TestCaptureJSON_AgentStatus_Busy(t *testing.T) {
 	if pane1.IdleSince != "" {
 		t.Errorf("idle_since should be empty when busy, got %q", pane1.IdleSince)
 	}
+
+	stopLongRunningCommand(t, h, "pane-1")
 }
 
 func TestCaptureJSON_AgentStatus_Idle(t *testing.T) {
-	t.Parallel()
-	h := newServerHarness(t)
+	h := newPersistentHarnessWithCleanShutdown(t)
 
 	// Shell at prompt — wait for idle timer. No retry loop needed: capture
 	// JSON uses the server's cached idleState (same source as waitIdle).
@@ -324,7 +324,7 @@ func TestCaptureJSON_AgentStatus_Idle(t *testing.T) {
 	h.waitFor("pane-1", "READY")
 	h.waitIdle("pane-1")
 
-	pane := captureJSONPane(t, h, "pane-1")
+	pane := capturePaneJSONRetrying(t, "pane-1", h.runAttachedCmd)
 
 	if !pane.Idle {
 		t.Errorf("pane should be idle (current_command=%q, child_pids=%v)", pane.CurrentCommand, pane.ChildPIDs)
@@ -366,15 +366,14 @@ func TestCaptureJSON_AgentStatus_SinglePane(t *testing.T) {
 }
 
 func TestCaptureJSON_AgentStatus_Transition(t *testing.T) {
-	t.Parallel()
-	h := newServerHarness(t)
+	h := newPersistentHarnessWithCleanShutdown(t)
 
 	// Start idle — confirm initial state
 	h.sendKeys("pane-1", "echo INIT", "Enter")
 	h.waitFor("pane-1", "INIT")
 	h.waitIdle("pane-1")
 
-	pane := captureJSONPane(t, h, "pane-1")
+	pane := capturePaneJSONRetrying(t, "pane-1", h.runAttachedCmd)
 	if !pane.Idle {
 		t.Fatal("pane should start idle")
 	}
@@ -385,13 +384,15 @@ func TestCaptureJSON_AgentStatus_Transition(t *testing.T) {
 	// Transition to busy
 	h.startLongSleep("pane-1")
 
-	pane = captureJSONPane(t, h, "pane-1")
+	pane = capturePaneJSONRetrying(t, "pane-1", h.runAttachedCmd)
 	if pane.Idle {
 		t.Error("pane should be busy after running sleep")
 	}
 	if pane.IdleSince != "" {
 		t.Errorf("idle_since should be empty when busy, got %q", pane.IdleSince)
 	}
+
+	stopLongRunningCommand(t, h, "pane-1")
 }
 
 func TestCaptureJSON_AgentStatus_ChildPIDsArray(t *testing.T) {
@@ -410,8 +411,7 @@ func TestCaptureJSON_AgentStatus_ChildPIDsArray(t *testing.T) {
 }
 
 func TestCaptureJSON_AgentStatus_MultiPane(t *testing.T) {
-	t.Parallel()
-	h := newServerHarness(t)
+	h := newPersistentHarnessWithCleanShutdown(t)
 
 	h.splitV() // creates pane-2
 
@@ -421,11 +421,7 @@ func TestCaptureJSON_AgentStatus_MultiPane(t *testing.T) {
 	h.waitFor("pane-2", "IDLE_CHECK")
 	h.waitIdle("pane-2")
 
-	out := h.runCmd("capture", "--format", "json")
-	var capture proto.CaptureJSON
-	if err := json.Unmarshal([]byte(out), &capture); err != nil {
-		t.Fatalf("failed to parse JSON: %v\nraw output:\n%s", err, out)
-	}
+	capture := captureJSONRetrying(t, h.runAttachedCmd)
 
 	for _, p := range capture.Panes {
 		switch p.Name {
@@ -439,4 +435,6 @@ func TestCaptureJSON_AgentStatus_MultiPane(t *testing.T) {
 			}
 		}
 	}
+
+	stopLongRunningCommand(t, h, "pane-1")
 }

@@ -26,6 +26,8 @@ type ServerHarness struct {
 	tb           testing.TB
 	session      string
 	cmd          *exec.Cmd
+	cols         int
+	rows         int
 	home         string
 	coverDir     string // per-test GOCOVERDIR subdirectory (avoids coverage metadata races)
 	extraEnv     []string
@@ -156,6 +158,8 @@ func newServerHarnessWithOptions(tb testing.TB, cols, rows int, configContent st
 		tb:           tb,
 		session:      session,
 		cmd:          cmd,
+		cols:         cols,
+		rows:         rows,
 		home:         home,
 		coverDir:     coverDir,
 		extraEnv:     append([]string(nil), extraEnv...),
@@ -263,6 +267,46 @@ func (h *ServerHarness) runCmd(args ...string) string {
 			runCmdTimeout, strings.Join(args, " "), string(out))
 	}
 	return string(out)
+}
+
+// runAttachedCmd executes a server command over the existing headless-client
+// connection instead of opening a fresh CLI socket connection.
+func (h *ServerHarness) runAttachedCmd(args ...string) string {
+	h.tb.Helper()
+	if h.client == nil || len(args) == 0 {
+		if err := h.reattachHeadlessClient(); err != nil {
+			return h.runCmd(args...)
+		}
+	}
+	msg := h.client.runCommand(args[0], args[1:]...)
+	if msg.CmdErr == "headless client closed" {
+		if err := h.reattachHeadlessClient(); err == nil {
+			msg = h.client.runCommand(args[0], args[1:]...)
+		}
+	}
+	if msg.CmdErr != "" {
+		return fmt.Sprintf("amux %s: %s\n", args[0], msg.CmdErr)
+	}
+	return msg.CmdOutput
+}
+
+func (h *ServerHarness) reattachHeadlessClient() error {
+	h.tb.Helper()
+	if h.client != nil {
+		h.client.close()
+		h.client = nil
+	}
+
+	client, err := newHeadlessClient(server.SocketPath(h.session), h.session, h.cols, h.rows)
+	if err != nil {
+		return err
+	}
+	if err := client.waitCommandReady(); err != nil {
+		client.close()
+		return err
+	}
+	h.client = client
+	return nil
 }
 
 func (h *ServerHarness) waitForShutdownSignal(timeout time.Duration) {
