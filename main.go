@@ -121,7 +121,7 @@ func main() {
 		splitArgs, err := parseSplitArgs(args[1:])
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "amux split: %v\n", err)
-			fmt.Fprintf(os.Stderr, "usage: amux split [root] [--vertical|--horizontal] [--name NAME] [--host HOST] [--background]\n")
+			fmt.Fprintf(os.Stderr, "usage: amux split <pane> [root] [--vertical|--horizontal] [--name NAME] [--host HOST]\n")
 			os.Exit(1)
 		}
 		runServerCommand("split", splitArgs)
@@ -342,6 +342,8 @@ func main() {
 		runServerCommand("unsplice", []string{args[1]})
 	case "reload-server":
 		runServerCommand("reload-server", nil)
+	case "_layout-json":
+		runServerCommand("_layout-json", nil)
 	case "_inject-proxy":
 		runServerCommand("_inject-proxy", args[1:])
 	case "dashboard":
@@ -370,14 +372,14 @@ func parseAttachArgs(args []string) (sessionName string, detachOthers bool) {
 	return
 }
 
-// parseSplitArgs parses args for "amux split [root] [--vertical|--horizontal] [--name NAME] [--host HOST] [--background]".
-// It normalizes back to the legacy server arg shape so keybindings and direct
-// protocol callers can keep using "root" and "v".
+// parseSplitArgs parses args for "amux split <pane> [root] [--vertical|--horizontal] [--name NAME] [--host HOST]".
+// The pane arg is mandatory.
+// It canonicalizes args for the server command parser.
 func parseSplitArgs(args []string) ([]string, error) {
 	rootLevel := false
 	hostName := ""
 	name := ""
-	background := false
+	paneRef := ""
 	dir := mux.SplitHorizontal
 	hasExplicitDir := false
 
@@ -414,14 +416,21 @@ func parseSplitArgs(args []string) ([]string, error) {
 			}
 			name = args[i+1]
 			i++
-		case "--background":
-			background = true
 		default:
-			return nil, fmt.Errorf("unknown split arg %q", args[i])
+			if paneRef == "" && !strings.HasPrefix(args[i], "-") {
+				paneRef = args[i]
+			} else {
+				return nil, fmt.Errorf("unknown split arg %q", args[i])
+			}
 		}
 	}
 
-	parsed := make([]string, 0, 4)
+	if paneRef == "" {
+		return nil, fmt.Errorf("pane argument required")
+	}
+
+	parsed := make([]string, 0, 5)
+	parsed = append(parsed, paneRef)
 	if rootLevel {
 		parsed = append(parsed, "root")
 	}
@@ -433,12 +442,6 @@ func parseSplitArgs(args []string) ([]string, error) {
 	}
 	if name != "" {
 		parsed = append(parsed, "--name", name)
-	}
-	if background {
-		parsed = append(parsed, "--background")
-	}
-	if len(parsed) == 0 {
-		return nil, nil
 	}
 	return parsed, nil
 }
@@ -467,8 +470,8 @@ Usage:
                                        Send the same keystrokes to multiple panes
   amux [-s session] type-keys [--hex] <keys>...
                                        Type keys through client input pipeline
-  amux [-s session] spawn --name NAME [--host HOST] [--task TASK] [--color COLOR] [--background]
-                                       Spawn a new agent pane
+  amux [-s session] spawn --name NAME [--host HOST] [--task TASK] [--color COLOR]
+                                       Spawn a new agent pane without changing focus
   amux [-s session] zoom [pane]        Toggle zoom (maximize) a pane
   amux [-s session] swap <p1> <p2>     Swap two panes by name or ID
   amux [-s session] swap-tree <p1> <p2>
@@ -508,8 +511,8 @@ Usage:
   amux [-s session] list-hooks         List registered hooks
   amux [-s session] events [--filter type1,type2] [--pane <ref>] [--host <name>] [--client <id>] [--no-reconnect]
                                        Stream events as NDJSON (layout, output, idle, busy, vt-idle, hook, client-connect, client-disconnect, display-panes-*, choose-*, copy-mode-*, input-*, reconnect)
-  amux [-s session] split [root] [--vertical|--horizontal] [--name NAME] [--host HOST] [--background]
-                                       Split active pane (default: horizontal)
+  amux [-s session] split <pane> [root] [--vertical|--horizontal] [--name NAME] [--host HOST]
+                                       Split a pane without changing focus
   amux [-s session] hosts              List configured remote hosts + status
   amux [-s session] disconnect <host>  Drop SSH connection to a host
   amux [-s session] reconnect <host>   Reconnect to a remote host

@@ -143,6 +143,7 @@ func TestWaitForSocketTimeout(t *testing.T) {
 }
 
 func TestHostConnDoConnectWithAddrReturnsDialErrorAfterRemoteSetup(t *testing.T) {
+	t.Setenv("AMUX_SSH_INSECURE", "1")
 	ts := startTestSSH(t)
 	writeFakeRemoteAmux(t, ts)
 	t.Setenv("SSH_AUTH_SOCK", "")
@@ -164,6 +165,7 @@ func TestHostConnDoConnectWithAddrReturnsDialErrorAfterRemoteSetup(t *testing.T)
 }
 
 func TestHostConnDoConnectTakeoverWaitsForSocketThenReturnsDialError(t *testing.T) {
+	t.Setenv("AMUX_SSH_INSECURE", "1")
 	ts := startTestSSH(t)
 	t.Setenv("SSH_AUTH_SOCK", "")
 

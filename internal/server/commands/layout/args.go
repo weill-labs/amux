@@ -7,11 +7,11 @@ import (
 )
 
 type SplitArgs struct {
-	RootLevel  bool
-	Dir        mux.SplitDir
-	HostName   string
-	Name       string
-	Background bool
+	PaneRef   string // explicit target pane to split (empty = use actor context)
+	RootLevel bool
+	Dir       mux.SplitDir
+	HostName  string
+	Name      string
 }
 
 func ParseSplitArgs(args []string) (SplitArgs, error) {
@@ -51,10 +51,12 @@ func ParseSplitArgs(args []string) (SplitArgs, error) {
 			}
 			parsed.Name = args[i+1]
 			i++
-		case "--background":
-			parsed.Background = true
 		default:
-			return SplitArgs{}, fmt.Errorf("unknown split arg %q", args[i])
+			if parsed.PaneRef == "" && args[i] != "" && args[i][0] != '-' {
+				parsed.PaneRef = args[i]
+			} else {
+				return SplitArgs{}, fmt.Errorf("unknown split arg %q", args[i])
+			}
 		}
 	}
 
@@ -62,8 +64,7 @@ func ParseSplitArgs(args []string) (SplitArgs, error) {
 }
 
 type SpawnArgs struct {
-	Meta       mux.PaneMeta
-	Background bool
+	Meta mux.PaneMeta
 }
 
 func ParseSpawnArgs(args []string) (SpawnArgs, error) {
@@ -97,8 +98,6 @@ func ParseSpawnArgs(args []string) (SpawnArgs, error) {
 			}
 			parsed.Meta.Color = args[i+1]
 			i++
-		case "--background":
-			parsed.Background = true
 		default:
 			return SpawnArgs{}, fmt.Errorf("unknown spawn arg %q", args[i])
 		}

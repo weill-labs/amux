@@ -241,6 +241,11 @@ func (cr *ClientRenderer) ActivePaneID() uint32 {
 	return cr.renderer.ActivePaneID()
 }
 
+// ActivePaneName returns the active pane's name, or "" if unknown. Thread-safe.
+func (cr *ClientRenderer) ActivePaneName() string {
+	return cr.renderer.ActivePaneName()
+}
+
 // Layout returns the current layout tree. Thread-safe.
 func (cr *ClientRenderer) Layout() *mux.LayoutCell {
 	return cr.renderer.Layout()

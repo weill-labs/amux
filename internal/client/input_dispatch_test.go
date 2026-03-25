@@ -1,11 +1,13 @@
 package client
 
 import (
+	"bytes"
 	"net"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/copymode"
 	"github.com/weill-labs/amux/internal/mouse"
 	"github.com/weill-labs/amux/internal/mux"
@@ -121,6 +123,112 @@ func TestHandleDisplayPaneSelectionSendsFocusCommand(t *testing.T) {
 	<-done
 	if cr.DisplayPanesActive() {
 		t.Fatal("display-panes overlay should hide after selection")
+	}
+}
+
+func TestSplitBindingArgsInjectsActivePane(t *testing.T) {
+	t.Parallel()
+
+	cr := buildTestRenderer(t)
+
+	got, ok := splitBindingArgs(cr, config.Binding{Action: "split-focus", Args: []string{"root", "v"}})
+	if !ok {
+		t.Fatal("splitBindingArgs should succeed when layout is ready")
+	}
+	want := []string{"pane-1", "root", "v"}
+	if len(got) != len(want) {
+		t.Fatalf("splitBindingArgs length = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("splitBindingArgs[%d] = %q, want %q (full=%v)", i, got[i], want[i], got)
+		}
+	}
+}
+
+func TestSplitBindingArgsRejectsUnknownActivePane(t *testing.T) {
+	t.Parallel()
+
+	cr := NewClientRenderer(80, 24)
+
+	if got, ok := splitBindingArgs(cr, config.Binding{Action: "split-focus", Args: []string{"v"}}); ok || got != nil {
+		t.Fatalf("splitBindingArgs without layout = (%v, %t), want (nil, false)", got, ok)
+	}
+}
+
+func TestHandleSplitBindingShowsErrorWhenLayoutNotReady(t *testing.T) {
+	t.Parallel()
+
+	cr := NewClientRenderer(80, 24)
+
+	clientConn, serverConn := net.Pipe()
+	t.Cleanup(func() {
+		clientConn.Close()
+		serverConn.Close()
+	})
+
+	sender := newMessageSender(clientConn)
+	t.Cleanup(sender.Close)
+
+	var rendered bytes.Buffer
+	handleSplitBinding(cr, sender, config.Binding{Action: "split-focus", Args: []string{"v"}}, &rendered)
+
+	if !strings.Contains(rendered.String(), "\a") {
+		t.Fatalf("split binding error should ring bell, got %q", rendered.String())
+	}
+	if got := cr.prefixMessage(); got != "cannot split: layout not ready yet" {
+		t.Fatalf("split binding feedback = %q, want %q", got, "cannot split: layout not ready yet")
+	}
+	if err := serverConn.SetReadDeadline(time.Now().Add(100 * time.Millisecond)); err != nil {
+		t.Fatalf("set read deadline: %v", err)
+	}
+	if _, err := proto.ReadMsg(serverConn); err == nil {
+		t.Fatal("split binding without layout should not send a command")
+	} else if ne, ok := err.(net.Error); !ok || !ne.Timeout() {
+		t.Fatalf("read command message error = %v, want timeout", err)
+	}
+}
+
+func TestHandleSplitBindingSendsCommandWhenLayoutReady(t *testing.T) {
+	t.Parallel()
+
+	cr := buildTestRenderer(t)
+
+	clientConn, serverConn := net.Pipe()
+	t.Cleanup(func() {
+		clientConn.Close()
+		serverConn.Close()
+	})
+
+	sender := newMessageSender(clientConn)
+	t.Cleanup(sender.Close)
+
+	var rendered bytes.Buffer
+	done := make(chan struct{})
+	go func() {
+		handleSplitBinding(cr, sender, config.Binding{Action: "split-focus", Args: []string{"root", "v"}}, &rendered)
+		close(done)
+	}()
+
+	msg := readCommandMessage(t, serverConn)
+	if msg.Type != proto.MsgTypeCommand {
+		t.Fatalf("message type = %d, want %d", msg.Type, proto.MsgTypeCommand)
+	}
+	if msg.CmdName != "split-focus" {
+		t.Fatalf("command = %q, want split-focus", msg.CmdName)
+	}
+	if want := []string{"pane-1", "root", "v"}; len(msg.CmdArgs) != len(want) {
+		t.Fatalf("command args length = %v, want %v", msg.CmdArgs, want)
+	} else {
+		for i := range want {
+			if msg.CmdArgs[i] != want[i] {
+				t.Fatalf("command args[%d] = %q, want %q (full=%v)", i, msg.CmdArgs[i], want[i], msg.CmdArgs)
+			}
+		}
+	}
+	<-done
+	if rendered.Len() != 0 {
+		t.Fatalf("successful split binding should not render immediate feedback, got %q", rendered.String())
 	}
 }
 

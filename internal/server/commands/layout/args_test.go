@@ -21,20 +21,35 @@ func TestParseSplitArgs(t *testing.T) {
 			want: SplitArgs{Dir: mux.SplitHorizontal},
 		},
 		{
-			name: "parses root and vertical flags",
-			args: []string{"root", "--vertical", "--host", "dev", "--name", "worker", "--background"},
+			name: "pane ref",
+			args: []string{"pane-1"},
+			want: SplitArgs{PaneRef: "pane-1", Dir: mux.SplitHorizontal},
+		},
+		{
+			name: "pane ref with all flags",
+			args: []string{"pane-1", "root", "--vertical", "--host", "dev", "--name", "worker"},
 			want: SplitArgs{
-				RootLevel:  true,
-				Dir:        mux.SplitVertical,
-				HostName:   "dev",
-				Name:       "worker",
-				Background: true,
+				PaneRef:   "pane-1",
+				RootLevel: true,
+				Dir:       mux.SplitVertical,
+				HostName:  "dev",
+				Name:      "worker",
 			},
 		},
 		{
 			name: "accepts legacy vertical shorthand",
 			args: []string{"v"},
 			want: SplitArgs{Dir: mux.SplitVertical},
+		},
+		{
+			name:    "rejects legacy pane flag",
+			args:    []string{"--pane", "pane-1"},
+			wantErr: `unknown split arg "--pane"`,
+		},
+		{
+			name:    "rejects legacy background flag",
+			args:    []string{"pane-1", "--background"},
+			wantErr: `unknown split arg "--background"`,
 		},
 		{
 			name:    "rejects conflicting directions",
@@ -86,7 +101,7 @@ func TestParseSpawnArgs(t *testing.T) {
 	}{
 		{
 			name: "parses all fields",
-			args: []string{"--name", "worker-1", "--host", "dev", "--task", "build", "--color", "rosewater", "--background"},
+			args: []string{"--name", "worker-1", "--host", "dev", "--task", "build", "--color", "rosewater"},
 			want: SpawnArgs{
 				Meta: mux.PaneMeta{
 					Name:  "worker-1",
@@ -94,7 +109,6 @@ func TestParseSpawnArgs(t *testing.T) {
 					Task:  "build",
 					Color: "rosewater",
 				},
-				Background: true,
 			},
 		},
 		{
@@ -116,6 +130,11 @@ func TestParseSpawnArgs(t *testing.T) {
 			name:    "rejects missing color value",
 			args:    []string{"--name", "worker-1", "--color"},
 			wantErr: "--color requires a value",
+		},
+		{
+			name:    "rejects legacy background flag",
+			args:    []string{"--name", "worker-1", "--background"},
+			wantErr: `unknown spawn arg "--background"`,
 		},
 		{
 			name:    "rejects unknown arg",

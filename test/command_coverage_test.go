@@ -84,7 +84,7 @@ func TestZoomUnzoom(t *testing.T) {
 	h := newServerHarness(t)
 
 	// Need 2 panes to zoom
-	h.runCmd("split")
+	h.runCmd("split", "pane-1")
 
 	out := h.runCmd("zoom")
 	if !strings.Contains(out, "Zoomed") {
@@ -101,7 +101,7 @@ func TestZoomByName(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)
 
-	h.runCmd("split")
+	h.runCmd("split", "pane-1")
 	h.runCmd("focus", "pane-1")
 
 	out := h.runCmd("zoom", "pane-2")

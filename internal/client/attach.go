@@ -507,6 +507,8 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 						runLocalRenderAction(cr, msgCh, func(*ClientRenderer) localRenderResult { return overlayRenderNowResult() })
 					}
 					sender.Command(binding.Action, binding.Args)
+				case "split", "split-focus":
+					handleSplitBinding(cr, sender, binding, os.Stdout)
 				case "compat-bell":
 					io.WriteString(os.Stdout, "\a")
 				default:
@@ -877,6 +879,30 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 		return nil
 	}
 }
+
+func handleSplitBinding(cr *ClientRenderer, sender *messageSender, binding config.Binding, out io.Writer) {
+	args, ok := splitBindingArgs(cr, binding)
+	if ok {
+		sender.Command(binding.Action, args)
+		return
+	}
+	cr.ShowCommandError("cannot split: layout not ready yet")
+	io.WriteString(out, "\a")
+	if data := cr.RenderDiff(); data != "" {
+		io.WriteString(out, data)
+	}
+}
+
+func splitBindingArgs(cr *ClientRenderer, binding config.Binding) ([]string, bool) {
+	args := append([]string(nil), binding.Args...)
+	name := cr.ActivePaneName()
+	if name == "" {
+		return nil, false
+	}
+	return append([]string{name}, args...), true
+}
+
+var copyToClipboard = copyToClipboardLocal
 
 func formatUnboundPrefixMessage(prefix, key byte) string {
 	return "No binding for " + formatKeyName(prefix) + " " + formatKeyName(key)
