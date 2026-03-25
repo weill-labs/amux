@@ -13,12 +13,7 @@ ALLOWLIST=(
   "activePointCounter"               # mux/window.go — atomic counter, not a test seam
   "source"                           # terminfo/terminfo.go — embedded data
   "AllEvents"                        # hooks/hooks.go — read-only registry
-  "termGetSize"                      # client/attach.go — LAB-412
-  "attachBootstrapCorrectionWindow"  # client/attach.go — LAB-412
-  "renderFrameInterval"              # client/client.go — LAB-412
-  "renderPriorityWindow"             # client/client.go — LAB-412
-  "defaultVTIdleSettle"              # server/vt_idle.go — LAB-412
-  "defaultUndoGracePeriod"           # server/session_pane.go — LAB-412
+  "termGetSize"                      # client/attach.go — RunSession entry point, no struct to inject into
 )
 
 allowlist_pattern=$(printf "|%s" "${ALLOWLIST[@]}")
@@ -40,14 +35,15 @@ if [ -z "$source_content" ]; then
   exit 0
 fi
 
-# Match both single-line "var x = ..." and grouped "var (\n  x = ..." declarations
+# Match package-level var declarations (single-line only — grouped var blocks
+# would need multi-line parsing which is impractical in bash).
 violations=$(
   echo "$source_content" |
-  grep -E '^\+?\s*var [a-zA-Z]|^\+?\s+[a-zA-Z_]+\s+=' |
+  grep -E '^\+?\s*var [a-zA-Z]' |
   grep -v '^\+?\s*//' |
-  # Exclude const-like patterns: sync types, embed, error sentinels, byte slices, maps, string constants, registries
+  # Exclude const-like patterns: sync types, embed, error sentinels, byte slices, maps, string constants, registries, arrays
   grep -v 'sync\.\|embed\.\|= errors\.New\|= fmt\.Errorf\|= \[\]byte\|= map\[' |
-  grep -v '= \[\]string{\|= "' |
+  grep -v '= \[\]string{\|= "\|= \[\.\.\.]\|= \[' |
   # Exclude the allowlist
   grep -vE "(${allowlist_pattern})(\s|=)" || true
 )

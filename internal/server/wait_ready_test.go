@@ -20,7 +20,7 @@ func setupWaitReadyTestPane(t *testing.T, writeOverride func([]byte) (int, error
 	pane := newProxyPane(1, mux.PaneMeta{
 		Name:  "pane-1",
 		Host:  mux.DefaultHost,
-		Color: config.CatppuccinMocha[0],
+		Color: config.AccentColor(0),
 	}, 80, 23, sess.paneOutputCallback(), sess.paneExitCallback(), writeOverride)
 	w := newTestWindowWithPanes(t, sess, 1, "main", pane)
 	sess.Windows = []*mux.Window{w}

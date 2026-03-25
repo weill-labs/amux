@@ -325,37 +325,8 @@ func clipLine(line string, maxWidth int) string {
 		b := line[i]
 
 		// Skip escape sequences — zero visible width
-		if b == '\033' && i+1 < len(line) {
-			next := line[i+1]
-			// CSI: \033[ params final_byte
-			if next == '[' {
-				j := i + 2
-				for j < len(line) && line[j] >= 0x20 && line[j] <= 0x3F {
-					j++
-				}
-				if j < len(line) {
-					i = j + 1
-					continue
-				}
-			}
-			// OSC: \033] ... BEL(\007) or ST(\033\\)
-			if next == ']' {
-				j := i + 2
-				for j < len(line) {
-					if line[j] == '\007' {
-						j++
-						break
-					}
-					if line[j] == '\033' && j+1 < len(line) && line[j+1] == '\\' {
-						j += 2
-						break
-					}
-					j++
-				}
-				i = j
-				continue
-			}
-			i += 2
+		if b == '\033' {
+			i = skipANSISequence(line, i)
 			continue
 		}
 
@@ -385,7 +356,7 @@ func clipLine(line string, maxWidth int) string {
 var hexColorCache sync.Map
 
 func init() {
-	for _, hex := range config.CatppuccinMocha {
+	for _, hex := range config.AccentColors() {
 		hexColorCache.Store(hex, computeANSI(hex))
 	}
 	hexColorCache.Store(config.DimColorHex, computeANSI(config.DimColorHex))

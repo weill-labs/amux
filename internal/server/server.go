@@ -94,6 +94,10 @@ type Session struct {
 	closedPanes      []closedPaneRecord
 	closedPaneTimers map[uint32]*time.Timer
 
+	// Configurable timing — zero values use defaults. Tests inject short durations.
+	VTIdleSettle    time.Duration // default: 2s
+	UndoGracePeriod time.Duration // default: 30s
+
 	// Remote pane management — manages SSH connections to remote hosts.
 	// Nil when no config is loaded or no remote hosts are defined.
 	RemoteManager *remote.Manager
@@ -137,6 +141,20 @@ type Session struct {
 	// from inside the handler, which would deadlock.
 	wantShutdown    bool
 	scrollbackLines int
+}
+
+func (s *Session) vtIdleSettle() time.Duration {
+	if s.VTIdleSettle != 0 {
+		return s.VTIdleSettle
+	}
+	return DefaultVTIdleSettle
+}
+
+func (s *Session) undoGracePeriod() time.Duration {
+	if s.UndoGracePeriod != 0 {
+		return s.UndoGracePeriod
+	}
+	return 30 * time.Second
 }
 
 // buildCrashCheckpoint builds a crash checkpoint from the current session state.

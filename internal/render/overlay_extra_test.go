@@ -217,7 +217,7 @@ func TestCompositorHelpersAndClipLine(t *testing.T) {
 	if _, err := emu.Write([]byte("hello")); err != nil {
 		t.Fatalf("emu.Write: %v", err)
 	}
-	pd := &cursorPaneData{id: 1, name: "pane-1", color: config.CatppuccinMocha[0], emu: emu}
+	pd := &cursorPaneData{id: 1, name: "pane-1", color: config.AccentColor(0), emu: emu}
 	rendered := c.RenderDiff(root, 1, func(uint32) PaneData { return pd })
 	if rendered == "" {
 		t.Fatal("RenderDiff returned empty output")

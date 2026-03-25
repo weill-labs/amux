@@ -56,9 +56,9 @@ func TestSyncTerminalSizeSendsResizeWhenSizeChanges(t *testing.T) {
 	t.Cleanup(sender.Close)
 
 	cr := NewClientRenderer(80, 24)
-	stubTermGetSize(t, func(int) (int, int, error) {
+	getSize := func(int) (int, int, error) {
 		return 40, 12, nil
-	})
+	}
 
 	type sizeResult struct {
 		cols int
@@ -66,7 +66,7 @@ func TestSyncTerminalSizeSendsResizeWhenSizeChanges(t *testing.T) {
 	}
 	done := make(chan sizeResult, 1)
 	go func() {
-		cols, rows := syncTerminalSize(0, 80, 24, cr, sender)
+		cols, rows := syncTerminalSize(0, 80, 24, cr, sender, getSize)
 		done <- sizeResult{cols: cols, rows: rows}
 	}()
 
@@ -126,9 +126,8 @@ func TestSyncTerminalSizeSkipsUnchangedOrInvalidSizes(t *testing.T) {
 			t.Cleanup(sender.Close)
 
 			cr := NewClientRenderer(80, 24)
-			stubTermGetSize(t, tt.fn)
 
-			cols, rows := syncTerminalSize(0, 80, 24, cr, sender)
+			cols, rows := syncTerminalSize(0, 80, 24, cr, sender, tt.fn)
 			if cols != 80 || rows != 24 {
 				t.Fatalf("syncTerminalSize returned %dx%d, want 80x24", cols, rows)
 			}

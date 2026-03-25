@@ -23,6 +23,9 @@ import (
 	"golang.org/x/term"
 )
 
+// termGetSize is the terminal size function used by RunSession.
+// RunSession is the process-level entry point with no struct to inject into,
+// so this remains a package-level var. Tests override it via stubTermGetSize.
 var termGetSize = term.GetSize
 
 type attachBootstrapMessage struct {
@@ -78,13 +81,10 @@ func applyAttachBootstrapMessage(cr *ClientRenderer, msg attachBootstrapMessage)
 	}
 }
 
-// attachBootstrapCorrectionWindow is the maximum time readImmediateAttachCorrection
-// waits for post-bootstrap layout corrections from the server. Override in tests
-// to avoid the 50ms-per-attach overhead.
-var attachBootstrapCorrectionWindow = 50 * time.Millisecond
+const defaultBootstrapCorrectionWindow = 50 * time.Millisecond
 
-func readImmediateAttachCorrection(conn net.Conn, cr *ClientRenderer) error {
-	if err := conn.SetReadDeadline(time.Now().Add(attachBootstrapCorrectionWindow)); err != nil {
+func readImmediateAttachCorrection(conn net.Conn, cr *ClientRenderer, timeout time.Duration) error {
+	if err := conn.SetReadDeadline(time.Now().Add(timeout)); err != nil {
 		return err
 	}
 	defer conn.SetReadDeadline(time.Time{}) //nolint:errcheck // best-effort reset
@@ -150,7 +150,7 @@ func readAttachBootstrap(conn net.Conn, cr *ClientRenderer) error {
 		remainingOutputs -= applyAttachBootstrapMessage(cr, bufferedMsg)
 	}
 
-	return readImmediateAttachCorrection(conn, cr)
+	return readImmediateAttachCorrection(conn, cr, defaultBootstrapCorrectionWindow)
 }
 
 func handleDisplayPaneSelection(cr *ClientRenderer, sender *messageSender, b byte) {
@@ -161,8 +161,8 @@ func handleDisplayPaneSelection(cr *ClientRenderer, sender *messageSender, b byt
 	}
 }
 
-func syncTerminalSize(fd int, prevCols, prevRows int, cr *ClientRenderer, sender *messageSender) (int, int) {
-	c, r, _ := termGetSize(fd)
+func syncTerminalSize(fd int, prevCols, prevRows int, cr *ClientRenderer, sender *messageSender, getSize func(int) (int, int, error)) (int, int) {
+	c, r, _ := getSize(fd)
 	if c <= 0 || r <= 0 {
 		return prevCols, prevRows
 	}
@@ -231,7 +231,8 @@ func RunSession(sessionName string) error {
 	defer sender.Close()
 
 	fd := int(os.Stdin.Fd())
-	cols, rows, _ := termGetSize(fd)
+	getSize := termGetSize // capture once — goroutines use this copy
+	cols, rows, _ := getSize(fd)
 	if cols <= 0 {
 		cols = server.DefaultTermCols
 	}
@@ -298,12 +299,12 @@ func RunSession(sessionName string) error {
 	go func() {
 		lastCols, lastRows := initCols, initRows
 		for range sigCh {
-			lastCols, lastRows = syncTerminalSize(fd, lastCols, lastRows, cr, sender)
+			lastCols, lastRows = syncTerminalSize(fd, lastCols, lastRows, cr, sender, getSize)
 		}
 	}()
 	// Recheck once after the handler is live so startup-time size changes
 	// (common on mobile/SSH clients) are not lost before the first SIGWINCH.
-	cols, rows = syncTerminalSize(fd, cols, rows, cr, sender)
+	cols, rows = syncTerminalSize(fd, cols, rows, cr, sender, getSize)
 
 	// Channel for injecting keystrokes from type-keys (server → client).
 	injectCh := make(chan []byte, 16)
