@@ -10,7 +10,7 @@ import (
 func newRemoteHarness(t *testing.T) *ServerHarness {
 	t.Helper()
 	addr, keyFile := setupTestSSH(t)
-	return newServerHarnessWithConfig(t, 80, 24, remoteTestConfig(addr, keyFile))
+	return newServerHarnessWithOptions(t, 80, 24, remoteTestConfig(addr, keyFile), false)
 }
 
 // splitRemotePane creates a remote pane on "test-remote" and waits for the

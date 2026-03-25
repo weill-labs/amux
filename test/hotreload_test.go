@@ -138,12 +138,12 @@ func waitForOutput(tb testing.TB, timeout time.Duration, fn func() string, match
 
 func newPersistentReloadHarness(tb testing.TB, binPath string) *AmuxHarness {
 	tb.Helper()
-	return newAmuxHarnessWithBin(tb, binPath, "AMUX_EXIT_UNATTACHED=0")
+	return newAmuxHarnessWithPersistentOuter(tb, binPath, "AMUX_EXIT_UNATTACHED=0")
 }
 
 func newPersistentReloadHarnessInDir(tb testing.TB, binPath, launchDir string) *AmuxHarness {
 	tb.Helper()
-	return newAmuxHarnessWithBinInDir(tb, binPath, launchDir, "AMUX_EXIT_UNATTACHED=0")
+	return newAmuxHarnessWithPersistentOuterInDir(tb, binPath, launchDir, "AMUX_EXIT_UNATTACHED=0")
 }
 
 func TestHotReloadKeybinding(t *testing.T) {

@@ -51,7 +51,7 @@ func TestRemotePaneViaSSH(t *testing.T) {
 	t.Parallel()
 
 	addr, keyFile := setupTestSSH(t)
-	h := newServerHarnessWithConfig(t, 80, 24, remoteTestConfig(addr, keyFile))
+	h := newServerHarnessWithOptions(t, 80, 24, remoteTestConfig(addr, keyFile), false)
 
 	splitRemotePane(t, h)
 	assertRemotePaneViaSSH(t, h)
@@ -71,7 +71,7 @@ func TestRemotePaneViaSSHAutoDeploy(t *testing.T) {
 		t.Fatalf("stat remote amux before connect: %v", err)
 	}
 
-	h := newServerHarnessWithConfig(t, 80, 24, remoteTestConfig(fixture.Addr, fixture.KeyFile))
+	h := newServerHarnessWithOptions(t, 80, 24, remoteTestConfig(fixture.Addr, fixture.KeyFile), false)
 	splitRemotePane(t, h)
 
 	info, err := os.Stat(remoteBin)
