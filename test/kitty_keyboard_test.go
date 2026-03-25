@@ -45,18 +45,24 @@ func TestKittyKeyboardAltFocus(t *testing.T) {
 func TestKittyKeyboardChooserEscape(t *testing.T) {
 	t.Parallel()
 
-	h := newAmuxHarness(t, "AMUX_CLIENT_CAPABILITIES=kitty_keyboard")
+	h := newServerHarnessPersistent(t)
+	h.client.close()
+	h.client = nil
+	client := newPTYClientHarness(t, h, "AMUX_CLIENT_CAPABILITIES=kitty_keyboard")
 
-	h.sendKeysHex([]byte("\x1b[97;5u"))
-	h.sendKeys("s")
+	client.write([]byte("\x1b[97;5u"))
+	client.sendText("s")
 	out := h.runCmd("wait-ui", proto.UIEventChooseTreeShown, "--timeout", "3s")
 	if !strings.Contains(out, proto.UIEventChooseTreeShown) {
-		t.Fatalf("expected chooser shown event, got: %s", out)
+		t.Fatalf("expected chooser shown event, got: %s\nOutput:\n%s", out, client.outputString())
 	}
 
-	h.sendKeysHex([]byte("\x1b[27u"))
+	client.write([]byte("\x1b[27u"))
 	out = h.runCmd("wait-ui", proto.UIEventChooseTreeHidden, "--timeout", "3s")
 	if !strings.Contains(out, proto.UIEventChooseTreeHidden) {
-		t.Fatalf("expected chooser hidden event after kitty escape, got: %s", out)
+		t.Fatalf("expected chooser hidden event after kitty escape, got: %s\nOutput:\n%s", out, client.outputString())
+	}
+	if strings.Contains(client.screen(80, 24), "choose-tree") {
+		t.Fatalf("expected chooser hidden after kitty escape.\nScreen:\n%s", client.screen(80, 24))
 	}
 }
