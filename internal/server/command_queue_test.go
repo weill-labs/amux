@@ -464,7 +464,7 @@ func newTestPane(sess *Session, id uint32, name string) *mux.Pane {
 	})
 }
 
-func newTestWindowWithPanes(t *testing.T, sess *Session, id uint32, name string, panes ...*mux.Pane) *mux.Window {
+func newTestWindowWithPanes(t *testing.T, _ *Session, id uint32, name string, panes ...*mux.Pane) *mux.Window {
 	t.Helper()
 	if len(panes) == 0 {
 		t.Fatal("need at least one pane")

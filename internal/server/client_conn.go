@@ -15,7 +15,6 @@ import (
 
 const (
 	disconnectReasonClientDetach = "client detach"
-	disconnectReasonSlowClient   = "slow client"
 	disconnectReasonClosed       = "connection closed"
 	disconnectReasonShutdown     = "server shutdown"
 )
@@ -312,7 +311,6 @@ func (cc *clientConn) splitRemotePane(srv *Server, sess *Session, hostName strin
 
 	return pane, nil
 }
-
 
 // eventsArgs holds parsed arguments for the events command.
 type eventsArgs struct {
