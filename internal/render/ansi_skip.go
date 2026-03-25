@@ -9,16 +9,16 @@ func skipANSISequence(s string, i int) int {
 	}
 	next := s[i+1]
 
-	// CSI: \033[ params final_byte
+	// CSI: \033[ params intermediate final_byte
 	if next == '[' {
 		j := i + 2
 		for j < len(s) && s[j] >= 0x20 && s[j] <= 0x3F {
 			j++
 		}
-		if j < len(s) {
-			return j + 1 // skip final byte
+		if j < len(s) && s[j] >= 0x40 {
+			return j + 1 // skip final byte (0x40–0x7E)
 		}
-		return j
+		return j // truncated or malformed — stop before the non-ANSI byte
 	}
 
 	// OSC: \033] ... BEL(\007) or ST(\033\\)
@@ -41,15 +41,16 @@ func skipANSISequence(s string, i int) int {
 }
 
 // CSIParams returns the parameter string and final byte of a CSI sequence
-// starting at s[i] (which must be the '[' after ESC). Returns ("", 0, i)
-// if the sequence is malformed. On success returns (params, finalByte, endIndex).
+// starting at s[i] (which must be the byte after '['). Returns ("", 0, i)
+// if the sequence is malformed or truncated. On success returns
+// (params, finalByte, endIndex) where endIndex is one past the final byte.
 func CSIParams(s string, i int) (string, byte, int) {
 	j := i
 	for j < len(s) && s[j] >= 0x20 && s[j] <= 0x3F {
 		j++
 	}
-	if j >= len(s) {
-		return "", 0, i
+	if j >= len(s) || s[j] < 0x40 {
+		return "", 0, i // truncated or malformed
 	}
 	return s[i:j], s[j], j + 1
 }
