@@ -112,7 +112,7 @@ func (w *Window) spiralAddCanvas() (spiralCanvas, error) {
 
 	root := w.Root
 	leadMode := false
-	if col := w.leadColumn(); col != nil {
+	if w.hasAnchoredLead() {
 		if len(w.Root.Children) < 2 || w.Root.Children[1] == nil {
 			return spiralCanvas{}, fmt.Errorf("lead pane has no right subtree")
 		}

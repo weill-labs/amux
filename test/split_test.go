@@ -9,6 +9,16 @@ import (
 	"github.com/weill-labs/amux/internal/proto"
 )
 
+func setLead(t *testing.T, h *ServerHarness, pane string) {
+	t.Helper()
+	gen := h.generation()
+	out := h.runCmd("set-lead", pane)
+	if !strings.Contains(out, "Set lead") {
+		t.Fatalf("set-lead output = %q, want success message", out)
+	}
+	h.waitLayout(gen)
+}
+
 func TestSplitVertical(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)
@@ -205,6 +215,66 @@ func TestRootSplitHorizontal(t *testing.T) {
 	// pane-1 should be left of pane-2
 	if p1.Position.X >= p2.Position.X {
 		t.Errorf("pane-1 (x=%d) should be left of pane-2 (x=%d)", p1.Position.X, p2.Position.X)
+	}
+}
+
+func TestRootSplitVerticalWithLead(t *testing.T) {
+	t.Parallel()
+
+	h := newServerHarness(t)
+	h.splitV()
+	setLead(t, h, "pane-1")
+
+	gen := h.generation()
+	h.runCmd("split", "pane-1", "root", "v")
+	h.waitLayout(gen)
+
+	c := h.captureJSON()
+	if len(c.Panes) != 3 {
+		t.Fatalf("expected 3 panes, got %d", len(c.Panes))
+	}
+	p1 := h.jsonPane(c, "pane-1")
+	p2 := h.jsonPane(c, "pane-2")
+	p3 := h.jsonPane(c, "pane-3")
+
+	if !p1.Lead {
+		t.Fatal("pane-1 should still be marked as lead")
+	}
+	if p1.Position.X >= p2.Position.X || p1.Position.X >= p3.Position.X {
+		t.Fatalf("lead pane should remain leftmost: p1.x=%d p2.x=%d p3.x=%d", p1.Position.X, p2.Position.X, p3.Position.X)
+	}
+	if p2.Position.X >= p3.Position.X {
+		t.Fatalf("logical-root panes should remain ordered left-to-right: p2.x=%d p3.x=%d", p2.Position.X, p3.Position.X)
+	}
+}
+
+func TestRootSplitHorizontalWithLead(t *testing.T) {
+	t.Parallel()
+
+	h := newServerHarness(t)
+	h.splitV()
+	setLead(t, h, "pane-1")
+
+	gen := h.generation()
+	h.runCmd("split", "pane-1", "root", "--horizontal")
+	h.waitLayout(gen)
+
+	c := h.captureJSON()
+	if len(c.Panes) != 3 {
+		t.Fatalf("expected 3 panes, got %d", len(c.Panes))
+	}
+	p1 := h.jsonPane(c, "pane-1")
+	p2 := h.jsonPane(c, "pane-2")
+	p3 := h.jsonPane(c, "pane-3")
+
+	if !p1.Lead {
+		t.Fatal("pane-1 should still be marked as lead")
+	}
+	if p1.Position.X >= p2.Position.X || p1.Position.X >= p3.Position.X {
+		t.Fatalf("lead pane should remain leftmost: p1.x=%d p2.x=%d p3.x=%d", p1.Position.X, p2.Position.X, p3.Position.X)
+	}
+	if p2.Position.Y >= p3.Position.Y {
+		t.Fatalf("logical-root panes should split top-to-bottom: p2.y=%d p3.y=%d", p2.Position.Y, p3.Position.Y)
 	}
 }
 
@@ -411,6 +481,25 @@ func TestGoldenThreeColumnsMiddleSplit(t *testing.T) {
 	assertGolden(t, "three_col_middle_split.color", colorMap)
 }
 
+func TestGoldenThreeColumnsMiddleSplitWithLead(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	h.splitRootV()
+	h.splitRootV()
+	setLead(t, h, "pane-1")
+	h.doFocus("pane-2")
+	h.splitH()
+	h.splitH()
+	h.doFocus("pane-1")
+
+	frame := extractFrame(h.capture(), h.session)
+	assertGolden(t, "three_col_middle_split_lead.golden", frame)
+
+	colorMap := h.runCmd("capture", "--colors")
+	assertGolden(t, "three_col_middle_split_lead.color", colorMap)
+}
+
 func TestGoldenNinePane(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)
@@ -444,6 +533,35 @@ func TestGoldenNinePane(t *testing.T) {
 	assertGolden(t, "nine_pane.color", colorMap)
 }
 
+func TestGoldenNinePaneWithLead(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	h.splitRootV()
+	h.splitRootV()
+	setLead(t, h, "pane-1")
+
+	h.doFocus("pane-2")
+	h.splitH()
+	h.splitH()
+
+	h.doFocus("pane-3")
+	h.splitH()
+	h.splitH()
+
+	h.doFocus("pane-4")
+	h.splitH()
+	h.splitH()
+
+	h.doFocus("pane-1")
+
+	frame := extractFrame(h.capture(), h.session)
+	assertGolden(t, "nine_pane_lead.golden", frame)
+
+	colorMap := h.runCmd("capture", "--colors")
+	assertGolden(t, "nine_pane_lead.color", colorMap)
+}
+
 // ---------------------------------------------------------------------------
 // Golden file tests
 // ---------------------------------------------------------------------------
@@ -461,6 +579,21 @@ func TestGoldenVerticalSplit(t *testing.T) {
 	assertGolden(t, "vertical_split.color", colorMap)
 }
 
+func TestGoldenVerticalSplitWithLead(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	h.splitV()
+	setLead(t, h, "pane-1")
+	h.doFocus("pane-1")
+
+	frame := extractFrame(h.capture(), h.session)
+	assertGolden(t, "vertical_split_lead.golden", frame)
+
+	colorMap := h.runCmd("capture", "--colors")
+	assertGolden(t, "vertical_split_lead.color", colorMap)
+}
+
 func TestGoldenHorizontalSplit(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)
@@ -472,6 +605,60 @@ func TestGoldenHorizontalSplit(t *testing.T) {
 
 	colorMap := h.runCmd("capture", "--colors")
 	assertGolden(t, "horizontal_split.color", colorMap)
+}
+
+func TestGoldenHorizontalSplitWithLead(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	h.splitV()
+	setLead(t, h, "pane-1")
+	gen := h.generation()
+	h.runCmd("split", "pane-1", "root", "--horizontal")
+	h.waitLayout(gen)
+	h.doFocus("pane-1")
+
+	frame := extractFrame(h.capture(), h.session)
+	assertGolden(t, "horizontal_split_lead.golden", frame)
+
+	colorMap := h.runCmd("capture", "--colors")
+	assertGolden(t, "horizontal_split_lead.color", colorMap)
+}
+
+func TestGoldenRootVerticalSplitWithLead(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	h.splitV()
+	setLead(t, h, "pane-1")
+	gen := h.generation()
+	h.runCmd("split", "pane-1", "root", "v")
+	h.waitLayout(gen)
+	h.doFocus("pane-1")
+
+	frame := extractFrame(h.capture(), h.session)
+	assertGolden(t, "root_vertical_split_lead.golden", frame)
+
+	colorMap := h.runCmd("capture", "--colors")
+	assertGolden(t, "root_vertical_split_lead.color", colorMap)
+}
+
+func TestGoldenRootHorizontalSplitWithLead(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	h.splitV()
+	setLead(t, h, "pane-1")
+	gen := h.generation()
+	h.runCmd("split", "pane-1", "root", "--horizontal")
+	h.waitLayout(gen)
+	h.doFocus("pane-1")
+
+	frame := extractFrame(h.capture(), h.session)
+	assertGolden(t, "root_horizontal_split_lead.golden", frame)
+
+	colorMap := h.runCmd("capture", "--colors")
+	assertGolden(t, "root_horizontal_split_lead.color", colorMap)
 }
 
 func TestGoldenFourPane(t *testing.T) {
@@ -488,6 +675,23 @@ func TestGoldenFourPane(t *testing.T) {
 
 	colorMap := h.runCmd("capture", "--colors")
 	assertGolden(t, "four_pane.color", colorMap)
+}
+
+func TestGoldenFourPaneWithLead(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	h.splitV()
+	setLead(t, h, "pane-1")
+	h.doFocus("pane-2")
+	h.splitH()
+	h.doFocus("pane-2")
+
+	frame := extractFrame(h.capture(), h.session)
+	assertGolden(t, "four_pane_lead.golden", frame)
+
+	colorMap := h.runCmd("capture", "--colors")
+	assertGolden(t, "four_pane_lead.color", colorMap)
 }
 
 // ---------------------------------------------------------------------------

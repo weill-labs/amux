@@ -375,12 +375,7 @@ func runSpawn(ctx *CommandContext, keepFocus bool) {
 			return commandMutationResult{err: err}
 		}
 		opts := mux.SplitOptions{KeepFocus: keepFocus || w.ZoomedPaneID != 0}
-		// When active pane is in the lead column, redirect spawn to the right subtree.
-		if target := w.LeadAwareSplitTarget(); target != nil {
-			_, err = w.SplitPaneWithOptions(target.ID, mux.SplitVertical, pane, opts)
-		} else {
-			_, err = w.SplitWithOptions(mux.SplitVertical, pane, opts)
-		}
+		_, err = w.SplitWithOptions(mux.SplitVertical, pane, opts)
 		if err != nil {
 			sess.removePane(pane.ID)
 			pane.Close()
@@ -799,6 +794,9 @@ func cmdResizeActive(ctx *CommandContext) {
 	}
 	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
 		if w := sess.activeWindow(); w != nil {
+			if w.ActivePane != nil && w.IsLeadPane(w.ActivePane.ID) {
+				return commandMutationResult{err: fmt.Errorf("cannot operate on lead pane")}
+			}
 			w.ResizeActive(direction, delta)
 		}
 		return commandMutationResult{broadcastLayout: true}
@@ -830,6 +828,9 @@ func cmdResizePane(ctx *CommandContext) {
 		p, w, err := sess.resolvePaneWindowForActor(ctx.ActorPaneID, "resize-pane", ctx.Args[:1])
 		if err != nil {
 			return commandMutationResult{err: err}
+		}
+		if w.IsLeadPane(p.ID) {
+			return commandMutationResult{err: fmt.Errorf("cannot operate on lead pane")}
 		}
 		w.ResizePane(p.ID, direction, delta)
 		return commandMutationResult{
