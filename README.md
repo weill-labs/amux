@@ -3,7 +3,7 @@
 [![CI](https://github.com/weill-labs/amux/actions/workflows/ci.yml/badge.svg)](https://github.com/weill-labs/amux/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/weill-labs/amux/graph/badge.svg?token=RY0CPn9v7g)](https://codecov.io/gh/weill-labs/amux)
 
-*Can an agent reliably send a command to another agent running in a terminal pane, wait for it to finish, and read the result — without the human losing visibility?*
+*Picture a terminal split into panes — each running an agent, possibly on a different machine. Can one agent reliably command another, wait for the result, and read it back, while the human watches it all happen?*
 
 GUIs force screenshots and vision models. Headless APIs cut the human out. **amux** is a shared TUI grid where humans use keybindings and agents use CLI commands. Same panes, same state.
 
