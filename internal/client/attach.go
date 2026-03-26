@@ -213,16 +213,11 @@ func terminalExitSequence(caps proto.ClientCapabilities) string {
 // RunSession connects to an existing server or starts one, then enters raw
 // terminal mode for interactive use.
 func RunSession(sessionName string, getTermSize func(int) (int, int, error)) error {
-	// Load config for keybindings
 	cfg, err := config.Load(config.DefaultPath())
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "amux: loading config: %v\n", err)
-		cfg = &config.Config{}
+		return fmt.Errorf("loading config: %w", err)
 	}
-	kb, err := config.BuildKeybindings(&cfg.Keys)
-	if err != nil {
-		return fmt.Errorf("invalid keybindings: %w", err)
-	}
+	kb := config.DefaultKeybindings()
 	scrollbackLines := cfg.EffectiveScrollbackLines()
 
 	sockPath := server.SocketPath(sessionName)
