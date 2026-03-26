@@ -55,6 +55,236 @@ func TestPlanSpiralAddRejectsNonCanonicalLayout(t *testing.T) {
 	}
 }
 
+func TestPlanSpiralAddRejectsNonCanonicalColumnHeights(t *testing.T) {
+	t.Parallel()
+
+	p1 := fakePaneID(1)
+	w := NewWindow(p1, 80, 24)
+	if _, err := w.SplitRoot(SplitVertical, fakePaneID(2)); err != nil {
+		t.Fatalf("SplitRoot pane-2: %v", err)
+	}
+	if _, err := w.SplitPaneWithOptions(p1.ID, SplitHorizontal, fakePaneID(3), SplitOptions{}); err != nil {
+		t.Fatalf("SplitPane pane-3: %v", err)
+	}
+
+	if _, err := w.PlanSpiralAdd(); err == nil {
+		t.Fatal("PlanSpiralAdd should reject reversed 3-pane column heights")
+	}
+}
+
+func TestSpiralAddCanvasErrors(t *testing.T) {
+	t.Parallel()
+
+	t.Run("no layout", func(t *testing.T) {
+		t.Parallel()
+
+		w := &Window{}
+		if _, err := w.spiralAddCanvas(); err == nil || err.Error() != "no layout" {
+			t.Fatalf("spiralAddCanvas() error = %v, want no layout", err)
+		}
+	})
+
+	t.Run("lead missing right subtree", func(t *testing.T) {
+		t.Parallel()
+
+		p1 := fakePaneID(1)
+		left := NewLeaf(p1, 0, 0, 39, 24)
+		w := &Window{
+			Root: &LayoutCell{
+				X: 0, Y: 0, W: 80, H: 24,
+				Dir:      SplitVertical,
+				Children: []*LayoutCell{left, nil},
+			},
+			ActivePane: p1,
+			Width:      80,
+			Height:     24,
+			LeadPaneID: p1.ID,
+		}
+		left.Parent = w.Root
+
+		if _, err := w.spiralAddCanvas(); err == nil || err.Error() != "lead pane has no right subtree" {
+			t.Fatalf("spiralAddCanvas() error = %v, want missing right subtree", err)
+		}
+	})
+
+	t.Run("no panes in canvas", func(t *testing.T) {
+		t.Parallel()
+
+		w := &Window{Root: &LayoutCell{}}
+		if _, err := w.spiralAddCanvas(); err == nil || err.Error() != "no panes in spiral canvas" {
+			t.Fatalf("spiralAddCanvas() error = %v, want empty canvas", err)
+		}
+	})
+}
+
+func TestSpiralColumnsRejectInvalidShapes(t *testing.T) {
+	t.Parallel()
+
+	if _, err := spiralColumns(nil); err == nil || err.Error() != "spiral layout requires a canvas" {
+		t.Fatalf("spiralColumns(nil) error = %v, want canvas error", err)
+	}
+
+	horizontalRoot := &LayoutCell{
+		Dir: SplitHorizontal,
+		Children: []*LayoutCell{
+			NewLeaf(fakePaneID(1), 0, 0, 20, 11),
+			NewLeaf(fakePaneID(2), 0, 12, 20, 11),
+		},
+	}
+	if _, err := spiralColumns(horizontalRoot); err == nil {
+		t.Fatal("spiralColumns should reject a horizontal root")
+	}
+
+	verticalChildRoot := &LayoutCell{
+		Dir: SplitVertical,
+		Children: []*LayoutCell{
+			{
+				Dir: SplitVertical,
+				Children: []*LayoutCell{
+					NewLeaf(fakePaneID(1), 0, 0, 9, 23),
+					NewLeaf(fakePaneID(2), 10, 0, 9, 23),
+				},
+			},
+			NewLeaf(fakePaneID(3), 20, 0, 20, 23),
+		},
+	}
+	if _, err := spiralColumns(verticalChildRoot); err == nil {
+		t.Fatal("spiralColumns should reject a non-horizontal column subtree")
+	}
+}
+
+func TestSpiralColumnLeavesRejectInvalidCells(t *testing.T) {
+	t.Parallel()
+
+	if _, ok := spiralColumnLeaves(nil); ok {
+		t.Fatal("spiralColumnLeaves(nil) should fail")
+	}
+
+	if _, ok := spiralColumnLeaves(&LayoutCell{}); ok {
+		t.Fatal("spiralColumnLeaves should reject a leaf with no pane")
+	}
+
+	vertical := &LayoutCell{
+		Dir: SplitVertical,
+		Children: []*LayoutCell{
+			NewLeaf(fakePaneID(1), 0, 0, 20, 11),
+			NewLeaf(fakePaneID(2), 21, 0, 20, 11),
+		},
+	}
+	if _, ok := spiralColumnLeaves(vertical); ok {
+		t.Fatal("spiralColumnLeaves should reject vertical subtrees")
+	}
+}
+
+func TestSpiralMathEdgeCases(t *testing.T) {
+	t.Parallel()
+
+	if got := spiralExpectedColumnHeights(0); got != nil {
+		t.Fatalf("spiralExpectedColumnHeights(0) = %v, want nil", got)
+	}
+	if got := spiralCeilSqrt(0); got != 0 {
+		t.Fatalf("spiralCeilSqrt(0) = %d, want 0", got)
+	}
+	if spiralIsPerfectSquare(-1) {
+		t.Fatal("spiralIsPerfectSquare(-1) should be false")
+	}
+}
+
+func TestApplySpiralAddPlanErrors(t *testing.T) {
+	t.Parallel()
+
+	t.Run("split target missing", func(t *testing.T) {
+		t.Parallel()
+
+		w := NewWindow(fakePaneID(1), 80, 24)
+		if _, err := w.ApplySpiralAddPlan(SpiralAddPlan{SplitTargetPaneID: 99}, fakePaneID(2), SplitOptions{}); err == nil || err.Error() != "pane 99 not found in layout" {
+			t.Fatalf("ApplySpiralAddPlan missing target error = %v", err)
+		}
+	})
+
+	t.Run("swap fails across lead column", func(t *testing.T) {
+		t.Parallel()
+
+		p1 := fakePaneID(1)
+		p2 := fakePaneID(2)
+		w := NewWindow(p1, 120, 40)
+		if _, err := w.SplitRoot(SplitVertical, p2); err != nil {
+			t.Fatalf("SplitRoot pane-2: %v", err)
+		}
+		if err := w.SetLead(p1.ID); err != nil {
+			t.Fatalf("SetLead: %v", err)
+		}
+
+		_, err := w.ApplySpiralAddPlan(
+			SpiralAddPlan{SplitTargetPaneID: p2.ID, SwapWithTarget: true},
+			fakePaneID(p1.ID),
+			SplitOptions{KeepFocus: true},
+		)
+		if err == nil || err.Error() != "cannot swap lead pane across columns" {
+			t.Fatalf("ApplySpiralAddPlan swap error = %v, want lead swap error", err)
+		}
+	})
+}
+
+func TestSplitSubtreeRootWithOptions(t *testing.T) {
+	t.Parallel()
+
+	t.Run("rejects nil root", func(t *testing.T) {
+		t.Parallel()
+
+		w := NewWindow(fakePaneID(1), 80, 24)
+		if _, err := w.splitSubtreeRootWithOptions(nil, SplitVertical, fakePaneID(2), false, SplitOptions{}); err == nil || err.Error() != "no layout" {
+			t.Fatalf("splitSubtreeRootWithOptions(nil) error = %v, want no layout", err)
+		}
+	})
+
+	t.Run("wraps vertical leaf and focuses new pane", func(t *testing.T) {
+		t.Parallel()
+
+		p1 := fakePaneID(1)
+		p2 := fakePaneID(2)
+		w := NewWindow(p1, 80, 24)
+		w.ZoomedPaneID = p1.ID
+
+		if _, err := w.splitSubtreeRootWithOptions(w.Root, SplitVertical, p2, true, SplitOptions{}); err != nil {
+			t.Fatalf("splitSubtreeRootWithOptions vertical: %v", err)
+		}
+		if w.Root.Dir != SplitVertical {
+			t.Fatalf("root dir = %v, want vertical", w.Root.Dir)
+		}
+		if got := w.Root.Children[0].Pane.ID; got != p2.ID {
+			t.Fatalf("left child pane = %d, want %d", got, p2.ID)
+		}
+		if w.ActivePane.ID != p2.ID {
+			t.Fatalf("active pane = %d, want %d", w.ActivePane.ID, p2.ID)
+		}
+		if w.ZoomedPaneID != 0 {
+			t.Fatalf("zoomed pane = %d, want 0", w.ZoomedPaneID)
+		}
+	})
+
+	t.Run("wraps horizontal leaf without taking focus", func(t *testing.T) {
+		t.Parallel()
+
+		p1 := fakePaneID(1)
+		p2 := fakePaneID(2)
+		w := NewWindow(p1, 80, 24)
+
+		if _, err := w.splitSubtreeRootWithOptions(w.Root, SplitHorizontal, p2, false, SplitOptions{KeepFocus: true}); err != nil {
+			t.Fatalf("splitSubtreeRootWithOptions horizontal: %v", err)
+		}
+		if w.Root.Dir != SplitHorizontal {
+			t.Fatalf("root dir = %v, want horizontal", w.Root.Dir)
+		}
+		if got := w.Root.Children[1].Pane.ID; got != p2.ID {
+			t.Fatalf("bottom child pane = %d, want %d", got, p2.ID)
+		}
+		if w.ActivePane.ID != p1.ID {
+			t.Fatalf("active pane = %d, want %d", w.ActivePane.ID, p1.ID)
+		}
+	})
+}
+
 func TestPlanAndApplySpiralAddBuildsWholeWindowGrid(t *testing.T) {
 	t.Parallel()
 
