@@ -9,6 +9,8 @@ import (
 
 var errPacedInputClosed = errors.New("paced input queue closed")
 
+const pacedInputRequestBufferSize = 256
+
 type pacedInputRequest struct {
 	chunks []encodedKeyChunk
 	reply  chan error
@@ -28,7 +30,7 @@ type pacedInputQueue struct {
 
 func newPacedInputQueue(label string, write func([]byte) error) *pacedInputQueue {
 	q := &pacedInputQueue{
-		requests: make(chan pacedInputRequest),
+		requests: make(chan pacedInputRequest, pacedInputRequestBufferSize),
 		stop:     make(chan struct{}),
 		done:     make(chan struct{}),
 		write:    write,
@@ -69,6 +71,25 @@ func (q *pacedInputQueue) enqueue(chunks []encodedKeyChunk) error {
 	}
 }
 
+func (q *pacedInputQueue) enqueueAsync(chunks []encodedKeyChunk) error {
+	if len(chunks) == 0 {
+		return nil
+	}
+
+	req := pacedInputRequest{
+		chunks: cloneEncodedKeyChunks(chunks),
+	}
+
+	select {
+	case <-q.stop:
+		return errPacedInputClosed
+	case <-q.done:
+		return errPacedInputClosed
+	case q.requests <- req:
+		return nil
+	}
+}
+
 func (q *pacedInputQueue) close() {
 	q.stopOnce.Do(func() {
 		close(q.stop)
@@ -85,13 +106,17 @@ func (q *pacedInputQueue) loop() {
 		case req := <-q.requests:
 			select {
 			case <-q.stop:
-				req.reply <- errPacedInputClosed
+				if req.reply != nil {
+					req.reply <- errPacedInputClosed
+				}
 				return
 			default:
 			}
 
 			err := q.writeBatch(req.chunks)
-			req.reply <- err
+			if req.reply != nil {
+				req.reply <- err
+			}
 			if err != nil {
 				if !errors.Is(err, errPacedInputClosed) {
 					log.Printf("[amux] paced input %s: %v", q.label, err)

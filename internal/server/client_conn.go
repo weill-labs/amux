@@ -209,7 +209,9 @@ func (cc *clientConn) readLoop(srv *Server, sess *Session) {
 		switch msg.Type {
 		case MsgTypeInput:
 			if pane := cc.activeInputPaneForWrite(sess); pane != nil {
-				pane.Write(msg.Input)
+				if err := sess.enqueueLivePaneInput(pane, msg.Input); err != nil && !errors.Is(err, errPacedInputClosed) {
+					log.Printf("[amux] live input %s: %v", pane.Meta.Name, err)
+				}
 			}
 
 		case MsgTypeResize:
@@ -217,11 +219,20 @@ func (cc *clientConn) readLoop(srv *Server, sess *Session) {
 
 		case MsgTypeInputPane:
 			// Targeted input for a specific pane (used by remote proxy connections)
-			pane, err := enqueueSessionQuery(sess, func(sess *Session) (*mux.Pane, error) {
-				return sess.findPaneByID(msg.PaneID), nil
-			})
-			if err == nil && pane != nil {
-				pane.Write(msg.PaneData)
+			pane := sess.ensureInputRouter().paneByID(msg.PaneID)
+			if pane == nil {
+				var err error
+				pane, err = enqueueSessionQuery(sess, func(sess *Session) (*mux.Pane, error) {
+					return sess.findPaneByID(msg.PaneID), nil
+				})
+				if err != nil {
+					break
+				}
+			}
+			if pane != nil {
+				if err := sess.enqueueLivePaneInput(pane, msg.PaneData); err != nil && !errors.Is(err, errPacedInputClosed) {
+					log.Printf("[amux] live input %s: %v", pane.Meta.Name, err)
+				}
 			}
 
 		case MsgTypeDetach:
