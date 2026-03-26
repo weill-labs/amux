@@ -3,9 +3,14 @@ package mux
 import "fmt"
 
 // SetLead designates a pane as the lead pane for the window.
-// The lead pane is pinned to the left side at full height.
-// The root is normalized into a binary SplitVertical with the lead
-// in Children[0] and everything else in Children[1].
+// The lead pane is pinned to the left side at full height. When lead is set,
+// the window uses an "absolute root" shape:
+//
+//	Root
+//	├── Children[0] = lead pane
+//	└── Children[1] = logical root for root-targeted layout operations
+//
+// The layout otherwise remains structural — no synthetic render tree.
 func (w *Window) SetLead(paneID uint32) error {
 	w.assertOwner("SetLead")
 
@@ -29,7 +34,7 @@ func (w *Window) SetLead(paneID uint32) error {
 	// Clear any existing lead before restructuring.
 	w.LeadPaneID = 0
 
-	// Fast path: already in position (root is vertical, pane is Children[0] leaf, exactly 2 children).
+	// Fast path: already in the anchored lead slot.
 	if !w.Root.IsLeaf() && w.Root.Dir == SplitVertical &&
 		len(w.Root.Children) == 2 &&
 		w.Root.Children[0].IsLeaf() && w.Root.Children[0].Pane != nil &&
@@ -104,51 +109,36 @@ func (w *Window) IsLeadPane(paneID uint32) bool {
 	return w.LeadPaneID != 0 && w.LeadPaneID == paneID
 }
 
-// leadColumn returns the root-level cell that contains the lead pane
-// (Root.Children[0] when the lead invariant holds). Returns nil if no lead.
-func (w *Window) leadColumn() *LayoutCell {
+// hasAnchoredLead reports whether the current root shape is the anchored lead
+// form: a vertical root with exactly two children and the lead pane in child 0.
+func (w *Window) hasAnchoredLead() bool {
 	if w.LeadPaneID == 0 || w.Root == nil || w.Root.IsLeaf() {
-		return nil
-	}
-	if w.Root.Dir != SplitVertical || len(w.Root.Children) < 2 {
-		return nil
-	}
-	return w.Root.Children[0]
-}
-
-// containsPane reports whether cell's subtree contains the given pane ID.
-func containsPane(cell *LayoutCell, paneID uint32) bool {
-	if cell == nil {
 		return false
 	}
-	return cell.FindPane(paneID) != nil
+	if w.Root.Dir != SplitVertical || len(w.Root.Children) != 2 {
+		return false
+	}
+	lead := w.Root.Children[0]
+	return lead != nil &&
+		lead.IsLeaf() &&
+		lead.Pane != nil &&
+		lead.Pane.ID == w.LeadPaneID
 }
 
-// firstLeafCell returns the first leaf LayoutCell (with a non-nil Pane) in the subtree.
-func firstLeafCell(cell *LayoutCell) *LayoutCell {
-	found := (*LayoutCell)(nil)
-	cell.Walk(func(c *LayoutCell) {
-		if found == nil && c.Pane != nil {
-			found = c
-		}
-	})
-	return found
+// logicalRoot returns the subtree that root-targeted operations should mutate.
+// When lead is active, this is Root.Children[1]; otherwise it is Root.
+func (w *Window) logicalRoot() *LayoutCell {
+	if !w.hasAnchoredLead() {
+		return w.Root
+	}
+	return w.Root.Children[1]
 }
 
-// LeadAwareSplitTarget returns a redirect target when the active pane is
-// in the lead column. Spawn/split operations should use this target instead
-// of the active pane. Returns nil if no redirect is needed.
-func (w *Window) LeadAwareSplitTarget() *Pane {
-	col := w.leadColumn()
-	if col == nil || w.ActivePane == nil {
-		return nil
+// logicalRootTarget returns the subtree root that "root" layout operations
+// should mutate plus its parent/index in the absolute root.
+func (w *Window) logicalRootTarget() (root, parent *LayoutCell, index int) {
+	if !w.hasAnchoredLead() {
+		return w.Root, nil, -1
 	}
-	if !containsPane(col, w.ActivePane.ID) {
-		return nil // active pane is not in the lead column
-	}
-	// Find first leaf in the right subtree.
-	if cell := firstLeafCell(w.Root.Children[1]); cell != nil {
-		return cell.Pane
-	}
-	return nil
+	return w.Root.Children[1], w.Root, 1
 }

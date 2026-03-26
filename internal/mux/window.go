@@ -62,81 +62,73 @@ func (w *Window) SplitRoot(dir SplitDir, newPane *Pane) (*Pane, error) {
 // explicit focus/zoom behavior control.
 func (w *Window) SplitRootWithOptions(dir SplitDir, newPane *Pane, opts SplitOptions) (*Pane, error) {
 	w.assertOwner("SplitRootWithOptions")
-	// When a lead pane is set, redirect root-level splits into the right subtree
-	// to preserve the binary root invariant (lead | right).
-	if w.LeadPaneID != 0 && w.leadColumn() != nil {
-		right := w.Root.Children[1]
-		if right.IsLeaf() && dir == SplitVertical {
-			// Right subtree is a single leaf and we want vertical split.
-			// Case A in LayoutCell.Split would append to root (breaking binary invariant),
-			// so wrap the right side in a new vertical container first.
-			wrapper := &LayoutCell{
-				X: right.X, Y: right.Y, W: right.W, H: right.H,
-				Dir:      SplitVertical,
-				Children: []*LayoutCell{right},
-			}
-			right.Parent = wrapper
-			wrapper.Parent = w.Root
-			w.Root.Children[1] = wrapper
-			right = wrapper
-		}
-		// Find first leaf in right subtree to split
-		if target := firstLeafCell(right); target != nil {
-			return w.splitCellWithOptions(target, dir, newPane, opts)
-		}
-	}
 	if w.ZoomedPaneID != 0 && !opts.KeepFocus {
 		w.Unzoom()
 	}
+	targetRoot, parent, parentIdx := w.logicalRootTarget()
+	return w.splitRootTargetWithOptions(targetRoot, parent, parentIdx, dir, newPane, opts)
+}
+
+func (w *Window) splitRootTargetWithOptions(targetRoot, parent *LayoutCell, parentIdx int, dir SplitDir, newPane *Pane, opts SplitOptions) (*Pane, error) {
+	if targetRoot == nil {
+		return nil, fmt.Errorf("window has no layout root")
+	}
 	newLeaf := NewLeaf(newPane, 0, 0, 0, 0)
 
-	if !w.Root.IsLeaf() && w.Root.Dir == dir {
+	if !targetRoot.IsLeaf() && targetRoot.Dir == dir {
 		// Same direction: add as sibling, redistribute equally
-		newLeaf.Parent = w.Root
-		w.Root.Children = append(w.Root.Children, newLeaf)
+		newLeaf.Parent = targetRoot
+		targetRoot.Children = append(targetRoot.Children, newLeaf)
 		// Give all children equal sizes so ResizeAll distributes fairly
-		n := len(w.Root.Children)
+		n := len(targetRoot.Children)
 		seps := n - 1
 		if dir == SplitVertical {
-			each := (w.Width - seps) / n
-			for _, child := range w.Root.Children {
-				child.ResizeSubtree(each, w.Height)
+			each := (targetRoot.W - seps) / n
+			for _, child := range targetRoot.Children {
+				child.ResizeSubtree(each, targetRoot.H)
 			}
 			// Give remainder to last child
-			w.Root.Children[n-1].ResizeSubtree(w.Width-seps-each*(n-1), w.Height)
+			targetRoot.Children[n-1].ResizeSubtree(targetRoot.W-seps-each*(n-1), targetRoot.H)
 		} else {
-			each := (w.Height - seps) / n
-			for _, child := range w.Root.Children {
-				child.ResizeSubtree(w.Width, each)
+			each := (targetRoot.H - seps) / n
+			for _, child := range targetRoot.Children {
+				child.ResizeSubtree(targetRoot.W, each)
 			}
-			w.Root.Children[n-1].ResizeSubtree(w.Width, w.Height-seps-each*(n-1))
+			targetRoot.Children[n-1].ResizeSubtree(targetRoot.W, targetRoot.H-seps-each*(n-1))
 		}
 	} else {
 		// Different direction or root is a leaf: wrap
-		oldRoot := w.Root
+		oldRoot := targetRoot
+		oldX, oldY := oldRoot.X, oldRoot.Y
+		oldW, oldH := oldRoot.W, oldRoot.H
 
 		if dir == SplitVertical {
-			size2 := (oldRoot.W - 1) / 2
-			size1 := oldRoot.W - 1 - size2
+			size2 := (oldW - 1) / 2
+			size1 := oldW - 1 - size2
 			newLeaf.W = size2
-			newLeaf.H = oldRoot.H
-			oldRoot.ResizeSubtree(size1, oldRoot.H)
+			newLeaf.H = oldH
+			oldRoot.ResizeSubtree(size1, oldH)
 		} else {
-			size2 := (oldRoot.H - 1) / 2
-			size1 := oldRoot.H - 1 - size2
-			newLeaf.W = oldRoot.W
+			size2 := (oldH - 1) / 2
+			size1 := oldH - 1 - size2
+			newLeaf.W = oldW
 			newLeaf.H = size2
-			oldRoot.ResizeSubtree(oldRoot.W, size1)
+			oldRoot.ResizeSubtree(oldW, size1)
 		}
 
 		newRoot := &LayoutCell{
-			X: 0, Y: 0, W: w.Width, H: w.Height,
+			X: oldX, Y: oldY, W: oldW, H: oldH,
 			Dir:      dir,
 			Children: []*LayoutCell{oldRoot, newLeaf},
 		}
 		oldRoot.Parent = newRoot
 		newLeaf.Parent = newRoot
-		w.Root = newRoot
+		if parent == nil {
+			w.Root = newRoot
+		} else {
+			parent.Children[parentIdx] = newRoot
+			newRoot.Parent = parent
+		}
 	}
 
 	w.Root.FixOffsets()
@@ -171,8 +163,8 @@ func (w *Window) SplitPaneWithOptions(targetPaneID uint32, dir SplitDir, newPane
 	if w.ZoomedPaneID != 0 && !opts.KeepFocus {
 		w.Unzoom()
 	}
-	if w.IsLeadPane(targetPaneID) && dir == SplitHorizontal {
-		return nil, fmt.Errorf("cannot split lead pane horizontally")
+	if w.IsLeadPane(targetPaneID) {
+		return nil, fmt.Errorf("cannot operate on lead pane")
 	}
 	cell := w.Root.FindPane(targetPaneID)
 	if cell == nil {
@@ -521,6 +513,9 @@ func (w *Window) ResizePane(paneID uint32, direction string, delta int) bool {
 	if delta <= 0 {
 		return false
 	}
+	if w.IsLeadPane(paneID) {
+		return false
+	}
 	if w.ZoomedPaneID != 0 {
 		w.Unzoom()
 	}
@@ -670,17 +665,22 @@ func (w *Window) ResolvePane(ref string) (*Pane, error) {
 }
 
 func (w *Window) rootChildForPaneID(paneID uint32) (*LayoutCell, int, error) {
-	if w.Root == nil || w.Root.IsLeaf() {
+	if w.IsLeadPane(paneID) {
+		return nil, -1, fmt.Errorf("cannot operate on lead pane")
+	}
+
+	root := w.logicalRoot()
+	if root == nil || root.IsLeaf() {
 		return nil, -1, fmt.Errorf("window has no root-level split")
 	}
 
-	leaf := w.Root.FindPane(paneID)
+	leaf := root.FindPane(paneID)
 	if leaf == nil {
 		return nil, -1, fmt.Errorf("pane %d not found", paneID)
 	}
 
 	cell := leaf
-	for cell.Parent != w.Root {
+	for cell.Parent != root {
 		cell = cell.Parent
 	}
 	return cell, cell.IndexInParent(), nil
@@ -699,13 +699,8 @@ func (w *Window) SwapPanes(id1, id2 uint32) error {
 	if id1 == id2 {
 		return nil
 	}
-	// Block cross-column swaps when lead is set.
-	if col := w.leadColumn(); col != nil {
-		in1 := containsPane(col, id1)
-		in2 := containsPane(col, id2)
-		if in1 != in2 {
-			return fmt.Errorf("cannot swap lead pane across columns")
-		}
+	if w.IsLeadPane(id1) || w.IsLeadPane(id2) {
+		return fmt.Errorf("cannot operate on lead pane")
 	}
 	cell1 := w.Root.FindPane(id1)
 	if cell1 == nil {
@@ -734,15 +729,13 @@ func (w *Window) SwapTree(id1, id2 uint32) error {
 	if idx1 == idx2 {
 		return fmt.Errorf("panes %d and %d are in the same root-level group", id1, id2)
 	}
-	if w.LeadPaneID != 0 && (idx1 == 0 || idx2 == 0) {
-		return fmt.Errorf("cannot swap lead column")
-	}
 
 	if w.ZoomedPaneID != 0 {
 		w.Unzoom()
 	}
 
-	w.Root.Children[idx1], w.Root.Children[idx2] = w.Root.Children[idx2], w.Root.Children[idx1]
+	root := w.logicalRoot()
+	root.Children[idx1], root.Children[idx2] = root.Children[idx2], root.Children[idx1]
 	w.finishTreeMutation()
 	return nil
 }
@@ -751,16 +744,6 @@ func (w *Window) SwapTree(id1, id2 uint32) error {
 // root-level group containing targetPaneID.
 func (w *Window) MovePane(paneID, targetPaneID uint32, before bool) error {
 	w.assertOwner("MovePane")
-	if w.LeadPaneID != 0 {
-		col := w.leadColumn()
-		if col != nil && containsPane(col, paneID) {
-			return fmt.Errorf("cannot move lead column")
-		}
-		// Block moving another group before the lead column.
-		if col != nil && containsPane(col, targetPaneID) && before {
-			return fmt.Errorf("cannot move before lead column")
-		}
-	}
 	_, fromIdx, err := w.rootChildForPaneID(paneID)
 	if err != nil {
 		return err
@@ -777,7 +760,8 @@ func (w *Window) MovePane(paneID, targetPaneID uint32, before bool) error {
 		w.Unzoom()
 	}
 
-	children := w.Root.Children
+	root := w.logicalRoot()
+	children := root.Children
 	moving := children[fromIdx]
 	children = append(children[:fromIdx], children[fromIdx+1:]...)
 
@@ -792,7 +776,7 @@ func (w *Window) MovePane(paneID, targetPaneID uint32, before bool) error {
 	children = append(children, nil)
 	copy(children[insertIdx+1:], children[insertIdx:])
 	children[insertIdx] = moving
-	w.Root.Children = children
+	root.Children = children
 
 	w.finishTreeMutation()
 	return nil
@@ -801,7 +785,10 @@ func (w *Window) MovePane(paneID, targetPaneID uint32, before bool) error {
 // SwapPaneForward swaps the active pane with the next pane in walk order.
 func (w *Window) SwapPaneForward() error {
 	w.assertOwner("SwapPaneForward")
-	cells := w.paneLeaves()
+	if w.ActivePane != nil && w.IsLeadPane(w.ActivePane.ID) {
+		return fmt.Errorf("cannot operate on lead pane")
+	}
+	cells := w.paneLeavesIn(w.logicalRoot())
 	if len(cells) <= 1 {
 		return nil
 	}
@@ -816,7 +803,10 @@ func (w *Window) SwapPaneForward() error {
 // SwapPaneBackward swaps the active pane with the previous pane in walk order.
 func (w *Window) SwapPaneBackward() error {
 	w.assertOwner("SwapPaneBackward")
-	cells := w.paneLeaves()
+	if w.ActivePane != nil && w.IsLeadPane(w.ActivePane.ID) {
+		return fmt.Errorf("cannot operate on lead pane")
+	}
+	cells := w.paneLeavesIn(w.logicalRoot())
 	if len(cells) <= 1 {
 		return nil
 	}
@@ -834,10 +824,7 @@ func (w *Window) SwapPaneBackward() error {
 // first cell.
 func (w *Window) RotatePanes(forward bool) error {
 	w.assertOwner("RotatePanes")
-	if w.LeadPaneID != 0 {
-		return fmt.Errorf("cannot rotate with lead pane set")
-	}
-	cells := w.paneLeaves()
+	cells := w.paneLeavesIn(w.logicalRoot())
 	if len(cells) <= 1 {
 		return nil
 	}
@@ -860,8 +847,15 @@ func (w *Window) RotatePanes(forward bool) error {
 
 // paneLeaves returns all leaf cells containing panes in depth-first order.
 func (w *Window) paneLeaves() []*LayoutCell {
+	return w.paneLeavesIn(w.Root)
+}
+
+func (w *Window) paneLeavesIn(root *LayoutCell) []*LayoutCell {
 	var cells []*LayoutCell
-	w.Root.Walk(func(c *LayoutCell) {
+	if root == nil {
+		return cells
+	}
+	root.Walk(func(c *LayoutCell) {
 		if c.Pane != nil {
 			cells = append(cells, c)
 		}
