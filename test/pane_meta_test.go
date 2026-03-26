@@ -294,11 +294,6 @@ func TestPaneMetaCLIUsageErrors(t *testing.T) {
 		want string
 	}{
 		{
-			name: "issue usage",
-			args: []string{"issue"},
-			want: "usage: amux issue [pane] <issue>",
-		},
-		{
 			name: "add-meta usage",
 			args: []string{"add-meta"},
 			want: "usage: amux add-meta <pane> key=value [key=value...]",
@@ -316,44 +311,6 @@ func TestPaneMetaCLIUsageErrors(t *testing.T) {
 				t.Fatalf("%s output = %q, want substring %q", tt.name, out, tt.want)
 			}
 		})
-	}
-}
-
-func TestIssueCommandTagsExplicitPane(t *testing.T) {
-	h := newServerHarness(t)
-
-	if out := h.runCmd("issue", "pane-1", "LAB-445"); out != "" {
-		t.Fatalf("issue returned unexpected output: %q", out)
-	}
-	if out := h.runCmd("issue", "pane-1", "LAB-445"); out != "" {
-		t.Fatalf("idempotent issue returned unexpected output: %q", out)
-	}
-
-	capture := decodeJSONMap(t, h.runCmd("capture", "--format", "json", "pane-1"))
-	if got := jsonStringList(t, paneMetaJSON(t, capture), "issues"); !reflect.DeepEqual(got, []string{"LAB-445"}) {
-		t.Fatalf("meta.issues = %v, want [LAB-445]", got)
-	}
-}
-
-func TestIssueCommandUsesActorPaneWhenPaneIsOmitted(t *testing.T) {
-	h := newServerHarness(t)
-
-	h.runCmd("split", "pane-1")
-	h.extraEnv = []string{"AMUX_PANE=2"}
-
-	if out := h.runCmd("issue", "LAB-445"); out != "" {
-		t.Fatalf("issue returned unexpected output: %q", out)
-	}
-
-	firstPane := decodeJSONMap(t, h.runCmd("capture", "--format", "json", "pane-1"))
-	secondPane := decodeJSONMap(t, h.runCmd("capture", "--format", "json", "pane-2"))
-	if value, ok := paneMetaJSON(t, firstPane)["issues"]; ok {
-		if got := jsonStringList(t, map[string]any{"issues": value}, "issues"); len(got) != 0 {
-			t.Fatalf("pane-1 meta.issues = %v, want empty", got)
-		}
-	}
-	if got := jsonStringList(t, paneMetaJSON(t, secondPane), "issues"); !reflect.DeepEqual(got, []string{"LAB-445"}) {
-		t.Fatalf("pane-2 meta.issues = %v, want [LAB-445]", got)
 	}
 }
 

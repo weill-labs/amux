@@ -23,7 +23,7 @@ if ! issue_count=$(printf '%s\n' "$capture" | jq -r '(.meta.issues // []) | leng
 fi
 
 if [[ "$issue_count" == "0" ]]; then
-    echo "Pane $AMUX_PANE is missing issue metadata. Start work with \`amux issue LAB-XXX\` or tag it manually with \`amux add-meta \"\$AMUX_PANE\" issue=LAB-XXX\` before declaring work done." >&2
+    echo "Pane $AMUX_PANE is missing issue metadata. Start work with \`scripts/set-pane-issue.sh LAB-XXX\` or tag it manually with \`amux add-meta \"\$AMUX_PANE\" issue=LAB-XXX\` before declaring work done." >&2
     exit 1
 fi
 

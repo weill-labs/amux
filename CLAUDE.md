@@ -67,15 +67,14 @@ amux capture --format json pane-1 # single pane JSON
 
 ### Working In amux
 
-When working in an amux pane, start Linear work with the helper command so the current pane is tagged automatically. Outside an amux pane, pass the pane explicitly. Update metadata again after opening a PR:
+When working in an amux pane, start Linear work with the helper script so the current pane is tagged automatically. Outside an amux pane, pass the pane explicitly. After `gh pr create` or `git push`, Claude's PR hook syncs `pr=NUMBER` back onto the current pane automatically:
 
 ```bash
-amux issue LAB-XXX
-amux issue pane-3 LAB-XXX
-amux add-meta "$AMUX_PANE" pr=NUMBER issue=LAB-XXX
+scripts/set-pane-issue.sh LAB-XXX
+scripts/set-pane-issue.sh pane-3 LAB-XXX
 ```
 
-Claude's stop hook also checks for missing pane issue metadata before the session ends. Other agents can run `scripts/check-pane-issue-meta.sh` manually if needed.
+Claude's stop hook also checks for missing pane issue metadata before the session ends. Other agents can run `scripts/check-pane-issue-meta.sh` and `scripts/sync-pane-pr-meta.sh` manually if needed.
 
 ### TDD Workflow
 
