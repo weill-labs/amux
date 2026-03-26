@@ -3,6 +3,7 @@ package server
 import (
 	"errors"
 	"testing"
+	"time"
 )
 
 func TestPacedInputQueueWaitsForFullBatch(t *testing.T) {
@@ -93,5 +94,68 @@ func TestPacedInputQueueCloseAbortsPendingBatch(t *testing.T) {
 	case <-secondWrite:
 		t.Fatal("queue should not write the second chunk after close")
 	default:
+	}
+}
+
+func TestPacedInputQueueAsyncReturnsBeforeBlockedWriteCompletes(t *testing.T) {
+	t.Parallel()
+
+	release := make(chan struct{})
+	writes := make(chan []byte, 3)
+
+	q := newPacedInputQueue("test", func(data []byte) error {
+		copyData := append([]byte(nil), data...)
+		writes <- copyData
+		if string(data) == "first" {
+			<-release
+		}
+		return nil
+	})
+	defer q.close()
+
+	if err := q.enqueueAsync([]encodedKeyChunk{{data: []byte("first")}}); err != nil {
+		t.Fatalf("enqueueAsync(first) = %v", err)
+	}
+
+	doneAsync := make(chan error, 1)
+	go func() {
+		doneAsync <- q.enqueueAsync([]encodedKeyChunk{{data: []byte("second")}})
+	}()
+
+	select {
+	case err := <-doneAsync:
+		if err != nil {
+			t.Fatalf("enqueueAsync(second) = %v", err)
+		}
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("enqueueAsync(second) blocked on an earlier write")
+	}
+
+	doneWait := make(chan error, 1)
+	go func() {
+		doneWait <- q.enqueue([]encodedKeyChunk{{data: []byte("third")}})
+	}()
+
+	if got := <-writes; string(got) != "first" {
+		t.Fatalf("first write = %q, want %q", got, "first")
+	}
+
+	select {
+	case err := <-doneWait:
+		t.Fatalf("enqueue(third) returned before blocked write was released: %v", err)
+	default:
+	}
+
+	close(release)
+
+	if got := <-writes; string(got) != "second" {
+		t.Fatalf("second write = %q, want %q", got, "second")
+	}
+	if got := <-writes; string(got) != "third" {
+		t.Fatalf("third write = %q, want %q", got, "third")
+	}
+
+	if err := <-doneWait; err != nil {
+		t.Fatalf("enqueue(third) = %v", err)
 	}
 }
