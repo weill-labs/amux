@@ -302,6 +302,8 @@ func (s *Session) insertPreparedPaneIntoActiveWindow(pane *mux.Pane, dir mux.Spl
 	var err error
 	if rootLevel {
 		_, err = w.SplitRootWithOptions(dir, pane, opts)
+	} else if target := w.LeadAwareSplitTarget(); target != nil {
+		_, err = w.SplitPaneWithOptions(target.ID, dir, pane, opts)
 	} else {
 		_, err = w.SplitWithOptions(dir, pane, opts)
 	}

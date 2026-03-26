@@ -121,7 +121,9 @@ func cmdRotate(ctx *CommandContext) {
 			}
 		}
 
-		w.RotatePanes(forward)
+		if err := w.RotatePanes(forward); err != nil {
+			return commandMutationResult{err: err}
+		}
 		return commandMutationResult{output: "Rotated\n", broadcastLayout: true}
 	}))
 }

@@ -203,6 +203,12 @@ func main() {
 			os.Exit(1)
 		}
 		runSessionCommand("type-keys", args[1:])
+	case "set-lead":
+		runSessionCommand("set-lead", args[1:])
+	case "unset-lead":
+		runSessionCommand("unset-lead", nil)
+	case "toggle-lead":
+		runSessionCommand("toggle-lead", nil)
 	case "spawn":
 		runSessionCommand("spawn", args[1:])
 	case "new-window":

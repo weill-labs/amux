@@ -126,6 +126,7 @@ type PaneInput struct {
 	ID         uint32
 	Name       string
 	Active     bool
+	Lead       bool
 	Zoomed     bool
 	Host       string
 	Task       string
@@ -147,6 +148,7 @@ func BuildPane(input PaneInput, agentStatus map[uint32]proto.PaneAgentStatus) pr
 		ID:     input.ID,
 		Name:   input.Name,
 		Active: input.Active,
+		Lead:   input.Lead,
 		Zoomed: input.Zoomed,
 		Host:   input.Host,
 		Task:   input.Task,

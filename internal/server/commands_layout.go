@@ -264,7 +264,14 @@ func runSpawn(ctx *CommandContext, keepFocus bool) {
 		if err != nil {
 			return commandMutationResult{err: err}
 		}
-		if _, err := w.SplitWithOptions(mux.SplitVertical, pane, mux.SplitOptions{KeepFocus: keepFocus || w.ZoomedPaneID != 0}); err != nil {
+		opts := mux.SplitOptions{KeepFocus: keepFocus || w.ZoomedPaneID != 0}
+		// When active pane is in the lead column, redirect spawn to the right subtree.
+		if target := w.LeadAwareSplitTarget(); target != nil {
+			_, err = w.SplitPaneWithOptions(target.ID, mux.SplitVertical, pane, opts)
+		} else {
+			_, err = w.SplitWithOptions(mux.SplitVertical, pane, opts)
+		}
+		if err != nil {
 			sess.removePane(pane.ID)
 			pane.Close()
 			return commandMutationResult{err: err}
@@ -740,6 +747,77 @@ func cmdResizeWindow(ctx *CommandContext) {
 		}
 		return commandMutationResult{
 			output:          fmt.Sprintf("Resized to %dx%d\n", cols, rows),
+			broadcastLayout: true,
+		}
+	}))
+}
+
+func cmdSetLead(ctx *CommandContext) {
+	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
+		w := sess.windowForActor(ctx.ActorPaneID)
+		if w == nil {
+			return commandMutationResult{err: fmt.Errorf("no session")}
+		}
+		pane := w.ActivePane
+		if len(ctx.Args) > 0 {
+			resolved, err := w.ResolvePane(ctx.Args[0])
+			if err != nil {
+				return commandMutationResult{err: err}
+			}
+			pane = resolved
+		}
+		if pane == nil {
+			return commandMutationResult{err: fmt.Errorf("no active pane")}
+		}
+		if err := w.SetLead(pane.ID); err != nil {
+			return commandMutationResult{err: err}
+		}
+		return commandMutationResult{
+			output:          fmt.Sprintf("Set lead: %s\n", pane.Meta.Name),
+			broadcastLayout: true,
+		}
+	}))
+}
+
+func cmdUnsetLead(ctx *CommandContext) {
+	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
+		w := sess.windowForActor(ctx.ActorPaneID)
+		if w == nil {
+			return commandMutationResult{err: fmt.Errorf("no session")}
+		}
+		if err := w.UnsetLead(); err != nil {
+			return commandMutationResult{err: err}
+		}
+		return commandMutationResult{
+			output:          "Lead cleared\n",
+			broadcastLayout: true,
+		}
+	}))
+}
+
+func cmdToggleLead(ctx *CommandContext) {
+	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
+		w := sess.windowForActor(ctx.ActorPaneID)
+		if w == nil {
+			return commandMutationResult{err: fmt.Errorf("no session")}
+		}
+		if w.ActivePane == nil {
+			return commandMutationResult{err: fmt.Errorf("no active pane")}
+		}
+		if w.IsLeadPane(w.ActivePane.ID) {
+			if err := w.UnsetLead(); err != nil {
+				return commandMutationResult{err: err}
+			}
+			return commandMutationResult{
+				output:          "Lead cleared\n",
+				broadcastLayout: true,
+			}
+		}
+		if err := w.SetLead(w.ActivePane.ID); err != nil {
+			return commandMutationResult{err: err}
+		}
+		return commandMutationResult{
+			output:          fmt.Sprintf("Set lead: %s\n", w.ActivePane.Meta.Name),
 			broadcastLayout: true,
 		}
 	}))

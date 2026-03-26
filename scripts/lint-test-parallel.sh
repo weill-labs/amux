@@ -46,7 +46,7 @@ while IFS= read -r func_line; do
   for f in $files; do
     [ -f "$f" ] || continue
     # Get the line number of the function declaration.
-    line_num=$(grep -n "^func ${func_name}(" "$f" | head -1 | cut -d: -f1)
+    line_num=$(grep -n "^func ${func_name}(" "$f" | head -1 | cut -d: -f1 || true)
     [ -z "$line_num" ] && continue
 
     # Check the next 10 lines for t.Parallel().

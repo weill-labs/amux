@@ -358,6 +358,7 @@ func (e *emuPaneData) Host() string           { return "local" }
 func (e *emuPaneData) Task() string           { return "" }
 func (e *emuPaneData) Color() string          { return e.color }
 func (e *emuPaneData) Idle() bool             { return true }
+func (e *emuPaneData) IsLead() bool           { return false }
 func (e *emuPaneData) ConnStatus() string     { return "" }
 func (e *emuPaneData) InCopyMode() bool       { return false }
 func (e *emuPaneData) CopyModeSearch() string { return "" }

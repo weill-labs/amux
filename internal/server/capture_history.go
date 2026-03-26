@@ -14,6 +14,7 @@ type capturePaneTarget struct {
 	inWindow bool
 	active   bool
 	zoomed   bool
+	lead     bool
 }
 
 func (s *Session) resolveCapturePaneTargetForActor(actorPaneID uint32, ref string) (capturePaneTarget, error) {
@@ -28,6 +29,7 @@ func (s *Session) resolveCapturePaneTargetForActor(actorPaneID uint32, ref strin
 			inWindow: w != nil,
 			active:   activeWindow != nil && activeWindow.ActivePane != nil && activeWindow.ActivePane.ID == pane.ID,
 			zoomed:   activeWindow != nil && activeWindow.ZoomedPaneID == pane.ID,
+			lead:     activeWindow != nil && activeWindow.LeadPaneID == pane.ID,
 		}, nil
 	})
 }
@@ -74,6 +76,7 @@ func (s *Session) buildServerCapturePane(target capturePaneTarget, req caputil.R
 		ID:         target.pane.ID,
 		Name:       target.pane.Meta.Name,
 		Active:     target.active,
+		Lead:       target.lead,
 		Zoomed:     target.zoomed,
 		Host:       target.pane.Meta.Host,
 		Task:       target.pane.Meta.Task,
