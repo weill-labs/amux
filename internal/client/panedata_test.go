@@ -138,7 +138,6 @@ func TestPaneDataAccessors(t *testing.T) {
 			Host:       "buildbox",
 			Task:       "tail -f",
 			Color:      "89dceb",
-			Minimized:  true,
 			Idle:       true,
 			ConnStatus: "connected",
 		},
@@ -164,9 +163,6 @@ func TestPaneDataAccessors(t *testing.T) {
 	}
 	if got := pane.Color(); got != "89dceb" {
 		t.Fatalf("Color() = %q, want 89dceb", got)
-	}
-	if !pane.Minimized() {
-		t.Fatal("Minimized() = false, want true")
 	}
 	if !pane.Idle() {
 		t.Fatal("Idle() = false, want true")

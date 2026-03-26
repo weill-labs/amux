@@ -57,7 +57,6 @@ func DefaultKeybindings() *Keybindings {
 			// Reserve lowercase m so it does not fall through as literal input.
 			// Future tmux-compatible mark-pane behavior can claim this key.
 			'm': {Action: "compat-bell"},
-			'M': {Action: "toggle-minimize"},
 			'U': {Action: "undo"},
 			'[': {Action: "copy-mode"},
 			'c': {Action: "new-window"},
@@ -121,9 +120,9 @@ func TmuxCompatKeybindings() *Keybindings {
 // Keep in sync with server/client_conn.go handleCommand().
 var knownActions = map[string]bool{
 	"split": true, "split-focus": true, "focus": true, "swap": true, "zoom": true,
-	"rotate": true, "minimize": true, "restore": true, "kill": true,
+	"rotate": true, "kill": true,
 	"spawn": true, "spawn-focus": true, "send-keys": true, "resize-active": true,
-	"toggle-minimize": true, "new-window": true, "next-window": true,
+	"new-window": true, "next-window": true,
 	"prev-window": true, "select-window": true, "rename-window": true,
 	"display-panes": true, "choose-tree": true, "choose-window": true,
 	"undo":   true,

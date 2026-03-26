@@ -44,7 +44,6 @@ type paneListEntry struct {
 
 type sessionStatusSnapshot struct {
 	total       int
-	minimized   int
 	windowCount int
 	zoomed      string
 }
@@ -324,11 +323,6 @@ func (s *Session) querySessionStatus() (sessionStatusSnapshot, error) {
 		snap := sessionStatusSnapshot{
 			total:       len(s.Panes),
 			windowCount: len(s.Windows),
-		}
-		for _, p := range s.Panes {
-			if p.Meta.Minimized {
-				snap.minimized++
-			}
 		}
 		if w := s.activeWindow(); w != nil && w.ZoomedPaneID != 0 {
 			if pane := s.findPaneByID(w.ZoomedPaneID); pane != nil {

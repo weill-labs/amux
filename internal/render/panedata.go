@@ -25,7 +25,6 @@ type PaneData interface {
 	Host() string
 	Task() string
 	Color() string
-	Minimized() bool
 	Idle() bool
 	// ConnStatus returns the connection state for remote panes:
 	// "", "connected", "reconnecting", or "disconnected".

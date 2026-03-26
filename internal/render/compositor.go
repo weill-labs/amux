@@ -239,7 +239,7 @@ func (c *Compositor) renderCursorDiff(buf *strings.Builder, root *mux.LayoutCell
 		buf.WriteString(ShowCursor)
 		return
 	}
-	if pd.Minimized() || pd.CursorHidden() || pd.HasCursorBlock() {
+	if pd.CursorHidden() || pd.HasCursorBlock() {
 		return // keep cursor hidden
 	}
 	col, row := pd.CursorPos()
@@ -254,8 +254,8 @@ func (c *Compositor) renderCursorDiff(buf *strings.Builder, root *mux.LayoutCell
 }
 
 // renderCursor positions the terminal cursor at the active pane's cursor
-// location, or hides it when the active pane is minimized, has a hidden
-// cursor, or renders its own block cursor.
+// location, or hides it when the active pane has a hidden cursor or renders
+// its own block cursor.
 func (c *Compositor) renderCursor(buf *strings.Builder, root *mux.LayoutCell, activePaneID uint32, lookup func(uint32) PaneData) {
 	if activePaneID == 0 {
 		buf.WriteString(ShowCursor)
@@ -271,7 +271,7 @@ func (c *Compositor) renderCursor(buf *strings.Builder, root *mux.LayoutCell, ac
 		buf.WriteString(ShowCursor)
 		return
 	}
-	if pd.Minimized() || pd.CursorHidden() || pd.HasCursorBlock() {
+	if pd.CursorHidden() || pd.HasCursorBlock() {
 		return // keep cursor hidden (HideCursor was written at start of render)
 	}
 	col, row := pd.CursorPos()

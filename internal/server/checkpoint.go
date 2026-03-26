@@ -41,6 +41,7 @@ func (s *Server) Reload(execPath string) error {
 		idleSnap := sess.snapshotIdleState()
 		snap := sess.snapshotLayout(idleSnap)
 		cp := &checkpoint.ServerCheckpoint{
+			Version:       checkpoint.ServerCheckpointVersion,
 			SessionName:   sess.Name,
 			Counter:       sess.counter.Load(),
 			WindowCounter: sess.windowCounter.Load(),
@@ -66,15 +67,11 @@ func (s *Server) Reload(execPath string) error {
 				pc.PtmxFd = p.PtmxFd()
 				pc.PID = p.ProcessPid()
 			}
-			if p.Meta.Minimized {
-				pc.Cols, pc.Rows = p.EmulatorSize()
-			} else {
-				for _, w := range sess.Windows {
-					if cell := w.Root.FindPane(p.ID); cell != nil {
-						pc.Cols = cell.W
-						pc.Rows = mux.PaneContentHeight(cell.H)
-						break
-					}
+			for _, w := range sess.Windows {
+				if cell := w.Root.FindPane(p.ID); cell != nil {
+					pc.Cols = cell.W
+					pc.Rows = mux.PaneContentHeight(cell.H)
+					break
 				}
 			}
 			cp.Panes = append(cp.Panes, pc)
@@ -251,30 +248,13 @@ func NewServerFromCheckpointWithScrollback(cp *checkpoint.ServerCheckpoint, scro
 		}
 	}
 
-	// Save screen data for minimized panes so we can re-replay after the
-	// SIGWINCH loop. Between Start() and the SIGWINCH delay, the readLoop
-	// may consume buffered PTY output (e.g. a shell prompt produced during
-	// the exec gap) that overwrites the replayed emulator content. Visible
-	// panes recover via the SIGWINCH-triggered redraw; minimized panes need
-	// an explicit re-replay.
-	minimizedScreens := make(map[uint32]string)
-	for _, pc := range cp.Panes {
-		if pc.Meta.Minimized {
-			minimizedScreens[pc.ID] = pc.Screen
-		}
-	}
-
 	// Force TUI apps to do a full screen redraw via SIGWINCH.
-	// Skip minimized panes and proxy panes (no PTY to SIGWINCH).
+	// Skip proxy panes (no PTY to SIGWINCH).
 	go func() {
 		type resizeTarget struct {
 			pane *mux.Pane
 			cols int
 			rows int
-		}
-		type replayTarget struct {
-			pane *mux.Pane
-			data string
 		}
 
 		resizeVisible := func(heightAdj int) bool {
@@ -282,7 +262,7 @@ func NewServerFromCheckpointWithScrollback(cp *checkpoint.ServerCheckpoint, scro
 				var targets []resizeTarget
 				for _, w := range sess.Windows {
 					for _, p := range sess.Panes {
-						if p.Meta.Minimized || p.IsProxy() {
+						if p.IsProxy() {
 							continue
 						}
 						if cell := w.Root.FindPane(p.ID); cell != nil {
@@ -312,32 +292,6 @@ func NewServerFromCheckpointWithScrollback(cp *checkpoint.ServerCheckpoint, scro
 		time.Sleep(200 * time.Millisecond)
 		if !resizeVisible(0) {
 			return
-		}
-
-		// Re-replay saved screen data for minimized panes. The readLoop
-		// may have fed buffered PTY output into their emulators, garbling
-		// the content that was replayed during restore. Clear the screen
-		// first so the replay starts from a known state.
-		// Also broadcast the replay to clients so their emulators stay
-		// in sync with the server.
-		replays, err := enqueueSessionQuery(sess, func(sess *Session) ([]replayTarget, error) {
-			var replays []replayTarget
-			for _, p := range sess.Panes {
-				if screen, ok := minimizedScreens[p.ID]; ok {
-					replays = append(replays, replayTarget{
-						pane: p,
-						data: "\033[H\033[2J" + screen,
-					})
-				}
-			}
-			return replays, nil
-		})
-		if err != nil {
-			return
-		}
-		for _, replay := range replays {
-			replay.pane.ReplayScreen(replay.data)
-			sess.broadcastPaneOutput(replay.pane.ID, []byte(replay.data), 0)
 		}
 	}()
 

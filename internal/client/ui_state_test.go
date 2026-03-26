@@ -67,7 +67,7 @@ func TestClientUIStateReduceTransitions(t *testing.T) {
 			setup: func(st *clientUIState) {
 				st.displayPanes = &displayPanesState{}
 				st.chooser = &chooserState{mode: chooserModeWindow}
-				st.message = "cannot minimize"
+				st.message = "command failed"
 			},
 			action: uiActionHandleLayout{structureChanged: true},
 			wantState: clientUIStateSnapshot{
@@ -85,13 +85,13 @@ func TestClientUIStateReduceTransitions(t *testing.T) {
 			name: "non-structural layout change preserves overlays and message",
 			setup: func(st *clientUIState) {
 				st.displayPanes = &displayPanesState{}
-				st.message = "cannot minimize"
+				st.message = "command failed"
 			},
 			action: uiActionHandleLayout{structureChanged: false},
 			wantState: clientUIStateSnapshot{
 				dirty:           true,
 				displayPanes:    true,
-				message:         "cannot minimize",
+				message:         "command failed",
 				copyModePaneIDs: []uint32{},
 				inputIdle:       true,
 			},
@@ -100,14 +100,14 @@ func TestClientUIStateReduceTransitions(t *testing.T) {
 			name: "non-structural layout change preserves chooser and input state",
 			setup: func(st *clientUIState) {
 				st.chooser = &chooserState{mode: chooserModeTree}
-				st.message = "cannot minimize"
+				st.message = "command failed"
 				st.inputIdle = false
 			},
 			action: uiActionHandleLayout{structureChanged: false},
 			wantState: clientUIStateSnapshot{
 				dirty:           true,
 				chooser:         string(chooserModeTree),
-				message:         "cannot minimize",
+				message:         "command failed",
 				copyModePaneIDs: []uint32{},
 				inputIdle:       false,
 			},
@@ -139,10 +139,10 @@ func TestClientUIStateReduceTransitions(t *testing.T) {
 		},
 		{
 			name:   "set message stores text and marks dirty",
-			action: uiActionSetMessage{message: "cannot minimize"},
+			action: uiActionSetMessage{message: "command failed"},
 			wantState: clientUIStateSnapshot{
 				dirty:           true,
-				message:         "cannot minimize",
+				message:         "command failed",
 				copyModePaneIDs: []uint32{},
 				inputIdle:       true,
 			},
@@ -164,7 +164,7 @@ func TestClientUIStateReduceTransitions(t *testing.T) {
 		{
 			name: "setting message empty hides prefix state",
 			setup: func(st *clientUIState) {
-				st.message = "cannot minimize"
+				st.message = "command failed"
 			},
 			action: uiActionSetMessage{message: ""},
 			wantState: clientUIStateSnapshot{
@@ -177,7 +177,7 @@ func TestClientUIStateReduceTransitions(t *testing.T) {
 		{
 			name: "clear message removes text and marks dirty",
 			setup: func(st *clientUIState) {
-				st.message = "cannot minimize"
+				st.message = "command failed"
 			},
 			action: uiActionClearMessage{},
 			wantState: clientUIStateSnapshot{
@@ -433,7 +433,7 @@ func TestClientUIStateDirtyLifecycle(t *testing.T) {
 		inputIdle:       true,
 	})
 
-	st.reduce(uiActionSetMessage{message: "cannot minimize"})
+	st.reduce(uiActionSetMessage{message: "command failed"})
 	if !st.dirty {
 		t.Fatal("set message should mark state dirty")
 	}

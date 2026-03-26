@@ -138,37 +138,6 @@ func TestQueuedCommandFocusAcrossWindows(t *testing.T) {
 	assertSessionLayoutConsistent(t, sess)
 }
 
-func TestQueuedCommandToggleMinimize(t *testing.T) {
-	t.Parallel()
-
-	srv, sess, cleanup := newCommandTestSession(t)
-	defer cleanup()
-
-	p1 := newTestPane(sess, 1, "pane-1")
-	p2 := newTestPane(sess, 2, "pane-2")
-	w := newTestWindowWithPanes(t, sess, 1, "window-1", p1, p2)
-	sess.Windows = []*mux.Window{w}
-	sess.ActiveWindowID = w.ID
-	sess.Panes = []*mux.Pane{p1, p2}
-
-	before := sess.generation.Load()
-	res := runTestCommand(t, srv, sess, "toggle-minimize")
-
-	if res.cmdErr != "" {
-		t.Fatalf("toggle-minimize error: %s", res.cmdErr)
-	}
-	if !strings.Contains(res.output, "Minimized pane-2") {
-		t.Fatalf("toggle-minimize output = %q", res.output)
-	}
-	if !p2.Meta.Minimized {
-		t.Fatal("expected active pane to be minimized")
-	}
-	if sess.generation.Load() <= before {
-		t.Fatal("expected layout generation to increment")
-	}
-	assertSessionLayoutConsistent(t, sess)
-}
-
 func TestQueuedCommandNewWindow(t *testing.T) {
 	t.Parallel()
 

@@ -324,38 +324,6 @@ func cmdZoom(ctx *CommandContext) {
 	}))
 }
 
-func cmdMinimize(ctx *CommandContext) {
-	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
-		p, w, err := sess.resolvePaneWindowForActor(ctx.ActorPaneID, "minimize", ctx.Args)
-		if err != nil {
-			return commandMutationResult{err: err}
-		}
-		if err := w.Minimize(p.ID); err != nil {
-			return commandMutationResult{err: err}
-		}
-		return commandMutationResult{
-			output:          fmt.Sprintf("Minimized %s\n", p.Meta.Name),
-			broadcastLayout: true,
-		}
-	}))
-}
-
-func cmdRestore(ctx *CommandContext) {
-	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
-		p, w, err := sess.resolvePaneWindowForActor(ctx.ActorPaneID, "restore", ctx.Args)
-		if err != nil {
-			return commandMutationResult{err: err}
-		}
-		if err := w.Restore(p.ID); err != nil {
-			return commandMutationResult{err: err}
-		}
-		return commandMutationResult{
-			output:          fmt.Sprintf("Restored %s\n", p.Meta.Name),
-			broadcastLayout: true,
-		}
-	}))
-}
-
 func cmdReset(ctx *CommandContext) {
 	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
 		if len(ctx.Args) < 1 {
@@ -382,27 +350,6 @@ func cmdReset(ctx *CommandContext) {
 			}}
 		}
 		return res
-	}))
-}
-
-func cmdToggleMinimize(ctx *CommandContext) {
-	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
-		w := sess.activeWindow()
-		if w == nil {
-			return commandMutationResult{err: fmt.Errorf("no active window")}
-		}
-		name, didMinimize, err := w.ToggleMinimize()
-		if err != nil {
-			return commandMutationResult{err: err}
-		}
-		verb := "Restored"
-		if didMinimize {
-			verb = "Minimized"
-		}
-		return commandMutationResult{
-			output:          fmt.Sprintf("%s %s\n", verb, name),
-			broadcastLayout: true,
-		}
 	}))
 }
 

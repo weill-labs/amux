@@ -31,17 +31,6 @@ type LayoutCell struct {
 	Parent   *LayoutCell
 	Children []*LayoutCell
 
-	// DissolveHost marks a horizontal wrapper whose first child is the visible
-	// host column and whose remaining children are dissolved columns that should
-	// remain collapsed below it.
-	DissolveHost bool
-
-	// DissolvedColumn marks a whole column subtree that has been dissolved into
-	// the next visible column to the right. RestoreW records the width to
-	// reassign when the column is reconstituted.
-	DissolvedColumn bool
-	RestoreW        int
-
 	isLeaf bool
 }
 
@@ -277,112 +266,6 @@ func (c *LayoutCell) ResizeSubtree(newW, newH int) {
 	c.ResizeAll(newW, newH)
 }
 
-// NormalizeMinimizedHeights restores the invariant that minimized panes in a
-// horizontal split occupy only their status line. Any reclaimed height is
-// redistributed to direct non-minimized siblings in walk order.
-func (c *LayoutCell) NormalizeMinimizedHeights(isMinimized func(*LayoutCell) bool) {
-	if c == nil || c.IsLeaf() {
-		return
-	}
-
-	for _, child := range c.Children {
-		child.NormalizeMinimizedHeights(isMinimized)
-	}
-
-	if c.Dir != SplitHorizontal {
-		return
-	}
-
-	targets := make([]int, len(c.Children))
-	flexible := make([]int, 0, len(c.Children))
-	total := 0
-	for i, child := range c.Children {
-		targets[i] = child.H
-		if child.DissolvedColumn {
-			targets[i] = child.collapsedHeight(isMinimized)
-		} else if isMinimized(child) {
-			targets[i] = StatusLineRows
-		} else {
-			flexible = append(flexible, i)
-		}
-		total += targets[i]
-	}
-	if len(flexible) == 0 {
-		return
-	}
-
-	remaining := c.H - (len(c.Children) - 1) - total
-	for remaining > 0 {
-		for _, idx := range flexible {
-			if remaining == 0 {
-				break
-			}
-			targets[idx]++
-			remaining--
-		}
-	}
-
-	changed := false
-	for i, child := range c.Children {
-		targetH := targets[i]
-		if child.W == c.W && child.H == targetH {
-			continue
-		}
-		changed = true
-		c.resizeHorizontalChild(child, targetH, isMinimized)
-	}
-	if changed {
-		c.FixOffsets()
-	}
-}
-
-func (c *LayoutCell) resizeHorizontalChild(child *LayoutCell, targetH int, isMinimized func(*LayoutCell) bool) {
-	if child.IsLeaf() {
-		child.W = c.W
-		child.H = targetH
-		return
-	}
-	child.ResizeSubtree(c.W, targetH)
-	child.NormalizeMinimizedHeights(isMinimized)
-}
-
-func (c *LayoutCell) collapsedHeight(isMinimized func(*LayoutCell) bool) int {
-	if c == nil {
-		return 0
-	}
-	if c.IsLeaf() {
-		if isMinimized(c) || c.DissolvedColumn {
-			return StatusLineRows
-		}
-		return c.H
-	}
-
-	if c.Dir == SplitVertical {
-		height := 0
-		for _, child := range c.Children {
-			if childH := child.collapsedHeight(isMinimized); childH > height {
-				height = childH
-			}
-		}
-		if height == 0 {
-			return StatusLineRows
-		}
-		return height
-	}
-
-	height := 0
-	for i, child := range c.Children {
-		if i > 0 {
-			height++
-		}
-		height += child.collapsedHeight(isMinimized)
-	}
-	if height == 0 {
-		return StatusLineRows
-	}
-	return height
-}
-
 func (c *LayoutCell) resizeCheck(axis SplitDir) int {
 	if c.IsLeaf() {
 		size := c.W
@@ -450,21 +333,6 @@ func (c *LayoutCell) resizeAdjust(axis SplitDir, change int) {
 			}
 		}
 	}
-}
-
-// HasNonMinimizedLeaf returns true if any leaf in the subtree has a
-// non-minimized pane. Used by minimize guards to check whether a subtree
-// sibling actually has visible content.
-func (c *LayoutCell) HasNonMinimizedLeaf() bool {
-	if c.IsLeaf() {
-		return c.Pane != nil && !c.Pane.Meta.Minimized
-	}
-	for _, child := range c.Children {
-		if child.HasNonMinimizedLeaf() {
-			return true
-		}
-	}
-	return false
 }
 
 // Walk calls fn for every leaf cell in the tree (depth-first).

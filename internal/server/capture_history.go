@@ -74,7 +74,6 @@ func (s *Session) buildServerCapturePane(target capturePaneTarget, req caputil.R
 		ID:         target.pane.ID,
 		Name:       target.pane.Meta.Name,
 		Active:     target.active,
-		Minimized:  target.pane.Meta.Minimized,
 		Zoomed:     target.zoomed,
 		Host:       target.pane.Meta.Host,
 		Task:       target.pane.Meta.Task,

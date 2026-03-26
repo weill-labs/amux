@@ -107,84 +107,29 @@ func TestTypeKeysCopyModeScroll(t *testing.T) {
 	}
 }
 
-func TestTypeKeysMinimizeWithShiftM(t *testing.T) {
+func TestTypeKeysShiftMShowsUnboundFeedback(t *testing.T) {
 	t.Parallel()
 	h := newAmuxHarness(t)
 
 	h.splitH()
-	h.runCmd("focus", "pane-1")
 
-	gen := h.generation()
-	h.sendKeys("C-a", "M")
-	h.waitLayout(gen)
-
-	out := h.runCmd("status")
-	if !strings.Contains(out, "1 minimized") {
-		t.Fatalf("expected 1 minimized after type-keys C-a M, got: %s", out)
+	before := h.runCmd("status")
+	if !strings.Contains(before, "panes: 2 total") {
+		t.Fatalf("expected 2 panes before unbound Shift-M test, got: %s", before)
 	}
-}
-
-func TestTypeKeysMinimizeFailureShowsReasonInVerticalSplit(t *testing.T) {
-	t.Parallel()
-	h := newAmuxHarness(t)
-
-	h.splitV()
-	if !h.waitFor("[pane-2]", 3*time.Second) {
-		t.Fatalf("expected split layout to render before minimize test\nScreen:\n%s", h.captureOuter())
-	}
-	h.runCmd("focus", "pane-2")
-	h.runCmd("type-keys", "C-a", "M")
-
-	msg := "rightmost column"
-	if !h.waitFor(msg, 3*time.Second) {
-		t.Fatalf("expected minimize failure reason in outer capture\nScreen:\n%s", h.captureOuter())
-	}
-
-	out := h.runCmd("status")
-	if !strings.Contains(out, "0 minimized") {
-		t.Fatalf("vertical split minimize should not change minimized count, got: %s", out)
-	}
-}
-
-func TestTypeKeysMinimizeFailureShowsReasonAtRoot(t *testing.T) {
-	t.Parallel()
-	h := newAmuxHarness(t)
 
 	h.runCmd("type-keys", "C-a", "M")
-
-	if !h.waitFor("pane has no stacked siblings", 3*time.Second) {
-		t.Fatalf("expected root minimize failure reason in outer capture\nScreen:\n%s", h.captureOuter())
+	if !h.waitFor("No binding for C-a M", 3*time.Second) {
+		t.Fatalf("expected unbound Shift-M feedback\nScreen:\n%s", h.captureOuter())
 	}
 
-	out := h.runCmd("status")
-	if !strings.Contains(out, "0 minimized") {
-		t.Fatalf("root minimize should not change minimized count, got: %s", out)
-	}
-}
-
-func TestMinimizeFailureFeedbackClearsOnNextLocalInput(t *testing.T) {
-	t.Parallel()
-	h := newAmuxHarness(t)
-
-	h.splitV()
-	if !h.waitFor("[pane-2]", 3*time.Second) {
-		t.Fatalf("expected split layout to render before clear test\nScreen:\n%s", h.captureOuter())
-	}
-	h.runCmd("focus", "pane-2")
-	h.runCmd("type-keys", "C-a", "M")
-
-	msg := "rightmost column"
-	if !h.waitFor(msg, 3*time.Second) {
-		t.Fatalf("expected minimize failure reason before clear test\nScreen:\n%s", h.captureOuter())
-	}
-
-	h.sendKeys("Enter")
-	if !waitForOuterGone(h, msg, 3*time.Second) {
-		t.Fatalf("expected local input to clear minimize failure feedback\nScreen:\n%s", h.captureOuter())
+	after := h.runCmd("status")
+	if !strings.Contains(after, "panes: 2 total") {
+		t.Fatalf("Shift-M should not change pane count, got: %s", after)
 	}
 }
 
-func TestTypeKeysOldMinimizeKeyDoesNotLeakInput(t *testing.T) {
+func TestTypeKeysCompatBellKeyDoesNotChangeLayout(t *testing.T) {
 	t.Parallel()
 	h := newAmuxHarness(t)
 
@@ -192,8 +137,8 @@ func TestTypeKeysOldMinimizeKeyDoesNotLeakInput(t *testing.T) {
 	h.runCmd("focus", "pane-1")
 
 	before := h.runCmd("status")
-	if !strings.Contains(before, "0 minimized") {
-		t.Fatalf("expected 0 minimized before old key test, got: %s", before)
+	if !strings.Contains(before, "panes: 2 total") {
+		t.Fatalf("expected 2 panes before compat-bell key test, got: %s", before)
 	}
 
 	h.runCmd("type-keys", "C-a", "m")
@@ -204,8 +149,8 @@ func TestTypeKeysOldMinimizeKeyDoesNotLeakInput(t *testing.T) {
 	}
 
 	after := h.runCmd("status")
-	if !strings.Contains(after, "0 minimized") {
-		t.Fatalf("old C-a m should not minimize, got: %s", after)
+	if !strings.Contains(after, "panes: 2 total") {
+		t.Fatalf("compat-bell key should not change layout, got: %s", after)
 	}
 
 	screen := h.captureOuter()

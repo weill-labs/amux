@@ -209,15 +209,11 @@ func (s *Session) buildCrashCheckpoint() *checkpoint.CrashCheckpoint {
 				IsProxy:      p.IsProxy(),
 			}
 
-			if p.Meta.Minimized {
-				ps.Cols, ps.Rows = p.EmulatorSize()
-			} else {
-				for _, w := range s.Windows {
-					if cell := w.Root.FindPane(p.ID); cell != nil {
-						ps.Cols = cell.W
-						ps.Rows = mux.PaneContentHeight(cell.H)
-						break
-					}
+			for _, w := range s.Windows {
+				if cell := w.Root.FindPane(p.ID); cell != nil {
+					ps.Cols = cell.W
+					ps.Rows = mux.PaneContentHeight(cell.H)
+					break
 				}
 			}
 

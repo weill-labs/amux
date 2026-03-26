@@ -491,31 +491,8 @@ func TestGoldenFourPane(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Golden file tests — minimize, zoom, and multi-window states
+// Golden file tests — zoom and multi-window states
 // ---------------------------------------------------------------------------
-
-func TestGoldenMinimizedColumn(t *testing.T) {
-	t.Parallel()
-	h := newServerHarness(t)
-
-	// Build 3 panes stacked vertically: pane-1 (top), pane-2 (middle), pane-3 (bottom)
-	h.splitH()
-	h.splitH()
-
-	// Minimize the middle pane — collapses to status-line-only height
-	gen := h.generation()
-	h.runCmd("minimize", "pane-2")
-	h.waitLayout(gen)
-
-	// Focus pane-1 so active state is deterministic
-	h.doFocus("pane-1")
-
-	frame := extractFrame(h.capture(), h.session)
-	assertGolden(t, "minimized_column.golden", frame)
-
-	colorMap := h.runCmd("capture", "--colors")
-	assertGolden(t, "minimized_column.color", colorMap)
-}
 
 func TestGoldenZoomed(t *testing.T) {
 	t.Parallel()

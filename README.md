@@ -107,7 +107,6 @@ Returns a JSON object with session metadata, window info, and per-pane state:
       "id": 1,
       "name": "pane-1",
       "active": true,
-      "minimized": false,
       "zoomed": false,
       "host": "local",
       "task": "",
@@ -239,7 +238,7 @@ Control mode still delivers raw pane content and requires polling. amux has bloc
 Headless tools cut the human out of the loop. Humans and agents work better on a shared screen. Both see the same panes, both can act on them.
 
 **Does amux support all tmux features?**
-No, and it doesn't aim to. amux implements what matters for human+agent pairing: splits, windows, zoom, minimize, remote hosts, searchable choosers, and the agent API. If you need tmux's full feature set (session groups, advanced hooks), use tmux.
+No, and it doesn't aim to. amux implements what matters for human+agent pairing: splits, windows, zoom, remote hosts, searchable choosers, and the agent API. If you need tmux's full feature set (session groups, advanced hooks), use tmux.
 
 ## CLI Reference
 
@@ -265,8 +264,6 @@ All commands accept `-s <session>` to target a specific session. Panes are refer
 | `amux focus <pane\|direction>` | Focus by name, ID, or direction (left/right/up/down/next) |
 | `amux spawn --name NAME [--host HOST] [--task TASK]` | Spawn a new named pane without changing focus |
 | `amux zoom [pane]` | Toggle zoom on a pane |
-| `amux minimize <pane>` | Minimize a pane |
-| `amux restore <pane>` | Restore a minimized pane |
 | `amux kill [pane]` | Kill a pane (default: active) |
 | `amux send-keys <pane> [--wait ready] [--continue-known-dialogs] [--timeout <duration>] [--hex] <keys>...` | Send keystrokes to a pane |
 | `amux broadcast (--panes <pane,pane,...> \| --window <index\|name> \| --match <glob>) [--hex] <keys>...` | Send the same keystrokes to multiple panes |
@@ -354,7 +351,6 @@ Default prefix: `Ctrl-a`. Configurable via `~/.config/amux/config.toml` (see [Co
 | `Ctrl-a _` | Root-level split top/bottom |
 | `Ctrl-a x` | Kill active pane |
 | `Ctrl-a z` | Toggle zoom on active pane |
-| `Ctrl-a M` | Toggle minimize/restore |
 | `Ctrl-a }` / `Ctrl-a {` | Swap active pane with next/previous |
 | `Ctrl-a o` | Cycle focus to next pane |
 | `Ctrl-a h/j/k/l` | Focus left/down/up/right |
@@ -414,7 +410,7 @@ unbind = ["M", "["]         # remove default bindings
 [keys.bind]
 "s" = "split-focus v"       # bind Ctrl-b s to vertical split and focus the new pane
 "q" = "kill"                # bind Ctrl-b q to kill pane
-"m" = "toggle-minimize"     # restore the pre-LAB-241 minimize key if desired
+"g" = "display-panes"       # bind Ctrl-b g to show pane labels
 ```
 
 Key format: single character (`d`, `\\`, `-`) or Ctrl combo (`C-a`, `C-b`). Actions usually match CLI command names (for example `split`, `focus left`, `zoom`, `kill`). Keybindings also support `split-focus` and `spawn-focus` for interactive bindings that should focus the new pane.

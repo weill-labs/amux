@@ -26,20 +26,17 @@ func paneShellEnv(id uint32, sessionName string) []string {
 
 // PaneMeta holds amux metadata for a pane.
 type PaneMeta struct {
-	Name         string   `json:"name"`
-	Host         string   `json:"host"`
-	Task         string   `json:"task,omitempty"`
-	Remote       string   `json:"remote,omitempty"`
-	Color        string   `json:"color"`
-	Minimized    bool     `json:"minimized,omitempty"`
-	RestoreH     int      `json:"restore_h,omitempty"`     // saved height before minimize
-	MinimizedSeq uint64   `json:"minimized_seq,omitempty"` // monotonic counter for LIFO restore ordering
-	Dormant      bool     `json:"dormant,omitempty"`       // pane is in Session.Panes but not in any window layout (e.g., SSH takeover host)
-	Dir          string   `json:"dir,omitempty"`           // working directory override for new shell
-	GitBranch    string   `json:"git_branch,omitempty"`    // cached git branch (auto-detected or manually set)
-	PR           string   `json:"pr,omitempty"`            // PR number (set via escape sequence or CLI)
-	PRs          []int    `json:"prs,omitempty"`           // tracked PR numbers (set via add-meta/rm-meta)
-	Issues       []string `json:"issues,omitempty"`        // tracked issue IDs (set via add-meta/rm-meta)
+	Name      string   `json:"name"`
+	Host      string   `json:"host"`
+	Task      string   `json:"task,omitempty"`
+	Remote    string   `json:"remote,omitempty"`
+	Color     string   `json:"color"`
+	Dormant   bool     `json:"dormant,omitempty"`    // pane is in Session.Panes but not in any window layout (e.g., SSH takeover host)
+	Dir       string   `json:"dir,omitempty"`        // working directory override for new shell
+	GitBranch string   `json:"git_branch,omitempty"` // cached git branch (auto-detected or manually set)
+	PR        string   `json:"pr,omitempty"`         // PR number (set via escape sequence or CLI)
+	PRs       []int    `json:"prs,omitempty"`        // tracked PR numbers (set via add-meta/rm-meta)
+	Issues    []string `json:"issues,omitempty"`     // tracked issue IDs (set via add-meta/rm-meta)
 }
 
 // Pane manages a PTY, its terminal emulator, and metadata.

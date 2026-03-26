@@ -386,39 +386,6 @@ func TestServerAutoReload(t *testing.T) {
 	}
 }
 
-func TestServerReloadWithMinimizedPane(t *testing.T) {
-	t.Parallel()
-	h := newAmuxHarness(t)
-
-	h.splitH()
-
-	h.runCmd("minimize", "pane-1")
-
-	statusBefore := h.runCmd("status")
-	if !strings.Contains(statusBefore, "1 minimized") {
-		t.Fatalf("expected 1 minimized pane before reload, got:\n%s", statusBefore)
-	}
-
-	h.runCmd("reload-server")
-
-	if !h.waitFor("[pane-", 5*time.Second) {
-		screen := h.captureOuter()
-		t.Fatalf("session did not recover after reload\nScreen:\n%s", screen)
-	}
-
-	if !h.waitForFunc(func(s string) bool {
-		return strings.Contains(s, "[pane-1]") && strings.Contains(s, "[pane-2]")
-	}, 5*time.Second) {
-		screen := h.captureOuter()
-		t.Fatalf("both panes should be visible after reload\nScreen:\n%s", screen)
-	}
-
-	statusAfter := h.runCmd("status")
-	if !strings.Contains(statusAfter, "1 minimized") {
-		t.Errorf("minimized state should be preserved after reload, got:\n%s", statusAfter)
-	}
-}
-
 func TestServerReloadPreservesHistoryCapture(t *testing.T) {
 	t.Parallel()
 	h := newAmuxHarness(t)
@@ -489,48 +456,6 @@ scrollback_lines = 5
 	}
 	if !strings.Contains(strings.Join(all, "\n"), "RLDCFG-45") {
 		t.Fatalf("latest marker should survive reload, got:\n%v", all)
-	}
-}
-
-func TestServerReloadMinimizedPanePreservesContent(t *testing.T) {
-	t.Parallel()
-	h := newAmuxHarness(t)
-
-	h.splitH()
-
-	// Focus pane-1 (above pane-2 in vertical stack) and put content in it
-	h.runCmd("focus", "pane-1")
-	h.sendKeys("echo RELOAD_MARKER", "Enter")
-	h.waitFor("RELOAD_MARKER", 3*time.Second)
-
-	// Minimize pane-1, then reload server
-	h.runCmd("minimize", "pane-1")
-	h.runCmd("reload-server")
-
-	if !h.waitFor("[pane-", 5*time.Second) {
-		t.Fatalf("session did not recover after reload\nScreen:\n%s", h.captureOuter())
-	}
-
-	if out := h.runCmd("wait", "content", "pane-1", "RELOAD_MARKER", "--timeout", "10s"); strings.Contains(out, "timeout") {
-		t.Fatalf("minimized pane emulator should not be garbled by SIGWINCH loop after reload, got:\n%s", h.runCmd("capture", "pane-1"))
-	}
-
-	// Check content BEFORE restore — the minimized pane's emulator
-	// should not have been garbled by the SIGWINCH loop.
-	paneBeforeRestore := h.runCmd("capture", "pane-1")
-	if !strings.Contains(paneBeforeRestore, "RELOAD_MARKER") {
-		t.Fatalf("minimized pane emulator should not be garbled by SIGWINCH loop after reload, got:\n%s", paneBeforeRestore)
-	}
-
-	// Restore pane-1 and verify the content is still in the emulator.
-	// After restore the shell receives SIGWINCH and may redraw its prompt,
-	// but RELOAD_MARKER should still be on the visible screen or at least
-	// in the server-side emulator output.
-	h.runCmd("restore", "pane-1")
-
-	paneAfterRestore := h.runCmd("capture", "pane-1")
-	if !strings.Contains(paneAfterRestore, "RELOAD_MARKER") {
-		t.Fatalf("minimized pane content should survive server reload and restore, got:\n%s", paneAfterRestore)
 	}
 }
 

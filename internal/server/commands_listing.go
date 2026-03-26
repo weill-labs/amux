@@ -36,7 +36,6 @@ func toListingPaneEntries(entries []paneListEntry) []listingcmd.PaneEntry {
 func toListingStatus(snap sessionStatusSnapshot) listingcmd.SessionStatus {
 	return listingcmd.SessionStatus{
 		Total:       snap.total,
-		Minimized:   snap.minimized,
 		WindowCount: snap.windowCount,
 		Zoomed:      snap.zoomed,
 	}
