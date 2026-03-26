@@ -11,7 +11,6 @@ set -euo pipefail
 # Remove entries as they get refactored.
 ALLOWLIST=(
   # Production — tracked for conversion
-  "hooks.go"                           # hooks.Registry RWMutex — LAB-427
   "emulator.go"                        # vtEmulator.scrollbackMu — LAB-432
   "client_conn.go"                     # clientConn.disconnectReasonMu — small, low priority
 
@@ -26,7 +25,6 @@ ALLOWLIST=(
   "attach_session_test.go"             # test session/conn mocks
   "clock_test.go"                      # fakeClock and fakeTimer
   "wait_ready_test.go"                 # test wait-ready helpers
-  "hooks_test.go"                      # hook test recorder
   "pty_client_harness_test.go"         # PTY client test harness
   "capture_forward_test.go"            # capture test state tracking
   "amux_harness_test.go"              # nested harness startup serialization

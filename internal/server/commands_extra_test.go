@@ -53,51 +53,6 @@ func readCmdResultEvent(t *testing.T, conn net.Conn) Event {
 	return ev
 }
 
-func TestHookCommandsRoundTrip(t *testing.T) {
-	t.Parallel()
-
-	sess := newSession("test-hook-commands")
-	stopCrashCheckpointLoop(t, sess)
-	defer stopSessionBackgroundLoops(t, sess)
-
-	msg := runOneShotCommand(t, sess, []string{"on-idle", "echo", "one"}, cmdSetHook)
-	if got := msg.CmdOutput; got != "Hook added: on-idle → echo one\n" {
-		t.Fatalf("set-hook output = %q", got)
-	}
-
-	msg = runOneShotCommand(t, sess, []string{"on-idle", "echo", "two"}, cmdSetHook)
-	if got := msg.CmdOutput; got != "Hook added: on-idle → echo two\n" {
-		t.Fatalf("second set-hook output = %q", got)
-	}
-
-	msg = runOneShotCommand(t, sess, nil, cmdListHooks)
-	for _, want := range []string{"on-idle:", "0: echo one", "1: echo two"} {
-		if !strings.Contains(msg.CmdOutput, want) {
-			t.Fatalf("list-hooks missing %q:\n%s", want, msg.CmdOutput)
-		}
-	}
-
-	msg = runOneShotCommand(t, sess, []string{"on-idle", "0"}, cmdUnsetHook)
-	if got := msg.CmdOutput; got != "Removed hook 0 for on-idle\n" {
-		t.Fatalf("unset-hook index output = %q", got)
-	}
-
-	msg = runOneShotCommand(t, sess, nil, cmdListHooks)
-	if strings.Contains(msg.CmdOutput, "echo one") || !strings.Contains(msg.CmdOutput, "echo two") {
-		t.Fatalf("list-hooks after indexed removal = %q", msg.CmdOutput)
-	}
-
-	msg = runOneShotCommand(t, sess, []string{"on-idle"}, cmdUnsetHook)
-	if got := msg.CmdOutput; got != "Removed all hooks for on-idle\n" {
-		t.Fatalf("unset-hook all output = %q", got)
-	}
-
-	msg = runOneShotCommand(t, sess, nil, cmdListHooks)
-	if got := msg.CmdOutput; got != "No hooks registered.\n" {
-		t.Fatalf("list-hooks empty output = %q", got)
-	}
-}
-
 func TestParseTypeKeysArgs(t *testing.T) {
 	t.Parallel()
 

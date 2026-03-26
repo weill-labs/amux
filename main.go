@@ -139,7 +139,7 @@ func main() {
 		runSessionCommand("copy-mode", args[1:])
 	case "cursor":
 		if len(args) < 2 {
-			fmt.Fprintln(os.Stderr, "usage: amux cursor <layout|clipboard|hook|ui> [--client <id>]")
+			fmt.Fprintln(os.Stderr, "usage: amux cursor <layout|clipboard|ui> [--client <id>]")
 			os.Exit(1)
 		}
 		runSessionCommand("cursor", args[1:])
@@ -227,7 +227,7 @@ func main() {
 		runSessionCommand("rename-window", []string{args[1]})
 	case "wait":
 		if len(args) < 2 {
-			fmt.Fprintln(os.Stderr, "usage: amux wait <idle|busy|vt-idle|ready|content|layout|clipboard|hook|ui> ...")
+			fmt.Fprintln(os.Stderr, "usage: amux wait <idle|busy|vt-idle|ready|content|layout|clipboard|ui> ...")
 			os.Exit(1)
 		}
 		runSessionCommand("wait", args[1:])
@@ -237,20 +237,6 @@ func main() {
 			os.Exit(1)
 		}
 		runSessionCommand("resize-window", args[1:])
-	case "set-hook":
-		if len(args) < 3 {
-			fmt.Fprintf(os.Stderr, "usage: amux set-hook <event> <command>\n")
-			os.Exit(1)
-		}
-		runSessionCommand("set-hook", args[1:])
-	case "unset-hook":
-		if len(args) < 2 {
-			fmt.Fprintf(os.Stderr, "usage: amux unset-hook <event> [index]\n")
-			os.Exit(1)
-		}
-		runSessionCommand("unset-hook", args[1:])
-	case "list-hooks":
-		runSessionCommand("list-hooks", nil)
 	case "set-meta":
 		if len(args) < 3 {
 			fmt.Fprintf(os.Stderr, "usage: amux set-meta <pane> key=value [key=value...]\n")
@@ -480,13 +466,8 @@ Usage:
   amux [-s session] rename-window <n>  Rename the active window
   amux [-s session] resize-window <c> <r>
                                        Resize window to cols x rows
-  amux [-s session] set-hook <event> <command>
-                                       Register a hook (events: on-idle, on-activity)
-  amux [-s session] unset-hook <event> [index]
-                                       Remove hook(s) for an event
-  amux [-s session] list-hooks         List registered hooks
   amux [-s session] events [--filter type1,type2] [--pane <ref>] [--host <name>] [--client <id>] [--no-reconnect]
-                                       Stream events as NDJSON (layout, output, idle, busy, vt-idle, hook, client-connect, client-disconnect, display-panes-*, choose-*, copy-mode-*, input-*, reconnect)
+                                       Stream events as NDJSON (layout, output, idle, busy, vt-idle, client-connect, client-disconnect, display-panes-*, choose-*, copy-mode-*, input-*, reconnect)
   amux [-s session] split <pane> [root] [--vertical|--horizontal] [--name NAME] [--host HOST]
                                        Split a pane without changing focus
   amux [-s session] hosts              List configured remote hosts + status
@@ -496,7 +477,6 @@ Usage:
   amux [-s session] reload-server      Hot-reload the server (preserves panes)
   amux [-s session] cursor layout      Show current layout cursor
   amux [-s session] cursor clipboard   Show current clipboard cursor
-  amux [-s session] cursor hook        Show current hook cursor
   amux [-s session] cursor ui [--client <id>]
                                        Show current client UI cursor
   amux [-s session] wait layout [--after N] [--timeout 3s]
@@ -515,8 +495,6 @@ Usage:
                                        Block until pane becomes idle
   amux [-s session] wait ui <event> [--client <id>] [--after N] [--timeout 5s]
                                        Block until a client-local UI state is reached
-  amux [-s session] wait hook <event> [--pane <ref>] [--after N] [--timeout 5s]
-                                       Block until a matching hook completes
   amux install-terminfo                Install amux terminfo into ~/.terminfo
   amux version                         Show build version
 

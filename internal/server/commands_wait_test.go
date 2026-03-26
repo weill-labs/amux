@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
 )
 
@@ -175,6 +174,10 @@ func TestCmdCursorAndWaitUsageAndUnknownKind(t *testing.T) {
 	if got := cursorUnknown.cmdErr; got != "unknown cursor kind: bogus" {
 		t.Fatalf("cursor unknown kind error = %q", got)
 	}
+	cursorHook := runTestCommand(t, srv, sess, "cursor", "hook")
+	if got := cursorHook.cmdErr; got != "unknown cursor kind: hook" {
+		t.Fatalf("cursor hook error = %q", got)
+	}
 
 	waitUsage := runTestCommand(t, srv, sess, "wait")
 	if got := waitUsage.cmdErr; got != waitCommandUsage {
@@ -184,6 +187,10 @@ func TestCmdCursorAndWaitUsageAndUnknownKind(t *testing.T) {
 	waitUnknown := runTestCommand(t, srv, sess, "wait", "bogus")
 	if got := waitUnknown.cmdErr; got != "unknown wait kind: bogus" {
 		t.Fatalf("wait unknown kind error = %q", got)
+	}
+	waitHook := runTestCommand(t, srv, sess, "wait", "hook")
+	if got := waitHook.cmdErr; got != "unknown wait kind: hook" {
+		t.Fatalf("wait hook error = %q", got)
 	}
 }
 
@@ -389,52 +396,4 @@ func TestCmdWaitTransitionCommandsDefaultToNextChange(t *testing.T) {
 		}
 	})
 
-	t.Run("hook", func(t *testing.T) {
-		t.Parallel()
-
-		srv, sess, cleanup := newCommandTestSession(t)
-		defer cleanup()
-
-		pane := newTestPane(sess, 1, "pane-1")
-		w := newTestWindowWithPanes(t, sess, 1, "main", pane)
-		sess.Windows = []*mux.Window{w}
-		sess.ActiveWindowID = w.ID
-		sess.Panes = []*mux.Pane{pane}
-		sess.waiters.setHookStateForTest(7, nil)
-
-		peerConn, _, done := startAsyncCommand(t, srv, sess, "wait", "hook", "on-idle", "--pane", "pane-1", "--timeout", "5s")
-
-		waitUntil(t, func() bool {
-			return mustSessionQuery(t, sess, func(sess *Session) bool {
-				return sess.waiters.hookWaiterRegistered(7, "on-idle", 1, "pane-1")
-			})
-		})
-
-		select {
-		case <-done:
-			t.Fatal("wait hook returned before next matching record")
-		case <-time.After(20 * time.Millisecond):
-		}
-
-		sess.enqueueCommandMutation(func(s *Session) commandMutationResult {
-			s.waiters.appendHookResult(hookResultRecord{
-				Event:    "on-idle",
-				PaneID:   1,
-				PaneName: "pane-1",
-				Success:  true,
-			})
-			return commandMutationResult{}
-		})
-
-		msg := readMsgWithTimeout(t, peerConn)
-		if got := msg.CmdOutput; got != "8 on-idle pane-1 success\n" {
-			t.Fatalf("wait hook output = %q", got)
-		}
-
-		select {
-		case <-done:
-		case <-time.After(time.Second):
-			t.Fatal("wait hook command did not return")
-		}
-	})
 }

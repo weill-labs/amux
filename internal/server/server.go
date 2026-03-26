@@ -11,7 +11,6 @@ import (
 
 	"github.com/weill-labs/amux/internal/checkpoint"
 	"github.com/weill-labs/amux/internal/config"
-	"github.com/weill-labs/amux/internal/hooks"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
 	"github.com/weill-labs/amux/internal/remote"
@@ -51,8 +50,6 @@ type Session struct {
 	generation atomic.Uint64
 	waiters    *waiterManager
 
-	// Hook system — session-level, not checkpointed.
-	Hooks  *hooks.Registry
 	idle   *idleTracker
 	vtIdle *VTIdleTracker
 
@@ -407,7 +404,6 @@ func newSessionWithScrollback(name string, scrollbackLines int) *Session {
 		clientState:     newClientManager(),
 		paneLog:         newPaneLog(defaultPaneLogSize),
 	}
-	sess.Hooks = hooks.NewRegistry()
 	sess.idle = newIdleTracker()
 	sess.vtIdle = NewVTIdleTracker(sess.clock())
 	sess.takenOverPanes = make(map[uint32]bool)

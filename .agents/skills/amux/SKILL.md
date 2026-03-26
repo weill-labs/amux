@@ -91,7 +91,7 @@ amux events
 amux events --pane pane-1
 
 # Filter by event type
-amux events --filter idle,busy,hook
+amux events --filter idle,busy
 ```
 
 ### Pane Management

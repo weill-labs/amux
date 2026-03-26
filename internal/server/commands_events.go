@@ -3,74 +3,9 @@ package server
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"slices"
-	"strconv"
-	"strings"
 	"time"
-
-	"github.com/weill-labs/amux/internal/hooks"
 )
-
-func cmdSetHook(ctx *CommandContext) {
-	if len(ctx.Args) < 2 {
-		ctx.replyErr("usage: set-hook <event> <command>")
-		return
-	}
-	event, err := hooks.ParseEvent(ctx.Args[0])
-	if err != nil {
-		ctx.replyErr(err.Error())
-		return
-	}
-	command := strings.Join(ctx.Args[1:], " ")
-	ctx.Sess.Hooks.Add(event, command)
-	ctx.reply(fmt.Sprintf("Hook added: %s → %s\n", event, command))
-}
-
-func cmdUnsetHook(ctx *CommandContext) {
-	if len(ctx.Args) < 1 {
-		ctx.replyErr("usage: unset-hook <event> [index]")
-		return
-	}
-	event, err := hooks.ParseEvent(ctx.Args[0])
-	if err != nil {
-		ctx.replyErr(err.Error())
-		return
-	}
-	if len(ctx.Args) >= 2 {
-		idx, err := strconv.Atoi(ctx.Args[1])
-		if err != nil {
-			ctx.replyErr(fmt.Sprintf("invalid index: %s", ctx.Args[1]))
-			return
-		}
-		ctx.Sess.Hooks.Remove(event, idx)
-		ctx.reply(fmt.Sprintf("Removed hook %d for %s\n", idx, event))
-	} else {
-		ctx.Sess.Hooks.RemoveAll(event)
-		ctx.reply(fmt.Sprintf("Removed all hooks for %s\n", event))
-	}
-}
-
-func cmdListHooks(ctx *CommandContext) {
-	var output strings.Builder
-	hasAny := false
-	for _, event := range hooks.AllEvents {
-		entries := ctx.Sess.Hooks.List(event)
-		if len(entries) == 0 {
-			continue
-		}
-		hasAny = true
-		output.WriteString(fmt.Sprintf("%s:\n", event))
-		for i, entry := range entries {
-			output.WriteString(fmt.Sprintf("  %d: %s\n", i, entry.Command))
-		}
-	}
-	if !hasAny {
-		ctx.reply("No hooks registered.\n")
-		return
-	}
-	ctx.reply(output.String())
-}
 
 func cmdEvents(ctx *CommandContext) {
 	ea := parseEventsArgs(ctx.Args)

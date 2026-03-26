@@ -363,18 +363,8 @@ func TestCommandCaptureHistoryAndWaitCommands(t *testing.T) {
 	sess.Windows = []*mux.Window{w}
 	sess.ActiveWindowID = w.ID
 	sess.Panes = []*mux.Pane{p1}
-	sess.waiters.setHookStateForTest(6, nil)
 	mustSessionQuery(t, sess, func(sess *Session) struct{} {
 		sess.idle.MarkIdle(p1.ID)
-		return struct{}{}
-	})
-	mustSessionQuery(t, sess, func(sess *Session) struct{} {
-		sess.waiters.setHookStateForTest(6, []hookResultRecord{{
-			Generation: 6,
-			Event:      "on-idle",
-			PaneName:   "pane-1",
-			Success:    true,
-		}})
 		return struct{}{}
 	})
 
@@ -417,19 +407,9 @@ func TestCommandCaptureHistoryAndWaitCommands(t *testing.T) {
 	if !strings.Contains(waitBusyRes.cmdErr, "timeout waiting for pane-1 to become busy") {
 		t.Fatalf("wait-busy timeout error = %q", waitBusyRes.cmdErr)
 	}
-
-	hookGenRes := runTestCommand(t, srv, sess, "cursor", "hook")
-	if hookGenRes.cmdErr != "" || strings.TrimSpace(hookGenRes.output) != "6" {
-		t.Fatalf("hook-gen result = %#v", hookGenRes)
-	}
-
-	waitHookRes := runTestCommand(t, srv, sess, "wait", "hook", "on-idle", "--pane", "pane-1", "--after", "5", "--timeout", "1ms")
-	if waitHookRes.cmdErr != "" || strings.TrimSpace(waitHookRes.output) != "6 on-idle pane-1 success" {
-		t.Fatalf("wait-hook result = %#v", waitHookRes)
-	}
 }
 
-func TestCommandWaitHooksClientsAndTypeKeys(t *testing.T) {
+func TestCommandWaitClientsAndTypeKeys(t *testing.T) {
 	t.Parallel()
 
 	srv, sess, cleanup := newCommandTestSession(t)
@@ -518,29 +498,11 @@ func TestCommandWaitHooksClientsAndTypeKeys(t *testing.T) {
 		t.Fatalf("wait-ui success result = %#v", waitUISuccess)
 	}
 
-	setHookUsage := runTestCommand(t, srv, sess, "set-hook", "on-idle")
-	if setHookUsage.cmdErr != "usage: set-hook <event> <command>" {
-		t.Fatalf("set-hook usage error = %q", setHookUsage.cmdErr)
-	}
-
-	setHookRes := runTestCommand(t, srv, sess, "set-hook", "on-idle", "echo hook")
-	if setHookRes.cmdErr != "" || !strings.Contains(setHookRes.output, "Hook added: on-idle") {
-		t.Fatalf("set-hook result = %#v", setHookRes)
-	}
-
-	listHooksRes := runTestCommand(t, srv, sess, "list-hooks")
-	if listHooksRes.cmdErr != "" || !strings.Contains(listHooksRes.output, "on-idle:") || !strings.Contains(listHooksRes.output, "echo hook") {
-		t.Fatalf("list-hooks result = %#v", listHooksRes)
-	}
-
-	unsetHookErr := runTestCommand(t, srv, sess, "unset-hook", "on-idle", "bad")
-	if unsetHookErr.cmdErr != "invalid index: bad" {
-		t.Fatalf("unset-hook invalid index error = %q", unsetHookErr.cmdErr)
-	}
-
-	unsetHookRes := runTestCommand(t, srv, sess, "unset-hook", "on-idle")
-	if unsetHookRes.cmdErr != "" || !strings.Contains(unsetHookRes.output, "Removed all hooks for on-idle") {
-		t.Fatalf("unset-hook result = %#v", unsetHookRes)
+	for _, command := range []string{"set-hook", "unset-hook", "list-hooks"} {
+		res := runTestCommand(t, srv, sess, command)
+		if res.cmdErr != "unknown command: "+command {
+			t.Fatalf("%s result = %#v", command, res)
+		}
 	}
 
 	listClientsRes := runTestCommand(t, srv, sess, "list-clients")

@@ -3,12 +3,10 @@
 package server
 
 import (
-	"encoding/json"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
 )
 
@@ -107,43 +105,6 @@ func TestClientConnCurrentUIEventsIncludesPrefixMessageBusyAndCopyModeShown(t *t
 	}
 }
 
-func TestParseWaitHookArgs(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name    string
-		args    []string
-		wantErr string
-	}{
-		{name: "missing event", wantErr: "usage: wait hook"},
-		{name: "missing pane value", args: []string{"on-idle", "--pane"}, wantErr: "missing value for --pane"},
-		{name: "missing after value", args: []string{"on-idle", "--after"}, wantErr: "missing value for --after"},
-		{name: "invalid after value", args: []string{"on-idle", "--after", "abc"}, wantErr: "invalid --after generation: abc"},
-		{name: "missing timeout value", args: []string{"on-idle", "--timeout"}, wantErr: "missing value for --timeout"},
-		{name: "invalid timeout value", args: []string{"on-idle", "--timeout", "later"}, wantErr: "time: invalid duration"},
-		{name: "unknown flag", args: []string{"on-idle", "--wat"}, wantErr: "unknown flag: --wat"},
-		{name: "invalid event", args: []string{"not-an-event"}, wantErr: `unknown hook event: "not-an-event"`},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			_, _, _, _, err := parseWaitHookArgs(tt.args)
-			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
-				t.Fatalf("parseWaitHookArgs(%v) error = %v, want substring %q", tt.args, err, tt.wantErr)
-			}
-		})
-	}
-
-	eventName, paneName, afterGen, timeout, err := parseWaitHookArgs([]string{"on-idle", "--pane", "1", "--after", "7", "--timeout", "250ms"})
-	if err != nil {
-		t.Fatalf("parseWaitHookArgs success case: %v", err)
-	}
-	if eventName != "on-idle" || paneName != "1" || afterGen != 7 || timeout != 250*time.Millisecond {
-		t.Fatalf("parsed = (%q, %q, %d, %v), want (%q, %q, %d, %v)", eventName, paneName, afterGen, timeout, "on-idle", "1", 7, 250*time.Millisecond)
-	}
-}
-
 func TestParseUIGenArgs(t *testing.T) {
 	t.Parallel()
 
@@ -219,96 +180,5 @@ func TestParseWaitUIArgs(t *testing.T) {
 				t.Fatalf("parsed = (%q, %q, %d, %t, %v), want (%q, %q, %d, %t, %v)", event, clientID, afterGen, afterSet, timeout, tt.wantEvent, tt.wantID, tt.wantAfter, tt.wantSet, tt.wantDur)
 			}
 		})
-	}
-}
-
-func TestResolveWaitHookPaneName(t *testing.T) {
-	t.Parallel()
-
-	sess := newSession("test-resolve-wait-hook-pane")
-	stopCrashCheckpointLoop(t, sess)
-
-	pane := newProxyPane(1, mux.PaneMeta{
-		Name:  "pane-1",
-		Host:  mux.DefaultHost,
-		Color: "f5e0dc",
-	}, 80, 23, nil, nil, func(data []byte) (int, error) { return len(data), nil })
-	w := mux.NewWindow(pane, 80, 23)
-	w.ID = 1
-	w.Name = "window-1"
-	sess.Windows = []*mux.Window{w}
-	sess.ActiveWindowID = w.ID
-	sess.Panes = []*mux.Pane{pane}
-
-	ctx := &CommandContext{CC: newClientConn(nil), Sess: sess}
-
-	resolved, err := resolveWaitHookPane(ctx, "")
-	if err != nil || resolved.paneName != "" {
-		t.Fatalf("resolve empty ref = (%q, %v), want (\"\", nil)", resolved.paneName, err)
-	}
-
-	resolved, err = resolveWaitHookPane(ctx, "1")
-	if err != nil {
-		t.Fatalf("resolve numeric ref: %v", err)
-	}
-	if resolved.paneName != "pane-1" {
-		t.Fatalf("resolve numeric ref = %q, want %q", resolved.paneName, "pane-1")
-	}
-}
-
-func TestWaitHookTimeout(t *testing.T) {
-	t.Parallel()
-
-	sess := newSession("test-wait-hook-timeout")
-	defer stopSessionBackgroundLoops(t, sess)
-
-	if _, ok := sess.waitHook(0, "on-idle", "pane-1", 20*time.Millisecond); ok {
-		t.Fatal("waitHook should time out when no matching hook arrives")
-	}
-}
-
-func TestHookResultEventTrimsHistoryAndEmitsHookEvent(t *testing.T) {
-	t.Parallel()
-
-	sess := newSession("test-hook-result-event")
-	stopSessionBackgroundLoops(t, sess)
-
-	results := make([]hookResultRecord, 0, 128)
-	for i := 0; i < 128; i++ {
-		results = append(results, hookResultRecord{Generation: uint64(i + 1)})
-	}
-	sess.waiters.setHookStateForTest(0, results)
-	sub := &eventSub{ch: make(chan []byte, 1)}
-	sess.eventSubs = []*eventSub{sub}
-
-	hookResultEvent{
-		record: hookResultRecord{
-			Event:    "on-idle",
-			PaneID:   1,
-			PaneName: "pane-1",
-			Host:     "local",
-			Command:  "true",
-			Success:  true,
-		},
-	}.handle(sess)
-
-	retained := sess.waiters.retainedHookResults()
-	if len(retained) != 128 {
-		t.Fatalf("len(hookResults) = %d, want 128", len(retained))
-	}
-	if retained[0].Generation != 2 {
-		t.Fatalf("first retained generation = %d, want 2", retained[0].Generation)
-	}
-	select {
-	case data := <-sub.ch:
-		var ev Event
-		if err := json.Unmarshal(data, &ev); err != nil {
-			t.Fatalf("json.Unmarshal hook event: %v", err)
-		}
-		if ev.Type != EventHook || !ev.Success || ev.HookEvent != "on-idle" {
-			t.Fatalf("event = %+v, want hook success for on-idle", ev)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("timeout waiting for emitted hook event")
 	}
 }
