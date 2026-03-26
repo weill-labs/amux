@@ -23,12 +23,7 @@ EOF
 
 	cmd := exec.Command("bash", "scripts/check-pane-issue-meta.sh")
 	cmd.Dir = "."
-	cmd.Env = append([]string{}, os.Environ()...)
-	cmd.Env = append(cmd.Env,
-		"PATH="+tempDir+":"+os.Getenv("PATH"),
-		"AMUX_PANE=7",
-		"AMUX_SESSION=test-session",
-	)
+	cmd.Env = issueMetaScriptEnv(tempDir)
 	out, err := cmd.CombinedOutput()
 	if err == nil {
 		t.Fatalf("expected non-zero exit when issue metadata is missing\n%s", out)
@@ -61,12 +56,7 @@ EOF
 
 	cmd := exec.Command("bash", "scripts/check-pane-issue-meta.sh")
 	cmd.Dir = "."
-	cmd.Env = append([]string{}, os.Environ()...)
-	cmd.Env = append(cmd.Env,
-		"PATH="+tempDir+":"+os.Getenv("PATH"),
-		"AMUX_PANE=7",
-		"AMUX_SESSION=test-session",
-	)
+	cmd.Env = issueMetaScriptEnv(tempDir)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("expected success when issue metadata exists: %v\n%s", err, out)
@@ -95,13 +85,7 @@ printf '\n' >>"$FAKE_AMUX_LOG"
 
 	cmd := exec.Command("bash", "scripts/set-pane-issue.sh", "LAB-445")
 	cmd.Dir = "."
-	cmd.Env = append([]string{}, os.Environ()...)
-	cmd.Env = append(cmd.Env,
-		"PATH="+tempDir+":"+os.Getenv("PATH"),
-		"AMUX_PANE=7",
-		"AMUX_SESSION=test-session",
-		"FAKE_AMUX_LOG="+logPath,
-	)
+	cmd.Env = issueMetaScriptEnv(tempDir, "FAKE_AMUX_LOG="+logPath)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("expected success: %v\n%s", err, out)
@@ -148,13 +132,7 @@ printf '422\n'
 
 	cmd := exec.Command("bash", "scripts/sync-pane-pr-meta.sh")
 	cmd.Dir = "."
-	cmd.Env = append([]string{}, os.Environ()...)
-	cmd.Env = append(cmd.Env,
-		"PATH="+tempDir+":"+os.Getenv("PATH"),
-		"AMUX_PANE=7",
-		"AMUX_SESSION=test-session",
-		"FAKE_AMUX_LOG="+logPath,
-	)
+	cmd.Env = issueMetaScriptEnv(tempDir, "FAKE_AMUX_LOG="+logPath)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("expected success: %v\n%s", err, out)
@@ -167,4 +145,33 @@ printf '422\n'
 	if strings.TrimSpace(string(got)) != "add-meta 7 pr=422 issue=LAB-445" {
 		t.Fatalf("amux args = %q, want %q", got, "add-meta 7 pr=422 issue=LAB-445")
 	}
+}
+
+func issueMetaScriptEnv(tempDir string, extra ...string) []string {
+	env := append([]string{}, hermeticMainEnv()...)
+	env = upsertIssueMetaEnv(env, "PATH", tempDir+string(os.PathListSeparator)+issueMetaEnvValue(env, "PATH"))
+	env = upsertIssueMetaEnv(env, "AMUX_PANE", "7")
+	env = upsertIssueMetaEnv(env, "AMUX_SESSION", "test-session")
+	return append(env, extra...)
+}
+
+func issueMetaEnvValue(env []string, key string) string {
+	prefix := key + "="
+	for _, entry := range env {
+		if strings.HasPrefix(entry, prefix) {
+			return strings.TrimPrefix(entry, prefix)
+		}
+	}
+	return ""
+}
+
+func upsertIssueMetaEnv(env []string, key, value string) []string {
+	prefix := key + "="
+	for i, entry := range env {
+		if strings.HasPrefix(entry, prefix) {
+			env[i] = prefix + value
+			return env
+		}
+	}
+	return append(env, prefix+value)
 }
