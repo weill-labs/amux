@@ -204,14 +204,52 @@ func TestLoadScrollbackLines(t *testing.T) {
 func TestLoadRejectsZeroScrollbackLines(t *testing.T) {
 	t.Parallel()
 
-	dir := t.TempDir()
-	path := filepath.Join(dir, "config.toml")
-	if err := os.WriteFile(path, []byte("scrollback_lines = 0\n"), 0644); err != nil {
-		t.Fatalf("WriteFile: %v", err)
+	tests := []struct {
+		name    string
+		content string
+		wantErr string
+	}{
+		{
+			name:    "zero scrollback",
+			content: "scrollback_lines = 0\n",
+			wantErr: "scrollback_lines must be >= 1",
+		},
+		{
+			name: "keys section",
+			content: `
+[keys]
+prefix = "C-b"
+`,
+			wantErr: `unsupported config section "keys"`,
+		},
+		{
+			name: "keys bind subsection",
+			content: `
+[keys.bind]
+s = "split"
+`,
+			wantErr: `unsupported config section "keys"`,
+		},
 	}
 
-	if _, err := Load(path); err == nil {
-		t.Fatal("Load should reject scrollback_lines = 0")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			dir := t.TempDir()
+			path := filepath.Join(dir, "config.toml")
+			if err := os.WriteFile(path, []byte(tt.content), 0644); err != nil {
+				t.Fatalf("WriteFile: %v", err)
+			}
+
+			_, err := Load(path)
+			if err == nil {
+				t.Fatal("Load should reject invalid config")
+			}
+			if got, want := err.Error(), tt.wantErr; got != want {
+				t.Fatalf("Load() error = %q, want %q", got, want)
+			}
+		})
 	}
 }
 
