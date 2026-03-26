@@ -220,6 +220,9 @@ func availableMetadataWidth(cellWidth int, pd PaneData) int {
 
 func paneStatusUsedWidthWithoutMetadata(pd PaneData) int {
 	usedWidth := 2 + runewidth.StringWidth(pd.Name()) + 2 // "● [name]"
+	if pd.IsLead() {
+		usedWidth += 7 // " [lead]"
+	}
 	if pd.InCopyMode() {
 		usedWidth += 7 // " [copy]"
 		if search := pd.CopyModeSearch(); search != "" {

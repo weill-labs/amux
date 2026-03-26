@@ -267,18 +267,11 @@ func runSpawn(ctx *CommandContext, keepFocus bool) {
 		opts := mux.SplitOptions{KeepFocus: keepFocus || w.ZoomedPaneID != 0}
 		// When active pane is in the lead column, redirect spawn to the right subtree.
 		if target := w.LeadAwareSplitTarget(); target != nil {
-			if _, err := w.SplitPaneWithOptions(target.ID, mux.SplitVertical, pane, opts); err != nil {
-				sess.removePane(pane.ID)
-				pane.Close()
-				return commandMutationResult{err: err}
-			}
-			return commandMutationResult{
-				output:          fmt.Sprintf("Spawned %s in pane %d\n", args.Meta.Name, pane.ID),
-				broadcastLayout: true,
-				startPanes:      []*mux.Pane{pane},
-			}
+			_, err = w.SplitPaneWithOptions(target.ID, mux.SplitVertical, pane, opts)
+		} else {
+			_, err = w.SplitWithOptions(mux.SplitVertical, pane, opts)
 		}
-		if _, err := w.SplitWithOptions(mux.SplitVertical, pane, opts); err != nil {
+		if err != nil {
 			sess.removePane(pane.ID)
 			pane.Close()
 			return commandMutationResult{err: err}

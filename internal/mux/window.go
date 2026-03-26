@@ -81,13 +81,7 @@ func (w *Window) SplitRootWithOptions(dir SplitDir, newPane *Pane, opts SplitOpt
 			right = wrapper
 		}
 		// Find first leaf in right subtree to split
-		target := (*LayoutCell)(nil)
-		right.Walk(func(c *LayoutCell) {
-			if target == nil && c.Pane != nil {
-				target = c
-			}
-		})
-		if target != nil {
+		if target := firstLeafCell(right); target != nil {
 			return w.splitCellWithOptions(target, dir, newPane, opts)
 		}
 	}

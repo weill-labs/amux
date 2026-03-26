@@ -22,9 +22,7 @@ func (w *Window) SetLead(paneID uint32) error {
 		return fmt.Errorf("pane %d not found", paneID)
 	}
 
-	count := 0
-	w.Root.Walk(func(_ *LayoutCell) { count++ })
-	if count <= 1 {
+	if w.Root.IsLeaf() {
 		return fmt.Errorf("cannot set lead with only one pane")
 	}
 
@@ -126,6 +124,17 @@ func containsPane(cell *LayoutCell, paneID uint32) bool {
 	return cell.FindPane(paneID) != nil
 }
 
+// firstLeafCell returns the first leaf LayoutCell (with a non-nil Pane) in the subtree.
+func firstLeafCell(cell *LayoutCell) *LayoutCell {
+	found := (*LayoutCell)(nil)
+	cell.Walk(func(c *LayoutCell) {
+		if found == nil && c.Pane != nil {
+			found = c
+		}
+	})
+	return found
+}
+
 // LeadAwareSplitTarget returns a redirect target when the active pane is
 // in the lead column. Spawn/split operations should use this target instead
 // of the active pane. Returns nil if no redirect is needed.
@@ -138,12 +147,8 @@ func (w *Window) LeadAwareSplitTarget() *Pane {
 		return nil // active pane is not in the lead column
 	}
 	// Find first leaf in the right subtree.
-	right := w.Root.Children[1]
-	target := (*Pane)(nil)
-	right.Walk(func(c *LayoutCell) {
-		if target == nil && c.Pane != nil {
-			target = c.Pane
-		}
-	})
-	return target
+	if cell := firstLeafCell(w.Root.Children[1]); cell != nil {
+		return cell.Pane
+	}
+	return nil
 }
