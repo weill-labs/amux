@@ -37,6 +37,8 @@ type ServerHarness struct {
 	logPath      string
 	client       *headlessClient // attached headless client for capture
 	shutdownPipe *os.File
+	waitDone     chan struct{}
+	waitErr      error
 
 	diagMu         sync.Mutex
 	currentWait    string
@@ -179,7 +181,12 @@ func newServerHarnessWithOptions(tb testing.TB, cols, rows int, configContent st
 		extraEnv:     append([]string(nil), extraEnv...),
 		logPath:      logPath,
 		shutdownPipe: shutdownReadPipe,
+		waitDone:     make(chan struct{}),
 	}
+	go func() {
+		h.waitErr = cmd.Wait()
+		close(h.waitDone)
+	}()
 	tb.Cleanup(h.cleanup)
 
 	// Attach a headless client — seeds the first pane and stays connected
@@ -229,21 +236,24 @@ func (h *ServerHarness) cleanup() {
 	timedOut := false
 	if h.cmd != nil && h.cmd.Process != nil {
 		serverPid = h.cmd.Process.Pid
-		done := make(chan struct{})
-		go func() {
-			h.cmd.Wait()
-			close(done)
-		}()
-
+		waitDone := h.waitDone
+		if waitDone == nil {
+			waitDone = make(chan struct{})
+			go func() {
+				h.waitErr = h.cmd.Wait()
+				close(waitDone)
+			}()
+		}
 		select {
-		case <-done:
+		case <-waitDone:
 		case <-time.After(50 * time.Millisecond):
 			_ = h.cmd.Process.Signal(os.Interrupt)
 			select {
-			case <-done:
+			case <-waitDone:
 			case <-time.After(3 * time.Second):
 				timedOut = true
 				_ = h.cmd.Process.Kill()
+				<-waitDone
 			}
 		}
 	}
@@ -382,10 +392,11 @@ func (h *ServerHarness) diagnosticProbe(args ...string) (string, error) {
 func (h *ServerHarness) diagnosticSnapshot(reason string) string {
 	wait, cmd := h.diagnosticState()
 	data := diagnosticSnapshotData{
-		TestName: h.tb.Name(),
-		Session:  h.session,
-		Wait:     wait,
-		Command:  cmd,
+		TestName:   h.tb.Name(),
+		Session:    h.session,
+		Wait:       wait,
+		Command:    cmd,
+		ServerWait: h.serverWaitStatus(),
 	}
 
 	if out, err := h.diagnosticProbe("cursor", "layout"); err != nil {
@@ -424,6 +435,7 @@ type diagnosticSnapshotData struct {
 	Session            string
 	Wait               string
 	Command            string
+	ServerWait         string
 	Generation         string
 	JSONCaptureSummary string
 	PlainCapture       string
@@ -439,6 +451,9 @@ func formatDiagnosticSnapshot(reason string, data diagnosticSnapshotData) string
 	}
 	if data.Command != "" {
 		fmt.Fprintf(&b, "command: %s\n", data.Command)
+	}
+	if data.ServerWait != "" {
+		fmt.Fprintf(&b, "%s\n", data.ServerWait)
 	}
 	if data.Generation != "" {
 		fmt.Fprintf(&b, "%s\n", data.Generation)
@@ -511,6 +526,21 @@ func (h *ServerHarness) serverLogTail(maxBytes int) string {
 		return ""
 	}
 	return tailDiagnostic(string(data), maxBytes)
+}
+
+func (h *ServerHarness) serverWaitStatus() string {
+	if h.waitDone == nil {
+		return ""
+	}
+	select {
+	case <-h.waitDone:
+		if h.waitErr == nil {
+			return "server process exited cleanly"
+		}
+		return "server process exited: " + h.waitErr.Error()
+	default:
+		return "server process still running"
+	}
 }
 
 func truncateDiagnostic(s string, max int) string {
@@ -645,7 +675,12 @@ func (h *ServerHarness) assertScreen(msg string, fn func(string) bool) {
 // captureJSON returns the full-screen JSON capture as a parsed struct.
 func (h *ServerHarness) captureJSON() proto.CaptureJSON {
 	h.tb.Helper()
-	return captureJSONFor(h.tb, h.runCmd)
+	out := h.runCmd("capture", "--format", "json")
+	var capture proto.CaptureJSON
+	if err := json.Unmarshal([]byte(out), &capture); err != nil {
+		h.tb.Fatalf("captureJSON: %v\nraw: %s\n%s", err, out, h.diagnosticSnapshot("captureJSON failure"))
+	}
+	return capture
 }
 
 // jsonPane finds a pane by name in a CaptureJSON, or fails the test.
@@ -738,7 +773,6 @@ func (h *ServerHarness) waitIdle(pane string) {
 // generation returns the current layout generation counter.
 func (h *ServerHarness) generation() uint64 {
 	h.tb.Helper()
-
 	deadline := time.Now().Add(5 * time.Second)
 	var out string
 	for {
@@ -748,7 +782,7 @@ func (h *ServerHarness) generation() uint64 {
 			return n
 		}
 		if !isCommandConnectError(out) || !time.Now().Before(deadline) {
-			h.tb.Fatalf("parsing generation: %v (output: %q)", err, out)
+			h.tb.Fatalf("parsing generation: %v (output: %q)\n%s", err, out, h.diagnosticSnapshot("generation parse failure"))
 		}
 		time.Sleep(25 * time.Millisecond)
 	}

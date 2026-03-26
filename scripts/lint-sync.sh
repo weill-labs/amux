@@ -11,7 +11,7 @@ set -euo pipefail
 # Remove entries as they get refactored.
 ALLOWLIST=(
   # Production — tracked for conversion
-  "emulator.go"                        # vtEmulator.scrollbackMu — LAB-432
+  "hooks.go"                           # hooks.Registry RWMutex — LAB-427
   "client_conn.go"                     # clientConn.disconnectReasonMu — small, low priority
 
   # Third-party — not our code
@@ -25,10 +25,13 @@ ALLOWLIST=(
   "attach_session_test.go"             # test session/conn mocks
   "clock_test.go"                      # fakeClock and fakeTimer
   "wait_ready_test.go"                 # test wait-ready helpers
+  "hooks_test.go"                      # hook test recorder
   "pty_client_harness_test.go"         # PTY client test harness
   "capture_forward_test.go"            # capture test state tracking
   "amux_harness_test.go"              # nested harness startup serialization
   "daemon_test.go"                     # daemon test state tracking
+  "headless_client_test.go"            # test headless client connection bookkeeping
+  "server_harness_test.go"             # integration harness diagnostics bookkeeping
 )
 
 allowlist_pattern=$(printf "|%s" "${ALLOWLIST[@]}")

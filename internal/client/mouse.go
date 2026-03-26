@@ -90,11 +90,7 @@ func forwardMouseToPane(cr *ClientRenderer, sender *messageSender, target *paneM
 	if target == nil || !target.inContent {
 		return false
 	}
-	emu, ok := cr.Emulator(target.paneID)
-	if !ok {
-		return false
-	}
-	data := emu.EncodeMouse(ev, target.localX, target.localY)
+	data := cr.renderer.EncodeMouse(target.paneID, ev, target.localX, target.localY)
 	if len(data) == 0 {
 		return false
 	}
@@ -103,14 +99,14 @@ func forwardMouseToPane(cr *ClientRenderer, sender *messageSender, target *paneM
 }
 
 func paneAllowsMouseCopySelection(cr *ClientRenderer, paneID uint32) bool {
-	emu, ok := cr.Emulator(paneID)
+	interaction, ok := cr.renderer.PaneInteractionSnapshot(paneID)
 	if !ok {
 		return false
 	}
-	if emu.IsAltScreen() {
+	if interaction.AltScreen {
 		return false
 	}
-	return !emu.MouseProtocol().Enabled()
+	return !interaction.MouseProtocol.Enabled()
 }
 
 func globalBarWindowInfos(cr *ClientRenderer) []render.WindowInfo {
@@ -320,10 +316,9 @@ func handleMouseEvent(ev mouse.Event, cr *ClientRenderer, sender *messageSender,
 			return
 		}
 
-		emu, ok := cr.Emulator(target.paneID)
+		interaction, ok := cr.renderer.PaneInteractionSnapshot(target.paneID)
 		if ok {
-			protocol := emu.MouseProtocol()
-			if emu.IsAltScreen() || protocol.Enabled() {
+			if interaction.AltScreen || interaction.MouseProtocol.Enabled() {
 				forwardMouseToPane(cr, sender, target, ev)
 				return
 			}

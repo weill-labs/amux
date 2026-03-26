@@ -11,8 +11,11 @@ func TestRendererCloseClosesPaneEmulators(t *testing.T) {
 	r := NewWithScrollback(20, 4, mux.DefaultScrollbackLines)
 	r.HandleLayout(singlePane20x3())
 
-	emu, ok := r.Emulator(1)
-	if !ok {
+	var emu mux.TerminalEmulator
+	r.withActor(func(st *rendererActorState) {
+		emu = st.emulators[1]
+	})
+	if emu == nil {
 		t.Fatal("expected pane emulator")
 	}
 
@@ -34,8 +37,11 @@ func TestHandleLayoutClosesRemovedPaneEmulators(t *testing.T) {
 	// Start with two panes.
 	r.HandleLayout(twoPane80x23())
 
-	emu2, ok := r.Emulator(2)
-	if !ok {
+	var emu2 mux.TerminalEmulator
+	r.withActor(func(st *rendererActorState) {
+		emu2 = st.emulators[2]
+	})
+	if emu2 == nil {
 		t.Fatal("expected pane-2 emulator after two-pane layout")
 	}
 
@@ -48,8 +54,11 @@ func TestHandleLayoutClosesRemovedPaneEmulators(t *testing.T) {
 	}
 
 	// Surviving emulator should still work.
-	emu1, ok := r.Emulator(1)
-	if !ok {
+	var emu1 mux.TerminalEmulator
+	r.withActor(func(st *rendererActorState) {
+		emu1 = st.emulators[1]
+	})
+	if emu1 == nil {
 		t.Fatal("expected pane-1 emulator after layout transition")
 	}
 	if _, err := emu1.Write([]byte("\x1b[6n")); err != nil {

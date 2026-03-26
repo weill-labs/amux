@@ -81,13 +81,12 @@ func TestHistoryEmulatorSizeWheelScrollAndSubtreeVisibility(t *testing.T) {
 	cr.HandlePaneHistory(1, []string{"older-1", "older-2"})
 	cr.HandlePaneOutput(1, []byte("screen"))
 
-	emu, ok := cr.Emulator(1)
+	buffer, ok := cr.renderer.PaneBufferSnapshot(1, []string{"older-1"})
 	if !ok {
-		t.Fatal("Emulator(1) = missing")
+		t.Fatal("PaneBufferSnapshot(1) = missing")
 	}
-	h := &historyEmulator{emu: emu, baseHistory: []string{"older-1"}, scrollbackLines: 4}
-	if w, hgt := h.Size(); w != 20 || hgt != 2 {
-		t.Fatalf("historyEmulator.Size() = %dx%d, want 20x2", w, hgt)
+	if w, hgt := buffer.Size(); w != 20 || hgt != 2 {
+		t.Fatalf("PaneBufferSnapshot.Size() = %dx%d, want 20x2", w, hgt)
 	}
 
 	if got := cr.WheelScrollCopyMode(1, 1, true); got != copymode.ActionNone {
@@ -247,10 +246,6 @@ func TestLegacyKeyHelpersAndClientPaneDataAccessors(t *testing.T) {
 	cr.HandlePaneHistory(1, []string{"search target"})
 	cr.EnterCopyMode(1)
 
-	emu, ok := cr.Emulator(1)
-	if !ok {
-		t.Fatal("Emulator(1) = missing")
-	}
 	cm := cr.CopyModeForPane(1)
 	if cm == nil {
 		t.Fatal("CopyModeForPane(1) = nil")
@@ -258,7 +253,7 @@ func TestLegacyKeyHelpersAndClientPaneDataAccessors(t *testing.T) {
 	_ = cm.HandleInput([]byte{'/', 'o', 'l', 'd'})
 
 	pd := &clientPaneData{
-		emu: emu,
+		emu: newTestVTEmulator(20, 2),
 		info: proto.PaneSnapshot{
 			ID:         1,
 			Name:       "pane-1",

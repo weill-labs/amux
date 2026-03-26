@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"runtime"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -46,13 +45,13 @@ type Pane struct {
 	ActivePoint uint64 // monotonic counter — higher means more recently focused
 	Meta        PaneMeta
 
-	ptmx     *os.File
-	cmd      *exec.Cmd
-	process  *os.Process // set for restored panes (where cmd is nil)
-	emulator TerminalEmulator
+	ptmx          *os.File
+	cmd           *exec.Cmd
+	process       *os.Process // set for restored panes (where cmd is nil)
+	emulator      TerminalEmulator
+	actorCommands chan paneCommand
 
 	outputSeq        atomic.Uint64
-	snapshotSeq      atomic.Uint64
 	baseHistory      atomic.Pointer[paneBaseHistory]
 	scrollbackWidths atomic.Pointer[[]int]
 	scrollbackLines  int
@@ -153,6 +152,7 @@ func NewPaneWithScrollback(id uint32, meta PaneMeta, cols, rows int, sessionName
 	}
 	p.baseHistory.Store(&paneBaseHistory{})
 	wireScrollbackCallbacks(p)
+	p.startActor()
 	return p, nil
 }
 
@@ -226,6 +226,7 @@ func RestorePaneWithScrollback(id uint32, meta PaneMeta, ptmxFd, pid, cols, rows
 	}
 	p.baseHistory.Store(&paneBaseHistory{})
 	wireScrollbackCallbacks(p)
+	p.startActor()
 
 	// Start drain immediately so screen replay doesn't deadlock
 	// on the emulator's unbuffered response pipe.
@@ -242,24 +243,6 @@ func (p *Pane) CreatedAt() time.Time {
 // SetCreatedAt overrides the creation time (used to restore from checkpoint).
 func (p *Pane) SetCreatedAt(t time.Time) {
 	p.createdAt = t
-}
-
-func (p *Pane) beginSnapshotMutation() {
-	p.snapshotSeq.Add(1)
-}
-
-func (p *Pane) endSnapshotMutation() {
-	p.snapshotSeq.Add(1)
-}
-
-func (p *Pane) waitForStableSnapshot() uint64 {
-	for {
-		seq := p.snapshotSeq.Load()
-		if seq%2 == 0 {
-			return seq
-		}
-		runtime.Gosched()
-	}
 }
 
 func (p *Pane) loadBaseHistory() []string {
@@ -301,11 +284,13 @@ func (p *Pane) clearScrollbackWidths() {
 // ScrollbackSourceWidth returns the pane width at which the scrollback row
 // was originally wrapped. Returns zero when unknown.
 func (p *Pane) ScrollbackSourceWidth(row int) int {
-	widths := p.loadScrollbackWidths()
-	if row < 0 || row >= len(widths) {
-		return 0
-	}
-	return widths[row]
+	return paneActorValue(p, func() int {
+		widths := p.loadScrollbackWidths()
+		if row < 0 || row >= len(widths) {
+			return 0
+		}
+		return widths[row]
+	})
 }
 
 // PtmxFd returns the file descriptor number for the PTY master.
@@ -384,9 +369,9 @@ func (p *Pane) MetaManualBranch() bool {
 
 // ReplayScreen feeds screen data into the emulator to restore visual state.
 func (p *Pane) ReplayScreen(data string) {
-	p.beginSnapshotMutation()
-	p.emulator.Write([]byte(data))
-	p.endSnapshotMutation()
+	p.withActor(func() {
+		_, _ = p.emulator.Write([]byte(data))
+	})
 }
 
 // Start launches the goroutines that read PTY output and wait for exit.
@@ -477,11 +462,10 @@ func (p *Pane) drainResponses() {
 // applyOutput feeds PTY bytes into the retained emulator state and returns the
 // monotonically increasing output sequence included in that state.
 func (p *Pane) applyOutput(data []byte) uint64 {
-	p.beginSnapshotMutation()
-	p.emulator.Write(data)
-	seq := p.outputSeq.Add(1)
-	p.endSnapshotMutation()
-	return seq
+	return paneActorValue(p, func() uint64 {
+		_, _ = p.emulator.Write(data)
+		return p.outputSeq.Add(1)
+	})
 }
 
 // waitLoop waits for the shell process to exit. Closes exitDone so that
@@ -527,29 +511,32 @@ func (p *Pane) Write(data []byte) (int, error) {
 
 // EmulatorSize returns the current emulator dimensions.
 func (p *Pane) EmulatorSize() (cols, rows int) {
-	if p.emulator != nil {
-		return p.emulator.Size()
-	}
-	return 0, 0
+	p.withActor(func() {
+		if p.emulator != nil {
+			cols, rows = p.emulator.Size()
+			return
+		}
+	})
+	return cols, rows
 }
 
 // Resize changes the PTY and emulator dimensions.
 func (p *Pane) Resize(cols, rows int) error {
-	p.beginSnapshotMutation()
-	defer p.endSnapshotMutation()
-	sizeChanged := true
-	if p.emulator != nil {
-		currentCols, currentRows := p.emulator.Size()
-		sizeChanged = currentCols != cols || currentRows != rows
-		p.emulator.Resize(cols, rows)
-	}
-	if err := p.resizePTY(cols, rows); err != nil {
-		return err
-	}
-	if sizeChanged {
-		p.notifyResizeSignal()
-	}
-	return nil
+	return paneActorValue(p, func() error {
+		sizeChanged := true
+		if p.emulator != nil {
+			currentCols, currentRows := p.emulator.Size()
+			sizeChanged = currentCols != cols || currentRows != rows
+			p.emulator.Resize(cols, rows)
+		}
+		if err := p.resizePTY(cols, rows); err != nil {
+			return err
+		}
+		if sizeChanged {
+			p.notifyResizeSignal()
+		}
+		return nil
+	})
 }
 
 func (p *Pane) resizePTY(cols, rows int) error {
@@ -566,36 +553,35 @@ func (p *Pane) resizePTY(cols, rows int) error {
 // Used by the compositor via PaneData.RenderScreen(). For the reattach
 // snapshot (which needs cursor positioning embedded), use RenderScreen().
 func (p *Pane) Render() string {
-	return p.emulator.Render()
+	return paneActorValue(p, func() string {
+		return p.emulator.Render()
+	})
 }
 
 // RenderScreen returns the screen state with a trailing cursor-position escape.
 // Used when sending a reattach snapshot to a reconnecting client so the
 // client-side emulator seeds the correct cursor position.
 func (p *Pane) RenderScreen() string {
-	return RenderWithCursor(p.emulator)
+	return paneActorValue(p, func() string {
+		return RenderWithCursor(p.emulator)
+	})
 }
 
 // HistoryScreenSnapshot returns a consistent snapshot of retained scrollback,
 // current screen, and the latest live-output sequence included in that state.
 func (p *Pane) HistoryScreenSnapshot() (history []string, screen string, seq uint64) {
-	for {
-		before := p.waitForStableSnapshot()
+	p.withActor(func() {
 		history = p.combinedScrollback(p.loadBaseHistory())
 		screen = RenderWithCursor(p.emulator)
 		seq = p.outputSeq.Load()
-		after := p.snapshotSeq.Load()
-		if before == after && after%2 == 0 {
-			return history, screen, seq
-		}
-	}
+	})
+	return history, screen, seq
 }
 
 // CaptureSnapshot returns a consistent plain-text snapshot of retained
 // scrollback, visible screen content, and cursor state.
 func (p *Pane) CaptureSnapshot() CaptureSnapshot {
-	for {
-		before := p.waitForStableSnapshot()
+	return paneActorValue(p, func() CaptureSnapshot {
 		baseHistory := p.loadBaseHistory()
 		liveHistory := EmulatorScrollbackHistoryLines(p.emulator, p.loadScrollbackWidths())
 		baseHistory, liveHistory, history := p.captureScrollback(baseHistory, liveHistory)
@@ -619,11 +605,8 @@ func (p *Pane) CaptureSnapshot() CaptureSnapshot {
 			snap.CursorBlockRow = blockRow
 			snap.HasCursorBlock = true
 		}
-		after := p.snapshotSeq.Load()
-		if before == after && after%2 == 0 {
-			return snap
-		}
-	}
+		return snap
+	})
 }
 
 func (p *Pane) captureScrollback(baseHistory []string, liveHistory []CaptureHistoryLine) ([]string, []CaptureHistoryLine, []string) {
@@ -666,96 +649,111 @@ func captureHistoryLineText(lines []CaptureHistoryLine) []string {
 // RenderWithoutCursorBlock returns the screen with the cursor cell's
 // reverse-video attribute cleared, so inactive panes don't show a block cursor.
 func (p *Pane) RenderWithoutCursorBlock() string {
-	return p.emulator.RenderWithoutCursorBlock()
+	return paneActorValue(p, func() string {
+		return p.emulator.RenderWithoutCursorBlock()
+	})
 }
 
 // HasCursorBlock returns true if the pane contains an app-rendered block cursor.
 func (p *Pane) HasCursorBlock() bool {
-	return p.emulator.HasCursorBlock()
+	return paneActorValue(p, func() bool {
+		return p.emulator.HasCursorBlock()
+	})
 }
 
 // CursorBlockPos returns the app-drawn block cursor position, if present.
 func (p *Pane) CursorBlockPos() (col, row int, ok bool) {
-	return p.emulator.CursorBlockPosition()
+	p.withActor(func() {
+		col, row, ok = p.emulator.CursorBlockPosition()
+	})
+	return col, row, ok
 }
 
 // CursorPos returns the cursor position within this pane (0-indexed).
 func (p *Pane) CursorPos() (col, row int) {
-	return p.emulator.CursorPosition()
+	p.withActor(func() {
+		col, row = p.emulator.CursorPosition()
+	})
+	return col, row
 }
 
 // CursorHidden returns true if the application running in this pane has
 // hidden the hardware cursor (e.g. via \033[?25l).
 func (p *Pane) CursorHidden() bool {
-	return p.emulator.CursorHidden()
+	return paneActorValue(p, func() bool {
+		return p.emulator.CursorHidden()
+	})
 }
 
 // Output returns the last N lines of visible pane content from the emulator.
 func (p *Pane) Output(lines int) string {
-	_, rows := p.emulator.Size()
-	var result []string
-	for y := rows - 1; y >= 0 && len(result) < lines; y-- {
-		plain := p.emulator.ScreenLineText(y)
-		if plain != "" {
-			result = append([]string{plain}, result...)
+	return paneActorValue(p, func() string {
+		_, rows := p.emulator.Size()
+		result := make([]string, 0, lines)
+		for y := rows - 1; y >= 0 && len(result) < lines; y-- {
+			plain := p.emulator.ScreenLineText(y)
+			if plain != "" {
+				result = append([]string{plain}, result...)
+			}
 		}
-	}
-	return strings.Join(result, "\n")
+		return strings.Join(result, "\n")
+	})
 }
 
 // ContentLines returns all visible screen lines as a slice of plain text strings.
 // Every row from 0 to height-1 is represented (len(result) == pane height).
 // Lines are right-trimmed of trailing whitespace.
 func (p *Pane) ContentLines() []string {
-	return EmulatorContentLines(p.emulator)
+	return paneActorValue(p, func() []string {
+		return EmulatorContentLines(p.emulator)
+	})
 }
 
 // ScrollbackLines returns retained plain-text scrollback lines from oldest to
 // newest.
 func (p *Pane) ScrollbackLines() []string {
-	for {
-		before := p.waitForStableSnapshot()
-		lines := p.combinedScrollback(p.loadBaseHistory())
-		after := p.snapshotSeq.Load()
-		if before == after && after%2 == 0 {
-			return lines
-		}
-	}
+	return paneActorValue(p, func() []string {
+		return p.combinedScrollback(p.loadBaseHistory())
+	})
 }
 
 // OutputSeq reports the latest live-output sequence applied to the emulator.
 func (p *Pane) OutputSeq() uint64 {
-	return p.outputSeq.Load()
+	return paneActorValue(p, func() uint64 {
+		return p.outputSeq.Load()
+	})
 }
 
 // SetRetainedHistory replaces the retained pre-attach/pre-reload history base
 // for this pane. New live scrollback from the emulator is combined on top.
 func (p *Pane) SetRetainedHistory(lines []string) {
-	p.beginSnapshotMutation()
-	defer p.endSnapshotMutation()
-	limit := effectiveScrollbackLines(p.scrollbackLines)
-	if len(lines) > limit {
-		lines = lines[len(lines)-limit:]
-	}
-	p.baseHistory.Store(&paneBaseHistory{lines: append([]string(nil), lines...)})
+	p.withActor(func() {
+		limit := effectiveScrollbackLines(p.scrollbackLines)
+		if len(lines) > limit {
+			lines = lines[len(lines)-limit:]
+		}
+		p.baseHistory.Store(&paneBaseHistory{lines: append([]string(nil), lines...)})
+	})
 }
 
 // ResetState clears retained pane history and resets the terminal emulator to a
 // blank default screen without touching the underlying PTY or process.
 func (p *Pane) ResetState() {
-	p.beginSnapshotMutation()
-	defer p.endSnapshotMutation()
-	p.baseHistory.Store(&paneBaseHistory{})
-	p.clearScrollbackWidths()
-	if p.emulator != nil {
-		p.emulator.Reset()
-	}
+	p.withActor(func() {
+		p.baseHistory.Store(&paneBaseHistory{})
+		p.clearScrollbackWidths()
+		if p.emulator != nil {
+			p.emulator.Reset()
+		}
+	})
 }
 
 // ScreenContains returns true if substr appears in the pane's visible screen
 // content, matching across soft-wrapped lines.
 func (p *Pane) ScreenContains(substr string) bool {
-	return p.emulator.ScreenContains(substr)
+	return paneActorValue(p, func() bool {
+		return p.emulator.ScreenContains(substr)
+	})
 }
 
 // shellProcess returns the *os.Process for the pane's shell, or nil for proxy panes.
@@ -824,6 +822,7 @@ func NewProxyPaneWithScrollback(id uint32, meta PaneMeta, cols, rows int,
 	}
 	p.baseHistory.Store(&paneBaseHistory{})
 	wireScrollbackCallbacks(p)
+	p.startActor()
 	// Start drain goroutine for emulator responses (DA replies etc.)
 	// that would otherwise block the emulator's pipe.
 	go p.drainResponsesDiscard()

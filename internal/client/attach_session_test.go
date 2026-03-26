@@ -421,11 +421,11 @@ func TestReadAttachBootstrapAppliesZoomedReplayBeforeReturn(t *testing.T) {
 		t.Fatalf("readAttachBootstrap: %v", err)
 	}
 
-	emu, ok := cr.Emulator(2)
+	w, h, ok := cr.renderer.PaneSize(2)
 	if !ok {
 		t.Fatal("zoomed pane-2 emulator missing")
 	}
-	if w, h := emu.Size(); w != 80 || h != 22 {
+	if w != 80 || h != 22 {
 		t.Fatalf("zoomed pane-2 size after bootstrap = %dx%d, want 80x22", w, h)
 	}
 
@@ -505,11 +505,11 @@ func TestReadAttachBootstrapAppliesImmediateReattachResizeCorrectionBeforeReturn
 		t.Fatalf("readAttachBootstrap: %v", err)
 	}
 
-	emu, ok := cr.Emulator(1)
+	w, h, ok := cr.renderer.PaneSize(1)
 	if !ok {
 		t.Fatal("pane-1 emulator missing")
 	}
-	if w, h := emu.Size(); w != 120 || h != 38 {
+	if w != 120 || h != 38 {
 		t.Fatalf("pane-1 emulator size after bootstrap = %dx%d, want 120x38", w, h)
 	}
 

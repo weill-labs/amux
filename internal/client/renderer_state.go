@@ -10,7 +10,6 @@ import (
 )
 
 type rendererSnapshot struct {
-	emulators       map[uint32]mux.TerminalEmulator
 	paneInfo        map[uint32]proto.PaneSnapshot
 	paneOrder       []uint32
 	layout          *mux.LayoutCell
@@ -29,7 +28,6 @@ type rendererSnapshot struct {
 
 func newRendererSnapshot(width, height, scrollbackLines int) *rendererSnapshot {
 	return &rendererSnapshot{
-		emulators:       make(map[uint32]mux.TerminalEmulator),
 		paneInfo:        make(map[uint32]proto.PaneSnapshot),
 		width:           width,
 		height:          height,
@@ -78,6 +76,7 @@ type rendererCommand struct {
 
 type rendererActorState struct {
 	snapshot   *rendererSnapshot
+	emulators  map[uint32]mux.TerminalEmulator
 	compositor *render.Compositor
 }
 
@@ -102,6 +101,7 @@ func (r *Renderer) withActor(run func(*rendererActorState)) {
 func (r *Renderer) actorLoop(initial *rendererSnapshot, width, height int) {
 	state := &rendererActorState{
 		snapshot:   initial,
+		emulators:  make(map[uint32]mux.TerminalEmulator),
 		compositor: render.NewCompositor(width, height, ""),
 	}
 	for cmd := range r.commands {
@@ -112,13 +112,13 @@ func (r *Renderer) actorLoop(initial *rendererSnapshot, width, height int) {
 
 func withRendererActorValue[T any](r *Renderer, run func(*rendererActorState) T) T {
 	done := make(chan struct{})
-	var value T
+	result := make(chan T, 1)
 	r.commands <- rendererCommand{
 		run: func(st *rendererActorState) {
-			value = run(st)
+			result <- run(st)
 		},
 		done: done,
 	}
 	<-done
-	return value
+	return <-result
 }

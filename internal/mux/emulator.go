@@ -122,9 +122,9 @@ func (p MouseProtocol) Enabled() bool {
 	return p.Tracking != MouseTrackingNone
 }
 
-// vtEmulator wraps charmbracelet/x/vt.SafeEmulator.
+// vtEmulator wraps charmbracelet/x/vt.Emulator.
 type vtEmulator struct {
-	emu               *vt.SafeEmulator
+	emu               *vt.Emulator
 	w                 atomic.Int32
 	h                 atomic.Int32
 	cursorHidden      atomic.Bool
@@ -147,7 +147,7 @@ const (
 func NewVTEmulatorWithScrollback(width, height, scrollbackLines int) TerminalEmulator {
 	limit := effectiveScrollbackLines(scrollbackLines)
 	v := &vtEmulator{
-		emu:             vt.NewSafeEmulator(width, height),
+		emu:             vt.NewEmulator(width, height),
 		scrollbackLimit: limit,
 	}
 	v.w.Store(int32(width))
