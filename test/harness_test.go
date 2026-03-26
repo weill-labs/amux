@@ -169,6 +169,8 @@ func cleanupStaleTestSessions() {
 	if hasOtherActiveTestRun(socketDir, os.Getpid()) {
 		return
 	}
+	liveOwnedSessions := make(map[string]bool)
+	staleSessions := make(map[string]bool)
 
 	// Kill orphaned amux server processes, but only if their socket is stale
 	out, _ := exec.Command("pgrep", "-fl", "amux _server t-").Output()
@@ -176,10 +178,15 @@ func cleanupStaleTestSessions() {
 		fields := strings.Fields(line)
 		if len(fields) >= 3 && isTestSession(fields[len(fields)-1]) {
 			session := fields[len(fields)-1]
+			if serverHasLiveTestParent(fields[0]) {
+				liveOwnedSessions[session] = true
+				continue
+			}
 			if isSocketAlive(filepath.Join(socketDir, session)) {
 				continue // server is live, don't kill
 			}
-			exec.Command("kill", fields[0]).Run()
+			staleSessions[session] = true
+			killStaleServerProcess(fields[0])
 		}
 	}
 
@@ -189,10 +196,15 @@ func cleanupStaleTestSessions() {
 		fields := strings.Fields(line)
 		if len(fields) >= 3 && isBenchSession(fields[len(fields)-1]) {
 			session := fields[len(fields)-1]
+			if serverHasLiveTestParent(fields[0]) {
+				liveOwnedSessions[session] = true
+				continue
+			}
 			if isSocketAlive(filepath.Join(socketDir, session)) {
 				continue
 			}
-			exec.Command("kill", fields[0]).Run()
+			staleSessions[session] = true
+			killStaleServerProcess(fields[0])
 		}
 	}
 
@@ -209,7 +221,7 @@ func cleanupStaleTestSessions() {
 	// Kill orphaned client processes still connected to dead test sockets.
 	// These survive after their server is killed because they hold open
 	// Unix socket connections. Use a single lsof call for efficiency.
-	killOrphanedTestClients(socketDir)
+	killOrphanedTestClients(socketDir, staleSessions)
 
 	// Clean up stale sockets, log files, and lock files
 	entries, _ := os.ReadDir(socketDir)
@@ -220,6 +232,9 @@ func cleanupStaleTestSessions() {
 		// client startup locks (c<digits>.start.lock)
 		if strings.HasSuffix(name, ".start.lock") {
 			base := strings.TrimSuffix(name, ".start.lock")
+			if liveOwnedSessions[base] {
+				continue
+			}
 			if isTestSession(base) || isBenchSession(base) || isClientLock(base) {
 				os.Remove(filepath.Join(socketDir, name))
 				continue
@@ -227,6 +242,9 @@ func cleanupStaleTestSessions() {
 		}
 
 		base := strings.TrimSuffix(name, ".log")
+		if liveOwnedSessions[base] {
+			continue
+		}
 		if isTestSession(base) || isBenchSession(base) {
 			sockPath := filepath.Join(socketDir, base)
 			if !isSocketAlive(sockPath) {
@@ -289,10 +307,13 @@ func processExists(pid int) bool {
 	return err == nil || err == syscall.EPERM
 }
 
-// killOrphanedTestClients kills amux client processes connected to dead test
-// session sockets. Uses a single lsof call to find all amux Unix socket
-// connections, then kills those connected to stale test session paths.
-func killOrphanedTestClients(socketDir string) {
+// killOrphanedTestClients kills amux client processes still connected to
+// sockets for sessions already proven stale by cleanupStaleTestSessions.
+// Live sockets and server processes must be left alone.
+func killOrphanedTestClients(socketDir string, staleSessions map[string]bool) {
+	if len(staleSessions) == 0 {
+		return
+	}
 	out, err := exec.Command("lsof", "-U", "-c", "amux", "-F", "pn").Output()
 	if err != nil {
 		return
@@ -313,13 +334,55 @@ func killOrphanedTestClients(socketDir string) {
 			if at := strings.Index(session, "@"); at >= 0 {
 				session = session[:at]
 			}
-			if !isTestSession(session) && !isBenchSession(session) {
+			if !staleSessions[session] {
 				continue
 			}
-			// The server is already dead (we killed it above), so kill the client
+			pid, err := strconv.Atoi(currentPid)
+			if err != nil {
+				continue
+			}
+			if serverProcessMatchesSession(pid, session) {
+				continue
+			}
 			exec.Command("kill", currentPid).Run()
 		}
 	}
+}
+
+func killStaleServerProcess(pidStr string) {
+	pid, err := strconv.Atoi(pidStr)
+	if err != nil || pid <= 0 {
+		return
+	}
+	if pgid, err := syscall.Getpgid(pid); err == nil && pgid == pid {
+		_ = syscall.Kill(-pid, syscall.SIGKILL)
+		return
+	}
+	killChildrenByPid(pid)
+	_ = syscall.Kill(pid, syscall.SIGKILL)
+}
+
+func serverHasLiveTestParent(pidStr string) bool {
+	pid, err := strconv.Atoi(pidStr)
+	if err != nil || pid <= 0 {
+		return false
+	}
+
+	ppidOut, err := exec.Command("ps", "-o", "ppid=", "-p", strconv.Itoa(pid)).Output()
+	if err != nil {
+		return false
+	}
+	ppid, err := strconv.Atoi(strings.TrimSpace(string(ppidOut)))
+	if err != nil || ppid <= 1 {
+		return false
+	}
+
+	parentOut, err := exec.Command("ps", "-o", "command=", "-p", strconv.Itoa(ppid)).Output()
+	if err != nil {
+		return false
+	}
+	parentCmd := strings.TrimSpace(string(parentOut))
+	return strings.Contains(parentCmd, "test.test")
 }
 
 // isClientLock returns true if name matches the client startup lock pattern: c<digits>

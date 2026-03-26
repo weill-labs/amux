@@ -534,7 +534,9 @@ func TestEventsCLI(t *testing.T) {
 	// Shut down the server so the events client exits normally (via broken
 	// pipe / EOF), allowing the -cover runtime to flush coverage data.
 	// Kill sends SIGKILL which skips coverage flush.
-	h.cmd.Process.Signal(os.Interrupt)
+	if err := h.signalServer(os.Interrupt); err != nil {
+		t.Fatalf("interrupting server: %v", err)
+	}
 	if err := proc.wait(5 * time.Second); err != nil {
 		t.Fatalf("events CLI exited with error: %v\nstderr:\n%s", err, proc.stderrString())
 	}
@@ -620,7 +622,7 @@ func TestEventsCLIReconnectExitsAfterRetryCap(t *testing.T) {
 		t.Fatalf("first CLI event type: got %q, want layout", ev.Type)
 	}
 
-	if err := h.cmd.Process.Signal(os.Interrupt); err != nil {
+	if err := h.signalServer(os.Interrupt); err != nil {
 		t.Fatalf("stopping server: %v", err)
 	}
 	h.waitForShutdownSignal(5 * time.Second)
