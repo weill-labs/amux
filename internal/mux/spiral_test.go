@@ -220,8 +220,8 @@ func TestApplySpiralAddPlanErrors(t *testing.T) {
 			fakePaneID(p1.ID),
 			SplitOptions{KeepFocus: true},
 		)
-		if err == nil || err.Error() != "cannot swap lead pane across columns" {
-			t.Fatalf("ApplySpiralAddPlan swap error = %v, want lead swap error", err)
+		if err == nil || err.Error() != "cannot operate on lead pane" {
+			t.Fatalf("ApplySpiralAddPlan swap error = %v, want lead pane error", err)
 		}
 	})
 }
