@@ -201,6 +201,31 @@ func TestClientConnBootstrappingStateTracksLifecycle(t *testing.T) {
 	}
 }
 
+func mustSetupSinglePaneSession(t *testing.T, sess *Session, writeOverride func([]byte) (int, error)) *mux.Pane {
+	t.Helper()
+
+	pane := newProxyPane(1, mux.PaneMeta{
+		Name:  "pane-1",
+		Host:  mux.DefaultHost,
+		Color: "f5e0dc",
+	}, 80, 23, nil, nil, writeOverride)
+	w := mux.NewWindow(pane, 80, 23)
+	w.ID = 1
+	w.Name = "window-1"
+
+	res := sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
+		sess.Windows = []*mux.Window{w}
+		sess.ActiveWindowID = w.ID
+		sess.Panes = []*mux.Pane{pane}
+		return commandMutationResult{}
+	})
+	if res.err != nil {
+		t.Fatalf("setup session: %v", res.err)
+	}
+
+	return pane
+}
+
 func TestClientConnInputDoesNotBlockOnBusySessionActor(t *testing.T) {
 	t.Parallel()
 
@@ -228,27 +253,10 @@ func TestClientConnInputDoesNotBlockOnBusySessionActor(t *testing.T) {
 			defer stopSessionBackgroundLoops(t, sess)
 
 			writes := make(chan []byte, 1)
-			pane := newProxyPane(1, mux.PaneMeta{
-				Name:  "pane-1",
-				Host:  mux.DefaultHost,
-				Color: "f5e0dc",
-			}, 80, 23, nil, nil, func(data []byte) (int, error) {
+			mustSetupSinglePaneSession(t, sess, func(data []byte) (int, error) {
 				writes <- append([]byte(nil), data...)
 				return len(data), nil
 			})
-			w := mux.NewWindow(pane, 80, 23)
-			w.ID = 1
-			w.Name = "window-1"
-
-			res := sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
-				sess.Windows = []*mux.Window{w}
-				sess.ActiveWindowID = w.ID
-				sess.Panes = []*mux.Pane{pane}
-				return commandMutationResult{}
-			})
-			if res.err != nil {
-				t.Fatalf("setup session: %v", res.err)
-			}
 
 			release := make(chan struct{})
 			blocker := blockingSessionEvent{entered: make(chan struct{}), release: release}
@@ -334,11 +342,7 @@ func TestClientConnLiveInputDoesNotBlockOnBlockedPaneWriter(t *testing.T) {
 			started := make(chan struct{}, 1)
 			writes := make(chan []byte, 2)
 
-			pane := newProxyPane(1, mux.PaneMeta{
-				Name:  "pane-1",
-				Host:  mux.DefaultHost,
-				Color: "f5e0dc",
-			}, 80, 23, nil, nil, func(data []byte) (int, error) {
+			mustSetupSinglePaneSession(t, sess, func(data []byte) (int, error) {
 				copyData := append([]byte(nil), data...)
 				if string(copyData) == "first" {
 					started <- struct{}{}
@@ -347,19 +351,6 @@ func TestClientConnLiveInputDoesNotBlockOnBlockedPaneWriter(t *testing.T) {
 				writes <- copyData
 				return len(data), nil
 			})
-			w := mux.NewWindow(pane, 80, 23)
-			w.ID = 1
-			w.Name = "window-1"
-
-			res := sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
-				sess.Windows = []*mux.Window{w}
-				sess.ActiveWindowID = w.ID
-				sess.Panes = []*mux.Pane{pane}
-				return commandMutationResult{}
-			})
-			if res.err != nil {
-				t.Fatalf("setup session: %v", res.err)
-			}
 
 			serverConn, peerConn := net.Pipe()
 			t.Cleanup(func() { peerConn.Close() })
