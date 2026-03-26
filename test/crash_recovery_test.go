@@ -157,11 +157,11 @@ func TestCrashRecovery_CheckpointIsValidJSON(t *testing.T) {
 	h := newServerHarness(t)
 	h.splitV()
 
-	cpPath, _ := waitForScannedCrashCheckpointMatch(t, h, crashCheckpointTestTimeout, "checkpoint with split panes", func(cp checkpoint.CrashCheckpoint) bool {
+	cpWrite, _ := waitForCrashCheckpointMatch(t, h, 0, crashCheckpointTestTimeout, "checkpoint with split panes", func(cp checkpoint.CrashCheckpoint) bool {
 		return len(cp.PaneStates) >= 2 && len(cp.Layout.Windows) > 0
 	})
 
-	data, err := os.ReadFile(cpPath)
+	data, err := os.ReadFile(cpWrite.path)
 	if err != nil {
 		t.Fatalf("reading checkpoint: %v", err)
 	}
@@ -427,44 +427,6 @@ func waitForCrashCheckpointPaneContains(t *testing.T, h *ServerHarness, paneName
 	return waitForCrashCheckpointMatch(t, h, afterGen, timeout, fmt.Sprintf("fresh checkpoint containing %v for %s", substrs, paneName), func(cp checkpoint.CrashCheckpoint) bool {
 		return (cp.Timestamp.After(prev.Timestamp) || cp.Generation > prev.Generation) && crashCheckpointPaneContains(cp, paneName, substrs...)
 	})
-}
-
-func waitForScannedCrashCheckpointMatch(t *testing.T, h *ServerHarness, timeout time.Duration, desc string, match func(cp checkpoint.CrashCheckpoint) bool) (string, checkpoint.CrashCheckpoint) {
-	t.Helper()
-
-	deadline := time.Now().Add(timeout)
-	ticker := time.NewTicker(25 * time.Millisecond)
-	defer ticker.Stop()
-
-	dir := filepath.Join(h.home, ".local", "state", "amux")
-	if xdg := os.Getenv("XDG_STATE_HOME"); xdg != "" {
-		dir = filepath.Join(xdg, "amux")
-	}
-	var (
-		lastPath string
-		lastCP   checkpoint.CrashCheckpoint
-	)
-	for time.Now().Before(deadline) {
-		entries, err := os.ReadDir(dir)
-		if err == nil {
-			for _, entry := range entries {
-				if entry.IsDir() || !strings.HasSuffix(entry.Name(), "_"+h.session+".json") {
-					continue
-				}
-				path := filepath.Join(dir, entry.Name())
-				cp := readCrashCheckpoint(t, path)
-				lastPath = path
-				lastCP = cp
-				if match(cp) {
-					return path, cp
-				}
-			}
-		}
-		<-ticker.C
-	}
-
-	t.Fatalf("scanned crash checkpoint %s did not reach %s within %v; latest path=%s timestamp=%s generation=%d (%s)\n%s", lastPath, desc, timeout, lastPath, lastCP.Timestamp.Format(time.RFC3339Nano), lastCP.Generation, h.runtimeState(), h.diagnosticSnapshot("scanned crash checkpoint timeout"))
-	return "", checkpoint.CrashCheckpoint{}
 }
 
 func crashCheckpointPaneContains(cp checkpoint.CrashCheckpoint, paneName string, substrs ...string) bool {

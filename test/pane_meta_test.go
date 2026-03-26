@@ -501,7 +501,7 @@ func TestPaneMetaSurvivesCrashRecovery(t *testing.T) {
 		t.Fatalf("add-meta output = %q, want empty", out)
 	}
 
-	_, _ = waitForScannedCrashCheckpointMatch(t, h, crashCheckpointTestTimeout, "checkpoint with pane metadata", func(cp checkpoint.CrashCheckpoint) bool {
+	_, _ = waitForCrashCheckpointMatch(t, h, 0, crashCheckpointTestTimeout, "checkpoint with pane metadata", func(cp checkpoint.CrashCheckpoint) bool {
 		ps, ok := findCrashCheckpointPane(cp, "pane-1")
 		if !ok {
 			return false
