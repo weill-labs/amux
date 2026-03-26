@@ -25,9 +25,8 @@ type Renderer struct {
 	scrollbackLines int
 	closeOnce       sync.Once
 
-	// OnPaneResize is called during HandleLayout for each non-minimized pane
-	// after its emulator is resized. The main package uses this to resize
-	// copy mode instances. May be nil.
+	// OnPaneResize is called during HandleLayout after an emulator is resized.
+	// The main package uses this to resize copy mode instances. May be nil.
 	OnPaneResize func(paneID uint32, w, h int)
 }
 
@@ -99,12 +98,7 @@ func (r *Renderer) HandleLayout(snap *proto.LayoutSnapshot) bool {
 			next.paneInfo[ps.ID] = ps
 			emu := prev.emulators[ps.ID]
 			if emu == nil {
-				var w, h int
-				if ps.Minimized && ps.EmuWidth > 0 && ps.EmuHeight > 0 {
-					w, h = ps.EmuWidth, ps.EmuHeight
-				} else {
-					w, h = proto.FindPaneDimensions(snap, activeRoot, ps.ID, mux.PaneContentHeight)
-				}
+				w, h := proto.FindPaneDimensions(snap, activeRoot, ps.ID, mux.PaneContentHeight)
 				emu = mux.NewVTEmulatorWithDrainAndScrollback(w, h, prev.scrollbackLines)
 			}
 			next.emulators[ps.ID] = emu
@@ -127,7 +121,6 @@ func (r *Renderer) HandleLayout(snap *proto.LayoutSnapshot) bool {
 			// max-size snapshot.
 			next.layout.ResizeAll(next.width, clientLayoutH)
 		}
-		normalizeMinimizedLayout(next.layout, next.paneInfo)
 		r.resizeSnapshotEmulators(next)
 
 		st.compositor.SetSessionName(snap.SessionName)
@@ -179,7 +172,6 @@ func (r *Renderer) Resize(width, height int) {
 			next.layout = mux.CloneLayout(prev.layout)
 			layoutH := height - render.GlobalBarHeight
 			next.layout.ResizeAll(width, layoutH)
-			normalizeMinimizedLayout(next.layout, next.paneInfo)
 		}
 		st.compositor.Resize(width, height)
 		r.resizeSnapshotEmulators(&next)
@@ -451,7 +443,6 @@ func (r *Renderer) buildCapturePane(snap *rendererSnapshot, paneID uint32, agent
 		ID:         info.ID,
 		Name:       info.Name,
 		Active:     info.ID == snap.activePaneID,
-		Minimized:  info.Minimized,
 		Zoomed:     info.ID == snap.zoomedPaneID,
 		Host:       info.Host,
 		Task:       info.Task,
@@ -490,24 +481,11 @@ func (r *Renderer) mergeOverlay(snap *rendererSnapshot, overlay render.OverlaySt
 	return overlay
 }
 
-func normalizeMinimizedLayout(root *mux.LayoutCell, paneInfo map[uint32]proto.PaneSnapshot) {
-	if root == nil {
-		return
-	}
-	root.NormalizeMinimizedHeights(func(c *mux.LayoutCell) bool {
-		info, ok := paneInfo[c.CellPaneID()]
-		return ok && info.Minimized
-	})
-}
-
 func (r *Renderer) resizeSnapshotEmulators(next *rendererSnapshot) {
 	if next.layout != nil {
 		next.layout.Walk(func(cell *mux.LayoutCell) {
 			emu := next.emulators[cell.PaneID]
 			if emu == nil {
-				return
-			}
-			if info, ok := next.paneInfo[cell.PaneID]; ok && info.Minimized {
 				return
 			}
 			if cell.PaneID == next.zoomedPaneID {

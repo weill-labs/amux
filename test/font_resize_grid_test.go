@@ -61,25 +61,6 @@ func TestFontResize_ZoomedGridReturnsToOriginalLayout(t *testing.T) {
 	}
 }
 
-func TestFontResize_MinimizeRestoreGridReturnsToOriginalLayout(t *testing.T) {
-	t.Parallel()
-	h := newAmuxHarness(t)
-
-	makeThreeByThreeGrid(t, h)
-	makeGridUneven(t, h)
-
-	initial := capturePanePositions(h)
-
-	runLayoutCommand(t, h, "minimize", "pane-1")
-	resizeRoundTrip(t, h)
-	runLayoutCommand(t, h, "restore", "pane-1")
-
-	final := capturePanePositions(h)
-	if diff := diffPanePositions(initial, final); diff != "" {
-		t.Fatalf("minimize/restore grid drifted after grow/shrink cycle:\n%s", diff)
-	}
-}
-
 func TestFontResize_RepeatedManualResizesReturnToBaseline(t *testing.T) {
 	t.Parallel()
 	h := newAmuxHarness(t)

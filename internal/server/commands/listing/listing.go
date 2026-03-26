@@ -187,14 +187,12 @@ func truncateListTail(s string, max int) string {
 
 type SessionStatus struct {
 	Total       int
-	Minimized   int
 	WindowCount int
 	Zoomed      string
 }
 
 func FormatStatus(snap SessionStatus, buildVersion string) string {
-	active := snap.Total - snap.Minimized
-	statusLine := fmt.Sprintf("windows: %d, panes: %d total, %d active, %d minimized", snap.WindowCount, snap.Total, active, snap.Minimized)
+	statusLine := fmt.Sprintf("windows: %d, panes: %d total", snap.WindowCount, snap.Total)
 	if snap.Zoomed != "" {
 		statusLine += fmt.Sprintf(", %s zoomed", snap.Zoomed)
 	}

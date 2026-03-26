@@ -45,37 +45,26 @@ func (w *Window) SnapshotWindow(index int) proto.WindowSnapshot {
 	}
 }
 
-// ToSnapshot converts a Pane to a PaneSnapshot. For minimized panes,
-// includes the emulator's actual dimensions so clients create correctly-sized
-// emulators (the cell dimensions are shrunk to just the status bar).
 func (p *Pane) ToSnapshot() proto.PaneSnapshot {
-	ps := proto.PaneSnapshot{
+	return proto.PaneSnapshot{
 		ID:         p.ID,
 		Name:       p.Meta.Name,
 		Host:       p.Meta.Host,
 		Task:       p.Meta.Task,
 		Color:      p.Meta.Color,
-		Minimized:  p.Meta.Minimized,
 		ConnStatus: p.Meta.Remote,
 		GitBranch:  p.Meta.GitBranch,
 		PR:         p.Meta.PR,
 		PRs:        append([]int(nil), p.Meta.PRs...),
 		Issues:     append([]string(nil), p.Meta.Issues...),
 	}
-	if p.Meta.Minimized {
-		ps.EmuWidth, ps.EmuHeight = p.EmulatorSize()
-	}
-	return ps
 }
 
 func snapshotCell(c *LayoutCell) proto.CellSnapshot {
 	cs := proto.CellSnapshot{
 		X: c.X, Y: c.Y, W: c.W, H: c.H,
-		IsLeaf:          c.IsLeaf(),
-		Dir:             -1,
-		DissolveHost:    c.DissolveHost,
-		DissolvedColumn: c.DissolvedColumn,
-		RestoreW:        c.RestoreW,
+		IsLeaf: c.IsLeaf(),
+		Dir:    -1,
 	}
 	if !c.IsLeaf() {
 		cs.Dir = int(c.Dir)
@@ -95,12 +84,9 @@ func snapshotCell(c *LayoutCell) proto.CellSnapshot {
 func RebuildLayout(cs proto.CellSnapshot) *LayoutCell {
 	cell := &LayoutCell{
 		X: cs.X, Y: cs.Y, W: cs.W, H: cs.H,
-		isLeaf:          cs.IsLeaf,
-		Dir:             SplitDir(cs.Dir),
-		PaneID:          cs.PaneID,
-		DissolveHost:    cs.DissolveHost,
-		DissolvedColumn: cs.DissolvedColumn,
-		RestoreW:        cs.RestoreW,
+		isLeaf: cs.IsLeaf,
+		Dir:    SplitDir(cs.Dir),
+		PaneID: cs.PaneID,
 	}
 	for _, childSnap := range cs.Children {
 		child := RebuildLayout(childSnap)
@@ -134,7 +120,6 @@ func RebuildFromSnapshot(snap proto.LayoutSnapshot, paneMap map[uint32]*Pane) *W
 		Height:       snap.Height,
 		ZoomedPaneID: snap.ZoomedPaneID,
 	}
-	w.recoverMinimizeSeq()
 	return w
 }
 
@@ -146,17 +131,14 @@ func CloneLayout(root *LayoutCell) *LayoutCell {
 		return nil
 	}
 	clone := &LayoutCell{
-		X:               root.X,
-		Y:               root.Y,
-		W:               root.W,
-		H:               root.H,
-		Dir:             root.Dir,
-		Pane:            root.Pane,
-		PaneID:          root.PaneID,
-		DissolveHost:    root.DissolveHost,
-		DissolvedColumn: root.DissolvedColumn,
-		RestoreW:        root.RestoreW,
-		isLeaf:          root.isLeaf,
+		X:      root.X,
+		Y:      root.Y,
+		W:      root.W,
+		H:      root.H,
+		Dir:    root.Dir,
+		Pane:   root.Pane,
+		PaneID: root.PaneID,
+		isLeaf: root.isLeaf,
 	}
 	for _, child := range root.Children {
 		childClone := CloneLayout(child)
@@ -190,19 +172,15 @@ func RebuildWindowFromSnapshot(ws proto.WindowSnapshot, width, height int, paneM
 		Height:       height,
 		ZoomedPaneID: ws.ZoomedPaneID,
 	}
-	w.recoverMinimizeSeq()
 	return w
 }
 
 func rebuildCellWithPanes(cs proto.CellSnapshot, paneMap map[uint32]*Pane) *LayoutCell {
 	cell := &LayoutCell{
 		X: cs.X, Y: cs.Y, W: cs.W, H: cs.H,
-		isLeaf:          cs.IsLeaf,
-		Dir:             SplitDir(cs.Dir),
-		PaneID:          cs.PaneID,
-		DissolveHost:    cs.DissolveHost,
-		DissolvedColumn: cs.DissolvedColumn,
-		RestoreW:        cs.RestoreW,
+		isLeaf: cs.IsLeaf,
+		Dir:    SplitDir(cs.Dir),
+		PaneID: cs.PaneID,
 	}
 	if cs.IsLeaf {
 		if p, ok := paneMap[cs.PaneID]; ok {

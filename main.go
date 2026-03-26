@@ -173,7 +173,7 @@ func main() {
 			os.Exit(1)
 		}
 		runSessionCommand("resize-pane", args[1:])
-	case "minimize", "restore", "reset", "focus":
+	case "reset", "focus":
 		if len(args) < 2 {
 			fmt.Fprintf(os.Stderr, "usage: amux %s <pane>\n", args[0])
 			os.Exit(1)
@@ -458,8 +458,6 @@ Usage:
                                        Move a pane's root-level group before or after another
   amux [-s session] rotate             Rotate pane positions forward
   amux [-s session] rotate --reverse   Rotate pane positions backward
-  amux [-s session] minimize <pane>    Minimize a pane
-  amux [-s session] restore <pane>     Restore a minimized pane
   amux [-s session] reset <pane>       Clear pane history and reset terminal state
   amux [-s session] resize-pane <pane> <dir> [n]
                                        Resize pane (dir: left/right/up/down)
@@ -531,7 +529,6 @@ Inside an amux session (defaults, configurable via config.toml):
   Ctrl-a _                           Root-level split top/bottom
   Ctrl-a x                           Kill active pane
   Ctrl-a z                           Toggle zoom on active pane
-  Ctrl-a M                           Toggle minimize/restore
   Ctrl-a q                           Show pane labels and jump to a pane
   Ctrl-a }                           Swap active pane with next
   Ctrl-a {                           Swap active pane with previous

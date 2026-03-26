@@ -500,13 +500,6 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 					showChooser(chooserModeTree)
 				case "choose-window":
 					showChooser(chooserModeWindow)
-				case "toggle-minimize":
-					if reason := cr.toggleMinimizeBlockedReason(); reason != "" {
-						cr.ShowCommandError(reason)
-						io.WriteString(os.Stdout, "\a")
-						runLocalRenderAction(cr, msgCh, func(*ClientRenderer) localRenderResult { return overlayRenderNowResult() })
-					}
-					sender.Command(binding.Action, binding.Args)
 				case "split", "split-focus":
 					handleSplitBinding(cr, sender, binding, os.Stdout)
 				case "compat-bell":

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -109,8 +110,8 @@ func TestDefaultKeybindings(t *testing.T) {
 	if b, ok := kb.Bindings['w']; !ok || b.Action != "choose-window" {
 		t.Error("default: w should be bound to choose-window")
 	}
-	if b, ok := kb.Bindings['M']; !ok || b.Action != "toggle-minimize" {
-		t.Error("default: M should be bound to toggle-minimize")
+	if _, ok := kb.Bindings['M']; ok {
+		t.Error("default: M should be unbound")
 	}
 	if b, ok := kb.Bindings['m']; !ok || b.Action != "compat-bell" {
 		t.Error("default: m should be reserved with compat-bell")
@@ -307,6 +308,30 @@ func TestBuildKeybindingsUnknownAction(t *testing.T) {
 	_, err := BuildKeybindings(kc)
 	if err == nil {
 		t.Error("expected error for unknown action 'splti'")
+	}
+}
+
+func TestBuildKeybindingsRejectsRemovedMinimizeActions(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]string{
+		"x": "minimize",
+		"y": "restore",
+		"z": "toggle-minimize",
+	}
+
+	for key, action := range tests {
+		key, action := key, action
+		t.Run(action, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := BuildKeybindings(&KeyConfig{
+				Bind: map[string]string{key: action},
+			})
+			if err == nil || !strings.Contains(err.Error(), "unknown action") {
+				t.Fatalf("BuildKeybindings(%q) error = %v, want unknown action", action, err)
+			}
+		})
 	}
 }
 

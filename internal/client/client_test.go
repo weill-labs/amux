@@ -142,52 +142,6 @@ func TestClientRendererCapabilities(t *testing.T) {
 	}
 }
 
-func TestClientRendererHandleLayoutKeepsMinimizedPaneCollapsed(t *testing.T) {
-	t.Parallel()
-
-	root := proto.CellSnapshot{
-		X: 0, Y: 0, W: 80, H: 23,
-		Dir: int(mux.SplitHorizontal),
-		Children: []proto.CellSnapshot{
-			{X: 0, Y: 0, W: 80, H: 11, IsLeaf: true, Dir: -1, PaneID: 1},
-			{X: 0, Y: 12, W: 80, H: 11, IsLeaf: true, Dir: -1, PaneID: 2},
-		},
-	}
-	panes := []proto.PaneSnapshot{
-		{ID: 1, Name: "pane-1", Host: "local", Color: "f5e0dc", Minimized: true},
-		{ID: 2, Name: "pane-2", Host: "local", Color: "f2cdcd"},
-	}
-
-	cr := NewClientRenderer(80, 24)
-	cr.HandleLayout(&proto.LayoutSnapshot{
-		SessionName:  "test",
-		ActivePaneID: 1,
-		Width:        80,
-		Height:       23,
-		Root:         root,
-		Panes:        panes,
-		Windows: []proto.WindowSnapshot{{
-			ID: 1, Name: "window-1", Index: 1, ActivePaneID: 1,
-			Root:  root,
-			Panes: panes,
-		}},
-		ActiveWindowID: 1,
-	})
-
-	layout := cr.renderer.Layout()
-	top := layout.FindByPaneID(1)
-	bottom := layout.FindByPaneID(2)
-	if top == nil || bottom == nil {
-		t.Fatal("expected both panes after layout")
-	}
-	if top.H != mux.StatusLineRows {
-		t.Fatalf("minimized pane height after rescale = %d, want %d", top.H, mux.StatusLineRows)
-	}
-	if bottom.H != 21 {
-		t.Fatalf("visible pane height after rescale = %d, want 21", bottom.H)
-	}
-}
-
 func twoPane80x23Zoomed(paneID uint32) *proto.LayoutSnapshot {
 	snap := twoPane80x23()
 	snap.ZoomedPaneID = paneID
@@ -929,14 +883,14 @@ func TestCommandFeedbackAppearsInDisplayCapture(t *testing.T) {
 	t.Parallel()
 
 	cr := buildTestRenderer(t)
-	cr.ShowCommandError("cannot minimize: pane has no stacked siblings")
+	cr.ShowCommandError("command failed: pane is invalid")
 
 	if got := cr.RenderDiff(); got == "" {
 		t.Fatal("RenderDiff with command feedback should produce output")
 	}
 
 	display := cr.CaptureDisplay()
-	if !strings.Contains(display, "cannot minimize: pane has no stacked siblings") {
+	if !strings.Contains(display, "command failed: pane is invalid") {
 		t.Fatalf("display capture should contain command feedback, got:\n%s", display)
 	}
 }
@@ -966,14 +920,14 @@ func TestCommandFeedbackOverridesSessionNotice(t *testing.T) {
 	snap := twoPane80x23()
 	snap.Notice = "takeover badhost (127.0.0.1:1): SSH dial 127.0.0.1:1"
 	cr.HandleLayout(snap)
-	cr.ShowCommandError("cannot minimize: pane has no stacked siblings")
+	cr.ShowCommandError("command failed: pane is invalid")
 
 	if got := cr.RenderDiff(); got == "" {
 		t.Fatal("RenderDiff with command feedback and session notice should produce output")
 	}
 
 	display := cr.CaptureDisplay()
-	if !strings.Contains(display, "cannot minimize: pane has no stacked siblings") {
+	if !strings.Contains(display, "command failed: pane is invalid") {
 		t.Fatalf("display capture should contain command feedback, got:\n%s", display)
 	}
 	if strings.Contains(display, "takeover badhost") {
@@ -985,14 +939,14 @@ func TestStructuralHandleLayoutClearsCommandFeedback(t *testing.T) {
 	t.Parallel()
 
 	cr := buildTestRenderer(t)
-	cr.ShowCommandError("cannot minimize: pane has no stacked siblings")
+	cr.ShowCommandError("command failed: pane is invalid")
 	cr.RenderDiff()
 
 	cr.HandleLayout(threePane80x23())
 	cr.RenderDiff()
 
 	display := cr.CaptureDisplay()
-	if strings.Contains(display, "cannot minimize: pane has no stacked siblings") {
+	if strings.Contains(display, "command failed: pane is invalid") {
 		t.Fatalf("structural layout update should clear command feedback, got:\n%s", display)
 	}
 }
@@ -1043,7 +997,7 @@ func TestHandleRenderMsgEffects(t *testing.T) {
 				if !cr.ShowDisplayPanes() {
 					t.Fatal("ShowDisplayPanes should succeed")
 				}
-				cr.ShowCommandError("cannot minimize")
+				cr.ShowCommandError("command failed")
 			},
 			msg: &RenderMsg{Typ: RenderMsgLayout, Layout: twoPane80x23()},
 			wantKinds: []clientEffectKind{
@@ -1055,7 +1009,7 @@ func TestHandleRenderMsgEffects(t *testing.T) {
 				if !cr.DisplayPanesActive() {
 					t.Fatal("display panes should survive a non-structural layout change")
 				}
-				if got := cr.prefixMessage(); got != "cannot minimize" {
+				if got := cr.prefixMessage(); got != "command failed" {
 					t.Fatalf("metadata-only layout update should preserve command feedback, got %q", got)
 				}
 			},
@@ -1110,7 +1064,7 @@ func TestHandleRenderMsgEffects(t *testing.T) {
 		},
 		{
 			name: "command error trims text and rings bell",
-			msg:  &RenderMsg{Typ: RenderMsgCmdError, Text: "  cannot minimize  \n"},
+			msg:  &RenderMsg{Typ: RenderMsgCmdError, Text: "  command failed  \n"},
 			wantKinds: []clientEffectKind{
 				clientEffectStopScheduledRender,
 				clientEffectBell,
@@ -1118,8 +1072,8 @@ func TestHandleRenderMsgEffects(t *testing.T) {
 			},
 			assert: func(t *testing.T, cr *ClientRenderer, _ []clientEffect) {
 				t.Helper()
-				if got := cr.prefixMessage(); got != "cannot minimize" {
-					t.Fatalf("command feedback = %q, want %q", got, "cannot minimize")
+				if got := cr.prefixMessage(); got != "command failed" {
+					t.Fatalf("command feedback = %q, want %q", got, "command failed")
 				}
 			},
 		},
@@ -1173,40 +1127,6 @@ func TestHandleRenderMsgEffects(t *testing.T) {
 	}
 }
 
-func TestToggleMinimizeBlockedReasonRightmostColumn(t *testing.T) {
-	t.Parallel()
-
-	cr := buildTestRenderer(t)
-	snap := twoPane80x23()
-	cr.HandleLayout(&proto.LayoutSnapshot{
-		SessionName:  "test",
-		ActivePaneID: 2,
-		Width:        80,
-		Height:       23,
-		Root:         snap.Root,
-		Panes:        snap.Panes,
-		Windows: []proto.WindowSnapshot{{
-			ID: 1, Name: "window-1", Index: 1, ActivePaneID: 2,
-			Root:  snap.Root,
-			Panes: snap.Panes,
-		}},
-		ActiveWindowID: 1,
-	})
-	want := "cannot minimize: pane is in the rightmost column"
-	if got := cr.toggleMinimizeBlockedReason(); got != want {
-		t.Fatalf("blocked reason = %q, want %q", got, want)
-	}
-}
-
-func TestToggleMinimizeAllowsLeftColumnDissolve(t *testing.T) {
-	t.Parallel()
-
-	cr := buildTestRenderer(t)
-	if got := cr.toggleMinimizeBlockedReason(); got != "" {
-		t.Fatalf("blocked reason = %q, want empty", got)
-	}
-}
-
 func TestRenderCoalescedCommandErrorShowsFeedback(t *testing.T) {
 	t.Parallel()
 
@@ -1222,7 +1142,7 @@ func TestRenderCoalescedCommandErrorShowsFeedback(t *testing.T) {
 		close(done)
 	}()
 
-	msgCh <- &RenderMsg{Typ: RenderMsgCmdError, Text: "cannot minimize: pane has no stacked siblings"}
+	msgCh <- &RenderMsg{Typ: RenderMsgCmdError, Text: "command failed: pane is invalid"}
 	msgCh <- &RenderMsg{Typ: RenderMsgExit}
 	close(msgCh)
 	<-done
@@ -1230,7 +1150,7 @@ func TestRenderCoalescedCommandErrorShowsFeedback(t *testing.T) {
 	if !strings.Contains(rendered.String(), "\a") {
 		t.Fatalf("command error render should ring bell, got %q", rendered.String())
 	}
-	if !strings.Contains(cr.CaptureDisplay(), "cannot minimize: pane has no stacked siblings") {
+	if !strings.Contains(cr.CaptureDisplay(), "command failed: pane is invalid") {
 		t.Fatalf("display capture should contain command feedback, got:\n%s", cr.CaptureDisplay())
 	}
 }

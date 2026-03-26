@@ -62,7 +62,6 @@ func TestCommandStatusListAndWindowNavigation(t *testing.T) {
 
 	p1 := newTestPane(sess, 1, "pane-1")
 	p2 := newTestPane(sess, 2, "pane-2")
-	p2.Meta.Minimized = true
 	p2.Meta.Task = "build"
 	p2.Meta.GitBranch = "feature/test"
 	p2.Meta.PR = "123"
@@ -88,7 +87,7 @@ func TestCommandStatusListAndWindowNavigation(t *testing.T) {
 	if statusRes.cmdErr != "" {
 		t.Fatalf("status error: %s", statusRes.cmdErr)
 	}
-	if !strings.Contains(statusRes.output, "windows: 2, panes: 3 total, 2 active, 1 minimized") || !strings.Contains(statusRes.output, "pane-1 zoomed") {
+	if !strings.Contains(statusRes.output, "windows: 2, panes: 3 total") || !strings.Contains(statusRes.output, "pane-1 zoomed") {
 		t.Fatalf("unexpected status output: %q", statusRes.output)
 	}
 
@@ -155,22 +154,6 @@ func TestCommandPaneMutationsAndMetadata(t *testing.T) {
 	unzoomRes := runTestCommand(t, srv, sess, "zoom")
 	if unzoomRes.cmdErr != "" || !strings.Contains(unzoomRes.output, "Unzoomed pane-2") {
 		t.Fatalf("unzoom result = %#v", unzoomRes)
-	}
-
-	minimizeRes := runTestCommand(t, srv, sess, "minimize", "pane-1")
-	if minimizeRes.cmdErr != "" || !strings.Contains(minimizeRes.output, "Minimized pane-1") {
-		t.Fatalf("minimize result = %#v", minimizeRes)
-	}
-	if !mustSessionQuery(t, sess, func(sess *Session) bool { return sess.findPaneByID(p1.ID).Meta.Minimized }) {
-		t.Fatal("pane-1 should be minimized")
-	}
-
-	restoreRes := runTestCommand(t, srv, sess, "restore", "pane-1")
-	if restoreRes.cmdErr != "" || !strings.Contains(restoreRes.output, "Restored pane-1") {
-		t.Fatalf("restore result = %#v", restoreRes)
-	}
-	if mustSessionQuery(t, sess, func(sess *Session) bool { return sess.findPaneByID(p1.ID).Meta.Minimized }) {
-		t.Fatal("pane-1 should be restored")
 	}
 
 	copyModeRes := runTestCommand(t, srv, sess, "copy-mode", "pane-1")

@@ -56,7 +56,6 @@ func TestCrashCheckpointBuildAndWrite(t *testing.T) {
 
 	pane1 := newStandaloneProxyPane(1, "pane-1")
 	pane2 := newStandaloneProxyPane(2, "pane-2")
-	pane2.Meta.Minimized = true
 	pane1.FeedOutput([]byte("hello from pane-1\n"))
 	pane2.FeedOutput([]byte("hello from pane-2\n"))
 
@@ -93,8 +92,8 @@ func TestCrashCheckpointBuildAndWrite(t *testing.T) {
 	}
 
 	pane2State := findCrashPaneState(t, cp, "pane-2")
-	if !pane2State.Meta.Minimized || pane2State.Cols == 0 || pane2State.Rows == 0 {
-		t.Fatalf("pane-2 minimized state = %#v, want minimized dimensions", pane2State)
+	if pane2State.Cols == 0 || pane2State.Rows == 0 {
+		t.Fatalf("pane-2 state = %#v, want pane dimensions", pane2State)
 	}
 
 	sess.writeCrashCheckpoint()

@@ -15,7 +15,7 @@ import (
 
 // CrashVersion is the current crash checkpoint format version.
 // Increment when the format changes in a backward-incompatible way.
-const CrashVersion = 1
+const CrashVersion = 2
 
 // CrashCheckpoint captures the full server state for crash recovery.
 // Unlike ServerCheckpoint (gob, ephemeral, includes FDs/PIDs), this is

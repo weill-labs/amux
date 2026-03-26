@@ -13,7 +13,7 @@ import (
 	"github.com/weill-labs/amux/internal/render"
 )
 
-func minimizedHorizontalSnapshot() *proto.LayoutSnapshot {
+func horizontalSnapshot() *proto.LayoutSnapshot {
 	root := proto.CellSnapshot{
 		X: 0, Y: 0, W: 80, H: 23,
 		Dir: int(mux.SplitHorizontal),
@@ -23,7 +23,7 @@ func minimizedHorizontalSnapshot() *proto.LayoutSnapshot {
 		},
 	}
 	panes := []proto.PaneSnapshot{
-		{ID: 1, Name: "pane-1", Host: "local", Color: "f5e0dc", Minimized: true},
+		{ID: 1, Name: "pane-1", Host: "local", Color: "f5e0dc"},
 		{ID: 2, Name: "pane-2", Host: "local", Color: "f2cdcd"},
 	}
 	return &proto.LayoutSnapshot{
@@ -118,16 +118,10 @@ func TestHistoryEmulatorSizeWheelScrollAndSubtreeVisibility(t *testing.T) {
 	}
 
 	cr = NewClientRenderer(80, 24)
-	cr.HandleLayout(minimizedHorizontalSnapshot())
+	cr.HandleLayout(horizontalSnapshot())
 	layout := cr.Layout()
 	if layout == nil || len(layout.Children) != 2 {
 		t.Fatal("expected a two-pane horizontal layout")
-	}
-	if cr.subtreeHasVisiblePane(layout.Children[0]) {
-		t.Fatal("minimized subtree should not report a visible pane")
-	}
-	if !cr.subtreeHasVisiblePane(layout.Children[1]) {
-		t.Fatal("visible subtree should report a visible pane")
 	}
 }
 

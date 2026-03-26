@@ -413,9 +413,6 @@ func summarizeDiagnosticCaptureJSON(raw string) string {
 		if pane.Active {
 			flags = append(flags, "active")
 		}
-		if pane.Minimized {
-			flags = append(flags, "minimized")
-		}
 		if pane.Zoomed {
 			flags = append(flags, "zoomed")
 		}

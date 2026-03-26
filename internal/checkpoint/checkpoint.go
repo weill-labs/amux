@@ -13,6 +13,8 @@ import (
 	"github.com/weill-labs/amux/internal/proto"
 )
 
+const ServerCheckpointVersion = 1
+
 // PaneCheckpoint captures the state of a single pane for reload.
 type PaneCheckpoint struct {
 	ID           uint32
@@ -30,6 +32,7 @@ type PaneCheckpoint struct {
 
 // ServerCheckpoint captures the full server state for reload.
 type ServerCheckpoint struct {
+	Version       int
 	SessionName   string
 	Counter       uint32
 	WindowCounter uint32
@@ -67,6 +70,9 @@ func Read(path string) (*ServerCheckpoint, error) {
 	var cp ServerCheckpoint
 	if err := gob.NewDecoder(f).Decode(&cp); err != nil {
 		return nil, fmt.Errorf("decoding checkpoint: %w", err)
+	}
+	if cp.Version != ServerCheckpointVersion {
+		return nil, fmt.Errorf("unsupported checkpoint version %d (want %d)", cp.Version, ServerCheckpointVersion)
 	}
 
 	return &cp, nil

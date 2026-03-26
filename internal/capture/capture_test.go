@@ -184,7 +184,6 @@ func TestBuildPane(t *testing.T) {
 		ID:         7,
 		Name:       "pane-7",
 		Active:     true,
-		Minimized:  false,
 		Zoomed:     true,
 		Host:       "local",
 		Task:       "task",
@@ -211,14 +210,13 @@ func TestBuildPane(t *testing.T) {
 
 	got := BuildPane(input, status)
 	want := proto.CapturePane{
-		ID:        7,
-		Name:      "pane-7",
-		Active:    true,
-		Minimized: false,
-		Zoomed:    true,
-		Host:      "local",
-		Task:      "task",
-		Color:     "f5e0dc",
+		ID:     7,
+		Name:   "pane-7",
+		Active: true,
+		Zoomed: true,
+		Host:   "local",
+		Task:   "task",
+		Color:  "f5e0dc",
 		Meta: proto.CaptureMeta{
 			Task:      "task",
 			GitBranch: "feat/meta",

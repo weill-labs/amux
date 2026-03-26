@@ -10,10 +10,6 @@ import (
 // StatusLineRows is the number of rows reserved for the per-pane status line.
 const StatusLineRows = 1
 
-// DefaultRestoreHeight is the fallback pane height when restoring a minimized
-// pane that has no saved height.
-const DefaultRestoreHeight = 12
-
 // Window holds the layout tree and active pane for one window.
 //
 // Concurrency:
@@ -29,7 +25,6 @@ type Window struct {
 	Width        int
 	Height       int
 	ZoomedPaneID uint32 // non-zero when a pane is zoomed to full window
-	minimizeSeq  uint64 // monotonic counter for LIFO minimize ordering
 }
 
 // SplitOptions controls whether the existing active pane keeps focus.
@@ -121,7 +116,6 @@ func (w *Window) SplitRootWithOptions(dir SplitDir, newPane *Pane, opts SplitOpt
 	}
 
 	w.Root.FixOffsets()
-	w.normalizeMinimizedLayout()
 
 	w.resizePTYs()
 	w.restoreZoomedPaneSize()
@@ -183,7 +177,6 @@ func (w *Window) splitCellWithOptions(cell *LayoutCell, dir SplitDir, newPane *P
 	}
 
 	w.Root.FixOffsets()
-	w.normalizeMinimizedLayout()
 	w.resizePTYs()
 	w.restoreZoomedPaneSize()
 	if !opts.KeepFocus {
@@ -226,21 +219,8 @@ func (w *Window) ClosePane(paneID uint32) error {
 		w.Root = result
 	}
 
-	// If the close left all remaining siblings minimized, auto-restore the
-	// most recently minimized one (LIFO by MinimizedSeq).
-	if result != nil {
-		subtree := result
-		if subtree.Parent != nil {
-			subtree = subtree.Parent
-		}
-		if !subtree.HasNonMinimizedLeaf() {
-			w.autoRestoreOne(subtree)
-		}
-	}
-
 	// Propagate sizes to all children after redistribution
 	w.Root.ResizeAll(w.Width, w.Height)
-	w.normalizeMinimizedLayout()
 
 	// Update active pane if the closed pane was active
 	if w.ActivePane.ID == paneID {
@@ -262,33 +242,12 @@ func (w *Window) ClosePane(paneID uint32) error {
 	return nil
 }
 
-// autoRestoreOne finds the most recently minimized leaf (highest MinimizedSeq)
-// in the subtree and restores it. Used by ClosePane when closing a pane leaves
-// all remaining siblings minimized.
-func (w *Window) autoRestoreOne(root *LayoutCell) {
-	var best *LayoutCell
-	root.Walk(func(c *LayoutCell) {
-		if c.Pane != nil && c.Pane.Meta.Minimized {
-			if best == nil || c.Pane.Meta.MinimizedSeq > best.Pane.Meta.MinimizedSeq {
-				best = c
-			}
-		}
-	})
-	if best != nil {
-		best.Pane.Meta.Minimized = false
-		best.H = best.Pane.Meta.RestoreH
-		best.Pane.Meta.RestoreH = 0
-		best.Pane.Meta.MinimizedSeq = 0
-	}
-}
-
 // Resize adjusts the layout to fit new terminal dimensions.
 func (w *Window) Resize(width, height int) {
 	w.assertOwner("Resize")
 	w.Width = width
 	w.Height = height
 	w.Root.ResizeAll(width, height)
-	w.normalizeMinimizedLayout()
 
 	w.resizePTYs()
 	w.restoreZoomedPaneSize()
@@ -500,7 +459,6 @@ func (w *Window) ResizeBorder(x, y, delta int) bool {
 	}
 
 	w.Root.FixOffsets()
-	w.normalizeMinimizedLayout()
 	w.resizePTYs()
 	return true
 }
@@ -612,16 +570,14 @@ func (w *Window) resizeBetween(grower, donor *LayoutCell, axis SplitDir, delta i
 	}
 
 	w.Root.FixOffsets()
-	w.normalizeMinimizedLayout()
 	w.resizePTYs()
 	return true
 }
 
 // resizePTYs resizes all pane PTYs to match their layout cell dimensions.
-// Minimized panes are skipped — their PTYs stay at pre-minimize dimensions.
 func (w *Window) resizePTYs() {
 	w.Root.Walk(func(c *LayoutCell) {
-		if c.Pane != nil && !c.Pane.Meta.Minimized {
+		if c.Pane != nil {
 			c.Pane.Resize(c.W, PaneContentHeight(c.H))
 		}
 	})
@@ -635,15 +591,6 @@ func (w *Window) restoreZoomedPaneSize() {
 	if cell != nil && cell.Pane != nil {
 		cell.Pane.Resize(w.Width, PaneContentHeight(w.Height))
 	}
-}
-
-func (w *Window) normalizeMinimizedLayout() {
-	if w.Root == nil {
-		return
-	}
-	w.Root.NormalizeMinimizedHeights(func(c *LayoutCell) bool {
-		return c.IsLeaf() && c.Pane != nil && c.Pane.Meta.Minimized
-	})
 }
 
 // PaneCount returns the number of panes in the window's layout tree.
@@ -704,7 +651,6 @@ func (w *Window) rootChildForPaneID(paneID uint32) (*LayoutCell, int, error) {
 
 func (w *Window) finishTreeMutation() {
 	w.Root.FixOffsets()
-	w.normalizeMinimizedLayout()
 	w.resizePTYs()
 }
 
@@ -850,13 +796,11 @@ func (w *Window) RotatePanes(forward bool) {
 	w.resizePTYs()
 }
 
-// paneLeaves returns all non-minimized leaf cells containing panes
-// (depth-first order). Minimized panes are excluded because their cell
-// height doesn't match normal panes — swapping would produce inconsistent state.
+// paneLeaves returns all leaf cells containing panes in depth-first order.
 func (w *Window) paneLeaves() []*LayoutCell {
 	var cells []*LayoutCell
 	w.Root.Walk(func(c *LayoutCell) {
-		if c.Pane != nil && !c.Pane.Meta.Minimized {
+		if c.Pane != nil {
 			cells = append(cells, c)
 		}
 	})
@@ -872,65 +816,6 @@ func (w *Window) activeCellIndex(cells []*LayoutCell) int {
 		}
 	}
 	return -1
-}
-
-// Minimize shrinks a pane's layout cell to just the status line (header only).
-// If visible siblings remain in the column, the pane is minimized in-place.
-// If the pane is the last visible in a non-rightmost column, the column is
-// dissolved into the next column to the right. Auto-unzooms if zoomed.
-func (w *Window) Minimize(paneID uint32) error {
-	w.assertOwner("Minimize")
-	if w.ZoomedPaneID != 0 {
-		w.Unzoom()
-	}
-	cell := w.Root.FindPane(paneID)
-	if cell == nil {
-		return fmt.Errorf("pane %d not found", paneID)
-	}
-	if cell.Pane.Meta.Minimized {
-		return fmt.Errorf("pane already minimized")
-	}
-
-	column := w.columnRoot(cell)
-	if column == nil {
-		return fmt.Errorf("pane %d not found", paneID)
-	}
-	if w.columnHasVisibleLeafAfterMinimize(column, paneID) {
-		w.minimizeLeaf(cell)
-		reclaimed := cell.Pane.Meta.RestoreH - cell.H
-		if reclaimed > 0 && cell.Parent != nil {
-			for _, sib := range cell.Parent.Children {
-				if sib == cell {
-					continue
-				}
-				if sib.HasNonMinimizedLeaf() {
-					w.setCellSize(sib, sib.W, sib.H+reclaimed)
-					break
-				}
-			}
-		}
-		w.Root.FixOffsets()
-		w.normalizeMinimizedLayout()
-		w.resizePTYs()
-		return nil
-	}
-
-	if column.Parent == nil {
-		return fmt.Errorf("cannot minimize: pane has no stacked siblings")
-	}
-	if column.Parent.Dir != SplitVertical {
-		return fmt.Errorf("cannot minimize: pane has no stacked siblings")
-	}
-	if column.IndexInParent() == len(column.Parent.Children)-1 {
-		return fmt.Errorf("cannot minimize: pane is in the rightmost column")
-	}
-
-	w.minimizeLeaf(cell)
-	w.dissolveColumn(column)
-	w.Root.FixOffsets()
-	w.normalizeMinimizedLayout()
-	w.resizePTYs()
-	return nil
 }
 
 // Zoom toggles a pane to fill the entire window. The layout tree is kept
@@ -984,87 +869,6 @@ func (w *Window) Unzoom() error {
 	}
 
 	return nil
-}
-
-// Restore expands a minimized pane back to its saved height.
-func (w *Window) Restore(paneID uint32) error {
-	w.assertOwner("Restore")
-	cell := w.Root.FindPane(paneID)
-	if cell == nil {
-		return fmt.Errorf("pane %d not found", paneID)
-	}
-	if !cell.Pane.Meta.Minimized {
-		return fmt.Errorf("pane is not minimized")
-	}
-
-	if dissolved := w.dissolvedColumnRoot(cell); dissolved != nil {
-		w.reconstituteDissolvedColumn(dissolved)
-		cell = w.Root.FindPane(paneID)
-		if cell == nil {
-			return fmt.Errorf("pane %d lost during column reconstitution", paneID)
-		}
-	}
-
-	savedH := cell.Pane.Meta.RestoreH
-	if savedH <= 0 {
-		savedH = DefaultRestoreHeight
-	}
-
-	if cell.Parent != nil {
-		needed := savedH - cell.H
-		for _, sib := range cell.Parent.Children {
-			if sib != cell {
-				if cell.Parent.Dir == SplitHorizontal && sib.H-needed >= PaneMinSize+StatusLineRows {
-					sib.H -= needed
-					if !sib.IsLeaf() {
-						sib.ResizeSubtree(sib.W, sib.H)
-					} else if sib.Pane != nil {
-						sib.Pane.Resize(sib.W, PaneContentHeight(sib.H))
-					}
-					break
-				}
-			}
-		}
-	}
-
-	cell.H = savedH
-	cell.Pane.Meta.Minimized = false
-	cell.Pane.Meta.RestoreH = 0
-	cell.Pane.Meta.MinimizedSeq = 0
-
-	w.Root.FixOffsets()
-	w.normalizeMinimizedLayout()
-	w.resizePTYs()
-	return nil
-}
-
-// ToggleMinimize toggles the active pane's minimized state.
-// Returns the affected pane's name and whether it was minimized (true) or restored (false).
-func (w *Window) ToggleMinimize() (name string, minimized bool, err error) {
-	w.assertOwner("ToggleMinimize")
-	if w.ActivePane == nil {
-		return "", false, fmt.Errorf("no active pane")
-	}
-
-	name = w.ActivePane.Meta.Name
-	if w.ActivePane.Meta.Minimized {
-		err = w.Restore(w.ActivePane.ID)
-		return name, false, err
-	}
-	err = w.Minimize(w.ActivePane.ID)
-	return name, true, err
-}
-
-// recoverMinimizeSeq recomputes minimizeSeq from existing pane MinimizedSeq
-// values after a checkpoint restore or hot-reload.
-func (w *Window) recoverMinimizeSeq() {
-	var maxSeq uint64
-	w.Root.Walk(func(c *LayoutCell) {
-		if c.Pane != nil && c.Pane.Meta.MinimizedSeq > maxSeq {
-			maxSeq = c.Pane.Meta.MinimizedSeq
-		}
-	})
-	w.minimizeSeq = maxSeq
 }
 
 // SplicePane replaces a leaf pane (by ID) with one or more proxy panes.

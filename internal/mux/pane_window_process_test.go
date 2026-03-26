@@ -329,7 +329,7 @@ func TestAgentStatusTracksBusyAndIdle(t *testing.T) {
 	}
 }
 
-func TestWindowZoomResolvePaneToggleMinimizeAndResizeBorder(t *testing.T) {
+func TestWindowZoomResolvePaneAndResizeBorder(t *testing.T) {
 	t.Parallel()
 
 	p1 := &Pane{ID: 1, Meta: PaneMeta{Name: "pane-1", Host: DefaultHost, Color: "f5e0dc"}, emulator: NewVTEmulatorWithScrollback(10, 5, DefaultScrollbackLines)}
@@ -374,21 +374,6 @@ func TestWindowZoomResolvePaneToggleMinimizeAndResizeBorder(t *testing.T) {
 	cell1 := w.Root.FindPane(1)
 	if cols, rows := p1.EmulatorSize(); cols != cell1.W || rows != PaneContentHeight(cell1.H) {
 		t.Fatalf("unzoom restored size = %dx%d, want %dx%d", cols, rows, cell1.W, PaneContentHeight(cell1.H))
-	}
-
-	name, minimized, err := w.ToggleMinimize()
-	if err != nil {
-		t.Fatalf("ToggleMinimize minimize: %v", err)
-	}
-	if name != "pane-2" || !minimized || !p2.Meta.Minimized {
-		t.Fatalf("ToggleMinimize minimize = (%q, %v, minimized=%v)", name, minimized, p2.Meta.Minimized)
-	}
-	name, minimized, err = w.ToggleMinimize()
-	if err != nil {
-		t.Fatalf("ToggleMinimize restore: %v", err)
-	}
-	if name != "pane-2" || minimized || p2.Meta.Minimized {
-		t.Fatalf("ToggleMinimize restore = (%q, %v, minimized=%v)", name, minimized, p2.Meta.Minimized)
 	}
 
 	borderY := w.Root.Children[0].H
@@ -460,8 +445,8 @@ func TestWindowSplitWithOptionsKeepFocusPreservesZoomAndFocus(t *testing.T) {
 func TestSnapshotWindowAndRebuildWindowFromSnapshot(t *testing.T) {
 	t.Parallel()
 
-	p1 := &Pane{ID: 1, Meta: PaneMeta{Name: "pane-1", Host: DefaultHost, Color: "f5e0dc", MinimizedSeq: 3}, emulator: NewVTEmulatorWithScrollback(10, 5, DefaultScrollbackLines)}
-	p2 := &Pane{ID: 2, Meta: PaneMeta{Name: "pane-2", Host: DefaultHost, Color: "f2cdcd", Minimized: true, MinimizedSeq: 7}, emulator: NewVTEmulatorWithScrollback(12, 6, DefaultScrollbackLines)}
+	p1 := &Pane{ID: 1, Meta: PaneMeta{Name: "pane-1", Host: DefaultHost, Color: "f5e0dc"}, emulator: NewVTEmulatorWithScrollback(10, 5, DefaultScrollbackLines)}
+	p2 := &Pane{ID: 2, Meta: PaneMeta{Name: "pane-2", Host: DefaultHost, Color: "f2cdcd"}, emulator: NewVTEmulatorWithScrollback(12, 6, DefaultScrollbackLines)}
 	w := NewWindow(p1, 80, 24)
 	w.ID = 42
 	w.Name = "main"
@@ -486,10 +471,6 @@ func TestSnapshotWindowAndRebuildWindowFromSnapshot(t *testing.T) {
 	if rebuilt.ActivePane != p2 || rebuilt.ZoomedPaneID != 2 {
 		t.Fatalf("rebuilt active/zoom = active %v zoom %d, want pane-2 and zoom 2", rebuilt.ActivePane, rebuilt.ZoomedPaneID)
 	}
-	if rebuilt.minimizeSeq != 7 {
-		t.Fatalf("recoverMinimizeSeq = %d, want 7", rebuilt.minimizeSeq)
-	}
-
 	leaf := NewLeafByID(99, 1, 2, 3, 4)
 	root := &LayoutCell{Dir: SplitVertical, Children: []*LayoutCell{leaf}, isLeaf: false}
 	leaf.Parent = root

@@ -340,7 +340,6 @@ type emuPaneData struct {
 	id           uint32
 	name         string
 	color        string
-	minimized    bool
 	cursorHidden bool
 }
 
@@ -358,7 +357,6 @@ func (e *emuPaneData) Issues() []string       { return nil }
 func (e *emuPaneData) Host() string           { return "local" }
 func (e *emuPaneData) Task() string           { return "" }
 func (e *emuPaneData) Color() string          { return e.color }
-func (e *emuPaneData) Minimized() bool        { return e.minimized }
 func (e *emuPaneData) Idle() bool             { return true }
 func (e *emuPaneData) ConnStatus() string     { return "" }
 func (e *emuPaneData) InCopyMode() bool       { return false }

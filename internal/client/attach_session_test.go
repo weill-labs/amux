@@ -686,10 +686,7 @@ func TestRunSessionHandlesServerMessagesAndInteractiveInput(t *testing.T) {
 	h.output.waitContains(t, "No binding for C-a ?")
 
 	h.writeInput(t, []byte{0x01, 'M'})
-	h.waitMessage(t, func(msg *proto.Message) bool {
-		return msg.Type == proto.MsgTypeCommand && msg.CmdName == "toggle-minimize"
-	})
-	h.output.waitContains(t, "cannot minimize: pane")
+	h.output.waitContains(t, "No binding for C-a M")
 
 	h.writeInput(t, []byte{0x01, '[', 'q'})
 	h.waitMessage(t, func(msg *proto.Message) bool {

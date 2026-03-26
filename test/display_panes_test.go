@@ -77,28 +77,6 @@ func TestDisplayPanesInvalidKeyDismissesWithoutLeak(t *testing.T) {
 	}
 }
 
-func TestDisplayPanesMinimizedPaneStillSelectable(t *testing.T) {
-	t.Parallel()
-
-	h := newAmuxHarness(t)
-	h.splitH()
-
-	h.runCmd("focus", "pane-1")
-	gen := h.generation()
-	h.sendKeys("C-a", "M")
-	h.waitLayout(gen)
-
-	h.sendKeys("C-a", "q")
-	if !h.waitFor("[1]", 3*time.Second) {
-		t.Fatalf("expected overlay label for minimized pane, got:\n%s", h.captureOuter())
-	}
-
-	h.sendKeys("1")
-	if !h.waitForActive("pane-1", 3*time.Second) {
-		t.Fatalf("expected minimized pane to become active after quick jump, got:\n%s", h.capture())
-	}
-}
-
 func TestDisplayPanesZoomedOnlyShowsVisiblePane(t *testing.T) {
 	t.Parallel()
 

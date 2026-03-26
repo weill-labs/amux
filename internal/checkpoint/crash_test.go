@@ -60,7 +60,7 @@ func TestCrashRoundTrip(t *testing.T) {
 			},
 			{
 				ID:        2,
-				Meta:      mux.PaneMeta{Name: "pane-2", Host: "remote", Task: "TASK-1", Color: "a6e3a1", Minimized: true, RestoreH: 12},
+				Meta:      mux.PaneMeta{Name: "pane-2", Host: "remote", Task: "TASK-1", Color: "a6e3a1"},
 				Cols:      39,
 				Rows:      22,
 				History:   []string{"remote-old-1"},
@@ -113,9 +113,6 @@ func TestCrashRoundTrip(t *testing.T) {
 		}
 		if got.Meta.Name != want.Meta.Name {
 			t.Errorf("PaneStates[%d].Meta.Name = %q, want %q", i, got.Meta.Name, want.Meta.Name)
-		}
-		if got.Meta.Minimized != want.Meta.Minimized {
-			t.Errorf("PaneStates[%d].Meta.Minimized = %v, want %v", i, got.Meta.Minimized, want.Meta.Minimized)
 		}
 		if got.ManualBranch != want.ManualBranch {
 			t.Errorf("PaneStates[%d].ManualBranch = %v, want %v", i, got.ManualBranch, want.ManualBranch)

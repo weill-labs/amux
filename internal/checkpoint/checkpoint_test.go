@@ -2,6 +2,7 @@ package checkpoint
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/weill-labs/amux/internal/mux"
@@ -12,6 +13,7 @@ func TestRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	cp := &ServerCheckpoint{
+		Version:     ServerCheckpointVersion,
 		SessionName: "test-session",
 		Counter:     5,
 		ListenerFd:  10,
@@ -49,7 +51,7 @@ func TestRoundTrip(t *testing.T) {
 			},
 			{
 				ID:     2,
-				Meta:   mux.PaneMeta{Name: "pane-2", Host: "remote", Task: "TASK-1", Color: "a6e3a1", Minimized: true, RestoreH: 12},
+				Meta:   mux.PaneMeta{Name: "pane-2", Host: "remote", Task: "TASK-1", Color: "a6e3a1"},
 				PtmxFd: 7,
 				PID:    5678,
 				Cols:   39,
@@ -80,6 +82,9 @@ func TestRoundTrip(t *testing.T) {
 	if got.Counter != cp.Counter {
 		t.Errorf("Counter = %d, want %d", got.Counter, cp.Counter)
 	}
+	if got.Version != cp.Version {
+		t.Errorf("Version = %d, want %d", got.Version, cp.Version)
+	}
 	if got.ListenerFd != cp.ListenerFd {
 		t.Errorf("ListenerFd = %d, want %d", got.ListenerFd, cp.ListenerFd)
 	}
@@ -94,12 +99,6 @@ func TestRoundTrip(t *testing.T) {
 		}
 		if got.Meta.Name != want.Meta.Name {
 			t.Errorf("Pane[%d].Meta.Name = %q, want %q", i, got.Meta.Name, want.Meta.Name)
-		}
-		if got.Meta.Minimized != want.Meta.Minimized {
-			t.Errorf("Pane[%d].Meta.Minimized = %v, want %v", i, got.Meta.Minimized, want.Meta.Minimized)
-		}
-		if got.Meta.RestoreH != want.Meta.RestoreH {
-			t.Errorf("Pane[%d].Meta.RestoreH = %d, want %d", i, got.Meta.RestoreH, want.Meta.RestoreH)
 		}
 		if got.ManualBranch != want.ManualBranch {
 			t.Errorf("Pane[%d].ManualBranch = %v, want %v", i, got.ManualBranch, want.ManualBranch)
@@ -146,10 +145,26 @@ func TestRoundTrip(t *testing.T) {
 	}
 }
 
+func TestReadRejectsUnsupportedVersion(t *testing.T) {
+	t.Parallel()
+
+	path, err := Write(&ServerCheckpoint{
+		Version:     ServerCheckpointVersion - 1,
+		SessionName: "unsupported",
+	})
+	if err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+
+	if _, err := Read(path); err == nil || !strings.Contains(err.Error(), "unsupported checkpoint version") {
+		t.Fatalf("Read() error = %v, want unsupported checkpoint version", err)
+	}
+}
+
 func TestReadDeletesFile(t *testing.T) {
 	t.Parallel()
 
-	cp := &ServerCheckpoint{SessionName: "delete-test"}
+	cp := &ServerCheckpoint{Version: ServerCheckpointVersion, SessionName: "delete-test"}
 	path, err := Write(cp)
 	if err != nil {
 		t.Fatalf("Write: %v", err)
@@ -168,7 +183,7 @@ func TestReadDeletesFile(t *testing.T) {
 func TestWriteEmptyCheckpoint(t *testing.T) {
 	t.Parallel()
 
-	cp := &ServerCheckpoint{SessionName: "empty"}
+	cp := &ServerCheckpoint{Version: ServerCheckpointVersion, SessionName: "empty"}
 	path, err := Write(cp)
 	if err != nil {
 		t.Fatalf("Write: %v", err)

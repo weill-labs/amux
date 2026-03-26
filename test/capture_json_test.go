@@ -123,31 +123,6 @@ func TestCaptureJSON_SinglePane(t *testing.T) {
 	}
 }
 
-func TestCaptureJSON_Minimized(t *testing.T) {
-	t.Parallel()
-	h := newServerHarness(t)
-
-	h.splitH() // top/bottom split required for minimize
-	h.runCmd("minimize", "pane-1")
-
-	out := h.runCmd("capture", "--format", "json")
-
-	var capture proto.CaptureJSON
-	if err := json.Unmarshal([]byte(out), &capture); err != nil {
-		t.Fatalf("failed to parse JSON: %v\nraw output:\n%s", err, out)
-	}
-
-	for _, p := range capture.Panes {
-		if p.Name == "pane-1" {
-			if !p.Minimized {
-				t.Error("pane-1 should be minimized")
-			}
-			return
-		}
-	}
-	t.Error("pane-1 not found in JSON output")
-}
-
 func TestCaptureJSON_Zoomed(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)
