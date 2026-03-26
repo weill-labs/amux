@@ -341,7 +341,7 @@ All commands accept `-s <session>` to target a specific session. Panes are refer
 
 ## Keybindings
 
-Default prefix: `Ctrl-a`. Configurable via `~/.config/amux/config.toml` (see [Configuration](#configuration)).
+Default prefix: `Ctrl-a`.
 
 | Key | Action |
 |-----|--------|
@@ -398,28 +398,6 @@ color = "f38ba8"            # Catppuccin Red — optional, auto-assigned if omit
 type = "local"
 color = "a6e3a1"            # Catppuccin Green
 ```
-
-### Keybindings
-
-```toml
-[keys]
-preset = "tmux"             # optional: start from the built-in tmux-compatible map
-prefix = "C-b"              # change prefix to Ctrl-b (default: Ctrl-a)
-unbind = ["M", "["]         # remove default bindings
-
-[keys.bind]
-"s" = "split-focus v"       # bind Ctrl-b s to vertical split and focus the new pane
-"q" = "kill"                # bind Ctrl-b q to kill pane
-"g" = "display-panes"       # bind Ctrl-b g to show pane labels
-```
-
-Key format: single character (`d`, `\\`, `-`) or Ctrl combo (`C-a`, `C-b`). Actions usually match CLI command names (for example `split`, `focus left`, `zoom`, `kill`). Keybindings also support `split-focus` and `spawn-focus` for interactive bindings that should focus the new pane.
-
-Built-in presets:
-- `amux` (default): the native amux keymap documented in `amux version`
-- `tmux`: tmux-style prefix and bindings for supported features such as `%`, `"`, `q`, `s`, `w`, `c`, `n`, `p`, `[` and `Ctrl-o`
-
-`prefix`, `bind`, and `unbind` still apply on top of a preset, so you can start from `tmux` and tweak from there.
 
 ## AI Agent Support
 
