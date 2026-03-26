@@ -263,6 +263,7 @@ All commands accept `-s <session>` to target a specific session. Panes are refer
 |---------|-------------|
 | `amux list [--no-cwd]` | List panes with metadata (including cwd by default) |
 | `amux split <pane> [root] [--vertical\|--horizontal] [--name NAME] [--host HOST]` | Split a pane without changing focus (default: horizontal) |
+| `amux add-pane [--name NAME] [--host HOST]` | Add a pane in clockwise spiral order without changing focus |
 | `amux focus <pane\|direction>` | Focus by name, ID, or direction (left/right/up/down/next) |
 | `amux spawn --name NAME [--host HOST] [--task TASK]` | Spawn a new named pane without changing focus |
 | `amux zoom [pane]` | Toggle zoom on a pane |
@@ -279,7 +280,9 @@ All commands accept `-s <session>` to target a specific session. Panes are refer
 | `amux add-meta <pane> key=value...` | Add pane metadata values (`pr=NUMBER`, `issue=ID`) |
 | `amux rm-meta <pane> key=value...` | Remove pane metadata values (`pr=NUMBER`, `issue=ID`) |
 `swap-tree` and `move` treat each pane ref as identifying the root-level group that contains that pane, so moving `pane-3` can move an entire column or row rather than only one leaf cell.
-`split` and `spawn` are pure layout mutations: they create the pane but do not change focus. Use `amux focus <pane|direction>` when you want a focus change explicitly. When the active pane is zoomed, `split` and `spawn` preserve the zoom and keep the focused pane unchanged.
+`split`, `spawn`, and `add-pane` are pure layout mutations: they create the pane but do not change focus. Use `amux focus <pane|direction>` when you want a focus change explicitly. When the active pane is zoomed, these commands preserve the zoom and keep the focused pane unchanged.
+
+`add-pane` builds outward in a clockwise spiral. At 1, 4, 9, 16, ... panes the spiral canvas reaches a uniform `N x N` grid. When a lead pane is active, the lead column stays pinned on the left and `add-pane` spirals only within the right subtree.
 
 ### Agent API
 
@@ -327,6 +330,7 @@ All commands accept `-s <session>` to target a specific session. Panes are refer
 |---------|-------------|
 | `amux hosts` | List configured remote hosts and connection status |
 | `amux split <pane> [root] [--vertical\|--horizontal] [--name NAME] --host HOST` | Split a pane with a remote pane on HOST without changing focus |
+| `amux add-pane [--name NAME] --host HOST` | Add a remote pane in clockwise spiral order without changing focus |
 | `amux disconnect <host>` | Drop SSH connection to a host |
 | `amux reconnect <host>` | Reconnect to a remote host |
 | `amux unsplice <host>` | Revert SSH takeover, replace remote panes with local |
@@ -350,6 +354,7 @@ Default prefix: `Ctrl-a`.
 | `Alt-h/j/k/l` | Focus left/down/up/right (no prefix) |
 | `Ctrl-a H/J/K/L` | Resize pane left/down/up/right |
 | `Ctrl-a [` | Enter copy/scroll mode |
+| `Ctrl-a a` | Add pane in clockwise spiral order |
 | `Ctrl-a c` | Create new window |
 | `Ctrl-a n` / `Ctrl-a p` | Next/previous window |
 | `Ctrl-a q` | Show pane labels for quick jump |

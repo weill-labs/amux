@@ -164,3 +164,60 @@ func TestParseSpawnArgs(t *testing.T) {
 		})
 	}
 }
+
+func TestParseAddPaneArgs(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		args    []string
+		want    AddPaneArgs
+		wantErr string
+	}{
+		{
+			name: "defaults empty",
+			want: AddPaneArgs{},
+		},
+		{
+			name: "parses name and host",
+			args: []string{"--name", "worker-1", "--host", "dev"},
+			want: AddPaneArgs{Name: "worker-1", HostName: "dev"},
+		},
+		{
+			name:    "rejects missing name value",
+			args:    []string{"--name"},
+			wantErr: "--name requires a value",
+		},
+		{
+			name:    "rejects missing host value",
+			args:    []string{"--host"},
+			wantErr: "--host requires a value",
+		},
+		{
+			name:    "rejects unknown arg",
+			args:    []string{"--task", "build"},
+			wantErr: `unknown add-pane arg "--task"`,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := ParseAddPaneArgs(tt.args)
+			if tt.wantErr != "" {
+				if err == nil || err.Error() != tt.wantErr {
+					t.Fatalf("ParseAddPaneArgs(%v) error = %v, want %q", tt.args, err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("ParseAddPaneArgs(%v): %v", tt.args, err)
+			}
+			if got != tt.want {
+				t.Fatalf("ParseAddPaneArgs(%v) = %+v, want %+v", tt.args, got, tt.want)
+			}
+		})
+	}
+}
