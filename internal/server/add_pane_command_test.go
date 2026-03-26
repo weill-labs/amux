@@ -89,7 +89,7 @@ func TestCommandAddPaneRejectsMissingInheritedPane(t *testing.T) {
 	srv, sess, cleanup := newCommandTestSession(t)
 	defer cleanup()
 
-	p1 := newStandaloneProxyPane(1, "pane-1")
+	p1 := newAddPaneTestProxyPane(1, "pane-1")
 	w := mux.NewWindow(p1, 80, 24)
 	w.ID = 1
 	w.Name = "main"
@@ -169,9 +169,9 @@ func TestCommandAddPaneRejectsInvalidLayout(t *testing.T) {
 	srv, sess, cleanup := newCommandTestSession(t)
 	defer cleanup()
 
-	p1 := newStandaloneProxyPane(1, "pane-1")
-	p2 := newStandaloneProxyPane(2, "pane-2")
-	p3 := newStandaloneProxyPane(3, "pane-3")
+	p1 := newAddPaneTestProxyPane(1, "pane-1")
+	p2 := newAddPaneTestProxyPane(2, "pane-2")
+	p3 := newAddPaneTestProxyPane(3, "pane-3")
 	w := mux.NewWindow(p1, 80, 24)
 	w.ID = 1
 	w.Name = "main"
@@ -193,4 +193,14 @@ func TestCommandAddPaneRejectsInvalidLayout(t *testing.T) {
 	if got := mustSessionQuery(t, sess, func(sess *Session) int { return len(sess.Panes) }); got != 3 {
 		t.Fatalf("pane count after rejected add-pane = %d, want 3", got)
 	}
+}
+
+func newAddPaneTestProxyPane(id uint32, name string) *mux.Pane {
+	return mux.NewProxyPaneWithScrollback(id, mux.PaneMeta{
+		Name:  name,
+		Host:  mux.DefaultHost,
+		Color: config.AccentColor(id - 1),
+	}, 80, 23, mux.DefaultScrollbackLines, nil, nil, func(data []byte) (int, error) {
+		return len(data), nil
+	})
 }
