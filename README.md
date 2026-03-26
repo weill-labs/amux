@@ -44,7 +44,7 @@ amux install-terminfo
 **Human**
 
 ```bash
-# Start or reattach to the default session
+# Start or reattach to the main session
 amux
 
 # Or create a named session
@@ -250,7 +250,7 @@ All commands accept `-s <session>` to target a specific session. Panes are refer
 
 | Command | Description |
 |---------|-------------|
-| `amux` | Start or attach to default session |
+| `amux` | Start or attach to main session |
 | `amux new [name]` | Start a new named session |
 | `amux attach [session]` | Attach to a session |
 | `amux status` | Show pane/window summary |

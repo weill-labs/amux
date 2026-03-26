@@ -150,6 +150,37 @@ func TestConnectionLogRecordsClosedConnectionReason(t *testing.T) {
 	}
 }
 
+func TestHandleAttachUsesImplicitMainSessionWhenSessionEmpty(t *testing.T) {
+	t.Parallel()
+
+	sess, srv, pane := newConnectionLogAttachSession(t, DefaultSessionName)
+	defer stopSessionBackgroundLoops(t, sess)
+	serverConn, clientConn := net.Pipe()
+	defer clientConn.Close()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		srv.handleAttach(serverConn, &Message{
+			Type: MsgTypeAttach,
+			Cols: 80,
+			Rows: 24,
+		})
+	}()
+
+	drainAttachBootstrap(t, clientConn, pane.ID, 80, 24)
+
+	if err := WriteMsg(clientConn, &Message{Type: MsgTypeDetach}); err != nil {
+		t.Fatalf("WriteMsg detach: %v", err)
+	}
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("handleAttach did not exit after implicit-session detach")
+	}
+}
+
 func TestCmdConnectionLogFormatsEntriesAndEmptyState(t *testing.T) {
 	t.Parallel()
 

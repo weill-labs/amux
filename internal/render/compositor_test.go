@@ -280,8 +280,8 @@ func TestGlobalBarFillsFullWidth(t *testing.T) {
 		t.Run(fmt.Sprintf("width=%d", width), func(t *testing.T) {
 			t.Parallel()
 			var buf strings.Builder
-			renderGlobalBar(&buf, "default", 2, width, 0, nil, "", time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC))
-			renderGlobalBar(&buf, "default", 2, width, 0, nil, "", time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC))
+			renderGlobalBar(&buf, "main", 2, width, 0, nil, "", time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC))
+			renderGlobalBar(&buf, "main", 2, width, 0, nil, "", time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC))
 			grid := MaterializeGrid(buf.String(), width, 1)
 
 			// width-1 accounts for MaterializeGrid trimming the trailing space.

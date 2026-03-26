@@ -114,7 +114,7 @@ func TestEnsureRemoteServerAndWaitForSocket(t *testing.T) {
 	ts := startTestSSH(t)
 	writeFakeRemoteAmux(t, ts)
 
-	sessionName := "default@test"
+	sessionName := "main@test"
 	sockPath := socketPath("1000", sessionName)
 	actualSockPath := socketPath(strconv.Itoa(os.Getuid()), sessionName)
 	_ = os.Remove(sockPath)
@@ -155,7 +155,7 @@ func TestHostConnDoConnectWithAddrReturnsDialErrorAfterRemoteSetup(t *testing.T)
 	}, "", nil, nil, nil)
 	defer hc.Close()
 
-	outcome, err := hc.doConnectWithAddr("default", ts.Addr)
+	outcome, err := hc.doConnectWithAddr("main", ts.Addr)
 	if err == nil || !strings.Contains(err.Error(), "dialing remote socket") {
 		t.Fatalf("doConnectWithAddr() error = %v, want dialing remote socket failure", err)
 	}
@@ -207,7 +207,7 @@ func TestHostConnRunCommandAndCreateRemotePaneDialErrors(t *testing.T) {
 
 	testInActor(hc, func(hc *HostConn) {
 		hc.sshClient = ts.Client
-		hc.sessionName = "default@test"
+		hc.sessionName = "main@test"
 		hc.remoteUID = "1000"
 	})
 
@@ -439,7 +439,7 @@ func TestManagerCreatePaneAndAttachForTakeoverFailures(t *testing.T) {
 	}}
 	mgr := newTestManager(t, cfg, "build-hash")
 
-	if _, err := mgr.CreatePane("dev", 41, "default"); err == nil || !strings.Contains(err.Error(), "connecting to dev: SSH dial") {
+	if _, err := mgr.CreatePane("dev", 41, "main"); err == nil || !strings.Contains(err.Error(), "connecting to dev: SSH dial") {
 		t.Fatalf("CreatePane() error = %v, want SSH dial failure", err)
 	}
 
@@ -453,7 +453,7 @@ func TestManagerCreatePaneAndAttachForTakeoverFailures(t *testing.T) {
 		t.Fatalf("manager state after CreatePane = host=%v localToHost=%q, want installed host and dev mapping", hostConn != nil, localHost)
 	}
 
-	err := mgr.AttachForTakeover("dev", "127.0.0.1:1", "testuser", "1000", "default@test", map[uint32]uint32{
+	err := mgr.AttachForTakeover("dev", "127.0.0.1:1", "testuser", "1000", "main@test", map[uint32]uint32{
 		51: 151,
 		52: 152,
 	})
@@ -490,7 +490,7 @@ func TestHostConnReconnectAndReconnectDonePaths(t *testing.T) {
 		hc := newKeyedHostConn(t, "127.0.0.1:1")
 		hc.Close()
 
-		if err := hc.Reconnect("default"); !errors.Is(err, errHostConnClosed) {
+		if err := hc.Reconnect("main"); !errors.Is(err, errHostConnClosed) {
 			t.Fatalf("Reconnect() after Close = %v, want %v", err, errHostConnClosed)
 		}
 	})
@@ -499,7 +499,7 @@ func TestHostConnReconnectAndReconnectDonePaths(t *testing.T) {
 		hc := newKeyedHostConn(t, "127.0.0.1:1")
 		defer hc.Close()
 
-		if err := hc.Reconnect("default"); err == nil || !strings.Contains(err.Error(), "SSH dial") {
+		if err := hc.Reconnect("main"); err == nil || !strings.Contains(err.Error(), "SSH dial") {
 			t.Fatalf("Reconnect() error = %v, want SSH dial failure", err)
 		}
 		if got := hc.State(); got != Disconnected {
@@ -537,7 +537,7 @@ func TestHostConnReconnectAndReconnectDonePaths(t *testing.T) {
 			(reconnectDoneEvent{
 				outcome: &connectOutcome{
 					amuxConn:    clientConn2,
-					sessionName: "default@test",
+					sessionName: "main@test",
 					remoteUID:   "1000",
 					connectAddr: "127.0.0.1:22",
 				},

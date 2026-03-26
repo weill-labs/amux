@@ -124,7 +124,7 @@ func TestReadCrashRejectsCorruptJSON(t *testing.T) {
 func TestFindCrashCheckpointsMissingDirectory(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", filepath.Join(t.TempDir(), "missing-state-home"))
 
-	if got := FindCrashCheckpoints("default"); got != nil {
+	if got := FindCrashCheckpoints("main"); got != nil {
 		t.Fatalf("FindCrashCheckpoints() = %v, want nil when state dir is absent", got)
 	}
 }

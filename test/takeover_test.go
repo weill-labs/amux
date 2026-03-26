@@ -82,7 +82,7 @@ func TestTakeoverAttachFailureLeavesSSHPaneVisible(t *testing.T) {
 
 	h := newServerHarness(t)
 	h.sendKeys("pane-1",
-		`printf '\033]999;amux-takeover;{"session":"default@badhost","host":"badhost","uid":"1","ssh_address":"127.0.0.1:1","ssh_user":"nobody","panes":[{"id":1,"name":"pane-1","cols":80,"rows":22}]}\007'`,
+		`printf '\033]999;amux-takeover;{"session":"main@badhost","host":"badhost","uid":"1","ssh_address":"127.0.0.1:1","ssh_user":"nobody","panes":[{"id":1,"name":"pane-1","cols":80,"rows":22}]}\007'`,
 		"Enter",
 	)
 	h.waitIdle("pane-1")
@@ -135,7 +135,7 @@ func TestTakeoverFailureNoticeExpires(t *testing.T) {
 
 	h := newServerHarnessWithOptions(t, 80, 24, "", true, "AMUX_NOTICE_DURATION=500ms")
 	h.sendKeys("pane-1",
-		`printf '\033]999;amux-takeover;{"session":"default@badhost","host":"badhost","uid":"1","ssh_address":"127.0.0.1:1","ssh_user":"nobody","panes":[{"id":1,"name":"pane-1","cols":80,"rows":22}]}\007'`,
+		`printf '\033]999;amux-takeover;{"session":"main@badhost","host":"badhost","uid":"1","ssh_address":"127.0.0.1:1","ssh_user":"nobody","panes":[{"id":1,"name":"pane-1","cols":80,"rows":22}]}\007'`,
 		"Enter",
 	)
 

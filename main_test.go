@@ -83,6 +83,14 @@ func TestResolveSessionName(t *testing.T) {
 	}
 }
 
+func TestDefaultSessionNameValue(t *testing.T) {
+	t.Parallel()
+
+	if defaultSessionName != "main" {
+		t.Fatalf("defaultSessionName = %q, want %q", defaultSessionName, "main")
+	}
+}
+
 func TestResolveInvocationSession(t *testing.T) {
 	tests := []struct {
 		name       string

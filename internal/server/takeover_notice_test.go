@@ -22,8 +22,8 @@ func TestSummarizeTakeoverAttachError(t *testing.T) {
 		},
 		{
 			name: "plain wrapped error trims amux prefix",
-			err:  errors.New("amux: waiting for remote socket /tmp/amux-1000/default@host: timeout"),
-			want: "waiting for remote socket /tmp/amux-1000/default@host: timeout",
+			err:  errors.New("amux: waiting for remote socket /tmp/amux-1000/main@host: timeout"),
+			want: "waiting for remote socket /tmp/amux-1000/main@host: timeout",
 		},
 		{
 			name: "nil error falls back",

@@ -34,7 +34,7 @@ LOCAL                           REMOTE (lambda-a100)
        ▼                              ▼
   Local server                  Remote amux server
   converts pane-1               starts with session
-  into proxy panes              name "default@macbook"
+  into proxy panes              name "main@macbook"
   via remote manager            creates panes
 ```
 
@@ -49,8 +49,8 @@ When `amux` starts and detects it's running inside another amux pane (the PTY al
 Payload:
 ```json
 {
-  "session": "default@macbook",
-  "socket": "/tmp/amux-1000/default@macbook",
+  "session": "main@macbook",
+  "socket": "/tmp/amux-1000/main@macbook",
   "host": "lambda-a100",
   "uid": "1000",
   "panes": [
