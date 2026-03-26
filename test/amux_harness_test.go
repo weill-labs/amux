@@ -46,37 +46,20 @@ func newAmuxHarness(tb testing.TB, envVars ...string) *AmuxHarness {
 // default test binary. The outer harness still uses the standard test binary.
 func newAmuxHarnessWithBin(tb testing.TB, binPath string, envVars ...string) *AmuxHarness {
 	tb.Helper()
-	return newAmuxHarnessWithOptions(tb, binPath, "", false, envVars...)
+	return newAmuxHarnessWithBinInDir(tb, binPath, "", envVars...)
 }
 
 // newAmuxHarnessWithBinInDir launches the inner amux from binPath and, when
 // launchDir is non-empty, starts it from that working directory.
 func newAmuxHarnessWithBinInDir(tb testing.TB, binPath, launchDir string, envVars ...string) *AmuxHarness {
 	tb.Helper()
-	return newAmuxHarnessWithOptions(tb, binPath, launchDir, false, envVars...)
-}
-
-func newAmuxHarnessWithPersistentOuter(tb testing.TB, binPath string, envVars ...string) *AmuxHarness {
-	tb.Helper()
-	return newAmuxHarnessWithOptions(tb, binPath, "", true, envVars...)
-}
-
-func newAmuxHarnessWithPersistentOuterInDir(tb testing.TB, binPath, launchDir string, envVars ...string) *AmuxHarness {
-	tb.Helper()
-	return newAmuxHarnessWithOptions(tb, binPath, launchDir, true, envVars...)
-}
-
-func newAmuxHarnessWithOptions(tb testing.TB, binPath, launchDir string, persistentOuter bool, envVars ...string) *AmuxHarness {
-	tb.Helper()
 	nestedHarnessStartupMu.Lock()
 	defer nestedHarnessStartupMu.Unlock()
 
-	outer := newServerHarness(tb)
-	if persistentOuter {
-		// Keep the outer server alive even if the headless client briefly
-		// disconnects while the inner client is reloading.
-		outer = newServerHarnessPersistent(tb)
-	}
+	// The outer harness is just the container for the inner amux session.
+	// Keep its server alive even if the headless client briefly disconnects
+	// while the inner client is reloading.
+	outer := newServerHarnessPersistent(tb)
 
 	var b [4]byte
 	rand.Read(b[:])
