@@ -288,6 +288,8 @@ func TestAddMetaTracksPanePRsAndIssues(t *testing.T) {
 }
 
 func TestPaneMetaCLIUsageErrors(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name string
 		args []string
@@ -307,6 +309,8 @@ func TestPaneMetaCLIUsageErrors(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			if out := runAmuxUsageCmd(t, tt.args...); !strings.Contains(out, tt.want) {
 				t.Fatalf("%s output = %q, want substring %q", tt.name, out, tt.want)
 			}
