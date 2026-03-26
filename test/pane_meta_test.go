@@ -2,6 +2,8 @@ package test
 
 import (
 	"encoding/json"
+	"os"
+	"os/exec"
 	"reflect"
 	"strconv"
 	"strings"
@@ -244,6 +246,23 @@ func waitForPostIdleRefresh(t *testing.T, pane string, runCmd func(...string) st
 	t.Fatalf("pane %s did not reach post-idle metadata refresh (generation before=%d after=%d)", pane, before, generation())
 }
 
+func runAmuxUsageCmd(t *testing.T, args ...string) string {
+	t.Helper()
+
+	cmd := exec.Command(amuxBin, args...)
+	env := os.Environ()
+	for _, key := range []string{"AMUX_PANE", "AMUX_SESSION", "TMUX"} {
+		env = removeEnv(env, key)
+	}
+	env = upsertEnv(env, "HOME", newTestHome(t))
+	if gocoverDir != "" {
+		env = upsertEnv(env, "GOCOVERDIR", gocoverDir)
+	}
+	cmd.Env = env
+	out, _ := cmd.CombinedOutput()
+	return string(out)
+}
+
 func TestAddMetaTracksPanePRsAndIssues(t *testing.T) {
 	t.Parallel()
 
@@ -292,8 +311,7 @@ func TestPaneMetaCLIUsageErrors(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newServerHarness(t)
-			if out := h.runCmd(tt.args...); !strings.Contains(out, tt.want) {
+			if out := runAmuxUsageCmd(t, tt.args...); !strings.Contains(out, tt.want) {
 				t.Fatalf("%s output = %q, want substring %q", tt.name, out, tt.want)
 			}
 		})

@@ -161,6 +161,44 @@ func TestRenderPaneStatusTruncatesMetadata(t *testing.T) {
 	}
 }
 
+func TestRenderPaneStatusHintsWhenActivePaneHasNoIssueMetadata(t *testing.T) {
+	t.Parallel()
+
+	cell := mux.NewLeaf(&mux.Pane{ID: 1}, 0, 0, 60, 3)
+	var buf strings.Builder
+	renderPaneStatus(&buf, cell, true, &statusPaneData{
+		id:    1,
+		name:  "pane-1",
+		prs:   []string{"42"},
+		color: config.TextColorHex,
+	})
+
+	line := MaterializeGrid(buf.String(), cell.W, 1)
+	for _, want := range []string{"[pane-1]", "#42", "set issue"} {
+		if !strings.Contains(line, want) {
+			t.Fatalf("status line %q missing %q", line, want)
+		}
+	}
+}
+
+func TestRenderPaneStatusSkipsMissingIssueHintForInactivePane(t *testing.T) {
+	t.Parallel()
+
+	cell := mux.NewLeaf(&mux.Pane{ID: 1}, 0, 0, 60, 3)
+	var buf strings.Builder
+	renderPaneStatus(&buf, cell, false, &statusPaneData{
+		id:    1,
+		name:  "pane-1",
+		prs:   []string{"42"},
+		color: config.TextColorHex,
+	})
+
+	line := MaterializeGrid(buf.String(), cell.W, 1)
+	if strings.Contains(line, "set issue") {
+		t.Fatalf("inactive status line should not show the missing-issue hint: %q", line)
+	}
+}
+
 func TestTruncateRunes(t *testing.T) {
 	t.Parallel()
 
@@ -449,6 +487,34 @@ func TestBuildStatusCellsShowsPaneMetadata(t *testing.T) {
 	}
 	line := strings.TrimRight(row.String(), " ")
 	for _, want := range []string{"#42, #314, LAB-339", "@remote-host", "sync", "⚡"} {
+		if !strings.Contains(line, want) {
+			t.Fatalf("status row %q missing %q", line, want)
+		}
+	}
+}
+
+func TestBuildStatusCellsHintsWhenActivePaneHasNoIssueMetadata(t *testing.T) {
+	t.Parallel()
+
+	cell := mux.NewLeaf(&mux.Pane{ID: 1}, 0, 0, 40, 4)
+	grid := NewScreenGrid(40, 4)
+	buildStatusCells(grid, cell, true, &statusPaneData{
+		id:    1,
+		name:  "pane-1",
+		prs:   []string{"42"},
+		color: config.TextColorHex,
+	})
+
+	var row strings.Builder
+	for x := 0; x < 40; x++ {
+		ch := grid.Get(x, 0).Char
+		if ch == "" {
+			ch = " "
+		}
+		row.WriteString(ch)
+	}
+	line := strings.TrimRight(row.String(), " ")
+	for _, want := range []string{"#42", "set issue"} {
 		if !strings.Contains(line, want) {
 			t.Fatalf("status row %q missing %q", line, want)
 		}

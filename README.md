@@ -76,6 +76,9 @@ amux send-keys pane-31 --wait ready "Fix the auth timeout bug" Enter
 # Subscribe to state changes
 amux events --filter idle
 
+# Tag the current pane when you start a Linear issue
+scripts/set-pane-issue.sh LAB-445
+
 # Discover attached clients
 amux list-clients
 
@@ -275,7 +278,6 @@ All commands accept `-s <session>` to target a specific session. Panes are refer
 | `amux set-meta <pane> key=value...` | Set single-value pane metadata (`task`, `branch`, `pr`) |
 | `amux add-meta <pane> key=value...` | Add pane metadata values (`pr=NUMBER`, `issue=ID`) |
 | `amux rm-meta <pane> key=value...` | Remove pane metadata values (`pr=NUMBER`, `issue=ID`) |
-
 `swap-tree` and `move` treat each pane ref as identifying the root-level group that contains that pane, so moving `pane-3` can move an entire column or row rather than only one leaf cell.
 `split` and `spawn` are pure layout mutations: they create the pane but do not change focus. Use `amux focus <pane|direction>` when you want a focus change explicitly. When the active pane is zoomed, `split` and `spawn` preserve the zoom and keep the focused pane unchanged.
 

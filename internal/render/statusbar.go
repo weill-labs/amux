@@ -15,6 +15,7 @@ import (
 const GlobalBarHeight = 1
 
 const globalBarPrefixVisibleWidth = 8 // " amux │ "
+const missingIssueHint = "set issue"
 
 type globalBarWindowTab struct {
 	window  WindowInfo
@@ -66,7 +67,7 @@ func renderPaneStatus(buf *strings.Builder, cell *mux.LayoutCell, isActive bool,
 	buf.WriteString("]")
 	buf.WriteString(NoBold)
 
-	metaText := paneStatusMetadata(pd, availableMetadataWidth(cell.W, pd))
+	metaText := paneStatusMetadata(pd, availableMetadataWidth(cell.W, pd, isActive), isActive)
 
 	// Copy mode indicator + search prompt
 	if pd.InCopyMode() {
@@ -142,8 +143,8 @@ func truncateRunes(s string, max int) string {
 	return string(runes[:max-1]) + "…"
 }
 
-func paneStatusMetadata(pd PaneData, maxWidth int) string {
-	items := paneStatusMetadataItems(pd.PRs(), pd.Issues())
+func paneStatusMetadata(pd PaneData, maxWidth int, showMissingIssueHint bool) string {
+	items := paneStatusMetadataItems(pd.PRs(), pd.Issues(), showMissingIssueHint)
 	if len(items) == 0 || maxWidth < 2 {
 		return ""
 	}
@@ -174,8 +175,8 @@ func paneStatusMetadata(pd PaneData, maxWidth int) string {
 	return prefix + "…"
 }
 
-func paneStatusMetadataItems(prs, issues []string) []string {
-	items := make([]string, 0, len(prs)+len(issues))
+func paneStatusMetadataItems(prs, issues []string, showMissingIssueHint bool) []string {
+	items := make([]string, 0, len(prs)+len(issues)+1)
 	for _, pr := range prs {
 		pr = strings.TrimSpace(pr)
 		if pr == "" {
@@ -186,18 +187,23 @@ func paneStatusMetadataItems(prs, issues []string) []string {
 		}
 		items = append(items, pr)
 	}
+	hasIssue := false
 	for _, issue := range issues {
 		issue = strings.TrimSpace(issue)
 		if issue == "" {
 			continue
 		}
+		hasIssue = true
 		items = append(items, issue)
+	}
+	if showMissingIssueHint && !hasIssue {
+		items = append(items, missingIssueHint)
 	}
 	return items
 }
 
-func availableMetadataWidth(cellWidth int, pd PaneData) int {
-	if len(paneStatusMetadataItems(pd.PRs(), pd.Issues())) == 0 {
+func availableMetadataWidth(cellWidth int, pd PaneData, showMissingIssueHint bool) int {
+	if len(paneStatusMetadataItems(pd.PRs(), pd.Issues(), showMissingIssueHint)) == 0 {
 		return 0
 	}
 	return cellWidth - paneStatusUsedWidthWithoutMetadata(pd) - 1
