@@ -15,8 +15,8 @@ Examples:
 
 Environment:
   AMUX=amux                amux binary to invoke
-  AMUX_PROBE_ALLOW_DEFAULT=1
-                           allow probing the default session
+  AMUX_PROBE_ALLOW_MAIN=1
+                           allow probing the main session
 EOF
 }
 
@@ -34,9 +34,10 @@ if [ -z "$SESSION" ]; then
   exit 1
 fi
 
-if [ "$SESSION" = "default" ] && [ "${AMUX_PROBE_ALLOW_DEFAULT:-}" != "1" ]; then
-  echo "Refusing to probe the default session."
-  echo "Use a fresh named session, or set AMUX_PROBE_ALLOW_DEFAULT=1 to override."
+allow_main=${AMUX_PROBE_ALLOW_MAIN:-${AMUX_PROBE_ALLOW_DEFAULT:-}}
+if [ "$SESSION" = "main" ] && [ "$allow_main" != "1" ]; then
+  echo "Refusing to probe the main session."
+  echo "Use a fresh named session, or set AMUX_PROBE_ALLOW_MAIN=1 to override."
   exit 1
 fi
 
