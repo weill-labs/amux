@@ -181,16 +181,18 @@ func TestBuildPane(t *testing.T) {
 	t.Parallel()
 
 	input := PaneInput{
-		ID:         7,
-		Name:       "pane-7",
-		Active:     true,
-		Zoomed:     true,
-		Host:       "local",
-		Task:       "task",
-		Color:      "f5e0dc",
-		ConnStatus: "connected",
-		GitBranch:  "feat/meta",
-		PR:         "99",
+		ID:            7,
+		Name:          "pane-7",
+		Active:        true,
+		Zoomed:        true,
+		Host:          "local",
+		Task:          "task",
+		Color:         "f5e0dc",
+		ConnStatus:    "connected",
+		GitBranch:     "feat/meta",
+		PR:            "99",
+		TrackedPRs:    []proto.TrackedPR{{Number: 42, Status: proto.TrackedStatusCompleted}},
+		TrackedIssues: []proto.TrackedIssue{{ID: "LAB-450", Status: proto.TrackedStatusActive}},
 		Cursor: proto.CaptureCursor{
 			Col:    4,
 			Row:    2,
@@ -218,9 +220,11 @@ func TestBuildPane(t *testing.T) {
 		Task:   "task",
 		Color:  "f5e0dc",
 		Meta: proto.CaptureMeta{
-			Task:      "task",
-			GitBranch: "feat/meta",
-			PR:        "99",
+			Task:          "task",
+			GitBranch:     "feat/meta",
+			PR:            "99",
+			TrackedPRs:    []proto.TrackedPR{{Number: 42, Status: proto.TrackedStatusCompleted}},
+			TrackedIssues: []proto.TrackedIssue{{ID: "LAB-450", Status: proto.TrackedStatusActive}},
 		},
 		ConnStatus: "connected",
 		GitBranch:  "feat/meta",
@@ -266,11 +270,22 @@ func TestBuildPane(t *testing.T) {
 	if meta["pr"] != "99" {
 		t.Fatalf("meta.pr = %#v, want %q", meta["pr"], "99")
 	}
+	if trackedPRs, ok := meta["tracked_prs"].([]any); !ok || len(trackedPRs) != 1 {
+		t.Fatalf("meta.tracked_prs = %#v, want single tracked PR", meta["tracked_prs"])
+	}
+	if trackedIssues, ok := meta["tracked_issues"].([]any); !ok || len(trackedIssues) != 1 {
+		t.Fatalf("meta.tracked_issues = %#v, want single tracked issue", meta["tracked_issues"])
+	}
 
 	input.Content[0] = "mutated"
 	input.History[0] = "mutated"
+	input.TrackedPRs[0].Number = 73
+	input.TrackedIssues[0].ID = "LAB-451"
 	if got.Content[0] != "screen-1" || got.History[0] != "history-1" {
 		t.Fatalf("BuildPane should copy slices, got content=%v history=%v", got.Content, got.History)
+	}
+	if got.Meta.TrackedPRs[0].Number != 42 || got.Meta.TrackedIssues[0].ID != "LAB-450" {
+		t.Fatalf("BuildPane should copy tracked refs, got tracked_prs=%v tracked_issues=%v", got.Meta.TrackedPRs, got.Meta.TrackedIssues)
 	}
 }
 

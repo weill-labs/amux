@@ -147,10 +147,10 @@ func TestCrashRoundTrip(t *testing.T) {
 		gotPRs, gotIssues := metaCollections(t, got.Meta)
 		wantPRs, wantIssues := metaCollections(t, want.Meta)
 		if !reflect.DeepEqual(gotPRs, wantPRs) {
-			t.Errorf("PaneStates[%d].Meta.PRs = %v, want %v", i, gotPRs, wantPRs)
+			t.Errorf("PaneStates[%d].Meta.TrackedPRs = %v, want %v", i, gotPRs, wantPRs)
 		}
 		if !reflect.DeepEqual(gotIssues, wantIssues) {
-			t.Errorf("PaneStates[%d].Meta.Issues = %v, want %v", i, gotIssues, wantIssues)
+			t.Errorf("PaneStates[%d].Meta.TrackedIssues = %v, want %v", i, gotIssues, wantIssues)
 		}
 	}
 

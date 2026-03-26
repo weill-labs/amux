@@ -82,6 +82,10 @@ type Session struct {
 	notice      string
 	noticeToken uint64
 
+	// TrackedMetaResolver resolves cached completion state for tracked PRs/issues.
+	// Nil disables external refreshes.
+	TrackedMetaResolver TrackedMetaResolver
+
 	// Capture forwarding — routes capture requests through the attached
 	// interactive client so the result reflects client-side emulator state.
 	// The event loop owns the single in-flight request and queued requests.

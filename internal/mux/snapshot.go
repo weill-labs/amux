@@ -54,16 +54,16 @@ func (w *Window) SnapshotWindow(index int) proto.WindowSnapshot {
 
 func (p *Pane) ToSnapshot() proto.PaneSnapshot {
 	return proto.PaneSnapshot{
-		ID:         p.ID,
-		Name:       p.Meta.Name,
-		Host:       p.Meta.Host,
-		Task:       p.Meta.Task,
-		Color:      p.Meta.Color,
-		ConnStatus: p.Meta.Remote,
-		GitBranch:  p.Meta.GitBranch,
-		PR:         p.Meta.PR,
-		PRs:        append([]int(nil), p.Meta.PRs...),
-		Issues:     append([]string(nil), p.Meta.Issues...),
+		ID:            p.ID,
+		Name:          p.Meta.Name,
+		Host:          p.Meta.Host,
+		Task:          p.Meta.Task,
+		Color:         p.Meta.Color,
+		ConnStatus:    p.Meta.Remote,
+		GitBranch:     p.Meta.GitBranch,
+		PR:            p.Meta.PR,
+		TrackedPRs:    proto.CloneTrackedPRs(p.Meta.TrackedPRs),
+		TrackedIssues: proto.CloneTrackedIssues(p.Meta.TrackedIssues),
 	}
 }
 

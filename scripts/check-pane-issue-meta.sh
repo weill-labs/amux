@@ -18,7 +18,7 @@ if ! capture=$(amux capture --format json "$AMUX_PANE" 2>/dev/null); then
     exit 0
 fi
 
-if ! issue_count=$(printf '%s\n' "$capture" | jq -r '(.meta.issues // []) | length' 2>/dev/null); then
+if ! issue_count=$(printf '%s\n' "$capture" | jq -r '(.meta.tracked_issues // []) | length' 2>/dev/null); then
     exit 0
 fi
 

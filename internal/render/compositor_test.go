@@ -8,6 +8,7 @@ import (
 
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/weill-labs/amux/internal/mux"
+	"github.com/weill-labs/amux/internal/proto"
 )
 
 // fakePaneData implements PaneData with a fixed screen string.
@@ -22,21 +23,21 @@ func (f *fakePaneData) RenderScreen(bool) string { return f.screen }
 func (f *fakePaneData) CellAt(col, row int, active bool) ScreenCell {
 	return ScreenCell{Char: " ", Width: 1}
 }
-func (f *fakePaneData) CursorPos() (int, int)  { return 0, 0 }
-func (f *fakePaneData) CursorHidden() bool     { return f.cursorHidden }
-func (f *fakePaneData) ID() uint32             { return f.id }
-func (f *fakePaneData) Name() string           { return f.name }
-func (f *fakePaneData) PRs() []string          { return nil }
-func (f *fakePaneData) Issues() []string       { return nil }
-func (f *fakePaneData) Host() string           { return "local" }
-func (f *fakePaneData) Task() string           { return "" }
-func (f *fakePaneData) Color() string          { return "f5e0dc" }
-func (f *fakePaneData) Idle() bool             { return true }
-func (f *fakePaneData) IsLead() bool           { return false }
-func (f *fakePaneData) ConnStatus() string     { return "" }
-func (f *fakePaneData) InCopyMode() bool       { return false }
-func (f *fakePaneData) CopyModeSearch() string { return "" }
-func (f *fakePaneData) HasCursorBlock() bool   { return false }
+func (f *fakePaneData) CursorPos() (int, int)               { return 0, 0 }
+func (f *fakePaneData) CursorHidden() bool                  { return f.cursorHidden }
+func (f *fakePaneData) ID() uint32                          { return f.id }
+func (f *fakePaneData) Name() string                        { return f.name }
+func (f *fakePaneData) TrackedPRs() []proto.TrackedPR       { return nil }
+func (f *fakePaneData) TrackedIssues() []proto.TrackedIssue { return nil }
+func (f *fakePaneData) Host() string                        { return "local" }
+func (f *fakePaneData) Task() string                        { return "" }
+func (f *fakePaneData) Color() string                       { return "f5e0dc" }
+func (f *fakePaneData) Idle() bool                          { return true }
+func (f *fakePaneData) IsLead() bool                        { return false }
+func (f *fakePaneData) ConnStatus() string                  { return "" }
+func (f *fakePaneData) InCopyMode() bool                    { return false }
+func (f *fakePaneData) CopyModeSearch() string              { return "" }
+func (f *fakePaneData) HasCursorBlock() bool                { return false }
 
 type cursorPaneData struct {
 	id    uint32
@@ -79,21 +80,21 @@ func (e *cursorPaneData) CellAt(col, row int, active bool) ScreenCell {
 	return cell
 }
 
-func (e *cursorPaneData) CursorPos() (int, int)  { return e.emu.CursorPosition() }
-func (e *cursorPaneData) CursorHidden() bool     { return e.emu.CursorHidden() }
-func (e *cursorPaneData) HasCursorBlock() bool   { return e.emu.HasCursorBlock() }
-func (e *cursorPaneData) ID() uint32             { return e.id }
-func (e *cursorPaneData) Name() string           { return e.name }
-func (e *cursorPaneData) PRs() []string          { return nil }
-func (e *cursorPaneData) Issues() []string       { return nil }
-func (e *cursorPaneData) Host() string           { return "local" }
-func (e *cursorPaneData) Task() string           { return "" }
-func (e *cursorPaneData) Color() string          { return e.color }
-func (e *cursorPaneData) Idle() bool             { return true }
-func (e *cursorPaneData) IsLead() bool           { return false }
-func (e *cursorPaneData) ConnStatus() string     { return "" }
-func (e *cursorPaneData) InCopyMode() bool       { return false }
-func (e *cursorPaneData) CopyModeSearch() string { return "" }
+func (e *cursorPaneData) CursorPos() (int, int)               { return e.emu.CursorPosition() }
+func (e *cursorPaneData) CursorHidden() bool                  { return e.emu.CursorHidden() }
+func (e *cursorPaneData) HasCursorBlock() bool                { return e.emu.HasCursorBlock() }
+func (e *cursorPaneData) ID() uint32                          { return e.id }
+func (e *cursorPaneData) Name() string                        { return e.name }
+func (e *cursorPaneData) TrackedPRs() []proto.TrackedPR       { return nil }
+func (e *cursorPaneData) TrackedIssues() []proto.TrackedIssue { return nil }
+func (e *cursorPaneData) Host() string                        { return "local" }
+func (e *cursorPaneData) Task() string                        { return "" }
+func (e *cursorPaneData) Color() string                       { return e.color }
+func (e *cursorPaneData) Idle() bool                          { return true }
+func (e *cursorPaneData) IsLead() bool                        { return false }
+func (e *cursorPaneData) ConnStatus() string                  { return "" }
+func (e *cursorPaneData) InCopyMode() bool                    { return false }
+func (e *cursorPaneData) CopyModeSearch() string              { return "" }
 
 func TestRenderCursorEdgeCases(t *testing.T) {
 	t.Parallel()

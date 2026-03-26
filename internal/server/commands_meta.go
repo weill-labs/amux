@@ -2,7 +2,6 @@ package server
 
 import (
 	"fmt"
-	"slices"
 	"strings"
 
 	metacmd "github.com/weill-labs/amux/internal/server/commands/meta"
@@ -59,23 +58,25 @@ func cmdAddMeta(ctx *CommandContext) {
 		return
 	}
 
-	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
+	res := ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
 		pane, _, err := sess.resolvePaneAcrossWindowsForActor(ctx.ActorPaneID, paneRef)
 		if err != nil {
 			return commandMutationResult{err: err}
 		}
 		for _, pr := range update.PRs {
-			if !slices.Contains(pane.Meta.PRs, pr) {
-				pane.Meta.PRs = append(pane.Meta.PRs, pr)
-			}
+			pane.Meta.TrackedPRs = metacmd.UpsertTrackedPR(pane.Meta.TrackedPRs, pr)
 		}
 		for _, issue := range update.Issues {
-			if !slices.Contains(pane.Meta.Issues, issue) {
-				pane.Meta.Issues = append(pane.Meta.Issues, issue)
-			}
+			pane.Meta.TrackedIssues = metacmd.UpsertTrackedIssue(pane.Meta.TrackedIssues, issue)
 		}
 		return commandMutationResult{broadcastLayout: true}
-	}))
+	})
+	if res.err == nil {
+		if err := ctx.Sess.refreshTrackedMetaForPaneRef(ctx.ActorPaneID, paneRef); err != nil {
+			res.err = err
+		}
+	}
+	ctx.replyCommandMutation(res)
 }
 
 func cmdRmMeta(ctx *CommandContext) {
@@ -96,11 +97,29 @@ func cmdRmMeta(ctx *CommandContext) {
 			return commandMutationResult{err: err}
 		}
 		for _, pr := range update.PRs {
-			pane.Meta.PRs = metacmd.RemoveIntValue(pane.Meta.PRs, pr)
+			pane.Meta.TrackedPRs = metacmd.RemoveTrackedPR(pane.Meta.TrackedPRs, pr)
 		}
 		for _, issue := range update.Issues {
-			pane.Meta.Issues = metacmd.RemoveStringValue(pane.Meta.Issues, issue)
+			pane.Meta.TrackedIssues = metacmd.RemoveTrackedIssue(pane.Meta.TrackedIssues, issue)
 		}
 		return commandMutationResult{broadcastLayout: true}
 	}))
+}
+
+func cmdRefreshMeta(ctx *CommandContext) {
+	if len(ctx.Args) > 1 {
+		ctx.replyErr("usage: refresh-meta [pane]")
+		return
+	}
+
+	paneRef := ""
+	if len(ctx.Args) == 1 {
+		paneRef = ctx.Args[0]
+	}
+
+	if err := ctx.Sess.refreshTrackedMetaForPaneRef(ctx.ActorPaneID, paneRef); err != nil {
+		ctx.replyErr(err.Error())
+		return
+	}
+	ctx.reply("")
 }

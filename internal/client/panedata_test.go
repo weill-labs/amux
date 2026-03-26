@@ -131,15 +131,15 @@ func TestPaneDataAccessors(t *testing.T) {
 	pane := &clientPaneData{
 		emu: emu,
 		info: proto.PaneSnapshot{
-			ID:         7,
-			Name:       "pane-7",
-			PRs:        []int{42, 314},
-			Issues:     []string{"LAB-339"},
-			Host:       "buildbox",
-			Task:       "tail -f",
-			Color:      "89dceb",
-			Idle:       true,
-			ConnStatus: "connected",
+			ID:            7,
+			Name:          "pane-7",
+			TrackedPRs:    []proto.TrackedPR{{Number: 42}, {Number: 314}},
+			TrackedIssues: []proto.TrackedIssue{{ID: "LAB-339"}},
+			Host:          "buildbox",
+			Task:          "tail -f",
+			Color:         "89dceb",
+			Idle:          true,
+			ConnStatus:    "connected",
 		},
 	}
 
@@ -149,11 +149,11 @@ func TestPaneDataAccessors(t *testing.T) {
 	if got := pane.Name(); got != "pane-7" {
 		t.Fatalf("Name() = %q, want pane-7", got)
 	}
-	if got := pane.PRs(); !reflect.DeepEqual(got, []string{"42", "314"}) {
-		t.Fatalf("PRs() = %v, want [42 314]", got)
+	if got := proto.TrackedPRNumbers(pane.TrackedPRs()); !reflect.DeepEqual(got, []int{42, 314}) {
+		t.Fatalf("TrackedPRs() = %v, want [42 314]", got)
 	}
-	if got := pane.Issues(); !reflect.DeepEqual(got, []string{"LAB-339"}) {
-		t.Fatalf("Issues() = %v, want [LAB-339]", got)
+	if got := proto.TrackedIssueIDs(pane.TrackedIssues()); !reflect.DeepEqual(got, []string{"LAB-339"}) {
+		t.Fatalf("TrackedIssues() = %v, want [LAB-339]", got)
 	}
 	if got := pane.Host(); got != "buildbox" {
 		t.Fatalf("Host() = %q, want buildbox", got)

@@ -204,31 +204,31 @@ func TestPaneToSnapshotIncludesMetaCollections(t *testing.T) {
 		},
 	}
 	metaValue := reflect.ValueOf(&pane.Meta).Elem()
-	prsField := metaValue.FieldByName("PRs")
+	prsField := metaValue.FieldByName("TrackedPRs")
 	if !prsField.IsValid() {
-		t.Fatal("PaneMeta.PRs field missing")
+		t.Fatal("PaneMeta.TrackedPRs field missing")
 	}
-	prsField.Set(reflect.ValueOf([]int{42, 73}))
-	issuesField := metaValue.FieldByName("Issues")
+	prsField.Set(reflect.ValueOf([]proto.TrackedPR{{Number: 42}, {Number: 73}}))
+	issuesField := metaValue.FieldByName("TrackedIssues")
 	if !issuesField.IsValid() {
-		t.Fatal("PaneMeta.Issues field missing")
+		t.Fatal("PaneMeta.TrackedIssues field missing")
 	}
-	issuesField.Set(reflect.ValueOf([]string{"LAB-338", "LAB-412"}))
+	issuesField.Set(reflect.ValueOf([]proto.TrackedIssue{{ID: "LAB-338"}, {ID: "LAB-412"}}))
 
 	snap := pane.ToSnapshot()
 	snapValue := reflect.ValueOf(snap)
-	gotPRs := snapValue.FieldByName("PRs")
+	gotPRs := snapValue.FieldByName("TrackedPRs")
 	if !gotPRs.IsValid() {
-		t.Fatal("PaneSnapshot.PRs field missing")
+		t.Fatal("PaneSnapshot.TrackedPRs field missing")
 	}
-	if gotPRs.Len() != 2 || gotPRs.Index(0).Int() != 42 || gotPRs.Index(1).Int() != 73 {
+	if gotPRs.Len() != 2 || gotPRs.Index(0).FieldByName("Number").Int() != 42 || gotPRs.Index(1).FieldByName("Number").Int() != 73 {
 		t.Fatalf("snapshot PRs = %#v, want [42 73]", gotPRs.Interface())
 	}
-	gotIssues := snapValue.FieldByName("Issues")
+	gotIssues := snapValue.FieldByName("TrackedIssues")
 	if !gotIssues.IsValid() {
-		t.Fatal("PaneSnapshot.Issues field missing")
+		t.Fatal("PaneSnapshot.TrackedIssues field missing")
 	}
-	if gotIssues.Len() != 2 || gotIssues.Index(0).String() != "LAB-338" || gotIssues.Index(1).String() != "LAB-412" {
+	if gotIssues.Len() != 2 || gotIssues.Index(0).FieldByName("ID").String() != "LAB-338" || gotIssues.Index(1).FieldByName("ID").String() != "LAB-412" {
 		t.Fatalf("snapshot Issues = %#v, want [LAB-338 LAB-412]", gotIssues.Interface())
 	}
 }

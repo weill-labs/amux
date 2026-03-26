@@ -8,45 +8,46 @@ import (
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/mux"
+	"github.com/weill-labs/amux/internal/proto"
 )
 
 type statusPaneData struct {
-	id           uint32
-	name         string
-	prs          []string
-	issues       []string
-	host         string
-	task         string
-	color        string
-	connStatus   string
-	copyMode     bool
-	copySearch   string
-	idle         bool
-	lead         bool
-	screen       string
-	cursorHidden bool
+	id            uint32
+	name          string
+	trackedPRs    []proto.TrackedPR
+	trackedIssues []proto.TrackedIssue
+	host          string
+	task          string
+	color         string
+	connStatus    string
+	copyMode      bool
+	copySearch    string
+	idle          bool
+	lead          bool
+	screen        string
+	cursorHidden  bool
 }
 
 func (p *statusPaneData) RenderScreen(bool) string { return p.screen }
 func (p *statusPaneData) CellAt(col, row int, active bool) ScreenCell {
 	return ScreenCell{Char: " ", Width: 1}
 }
-func (p *statusPaneData) CursorPos() (int, int)  { return 0, 0 }
-func (p *statusPaneData) CursorHidden() bool     { return p.cursorHidden }
-func (p *statusPaneData) ID() uint32             { return p.id }
-func (p *statusPaneData) Name() string           { return p.name }
-func (p *statusPaneData) PRs() []string          { return p.prs }
-func (p *statusPaneData) Issues() []string       { return p.issues }
-func (p *statusPaneData) Host() string           { return p.host }
-func (p *statusPaneData) Task() string           { return p.task }
-func (p *statusPaneData) Color() string          { return p.color }
-func (p *statusPaneData) Minimized() bool        { return false }
-func (p *statusPaneData) Idle() bool             { return p.idle }
-func (p *statusPaneData) IsLead() bool           { return p.lead }
-func (p *statusPaneData) ConnStatus() string     { return p.connStatus }
-func (p *statusPaneData) InCopyMode() bool       { return p.copyMode }
-func (p *statusPaneData) CopyModeSearch() string { return p.copySearch }
-func (p *statusPaneData) HasCursorBlock() bool   { return false }
+func (p *statusPaneData) CursorPos() (int, int)               { return 0, 0 }
+func (p *statusPaneData) CursorHidden() bool                  { return p.cursorHidden }
+func (p *statusPaneData) ID() uint32                          { return p.id }
+func (p *statusPaneData) Name() string                        { return p.name }
+func (p *statusPaneData) TrackedPRs() []proto.TrackedPR       { return p.trackedPRs }
+func (p *statusPaneData) TrackedIssues() []proto.TrackedIssue { return p.trackedIssues }
+func (p *statusPaneData) Host() string                        { return p.host }
+func (p *statusPaneData) Task() string                        { return p.task }
+func (p *statusPaneData) Color() string                       { return p.color }
+func (p *statusPaneData) Minimized() bool                     { return false }
+func (p *statusPaneData) Idle() bool                          { return p.idle }
+func (p *statusPaneData) IsLead() bool                        { return p.lead }
+func (p *statusPaneData) ConnStatus() string                  { return p.connStatus }
+func (p *statusPaneData) InCopyMode() bool                    { return p.copyMode }
+func (p *statusPaneData) CopyModeSearch() string              { return p.copySearch }
+func (p *statusPaneData) HasCursorBlock() bool                { return false }
 
 func TestRenderPaneStatusVariants(t *testing.T) {
 	t.Parallel()
@@ -102,7 +103,7 @@ func TestRenderPaneStatusVariants(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			var buf strings.Builder
+			buf := strings.Builder{}
 			renderPaneStatus(&buf, cell, tt.active, tt.pane)
 			line := MaterializeGrid(buf.String(), cell.W, 1)
 			for _, want := range tt.contains {
@@ -118,15 +119,20 @@ func TestRenderPaneStatusShowsMetadata(t *testing.T) {
 	t.Parallel()
 
 	cell := mux.NewLeaf(&mux.Pane{ID: 1}, 0, 0, 60, 3)
-	var buf strings.Builder
+	buf := strings.Builder{}
 	renderPaneStatus(&buf, cell, true, &statusPaneData{
-		id:     1,
-		name:   "pane-1",
-		prs:    []string{"42", "314"},
-		issues: []string{"LAB-339"},
-		host:   "gpu-box",
-		task:   "train",
-		color:  config.TextColorHex,
+		id:   1,
+		name: "pane-1",
+		trackedPRs: []proto.TrackedPR{
+			{Number: 42},
+			{Number: 314},
+		},
+		trackedIssues: []proto.TrackedIssue{
+			{ID: "LAB-339"},
+		},
+		host:  "gpu-box",
+		task:  "train",
+		color: config.TextColorHex,
 	})
 
 	line := MaterializeGrid(buf.String(), cell.W, 1)
@@ -137,19 +143,57 @@ func TestRenderPaneStatusShowsMetadata(t *testing.T) {
 	}
 }
 
+func TestRenderPaneStatusStylesCompletedMetadataInANSIOnly(t *testing.T) {
+	t.Parallel()
+
+	cell := mux.NewLeaf(&mux.Pane{ID: 1}, 0, 0, 60, 3)
+	buf := strings.Builder{}
+	renderPaneStatus(&buf, cell, true, &statusPaneData{
+		id:   1,
+		name: "pane-1",
+		trackedPRs: []proto.TrackedPR{
+			{Number: 42, Status: proto.TrackedStatusCompleted},
+			{Number: 314, Status: proto.TrackedStatusActive},
+		},
+		trackedIssues: []proto.TrackedIssue{
+			{ID: "LAB-450", Status: proto.TrackedStatusCompleted},
+		},
+		color: config.TextColorHex,
+	})
+
+	raw := buf.String()
+	if !strings.Contains(raw, StrikeOn+"#42"+StrikeOff) {
+		t.Fatalf("raw status output missing completed PR styling:\n%q", raw)
+	}
+	if !strings.Contains(raw, StrikeOn+"LAB-450"+StrikeOff) {
+		t.Fatalf("raw status output missing completed issue styling:\n%q", raw)
+	}
+
+	line := MaterializeGrid(raw, cell.W, 1)
+	if !strings.Contains(line, "#42, #314, LAB-450") {
+		t.Fatalf("materialized status line %q should keep plain metadata text", line)
+	}
+}
+
 func TestRenderPaneStatusTruncatesMetadata(t *testing.T) {
 	t.Parallel()
 
 	cell := mux.NewLeaf(&mux.Pane{ID: 1}, 0, 0, 34, 3)
-	var buf strings.Builder
+	buf := strings.Builder{}
 	renderPaneStatus(&buf, cell, false, &statusPaneData{
-		id:     1,
-		name:   "pane-1",
-		prs:    []string{"101", "202"},
-		issues: []string{"LAB-339", "LAB-340"},
-		host:   "gpu",
-		task:   "sync",
-		color:  config.TextColorHex,
+		id:   1,
+		name: "pane-1",
+		trackedPRs: []proto.TrackedPR{
+			{Number: 101},
+			{Number: 202},
+		},
+		trackedIssues: []proto.TrackedIssue{
+			{ID: "LAB-339"},
+			{ID: "LAB-340"},
+		},
+		host:  "gpu",
+		task:  "sync",
+		color: config.TextColorHex,
 	})
 
 	line := strings.TrimRight(MaterializeGrid(buf.String(), cell.W, 1), " ")
@@ -167,11 +211,13 @@ func TestRenderPaneStatusHintsWhenActivePaneHasNoIssueMetadata(t *testing.T) {
 	t.Parallel()
 
 	cell := mux.NewLeaf(&mux.Pane{ID: 1}, 0, 0, 60, 3)
-	var buf strings.Builder
+	buf := strings.Builder{}
 	renderPaneStatus(&buf, cell, true, &statusPaneData{
-		id:    1,
-		name:  "pane-1",
-		prs:   []string{"42"},
+		id:   1,
+		name: "pane-1",
+		trackedPRs: []proto.TrackedPR{
+			{Number: 42},
+		},
 		color: config.TextColorHex,
 	})
 
@@ -187,11 +233,13 @@ func TestRenderPaneStatusSkipsMissingIssueHintForInactivePane(t *testing.T) {
 	t.Parallel()
 
 	cell := mux.NewLeaf(&mux.Pane{ID: 1}, 0, 0, 60, 3)
-	var buf strings.Builder
+	buf := strings.Builder{}
 	renderPaneStatus(&buf, cell, false, &statusPaneData{
-		id:    1,
-		name:  "pane-1",
-		prs:   []string{"42"},
+		id:   1,
+		name: "pane-1",
+		trackedPRs: []proto.TrackedPR{
+			{Number: 42},
+		},
 		color: config.TextColorHex,
 	})
 
@@ -266,7 +314,7 @@ func TestChooserOverlayLayoutAndRendering(t *testing.T) {
 		t.Fatal("selected chooser row should have a background color")
 	}
 
-	var buf strings.Builder
+	buf := strings.Builder{}
 	renderChooserOverlay(&buf, 24, 12, overlay)
 	got := MaterializeGrid(buf.String(), 24, 12)
 	for _, want := range []string{"choose-window", "> pane", "1:editor", "3:gpu"} {
@@ -307,7 +355,7 @@ func TestPaneOverlayPlacementAndRendering(t *testing.T) {
 		t.Fatal("pane overlay should populate the grid for visible labels")
 	}
 
-	var buf strings.Builder
+	buf := strings.Builder{}
 	renderPaneOverlay(&buf, root, lookup, labels)
 	got := MaterializeGrid(buf.String(), 9, 5)
 	if !strings.Contains(got, "[a]") || !strings.Contains(got, "b") {
@@ -469,10 +517,15 @@ func TestBuildStatusCellsShowsPaneMetadata(t *testing.T) {
 	cell := mux.NewLeaf(&mux.Pane{ID: 1}, 0, 0, 56, 4)
 	grid := NewScreenGrid(56, 4)
 	buildStatusCells(grid, cell, false, &statusPaneData{
-		id:         1,
-		name:       "pane-1",
-		prs:        []string{"42", "314"},
-		issues:     []string{"LAB-339"},
+		id:   1,
+		name: "pane-1",
+		trackedPRs: []proto.TrackedPR{
+			{Number: 42},
+			{Number: 314},
+		},
+		trackedIssues: []proto.TrackedIssue{
+			{ID: "LAB-339"},
+		},
 		host:       "remote-host",
 		task:       "sync",
 		color:      config.TextColorHex,
@@ -495,15 +548,78 @@ func TestBuildStatusCellsShowsPaneMetadata(t *testing.T) {
 	}
 }
 
+func TestBuildStatusCellsStylesCompletedMetadata(t *testing.T) {
+	t.Parallel()
+
+	cell := mux.NewLeaf(&mux.Pane{ID: 1}, 0, 0, 56, 4)
+	grid := NewScreenGrid(56, 4)
+	buildStatusCells(grid, cell, true, &statusPaneData{
+		id:   1,
+		name: "pane-1",
+		trackedPRs: []proto.TrackedPR{
+			{Number: 42, Status: proto.TrackedStatusCompleted},
+			{Number: 314, Status: proto.TrackedStatusActive},
+		},
+		trackedIssues: []proto.TrackedIssue{
+			{ID: "LAB-450", Status: proto.TrackedStatusCompleted},
+		},
+		color: config.TextColorHex,
+	})
+
+	var row strings.Builder
+	for x := 0; x < 56; x++ {
+		ch := grid.Get(x, 0).Char
+		if ch == "" {
+			ch = " "
+		}
+		row.WriteString(ch)
+	}
+	line := row.String()
+	findRuneIndex := func(haystack, needle string) int {
+		hr := []rune(haystack)
+		nr := []rune(needle)
+		for i := 0; i+len(nr) <= len(hr); i++ {
+			if string(hr[i:i+len(nr)]) == needle {
+				return i
+			}
+		}
+		return -1
+	}
+
+	for _, token := range []string{"#42", "LAB-450"} {
+		start := findRuneIndex(line, token)
+		if start < 0 {
+			t.Fatalf("status row %q missing %q", line, token)
+		}
+		for offset := 0; offset < len([]rune(token)); offset++ {
+			if grid.Get(start+offset, 0).Style.Attrs&uv.AttrStrikethrough == 0 {
+				t.Fatalf("cell %q at x=%d should be strikethrough", token, start+offset)
+			}
+		}
+	}
+
+	start := findRuneIndex(line, "#314")
+	if start < 0 {
+		t.Fatalf("status row %q missing %q", line, "#314")
+	}
+	for offset := 0; offset < len([]rune("#314")); offset++ {
+		if grid.Get(start+offset, 0).Style.Attrs&uv.AttrStrikethrough != 0 {
+			t.Fatalf("active metadata cell at x=%d should not be strikethrough", start+offset)
+		}
+	}
+}
+
 func TestBuildStatusCellsHintsWhenActivePaneHasNoIssueMetadata(t *testing.T) {
 	t.Parallel()
 
 	cell := mux.NewLeaf(&mux.Pane{ID: 1}, 0, 0, 40, 4)
 	grid := NewScreenGrid(40, 4)
 	buildStatusCells(grid, cell, true, &statusPaneData{
-		id:    1,
-		name:  "pane-1",
-		prs:   []string{"42"},
+		id:   1,
+		name: "pane-1",
+		trackedPRs: []proto.TrackedPR{
+			{Number: 42},
+		},
 		color: config.TextColorHex,
 	})
 

@@ -129,10 +129,10 @@ func TestRoundTrip(t *testing.T) {
 		gotPRs, gotIssues := metaCollections(t, got.Meta)
 		wantPRs, wantIssues := metaCollections(t, want.Meta)
 		if !reflect.DeepEqual(gotPRs, wantPRs) {
-			t.Errorf("Pane[%d].Meta.PRs = %v, want %v", i, gotPRs, wantPRs)
+			t.Errorf("Pane[%d].Meta.TrackedPRs = %v, want %v", i, gotPRs, wantPRs)
 		}
 		if !reflect.DeepEqual(gotIssues, wantIssues) {
-			t.Errorf("Pane[%d].Meta.Issues = %v, want %v", i, gotIssues, wantIssues)
+			t.Errorf("Pane[%d].Meta.TrackedIssues = %v, want %v", i, gotIssues, wantIssues)
 		}
 	}
 
@@ -204,39 +204,18 @@ func TestWriteEmptyCheckpoint(t *testing.T) {
 func setMetaCollections(t *testing.T, meta *mux.PaneMeta, prs []int, issues []string) {
 	t.Helper()
 
-	value := reflect.ValueOf(meta).Elem()
-	prsField := value.FieldByName("PRs")
-	if !prsField.IsValid() {
-		t.Fatal("PaneMeta.PRs field missing")
+	meta.TrackedPRs = make([]proto.TrackedPR, 0, len(prs))
+	for _, pr := range prs {
+		meta.TrackedPRs = append(meta.TrackedPRs, proto.TrackedPR{Number: pr})
 	}
-	prsField.Set(reflect.ValueOf(prs))
-	issuesField := value.FieldByName("Issues")
-	if !issuesField.IsValid() {
-		t.Fatal("PaneMeta.Issues field missing")
+	meta.TrackedIssues = make([]proto.TrackedIssue, 0, len(issues))
+	for _, issue := range issues {
+		meta.TrackedIssues = append(meta.TrackedIssues, proto.TrackedIssue{ID: issue})
 	}
-	issuesField.Set(reflect.ValueOf(issues))
 }
 
 func metaCollections(t *testing.T, meta mux.PaneMeta) ([]int, []string) {
 	t.Helper()
 
-	value := reflect.ValueOf(meta)
-	prsField := value.FieldByName("PRs")
-	if !prsField.IsValid() {
-		t.Fatal("PaneMeta.PRs field missing")
-	}
-	issuesField := value.FieldByName("Issues")
-	if !issuesField.IsValid() {
-		t.Fatal("PaneMeta.Issues field missing")
-	}
-
-	prs := make([]int, prsField.Len())
-	for i := 0; i < prsField.Len(); i++ {
-		prs[i] = int(prsField.Index(i).Int())
-	}
-	issues := make([]string, issuesField.Len())
-	for i := 0; i < issuesField.Len(); i++ {
-		issues[i] = issuesField.Index(i).String()
-	}
-	return prs, issues
+	return proto.TrackedPRNumbers(meta.TrackedPRs), proto.TrackedIssueIDs(meta.TrackedIssues)
 }

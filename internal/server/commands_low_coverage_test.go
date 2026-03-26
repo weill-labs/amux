@@ -301,17 +301,17 @@ func TestCommandPaneMutationsAndMetadata(t *testing.T) {
 		t.Fatalf("add-meta error: %s", addMetaRes.cmdErr)
 	}
 	meta = mustSessionQuery(t, sess, func(sess *Session) mux.PaneMeta { return sess.findPaneByID(p1.ID).Meta })
-	if prs := reflect.ValueOf(meta).FieldByName("PRs"); !prs.IsValid() || prs.Len() != 1 || prs.Index(0).Int() != 42 {
+	if prs := reflect.ValueOf(meta).FieldByName("TrackedPRs"); !prs.IsValid() || prs.Len() != 1 || prs.Index(0).FieldByName("Number").Int() != 42 {
 		t.Fatalf("pane PRs = %#v, want [42]", prs)
 	}
-	if issues := reflect.ValueOf(meta).FieldByName("Issues"); !issues.IsValid() || issues.Len() != 1 || issues.Index(0).String() != "LAB-338" {
+	if issues := reflect.ValueOf(meta).FieldByName("TrackedIssues"); !issues.IsValid() || issues.Len() != 1 || issues.Index(0).FieldByName("ID").String() != "LAB-338" {
 		t.Fatalf("pane Issues = %#v, want [LAB-338]", issues)
 	}
 
 	mustSessionQuery(t, sess, func(sess *Session) struct{} {
 		p := sess.findPaneByID(p1.ID)
-		reflect.ValueOf(&p.Meta).Elem().FieldByName("PRs").Set(reflect.ValueOf([]int{42, 42, 73}))
-		reflect.ValueOf(&p.Meta).Elem().FieldByName("Issues").Set(reflect.ValueOf([]string{"LAB-338", "LAB-338", "LAB-412"}))
+		reflect.ValueOf(&p.Meta).Elem().FieldByName("TrackedPRs").Set(reflect.ValueOf([]proto.TrackedPR{{Number: 42}, {Number: 42}, {Number: 73}}))
+		reflect.ValueOf(&p.Meta).Elem().FieldByName("TrackedIssues").Set(reflect.ValueOf([]proto.TrackedIssue{{ID: "LAB-338"}, {ID: "LAB-338"}, {ID: "LAB-412"}}))
 		return struct{}{}
 	})
 
@@ -340,10 +340,10 @@ func TestCommandPaneMutationsAndMetadata(t *testing.T) {
 		t.Fatalf("rm-meta error: %s", rmMetaRes.cmdErr)
 	}
 	meta = mustSessionQuery(t, sess, func(sess *Session) mux.PaneMeta { return sess.findPaneByID(p1.ID).Meta })
-	if prs := reflect.ValueOf(meta).FieldByName("PRs"); !prs.IsValid() || prs.Len() != 1 || prs.Index(0).Int() != 73 {
+	if prs := reflect.ValueOf(meta).FieldByName("TrackedPRs"); !prs.IsValid() || prs.Len() != 1 || prs.Index(0).FieldByName("Number").Int() != 73 {
 		t.Fatalf("pane PRs after remove = %#v, want [73]", prs)
 	}
-	if issues := reflect.ValueOf(meta).FieldByName("Issues"); !issues.IsValid() || issues.Len() != 1 || issues.Index(0).String() != "LAB-412" {
+	if issues := reflect.ValueOf(meta).FieldByName("TrackedIssues"); !issues.IsValid() || issues.Len() != 1 || issues.Index(0).FieldByName("ID").String() != "LAB-412" {
 		t.Fatalf("pane Issues after remove = %#v, want [LAB-412]", issues)
 	}
 

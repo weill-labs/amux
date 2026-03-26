@@ -110,6 +110,29 @@ func jsonIntList(t *testing.T, m map[string]any, key string) []int {
 	return out
 }
 
+func jsonTrackedPRNumbers(t *testing.T, m map[string]any, key string) []int {
+	t.Helper()
+
+	items := decodeJSONList(t, m[key], key)
+	out := make([]int, 0, len(items))
+	for _, item := range items {
+		ref, ok := item.(map[string]any)
+		if !ok {
+			t.Fatalf("%q item = %#v, want map", key, item)
+		}
+		value, ok := ref["number"]
+		if !ok {
+			t.Fatalf("%q item = %#v, missing number", key, ref)
+		}
+		n, ok := value.(float64)
+		if !ok {
+			t.Fatalf("%q number = %#v, want float64", key, value)
+		}
+		out = append(out, int(n))
+	}
+	return out
+}
+
 func jsonStringList(t *testing.T, m map[string]any, key string) []string {
 	t.Helper()
 
@@ -125,26 +148,57 @@ func jsonStringList(t *testing.T, m map[string]any, key string) []string {
 	return out
 }
 
-func paneMetaCollections(t *testing.T, meta any) ([]int, []string) {
+func jsonTrackedIssueIDs(t *testing.T, m map[string]any, key string) []string {
+	t.Helper()
+
+	items := decodeJSONList(t, m[key], key)
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		ref, ok := item.(map[string]any)
+		if !ok {
+			t.Fatalf("%q item = %#v, want map", key, item)
+		}
+		value, ok := ref["id"]
+		if !ok {
+			t.Fatalf("%q item = %#v, missing id", key, ref)
+		}
+		s, ok := value.(string)
+		if !ok {
+			t.Fatalf("%q id = %#v, want string", key, value)
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
+func paneMetaTrackedRefs(t *testing.T, meta any) ([]int, []string) {
 	t.Helper()
 
 	value := reflect.ValueOf(meta)
-	prsField := value.FieldByName("PRs")
+	prsField := value.FieldByName("TrackedPRs")
 	if !prsField.IsValid() {
-		t.Fatal("PaneMeta.PRs field missing")
+		t.Fatal("PaneMeta.TrackedPRs field missing")
 	}
-	issuesField := value.FieldByName("Issues")
+	issuesField := value.FieldByName("TrackedIssues")
 	if !issuesField.IsValid() {
-		t.Fatal("PaneMeta.Issues field missing")
+		t.Fatal("PaneMeta.TrackedIssues field missing")
 	}
 
 	prs := make([]int, prsField.Len())
 	for i := 0; i < prsField.Len(); i++ {
-		prs[i] = int(prsField.Index(i).Int())
+		number := prsField.Index(i).FieldByName("Number")
+		if !number.IsValid() {
+			t.Fatal("TrackedPR.Number field missing")
+		}
+		prs[i] = int(number.Int())
 	}
 	issues := make([]string, issuesField.Len())
 	for i := 0; i < issuesField.Len(); i++ {
-		issues[i] = issuesField.Index(i).String()
+		id := issuesField.Index(i).FieldByName("ID")
+		if !id.IsValid() {
+			t.Fatal("TrackedIssue.ID field missing")
+		}
+		issues[i] = id.String()
 	}
 	return prs, issues
 }
@@ -162,11 +216,17 @@ func assertPaneMetaValues(t *testing.T, pane map[string]any) {
 	if got := jsonStringValue(t, meta, "pr"); got != "99" {
 		t.Fatalf("meta.pr = %q, want 99", got)
 	}
-	if got := jsonIntList(t, meta, "prs"); !reflect.DeepEqual(got, []int{42}) {
-		t.Fatalf("meta.prs = %v, want [42]", got)
+	if _, ok := meta["prs"]; ok {
+		t.Fatalf("meta.prs should be removed, got %#v", meta["prs"])
 	}
-	if got := jsonStringList(t, meta, "issues"); !reflect.DeepEqual(got, []string{"LAB-338"}) {
-		t.Fatalf("meta.issues = %v, want [LAB-338]", got)
+	if _, ok := meta["issues"]; ok {
+		t.Fatalf("meta.issues should be removed, got %#v", meta["issues"])
+	}
+	if got := jsonTrackedPRNumbers(t, meta, "tracked_prs"); !reflect.DeepEqual(got, []int{42}) {
+		t.Fatalf("meta.tracked_prs = %v, want [42]", got)
+	}
+	if got := jsonTrackedIssueIDs(t, meta, "tracked_issues"); !reflect.DeepEqual(got, []string{"LAB-338"}) {
+		t.Fatalf("meta.tracked_issues = %v, want [LAB-338]", got)
 	}
 }
 
@@ -374,20 +434,32 @@ func TestCaptureJSONIncludesNestedPaneMeta(t *testing.T) {
 	if got := jsonStringValue(t, meta, "pr"); got != "99" {
 		t.Fatalf("meta.pr = %q, want 99", got)
 	}
-	if got := jsonIntList(t, meta, "prs"); !reflect.DeepEqual(got, []int{42}) {
-		t.Fatalf("meta.prs = %v, want [42]", got)
+	if _, ok := meta["prs"]; ok {
+		t.Fatalf("meta.prs should be removed, got %#v", meta["prs"])
 	}
-	if got := jsonStringList(t, meta, "issues"); !reflect.DeepEqual(got, []string{"LAB-338"}) {
-		t.Fatalf("meta.issues = %v, want [LAB-338]", got)
+	if _, ok := meta["issues"]; ok {
+		t.Fatalf("meta.issues should be removed, got %#v", meta["issues"])
+	}
+	if got := jsonTrackedPRNumbers(t, meta, "tracked_prs"); !reflect.DeepEqual(got, []int{42}) {
+		t.Fatalf("meta.tracked_prs = %v, want [42]", got)
+	}
+	if got := jsonTrackedIssueIDs(t, meta, "tracked_issues"); !reflect.DeepEqual(got, []string{"LAB-338"}) {
+		t.Fatalf("meta.tracked_issues = %v, want [LAB-338]", got)
 	}
 
 	historyPane := decodeJSONMap(t, h.runCmd("capture", "--history", "--format", "json", "pane-1"))
 	historyMeta := paneMetaJSON(t, historyPane)
-	if got := jsonIntList(t, historyMeta, "prs"); !reflect.DeepEqual(got, []int{42}) {
-		t.Fatalf("history meta.prs = %v, want [42]", got)
+	if _, ok := historyMeta["prs"]; ok {
+		t.Fatalf("history meta.prs should be removed, got %#v", historyMeta["prs"])
 	}
-	if got := jsonStringList(t, historyMeta, "issues"); !reflect.DeepEqual(got, []string{"LAB-338"}) {
-		t.Fatalf("history meta.issues = %v, want [LAB-338]", got)
+	if _, ok := historyMeta["issues"]; ok {
+		t.Fatalf("history meta.issues should be removed, got %#v", historyMeta["issues"])
+	}
+	if got := jsonTrackedPRNumbers(t, historyMeta, "tracked_prs"); !reflect.DeepEqual(got, []int{42}) {
+		t.Fatalf("history meta.tracked_prs = %v, want [42]", got)
+	}
+	if got := jsonTrackedIssueIDs(t, historyMeta, "tracked_issues"); !reflect.DeepEqual(got, []string{"LAB-338"}) {
+		t.Fatalf("history meta.tracked_issues = %v, want [LAB-338]", got)
 	}
 }
 
@@ -429,7 +501,7 @@ func TestPaneMetaSurvivesCrashRecovery(t *testing.T) {
 		if ps.Meta.Task != "ship" || ps.Meta.GitBranch != "main" || ps.Meta.PR != "99" {
 			return false
 		}
-		prs, issues := paneMetaCollections(t, ps.Meta)
+		prs, issues := paneMetaTrackedRefs(t, ps.Meta)
 		return reflect.DeepEqual(prs, []int{42}) && reflect.DeepEqual(issues, []string{"LAB-338"})
 	})
 
