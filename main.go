@@ -522,7 +522,7 @@ Usage:
 
 Panes can be referenced by name (pane-1) or ID (1).
 
-Inside an amux session (defaults, configurable via config.toml):
+Inside an amux session:
   Ctrl-a \                           Split active pane left/right
   Ctrl-a -                           Split active pane top/bottom
   Ctrl-a |                           Root-level split left/right
@@ -549,7 +549,6 @@ Inside an amux session (defaults, configurable via config.toml):
   Ctrl-a d                           Detach from session
   Ctrl-a Ctrl-a                      Send literal Ctrl-a
 
-Keybindings are configurable via ~/.config/amux/config.toml (or AMUX_CONFIG env var).
 See https://github.com/weill-labs/amux for config format.`)
 }
 

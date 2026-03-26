@@ -97,7 +97,6 @@ type Host struct {
 type Config struct {
 	ScrollbackLines *int            `toml:"scrollback_lines"`
 	Hosts           map[string]Host `toml:"hosts"`
-	Keys            KeyConfig       `toml:"keys"`
 }
 
 // DefaultPath returns the default config file path.
@@ -129,8 +128,12 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("reading config: %w", err)
 	}
 
-	if err := toml.Unmarshal(data, cfg); err != nil {
+	md, err := toml.Decode(string(data), cfg)
+	if err != nil {
 		return nil, fmt.Errorf("parsing config: %w", err)
+	}
+	if hasLegacyKeysConfig(md.Undecoded()) {
+		return nil, fmt.Errorf(`unsupported config section "keys"`)
 	}
 
 	if _, err := ResolveScrollbackLines(cfg.ScrollbackLines); err != nil {
@@ -146,6 +149,15 @@ func Load(path string) (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func hasLegacyKeysConfig(undecoded []toml.Key) bool {
+	for _, key := range undecoded {
+		if len(key) > 0 && key[0] == "keys" {
+			return true
+		}
+	}
+	return false
 }
 
 // ResolveScrollbackLines validates a configured scrollback limit and returns

@@ -771,6 +771,57 @@ func TestRunSessionDetachFlushesPendingInput(t *testing.T) {
 	if err := h.waitRunResult(t); err != nil {
 		t.Fatalf("RunSession() = %v, want nil", err)
 	}
+
+	t.Run("rejects legacy keys config", func(t *testing.T) {
+		assertRunSessionRejectsLegacyKeysConfig(t)
+	})
+}
+
+func assertRunSessionRejectsLegacyKeysConfig(t *testing.T) {
+	t.Helper()
+	home := t.TempDir()
+	oldHome, hadHome := os.LookupEnv("HOME")
+	oldNoWatch, hadNoWatch := os.LookupEnv("AMUX_NO_WATCH")
+	if err := os.Setenv("HOME", home); err != nil {
+		t.Fatalf("Setenv HOME: %v", err)
+	}
+	if err := os.Setenv("AMUX_NO_WATCH", "1"); err != nil {
+		t.Fatalf("Setenv AMUX_NO_WATCH: %v", err)
+	}
+	t.Cleanup(func() {
+		if hadHome {
+			_ = os.Setenv("HOME", oldHome)
+		} else {
+			_ = os.Unsetenv("HOME")
+		}
+		if hadNoWatch {
+			_ = os.Setenv("AMUX_NO_WATCH", oldNoWatch)
+		} else {
+			_ = os.Unsetenv("AMUX_NO_WATCH")
+		}
+	})
+
+	configDir := filepath.Join(home, ".config", "amux")
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	configPath := filepath.Join(configDir, "config.toml")
+	if err := os.WriteFile(configPath, []byte("[keys]\nprefix = \"C-b\"\n"), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	err := RunSession("legacy-keys", func(int) (int, int, error) {
+		return 80, 24, nil
+	})
+	if err == nil {
+		t.Fatal("RunSession() should reject legacy keys config")
+	}
+	if got, want := err.Error(), `loading config: unsupported config section "keys"`; got != want {
+		t.Fatalf("RunSession() error = %q, want %q", got, want)
+	}
+	if _, statErr := os.Stat(server.SocketPath("legacy-keys")); !os.IsNotExist(statErr) {
+		t.Fatalf("RunSession should fail before starting a server, stat error = %v", statErr)
+	}
 }
 
 func TestAdvertisedAttachCapabilitiesUsesEnvironment(t *testing.T) {
