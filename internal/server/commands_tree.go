@@ -7,9 +7,14 @@ import (
 )
 
 const moveUsage = treecmd.MoveUsage
+const moveToUsage = treecmd.MoveToUsage
 
 func parseMoveArgs(args []string) (paneRef, targetRef string, before bool, err error) {
 	return treecmd.ParseMoveArgs(args)
+}
+
+func parseMoveToArgs(args []string) (paneRef, targetRef string, err error) {
+	return treecmd.ParseMoveToArgs(args)
 }
 
 func cmdSwap(ctx *CommandContext) {
@@ -102,6 +107,37 @@ func cmdMove(ctx *CommandContext) {
 		}
 		return commandMutationResult{
 			output:          fmt.Sprintf("Moved %s %s %s\n", pane.Meta.Name, pos, target.Meta.Name),
+			broadcastLayout: true,
+		}
+	}))
+}
+
+func cmdMoveTo(ctx *CommandContext) {
+	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
+		paneRef, targetRef, err := parseMoveToArgs(ctx.Args)
+		if err != nil {
+			return commandMutationResult{err: err}
+		}
+
+		w := sess.windowForActor(ctx.ActorPaneID)
+		if w == nil {
+			return commandMutationResult{err: fmt.Errorf("no session")}
+		}
+
+		pane, err := w.ResolvePane(paneRef)
+		if err != nil {
+			return commandMutationResult{err: err}
+		}
+		target, err := w.ResolvePane(targetRef)
+		if err != nil {
+			return commandMutationResult{err: err}
+		}
+		if err := w.MovePaneToColumn(pane.ID, target.ID); err != nil {
+			return commandMutationResult{err: err}
+		}
+
+		return commandMutationResult{
+			output:          fmt.Sprintf("Moved %s to %s's column\n", pane.Meta.Name, target.Meta.Name),
 			broadcastLayout: true,
 		}
 	}))

@@ -190,6 +190,83 @@ func TestMoveAfterCLI(t *testing.T) {
 	}
 }
 
+func TestMoveToCLI(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	h.splitV()
+	h.splitV()
+	h.runCmd("focus", "pane-1")
+	h.splitH()
+
+	out := h.runCmd("move-to", "pane-4", "pane-2")
+	if strings.Contains(out, "unknown command") {
+		t.Fatalf("move-to command not recognized: %s", out)
+	}
+
+	c := h.captureJSON()
+	p1 := h.jsonPane(c, "pane-1")
+	p2 := h.jsonPane(c, "pane-2")
+	p3 := h.jsonPane(c, "pane-3")
+	p4 := h.jsonPane(c, "pane-4")
+
+	if !(p1.Position.X < p2.Position.X && p2.Position.X < p3.Position.X) {
+		t.Fatalf("move-to should keep root column order pane-1 | pane-2 subtree | pane-3: p1=%+v p2=%+v p3=%+v", p1.Position, p2.Position, p3.Position)
+	}
+	if p2.Position.X != p4.Position.X {
+		t.Fatalf("move-to should place pane-4 in pane-2's column: p2=%+v p4=%+v", p2.Position, p4.Position)
+	}
+	if p2.Position.Y >= p4.Position.Y {
+		t.Fatalf("move-to should append pane-4 below pane-2: p2=%+v p4=%+v", p2.Position, p4.Position)
+	}
+}
+
+func TestMoveToSameColumnCLI(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	h.splitV()
+	h.runCmd("focus", "pane-1")
+	h.splitH()
+	h.splitH()
+
+	out := h.runCmd("move-to", "pane-1", "pane-1")
+	if strings.Contains(out, "unknown command") {
+		t.Fatalf("move-to command not recognized: %s", out)
+	}
+
+	c := h.captureJSON()
+	p1 := h.jsonPane(c, "pane-1")
+	p3 := h.jsonPane(c, "pane-3")
+	p4 := h.jsonPane(c, "pane-4")
+
+	if !(p3.Position.Y < p4.Position.Y && p4.Position.Y < p1.Position.Y) {
+		t.Fatalf("move-to same-column should reorder left column to pane-3 | pane-4 | pane-1: p1=%+v p3=%+v p4=%+v", p1.Position, p3.Position, p4.Position)
+	}
+}
+
+func TestMoveToSingleColumnCLI(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	h.splitH()
+	h.splitH()
+
+	out := h.runCmd("move-to", "pane-1", "pane-1")
+	if strings.Contains(out, "unknown command") {
+		t.Fatalf("move-to command not recognized: %s", out)
+	}
+
+	c := h.captureJSON()
+	p1 := h.jsonPane(c, "pane-1")
+	p2 := h.jsonPane(c, "pane-2")
+	p3 := h.jsonPane(c, "pane-3")
+
+	if !(p2.Position.Y < p3.Position.Y && p3.Position.Y < p1.Position.Y) {
+		t.Fatalf("move-to single-column should reorder panes to pane-2 | pane-3 | pane-1: p1=%+v p2=%+v p3=%+v", p1.Position, p2.Position, p3.Position)
+	}
+}
+
 func TestRotate(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)
