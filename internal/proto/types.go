@@ -9,6 +9,7 @@ type LayoutSnapshot struct {
 	SessionName  string         `json:"session_name"`
 	ActivePaneID uint32         `json:"active_pane_id"`
 	ZoomedPaneID uint32         `json:"zoomed_pane_id"`
+	LeadPaneID   uint32         `json:"lead_pane_id,omitempty"`
 	Notice       string         `json:"notice,omitempty"`
 	Root         CellSnapshot   `json:"root"`
 	Panes        []PaneSnapshot `json:"panes"`
@@ -27,6 +28,7 @@ type WindowSnapshot struct {
 	Index        int            `json:"index"` // 1-based display order
 	ActivePaneID uint32         `json:"active_pane_id"`
 	ZoomedPaneID uint32         `json:"zoomed_pane_id"`
+	LeadPaneID   uint32         `json:"lead_pane_id,omitempty"`
 	Root         CellSnapshot   `json:"root"`
 	Panes        []PaneSnapshot `json:"panes"`
 }
@@ -56,6 +58,7 @@ type PaneSnapshot struct {
 	PR         string   `json:"pr,omitempty"`
 	PRs        []int    `json:"prs,omitempty"`
 	Issues     []string `json:"issues,omitempty"`
+	Lead       bool     `json:"lead,omitempty"`
 }
 
 // CaptureJSON is the full-screen JSON capture output.
@@ -105,6 +108,7 @@ type CapturePane struct {
 	ID       uint32        `json:"id"`
 	Name     string        `json:"name"`
 	Active   bool          `json:"active"`
+	Lead     bool          `json:"lead,omitempty"`
 	Zoomed   bool          `json:"zoomed"`
 	Host     string        `json:"host"`
 	Task     string        `json:"task"`

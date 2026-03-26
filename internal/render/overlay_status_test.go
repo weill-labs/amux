@@ -41,6 +41,7 @@ func (p *statusPaneData) Task() string           { return p.task }
 func (p *statusPaneData) Color() string          { return p.color }
 func (p *statusPaneData) Minimized() bool        { return false }
 func (p *statusPaneData) Idle() bool             { return p.idle }
+func (p *statusPaneData) IsLead() bool           { return false }
 func (p *statusPaneData) ConnStatus() string     { return p.connStatus }
 func (p *statusPaneData) InCopyMode() bool       { return p.copyMode }
 func (p *statusPaneData) CopyModeSearch() string { return p.copySearch }

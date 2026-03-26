@@ -39,8 +39,16 @@ func renderPaneStatus(buf *strings.Builder, cell *mux.LayoutCell, isActive bool,
 	color := pd.Color()
 	idle := !isActive && pd.Idle() // call once — may fork pgrep on server side
 
-	// Status icon: active=●, inactive+busy=○, inactive+idle=◇
-	if isActive {
+	// Status icon: lead=▶, active=●, inactive+busy=○, inactive+idle=◇
+	lead := pd.IsLead()
+	if lead {
+		if isActive {
+			buf.WriteString(hexToANSI(color))
+		} else {
+			buf.WriteString(DimFg)
+		}
+		buf.WriteString("▶")
+	} else if isActive {
 		buf.WriteString(hexToANSI(color))
 		buf.WriteString("●")
 	} else if idle {
@@ -67,6 +75,13 @@ func renderPaneStatus(buf *strings.Builder, cell *mux.LayoutCell, isActive bool,
 	buf.WriteString(NoBold)
 
 	metaText := paneStatusMetadata(pd, availableMetadataWidth(cell.W, pd))
+
+	// Lead indicator
+	if lead {
+		buf.WriteString(" ")
+		buf.WriteString(hexToANSI(color))
+		buf.WriteString("[lead]")
+	}
 
 	// Copy mode indicator + search prompt
 	if pd.InCopyMode() {

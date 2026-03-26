@@ -101,4 +101,7 @@ var commandRegistry = map[string]CommandHandler{
 	"set-meta":       cmdSetMeta,
 	"add-meta":       cmdAddMeta,
 	"rm-meta":        cmdRmMeta,
+	"set-lead":       cmdSetLead,
+	"unset-lead":     cmdUnsetLead,
+	"toggle-lead":    cmdToggleLead,
 }

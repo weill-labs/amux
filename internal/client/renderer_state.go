@@ -16,6 +16,7 @@ type rendererSnapshot struct {
 	layout          *mux.LayoutCell
 	activePaneID    uint32
 	zoomedPaneID    uint32
+	leadPaneID      uint32
 	sessionName     string
 	sessionNotice   string
 	capabilities    proto.ClientCapabilities

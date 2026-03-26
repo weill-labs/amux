@@ -4,28 +4,34 @@ import "github.com/weill-labs/amux/internal/proto"
 
 // snapshotCore extracts the shared fields from a Window snapshot:
 // layout tree, pane snapshots, active pane ID, and zoomed pane ID.
-func (w *Window) snapshotCore() (root proto.CellSnapshot, panes []proto.PaneSnapshot, activePaneID, zoomedPaneID uint32) {
+func (w *Window) snapshotCore() (root proto.CellSnapshot, panes []proto.PaneSnapshot, activePaneID, zoomedPaneID, leadPaneID uint32) {
 	root = snapshotCell(w.Root)
 	if w.ActivePane != nil {
 		activePaneID = w.ActivePane.ID
 	}
 	zoomedPaneID = w.ZoomedPaneID
+	leadPaneID = w.LeadPaneID
 	for _, p := range w.Panes() {
-		panes = append(panes, p.ToSnapshot())
+		ps := p.ToSnapshot()
+		if leadPaneID != 0 && p.ID == leadPaneID {
+			ps.Lead = true
+		}
+		panes = append(panes, ps)
 	}
-	return root, panes, activePaneID, zoomedPaneID
+	return root, panes, activePaneID, zoomedPaneID, leadPaneID
 }
 
 // SnapshotLayout creates a serializable snapshot of the current layout state.
 // Used for single-window backward compatibility and by SnapshotWindow.
 func (w *Window) SnapshotLayout(sessionName string) *proto.LayoutSnapshot {
-	root, panes, activePaneID, zoomedPaneID := w.snapshotCore()
+	root, panes, activePaneID, zoomedPaneID, leadPaneID := w.snapshotCore()
 	return &proto.LayoutSnapshot{
 		SessionName:  sessionName,
 		Width:        w.Width,
 		Height:       w.Height,
 		ActivePaneID: activePaneID,
 		ZoomedPaneID: zoomedPaneID,
+		LeadPaneID:   leadPaneID,
 		Root:         root,
 		Panes:        panes,
 	}
@@ -33,13 +39,14 @@ func (w *Window) SnapshotLayout(sessionName string) *proto.LayoutSnapshot {
 
 // SnapshotWindow creates a WindowSnapshot for the wire protocol.
 func (w *Window) SnapshotWindow(index int) proto.WindowSnapshot {
-	root, panes, activePaneID, zoomedPaneID := w.snapshotCore()
+	root, panes, activePaneID, zoomedPaneID, leadPaneID := w.snapshotCore()
 	return proto.WindowSnapshot{
 		ID:           w.ID,
 		Name:         w.Name,
 		Index:        index,
 		ActivePaneID: activePaneID,
 		ZoomedPaneID: zoomedPaneID,
+		LeadPaneID:   leadPaneID,
 		Root:         root,
 		Panes:        panes,
 	}
@@ -119,6 +126,7 @@ func RebuildFromSnapshot(snap proto.LayoutSnapshot, paneMap map[uint32]*Pane) *W
 		Width:        snap.Width,
 		Height:       snap.Height,
 		ZoomedPaneID: snap.ZoomedPaneID,
+		LeadPaneID:   snap.LeadPaneID,
 	}
 	return w
 }
@@ -171,6 +179,7 @@ func RebuildWindowFromSnapshot(ws proto.WindowSnapshot, width, height int, paneM
 		Width:        width,
 		Height:       height,
 		ZoomedPaneID: ws.ZoomedPaneID,
+		LeadPaneID:   ws.LeadPaneID,
 	}
 	return w
 }

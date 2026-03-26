@@ -232,3 +232,55 @@ func TestPaneToSnapshotIncludesMetaCollections(t *testing.T) {
 		t.Fatalf("snapshot Issues = %#v, want [LAB-338 LAB-412]", gotIssues.Interface())
 	}
 }
+
+func TestSnapshotRoundTrip_LeadPaneID(t *testing.T) {
+	t.Parallel()
+
+	p1 := &Pane{ID: 1, Meta: PaneMeta{Name: "pane-1", Host: "local", Color: "f38ba8"}}
+	p2 := &Pane{ID: 2, Meta: PaneMeta{Name: "pane-2", Host: "local", Color: "a6e3a1"}}
+
+	w := NewWindow(p1, 80, 24)
+	if _, err := w.SplitRoot(SplitVertical, p2); err != nil {
+		t.Fatalf("SplitRoot: %v", err)
+	}
+	if err := w.SetLead(p1.ID); err != nil {
+		t.Fatalf("SetLead: %v", err)
+	}
+
+	// Snapshot via LayoutSnapshot path
+	snap := w.SnapshotLayout("test")
+	if snap.LeadPaneID != p1.ID {
+		t.Errorf("LayoutSnapshot.LeadPaneID = %d, want %d", snap.LeadPaneID, p1.ID)
+	}
+
+	// Check PaneSnapshot.Lead flag
+	var foundLead bool
+	for _, ps := range snap.Panes {
+		if ps.ID == p1.ID && ps.Lead {
+			foundLead = true
+		}
+		if ps.ID == p2.ID && ps.Lead {
+			t.Error("p2 should not have Lead=true")
+		}
+	}
+	if !foundLead {
+		t.Error("p1 PaneSnapshot should have Lead=true")
+	}
+
+	// Rebuild and verify
+	paneMap := map[uint32]*Pane{1: p1, 2: p2}
+	rebuilt := RebuildFromSnapshot(*snap, paneMap)
+	if rebuilt.LeadPaneID != p1.ID {
+		t.Errorf("rebuilt LeadPaneID = %d, want %d", rebuilt.LeadPaneID, p1.ID)
+	}
+
+	// Also test WindowSnapshot path
+	ws := w.SnapshotWindow(1)
+	if ws.LeadPaneID != p1.ID {
+		t.Errorf("WindowSnapshot.LeadPaneID = %d, want %d", ws.LeadPaneID, p1.ID)
+	}
+	rebuiltW := RebuildWindowFromSnapshot(ws, 80, 24, paneMap)
+	if rebuiltW.LeadPaneID != p1.ID {
+		t.Errorf("rebuilt from WindowSnapshot LeadPaneID = %d, want %d", rebuiltW.LeadPaneID, p1.ID)
+	}
+}

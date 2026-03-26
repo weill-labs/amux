@@ -57,6 +57,7 @@ func DefaultKeybindings() *Keybindings {
 			'9': {Action: "select-window", Args: []string{"9"}},
 			'd': {Action: "detach"},
 			'r': {Action: "reload"},
+			'P': {Action: "toggle-lead"},
 		},
 	}
 }

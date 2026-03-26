@@ -791,6 +791,7 @@ func (c *clientPaneData) Host() string       { return c.info.Host }
 func (c *clientPaneData) Task() string       { return c.info.Task }
 func (c *clientPaneData) Color() string      { return c.info.Color }
 func (c *clientPaneData) Idle() bool         { return c.info.Idle }
+func (c *clientPaneData) IsLead() bool       { return c.info.Lead }
 func (c *clientPaneData) ConnStatus() string { return c.info.ConnStatus }
 func (c *clientPaneData) InCopyMode() bool {
 	return c.cm != nil

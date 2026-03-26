@@ -25,6 +25,7 @@ type Window struct {
 	Width        int
 	Height       int
 	ZoomedPaneID uint32 // non-zero when a pane is zoomed to full window
+	LeadPaneID   uint32 // non-zero when a pane is pinned as lead (full-height left column)
 }
 
 // SplitOptions controls whether the existing active pane keeps focus.
@@ -61,6 +62,35 @@ func (w *Window) SplitRoot(dir SplitDir, newPane *Pane) (*Pane, error) {
 // explicit focus/zoom behavior control.
 func (w *Window) SplitRootWithOptions(dir SplitDir, newPane *Pane, opts SplitOptions) (*Pane, error) {
 	w.assertOwner("SplitRootWithOptions")
+	// When a lead pane is set, redirect root-level splits into the right subtree
+	// to preserve the binary root invariant (lead | right).
+	if w.LeadPaneID != 0 && w.leadColumn() != nil {
+		right := w.Root.Children[1]
+		if right.IsLeaf() && dir == SplitVertical {
+			// Right subtree is a single leaf and we want vertical split.
+			// Case A in LayoutCell.Split would append to root (breaking binary invariant),
+			// so wrap the right side in a new vertical container first.
+			wrapper := &LayoutCell{
+				X: right.X, Y: right.Y, W: right.W, H: right.H,
+				Dir:      SplitVertical,
+				Children: []*LayoutCell{right},
+			}
+			right.Parent = wrapper
+			wrapper.Parent = w.Root
+			w.Root.Children[1] = wrapper
+			right = wrapper
+		}
+		// Find first leaf in right subtree to split
+		target := (*LayoutCell)(nil)
+		right.Walk(func(c *LayoutCell) {
+			if target == nil && c.Pane != nil {
+				target = c
+			}
+		})
+		if target != nil {
+			return w.splitCellWithOptions(target, dir, newPane, opts)
+		}
+	}
 	if w.ZoomedPaneID != 0 && !opts.KeepFocus {
 		w.Unzoom()
 	}
@@ -147,6 +177,9 @@ func (w *Window) SplitPaneWithOptions(targetPaneID uint32, dir SplitDir, newPane
 	if w.ZoomedPaneID != 0 && !opts.KeepFocus {
 		w.Unzoom()
 	}
+	if w.IsLeadPane(targetPaneID) && dir == SplitHorizontal {
+		return nil, fmt.Errorf("cannot split lead pane horizontally")
+	}
 	cell := w.Root.FindPane(targetPaneID)
 	if cell == nil {
 		return nil, fmt.Errorf("pane %d not found in layout", targetPaneID)
@@ -200,6 +233,11 @@ func (w *Window) ClosePane(paneID uint32) error {
 	w.Root.Walk(func(_ *LayoutCell) { count++ })
 	if count <= 1 {
 		return fmt.Errorf("cannot close last pane")
+	}
+
+	// Clear lead if closing the lead pane
+	if w.LeadPaneID == paneID {
+		w.LeadPaneID = 0
 	}
 
 	// Auto-unzoom if closing the zoomed pane
@@ -662,6 +700,14 @@ func (w *Window) SwapPanes(id1, id2 uint32) error {
 	if id1 == id2 {
 		return nil
 	}
+	// Block cross-column swaps when lead is set.
+	if col := w.leadColumn(); col != nil {
+		in1 := containsPane(col, id1)
+		in2 := containsPane(col, id2)
+		if in1 != in2 {
+			return fmt.Errorf("cannot swap lead pane across columns")
+		}
+	}
 	cell1 := w.Root.FindPane(id1)
 	if cell1 == nil {
 		return fmt.Errorf("pane %d not found", id1)
@@ -689,6 +735,9 @@ func (w *Window) SwapTree(id1, id2 uint32) error {
 	if idx1 == idx2 {
 		return fmt.Errorf("panes %d and %d are in the same root-level group", id1, id2)
 	}
+	if w.LeadPaneID != 0 && (idx1 == 0 || idx2 == 0) {
+		return fmt.Errorf("cannot swap lead column")
+	}
 
 	if w.ZoomedPaneID != 0 {
 		w.Unzoom()
@@ -703,6 +752,11 @@ func (w *Window) SwapTree(id1, id2 uint32) error {
 // root-level group containing targetPaneID.
 func (w *Window) MovePane(paneID, targetPaneID uint32, before bool) error {
 	w.assertOwner("MovePane")
+	if w.LeadPaneID != 0 {
+		if col := w.leadColumn(); col != nil && containsPane(col, paneID) {
+			return fmt.Errorf("cannot move lead column")
+		}
+	}
 	_, fromIdx, err := w.rootChildForPaneID(paneID)
 	if err != nil {
 		return err

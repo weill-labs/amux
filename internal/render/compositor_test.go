@@ -32,6 +32,7 @@ func (f *fakePaneData) Host() string           { return "local" }
 func (f *fakePaneData) Task() string           { return "" }
 func (f *fakePaneData) Color() string          { return "f5e0dc" }
 func (f *fakePaneData) Idle() bool             { return true }
+func (f *fakePaneData) IsLead() bool           { return false }
 func (f *fakePaneData) ConnStatus() string     { return "" }
 func (f *fakePaneData) InCopyMode() bool       { return false }
 func (f *fakePaneData) CopyModeSearch() string { return "" }
@@ -89,6 +90,7 @@ func (e *cursorPaneData) Host() string           { return "local" }
 func (e *cursorPaneData) Task() string           { return "" }
 func (e *cursorPaneData) Color() string          { return e.color }
 func (e *cursorPaneData) Idle() bool             { return true }
+func (e *cursorPaneData) IsLead() bool           { return false }
 func (e *cursorPaneData) ConnStatus() string     { return "" }
 func (e *cursorPaneData) InCopyMode() bool       { return false }
 func (e *cursorPaneData) CopyModeSearch() string { return "" }
