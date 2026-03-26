@@ -226,8 +226,8 @@ func TestCrashCheckpointPathTimestamped(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", dir)
 
 	startTime := time.Date(2026, time.March, 21, 12, 34, 56, 789, time.UTC)
-	got := CrashCheckpointPathTimestamped("default", startTime)
-	want := filepath.Join(dir, "amux", "20260321-123456_default.json")
+	got := CrashCheckpointPathTimestamped("main", startTime)
+	want := filepath.Join(dir, "amux", "20260321-123456_main.json")
 	if got != want {
 		t.Fatalf("CrashCheckpointPathTimestamped() = %q, want %q", got, want)
 	}
@@ -242,7 +242,7 @@ func TestFindCrashCheckpointsNewestFirst(t *testing.T) {
 		t.Fatalf("MkdirAll: %v", err)
 	}
 
-	session := "default"
+	session := "main"
 	startTimes := []time.Time{
 		time.Date(2026, time.March, 21, 12, 34, 54, 0, time.UTC),
 		time.Date(2026, time.March, 21, 12, 34, 56, 0, time.UTC),

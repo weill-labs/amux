@@ -8,7 +8,7 @@ func TestAmuxControlScanComplete(t *testing.T) {
 	t.Parallel()
 	s := &AmuxControlScanner{}
 	req := TakeoverRequest{
-		Session: "default@macbook",
+		Session: "main@macbook",
 		Host:    "lambda-a100",
 		UID:     "1000",
 		Panes: []TakeoverPane{
@@ -24,8 +24,8 @@ func TestAmuxControlScanComplete(t *testing.T) {
 	if results[0].Host != "lambda-a100" {
 		t.Errorf("host = %q, want %q", results[0].Host, "lambda-a100")
 	}
-	if results[0].Session != "default@macbook" {
-		t.Errorf("session = %q, want %q", results[0].Session, "default@macbook")
+	if results[0].Session != "main@macbook" {
+		t.Errorf("session = %q, want %q", results[0].Session, "main@macbook")
 	}
 	if len(results[0].Panes) != 1 {
 		t.Fatalf("expected 1 pane, got %d", len(results[0].Panes))
@@ -220,7 +220,7 @@ func TestFormatTakeoverSequence(t *testing.T) {
 
 func TestFormatAndParseTakeoverAck(t *testing.T) {
 	t.Parallel()
-	session := "default@localMachine"
+	session := "main@localMachine"
 	ack := FormatTakeoverAck(session)
 
 	got, ok := ParseTakeoverAck(ack)
@@ -236,7 +236,7 @@ func TestParseTakeoverAckWithTrailingNewline(t *testing.T) {
 	t.Parallel()
 	// The server appends \n to the ack to flush through PTY canonical-mode
 	// line buffering. ParseTakeoverAck must ignore trailing data after BEL.
-	session := "default@host"
+	session := "main@host"
 	ack := FormatTakeoverAck(session) + "\n"
 	got, ok := ParseTakeoverAck(ack)
 	if !ok {
@@ -269,35 +269,35 @@ func TestFindTakeoverAck(t *testing.T) {
 	}{
 		{
 			name:     "session ack",
-			chunks:   []string{FormatTakeoverAck("default@host")},
+			chunks:   []string{FormatTakeoverAck("main@host")},
 			fallback: "ignored",
-			want:     "default@host",
+			want:     "main@host",
 			ok:       true,
 		},
 		{
 			name:     "split session ack",
-			chunks:   []string{"noise \x1b]999;amux-take", "over-ack;default@host\x07"},
+			chunks:   []string{"noise \x1b]999;amux-take", "over-ack;main@host\x07"},
 			fallback: "ignored",
-			want:     "default@host",
+			want:     "main@host",
 			ok:       true,
 		},
 		{
 			name:     "session ack with trailing newline",
-			chunks:   []string{FormatTakeoverAck("default@host") + "\n"},
+			chunks:   []string{FormatTakeoverAck("main@host") + "\n"},
 			fallback: "ignored",
-			want:     "default@host",
+			want:     "main@host",
 			ok:       true,
 		},
 		{
 			name:     "legacy ack uses fallback session",
 			chunks:   []string{"prefix " + TakeoverAck + "\n"},
-			fallback: "default@legacy-host",
-			want:     "default@legacy-host",
+			fallback: "main@legacy-host",
+			want:     "main@legacy-host",
 			ok:       true,
 		},
 		{
 			name:     "incomplete ack",
-			chunks:   []string{"\x1b]999;amux-takeover-ack;default@host"},
+			chunks:   []string{"\x1b]999;amux-takeover-ack;main@host"},
 			fallback: "ignored",
 			want:     "",
 			ok:       false,

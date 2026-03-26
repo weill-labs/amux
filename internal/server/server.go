@@ -28,6 +28,9 @@ const DefaultIdleTimeout = 2 * time.Second
 // DefaultOutputLines is how many lines `amux output` shows by default.
 const DefaultOutputLines = 50
 
+// DefaultSessionName is the implicit session used when callers do not specify one.
+const DefaultSessionName = "main"
+
 // WindowNameFormat is the default name for auto-created windows.
 const WindowNameFormat = "window-%d"
 
@@ -682,7 +685,7 @@ func (s *Server) handleConn(conn net.Conn) {
 func (s *Server) handleAttach(conn net.Conn, msg *Message) {
 	sessionName := msg.Session
 	if sessionName == "" {
-		sessionName = "default"
+		sessionName = DefaultSessionName
 	}
 
 	sess, ok := s.sessions[sessionName]

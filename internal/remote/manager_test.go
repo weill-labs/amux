@@ -178,12 +178,12 @@ func TestManagerCreatePaneErrors(t *testing.T) {
 	}}
 	m := newTestManager(t, cfg, "hash")
 
-	_, err := m.CreatePane("unknown", 1, "default")
+	_, err := m.CreatePane("unknown", 1, "main")
 	if err == nil {
 		t.Error("CreatePane with unknown host should error")
 	}
 
-	_, err = m.CreatePane("local", 1, "default")
+	_, err = m.CreatePane("local", 1, "main")
 	if err == nil {
 		t.Error("CreatePane with local host should error")
 	}
@@ -245,7 +245,7 @@ func TestManagerDisconnectAndReconnectHost(t *testing.T) {
 	if err := m.DisconnectHost("unknown"); err == nil {
 		t.Error("DisconnectHost unknown should error")
 	}
-	if err := m.ReconnectHost("unknown", "default"); err == nil {
+	if err := m.ReconnectHost("unknown", "main"); err == nil {
 		t.Error("ReconnectHost unknown should error")
 	}
 

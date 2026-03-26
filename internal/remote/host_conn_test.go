@@ -39,9 +39,9 @@ func testInActor(hc *HostConn, fn func(*HostConn)) {
 func TestBuildEnsureServerCmd(t *testing.T) {
 	t.Parallel()
 
-	cmd := buildEnsureServerCmd("/tmp/amux-1000/default", "default@myhost")
+	cmd := buildEnsureServerCmd("/tmp/amux-1000/main", "main@myhost")
 
-	if !strings.Contains(cmd, `[ ! -S /tmp/amux-1000/default ]`) {
+	if !strings.Contains(cmd, `[ ! -S /tmp/amux-1000/main ]`) {
 		t.Error("command should check socket existence")
 	}
 	if !strings.Contains(cmd, "${AMUX_BIN:-") {
@@ -53,7 +53,7 @@ func TestBuildEnsureServerCmd(t *testing.T) {
 	if !strings.Contains(cmd, "install-terminfo") {
 		t.Error("command should install terminfo before starting the remote server")
 	}
-	if !strings.Contains(cmd, `_server default@myhost`) {
+	if !strings.Contains(cmd, `_server main@myhost`) {
 		t.Error("command should pass session name to _server")
 	}
 	if !strings.Contains(cmd, "command -v amux") {
@@ -90,10 +90,10 @@ func TestNormalizeAddr(t *testing.T) {
 func TestManagedSessionName(t *testing.T) {
 	t.Parallel()
 
-	name := ManagedSessionName("default")
+	name := ManagedSessionName("main")
 	hostname, _ := os.Hostname()
 
-	if !strings.HasPrefix(name, "default@") {
+	if !strings.HasPrefix(name, "main@") {
 		t.Errorf("ManagedSessionName should start with session name, got %q", name)
 	}
 	if !strings.HasSuffix(name, "@"+hostname) {
@@ -104,9 +104,9 @@ func TestManagedSessionName(t *testing.T) {
 func TestSocketPath(t *testing.T) {
 	t.Parallel()
 
-	path := socketPath("1000", "default@myhost")
-	if path != "/tmp/amux-1000/default@myhost" {
-		t.Errorf("socketPath = %q, want /tmp/amux-1000/default@myhost", path)
+	path := socketPath("1000", "main@myhost")
+	if path != "/tmp/amux-1000/main@myhost" {
+		t.Errorf("socketPath = %q, want /tmp/amux-1000/main@myhost", path)
 	}
 }
 
@@ -195,14 +195,14 @@ func TestReconnectTargetUsesStoredConnectAddr(t *testing.T) {
 	defer hc.Close()
 
 	testInActor(hc, func(hc *HostConn) {
-		hc.sessionName = "default@test"
+		hc.sessionName = "main@test"
 		hc.remoteUID = "1000"
 		hc.connectAddr = "127.0.0.1:2222"
 		hc.takeoverMode = true
 
 		target := hc.reconnectTarget()
-		if target.sessionName != "default@test" {
-			t.Fatalf("target.sessionName = %q, want default@test", target.sessionName)
+		if target.sessionName != "main@test" {
+			t.Fatalf("target.sessionName = %q, want main@test", target.sessionName)
 		}
 		if target.remoteUID != "1000" {
 			t.Fatalf("target.remoteUID = %q, want 1000", target.remoteUID)

@@ -23,7 +23,7 @@ import (
 	"golang.org/x/term"
 )
 
-const defaultSessionName = "default"
+const defaultSessionName = server.DefaultSessionName
 
 const reconnectEventType = "reconnect"
 
@@ -304,7 +304,7 @@ func main() {
 }
 
 // resolveSessionName chooses the session for this invocation.
-// Explicit -s wins, then AMUX_SESSION, then the default session.
+// Explicit -s wins, then AMUX_SESSION, then the implicit main session.
 func resolveSessionName(explicit string, explicitSet bool) string {
 	if explicitSet {
 		return explicit

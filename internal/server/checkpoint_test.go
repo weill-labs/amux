@@ -15,7 +15,7 @@ func TestServerReloadReturnsSessionShuttingDownBeforeCheckpoint(t *testing.T) {
 	close(sess.sessionEventStop)
 
 	srv := &Server{
-		sessions: map[string]*Session{"default": sess},
+		sessions: map[string]*Session{DefaultSessionName: sess},
 	}
 
 	err := srv.Reload("/definitely/missing")
