@@ -7,16 +7,18 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
 	"time"
 
-	"github.com/fsnotify/fsnotify"
 	"github.com/weill-labs/amux/internal/checkpoint"
 	"github.com/weill-labs/amux/internal/proto"
 	"github.com/weill-labs/amux/internal/server"
 )
+
+const crashCheckpointTestTimeout = 15 * time.Second
 
 // TestCrashRecovery_LayoutRestored verifies that after SIGKILL, restarting
 // the server for the same session restores the window/pane layout structure.
@@ -47,14 +49,12 @@ func TestCrashRecovery_LayoutRestored(t *testing.T) {
 	preWindowName := preJSON.Window.Name
 	preNames := paneNames(preJSON)
 
-	cpPath := waitForCrashCheckpointPath(t, h.home, h.session, 5*time.Second)
-	_ = waitForCrashCheckpointMatch(t, cpPath, 5*time.Second, "checkpoint with split layout and renamed window", func(cp checkpoint.CrashCheckpoint) bool {
+	cpWrite, preCrashCP := waitForCrashCheckpointMatch(t, h, 0, crashCheckpointTestTimeout, "checkpoint with split layout and renamed window", func(cp checkpoint.CrashCheckpoint) bool {
 		return crashCheckpointWindowName(cp) == preWindowName &&
 			len(cp.PaneStates) == prePaneCount &&
 			crashCheckpointPaneContains(cp, "pane-1", "PANE1_MARKER") &&
 			crashCheckpointPaneContains(cp, "pane-2", "PANE2_MARKER")
 	})
-	preCrashCP := readCrashCheckpoint(t, cpPath)
 
 	// Detach the headless client before kill so it doesn't interfere
 	if h.client != nil {
@@ -68,7 +68,7 @@ func TestCrashRecovery_LayoutRestored(t *testing.T) {
 	h.cmd = nil // prevent cleanup from trying to kill again
 
 	// Verify crash checkpoint file still exists (SIGKILL = no cleanup)
-	if _, err := os.Stat(cpPath); err != nil {
+	if _, err := os.Stat(cpWrite.path); err != nil {
 		t.Fatalf("crash checkpoint should survive SIGKILL: %v", err)
 	}
 
@@ -100,8 +100,7 @@ func TestCrashRecovery_LayoutRestored(t *testing.T) {
 	// durable invariant is that recovery replaces the stale checkpoint with a
 	// fresh one from the recovered session rather than relying on the pre-crash
 	// file indefinitely.
-	recoveredPath := crashCheckpointPathTimestamped(h.home, h.session, preCrashCP.Timestamp)
-	postCrashCP := waitForFreshCrashCheckpoint(t, recoveredPath, preCrashCP, 5*time.Second)
+	_, postCrashCP := waitForFreshCrashCheckpoint(t, h2, 0, preCrashCP, crashCheckpointTestTimeout)
 	if postCrashCP.SessionName != h.session {
 		t.Errorf("refreshed crash checkpoint session = %q, want %q", postCrashCP.SessionName, h.session)
 	}
@@ -118,10 +117,10 @@ func TestCrashRecovery_CleanShutdown(t *testing.T) {
 	h.splitV()
 
 	// Wait for crash checkpoint to appear
-	cpPath := waitForCrashCheckpointPath(t, h.home, h.session, 5*time.Second)
+	cpWrite := waitForCrashCheckpoint(t, h, 0, crashCheckpointTestTimeout)
 
 	// Verify checkpoint exists
-	if _, err := os.Stat(cpPath); err != nil {
+	if _, err := os.Stat(cpWrite.path); err != nil {
 		t.Fatalf("checkpoint should exist: %v", err)
 	}
 
@@ -147,20 +146,20 @@ func TestCrashRecovery_CleanShutdown(t *testing.T) {
 	h.cmd = nil // prevent double cleanup
 
 	// Verify checkpoint file was removed
-	if _, err := os.Stat(cpPath); !os.IsNotExist(err) {
-		t.Fatalf("crash checkpoint %s should be removed after clean shutdown, err=%v", cpPath, err)
+	if _, err := os.Stat(cpWrite.path); !os.IsNotExist(err) {
+		t.Fatalf("crash checkpoint %s should be removed after clean shutdown, err=%v", cpWrite.path, err)
 	}
 }
 
 // TestCrashRecovery_CheckpointIsValidJSON verifies the crash checkpoint file
 // is human-readable JSON with expected structure.
 func TestCrashRecovery_CheckpointIsValidJSON(t *testing.T) {
-	t.Parallel()
-
 	h := newServerHarness(t)
 	h.splitV()
 
-	cpPath := waitForCrashCheckpointPath(t, h.home, h.session, 5*time.Second)
+	cpPath, _ := waitForScannedCrashCheckpointMatch(t, h, crashCheckpointTestTimeout, "checkpoint with split panes", func(cp checkpoint.CrashCheckpoint) bool {
+		return len(cp.PaneStates) >= 2 && len(cp.Layout.Windows) > 0
+	})
 
 	data, err := os.ReadFile(cpPath)
 	if err != nil {
@@ -196,8 +195,7 @@ func TestCrashRecovery_FocusUpFromRestoredFullWidthBottomPane(t *testing.T) {
 	h.doSplit("root")
 	h.assertActive("pane-10")
 
-	cpPath := waitForCrashCheckpointPath(t, h.home, h.session, 5*time.Second)
-	_ = waitForCrashCheckpointMatch(t, cpPath, 5*time.Second, "checkpoint with pane-10 active", func(cp checkpoint.CrashCheckpoint) bool {
+	_, _ = waitForCrashCheckpointMatch(t, h, 0, crashCheckpointTestTimeout, "checkpoint with pane-10 active", func(cp checkpoint.CrashCheckpoint) bool {
 		return len(cp.PaneStates) == 10 &&
 			crashCheckpointPaneNamed(cp, "pane-10") &&
 			crashCheckpointActivePaneName(cp) == "pane-10"
@@ -224,8 +222,8 @@ func TestCrashRecovery_PreservesHistoryCapture(t *testing.T) {
 	t.Parallel()
 
 	h := newServerHarnessPersistent(t)
-	cpPath := waitForCrashCheckpointPath(t, h.home, h.session, 5*time.Second)
-	preCrashCP := readCrashCheckpoint(t, cpPath)
+	cpWrite := waitForCrashCheckpoint(t, h, 0, crashCheckpointTestTimeout)
+	preCrashCP := readCrashCheckpoint(t, cpWrite.path)
 
 	scriptPath := filepath.Join(os.TempDir(), fmt.Sprintf("amux-crash-history-%s.sh", h.session))
 	if err := os.WriteFile(scriptPath, []byte("#!/bin/bash\nfor i in $(seq -w 1 45); do echo \"CRASHHIST-$i\"; done\n"), 0755); err != nil {
@@ -239,7 +237,7 @@ func TestCrashRecovery_PreservesHistoryCapture(t *testing.T) {
 		t.Fatalf("history capture before crash should include earliest retained line, got:\n%s", before)
 	}
 
-	_ = waitForCrashCheckpointPaneContains(t, cpPath, "pane-1", preCrashCP, 5*time.Second, "CRASHHIST-01", "CRASHHIST-45")
+	_, _ = waitForCrashCheckpointPaneContains(t, h, "pane-1", cpWrite.generation, preCrashCP, crashCheckpointTestTimeout, "CRASHHIST-01", "CRASHHIST-45")
 
 	if h.client != nil {
 		h.client.close()
@@ -261,11 +259,11 @@ func TestCrashRecovery_ReplaysVisibleScreenForIdleShellPane(t *testing.T) {
 	t.Parallel()
 
 	h := newServerHarnessPersistent(t)
-	cpPath := waitForCrashCheckpointPath(t, h.home, h.session, 5*time.Second)
+	cpWrite := waitForCrashCheckpoint(t, h, 0, crashCheckpointTestTimeout)
 
 	h.sendKeys("pane-1", `printf 'IDLE_SCREEN_MARKER\n'`, "Enter")
 	h.waitFor("pane-1", "IDLE_SCREEN_MARKER")
-	_ = waitForCrashCheckpointMatch(t, cpPath, 5*time.Second, "checkpoint containing idle screen marker", func(cp checkpoint.CrashCheckpoint) bool {
+	_, _ = waitForCrashCheckpointMatch(t, h, cpWrite.generation, crashCheckpointTestTimeout, "checkpoint containing idle screen marker", func(cp checkpoint.CrashCheckpoint) bool {
 		return crashCheckpointPaneContains(cp, "pane-1", "IDLE_SCREEN_MARKER")
 	})
 
@@ -289,12 +287,12 @@ func TestCrashRecovery_BusyPaneShowsRecoveryNoticeInsteadOfReplayingStaleScreen(
 	t.Parallel()
 
 	h := newServerHarnessPersistent(t)
-	cpPath := waitForCrashCheckpointPath(t, h.home, h.session, 5*time.Second)
+	cpWrite := waitForCrashCheckpoint(t, h, 0, crashCheckpointTestTimeout)
 
 	h.sendKeys("pane-1", `printf '\033[2J\033[HCRASH_BUSY_FRAME\n'; while true; do sleep 1; printf '\033[0m'; done`, "Enter")
 	h.waitFor("pane-1", "CRASH_BUSY_FRAME")
 	h.waitBusy("pane-1")
-	_ = waitForCrashCheckpointMatch(t, cpPath, 5*time.Second, "checkpoint containing busy frame", func(cp checkpoint.CrashCheckpoint) bool {
+	_, _ = waitForCrashCheckpointMatch(t, h, cpWrite.generation, crashCheckpointTestTimeout, "checkpoint containing busy frame", func(cp checkpoint.CrashCheckpoint) bool {
 		return crashCheckpointPaneContains(cp, "pane-1", "CRASH_BUSY_FRAME") && !crashCheckpointPaneWasIdle(cp, "pane-1")
 	})
 
@@ -325,57 +323,6 @@ func TestCrashRecovery_BusyPaneShowsRecoveryNoticeInsteadOfReplayingStaleScreen(
 	}
 }
 
-func TestWaitForCrashCheckpointPathSeesAtomicRenameNearTimeout(t *testing.T) {
-	t.Parallel()
-
-	home := newTestHome(t)
-	session := "rename-checkpoint"
-	startTime := time.Date(2026, time.March, 25, 12, 34, 56, 0, time.UTC)
-	dest := crashCheckpointPathTimestamped(home, session, startTime)
-
-	writeDone := make(chan error, 1)
-	go func() {
-		// Land just after the old helper's 50ms poll, but still before timeout.
-		// The watcher-based helper should still see the rename immediately.
-		delay := time.NewTimer(55 * time.Millisecond)
-		defer delay.Stop()
-		<-delay.C
-
-		tmp, err := os.CreateTemp(crashCheckpointDir(home), ".crash-*.json.tmp")
-		if err != nil {
-			writeDone <- fmt.Errorf("create temp checkpoint: %w", err)
-			return
-		}
-		tmpPath := tmp.Name()
-		if _, err := tmp.WriteString(`{"version":1}`); err != nil {
-			tmp.Close()
-			os.Remove(tmpPath)
-			writeDone <- fmt.Errorf("write temp checkpoint: %w", err)
-			return
-		}
-		if err := tmp.Close(); err != nil {
-			os.Remove(tmpPath)
-			writeDone <- fmt.Errorf("close temp checkpoint: %w", err)
-			return
-		}
-		if err := os.Rename(tmpPath, dest); err != nil {
-			os.Remove(tmpPath)
-			writeDone <- fmt.Errorf("rename temp checkpoint: %w", err)
-			return
-		}
-
-		writeDone <- nil
-	}()
-
-	got := waitForCrashCheckpointPath(t, home, session, 99*time.Millisecond)
-	if err := <-writeDone; err != nil {
-		t.Fatal(err)
-	}
-	if got != dest {
-		t.Fatalf("waitForCrashCheckpointPath() = %q, want %q", got, dest)
-	}
-}
-
 func makeThreeByThreeGridServer(t *testing.T, h *ServerHarness) {
 	t.Helper()
 
@@ -393,119 +340,66 @@ func makeThreeByThreeGridServer(t *testing.T, h *ServerHarness) {
 // Helpers
 // ---------------------------------------------------------------------------
 
-func newestCrashCheckpointPath(home, session string) string {
-	checkpointDir := crashCheckpointDir(home)
-	suffix := "_" + session + ".json"
-
-	entries, err := os.ReadDir(checkpointDir)
-	if err != nil {
-		return ""
-	}
-
-	var newest string
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		name := entry.Name()
-		if !strings.HasSuffix(name, suffix) {
-			continue
-		}
-		path := filepath.Join(checkpointDir, name)
-		if newest == "" || path > newest {
-			newest = path
-		}
-	}
-	return newest
+type crashCheckpointWrite struct {
+	generation uint64
+	path       string
 }
 
-// waitForCrashCheckpointPath waits until the newest crash checkpoint path for
-// the session appears. Crash checkpoints are written with a temp file + rename,
-// so watch the directory for changes and periodically rescan as a fallback.
-func waitForCrashCheckpointPath(t *testing.T, home, session string, timeout time.Duration) string {
-	t.Helper()
-
-	checkpointDir := crashCheckpointDir(home)
-	if newest := newestCrashCheckpointPath(home, session); newest != "" {
-		return newest
-	}
-
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
-
-	rescan := time.NewTicker(250 * time.Millisecond)
-	defer rescan.Stop()
-
-	var watchEvents <-chan fsnotify.Event
-	var watchErrors <-chan error
-	watcher, err := fsnotify.NewWatcher()
-	if err == nil {
-		defer watcher.Close()
-		if err := watcher.Add(checkpointDir); err == nil {
-			if newest := newestCrashCheckpointPath(home, session); newest != "" {
-				return newest
-			}
-			watchEvents = watcher.Events
-			watchErrors = watcher.Errors
-		}
-	}
-
-	for {
-		select {
-		case event, ok := <-watchEvents:
-			if !ok {
-				watchEvents = nil
-				watchErrors = nil
-				continue
-			}
-			if event.Op&(fsnotify.Create|fsnotify.Rename|fsnotify.Write) == 0 {
-				continue
-			}
-			if newest := newestCrashCheckpointPath(home, session); newest != "" {
-				return newest
-			}
-		case _, ok := <-watchErrors:
-			if !ok {
-				watchEvents = nil
-				watchErrors = nil
-			}
-		case <-rescan.C:
-			if newest := newestCrashCheckpointPath(home, session); newest != "" {
-				return newest
-			}
-		case <-timer.C:
-			t.Fatalf("crash checkpoint for session %s in %s did not appear within %v", session, checkpointDir, timeout)
-		}
-	}
-}
-
-func crashCheckpointPathTimestamped(home, session string, startTime time.Time) string {
-	return filepath.Join(crashCheckpointDir(home), startTime.Format("20060102-150405")+"_"+session+".json")
-}
-
-func crashCheckpointDir(home string) string {
-	return filepath.Join(home, ".local", "state", "amux")
-}
-
-func waitForCrashCheckpointMatch(t *testing.T, path string, timeout time.Duration, desc string, match func(cp checkpoint.CrashCheckpoint) bool) checkpoint.CrashCheckpoint {
+func waitForCrashCheckpoint(t *testing.T, h *ServerHarness, afterGen uint64, timeout time.Duration) crashCheckpointWrite {
 	t.Helper()
 
 	deadline := time.Now().Add(timeout)
-	ticker := time.NewTicker(50 * time.Millisecond)
-	defer ticker.Stop()
+	var lastOut string
 	for time.Now().Before(deadline) {
-		if _, err := os.Stat(path); err == nil {
-			cp := readCrashCheckpoint(t, path)
-			if match(cp) {
-				return cp
-			}
+		waitFor := time.Until(deadline)
+		if waitFor > time.Second {
+			waitFor = time.Second
 		}
-		<-ticker.C
+		lastOut = strings.TrimSpace(h.runControlCmd(
+			"wait", "checkpoint",
+			"--after", strconv.FormatUint(afterGen, 10),
+			"--timeout", waitFor.String(),
+		))
+		if strings.Contains(lastOut, "server not running") || strings.Contains(lastOut, "EOF") {
+			continue
+		}
+		if strings.Contains(lastOut, "timeout waiting for checkpoint") {
+			continue
+		}
+		fields := strings.Fields(lastOut)
+		if len(fields) != 2 {
+			t.Fatalf("wait checkpoint output = %q, want '<generation> <path>' (%s)\n%s", lastOut, h.runtimeState(), h.diagnosticSnapshot("wait checkpoint parse failure"))
+		}
+		gen, err := strconv.ParseUint(fields[0], 10, 64)
+		if err != nil {
+			t.Fatalf("parsing wait checkpoint generation from %q: %v", lastOut, err)
+		}
+		return crashCheckpointWrite{generation: gen, path: fields[1]}
 	}
 
-	cp := readCrashCheckpoint(t, path)
-	t.Fatalf("crash checkpoint %s did not reach %s within %v; latest timestamp=%s generation=%d", path, desc, timeout, cp.Timestamp.Format(time.RFC3339Nano), cp.Generation)
-	return checkpoint.CrashCheckpoint{}
+	t.Fatalf("wait checkpoint after %d did not return within %v; last output: %q (%s)\n%s", afterGen, timeout, lastOut, h.runtimeState(), h.diagnosticSnapshot("wait checkpoint timeout"))
+	return crashCheckpointWrite{}
+}
+
+func waitForCrashCheckpointMatch(t *testing.T, h *ServerHarness, afterGen uint64, timeout time.Duration, desc string, match func(cp checkpoint.CrashCheckpoint) bool) (crashCheckpointWrite, checkpoint.CrashCheckpoint) {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	var (
+		lastWrite crashCheckpointWrite
+		lastCP    checkpoint.CrashCheckpoint
+	)
+	for time.Now().Before(deadline) {
+		lastWrite = waitForCrashCheckpoint(t, h, afterGen, time.Until(deadline))
+		lastCP = readCrashCheckpoint(t, lastWrite.path)
+		if match(lastCP) {
+			return lastWrite, lastCP
+		}
+		afterGen = lastWrite.generation
+	}
+
+	t.Fatalf("crash checkpoint %s did not reach %s within %v; latest timestamp=%s generation=%d", lastWrite.path, desc, timeout, lastCP.Timestamp.Format(time.RFC3339Nano), lastCP.Generation)
+	return crashCheckpointWrite{}, checkpoint.CrashCheckpoint{}
 }
 
 func waitForHistoryCaptureContains(t *testing.T, h *ServerHarness, pane, substr string, timeout time.Duration) string {
@@ -527,12 +421,50 @@ func waitForHistoryCaptureContains(t *testing.T, h *ServerHarness, pane, substr 
 	return ""
 }
 
-func waitForCrashCheckpointPaneContains(t *testing.T, path, paneName string, prev checkpoint.CrashCheckpoint, timeout time.Duration, substrs ...string) checkpoint.CrashCheckpoint {
+func waitForCrashCheckpointPaneContains(t *testing.T, h *ServerHarness, paneName string, afterGen uint64, prev checkpoint.CrashCheckpoint, timeout time.Duration, substrs ...string) (crashCheckpointWrite, checkpoint.CrashCheckpoint) {
 	t.Helper()
 
-	return waitForCrashCheckpointMatch(t, path, timeout, fmt.Sprintf("fresh checkpoint containing %v for %s", substrs, paneName), func(cp checkpoint.CrashCheckpoint) bool {
+	return waitForCrashCheckpointMatch(t, h, afterGen, timeout, fmt.Sprintf("fresh checkpoint containing %v for %s", substrs, paneName), func(cp checkpoint.CrashCheckpoint) bool {
 		return (cp.Timestamp.After(prev.Timestamp) || cp.Generation > prev.Generation) && crashCheckpointPaneContains(cp, paneName, substrs...)
 	})
+}
+
+func waitForScannedCrashCheckpointMatch(t *testing.T, h *ServerHarness, timeout time.Duration, desc string, match func(cp checkpoint.CrashCheckpoint) bool) (string, checkpoint.CrashCheckpoint) {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	ticker := time.NewTicker(25 * time.Millisecond)
+	defer ticker.Stop()
+
+	dir := filepath.Join(h.home, ".local", "state", "amux")
+	if xdg := os.Getenv("XDG_STATE_HOME"); xdg != "" {
+		dir = filepath.Join(xdg, "amux")
+	}
+	var (
+		lastPath string
+		lastCP   checkpoint.CrashCheckpoint
+	)
+	for time.Now().Before(deadline) {
+		entries, err := os.ReadDir(dir)
+		if err == nil {
+			for _, entry := range entries {
+				if entry.IsDir() || !strings.HasSuffix(entry.Name(), "_"+h.session+".json") {
+					continue
+				}
+				path := filepath.Join(dir, entry.Name())
+				cp := readCrashCheckpoint(t, path)
+				lastPath = path
+				lastCP = cp
+				if match(cp) {
+					return path, cp
+				}
+			}
+		}
+		<-ticker.C
+	}
+
+	t.Fatalf("scanned crash checkpoint %s did not reach %s within %v; latest path=%s timestamp=%s generation=%d (%s)\n%s", lastPath, desc, timeout, lastPath, lastCP.Timestamp.Format(time.RFC3339Nano), lastCP.Generation, h.runtimeState(), h.diagnosticSnapshot("scanned crash checkpoint timeout"))
+	return "", checkpoint.CrashCheckpoint{}
 }
 
 func crashCheckpointPaneContains(cp checkpoint.CrashCheckpoint, paneName string, substrs ...string) bool {
@@ -608,29 +540,12 @@ func readCrashCheckpoint(t *testing.T, path string) checkpoint.CrashCheckpoint {
 	return cp
 }
 
-func waitForFreshCrashCheckpoint(t *testing.T, path string, prev checkpoint.CrashCheckpoint, timeout time.Duration) checkpoint.CrashCheckpoint {
+func waitForFreshCrashCheckpoint(t *testing.T, h *ServerHarness, afterGen uint64, prev checkpoint.CrashCheckpoint, timeout time.Duration) (crashCheckpointWrite, checkpoint.CrashCheckpoint) {
 	t.Helper()
-	deadline := time.Now().Add(timeout)
-	ticker := time.NewTicker(50 * time.Millisecond)
-	defer ticker.Stop()
-	for time.Now().Before(deadline) {
-		if _, err := os.Stat(path); err == nil {
-			cp := readCrashCheckpoint(t, path)
-			if cp.Timestamp.After(prev.Timestamp) || cp.Generation > prev.Generation {
-				return cp
-			}
-		}
-		<-ticker.C
-	}
 
-	t.Fatalf(
-		"crash checkpoint %s was not refreshed within %v (prev timestamp=%s, generation=%d)",
-		path,
-		timeout,
-		prev.Timestamp.Format(time.RFC3339Nano),
-		prev.Generation,
-	)
-	return checkpoint.CrashCheckpoint{}
+	return waitForCrashCheckpointMatch(t, h, afterGen, timeout, "fresh checkpoint", func(cp checkpoint.CrashCheckpoint) bool {
+		return cp.Timestamp.After(prev.Timestamp) || cp.Generation > prev.Generation
+	})
 }
 
 // startServerForSession starts a new server process for an existing session
@@ -701,7 +616,7 @@ func startServerForSession(t *testing.T, session, home string) *ServerHarness {
 		t.Fatalf("recovered server ready signal not received: err=%v, buf=%q\nserver log:\n%s", err, string(buf[:n]), string(logData))
 	}
 
-	h := &ServerHarness{tb: t, session: session, cmd: cmd, home: home, coverDir: coverDir, shutdownPipe: shutdownReadPipe}
+	h := &ServerHarness{tb: t, session: session, cmd: cmd, home: home, cols: 80, rows: 24, coverDir: coverDir, shutdownPipe: shutdownReadPipe}
 	t.Cleanup(h.cleanup)
 
 	// Attach headless client
@@ -710,6 +625,11 @@ func startServerForSession(t *testing.T, session, home string) *ServerHarness {
 	if err != nil {
 		cmd.Process.Kill()
 		t.Fatalf("attaching headless client to recovered server: %v", err)
+	}
+	if err := client.waitCommandReady(); err != nil {
+		client.close()
+		cmd.Process.Kill()
+		t.Fatalf("recovered headless client command-ready: %v", err)
 	}
 	h.client = client
 

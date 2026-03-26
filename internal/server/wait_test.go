@@ -77,6 +77,79 @@ func TestWaitGeneration_Timeout(t *testing.T) {
 	}
 }
 
+func TestWaitCrashCheckpoint_AlreadyPast(t *testing.T) {
+	t.Parallel()
+
+	sess := newSession("test-wait-crash-checkpoint-past")
+	defer stopSessionBackgroundLoops(t, sess)
+	sess.waiters.setCrashCheckpointStateForTest(1, "/tmp/checkpoint-1.json")
+
+	record, ok := sess.waitCrashCheckpoint(0, time.Second)
+	if !ok {
+		t.Fatal("expected ok=true when checkpoint generation is already past target")
+	}
+	if record.generation != 1 || record.path != "/tmp/checkpoint-1.json" {
+		t.Fatalf("waitCrashCheckpoint() = %+v, want generation=1 path=/tmp/checkpoint-1.json", record)
+	}
+}
+
+func TestWaitCrashCheckpoint_WakesOnWrite(t *testing.T) {
+	t.Parallel()
+
+	sess := newSession("test-wait-crash-checkpoint-write")
+	defer stopSessionBackgroundLoops(t, sess)
+
+	done := make(chan struct{})
+	var record crashCheckpointRecord
+	var ok bool
+	go func() {
+		record, ok = sess.waitCrashCheckpoint(0, 5*time.Second)
+		close(done)
+	}()
+
+	waitUntil(t, func() bool {
+		return mustSessionQuery(t, sess, func(sess *Session) bool {
+			return sess.waiters.checkpointWaiterRegistered(0)
+		})
+	})
+
+	if !sess.enqueueEvent(crashCheckpointWrittenEvent{path: "/tmp/checkpoint-2.json"}) {
+		t.Fatal("enqueueEvent(crashCheckpointWrittenEvent) = false")
+	}
+
+	select {
+	case <-done:
+		if !ok {
+			t.Fatal("expected ok=true")
+		}
+		if record.generation != 1 || record.path != "/tmp/checkpoint-2.json" {
+			t.Fatalf("waitCrashCheckpoint() = %+v, want generation=1 path=/tmp/checkpoint-2.json", record)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("waitCrashCheckpoint did not return after checkpoint write")
+	}
+}
+
+func TestWaitCrashCheckpoint_Timeout(t *testing.T) {
+	t.Parallel()
+
+	sess := newSession("test-wait-crash-checkpoint-timeout")
+	defer stopSessionBackgroundLoops(t, sess)
+
+	record, ok := sess.waitCrashCheckpoint(0, 100*time.Millisecond)
+	if ok {
+		t.Fatal("expected ok=false on timeout")
+	}
+	if record.generation != 0 || record.path != "" {
+		t.Fatalf("waitCrashCheckpoint() = %+v, want zero record", record)
+	}
+	if got := mustSessionQuery(t, sess, func(sess *Session) bool {
+		return sess.waiters.checkpointWaiterRegistered(0)
+	}); got {
+		t.Fatal("checkpoint waiter should be removed after timeout")
+	}
+}
+
 func TestWaitGenerationAfterCurrent_WaitsForNextGeneration(t *testing.T) {
 	t.Parallel()
 	sess := newSession("test-wait-generation-after-current")

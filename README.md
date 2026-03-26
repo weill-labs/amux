@@ -167,6 +167,7 @@ Block until a condition is met. No polling.
 | `wait ready <pane>` | Block until an agent prompt is ready for input | 10s |
 | `wait layout [--after N]` | Block until layout generation exceeds N | 3s |
 | `wait clipboard [--after N]` | Block until clipboard content changes | 3s |
+| `wait checkpoint [--after N]` | Block until a crash checkpoint write completes | 15s |
 | `wait ui <event> [--client client-1] [--after N]` | Block until a client-local UI state is reached | 5s |
 | `cursor layout` | Show the current layout cursor | n/a |
 | `cursor clipboard` | Show the current clipboard cursor | n/a |
@@ -304,6 +305,7 @@ All commands accept `-s <session>` to target a specific session. Panes are refer
 | `amux wait ready <pane> [--timeout 10s] [--continue-known-dialogs]` | Block until an agent prompt is ready for input |
 | `amux wait layout [--after N] [--timeout 3s]` | Block until layout generation > N |
 | `amux wait clipboard [--after N] [--timeout 3s]` | Block until clipboard content changes |
+| `amux wait checkpoint [--after N] [--timeout 15s]` | Block until a crash checkpoint write completes |
 | `amux wait ui <event> [--client id] [--after N] [--timeout 5s]` | Block until a client-local UI state is reached |
 | `amux cursor ui [--client id]` | Show current client UI generation counter |
 | `amux cursor layout` | Show current layout generation counter |

@@ -80,6 +80,18 @@ func TestParseWaitArgs(t *testing.T) {
 	}
 }
 
+func TestParseWaitArgsWithDefault(t *testing.T) {
+	t.Parallel()
+
+	afterGen, afterSet, timeout, err := parseWaitArgsWithDefault(nil, 15*time.Second)
+	if err != nil {
+		t.Fatalf("parseWaitArgsWithDefault(nil): %v", err)
+	}
+	if afterGen != 0 || afterSet || timeout != 15*time.Second {
+		t.Fatalf("parsed = (%d, %t, %v), want (0, false, 15s)", afterGen, afterSet, timeout)
+	}
+}
+
 func TestParseTimeout(t *testing.T) {
 	t.Parallel()
 
@@ -396,4 +408,53 @@ func TestCmdWaitTransitionCommandsDefaultToNextChange(t *testing.T) {
 		}
 	})
 
+	t.Run("checkpoint", func(t *testing.T) {
+		t.Parallel()
+
+		srv, sess, cleanup := newCommandTestSession(t)
+		defer cleanup()
+		sess.waiters.setCrashCheckpointStateForTest(2, "/tmp/old-checkpoint.json")
+
+		peerConn, _, done := startAsyncCommand(t, srv, sess, "wait", "checkpoint", "--timeout", "5s")
+
+		waitUntil(t, func() bool {
+			return mustSessionQuery(t, sess, func(sess *Session) bool {
+				return sess.waiters.checkpointWaiterRegistered(2)
+			})
+		})
+
+		select {
+		case <-done:
+			t.Fatal("wait checkpoint returned before next write")
+		case <-time.After(20 * time.Millisecond):
+		}
+
+		if !sess.enqueueEvent(crashCheckpointWrittenEvent{path: "/tmp/new-checkpoint.json"}) {
+			t.Fatal("enqueueEvent(crashCheckpointWrittenEvent) = false")
+		}
+
+		msg := readMsgWithTimeout(t, peerConn)
+		if got := msg.CmdOutput; got != "3 /tmp/new-checkpoint.json\n" {
+			t.Fatalf("wait checkpoint output = %q", got)
+		}
+
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Fatal("wait checkpoint command did not return")
+		}
+	})
+}
+
+func TestCmdWaitCheckpointTimeout(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+	sess.waiters.setCrashCheckpointStateForTest(7, "/tmp/old-checkpoint.json")
+
+	res := runTestCommand(t, srv, sess, "wait", "checkpoint", "--after", "99", "--timeout", "1ms")
+	if got := res.cmdErr; got != "timeout waiting for checkpoint write after 99" {
+		t.Fatalf("wait checkpoint timeout error = %q", got)
+	}
 }

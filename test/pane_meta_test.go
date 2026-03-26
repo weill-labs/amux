@@ -28,6 +28,8 @@ func waitForJSONMap(t *testing.T, timeout time.Duration, capture func() string) 
 	t.Helper()
 
 	deadline := time.Now().Add(timeout)
+	ticker := time.NewTicker(25 * time.Millisecond)
+	defer ticker.Stop()
 	var last string
 	for time.Now().Before(deadline) {
 		last = capture()
@@ -35,7 +37,7 @@ func waitForJSONMap(t *testing.T, timeout time.Duration, capture func() string) 
 		if err := json.Unmarshal([]byte(last), &got); err == nil {
 			return got
 		}
-		time.Sleep(25 * time.Millisecond)
+		<-ticker.C
 	}
 	t.Fatalf("timed out waiting for JSON capture within %v\nlast output:\n%s", timeout, last)
 	return nil
@@ -296,14 +298,19 @@ func waitForPostIdleRefresh(t *testing.T, pane string, runCmd func(...string) st
 	waitForPaneIdle(t, pane, runCmd)
 
 	deadline := time.Now().Add(5 * time.Second)
+	lastGen := before
 	for time.Now().Before(deadline) {
-		gen := generation()
+		gen, ok := tryGeneration(runCmd)
+		if !ok {
+			continue
+		}
+		lastGen = gen
 		if gen >= before+2 {
 			return
 		}
 		_ = waitLayoutOrTimeout(gen, "250ms")
 	}
-	t.Fatalf("pane %s did not reach post-idle metadata refresh (generation before=%d after=%d)", pane, before, generation())
+	t.Fatalf("pane %s did not reach post-idle metadata refresh (generation before=%d after=%d)", pane, before, lastGen)
 }
 
 func runAmuxUsageCmd(t *testing.T, args ...string) string {
@@ -485,15 +492,16 @@ func TestPaneMetaSurvivesReloadServer(t *testing.T) {
 }
 
 func TestPaneMetaSurvivesCrashRecovery(t *testing.T) {
-	t.Parallel()
-
 	h := newServerHarnessPersistent(t)
 
-	h.runCmd("set-meta", "pane-1", "task=ship", "branch=main", "pr=99")
-	h.runCmd("add-meta", "pane-1", "pr=42", "issue=LAB-338")
+	if out := strings.TrimSpace(h.runCmd("set-meta", "pane-1", "task=ship", "branch=main", "pr=99")); out != "" {
+		t.Fatalf("set-meta output = %q, want empty", out)
+	}
+	if out := strings.TrimSpace(h.runCmd("add-meta", "pane-1", "pr=42", "issue=LAB-338")); out != "" {
+		t.Fatalf("add-meta output = %q, want empty", out)
+	}
 
-	cpPath := waitForCrashCheckpointPath(t, h.home, h.session, 5*time.Second)
-	_ = waitForCrashCheckpointMatch(t, cpPath, 5*time.Second, "checkpoint with pane metadata", func(cp checkpoint.CrashCheckpoint) bool {
+	_, _ = waitForScannedCrashCheckpointMatch(t, h, crashCheckpointTestTimeout, "checkpoint with pane metadata", func(cp checkpoint.CrashCheckpoint) bool {
 		ps, ok := findCrashCheckpointPane(cp, "pane-1")
 		if !ok {
 			return false
@@ -516,7 +524,8 @@ func TestPaneMetaSurvivesCrashRecovery(t *testing.T) {
 	h.cmd = nil
 
 	h2 := startServerForSession(t, h.session, h.home)
-	waitForPostIdleRefresh(t, "pane-1", h2.runCmd, h2.generation, h2.waitLayoutOrTimeout)
-	pane := decodeJSONMap(t, h2.runCmd("capture", "--history", "--format", "json", "pane-1"))
+	pane := waitForJSONMap(t, crashCheckpointTestTimeout, func() string {
+		return h2.runControlCmd("capture", "--history", "--format", "json", "pane-1")
+	})
 	assertPaneMetaValues(t, pane)
 }

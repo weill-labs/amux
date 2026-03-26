@@ -30,6 +30,8 @@ type ServerHarness struct {
 	session      string
 	cmd          *exec.Cmd
 	home         string
+	cols         int
+	rows         int
 	coverDir     string // per-test GOCOVERDIR subdirectory (avoids coverage metadata races)
 	extraEnv     []string
 	logPath      string
@@ -171,6 +173,8 @@ func newServerHarnessWithOptions(tb testing.TB, cols, rows int, configContent st
 		session:      session,
 		cmd:          cmd,
 		home:         home,
+		cols:         cols,
+		rows:         rows,
 		coverDir:     coverDir,
 		extraEnv:     append([]string(nil), extraEnv...),
 		logPath:      logPath,
@@ -186,9 +190,32 @@ func newServerHarnessWithOptions(tb testing.TB, cols, rows int, configContent st
 		cmd.Process.Kill()
 		tb.Fatalf("attaching headless client: %v", err)
 	}
+	if err := client.waitCommandReady(); err != nil {
+		client.close()
+		cmd.Process.Kill()
+		tb.Fatalf("headless client command-ready: %v", err)
+	}
 	h.client = client
 
 	return h
+}
+
+func (h *ServerHarness) ensureControlClient() error {
+	h.tb.Helper()
+	if h.client != nil {
+		return nil
+	}
+
+	client, err := newHeadlessClient(server.SocketPath(h.session), h.session, h.cols, h.rows)
+	if err != nil {
+		return err
+	}
+	if err := client.waitCommandReady(); err != nil {
+		client.close()
+		return err
+	}
+	h.client = client
+	return nil
 }
 
 // cleanup detaches the headless client, sends SIGTERM for graceful shutdown
@@ -236,6 +263,39 @@ func (h *ServerHarness) cleanup() {
 	if h.home != "" {
 		_ = os.RemoveAll(h.home)
 	}
+}
+
+func (h *ServerHarness) runtimeState() string {
+	h.tb.Helper()
+
+	pid := 0
+	if h.cmd != nil && h.cmd.Process != nil {
+		pid = h.cmd.Process.Pid
+	}
+	alive := false
+	if pid != 0 && syscall.Kill(pid, 0) == nil {
+		alive = true
+	}
+
+	socketState := "missing"
+	if _, err := os.Stat(server.SocketPath(h.session)); err == nil {
+		socketState = "present"
+	} else if !os.IsNotExist(err) {
+		socketState = err.Error()
+	}
+
+	exitUnattached := "unknown"
+	procState := "unknown"
+	if pid != 0 && alive {
+		if out, err := exec.Command("ps", "eww", "-p", strconv.Itoa(pid), "-o", "command=").Output(); err == nil {
+			exitUnattached = fmt.Sprintf("%t", strings.Contains(string(out), "AMUX_EXIT_UNATTACHED=1"))
+		}
+		if out, err := exec.Command("ps", "-p", strconv.Itoa(pid), "-o", "stat=").Output(); err == nil {
+			procState = strings.TrimSpace(string(out))
+		}
+	}
+
+	return fmt.Sprintf("pid=%d alive=%t state=%s socket=%s client_attached=%t exit_unattached=%s", pid, alive, procState, socketState, h.client != nil, exitUnattached)
 }
 
 // killChildrenByPid sends SIGKILL to all direct children of the given PID.
@@ -328,13 +388,13 @@ func (h *ServerHarness) diagnosticSnapshot(reason string) string {
 		Command:  cmd,
 	}
 
-	if out, err := h.diagnosticProbe("generation"); err != nil {
-		data.Generation = fmt.Sprintf("generation probe: %v", err)
+	if out, err := h.diagnosticProbe("cursor", "layout"); err != nil {
+		data.Generation = fmt.Sprintf("cursor layout probe: %v", err)
 		if trimmed := strings.TrimSpace(out); trimmed != "" {
-			data.Generation += "\ngeneration output: " + truncateDiagnostic(trimmed, diagnosticOutputLimit)
+			data.Generation += "\ncursor layout output: " + truncateDiagnostic(trimmed, diagnosticOutputLimit)
 		}
 	} else {
-		data.Generation = "generation: " + strings.TrimSpace(out)
+		data.Generation = "layout cursor: " + strings.TrimSpace(out)
 	}
 
 	if out, err := h.diagnosticProbe("capture", "--format", "json"); err != nil {
@@ -497,6 +557,35 @@ func (h *ServerHarness) runCmd(args ...string) string {
 			strings.Join(args, " "), err, out, h.diagnosticSnapshot("runCmd failure"))
 	}
 	return out
+}
+
+func (h *ServerHarness) runControlCmd(args ...string) string {
+	h.tb.Helper()
+	if len(args) == 0 {
+		h.tb.Fatal("runControlCmd requires a command")
+	}
+	if err := h.ensureControlClient(); err != nil {
+		return h.runCmd(args...)
+	}
+
+	restore := h.pushCommandState("control " + strings.Join(args, " "))
+	defer restore()
+
+	msg := h.client.runCommand(args[0], args[1:]...)
+	switch msg.CmdErr {
+	case "headless client closed", "headless client not connected", "timeout waiting for command result":
+		h.client.close()
+		h.client = nil
+		if err := h.ensureControlClient(); err == nil {
+			msg = h.client.runCommand(args[0], args[1:]...)
+		} else {
+			return h.runCmd(args...)
+		}
+	}
+	if msg.CmdErr != "" {
+		return fmt.Sprintf("amux %s: %s", args[0], msg.CmdErr)
+	}
+	return msg.CmdOutput
 }
 
 func (h *ServerHarness) waitForShutdownSignal(timeout time.Duration) {

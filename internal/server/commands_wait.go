@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	waitCommandUsage   = "usage: wait <idle|busy|vt-idle|ready|content|layout|clipboard|ui> ..."
+	waitCommandUsage   = "usage: wait <idle|busy|vt-idle|ready|content|layout|clipboard|checkpoint|ui> ..."
 	cursorCommandUsage = "usage: cursor <layout|clipboard|ui> [--client <id>]"
 )
 
@@ -23,6 +23,10 @@ func waitSubcommandContext(ctx *CommandContext, args []string) *CommandContext {
 
 func parseWaitArgs(args []string) (afterGen uint64, afterSet bool, timeout time.Duration, err error) {
 	return waitcmd.ParseWaitArgs(args)
+}
+
+func parseWaitArgsWithDefault(args []string, defaultTimeout time.Duration) (afterGen uint64, afterSet bool, timeout time.Duration, err error) {
+	return waitcmd.ParseWaitArgsWithDefault(args, defaultTimeout)
 }
 
 func parseTimeout(args []string, startIdx int, defaultTimeout time.Duration) (time.Duration, error) {
@@ -74,6 +78,8 @@ func cmdWait(ctx *CommandContext) {
 		cmdWaitLayout(waitSubcommandContext(ctx, ctx.Args[1:]))
 	case "clipboard":
 		cmdWaitClipboard(waitSubcommandContext(ctx, ctx.Args[1:]))
+	case "checkpoint":
+		cmdWaitCheckpoint(waitSubcommandContext(ctx, ctx.Args[1:]))
 	case "content":
 		cmdWaitFor(waitSubcommandContext(ctx, ctx.Args[1:]))
 	case "ready":
@@ -159,6 +165,28 @@ func cmdWaitClipboard(ctx *CommandContext) {
 		return
 	}
 	ctx.reply(data + "\n")
+}
+
+func cmdWaitCheckpoint(ctx *CommandContext) {
+	afterGen, afterSet, timeout, err := parseWaitArgsWithDefault(ctx.Args, 15*time.Second)
+	if err != nil {
+		ctx.replyErr(err.Error())
+		return
+	}
+	var (
+		record crashCheckpointRecord
+		ok     bool
+	)
+	if afterSet {
+		record, ok = ctx.Sess.waitCrashCheckpoint(afterGen, timeout)
+	} else {
+		record, ok = ctx.Sess.waitCrashCheckpointAfterCurrent(timeout)
+	}
+	if !ok {
+		ctx.replyErr(fmt.Sprintf("timeout waiting for checkpoint write after %d", afterGen))
+		return
+	}
+	ctx.reply(fmt.Sprintf("%d %s\n", record.generation, record.path))
 }
 
 func cmdUIGen(ctx *CommandContext) {

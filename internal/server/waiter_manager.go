@@ -17,6 +17,16 @@ type clipboardWaiter struct {
 	reply    chan string
 }
 
+type crashCheckpointRecord struct {
+	generation uint64
+	path       string
+}
+
+type crashCheckpointWaiter struct {
+	afterGen uint64
+	reply    chan crashCheckpointRecord
+}
+
 type paneOutputWaitStart struct {
 	ch      chan struct{}
 	matched bool
@@ -33,13 +43,18 @@ type waiterManager struct {
 	clipboardGen     atomic.Uint64
 	lastClipboardB64 string
 	clipboardWaiters map[uint64]clipboardWaiter
+
+	crashCheckpointGen  uint64
+	lastCrashCheckpoint string
+	checkpointWaiters   map[uint64]crashCheckpointWaiter
 }
 
 func newWaiterManager() *waiterManager {
 	return &waiterManager{
-		layoutWaiters:    make(map[uint64]layoutWaiter),
-		paneOutputSubs:   make(map[uint32][]chan struct{}),
-		clipboardWaiters: make(map[uint64]clipboardWaiter),
+		layoutWaiters:     make(map[uint64]layoutWaiter),
+		paneOutputSubs:    make(map[uint32][]chan struct{}),
+		clipboardWaiters:  make(map[uint64]clipboardWaiter),
+		checkpointWaiters: make(map[uint64]crashCheckpointWaiter),
 	}
 }
 
@@ -254,6 +269,96 @@ func (m *waiterManager) waitClipboardAfterCurrent(sess *Session, timeout time.Du
 	return m.waitClipboard(sess, afterGen, timeout)
 }
 
+func (m *waiterManager) recordCrashCheckpoint(path string) crashCheckpointRecord {
+	m.crashCheckpointGen++
+	record := crashCheckpointRecord{
+		generation: m.crashCheckpointGen,
+		path:       path,
+	}
+	m.lastCrashCheckpoint = path
+	m.notifyCrashCheckpointWaiters(record)
+	return record
+}
+
+func (m *waiterManager) notifyCrashCheckpointWaiters(record crashCheckpointRecord) {
+	for id, waiter := range m.checkpointWaiters {
+		if record.generation <= waiter.afterGen {
+			continue
+		}
+		waiter.reply <- record
+		delete(m.checkpointWaiters, id)
+	}
+}
+
+func (m *waiterManager) waitCrashCheckpoint(sess *Session, afterGen uint64, timeout time.Duration) (crashCheckpointRecord, bool) {
+	type waitRegistration struct {
+		record   crashCheckpointRecord
+		waiterID uint64
+		reply    chan crashCheckpointRecord
+	}
+	type waitState struct {
+		record  crashCheckpointRecord
+		matched bool
+	}
+
+	reg, err := enqueueSessionQuery(sess, func(s *Session) (waitRegistration, error) {
+		if m.crashCheckpointGen > afterGen {
+			return waitRegistration{
+				record: crashCheckpointRecord{
+					generation: m.crashCheckpointGen,
+					path:       m.lastCrashCheckpoint,
+				},
+			}, nil
+		}
+		reply := make(chan crashCheckpointRecord, 1)
+		waiterID := m.waiterCounter.Add(1)
+		m.checkpointWaiters[waiterID] = crashCheckpointWaiter{afterGen: afterGen, reply: reply}
+		return waitRegistration{waiterID: waiterID, reply: reply}, nil
+	})
+	if err != nil {
+		return crashCheckpointRecord{}, false
+	}
+	if reg.reply == nil {
+		return reg.record, true
+	}
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	select {
+	case record := <-reg.reply:
+		return record, true
+	case <-timer.C:
+		state, err := enqueueSessionQuery(sess, func(s *Session) (waitState, error) {
+			delete(m.checkpointWaiters, reg.waiterID)
+			if m.crashCheckpointGen > afterGen {
+				return waitState{
+					record: crashCheckpointRecord{
+						generation: m.crashCheckpointGen,
+						path:       m.lastCrashCheckpoint,
+					},
+					matched: true,
+				}, nil
+			}
+			return waitState{}, nil
+		})
+		if err != nil {
+			return crashCheckpointRecord{}, false
+		}
+		return state.record, state.matched
+	}
+}
+
+func (m *waiterManager) waitCrashCheckpointAfterCurrent(sess *Session, timeout time.Duration) (crashCheckpointRecord, bool) {
+	afterGen, err := enqueueSessionQuery(sess, func(s *Session) (uint64, error) {
+		return m.crashCheckpointGen, nil
+	})
+	if err != nil {
+		return crashCheckpointRecord{}, false
+	}
+	return m.waitCrashCheckpoint(sess, afterGen, timeout)
+}
+
 func (m *waiterManager) outputSubscriberCount(paneID uint32) int {
 	if m == nil {
 		return 0
@@ -286,9 +391,23 @@ func (m *waiterManager) clipboardWaiterRegistered(afterGen uint64) bool {
 	return false
 }
 
+func (m *waiterManager) checkpointWaiterRegistered(afterGen uint64) bool {
+	for _, waiter := range m.checkpointWaiters {
+		if waiter.afterGen == afterGen {
+			return true
+		}
+	}
+	return false
+}
+
 func (m *waiterManager) setClipboardStateForTest(gen uint64, payload string) {
 	m.clipboardGen.Store(gen)
 	m.lastClipboardB64 = payload
+}
+
+func (m *waiterManager) setCrashCheckpointStateForTest(gen uint64, path string) {
+	m.crashCheckpointGen = gen
+	m.lastCrashCheckpoint = path
 }
 
 func (m *waiterManager) paneExistsAndMatches(pane *mux.Pane, substr string) paneOutputWaitStart {

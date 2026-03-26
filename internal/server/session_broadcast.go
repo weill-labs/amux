@@ -297,3 +297,11 @@ func (s *Session) waitClipboard(afterGen uint64, timeout time.Duration) (string,
 func (s *Session) waitClipboardAfterCurrent(timeout time.Duration) (string, bool) {
 	return s.ensureWaiters().waitClipboardAfterCurrent(s, timeout)
 }
+
+func (s *Session) waitCrashCheckpoint(afterGen uint64, timeout time.Duration) (crashCheckpointRecord, bool) {
+	return s.ensureWaiters().waitCrashCheckpoint(s, afterGen, timeout)
+}
+
+func (s *Session) waitCrashCheckpointAfterCurrent(timeout time.Duration) (crashCheckpointRecord, bool) {
+	return s.ensureWaiters().waitCrashCheckpointAfterCurrent(s, timeout)
+}

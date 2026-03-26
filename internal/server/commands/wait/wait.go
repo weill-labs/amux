@@ -9,7 +9,11 @@ import (
 )
 
 func ParseWaitArgs(args []string) (afterGen uint64, afterSet bool, timeout time.Duration, err error) {
-	timeout = 3 * time.Second
+	return ParseWaitArgsWithDefault(args, 3*time.Second)
+}
+
+func ParseWaitArgsWithDefault(args []string, defaultTimeout time.Duration) (afterGen uint64, afterSet bool, timeout time.Duration, err error) {
+	timeout = defaultTimeout
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--after":
