@@ -22,6 +22,7 @@ type statusPaneData struct {
 	copyMode     bool
 	copySearch   string
 	idle         bool
+	lead         bool
 	screen       string
 	cursorHidden bool
 }
@@ -41,7 +42,7 @@ func (p *statusPaneData) Task() string           { return p.task }
 func (p *statusPaneData) Color() string          { return p.color }
 func (p *statusPaneData) Minimized() bool        { return false }
 func (p *statusPaneData) Idle() bool             { return p.idle }
-func (p *statusPaneData) IsLead() bool           { return false }
+func (p *statusPaneData) IsLead() bool           { return p.lead }
 func (p *statusPaneData) ConnStatus() string     { return p.connStatus }
 func (p *statusPaneData) InCopyMode() bool       { return p.copyMode }
 func (p *statusPaneData) CopyModeSearch() string { return p.copySearch }
@@ -567,5 +568,50 @@ func TestChooserCellStyle(t *testing.T) {
 	}
 	if got := chooserCellStyle(chooserRowSelected, false, border, text, dim, selected); !sameColor(got.Bg, selected.Bg) {
 		t.Fatal("selected rows should use the selected style")
+	}
+}
+
+func TestRenderPaneStatusLeadIndicator(t *testing.T) {
+	t.Parallel()
+
+	cell := mux.NewLeaf(&mux.Pane{ID: 1}, 0, 0, 60, 3)
+
+	// Active lead pane should show ▶ icon and [lead] tag
+	var buf strings.Builder
+	renderPaneStatus(&buf, cell, true, &statusPaneData{
+		id: 1, name: "pane-1", color: "f5e0dc", lead: true,
+	})
+	output := buf.String()
+	if !strings.Contains(output, "▶") {
+		t.Error("active lead pane should show ▶ icon")
+	}
+	if !strings.Contains(output, "[lead]") {
+		t.Error("lead pane should show [lead] tag")
+	}
+
+	// Inactive lead pane should also show ▶ icon
+	buf.Reset()
+	renderPaneStatus(&buf, cell, false, &statusPaneData{
+		id: 1, name: "pane-1", color: "f5e0dc", lead: true, idle: true,
+	})
+	output = buf.String()
+	if !strings.Contains(output, "▶") {
+		t.Error("inactive lead pane should show ▶ icon")
+	}
+	if !strings.Contains(output, "[lead]") {
+		t.Error("inactive lead pane should show [lead] tag")
+	}
+
+	// Non-lead pane should show ● icon and no [lead] tag
+	buf.Reset()
+	renderPaneStatus(&buf, cell, true, &statusPaneData{
+		id: 2, name: "pane-2", color: "a6e3a1",
+	})
+	output = buf.String()
+	if strings.Contains(output, "▶") {
+		t.Error("non-lead pane should not show ▶ icon")
+	}
+	if strings.Contains(output, "[lead]") {
+		t.Error("non-lead pane should not show [lead] tag")
 	}
 }

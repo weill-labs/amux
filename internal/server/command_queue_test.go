@@ -499,3 +499,109 @@ func runTestCommand(t *testing.T, srv *Server, sess *Session, name string, args 
 		}{}
 	}
 }
+
+func TestQueuedCommandSetLead(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	p1 := newTestPane(sess, 1, "pane-1")
+	p2 := newTestPane(sess, 2, "pane-2")
+	w := newTestWindowWithPanes(t, sess, 1, "window-1", p1, p2)
+	// Split vertically so lead can restructure
+	if _, err := w.SplitRoot(mux.SplitVertical, newTestPane(sess, 3, "pane-3")); err != nil {
+		t.Fatalf("SplitRoot: %v", err)
+	}
+	sess.Windows = []*mux.Window{w}
+	sess.ActiveWindowID = w.ID
+	sess.Panes = w.Panes()
+
+	res := runTestCommand(t, srv, sess, "set-lead", "pane-1")
+	if res.cmdErr != "" {
+		t.Fatalf("set-lead error: %s", res.cmdErr)
+	}
+	if !strings.Contains(res.output, "Set lead") {
+		t.Errorf("expected 'Set lead' in output, got: %s", res.output)
+	}
+
+	leadID := mustSessionQuery(t, sess, func(sess *Session) uint32 {
+		return sess.Windows[0].LeadPaneID
+	})
+	if leadID != p1.ID {
+		t.Errorf("LeadPaneID = %d, want %d", leadID, p1.ID)
+	}
+}
+
+func TestQueuedCommandUnsetLead(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	p1 := newTestPane(sess, 1, "pane-1")
+	p2 := newTestPane(sess, 2, "pane-2")
+	w := newTestWindowWithPanes(t, sess, 1, "window-1", p1, p2)
+	sess.Windows = []*mux.Window{w}
+	sess.ActiveWindowID = w.ID
+	sess.Panes = w.Panes()
+
+	// Set lead first
+	res := runTestCommand(t, srv, sess, "set-lead", "pane-1")
+	if res.cmdErr != "" {
+		t.Fatalf("set-lead error: %s", res.cmdErr)
+	}
+
+	// Unset
+	res = runTestCommand(t, srv, sess, "unset-lead")
+	if res.cmdErr != "" {
+		t.Fatalf("unset-lead error: %s", res.cmdErr)
+	}
+
+	leadID := mustSessionQuery(t, sess, func(sess *Session) uint32 {
+		return sess.Windows[0].LeadPaneID
+	})
+	if leadID != 0 {
+		t.Errorf("LeadPaneID = %d, want 0", leadID)
+	}
+}
+
+func TestQueuedCommandToggleLead(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	p1 := newTestPane(sess, 1, "pane-1")
+	p2 := newTestPane(sess, 2, "pane-2")
+	w := newTestWindowWithPanes(t, sess, 1, "window-1", p1, p2)
+	sess.Windows = []*mux.Window{w}
+	sess.ActiveWindowID = w.ID
+	sess.Panes = w.Panes()
+
+	// Toggle on
+	res := runTestCommand(t, srv, sess, "toggle-lead")
+	if res.cmdErr != "" {
+		t.Fatalf("toggle-lead on error: %s", res.cmdErr)
+	}
+
+	leadID := mustSessionQuery(t, sess, func(sess *Session) uint32 {
+		return sess.Windows[0].LeadPaneID
+	})
+	if leadID == 0 {
+		t.Error("toggle-lead should have set a lead pane")
+	}
+
+	// Toggle off
+	res = runTestCommand(t, srv, sess, "toggle-lead")
+	if res.cmdErr != "" {
+		t.Fatalf("toggle-lead off error: %s", res.cmdErr)
+	}
+
+	leadID = mustSessionQuery(t, sess, func(sess *Session) uint32 {
+		return sess.Windows[0].LeadPaneID
+	})
+	if leadID != 0 {
+		t.Errorf("toggle-lead off: LeadPaneID = %d, want 0", leadID)
+	}
+}
