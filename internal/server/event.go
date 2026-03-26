@@ -12,7 +12,6 @@ const (
 	EventIdle             = "idle"
 	EventBusy             = "busy"
 	EventVTIdle           = "vt-idle"
-	EventHook             = "hook"
 	EventClientConnect    = "client-connect"
 	EventClientDisconnect = "client-disconnect"
 	EventPaneExit         = "pane-exit"
@@ -39,10 +38,6 @@ type Event struct {
 	ActivePane string `json:"active_pane,omitempty"`
 	ClientID   string `json:"client_id,omitempty"`
 	Reason     string `json:"reason,omitempty"`
-	HookEvent  string `json:"hook_event,omitempty"`
-	Command    string `json:"command,omitempty"`
-	Success    bool   `json:"success,omitempty"`
-	Error      string `json:"error,omitempty"`
 }
 
 // eventSub is a subscriber to the event stream.

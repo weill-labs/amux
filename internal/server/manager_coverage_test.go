@@ -28,9 +28,6 @@ func TestWaiterManagerCoverageHelpersAndDelegates(t *testing.T) {
 		if got := mgr.clipboardGeneration(); got != 0 {
 			t.Fatalf("clipboardGeneration() = %d, want 0", got)
 		}
-		if got := mgr.hookGeneration(); got != 0 {
-			t.Fatalf("hookGeneration() = %d, want 0", got)
-		}
 		if got := mgr.outputSubscriberCount(1); got != 0 {
 			t.Fatalf("outputSubscriberCount() = %d, want 0", got)
 		}
@@ -43,18 +40,12 @@ func TestWaiterManagerCoverageHelpersAndDelegates(t *testing.T) {
 		if got := sess.clipboardGeneration(); got != 0 {
 			t.Fatalf("Session.clipboardGeneration() = %d, want 0", got)
 		}
-		if got := sess.hookGeneration(); got != 0 {
-			t.Fatalf("Session.hookGeneration() = %d, want 0", got)
-		}
 	})
 
-	t.Run("pane helpers and retained hook history are isolated", func(t *testing.T) {
+	t.Run("pane helpers are isolated", func(t *testing.T) {
 		t.Parallel()
 
 		mgr := newWaiterManager()
-		if got := mgr.retainedHookResults(); len(got) != 0 {
-			t.Fatalf("retainedHookResults() len = %d, want 0", len(got))
-		}
 
 		if got := mgr.paneExistsAndMatches(nil, "needle"); got.exists || got.matched || got.ch != nil {
 			t.Fatalf("paneExistsAndMatches(nil) = %+v, want zero value", got)
@@ -74,13 +65,6 @@ func TestWaiterManagerCoverageHelpersAndDelegates(t *testing.T) {
 			t.Fatalf("paneExistsAndMatches(pane) = %+v, want existing match", got)
 		}
 
-		mgr.setHookStateForTest(3, []hookResultRecord{{Generation: 4, Event: "on-idle"}})
-		retained := mgr.retainedHookResults()
-		retained[0].Event = "mutated"
-		if mgr.hookResults[0].Event != "on-idle" {
-			t.Fatalf("retainedHookResults() should return a copy, got %q", mgr.hookResults[0].Event)
-		}
-
 		mgr.addPaneOutputSubscriber(1)
 		if !mgr.paneOutputWaiterRegistered(1) {
 			t.Fatal("paneOutputWaiterRegistered() = false, want true")
@@ -97,7 +81,7 @@ func TestWaiterManagerCoverageHelpersAndDelegates(t *testing.T) {
 		}
 	})
 
-	t.Run("session delegates cover clipboard and hook wrappers", func(t *testing.T) {
+	t.Run("session delegates cover clipboard wrappers", func(t *testing.T) {
 		t.Parallel()
 
 		sess := newSession("test-waiter-manager-delegates")
@@ -105,25 +89,10 @@ func TestWaiterManagerCoverageHelpersAndDelegates(t *testing.T) {
 		defer stopSessionBackgroundLoops(t, sess)
 
 		clipCh := make(chan string, 1)
-		hookCh := make(chan hookResultRecord, 1)
-		record := hookResultRecord{
-			Generation: 3,
-			Event:      "on-idle",
-			PaneID:     1,
-			PaneName:   "pane-1",
-		}
 
 		mustSessionQuery(t, sess, func(sess *Session) struct{} {
 			waiters := sess.ensureWaiters()
 			waiters.clipboardWaiters[1] = clipboardWaiter{afterGen: 0, reply: clipCh}
-			waiters.hookWaiters[1] = hookWaiter{
-				afterGen:  0,
-				eventName: "on-idle",
-				paneID:    1,
-				paneName:  "pane-1",
-				reply:     hookCh,
-			}
-			waiters.setHookStateForTest(2, []hookResultRecord{record})
 			return struct{}{}
 		})
 
@@ -135,31 +104,6 @@ func TestWaiterManagerCoverageHelpersAndDelegates(t *testing.T) {
 			}
 		case <-time.After(time.Second):
 			t.Fatal("timeout waiting for clipboard waiter")
-		}
-
-		sess.notifyHookWaiters(record)
-		select {
-		case got := <-hookCh:
-			if got != record {
-				t.Fatalf("notifyHookWaiters() = %+v, want %+v", got, record)
-			}
-		case <-time.After(time.Second):
-			t.Fatal("timeout waiting for hook waiter")
-		}
-
-		matched, ok := sess.matchHookResult(2, "on-idle", 1, "pane-1")
-		if !ok || matched != record {
-			t.Fatalf("matchHookResult() = (%+v, %v), want (%+v, true)", matched, ok, record)
-		}
-
-		matched, ok = sess.waitHook(2, "on-idle", "pane-1", time.Second)
-		if !ok || matched != record {
-			t.Fatalf("waitHook() = (%+v, %v), want (%+v, true)", matched, ok, record)
-		}
-
-		matched, ok = sess.ensureWaiters().waitHook(sess, 2, "on-idle", "pane-1", time.Second)
-		if !ok || matched != record {
-			t.Fatalf("waiterManager.waitHook() = (%+v, %v), want (%+v, true)", matched, ok, record)
 		}
 	})
 
@@ -218,51 +162,6 @@ func TestWaiterManagerTimeoutSeesStateRecordedWithoutNotification(t *testing.T) 
 			}
 		case <-time.After(time.Second):
 			t.Fatal("waitClipboard() did not return")
-		}
-	})
-
-	t.Run("hook timeout observes retained history", func(t *testing.T) {
-		t.Parallel()
-
-		sess := newSession("test-waiter-hook-timeout")
-		stopCrashCheckpointLoop(t, sess)
-		defer stopSessionBackgroundLoops(t, sess)
-
-		sess.waiters.setHookStateForTest(1, nil)
-
-		done := make(chan struct{})
-		var record hookResultRecord
-		var ok bool
-		go func() {
-			record, ok = sess.waitHookForPane(1, "on-idle", 1, "pane-1", 50*time.Millisecond)
-			close(done)
-		}()
-
-		waitUntil(t, func() bool {
-			return mustSessionQuery(t, sess, func(sess *Session) bool {
-				return sess.waiters.hookWaiterRegistered(1, "on-idle", 1, "pane-1")
-			})
-		})
-
-		want := hookResultRecord{
-			Generation: 2,
-			Event:      "on-idle",
-			PaneID:     1,
-			PaneName:   "pane-1",
-			Success:    true,
-		}
-		mustSessionQuery(t, sess, func(sess *Session) struct{} {
-			sess.waiters.setHookStateForTest(1, []hookResultRecord{want})
-			return struct{}{}
-		})
-
-		select {
-		case <-done:
-			if !ok || record != want {
-				t.Fatalf("waitHookForPane() = (%+v, %v), want (%+v, true)", record, ok, want)
-			}
-		case <-time.After(time.Second):
-			t.Fatal("waitHookForPane() did not return")
 		}
 	})
 }

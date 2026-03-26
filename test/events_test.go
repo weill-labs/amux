@@ -3,7 +3,6 @@ package test
 import (
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -429,48 +428,6 @@ func TestWaitUIAfterRequiresFreshInputCycle(t *testing.T) {
 
 	h.sendKeys("Enter")
 	h.waitUIAfter(proto.UIEventInputIdle, after, 3*time.Second)
-}
-
-func TestWaitHookOnIdle(t *testing.T) {
-	t.Parallel()
-
-	h := newServerHarness(t)
-	tmp := t.TempDir()
-	marker := filepath.Join(tmp, "hook-wait")
-
-	after := strings.TrimSpace(h.runCmd("cursor", "hook"))
-	h.runCmd("set-hook", "on-idle", "touch "+marker)
-	h.sendKeys("pane-1", "echo HOOKWAIT", "Enter")
-	h.waitFor("pane-1", "HOOKWAIT")
-
-	out := h.runCmd("wait", "hook", "on-idle", "--pane", "pane-1", "--after", after, "--timeout", "5s")
-	if strings.Contains(out, "timeout") {
-		t.Fatalf("wait-hook timed out: %s", out)
-	}
-	if _, err := os.Stat(marker); err != nil {
-		t.Fatalf("marker missing after wait-hook: %v", err)
-	}
-}
-
-func TestWaitHookAcceptsNumericPaneRef(t *testing.T) {
-	t.Parallel()
-
-	h := newServerHarness(t)
-	tmp := t.TempDir()
-	marker := filepath.Join(tmp, "hook-wait-numeric")
-
-	after := strings.TrimSpace(h.runCmd("cursor", "hook"))
-	h.runCmd("set-hook", "on-idle", "touch "+marker)
-	h.sendKeys("pane-1", "echo HOOKWAIT_NUMERIC", "Enter")
-	h.waitFor("pane-1", "HOOKWAIT_NUMERIC")
-
-	out := h.runCmd("wait", "hook", "on-idle", "--pane", "1", "--after", after, "--timeout", "5s")
-	if strings.Contains(out, "timeout") {
-		t.Fatalf("wait-hook with numeric pane ref timed out: %s", out)
-	}
-	if _, err := os.Stat(marker); err != nil {
-		t.Fatalf("marker missing after numeric wait-hook: %v", err)
-	}
 }
 
 func TestWaitUIRequiresClientWhenAmbiguous(t *testing.T) {

@@ -11,8 +11,8 @@ import (
 )
 
 const (
-	waitCommandUsage   = "usage: wait <idle|busy|vt-idle|ready|content|layout|clipboard|hook|ui> ..."
-	cursorCommandUsage = "usage: cursor <layout|clipboard|hook|ui> [--client <id>]"
+	waitCommandUsage   = "usage: wait <idle|busy|vt-idle|ready|content|layout|clipboard|ui> ..."
+	cursorCommandUsage = "usage: cursor <layout|clipboard|ui> [--client <id>]"
 )
 
 func waitSubcommandContext(ctx *CommandContext, args []string) *CommandContext {
@@ -31,10 +31,6 @@ func parseTimeout(args []string, startIdx int, defaultTimeout time.Duration) (ti
 
 func parseUIGenArgs(args []string) (clientID string, err error) {
 	return waitcmd.ParseUIGenArgs(args)
-}
-
-func parseWaitHookArgs(args []string) (eventName, paneName string, afterGen uint64, timeout time.Duration, err error) {
-	return waitcmd.ParseWaitHookArgs(args)
 }
 
 func parseWaitUIArgs(args []string) (eventName, clientID string, afterGen uint64, afterSet bool, timeout time.Duration, err error) {
@@ -60,8 +56,6 @@ func cmdCursor(ctx *CommandContext) {
 		cmdGeneration(waitSubcommandContext(ctx, ctx.Args[1:]))
 	case "clipboard":
 		cmdClipboardGen(waitSubcommandContext(ctx, ctx.Args[1:]))
-	case "hook":
-		cmdHookGen(waitSubcommandContext(ctx, ctx.Args[1:]))
 	case "ui":
 		cmdUIGen(waitSubcommandContext(ctx, ctx.Args[1:]))
 	default:
@@ -80,8 +74,6 @@ func cmdWait(ctx *CommandContext) {
 		cmdWaitLayout(waitSubcommandContext(ctx, ctx.Args[1:]))
 	case "clipboard":
 		cmdWaitClipboard(waitSubcommandContext(ctx, ctx.Args[1:]))
-	case "hook":
-		cmdWaitHook(waitSubcommandContext(ctx, ctx.Args[1:]))
 	case "content":
 		cmdWaitFor(waitSubcommandContext(ctx, ctx.Args[1:]))
 	case "ready":
@@ -169,11 +161,6 @@ func cmdWaitClipboard(ctx *CommandContext) {
 	ctx.reply(data + "\n")
 }
 
-func cmdHookGen(ctx *CommandContext) {
-	gen := ctx.Sess.hookGeneration()
-	ctx.reply(fmt.Sprintf("%d\n", gen))
-}
-
 func cmdUIGen(ctx *CommandContext) {
 	requestedClientID, err := parseUIGenArgs(ctx.Args)
 	if err != nil {
@@ -187,49 +174,6 @@ func cmdUIGen(ctx *CommandContext) {
 		return
 	}
 	ctx.reply(fmt.Sprintf("%d\n", client.currentGen))
-}
-
-func resolveWaitHookPane(ctx *CommandContext, ref string) (resolvedPaneRef, error) {
-	if ref == "" {
-		return resolvedPaneRef{}, nil
-	}
-	return ctx.Sess.queryResolvedPaneForActor(ctx.ActorPaneID, ref)
-}
-
-func cmdWaitHook(ctx *CommandContext) {
-	eventName, paneName, afterGen, timeout, err := parseWaitHookArgs(ctx.Args)
-	if err != nil {
-		ctx.replyErr(err.Error())
-		return
-	}
-	pane, err := resolveWaitHookPane(ctx, paneName)
-	if err != nil {
-		ctx.replyErr(err.Error())
-		return
-	}
-	paneName = pane.paneName
-	var (
-		record hookResultRecord
-		ok     bool
-	)
-	if hasAfterFlag(ctx.Args) {
-		record, ok = ctx.Sess.waitHookForPane(afterGen, eventName, pane.paneID, paneName, timeout)
-	} else {
-		record, ok = ctx.Sess.waitHookForPaneAfterCurrent(eventName, pane.paneID, paneName, timeout)
-	}
-	if !ok {
-		target := eventName
-		if paneName != "" {
-			target += " on " + paneName
-		}
-		ctx.replyErr(fmt.Sprintf("timeout waiting for hook %s", target))
-		return
-	}
-	status := "success"
-	if !record.Success {
-		status = "failure"
-	}
-	ctx.reply(fmt.Sprintf("%d %s %s %s\n", record.Generation, record.Event, record.PaneName, status))
 }
 
 func cmdWaitFor(ctx *CommandContext) {

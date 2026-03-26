@@ -1,27 +1,13 @@
 package server
 
 import (
-	"fmt"
 	"log"
-	"strconv"
 	"time"
 
-	"github.com/weill-labs/amux/internal/hooks"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
 	"github.com/weill-labs/amux/internal/render"
 )
-
-type hookResultRecord struct {
-	Generation uint64
-	Event      string
-	PaneID     uint32
-	PaneName   string
-	Host       string
-	Command    string
-	Success    bool
-	Error      string
-}
 
 // recalcSize resizes all windows to the latest active client's terminal size,
 // matching tmux's "window-size latest" behavior. Event-loop only.
@@ -117,7 +103,7 @@ func (s *Session) broadcastPaneHistoryNow(paneID uint32, history []string) {
 }
 
 // broadcastPaneOutput sends raw PTY output for one pane to all clients,
-// notifies any wait-for subscribers, and tracks pane activity for hooks.
+// notifies any wait-for subscribers, and tracks pane activity.
 func (s *Session) broadcastPaneOutput(paneID uint32, data []byte, seq uint64) {
 	_, _ = enqueueSessionQuery(s, func(s *Session) (struct{}, error) {
 		s.broadcastPaneOutputNow(paneID, data, seq)
@@ -131,14 +117,6 @@ func (s *Session) notifyLayoutWaiters(gen uint64) {
 
 func (s *Session) notifyClipboardWaiters(gen uint64, payload string) {
 	s.ensureWaiters().notifyClipboardWaiters(gen, payload)
-}
-
-func (s *Session) matchHookResult(afterGen uint64, eventName string, paneID uint32, paneName string) (hookResultRecord, bool) {
-	return s.ensureWaiters().matchHookResult(afterGen, eventName, paneID, paneName)
-}
-
-func (s *Session) notifyHookWaiters(record hookResultRecord) {
-	s.ensureWaiters().notifyHookWaiters(record)
 }
 
 func (s *Session) broadcastLayoutNow() {
@@ -188,30 +166,6 @@ func (s *Session) snapshotIdleState() map[uint32]bool {
 // snapshotIdleFull returns copies of both idle state and since maps.
 func (s *Session) snapshotIdleFull() (map[uint32]bool, map[uint32]time.Time) {
 	return s.idle.SnapshotFull()
-}
-
-func (s *Session) fireHooks(event hooks.Event, env map[string]string) {
-	s.Hooks.FireWithCallback(event, env, func(result hooks.Result) {
-		paneID, _ := strconv.ParseUint(env["AMUX_PANE_ID"], 10, 32)
-		s.enqueueEvent(hookResultEvent{
-			record: hookResultRecord{
-				Event:    string(result.Event),
-				PaneID:   uint32(paneID),
-				PaneName: env["AMUX_PANE_NAME"],
-				Host:     env["AMUX_HOST"],
-				Command:  result.Command,
-				Success:  result.Err == nil,
-				Error:    errorString(result.Err),
-			},
-		})
-	})
-}
-
-func errorString(err error) string {
-	if err == nil {
-		return ""
-	}
-	return err.Error()
 }
 
 // snapshotLayout builds a LayoutSnapshot with multi-window data.
@@ -274,9 +228,8 @@ func (s *Session) trackPaneVTIdle(paneID uint32) {
 	})
 }
 
-// trackPaneActivity is called on every PTY output. It resets the idle timer
-// and fires on-activity if the pane was previously idle. When the idle state
-// transitions (idle↔busy), a layout broadcast is sent so clients see the
+// trackPaneActivity is called on every PTY output. It resets the idle timer.
+// When the idle state transitions (idle↔busy), a layout broadcast is sent so clients see the
 // updated PaneSnapshot.Idle (used for idle indicators in the status bar).
 func (s *Session) trackPaneActivity(paneID uint32) {
 	wasIdle := s.idle.TrackActivity(paneID, DefaultIdleTimeout, func() {
@@ -284,36 +237,20 @@ func (s *Session) trackPaneActivity(paneID uint32) {
 	})
 
 	if wasIdle {
-		env := s.buildPaneEnv(paneID, hooks.OnActivity)
-		s.fireHooks(hooks.OnActivity, env)
+		pane := s.findPaneByID(paneID)
+		paneName, host := "", ""
+		if pane != nil {
+			paneName = pane.Meta.Name
+			host = pane.Meta.Host
+		}
 		s.emitEvent(Event{
 			Type:     EventBusy,
 			PaneID:   paneID,
-			PaneName: env["AMUX_PANE_NAME"],
-			Host:     env["AMUX_HOST"],
+			PaneName: paneName,
+			Host:     host,
 		})
 		s.broadcastLayoutNow()
 	}
-}
-
-// buildPaneEnv builds the environment variable map for a hook invocation.
-func (s *Session) buildPaneEnv(paneID uint32, event hooks.Event) map[string]string {
-	env := map[string]string{
-		"AMUX_PANE_ID": fmt.Sprintf("%d", paneID),
-		"AMUX_EVENT":   string(event),
-	}
-
-	if p := s.findPaneByID(paneID); p != nil {
-		env["AMUX_PANE_NAME"] = p.Meta.Name
-		if p.Meta.Task != "" {
-			env["AMUX_TASK"] = p.Meta.Task
-		}
-		if p.Meta.Host != "" {
-			env["AMUX_HOST"] = p.Meta.Host
-		}
-	}
-
-	return env
 }
 
 // paneScreenContains checks whether the screen of the given pane contains
@@ -359,16 +296,4 @@ func (s *Session) waitClipboard(afterGen uint64, timeout time.Duration) (string,
 
 func (s *Session) waitClipboardAfterCurrent(timeout time.Duration) (string, bool) {
 	return s.ensureWaiters().waitClipboardAfterCurrent(s, timeout)
-}
-
-func (s *Session) waitHook(afterGen uint64, eventName, paneName string, timeout time.Duration) (hookResultRecord, bool) {
-	return s.waitHookForPane(afterGen, eventName, 0, paneName, timeout)
-}
-
-func (s *Session) waitHookForPaneAfterCurrent(eventName string, paneID uint32, paneName string, timeout time.Duration) (hookResultRecord, bool) {
-	return s.ensureWaiters().waitHookForPaneAfterCurrent(s, eventName, paneID, paneName, timeout)
-}
-
-func (s *Session) waitHookForPane(afterGen uint64, eventName string, paneID uint32, paneName string, timeout time.Duration) (hookResultRecord, bool) {
-	return s.ensureWaiters().waitHookForPane(s, afterGen, eventName, paneID, paneName, timeout)
 }

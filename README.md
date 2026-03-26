@@ -167,7 +167,6 @@ Block until a condition is met. No polling.
 | `wait ui <event> [--client client-1] [--after N]` | Block until a client-local UI state is reached | 5s |
 | `cursor layout` | Show the current layout cursor | n/a |
 | `cursor clipboard` | Show the current clipboard cursor | n/a |
-| `cursor hook` | Show the current hook cursor | n/a |
 | `cursor ui [--client client-1]` | Show the current client UI cursor | n/a |
 
 `wait vt-idle` also accepts `--settle <duration>` (default `2s`). All wait commands accept `--timeout <duration>` (e.g., `--timeout 30s`).
@@ -194,7 +193,7 @@ Use `amux list-clients` to discover attached client IDs for `--client` and `wait
 {"type":"reconnect","ts":"2025-06-15T10:30:06.000Z"}
 ```
 
-Event types: `layout`, `output`, `idle`, `busy`, `vt-idle`, `hook`, `client-connect`, `client-disconnect`, and the client-generated `reconnect` event used by the CLI auto-reconnect path. By default `amux events` reconnects automatically after a dropped stream, emits a client-generated `reconnect` event, and resubscribes after exponential backoff. Use `--no-reconnect` for scripts that want exit-on-disconnect. New subscribers receive the current state as an initial snapshot, including already-attached clients as `client-connect` events, so no events are missed between subscribe and the first real event. Output events are throttled to at most one per pane per `--throttle` interval (default 50ms). Non-output events pass through immediately. Use `--throttle 0s` to disable throttling. `vt-idle` uses a fixed `2s` settle window in the stream.
+Event types: `layout`, `output`, `idle`, `busy`, `vt-idle`, `client-connect`, `client-disconnect`, and the client-generated `reconnect` event used by the CLI auto-reconnect path. By default `amux events` reconnects automatically after a dropped stream, emits a client-generated `reconnect` event, and resubscribes after exponential backoff. Use `--no-reconnect` for scripts that want exit-on-disconnect. New subscribers receive the current state as an initial snapshot, including already-attached clients as `client-connect` events, so no events are missed between subscribe and the first real event. Output events are throttled to at most one per pane per `--throttle` interval (default 50ms). Non-output events pass through immediately. Use `--throttle 0s` to disable throttling. `vt-idle` uses a fixed `2s` settle window in the stream.
 
 ### Agent Loop Example
 
@@ -303,7 +302,6 @@ All commands accept `-s <session>` to target a specific session. Panes are refer
 | `amux cursor ui [--client id]` | Show current client UI generation counter |
 | `amux cursor layout` | Show current layout generation counter |
 | `amux cursor clipboard` | Show current clipboard generation counter |
-| `amux cursor hook` | Show current hook generation counter |
 | `amux events [--filter type,...] [--pane ref] [--host name] [--client id] [--throttle 50ms] [--no-reconnect]` | Stream events as NDJSON (output throttled, auto-reconnect by default) |
 | `amux list-clients` | List attached clients and client-local UI state |
 | `amux connection-log` | Show recent client attach/detach history |
@@ -330,14 +328,6 @@ All commands accept `-s <session>` to target a specific session. Panes are refer
 | `amux disconnect <host>` | Drop SSH connection to a host |
 | `amux reconnect <host>` | Reconnect to a remote host |
 | `amux unsplice <host>` | Revert SSH takeover, replace remote panes with local |
-
-### Hooks
-
-| Command | Description |
-|---------|-------------|
-| `amux set-hook <event> <command>` | Register a hook (events: `on-idle`, `on-activity`) |
-| `amux unset-hook <event> [index]` | Remove hook(s) for an event |
-| `amux list-hooks` | List registered hooks |
 
 ## Keybindings
 

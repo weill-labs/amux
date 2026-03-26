@@ -5,7 +5,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/weill-labs/amux/internal/hooks"
 	"github.com/weill-labs/amux/internal/mux"
 )
 
@@ -107,48 +106,6 @@ func ParseWaitUIArgs(args []string) (eventName, clientID string, afterGen uint64
 		}
 	}
 	return eventName, clientID, afterGen, afterSet, timeout, nil
-}
-
-func ParseWaitHookArgs(args []string) (eventName, paneName string, afterGen uint64, timeout time.Duration, err error) {
-	if len(args) < 1 {
-		return "", "", 0, 0, fmt.Errorf("usage: wait hook <event> [--pane <pane>] [--after N] [--timeout <duration>]")
-	}
-	eventName = args[0]
-	timeout = 5 * time.Second
-	for i := 1; i < len(args); i++ {
-		switch args[i] {
-		case "--pane":
-			if i+1 >= len(args) {
-				return "", "", 0, 0, fmt.Errorf("missing value for --pane")
-			}
-			i++
-			paneName = args[i]
-		case "--after":
-			if i+1 >= len(args) {
-				return "", "", 0, 0, fmt.Errorf("missing value for --after")
-			}
-			i++
-			afterGen, err = strconv.ParseUint(args[i], 10, 64)
-			if err != nil {
-				return "", "", 0, 0, fmt.Errorf("invalid --after generation: %s", args[i])
-			}
-		case "--timeout":
-			if i+1 >= len(args) {
-				return "", "", 0, 0, fmt.Errorf("missing value for --timeout")
-			}
-			i++
-			timeout, err = time.ParseDuration(args[i])
-			if err != nil {
-				return "", "", 0, 0, err
-			}
-		default:
-			return "", "", 0, 0, fmt.Errorf("unknown flag: %s", args[i])
-		}
-	}
-	if _, err := hooks.ParseEvent(eventName); err != nil {
-		return "", "", 0, 0, err
-	}
-	return eventName, paneName, afterGen, timeout, nil
 }
 
 func WaitBusyForegroundPID(status mux.AgentStatus) int {

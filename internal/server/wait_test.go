@@ -154,54 +154,6 @@ func TestWaitClipboardAfterCurrent_WaitsForNextClipboard(t *testing.T) {
 	}
 }
 
-func TestWaitHookForPaneAfterCurrent_WaitsForNextMatchingHook(t *testing.T) {
-	t.Parallel()
-	sess := newSession("test-wait-hook-after-current")
-	defer stopSessionBackgroundLoops(t, sess)
-	sess.waiters.setHookStateForTest(7, []hookResultRecord{{
-		Generation: 7,
-		Event:      "on-idle",
-		PaneID:     1,
-		PaneName:   "pane-1",
-	}})
-
-	done := make(chan struct{})
-	var result hookResultRecord
-	var resultOk bool
-	go func() {
-		result, resultOk = sess.waitHookForPaneAfterCurrent("on-idle", 1, "pane-1", 5*time.Second)
-		close(done)
-	}()
-
-	waitUntil(t, func() bool {
-		return mustSessionQuery(t, sess, func(sess *Session) bool {
-			return sess.waiters.hookWaiterRegistered(7, "on-idle", 1, "pane-1")
-		})
-	})
-
-	sess.enqueueCommandMutation(func(s *Session) commandMutationResult {
-		s.waiters.appendHookResult(hookResultRecord{
-			Event:    "on-idle",
-			PaneID:   1,
-			PaneName: "pane-1",
-			Success:  true,
-		})
-		return commandMutationResult{}
-	})
-
-	select {
-	case <-done:
-		if !resultOk {
-			t.Fatal("expected ok=true")
-		}
-		if result.Generation != 8 {
-			t.Fatalf("expected generation 8, got %d", result.Generation)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("waitHookForPaneAfterCurrent did not return after matching hook")
-	}
-}
-
 func TestNotifyPaneOutputSubs(t *testing.T) {
 	t.Parallel()
 	sess := newSession("test-pane-output-subs")

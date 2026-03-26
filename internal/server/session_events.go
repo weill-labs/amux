@@ -9,7 +9,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/weill-labs/amux/internal/hooks"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
 	"github.com/weill-labs/amux/internal/remote"
@@ -329,13 +328,17 @@ func (e idleTimeoutEvent) handle(s *Session) {
 		}()
 	}
 
-	env := s.buildPaneEnv(e.paneID, hooks.OnIdle)
-	s.fireHooks(hooks.OnIdle, env)
+	pane := s.findPaneByID(e.paneID)
+	paneName, host := "", ""
+	if pane != nil {
+		paneName = pane.Meta.Name
+		host = pane.Meta.Host
+	}
 	s.emitEvent(Event{
 		Type:     EventIdle,
 		PaneID:   e.paneID,
-		PaneName: env["AMUX_PANE_NAME"],
-		Host:     env["AMUX_HOST"],
+		PaneName: paneName,
+		Host:     host,
 	})
 	s.broadcastLayoutNow()
 }
@@ -438,26 +441,6 @@ func (e remoteStateChangeEvent) handle(s *Session) {
 		}
 	}
 	s.broadcastLayoutNow()
-}
-
-type hookResultEvent struct {
-	record hookResultRecord
-}
-
-func (e hookResultEvent) handle(s *Session) {
-	e.record = s.ensureWaiters().appendHookResult(e.record)
-
-	s.emitEvent(Event{
-		Type:       EventHook,
-		Generation: e.record.Generation,
-		PaneID:     e.record.PaneID,
-		PaneName:   e.record.PaneName,
-		Host:       e.record.Host,
-		HookEvent:  e.record.Event,
-		Command:    e.record.Command,
-		Success:    e.record.Success,
-		Error:      e.record.Error,
-	})
 }
 
 func (s *Session) startEventLoop() {

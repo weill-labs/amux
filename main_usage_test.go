@@ -44,7 +44,7 @@ func TestMainWaitUsage(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("exit code = %d, want 1\n%s", code, out)
 	}
-	if !strings.Contains(out, "usage: amux wait <idle|busy|vt-idle|ready|content|layout|clipboard|hook|ui> ...") {
+	if !strings.Contains(out, "usage: amux wait <idle|busy|vt-idle|ready|content|layout|clipboard|ui> ...") {
 		t.Fatalf("wait usage output = %q", out)
 	}
 }
@@ -56,8 +56,22 @@ func TestMainCursorUsage(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("exit code = %d, want 1\n%s", code, out)
 	}
-	if !strings.Contains(out, "usage: amux cursor <layout|clipboard|hook|ui> [--client <id>]") {
+	if !strings.Contains(out, "usage: amux cursor <layout|clipboard|ui> [--client <id>]") {
 		t.Fatalf("cursor usage output = %q", out)
+	}
+}
+
+func TestMainRemovedHookCommandsAreUnknown(t *testing.T) {
+	t.Parallel()
+
+	for _, command := range []string{"set-hook", "unset-hook", "list-hooks"} {
+		out, code := runHermeticMain(t, command)
+		if code != 1 {
+			t.Fatalf("%s exit code = %d, want 1\n%s", command, code, out)
+		}
+		if !strings.Contains(out, "amux: unknown command \""+command+"\"") {
+			t.Fatalf("%s output = %q", command, out)
+		}
 	}
 }
 

@@ -17,14 +17,6 @@ type clipboardWaiter struct {
 	reply    chan string
 }
 
-type hookWaiter struct {
-	afterGen  uint64
-	eventName string
-	paneID    uint32
-	paneName  string
-	reply     chan hookResultRecord
-}
-
 type paneOutputWaitStart struct {
 	ch      chan struct{}
 	matched bool
@@ -41,10 +33,6 @@ type waiterManager struct {
 	clipboardGen     atomic.Uint64
 	lastClipboardB64 string
 	clipboardWaiters map[uint64]clipboardWaiter
-
-	hookGen     atomic.Uint64
-	hookResults []hookResultRecord
-	hookWaiters map[uint64]hookWaiter
 }
 
 func newWaiterManager() *waiterManager {
@@ -52,7 +40,6 @@ func newWaiterManager() *waiterManager {
 		layoutWaiters:    make(map[uint64]layoutWaiter),
 		paneOutputSubs:   make(map[uint32][]chan struct{}),
 		clipboardWaiters: make(map[uint64]clipboardWaiter),
-		hookWaiters:      make(map[uint64]hookWaiter),
 	}
 }
 
@@ -70,25 +57,11 @@ func (m *waiterManager) clipboardGeneration() uint64 {
 	return m.clipboardGen.Load()
 }
 
-func (m *waiterManager) hookGeneration() uint64 {
-	if m == nil {
-		return 0
-	}
-	return m.hookGen.Load()
-}
-
 func (s *Session) clipboardGeneration() uint64 {
 	if s == nil {
 		return 0
 	}
 	return s.ensureWaiters().clipboardGeneration()
-}
-
-func (s *Session) hookGeneration() uint64 {
-	if s == nil {
-		return 0
-	}
-	return s.ensureWaiters().hookGeneration()
 }
 
 func (m *waiterManager) removePane(paneID uint32) {
@@ -281,120 +254,6 @@ func (m *waiterManager) waitClipboardAfterCurrent(sess *Session, timeout time.Du
 	return m.waitClipboard(sess, afterGen, timeout)
 }
 
-func (m *waiterManager) matchHookResult(afterGen uint64, eventName string, paneID uint32, paneName string) (hookResultRecord, bool) {
-	for _, record := range m.hookResults {
-		if record.Generation <= afterGen {
-			continue
-		}
-		if eventName != "" && record.Event != eventName {
-			continue
-		}
-		if paneID != 0 && record.PaneID != 0 && record.PaneID != paneID {
-			continue
-		}
-		if paneName != "" && record.PaneName != paneName {
-			continue
-		}
-		return record, true
-	}
-	return hookResultRecord{}, false
-}
-
-func (m *waiterManager) notifyHookWaiters(record hookResultRecord) {
-	for id, waiter := range m.hookWaiters {
-		if record.Generation <= waiter.afterGen {
-			continue
-		}
-		if waiter.eventName != "" && record.Event != waiter.eventName {
-			continue
-		}
-		if waiter.paneID != 0 && record.PaneID != 0 && record.PaneID != waiter.paneID {
-			continue
-		}
-		if waiter.paneName != "" && record.PaneName != waiter.paneName {
-			continue
-		}
-		waiter.reply <- record
-		delete(m.hookWaiters, id)
-	}
-}
-
-func (m *waiterManager) appendHookResult(record hookResultRecord) hookResultRecord {
-	record.Generation = m.hookGen.Add(1)
-	m.hookResults = append(m.hookResults, record)
-	if len(m.hookResults) > 128 {
-		m.hookResults = append([]hookResultRecord(nil), m.hookResults[len(m.hookResults)-128:]...)
-	}
-	m.notifyHookWaiters(record)
-	return record
-}
-
-func (m *waiterManager) waitHookForPaneAfterCurrent(sess *Session, eventName string, paneID uint32, paneName string, timeout time.Duration) (hookResultRecord, bool) {
-	afterGen, err := enqueueSessionQuery(sess, func(s *Session) (uint64, error) {
-		return m.hookGen.Load(), nil
-	})
-	if err != nil {
-		return hookResultRecord{}, false
-	}
-	return m.waitHookForPane(sess, afterGen, eventName, paneID, paneName, timeout)
-}
-
-func (m *waiterManager) waitHookForPane(sess *Session, afterGen uint64, eventName string, paneID uint32, paneName string, timeout time.Duration) (hookResultRecord, bool) {
-	type waitRegistration struct {
-		record   hookResultRecord
-		waiterID uint64
-		reply    chan hookResultRecord
-	}
-	type waitState struct {
-		record  hookResultRecord
-		matched bool
-	}
-
-	reg, err := enqueueSessionQuery(sess, func(s *Session) (waitRegistration, error) {
-		if record, ok := m.matchHookResult(afterGen, eventName, paneID, paneName); ok {
-			return waitRegistration{record: record}, nil
-		}
-		reply := make(chan hookResultRecord, 1)
-		waiterID := m.waiterCounter.Add(1)
-		m.hookWaiters[waiterID] = hookWaiter{
-			afterGen:  afterGen,
-			eventName: eventName,
-			paneID:    paneID,
-			paneName:  paneName,
-			reply:     reply,
-		}
-		return waitRegistration{waiterID: waiterID, reply: reply}, nil
-	})
-	if err != nil {
-		return hookResultRecord{}, false
-	}
-	if reg.reply == nil {
-		return reg.record, true
-	}
-
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
-
-	select {
-	case record := <-reg.reply:
-		return record, true
-	case <-timer.C:
-		state, err := enqueueSessionQuery(sess, func(s *Session) (waitState, error) {
-			delete(m.hookWaiters, reg.waiterID)
-			record, ok := m.matchHookResult(afterGen, eventName, paneID, paneName)
-			return waitState{record: record, matched: ok}, nil
-		})
-		if err != nil {
-			return hookResultRecord{}, false
-		}
-		return state.record, state.matched
-	}
-}
-
-func (m *waiterManager) waitHook(sess *Session, afterGen uint64, eventName, paneName string, timeout time.Duration) (hookResultRecord, bool) {
-	return m.waitHookForPane(sess, afterGen, eventName, 0, paneName, timeout)
-}
-
 func (m *waiterManager) outputSubscriberCount(paneID uint32) int {
 	if m == nil {
 		return 0
@@ -427,27 +286,9 @@ func (m *waiterManager) clipboardWaiterRegistered(afterGen uint64) bool {
 	return false
 }
 
-func (m *waiterManager) hookWaiterRegistered(afterGen uint64, eventName string, paneID uint32, paneName string) bool {
-	for _, waiter := range m.hookWaiters {
-		if waiter.afterGen == afterGen && waiter.eventName == eventName && waiter.paneID == paneID && waiter.paneName == paneName {
-			return true
-		}
-	}
-	return false
-}
-
-func (m *waiterManager) retainedHookResults() []hookResultRecord {
-	return append([]hookResultRecord(nil), m.hookResults...)
-}
-
 func (m *waiterManager) setClipboardStateForTest(gen uint64, payload string) {
 	m.clipboardGen.Store(gen)
 	m.lastClipboardB64 = payload
-}
-
-func (m *waiterManager) setHookStateForTest(gen uint64, results []hookResultRecord) {
-	m.hookGen.Store(gen)
-	m.hookResults = append([]hookResultRecord(nil), results...)
 }
 
 func (m *waiterManager) paneExistsAndMatches(pane *mux.Pane, substr string) paneOutputWaitStart {
