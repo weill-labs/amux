@@ -254,6 +254,11 @@ func (w *Window) ClosePane(paneID uint32) error {
 	// Propagate sizes to all children after redistribution
 	w.Root.ResizeAll(w.Width, w.Height)
 
+	// Clear lead if only one pane remains (no column to pin against).
+	if w.LeadPaneID != 0 && w.Root.IsLeaf() {
+		w.LeadPaneID = 0
+	}
+
 	// Update active pane if the closed pane was active
 	if w.ActivePane.ID == paneID {
 		if result != nil && result.IsLeaf() && result.Pane != nil {
@@ -747,8 +752,13 @@ func (w *Window) SwapTree(id1, id2 uint32) error {
 func (w *Window) MovePane(paneID, targetPaneID uint32, before bool) error {
 	w.assertOwner("MovePane")
 	if w.LeadPaneID != 0 {
-		if col := w.leadColumn(); col != nil && containsPane(col, paneID) {
+		col := w.leadColumn()
+		if col != nil && containsPane(col, paneID) {
 			return fmt.Errorf("cannot move lead column")
+		}
+		// Block moving another group before the lead column.
+		if col != nil && containsPane(col, targetPaneID) && before {
+			return fmt.Errorf("cannot move before lead column")
 		}
 	}
 	_, fromIdx, err := w.rootChildForPaneID(paneID)
@@ -822,11 +832,14 @@ func (w *Window) SwapPaneBackward() error {
 // If forward is true, panes advance one position in walk order: each cell
 // gets the pane from the previous cell, with the last pane wrapping to the
 // first cell.
-func (w *Window) RotatePanes(forward bool) {
+func (w *Window) RotatePanes(forward bool) error {
 	w.assertOwner("RotatePanes")
+	if w.LeadPaneID != 0 {
+		return fmt.Errorf("cannot rotate with lead pane set")
+	}
 	cells := w.paneLeaves()
 	if len(cells) <= 1 {
-		return
+		return nil
 	}
 	if forward {
 		last := cells[len(cells)-1].Pane
@@ -842,6 +855,7 @@ func (w *Window) RotatePanes(forward bool) {
 		cells[len(cells)-1].Pane = first
 	}
 	w.resizePTYs()
+	return nil
 }
 
 // paneLeaves returns all leaf cells containing panes in depth-first order.
