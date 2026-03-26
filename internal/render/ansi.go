@@ -14,6 +14,8 @@ const (
 	Reset      = "\033[0m"
 	Bold       = "\033[1m"
 	NoBold     = "\033[22m"
+	StrikeOn   = "\033[9m"
+	StrikeOff  = "\033[29m"
 )
 
 // Catppuccin Mocha ANSI color escapes (catppuccin.com/palette).

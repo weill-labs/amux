@@ -123,23 +123,23 @@ func ValidateHistoryRequest(req Request) error {
 // PaneInput holds the shared capture-pane fields assembled by both the client
 // and server capture paths.
 type PaneInput struct {
-	ID         uint32
-	Name       string
-	Active     bool
-	Lead       bool
-	Zoomed     bool
-	Host       string
-	Task       string
-	Color      string
-	ConnStatus string
-	Cwd        string
-	GitBranch  string
-	PR         string
-	PRs        []int
-	Issues     []string
-	Cursor     proto.CaptureCursor
-	Content    []string
-	History    []string
+	ID            uint32
+	Name          string
+	Active        bool
+	Lead          bool
+	Zoomed        bool
+	Host          string
+	Task          string
+	Color         string
+	ConnStatus    string
+	Cwd           string
+	GitBranch     string
+	PR            string
+	TrackedPRs    []proto.TrackedPR
+	TrackedIssues []proto.TrackedIssue
+	Cursor        proto.CaptureCursor
+	Content       []string
+	History       []string
 }
 
 // BuildPane builds the common proto.CapturePane shape shared by both capture paths.
@@ -154,11 +154,11 @@ func BuildPane(input PaneInput, agentStatus map[uint32]proto.PaneAgentStatus) pr
 		Task:   input.Task,
 		Color:  input.Color,
 		Meta: proto.CaptureMeta{
-			Task:      input.Task,
-			GitBranch: input.GitBranch,
-			PR:        input.PR,
-			PRs:       append([]int(nil), input.PRs...),
-			Issues:    append([]string(nil), input.Issues...),
+			Task:          input.Task,
+			GitBranch:     input.GitBranch,
+			PR:            input.PR,
+			TrackedPRs:    proto.CloneTrackedPRs(input.TrackedPRs),
+			TrackedIssues: proto.CloneTrackedIssues(input.TrackedIssues),
 		},
 		ConnStatus: input.ConnStatus,
 		Cwd:        input.Cwd,

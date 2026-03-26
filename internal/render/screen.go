@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/mux"
+	"github.com/weill-labs/amux/internal/proto"
 )
 
 // ScreenCell represents a single cell in the composited screen grid.
@@ -248,6 +249,8 @@ func buildStatusCells(g *ScreenGrid, cell *mux.LayoutCell, isActive bool, pd Pan
 	redStyle := uv.Style{Fg: hexToColor(config.RedHex), Bg: bg}
 	paneBold := paneStyle
 	paneBold.Attrs |= uv.AttrBold
+	completedMetaStyle := dimStyle
+	completedMetaStyle.Attrs |= uv.AttrStrikethrough
 
 	var chars []styledChar
 
@@ -272,7 +275,8 @@ func buildStatusCells(g *ScreenGrid, cell *mux.LayoutCell, isActive bool, pd Pan
 	}
 	chars = appendStyledStr(chars, "["+pd.Name()+"]", nameStyle)
 
-	metaText := paneStatusMetadata(pd, availableMetadataWidth(cell.W, pd, isActive), isActive)
+	metaItems := paneStatusMetadataItems(pd.TrackedPRs(), pd.TrackedIssues(), isActive)
+	metaSegments := paneStatusMetadataSegments(metaItems, availableMetadataWidth(cell.W, pd, isActive))
 
 	// Copy mode indicator
 	if pd.InCopyMode() {
@@ -284,9 +288,15 @@ func buildStatusCells(g *ScreenGrid, cell *mux.LayoutCell, isActive bool, pd Pan
 		}
 	}
 
-	if metaText != "" {
+	if len(metaSegments) > 0 {
 		chars = appendStyledStr(chars, " ", uv.Style{Bg: bg})
-		chars = appendStyledStr(chars, metaText, textStyle)
+		for _, segment := range metaSegments {
+			style := textStyle
+			if segment.status == proto.TrackedStatusCompleted {
+				style = completedMetaStyle
+			}
+			chars = appendStyledStr(chars, segment.text, style)
+		}
 	}
 
 	// Host

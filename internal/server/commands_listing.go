@@ -6,22 +6,23 @@ import (
 	"strings"
 	"time"
 
+	"github.com/weill-labs/amux/internal/proto"
 	listingcmd "github.com/weill-labs/amux/internal/server/commands/listing"
 )
 
 func toListingPaneEntry(entry paneListEntry) listingcmd.PaneEntry {
 	return listingcmd.PaneEntry{
-		PaneID:     entry.paneID,
-		Name:       entry.name,
-		Host:       entry.host,
-		WindowName: entry.windowName,
-		Task:       entry.task,
-		Cwd:        entry.cwd,
-		GitBranch:  entry.gitBranch,
-		PR:         entry.pr,
-		PRs:        append([]int(nil), entry.prs...),
-		Issues:     append([]string(nil), entry.issues...),
-		Active:     entry.active,
+		PaneID:        entry.paneID,
+		Name:          entry.name,
+		Host:          entry.host,
+		WindowName:    entry.windowName,
+		Task:          entry.task,
+		Cwd:           entry.cwd,
+		GitBranch:     entry.gitBranch,
+		PR:            entry.pr,
+		TrackedPRs:    proto.CloneTrackedPRs(entry.prs),
+		TrackedIssues: proto.CloneTrackedIssues(entry.issues),
+		Active:        entry.active,
 	}
 }
 

@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/x/vt"
 	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/mux"
+	"github.com/weill-labs/amux/internal/proto"
 )
 
 func TestScreenGrid_SetGet(t *testing.T) {
@@ -347,21 +348,21 @@ func (e *emuPaneData) RenderScreen(active bool) string { return e.emu.Render() }
 func (e *emuPaneData) CellAt(col, row int, active bool) ScreenCell {
 	return CellFromUV(e.emu.CellAt(col, row))
 }
-func (e *emuPaneData) CursorPos() (int, int)  { p := e.emu.CursorPosition(); return p.X, p.Y }
-func (e *emuPaneData) CursorHidden() bool     { return e.cursorHidden }
-func (e *emuPaneData) HasCursorBlock() bool   { return false }
-func (e *emuPaneData) ID() uint32             { return e.id }
-func (e *emuPaneData) Name() string           { return e.name }
-func (e *emuPaneData) PRs() []string          { return nil }
-func (e *emuPaneData) Issues() []string       { return nil }
-func (e *emuPaneData) Host() string           { return "local" }
-func (e *emuPaneData) Task() string           { return "" }
-func (e *emuPaneData) Color() string          { return e.color }
-func (e *emuPaneData) Idle() bool             { return true }
-func (e *emuPaneData) IsLead() bool           { return false }
-func (e *emuPaneData) ConnStatus() string     { return "" }
-func (e *emuPaneData) InCopyMode() bool       { return false }
-func (e *emuPaneData) CopyModeSearch() string { return "" }
+func (e *emuPaneData) CursorPos() (int, int)               { p := e.emu.CursorPosition(); return p.X, p.Y }
+func (e *emuPaneData) CursorHidden() bool                  { return e.cursorHidden }
+func (e *emuPaneData) HasCursorBlock() bool                { return false }
+func (e *emuPaneData) ID() uint32                          { return e.id }
+func (e *emuPaneData) Name() string                        { return e.name }
+func (e *emuPaneData) TrackedPRs() []proto.TrackedPR       { return nil }
+func (e *emuPaneData) TrackedIssues() []proto.TrackedIssue { return nil }
+func (e *emuPaneData) Host() string                        { return "local" }
+func (e *emuPaneData) Task() string                        { return "" }
+func (e *emuPaneData) Color() string                       { return e.color }
+func (e *emuPaneData) Idle() bool                          { return true }
+func (e *emuPaneData) IsLead() bool                        { return false }
+func (e *emuPaneData) ConnStatus() string                  { return "" }
+func (e *emuPaneData) InCopyMode() bool                    { return false }
+func (e *emuPaneData) CopyModeSearch() string              { return "" }
 
 // twoPaneLookup returns a lookup function for two side-by-side panes with
 // standard test colors (rosewater for pane-1, mauve for pane-2).

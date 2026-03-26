@@ -35,6 +35,6 @@ while IFS= read -r issue; do
     if [[ -n "$issue" ]]; then
         args+=("issue=$issue")
     fi
-done < <(printf '%s\n' "$capture" | jq -r '(.meta.issues // [])[]' 2>/dev/null)
+done < <(printf '%s\n' "$capture" | jq -r '(.meta.tracked_issues // [])[].id' 2>/dev/null)
 
 amux "${args[@]}" >/dev/null

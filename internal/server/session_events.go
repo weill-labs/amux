@@ -845,6 +845,7 @@ func (s *Session) disconnectClientsForReload(clients []*clientConn) {
 
 func (s *Session) handleAttachEvent(srv *Server, cc *clientConn, cols, rows int) attachResult {
 	idleSnap := s.snapshotIdleState()
+	firstAttach := !s.hadClient
 
 	cc.cols = cols
 	cc.rows = rows
@@ -887,6 +888,10 @@ func (s *Session) handleAttachEvent(srv *Server, cc *clientConn, cols, rows int)
 			screen:    []byte(screen),
 			outputSeq: seq,
 		})
+	}
+
+	if firstAttach {
+		s.refreshTrackedMetaAsync()
 	}
 
 	return res

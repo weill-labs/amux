@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/weill-labs/amux/internal/proto"
 	metacmd "github.com/weill-labs/amux/internal/server/commands/meta"
 )
 
@@ -28,17 +29,17 @@ func ParseListArgs(args []string) (ListArgs, error) {
 }
 
 type PaneEntry struct {
-	PaneID     uint32
-	Name       string
-	Host       string
-	WindowName string
-	Task       string
-	Cwd        string
-	GitBranch  string
-	PR         string
-	PRs        []int
-	Issues     []string
-	Active     bool
+	PaneID        uint32
+	Name          string
+	Host          string
+	WindowName    string
+	Task          string
+	Cwd           string
+	GitBranch     string
+	PR            string
+	TrackedPRs    []proto.TrackedPR
+	TrackedIssues []proto.TrackedIssue
+	Active        bool
 }
 
 func FormatPaneList(entries []PaneEntry, home string, showCwd bool) string {
@@ -73,7 +74,7 @@ func formatPaneListRow(entry PaneEntry, home string, showCwd bool) string {
 	}
 	paneID := fmt.Sprintf("%s%d", active, entry.PaneID)
 	branch := FormatPaneListBranch(entry)
-	meta := metacmd.FormatCollections(entry.PRs, entry.Issues)
+	meta := metacmd.FormatCollections(entry.TrackedPRs, entry.TrackedIssues)
 	if showCwd {
 		return fmt.Sprintf("%-6s %-20s %-15s %-30s %-36s %-10s %-12s %s\n",
 			paneID, entry.Name, entry.Host, branch, FormatListCwd(entry.Cwd, home, ListCwdWidth), entry.WindowName, entry.Task, meta)

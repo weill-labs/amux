@@ -15,7 +15,7 @@ func TestCheckPaneIssueMetaWarnsWhenIssueMetadataMissing(t *testing.T) {
 	amuxPath := filepath.Join(tempDir, "amux")
 	if err := os.WriteFile(amuxPath, []byte(`#!/bin/sh
 cat <<'EOF'
-{"meta":{"issues":[]}}
+{"meta":{"tracked_issues":[]}}
 EOF
 `), 0755); err != nil {
 		t.Fatalf("write fake amux: %v", err)
@@ -48,7 +48,7 @@ func TestCheckPaneIssueMetaPassesWhenIssueMetadataExists(t *testing.T) {
 	amuxPath := filepath.Join(tempDir, "amux")
 	if err := os.WriteFile(amuxPath, []byte(`#!/bin/sh
 cat <<'EOF'
-{"meta":{"issues":["LAB-445"]}}
+{"meta":{"tracked_issues":[{"id":"LAB-445","status":"active"}]}}
 EOF
 `), 0755); err != nil {
 		t.Fatalf("write fake amux: %v", err)
@@ -109,7 +109,7 @@ func TestSyncPanePRMetaScriptAddsCurrentIssueAndPR(t *testing.T) {
 	if err := os.WriteFile(amuxPath, []byte(`#!/bin/sh
 if [ "$1" = "capture" ]; then
 cat <<'EOF'
-{"meta":{"issues":["LAB-445"]}}
+{"meta":{"tracked_issues":[{"id":"LAB-445","status":"active"}]}}
 EOF
 exit 0
 fi

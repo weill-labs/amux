@@ -263,6 +263,12 @@ func main() {
 			os.Exit(1)
 		}
 		runSessionCommand("rm-meta", args[1:])
+	case "refresh-meta":
+		if len(args) > 2 {
+			fmt.Fprintf(os.Stderr, "usage: amux refresh-meta [pane]\n")
+			os.Exit(1)
+		}
+		runSessionCommand("refresh-meta", args[1:])
 
 	case "events":
 		runEventsCommand(resolvedSessionName, args[1:])
@@ -468,6 +474,8 @@ Usage:
                                        Add pane metadata values (pr=NUMBER, issue=ID)
   amux [-s session] rm-meta <pane> key=value [key=value...]
                                        Remove pane metadata values (pr=NUMBER, issue=ID)
+  amux [-s session] refresh-meta [pane]
+                                       Refresh tracked PR/issue completion state
   amux [-s session] new-window         Create a new window
   amux [-s session] list-windows       List all windows
   amux [-s session] select-window <n>  Switch to window by index or name
@@ -579,6 +587,7 @@ func runServer(sessionName string, managedTakeover bool) {
 
 	var s *server.Server
 	var err error
+	restoredSession := false
 
 	// Load config for remote host definitions
 	cfg, cfgErr := config.Load(config.DefaultPath())
@@ -591,6 +600,7 @@ func runServer(sessionName string, managedTakeover bool) {
 	// Check for checkpoint restore (after server hot-reload)
 	if cpPath := os.Getenv("AMUX_CHECKPOINT"); cpPath != "" {
 		os.Unsetenv("AMUX_CHECKPOINT")
+		restoredSession = true
 		cp, readErr := checkpoint.Read(cpPath)
 		if readErr != nil {
 			fmt.Fprintf(os.Stderr, "amux server: reading checkpoint: %v\n", readErr)
@@ -602,6 +612,7 @@ func runServer(sessionName string, managedTakeover bool) {
 			os.Exit(1)
 		}
 	} else if crashPath := server.DetectCrashedSession(sessionName); crashPath != "" {
+		restoredSession = true
 		// Crash recovery: checkpoint exists but no server is running
 		crashCP, readErr := checkpoint.ReadCrash(crashPath)
 		if readErr != nil {
@@ -646,6 +657,12 @@ func runServer(sessionName string, managedTakeover bool) {
 
 	// Set up remote pane manager for all sessions
 	s.SetupRemoteManager(cfg, server.BuildVersion)
+	if os.Getenv("AMUX_DISABLE_META_REFRESH") != "1" {
+		s.SetTrackedMetaResolver(server.NewExternalTrackedMetaResolver())
+		if restoredSession {
+			s.RefreshTrackedMetaAsync()
+		}
+	}
 
 	// Handle shutdown signals. The goroutine calls Shutdown() which closes
 	// the listener, unblocking Run() below.

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/weill-labs/amux/internal/mux"
+	"github.com/weill-labs/amux/internal/proto"
 )
 
 type activeWindowSnapshot struct {
@@ -37,8 +38,8 @@ type paneListEntry struct {
 	cwd        string
 	gitBranch  string
 	pr         string
-	prs        []int
-	issues     []string
+	prs        []proto.TrackedPR
+	issues     []proto.TrackedIssue
 	active     bool
 }
 
@@ -298,8 +299,8 @@ func (s *Session) queryPaneList() ([]paneListEntry, error) {
 				cwd:       effectivePaneCwd(p),
 				gitBranch: p.Meta.GitBranch,
 				pr:        p.Meta.PR,
-				prs:       append([]int(nil), p.Meta.PRs...),
-				issues:    append([]string(nil), p.Meta.Issues...),
+				prs:       proto.CloneTrackedPRs(p.Meta.TrackedPRs),
+				issues:    proto.CloneTrackedIssues(p.Meta.TrackedIssues),
 			}
 			if w != nil && w.ActivePane != nil && w.ActivePane.ID == p.ID {
 				entry.active = true

@@ -654,7 +654,7 @@ func startServerForSession(t *testing.T, session, home string) *ServerHarness {
 	cmd := exec.Command(amuxBin, "_server", session)
 	cmd.ExtraFiles = []*os.File{writePipe, shutdownWritePipe}
 	env := upsertEnv(os.Environ(), "HOME", home)
-	env = append(env, "AMUX_READY_FD=3", "AMUX_SHUTDOWN_FD=4", "AMUX_NO_WATCH=1", "AMUX_EXIT_UNATTACHED=1")
+	env = append(env, "AMUX_READY_FD=3", "AMUX_SHUTDOWN_FD=4", "AMUX_NO_WATCH=1", "AMUX_EXIT_UNATTACHED=1", "AMUX_DISABLE_META_REFRESH=1")
 
 	// Per-test cover dir
 	var coverDir string

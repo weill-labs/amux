@@ -9,6 +9,7 @@ import (
 	"github.com/mattn/go-runewidth"
 	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/mux"
+	"github.com/weill-labs/amux/internal/proto"
 )
 
 // GlobalBarHeight is the number of rows reserved for the global status bar.
@@ -22,6 +23,16 @@ type globalBarWindowTab struct {
 	display string
 	start   int
 	end     int
+}
+
+type paneStatusMetadataItem struct {
+	text   string
+	status proto.TrackedStatus
+}
+
+type paneStatusMetadataSegment struct {
+	text   string
+	status proto.TrackedStatus
 }
 
 // renderPaneStatus draws a per-pane status line at the top of a pane cell.
@@ -75,7 +86,8 @@ func renderPaneStatus(buf *strings.Builder, cell *mux.LayoutCell, isActive bool,
 	buf.WriteString("]")
 	buf.WriteString(NoBold)
 
-	metaText := paneStatusMetadata(pd, availableMetadataWidth(cell.W, pd, isActive), isActive)
+	metaItems := paneStatusMetadataItems(pd.TrackedPRs(), pd.TrackedIssues(), isActive)
+	metaText := renderPaneStatusMetadataANSI(metaItems, availableMetadataWidth(cell.W, pd, isActive))
 
 	// Lead indicator
 	if lead {
@@ -158,70 +170,140 @@ func truncateRunes(s string, max int) string {
 	return string(runes[:max-1]) + "…"
 }
 
-func paneStatusMetadata(pd PaneData, maxWidth int, showMissingIssueHint bool) string {
-	items := paneStatusMetadataItems(pd.PRs(), pd.Issues(), showMissingIssueHint)
-	if len(items) == 0 || maxWidth < 2 {
-		return ""
-	}
-
-	text := strings.Join(items, ", ")
-	if runewidth.StringWidth(text) <= maxWidth {
-		return text
-	}
-
-	var buf strings.Builder
-	usedWidth := 0
-	for _, r := range text {
-		runeWidth := runewidth.RuneWidth(r)
-		if runeWidth <= 0 {
-			runeWidth = 1
-		}
-		if usedWidth+runeWidth > maxWidth-1 {
-			break
-		}
-		buf.WriteRune(r)
-		usedWidth += runeWidth
-	}
-
-	prefix := strings.TrimRight(buf.String(), ", ")
-	if prefix == "" {
-		return ""
-	}
-	return prefix + "…"
-}
-
-func paneStatusMetadataItems(prs, issues []string, showMissingIssueHint bool) []string {
-	items := make([]string, 0, len(prs)+len(issues)+1)
+func paneStatusMetadataItems(prs []proto.TrackedPR, issues []proto.TrackedIssue, showMissingIssueHint bool) []paneStatusMetadataItem {
+	items := make([]paneStatusMetadataItem, 0, len(prs)+len(issues)+1)
 	for _, pr := range prs {
-		pr = strings.TrimSpace(pr)
-		if pr == "" {
+		if pr.Number <= 0 {
 			continue
 		}
-		if !strings.HasPrefix(pr, "#") {
-			pr = "#" + pr
-		}
-		items = append(items, pr)
+		items = append(items, paneStatusMetadataItem{
+			text:   "#" + strconv.Itoa(pr.Number),
+			status: normalizeTrackedStatus(pr.Status),
+		})
 	}
 	hasIssue := false
 	for _, issue := range issues {
-		issue = strings.TrimSpace(issue)
-		if issue == "" {
+		id := strings.TrimSpace(issue.ID)
+		if id == "" {
 			continue
 		}
 		hasIssue = true
-		items = append(items, issue)
+		items = append(items, paneStatusMetadataItem{
+			text:   id,
+			status: normalizeTrackedStatus(issue.Status),
+		})
 	}
 	if showMissingIssueHint && !hasIssue {
-		items = append(items, missingIssueHint)
+		items = append(items, paneStatusMetadataItem{text: missingIssueHint})
 	}
 	return items
 }
 
 func availableMetadataWidth(cellWidth int, pd PaneData, showMissingIssueHint bool) int {
-	if len(paneStatusMetadataItems(pd.PRs(), pd.Issues(), showMissingIssueHint)) == 0 {
+	if len(paneStatusMetadataItems(pd.TrackedPRs(), pd.TrackedIssues(), showMissingIssueHint)) == 0 {
 		return 0
 	}
 	return cellWidth - paneStatusUsedWidthWithoutMetadata(pd) - 1
+}
+
+func normalizeTrackedStatus(status proto.TrackedStatus) proto.TrackedStatus {
+	if status == "" {
+		return proto.TrackedStatusUnknown
+	}
+	return status
+}
+
+func paneStatusMetadataSegments(items []paneStatusMetadataItem, maxWidth int) []paneStatusMetadataSegment {
+	if len(items) == 0 || maxWidth < 2 {
+		return nil
+	}
+
+	segments := make([]paneStatusMetadataSegment, 0, len(items)*2)
+	usedWidth := 0
+	for i, item := range items {
+		labelWidth := runewidth.StringWidth(item.text)
+		if labelWidth <= 0 {
+			continue
+		}
+
+		if i == 0 {
+			if labelWidth <= maxWidth {
+				segments = append(segments, paneStatusMetadataSegment{text: item.text, status: item.status})
+				usedWidth = labelWidth
+				continue
+			}
+
+			prefix := truncateRunewidth(item.text, maxWidth-1)
+			if prefix == "" {
+				return nil
+			}
+			return []paneStatusMetadataSegment{
+				{text: prefix, status: item.status},
+				{text: "…"},
+			}
+		}
+
+		if usedWidth+2+labelWidth <= maxWidth {
+			segments = append(segments,
+				paneStatusMetadataSegment{text: ", "},
+				paneStatusMetadataSegment{text: item.text, status: item.status},
+			)
+			usedWidth += 2 + labelWidth
+			continue
+		}
+
+		if usedWidth < maxWidth {
+			segments = append(segments, paneStatusMetadataSegment{text: "…"})
+		}
+		return segments
+	}
+
+	return segments
+}
+
+func renderPaneStatusMetadataANSI(items []paneStatusMetadataItem, maxWidth int) string {
+	segments := paneStatusMetadataSegments(items, maxWidth)
+	if len(segments) == 0 {
+		return ""
+	}
+
+	buf := strings.Builder{}
+	for _, segment := range segments {
+		if segment.text == "" {
+			continue
+		}
+		if segment.status == proto.TrackedStatusCompleted {
+			buf.WriteString(DimFg)
+			buf.WriteString(StrikeOn)
+			buf.WriteString(segment.text)
+			buf.WriteString(StrikeOff)
+			buf.WriteString(TextFg)
+			continue
+		}
+		buf.WriteString(segment.text)
+	}
+	return buf.String()
+}
+
+func truncateRunewidth(s string, maxWidth int) string {
+	if maxWidth <= 0 {
+		return ""
+	}
+
+	buf := strings.Builder{}
+	usedWidth := 0
+	for _, r := range s {
+		runeWidth := runewidth.RuneWidth(r)
+		if runeWidth <= 0 {
+			runeWidth = 1
+		}
+		if usedWidth+runeWidth > maxWidth {
+			break
+		}
+		buf.WriteRune(r)
+		usedWidth += runeWidth
+	}
+	return buf.String()
 }
 
 func paneStatusUsedWidthWithoutMetadata(pd PaneData) int {

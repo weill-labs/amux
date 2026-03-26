@@ -279,6 +279,7 @@ All commands accept `-s <session>` to target a specific session. Panes are refer
 | `amux set-meta <pane> key=value...` | Set single-value pane metadata (`task`, `branch`, `pr`) |
 | `amux add-meta <pane> key=value...` | Add pane metadata values (`pr=NUMBER`, `issue=ID`) |
 | `amux rm-meta <pane> key=value...` | Remove pane metadata values (`pr=NUMBER`, `issue=ID`) |
+| `amux refresh-meta [pane]` | Refresh tracked PR/issue completion state (default: active pane) |
 `swap-tree` and `move` treat each pane ref as identifying the root-level group that contains that pane, so moving `pane-3` can move an entire column or row rather than only one leaf cell.
 `split`, `spawn`, and `add-pane` are pure layout mutations: they create the pane but do not change focus. Use `amux focus <pane|direction>` when you want a focus change explicitly. When the active pane is zoomed, these commands preserve the zoom and keep the focused pane unchanged.
 

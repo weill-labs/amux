@@ -185,3 +185,30 @@ func TestMainResetUsage(t *testing.T) {
 		t.Fatalf("reset usage output = %q", out)
 	}
 }
+
+func TestMainRefreshMetaDispatchesWithoutExplicitPane(t *testing.T) {
+	t.Parallel()
+
+	out, code := runHermeticMain(t, "refresh-meta")
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1\n%s", code, out)
+	}
+	if strings.Contains(out, "usage: amux refresh-meta") {
+		t.Fatalf("refresh-meta should dispatch without a pane argument, got usage output:\n%s", out)
+	}
+	if !strings.Contains(out, "server not running") {
+		t.Fatalf("refresh-meta should attempt the command, got:\n%s", out)
+	}
+}
+
+func TestMainRefreshMetaUsageRejectsExtraArgs(t *testing.T) {
+	t.Parallel()
+
+	out, code := runHermeticMain(t, "refresh-meta", "pane-1", "extra")
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1\n%s", code, out)
+	}
+	if !strings.Contains(out, "usage: amux refresh-meta [pane]") {
+		t.Fatalf("refresh-meta usage output = %q", out)
+	}
+}

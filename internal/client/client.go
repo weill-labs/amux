@@ -783,10 +783,14 @@ func (c *clientPaneData) HasCursorBlock() bool {
 	return c.emu.HasCursorBlock()
 }
 
-func (c *clientPaneData) ID() uint32         { return c.info.ID }
-func (c *clientPaneData) Name() string       { return c.info.Name }
-func (c *clientPaneData) PRs() []string      { return formatPRNumbers(c.info.PRs) }
-func (c *clientPaneData) Issues() []string   { return c.info.Issues }
+func (c *clientPaneData) ID() uint32   { return c.info.ID }
+func (c *clientPaneData) Name() string { return c.info.Name }
+func (c *clientPaneData) TrackedPRs() []proto.TrackedPR {
+	return proto.CloneTrackedPRs(c.info.TrackedPRs)
+}
+func (c *clientPaneData) TrackedIssues() []proto.TrackedIssue {
+	return proto.CloneTrackedIssues(c.info.TrackedIssues)
+}
 func (c *clientPaneData) Host() string       { return c.info.Host }
 func (c *clientPaneData) Task() string       { return c.info.Task }
 func (c *clientPaneData) Color() string      { return c.info.Color }

@@ -5,6 +5,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/weill-labs/amux/internal/proto"
 )
 
 type CollectionUpdate struct {
@@ -67,17 +69,51 @@ func RemoveStringValue(values []string, target string) []string {
 	})
 }
 
-func FormatCollections(prs []int, issues []string) string {
+func UpsertTrackedPR(values []proto.TrackedPR, target int) []proto.TrackedPR {
+	for i := range values {
+		if values[i].Number == target {
+			return values
+		}
+	}
+	return append(values, proto.TrackedPR{Number: target, Status: proto.TrackedStatusUnknown})
+}
+
+func UpsertTrackedIssue(values []proto.TrackedIssue, target string) []proto.TrackedIssue {
+	for i := range values {
+		if values[i].ID == target {
+			return values
+		}
+	}
+	return append(values, proto.TrackedIssue{ID: target, Status: proto.TrackedStatusUnknown})
+}
+
+func RemoveTrackedPR(values []proto.TrackedPR, target int) []proto.TrackedPR {
+	return slices.DeleteFunc(values, func(value proto.TrackedPR) bool {
+		return value.Number == target
+	})
+}
+
+func RemoveTrackedIssue(values []proto.TrackedIssue, target string) []proto.TrackedIssue {
+	return slices.DeleteFunc(values, func(value proto.TrackedIssue) bool {
+		return value.ID == target
+	})
+}
+
+func FormatCollections(prs []proto.TrackedPR, issues []proto.TrackedIssue) string {
 	var parts []string
 	if len(prs) > 0 {
 		values := make([]string, 0, len(prs))
 		for _, pr := range prs {
-			values = append(values, strconv.Itoa(pr))
+			values = append(values, strconv.Itoa(pr.Number))
 		}
 		parts = append(parts, "prs=["+strings.Join(values, ",")+"]")
 	}
 	if len(issues) > 0 {
-		parts = append(parts, "issues=["+strings.Join(issues, ",")+"]")
+		values := make([]string, 0, len(issues))
+		for _, issue := range issues {
+			values = append(values, issue.ID)
+		}
+		parts = append(parts, "issues=["+strings.Join(values, ",")+"]")
 	}
 	return strings.Join(parts, " ")
 }

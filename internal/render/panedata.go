@@ -1,5 +1,7 @@
 package render
 
+import "github.com/weill-labs/amux/internal/proto"
+
 // PaneData provides the data the compositor needs for rendering a pane.
 // Server-side *mux.Pane and client-side emulator+metadata adapters both
 // satisfy this interface.
@@ -20,8 +22,8 @@ type PaneData interface {
 	HasCursorBlock() bool
 	ID() uint32
 	Name() string
-	PRs() []string
-	Issues() []string
+	TrackedPRs() []proto.TrackedPR
+	TrackedIssues() []proto.TrackedIssue
 	Host() string
 	Task() string
 	Color() string

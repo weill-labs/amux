@@ -104,7 +104,7 @@ func newServerHarnessWithOptions(tb testing.TB, cols, rows int, configContent st
 	home := newTestHome(tb)
 	env := removeEnv(os.Environ(), "AMUX_EXIT_UNATTACHED")
 	env = upsertEnv(env, "HOME", home)
-	env = append(env, "AMUX_READY_FD=3", "AMUX_SHUTDOWN_FD=4", "AMUX_NO_WATCH=1")
+	env = append(env, "AMUX_READY_FD=3", "AMUX_SHUTDOWN_FD=4", "AMUX_NO_WATCH=1", "AMUX_DISABLE_META_REFRESH=1")
 	if exitUnattached {
 		env = append(env, "AMUX_EXIT_UNATTACHED=1")
 	}
