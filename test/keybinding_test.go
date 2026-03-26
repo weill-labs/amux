@@ -141,4 +141,14 @@ func TestDefaultBindingsWithoutConfig(t *testing.T) {
 	h.waitLayout(gen)
 
 	h.assertActive("pane-1")
+
+	// Ctrl-a a should add a pane without changing focus.
+	gen = h.generation()
+	h.sendKeys("C-a", "a")
+	h.waitLayout(gen)
+
+	h.assertActive("pane-1")
+	h.assertScreen("default add-pane should work", func(s string) bool {
+		return strings.Contains(s, "[pane-3]")
+	})
 }

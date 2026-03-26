@@ -14,6 +14,11 @@ type SplitArgs struct {
 	Name      string
 }
 
+type AddPaneArgs struct {
+	HostName string
+	Name     string
+}
+
 func ParseSplitArgs(args []string) (SplitArgs, error) {
 	parsed := SplitArgs{Dir: mux.SplitHorizontal}
 	hasExplicitDir := false
@@ -57,6 +62,31 @@ func ParseSplitArgs(args []string) (SplitArgs, error) {
 			} else {
 				return SplitArgs{}, fmt.Errorf("unknown split arg %q", args[i])
 			}
+		}
+	}
+
+	return parsed, nil
+}
+
+func ParseAddPaneArgs(args []string) (AddPaneArgs, error) {
+	parsed := AddPaneArgs{}
+
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--host":
+			if i+1 >= len(args) {
+				return AddPaneArgs{}, fmt.Errorf("--host requires a value")
+			}
+			parsed.HostName = args[i+1]
+			i++
+		case "--name":
+			if i+1 >= len(args) {
+				return AddPaneArgs{}, fmt.Errorf("--name requires a value")
+			}
+			parsed.Name = args[i+1]
+			i++
+		default:
+			return AddPaneArgs{}, fmt.Errorf("unknown add-pane arg %q", args[i])
 		}
 	}
 

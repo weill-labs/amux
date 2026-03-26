@@ -21,6 +21,9 @@ func TestDefaultKeybindings(t *testing.T) {
 	if b, ok := kb.Bindings['q']; !ok || b.Action != "display-panes" {
 		t.Error("default: q should be bound to display-panes")
 	}
+	if b, ok := kb.Bindings['a']; !ok || b.Action != "add-pane" {
+		t.Error("default: a should be bound to add-pane")
+	}
 	if b, ok := kb.Bindings['s']; !ok || b.Action != "choose-tree" {
 		t.Error("default: s should be bound to choose-tree")
 	}

@@ -123,6 +123,8 @@ func main() {
 			os.Exit(1)
 		}
 		runSessionCommand("split", splitArgs)
+	case "add-pane":
+		runSessionCommand("add-pane", args[1:])
 	case "list":
 		runSessionCommand("list", args[1:])
 	case "status":
@@ -437,6 +439,8 @@ Usage:
                                        Send keystrokes to a pane
   amux [-s session] broadcast (--panes <pane,pane,...> | --window <index|name> | --match <glob>) [--hex] <keys>...
                                        Send the same keystrokes to multiple panes
+  amux [-s session] add-pane [--name NAME] [--host HOST]
+                                       Add a pane in clockwise spiral order without changing focus
   amux [-s session] type-keys [--wait ui=input-idle] [--timeout <duration>] [--hex] <keys>...
                                        Type keys through client input pipeline
   amux [-s session] spawn --name NAME [--host HOST] [--task TASK] [--color COLOR]
@@ -531,6 +535,7 @@ Inside an amux session:
   Ctrl-a 1-9                         Select window by number
   Ctrl-a r                           Hot reload (re-exec binary)
   Ctrl-a d                           Detach from session
+  Ctrl-a a                           Add pane in clockwise spiral order
   Ctrl-a Ctrl-a                      Send literal Ctrl-a
 
 See https://github.com/weill-labs/amux for config format.`)
