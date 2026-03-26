@@ -171,3 +171,30 @@ func TestMainResetUsage(t *testing.T) {
 		t.Fatalf("reset usage output = %q", out)
 	}
 }
+
+func TestMainIssueUsage(t *testing.T) {
+	t.Parallel()
+
+	out, code := runHermeticMain(t, "issue")
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1\n%s", code, out)
+	}
+	if !strings.Contains(out, "usage: amux issue [pane] <issue>") {
+		t.Fatalf("issue usage output = %q", out)
+	}
+}
+
+func TestMainIssueDispatchesWithImplicitActorPane(t *testing.T) {
+	t.Parallel()
+
+	out, code := runHermeticMain(t, "issue", "LAB-445")
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1\n%s", code, out)
+	}
+	if strings.Contains(out, "usage: amux issue") {
+		t.Fatalf("issue should dispatch with a single issue argument, got usage output:\n%s", out)
+	}
+	if !strings.Contains(out, "server not running") {
+		t.Fatalf("issue should attempt the command, got:\n%s", out)
+	}
+}

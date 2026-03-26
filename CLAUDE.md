@@ -67,12 +67,15 @@ amux capture --format json pane-1 # single pane JSON
 
 ### Working In amux
 
-When working in an amux pane, set pane metadata when you start a Linear issue and update it again after opening a PR. Pane shells already have `$AMUX_PANE` set, so use that directly:
+When working in an amux pane, start Linear work with the helper command so the current pane is tagged automatically. Outside an amux pane, pass the pane explicitly. Update metadata again after opening a PR:
 
 ```bash
-amux add-meta "$AMUX_PANE" issue=LAB-XXX
+amux issue LAB-XXX
+amux issue pane-3 LAB-XXX
 amux add-meta "$AMUX_PANE" pr=NUMBER issue=LAB-XXX
 ```
+
+Claude's stop hook also checks for missing pane issue metadata before the session ends. Other agents can run `scripts/check-pane-issue-meta.sh` manually if needed.
 
 ### TDD Workflow
 

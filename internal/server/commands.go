@@ -104,4 +104,5 @@ var commandRegistry = map[string]CommandHandler{
 	"set-meta":       cmdSetMeta,
 	"add-meta":       cmdAddMeta,
 	"rm-meta":        cmdRmMeta,
+	"issue":          cmdIssue,
 }

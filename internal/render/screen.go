@@ -272,7 +272,7 @@ func buildStatusCells(g *ScreenGrid, cell *mux.LayoutCell, isActive bool, pd Pan
 	}
 	chars = appendStyledStr(chars, "["+pd.Name()+"]", nameStyle)
 
-	metaText := paneStatusMetadata(pd, availableMetadataWidth(cell.W, pd))
+	metaText := paneStatusMetadata(pd, availableMetadataWidth(cell.W, pd, isActive), isActive)
 
 	// Copy mode indicator
 	if pd.InCopyMode() {

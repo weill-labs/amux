@@ -27,10 +27,11 @@ func ParseCollectionArgs(kvPairs []string) (CollectionUpdate, error) {
 			}
 			update.PRs = append(update.PRs, pr)
 		case "issue":
-			if value == "" {
-				return CollectionUpdate{}, fmt.Errorf("invalid issue value: %q", value)
+			issue, err := ParseIssue(value)
+			if err != nil {
+				return CollectionUpdate{}, err
 			}
-			update.Issues = append(update.Issues, value)
+			update.Issues = append(update.Issues, issue)
 		default:
 			return CollectionUpdate{}, fmt.Errorf("unknown meta key: %q (valid: pr, issue)", key)
 		}
@@ -44,6 +45,14 @@ func ParsePR(value string) (int, error) {
 		return 0, fmt.Errorf("invalid pr value: %q", value)
 	}
 	return pr, nil
+}
+
+func ParseIssue(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", fmt.Errorf("invalid issue value: %q", value)
+	}
+	return value, nil
 }
 
 func RemoveIntValue(values []int, target int) []int {

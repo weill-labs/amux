@@ -269,6 +269,12 @@ func main() {
 			os.Exit(1)
 		}
 		runSessionCommand("rm-meta", args[1:])
+	case "issue":
+		if len(args) < 2 || len(args) > 3 {
+			fmt.Fprintf(os.Stderr, "usage: amux issue [pane] <issue>\n")
+			os.Exit(1)
+		}
+		runSessionCommand("issue", args[1:])
 
 	case "events":
 		runEventsCommand(resolvedSessionName, args[1:])
@@ -472,6 +478,8 @@ Usage:
                                        Add pane metadata values (pr=NUMBER, issue=ID)
   amux [-s session] rm-meta <pane> key=value [key=value...]
                                        Remove pane metadata values (pr=NUMBER, issue=ID)
+  amux [-s session] issue [pane] <issue>
+                                       Add a Linear issue tag to a pane (defaults to current pane)
   amux [-s session] new-window         Create a new window
   amux [-s session] list-windows       List all windows
   amux [-s session] select-window <n>  Switch to window by index or name
