@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -286,21 +287,29 @@ func handleSession(ctx context.Context, ch ssh.Channel, reqs <-chan *ssh.Request
 			req.Reply(true, nil)
 
 			execCtx, execCancel := context.WithTimeout(ctx, sshCmdTimeout)
-			cmd := exec.CommandContext(execCtx, "sh", "-c", command)
+			defer execCancel()
+
+			cmd := exec.Command("sh", "-c", command)
+			cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 			cmd.Env = upsertEnv(append([]string{}, execEnv...), "TERM", termType)
 			cmd.Stdout = ch
 			cmd.Stderr = ch.Stderr()
 			cmd.Stdin = ch
 
 			exitCode := 0
-			if err := cmd.Run(); err != nil {
-				if exitErr, ok := err.(*exec.ExitError); ok {
-					exitCode = exitErr.ExitCode()
-				} else {
-					exitCode = 1
+			if err := cmd.Start(); err != nil {
+				exitCode = 1
+			} else {
+				stopKill := watchCommandContext(execCtx, cmd)
+				if err := cmd.Wait(); err != nil {
+					if exitErr, ok := err.(*exec.ExitError); ok {
+						exitCode = exitErr.ExitCode()
+					} else {
+						exitCode = 1
+					}
 				}
+				stopKill()
 			}
-			execCancel()
 
 			// Send exit-status
 			exitMsg := make([]byte, 4)
@@ -391,17 +400,26 @@ type crToLFWriter struct {
 // the global timeout fires.
 const sshCmdTimeout = 60 * time.Second
 
+func watchCommandContext(ctx context.Context, cmd *exec.Cmd) func() {
+	done := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			if cmd.Process != nil {
+				_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+			}
+		case <-done:
+		}
+	}()
+	return func() { close(done) }
+}
+
 func runShellCommand(ctx context.Context, ch ssh.Channel, command string, execEnv []string, size *pty.Winsize, termType string) int {
 	cmdCtx, cancel := context.WithTimeout(ctx, sshCmdTimeout)
 	defer cancel()
 
 	cmd := exec.CommandContext(cmdCtx, "sh", "-c", command)
 	cmd.Env = upsertEnv(append([]string{}, execEnv...), "TERM", termType)
-	// Kill the child immediately when the context fires so children of
-	// "sh -c ..." don't outlive the test or the per-command deadline.
-	cmd.Cancel = func() error {
-		return cmd.Process.Kill()
-	}
 
 	ptmx, err := pty.StartWithSize(cmd, size)
 	if err != nil {
