@@ -313,6 +313,17 @@ func (e clipboardEvent) handle(s *Session) {
 	s.broadcastNow(&Message{Type: MsgTypeClipboard, PaneID: e.paneID, PaneData: e.data})
 }
 
+type crashCheckpointWrittenEvent struct {
+	path string
+}
+
+func (e crashCheckpointWrittenEvent) handle(s *Session) {
+	if e.path == "" {
+		return
+	}
+	s.ensureWaiters().recordCrashCheckpoint(e.path)
+}
+
 type idleTimeoutEvent struct {
 	paneID uint32
 }

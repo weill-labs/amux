@@ -235,7 +235,7 @@ func main() {
 		runSessionCommand("rename-window", []string{args[1]})
 	case "wait":
 		if len(args) < 2 {
-			fmt.Fprintln(os.Stderr, "usage: amux wait <idle|busy|vt-idle|ready|content|layout|clipboard|ui> ...")
+			fmt.Fprintln(os.Stderr, "usage: amux wait <idle|busy|vt-idle|ready|content|layout|clipboard|checkpoint|ui> ...")
 			os.Exit(1)
 		}
 		runSessionCommand("wait", args[1:])
@@ -511,6 +511,8 @@ Usage:
                                        Block until pane has child processes
   amux [-s session] wait idle <pane> [--timeout 5s]
                                        Block until pane becomes idle
+  amux [-s session] wait checkpoint [--after N] [--timeout 15s]
+                                       Block until a crash checkpoint write completes
   amux [-s session] wait ui <event> [--client <id>] [--after N] [--timeout 5s]
                                        Block until a client-local UI state is reached
   amux install-terminfo                Install amux terminfo into ~/.terminfo

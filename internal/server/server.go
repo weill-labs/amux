@@ -304,7 +304,11 @@ func (s *Session) writeCrashCheckpoint() {
 	}
 	if err := checkpoint.WriteCrash(cp, s.Name, s.startedAt); err != nil {
 		fmt.Fprintf(os.Stderr, "amux: crash checkpoint write: %v\n", err)
+		return
 	}
+	s.enqueueEvent(crashCheckpointWrittenEvent{
+		path: checkpoint.CrashCheckpointPathTimestamped(s.Name, s.startedAt),
+	})
 }
 
 func (s *Session) hasClient(cc *clientConn) bool {

@@ -44,7 +44,7 @@ func TestMainWaitUsage(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("exit code = %d, want 1\n%s", code, out)
 	}
-	if !strings.Contains(out, "usage: amux wait <idle|busy|vt-idle|ready|content|layout|clipboard|ui> ...") {
+	if !strings.Contains(out, "usage: amux wait <idle|busy|vt-idle|ready|content|layout|clipboard|checkpoint|ui> ...") {
 		t.Fatalf("wait usage output = %q", out)
 	}
 }
@@ -144,6 +144,18 @@ func TestMainTypeKeysUsageIncludesWaitFlags(t *testing.T) {
 	}
 	if !strings.Contains(out, "usage: amux type-keys [--wait ui=input-idle] [--timeout <duration>] [--hex] <keys>...") {
 		t.Fatalf("type-keys usage output missing wait flags:\n%s", out)
+	}
+}
+
+func TestMainHelpIncludesWaitCheckpoint(t *testing.T) {
+	t.Parallel()
+
+	out, code := runHermeticMain(t, "help")
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0\n%s", code, out)
+	}
+	if !strings.Contains(out, "amux [-s session] wait checkpoint [--after N] [--timeout 15s]") {
+		t.Fatalf("help output missing wait-checkpoint:\n%s", out)
 	}
 }
 
