@@ -257,32 +257,20 @@ func TestPrePushHookSyncsPanePRMeta(t *testing.T) {
 
 	tempDir := t.TempDir()
 	copyIssueMetaFixture(t, tempDir, ".githooks/pre-push")
-	copyIssueMetaFixture(t, tempDir, "scripts/sync-pane-pr-meta.sh")
-	amuxLogPath := filepath.Join(tempDir, "amux.log")
+	syncLogPath := filepath.Join(tempDir, "sync.log")
+	syncScriptPath := filepath.Join(tempDir, "scripts/sync-pane-pr-meta.sh")
+	diffCoveragePath := filepath.Join(tempDir, "scripts/check-diff-coverage.sh")
 
-	amuxPath := filepath.Join(tempDir, "amux")
-	if err := os.WriteFile(amuxPath, []byte(`#!/bin/sh
-if [ "$1" = "capture" ]; then
-cat <<'EOF'
-{"meta":{"tracked_issues":[{"id":"LAB-445","status":"active"}]}}
-EOF
-exit 0
-fi
-printf '%s' "$1" >"$FAKE_AMUX_LOG"
-shift
-for arg in "$@"; do
-    printf ' %s' "$arg" >>"$FAKE_AMUX_LOG"
-done
-printf '\n' >>"$FAKE_AMUX_LOG"
-`), 0755); err != nil {
-		t.Fatalf("write fake amux: %v", err)
+	if err := os.MkdirAll(filepath.Dir(syncScriptPath), 0755); err != nil {
+		t.Fatalf("mkdir scripts dir: %v", err)
 	}
-
-	ghPath := filepath.Join(tempDir, "gh")
-	if err := os.WriteFile(ghPath, []byte(`#!/bin/sh
-printf '422\n'
+	if err := os.WriteFile(syncScriptPath, []byte(`#!/bin/sh
+printf 'sync\n' >"$FAKE_SYNC_LOG"
 `), 0755); err != nil {
-		t.Fatalf("write fake gh: %v", err)
+		t.Fatalf("write fake sync script: %v", err)
+	}
+	if err := os.WriteFile(diffCoveragePath, []byte("#!/bin/sh\nexit 0\n"), 0755); err != nil {
+		t.Fatalf("write fake diff coverage script: %v", err)
 	}
 
 	initRepo := exec.Command("git", "init", "-q")
@@ -293,18 +281,19 @@ printf '422\n'
 
 	cmd := exec.Command("bash", filepath.Join(tempDir, ".githooks/pre-push"), "origin", "git@github.com:weill-labs/amux.git")
 	cmd.Dir = tempDir
-	cmd.Env = issueMetaScriptEnv(tempDir, "FAKE_AMUX_LOG="+amuxLogPath)
+	cmd.Env = issueMetaScriptEnv(tempDir, "FAKE_SYNC_LOG="+syncLogPath)
+	cmd.Stdin = strings.NewReader("refs/heads/pr-476 1111111111111111111111111111111111111111 refs/heads/pr-476 2222222222222222222222222222222222222222\n")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("expected success: %v\n%s", err, out)
 	}
 
-	amuxLog, err := os.ReadFile(amuxLogPath)
+	syncLog, err := os.ReadFile(syncLogPath)
 	if err != nil {
-		t.Fatalf("read fake amux log: %v", err)
+		t.Fatalf("read fake sync log: %v", err)
 	}
-	if strings.TrimSpace(string(amuxLog)) != "add-meta 7 pr=422 issue=LAB-445" {
-		t.Fatalf("amux args = %q, want %q", amuxLog, "add-meta 7 pr=422 issue=LAB-445")
+	if strings.TrimSpace(string(syncLog)) != "sync" {
+		t.Fatalf("sync log = %q, want %q", syncLog, "sync")
 	}
 }
 
