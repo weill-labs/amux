@@ -49,6 +49,7 @@ type ServerHarness struct {
 	commandConnMu     sync.Mutex
 	lastCommandConn   net.Conn
 	awaitingReconnect bool
+	postReloadProbes  bool
 
 	diagMu         sync.Mutex
 	currentWait    string
@@ -478,9 +479,48 @@ var attachedClientFallbackSafeCommands = map[string]bool{
 	"wait":         true,
 }
 
-func (h *ServerHarness) canUseAttachedClient(cmdName string) bool {
+func attachedClientAllowedAfterReload(args []string) bool {
+	if len(args) == 0 {
+		return false
+	}
+	return attachedClientFallbackSafeCommands[args[0]]
+}
+
+func (h *ServerHarness) attachedClientKnowsPane(ref string) bool {
+	if h == nil || h.client == nil || ref == "" {
+		return false
+	}
+
+	var capture proto.CaptureJSON
+	if err := json.Unmarshal([]byte(h.client.renderer.CaptureJSON(nil)), &capture); err != nil {
+		return false
+	}
+	for _, pane := range capture.Panes {
+		if pane.Name == ref || strings.HasPrefix(pane.Name, ref) || strconv.FormatUint(uint64(pane.ID), 10) == ref {
+			return true
+		}
+	}
+	return false
+}
+
+func (h *ServerHarness) canUseAttachedClient(args []string) bool {
+	if len(args) == 0 {
+		return false
+	}
+	cmdName := args[0]
 	if !attachedClientCommands[cmdName] {
 		return false
+	}
+	h.commandConnMu.Lock()
+	postReloadProbes := h.postReloadProbes
+	h.commandConnMu.Unlock()
+	if postReloadProbes {
+		switch {
+		case attachedClientAllowedAfterReload(args):
+		case cmdName == "send-keys" && len(args) >= 2 && h.attachedClientKnowsPane(args[1]):
+		default:
+			return false
+		}
 	}
 	if h.client == nil || h.client.isClosing() {
 		return false
@@ -649,7 +689,9 @@ func (h *ServerHarness) runCmdWithTimeout(timeout time.Duration, track bool, arg
 
 	// The reload command itself must use a short-lived CLI subprocess because
 	// it intentionally tears down the attached client connection mid-command.
-	// Subsequent commands should reuse the reconnected headless client.
+	// Subsequent read-only probes can reuse the reconnected headless client.
+	// Mutating commands keep the CLI subprocess path after reload because
+	// takeover flows depend on the extra handshake time that path preserves.
 	forceSubprocess := args[0] == "reload-server"
 	if forceSubprocess {
 		h.commandConnMu.Lock()
@@ -659,10 +701,11 @@ func (h *ServerHarness) runCmdWithTimeout(timeout time.Duration, track bool, arg
 			h.lastCommandConn = nil
 		}
 		h.awaitingReconnect = true
+		h.postReloadProbes = true
 		h.commandConnMu.Unlock()
 	}
 
-	if !forceSubprocess && h.canUseAttachedClient(args[0]) && h.waitForAttachedClientReady(timeout) {
+	if !forceSubprocess && h.canUseAttachedClient(args) && h.waitForAttachedClientReady(timeout) {
 		out, err := h.runAttachedClientCommand(timeout, args...)
 		if err == nil || !attachedClientFallbackSafeCommands[args[0]] {
 			return out, err
@@ -1600,6 +1643,52 @@ func TestServerHarnessRunCmdKeepsWorkingWithoutSocketPath(t *testing.T) {
 	if !strings.Contains(out, "panes: 1 total") {
 		t.Fatalf("status should still work through attached client after socket unlink, got:\n%s", out)
 	}
+}
+
+func TestServerHarnessRunCmdPostReloadModeKeepsRemoteMutationsOnCLIPath(t *testing.T) {
+	t.Parallel()
+
+	h := newServerHarness(t)
+	h.commandConnMu.Lock()
+	h.postReloadProbes = true
+	h.lastCommandConn = h.client.currentConn()
+	h.commandConnMu.Unlock()
+
+	sockPath := server.SocketPath(h.session)
+	if err := os.Remove(sockPath); err != nil {
+		t.Fatalf("Remove(%s): %v", sockPath, err)
+	}
+
+	if out := h.runCmd("status"); !strings.Contains(out, "panes: 1 total") {
+		t.Fatalf("status should still work through attached client in post-reload mode, got:\n%s", out)
+	}
+
+	out := h.runCmd("send-keys", "pane-1@remote", "x")
+	if !isCommandConnectError(out) {
+		t.Fatalf("remote send-keys should still use the CLI path in post-reload mode, got:\n%s", out)
+	}
+}
+
+func TestServerHarnessRunCmdPostReloadModeKeepsKnownPaneSendKeysOnAttachedClient(t *testing.T) {
+	t.Parallel()
+
+	h := newServerHarness(t)
+	h.commandConnMu.Lock()
+	h.postReloadProbes = true
+	h.lastCommandConn = h.client.currentConn()
+	h.commandConnMu.Unlock()
+
+	sockPath := server.SocketPath(h.session)
+	if err := os.Remove(sockPath); err != nil {
+		t.Fatalf("Remove(%s): %v", sockPath, err)
+	}
+
+	out := h.runCmd("send-keys", "pane-1", "echo POST_RELOAD_ATTACHED", "Enter")
+	if strings.Contains(out, "not found") || isCommandConnectError(out) {
+		t.Fatalf("known-pane send-keys should stay on the attached client in post-reload mode, got:\n%s", out)
+	}
+
+	h.waitForTimeout("pane-1", "POST_RELOAD_ATTACHED", "5s")
 }
 
 func TestServerHarnessRunCmdFallsBackWhenHeadlessClientDetached(t *testing.T) {
