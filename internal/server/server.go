@@ -107,7 +107,7 @@ type Session struct {
 
 	// Exit-unattached: server exits when all clients disconnect after
 	// at least one has connected. Used by test harness to avoid orphans.
-	hadClient  bool    // true after first client attaches
+	hadClient  bool    // true after first interactive client attaches
 	exitServer *Server // back-reference to trigger shutdown
 
 	// wantShutdown is set by event handlers that want the server to exit

@@ -6,6 +6,9 @@ package proto
 type AttachMode uint8
 
 const (
+	// AttachModeDefault exists for wire compatibility with older clients that
+	// omitted the field entirely. New code should use AttachModeInteractive or
+	// AttachModeNonInteractive explicitly.
 	AttachModeDefault AttachMode = iota
 	AttachModeInteractive
 	AttachModeNonInteractive
