@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -21,6 +22,7 @@ const linearGraphQLEndpoint = "https://api.linear.app/graphql"
 type TrackedMetaResolver interface {
 	ResolvePR(cwd string, number int) (proto.TrackedStatus, error)
 	ResolveIssue(id string) (proto.TrackedStatus, error)
+	TransitionIssueToStartedIfNeeded(id string) error
 }
 
 type externalTrackedMetaResolver struct {
@@ -60,9 +62,45 @@ type linearIssueResponse struct {
 			} `json:"state"`
 		} `json:"issue"`
 	} `json:"data"`
-	Errors []struct {
-		Message string `json:"message"`
-	} `json:"errors"`
+	Errors []linearGraphQLError `json:"errors"`
+}
+
+type linearGraphQLError struct {
+	Message string `json:"message"`
+}
+
+type linearStartedStateQueryResponse struct {
+	Data struct {
+		Issue *struct {
+			State struct {
+				Type string `json:"type"`
+			} `json:"state"`
+			Team struct {
+				States struct {
+					Nodes []linearWorkflowState `json:"nodes"`
+				} `json:"states"`
+			} `json:"team"`
+		} `json:"issue"`
+	} `json:"data"`
+	Errors []linearGraphQLError `json:"errors"`
+}
+
+type linearWorkflowState struct {
+	ID       string  `json:"id"`
+	Type     string  `json:"type"`
+	Position float64 `json:"position"`
+}
+
+type linearIssueUpdateResponse struct {
+	Data struct {
+		IssueUpdate struct {
+			Success bool `json:"success"`
+			Issue   *struct {
+				ID string `json:"id"`
+			} `json:"issue"`
+		} `json:"issueUpdate"`
+	} `json:"data"`
+	Errors []linearGraphQLError `json:"errors"`
 }
 
 func NewExternalTrackedMetaResolver() TrackedMetaResolver {
@@ -110,41 +148,11 @@ func (r *externalTrackedMetaResolver) ResolvePR(cwd string, number int) (proto.T
 }
 
 func (r *externalTrackedMetaResolver) ResolveIssue(id string) (proto.TrackedStatus, error) {
-	if r.linearToken == "" {
-		return proto.TrackedStatusUnknown, fmt.Errorf("LINEAR_API_KEY is not set")
-	}
-
-	payload := map[string]any{
-		"query": `query($id: String!) { issue(id: $id) { state { type } } }`,
-		"variables": map[string]string{
-			"id": id,
-		},
-	}
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return proto.TrackedStatusUnknown, fmt.Errorf("marshal Linear request: %w", err)
-	}
-
-	req, err := http.NewRequest(http.MethodPost, r.linearEndpoint, bytes.NewReader(body))
-	if err != nil {
-		return proto.TrackedStatusUnknown, fmt.Errorf("build Linear request: %w", err)
-	}
-	req.Header.Set("Authorization", r.linearToken)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := r.httpClient.Do(req)
-	if err != nil {
-		return proto.TrackedStatusUnknown, fmt.Errorf("Linear issue %s: %w", id, err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return proto.TrackedStatusUnknown, fmt.Errorf("Linear issue %s: unexpected status %s", id, resp.Status)
-	}
-
 	decoded := linearIssueResponse{}
-	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
-		return proto.TrackedStatusUnknown, fmt.Errorf("decode Linear response: %w", err)
+	if err := r.doLinearGraphQL(`query($id: String!) { issue(id: $id) { state { type } } }`, map[string]string{
+		"id": id,
+	}, &decoded); err != nil {
+		return proto.TrackedStatusUnknown, fmt.Errorf("Linear issue %s: %w", id, err)
 	}
 	if len(decoded.Errors) > 0 {
 		return proto.TrackedStatusUnknown, fmt.Errorf("Linear issue %s: %s", id, decoded.Errors[0].Message)
@@ -156,6 +164,131 @@ func (r *externalTrackedMetaResolver) ResolveIssue(id string) (proto.TrackedStat
 		return proto.TrackedStatusCompleted, nil
 	}
 	return proto.TrackedStatusActive, nil
+}
+
+func (r *externalTrackedMetaResolver) TransitionIssueToStartedIfNeeded(id string) error {
+	decoded := linearStartedStateQueryResponse{}
+	if err := r.doLinearGraphQL(`query TeamStartedStatuses($id: String!) {
+  issue(id: $id) {
+    state {
+      type
+    }
+    team {
+      states(filter: { type: { eq: "started" } }) {
+        nodes {
+          id
+          type
+          position
+        }
+      }
+    }
+  }
+}`, map[string]string{
+		"id": id,
+	}, &decoded); err != nil {
+		return fmt.Errorf("Linear issue %s: %w", id, err)
+	}
+	if len(decoded.Errors) > 0 {
+		return fmt.Errorf("Linear issue %s: %s", id, decoded.Errors[0].Message)
+	}
+	if decoded.Data.Issue == nil {
+		return fmt.Errorf("Linear issue %s: not found", id)
+	}
+	stateType := strings.ToLower(strings.TrimSpace(decoded.Data.Issue.State.Type))
+	if stateType != "backlog" && stateType != "unstarted" {
+		return nil
+	}
+
+	nextStateID := firstStartedWorkflowStateID(decoded.Data.Issue.Team.States.Nodes)
+	if nextStateID == "" {
+		return fmt.Errorf("Linear issue %s: no started state found", id)
+	}
+
+	update := linearIssueUpdateResponse{}
+	if err := r.doLinearGraphQL(`mutation IssueUpdate($id: String!, $stateId: String!) {
+  issueUpdate(id: $id, input: { stateId: $stateId }) {
+    success
+    issue {
+      id
+    }
+  }
+}`, map[string]string{
+		"id":      id,
+		"stateId": nextStateID,
+	}, &update); err != nil {
+		return fmt.Errorf("Linear issue %s: %w", id, err)
+	}
+	if len(update.Errors) > 0 {
+		return fmt.Errorf("Linear issue %s: %s", id, update.Errors[0].Message)
+	}
+	if !update.Data.IssueUpdate.Success || update.Data.IssueUpdate.Issue == nil {
+		return fmt.Errorf("Linear issue %s: issueUpdate failed", id)
+	}
+	return nil
+}
+
+func (r *externalTrackedMetaResolver) doLinearGraphQL(query string, variables any, out any) error {
+	if strings.TrimSpace(r.linearToken) == "" {
+		return fmt.Errorf("LINEAR_API_KEY is not set")
+	}
+
+	payload := map[string]any{
+		"query":     query,
+		"variables": variables,
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("marshal Linear request: %w", err)
+	}
+
+	endpoint := r.linearEndpoint
+	if endpoint == "" {
+		endpoint = linearGraphQLEndpoint
+	}
+	req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("build Linear request: %w", err)
+	}
+	req.Header.Set("Authorization", r.linearToken)
+	req.Header.Set("Content-Type", "application/json")
+
+	client := r.httpClient
+	if client == nil {
+		client = &http.Client{Timeout: 5 * time.Second}
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("unexpected status %s", resp.Status)
+	}
+	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+		return fmt.Errorf("decode Linear response: %w", err)
+	}
+	return nil
+}
+
+func firstStartedWorkflowStateID(states []linearWorkflowState) string {
+	filtered := make([]linearWorkflowState, 0, len(states))
+	for _, state := range states {
+		if strings.EqualFold(strings.TrimSpace(state.Type), "started") {
+			filtered = append(filtered, state)
+		}
+	}
+	if len(filtered) == 0 {
+		return ""
+	}
+	sorted := append([]linearWorkflowState(nil), filtered...)
+	sort.Slice(sorted, func(i, j int) bool {
+		if sorted[i].Position == sorted[j].Position {
+			return sorted[i].ID < sorted[j].ID
+		}
+		return sorted[i].Position < sorted[j].Position
+	})
+	return sorted[0].ID
 }
 
 func (snap trackedPaneRefreshSnapshot) resolvedCwd() string {
@@ -350,6 +483,35 @@ func (s *Session) refreshTrackedMetaAsync() {
 		}
 		for _, snap := range snaps {
 			_ = s.refreshTrackedMetaSnapshot(snap)
+		}
+	}()
+}
+
+func (s *Session) transitionTrackedIssuesToStartedAsync(issueIDs []string) {
+	if s == nil || s.TrackedMetaResolver == nil || len(issueIDs) == 0 {
+		return
+	}
+
+	unique := make([]string, 0, len(issueIDs))
+	seen := make(map[string]struct{}, len(issueIDs))
+	for _, id := range issueIDs {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		unique = append(unique, id)
+	}
+	if len(unique) == 0 {
+		return
+	}
+
+	go func() {
+		for _, id := range unique {
+			_ = s.TrackedMetaResolver.TransitionIssueToStartedIfNeeded(id)
 		}
 	}()
 }

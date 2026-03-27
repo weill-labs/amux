@@ -17,17 +17,17 @@ import (
 )
 
 type stubTrackedMetaResolver struct {
-	mu                   sync.Mutex
-	prStatus    map[int]proto.TrackedStatus
-	prErr       map[int]error
-	issueStatus map[string]proto.TrackedStatus
-	issueErr    map[string]error
+	mu                     sync.Mutex
+	prStatus               map[int]proto.TrackedStatus
+	prErr                  map[int]error
+	issueStatus            map[string]proto.TrackedStatus
+	issueErr               map[string]error
 	issueTransitionErr     map[string]error
 	issueTransitionCalls   []string
 	issueTransitionStarted chan string
 	issueTransitionRelease <-chan struct{}
-	prCalls     []stubPRCall
-	issueCalls  []string
+	prCalls                []stubPRCall
+	issueCalls             []string
 }
 
 type stubPRCall struct {
