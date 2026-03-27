@@ -76,6 +76,9 @@ func cmdAddMeta(ctx *CommandContext) {
 			res.err = err
 		}
 	}
+	if res.err == nil {
+		ctx.Sess.transitionTrackedIssuesToStartedAsync(update.Issues)
+	}
 	ctx.replyCommandMutation(res)
 }
 

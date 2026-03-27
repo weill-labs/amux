@@ -7,7 +7,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/mux"
@@ -15,12 +17,17 @@ import (
 )
 
 type stubTrackedMetaResolver struct {
-	prStatus    map[int]proto.TrackedStatus
-	prErr       map[int]error
-	issueStatus map[string]proto.TrackedStatus
-	issueErr    map[string]error
-	prCalls     []stubPRCall
-	issueCalls  []string
+	mu                     sync.Mutex
+	prStatus               map[int]proto.TrackedStatus
+	prErr                  map[int]error
+	issueStatus            map[string]proto.TrackedStatus
+	issueErr               map[string]error
+	issueTransitionErr     map[string]error
+	issueTransitionCalls   []string
+	issueTransitionStarted chan string
+	issueTransitionRelease <-chan struct{}
+	prCalls                []stubPRCall
+	issueCalls             []string
 }
 
 type stubPRCall struct {
@@ -29,6 +36,8 @@ type stubPRCall struct {
 }
 
 func (r *stubTrackedMetaResolver) ResolvePR(cwd string, number int) (proto.TrackedStatus, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.prCalls = append(r.prCalls, stubPRCall{cwd: cwd, number: number})
 	if err := r.prErr[number]; err != nil {
 		return proto.TrackedStatusUnknown, err
@@ -40,6 +49,8 @@ func (r *stubTrackedMetaResolver) ResolvePR(cwd string, number int) (proto.Track
 }
 
 func (r *stubTrackedMetaResolver) ResolveIssue(id string) (proto.TrackedStatus, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.issueCalls = append(r.issueCalls, id)
 	if err := r.issueErr[id]; err != nil {
 		return proto.TrackedStatusUnknown, err
@@ -48,6 +59,44 @@ func (r *stubTrackedMetaResolver) ResolveIssue(id string) (proto.TrackedStatus, 
 		return status, nil
 	}
 	return proto.TrackedStatusActive, nil
+}
+
+func (r *stubTrackedMetaResolver) TransitionIssueToStartedIfNeeded(id string) error {
+	r.mu.Lock()
+	r.issueTransitionCalls = append(r.issueTransitionCalls, id)
+	err := r.issueTransitionErr[id]
+	started := r.issueTransitionStarted
+	release := r.issueTransitionRelease
+	r.mu.Unlock()
+
+	if started != nil {
+		select {
+		case started <- id:
+		default:
+		}
+	}
+	if release != nil {
+		<-release
+	}
+	return err
+}
+
+func (r *stubTrackedMetaResolver) prCallsSnapshot() []stubPRCall {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]stubPRCall(nil), r.prCalls...)
+}
+
+func (r *stubTrackedMetaResolver) issueCallsSnapshot() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.issueCalls...)
+}
+
+func (r *stubTrackedMetaResolver) issueTransitionCallsSnapshot() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.issueTransitionCalls...)
 }
 
 func TestCmdRefreshMetaUsesActivePaneWhenPaneOmitted(t *testing.T) {
@@ -112,11 +161,13 @@ func TestCmdRefreshMetaUsesActivePaneWhenPaneOmitted(t *testing.T) {
 		t.Fatal("tracked issue checked_at should be set")
 	}
 
-	if len(resolver.prCalls) != 1 || resolver.prCalls[0].cwd != "/tmp/repo" || resolver.prCalls[0].number != 42 {
-		t.Fatalf("resolver PR calls = %#v, want [/tmp/repo 42]", resolver.prCalls)
+	prCalls := resolver.prCallsSnapshot()
+	if len(prCalls) != 1 || prCalls[0].cwd != "/tmp/repo" || prCalls[0].number != 42 {
+		t.Fatalf("resolver PR calls = %#v, want [/tmp/repo 42]", prCalls)
 	}
-	if len(resolver.issueCalls) != 1 || resolver.issueCalls[0] != "LAB-450" {
-		t.Fatalf("resolver issue calls = %#v, want [LAB-450]", resolver.issueCalls)
+	issueCalls := resolver.issueCallsSnapshot()
+	if len(issueCalls) != 1 || issueCalls[0] != "LAB-450" {
+		t.Fatalf("resolver issue calls = %#v, want [LAB-450]", issueCalls)
 	}
 }
 
@@ -169,8 +220,9 @@ func TestCmdRefreshMetaUsesExplicitPane(t *testing.T) {
 	if got := meta.TrackedPRs[0].Status; got != proto.TrackedStatusCompleted {
 		t.Fatalf("tracked PR status = %q, want completed", got)
 	}
-	if len(resolver.prCalls) != 1 || resolver.prCalls[0].cwd != "/tmp/target" || resolver.prCalls[0].number != 73 {
-		t.Fatalf("resolver PR calls = %#v, want [/tmp/target 73]", resolver.prCalls)
+	prCalls := resolver.prCallsSnapshot()
+	if len(prCalls) != 1 || prCalls[0].cwd != "/tmp/target" || prCalls[0].number != 73 {
+		t.Fatalf("resolver PR calls = %#v, want [/tmp/target 73]", prCalls)
 	}
 }
 
@@ -234,6 +286,74 @@ func TestCmdAddMetaReaddsRefreshExistingRefsAndMarksFailuresStale(t *testing.T) 
 	}
 	if meta.TrackedIssues[0].CheckedAt == "" || meta.TrackedIssues[0].CheckedAt == "old-issue" {
 		t.Fatalf("tracked issue checked_at = %q, want updated timestamp", meta.TrackedIssues[0].CheckedAt)
+	}
+}
+
+func TestCmdAddMetaTransitionsTrackedIssuesAsync(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	release := make(chan struct{})
+	resolver := &stubTrackedMetaResolver{
+		issueTransitionStarted: make(chan string, 1),
+		issueTransitionRelease: release,
+	}
+	sess.TrackedMetaResolver = resolver
+
+	pane := newProxyPane(1, mux.PaneMeta{
+		Name:  "pane-1",
+		Host:  mux.DefaultHost,
+		Color: config.AccentColor(0),
+		Dir:   "/tmp/repo",
+	}, 80, 23, sess.paneOutputCallback(), sess.paneExitCallback(), func(data []byte) (int, error) {
+		return len(data), nil
+	})
+	window := newTestWindowWithPanes(t, sess, 1, "main", pane)
+	sess.Windows = []*mux.Window{window}
+	sess.ActiveWindowID = window.ID
+	sess.Panes = []*mux.Pane{pane}
+
+	done := make(chan struct {
+		output string
+		cmdErr string
+	}, 1)
+	go func() {
+		done <- runTestCommand(t, srv, sess, "add-meta", "pane-1", "issue=LAB-488")
+	}()
+
+	select {
+	case got := <-resolver.issueTransitionStarted:
+		if got != "LAB-488" {
+			t.Fatalf("transition started for %q, want LAB-488", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for async issue transition")
+	}
+
+	select {
+	case res := <-done:
+		if res.cmdErr != "" {
+			t.Fatalf("add-meta error: %s", res.cmdErr)
+		}
+	case <-time.After(250 * time.Millisecond):
+		t.Fatal("add-meta blocked on issue transition")
+	}
+	close(release)
+
+	if got := resolver.issueTransitionCallsSnapshot(); len(got) != 1 || got[0] != "LAB-488" {
+		t.Fatalf("issue transition calls = %#v, want [LAB-488]", got)
+	}
+
+	meta := mustSessionQuery(t, sess, func(sess *Session) mux.PaneMeta {
+		return sess.findPaneByID(pane.ID).Meta
+	})
+	if got := len(meta.TrackedIssues); got != 1 {
+		t.Fatalf("tracked issues len = %d, want 1", got)
+	}
+	if got := meta.TrackedIssues[0].ID; got != "LAB-488" {
+		t.Fatalf("tracked issue id = %q, want LAB-488", got)
 	}
 }
 
@@ -447,6 +567,81 @@ func TestExternalTrackedMetaResolverResolveIssue(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestExternalTrackedMetaResolverTransitionIssueToStartedIfNeeded(t *testing.T) {
+	t.Parallel()
+
+	t.Run("missing token", func(t *testing.T) {
+		t.Parallel()
+
+		resolver := &externalTrackedMetaResolver{}
+		err := resolver.TransitionIssueToStartedIfNeeded("LAB-488")
+		if err == nil || !strings.Contains(err.Error(), "LINEAR_API_KEY is not set") {
+			t.Fatalf("TransitionIssueToStartedIfNeeded() err = %v, want missing token error", err)
+		}
+	})
+
+	t.Run("transitions backlog issue to first started state", func(t *testing.T) {
+		t.Parallel()
+
+		var mutationStateID string
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var payload struct {
+				Query     string                 `json:"query"`
+				Variables map[string]interface{} `json:"variables"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode request: %v", err)
+			}
+			switch {
+			case strings.Contains(payload.Query, "issueUpdate"):
+				stateID, _ := payload.Variables["stateId"].(string)
+				mutationStateID = stateID
+				_, _ = io.WriteString(w, `{"data":{"issueUpdate":{"success":true,"issue":{"id":"LAB-488"}}}}`)
+			default:
+				_, _ = io.WriteString(w, `{"data":{"issue":{"state":{"type":"backlog"},"team":{"states":{"nodes":[{"id":"started-later","type":"started","position":20},{"id":"backlog-1","type":"backlog","position":5},{"id":"started-first","type":"started","position":10}]}}}}}`)
+			}
+		}))
+		defer server.Close()
+
+		resolver := &externalTrackedMetaResolver{
+			httpClient:     server.Client(),
+			linearToken:    "token",
+			linearEndpoint: server.URL,
+		}
+
+		if err := resolver.TransitionIssueToStartedIfNeeded("LAB-488"); err != nil {
+			t.Fatalf("TransitionIssueToStartedIfNeeded() err = %v, want nil", err)
+		}
+		if mutationStateID != "started-first" {
+			t.Fatalf("issueUpdate stateId = %q, want started-first", mutationStateID)
+		}
+	})
+
+	t.Run("skips transition for started issue", func(t *testing.T) {
+		t.Parallel()
+
+		requests := 0
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			requests++
+			_, _ = io.WriteString(w, `{"data":{"issue":{"state":{"type":"started"},"team":{"states":{"nodes":[{"id":"started-first","type":"started","position":10}]}}}}}`)
+		}))
+		defer server.Close()
+
+		resolver := &externalTrackedMetaResolver{
+			httpClient:     server.Client(),
+			linearToken:    "token",
+			linearEndpoint: server.URL,
+		}
+
+		if err := resolver.TransitionIssueToStartedIfNeeded("LAB-488"); err != nil {
+			t.Fatalf("TransitionIssueToStartedIfNeeded() err = %v, want nil", err)
+		}
+		if requests != 1 {
+			t.Fatalf("Linear requests = %d, want 1 query and no mutation", requests)
+		}
+	})
 }
 
 func TestApplyTrackedMetaRefreshResults(t *testing.T) {
