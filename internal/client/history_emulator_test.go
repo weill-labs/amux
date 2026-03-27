@@ -7,7 +7,7 @@ import (
 	"github.com/weill-labs/amux/internal/mux"
 )
 
-func TestHistoryEmulatorCellAccess(t *testing.T) {
+func TestPaneBufferSnapshotCellAccess(t *testing.T) {
 	t.Parallel()
 
 	emu := newTestVTEmulator(20, 1)
@@ -15,13 +15,9 @@ func TestHistoryEmulatorCellAccess(t *testing.T) {
 		t.Fatalf("Write: %v", err)
 	}
 
-	h := &historyEmulator{
-		emu:             emu,
-		baseHistory:     []string{"base"},
-		scrollbackLines: mux.DefaultScrollbackLines,
-	}
+	snap := capturePaneBufferSnapshot(emu, []string{"base"}, mux.DefaultScrollbackLines)
 
-	screen := h.ScreenCellAt(0, 0)
+	screen := snap.ScreenCellAt(0, 0)
 	if screen.Char != "n" {
 		t.Fatalf("ScreenCellAt(0, 0).Char = %q, want %q", screen.Char, "n")
 	}
@@ -30,7 +26,7 @@ func TestHistoryEmulatorCellAccess(t *testing.T) {
 	}
 	assertSameColor(t, screen.Style.Fg, ansi.BasicColor(2))
 
-	base := h.ScrollbackCellAt(0, 0)
+	base := snap.ScrollbackCellAt(0, 0)
 	if base.Char != "b" {
 		t.Fatalf("ScrollbackCellAt(0, 0).Char = %q, want %q", base.Char, "b")
 	}
@@ -38,7 +34,7 @@ func TestHistoryEmulatorCellAccess(t *testing.T) {
 		t.Fatalf("ScrollbackCellAt(0, 0).Style.Fg = %v, want nil", base.Style.Fg)
 	}
 
-	live := h.ScrollbackCellAt(0, 1)
+	live := snap.ScrollbackCellAt(0, 1)
 	if live.Char != "r" {
 		t.Fatalf("ScrollbackCellAt(0, 1).Char = %q, want %q", live.Char, "r")
 	}
@@ -48,19 +44,15 @@ func TestHistoryEmulatorCellAccess(t *testing.T) {
 	assertSameColor(t, live.Style.Fg, ansi.BasicColor(1))
 }
 
-func TestHistoryEmulatorScrollbackCellAtOutOfRange(t *testing.T) {
+func TestPaneBufferSnapshotScrollbackCellAtOutOfRange(t *testing.T) {
 	t.Parallel()
 
-	h := &historyEmulator{
-		emu:             newTestVTEmulator(20, 1),
-		baseHistory:     []string{"base"},
-		scrollbackLines: mux.DefaultScrollbackLines,
-	}
+	snap := capturePaneBufferSnapshot(newTestVTEmulator(20, 1), []string{"base"}, mux.DefaultScrollbackLines)
 
-	if got := h.ScrollbackCellAt(0, -1); got.Char != " " || got.Width != 1 {
+	if got := snap.ScrollbackCellAt(0, -1); got.Char != " " || got.Width != 1 {
 		t.Fatalf("ScrollbackCellAt(0, -1) = %+v, want space width 1", got)
 	}
-	if got := h.ScrollbackCellAt(99, 0); got.Char != " " || got.Width != 1 {
+	if got := snap.ScrollbackCellAt(99, 0); got.Char != " " || got.Width != 1 {
 		t.Fatalf("ScrollbackCellAt(99, 0) = %+v, want space width 1", got)
 	}
 }

@@ -148,19 +148,18 @@ func (cr *ClientRenderer) RenderDiff() string {
 }
 
 // paneLookup returns a lookup function for pane data including copy mode.
-func (cr *ClientRenderer) paneLookup(state *clientSnapshot) func(uint32) render.PaneData {
-	rendererState := cr.renderer.snapshot()
-	return func(paneID uint32) render.PaneData {
-		emu, ok := rendererState.emulators[paneID]
+func (cr *ClientRenderer) paneLookup(state *clientSnapshot) func(*rendererActorState, uint32) render.PaneData {
+	return func(st *rendererActorState, paneID uint32) render.PaneData {
+		emu, ok := st.emulators[paneID]
 		if !ok {
 			return nil
 		}
-		info, ok := rendererState.paneInfo[paneID]
+		info, ok := st.snapshot.paneInfo[paneID]
 		if !ok {
 			return nil
 		}
 		cm := state.ui.copyModes[paneID]
-		return &clientPaneData{emu: emu, info: info, cm: cm, caps: rendererState.capabilities}
+		return &clientPaneData{emu: emu, info: info, cm: cm, caps: st.snapshot.capabilities}
 	}
 }
 
@@ -532,11 +531,10 @@ func (cr *ClientRenderer) RenderCoalesced(msgCh <-chan *RenderMsg, write func(st
 func (cr *ClientRenderer) syncCopyModeSizes() {
 	state := cr.loadState()
 	for paneID, cm := range state.ui.copyModes {
-		emu, ok := cr.renderer.Emulator(paneID)
+		w, h, ok := cr.renderer.PaneSize(paneID)
 		if !ok || cm == nil {
 			continue
 		}
-		w, h := emu.Size()
 		cm.Resize(w, h)
 	}
 }
@@ -573,22 +571,16 @@ func (cr *ClientRenderer) EnterCopyMode(paneID uint32) {
 }
 
 func (cr *ClientRenderer) enterCopyModeResult(paneID uint32) clientUIResult {
-	emu, ok := cr.renderer.Emulator(paneID)
-	if !ok {
-		return clientUIResult{}
-	}
 	state := cr.loadState()
 	if state.ui.copyModes[paneID] != nil {
 		return clientUIResult{} // already in copy mode
 	}
-	baseHistory := append([]string(nil), state.baseHistory[paneID]...)
-	w, h := emu.Size()
-	_, curRow := emu.CursorPosition()
-	cm := copymode.New(&historyEmulator{
-		emu:             emu,
-		baseHistory:     baseHistory,
-		scrollbackLines: cr.scrollbackLines,
-	}, w, h, curRow)
+	buffer, ok := cr.renderer.PaneBufferSnapshot(paneID, state.baseHistory[paneID])
+	if !ok {
+		return clientUIResult{}
+	}
+	w, h := buffer.Size()
+	cm := copymode.New(buffer, w, h, buffer.cursorRow)
 	return cr.reduceUI(uiActionEnterCopyMode{paneID: paneID, mode: cm})
 }
 
@@ -617,11 +609,6 @@ func (cr *ClientRenderer) ActiveCopyMode() *copymode.CopyMode {
 // VisibleLayout returns the layout tree currently visible to the user.
 func (cr *ClientRenderer) VisibleLayout() *mux.LayoutCell {
 	return cr.renderer.VisibleLayout()
-}
-
-// Emulator returns the emulator for the given pane. Thread-safe.
-func (cr *ClientRenderer) Emulator(paneID uint32) (mux.TerminalEmulator, bool) {
-	return cr.renderer.Emulator(paneID)
 }
 
 // WheelScrollCopyMode scrolls a pane already in copy mode without moving its cursor.

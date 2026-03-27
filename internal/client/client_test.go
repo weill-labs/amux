@@ -612,11 +612,11 @@ func TestClientRendererZoomedPaneSurvivesMetadataOnlyLayout(t *testing.T) {
 	const wideLine = "012345678901234567890123456789012345678901234567890123456789"
 	cr.HandlePaneOutput(2, []byte("\033[2J\033[H"+wideLine))
 
-	emu, ok := cr.Emulator(2)
+	w, h, ok := cr.renderer.PaneSize(2)
 	if !ok {
 		t.Fatal("pane-2 emulator missing")
 	}
-	if w, h := emu.Size(); w != 80 || h != 22 {
+	if w != 80 || h != 22 {
 		t.Fatalf("zoomed pane-2 size after initial layout = %dx%d, want 80x22", w, h)
 	}
 
@@ -625,11 +625,11 @@ func TestClientRendererZoomedPaneSurvivesMetadataOnlyLayout(t *testing.T) {
 	idleSnap.Windows[0].Panes[1].Idle = true
 	cr.HandleLayout(idleSnap)
 
-	emu, ok = cr.Emulator(2)
+	w, h, ok = cr.renderer.PaneSize(2)
 	if !ok {
 		t.Fatal("pane-2 emulator missing after idle layout")
 	}
-	if w, h := emu.Size(); w != 80 || h != 22 {
+	if w != 80 || h != 22 {
 		t.Fatalf("zoomed pane-2 size after idle layout = %dx%d, want 80x22", w, h)
 	}
 
@@ -682,11 +682,11 @@ func TestClientRendererZoomedPaneSurvivesMetadataOnlyLayoutMultiWindow(t *testin
 	const wideLine = "multi-window zoomed pane line that should remain wide after idle"
 	cr.HandlePaneOutput(2, []byte("\033[2J\033[H"+wideLine))
 
-	emu, ok := cr.Emulator(2)
+	w, h, ok := cr.renderer.PaneSize(2)
 	if !ok {
 		t.Fatal("pane-2 emulator missing")
 	}
-	if w, h := emu.Size(); w != 80 || h != 22 {
+	if w != 80 || h != 22 {
 		t.Fatalf("zoomed pane-2 size after initial multi-window layout = %dx%d, want 80x22", w, h)
 	}
 
@@ -694,11 +694,11 @@ func TestClientRendererZoomedPaneSurvivesMetadataOnlyLayoutMultiWindow(t *testin
 	idleSnap.Windows[0].Panes[1].Idle = true
 	cr.HandleLayout(idleSnap)
 
-	emu, ok = cr.Emulator(2)
+	w, h, ok = cr.renderer.PaneSize(2)
 	if !ok {
 		t.Fatal("pane-2 emulator missing after multi-window idle layout")
 	}
-	if w, h := emu.Size(); w != 80 || h != 22 {
+	if w != 80 || h != 22 {
 		t.Fatalf("zoomed pane-2 size after multi-window idle layout = %dx%d, want 80x22", w, h)
 	}
 
@@ -735,11 +735,11 @@ func TestRendererHandleLayoutCallsOnPaneResizeForZoomedPane(t *testing.T) {
 		t.Fatalf("second OnPaneResize call = %+v, want zoomed pane-2 at 80x22", got)
 	}
 
-	emu, ok := r.Emulator(2)
+	w, h, ok := r.PaneSize(2)
 	if !ok {
 		t.Fatal("zoomed pane-2 emulator missing")
 	}
-	if w, h := emu.Size(); w != 80 || h != 22 {
+	if w != 80 || h != 22 {
 		t.Fatalf("zoomed pane-2 size after HandleLayout = %dx%d, want 80x22", w, h)
 	}
 }
@@ -750,11 +750,11 @@ func TestRescaleZoomedPaneForSmallerClient(t *testing.T) {
 	cr := NewClientRenderer(40, 12)
 	cr.HandleLayout(twoPane80x23Zoomed(2))
 
-	emu, ok := cr.Emulator(2)
+	w, h, ok := cr.renderer.PaneSize(2)
 	if !ok {
 		t.Fatal("pane-2 emulator missing")
 	}
-	if w, h := emu.Size(); w != 40 || h != 10 {
+	if w != 40 || h != 10 {
 		t.Fatalf("zoomed pane-2 emulator size on smaller client = %dx%d, want 40x10", w, h)
 	}
 
@@ -1925,6 +1925,52 @@ func TestClientRendererCopyModeRespectsScrollbackLimitAfterHydration(t *testing.
 	}
 }
 
+func TestClientRendererCopyModeSnapshotFreezesUntilReenter(t *testing.T) {
+	t.Parallel()
+
+	cr := NewClientRenderer(20, 4)
+	cr.HandleLayout(singlePane20x3())
+	cr.HandlePaneOutput(1, []byte("old-1\r\nold-2"))
+
+	cr.EnterCopyMode(1)
+	cm := cr.CopyModeForPane(1)
+	if cm == nil {
+		t.Fatal("copy mode should exist for pane-1")
+	}
+	before := cm.TotalLines()
+
+	cr.HandlePaneOutput(1, []byte("\r\nnew-after-enter"))
+
+	cm = cr.CopyModeForPane(1)
+	if cm == nil {
+		t.Fatal("copy mode should still exist for pane-1")
+	}
+	if got := cm.TotalLines(); got != before {
+		t.Fatalf("TotalLines() after live pane output = %d, want frozen %d", got, before)
+	}
+	lastBefore := cm.LineText(before - 1)
+	if strings.Contains(lastBefore, "new-after-enter") {
+		t.Fatalf("copy mode line = %q, want frozen snapshot without new output", lastBefore)
+	}
+
+	cr.ExitCopyMode(1)
+	cr.EnterCopyMode(1)
+	cm = cr.CopyModeForPane(1)
+	if cm == nil {
+		t.Fatal("copy mode should re-enter for pane-1")
+	}
+	found := false
+	for i := 0; i < cm.TotalLines(); i++ {
+		if strings.Contains(cm.LineText(i), "new-after-enter") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("re-entered copy mode should include new pane output")
+	}
+}
+
 func TestHandleCaptureRequest_DisplayFlag(t *testing.T) {
 	t.Parallel()
 	cr := buildTestRenderer(t)
@@ -2043,11 +2089,11 @@ func TestRescaleLayoutForSmallerClientResizesEmulators(t *testing.T) {
 	cr := NewClientRenderer(40, 12)
 	cr.HandleLayout(twoPane80x23())
 
-	emu, ok := cr.Emulator(1)
+	w, h, ok := cr.renderer.PaneSize(1)
 	if !ok {
 		t.Fatal("pane-1 emulator missing")
 	}
-	if w, h := emu.Size(); w != 19 || h != 10 {
+	if w != 19 || h != 10 {
 		t.Fatalf("pane-1 emulator size on smaller client = %dx%d, want 19x10", w, h)
 	}
 
@@ -2103,11 +2149,11 @@ func TestClientRendererResizeResizesEmulatorImmediately(t *testing.T) {
 
 	cr.Resize(20, 4)
 
-	emu, ok := cr.Emulator(1)
+	w, h, ok := cr.renderer.PaneSize(1)
 	if !ok {
 		t.Fatal("Emulator(1) = missing")
 	}
-	if w, h := emu.Size(); w != 20 || h != 2 {
+	if w != 20 || h != 2 {
 		t.Fatalf("emulator size after resize = %dx%d, want 20x2", w, h)
 	}
 }
@@ -2120,18 +2166,18 @@ func TestRescaleLayoutForSmallerClientClampsOversizedScrollRegion(t *testing.T) 
 	cr := NewClientRenderer(40, 12)
 	cr.HandleLayout(twoPane80x23())
 
-	emu, ok := cr.Emulator(1)
+	w, h, ok := cr.renderer.PaneSize(1)
 	if !ok {
 		t.Fatal("pane-1 emulator missing")
 	}
-	if w, h := emu.Size(); w != 19 || h != 10 {
+	if w != 19 || h != 10 {
 		t.Fatalf("pane-1 emulator size on smaller client = %dx%d, want 19x10", w, h)
 	}
 
 	cr.HandlePaneOutput(1, []byte("\x1b[1;23r\x1b[H\x1bMok"))
 
-	if !emu.ScreenContains("ok") {
-		t.Fatalf("ScreenContains(%q) = false\nrender:\n%s", "ok", emu.Render())
+	if got := cr.CapturePaneText(1, false); !strings.Contains(got, "ok") {
+		t.Fatalf("CapturePaneText() = %q, want substring %q", got, "ok")
 	}
 	if got := cr.RenderDiff(); got == "" {
 		t.Fatal("RenderDiff after oversized scroll region should produce output")

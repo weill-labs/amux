@@ -151,8 +151,87 @@ func TestProxyPaneFeedOutputSnapshotsAndClose(t *testing.T) {
 	if err := p.Close(); err != nil {
 		t.Fatalf("Close() = %v, want nil", err)
 	}
+	select {
+	case <-p.actorDone:
+	default:
+		t.Fatal("actor goroutine should stop on Close")
+	}
+	if p.OutputSeq() != 1 {
+		t.Fatalf("OutputSeq() after Close = %d, want 1", p.OutputSeq())
+	}
 	if err := p.Close(); err != nil {
 		t.Fatalf("second Close() = %v, want nil", err)
+	}
+}
+
+func TestPaneActorHelpersFallBackAfterActorChannelClose(t *testing.T) {
+	t.Parallel()
+
+	p := &Pane{
+		ID:              1,
+		emulator:        NewVTEmulatorWithScrollback(12, 2, DefaultScrollbackLines),
+		scrollbackLines: DefaultScrollbackLines,
+	}
+	p.baseHistory.Store(&paneBaseHistory{})
+	p.startActor()
+
+	close(p.actorCommands)
+	<-p.actorDone
+
+	p.ReplayScreen("hello")
+	if !p.ScreenContains("hello") {
+		t.Fatal("ReplayScreen should still work after actor channel close")
+	}
+	if got := p.Output(1); got != "hello" {
+		t.Fatalf("Output(1) = %q, want %q", got, "hello")
+	}
+}
+
+func TestPaneActorHelpersWaitForActorShutdownBeforeFallback(t *testing.T) {
+	t.Parallel()
+
+	p := &Pane{
+		ID:              1,
+		emulator:        NewVTEmulatorWithScrollback(12, 2, DefaultScrollbackLines),
+		scrollbackLines: DefaultScrollbackLines,
+	}
+	p.baseHistory.Store(&paneBaseHistory{})
+	p.startActor()
+
+	running := make(chan struct{})
+	release := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		p.actorCommands <- paneCommand{
+			run: func() {
+				close(running)
+				<-release
+			},
+			done: done,
+		}
+	}()
+	<-running
+	close(p.actorCommands)
+
+	fallbackDone := make(chan struct{})
+	go func() {
+		p.ReplayScreen("hello")
+		close(fallbackDone)
+	}()
+
+	select {
+	case <-fallbackDone:
+		t.Fatal("fallback should wait for actor shutdown")
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	close(release)
+	<-done
+	<-p.actorDone
+	<-fallbackDone
+
+	if !p.ScreenContains("hello") {
+		t.Fatal("ReplayScreen should run after the actor drains")
 	}
 }
 
