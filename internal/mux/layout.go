@@ -250,12 +250,12 @@ func (c *LayoutCell) ResizeSubtree(newW, newH int) {
 	c.H = newH
 
 	if c.Dir == SplitVertical {
-		childWidths := proportionalChildSizes(c.Children, SplitVertical, newW-(len(c.Children)-1))
+		childWidths := proportionalSubtreeChildSizes(c.Children, SplitVertical, newW-(len(c.Children)-1))
 		for i, child := range c.Children {
 			child.ResizeSubtree(childWidths[i], newH)
 		}
 	} else {
-		childHeights := proportionalChildSizes(c.Children, SplitHorizontal, newH-(len(c.Children)-1))
+		childHeights := proportionalSubtreeChildSizes(c.Children, SplitHorizontal, newH-(len(c.Children)-1))
 		for i, child := range c.Children {
 			child.ResizeSubtree(newW, childHeights[i])
 		}
@@ -294,9 +294,9 @@ func (c *LayoutCell) minSubtreeSize(axis SplitDir) int {
 	return minimum
 }
 
-// proportionalChildSizes fits direct children into target cells while
+// proportionalSubtreeChildSizes fits direct children into target cells while
 // preserving their current proportions and respecting per-child minimums.
-func proportionalChildSizes(children []*LayoutCell, axis SplitDir, target int) []int {
+func proportionalSubtreeChildSizes(children []*LayoutCell, axis SplitDir, target int) []int {
 	n := len(children)
 	if n == 0 {
 		return nil
