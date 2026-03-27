@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"reflect"
 	"strings"
 	"testing"
@@ -115,6 +116,98 @@ func TestResolveInvocationSession(t *testing.T) {
 			}
 			if !reflect.DeepEqual(gotArgs, tt.wantArgs) {
 				t.Fatalf("resolveInvocationSession(%v) args = %v, want %v", tt.args, gotArgs, tt.wantArgs)
+			}
+		})
+	}
+}
+
+func TestMaybePrintKeyCommandUsage(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		args         []string
+		usage        string
+		minArgs      int
+		wantHandled  bool
+		wantExitCode int
+		wantStdout   string
+		wantStderr   string
+	}{
+		{
+			name:         "send-keys long help after pane",
+			args:         []string{"pane-1", "--help"},
+			usage:        sendKeysUsage,
+			minArgs:      2,
+			wantHandled:  true,
+			wantExitCode: 0,
+			wantStdout:   sendKeysUsage + "\n",
+		},
+		{
+			name:         "send-keys short help after flag scan",
+			args:         []string{"pane-1", "--hex", "-h"},
+			usage:        sendKeysUsage,
+			minArgs:      2,
+			wantHandled:  true,
+			wantExitCode: 0,
+			wantStdout:   sendKeysUsage + "\n",
+		},
+		{
+			name:         "send-keys usage error",
+			args:         []string{"pane-1"},
+			usage:        sendKeysUsage,
+			minArgs:      2,
+			wantHandled:  true,
+			wantExitCode: 1,
+			wantStderr:   sendKeysUsage + "\n",
+		},
+		{
+			name:         "type-keys short help",
+			args:         []string{"-h"},
+			usage:        typeKeysUsage,
+			minArgs:      1,
+			wantHandled:  true,
+			wantExitCode: 0,
+			wantStdout:   typeKeysUsage + "\n",
+		},
+		{
+			name:         "type-keys dispatch with keys",
+			args:         []string{"abc"},
+			usage:        typeKeysUsage,
+			minArgs:      1,
+			wantHandled:  false,
+			wantExitCode: 0,
+		},
+		{
+			name:         "send-keys dispatch with flags and keys",
+			args:         []string{"pane-1", "--hex", "6162"},
+			usage:        sendKeysUsage,
+			minArgs:      2,
+			wantHandled:  false,
+			wantExitCode: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var stdout bytes.Buffer
+			var stderr bytes.Buffer
+
+			handled, exitCode := maybePrintKeyCommandUsage(&stdout, &stderr, tt.args, tt.usage, tt.minArgs)
+			if handled != tt.wantHandled {
+				t.Fatalf("handled = %t, want %t", handled, tt.wantHandled)
+			}
+			if exitCode != tt.wantExitCode {
+				t.Fatalf("exitCode = %d, want %d", exitCode, tt.wantExitCode)
+			}
+			if got := stdout.String(); got != tt.wantStdout {
+				t.Fatalf("stdout = %q, want %q", got, tt.wantStdout)
+			}
+			if got := stderr.String(); got != tt.wantStderr {
+				t.Fatalf("stderr = %q, want %q", got, tt.wantStderr)
 			}
 		})
 	}

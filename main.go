@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/signal"
@@ -24,6 +25,11 @@ import (
 )
 
 const defaultSessionName = server.DefaultSessionName
+
+const (
+	sendKeysUsage = "usage: amux send-keys <pane> [--wait ready] [--continue-known-dialogs] [--timeout <duration>] [--hex] <keys>..."
+	typeKeysUsage = "usage: amux type-keys [--wait ui=input-idle] [--timeout <duration>] [--hex] <keys>..."
+)
 
 const reconnectEventType = "reconnect"
 
@@ -194,9 +200,11 @@ func main() {
 		}
 		runSessionCommand("kill", args[1:])
 	case "send-keys":
-		if len(args) < 3 {
-			fmt.Fprintf(os.Stderr, "usage: amux send-keys <pane> [--wait ready] [--continue-known-dialogs] [--timeout <duration>] [--hex] <keys>...\n")
-			os.Exit(1)
+		if handled, exitCode := maybePrintKeyCommandUsage(os.Stdout, os.Stderr, args[1:], sendKeysUsage, 2); handled {
+			if exitCode != 0 {
+				os.Exit(exitCode)
+			}
+			return
 		}
 		runSessionCommand("send-keys", args[1:])
 	case "broadcast":
@@ -206,9 +214,11 @@ func main() {
 		}
 		runSessionCommand("broadcast", args[1:])
 	case "type-keys":
-		if len(args) < 2 {
-			fmt.Fprintf(os.Stderr, "usage: amux type-keys [--wait ui=input-idle] [--timeout <duration>] [--hex] <keys>...\n")
-			os.Exit(1)
+		if handled, exitCode := maybePrintKeyCommandUsage(os.Stdout, os.Stderr, args[1:], typeKeysUsage, 1); handled {
+			if exitCode != 0 {
+				os.Exit(exitCode)
+			}
+			return
 		}
 		runSessionCommand("type-keys", args[1:])
 	case "set-lead":
@@ -327,6 +337,27 @@ func resolveSessionName(explicit string, explicitSet bool) string {
 		return envSession
 	}
 	return defaultSessionName
+}
+
+func hasHelpFlag(args []string) bool {
+	for _, arg := range args {
+		if arg == "--help" || arg == "-h" {
+			return true
+		}
+	}
+	return false
+}
+
+func maybePrintKeyCommandUsage(stdout, stderr io.Writer, args []string, usage string, minArgs int) (handled bool, exitCode int) {
+	if hasHelpFlag(args) {
+		fmt.Fprintln(stdout, usage)
+		return true, 0
+	}
+	if len(args) < minArgs {
+		fmt.Fprintln(stderr, usage)
+		return true, 1
+	}
+	return false, 0
 }
 
 func resolveInvocationSession(args []string) (string, []string) {
