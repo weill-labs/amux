@@ -174,6 +174,18 @@ func main() {
 			os.Exit(1)
 		}
 		runSessionCommand("move", args[1:])
+	case "move-up":
+		if len(args) != 2 {
+			fmt.Fprintf(os.Stderr, "usage: amux move-up <pane>\n")
+			os.Exit(1)
+		}
+		runSessionCommand("move-up", args[1:])
+	case "move-down":
+		if len(args) != 2 {
+			fmt.Fprintf(os.Stderr, "usage: amux move-down <pane>\n")
+			os.Exit(1)
+		}
+		runSessionCommand("move-down", args[1:])
 	case "move-to":
 		if len(args) != 3 {
 			fmt.Fprintf(os.Stderr, "usage: amux move-to <pane> <target>\n")
@@ -508,7 +520,9 @@ Usage:
                                        Swap the root-level groups containing two panes
   amux [-s session] move <pane> --before <target>
   amux [-s session] move <pane> --after <target>
-                                       Move a pane's root-level group before or after another
+                                       Move a pane before or after another; reorders siblings when they share a split group
+  amux [-s session] move-up <pane>     Move a pane one slot earlier within its split group
+  amux [-s session] move-down <pane>   Move a pane one slot later within its split group
   amux [-s session] move-to <pane> <target>
                                        Move one pane into another pane's column, appending at the bottom
   amux [-s session] rotate             Rotate pane positions forward

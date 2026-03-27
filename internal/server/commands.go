@@ -87,6 +87,8 @@ var commandRegistry = map[string]CommandHandler{
 	"swap":           cmdSwap,
 	"swap-tree":      cmdSwapTree,
 	"move":           cmdMove,
+	"move-up":        cmdMoveUp,
+	"move-down":      cmdMoveDown,
 	"move-to":        cmdMoveTo,
 	"rotate":         cmdRotate,
 	"copy-mode":      cmdCopyMode,

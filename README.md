@@ -278,7 +278,9 @@ All commands accept `-s <session>` to target a specific session. Panes are refer
 | `amux swap <p1> <p2>` | Swap two panes |
 | `amux swap forward\|backward` | Swap active pane with neighbor |
 | `amux swap-tree <p1> <p2>` | Swap the root-level groups containing two panes |
-| `amux move <pane> --before\|--after <target>` | Move a pane's root-level group before or after another |
+| `amux move <pane> --before\|--after <target>` | Move a pane before or after another, reordering siblings when they share a split group |
+| `amux move-up <pane>` | Move a pane one slot earlier within its split group |
+| `amux move-down <pane>` | Move a pane one slot later within its split group |
 | `amux move-to <pane> <target>` | Move one pane into the target pane's column, appending at the bottom |
 | `amux rotate [--reverse]` | Rotate pane positions |
 | `amux copy-mode [pane] [--wait ui=copy-mode-shown] [--timeout <duration>]` | Enter copy/scroll mode |
@@ -286,7 +288,8 @@ All commands accept `-s <session>` to target a specific session. Panes are refer
 | `amux add-meta <pane> key=value...` | Add pane metadata values (`pr=NUMBER`, `issue=ID`) |
 | `amux rm-meta <pane> key=value...` | Remove pane metadata values (`pr=NUMBER`, `issue=ID`) |
 | `amux refresh-meta [pane]` | Refresh tracked PR/issue completion state (default: active pane) |
-`swap-tree` and `move` treat each pane ref as identifying the root-level group that contains that pane, so moving `pane-3` can move an entire column or row rather than only one leaf cell.
+`move` first checks whether both panes are siblings in the same split group. When they are, it reorders only that group. Otherwise it falls back to the existing root-level-group behavior, so moving `pane-3` can still move an entire column or row when the panes are in different branches.
+`move-up` and `move-down` are shorthand for nudging a pane one slot earlier or later within its current split group.
 `move-to` instead moves exactly one pane into the target pane's logical column and appends it to the bottom of that stack.
 `split`, `spawn`, and `add-pane` are pure layout mutations: they create the pane but do not change focus. Use `amux focus <pane|direction>` when you want a focus change explicitly. When the active pane is zoomed, these commands preserve the zoom and keep the focused pane unchanged.
 

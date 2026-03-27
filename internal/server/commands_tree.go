@@ -8,6 +8,8 @@ import (
 
 const moveUsage = treecmd.MoveUsage
 const moveToUsage = treecmd.MoveToUsage
+const moveUpUsage = treecmd.MoveUpUsage
+const moveDownUsage = treecmd.MoveDownUsage
 
 func parseMoveArgs(args []string) (paneRef, targetRef string, before bool, err error) {
 	return treecmd.ParseMoveArgs(args)
@@ -15,6 +17,10 @@ func parseMoveArgs(args []string) (paneRef, targetRef string, before bool, err e
 
 func parseMoveToArgs(args []string) (paneRef, targetRef string, err error) {
 	return treecmd.ParseMoveToArgs(args)
+}
+
+func parseMoveSiblingArgs(args []string, usage string) (paneRef string, err error) {
+	return treecmd.ParseMoveSiblingArgs(args, usage)
 }
 
 func cmdSwap(ctx *CommandContext) {
@@ -138,6 +144,60 @@ func cmdMoveTo(ctx *CommandContext) {
 
 		return commandMutationResult{
 			output:          fmt.Sprintf("Moved %s to %s's column\n", pane.Meta.Name, target.Meta.Name),
+			broadcastLayout: true,
+		}
+	}))
+}
+
+func cmdMoveUp(ctx *CommandContext) {
+	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
+		paneRef, err := parseMoveSiblingArgs(ctx.Args, moveUpUsage)
+		if err != nil {
+			return commandMutationResult{err: err}
+		}
+
+		w := sess.windowForActor(ctx.ActorPaneID)
+		if w == nil {
+			return commandMutationResult{err: fmt.Errorf("no session")}
+		}
+
+		pane, err := w.ResolvePane(paneRef)
+		if err != nil {
+			return commandMutationResult{err: err}
+		}
+		if err := w.MovePaneUp(pane.ID); err != nil {
+			return commandMutationResult{err: err}
+		}
+
+		return commandMutationResult{
+			output:          fmt.Sprintf("Moved %s up\n", pane.Meta.Name),
+			broadcastLayout: true,
+		}
+	}))
+}
+
+func cmdMoveDown(ctx *CommandContext) {
+	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
+		paneRef, err := parseMoveSiblingArgs(ctx.Args, moveDownUsage)
+		if err != nil {
+			return commandMutationResult{err: err}
+		}
+
+		w := sess.windowForActor(ctx.ActorPaneID)
+		if w == nil {
+			return commandMutationResult{err: fmt.Errorf("no session")}
+		}
+
+		pane, err := w.ResolvePane(paneRef)
+		if err != nil {
+			return commandMutationResult{err: err}
+		}
+		if err := w.MovePaneDown(pane.ID); err != nil {
+			return commandMutationResult{err: err}
+		}
+
+		return commandMutationResult{
+			output:          fmt.Sprintf("Moved %s down\n", pane.Meta.Name),
 			broadcastLayout: true,
 		}
 	}))

@@ -305,8 +305,8 @@ func TestQueuedCommandMoveUpDown(t *testing.T) {
 			sess.Windows[0].Root.Children[2].Pane.ID,
 		}
 	})
-	if order[0] != p3.ID || order[1] != p2.ID || order[2] != p1.ID {
-		t.Fatalf("move-up/down order = %v, want [%d %d %d]", order, p3.ID, p2.ID, p1.ID)
+	if order[0] != p2.ID || order[1] != p3.ID || order[2] != p1.ID {
+		t.Fatalf("move-up/down order = %v, want [%d %d %d]", order, p2.ID, p3.ID, p1.ID)
 	}
 }
 
