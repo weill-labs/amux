@@ -160,6 +160,8 @@ GitHub PRs for this repo are squash-only. `gh pr merge --merge` and `gh pr merge
 
 After merging, verify local state explicitly: check that the checkout is on `main`, the worktree is clean, and `HEAD` matches `origin/main`. If you need another change after the merge, start a fresh branch and PR instead of committing follow-up fixes on local `main`.
 
+Claude's post-merge hook now auto-runs `scripts/post-merge-main-sync.sh` after a successful `gh pr merge`, which checks out `main` and runs `git pull --ff-only`. Other agents can run that script manually when they need the same behavior.
+
 After merging, explicitly run `$postmortem`. A short manual recap is not a substitute for the postmortem workflow, and do not claim it ran unless you have the logged `~/.local/share/postmortems/...` path.
 
 In the final merge closeout, tell the user what the postmortem found and what follow-up actions, if any, came out of it, alongside the logged path.
