@@ -335,10 +335,13 @@ type idleTimeoutEvent struct {
 func (e idleTimeoutEvent) handle(s *Session) {
 	s.idle.MarkIdle(e.paneID)
 
-	// Refresh CWD/branch off the event loop to avoid blocking on lsof/git
-	if p := s.findPaneByID(e.paneID); p != nil && !p.IsProxy() {
+	// Refresh CWD/branch off the event loop to avoid blocking on lsof/git.
+	// Tests can disable this background path to keep integration timing
+	// deterministic and refresh metadata explicitly through refresh-meta.
+	if p := s.findPaneByID(e.paneID); p != nil && !p.IsProxy() && !s.DisablePaneMetaAutoRefresh {
+		pane := p
 		go func() {
-			cwd, branch := p.DetectCwdBranch()
+			cwd, branch := s.detectPaneCwdBranch(pane)
 			s.enqueueEvent(cwdBranchResultEvent{paneID: e.paneID, cwd: cwd, branch: branch})
 		}()
 	}

@@ -66,6 +66,12 @@ type Session struct {
 	VTIdleSettle    time.Duration // default: 2s
 	UndoGracePeriod time.Duration // default: 30s
 	Clock           Clock         // nil uses RealClock
+	// PaneMetaResolver refreshes live cwd/git metadata for a pane. Nil uses
+	// the pane's DetectCwdBranch implementation.
+	PaneMetaResolver func(*mux.Pane) (cwd, branch string)
+	// DisablePaneMetaAutoRefresh skips background cwd/git refresh on idle
+	// transitions. Explicit refresh-meta commands still work.
+	DisablePaneMetaAutoRefresh bool
 
 	// Internal capture timing overrides. Zero values use defaults.
 	// Tests inject short timings here instead of mutating package globals.
@@ -134,6 +140,16 @@ func (s *Session) vtIdleSettle() time.Duration {
 		return s.VTIdleSettle
 	}
 	return DefaultVTIdleSettle
+}
+
+func (s *Session) detectPaneCwdBranch(pane *mux.Pane) (cwd, branch string) {
+	if pane == nil {
+		return "", ""
+	}
+	if s.PaneMetaResolver != nil {
+		return s.PaneMetaResolver(pane)
+	}
+	return pane.DetectCwdBranch()
 }
 
 // DefaultUndoGracePeriod is how long a soft-closed pane stays undoable.

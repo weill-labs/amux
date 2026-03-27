@@ -137,26 +137,18 @@ func TestPaneLogSnapshotsExitContext(t *testing.T) {
 	if resolved, err := filepath.EvalSymlinks(tempDir); err == nil && resolved != "" {
 		wantCwd = resolved
 	}
-	h.sendKeys("pane-2", fmt.Sprintf("cd %q", tempDir), "Enter")
+	h.sendKeys("pane-2", fmt.Sprintf("cd %q && echo CWD_READY", tempDir), "Enter")
+	h.waitFor("pane-2", "CWD_READY")
 	h.waitIdle("pane-2")
-	wantListCwd := listingcmd.FormatListCwd(wantCwd, h.home, listingcmd.ListCwdWidth)
-	deadline := time.Now().Add(10 * time.Second)
-	listOut := ""
-	for time.Now().Before(deadline) {
-		listOut = h.runCmd("list")
-		if isCommandConnectError(listOut) {
-			time.Sleep(250 * time.Millisecond)
-			continue
-		}
-		if strings.Contains(listOut, wantListCwd) {
-			break
-		}
-		time.Sleep(250 * time.Millisecond)
+	if out := strings.TrimSpace(h.runCmd("refresh-meta", "pane-2")); out != "" {
+		t.Fatalf("refresh-meta returned unexpected output: %q", out)
 	}
+	wantListCwd := listingcmd.FormatListCwd(wantCwd, h.home, listingcmd.ListCwdWidth)
+	listOut := h.runCmd("list")
 	if !strings.Contains(listOut, wantListCwd) {
 		logPath := filepath.Join(serverpkg.SocketDir(), h.session+".log")
 		logData, _ := os.ReadFile(logPath)
-		t.Fatalf("list did not report cached cwd %q within 10s\n%s\nserver log:\n%s", wantListCwd, listOut, string(logData))
+		t.Fatalf("list did not report cached cwd %q after refresh-meta\n%s\nserver log:\n%s", wantListCwd, listOut, string(logData))
 	}
 
 	if out := h.runCmd("set-meta", "pane-2", "branch=feat/postmortem"); out != "" {
