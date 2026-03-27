@@ -439,6 +439,37 @@ func TestResizeSubtreePreservesChildProportions(t *testing.T) {
 	}
 }
 
+func TestResizeSubtreeMatchesResizeAllRemainderRounding(t *testing.T) {
+	t.Parallel()
+
+	original := &LayoutCell{
+		X:   0,
+		Y:   0,
+		W:   40,
+		H:   7,
+		Dir: SplitHorizontal,
+		Children: []*LayoutCell{
+			NewLeaf(fakePaneID(1), 0, 0, 40, 3),
+			NewLeaf(fakePaneID(2), 0, 0, 40, 3),
+		},
+	}
+	for _, child := range original.Children {
+		child.Parent = original
+	}
+	original.FixOffsets()
+
+	got := CloneLayout(original)
+	got.H = 6
+	got.ResizeSubtree(40, 6)
+
+	want := CloneLayout(original)
+	want.ResizeAll(40, 6)
+
+	if diff := diffLeafGeometry(snapshotLeafGeometry(want), snapshotLeafGeometry(got)); diff != "" {
+		t.Fatalf("ResizeSubtree left geometry that ResizeAll would normalize:\n%s", diff)
+	}
+}
+
 func TestResizeSubtreePinsMinChildrenBeforeRedistributing(t *testing.T) {
 	t.Parallel()
 
@@ -463,7 +494,7 @@ func TestResizeSubtreePinsMinChildrenBeforeRedistributing(t *testing.T) {
 	root.ResizeSubtree(23, 23)
 
 	got := leafAxisSizes(root, SplitVertical)
-	want := []int{8, 2, 6, 4}
+	want := []int{7, 2, 6, 5}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("child widths after min-clamped proportional resize = %v, want %v", got, want)
 	}
