@@ -526,7 +526,13 @@ func (s *Session) transitionTrackedIssuesToStartedAsync(issueIDs []string) {
 
 	go func() {
 		for _, id := range unique {
-			_ = s.TrackedMetaResolver.TransitionIssueToStartedIfNeeded(id)
+			if err := s.TrackedMetaResolver.TransitionIssueToStartedIfNeeded(id); err != nil {
+				msg := strings.TrimSpace(err.Error())
+				if msg == "" {
+					msg = fmt.Sprintf("Linear issue %s: transition failed", id)
+				}
+				s.showSessionNotice("add-meta: " + msg)
+			}
 		}
 	}()
 }
