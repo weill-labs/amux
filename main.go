@@ -715,6 +715,9 @@ func runServer(sessionName string, managedTakeover bool) {
 	defer writeSignalFD(&readySignal, "")
 	defer writeSignalFD(&shutdownSignal, "")
 
+	metaRefreshEnabled := os.Getenv("AMUX_DISABLE_META_REFRESH") != "1"
+	s.SetPaneMetaAutoRefresh(metaRefreshEnabled)
+
 	if managedTakeover {
 		if err := s.EnsureInitialWindow(server.DefaultTermCols, server.DefaultTermRows); err != nil {
 			fmt.Fprintf(os.Stderr, "amux server: initializing managed takeover session: %v\n", err)
@@ -724,7 +727,7 @@ func runServer(sessionName string, managedTakeover bool) {
 
 	// Set up remote pane manager for all sessions
 	s.SetupRemoteManager(cfg, server.BuildVersion)
-	if os.Getenv("AMUX_DISABLE_META_REFRESH") != "1" {
+	if metaRefreshEnabled {
 		s.SetTrackedMetaResolver(server.NewExternalTrackedMetaResolver())
 		if restoredSession {
 			s.RefreshTrackedMetaAsync()

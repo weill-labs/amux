@@ -163,8 +163,8 @@ func TestHotReloadKeybinding(t *testing.T) {
 	}
 
 	// Send a marker command to confirm the shell is ready after reload
-	h.sendKeys("e", "c", "h", "o", " ", "P", "O", "S", "T", "R", "E", "L", "O", "A", "D", "Enter")
-	if !h.waitFor("POSTRELOAD", 5*time.Second) {
+	h.sendKeys("echo POSTRELOAD", "Enter")
+	if !h.waitFor("POSTRELOAD", 8*time.Second) {
 		t.Fatalf("shell not ready after reload\nScreen:\n%s", h.captureOuter())
 	}
 

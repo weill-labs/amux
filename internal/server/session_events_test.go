@@ -1105,6 +1105,122 @@ func TestCwdBranchResultEventIgnoresMissingPane(t *testing.T) {
 	cwdBranchResultEvent{paneID: 999, cwd: "/tmp", branch: "main"}.handle(sess)
 }
 
+func TestIdleTimeoutEventRefreshesPaneMetaWhenAutoRefreshEnabled(t *testing.T) {
+	t.Parallel()
+
+	sess := newSession("test-idle-timeout-pane-meta-refresh")
+	stopCrashCheckpointLoop(t, sess)
+	defer stopSessionBackgroundLoops(t, sess)
+
+	pane := newProxyPane(1, mux.PaneMeta{
+		Name:  "pane-1",
+		Host:  mux.DefaultHost,
+		Color: "f5e0dc",
+	}, 80, 23, nil, nil, nil)
+	w := mux.NewWindow(pane, 80, 23)
+	w.ID = 1
+	w.Name = "window-1"
+	sess.Windows = []*mux.Window{w}
+	sess.ActiveWindowID = w.ID
+	sess.Panes = []*mux.Pane{pane}
+
+	resolved := make(chan uint32, 1)
+	sess.PaneMetaResolver = func(got *mux.Pane) (string, string) {
+		select {
+		case resolved <- got.ID:
+		default:
+		}
+		return "/tmp/repo", "idle-branch"
+	}
+
+	sess.enqueueIdleTimeout(pane.ID)
+
+	select {
+	case got := <-resolved:
+		if got != pane.ID {
+			t.Fatalf("resolver pane = %d, want %d", got, pane.ID)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for idle pane-meta refresh")
+	}
+
+	waitUntil(t, func() bool {
+		snap := mustSessionQuery(t, sess, func(sess *Session) struct {
+			cwd    string
+			branch string
+		} {
+			p := sess.findPaneByID(pane.ID)
+			return struct {
+				cwd    string
+				branch string
+			}{
+				cwd:    p.LiveCwd(),
+				branch: p.Meta.GitBranch,
+			}
+		})
+		return snap.cwd == "/tmp/repo" && snap.branch == "idle-branch"
+	})
+}
+
+func TestIdleTimeoutEventSkipsPaneMetaRefreshWhenDisabled(t *testing.T) {
+	t.Parallel()
+
+	sess := newSession("test-idle-timeout-pane-meta-disabled")
+	stopCrashCheckpointLoop(t, sess)
+	defer stopSessionBackgroundLoops(t, sess)
+
+	pane := newProxyPane(1, mux.PaneMeta{
+		Name:  "pane-1",
+		Host:  mux.DefaultHost,
+		Color: "f5e0dc",
+	}, 80, 23, nil, nil, nil)
+	w := mux.NewWindow(pane, 80, 23)
+	w.ID = 1
+	w.Name = "window-1"
+	sess.Windows = []*mux.Window{w}
+	sess.ActiveWindowID = w.ID
+	sess.Panes = []*mux.Pane{pane}
+	sess.DisablePaneMetaAutoRefresh = true
+
+	resolved := make(chan struct{}, 1)
+	sess.PaneMetaResolver = func(*mux.Pane) (string, string) {
+		select {
+		case resolved <- struct{}{}:
+		default:
+		}
+		return "/tmp/repo", "idle-branch"
+	}
+
+	sess.enqueueIdleTimeout(pane.ID)
+
+	waitUntil(t, func() bool {
+		return sess.idle.IsIdle(pane.ID)
+	})
+
+	select {
+	case <-resolved:
+		t.Fatal("PaneMetaResolver should not run when auto refresh is disabled")
+	default:
+	}
+
+	snap := mustSessionQuery(t, sess, func(sess *Session) struct {
+		cwd    string
+		branch string
+	} {
+		p := sess.findPaneByID(pane.ID)
+		return struct {
+			cwd    string
+			branch string
+		}{
+			cwd:    p.LiveCwd(),
+			branch: p.Meta.GitBranch,
+		}
+	})
+	if snap.cwd != "" || snap.branch != "" {
+		t.Fatalf("pane metadata after disabled auto refresh = (%q, %q), want empty", snap.cwd, snap.branch)
+	}
+}
+
 func TestUIEventCmdIncrementsClientGenerationOnlyOnRealChanges(t *testing.T) {
 	t.Parallel()
 

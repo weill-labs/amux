@@ -114,6 +114,12 @@ func NewExternalTrackedMetaResolver() TrackedMetaResolver {
 	}
 }
 
+func (s *Server) SetPaneMetaAutoRefresh(enabled bool) {
+	for _, sess := range s.sessions {
+		sess.DisablePaneMetaAutoRefresh = !enabled
+	}
+}
+
 func runGHCommand(dir string, args ...string) ([]byte, error) {
 	cmd := exec.Command("gh", args...)
 	if dir != "" {

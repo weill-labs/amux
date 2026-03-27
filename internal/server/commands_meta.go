@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/weill-labs/amux/internal/mux"
 	metacmd "github.com/weill-labs/amux/internal/server/commands/meta"
 )
 
@@ -120,9 +121,47 @@ func cmdRefreshMeta(ctx *CommandContext) {
 		paneRef = ctx.Args[0]
 	}
 
+	if err := ctx.Sess.refreshPaneMetaForPaneRef(ctx.ActorPaneID, paneRef); err != nil {
+		ctx.replyErr(err.Error())
+		return
+	}
 	if err := ctx.Sess.refreshTrackedMetaForPaneRef(ctx.ActorPaneID, paneRef); err != nil {
 		ctx.replyErr(err.Error())
 		return
 	}
 	ctx.reply("")
+}
+
+func (s *Session) refreshPaneMetaForPaneRef(actorPaneID uint32, ref string) error {
+	pane, err := enqueueSessionQuery(s, func(sess *Session) (*mux.Pane, error) {
+		if ref == "" {
+			w := sess.windowForActor(actorPaneID)
+			if w == nil || w.ActivePane == nil {
+				return nil, fmt.Errorf("no active pane")
+			}
+			return w.ActivePane, nil
+		}
+		pane, _, err := sess.resolvePaneAcrossWindowsForActor(actorPaneID, ref)
+		if err != nil {
+			return nil, err
+		}
+		return pane, nil
+	})
+	if err != nil {
+		return err
+	}
+	if pane == nil || pane.IsProxy() {
+		return nil
+	}
+
+	cwd, branch := s.detectPaneCwdBranch(pane)
+	res := s.enqueueCommandMutation(func(sess *Session) commandMutationResult {
+		target := sess.findPaneByID(pane.ID)
+		if target == nil {
+			return commandMutationResult{}
+		}
+		target.ApplyCwdBranch(cwd, branch)
+		return commandMutationResult{broadcastLayout: true}
+	})
+	return res.err
 }
