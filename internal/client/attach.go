@@ -460,7 +460,7 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 				switch binding.Action {
 				case "detach":
 					if len(*forward) > 0 {
-						sender.Send(&proto.Message{
+						_ = sender.SendAsync(&proto.Message{
 							Type: proto.MsgTypeInput, Input: *forward,
 						})
 					}
@@ -469,7 +469,7 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 					return true
 				case "reload":
 					if len(*forward) > 0 {
-						sender.Send(&proto.Message{
+						_ = sender.SendAsync(&proto.Message{
 							Type: proto.MsgTypeInput, Input: *forward,
 						})
 						*forward = nil
@@ -571,7 +571,7 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 
 			if b == kb.Prefix {
 				if len(*forward) > 0 {
-					sender.Send(&proto.Message{
+					_ = sender.SendAsync(&proto.Message{
 						Type: proto.MsgTypeInput, Input: *forward,
 					})
 					*forward = nil
@@ -814,7 +814,7 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 					flushCopyInput()
 					// Flush any accumulated forward bytes before handling mouse
 					if len(forward) > 0 {
-						sender.Send(&proto.Message{
+						_ = sender.SendAsync(&proto.Message{
 							Type: proto.MsgTypeInput, Input: forward,
 						})
 						forward = nil
@@ -845,7 +845,7 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 			flushCopyInput()
 
 			if len(forward) > 0 {
-				sender.Send(&proto.Message{
+				_ = sender.SendAsync(&proto.Message{
 					Type: proto.MsgTypeInput, Input: forward,
 				})
 			}

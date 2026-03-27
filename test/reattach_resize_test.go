@@ -2,6 +2,8 @@ package test
 
 import (
 	"encoding/json"
+	"errors"
+	"io"
 	"net"
 	"strings"
 	"testing"
@@ -101,7 +103,34 @@ func (h *ServerHarness) attachRendererAt(cols, rows int, afterLayout func(*clien
 		}
 	}
 
-	return r
+	// Mirror the real attach path, which accepts a brief correction window
+	// after bootstrap for any immediately-following layout or pane replay.
+	if err := conn.SetReadDeadline(time.Now().Add(50 * time.Millisecond)); err != nil {
+		h.tb.Fatalf("attachRendererAt: set correction deadline: %v", err)
+	}
+	defer conn.SetReadDeadline(time.Time{}) //nolint:errcheck // best-effort reset
+	for {
+		msg, err := server.ReadMsg(conn)
+		if err != nil {
+			if ne, ok := err.(net.Error); ok && ne.Timeout() {
+				return r
+			}
+			if errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed) || strings.Contains(err.Error(), "use of closed network connection") {
+				return r
+			}
+			h.tb.Fatalf("attachRendererAt: read correction: %v", err)
+		}
+		switch msg.Type {
+		case server.MsgTypeLayout:
+			r.HandleLayout(msg.Layout)
+		case server.MsgTypePaneHistory:
+			continue
+		case server.MsgTypePaneOutput:
+			r.HandlePaneOutput(msg.PaneID, msg.PaneData)
+		default:
+			return r
+		}
+	}
 }
 
 func TestReattachResize(t *testing.T) {

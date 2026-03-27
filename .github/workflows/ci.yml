@@ -116,7 +116,7 @@ jobs:
           fi
 
       - name: Upload test results to Codecov
-        if: ${{ !cancelled() && steps.changes.outputs.code_changed == 'true' }}
+        if: ${{ !cancelled() && steps.changes.outputs.code_changed == 'true' && hashFiles('root-results.junit.xml', 'unit-results.junit.xml', 'integration-results.junit.xml') != '' }}
         uses: codecov/codecov-action@v5.5.3
         with:
           files: root-results.junit.xml,unit-results.junit.xml,integration-results.junit.xml
@@ -144,7 +144,7 @@ jobs:
           fi
 
       - name: Upload coverage to Codecov
-        if: always() && steps.changes.outputs.code_changed == 'true'
+        if: ${{ always() && steps.changes.outputs.code_changed == 'true' && hashFiles('merged-coverage.txt') != '' }}
         uses: codecov/codecov-action@v5.5.3
         with:
           files: merged-coverage.txt
@@ -152,7 +152,7 @@ jobs:
           fail_ci_if_error: false
 
       - name: Upload coverage artifacts
-        if: always() && steps.changes.outputs.code_changed == 'true'
+        if: ${{ always() && steps.changes.outputs.code_changed == 'true' && hashFiles('root-coverage.txt', 'unit-coverage.txt', 'integration-coverage.txt', 'merged-coverage.txt', 'coverage-summary.txt') != '' }}
         uses: actions/upload-artifact@v7.0.0
         with:
           name: coverage-artifacts
@@ -171,8 +171,21 @@ jobs:
       - name: Test timing summary
         if: always() && steps.changes.outputs.code_changed == 'true'
         run: |
-          total=$(jq -r 'select(.Action=="pass" and .Test) | .Elapsed' \
-            root-results.json unit-results.json integration-results.json \
+          files=()
+          for file in root-results.json unit-results.json integration-results.json; do
+            if [ -f "$file" ]; then
+              files+=("$file")
+            fi
+          done
+          if [ ${#files[@]} -eq 0 ]; then
+            {
+              echo '## Test Timing'
+              echo ''
+              echo 'No go test JSON timing files were produced.'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          total=$(jq -r 'select(.Action=="pass" and .Test) | .Elapsed' "${files[@]}" \
             | awk '{s+=$1} END {printf "%.2f", s}')
           {
             echo '## Test Timing'
@@ -180,7 +193,7 @@ jobs:
             echo '| Test | Duration |'
             echo '|------|----------|'
             jq -r 'select(.Action=="pass" and .Test) | "| \(.Test) | \(.Elapsed)s |"' \
-              root-results.json unit-results.json integration-results.json \
+              "${files[@]}" \
               | sort -t'|' -k3 -rn
             echo ''
             echo "**Total: ${total}s**"

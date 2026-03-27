@@ -144,6 +144,7 @@ type commandMutationEvent struct {
 func (e commandMutationEvent) handle(s *Session) {
 	res := recoverCommandMutation(e.fn, s)
 	if res.err == nil {
+		s.ensureInputRouter().syncPanes(s.Panes)
 		if res.broadcastLayout {
 			s.broadcastLayoutNow()
 			res.broadcastLayout = false

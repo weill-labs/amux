@@ -201,22 +201,14 @@ func TestClientConnBootstrappingStateTracksLifecycle(t *testing.T) {
 	}
 }
 
-func TestClientConnInputDoesNotBlockOnBusySessionActor(t *testing.T) {
-	t.Parallel()
+func mustSetupSinglePaneSession(t *testing.T, sess *Session, writeOverride func([]byte) (int, error)) *mux.Pane {
+	t.Helper()
 
-	sess := newSession("test-client-input-fast-path")
-	stopCrashCheckpointLoop(t, sess)
-	defer stopSessionBackgroundLoops(t, sess)
-
-	writes := make(chan []byte, 1)
 	pane := newProxyPane(1, mux.PaneMeta{
 		Name:  "pane-1",
 		Host:  mux.DefaultHost,
 		Color: "f5e0dc",
-	}, 80, 23, nil, nil, func(data []byte) (int, error) {
-		writes <- append([]byte(nil), data...)
-		return len(data), nil
-	})
+	}, 80, 23, nil, nil, writeOverride)
 	w := mux.NewWindow(pane, 80, 23)
 	w.ID = 1
 	w.Name = "window-1"
@@ -231,52 +223,191 @@ func TestClientConnInputDoesNotBlockOnBusySessionActor(t *testing.T) {
 		t.Fatalf("setup session: %v", res.err)
 	}
 
-	release := make(chan struct{})
-	blocker := blockingSessionEvent{entered: make(chan struct{}), release: release}
-	if !sess.enqueueEvent(blocker) {
-		t.Fatal("enqueue blocking event")
-	}
-	select {
-	case <-blocker.entered:
-	case <-time.After(time.Second):
-		t.Fatal("blocking event did not start")
-	}
+	return pane
+}
 
-	serverConn, peerConn := net.Pipe()
-	t.Cleanup(func() { peerConn.Close() })
-	t.Cleanup(func() { serverConn.Close() })
+func TestClientConnInputDoesNotBlockOnBusySessionActor(t *testing.T) {
+	t.Parallel()
 
-	cc := newClientConn(serverConn)
-	t.Cleanup(cc.Close)
-
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		cc.readLoop(&Server{}, sess)
-	}()
-
-	if err := WriteMsg(peerConn, &Message{Type: MsgTypeInput, Input: []byte("hello")}); err != nil {
-		t.Fatalf("WriteMsg input: %v", err)
+	tests := []struct {
+		name  string
+		input *Message
+	}{
+		{
+			name:  "active input",
+			input: &Message{Type: MsgTypeInput, Input: []byte("hello")},
+		},
+		{
+			name:  "targeted input",
+			input: &Message{Type: MsgTypeInputPane, PaneID: 1, PaneData: []byte("hello")},
+		},
 	}
 
-	select {
-	case got := <-writes:
-		if string(got) != "hello" {
-			t.Fatalf("input write = %q, want hello", string(got))
-		}
-	case <-time.After(200 * time.Millisecond):
-		t.Fatal("input blocked on busy session actor")
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			sess := newSession("test-client-input-fast-path")
+			stopCrashCheckpointLoop(t, sess)
+			defer stopSessionBackgroundLoops(t, sess)
+
+			writes := make(chan []byte, 1)
+			mustSetupSinglePaneSession(t, sess, func(data []byte) (int, error) {
+				writes <- append([]byte(nil), data...)
+				return len(data), nil
+			})
+
+			release := make(chan struct{})
+			blocker := blockingSessionEvent{entered: make(chan struct{}), release: release}
+			if !sess.enqueueEvent(blocker) {
+				t.Fatal("enqueue blocking event")
+			}
+			select {
+			case <-blocker.entered:
+			case <-time.After(time.Second):
+				t.Fatal("blocking event did not start")
+			}
+
+			serverConn, peerConn := net.Pipe()
+			t.Cleanup(func() { peerConn.Close() })
+			t.Cleanup(func() { serverConn.Close() })
+
+			cc := newClientConn(serverConn)
+			t.Cleanup(cc.Close)
+
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				cc.readLoop(&Server{}, sess)
+			}()
+
+			if err := WriteMsg(peerConn, tt.input); err != nil {
+				t.Fatalf("WriteMsg input: %v", err)
+			}
+
+			select {
+			case got := <-writes:
+				if string(got) != "hello" {
+					t.Fatalf("input write = %q, want hello", string(got))
+				}
+			case <-time.After(200 * time.Millisecond):
+				t.Fatal("input blocked on busy session actor")
+			}
+
+			close(release)
+			if err := WriteMsg(peerConn, &Message{Type: MsgTypeDetach}); err != nil {
+				t.Fatalf("WriteMsg detach: %v", err)
+			}
+
+			select {
+			case <-done:
+			case <-time.After(time.Second):
+				t.Fatal("readLoop did not exit after detach")
+			}
+		})
+	}
+}
+
+func TestClientConnLiveInputDoesNotBlockOnBlockedPaneWriter(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		firstInput *Message
+		nextInput  *Message
+	}{
+		{
+			name:       "active input",
+			firstInput: &Message{Type: MsgTypeInput, Input: []byte("first")},
+			nextInput:  &Message{Type: MsgTypeInput, Input: []byte("second")},
+		},
+		{
+			name:       "targeted input",
+			firstInput: &Message{Type: MsgTypeInputPane, PaneID: 1, PaneData: []byte("first")},
+			nextInput:  &Message{Type: MsgTypeInputPane, PaneID: 1, PaneData: []byte("second")},
+		},
 	}
 
-	close(release)
-	if err := WriteMsg(peerConn, &Message{Type: MsgTypeDetach}); err != nil {
-		t.Fatalf("WriteMsg detach: %v", err)
-	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	select {
-	case <-done:
-	case <-time.After(time.Second):
-		t.Fatal("readLoop did not exit after detach")
+			sess := newSession("test-client-live-input-fast-path")
+			stopCrashCheckpointLoop(t, sess)
+			defer stopSessionBackgroundLoops(t, sess)
+
+			release := make(chan struct{})
+			started := make(chan struct{}, 1)
+			writes := make(chan []byte, 2)
+
+			mustSetupSinglePaneSession(t, sess, func(data []byte) (int, error) {
+				copyData := append([]byte(nil), data...)
+				if string(copyData) == "first" {
+					started <- struct{}{}
+					<-release
+				}
+				writes <- copyData
+				return len(data), nil
+			})
+
+			serverConn, peerConn := net.Pipe()
+			t.Cleanup(func() { peerConn.Close() })
+			t.Cleanup(func() { serverConn.Close() })
+
+			cc := newClientConn(serverConn)
+			t.Cleanup(cc.Close)
+
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				cc.readLoop(&Server{}, sess)
+			}()
+
+			if err := WriteMsg(peerConn, tt.firstInput); err != nil {
+				t.Fatalf("WriteMsg first input: %v", err)
+			}
+
+			select {
+			case <-started:
+			case <-time.After(time.Second):
+				t.Fatal("first pane write did not start")
+			}
+
+			nextDone := make(chan error, 1)
+			go func() {
+				nextDone <- WriteMsg(peerConn, tt.nextInput)
+			}()
+
+			select {
+			case err := <-nextDone:
+				if err != nil {
+					t.Fatalf("WriteMsg next input = %v", err)
+				}
+			case <-time.After(200 * time.Millisecond):
+				t.Fatal("second client write blocked on the first pane write")
+			}
+
+			close(release)
+
+			if got := <-writes; string(got) != "first" {
+				t.Fatalf("first pane write = %q, want %q", got, "first")
+			}
+			if got := <-writes; string(got) != "second" {
+				t.Fatalf("second pane write = %q, want %q", got, "second")
+			}
+
+			if err := WriteMsg(peerConn, &Message{Type: MsgTypeDetach}); err != nil {
+				t.Fatalf("WriteMsg detach: %v", err)
+			}
+
+			select {
+			case <-done:
+			case <-time.After(time.Second):
+				t.Fatal("readLoop did not exit after detach")
+			}
+		})
 	}
 }
 
