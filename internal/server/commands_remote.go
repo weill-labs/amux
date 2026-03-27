@@ -130,8 +130,7 @@ func cmdUnsplice(ctx *CommandContext) {
 			return commandMutationResult{err: err}
 		}
 		if err := w.UnsplicePane(hostName, pane); err != nil {
-			sess.removePane(pane.ID)
-			return commandMutationResult{err: err, closePanes: []*mux.Pane{pane}}
+			return cleanupFailedPaneMutation(sess, pane, err)
 		}
 
 		for _, id := range proxyIDs {

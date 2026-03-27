@@ -30,6 +30,14 @@ func (s *Session) closePaneAsync(pane *mux.Pane) {
 	go closePane(pane)
 }
 
+func cleanupFailedPaneMutation(sess *Session, pane *mux.Pane, err error) commandMutationResult {
+	sess.removePane(pane.ID)
+	return commandMutationResult{
+		err:        err,
+		closePanes: []*mux.Pane{pane},
+	}
+}
+
 // hasPane checks if a pane ID is still in the session's pane list.
 func (s *Session) hasPane(id uint32) bool {
 	for _, p := range s.Panes {
