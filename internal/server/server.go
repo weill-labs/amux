@@ -105,6 +105,10 @@ type Session struct {
 	sessionEventStop chan struct{}
 	sessionEventDone chan struct{}
 
+	// paneCloser runs the blocking Pane.Close path. Tests stub it to verify the
+	// session event loop never waits on pane shutdown directly.
+	paneCloser func(*mux.Pane)
+
 	// Exit-unattached: server exits when all clients disconnect after
 	// at least one has connected. Used by test harness to avoid orphans.
 	hadClient  bool    // true after first interactive client attaches

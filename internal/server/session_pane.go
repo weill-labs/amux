@@ -17,6 +17,19 @@ type paneRemovalResult struct {
 	sendExit        bool
 }
 
+func (s *Session) closePaneAsync(pane *mux.Pane) {
+	if pane == nil {
+		return
+	}
+	closePane := s.paneCloser
+	if closePane == nil {
+		closePane = func(pane *mux.Pane) {
+			_ = pane.Close()
+		}
+	}
+	go closePane(pane)
+}
+
 // hasPane checks if a pane ID is still in the session's pane list.
 func (s *Session) hasPane(id uint32) bool {
 	for _, p := range s.Panes {

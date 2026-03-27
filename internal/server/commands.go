@@ -21,15 +21,15 @@ func (ctx *CommandContext) replyErr(errMsg string) {
 }
 
 func (ctx *CommandContext) replyCommandMutation(res commandMutationResult) {
+	for _, pane := range res.closePanes {
+		ctx.Sess.closePaneAsync(pane)
+	}
 	if res.err != nil {
 		ctx.replyErr(res.err.Error())
 		return
 	}
 	for _, pane := range res.startPanes {
 		pane.Start()
-	}
-	for _, pane := range res.closePanes {
-		pane.Close()
 	}
 	if res.output != "" {
 		ctx.reply(res.output)
