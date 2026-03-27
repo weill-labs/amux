@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -285,36 +286,7 @@ func handleSession(ctx context.Context, ch ssh.Channel, reqs <-chan *ssh.Request
 			cmdLen := binary.BigEndian.Uint32(req.Payload[:4])
 			command := string(req.Payload[4 : 4+cmdLen])
 			req.Reply(true, nil)
-
-			execCtx, execCancel := context.WithTimeout(ctx, sshCmdTimeout)
-			defer execCancel()
-
-			cmd := exec.Command("sh", "-c", command)
-			cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-			cmd.Env = upsertEnv(append([]string{}, execEnv...), "TERM", termType)
-			cmd.Stdout = ch
-			cmd.Stderr = ch.Stderr()
-			cmd.Stdin = ch
-
-			exitCode := 0
-			if err := cmd.Start(); err != nil {
-				exitCode = 1
-			} else {
-				stopKill := watchCommandContext(execCtx, cmd)
-				if err := cmd.Wait(); err != nil {
-					if exitErr, ok := err.(*exec.ExitError); ok {
-						exitCode = exitErr.ExitCode()
-					} else {
-						exitCode = 1
-					}
-				}
-				stopKill()
-			}
-
-			// Send exit-status
-			exitMsg := make([]byte, 4)
-			binary.BigEndian.PutUint32(exitMsg, uint32(exitCode))
-			ch.SendRequest("exit-status", false, exitMsg)
+			sendExitStatus(ch, runExecCommand(ctx, ch, command, execEnv, termType))
 			return
 
 		default:
@@ -400,14 +372,56 @@ type crToLFWriter struct {
 // the global timeout fires.
 const sshCmdTimeout = 60 * time.Second
 
+const sshWaitDelay = 200 * time.Millisecond
+
+func killCmdProcessGroup(cmd *exec.Cmd) error {
+	if cmd.Process == nil {
+		return nil
+	}
+	if err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
+		return err
+	}
+	return nil
+}
+
+func newSSHExecCommand(ctx context.Context, command string, execEnv []string, termType string) (*exec.Cmd, context.CancelFunc) {
+	cmdCtx, cancel := context.WithTimeout(ctx, sshCmdTimeout)
+	cmd := exec.CommandContext(cmdCtx, "sh", "-c", command)
+	cmd.Env = upsertEnv(append([]string{}, execEnv...), "TERM", termType)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.WaitDelay = sshWaitDelay
+	cmd.Cancel = func() error {
+		return killCmdProcessGroup(cmd)
+	}
+	return cmd, cancel
+}
+
+func runExecCommand(ctx context.Context, ch ssh.Channel, command string, execEnv []string, termType string) int {
+	cmd, cancel := newSSHExecCommand(ctx, command, execEnv, termType)
+	defer cancel()
+
+	cmd.Stdin = ch
+	cmd.Stdout = ch
+	cmd.Stderr = ch.Stderr()
+
+	if err := cmd.Run(); err != nil {
+		if errors.Is(err, exec.ErrWaitDelay) {
+			return 0
+		}
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			return exitErr.ExitCode()
+		}
+		return 1
+	}
+	return 0
+}
+
 func watchCommandContext(ctx context.Context, cmd *exec.Cmd) func() {
 	done := make(chan struct{})
 	go func() {
 		select {
 		case <-ctx.Done():
-			if cmd.Process != nil {
-				_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-			}
+			_ = killCmdProcessGroup(cmd)
 		case <-done:
 		}
 	}()
@@ -420,13 +434,14 @@ func runShellCommand(ctx context.Context, ch ssh.Channel, command string, execEn
 
 	cmd := exec.CommandContext(cmdCtx, "sh", "-c", command)
 	cmd.Env = upsertEnv(append([]string{}, execEnv...), "TERM", termType)
-
 	ptmx, err := pty.StartWithSize(cmd, size)
 	if err != nil {
 		_, _ = io.WriteString(ch, err.Error()+"\r\n")
 		return 1
 	}
 	defer ptmx.Close()
+	stopKill := watchCommandContext(cmdCtx, cmd)
+	defer stopKill()
 
 	done := make(chan struct{})
 	go func() {
@@ -570,4 +585,52 @@ func currentUser() string {
 		return "root"
 	}
 	return u.Username
+}
+
+func newTestSSHClient(t *testing.T, fixture testSSHFixture) *ssh.Client {
+	t.Helper()
+
+	keyPEM, err := os.ReadFile(fixture.KeyFile)
+	if err != nil {
+		t.Fatalf("reading test SSH key: %v", err)
+	}
+	signer, err := ssh.ParsePrivateKey(keyPEM)
+	if err != nil {
+		t.Fatalf("parsing test SSH key: %v", err)
+	}
+
+	client, err := ssh.Dial("tcp", fixture.Addr, &ssh.ClientConfig{
+		User:            currentUser(),
+		Auth:            []ssh.AuthMethod{ssh.PublicKeys(signer)},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		Timeout:         5 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("dialing test SSH server: %v", err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+	return client
+}
+
+func TestSSHExecBackgroundChildDoesNotHoldSessionOpen(t *testing.T) {
+	fixture := setupTestSSHWithOptions(t, testSSHServerOptions{preloadAmux: true})
+	client := newTestSSHClient(t, fixture)
+
+	session, err := client.NewSession()
+	if err != nil {
+		t.Fatalf("creating SSH session: %v", err)
+	}
+	defer session.Close()
+
+	start := time.Now()
+	out, err := session.CombinedOutput("sleep 2 & echo SSH_EXEC_READY")
+	if err != nil {
+		t.Fatalf("running SSH exec command: %v\noutput:\n%s", err, string(out))
+	}
+	if !strings.Contains(string(out), "SSH_EXEC_READY") {
+		t.Fatalf("expected SSH exec output to contain readiness marker, got:\n%s", string(out))
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("SSH exec waited %v for a background child that should not hold the session open", elapsed)
+	}
 }
