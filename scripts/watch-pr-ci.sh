@@ -165,7 +165,7 @@ if [[ "$printed_logs" -eq 0 ]]; then
             echo "Unable to fetch failed log for run $run_id." >&2
         done < <(
             printf '%s\n' "$run_json" |
-                jq -r --argjson limit "$failed_run_limit" '[.[] | select((.conclusion // "") == "failure" or (.status // "") == "in_progress")] | .[0:$limit] | .[] | [.databaseId, .displayTitle, .workflowName, .url] | @tsv'
+                jq -r --argjson limit "$failed_run_limit" '[.[] | select((.conclusion // "") == "failure")] | .[0:$limit] | .[] | [.databaseId, .displayTitle, .workflowName, .url] | @tsv'
         )
     fi
 fi

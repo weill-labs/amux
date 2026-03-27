@@ -181,6 +181,99 @@ exit 1
 	}
 }
 
+func TestWatchPRCIScriptFallbackLogsOnlyConcludedFailures(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	ghLog := filepath.Join(tempDir, "gh.log")
+	writeExecutable(t, filepath.Join(tempDir, "git"), `#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${1:-}" == "rev-parse" && "${2:-}" == "HEAD" ]]; then
+	printf 'deadbeef\n'
+	exit 0
+fi
+
+echo "unexpected git invocation: $*" >&2
+exit 1
+`)
+	writeExecutable(t, filepath.Join(tempDir, "gh"), `#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >>"$FAKE_GH_LOG"
+
+if [[ "${1:-}" == "pr" && "${2:-}" == "view" ]]; then
+	cat <<'EOF'
+{"number":422,"url":"https://example.com/pr/422","headRefName":"feat/ci-watch","headRefOid":"stale-sha"}
+EOF
+	exit 0
+fi
+
+if [[ "${1:-}" == "pr" && "${2:-}" == "checks" && " $* " == *" --watch "* ]]; then
+	exit 1
+fi
+
+if [[ "${1:-}" == "pr" && "${2:-}" == "checks" && " $* " == *" --json "* ]]; then
+	cat <<'EOF'
+[{"name":"go test ./...","bucket":"fail","state":"FAILURE","link":"","workflow":"CI"}]
+EOF
+	exit 0
+fi
+
+if [[ "${1:-}" == "run" && "${2:-}" == "list" ]]; then
+	cat <<'EOF'
+[{"databaseId":999,"workflowName":"CI","displayTitle":"ci / pending","url":"https://example.com/run/999","conclusion":"","status":"in_progress"},{"databaseId":1000,"workflowName":"CI","displayTitle":"ci / failed","url":"https://example.com/run/1000","conclusion":"failure","status":"completed"}]
+EOF
+	exit 0
+fi
+
+if [[ "${1:-}" == "run" && "${2:-}" == "view" && "${3:-}" == "1000" && "${4:-}" == "--log-failed" ]]; then
+	cat <<'EOF'
+FAIL step output
+--- FAIL: TestOnlyFailedRunIsFetched
+EOF
+	exit 0
+fi
+
+echo "unexpected gh invocation: $*" >&2
+exit 1
+`)
+
+	cmd := exec.Command("bash", "scripts/watch-pr-ci.sh")
+	cmd.Dir = "."
+	cmd.Env = ciWatchScriptEnv(t, tempDir, "FAKE_GH_LOG="+ghLog)
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("expected failure when CI fails\n%s", out)
+	}
+
+	output := string(out)
+	for _, want := range []string{
+		"PR #422 CI failed",
+		"ci / failed",
+		"https://example.com/run/1000",
+		"TestOnlyFailedRunIsFetched",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("output missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(output, "ci / pending") {
+		t.Fatalf("output should not include in-progress fallback run:\n%s", out)
+	}
+
+	logBytes, err := os.ReadFile(ghLog)
+	if err != nil {
+		t.Fatalf("read gh log: %v", err)
+	}
+	log := string(logBytes)
+	if !strings.Contains(log, "run view 1000 --log-failed") {
+		t.Fatalf("gh log = %q, want failed fallback run lookup", log)
+	}
+	if strings.Contains(log, "run view 999 --log-failed") {
+		t.Fatalf("gh log = %q, should not fetch logs for in-progress fallback runs", log)
+	}
+}
+
 func TestPushAndWatchCIScriptRunsPushBeforeWatching(t *testing.T) {
 	t.Parallel()
 
