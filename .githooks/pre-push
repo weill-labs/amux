@@ -19,3 +19,14 @@ if ! bash scripts/check-diff-coverage.sh; then
     echo "  Override with: git push --no-verify"
     exit 1
 fi
+
+repo_root=$(git rev-parse --show-toplevel 2>/dev/null)
+if [[ -z "$repo_root" ]]; then
+    exit 0
+fi
+
+if [[ -x "$repo_root/scripts/sync-pane-pr-meta.sh" ]]; then
+    "$repo_root/scripts/sync-pane-pr-meta.sh" </dev/null >/dev/null 2>&1 || true
+fi
+
+exit 0
