@@ -8,7 +8,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -21,6 +23,8 @@ var gocoverDir string
 
 // gocoverOwned is true when TestMain created gocoverDir (vs. inheriting it).
 var gocoverOwned bool
+
+const testRunLockPrefix = "test-run-"
 
 // buildAmux builds the amux binary at binPath. When GOCOVERDIR is set,
 // the binary is built with -cover so it writes coverage data on exit.
@@ -79,6 +83,14 @@ func privateAmuxBin(tb testing.TB) string {
 }
 
 func TestMain(m *testing.M) {
+	socketDir := fmt.Sprintf("/tmp/amux-%d", os.Getuid())
+	lockPath, err := writeTestRunLock(socketDir, os.Getpid())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "creating test-run lock: %v\n", err)
+		os.Exit(1)
+	}
+	defer os.Remove(lockPath)
+
 	// Clean up orphaned test sessions from previous runs that may have
 	// been killed by a timeout panic (t.Cleanup doesn't run on panic).
 	cleanupStaleTestSessions()
@@ -154,6 +166,9 @@ func newTestHome(tb testing.TB) string {
 // `go test` invocation is running concurrently.
 func cleanupStaleTestSessions() {
 	socketDir := fmt.Sprintf("/tmp/amux-%d", os.Getuid())
+	if hasOtherActiveTestRun(socketDir, os.Getpid()) {
+		return
+	}
 
 	// Kill orphaned amux server processes, but only if their socket is stale
 	out, _ := exec.Command("pgrep", "-fl", "amux _server t-").Output()
@@ -219,6 +234,59 @@ func cleanupStaleTestSessions() {
 			}
 		}
 	}
+}
+
+func writeTestRunLock(socketDir string, pid int) (string, error) {
+	if err := os.MkdirAll(socketDir, 0o700); err != nil {
+		return "", err
+	}
+	path := filepath.Join(socketDir, fmt.Sprintf("%s%d.lock", testRunLockPrefix, pid))
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+func hasOtherActiveTestRun(socketDir string, selfPID int) bool {
+	entries, err := os.ReadDir(socketDir)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		pid, ok := parseTestRunLockPID(e.Name())
+		if !ok {
+			continue
+		}
+		path := filepath.Join(socketDir, e.Name())
+		if !processExists(pid) {
+			_ = os.Remove(path)
+			continue
+		}
+		if pid != selfPID {
+			return true
+		}
+	}
+	return false
+}
+
+func parseTestRunLockPID(name string) (int, bool) {
+	if !strings.HasPrefix(name, testRunLockPrefix) || !strings.HasSuffix(name, ".lock") {
+		return 0, false
+	}
+	pidStr := strings.TrimSuffix(strings.TrimPrefix(name, testRunLockPrefix), ".lock")
+	pid, err := strconv.Atoi(pidStr)
+	if err != nil {
+		return 0, false
+	}
+	return pid, true
+}
+
+func processExists(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
+	err := syscall.Kill(pid, 0)
+	return err == nil || err == syscall.EPERM
 }
 
 // killOrphanedTestClients kills amux client processes connected to dead test
