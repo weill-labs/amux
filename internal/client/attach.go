@@ -153,6 +153,58 @@ type displayPaneSelectionResult struct {
 	ok     bool
 }
 
+type chooserInputResult struct {
+	action  chooserCommand
+	handled bool
+}
+
+func toggleDisplayPanesOnRenderLoop(cr *ClientRenderer, msgCh chan<- *RenderMsg) bool {
+	return callLocalRenderAction[bool](cr, msgCh, func(cr *ClientRenderer) localRenderResult {
+		if cr.DisplayPanesActive() {
+			cr.HideDisplayPanes()
+			return localRenderResult{
+				effects: overlayRenderNowResult().effects,
+				value:   true,
+			}
+		}
+		if !cr.ShowDisplayPanes() {
+			return localRenderResult{value: false}
+		}
+		return localRenderResult{
+			effects: overlayRenderNowResult().effects,
+			value:   true,
+		}
+	})
+}
+
+func showChooserOnRenderLoop(cr *ClientRenderer, msgCh chan<- *RenderMsg, mode chooserMode) bool {
+	return callLocalRenderAction[bool](cr, msgCh, func(cr *ClientRenderer) localRenderResult {
+		if !cr.ShowChooser(mode) {
+			return localRenderResult{value: false}
+		}
+		return localRenderResult{
+			effects: overlayRenderNowResult().effects,
+			value:   true,
+		}
+	})
+}
+
+func handleChooserInputOnRenderLoop(cr *ClientRenderer, msgCh chan<- *RenderMsg, raw []byte) chooserInputResult {
+	return callLocalRenderAction[chooserInputResult](cr, msgCh, func(cr *ClientRenderer) localRenderResult {
+		if !cr.ChooserActive() {
+			return localRenderResult{value: chooserInputResult{}}
+		}
+		action := cr.HandleChooserInput(raw)
+		return localRenderResult{
+			effects: overlayRenderNowResult().effects,
+			value: chooserInputResult{
+				action:  action,
+				handled: true,
+			},
+		}
+	})
+}
+
 func handleDisplayPaneSelection(cr *ClientRenderer, sender *messageSender, b byte, msgCh chan<- *RenderMsg) {
 	result := callLocalRenderAction[displayPaneSelectionResult](cr, msgCh, func(cr *ClientRenderer) localRenderResult {
 		paneID, ok := cr.ResolveDisplayPaneKey(b)
@@ -430,11 +482,10 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 		// dispatch table. Returns true if the goroutine should exit (detach).
 		execPrefixKey := func(b byte, forward *[]byte) bool {
 			showChooser := func(mode chooserMode) {
-				if !cr.ShowChooser(mode) {
+				if !showChooserOnRenderLoop(cr, msgCh, mode) {
 					io.WriteString(os.Stdout, "\a")
 					return
 				}
-				runLocalRenderAction(cr, msgCh, func(*ClientRenderer) localRenderResult { return overlayRenderNowResult() })
 			}
 			showPrefixMessage := func(key byte) {
 				cr.ShowPrefixMessage(formatUnboundPrefixMessage(kb.Prefix, key))
@@ -485,13 +536,9 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 						return renderNowResult()
 					})
 				case "display-panes":
-					if cr.DisplayPanesActive() {
-						cr.HideDisplayPanes()
-					} else if !cr.ShowDisplayPanes() {
+					if !toggleDisplayPanesOnRenderLoop(cr, msgCh) {
 						io.WriteString(os.Stdout, "\a")
-						break
 					}
-					runLocalRenderAction(cr, msgCh, func(*ClientRenderer) localRenderResult { return overlayRenderNowResult() })
 				case "choose-tree":
 					showChooser(chooserModeTree)
 				case "choose-window":
@@ -797,13 +844,23 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 			}
 
 			if cr.ChooserActive() {
-				action := cr.HandleChooserInput(normalizeLocalInput(raw))
-				if action.bell {
+				// ChooserActive() is an atomic snapshot read. Re-check on the
+				// render loop before mutating chooser state so a queued layout can
+				// hide the chooser first without racing the input goroutine.
+				result := handleChooserInputOnRenderLoop(cr, msgCh, normalizeLocalInput(raw))
+				if !result.handled {
+					// If the chooser disappeared between the snapshot read above and
+					// the render-loop action, drop this key instead of forwarding it
+					// into the pane while the user was visually interacting with the
+					// chooser.
+					cr.SetInputIdle(true)
+					continue
+				}
+				if result.action.bell {
 					io.WriteString(os.Stdout, "\a")
 				}
-				runLocalRenderAction(cr, msgCh, func(*ClientRenderer) localRenderResult { return overlayRenderNowResult() })
-				if action.command != "" {
-					sender.Command(action.command, action.args)
+				if result.action.command != "" {
+					sender.Command(result.action.command, result.action.args)
 				}
 				cr.SetInputIdle(true)
 				continue
