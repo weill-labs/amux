@@ -25,6 +25,11 @@ import (
 
 const defaultSessionName = server.DefaultSessionName
 
+const (
+	sendKeysUsage = "usage: amux send-keys <pane> [--wait ready] [--continue-known-dialogs] [--timeout <duration>] [--hex] <keys>..."
+	typeKeysUsage = "usage: amux type-keys [--wait ui=input-idle] [--timeout <duration>] [--hex] <keys>..."
+)
+
 const reconnectEventType = "reconnect"
 
 // BuildCommit can be set via -ldflags "-X main.BuildCommit=abc1234".
@@ -194,14 +199,12 @@ func main() {
 		}
 		runSessionCommand("kill", args[1:])
 	case "send-keys":
-		for _, arg := range args[1:] {
-			if arg == "--help" || arg == "-h" {
-				fmt.Println("usage: amux send-keys <pane> [--wait ready] [--continue-known-dialogs] [--timeout <duration>] [--hex] <keys>...")
-				return
-			}
+		if hasHelpFlag(args[1:]) {
+			fmt.Println(sendKeysUsage)
+			return
 		}
 		if len(args) < 3 {
-			fmt.Fprintf(os.Stderr, "usage: amux send-keys <pane> [--wait ready] [--continue-known-dialogs] [--timeout <duration>] [--hex] <keys>...\n")
+			fmt.Fprintf(os.Stderr, "%s\n", sendKeysUsage)
 			os.Exit(1)
 		}
 		runSessionCommand("send-keys", args[1:])
@@ -212,14 +215,12 @@ func main() {
 		}
 		runSessionCommand("broadcast", args[1:])
 	case "type-keys":
-		for _, arg := range args[1:] {
-			if arg == "--help" || arg == "-h" {
-				fmt.Println("usage: amux type-keys [--wait ui=input-idle] [--timeout <duration>] [--hex] <keys>...")
-				return
-			}
+		if hasHelpFlag(args[1:]) {
+			fmt.Println(typeKeysUsage)
+			return
 		}
 		if len(args) < 2 {
-			fmt.Fprintf(os.Stderr, "usage: amux type-keys [--wait ui=input-idle] [--timeout <duration>] [--hex] <keys>...\n")
+			fmt.Fprintf(os.Stderr, "%s\n", typeKeysUsage)
 			os.Exit(1)
 		}
 		runSessionCommand("type-keys", args[1:])
@@ -339,6 +340,15 @@ func resolveSessionName(explicit string, explicitSet bool) string {
 		return envSession
 	}
 	return defaultSessionName
+}
+
+func hasHelpFlag(args []string) bool {
+	for _, arg := range args {
+		if arg == "--help" || arg == "-h" {
+			return true
+		}
+	}
+	return false
 }
 
 func resolveInvocationSession(args []string) (string, []string) {
