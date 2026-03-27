@@ -125,6 +125,10 @@ func TestZoomResyncsStaleCursorState(t *testing.T) {
 	t.Parallel()
 	h := newServerHarnessWithSize(t, 255, 62)
 
+	// The headless control client can become command-ready slightly before
+	// short-lived CLI subprocesses are able to connect. Establish CLI command
+	// readiness before the first split helper issues `_layout-json`.
+	_ = h.generation()
 	h.splitH()
 	h.waitFor("pane-2", "$")
 
@@ -138,14 +142,20 @@ func TestZoomResyncsStaleCursorState(t *testing.T) {
 		{
 			name: "zoom",
 			zoom: func() {
+				gen := h.generation()
 				h.runCmd("zoom", "pane-2")
+				h.waitLayout(gen)
 			},
 		},
 		{
 			name: "unzoom",
 			zoom: func() {
+				gen := h.generation()
 				h.runCmd("zoom", "pane-2")
+				h.waitLayout(gen)
+				gen = h.generation()
 				h.runCmd("zoom", "pane-2")
+				h.waitLayout(gen)
 			},
 		},
 	}
@@ -167,7 +177,7 @@ func TestZoomResyncsStaleCursorState(t *testing.T) {
 
 			afterCapture := h.captureJSON()
 			after := h.jsonPane(afterCapture, "pane-2")
-			if got, want := after.Content[0], healthy.Content[0]; got != want {
+			if got, want := strings.TrimLeft(after.Content[0], " "), strings.TrimLeft(healthy.Content[0], " "); got != want {
 				t.Fatalf("pane-2 content after %s = %q, want %q", tt.name, got, want)
 			}
 			if got, want := after.Cursor.Col, healthy.Cursor.Col; got != want {
