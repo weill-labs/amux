@@ -278,6 +278,76 @@ func TestCmdSendKeysShowsUsageWhenNoKeysProvided(t *testing.T) {
 	}
 }
 
+func TestCmdSendKeysWaitsForInputIdle(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	writes := make(chan string, 1)
+	pane := newProxyPane(1, mux.PaneMeta{
+		Name:  "pane-1",
+		Host:  mux.DefaultHost,
+		Color: config.AccentColor(0),
+	}, 80, 23, sess.paneOutputCallback(), sess.paneExitCallback(), func(data []byte) (int, error) {
+		writes <- string(data)
+		return len(data), nil
+	})
+	w := newTestWindowWithPanes(t, sess, 1, "main", pane)
+	sess.Windows = []*mux.Window{w}
+	sess.ActiveWindowID = w.ID
+	sess.Panes = []*mux.Pane{pane}
+
+	uiServerConn, uiPeerConn := net.Pipe()
+	defer uiServerConn.Close()
+	defer uiPeerConn.Close()
+
+	uiClient := newClientConn(uiServerConn)
+	uiClient.ID = "client-1"
+	uiClient.inputIdle = true
+	uiClient.uiGeneration = 1
+	uiClient.initTypeKeyQueue()
+	defer uiClient.Close()
+
+	mustSessionQuery(t, sess, func(sess *Session) struct{} {
+		sess.ensureClientManager().setClientsForTest(uiClient)
+		return struct{}{}
+	})
+
+	cmdPeerConn, _, done := startAsyncCommand(t, srv, sess, "send-keys", "pane-1", "--wait", "ui=input-idle", "--timeout", "100ms", "ab")
+
+	typeKeysMsg := readMsgWithTimeout(t, uiPeerConn)
+	if typeKeysMsg.Type != MsgTypeTypeKeys || string(typeKeysMsg.Input) != "ab" {
+		t.Fatalf("send-keys type-keys message = %#v", typeKeysMsg)
+	}
+
+	select {
+	case got := <-writes:
+		t.Fatalf("send-keys --wait ui=input-idle should route through client, wrote directly to pane: %q", got)
+	default:
+	}
+
+	select {
+	case <-done:
+		t.Fatal("send-keys returned before fresh input-idle")
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	sess.enqueueUIEvent(uiClient, proto.UIEventInputBusy)
+	sess.enqueueUIEvent(uiClient, proto.UIEventInputIdle)
+
+	result := readMsgWithTimeout(t, cmdPeerConn)
+	if got := result.CmdOutput; got != "Sent 2 bytes to pane-1\n" {
+		t.Fatalf("send-keys output = %q", got)
+	}
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("send-keys wait command did not return")
+	}
+}
+
 func TestCmdTypeKeysErrorPaths(t *testing.T) {
 	t.Parallel()
 
