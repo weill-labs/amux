@@ -239,6 +239,12 @@ func (c *LayoutCell) ResizeSubtree(newW, newH int) {
 		return
 	}
 	if c.IsLeaf() {
+		if newW < PaneMinSize {
+			newW = PaneMinSize
+		}
+		if newH < PaneMinSize {
+			newH = PaneMinSize
+		}
 		c.W = newW
 		c.H = newH
 		return
@@ -247,23 +253,169 @@ func (c *LayoutCell) ResizeSubtree(newW, newH int) {
 		return
 	}
 
-	if c.Dir == SplitVertical {
-		totalW := len(c.Children) - 1
-		for _, child := range c.Children {
-			totalW += child.W
-		}
-		c.W = totalW
-		c.H = c.Children[0].H
-	} else {
-		totalH := len(c.Children) - 1
-		for _, child := range c.Children {
-			totalH += child.H
-		}
-		c.W = c.Children[0].W
-		c.H = totalH
+	if minW := c.minSubtreeSize(SplitVertical); newW < minW {
+		newW = minW
+	}
+	if minH := c.minSubtreeSize(SplitHorizontal); newH < minH {
+		newH = minH
 	}
 
-	c.ResizeAll(newW, newH)
+	c.W = newW
+	c.H = newH
+
+	if c.Dir == SplitVertical {
+		childWidths := proportionalChildSizes(c.Children, SplitVertical, newW-(len(c.Children)-1))
+		for i, child := range c.Children {
+			child.ResizeSubtree(childWidths[i], newH)
+		}
+	} else {
+		childHeights := proportionalChildSizes(c.Children, SplitHorizontal, newH-(len(c.Children)-1))
+		for i, child := range c.Children {
+			child.ResizeSubtree(newW, childHeights[i])
+		}
+	}
+
+	c.FixOffsets()
+}
+
+func (c *LayoutCell) minSubtreeSize(axis SplitDir) int {
+	if c == nil {
+		return 0
+	}
+	if c.IsLeaf() {
+		return PaneMinSize
+	}
+	if len(c.Children) == 0 {
+		if axis == SplitVertical {
+			return c.W
+		}
+		return c.H
+	}
+	if c.Dir == axis {
+		total := len(c.Children) - 1
+		for _, child := range c.Children {
+			total += child.minSubtreeSize(axis)
+		}
+		return total
+	}
+
+	minimum := 0
+	for _, child := range c.Children {
+		if size := child.minSubtreeSize(axis); size > minimum {
+			minimum = size
+		}
+	}
+	return minimum
+}
+
+// proportionalChildSizes fits direct children into target cells while
+// preserving their current proportions and respecting per-child minimums.
+func proportionalChildSizes(children []*LayoutCell, axis SplitDir, target int) []int {
+	n := len(children)
+	if n == 0 {
+		return nil
+	}
+
+	sizes := make([]int, n)
+	mins := make([]int, n)
+	weights := make([]int, n)
+	active := make([]bool, n)
+	activeCount := n
+	remaining := target
+
+	for i, child := range children {
+		if axis == SplitVertical {
+			weights[i] = child.W
+		} else {
+			weights[i] = child.H
+		}
+		mins[i] = child.minSubtreeSize(axis)
+		active[i] = true
+	}
+
+	for {
+		if activeCount == 0 {
+			return sizes
+		}
+
+		sumWeights := sumActiveWeights(weights, active)
+		if sumWeights == 0 {
+			for i := range weights {
+				if active[i] {
+					weights[i] = 1
+				}
+			}
+			sumWeights = activeCount
+		}
+
+		froze := false
+		for i := range children {
+			if !active[i] {
+				continue
+			}
+			if int64(remaining)*int64(weights[i]) < int64(mins[i])*int64(sumWeights) {
+				sizes[i] = mins[i]
+				remaining -= mins[i]
+				active[i] = false
+				activeCount--
+				froze = true
+			}
+		}
+		if !froze {
+			break
+		}
+	}
+
+	sumWeights := sumActiveWeights(weights, active)
+	if sumWeights == 0 {
+		sumWeights = activeCount
+		for i := range weights {
+			if active[i] {
+				weights[i] = 1
+			}
+		}
+	}
+
+	remainders := make([]int64, n)
+	allocated := 0
+	for i := range children {
+		if !active[i] {
+			continue
+		}
+		numerator := int64(remaining) * int64(weights[i])
+		size := int(numerator / int64(sumWeights))
+		sizes[i] = size
+		remainders[i] = numerator % int64(sumWeights)
+		allocated += size
+	}
+
+	for leftover := remaining - allocated; leftover > 0; leftover-- {
+		best := -1
+		var bestRem int64 = -1
+		for i := range children {
+			if !active[i] {
+				continue
+			}
+			if remainders[i] > bestRem {
+				best = i
+				bestRem = remainders[i]
+			}
+		}
+		sizes[best]++
+		remainders[best] = -1
+	}
+
+	return sizes
+}
+
+func sumActiveWeights(weights []int, active []bool) int {
+	total := 0
+	for i, weight := range weights {
+		if active[i] {
+			total += weight
+		}
+	}
+	return total
 }
 
 func (c *LayoutCell) resizeCheck(axis SplitDir) int {
@@ -470,7 +622,7 @@ func (c *LayoutCell) distributeEqual() {
 				child.W = targetW
 				child.H = c.H
 			} else {
-				child.ResizeAll(targetW, c.H)
+				child.ResizeSubtree(targetW, c.H)
 			}
 		}
 	} else {
@@ -484,7 +636,7 @@ func (c *LayoutCell) distributeEqual() {
 				child.H = targetH
 				child.W = c.W
 			} else {
-				child.ResizeAll(c.W, targetH)
+				child.ResizeSubtree(c.W, targetH)
 			}
 		}
 	}
