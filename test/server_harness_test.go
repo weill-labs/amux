@@ -684,6 +684,10 @@ func (h *ServerHarness) runCmdWithTimeout(timeout time.Duration, track bool, arg
 		h.postReloadProbes = true
 		h.commandConnMu.Unlock()
 	}
+	if !forceSubprocess {
+		_, awaitingReconnect := h.attachedClientCommandState()
+		forceSubprocess = awaitingReconnect && attachedClientFallbackSafeCommands[args[0]]
+	}
 
 	if !forceSubprocess && h.canUseAttachedClient(args) && h.waitForAttachedClientReady(timeout) {
 		out, err := h.runAttachedClientCommand(timeout, args...)
@@ -1646,6 +1650,27 @@ func TestServerHarnessRunCmdPostReloadModeKeepsRemoteMutationsOnCLIPath(t *testi
 	out := h.runCmd("send-keys", "pane-1@remote", "x")
 	if !isCommandConnectError(out) {
 		t.Fatalf("remote send-keys should still use the CLI path in post-reload mode, got:\n%s", out)
+	}
+}
+
+func TestServerHarnessRunCmdPostReloadModeKeepsSafePollingOnCLIWhileAwaitingReconnect(t *testing.T) {
+	t.Parallel()
+
+	h := newServerHarness(t)
+	h.commandConnMu.Lock()
+	h.postReloadProbes = true
+	h.awaitingReconnect = true
+	h.lastCommandConn = h.client.currentConn()
+	h.commandConnMu.Unlock()
+
+	sockPath := server.SocketPath(h.session)
+	if err := os.Remove(sockPath); err != nil {
+		t.Fatalf("Remove(%s): %v", sockPath, err)
+	}
+
+	out := h.runCmd("status")
+	if !isCommandConnectError(out) {
+		t.Fatalf("safe polling should stay on the CLI path while awaiting reconnect, got:\n%s", out)
 	}
 }
 
