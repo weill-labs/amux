@@ -342,6 +342,7 @@ type emuPaneData struct {
 	name         string
 	color        string
 	cursorHidden bool
+	lead         bool
 }
 
 func (e *emuPaneData) RenderScreen(active bool) string { return e.emu.Render() }
@@ -359,7 +360,7 @@ func (e *emuPaneData) Host() string                        { return "local" }
 func (e *emuPaneData) Task() string                        { return "" }
 func (e *emuPaneData) Color() string                       { return e.color }
 func (e *emuPaneData) Idle() bool                          { return true }
-func (e *emuPaneData) IsLead() bool                        { return false }
+func (e *emuPaneData) IsLead() bool                        { return e.lead }
 func (e *emuPaneData) ConnStatus() string                  { return "" }
 func (e *emuPaneData) InCopyMode() bool                    { return false }
 func (e *emuPaneData) CopyModeSearch() string              { return "" }
@@ -873,6 +874,39 @@ func TestRenderDiff_ColorOracle_IncrementalUpdate(t *testing.T) {
 	if mismatches := colorOracleCheck(comp, diffDisplay, root, 1, lookup, width, totalH); len(mismatches) > 0 {
 		t.Errorf("incremental update: %d color mismatches:\n%s",
 			len(mismatches), strings.Join(mismatches, "\n"))
+	}
+}
+
+func TestRenderDiff_ColorOracle_LeadPane(t *testing.T) {
+	t.Parallel()
+
+	width, height := 60, 10
+	totalH := height + GlobalBarHeight
+	contentH := height - mux.StatusLineRows
+
+	paneEmu := vt.NewSafeEmulator(width, contentH)
+	paneEmu.Write([]byte("lead pane content"))
+
+	root := mux.NewLeafByID(1, 0, 0, width, height)
+	lookup := func(id uint32) PaneData {
+		if id == 1 {
+			return &emuPaneData{
+				emu:          paneEmu,
+				id:           1,
+				name:         "pane-1",
+				color:        "f5e0dc",
+				cursorHidden: true,
+				lead:         true,
+			}
+		}
+		return nil
+	}
+
+	comp := newTestCompositor(width, totalH, "test")
+	diffDisplay := vt.NewSafeEmulator(width, totalH)
+
+	if mismatches := colorOracleCheck(comp, diffDisplay, root, 1, lookup, width, totalH); len(mismatches) > 0 {
+		t.Fatalf("lead pane oracle mismatch:\n%s", strings.Join(mismatches, "\n"))
 	}
 }
 
