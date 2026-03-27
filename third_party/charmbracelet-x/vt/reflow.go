@@ -20,16 +20,12 @@ func (s *Screen) resizeWider(width, height int, cursorPhantom bool) {
 
 	oldWidth, oldHeight := s.buf.Width(), s.buf.Height()
 	if width <= oldWidth {
-		s.buf.Resize(width, height)
-		s.buf.Touched = nil
-		s.scroll = s.buf.Bounds()
+		s.resizePlain(width, height)
 		return
 	}
 
 	if oldWidth <= 0 || oldHeight <= 0 {
-		s.buf.Resize(width, height)
-		s.buf.Touched = nil
-		s.scroll = s.buf.Bounds()
+		s.resizePlain(width, height)
 		return
 	}
 
@@ -46,6 +42,12 @@ func (s *Screen) resizeWider(width, height int, cursorPhantom bool) {
 	s.cur.X, s.cur.Y = clampReflowCursor(cursor, width, height)
 	s.saved.X, s.saved.Y = clampReflowCursor(saved, width, height)
 	s.buf.Touched = nil
+}
+
+func (s *Screen) resizePlain(width, height int) {
+	s.buf.Resize(width, height)
+	s.buf.Touched = nil
+	s.scroll = s.buf.Bounds()
 }
 
 func captureReflowState(s *Screen, width, height int, cursorPhantom bool) ([]reflowLine, reflowPosition, reflowPosition) {
