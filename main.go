@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/signal"
@@ -199,13 +200,11 @@ func main() {
 		}
 		runSessionCommand("kill", args[1:])
 	case "send-keys":
-		if hasHelpFlag(args[1:]) {
-			fmt.Println(sendKeysUsage)
+		if handled, exitCode := maybePrintKeyCommandUsage(os.Stdout, os.Stderr, args[1:], sendKeysUsage, 2); handled {
+			if exitCode != 0 {
+				os.Exit(exitCode)
+			}
 			return
-		}
-		if len(args) < 3 {
-			fmt.Fprintf(os.Stderr, "%s\n", sendKeysUsage)
-			os.Exit(1)
 		}
 		runSessionCommand("send-keys", args[1:])
 	case "broadcast":
@@ -215,13 +214,11 @@ func main() {
 		}
 		runSessionCommand("broadcast", args[1:])
 	case "type-keys":
-		if hasHelpFlag(args[1:]) {
-			fmt.Println(typeKeysUsage)
+		if handled, exitCode := maybePrintKeyCommandUsage(os.Stdout, os.Stderr, args[1:], typeKeysUsage, 1); handled {
+			if exitCode != 0 {
+				os.Exit(exitCode)
+			}
 			return
-		}
-		if len(args) < 2 {
-			fmt.Fprintf(os.Stderr, "%s\n", typeKeysUsage)
-			os.Exit(1)
 		}
 		runSessionCommand("type-keys", args[1:])
 	case "set-lead":
@@ -349,6 +346,18 @@ func hasHelpFlag(args []string) bool {
 		}
 	}
 	return false
+}
+
+func maybePrintKeyCommandUsage(stdout, stderr io.Writer, args []string, usage string, minArgs int) (handled bool, exitCode int) {
+	if hasHelpFlag(args) {
+		fmt.Fprintln(stdout, usage)
+		return true, 0
+	}
+	if len(args) < minArgs {
+		fmt.Fprintln(stderr, usage)
+		return true, 1
+	}
+	return false, 0
 }
 
 func resolveInvocationSession(args []string) (string, []string) {
