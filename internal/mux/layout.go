@@ -1,6 +1,9 @@
 package mux
 
-import "fmt"
+import (
+	"fmt"
+	"sort"
+)
 
 // SplitDir indicates horizontal or vertical split direction.
 type SplitDir int
@@ -206,25 +209,8 @@ func (c *LayoutCell) ResizeAll(newW, newH int) {
 		return
 	}
 
-	// Match tmux's resize behavior: distribute exact deltas cell-by-cell
-	// instead of recomputing proportions from already-rounded pane sizes.
-	xchange := newW - c.W
-	xlimit := c.resizeCheck(SplitVertical)
-	if xchange < -xlimit {
-		xchange = -xlimit
-	}
-	if xchange != 0 {
-		c.resizeAdjust(SplitVertical, xchange)
-	}
-
-	ychange := newH - c.H
-	ylimit := c.resizeCheck(SplitHorizontal)
-	if ychange < -ylimit {
-		ychange = -ylimit
-	}
-	if ychange != 0 {
-		c.resizeAdjust(SplitHorizontal, ychange)
-	}
+	c.resizeProportional(SplitVertical, newW)
+	c.resizeProportional(SplitHorizontal, newH)
 
 	c.FixOffsets()
 }
@@ -451,39 +437,108 @@ func (c *LayoutCell) resizeCheck(axis SplitDir) int {
 	return minimum
 }
 
-func (c *LayoutCell) resizeAdjust(axis SplitDir, change int) {
-	if axis == SplitVertical {
-		c.W += change
-	} else {
-		c.H += change
+func (c *LayoutCell) resizeProportional(axis SplitDir, target int) {
+	current := c.W
+	if axis == SplitHorizontal {
+		current = c.H
+	}
+	if target == current {
+		return
+	}
+	if target < current {
+		maxShrink := c.resizeCheck(axis)
+		minTarget := current - maxShrink
+		if target < minTarget {
+			target = minTarget
+		}
 	}
 
-	if c.IsLeaf() {
+	if axis == SplitVertical {
+		c.W = target
+	} else {
+		c.H = target
+	}
+	if c.IsLeaf() || len(c.Children) == 0 {
 		return
 	}
 
 	if c.Dir != axis {
 		for _, child := range c.Children {
-			child.resizeAdjust(axis, change)
+			child.resizeProportional(axis, target)
 		}
 		return
 	}
 
-	for change != 0 {
-		for _, child := range c.Children {
-			if change == 0 {
-				break
+	n := len(c.Children)
+	available := target - (n - 1)
+	minimumTotal := PaneMinSize * n
+	if available < minimumTotal {
+		available = minimumTotal
+	}
+
+	sizes := make([]int, n)
+	extra := available - minimumTotal
+	if extra == 0 {
+		for i := range sizes {
+			sizes[i] = PaneMinSize
+		}
+	} else {
+		weights := make([]int, n)
+		totalWeight := 0
+		for i, child := range c.Children {
+			weight := child.W - PaneMinSize
+			if axis == SplitHorizontal {
+				weight = child.H - PaneMinSize
 			}
-			if change > 0 {
-				child.resizeAdjust(axis, 1)
-				change--
-				continue
+			if weight < 0 {
+				weight = 0
 			}
-			if child.resizeCheck(axis) > 0 {
-				child.resizeAdjust(axis, -1)
-				change++
+			weights[i] = weight
+			totalWeight += weight
+		}
+
+		if totalWeight == 0 {
+			base := extra / n
+			leftover := extra % n
+			for i := range sizes {
+				sizes[i] = PaneMinSize + base
+				if i >= n-leftover {
+					sizes[i]++
+				}
+			}
+		} else {
+			type remainder struct {
+				idx int
+				rem int64
+			}
+			remainders := make([]remainder, 0, n)
+			assignedExtra := 0
+			for i, weight := range weights {
+				numerator := int64(extra) * int64(weight)
+				share := int(numerator / int64(totalWeight))
+				sizes[i] = PaneMinSize + share
+				assignedExtra += share
+				remainders = append(remainders, remainder{
+					idx: i,
+					rem: numerator % int64(totalWeight),
+				})
+			}
+
+			leftover := extra - assignedExtra
+			sort.SliceStable(remainders, func(i, j int) bool {
+				if remainders[i].rem == remainders[j].rem {
+					return remainders[i].idx > remainders[j].idx
+				}
+				return remainders[i].rem > remainders[j].rem
+			})
+			for i := 0; i < leftover; i++ {
+				sizes[remainders[i].idx]++
 			}
 		}
+	}
+
+	for i, child := range c.Children {
+		child.resizeProportional(axis, sizes[i])
 	}
 }
 
