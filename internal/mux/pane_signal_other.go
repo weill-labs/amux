@@ -4,8 +4,6 @@ package mux
 
 import "syscall"
 
-func (p *Pane) notifyResizeSignal() {}
-
 func (p *Pane) SignalForegroundProcessGroup(sig syscall.Signal) error {
 	return p.SignalProcess(sig)
 }

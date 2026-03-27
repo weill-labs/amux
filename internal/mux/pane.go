@@ -530,11 +530,10 @@ func (p *Pane) Resize(cols, rows int) error {
 			sizeChanged = currentCols != cols || currentRows != rows
 			p.emulator.Resize(cols, rows)
 		}
-		if err := p.resizePTY(cols, rows); err != nil {
-			return err
-		}
 		if sizeChanged {
-			p.notifyResizeSignal()
+			if err := p.resizePTY(cols, rows); err != nil {
+				return err
+			}
 		}
 		return nil
 	})
