@@ -124,6 +124,17 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
 
+      - name: Upload test timing artifacts
+        if: ${{ always() && steps.changes.outputs.code_changed == 'true' && hashFiles('root-results.json', 'unit-results.json', 'integration-results.json') != '' }}
+        uses: actions/upload-artifact@v7.0.0
+        with:
+          name: test-timing-artifacts
+          if-no-files-found: ignore
+          path: |
+            root-results.json
+            unit-results.json
+            integration-results.json
+
       - name: Coverage summary
         if: always() && steps.changes.outputs.code_changed == 'true'
         run: |
