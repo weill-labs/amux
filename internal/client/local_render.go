@@ -5,9 +5,10 @@ import "os"
 // Local render actions are reserved for client state that cannot be updated
 // safely through the clientSnapshot CAS helpers. CopyMode instances are shared,
 // deeply mutable structs, so attached-client access is serialized onto the
-// render loop. Simpler UI state such as messages, chooser visibility, and pane
-// overlays lives in clientSnapshot and can continue to use updateState /
-// updateClientStateValue from any goroutine.
+// render loop. Simpler UI state such as messages still lives in clientSnapshot
+// and can use updateState / updateClientStateValue from any goroutine, but
+// chooser and pane-overlay activation must be serialized on the render loop so
+// queued layout messages apply before those overlays inspect renderer state.
 func applyLocalRenderResultDirect(cr *ClientRenderer, result localRenderResult) {
 	state := &clientRenderLoopState{
 		useFull:             os.Getenv("AMUX_RENDER") == "full",

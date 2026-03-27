@@ -843,8 +843,15 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 			}
 
 			if cr.ChooserActive() {
+				// ChooserActive() is an atomic snapshot read. Re-check on the
+				// render loop before mutating chooser state so a queued layout can
+				// hide the chooser first without racing the input goroutine.
 				result := handleChooserInputOnRenderLoop(cr, msgCh, normalizeLocalInput(raw))
 				if !result.handled {
+					// If the chooser disappeared between the snapshot read above and
+					// the render-loop action, drop this key instead of forwarding it
+					// into the pane while the user was visually interacting with the
+					// chooser.
 					cr.SetInputIdle(true)
 					continue
 				}
