@@ -28,7 +28,7 @@ const defaultSessionName = server.DefaultSessionName
 
 const (
 	sendKeysUsage = "usage: amux send-keys <pane> [--wait ready|ui=input-idle] [--continue-known-dialogs] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>..."
-	typeKeysUsage = "usage: amux type-keys [pane] [--wait ui=input-idle] [--timeout <duration>] [--hex] <keys>..."
+	typeKeysUsage = "usage: amux type-keys [--wait ui=input-idle] [--timeout <duration>] [--hex] <keys>..."
 	delegateUsage = "usage: amux delegate <pane> [--timeout <duration>] [--start-timeout <duration>] [--hex] <keys>..."
 )
 
@@ -221,8 +221,8 @@ func main() {
 			}
 			return
 		}
-		if len(args) == 2 && looksLikePaneRefArg(args[1]) {
-			fmt.Fprintf(os.Stderr, "warning: %q looks like a pane ref; type-keys only treats the first arg as a pane target when additional keys follow\n", args[1])
+		if len(args) >= 2 && !strings.HasPrefix(args[1], "-") && looksLikePaneRefArg(args[1]) {
+			fmt.Fprintf(os.Stderr, "warning: %q looks like a pane ref; type-keys always targets the focused pane, use send-keys %s ... to target another pane\n", args[1], args[1])
 		}
 		runSessionCommand("type-keys", args[1:])
 	case "delegate":
@@ -496,7 +496,7 @@ Usage:
                                        Send the same keystrokes to multiple panes
   amux [-s session] add-pane [--name NAME] [--host HOST]
                                        Add a pane in clockwise spiral order without changing focus
-  amux [-s session] type-keys [pane] [--wait ui=input-idle] [--timeout <duration>] [--hex] <keys>...
+  amux [-s session] type-keys [--wait ui=input-idle] [--timeout <duration>] [--hex] <keys>...
                                        Type keys through client input pipeline
   amux [-s session] delegate <pane> [--timeout <duration>] [--start-timeout <duration>] [--hex] <keys>...
                                        Send prompt text, submit it, and confirm the pane becomes busy

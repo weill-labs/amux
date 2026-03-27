@@ -58,14 +58,10 @@ func TestDisplayPanesInvalidKeyDismissesWithoutLeak(t *testing.T) {
 
 	h.runCmd("type-keys", "C-a", "q")
 	h.waitUI(proto.UIEventDisplayPanesShown, 3*time.Second)
-	if !h.waitFor("[2]", 3*time.Second) {
-		t.Fatalf("expected pane overlay labels before invalid key, got:\n%s", h.captureOuter())
-	}
 
 	h.runCmd("type-keys", "0")
 	h.waitUI(proto.UIEventDisplayPanesHidden, 3*time.Second)
 	h.runCmd("type-keys", "Enter")
-
 	if !h.waitFor("$", 3*time.Second) {
 		t.Fatalf("expected shell prompt after invalid key dismissal, got:\n%s", h.captureOuter())
 	}

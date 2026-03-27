@@ -58,12 +58,22 @@ func TestMainKeyCommandsHelpFlagsPrintUsage(t *testing.T) {
 		{
 			name: "type-keys long help",
 			args: []string{"type-keys", "--help"},
-			want: "usage: amux type-keys [pane] [--wait ui=input-idle] [--timeout <duration>] [--hex] <keys>...",
+			want: "usage: amux type-keys [--wait ui=input-idle] [--timeout <duration>] [--hex] <keys>...",
 		},
 		{
 			name: "type-keys short help",
 			args: []string{"type-keys", "-h"},
-			want: "usage: amux type-keys [pane] [--wait ui=input-idle] [--timeout <duration>] [--hex] <keys>...",
+			want: "usage: amux type-keys [--wait ui=input-idle] [--timeout <duration>] [--hex] <keys>...",
+		},
+		{
+			name: "delegate long help",
+			args: []string{"delegate", "pane-1", "--help"},
+			want: "usage: amux delegate <pane> [--timeout <duration>] [--start-timeout <duration>] [--hex] <keys>...",
+		},
+		{
+			name: "delegate short help",
+			args: []string{"delegate", "pane-1", "-h"},
+			want: "usage: amux delegate <pane> [--timeout <duration>] [--start-timeout <duration>] [--hex] <keys>...",
 		},
 	}
 
@@ -176,17 +186,54 @@ func TestMainTypeKeysDispatchesWhenKeysProvided(t *testing.T) {
 	assertMainCommandConnectError(t, out, "type-keys")
 }
 
-func TestMainTypeKeysWarnsWhenSingleArgLooksLikePaneRef(t *testing.T) {
+func TestMainTypeKeysWarnsWhenFirstArgLooksLikePaneRef(t *testing.T) {
 	t.Parallel()
 
-	out, code := runHermeticMain(t, "type-keys", "pane-1")
-	if code != 1 {
-		t.Fatalf("exit code = %d, want 1\n%s", code, out)
+	tests := [][]string{
+		{"type-keys", "pane-1"},
+		{"type-keys", "pane-1", "hello"},
 	}
-	if !strings.Contains(out, `warning: "pane-1" looks like a pane ref`) {
-		t.Fatalf("type-keys pane-ref warning missing:\n%s", out)
+
+	for _, args := range tests {
+		args := args
+		t.Run(strings.Join(args, "_"), func(t *testing.T) {
+			t.Parallel()
+
+			out, code := runHermeticMain(t, args...)
+			if code != 1 {
+				t.Fatalf("exit code = %d, want 1\n%s", code, out)
+			}
+			if !strings.Contains(out, `warning: "pane-1" looks like a pane ref`) ||
+				!strings.Contains(out, `use send-keys pane-1 ...`) {
+				t.Fatalf("type-keys pane-ref warning missing send-keys hint:\n%s", out)
+			}
+			assertMainCommandConnectError(t, out, "type-keys")
+		})
 	}
-	assertMainCommandConnectError(t, out, "type-keys")
+}
+
+func TestLooksLikePaneRefArg(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		arg  string
+		want bool
+	}{
+		{arg: "pane-1", want: true},
+		{arg: "7", want: true},
+		{arg: "pane-one", want: true},
+		{arg: "task", want: false},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.arg, func(t *testing.T) {
+			t.Parallel()
+			if got := looksLikePaneRefArg(tt.arg); got != tt.want {
+				t.Fatalf("looksLikePaneRefArg(%q) = %v, want %v", tt.arg, got, tt.want)
+			}
+		})
+	}
 }
 
 func TestMainTypeKeysUsageIncludesWaitFlags(t *testing.T) {
@@ -196,7 +243,7 @@ func TestMainTypeKeysUsageIncludesWaitFlags(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("exit code = %d, want 1\n%s", code, out)
 	}
-	if !strings.Contains(out, "usage: amux type-keys [pane] [--wait ui=input-idle] [--timeout <duration>] [--hex] <keys>...") {
+	if !strings.Contains(out, "usage: amux type-keys [--wait ui=input-idle] [--timeout <duration>] [--hex] <keys>...") {
 		t.Fatalf("type-keys usage output missing wait flags:\n%s", out)
 	}
 }

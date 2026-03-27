@@ -21,7 +21,7 @@ const tokenKeyGap = 50 * time.Millisecond
 const (
 	broadcastUsage              = "usage: broadcast (--panes <pane,pane,...> | --window <index|name> | --match <glob>) [--hex] <keys>..."
 	sendKeysUsage               = "usage: send-keys <pane> [--wait ready|ui=input-idle] [--continue-known-dialogs] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>..."
-	typeKeysUsage               = "usage: type-keys [pane] [--wait ui=input-idle] [--timeout <duration>] [--hex] <keys>..."
+	typeKeysUsage               = "usage: type-keys [--wait ui=input-idle] [--timeout <duration>] [--hex] <keys>..."
 	delegateUsage               = "usage: delegate <pane> [--timeout <duration>] [--start-timeout <duration>] [--hex] <keys>..."
 	defaultCommandUIWaitTimeout = 5 * time.Second
 )
@@ -204,17 +204,6 @@ func enqueueTargetedClientKeys(sess *Session, client *clientConn, pane *mux.Pane
 		}
 		return waitForNextUIEvent(sess, *uiWait, proto.UIEventInputIdle, waitTimeout)
 	})
-}
-
-func resolveTypeKeysPane(sess *Session, actorPaneID uint32, args []string) (resolvedPaneRef, []string, bool) {
-	if len(args) <= 1 || strings.HasPrefix(args[0], "-") {
-		return resolvedPaneRef{}, args, false
-	}
-	pane, err := sess.queryResolvedPaneForActor(actorPaneID, args[0])
-	if err != nil {
-		return resolvedPaneRef{}, args, false
-	}
-	return pane, args[1:], true
 }
 
 func parseDelegateArgs(args []string) (delegateOptions, error) {
@@ -555,9 +544,7 @@ func enqueueBroadcastInput(sess *Session, targets []resolvedPaneRef, chunks []en
 }
 
 func cmdTypeKeys(ctx *CommandContext) {
-	targetPane, parseArgs, hasTargetPane := resolveTypeKeysPane(ctx.Sess, ctx.ActorPaneID, ctx.Args)
-
-	opts, err := parseTypeKeysArgs(parseArgs)
+	opts, err := parseTypeKeysArgs(ctx.Args)
 	if err != nil {
 		ctx.replyErr(err.Error())
 		return
@@ -589,30 +576,6 @@ func cmdTypeKeys(ctx *CommandContext) {
 			ctx.replyErr(err.Error())
 			return
 		}
-	}
-
-	waitSnapshot := (*uiClientSnapshot)(nil)
-	waitTimeout := opts.waitTimeout
-	if hasTargetPane {
-		if !opts.waitInputIdle {
-			snapshot, err := ctx.Sess.queryUIClient(client.ID, proto.UIEventInputIdle)
-			if err != nil {
-				ctx.replyErr(err.Error())
-				return
-			}
-			uiWait = snapshot
-			waitTimeout = defaultCommandUIWaitTimeout
-		}
-		waitSnapshot = &uiWait
-	}
-
-	if hasTargetPane {
-		if err := enqueueTargetedClientKeys(ctx.Sess, client, targetPane.pane, chunks, waitSnapshot, waitTimeout); err != nil {
-			ctx.replyErr(err.Error())
-			return
-		}
-		ctx.reply(fmt.Sprintf("Typed %d bytes to %s\n", totalEncodedKeyBytes(chunks), targetPane.paneName))
-		return
 	}
 
 	if err := client.enqueueTypeKeys(chunks); err != nil {
