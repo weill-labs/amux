@@ -144,7 +144,7 @@ jobs:
           fi
 
       - name: Upload coverage to Codecov
-        if: always() && steps.changes.outputs.code_changed == 'true'
+        if: ${{ always() && steps.changes.outputs.code_changed == 'true' && hashFiles('merged-coverage.txt') != '' }}
         uses: codecov/codecov-action@v5.5.3
         with:
           files: merged-coverage.txt
@@ -152,7 +152,7 @@ jobs:
           fail_ci_if_error: false
 
       - name: Upload coverage artifacts
-        if: always() && steps.changes.outputs.code_changed == 'true'
+        if: ${{ always() && steps.changes.outputs.code_changed == 'true' && hashFiles('root-coverage.txt', 'unit-coverage.txt', 'integration-coverage.txt', 'merged-coverage.txt', 'coverage-summary.txt') != '' }}
         uses: actions/upload-artifact@v7.0.0
         with:
           name: coverage-artifacts
