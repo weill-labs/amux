@@ -226,6 +226,62 @@ type styledChar struct {
 	style uv.Style
 }
 
+type paneStatusGridPalette struct {
+	background    uv.Style
+	pane          uv.Style
+	paneBold      uv.Style
+	dim           uv.Style
+	text          uv.Style
+	yellow        uv.Style
+	green         uv.Style
+	red           uv.Style
+	completedMeta uv.Style
+}
+
+func newPaneStatusGridPalette(colorHex string, bg color.Color) paneStatusGridPalette {
+	dimStyle := uv.Style{Fg: hexToColor(config.DimColorHex), Bg: bg}
+	paneStyle := uv.Style{Fg: hexToColor(colorHex), Bg: bg}
+	paneBold := paneStyle
+	paneBold.Attrs |= uv.AttrBold
+	completedMetaStyle := dimStyle
+	completedMetaStyle.Attrs |= uv.AttrStrikethrough
+
+	return paneStatusGridPalette{
+		background:    uv.Style{Bg: bg},
+		pane:          paneStyle,
+		paneBold:      paneBold,
+		dim:           dimStyle,
+		text:          uv.Style{Fg: hexToColor(config.TextColorHex), Bg: bg},
+		yellow:        uv.Style{Fg: hexToColor(config.YellowHex), Bg: bg},
+		green:         uv.Style{Fg: hexToColor(config.GreenHex), Bg: bg},
+		red:           uv.Style{Fg: hexToColor(config.RedHex), Bg: bg},
+		completedMeta: completedMetaStyle,
+	}
+}
+
+func (p paneStatusGridPalette) style(role paneStatusSegmentRole) uv.Style {
+	switch role {
+	case paneStatusSegmentPane:
+		return p.pane
+	case paneStatusSegmentPaneBold:
+		return p.paneBold
+	case paneStatusSegmentDim:
+		return p.dim
+	case paneStatusSegmentText:
+		return p.text
+	case paneStatusSegmentYellow:
+		return p.yellow
+	case paneStatusSegmentGreen:
+		return p.green
+	case paneStatusSegmentRed:
+		return p.red
+	case paneStatusSegmentCompletedMeta:
+		return p.completedMeta
+	default:
+		return p.background
+	}
+}
+
 // appendStyledStr appends each rune of s as a styledChar with the given style.
 func appendStyledStr(chars []styledChar, s string, style uv.Style) []styledChar {
 	for _, r := range s {
@@ -239,40 +295,10 @@ func buildStatusCells(g *ScreenGrid, cell *mux.LayoutCell, isActive bool, pd Pan
 	y := cell.Y
 	bg := hexToColor(config.Surface0Hex)
 	colorHex := paneStatusColorHex(pd)
-	dimStyle := uv.Style{Fg: hexToColor(config.DimColorHex), Bg: bg}
-	textStyle := uv.Style{Fg: hexToColor(config.TextColorHex), Bg: bg}
-	paneStyle := uv.Style{Fg: hexToColor(colorHex), Bg: bg}
-	yellowStyle := uv.Style{Fg: hexToColor(config.YellowHex), Bg: bg}
-	greenStyle := uv.Style{Fg: hexToColor(config.GreenHex), Bg: bg}
-	redStyle := uv.Style{Fg: hexToColor(config.RedHex), Bg: bg}
-	paneBold := paneStyle
-	paneBold.Attrs |= uv.AttrBold
-	completedMetaStyle := dimStyle
-	completedMetaStyle.Attrs |= uv.AttrStrikethrough
-
+	palette := newPaneStatusGridPalette(colorHex, bg)
 	var chars []styledChar
-	backgroundStyle := uv.Style{Bg: bg}
 	for _, segment := range buildPaneStatusSegments(cell.W, isActive, pd) {
-		style := backgroundStyle
-		switch segment.role {
-		case paneStatusSegmentPane:
-			style = paneStyle
-		case paneStatusSegmentPaneBold:
-			style = paneBold
-		case paneStatusSegmentDim:
-			style = dimStyle
-		case paneStatusSegmentText:
-			style = textStyle
-		case paneStatusSegmentYellow:
-			style = yellowStyle
-		case paneStatusSegmentGreen:
-			style = greenStyle
-		case paneStatusSegmentRed:
-			style = redStyle
-		case paneStatusSegmentCompletedMeta:
-			style = completedMetaStyle
-		}
-		chars = appendStyledStr(chars, segment.text, style)
+		chars = appendStyledStr(chars, segment.text, palette.style(segment.role))
 	}
 
 	// Write chars to grid, fill remaining with spaces.
