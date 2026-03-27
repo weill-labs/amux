@@ -2,6 +2,7 @@ package mux
 
 import (
 	"fmt"
+	"reflect"
 	"testing"
 )
 
@@ -371,6 +372,66 @@ func TestResizeSubtreeEmptyInternal(t *testing.T) {
 	}
 }
 
+func TestResizeSubtreePreservesChildProportions(t *testing.T) {
+	t.Parallel()
+
+	root := &LayoutCell{
+		X:   0,
+		Y:   0,
+		W:   344,
+		H:   23,
+		Dir: SplitVertical,
+		Children: []*LayoutCell{
+			NewLeaf(fakePaneID(1), 0, 0, 97, 23),
+			NewLeaf(fakePaneID(2), 0, 0, 84, 23),
+			NewLeaf(fakePaneID(3), 0, 0, 89, 23),
+			NewLeaf(fakePaneID(4), 0, 0, 71, 23),
+		},
+	}
+	for _, child := range root.Children {
+		child.Parent = root
+	}
+	root.FixOffsets()
+
+	root.ResizeSubtree(200, 23)
+
+	got := leafAxisSizes(root, SplitVertical)
+	want := []int{56, 49, 51, 41}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("child widths after proportional resize = %v, want %v", got, want)
+	}
+}
+
+func TestResizeSubtreePinsMinChildrenBeforeRedistributing(t *testing.T) {
+	t.Parallel()
+
+	root := &LayoutCell{
+		X:   0,
+		Y:   0,
+		W:   100,
+		H:   23,
+		Dir: SplitVertical,
+		Children: []*LayoutCell{
+			NewLeaf(fakePaneID(1), 0, 0, 40, 23),
+			NewLeaf(fakePaneID(2), 0, 0, 5, 23),
+			NewLeaf(fakePaneID(3), 0, 0, 30, 23),
+			NewLeaf(fakePaneID(4), 0, 0, 22, 23),
+		},
+	}
+	for _, child := range root.Children {
+		child.Parent = root
+	}
+	root.FixOffsets()
+
+	root.ResizeSubtree(23, 23)
+
+	got := leafAxisSizes(root, SplitVertical)
+	want := []int{8, 2, 6, 4}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("child widths after min-clamped proportional resize = %v, want %v", got, want)
+	}
+}
+
 func snapshotLeafGeometry(root *LayoutCell) map[uint32][4]int {
 	out := map[uint32][4]int{}
 	root.Walk(func(c *LayoutCell) {
@@ -386,6 +447,18 @@ func diffLeafGeometry(want, got map[uint32][4]int) string {
 			out += fmt.Sprintf("pane-%d: want=%v got=%v\n", id, want[id], got[id])
 		}
 	}
+	return out
+}
+
+func leafAxisSizes(root *LayoutCell, axis SplitDir) []int {
+	var out []int
+	root.Walk(func(c *LayoutCell) {
+		if axis == SplitVertical {
+			out = append(out, c.W)
+			return
+		}
+		out = append(out, c.H)
+	})
 	return out
 }
 

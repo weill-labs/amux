@@ -206,6 +206,57 @@ func TestSplitRootWithLeadHorizontalMutatesLogicalRoot(t *testing.T) {
 	}
 }
 
+func TestLeadResizeRoundTripPreservesUnevenColumns(t *testing.T) {
+	t.Parallel()
+
+	p1 := fakePaneID(1)
+	p2 := fakePaneID(2)
+	p3 := fakePaneID(3)
+	p4 := fakePaneID(4)
+	w := NewWindow(p1, 80, 23)
+	if _, err := w.SplitRoot(SplitVertical, p2); err != nil {
+		t.Fatalf("SplitRoot p2: %v", err)
+	}
+	if err := w.SetLead(p1.ID); err != nil {
+		t.Fatalf("SetLead: %v", err)
+	}
+	if _, err := w.SplitRoot(SplitVertical, p3); err != nil {
+		t.Fatalf("SplitRoot p3: %v", err)
+	}
+	if _, err := w.SplitRoot(SplitVertical, p4); err != nil {
+		t.Fatalf("SplitRoot p4: %v", err)
+	}
+
+	for _, tc := range []struct {
+		paneID uint32
+		newID  uint32
+	}{
+		{paneID: p2.ID, newID: 5},
+		{paneID: p3.ID, newID: 6},
+		{paneID: p4.ID, newID: 7},
+	} {
+		if _, err := w.SplitPaneWithOptions(tc.paneID, SplitHorizontal, fakePaneID(tc.newID), SplitOptions{}); err != nil {
+			t.Fatalf("SplitPaneWithOptions(%d): %v", tc.paneID, err)
+		}
+	}
+
+	if !w.ResizePane(p2.ID, "right", 5) {
+		t.Fatal("ResizePane(p2, right, 5) should succeed")
+	}
+	if !w.ResizePane(p3.ID, "right", 3) {
+		t.Fatal("ResizePane(p3, right, 3) should succeed")
+	}
+
+	initial := snapshotLeafGeometry(w.Root)
+
+	w.Resize(120, 39)
+	w.Resize(80, 23)
+
+	if diff := diffLeafGeometry(initial, snapshotLeafGeometry(w.Root)); diff != "" {
+		t.Fatalf("lead layout drifted after resize round-trip:\n%s", diff)
+	}
+}
+
 func TestSwapPanesWithLeadErrorsOnLeadButAllowsNonLead(t *testing.T) {
 	t.Parallel()
 
