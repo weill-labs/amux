@@ -423,6 +423,86 @@ func TestResizePane(t *testing.T) {
 	}
 }
 
+func TestResizePaneWalksSiblingDonors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		active    uint32
+		paneID    uint32
+		direction string
+		delta     int
+		panes     []struct {
+			id         uint32
+			x, y, w, h int
+		}
+		wantWidths map[uint32]int
+	}{
+		{
+			name:      "grow right skips an immediate sibling at minimum width",
+			active:    1,
+			paneID:    1,
+			direction: "right",
+			delta:     5,
+			panes: []struct {
+				id         uint32
+				x, y, w, h int
+			}{
+				{1, 0, 0, 10, 24},
+				{2, 11, 0, PaneMinSize, 24},
+				{3, 14, 0, 20, 24},
+			},
+			wantWidths: map[uint32]int{
+				1: 15,
+				2: PaneMinSize,
+				3: 15,
+			},
+		},
+		{
+			name:      "grow left walks headward when the adjacent sibling is pinned",
+			active:    3,
+			paneID:    3,
+			direction: "left",
+			delta:     5,
+			panes: []struct {
+				id         uint32
+				x, y, w, h int
+			}{
+				{1, 0, 0, 20, 24},
+				{2, 21, 0, PaneMinSize, 24},
+				{3, 24, 0, 10, 24},
+			},
+			wantWidths: map[uint32]int{
+				1: 15,
+				2: PaneMinSize,
+				3: 15,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			w := buildLayout(tt.active, tt.panes)
+			if !w.ResizePane(tt.paneID, tt.direction, tt.delta) {
+				t.Fatalf("ResizePane(%d, %q, %d) = false, want true", tt.paneID, tt.direction, tt.delta)
+			}
+
+			for paneID, wantWidth := range tt.wantWidths {
+				cell := w.Root.FindPane(paneID)
+				if cell == nil {
+					t.Fatalf("pane-%d not found", paneID)
+				}
+				if cell.W != wantWidth {
+					t.Errorf("pane-%d width = %d, want %d", paneID, cell.W, wantWidth)
+				}
+			}
+		})
+	}
+}
+
 func TestClosePaneRedistributesNestedSubtreeSizes(t *testing.T) {
 	t.Parallel()
 

@@ -549,21 +549,33 @@ func (w *Window) ResizePane(paneID uint32, direction string, delta int) bool {
 		if cell.Parent.Dir == axis {
 			idx := cell.IndexInParent()
 			siblings := cell.Parent.Children
+			if len(siblings) < 2 {
+				return false
+			}
 
 			// tmux convention: resize the border adjacent to this cell.
 			// If we're the last child, use the border to our left (idx-1, idx).
 			// Otherwise, use the border to our right (idx, idx+1).
-			var left, right *LayoutCell
 			if idx == len(siblings)-1 {
-				left, right = siblings[idx-1], siblings[idx]
-			} else {
-				left, right = siblings[idx], siblings[idx+1]
+				idx--
+			}
+			if idx < 0 || idx+1 >= len(siblings) {
+				return false
 			}
 
+			var moved int
 			if change > 0 {
-				return w.resizeBetween(left, right, axis, change)
+				moved = w.resizePaneGrow(siblings, idx, axis, change)
+			} else {
+				moved = w.resizePaneShrink(siblings, idx, axis, -change)
 			}
-			return w.resizeBetween(right, left, axis, -change)
+			if moved == 0 {
+				return false
+			}
+
+			w.Root.FixOffsets()
+			w.resizePTYs()
+			return true
 		}
 		cell = cell.Parent
 	}
@@ -571,39 +583,44 @@ func (w *Window) ResizePane(paneID uint32, direction string, delta int) bool {
 	return false
 }
 
-// resizeBetween transfers delta cells from donor to grower along the given axis.
-func (w *Window) resizeBetween(grower, donor *LayoutCell, axis SplitDir, delta int) bool {
-	var growerSize, donorSize *int
-	if axis == SplitVertical {
-		growerSize = &grower.W
-		donorSize = &donor.W
-	} else {
-		growerSize = &grower.H
-		donorSize = &donor.H
+func (w *Window) resizePaneGrow(siblings []*LayoutCell, idx int, axis SplitDir, needed int) int {
+	grower := siblings[idx]
+
+	// Match tmux layout_resize_pane_grow: walk tail-ward first, then fall back
+	// to the head if no right/bottom sibling can donate enough space.
+	remaining := w.transferSiblingRange(grower, siblings, axis, needed, idx+1, len(siblings), 1)
+	if remaining == 0 {
+		return needed
+	}
+	remaining = w.transferSiblingRange(grower, siblings, axis, remaining, idx-1, -1, -1)
+	return needed - remaining
+}
+
+func (w *Window) resizePaneShrink(siblings []*LayoutCell, idx int, axis SplitDir, needed int) int {
+	// Match tmux layout_resize_pane_shrink: grow the sibling across the border
+	// and walk left/up from the border cell looking for donors.
+	return needed - w.transferSiblingRange(siblings[idx+1], siblings, axis, needed, idx, -1, -1)
+}
+
+func (w *Window) transferSiblingRange(grower *LayoutCell, siblings []*LayoutCell, axis SplitDir, remaining, start, stop, step int) int {
+	for donorIdx := start; donorIdx != stop && remaining > 0; donorIdx += step {
+		remaining -= transferAxisSize(grower, siblings[donorIdx], axis, remaining)
+	}
+	return remaining
+}
+
+func transferAxisSize(grower, donor *LayoutCell, axis SplitDir, needed int) int {
+	available := donor.resizeCheck(axis)
+	if available == 0 {
+		return 0
+	}
+	if available > needed {
+		available = needed
 	}
 
-	// Clamp so donor doesn't go below minimum
-	if *donorSize-delta < PaneMinSize {
-		delta = *donorSize - PaneMinSize
-	}
-	if delta <= 0 {
-		return false
-	}
-
-	*growerSize += delta
-	*donorSize -= delta
-
-	// Propagate size changes to subtrees
-	if !grower.IsLeaf() {
-		grower.ResizeSubtree(grower.W, grower.H)
-	}
-	if !donor.IsLeaf() {
-		donor.ResizeSubtree(donor.W, donor.H)
-	}
-
-	w.Root.FixOffsets()
-	w.resizePTYs()
-	return true
+	grower.resizeToAxis(axis, grower.axisSize(axis)+available)
+	donor.resizeToAxis(axis, donor.axisSize(axis)-available)
+	return available
 }
 
 // resizePTYs resizes all pane PTYs to match their layout cell dimensions.
