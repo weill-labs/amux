@@ -549,61 +549,86 @@ func (w *Window) ResizePane(paneID uint32, direction string, delta int) bool {
 		if cell.Parent.Dir == axis {
 			idx := cell.IndexInParent()
 			siblings := cell.Parent.Children
+			if len(siblings) < 2 {
+				return false
+			}
 
 			// tmux convention: resize the border adjacent to this cell.
 			// If we're the last child, use the border to our left (idx-1, idx).
 			// Otherwise, use the border to our right (idx, idx+1).
-			var left, right *LayoutCell
 			if idx == len(siblings)-1 {
-				left, right = siblings[idx-1], siblings[idx]
-			} else {
-				left, right = siblings[idx], siblings[idx+1]
+				idx--
+			}
+			if idx < 0 || idx+1 >= len(siblings) {
+				return false
 			}
 
+			moved := false
 			if change > 0 {
-				return w.resizeBetween(left, right, axis, change)
+				grower := siblings[idx]
+				remaining := change
+
+				for donorIdx := idx + 1; donorIdx < len(siblings) && remaining > 0; donorIdx++ {
+					donor := siblings[donorIdx]
+					available := donor.resizeCheck(axis)
+					if available == 0 {
+						continue
+					}
+					if available > remaining {
+						available = remaining
+					}
+					grower.resizeToAxis(axis, grower.axisSize(axis)+available)
+					donor.resizeToAxis(axis, donor.axisSize(axis)-available)
+					remaining -= available
+					moved = true
+				}
+
+				for donorIdx := idx - 1; donorIdx >= 0 && remaining > 0; donorIdx-- {
+					donor := siblings[donorIdx]
+					available := donor.resizeCheck(axis)
+					if available == 0 {
+						continue
+					}
+					if available > remaining {
+						available = remaining
+					}
+					grower.resizeToAxis(axis, grower.axisSize(axis)+available)
+					donor.resizeToAxis(axis, donor.axisSize(axis)-available)
+					remaining -= available
+					moved = true
+				}
+			} else {
+				grower := siblings[idx+1]
+				remaining := -change
+
+				for donorIdx := idx; donorIdx >= 0 && remaining > 0; donorIdx-- {
+					donor := siblings[donorIdx]
+					available := donor.resizeCheck(axis)
+					if available == 0 {
+						continue
+					}
+					if available > remaining {
+						available = remaining
+					}
+					grower.resizeToAxis(axis, grower.axisSize(axis)+available)
+					donor.resizeToAxis(axis, donor.axisSize(axis)-available)
+					remaining -= available
+					moved = true
+				}
 			}
-			return w.resizeBetween(right, left, axis, -change)
+
+			if !moved {
+				return false
+			}
+
+			w.Root.FixOffsets()
+			w.resizePTYs()
+			return true
 		}
 		cell = cell.Parent
 	}
 
 	return false
-}
-
-// resizeBetween transfers delta cells from donor to grower along the given axis.
-func (w *Window) resizeBetween(grower, donor *LayoutCell, axis SplitDir, delta int) bool {
-	var growerSize, donorSize *int
-	if axis == SplitVertical {
-		growerSize = &grower.W
-		donorSize = &donor.W
-	} else {
-		growerSize = &grower.H
-		donorSize = &donor.H
-	}
-
-	// Clamp so donor doesn't go below minimum
-	if *donorSize-delta < PaneMinSize {
-		delta = *donorSize - PaneMinSize
-	}
-	if delta <= 0 {
-		return false
-	}
-
-	*growerSize += delta
-	*donorSize -= delta
-
-	// Propagate size changes to subtrees
-	if !grower.IsLeaf() {
-		grower.ResizeSubtree(grower.W, grower.H)
-	}
-	if !donor.IsLeaf() {
-		donor.ResizeSubtree(donor.W, donor.H)
-	}
-
-	w.Root.FixOffsets()
-	w.resizePTYs()
-	return true
 }
 
 // resizePTYs resizes all pane PTYs to match their layout cell dimensions.
