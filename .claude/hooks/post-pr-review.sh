@@ -27,23 +27,23 @@ sync_pane_pr_meta() {
     fi
 }
 
-# After gh pr create: remind to run review workflow + check conflicts
+# After gh pr create: remind to watch CI, then run review workflow + check conflicts
 if [[ "$command" == gh\ pr\ create* ]]; then
     pr_num=$(gh pr view --json number --jq .number 2>/dev/null)
     if [[ -n "$pr_num" ]]; then
         sync_pane_pr_meta "$pr_num"
-        echo "PR created. Run a review pass and a simplification pass now before considering this done." >&2
+        echo "PR created. Run scripts/watch-pr-ci.sh now, fix any CI failures, then run a review pass and a simplification pass before considering this done." >&2
         check_conflicts "$pr_num"
         exit 2
     fi
 fi
 
-# After git push: remind to run review workflow + check for merge conflicts
+# After git push: remind to watch CI, then run review workflow + check for merge conflicts
 if [[ "$command" == git\ push* ]]; then
     pr_num=$(gh pr view --json number --jq .number 2>/dev/null)
     if [[ -n "$pr_num" ]]; then
         sync_pane_pr_meta "$pr_num"
-        echo "Pushed to PR #$pr_num. Run a review pass and a simplification pass now." >&2
+        echo "Pushed to PR #$pr_num. Run scripts/watch-pr-ci.sh now. For the next update, prefer scripts/push-and-watch-ci.sh so CI is watched automatically after push." >&2
         check_conflicts "$pr_num"
         exit 2
     fi
