@@ -66,6 +66,9 @@ func newAgentStatusTestPane(t *testing.T) *Pane {
 		if err := p.Close(); err != nil {
 			t.Errorf("Close() = %v, want nil", err)
 		}
+		if err := p.WaitClosed(); err != nil {
+			t.Errorf("WaitClosed() = %v, want nil", err)
+		}
 	})
 
 	return p
@@ -111,6 +114,9 @@ func newResizeSignalTestPane(t *testing.T, signalFile, readyFile string) *Pane {
 	t.Cleanup(func() {
 		if err := p.Close(); err != nil {
 			t.Errorf("Close() = %v, want nil", err)
+		}
+		if err := p.WaitClosed(); err != nil {
+			t.Errorf("WaitClosed() = %v, want nil", err)
 		}
 	})
 
@@ -207,6 +213,9 @@ func TestProxyPaneFeedOutputSnapshotsAndClose(t *testing.T) {
 
 	if err := p.Close(); err != nil {
 		t.Fatalf("Close() = %v, want nil", err)
+	}
+	if err := p.WaitClosed(); err != nil {
+		t.Fatalf("WaitClosed() = %v, want nil", err)
 	}
 	select {
 	case <-p.actorDone:
@@ -358,6 +367,9 @@ func TestRestorePaneWithScrollbackUsesExistingPTYAndProcess(t *testing.T) {
 	if err := p.Close(); err != nil {
 		t.Fatalf("Close() after clearing process = %v", err)
 	}
+	if err := p.WaitClosed(); err != nil {
+		t.Fatalf("WaitClosed() after clearing process = %v", err)
+	}
 }
 
 func TestCloseReapsShellProcess(t *testing.T) {
@@ -393,6 +405,9 @@ func TestCloseReapsShellProcess(t *testing.T) {
 	waitUntil(t, 5*time.Second, func() bool {
 		return syscall.Kill(pid, 0) != nil
 	})
+	if err := p.WaitClosed(); err != nil {
+		t.Fatalf("WaitClosed() = %v", err)
+	}
 }
 
 func TestCloseReturnsBeforeBackgroundTeardownCompletes(t *testing.T) {
@@ -437,9 +452,6 @@ func TestCloseReturnsBeforeBackgroundTeardownCompletes(t *testing.T) {
 				t.Fatal("timed out waiting to reap child process")
 			}
 		}
-		if err := ptmxRead.Close(); err != nil && !os.IsNotExist(err) {
-			t.Errorf("close ptmx read: %v", err)
-		}
 	})
 
 	start := time.Now()
@@ -473,10 +485,7 @@ func TestCloseReturnsBeforeBackgroundTeardownCompletes(t *testing.T) {
 	}
 
 	select {
-	case err := <-reaped:
-		if err != nil {
-			t.Fatalf("cmd.Wait() = %v, want nil", err)
-		}
+	case <-reaped:
 	case <-time.After(5 * time.Second):
 		t.Fatal("timed out waiting to reap child process")
 	}

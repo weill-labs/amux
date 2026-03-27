@@ -416,7 +416,8 @@ func newCommandTestSession(t *testing.T) (*Server, *Session, func()) {
 			return append([]*mux.Pane(nil), sess.Panes...)
 		})
 		for _, p := range panes {
-			p.Close()
+			_ = p.Close()
+			_ = p.WaitClosed()
 		}
 		stopSessionBackgroundLoops(t, sess)
 	}
@@ -424,13 +425,13 @@ func newCommandTestSession(t *testing.T) (*Server, *Session, func()) {
 }
 
 func newTestPane(sess *Session, id uint32, name string) *mux.Pane {
-	return newProxyPane(id, mux.PaneMeta{
+	return sess.ownPane(newProxyPane(id, mux.PaneMeta{
 		Name:  name,
 		Host:  mux.DefaultHost,
 		Color: config.AccentColor(id - 1),
 	}, 80, 23, sess.paneOutputCallback(), sess.paneExitCallback(), func(data []byte) (int, error) {
 		return len(data), nil
-	})
+	}))
 }
 
 func newTestWindowWithPanes(t *testing.T, sess *Session, id uint32, name string, panes ...*mux.Pane) *mux.Window {

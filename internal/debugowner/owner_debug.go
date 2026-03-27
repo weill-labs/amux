@@ -33,6 +33,17 @@ func (c *Checker) Assert(typeName, method string) {
 	}
 }
 
+// PanicIfCurrent panics when the current goroutine matches the recorded owner.
+func (c *Checker) PanicIfCurrent(typeName, method string) {
+	gid := currentGoroutineID()
+	if gid == 0 {
+		return
+	}
+	if owner := c.owner.Load(); owner != 0 && owner == gid {
+		panic(fmt.Sprintf("%s.%s called from owner goroutine %d", typeName, method, gid))
+	}
+}
+
 func currentGoroutineID() uint64 {
 	var buf [64]byte
 	n := runtime.Stack(buf[:], false)

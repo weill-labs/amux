@@ -467,6 +467,7 @@ func (s *Session) startEventLoop() {
 
 func (s *Session) eventLoop() {
 	defer close(s.sessionEventDone)
+	s.eventLoopOwner.Assert("server.Session", "eventLoop")
 	for {
 		select {
 		case <-s.sessionEventStop:

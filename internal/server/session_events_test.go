@@ -548,7 +548,8 @@ func TestEnsureInitialWindowCreatesPaneWithoutClient(t *testing.T) {
 	}
 
 	sess.shutdown.Store(true)
-	pane.Close()
+	_ = pane.Close()
+	_ = pane.WaitClosed()
 }
 
 func TestEnsureInitialWindowReturnsErrorWithoutSession(t *testing.T) {
@@ -585,7 +586,8 @@ func TestEnsureInitialWindowIsNoOpWhenSessionAlreadyInitialized(t *testing.T) {
 	})
 
 	sess.shutdown.Store(true)
-	pane.Close()
+	_ = pane.Close()
+	_ = pane.WaitClosed()
 }
 
 func TestEnsureInitialWindowReusesOrphanedPanes(t *testing.T) {

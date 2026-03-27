@@ -162,11 +162,11 @@ func cmdInjectProxy(ctx *CommandContext) {
 			Host:  hostName,
 			Color: config.AccentColor(0),
 		}
-		proxyPane := mux.NewProxyPaneWithScrollback(id, meta, w.Width/2, mux.PaneContentHeight(w.Height), sess.scrollbackLines,
+		proxyPane := sess.ownPane(mux.NewProxyPaneWithScrollback(id, meta, w.Width/2, mux.PaneContentHeight(w.Height), sess.scrollbackLines,
 			sess.paneOutputCallback(),
 			sess.paneExitCallback(),
 			func(data []byte) (int, error) { return len(data), nil },
-		)
+		))
 		sess.Panes = append(sess.Panes, proxyPane)
 		if _, err := w.Split(mux.SplitVertical, proxyPane); err != nil {
 			sess.removePane(proxyPane.ID)
