@@ -209,8 +209,8 @@ func (c *LayoutCell) ResizeAll(newW, newH int) {
 		return
 	}
 
-	c.resizeProportional(SplitVertical, newW)
-	c.resizeProportional(SplitHorizontal, newH)
+	c.resizeToAxis(SplitVertical, newW)
+	c.resizeToAxis(SplitHorizontal, newH)
 
 	c.FixOffsets()
 }
@@ -437,11 +437,8 @@ func (c *LayoutCell) resizeCheck(axis SplitDir) int {
 	return minimum
 }
 
-func (c *LayoutCell) resizeProportional(axis SplitDir, target int) {
-	current := c.W
-	if axis == SplitHorizontal {
-		current = c.H
-	}
+func (c *LayoutCell) resizeToAxis(axis SplitDir, target int) {
+	current := c.axisSize(axis)
 	if target == current {
 		return
 	}
@@ -452,24 +449,49 @@ func (c *LayoutCell) resizeProportional(axis SplitDir, target int) {
 			target = minTarget
 		}
 	}
+	c.resizeAxis(axis, target)
+}
 
-	if axis == SplitVertical {
-		c.W = target
-	} else {
-		c.H = target
-	}
+func (c *LayoutCell) resizeAxis(axis SplitDir, target int) {
+	c.setAxisSize(axis, target)
 	if c.IsLeaf() || len(c.Children) == 0 {
 		return
 	}
 
 	if c.Dir != axis {
 		for _, child := range c.Children {
-			child.resizeProportional(axis, target)
+			child.resizeAxis(axis, target)
 		}
 		return
 	}
 
-	n := len(c.Children)
+	sizes := proportionalChildSizes(c.Children, axis, target)
+	for i, child := range c.Children {
+		child.resizeAxis(axis, sizes[i])
+	}
+}
+
+func (c *LayoutCell) axisSize(axis SplitDir) int {
+	if axis == SplitVertical {
+		return c.W
+	}
+	return c.H
+}
+
+func (c *LayoutCell) setAxisSize(axis SplitDir, size int) {
+	if axis == SplitVertical {
+		c.W = size
+		return
+	}
+	c.H = size
+}
+
+func proportionalChildSizes(children []*LayoutCell, axis SplitDir, target int) []int {
+	n := len(children)
+	if n == 0 {
+		return nil
+	}
+
 	available := target - (n - 1)
 	minimumTotal := PaneMinSize * n
 	if available < minimumTotal {
@@ -482,64 +504,62 @@ func (c *LayoutCell) resizeProportional(axis SplitDir, target int) {
 		for i := range sizes {
 			sizes[i] = PaneMinSize
 		}
-	} else {
-		weights := make([]int, n)
-		totalWeight := 0
-		for i, child := range c.Children {
-			weight := child.W - PaneMinSize
-			if axis == SplitHorizontal {
-				weight = child.H - PaneMinSize
-			}
-			if weight < 0 {
-				weight = 0
-			}
-			weights[i] = weight
-			totalWeight += weight
-		}
-
-		if totalWeight == 0 {
-			base := extra / n
-			leftover := extra % n
-			for i := range sizes {
-				sizes[i] = PaneMinSize + base
-				if i >= n-leftover {
-					sizes[i]++
-				}
-			}
-		} else {
-			type remainder struct {
-				idx int
-				rem int64
-			}
-			remainders := make([]remainder, 0, n)
-			assignedExtra := 0
-			for i, weight := range weights {
-				numerator := int64(extra) * int64(weight)
-				share := int(numerator / int64(totalWeight))
-				sizes[i] = PaneMinSize + share
-				assignedExtra += share
-				remainders = append(remainders, remainder{
-					idx: i,
-					rem: numerator % int64(totalWeight),
-				})
-			}
-
-			leftover := extra - assignedExtra
-			sort.SliceStable(remainders, func(i, j int) bool {
-				if remainders[i].rem == remainders[j].rem {
-					return remainders[i].idx > remainders[j].idx
-				}
-				return remainders[i].rem > remainders[j].rem
-			})
-			for i := 0; i < leftover; i++ {
-				sizes[remainders[i].idx]++
-			}
-		}
+		return sizes
 	}
 
-	for i, child := range c.Children {
-		child.resizeProportional(axis, sizes[i])
+	weights := make([]int, n)
+	totalWeight := 0
+	for i, child := range children {
+		weight := child.axisSize(axis) - PaneMinSize
+		if weight < 0 {
+			weight = 0
+		}
+		weights[i] = weight
+		totalWeight += weight
 	}
+
+	type remainder struct {
+		idx int
+		rem int64
+	}
+	remainders := make([]remainder, 0, n)
+	assignedExtra := 0
+
+	if totalWeight == 0 {
+		base := extra / n
+		leftover := extra % n
+		for i := range sizes {
+			sizes[i] = PaneMinSize + base
+			if i >= n-leftover {
+				sizes[i]++
+			}
+		}
+		return sizes
+	}
+
+	for i, weight := range weights {
+		numerator := int64(extra) * int64(weight)
+		share := int(numerator / int64(totalWeight))
+		sizes[i] = PaneMinSize + share
+		assignedExtra += share
+		remainders = append(remainders, remainder{
+			idx: i,
+			rem: numerator % int64(totalWeight),
+		})
+	}
+
+	leftover := extra - assignedExtra
+	sort.SliceStable(remainders, func(i, j int) bool {
+		if remainders[i].rem == remainders[j].rem {
+			return remainders[i].idx > remainders[j].idx
+		}
+		return remainders[i].rem > remainders[j].rem
+	})
+	for i := 0; i < leftover; i++ {
+		sizes[remainders[i].idx]++
+	}
+
+	return sizes
 }
 
 // Walk calls fn for every leaf cell in the tree (depth-first).
