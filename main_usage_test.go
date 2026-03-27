@@ -32,7 +32,7 @@ func TestMainSendKeysUsageIncludesWaitReadyFlags(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("exit code = %d, want 1\n%s", code, out)
 	}
-	if !strings.Contains(out, "usage: amux send-keys <pane> [--wait ready] [--continue-known-dialogs] [--timeout <duration>] [--hex] <keys>...") {
+	if !strings.Contains(out, "usage: amux send-keys <pane> [--wait ready|ui=input-idle] [--continue-known-dialogs] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>...") {
 		t.Fatalf("usage output missing wait-ready flags:\n%s", out)
 	}
 }
@@ -48,12 +48,12 @@ func TestMainKeyCommandsHelpFlagsPrintUsage(t *testing.T) {
 		{
 			name: "send-keys long help",
 			args: []string{"send-keys", "pane-1", "--help"},
-			want: "usage: amux send-keys <pane> [--wait ready] [--continue-known-dialogs] [--timeout <duration>] [--hex] <keys>...",
+			want: "usage: amux send-keys <pane> [--wait ready|ui=input-idle] [--continue-known-dialogs] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>...",
 		},
 		{
 			name: "send-keys short help",
 			args: []string{"send-keys", "pane-1", "-h"},
-			want: "usage: amux send-keys <pane> [--wait ready] [--continue-known-dialogs] [--timeout <duration>] [--hex] <keys>...",
+			want: "usage: amux send-keys <pane> [--wait ready|ui=input-idle] [--continue-known-dialogs] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>...",
 		},
 		{
 			name: "type-keys long help",
@@ -64,6 +64,16 @@ func TestMainKeyCommandsHelpFlagsPrintUsage(t *testing.T) {
 			name: "type-keys short help",
 			args: []string{"type-keys", "-h"},
 			want: "usage: amux type-keys [--wait ui=input-idle] [--timeout <duration>] [--hex] <keys>...",
+		},
+		{
+			name: "delegate long help",
+			args: []string{"delegate", "pane-1", "--help"},
+			want: "usage: amux delegate <pane> [--timeout <duration>] [--start-timeout <duration>] [--hex] <keys>...",
+		},
+		{
+			name: "delegate short help",
+			args: []string{"delegate", "pane-1", "-h"},
+			want: "usage: amux delegate <pane> [--timeout <duration>] [--start-timeout <duration>] [--hex] <keys>...",
 		},
 	}
 
@@ -176,6 +186,56 @@ func TestMainTypeKeysDispatchesWhenKeysProvided(t *testing.T) {
 	assertMainCommandConnectError(t, out, "type-keys")
 }
 
+func TestMainTypeKeysWarnsWhenFirstArgLooksLikePaneRef(t *testing.T) {
+	t.Parallel()
+
+	tests := [][]string{
+		{"type-keys", "pane-1"},
+		{"type-keys", "pane-1", "hello"},
+	}
+
+	for _, args := range tests {
+		args := args
+		t.Run(strings.Join(args, "_"), func(t *testing.T) {
+			t.Parallel()
+
+			out, code := runHermeticMain(t, args...)
+			if code != 1 {
+				t.Fatalf("exit code = %d, want 1\n%s", code, out)
+			}
+			if !strings.Contains(out, `warning: "pane-1" looks like a pane ref`) ||
+				!strings.Contains(out, `use send-keys pane-1 ...`) {
+				t.Fatalf("type-keys pane-ref warning missing send-keys hint:\n%s", out)
+			}
+			assertMainCommandConnectError(t, out, "type-keys")
+		})
+	}
+}
+
+func TestLooksLikePaneRefArg(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		arg  string
+		want bool
+	}{
+		{arg: "pane-1", want: true},
+		{arg: "7", want: true},
+		{arg: "pane-one", want: true},
+		{arg: "task", want: false},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.arg, func(t *testing.T) {
+			t.Parallel()
+			if got := looksLikePaneRefArg(tt.arg); got != tt.want {
+				t.Fatalf("looksLikePaneRefArg(%q) = %v, want %v", tt.arg, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestMainTypeKeysUsageIncludesWaitFlags(t *testing.T) {
 	t.Parallel()
 
@@ -185,6 +245,31 @@ func TestMainTypeKeysUsageIncludesWaitFlags(t *testing.T) {
 	}
 	if !strings.Contains(out, "usage: amux type-keys [--wait ui=input-idle] [--timeout <duration>] [--hex] <keys>...") {
 		t.Fatalf("type-keys usage output missing wait flags:\n%s", out)
+	}
+}
+
+func TestMainDelegateDispatchesWhenPaneAndKeysProvided(t *testing.T) {
+	t.Parallel()
+
+	out, code := runHermeticMain(t, "delegate", "pane-1", "hello")
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1\n%s", code, out)
+	}
+	if strings.Contains(out, "usage: amux delegate") {
+		t.Fatalf("delegate should dispatch when pane and keys are provided, got usage output:\n%s", out)
+	}
+	assertMainCommandConnectError(t, out, "delegate")
+}
+
+func TestMainDelegateUsageIncludesTimeouts(t *testing.T) {
+	t.Parallel()
+
+	out, code := runHermeticMain(t, "delegate")
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1\n%s", code, out)
+	}
+	if !strings.Contains(out, "usage: amux delegate <pane> [--timeout <duration>] [--start-timeout <duration>] [--hex] <keys>...") {
+		t.Fatalf("delegate usage output missing timeout flags:\n%s", out)
 	}
 }
 

@@ -348,10 +348,16 @@ func cmdWaitBusy(ctx *CommandContext) {
 		ctx.replyErr(err.Error())
 		return
 	}
-	paneID := pane.paneID
+	if err := waitForPaneBusy(ctx.Sess, pane.paneID, paneRef, timeout); err != nil {
+		ctx.replyErr(err.Error())
+		return
+	}
+	ctx.reply("busy\n")
+}
 
+func waitForPaneBusy(sess *Session, paneID uint32, paneRef string, timeout time.Duration) error {
 	checkBusy := func() (bool, error) {
-		pane, err := enqueueSessionQuery(ctx.Sess, func(sess *Session) (*mux.Pane, error) {
+		pane, err := enqueueSessionQuery(sess, func(sess *Session) (*mux.Pane, error) {
 			return sess.findPaneByID(paneID), nil
 		})
 		if err != nil {
@@ -363,7 +369,7 @@ func cmdWaitBusy(ctx *CommandContext) {
 		return !pane.AgentStatus().Idle, nil
 	}
 	checkBusyStatus := func() (mux.AgentStatus, error) {
-		pane, err := enqueueSessionQuery(ctx.Sess, func(sess *Session) (*mux.Pane, error) {
+		pane, err := enqueueSessionQuery(sess, func(sess *Session) (*mux.Pane, error) {
 			return sess.findPaneByID(paneID), nil
 		})
 		if err != nil {
@@ -375,35 +381,30 @@ func cmdWaitBusy(ctx *CommandContext) {
 		return pane.AgentStatus(), nil
 	}
 
-	outputCh := ctx.Sess.enqueuePaneOutputSubscribe(paneID)
+	outputCh := sess.enqueuePaneOutputSubscribe(paneID)
 	if outputCh == nil {
-		ctx.replyErr("session shutting down")
-		return
+		return fmt.Errorf("session shutting down")
 	}
-	defer ctx.Sess.enqueuePaneOutputUnsubscribe(paneID, outputCh)
+	defer sess.enqueuePaneOutputUnsubscribe(paneID, outputCh)
 
 	busy, err := checkBusy()
 	if err != nil {
-		ctx.replyErr(err.Error())
-		return
+		return err
 	}
 	if busy {
 		st, err := checkBusyStatus()
 		if err != nil {
-			ctx.replyErr(err.Error())
-			return
+			return err
 		}
 		candidatePID := waitBusyForegroundPID(st)
 		if candidatePID != 0 {
 			time.Sleep(50 * time.Millisecond)
 			st2, err := checkBusyStatus()
 			if err != nil {
-				ctx.replyErr(err.Error())
-				return
+				return err
 			}
 			if _, ready := waitBusyReady(candidatePID, st2); ready {
-				ctx.reply("busy\n")
-				return
+				return nil
 			}
 		}
 	}
@@ -419,19 +420,16 @@ func cmdWaitBusy(ctx *CommandContext) {
 		case <-outputCh:
 		case <-ticker.C:
 		case <-timeoutTimer.C:
-			ctx.replyErr(fmt.Sprintf("timeout waiting for %s to become busy", paneRef))
-			return
+			return fmt.Errorf("timeout waiting for %s to become busy", paneRef)
 		}
 
 		st, err := checkBusyStatus()
 		if err != nil {
-			ctx.replyErr(err.Error())
-			return
+			return err
 		}
 		nextPID, ready := waitBusyReady(candidatePID, st)
 		if ready {
-			ctx.reply("busy\n")
-			return
+			return nil
 		}
 		candidatePID = nextPID
 	}

@@ -27,8 +27,9 @@ import (
 const defaultSessionName = server.DefaultSessionName
 
 const (
-	sendKeysUsage = "usage: amux send-keys <pane> [--wait ready] [--continue-known-dialogs] [--timeout <duration>] [--hex] <keys>..."
+	sendKeysUsage = "usage: amux send-keys <pane> [--wait ready|ui=input-idle] [--continue-known-dialogs] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>..."
 	typeKeysUsage = "usage: amux type-keys [--wait ui=input-idle] [--timeout <duration>] [--hex] <keys>..."
+	delegateUsage = "usage: amux delegate <pane> [--timeout <duration>] [--start-timeout <duration>] [--hex] <keys>..."
 )
 
 const reconnectEventType = "reconnect"
@@ -220,7 +221,18 @@ func main() {
 			}
 			return
 		}
+		if len(args) >= 2 && !strings.HasPrefix(args[1], "-") && looksLikePaneRefArg(args[1]) {
+			fmt.Fprintf(os.Stderr, "warning: %q looks like a pane ref; type-keys always targets the focused pane, use send-keys %s ... to target another pane\n", args[1], args[1])
+		}
 		runSessionCommand("type-keys", args[1:])
+	case "delegate":
+		if handled, exitCode := maybePrintKeyCommandUsage(os.Stdout, os.Stderr, args[1:], delegateUsage, 2); handled {
+			if exitCode != 0 {
+				os.Exit(exitCode)
+			}
+			return
+		}
+		runSessionCommand("delegate", args[1:])
 	case "set-lead":
 		runSessionCommand("set-lead", args[1:])
 	case "unset-lead":
@@ -478,7 +490,7 @@ Usage:
                                        Capture a pane's retained history + visible screen
   amux [-s session] capture --ansi     Capture with ANSI escape codes
   amux [-s session] capture --colors   Capture border color map
-  amux [-s session] send-keys <pane> [--wait ready] [--continue-known-dialogs] [--timeout <duration>] [--hex] <keys>...
+  amux [-s session] send-keys <pane> [--wait ready|ui=input-idle] [--continue-known-dialogs] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>...
                                        Send keystrokes to a pane
   amux [-s session] broadcast (--panes <pane,pane,...> | --window <index|name> | --match <glob>) [--hex] <keys>...
                                        Send the same keystrokes to multiple panes
@@ -486,6 +498,8 @@ Usage:
                                        Add a pane in clockwise spiral order without changing focus
   amux [-s session] type-keys [--wait ui=input-idle] [--timeout <duration>] [--hex] <keys>...
                                        Type keys through client input pipeline
+  amux [-s session] delegate <pane> [--timeout <duration>] [--start-timeout <duration>] [--hex] <keys>...
+                                       Send prompt text, submit it, and confirm the pane becomes busy
   amux [-s session] spawn --name NAME [--host HOST] [--task TASK] [--color COLOR]
                                        Spawn a new agent pane without changing focus
   amux [-s session] zoom [pane]        Toggle zoom (maximize) a pane
@@ -588,6 +602,18 @@ Inside an amux session:
   Ctrl-a Ctrl-a                      Send literal Ctrl-a
 
 See https://github.com/weill-labs/amux for config format.`)
+}
+
+func looksLikePaneRefArg(arg string) bool {
+	if strings.HasPrefix(arg, "pane-") {
+		return true
+	}
+	for _, r := range arg {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return arg != ""
 }
 
 func openSignalFD(envVar, name string) *os.File {

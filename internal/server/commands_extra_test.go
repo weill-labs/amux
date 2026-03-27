@@ -132,6 +132,81 @@ func TestParseTypeKeysArgs(t *testing.T) {
 	}
 }
 
+func TestParseDelegateArgs(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		args    []string
+		want    delegateOptions
+		wantErr string
+	}{
+		{
+			name: "defaults with literal keys",
+			args: []string{"prompt text"},
+			want: delegateOptions{
+				waitTimeout:  defaultCommandUIWaitTimeout,
+				startTimeout: 5 * time.Second,
+				keys:         []string{"prompt text"},
+			},
+		},
+		{
+			name: "custom timeouts and hex",
+			args: []string{"--timeout", "25ms", "--start-timeout", "2s", "--hex", "6869"},
+			want: delegateOptions{
+				waitTimeout:  25 * time.Millisecond,
+				startTimeout: 2 * time.Second,
+				hexMode:      true,
+				keys:         []string{"6869"},
+			},
+		},
+		{
+			name:    "missing timeout value",
+			args:    []string{"--timeout"},
+			wantErr: "missing value for --timeout",
+		},
+		{
+			name:    "invalid timeout value",
+			args:    []string{"--timeout", "later"},
+			wantErr: "invalid timeout: later",
+		},
+		{
+			name:    "missing start-timeout value",
+			args:    []string{"--start-timeout"},
+			wantErr: "missing value for --start-timeout",
+		},
+		{
+			name:    "invalid start-timeout value",
+			args:    []string{"--start-timeout", "later"},
+			wantErr: "invalid start-timeout: later",
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := parseDelegateArgs(tt.args)
+			if tt.wantErr != "" {
+				if err == nil || err.Error() != tt.wantErr {
+					t.Fatalf("parseDelegateArgs(%v) error = %v, want %q", tt.args, err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("parseDelegateArgs(%v): %v", tt.args, err)
+			}
+			if got.waitTimeout != tt.want.waitTimeout ||
+				got.startTimeout != tt.want.startTimeout ||
+				got.hexMode != tt.want.hexMode ||
+				strings.Join(got.keys, "|") != strings.Join(tt.want.keys, "|") {
+				t.Fatalf("parsed = %#v, want %#v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestParseCopyModeArgs(t *testing.T) {
 	t.Parallel()
 
@@ -275,6 +350,137 @@ func TestCmdSendKeysShowsUsageWhenNoKeysProvided(t *testing.T) {
 	msg := runOneShotCommand(t, sess, []string{"pane-1", "--hex"}, cmdSendKeys)
 	if got := msg.CmdErr; got != sendKeysUsage {
 		t.Fatalf("send-keys usage error = %q", got)
+	}
+}
+
+func TestCmdSendKeysWaitsForInputIdle(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	writes := make(chan string, 1)
+	pane := newProxyPane(1, mux.PaneMeta{
+		Name:  "pane-1",
+		Host:  mux.DefaultHost,
+		Color: config.AccentColor(0),
+	}, 80, 23, sess.paneOutputCallback(), sess.paneExitCallback(), func(data []byte) (int, error) {
+		writes <- string(data)
+		return len(data), nil
+	})
+	w := newTestWindowWithPanes(t, sess, 1, "main", pane)
+	sess.Windows = []*mux.Window{w}
+	sess.ActiveWindowID = w.ID
+	sess.Panes = []*mux.Pane{pane}
+
+	uiServerConn, uiPeerConn := net.Pipe()
+	defer uiServerConn.Close()
+	defer uiPeerConn.Close()
+
+	uiClient := newClientConn(uiServerConn)
+	uiClient.ID = "client-1"
+	uiClient.inputIdle = true
+	uiClient.uiGeneration = 1
+	uiClient.initTypeKeyQueue()
+	defer uiClient.Close()
+
+	mustSessionQuery(t, sess, func(sess *Session) struct{} {
+		sess.ensureClientManager().setClientsForTest(uiClient)
+		return struct{}{}
+	})
+
+	cmdPeerConn, _, done := startAsyncCommand(t, srv, sess, "send-keys", "pane-1", "--wait", "ui=input-idle", "--timeout", "100ms", "ab")
+
+	typeKeysMsg := readMsgWithTimeout(t, uiPeerConn)
+	if typeKeysMsg.Type != MsgTypeTypeKeys || string(typeKeysMsg.Input) != "ab" {
+		t.Fatalf("send-keys type-keys message = %#v", typeKeysMsg)
+	}
+
+	select {
+	case got := <-writes:
+		t.Fatalf("send-keys --wait ui=input-idle should route through client, wrote directly to pane: %q", got)
+	default:
+	}
+
+	select {
+	case <-done:
+		t.Fatal("send-keys returned before fresh input-idle")
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	sess.enqueueUIEvent(uiClient, proto.UIEventInputBusy)
+	sess.enqueueUIEvent(uiClient, proto.UIEventInputIdle)
+
+	result := readMsgWithTimeout(t, cmdPeerConn)
+	if got := result.CmdOutput; got != "Sent 2 bytes to pane-1\n" {
+		t.Fatalf("send-keys output = %q", got)
+	}
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("send-keys wait command did not return")
+	}
+}
+
+func TestCmdDelegateUsageAndErrors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		args    []string
+		wantErr string
+	}{
+		{
+			name:    "usage when keys missing",
+			args:    []string{"pane-1"},
+			wantErr: delegateUsage,
+		},
+		{
+			name:    "unknown pane",
+			args:    []string{"missing", "hello"},
+			wantErr: `pane "missing" not found`,
+		},
+		{
+			name:    "parse error",
+			args:    []string{"pane-1", "--timeout"},
+			wantErr: "missing value for --timeout",
+		},
+		{
+			name:    "invalid hex payload",
+			args:    []string{"pane-1", "--hex", "zz"},
+			wantErr: "invalid hex: zz",
+		},
+		{
+			name:    "missing client",
+			args:    []string{"pane-1", "hello"},
+			wantErr: "no client attached",
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			srv, sess, cleanup := newCommandTestSession(t)
+			defer cleanup()
+
+			pane := newProxyPane(1, mux.PaneMeta{
+				Name:  "pane-1",
+				Host:  mux.DefaultHost,
+				Color: config.AccentColor(0),
+			}, 80, 23, sess.paneOutputCallback(), sess.paneExitCallback(), func(data []byte) (int, error) {
+				return len(data), nil
+			})
+			w := newTestWindowWithPanes(t, sess, 1, "main", pane)
+			sess.Windows = []*mux.Window{w}
+			sess.ActiveWindowID = w.ID
+			sess.Panes = []*mux.Pane{pane}
+
+			res := runTestCommand(t, srv, sess, "delegate", tt.args...)
+			if got := res.cmdErr; got != tt.wantErr {
+				t.Fatalf("cmdErr = %q, want %q", got, tt.wantErr)
+			}
+		})
 	}
 }
 

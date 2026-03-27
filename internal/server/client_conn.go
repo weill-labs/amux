@@ -9,6 +9,7 @@ import (
 	"runtime/debug"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/weill-labs/amux/internal/mux"
@@ -23,21 +24,23 @@ const (
 
 // clientConn manages a single client connection to the server.
 type clientConn struct {
-	conn               net.Conn
-	ID                 string
-	displayPanesShown  bool
-	prefixMessageShown bool
-	chooserMode        string
-	copyModeShown      bool
-	inputIdle          bool
-	uiGeneration       uint64
-	cols               int // last reported terminal width
-	rows               int // last reported terminal height
-	writer             *clientWriter
-	typeKeyQueue       *pacedInputQueue
-	capabilities       proto.ClientCapabilities
-	disconnectReasonMu sync.Mutex
-	disconnectReason   string
+	conn                net.Conn
+	ID                  string
+	displayPanesShown   bool
+	prefixMessageShown  bool
+	chooserMode         string
+	copyModeShown       bool
+	inputIdle           bool
+	uiGeneration        uint64
+	cols                int // last reported terminal width
+	rows                int // last reported terminal height
+	writer              *clientWriter
+	typeKeyQueue        *pacedInputQueue
+	typeKeyRouteMu      sync.Mutex
+	inputTargetOverride atomic.Pointer[mux.Pane]
+	capabilities        proto.ClientCapabilities
+	disconnectReasonMu  sync.Mutex
+	disconnectReason    string
 }
 
 type pendingMessage struct {
@@ -83,6 +86,20 @@ func (cc *clientConn) enqueueTypeKeys(chunks []encodedKeyChunk) error {
 		return errPacedInputClosed
 	}
 	return queue.enqueue(chunks)
+}
+
+// withInputTargetOverride temporarily routes this client's injected input to a
+// specific pane without mutating global focus/layout state.
+func (cc *clientConn) withInputTargetOverride(pane *mux.Pane, fn func() error) error {
+	if pane == nil {
+		return fn()
+	}
+	cc.typeKeyRouteMu.Lock()
+	defer cc.typeKeyRouteMu.Unlock()
+
+	cc.inputTargetOverride.Store(pane)
+	defer cc.inputTargetOverride.Store(nil)
+	return fn()
 }
 
 func (cc *clientConn) initTypeKeyQueue() {
@@ -188,6 +205,9 @@ func cloneMessage(msg *Message) *Message {
 }
 
 func (cc *clientConn) activeInputPaneForWrite(sess *Session) *mux.Pane {
+	if pane := cc.inputTargetOverride.Load(); pane != nil {
+		return pane
+	}
 	return sess.activeInputPaneForWrite(cc)
 }
 

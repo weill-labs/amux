@@ -141,13 +141,23 @@ func TestParseSendKeysArgs(t *testing.T) {
 	}{
 		{
 			name: "wait ready and keys",
-			args: []string{"--wait", "ready", "--continue-known-dialogs", "--timeout", "25ms", "--hex", "6869", "Enter"},
+			args: []string{"--wait", "ready", "--continue-known-dialogs", "--timeout", "25ms", "--delay-final", "150ms", "--hex", "6869", "Enter"},
 			want: sendKeysOptions{
-				waitReady:            true,
+				waitTarget:           sendKeysWaitReady,
 				waitTimeout:          25 * time.Millisecond,
 				continueKnownDialogs: true,
+				delayFinal:           150 * time.Millisecond,
 				hexMode:              true,
 				keys:                 []string{"6869", "Enter"},
+			},
+		},
+		{
+			name: "wait input idle",
+			args: []string{"--wait", "ui=input-idle", "--timeout", "40ms", "task"},
+			want: sendKeysOptions{
+				waitTarget:  sendKeysWaitInputIdle,
+				waitTimeout: 40 * time.Millisecond,
+				keys:        []string{"task"},
 			},
 		},
 		{
@@ -165,8 +175,8 @@ func TestParseSendKeysArgs(t *testing.T) {
 		},
 		{
 			name:    "unsupported wait target",
-			args:    []string{"--wait", "ui=input-idle", "task"},
-			wantErr: `send-keys: unsupported --wait target "ui=input-idle" (want ready)`,
+			args:    []string{"--wait", "later", "task"},
+			wantErr: `send-keys: unsupported --wait target "later" (want ready or ui=input-idle)`,
 		},
 		{
 			name:    "missing timeout value",
@@ -184,9 +194,24 @@ func TestParseSendKeysArgs(t *testing.T) {
 			wantErr: "send-keys: --continue-known-dialogs requires --wait ready",
 		},
 		{
+			name:    "continue rejected for input idle wait",
+			args:    []string{"--wait", "ui=input-idle", "--continue-known-dialogs", "task"},
+			wantErr: "send-keys: --continue-known-dialogs requires --wait ready",
+		},
+		{
 			name:    "timeout requires wait ready",
 			args:    []string{"--timeout", "10ms", "task"},
-			wantErr: "send-keys: --timeout requires --wait ready",
+			wantErr: "send-keys: --timeout requires --wait ready or --wait ui=input-idle",
+		},
+		{
+			name:    "missing delay-final value",
+			args:    []string{"--delay-final"},
+			wantErr: "missing value for --delay-final",
+		},
+		{
+			name:    "invalid delay-final value",
+			args:    []string{"--delay-final", "later", "task"},
+			wantErr: "invalid delay-final: later",
 		},
 		{
 			name:    "legacy flag rejected",
@@ -210,9 +235,10 @@ func TestParseSendKeysArgs(t *testing.T) {
 			if err != nil {
 				t.Fatalf("parseSendKeysArgs(%v) error = %v", tt.args, err)
 			}
-			if got.waitReady != tt.want.waitReady ||
+			if got.waitTarget != tt.want.waitTarget ||
 				got.waitTimeout != tt.want.waitTimeout ||
 				got.continueKnownDialogs != tt.want.continueKnownDialogs ||
+				got.delayFinal != tt.want.delayFinal ||
 				got.hexMode != tt.want.hexMode ||
 				strings.Join(got.keys, "|") != strings.Join(tt.want.keys, "|") {
 				t.Fatalf("opts = %#v, want %#v", got, tt.want)
@@ -332,7 +358,7 @@ func TestSendKeysWaitReadyUsage(t *testing.T) {
 	defer cleanup()
 
 	res := runTestCommand(t, srv, sess, "send-keys", "pane-1")
-	if got := res.cmdErr; got != "usage: send-keys <pane> [--wait ready] [--continue-known-dialogs] [--timeout <duration>] [--hex] <keys>..." {
+	if got := res.cmdErr; got != "usage: send-keys <pane> [--wait ready|ui=input-idle] [--continue-known-dialogs] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>..." {
 		t.Fatalf("send-keys usage error = %q", got)
 	}
 }
