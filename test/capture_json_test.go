@@ -267,6 +267,54 @@ func TestCaptureJSON_PreservesGraphemeClusters(t *testing.T) {
 	}
 }
 
+func TestCaptureJSON_ColumnIndex(t *testing.T) {
+	t.Parallel()
+
+	t.Run("top-level columns", func(t *testing.T) {
+		t.Parallel()
+		h := newServerHarness(t)
+
+		h.splitV()
+		h.runCmd("focus", "pane-1")
+		h.splitH()
+
+		capture := h.captureJSON()
+
+		if got := h.jsonPane(capture, "pane-1").ColumnIndex; got != 0 {
+			t.Fatalf("pane-1 column_index = %d, want 0", got)
+		}
+		if got := h.jsonPane(capture, "pane-2").ColumnIndex; got != 1 {
+			t.Fatalf("pane-2 column_index = %d, want 1", got)
+		}
+		if got := h.jsonPane(capture, "pane-3").ColumnIndex; got != 0 {
+			t.Fatalf("pane-3 column_index = %d, want 0", got)
+		}
+	})
+
+	t.Run("lead layout offsets logical root columns", func(t *testing.T) {
+		t.Parallel()
+		h := newServerHarness(t)
+
+		h.splitV()
+		setLead(t, h, "pane-1")
+		gen := h.generation()
+		h.runCmd("split", "pane-1", "root", "v")
+		h.waitLayout(gen)
+
+		capture := h.captureJSON()
+
+		if got := h.jsonPane(capture, "pane-1").ColumnIndex; got != 0 {
+			t.Fatalf("lead pane column_index = %d, want 0", got)
+		}
+		if got := h.jsonPane(capture, "pane-2").ColumnIndex; got != 1 {
+			t.Fatalf("pane-2 column_index = %d, want 1", got)
+		}
+		if got := h.jsonPane(capture, "pane-3").ColumnIndex; got != 2 {
+			t.Fatalf("pane-3 column_index = %d, want 2", got)
+		}
+	})
+}
+
 func TestCaptureJSON_AgentStatus_Busy(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)
