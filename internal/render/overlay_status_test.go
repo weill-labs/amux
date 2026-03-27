@@ -162,10 +162,10 @@ func TestRenderPaneStatusStylesCompletedMetadataInANSIOnly(t *testing.T) {
 	})
 
 	raw := buf.String()
-	if !strings.Contains(raw, StrikeOn+"#42"+StrikeOff) {
+	if !strings.Contains(raw, StrikeOn+"#42") {
 		t.Fatalf("raw status output missing completed PR styling:\n%q", raw)
 	}
-	if !strings.Contains(raw, StrikeOn+"LAB-450"+StrikeOff) {
+	if !strings.Contains(raw, StrikeOn+"LAB-450") {
 		t.Fatalf("raw status output missing completed issue styling:\n%q", raw)
 	}
 
@@ -795,5 +795,66 @@ func TestRenderPaneStatusLeadIndicator(t *testing.T) {
 	}
 	if strings.Contains(output, "[lead]") {
 		t.Error("non-lead pane should not show [lead] tag")
+	}
+}
+
+func TestBuildStatusCellsLeadIndicator(t *testing.T) {
+	t.Parallel()
+
+	cell := mux.NewLeaf(&mux.Pane{ID: 1}, 0, 0, 60, 3)
+	tests := []struct {
+		name     string
+		active   bool
+		pane     *statusPaneData
+		contains []string
+	}{
+		{
+			name:   "active lead pane",
+			active: true,
+			pane: &statusPaneData{
+				id:    1,
+				name:  "pane-1",
+				color: config.TextColorHex,
+				lead:  true,
+			},
+			contains: []string{"▶", "[pane-1]", "[lead]"},
+		},
+		{
+			name:   "inactive lead pane",
+			active: false,
+			pane: &statusPaneData{
+				id:    1,
+				name:  "pane-1",
+				color: config.TextColorHex,
+				lead:  true,
+				idle:  true,
+			},
+			contains: []string{"▶", "[pane-1]", "[lead]"},
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			grid := NewScreenGrid(cell.W, cell.H)
+			buildStatusCells(grid, cell, tt.active, tt.pane)
+
+			var row strings.Builder
+			for x := 0; x < cell.W; x++ {
+				ch := grid.Get(x, 0).Char
+				if ch == "" {
+					ch = " "
+				}
+				row.WriteString(ch)
+			}
+			line := strings.TrimRight(row.String(), " ")
+			for _, want := range tt.contains {
+				if !strings.Contains(line, want) {
+					t.Fatalf("status row %q missing %q", line, want)
+				}
+			}
+		})
 	}
 }

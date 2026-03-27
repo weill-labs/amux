@@ -125,6 +125,10 @@ func (w *Window) hasAnchoredLead() bool {
 		lead.Pane.ID == w.LeadPaneID
 }
 
+func containsPane(cell *LayoutCell, paneID uint32) bool {
+	return cell != nil && cell.FindPane(paneID) != nil
+}
+
 // logicalRoot returns the subtree that root-targeted operations should mutate.
 // When lead is active, this is Root.Children[1]; otherwise it is Root.
 func (w *Window) logicalRoot() *LayoutCell {

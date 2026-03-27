@@ -35,6 +35,154 @@ type paneStatusMetadataSegment struct {
 	status proto.TrackedStatus
 }
 
+type paneStatusSegmentRole int
+
+const (
+	paneStatusSegmentBackground paneStatusSegmentRole = iota
+	paneStatusSegmentPane
+	paneStatusSegmentPaneBold
+	paneStatusSegmentDim
+	paneStatusSegmentText
+	paneStatusSegmentYellow
+	paneStatusSegmentGreen
+	paneStatusSegmentRed
+	paneStatusSegmentCompletedMeta
+)
+
+type paneStatusSegment struct {
+	text string
+	role paneStatusSegmentRole
+}
+
+func paneStatusColorHex(pd PaneData) string {
+	if color := pd.Color(); color != "" {
+		return color
+	}
+	return config.TextColorHex
+}
+
+func appendPaneStatusSegment(segments []paneStatusSegment, text string, role paneStatusSegmentRole) []paneStatusSegment {
+	if text == "" {
+		return segments
+	}
+	return append(segments, paneStatusSegment{text: text, role: role})
+}
+
+func buildPaneStatusSegments(cellWidth int, isActive bool, pd PaneData) []paneStatusSegment {
+	idle := !isActive && pd.Idle()
+
+	segments := make([]paneStatusSegment, 0, 16)
+
+	switch {
+	case pd.IsLead() && isActive:
+		segments = appendPaneStatusSegment(segments, "▶", paneStatusSegmentPane)
+	case pd.IsLead():
+		segments = appendPaneStatusSegment(segments, "▶", paneStatusSegmentDim)
+	case isActive:
+		segments = appendPaneStatusSegment(segments, "●", paneStatusSegmentPane)
+	case idle:
+		segments = appendPaneStatusSegment(segments, "◇", paneStatusSegmentDim)
+	default:
+		segments = appendPaneStatusSegment(segments, "○", paneStatusSegmentDim)
+	}
+
+	segments = appendPaneStatusSegment(segments, " ", paneStatusSegmentBackground)
+
+	switch {
+	case isActive:
+		segments = appendPaneStatusSegment(segments, "["+pd.Name()+"]", paneStatusSegmentPaneBold)
+	case idle:
+		segments = appendPaneStatusSegment(segments, "["+pd.Name()+"]", paneStatusSegmentDim)
+	default:
+		segments = appendPaneStatusSegment(segments, "["+pd.Name()+"]", paneStatusSegmentText)
+	}
+
+	if pd.IsLead() {
+		segments = appendPaneStatusSegment(segments, " ", paneStatusSegmentBackground)
+		segments = appendPaneStatusSegment(segments, "[lead]", paneStatusSegmentPane)
+	}
+
+	if pd.InCopyMode() {
+		segments = appendPaneStatusSegment(segments, " ", paneStatusSegmentBackground)
+		copyText := "[copy]"
+		if search := pd.CopyModeSearch(); search != "" {
+			copyText += " " + search
+		}
+		segments = appendPaneStatusSegment(segments, copyText, paneStatusSegmentYellow)
+	}
+
+	metaItems := paneStatusMetadataItems(pd.TrackedPRs(), pd.TrackedIssues(), isActive)
+	metaSegments := paneStatusMetadataSegments(metaItems, availableMetadataWidth(cellWidth, pd, isActive))
+	if len(metaSegments) > 0 {
+		segments = appendPaneStatusSegment(segments, " ", paneStatusSegmentBackground)
+		for _, segment := range metaSegments {
+			role := paneStatusSegmentText
+			if segment.status == proto.TrackedStatusCompleted {
+				role = paneStatusSegmentCompletedMeta
+			}
+			segments = appendPaneStatusSegment(segments, segment.text, role)
+		}
+	}
+
+	if pd.Host() != "" && pd.Host() != mux.DefaultHost {
+		segments = appendPaneStatusSegment(segments, " ", paneStatusSegmentBackground)
+		segments = appendPaneStatusSegment(segments, "@"+pd.Host(), paneStatusSegmentGreen)
+	}
+
+	if cs := pd.ConnStatus(); cs != "" {
+		segments = appendPaneStatusSegment(segments, " ", paneStatusSegmentBackground)
+		switch cs {
+		case "connected":
+			segments = appendPaneStatusSegment(segments, "⚡", paneStatusSegmentGreen)
+		case "reconnecting":
+			segments = appendPaneStatusSegment(segments, "⟳", paneStatusSegmentYellow)
+		case "disconnected":
+			segments = appendPaneStatusSegment(segments, "✕", paneStatusSegmentRed)
+		}
+	}
+
+	if pd.Task() != "" {
+		segments = appendPaneStatusSegment(segments, " ", paneStatusSegmentBackground)
+		segments = appendPaneStatusSegment(segments, pd.Task(), paneStatusSegmentText)
+	}
+
+	return segments
+}
+
+func paneStatusSegmentsWidth(segments []paneStatusSegment) int {
+	usedWidth := 0
+	for _, segment := range segments {
+		usedWidth += runewidth.StringWidth(segment.text)
+	}
+	return usedWidth
+}
+
+func paneStatusSegmentANSI(role paneStatusSegmentRole, colorHex string) string {
+	if colorHex == "" {
+		colorHex = config.TextColorHex
+	}
+	switch role {
+	case paneStatusSegmentPane:
+		return Reset + Surface0Bg + hexToANSI(colorHex)
+	case paneStatusSegmentPaneBold:
+		return Reset + Surface0Bg + Bold + hexToANSI(colorHex)
+	case paneStatusSegmentDim:
+		return Reset + Surface0Bg + DimFg
+	case paneStatusSegmentText:
+		return Reset + Surface0Bg + TextFg
+	case paneStatusSegmentYellow:
+		return Reset + Surface0Bg + YellowFg
+	case paneStatusSegmentGreen:
+		return Reset + Surface0Bg + GreenFg
+	case paneStatusSegmentRed:
+		return Reset + Surface0Bg + RedFg
+	case paneStatusSegmentCompletedMeta:
+		return Reset + Surface0Bg + DimFg + StrikeOn
+	default:
+		return Reset + Surface0Bg
+	}
+}
+
 // renderPaneStatus draws a per-pane status line at the top of a pane cell.
 // Format: ● [name] @host task
 //
@@ -45,111 +193,16 @@ type paneStatusMetadataSegment struct {
 func renderPaneStatus(buf *strings.Builder, cell *mux.LayoutCell, isActive bool, pd PaneData) {
 	writeCursorTo(buf, cell.Y+1, cell.X+1)
 
-	// Background: subtle dark surface
-	buf.WriteString(Surface0Bg)
-
-	color := pd.Color()
-	idle := !isActive && pd.Idle() // call once — may fork pgrep on server side
-
-	// Status icon: lead=▶, active=●, inactive+busy=○, inactive+idle=◇
-	lead := pd.IsLead()
-	if lead {
-		if isActive {
-			buf.WriteString(hexToANSI(color))
-		} else {
-			buf.WriteString(DimFg)
-		}
-		buf.WriteString("▶")
-	} else if isActive {
-		buf.WriteString(hexToANSI(color))
-		buf.WriteString("●")
-	} else if idle {
-		buf.WriteString(DimFg)
-		buf.WriteString("◇")
-	} else {
-		buf.WriteString(DimFg)
-		buf.WriteString("○")
+	colorHex := paneStatusColorHex(pd)
+	segments := buildPaneStatusSegments(cell.W, isActive, pd)
+	for _, segment := range segments {
+		buf.WriteString(paneStatusSegmentANSI(segment.role, colorHex))
+		buf.WriteString(segment.text)
 	}
 
-	// Name: active=bold+color, inactive+busy=text, inactive+idle=dim
-	buf.WriteString(" ")
-	if isActive {
-		buf.WriteString(Bold)
-		buf.WriteString(hexToANSI(color))
-	} else if idle {
-		buf.WriteString(DimFg)
-	} else {
-		buf.WriteString(TextFg)
-	}
-	buf.WriteString("[")
-	buf.WriteString(pd.Name())
-	buf.WriteString("]")
-	buf.WriteString(NoBold)
-
-	metaItems := paneStatusMetadataItems(pd.TrackedPRs(), pd.TrackedIssues(), isActive)
-	metaText := renderPaneStatusMetadataANSI(metaItems, availableMetadataWidth(cell.W, pd, isActive))
-
-	// Lead indicator
-	if lead {
-		buf.WriteString(" ")
-		buf.WriteString(hexToANSI(color))
-		buf.WriteString("[lead]")
-	}
-
-	// Copy mode indicator + search prompt
-	if pd.InCopyMode() {
-		buf.WriteString(" ")
-		buf.WriteString(YellowFg)
-		if search := pd.CopyModeSearch(); search != "" {
-			buf.WriteString("[copy] ")
-			buf.WriteString(search)
-		} else {
-			buf.WriteString("[copy]")
-		}
-	}
-
-	if metaText != "" {
-		buf.WriteString(TextFg)
-		buf.WriteString(" ")
-		buf.WriteString(metaText)
-	}
-
-	// Host (only if not mux.DefaultHost)
-	if pd.Host() != "" && pd.Host() != mux.DefaultHost {
-		buf.WriteString(GreenFg)
-		buf.WriteString(" @")
-		buf.WriteString(pd.Host())
-	}
-
-	// Connection status indicator (remote panes only)
-	if cs := pd.ConnStatus(); cs != "" {
-		switch cs {
-		case "connected":
-			buf.WriteString(GreenFg)
-			buf.WriteString(" ⚡")
-		case "reconnecting":
-			buf.WriteString(YellowFg)
-			buf.WriteString(" ⟳")
-		case "disconnected":
-			buf.WriteString(RedFg)
-			buf.WriteString(" ✕")
-		}
-	}
-
-	// Task
-	if pd.Task() != "" {
-		buf.WriteString(TextFg)
-		buf.WriteString(" ")
-		buf.WriteString(pd.Task())
-	}
-
-	// Fill remaining width with spaces
-	usedWidth := paneStatusUsedWidthWithoutMetadata(pd)
-	if metaText != "" {
-		usedWidth += 1 + runewidth.StringWidth(metaText)
-	}
-	remaining := cell.W - usedWidth
+	remaining := cell.W - paneStatusSegmentsWidth(segments)
 	if remaining > 0 {
+		buf.WriteString(paneStatusSegmentANSI(paneStatusSegmentBackground, colorHex))
 		buf.WriteString(strings.Repeat(" ", remaining))
 	}
 
@@ -259,30 +312,6 @@ func paneStatusMetadataSegments(items []paneStatusMetadataItem, maxWidth int) []
 	}
 
 	return segments
-}
-
-func renderPaneStatusMetadataANSI(items []paneStatusMetadataItem, maxWidth int) string {
-	segments := paneStatusMetadataSegments(items, maxWidth)
-	if len(segments) == 0 {
-		return ""
-	}
-
-	buf := strings.Builder{}
-	for _, segment := range segments {
-		if segment.text == "" {
-			continue
-		}
-		if segment.status == proto.TrackedStatusCompleted {
-			buf.WriteString(DimFg)
-			buf.WriteString(StrikeOn)
-			buf.WriteString(segment.text)
-			buf.WriteString(StrikeOff)
-			buf.WriteString(TextFg)
-			continue
-		}
-		buf.WriteString(segment.text)
-	}
-	return buf.String()
 }
 
 func truncateRunewidth(s string, maxWidth int) string {

@@ -879,6 +879,28 @@ func TestCaptureDisplayShowsPaneMetadata(t *testing.T) {
 	}
 }
 
+func TestCaptureDisplayShowsLeadPaneStatus(t *testing.T) {
+	t.Parallel()
+
+	cr := NewClientRenderer(80, 24)
+	snap := twoPane80x23()
+	snap.LeadPaneID = 1
+	snap.Panes[0].Lead = true
+	snap.Windows[0].LeadPaneID = 1
+	snap.Windows[0].Panes[0].Lead = true
+
+	cr.HandleLayout(snap)
+	cr.HandlePaneOutput(1, []byte("lead display"))
+	cr.RenderDiff()
+
+	display := cr.CaptureDisplay()
+	for _, want := range []string{"▶", "[pane-1]", "[lead]"} {
+		if !strings.Contains(display, want) {
+			t.Fatalf("display should contain %q, got:\n%s", want, display)
+		}
+	}
+}
+
 func TestCommandFeedbackAppearsInDisplayCapture(t *testing.T) {
 	t.Parallel()
 
