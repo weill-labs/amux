@@ -563,61 +563,13 @@ func (w *Window) ResizePane(paneID uint32, direction string, delta int) bool {
 				return false
 			}
 
-			moved := false
+			var moved int
 			if change > 0 {
-				grower := siblings[idx]
-				remaining := change
-
-				for donorIdx := idx + 1; donorIdx < len(siblings) && remaining > 0; donorIdx++ {
-					donor := siblings[donorIdx]
-					available := donor.resizeCheck(axis)
-					if available == 0 {
-						continue
-					}
-					if available > remaining {
-						available = remaining
-					}
-					grower.resizeToAxis(axis, grower.axisSize(axis)+available)
-					donor.resizeToAxis(axis, donor.axisSize(axis)-available)
-					remaining -= available
-					moved = true
-				}
-
-				for donorIdx := idx - 1; donorIdx >= 0 && remaining > 0; donorIdx-- {
-					donor := siblings[donorIdx]
-					available := donor.resizeCheck(axis)
-					if available == 0 {
-						continue
-					}
-					if available > remaining {
-						available = remaining
-					}
-					grower.resizeToAxis(axis, grower.axisSize(axis)+available)
-					donor.resizeToAxis(axis, donor.axisSize(axis)-available)
-					remaining -= available
-					moved = true
-				}
+				moved = w.resizePaneGrow(siblings, idx, axis, change)
 			} else {
-				grower := siblings[idx+1]
-				remaining := -change
-
-				for donorIdx := idx; donorIdx >= 0 && remaining > 0; donorIdx-- {
-					donor := siblings[donorIdx]
-					available := donor.resizeCheck(axis)
-					if available == 0 {
-						continue
-					}
-					if available > remaining {
-						available = remaining
-					}
-					grower.resizeToAxis(axis, grower.axisSize(axis)+available)
-					donor.resizeToAxis(axis, donor.axisSize(axis)-available)
-					remaining -= available
-					moved = true
-				}
+				moved = w.resizePaneShrink(siblings, idx, axis, -change)
 			}
-
-			if !moved {
+			if moved == 0 {
 				return false
 			}
 
@@ -629,6 +581,46 @@ func (w *Window) ResizePane(paneID uint32, direction string, delta int) bool {
 	}
 
 	return false
+}
+
+func (w *Window) resizePaneGrow(siblings []*LayoutCell, idx int, axis SplitDir, needed int) int {
+	grower := siblings[idx]
+
+	// Match tmux layout_resize_pane_grow: walk tail-ward first, then fall back
+	// to the head if no right/bottom sibling can donate enough space.
+	remaining := w.transferSiblingRange(grower, siblings, axis, needed, idx+1, len(siblings), 1)
+	if remaining == 0 {
+		return needed
+	}
+	remaining = w.transferSiblingRange(grower, siblings, axis, remaining, idx-1, -1, -1)
+	return needed - remaining
+}
+
+func (w *Window) resizePaneShrink(siblings []*LayoutCell, idx int, axis SplitDir, needed int) int {
+	// Match tmux layout_resize_pane_shrink: grow the sibling across the border
+	// and walk left/up from the border cell looking for donors.
+	return needed - w.transferSiblingRange(siblings[idx+1], siblings, axis, needed, idx, -1, -1)
+}
+
+func (w *Window) transferSiblingRange(grower *LayoutCell, siblings []*LayoutCell, axis SplitDir, remaining, start, stop, step int) int {
+	for donorIdx := start; donorIdx != stop && remaining > 0; donorIdx += step {
+		remaining -= transferAxisSize(grower, siblings[donorIdx], axis, remaining)
+	}
+	return remaining
+}
+
+func transferAxisSize(grower, donor *LayoutCell, axis SplitDir, needed int) int {
+	available := donor.resizeCheck(axis)
+	if available == 0 {
+		return 0
+	}
+	if available > needed {
+		available = needed
+	}
+
+	grower.resizeToAxis(axis, grower.axisSize(axis)+available)
+	donor.resizeToAxis(axis, donor.axisSize(axis)-available)
+	return available
 }
 
 // resizePTYs resizes all pane PTYs to match their layout cell dimensions.
