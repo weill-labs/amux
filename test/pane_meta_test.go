@@ -554,7 +554,7 @@ func TestPaneMetaSurvivesCrashRecovery(t *testing.T) {
 		h.client.close()
 		h.client = nil
 	}
-	if err := h.cmd.Process.Signal(syscall.SIGKILL); err != nil {
+	if err := h.signalServer(syscall.SIGKILL); err != nil {
 		t.Fatalf("SIGKILL server: %v", err)
 	}
 	_, _ = h.cmd.Process.Wait()

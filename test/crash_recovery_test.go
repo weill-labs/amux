@@ -63,7 +63,9 @@ func TestCrashRecovery_LayoutRestored(t *testing.T) {
 	}
 
 	// SIGKILL the server (simulates crash — no cleanup runs)
-	h.cmd.Process.Signal(syscall.SIGKILL)
+	if err := h.signalServer(syscall.SIGKILL); err != nil {
+		t.Fatalf("SIGKILL server: %v", err)
+	}
 	h.cmd.Wait()
 	h.cmd = nil // prevent cleanup from trying to kill again
 
@@ -130,7 +132,9 @@ func TestCrashRecovery_CleanShutdown(t *testing.T) {
 		h.client.close()
 		h.client = nil
 	}
-	h.cmd.Process.Signal(os.Interrupt)
+	if err := h.signalServer(os.Interrupt); err != nil {
+		t.Fatalf("interrupting server: %v", err)
+	}
 	h.waitForShutdownSignal(5 * time.Second)
 	done := make(chan struct{})
 	go func() {
@@ -140,7 +144,7 @@ func TestCrashRecovery_CleanShutdown(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(5 * time.Second):
-		h.cmd.Process.Kill()
+		_ = h.signalServer(syscall.SIGKILL)
 		t.Fatal("server did not shut down within 5s")
 	}
 	h.cmd = nil // prevent double cleanup
@@ -205,7 +209,9 @@ func TestCrashRecovery_FocusUpFromRestoredFullWidthBottomPane(t *testing.T) {
 		h.client.close()
 		h.client = nil
 	}
-	h.cmd.Process.Signal(syscall.SIGKILL)
+	if err := h.signalServer(syscall.SIGKILL); err != nil {
+		t.Fatalf("SIGKILL server: %v", err)
+	}
 	h.cmd.Wait()
 	h.cmd = nil
 
@@ -243,7 +249,9 @@ func TestCrashRecovery_PreservesHistoryCapture(t *testing.T) {
 		h.client.close()
 		h.client = nil
 	}
-	h.cmd.Process.Signal(syscall.SIGKILL)
+	if err := h.signalServer(syscall.SIGKILL); err != nil {
+		t.Fatalf("SIGKILL server: %v", err)
+	}
 	h.cmd.Wait()
 	h.cmd = nil
 
@@ -271,7 +279,9 @@ func TestCrashRecovery_ReplaysVisibleScreenForIdleShellPane(t *testing.T) {
 		h.client.close()
 		h.client = nil
 	}
-	h.cmd.Process.Signal(syscall.SIGKILL)
+	if err := h.signalServer(syscall.SIGKILL); err != nil {
+		t.Fatalf("SIGKILL server: %v", err)
+	}
 	h.cmd.Wait()
 	h.cmd = nil
 
@@ -300,7 +310,9 @@ func TestCrashRecovery_BusyPaneShowsRecoveryNoticeInsteadOfReplayingStaleScreen(
 		h.client.close()
 		h.client = nil
 	}
-	h.cmd.Process.Signal(syscall.SIGKILL)
+	if err := h.signalServer(syscall.SIGKILL); err != nil {
+		t.Fatalf("SIGKILL server: %v", err)
+	}
 	h.cmd.Wait()
 	h.cmd = nil
 
@@ -579,6 +591,7 @@ func startServerForSession(t *testing.T, session, home string) *ServerHarness {
 	}
 
 	h := &ServerHarness{tb: t, session: session, cmd: cmd, home: home, cols: 80, rows: 24, coverDir: coverDir, shutdownPipe: shutdownReadPipe}
+	h.startProcessWait()
 	t.Cleanup(h.cleanup)
 
 	// Attach headless client

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -23,22 +24,29 @@ import (
 // ServerHarness starts the inner amux server daemon and attaches a headless
 // client. The client maintains local emulators and responds to capture
 // requests — making it the rendering source of truth, same as a real client.
-// CLI commands are synchronous: after runCmd("split") returns, capture()
+// Harness commands are synchronous: after runCmd("split") returns, capture()
 // immediately reflects the split. Zero polling, zero time.Sleep.
 type ServerHarness struct {
-	tb           testing.TB
-	session      string
-	cmd          *exec.Cmd
-	home         string
-	cols         int
-	rows         int
-	coverDir     string // per-test GOCOVERDIR subdirectory (avoids coverage metadata races)
-	extraEnv     []string
-	logPath      string
-	client       *headlessClient // attached headless client for capture
-	shutdownPipe *os.File
-	waitDone     chan struct{}
-	waitErr      error
+	tb                       testing.TB
+	session                  string
+	cmd                      *exec.Cmd
+	home                     string
+	cols                     int
+	rows                     int
+	coverDir                 string // per-test GOCOVERDIR subdirectory (avoids coverage metadata races)
+	extraEnv                 []string
+	logPath                  string
+	exitUnattached           bool
+	ownsProcessGroup         bool
+	client                   *headlessClient // attached headless client for capture
+	shutdownPipe             *os.File
+	waitDone                 chan struct{}
+	waitOnce                 sync.Once
+	waitMu                   sync.Mutex
+	waitErr                  error
+	commandConnMu            sync.Mutex
+	lastCommandConn          net.Conn
+	attachedCommandsDisabled bool
 
 	diagMu         sync.Mutex
 	currentWait    string
@@ -70,6 +78,9 @@ func newServerHarnessPersistent(tb testing.TB) *ServerHarness {
 // newServerHarnessWithConfig starts a server with a custom config file.
 // The config is written to a temp file and passed via AMUX_CONFIG.
 // Pass an empty configContent to start with the default (no) config.
+// The default harness keeps the server alive across transient client gaps;
+// tests that specifically exercise exit-on-unattached should call
+// newServerHarnessWithOptions(..., true) explicitly.
 func newServerHarnessWithConfig(tb testing.TB, cols, rows int, configContent string) *ServerHarness {
 	tb.Helper()
 	return newServerHarnessWithOptions(tb, cols, rows, configContent, false)
@@ -86,9 +97,16 @@ func newServerHarnessExitUnattached(tb testing.TB) *ServerHarness {
 // is true the server self-terminates after all clients disconnect.
 func newServerHarnessWithOptions(tb testing.TB, cols, rows int, configContent string, exitUnattached bool, extraEnv ...string) *ServerHarness {
 	tb.Helper()
+	return newServerHarnessForSession(tb, "", "", cols, rows, configContent, exitUnattached, extraEnv...)
+}
+
+func newServerHarnessForSession(tb testing.TB, session, home string, cols, rows int, configContent string, exitUnattached bool, extraEnv ...string) *ServerHarness {
+	tb.Helper()
 	var b [4]byte
-	rand.Read(b[:])
-	session := fmt.Sprintf("t-%x", b)
+	if session == "" {
+		rand.Read(b[:])
+		session = fmt.Sprintf("t-%x", b)
+	}
 
 	// Create pipes for deterministic startup and clean-shutdown signals.
 	readPipe, writePipe, err := os.Pipe()
@@ -105,7 +123,9 @@ func newServerHarnessWithOptions(tb testing.TB, cols, rows int, configContent st
 	cmd := exec.Command(amuxBin, "_server", session)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.ExtraFiles = []*os.File{writePipe, shutdownWritePipe} // fds 3 and 4 in child
-	home := newTestHome(tb)
+	if home == "" {
+		home = newTestHome(tb)
+	}
 	env := removeEnv(os.Environ(), "AMUX_EXIT_UNATTACHED")
 	env = upsertEnv(env, "HOME", home)
 	env = append(env, "AMUX_READY_FD=3", "AMUX_SHUTDOWN_FD=4", "AMUX_NO_WATCH=1", "AMUX_DISABLE_META_REFRESH=1")
@@ -165,28 +185,32 @@ func newServerHarnessWithOptions(tb testing.TB, cols, rows int, configContent st
 	readPipe.Close()
 	if err != nil || !strings.Contains(string(buf[:n]), "ready") {
 		logData, _ := os.ReadFile(logPath)
-		cmd.Process.Kill()
+		var waitErr error
+		if err != nil && os.IsTimeout(err) {
+			_ = cmd.Process.Kill()
+			waitErr = cmd.Wait()
+		} else {
+			waitErr = cmd.Wait()
+		}
 		shutdownReadPipe.Close()
-		tb.Fatalf("server ready signal not received: err=%v, buf=%q\nserver log:\n%s", err, string(buf[:n]), string(logData))
+		tb.Fatalf("server ready signal not received: err=%v, buf=%q, pid=%d, waitErr=%v\nserver log:\n%s", err, string(buf[:n]), cmd.Process.Pid, waitErr, string(logData))
 	}
 
 	h := &ServerHarness{
-		tb:           tb,
-		session:      session,
-		cmd:          cmd,
-		home:         home,
-		cols:         cols,
-		rows:         rows,
-		coverDir:     coverDir,
-		extraEnv:     append([]string(nil), extraEnv...),
-		logPath:      logPath,
-		shutdownPipe: shutdownReadPipe,
-		waitDone:     make(chan struct{}),
+		tb:               tb,
+		session:          session,
+		cmd:              cmd,
+		home:             home,
+		cols:             cols,
+		rows:             rows,
+		coverDir:         coverDir,
+		extraEnv:         append([]string(nil), extraEnv...),
+		logPath:          logPath,
+		exitUnattached:   exitUnattached,
+		ownsProcessGroup: true,
+		shutdownPipe:     shutdownReadPipe,
 	}
-	go func() {
-		h.waitErr = cmd.Wait()
-		close(h.waitDone)
-	}()
+	h.startProcessWait()
 	tb.Cleanup(h.cleanup)
 
 	// Attach a headless client — seeds the first pane and stays connected
@@ -225,44 +249,62 @@ func (h *ServerHarness) ensureControlClient() error {
 	return nil
 }
 
-// cleanup detaches the headless client, sends SIGTERM for graceful shutdown
-// (coverage flush), then cleans up the socket and log files. As a fallback,
-// kills the server's process group to prevent orphaned pane shells.
+func (h *ServerHarness) signalServer(sig os.Signal) error {
+	h.tb.Helper()
+	if h == nil || h.cmd == nil || h.cmd.Process == nil {
+		return fmt.Errorf("server process is not running")
+	}
+	pid := h.cmd.Process.Pid
+	if !serverProcessMatchesSession(pid, h.session) {
+		return fmt.Errorf("server process %d no longer matches session %s", pid, h.session)
+	}
+	return h.cmd.Process.Signal(sig)
+}
+
+// cleanup detaches the headless client, sends SIGINT for graceful shutdown
+// (coverage flush) when needed, then cleans up the socket and log files. As a
+// fallback, kills the harness-owned process tree without touching later tests.
 func (h *ServerHarness) cleanup() {
 	if h.client != nil {
 		h.client.close()
+		h.client = nil
 	}
-	var serverPid int
-	timedOut := false
+	serverPid := 0
 	if h.cmd != nil && h.cmd.Process != nil {
 		serverPid = h.cmd.Process.Pid
-		waitDone := h.waitDone
-		if waitDone == nil {
-			waitDone = make(chan struct{})
-			go func() {
-				h.waitErr = h.cmd.Wait()
-				close(waitDone)
-			}()
+	}
+	if h.cmd != nil && h.cmd.ProcessState != nil {
+		h.cmd = nil
+	}
+
+	gracefulShutdown := h.shutdownPipe == nil
+	switch {
+	case h.cmd == nil || h.cmd.Process == nil:
+	case h.exitUnattached:
+		if h.shutdownPipe != nil {
+			gracefulShutdown = h.waitForShutdownSignalWithin(5 * time.Second)
 		}
-		select {
-		case <-waitDone:
-		case <-time.After(50 * time.Millisecond):
+	default:
+		if serverProcessMatchesSession(serverPid, h.session) {
 			_ = h.cmd.Process.Signal(os.Interrupt)
-			select {
-			case <-waitDone:
-			case <-time.After(3 * time.Second):
-				timedOut = true
-				_ = h.cmd.Process.Kill()
-				<-waitDone
-			}
+		}
+		if h.shutdownPipe != nil {
+			gracefulShutdown = h.waitForShutdownSignalWithin(5 * time.Second)
 		}
 	}
-	// If graceful shutdown timed out, kill the harness process group as a
-	// fallback so orphaned pane shells cannot leak into later tests.
-	if serverPid != 0 && timedOut {
-		syscall.Kill(-serverPid, syscall.SIGKILL)
-		killChildrenByPid(serverPid)
+
+	if h.cmd != nil && !h.waitForProcessExit(3*time.Second) {
+		if serverProcessMatchesSession(serverPid, h.session) {
+			h.killServerProcessTree(serverPid)
+		}
+		if !h.waitForProcessExit(3 * time.Second) {
+			h.tb.Fatalf("server process %d did not exit during harness cleanup", serverPid)
+		}
+	} else if h.cmd != nil && !gracefulShutdown {
+		// The process exited before we observed the explicit shutdown signal.
+		// Treat the cleanup as complete once the server is gone.
 	}
+
 	if h.shutdownPipe != nil {
 		h.shutdownPipe.Close()
 		h.shutdownPipe = nil
@@ -365,14 +407,198 @@ func (h *ServerHarness) commandWithContext(ctx context.Context, args ...string) 
 	return cmd
 }
 
-func (h *ServerHarness) runCmdWithTimeout(timeout time.Duration, track bool, args ...string) (string, error) {
+func formatHarnessCommandResult(cmdName string, msg *server.Message) string {
+	if msg == nil {
+		return ""
+	}
+	if msg.CmdErr != "" {
+		return fmt.Sprintf("amux %s: %s\n", cmdName, msg.CmdErr)
+	}
+	return msg.CmdOutput
+}
+
+var attachedClientCommands = map[string]bool{
+	"_layout-json": true,
+	"cursor":       true,
+	"focus":        true,
+	"new-window":   true,
+	"send-keys":    true,
+	"split":        true,
+	"status":       true,
+	"wait":         true,
+}
+
+var attachedClientFallbackSafeCommands = map[string]bool{
+	"_layout-json": true,
+	"cursor":       true,
+	"status":       true,
+	"wait":         true,
+}
+
+func (h *ServerHarness) canUseAttachedClient(cmdName string) bool {
+	if !attachedClientCommands[cmdName] {
+		return false
+	}
+	h.commandConnMu.Lock()
+	disabled := h.attachedCommandsDisabled
+	h.commandConnMu.Unlock()
+	if disabled {
+		return false
+	}
+	if h.client == nil || h.client.isClosing() {
+		return false
+	}
+	select {
+	case <-h.client.done:
+		return false
+	default:
+		return true
+	}
+}
+
+func (h *ServerHarness) waitForAttachedClientReady(timeout time.Duration) bool {
+	hc := h.client
+	if hc == nil || hc.isClosing() {
+		return false
+	}
+
+	waitFor := timeout
+	if waitFor > 2*time.Second {
+		waitFor = 2 * time.Second
+	}
+	deadline := time.Now().Add(waitFor)
+	ticker := time.NewTicker(25 * time.Millisecond)
+	defer ticker.Stop()
+
+	for time.Now().Before(deadline) {
+		if hc.currentConn() != nil {
+			return true
+		}
+		select {
+		case <-hc.closing:
+			return false
+		case <-hc.done:
+			return false
+		case <-ticker.C:
+		}
+	}
+	conn := hc.currentConn()
+	if conn == nil {
+		return false
+	}
+
+	h.commandConnMu.Lock()
+	needsReady := conn != h.lastCommandConn
+	h.commandConnMu.Unlock()
+	if !needsReady {
+		return true
+	}
+
+	readyWait := timeout
+	if readyWait > 2*time.Second {
+		readyWait = 2 * time.Second
+	}
+	readyCh := make(chan error, 1)
+	go func() {
+		readyCh <- hc.waitCommandReady()
+	}()
+
+	select {
+	case err := <-readyCh:
+		if err != nil {
+			return false
+		}
+		h.commandConnMu.Lock()
+		h.lastCommandConn = hc.currentConn()
+		h.commandConnMu.Unlock()
+		return h.lastCommandConn != nil
+	case <-time.After(readyWait):
+		return false
+	case <-hc.closing:
+		return false
+	case <-hc.done:
+		return false
+	}
+}
+
+func (h *ServerHarness) runAttachedClientCommand(timeout time.Duration, args ...string) (string, error) {
+	if len(args) == 0 {
+		return "", fmt.Errorf("no command provided")
+	}
+	hc := h.client
+	if hc == nil {
+		return "", fmt.Errorf("headless client not connected")
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
+
+	req := headlessCommand{
+		msg: &server.Message{
+			Type:    server.MsgTypeCommand,
+			CmdName: args[0],
+			CmdArgs: args[1:],
+		},
+		reply: make(chan *server.Message, 1),
+	}
+
+	select {
+	case hc.cmdReqs <- req:
+	case <-ctx.Done():
+		return "", fmt.Errorf("timed out after %v", timeout)
+	case <-hc.closing:
+		return "", fmt.Errorf("headless client closed")
+	case <-hc.done:
+		return "", fmt.Errorf("headless client closed")
+	}
+
+	select {
+	case msg := <-req.reply:
+		return formatHarnessCommandResult(args[0], msg), nil
+	case <-ctx.Done():
+		return "", fmt.Errorf("timed out after %v", timeout)
+	case <-hc.closing:
+		select {
+		case msg := <-req.reply:
+			return formatHarnessCommandResult(args[0], msg), nil
+		default:
+			return "", fmt.Errorf("headless client closed")
+		}
+	case <-hc.done:
+		select {
+		case msg := <-req.reply:
+			return formatHarnessCommandResult(args[0], msg), nil
+		default:
+			return "", fmt.Errorf("headless client closed")
+		}
+	}
+}
+
+func (h *ServerHarness) runCmdWithTimeout(timeout time.Duration, track bool, args ...string) (string, error) {
+	if len(args) == 0 {
+		return "", fmt.Errorf("no command provided")
+	}
 	if track {
 		restore := h.pushCommandState("amux " + strings.Join(args, " "))
 		defer restore()
 	}
 
+	if args[0] == "reload-server" {
+		h.commandConnMu.Lock()
+		h.attachedCommandsDisabled = true
+		h.lastCommandConn = nil
+		h.commandConnMu.Unlock()
+	}
+
+	if h.canUseAttachedClient(args[0]) && h.waitForAttachedClientReady(timeout) {
+		out, err := h.runAttachedClientCommand(timeout, args...)
+		if err == nil || !attachedClientFallbackSafeCommands[args[0]] {
+			return out, err
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
 	cmd := h.commandWithContext(ctx, args...)
 	out, err := cmd.CombinedOutput()
 	if ctx.Err() == context.DeadlineExceeded {
@@ -392,11 +618,11 @@ func (h *ServerHarness) diagnosticProbe(args ...string) (string, error) {
 func (h *ServerHarness) diagnosticSnapshot(reason string) string {
 	wait, cmd := h.diagnosticState()
 	data := diagnosticSnapshotData{
-		TestName:   h.tb.Name(),
-		Session:    h.session,
-		Wait:       wait,
-		Command:    cmd,
-		ServerWait: h.serverWaitStatus(),
+		TestName: h.tb.Name(),
+		Session:  h.session,
+		Wait:     wait,
+		Command:  cmd,
+		Process:  h.processStateSummary(),
 	}
 
 	if out, err := h.diagnosticProbe("cursor", "layout"); err != nil {
@@ -405,7 +631,7 @@ func (h *ServerHarness) diagnosticSnapshot(reason string) string {
 			data.Generation += "\ncursor layout output: " + truncateDiagnostic(trimmed, diagnosticOutputLimit)
 		}
 	} else {
-		data.Generation = "layout cursor: " + strings.TrimSpace(out)
+		data.Generation = "cursor layout: " + strings.TrimSpace(out)
 	}
 
 	if out, err := h.diagnosticProbe("capture", "--format", "json"); err != nil {
@@ -435,7 +661,7 @@ type diagnosticSnapshotData struct {
 	Session            string
 	Wait               string
 	Command            string
-	ServerWait         string
+	Process            string
 	Generation         string
 	JSONCaptureSummary string
 	PlainCapture       string
@@ -452,8 +678,8 @@ func formatDiagnosticSnapshot(reason string, data diagnosticSnapshotData) string
 	if data.Command != "" {
 		fmt.Fprintf(&b, "command: %s\n", data.Command)
 	}
-	if data.ServerWait != "" {
-		fmt.Fprintf(&b, "%s\n", data.ServerWait)
+	if data.Process != "" {
+		fmt.Fprintf(&b, "%s\n", data.Process)
 	}
 	if data.Generation != "" {
 		fmt.Fprintf(&b, "%s\n", data.Generation)
@@ -561,6 +787,62 @@ func tailDiagnostic(s string, max int) string {
 	return "...[truncated]...\n" + s
 }
 
+func (h *ServerHarness) killServerProcessTree(serverPid int) {
+	if serverPid == 0 {
+		return
+	}
+	if h.ownsProcessGroup {
+		_ = syscall.Kill(-serverPid, syscall.SIGKILL)
+		return
+	}
+	killChildrenByPid(serverPid)
+	_ = syscall.Kill(serverPid, syscall.SIGKILL)
+}
+
+func (h *ServerHarness) startProcessWait() {
+	if h == nil || h.cmd == nil {
+		return
+	}
+	h.waitOnce.Do(func() {
+		h.waitDone = make(chan struct{})
+		cmd := h.cmd
+		go func() {
+			err := cmd.Wait()
+			h.waitMu.Lock()
+			h.waitErr = err
+			h.waitMu.Unlock()
+			close(h.waitDone)
+		}()
+	})
+}
+
+func (h *ServerHarness) processStateSummary() string {
+	if h == nil {
+		return ""
+	}
+	if h.waitDone != nil {
+		select {
+		case <-h.waitDone:
+			h.waitMu.Lock()
+			err := h.waitErr
+			h.waitMu.Unlock()
+			if err != nil {
+				return fmt.Sprintf("server exit: %v", err)
+			}
+			return "server exit: clean"
+		default:
+		}
+	}
+	if h.cmd != nil && h.cmd.Process != nil {
+		pid := h.cmd.Process.Pid
+		if serverProcessMatchesSession(pid, h.session) {
+			return fmt.Sprintf("server pid: %d (running)", pid)
+		}
+		return fmt.Sprintf("server pid: %d (session no longer matches)", pid)
+	}
+	return ""
+}
+
 // ---------------------------------------------------------------------------
 // CLI command helpers — all synchronous, zero polling
 // ---------------------------------------------------------------------------
@@ -576,9 +858,10 @@ const (
 	diagnosticOutputLimit  = 12 << 10
 )
 
-// runCmd executes an amux CLI command targeting this test's session.
-// The command is killed after runCmdTimeout to prevent a single stuck
-// CLI call from hanging the entire test suite.
+// runCmd executes an amux command targeting this test's session. When the
+// harness still has its attached headless client, the command goes through
+// that persistent control channel; otherwise it falls back to a short-lived
+// CLI subprocess. The command is bounded by runCmdTimeout either way.
 func (h *ServerHarness) runCmd(args ...string) string {
 	h.tb.Helper()
 	out, err := h.runCmdWithTimeout(runCmdTimeout, true, args...)
@@ -620,16 +903,40 @@ func (h *ServerHarness) runControlCmd(args ...string) string {
 
 func (h *ServerHarness) waitForShutdownSignal(timeout time.Duration) {
 	h.tb.Helper()
-	if h.shutdownPipe == nil {
-		h.tb.Fatal("shutdown signal pipe not configured")
+	if !h.waitForShutdownSignalWithin(timeout) {
+		h.tb.Fatal("server shutdown signal not received")
 	}
-	h.shutdownPipe.SetReadDeadline(time.Now().Add(timeout))
+}
+
+func (h *ServerHarness) waitForShutdownSignalWithin(timeout time.Duration) bool {
+	h.tb.Helper()
+	if h.shutdownPipe == nil {
+		return false
+	}
+	_ = h.shutdownPipe.SetReadDeadline(time.Now().Add(timeout))
 	buf := make([]byte, 64)
 	n, err := h.shutdownPipe.Read(buf)
 	h.shutdownPipe.Close()
 	h.shutdownPipe = nil
-	if err != nil || !strings.Contains(string(buf[:n]), "shutdown") {
-		h.tb.Fatalf("server shutdown signal not received: err=%v, buf=%q", err, string(buf[:n]))
+	return err == nil && strings.Contains(string(buf[:n]), "shutdown")
+}
+
+func (h *ServerHarness) waitForProcessExit(timeout time.Duration) bool {
+	h.tb.Helper()
+	if h.cmd == nil {
+		return true
+	}
+	if h.cmd.ProcessState != nil {
+		h.cmd = nil
+		return true
+	}
+	h.startProcessWait()
+	select {
+	case <-h.waitDone:
+		h.cmd = nil
+		return true
+	case <-time.After(timeout):
+		return false
 	}
 }
 
@@ -978,7 +1285,7 @@ func (h *ServerHarness) layoutSnapshot() *proto.LayoutSnapshot {
 	out := h.runCmd("_layout-json")
 	var layout proto.LayoutSnapshot
 	if err := json.Unmarshal([]byte(out), &layout); err != nil {
-		h.tb.Fatalf("layoutSnapshot: %v\nraw: %s", err, out)
+		h.tb.Fatalf("layoutSnapshot: %v\nraw: %s\n%s", err, out, h.diagnosticSnapshot("layout snapshot parse failure"))
 	}
 	return &layout
 }
@@ -1161,4 +1468,88 @@ func (h *ServerHarness) sendKeys(pane string, keys ...string) {
 	if strings.Contains(out, "not found") {
 		h.tb.Fatalf("sendKeys to %s: %s", pane, strings.TrimSpace(out))
 	}
+}
+
+func TestNewServerHarnessReturnsCommandReady(t *testing.T) {
+	t.Parallel()
+
+	h := newServerHarness(t)
+	_ = h.generation()
+
+	msg := h.attachAt(80, 24)
+	if msg.Layout == nil {
+		t.Fatal("initial attach did not return a layout")
+	}
+	if len(msg.Layout.Panes) != 1 {
+		t.Fatalf("initial attach returned %d panes, want 1", len(msg.Layout.Panes))
+	}
+}
+
+func TestServerHarnessSequentialLifecyclesKeepNextSessionAlive(t *testing.T) {
+	const iterations = 6
+
+	for i := 0; i < iterations; i++ {
+		t.Run(fmt.Sprintf("iter-%02d", i), func(t *testing.T) {
+			h := newServerHarness(t)
+
+			marker := fmt.Sprintf("ITER_%02d", i)
+			h.sendKeys("pane-1", "echo "+marker, "Enter")
+			h.waitFor("pane-1", marker)
+			_ = h.generation()
+
+			msg := h.attachAt(80, 24)
+			if msg.Layout == nil {
+				t.Fatal("transient attach did not return a layout")
+			}
+
+			h.splitV()
+
+			msg = h.attachAt(80, 24)
+			if msg.Layout == nil {
+				t.Fatal("post-split attach did not return a layout")
+			}
+			if len(msg.Layout.Panes) != 2 {
+				t.Fatalf("post-split attach returned %d panes, want 2", len(msg.Layout.Panes))
+			}
+		})
+	}
+}
+
+func TestServerHarnessRunCmdKeepsWorkingWithoutSocketPath(t *testing.T) {
+	t.Parallel()
+
+	h := newServerHarness(t)
+	sockPath := server.SocketPath(h.session)
+	if err := os.Remove(sockPath); err != nil {
+		t.Fatalf("Remove(%s): %v", sockPath, err)
+	}
+
+	out := h.runCmd("status")
+	if !strings.Contains(out, "panes: 1 total") {
+		t.Fatalf("status should still work through attached client after socket unlink, got:\n%s", out)
+	}
+}
+
+func TestServerHarnessRunCmdFallsBackWhenHeadlessClientDetached(t *testing.T) {
+	t.Parallel()
+
+	h := newServerHarnessPersistent(t)
+	h.client.close()
+	h.client = nil
+
+	out := h.runCmd("list")
+	if !strings.Contains(out, "pane-1") {
+		t.Fatalf("list should still work over the socket after detaching the headless client, got:\n%s", out)
+	}
+}
+
+func serverProcessMatchesSession(pid int, session string) bool {
+	if pid == 0 || session == "" {
+		return false
+	}
+	out, err := exec.Command("ps", "-o", "command=", "-p", strconv.Itoa(pid)).Output()
+	if err != nil {
+		return false
+	}
+	return strings.Contains(strings.TrimSpace(string(out)), "amux _server "+session)
 }

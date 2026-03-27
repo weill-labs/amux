@@ -349,7 +349,9 @@ func TestShutdownLeavesNoOrphans(t *testing.T) {
 	}
 
 	// Trigger graceful shutdown
-	h.cmd.Process.Signal(os.Interrupt)
+	if err := h.signalServer(os.Interrupt); err != nil {
+		t.Fatalf("interrupting server: %v", err)
+	}
 	done := make(chan struct{})
 	go func() {
 		h.cmd.Wait()
@@ -358,7 +360,7 @@ func TestShutdownLeavesNoOrphans(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(10 * time.Second):
-		h.cmd.Process.Kill()
+		_ = h.signalServer(syscall.SIGKILL)
 		t.Fatal("server didn't shut down within 10 seconds")
 	}
 
