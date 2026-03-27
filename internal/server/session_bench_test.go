@@ -64,6 +64,42 @@ func benchSessionWithPanes(n int) *Session {
 	}
 }
 
+// benchBroadcastLayoutNow measures stable broadcast work without depending on
+// async client-writer queue depth or dropped-frame policy.
+func (s *Session) benchBroadcastLayoutNow(w io.Writer) error {
+	idleSnap := s.snapshotIdleState()
+	s.assertPaneLayoutConsistency()
+	snap := s.snapshotLayout(idleSnap)
+	if snap == nil {
+		return nil
+	}
+
+	gen := s.generation.Add(1)
+	s.notifyLayoutWaiters(gen)
+
+	if err := WriteMsg(w, &Message{Type: MsgTypeLayout, Layout: snap}); err != nil {
+		return err
+	}
+
+	activePaneName := ""
+	if snap.ActivePaneID != 0 {
+		for _, p := range snap.Panes {
+			if p.ID == snap.ActivePaneID {
+				activePaneName = p.Name
+				break
+			}
+		}
+	}
+	s.emitEvent(Event{Type: EventLayout, Generation: gen, ActivePane: activePaneName})
+
+	select {
+	case s.crashCheckpointTrigger <- struct{}{}:
+	default:
+	}
+
+	return nil
+}
+
 func BenchmarkSessionSnapshotLayout(b *testing.B) {
 	for _, panes := range []int{1, 4, 20} {
 		b.Run(fmt.Sprintf("panes_%d", panes), func(b *testing.B) {
@@ -84,14 +120,13 @@ func BenchmarkSessionBroadcastLayout(b *testing.B) {
 	for _, panes := range []int{1, 4, 20} {
 		b.Run(fmt.Sprintf("panes_%d", panes), func(b *testing.B) {
 			sess := benchSessionWithPanes(panes)
-			cc := newClientConn(discardConn{})
-			sess.ensureClientManager().setClientsForTest(cc)
-			defer cc.Close()
 
 			b.ReportAllocs()
 			b.ResetTimer()
 			for b.Loop() {
-				sess.broadcastLayoutNow()
+				if err := sess.benchBroadcastLayoutNow(io.Discard); err != nil {
+					b.Fatalf("benchBroadcastLayoutNow: %v", err)
+				}
 			}
 		})
 	}
