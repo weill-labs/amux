@@ -37,6 +37,13 @@ type LayoutCell struct {
 	isLeaf bool
 }
 
+type resizeEdge int
+
+const (
+	resizeFromStart resizeEdge = iota
+	resizeFromEnd
+)
+
 // PaneMinSize is the minimum pane dimension (width or height).
 const PaneMinSize = 2
 
@@ -422,6 +429,24 @@ func (c *LayoutCell) resizeToAxis(axis SplitDir, target int) {
 	c.resizeAxis(axis, target)
 }
 
+// resizeToAxisFromEdge grows or shrinks a subtree by moving only one outer
+// edge. This preserves far-side siblings when a pane border moves and only
+// walks deeper into the subtree if the edge-adjacent branch runs out of room.
+func (c *LayoutCell) resizeToAxisFromEdge(axis SplitDir, target int, edge resizeEdge) {
+	current := c.axisSize(axis)
+	if target == current {
+		return
+	}
+	if target < current {
+		maxShrink := c.resizeCheck(axis)
+		minTarget := current - maxShrink
+		if target < minTarget {
+			target = minTarget
+		}
+	}
+	c.resizeAxisFromEdge(axis, target, edge)
+}
+
 func (c *LayoutCell) resizeAxis(axis SplitDir, target int) {
 	c.setAxisSize(axis, target)
 	if c.IsLeaf() || len(c.Children) == 0 {
@@ -438,6 +463,70 @@ func (c *LayoutCell) resizeAxis(axis SplitDir, target int) {
 	sizes := proportionalChildSizes(c.Children, axis, target)
 	for i, child := range c.Children {
 		child.resizeAxis(axis, sizes[i])
+	}
+}
+
+func (c *LayoutCell) resizeAxisFromEdge(axis SplitDir, target int, edge resizeEdge) {
+	current := c.axisSize(axis)
+	if target == current {
+		return
+	}
+
+	if c.IsLeaf() && target < PaneMinSize {
+		target = PaneMinSize
+	}
+
+	delta := target - current
+	c.setAxisSize(axis, target)
+	if c.IsLeaf() || len(c.Children) == 0 {
+		return
+	}
+
+	if c.Dir != axis {
+		for _, child := range c.Children {
+			child.resizeAxisFromEdge(axis, target, edge)
+		}
+		return
+	}
+
+	if delta > 0 {
+		childIdx := 0
+		if edge == resizeFromEnd {
+			childIdx = len(c.Children) - 1
+		}
+		child := c.Children[childIdx]
+		child.resizeAxisFromEdge(axis, child.axisSize(axis)+delta, edge)
+		return
+	}
+
+	remaining := -delta
+	if edge == resizeFromStart {
+		for i := 0; i < len(c.Children) && remaining > 0; i++ {
+			child := c.Children[i]
+			shrink := child.resizeCheck(axis)
+			if shrink > remaining {
+				shrink = remaining
+			}
+			if shrink == 0 {
+				continue
+			}
+			child.resizeAxisFromEdge(axis, child.axisSize(axis)-shrink, edge)
+			remaining -= shrink
+		}
+		return
+	}
+
+	for i := len(c.Children) - 1; i >= 0 && remaining > 0; i-- {
+		child := c.Children[i]
+		shrink := child.resizeCheck(axis)
+		if shrink > remaining {
+			shrink = remaining
+		}
+		if shrink == 0 {
+			continue
+		}
+		child.resizeAxisFromEdge(axis, child.axisSize(axis)-shrink, edge)
+		remaining -= shrink
 	}
 }
 
