@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/creack/pty"
+	"github.com/weill-labs/amux/internal/debugowner"
 )
 
 func waitUntil(t *testing.T, timeout time.Duration, cond func() bool) {
@@ -488,6 +489,36 @@ func TestCloseReturnsBeforeBackgroundTeardownCompletes(t *testing.T) {
 	case <-reaped:
 	case <-time.After(5 * time.Second):
 		t.Fatal("timed out waiting to reap child process")
+	}
+}
+
+func TestWaitClosedReturnsNilBeforeClose(t *testing.T) {
+	t.Parallel()
+
+	p := &Pane{}
+	if err := p.WaitClosed(); err != nil {
+		t.Fatalf("WaitClosed() before Close = %v, want nil", err)
+	}
+}
+
+func TestCloseAcceptsForbiddenOwnerInNonDebugBuilds(t *testing.T) {
+	t.Parallel()
+
+	p := NewProxyPaneWithScrollback(8, PaneMeta{
+		Name:  "pane-8",
+		Host:  DefaultHost,
+		Color: "f5e0dc",
+	}, 20, 1, 4, nil, nil, func(data []byte) (int, error) {
+		return len(data), nil
+	})
+
+	p.SetCloseForbiddenOwner(&debugowner.Checker{})
+
+	if err := p.Close(); err != nil {
+		t.Fatalf("Close() = %v, want nil", err)
+	}
+	if err := p.WaitClosed(); err != nil {
+		t.Fatalf("WaitClosed() = %v, want nil", err)
 	}
 }
 
