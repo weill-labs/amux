@@ -857,9 +857,7 @@ func (w *Window) MovePane(paneID, targetPaneID uint32, before bool) error {
 func (w *Window) MovePaneToColumn(paneID, targetPaneID uint32) error {
 	w.assertOwner("MovePaneToColumn")
 	if col := w.leadColumn(); col != nil {
-		inSource := containsPane(col, paneID)
-		inTarget := containsPane(col, targetPaneID)
-		if inSource != inTarget {
+		if (col.FindPane(paneID) != nil) != (col.FindPane(targetPaneID) != nil) {
 			return fmt.Errorf("cannot move panes across lead column")
 		}
 	}
