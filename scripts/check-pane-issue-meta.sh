@@ -18,6 +18,10 @@ if ! capture=$(amux capture --format json "$AMUX_PANE" 2>/dev/null); then
     exit 0
 fi
 
+if printf '%s\n' "$capture" | jq -e '.lead == true' >/dev/null 2>&1; then
+    exit 0
+fi
+
 if ! issue_count=$(printf '%s\n' "$capture" | jq -r '(.meta.tracked_issues // []) | length' 2>/dev/null); then
     exit 0
 fi

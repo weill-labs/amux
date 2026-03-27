@@ -41,6 +41,31 @@ EOF
 	}
 }
 
+func TestCheckPaneIssueMetaSkipsLeadPane(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	amuxPath := filepath.Join(tempDir, "amux")
+	if err := os.WriteFile(amuxPath, []byte(`#!/bin/sh
+cat <<'EOF'
+{"lead":true,"meta":{"tracked_issues":[]}}
+EOF
+`), 0755); err != nil {
+		t.Fatalf("write fake amux: %v", err)
+	}
+
+	cmd := exec.Command("bash", "scripts/check-pane-issue-meta.sh")
+	cmd.Dir = "."
+	cmd.Env = issueMetaScriptEnv(tempDir)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("expected success for lead pane (no issue metadata required): %v\n%s", err, out)
+	}
+	if strings.TrimSpace(string(out)) != "" {
+		t.Fatalf("expected no output, got:\n%s", out)
+	}
+}
+
 func TestCheckPaneIssueMetaPassesWhenIssueMetadataExists(t *testing.T) {
 	t.Parallel()
 
