@@ -80,6 +80,26 @@ github.com/weill-labs/amux/internal/server/example.go:10.1,11.14 1 1
 			wantIgnored:       0,
 			wantUncoveredLine: 0,
 		},
+		{
+			name: "treats overlapping merged blocks as covered when any block is covered",
+			diff: strings.TrimSpace(`
+diff --git a/internal/server/example.go b/internal/server/example.go
+index 1111111..2222222 100644
+--- a/internal/server/example.go
++++ b/internal/server/example.go
+@@ -9,0 +10,1 @@
++	if broken {
+`),
+			profile: strings.TrimSpace(`
+mode: atomic
+github.com/weill-labs/amux/internal/server/example.go:10.1,10.13 1 0
+github.com/weill-labs/amux/internal/server/example.go:10.5,11.2 1 1
+`),
+			wantCovered:       1,
+			wantExecutable:    1,
+			wantIgnored:       0,
+			wantUncoveredLine: 0,
+		},
 	}
 
 	for _, tt := range tests {

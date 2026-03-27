@@ -539,40 +539,55 @@ func (h *ServerHarness) waitForAttachedClientReady(timeout time.Duration) bool {
 		return false
 	}
 
-	h.commandConnMu.Lock()
-	awaitingReconnect := h.awaitingReconnect
-	h.commandConnMu.Unlock()
-
 	waitFor := timeout
-	if !awaitingReconnect && waitFor > 2*time.Second {
+	if _, awaitingReconnect := h.attachedClientCommandState(); !awaitingReconnect && waitFor > 2*time.Second {
 		waitFor = 2 * time.Second
 	}
 	deadline := time.Now().Add(waitFor)
 	ticker := time.NewTicker(25 * time.Millisecond)
 	defer ticker.Stop()
 
-	for time.Now().Before(deadline) {
+	for {
 		conn := hc.currentConn()
-		if conn != nil {
-			h.commandConnMu.Lock()
-			lastConn := h.lastCommandConn
-			awaitingReconnect := h.awaitingReconnect
-			h.commandConnMu.Unlock()
-			switch {
-			case !awaitingReconnect && conn == lastConn:
-				return true
-			case awaitingReconnect && conn == lastConn:
-				select {
-				case <-hc.closing:
-					return false
-				case <-hc.done:
-					return false
-				case <-ticker.C:
-					continue
-				}
-			default:
-				goto readyCheck
+		lastConn, awaitingReconnect := h.attachedClientCommandState()
+		switch {
+		case conn == nil:
+		case !awaitingReconnect && conn == lastConn:
+			return true
+		case awaitingReconnect && conn == lastConn:
+			// reload-server intentionally tears down the old connection; do not
+			// treat the pre-reload socket as ready once we start waiting for the
+			// replacement client to reconnect.
+		default:
+			readyWait := time.Until(deadline)
+			if readyWait <= 0 {
+				return false
 			}
+			readyCh := make(chan error, 1)
+			go func() {
+				readyCh <- hc.waitCommandReady()
+			}()
+
+			select {
+			case err := <-readyCh:
+				if err != nil {
+					return false
+				}
+				h.commandConnMu.Lock()
+				h.lastCommandConn = hc.currentConn()
+				h.awaitingReconnect = false
+				h.commandConnMu.Unlock()
+				return h.lastCommandConn != nil
+			case <-time.After(readyWait):
+				return false
+			case <-hc.closing:
+				return false
+			case <-hc.done:
+				return false
+			}
+		}
+		if !time.Now().Before(deadline) {
+			return false
 		}
 		select {
 		case <-hc.closing:
@@ -582,47 +597,12 @@ func (h *ServerHarness) waitForAttachedClientReady(timeout time.Duration) bool {
 		case <-ticker.C:
 		}
 	}
-readyCheck:
-	conn := hc.currentConn()
-	if conn == nil {
-		return false
-	}
+}
 
+func (h *ServerHarness) attachedClientCommandState() (net.Conn, bool) {
 	h.commandConnMu.Lock()
-	lastConn := h.lastCommandConn
-	awaitingReconnect = h.awaitingReconnect
-	h.commandConnMu.Unlock()
-	needsReady := conn != lastConn || awaitingReconnect
-	if !needsReady {
-		return true
-	}
-
-	readyWait := timeout
-	if !awaitingReconnect && readyWait > 2*time.Second {
-		readyWait = 2 * time.Second
-	}
-	readyCh := make(chan error, 1)
-	go func() {
-		readyCh <- hc.waitCommandReady()
-	}()
-
-	select {
-	case err := <-readyCh:
-		if err != nil {
-			return false
-		}
-		h.commandConnMu.Lock()
-		h.lastCommandConn = hc.currentConn()
-		h.awaitingReconnect = false
-		h.commandConnMu.Unlock()
-		return h.lastCommandConn != nil
-	case <-time.After(readyWait):
-		return false
-	case <-hc.closing:
-		return false
-	case <-hc.done:
-		return false
-	}
+	defer h.commandConnMu.Unlock()
+	return h.lastCommandConn, h.awaitingReconnect
 }
 
 func (h *ServerHarness) runAttachedClientCommand(timeout time.Duration, args ...string) (string, error) {

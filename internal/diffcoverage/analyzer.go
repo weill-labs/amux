@@ -68,6 +68,11 @@ func AnalyzeContents(diff, profile []byte, modulePath string) (Result, error) {
 		matched := false
 		covered := false
 		for _, block := range blocks {
+			// Go coverprofiles report statement blocks rather than per-line
+			// coverage. Treat any changed line inside a matching block as
+			// executable so multi-line statements do not get skipped locally,
+			// even though Codecov's patch view can differ on lines where no
+			// block starts.
 			if line.Line < block.startLine || line.Line > block.endLine {
 				continue
 			}
