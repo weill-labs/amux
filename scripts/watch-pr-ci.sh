@@ -35,6 +35,29 @@ wait_for_head_runs() {
     return 1
 }
 
+watch_required_checks() {
+    local pr_number="$1"
+    local deadline=$((SECONDS + run_discovery_timeout))
+    local output status
+    while :; do
+        set +e
+        output="$(gh pr checks "$pr_number" --required --watch --interval "$interval" 2>&1)"
+        status=$?
+        set -e
+        if [[ -n "$output" ]]; then
+            printf '%s\n' "$output"
+        fi
+        if [[ "$status" -eq 0 ]]; then
+            return 0
+        fi
+        if [[ "$output" == *"no checks reported"* ]] && (( SECONDS < deadline )); then
+            sleep "$run_discovery_interval"
+            continue
+        fi
+        return "$status"
+    done
+}
+
 pr_json="$(
     if [[ -n "$pr_ref" ]]; then
         gh pr view "$pr_ref" --json number,url,headRefName,headRefOid 2>/dev/null || true
@@ -50,13 +73,16 @@ fi
 
 pr_num="$(printf '%s\n' "$pr_json" | jq -r '.number')"
 pr_url="$(printf '%s\n' "$pr_json" | jq -r '.url')"
-head_sha="$(printf '%s\n' "$pr_json" | jq -r '.headRefOid')"
+head_sha="$(git rev-parse HEAD 2>/dev/null || true)"
+if [[ -z "$head_sha" ]]; then
+    head_sha="$(printf '%s\n' "$pr_json" | jq -r '.headRefOid')"
+fi
 
 if head_runs_json="$(wait_for_head_runs "$head_sha")"; then
     :
 fi
 
-if gh pr checks "$pr_num" --required --watch --interval "$interval"; then
+if watch_required_checks "$pr_num"; then
     echo "PR #$pr_num CI passed: $pr_url"
     exit 0
 fi

@@ -13,13 +13,25 @@ func TestWatchPRCIScriptPassesWhenRequiredChecksSucceed(t *testing.T) {
 
 	tempDir := t.TempDir()
 	ghLog := filepath.Join(tempDir, "gh.log")
+	ghState := filepath.Join(tempDir, "gh.state")
+	writeExecutable(t, filepath.Join(tempDir, "git"), `#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${1:-}" == "rev-parse" && "${2:-}" == "HEAD" ]]; then
+	printf 'deadbeef\n'
+	exit 0
+fi
+
+echo "unexpected git invocation: $*" >&2
+exit 1
+`)
 	writeExecutable(t, filepath.Join(tempDir, "gh"), `#!/usr/bin/env bash
 set -euo pipefail
 printf '%s\n' "$*" >>"$FAKE_GH_LOG"
 
 if [[ "${1:-}" == "pr" && "${2:-}" == "view" ]]; then
 	cat <<'EOF'
-{"number":422,"url":"https://example.com/pr/422","headRefName":"feat/ci-watch","headRefOid":"deadbeef"}
+{"number":422,"url":"https://example.com/pr/422","headRefName":"feat/ci-watch","headRefOid":"stale-sha"}
 EOF
 	exit 0
 fi
@@ -32,6 +44,16 @@ EOF
 fi
 
 if [[ "${1:-}" == "pr" && "${2:-}" == "checks" && " $* " == *" --watch "* ]]; then
+	count=0
+	if [[ -f "$FAKE_GH_STATE" ]]; then
+		count="$(cat "$FAKE_GH_STATE")"
+	fi
+	count=$((count + 1))
+	printf '%s\n' "$count" >"$FAKE_GH_STATE"
+	if [[ "$count" -eq 1 ]]; then
+		echo "no checks reported on the 'lab-489-workers-self-monitor-ci' branch" >&2
+		exit 1
+	fi
 	exit 0
 fi
 
@@ -41,7 +63,7 @@ exit 1
 
 	cmd := exec.Command("bash", "scripts/watch-pr-ci.sh")
 	cmd.Dir = "."
-	cmd.Env = ciWatchScriptEnv(t, tempDir, "FAKE_GH_LOG="+ghLog)
+	cmd.Env = ciWatchScriptEnv(t, tempDir, "FAKE_GH_LOG="+ghLog, "FAKE_GH_STATE="+ghState, "AMUX_PR_RUN_DISCOVERY_TIMEOUT=1", "AMUX_PR_RUN_DISCOVERY_INTERVAL=1")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("expected success: %v\n%s", err, out)
@@ -68,13 +90,24 @@ func TestWatchPRCIScriptPrintsFailedRunLogs(t *testing.T) {
 
 	tempDir := t.TempDir()
 	ghLog := filepath.Join(tempDir, "gh.log")
+	writeExecutable(t, filepath.Join(tempDir, "git"), `#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${1:-}" == "rev-parse" && "${2:-}" == "HEAD" ]]; then
+	printf 'deadbeef\n'
+	exit 0
+fi
+
+echo "unexpected git invocation: $*" >&2
+exit 1
+`)
 	writeExecutable(t, filepath.Join(tempDir, "gh"), `#!/usr/bin/env bash
 set -euo pipefail
 printf '%s\n' "$*" >>"$FAKE_GH_LOG"
 
 if [[ "${1:-}" == "pr" && "${2:-}" == "view" ]]; then
 	cat <<'EOF'
-{"number":422,"url":"https://example.com/pr/422","headRefName":"feat/ci-watch","headRefOid":"deadbeef"}
+{"number":422,"url":"https://example.com/pr/422","headRefName":"feat/ci-watch","headRefOid":"stale-sha"}
 EOF
 	exit 0
 fi
@@ -157,6 +190,10 @@ func TestPushAndWatchCIScriptRunsPushBeforeWatching(t *testing.T) {
 
 	writeExecutable(t, filepath.Join(tempDir, "git"), `#!/usr/bin/env bash
 set -euo pipefail
+if [[ "${1:-}" == "rev-parse" && "${2:-}" == "HEAD" ]]; then
+	printf 'deadbeef\n'
+	exit 0
+fi
 printf '%s\n' "$*" >>"$FAKE_GIT_LOG"
 exit 0
 `)
@@ -166,12 +203,19 @@ printf '%s\n' "$*" >>"$FAKE_GH_LOG"
 
 if [[ "${1:-}" == "pr" && "${2:-}" == "view" ]]; then
 	cat <<'EOF'
-{"number":422,"url":"https://example.com/pr/422","headRefName":"feat/ci-watch","headRefOid":"deadbeef"}
+{"number":422,"url":"https://example.com/pr/422","headRefName":"feat/ci-watch","headRefOid":"stale-sha"}
 EOF
 	exit 0
 fi
 
 if [[ "${1:-}" == "pr" && "${2:-}" == "checks" && " $* " == *" --watch "* ]]; then
+	exit 0
+fi
+
+if [[ "${1:-}" == "run" && "${2:-}" == "list" ]]; then
+	cat <<'EOF'
+[{"databaseId":999,"workflowName":"CI","displayTitle":"ci / test","url":"https://example.com/run/999","conclusion":"","status":"in_progress"}]
+EOF
 	exit 0
 fi
 
