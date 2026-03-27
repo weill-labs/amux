@@ -139,7 +139,6 @@ func TestPaneLogSnapshotsExitContext(t *testing.T) {
 	}
 	h.sendKeys("pane-2", fmt.Sprintf("cd %q && echo CWD_READY", tempDir), "Enter")
 	h.waitFor("pane-2", "CWD_READY")
-	h.waitIdle("pane-2")
 	if out := strings.TrimSpace(h.runCmd("refresh-meta", "pane-2")); out != "" {
 		t.Fatalf("refresh-meta returned unexpected output: %q", out)
 	}
