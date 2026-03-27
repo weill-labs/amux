@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -392,6 +393,93 @@ func TestCloseReapsShellProcess(t *testing.T) {
 	waitUntil(t, 5*time.Second, func() bool {
 		return syscall.Kill(pid, 0) != nil
 	})
+}
+
+func TestCloseReturnsBeforeBackgroundTeardownCompletes(t *testing.T) {
+	t.Parallel()
+
+	cmd := exec.Command("sleep", "30")
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start child: %v", err)
+	}
+
+	ptmxRead, ptmxWrite, err := os.Pipe()
+	if err != nil {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	_ = ptmxWrite.Close()
+
+	p := &Pane{
+		ID:       1,
+		ptmx:     ptmxRead,
+		process:  cmd.Process,
+		emulator: NewVTEmulatorWithScrollback(20, 4, DefaultScrollbackLines),
+		exitDone: make(chan struct{}),
+	}
+	p.startActor()
+
+	var releaseOnce sync.Once
+	released := make(chan struct{})
+	reaped := make(chan error, 1)
+	go func() {
+		<-released
+		close(p.exitDone)
+		reaped <- cmd.Wait()
+	}()
+	t.Cleanup(func() {
+		releaseOnce.Do(func() { close(released) })
+		if err := cmd.Process.Kill(); err == nil {
+			select {
+			case <-reaped:
+			case <-time.After(5 * time.Second):
+				t.Fatal("timed out waiting to reap child process")
+			}
+		}
+		if err := ptmxRead.Close(); err != nil && !os.IsNotExist(err) {
+			t.Errorf("close ptmx read: %v", err)
+		}
+	})
+
+	start := time.Now()
+	if err := p.Close(); err != nil {
+		t.Fatalf("Close() = %v, want nil", err)
+	}
+	if elapsed := time.Since(start); elapsed > 100*time.Millisecond {
+		t.Fatalf("Close() blocked for %v, want <100ms", elapsed)
+	}
+
+	waitDone := make(chan error, 1)
+	go func() {
+		waitDone <- p.WaitClosed()
+	}()
+
+	select {
+	case err := <-waitDone:
+		t.Fatalf("WaitClosed() completed before release: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	releaseOnce.Do(func() { close(released) })
+
+	select {
+	case err := <-waitDone:
+		if err != nil {
+			t.Fatalf("WaitClosed() = %v, want nil", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for background close")
+	}
+
+	select {
+	case err := <-reaped:
+		if err != nil {
+			t.Fatalf("cmd.Wait() = %v, want nil", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting to reap child process")
+	}
 }
 
 func TestResizeSkipsSIGWINCHWhenDimensionsDoNotChange(t *testing.T) {
