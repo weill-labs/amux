@@ -1221,6 +1221,23 @@ func TestMovePaneToColumnErrorPaths(t *testing.T) {
 			t.Fatalf("MovePaneToColumn across lead boundary = %v, want lead-column error", err)
 		}
 	})
+
+	t.Run("lead column boundary into lead pane", func(t *testing.T) {
+		t.Parallel()
+
+		p1 := fakePaneID(1)
+		p2 := fakePaneID(2)
+		w := NewWindow(p1, 80, 24)
+		if _, err := w.SplitRoot(SplitVertical, p2); err != nil {
+			t.Fatalf("split root vertical: %v", err)
+		}
+		if err := w.SetLead(1); err != nil {
+			t.Fatalf("SetLead: %v", err)
+		}
+		if err := w.MovePaneToColumn(2, 1); err == nil || !strings.Contains(err.Error(), "lead column") {
+			t.Fatalf("MovePaneToColumn into lead column = %v, want lead-column error", err)
+		}
+	})
 }
 
 func TestSwapPaneForward(t *testing.T) {
