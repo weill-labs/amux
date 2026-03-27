@@ -384,7 +384,7 @@ func killCmdProcessGroup(cmd *exec.Cmd) error {
 	return nil
 }
 
-func newSSHCommand(ctx context.Context, command string, execEnv []string, termType string) (*exec.Cmd, context.CancelFunc) {
+func newSSHExecCommand(ctx context.Context, command string, execEnv []string, termType string) (*exec.Cmd, context.CancelFunc) {
 	cmdCtx, cancel := context.WithTimeout(ctx, sshCmdTimeout)
 	cmd := exec.CommandContext(cmdCtx, "sh", "-c", command)
 	cmd.Env = upsertEnv(append([]string{}, execEnv...), "TERM", termType)
@@ -397,7 +397,7 @@ func newSSHCommand(ctx context.Context, command string, execEnv []string, termTy
 }
 
 func runExecCommand(ctx context.Context, ch ssh.Channel, command string, execEnv []string, termType string) int {
-	cmd, cancel := newSSHCommand(ctx, command, execEnv, termType)
+	cmd, cancel := newSSHExecCommand(ctx, command, execEnv, termType)
 	defer cancel()
 
 	cmd.Stdin = ch
@@ -416,16 +416,32 @@ func runExecCommand(ctx context.Context, ch ssh.Channel, command string, execEnv
 	return 0
 }
 
+func watchCommandContext(ctx context.Context, cmd *exec.Cmd) func() {
+	done := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = killCmdProcessGroup(cmd)
+		case <-done:
+		}
+	}()
+	return func() { close(done) }
+}
+
 func runShellCommand(ctx context.Context, ch ssh.Channel, command string, execEnv []string, size *pty.Winsize, termType string) int {
-	cmd, cancel := newSSHCommand(ctx, command, execEnv, termType)
+	cmdCtx, cancel := context.WithTimeout(ctx, sshCmdTimeout)
 	defer cancel()
 
+	cmd := exec.CommandContext(cmdCtx, "sh", "-c", command)
+	cmd.Env = upsertEnv(append([]string{}, execEnv...), "TERM", termType)
 	ptmx, err := pty.StartWithSize(cmd, size)
 	if err != nil {
 		_, _ = io.WriteString(ch, err.Error()+"\r\n")
 		return 1
 	}
 	defer ptmx.Close()
+	stopKill := watchCommandContext(cmdCtx, cmd)
+	defer stopKill()
 
 	done := make(chan struct{})
 	go func() {
