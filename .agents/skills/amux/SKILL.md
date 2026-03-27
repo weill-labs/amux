@@ -223,13 +223,17 @@ rm -rf .claude/worktrees/ .context/ 2>/dev/null
 
 ## Post-PR Protocol
 
-After opening a PR with `gh pr create`, set pane metadata for the current amux pane:
+When opening a PR from an amux pane, prefer the shared wrapper so pane PR metadata syncs for any agent:
 
 ```bash
-amux add-meta "$AMUX_PANE" pr=NUMBER issue=LAB-XXX
+scripts/gh-pr-create.sh --fill
 ```
 
-`$AMUX_PANE` is already set in pane shells. Replace `NUMBER` with the new PR number and `LAB-XXX` with the Linear issue ID.
+With `make setup` active, later `git push` calls re-sync via the repo `pre-push` hook. If you already opened the PR with plain `gh pr create`, repair the pane metadata with:
+
+```bash
+scripts/sync-pane-pr-meta.sh
+```
 
 ## JSON Capture Structure
 

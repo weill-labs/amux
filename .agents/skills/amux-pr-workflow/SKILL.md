@@ -20,6 +20,7 @@ Use this skill when the task involves `git push`, `gh pr create`, `gh pr merge`,
 - Prefer `gh pr create --body-file ...` for multiline PR descriptions, especially when they include backticks or code fences.
 - After `gh pr create`, run `scripts/watch-pr-ci.sh` and wait for required checks on that PR.
 - Once a PR exists, prefer `scripts/push-and-watch-ci.sh` over bare `git push` so the CI watch step is automatic.
+- In an amux pane, prefer `scripts/gh-pr-create.sh ...` over raw `gh pr create` so pane PR metadata syncs for every agent; later `git push` calls re-sync via the repo `pre-push` hook installed by `make setup`.
 - In `amux`, if the change is ready for review, open the PR proactively instead of asking whether to make one.
 - Once a PR is open, keep related follow-up fixes on that PR branch. Do not leave a relevant fix only on a side branch or local branch after reporting PR status.
 - If `scripts/watch-pr-ci.sh` reports failures, inspect the failed-check summary and failed-step logs, fix issues likely caused by your diff, rerun the relevant tests, and repeat up to 3 attempts before escalating.
@@ -39,7 +40,7 @@ Use this skill when the task involves `git push`, `gh pr create`, `gh pr merge`,
 
 1. Confirm the relevant tests ran and note any gaps.
 2. If this is the first push for the branch, rebase onto `origin/main`. If the local `main` checkout is dirty, do not update it in place; create the next branch directly from `origin/main`. If the PR is already open and a fetch/pull advanced `origin/main`, refresh the branch onto `origin/main` before continuing.
-3. Create or update the PR as soon as the branch is ready for review. Use `gh pr create --body-file ...` when the body is multiline.
+3. Create or update the PR as soon as the branch is ready for review. In an amux pane, use `scripts/gh-pr-create.sh ...` when opening the PR; otherwise use `gh pr create --body-file ...` when the body is multiline. If the PR is already open and you make a related fix, commit it on that PR branch, rerun the relevant verification slice, and push before reporting status.
 4. After `gh pr create`, run `scripts/watch-pr-ci.sh`. If you update an already-open PR, use `scripts/push-and-watch-ci.sh` so the push blocks on required checks and prints failed-step logs on failure.
 5. If CI fails, fix the issue, rerun the relevant local verification slice, and repeat the push/watch loop up to 3 times. If the failure looks flaky or unrelated to your diff, report that explicitly with evidence before handing off.
 6. Keep related follow-up fixes on that PR branch. Do not leave a relevant fix only on a side branch or local branch after reporting PR status.

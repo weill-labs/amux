@@ -32,6 +32,7 @@ amux capture --format json        # structured JSON output for agents
 - After `gh pr create`, run `scripts/watch-pr-ci.sh` once for that PR. For later updates to an open PR, prefer `scripts/push-and-watch-ci.sh` over bare `git push`.
 - If `scripts/watch-pr-ci.sh` reports failures, inspect the printed failed logs, fix the issue or explain why it is flaky/unrelated before handing the PR back.
 - Run `make setup` after cloning so repo Git hooks are active regardless of which tool you use.
+- When opening a PR from an amux pane, prefer `scripts/gh-pr-create.sh ...` so pane PR metadata syncs for any agent; later `git push` calls re-sync via the repo `pre-push` hook.
 - Optional for Codex users: trust the repo, then install the OpenAI Docs MCP server with `codex mcp add openaiDeveloperDocs --url https://developers.openai.com/mcp`.
 
 ## Test

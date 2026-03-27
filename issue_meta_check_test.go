@@ -176,6 +176,8 @@ func TestGHPRCreateScriptSyncsPanePRMeta(t *testing.T) {
 	t.Parallel()
 
 	tempDir := t.TempDir()
+	copyIssueMetaFixture(t, tempDir, "scripts/gh-pr-create.sh")
+	copyIssueMetaFixture(t, tempDir, "scripts/sync-pane-pr-meta.sh")
 	amuxLogPath := filepath.Join(tempDir, "amux.log")
 	ghLogPath := filepath.Join(tempDir, "gh.log")
 
@@ -221,8 +223,8 @@ exit 1
 		t.Fatalf("write fake gh: %v", err)
 	}
 
-	cmd := exec.Command("bash", "scripts/gh-pr-create.sh", "--fill", "--draft")
-	cmd.Dir = "."
+	cmd := exec.Command("bash", filepath.Join(tempDir, "scripts/gh-pr-create.sh"), "--fill", "--draft")
+	cmd.Dir = tempDir
 	cmd.Env = issueMetaScriptEnv(tempDir, "FAKE_AMUX_LOG="+amuxLogPath, "FAKE_GH_LOG="+ghLogPath)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -253,6 +255,8 @@ func TestPrePushHookSyncsPanePRMeta(t *testing.T) {
 	t.Parallel()
 
 	tempDir := t.TempDir()
+	copyIssueMetaFixture(t, tempDir, ".githooks/pre-push")
+	copyIssueMetaFixture(t, tempDir, "scripts/sync-pane-pr-meta.sh")
 	amuxLogPath := filepath.Join(tempDir, "amux.log")
 
 	amuxPath := filepath.Join(tempDir, "amux")
@@ -280,8 +284,14 @@ printf '422\n'
 		t.Fatalf("write fake gh: %v", err)
 	}
 
-	cmd := exec.Command("bash", ".githooks/pre-push", "origin", "git@github.com:weill-labs/amux.git")
-	cmd.Dir = "."
+	initRepo := exec.Command("git", "init", "-q")
+	initRepo.Dir = tempDir
+	if out, err := initRepo.CombinedOutput(); err != nil {
+		t.Fatalf("git init temp repo: %v\n%s", err, out)
+	}
+
+	cmd := exec.Command("bash", filepath.Join(tempDir, ".githooks/pre-push"), "origin", "git@github.com:weill-labs/amux.git")
+	cmd.Dir = tempDir
 	cmd.Env = issueMetaScriptEnv(tempDir, "FAKE_AMUX_LOG="+amuxLogPath)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -324,4 +334,26 @@ func upsertIssueMetaEnv(env []string, key, value string) []string {
 		}
 	}
 	return append(env, prefix+value)
+}
+
+func copyIssueMetaFixture(t *testing.T, root, relPath string) string {
+	t.Helper()
+
+	data, err := os.ReadFile(relPath)
+	if err != nil {
+		t.Fatalf("read fixture %s: %v", relPath, err)
+	}
+	info, err := os.Stat(relPath)
+	if err != nil {
+		t.Fatalf("stat fixture %s: %v", relPath, err)
+	}
+
+	dst := filepath.Join(root, relPath)
+	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+		t.Fatalf("mkdir fixture dir for %s: %v", relPath, err)
+	}
+	if err := os.WriteFile(dst, data, info.Mode()); err != nil {
+		t.Fatalf("write fixture %s: %v", relPath, err)
+	}
+	return dst
 }
