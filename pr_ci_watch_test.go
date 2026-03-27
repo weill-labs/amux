@@ -24,6 +24,13 @@ EOF
 	exit 0
 fi
 
+if [[ "${1:-}" == "run" && "${2:-}" == "list" ]]; then
+	cat <<'EOF'
+[{"databaseId":999,"workflowName":"CI","displayTitle":"ci / test","url":"https://example.com/run/999","conclusion":"","status":"in_progress"}]
+EOF
+	exit 0
+fi
+
 if [[ "${1:-}" == "pr" && "${2:-}" == "checks" && " $* " == *" --watch "* ]]; then
 	exit 0
 fi
@@ -48,6 +55,9 @@ exit 1
 		t.Fatalf("read gh log: %v", err)
 	}
 	log := string(logBytes)
+	if !strings.Contains(log, "run list --commit deadbeef") {
+		t.Fatalf("gh log = %q, want pre-watch head run discovery", log)
+	}
 	if !strings.Contains(log, "pr checks 422 --required --watch") {
 		t.Fatalf("gh log = %q, want watch invocation", log)
 	}
@@ -76,6 +86,13 @@ fi
 if [[ "${1:-}" == "pr" && "${2:-}" == "checks" && " $* " == *" --json "* ]]; then
 	cat <<'EOF'
 [{"name":"go test ./...","bucket":"fail","state":"FAILURE","link":"https://github.com/weill-labs/amux/actions/runs/999/job/123","workflow":"CI"}]
+EOF
+	exit 0
+fi
+
+if [[ "${1:-}" == "run" && "${2:-}" == "list" ]]; then
+	cat <<'EOF'
+[{"databaseId":999,"workflowName":"CI","displayTitle":"ci / test","url":"https://example.com/run/999","conclusion":"","status":"in_progress"}]
 EOF
 	exit 0
 fi

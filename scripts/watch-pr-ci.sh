@@ -13,9 +13,27 @@ if ! command -v jq >/dev/null 2>&1; then
 fi
 
 interval="${AMUX_PR_CHECK_INTERVAL:-10}"
+run_discovery_timeout="${AMUX_PR_RUN_DISCOVERY_TIMEOUT:-60}"
+run_discovery_interval="${AMUX_PR_RUN_DISCOVERY_INTERVAL:-5}"
 failed_run_limit="${AMUX_PR_FAILED_RUNS_LIMIT:-3}"
 pr_ref="${1:-}"
 printed_logs=0
+head_runs_json=""
+
+wait_for_head_runs() {
+    local want_sha="$1"
+    local deadline=$((SECONDS + run_discovery_timeout))
+    local run_json
+    while (( SECONDS < deadline )); do
+        run_json="$(gh run list --commit "$want_sha" --json databaseId,workflowName,displayTitle,url,conclusion,status -L "$failed_run_limit" 2>/dev/null || true)"
+        if [[ -n "$run_json" ]] && printf '%s\n' "$run_json" | jq -e 'length > 0' >/dev/null 2>&1; then
+            printf '%s\n' "$run_json"
+            return 0
+        fi
+        sleep "$run_discovery_interval"
+    done
+    return 1
+}
 
 pr_json="$(
     if [[ -n "$pr_ref" ]]; then
@@ -33,6 +51,10 @@ fi
 pr_num="$(printf '%s\n' "$pr_json" | jq -r '.number')"
 pr_url="$(printf '%s\n' "$pr_json" | jq -r '.url')"
 head_sha="$(printf '%s\n' "$pr_json" | jq -r '.headRefOid')"
+
+if head_runs_json="$(wait_for_head_runs "$head_sha")"; then
+    :
+fi
 
 if gh pr checks "$pr_num" --required --watch --interval "$interval"; then
     echo "PR #$pr_num CI passed: $pr_url"
@@ -93,7 +115,10 @@ if [[ -n "$checks_json" ]] && printf '%s\n' "$checks_json" | jq -e '.[] | select
 fi
 
 if [[ "$printed_logs" -eq 0 ]]; then
-    run_json="$(gh run list --commit "$head_sha" --status failure --json databaseId,workflowName,displayTitle,url,conclusion 2>/dev/null || true)"
+    run_json="$head_runs_json"
+    if [[ -z "$run_json" ]]; then
+        run_json="$(gh run list --commit "$head_sha" --json databaseId,workflowName,displayTitle,url,conclusion,status -L "$failed_run_limit" 2>/dev/null || true)"
+    fi
     if [[ -n "$run_json" ]] && printf '%s\n' "$run_json" | jq -e 'length > 0' >/dev/null 2>&1; then
         echo
         echo "Failed run logs:"
@@ -114,7 +139,7 @@ if [[ "$printed_logs" -eq 0 ]]; then
             echo "Unable to fetch failed log for run $run_id." >&2
         done < <(
             printf '%s\n' "$run_json" |
-                jq -r --argjson limit "$failed_run_limit" '.[0:$limit] | .[] | [.databaseId, .displayTitle, .workflowName, .url] | @tsv'
+                jq -r --argjson limit "$failed_run_limit" '[.[] | select((.conclusion // "") == "failure" or (.status // "") == "in_progress")] | .[0:$limit] | .[] | [.databaseId, .displayTitle, .workflowName, .url] | @tsv'
         )
     fi
 fi
