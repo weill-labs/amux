@@ -275,6 +275,125 @@ func TestCmdRefreshMetaUpdatesPaneCwdBranchForNonProxyActivePane(t *testing.T) {
 	}
 }
 
+func TestCmdRefreshMetaSkipsPaneMetaRefreshForProxyPane(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	resolverCalled := false
+	pane := newProxyPane(1, mux.PaneMeta{
+		Name:  "pane-1",
+		Host:  "remote-host",
+		Color: config.AccentColor(0),
+	}, 80, 23, sess.paneOutputCallback(), sess.paneExitCallback(), func(data []byte) (int, error) {
+		return len(data), nil
+	})
+	sess.PaneMetaResolver = func(*mux.Pane) (string, string) {
+		resolverCalled = true
+		return "/tmp/repo", "feature/test"
+	}
+
+	window := newTestWindowWithPanes(t, sess, 1, "main", pane)
+	sess.Windows = []*mux.Window{window}
+	sess.ActiveWindowID = window.ID
+	sess.Panes = []*mux.Pane{pane}
+
+	res := runTestCommand(t, srv, sess, "refresh-meta")
+	if res.cmdErr != "" {
+		t.Fatalf("refresh-meta error: %s", res.cmdErr)
+	}
+	if resolverCalled {
+		t.Fatal("PaneMetaResolver should not run for proxy panes")
+	}
+
+	got := mustSessionQuery(t, sess, func(sess *Session) struct {
+		cwd    string
+		branch string
+	} {
+		p := sess.findPaneByID(pane.ID)
+		return struct {
+			cwd    string
+			branch string
+		}{
+			cwd:    p.LiveCwd(),
+			branch: p.Meta.GitBranch,
+		}
+	})
+	if got.cwd != "" || got.branch != "" {
+		t.Fatalf("proxy pane metadata = (%q, %q), want empty", got.cwd, got.branch)
+	}
+}
+
+func TestCmdRefreshMetaPropagatesPaneMetaError(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	res := runTestCommand(t, srv, sess, "refresh-meta")
+	if got := res.cmdErr; got != "no active pane" {
+		t.Fatalf("refresh-meta error = %q, want no active pane", got)
+	}
+}
+
+func TestCmdRefreshMetaPropagatesTrackedMetaError(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	pane := newProxyPane(1, mux.PaneMeta{
+		Name:  "pane-1",
+		Host:  mux.DefaultHost,
+		Color: config.AccentColor(0),
+	}, 80, 23, sess.paneOutputCallback(), sess.paneExitCallback(), nil)
+	window := newTestWindowWithPanes(t, sess, 1, "main", pane)
+	sess.Windows = []*mux.Window{window}
+	sess.ActiveWindowID = window.ID
+	sess.Panes = []*mux.Pane{pane}
+	sess.TrackedMetaResolver = &stubTrackedMetaResolver{}
+
+	var mutationErr error
+	sess.PaneMetaResolver = func(*mux.Pane) (string, string) {
+		res := sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
+			sess.Windows = nil
+			sess.ActiveWindowID = 0
+			return commandMutationResult{}
+		})
+		mutationErr = res.err
+		return "/tmp/repo", "feature/test"
+	}
+
+	res := runTestCommand(t, srv, sess, "refresh-meta")
+	if mutationErr != nil {
+		t.Fatalf("mutation error = %v, want nil", mutationErr)
+	}
+	if got := res.cmdErr; got != "no active pane" {
+		t.Fatalf("refresh-meta error = %q, want no active pane", got)
+	}
+
+	got := mustSessionQuery(t, sess, func(sess *Session) struct {
+		cwd    string
+		branch string
+	} {
+		p := sess.findPaneByID(pane.ID)
+		return struct {
+			cwd    string
+			branch string
+		}{
+			cwd:    p.LiveCwd(),
+			branch: p.Meta.GitBranch,
+		}
+	})
+	if got.cwd != "/tmp/repo" {
+		t.Fatalf("live cwd = %q, want /tmp/repo", got.cwd)
+	}
+	if got.branch != "feature/test" {
+		t.Fatalf("git branch = %q, want feature/test", got.branch)
+	}
+}
+
 func TestSessionRefreshPaneMetaForPaneRefWithoutActivePane(t *testing.T) {
 	t.Parallel()
 
