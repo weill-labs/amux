@@ -27,7 +27,6 @@ func stopCrashCheckpointLoop(t *testing.T, sess *Session) {
 		close(sess.crashCheckpointStop)
 		<-sess.crashCheckpointDone
 		sess.crashCheckpointStop = nil
-		sess.crashCheckpointDone = nil
 	}
 }
 
@@ -38,7 +37,6 @@ func stopSessionBackgroundLoops(t *testing.T, sess *Session) {
 		close(sess.sessionEventStop)
 		<-sess.sessionEventDone
 		sess.sessionEventStop = nil
-		sess.sessionEventDone = nil
 	}
 	stopCrashCheckpointLoop(t, sess)
 }

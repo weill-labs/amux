@@ -526,9 +526,18 @@ func (s *Session) transitionTrackedIssuesToStartedAsync(issueIDs []string) {
 
 	go func() {
 		for _, id := range unique {
-			_ = s.TrackedMetaResolver.TransitionIssueToStartedIfNeeded(id)
+			if notice := formatAddMetaTransitionFailureNotice(s.TrackedMetaResolver.TransitionIssueToStartedIfNeeded(id)); notice != "" {
+				s.showSessionNotice(notice)
+			}
 		}
 	}()
+}
+
+func formatAddMetaTransitionFailureNotice(err error) string {
+	if err == nil {
+		return ""
+	}
+	return "add-meta: " + strings.TrimSpace(err.Error())
 }
 
 func (s *Server) SetTrackedMetaResolver(resolver TrackedMetaResolver) {
