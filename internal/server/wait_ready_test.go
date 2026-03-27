@@ -358,7 +358,7 @@ func TestSendKeysWaitReadyUsage(t *testing.T) {
 	defer cleanup()
 
 	res := runTestCommand(t, srv, sess, "send-keys", "pane-1")
-	if got := res.cmdErr; got != "usage: send-keys <pane> [--wait ready] [--continue-known-dialogs] [--timeout <duration>] [--hex] <keys>..." {
+	if got := res.cmdErr; got != "usage: send-keys <pane> [--wait ready|ui=input-idle] [--continue-known-dialogs] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>..." {
 		t.Fatalf("send-keys usage error = %q", got)
 	}
 }

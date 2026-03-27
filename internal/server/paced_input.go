@@ -130,8 +130,15 @@ func (q *pacedInputQueue) loop() {
 
 func (q *pacedInputQueue) writeBatch(chunks []encodedKeyChunk) error {
 	for i, chunk := range chunks {
-		if i > 0 && chunk.paceBefore {
-			timer := time.NewTimer(tokenKeyGap)
+		delay := time.Duration(0)
+		switch {
+		case chunk.delayBefore > 0:
+			delay = chunk.delayBefore
+		case i > 0 && chunk.paceBefore:
+			delay = tokenKeyGap
+		}
+		if delay > 0 {
+			timer := time.NewTimer(delay)
 			select {
 			case <-timer.C:
 			case <-q.stop:
@@ -162,8 +169,9 @@ func cloneEncodedKeyChunks(chunks []encodedKeyChunk) []encodedKeyChunk {
 	cloned := make([]encodedKeyChunk, len(chunks))
 	for i, chunk := range chunks {
 		cloned[i] = encodedKeyChunk{
-			data:       append([]byte(nil), chunk.data...),
-			paceBefore: chunk.paceBefore,
+			data:        append([]byte(nil), chunk.data...),
+			paceBefore:  chunk.paceBefore,
+			delayBefore: chunk.delayBefore,
 		}
 	}
 	return cloned

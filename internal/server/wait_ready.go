@@ -22,10 +22,19 @@ type waitReadyOptions struct {
 	continueKnownDialogs bool
 }
 
+type sendKeysWaitTarget int
+
+const (
+	sendKeysNoWait sendKeysWaitTarget = iota
+	sendKeysWaitReady
+	sendKeysWaitInputIdle
+)
+
 type sendKeysOptions struct {
-	waitReady            bool
+	waitTarget           sendKeysWaitTarget
 	waitTimeout          time.Duration
 	continueKnownDialogs bool
+	delayFinal           time.Duration
 	hexMode              bool
 	keys                 []string
 }
@@ -100,10 +109,14 @@ func parseSendKeysArgs(args []string) (sendKeysOptions, error) {
 				return sendKeysOptions{}, fmt.Errorf("missing value for --wait")
 			}
 			i++
-			if args[i] != "ready" {
-				return sendKeysOptions{}, fmt.Errorf("send-keys: unsupported --wait target %q (want ready)", args[i])
+			switch args[i] {
+			case "ready":
+				opts.waitTarget = sendKeysWaitReady
+			case "ui=input-idle":
+				opts.waitTarget = sendKeysWaitInputIdle
+			default:
+				return sendKeysOptions{}, fmt.Errorf("send-keys: unsupported --wait target %q (want ready or ui=input-idle)", args[i])
 			}
-			opts.waitReady = true
 			i++
 		case "--wait-ready":
 			return sendKeysOptions{}, fmt.Errorf("send-keys: --wait-ready was removed; use --wait ready")
@@ -122,6 +135,17 @@ func parseSendKeysArgs(args []string) (sendKeysOptions, error) {
 			opts.waitTimeout = timeout
 			timeoutSet = true
 			i++
+		case "--delay-final":
+			if i+1 >= len(args) {
+				return sendKeysOptions{}, fmt.Errorf("missing value for --delay-final")
+			}
+			i++
+			delay, err := time.ParseDuration(args[i])
+			if err != nil {
+				return sendKeysOptions{}, fmt.Errorf("invalid delay-final: %s", args[i])
+			}
+			opts.delayFinal = delay
+			i++
 		case "--hex":
 			opts.hexMode = true
 			i++
@@ -131,11 +155,11 @@ func parseSendKeysArgs(args []string) (sendKeysOptions, error) {
 		}
 	}
 
-	if opts.continueKnownDialogs && !opts.waitReady {
+	if opts.continueKnownDialogs && opts.waitTarget != sendKeysWaitReady {
 		return sendKeysOptions{}, fmt.Errorf("send-keys: --continue-known-dialogs requires --wait ready")
 	}
-	if timeoutSet && !opts.waitReady {
-		return sendKeysOptions{}, fmt.Errorf("send-keys: --timeout requires --wait ready")
+	if timeoutSet && opts.waitTarget == sendKeysNoWait {
+		return sendKeysOptions{}, fmt.Errorf("send-keys: --timeout requires --wait ready or --wait ui=input-idle")
 	}
 	return opts, nil
 }

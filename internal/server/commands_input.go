@@ -20,14 +20,16 @@ const tokenKeyGap = 50 * time.Millisecond
 
 const (
 	broadcastUsage              = "usage: broadcast (--panes <pane,pane,...> | --window <index|name> | --match <glob>) [--hex] <keys>..."
-	sendKeysUsage               = "usage: send-keys <pane> [--wait ready] [--continue-known-dialogs] [--timeout <duration>] [--hex] <keys>..."
-	typeKeysUsage               = "usage: type-keys [--wait ui=input-idle] [--timeout <duration>] [--hex] <keys>..."
+	sendKeysUsage               = "usage: send-keys <pane> [--wait ready|ui=input-idle] [--continue-known-dialogs] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>..."
+	typeKeysUsage               = "usage: type-keys [pane] [--wait ui=input-idle] [--timeout <duration>] [--hex] <keys>..."
+	delegateUsage               = "usage: delegate <pane> [--timeout <duration>] [--start-timeout <duration>] [--hex] <keys>..."
 	defaultCommandUIWaitTimeout = 5 * time.Second
 )
 
 type encodedKeyChunk struct {
-	data       []byte
-	paceBefore bool
+	data        []byte
+	paceBefore  bool
+	delayBefore time.Duration
 }
 
 func parseKey(key string) []byte {
@@ -72,6 +74,13 @@ type typeKeysOptions struct {
 	keys          []string
 }
 
+type delegateOptions struct {
+	waitTimeout  time.Duration
+	startTimeout time.Duration
+	hexMode      bool
+	keys         []string
+}
+
 func parseTypeKeysArgs(args []string) (typeKeysOptions, error) {
 	opts := typeKeysOptions{waitTimeout: defaultCommandUIWaitTimeout}
 	timeoutSet := false
@@ -104,6 +113,9 @@ func parseTypeKeysArgs(args []string) (typeKeysOptions, error) {
 			opts.hexMode = true
 			i++
 		default:
+			if strings.HasPrefix(args[i], "-") {
+				return typeKeysOptions{}, fmt.Errorf("unknown flag: %s", args[i])
+			}
 			opts.keys = append(opts.keys, args[i:]...)
 			i = len(args)
 		}
@@ -135,12 +147,14 @@ func cmdSendKeys(ctx *CommandContext) {
 		ctx.replyErr(err.Error())
 		return
 	}
+	applyFinalDelay(chunks, opts.delayFinal)
 	pane, err := ctx.Sess.queryResolvedPaneForActor(ctx.ActorPaneID, ctx.Args[0])
 	if err != nil {
 		ctx.replyErr(err.Error())
 		return
 	}
-	if opts.waitReady {
+	switch opts.waitTarget {
+	case sendKeysWaitReady:
 		if err := waitForPaneReady(ctx.Sess, ctx.Args[0], pane, waitReadyOptions{
 			timeout:              opts.waitTimeout,
 			continueKnownDialogs: opts.continueKnownDialogs,
@@ -148,12 +162,156 @@ func cmdSendKeys(ctx *CommandContext) {
 			ctx.replyErr(err.Error())
 			return
 		}
+		if err := ctx.Sess.enqueuePacedPaneInput(pane.pane, chunks); err != nil {
+			ctx.replyErr(err.Error())
+			return
+		}
+	case sendKeysWaitInputIdle:
+		uiWait, err := ctx.Sess.queryUIClient("", proto.UIEventInputIdle)
+		if err != nil {
+			ctx.replyErr(err.Error())
+			return
+		}
+		if err := enqueueTargetedClientKeys(ctx.Sess, uiWait.client, pane.pane, chunks, &uiWait, opts.waitTimeout); err != nil {
+			ctx.replyErr(err.Error())
+			return
+		}
+	default:
+		if err := ctx.Sess.enqueuePacedPaneInput(pane.pane, chunks); err != nil {
+			ctx.replyErr(err.Error())
+			return
+		}
 	}
-	if err := ctx.Sess.enqueuePacedPaneInput(pane.pane, chunks); err != nil {
+	ctx.reply(fmt.Sprintf("Sent %d bytes to %s\n", totalEncodedKeyBytes(chunks), pane.paneName))
+}
+
+func applyFinalDelay(chunks []encodedKeyChunk, delay time.Duration) {
+	if delay <= 0 || len(chunks) == 0 {
+		return
+	}
+	last := &chunks[len(chunks)-1]
+	last.delayBefore = delay
+	last.paceBefore = false
+}
+
+func enqueueTargetedClientKeys(sess *Session, client *clientConn, pane *mux.Pane, chunks []encodedKeyChunk, uiWait *uiClientSnapshot, waitTimeout time.Duration) error {
+	return client.withInputTargetOverride(pane, func() error {
+		if err := client.enqueueTypeKeys(chunks); err != nil {
+			return err
+		}
+		if uiWait == nil {
+			return nil
+		}
+		return waitForNextUIEvent(sess, *uiWait, proto.UIEventInputIdle, waitTimeout)
+	})
+}
+
+func resolveTypeKeysPane(sess *Session, actorPaneID uint32, args []string) (resolvedPaneRef, []string, bool) {
+	if len(args) <= 1 || strings.HasPrefix(args[0], "-") {
+		return resolvedPaneRef{}, args, false
+	}
+	pane, err := sess.queryResolvedPaneForActor(actorPaneID, args[0])
+	if err != nil {
+		return resolvedPaneRef{}, args, false
+	}
+	return pane, args[1:], true
+}
+
+func parseDelegateArgs(args []string) (delegateOptions, error) {
+	opts := delegateOptions{
+		waitTimeout:  defaultCommandUIWaitTimeout,
+		startTimeout: 5 * time.Second,
+	}
+
+	for i := 0; i < len(args); {
+		switch args[i] {
+		case "--timeout":
+			if i+1 >= len(args) {
+				return delegateOptions{}, fmt.Errorf("missing value for --timeout")
+			}
+			i++
+			timeout, err := time.ParseDuration(args[i])
+			if err != nil {
+				return delegateOptions{}, fmt.Errorf("invalid timeout: %s", args[i])
+			}
+			opts.waitTimeout = timeout
+			i++
+		case "--start-timeout":
+			if i+1 >= len(args) {
+				return delegateOptions{}, fmt.Errorf("missing value for --start-timeout")
+			}
+			i++
+			timeout, err := time.ParseDuration(args[i])
+			if err != nil {
+				return delegateOptions{}, fmt.Errorf("invalid start-timeout: %s", args[i])
+			}
+			opts.startTimeout = timeout
+			i++
+		case "--hex":
+			opts.hexMode = true
+			i++
+		default:
+			opts.keys = append(opts.keys, args[i:]...)
+			i = len(args)
+		}
+	}
+
+	return opts, nil
+}
+
+func cmdDelegate(ctx *CommandContext) {
+	if len(ctx.Args) < 2 {
+		ctx.replyErr(delegateUsage)
+		return
+	}
+
+	pane, err := ctx.Sess.queryResolvedPaneForActor(ctx.ActorPaneID, ctx.Args[0])
+	if err != nil {
 		ctx.replyErr(err.Error())
 		return
 	}
-	ctx.reply(fmt.Sprintf("Sent %d bytes to %s\n", totalEncodedKeyBytes(chunks), pane.paneName))
+
+	opts, err := parseDelegateArgs(ctx.Args[1:])
+	if err != nil {
+		ctx.replyErr(err.Error())
+		return
+	}
+	if len(opts.keys) == 0 {
+		ctx.replyErr(delegateUsage)
+		return
+	}
+
+	chunks, err := encodeKeyChunks(opts.hexMode, opts.keys)
+	if err != nil {
+		ctx.replyErr(err.Error())
+		return
+	}
+
+	uiWait, err := ctx.Sess.queryUIClient("", proto.UIEventInputIdle)
+	if err != nil {
+		ctx.replyErr(err.Error())
+		return
+	}
+	if err := enqueueTargetedClientKeys(ctx.Sess, uiWait.client, pane.pane, chunks, &uiWait, opts.waitTimeout); err != nil {
+		ctx.replyErr(err.Error())
+		return
+	}
+
+	enterChunks, err := encodeKeyChunks(false, []string{"Enter"})
+	if err != nil {
+		ctx.replyErr(err.Error())
+		return
+	}
+	if err := ctx.Sess.enqueuePacedPaneInput(pane.pane, enterChunks); err != nil {
+		ctx.replyErr(err.Error())
+		return
+	}
+	if err := waitForPaneBusy(ctx.Sess, pane.paneID, pane.paneName, opts.startTimeout); err != nil {
+		ctx.replyErr(err.Error())
+		return
+	}
+
+	ctx.reply(fmt.Sprintf("Delegated %d bytes to %s\n", totalEncodedKeyBytes(chunks), pane.paneName))
 }
 
 type broadcastCommandArgs struct {
@@ -397,7 +555,9 @@ func enqueueBroadcastInput(sess *Session, targets []resolvedPaneRef, chunks []en
 }
 
 func cmdTypeKeys(ctx *CommandContext) {
-	opts, err := parseTypeKeysArgs(ctx.Args)
+	targetPane, parseArgs, hasTargetPane := resolveTypeKeysPane(ctx.Sess, ctx.ActorPaneID, ctx.Args)
+
+	opts, err := parseTypeKeysArgs(parseArgs)
 	if err != nil {
 		ctx.replyErr(err.Error())
 		return
@@ -429,6 +589,30 @@ func cmdTypeKeys(ctx *CommandContext) {
 			ctx.replyErr(err.Error())
 			return
 		}
+	}
+
+	waitSnapshot := (*uiClientSnapshot)(nil)
+	waitTimeout := opts.waitTimeout
+	if hasTargetPane {
+		if !opts.waitInputIdle {
+			snapshot, err := ctx.Sess.queryUIClient(client.ID, proto.UIEventInputIdle)
+			if err != nil {
+				ctx.replyErr(err.Error())
+				return
+			}
+			uiWait = snapshot
+			waitTimeout = defaultCommandUIWaitTimeout
+		}
+		waitSnapshot = &uiWait
+	}
+
+	if hasTargetPane {
+		if err := enqueueTargetedClientKeys(ctx.Sess, client, targetPane.pane, chunks, waitSnapshot, waitTimeout); err != nil {
+			ctx.replyErr(err.Error())
+			return
+		}
+		ctx.reply(fmt.Sprintf("Typed %d bytes to %s\n", totalEncodedKeyBytes(chunks), targetPane.paneName))
+		return
 	}
 
 	if err := client.enqueueTypeKeys(chunks); err != nil {

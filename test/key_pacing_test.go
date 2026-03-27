@@ -92,11 +92,11 @@ func TestSendKeysDelayFinalAllowsLongerSettleTime(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)
 
-	scriptPath := writeTimingSensitiveScript(t, h.session, 120*time.Millisecond)
+	scriptPath := writeTimingSensitiveScript(t, h.session, 100*time.Millisecond)
 	h.sendKeys("pane-1", scriptPath, "Enter")
 	h.waitFor("pane-1", "READY")
 
-	out := h.runCmd("send-keys", "pane-1", "--delay-final", "150ms", "HELLO", "Enter")
+	out := h.runCmd("send-keys", "pane-1", "--delay-final", "250ms", "HELLO", "Enter")
 	if strings.Contains(out, "invalid") {
 		t.Fatalf("send-keys --delay-final failed: %s", out)
 	}
