@@ -145,6 +145,9 @@ func (e commandMutationEvent) handle(s *Session) {
 	res := recoverCommandMutation(e.fn, s)
 	if res.err == nil {
 		s.ensureInputRouter().syncPanes(s.Panes)
+		// Keep enqueueCommandMutation callers from observing stale input routing
+		// after focus/window mutations return.
+		s.refreshInputTarget()
 		if res.broadcastLayout {
 			s.broadcastLayoutNow()
 			res.broadcastLayout = false
