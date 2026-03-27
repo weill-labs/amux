@@ -171,8 +171,21 @@ jobs:
       - name: Test timing summary
         if: always() && steps.changes.outputs.code_changed == 'true'
         run: |
-          total=$(jq -r 'select(.Action=="pass" and .Test) | .Elapsed' \
-            root-results.json unit-results.json integration-results.json \
+          files=()
+          for file in root-results.json unit-results.json integration-results.json; do
+            if [ -f "$file" ]; then
+              files+=("$file")
+            fi
+          done
+          if [ ${#files[@]} -eq 0 ]; then
+            {
+              echo '## Test Timing'
+              echo ''
+              echo 'No go test JSON timing files were produced.'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          total=$(jq -r 'select(.Action=="pass" and .Test) | .Elapsed' "${files[@]}" \
             | awk '{s+=$1} END {printf "%.2f", s}')
           {
             echo '## Test Timing'
@@ -180,7 +193,7 @@ jobs:
             echo '| Test | Duration |'
             echo '|------|----------|'
             jq -r 'select(.Action=="pass" and .Test) | "| \(.Test) | \(.Elapsed)s |"' \
-              root-results.json unit-results.json integration-results.json \
+              "${files[@]}" \
               | sort -t'|' -k3 -rn
             echo ''
             echo "**Total: ${total}s**"
