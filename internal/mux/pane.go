@@ -64,21 +64,21 @@ type Pane struct {
 	// Used by proxy panes to route input over SSH to a remote amux server.
 	writeOverride func([]byte) (int, error)
 
-	closed             atomic.Bool
-	exitDone           chan struct{} // closed by waitLoop when the shell process exits
-	closeDoneOnce      sync.Once
-	closeDone          chan struct{}
-	closeErr           error
-	closeForbiddenFrom *debugowner.Checker
-	drainStarted       bool
-	onOutput           func(paneID uint32, data []byte, seq uint64)
-	onExit             func(paneID uint32, reason string)
-	onClipboard        func(paneID uint32, data []byte)
-	onTakeover         func(paneID uint32, req TakeoverRequest)
-	onMetaUpdate       func(paneID uint32, update MetaUpdate)
-	osc52Scanner       OSC52Scanner
-	controlScanner     AmuxControlScanner
-	metaScanner        AmuxMetaScanner
+	closed              atomic.Bool
+	exitDone            chan struct{} // closed by waitLoop when the shell process exits
+	closeDoneOnce       sync.Once
+	closeDone           chan struct{}
+	closeErr            error
+	closeForbiddenOwner *debugowner.Checker
+	drainStarted        bool
+	onOutput            func(paneID uint32, data []byte, seq uint64)
+	onExit              func(paneID uint32, reason string)
+	onClipboard         func(paneID uint32, data []byte)
+	onTakeover          func(paneID uint32, req TakeoverRequest)
+	onMetaUpdate        func(paneID uint32, update MetaUpdate)
+	osc52Scanner        OSC52Scanner
+	controlScanner      AmuxControlScanner
+	metaScanner         AmuxMetaScanner
 
 	// Idle tracking (LAB-159)
 	createdAt        time.Time
@@ -781,15 +781,15 @@ func (p *Pane) ensureCloseDone() chan struct{} {
 // SetCloseForbiddenOwner installs a debug-only guard that panics when Close is
 // invoked on the recorded owner goroutine.
 func (p *Pane) SetCloseForbiddenOwner(owner *debugowner.Checker) {
-	p.closeForbiddenFrom = owner
+	p.closeForbiddenOwner = owner
 }
 
 // Close terminates the pane's shell and PTY, but only schedules the blocking
 // wait/close work on a background goroutine. Call WaitClosed when a caller
 // needs a barrier before proceeding.
 func (p *Pane) Close() error {
-	if p.closeForbiddenFrom != nil {
-		p.closeForbiddenFrom.PanicIfCurrent("mux.Pane", "Close")
+	if p.closeForbiddenOwner != nil {
+		p.closeForbiddenOwner.PanicIfCurrent("mux.Pane", "Close")
 	}
 	if p.closed.Swap(true) {
 		return nil
