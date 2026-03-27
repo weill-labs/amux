@@ -526,15 +526,22 @@ func (s *Session) transitionTrackedIssuesToStartedAsync(issueIDs []string) {
 
 	go func() {
 		for _, id := range unique {
-			if err := s.TrackedMetaResolver.TransitionIssueToStartedIfNeeded(id); err != nil {
-				msg := strings.TrimSpace(err.Error())
-				if msg == "" {
-					msg = fmt.Sprintf("Linear issue %s: transition failed", id)
-				}
-				s.showSessionNotice("add-meta: " + msg)
+			if notice := formatAddMetaTransitionFailureNotice(id, s.TrackedMetaResolver.TransitionIssueToStartedIfNeeded(id)); notice != "" {
+				s.showSessionNotice(notice)
 			}
 		}
 	}()
+}
+
+func formatAddMetaTransitionFailureNotice(id string, err error) string {
+	if err == nil {
+		return ""
+	}
+	msg := strings.TrimSpace(err.Error())
+	if msg == "" {
+		msg = fmt.Sprintf("Linear issue %s: transition failed", id)
+	}
+	return "add-meta: " + msg
 }
 
 func (s *Server) SetTrackedMetaResolver(resolver TrackedMetaResolver) {
