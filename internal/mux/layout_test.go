@@ -500,6 +500,37 @@ func TestResizeSubtreePinsMinChildrenBeforeRedistributing(t *testing.T) {
 	}
 }
 
+func TestProportionalSubtreeChildSizesClampsTargetToMinimumTotal(t *testing.T) {
+	t.Parallel()
+
+	children := []*LayoutCell{
+		NewLeaf(fakePaneID(1), 0, 0, 5, 5),
+		NewLeaf(fakePaneID(2), 0, 0, 9, 5),
+	}
+
+	got := proportionalSubtreeChildSizes(children, SplitVertical, 3)
+	want := []int{PaneMinSize, PaneMinSize}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("sizes after clamping target = %v, want %v", got, want)
+	}
+}
+
+func TestProportionalSubtreeChildSizesFallsBackToEqualSplitWhenWeightsAreZero(t *testing.T) {
+	t.Parallel()
+
+	children := []*LayoutCell{
+		NewLeaf(fakePaneID(1), 0, 0, PaneMinSize, 5),
+		NewLeaf(fakePaneID(2), 0, 0, PaneMinSize, 5),
+		NewLeaf(fakePaneID(3), 0, 0, PaneMinSize, 5),
+	}
+
+	got := proportionalSubtreeChildSizes(children, SplitVertical, 8)
+	want := []int{PaneMinSize, PaneMinSize + 1, PaneMinSize + 1}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("sizes with zero weights = %v, want %v", got, want)
+	}
+}
+
 func snapshotLeafGeometry(root *LayoutCell) map[uint32][4]int {
 	out := map[uint32][4]int{}
 	root.Walk(func(c *LayoutCell) {
