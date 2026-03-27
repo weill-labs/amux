@@ -13,6 +13,9 @@ func (w *Window) snapshotCore() (root proto.CellSnapshot, panes []proto.PaneSnap
 	leadPaneID = w.LeadPaneID
 	for _, p := range w.Panes() {
 		ps := p.ToSnapshot()
+		if columnIndex, err := w.ColumnIndexForPaneID(p.ID); err == nil {
+			ps.ColumnIndex = columnIndex
+		}
 		if leadPaneID != 0 && p.ID == leadPaneID {
 			ps.Lead = true
 		}

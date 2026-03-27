@@ -10,11 +10,12 @@ import (
 )
 
 type capturePaneTarget struct {
-	pane     *mux.Pane
-	inWindow bool
-	active   bool
-	zoomed   bool
-	lead     bool
+	pane        *mux.Pane
+	columnIndex int
+	inWindow    bool
+	active      bool
+	zoomed      bool
+	lead        bool
 }
 
 func (s *Session) resolveCapturePaneTargetForActor(actorPaneID uint32, ref string) (capturePaneTarget, error) {
@@ -24,12 +25,19 @@ func (s *Session) resolveCapturePaneTargetForActor(actorPaneID uint32, ref strin
 			return capturePaneTarget{}, err
 		}
 		activeWindow := s.activeWindow()
+		columnIndex := 0
+		if w != nil {
+			if idx, err := w.ColumnIndexForPaneID(pane.ID); err == nil {
+				columnIndex = idx
+			}
+		}
 		return capturePaneTarget{
-			pane:     pane,
-			inWindow: w != nil,
-			active:   activeWindow != nil && activeWindow.ActivePane != nil && activeWindow.ActivePane.ID == pane.ID,
-			zoomed:   activeWindow != nil && activeWindow.ZoomedPaneID == pane.ID,
-			lead:     activeWindow != nil && activeWindow.LeadPaneID == pane.ID,
+			pane:        pane,
+			columnIndex: columnIndex,
+			inWindow:    w != nil,
+			active:      activeWindow != nil && activeWindow.ActivePane != nil && activeWindow.ActivePane.ID == pane.ID,
+			zoomed:      activeWindow != nil && activeWindow.ZoomedPaneID == pane.ID,
+			lead:        activeWindow != nil && activeWindow.LeadPaneID == pane.ID,
 		}, nil
 	})
 }
@@ -81,6 +89,7 @@ func (s *Session) buildServerCapturePane(target capturePaneTarget, req caputil.R
 		Host:          target.pane.Meta.Host,
 		Task:          target.pane.Meta.Task,
 		Color:         target.pane.Meta.Color,
+		ColumnIndex:   target.columnIndex,
 		ConnStatus:    target.pane.Meta.Remote,
 		Cwd:           captureCwd,
 		GitBranch:     target.pane.Meta.GitBranch,

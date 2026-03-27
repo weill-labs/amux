@@ -52,6 +52,7 @@ type PaneSnapshot struct {
 	Host          string         `json:"host"`
 	Task          string         `json:"task"`
 	Color         string         `json:"color"`
+	ColumnIndex   int            `json:"column_index"`
 	Idle          bool           `json:"idle"`
 	ConnStatus    string         `json:"conn_status,omitempty"` // "", "connected", "reconnecting", "disconnected" (remote panes only)
 	GitBranch     string         `json:"git_branch,omitempty"`
@@ -105,20 +106,21 @@ type CaptureError struct {
 
 // CapturePane holds one pane's metadata, cursor, and content for JSON output.
 type CapturePane struct {
-	ID       uint32        `json:"id"`
-	Name     string        `json:"name"`
-	Active   bool          `json:"active"`
-	Lead     bool          `json:"lead,omitempty"`
-	Zoomed   bool          `json:"zoomed"`
-	Host     string        `json:"host"`
-	Task     string        `json:"task"`
-	Color    string        `json:"color"`
-	Meta     CaptureMeta   `json:"meta"`
-	Position *CapturePos   `json:"position,omitempty"`
-	Cursor   CaptureCursor `json:"cursor"`
-	Content  []string      `json:"content"`
-	History  []string      `json:"history,omitempty"`
-	CopyMode bool          `json:"copy_mode,omitempty"`
+	ID          uint32        `json:"id"`
+	Name        string        `json:"name"`
+	Active      bool          `json:"active"`
+	Lead        bool          `json:"lead,omitempty"`
+	Zoomed      bool          `json:"zoomed"`
+	Host        string        `json:"host"`
+	Task        string        `json:"task"`
+	Color       string        `json:"color"`
+	ColumnIndex int           `json:"column_index"`
+	Meta        CaptureMeta   `json:"meta"`
+	Position    *CapturePos   `json:"position,omitempty"`
+	Cursor      CaptureCursor `json:"cursor"`
+	Content     []string      `json:"content"`
+	History     []string      `json:"history,omitempty"`
+	CopyMode    bool          `json:"copy_mode,omitempty"`
 
 	// ConnStatus is the remote connection state: "", "connected", "reconnecting", "disconnected".
 	// Empty for local panes.
