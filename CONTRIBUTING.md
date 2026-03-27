@@ -31,6 +31,7 @@ amux capture --format json        # structured JSON output for agents
 - When starting a Linear issue in an amux pane, prefer `scripts/set-pane-issue.sh LAB-XXX` so the current pane gets tagged automatically.
 - After `gh pr create`, run `scripts/watch-pr-ci.sh` once for that PR. For later updates to an open PR, prefer `scripts/push-and-watch-ci.sh` over bare `git push`.
 - If `scripts/watch-pr-ci.sh` reports failures, inspect the printed failed logs, fix the issue or explain why it is flaky/unrelated before handing the PR back.
+- When leading a worker session, `scripts/check-worker-ci.sh` reports failing PRs, maps them back to owning panes, and nudges idle workers.
 - Run `make setup` after cloning so repo Git hooks are active regardless of which tool you use.
 - Optional for Codex users: trust the repo, then install the OpenAI Docs MCP server with `codex mcp add openaiDeveloperDocs --url https://developers.openai.com/mcp`.
 
