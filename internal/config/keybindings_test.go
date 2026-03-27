@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"slices"
+	"testing"
+)
 
 func TestDefaultKeybindings(t *testing.T) {
 	t.Parallel()
@@ -9,31 +12,77 @@ func TestDefaultKeybindings(t *testing.T) {
 	if kb.Prefix != 0x01 {
 		t.Errorf("default prefix = %d, want 0x01 (Ctrl-a)", kb.Prefix)
 	}
-	if b, ok := kb.Bindings['\\']; !ok || b.Action != "split-focus" {
-		t.Error("default: \\ should be bound to split-focus")
+
+	tests := []struct {
+		name string
+		key  byte
+		want Binding
+	}{
+		{
+			name: "backslash creates a root vertical split",
+			key:  '\\',
+			want: Binding{Action: "split-focus", Args: []string{"root", "v"}},
+		},
+		{
+			name: "pipe creates a local vertical split",
+			key:  '|',
+			want: Binding{Action: "split-focus", Args: []string{"v"}},
+		},
+		{
+			name: "d detaches",
+			key:  'd',
+			want: Binding{Action: "detach"},
+		},
+		{
+			name: "o focuses the next pane",
+			key:  'o',
+			want: Binding{Action: "focus", Args: []string{"next"}},
+		},
+		{
+			name: "q displays pane numbers",
+			key:  'q',
+			want: Binding{Action: "display-panes"},
+		},
+		{
+			name: "a adds a pane",
+			key:  'a',
+			want: Binding{Action: "add-pane"},
+		},
+		{
+			name: "s opens choose tree",
+			key:  's',
+			want: Binding{Action: "choose-tree"},
+		},
+		{
+			name: "w opens choose window",
+			key:  'w',
+			want: Binding{Action: "choose-window"},
+		},
+		{
+			name: "m remains reserved for compat bell",
+			key:  'm',
+			want: Binding{Action: "compat-bell"},
+		},
 	}
-	if b, ok := kb.Bindings['d']; !ok || b.Action != "detach" {
-		t.Error("default: d should be bound to detach")
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, ok := kb.Bindings[tt.key]
+			if !ok {
+				t.Fatalf("default: %q should be bound", tt.key)
+			}
+			if got.Action != tt.want.Action {
+				t.Fatalf("default: %q action = %q, want %q", tt.key, got.Action, tt.want.Action)
+			}
+			if !slices.Equal(got.Args, tt.want.Args) {
+				t.Fatalf("default: %q args = %v, want %v", tt.key, got.Args, tt.want.Args)
+			}
+		})
 	}
-	if b, ok := kb.Bindings['o']; !ok || b.Action != "focus" {
-		t.Error("default: o should be bound to focus")
-	}
-	if b, ok := kb.Bindings['q']; !ok || b.Action != "display-panes" {
-		t.Error("default: q should be bound to display-panes")
-	}
-	if b, ok := kb.Bindings['a']; !ok || b.Action != "add-pane" {
-		t.Error("default: a should be bound to add-pane")
-	}
-	if b, ok := kb.Bindings['s']; !ok || b.Action != "choose-tree" {
-		t.Error("default: s should be bound to choose-tree")
-	}
-	if b, ok := kb.Bindings['w']; !ok || b.Action != "choose-window" {
-		t.Error("default: w should be bound to choose-window")
-	}
+
 	if _, ok := kb.Bindings['M']; ok {
 		t.Error("default: M should be unbound")
-	}
-	if b, ok := kb.Bindings['m']; !ok || b.Action != "compat-bell" {
-		t.Error("default: m should be reserved with compat-bell")
 	}
 }
