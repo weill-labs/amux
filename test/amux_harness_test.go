@@ -58,9 +58,13 @@ func newAmuxHarnessWithBinInDir(tb testing.TB, binPath, launchDir string, envVar
 	defer nestedHarnessStartupMu.Unlock()
 
 	// The outer harness is just the container for the inner amux session.
-	// Keep its server alive even if the headless client briefly disconnects
-	// while the inner client is reloading.
+	// Only hot-reload tests that launch a custom binary need the secondary
+	// keepalive client to survive brief reconnect gaps while the inner client
+	// re-execs.
 	outer := newServerHarnessPersistent(tb)
+	if binPath != amuxBin {
+		outer = newServerHarnessPersistentKeepalive(tb)
+	}
 
 	var b [4]byte
 	rand.Read(b[:])
@@ -69,7 +73,13 @@ func newAmuxHarnessWithBinInDir(tb testing.TB, binPath, launchDir string, envVar
 	h := &AmuxHarness{outer: outer, inner: inner, innerBin: binPath, tb: tb, session: inner}
 
 	// Export any extra environment variables before launching the inner amux.
-	for _, ev := range envVars {
+	for i, ev := range envVars {
+		if ev == "AMUX_EXIT_UNATTACHED=0" {
+			marker := fmt.Sprintf("__AMUX_ENV_%d__", i)
+			outer.sendKeys("pane-1", fmt.Sprintf("export %s && printf '%s\\n'", ev, marker), "Enter")
+			outer.waitForTimeout("pane-1", marker, "10s")
+			continue
+		}
 		outer.sendKeys("pane-1", "export "+ev, "Enter")
 	}
 
@@ -93,22 +103,54 @@ func newAmuxHarnessWithBinInDir(tb testing.TB, binPath, launchDir string, envVar
 // cleanup detaches the inner client, then SIGTERMs the inner server.
 // The outer harness cleanup runs via its own t.Cleanup.
 func (h *AmuxHarness) cleanup() {
-	// Detach inner client for graceful coverage flush.
-	h.sendKeys("C-a", "d")
+	shutdownAmuxHarness(h.tb, h)
+}
 
-	// SIGTERM inner server.
+func shutdownAmuxHarness(tb testing.TB, h *AmuxHarness) {
+	tb.Helper()
+
+	if h == nil || h.inner == "" {
+		return
+	}
+	if h.outer != nil {
+		_, _ = h.outer.runCmdWithTimeout(2*time.Second, false, "send-keys", "pane-1", "C-a", "d")
+	}
+
 	for _, pid := range h.innerServerPIDs() {
 		if pid != "" {
 			exec.Command("kill", pid).Run()
 		}
 	}
-	h.waitInnerServerGone(3 * time.Second)
+	h.waitInnerServerGone(5 * time.Second)
+	if pids := h.innerServerPIDs(); len(pids) > 0 {
+		for _, pid := range pids {
+			if pid != "" {
+				exec.Command("kill", "-9", pid).Run()
+			}
+		}
+		h.waitInnerServerGone(2 * time.Second)
+		if remaining := h.innerServerPIDs(); len(remaining) > 0 {
+			tb.Fatalf("inner server still running after cleanup: %v", remaining)
+		}
+	}
 
-	// Clean up inner socket and log.
 	socketDir := server.SocketDir()
+	if tb != nil && tb.Failed() {
+		logPath := fmt.Sprintf("%s/%s.log", socketDir, h.inner)
+		if data, err := os.ReadFile(logPath); err == nil {
+			tb.Logf("inner server log tail (%s):\n%s", logPath, tailDiagnostic(string(data), diagnosticLogTailBytes))
+		} else {
+			tb.Logf("inner server log unavailable at %s: %v", logPath, err)
+		}
+		h.inner = ""
+		h.session = ""
+		return
+	}
 	for _, suffix := range []string{"", ".log"} {
 		exec.Command("rm", "-f", fmt.Sprintf("%s/%s%s", socketDir, h.inner, suffix)).Run()
 	}
+	h.inner = ""
+	h.session = ""
 }
 
 func (h *AmuxHarness) innerServerPIDs() []string {

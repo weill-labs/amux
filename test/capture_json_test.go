@@ -273,7 +273,7 @@ func TestCaptureJSON_AgentStatus_Busy(t *testing.T) {
 
 	h.startLongSleep("pane-1")
 
-	pane1 := captureJSONPane(t, h, "pane-1")
+	pane1 := capturePaneJSONFor(t, "pane-1", h.runCmd)
 
 	if pane1.Idle {
 		t.Errorf("pane should not be idle (current_command=%q, child_pids=%v)", pane1.CurrentCommand, pane1.ChildPIDs)
@@ -287,6 +287,8 @@ func TestCaptureJSON_AgentStatus_Busy(t *testing.T) {
 	if pane1.IdleSince != "" {
 		t.Errorf("idle_since should be empty when busy, got %q", pane1.IdleSince)
 	}
+
+	stopLongRunningCommand(t, h, "pane-1")
 }
 
 func TestCaptureJSON_AgentStatus_Idle(t *testing.T) {
@@ -321,13 +323,7 @@ func TestCaptureJSON_AgentStatus_SinglePane(t *testing.T) {
 
 	h.startLongSleep("pane-1")
 
-	// Single-pane capture should also include agent status
-	out := h.runCmd("capture", "--format", "json", "pane-1")
-
-	var pane proto.CapturePane
-	if err := json.Unmarshal([]byte(out), &pane); err != nil {
-		t.Fatalf("failed to parse JSON: %v\nraw output:\n%s", err, out)
-	}
+	pane := capturePaneJSONFor(t, "pane-1", h.runCmd)
 
 	if pane.Idle {
 		t.Errorf("pane should not be idle (current_command=%q, child_pids=%v)", pane.CurrentCommand, pane.ChildPIDs)
@@ -338,6 +334,8 @@ func TestCaptureJSON_AgentStatus_SinglePane(t *testing.T) {
 	if len(pane.ChildPIDs) == 0 {
 		t.Error("child_pids should be non-empty")
 	}
+
+	stopLongRunningCommand(t, h, "pane-1")
 }
 
 func TestCaptureJSON_AgentStatus_Transition(t *testing.T) {
@@ -349,7 +347,7 @@ func TestCaptureJSON_AgentStatus_Transition(t *testing.T) {
 	h.waitFor("pane-1", "INIT")
 	h.waitIdle("pane-1")
 
-	pane := captureJSONPane(t, h, "pane-1")
+	pane := capturePaneJSONFor(t, "pane-1", h.runCmd)
 	if !pane.Idle {
 		t.Fatal("pane should start idle")
 	}
@@ -360,13 +358,15 @@ func TestCaptureJSON_AgentStatus_Transition(t *testing.T) {
 	// Transition to busy
 	h.startLongSleep("pane-1")
 
-	pane = captureJSONPane(t, h, "pane-1")
+	pane = capturePaneJSONFor(t, "pane-1", h.runCmd)
 	if pane.Idle {
 		t.Error("pane should be busy after running sleep")
 	}
 	if pane.IdleSince != "" {
 		t.Errorf("idle_since should be empty when busy, got %q", pane.IdleSince)
 	}
+
+	stopLongRunningCommand(t, h, "pane-1")
 }
 
 func TestCaptureJSON_AgentStatus_ChildPIDsArray(t *testing.T) {
@@ -396,11 +396,7 @@ func TestCaptureJSON_AgentStatus_MultiPane(t *testing.T) {
 	h.waitFor("pane-2", "IDLE_CHECK")
 	h.waitIdle("pane-2")
 
-	out := h.runCmd("capture", "--format", "json")
-	var capture proto.CaptureJSON
-	if err := json.Unmarshal([]byte(out), &capture); err != nil {
-		t.Fatalf("failed to parse JSON: %v\nraw output:\n%s", err, out)
-	}
+	capture := captureJSONFor(t, h.runCmd)
 
 	for _, p := range capture.Panes {
 		switch p.Name {
@@ -414,4 +410,6 @@ func TestCaptureJSON_AgentStatus_MultiPane(t *testing.T) {
 			}
 		}
 	}
+
+	stopLongRunningCommand(t, h, "pane-1")
 }

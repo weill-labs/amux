@@ -1,11 +1,13 @@
 package test
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -36,9 +38,13 @@ type ServerHarness struct {
 	coverDir                 string // per-test GOCOVERDIR subdirectory (avoids coverage metadata races)
 	extraEnv                 []string
 	logPath                  string
+	logFile                  *os.File
+	logBuffer                *syncedLogBuffer
+	processState             string
 	exitUnattached           bool
 	ownsProcessGroup         bool
 	client                   *headlessClient // attached headless client for capture
+	keepalive                *headlessClient // secondary client for persistent harnesses
 	shutdownPipe             *os.File
 	waitDone                 chan struct{}
 	waitOnce                 sync.Once
@@ -53,6 +59,23 @@ type ServerHarness struct {
 	currentCommand string
 }
 
+type syncedLogBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (b *syncedLogBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.b.Write(p)
+}
+
+func (b *syncedLogBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.b.String()
+}
+
 // newServerHarnessWithSize starts a server harness with a custom terminal size.
 func newServerHarnessWithSize(tb testing.TB, cols, rows int) *ServerHarness {
 	return newServerHarnessWithConfig(tb, cols, rows, "")
@@ -60,11 +83,9 @@ func newServerHarnessWithSize(tb testing.TB, cols, rows int) *ServerHarness {
 
 // newServerHarness starts a server daemon with a unique session name,
 // waits for the ready signal, and seeds the first pane. Safe for parallel tests.
-// Default to a persistent server so transient client reconnect gaps do not
-// tear down the session mid-test.
 func newServerHarness(tb testing.TB) *ServerHarness {
 	tb.Helper()
-	return newServerHarnessWithOptions(tb, 80, 24, "", false)
+	return newServerHarnessWithOptions(tb, 80, 24, "", false, false)
 }
 
 // newServerHarnessPersistent starts a server that does NOT exit when all
@@ -72,7 +93,15 @@ func newServerHarness(tb testing.TB) *ServerHarness {
 // and then issue commands against the still-running server.
 func newServerHarnessPersistent(tb testing.TB) *ServerHarness {
 	tb.Helper()
-	return newServerHarnessWithOptions(tb, 80, 24, "", false)
+	return newServerHarnessWithOptions(tb, 80, 24, "", false, false)
+}
+
+// newServerHarnessPersistentKeepalive is like newServerHarnessPersistent but
+// keeps a second headless client attached so capture forwarding survives if the
+// primary test client briefly disconnects.
+func newServerHarnessPersistentKeepalive(tb testing.TB) *ServerHarness {
+	tb.Helper()
+	return newServerHarnessWithOptions(tb, 80, 24, "", false, true)
 }
 
 // newServerHarnessWithConfig starts a server with a custom config file.
@@ -83,19 +112,19 @@ func newServerHarnessPersistent(tb testing.TB) *ServerHarness {
 // newServerHarnessWithOptions(..., true) explicitly.
 func newServerHarnessWithConfig(tb testing.TB, cols, rows int, configContent string) *ServerHarness {
 	tb.Helper()
-	return newServerHarnessWithOptions(tb, cols, rows, configContent, false)
+	return newServerHarnessWithOptions(tb, cols, rows, configContent, false, false)
 }
 
 // newServerHarnessExitUnattached starts a server that exits when all clients
 // disconnect. Use this only in tests that explicitly exercise exit-unattached.
 func newServerHarnessExitUnattached(tb testing.TB) *ServerHarness {
 	tb.Helper()
-	return newServerHarnessWithOptions(tb, 80, 24, "", true)
+	return newServerHarnessWithOptions(tb, 80, 24, "", true, false)
 }
 
 // newServerHarnessWithOptions is the shared constructor. When exitUnattached
 // is true the server self-terminates after all clients disconnect.
-func newServerHarnessWithOptions(tb testing.TB, cols, rows int, configContent string, exitUnattached bool, extraEnv ...string) *ServerHarness {
+func newServerHarnessWithOptions(tb testing.TB, cols, rows int, configContent string, exitUnattached, keepalive bool, extraEnv ...string) *ServerHarness {
 	tb.Helper()
 	return newServerHarnessForSession(tb, "", "", cols, rows, configContent, exitUnattached, extraEnv...)
 }
@@ -163,8 +192,9 @@ func newServerHarnessForSession(tb testing.TB, session, home string, cols, rows 
 	if err != nil {
 		tb.Fatalf("opening log: %v", err)
 	}
-	cmd.Stdout = logFile
-	cmd.Stderr = logFile
+	logBuffer := &syncedLogBuffer{}
+	cmd.Stdout = io.MultiWriter(logFile, logBuffer)
+	cmd.Stderr = io.MultiWriter(logFile, logBuffer)
 
 	if err := cmd.Start(); err != nil {
 		logFile.Close()
@@ -176,7 +206,6 @@ func newServerHarnessForSession(tb testing.TB, session, home string, cols, rows 
 	}
 	writePipe.Close() // close write end in parent
 	shutdownWritePipe.Close()
-	logFile.Close()
 
 	// Block until server signals readiness (after net.Listen succeeds).
 	readPipe.SetReadDeadline(time.Now().Add(10 * time.Second))
@@ -192,6 +221,7 @@ func newServerHarnessForSession(tb testing.TB, session, home string, cols, rows 
 		} else {
 			waitErr = cmd.Wait()
 		}
+		logFile.Close()
 		shutdownReadPipe.Close()
 		tb.Fatalf("server ready signal not received: err=%v, buf=%q, pid=%d, waitErr=%v\nserver log:\n%s", err, string(buf[:n]), cmd.Process.Pid, waitErr, string(logData))
 	}
@@ -206,6 +236,8 @@ func newServerHarnessForSession(tb testing.TB, session, home string, cols, rows 
 		coverDir:         coverDir,
 		extraEnv:         append([]string(nil), extraEnv...),
 		logPath:          logPath,
+		logFile:          logFile,
+		logBuffer:        logBuffer,
 		exitUnattached:   exitUnattached,
 		ownsProcessGroup: true,
 		shutdownPipe:     shutdownReadPipe,
@@ -218,6 +250,7 @@ func newServerHarnessForSession(tb testing.TB, session, home string, cols, rows 
 	sockPath := server.SocketPath(session)
 	client, err := newHeadlessClient(sockPath, session, cols, rows)
 	if err != nil {
+		logFile.Close()
 		cmd.Process.Kill()
 		tb.Fatalf("attaching headless client: %v", err)
 	}
@@ -227,6 +260,16 @@ func newServerHarnessForSession(tb testing.TB, session, home string, cols, rows 
 		tb.Fatalf("headless client command-ready: %v", err)
 	}
 	h.client = client
+	if keepalive {
+		secondary, err := newHeadlessClient(sockPath, session, cols, rows)
+		if err != nil {
+			h.client.close()
+			logFile.Close()
+			cmd.Process.Kill()
+			tb.Fatalf("attaching keepalive headless client: %v", err)
+		}
+		h.keepalive = secondary
+	}
 
 	return h
 }
@@ -261,19 +304,25 @@ func (h *ServerHarness) signalServer(sig os.Signal) error {
 	return h.cmd.Process.Signal(sig)
 }
 
-// cleanup detaches the headless client, sends SIGINT for graceful shutdown
+// cleanup detaches the headless clients, sends SIGINT for graceful shutdown
 // (coverage flush) when needed, then cleans up the socket and log files. As a
 // fallback, kills the harness-owned process tree without touching later tests.
 func (h *ServerHarness) cleanup() {
+	if h.keepalive != nil {
+		h.keepalive.close()
+		h.keepalive = nil
+	}
 	if h.client != nil {
 		h.client.close()
 		h.client = nil
 	}
+
 	serverPid := 0
 	if h.cmd != nil && h.cmd.Process != nil {
 		serverPid = h.cmd.Process.Pid
 	}
 	if h.cmd != nil && h.cmd.ProcessState != nil {
+		h.processState = h.cmd.ProcessState.String()
 		h.cmd = nil
 	}
 
@@ -290,6 +339,9 @@ func (h *ServerHarness) cleanup() {
 		}
 		if h.shutdownPipe != nil {
 			gracefulShutdown = h.waitForShutdownSignalWithin(5 * time.Second)
+		}
+		if h.cmd.ProcessState != nil {
+			h.processState = h.cmd.ProcessState.String()
 		}
 	}
 
@@ -309,12 +361,33 @@ func (h *ServerHarness) cleanup() {
 		h.shutdownPipe.Close()
 		h.shutdownPipe = nil
 	}
+	h.cmd = nil
+	if h.logFile != nil {
+		h.logFile.Close()
+		h.logFile = nil
+	}
+	if h.tb != nil && h.tb.Failed() {
+		if h.processState != "" {
+			h.tb.Logf("server process state: %s", h.processState)
+		}
+		if tail := h.serverLogTail(diagnosticLogTailBytes); tail != "" {
+			h.tb.Logf("server log tail:\n%s", tail)
+		} else if h.logPath != "" {
+			h.tb.Logf("server log unavailable at %s", h.logPath)
+		}
+		if h.home != "" {
+			h.tb.Logf("harness home was cleaned by testing tempdir: %s", h.home)
+		}
+		return
+	}
 	socketDir := server.SocketDir()
 	os.Remove(filepath.Join(socketDir, h.session))
 	os.Remove(filepath.Join(socketDir, h.session+".log"))
 	if h.home != "" {
 		_ = os.RemoveAll(h.home)
+		h.home = ""
 	}
+	h.logPath = ""
 }
 
 func (h *ServerHarness) runtimeState() string {
@@ -359,8 +432,8 @@ func killChildrenByPid(pid int) {
 	}
 	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
 		line = strings.TrimSpace(line)
-		if childPid, err := strconv.Atoi(line); err == nil {
-			syscall.Kill(childPid, syscall.SIGKILL)
+		if childPID, err := strconv.Atoi(line); err == nil {
+			syscall.Kill(childPID, syscall.SIGKILL)
 		}
 	}
 }
@@ -744,14 +817,20 @@ func summarizeDiagnosticCaptureJSON(raw string) string {
 }
 
 func (h *ServerHarness) serverLogTail(maxBytes int) string {
-	if h.logPath == "" {
+	if h.logPath != "" {
+		data, err := os.ReadFile(h.logPath)
+		if err == nil && len(data) > 0 {
+			return tailDiagnostic(string(data), maxBytes)
+		}
+	}
+	if h.logBuffer == nil {
 		return ""
 	}
-	data, err := os.ReadFile(h.logPath)
-	if err != nil || len(data) == 0 {
+	data := h.logBuffer.String()
+	if data == "" {
 		return ""
 	}
-	return tailDiagnostic(string(data), maxBytes)
+	return tailDiagnostic(data, maxBytes)
 }
 
 func (h *ServerHarness) serverWaitStatus() string {
