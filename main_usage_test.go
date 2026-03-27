@@ -37,6 +37,55 @@ func TestMainSendKeysUsageIncludesWaitReadyFlags(t *testing.T) {
 	}
 }
 
+func TestMainKeyCommandsHelpFlagsPrintUsage(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "send-keys long help",
+			args: []string{"send-keys", "pane-1", "--help"},
+			want: "usage: amux send-keys <pane> [--wait ready] [--continue-known-dialogs] [--timeout <duration>] [--hex] <keys>...",
+		},
+		{
+			name: "send-keys short help",
+			args: []string{"send-keys", "pane-1", "-h"},
+			want: "usage: amux send-keys <pane> [--wait ready] [--continue-known-dialogs] [--timeout <duration>] [--hex] <keys>...",
+		},
+		{
+			name: "type-keys long help",
+			args: []string{"type-keys", "--help"},
+			want: "usage: amux type-keys [--wait ui=input-idle] [--timeout <duration>] [--hex] <keys>...",
+		},
+		{
+			name: "type-keys short help",
+			args: []string{"type-keys", "-h"},
+			want: "usage: amux type-keys [--wait ui=input-idle] [--timeout <duration>] [--hex] <keys>...",
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			out, code := runHermeticMain(t, tt.args...)
+			if code != 0 {
+				t.Fatalf("exit code = %d, want 0\n%s", code, out)
+			}
+			if !strings.Contains(out, tt.want) {
+				t.Fatalf("usage output = %q, want substring %q", out, tt.want)
+			}
+			if strings.Contains(out, "connecting to server") {
+				t.Fatalf("help flag should not dispatch to the server:\n%s", out)
+			}
+		})
+	}
+}
+
 func TestMainWaitUsage(t *testing.T) {
 	t.Parallel()
 
