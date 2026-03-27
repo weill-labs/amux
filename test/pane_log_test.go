@@ -3,6 +3,7 @@ package test
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -11,6 +12,62 @@ import (
 	serverpkg "github.com/weill-labs/amux/internal/server"
 	listingcmd "github.com/weill-labs/amux/internal/server/commands/listing"
 )
+
+func TestRefreshMetaUpdatesPaneCwdAndBranch(t *testing.T) {
+	t.Parallel()
+
+	h := newServerHarness(t)
+
+	repoDir := filepath.Join(h.home, "refresh-meta-repo")
+	if err := os.MkdirAll(repoDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(%q): %v", repoDir, err)
+	}
+	if out, err := exec.Command("git", "-C", repoDir, "init", "-b", "meta-branch").CombinedOutput(); err != nil {
+		t.Fatalf("git init repo: %v\n%s", err, out)
+	}
+	if out, err := exec.Command("git", "-C", repoDir, "config", "user.email", "amux-tests@example.com").CombinedOutput(); err != nil {
+		t.Fatalf("git config user.email: %v\n%s", err, out)
+	}
+	if out, err := exec.Command("git", "-C", repoDir, "config", "user.name", "amux tests").CombinedOutput(); err != nil {
+		t.Fatalf("git config user.name: %v\n%s", err, out)
+	}
+	if err := os.WriteFile(filepath.Join(repoDir, "README.md"), []byte("meta refresh\n"), 0o644); err != nil {
+		t.Fatalf("write repo file: %v", err)
+	}
+	if out, err := exec.Command("git", "-C", repoDir, "add", "README.md").CombinedOutput(); err != nil {
+		t.Fatalf("git add: %v\n%s", err, out)
+	}
+	if out, err := exec.Command("git", "-C", repoDir, "commit", "-m", "init").CombinedOutput(); err != nil {
+		t.Fatalf("git commit: %v\n%s", err, out)
+	}
+
+	h.sendKeys("pane-1", fmt.Sprintf("cd %q && echo META_READY", repoDir), "Enter")
+	h.waitFor("pane-1", "META_READY")
+	h.waitIdle("pane-1")
+
+	wantCwd := repoDir
+	if resolved, err := filepath.EvalSymlinks(repoDir); err == nil && resolved != "" {
+		wantCwd = resolved
+	}
+	wantListCwd := listingcmd.FormatListCwd(wantCwd, h.home, listingcmd.ListCwdWidth)
+
+	listOut := h.runCmd("list")
+	if strings.Contains(listOut, wantListCwd) || strings.Contains(listOut, "meta-branch") {
+		t.Fatalf("list reported pane metadata before refresh-meta:\n%s", listOut)
+	}
+
+	if out := strings.TrimSpace(h.runCmd("refresh-meta", "pane-1")); out != "" {
+		t.Fatalf("refresh-meta returned unexpected output: %q", out)
+	}
+
+	listOut = h.runCmd("list")
+	if !strings.Contains(listOut, wantListCwd) {
+		t.Fatalf("list missing refreshed cwd %q:\n%s", wantListCwd, listOut)
+	}
+	if !strings.Contains(listOut, "meta-branch") {
+		t.Fatalf("list missing refreshed git branch:\n%s", listOut)
+	}
+}
 
 func TestPaneLogCLI(t *testing.T) {
 	t.Parallel()
