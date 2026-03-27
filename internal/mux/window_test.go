@@ -1071,10 +1071,61 @@ func TestMovePaneErrorPaths(t *testing.T) {
 			t.Fatalf("split left column horizontal: %v", err)
 		}
 
-		if err := w.MovePane(1, 3, true); err == nil || !strings.Contains(err.Error(), "same root-level group") {
-			t.Fatalf("MovePane same branch = %v, want same root-level group", err)
+		if err := w.MovePane(3, 1, true); err != nil {
+			t.Fatalf("MovePane within same split group: %v", err)
+		}
+		if got := []uint32{
+			w.Root.Children[0].Children[0].Pane.ID,
+			w.Root.Children[0].Children[1].Pane.ID,
+		}; got[0] != 3 || got[1] != 1 {
+			t.Fatalf("left split group order = %v, want [3 1]", got)
 		}
 	})
+
+	t.Run("same root branch different split group", func(t *testing.T) {
+		t.Parallel()
+
+		w := NewWindow(fakePaneID(1), 120, 24)
+		if _, err := w.SplitRoot(SplitVertical, fakePaneID(2)); err != nil {
+			t.Fatalf("split root vertical: %v", err)
+		}
+		w.FocusPane(w.Root.Children[0].Pane)
+		if _, err := w.Split(SplitHorizontal, fakePaneID(3)); err != nil {
+			t.Fatalf("split left column horizontal: %v", err)
+		}
+		w.FocusPane(w.Root.Children[0].Children[1].Pane)
+		if _, err := w.Split(SplitVertical, fakePaneID(4)); err != nil {
+			t.Fatalf("split nested vertical: %v", err)
+		}
+
+		if err := w.MovePane(1, 4, true); err == nil || !strings.Contains(err.Error(), "same root-level group") {
+			t.Fatalf("MovePane same root branch different split group = %v, want same root-level group", err)
+		}
+	})
+}
+
+func TestMovePaneDownWithinSplitGroup(t *testing.T) {
+	t.Parallel()
+
+	p1 := fakePaneID(1)
+	w := NewWindow(p1, 80, 24)
+
+	p2 := fakePaneID(2)
+	if _, err := w.Split(SplitHorizontal, p2); err != nil {
+		t.Fatalf("split horizontal: %v", err)
+	}
+	p3 := fakePaneID(3)
+	if _, err := w.Split(SplitHorizontal, p3); err != nil {
+		t.Fatalf("split horizontal again: %v", err)
+	}
+
+	if err := w.MovePaneDown(1); err != nil {
+		t.Fatalf("MovePaneDown: %v", err)
+	}
+
+	if ids := collectPaneIDs(w); ids[0] != 2 || ids[1] != 1 || ids[2] != 3 {
+		t.Fatalf("after move-down: %v, want [2 1 3]", ids)
+	}
 }
 
 func TestMovePaneAutoUnzooms(t *testing.T) {

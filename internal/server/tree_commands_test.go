@@ -213,9 +213,18 @@ func TestQueuedCommandMoveErrorPaths(t *testing.T) {
 		t.Fatalf("splitQueuedCommandTestWindow: %v", err)
 	}
 
-	sameGroup := runTestCommand(t, srv, sess, "move", "pane-1", "--before", "pane-3")
-	if !strings.Contains(sameGroup.cmdErr, "same root-level group") {
-		t.Fatalf("move same group error = %q", sameGroup.cmdErr)
+	sameGroup := runTestCommand(t, srv, sess, "move", "pane-3", "--before", "pane-1")
+	if sameGroup.cmdErr != "" {
+		t.Fatalf("move same split group error = %q", sameGroup.cmdErr)
+	}
+	order := mustSessionQuery(t, sess, func(sess *Session) []uint32 {
+		return []uint32{
+			sess.Windows[0].Root.Children[0].Children[0].Pane.ID,
+			sess.Windows[0].Root.Children[0].Children[1].Pane.ID,
+		}
+	})
+	if order[0] != p3.ID || order[1] != p1.ID {
+		t.Fatalf("same-group order = %v, want [%d %d]", order, p3.ID, p1.ID)
 	}
 }
 
@@ -255,6 +264,49 @@ func TestQueuedCommandMoveToErrorPaths(t *testing.T) {
 	missingTarget := runTestCommand(t, srv, sess, "move-to", "pane-1", "missing")
 	if missingTarget.cmdErr != `pane "missing" not found` {
 		t.Fatalf("move-to missing target error = %q", missingTarget.cmdErr)
+	}
+}
+
+func TestQueuedCommandMoveUpDown(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	p1 := newTestPane(sess, 1, "pane-1")
+	w := mux.NewWindow(p1, 80, 23)
+	w.ID = 1
+	w.Name = "main"
+	w.FocusPane(p1)
+	p2 := newTestPane(sess, 2, "pane-2")
+	if _, err := w.Split(mux.SplitHorizontal, p2); err != nil {
+		t.Fatalf("Split horizontal: %v", err)
+	}
+	p3 := newTestPane(sess, 3, "pane-3")
+	if _, err := w.Split(mux.SplitHorizontal, p3); err != nil {
+		t.Fatalf("Split horizontal again: %v", err)
+	}
+	if err := setAttachTestLayout(sess, []*mux.Window{w}, w.ID, []*mux.Pane{p1, p2, p3}); err != nil {
+		t.Fatalf("setAttachTestLayout: %v", err)
+	}
+
+	moveDown := runTestCommand(t, srv, sess, "move-down", "pane-1")
+	if moveDown.cmdErr != "" {
+		t.Fatalf("move-down error = %q", moveDown.cmdErr)
+	}
+	moveUp := runTestCommand(t, srv, sess, "move-up", "pane-3")
+	if moveUp.cmdErr != "" {
+		t.Fatalf("move-up error = %q", moveUp.cmdErr)
+	}
+	order := mustSessionQuery(t, sess, func(sess *Session) []uint32 {
+		return []uint32{
+			sess.Windows[0].Root.Children[0].Pane.ID,
+			sess.Windows[0].Root.Children[1].Pane.ID,
+			sess.Windows[0].Root.Children[2].Pane.ID,
+		}
+	})
+	if order[0] != p3.ID || order[1] != p2.ID || order[2] != p1.ID {
+		t.Fatalf("move-up/down order = %v, want [%d %d %d]", order, p3.ID, p2.ID, p1.ID)
 	}
 }
 
