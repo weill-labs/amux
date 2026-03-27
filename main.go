@@ -194,6 +194,12 @@ func main() {
 		}
 		runSessionCommand("kill", args[1:])
 	case "send-keys":
+		for _, arg := range args[1:] {
+			if arg == "--help" || arg == "-h" {
+				fmt.Println("usage: amux send-keys <pane> [--wait ready] [--continue-known-dialogs] [--timeout <duration>] [--hex] <keys>...")
+				return
+			}
+		}
 		if len(args) < 3 {
 			fmt.Fprintf(os.Stderr, "usage: amux send-keys <pane> [--wait ready] [--continue-known-dialogs] [--timeout <duration>] [--hex] <keys>...\n")
 			os.Exit(1)
@@ -206,6 +212,12 @@ func main() {
 		}
 		runSessionCommand("broadcast", args[1:])
 	case "type-keys":
+		for _, arg := range args[1:] {
+			if arg == "--help" || arg == "-h" {
+				fmt.Println("usage: amux type-keys [--wait ui=input-idle] [--timeout <duration>] [--hex] <keys>...")
+				return
+			}
+		}
 		if len(args) < 2 {
 			fmt.Fprintf(os.Stderr, "usage: amux type-keys [--wait ui=input-idle] [--timeout <duration>] [--hex] <keys>...\n")
 			os.Exit(1)
