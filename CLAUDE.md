@@ -132,6 +132,12 @@ PR title and description are the permanent record of why a change was made. Writ
 
 Use matter-of-fact language. State what the PR does, not how good it is. Avoid vague qualifiers like "robust", "comprehensive", "elegant", or "production-ready". If a Linear issue exists, add `Closes LAB-NNN` at the bottom.
 
+### PR CI Ownership
+
+After opening a PR, run `scripts/watch-pr-ci.sh` once to wait for its required checks. For later updates to an open PR, prefer `scripts/push-and-watch-ci.sh` instead of bare `git push` so the CI watch step is not skipped.
+
+If CI fails, inspect the failed-check summary and failed-step logs from `scripts/watch-pr-ci.sh`, fix issues that plausibly come from your diff, rerun the relevant local tests, and push again. Repeat up to 3 attempts. If the failure looks flaky or unrelated to your change, say so explicitly with evidence instead of churning.
+
 ### Review Before Done
 
 After creating or updating a PR, run a review pass and a simplification pass before considering the work done. Claude Code gets hook reminders for this. Codex users should use the repo PR workflow skill or perform the steps explicitly.
