@@ -510,8 +510,6 @@ func TestCaptureJSONIncludesNestedPaneMeta(t *testing.T) {
 }
 
 func TestPaneMetaSurvivesReloadServer(t *testing.T) {
-	t.Parallel()
-
 	h := newAmuxHarness(t)
 
 	h.runCmd("set-meta", "pane-1", "task=ship", "branch=main", "pr=99")
