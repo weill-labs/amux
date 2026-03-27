@@ -5,9 +5,13 @@ description: >
   the user mentions amux panes, capturing pane output, delegating tasks to agents in
   panes, monitoring agent progress, typing keys into panes, or managing terminal
   layouts. Also trigger when AMUX_SESSION is set in the environment and the user
-  wants to interact with other panes or agents. Covers: JSON capture for structured
-  pane inspection, type-keys for delegating to agents (codex, claude, grok),
-  wait primitives for monitoring, and event streaming.
+  wants to interact with other panes or agents. Trigger phrases: "delegate to pane",
+  "send to pane", "tell pane-X", "check pane", "status of panes", "what are the
+  workers doing", "spawn a pane", "split pane", "create pane for", "worker status",
+  "agent status", "which pane is working on", "give me a status report",
+  "notify workers", "tell all panes". Covers: JSON capture for structured pane
+  inspection, send-keys for delegating to agents (codex, claude, grok), wait
+  primitives for monitoring, event streaming, and multi-pane orchestration workflows.
 ---
 
 # amux — Agent Orchestration Skill
@@ -117,9 +121,56 @@ amux next-window             # Next window
 amux prev-window             # Previous window
 ```
 
+## Quick Pane Overview
+
+Use `amux list` for a fast tabular view of all panes with metadata — faster than `capture --format json` when you just need to see who's working on what:
+
+```bash
+# Tabular overview: pane ID, name, host, branch, cwd, task, metadata (issues/PRs)
+amux list
+```
+
+This shows issue assignments (`issues=[LAB-XXX]`), PR numbers (`prs=[NNN]`), git branches, and CWDs at a glance. Use this before delegating to avoid assigning work to a pane that's already busy.
+
+## Worker Status Report
+
+To get a detailed status report across all worker panes:
+
+```bash
+# 1. Quick overview of assignments
+amux list
+
+# 2. For each pane, check scrollback for what it accomplished
+for pane in 47 51 54; do
+  echo "=== pane-$pane ==="
+  amux capture --history pane-$pane 2>/dev/null | tail -30
+  echo ""
+done
+```
+
+Look for: "Working (Xs)" = still active, tool calls/edits = progress, "Ran git push" / "gh pr create" = PR opened, idle prompt = finished or stalled.
+
 ## Delegating Tasks to Agents
 
-When delegating work to an agent (codex, claude, grok) running in a pane, follow this sequence to avoid garbled input:
+When delegating work to an agent (codex, claude, grok) running in a pane, follow this sequence:
+
+### 0. Check existing assignments first
+
+Before delegating, check which panes are already working on issues:
+
+```bash
+amux list   # Shows issues, PRs, branches for all panes
+```
+
+Avoid assigning work to a pane that's already busy with another issue.
+
+### 0b. Tag the pane with issue metadata
+
+```bash
+amux add-meta <pane> issue=LAB-XXX
+```
+
+Do this before sending the task so the pane is trackable.
 
 ### 1. Confirm the agent is ready
 
@@ -156,6 +207,15 @@ amux send-keys pane-31 --wait-ready --continue-known-dialogs \
 ```
 
 If you already ran `wait-ready`, you can also send the task with `type-keys` or plain `send-keys`.
+
+### 3b. Confirm the agent accepted the task
+
+```bash
+# Block until the agent starts working (look for "Working" in codex output)
+amux wait content pane-31 "Working" --timeout 15s
+```
+
+This replaces sleep+grep polling. If it times out, capture the pane to see what happened.
 
 ### 4. Monitor progress
 
@@ -283,16 +343,21 @@ env -u AMUX_SESSION -u TMUX go test ./...
 
 ## Prefer `send-keys` Over `type-keys` for Agent Delegation
 
-When sending prompts to agents (codex, claude), use `send-keys` — it sends the text and Enter in one call. `type-keys` goes through the client input pipeline which can be slower and introduce translation issues.
+When sending prompts to agents (codex, claude), use `send-keys` — it takes a pane target and sends directly to the PTY. `type-keys` sends to the **active pane only** (no pane argument) and goes through the client input pipeline.
 
 ```bash
-# Preferred — one call, fast, and readiness-aware
+# Preferred — targets a specific pane, fast, readiness-aware
 amux send-keys 32 --wait-ready "Fix the bug in auth.go" Enter
 
-# Also works but slower
-amux type-keys 32 'Fix the bug in auth.go'
-amux type-keys 32 Enter
+# WRONG — type-keys has no pane argument, sends to active pane
+amux type-keys 32 'Fix the bug in auth.go'   # "32" is sent as keystrokes!
+
+# type-keys is for the active pane only
+amux type-keys 'Fix the bug in auth.go'
+amux type-keys Enter
 ```
+
+**Common mistake:** `amux type-keys <pane> <text>` treats the pane number as keystroke text and sends everything to the active pane. Always use `send-keys` when targeting a specific pane.
 
 ## Prefer `wait-idle` Over `sleep` Loops
 
@@ -317,6 +382,97 @@ amux send-keys 32 "Nice work. One thing to optimize: the scan is slow because it
 ```
 
 This is useful for iterative delegation — give feedback, let the agent refine.
+
+## Spawning a New Agent for a Task
+
+When no free panes exist, split an existing one and start a new agent session:
+
+```bash
+# Split an existing pane to create a new one
+amux split <existing-pane> --horizontal
+
+# Tag, start codex, and delegate
+amux add-meta <new-pane> issue=LAB-XXX
+amux send-keys <new-pane> "codex --yolo" Enter
+amux wait content <new-pane> "model:" --timeout 15s   # Wait for codex to start
+amux send-keys <new-pane> "Fix LAB-XXX: description of the task. Branch from main, open a PR with Closes LAB-XXX."
+sleep 1
+amux send-keys <new-pane> Enter
+amux wait content <new-pane> "Working" --timeout 15s   # Confirm accepted
+```
+
+## Notifying Workers About CI/Merge Issues
+
+Check open PRs for failures, map them to panes, and notify:
+
+```bash
+# 1. Check PR status
+gh pr list --state open --json number,title,mergeable,statusCheckRollup \
+  --jq '.[] | select(.statusCheckRollup[] | .conclusion == "FAILURE") | {number, title, mergeable}'
+
+# 2. Find which pane owns each PR
+amux list   # Look at prs=[NNN] column
+
+# 3. Notify the worker
+amux send-keys <pane> "PR #NNN has failing CI tests. Fix the test failures, push, and verify CI goes green." Enter
+amux wait content <pane> "Working" --timeout 15s
+
+# For merge conflicts, add rebase instructions:
+amux send-keys <pane> "PR #NNN has merge conflicts with main. Rebase onto origin/main, resolve conflicts, push." Enter
+```
+
+## Reassigning Workers to New Tasks
+
+When workers finish a task and need new assignments, follow this sequence strictly. **Never skip the postmortem verification step** — `/clear` destroys context permanently.
+
+### 1. Verify postmortem completed
+
+Before clearing any worker, confirm it logged its postmortem:
+
+```bash
+# Check each worker's last lines for postmortem completion
+for pane in 47 51 54; do
+  echo "=== pane-$pane ==="
+  amux capture pane-$pane 2>/dev/null | tail -10
+  echo ""
+done
+```
+
+Look for: "Logged to ~/sync/postmortems/..." or a postmortem summary block. If a worker hasn't run its postmortem yet, send it the command and wait:
+
+```bash
+amux send-keys pane-47 '/postmortem' Enter
+amux wait-idle pane-47 --timeout 60s
+```
+
+### 2. Clear context
+
+Only after confirming postmortem completion:
+
+```bash
+for pane in 47 51 54; do
+  amux send-keys pane-$pane '/clear' Enter
+done
+```
+
+### 3. Assign new work by priority
+
+Tag metadata first, then send the task. Assign highest priority issues first:
+
+```bash
+# Tag and assign
+amux add-meta pane-47 issue=LAB-XXX
+amux send-keys pane-47 'Fix LAB-XXX: description. Branch from main, open a PR with Closes LAB-XXX.' Enter
+```
+
+### 4. Confirm workers accepted
+
+```bash
+for pane in 47 51 54; do
+  amux wait content pane-$pane "Working" --timeout 15s 2>/dev/null && \
+    echo "pane-$pane: ACCEPTED" || echo "pane-$pane: NOT STARTED"
+done
+```
 
 ## Pane References
 

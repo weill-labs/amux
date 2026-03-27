@@ -146,6 +146,17 @@ Prefer external review tooling like `codex review` when it returns promptly, but
 
 If a change in this repo is ready for review, open the PR proactively instead of asking whether to make one.
 
+### Automated Claude Review
+
+Every PR automatically receives a Claude code review via GitHub Actions (`.github/workflows/claude-review.yml`). After pushing a PR:
+
+1. **Wait for the Claude review** to appear as PR comments (usually within a few minutes).
+2. **Address all blocking issues** identified in the review before considering the PR done. Fix the code, push, and confirm the review comments are resolved.
+3. **Reply to each review comment** with what you did (`gh pr comment` or resolve the thread via the GraphQL API).
+4. If the review surfaces non-blocking suggestions, use your judgment — apply if they improve the code, otherwise note why you skipped them.
+
+Workers that open a PR and walk away without addressing review feedback are not done. The PR is done when CI is green AND review comments are resolved.
+
 ### User Handoffs
 
 Before stopping to wait for user input, suggest the next concrete action the user should take or approve. Do not end at "waiting on you" without a specific next step.
