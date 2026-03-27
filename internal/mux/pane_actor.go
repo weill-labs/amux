@@ -10,38 +10,68 @@ func (p *Pane) startActor() {
 		return
 	}
 	p.actorCommands = make(chan paneCommand)
+	p.actorDone = make(chan struct{})
 	go p.actorLoop()
 }
 
 func (p *Pane) actorLoop() {
+	defer close(p.actorDone)
 	for cmd := range p.actorCommands {
 		cmd.run()
 		close(cmd.done)
 	}
 }
 
-func (p *Pane) withActor(run func()) {
+func (p *Pane) stopActor() {
 	if p.actorCommands == nil {
+		return
+	}
+	close(p.actorCommands)
+	if p.actorDone != nil {
+		<-p.actorDone
+	}
+}
+
+func (p *Pane) withActor(run func()) {
+	ch := p.actorCommands
+	if ch == nil {
 		run()
 		return
 	}
 	done := make(chan struct{})
-	p.actorCommands <- paneCommand{run: run, done: done}
+	defer func() {
+		if recover() != nil {
+			if p.actorDone != nil {
+				<-p.actorDone
+			}
+			run()
+		}
+	}()
+	ch <- paneCommand{run: run, done: done}
 	<-done
 }
 
-func paneActorValue[T any](p *Pane, run func() T) T {
-	if p.actorCommands == nil {
+func paneActorValue[T any](p *Pane, run func() T) (value T) {
+	ch := p.actorCommands
+	if ch == nil {
 		return run()
 	}
 	done := make(chan struct{})
-	result := make(chan T, 1)
-	p.actorCommands <- paneCommand{
+	value = *new(T)
+	defer func() {
+		if recover() != nil {
+			if p.actorDone != nil {
+				<-p.actorDone
+			}
+			value = run()
+		}
+	}()
+	ch <- paneCommand{
 		run: func() {
-			result <- run()
+			value = run()
 		},
 		done: done,
 	}
 	<-done
-	return <-result
+	return value
 }

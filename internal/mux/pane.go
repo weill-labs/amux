@@ -50,6 +50,7 @@ type Pane struct {
 	process       *os.Process // set for restored panes (where cmd is nil)
 	emulator      TerminalEmulator
 	actorCommands chan paneCommand
+	actorDone     chan struct{}
 
 	outputSeq        atomic.Uint64
 	baseHistory      atomic.Pointer[paneBaseHistory]
@@ -719,9 +720,7 @@ func (p *Pane) ScrollbackLines() []string {
 
 // OutputSeq reports the latest live-output sequence applied to the emulator.
 func (p *Pane) OutputSeq() uint64 {
-	return paneActorValue(p, func() uint64 {
-		return p.outputSeq.Load()
-	})
+	return p.outputSeq.Load()
 }
 
 // SetRetainedHistory replaces the retained pre-attach/pre-reload history base
@@ -795,7 +794,14 @@ func (p *Pane) Close() error {
 			<-p.exitDone
 		}
 	}
-	return ptmxErr
+	p.stopActor()
+	emuErr := func() error {
+		if p.emulator == nil {
+			return nil
+		}
+		return p.emulator.Close()
+	}()
+	return errors.Join(ptmxErr, emuErr)
 }
 
 // NewProxyPaneWithScrollback creates a proxy pane with an explicit retained

@@ -112,13 +112,13 @@ func (r *Renderer) actorLoop(initial *rendererSnapshot, width, height int) {
 
 func withRendererActorValue[T any](r *Renderer, run func(*rendererActorState) T) T {
 	done := make(chan struct{})
-	result := make(chan T, 1)
+	value := *new(T)
 	r.commands <- rendererCommand{
 		run: func(st *rendererActorState) {
-			result <- run(st)
+			value = run(st)
 		},
 		done: done,
 	}
 	<-done
-	return <-result
+	return value
 }
