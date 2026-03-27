@@ -238,7 +238,7 @@ func (e paneExitEvent) handle(s *Session) {
 	// If the pane is in the undo stack (soft-closed), finalize it there
 	// instead of going through the normal removal path.
 	if pane := s.finalizeClosedPane(e.paneID); pane != nil {
-		_ = pane.Close()
+		s.closePaneAsync(pane)
 		return
 	}
 	s.handleFinalizedPaneRemoval(e.paneID, false, e.reason)
@@ -270,7 +270,7 @@ func (e undoExpiryEvent) handle(s *Session) {
 	}
 	pane := s.finalizeClosedPane(e.paneID)
 	if pane != nil {
-		_ = pane.Close()
+		s.closePaneAsync(pane)
 	}
 }
 
@@ -292,7 +292,7 @@ func (s *Session) handleFinalizedPaneRemoval(paneID uint32, closePane bool, reas
 		Reason:   reason,
 	})
 	if closePane {
-		_ = removed.pane.Close()
+		s.closePaneAsync(removed.pane)
 	}
 	if removed.sendExit {
 		s.broadcastNow(&Message{Type: MsgTypeExit})

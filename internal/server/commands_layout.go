@@ -156,9 +156,7 @@ func runSplit(ctx *CommandContext, keepFocus bool) {
 			_, err = w.SplitPaneWithOptions(targetPaneID, args.Dir, pane, opts)
 		}
 		if err != nil {
-			sess.removePane(pane.ID)
-			pane.Close()
-			return commandMutationResult{err: err}
+			return cleanupFailedPaneMutation(sess, pane, err)
 		}
 		return commandMutationResult{
 			output:          fmt.Sprintf("Split %s: new pane %s\n", dirName(args.Dir), pane.Meta.Name),
@@ -244,9 +242,7 @@ func runAddPane(ctx *CommandContext, keepFocus bool) {
 			}
 			sess.Panes = append(sess.Panes, pane)
 			if _, err := w.ApplySpiralAddPlan(snapshot.plan, pane, mux.SplitOptions{KeepFocus: keepFocus || w.ZoomedPaneID != 0}); err != nil {
-				sess.removePane(pane.ID)
-				pane.Close()
-				return commandMutationResult{err: err}
+				return cleanupFailedPaneMutation(sess, pane, err)
 			}
 			return commandMutationResult{
 				output:          fmt.Sprintf("Added remote pane %s @%s\n", pane.Meta.Name, args.HostName),
@@ -270,9 +266,7 @@ func runAddPane(ctx *CommandContext, keepFocus bool) {
 			return commandMutationResult{err: err}
 		}
 		if _, err := w.ApplySpiralAddPlan(snapshot.plan, pane, mux.SplitOptions{KeepFocus: keepFocus || w.ZoomedPaneID != 0}); err != nil {
-			sess.removePane(pane.ID)
-			pane.Close()
-			return commandMutationResult{err: err}
+			return cleanupFailedPaneMutation(sess, pane, err)
 		}
 		return commandMutationResult{
 			output:          fmt.Sprintf("Added pane %s\n", pane.Meta.Name),
@@ -377,9 +371,7 @@ func runSpawn(ctx *CommandContext, keepFocus bool) {
 		opts := mux.SplitOptions{KeepFocus: keepFocus || w.ZoomedPaneID != 0}
 		_, err = w.SplitWithOptions(mux.SplitVertical, pane, opts)
 		if err != nil {
-			sess.removePane(pane.ID)
-			pane.Close()
-			return commandMutationResult{err: err}
+			return cleanupFailedPaneMutation(sess, pane, err)
 		}
 		return commandMutationResult{
 			output:          fmt.Sprintf("Spawned %s in pane %d\n", args.Meta.Name, pane.ID),
