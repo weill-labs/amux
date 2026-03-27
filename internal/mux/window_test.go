@@ -1059,6 +1059,24 @@ func TestMovePaneErrorPaths(t *testing.T) {
 		}
 	})
 
+	t.Run("same pane is no-op", func(t *testing.T) {
+		t.Parallel()
+
+		w := NewWindow(fakePaneID(1), 80, 24)
+		if _, err := w.SplitRoot(SplitVertical, fakePaneID(2)); err != nil {
+			t.Fatalf("split root vertical: %v", err)
+		}
+
+		before := collectPaneIDs(w)
+		if err := w.MovePane(1, 1, true); err != nil {
+			t.Fatalf("MovePane same pane: %v", err)
+		}
+		after := collectPaneIDs(w)
+		if len(before) != len(after) || before[0] != after[0] || before[1] != after[1] {
+			t.Fatalf("same-pane move changed order: before=%v after=%v", before, after)
+		}
+	})
+
 	t.Run("same root branch", func(t *testing.T) {
 		t.Parallel()
 
@@ -1126,6 +1144,80 @@ func TestMovePaneDownWithinSplitGroup(t *testing.T) {
 	if ids := collectPaneIDs(w); ids[0] != 2 || ids[1] != 1 || ids[2] != 3 {
 		t.Fatalf("after move-down: %v, want [2 1 3]", ids)
 	}
+}
+
+func TestMovePaneWithinSameSplitGroupAutoUnzooms(t *testing.T) {
+	t.Parallel()
+
+	p1 := fakePaneID(1)
+	w := NewWindow(p1, 80, 24)
+
+	p2 := fakePaneID(2)
+	if _, err := w.Split(SplitHorizontal, p2); err != nil {
+		t.Fatalf("split horizontal: %v", err)
+	}
+
+	if err := w.Zoom(2); err != nil {
+		t.Fatalf("zoom pane-2: %v", err)
+	}
+	if err := w.MovePane(2, 1, true); err != nil {
+		t.Fatalf("MovePane same split group while zoomed: %v", err)
+	}
+	if w.ZoomedPaneID != 0 {
+		t.Fatalf("same-group move should auto-unzoom, got ZoomedPaneID=%d", w.ZoomedPaneID)
+	}
+	if ids := collectPaneIDs(w); ids[0] != 2 || ids[1] != 1 {
+		t.Fatalf("same-group move order = %v, want [2 1]", ids)
+	}
+}
+
+func TestMovePaneUpDownErrorPaths(t *testing.T) {
+	t.Parallel()
+
+	t.Run("pane is not in a split group", func(t *testing.T) {
+		t.Parallel()
+
+		w := NewWindow(fakePaneID(1), 80, 24)
+		if err := w.MovePaneUp(1); err == nil || !strings.Contains(err.Error(), "not in a split group") {
+			t.Fatalf("MovePaneUp without split group = %v, want split-group error", err)
+		}
+	})
+
+	t.Run("already first and last", func(t *testing.T) {
+		t.Parallel()
+
+		p1 := fakePaneID(1)
+		w := NewWindow(p1, 80, 24)
+		p2 := fakePaneID(2)
+		if _, err := w.Split(SplitHorizontal, p2); err != nil {
+			t.Fatalf("split horizontal: %v", err)
+		}
+
+		if err := w.MovePaneUp(1); err == nil || !strings.Contains(err.Error(), "already first in its split group") {
+			t.Fatalf("MovePaneUp first pane = %v, want already-first error", err)
+		}
+		if err := w.MovePaneDown(2); err == nil || !strings.Contains(err.Error(), "already last in its split group") {
+			t.Fatalf("MovePaneDown last pane = %v, want already-last error", err)
+		}
+	})
+
+	t.Run("lead pane is rejected", func(t *testing.T) {
+		t.Parallel()
+
+		p1 := fakePaneID(1)
+		w := NewWindow(p1, 80, 24)
+		p2 := fakePaneID(2)
+		if _, err := w.SplitRoot(SplitVertical, p2); err != nil {
+			t.Fatalf("split root vertical: %v", err)
+		}
+		if err := w.SetLead(1); err != nil {
+			t.Fatalf("SetLead: %v", err)
+		}
+
+		if err := w.MovePaneDown(1); err == nil || !strings.Contains(err.Error(), "cannot operate on lead pane") {
+			t.Fatalf("MovePaneDown lead pane = %v, want lead error", err)
+		}
+	})
 }
 
 func TestMovePaneAutoUnzooms(t *testing.T) {
