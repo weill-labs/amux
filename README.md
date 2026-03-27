@@ -275,6 +275,7 @@ All commands accept `-s <session>` to target a specific session. Panes are refer
 | `amux swap forward\|backward` | Swap active pane with neighbor |
 | `amux swap-tree <p1> <p2>` | Swap the root-level groups containing two panes |
 | `amux move <pane> --before\|--after <target>` | Move a pane's root-level group before or after another |
+| `amux move-to <pane> <target>` | Move one pane into the target pane's column, appending at the bottom |
 | `amux rotate [--reverse]` | Rotate pane positions |
 | `amux copy-mode [pane] [--wait ui=copy-mode-shown] [--timeout <duration>]` | Enter copy/scroll mode |
 | `amux set-meta <pane> key=value...` | Set single-value pane metadata (`task`, `branch`, `pr`) |
@@ -282,6 +283,7 @@ All commands accept `-s <session>` to target a specific session. Panes are refer
 | `amux rm-meta <pane> key=value...` | Remove pane metadata values (`pr=NUMBER`, `issue=ID`) |
 | `amux refresh-meta [pane]` | Refresh tracked PR/issue completion state (default: active pane) |
 `swap-tree` and `move` treat each pane ref as identifying the root-level group that contains that pane, so moving `pane-3` can move an entire column or row rather than only one leaf cell.
+`move-to` instead moves exactly one pane into the target pane's logical column and appends it to the bottom of that stack.
 `split`, `spawn`, and `add-pane` are pure layout mutations: they create the pane but do not change focus. Use `amux focus <pane|direction>` when you want a focus change explicitly. When the active pane is zoomed, these commands preserve the zoom and keep the focused pane unchanged.
 
 `add-pane` builds outward in a clockwise spiral. At 1, 4, 9, 16, ... panes the spiral canvas reaches a uniform `N x N` grid. When a lead pane is active, the lead column stays pinned on the left and `add-pane` spirals only within the right subtree.

@@ -1044,6 +1044,185 @@ func TestMovePaneAfter(t *testing.T) {
 	}
 }
 
+func TestMovePaneToColumnAcrossRootColumns(t *testing.T) {
+	t.Parallel()
+
+	p1 := fakePaneID(1)
+	w := NewWindow(p1, 120, 24)
+
+	p2 := fakePaneID(2)
+	if _, err := w.SplitRoot(SplitVertical, p2); err != nil {
+		t.Fatalf("split root vertical: %v", err)
+	}
+	p3 := fakePaneID(3)
+	if _, err := w.SplitRoot(SplitVertical, p3); err != nil {
+		t.Fatalf("split root vertical again: %v", err)
+	}
+
+	w.FocusPane(p1)
+	p4 := fakePaneID(4)
+	if _, err := w.Split(SplitHorizontal, p4); err != nil {
+		t.Fatalf("split left column horizontal: %v", err)
+	}
+
+	if err := w.MovePaneToColumn(4, 2); err != nil {
+		t.Fatalf("MovePaneToColumn: %v", err)
+	}
+
+	if got := w.Root.Children[0].FindPane(1); got == nil {
+		t.Fatal("left root child should contain pane-1 after extraction")
+	}
+	if got := w.Root.Children[1].FindPane(2); got == nil {
+		t.Fatal("middle root child should contain pane-2 after insertion")
+	}
+	if got := w.Root.Children[1].FindPane(4); got == nil {
+		t.Fatal("middle root child should contain moved pane-4")
+	}
+	if got := w.Root.Children[2].FindPane(3); got == nil {
+		t.Fatal("right root child should contain pane-3")
+	}
+
+	middle := w.Root.Children[1]
+	if middle.IsLeaf() || middle.Dir != SplitHorizontal {
+		t.Fatalf("target root child = %+v, want horizontal stack", middle)
+	}
+	if middle.Children[0].Pane != p2 || middle.Children[1].Pane != p4 {
+		t.Fatalf("target column child order = [%d %d], want [2 4]", middle.Children[0].Pane.ID, middle.Children[1].Pane.ID)
+	}
+	if w.ActivePane != p4 {
+		t.Fatalf("active pane = %v, want pane-4 pointer", w.ActivePane)
+	}
+}
+
+func TestMovePaneToColumnSameColumnMovesSourceToBottom(t *testing.T) {
+	t.Parallel()
+
+	p1 := fakePaneID(1)
+	w := NewWindow(p1, 80, 24)
+
+	p2 := fakePaneID(2)
+	if _, err := w.SplitRoot(SplitVertical, p2); err != nil {
+		t.Fatalf("split root vertical: %v", err)
+	}
+
+	w.FocusPane(p1)
+	p3 := fakePaneID(3)
+	if _, err := w.Split(SplitHorizontal, p3); err != nil {
+		t.Fatalf("split left column horizontal: %v", err)
+	}
+	p4 := fakePaneID(4)
+	if _, err := w.Split(SplitHorizontal, p4); err != nil {
+		t.Fatalf("split left column horizontal again: %v", err)
+	}
+
+	w.FocusPane(p2)
+	if err := w.MovePaneToColumn(1, 1); err != nil {
+		t.Fatalf("MovePaneToColumn same column: %v", err)
+	}
+
+	left := w.Root.Children[0]
+	if left.IsLeaf() || left.Dir != SplitHorizontal {
+		t.Fatalf("left root child = %+v, want horizontal stack", left)
+	}
+	if got := []uint32{left.Children[0].Pane.ID, left.Children[1].Pane.ID, left.Children[2].Pane.ID}; got[0] != 3 || got[1] != 4 || got[2] != 1 {
+		t.Fatalf("left column order = %v, want [3 4 1]", got)
+	}
+	if w.ActivePane != p2 {
+		t.Fatalf("active pane = %v, want pane-2 pointer", w.ActivePane)
+	}
+}
+
+func TestMovePaneToColumnSingleColumnReordersToBottom(t *testing.T) {
+	t.Parallel()
+
+	p1 := fakePaneID(1)
+	w := NewWindow(p1, 80, 24)
+
+	p2 := fakePaneID(2)
+	if _, err := w.Split(SplitHorizontal, p2); err != nil {
+		t.Fatalf("split horizontal: %v", err)
+	}
+	p3 := fakePaneID(3)
+	if _, err := w.Split(SplitHorizontal, p3); err != nil {
+		t.Fatalf("split horizontal again: %v", err)
+	}
+
+	if err := w.MovePaneToColumn(1, 1); err != nil {
+		t.Fatalf("MovePaneToColumn single column: %v", err)
+	}
+
+	if ids := collectPaneIDs(w); ids[0] != 2 || ids[1] != 3 || ids[2] != 1 {
+		t.Fatalf("single-column move order = %v, want [2 3 1]", ids)
+	}
+}
+
+func TestMovePaneToColumnAutoUnzooms(t *testing.T) {
+	t.Parallel()
+
+	p1 := fakePaneID(1)
+	w := NewWindow(p1, 80, 24)
+
+	p2 := fakePaneID(2)
+	if _, err := w.SplitRoot(SplitVertical, p2); err != nil {
+		t.Fatalf("split root vertical: %v", err)
+	}
+
+	if err := w.Zoom(2); err != nil {
+		t.Fatalf("zoom pane-2: %v", err)
+	}
+	if err := w.MovePaneToColumn(1, 2); err != nil {
+		t.Fatalf("MovePaneToColumn while zoomed: %v", err)
+	}
+	if w.ZoomedPaneID != 0 {
+		t.Fatalf("move-to should auto-unzoom, got ZoomedPaneID=%d", w.ZoomedPaneID)
+	}
+}
+
+func TestMovePaneToColumnErrorPaths(t *testing.T) {
+	t.Parallel()
+
+	t.Run("missing source pane", func(t *testing.T) {
+		t.Parallel()
+
+		w := NewWindow(fakePaneID(1), 80, 24)
+		if _, err := w.SplitRoot(SplitVertical, fakePaneID(2)); err != nil {
+			t.Fatalf("split root vertical: %v", err)
+		}
+		if err := w.MovePaneToColumn(99, 1); err == nil || !strings.Contains(err.Error(), "pane 99 not found") {
+			t.Fatalf("MovePaneToColumn missing source = %v, want pane not found", err)
+		}
+	})
+
+	t.Run("missing target pane", func(t *testing.T) {
+		t.Parallel()
+
+		w := NewWindow(fakePaneID(1), 80, 24)
+		if _, err := w.SplitRoot(SplitVertical, fakePaneID(2)); err != nil {
+			t.Fatalf("split root vertical: %v", err)
+		}
+		if err := w.MovePaneToColumn(1, 99); err == nil || !strings.Contains(err.Error(), "pane 99 not found") {
+			t.Fatalf("MovePaneToColumn missing target = %v, want pane not found", err)
+		}
+	})
+
+	t.Run("lead column boundary", func(t *testing.T) {
+		t.Parallel()
+
+		p1 := fakePaneID(1)
+		p2 := fakePaneID(2)
+		w := NewWindow(p1, 80, 24)
+		if _, err := w.SplitRoot(SplitVertical, p2); err != nil {
+			t.Fatalf("split root vertical: %v", err)
+		}
+		if err := w.SetLead(1); err != nil {
+			t.Fatalf("SetLead: %v", err)
+		}
+		if err := w.MovePaneToColumn(1, 2); err == nil || !strings.Contains(err.Error(), "lead column") {
+			t.Fatalf("MovePaneToColumn across lead boundary = %v, want lead-column error", err)
+		}
+	})
+}
+
 func TestSwapPaneForward(t *testing.T) {
 	t.Parallel()
 	p1 := fakePaneID(1)

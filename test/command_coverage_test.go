@@ -187,3 +187,13 @@ func TestMoveRejectsConflictingFlags(t *testing.T) {
 		t.Fatalf("expected move parser usage error, got: %s", out)
 	}
 }
+
+func TestMoveToUsage(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	out := h.runCmd("move-to", "pane-1")
+	if !strings.Contains(out, "usage: amux move-to <pane> <target>") {
+		t.Fatalf("expected move-to usage error, got: %s", out)
+	}
+}

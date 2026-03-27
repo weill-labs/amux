@@ -167,6 +167,12 @@ func main() {
 			os.Exit(1)
 		}
 		runSessionCommand("move", args[1:])
+	case "move-to":
+		if len(args) != 3 {
+			fmt.Fprintf(os.Stderr, "usage: amux move-to <pane> <target>\n")
+			os.Exit(1)
+		}
+		runSessionCommand("move-to", args[1:])
 	case "rotate":
 		runSessionCommand("rotate", args[1:])
 	case "resize-pane":
@@ -458,6 +464,8 @@ Usage:
   amux [-s session] move <pane> --before <target>
   amux [-s session] move <pane> --after <target>
                                        Move a pane's root-level group before or after another
+  amux [-s session] move-to <pane> <target>
+                                       Move one pane into another pane's column, appending at the bottom
   amux [-s session] rotate             Rotate pane positions forward
   amux [-s session] rotate --reverse   Rotate pane positions backward
   amux [-s session] reset <pane>       Clear pane history and reset terminal state
