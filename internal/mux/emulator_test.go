@@ -49,6 +49,40 @@ func TestVTEmulatorSize(t *testing.T) {
 	}
 }
 
+func TestVTEmulatorResizeWiderReflowsVisibleRows(t *testing.T) {
+	t.Parallel()
+
+	emu := NewVTEmulatorWithDrain(10, 4)
+	if _, err := emu.Write([]byte("\033[31m0123456789\033[32mabcdefghij")); err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+
+	before := EmulatorContentLines(emu)
+	if got := before[0]; got != "0123456789" {
+		t.Fatalf("before resize line 0 = %q, want %q", got, "0123456789")
+	}
+	if got := before[1]; got != "abcdefghij" {
+		t.Fatalf("before resize line 1 = %q, want %q", got, "abcdefghij")
+	}
+
+	emu.Resize(20, 4)
+
+	after := EmulatorContentLines(emu)
+	if got := after[0]; got != "0123456789abcdefghij" {
+		t.Fatalf("after widen line 0 = %q, want %q", got, "0123456789abcdefghij")
+	}
+	if got := after[1]; got != "" {
+		t.Fatalf("after widen line 1 = %q, want blank continuation row", got)
+	}
+
+	if cell := emu.CellAt(0, 0); cell == nil || cell.Content != "0" || cell.Style.Fg == nil {
+		t.Fatalf("cell (0,0) after widen = %+v, want styled leading cell", cell)
+	}
+	if cell := emu.CellAt(10, 0); cell == nil || cell.Content != "a" || cell.Style.Fg == nil {
+		t.Fatalf("cell (10,0) after widen = %+v, want styled reflowed cell", cell)
+	}
+}
+
 func TestVTEmulatorCursorPosition(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
