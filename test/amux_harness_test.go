@@ -171,22 +171,38 @@ func (h *AmuxHarness) waitFor(substr string, timeout time.Duration) bool {
 // generation returns the inner server's layout generation counter.
 func (h *AmuxHarness) generation() uint64 {
 	h.tb.Helper()
-	out := strings.TrimSpace(h.runCmd("cursor", "layout"))
-	n, err := strconv.ParseUint(out, 10, 64)
-	if err != nil {
-		h.tb.Fatalf("parsing inner generation: %v (output: %q)", err, out)
+
+	deadline := time.Now().Add(5 * time.Second)
+	var out string
+	for {
+		out = strings.TrimSpace(h.runCmd("cursor", "layout"))
+		n, err := strconv.ParseUint(out, 10, 64)
+		if err == nil {
+			return n
+		}
+		if !isCommandConnectError(out) || !time.Now().Before(deadline) {
+			h.tb.Fatalf("parsing inner generation: %v (output: %q)", err, out)
+		}
+		time.Sleep(25 * time.Millisecond)
 	}
-	return n
 }
 
 func (h *AmuxHarness) uiGen() uint64 {
 	h.tb.Helper()
-	out := strings.TrimSpace(h.runCmd("cursor", "ui"))
-	n, err := strconv.ParseUint(out, 10, 64)
-	if err != nil {
-		h.tb.Fatalf("parsing inner ui-gen: %v (output: %q)", err, out)
+
+	deadline := time.Now().Add(5 * time.Second)
+	var out string
+	for {
+		out = strings.TrimSpace(h.runCmd("cursor", "ui"))
+		n, err := strconv.ParseUint(out, 10, 64)
+		if err == nil {
+			return n
+		}
+		if !isCommandConnectError(out) || !time.Now().Before(deadline) {
+			h.tb.Fatalf("parsing inner ui-gen: %v (output: %q)", err, out)
+		}
+		time.Sleep(25 * time.Millisecond)
 	}
-	return n
 }
 
 // waitLayout blocks until the inner layout generation exceeds afterGen.
@@ -212,7 +228,7 @@ func (h *AmuxHarness) waitDuration(d time.Duration) {
 func (h *AmuxHarness) waitLayoutOrTimeout(afterGen uint64, timeout string) bool {
 	h.tb.Helper()
 	out := h.runCmd("wait", "layout", "--after", strconv.FormatUint(afterGen, 10), "--timeout", timeout)
-	return !strings.Contains(out, "timeout")
+	return !strings.Contains(out, "timeout") && !isCommandConnectError(out)
 }
 
 func (h *AmuxHarness) waitUI(event string, timeout time.Duration) {

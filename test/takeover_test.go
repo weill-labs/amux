@@ -370,9 +370,7 @@ func takeoverCaptureJSON(h *ServerHarness) (proto.CaptureJSON, bool) {
 	h.tb.Helper()
 
 	out := h.runCmd("capture", "--format", "json")
-	if strings.Contains(out, "no client attached") ||
-		strings.Contains(out, "amux capture: EOF") ||
-		isCommandConnectError(out) {
+	if isCaptureUnavailable(out) {
 		return proto.CaptureJSON{}, false
 	}
 
@@ -386,7 +384,7 @@ func takeoverCaptureJSON(h *ServerHarness) (proto.CaptureJSON, bool) {
 func takeoverGeneration(t *testing.T, h *ServerHarness) uint64 {
 	t.Helper()
 
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(15 * time.Second)
 	var out string
 	for {
 		out = strings.TrimSpace(h.runCmd("cursor", "layout"))

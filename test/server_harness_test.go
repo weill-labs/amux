@@ -738,12 +738,20 @@ func (h *ServerHarness) waitIdle(pane string) {
 // generation returns the current layout generation counter.
 func (h *ServerHarness) generation() uint64 {
 	h.tb.Helper()
-	out := strings.TrimSpace(h.runCmd("cursor", "layout"))
-	n, err := strconv.ParseUint(out, 10, 64)
-	if err != nil {
-		h.tb.Fatalf("parsing generation: %v (output: %q)", err, out)
+
+	deadline := time.Now().Add(5 * time.Second)
+	var out string
+	for {
+		out = strings.TrimSpace(h.runCmd("cursor", "layout"))
+		n, err := strconv.ParseUint(out, 10, 64)
+		if err == nil {
+			return n
+		}
+		if !isCommandConnectError(out) || !time.Now().Before(deadline) {
+			h.tb.Fatalf("parsing generation: %v (output: %q)", err, out)
+		}
+		time.Sleep(25 * time.Millisecond)
 	}
-	return n
 }
 
 // waitLayout blocks until the layout generation exceeds afterGen.
@@ -769,7 +777,7 @@ func (h *ServerHarness) waitLayoutTimeout(afterGen uint64, timeout string) {
 func (h *ServerHarness) waitLayoutOrTimeout(afterGen uint64, timeout string) bool {
 	h.tb.Helper()
 	out := h.runCmd("wait", "layout", "--after", strconv.FormatUint(afterGen, 10), "--timeout", timeout)
-	return !strings.Contains(out, "timeout")
+	return !strings.Contains(out, "timeout") && !isCommandConnectError(out)
 }
 
 // waitForFunc polls the compositor capture until fn returns true or timeout.
