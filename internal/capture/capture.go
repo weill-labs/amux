@@ -131,6 +131,7 @@ type PaneInput struct {
 	Host          string
 	Task          string
 	Color         string
+	ColumnIndex   int
 	ConnStatus    string
 	Cwd           string
 	GitBranch     string
@@ -145,14 +146,15 @@ type PaneInput struct {
 // BuildPane builds the common proto.CapturePane shape shared by both capture paths.
 func BuildPane(input PaneInput, agentStatus map[uint32]proto.PaneAgentStatus) proto.CapturePane {
 	cp := proto.CapturePane{
-		ID:     input.ID,
-		Name:   input.Name,
-		Active: input.Active,
-		Lead:   input.Lead,
-		Zoomed: input.Zoomed,
-		Host:   input.Host,
-		Task:   input.Task,
-		Color:  input.Color,
+		ID:          input.ID,
+		Name:        input.Name,
+		Active:      input.Active,
+		Lead:        input.Lead,
+		Zoomed:      input.Zoomed,
+		Host:        input.Host,
+		Task:        input.Task,
+		Color:       input.Color,
+		ColumnIndex: input.ColumnIndex,
 		Meta: proto.CaptureMeta{
 			Task:          input.Task,
 			GitBranch:     input.GitBranch,

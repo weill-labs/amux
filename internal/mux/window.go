@@ -703,6 +703,36 @@ func (w *Window) rootChildForPaneID(paneID uint32) (*LayoutCell, int, error) {
 	return cell, cell.IndexInParent(), nil
 }
 
+// ColumnIndexForPaneID reports which top-level vertical split column contains
+// paneID. When a lead pane is anchored, it is always column 0 and the logical
+// root columns are offset to 1, 2, ...
+func (w *Window) ColumnIndexForPaneID(paneID uint32) (int, error) {
+	if w == nil || w.Root == nil {
+		return 0, fmt.Errorf("window has no layout")
+	}
+	if w.Root.FindPane(paneID) == nil {
+		return 0, fmt.Errorf("pane %d not found", paneID)
+	}
+	if w.IsLeadPane(paneID) {
+		return 0, nil
+	}
+
+	columnBase := 0
+	root := w.logicalRoot()
+	if w.hasAnchoredLead() {
+		columnBase = 1
+	}
+	if root == nil || root.IsLeaf() || root.Dir != SplitVertical {
+		return columnBase, nil
+	}
+
+	_, idx, err := w.rootChildForPaneID(paneID)
+	if err != nil {
+		return 0, err
+	}
+	return columnBase + idx, nil
+}
+
 func (w *Window) columnContainerForPaneID(paneID uint32) (*LayoutCell, error) {
 	if w.Root == nil {
 		return nil, fmt.Errorf("window has no layout")

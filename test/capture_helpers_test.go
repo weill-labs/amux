@@ -39,6 +39,13 @@ func jsonPaneFor(tb testing.TB, capture proto.CaptureJSON, name string) proto.Ca
 	return proto.CapturePane{}
 }
 
+func assertJSONPaneColumnIndex(tb testing.TB, capture proto.CaptureJSON, name string, want int) {
+	tb.Helper()
+	if got := jsonPaneFor(tb, capture, name).ColumnIndex; got != want {
+		tb.Fatalf("%s column_index = %d, want %d", name, got, want)
+	}
+}
+
 func activePaneNameFor(tb testing.TB, capture proto.CaptureJSON) string {
 	tb.Helper()
 	for _, p := range capture.Panes {

@@ -16,7 +16,7 @@ func TestChooseWindowShowsModalAndSelectsWindow(t *testing.T) {
 	h.runCmd("new-window", "--name", "logs")
 	h.runCmd("select-window", "1")
 
-	h.sendKeys("C-a", "w")
+	h.runCmd("type-keys", "C-a", "w")
 	if !h.waitFor("choose-window", 3*time.Second) || !h.waitFor("2:logs", 3*time.Second) {
 		t.Fatalf("expected choose-window modal, got:\n%s", h.captureOuter())
 	}
@@ -27,7 +27,7 @@ func TestChooseWindowShowsModalAndSelectsWindow(t *testing.T) {
 	}
 
 	gen := h.generation()
-	h.sendKeys("l", "o", "g", "s", "Enter")
+	h.runCmd("type-keys", "l", "o", "g", "s", "Enter")
 	h.waitLayout(gen)
 
 	if got := h.captureJSON().Window.Name; got != "logs" {
@@ -50,13 +50,13 @@ func TestChooseTreeFocusesPaneAcrossWindows(t *testing.T) {
 	h.runCmd("new-window", "--name", "logs")
 	h.runCmd("select-window", "1")
 
-	h.sendKeys("C-a", "s")
+	h.runCmd("type-keys", "C-a", "s")
 	if !h.waitFor("choose-tree", 3*time.Second) || !h.waitFor("2:logs", 3*time.Second) {
 		t.Fatalf("expected choose-tree modal, got:\n%s", h.captureOuter())
 	}
 
 	gen = h.generation()
-	h.sendKeys("p", "a", "n", "e", "-", "3", "Enter")
+	h.runCmd("type-keys", "p", "a", "n", "e", "-", "3", "Enter")
 	h.waitLayout(gen)
 
 	if got := h.activePaneName(); got != "pane-3" {
@@ -75,17 +75,17 @@ func TestChooserDismissDoesNotLeakInput(t *testing.T) {
 	h.runCmd("new-window", "--name", "logs")
 	h.runCmd("select-window", "1")
 
-	h.sendKeys("C-a", "w")
+	h.runCmd("type-keys", "C-a", "w")
 	if !h.waitFor("choose-window", 3*time.Second) {
 		t.Fatalf("expected choose-window modal, got:\n%s", h.captureOuter())
 	}
 
-	h.sendKeys("l", "o", "g", "s", "Escape")
+	h.runCmd("type-keys", "l", "o", "g", "s", "Escape")
 	if !waitForOuterGone(h, "choose-window", 3*time.Second) {
 		t.Fatalf("expected chooser to dismiss\nScreen:\n%s", h.captureOuter())
 	}
 
-	h.sendKeys("Enter")
+	h.runCmd("type-keys", "Enter")
 	outer := h.captureOuter()
 	if strings.Contains(outer, "command not found") {
 		t.Fatalf("chooser input leaked into the shell, got:\n%s", outer)

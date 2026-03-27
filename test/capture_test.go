@@ -213,6 +213,29 @@ func TestCapturePaneAfterKillAndRespawnWithoutAttachedClient(t *testing.T) {
 	}
 }
 
+func TestCapturePaneJSONColumnIndexWithoutAttachedClient(t *testing.T) {
+	t.Parallel()
+	h := newServerHarnessPersistent(t)
+
+	h.splitV()
+	setLead(t, h, "pane-1")
+	gen := h.generation()
+	h.runCmd("split", "pane-1", "root", "v")
+	h.waitLayout(gen)
+
+	h.client.close()
+	h.client = nil
+
+	out := h.runCmd("capture", "--format", "json", "pane-3")
+	var pane proto.CapturePane
+	if err := json.Unmarshal([]byte(out), &pane); err != nil {
+		t.Fatalf("json.Unmarshal: %v\noutput:\n%s", err, out)
+	}
+	if got := pane.ColumnIndex; got != 2 {
+		t.Fatalf("pane-3 column_index = %d, want 2", got)
+	}
+}
+
 func TestCapturePaneHistoryRejectsInvalidFlags(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)

@@ -25,8 +25,8 @@ func twoPane80x23() *proto.LayoutSnapshot {
 		},
 	}
 	panes := []proto.PaneSnapshot{
-		{ID: 1, Name: "pane-1", Host: "local", Color: "f5e0dc"},
-		{ID: 2, Name: "pane-2", Host: "local", Color: "f2cdcd"},
+		{ID: 1, Name: "pane-1", Host: "local", Color: "f5e0dc", ColumnIndex: 0},
+		{ID: 2, Name: "pane-2", Host: "local", Color: "f2cdcd", ColumnIndex: 1},
 	}
 	return &proto.LayoutSnapshot{
 		SessionName:  "test",
@@ -55,9 +55,9 @@ func threePane80x23() *proto.LayoutSnapshot {
 		},
 	}
 	panes := []proto.PaneSnapshot{
-		{ID: 1, Name: "pane-1", Host: "local", Color: "f5e0dc"},
-		{ID: 2, Name: "pane-2", Host: "local", Color: "f2cdcd"},
-		{ID: 3, Name: "pane-3", Host: "local", Color: "cba6f7"},
+		{ID: 1, Name: "pane-1", Host: "local", Color: "f5e0dc", ColumnIndex: 0},
+		{ID: 2, Name: "pane-2", Host: "local", Color: "f2cdcd", ColumnIndex: 1},
+		{ID: 3, Name: "pane-3", Host: "local", Color: "cba6f7", ColumnIndex: 2},
 	}
 	return &proto.LayoutSnapshot{
 		SessionName:  "test",
@@ -89,7 +89,7 @@ func singlePane20xN(height int) *proto.LayoutSnapshot {
 		IsLeaf: true, Dir: -1, PaneID: 1,
 	}
 	panes := []proto.PaneSnapshot{
-		{ID: 1, Name: "pane-1", Host: "local", Color: "f5e0dc"},
+		{ID: 1, Name: "pane-1", Host: "local", Color: "f5e0dc", ColumnIndex: 0},
 	}
 	return &proto.LayoutSnapshot{
 		SessionName:  "test",

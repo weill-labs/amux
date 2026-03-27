@@ -284,3 +284,58 @@ func TestSnapshotRoundTrip_LeadPaneID(t *testing.T) {
 		t.Errorf("rebuilt from WindowSnapshot LeadPaneID = %d, want %d", rebuiltW.LeadPaneID, p1.ID)
 	}
 }
+
+func TestSnapshotLayoutIncludesColumnIndex(t *testing.T) {
+	t.Parallel()
+
+	t.Run("top-level columns", func(t *testing.T) {
+		t.Parallel()
+
+		p1 := &Pane{ID: 1, Meta: PaneMeta{Name: "pane-1", Host: "local", Color: "f38ba8"}}
+		p2 := &Pane{ID: 2, Meta: PaneMeta{Name: "pane-2", Host: "local", Color: "a6e3a1"}}
+		p3 := &Pane{ID: 3, Meta: PaneMeta{Name: "pane-3", Host: "local", Color: "cba6f7"}}
+
+		w := NewWindow(p1, 80, 24)
+		if _, err := w.SplitRoot(SplitVertical, p2); err != nil {
+			t.Fatalf("SplitRoot: %v", err)
+		}
+		if _, err := w.SplitPaneWithOptions(p1.ID, SplitHorizontal, p3, SplitOptions{}); err != nil {
+			t.Fatalf("SplitPaneWithOptions: %v", err)
+		}
+
+		snap := w.SnapshotLayout("test")
+		want := map[uint32]int{1: 0, 2: 1, 3: 0}
+		for _, pane := range snap.Panes {
+			if got, ok := want[pane.ID]; ok && pane.ColumnIndex != got {
+				t.Fatalf("pane-%d column_index = %d, want %d", pane.ID, pane.ColumnIndex, got)
+			}
+		}
+	})
+
+	t.Run("lead layout offsets logical root columns", func(t *testing.T) {
+		t.Parallel()
+
+		p1 := &Pane{ID: 1, Meta: PaneMeta{Name: "pane-1", Host: "local", Color: "f38ba8"}}
+		p2 := &Pane{ID: 2, Meta: PaneMeta{Name: "pane-2", Host: "local", Color: "a6e3a1"}}
+		p3 := &Pane{ID: 3, Meta: PaneMeta{Name: "pane-3", Host: "local", Color: "cba6f7"}}
+
+		w := NewWindow(p1, 80, 24)
+		if _, err := w.SplitRoot(SplitVertical, p2); err != nil {
+			t.Fatalf("SplitRoot: %v", err)
+		}
+		if err := w.SetLead(p1.ID); err != nil {
+			t.Fatalf("SetLead: %v", err)
+		}
+		if _, err := w.SplitRoot(SplitVertical, p3); err != nil {
+			t.Fatalf("SplitRoot after lead: %v", err)
+		}
+
+		snap := w.SnapshotLayout("test")
+		want := map[uint32]int{1: 0, 2: 1, 3: 2}
+		for _, pane := range snap.Panes {
+			if got, ok := want[pane.ID]; ok && pane.ColumnIndex != got {
+				t.Fatalf("pane-%d column_index = %d, want %d", pane.ID, pane.ColumnIndex, got)
+			}
+		}
+	})
+}

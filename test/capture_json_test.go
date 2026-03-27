@@ -267,6 +267,40 @@ func TestCaptureJSON_PreservesGraphemeClusters(t *testing.T) {
 	}
 }
 
+func TestCaptureJSON_ColumnIndex(t *testing.T) {
+	t.Parallel()
+
+	t.Run("top-level columns", func(t *testing.T) {
+		t.Parallel()
+		h := newServerHarness(t)
+
+		h.splitV()
+		h.runCmd("focus", "pane-1")
+		h.splitH()
+
+		capture := h.captureJSON()
+		assertJSONPaneColumnIndex(t, capture, "pane-1", 0)
+		assertJSONPaneColumnIndex(t, capture, "pane-2", 1)
+		assertJSONPaneColumnIndex(t, capture, "pane-3", 0)
+	})
+
+	t.Run("lead layout offsets logical root columns", func(t *testing.T) {
+		t.Parallel()
+		h := newServerHarness(t)
+
+		h.splitV()
+		setLead(t, h, "pane-1")
+		gen := h.generation()
+		h.runCmd("split", "pane-1", "root", "v")
+		h.waitLayout(gen)
+
+		capture := h.captureJSON()
+		assertJSONPaneColumnIndex(t, capture, "pane-1", 0)
+		assertJSONPaneColumnIndex(t, capture, "pane-2", 1)
+		assertJSONPaneColumnIndex(t, capture, "pane-3", 2)
+	})
+}
+
 func TestCaptureJSON_AgentStatus_Busy(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)
