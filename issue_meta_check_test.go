@@ -129,6 +129,7 @@ func TestSyncPanePRMetaScriptAddsCurrentIssueAndPR(t *testing.T) {
 	t.Parallel()
 
 	tempDir := t.TempDir()
+	copyIssueMetaFixture(t, tempDir, "scripts/sync-pane-pr-meta.sh")
 	logPath := filepath.Join(tempDir, "amux.log")
 	amuxPath := filepath.Join(tempDir, "amux")
 	if err := os.WriteFile(amuxPath, []byte(`#!/bin/sh
@@ -155,8 +156,8 @@ printf '422\n'
 		t.Fatalf("write fake gh: %v", err)
 	}
 
-	cmd := exec.Command("bash", "scripts/sync-pane-pr-meta.sh")
-	cmd.Dir = "."
+	cmd := exec.Command("bash", filepath.Join(tempDir, "scripts/sync-pane-pr-meta.sh"))
+	cmd.Dir = tempDir
 	cmd.Env = issueMetaScriptEnv(tempDir, "FAKE_AMUX_LOG="+logPath)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
