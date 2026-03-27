@@ -256,16 +256,6 @@ func (e paneCleanupTimeoutEvent) handle(s *Session) {
 	s.handleFinalizedPaneRemoval(e.paneID, true, "cleanup timeout")
 }
 
-type exitUnattachedCheckEvent struct{}
-
-func (e exitUnattachedCheckEvent) handle(s *Session) {
-	s.stopExitUnattachedTimer()
-	if s.exitServer == nil || !s.exitServer.Env.ExitUnattached || !s.hadClient || s.shutdown.Load() || len(s.clients) != 0 {
-		return
-	}
-	s.wantShutdown = true
-}
-
 type undoExpiryEvent struct {
 	paneID uint32
 }

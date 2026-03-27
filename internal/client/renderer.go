@@ -123,7 +123,6 @@ func (r *Renderer) HandleLayout(snap *proto.LayoutSnapshot) bool {
 			// max-size snapshot.
 			next.layout.ResizeAll(next.width, clientLayoutH)
 		}
-		normalizeMinimizedLayout(next.layout, next.paneInfo)
 		r.resizeSnapshotEmulators(next, nextEmulators)
 
 		st.compositor.SetSessionName(snap.SessionName)
@@ -176,7 +175,6 @@ func (r *Renderer) Resize(width, height int) {
 			next.layout = mux.CloneLayout(prev.layout)
 			layoutH := height - render.GlobalBarHeight
 			next.layout.ResizeAll(width, layoutH)
-			normalizeMinimizedLayout(next.layout, next.paneInfo)
 		}
 		st.compositor.Resize(width, height)
 		r.resizeSnapshotEmulators(&next, st.emulators)
@@ -498,24 +496,11 @@ func (r *Renderer) mergeOverlay(snap *rendererSnapshot, overlay render.OverlaySt
 	return overlay
 }
 
-func normalizeMinimizedLayout(root *mux.LayoutCell, paneInfo map[uint32]proto.PaneSnapshot) {
-	if root == nil {
-		return
-	}
-	root.NormalizeMinimizedHeights(func(c *mux.LayoutCell) bool {
-		info, ok := paneInfo[c.CellPaneID()]
-		return ok && info.Minimized
-	})
-}
-
 func (r *Renderer) resizeSnapshotEmulators(next *rendererSnapshot, emulators map[uint32]mux.TerminalEmulator) {
 	if next.layout != nil {
 		next.layout.Walk(func(cell *mux.LayoutCell) {
 			emu := emulators[cell.PaneID]
 			if emu == nil {
-				return
-			}
-			if info, ok := next.paneInfo[cell.PaneID]; ok && info.Minimized {
 				return
 			}
 			if cell.PaneID == next.zoomedPaneID {

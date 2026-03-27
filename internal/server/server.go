@@ -63,10 +63,9 @@ type Session struct {
 	undo *undoManager
 
 	// Configurable timing — zero values use defaults. Tests inject short durations.
-	VTIdleSettle            time.Duration // default: 2s
-	UndoGracePeriod         time.Duration // default: 30s
-	ExitUnattachedGrace     time.Duration // default: 500ms
-	Clock                   Clock         // nil uses RealClock
+	VTIdleSettle    time.Duration // default: 2s
+	UndoGracePeriod time.Duration // default: 30s
+	Clock           Clock         // nil uses RealClock
 
 	// Internal capture timing overrides. Zero values use defaults.
 	// Tests inject short timings here instead of mutating package globals.
@@ -108,9 +107,8 @@ type Session struct {
 
 	// Exit-unattached: server exits when all clients disconnect after
 	// at least one has connected. Used by test harness to avoid orphans.
-	hadClient           bool    // true after first interactive client attaches
-	exitServer          *Server // back-reference to trigger shutdown
-	exitUnattachedTimer *time.Timer
+	hadClient  bool    // true after first interactive client attaches
+	exitServer *Server // back-reference to trigger shutdown
 
 	// wantShutdown is set by event handlers that want the server to exit
 	// (last client disconnected, last pane exited). The event loop checks
@@ -136,7 +134,6 @@ func (s *Session) vtIdleSettle() time.Duration {
 
 // DefaultUndoGracePeriod is how long a soft-closed pane stays undoable.
 const DefaultUndoGracePeriod = 30 * time.Second
-const DefaultExitUnattachedGrace = 500 * time.Millisecond
 
 func (s *Session) undoGracePeriod() time.Duration {
 	if s.UndoGracePeriod != 0 {
@@ -149,20 +146,6 @@ type captureTimingConfig struct {
 	attachMaxRetries int
 	attachRetryDelay time.Duration
 	responseTimeout  time.Duration
-
-func (s *Session) exitUnattachedGrace() time.Duration {
-	if s.ExitUnattachedGrace != 0 {
-		return s.ExitUnattachedGrace
-	}
-	return DefaultExitUnattachedGrace
-}
-
-func (s *Session) stopExitUnattachedTimer() {
-	if s.exitUnattachedTimer == nil {
-		return
-	}
-	s.exitUnattachedTimer.Stop()
-	s.exitUnattachedTimer = nil
 }
 
 func (s *Session) captureAttachMaxRetries() int {
@@ -362,12 +345,7 @@ func (s *Session) removeClientWithLayout(cc *clientConn, broadcastLayout bool) {
 	shouldExit := s.exitServer != nil && s.exitServer.Env.ExitUnattached && s.hadClient && remainingClients == 0 && !s.shutdown.Load()
 	s.recalcSize()
 	if shouldExit {
-		s.stopExitUnattachedTimer()
-		s.exitUnattachedTimer = time.AfterFunc(s.exitUnattachedGrace(), func() {
-			s.enqueueEvent(exitUnattachedCheckEvent{})
-		})
-	} else {
-		s.stopExitUnattachedTimer()
+		s.wantShutdown = true
 	}
 	s.broadcastLayoutNow()
 }
@@ -657,7 +635,6 @@ func (s *Server) shutdown() {
 
 	for _, sess := range s.sessions {
 		sess.shutdown.Store(true)
-		sess.stopExitUnattachedTimer()
 
 		if sess.sessionEventStop != nil {
 			close(sess.sessionEventStop)
