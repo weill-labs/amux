@@ -87,6 +87,47 @@ func TestVTEmulatorResizeWiderReflowsVisibleRows(t *testing.T) {
 	}
 }
 
+func TestVTEmulatorResizeWiderPreservesWideCharContinuations(t *testing.T) {
+	t.Parallel()
+
+	emu := NewVTEmulatorWithDrain(4, 4)
+	if _, err := emu.Write([]byte("中文")); err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+
+	emu.Resize(8, 4)
+
+	after := EmulatorContentLines(emu)
+	if got := after[0]; got != "中文" {
+		t.Fatalf("after widen line 0 = %q, want %q", got, "中文")
+	}
+	if got := after[1]; got != "" {
+		t.Fatalf("after widen line 1 = %q, want blank continuation row", got)
+	}
+
+	tests := []struct {
+		col         int
+		wantContent string
+		wantWidth   int
+	}{
+		{col: 0, wantContent: "中", wantWidth: 2},
+		{col: 1, wantContent: "", wantWidth: 0},
+		{col: 2, wantContent: "文", wantWidth: 2},
+		{col: 3, wantContent: "", wantWidth: 0},
+	}
+
+	for _, tt := range tests {
+		cell := emu.CellAt(tt.col, 0)
+		if cell == nil {
+			t.Fatalf("CellAt(%d, 0) = nil, want width %d cell", tt.col, tt.wantWidth)
+		}
+		if cell.Content != tt.wantContent || cell.Width != tt.wantWidth {
+			t.Fatalf("CellAt(%d, 0) = {content:%q width:%d}, want {content:%q width:%d}",
+				tt.col, cell.Content, cell.Width, tt.wantContent, tt.wantWidth)
+		}
+	}
+}
+
 func TestVTEmulatorCursorPosition(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
