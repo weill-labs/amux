@@ -48,22 +48,22 @@ func TestMainKeyCommandsHelpFlagsPrintUsage(t *testing.T) {
 		{
 			name: "send-keys long help",
 			args: []string{"send-keys", "pane-1", "--help"},
-			want: "usage: amux send-keys <pane> [--wait ready] [--continue-known-dialogs] [--timeout <duration>] [--hex] <keys>...",
+			want: "usage: amux send-keys <pane> [--wait ready|ui=input-idle] [--continue-known-dialogs] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>...",
 		},
 		{
 			name: "send-keys short help",
 			args: []string{"send-keys", "pane-1", "-h"},
-			want: "usage: amux send-keys <pane> [--wait ready] [--continue-known-dialogs] [--timeout <duration>] [--hex] <keys>...",
+			want: "usage: amux send-keys <pane> [--wait ready|ui=input-idle] [--continue-known-dialogs] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>...",
 		},
 		{
 			name: "type-keys long help",
 			args: []string{"type-keys", "--help"},
-			want: "usage: amux type-keys [--wait ui=input-idle] [--timeout <duration>] [--hex] <keys>...",
+			want: "usage: amux type-keys [pane] [--wait ui=input-idle] [--timeout <duration>] [--hex] <keys>...",
 		},
 		{
 			name: "type-keys short help",
 			args: []string{"type-keys", "-h"},
-			want: "usage: amux type-keys [--wait ui=input-idle] [--timeout <duration>] [--hex] <keys>...",
+			want: "usage: amux type-keys [pane] [--wait ui=input-idle] [--timeout <duration>] [--hex] <keys>...",
 		},
 	}
 
