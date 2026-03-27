@@ -1,6 +1,7 @@
 package diffcoverage
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
@@ -144,6 +145,163 @@ func TestResultPercent(t *testing.T) {
 
 			if got := tt.result.Percent(); got != tt.want {
 				t.Fatalf("Percent() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestAnalyze(t *testing.T) {
+	t.Parallel()
+
+	profilePath := t.TempDir() + "/coverage.out"
+	if err := os.WriteFile(profilePath, []byte("mode: atomic\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(%s): %v", profilePath, err)
+	}
+
+	result, err := Analyze("HEAD", profilePath, "github.com/weill-labs/amux")
+	if err != nil {
+		t.Fatalf("Analyze() error = %v", err)
+	}
+	if result.ExecutableLines != 0 {
+		t.Fatalf("ExecutableLines = %d, want 0", result.ExecutableLines)
+	}
+
+	_, err = Analyze("refs/heads/does-not-exist", profilePath, "github.com/weill-labs/amux")
+	if err == nil || !strings.Contains(err.Error(), "git diff against refs/heads/does-not-exist") {
+		t.Fatalf("Analyze() error = %v, want missing ref error", err)
+	}
+
+	_, err = Analyze("HEAD", profilePath+".missing", "github.com/weill-labs/amux")
+	if err == nil || !strings.Contains(err.Error(), "read "+profilePath+".missing") {
+		t.Fatalf("Analyze() error = %v, want missing profile error", err)
+	}
+}
+
+func TestAnalyzeContentsErrors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		diff    string
+		profile string
+		wantErr string
+	}{
+		{
+			name: "invalid diff hunk",
+			diff: strings.TrimSpace(`
+diff --git a/internal/server/example.go b/internal/server/example.go
+--- a/internal/server/example.go
++++ b/internal/server/example.go
+@@ bad @@
++func example() {}
+`),
+			profile: "mode: atomic\n",
+			wantErr: `parse diff hunk: "@@ bad @@"`,
+		},
+		{
+			name: "invalid profile line",
+			diff: strings.TrimSpace(`
+diff --git a/internal/server/example.go b/internal/server/example.go
+--- a/internal/server/example.go
++++ b/internal/server/example.go
+@@ -1,0 +1,1 @@
++func example() {}
+`),
+			profile: "mode: atomic\nbroken\n",
+			wantErr: `parse coverprofile line: "broken"`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := AnalyzeContents([]byte(tt.diff), []byte(tt.profile), "github.com/weill-labs/amux")
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("AnalyzeContents() error = %v, want %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestParseChangedLines(t *testing.T) {
+	t.Parallel()
+
+	diff := strings.TrimSpace(`
+diff --git a/internal/server/example.go b/internal/server/example.go
+--- a/internal/server/example.go
++++ b/internal/server/example.go
+@@ -1,2 +1,3 @@
+ func keep() {}
++func added() {}
+ func keepToo() {}
+`)
+
+	changed, err := parseChangedLines([]byte(diff))
+	if err != nil {
+		t.Fatalf("parseChangedLines() error = %v", err)
+	}
+	if len(changed) != 1 {
+		t.Fatalf("len(changed) = %d, want 1", len(changed))
+	}
+	if changed[0].Line != 2 {
+		t.Fatalf("changed line = %d, want 2", changed[0].Line)
+	}
+
+	_, err = parseChangedLines([]byte(strings.TrimSpace(`
+diff --git a/internal/server/example.go b/internal/server/example.go
+--- a/internal/server/example.go
++++ b/internal/server/example.go
+@@ -1,0 +999999999999999999999999,1 @@
++func example() {}
+`)))
+	if err == nil || !strings.Contains(err.Error(), `parse diff line "999999999999999999999999"`) {
+		t.Fatalf("parseChangedLines() error = %v, want oversized line error", err)
+	}
+}
+
+func TestParseCoverageProfileErrors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		profile string
+		wantErr string
+	}{
+		{
+			name:    "missing path separator",
+			profile: "mode: atomic\nbroken 1 1\n",
+			wantErr: `parse coverprofile path: "broken 1 1"`,
+		},
+		{
+			name:    "missing range comma",
+			profile: "mode: atomic\ngithub.com/weill-labs/amux/internal/server/example.go:10.1 1 1\n",
+			wantErr: `parse coverprofile range "10.1"`,
+		},
+		{
+			name:    "missing line column separator",
+			profile: "mode: atomic\ngithub.com/weill-labs/amux/internal/server/example.go:10,11.1 1 1\n",
+			wantErr: `parse coverprofile line ref "10"`,
+		},
+		{
+			name:    "invalid line number",
+			profile: "mode: atomic\ngithub.com/weill-labs/amux/internal/server/example.go:ten.1,11.1 1 1\n",
+			wantErr: `parse coverprofile line "ten"`,
+		},
+		{
+			name:    "invalid hit count",
+			profile: "mode: atomic\ngithub.com/weill-labs/amux/internal/server/example.go:10.1,11.1 1 nope\n",
+			wantErr: `parse coverprofile count "nope"`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := parseCoverageProfile([]byte(tt.profile), "github.com/weill-labs/amux")
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("parseCoverageProfile() error = %v, want %q", err, tt.wantErr)
 			}
 		})
 	}

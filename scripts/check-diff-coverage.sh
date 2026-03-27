@@ -102,7 +102,15 @@ trap cleanup_generated_outputs EXIT
 
 if [[ "$RUN_COVERAGE" == true ]]; then
   echo "Running merged coverage before diff coverage check..."
-  bash scripts/coverage.sh --keep-files
+  coverage_rc=0
+  if ! bash scripts/coverage.sh --keep-files; then
+    coverage_rc=$?
+    if [[ ! -f "$PROFILE" ]]; then
+      echo "coverage generation failed and did not produce $PROFILE" >&2
+      exit "$coverage_rc"
+    fi
+    echo "warning: coverage generation reported failing test suites; reusing $PROFILE for diff coverage anyway" >&2
+  fi
 fi
 
 MODULE_PATH=$(go list -m)
@@ -111,3 +119,7 @@ go run ./cmd/diffcoverage \
   --module "$MODULE_PATH" \
   --profile "$PROFILE" \
   --target "$TARGET"
+
+if [[ "${coverage_rc:-0}" -ne 0 ]]; then
+  echo "warning: diff coverage passed, but coverage generation had failing test suites and CI may still fail on tests" >&2
+fi
