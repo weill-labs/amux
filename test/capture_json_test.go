@@ -279,16 +279,9 @@ func TestCaptureJSON_ColumnIndex(t *testing.T) {
 		h.splitH()
 
 		capture := h.captureJSON()
-
-		if got := h.jsonPane(capture, "pane-1").ColumnIndex; got != 0 {
-			t.Fatalf("pane-1 column_index = %d, want 0", got)
-		}
-		if got := h.jsonPane(capture, "pane-2").ColumnIndex; got != 1 {
-			t.Fatalf("pane-2 column_index = %d, want 1", got)
-		}
-		if got := h.jsonPane(capture, "pane-3").ColumnIndex; got != 0 {
-			t.Fatalf("pane-3 column_index = %d, want 0", got)
-		}
+		assertJSONPaneColumnIndex(t, capture, "pane-1", 0)
+		assertJSONPaneColumnIndex(t, capture, "pane-2", 1)
+		assertJSONPaneColumnIndex(t, capture, "pane-3", 0)
 	})
 
 	t.Run("lead layout offsets logical root columns", func(t *testing.T) {
@@ -302,16 +295,9 @@ func TestCaptureJSON_ColumnIndex(t *testing.T) {
 		h.waitLayout(gen)
 
 		capture := h.captureJSON()
-
-		if got := h.jsonPane(capture, "pane-1").ColumnIndex; got != 0 {
-			t.Fatalf("lead pane column_index = %d, want 0", got)
-		}
-		if got := h.jsonPane(capture, "pane-2").ColumnIndex; got != 1 {
-			t.Fatalf("pane-2 column_index = %d, want 1", got)
-		}
-		if got := h.jsonPane(capture, "pane-3").ColumnIndex; got != 2 {
-			t.Fatalf("pane-3 column_index = %d, want 2", got)
-		}
+		assertJSONPaneColumnIndex(t, capture, "pane-1", 0)
+		assertJSONPaneColumnIndex(t, capture, "pane-2", 1)
+		assertJSONPaneColumnIndex(t, capture, "pane-3", 2)
 	})
 }
 
