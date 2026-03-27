@@ -81,6 +81,10 @@ func TestVTEmulatorResizeWiderReflowsVisibleRows(t *testing.T) {
 	if cell := emu.CellAt(10, 0); cell == nil || cell.Content != "a" || cell.Style.Fg == nil {
 		t.Fatalf("cell (10,0) after widen = %+v, want styled reflowed cell", cell)
 	}
+	col, row := emu.CursorPosition()
+	if col != 0 || row != 1 {
+		t.Fatalf("cursor after widen = (%d, %d), want (0, 1)", col, row)
+	}
 }
 
 func TestVTEmulatorCursorPosition(t *testing.T) {

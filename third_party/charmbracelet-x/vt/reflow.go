@@ -192,6 +192,8 @@ func screenLineUsesFullWidth(line uv.Line, width int) bool {
 	if cell.Width == 0 {
 		return true
 	}
+	// Match tmux: any non-empty last column is treated as a soft wrap when
+	// widening, even though right-aligned full-width rows can be false positives.
 	return cell.Content != "" || (!cell.IsZero() && !cell.Equal(&uv.EmptyCell))
 }
 
