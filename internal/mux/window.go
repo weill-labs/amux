@@ -588,28 +588,36 @@ func (w *Window) resizePaneGrow(siblings []*LayoutCell, idx int, axis SplitDir, 
 
 	// Match tmux layout_resize_pane_grow: walk tail-ward first, then fall back
 	// to the head if no right/bottom sibling can donate enough space.
-	remaining := w.transferSiblingRange(grower, siblings, axis, needed, idx+1, len(siblings), 1)
+	remaining := w.transferSiblingRange(grower, siblings, idx, axis, needed, idx+1, len(siblings), 1)
 	if remaining == 0 {
 		return needed
 	}
-	remaining = w.transferSiblingRange(grower, siblings, axis, remaining, idx-1, -1, -1)
+	remaining = w.transferSiblingRange(grower, siblings, idx, axis, remaining, idx-1, -1, -1)
 	return needed - remaining
 }
 
 func (w *Window) resizePaneShrink(siblings []*LayoutCell, idx int, axis SplitDir, needed int) int {
 	// Match tmux layout_resize_pane_shrink: grow the sibling across the border
 	// and walk left/up from the border cell looking for donors.
-	return needed - w.transferSiblingRange(siblings[idx+1], siblings, axis, needed, idx, -1, -1)
+	return needed - w.transferSiblingRange(siblings[idx+1], siblings, idx+1, axis, needed, idx, -1, -1)
 }
 
-func (w *Window) transferSiblingRange(grower *LayoutCell, siblings []*LayoutCell, axis SplitDir, remaining, start, stop, step int) int {
+func transferEdges(growerIdx, donorIdx int) (resizeEdge, resizeEdge) {
+	if donorIdx < growerIdx {
+		return resizeFromStart, resizeFromEnd
+	}
+	return resizeFromEnd, resizeFromStart
+}
+
+func (w *Window) transferSiblingRange(grower *LayoutCell, siblings []*LayoutCell, growerIdx int, axis SplitDir, remaining, start, stop, step int) int {
 	for donorIdx := start; donorIdx != stop && remaining > 0; donorIdx += step {
-		remaining -= transferAxisSize(grower, siblings[donorIdx], axis, remaining)
+		growerEdge, donorEdge := transferEdges(growerIdx, donorIdx)
+		remaining -= transferAxisSize(grower, siblings[donorIdx], axis, remaining, growerEdge, donorEdge)
 	}
 	return remaining
 }
 
-func transferAxisSize(grower, donor *LayoutCell, axis SplitDir, needed int) int {
+func transferAxisSize(grower, donor *LayoutCell, axis SplitDir, needed int, growerEdge, donorEdge resizeEdge) int {
 	available := donor.resizeCheck(axis)
 	if available == 0 {
 		return 0
@@ -618,8 +626,8 @@ func transferAxisSize(grower, donor *LayoutCell, axis SplitDir, needed int) int 
 		available = needed
 	}
 
-	grower.resizeToAxis(axis, grower.axisSize(axis)+available)
-	donor.resizeToAxis(axis, donor.axisSize(axis)-available)
+	grower.resizeToAxisFromEdge(axis, grower.axisSize(axis)+available, growerEdge)
+	donor.resizeToAxisFromEdge(axis, donor.axisSize(axis)-available, donorEdge)
 	return available
 }
 

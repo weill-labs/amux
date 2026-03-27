@@ -503,6 +503,130 @@ func TestResizePaneWalksSiblingDonors(t *testing.T) {
 	}
 }
 
+func TestResizePaneOnlyMovesImmediateNeighborBorder(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		window    func() *Window
+		paneID    uint32
+		direction string
+		delta     int
+		want      map[uint32][2]int
+	}{
+		{
+			name: "grow right only shrinks the left edge of the right subtree",
+			window: func() *Window {
+				left := NewLeaf(fakePaneID(1), 0, 0, 20, 24)
+				c2 := NewLeaf(fakePaneID(2), 0, 0, 19, 24)
+				c3 := NewLeaf(fakePaneID(3), 0, 0, 19, 24)
+				c4 := NewLeaf(fakePaneID(4), 0, 0, 19, 24)
+
+				right := &LayoutCell{
+					X:        21,
+					Y:        0,
+					W:        59,
+					H:        24,
+					Dir:      SplitVertical,
+					Children: []*LayoutCell{c2, c3, c4},
+				}
+				for _, child := range right.Children {
+					child.Parent = right
+				}
+
+				root := &LayoutCell{
+					X:        0,
+					Y:        0,
+					W:        80,
+					H:        24,
+					Dir:      SplitVertical,
+					Children: []*LayoutCell{left, right},
+				}
+				left.Parent = root
+				right.Parent = root
+				root.FixOffsets()
+
+				return &Window{Root: root, ActivePane: left.Pane, Width: 80, Height: 24}
+			},
+			paneID:    1,
+			direction: "right",
+			delta:     5,
+			want: map[uint32][2]int{
+				1: {0, 25},
+				2: {26, 14},
+				3: {41, 19},
+				4: {61, 19},
+			},
+		},
+		{
+			name: "grow left only shrinks the right edge of the left subtree",
+			window: func() *Window {
+				c1 := NewLeaf(fakePaneID(1), 0, 0, 19, 24)
+				c2 := NewLeaf(fakePaneID(2), 0, 0, 19, 24)
+				c3 := NewLeaf(fakePaneID(3), 0, 0, 19, 24)
+				right := NewLeaf(fakePaneID(4), 60, 0, 20, 24)
+
+				left := &LayoutCell{
+					X:        0,
+					Y:        0,
+					W:        59,
+					H:        24,
+					Dir:      SplitVertical,
+					Children: []*LayoutCell{c1, c2, c3},
+				}
+				for _, child := range left.Children {
+					child.Parent = left
+				}
+
+				root := &LayoutCell{
+					X:        0,
+					Y:        0,
+					W:        80,
+					H:        24,
+					Dir:      SplitVertical,
+					Children: []*LayoutCell{left, right},
+				}
+				left.Parent = root
+				right.Parent = root
+				root.FixOffsets()
+
+				return &Window{Root: root, ActivePane: right.Pane, Width: 80, Height: 24}
+			},
+			paneID:    4,
+			direction: "left",
+			delta:     5,
+			want: map[uint32][2]int{
+				1: {0, 19},
+				2: {20, 19},
+				3: {40, 14},
+				4: {55, 25},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			w := tt.window()
+			if !w.ResizePane(tt.paneID, tt.direction, tt.delta) {
+				t.Fatalf("ResizePane(%d, %q, %d) = false, want true", tt.paneID, tt.direction, tt.delta)
+			}
+
+			for paneID, want := range tt.want {
+				cell := w.Root.FindPane(paneID)
+				if cell == nil {
+					t.Fatalf("pane-%d not found", paneID)
+				}
+				if got := [2]int{cell.X, cell.W}; got != want {
+					t.Errorf("pane-%d geometry = %v, want %v", paneID, got, want)
+				}
+			}
+		})
+	}
+}
+
 func TestClosePaneRedistributesNestedSubtreeSizes(t *testing.T) {
 	t.Parallel()
 
