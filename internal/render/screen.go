@@ -10,7 +10,6 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/mux"
-	"github.com/weill-labs/amux/internal/proto"
 )
 
 // ScreenCell represents a single cell in the composited screen grid.
@@ -239,11 +238,10 @@ func appendStyledStr(chars []styledChar, s string, style uv.Style) []styledChar 
 func buildStatusCells(g *ScreenGrid, cell *mux.LayoutCell, isActive bool, pd PaneData) {
 	y := cell.Y
 	bg := hexToColor(config.Surface0Hex)
-	idle := !isActive && pd.Idle()
-
+	colorHex := paneStatusColorHex(pd)
 	dimStyle := uv.Style{Fg: hexToColor(config.DimColorHex), Bg: bg}
 	textStyle := uv.Style{Fg: hexToColor(config.TextColorHex), Bg: bg}
-	paneStyle := uv.Style{Fg: hexToColor(pd.Color()), Bg: bg}
+	paneStyle := uv.Style{Fg: hexToColor(colorHex), Bg: bg}
 	yellowStyle := uv.Style{Fg: hexToColor(config.YellowHex), Bg: bg}
 	greenStyle := uv.Style{Fg: hexToColor(config.GreenHex), Bg: bg}
 	redStyle := uv.Style{Fg: hexToColor(config.RedHex), Bg: bg}
@@ -253,75 +251,28 @@ func buildStatusCells(g *ScreenGrid, cell *mux.LayoutCell, isActive bool, pd Pan
 	completedMetaStyle.Attrs |= uv.AttrStrikethrough
 
 	var chars []styledChar
-
-	// Icon
-	if isActive {
-		chars = appendStyledStr(chars, "●", paneStyle)
-	} else if idle {
-		chars = appendStyledStr(chars, "◇", dimStyle)
-	} else {
-		chars = appendStyledStr(chars, "○", dimStyle)
-	}
-
-	// Space + name
-	chars = appendStyledStr(chars, " ", uv.Style{Bg: bg})
-	var nameStyle uv.Style
-	if isActive {
-		nameStyle = paneBold
-	} else if idle {
-		nameStyle = dimStyle
-	} else {
-		nameStyle = textStyle
-	}
-	chars = appendStyledStr(chars, "["+pd.Name()+"]", nameStyle)
-
-	metaItems := paneStatusMetadataItems(pd.TrackedPRs(), pd.TrackedIssues(), isActive)
-	metaSegments := paneStatusMetadataSegments(metaItems, availableMetadataWidth(cell.W, pd, isActive))
-
-	// Copy mode indicator
-	if pd.InCopyMode() {
-		chars = appendStyledStr(chars, " ", uv.Style{Bg: bg})
-		chars = appendStyledStr(chars, "[copy]", yellowStyle)
-		if search := pd.CopyModeSearch(); search != "" {
-			chars = appendStyledStr(chars, " ", uv.Style{Bg: bg})
-			chars = appendStyledStr(chars, search, yellowStyle)
+	backgroundStyle := uv.Style{Bg: bg}
+	for _, segment := range buildPaneStatusSegments(cell.W, isActive, pd) {
+		style := backgroundStyle
+		switch segment.role {
+		case paneStatusSegmentPane:
+			style = paneStyle
+		case paneStatusSegmentPaneBold:
+			style = paneBold
+		case paneStatusSegmentDim:
+			style = dimStyle
+		case paneStatusSegmentText:
+			style = textStyle
+		case paneStatusSegmentYellow:
+			style = yellowStyle
+		case paneStatusSegmentGreen:
+			style = greenStyle
+		case paneStatusSegmentRed:
+			style = redStyle
+		case paneStatusSegmentCompletedMeta:
+			style = completedMetaStyle
 		}
-	}
-
-	if len(metaSegments) > 0 {
-		chars = appendStyledStr(chars, " ", uv.Style{Bg: bg})
-		for _, segment := range metaSegments {
-			style := textStyle
-			if segment.status == proto.TrackedStatusCompleted {
-				style = completedMetaStyle
-			}
-			chars = appendStyledStr(chars, segment.text, style)
-		}
-	}
-
-	// Host
-	if pd.Host() != "" && pd.Host() != mux.DefaultHost {
-		chars = appendStyledStr(chars, " ", uv.Style{Bg: bg})
-		chars = appendStyledStr(chars, "@"+pd.Host(), greenStyle)
-	}
-
-	// Connection status
-	if cs := pd.ConnStatus(); cs != "" {
-		chars = appendStyledStr(chars, " ", uv.Style{Bg: bg})
-		switch cs {
-		case "connected":
-			chars = appendStyledStr(chars, "⚡", greenStyle)
-		case "reconnecting":
-			chars = appendStyledStr(chars, "⟳", yellowStyle)
-		case "disconnected":
-			chars = appendStyledStr(chars, "✕", redStyle)
-		}
-	}
-
-	// Task
-	if pd.Task() != "" {
-		chars = appendStyledStr(chars, " ", uv.Style{Bg: bg})
-		chars = appendStyledStr(chars, pd.Task(), textStyle)
+		chars = appendStyledStr(chars, segment.text, style)
 	}
 
 	// Write chars to grid, fill remaining with spaces.
