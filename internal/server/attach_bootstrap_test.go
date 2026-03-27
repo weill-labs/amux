@@ -100,6 +100,10 @@ func TestHandleAttachAppliesQueuedLayoutAfterConcurrentSplit(t *testing.T) {
 }
 
 func startPausedAttach(t *testing.T, srv *Server, sess *Session, cols, rows int) (net.Conn, *attachReplayState, <-chan struct{}, func(), <-chan struct{}) {
+	return startPausedAttachWithInteractivity(t, srv, sess, cols, rows, true)
+}
+
+func startPausedAttachWithInteractivity(t *testing.T, srv *Server, sess *Session, cols, rows int, interactive bool) (net.Conn, *attachReplayState, <-chan struct{}, func(), <-chan struct{}) {
 	t.Helper()
 
 	serverConn, peerConn := net.Pipe()
@@ -115,11 +119,13 @@ func startPausedAttach(t *testing.T, srv *Server, sess *Session, cols, rows int)
 
 	go func() {
 		defer close(done)
+		interactiveAttach := interactive
 		srv.handleAttach(serverConn, &Message{
-			Type:    MsgTypeAttach,
-			Session: sess.Name,
-			Cols:    cols,
-			Rows:    rows,
+			Type:        MsgTypeAttach,
+			Session:     sess.Name,
+			Cols:        cols,
+			Rows:        rows,
+			Interactive: &interactiveAttach,
 		})
 	}()
 

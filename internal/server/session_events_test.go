@@ -431,6 +431,157 @@ func TestHandleAttachBroadcastsResizeLayoutBeforeQueuedPaneOutput(t *testing.T) 
 	}
 }
 
+func TestHandleAttachLeavesSizeOwnerWithNonInteractiveClient(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	pane := newAttachTestPane(sess, 1, "pane-1", 80, 23)
+	w := mux.NewWindow(pane, 80, 24-render.GlobalBarHeight)
+	w.ID = 1
+	w.Name = "window-1"
+	if err := setAttachTestLayout(sess, []*mux.Window{w}, w.ID, []*mux.Pane{pane}); err != nil {
+		t.Fatalf("setAttachTestLayout: %v", err)
+	}
+
+	existingConn, existingPeer := net.Pipe()
+	t.Cleanup(func() { _ = existingPeer.Close() })
+
+	existing := newClientConn(existingConn)
+	existing.ID = "client-1"
+	existing.cols = 80
+	existing.rows = 24
+	t.Cleanup(existing.Close)
+
+	mustSessionQuery(t, sess, func(sess *Session) struct{} {
+		sess.ensureClientManager().setClientsForTest(existing)
+		sess.ensureClientManager().setSizeOwnerForTest(existing)
+		sess.hadClient = true
+		return struct{}{}
+	})
+
+	attachConn, replay, paused, release, done := startPausedAttachWithInteractivity(t, srv, sess, 120, 40, false)
+	defer closeAttach(t, attachConn, release, done)
+
+	layout := readInitialAttachReplay(t, attachConn, replay)
+	if layout.Width != 80 || layout.Height != 23 {
+		t.Fatalf("non-interactive attach layout = %dx%d, want 80x23", layout.Width, layout.Height)
+	}
+
+	waitForPause(t, paused)
+	release()
+
+	state := mustSessionQuery(t, sess, func(sess *Session) struct {
+		width   int
+		height  int
+		owner   *clientConn
+		clients []clientListEntry
+	} {
+		clients, err := sess.queryClientList()
+		if err != nil {
+			t.Fatalf("queryClientList: %v", err)
+		}
+		return struct {
+			width   int
+			height  int
+			owner   *clientConn
+			clients []clientListEntry
+		}{
+			width:   sess.activeWindow().Width,
+			height:  sess.activeWindow().Height,
+			owner:   sess.currentSizeClient(),
+			clients: clients,
+		}
+	})
+	if state.width != 80 || state.height != 23 {
+		t.Fatalf("window size after non-interactive attach = %dx%d, want 80x23", state.width, state.height)
+	}
+	if state.owner != existing {
+		t.Fatalf("size owner after non-interactive attach = %v, want %v", state.owner, existing)
+	}
+	if len(state.clients) != 2 {
+		t.Fatalf("client count = %d, want 2", len(state.clients))
+	}
+	if !state.clients[0].sizeOwner {
+		t.Fatalf("existing interactive client lost size ownership: %+v", state.clients)
+	}
+	if state.clients[1].sizeOwner {
+		t.Fatalf("non-interactive client should not be size owner: %+v", state.clients)
+	}
+}
+
+func TestResizeFromNonInteractiveClientDoesNotResizeSession(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	pane := newAttachTestPane(sess, 1, "pane-1", 80, 23)
+	w := mux.NewWindow(pane, 80, 24-render.GlobalBarHeight)
+	w.ID = 1
+	w.Name = "window-1"
+	if err := setAttachTestLayout(sess, []*mux.Window{w}, w.ID, []*mux.Pane{pane}); err != nil {
+		t.Fatalf("setAttachTestLayout: %v", err)
+	}
+
+	existing := &clientConn{
+		ID:        "client-1",
+		cols:      80,
+		rows:      24,
+		inputIdle: true,
+	}
+	mustSessionQuery(t, sess, func(sess *Session) struct{} {
+		sess.ensureClientManager().setClientsForTest(existing)
+		sess.ensureClientManager().setSizeOwnerForTest(existing)
+		sess.hadClient = true
+		return struct{}{}
+	})
+
+	attachConn, replay, paused, release, done := startPausedAttachWithInteractivity(t, srv, sess, 120, 40, false)
+	defer closeAttach(t, attachConn, release, done)
+
+	_ = readInitialAttachReplay(t, attachConn, replay)
+	waitForPause(t, paused)
+	release()
+
+	if err := WriteMsg(attachConn, &Message{Type: MsgTypeResize, Cols: 60, Rows: 20}); err != nil {
+		t.Fatalf("WriteMsg resize: %v", err)
+	}
+
+	waitUntil(t, func() bool {
+		state := mustSessionQuery(t, sess, func(sess *Session) struct {
+			width   int
+			height  int
+			owner   *clientConn
+			clients []clientListEntry
+		} {
+			clients, err := sess.queryClientList()
+			if err != nil {
+				t.Fatalf("queryClientList: %v", err)
+			}
+			return struct {
+				width   int
+				height  int
+				owner   *clientConn
+				clients []clientListEntry
+			}{
+				width:   sess.activeWindow().Width,
+				height:  sess.activeWindow().Height,
+				owner:   sess.currentSizeClient(),
+				clients: clients,
+			}
+		})
+		return state.width == 80 &&
+			state.height == 23 &&
+			state.owner == existing &&
+			len(state.clients) == 2 &&
+			state.clients[0].sizeOwner &&
+			state.clients[1].size == "60x20" &&
+			!state.clients[1].sizeOwner
+	})
+}
+
 func TestMetaCallbackEnqueuesMetaUpdate(t *testing.T) {
 	t.Parallel()
 

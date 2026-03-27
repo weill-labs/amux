@@ -10,6 +10,7 @@ import (
 
 func TestWriteReadMsg(t *testing.T) {
 	t.Parallel()
+	nonInteractive := false
 	tests := []struct {
 		name string
 		msg  Message
@@ -29,6 +30,7 @@ func TestWriteReadMsg(t *testing.T) {
 				Session: "test-session",
 				Cols:    80,
 				Rows:    24,
+				Interactive: &nonInteractive,
 				AttachCapabilities: &proto.ClientCapabilities{
 					Hyperlinks:     true,
 					PromptMarkers:  true,
@@ -102,6 +104,9 @@ func TestWriteReadMsg(t *testing.T) {
 			}
 			if !reflect.DeepEqual(got.AttachCapabilities, tt.msg.AttachCapabilities) {
 				t.Errorf("AttachCapabilities = %+v, want %+v", got.AttachCapabilities, tt.msg.AttachCapabilities)
+			}
+			if !reflect.DeepEqual(got.Interactive, tt.msg.Interactive) {
+				t.Errorf("Interactive = %+v, want %+v", got.Interactive, tt.msg.Interactive)
 			}
 			if got.CmdName != tt.msg.CmdName {
 				t.Errorf("CmdName = %q, want %q", got.CmdName, tt.msg.CmdName)
