@@ -60,6 +60,10 @@ type Message struct {
 
 	// MsgTypeAttach
 	Session string
+	// AttachMode is optional. The zero value preserves the legacy attach
+	// semantics: attached clients participate in size negotiation unless they
+	// explicitly opt out.
+	AttachMode AttachMode
 	// AttachCapabilities is optional. Nil means the client used the legacy
 	// attach path and did not advertise explicit capability support.
 	AttachCapabilities *ClientCapabilities

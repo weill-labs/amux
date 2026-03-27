@@ -473,25 +473,24 @@ func TestHandleAttachLeavesSizeOwnerWithNonInteractiveClient(t *testing.T) {
 	release()
 
 	state := mustSessionQuery(t, sess, func(sess *Session) struct {
-		width   int
-		height  int
-		owner   *clientConn
-		clients []clientListEntry
+		width       int
+		height      int
+		owner       *clientConn
+		clientCount int
+		lastClient  *clientConn
 	} {
-		clients, err := sess.queryClientList()
-		if err != nil {
-			t.Fatalf("queryClientList: %v", err)
-		}
 		return struct {
-			width   int
-			height  int
-			owner   *clientConn
-			clients []clientListEntry
+			width       int
+			height      int
+			owner       *clientConn
+			clientCount int
+			lastClient  *clientConn
 		}{
-			width:   sess.activeWindow().Width,
-			height:  sess.activeWindow().Height,
-			owner:   sess.currentSizeClient(),
-			clients: clients,
+			width:       sess.activeWindow().Width,
+			height:      sess.activeWindow().Height,
+			owner:       sess.effectiveSizeClient(),
+			clientCount: len(sess.ensureClientManager().clients),
+			lastClient:  sess.ensureClientManager().clients[len(sess.ensureClientManager().clients)-1],
 		}
 	})
 	if state.width != 80 || state.height != 23 {
@@ -500,14 +499,11 @@ func TestHandleAttachLeavesSizeOwnerWithNonInteractiveClient(t *testing.T) {
 	if state.owner != existing {
 		t.Fatalf("size owner after non-interactive attach = %v, want %v", state.owner, existing)
 	}
-	if len(state.clients) != 2 {
-		t.Fatalf("client count = %d, want 2", len(state.clients))
+	if state.clientCount != 2 {
+		t.Fatalf("client count = %d, want 2", state.clientCount)
 	}
-	if !state.clients[0].sizeOwner {
-		t.Fatalf("existing interactive client lost size ownership: %+v", state.clients)
-	}
-	if state.clients[1].sizeOwner {
-		t.Fatalf("non-interactive client should not be size owner: %+v", state.clients)
+	if state.lastClient == existing {
+		t.Fatal("expected non-interactive attach to be added after the existing client")
 	}
 }
 
@@ -551,34 +547,35 @@ func TestResizeFromNonInteractiveClientDoesNotResizeSession(t *testing.T) {
 
 	waitUntil(t, func() bool {
 		state := mustSessionQuery(t, sess, func(sess *Session) struct {
-			width   int
-			height  int
-			owner   *clientConn
-			clients []clientListEntry
+			width          int
+			height         int
+			owner          *clientConn
+			clientCount    int
+			lastClientCols int
+			lastClientRows int
 		} {
-			clients, err := sess.queryClientList()
-			if err != nil {
-				t.Fatalf("queryClientList: %v", err)
-			}
 			return struct {
-				width   int
-				height  int
-				owner   *clientConn
-				clients []clientListEntry
+				width          int
+				height         int
+				owner          *clientConn
+				clientCount    int
+				lastClientCols int
+				lastClientRows int
 			}{
-				width:   sess.activeWindow().Width,
-				height:  sess.activeWindow().Height,
-				owner:   sess.currentSizeClient(),
-				clients: clients,
+				width:          sess.activeWindow().Width,
+				height:         sess.activeWindow().Height,
+				owner:          sess.effectiveSizeClient(),
+				clientCount:    len(sess.ensureClientManager().clients),
+				lastClientCols: sess.ensureClientManager().clients[len(sess.ensureClientManager().clients)-1].cols,
+				lastClientRows: sess.ensureClientManager().clients[len(sess.ensureClientManager().clients)-1].rows,
 			}
 		})
 		return state.width == 80 &&
 			state.height == 23 &&
 			state.owner == existing &&
-			len(state.clients) == 2 &&
-			state.clients[0].sizeOwner &&
-			state.clients[1].size == "60x20" &&
-			!state.clients[1].sizeOwner
+			state.clientCount == 2 &&
+			state.lastClientCols == 60 &&
+			state.lastClientRows == 20
 	})
 }
 

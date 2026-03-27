@@ -75,7 +75,6 @@ func sampleLayoutSnapshot() *LayoutSnapshot {
 
 func TestWriteReadMsgAllMessageTypes(t *testing.T) {
 	t.Parallel()
-	nonInteractive := false
 
 	tests := []struct {
 		name string
@@ -86,11 +85,11 @@ func TestWriteReadMsgAllMessageTypes(t *testing.T) {
 		{
 			name: "attach",
 			msg: Message{
-				Type:    MsgTypeAttach,
-				Session: "test-session",
-				Cols:    80,
-				Rows:    24,
-				Interactive: &nonInteractive,
+				Type:       MsgTypeAttach,
+				Session:    "test-session",
+				Cols:       80,
+				Rows:       24,
+				AttachMode: AttachModeNonInteractive,
 				AttachCapabilities: &ClientCapabilities{
 					KittyKeyboard:       true,
 					Hyperlinks:          true,

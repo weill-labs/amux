@@ -36,7 +36,7 @@ func (m *clientManager) currentSizeClient() *clientConn {
 }
 
 func (m *clientManager) noteClientActivity(cc *clientConn) bool {
-	if cc == nil || !m.hasClient(cc) || m.currentSizeClient() == cc {
+	if cc == nil || !cc.participatesInSizeNegotiation() || !m.hasClient(cc) || m.currentSizeClient() == cc {
 		return false
 	}
 	m.sizeClient.Store(cc)
@@ -44,16 +44,19 @@ func (m *clientManager) noteClientActivity(cc *clientConn) bool {
 }
 
 func (m *clientManager) effectiveSizeClient() *clientConn {
-	if cc := m.currentSizeClient(); cc != nil && m.hasClient(cc) {
+	if cc := m.currentSizeClient(); cc != nil && cc.participatesInSizeNegotiation() && m.hasClient(cc) {
 		return cc
 	}
-	if len(m.clients) == 0 {
-		m.sizeClient.Store(nil)
-		return nil
+	for i := len(m.clients) - 1; i >= 0; i-- {
+		cc := m.clients[i]
+		if !cc.participatesInSizeNegotiation() {
+			continue
+		}
+		m.sizeClient.Store(cc)
+		return cc
 	}
-	cc := m.clients[len(m.clients)-1]
-	m.sizeClient.Store(cc)
-	return cc
+	m.sizeClient.Store(nil)
+	return nil
 }
 
 func (m *clientManager) removeClient(cc *clientConn) int {

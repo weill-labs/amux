@@ -119,13 +119,16 @@ func startPausedAttachWithInteractivity(t *testing.T, srv *Server, sess *Session
 
 	go func() {
 		defer close(done)
-		interactiveAttach := interactive
+		mode := proto.AttachModeInteractive
+		if !interactive {
+			mode = proto.AttachModeNonInteractive
+		}
 		srv.handleAttach(serverConn, &Message{
-			Type:        MsgTypeAttach,
-			Session:     sess.Name,
-			Cols:        cols,
-			Rows:        rows,
-			Interactive: &interactiveAttach,
+			Type:       MsgTypeAttach,
+			Session:    sess.Name,
+			Cols:       cols,
+			Rows:       rows,
+			AttachMode: mode,
 		})
 	}()
 

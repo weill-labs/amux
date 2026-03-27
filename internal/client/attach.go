@@ -251,6 +251,7 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 		Session:            sessionName,
 		Cols:               cols,
 		Rows:               rows,
+		AttachMode:         proto.AttachModeInteractive,
 		AttachCapabilities: attachCaps,
 	}); err != nil {
 		return fmt.Errorf("sending attach: %w", err)
