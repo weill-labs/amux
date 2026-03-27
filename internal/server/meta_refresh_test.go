@@ -226,6 +226,67 @@ func TestCmdRefreshMetaUsesExplicitPane(t *testing.T) {
 	}
 }
 
+func TestCmdRefreshMetaUpdatesPaneCwdBranchForNonProxyActivePane(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	pane := newProxyPane(1, mux.PaneMeta{
+		Name:  "pane-1",
+		Host:  mux.DefaultHost,
+		Color: config.AccentColor(0),
+	}, 80, 23, sess.paneOutputCallback(), sess.paneExitCallback(), nil)
+	sess.PaneMetaResolver = func(got *mux.Pane) (string, string) {
+		if got.ID != pane.ID {
+			t.Fatalf("resolver pane = %d, want %d", got.ID, pane.ID)
+		}
+		return "/tmp/repo", "feature/test"
+	}
+
+	window := newTestWindowWithPanes(t, sess, 1, "main", pane)
+	sess.Windows = []*mux.Window{window}
+	sess.ActiveWindowID = window.ID
+	sess.Panes = []*mux.Pane{pane}
+
+	res := runTestCommand(t, srv, sess, "refresh-meta")
+	if res.cmdErr != "" {
+		t.Fatalf("refresh-meta error: %s", res.cmdErr)
+	}
+
+	got := mustSessionQuery(t, sess, func(sess *Session) struct {
+		cwd    string
+		branch string
+	} {
+		p := sess.findPaneByID(pane.ID)
+		return struct {
+			cwd    string
+			branch string
+		}{
+			cwd:    p.LiveCwd(),
+			branch: p.Meta.GitBranch,
+		}
+	})
+	if got.cwd != "/tmp/repo" {
+		t.Fatalf("live cwd = %q, want /tmp/repo", got.cwd)
+	}
+	if got.branch != "feature/test" {
+		t.Fatalf("git branch = %q, want feature/test", got.branch)
+	}
+}
+
+func TestSessionRefreshPaneMetaForPaneRefWithoutActivePane(t *testing.T) {
+	t.Parallel()
+
+	sess := newSession("test-refresh-meta-no-active-pane")
+	stopCrashCheckpointLoop(t, sess)
+	defer stopSessionBackgroundLoops(t, sess)
+
+	if err := sess.refreshPaneMetaForPaneRef(0, ""); err == nil || err.Error() != "no active pane" {
+		t.Fatalf("refreshPaneMetaForPaneRef() err = %v, want no active pane", err)
+	}
+}
+
 func TestCmdAddMetaReaddsRefreshExistingRefsAndMarksFailuresStale(t *testing.T) {
 	t.Parallel()
 
@@ -366,6 +427,59 @@ func TestCmdRefreshMetaUsage(t *testing.T) {
 	res := runTestCommand(t, srv, sess, "refresh-meta", "pane-1", "extra")
 	if got := res.cmdErr; got != "usage: refresh-meta [pane]" {
 		t.Fatalf("refresh-meta usage error = %q, want usage string", got)
+	}
+}
+
+func TestSessionDetectPaneCwdBranchUsesResolver(t *testing.T) {
+	t.Parallel()
+
+	sess := &Session{}
+	if cwd, branch := sess.detectPaneCwdBranch(nil); cwd != "" || branch != "" {
+		t.Fatalf("detectPaneCwdBranch(nil) = (%q, %q), want empty values", cwd, branch)
+	}
+
+	pane := newProxyPane(1, mux.PaneMeta{
+		Name:  "pane-1",
+		Host:  mux.DefaultHost,
+		Color: config.AccentColor(0),
+	}, 80, 23, nil, nil, nil)
+	sess.PaneMetaResolver = func(got *mux.Pane) (string, string) {
+		if got != pane {
+			t.Fatalf("resolver pane = %p, want %p", got, pane)
+		}
+		return "/tmp/detect", "resolver-branch"
+	}
+
+	cwd, branch := sess.detectPaneCwdBranch(pane)
+	if cwd != "/tmp/detect" || branch != "resolver-branch" {
+		t.Fatalf("detectPaneCwdBranch() = (%q, %q), want resolver values", cwd, branch)
+	}
+}
+
+func TestServerSetPaneMetaAutoRefresh(t *testing.T) {
+	t.Parallel()
+
+	sess1 := newSession("test-pane-meta-auto-refresh-1")
+	stopCrashCheckpointLoop(t, sess1)
+	defer stopSessionBackgroundLoops(t, sess1)
+
+	sess2 := newSession("test-pane-meta-auto-refresh-2")
+	stopCrashCheckpointLoop(t, sess2)
+	defer stopSessionBackgroundLoops(t, sess2)
+
+	srv := &Server{sessions: map[string]*Session{
+		sess1.Name: sess1,
+		sess2.Name: sess2,
+	}}
+
+	srv.SetPaneMetaAutoRefresh(false)
+	if !sess1.DisablePaneMetaAutoRefresh || !sess2.DisablePaneMetaAutoRefresh {
+		t.Fatal("SetPaneMetaAutoRefresh(false) should disable auto refresh for all sessions")
+	}
+
+	srv.SetPaneMetaAutoRefresh(true)
+	if sess1.DisablePaneMetaAutoRefresh || sess2.DisablePaneMetaAutoRefresh {
+		t.Fatal("SetPaneMetaAutoRefresh(true) should enable auto refresh for all sessions")
 	}
 }
 
