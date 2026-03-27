@@ -75,19 +75,12 @@ fi
 
 if [[ "${1:-}" == "pr" && "${2:-}" == "checks" && " $* " == *" --json "* ]]; then
 	cat <<'EOF'
-[{"name":"go test ./...","bucket":"fail","state":"FAILURE","link":"https://example.com/job/123","workflow":"CI"}]
+[{"name":"go test ./...","bucket":"fail","state":"FAILURE","link":"https://github.com/weill-labs/amux/actions/runs/999/job/123","workflow":"CI"}]
 EOF
 	exit 0
 fi
 
-if [[ "${1:-}" == "run" && "${2:-}" == "list" ]]; then
-	cat <<'EOF'
-[{"databaseId":101,"workflowName":"CI","displayTitle":"ci / test","url":"https://example.com/run/101","conclusion":"failure"}]
-EOF
-	exit 0
-fi
-
-if [[ "${1:-}" == "run" && "${2:-}" == "view" && "${3:-}" == "101" && "${4:-}" == "--log-failed" ]]; then
+if [[ "${1:-}" == "run" && "${2:-}" == "view" && "${3:-}" == "--job" && "${4:-}" == "123" && "${5:-}" == "--log-failed" ]]; then
 	cat <<'EOF'
 FAIL step output
 --- FAIL: TestFlakyThing
@@ -119,7 +112,7 @@ exit 1
 	for _, want := range []string{
 		"PR #422 CI failed",
 		"go test ./...",
-		"https://example.com/job/123",
+		"https://github.com/weill-labs/amux/actions/runs/999/job/123",
 		"FAIL step output",
 		"TestFlakyThing",
 	} {
@@ -133,8 +126,8 @@ exit 1
 		t.Fatalf("read gh log: %v", err)
 	}
 	log := string(logBytes)
-	if !strings.Contains(log, "run list --commit deadbeef --status failure") {
-		t.Fatalf("gh log = %q, want run list for head SHA", log)
+	if !strings.Contains(log, "run view --job 123 --log-failed") {
+		t.Fatalf("gh log = %q, want failed-log lookup by job id", log)
 	}
 }
 

@@ -15,6 +15,7 @@ fi
 interval="${AMUX_PR_CHECK_INTERVAL:-10}"
 failed_run_limit="${AMUX_PR_FAILED_RUNS_LIMIT:-3}"
 pr_ref="${1:-}"
+printed_logs=0
 
 pr_json="$(
     if [[ -n "$pr_ref" ]]; then
@@ -65,28 +66,60 @@ else
     echo "- Unable to fetch required-check details from gh."
 fi
 
-run_json="$(gh run list --commit "$head_sha" --status failure --json databaseId,workflowName,displayTitle,url,conclusion 2>/dev/null || true)"
-if [[ -n "$run_json" ]] && printf '%s\n' "$run_json" | jq -e 'length > 0' >/dev/null 2>&1; then
+if [[ -n "$checks_json" ]] && printf '%s\n' "$checks_json" | jq -e '.[] | select(.bucket == "fail" and (.link // "") != "")' >/dev/null 2>&1; then
     echo
     echo "Failed run logs:"
-    while IFS=$'\t' read -r run_id display_title workflow_name run_url; do
-        title="$display_title"
-        if [[ -z "$title" || "$title" == "null" ]]; then
-            title="$workflow_name"
-        fi
+    while IFS=$'\t' read -r name link; do
         echo
-        echo "== $title =="
-        if [[ -n "$run_url" && "$run_url" != "null" ]]; then
-            echo "$run_url"
+        echo "== $name =="
+        echo "$link"
+        if [[ "$link" =~ /actions/runs/[0-9]+/job/([0-9]+) ]]; then
+            if gh run view --job "${BASH_REMATCH[1]}" --log-failed; then
+                printed_logs=1
+                continue
+            fi
         fi
-        if ! gh run view "$run_id" --log-failed; then
-            echo "Unable to fetch failed log for run $run_id." >&2
+        if [[ "$link" =~ /actions/runs/([0-9]+) ]]; then
+            if gh run view "${BASH_REMATCH[1]}" --log-failed; then
+                printed_logs=1
+                continue
+            fi
         fi
+        echo "Unable to fetch failed log directly from $link." >&2
     done < <(
-        printf '%s\n' "$run_json" |
-            jq -r --argjson limit "$failed_run_limit" '.[0:$limit] | .[] | [.databaseId, .displayTitle, .workflowName, .url] | @tsv'
+        printf '%s\n' "$checks_json" |
+            jq -r '.[] | select(.bucket == "fail" and (.link // "") != "") | [.name, .link] | @tsv'
     )
-else
+fi
+
+if [[ "$printed_logs" -eq 0 ]]; then
+    run_json="$(gh run list --commit "$head_sha" --status failure --json databaseId,workflowName,displayTitle,url,conclusion 2>/dev/null || true)"
+    if [[ -n "$run_json" ]] && printf '%s\n' "$run_json" | jq -e 'length > 0' >/dev/null 2>&1; then
+        echo
+        echo "Failed run logs:"
+        while IFS=$'\t' read -r run_id display_title workflow_name run_url; do
+            title="$display_title"
+            if [[ -z "$title" || "$title" == "null" ]]; then
+                title="$workflow_name"
+            fi
+            echo
+            echo "== $title =="
+            if [[ -n "$run_url" && "$run_url" != "null" ]]; then
+                echo "$run_url"
+            fi
+            if gh run view "$run_id" --log-failed; then
+                printed_logs=1
+                continue
+            fi
+            echo "Unable to fetch failed log for run $run_id." >&2
+        done < <(
+            printf '%s\n' "$run_json" |
+                jq -r --argjson limit "$failed_run_limit" '.[0:$limit] | .[] | [.databaseId, .displayTitle, .workflowName, .url] | @tsv'
+        )
+    fi
+fi
+
+if [[ "$printed_logs" -eq 0 ]]; then
     echo
     echo "No failed runs were returned for head SHA $head_sha."
 fi
