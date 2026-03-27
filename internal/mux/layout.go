@@ -295,113 +295,83 @@ func (c *LayoutCell) minSubtreeSize(axis SplitDir) int {
 }
 
 // proportionalSubtreeChildSizes fits direct children into target cells while
-// preserving their current proportions and respecting per-child minimums.
+// preserving the same excess-over-minimum weighting model as ResizeAll, while
+// respecting subtree minimums instead of only leaf minimums.
 func proportionalSubtreeChildSizes(children []*LayoutCell, axis SplitDir, target int) []int {
 	n := len(children)
 	if n == 0 {
 		return nil
 	}
 
-	sizes := make([]int, n)
-	mins := make([]int, n)
-	weights := make([]int, n)
-	active := make([]bool, n)
-	activeCount := n
-	remaining := target
-
+	minimums := make([]int, n)
+	minimumTotal := 0
 	for i, child := range children {
-		if axis == SplitVertical {
-			weights[i] = child.W
-		} else {
-			weights[i] = child.H
-		}
-		mins[i] = child.minSubtreeSize(axis)
-		active[i] = true
+		minimums[i] = child.minSubtreeSize(axis)
+		minimumTotal += minimums[i]
+	}
+	if target < minimumTotal {
+		target = minimumTotal
 	}
 
-	for {
-		if activeCount == 0 {
-			return sizes
-		}
-
-		sumWeights := sumActiveWeights(weights, active)
-		if sumWeights == 0 {
-			for i := range weights {
-				if active[i] {
-					weights[i] = 1
-				}
-			}
-			sumWeights = activeCount
-		}
-
-		froze := false
-		for i := range children {
-			if !active[i] {
-				continue
-			}
-			if int64(remaining)*int64(weights[i]) < int64(mins[i])*int64(sumWeights) {
-				sizes[i] = mins[i]
-				remaining -= mins[i]
-				active[i] = false
-				activeCount--
-				froze = true
-			}
-		}
-		if !froze {
-			break
-		}
+	sizes := make([]int, n)
+	extra := target - minimumTotal
+	if extra == 0 {
+		copy(sizes, minimums)
+		return sizes
 	}
 
-	sumWeights := sumActiveWeights(weights, active)
-	if sumWeights == 0 {
-		sumWeights = activeCount
-		for i := range weights {
-			if active[i] {
-				weights[i] = 1
-			}
+	weights := make([]int, n)
+	totalWeight := 0
+	for i, child := range children {
+		weight := child.axisSize(axis) - minimums[i]
+		if weight < 0 {
+			weight = 0
 		}
+		weights[i] = weight
+		totalWeight += weight
 	}
 
-	remainders := make([]int64, n)
-	allocated := 0
-	for i := range children {
-		if !active[i] {
-			continue
+	if totalWeight == 0 {
+		base := extra / n
+		leftover := extra % n
+		for i := range sizes {
+			sizes[i] = minimums[i] + base
+			if i >= n-leftover {
+				sizes[i]++
+			}
 		}
-		numerator := int64(remaining) * int64(weights[i])
-		size := int(numerator / int64(sumWeights))
-		sizes[i] = size
-		remainders[i] = numerator % int64(sumWeights)
-		allocated += size
+		return sizes
 	}
 
-	for leftover := remaining - allocated; leftover > 0; leftover-- {
-		best := -1
-		var bestRem int64 = -1
-		for i := range children {
-			if !active[i] {
-				continue
-			}
-			if remainders[i] > bestRem {
-				best = i
-				bestRem = remainders[i]
-			}
+	type remainder struct {
+		idx int
+		rem int64
+	}
+	remainders := make([]remainder, 0, n)
+	assignedExtra := 0
+	for i, weight := range weights {
+		numerator := int64(extra) * int64(weight)
+		share := int(numerator / int64(totalWeight))
+		sizes[i] = minimums[i] + share
+		assignedExtra += share
+		remainders = append(remainders, remainder{
+			idx: i,
+			rem: numerator % int64(totalWeight),
+		})
+	}
+
+	leftover := extra - assignedExtra
+	sort.SliceStable(remainders, func(i, j int) bool {
+		if remainders[i].rem == remainders[j].rem {
+			return remainders[i].idx > remainders[j].idx
 		}
-		sizes[best]++
-		remainders[best] = -1
+		return remainders[i].rem > remainders[j].rem
+	})
+	for i := 0; i < leftover; i++ {
+		sizes[remainders[i].idx]++
 	}
 
 	return sizes
-}
-
-func sumActiveWeights(weights []int, active []bool) int {
-	total := 0
-	for i, weight := range weights {
-		if active[i] {
-			total += weight
-		}
-	}
-	return total
 }
 
 func (c *LayoutCell) resizeCheck(axis SplitDir) int {

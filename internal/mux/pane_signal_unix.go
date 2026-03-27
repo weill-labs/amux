@@ -4,12 +4,6 @@ package mux
 
 import "syscall"
 
-func (p *Pane) notifyResizeSignal() {
-	// Darwin and Linux: signal the foreground process group directly so
-	// alt-screen TUIs redraw after pane resizes.
-	_ = p.SignalForegroundProcessGroup(syscall.SIGWINCH)
-}
-
 // SignalForegroundProcessGroup sends sig to the pane's foreground job, falling
 // back to the shell process when no foreground process group is available.
 func (p *Pane) SignalForegroundProcessGroup(sig syscall.Signal) error {

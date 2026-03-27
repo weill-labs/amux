@@ -70,6 +70,62 @@ func newAgentStatusTestPane(t *testing.T) *Pane {
 	return p
 }
 
+func newResizeSignalTestPane(t *testing.T, signalFile, readyFile string) *Pane {
+	t.Helper()
+
+	cmd := exec.Command("sh", "-c", `trap 'printf x >> "$SIGNAL_FILE"' WINCH; printf ready > "$READY_FILE"; while IFS= read -r line; do eval "$line"; done`)
+	cmd.Env = append(os.Environ(),
+		"SIGNAL_FILE="+signalFile,
+		"READY_FILE="+readyFile,
+	)
+
+	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{
+		Cols: 40,
+		Rows: 10,
+	})
+	if err != nil {
+		t.Fatalf("start resize-signal test shell: %v", err)
+	}
+
+	p := &Pane{
+		ID:              124,
+		Meta:            PaneMeta{Name: "pane-124", Host: DefaultHost},
+		ptmx:            ptmx,
+		cmd:             cmd,
+		emulator:        NewVTEmulatorWithScrollback(40, 10, DefaultScrollbackLines),
+		exitDone:        make(chan struct{}),
+		createdAt:       time.Now().Add(-time.Minute),
+		scrollbackLines: effectiveScrollbackLines(DefaultScrollbackLines),
+		scrollbackLimit: effectiveScrollbackLines(DefaultScrollbackLines),
+	}
+	p.baseHistory.Store(&paneBaseHistory{})
+	wireScrollbackCallbacks(p)
+	p.Start()
+
+	waitUntil(t, time.Second, func() bool {
+		_, err := os.Stat(readyFile)
+		return err == nil
+	})
+
+	t.Cleanup(func() {
+		if err := p.Close(); err != nil {
+			t.Errorf("Close() = %v, want nil", err)
+		}
+	})
+
+	return p
+}
+
+func readSignalCount(t *testing.T, signalFile string) int {
+	t.Helper()
+
+	data, err := os.ReadFile(signalFile)
+	if err != nil && !os.IsNotExist(err) {
+		t.Fatalf("ReadFile(%q): %v", signalFile, err)
+	}
+	return len(data)
+}
+
 func TestProxyPaneFeedOutputSnapshotsAndClose(t *testing.T) {
 	t.Parallel()
 
@@ -336,6 +392,34 @@ func TestCloseReapsShellProcess(t *testing.T) {
 	waitUntil(t, 5*time.Second, func() bool {
 		return syscall.Kill(pid, 0) != nil
 	})
+}
+
+func TestResizeSkipsSIGWINCHWhenDimensionsDoNotChange(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	signalFile := filepath.Join(dir, "winch.log")
+	readyFile := filepath.Join(dir, "ready")
+	p := newResizeSignalTestPane(t, signalFile, readyFile)
+
+	if err := p.Resize(40, 10); err != nil {
+		t.Fatalf("Resize unchanged: %v", err)
+	}
+	time.Sleep(150 * time.Millisecond)
+	if got := readSignalCount(t, signalFile); got != 0 {
+		t.Fatalf("SIGWINCH count after unchanged resize = %d, want 0", got)
+	}
+
+	if err := p.Resize(41, 10); err != nil {
+		t.Fatalf("Resize changed: %v", err)
+	}
+	waitUntil(t, time.Second, func() bool {
+		return readSignalCount(t, signalFile) >= 1
+	})
+	time.Sleep(150 * time.Millisecond)
+	if got := readSignalCount(t, signalFile); got != 1 {
+		t.Fatalf("SIGWINCH count after changed resize = %d, want 1", got)
+	}
 }
 
 func TestPaneCwdAndProcessHelpers(t *testing.T) {
