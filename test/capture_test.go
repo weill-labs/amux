@@ -111,20 +111,17 @@ func TestCapturePaneHistoryWithoutAttachedClient(t *testing.T) {
 
 	h.sendKeys("pane-1", scriptPath, "Enter")
 	h.waitFor("pane-1", "NOCLIENT-35")
+	h.waitIdle("pane-1")
 
 	h.client.close()
 	h.client = nil
 
-	if out := h.runCmd("capture"); !strings.Contains(out, "no client attached") {
-		t.Fatalf("full-screen capture without client should still fail, got: %s", out)
-	}
-
 	out := h.runCmd("capture", "pane-1")
 	if strings.Contains(out, "no client attached") {
-		t.Fatalf("pane capture without client should fall back to the server, got: %s", out)
+		t.Fatalf("pane capture without client should fall back to the server, got: %s\n%s", out, h.diagnosticSnapshot("pane capture reported no client after detach"))
 	}
 	if !strings.Contains(out, "NOCLIENT-35") {
-		t.Fatalf("pane capture should include visible content, got:\n%s", out)
+		t.Fatalf("pane capture should include visible content, got:\n%s\n%s", out, h.diagnosticSnapshot("pane capture missing visible content after detach"))
 	}
 
 	jsonOut := h.runCmd("capture", "--format", "json", "pane-1")
@@ -136,12 +133,16 @@ func TestCapturePaneHistoryWithoutAttachedClient(t *testing.T) {
 		t.Fatalf("json pane name = %q, want pane-1", pane.Name)
 	}
 	if joined := strings.Join(pane.Content, "\n"); !strings.Contains(joined, "NOCLIENT-35") {
-		t.Fatalf("pane JSON should include visible content, got:\n%s", joined)
+		t.Fatalf("pane JSON should include visible content, got:\n%s\n%s", joined, h.diagnosticSnapshot("pane json missing visible content after detach"))
 	}
 
 	out = h.runCmd("capture", "--history", "pane-1")
 	if !strings.Contains(out, "NOCLIENT-01") || !strings.Contains(out, "NOCLIENT-35") {
-		t.Fatalf("history capture should work without attached client, got:\n%s", out)
+		t.Fatalf("history capture should work without attached client, got:\n%s\n%s", out, h.diagnosticSnapshot("history capture missing content after detach"))
+	}
+
+	if out := h.runCmd("capture"); !isCaptureUnavailable(out) {
+		t.Fatalf("full-screen capture without client should remain unavailable, got: %s\n%s", out, h.diagnosticSnapshot("unexpected full-screen capture state after pane fallback"))
 	}
 }
 
