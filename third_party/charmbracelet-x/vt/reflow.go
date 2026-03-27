@@ -113,6 +113,10 @@ func wrapReflowState(logical []reflowLine, width int, cursorPos, savedPos reflow
 }
 
 func reflowWrappedPosition(wrappedCounts []int, pos reflowPosition, width int) uv.Position {
+	if len(wrappedCounts) == 0 {
+		return uv.Pos(0, 0)
+	}
+
 	row := 0
 	if pos.logical < 0 {
 		pos.logical = 0

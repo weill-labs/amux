@@ -219,6 +219,7 @@ func (e *Emulator) Resize(width int, height int) {
 	oldWidth := e.Width()
 	if width > oldWidth {
 		for i := range e.scrs {
+			// cursorPhantom only applies to the active screen tracked by e.scr.
 			e.scrs[i].resizeWider(width, height, e.scr == &e.scrs[i] && e.atPhantom)
 		}
 		e.tabstops = uv.DefaultTabStops(width)
