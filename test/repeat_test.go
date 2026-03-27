@@ -119,9 +119,9 @@ func TestRepeatExpiresAfterTimeout(t *testing.T) {
 	gen = h.generation()
 	h.sendKeys("C-a", "L")
 	h.waitLayout(gen)
+	uiGen := h.uiGen()
 	h.waitDuration(700 * time.Millisecond)
 	// This L should be typed into the shell (repeat expired), not trigger resize
-	uiGen := h.uiGen()
 	h.sendKeys("L")
 	h.waitUIAfter(proto.UIEventInputIdle, uiGen, 3*time.Second)
 
