@@ -119,7 +119,16 @@ amux prev-window             # Previous window
 
 ## Delegating Tasks to Agents
 
-When delegating work to an agent (codex, claude, grok) running in a pane, follow this sequence to avoid garbled input:
+**Before every delegation:** (1) capture the pane to see what's running, (2) verify it's on the right branch and in a clean worktree, (3) verify NO other pane shares the same CWD — if it does, move the worker to a free worktree first, (4) use `amux wait` primitives — never `sleep`. These checks prevent the most common delegation mistakes.
+
+```bash
+# Check for CWD collisions before delegating
+amux list | awk 'NR>1 {print $5, $1}' | sort | awk '{d[$1]=d[$1]" "$2} END {for(k in d){n=split(d[k],a," ");if(n>1) print k" →"d[k]}}'
+```
+
+If any workers share a directory, move one to a free worktree before sending work.
+
+When delegating work to an agent (codex, claude, grok) running in a pane, follow this sequence:
 
 ### 1. Confirm the agent is ready
 
@@ -317,6 +326,19 @@ amux send-keys 32 "Nice work. One thing to optimize: the scan is slow because it
 ```
 
 This is useful for iterative delegation — give feedback, let the agent refine.
+
+## Spawning a New Worker for a Task
+
+Use the `spawn-worker.sh` script — it handles worktree selection, trust dialogs, and confirmation automatically:
+
+```bash
+scripts/spawn-worker.sh <parent-pane> <issue> "<prompt>"
+
+# Example:
+scripts/spawn-worker.sh pane-105 LAB-505 "Make Pane.Close() non-blocking by design"
+```
+
+The script finds a free worktree, splits a pane, tags it, starts codex, and sends the task.
 
 ## Pane References
 
