@@ -1133,7 +1133,7 @@ func TestIdleTimeoutEventRefreshesPaneMetaWhenAutoRefreshEnabled(t *testing.T) {
 		return "/tmp/repo", "idle-branch"
 	}
 
-	idleTimeoutEvent{paneID: pane.ID}.handle(sess)
+	sess.enqueueIdleTimeout(pane.ID)
 
 	select {
 	case got := <-resolved:
@@ -1191,12 +1191,16 @@ func TestIdleTimeoutEventSkipsPaneMetaRefreshWhenDisabled(t *testing.T) {
 		return "/tmp/repo", "idle-branch"
 	}
 
-	idleTimeoutEvent{paneID: pane.ID}.handle(sess)
+	sess.enqueueIdleTimeout(pane.ID)
+
+	waitUntil(t, func() bool {
+		return sess.idle.IsIdle(pane.ID)
+	})
 
 	select {
 	case <-resolved:
 		t.Fatal("PaneMetaResolver should not run when auto refresh is disabled")
-	case <-time.After(100 * time.Millisecond):
+	default:
 	}
 
 	snap := mustSessionQuery(t, sess, func(sess *Session) struct {
