@@ -125,6 +125,20 @@ func (w *Window) hasAnchoredLead() bool {
 		lead.Pane.ID == w.LeadPaneID
 }
 
+// leadColumn returns the anchored lead subtree when lead mode is active.
+// Layout mutations that must not cross the lead boundary use this to decide
+// whether two panes live on opposite sides of the absolute root split.
+func (w *Window) leadColumn() *LayoutCell {
+	if !w.hasAnchoredLead() {
+		return nil
+	}
+	return w.Root.Children[0]
+}
+
+func containsPane(cell *LayoutCell, paneID uint32) bool {
+	return cell != nil && cell.FindPane(paneID) != nil
+}
+
 // logicalRoot returns the subtree that root-targeted operations should mutate.
 // When lead is active, this is Root.Children[1]; otherwise it is Root.
 func (w *Window) logicalRoot() *LayoutCell {
