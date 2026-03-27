@@ -893,8 +893,9 @@ func (w *Window) SwapTree(id1, id2 uint32) error {
 	return nil
 }
 
-// MovePane moves the root-level group containing paneID before or after the
-// root-level group containing targetPaneID.
+// MovePane reorders paneID before or after targetPaneID. If both panes share an
+// immediate parent split group, it reorders them within that group; otherwise
+// it moves the root-level group containing paneID relative to targetPaneID.
 func (w *Window) MovePane(paneID, targetPaneID uint32, before bool) error {
 	w.assertOwner("MovePane")
 	if paneID == targetPaneID {
@@ -973,6 +974,9 @@ func (w *Window) movePaneWithinSplitGroup(paneID uint32, delta int) error {
 	if w.ZoomedPaneID != 0 {
 		w.Unzoom()
 	}
+	// MovePaneUp inserts before the previous sibling; MovePaneDown inserts after
+	// the next sibling, so only negative deltas map to reorderLayoutChildren's
+	// "before target" mode.
 	parent.Children = reorderLayoutChildren(parent.Children, idx, targetIdx, delta < 0)
 	w.finishTreeMutation()
 	return nil
