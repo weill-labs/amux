@@ -816,6 +816,42 @@ func (w *Window) finishTreeMutation() {
 	w.resizePTYs()
 }
 
+func reorderLayoutChildren(children []*LayoutCell, fromIdx, targetIdx int, before bool) []*LayoutCell {
+	if fromIdx == targetIdx {
+		return children
+	}
+
+	moving := children[fromIdx]
+	children = append(children[:fromIdx], children[fromIdx+1:]...)
+
+	insertIdx := targetIdx
+	if !before {
+		insertIdx = targetIdx + 1
+	}
+	if fromIdx < targetIdx {
+		insertIdx--
+	}
+
+	children = append(children, nil)
+	copy(children[insertIdx+1:], children[insertIdx:])
+	children[insertIdx] = moving
+	return children
+}
+
+func (w *Window) splitGroupForPaneID(paneID uint32) (*LayoutCell, int, error) {
+	if w.IsLeadPane(paneID) {
+		return nil, -1, fmt.Errorf("cannot operate on lead pane")
+	}
+	cell := w.Root.FindPane(paneID)
+	if cell == nil {
+		return nil, -1, fmt.Errorf("pane %d not found", paneID)
+	}
+	if cell.Parent == nil {
+		return nil, -1, fmt.Errorf("pane %d is not in a split group", paneID)
+	}
+	return cell.Parent, cell.IndexInParent(), nil
+}
+
 // SwapPanes exchanges the Pane pointers of two layout cells and resizes PTYs
 // to match their new cell dimensions.
 // Both the Pane struct and its Meta travel together (swap-with-meta semantics).
@@ -865,10 +901,37 @@ func (w *Window) SwapTree(id1, id2 uint32) error {
 	return nil
 }
 
-// MovePane moves the root-level group containing paneID before or after the
-// root-level group containing targetPaneID.
+// MovePane reorders paneID before or after targetPaneID. If both panes share an
+// immediate parent split group, it reorders them within that group; otherwise
+// it moves the root-level group containing paneID relative to targetPaneID.
 func (w *Window) MovePane(paneID, targetPaneID uint32, before bool) error {
 	w.assertOwner("MovePane")
+	if paneID == targetPaneID {
+		return nil
+	}
+
+	if w.IsLeadPane(paneID) || w.IsLeadPane(targetPaneID) {
+		return fmt.Errorf("cannot operate on lead pane")
+	}
+
+	sourceCell := w.Root.FindPane(paneID)
+	if sourceCell == nil {
+		return fmt.Errorf("pane %d not found", paneID)
+	}
+	targetCell := w.Root.FindPane(targetPaneID)
+	if targetCell == nil {
+		return fmt.Errorf("pane %d not found", targetPaneID)
+	}
+	if sourceCell.Parent != nil && sourceCell.Parent == targetCell.Parent {
+		if w.ZoomedPaneID != 0 {
+			w.Unzoom()
+		}
+		parent := sourceCell.Parent
+		parent.Children = reorderLayoutChildren(parent.Children, sourceCell.IndexInParent(), targetCell.IndexInParent(), before)
+		w.finishTreeMutation()
+		return nil
+	}
+
 	_, fromIdx, err := w.rootChildForPaneID(paneID)
 	if err != nil {
 		return err
@@ -886,23 +949,43 @@ func (w *Window) MovePane(paneID, targetPaneID uint32, before bool) error {
 	}
 
 	root := w.logicalRoot()
-	children := root.Children
-	moving := children[fromIdx]
-	children = append(children[:fromIdx], children[fromIdx+1:]...)
+	root.Children = reorderLayoutChildren(root.Children, fromIdx, targetIdx, before)
 
-	insertIdx := targetIdx
-	if !before {
-		insertIdx = targetIdx + 1
+	w.finishTreeMutation()
+	return nil
+}
+
+// MovePaneUp reorders paneID one slot earlier within its direct split group.
+func (w *Window) MovePaneUp(paneID uint32) error {
+	w.assertOwner("MovePaneUp")
+	return w.movePaneWithinSplitGroup(paneID, -1)
+}
+
+// MovePaneDown reorders paneID one slot later within its direct split group.
+func (w *Window) MovePaneDown(paneID uint32) error {
+	w.assertOwner("MovePaneDown")
+	return w.movePaneWithinSplitGroup(paneID, 1)
+}
+
+func (w *Window) movePaneWithinSplitGroup(paneID uint32, delta int) error {
+	parent, idx, err := w.splitGroupForPaneID(paneID)
+	if err != nil {
+		return err
 	}
-	if fromIdx < targetIdx {
-		insertIdx--
+	targetIdx := idx + delta
+	switch {
+	case delta < 0 && idx == 0:
+		return fmt.Errorf("pane %d is already first in its split group", paneID)
+	case delta > 0 && idx == len(parent.Children)-1:
+		return fmt.Errorf("pane %d is already last in its split group", paneID)
 	}
-
-	children = append(children, nil)
-	copy(children[insertIdx+1:], children[insertIdx:])
-	children[insertIdx] = moving
-	root.Children = children
-
+	if w.ZoomedPaneID != 0 {
+		w.Unzoom()
+	}
+	// MovePaneUp inserts before the previous sibling; MovePaneDown inserts after
+	// the next sibling, so only negative deltas map to reorderLayoutChildren's
+	// "before target" mode.
+	parent.Children = reorderLayoutChildren(parent.Children, idx, targetIdx, delta < 0)
 	w.finishTreeMutation()
 	return nil
 }

@@ -273,6 +273,75 @@ func TestMainDelegateUsageIncludesTimeouts(t *testing.T) {
 	}
 }
 
+func TestMainMoveUpDownUsageAndDispatch(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name            string
+		args            []string
+		wantUsage       string
+		wantConnectName string
+	}{
+		{
+			name:      "move-up usage",
+			args:      []string{"move-up"},
+			wantUsage: "usage: amux move-up <pane>",
+		},
+		{
+			name:            "move-up dispatch",
+			args:            []string{"move-up", "pane-1"},
+			wantConnectName: "move-up",
+		},
+		{
+			name:      "move-down usage",
+			args:      []string{"move-down"},
+			wantUsage: "usage: amux move-down <pane>",
+		},
+		{
+			name:            "move-down dispatch",
+			args:            []string{"move-down", "pane-1"},
+			wantConnectName: "move-down",
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			out, code := runHermeticMain(t, tt.args...)
+			if code != 1 {
+				t.Fatalf("exit code = %d, want 1\n%s", code, out)
+			}
+			if tt.wantUsage != "" {
+				if !strings.Contains(out, tt.wantUsage) {
+					t.Fatalf("usage output = %q, want substring %q", out, tt.wantUsage)
+				}
+				return
+			}
+			if strings.Contains(out, "usage: amux "+tt.wantConnectName) {
+				t.Fatalf("%s should dispatch when a pane is provided, got usage output:\n%s", tt.wantConnectName, out)
+			}
+			assertMainCommandConnectError(t, out, tt.wantConnectName)
+		})
+	}
+}
+
+func TestMainHelpIncludesMoveUpDown(t *testing.T) {
+	t.Parallel()
+
+	out, code := runHermeticMain(t, "help")
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0\n%s", code, out)
+	}
+	if !strings.Contains(out, "amux [-s session] move-up <pane>") {
+		t.Fatalf("help output missing move-up:\n%s", out)
+	}
+	if !strings.Contains(out, "amux [-s session] move-down <pane>") {
+		t.Fatalf("help output missing move-down:\n%s", out)
+	}
+}
+
 func TestMainHelpIncludesWaitCheckpoint(t *testing.T) {
 	t.Parallel()
 

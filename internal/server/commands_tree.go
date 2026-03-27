@@ -3,11 +3,14 @@ package server
 import (
 	"fmt"
 
+	"github.com/weill-labs/amux/internal/mux"
 	treecmd "github.com/weill-labs/amux/internal/server/commands/layout/tree"
 )
 
 const moveUsage = treecmd.MoveUsage
 const moveToUsage = treecmd.MoveToUsage
+const moveUpUsage = treecmd.MoveUpUsage
+const moveDownUsage = treecmd.MoveDownUsage
 
 func parseMoveArgs(args []string) (paneRef, targetRef string, before bool, err error) {
 	return treecmd.ParseMoveArgs(args)
@@ -15,6 +18,10 @@ func parseMoveArgs(args []string) (paneRef, targetRef string, before bool, err e
 
 func parseMoveToArgs(args []string) (paneRef, targetRef string, err error) {
 	return treecmd.ParseMoveToArgs(args)
+}
+
+func parseMoveSiblingArgs(args []string, usage string) (paneRef string, err error) {
+	return treecmd.ParseMoveSiblingArgs(args, usage)
 }
 
 func cmdSwap(ctx *CommandContext) {
@@ -138,6 +145,41 @@ func cmdMoveTo(ctx *CommandContext) {
 
 		return commandMutationResult{
 			output:          fmt.Sprintf("Moved %s to %s's column\n", pane.Meta.Name, target.Meta.Name),
+			broadcastLayout: true,
+		}
+	}))
+}
+
+func cmdMoveUp(ctx *CommandContext) {
+	cmdMoveSibling(ctx, moveUpUsage, "up", (*mux.Window).MovePaneUp)
+}
+
+func cmdMoveDown(ctx *CommandContext) {
+	cmdMoveSibling(ctx, moveDownUsage, "down", (*mux.Window).MovePaneDown)
+}
+
+func cmdMoveSibling(ctx *CommandContext, usage, direction string, move func(*mux.Window, uint32) error) {
+	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
+		paneRef, err := parseMoveSiblingArgs(ctx.Args, usage)
+		if err != nil {
+			return commandMutationResult{err: err}
+		}
+
+		w := sess.windowForActor(ctx.ActorPaneID)
+		if w == nil {
+			return commandMutationResult{err: fmt.Errorf("no session")}
+		}
+
+		pane, err := w.ResolvePane(paneRef)
+		if err != nil {
+			return commandMutationResult{err: err}
+		}
+		if err := move(w, pane.ID); err != nil {
+			return commandMutationResult{err: err}
+		}
+
+		return commandMutationResult{
+			output:          fmt.Sprintf("Moved %s %s\n", pane.Meta.Name, direction),
 			broadcastLayout: true,
 		}
 	}))

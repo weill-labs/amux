@@ -1,9 +1,14 @@
 package tree
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
 
 const MoveUsage = "usage: move <pane> --before <target> | move <pane> --after <target>"
 const MoveToUsage = "usage: move-to <pane> <target>"
+const MoveUpUsage = "usage: move-up <pane>"
+const MoveDownUsage = "usage: move-down <pane>"
 
 func ParseMoveArgs(args []string) (paneRef, targetRef string, before bool, err error) {
 	if len(args) != 3 {
@@ -29,4 +34,11 @@ func ParseMoveToArgs(args []string) (paneRef, targetRef string, err error) {
 		return "", "", fmt.Errorf(MoveToUsage)
 	}
 	return args[0], args[1], nil
+}
+
+func ParseMoveSiblingArgs(args []string, usage string) (paneRef string, err error) {
+	if len(args) != 1 {
+		return "", errors.New(usage)
+	}
+	return args[0], nil
 }

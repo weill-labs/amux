@@ -121,6 +121,58 @@ func TestParseMoveToArgs(t *testing.T) {
 	}
 }
 
+func TestParseMoveSiblingArgs(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		args     []string
+		usage    string
+		wantPane string
+		wantErr  string
+	}{
+		{
+			name:     "valid",
+			args:     []string{"pane-1"},
+			usage:    moveUpUsage,
+			wantPane: "pane-1",
+		},
+		{
+			name:    "missing pane",
+			args:    nil,
+			usage:   moveUpUsage,
+			wantErr: moveUpUsage,
+		},
+		{
+			name:    "too many args",
+			args:    []string{"pane-1", "extra"},
+			usage:   moveDownUsage,
+			wantErr: moveDownUsage,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			paneRef, err := parseMoveSiblingArgs(tt.args, tt.usage)
+			if tt.wantErr != "" {
+				if err == nil || err.Error() != tt.wantErr {
+					t.Fatalf("parseMoveSiblingArgs(%v, %q) error = %v, want %q", tt.args, tt.usage, err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("parseMoveSiblingArgs(%v, %q): %v", tt.args, tt.usage, err)
+			}
+			if paneRef != tt.wantPane {
+				t.Fatalf("parseMoveSiblingArgs(%v, %q) = %q, want %q", tt.args, tt.usage, paneRef, tt.wantPane)
+			}
+		})
+	}
+}
+
 func TestQueuedCommandSwapTreeErrorPaths(t *testing.T) {
 	t.Parallel()
 
@@ -213,9 +265,18 @@ func TestQueuedCommandMoveErrorPaths(t *testing.T) {
 		t.Fatalf("splitQueuedCommandTestWindow: %v", err)
 	}
 
-	sameGroup := runTestCommand(t, srv, sess, "move", "pane-1", "--before", "pane-3")
-	if !strings.Contains(sameGroup.cmdErr, "same root-level group") {
-		t.Fatalf("move same group error = %q", sameGroup.cmdErr)
+	sameGroup := runTestCommand(t, srv, sess, "move", "pane-3", "--before", "pane-1")
+	if sameGroup.cmdErr != "" {
+		t.Fatalf("move same split group error = %q", sameGroup.cmdErr)
+	}
+	order := mustSessionQuery(t, sess, func(sess *Session) []uint32 {
+		return []uint32{
+			sess.Windows[0].Root.Children[0].Children[0].Pane.ID,
+			sess.Windows[0].Root.Children[0].Children[1].Pane.ID,
+		}
+	})
+	if order[0] != p3.ID || order[1] != p1.ID {
+		t.Fatalf("same-group order = %v, want [%d %d]", order, p3.ID, p1.ID)
 	}
 }
 
@@ -255,6 +316,86 @@ func TestQueuedCommandMoveToErrorPaths(t *testing.T) {
 	missingTarget := runTestCommand(t, srv, sess, "move-to", "pane-1", "missing")
 	if missingTarget.cmdErr != `pane "missing" not found` {
 		t.Fatalf("move-to missing target error = %q", missingTarget.cmdErr)
+	}
+}
+
+func TestQueuedCommandMoveUpDown(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	p1 := newTestPane(sess, 1, "pane-1")
+	w := mux.NewWindow(p1, 80, 23)
+	w.ID = 1
+	w.Name = "main"
+	w.FocusPane(p1)
+	p2 := newTestPane(sess, 2, "pane-2")
+	if _, err := w.Split(mux.SplitHorizontal, p2); err != nil {
+		t.Fatalf("Split horizontal: %v", err)
+	}
+	p3 := newTestPane(sess, 3, "pane-3")
+	if _, err := w.Split(mux.SplitHorizontal, p3); err != nil {
+		t.Fatalf("Split horizontal again: %v", err)
+	}
+	if err := setAttachTestLayout(sess, []*mux.Window{w}, w.ID, []*mux.Pane{p1, p2, p3}); err != nil {
+		t.Fatalf("setAttachTestLayout: %v", err)
+	}
+
+	moveDown := runTestCommand(t, srv, sess, "move-down", "pane-1")
+	if moveDown.cmdErr != "" {
+		t.Fatalf("move-down error = %q", moveDown.cmdErr)
+	}
+	moveUp := runTestCommand(t, srv, sess, "move-up", "pane-3")
+	if moveUp.cmdErr != "" {
+		t.Fatalf("move-up error = %q", moveUp.cmdErr)
+	}
+	order := mustSessionQuery(t, sess, func(sess *Session) []uint32 {
+		return []uint32{
+			sess.Windows[0].Root.Children[0].Pane.ID,
+			sess.Windows[0].Root.Children[1].Pane.ID,
+			sess.Windows[0].Root.Children[2].Pane.ID,
+		}
+	})
+	if order[0] != p2.ID || order[1] != p3.ID || order[2] != p1.ID {
+		t.Fatalf("move-up/down order = %v, want [%d %d %d]", order, p2.ID, p3.ID, p1.ID)
+	}
+}
+
+func TestQueuedCommandMoveUpDownErrorPaths(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	moveUpUsageRes := runTestCommand(t, srv, sess, "move-up")
+	if moveUpUsageRes.cmdErr != moveUpUsage {
+		t.Fatalf("move-up usage error = %q", moveUpUsageRes.cmdErr)
+	}
+
+	moveDownNoSession := runTestCommand(t, srv, sess, "move-down", "pane-1")
+	if moveDownNoSession.cmdErr != "no session" {
+		t.Fatalf("move-down no session error = %q", moveDownNoSession.cmdErr)
+	}
+
+	p1 := newTestPane(sess, 1, "pane-1")
+	w := mux.NewWindow(p1, 80, 23)
+	w.ID = 1
+	w.Name = "main"
+	w.FocusPane(p1)
+	p2 := newTestPane(sess, 2, "pane-2")
+	if _, err := w.Split(mux.SplitHorizontal, p2); err != nil {
+		t.Fatalf("Split horizontal: %v", err)
+	}
+	if err := setAttachTestLayout(sess, []*mux.Window{w}, w.ID, []*mux.Pane{p1, p2}); err != nil {
+		t.Fatalf("setAttachTestLayout: %v", err)
+	}
+
+	if got := runTestCommand(t, srv, sess, "move-up", "pane-1").cmdErr; !strings.Contains(got, "already first in its split group") {
+		t.Fatalf("move-up first pane error = %q", got)
+	}
+	if got := runTestCommand(t, srv, sess, "move-down", "pane-2").cmdErr; !strings.Contains(got, "already last in its split group") {
+		t.Fatalf("move-down last pane error = %q", got)
 	}
 }
 
