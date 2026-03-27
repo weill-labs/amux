@@ -20,3 +20,12 @@ func TestReverseIndexClampsOversizedScrollMarginsAfterShrink(t *testing.T) {
 		t.Fatalf("CellAt(0, 0).Content = %q, want blank top cell after reverse index scroll", got)
 	}
 }
+
+func TestReflowWrappedPositionHandlesEmptyWrappedCounts(t *testing.T) {
+	t.Parallel()
+
+	pos := reflowWrappedPosition(nil, reflowPosition{logical: 3, offset: 12}, 20)
+	if pos.X != 0 || pos.Y != 0 {
+		t.Fatalf("reflowWrappedPosition(nil, ...) = (%d, %d), want (0, 0)", pos.X, pos.Y)
+	}
+}
