@@ -3,6 +3,7 @@ package test
 import (
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -432,6 +433,37 @@ func (h *AmuxHarness) assertScreen(msg string, fn func(string) bool) {
 func (h *AmuxHarness) captureJSON() proto.CaptureJSON {
 	h.tb.Helper()
 	return captureJSONFor(h.tb, h.runCmd)
+}
+
+// waitForCaptureJSONReady blocks until the inner session can serve a
+// client-backed JSON capture without returning an error object. Outer pane
+// text like "[pane-" can be stale across reloads, so it is not a reliable
+// signal that the re-execed inner client has finished reattaching.
+func (h *AmuxHarness) waitForCaptureJSONReady(timeout time.Duration) proto.CaptureJSON {
+	h.tb.Helper()
+
+	deadline := time.Now().Add(timeout)
+	ticker := time.NewTicker(25 * time.Millisecond)
+	defer ticker.Stop()
+
+	var last string
+	for time.Now().Before(deadline) {
+		last = h.runCmd("capture", "--format", "json")
+		if isCaptureUnavailable(last) {
+			<-ticker.C
+			continue
+		}
+
+		var capture proto.CaptureJSON
+		if err := json.Unmarshal([]byte(last), &capture); err == nil && capture.Error == nil && len(capture.Panes) > 0 {
+			return capture
+		}
+
+		<-ticker.C
+	}
+
+	h.tb.Fatalf("inner JSON capture did not become ready within %v\nlast output:\n%s\nouter:\n%s", timeout, last, h.captureOuter())
+	return proto.CaptureJSON{}
 }
 
 // jsonPane finds a pane by name in a CaptureJSON, or fails the test.
