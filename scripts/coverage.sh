@@ -6,21 +6,35 @@
 # GOCOVERDIR for binary-level coverage, then merges all profiles.
 #
 # Usage:
-#   scripts/coverage.sh          # local: run tests, print summary, clean up
-#   scripts/coverage.sh --ci     # CI: also emit JSON test results, keep files
+#   scripts/coverage.sh              # local: run tests, print summary, clean up
+#   scripts/coverage.sh --keep-files # local: keep coverage artifacts for reuse
+#   scripts/coverage.sh --ci         # CI: also emit JSON test results, keep files
 set -uo pipefail
 
 CI_MODE=false
-if [[ "${1:-}" == "--ci" ]]; then
-  CI_MODE=true
-fi
+KEEP_FILES=false
+for arg in "$@"; do
+  case "$arg" in
+    --ci)
+      CI_MODE=true
+      KEEP_FILES=true
+      ;;
+    --keep-files)
+      KEEP_FILES=true
+      ;;
+    *)
+      echo "usage: scripts/coverage.sh [--ci] [--keep-files]" >&2
+      exit 1
+      ;;
+  esac
+done
 
 COVDIR=$(mktemp -d)
-if [[ "$CI_MODE" == true ]]; then
+if [[ "$KEEP_FILES" == true ]]; then
   # CI needs coverage files for Codecov upload and JSON for timing summary
   trap 'rm -rf "$COVDIR"' EXIT
 else
-  trap 'rm -rf "$COVDIR" root-coverage.txt unit-coverage.txt integration-coverage.txt merged-coverage.txt' EXIT
+  trap 'rm -rf "$COVDIR" root-coverage.txt unit-coverage.txt integration-coverage.txt merged-coverage.txt coverage-summary.txt' EXIT
 fi
 
 # Track exit codes so both suites always run and coverage merges

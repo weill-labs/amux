@@ -1,0 +1,21 @@
+#!/bin/bash
+set -euo pipefail
+
+branch_update=false
+while read -r local_ref _remote_sha remote_ref _local_sha; do
+    if [[ "$local_ref" == refs/heads/* ]] || [[ "$remote_ref" == refs/heads/* ]]; then
+        branch_update=true
+    fi
+done
+
+if [[ "$branch_update" != true ]]; then
+    exit 0
+fi
+
+if ! bash scripts/check-diff-coverage.sh; then
+    echo ""
+    echo "ERROR: diff coverage check failed"
+    echo "  Fix the uncovered changed lines before pushing."
+    echo "  Override with: git push --no-verify"
+    exit 1
+fi
