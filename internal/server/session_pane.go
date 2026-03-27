@@ -17,6 +17,14 @@ type paneRemovalResult struct {
 	sendExit        bool
 }
 
+func (s *Session) ownPane(pane *mux.Pane) *mux.Pane {
+	if pane == nil {
+		return nil
+	}
+	pane.SetCloseForbiddenOwner(&s.eventLoopOwner)
+	return pane
+}
+
 func (s *Session) closePaneAsync(pane *mux.Pane) {
 	if pane == nil {
 		return
@@ -264,6 +272,7 @@ func (s *Session) createPaneWithMeta(srv *Server, meta mux.PaneMeta, cols, rows 
 	if err != nil {
 		return nil, err
 	}
+	pane = s.ownPane(pane)
 
 	pane.SetOnClipboard(s.clipboardCallback())
 	pane.SetOnTakeover(s.takeoverCallback(srv))
@@ -292,13 +301,13 @@ func (s *Session) prepareRemotePane(hostName string, cols, rows int) (*mux.Pane,
 	}
 
 	// Create the proxy pane with a writeOverride that routes to the remote manager
-	pane := mux.NewProxyPaneWithScrollback(id, meta, cols, rows, s.scrollbackLines,
+	pane := s.ownPane(mux.NewProxyPaneWithScrollback(id, meta, cols, rows, s.scrollbackLines,
 		s.paneOutputCallback(),
 		s.paneExitCallback(),
 		func(data []byte) (int, error) {
 			return len(data), s.RemoteManager.SendInput(id, data)
 		},
-	)
+	))
 
 	// Create the corresponding pane on the remote server
 	_, err := s.RemoteManager.CreatePane(hostName, id, s.Name)

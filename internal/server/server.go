@@ -11,6 +11,7 @@ import (
 
 	"github.com/weill-labs/amux/internal/checkpoint"
 	"github.com/weill-labs/amux/internal/config"
+	"github.com/weill-labs/amux/internal/debugowner"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
 	"github.com/weill-labs/amux/internal/remote"
@@ -41,6 +42,7 @@ type Session struct {
 	Windows        []*mux.Window // ordered list of windows
 	ActiveWindowID uint32        // which window is displayed
 	Panes          []*mux.Pane   // flat list of ALL panes across all windows
+	eventLoopOwner debugowner.Checker
 	clientState    *clientManager
 	paneLog        *PaneLog
 	counter        atomic.Uint32 // pane ID counter
@@ -531,7 +533,7 @@ func NewServerFromCrashCheckpointWithScrollback(sessionName string, cp *checkpoi
 			// The remote manager will re-establish the SSH connection.
 			meta := ps.Meta
 			meta.Remote = string(remote.Reconnecting)
-			pane = mux.NewProxyPaneWithScrollback(ps.ID, meta, ps.Cols, ps.Rows, sess.scrollbackLines,
+			pane = sess.ownPane(mux.NewProxyPaneWithScrollback(ps.ID, meta, ps.Cols, ps.Rows, sess.scrollbackLines,
 				onOutput, onExit,
 				func(data []byte) (int, error) {
 					if sess.RemoteManager != nil {
@@ -539,7 +541,7 @@ func NewServerFromCrashCheckpointWithScrollback(sessionName string, cp *checkpoi
 					}
 					return len(data), nil // drop input until reconnected
 				},
-			)
+			))
 		} else {
 			// Spawn fresh shell with restored cwd
 			meta := ps.Meta
@@ -552,6 +554,7 @@ func NewServerFromCrashCheckpointWithScrollback(sessionName string, cp *checkpoi
 				fmt.Fprintf(os.Stderr, "amux: crash recovery: skipping pane %d: %v\n", ps.ID, newErr)
 				continue
 			}
+			pane = sess.ownPane(pane)
 		}
 
 		pane.SetOnClipboard(sess.clipboardCallback())
@@ -685,7 +688,8 @@ func (s *Server) shutdown() {
 			wg.Add(1)
 			go func(p *mux.Pane) {
 				defer wg.Done()
-				p.Close()
+				_ = p.Close()
+				_ = p.WaitClosed()
 			}(p)
 		}
 		wg.Wait()

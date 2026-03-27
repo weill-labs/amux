@@ -157,7 +157,7 @@ func (s *Session) handleTakeover(sshPaneID uint32, req mux.TakeoverRequest) {
 		}
 
 		// writeOverride routes input through the RemoteManager → SSH → remote amux.
-		proxyPane := mux.NewProxyPaneWithScrollback(id, meta, layout.cols, mux.PaneContentHeight(layout.cellH), s.scrollbackLines,
+		proxyPane := s.ownPane(mux.NewProxyPaneWithScrollback(id, meta, layout.cols, mux.PaneContentHeight(layout.cellH), s.scrollbackLines,
 			s.paneOutputCallback(),
 			s.paneExitCallback(),
 			func(data []byte) (int, error) {
@@ -166,7 +166,7 @@ func (s *Session) handleTakeover(sshPaneID uint32, req mux.TakeoverRequest) {
 				}
 				return len(data), nil
 			},
-		)
+		))
 		proxyPanes = append(proxyPanes, proxyPane)
 	}
 	removeRemoteMappings := func() {

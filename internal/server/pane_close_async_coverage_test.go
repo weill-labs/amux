@@ -31,6 +31,20 @@ func TestClosePaneAsyncIgnoresNilPane(t *testing.T) {
 	}
 }
 
+func TestOwnPaneNilReturnsNil(t *testing.T) {
+	t.Parallel()
+
+	sess := newSession("test-own-pane-nil")
+	stopCrashCheckpointLoop(t, sess)
+	t.Cleanup(func() {
+		stopSessionBackgroundLoops(t, sess)
+	})
+
+	if got := sess.ownPane(nil); got != nil {
+		t.Fatalf("ownPane(nil) = %#v, want nil", got)
+	}
+}
+
 func TestCleanupFailedPaneMutationRemovesPane(t *testing.T) {
 	t.Parallel()
 

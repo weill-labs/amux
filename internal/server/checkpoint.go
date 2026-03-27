@@ -184,7 +184,7 @@ func NewServerFromCheckpointWithScrollback(cp *checkpoint.ServerCheckpoint, scro
 			// The remote manager will re-establish the SSH connection.
 			meta := pc.Meta
 			meta.Remote = string(remote.Reconnecting)
-			pane = mux.NewProxyPaneWithScrollback(pc.ID, meta, pc.Cols, pc.Rows, sess.scrollbackLines,
+			pane = sess.ownPane(mux.NewProxyPaneWithScrollback(pc.ID, meta, pc.Cols, pc.Rows, sess.scrollbackLines,
 				onOutput, onExit,
 				func(data []byte) (int, error) {
 					// writeOverride will be reconnected by the remote manager
@@ -193,7 +193,7 @@ func NewServerFromCheckpointWithScrollback(cp *checkpoint.ServerCheckpoint, scro
 					}
 					return len(data), nil // drop input until reconnected
 				},
-			)
+			))
 		} else {
 			var restoreErr error
 			pane, restoreErr = mux.RestorePaneWithScrollback(pc.ID, pc.Meta, pc.PtmxFd, pc.PID, pc.Cols, pc.Rows, sess.scrollbackLines,
@@ -202,6 +202,7 @@ func NewServerFromCheckpointWithScrollback(cp *checkpoint.ServerCheckpoint, scro
 			if restoreErr != nil {
 				continue // Skip pane on restore failure
 			}
+			pane = sess.ownPane(pane)
 		}
 
 		pane.SetOnClipboard(sess.clipboardCallback())

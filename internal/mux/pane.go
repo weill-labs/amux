@@ -6,11 +6,13 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
 
 	"github.com/creack/pty"
+	"github.com/weill-labs/amux/internal/debugowner"
 	"github.com/weill-labs/amux/internal/proto"
 )
 
@@ -62,17 +64,21 @@ type Pane struct {
 	// Used by proxy panes to route input over SSH to a remote amux server.
 	writeOverride func([]byte) (int, error)
 
-	closed         atomic.Bool
-	exitDone       chan struct{} // closed by waitLoop when the shell process exits
-	drainStarted   bool
-	onOutput       func(paneID uint32, data []byte, seq uint64)
-	onExit         func(paneID uint32, reason string)
-	onClipboard    func(paneID uint32, data []byte)
-	onTakeover     func(paneID uint32, req TakeoverRequest)
-	onMetaUpdate   func(paneID uint32, update MetaUpdate)
-	osc52Scanner   OSC52Scanner
-	controlScanner AmuxControlScanner
-	metaScanner    AmuxMetaScanner
+	closed              atomic.Bool
+	exitDone            chan struct{} // closed by waitLoop when the shell process exits
+	closeDoneOnce       sync.Once
+	closeDone           chan struct{}
+	closeErr            error
+	closeForbiddenOwner *debugowner.Checker
+	drainStarted        bool
+	onOutput            func(paneID uint32, data []byte, seq uint64)
+	onExit              func(paneID uint32, reason string)
+	onClipboard         func(paneID uint32, data []byte)
+	onTakeover          func(paneID uint32, req TakeoverRequest)
+	onMetaUpdate        func(paneID uint32, update MetaUpdate)
+	osc52Scanner        OSC52Scanner
+	controlScanner      AmuxControlScanner
+	metaScanner         AmuxMetaScanner
 
 	// Idle tracking (LAB-159)
 	createdAt        time.Time
@@ -765,21 +771,51 @@ func (p *Pane) shellProcess() *os.Process {
 	return nil
 }
 
-// Close terminates the pane's shell and PTY, waiting for the process to exit.
-// Sends SIGHUP first, then closes the PTY master (which also delivers SIGHUP
-// to the slave side). If the process doesn't exit within 2 seconds, SIGKILL
-// is sent as a fallback to prevent orphaned shell processes.
-// For proxy panes (no PTY), Close() just marks the pane as closed.
-//
-// Uses the exitDone channel (closed by waitLoop) to detect process exit
-// without calling cmd.Wait() a second time, avoiding a data race.
+func (p *Pane) ensureCloseDone() chan struct{} {
+	p.closeDoneOnce.Do(func() {
+		p.closeDone = make(chan struct{})
+	})
+	return p.closeDone
+}
+
+// SetCloseForbiddenOwner installs a debug-only guard that panics when Close is
+// invoked on the recorded owner goroutine.
+func (p *Pane) SetCloseForbiddenOwner(owner *debugowner.Checker) {
+	p.closeForbiddenOwner = owner
+}
+
+// Close terminates the pane's shell and PTY, but only schedules the blocking
+// wait/close work on a background goroutine. Call WaitClosed when a caller
+// needs a barrier before proceeding.
 func (p *Pane) Close() error {
+	if p.closeForbiddenOwner != nil {
+		p.closeForbiddenOwner.PanicIfCurrent("mux.Pane", "Close")
+	}
 	if p.closed.Swap(true) {
 		return nil
 	}
+	done := p.ensureCloseDone()
+	go func() {
+		p.closeErr = p.closeBlocking()
+		close(done)
+	}()
+	return nil
+}
+
+// WaitClosed waits for the background Close teardown to finish and returns the
+// final close error, if any.
+func (p *Pane) WaitClosed() error {
+	if !p.closed.Load() {
+		return nil
+	}
+	<-p.ensureCloseDone()
+	return p.closeErr
+}
+
+func (p *Pane) closeBlocking() error {
 	proc := p.shellProcess()
 	if proc != nil {
-		proc.Signal(syscall.SIGHUP)
+		_ = proc.Signal(syscall.SIGHUP)
 	}
 	var ptmxErr error
 	if p.ptmx != nil {
@@ -789,7 +825,7 @@ func (p *Pane) Close() error {
 		select {
 		case <-p.exitDone:
 		case <-time.After(2 * time.Second):
-			proc.Signal(syscall.SIGKILL)
+			_ = proc.Signal(syscall.SIGKILL)
 			<-p.exitDone
 		}
 	}
