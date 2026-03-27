@@ -346,9 +346,9 @@ Default prefix: `Ctrl-a`.
 
 | Key | Action |
 |-----|--------|
-| `Ctrl-a \` | Split active pane left/right |
+| `Ctrl-a \` | Root-level split left/right |
 | `Ctrl-a -` | Split active pane top/bottom |
-| `Ctrl-a \|` | Root-level split left/right |
+| `Ctrl-a \|` | Split active pane left/right |
 | `Ctrl-a _` | Root-level split top/bottom |
 | `Ctrl-a x` | Kill active pane |
 | `Ctrl-a z` | Toggle zoom on active pane |
