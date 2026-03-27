@@ -198,9 +198,7 @@ func TestMainRefreshMetaDispatchesWithoutExplicitPane(t *testing.T) {
 	if strings.Contains(out, "usage: amux refresh-meta") {
 		t.Fatalf("refresh-meta should dispatch without a pane argument, got usage output:\n%s", out)
 	}
-	if !strings.Contains(out, "server not running") {
-		t.Fatalf("refresh-meta should attempt the command, got:\n%s", out)
-	}
+	assertMainCommandConnectError(t, out, "refresh-meta")
 }
 
 func TestMainRefreshMetaUsageRejectsExtraArgs(t *testing.T) {
