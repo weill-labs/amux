@@ -47,7 +47,7 @@ EOF
 		t.Fatalf("write fake gh: %v", err)
 	}
 
-	out, exitCode := runWorkerCICheck(t, tempDir, "FAKE_AMUX_LOG="+logPath)
+	out, exitCode := runWorkerCICheck(t, tempDir, []string{"FAKE_AMUX_LOG=" + logPath}, nil)
 	if exitCode != 1 {
 		t.Fatalf("exit code = %d, want 1\n%s", exitCode, out)
 	}
@@ -110,7 +110,7 @@ EOF
 		t.Fatalf("write fake gh: %v", err)
 	}
 
-	out, exitCode := runWorkerCICheck(t, tempDir, "FAKE_AMUX_LOG="+logPath)
+	out, exitCode := runWorkerCICheck(t, tempDir, []string{"FAKE_AMUX_LOG=" + logPath}, nil)
 	if exitCode != 1 {
 		t.Fatalf("exit code = %d, want 1\n%s", exitCode, out)
 	}
@@ -165,7 +165,7 @@ EOF
 		t.Fatalf("write fake gh: %v", err)
 	}
 
-	out, exitCode := runWorkerCICheck(t, tempDir)
+	out, exitCode := runWorkerCICheck(t, tempDir, nil, nil)
 	if exitCode != 1 {
 		t.Fatalf("exit code = %d, want 1\n%s", exitCode, out)
 	}
@@ -197,12 +197,19 @@ cat <<'EOF'
 EOF
 exit 0
 fi
+log_call() {
 printf '%s' "$1" >"$FAKE_AMUX_LOG"
 shift
 for arg in "$@"; do
     printf ' %s' "$arg" >>"$FAKE_AMUX_LOG"
 done
 printf '\n' >>"$FAKE_AMUX_LOG"
+}
+if [ "$1" = "wait" ]; then
+log_call "$@"
+exit 0
+fi
+log_call "$@"
 `), 0755); err != nil {
 		t.Fatalf("write fake amux: %v", err)
 	}
@@ -216,7 +223,7 @@ EOF
 		t.Fatalf("write fake gh: %v", err)
 	}
 
-	out, exitCode := runWorkerCICheck(t, tempDir, "FAKE_AMUX_LOG="+logPath, "--wait")
+	out, exitCode := runWorkerCICheck(t, tempDir, []string{"FAKE_AMUX_LOG=" + logPath}, []string{"--wait"})
 	if exitCode != 1 {
 		t.Fatalf("exit code = %d, want 1\n%s", exitCode, out)
 	}
@@ -231,6 +238,61 @@ EOF
 	log := string(got)
 	if !strings.Contains(log, "wait content pane-5 Working --timeout 15s") {
 		t.Fatalf("amux log = %q, want wait content call", log)
+	}
+}
+
+func TestCheckWorkerCIScriptDisablesNotifyForStatusContextFailures(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	logPath := filepath.Join(tempDir, "amux.log")
+	amuxPath := filepath.Join(tempDir, "amux")
+	if err := os.WriteFile(amuxPath, []byte(`#!/bin/sh
+if [ "$1" = "list" ]; then
+cat <<'EOF'
+PANE   NAME                 HOST            BRANCH                         WINDOW     TASK         META
+ 9     pane-9               local           feature/pr-700                 main       worker       prs=[700]
+EOF
+exit 0
+fi
+if [ "$1" = "capture" ]; then
+cat <<'EOF'
+{"idle":true,"current_command":"bash"}
+EOF
+exit 0
+fi
+printf '%s' "$1" >"$FAKE_AMUX_LOG"
+shift
+for arg in "$@"; do
+    printf ' %s' "$arg" >>"$FAKE_AMUX_LOG"
+done
+printf '\n' >>"$FAKE_AMUX_LOG"
+`), 0755); err != nil {
+		t.Fatalf("write fake amux: %v", err)
+	}
+
+	ghPath := filepath.Join(tempDir, "gh")
+	if err := os.WriteFile(ghPath, []byte(`#!/bin/sh
+cat <<'EOF'
+[{"number":700,"title":"Context failure","mergeable":"MERGEABLE","statusCheckRollup":[{"__typename":"StatusContext","context":"ci/circle","state":"FAILURE"}]}]
+EOF
+`), 0755); err != nil {
+		t.Fatalf("write fake gh: %v", err)
+	}
+
+	out, exitCode := runWorkerCICheck(t, tempDir, []string{"FAKE_AMUX_LOG=" + logPath}, []string{"--no-notify"})
+	if exitCode != 1 {
+		t.Fatalf("exit code = %d, want 1\n%s", exitCode, out)
+	}
+	if !strings.Contains(out, `reason="failing checks: ci/circle"`) {
+		t.Fatalf("output missing status-context reason:\n%s", out)
+	}
+	if !strings.Contains(out, `notify=disabled`) {
+		t.Fatalf("output missing notify=disabled:\n%s", out)
+	}
+
+	if got, err := os.ReadFile(logPath); err == nil && strings.TrimSpace(string(got)) != "" {
+		t.Fatalf("expected no send-keys call, got log:\n%s", got)
 	}
 }
 
@@ -267,7 +329,7 @@ EOF
 		t.Fatalf("write fake gh: %v", err)
 	}
 
-	out, exitCode := runWorkerCICheck(t, tempDir)
+	out, exitCode := runWorkerCICheck(t, tempDir, nil, nil)
 	if exitCode != 0 {
 		t.Fatalf("exit code = %d, want 0\n%s", exitCode, out)
 	}
@@ -276,18 +338,8 @@ EOF
 	}
 }
 
-func runWorkerCICheck(t *testing.T, tempDir string, extraEnvOrArgs ...string) (string, int) {
+func runWorkerCICheck(t *testing.T, tempDir string, extraEnv []string, extraArgs []string) (string, int) {
 	t.Helper()
-
-	var extraEnv []string
-	var extraArgs []string
-	for _, item := range extraEnvOrArgs {
-		if strings.Contains(item, "=") {
-			extraEnv = append(extraEnv, item)
-			continue
-		}
-		extraArgs = append(extraArgs, item)
-	}
 
 	args := append([]string{"scripts/check-worker-ci.sh"}, extraArgs...)
 	cmd := exec.Command("bash", args...)

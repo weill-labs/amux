@@ -85,6 +85,7 @@ while IFS=$'\t' read -r pr pane; do
     if [[ " $existing " != *" $pane "* ]]; then
         pr_to_panes["$pr"]="${existing:+$existing }$pane"
     fi
+# This parser intentionally depends on the current `amux list --no-cwd` column layout.
 done < <(printf '%s\n' "$pane_list" | awk '
 NR > 1 {
     pane = $2
@@ -110,6 +111,7 @@ NR > 1 {
 }
 ')
 
+# Keep the GitHub query bounded; bump this if the repo ever exceeds 200 open PRs.
 if ! pr_json="$(gh pr list "${gh_repo[@]}" --limit 200 --json number,title,mergeable,statusCheckRollup)"; then
     die "failed to query open PRs"
 fi
@@ -210,7 +212,8 @@ while IFS= read -r problem; do
         continue
     fi
 
-    for pane in $panes; do
+    IFS=' ' read -r -a pane_array <<<"$panes"
+    for pane in "${pane_array[@]}"; do
         IFS=$'\t' read -r state current_command <<<"$(pane_state "$pane")"
         notify_state="disabled"
         ack_state="n/a"
