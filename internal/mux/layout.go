@@ -1,6 +1,9 @@
 package mux
 
-import "fmt"
+import (
+	"fmt"
+	"sort"
+)
 
 // SplitDir indicates horizontal or vertical split direction.
 type SplitDir int
@@ -206,25 +209,8 @@ func (c *LayoutCell) ResizeAll(newW, newH int) {
 		return
 	}
 
-	// Match tmux's resize behavior: distribute exact deltas cell-by-cell
-	// instead of recomputing proportions from already-rounded pane sizes.
-	xchange := newW - c.W
-	xlimit := c.resizeCheck(SplitVertical)
-	if xchange < -xlimit {
-		xchange = -xlimit
-	}
-	if xchange != 0 {
-		c.resizeAdjust(SplitVertical, xchange)
-	}
-
-	ychange := newH - c.H
-	ylimit := c.resizeCheck(SplitHorizontal)
-	if ychange < -ylimit {
-		ychange = -ylimit
-	}
-	if ychange != 0 {
-		c.resizeAdjust(SplitHorizontal, ychange)
-	}
+	c.resizeToAxis(SplitVertical, newW)
+	c.resizeToAxis(SplitHorizontal, newH)
 
 	c.FixOffsets()
 }
@@ -264,12 +250,12 @@ func (c *LayoutCell) ResizeSubtree(newW, newH int) {
 	c.H = newH
 
 	if c.Dir == SplitVertical {
-		childWidths := proportionalChildSizes(c.Children, SplitVertical, newW-(len(c.Children)-1))
+		childWidths := proportionalSubtreeChildSizes(c.Children, SplitVertical, newW-(len(c.Children)-1))
 		for i, child := range c.Children {
 			child.ResizeSubtree(childWidths[i], newH)
 		}
 	} else {
-		childHeights := proportionalChildSizes(c.Children, SplitHorizontal, newH-(len(c.Children)-1))
+		childHeights := proportionalSubtreeChildSizes(c.Children, SplitHorizontal, newH-(len(c.Children)-1))
 		for i, child := range c.Children {
 			child.ResizeSubtree(newW, childHeights[i])
 		}
@@ -308,9 +294,9 @@ func (c *LayoutCell) minSubtreeSize(axis SplitDir) int {
 	return minimum
 }
 
-// proportionalChildSizes fits direct children into target cells while
+// proportionalSubtreeChildSizes fits direct children into target cells while
 // preserving their current proportions and respecting per-child minimums.
-func proportionalChildSizes(children []*LayoutCell, axis SplitDir, target int) []int {
+func proportionalSubtreeChildSizes(children []*LayoutCell, axis SplitDir, target int) []int {
 	n := len(children)
 	if n == 0 {
 		return nil
@@ -451,40 +437,129 @@ func (c *LayoutCell) resizeCheck(axis SplitDir) int {
 	return minimum
 }
 
-func (c *LayoutCell) resizeAdjust(axis SplitDir, change int) {
-	if axis == SplitVertical {
-		c.W += change
-	} else {
-		c.H += change
+func (c *LayoutCell) resizeToAxis(axis SplitDir, target int) {
+	current := c.axisSize(axis)
+	if target == current {
+		return
 	}
+	if target < current {
+		maxShrink := c.resizeCheck(axis)
+		minTarget := current - maxShrink
+		if target < minTarget {
+			target = minTarget
+		}
+	}
+	c.resizeAxis(axis, target)
+}
 
-	if c.IsLeaf() {
+func (c *LayoutCell) resizeAxis(axis SplitDir, target int) {
+	c.setAxisSize(axis, target)
+	if c.IsLeaf() || len(c.Children) == 0 {
 		return
 	}
 
 	if c.Dir != axis {
 		for _, child := range c.Children {
-			child.resizeAdjust(axis, change)
+			child.resizeAxis(axis, target)
 		}
 		return
 	}
 
-	for change != 0 {
-		for _, child := range c.Children {
-			if change == 0 {
-				break
-			}
-			if change > 0 {
-				child.resizeAdjust(axis, 1)
-				change--
-				continue
-			}
-			if child.resizeCheck(axis) > 0 {
-				child.resizeAdjust(axis, -1)
-				change++
+	sizes := proportionalChildSizes(c.Children, axis, target)
+	for i, child := range c.Children {
+		child.resizeAxis(axis, sizes[i])
+	}
+}
+
+func (c *LayoutCell) axisSize(axis SplitDir) int {
+	if axis == SplitVertical {
+		return c.W
+	}
+	return c.H
+}
+
+func (c *LayoutCell) setAxisSize(axis SplitDir, size int) {
+	if axis == SplitVertical {
+		c.W = size
+		return
+	}
+	c.H = size
+}
+
+func proportionalChildSizes(children []*LayoutCell, axis SplitDir, target int) []int {
+	n := len(children)
+	if n == 0 {
+		return nil
+	}
+
+	available := target - (n - 1)
+	minimumTotal := PaneMinSize * n
+	if available < minimumTotal {
+		available = minimumTotal
+	}
+
+	sizes := make([]int, n)
+	extra := available - minimumTotal
+	if extra == 0 {
+		for i := range sizes {
+			sizes[i] = PaneMinSize
+		}
+		return sizes
+	}
+
+	weights := make([]int, n)
+	totalWeight := 0
+	for i, child := range children {
+		weight := child.axisSize(axis) - PaneMinSize
+		if weight < 0 {
+			weight = 0
+		}
+		weights[i] = weight
+		totalWeight += weight
+	}
+
+	type remainder struct {
+		idx int
+		rem int64
+	}
+	remainders := make([]remainder, 0, n)
+	assignedExtra := 0
+
+	if totalWeight == 0 {
+		base := extra / n
+		leftover := extra % n
+		for i := range sizes {
+			sizes[i] = PaneMinSize + base
+			if i >= n-leftover {
+				sizes[i]++
 			}
 		}
+		return sizes
 	}
+
+	for i, weight := range weights {
+		numerator := int64(extra) * int64(weight)
+		share := int(numerator / int64(totalWeight))
+		sizes[i] = PaneMinSize + share
+		assignedExtra += share
+		remainders = append(remainders, remainder{
+			idx: i,
+			rem: numerator % int64(totalWeight),
+		})
+	}
+
+	leftover := extra - assignedExtra
+	sort.SliceStable(remainders, func(i, j int) bool {
+		if remainders[i].rem == remainders[j].rem {
+			return remainders[i].idx > remainders[j].idx
+		}
+		return remainders[i].rem > remainders[j].rem
+	})
+	for i := 0; i < leftover; i++ {
+		sizes[remainders[i].idx]++
+	}
+
+	return sizes
 }
 
 // Walk calls fn for every leaf cell in the tree (depth-first).
