@@ -3,6 +3,8 @@ package test
 import (
 	"testing"
 	"time"
+
+	"github.com/weill-labs/amux/internal/proto"
 )
 
 func TestRepeatResize(t *testing.T) {
@@ -119,8 +121,9 @@ func TestRepeatExpiresAfterTimeout(t *testing.T) {
 	h.waitLayout(gen)
 	h.waitDuration(700 * time.Millisecond)
 	// This L should be typed into the shell (repeat expired), not trigger resize
+	uiGen := h.uiGen()
 	h.sendKeys("L")
-	h.waitDuration(300 * time.Millisecond)
+	h.waitUIAfter(proto.UIEventInputIdle, uiGen, 3*time.Second)
 
 	newBorder := h.captureAmuxVerticalBorderCol()
 	if newBorder < 0 {
