@@ -152,3 +152,27 @@ func TestDefaultBindingsWithoutConfig(t *testing.T) {
 		return strings.Contains(s, "[pane-3]")
 	})
 }
+
+func TestRootHorizontalBindingWhileLeadFocused(t *testing.T) {
+	t.Parallel()
+
+	h := newAmuxHarness(t)
+
+	h.runCmd("split", "pane-1", "v")
+	h.runCmd("set-lead", "pane-1")
+	h.runCmd("focus", "pane-2")
+	h.runCmd("split", "pane-2", "--horizontal")
+	h.runCmd("focus", "pane-1")
+
+	gen := h.generation()
+	h.sendKeys("C-a", "_")
+	h.waitLayout(gen)
+
+	frame := extractFrame(h.capture(), h.session)
+	assertGolden(t, "root_horizontal_binding_lead_focused.golden", frame)
+
+	out := h.runCmd("status")
+	if !strings.Contains(out, "panes: 4 total") {
+		t.Fatalf("expected 4 panes after root horizontal split on focused lead, got: %s", out)
+	}
+}
