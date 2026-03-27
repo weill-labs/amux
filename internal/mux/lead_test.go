@@ -1,6 +1,9 @@
 package mux
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
 
 func TestSetLeadPinsPaneToAbsoluteRootLeft(t *testing.T) {
 	t.Parallel()
@@ -254,6 +257,55 @@ func TestLeadResizeRoundTripPreservesUnevenColumns(t *testing.T) {
 
 	if diff := diffLeafGeometry(initial, snapshotLeafGeometry(w.Root)); diff != "" {
 		t.Fatalf("lead layout drifted after resize round-trip:\n%s", diff)
+	}
+}
+
+func TestWindowResizeWithLeadKeepsRightSubtreeProportional(t *testing.T) {
+	t.Parallel()
+
+	lead := NewLeaf(fakePaneID(1), 0, 0, 17, 23)
+	col1 := NewLeaf(fakePaneID(2), 0, 0, 30, 23)
+	col2 := NewLeaf(fakePaneID(3), 0, 0, 30, 23)
+	col3 := NewLeaf(fakePaneID(4), 0, 0, 30, 23)
+
+	right := &LayoutCell{
+		X:        18,
+		Y:        0,
+		W:        92,
+		H:        23,
+		Dir:      SplitVertical,
+		Children: []*LayoutCell{col1, col2, col3},
+	}
+	for _, child := range right.Children {
+		child.Parent = right
+	}
+
+	root := &LayoutCell{
+		X:        0,
+		Y:        0,
+		W:        110,
+		H:        23,
+		Dir:      SplitVertical,
+		Children: []*LayoutCell{lead, right},
+	}
+	lead.Parent = root
+	right.Parent = root
+	root.FixOffsets()
+
+	w := &Window{
+		Root:       root,
+		ActivePane: lead.Pane,
+		Width:      110,
+		Height:     23,
+		LeadPaneID: lead.Pane.ID,
+	}
+
+	w.Resize(344, 23)
+
+	got := []int{lead.W, col1.W, col2.W, col3.W}
+	want := []int{50, 97, 97, 97}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("resized visual column widths = %v, want %v", got, want)
 	}
 }
 

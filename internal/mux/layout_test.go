@@ -350,6 +350,43 @@ func TestResizeAll_RoundTripKeepsEqualGridStable(t *testing.T) {
 	}
 }
 
+func TestResizeAllPreservesUnevenSiblingProportions(t *testing.T) {
+	t.Parallel()
+
+	root := &LayoutCell{
+		X:   0,
+		Y:   0,
+		W:   72,
+		H:   24,
+		Dir: SplitVertical,
+	}
+	root.Children = []*LayoutCell{
+		NewLeaf(fakePaneID(1), 0, 0, 10, 24),
+		NewLeaf(fakePaneID(2), 0, 0, 20, 24),
+		NewLeaf(fakePaneID(3), 0, 0, 40, 24),
+	}
+	for _, child := range root.Children {
+		child.Parent = root
+	}
+	root.FixOffsets()
+
+	root.ResizeAll(142, 24)
+
+	got := []int{root.Children[0].W, root.Children[1].W, root.Children[2].W}
+	want := []int{19, 40, 81}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("resized widths = %v, want %v", got, want)
+	}
+
+	root.ResizeAll(72, 24)
+
+	got = []int{root.Children[0].W, root.Children[1].W, root.Children[2].W}
+	want = []int{10, 20, 40}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("round-trip widths = %v, want %v", got, want)
+	}
+}
+
 func TestResizeSubtreeLeaf(t *testing.T) {
 	t.Parallel()
 
