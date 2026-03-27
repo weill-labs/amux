@@ -131,8 +131,6 @@ func (h *ServerHarness) attachRendererAt(cols, rows int, afterLayout func(*clien
 			return r
 		}
 	}
-
-	return r
 }
 
 func TestReattachResize(t *testing.T) {
