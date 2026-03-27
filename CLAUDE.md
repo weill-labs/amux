@@ -96,6 +96,8 @@ When a change adds a new test or modifies an existing test, run that targeted te
 
 **Root CLI subprocess tests must use the shared hermetic helper.** Do not open-code `exec.Command(os.Args[0], ...)` or inherit ambient `AMUX_SESSION` / `TMUX` state in root package tests; route those tests through the shared helper so they always run with an isolated session and scrubbed env.
 
+**Changes to `main.go` CLI dispatch need direct unit coverage on the touched lines.** Keep the hermetic subprocess tests for end-to-end CLI behavior, but when a change touches the dispatch branches in `main.go`, add direct unit coverage (for example in `main_test.go`) for those specific lines too. Codecov patch coverage measures the changed `main.go` lines directly and may miss coverage that only arrives through subprocess tests.
+
 **Golden files** live in `test/testdata/`. Two types:
 
 - `.golden` -- structural layout frame (status lines, borders, global bar). Open one and you see the expected screen layout.

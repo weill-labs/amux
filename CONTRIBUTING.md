@@ -54,6 +54,8 @@ Use table-driven tests with `t.Run(tt.name, ...)` and `t.Parallel()`. See `layou
 
 Root CLI subprocess tests must use the shared hermetic helper in the root package tests. Do not open-code `exec.Command(os.Args[0], ...)` or inherit ambient `AMUX_SESSION` / `TMUX` state in those tests.
 
+If a change touches CLI dispatch branches in `main.go`, add direct unit coverage for those touched lines as well (for example in `main_test.go`). Hermetic subprocess tests still cover end-to-end behavior, but Codecov patch coverage measures the changed `main.go` lines directly and may not credit coverage that only flows through the subprocess path.
+
 ### Golden files
 
 Golden files live in `test/testdata/`:
