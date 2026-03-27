@@ -318,21 +318,11 @@ func waitForSessionNotice(t *testing.T, h *ServerHarness, substr, timeout string
 	t.Helper()
 
 	deadline := time.Now().Add(parseTestDuration(t, timeout))
-	gen := takeoverGeneration(t, h)
 	for time.Now().Before(deadline) {
-		capture := h.captureJSON()
-		if strings.Contains(capture.Notice, substr) {
+		if capture, ok := takeoverCaptureJSON(h); ok && strings.Contains(capture.Notice, substr) {
 			return capture
 		}
-
-		waitFor := time.Until(deadline)
-		if waitFor > 250*time.Millisecond {
-			waitFor = 250 * time.Millisecond
-		}
-		if !takeoverWaitLayoutOrTimeout(h, gen, waitFor.String()) {
-			continue
-		}
-		gen = takeoverGeneration(t, h)
+		time.Sleep(25 * time.Millisecond)
 	}
 
 	t.Fatalf("session notice %q did not appear\ncapture:\n%s", substr, h.capture())
@@ -343,20 +333,11 @@ func waitForSessionNoticeGone(t *testing.T, h *ServerHarness, timeout string) {
 	t.Helper()
 
 	deadline := time.Now().Add(parseTestDuration(t, timeout))
-	gen := takeoverGeneration(t, h)
 	for time.Now().Before(deadline) {
-		if h.captureJSON().Notice == "" {
+		if capture, ok := takeoverCaptureJSON(h); ok && capture.Notice == "" {
 			return
 		}
-
-		waitFor := time.Until(deadline)
-		if waitFor > 250*time.Millisecond {
-			waitFor = 250 * time.Millisecond
-		}
-		if !takeoverWaitLayoutOrTimeout(h, gen, waitFor.String()) {
-			continue
-		}
-		gen = takeoverGeneration(t, h)
+		time.Sleep(25 * time.Millisecond)
 	}
 
 	t.Fatalf("session notice did not clear\ncapture:\n%s", h.capture())
