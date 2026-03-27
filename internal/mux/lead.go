@@ -149,18 +149,3 @@ func (w *Window) leadColumn() *LayoutCell {
 	}
 	return w.Root.Children[0]
 }
-
-func containsPane(cell *LayoutCell, paneID uint32) bool {
-	if cell == nil {
-		return false
-	}
-	if cell.IsLeaf() {
-		return cell.Pane != nil && cell.Pane.ID == paneID
-	}
-	for _, child := range cell.Children {
-		if containsPane(child, paneID) {
-			return true
-		}
-	}
-	return false
-}
