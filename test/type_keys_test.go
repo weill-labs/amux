@@ -71,6 +71,24 @@ func TestTypeKeysFocus(t *testing.T) {
 	h.assertActive("pane-1")
 }
 
+func TestTypeKeysRootHorizontalSplitWhileLeadFocused(t *testing.T) {
+	t.Parallel()
+	h := newAmuxHarness(t)
+
+	h.runCmd("split", "pane-1", "v")
+	h.runCmd("set-lead", "pane-1")
+	h.runCmd("focus", "pane-1")
+
+	gen := h.generation()
+	h.runCmd("type-keys", "C-a", "_")
+	h.waitLayout(gen)
+
+	out := h.runCmd("status")
+	if !strings.Contains(out, "panes: 3 total") {
+		t.Fatalf("expected 3 panes after root split on focused lead, got: %s", out)
+	}
+}
+
 func TestTypeKeysCopyMode(t *testing.T) {
 	t.Parallel()
 	h := newAmuxHarness(t)

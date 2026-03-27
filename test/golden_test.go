@@ -81,13 +81,10 @@ func extractFrame(capture string, sessionName string) string {
 
 	for _, line := range lines {
 		switch {
-		case isStatusLine(line):
-			result = append(result, normalizeIdleIcon(line))
 		case isGlobalBar(line):
 			result = append(result, normalizeGlobalBar(line, sessionName))
 		default:
-			// Keep only border characters, replace content with spaces
-			result = append(result, extractBorderLine(line))
+			result = append(result, extractStructuralLine(line))
 		}
 	}
 
@@ -114,9 +111,9 @@ func normalizeGlobalBar(line string, sessionName string) string {
 	return timeRe.ReplaceAllString(line, "00:00")
 }
 
-// extractBorderLine keeps only box-drawing border characters in a line,
-// replacing everything else with spaces. Trailing spaces are trimmed.
-func extractBorderLine(line string) string {
+// extractStructuralLine keeps pane status segments and box-drawing border
+// characters, replacing all other pane content with spaces.
+func extractStructuralLine(line string) string {
 	runes := []rune(line)
 	out := make([]rune, len(runes))
 	for i, r := range runes {
@@ -126,5 +123,40 @@ func extractBorderLine(line string) string {
 			out[i] = ' '
 		}
 	}
+
+	segStart := 0
+	for i, r := range runes {
+		if !isVerticalBorderRune(r) {
+			continue
+		}
+		copyStatusSegment(out, runes, segStart, i)
+		segStart = i + 1
+	}
+	copyStatusSegment(out, runes, segStart, len(runes))
+
 	return strings.TrimRight(string(out), " ")
+}
+
+func copyStatusSegment(dst, src []rune, start, end int) {
+	if start >= end || !isStatusLine(string(src[start:end])) {
+		return
+	}
+	for i := start; i < end; i++ {
+		r := src[i]
+		if r == '◇' {
+			r = '○'
+		}
+		dst[i] = r
+	}
+}
+
+func TestExtractFrameStripsMixedPaneContentFromStatusRows(t *testing.T) {
+	t.Parallel()
+
+	const line = "                          │○ [pane-4]               │runner/work/amux/amux/test$"
+	got := extractFrame(line, "SESSION")
+	want := "                          │○ [pane-4]               │"
+	if got != want {
+		t.Fatalf("extractFrame mixed status row = %q, want %q", got, want)
+	}
 }
