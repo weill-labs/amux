@@ -357,6 +357,44 @@ func TestCmdAddMetaTransitionsTrackedIssuesAsync(t *testing.T) {
 	}
 }
 
+func TestCmdAddMetaSurfacesAsyncIssueTransitionFailures(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	resolver := &stubTrackedMetaResolver{
+		issueTransitionErr: map[string]error{
+			"LAB-488": errors.New("Linear issue LAB-488: LINEAR_API_KEY is not set"),
+		},
+	}
+	sess.TrackedMetaResolver = resolver
+
+	pane := newProxyPane(1, mux.PaneMeta{
+		Name:  "pane-1",
+		Host:  mux.DefaultHost,
+		Color: config.AccentColor(0),
+		Dir:   "/tmp/repo",
+	}, 80, 23, sess.paneOutputCallback(), sess.paneExitCallback(), func(data []byte) (int, error) {
+		return len(data), nil
+	})
+	window := newTestWindowWithPanes(t, sess, 1, "main", pane)
+	sess.Windows = []*mux.Window{window}
+	sess.ActiveWindowID = window.ID
+	sess.Panes = []*mux.Pane{pane}
+
+	res := runTestCommand(t, srv, sess, "add-meta", "pane-1", "issue=LAB-488")
+	if res.cmdErr != "" {
+		t.Fatalf("add-meta error: %s", res.cmdErr)
+	}
+
+	waitUntil(t, func() bool {
+		return mustSessionQuery(t, sess, func(sess *Session) string {
+			return sess.notice
+		}) == "add-meta: Linear issue LAB-488: LINEAR_API_KEY is not set"
+	})
+}
+
 func TestCmdRefreshMetaUsage(t *testing.T) {
 	t.Parallel()
 
