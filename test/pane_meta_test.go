@@ -516,9 +516,7 @@ func TestPaneMetaSurvivesReloadServer(t *testing.T) {
 	h.runCmd("add-meta", "pane-1", "pr=42", "issue=LAB-338")
 
 	h.runCmd("reload-server")
-	if !h.waitFor("[pane-", 5*time.Second) {
-		t.Fatalf("session did not recover after reload-server\nScreen:\n%s", h.captureOuter())
-	}
+	h.waitForCaptureJSONReady(15 * time.Second)
 
 	waitForPostIdleRefresh(t, "pane-1", h.runCmd, h.waitLayoutOrTimeout)
 

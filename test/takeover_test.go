@@ -355,6 +355,9 @@ func takeoverCaptureJSON(h *ServerHarness) (proto.CaptureJSON, bool) {
 	if err := json.Unmarshal([]byte(out), &capture); err != nil {
 		h.tb.Fatalf("captureJSON: %v\nraw: %s", err, out)
 	}
+	if capture.Error != nil {
+		return proto.CaptureJSON{}, false
+	}
 	return capture, true
 }
 
