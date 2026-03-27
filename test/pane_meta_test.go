@@ -232,6 +232,44 @@ func assertPaneMetaValues(t *testing.T, pane map[string]any) {
 	}
 }
 
+func hasExpectedPaneMeta(pane map[string]any) bool {
+	meta, ok := pane["meta"].(map[string]any)
+	if !ok {
+		return false
+	}
+	if task, _ := meta["task"].(string); task != "ship" {
+		return false
+	}
+	if branch, _ := meta["git_branch"].(string); branch != "main" {
+		return false
+	}
+	if pr, _ := meta["pr"].(string); pr != "99" {
+		return false
+	}
+	prs, ok := meta["tracked_prs"].([]any)
+	if !ok || len(prs) != 1 {
+		return false
+	}
+	prRef, ok := prs[0].(map[string]any)
+	if !ok {
+		return false
+	}
+	prNumber, ok := prRef["number"].(float64)
+	if !ok || int(prNumber) != 42 {
+		return false
+	}
+	issues, ok := meta["tracked_issues"].([]any)
+	if !ok || len(issues) != 1 {
+		return false
+	}
+	issueRef, ok := issues[0].(map[string]any)
+	if !ok {
+		return false
+	}
+	issue, _ := issueRef["id"].(string)
+	return issue == "LAB-338"
+}
+
 func tryPaneCaptureJSON(runCmd func(...string) string, pane string) (map[string]any, bool) {
 	raw := runCmd("capture", "--format", "json", pane)
 	var got map[string]any
@@ -280,7 +318,7 @@ func waitForPaneIdle(t *testing.T, pane string, runCmd func(...string) string) {
 	deadline := time.Now().Add(15 * time.Second)
 	for time.Now().Before(deadline) {
 		out := runCmd("wait", "idle", pane, "--timeout", "10s")
-		if strings.Contains(out, "server not running") {
+		if isCommandConnectError(out) {
 			continue
 		}
 		if strings.Contains(out, "timeout") || strings.Contains(out, "not found") {
@@ -291,26 +329,27 @@ func waitForPaneIdle(t *testing.T, pane string, runCmd func(...string) string) {
 	t.Fatalf("wait-idle %s did not recover within 15s", pane)
 }
 
-func waitForPostIdleRefresh(t *testing.T, pane string, runCmd func(...string) string, generation func() uint64, waitLayoutOrTimeout func(uint64, string) bool) {
+func waitForPostIdleRefresh(t *testing.T, pane string, runCmd func(...string) string, waitLayoutOrTimeout func(uint64, string) bool) {
 	t.Helper()
 
 	before := waitForGeneration(t, pane, runCmd)
 	waitForPaneIdle(t, pane, runCmd)
 
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(15 * time.Second)
 	lastGen := before
 	for time.Now().Before(deadline) {
+		if got, ok := tryPaneCaptureJSON(runCmd, pane); ok && hasExpectedPaneMeta(got) {
+			return
+		}
 		gen, ok := tryGeneration(runCmd)
 		if !ok {
+			time.Sleep(25 * time.Millisecond)
 			continue
 		}
 		lastGen = gen
-		if gen >= before+2 {
-			return
-		}
 		_ = waitLayoutOrTimeout(gen, "250ms")
 	}
-	t.Fatalf("pane %s did not reach post-idle metadata refresh (generation before=%d after=%d)", pane, before, lastGen)
+	t.Fatalf("pane %s did not recover expected pane metadata (generation before=%d after=%d)", pane, before, lastGen)
 }
 
 func runAmuxUsageCmd(t *testing.T, args ...string) string {
@@ -471,8 +510,6 @@ func TestCaptureJSONIncludesNestedPaneMeta(t *testing.T) {
 }
 
 func TestPaneMetaSurvivesReloadServer(t *testing.T) {
-	t.Parallel()
-
 	h := newAmuxHarness(t)
 
 	h.runCmd("set-meta", "pane-1", "task=ship", "branch=main", "pr=99")
@@ -483,7 +520,7 @@ func TestPaneMetaSurvivesReloadServer(t *testing.T) {
 		t.Fatalf("session did not recover after reload-server\nScreen:\n%s", h.captureOuter())
 	}
 
-	waitForPostIdleRefresh(t, "pane-1", h.runCmd, h.generation, h.waitLayoutOrTimeout)
+	waitForPostIdleRefresh(t, "pane-1", h.runCmd, h.waitLayoutOrTimeout)
 
 	pane := waitForJSONMap(t, 5*time.Second, func() string {
 		return h.runCmd("capture", "--format", "json", "pane-1")

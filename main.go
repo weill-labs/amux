@@ -720,7 +720,7 @@ func runServer(sessionName string, managedTakeover bool) {
 func runStreamingCommand(sessionName, cmdName string, args []string) {
 	conn, err := connectStreamingCommand(sessionName, cmdName, args)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "amux %s: server not running (run 'amux' first)\n", cmdName)
+		fmt.Fprintf(os.Stderr, "amux %s: %v\n", cmdName, err)
 		os.Exit(1)
 	}
 	streamCommandOutput(conn, cmdName)
@@ -791,7 +791,7 @@ func runEventsCommand(sessionName string, args []string) {
 
 	conn, err := connectStreamingCommand(sessionName, "events", serverArgs)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "amux events: server not running (run 'amux' first)\n")
+		fmt.Fprintf(os.Stderr, "amux events: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -843,9 +843,16 @@ func emitReconnectEvent() {
 	fmt.Println(string(data))
 }
 
+func dialServer(sessionName string) (net.Conn, error) {
+	conn, err := net.Dial("unix", server.SocketPath(sessionName))
+	if err != nil {
+		return nil, fmt.Errorf("connecting to server: %w", err)
+	}
+	return conn, nil
+}
+
 func connectStreamingCommand(sessionName, cmdName string, args []string) (net.Conn, error) {
-	sockPath := server.SocketPath(sessionName)
-	conn, err := net.Dial("unix", sockPath)
+	conn, err := dialServer(sessionName)
 	if err != nil {
 		return nil, err
 	}
@@ -874,10 +881,9 @@ func streamCommandOutput(conn net.Conn, cmdName string) error {
 }
 
 func runServerCommand(sessionName, cmdName string, args []string) {
-	sockPath := server.SocketPath(sessionName)
-	conn, err := net.Dial("unix", sockPath)
+	conn, err := dialServer(sessionName)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "amux %s: server not running (run 'amux' first)\n", cmdName)
+		fmt.Fprintf(os.Stderr, "amux %s: %v\n", cmdName, err)
 		os.Exit(1)
 	}
 	defer conn.Close()

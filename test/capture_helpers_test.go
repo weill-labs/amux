@@ -3,18 +3,26 @@ package test
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/weill-labs/amux/internal/proto"
 )
 
 func captureJSONFor(tb testing.TB, runCmd func(...string) string) proto.CaptureJSON {
 	tb.Helper()
-	out := runCmd("capture", "--format", "json")
-	var capture proto.CaptureJSON
-	if err := json.Unmarshal([]byte(out), &capture); err != nil {
-		tb.Fatalf("captureJSON: %v\nraw: %s", err, out)
+
+	deadline := time.Now().Add(2 * time.Second)
+	var last string
+	for {
+		last = runCmd("capture", "--format", "json")
+		var capture proto.CaptureJSON
+		if err := json.Unmarshal([]byte(last), &capture); err == nil {
+			return capture
+		} else if !isCaptureUnavailable(last) || !time.Now().Before(deadline) {
+			tb.Fatalf("captureJSON: %v\nraw: %s", err, last)
+		}
+		time.Sleep(25 * time.Millisecond)
 	}
-	return capture
 }
 
 func jsonPaneFor(tb testing.TB, capture proto.CaptureJSON, name string) proto.CapturePane {

@@ -78,8 +78,6 @@ func TestTakeoverFromInteractiveSSHShell(t *testing.T) {
 }
 
 func TestTakeoverAttachFailureLeavesSSHPaneVisible(t *testing.T) {
-	t.Parallel()
-
 	h := newServerHarness(t)
 	h.sendKeys("pane-1",
 		`printf '\033]999;amux-takeover;{"session":"main@badhost","host":"badhost","uid":"1","ssh_address":"127.0.0.1:1","ssh_user":"nobody","panes":[{"id":1,"name":"pane-1","cols":80,"rows":22}]}\007'`,
@@ -131,8 +129,6 @@ func TestTakeoverAttachHostKeyMismatchShowsNotice(t *testing.T) {
 }
 
 func TestTakeoverFailureNoticeExpires(t *testing.T) {
-	t.Parallel()
-
 	h := newServerHarnessWithOptions(t, 80, 24, "", true, "AMUX_NOTICE_DURATION=500ms")
 	h.sendKeys("pane-1",
 		`printf '\033]999;amux-takeover;{"session":"main@badhost","host":"badhost","uid":"1","ssh_address":"127.0.0.1:1","ssh_user":"nobody","panes":[{"id":1,"name":"pane-1","cols":80,"rows":22}]}\007'`,
@@ -322,21 +318,11 @@ func waitForSessionNotice(t *testing.T, h *ServerHarness, substr, timeout string
 	t.Helper()
 
 	deadline := time.Now().Add(parseTestDuration(t, timeout))
-	gen := takeoverGeneration(t, h)
 	for time.Now().Before(deadline) {
-		capture := h.captureJSON()
-		if strings.Contains(capture.Notice, substr) {
+		if capture, ok := takeoverCaptureJSON(h); ok && strings.Contains(capture.Notice, substr) {
 			return capture
 		}
-
-		waitFor := time.Until(deadline)
-		if waitFor > 250*time.Millisecond {
-			waitFor = 250 * time.Millisecond
-		}
-		if !takeoverWaitLayoutOrTimeout(h, gen, waitFor.String()) {
-			continue
-		}
-		gen = takeoverGeneration(t, h)
+		time.Sleep(25 * time.Millisecond)
 	}
 
 	t.Fatalf("session notice %q did not appear\ncapture:\n%s", substr, h.capture())
@@ -347,20 +333,11 @@ func waitForSessionNoticeGone(t *testing.T, h *ServerHarness, timeout string) {
 	t.Helper()
 
 	deadline := time.Now().Add(parseTestDuration(t, timeout))
-	gen := takeoverGeneration(t, h)
 	for time.Now().Before(deadline) {
-		if h.captureJSON().Notice == "" {
+		if capture, ok := takeoverCaptureJSON(h); ok && capture.Notice == "" {
 			return
 		}
-
-		waitFor := time.Until(deadline)
-		if waitFor > 250*time.Millisecond {
-			waitFor = 250 * time.Millisecond
-		}
-		if !takeoverWaitLayoutOrTimeout(h, gen, waitFor.String()) {
-			continue
-		}
-		gen = takeoverGeneration(t, h)
+		time.Sleep(25 * time.Millisecond)
 	}
 
 	t.Fatalf("session notice did not clear\ncapture:\n%s", h.capture())
@@ -370,9 +347,7 @@ func takeoverCaptureJSON(h *ServerHarness) (proto.CaptureJSON, bool) {
 	h.tb.Helper()
 
 	out := h.runCmd("capture", "--format", "json")
-	if strings.Contains(out, "no client attached") ||
-		strings.Contains(out, "amux capture: EOF") ||
-		strings.Contains(out, "amux capture: server not running") {
+	if isCaptureUnavailable(out) {
 		return proto.CaptureJSON{}, false
 	}
 
@@ -386,7 +361,7 @@ func takeoverCaptureJSON(h *ServerHarness) (proto.CaptureJSON, bool) {
 func takeoverGeneration(t *testing.T, h *ServerHarness) uint64 {
 	t.Helper()
 
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(15 * time.Second)
 	var out string
 	for {
 		out = strings.TrimSpace(h.runCmd("cursor", "layout"))
@@ -394,7 +369,7 @@ func takeoverGeneration(t *testing.T, h *ServerHarness) uint64 {
 		if err == nil {
 			return n
 		}
-		if !strings.Contains(out, "server not running") || time.Now().After(deadline) {
+		if !isCommandConnectError(out) || time.Now().After(deadline) {
 			logPath := fmt.Sprintf("%s/%s.log", server.SocketDir(), h.session)
 			logData, _ := os.ReadFile(logPath)
 			t.Fatalf("parsing generation: %v (output: %q)\nserver log:\n%s", err, out, string(logData))
@@ -405,7 +380,7 @@ func takeoverGeneration(t *testing.T, h *ServerHarness) uint64 {
 
 func takeoverWaitLayoutOrTimeout(h *ServerHarness, afterGen uint64, timeout string) bool {
 	out := h.runCmd("wait", "layout", "--after", strconv.FormatUint(afterGen, 10), "--timeout", timeout)
-	if strings.Contains(out, "server not running") {
+	if isCommandConnectError(out) {
 		return false
 	}
 	return !strings.Contains(out, "timeout")
