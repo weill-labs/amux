@@ -116,7 +116,7 @@ jobs:
           fi
 
       - name: Upload test results to Codecov
-        if: ${{ !cancelled() && steps.changes.outputs.code_changed == 'true' }}
+        if: ${{ !cancelled() && steps.changes.outputs.code_changed == 'true' && hashFiles('root-results.junit.xml', 'unit-results.junit.xml', 'integration-results.junit.xml') != '' }}
         uses: codecov/codecov-action@v5.5.3
         with:
           files: root-results.junit.xml,unit-results.junit.xml,integration-results.junit.xml
