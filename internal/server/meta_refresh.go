@@ -154,8 +154,8 @@ func (r *externalTrackedMetaResolver) ResolveIssue(id string) (proto.TrackedStat
 	}, &decoded); err != nil {
 		return proto.TrackedStatusUnknown, fmt.Errorf("Linear issue %s: %w", id, err)
 	}
-	if len(decoded.Errors) > 0 {
-		return proto.TrackedStatusUnknown, fmt.Errorf("Linear issue %s: %s", id, decoded.Errors[0].Message)
+	if msg := firstLinearGraphQLError(decoded.Errors); msg != "" {
+		return proto.TrackedStatusUnknown, fmt.Errorf("Linear issue %s: %s", id, msg)
 	}
 	if decoded.Data.Issue == nil {
 		return proto.TrackedStatusUnknown, fmt.Errorf("Linear issue %s: not found", id)
@@ -188,14 +188,13 @@ func (r *externalTrackedMetaResolver) TransitionIssueToStartedIfNeeded(id string
 	}, &decoded); err != nil {
 		return fmt.Errorf("Linear issue %s: %w", id, err)
 	}
-	if len(decoded.Errors) > 0 {
-		return fmt.Errorf("Linear issue %s: %s", id, decoded.Errors[0].Message)
+	if msg := firstLinearGraphQLError(decoded.Errors); msg != "" {
+		return fmt.Errorf("Linear issue %s: %s", id, msg)
 	}
 	if decoded.Data.Issue == nil {
 		return fmt.Errorf("Linear issue %s: not found", id)
 	}
-	stateType := strings.ToLower(strings.TrimSpace(decoded.Data.Issue.State.Type))
-	if stateType != "backlog" && stateType != "unstarted" {
+	if !linearIssueNeedsStartedTransition(decoded.Data.Issue.State.Type) {
 		return nil
 	}
 
@@ -218,8 +217,8 @@ func (r *externalTrackedMetaResolver) TransitionIssueToStartedIfNeeded(id string
 	}, &update); err != nil {
 		return fmt.Errorf("Linear issue %s: %w", id, err)
 	}
-	if len(update.Errors) > 0 {
-		return fmt.Errorf("Linear issue %s: %s", id, update.Errors[0].Message)
+	if msg := firstLinearGraphQLError(update.Errors); msg != "" {
+		return fmt.Errorf("Linear issue %s: %s", id, msg)
 	}
 	if !update.Data.IssueUpdate.Success || update.Data.IssueUpdate.Issue == nil {
 		return fmt.Errorf("Linear issue %s: issueUpdate failed", id)
@@ -289,6 +288,22 @@ func firstStartedWorkflowStateID(states []linearWorkflowState) string {
 		return sorted[i].Position < sorted[j].Position
 	})
 	return sorted[0].ID
+}
+
+func firstLinearGraphQLError(errors []linearGraphQLError) string {
+	if len(errors) == 0 {
+		return ""
+	}
+	return errors[0].Message
+}
+
+func linearIssueNeedsStartedTransition(stateType string) bool {
+	switch strings.ToLower(strings.TrimSpace(stateType)) {
+	case "backlog", "unstarted":
+		return true
+	default:
+		return false
+	}
 }
 
 func (snap trackedPaneRefreshSnapshot) resolvedCwd() string {
