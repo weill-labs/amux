@@ -526,14 +526,14 @@ func (s *Session) transitionTrackedIssuesToStartedAsync(issueIDs []string) {
 
 	go func() {
 		for _, id := range unique {
-			if notice := formatAddMetaTransitionFailureNotice(id, s.TrackedMetaResolver.TransitionIssueToStartedIfNeeded(id)); notice != "" {
+			if notice := formatAddMetaTransitionFailureNotice(s.TrackedMetaResolver.TransitionIssueToStartedIfNeeded(id)); notice != "" {
 				s.showSessionNotice(notice)
 			}
 		}
 	}()
 }
 
-func formatAddMetaTransitionFailureNotice(id string, err error) string {
+func formatAddMetaTransitionFailureNotice(err error) string {
 	if err == nil {
 		return ""
 	}
