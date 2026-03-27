@@ -949,35 +949,31 @@ func (w *Window) MovePane(paneID, targetPaneID uint32, before bool) error {
 // MovePaneUp reorders paneID one slot earlier within its direct split group.
 func (w *Window) MovePaneUp(paneID uint32) error {
 	w.assertOwner("MovePaneUp")
-	parent, idx, err := w.splitGroupForPaneID(paneID)
-	if err != nil {
-		return err
-	}
-	if idx == 0 {
-		return fmt.Errorf("pane %d is already first in its split group", paneID)
-	}
-	if w.ZoomedPaneID != 0 {
-		w.Unzoom()
-	}
-	parent.Children = reorderLayoutChildren(parent.Children, idx, idx-1, true)
-	w.finishTreeMutation()
-	return nil
+	return w.movePaneWithinSplitGroup(paneID, -1)
 }
 
 // MovePaneDown reorders paneID one slot later within its direct split group.
 func (w *Window) MovePaneDown(paneID uint32) error {
 	w.assertOwner("MovePaneDown")
+	return w.movePaneWithinSplitGroup(paneID, 1)
+}
+
+func (w *Window) movePaneWithinSplitGroup(paneID uint32, delta int) error {
 	parent, idx, err := w.splitGroupForPaneID(paneID)
 	if err != nil {
 		return err
 	}
-	if idx == len(parent.Children)-1 {
+	targetIdx := idx + delta
+	switch {
+	case delta < 0 && idx == 0:
+		return fmt.Errorf("pane %d is already first in its split group", paneID)
+	case delta > 0 && idx == len(parent.Children)-1:
 		return fmt.Errorf("pane %d is already last in its split group", paneID)
 	}
 	if w.ZoomedPaneID != 0 {
 		w.Unzoom()
 	}
-	parent.Children = reorderLayoutChildren(parent.Children, idx, idx+1, false)
+	parent.Children = reorderLayoutChildren(parent.Children, idx, targetIdx, delta < 0)
 	w.finishTreeMutation()
 	return nil
 }

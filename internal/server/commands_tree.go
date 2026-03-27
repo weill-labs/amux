@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 
+	"github.com/weill-labs/amux/internal/mux"
 	treecmd "github.com/weill-labs/amux/internal/server/commands/layout/tree"
 )
 
@@ -150,35 +151,16 @@ func cmdMoveTo(ctx *CommandContext) {
 }
 
 func cmdMoveUp(ctx *CommandContext) {
-	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
-		paneRef, err := parseMoveSiblingArgs(ctx.Args, moveUpUsage)
-		if err != nil {
-			return commandMutationResult{err: err}
-		}
-
-		w := sess.windowForActor(ctx.ActorPaneID)
-		if w == nil {
-			return commandMutationResult{err: fmt.Errorf("no session")}
-		}
-
-		pane, err := w.ResolvePane(paneRef)
-		if err != nil {
-			return commandMutationResult{err: err}
-		}
-		if err := w.MovePaneUp(pane.ID); err != nil {
-			return commandMutationResult{err: err}
-		}
-
-		return commandMutationResult{
-			output:          fmt.Sprintf("Moved %s up\n", pane.Meta.Name),
-			broadcastLayout: true,
-		}
-	}))
+	cmdMoveSibling(ctx, moveUpUsage, "up", (*mux.Window).MovePaneUp)
 }
 
 func cmdMoveDown(ctx *CommandContext) {
+	cmdMoveSibling(ctx, moveDownUsage, "down", (*mux.Window).MovePaneDown)
+}
+
+func cmdMoveSibling(ctx *CommandContext, usage, direction string, move func(*mux.Window, uint32) error) {
 	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
-		paneRef, err := parseMoveSiblingArgs(ctx.Args, moveDownUsage)
+		paneRef, err := parseMoveSiblingArgs(ctx.Args, usage)
 		if err != nil {
 			return commandMutationResult{err: err}
 		}
@@ -192,12 +174,12 @@ func cmdMoveDown(ctx *CommandContext) {
 		if err != nil {
 			return commandMutationResult{err: err}
 		}
-		if err := w.MovePaneDown(pane.ID); err != nil {
+		if err := move(w, pane.ID); err != nil {
 			return commandMutationResult{err: err}
 		}
 
 		return commandMutationResult{
-			output:          fmt.Sprintf("Moved %s down\n", pane.Meta.Name),
+			output:          fmt.Sprintf("Moved %s %s\n", pane.Meta.Name, direction),
 			broadcastLayout: true,
 		}
 	}))
