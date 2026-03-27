@@ -602,12 +602,16 @@ func (w *Window) resizePaneShrink(siblings []*LayoutCell, idx int, axis SplitDir
 	return needed - w.transferSiblingRange(siblings[idx+1], siblings, idx+1, axis, needed, idx, -1, -1)
 }
 
+func transferEdges(growerIdx, donorIdx int) (resizeEdge, resizeEdge) {
+	if donorIdx < growerIdx {
+		return resizeFromStart, resizeFromEnd
+	}
+	return resizeFromEnd, resizeFromStart
+}
+
 func (w *Window) transferSiblingRange(grower *LayoutCell, siblings []*LayoutCell, growerIdx int, axis SplitDir, remaining, start, stop, step int) int {
 	for donorIdx := start; donorIdx != stop && remaining > 0; donorIdx += step {
-		growerEdge, donorEdge := resizeFromEnd, resizeFromStart
-		if donorIdx < growerIdx {
-			growerEdge, donorEdge = resizeFromStart, resizeFromEnd
-		}
+		growerEdge, donorEdge := transferEdges(growerIdx, donorIdx)
 		remaining -= transferAxisSize(grower, siblings[donorIdx], axis, remaining, growerEdge, donorEdge)
 	}
 	return remaining
