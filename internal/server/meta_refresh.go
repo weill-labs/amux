@@ -537,11 +537,7 @@ func formatAddMetaTransitionFailureNotice(id string, err error) string {
 	if err == nil {
 		return ""
 	}
-	msg := strings.TrimSpace(err.Error())
-	if msg == "" {
-		msg = fmt.Sprintf("Linear issue %s: transition failed", id)
-	}
-	return "add-meta: " + msg
+	return "add-meta: " + strings.TrimSpace(err.Error())
 }
 
 func (s *Server) SetTrackedMetaResolver(resolver TrackedMetaResolver) {
