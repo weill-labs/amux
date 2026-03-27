@@ -25,10 +25,11 @@ func TestWriteReadMsg(t *testing.T) {
 		{
 			name: "attach message",
 			msg: Message{
-				Type:    MsgTypeAttach,
-				Session: "test-session",
-				Cols:    80,
-				Rows:    24,
+				Type:       MsgTypeAttach,
+				Session:    "test-session",
+				Cols:       80,
+				Rows:       24,
+				AttachMode: proto.AttachModeNonInteractive,
 				AttachCapabilities: &proto.ClientCapabilities{
 					Hyperlinks:     true,
 					PromptMarkers:  true,
@@ -102,6 +103,9 @@ func TestWriteReadMsg(t *testing.T) {
 			}
 			if !reflect.DeepEqual(got.AttachCapabilities, tt.msg.AttachCapabilities) {
 				t.Errorf("AttachCapabilities = %+v, want %+v", got.AttachCapabilities, tt.msg.AttachCapabilities)
+			}
+			if got.AttachMode != tt.msg.AttachMode {
+				t.Errorf("AttachMode = %v, want %v", got.AttachMode, tt.msg.AttachMode)
 			}
 			if got.CmdName != tt.msg.CmdName {
 				t.Errorf("CmdName = %q, want %q", got.CmdName, tt.msg.CmdName)

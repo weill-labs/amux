@@ -34,6 +34,7 @@ type clientConn struct {
 	uiGeneration        uint64
 	cols                int // last reported terminal width
 	rows                int // last reported terminal height
+	nonInteractive      bool
 	writer              *clientWriter
 	typeKeyQueue        *pacedInputQueue
 	typeKeyRouteMu      sync.Mutex
@@ -65,6 +66,10 @@ func (cc *clientConn) setNegotiatedCapabilities(caps proto.ClientCapabilities) {
 
 func (cc *clientConn) capabilitySummary() string {
 	return cc.capabilities.Summary()
+}
+
+func (cc *clientConn) participatesInSizeNegotiation() bool {
+	return cc != nil && !cc.nonInteractive
 }
 
 // Send writes a message to the client. Thread-safe.

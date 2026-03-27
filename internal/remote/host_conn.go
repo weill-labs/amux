@@ -529,10 +529,11 @@ func (hc *HostConn) flushPendingInputs() {
 // responds with a MsgTypeLayout, confirming the session window exists.
 func attachAndWait(conn net.Conn, session string, timeout time.Duration) error {
 	if err := proto.WriteMsg(conn, &proto.Message{
-		Type:    proto.MsgTypeAttach,
-		Session: session,
-		Cols:    80,
-		Rows:    24,
+		Type:       proto.MsgTypeAttach,
+		Session:    session,
+		Cols:       80,
+		Rows:       24,
+		AttachMode: proto.AttachModeNonInteractive,
 	}); err != nil {
 		return fmt.Errorf("attaching to remote: %w", err)
 	}

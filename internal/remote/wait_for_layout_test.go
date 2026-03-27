@@ -119,6 +119,9 @@ func TestAttachAndWait(t *testing.T) {
 			if msg.Type != proto.MsgTypeAttach {
 				return
 			}
+			if msg.AttachMode != proto.AttachModeNonInteractive {
+				t.Errorf("attach mode = %v, want %v", msg.AttachMode, proto.AttachModeNonInteractive)
+			}
 			// Reply with layout
 			proto.WriteMsg(server, &proto.Message{Type: proto.MsgTypeLayout, Layout: testLayoutSnapshot()})
 		}()

@@ -631,6 +631,9 @@ func TestRunSessionHandlesServerMessagesAndInteractiveInput(t *testing.T) {
 	if attach.Cols != 80 || attach.Rows != 24 {
 		t.Fatalf("attach size = %dx%d, want 80x24", attach.Cols, attach.Rows)
 	}
+	if attach.AttachMode != proto.AttachModeInteractive {
+		t.Fatalf("attach mode = %v, want %v", attach.AttachMode, proto.AttachModeInteractive)
+	}
 	if attach.AttachCapabilities == nil || !attach.AttachCapabilities.CursorMetadata || !attach.AttachCapabilities.KittyKeyboard {
 		t.Fatalf("attach capabilities = %+v, want negotiated ghostty features", attach.AttachCapabilities)
 	}
@@ -752,6 +755,9 @@ func TestRunSessionDetachFlushesPendingInput(t *testing.T) {
 	attach := h.waitAttach(t)
 	if attach.Type != proto.MsgTypeAttach {
 		t.Fatalf("attach type = %d, want %d", attach.Type, proto.MsgTypeAttach)
+	}
+	if attach.AttachMode != proto.AttachModeInteractive {
+		t.Fatalf("attach mode = %v, want %v", attach.AttachMode, proto.AttachModeInteractive)
 	}
 	h.output.waitContains(t, render.AltScreenEnter)
 

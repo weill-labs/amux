@@ -85,10 +85,11 @@ func TestWriteReadMsgAllMessageTypes(t *testing.T) {
 		{
 			name: "attach",
 			msg: Message{
-				Type:    MsgTypeAttach,
-				Session: "test-session",
-				Cols:    80,
-				Rows:    24,
+				Type:       MsgTypeAttach,
+				Session:    "test-session",
+				Cols:       80,
+				Rows:       24,
+				AttachMode: AttachModeNonInteractive,
 				AttachCapabilities: &ClientCapabilities{
 					KittyKeyboard:       true,
 					Hyperlinks:          true,

@@ -470,6 +470,56 @@ func TestClientWriterPrioritizesControlMessagesOverPaneOutput(t *testing.T) {
 	}
 }
 
+func TestClientWriterBootstrappingPrioritizesControlMessagesOverPaneOutput(t *testing.T) {
+	t.Parallel()
+
+	order := make(chan string, 3)
+	firstStarted := make(chan struct{})
+	releaseFirst := make(chan struct{})
+
+	w := &clientWriter{
+		conn:         discardConn{},
+		commands:     make(chan clientWriterCommand, 2),
+		paneCommands: make(chan clientWriterCommand, 2),
+		stop:         make(chan struct{}),
+		done:         make(chan struct{}),
+	}
+	go w.loop()
+	defer w.close()
+
+	w.startBootstrap()
+
+	w.paneCommands <- orderedClientWriterCommand{
+		label:   "pane-1",
+		order:   order,
+		started: firstStarted,
+		release: releaseFirst,
+	}
+	w.paneCommands <- orderedClientWriterCommand{
+		label: "pane-2",
+		order: order,
+	}
+
+	select {
+	case <-firstStarted:
+	case <-time.After(time.Second):
+		t.Fatal("first pane output was not handled")
+	}
+
+	w.commands <- orderedClientWriterCommand{
+		label: "control",
+		order: order,
+	}
+	close(releaseFirst)
+
+	first := readLabelWithTimeout(t, order)
+	second := readLabelWithTimeout(t, order)
+	third := readLabelWithTimeout(t, order)
+	if first != "pane-1" || second != "control" || third != "pane-2" {
+		t.Fatalf("handle order = [%s %s %s], want [pane-1 control pane-2]", first, second, third)
+	}
+}
+
 func readLabelWithTimeout(t *testing.T, ch <-chan string) string {
 	t.Helper()
 	select {

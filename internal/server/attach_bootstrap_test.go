@@ -99,7 +99,83 @@ func TestHandleAttachAppliesQueuedLayoutAfterConcurrentSplit(t *testing.T) {
 	assertAttachReplayPaneMatchesSnapshot(t, replay, pane2.ID, wantPane2)
 }
 
+func TestNonInteractiveAttachDoesNotCountForExitUnattached(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	srv.Env.ExitUnattached = true
+	mustSessionQuery(t, sess, func(sess *Session) struct{} {
+		sess.exitServer = srv
+		return struct{}{}
+	})
+
+	pane := newAttachTestPane(sess, 1, "pane-1", 80, 2)
+	w := mux.NewWindow(pane, 80, 3)
+	w.ID = 1
+	w.Name = "window-1"
+	if err := setAttachTestLayout(sess, []*mux.Window{w}, w.ID, []*mux.Pane{pane}); err != nil {
+		t.Fatalf("setAttachTestLayout: %v", err)
+	}
+
+	peerConn, replay, paused, release, done := startPausedAttachWithInteractivity(t, srv, sess, 80, 4, false)
+	readInitialAttachReplay(t, peerConn, replay)
+	waitForPause(t, paused)
+	release()
+
+	state := mustSessionQuery(t, sess, func(sess *Session) struct {
+		hadClient   bool
+		clientCount int
+	} {
+		return struct {
+			hadClient   bool
+			clientCount int
+		}{
+			hadClient:   sess.hadClient,
+			clientCount: len(sess.ensureClientManager().clients),
+		}
+	})
+	if state.hadClient {
+		t.Fatal("non-interactive attach should not mark the session as having an interactive client")
+	}
+	if state.clientCount != 1 {
+		t.Fatalf("client count after attach = %d, want 1", state.clientCount)
+	}
+
+	closeAttach(t, peerConn, release, done)
+
+	stateAfterDetach := mustSessionQuery(t, sess, func(sess *Session) struct {
+		hadClient    bool
+		wantShutdown bool
+		clientCount  int
+	} {
+		return struct {
+			hadClient    bool
+			wantShutdown bool
+			clientCount  int
+		}{
+			hadClient:    sess.hadClient,
+			wantShutdown: sess.wantShutdown,
+			clientCount:  len(sess.ensureClientManager().clients),
+		}
+	})
+	if stateAfterDetach.hadClient {
+		t.Fatal("non-interactive detach should not leave the session marked as having an interactive client")
+	}
+	if stateAfterDetach.wantShutdown {
+		t.Fatal("non-interactive detach should not trigger exit-unattached shutdown")
+	}
+	if stateAfterDetach.clientCount != 0 {
+		t.Fatalf("client count after detach = %d, want 0", stateAfterDetach.clientCount)
+	}
+}
+
 func startPausedAttach(t *testing.T, srv *Server, sess *Session, cols, rows int) (net.Conn, *attachReplayState, <-chan struct{}, func(), <-chan struct{}) {
+	return startPausedAttachWithInteractivity(t, srv, sess, cols, rows, true)
+}
+
+func startPausedAttachWithInteractivity(t *testing.T, srv *Server, sess *Session, cols, rows int, interactive bool) (net.Conn, *attachReplayState, <-chan struct{}, func(), <-chan struct{}) {
 	t.Helper()
 
 	serverConn, peerConn := net.Pipe()
@@ -115,11 +191,16 @@ func startPausedAttach(t *testing.T, srv *Server, sess *Session, cols, rows int)
 
 	go func() {
 		defer close(done)
+		mode := proto.AttachModeInteractive
+		if !interactive {
+			mode = proto.AttachModeNonInteractive
+		}
 		srv.handleAttach(serverConn, &Message{
-			Type:    MsgTypeAttach,
-			Session: sess.Name,
-			Cols:    cols,
-			Rows:    rows,
+			Type:       MsgTypeAttach,
+			Session:    sess.Name,
+			Cols:       cols,
+			Rows:       rows,
+			AttachMode: mode,
 		})
 	}()
 

@@ -353,12 +353,7 @@ func (s *Session) queryClientList() ([]clientListEntry, error) {
 	return enqueueSessionQuery(s, func(s *Session) ([]clientListEntry, error) {
 		clients := s.ensureClientManager().clients
 		entries := make([]clientListEntry, 0, len(clients))
-		sizeOwner := s.currentSizeClient()
-		if sizeOwner == nil || !s.hasClient(sizeOwner) {
-			if len(clients) > 0 {
-				sizeOwner = clients[len(clients)-1]
-			}
-		}
+		sizeOwner := s.effectiveSizeClient()
 		for _, cc := range clients {
 			entries = append(entries, clientListEntry{
 				id:           cc.ID,

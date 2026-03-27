@@ -864,7 +864,8 @@ func (s *Session) disconnectClientsForReload(clients []*clientConn) {
 
 func (s *Session) handleAttachEvent(srv *Server, cc *clientConn, cols, rows int) attachResult {
 	idleSnap := s.snapshotIdleState()
-	firstAttach := !s.hadClient
+	countsForExitUnattached := cc.participatesInSizeNegotiation()
+	firstAttach := countsForExitUnattached && !s.hadClient
 
 	cc.cols = cols
 	cc.rows = rows
@@ -885,7 +886,9 @@ func (s *Session) handleAttachEvent(srv *Server, cc *clientConn, cols, rows int)
 	res.newPane = initRes.newPane
 
 	s.ensureClientManager().addClient(cc)
-	s.hadClient = true
+	if countsForExitUnattached {
+		s.hadClient = true
+	}
 	s.appendConnectionLog(connectionLogEventAttach, cc.ID, cc.cols, cc.rows, "")
 	s.noteClientActivity(cc)
 	s.emitClientConnectEvent(cc)

@@ -97,8 +97,8 @@ type Session struct {
 	// Nil disables external refreshes.
 	TrackedMetaResolver TrackedMetaResolver
 
-	// Capture forwarding — routes capture requests through the attached
-	// interactive client so the result reflects client-side emulator state.
+	// Capture forwarding — routes capture requests through an attached
+	// client so the result reflects client-side emulator state.
 	// The event loop owns the single in-flight request and queued requests.
 	capture *captureForwarder
 
@@ -713,7 +713,7 @@ func (s *Server) handleConn(conn net.Conn) {
 	}
 }
 
-// handleAttach registers an interactive client and starts its read loop.
+// handleAttach registers an attached client and starts its read loop.
 func (s *Server) handleAttach(conn net.Conn, msg *Message) {
 	sessionName := msg.Session
 	if sessionName == "" {
@@ -729,6 +729,7 @@ func (s *Server) handleAttach(conn net.Conn, msg *Message) {
 
 	cc := newClientConn(conn)
 	cc.ID = fmt.Sprintf("client-%d", sess.ensureClientManager().nextClientOrdinal())
+	cc.nonInteractive = !msg.AttachMode.IsInteractive()
 	cc.initTypeKeyQueue()
 	cc.setNegotiatedCapabilities(proto.NegotiateClientCapabilities(msg.AttachCapabilities))
 	cc.startBootstrap()

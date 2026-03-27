@@ -578,8 +578,9 @@ func (a *atomicInt64) Load() int64   { return a.value }
 func (a *atomicInt64) Store(v int64) { a.value = v }
 
 func TestAgentStatusTracksBusyAndIdle(t *testing.T) {
-	t.Parallel()
-
+	// Keep this serialized within the package: AgentStatus shells out to pgrep/ps
+	// multiple times per poll, and running it alongside the other PTY/process
+	// tests under -race has timed out in CI.
 	pane := newAgentStatusTestPane(t)
 
 	idle := (&Pane{createdAt: pane.createdAt}).AgentStatus()

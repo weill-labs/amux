@@ -187,7 +187,7 @@ func (w *clientWriter) loop() {
 			select {
 			case <-w.stop:
 				return
-			case cmd := <-w.paneCommands:
+			case cmd := <-w.commands:
 				if cmd == nil {
 					continue
 				}
@@ -198,14 +198,14 @@ func (w *clientWriter) loop() {
 				select {
 				case <-w.stop:
 					return
-				case cmd := <-w.paneCommands:
+				case cmd := <-w.commands:
 					if cmd == nil {
 						continue
 					}
 					if cmd.handle(&state, w.conn) {
 						return
 					}
-				case cmd := <-w.commands:
+				case cmd := <-w.paneCommands:
 					if cmd == nil {
 						continue
 					}
