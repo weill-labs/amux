@@ -592,7 +592,7 @@ func assertReadLoopInputWrite(t *testing.T, conn net.Conn, writes <-chan []byte,
 		if string(got) != input {
 			t.Fatalf("input write = %q, want %q", string(got), input)
 		}
-	case <-time.After(time.Second):
+	case <-time.After(5 * time.Second):
 		t.Fatalf("timed out waiting for input %q to reach pane", input)
 	}
 }

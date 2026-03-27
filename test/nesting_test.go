@@ -30,7 +30,7 @@ func TestNestingEnvVarSet(t *testing.T) {
 func TestPaneShellStripsColorSuppressorsFromServerEnv(t *testing.T) {
 	t.Parallel()
 
-	h := newServerHarnessWithOptions(t, 80, 24, "", true, "NO_COLOR=1", "CODEX_CI=1")
+	h := newServerHarnessWithOptions(t, 80, 24, "", true, false, "NO_COLOR=1", "CODEX_CI=1")
 
 	h.sendKeys("pane-1", `printf 'NO_COLOR=%s CODEX_CI=%s TERM=%s\n' "${NO_COLOR-unset}" "${CODEX_CI-unset}" "$TERM"`, "Enter")
 	h.waitFor("pane-1", "TERM=amux")

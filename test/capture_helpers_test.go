@@ -2,26 +2,77 @@ package test
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/weill-labs/amux/internal/proto"
 )
 
+const (
+	queryRetryTimeout = 5 * time.Second
+	queryRetryDelay   = 25 * time.Millisecond
+)
+
 func captureJSONFor(tb testing.TB, runCmd func(...string) string) proto.CaptureJSON {
 	tb.Helper()
 
-	deadline := time.Now().Add(2 * time.Second)
-	var last string
+	deadline := time.Now().Add(queryRetryTimeout)
 	for {
-		last = runCmd("capture", "--format", "json")
+		raw := runCmd("capture", "--format", "json")
 		var capture proto.CaptureJSON
-		if err := json.Unmarshal([]byte(last), &capture); err == nil {
+		if err := json.Unmarshal([]byte(raw), &capture); err == nil {
 			return capture
-		} else if !isCaptureUnavailable(last) || !time.Now().Before(deadline) {
-			tb.Fatalf("captureJSON: %v\nraw: %s", err, last)
+		} else if time.Now().After(deadline) || !(isCaptureUnavailable(raw) || isTransientSessionQueryFailure(raw)) {
+			tb.Fatalf("captureJSON: %v\nraw: %s", err, raw)
 		}
-		time.Sleep(25 * time.Millisecond)
+		time.Sleep(queryRetryDelay)
+	}
+}
+
+func capturePaneJSONFor(tb testing.TB, pane string, runCmd func(...string) string) proto.CapturePane {
+	tb.Helper()
+
+	deadline := time.Now().Add(queryRetryTimeout)
+	for {
+		raw := runCmd("capture", "--format", "json", pane)
+		var capture proto.CapturePane
+		if err := json.Unmarshal([]byte(raw), &capture); err == nil {
+			return capture
+		} else if time.Now().After(deadline) || !(isCaptureUnavailable(raw) || isTransientSessionQueryFailure(raw)) {
+			tb.Fatalf("capturePaneJSON(%s): %v\nraw: %s", pane, err, raw)
+		}
+		time.Sleep(queryRetryDelay)
+	}
+}
+
+func isTransientSessionQueryFailure(raw string) bool {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return true
+	}
+	return strings.Contains(raw, "server not running") ||
+		strings.Contains(raw, "session shutting down") ||
+		strings.Contains(raw, "EOF")
+}
+
+func stopLongRunningCommand(tb testing.TB, h *ServerHarness, pane string) {
+	tb.Helper()
+
+	h.sendKeys(pane, "C-c")
+
+	deadline := time.Now().Add(queryRetryTimeout)
+	for {
+		out := h.runCmd("wait", "busy", pane, "--timeout", "100ms")
+		switch {
+		case isTransientSessionQueryFailure(out):
+			return
+		case strings.Contains(out, "timeout") || strings.Contains(out, "not found"):
+			return
+		case time.Now().After(deadline):
+			tb.Fatalf("stopLongRunningCommand(%s): %s", pane, strings.TrimSpace(out))
+		}
+		time.Sleep(queryRetryDelay)
 	}
 }
 

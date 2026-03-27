@@ -129,7 +129,7 @@ func TestTakeoverAttachHostKeyMismatchShowsNotice(t *testing.T) {
 }
 
 func TestTakeoverFailureNoticeExpires(t *testing.T) {
-	h := newServerHarnessWithOptions(t, 80, 24, "", true, "AMUX_NOTICE_DURATION=500ms")
+	h := newServerHarnessWithOptions(t, 80, 24, "", true, false, "AMUX_NOTICE_DURATION=500ms")
 	h.sendKeys("pane-1",
 		`printf '\033]999;amux-takeover;{"session":"main@badhost","host":"badhost","uid":"1","ssh_address":"127.0.0.1:1","ssh_user":"nobody","panes":[{"id":1,"name":"pane-1","cols":80,"rows":22}]}\007'`,
 		"Enter",
@@ -146,7 +146,7 @@ func TestTakeoverReconnectAfterRemoteReload(t *testing.T) {
 	t.Parallel()
 
 	addr, keyFile := setupTestSSH(t)
-	h := newServerHarnessWithOptions(t, 80, 24, remoteTestConfig(addr, keyFile), false)
+	h := newServerHarnessWithOptions(t, 80, 24, remoteTestConfig(addr, keyFile), false, false)
 	existingProxyPanes := takeoverProxyPaneNames(h)
 
 	_, port, _ := net.SplitHostPort(addr)
