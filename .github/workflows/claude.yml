@@ -40,8 +40,10 @@ jobs:
           additional_permissions: |
             actions: read
 
-          # Optional: Give a custom prompt to Claude. If this is not specified, Claude will perform the instructions specified in the comment that tagged it.
-          # prompt: 'Update the pull request description to include a summary of changes.'
+          # LGTM signal: when reviewing a PR and finding no blocking issues, end the comment with "LGTM"
+          additional_instructions: |
+            When reviewing a PR, if you found no blocking issues, end your comment with "LGTM" on its own line.
+            If you found blocking issues, do not write LGTM.
 
           # Optional: Add claude_args to customize behavior and configuration
           # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
