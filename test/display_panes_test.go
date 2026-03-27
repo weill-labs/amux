@@ -84,7 +84,9 @@ func TestDisplayPanesZoomedOnlyShowsVisiblePane(t *testing.T) {
 	h.splitV()
 	h.runCmd("zoom", "pane-2")
 
+	uiGen := h.uiGen()
 	h.sendKeys("C-a", "q")
+	h.waitUIAfter(proto.UIEventDisplayPanesShown, uiGen, 3*time.Second)
 	if !h.waitFor("[1]", 3*time.Second) {
 		t.Fatalf("expected overlay label for zoomed pane, got:\n%s", h.captureOuter())
 	}
@@ -94,7 +96,9 @@ func TestDisplayPanesZoomedOnlyShowsVisiblePane(t *testing.T) {
 		t.Fatalf("zoomed overlay should not show hidden pane labels, got:\n%s", outer)
 	}
 
+	uiGen = h.uiGen()
 	h.sendKeys("2")
+	h.waitUIAfter(proto.UIEventDisplayPanesHidden, uiGen, 3*time.Second)
 	if !waitForOuterGone(h, "[1]", 3*time.Second) {
 		t.Fatalf("expected overlay to clear after invalid zoomed label\nScreen:\n%s", h.captureOuter())
 	}
