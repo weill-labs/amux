@@ -88,6 +88,8 @@ func (cc *clientConn) enqueueTypeKeys(chunks []encodedKeyChunk) error {
 	return queue.enqueue(chunks)
 }
 
+// withInputTargetOverride temporarily routes this client's injected input to a
+// specific pane without mutating global focus/layout state.
 func (cc *clientConn) withInputTargetOverride(pane *mux.Pane, fn func() error) error {
 	if pane == nil {
 		return fn()
