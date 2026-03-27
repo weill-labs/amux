@@ -726,9 +726,9 @@ func TestEventsThrottleNonOutputPassthrough(t *testing.T) {
 	t.Fatal("layout event not received within expected window")
 }
 
-// TestEventsCLIServerNotRunning verifies that `amux events` exits with an
-// error when no server is running (covers the error path in runStreamingCommand).
-func TestEventsCLIServerNotRunning(t *testing.T) {
+// TestEventsCLIConnectError verifies that `amux events` surfaces the
+// underlying dial error for initial stream setup.
+func TestEventsCLIConnectError(t *testing.T) {
 	t.Parallel()
 	cmd := exec.Command(amuxBin, "-s", "nonexistent-session-xyz", "events")
 	if gocoverDir != "" {
@@ -736,14 +736,14 @@ func TestEventsCLIServerNotRunning(t *testing.T) {
 	}
 	out, err := cmd.CombinedOutput()
 	if err == nil {
-		t.Fatal("expected error when server not running")
+		t.Fatal("expected initial connect error")
 	}
 	if exit, ok := err.(*exec.ExitError); ok {
 		if exit.ExitCode() != 1 {
 			t.Errorf("exit code: got %d, want 1", exit.ExitCode())
 		}
 	}
-	if got := string(out); got == "" {
-		t.Error("expected error message on stderr")
+	if got := string(out); !strings.Contains(got, "amux events: connecting to server:") || !strings.Contains(got, "no such file or directory") {
+		t.Fatalf("expected dial error on stderr, got:\n%s", got)
 	}
 }

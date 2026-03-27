@@ -2,10 +2,15 @@ package main
 
 import (
 	"fmt"
+	"hash/crc32"
+	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/weill-labs/amux/internal/server"
 )
 
 func TestMainCLISubprocessHelper(t *testing.T) {
@@ -59,7 +64,7 @@ func hermeticMainSession(testName string) string {
 		default:
 			b.WriteByte('-')
 		}
-		if b.Len() >= 32 {
+		if b.Len() >= 16 {
 			break
 		}
 	}
@@ -67,7 +72,7 @@ func hermeticMainSession(testName string) string {
 	if suffix == "" {
 		suffix = "main-usage"
 	}
-	return fmt.Sprintf("usage-%d-%s", os.Getpid(), suffix)
+	return fmt.Sprintf("usage-%d-%s-%08x", os.Getpid(), suffix, crc32.ChecksumIEEE([]byte(testName)))
 }
 
 func hermeticMainEnv() []string {
@@ -101,4 +106,67 @@ func removeEnvKey(env []string, key string) []string {
 		filtered = append(filtered, entry)
 	}
 	return filtered
+}
+
+func hermeticMainSocketPath(t *testing.T) string {
+	t.Helper()
+
+	if err := os.MkdirAll(server.SocketDir(), 0700); err != nil {
+		t.Fatalf("MkdirAll socket dir: %v", err)
+	}
+	sockPath := server.SocketPath(hermeticMainSession(t.Name()))
+	_ = os.Remove(sockPath)
+	t.Cleanup(func() {
+		_ = os.Remove(sockPath)
+		_ = os.Remove(filepath.Join(server.SocketDir(), filepath.Base(sockPath)+".log"))
+	})
+	return sockPath
+}
+
+func prepareHermeticMissingSocket(t *testing.T) {
+	t.Helper()
+
+	sockPath := hermeticMainSocketPath(t)
+	_ = os.Remove(sockPath)
+}
+
+func prepareHermeticStaleSocket(t *testing.T) {
+	t.Helper()
+
+	sockPath := hermeticMainSocketPath(t)
+	ln, err := net.ListenUnix("unix", &net.UnixAddr{Name: sockPath, Net: "unix"})
+	if err != nil {
+		t.Fatalf("ListenUnix(%q): %v", sockPath, err)
+	}
+	ln.SetUnlinkOnClose(false)
+	if err := ln.Close(); err != nil {
+		t.Fatalf("Close stale socket listener: %v", err)
+	}
+}
+
+func prepareHermeticPermissionDeniedSocket(t *testing.T) {
+	t.Helper()
+
+	sockPath := hermeticMainSocketPath(t)
+	ln, err := net.Listen("unix", sockPath)
+	if err != nil {
+		t.Fatalf("Listen(%q): %v", sockPath, err)
+	}
+	if err := os.Chmod(sockPath, 0); err != nil {
+		_ = ln.Close()
+		t.Fatalf("Chmod(%q, 0): %v", sockPath, err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chmod(sockPath, 0700)
+		_ = ln.Close()
+	})
+}
+
+func assertMainCommandConnectError(t *testing.T, out, cmdName string) {
+	t.Helper()
+
+	want := fmt.Sprintf("amux %s: connecting to server:", cmdName)
+	if !strings.Contains(out, want) {
+		t.Fatalf("output = %q, want substring %q", out, want)
+	}
 }

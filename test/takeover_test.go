@@ -372,7 +372,7 @@ func takeoverCaptureJSON(h *ServerHarness) (proto.CaptureJSON, bool) {
 	out := h.runCmd("capture", "--format", "json")
 	if strings.Contains(out, "no client attached") ||
 		strings.Contains(out, "amux capture: EOF") ||
-		strings.Contains(out, "amux capture: server not running") {
+		isCommandConnectError(out) {
 		return proto.CaptureJSON{}, false
 	}
 
@@ -394,7 +394,7 @@ func takeoverGeneration(t *testing.T, h *ServerHarness) uint64 {
 		if err == nil {
 			return n
 		}
-		if !strings.Contains(out, "server not running") || time.Now().After(deadline) {
+		if !isCommandConnectError(out) || time.Now().After(deadline) {
 			logPath := fmt.Sprintf("%s/%s.log", server.SocketDir(), h.session)
 			logData, _ := os.ReadFile(logPath)
 			t.Fatalf("parsing generation: %v (output: %q)\nserver log:\n%s", err, out, string(logData))
@@ -405,7 +405,7 @@ func takeoverGeneration(t *testing.T, h *ServerHarness) uint64 {
 
 func takeoverWaitLayoutOrTimeout(h *ServerHarness, afterGen uint64, timeout string) bool {
 	out := h.runCmd("wait", "layout", "--after", strconv.FormatUint(afterGen, 10), "--timeout", timeout)
-	if strings.Contains(out, "server not running") {
+	if isCommandConnectError(out) {
 		return false
 	}
 	return !strings.Contains(out, "timeout")

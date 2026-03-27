@@ -280,7 +280,7 @@ func waitForPaneIdle(t *testing.T, pane string, runCmd func(...string) string) {
 	deadline := time.Now().Add(15 * time.Second)
 	for time.Now().Before(deadline) {
 		out := runCmd("wait", "idle", pane, "--timeout", "10s")
-		if strings.Contains(out, "server not running") {
+		if isCommandConnectError(out) {
 			continue
 		}
 		if strings.Contains(out, "timeout") || strings.Contains(out, "not found") {

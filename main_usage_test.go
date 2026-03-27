@@ -85,9 +85,7 @@ func TestMainCopyModeDispatchesWithoutExplicitPane(t *testing.T) {
 	if strings.Contains(out, "usage: amux copy-mode") {
 		t.Fatalf("copy-mode should dispatch without a pane argument, got usage output:\n%s", out)
 	}
-	if !strings.Contains(out, "server not running") {
-		t.Fatalf("copy-mode should attempt the command, got:\n%s", out)
-	}
+	assertMainCommandConnectError(t, out, "copy-mode")
 }
 
 func TestMainCursorDispatchesWhenKindProvided(t *testing.T) {
@@ -100,9 +98,7 @@ func TestMainCursorDispatchesWhenKindProvided(t *testing.T) {
 	if strings.Contains(out, "usage: amux cursor") {
 		t.Fatalf("cursor should dispatch when a kind is provided, got usage output:\n%s", out)
 	}
-	if !strings.Contains(out, "server not running") {
-		t.Fatalf("cursor should attempt the command, got:\n%s", out)
-	}
+	assertMainCommandConnectError(t, out, "cursor")
 }
 
 func TestMainWaitDispatchesWhenKindProvided(t *testing.T) {
@@ -115,9 +111,7 @@ func TestMainWaitDispatchesWhenKindProvided(t *testing.T) {
 	if strings.Contains(out, "usage: amux wait") {
 		t.Fatalf("wait should dispatch when a kind is provided, got usage output:\n%s", out)
 	}
-	if !strings.Contains(out, "server not running") {
-		t.Fatalf("wait should attempt the command, got:\n%s", out)
-	}
+	assertMainCommandConnectError(t, out, "wait")
 }
 
 func TestMainTypeKeysDispatchesWhenKeysProvided(t *testing.T) {
@@ -130,9 +124,7 @@ func TestMainTypeKeysDispatchesWhenKeysProvided(t *testing.T) {
 	if strings.Contains(out, "usage: amux type-keys") {
 		t.Fatalf("type-keys should dispatch when keys are provided, got usage output:\n%s", out)
 	}
-	if !strings.Contains(out, "server not running") {
-		t.Fatalf("type-keys should attempt the command, got:\n%s", out)
-	}
+	assertMainCommandConnectError(t, out, "type-keys")
 }
 
 func TestMainTypeKeysUsageIncludesWaitFlags(t *testing.T) {
@@ -169,9 +161,7 @@ func TestMainKillAllowsImplicitActivePane(t *testing.T) {
 	if strings.Contains(out, "usage: amux kill") {
 		t.Fatalf("kill should accept an omitted pane, got usage output:\n%s", out)
 	}
-	if !strings.Contains(out, "amux kill: server not running") {
-		t.Fatalf("kill without a running server should attempt the command, got:\n%s", out)
-	}
+	assertMainCommandConnectError(t, out, "kill")
 }
 
 func TestMainKillUsageRejectsTimeoutWithoutCleanup(t *testing.T) {

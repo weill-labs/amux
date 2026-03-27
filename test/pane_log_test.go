@@ -87,7 +87,7 @@ func TestPaneLogSnapshotsExitContext(t *testing.T) {
 	listOut := ""
 	for time.Now().Before(deadline) {
 		listOut = h.runCmd("list")
-		if strings.Contains(listOut, "server not running") {
+		if isCommandConnectError(listOut) {
 			time.Sleep(250 * time.Millisecond)
 			continue
 		}
