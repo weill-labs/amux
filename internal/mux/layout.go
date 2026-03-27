@@ -253,10 +253,10 @@ func (c *LayoutCell) ResizeSubtree(newW, newH int) {
 		return
 	}
 
-	if minW := c.minSize(SplitVertical); newW < minW {
+	if minW := c.minSubtreeSize(SplitVertical); newW < minW {
 		newW = minW
 	}
-	if minH := c.minSize(SplitHorizontal); newH < minH {
+	if minH := c.minSubtreeSize(SplitHorizontal); newH < minH {
 		newH = minH
 	}
 
@@ -278,7 +278,7 @@ func (c *LayoutCell) ResizeSubtree(newW, newH int) {
 	c.FixOffsets()
 }
 
-func (c *LayoutCell) minSize(axis SplitDir) int {
+func (c *LayoutCell) minSubtreeSize(axis SplitDir) int {
 	if c == nil {
 		return 0
 	}
@@ -294,14 +294,14 @@ func (c *LayoutCell) minSize(axis SplitDir) int {
 	if c.Dir == axis {
 		total := len(c.Children) - 1
 		for _, child := range c.Children {
-			total += child.minSize(axis)
+			total += child.minSubtreeSize(axis)
 		}
 		return total
 	}
 
 	minimum := 0
 	for _, child := range c.Children {
-		if size := child.minSize(axis); size > minimum {
+		if size := child.minSubtreeSize(axis); size > minimum {
 			minimum = size
 		}
 	}
@@ -329,7 +329,7 @@ func proportionalChildSizes(children []*LayoutCell, axis SplitDir, target int) [
 		} else {
 			weights[i] = child.H
 		}
-		mins[i] = child.minSize(axis)
+		mins[i] = child.minSubtreeSize(axis)
 		active[i] = true
 	}
 
@@ -338,7 +338,7 @@ func proportionalChildSizes(children []*LayoutCell, axis SplitDir, target int) [
 			return sizes
 		}
 
-		sumWeights := activeWeightSum(weights, active)
+		sumWeights := sumActiveWeights(weights, active)
 		if sumWeights == 0 {
 			for i := range weights {
 				if active[i] {
@@ -366,7 +366,7 @@ func proportionalChildSizes(children []*LayoutCell, axis SplitDir, target int) [
 		}
 	}
 
-	sumWeights := activeWeightSum(weights, active)
+	sumWeights := sumActiveWeights(weights, active)
 	if sumWeights == 0 {
 		sumWeights = activeCount
 		for i := range weights {
@@ -408,7 +408,7 @@ func proportionalChildSizes(children []*LayoutCell, axis SplitDir, target int) [
 	return sizes
 }
 
-func activeWeightSum(weights []int, active []bool) int {
+func sumActiveWeights(weights []int, active []bool) int {
 	total := 0
 	for i, weight := range weights {
 		if active[i] {
