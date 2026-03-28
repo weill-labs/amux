@@ -201,6 +201,9 @@ func TestTerminalEventsInitialSnapshotAndUpdates(t *testing.T) {
 	if initial.Type != EventTerminal {
 		t.Fatalf("initial event type = %q, want %q", initial.Type, EventTerminal)
 	}
+	if initial.Timestamp == "" {
+		t.Fatal("initial terminal event timestamp should be present")
+	}
 	if initial.Cursor == nil {
 		t.Fatal("initial cursor metadata should be present")
 	}
