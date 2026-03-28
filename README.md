@@ -29,6 +29,14 @@ Retained pane history is server-owned. Clients hydrate that history on attach an
 ## Install
 
 ```bash
+curl -fsSL https://raw.githubusercontent.com/weill-labs/amux/main/scripts/install-release.sh | bash
+```
+
+```bash
+brew install weill-labs/tap/amux
+```
+
+```bash
 go install github.com/weill-labs/amux@latest
 ```
 
@@ -38,6 +46,8 @@ This requires `tic` from ncurses. You can also run it explicitly:
 ```bash
 amux install-terminfo
 ```
+
+The `brew` and `curl` paths use GitHub Releases, so they become available once a tagged release is published.
 
 ## Quick Start
 
