@@ -163,9 +163,6 @@ func (w *Window) hasPendingLead() bool {
 }
 
 func (w *Window) materializePendingLead(newPane *Pane, opts SplitOptions) (*Pane, error) {
-	if !w.hasPendingLead() {
-		return nil, fmt.Errorf("no pending lead to materialize")
-	}
 	// A lead role on a single-pane window becomes the anchored left column on the
 	// first growth operation, regardless of the requested split direction.
 	return w.splitRootTargetWithOptions(w.Root, nil, -1, SplitVertical, newPane, opts)

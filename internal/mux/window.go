@@ -66,6 +66,8 @@ func (w *Window) SplitRootWithOptions(dir SplitDir, newPane *Pane, opts SplitOpt
 		w.Unzoom()
 	}
 	if w.hasPendingLead() {
+		// First split on a single-pane lead window always anchors the lead on the
+		// left regardless of the requested split direction.
 		return w.materializePendingLead(newPane, opts)
 	}
 	targetRoot, parent, parentIdx := w.logicalRootTarget()
