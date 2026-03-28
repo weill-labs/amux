@@ -711,6 +711,64 @@ func TestPrevGridText(t *testing.T) {
 	}
 }
 
+func TestPrevGridText_CursorAssembledGraphemeClusters(t *testing.T) {
+	t.Parallel()
+
+	width, height := 20, 4
+	totalH := height + GlobalBarHeight
+
+	paneEmu := vt.NewSafeEmulator(width, height-mux.StatusLineRows)
+	if _, err := paneEmu.Write([]byte("🤷")); err != nil {
+		t.Fatalf("write emoji base: %v", err)
+	}
+	if _, err := paneEmu.Write([]byte("‍♂️3")); err != nil {
+		t.Fatalf("write emoji suffix: %v", err)
+	}
+
+	root := mux.NewLeafByID(1, 0, 0, width, height)
+	lookup := func(id uint32) PaneData {
+		if id == 1 {
+			return &emuPaneData{emu: paneEmu, id: 1, name: "pane-1", color: "f5e0dc", cursorHidden: true}
+		}
+		return nil
+	}
+
+	comp := newTestCompositor(width, totalH, "test")
+	comp.RenderDiff(root, 1, lookup)
+
+	got := comp.PrevGridText()
+	lines := strings.Split(got, "\n")
+	if len(lines) < 2 {
+		t.Fatalf("PrevGridText = %q, want at least status and content rows", got)
+	}
+	if lines[1] != "🤷‍♂️3" {
+		t.Fatalf("content row = %q, want %q", lines[1], "🤷‍♂️3")
+	}
+}
+
+func TestCompactRowCell_DoesNotMergeUnrelatedCells(t *testing.T) {
+	t.Parallel()
+
+	paneEmu := vt.NewSafeEmulator(4, 1)
+	if _, err := paneEmu.Write([]byte("AB")); err != nil {
+		t.Fatalf("write plain text: %v", err)
+	}
+	pd := &emuPaneData{emu: paneEmu, cursorHidden: true}
+
+	base := pd.CellAt(0, 0, true)
+	got, gotWidth, nextSrc := compactRowCell(4, 0, true, pd, 0, base)
+
+	if got.Char != "A" || got.Width != 1 {
+		t.Fatalf("compactRowCell() = %+v, want single-cell A", got)
+	}
+	if gotWidth != 1 {
+		t.Fatalf("compactRowCell() width = %d, want 1", gotWidth)
+	}
+	if nextSrc != 1 {
+		t.Fatalf("compactRowCell() nextSrc = %d, want 1", nextSrc)
+	}
+}
+
 func TestGridToText_EmptyCharCell(t *testing.T) {
 	t.Parallel()
 	g := NewScreenGrid(5, 2)
