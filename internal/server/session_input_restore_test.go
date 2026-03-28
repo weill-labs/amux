@@ -1,10 +1,12 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -243,6 +245,32 @@ func TestNewServerFromCrashCheckpointWithScrollbackPreservesManualBranchOverride
 	}
 }
 
+func TestNewServerFromCrashCheckpointWithListenerErrorsWhenNoPanesRestore(t *testing.T) {
+	t.Parallel()
+
+	listener := &trackingListener{}
+	sessionName := "crash-empty-restore"
+	cp := &ckpt.CrashCheckpoint{
+		Version:     ckpt.CrashVersion,
+		SessionName: sessionName,
+		Timestamp:   time.Now(),
+	}
+
+	srv, err := newServerFromCrashCheckpointWithListener(sessionName, listener, "/tmp/unused.sock", cp, "", mux.DefaultScrollbackLines)
+	if err == nil {
+		t.Fatal("newServerFromCrashCheckpointWithListener error = nil, want no panes restored")
+	}
+	if !strings.Contains(err.Error(), "no panes restored from crash checkpoint") {
+		t.Fatalf("newServerFromCrashCheckpointWithListener error = %v, want no panes restored", err)
+	}
+	if srv != nil {
+		t.Fatalf("newServerFromCrashCheckpointWithListener server = %+v, want nil", srv)
+	}
+	if !listener.closed {
+		t.Fatal("listener should be closed when crash restore fails with no panes")
+	}
+}
+
 func restoreTestLayout() (*mux.Pane, proto.LayoutSnapshot) {
 	pane := mux.NewProxyPaneWithScrollback(1, mux.PaneMeta{
 		Name:  "pane-1",
@@ -277,4 +305,31 @@ func assertSessionInputTarget(t *testing.T, sess *Session, paneID uint32) {
 	if target.ID != paneID {
 		t.Fatalf("input target pane = %d, want %d", target.ID, paneID)
 	}
+}
+
+type trackingListener struct {
+	closed bool
+}
+
+func (l *trackingListener) Accept() (net.Conn, error) {
+	return nil, errors.New("unexpected Accept call")
+}
+
+func (l *trackingListener) Close() error {
+	l.closed = true
+	return nil
+}
+
+func (l *trackingListener) Addr() net.Addr {
+	return trackingAddr("tracking")
+}
+
+type trackingAddr string
+
+func (a trackingAddr) Network() string {
+	return "tracking"
+}
+
+func (a trackingAddr) String() string {
+	return string(a)
 }

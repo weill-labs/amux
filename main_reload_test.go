@@ -177,6 +177,95 @@ func TestRestoreServerFromReloadCheckpointErrorsWithoutCrashFallback(t *testing.
 	}
 }
 
+func TestRestoreServerFromReloadCheckpointErrorsWhenCrashFallbackUnreadable(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+
+	socketPath := filepath.Join(os.TempDir(), "amux-main-restore-corrupt.sock")
+	listener, err := net.Listen("unix", socketPath)
+	if err != nil {
+		t.Fatalf("net.Listen: %v", err)
+	}
+	defer listener.Close()
+	defer os.Remove(socketPath)
+
+	unixListener, ok := listener.(*net.UnixListener)
+	if !ok {
+		t.Fatalf("listener type = %T, want *net.UnixListener", listener)
+	}
+	listenerFile, err := unixListener.File()
+	if err != nil {
+		t.Fatalf("(*net.UnixListener).File(): %v", err)
+	}
+	defer listenerFile.Close()
+
+	sessionName := "reload-corrupt-crash"
+	reloadCPPath, err := checkpoint.Write(&checkpoint.ServerCheckpoint{
+		Version:     checkpoint.ServerCheckpointVersion - 1,
+		SessionName: sessionName,
+		ListenerFd:  int(listenerFile.Fd()),
+	})
+	if err != nil {
+		t.Fatalf("checkpoint.Write: %v", err)
+	}
+
+	crashTimestamp := time.Date(2026, time.March, 27, 13, 0, 0, 0, time.UTC)
+	crashPath := checkpoint.CrashCheckpointPathTimestamped(sessionName, crashTimestamp)
+	if err := os.MkdirAll(filepath.Dir(crashPath), 0700); err != nil {
+		t.Fatalf("os.MkdirAll(%q): %v", filepath.Dir(crashPath), err)
+	}
+	if err := os.WriteFile(crashPath, []byte(`{"version":1,"session_name":`), 0600); err != nil {
+		t.Fatalf("os.WriteFile(%q): %v", crashPath, err)
+	}
+
+	_, err = restoreServerFromReloadCheckpoint(sessionName, reloadCPPath, mux.DefaultScrollbackLines)
+	if err == nil {
+		t.Fatal("restoreServerFromReloadCheckpoint error = nil, want unreadable crash fallback")
+	}
+	if !strings.Contains(err.Error(), crashPath) || !strings.Contains(err.Error(), "decoding crash checkpoint") {
+		t.Fatalf("restoreServerFromReloadCheckpoint error = %v, want crash decode context", err)
+	}
+}
+
+func TestRestoreServerFromReloadCheckpointRejectsInvalidFallbackListenerFD(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+
+	sessionName := "reload-invalid-listener"
+	reloadCPPath, err := checkpoint.Write(&checkpoint.ServerCheckpoint{
+		Version:     checkpoint.ServerCheckpointVersion - 1,
+		SessionName: sessionName,
+		ListenerFd:  0,
+	})
+	if err != nil {
+		t.Fatalf("checkpoint.Write: %v", err)
+	}
+
+	crashTimestamp := time.Date(2026, time.March, 27, 14, 0, 0, 0, time.UTC)
+	if err := checkpoint.WriteCrash(&checkpoint.CrashCheckpoint{
+		Version:       checkpoint.CrashVersion,
+		SessionName:   sessionName,
+		WindowCounter: 1,
+		Layout:        restoreFallbackLayout(sessionName),
+		PaneStates: []checkpoint.CrashPaneState{{
+			ID:      1,
+			Meta:    mux.PaneMeta{Name: "pane-1", Host: mux.DefaultHost, Color: "f5e0dc"},
+			Cols:    80,
+			Rows:    23,
+			IsProxy: true,
+		}},
+		Timestamp: crashTimestamp,
+	}, sessionName, crashTimestamp); err != nil {
+		t.Fatalf("checkpoint.WriteCrash: %v", err)
+	}
+
+	_, err = restoreServerFromReloadCheckpoint(sessionName, reloadCPPath, mux.DefaultScrollbackLines)
+	if err == nil {
+		t.Fatal("restoreServerFromReloadCheckpoint error = nil, want invalid listener fd")
+	}
+	if !strings.Contains(err.Error(), "invalid listener fd 0 in reload checkpoint") {
+		t.Fatalf("restoreServerFromReloadCheckpoint error = %v, want invalid listener fd context", err)
+	}
+}
+
 func restoreFallbackLayout(sessionName string) proto.LayoutSnapshot {
 	return proto.LayoutSnapshot{
 		SessionName:    sessionName,

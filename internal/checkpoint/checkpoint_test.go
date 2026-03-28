@@ -1,6 +1,8 @@
 package checkpoint
 
 import (
+	"errors"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -163,6 +165,41 @@ func TestReadRejectsUnsupportedVersion(t *testing.T) {
 
 	if _, err := Read(path); err == nil || !strings.Contains(err.Error(), "unsupported checkpoint version") {
 		t.Fatalf("Read() error = %v, want unsupported checkpoint version", err)
+	}
+}
+
+func TestReadReturnsCheckpointOnUnsupportedVersion(t *testing.T) {
+	t.Parallel()
+
+	path, err := Write(&ServerCheckpoint{
+		Version:     ServerCheckpointVersion - 1,
+		SessionName: "unsupported",
+		ListenerFd:  17,
+	})
+	if err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+
+	cp, err := Read(path)
+	if err == nil {
+		t.Fatal("Read() error = nil, want unsupported checkpoint version")
+	}
+
+	var versionErr UnsupportedServerCheckpointVersionError
+	if !errors.As(err, &versionErr) {
+		t.Fatalf("Read() error = %T %v, want UnsupportedServerCheckpointVersionError", err, err)
+	}
+	if got, want := versionErr.Error(), "unsupported checkpoint version 1 (want 2)"; got != want {
+		t.Fatalf("UnsupportedServerCheckpointVersionError.Error() = %q, want %q", got, want)
+	}
+	if cp == nil {
+		t.Fatal("Read() checkpoint = nil, want decoded checkpoint on version error")
+	}
+	if cp.SessionName != "unsupported" || cp.ListenerFd != 17 {
+		t.Fatalf("checkpoint = %+v, want session unsupported with listener fd 17", cp)
+	}
+	if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
+		t.Fatalf("checkpoint file should be removed after version error, stat err = %v", statErr)
 	}
 }
 
