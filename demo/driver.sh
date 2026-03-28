@@ -1,20 +1,16 @@
 #!/bin/bash
-# driver.sh — Runs inside asciinema's PTY to produce the hero recording.
+# driver.sh — Runs inside asciinema's PTY to produce the README hero recording.
 #
 # Architecture:
-#   1. A background "agent" subprocess drives amux via CLI (Unix socket)
+#   1. A background controller drives amux via the CLI over the Unix socket
 #   2. The foreground amux client renders the TUI into the recorded PTY
-#   3. After the demo, the agent kills the client (via saved PID) to end recording
-#
-# The demo simulates Claude Code sessions for reproducible recording.
-# Each pane launches a fake "claude" that shows the startup UI, then
-# the agent sends prompts via send-keys — mimicking the real workflow.
+#   3. The controller ends the recording by killing the foreground client
 #
 # This script is not meant to be run directly — use record.sh instead.
 
 set -euo pipefail
 
-SESSION="hero-$$"
+SESSION="demo-$$"
 AMUX="amux"
 PIDFILE="/tmp/amux-hero-pid-$$"
 SIMDIR="/tmp/amux-demo-$$"
@@ -26,196 +22,164 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Write simulation scripts to temp files.
-# Each script mimics `claude` starting up and waiting for input,
-# then reads stdin for the "prompt" and prints a response.
 write_sim_scripts() {
     mkdir -p "$SIMDIR"
 
-    # Fake claude CLI that shows startup UI, reads a prompt, prints a response.
-    # Usage: bash sim/claude.sh <response-script>
-    cat > "$SIMDIR/claude.sh" <<'MAINEOF'
+cat > "$SIMDIR/agent.sh" <<'EOF'
 #!/bin/bash
-RESPONSE_SCRIPT="$1"
+set -euo pipefail
+LABEL="$1"
+RESPONSE_SCRIPT="$2"
 clear
 
-# Show Claude Code startup banner (matches real claude CLI output)
 printf "\n"
-printf " \033[1m▐▛███▜▌\033[0m   \033[1mClaude Code\033[0m\n"
-printf " \033[1m▝▜█████▛▘\033[0m  Opus 4.6 (1M context)\n"
-printf "   \033[1m▘▘ ▝▝\033[0m\n"
+printf " \033[1magent:\033[0m %s\n" "$LABEL"
+printf " \033[2mlocal worker ready for delegated input\033[0m\n"
 printf "\n"
 
-# Show prompt and wait for input (the agent will send-keys the prompt)
 printf "\033[1;35m>\033[0m "
 read -r prompt
 
-# Echo nothing — the typed text is already visible from send-keys.
-# Just show a thinking indicator then run the response script.
 printf "\n"
-sleep 0.3
-printf "\033[2m● Thinking...\033[0m\n\n"
-sleep 0.8
+printf "\033[2m● Working...\033[0m\n\n"
+sleep 0.9
 
-# Run the response script
-bash "$RESPONSE_SCRIPT"
+bash "$RESPONSE_SCRIPT" "$prompt"
 
-# Show done and new prompt
-printf "\n\033[1;35m>\033[0m "
-read -r _ 2>/dev/null || sleep 999
-MAINEOF
-
-    # Response: create server
-    cat > "$SIMDIR/resp-server.sh" <<'EOF'
-printf "\033[36m● Write\033[0m(package.json)\n"
-sleep 0.4
-printf "\033[36m● Write\033[0m(src/server.js)\n"
-sleep 0.4
-printf "\033[36m● Write\033[0m(src/routes.js)\n"
-sleep 0.5
-printf "\033[36m● Run\033[0m(npm install)\n"
-sleep 1
-printf "\n\033[32m✓ Created 3 files, installed deps\033[0m\n"
+printf "\n\033[32m✓ Returned control to the shell\033[0m\n"
 EOF
 
-    # Response: add tests
-    cat > "$SIMDIR/resp-tests.sh" <<'EOF'
-printf "\033[36m● Read\033[0m(src/server.js)\n"
-sleep 0.4
-printf "\033[36m● Write\033[0m(test/server.test.js)\n"
-sleep 0.5
-printf "\033[36m● Run\033[0m(npm test)\n\n"
+    cat > "$SIMDIR/resp-fix.sh" <<'EOF'
+printf "\033[36m● Read\033[0m(test/type_keys_test.go)\n"
 sleep 1.2
-printf "  \033[32mPASS\033[0m test/server.test.js\n"
-printf "    \033[32m✓\033[0m health check (3ms)\n"
-printf "    \033[32m✓\033[0m POST /api/run (8ms)\n"
-printf "    \033[32m✓\033[0m error handling (2ms)\n"
-sleep 0.4
-printf "\n\033[32m✓ 3 tests passing\033[0m\n"
+printf "\033[36m● Edit\033[0m(demo/driver.sh)\n"
+sleep 1.3
+printf "\033[36m● Run\033[0m(go test ./test -run TestTypeKeys -count=100)\n\n"
+sleep 1.8
+printf "  \033[32mPASS\033[0m TestTypeKeysSplit\n"
+sleep 1.0
+printf "  \033[32mPASS\033[0m TestTypeKeysFocus\n"
+sleep 1.0
+printf "  \033[32mPASS\033[0m TestTypeKeysCopyMode\n"
+sleep 1.0
+printf "\n\033[32m✓ Focused slice green; pane is ready for capture\033[0m\n"
 EOF
 
-    # Response: security review
     cat > "$SIMDIR/resp-review.sh" <<'EOF'
-printf "\033[36m● Read\033[0m(src/server.js)\n"
-sleep 0.3
-printf "\033[36m● Read\033[0m(src/routes.js)\n"
-sleep 0.5
-printf "\n\033[33m⚠ Found 1 issue:\033[0m\n"
-printf "  src/server.js:12\n"
-printf "  Missing rate limiting on /api\n\n"
-sleep 0.6
-printf "\033[36m● Edit\033[0m(src/server.js)\n"
-printf "  + rate-limit middleware\n"
-sleep 0.5
-printf "\n\033[32m✓ Fixed 1 issue\033[0m\n"
-EOF
-
-    # Simulated dev server log — runs in the utility pane
-    cat > "$SIMDIR/devlog.sh" <<'EOF'
-clear
-printf "\033[1m$ tail -f dev-server.log\033[0m\n\n"
+printf "\033[36m● Read\033[0m(demo/driver.sh)\n"
+sleep 1.2
+printf "\033[36m● Read\033[0m(test/type_keys_test.go)\n"
+sleep 1.3
+printf "\033[36m● Write\033[0m(review.md)\n\n"
 sleep 1.5
-printf "\033[90m21:14:01\033[0m \033[32mINFO\033[0m  server started on :3000\n"
-sleep 1.5
-printf "\033[90m21:14:03\033[0m \033[32mINFO\033[0m  GET /health \033[32m200\033[0m 4ms\n"
-sleep 1.5
-printf "\033[90m21:14:05\033[0m \033[32mINFO\033[0m  POST /api/run \033[32m201\033[0m 38ms\n"
-sleep 2
-printf "\033[90m21:14:07\033[0m \033[34mDEBG\033[0m  agent connected ws://localhost:3000\n"
-sleep 999
+printf "\033[32m✓ Review summary\033[0m\n"
+sleep 1.0
+printf "  - human stayed in control while pane-2 ran\n"
+sleep 1.0
+printf "  - wait idle can unblock without polling loops\n"
+sleep 1.1
+printf "  - capture JSON can expose cursor + layout state next\n"
 EOF
 
     chmod +x "$SIMDIR"/*.sh
 }
 
-# --- Background agent: drives the demo via CLI ---
+run_human() {
+    local session="$1"
+    local cmd="$2"
+    local i
+    local ch
+    "$AMUX" -s "$session" focus pane-1 >/dev/null
+    sleep 0.2
+    for ((i = 0; i < ${#cmd}; i++)); do
+        ch="${cmd:i:1}"
+        "$AMUX" -s "$session" send-keys pane-1 "$ch" >/dev/null
+        sleep 0.05
+    done
+    sleep 1.0
+    "$AMUX" -s "$session" send-keys pane-1 Enter >/dev/null
+    sleep 1.0
+}
+
+cycle_focus() {
+    local session="$1"
+    "$AMUX" -s "$session" type-keys C-a o >/dev/null
+}
+
+wait_for_socket() {
+    local session="$1"
+    local uid
+    uid="$(id -u)"
+    for _ in {1..50}; do
+        [ -S "/tmp/amux-${uid}/${session}" ] && return 0
+        sleep 0.2
+    done
+    echo "ERROR: amux server socket not found after 10s" >&2
+    return 1
+}
+
+wait_for_ready() {
+    local session="$1"
+    local pane="$2"
+    "$AMUX" -s "$session" wait ready "$pane" --timeout 10s >/dev/null
+}
+
 agent() {
     local session="$1"
     local pidfile="$2"
-    local uid
-    uid="$(id -u)"
+    local layout
 
-    # Wait for the amux server socket
-    for _ in {1..50}; do
-        [ -S "/tmp/amux-${uid}/${session}" ] && break
-        sleep 0.2
-    done
-    if [ ! -S "/tmp/amux-${uid}/${session}" ]; then
-        echo "ERROR: amux server socket not found after 10s" >&2
-        return 1
-    fi
-
+    wait_for_socket "$session"
     write_sim_scripts
 
-    # Let the TUI render its first frame
-    sleep 2
+    sleep 2.5
 
-    # Spawn a claude pane for tests
-    "$AMUX" -s "$session" spawn --name tests --task "add unit tests" >/dev/null
-    sleep 1
+    layout=$("$AMUX" -s "$session" cursor layout)
+    "$AMUX" -s "$session" type-keys C-a '|' >/dev/null
+    "$AMUX" -s "$session" wait layout --after "$layout" --timeout 5s >/dev/null
+    sleep 1.0
 
-    # Vertical split on pane-1 to create review pane below it
-    "$AMUX" -s "$session" focus pane-1 >/dev/null
-    sleep 0.3
-    local review_pane
-    review_pane=$("$AMUX" -s "$session" split v | awk '{print $NF}')
-    sleep 1
+    run_human "$session" 'amux spawn --name review --task "summarize pane-2" && amux move-to review 2'
+    sleep 1.8
 
-    # Root horizontal split for the utility pane (rightmost)
-    "$AMUX" -s "$session" focus pane-1 >/dev/null
-    sleep 0.3
-    local util_pane
-    util_pane=$("$AMUX" -s "$session" split root | awk '{print $NF}')
-    sleep 1
+    "$AMUX" -s "$session" send-keys 2 "bash ${SIMDIR}/agent.sh fix ${SIMDIR}/resp-fix.sh" Enter >/dev/null
+    sleep 0.4
+    "$AMUX" -s "$session" send-keys review "bash ${SIMDIR}/agent.sh review ${SIMDIR}/resp-review.sh" Enter >/dev/null
 
-    # --- Phase 1: Launch "claude" in each pane ---
-    "$AMUX" -s "$session" send-keys pane-1 "bash ${SIMDIR}/claude.sh ${SIMDIR}/resp-server.sh" Enter >/dev/null
-    sleep 0.3
-    "$AMUX" -s "$session" send-keys tests "bash ${SIMDIR}/claude.sh ${SIMDIR}/resp-tests.sh" Enter >/dev/null
-    sleep 0.3
-    "$AMUX" -s "$session" send-keys "$review_pane" "bash ${SIMDIR}/claude.sh ${SIMDIR}/resp-review.sh" Enter >/dev/null
-    sleep 0.3
+    sleep 1.6
+    wait_for_ready "$session" 2
+    wait_for_ready "$session" review
+    sleep 0.8
 
-    # Utility pane: dev server log
-    "$AMUX" -s "$session" send-keys "$util_pane" "bash ${SIMDIR}/devlog.sh" Enter >/dev/null
+    run_human "$session" 'amux delegate 2 "Patch the demo split flow and rerun the focused tests"'
+    sleep 1.2
+    run_human "$session" 'amux delegate review "Watch pane-2 and flag anything risky"'
+    sleep 1.1
 
-    # Wait for claude startup banners to render
-    sleep 2
+    run_human "$session" 'amux wait idle 2 --timeout 30s && echo "pane-2 idle"'
+    sleep 1.0
 
-    # --- Phase 2: Send prompts to each claude session ---
-    "$AMUX" -s "$session" send-keys pane-1 "create an Express API server" Enter >/dev/null
-    sleep 0.5
-    "$AMUX" -s "$session" send-keys tests "add unit tests for the server" Enter >/dev/null
-    sleep 0.5
-    "$AMUX" -s "$session" send-keys "$review_pane" "review server.js for security issues" Enter >/dev/null
+    cycle_focus "$session"
+    sleep 6.5
+    cycle_focus "$session"
+    sleep 6.5
 
-    # Wait for claude sessions to finish their responses
-    "$AMUX" -s "$session" wait-idle pane-1 --timeout 25s >/dev/null
-    "$AMUX" -s "$session" wait-idle tests --timeout 25s >/dev/null
-    "$AMUX" -s "$session" wait-idle "$review_pane" --timeout 25s >/dev/null
-    sleep 0.5
+    "$AMUX" -s "$session" wait idle 2 --timeout 30s >/dev/null
+    sleep 0.8
 
-    # Show structured JSON capture in pane-1
-    # Send Ctrl-C first to exit the fake claude, then run capture
-    "$AMUX" -s "$session" send-keys pane-1 --hex 03 >/dev/null
-    sleep 0.3
-    "$AMUX" -s "$session" send-keys pane-1 \
-        "clear && amux -s ${session} capture --format json | jq '{session, panes: [.panes[] | {name, task, idle}]}'" Enter >/dev/null
+    cycle_focus "$session"
+    sleep 1.2
+    run_human "$session" "clear && amux capture --format json | jq '.panes[]|{name,idle,cursor,position}'"
 
-    # Hold final frame so viewer can read the JSON
-    sleep 5
+    sleep 8
 
-    # End recording by killing the TUI client
     if [ -f "$pidfile" ]; then
         kill "$(cat "$pidfile")" 2>/dev/null || true
     fi
 }
 
-# Save our PID — exec will replace this process with amux, keeping the same PID
 echo $$ > "$PIDFILE"
 
-# Launch the agent in the background
 agent "$SESSION" "$PIDFILE" &
 
-# Replace this process with amux — TUI renders into the recorded PTY
 exec "$AMUX" -s "$SESSION"

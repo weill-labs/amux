@@ -1,5 +1,5 @@
 #!/bin/bash
-# record.sh — Fully automated hero GIF recording. Zero human involvement.
+# record.sh — Fully automated README GIF recording.
 #
 # Requires: asciinema, node, ffmpeg (brew install asciinema ffmpeg node)
 # First run also installs playwright automatically.
@@ -32,16 +32,16 @@ echo "Recording demo..."
 asciinema rec \
     --output-format asciicast-v2 \
     --window-size 160x40 \
-    --idle-time-limit 3 \
+    --idle-time-limit 5 \
     --command "bash ${SCRIPT_DIR}/driver.sh" \
     --overwrite \
     "$CAST_FILE"
 
 echo "Converting to GIF (Playwright + asciinema-player)..."
 (cd "$SCRIPT_DIR" && node cast2gif.mjs "$CAST_FILE" "$GIF_FILE" \
-    --font "JetBrains Mono" \
-    --font-size 12 \
-    --fps 8 \
+    --font "Menlo" \
+    --font-size 14 \
+    --fps 7 \
     --scale 2)
 
 # Clean up intermediate file
