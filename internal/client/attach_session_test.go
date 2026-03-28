@@ -1,7 +1,9 @@
 package client
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -307,6 +309,46 @@ func sessionLayoutSnapshot(session string) *proto.LayoutSnapshot {
 	return snap
 }
 
+type stubAttachConn struct {
+	readErr            error
+	setReadDeadlineErr error
+}
+
+func (c *stubAttachConn) Read([]byte) (int, error) {
+	if c.readErr != nil {
+		return 0, c.readErr
+	}
+	return 0, io.EOF
+}
+
+func (*stubAttachConn) Write([]byte) (int, error) { return 0, errors.New("unexpected write") }
+func (*stubAttachConn) Close() error              { return nil }
+func (*stubAttachConn) LocalAddr() net.Addr       { return stubAttachAddr("local") }
+func (*stubAttachConn) RemoteAddr() net.Addr      { return stubAttachAddr("remote") }
+func (*stubAttachConn) SetDeadline(time.Time) error {
+	return nil
+}
+func (c *stubAttachConn) SetReadDeadline(time.Time) error {
+	return c.setReadDeadlineErr
+}
+func (*stubAttachConn) SetWriteDeadline(time.Time) error {
+	return nil
+}
+
+type deadlineErrorConn struct {
+	net.Conn
+	setReadDeadlineErr error
+}
+
+func (c *deadlineErrorConn) SetReadDeadline(time.Time) error {
+	return c.setReadDeadlineErr
+}
+
+type stubAttachAddr string
+
+func (a stubAttachAddr) Network() string { return "test" }
+func (a stubAttachAddr) String() string  { return string(a) }
+
 func TestAttachBootstrapHelpers(t *testing.T) {
 	t.Parallel()
 
@@ -580,6 +622,108 @@ func TestReadImmediateAttachCorrectionEndsOnUnknownMessageType(t *testing.T) {
 	}
 }
 
+func TestReadAttachBootstrapPaneReplaysBranches(t *testing.T) {
+	t.Parallel()
+
+	t.Run("returns immediately when no outputs remain", func(t *testing.T) {
+		t.Parallel()
+
+		remaining, err := readAttachBootstrapPaneReplays(&stubAttachConn{}, NewClientRenderer(20, 4), 0, time.Second)
+		if err != nil {
+			t.Fatalf("readAttachBootstrapPaneReplays() error = %v, want nil", err)
+		}
+		if remaining != 0 {
+			t.Fatalf("remaining outputs = %d, want 0", remaining)
+		}
+	})
+
+	t.Run("propagates deadline setup errors", func(t *testing.T) {
+		t.Parallel()
+
+		wantErr := errors.New("deadline boom")
+		remaining, err := readAttachBootstrapPaneReplays(
+			&stubAttachConn{setReadDeadlineErr: wantErr},
+			NewClientRenderer(20, 4),
+			1,
+			time.Second,
+		)
+		if !errors.Is(err, wantErr) {
+			t.Fatalf("readAttachBootstrapPaneReplays() error = %v, want %v", err, wantErr)
+		}
+		if remaining != 1 {
+			t.Fatalf("remaining outputs = %d, want 1", remaining)
+		}
+	})
+
+	t.Run("propagates read errors", func(t *testing.T) {
+		t.Parallel()
+
+		wantErr := errors.New("read boom")
+		remaining, err := readAttachBootstrapPaneReplays(
+			&stubAttachConn{readErr: wantErr},
+			NewClientRenderer(20, 4),
+			1,
+			time.Second,
+		)
+		if !errors.Is(err, wantErr) {
+			t.Fatalf("readAttachBootstrapPaneReplays() error = %v, want %v", err, wantErr)
+		}
+		if remaining != 1 {
+			t.Fatalf("remaining outputs = %d, want 1", remaining)
+		}
+	})
+
+	t.Run("applies layouts during replay", func(t *testing.T) {
+		t.Parallel()
+
+		serverConn, clientConn := net.Pipe()
+		t.Cleanup(func() {
+			_ = serverConn.Close()
+			_ = clientConn.Close()
+		})
+
+		cr := NewClientRenderer(20, 4)
+		go func() {
+			_ = proto.WriteMsg(serverConn, &proto.Message{Type: proto.MsgTypeLayout, Layout: singlePane20x3()})
+			_ = proto.WriteMsg(serverConn, &proto.Message{Type: proto.MsgTypePaneOutput, PaneID: 1, PaneData: []byte("hello")})
+			_ = serverConn.Close()
+		}()
+
+		remaining, err := readAttachBootstrapPaneReplays(clientConn, cr, 1, time.Second)
+		if err != nil {
+			t.Fatalf("readAttachBootstrapPaneReplays() error = %v, want nil", err)
+		}
+		if remaining != 0 {
+			t.Fatalf("remaining outputs = %d, want 0", remaining)
+		}
+		if got := strings.Split(cr.renderer.CapturePaneText(1, false), "\n")[0]; got != "hello" {
+			t.Fatalf("pane text after replay = %q, want %q", got, "hello")
+		}
+	})
+}
+
+func TestReadAttachBootstrapPropagatesPaneReplaySetupError(t *testing.T) {
+	t.Parallel()
+
+	serverConn, clientConn := net.Pipe()
+	t.Cleanup(func() {
+		_ = serverConn.Close()
+		_ = clientConn.Close()
+	})
+
+	wantErr := errors.New("deadline boom")
+	wrappedConn := &deadlineErrorConn{Conn: clientConn, setReadDeadlineErr: wantErr}
+	go func() {
+		_ = proto.WriteMsg(serverConn, &proto.Message{Type: proto.MsgTypeLayout, Layout: singlePane20x3()})
+		_ = serverConn.Close()
+	}()
+
+	err := readAttachBootstrap(wrappedConn, NewClientRenderer(20, 4))
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("readAttachBootstrap() error = %v, want %v", err, wantErr)
+	}
+}
+
 func TestReadAttachBootstrapRejectsUnexpectedMessages(t *testing.T) {
 	t.Parallel()
 
@@ -814,6 +958,28 @@ func TestRunSessionRendersLayoutWhenAttachBootstrapPaneOutputStalls(t *testing.T
 	h.send(t, &proto.Message{Type: proto.MsgTypeExit})
 	if err := h.waitRunResult(t); err != nil {
 		t.Fatalf("RunSession() = %v, want nil", err)
+	}
+}
+
+func TestRunSessionReturnsRawModeErrorAfterBootstrap(t *testing.T) {
+	h := newRunSessionHarness(t, func(int) (int, int, error) {
+		return 80, 24, nil
+	})
+
+	attach := h.waitAttach(t)
+	if attach.Type != proto.MsgTypeAttach {
+		t.Fatalf("attach type = %d, want %d", attach.Type, proto.MsgTypeAttach)
+	}
+
+	_ = h.tty.Close()
+
+	h.send(t, &proto.Message{Type: proto.MsgTypeLayout, Layout: sessionLayoutSnapshot(h.session)})
+	h.send(t, &proto.Message{Type: proto.MsgTypePaneOutput, PaneID: 1, PaneData: []byte("pane-1")})
+	h.send(t, &proto.Message{Type: proto.MsgTypePaneOutput, PaneID: 2, PaneData: []byte("pane-2")})
+
+	err := h.waitRunResult(t)
+	if err == nil || !strings.Contains(err.Error(), "raw mode") {
+		t.Fatalf("RunSession() error = %v, want raw mode failure", err)
 	}
 }
 
