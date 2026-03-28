@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -36,10 +37,9 @@ func waitUntil(t *testing.T, timeout time.Duration, cond func() bool) {
 	}
 }
 
-func newAgentStatusTestPane(t *testing.T) *Pane {
+func newProcessTestPane(t *testing.T, id uint32, name string, cmd *exec.Cmd) *Pane {
 	t.Helper()
 
-	cmd := exec.Command("sh", "-c", `while IFS= read -r line; do eval "$line"; done`)
 	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{
 		Cols: 40,
 		Rows: 10,
@@ -49,8 +49,8 @@ func newAgentStatusTestPane(t *testing.T) *Pane {
 	}
 
 	p := &Pane{
-		ID:              123,
-		Meta:            PaneMeta{Name: "pane-123", Host: DefaultHost},
+		ID:              id,
+		Meta:            PaneMeta{Name: name, Host: DefaultHost},
 		ptmx:            ptmx,
 		cmd:             cmd,
 		emulator:        NewVTEmulatorWithScrollback(40, 10, DefaultScrollbackLines),
@@ -75,6 +75,46 @@ func newAgentStatusTestPane(t *testing.T) *Pane {
 	return p
 }
 
+func newAgentStatusTestPane(t *testing.T) *Pane {
+	t.Helper()
+
+	cmd := exec.Command("sh", "-c", `while IFS= read -r line; do eval "$line"; done`)
+	return newProcessTestPane(t, 123, "pane-123", cmd)
+}
+
+func newBashPromptSelfForkTestPane(t *testing.T, markerFile string) *Pane {
+	t.Helper()
+
+	bashPath, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skip("bash not available")
+	}
+
+	promptCommand := `printf started >"$MARKER_FILE"; PROMPT_COMMAND= PS1= bash --noprofile --norc -ic 'PROMPT_COMMAND= PS1= bash --noprofile --norc -ic "read -rt 0.3 _"; :'`
+	cmd := exec.Command(bashPath, "--noprofile", "--norc", "-i")
+	cmd.Env = append(os.Environ(),
+		"MARKER_FILE="+markerFile,
+		"PROMPT_COMMAND="+promptCommand,
+		"PS1=prompt> ",
+		"HISTFILE=/dev/null",
+	)
+
+	p := newProcessTestPane(t, 125, "pane-125", cmd)
+
+	waitUntil(t, time.Second, func() bool {
+		_, err := os.Stat(markerFile)
+		return err == nil
+	})
+	waitUntil(t, time.Second, func() bool {
+		return len(childPIDs(p.ProcessPid())) == 0
+	})
+	if err := os.Remove(markerFile); err != nil && !os.IsNotExist(err) {
+		t.Fatalf("remove initial marker: %v", err)
+	}
+
+	return p
+}
+
 func newResizeSignalTestPane(t *testing.T, signalFile, readyFile string) *Pane {
 	t.Helper()
 
@@ -84,41 +124,11 @@ func newResizeSignalTestPane(t *testing.T, signalFile, readyFile string) *Pane {
 		"READY_FILE="+readyFile,
 	)
 
-	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{
-		Cols: 40,
-		Rows: 10,
-	})
-	if err != nil {
-		t.Fatalf("start resize-signal test shell: %v", err)
-	}
-
-	p := &Pane{
-		ID:              124,
-		Meta:            PaneMeta{Name: "pane-124", Host: DefaultHost},
-		ptmx:            ptmx,
-		cmd:             cmd,
-		emulator:        NewVTEmulatorWithScrollback(40, 10, DefaultScrollbackLines),
-		exitDone:        make(chan struct{}),
-		createdAt:       time.Now().Add(-time.Minute),
-		scrollbackLines: effectiveScrollbackLines(DefaultScrollbackLines),
-		scrollbackLimit: effectiveScrollbackLines(DefaultScrollbackLines),
-	}
-	p.baseHistory.Store(&paneBaseHistory{})
-	wireScrollbackCallbacks(p)
-	p.Start()
+	p := newProcessTestPane(t, 124, "pane-124", cmd)
 
 	waitUntil(t, time.Second, func() bool {
 		_, err := os.Stat(readyFile)
 		return err == nil
-	})
-
-	t.Cleanup(func() {
-		if err := p.Close(); err != nil {
-			t.Errorf("Close() = %v, want nil", err)
-		}
-		if err := p.WaitClosed(); err != nil {
-			t.Errorf("WaitClosed() = %v, want nil", err)
-		}
 	})
 
 	return p
@@ -618,6 +628,52 @@ func TestAgentStatusTracksBusyAndIdle(t *testing.T) {
 	})
 	if idle.IdleSince.IsZero() {
 		t.Fatal("idle AgentStatus IdleSince should be populated")
+	}
+}
+
+func TestAgentStatusTreatsPromptTimeBashSelfForkAsIdle(t *testing.T) {
+	// Keep this serialized within the package for the same reason as the other
+	// AgentStatus test: it shells out repeatedly and inspects a live PTY-backed
+	// process tree.
+	dir := t.TempDir()
+	markerFile := filepath.Join(dir, "prompt-marker")
+	readyFile := filepath.Join(dir, "ready")
+	pane := newBashPromptSelfForkTestPane(t, markerFile)
+
+	cmd := "printf READY > " + strconv.Quote(readyFile) + "\n"
+	if _, err := pane.Write([]byte(cmd)); err != nil {
+		t.Fatalf("write trigger command: %v", err)
+	}
+	waitUntil(t, time.Second, func() bool {
+		data, err := os.ReadFile(readyFile)
+		return err == nil && string(data) == "READY"
+	})
+	waitUntil(t, time.Second, func() bool {
+		_, err := os.Stat(markerFile)
+		return err == nil
+	})
+
+	shellPID := pane.ProcessPid()
+	shellName := processName(shellPID)
+	if shellName == "" {
+		t.Fatal("processName(shell) = empty, want bash")
+	}
+
+	waitUntil(t, time.Second, func() bool {
+		children := childPIDs(shellPID)
+		if len(children) != 1 || processName(children[0]) != shellName {
+			return false
+		}
+		grandchildren := childPIDs(children[0])
+		return len(grandchildren) == 1 && processName(grandchildren[0]) == shellName
+	})
+
+	status := pane.AgentStatus()
+	if !status.Idle {
+		t.Fatalf("prompt-time bash self-fork reported busy: %+v", status)
+	}
+	if len(status.ChildPIDs) != 0 {
+		t.Fatalf("idle prompt-time bash self-fork should not expose child PIDs: %+v", status)
 	}
 }
 
