@@ -210,34 +210,44 @@ func TestForwardedBytesForDecodedInput(t *testing.T) {
 		want  []byte
 	}{
 		{
-			name:  "kitty ctrl-c forwards legacy byte",
+			name:  "kitty ctrl-c preserves raw csi-u bytes",
 			input: []byte("\x1b[99;5u"),
-			want:  []byte{0x03},
+			want:  []byte("\x1b[99;5u"),
 		},
 		{
-			name:  "kitty ctrl-shift-a forwards ctrl-a",
+			name:  "kitty ctrl-shift-a preserves raw csi-u bytes",
 			input: []byte("\x1b[97;6;65u"),
-			want:  []byte{0x01},
+			want:  []byte("\x1b[97;6;65u"),
 		},
 		{
-			name:  "kitty ctrl-9 forwards printable fallback",
+			name:  "kitty ctrl-9 preserves raw csi-u bytes",
 			input: []byte("\x1b[57;5u"),
-			want:  []byte("9"),
+			want:  []byte("\x1b[57;5u"),
 		},
 		{
-			name:  "kitty ctrl-slash forwards unit separator fallback",
+			name:  "kitty ctrl-slash preserves raw csi-u bytes",
 			input: []byte("\x1b[47;5u"),
-			want:  []byte{0x1f},
+			want:  []byte("\x1b[47;5u"),
 		},
 		{
-			name:  "kitty alt-h forwards legacy escape sequence",
+			name:  "kitty alt-h preserves raw csi-u bytes",
 			input: []byte("\x1b[104;3u"),
-			want:  []byte{0x1b, 'h'},
+			want:  []byte("\x1b[104;3u"),
 		},
 		{
-			name:  "kitty alt-shift-a forwards shifted printable",
+			name:  "kitty alt-shift-a preserves raw csi-u bytes",
 			input: []byte("\x1b[97;4;65u"),
-			want:  []byte{0x1b, 'A'},
+			want:  []byte("\x1b[97;4;65u"),
+		},
+		{
+			name:  "kitty alt-up preserves raw special-key bytes",
+			input: []byte("\x1b[1;3A"),
+			want:  []byte("\x1b[1;3A"),
+		},
+		{
+			name:  "kitty composed key preserves associated text sequence",
+			input: []byte("\x1b[97;;229u"),
+			want:  []byte("\x1b[97;;229u"),
 		},
 		{
 			name:  "plain text stays unchanged",

@@ -670,6 +670,11 @@ func TestRunSessionHandlesServerMessagesAndInteractiveInput(t *testing.T) {
 		return msg.Type == proto.MsgTypeUIEvent && msg.UIEvent == proto.UIEventInputIdle
 	})
 
+	h.writeInput(t, []byte("\x1b[99;5u"))
+	h.waitMessage(t, func(msg *proto.Message) bool {
+		return msg.Type == proto.MsgTypeInput && string(msg.Input) == "\x1b[99;5u"
+	})
+
 	h.writeInput(t, []byte{0x01, 'q', '2'})
 	h.waitMessage(t, func(msg *proto.Message) bool {
 		return msg.Type == proto.MsgTypeUIEvent && msg.UIEvent == proto.UIEventDisplayPanesShown
