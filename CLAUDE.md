@@ -2,7 +2,7 @@
 
 ## Design Philosophy
 
-See [README.md -- Philosophy](README.md#philosophy) for the project thesis and three tenets.
+See [README.md -- How it works](README.md#how-it-works) for the project overview and system model.
 
 **Client-server architecture.** The server is a background daemon that owns PTYs and layout state. Clients connect over a Unix socket, receive layout snapshots and raw pane output, and render locally. This enables hot-reload: rebuilding the binary auto-restarts the client with new rendering code while preserving running shells.
 
