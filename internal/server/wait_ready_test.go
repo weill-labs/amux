@@ -183,7 +183,7 @@ func TestCmdSendKeysWaitIdleWaitsForIdle(t *testing.T) {
 	pane.SetCreatedAt(clk.Now())
 
 	clientConn, _, done := startAsyncCommand(t, srv, sess, "send-keys", "pane-1", "--wait", "idle", "--timeout", "5s", "ab")
-	clk.AwaitTimers(3)
+	clk.AwaitTimers(2)
 
 	select {
 	case got := <-writes:

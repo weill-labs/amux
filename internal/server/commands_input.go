@@ -20,7 +20,7 @@ const tokenKeyGap = 50 * time.Millisecond
 
 const (
 	broadcastUsage              = "usage: broadcast (--panes <pane,pane,...> | --window <index|name> | --match <glob>) [--hex] <keys>..."
-	sendKeysUsage               = "usage: send-keys <pane> [--wait ready|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>..."
+	sendKeysUsage               = "usage: send-keys <pane> [--wait idle|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>..."
 	typeKeysUsage               = "usage: type-keys [--wait ui=input-idle] [--timeout <duration>] [--hex] <keys>..."
 	defaultCommandUIWaitTimeout = 5 * time.Second
 )
@@ -146,8 +146,11 @@ func cmdSendKeys(ctx *CommandContext) {
 		return
 	}
 	switch opts.waitTarget {
-	case sendKeysWaitReady:
-		if err := waitForPaneReady(ctx.Sess, ctx.Args[0], pane, waitReadyOptions{timeout: opts.waitTimeout}); err != nil {
+	case sendKeysWaitIdle:
+		if err := waitForPaneIdle(ctx.Sess, ctx.Args[0], pane.paneID, waitIdleOptions{
+			settle:  ctx.Sess.vtIdleSettle(),
+			timeout: opts.waitTimeout,
+		}); err != nil {
 			ctx.replyErr(err.Error())
 			return
 		}

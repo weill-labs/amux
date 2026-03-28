@@ -16,7 +16,7 @@ const (
 	EventTerminal         = "terminal"
 	EventIdle             = "idle"
 	EventBusy             = "busy"
-	EventVTIdle           = "vt-idle"
+	EventExited           = "exited"
 	EventClientConnect    = "client-connect"
 	EventClientDisconnect = "client-disconnect"
 	EventPaneExit         = "pane-exit"
@@ -87,7 +87,7 @@ func (f eventFilter) matches(ev Event) bool {
 // without missing events that occurred before subscription. All events are
 // stamped with the current timestamp.
 func (s *Session) currentStateEvents() []Event {
-	idleSnap := s.idle.SnapshotState()
+	idleSnap := s.snapshotIdleState()
 
 	snapshotNow := time.Now()
 	now := snapshotNow.UTC().Format(time.RFC3339Nano)
@@ -126,9 +126,9 @@ func (s *Session) currentStateEvents() []Event {
 			PaneName:  p.Meta.Name,
 			Host:      p.Meta.Host,
 		})
-		if s.vtIdle != nil && s.vtIdle.IsSettled(p.ID, p.CreatedAt(), s.vtIdleSettle(), snapshotNow) {
+		if p.AgentStatus().Idle {
 			events = append(events, Event{
-				Type:      EventVTIdle,
+				Type:      EventExited,
 				Timestamp: now,
 				PaneID:    p.ID,
 				PaneName:  p.Meta.Name,

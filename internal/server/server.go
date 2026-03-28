@@ -61,6 +61,10 @@ type Session struct {
 	// Event stream — used by `amux events` for push-based notifications.
 	// Only accessed from the session event loop (no mutex needed).
 	eventSubs []*eventSub
+	// exitedPollPending tracks panes with an in-flight process-exit poll loop.
+	exitedPollPending map[uint32]bool
+	// exitedPollSawBusy tracks whether a poll loop has observed a real child.
+	exitedPollSawBusy map[uint32]bool
 	// Latest emitted pane terminal metadata snapshot, used to suppress
 	// duplicate terminal events.
 	terminalEventState map[uint32]paneTerminalEventState
@@ -449,6 +453,8 @@ func newSessionWithScrollback(name string, scrollbackLines int) *Session {
 	sess.idle = newIdleTracker()
 	sess.vtIdle = NewVTIdleTracker(sess.clock())
 	sess.takenOverPanes = make(map[uint32]bool)
+	sess.exitedPollPending = make(map[uint32]bool)
+	sess.exitedPollSawBusy = make(map[uint32]bool)
 	sess.terminalEventState = make(map[uint32]paneTerminalEventState)
 	sess.waiters = newWaiterManager()
 	sess.capture = newCaptureForwarder()

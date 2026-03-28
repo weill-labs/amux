@@ -1371,6 +1371,47 @@ func TestIdleTimeoutEventSkipsPaneMetaRefreshWhenDisabled(t *testing.T) {
 	}
 }
 
+func TestIdleTimeoutEventEmitsExitedWhenPaneHasNoChildren(t *testing.T) {
+	t.Parallel()
+
+	sess := newSession("test-idle-timeout-emits-exited")
+	stopCrashCheckpointLoop(t, sess)
+	defer stopSessionBackgroundLoops(t, sess)
+
+	pane := newProxyPane(1, mux.PaneMeta{
+		Name:  "pane-1",
+		Host:  mux.DefaultHost,
+		Color: "f5e0dc",
+	}, 80, 23, nil, nil, nil)
+	w := mux.NewWindow(pane, 80, 23)
+	w.ID = 1
+	w.Name = "window-1"
+	sess.Windows = []*mux.Window{w}
+	sess.ActiveWindowID = w.ID
+	sess.Panes = []*mux.Pane{pane}
+
+	res := sess.enqueueEventSubscribe(eventFilter{Types: []string{EventExited}}, false)
+	if res.sub == nil {
+		t.Fatal("exited subscribe returned nil subscription")
+	}
+	defer sess.enqueueEventUnsubscribe(res.sub)
+
+	sess.enqueueIdleTimeout(pane.ID)
+
+	select {
+	case data := <-res.sub.ch:
+		var ev Event
+		if err := json.Unmarshal(data, &ev); err != nil {
+			t.Fatalf("json.Unmarshal: %v", err)
+		}
+		if ev.Type != EventExited || ev.PaneID != pane.ID || ev.PaneName != "pane-1" {
+			t.Fatalf("unexpected exited event: %+v", ev)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for exited event")
+	}
+}
+
 func TestUIEventCmdIncrementsClientGenerationOnlyOnRealChanges(t *testing.T) {
 	t.Parallel()
 

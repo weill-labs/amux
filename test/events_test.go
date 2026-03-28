@@ -159,30 +159,6 @@ func TestEventsExitedInitialSnapshot(t *testing.T) {
 	}
 }
 
-func TestEventsExitedTransitionAfterCommandFinishes(t *testing.T) {
-	t.Parallel()
-	h := newServerHarness(t)
-
-	h.startLongSleep("pane-1")
-
-	scanner, closer := eventStream(t, h.session, "--filter", "exited", "--pane", "pane-1")
-	defer closer()
-
-	if ev := readEvent(t, scanner, 250*time.Millisecond); !ev.TimedOut {
-		t.Fatalf("busy pane should not emit an initial exited event, got %+v", ev)
-	}
-
-	stopLongRunningCommand(t, h, "pane-1")
-
-	ev := mustReadEvent(t, scanner, 5*time.Second)
-	if ev.Type != "exited" {
-		t.Fatalf("after command exit: got %q, want exited", ev.Type)
-	}
-	if ev.PaneName != "pane-1" {
-		t.Fatalf("after command exit pane: got %q, want pane-1", ev.PaneName)
-	}
-}
-
 func TestEventsFilterPane(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)

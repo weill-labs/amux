@@ -5,19 +5,23 @@ import (
 	"time"
 )
 
-const waitVTIdleUsage = "usage: wait vt-idle <pane> [--settle <duration>] [--timeout <duration>]"
+const waitIdleUsage = "usage: wait idle <pane> [--settle <duration>] [--timeout <duration>]"
 
-type waitVTIdleOptions struct {
+type waitIdleOptions struct {
 	settle  time.Duration
 	timeout time.Duration
 }
 
-func parseWaitVTIdleArgs(args []string) (string, waitVTIdleOptions, error) {
+type waitVTIdleOptions = waitIdleOptions
+
+const waitVTIdleUsage = waitIdleUsage
+
+func parseWaitIdleArgs(args []string) (string, waitIdleOptions, error) {
 	if len(args) < 1 {
-		return "", waitVTIdleOptions{}, fmt.Errorf(waitVTIdleUsage)
+		return "", waitIdleOptions{}, fmt.Errorf(waitIdleUsage)
 	}
 
-	opts := waitVTIdleOptions{
+	opts := waitIdleOptions{
 		settle:  DefaultVTIdleSettle,
 		timeout: DefaultVTIdleTimeout,
 	}
@@ -25,30 +29,34 @@ func parseWaitVTIdleArgs(args []string) (string, waitVTIdleOptions, error) {
 		switch args[i] {
 		case "--settle":
 			if i+1 >= len(args) {
-				return "", waitVTIdleOptions{}, fmt.Errorf("missing value for --settle")
+				return "", waitIdleOptions{}, fmt.Errorf("missing value for --settle")
 			}
 			i++
 			settle, err := time.ParseDuration(args[i])
 			if err != nil {
-				return "", waitVTIdleOptions{}, fmt.Errorf("invalid settle: %s", args[i])
+				return "", waitIdleOptions{}, fmt.Errorf("invalid settle: %s", args[i])
 			}
 			opts.settle = settle
 		case "--timeout":
 			if i+1 >= len(args) {
-				return "", waitVTIdleOptions{}, fmt.Errorf("missing value for --timeout")
+				return "", waitIdleOptions{}, fmt.Errorf("missing value for --timeout")
 			}
 			i++
 			timeout, err := time.ParseDuration(args[i])
 			if err != nil {
-				return "", waitVTIdleOptions{}, fmt.Errorf("invalid timeout: %s", args[i])
+				return "", waitIdleOptions{}, fmt.Errorf("invalid timeout: %s", args[i])
 			}
 			opts.timeout = timeout
 		default:
-			return "", waitVTIdleOptions{}, fmt.Errorf("unknown flag: %s", args[i])
+			return "", waitIdleOptions{}, fmt.Errorf("unknown flag: %s", args[i])
 		}
 	}
 
 	return args[0], opts, nil
+}
+
+func parseWaitVTIdleArgs(args []string) (string, waitVTIdleOptions, error) {
+	return parseWaitIdleArgs(args)
 }
 
 func resetTimer(timer Timer, d time.Duration) {
@@ -70,38 +78,22 @@ func stopTimer(timer Timer) {
 	}
 }
 
-func cmdWaitVTIdle(ctx *CommandContext) {
-	paneRef, opts, err := parseWaitVTIdleArgs(ctx.Args)
-	if err != nil {
-		ctx.replyErr(err.Error())
-		return
-	}
-
-	pane, err := ctx.Sess.queryResolvedPaneForActor(ctx.ActorPaneID, paneRef)
-	if err != nil {
-		ctx.replyErr(err.Error())
-		return
-	}
-	paneID := pane.paneID
-
-	outputCh := ctx.Sess.enqueuePaneOutputSubscribe(paneID)
+func waitForPaneIdle(sess *Session, paneRef string, paneID uint32, opts waitIdleOptions) error {
+	outputCh := sess.enqueuePaneOutputSubscribe(paneID)
 	if outputCh == nil {
-		ctx.replyErr("session shutting down")
-		return
+		return fmt.Errorf("session shutting down")
 	}
-	defer ctx.Sess.enqueuePaneOutputUnsubscribe(paneID, outputCh)
+	defer sess.enqueuePaneOutputUnsubscribe(paneID, outputCh)
 
-	state, err := ctx.Sess.queryVTIdleWaitState(paneID)
+	state, err := sess.queryVTIdleWaitState(paneID)
 	if err != nil {
-		ctx.replyErr(err.Error())
-		return
+		return err
 	}
 	if !state.exists {
-		ctx.replyErr(fmt.Sprintf("pane %q disappeared while waiting to become vt-idle", paneRef))
-		return
+		return fmt.Errorf("pane %q disappeared while waiting to become idle", paneRef)
 	}
 
-	clk := ctx.Sess.clock()
+	clk := sess.clock()
 	settleTimer := clk.NewTimer(state.remaining(opts.settle, clk.Now()))
 	defer settleTimer.Stop()
 
@@ -113,25 +105,44 @@ func cmdWaitVTIdle(ctx *CommandContext) {
 		case <-outputCh:
 			resetTimer(settleTimer, opts.settle)
 		case <-settleTimer.C():
-			state, err := ctx.Sess.queryVTIdleWaitState(paneID)
+			state, err := sess.queryVTIdleWaitState(paneID)
 			if err != nil {
-				ctx.replyErr(err.Error())
-				return
+				return err
 			}
 			if !state.exists {
-				ctx.replyErr(fmt.Sprintf("pane %q disappeared while waiting to become vt-idle", paneRef))
-				return
+				return fmt.Errorf("pane %q disappeared while waiting to become idle", paneRef)
 			}
 
 			remaining := state.remaining(opts.settle, clk.Now())
 			if remaining == 0 {
-				ctx.reply("vt-idle\n")
-				return
+				return nil
 			}
 			settleTimer.Reset(remaining)
 		case <-timeoutTimer.C():
-			ctx.replyErr(fmt.Sprintf("timeout waiting for %s to become vt-idle", paneRef))
-			return
+			return fmt.Errorf("timeout waiting for %s to become idle", paneRef)
 		}
 	}
+}
+
+func cmdWaitIdle(ctx *CommandContext) {
+	paneRef, opts, err := parseWaitIdleArgs(ctx.Args)
+	if err != nil {
+		ctx.replyErr(err.Error())
+		return
+	}
+
+	pane, err := ctx.Sess.queryResolvedPaneForActor(ctx.ActorPaneID, paneRef)
+	if err != nil {
+		ctx.replyErr(err.Error())
+		return
+	}
+	if err := waitForPaneIdle(ctx.Sess, paneRef, pane.paneID, opts); err != nil {
+		ctx.replyErr(err.Error())
+		return
+	}
+	ctx.reply("idle\n")
+}
+
+func cmdWaitVTIdle(ctx *CommandContext) {
+	cmdWaitIdle(ctx)
 }

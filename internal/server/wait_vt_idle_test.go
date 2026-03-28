@@ -161,10 +161,11 @@ func TestCmdWaitVTIdleTimeout(t *testing.T) {
 	t.Parallel()
 
 	clk := NewFakeClock(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC))
-	srv, sess, _, cleanup := setupWaitVTIdleTestPane(t)
+	srv, sess, pane, cleanup := setupWaitVTIdleTestPane(t)
 	defer cleanup()
 	sess.Clock = clk
 	sess.vtIdle = NewVTIdleTracker(clk)
+	pane.SetCreatedAt(clk.Now())
 
 	clientConn, _, done := startAsyncCommand(t, srv, sess, "wait", "idle", "pane-1", "--settle", "200ms", "--timeout", "40ms")
 
@@ -196,6 +197,7 @@ func TestCmdWaitVTIdleResetsSettleTimerOnOutput(t *testing.T) {
 	defer cleanup()
 	sess.Clock = clk
 	sess.vtIdle = NewVTIdleTracker(clk)
+	pane.SetCreatedAt(clk.Now())
 
 	clientConn, _, done := startAsyncCommand(t, srv, sess, "wait", "idle", "pane-1", "--settle", "100ms", "--timeout", "5s")
 
