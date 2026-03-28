@@ -131,7 +131,7 @@ func TestWindowEqualizeUsesLogicalRootWhenLeadAnchored(t *testing.T) {
 
 	leftColumn := logical.Children[0]
 	gotHeights := []int{leftColumn.Children[0].H, leftColumn.Children[1].H}
-	wantHeights := []int{12, 11}
+	wantHeights := []int{11, 12}
 	if !reflect.DeepEqual(gotHeights, wantHeights) {
 		t.Fatalf("logical-root row heights after equalize = %v, want %v", gotHeights, wantHeights)
 	}

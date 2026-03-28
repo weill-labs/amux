@@ -591,6 +591,51 @@ func (w *Window) ResizePane(paneID uint32, direction string, delta int) bool {
 	return false
 }
 
+// Equalize rebalances the current logical root. When widths is true, root-level
+// columns are redistributed evenly. When heights is true, each logical column's
+// top-level rows are redistributed evenly. Returns true if the layout changed.
+func (w *Window) Equalize(widths, heights bool) bool {
+	w.assertOwner("Equalize")
+	if w.Root == nil || (!widths && !heights) {
+		return false
+	}
+	if w.ZoomedPaneID != 0 {
+		w.Unzoom()
+	}
+
+	logical := w.logicalRoot()
+	if logical == nil {
+		return false
+	}
+
+	changed := false
+	if widths && !logical.IsLeaf() && logical.Dir == SplitVertical && len(logical.Children) > 1 {
+		logical.distributeEqual()
+		changed = true
+	}
+
+	if heights {
+		columns := []*LayoutCell{logical}
+		if !logical.IsLeaf() && logical.Dir == SplitVertical {
+			columns = logical.Children
+		}
+		for _, column := range columns {
+			if column == nil || column.IsLeaf() || column.Dir != SplitHorizontal || len(column.Children) < 2 {
+				continue
+			}
+			column.distributeEqual()
+			changed = true
+		}
+	}
+
+	if !changed {
+		return false
+	}
+	w.Root.FixOffsets()
+	w.resizePTYs()
+	return true
+}
+
 func (w *Window) resizePaneGrow(siblings []*LayoutCell, idx int, axis SplitDir, needed int) int {
 	grower := siblings[idx]
 

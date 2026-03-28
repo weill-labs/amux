@@ -83,6 +83,7 @@ var commandRegistry = map[string]CommandHandler{
 	"resize-border":  cmdResizeBorder,
 	"resize-active":  cmdResizeActive,
 	"resize-pane":    cmdResizePane,
+	"equalize":       cmdEqualize,
 	"resize-window":  cmdResizeWindow,
 	"swap":           cmdSwap,
 	"swap-tree":      cmdSwapTree,
