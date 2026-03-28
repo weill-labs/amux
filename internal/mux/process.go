@@ -34,6 +34,10 @@ type AgentStatus struct {
 // chain of same-name shell processes. Bash can briefly create this shape while
 // returning to prompt on Linux; it should not count as user-visible busy work.
 func shellOnlyChildChain(shellName string, children []int) bool {
+	return shellOnlyChildChainWithLookups(shellName, children, processName, childPIDs)
+}
+
+func shellOnlyChildChainWithLookups(shellName string, children []int, nameForPID func(int) string, childPIDsForPID func(int) []int) bool {
 	if shellName == "" || len(children) != 1 {
 		return false
 	}
@@ -41,10 +45,10 @@ func shellOnlyChildChain(shellName string, children []int) bool {
 	const maxShellChainDepth = 8
 	pid := children[0]
 	for depth := 0; depth < maxShellChainDepth; depth++ {
-		if processName(pid) != shellName {
+		if nameForPID(pid) != shellName {
 			return false
 		}
-		next := childPIDs(pid)
+		next := childPIDsForPID(pid)
 		if len(next) == 0 {
 			return true
 		}
