@@ -230,3 +230,65 @@ func TestCmdListIncludesVTIdleColumnAndState(t *testing.T) {
 		t.Fatalf("pane-2 should show -- while VT output is still active, got:\n%s", pane2Line)
 	}
 }
+
+func TestVTIdleTrackerLastOutputWithoutSnapshot(t *testing.T) {
+	t.Parallel()
+
+	var tracker VTIdleTracker
+	if got, ok := tracker.LastOutput(99); ok || !got.IsZero() {
+		t.Fatalf("LastOutput() = (%v, %v), want (zero, false)", got, ok)
+	}
+}
+
+func TestPaneVTIdleStatusUsesCreatedAtWhenNoOutput(t *testing.T) {
+	t.Parallel()
+
+	sess := &Session{VTIdleSettle: 2 * time.Second}
+	createdAt := time.Date(2026, 3, 28, 12, 0, 0, 0, time.UTC)
+	now := createdAt.Add(5 * time.Second)
+
+	status := sess.paneVTIdleStatus(1, createdAt, now)
+	if !status.idle {
+		t.Fatal("pane should be vt-idle once createdAt+settle has passed without output")
+	}
+	if want := createdAt.Add(2 * time.Second); !status.idleSince.Equal(want) {
+		t.Fatalf("idleSince = %v, want %v", status.idleSince, want)
+	}
+	if got := status.listDisplay(now, createdAt); got != "5s ago" {
+		t.Fatalf("listDisplay() = %q, want %q", got, "5s ago")
+	}
+}
+
+func TestPaneVTIdleStatusListDisplayClampsFutureBase(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 3, 28, 12, 0, 0, 0, time.UTC)
+	status := paneVTIdleStatus{
+		idle:          true,
+		lastOutput:    now.Add(time.Second),
+		hasLastOutput: true,
+	}
+
+	if got := status.listDisplay(now, now.Add(-time.Second)); got != "0s ago" {
+		t.Fatalf("listDisplay() = %q, want %q", got, "0s ago")
+	}
+}
+
+func TestFormatPaneListDefaultsEmptyVTIdleWithoutCwd(t *testing.T) {
+	t.Parallel()
+
+	out := formatPaneList([]paneListEntry{{
+		paneID:     1,
+		name:       "pane-1",
+		host:       "local",
+		windowName: "main",
+		active:     true,
+	}}, "/Users/alice", false)
+
+	if !strings.Contains(out, "VT-IDLE") {
+		t.Fatalf("formatPaneList should include VT-IDLE header:\n%s", out)
+	}
+	if lines := strings.Split(strings.TrimSpace(out), "\n"); len(lines) < 2 || !strings.Contains(lines[1], "--") {
+		t.Fatalf("formatPaneList should default VT-IDLE to --:\n%s", out)
+	}
+}

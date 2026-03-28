@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
-	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -176,29 +175,13 @@ func TestForwardCaptureJSONIncludesVTIdleStatus(t *testing.T) {
 			if !ok {
 				t.Fatal("pane-1 missing from forwarded agent status")
 			}
-
-			statusValue := reflect.ValueOf(status)
-			vtIdleField := statusValue.FieldByName("VTIdle")
-			if !vtIdleField.IsValid() {
-				t.Fatal("VTIdle field missing from PaneAgentStatus")
-			}
-			if got := vtIdleField.Bool(); got != tt.wantVTIdle {
+			if got := status.VTIdle; got != tt.wantVTIdle {
 				t.Fatalf("VTIdle = %v, want %v", got, tt.wantVTIdle)
 			}
-
-			lastOutputField := statusValue.FieldByName("LastVTOutput")
-			if !lastOutputField.IsValid() {
-				t.Fatal("LastVTOutput field missing from PaneAgentStatus")
-			}
-			if got := lastOutputField.String(); got == "" {
+			if got := status.LastVTOutput; got == "" {
 				t.Fatalf("LastVTOutput = %q, want RFC3339 string", got)
 			}
-
-			idleSinceField := statusValue.FieldByName("VTIdleSince")
-			if !idleSinceField.IsValid() {
-				t.Fatal("VTIdleSince field missing from PaneAgentStatus")
-			}
-			if got := idleSinceField.String(); (got != "") != tt.wantIdleSince {
+			if got := status.VTIdleSince; (got != "") != tt.wantIdleSince {
 				t.Fatalf("VTIdleSince = %q, want present=%v", got, tt.wantIdleSince)
 			}
 
