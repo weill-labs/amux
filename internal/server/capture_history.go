@@ -122,7 +122,16 @@ func (s *Session) capturePaneDirect(args []string, target capturePaneTarget) *Me
 	case req.IncludeANSI:
 		return &Message{Type: MsgTypeCmdResult, CmdOutput: target.pane.Render() + "\n"}
 	default:
-		return &Message{Type: MsgTypeCmdResult, CmdOutput: strings.Join(capturePane.Content, "\n") + "\n"}
+		lines := capturePane.Content
+		start := 0
+		for start < len(lines) && strings.TrimSpace(lines[start]) == "" {
+			start++
+		}
+		end := len(lines)
+		for end > start && strings.TrimSpace(lines[end-1]) == "" {
+			end--
+		}
+		return &Message{Type: MsgTypeCmdResult, CmdOutput: strings.Join(lines[start:end], "\n") + "\n"}
 	}
 }
 
