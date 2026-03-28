@@ -144,6 +144,14 @@ type CapturePane struct {
 	// ChildPIDs lists the direct child PIDs of the pane's shell process.
 	// These are ephemeral OS-level PIDs — they change across captures.
 	ChildPIDs []int `json:"child_pids"`
+	// VTIdle is true when VT output has been quiet for the settle window.
+	VTIdle bool `json:"vt_idle"`
+	// VTIdleSince is the RFC3339 timestamp when the pane most recently
+	// became VT-idle. Omitted while VT output is still active.
+	VTIdleSince string `json:"vt_idle_since,omitempty"`
+	// LastVTOutput is the RFC3339 timestamp of the most recent VT output edge.
+	// Omitted when no VT output has been observed for the pane.
+	LastVTOutput string `json:"last_vt_output,omitempty"`
 
 	Error *CaptureError `json:"error,omitempty"`
 }
@@ -155,6 +163,9 @@ type PaneAgentStatus struct {
 	IdleSince      string // RFC3339 or ""
 	CurrentCommand string
 	ChildPIDs      []int
+	VTIdle         bool
+	VTIdleSince    string // RFC3339 or ""
+	LastVTOutput   string // RFC3339 or ""
 }
 
 // CapturePos holds a pane's position and size within the layout.
@@ -209,6 +220,9 @@ func (cp *CapturePane) ApplyAgentStatus(status map[uint32]PaneAgentStatus) {
 	cp.Idle = st.Idle
 	cp.IdleSince = st.IdleSince
 	cp.CurrentCommand = st.CurrentCommand
+	cp.VTIdle = st.VTIdle
+	cp.VTIdleSince = st.VTIdleSince
+	cp.LastVTOutput = st.LastVTOutput
 	if st.ChildPIDs != nil {
 		cp.ChildPIDs = st.ChildPIDs
 	} else {
