@@ -257,6 +257,97 @@ func TestTerminalEventsInitialSnapshotAndUpdates(t *testing.T) {
 	}
 }
 
+func TestPaneTerminalEventStateEqual(t *testing.T) {
+	t.Parallel()
+
+	newTerminal := func() *proto.CaptureTerminal {
+		return &proto.CaptureTerminal{
+			AltScreen:       true,
+			ForegroundColor: "112233",
+			BackgroundColor: "445566",
+			CursorColor:     "778899",
+			Hyperlink: &proto.CaptureHyperlink{
+				URL:    "https://example.com",
+				Params: "id=1",
+			},
+			Mouse: &proto.CaptureMouseProtocol{
+				Tracking: "button",
+				SGR:      true,
+			},
+			Palette: []string{"000000", "ffffff"},
+		}
+	}
+
+	tests := []struct {
+		name   string
+		mutate func(state *paneTerminalEventState)
+		want   bool
+	}{
+		{
+			name: "equal",
+			want: true,
+		},
+		{
+			name: "cursor changed",
+			mutate: func(state *paneTerminalEventState) {
+				state.Cursor.Style = "underline"
+			},
+			want: false,
+		},
+		{
+			name: "mouse changed",
+			mutate: func(state *paneTerminalEventState) {
+				state.Terminal.Mouse.Tracking = "any"
+			},
+			want: false,
+		},
+		{
+			name: "hyperlink changed",
+			mutate: func(state *paneTerminalEventState) {
+				state.Terminal.Hyperlink.URL = "https://other.example.com"
+			},
+			want: false,
+		},
+		{
+			name: "palette changed",
+			mutate: func(state *paneTerminalEventState) {
+				state.Terminal.Palette[1] = "eeeeee"
+			},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			left := paneTerminalEventState{
+				Cursor: proto.CaptureCursor{
+					Col:      1,
+					Row:      2,
+					Hidden:   false,
+					Style:    "block",
+					Blinking: true,
+				},
+				Terminal: newTerminal(),
+			}
+			right := paneTerminalEventState{
+				Cursor:   left.Cursor,
+				Terminal: newTerminal(),
+			}
+
+			if tt.mutate != nil {
+				tt.mutate(&right)
+			}
+
+			if got := paneTerminalEventStateEqual(left, right); got != tt.want {
+				t.Fatalf("paneTerminalEventStateEqual() = %t, want %t", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestEmitEventDelivery(t *testing.T) {
 	t.Parallel()
 	sess := newSession("test-emit")
