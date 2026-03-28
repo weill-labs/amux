@@ -7,6 +7,7 @@ import (
 	"time"
 
 	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
 )
@@ -21,6 +22,34 @@ type fakePaneData struct {
 
 func (f *fakePaneData) RenderScreen(bool) string { return f.screen }
 func (f *fakePaneData) CellAt(col, row int, active bool) ScreenCell {
+	lines := strings.Split(f.screen, "\n")
+	if row < 0 || row >= len(lines) {
+		return ScreenCell{Char: " ", Width: 1}
+	}
+	if col < 0 {
+		return ScreenCell{Char: " ", Width: 1}
+	}
+
+	line := lines[row]
+	displayCol := 0
+	for len(line) > 0 {
+		cluster, clusterWidth := ansi.FirstGraphemeCluster(line, ansi.GraphemeWidth)
+		if cluster == "" {
+			break
+		}
+		if clusterWidth <= 0 {
+			clusterWidth = 1
+		}
+		if col < displayCol+clusterWidth {
+			if col == displayCol {
+				return ScreenCell{Char: cluster, Width: clusterWidth}
+			}
+			return ScreenCell{Char: " ", Width: 0}
+		}
+		displayCol += clusterWidth
+		line = line[len(cluster):]
+	}
+
 	return ScreenCell{Char: " ", Width: 1}
 }
 func (f *fakePaneData) CursorPos() (int, int)               { return 0, 0 }
@@ -38,6 +67,32 @@ func (f *fakePaneData) ConnStatus() string                  { return "" }
 func (f *fakePaneData) InCopyMode() bool                    { return false }
 func (f *fakePaneData) CopyModeSearch() string              { return "" }
 func (f *fakePaneData) HasCursorBlock() bool                { return false }
+
+func TestFakePaneDataCellAtUsesDisplayColumnsForGraphemes(t *testing.T) {
+	t.Parallel()
+
+	pd := &fakePaneData{screen: "🤷‍♂️X"}
+	tests := []struct {
+		name string
+		col  int
+		want ScreenCell
+	}{
+		{name: "grapheme start", col: 0, want: ScreenCell{Char: "🤷‍♂️", Width: 2}},
+		{name: "wide continuation", col: 1, want: ScreenCell{Char: " ", Width: 0}},
+		{name: "next column after grapheme", col: 2, want: ScreenCell{Char: "X", Width: 1}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := pd.CellAt(tt.col, 0, true)
+			if got.Char != tt.want.Char || got.Width != tt.want.Width {
+				t.Fatalf("CellAt(%d, 0) = %+v, want %+v", tt.col, got, tt.want)
+			}
+		})
+	}
+}
 
 type cursorPaneData struct {
 	id    uint32
@@ -198,6 +253,66 @@ func TestBlitPaneClipsContentToVisibleLayoutHeight(t *testing.T) {
 	}
 	if strings.Contains(output, "\033[5;1Hline-4") {
 		t.Fatalf("pane content should not be blitted below the terminal:\n%s", output)
+	}
+}
+
+func TestRenderPaneContentSkipsEmptyRowsAndResetsAfterVisibleRows(t *testing.T) {
+	t.Parallel()
+
+	comp := NewCompositor(10, 6, "test")
+	cell := mux.NewLeafByID(1, 0, 0, 10, 3)
+
+	var buf strings.Builder
+	comp.renderPaneContent(&buf, cell, true, &fakePaneData{screen: "\nX"})
+
+	output := buf.String()
+	if strings.Contains(output, "\033[2;1H") {
+		t.Fatalf("renderPaneContent should skip blank row cursor moves, output=%q", output)
+	}
+	if !strings.Contains(output, "\033[3;1H") {
+		t.Fatalf("renderPaneContent should render the non-empty second row, output=%q", output)
+	}
+	if !strings.HasSuffix(output, Reset) {
+		t.Fatalf("renderPaneContent should reset styles after each non-empty row, output=%q", output)
+	}
+}
+
+func TestLastPaneContentColumn(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		row  []ScreenCell
+		want int
+	}{
+		{
+			name: "blank row returns minus one",
+			row: []ScreenCell{
+				{Char: " ", Width: 1},
+				{Char: " ", Width: 0},
+				{Char: " ", Width: 1},
+			},
+			want: -1,
+		},
+		{
+			name: "styled blank still counts",
+			row: []ScreenCell{
+				{Char: " ", Width: 1},
+				{Char: " ", Width: 1, Style: uv.Style{Fg: ansi.RGBColor{R: 255}}},
+				{Char: " ", Width: 0},
+			},
+			want: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := lastPaneContentColumn(tt.row); got != tt.want {
+				t.Fatalf("lastPaneContentColumn() = %d, want %d", got, tt.want)
+			}
+		})
 	}
 }
 

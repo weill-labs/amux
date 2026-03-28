@@ -7,6 +7,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/mattn/go-runewidth"
 	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/mux"
@@ -123,8 +124,7 @@ func (c *Compositor) RenderFullWithOverlay(root *mux.LayoutCell, activePaneID ui
 		renderPaneStatus(&buf, cell, isActive, pd)
 
 		// Pane content (shifted down by status line)
-		rendered := pd.RenderScreen(isActive)
-		c.blitPane(&buf, cell, rendered)
+		c.renderPaneContent(&buf, cell, isActive, pd)
 	})
 
 	// Draw borders with proper junction characters.
@@ -211,7 +211,11 @@ func gridToText(g *ScreenGrid) string {
 		}
 		row = row[:0]
 		for x := 0; x < g.Width; x++ {
-			ch := g.Get(x, y).Char
+			cell := g.Get(x, y)
+			if cell.Width == 0 {
+				continue
+			}
+			ch := cell.Char
 			if ch == "" {
 				ch = " "
 			}
@@ -284,23 +288,62 @@ func (c *Compositor) renderCursor(buf *strings.Builder, root *mux.LayoutCell, ac
 	buf.WriteString(ShowCursor)
 }
 
-// blitPane writes a pane's rendered content below its status line.
-// Lines are clipped to cell.W display columns to prevent content
-// from bleeding into adjacent panes.
-func (c *Compositor) blitPane(buf *strings.Builder, cell *mux.LayoutCell, rendered string) {
-	lines := strings.Split(rendered, "\n")
+func (c *Compositor) renderPaneContent(buf *strings.Builder, cell *mux.LayoutCell, active bool, pd PaneData) {
 	contentH := c.visibleContentHeight(cell)
-
-	for i, line := range lines {
-		if i >= contentH {
-			break
+	for row := 0; row < contentH; row++ {
+		rowCells := paneContentRowCells(cell.W, row, active, pd)
+		lastCol := lastPaneContentColumn(rowCells)
+		if lastCol < 0 {
+			continue
 		}
-		row := cell.Y + mux.StatusLineRows + i + 1
-		writeCursorTo(buf, row, cell.X+1)
-		if len(line) > 0 {
-			buf.WriteString(clipLine(line, cell.W))
+
+		writeCursorTo(buf, cell.Y+mux.StatusLineRows+row+1, cell.X+1)
+
+		prevStyle := (*uv.Style)(nil)
+		for col := 0; col <= lastCol; {
+			sc := rowCells[col]
+			if sc.Width == 0 {
+				col++
+				continue
+			}
+
+			s := sc.Style
+			if diff := uv.StyleDiff(prevStyle, &s); diff != "" {
+				buf.WriteString(diff)
+			}
+			sCopy := s
+			prevStyle = &sCopy
+
+			char := sc.Char
+			if char == "" {
+				char = " "
+			}
+			buf.WriteString(char)
+
+			w := sc.Width
+			if w <= 0 {
+				w = 1
+			}
+			col += w
+		}
+
+		// Reset after each rendered row so styled cells cannot bleed when the
+		// compositor jumps to a later row with an explicit CUP sequence.
+		buf.WriteString(Reset)
+	}
+}
+
+func lastPaneContentColumn(row []ScreenCell) int {
+	for col := len(row) - 1; col >= 0; col-- {
+		cell := row[col]
+		if cell.Width == 0 {
+			continue
+		}
+		if cell.Char != " " || !cell.Style.IsZero() {
+			return col
 		}
 	}
+	return -1
 }
 
 func (c *Compositor) visibleContentHeight(cell *mux.LayoutCell) int {

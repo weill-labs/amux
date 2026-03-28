@@ -711,6 +711,64 @@ func TestPrevGridText(t *testing.T) {
 	}
 }
 
+func TestPrevGridText_CursorAssembledGraphemeClusters(t *testing.T) {
+	t.Parallel()
+
+	width, height := 20, 4
+	totalH := height + GlobalBarHeight
+
+	paneEmu := vt.NewSafeEmulator(width, height-mux.StatusLineRows)
+	if _, err := paneEmu.Write([]byte("🤷")); err != nil {
+		t.Fatalf("write emoji base: %v", err)
+	}
+	if _, err := paneEmu.Write([]byte("‍♂️3")); err != nil {
+		t.Fatalf("write emoji suffix: %v", err)
+	}
+
+	root := mux.NewLeafByID(1, 0, 0, width, height)
+	lookup := func(id uint32) PaneData {
+		if id == 1 {
+			return &emuPaneData{emu: paneEmu, id: 1, name: "pane-1", color: "f5e0dc", cursorHidden: true}
+		}
+		return nil
+	}
+
+	comp := newTestCompositor(width, totalH, "test")
+	comp.RenderDiff(root, 1, lookup)
+
+	got := comp.PrevGridText()
+	lines := strings.Split(got, "\n")
+	if len(lines) < 2 {
+		t.Fatalf("PrevGridText = %q, want at least status and content rows", got)
+	}
+	if lines[1] != "🤷‍♂️3" {
+		t.Fatalf("content row = %q, want %q", lines[1], "🤷‍♂️3")
+	}
+}
+
+func TestCompactRowCell_DoesNotMergeUnrelatedCells(t *testing.T) {
+	t.Parallel()
+
+	paneEmu := vt.NewSafeEmulator(4, 1)
+	if _, err := paneEmu.Write([]byte("AB")); err != nil {
+		t.Fatalf("write plain text: %v", err)
+	}
+	pd := &emuPaneData{emu: paneEmu, cursorHidden: true}
+
+	base := pd.CellAt(0, 0, true)
+	got, gotWidth, nextSrc := compactRowCell(4, 0, true, pd, 0, base)
+
+	if got.Char != "A" || got.Width != 1 {
+		t.Fatalf("compactRowCell() = %+v, want single-cell A", got)
+	}
+	if gotWidth != 1 {
+		t.Fatalf("compactRowCell() width = %d, want 1", gotWidth)
+	}
+	if nextSrc != 1 {
+		t.Fatalf("compactRowCell() nextSrc = %d, want 1", nextSrc)
+	}
+}
+
 func TestGridToText_EmptyCharCell(t *testing.T) {
 	t.Parallel()
 	g := NewScreenGrid(5, 2)
@@ -811,6 +869,35 @@ func colorOracleCheck(comp *Compositor, diffDisplay *vt.SafeEmulator, root *mux.
 	return mismatches
 }
 
+func muxTextOracleCheck(comp *Compositor, diffDisplay mux.TerminalEmulator, root *mux.LayoutCell, activeID uint32, lookup func(uint32) PaneData, width, height int) string {
+	fullANSI := comp.RenderFull(root, activeID, lookup, true)
+	fullDisplay := mux.NewVTEmulatorWithDrain(width, height)
+	defer fullDisplay.Close()
+	if _, err := fullDisplay.Write([]byte(fullANSI)); err != nil {
+		return fmt.Sprintf("writing full ANSI: %v", err)
+	}
+
+	diffANSI := comp.RenderDiff(root, activeID, lookup)
+	if _, err := diffDisplay.Write([]byte(diffANSI)); err != nil {
+		return fmt.Sprintf("writing diff ANSI: %v", err)
+	}
+
+	var expected, actual strings.Builder
+	for y := 0; y < height; y++ {
+		if y > 0 {
+			expected.WriteByte('\n')
+			actual.WriteByte('\n')
+		}
+		expected.WriteString(fullDisplay.ScreenLineText(y))
+		actual.WriteString(diffDisplay.ScreenLineText(y))
+	}
+
+	if expected.String() != actual.String() {
+		return "oracle mismatch:\n--- expected (RenderFull) ---\n" + expected.String() + "\n--- actual (RenderDiff) ---\n" + actual.String()
+	}
+	return ""
+}
+
 func TestRenderDiff_ColorOracle(t *testing.T) {
 	t.Parallel()
 	width, height := 60, 10
@@ -874,6 +961,78 @@ func TestRenderDiff_ColorOracle_IncrementalUpdate(t *testing.T) {
 	if mismatches := colorOracleCheck(comp, diffDisplay, root, 1, lookup, width, totalH); len(mismatches) > 0 {
 		t.Errorf("incremental update: %d color mismatches:\n%s",
 			len(mismatches), strings.Join(mismatches, "\n"))
+	}
+}
+
+func TestRenderDiff_ColorOracle_CursorAssembledGraphemeClusters(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		initial string
+		update  string
+	}{
+		{
+			name:    "emoji modifier applied after wide emoji",
+			initial: "👍",
+			update:  "🏻2",
+		},
+		{
+			name:    "zwj suffix written after emoji base",
+			initial: "🤷",
+			update:  "\u200d♂️3",
+		},
+		{
+			name:    "regional indicator repair via backspace",
+			initial: "🇸4",
+			update:  "\b🇪4",
+		},
+		{
+			name:    "same-cell emoji modifier overwrite",
+			initial: "👍2",
+			update:  "\r🏻2",
+		},
+		{
+			name:    "same-cell zwj suffix overwrite",
+			initial: "🤷3",
+			update:  "\r\u200d♂️3",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			width, height := 40, 8
+			totalH := height + GlobalBarHeight
+			contentH := height - mux.StatusLineRows
+
+			paneEmu := vt.NewSafeEmulator(width, contentH)
+			paneEmu.Write([]byte(tt.initial))
+
+			root := mux.NewLeafByID(1, 0, 0, width, height)
+			lookup := func(id uint32) PaneData {
+				if id == 1 {
+					return &emuPaneData{emu: paneEmu, id: 1, name: "pane-1", color: "f5e0dc", cursorHidden: true}
+				}
+				return nil
+			}
+
+			comp := newTestCompositor(width, totalH, "test")
+			diffDisplay := mux.NewVTEmulatorWithDrain(width, totalH)
+			defer diffDisplay.Close()
+
+			initDiff := comp.RenderDiff(root, 1, lookup)
+			if _, err := diffDisplay.Write([]byte(initDiff)); err != nil {
+				t.Fatalf("writing initial diff: %v", err)
+			}
+
+			paneEmu.Write([]byte(tt.update))
+
+			if err := muxTextOracleCheck(comp, diffDisplay, root, 1, lookup, width, totalH); err != "" {
+				t.Fatalf("cursor-assembled grapheme mismatch:\n%s", err)
+			}
+		})
 	}
 }
 
