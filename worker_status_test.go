@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -21,6 +22,9 @@ PANE   NAME                 HOST            BRANCH                         WINDO
  8     logs-worker          local           feature/logs                   main       build
  9     pane-9               local           feature/pr-500                 main       worker       prs=[500] issues=[LAB-500]
 10     pane-10              local           feature/other                  main       build
+11     pane-11              local           feature/pr-511                 main       worker       prs=[511]
+12     pane-12              local           feature/pr-512                 main       worker       prs=[512]
+13     pane-13              local           feature/pr-513                 main       worker       prs=[513]
 EOF
 exit 0
 fi
@@ -78,12 +82,55 @@ cat <<'EOF'
 EOF
 exit 0
 ;;
+    pane-10)
+cat <<'EOF'
+{
+  "name": "pane-10",
+  "task": "build",
+  "meta": {
+    "tracked_issues": [{"id": "LAB-700", "status": "active"}],
+    "tracked_prs": [{"number": 700, "status": "active"}]
+  },
+  "idle": false,
+  "child_pids": [303],
+  "content": ["not a worker"]
+}
+EOF
+exit 0
+;;
+    pane-12)
+cat <<'EOF'
+{
+  "error": {
+    "code": "capture_unavailable",
+    "message": "capture unavailable"
+  }
+}
+EOF
+exit 0
+;;
+    pane-13)
+cat <<'EOF'
+{
+  "name": "pane-13",
+  "task": "worker",
+  "meta": {
+    "tracked_issues": [{"id": "LAB-513", "status": "active"}],
+    "tracked_prs": [{"number": 513, "status": "active"}]
+  },
+  "idle": false,
+  "child_pids": [],
+  "content": ["waiting quietly"]
+}
+EOF
+exit 0
+;;
 esac
 fi
 
 if [ "$1" = "wait" ] && [ "$2" = "vt-idle" ]; then
 case "$3" in
-    logs-worker|pane-9)
+    logs-worker|pane-9|pane-13)
         printf 'vt-idle\n'
         exit 0
         ;;
@@ -109,18 +156,13 @@ exit 1
 		}
 	}
 
-	if !strings.Contains(out, "pane-7") || !strings.Contains(out, "LAB-517") || !strings.Contains(out, "busy") || !strings.Contains(out, "422") || !strings.Contains(out, "streaming output") {
-		t.Fatalf("output missing metadata-worker row:\n%s", out)
-	}
-	if !strings.Contains(out, "logs-worker") || !strings.Contains(out, "LAB-600") || !strings.Contains(out, "idle") || !strings.Contains(out, "600") || !strings.Contains(out, "worker finished") {
-		t.Fatalf("output missing name-convention worker row:\n%s", out)
-	}
-	if !strings.Contains(out, "pane-9") || !strings.Contains(out, "stuck") || !strings.Contains(out, "500") || !strings.Contains(out, "higher risk of prompt injection.") {
-		t.Fatalf("output missing stuck worker row:\n%s", out)
-	}
-	if strings.Contains(out, "pane-10") {
-		t.Fatalf("output should skip non-worker panes:\n%s", out)
-	}
+	assertWorkerStatusRow(t, out, "pane-7", "LAB-517", "busy", "422", "streaming output")
+	assertWorkerStatusRow(t, out, "logs-worker", "LAB-600", "idle", "600", "worker finished")
+	assertWorkerStatusRow(t, out, "pane-9", "LAB-500", "stuck", "500", "higher risk of prompt injection.")
+	assertWorkerStatusRow(t, out, "pane-13", "LAB-513", "vt-idle", "513", "waiting quietly")
+	assertWorkerStatusRowAbsent(t, out, "pane-10")
+	assertWorkerStatusRowAbsent(t, out, "pane-11")
+	assertWorkerStatusRowAbsent(t, out, "pane-12")
 }
 
 func TestWorkerStatusScriptPrintsHeaderWhenNoWorkersMatch(t *testing.T) {
@@ -170,4 +212,32 @@ func runWorkerStatusScript(t *testing.T, tempDir string, extraEnv ...string) (st
 		t.Fatalf("unexpected error: %v\n%s", err, out)
 	}
 	return string(out), exitErr.ExitCode()
+}
+
+func assertWorkerStatusRow(t *testing.T, out, pane, issue, state, pr, lastOutput string) {
+	t.Helper()
+
+	pattern := "(?m)^" +
+		regexp.QuoteMeta(pane) +
+		` +` +
+		regexp.QuoteMeta(issue) +
+		` +` +
+		regexp.QuoteMeta(state) +
+		` +` +
+		regexp.QuoteMeta(pr) +
+		` +` +
+		regexp.QuoteMeta(lastOutput) +
+		`$`
+	if !regexp.MustCompile(pattern).MatchString(out) {
+		t.Fatalf("output missing row %q/%q/%q/%q/%q:\n%s", pane, issue, state, pr, lastOutput, out)
+	}
+}
+
+func assertWorkerStatusRowAbsent(t *testing.T, out, pane string) {
+	t.Helper()
+
+	pattern := "(?m)^" + regexp.QuoteMeta(pane) + ` +`
+	if regexp.MustCompile(pattern).MatchString(out) {
+		t.Fatalf("output should not include row for %q:\n%s", pane, out)
+	}
 }

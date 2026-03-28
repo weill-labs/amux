@@ -59,7 +59,7 @@ if ! pane_list="$(amux list --no-cwd)"; then
     die "failed to list panes"
 fi
 
-printf "$table_format" "PANE" "ISSUE" "STATE" "PR" "LAST OUTPUT"
+printf -- "$table_format" "PANE" "ISSUE" "STATE" "PR" "LAST OUTPUT"
 
 while IFS= read -r pane; do
     [[ -n "$pane" ]] || continue
@@ -114,7 +114,7 @@ while IFS= read -r pane; do
                 ] | last // "-"
             )
         ] | @tsv
-    ' <<<"$capture")"
+    ' <<<"$capture")" || continue
 
     if [[ -z "$pane_name" ]]; then
         pane_name="$pane"
@@ -140,10 +140,23 @@ while IFS= read -r pane; do
     pr_cell="$(truncate_cell "$pr" 8)"
     output_cell="$(truncate_cell "$last_output" 96)"
 
-    printf "$table_format" \
+    printf -- "$table_format" \
         "$pane_cell" \
         "$issue_cell" \
         "$state_cell" \
         "$pr_cell" \
         "$output_cell"
-done < <(printf '%s\n' "$pane_list" | awk 'NR > 1 && $2 != "" { print $2 }')
+done < <(printf '%s\n' "$pane_list" | awk '
+NR == 1 {
+    for (i = 1; i <= NF; i++) {
+        if ($i == "NAME") {
+            name_col = i
+            break
+        }
+    }
+    next
+}
+name_col && $name_col != "" {
+    print $name_col
+}
+')
