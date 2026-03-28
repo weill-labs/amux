@@ -30,15 +30,15 @@ func TestMainUsageHelperIsolatesAmbientSessionEnv(t *testing.T) {
 	}
 }
 
-func TestMainSendKeysUsageIncludesWaitReadyFlags(t *testing.T) {
+func TestMainSendKeysUsageIncludesWaitIdleFlags(t *testing.T) {
 	t.Parallel()
 
 	out, code := runHermeticMain(t, "send-keys", "pane-1")
 	if code != 1 {
 		t.Fatalf("exit code = %d, want 1\n%s", code, out)
 	}
-	if !strings.Contains(out, "usage: amux send-keys <pane> [--wait ready|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>...") {
-		t.Fatalf("usage output missing wait-ready flags:\n%s", out)
+	if !strings.Contains(out, "usage: amux send-keys <pane> [--wait idle|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>...") {
+		t.Fatalf("usage output missing wait-idle flags:\n%s", out)
 	}
 }
 
@@ -53,12 +53,12 @@ func TestMainKeyCommandsHelpFlagsPrintUsage(t *testing.T) {
 		{
 			name: "send-keys long help",
 			args: []string{"send-keys", "pane-1", "--help"},
-			want: "usage: amux send-keys <pane> [--wait ready|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>...",
+			want: "usage: amux send-keys <pane> [--wait idle|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>...",
 		},
 		{
 			name: "send-keys short help",
 			args: []string{"send-keys", "pane-1", "-h"},
-			want: "usage: amux send-keys <pane> [--wait ready|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>...",
+			want: "usage: amux send-keys <pane> [--wait idle|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>...",
 		},
 		{
 			name: "type-keys long help",
@@ -98,7 +98,7 @@ func TestMainWaitUsage(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("exit code = %d, want 1\n%s", code, out)
 	}
-	if !strings.Contains(out, "usage: amux wait <idle|busy|vt-idle|ready|content|layout|clipboard|checkpoint|ui> ...") {
+	if !strings.Contains(out, "usage: amux wait <idle|busy|exited|content|layout|clipboard|checkpoint|ui> ...") {
 		t.Fatalf("wait usage output = %q", out)
 	}
 }

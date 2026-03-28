@@ -9,7 +9,7 @@ import (
 	"github.com/weill-labs/amux/internal/mux"
 )
 
-func setupWaitReadyTestPane(t *testing.T, writeOverride func([]byte) (int, error)) (*Server, *Session, *mux.Pane, func()) {
+func setupSendKeysWaitIdleTestPane(t *testing.T, writeOverride func([]byte) (int, error)) (*Server, *Session, *mux.Pane, func()) {
 	t.Helper()
 
 	srv, sess, cleanup := newCommandTestSession(t)
@@ -26,123 +26,47 @@ func setupWaitReadyTestPane(t *testing.T, writeOverride func([]byte) (int, error
 	return srv, sess, pane, cleanup
 }
 
-func TestWaitReadyUsage(t *testing.T) {
-	t.Parallel()
-
-	srv, sess, cleanup := newCommandTestSession(t)
-	defer cleanup()
-
-	res := runTestCommand(t, srv, sess, "wait", "ready")
-	if got := res.cmdErr; got != "usage: wait ready <pane> [--timeout <duration>]" {
-		t.Fatalf("wait-ready usage error = %q", got)
-	}
-}
-
-func TestParseWaitReadyArgs(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name     string
-		args     []string
-		wantPane string
-		wantOpts waitReadyOptions
-		wantErr  string
-	}{
-		{
-			name:     "defaults",
-			args:     []string{"pane-1"},
-			wantPane: "pane-1",
-			wantOpts: waitReadyOptions{timeout: 10 * time.Second},
-		},
-		{
-			name:     "custom timeout",
-			args:     []string{"pane-2", "--timeout", "25ms"},
-			wantPane: "pane-2",
-			wantOpts: waitReadyOptions{timeout: 25 * time.Millisecond},
-		},
-		{
-			name:    "removed continue flag",
-			args:    []string{"pane-1", "--continue-known-dialogs"},
-			wantErr: waitReadyRemovedContinueFlagErr,
-		},
-		{
-			name:    "missing timeout value",
-			args:    []string{"pane-1", "--timeout"},
-			wantErr: "missing value for --timeout",
-		},
-		{
-			name:    "invalid timeout",
-			args:    []string{"pane-1", "--timeout", "later"},
-			wantErr: "invalid timeout: later",
-		},
-		{
-			name:    "unknown flag",
-			args:    []string{"pane-1", "--bogus"},
-			wantErr: "unknown flag: --bogus",
-		},
-	}
-
-	for _, tt := range tests {
-		tt := tt
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			gotPane, gotOpts, err := parseWaitReadyArgs(tt.args)
-			if tt.wantErr != "" {
-				if err == nil || err.Error() != tt.wantErr {
-					t.Fatalf("parseWaitReadyArgs(%v) error = %v, want %q", tt.args, err, tt.wantErr)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("parseWaitReadyArgs(%v) error = %v", tt.args, err)
-			}
-			if gotPane != tt.wantPane {
-				t.Fatalf("pane = %q, want %q", gotPane, tt.wantPane)
-			}
-			if gotOpts != tt.wantOpts {
-				t.Fatalf("opts = %#v, want %#v", gotOpts, tt.wantOpts)
-			}
-		})
-	}
+func setupWaitReadyTestPane(t *testing.T, writeOverride func([]byte) (int, error)) (*Server, *Session, *mux.Pane, func()) {
+	t.Helper()
+	return setupSendKeysWaitIdleTestPane(t, writeOverride)
 }
 
 func TestParseSendKeysArgs(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
-		args    []string
-		want    sendKeysOptions
-		wantErr string
+		name          string
+		args          []string
+		wantWait      bool
+		wantInputIdle bool
+		wantTimeout   time.Duration
+		wantDelay     time.Duration
+		wantHex       bool
+		wantKeys      []string
+		wantErr       string
 	}{
 		{
-			name: "wait ready and keys",
-			args: []string{"--wait", "ready", "--timeout", "25ms", "--delay-final", "150ms", "--hex", "6869", "Enter"},
-			want: sendKeysOptions{
-				waitTarget:  sendKeysWaitReady,
-				waitTimeout: 25 * time.Millisecond,
-				delayFinal:  150 * time.Millisecond,
-				hexMode:     true,
-				keys:        []string{"6869", "Enter"},
-			},
+			name:        "wait idle and keys",
+			args:        []string{"--wait", "idle", "--timeout", "25ms", "--delay-final", "150ms", "--hex", "6869", "Enter"},
+			wantWait:    true,
+			wantTimeout: 25 * time.Millisecond,
+			wantDelay:   150 * time.Millisecond,
+			wantHex:     true,
+			wantKeys:    []string{"6869", "Enter"},
 		},
 		{
-			name: "wait input idle",
-			args: []string{"--wait", "ui=input-idle", "--timeout", "40ms", "task"},
-			want: sendKeysOptions{
-				waitTarget:  sendKeysWaitInputIdle,
-				waitTimeout: 40 * time.Millisecond,
-				keys:        []string{"task"},
-			},
+			name:          "wait input idle",
+			args:          []string{"--wait", "ui=input-idle", "--timeout", "40ms", "task"},
+			wantWait:      true,
+			wantInputIdle: true,
+			wantTimeout:   40 * time.Millisecond,
+			wantKeys:      []string{"task"},
 		},
 		{
 			name: "literal args after first key",
 			args: []string{"task", "--wait", "ready"},
-			want: sendKeysOptions{
-				waitTimeout: 10 * time.Second,
-				keys:        []string{"task", "--wait", "ready"},
-			},
+			wantTimeout: 10 * time.Second,
+			wantKeys:    []string{"task", "--wait", "ready"},
 		},
 		{
 			name:    "missing wait value",
@@ -150,29 +74,34 @@ func TestParseSendKeysArgs(t *testing.T) {
 			wantErr: "missing value for --wait",
 		},
 		{
-			name:    "unsupported wait target",
+			name:    "unsupported wait target ready",
+			args:    []string{"--wait", "ready", "task"},
+			wantErr: `send-keys: unsupported --wait target "ready" (want idle or ui=input-idle)`,
+		},
+		{
+			name:    "unsupported wait target later",
 			args:    []string{"--wait", "later", "task"},
-			wantErr: `send-keys: unsupported --wait target "later" (want ready or ui=input-idle)`,
+			wantErr: `send-keys: unsupported --wait target "later" (want idle or ui=input-idle)`,
 		},
 		{
 			name:    "missing timeout value",
-			args:    []string{"--wait", "ready", "--timeout"},
+			args:    []string{"--wait", "idle", "--timeout"},
 			wantErr: "missing value for --timeout",
 		},
 		{
 			name:    "invalid timeout value",
-			args:    []string{"--wait", "ready", "--timeout", "later"},
+			args:    []string{"--wait", "idle", "--timeout", "later"},
 			wantErr: "invalid timeout: later",
 		},
 		{
 			name:    "removed continue flag",
-			args:    []string{"--wait", "ready", "--continue-known-dialogs", "task"},
-			wantErr: sendKeysRemovedContinueFlagErr,
+			args:    []string{"--wait", "idle", "--continue-known-dialogs", "task"},
+			wantErr: "unknown flag: --continue-known-dialogs",
 		},
 		{
 			name:    "timeout requires wait target",
 			args:    []string{"--timeout", "10ms", "task"},
-			wantErr: "send-keys: --timeout requires --wait ready or --wait ui=input-idle",
+			wantErr: "send-keys: --timeout requires --wait idle or --wait ui=input-idle",
 		},
 		{
 			name:    "missing delay-final value",
@@ -187,7 +116,7 @@ func TestParseSendKeysArgs(t *testing.T) {
 		{
 			name:    "legacy flag rejected",
 			args:    []string{"--wait-ready", "task"},
-			wantErr: "send-keys: --wait-ready was removed; use --wait ready",
+			wantErr: "send-keys: --wait-ready was removed; use --wait idle",
 		},
 	}
 
@@ -206,164 +135,43 @@ func TestParseSendKeysArgs(t *testing.T) {
 			if err != nil {
 				t.Fatalf("parseSendKeysArgs(%v) error = %v", tt.args, err)
 			}
-			if got.waitTarget != tt.want.waitTarget ||
-				got.waitTimeout != tt.want.waitTimeout ||
-				got.delayFinal != tt.want.delayFinal ||
-				got.hexMode != tt.want.hexMode ||
-				strings.Join(got.keys, "|") != strings.Join(tt.want.keys, "|") {
-				t.Fatalf("opts = %#v, want %#v", got, tt.want)
+			if tt.wantWait && got.waitTarget == sendKeysNoWait {
+				t.Fatalf("wait target = %v, want a wait target", got.waitTarget)
+			}
+			if !tt.wantWait && got.waitTarget != sendKeysNoWait {
+				t.Fatalf("wait target = %v, want no wait target", got.waitTarget)
+			}
+			if tt.wantInputIdle && got.waitTarget != sendKeysWaitInputIdle {
+				t.Fatalf("wait target = %v, want input-idle", got.waitTarget)
+			}
+			if got.waitTimeout != tt.wantTimeout ||
+				got.delayFinal != tt.wantDelay ||
+				got.hexMode != tt.wantHex ||
+				strings.Join(got.keys, "|") != strings.Join(tt.wantKeys, "|") {
+				t.Fatalf("opts = %#v", got)
 			}
 		})
 	}
 }
 
-func TestWaitReadyReturnsWhenPaneIsIdleAndVTIdle(t *testing.T) {
-	t.Parallel()
-
-	srv, sess, pane, cleanup := setupWaitReadyTestPane(t, nil)
-	defer cleanup()
-
-	pane.SetCreatedAt(time.Now().Add(-3 * time.Second))
-
-	res := runTestCommand(t, srv, sess, "wait", "ready", "pane-1", "--timeout", "50ms")
-	if res.cmdErr != "" || strings.TrimSpace(res.output) != "ready" {
-		t.Fatalf("wait-ready result = %#v", res)
-	}
-}
-
-func TestWaitForPaneReadyReturnsSessionShuttingDown(t *testing.T) {
-	t.Parallel()
-
-	sess := &Session{
-		sessionEventStop: make(chan struct{}),
-		sessionEventDone: make(chan struct{}),
-	}
-	close(sess.sessionEventStop)
-
-	err := waitForPaneReady(sess, "pane-1", resolvedPaneRef{}, waitReadyOptions{timeout: time.Millisecond})
-	if err == nil || err.Error() != "session shutting down" {
-		t.Fatalf("waitForPaneReady session shutdown error = %v, want session shutting down", err)
-	}
-}
-
-func TestWaitReadyFailsWhenPaneDisappearsMidWait(t *testing.T) {
-	t.Parallel()
-
-	clk := NewFakeClock(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC))
-	srv, sess, pane, cleanup := setupWaitReadyTestPane(t, nil)
-	defer cleanup()
-	defer func() {
-		_ = pane.Close()
-		_ = pane.WaitClosed()
-	}()
-
-	sess.Clock = clk
-	sess.vtIdle = NewVTIdleTracker(clk)
-	sess.VTIdleSettle = 100 * time.Millisecond
-	pane.SetCreatedAt(clk.Now())
-
-	clientConn, _, done := startAsyncCommand(t, srv, sess, "wait", "ready", "pane-1", "--timeout", "5s")
-	clk.AwaitTimers(3)
-
-	sess.enqueueCommandMutation(func(s *Session) commandMutationResult {
-		s.finalizePaneRemoval(pane.ID)
-		return commandMutationResult{}
-	})
-
-	clk.Advance(110 * time.Millisecond)
-
-	msg := readMsgWithTimeout(t, clientConn)
-	if got := msg.CmdErr; got != `pane "pane-1" disappeared while waiting to become ready` {
-		t.Fatalf("wait-ready error = %q, want pane disappearance error", got)
-	}
-
-	select {
-	case <-done:
-	case <-time.After(time.Second):
-		t.Fatal("wait-ready pane disappearance command did not return")
-	}
-}
-
-func TestWaitReadyRestartsSettleTimerAfterExpiredWindowSeesNewOutput(t *testing.T) {
-	t.Parallel()
-
-	clk := NewFakeClock(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC))
-	srv, sess, pane, cleanup := setupWaitReadyTestPane(t, nil)
-	defer cleanup()
-
-	sess.Clock = clk
-	sess.vtIdle = NewVTIdleTracker(clk)
-	sess.VTIdleSettle = 100 * time.Millisecond
-	pane.SetCreatedAt(clk.Now())
-
-	clientConn, _, done := startAsyncCommand(t, srv, sess, "wait", "ready", "pane-1", "--timeout", "5s")
-	clk.AwaitTimers(3)
-
-	mutationStarted := make(chan struct{})
-	mutationRelease := make(chan struct{})
-	mutationDone := make(chan struct{})
-	go func() {
-		defer close(mutationDone)
-		sess.enqueueCommandMutation(func(s *Session) commandMutationResult {
-			close(mutationStarted)
-			<-mutationRelease
-			return commandMutationResult{}
-		})
-	}()
-	<-mutationStarted
-
-	// Hold the session query so the old settle tick can fire, then inject a
-	// fresh VT output sample before syncReady re-reads state.
-	clk.Advance(100 * time.Millisecond)
-	sess.vtIdle.TrackOutput(pane.ID, sess.vtIdleSettle(), func(time.Time) {})
-	close(mutationRelease)
-
-	select {
-	case <-mutationDone:
-	case <-time.After(time.Second):
-		t.Fatal("blocking mutation did not release")
-	}
-
-	clk.AwaitTimers(5)
-
-	select {
-	case <-done:
-		t.Fatal("wait-ready returned before the replacement settle window elapsed")
-	case <-time.After(20 * time.Millisecond):
-	}
-
-	clk.Advance(110 * time.Millisecond)
-
-	msg := readMsgWithTimeout(t, clientConn)
-	if got := strings.TrimSpace(msg.CmdOutput); got != "ready" {
-		t.Fatalf("wait-ready output = %q, want ready", got)
-	}
-
-	select {
-	case <-done:
-	case <-time.After(time.Second):
-		t.Fatal("wait-ready command did not return after replacement settle window elapsed")
-	}
-}
-
-func TestSendKeysWaitReadyUsage(t *testing.T) {
+func TestSendKeysWaitIdleUsage(t *testing.T) {
 	t.Parallel()
 
 	srv, sess, cleanup := newCommandTestSession(t)
 	defer cleanup()
 
 	res := runTestCommand(t, srv, sess, "send-keys", "pane-1")
-	if got := res.cmdErr; got != "usage: send-keys <pane> [--wait ready|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>..." {
+	if got := res.cmdErr; got != "usage: send-keys <pane> [--wait idle|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>..." {
 		t.Fatalf("send-keys usage error = %q", got)
 	}
 }
 
-func TestCmdSendKeysWaitReadyWaitsForReady(t *testing.T) {
+func TestCmdSendKeysWaitIdleWaitsForIdle(t *testing.T) {
 	t.Parallel()
 
 	clk := NewFakeClock(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC))
 	writes := make(chan string, 1)
-	srv, sess, pane, cleanup := setupWaitReadyTestPane(t, func(data []byte) (int, error) {
+	srv, sess, pane, cleanup := setupSendKeysWaitIdleTestPane(t, func(data []byte) (int, error) {
 		writes <- string(data)
 		return len(data), nil
 	})
@@ -374,18 +182,18 @@ func TestCmdSendKeysWaitReadyWaitsForReady(t *testing.T) {
 	sess.VTIdleSettle = 100 * time.Millisecond
 	pane.SetCreatedAt(clk.Now())
 
-	clientConn, _, done := startAsyncCommand(t, srv, sess, "send-keys", "pane-1", "--wait", "ready", "--timeout", "5s", "ab")
+	clientConn, _, done := startAsyncCommand(t, srv, sess, "send-keys", "pane-1", "--wait", "idle", "--timeout", "5s", "ab")
 	clk.AwaitTimers(3)
 
 	select {
 	case got := <-writes:
-		t.Fatalf("send-keys wrote before pane became ready: %q", got)
+		t.Fatalf("send-keys wrote before pane became idle: %q", got)
 	default:
 	}
 
 	select {
 	case <-done:
-		t.Fatal("send-keys returned before pane became ready")
+		t.Fatal("send-keys returned before pane became idle")
 	case <-time.After(20 * time.Millisecond):
 	}
 
@@ -408,17 +216,17 @@ func TestCmdSendKeysWaitReadyWaitsForReady(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(time.Second):
-		t.Fatal("send-keys wait-ready command did not return")
+		t.Fatal("send-keys wait-idle command did not return")
 	}
 }
 
-func TestSendKeysWaitReadyMissingPane(t *testing.T) {
+func TestSendKeysWaitIdleMissingPane(t *testing.T) {
 	t.Parallel()
 
-	srv, sess, _, cleanup := setupWaitReadyTestPane(t, nil)
+	srv, sess, _, cleanup := setupSendKeysWaitIdleTestPane(t, nil)
 	defer cleanup()
 
-	res := runTestCommand(t, srv, sess, "send-keys", "missing", "--wait", "ready", "ship it")
+	res := runTestCommand(t, srv, sess, "send-keys", "missing", "--wait", "idle", "ship it")
 	if !strings.Contains(res.cmdErr, "not found") {
 		t.Fatalf("send-keys missing pane error = %q", res.cmdErr)
 	}

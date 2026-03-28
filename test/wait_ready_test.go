@@ -13,9 +13,9 @@ func TestWaitReadyAcceptsNonAgentPromptMarkers(t *testing.T) {
 	h.sendKeys("pane-1", "export PS1='READY$ '", "Enter")
 	h.waitIdle("pane-1")
 
-	out := h.runCmd("wait", "ready", "pane-1", "--timeout", "5s")
-	if strings.TrimSpace(out) != "ready" {
-		t.Fatalf("wait-ready output = %q", out)
+	out := h.runCmd("wait", "idle", "pane-1", "--timeout", "5s")
+	if strings.TrimSpace(out) != "idle" {
+		t.Fatalf("wait-idle output = %q", out)
 	}
 }
 
@@ -27,38 +27,38 @@ func TestSendKeysWaitReadyAcceptsNonAgentPromptMarkers(t *testing.T) {
 	h.sendKeys("pane-1", "export PS1='READY$ '", "Enter")
 	h.waitIdle("pane-1")
 
-	out := h.runCmd("send-keys", "pane-1", "--wait", "ready", "echo READY", "Enter")
+	out := h.runCmd("send-keys", "pane-1", "--wait", "idle", "echo READY", "Enter")
 	if strings.TrimSpace(out) != "Sent 11 bytes to pane-1" {
-		t.Fatalf("send-keys --wait ready output = %q", out)
+		t.Fatalf("send-keys --wait idle output = %q", out)
 	}
 
 	h.waitFor("pane-1", "READY")
 	h.waitIdle("pane-1")
 }
 
-func TestWaitReadyRejectsRemovedContinueFlag(t *testing.T) {
+func TestWaitReadyIsRemoved(t *testing.T) {
 	t.Parallel()
 
 	h := newServerHarness(t)
 
-	out := h.runCmd("wait", "ready", "pane-1", "--continue-known-dialogs")
-	if strings.TrimSpace(out) != "amux wait: wait ready: --continue-known-dialogs was removed; ready now waits for vt-idle + idle" {
-		t.Fatalf("wait-ready removed-flag error = %q", out)
+	out := h.runCmd("wait", "ready", "pane-1")
+	if strings.TrimSpace(out) != "amux wait: unknown wait kind: ready" {
+		t.Fatalf("wait-ready removal error = %q", out)
 	}
 }
 
-func TestSendKeysWaitReadyRejectsRemovedContinueFlag(t *testing.T) {
+func TestSendKeysWaitReadyIsRemoved(t *testing.T) {
 	t.Parallel()
 
 	h := newServerHarness(t)
 
-	out := h.runCmd("send-keys", "pane-1", "--wait", "ready", "--continue-known-dialogs", "ship it")
-	if strings.TrimSpace(out) != "amux send-keys: send-keys: --continue-known-dialogs was removed; ready now waits for vt-idle + idle" {
-		t.Fatalf("send-keys removed-flag error = %q", out)
+	out := h.runCmd("send-keys", "pane-1", "--wait", "ready", "ship it")
+	if strings.TrimSpace(out) != `amux send-keys: send-keys: unsupported --wait target "ready" (want idle or ui=input-idle)` {
+		t.Fatalf("send-keys wait-ready removal error = %q", out)
 	}
 }
 
-func TestWaitReadyRequiresIdleAfterVTOutputQuiesces(t *testing.T) {
+func TestWaitIdleReturnsWhenOutputQuiescesEvenIfChildStillRuns(t *testing.T) {
 	t.Parallel()
 
 	h := newServerHarness(t)
@@ -66,9 +66,9 @@ func TestWaitReadyRequiresIdleAfterVTOutputQuiesces(t *testing.T) {
 	h.sendKeys("pane-1", "sh -c 'echo START; sleep 4'", "Enter")
 	h.waitFor("pane-1", "START")
 
-	out := h.runCmd("wait", "ready", "pane-1", "--timeout", "3s")
-	if !strings.Contains(out, "timeout waiting for pane-1 to become ready") {
-		t.Fatalf("wait-ready timeout output = %q", out)
+	out := h.runCmd("wait", "idle", "pane-1", "--timeout", "5s")
+	if strings.TrimSpace(out) != "idle" {
+		t.Fatalf("wait-idle output = %q", out)
 	}
 
 	stopLongRunningCommand(t, h, "pane-1")

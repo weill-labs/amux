@@ -60,12 +60,12 @@ func setupWaitVTIdleTestPane(t *testing.T) (*Server, *Session, *mux.Pane, func()
 func TestCmdWaitVTIdleUsage(t *testing.T) {
 	t.Parallel()
 
-	_, sess, cleanup := newCommandTestSession(t)
+	srv, sess, cleanup := newCommandTestSession(t)
 	defer cleanup()
 
-	msg := runOneShotCommand(t, sess, nil, cmdWaitVTIdle)
-	if got := msg.CmdErr; got != "usage: wait vt-idle <pane> [--settle <duration>] [--timeout <duration>]" {
-		t.Fatalf("wait-vt-idle usage error = %q", got)
+	res := runTestCommand(t, srv, sess, "wait", "idle")
+	if got := res.cmdErr; got != "usage: wait idle <pane> [--settle <duration>] [--timeout <duration>]" {
+		t.Fatalf("wait-idle usage error = %q", got)
 	}
 }
 
@@ -146,14 +146,14 @@ func TestParseWaitVTIdleArgs(t *testing.T) {
 func TestCmdWaitVTIdleImmediateWhenAlreadySettled(t *testing.T) {
 	t.Parallel()
 
-	_, sess, pane, cleanup := setupWaitVTIdleTestPane(t)
+	srv, sess, pane, cleanup := setupWaitVTIdleTestPane(t)
 	defer cleanup()
 
 	pane.SetCreatedAt(time.Now().Add(-time.Second))
 
-	msg := runOneShotCommand(t, sess, []string{"pane-1", "--settle", "20ms", "--timeout", "100ms"}, cmdWaitVTIdle)
-	if got := strings.TrimSpace(msg.CmdOutput); got != "vt-idle" {
-		t.Fatalf("wait-vt-idle output = %q, want vt-idle", got)
+	res := runTestCommand(t, srv, sess, "wait", "idle", "pane-1", "--settle", "20ms", "--timeout", "100ms")
+	if got := strings.TrimSpace(res.output); got != "idle" || res.cmdErr != "" {
+		t.Fatalf("wait-idle result = %#v", res)
 	}
 }
 
@@ -166,7 +166,7 @@ func TestCmdWaitVTIdleTimeout(t *testing.T) {
 	sess.Clock = clk
 	sess.vtIdle = NewVTIdleTracker(clk)
 
-	clientConn, _, done := startAsyncCommand(t, srv, sess, "wait", "vt-idle", "pane-1", "--settle", "200ms", "--timeout", "40ms")
+	clientConn, _, done := startAsyncCommand(t, srv, sess, "wait", "idle", "pane-1", "--settle", "200ms", "--timeout", "40ms")
 
 	// Wait for cmdWaitVTIdle to create its two timers (settle + timeout).
 	// Because fakeTimer.ch is buffered, Advance can fire a timer even if the
@@ -177,14 +177,14 @@ func TestCmdWaitVTIdleTimeout(t *testing.T) {
 	clk.Advance(50 * time.Millisecond)
 
 	msg := readMsgWithTimeout(t, clientConn)
-	if got := msg.CmdErr; got != "timeout waiting for pane-1 to become vt-idle" {
-		t.Fatalf("wait-vt-idle timeout error = %q", got)
+	if got := msg.CmdErr; got != "timeout waiting for pane-1 to become idle" {
+		t.Fatalf("wait-idle timeout error = %q", got)
 	}
 
 	select {
 	case <-done:
 	case <-time.After(time.Second):
-		t.Fatal("wait-vt-idle timeout command did not return")
+		t.Fatal("wait-idle timeout command did not return")
 	}
 }
 
@@ -197,7 +197,7 @@ func TestCmdWaitVTIdleResetsSettleTimerOnOutput(t *testing.T) {
 	sess.Clock = clk
 	sess.vtIdle = NewVTIdleTracker(clk)
 
-	clientConn, _, done := startAsyncCommand(t, srv, sess, "wait", "vt-idle", "pane-1", "--settle", "100ms", "--timeout", "5s")
+	clientConn, _, done := startAsyncCommand(t, srv, sess, "wait", "idle", "pane-1", "--settle", "100ms", "--timeout", "5s")
 
 	// Wait for the two initial timers (settle + timeout).
 	clk.AwaitTimers(2)
@@ -217,18 +217,18 @@ func TestCmdWaitVTIdleResetsSettleTimerOnOutput(t *testing.T) {
 	clk.Advance(110 * time.Millisecond)
 
 	msg := readMsgWithTimeout(t, clientConn)
-	if got := strings.TrimSpace(msg.CmdOutput); got != "vt-idle" {
-		t.Fatalf("wait-vt-idle output = %q, want vt-idle", got)
+	if got := strings.TrimSpace(msg.CmdOutput); got != "idle" {
+		t.Fatalf("wait-idle output = %q, want idle", got)
 	}
 
 	select {
 	case <-done:
 	case <-time.After(time.Second):
-		t.Fatal("wait-vt-idle command did not return after settling")
+		t.Fatal("wait-idle command did not return after settling")
 	}
 }
 
-func TestPaneOutputCallbackEmitsVTIdleEventAfterQuiescence(t *testing.T) {
+func TestPaneOutputCallbackEmitsIdleEventAfterQuiescence(t *testing.T) {
 	t.Parallel()
 
 	sess := newSession("test-vt-idle-event")
@@ -245,7 +245,7 @@ func TestPaneOutputCallbackEmitsVTIdleEventAfterQuiescence(t *testing.T) {
 	})
 	sess.Panes = []*mux.Pane{pane}
 
-	res := sess.enqueueEventSubscribe(eventFilter{Types: []string{EventVTIdle}}, false)
+	res := sess.enqueueEventSubscribe(eventFilter{Types: []string{EventIdle}}, false)
 	defer sess.enqueueEventUnsubscribe(res.sub)
 
 	pane.FeedOutput([]byte("hello"))
@@ -256,15 +256,15 @@ func TestPaneOutputCallbackEmitsVTIdleEventAfterQuiescence(t *testing.T) {
 		if err := json.Unmarshal(data, &ev); err != nil {
 			t.Fatalf("json.Unmarshal: %v", err)
 		}
-		if ev.Type != EventVTIdle || ev.PaneID != pane.ID || ev.PaneName != "pane-1" || ev.Host != mux.DefaultHost {
-			t.Fatalf("unexpected vt-idle event: %+v", ev)
+		if ev.Type != EventIdle || ev.PaneID != pane.ID || ev.PaneName != "pane-1" || ev.Host != mux.DefaultHost {
+			t.Fatalf("unexpected idle event: %+v", ev)
 		}
 	case <-time.After(time.Second):
-		t.Fatal("vt-idle event was not emitted")
+		t.Fatal("idle event was not emitted")
 	}
 }
 
-func TestCurrentStateEventsIncludeVTIdleForSettledPane(t *testing.T) {
+func TestCurrentStateEventsIncludeExitedForIdlePane(t *testing.T) {
 	t.Parallel()
 
 	sess := newSession("test-vt-idle-snapshot")
@@ -284,10 +284,10 @@ func TestCurrentStateEventsIncludeVTIdleForSettledPane(t *testing.T) {
 
 	events := sess.currentStateEvents()
 	for _, ev := range events {
-		if ev.Type == EventVTIdle && ev.PaneID == pane.ID && ev.PaneName == "pane-1" {
+		if ev.Type == EventExited && ev.PaneID == pane.ID && ev.PaneName == "pane-1" {
 			return
 		}
 	}
 
-	t.Fatalf("currentStateEvents did not include vt-idle for pane %d", pane.ID)
+	t.Fatalf("currentStateEvents did not include exited for pane %d", pane.ID)
 }
