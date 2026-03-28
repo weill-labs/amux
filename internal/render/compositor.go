@@ -211,7 +211,11 @@ func gridToText(g *ScreenGrid) string {
 		}
 		row = row[:0]
 		for x := 0; x < g.Width; x++ {
-			ch := g.Get(x, y).Char
+			cell := g.Get(x, y)
+			if cell.Width == 0 {
+				continue
+			}
+			ch := cell.Char
 			if ch == "" {
 				ch = " "
 			}
@@ -323,6 +327,8 @@ func (c *Compositor) renderPaneContent(buf *strings.Builder, cell *mux.LayoutCel
 			col += w
 		}
 
+		// Reset after each rendered row so styled cells cannot bleed when the
+		// compositor jumps to a later row with an explicit CUP sequence.
 		buf.WriteString(Reset)
 	}
 }

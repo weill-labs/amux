@@ -287,6 +287,9 @@ func compactRowCell(width, row int, active bool, pd PaneData, srcCol int, base S
 		concat := candidate + next.Char
 		cluster, clusterWidth := ansi.FirstGraphemeCluster(concat, ansi.GraphemeWidth)
 		if cluster != concat {
+			// Some cursor-assembled emoji suffixes depend on an implicit ZWJ that
+			// never occupied its own source cell. Reinsert it when that produces
+			// the visible grapheme cluster the terminal rendered.
 			zwjConcat := candidate + "\u200d" + next.Char
 			cluster, clusterWidth = ansi.FirstGraphemeCluster(zwjConcat, ansi.GraphemeWidth)
 			if cluster != zwjConcat {

@@ -26,11 +26,31 @@ func (f *fakePaneData) CellAt(col, row int, active bool) ScreenCell {
 	if row < 0 || row >= len(lines) {
 		return ScreenCell{Char: " ", Width: 1}
 	}
-	runes := []rune(lines[row])
-	if col < 0 || col >= len(runes) {
+	if col < 0 {
 		return ScreenCell{Char: " ", Width: 1}
 	}
-	return ScreenCell{Char: string(runes[col]), Width: 1}
+
+	line := lines[row]
+	displayCol := 0
+	for len(line) > 0 {
+		cluster, clusterWidth := ansi.FirstGraphemeCluster(line, ansi.GraphemeWidth)
+		if cluster == "" {
+			break
+		}
+		if clusterWidth <= 0 {
+			clusterWidth = 1
+		}
+		if col < displayCol+clusterWidth {
+			if col == displayCol {
+				return ScreenCell{Char: cluster, Width: clusterWidth}
+			}
+			return ScreenCell{Char: " ", Width: 0}
+		}
+		displayCol += clusterWidth
+		line = line[len(cluster):]
+	}
+
+	return ScreenCell{Char: " ", Width: 1}
 }
 func (f *fakePaneData) CursorPos() (int, int)               { return 0, 0 }
 func (f *fakePaneData) CursorHidden() bool                  { return f.cursorHidden }
