@@ -30,6 +30,32 @@ type AgentStatus struct {
 	ChildPIDs      []int
 }
 
+// shellOnlyChildChain reports whether the shell's descendants form a single
+// chain of same-name shell processes. Bash can briefly create this shape while
+// returning to prompt on Linux; it should not count as user-visible busy work.
+func shellOnlyChildChain(shellName string, children []int) bool {
+	if shellName == "" || len(children) != 1 {
+		return false
+	}
+
+	const maxShellChainDepth = 8
+	pid := children[0]
+	for depth := 0; depth < maxShellChainDepth; depth++ {
+		if processName(pid) != shellName {
+			return false
+		}
+		next := childPIDs(pid)
+		if len(next) == 0 {
+			return true
+		}
+		if len(next) != 1 {
+			return false
+		}
+		pid = next[0]
+	}
+	return false
+}
+
 // AgentStatus inspects the pane's process tree and returns its current status.
 // Uses pgrep/ps for portable macOS+Linux support. Safe to call without
 // holding any session-level locks.
@@ -68,27 +94,25 @@ func (p *Pane) AgentStatus() AgentStatus {
 	if status.ChildPIDs == nil {
 		status.ChildPIDs = []int{}
 	}
+	shellName := processName(shellPid)
+	markIdle := func() {
+		status.Idle = true
+		status.ChildPIDs = []int{}
+		status.CurrentCommand = shellName
+	}
 
 	if len(children) == 0 {
 		// No children — shell is at prompt
-		status.Idle = true
-		status.CurrentCommand = processName(shellPid)
+		markIdle()
 	} else {
 		foregroundPid := children[len(children)-1] // last child is typically foreground
 		status.CurrentCommand = processName(foregroundPid)
 
-		grandchildren := childPIDs(foregroundPid)
-		// Heuristic: if the shell's only child has no grandchildren and
-		// shares the shell's name, it's likely a job-control self-fork
-		// (e.g., bash forks itself). This can false-positive if the user
-		// runs a command matching the shell name (e.g., "bash -c '...'").
-		if len(grandchildren) == 0 && len(children) == 1 {
-			shellName := processName(shellPid)
-			childName := processName(children[0])
-			if shellName == childName {
-				status.Idle = true
-				status.CurrentCommand = shellName
-			}
+		// Heuristic: a single chain of same-name shell descendants is usually a
+		// prompt-time self-fork, not foreground work. This can still false-positive
+		// if the user explicitly runs nested shells of the same name.
+		if shellOnlyChildChain(shellName, children) {
+			markIdle()
 		}
 
 		// If still busy, recheck once after a brief delay to filter
@@ -97,10 +121,11 @@ func (p *Pane) AgentStatus() AgentStatus {
 		if !status.Idle {
 			time.Sleep(25 * time.Millisecond)
 			recheck := childPIDs(shellPid)
-			if len(recheck) == 0 {
-				status.Idle = true
-				status.ChildPIDs = []int{}
-				status.CurrentCommand = processName(shellPid)
+			if len(recheck) == 0 || shellOnlyChildChain(shellName, recheck) {
+				markIdle()
+			} else {
+				status.ChildPIDs = recheck
+				status.CurrentCommand = processName(recheck[len(recheck)-1])
 			}
 		}
 	}
