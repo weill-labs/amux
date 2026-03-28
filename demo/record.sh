@@ -29,13 +29,20 @@ if [ ! -d "${SCRIPT_DIR}/node_modules/playwright" ]; then
 fi
 
 echo "Recording demo..."
-asciinema rec \
-    --output-format asciicast-v2 \
-    --window-size 160x40 \
-    --idle-time-limit 5 \
-    --command "bash ${SCRIPT_DIR}/driver.sh" \
-    --overwrite \
+record_args=(
+    --window-size 160x40
+    --idle-time-limit 5
+    --command "bash ${SCRIPT_DIR}/driver.sh"
+    --overwrite
     "$CAST_FILE"
+)
+
+# asciinema 2.x records v2 by default but doesn't recognize --output-format.
+if asciinema rec --help 2>&1 | grep -q -- '--output-format'; then
+    record_args=(--output-format asciicast-v2 "${record_args[@]}")
+fi
+
+asciinema rec "${record_args[@]}"
 
 echo "Converting to GIF (Playwright + asciinema-player)..."
 (cd "$SCRIPT_DIR" && node cast2gif.mjs "$CAST_FILE" "$GIF_FILE" \
