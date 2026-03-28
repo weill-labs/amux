@@ -877,6 +877,75 @@ func TestRenderDiff_ColorOracle_IncrementalUpdate(t *testing.T) {
 	}
 }
 
+func TestRenderDiff_ColorOracle_CursorAssembledGraphemeClusters(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		initial string
+		update  string
+	}{
+		{
+			name:    "emoji modifier applied after wide emoji",
+			initial: "👍",
+			update:  "🏻2",
+		},
+		{
+			name:    "zwj suffix written after emoji base",
+			initial: "🤷",
+			update:  "\u200d♂️3",
+		},
+		{
+			name:    "regional indicator repair via backspace",
+			initial: "🇸4",
+			update:  "\b🇪4",
+		},
+		{
+			name:    "same-cell emoji modifier overwrite",
+			initial: "👍2",
+			update:  "\r🏻2",
+		},
+		{
+			name:    "same-cell zwj suffix overwrite",
+			initial: "🤷3",
+			update:  "\r\u200d♂️3",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			width, height := 40, 8
+			totalH := height + GlobalBarHeight
+			contentH := height - mux.StatusLineRows
+
+			paneEmu := vt.NewSafeEmulator(width, contentH)
+			paneEmu.Write([]byte(tt.initial))
+
+			root := mux.NewLeafByID(1, 0, 0, width, height)
+			lookup := func(id uint32) PaneData {
+				if id == 1 {
+					return &emuPaneData{emu: paneEmu, id: 1, name: "pane-1", color: "f5e0dc", cursorHidden: true}
+				}
+				return nil
+			}
+
+			comp := newTestCompositor(width, totalH, "test")
+			diffDisplay := vt.NewSafeEmulator(width, totalH)
+
+			initDiff := comp.RenderDiff(root, 1, lookup)
+			diffDisplay.Write([]byte(initDiff))
+
+			paneEmu.Write([]byte(tt.update))
+
+			if mismatches := colorOracleCheck(comp, diffDisplay, root, 1, lookup, width, totalH); len(mismatches) > 0 {
+				t.Fatalf("cursor-assembled grapheme mismatch:\n%s", strings.Join(mismatches, "\n"))
+			}
+		})
+	}
+}
+
 func TestRenderDiff_ColorOracle_LeadPane(t *testing.T) {
 	t.Parallel()
 
