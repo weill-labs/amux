@@ -203,3 +203,19 @@ func ValidateJSONOutput(raw string) error {
 	}
 	return nil
 }
+
+// TrimOuterBlankRows removes leading and trailing all-whitespace rows from a
+// pane capture while preserving interior blank lines.
+func TrimOuterBlankRows(lines []string) []string {
+	start := 0
+	for start < len(lines) && strings.TrimSpace(lines[start]) == "" {
+		start++
+	}
+
+	end := len(lines)
+	for end > start && strings.TrimSpace(lines[end-1]) == "" {
+		end--
+	}
+
+	return append([]string(nil), lines[start:end]...)
+}
