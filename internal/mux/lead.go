@@ -153,3 +153,17 @@ func (w *Window) leadColumn() *LayoutCell {
 	}
 	return w.Root.Children[0]
 }
+
+func (w *Window) hasPendingLead() bool {
+	return w.LeadPaneID != 0 &&
+		w.Root != nil &&
+		w.Root.IsLeaf() &&
+		w.Root.Pane != nil &&
+		w.Root.Pane.ID == w.LeadPaneID
+}
+
+func (w *Window) materializePendingLead(newPane *Pane, opts SplitOptions) (*Pane, error) {
+	// A lead role on a single-pane window becomes the anchored left column on the
+	// first growth operation, regardless of the requested split direction.
+	return w.splitRootTargetWithOptions(w.Root, nil, -1, SplitVertical, newPane, opts)
+}

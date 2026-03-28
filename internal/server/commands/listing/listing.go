@@ -40,6 +40,7 @@ type PaneEntry struct {
 	TrackedPRs    []proto.TrackedPR
 	TrackedIssues []proto.TrackedIssue
 	Active        bool
+	Lead          bool
 }
 
 func FormatPaneList(entries []PaneEntry, home string, showCwd bool) string {
@@ -74,13 +75,24 @@ func formatPaneListRow(entry PaneEntry, home string, showCwd bool) string {
 	}
 	paneID := fmt.Sprintf("%s%d", active, entry.PaneID)
 	branch := FormatPaneListBranch(entry)
-	meta := metacmd.FormatCollections(entry.TrackedPRs, entry.TrackedIssues)
+	meta := formatPaneListMeta(entry)
 	if showCwd {
 		return fmt.Sprintf("%-6s %-20s %-15s %-30s %-36s %-10s %-12s %s\n",
 			paneID, entry.Name, entry.Host, branch, FormatListCwd(entry.Cwd, home, ListCwdWidth), entry.WindowName, entry.Task, meta)
 	}
 	return fmt.Sprintf("%-6s %-20s %-15s %-30s %-10s %-12s %s\n",
 		paneID, entry.Name, entry.Host, branch, entry.WindowName, entry.Task, meta)
+}
+
+func formatPaneListMeta(entry PaneEntry) string {
+	meta := metacmd.FormatCollections(entry.TrackedPRs, entry.TrackedIssues)
+	if !entry.Lead {
+		return meta
+	}
+	if meta == "" {
+		return "lead"
+	}
+	return "lead " + meta
 }
 
 func FormatListCwd(cwd, home string, max int) string {

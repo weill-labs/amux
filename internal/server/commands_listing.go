@@ -23,6 +23,7 @@ func toListingPaneEntry(entry paneListEntry) listingcmd.PaneEntry {
 		TrackedPRs:    proto.CloneTrackedPRs(entry.prs),
 		TrackedIssues: proto.CloneTrackedIssues(entry.issues),
 		Active:        entry.active,
+		Lead:          entry.lead,
 	}
 }
 

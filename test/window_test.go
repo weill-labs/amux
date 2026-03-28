@@ -34,6 +34,77 @@ func TestNewWindowCLI(t *testing.T) {
 	})
 }
 
+func TestNewWindowCLIFirstPaneDefaultsToLead(t *testing.T) {
+	t.Parallel()
+
+	h := newServerHarness(t)
+	h.runCmd("new-window")
+
+	h.assertScreen("pane-2 should show lead status", func(s string) bool {
+		return strings.Contains(s, "[pane-2]") && strings.Contains(s, "[lead]")
+	})
+
+	capture := h.captureJSON()
+	pane := h.jsonPane(capture, "pane-2")
+	if !pane.Lead {
+		t.Fatal("pane-2 should be marked lead in full-screen capture")
+	}
+
+	single := h.runCmd("capture", "--format", "json", "pane-2")
+	var singlePane proto.CapturePane
+	if err := json.Unmarshal([]byte(single), &singlePane); err != nil {
+		t.Fatalf("unmarshal pane-2 capture: %v\nraw output:\n%s", err, single)
+	}
+	if !singlePane.Lead {
+		t.Fatal("pane-2 should be marked lead in single-pane capture")
+	}
+
+	line := listLineForPane(h.runCmd("list"), "pane-2")
+	if !strings.Contains(line, "lead") {
+		t.Fatalf("pane-2 list line should include lead metadata, got: %q", line)
+	}
+}
+
+func TestNewWindowLeadPaneCanSpawnIntoAnchoredLayout(t *testing.T) {
+	t.Parallel()
+
+	h := newServerHarness(t)
+	h.runCmd("new-window")
+
+	out := h.runCmd("spawn", "--name", "worker")
+	if strings.Contains(out, "cannot operate on lead pane") {
+		t.Fatalf("spawn should not reject the initial lead pane, got: %s", out)
+	}
+
+	capture := h.captureJSON()
+	lead := h.jsonPane(capture, "pane-2")
+	worker := h.jsonPane(capture, "worker")
+	if !lead.Lead {
+		t.Fatal("pane-2 should remain the lead pane after spawn")
+	}
+	if worker.Lead {
+		t.Fatal("worker should not be marked as lead")
+	}
+	if lead.Position == nil || worker.Position == nil {
+		t.Fatalf("spawned lead layout should include positions, lead=%+v worker=%+v", lead.Position, worker.Position)
+	}
+	if lead.Position.X >= worker.Position.X {
+		t.Fatalf("lead pane should stay left of worker: lead.x=%d worker.x=%d", lead.Position.X, worker.Position.X)
+	}
+	if lead.Position.Y != worker.Position.Y || lead.Position.Height != worker.Position.Height {
+		t.Fatalf("lead spawn should materialize a side-by-side layout: lead=%+v worker=%+v", lead.Position, worker.Position)
+	}
+}
+
+func listLineForPane(listOut, paneName string) string {
+	for _, line := range strings.Split(listOut, "\n") {
+		if strings.Contains(line, paneName) {
+			return line
+		}
+	}
+	return ""
+}
+
 func TestListWindows(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)
