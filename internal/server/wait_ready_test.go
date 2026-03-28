@@ -65,7 +65,7 @@ func TestParseWaitReadyArgs(t *testing.T) {
 		{
 			name:    "removed continue flag",
 			args:    []string{"pane-1", "--continue-known-dialogs"},
-			wantErr: "wait ready: --continue-known-dialogs was removed; ready now waits for vt-idle + idle",
+			wantErr: waitReadyRemovedContinueFlagErr,
 		},
 		{
 			name:    "missing timeout value",
@@ -169,7 +169,7 @@ func TestParseSendKeysArgs(t *testing.T) {
 		{
 			name:    "removed continue flag",
 			args:    []string{"--wait", "ready", "--continue-known-dialogs", "task"},
-			wantErr: "send-keys: --continue-known-dialogs was removed; ready now waits for vt-idle + idle",
+			wantErr: sendKeysRemovedContinueFlagErr,
 		},
 		{
 			name:    "timeout requires wait target",

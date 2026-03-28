@@ -7,7 +7,11 @@ import (
 	"github.com/weill-labs/amux/internal/mux"
 )
 
-const waitReadyUsage = "usage: wait ready <pane> [--timeout <duration>]"
+const (
+	waitReadyUsage                    = "usage: wait ready <pane> [--timeout <duration>]"
+	waitReadyRemovedContinueFlagErr   = "wait ready: --continue-known-dialogs was removed; ready now waits for vt-idle + idle"
+	sendKeysRemovedContinueFlagErr    = "send-keys: --continue-known-dialogs was removed; ready now waits for vt-idle + idle"
+)
 
 type waitReadyOptions struct {
 	timeout time.Duration
@@ -62,7 +66,7 @@ func parseWaitReadyArgs(args []string) (string, waitReadyOptions, error) {
 	for i := 1; i < len(args); i++ {
 		switch args[i] {
 		case "--continue-known-dialogs":
-			return "", waitReadyOptions{}, fmt.Errorf("wait ready: --continue-known-dialogs was removed; ready now waits for vt-idle + idle")
+			return "", waitReadyOptions{}, fmt.Errorf(waitReadyRemovedContinueFlagErr)
 		case "--timeout":
 			if i+1 >= len(args) {
 				return "", waitReadyOptions{}, fmt.Errorf("missing value for --timeout")
@@ -104,7 +108,7 @@ func parseSendKeysArgs(args []string) (sendKeysOptions, error) {
 		case "--wait-ready":
 			return sendKeysOptions{}, fmt.Errorf("send-keys: --wait-ready was removed; use --wait ready")
 		case "--continue-known-dialogs":
-			return sendKeysOptions{}, fmt.Errorf("send-keys: --continue-known-dialogs was removed; ready now waits for vt-idle + idle")
+			return sendKeysOptions{}, fmt.Errorf(sendKeysRemovedContinueFlagErr)
 		case "--timeout":
 			if i+1 >= len(args) {
 				return sendKeysOptions{}, fmt.Errorf("missing value for --timeout")
