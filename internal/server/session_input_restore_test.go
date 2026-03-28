@@ -271,6 +271,149 @@ func TestNewServerFromCrashCheckpointWithListenerErrorsWhenNoPanesRestore(t *tes
 	}
 }
 
+func TestNewServerFromCheckpointWithScrollbackErrorsWhenAllPanesFailToRestore(t *testing.T) {
+	socketPath := filepath.Join(os.TempDir(), fmt.Sprintf("amux-restore-empty-%d.sock", time.Now().UnixNano()))
+	listener, err := net.Listen("unix", socketPath)
+	if err != nil {
+		t.Fatalf("net.Listen: %v", err)
+	}
+	defer listener.Close()
+	defer func() {
+		if err := os.Remove(socketPath); err != nil && !os.IsNotExist(err) {
+			t.Fatalf("os.Remove(%q): %v", socketPath, err)
+		}
+	}()
+
+	listenerFD, err := listenerFd(listener)
+	if err != nil {
+		t.Fatalf("listenerFd: %v", err)
+	}
+
+	pane, layout := restoreTestLayout()
+	cp := &ckpt.ServerCheckpoint{
+		SessionName:   "restore-empty",
+		ListenerFd:    listenerFD,
+		WindowCounter: 1,
+		Layout:        layout,
+		Panes: []ckpt.PaneCheckpoint{{
+			ID:      pane.ID,
+			Meta:    pane.Meta,
+			PtmxFd:  -1, // FD -1 causes RestorePaneWithScrollback to return an error
+			IsProxy: false,
+		}},
+	}
+
+	srv, err := NewServerFromCheckpointWithScrollback(cp, mux.DefaultScrollbackLines)
+	if err == nil {
+		srv.Shutdown()
+		t.Fatal("NewServerFromCheckpointWithScrollback error = nil, want no panes restored")
+	}
+	if !strings.Contains(err.Error(), "no panes restored from checkpoint") {
+		t.Fatalf("NewServerFromCheckpointWithScrollback error = %v, want no panes restored", err)
+	}
+}
+
+func TestNewServerFromCheckpointWithScrollbackUsesLegacySingleWindowFallback(t *testing.T) {
+	socketPath := filepath.Join(os.TempDir(), fmt.Sprintf("amux-restore-legacy-%d.sock", time.Now().UnixNano()))
+	listener, err := net.Listen("unix", socketPath)
+	if err != nil {
+		t.Fatalf("net.Listen: %v", err)
+	}
+	defer listener.Close()
+	defer func() {
+		if err := os.Remove(socketPath); err != nil && !os.IsNotExist(err) {
+			t.Fatalf("os.Remove(%q): %v", socketPath, err)
+		}
+	}()
+
+	listenerFD, err := listenerFd(listener)
+	if err != nil {
+		t.Fatalf("listenerFd: %v", err)
+	}
+
+	pane, _ := restoreTestLayout()
+	// A layout without Windows set triggers the legacy single-window fallback path.
+	cp := &ckpt.ServerCheckpoint{
+		SessionName:   "restore-legacy",
+		ListenerFd:    listenerFD,
+		WindowCounter: 1,
+		Layout: proto.LayoutSnapshot{
+			SessionName:  "restore-legacy",
+			Width:        80,
+			Height:       23,
+			ActivePaneID: pane.ID,
+			Root: proto.CellSnapshot{
+				X: 0, Y: 0, W: 80, H: 23, IsLeaf: true, Dir: -1, PaneID: pane.ID,
+			},
+			Panes: []proto.PaneSnapshot{{ID: pane.ID, Name: pane.Meta.Name, Host: pane.Meta.Host, Color: pane.Meta.Color}},
+			// Windows intentionally omitted — exercises legacy RebuildFromSnapshot path.
+		},
+		Panes: []ckpt.PaneCheckpoint{{
+			ID:      pane.ID,
+			Meta:    pane.Meta,
+			PtmxFd:  -1,
+			Cols:    80,
+			Rows:    23,
+			IsProxy: true,
+		}},
+	}
+
+	srv, err := NewServerFromCheckpointWithScrollback(cp, mux.DefaultScrollbackLines)
+	if err != nil {
+		t.Fatalf("NewServerFromCheckpointWithScrollback: %v", err)
+	}
+	srv.sockPath = socketPath
+	defer srv.Shutdown()
+
+	sess := srv.firstSession()
+	if len(sess.Windows) != 1 {
+		t.Fatalf("Windows = %d, want 1 window from legacy fallback", len(sess.Windows))
+	}
+}
+
+func TestNewServerFromCrashCheckpointWithListenerUsesLegacySingleWindowFallback(t *testing.T) {
+	t.Parallel()
+
+	pane, _ := restoreTestLayout()
+	sessionName := "crash-legacy-window"
+	// A layout without Windows set triggers the legacy single-window fallback path.
+	cp := &ckpt.CrashCheckpoint{
+		Version:       ckpt.CrashVersion,
+		SessionName:   sessionName,
+		WindowCounter: 0,
+		Layout: proto.LayoutSnapshot{
+			SessionName:  sessionName,
+			Width:        80,
+			Height:       23,
+			ActivePaneID: pane.ID,
+			Root: proto.CellSnapshot{
+				X: 0, Y: 0, W: 80, H: 23, IsLeaf: true, Dir: -1, PaneID: pane.ID,
+			},
+			Panes: []proto.PaneSnapshot{{ID: pane.ID, Name: pane.Meta.Name, Host: pane.Meta.Host, Color: pane.Meta.Color}},
+			// Windows intentionally omitted — exercises legacy RebuildFromSnapshot path.
+		},
+		PaneStates: []ckpt.CrashPaneState{{
+			ID:      pane.ID,
+			Meta:    pane.Meta,
+			Cols:    80,
+			Rows:    23,
+			IsProxy: true,
+		}},
+		Timestamp: time.Now(),
+	}
+
+	listener := &trackingListener{}
+	srv, err := newServerFromCrashCheckpointWithListener(sessionName, listener, "/tmp/unused.sock", cp, "", mux.DefaultScrollbackLines)
+	if err != nil {
+		t.Fatalf("newServerFromCrashCheckpointWithListener: %v", err)
+	}
+	defer srv.Shutdown()
+
+	if len(srv.firstSession().Windows) != 1 {
+		t.Fatalf("Windows = %d, want 1 window from legacy fallback", len(srv.firstSession().Windows))
+	}
+}
+
 func restoreTestLayout() (*mux.Pane, proto.LayoutSnapshot) {
 	pane := mux.NewProxyPaneWithScrollback(1, mux.PaneMeta{
 		Name:  "pane-1",

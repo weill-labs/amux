@@ -203,6 +203,37 @@ func TestReadReturnsCheckpointOnUnsupportedVersion(t *testing.T) {
 	}
 }
 
+func TestReadReturnsNilOnDecodeError(t *testing.T) {
+	t.Parallel()
+
+	// Write a file with invalid gob content to trigger a decode error.
+	f, err := os.CreateTemp("", "amux-corrupt-*.gob")
+	if err != nil {
+		t.Fatalf("os.CreateTemp: %v", err)
+	}
+	path := f.Name()
+	if _, err := f.WriteString("this is not valid gob data"); err != nil {
+		f.Close()
+		t.Fatalf("WriteString: %v", err)
+	}
+	f.Close()
+
+	cp, err := Read(path)
+	if err == nil {
+		t.Fatal("Read() error = nil, want decode error")
+	}
+	if cp != nil {
+		t.Fatalf("Read() checkpoint = %+v, want nil on decode error", cp)
+	}
+	if !strings.Contains(err.Error(), "decoding checkpoint") {
+		t.Fatalf("Read() error = %v, want decode error context", err)
+	}
+	// File must be consumed even when decoding fails.
+	if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
+		t.Fatalf("checkpoint file should be removed after decode error, stat err = %v", statErr)
+	}
+}
+
 func TestReadDeletesFile(t *testing.T) {
 	t.Parallel()
 
