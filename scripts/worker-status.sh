@@ -4,6 +4,8 @@ set -euo pipefail
 
 codex_trust_dialog_question="Do you trust the contents of this directory?"
 codex_trust_dialog_warning="higher risk of prompt injection."
+table_format='%-20s %-16s %-10s %-8s %s\n'
+vt_idle_probe_timeout="50ms"
 
 die() {
     echo "scripts/worker-status.sh: $*" >&2
@@ -42,16 +44,12 @@ is_worker_pane() {
     local name="$1"
     local task="$2"
 
-    if [[ "$task" == "worker" ]]; then
-        return 0
-    fi
-
-    is_worker_name "$name"
+    [[ "$task" == "worker" ]] || is_worker_name "$name"
 }
 
 pane_vt_idle() {
     local pane="$1"
-    amux wait vt-idle "$pane" --settle 0s --timeout 50ms >/dev/null 2>&1
+    amux wait vt-idle "$pane" --settle 0s --timeout "$vt_idle_probe_timeout" >/dev/null 2>&1
 }
 
 require_cmd amux
@@ -61,7 +59,7 @@ if ! pane_list="$(amux list --no-cwd)"; then
     die "failed to list panes"
 fi
 
-printf '%-20s %-16s %-10s %-8s %s\n' "PANE" "ISSUE" "STATE" "PR" "LAST OUTPUT"
+printf "$table_format" "PANE" "ISSUE" "STATE" "PR" "LAST OUTPUT"
 
 while IFS= read -r pane; do
     [[ -n "$pane" ]] || continue
@@ -142,7 +140,7 @@ while IFS= read -r pane; do
     pr_cell="$(truncate_cell "$pr" 8)"
     output_cell="$(truncate_cell "$last_output" 96)"
 
-    printf '%-20s %-16s %-10s %-8s %s\n' \
+    printf "$table_format" \
         "$pane_cell" \
         "$issue_cell" \
         "$state_cell" \
