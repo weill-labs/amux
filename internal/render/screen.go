@@ -248,6 +248,9 @@ func paneContentRowCells(width, row int, active bool, pd PaneData) []ScreenCell 
 		if renderedWidth <= 0 {
 			renderedWidth = 1
 		}
+		if renderedWidth > width-dstCol {
+			break
+		}
 
 		rowCells[dstCol] = rendered
 		for i := 1; i < renderedWidth && dstCol+i < width; i++ {
