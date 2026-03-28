@@ -6,6 +6,7 @@ import (
 	"net"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -15,7 +16,24 @@ import (
 	"github.com/weill-labs/amux/internal/remote"
 )
 
-func newRecordingPane(sess *Session, id uint32, name string, sink *bytes.Buffer) *mux.Pane {
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(data []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(data)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+func newRecordingPane(sess *Session, id uint32, name string, sink interface{ Write([]byte) (int, error) }) *mux.Pane {
 	return newProxyPane(id, mux.PaneMeta{
 		Name:  name,
 		Host:  mux.DefaultHost,
@@ -69,9 +87,7 @@ func TestCommandStatusListAndWindowNavigation(t *testing.T) {
 	p3 := newTestPane(sess, 3, "pane-3")
 	w2 := newTestWindowWithPanes(t, sess, 2, "logs", p3)
 
-	sess.Windows = []*mux.Window{w1, w2}
-	sess.ActiveWindowID = w1.ID
-	sess.Panes = []*mux.Pane{p1, p2, p3}
+	setSessionLayoutForTest(t, sess, w1.ID, []*mux.Window{w1, w2}, p1, p2, p3)
 
 	listRes := runTestCommand(t, srv, sess, "list")
 	if listRes.cmdErr != "" {
@@ -133,13 +149,11 @@ func TestCommandPaneMutationsAndMetadata(t *testing.T) {
 	srv, sess, cleanup := newCommandTestSession(t)
 	defer cleanup()
 
-	var sink bytes.Buffer
+	var sink lockedBuffer
 	p1 := newRecordingPane(sess, 1, "pane-1", &sink)
 	p2 := newTestPane(sess, 2, "pane-2")
 	w := newTestWindowWithPanes(t, sess, 1, "main", p1, p2)
-	sess.Windows = []*mux.Window{w}
-	sess.ActiveWindowID = w.ID
-	sess.Panes = []*mux.Pane{p1, p2}
+	setSessionLayoutForTest(t, sess, w.ID, []*mux.Window{w}, p1, p2)
 
 	zoomRes := runTestCommand(t, srv, sess, "zoom")
 	if zoomRes.cmdErr != "" || !strings.Contains(zoomRes.output, "Zoomed pane-2") {
@@ -358,9 +372,7 @@ func TestCommandCaptureHistoryAndWaitCommands(t *testing.T) {
 	p1.FeedOutput([]byte("alpha\r\nbeta\r\nmarker"))
 
 	w := newTestWindowWithPanes(t, sess, 1, "main", p1)
-	sess.Windows = []*mux.Window{w}
-	sess.ActiveWindowID = w.ID
-	sess.Panes = []*mux.Pane{p1}
+	setSessionLayoutForTest(t, sess, w.ID, []*mux.Window{w}, p1)
 	mustSessionQuery(t, sess, func(sess *Session) struct{} {
 		sess.idle.MarkIdle(p1.ID)
 		return struct{}{}
@@ -415,11 +427,11 @@ func TestCommandWaitClientsAndTypeKeys(t *testing.T) {
 
 	p1 := newTestPane(sess, 1, "pane-1")
 	w := newTestWindowWithPanes(t, sess, 1, "main", p1)
-	sess.Windows = []*mux.Window{w}
-	sess.ActiveWindowID = w.ID
-	sess.Panes = []*mux.Pane{p1}
+	setSessionLayoutForTest(t, sess, w.ID, []*mux.Window{w}, p1)
 	sess.generation.Store(7)
-	sess.waiters.setClipboardStateForTest(5, "clip-data")
+	mustSessionMutation(t, sess, func(sess *Session) {
+		sess.waiters.setClipboardStateForTest(5, "clip-data")
+	})
 
 	serverConn, peerConn := net.Pipe()
 	defer serverConn.Close()
@@ -436,8 +448,10 @@ func TestCommandWaitClientsAndTypeKeys(t *testing.T) {
 	uiClient.setNegotiatedCapabilities(proto.ClientCapabilities{KittyKeyboard: true, Hyperlinks: true})
 	uiClient.initTypeKeyQueue()
 
-	sess.ensureClientManager().setClientsForTest(uiClient)
-	sess.ensureClientManager().setSizeOwnerForTest(uiClient)
+	mustSessionMutation(t, sess, func(sess *Session) {
+		sess.ensureClientManager().setClientsForTest(uiClient)
+		sess.ensureClientManager().setSizeOwnerForTest(uiClient)
+	})
 
 	genRes := runTestCommand(t, srv, sess, "cursor", "layout")
 	if genRes.cmdErr != "" || strings.TrimSpace(genRes.output) != "7" {
@@ -542,17 +556,12 @@ func TestCommandSplitSpawnKillAndEvents(t *testing.T) {
 	srv, sess, cleanup := newCommandTestSession(t)
 	defer cleanup()
 
-	p1, err := sess.createPane(srv, 80, 23)
-	if err != nil {
-		t.Fatalf("createPane: %v", err)
-	}
+	p1 := mustCreatePane(t, sess, srv, 80, 23)
 	p1.Start()
 	w := mux.NewWindow(p1, 80, 23)
 	w.ID = 1
 	w.Name = "main"
-	sess.Windows = []*mux.Window{w}
-	sess.ActiveWindowID = w.ID
-	sess.Panes = []*mux.Pane{p1}
+	setSessionLayoutForTest(t, sess, w.ID, []*mux.Window{w}, p1)
 
 	spawnUsage := runTestCommand(t, srv, sess, "spawn", "--task", "build")
 	if spawnUsage.cmdErr != "--name is required" {
@@ -632,17 +641,12 @@ func TestCommandSplitAndSpawnKeepZoomAndFocus(t *testing.T) {
 	srv, sess, cleanup := newCommandTestSession(t)
 	defer cleanup()
 
-	p1, err := sess.createPane(srv, 80, 23)
-	if err != nil {
-		t.Fatalf("createPane: %v", err)
-	}
+	p1 := mustCreatePane(t, sess, srv, 80, 23)
 	p1.Start()
 	w := mux.NewWindow(p1, 80, 23)
 	w.ID = 1
 	w.Name = "main"
-	sess.Windows = []*mux.Window{w}
-	sess.ActiveWindowID = w.ID
-	sess.Panes = []*mux.Pane{p1}
+	setSessionLayoutForTest(t, sess, w.ID, []*mux.Window{w}, p1)
 
 	splitRes := runTestCommand(t, srv, sess, "split", "pane-1")
 	if splitRes.cmdErr != "" {
@@ -771,17 +775,12 @@ func TestCommandSplitParsesDirectionFlags(t *testing.T) {
 			srv, sess, cleanup := newCommandTestSession(t)
 			defer cleanup()
 
-			p1, err := sess.createPane(srv, 80, 23)
-			if err != nil {
-				t.Fatalf("createPane: %v", err)
-			}
+			p1 := mustCreatePane(t, sess, srv, 80, 23)
 			p1.Start()
 			w := mux.NewWindow(p1, 80, 23)
 			w.ID = 1
 			w.Name = "main"
-			sess.Windows = []*mux.Window{w}
-			sess.ActiveWindowID = w.ID
-			sess.Panes = []*mux.Pane{p1}
+			setSessionLayoutForTest(t, sess, w.ID, []*mux.Window{w}, p1)
 
 			if tt.setup != nil {
 				tt.setup(t, srv, sess)
@@ -845,17 +844,12 @@ func TestCommandSplitTargetsExplicitInactivePane(t *testing.T) {
 			srv, sess, cleanup := newCommandTestSession(t)
 			defer cleanup()
 
-			p1, err := sess.createPane(srv, 80, 23)
-			if err != nil {
-				t.Fatalf("createPane pane-1: %v", err)
-			}
+			p1 := mustCreatePane(t, sess, srv, 80, 23)
 			p1.Start()
 			w := mux.NewWindow(p1, 80, 23)
 			w.ID = 1
 			w.Name = "main"
-			sess.Windows = []*mux.Window{w}
-			sess.ActiveWindowID = w.ID
-			sess.Panes = []*mux.Pane{p1}
+			setSessionLayoutForTest(t, sess, w.ID, []*mux.Window{w}, p1)
 
 			res := runTestCommand(t, srv, sess, "split", "pane-1")
 			if res.cmdErr != "" {
@@ -944,17 +938,12 @@ func TestCommandSpawnFocusModes(t *testing.T) {
 			srv, sess, cleanup := newCommandTestSession(t)
 			defer cleanup()
 
-			p1, err := sess.createPane(srv, 80, 23)
-			if err != nil {
-				t.Fatalf("createPane: %v", err)
-			}
+			p1 := mustCreatePane(t, sess, srv, 80, 23)
 			p1.Start()
 			w := mux.NewWindow(p1, 80, 23)
 			w.ID = 1
 			w.Name = "main"
-			sess.Windows = []*mux.Window{w}
-			sess.ActiveWindowID = w.ID
-			sess.Panes = []*mux.Pane{p1}
+			setSessionLayoutForTest(t, sess, w.ID, []*mux.Window{w}, p1)
 
 			res := runTestCommand(t, srv, sess, tt.command, tt.args...)
 			if res.cmdErr != "" {
@@ -1071,7 +1060,9 @@ func TestCommandHostsAndRemoteErrors(t *testing.T) {
 			"local":    {Type: "local"},
 		},
 	}
-	sess.RemoteManager = remote.NewManager(cfg, "", remote.ManagerDeps{NewHostConn: remote.NewHostConn})
+	mustSessionMutation(t, sess, func(sess *Session) {
+		sess.RemoteManager = remote.NewManager(cfg, "", remote.ManagerDeps{NewHostConn: remote.NewHostConn})
+	})
 
 	hostsRes := runTestCommand(t, srv, sess, "hosts")
 	if hostsRes.cmdErr != "" || !strings.Contains(hostsRes.output, "remote-a") || !strings.Contains(hostsRes.output, "disconnected") {

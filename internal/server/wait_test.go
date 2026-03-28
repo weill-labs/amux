@@ -80,7 +80,9 @@ func TestWaitCrashCheckpoint_AlreadyPast(t *testing.T) {
 
 	sess := newSession("test-wait-crash-checkpoint-past")
 	defer stopSessionBackgroundLoops(t, sess)
-	sess.waiters.setCrashCheckpointStateForTest(1, "/tmp/checkpoint-1.json")
+	mustSessionMutation(t, sess, func(sess *Session) {
+		sess.waiters.setCrashCheckpointStateForTest(1, "/tmp/checkpoint-1.json")
+	})
 
 	record, ok := sess.waitCrashCheckpoint(0, time.Second)
 	if !ok {
@@ -191,7 +193,9 @@ func TestWaitClipboardAfterCurrent_WaitsForNextClipboard(t *testing.T) {
 	t.Parallel()
 	sess := newSession("test-wait-clipboard-after-current")
 	defer stopSessionBackgroundLoops(t, sess)
-	sess.waiters.setClipboardStateForTest(5, "old")
+	mustSessionMutation(t, sess, func(sess *Session) {
+		sess.waiters.setClipboardStateForTest(5, "old")
+	})
 
 	done := make(chan struct{})
 	var result string
@@ -287,7 +291,9 @@ func TestBeginPaneOutputWait(t *testing.T) {
 		pane := newProxyPane(1, mux.PaneMeta{Name: "pane-1", Host: mux.DefaultHost, Color: config.AccentColor(0)}, 80, 23, sess.paneOutputCallback(), sess.paneExitCallback(), func(data []byte) (int, error) {
 			return len(data), nil
 		})
-		sess.Panes = []*mux.Pane{pane}
+		mustSessionMutation(t, sess, func(sess *Session) {
+			sess.Panes = []*mux.Pane{pane}
+		})
 
 		pane.FeedOutput([]byte("hello"))
 		sess.enqueueCommandMutation(func(s *Session) commandMutationResult { return commandMutationResult{} })
@@ -314,7 +320,9 @@ func TestBeginPaneOutputWait(t *testing.T) {
 		pane := newProxyPane(1, mux.PaneMeta{Name: "pane-1", Host: mux.DefaultHost, Color: config.AccentColor(0)}, 80, 23, sess.paneOutputCallback(), sess.paneExitCallback(), func(data []byte) (int, error) {
 			return len(data), nil
 		})
-		sess.Panes = []*mux.Pane{pane}
+		mustSessionMutation(t, sess, func(sess *Session) {
+			sess.Panes = []*mux.Pane{pane}
+		})
 
 		start, err := sess.beginPaneOutputWait(pane.ID, "hello")
 		if err != nil {

@@ -1,7 +1,6 @@
 package server
 
 import (
-	"bytes"
 	"net"
 	"os"
 	"path/filepath"
@@ -58,14 +57,7 @@ func TestCrashCheckpointBuildAndWrite(t *testing.T) {
 	pane2.FeedOutput([]byte("hello from pane-2\n"))
 
 	window := newTestWindowWithPanes(t, sess, 1, "main", pane1, pane2)
-	if _, err := enqueueSessionQuery(sess, func(sess *Session) (struct{}, error) {
-		sess.Windows = []*mux.Window{window}
-		sess.ActiveWindowID = window.ID
-		sess.Panes = []*mux.Pane{pane1, pane2}
-		return struct{}{}, nil
-	}); err != nil {
-		t.Fatalf("enqueueSessionQuery: %v", err)
-	}
+	setSessionLayoutForTest(t, sess, window.ID, []*mux.Window{window}, pane1, pane2)
 
 	cp := sess.buildCrashCheckpoint()
 	if cp == nil {
@@ -210,17 +202,10 @@ func TestHandleTakeoverFailureWithoutRemoteManager(t *testing.T) {
 	_, sess, cleanup := newCommandTestSession(t)
 	defer cleanup()
 
-	var writes bytes.Buffer
+	var writes lockedBuffer
 	sshPane := newRecordingPane(sess, 1, "ssh-pane", &writes)
 	window := newTestWindowWithPanes(t, sess, 1, "main", sshPane)
-	if _, err := enqueueSessionQuery(sess, func(sess *Session) (struct{}, error) {
-		sess.Windows = []*mux.Window{window}
-		sess.ActiveWindowID = window.ID
-		sess.Panes = []*mux.Pane{sshPane}
-		return struct{}{}, nil
-	}); err != nil {
-		t.Fatalf("enqueueSessionQuery: %v", err)
-	}
+	setSessionLayoutForTest(t, sess, window.ID, []*mux.Window{window}, sshPane)
 
 	req := mux.TakeoverRequest{
 		Host:       "gpu-box",
@@ -289,22 +274,20 @@ func TestPrepareRemotePaneAndInsertPreparedPane(t *testing.T) {
 	}
 
 	prepared := newStandaloneProxyPane(9, "pane-9")
-	if err := sess.insertPreparedPaneIntoActiveWindow(prepared, mux.SplitHorizontal, false, false); err == nil || err.Error() != "no window" {
+	_, err = enqueueSessionQuery(sess, func(sess *Session) (struct{}, error) {
+		return struct{}{}, sess.insertPreparedPaneIntoActiveWindow(prepared, mux.SplitHorizontal, false, false)
+	})
+	if err == nil || err.Error() != "no window" {
 		t.Fatalf("insertPreparedPaneIntoActiveWindow without window error = %v, want no window", err)
 	}
 
 	base := newStandaloneProxyPane(1, "pane-1")
 	window := newTestWindowWithPanes(t, sess, 1, "main", base)
-	if _, err := enqueueSessionQuery(sess, func(sess *Session) (struct{}, error) {
-		sess.Windows = []*mux.Window{window}
-		sess.ActiveWindowID = window.ID
-		sess.Panes = []*mux.Pane{base}
-		return struct{}{}, nil
-	}); err != nil {
-		t.Fatalf("enqueueSessionQuery: %v", err)
-	}
+	setSessionLayoutForTest(t, sess, window.ID, []*mux.Window{window}, base)
 
-	if err := sess.insertPreparedPaneIntoActiveWindow(prepared, mux.SplitVertical, true, false); err != nil {
+	if _, err := enqueueSessionQuery(sess, func(sess *Session) (struct{}, error) {
+		return struct{}{}, sess.insertPreparedPaneIntoActiveWindow(prepared, mux.SplitVertical, true, false)
+	}); err != nil {
 		t.Fatalf("insertPreparedPaneIntoActiveWindow success path: %v", err)
 	}
 
@@ -329,16 +312,11 @@ func TestInsertPreparedPaneIntoActiveWindowKeepFocusPreservesZoomAndFocus(t *tes
 	window := newTestWindowWithPanes(t, sess, 1, "main", pane1, pane2)
 	window.ActivePane = pane1
 	window.ZoomedPaneID = pane1.ID
-	if _, err := enqueueSessionQuery(sess, func(sess *Session) (struct{}, error) {
-		sess.Windows = []*mux.Window{window}
-		sess.ActiveWindowID = window.ID
-		sess.Panes = []*mux.Pane{pane1, pane2}
-		return struct{}{}, nil
-	}); err != nil {
-		t.Fatalf("enqueueSessionQuery: %v", err)
-	}
+	setSessionLayoutForTest(t, sess, window.ID, []*mux.Window{window}, pane1, pane2)
 
-	if err := sess.insertPreparedPaneIntoActiveWindow(prepared, mux.SplitVertical, false, true); err != nil {
+	if _, err := enqueueSessionQuery(sess, func(sess *Session) (struct{}, error) {
+		return struct{}{}, sess.insertPreparedPaneIntoActiveWindow(prepared, mux.SplitVertical, false, true)
+	}); err != nil {
 		t.Fatalf("insertPreparedPaneIntoActiveWindow keepFocus: %v", err)
 	}
 
