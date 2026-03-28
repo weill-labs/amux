@@ -590,7 +590,7 @@ func TestCommandWaitClientsAndTypeKeys(t *testing.T) {
 		t.Fatalf("wait-ui success result = %#v", waitUISuccess)
 	}
 
-	for _, command := range []string{"set-hook", "unset-hook", "list-hooks"} {
+	for _, command := range []string{"set-hook", "unset-hook", "list-hooks", "delegate"} {
 		res := runTestCommand(t, srv, sess, command)
 		if res.cmdErr != "unknown command: "+command {
 			t.Fatalf("%s result = %#v", command, res)

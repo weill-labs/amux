@@ -65,16 +65,6 @@ func TestMainKeyCommandsHelpFlagsPrintUsage(t *testing.T) {
 			args: []string{"type-keys", "-h"},
 			want: "usage: amux type-keys [--wait ui=input-idle] [--timeout <duration>] [--hex] <keys>...",
 		},
-		{
-			name: "delegate long help",
-			args: []string{"delegate", "pane-1", "--help"},
-			want: "usage: amux delegate <pane> [--timeout <duration>] [--start-timeout <duration>] [--hex] <keys>...",
-		},
-		{
-			name: "delegate short help",
-			args: []string{"delegate", "pane-1", "-h"},
-			want: "usage: amux delegate <pane> [--timeout <duration>] [--start-timeout <duration>] [--hex] <keys>...",
-		},
 	}
 
 	for _, tt := range tests {
@@ -120,10 +110,10 @@ func TestMainCursorUsage(t *testing.T) {
 	}
 }
 
-func TestMainRemovedHookCommandsAreUnknown(t *testing.T) {
+func TestMainRemovedCommandsAreUnknown(t *testing.T) {
 	t.Parallel()
 
-	for _, command := range []string{"set-hook", "unset-hook", "list-hooks"} {
+	for _, command := range []string{"set-hook", "unset-hook", "list-hooks", "delegate"} {
 		out, code := runHermeticMain(t, command)
 		if code != 1 {
 			t.Fatalf("%s exit code = %d, want 1\n%s", command, code, out)
@@ -248,31 +238,6 @@ func TestMainTypeKeysUsageIncludesWaitFlags(t *testing.T) {
 	}
 }
 
-func TestMainDelegateDispatchesWhenPaneAndKeysProvided(t *testing.T) {
-	t.Parallel()
-
-	out, code := runHermeticMain(t, "delegate", "pane-1", "hello")
-	if code != 1 {
-		t.Fatalf("exit code = %d, want 1\n%s", code, out)
-	}
-	if strings.Contains(out, "usage: amux delegate") {
-		t.Fatalf("delegate should dispatch when pane and keys are provided, got usage output:\n%s", out)
-	}
-	assertMainCommandConnectError(t, out, "delegate")
-}
-
-func TestMainDelegateUsageIncludesTimeouts(t *testing.T) {
-	t.Parallel()
-
-	out, code := runHermeticMain(t, "delegate")
-	if code != 1 {
-		t.Fatalf("exit code = %d, want 1\n%s", code, out)
-	}
-	if !strings.Contains(out, "usage: amux delegate <pane> [--timeout <duration>] [--start-timeout <duration>] [--hex] <keys>...") {
-		t.Fatalf("delegate usage output missing timeout flags:\n%s", out)
-	}
-}
-
 func TestMainMoveUpDownUsageAndDispatch(t *testing.T) {
 	t.Parallel()
 
@@ -339,6 +304,18 @@ func TestMainHelpIncludesMoveUpDown(t *testing.T) {
 	}
 	if !strings.Contains(out, "amux [-s session] move-down <pane>") {
 		t.Fatalf("help output missing move-down:\n%s", out)
+	}
+}
+
+func TestMainHelpOmitsDelegate(t *testing.T) {
+	t.Parallel()
+
+	out, code := runHermeticMain(t, "help")
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0\n%s", code, out)
+	}
+	if strings.Contains(out, "amux [-s session] delegate <pane>") {
+		t.Fatalf("help output should omit delegate:\n%s", out)
 	}
 }
 
