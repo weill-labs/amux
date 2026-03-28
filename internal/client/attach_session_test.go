@@ -80,6 +80,22 @@ func (c *ptyOutputCollector) waitContains(t *testing.T, want string) string {
 	}
 }
 
+func (c *ptyOutputCollector) waitContainsWithin(want string, timeout time.Duration) bool {
+	deadline := time.After(timeout)
+	for {
+		if got := c.snapshot(); strings.Contains(got, want) {
+			return true
+		}
+		select {
+		case <-c.updates:
+		case <-deadline:
+			return strings.Contains(c.snapshot(), want)
+		case <-c.done:
+			return strings.Contains(c.snapshot(), want)
+		}
+	}
+}
+
 type runSessionHarness struct {
 	t        *testing.T
 	session  string
@@ -638,12 +654,11 @@ func TestRunSessionHandlesServerMessagesAndInteractiveInput(t *testing.T) {
 		t.Fatalf("attach capabilities = %+v, want negotiated ghostty features", attach.AttachCapabilities)
 	}
 
-	h.output.waitContains(t, render.AltScreenEnter)
-
 	h.send(t, &proto.Message{Type: proto.MsgTypeLayout, Layout: sessionLayoutSnapshot(h.session)})
 	h.send(t, &proto.Message{Type: proto.MsgTypePaneHistory, PaneID: 1, History: []string{"hist-1", "hist-2"}})
 	h.send(t, &proto.Message{Type: proto.MsgTypePaneOutput, PaneID: 1, PaneData: []byte("界界界界界\r\nnext")})
 	h.send(t, &proto.Message{Type: proto.MsgTypePaneOutput, PaneID: 2, PaneData: []byte("peer")})
+	h.output.waitContains(t, render.AltScreenEnter)
 	h.output.waitContains(t, "pane-1")
 	h.output.waitContains(t, "next")
 
@@ -747,6 +762,54 @@ func TestRunSessionHandlesServerMessagesAndInteractiveInput(t *testing.T) {
 	h.output.waitContains(t, render.AltScreenExit)
 }
 
+func TestRunSessionDoesNotEnterAltScreenBeforeAttachBootstrapReady(t *testing.T) {
+	h := newRunSessionHarness(t, func(int) (int, int, error) {
+		return 80, 24, nil
+	})
+
+	attach := h.waitAttach(t)
+	if attach.Type != proto.MsgTypeAttach {
+		t.Fatalf("attach type = %d, want %d", attach.Type, proto.MsgTypeAttach)
+	}
+	if h.output.waitContainsWithin(render.AltScreenEnter, 150*time.Millisecond) {
+		t.Fatalf("RunSession should not enter alt screen before bootstrap is ready, got output %q", h.output.snapshot())
+	}
+
+	h.send(t, &proto.Message{Type: proto.MsgTypeLayout, Layout: sessionLayoutSnapshot(h.session)})
+	h.send(t, &proto.Message{Type: proto.MsgTypePaneOutput, PaneID: 1, PaneData: []byte("left")})
+	h.send(t, &proto.Message{Type: proto.MsgTypePaneOutput, PaneID: 2, PaneData: []byte("right")})
+	h.output.waitContains(t, render.AltScreenEnter)
+
+	h.send(t, &proto.Message{Type: proto.MsgTypeExit})
+	if err := h.waitRunResult(t); err != nil {
+		t.Fatalf("RunSession() = %v, want nil", err)
+	}
+}
+
+func TestRunSessionRendersLayoutWhenAttachBootstrapPaneOutputStalls(t *testing.T) {
+	h := newRunSessionHarness(t, func(int) (int, int, error) {
+		return 80, 24, nil
+	})
+
+	attach := h.waitAttach(t)
+	if attach.Type != proto.MsgTypeAttach {
+		t.Fatalf("attach type = %d, want %d", attach.Type, proto.MsgTypeAttach)
+	}
+
+	h.send(t, &proto.Message{Type: proto.MsgTypeLayout, Layout: sessionLayoutSnapshot(h.session)})
+	h.send(t, &proto.Message{Type: proto.MsgTypePaneOutput, PaneID: 1, PaneData: []byte("left")})
+
+	if !h.output.waitContainsWithin("[pane-1]", time.Second) {
+		t.Fatalf("RunSession should render the layout even when attach bootstrap pane replay stalls, got output %q", h.output.snapshot())
+	}
+
+	h.send(t, &proto.Message{Type: proto.MsgTypePaneOutput, PaneID: 2, PaneData: []byte("right")})
+	h.send(t, &proto.Message{Type: proto.MsgTypeExit})
+	if err := h.waitRunResult(t); err != nil {
+		t.Fatalf("RunSession() = %v, want nil", err)
+	}
+}
+
 func TestRunSessionDetachFlushesPendingInput(t *testing.T) {
 	h := newRunSessionHarness(t, func(int) (int, int, error) {
 		return 80, 24, nil
@@ -759,11 +822,10 @@ func TestRunSessionDetachFlushesPendingInput(t *testing.T) {
 	if attach.AttachMode != proto.AttachModeInteractive {
 		t.Fatalf("attach mode = %v, want %v", attach.AttachMode, proto.AttachModeInteractive)
 	}
-	h.output.waitContains(t, render.AltScreenEnter)
-
 	h.send(t, &proto.Message{Type: proto.MsgTypeLayout, Layout: sessionLayoutSnapshot(h.session)})
 	h.send(t, &proto.Message{Type: proto.MsgTypePaneOutput, PaneID: 1, PaneData: []byte("left")})
 	h.send(t, &proto.Message{Type: proto.MsgTypePaneOutput, PaneID: 2, PaneData: []byte("right")})
+	h.output.waitContains(t, render.AltScreenEnter)
 	h.output.waitContains(t, "left")
 
 	h.writeInput(t, []byte{'x', 0x01, 'd'})

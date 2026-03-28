@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/creack/pty"
 	"github.com/charmbracelet/x/vt"
+	"github.com/creack/pty"
 	"github.com/weill-labs/amux/internal/render"
 )
 
@@ -36,13 +36,18 @@ func newPTYClientHarness(tb testing.TB, server *ServerHarness, envVars ...string
 
 func newPTYClientHarnessWithReadyOutput(tb testing.TB, server *ServerHarness, readySubstr string, envVars ...string) *ptyClientHarness {
 	tb.Helper()
+	return newPTYClientHarnessForSessionWithReadyOutput(tb, server.session, server.home, server.coverDir, readySubstr, envVars...)
+}
 
-	cmd := exec.Command(amuxBin, "-s", server.session)
-	env := upsertEnv(os.Environ(), "HOME", server.home)
+func newPTYClientHarnessForSession(tb testing.TB, session, home, coverDir string, envVars ...string) *ptyClientHarness {
+	tb.Helper()
+
+	cmd := exec.Command(amuxBin, "-s", session)
+	env := upsertEnv(os.Environ(), "HOME", home)
 	env = upsertEnv(env, "TERM", "xterm-256color")
 	env = upsertEnv(env, "AMUX_NO_WATCH", "1")
-	if server.coverDir != "" {
-		env = upsertEnv(env, "GOCOVERDIR", server.coverDir)
+	if coverDir != "" {
+		env = upsertEnv(env, "GOCOVERDIR", coverDir)
 	}
 	env = append(env, envVars...)
 	cmd.Env = env
@@ -70,6 +75,14 @@ func newPTYClientHarnessWithReadyOutput(tb testing.TB, server *ServerHarness, re
 	}()
 
 	tb.Cleanup(h.cleanup)
+
+	return h
+}
+
+func newPTYClientHarnessForSessionWithReadyOutput(tb testing.TB, session, home, coverDir, readySubstr string, envVars ...string) *ptyClientHarness {
+	tb.Helper()
+
+	h := newPTYClientHarnessForSession(tb, session, home, coverDir, envVars...)
 
 	if !h.waitForOutput(readySubstr, 10*time.Second) {
 		tb.Fatalf("PTY client did not render ready output %q\nOutput:\n%s", readySubstr, h.outputString())
