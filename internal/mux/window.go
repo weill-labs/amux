@@ -65,6 +65,9 @@ func (w *Window) SplitRootWithOptions(dir SplitDir, newPane *Pane, opts SplitOpt
 	if w.ZoomedPaneID != 0 && !opts.KeepFocus {
 		w.Unzoom()
 	}
+	if w.hasPendingLead() {
+		return w.materializePendingLead(newPane, opts)
+	}
 	targetRoot, parent, parentIdx := w.logicalRootTarget()
 	return w.splitRootTargetWithOptions(targetRoot, parent, parentIdx, dir, newPane, opts)
 }
@@ -162,6 +165,9 @@ func (w *Window) SplitPaneWithOptions(targetPaneID uint32, dir SplitDir, newPane
 	w.assertOwner("SplitPaneWithOptions")
 	if w.ZoomedPaneID != 0 && !opts.KeepFocus {
 		w.Unzoom()
+	}
+	if w.hasPendingLead() && targetPaneID == w.LeadPaneID {
+		return w.materializePendingLead(newPane, opts)
 	}
 	if w.IsLeadPane(targetPaneID) {
 		return nil, fmt.Errorf("cannot operate on lead pane")

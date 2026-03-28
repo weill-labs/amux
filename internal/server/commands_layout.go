@@ -675,6 +675,7 @@ func cmdNewWindow(ctx *CommandContext) {
 		winID := sess.windowCounter.Add(1)
 		newWin := mux.NewWindow(pane, w.Width, w.Height)
 		newWin.ID = winID
+		newWin.LeadPaneID = pane.ID
 		if name != "" {
 			newWin.Name = name
 		} else {

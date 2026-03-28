@@ -41,6 +41,7 @@ type paneListEntry struct {
 	prs        []proto.TrackedPR
 	issues     []proto.TrackedIssue
 	active     bool
+	lead       bool
 }
 
 type sessionStatusSnapshot struct {
@@ -311,6 +312,7 @@ func (s *Session) queryPaneList() ([]paneListEntry, error) {
 			default:
 				if pw := s.findWindowByPaneID(p.ID); pw != nil {
 					entry.windowName = pw.Name
+					entry.lead = pw.LeadPaneID == p.ID
 				}
 			}
 			entries = append(entries, entry)
