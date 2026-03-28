@@ -834,20 +834,33 @@ func cmdResizePane(ctx *CommandContext) {
 }
 
 func parseEqualizeCommandArgs(args []string) (widths, heights bool, err error) {
-	widths = true
+	mode := ""
 	for _, arg := range args {
 		switch arg {
 		case "--vertical":
-			widths = false
-			heights = true
+			if mode != "" && mode != arg {
+				return false, false, fmt.Errorf("equalize: conflicting equalize modes")
+			}
+			mode = arg
 		case "--all":
-			widths = true
-			heights = true
+			if mode != "" && mode != arg {
+				return false, false, fmt.Errorf("equalize: conflicting equalize modes")
+			}
+			mode = arg
 		default:
 			return false, false, fmt.Errorf(`equalize: unknown mode %q (use --vertical or --all)`, arg)
 		}
 	}
-	return widths, heights, nil
+	switch mode {
+	case "":
+		return true, false, nil
+	case "--vertical":
+		return false, true, nil
+	case "--all":
+		return true, true, nil
+	default:
+		return false, false, fmt.Errorf(`equalize: unknown mode %q (use --vertical or --all)`, mode)
+	}
 }
 
 func cmdEqualize(ctx *CommandContext) {
@@ -862,8 +875,12 @@ func cmdEqualize(ctx *CommandContext) {
 			return commandMutationResult{err: fmt.Errorf("no window")}
 		}
 		changed := w.Equalize(widths, heights)
+		output := "Already equalized\n"
+		if changed {
+			output = "Equalized layout\n"
+		}
 		return commandMutationResult{
-			output:          "Equalized layout\n",
+			output:          output,
 			broadcastLayout: changed,
 		}
 	}))

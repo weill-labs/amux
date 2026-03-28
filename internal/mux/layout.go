@@ -750,6 +750,22 @@ func (c *LayoutCell) equalizeChildren() {
 	}
 }
 
+// equalizeChildrenNeeded reports whether distributeEqual would change any
+// direct child size along this cell's split axis.
+func (c *LayoutCell) equalizeChildrenNeeded() bool {
+	if c == nil || c.IsLeaf() || len(c.Children) == 0 {
+		return false
+	}
+
+	sizes := equalSplitSizes(c.axisSize(c.Dir), len(c.Children))
+	for i, child := range c.Children {
+		if child.axisSize(c.Dir) != sizes[i] {
+			return true
+		}
+	}
+	return false
+}
+
 // FindBorderNear returns a border at (x, y) or within a one-cell cardinal
 // neighborhood. This matches tmux's drag behavior, which tolerates slight
 // pointer drift while dragging a border.

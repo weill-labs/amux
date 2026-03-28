@@ -136,3 +136,35 @@ func TestWindowEqualizeUsesLogicalRootWhenLeadAnchored(t *testing.T) {
 		t.Fatalf("logical-root row heights after equalize = %v, want %v", gotHeights, wantHeights)
 	}
 }
+
+func TestWindowEqualizeNoopKeepsZoom(t *testing.T) {
+	t.Parallel()
+
+	p1 := fakePaneID(1)
+	p2 := fakePaneID(2)
+	p3 := fakePaneID(3)
+	w := NewWindow(p1, 80, 24)
+	if _, err := w.SplitRoot(SplitVertical, p2); err != nil {
+		t.Fatalf("SplitRoot pane-2: %v", err)
+	}
+	if _, err := w.SplitRoot(SplitVertical, p3); err != nil {
+		t.Fatalf("SplitRoot pane-3: %v", err)
+	}
+	if err := w.Zoom(p2.ID); err != nil {
+		t.Fatalf("Zoom pane-2: %v", err)
+	}
+
+	widthsBefore := []int{w.Root.Children[0].W, w.Root.Children[1].W, w.Root.Children[2].W}
+
+	if w.Equalize(true, false) {
+		t.Fatal("Equalize(widths=true, heights=false) = true, want false for an already balanced layout")
+	}
+	if got := w.ZoomedPaneID; got != p2.ID {
+		t.Fatalf("ZoomedPaneID after no-op equalize = %d, want %d", got, p2.ID)
+	}
+
+	widthsAfter := []int{w.Root.Children[0].W, w.Root.Children[1].W, w.Root.Children[2].W}
+	if !reflect.DeepEqual(widthsAfter, widthsBefore) {
+		t.Fatalf("balanced widths changed after no-op equalize = %v, want %v", widthsAfter, widthsBefore)
+	}
+}

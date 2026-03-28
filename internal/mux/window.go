@@ -599,38 +599,59 @@ func (w *Window) Equalize(widths, heights bool) bool {
 	if w.Root == nil || (!widths && !heights) {
 		return false
 	}
-	if w.ZoomedPaneID != 0 {
-		w.Unzoom()
-	}
 
 	logical := w.logicalRoot()
 	if logical == nil {
 		return false
 	}
 
-	changed := false
-	if widths && !logical.IsLeaf() && logical.Dir == SplitVertical && len(logical.Children) > 1 {
-		logical.distributeEqual()
-		changed = true
+	widthChanged := widths &&
+		!logical.IsLeaf() &&
+		logical.Dir == SplitVertical &&
+		len(logical.Children) > 1 &&
+		logical.equalizeChildrenNeeded()
+
+	columns := []*LayoutCell{logical}
+	if !logical.IsLeaf() && logical.Dir == SplitVertical {
+		columns = logical.Children
 	}
 
+	heightChanged := false
 	if heights {
-		columns := []*LayoutCell{logical}
-		if !logical.IsLeaf() && logical.Dir == SplitVertical {
-			columns = logical.Children
-		}
 		for _, column := range columns {
 			if column == nil || column.IsLeaf() || column.Dir != SplitHorizontal || len(column.Children) < 2 {
 				continue
 			}
-			column.distributeEqual()
-			changed = true
+			if column.equalizeChildrenNeeded() {
+				heightChanged = true
+				break
+			}
 		}
 	}
 
-	if !changed {
+	if !widthChanged && !heightChanged {
 		return false
 	}
+
+	if w.ZoomedPaneID != 0 {
+		w.Unzoom()
+	}
+
+	if widthChanged {
+		logical.distributeEqual()
+	}
+	if heights {
+		for _, column := range columns {
+			if column == nil || column.IsLeaf() || column.Dir != SplitHorizontal || len(column.Children) < 2 {
+				continue
+			}
+			if !column.equalizeChildrenNeeded() {
+				continue
+			}
+			column.distributeEqual()
+		}
+	}
+
 	w.Root.FixOffsets()
 	w.resizePTYs()
 	return true
