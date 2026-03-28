@@ -552,6 +552,8 @@ func TestReadImmediateAttachCorrectionReturnsErrorOnConnectionClose(t *testing.T
 
 	err := readAttachBootstrap(clientConn, NewClientRenderer(20, 4))
 	if err == nil {
+		// EOF here means the server vanished before the client reached the
+		// normal message loop or saw an explicit exit path.
 		t.Fatal("expected error from closed connection during correction window")
 	}
 }
@@ -597,7 +599,6 @@ func TestReadAttachBootstrapRejectsUnexpectedMessages(t *testing.T) {
 				{Type: proto.MsgTypeLayout, Layout: singlePane20x3()},
 				{Type: proto.MsgTypeBell},
 			},
-			wantErr: "after layout",
 		},
 	}
 
@@ -619,6 +620,12 @@ func TestReadAttachBootstrapRejectsUnexpectedMessages(t *testing.T) {
 			}()
 
 			err := readAttachBootstrap(clientConn, NewClientRenderer(20, 4))
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("readAttachBootstrap() error = %v, want nil", err)
+				}
+				return
+			}
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Fatalf("readAttachBootstrap() error = %v, want substring %q", err, tt.wantErr)
 			}

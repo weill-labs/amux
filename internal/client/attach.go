@@ -77,6 +77,8 @@ func applyAttachBootstrapMessage(cr *ClientRenderer, msg attachBootstrapMessage)
 }
 
 const (
+	// Wait only briefly for the rest of attach replay so a stuck pane does not
+	// hold the terminal on a blank attach indefinitely.
 	defaultBootstrapPaneReplayWait   = 50 * time.Millisecond
 	defaultBootstrapCorrectionWindow = 50 * time.Millisecond
 )
@@ -100,8 +102,9 @@ func readImmediateAttachCorrection(conn net.Conn, cr *ClientRenderer, timeout ti
 		}
 		bufferedMsg, ok := newAttachBootstrapMessage(msg)
 		if !ok {
-			// Unknown message types (bell, copy-mode, etc.) end the
-			// correction window — they belong to the normal message loop.
+			// Unknown message types (bell, copy-mode, etc.) end the correction
+			// window without failing attach. Later layout or pane-output updates
+			// still flow through the normal message loop.
 			return nil
 		}
 		applyAttachBootstrapMessage(cr, bufferedMsg)
@@ -130,7 +133,9 @@ func readAttachBootstrapPaneReplays(conn net.Conn, cr *ClientRenderer, remaining
 		}
 		bufferedMsg, ok := newAttachBootstrapMessage(msg)
 		if !ok {
-			return remainingOutputs, fmt.Errorf("unexpected attach bootstrap message type %d after layout", msg.Type)
+			// Unknown message types during pane replay should not fail attach.
+			// Exit bootstrap early and let later state continue via the normal loop.
+			return remainingOutputs, nil
 		}
 		remainingOutputs -= applyAttachBootstrapMessage(cr, bufferedMsg)
 	}

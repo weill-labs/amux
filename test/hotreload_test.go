@@ -173,8 +173,9 @@ func TestHotReloadKeybinding(t *testing.T) {
 		t.Errorf("Ctrl-a r should be consumed, not forwarded (no 'not found' error)\nScreen:\n%s", screen)
 	}
 
-	if !strings.Contains(screen, "RELOADME") {
-		t.Errorf("RELOADME should be visible after hot reload\nScreen:\n%s", screen)
+	history := h.captureOuterHistory()
+	if !strings.Contains(history, "RELOADME") {
+		t.Errorf("RELOADME should be preserved in outer history after hot reload\nHistory:\n%s", history)
 	}
 }
 

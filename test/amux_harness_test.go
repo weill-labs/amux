@@ -393,6 +393,13 @@ func (h *AmuxHarness) captureOuter() string {
 	return h.outer.runCmd("capture", "pane-1")
 }
 
+// captureOuterHistory returns the outer pane's history buffer, including lines
+// that may have scrolled out of the visible viewport.
+func (h *AmuxHarness) captureOuterHistory() string {
+	h.tb.Helper()
+	return h.outer.runCmd("capture", "--history", "pane-1")
+}
+
 // captureOuterANSI returns the outer pane's ANSI-formatted output.
 // Used for border color tests that need to inspect escape sequences.
 func (h *AmuxHarness) captureOuterANSI() string {
