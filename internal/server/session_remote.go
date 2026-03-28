@@ -458,8 +458,8 @@ func (s *Session) cancelCaptureRequest(id uint64) {
 	})
 }
 
-// formatIdleSince returns an RFC3339 string for a non-zero time, or "".
-func formatIdleSince(t time.Time) string {
+// formatRFC3339Time returns an RFC3339 string for a non-zero time, or "".
+func formatRFC3339Time(t time.Time) string {
 	if t.IsZero() {
 		return ""
 	}
