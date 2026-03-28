@@ -248,6 +248,106 @@ func TestWaitForPaneReadyReturnsSessionShuttingDown(t *testing.T) {
 	}
 }
 
+func TestWaitReadyFailsWhenPaneDisappearsMidWait(t *testing.T) {
+	t.Parallel()
+
+	clk := NewFakeClock(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC))
+	srv, sess, pane, cleanup := setupWaitReadyTestPane(t, nil)
+	defer cleanup()
+	defer func() {
+		_ = pane.Close()
+		_ = pane.WaitClosed()
+	}()
+
+	sess.Clock = clk
+	sess.vtIdle = NewVTIdleTracker(clk)
+	sess.VTIdleSettle = 100 * time.Millisecond
+	pane.SetCreatedAt(clk.Now())
+
+	clientConn, _, done := startAsyncCommand(t, srv, sess, "wait", "ready", "pane-1", "--timeout", "5s")
+	clk.AwaitTimers(3)
+
+	sess.enqueueCommandMutation(func(s *Session) commandMutationResult {
+		s.finalizePaneRemoval(pane.ID)
+		return commandMutationResult{}
+	})
+
+	clk.Advance(110 * time.Millisecond)
+
+	msg := readMsgWithTimeout(t, clientConn)
+	if got := msg.CmdErr; got != `pane "pane-1" disappeared while waiting to become ready` {
+		t.Fatalf("wait-ready error = %q, want pane disappearance error", got)
+	}
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("wait-ready pane disappearance command did not return")
+	}
+}
+
+func TestWaitReadyRestartsSettleTimerAfterExpiredWindowSeesNewOutput(t *testing.T) {
+	t.Parallel()
+
+	clk := NewFakeClock(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC))
+	srv, sess, pane, cleanup := setupWaitReadyTestPane(t, nil)
+	defer cleanup()
+
+	sess.Clock = clk
+	sess.vtIdle = NewVTIdleTracker(clk)
+	sess.VTIdleSettle = 100 * time.Millisecond
+	pane.SetCreatedAt(clk.Now())
+
+	clientConn, _, done := startAsyncCommand(t, srv, sess, "wait", "ready", "pane-1", "--timeout", "5s")
+	clk.AwaitTimers(3)
+
+	mutationStarted := make(chan struct{})
+	mutationRelease := make(chan struct{})
+	mutationDone := make(chan struct{})
+	go func() {
+		defer close(mutationDone)
+		sess.enqueueCommandMutation(func(s *Session) commandMutationResult {
+			close(mutationStarted)
+			<-mutationRelease
+			return commandMutationResult{}
+		})
+	}()
+	<-mutationStarted
+
+	// Hold the session query so the old settle tick can fire, then inject a
+	// fresh VT output sample before syncReady re-reads state.
+	clk.Advance(100 * time.Millisecond)
+	sess.vtIdle.TrackOutput(pane.ID, sess.vtIdleSettle(), func(time.Time) {})
+	close(mutationRelease)
+
+	select {
+	case <-mutationDone:
+	case <-time.After(time.Second):
+		t.Fatal("blocking mutation did not release")
+	}
+
+	clk.AwaitTimers(5)
+
+	select {
+	case <-done:
+		t.Fatal("wait-ready returned before the replacement settle window elapsed")
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	clk.Advance(110 * time.Millisecond)
+
+	msg := readMsgWithTimeout(t, clientConn)
+	if got := strings.TrimSpace(msg.CmdOutput); got != "ready" {
+		t.Fatalf("wait-ready output = %q, want ready", got)
+	}
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("wait-ready command did not return after replacement settle window elapsed")
+	}
+}
+
 func TestSendKeysWaitReadyUsage(t *testing.T) {
 	t.Parallel()
 
@@ -257,6 +357,60 @@ func TestSendKeysWaitReadyUsage(t *testing.T) {
 	res := runTestCommand(t, srv, sess, "send-keys", "pane-1")
 	if got := res.cmdErr; got != "usage: send-keys <pane> [--wait ready|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>..." {
 		t.Fatalf("send-keys usage error = %q", got)
+	}
+}
+
+func TestCmdSendKeysWaitReadyWaitsForReady(t *testing.T) {
+	t.Parallel()
+
+	clk := NewFakeClock(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC))
+	writes := make(chan string, 1)
+	srv, sess, pane, cleanup := setupWaitReadyTestPane(t, func(data []byte) (int, error) {
+		writes <- string(data)
+		return len(data), nil
+	})
+	defer cleanup()
+
+	sess.Clock = clk
+	sess.vtIdle = NewVTIdleTracker(clk)
+	sess.VTIdleSettle = 100 * time.Millisecond
+	pane.SetCreatedAt(clk.Now())
+
+	clientConn, _, done := startAsyncCommand(t, srv, sess, "send-keys", "pane-1", "--wait", "ready", "--timeout", "5s", "ab")
+	clk.AwaitTimers(3)
+
+	select {
+	case got := <-writes:
+		t.Fatalf("send-keys wrote before pane became ready: %q", got)
+	default:
+	}
+
+	select {
+	case <-done:
+		t.Fatal("send-keys returned before pane became ready")
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	clk.Advance(110 * time.Millisecond)
+
+	select {
+	case got := <-writes:
+		if got != "ab" {
+			t.Fatalf("send-keys wrote %q, want ab", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("send-keys did not write after pane became ready")
+	}
+
+	msg := readMsgWithTimeout(t, clientConn)
+	if got := msg.CmdOutput; got != "Sent 2 bytes to pane-1\n" {
+		t.Fatalf("send-keys output = %q", got)
+	}
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("send-keys wait-ready command did not return")
 	}
 }
 
