@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -309,6 +310,98 @@ func TestPaneActorHelpersWaitForActorShutdownBeforeFallback(t *testing.T) {
 
 	if !p.ScreenContains("hello") {
 		t.Fatal("ReplayScreen should run after the actor drains")
+	}
+}
+
+func TestStopActorDrainsBlockedSendersBeforeClose(t *testing.T) {
+	oldProcs := runtime.GOMAXPROCS(1)
+	defer runtime.GOMAXPROCS(oldProcs)
+
+	p := &Pane{
+		ID:              1,
+		emulator:        NewVTEmulatorWithScrollback(12, 2, DefaultScrollbackLines),
+		scrollbackLines: DefaultScrollbackLines,
+	}
+	p.baseHistory.Store(&paneBaseHistory{})
+	p.startActor()
+	actorCommands := p.actorCommands
+
+	running := make(chan struct{})
+	release := make(chan struct{})
+	firstDone := make(chan struct{})
+	go func() {
+		actorCommands <- paneCommand{
+			run: func() {
+				close(running)
+				<-release
+			},
+			done: firstDone,
+		}
+	}()
+	<-running
+
+	senderStarted := make(chan struct{})
+	secondDone := make(chan struct{})
+	sendPanic := make(chan any, 1)
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				sendPanic <- r
+			}
+		}()
+		close(senderStarted)
+		actorCommands <- paneCommand{
+			run: func() {
+				_, _ = p.emulator.Write([]byte("hello"))
+			},
+			done: secondDone,
+		}
+	}()
+	<-senderStarted
+	runtime.Gosched()
+
+	stopDone := make(chan struct{})
+	go func() {
+		p.stopActor()
+		close(stopDone)
+	}()
+
+	select {
+	case <-stopDone:
+		t.Fatal("stopActor returned before queued senders drained")
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	close(release)
+
+	select {
+	case <-firstDone:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for initial actor command to finish")
+	}
+
+	select {
+	case <-secondDone:
+	case r := <-sendPanic:
+		t.Fatalf("blocked sender panicked during actor shutdown: %v", r)
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for queued sender to drain before actor shutdown")
+	}
+
+	select {
+	case <-stopDone:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for actor shutdown")
+	}
+
+	select {
+	case r := <-sendPanic:
+		t.Fatalf("blocked sender panicked during actor shutdown: %v", r)
+	default:
+	}
+
+	if !p.ScreenContains("hello") {
+		t.Fatal("queued sender command should run before actor shutdown")
 	}
 }
 

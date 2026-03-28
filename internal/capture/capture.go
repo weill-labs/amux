@@ -3,9 +3,11 @@ package capture
 import (
 	"encoding/json"
 	"fmt"
+	"image/color"
 	"strconv"
 	"strings"
 
+	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
 )
 
@@ -139,8 +141,70 @@ type PaneInput struct {
 	TrackedPRs    []proto.TrackedPR
 	TrackedIssues []proto.TrackedIssue
 	Cursor        proto.CaptureCursor
+	Terminal      *proto.CaptureTerminal
 	Content       []string
 	History       []string
+}
+
+func hexColor(c color.Color) string {
+	if c == nil {
+		return ""
+	}
+	r, g, b, _ := c.RGBA()
+	return fmt.Sprintf("%02x%02x%02x", uint8(r>>8), uint8(g>>8), uint8(b>>8))
+}
+
+func CursorFromState(col, row int, hidden bool, state mux.TerminalState) proto.CaptureCursor {
+	return proto.CaptureCursor{
+		Col:      col,
+		Row:      row,
+		Hidden:   hidden,
+		Style:    state.CursorStyle,
+		Blinking: state.CursorBlinking,
+	}
+}
+
+func TerminalFromState(state mux.TerminalState) *proto.CaptureTerminal {
+	palette := make([]string, len(state.Palette))
+	for i, c := range state.Palette {
+		palette[i] = hexColor(c)
+	}
+
+	terminal := &proto.CaptureTerminal{
+		AltScreen:       state.AltScreen,
+		ForegroundColor: hexColor(state.ForegroundColor),
+		BackgroundColor: hexColor(state.BackgroundColor),
+		CursorColor:     hexColor(state.CursorColor),
+		Mouse: &proto.CaptureMouseProtocol{
+			Tracking: state.Mouse.TrackingName(),
+			SGR:      state.Mouse.SGR,
+		},
+		Palette: palette,
+	}
+	if state.HyperlinkURL != "" || state.HyperlinkParams != "" {
+		terminal.Hyperlink = &proto.CaptureHyperlink{
+			URL:    state.HyperlinkURL,
+			Params: state.HyperlinkParams,
+		}
+	}
+	return terminal
+}
+
+func cloneTerminal(terminal *proto.CaptureTerminal) *proto.CaptureTerminal {
+	if terminal == nil {
+		return nil
+	}
+	cloned := *terminal
+	if terminal.Mouse != nil {
+		mouse := *terminal.Mouse
+		cloned.Mouse = &mouse
+	}
+	if terminal.Hyperlink != nil {
+		hyperlink := *terminal.Hyperlink
+		cloned.Hyperlink = &hyperlink
+	}
+	cloned.Palette = append([]string(nil), terminal.Palette...)
+	return &cloned
 }
 
 // BuildPane builds the common proto.CapturePane shape shared by both capture paths.
@@ -167,6 +231,7 @@ func BuildPane(input PaneInput, agentStatus map[uint32]proto.PaneAgentStatus) pr
 		GitBranch:  input.GitBranch,
 		PR:         input.PR,
 		Cursor:     input.Cursor,
+		Terminal:   cloneTerminal(input.Terminal),
 		Content:    append([]string(nil), input.Content...),
 		History:    append([]string(nil), input.History...),
 	}

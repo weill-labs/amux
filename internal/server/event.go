@@ -3,12 +3,17 @@ package server
 import (
 	"slices"
 	"time"
+
+	caputil "github.com/weill-labs/amux/internal/capture"
+	"github.com/weill-labs/amux/internal/mux"
+	"github.com/weill-labs/amux/internal/proto"
 )
 
 // Event types emitted by the event stream.
 const (
 	EventLayout           = "layout"
 	EventOutput           = "output"
+	EventTerminal         = "terminal"
 	EventIdle             = "idle"
 	EventBusy             = "busy"
 	EventVTIdle           = "vt-idle"
@@ -29,15 +34,17 @@ const DefaultEventThrottle = 50 * time.Millisecond
 
 // Event is a single event in the NDJSON event stream.
 type Event struct {
-	Type       string `json:"type"`
-	Timestamp  string `json:"ts"`
-	Generation uint64 `json:"generation,omitempty"`
-	PaneID     uint32 `json:"pane_id,omitempty"`
-	PaneName   string `json:"pane_name,omitempty"`
-	Host       string `json:"host,omitempty"`
-	ActivePane string `json:"active_pane,omitempty"`
-	ClientID   string `json:"client_id,omitempty"`
-	Reason     string `json:"reason,omitempty"`
+	Type       string                 `json:"type"`
+	Timestamp  string                 `json:"ts"`
+	Generation uint64                 `json:"generation,omitempty"`
+	PaneID     uint32                 `json:"pane_id,omitempty"`
+	PaneName   string                 `json:"pane_name,omitempty"`
+	Host       string                 `json:"host,omitempty"`
+	ActivePane string                 `json:"active_pane,omitempty"`
+	ClientID   string                 `json:"client_id,omitempty"`
+	Reason     string                 `json:"reason,omitempty"`
+	Cursor     *proto.CaptureCursor   `json:"cursor,omitempty"`
+	Terminal   *proto.CaptureTerminal `json:"terminal,omitempty"`
 }
 
 // eventSub is a subscriber to the event stream.
@@ -99,6 +106,13 @@ func (s *Session) currentStateEvents() []Event {
 		ActivePane: activePaneName,
 	})
 
+	// Current terminal state for each pane.
+	for _, p := range s.Panes {
+		ev := s.capturePaneTerminalEvent(p)
+		ev.Timestamp = now
+		events = append(events, ev)
+	}
+
 	// Current idle/busy state for each pane
 	for _, p := range s.Panes {
 		evType := EventBusy
@@ -136,4 +150,86 @@ func (s *Session) currentStateEvents() []Event {
 	}
 
 	return events
+}
+
+type paneTerminalEventState struct {
+	Cursor   proto.CaptureCursor
+	Terminal *proto.CaptureTerminal
+}
+
+func (s *Session) capturePaneTerminalState(pane *mux.Pane) paneTerminalEventState {
+	snap := pane.TerminalSnapshot()
+	return paneTerminalEventState{
+		Cursor:   caputil.CursorFromState(snap.CursorCol, snap.CursorRow, snap.CursorHidden, snap.Terminal),
+		Terminal: caputil.TerminalFromState(snap.Terminal),
+	}
+}
+
+func (s *Session) ensureTerminalEventState() map[uint32]paneTerminalEventState {
+	if s.terminalEventState == nil {
+		s.terminalEventState = make(map[uint32]paneTerminalEventState)
+	}
+	return s.terminalEventState
+}
+
+func (s *Session) capturePaneTerminalEvent(pane *mux.Pane) Event {
+	state := s.capturePaneTerminalState(pane)
+	s.ensureTerminalEventState()[pane.ID] = state
+	return paneTerminalEvent(pane, state)
+}
+
+func paneTerminalEvent(pane *mux.Pane, state paneTerminalEventState) Event {
+	return Event{
+		Type:     EventTerminal,
+		PaneID:   pane.ID,
+		PaneName: pane.Meta.Name,
+		Host:     pane.Meta.Host,
+		Cursor:   &state.Cursor,
+		Terminal: state.Terminal,
+	}
+}
+
+func paneTerminalEventStateEqual(left, right paneTerminalEventState) bool {
+	return left.Cursor == right.Cursor && captureTerminalEqual(left.Terminal, right.Terminal)
+}
+
+func captureTerminalEqual(left, right *proto.CaptureTerminal) bool {
+	if left == nil || right == nil {
+		return left == right
+	}
+	return left.AltScreen == right.AltScreen &&
+		left.ForegroundColor == right.ForegroundColor &&
+		left.BackgroundColor == right.BackgroundColor &&
+		left.CursorColor == right.CursorColor &&
+		captureHyperlinkEqual(left.Hyperlink, right.Hyperlink) &&
+		captureMouseEqual(left.Mouse, right.Mouse) &&
+		slices.Equal(left.Palette, right.Palette)
+}
+
+func captureHyperlinkEqual(left, right *proto.CaptureHyperlink) bool {
+	if left == nil || right == nil {
+		return left == right
+	}
+	return left.URL == right.URL && left.Params == right.Params
+}
+
+func captureMouseEqual(left, right *proto.CaptureMouseProtocol) bool {
+	if left == nil || right == nil {
+		return left == right
+	}
+	return left.Tracking == right.Tracking && left.SGR == right.SGR
+}
+
+func (s *Session) emitPaneTerminalEventIfChanged(pane *mux.Pane) {
+	if pane == nil {
+		return
+	}
+	state := s.capturePaneTerminalState(pane)
+	stateByPane := s.ensureTerminalEventState()
+	prev, ok := stateByPane[pane.ID]
+	if ok && paneTerminalEventStateEqual(prev, state) {
+		return
+	}
+	stateByPane[pane.ID] = state
+	s.emitEvent(paneTerminalEvent(pane, state))
 }

@@ -1128,6 +1128,18 @@ func TestRemoteHostCommandsReportConfiguredAndErrorStates(t *testing.T) {
 func TestCmdEventsStreamsAndThrottlesOutput(t *testing.T) {
 	t.Parallel()
 
+	drainInitialPaneState := func(t *testing.T, conn net.Conn, paneCount int) {
+		t.Helper()
+
+		seen := make(map[uint32]bool, paneCount)
+		for len(seen) < paneCount {
+			ev := readCmdResultEvent(t, conn)
+			if ev.Type == EventBusy || ev.Type == EventIdle {
+				seen[ev.PaneID] = true
+			}
+		}
+	}
+
 	t.Run("no throttle streams output immediately", func(t *testing.T) {
 		t.Parallel()
 
@@ -1148,9 +1160,7 @@ func TestCmdEventsStreamsAndThrottlesOutput(t *testing.T) {
 			cmdEvents(&CommandContext{CC: cc, Sess: sess, Args: []string{"--throttle", "0s"}})
 		}()
 
-		for i := 0; i < 2; i++ {
-			_ = readCmdResultEvent(t, peerConn)
-		}
+		drainInitialPaneState(t, peerConn, 1)
 
 		sess.paneOutputCallback()(pane.ID, []byte("hello"), 1)
 		ev := readCmdResultEvent(t, peerConn)
@@ -1171,7 +1181,7 @@ func TestCmdEventsStreamsAndThrottlesOutput(t *testing.T) {
 		_ = serverConn.Close()
 	})
 
-	t.Run("throttle coalesces and sorts output events", func(t *testing.T) {
+	t.Run("throttle coalesces output events by pane", func(t *testing.T) {
 		t.Parallel()
 
 		sess := newSession("test-events-throttle")
@@ -1194,9 +1204,7 @@ func TestCmdEventsStreamsAndThrottlesOutput(t *testing.T) {
 			cmdEvents(&CommandContext{CC: cc, Sess: sess, Args: []string{"--throttle", "20ms"}})
 		}()
 
-		for i := 0; i < 3; i++ {
-			_ = readCmdResultEvent(t, peerConn)
-		}
+		drainInitialPaneState(t, peerConn, 2)
 
 		sess.paneOutputCallback()(pane2.ID, []byte("pane2"), 1)
 		sess.paneOutputCallback()(pane1.ID, []byte("pane1"), 1)
@@ -1207,8 +1215,12 @@ func TestCmdEventsStreamsAndThrottlesOutput(t *testing.T) {
 		if first.Type != EventOutput || second.Type != EventOutput {
 			t.Fatalf("expected output events, got %+v and %+v", first, second)
 		}
-		if first.PaneID != pane1.ID || second.PaneID != pane2.ID {
-			t.Fatalf("throttled pane order = [%d %d], want [%d %d]", first.PaneID, second.PaneID, pane1.ID, pane2.ID)
+		ids := [2]uint32{first.PaneID, second.PaneID}
+		if ids[0] > ids[1] {
+			ids[0], ids[1] = ids[1], ids[0]
+		}
+		if ids != [2]uint32{pane1.ID, pane2.ID} {
+			t.Fatalf("throttled pane IDs = [%d %d], want panes [%d %d]", first.PaneID, second.PaneID, pane1.ID, pane2.ID)
 		}
 
 		_ = peerConn.Close()

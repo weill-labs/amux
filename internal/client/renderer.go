@@ -452,6 +452,7 @@ func (r *Renderer) buildCapturePane(st *rendererActorState, snap *rendererSnapsh
 	if !ok {
 		return proto.CapturePane{}, false
 	}
+	state := emu.TerminalState()
 	col, row := emu.CursorPosition()
 	cp := caputil.BuildPane(caputil.PaneInput{
 		ID:            info.ID,
@@ -468,12 +469,9 @@ func (r *Renderer) buildCapturePane(st *rendererActorState, snap *rendererSnapsh
 		PR:            info.PR,
 		TrackedPRs:    info.TrackedPRs,
 		TrackedIssues: info.TrackedIssues,
-		Cursor: proto.CaptureCursor{
-			Col:    col,
-			Row:    row,
-			Hidden: emu.CursorHidden(),
-		},
-		Content: mux.EmulatorContentLines(emu),
+		Cursor:        caputil.CursorFromState(col, row, emu.CursorHidden(), state),
+		Terminal:      caputil.TerminalFromState(state),
+		Content:       mux.EmulatorContentLines(emu),
 	}, agentStatus)
 	return cp, true
 }

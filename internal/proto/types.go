@@ -106,21 +106,22 @@ type CaptureError struct {
 
 // CapturePane holds one pane's metadata, cursor, and content for JSON output.
 type CapturePane struct {
-	ID          uint32        `json:"id"`
-	Name        string        `json:"name"`
-	Active      bool          `json:"active"`
-	Lead        bool          `json:"lead,omitempty"`
-	Zoomed      bool          `json:"zoomed"`
-	Host        string        `json:"host"`
-	Task        string        `json:"task"`
-	Color       string        `json:"color"`
-	ColumnIndex int           `json:"column_index"`
-	Meta        CaptureMeta   `json:"meta"`
-	Position    *CapturePos   `json:"position,omitempty"`
-	Cursor      CaptureCursor `json:"cursor"`
-	Content     []string      `json:"content"`
-	History     []string      `json:"history,omitempty"`
-	CopyMode    bool          `json:"copy_mode,omitempty"`
+	ID          uint32           `json:"id"`
+	Name        string           `json:"name"`
+	Active      bool             `json:"active"`
+	Lead        bool             `json:"lead,omitempty"`
+	Zoomed      bool             `json:"zoomed"`
+	Host        string           `json:"host"`
+	Task        string           `json:"task"`
+	Color       string           `json:"color"`
+	ColumnIndex int              `json:"column_index"`
+	Meta        CaptureMeta      `json:"meta"`
+	Position    *CapturePos      `json:"position,omitempty"`
+	Cursor      CaptureCursor    `json:"cursor"`
+	Terminal    *CaptureTerminal `json:"terminal,omitempty"`
+	Content     []string         `json:"content"`
+	History     []string         `json:"history,omitempty"`
+	CopyMode    bool             `json:"copy_mode,omitempty"`
 
 	// ConnStatus is the remote connection state: "", "connected", "reconnecting", "disconnected".
 	// Empty for local panes.
@@ -166,9 +167,35 @@ type CapturePos struct {
 
 // CaptureCursor holds cursor state for JSON output.
 type CaptureCursor struct {
-	Col    int  `json:"col"`
-	Row    int  `json:"row"`
-	Hidden bool `json:"hidden"`
+	Col      int    `json:"col"`
+	Row      int    `json:"row"`
+	Hidden   bool   `json:"hidden"`
+	Style    string `json:"style"`
+	Blinking bool   `json:"blinking"`
+}
+
+// CaptureTerminal holds pane terminal metadata that is not represented in
+// plain text content.
+type CaptureTerminal struct {
+	AltScreen       bool                  `json:"alt_screen"`
+	ForegroundColor string                `json:"foreground_color"`
+	BackgroundColor string                `json:"background_color"`
+	CursorColor     string                `json:"cursor_color"`
+	Hyperlink       *CaptureHyperlink     `json:"hyperlink,omitempty"`
+	Mouse           *CaptureMouseProtocol `json:"mouse"`
+	Palette         []string              `json:"palette"`
+}
+
+// CaptureHyperlink is the currently active OSC 8 hyperlink state.
+type CaptureHyperlink struct {
+	URL    string `json:"url"`
+	Params string `json:"params,omitempty"`
+}
+
+// CaptureMouseProtocol describes the pane's current mouse tracking mode.
+type CaptureMouseProtocol struct {
+	Tracking string `json:"tracking"`
+	SGR      bool   `json:"sgr"`
 }
 
 // ApplyAgentStatus populates agent status fields on a CapturePane from

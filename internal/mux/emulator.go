@@ -2,6 +2,7 @@ package mux
 
 import (
 	"fmt"
+	"image/color"
 	"strings"
 	"sync/atomic"
 
@@ -44,6 +45,10 @@ type TerminalEmulator interface {
 
 	// CursorHidden returns true if the cursor is hidden.
 	CursorHidden() bool
+
+	// TerminalState returns current terminal metadata such as cursor style,
+	// colors, hyperlink state, and palette.
+	TerminalState() TerminalState
 
 	// ScrollbackLen returns the number of lines in the scrollback buffer.
 	ScrollbackLen() int
@@ -120,6 +125,34 @@ type MouseProtocol struct {
 // Enabled reports whether the pane currently accepts mouse events.
 func (p MouseProtocol) Enabled() bool {
 	return p.Tracking != MouseTrackingNone
+}
+
+// TrackingName returns a stable string form for JSON capture and events.
+func (p MouseProtocol) TrackingName() string {
+	switch p.Tracking {
+	case MouseTrackingStandard:
+		return "standard"
+	case MouseTrackingButton:
+		return "button"
+	case MouseTrackingAny:
+		return "any"
+	default:
+		return "none"
+	}
+}
+
+// TerminalState is the pane's non-text terminal metadata at a point in time.
+type TerminalState struct {
+	AltScreen       bool
+	Mouse           MouseProtocol
+	ForegroundColor color.Color
+	BackgroundColor color.Color
+	CursorColor     color.Color
+	CursorStyle     string
+	CursorBlinking  bool
+	HyperlinkURL    string
+	HyperlinkParams string
+	Palette         []color.Color
 }
 
 // vtEmulator wraps charmbracelet/x/vt.Emulator.
@@ -251,6 +284,37 @@ func (v *vtEmulator) CursorPosition() (col, row int) {
 
 func (v *vtEmulator) CursorHidden() bool {
 	return v.cursorHidden.Load()
+}
+
+func cursorStyleName(style vt.CursorStyle) string {
+	switch style {
+	case vt.CursorUnderline:
+		return "underline"
+	case vt.CursorBar:
+		return "bar"
+	default:
+		return "block"
+	}
+}
+
+func (v *vtEmulator) TerminalState() TerminalState {
+	cursor := v.emu.Cursor()
+	palette := make([]color.Color, 256)
+	for i := range palette {
+		palette[i] = v.emu.IndexedColor(i)
+	}
+	return TerminalState{
+		AltScreen:       v.altScreen.Load(),
+		Mouse:           v.MouseProtocol(),
+		ForegroundColor: v.emu.ForegroundColor(),
+		BackgroundColor: v.emu.BackgroundColor(),
+		CursorColor:     v.emu.CursorColor(),
+		CursorStyle:     cursorStyleName(cursor.Style),
+		CursorBlinking:  !cursor.Steady,
+		HyperlinkURL:    cursor.Link.URL,
+		HyperlinkParams: cursor.Link.Params,
+		Palette:         palette,
+	}
 }
 
 func (v *vtEmulator) ScrollbackLen() int {

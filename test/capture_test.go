@@ -362,7 +362,7 @@ func TestCapturePaneANSI_PreservesOSC8Hyperlinks(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)
 
-	link := "\033]8;https://example.com;\atest-link\033]8;;\a"
+	link := "\033]8;;https://example.com\atest-link\033]8;;\a"
 	h.sendKeys("pane-1",
 		`clear; printf '\033]8;;https://example.com\033\\test-link\033]8;;\033\\\n'; printf OSC; printf 'DONE\n'`,
 		"Enter")

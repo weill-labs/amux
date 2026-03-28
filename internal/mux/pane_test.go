@@ -1,8 +1,18 @@
 package mux
 
 import (
+	"fmt"
+	"image/color"
 	"testing"
 )
+
+func paneTestHexColor(c color.Color) string {
+	if c == nil {
+		return ""
+	}
+	r, g, b, _ := c.RGBA()
+	return fmt.Sprintf("%02x%02x%02x", uint8(r>>8), uint8(g>>8), uint8(b>>8))
+}
 
 func TestContentLines(t *testing.T) {
 	emu := NewVTEmulatorWithDrain(40, 5)
@@ -79,6 +89,56 @@ func TestCaptureSnapshotIncludesHistoryContentAndCursor(t *testing.T) {
 	}
 	if snap.CursorHidden {
 		t.Fatal("CursorHidden = true, want false")
+	}
+}
+
+func TestTerminalSnapshotIncludesCursorAndMetadata(t *testing.T) {
+	t.Parallel()
+
+	emu := NewVTEmulatorWithDrain(12, 2)
+	p := &Pane{
+		ID:       1,
+		emulator: emu,
+	}
+
+	emu.Write([]byte(
+		"\x1b]10;#112233\x07" +
+			"\x1b]11;#445566\x07" +
+			"\x1b]12;#778899\x07" +
+			"\x1b]8;;https://example.com\x07" +
+			"\x1b[6 q" +
+			"\x1b[?1049h" +
+			"prompt",
+	))
+
+	snap := p.TerminalSnapshot()
+
+	if snap.CursorCol != len("prompt") || snap.CursorRow != 0 {
+		t.Fatalf("Cursor = (%d,%d), want (%d,0)", snap.CursorCol, snap.CursorRow, len("prompt"))
+	}
+	if snap.CursorHidden {
+		t.Fatal("CursorHidden = true, want false")
+	}
+	if snap.Terminal.CursorStyle != "bar" || snap.Terminal.CursorBlinking {
+		t.Fatalf("cursor style = (%q,%t), want (bar,false)", snap.Terminal.CursorStyle, snap.Terminal.CursorBlinking)
+	}
+	if !snap.Terminal.AltScreen {
+		t.Fatal("AltScreen = false, want true")
+	}
+	if got := paneTestHexColor(snap.Terminal.ForegroundColor); got != "112233" {
+		t.Fatalf("ForegroundColor = %q, want 112233", got)
+	}
+	if got := paneTestHexColor(snap.Terminal.BackgroundColor); got != "445566" {
+		t.Fatalf("BackgroundColor = %q, want 445566", got)
+	}
+	if got := paneTestHexColor(snap.Terminal.CursorColor); got != "778899" {
+		t.Fatalf("CursorColor = %q, want 778899", got)
+	}
+	if snap.Terminal.HyperlinkURL != "https://example.com" {
+		t.Fatalf("HyperlinkURL = %q, want https://example.com", snap.Terminal.HyperlinkURL)
+	}
+	if got := len(snap.Terminal.Palette); got != 256 {
+		t.Fatalf("palette len = %d, want 256", got)
 	}
 }
 
