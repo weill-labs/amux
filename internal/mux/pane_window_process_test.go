@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -313,7 +314,8 @@ func TestPaneActorHelpersWaitForActorShutdownBeforeFallback(t *testing.T) {
 }
 
 func TestStopActorDrainsBlockedSendersBeforeClose(t *testing.T) {
-	t.Parallel()
+	oldProcs := runtime.GOMAXPROCS(1)
+	defer runtime.GOMAXPROCS(oldProcs)
 
 	p := &Pane{
 		ID:              1,
@@ -322,12 +324,13 @@ func TestStopActorDrainsBlockedSendersBeforeClose(t *testing.T) {
 	}
 	p.baseHistory.Store(&paneBaseHistory{})
 	p.startActor()
+	actorCommands := p.actorCommands
 
 	running := make(chan struct{})
 	release := make(chan struct{})
 	firstDone := make(chan struct{})
 	go func() {
-		p.actorCommands <- paneCommand{
+		actorCommands <- paneCommand{
 			run: func() {
 				close(running)
 				<-release
@@ -347,7 +350,7 @@ func TestStopActorDrainsBlockedSendersBeforeClose(t *testing.T) {
 			}
 		}()
 		close(senderStarted)
-		p.actorCommands <- paneCommand{
+		actorCommands <- paneCommand{
 			run: func() {
 				_, _ = p.emulator.Write([]byte("hello"))
 			},
@@ -355,6 +358,7 @@ func TestStopActorDrainsBlockedSendersBeforeClose(t *testing.T) {
 		}
 	}()
 	<-senderStarted
+	runtime.Gosched()
 
 	stopDone := make(chan struct{})
 	go func() {

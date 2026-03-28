@@ -54,6 +54,7 @@ type Pane struct {
 	actorCommands chan paneCommand
 	actorDone     chan struct{}
 	readLoopDone  chan struct{}
+	actorClosing  atomic.Bool
 
 	outputSeq        atomic.Uint64
 	baseHistory      atomic.Pointer[paneBaseHistory]
