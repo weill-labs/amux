@@ -1709,6 +1709,27 @@ func TestServerHarnessRunCmdFallsBackWhenHeadlessClientDetached(t *testing.T) {
 	}
 }
 
+func TestServerHarnessLateGenerationAndAttachSurviveHeadlessClientDetach(t *testing.T) {
+	t.Parallel()
+
+	h := newServerHarnessPersistent(t)
+	h.splitV()
+
+	h.client.close()
+	h.client = nil
+
+	// generation() fatalf's if the server becomes unreachable after detach.
+	_ = h.generation()
+
+	msg := h.attachAt(80, 24)
+	if msg.Layout == nil {
+		t.Fatal("late attach did not return a layout after headless client detach")
+	}
+	if len(msg.Layout.Panes) != 2 {
+		t.Fatalf("late attach returned %d panes, want 2", len(msg.Layout.Panes))
+	}
+}
+
 func serverProcessMatchesSession(pid int, session string) bool {
 	if pid == 0 || session == "" {
 		return false
