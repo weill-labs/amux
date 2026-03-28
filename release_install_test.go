@@ -21,15 +21,15 @@ func TestReleaseInstallScriptInstallsExplicitVersionArchive(t *testing.T) {
 	const version = "1.2.3"
 	script := "#!/bin/sh\necho explicit-version\n"
 	archive := fakeReleaseInstallArchive(t, script)
-	checksums := fmt.Sprintf("%x  amux_%s_%s_%s.tar.gz\n", sha256.Sum256(archive), version, runtime.GOOS, runtime.GOARCH)
+	checksums := fmt.Sprintf("%x  %s\n", sha256.Sum256(archive), releaseArchiveName(version))
 
 	var ts *httptest.Server
 	ts = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case fmt.Sprintf("/releases/download/v%s/amux_%s_%s_%s.tar.gz", version, version, runtime.GOOS, runtime.GOARCH):
+		case releaseArchivePath(version):
 			w.Header().Set("Content-Type", "application/gzip")
 			_, _ = w.Write(archive)
-		case fmt.Sprintf("/releases/download/v%s/checksums.txt", version):
+		case releaseChecksumsPath(version):
 			_, _ = w.Write([]byte(checksums))
 		default:
 			http.NotFound(w, r)
@@ -61,7 +61,7 @@ func TestReleaseInstallScriptResolvesLatestReleaseRedirect(t *testing.T) {
 	const version = "2.0.1"
 	script := "#!/bin/sh\necho latest-version\n"
 	archive := fakeReleaseInstallArchive(t, script)
-	checksums := fmt.Sprintf("%x  amux_%s_%s_%s.tar.gz\n", sha256.Sum256(archive), version, runtime.GOOS, runtime.GOARCH)
+	checksums := fmt.Sprintf("%x  %s\n", sha256.Sum256(archive), releaseArchiveName(version))
 
 	var ts *httptest.Server
 	ts = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -70,10 +70,10 @@ func TestReleaseInstallScriptResolvesLatestReleaseRedirect(t *testing.T) {
 			http.Redirect(w, r, ts.URL+"/releases/tag/v"+version, http.StatusFound)
 		case fmt.Sprintf("/releases/tag/v%s", version):
 			_, _ = w.Write([]byte("ok"))
-		case fmt.Sprintf("/releases/download/v%s/amux_%s_%s_%s.tar.gz", version, version, runtime.GOOS, runtime.GOARCH):
+		case releaseArchivePath(version):
 			w.Header().Set("Content-Type", "application/gzip")
 			_, _ = w.Write(archive)
-		case fmt.Sprintf("/releases/download/v%s/checksums.txt", version):
+		case releaseChecksumsPath(version):
 			_, _ = w.Write([]byte(checksums))
 		default:
 			http.NotFound(w, r)
@@ -96,6 +96,18 @@ func TestReleaseInstallScriptResolvesLatestReleaseRedirect(t *testing.T) {
 
 	installed := filepath.Join(binDir, "amux")
 	verifyInstalledScript(t, installed, "latest-version\n")
+}
+
+func releaseArchiveName(version string) string {
+	return fmt.Sprintf("amux_%s_%s_%s.tar.gz", version, runtime.GOOS, runtime.GOARCH)
+}
+
+func releaseArchivePath(version string) string {
+	return fmt.Sprintf("/releases/download/v%s/%s", version, releaseArchiveName(version))
+}
+
+func releaseChecksumsPath(version string) string {
+	return fmt.Sprintf("/releases/download/v%s/checksums.txt", version)
 }
 
 func fakeReleaseInstallArchive(t *testing.T, content string) []byte {
