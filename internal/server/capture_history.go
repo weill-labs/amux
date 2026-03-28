@@ -144,6 +144,7 @@ func (s *Session) captureHistory(actorPaneID uint32, args []string) *Message {
 	}
 
 	lines := append(append([]string{}, capturePane.History...), capturePane.Content...)
+	lines = caputil.TrimTrailingBlankRows(lines)
 	return &Message{Type: MsgTypeCmdResult, CmdOutput: strings.Join(lines, "\n") + "\n"}
 }
 
