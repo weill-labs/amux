@@ -1,51 +1,75 @@
 package test
 
 import (
-	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
 
-func TestSendKeysWaitReadyContinuesCodexTrustDialog(t *testing.T) {
+func TestWaitReadyAcceptsNonAgentPromptMarkers(t *testing.T) {
 	t.Parallel()
 
 	h := newServerHarness(t)
 
-	scriptPath := filepath.Join(os.TempDir(), fmt.Sprintf("amux-wait-ready-%s.sh", h.session))
-	script := `#!/bin/bash
-set -euo pipefail
-printf '\033[2J\033[H\033[?25l'
-printf '> You are in %s\n\n' "$PWD"
-printf '  Do you trust the contents of this directory? Working with untrusted contents\n'
-printf '  comes with higher risk of prompt injection.\n\n'
-printf '› 1. Yes, continue\n'
-printf '  2. No, quit\n\n'
-printf '  Press enter to continue'
-IFS= read -r _
-printf '\033[?25h\033[2J\033[H'
-printf '\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n'
-printf '> Ready'
-IFS= read -r task
-printf '\nTASK:%s\n' "$task"
-`
-	if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
-		t.Fatalf("writing wait-ready script: %v", err)
+	h.sendKeys("pane-1", "export PS1='READY$ '", "Enter")
+	h.waitIdle("pane-1")
+
+	out := h.runCmd("wait", "ready", "pane-1", "--timeout", "5s")
+	if strings.TrimSpace(out) != "ready" {
+		t.Fatalf("wait-ready output = %q", out)
 	}
-	t.Cleanup(func() { os.Remove(scriptPath) })
+}
 
-	h.sendKeys("pane-1", scriptPath, "Enter")
-	h.waitFor("pane-1", "Do you trust the contents of this directory?")
+func TestSendKeysWaitReadyAcceptsNonAgentPromptMarkers(t *testing.T) {
+	t.Parallel()
 
-	if out := h.runCmd("wait", "ready", "pane-1", "--timeout", "100ms"); !strings.Contains(out, "Codex trust dialog is blocking input in pane-1") {
-		t.Fatalf("wait-ready should report trust dialog blocker, got:\n%s", out)
-	}
+	h := newServerHarness(t)
 
-	out := h.runCmd("send-keys", "pane-1", "--wait", "ready", "--continue-known-dialogs", "ship it", "Enter")
-	if strings.TrimSpace(out) != "Sent 8 bytes to pane-1" {
+	h.sendKeys("pane-1", "export PS1='READY$ '", "Enter")
+	h.waitIdle("pane-1")
+
+	out := h.runCmd("send-keys", "pane-1", "--wait", "ready", "echo READY", "Enter")
+	if strings.TrimSpace(out) != "Sent 11 bytes to pane-1" {
 		t.Fatalf("send-keys --wait ready output = %q", out)
 	}
 
-	h.waitFor("pane-1", "TASK:ship it")
+	h.waitFor("pane-1", "READY")
+	h.waitIdle("pane-1")
+}
+
+func TestWaitReadyRejectsRemovedContinueFlag(t *testing.T) {
+	t.Parallel()
+
+	h := newServerHarness(t)
+
+	out := h.runCmd("wait", "ready", "pane-1", "--continue-known-dialogs")
+	if strings.TrimSpace(out) != "wait ready: --continue-known-dialogs was removed; ready now waits for vt-idle + idle" {
+		t.Fatalf("wait-ready removed-flag error = %q", out)
+	}
+}
+
+func TestSendKeysWaitReadyRejectsRemovedContinueFlag(t *testing.T) {
+	t.Parallel()
+
+	h := newServerHarness(t)
+
+	out := h.runCmd("send-keys", "pane-1", "--wait", "ready", "--continue-known-dialogs", "ship it")
+	if strings.TrimSpace(out) != "send-keys: --continue-known-dialogs was removed; ready now waits for vt-idle + idle" {
+		t.Fatalf("send-keys removed-flag error = %q", out)
+	}
+}
+
+func TestWaitReadyRequiresIdleAfterVTOutputQuiesces(t *testing.T) {
+	t.Parallel()
+
+	h := newServerHarness(t)
+
+	h.sendKeys("pane-1", "sh -c 'echo START; sleep 4'", "Enter")
+	h.waitFor("pane-1", "START")
+
+	out := h.runCmd("wait", "ready", "pane-1", "--timeout", "3s")
+	if !strings.Contains(out, "timeout waiting for pane-1 to become ready") {
+		t.Fatalf("wait-ready timeout output = %q", out)
+	}
+
+	h.waitIdle("pane-1")
 }

@@ -32,7 +32,7 @@ func TestMainSendKeysUsageIncludesWaitReadyFlags(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("exit code = %d, want 1\n%s", code, out)
 	}
-	if !strings.Contains(out, "usage: amux send-keys <pane> [--wait ready|ui=input-idle] [--continue-known-dialogs] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>...") {
+	if !strings.Contains(out, "usage: amux send-keys <pane> [--wait ready|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>...") {
 		t.Fatalf("usage output missing wait-ready flags:\n%s", out)
 	}
 }
@@ -48,12 +48,12 @@ func TestMainKeyCommandsHelpFlagsPrintUsage(t *testing.T) {
 		{
 			name: "send-keys long help",
 			args: []string{"send-keys", "pane-1", "--help"},
-			want: "usage: amux send-keys <pane> [--wait ready|ui=input-idle] [--continue-known-dialogs] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>...",
+			want: "usage: amux send-keys <pane> [--wait ready|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>...",
 		},
 		{
 			name: "send-keys short help",
 			args: []string{"send-keys", "pane-1", "-h"},
-			want: "usage: amux send-keys <pane> [--wait ready|ui=input-idle] [--continue-known-dialogs] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>...",
+			want: "usage: amux send-keys <pane> [--wait ready|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>...",
 		},
 		{
 			name: "type-keys long help",
