@@ -42,7 +42,7 @@ func TestWaitReadyRejectsRemovedContinueFlag(t *testing.T) {
 	h := newServerHarness(t)
 
 	out := h.runCmd("wait", "ready", "pane-1", "--continue-known-dialogs")
-	if strings.TrimSpace(out) != "wait ready: --continue-known-dialogs was removed; ready now waits for vt-idle + idle" {
+	if strings.TrimSpace(out) != "amux wait: wait ready: --continue-known-dialogs was removed; ready now waits for vt-idle + idle" {
 		t.Fatalf("wait-ready removed-flag error = %q", out)
 	}
 }
@@ -53,7 +53,7 @@ func TestSendKeysWaitReadyRejectsRemovedContinueFlag(t *testing.T) {
 	h := newServerHarness(t)
 
 	out := h.runCmd("send-keys", "pane-1", "--wait", "ready", "--continue-known-dialogs", "ship it")
-	if strings.TrimSpace(out) != "send-keys: --continue-known-dialogs was removed; ready now waits for vt-idle + idle" {
+	if strings.TrimSpace(out) != "amux send-keys: send-keys: --continue-known-dialogs was removed; ready now waits for vt-idle + idle" {
 		t.Fatalf("send-keys removed-flag error = %q", out)
 	}
 }
@@ -71,5 +71,5 @@ func TestWaitReadyRequiresIdleAfterVTOutputQuiesces(t *testing.T) {
 		t.Fatalf("wait-ready timeout output = %q", out)
 	}
 
-	h.waitIdle("pane-1")
+	stopLongRunningCommand(t, h, "pane-1")
 }

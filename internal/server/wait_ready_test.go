@@ -225,7 +225,7 @@ func TestWaitReadyReturnsWhenPaneIsIdleAndVTIdle(t *testing.T) {
 	srv, sess, pane, cleanup := setupWaitReadyTestPane(t, nil)
 	defer cleanup()
 
-	pane.SetCreatedAt(time.Now().Add(-time.Second))
+	pane.SetCreatedAt(time.Now().Add(-3 * time.Second))
 
 	res := runTestCommand(t, srv, sess, "wait", "ready", "pane-1", "--timeout", "50ms")
 	if res.cmdErr != "" || strings.TrimSpace(res.output) != "ready" {

@@ -61,6 +61,15 @@ func resetTimer(timer Timer, d time.Duration) {
 	timer.Reset(d)
 }
 
+func stopTimer(timer Timer) {
+	if !timer.Stop() {
+		select {
+		case <-timer.C():
+		default:
+		}
+	}
+}
+
 func cmdWaitVTIdle(ctx *CommandContext) {
 	paneRef, opts, err := parseWaitVTIdleArgs(ctx.Args)
 	if err != nil {
