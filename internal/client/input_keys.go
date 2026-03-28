@@ -45,15 +45,10 @@ func normalizeLocalInput(raw []byte) []byte {
 }
 
 func forwardedBytesForDecodedInput(decoded decodedInputEvent) []byte {
-	if _, ok := decoded.event.(uv.KeyPressEvent); !ok {
-		return append([]byte(nil), decoded.raw...)
-	}
-
-	normalized := normalizeLocalInput(decoded.raw)
-	if len(normalized) == 0 {
-		return append([]byte(nil), decoded.raw...)
-	}
-	return normalized
+	// Preserve the original bytes for pane forwarding. Local bindings and copy
+	// mode normalize decoded keypresses separately, but applications inside the
+	// pane should see the richer keyboard protocol bytes the outer terminal sent.
+	return append([]byte(nil), decoded.raw...)
 }
 
 func keyPressMatchesByte(key uv.KeyPressEvent, want byte) bool {
