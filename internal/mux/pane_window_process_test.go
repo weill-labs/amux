@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -634,14 +635,18 @@ func TestAgentStatusTreatsPromptTimeBashSelfForkAsIdle(t *testing.T) {
 	// Keep this serialized within the package for the same reason as the other
 	// AgentStatus test: it shells out repeatedly and inspects a live PTY-backed
 	// process tree.
-	markerFile := filepath.Join(t.TempDir(), "prompt-marker")
+	dir := t.TempDir()
+	markerFile := filepath.Join(dir, "prompt-marker")
+	readyFile := filepath.Join(dir, "ready")
 	pane := newBashPromptSelfForkTestPane(t, markerFile)
 
-	if _, err := pane.Write([]byte("echo READY\n")); err != nil {
+	cmd := "printf READY > " + strconv.Quote(readyFile) + "\n"
+	if _, err := pane.Write([]byte(cmd)); err != nil {
 		t.Fatalf("write trigger command: %v", err)
 	}
 	waitUntil(t, time.Second, func() bool {
-		return pane.ScreenContains("READY")
+		data, err := os.ReadFile(readyFile)
+		return err == nil && string(data) == "READY"
 	})
 	waitUntil(t, time.Second, func() bool {
 		_, err := os.Stat(markerFile)
