@@ -20,7 +20,7 @@ const tokenKeyGap = 50 * time.Millisecond
 
 const (
 	broadcastUsage              = "usage: broadcast (--panes <pane,pane,...> | --window <index|name> | --match <glob>) [--hex] <keys>..."
-	sendKeysUsage               = "usage: send-keys <pane> [--wait ready|ui=input-idle] [--continue-known-dialogs] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>..."
+	sendKeysUsage               = "usage: send-keys <pane> [--wait ready|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>..."
 	typeKeysUsage               = "usage: type-keys [--wait ui=input-idle] [--timeout <duration>] [--hex] <keys>..."
 	delegateUsage               = "usage: delegate <pane> [--timeout <duration>] [--start-timeout <duration>] [--hex] <keys>..."
 	defaultCommandUIWaitTimeout = 5 * time.Second
@@ -155,10 +155,7 @@ func cmdSendKeys(ctx *CommandContext) {
 	}
 	switch opts.waitTarget {
 	case sendKeysWaitReady:
-		if err := waitForPaneReady(ctx.Sess, ctx.Args[0], pane, waitReadyOptions{
-			timeout:              opts.waitTimeout,
-			continueKnownDialogs: opts.continueKnownDialogs,
-		}); err != nil {
+		if err := waitForPaneReady(ctx.Sess, ctx.Args[0], pane, waitReadyOptions{timeout: opts.waitTimeout}); err != nil {
 			ctx.replyErr(err.Error())
 			return
 		}

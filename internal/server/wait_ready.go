@@ -2,24 +2,19 @@ package server
 
 import (
 	"fmt"
-	"strings"
 	"time"
-	"unicode"
-	"unicode/utf8"
 
 	"github.com/weill-labs/amux/internal/mux"
 )
 
 const (
-	waitReadyUsage = "usage: wait ready <pane> [--timeout <duration>] [--continue-known-dialogs]"
-
-	codexTrustDialogQuestion = "Do you trust the contents of this directory?"
-	codexTrustDialogWarning  = "higher risk of prompt injection."
+	waitReadyUsage                    = "usage: wait ready <pane> [--timeout <duration>]"
+	waitReadyRemovedContinueFlagErr   = "wait ready: --continue-known-dialogs was removed; ready now waits for vt-idle + idle"
+	sendKeysRemovedContinueFlagErr    = "send-keys: --continue-known-dialogs was removed; ready now waits for vt-idle + idle"
 )
 
 type waitReadyOptions struct {
-	timeout              time.Duration
-	continueKnownDialogs bool
+	timeout time.Duration
 }
 
 type sendKeysWaitTarget int
@@ -31,24 +26,16 @@ const (
 )
 
 type sendKeysOptions struct {
-	waitTarget           sendKeysWaitTarget
-	waitTimeout          time.Duration
-	continueKnownDialogs bool
-	delayFinal           time.Duration
-	hexMode              bool
-	keys                 []string
+	waitTarget  sendKeysWaitTarget
+	waitTimeout time.Duration
+	delayFinal  time.Duration
+	hexMode     bool
+	keys        []string
 }
 
-type paneReadinessState int
-
-const (
-	paneReadinessPending paneReadinessState = iota
-	paneReadinessReady
-	paneReadinessBlockedKnownDialog
-)
-
-type paneReadiness struct {
-	state paneReadinessState
+type paneReadyState struct {
+	pane   *mux.Pane
+	vtIdle vtIdleWaitState
 }
 
 func cmdWaitReady(ctx *CommandContext) {
@@ -79,7 +66,7 @@ func parseWaitReadyArgs(args []string) (string, waitReadyOptions, error) {
 	for i := 1; i < len(args); i++ {
 		switch args[i] {
 		case "--continue-known-dialogs":
-			opts.continueKnownDialogs = true
+			return "", waitReadyOptions{}, fmt.Errorf(waitReadyRemovedContinueFlagErr)
 		case "--timeout":
 			if i+1 >= len(args) {
 				return "", waitReadyOptions{}, fmt.Errorf("missing value for --timeout")
@@ -121,8 +108,7 @@ func parseSendKeysArgs(args []string) (sendKeysOptions, error) {
 		case "--wait-ready":
 			return sendKeysOptions{}, fmt.Errorf("send-keys: --wait-ready was removed; use --wait ready")
 		case "--continue-known-dialogs":
-			opts.continueKnownDialogs = true
-			i++
+			return sendKeysOptions{}, fmt.Errorf(sendKeysRemovedContinueFlagErr)
 		case "--timeout":
 			if i+1 >= len(args) {
 				return sendKeysOptions{}, fmt.Errorf("missing value for --timeout")
@@ -155,9 +141,6 @@ func parseSendKeysArgs(args []string) (sendKeysOptions, error) {
 		}
 	}
 
-	if opts.continueKnownDialogs && opts.waitTarget != sendKeysWaitReady {
-		return sendKeysOptions{}, fmt.Errorf("send-keys: --continue-known-dialogs requires --wait ready")
-	}
 	if timeoutSet && opts.waitTarget == sendKeysNoWait {
 		return sendKeysOptions{}, fmt.Errorf("send-keys: --timeout requires --wait ready or --wait ui=input-idle")
 	}
@@ -171,122 +154,103 @@ func waitForPaneReady(sess *Session, paneRef string, paneRefData resolvedPaneRef
 	}
 	defer sess.enqueuePaneOutputUnsubscribe(paneRefData.paneID, outputCh)
 
-	timeoutTimer := time.NewTimer(opts.timeout)
-	defer timeoutTimer.Stop()
+	clk := sess.clock()
+	timeoutTimer := clk.NewTimer(opts.timeout)
+	defer stopTimer(timeoutTimer)
 
-	continuedKnownDialog := false
-	for {
-		readiness, err := inspectPaneReadiness(sess, paneRefData.paneID)
+	settleTimer := clk.NewTimer(opts.timeout)
+	stopTimer(settleTimer)
+	defer stopTimer(settleTimer)
+	settleActive := false
+
+	syncReady := func() (bool, error) {
+		state, err := queryPaneReadyState(sess, paneRefData.paneID)
 		if err != nil {
-			return fmt.Errorf("pane %q disappeared while waiting to become ready", paneRef)
+			return false, fmt.Errorf("pane %q disappeared while waiting to become ready", paneRef)
 		}
 
-		switch readiness.state {
-		case paneReadinessReady:
-			return nil
-		case paneReadinessBlockedKnownDialog:
-			if !opts.continueKnownDialogs {
-				return fmt.Errorf("Codex trust dialog is blocking input in %s; rerun with --continue-known-dialogs or trust the repo first", paneRef)
+		remaining := state.vtIdle.remaining(sess.vtIdleSettle(), clk.Now())
+		if remaining > 0 {
+			if settleActive {
+				resetTimer(settleTimer, remaining)
+			} else {
+				// Safe to Reset directly here: either the timer has never been
+				// armed, or we just consumed its tick from settleCh and cleared
+				// settleActive, so there is no unread value left to drain.
+				settleTimer.Reset(remaining)
+				settleActive = true
 			}
-			if !continuedKnownDialog {
-				enterChunks, err := encodeKeyChunks(false, []string{"Enter"})
-				if err != nil {
-					return err
-				}
-				if err := sess.enqueuePacedPaneInput(paneRefData.pane, enterChunks); err != nil {
-					return err
-				}
-				continuedKnownDialog = true
-			}
+			return false, nil
+		}
+
+		if settleActive {
+			stopTimer(settleTimer)
+			settleActive = false
+		}
+
+		return state.pane.AgentStatus().Idle, nil
+	}
+
+	ready, err := syncReady()
+	if err != nil {
+		return err
+	}
+	if ready {
+		return nil
+	}
+
+	for {
+		var settleCh <-chan time.Time
+		if settleActive {
+			settleCh = settleTimer.C()
 		}
 
 		select {
 		case <-outputCh:
-		case <-timeoutTimer.C:
+		case <-settleCh:
+			settleActive = false
+		case <-timeoutTimer.C():
 			return fmt.Errorf("timeout waiting for %s to become ready", paneRef)
 		}
+
+		ready, err := syncReady()
+		if err != nil {
+			return err
+		}
+		if ready {
+			return nil
+		}
 	}
 }
 
-func inspectPaneReadiness(sess *Session, paneID uint32) (paneReadiness, error) {
-	pane, err := enqueueSessionQuery(sess, func(sess *Session) (*mux.Pane, error) {
-		return sess.findPaneByID(paneID), nil
+func queryPaneReadyState(sess *Session, paneID uint32) (paneReadyState, error) {
+	state, err := enqueueSessionQuery(sess, func(sess *Session) (paneReadyState, error) {
+		pane := sess.findPaneByID(paneID)
+		if pane == nil {
+			return paneReadyState{}, nil
+		}
+
+		var lastOutput time.Time
+		hasLastOutput := false
+		if sess.vtIdle != nil {
+			lastOutput, hasLastOutput = sess.vtIdle.LastOutput(paneID)
+		}
+
+		return paneReadyState{
+			pane: pane,
+			vtIdle: vtIdleWaitState{
+				createdAt:     pane.CreatedAt(),
+				lastOutput:    lastOutput,
+				hasLastOutput: hasLastOutput,
+				exists:        true,
+			},
+		}, nil
 	})
 	if err != nil {
-		return paneReadiness{}, err
+		return paneReadyState{}, err
 	}
-	if pane == nil {
-		return paneReadiness{}, fmt.Errorf("pane missing")
+	if state.pane == nil {
+		return paneReadyState{}, fmt.Errorf("pane missing")
 	}
-
-	snap := pane.CaptureSnapshot()
-	return classifyPaneReadiness(snap), nil
-}
-
-func classifyPaneReadiness(snap mux.CaptureSnapshot) paneReadiness {
-	if isCodexTrustDialog(snap.Content) {
-		return paneReadiness{state: paneReadinessBlockedKnownDialog}
-	}
-
-	cursorRow, ok := readinessCursorRow(snap)
-	if !ok || cursorRow < 0 || cursorRow >= len(snap.Content) {
-		return paneReadiness{state: paneReadinessPending}
-	}
-
-	line := strings.TrimLeftFunc(snap.Content[cursorRow], unicode.IsSpace)
-	if !isReadyPromptLine(line) {
-		return paneReadiness{state: paneReadinessPending}
-	}
-	return paneReadiness{state: paneReadinessReady}
-}
-
-func isCodexTrustDialog(lines []string) bool {
-	foundQuestion := false
-	foundWarning := false
-	for _, line := range lines {
-		if strings.Contains(line, codexTrustDialogQuestion) {
-			foundQuestion = true
-		}
-		if strings.Contains(line, codexTrustDialogWarning) {
-			foundWarning = true
-		}
-	}
-	return foundQuestion && foundWarning
-}
-
-func readinessCursorRow(snap mux.CaptureSnapshot) (int, bool) {
-	if !snap.CursorHidden {
-		return snap.CursorRow, true
-	}
-	if snap.HasCursorBlock {
-		return snap.CursorBlockRow, true
-	}
-	return 0, false
-}
-
-func isReadyPromptLine(line string) bool {
-	if line == "" {
-		return false
-	}
-	if isNumberedPromptOption(line) {
-		return false
-	}
-	return strings.HasPrefix(line, ">") || strings.HasPrefix(line, "›") || strings.HasPrefix(line, "❯")
-}
-
-func isNumberedPromptOption(line string) bool {
-	if line == "" {
-		return false
-	}
-	if !(strings.HasPrefix(line, ">") || strings.HasPrefix(line, "›") || strings.HasPrefix(line, "❯")) {
-		return false
-	}
-
-	_, size := utf8.DecodeRuneInString(line)
-	rest := strings.TrimLeftFunc(line[size:], unicode.IsSpace)
-	if rest == "" {
-		return false
-	}
-	r, _ := utf8.DecodeRuneInString(rest)
-	return unicode.IsDigit(r)
+	return state, nil
 }

@@ -27,7 +27,7 @@ import (
 const defaultSessionName = server.DefaultSessionName
 
 const (
-	sendKeysUsage = "usage: amux send-keys <pane> [--wait ready|ui=input-idle] [--continue-known-dialogs] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>..."
+	sendKeysUsage = "usage: amux send-keys <pane> [--wait ready|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>..."
 	typeKeysUsage = "usage: amux type-keys [--wait ui=input-idle] [--timeout <duration>] [--hex] <keys>..."
 	delegateUsage = "usage: amux delegate <pane> [--timeout <duration>] [--start-timeout <duration>] [--hex] <keys>..."
 )
@@ -502,7 +502,7 @@ Usage:
                                        Capture a pane's retained history + visible screen
   amux [-s session] capture --ansi     Capture with ANSI escape codes
   amux [-s session] capture --colors   Capture border color map
-  amux [-s session] send-keys <pane> [--wait ready|ui=input-idle] [--continue-known-dialogs] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>...
+  amux [-s session] send-keys <pane> [--wait ready|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>...
                                        Send keystrokes to a pane
   amux [-s session] broadcast (--panes <pane,pane,...> | --window <index|name> | --match <glob>) [--hex] <keys>...
                                        Send the same keystrokes to multiple panes
@@ -570,8 +570,8 @@ Usage:
                                        Block until the next clipboard write after the cursor
   amux [-s session] wait content <pane> <substring> [--timeout 3s]
                                        Block until substring appears in pane
-  amux [-s session] wait ready <pane> [--timeout 10s] [--continue-known-dialogs]
-                                       Block until an agent pane reaches its input prompt
+  amux [-s session] wait ready <pane> [--timeout 10s]
+                                       Block until pane VT output settles and no child processes remain
   amux [-s session] wait vt-idle <pane> [--settle 2s] [--timeout 60s]
                                        Block until pane VT output quiesces
   amux [-s session] wait busy <pane> [--timeout 5s]

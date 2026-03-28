@@ -192,7 +192,7 @@ Block until a condition is met. No polling.
 | `wait vt-idle <pane>` | Block until pane terminal output settles | 60s |
 | `wait busy <pane>` | Block until pane has a child process | 5s |
 | `wait content <pane> <substring>` | Block until substring appears in pane content | 10s |
-| `wait ready <pane>` | Block until an agent prompt is ready for input | 10s |
+| `wait ready <pane>` | Block until pane VT output settles and no child processes remain | 10s |
 | `wait layout [--after N]` | Block until layout generation exceeds N | 3s |
 | `wait clipboard [--after N]` | Block until clipboard content changes | 3s |
 | `wait checkpoint [--after N]` | Block until a crash checkpoint write completes | 15s |
@@ -203,7 +203,7 @@ Block until a condition is met. No polling.
 
 `wait vt-idle` also accepts `--settle <duration>` (default `2s`). All wait commands accept `--timeout <duration>` (e.g., `--timeout 30s`).
 
-`wait ready` looks for common agent prompt rows (`>`, `›`, `❯`) at the active input cursor. For Codex's trust / prompt-injection screen, `wait ready` reports the blocker by default and `--continue-known-dialogs` sends one `Enter` before resuming the wait.
+`wait ready` is the conjunction of `wait vt-idle` and `wait idle`: the visible screen has stopped changing and the pane has no foreground child processes. It does not inspect prompt text, so custom shell prompts work the same as agent prompts.
 
 ### Event Stream
 
@@ -300,7 +300,7 @@ All commands accept `-s <session>` to target a specific session. Panes are refer
 | `amux spawn --name NAME [--host HOST] [--task TASK]` | Spawn a new named pane without changing focus |
 | `amux zoom [pane]` | Toggle zoom on a pane |
 | `amux kill [pane]` | Kill a pane (default: active) |
-| `amux send-keys <pane> [--wait ready\|ui=input-idle] [--continue-known-dialogs] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>...` | Send keystrokes to a pane |
+| `amux send-keys <pane> [--wait ready\|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>...` | Send keystrokes to a pane |
 | `amux delegate <pane> [--timeout <duration>] [--start-timeout <duration>] [--hex] <keys>...` | Type a prompt into a pane, submit it, and wait for the agent to start |
 | `amux broadcast (--panes <pane,pane,...> \| --window <index\|name> \| --match <glob>) [--hex] <keys>...` | Send the same keystrokes to multiple panes |
 | `amux swap <p1> <p2>` | Swap two panes |
@@ -339,7 +339,7 @@ All commands accept `-s <session>` to target a specific session. Panes are refer
 | `amux wait vt-idle <pane> [--settle 2s] [--timeout 60s]` | Block until pane VT output quiesces |
 | `amux wait busy <pane> [--timeout 5s]` | Block until pane has child processes |
 | `amux wait content <pane> <substring> [--timeout 10s]` | Block until substring appears in pane |
-| `amux wait ready <pane> [--timeout 10s] [--continue-known-dialogs]` | Block until an agent prompt is ready for input |
+| `amux wait ready <pane> [--timeout 10s]` | Block until pane VT output settles and no child processes remain |
 | `amux wait layout [--after N] [--timeout 3s]` | Block until layout generation > N |
 | `amux wait clipboard [--after N] [--timeout 3s]` | Block until clipboard content changes |
 | `amux wait checkpoint [--after N] [--timeout 15s]` | Block until a crash checkpoint write completes |
