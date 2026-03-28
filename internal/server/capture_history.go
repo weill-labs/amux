@@ -122,7 +122,7 @@ func (s *Session) capturePaneDirect(args []string, target capturePaneTarget) *Me
 	case req.IncludeANSI:
 		return &Message{Type: MsgTypeCmdResult, CmdOutput: target.pane.Render() + "\n"}
 	default:
-		return &Message{Type: MsgTypeCmdResult, CmdOutput: strings.Join(capturePane.Content, "\n") + "\n"}
+		return &Message{Type: MsgTypeCmdResult, CmdOutput: strings.Join(caputil.TrimOuterBlankRows(capturePane.Content), "\n") + "\n"}
 	}
 }
 

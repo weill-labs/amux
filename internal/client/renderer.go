@@ -365,7 +365,7 @@ func (r *Renderer) CapturePaneText(paneID uint32, includeANSI bool) string {
 		if includeANSI {
 			return filterRenderedANSI(emu.Render(), snap.capabilities)
 		}
-		return strings.Join(mux.EmulatorContentLines(emu), "\n")
+		return strings.Join(caputil.TrimOuterBlankRows(mux.EmulatorContentLines(emu)), "\n")
 	})
 }
 

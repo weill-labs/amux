@@ -434,3 +434,34 @@ func TestCaptureWithSplit(t *testing.T) {
 		t.Errorf("amux capture should contain both pane names, got:\n%s", out)
 	}
 }
+
+func TestCaptureSingleSplitPaneTrimsLeadingBlankRows(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	scriptPath := filepath.Join(t.TempDir(), "split-centered.sh")
+	script := "#!/bin/bash\n" +
+		"clear\n" +
+		"for i in $(seq 1 12); do printf '\\n'; done\n" +
+		"printf 'CENTERED_SPLIT\\n'\n"
+	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
+		t.Fatalf("writing centered script: %v", err)
+	}
+
+	h.splitV()
+	h.sendKeys("pane-2", scriptPath, "Enter")
+	h.waitFor("pane-2", "CENTERED_SPLIT")
+
+	full := h.capture()
+	if !strings.Contains(full, "CENTERED_SPLIT") {
+		t.Fatalf("full capture should include centered split-pane content, got:\n%s", full)
+	}
+
+	plain := h.runCmd("capture", "pane-2")
+	if strings.HasPrefix(plain, "\n") {
+		t.Fatalf("single-pane capture should trim leading blank rows, got:\n%q", plain)
+	}
+	if !strings.Contains(plain, "CENTERED_SPLIT") {
+		t.Fatalf("single-pane capture should include centered split-pane content, got:\n%s", plain)
+	}
+}
