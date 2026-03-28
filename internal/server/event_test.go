@@ -2,11 +2,23 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
+	"image/color"
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/x/ansi"
+	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
 )
+
+func eventHexColor(c color.Color) string {
+	if c == nil {
+		return ""
+	}
+	r, g, b, _ := c.RGBA()
+	return fmt.Sprintf("%02x%02x%02x", uint8(r>>8), uint8(g>>8), uint8(b>>8))
+}
 
 func TestEventFilterMatchesAll(t *testing.T) {
 	t.Parallel()
@@ -144,6 +156,98 @@ func TestEventJSONOmitsZeroFields(t *testing.T) {
 	}
 	if _, ok := raw["reason"]; ok {
 		t.Error("reason should be omitted when empty")
+	}
+}
+
+func TestTerminalEventsInitialSnapshotAndUpdates(t *testing.T) {
+	t.Parallel()
+
+	sess := newSession("test-terminal-events")
+	stopCrashCheckpointLoop(t, sess)
+	defer stopSessionBackgroundLoops(t, sess)
+
+	pane := newTestPane(sess, 1, "pane-1")
+	pane.FeedOutput([]byte(
+		"\x1b]10;#112233\x07" +
+			"\x1b]11;#445566\x07" +
+			"\x1b]12;#778899\x07" +
+			"\x1b]8;;https://example.com\x07" +
+			"\x1b[6 q" +
+			"\x1b[?1049h",
+	))
+
+	window := newTestWindowWithPanes(t, sess, 1, "main", pane)
+	sess.Windows = []*mux.Window{window}
+	sess.ActiveWindowID = window.ID
+	sess.Panes = []*mux.Pane{pane}
+
+	res := sess.enqueueEventSubscribe(eventFilter{Types: []string{EventTerminal}}, true)
+	if res.sub == nil {
+		t.Fatal("terminal subscribe returned nil subscription")
+	}
+	defer sess.enqueueEventUnsubscribe(res.sub)
+
+	if got := len(res.initialState); got != 1 {
+		t.Fatalf("initial terminal events = %d, want 1", got)
+	}
+
+	var initial Event
+	if err := json.Unmarshal(res.initialState[0], &initial); err != nil {
+		t.Fatalf("json.Unmarshal initial: %v", err)
+	}
+	if initial.Type != EventTerminal {
+		t.Fatalf("initial event type = %q, want %q", initial.Type, EventTerminal)
+	}
+	if initial.Cursor == nil {
+		t.Fatal("initial cursor metadata should be present")
+	}
+	if initial.Cursor.Style != "bar" || initial.Cursor.Blinking {
+		t.Fatalf("initial cursor = %+v, want steady bar", initial.Cursor)
+	}
+	if initial.Terminal == nil {
+		t.Fatal("initial terminal metadata should be present")
+	}
+	if !initial.Terminal.AltScreen {
+		t.Fatal("initial alt_screen = false, want true")
+	}
+	if initial.Terminal.ForegroundColor != "112233" {
+		t.Fatalf("initial foreground_color = %q, want 112233", initial.Terminal.ForegroundColor)
+	}
+	if initial.Terminal.BackgroundColor != "445566" {
+		t.Fatalf("initial background_color = %q, want 445566", initial.Terminal.BackgroundColor)
+	}
+	if initial.Terminal.CursorColor != "778899" {
+		t.Fatalf("initial cursor_color = %q, want 778899", initial.Terminal.CursorColor)
+	}
+	if initial.Terminal.Hyperlink == nil || initial.Terminal.Hyperlink.URL != "https://example.com" {
+		t.Fatalf("initial hyperlink = %+v, want active https://example.com", initial.Terminal.Hyperlink)
+	}
+	if got, want := initial.Terminal.Palette[3], eventHexColor(ansi.IndexedColor(3)); got != want {
+		t.Fatalf("initial palette[3] = %q, want %q", got, want)
+	}
+
+	pane.FeedOutput([]byte("\x1b]10;#abcdef\x07\x1b[4 q"))
+
+	select {
+	case data := <-res.sub.ch:
+		var updated Event
+		if err := json.Unmarshal(data, &updated); err != nil {
+			t.Fatalf("json.Unmarshal update: %v", err)
+		}
+		if updated.Type != EventTerminal {
+			t.Fatalf("updated event type = %q, want %q", updated.Type, EventTerminal)
+		}
+		if updated.Cursor == nil || updated.Cursor.Style != "underline" || updated.Cursor.Blinking {
+			t.Fatalf("updated cursor = %+v, want steady underline", updated.Cursor)
+		}
+		if updated.Terminal == nil {
+			t.Fatal("updated terminal metadata should be present")
+		}
+		if updated.Terminal.ForegroundColor != "abcdef" {
+			t.Fatalf("updated foreground_color = %q, want abcdef", updated.Terminal.ForegroundColor)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for terminal update event")
 	}
 }
 

@@ -3,11 +3,13 @@ package client
 import (
 	"encoding/json"
 	"fmt"
+	"image/color"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
 	"github.com/weill-labs/amux/internal/render"
@@ -122,6 +124,14 @@ func buildTestRenderer(t *testing.T) *ClientRenderer {
 	cr.HandleLayout(twoPane80x23())
 	cr.HandlePaneOutput(1, []byte("hello from pane 1"))
 	return cr
+}
+
+func captureHexColor(c color.Color) string {
+	if c == nil {
+		return ""
+	}
+	r, g, b, _ := c.RGBA()
+	return fmt.Sprintf("%02x%02x%02x", uint8(r>>8), uint8(g>>8), uint8(b>>8))
 }
 
 func TestClientRendererCapabilities(t *testing.T) {
@@ -336,6 +346,75 @@ func TestClientRendererCaptureJSON(t *testing.T) {
 		if p.Name == "pane-1" && !p.Idle {
 			t.Error("pane-1 should be idle with agent status applied")
 		}
+	}
+}
+
+func TestClientRendererCaptureJSONIncludesTerminalMetadata(t *testing.T) {
+	t.Parallel()
+
+	cr := NewClientRenderer(80, 24)
+	cr.HandleLayout(twoPane80x23())
+	cr.HandlePaneOutput(1, []byte(
+		"\x1b]10;#112233\x07"+
+			"\x1b]11;#445566\x07"+
+			"\x1b]12;#778899\x07"+
+			"\x1b]8;;https://example.com\x07"+
+			"\x1b[6 q"+
+			"\x1b[?1049h",
+	))
+
+	out := cr.CaptureJSON(nil)
+	var capture proto.CaptureJSON
+	if err := json.Unmarshal([]byte(out), &capture); err != nil {
+		t.Fatalf("JSON parse: %v\nraw: %s", err, out)
+	}
+
+	var pane *proto.CapturePane
+	for i := range capture.Panes {
+		if capture.Panes[i].ID == 1 {
+			pane = &capture.Panes[i]
+			break
+		}
+	}
+	if pane == nil {
+		t.Fatal("pane-1 missing from capture")
+	}
+
+	if pane.Cursor.Style != "bar" {
+		t.Fatalf("cursor style = %q, want bar", pane.Cursor.Style)
+	}
+	if pane.Cursor.Blinking {
+		t.Fatal("cursor blinking = true, want false for DECSCUSR 6")
+	}
+	if pane.Terminal == nil {
+		t.Fatal("terminal metadata should be present")
+	}
+	if !pane.Terminal.AltScreen {
+		t.Fatal("alt_screen = false, want true")
+	}
+	if pane.Terminal.ForegroundColor != "112233" {
+		t.Fatalf("foreground_color = %q, want 112233", pane.Terminal.ForegroundColor)
+	}
+	if pane.Terminal.BackgroundColor != "445566" {
+		t.Fatalf("background_color = %q, want 445566", pane.Terminal.BackgroundColor)
+	}
+	if pane.Terminal.CursorColor != "778899" {
+		t.Fatalf("cursor_color = %q, want 778899", pane.Terminal.CursorColor)
+	}
+	if pane.Terminal.Hyperlink == nil || pane.Terminal.Hyperlink.URL != "https://example.com" {
+		t.Fatalf("hyperlink = %+v, want active https://example.com", pane.Terminal.Hyperlink)
+	}
+	if pane.Terminal.Mouse == nil {
+		t.Fatal("mouse metadata should be present")
+	}
+	if pane.Terminal.Mouse.Tracking != "none" {
+		t.Fatalf("mouse tracking = %q, want none", pane.Terminal.Mouse.Tracking)
+	}
+	if got := len(pane.Terminal.Palette); got != 256 {
+		t.Fatalf("palette len = %d, want 256", got)
+	}
+	if got, want := pane.Terminal.Palette[1], captureHexColor(ansi.IndexedColor(1)); got != want {
+		t.Fatalf("palette[1] = %q, want %q", got, want)
 	}
 }
 

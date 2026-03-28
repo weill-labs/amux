@@ -3,6 +3,8 @@ package server
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
+	"image/color"
 	"net"
 	"reflect"
 	"strings"
@@ -10,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
@@ -52,6 +55,14 @@ func newStandaloneProxyPane(id uint32, name string) *mux.Pane {
 	}, 80, 23, mux.DefaultScrollbackLines, nil, nil, func(data []byte) (int, error) {
 		return len(data), nil
 	})
+}
+
+func testCaptureHexColor(c color.Color) string {
+	if c == nil {
+		return ""
+	}
+	r, g, b, _ := c.RGBA()
+	return fmt.Sprintf("%02x%02x%02x", uint8(r>>8), uint8(g>>8), uint8(b>>8))
 }
 
 func mustReadMessage(t *testing.T, conn net.Conn) *Message {
@@ -416,6 +427,75 @@ func TestCommandCaptureHistoryAndWaitCommands(t *testing.T) {
 	waitBusyRes := runTestCommand(t, srv, sess, "wait", "busy", "pane-1", "--timeout", "1ms")
 	if !strings.Contains(waitBusyRes.cmdErr, "timeout waiting for pane-1 to become busy") {
 		t.Fatalf("wait-busy timeout error = %q", waitBusyRes.cmdErr)
+	}
+}
+
+func TestCommandCaptureJSONIncludesTerminalMetadata(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	p1 := newStandaloneProxyPane(1, "pane-1")
+	p1.FeedOutput([]byte(
+		"\x1b]10;#112233\x07" +
+			"\x1b]11;#445566\x07" +
+			"\x1b]12;#778899\x07" +
+			"\x1b]8;;https://example.com\x07" +
+			"\x1b[6 q" +
+			"\x1b[?1049h",
+	))
+
+	w := newTestWindowWithPanes(t, sess, 1, "main", p1)
+	sess.Windows = []*mux.Window{w}
+	sess.ActiveWindowID = w.ID
+	sess.Panes = []*mux.Pane{p1}
+
+	res := runTestCommand(t, srv, sess, "capture", "--format", "json", "pane-1")
+	if res.cmdErr != "" {
+		t.Fatalf("capture cmdErr = %q", res.cmdErr)
+	}
+
+	var pane proto.CapturePane
+	if err := json.Unmarshal([]byte(res.output), &pane); err != nil {
+		t.Fatalf("JSON parse: %v\nraw: %s", err, res.output)
+	}
+
+	if pane.Cursor.Style != "bar" {
+		t.Fatalf("cursor style = %q, want bar", pane.Cursor.Style)
+	}
+	if pane.Cursor.Blinking {
+		t.Fatal("cursor blinking = true, want false for DECSCUSR 6")
+	}
+	if pane.Terminal == nil {
+		t.Fatal("terminal metadata should be present")
+	}
+	if !pane.Terminal.AltScreen {
+		t.Fatal("alt_screen = false, want true")
+	}
+	if pane.Terminal.ForegroundColor != "112233" {
+		t.Fatalf("foreground_color = %q, want 112233", pane.Terminal.ForegroundColor)
+	}
+	if pane.Terminal.BackgroundColor != "445566" {
+		t.Fatalf("background_color = %q, want 445566", pane.Terminal.BackgroundColor)
+	}
+	if pane.Terminal.CursorColor != "778899" {
+		t.Fatalf("cursor_color = %q, want 778899", pane.Terminal.CursorColor)
+	}
+	if pane.Terminal.Hyperlink == nil || pane.Terminal.Hyperlink.URL != "https://example.com" {
+		t.Fatalf("hyperlink = %+v, want active https://example.com", pane.Terminal.Hyperlink)
+	}
+	if pane.Terminal.Mouse == nil {
+		t.Fatal("mouse metadata should be present")
+	}
+	if pane.Terminal.Mouse.Tracking != "none" {
+		t.Fatalf("mouse tracking = %q, want none", pane.Terminal.Mouse.Tracking)
+	}
+	if got := len(pane.Terminal.Palette); got != 256 {
+		t.Fatalf("palette len = %d, want 256", got)
+	}
+	if got, want := pane.Terminal.Palette[2], testCaptureHexColor(ansi.IndexedColor(2)); got != want {
+		t.Fatalf("palette[2] = %q, want %q", got, want)
 	}
 }
 
