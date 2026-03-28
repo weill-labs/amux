@@ -76,7 +76,10 @@ func applyAttachBootstrapMessage(cr *ClientRenderer, msg attachBootstrapMessage)
 	}
 }
 
-const defaultBootstrapCorrectionWindow = 50 * time.Millisecond
+const (
+	defaultBootstrapPaneReplayWait   = 50 * time.Millisecond
+	defaultBootstrapCorrectionWindow = 50 * time.Millisecond
+)
 
 func readImmediateAttachCorrection(conn net.Conn, cr *ClientRenderer, timeout time.Duration) error {
 	if err := conn.SetReadDeadline(time.Now().Add(timeout)); err != nil {
@@ -133,16 +136,29 @@ func readAttachBootstrap(conn net.Conn, cr *ClientRenderer) error {
 		remainingOutputs -= applyAttachBootstrapMessage(cr, msg)
 	}
 
-	for remainingOutputs > 0 {
-		msg, err := proto.ReadMsg(conn)
-		if err != nil {
+	if remainingOutputs > 0 {
+		if err := conn.SetReadDeadline(time.Now().Add(defaultBootstrapPaneReplayWait)); err != nil {
 			return err
 		}
-		bufferedMsg, ok := newAttachBootstrapMessage(msg)
-		if !ok {
-			return fmt.Errorf("unexpected attach bootstrap message type %d after layout", msg.Type)
+		defer conn.SetReadDeadline(time.Time{}) //nolint:errcheck // best-effort reset
+		for remainingOutputs > 0 {
+			msg, err := proto.ReadMsg(conn)
+			if err != nil {
+				if ne, ok := err.(net.Error); ok && ne.Timeout() {
+					return nil
+				}
+				return err
+			}
+			if msg.Type == proto.MsgTypeLayout {
+				cr.HandleLayout(msg.Layout)
+				continue
+			}
+			bufferedMsg, ok := newAttachBootstrapMessage(msg)
+			if !ok {
+				return fmt.Errorf("unexpected attach bootstrap message type %d after layout", msg.Type)
+			}
+			remainingOutputs -= applyAttachBootstrapMessage(cr, bufferedMsg)
 		}
-		remainingOutputs -= applyAttachBootstrapMessage(cr, bufferedMsg)
 	}
 
 	return readImmediateAttachCorrection(conn, cr, defaultBootstrapCorrectionWindow)
@@ -309,17 +325,6 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 		return fmt.Errorf("sending attach: %w", err)
 	}
 
-	// Enter raw mode + alternate screen buffer
-	oldState, err := term.MakeRaw(fd)
-	if err != nil {
-		return fmt.Errorf("raw mode: %w", err)
-	}
-	os.Stdout.Write([]byte(terminalEnterSequence(negotiatedAttachCaps)))
-	defer func() {
-		os.Stdout.Write([]byte(terminalExitSequence(negotiatedAttachCaps)))
-		term.Restore(fd, oldState)
-	}()
-
 	// Client-side renderer with per-pane emulators
 	cr := NewClientRendererWithScrollback(cols, rows, scrollbackLines)
 	cr.SetCapabilities(negotiatedAttachCaps)
@@ -332,6 +337,17 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 	if err := readAttachBootstrap(conn, cr); err != nil {
 		return fmt.Errorf("reading attach bootstrap: %w", err)
 	}
+
+	oldState, err := term.MakeRaw(fd)
+	if err != nil {
+		return fmt.Errorf("raw mode: %w", err)
+	}
+	os.Stdout.Write([]byte(terminalEnterSequence(negotiatedAttachCaps)))
+	defer func() {
+		os.Stdout.Write([]byte(terminalExitSequence(negotiatedAttachCaps)))
+		term.Restore(fd, oldState)
+	}()
+
 	if initial := cr.Render(true); initial != "" {
 		io.WriteString(os.Stdout, initial)
 	}
