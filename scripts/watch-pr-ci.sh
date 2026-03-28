@@ -39,6 +39,7 @@ watch_required_checks() {
     local pr_number="$1"
     local deadline=$((SECONDS + run_discovery_timeout))
     local output status
+    local no_checks_retries=0
     while :; do
         set +e
         output="$(gh pr checks "$pr_number" --required --watch --interval "$interval" 2>&1)"
@@ -50,7 +51,8 @@ watch_required_checks() {
         if [[ "$status" -eq 0 ]]; then
             return 0
         fi
-        if [[ "$output" == *"no checks reported"* ]] && (( SECONDS < deadline )); then
+        if [[ "$output" == *"no checks reported"* ]] && (( no_checks_retries == 0 || SECONDS < deadline )); then
+            no_checks_retries=$((no_checks_retries + 1))
             sleep "$run_discovery_interval"
             continue
         fi
