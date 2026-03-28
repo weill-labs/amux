@@ -415,8 +415,6 @@ func (e metaUpdateEvent) handle(s *Session) {
 	if e.update.Branch != nil {
 		if *e.update.Branch == "" {
 			_ = removePaneKVValue(p, mux.PaneMetaKeyBranch)
-			p.Meta.GitBranch = ""
-			p.SetMetaManualBranch(false)
 		} else {
 			_ = setPaneKVValue(p, mux.PaneMetaKeyBranch, *e.update.Branch)
 		}

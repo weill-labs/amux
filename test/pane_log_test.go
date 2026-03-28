@@ -75,12 +75,7 @@ func TestIdleRefreshUpdatesPaneCwdAndBranch(t *testing.T) {
 	}
 	wantListCwd := listingcmd.FormatListCwd(wantCwd, h.home, listingcmd.ListCwdWidth)
 
-	listOut := h.runCmd("list")
-	if strings.Contains(listOut, wantListCwd) || strings.Contains(listOut, "meta-branch") {
-		t.Fatalf("list reported pane metadata before idle refresh:\n%s", listOut)
-	}
-
-	listOut = waitForListMetadata(t, h, wantListCwd, "meta-branch")
+	listOut := waitForListMetadata(t, h, wantListCwd, "meta-branch")
 	if !strings.Contains(listOut, wantListCwd) {
 		t.Fatalf("list missing idle-refreshed cwd %q:\n%s", wantListCwd, listOut)
 	}

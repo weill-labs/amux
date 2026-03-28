@@ -34,26 +34,21 @@ if (( ${#pr_numbers[@]} > 0 )); then
     pr_entries=()
     for number in "${pr_numbers[@]}"; do
         status="unknown"
-        stale=true
         if command -v gh >/dev/null 2>&1; then
             if [[ -n "$cwd" && -d "$cwd" ]]; then
                 if merged_at="$(cd "$cwd" && gh pr view "$number" --json mergedAt --jq .mergedAt 2>/dev/null)"; then
                     if [[ -n "$merged_at" && "$merged_at" != "null" ]]; then
                         status="completed"
-                        stale=false
                     else
                         status="active"
-                        stale=false
                     fi
                 fi
             else
                 if merged_at="$(gh pr view "$number" --json mergedAt --jq .mergedAt 2>/dev/null)"; then
                     if [[ -n "$merged_at" && "$merged_at" != "null" ]]; then
                         status="completed"
-                        stale=false
                     else
                         status="active"
-                        stale=false
                     fi
                 fi
             fi
@@ -62,9 +57,7 @@ if (( ${#pr_numbers[@]} > 0 )); then
             --argjson number "$number" \
             --arg status "$status" \
             --arg checked_at "$timestamp" \
-            --argjson stale "$stale" \
-            '$stale
-            | {number: $number, status: $status, checked_at: $checked_at}
+            '{number: $number, status: $status, checked_at: $checked_at}
             | if .status == "unknown" then . + {stale: true} else . end')")
     done
     tracked_prs_json="$(printf '%s\n' "${pr_entries[@]}" | jq -cs '.')"
@@ -81,7 +74,6 @@ if (( ${#issue_ids[@]} > 0 )); then
     issue_entries=()
     for issue in "${issue_ids[@]}"; do
         status="unknown"
-        stale=true
         if [[ -n "${LINEAR_API_KEY:-}" ]] && command -v curl >/dev/null 2>&1; then
             payload="$(jq -cn --arg id "$issue" '{query: "query($id: String!) { issue(id: $id) { state { type } } }", variables: {id: $id}}')"
             if response="$(curl -fsS \
@@ -96,7 +88,6 @@ if (( ${#issue_ids[@]} > 0 )); then
                     else
                         status="active"
                     fi
-                    stale=false
                 fi
             fi
         fi
@@ -104,9 +95,7 @@ if (( ${#issue_ids[@]} > 0 )); then
             --arg id "$issue" \
             --arg status "$status" \
             --arg checked_at "$timestamp" \
-            --argjson stale "$stale" \
-            '$stale
-            | {id: $id, status: $status, checked_at: $checked_at}
+            '{id: $id, status: $status, checked_at: $checked_at}
             | if .status == "unknown" then . + {stale: true} else . end')")
     done
     tracked_issues_json="$(printf '%s\n' "${issue_entries[@]}" | jq -cs '.')"
