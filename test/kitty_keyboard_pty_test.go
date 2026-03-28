@@ -75,7 +75,7 @@ func TestPTYClientKittyKeyboardChangesPaneBytes(t *testing.T) {
 	}
 }
 
-func TestPTYClientKittyKeyboardPrintableCtrlFallbacks(t *testing.T) {
+func TestPTYClientKittyKeyboardPrintableCtrlSequences(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {

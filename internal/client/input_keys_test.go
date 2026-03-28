@@ -286,7 +286,7 @@ func TestForwardedBytesForDecodedInputUsesRawForNonKeyPress(t *testing.T) {
 	}
 }
 
-func TestForwardedBytesForDecodedInputFallsBackToRawWhenNormalizationIsEmpty(t *testing.T) {
+func TestForwardedBytesForDecodedInputHandlesEmptyRaw(t *testing.T) {
 	t.Parallel()
 
 	decoded := decodedInputEvent{
