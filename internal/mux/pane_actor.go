@@ -40,7 +40,6 @@ func (p *Pane) stopActor() {
 			<-done
 		}
 		p.actorCommands = nil
-		p.actorDone = nil
 		return
 	}
 	stopDone := make(chan struct{})
@@ -50,7 +49,6 @@ func (p *Pane) stopActor() {
 		<-done
 	}
 	p.actorCommands = nil
-	p.actorDone = nil
 }
 
 func (p *Pane) withActor(run func()) {
