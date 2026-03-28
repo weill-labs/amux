@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -756,6 +757,37 @@ func writeSignalFD(f **os.File, msg string) {
 	*f = nil
 }
 
+func restoreServerFromReloadCheckpoint(sessionName, cpPath string, scrollbackLines int) (*server.Server, error) {
+	cp, err := checkpoint.Read(cpPath)
+	if err == nil {
+		return server.NewServerFromCheckpointWithScrollback(cp, scrollbackLines)
+	}
+
+	var versionErr checkpoint.UnsupportedServerCheckpointVersionError
+	if !errors.As(err, &versionErr) || cp == nil {
+		return nil, err
+	}
+
+	restoreSessionName := sessionName
+	if cp.SessionName != "" {
+		restoreSessionName = cp.SessionName
+	}
+
+	crashPaths := checkpoint.FindCrashCheckpoints(restoreSessionName)
+	if len(crashPaths) == 0 {
+		return nil, fmt.Errorf("%w; no crash checkpoint fallback found", err)
+	}
+
+	crashPath := crashPaths[0]
+	crashCP, crashErr := checkpoint.ReadCrash(crashPath)
+	if crashErr != nil {
+		return nil, fmt.Errorf("%w; crash fallback %s: %v", err, crashPath, crashErr)
+	}
+
+	fmt.Fprintf(os.Stderr, "amux server: reload checkpoint incompatible, falling back to crash checkpoint %s\n", crashPath)
+	return server.NewServerFromCrashCheckpointWithListenerFd(restoreSessionName, cp.ListenerFd, crashCP, crashPath, scrollbackLines)
+}
+
 // ---------------------------------------------------------------------------
 // Built-in multiplexer: server daemon
 // ---------------------------------------------------------------------------
@@ -784,14 +816,9 @@ func runServer(sessionName string, managedTakeover bool) {
 	if cpPath := os.Getenv("AMUX_CHECKPOINT"); cpPath != "" {
 		os.Unsetenv("AMUX_CHECKPOINT")
 		restoredSession = true
-		cp, readErr := checkpoint.Read(cpPath)
-		if readErr != nil {
-			fmt.Fprintf(os.Stderr, "amux server: reading checkpoint: %v\n", readErr)
-			os.Exit(1)
-		}
-		s, err = server.NewServerFromCheckpointWithScrollback(cp, scrollbackLines)
+		s, err = restoreServerFromReloadCheckpoint(sessionName, cpPath, scrollbackLines)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "amux server: restoring from checkpoint: %v\n", err)
+			fmt.Fprintf(os.Stderr, "amux server: reading checkpoint: %v\n", err)
 			os.Exit(1)
 		}
 	} else if crashPath := server.DetectCrashedSession(sessionName); crashPath != "" {

@@ -43,6 +43,7 @@ func (s *Server) Reload(execPath string) error {
 		cp := &checkpoint.ServerCheckpoint{
 			Version:       checkpoint.ServerCheckpointVersion,
 			SessionName:   sess.Name,
+			StartedAt:     sess.startedAt,
 			Counter:       sess.counter.Load(),
 			WindowCounter: sess.windowCounter.Load(),
 			Generation:    sess.generation.Load(),
@@ -91,6 +92,11 @@ func (s *Server) Reload(execPath string) error {
 		return fmt.Errorf("getting listener FD: %w", err)
 	}
 	cp.ListenerFd = lnFd
+
+	if _, err := sess.writeCrashCheckpointNow(); err != nil {
+		sess.shutdown.Store(false)
+		return fmt.Errorf("writing crash checkpoint: %w", err)
+	}
 
 	// Write checkpoint to temp file
 	cpPath, err := checkpoint.Write(cp)
@@ -144,21 +150,32 @@ func restorePaneRuntimeState(pane *mux.Pane, manualBranch bool) {
 	pane.SetMetaManualBranch(manualBranch)
 }
 
+func restoreListenerFromFD(listenerFD int) (net.Listener, error) {
+	listenerFile := os.NewFile(uintptr(listenerFD), "listener")
+	if listenerFile == nil {
+		return nil, fmt.Errorf("invalid listener FD %d", listenerFD)
+	}
+	listener, err := net.FileListener(listenerFile)
+	listenerFile.Close() // FileListener dups the FD
+	if err != nil {
+		return nil, err
+	}
+	return listener, nil
+}
+
 // NewServerFromCheckpointWithScrollback restores a server from a checkpoint
 // using an explicit retained scrollback limit for restored panes.
 func NewServerFromCheckpointWithScrollback(cp *checkpoint.ServerCheckpoint, scrollbackLines int) (*Server, error) {
 	// Reconstruct listener from inherited FD
-	listenerFile := os.NewFile(uintptr(cp.ListenerFd), "listener")
-	if listenerFile == nil {
-		return nil, fmt.Errorf("invalid listener FD %d", cp.ListenerFd)
-	}
-	listener, err := net.FileListener(listenerFile)
+	listener, err := restoreListenerFromFD(cp.ListenerFd)
 	if err != nil {
 		return nil, fmt.Errorf("restoring listener: %w", err)
 	}
-	listenerFile.Close() // FileListener dups the FD
 
 	sess := newSessionWithScrollback(cp.SessionName, scrollbackLines)
+	if !cp.StartedAt.IsZero() {
+		sess.startedAt = cp.StartedAt
+	}
 	sess.counter.Store(cp.Counter)
 	sess.windowCounter.Store(cp.WindowCounter)
 	sess.generation.Store(cp.Generation)

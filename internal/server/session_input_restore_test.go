@@ -116,6 +116,56 @@ func TestNewServerFromCheckpointWithScrollbackPreservesManualBranchOverride(t *t
 	}
 }
 
+func TestNewServerFromCheckpointWithScrollbackPreservesStartedAt(t *testing.T) {
+	socketPath := filepath.Join(os.TempDir(), fmt.Sprintf("amux-restore-%d.sock", time.Now().UnixNano()))
+	listener, err := net.Listen("unix", socketPath)
+	if err != nil {
+		t.Fatalf("net.Listen: %v", err)
+	}
+	defer listener.Close()
+	defer func() {
+		if err := os.Remove(socketPath); err != nil && !os.IsNotExist(err) {
+			t.Fatalf("os.Remove(%q): %v", socketPath, err)
+		}
+	}()
+
+	listenerFD, err := listenerFd(listener)
+	if err != nil {
+		t.Fatalf("listenerFd: %v", err)
+	}
+
+	pane, layout := restoreTestLayout()
+	startedAt := time.Date(2026, time.March, 27, 12, 0, 0, 0, time.UTC)
+	cp := &ckpt.ServerCheckpoint{
+		Version:       ckpt.ServerCheckpointVersion,
+		SessionName:   "restore-started-at",
+		StartedAt:     startedAt,
+		ListenerFd:    listenerFD,
+		WindowCounter: 1,
+		Layout:        layout,
+		Panes: []ckpt.PaneCheckpoint{{
+			ID:        pane.ID,
+			Meta:      pane.Meta,
+			PtmxFd:    -1,
+			Cols:      80,
+			Rows:      23,
+			CreatedAt: time.Now(),
+			IsProxy:   true,
+		}},
+	}
+
+	srv, err := NewServerFromCheckpointWithScrollback(cp, mux.DefaultScrollbackLines)
+	if err != nil {
+		t.Fatalf("NewServerFromCheckpointWithScrollback: %v", err)
+	}
+	srv.sockPath = socketPath
+	defer srv.Shutdown()
+
+	if got := srv.firstSession().startedAt; !got.Equal(startedAt) {
+		t.Fatalf("session startedAt = %v, want %v", got, startedAt)
+	}
+}
+
 func TestNewServerFromCrashCheckpointWithScrollbackRefreshesInputTarget(t *testing.T) {
 	sessionName := fmt.Sprintf("crash-input-target-%d", time.Now().UnixNano())
 	t.Setenv("XDG_STATE_HOME", t.TempDir())

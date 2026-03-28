@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
@@ -15,6 +16,7 @@ func TestRoundTrip(t *testing.T) {
 	cp := &ServerCheckpoint{
 		Version:     ServerCheckpointVersion,
 		SessionName: "test-session",
+		StartedAt:   time.Date(2026, time.March, 27, 12, 0, 0, 0, time.UTC),
 		Counter:     5,
 		ListenerFd:  10,
 		Layout: proto.LayoutSnapshot{
@@ -84,6 +86,9 @@ func TestRoundTrip(t *testing.T) {
 	}
 	if got.Version != cp.Version {
 		t.Errorf("Version = %d, want %d", got.Version, cp.Version)
+	}
+	if !got.StartedAt.Equal(cp.StartedAt) {
+		t.Errorf("StartedAt = %v, want %v", got.StartedAt, cp.StartedAt)
 	}
 	if got.ListenerFd != cp.ListenerFd {
 		t.Errorf("ListenerFd = %d, want %d", got.ListenerFd, cp.ListenerFd)
