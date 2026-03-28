@@ -174,6 +174,9 @@ func waitForPaneReady(sess *Session, paneRef string, paneRefData resolvedPaneRef
 			if settleActive {
 				resetTimer(settleTimer, remaining)
 			} else {
+				// Safe to Reset directly here: either the timer has never been
+				// armed, or we just consumed its tick from settleCh and cleared
+				// settleActive, so there is no unread value left to drain.
 				settleTimer.Reset(remaining)
 				settleActive = true
 			}
