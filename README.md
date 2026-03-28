@@ -311,6 +311,7 @@ All commands accept `-s <session>` to target a specific session. Panes are refer
 | `amux move-down <pane>` | Move a pane one slot later within its split group |
 | `amux move-to <pane> <target>` | Move one pane into the target pane's column, appending at the bottom |
 | `amux rotate [--reverse]` | Rotate pane positions |
+| `amux equalize [--vertical\|--all]` | Rebalance root columns, rows within columns, or both |
 | `amux copy-mode [pane] [--wait ui=copy-mode-shown] [--timeout <duration>]` | Enter copy/scroll mode |
 | `amux set-meta <pane> key=value...` | Set single-value pane metadata (`task`, `branch`, `pr`) |
 | `amux add-meta <pane> key=value...` | Add pane metadata values (`pr=NUMBER`, `issue=ID`) |
@@ -393,6 +394,7 @@ Default prefix: `Ctrl-a`.
 | `Ctrl-a arrow keys` | Focus in arrow direction |
 | `Alt-h/j/k/l` | Focus left/down/up/right (no prefix) |
 | `Ctrl-a H/J/K/L` | Resize pane left/down/up/right |
+| `Ctrl-a =` | Equalize root column widths |
 | `Ctrl-a [` | Enter copy/scroll mode |
 | `Ctrl-a a` | Add pane in clockwise spiral order |
 | `Ctrl-a c` | Create new window |
