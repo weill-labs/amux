@@ -18,7 +18,7 @@ func TestDocsWarnAboutRaceOnlyCoverageHelpers(t *testing.T) {
 	}
 
 	wants := []string{
-		"helpers defined only in `//go:build !race` test files are unavailable to race-enabled CI test builds",
+		"helpers defined only in `//go:build !race` test files are unavailable to race-enabled ci test builds",
 		"run `go test -race` on the touched package",
 	}
 
@@ -32,7 +32,7 @@ func TestDocsWarnAboutRaceOnlyCoverageHelpers(t *testing.T) {
 				t.Fatalf("read %s: %v", tt.path, err)
 			}
 
-			text := string(data)
+			text := strings.ToLower(string(data))
 			for _, want := range wants {
 				if !strings.Contains(text, want) {
 					t.Fatalf("%s is missing guidance %q", tt.path, want)
