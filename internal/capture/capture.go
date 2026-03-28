@@ -284,3 +284,13 @@ func TrimOuterBlankRows(lines []string) []string {
 
 	return append([]string(nil), lines[start:end]...)
 }
+
+// TrimTrailingBlankRows removes trailing all-whitespace rows while preserving
+// leading blank lines and interior blank lines.
+func TrimTrailingBlankRows(lines []string) []string {
+	end := len(lines)
+	for end > 0 && strings.TrimSpace(lines[end-1]) == "" {
+		end--
+	}
+	return append([]string(nil), lines[:end]...)
+}
