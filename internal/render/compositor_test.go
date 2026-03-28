@@ -350,3 +350,42 @@ func TestBlitPaneClipsToWidth(t *testing.T) {
 		}
 	}
 }
+
+func TestBlitPaneClipsWideRunesToWidth(t *testing.T) {
+	t.Parallel()
+
+	width, height := 11, 3
+	left := mux.NewLeaf(&mux.Pane{ID: 1}, 0, 0, 5, height)
+	right := mux.NewLeaf(&mux.Pane{ID: 2}, 6, 0, 5, height)
+	root := &mux.LayoutCell{
+		X: 0, Y: 0, W: width, H: height,
+		Dir:      mux.SplitVertical,
+		Children: []*mux.LayoutCell{left, right},
+	}
+	left.Parent = root
+	right.Parent = root
+
+	comp := NewCompositor(width, height+GlobalBarHeight, "test")
+	lookup := func(id uint32) PaneData {
+		switch id {
+		case 1:
+			return &fakePaneData{id: 1, name: "pane-1", screen: "中中中", cursorHidden: true}
+		case 2:
+			return &fakePaneData{id: 2, name: "pane-2", screen: "abcde", cursorHidden: true}
+		}
+		return nil
+	}
+
+	output := comp.RenderFull(root, 1, lookup)
+	grid := MaterializeGrid(output, width, height+GlobalBarHeight)
+	lines := strings.Split(grid, "\n")
+	contentRow := []rune(lines[1])
+
+	wantLeft := string([]rune{'中', ' ', '中', ' ', ' '})
+	if got := string(contentRow[:5]); got != wantLeft {
+		t.Fatalf("left pane content = %q, want %q", got, wantLeft)
+	}
+	if got := string(contentRow[6:11]); got != "abcde" {
+		t.Fatalf("right pane content = %q, want %q", got, "abcde")
+	}
+}

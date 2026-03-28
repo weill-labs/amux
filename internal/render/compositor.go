@@ -315,10 +315,10 @@ func (c *Compositor) visibleContentHeight(cell *mux.LayoutCell) int {
 	return contentH
 }
 
-// clipLine truncates an ANSI-escaped line to at most maxWidth visible
-// characters, preserving escape sequences that precede the cutoff.
+// clipLine truncates an ANSI-escaped line to at most maxWidth display
+// columns, preserving escape sequences that precede the cutoff.
 func clipLine(line string, maxWidth int) string {
-	visible := 0
+	displayCols := 0
 	i := 0
 	for i < len(line) {
 		b := line[i]
@@ -340,10 +340,10 @@ func clipLine(line string, maxWidth int) string {
 		if width < 0 {
 			width = 0
 		}
-		if width > 0 && visible+width > maxWidth {
+		if width > 0 && displayCols+width > maxWidth {
 			return line[:i]
 		}
-		visible += width
+		displayCols += width
 		i += size
 	}
 	return line

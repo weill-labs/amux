@@ -239,6 +239,7 @@ func TestCompositorHelpersAndClipLine(t *testing.T) {
 		{name: "plain text", line: "hello", maxWidth: 3, want: "hel"},
 		{name: "preserves ansi prefix", line: "\x1b[31mhello", maxWidth: 3, want: "\x1b[31mhel"},
 		{name: "skips control chars", line: "a\tbcd", maxWidth: 2, want: "a\tb"},
+		{name: "wide runes use display columns", line: "中中中", maxWidth: 5, want: "中中"},
 	}
 
 	for _, tt := range tests {
