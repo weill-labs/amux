@@ -80,6 +80,19 @@ func (s *Session) broadcastPaneOutputNow(paneID uint32, data []byte, seq uint64)
 	if p := s.findPaneByID(paneID); p != nil {
 		paneName = p.Meta.Name
 		host = p.Meta.Host
+		state := s.capturePaneTerminalState(p)
+		prev, ok := s.terminalEventState[paneID]
+		if !ok || !paneTerminalEventStateEqual(prev, state) {
+			s.terminalEventState[paneID] = state
+			s.emitEvent(Event{
+				Type:     EventTerminal,
+				PaneID:   paneID,
+				PaneName: paneName,
+				Host:     host,
+				Cursor:   &state.Cursor,
+				Terminal: state.Terminal,
+			})
+		}
 	}
 	s.emitEvent(Event{Type: EventOutput, PaneID: paneID, PaneName: paneName, Host: host})
 

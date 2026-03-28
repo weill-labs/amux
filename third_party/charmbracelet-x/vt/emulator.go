@@ -214,6 +214,11 @@ func (e *Emulator) CursorPosition() uv.Position {
 	return uv.Pos(x, y)
 }
 
+// Cursor returns the terminal's current cursor metadata.
+func (e *Emulator) Cursor() Cursor {
+	return e.scr.Cursor()
+}
+
 // Resize resizes the terminal.
 func (e *Emulator) Resize(width int, height int) {
 	oldWidth := e.Width()

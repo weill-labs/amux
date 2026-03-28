@@ -10,7 +10,7 @@ import (
 func TestFilterRenderedANIOSC8Hyperlinks(t *testing.T) {
 	t.Parallel()
 
-	rendered := "\033]8;https://example.com;\alink\033]8;;\a plain"
+	rendered := "\033]8;;https://example.com\alink\033]8;;\a plain"
 
 	t.Run("preserves hyperlinks when supported", func(t *testing.T) {
 		t.Parallel()

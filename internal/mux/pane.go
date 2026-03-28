@@ -111,6 +111,7 @@ type CaptureSnapshot struct {
 	History        []string
 	ContentRows    []CaptureHistoryLine
 	Content        []string
+	Terminal       TerminalState
 	Width          int
 	CursorCol      int
 	CursorRow      int
@@ -607,6 +608,7 @@ func (p *Pane) CaptureSnapshot() CaptureSnapshot {
 			History:        history,
 			ContentRows:    append([]CaptureHistoryLine(nil), contentRows...),
 			Content:        captureHistoryLineText(contentRows),
+			Terminal:       p.emulator.TerminalState(),
 			Width:          width,
 			CursorCol:      col,
 			CursorRow:      row,

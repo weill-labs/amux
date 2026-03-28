@@ -44,11 +44,7 @@ func (s *Session) resolveCapturePaneTargetForActor(actorPaneID uint32, ref strin
 
 func (s *Session) buildServerCapturePane(target capturePaneTarget, req caputil.Request, includeHistory bool) proto.CapturePane {
 	textSnap := target.pane.CaptureSnapshot()
-	cursor := proto.CaptureCursor{
-		Col:    textSnap.CursorCol,
-		Row:    textSnap.CursorRow,
-		Hidden: textSnap.CursorHidden,
-	}
+	cursor := caputil.CursorFromState(textSnap.CursorCol, textSnap.CursorRow, textSnap.CursorHidden, textSnap.Terminal)
 	history := textSnap.History
 	content := textSnap.Content
 	if req.RewrapSpecified {
@@ -97,6 +93,7 @@ func (s *Session) buildServerCapturePane(target capturePaneTarget, req caputil.R
 		TrackedPRs:    target.pane.Meta.TrackedPRs,
 		TrackedIssues: target.pane.Meta.TrackedIssues,
 		Cursor:        cursor,
+		Terminal:      caputil.TerminalFromState(textSnap.Terminal),
 		Content:       content,
 		History:       history,
 	}, s.captureAgentStatus([]*mux.Pane{target.pane}))

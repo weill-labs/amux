@@ -98,6 +98,7 @@ func (s *Session) removePane(id uint32) {
 	s.ensureInputRouter().removePane(id)
 	s.ensureWaiters().removePane(id)
 	delete(s.takenOverPanes, id)
+	delete(s.terminalEventState, id)
 	s.idle.StopTimer(id)
 	if s.vtIdle != nil {
 		s.vtIdle.StopTimer(id)
@@ -182,6 +183,7 @@ func (s *Session) softClosePane(paneID uint32) paneRemovalResult {
 	// Clean up subscriptions and tracking for the now-invisible pane.
 	s.ensureWaiters().removePane(paneID)
 	delete(s.takenOverPanes, paneID)
+	delete(s.terminalEventState, paneID)
 	s.idle.StopTimer(paneID)
 	if s.vtIdle != nil {
 		s.vtIdle.StopTimer(paneID)

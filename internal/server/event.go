@@ -1,14 +1,20 @@
 package server
 
 import (
+	"reflect"
 	"slices"
 	"time"
+
+	caputil "github.com/weill-labs/amux/internal/capture"
+	"github.com/weill-labs/amux/internal/mux"
+	"github.com/weill-labs/amux/internal/proto"
 )
 
 // Event types emitted by the event stream.
 const (
 	EventLayout           = "layout"
 	EventOutput           = "output"
+	EventTerminal         = "terminal"
 	EventIdle             = "idle"
 	EventBusy             = "busy"
 	EventVTIdle           = "vt-idle"
@@ -29,15 +35,17 @@ const DefaultEventThrottle = 50 * time.Millisecond
 
 // Event is a single event in the NDJSON event stream.
 type Event struct {
-	Type       string `json:"type"`
-	Timestamp  string `json:"ts"`
-	Generation uint64 `json:"generation,omitempty"`
-	PaneID     uint32 `json:"pane_id,omitempty"`
-	PaneName   string `json:"pane_name,omitempty"`
-	Host       string `json:"host,omitempty"`
-	ActivePane string `json:"active_pane,omitempty"`
-	ClientID   string `json:"client_id,omitempty"`
-	Reason     string `json:"reason,omitempty"`
+	Type       string                 `json:"type"`
+	Timestamp  string                 `json:"ts"`
+	Generation uint64                 `json:"generation,omitempty"`
+	PaneID     uint32                 `json:"pane_id,omitempty"`
+	PaneName   string                 `json:"pane_name,omitempty"`
+	Host       string                 `json:"host,omitempty"`
+	ActivePane string                 `json:"active_pane,omitempty"`
+	ClientID   string                 `json:"client_id,omitempty"`
+	Reason     string                 `json:"reason,omitempty"`
+	Cursor     *proto.CaptureCursor   `json:"cursor,omitempty"`
+	Terminal   *proto.CaptureTerminal `json:"terminal,omitempty"`
 }
 
 // eventSub is a subscriber to the event stream.
@@ -99,6 +107,11 @@ func (s *Session) currentStateEvents() []Event {
 		ActivePane: activePaneName,
 	})
 
+	// Current terminal state for each pane.
+	for _, p := range s.Panes {
+		events = append(events, s.capturePaneTerminalEvent(p))
+	}
+
 	// Current idle/busy state for each pane
 	for _, p := range s.Panes {
 		evType := EventBusy
@@ -136,4 +149,37 @@ func (s *Session) currentStateEvents() []Event {
 	}
 
 	return events
+}
+
+type paneTerminalEventState struct {
+	Cursor   proto.CaptureCursor
+	Terminal *proto.CaptureTerminal
+}
+
+func (s *Session) capturePaneTerminalState(pane *mux.Pane) paneTerminalEventState {
+	snap := pane.CaptureSnapshot()
+	return paneTerminalEventState{
+		Cursor:   caputil.CursorFromState(snap.CursorCol, snap.CursorRow, snap.CursorHidden, snap.Terminal),
+		Terminal: caputil.TerminalFromState(snap.Terminal),
+	}
+}
+
+func (s *Session) capturePaneTerminalEvent(pane *mux.Pane) Event {
+	state := s.capturePaneTerminalState(pane)
+	if s.terminalEventState == nil {
+		s.terminalEventState = make(map[uint32]paneTerminalEventState)
+	}
+	s.terminalEventState[pane.ID] = state
+	return Event{
+		Type:     EventTerminal,
+		PaneID:   pane.ID,
+		PaneName: pane.Meta.Name,
+		Host:     pane.Meta.Host,
+		Cursor:   &state.Cursor,
+		Terminal: state.Terminal,
+	}
+}
+
+func paneTerminalEventStateEqual(left, right paneTerminalEventState) bool {
+	return left.Cursor == right.Cursor && reflect.DeepEqual(left.Terminal, right.Terminal)
 }

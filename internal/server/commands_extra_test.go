@@ -1128,6 +1128,18 @@ func TestRemoteHostCommandsReportConfiguredAndErrorStates(t *testing.T) {
 func TestCmdEventsStreamsAndThrottlesOutput(t *testing.T) {
 	t.Parallel()
 
+	drainInitialPaneState := func(t *testing.T, conn net.Conn, paneCount int) {
+		t.Helper()
+
+		seen := make(map[uint32]bool, paneCount)
+		for len(seen) < paneCount {
+			ev := readCmdResultEvent(t, conn)
+			if ev.Type == EventBusy || ev.Type == EventIdle {
+				seen[ev.PaneID] = true
+			}
+		}
+	}
+
 	t.Run("no throttle streams output immediately", func(t *testing.T) {
 		t.Parallel()
 
@@ -1148,9 +1160,7 @@ func TestCmdEventsStreamsAndThrottlesOutput(t *testing.T) {
 			cmdEvents(&CommandContext{CC: cc, Sess: sess, Args: []string{"--throttle", "0s"}})
 		}()
 
-		for i := 0; i < 2; i++ {
-			_ = readCmdResultEvent(t, peerConn)
-		}
+		drainInitialPaneState(t, peerConn, 1)
 
 		sess.paneOutputCallback()(pane.ID, []byte("hello"), 1)
 		ev := readCmdResultEvent(t, peerConn)
@@ -1194,9 +1204,7 @@ func TestCmdEventsStreamsAndThrottlesOutput(t *testing.T) {
 			cmdEvents(&CommandContext{CC: cc, Sess: sess, Args: []string{"--throttle", "20ms"}})
 		}()
 
-		for i := 0; i < 3; i++ {
-			_ = readCmdResultEvent(t, peerConn)
-		}
+		drainInitialPaneState(t, peerConn, 2)
 
 		sess.paneOutputCallback()(pane2.ID, []byte("pane2"), 1)
 		sess.paneOutputCallback()(pane1.ID, []byte("pane1"), 1)
