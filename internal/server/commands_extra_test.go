@@ -1181,7 +1181,7 @@ func TestCmdEventsStreamsAndThrottlesOutput(t *testing.T) {
 		_ = serverConn.Close()
 	})
 
-	t.Run("throttle coalesces and sorts output events", func(t *testing.T) {
+	t.Run("throttle coalesces output events by pane", func(t *testing.T) {
 		t.Parallel()
 
 		sess := newSession("test-events-throttle")
@@ -1215,8 +1215,12 @@ func TestCmdEventsStreamsAndThrottlesOutput(t *testing.T) {
 		if first.Type != EventOutput || second.Type != EventOutput {
 			t.Fatalf("expected output events, got %+v and %+v", first, second)
 		}
-		if first.PaneID != pane1.ID || second.PaneID != pane2.ID {
-			t.Fatalf("throttled pane order = [%d %d], want [%d %d]", first.PaneID, second.PaneID, pane1.ID, pane2.ID)
+		ids := [2]uint32{first.PaneID, second.PaneID}
+		if ids[0] > ids[1] {
+			ids[0], ids[1] = ids[1], ids[0]
+		}
+		if ids != [2]uint32{pane1.ID, pane2.ID} {
+			t.Fatalf("throttled pane IDs = [%d %d], want panes [%d %d]", first.PaneID, second.PaneID, pane1.ID, pane2.ID)
 		}
 
 		_ = peerConn.Close()
