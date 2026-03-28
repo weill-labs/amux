@@ -76,6 +76,8 @@ func read(path string) (*ServerCheckpoint, error) {
 		return nil, fmt.Errorf("opening checkpoint: %w", err)
 	}
 	defer f.Close()
+	// Hot-reload checkpoints are single-use across exec. Consume the temp file
+	// even on decode failure so a stale checkpoint is never retried later.
 	defer os.Remove(path)
 
 	var cp ServerCheckpoint
@@ -86,7 +88,11 @@ func read(path string) (*ServerCheckpoint, error) {
 	return &cp, nil
 }
 
-// Read decodes a checkpoint from the given path and deletes the file.
+// Read decodes an ephemeral hot-reload checkpoint from path and deletes the
+// file. Version mismatches return the decoded checkpoint with
+// UnsupportedServerCheckpointVersionError so callers can still reuse metadata
+// like ListenerFd for crash fallback. Decode errors return a nil checkpoint
+// because the checkpoint contents are not trustworthy.
 func Read(path string) (*ServerCheckpoint, error) {
 	cp, err := read(path)
 	if err != nil {

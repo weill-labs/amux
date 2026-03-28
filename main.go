@@ -764,9 +764,12 @@ func restoreServerFromReloadCheckpoint(sessionName, cpPath string, scrollbackLin
 	}
 
 	var versionErr checkpoint.UnsupportedServerCheckpointVersionError
-	if !errors.As(err, &versionErr) || cp == nil {
+	if !errors.As(err, &versionErr) {
 		return nil, err
 	}
+	// checkpoint.Read only reports UnsupportedServerCheckpointVersionError after
+	// decoding the checkpoint, so cp is non-nil here and still carries the
+	// inherited listener FD needed for crash fallback.
 
 	restoreSessionName := sessionName
 	if cp.SessionName != "" {
@@ -782,6 +785,9 @@ func restoreServerFromReloadCheckpoint(sessionName, cpPath string, scrollbackLin
 	crashCP, crashErr := checkpoint.ReadCrash(crashPath)
 	if crashErr != nil {
 		return nil, fmt.Errorf("%w; crash fallback %s: %v", err, crashPath, crashErr)
+	}
+	if cp.ListenerFd <= 0 {
+		return nil, fmt.Errorf("%w; invalid listener fd %d in reload checkpoint", err, cp.ListenerFd)
 	}
 
 	fmt.Fprintf(os.Stderr, "amux server: reload checkpoint incompatible, falling back to crash checkpoint %s\n", crashPath)

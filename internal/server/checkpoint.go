@@ -93,6 +93,9 @@ func (s *Server) Reload(execPath string) error {
 	}
 	cp.ListenerFd = lnFd
 
+	// Do not exec without a durable crash checkpoint. If the new binary rejects
+	// the reload checkpoint after a version bump, crash recovery is the only
+	// remaining path that preserves panes across the exec boundary.
 	if _, err := sess.writeCrashCheckpointNow(); err != nil {
 		sess.shutdown.Store(false)
 		return fmt.Errorf("writing crash checkpoint: %w", err)
