@@ -695,7 +695,11 @@ func TestServerReloadCaptureRetry(t *testing.T) {
 
 	// The retry loop should wait for the client to reconnect rather than
 	// returning "no client attached".
-	out := h.runCmd("capture", "--format", "json")
+	out := waitForOutput(t, 10*time.Second, func() string {
+		return h.runCmd("capture", "--format", "json")
+	}, func(out string) bool {
+		return strings.Contains(out, "pane-1")
+	})
 	if strings.Contains(out, "no client attached") {
 		t.Fatalf("capture should retry after reload, got: %s", out)
 	}
