@@ -17,8 +17,14 @@ require_cmd() {
     fi
 }
 
+run_quiet() {
+    "$@" >/dev/null
+}
+
 parent=""
 issue=""
+amux_bin="${AMUX:-amux}"
+git_bin="${GIT:-git}"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -54,10 +60,10 @@ if [[ -z "$parent" || -z "$issue" ]]; then
     exit 2
 fi
 
-require_cmd amux
-require_cmd git
+require_cmd "$amux_bin"
+require_cmd "$git_bin"
 
-if ! split_out="$(amux split "$parent" --horizontal)"; then
+if ! split_out="$("$amux_bin" split "$parent" --horizontal)"; then
     exit $?
 fi
 
@@ -66,20 +72,20 @@ if [[ ! "$split_out" =~ new[[:space:]]+pane[[:space:]]+([^[:space:]]+) ]]; then
 fi
 pane="${BASH_REMATCH[1]}"
 
-repo_root="$(git rev-parse --show-toplevel)"
+repo_root="$("$git_bin" rev-parse --show-toplevel)"
 repo_name="$(basename "$repo_root")"
 issue_slug="${issue,,}"
 branch_name="${issue_slug}-${pane}"
 worktree_root="$(dirname "$repo_root")"
 worktree_path="$worktree_root/${repo_name}-${branch_name}"
 
-git worktree add -b "$branch_name" "$worktree_path" >/dev/null
+run_quiet "$git_bin" worktree add -b "$branch_name" "$worktree_path"
 
 printf -v cd_cmd 'cd %q' "$worktree_path"
-amux send-keys "$pane" "$cd_cmd" Enter >/dev/null
-amux send-keys "$pane" "codex --yolo" Enter >/dev/null
-amux wait vt-idle "$pane" >/dev/null
-amux send-keys "$pane" Enter >/dev/null
-amux add-meta "$pane" "issue=$issue" >/dev/null
+run_quiet "$amux_bin" send-keys "$pane" "$cd_cmd" Enter
+run_quiet "$amux_bin" send-keys "$pane" "codex --yolo" Enter
+run_quiet "$amux_bin" wait vt-idle "$pane"
+run_quiet "$amux_bin" send-keys "$pane" Enter
+run_quiet "$amux_bin" add-meta "$pane" "issue=$issue"
 
 printf '%s\n' "$pane"
