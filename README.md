@@ -163,8 +163,7 @@ Returns a JSON object with session metadata, window info, and per-pane state:
 ```
 
 Examples abbreviate `terminal.palette` for readability. Real capture output always includes all 256 palette entries in stable ANSI index order.
-
-Pane JSON includes a nested `meta` object for user-managed metadata: `task`, `git_branch`, `pr`, tracked `prs`, and tracked `issues`. The legacy top-level `task`, `git_branch`, and `pr` fields remain for compatibility.
+Pane JSON includes a nested `meta` object for pane metadata, including the raw kv store under `meta.kv` plus compatibility fields for `task`, `git_branch`, `pr`, `tracked_prs`, and `tracked_issues`. The legacy top-level `task`, `git_branch`, and `pr` fields remain for compatibility.
 
 `cursor.style` is one of `block`, `underline`, or `bar`. `terminal.palette` is the pane's effective 256-color ANSI palette in stable index order, encoded as lowercase hex without `#`. `terminal.hyperlink` is present when OSC 8 hyperlink state is active at the cursor. Capture JSON is additive: agents should ignore unknown fields so future releases can extend the schema without breaking existing parsers.
 
@@ -320,10 +319,12 @@ All commands accept `-s <session>` to target a specific session. Panes are refer
 | `amux rotate [--reverse]` | Rotate pane positions |
 | `amux equalize [--vertical\|--all]` | Rebalance root columns, rows within columns, or both |
 | `amux copy-mode [pane] [--wait ui=copy-mode-shown] [--timeout <duration>]` | Enter copy/scroll mode |
+| `amux set-kv <pane> key=value...` | Set arbitrary pane metadata keys |
+| `amux get-kv <pane> [key...]` | Show pane metadata keys as `key=value` lines |
+| `amux rm-kv <pane> key...` | Remove pane metadata keys |
 | `amux set-meta <pane> key=value...` | Set single-value pane metadata (`task`, `branch`, `pr`) |
-| `amux add-meta <pane> key=value...` | Add pane metadata values (`pr=NUMBER`, `issue=ID`) |
-| `amux rm-meta <pane> key=value...` | Remove pane metadata values (`pr=NUMBER`, `issue=ID`) |
-| `amux refresh-meta [pane]` | Refresh tracked PR/issue completion state (default: active pane) |
+| `amux add-meta <pane> key=value...` | Compatibility wrapper that adds tracked metadata values (`pr=NUMBER`, `issue=ID`) |
+| `amux rm-meta <pane> key=value...` | Compatibility wrapper that removes tracked metadata values (`pr=NUMBER`, `issue=ID`) |
 `move` first checks whether both panes are siblings in the same split group. When they are, it reorders only that group. Otherwise it falls back to the existing root-level-group behavior, so moving `pane-3` can still move an entire column or row when the panes are in different branches.
 `move-up` and `move-down` are shorthand for nudging a pane one slot earlier or later within its current split group.
 `move-to` instead moves exactly one pane into the target pane's logical column and appends it to the bottom of that stack.
