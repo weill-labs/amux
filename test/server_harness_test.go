@@ -1712,12 +1712,13 @@ func TestServerHarnessRunCmdFallsBackWhenHeadlessClientDetached(t *testing.T) {
 func TestServerHarnessLateGenerationAndAttachSurviveHeadlessClientDetach(t *testing.T) {
 	t.Parallel()
 
-	h := newServerHarness(t)
+	h := newServerHarnessPersistent(t)
 	h.splitV()
 
 	h.client.close()
 	h.client = nil
 
+	// generation() fatalf's if the server becomes unreachable after detach.
 	_ = h.generation()
 
 	msg := h.attachAt(80, 24)
