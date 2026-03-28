@@ -99,8 +99,6 @@ When a change adds a new test or modifies an existing test, run that targeted te
 
 **Changes to `main.go` CLI dispatch need direct unit coverage on the touched lines.** Keep the hermetic subprocess tests for end-to-end CLI behavior, but when a change touches the dispatch branches in `main.go`, add direct unit coverage (for example in `main_test.go`) for those specific lines too. Codecov patch coverage measures the changed `main.go` lines directly and may miss coverage that only arrives through subprocess tests.
 
-**Coverage-oriented follow-up tests must compile under `-race`.** Helpers defined only in `//go:build !race` test files are unavailable to race-enabled CI test builds, even when the eventual coverage command for that package runs without `-race`. When you add coverage-oriented tests or reuse helpers across files, run `go test -race` on the touched package before opening or updating the PR.
-
 **Golden files** live in `test/testdata/`. Two types:
 
 - `.golden` -- structural layout frame (status lines, borders, global bar). Open one and you see the expected screen layout.

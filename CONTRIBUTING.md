@@ -60,8 +60,6 @@ Root CLI subprocess tests must use the shared hermetic helper in the root packag
 
 If a change touches CLI dispatch branches in `main.go`, add direct unit coverage for those touched lines as well (for example in `main_test.go`). Hermetic subprocess tests still cover end-to-end behavior, but Codecov patch coverage measures the changed `main.go` lines directly and may not credit coverage that only flows through the subprocess path.
 
-Coverage-oriented follow-up tests must compile under `-race`. Helpers defined only in `//go:build !race` test files are unavailable to race-enabled CI test builds, even when the eventual coverage command for that package runs without `-race`. When you add coverage-oriented tests or reuse helpers across files, run `go test -race` on the touched package before opening or updating the PR.
-
 ### Golden files
 
 Golden files live in `test/testdata/`:
