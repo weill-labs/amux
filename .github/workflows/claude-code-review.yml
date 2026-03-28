@@ -23,6 +23,8 @@ jobs:
       contents: read
       pull-requests: read
       issues: read
+      # Claude exchanges OIDC for its own GitHub App token, which already
+      # includes the standard write scopes needed to post PR comments.
       id-token: write
 
     steps:
@@ -36,13 +38,15 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          plugin_marketplaces: 'https://github.com/anthropics/claude-code.git'
-          plugins: 'code-review@claude-code-plugins'
+          track_progress: true
           prompt: |
-            /code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }}
+            REPO: ${{ github.repository }}
+            PR NUMBER: ${{ github.event.pull_request.number }}
 
-            After your review, if you found no blocking issues, end your comment with "LGTM" on its own line.
+            Review this pull request for correctness, regressions, edge cases, and missing tests.
+            Always put the review result in the Claude summary comment, even if you also leave inline comments.
+            If you found blocking issues, list them in the summary comment with file and line references.
+            If you found no blocking issues, end the comment with "LGTM" on its own line.
             If you found blocking issues, do not write LGTM.
           # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
           # or https://code.claude.com/docs/en/cli-reference for available options
-
