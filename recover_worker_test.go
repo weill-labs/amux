@@ -8,17 +8,20 @@ import (
 	"testing"
 )
 
+type recoverWorkerFixture struct {
+	tempDir   string
+	logPath   string
+	stagePath string
+}
+
 func TestRecoverWorkerScriptRecoversStuckWorker(t *testing.T) {
 	t.Parallel()
 
-	tempDir := t.TempDir()
-	logPath := filepath.Join(tempDir, "amux.log")
-	stagePath := filepath.Join(tempDir, "stage")
-	writeFakeRecoverWorkerAmux(t, tempDir)
+	fixture := newRecoverWorkerFixture(t)
 
-	out, exitCode := runRecoverWorkerScript(t, tempDir,
-		"FAKE_AMUX_LOG="+logPath,
-		"FAKE_STAGE_FILE="+stagePath,
+	out, exitCode := runRecoverWorkerScript(t, fixture.tempDir,
+		"FAKE_AMUX_LOG="+fixture.logPath,
+		"FAKE_STAGE_FILE="+fixture.stagePath,
 	)
 	if exitCode != 0 {
 		t.Fatalf("exit code = %d, want 0\n%s", exitCode, out)
@@ -27,7 +30,7 @@ func TestRecoverWorkerScriptRecoversStuckWorker(t *testing.T) {
 		t.Fatalf("output missing recovery confirmation:\n%s", out)
 	}
 
-	got, err := os.ReadFile(logPath)
+	got, err := os.ReadFile(fixture.logPath)
 	if err != nil {
 		t.Fatalf("read fake amux log: %v", err)
 	}
@@ -52,14 +55,11 @@ func TestRecoverWorkerScriptRecoversStuckWorker(t *testing.T) {
 func TestRecoverWorkerScriptRejectsPaneWithoutKnownDialog(t *testing.T) {
 	t.Parallel()
 
-	tempDir := t.TempDir()
-	logPath := filepath.Join(tempDir, "amux.log")
-	stagePath := filepath.Join(tempDir, "stage")
-	writeFakeRecoverWorkerAmux(t, tempDir)
+	fixture := newRecoverWorkerFixture(t)
 
-	out, exitCode := runRecoverWorkerScript(t, tempDir,
-		"FAKE_AMUX_LOG="+logPath,
-		"FAKE_STAGE_FILE="+stagePath,
+	out, exitCode := runRecoverWorkerScript(t, fixture.tempDir,
+		"FAKE_AMUX_LOG="+fixture.logPath,
+		"FAKE_STAGE_FILE="+fixture.stagePath,
 		"FAKE_INITIAL_STAGE=not_stuck",
 	)
 	if exitCode != 1 {
@@ -69,7 +69,7 @@ func TestRecoverWorkerScriptRejectsPaneWithoutKnownDialog(t *testing.T) {
 		t.Fatalf("output missing stuck-state failure:\n%s", out)
 	}
 
-	got, err := os.ReadFile(logPath)
+	got, err := os.ReadFile(fixture.logPath)
 	if err != nil {
 		t.Fatalf("read fake amux log: %v", err)
 	}
@@ -81,12 +81,10 @@ func TestRecoverWorkerScriptRejectsPaneWithoutKnownDialog(t *testing.T) {
 func TestRecoverWorkerScriptFailsWhenOutputDoesNotAdvance(t *testing.T) {
 	t.Parallel()
 
-	tempDir := t.TempDir()
-	stagePath := filepath.Join(tempDir, "stage")
-	writeFakeRecoverWorkerAmux(t, tempDir)
+	fixture := newRecoverWorkerFixture(t)
 
-	out, exitCode := runRecoverWorkerScript(t, tempDir,
-		"FAKE_STAGE_FILE="+stagePath,
+	out, exitCode := runRecoverWorkerScript(t, fixture.tempDir,
+		"FAKE_STAGE_FILE="+fixture.stagePath,
 		"FAKE_FINAL_STAGE=unchanged",
 	)
 	if exitCode != 1 {
@@ -94,6 +92,18 @@ func TestRecoverWorkerScriptFailsWhenOutputDoesNotAdvance(t *testing.T) {
 	}
 	if !strings.Contains(out, "pane content did not change") {
 		t.Fatalf("output missing no-progress failure:\n%s", out)
+	}
+}
+
+func newRecoverWorkerFixture(t *testing.T) recoverWorkerFixture {
+	t.Helper()
+
+	tempDir := t.TempDir()
+	writeFakeRecoverWorkerAmux(t, tempDir)
+	return recoverWorkerFixture{
+		tempDir:   tempDir,
+		logPath:   filepath.Join(tempDir, "amux.log"),
+		stagePath: filepath.Join(tempDir, "stage"),
 	}
 }
 
