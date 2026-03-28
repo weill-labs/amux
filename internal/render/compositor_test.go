@@ -381,6 +381,8 @@ func TestBlitPaneClipsWideRunesToWidth(t *testing.T) {
 	lines := strings.Split(grid, "\n")
 	contentRow := []rune(lines[1])
 
+	// Skip contentRow[5]: border rendering is covered by the golden tests.
+	// This regression only cares that clipped left-pane content stops before pane-2.
 	wantLeft := string([]rune{'中', ' ', '中', ' ', ' '})
 	if got := string(contentRow[:5]); got != wantLeft {
 		t.Fatalf("left pane content = %q, want %q", got, wantLeft)
