@@ -1,7 +1,9 @@
 package client
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -76,6 +78,22 @@ func (c *ptyOutputCollector) waitContains(t *testing.T, want string) string {
 				return got
 			}
 			t.Fatalf("pty output ended before containing %q; got %q", want, c.snapshot())
+		}
+	}
+}
+
+func (c *ptyOutputCollector) waitContainsWithin(want string, timeout time.Duration) bool {
+	deadline := time.After(timeout)
+	for {
+		if got := c.snapshot(); strings.Contains(got, want) {
+			return true
+		}
+		select {
+		case <-c.updates:
+		case <-deadline:
+			return strings.Contains(c.snapshot(), want)
+		case <-c.done:
+			return strings.Contains(c.snapshot(), want)
 		}
 	}
 }
@@ -290,6 +308,46 @@ func sessionLayoutSnapshot(session string) *proto.LayoutSnapshot {
 	snap.SessionName = session
 	return snap
 }
+
+type stubAttachConn struct {
+	readErr            error
+	setReadDeadlineErr error
+}
+
+func (c *stubAttachConn) Read([]byte) (int, error) {
+	if c.readErr != nil {
+		return 0, c.readErr
+	}
+	return 0, io.EOF
+}
+
+func (*stubAttachConn) Write([]byte) (int, error) { return 0, errors.New("unexpected write") }
+func (*stubAttachConn) Close() error              { return nil }
+func (*stubAttachConn) LocalAddr() net.Addr       { return stubAttachAddr("local") }
+func (*stubAttachConn) RemoteAddr() net.Addr      { return stubAttachAddr("remote") }
+func (*stubAttachConn) SetDeadline(time.Time) error {
+	return nil
+}
+func (c *stubAttachConn) SetReadDeadline(time.Time) error {
+	return c.setReadDeadlineErr
+}
+func (*stubAttachConn) SetWriteDeadline(time.Time) error {
+	return nil
+}
+
+type deadlineErrorConn struct {
+	net.Conn
+	setReadDeadlineErr error
+}
+
+func (c *deadlineErrorConn) SetReadDeadline(time.Time) error {
+	return c.setReadDeadlineErr
+}
+
+type stubAttachAddr string
+
+func (a stubAttachAddr) Network() string { return "test" }
+func (a stubAttachAddr) String() string  { return string(a) }
 
 func TestAttachBootstrapHelpers(t *testing.T) {
 	t.Parallel()
@@ -536,6 +594,8 @@ func TestReadImmediateAttachCorrectionReturnsErrorOnConnectionClose(t *testing.T
 
 	err := readAttachBootstrap(clientConn, NewClientRenderer(20, 4))
 	if err == nil {
+		// EOF here means the server vanished before the client reached the
+		// normal message loop or saw an explicit exit path.
 		t.Fatal("expected error from closed connection during correction window")
 	}
 }
@@ -562,6 +622,108 @@ func TestReadImmediateAttachCorrectionEndsOnUnknownMessageType(t *testing.T) {
 	}
 }
 
+func TestReadAttachBootstrapPaneReplaysBranches(t *testing.T) {
+	t.Parallel()
+
+	t.Run("returns immediately when no outputs remain", func(t *testing.T) {
+		t.Parallel()
+
+		remaining, err := readAttachBootstrapPaneReplays(&stubAttachConn{}, NewClientRenderer(20, 4), 0, time.Second)
+		if err != nil {
+			t.Fatalf("readAttachBootstrapPaneReplays() error = %v, want nil", err)
+		}
+		if remaining != 0 {
+			t.Fatalf("remaining outputs = %d, want 0", remaining)
+		}
+	})
+
+	t.Run("propagates deadline setup errors", func(t *testing.T) {
+		t.Parallel()
+
+		wantErr := errors.New("deadline boom")
+		remaining, err := readAttachBootstrapPaneReplays(
+			&stubAttachConn{setReadDeadlineErr: wantErr},
+			NewClientRenderer(20, 4),
+			1,
+			time.Second,
+		)
+		if !errors.Is(err, wantErr) {
+			t.Fatalf("readAttachBootstrapPaneReplays() error = %v, want %v", err, wantErr)
+		}
+		if remaining != 1 {
+			t.Fatalf("remaining outputs = %d, want 1", remaining)
+		}
+	})
+
+	t.Run("propagates read errors", func(t *testing.T) {
+		t.Parallel()
+
+		wantErr := errors.New("read boom")
+		remaining, err := readAttachBootstrapPaneReplays(
+			&stubAttachConn{readErr: wantErr},
+			NewClientRenderer(20, 4),
+			1,
+			time.Second,
+		)
+		if !errors.Is(err, wantErr) {
+			t.Fatalf("readAttachBootstrapPaneReplays() error = %v, want %v", err, wantErr)
+		}
+		if remaining != 1 {
+			t.Fatalf("remaining outputs = %d, want 1", remaining)
+		}
+	})
+
+	t.Run("applies layouts during replay", func(t *testing.T) {
+		t.Parallel()
+
+		serverConn, clientConn := net.Pipe()
+		t.Cleanup(func() {
+			_ = serverConn.Close()
+			_ = clientConn.Close()
+		})
+
+		cr := NewClientRenderer(20, 4)
+		go func() {
+			_ = proto.WriteMsg(serverConn, &proto.Message{Type: proto.MsgTypeLayout, Layout: singlePane20x3()})
+			_ = proto.WriteMsg(serverConn, &proto.Message{Type: proto.MsgTypePaneOutput, PaneID: 1, PaneData: []byte("hello")})
+			_ = serverConn.Close()
+		}()
+
+		remaining, err := readAttachBootstrapPaneReplays(clientConn, cr, 1, time.Second)
+		if err != nil {
+			t.Fatalf("readAttachBootstrapPaneReplays() error = %v, want nil", err)
+		}
+		if remaining != 0 {
+			t.Fatalf("remaining outputs = %d, want 0", remaining)
+		}
+		if got := strings.Split(cr.renderer.CapturePaneText(1, false), "\n")[0]; got != "hello" {
+			t.Fatalf("pane text after replay = %q, want %q", got, "hello")
+		}
+	})
+}
+
+func TestReadAttachBootstrapPropagatesPaneReplaySetupError(t *testing.T) {
+	t.Parallel()
+
+	serverConn, clientConn := net.Pipe()
+	t.Cleanup(func() {
+		_ = serverConn.Close()
+		_ = clientConn.Close()
+	})
+
+	wantErr := errors.New("deadline boom")
+	wrappedConn := &deadlineErrorConn{Conn: clientConn, setReadDeadlineErr: wantErr}
+	go func() {
+		_ = proto.WriteMsg(serverConn, &proto.Message{Type: proto.MsgTypeLayout, Layout: singlePane20x3()})
+		_ = serverConn.Close()
+	}()
+
+	err := readAttachBootstrap(wrappedConn, NewClientRenderer(20, 4))
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("readAttachBootstrap() error = %v, want %v", err, wantErr)
+	}
+}
+
 func TestReadAttachBootstrapRejectsUnexpectedMessages(t *testing.T) {
 	t.Parallel()
 
@@ -581,7 +743,6 @@ func TestReadAttachBootstrapRejectsUnexpectedMessages(t *testing.T) {
 				{Type: proto.MsgTypeLayout, Layout: singlePane20x3()},
 				{Type: proto.MsgTypeBell},
 			},
-			wantErr: "after layout",
 		},
 	}
 
@@ -603,6 +764,12 @@ func TestReadAttachBootstrapRejectsUnexpectedMessages(t *testing.T) {
 			}()
 
 			err := readAttachBootstrap(clientConn, NewClientRenderer(20, 4))
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("readAttachBootstrap() error = %v, want nil", err)
+				}
+				return
+			}
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Fatalf("readAttachBootstrap() error = %v, want substring %q", err, tt.wantErr)
 			}
@@ -638,12 +805,11 @@ func TestRunSessionHandlesServerMessagesAndInteractiveInput(t *testing.T) {
 		t.Fatalf("attach capabilities = %+v, want negotiated ghostty features", attach.AttachCapabilities)
 	}
 
-	h.output.waitContains(t, render.AltScreenEnter)
-
 	h.send(t, &proto.Message{Type: proto.MsgTypeLayout, Layout: sessionLayoutSnapshot(h.session)})
 	h.send(t, &proto.Message{Type: proto.MsgTypePaneHistory, PaneID: 1, History: []string{"hist-1", "hist-2"}})
 	h.send(t, &proto.Message{Type: proto.MsgTypePaneOutput, PaneID: 1, PaneData: []byte("界界界界界\r\nnext")})
 	h.send(t, &proto.Message{Type: proto.MsgTypePaneOutput, PaneID: 2, PaneData: []byte("peer")})
+	h.output.waitContains(t, render.AltScreenEnter)
 	h.output.waitContains(t, "pane-1")
 	h.output.waitContains(t, "next")
 
@@ -752,6 +918,76 @@ func TestRunSessionHandlesServerMessagesAndInteractiveInput(t *testing.T) {
 	h.output.waitContains(t, render.AltScreenExit)
 }
 
+func TestRunSessionDoesNotEnterAltScreenBeforeAttachBootstrapReady(t *testing.T) {
+	h := newRunSessionHarness(t, func(int) (int, int, error) {
+		return 80, 24, nil
+	})
+
+	attach := h.waitAttach(t)
+	if attach.Type != proto.MsgTypeAttach {
+		t.Fatalf("attach type = %d, want %d", attach.Type, proto.MsgTypeAttach)
+	}
+	if h.output.waitContainsWithin(render.AltScreenEnter, 150*time.Millisecond) {
+		t.Fatalf("RunSession should not enter alt screen before bootstrap is ready, got output %q", h.output.snapshot())
+	}
+
+	h.send(t, &proto.Message{Type: proto.MsgTypeLayout, Layout: sessionLayoutSnapshot(h.session)})
+	h.send(t, &proto.Message{Type: proto.MsgTypePaneOutput, PaneID: 1, PaneData: []byte("left")})
+	h.send(t, &proto.Message{Type: proto.MsgTypePaneOutput, PaneID: 2, PaneData: []byte("right")})
+	h.output.waitContains(t, render.AltScreenEnter)
+
+	h.send(t, &proto.Message{Type: proto.MsgTypeExit})
+	if err := h.waitRunResult(t); err != nil {
+		t.Fatalf("RunSession() = %v, want nil", err)
+	}
+}
+
+func TestRunSessionRendersLayoutWhenAttachBootstrapPaneOutputStalls(t *testing.T) {
+	h := newRunSessionHarness(t, func(int) (int, int, error) {
+		return 80, 24, nil
+	})
+
+	attach := h.waitAttach(t)
+	if attach.Type != proto.MsgTypeAttach {
+		t.Fatalf("attach type = %d, want %d", attach.Type, proto.MsgTypeAttach)
+	}
+
+	h.send(t, &proto.Message{Type: proto.MsgTypeLayout, Layout: sessionLayoutSnapshot(h.session)})
+	h.send(t, &proto.Message{Type: proto.MsgTypePaneOutput, PaneID: 1, PaneData: []byte("left")})
+
+	if !h.output.waitContainsWithin("[pane-1]", time.Second) {
+		t.Fatalf("RunSession should render the layout even when attach bootstrap pane replay stalls, got output %q", h.output.snapshot())
+	}
+
+	h.send(t, &proto.Message{Type: proto.MsgTypePaneOutput, PaneID: 2, PaneData: []byte("right")})
+	h.send(t, &proto.Message{Type: proto.MsgTypeExit})
+	if err := h.waitRunResult(t); err != nil {
+		t.Fatalf("RunSession() = %v, want nil", err)
+	}
+}
+
+func TestRunSessionReturnsRawModeErrorAfterBootstrap(t *testing.T) {
+	h := newRunSessionHarness(t, func(int) (int, int, error) {
+		return 80, 24, nil
+	})
+
+	attach := h.waitAttach(t)
+	if attach.Type != proto.MsgTypeAttach {
+		t.Fatalf("attach type = %d, want %d", attach.Type, proto.MsgTypeAttach)
+	}
+
+	_ = h.tty.Close()
+
+	h.send(t, &proto.Message{Type: proto.MsgTypeLayout, Layout: sessionLayoutSnapshot(h.session)})
+	h.send(t, &proto.Message{Type: proto.MsgTypePaneOutput, PaneID: 1, PaneData: []byte("pane-1")})
+	h.send(t, &proto.Message{Type: proto.MsgTypePaneOutput, PaneID: 2, PaneData: []byte("pane-2")})
+
+	err := h.waitRunResult(t)
+	if err == nil || !strings.Contains(err.Error(), "raw mode") {
+		t.Fatalf("RunSession() error = %v, want raw mode failure", err)
+	}
+}
+
 func TestRunSessionDetachFlushesPendingInput(t *testing.T) {
 	h := newRunSessionHarness(t, func(int) (int, int, error) {
 		return 80, 24, nil
@@ -764,11 +1000,10 @@ func TestRunSessionDetachFlushesPendingInput(t *testing.T) {
 	if attach.AttachMode != proto.AttachModeInteractive {
 		t.Fatalf("attach mode = %v, want %v", attach.AttachMode, proto.AttachModeInteractive)
 	}
-	h.output.waitContains(t, render.AltScreenEnter)
-
 	h.send(t, &proto.Message{Type: proto.MsgTypeLayout, Layout: sessionLayoutSnapshot(h.session)})
 	h.send(t, &proto.Message{Type: proto.MsgTypePaneOutput, PaneID: 1, PaneData: []byte("left")})
 	h.send(t, &proto.Message{Type: proto.MsgTypePaneOutput, PaneID: 2, PaneData: []byte("right")})
+	h.output.waitContains(t, render.AltScreenEnter)
 	h.output.waitContains(t, "left")
 
 	h.writeInput(t, []byte{'x', 0x01, 'd'})

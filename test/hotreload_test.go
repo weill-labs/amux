@@ -162,7 +162,11 @@ func TestHotReloadKeybinding(t *testing.T) {
 		t.Fatalf("session did not recover after Ctrl-a r\nScreen:\n%s", screen)
 	}
 
-	// Send a marker command to confirm the shell is ready after reload
+	// Outer pane text can survive across the client re-exec, so wait for a
+	// fresh client-backed capture before sending post-reload input.
+	h.waitForCaptureJSONReady(8 * time.Second)
+
+	// Send a marker command to confirm the shell is ready after reload.
 	h.sendKeys("echo POSTRELOAD", "Enter")
 	if !h.waitFor("POSTRELOAD", 8*time.Second) {
 		t.Fatalf("shell not ready after reload\nScreen:\n%s", h.captureOuter())
@@ -173,8 +177,9 @@ func TestHotReloadKeybinding(t *testing.T) {
 		t.Errorf("Ctrl-a r should be consumed, not forwarded (no 'not found' error)\nScreen:\n%s", screen)
 	}
 
-	if !strings.Contains(screen, "RELOADME") {
-		t.Errorf("RELOADME should be visible after hot reload\nScreen:\n%s", screen)
+	history := h.captureOuterHistory()
+	if !strings.Contains(history, "RELOADME") {
+		t.Errorf("RELOADME should be preserved in outer history after hot reload\nHistory:\n%s", history)
 	}
 }
 

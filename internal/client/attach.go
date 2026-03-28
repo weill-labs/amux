@@ -76,7 +76,12 @@ func applyAttachBootstrapMessage(cr *ClientRenderer, msg attachBootstrapMessage)
 	}
 }
 
-const defaultBootstrapCorrectionWindow = 50 * time.Millisecond
+const (
+	// Wait only briefly for the rest of attach replay so a stuck pane does not
+	// hold the terminal on a blank attach indefinitely.
+	defaultBootstrapPaneReplayWait   = 50 * time.Millisecond
+	defaultBootstrapCorrectionWindow = 50 * time.Millisecond
+)
 
 func readImmediateAttachCorrection(conn net.Conn, cr *ClientRenderer, timeout time.Duration) error {
 	if err := conn.SetReadDeadline(time.Now().Add(timeout)); err != nil {
@@ -97,12 +102,44 @@ func readImmediateAttachCorrection(conn net.Conn, cr *ClientRenderer, timeout ti
 		}
 		bufferedMsg, ok := newAttachBootstrapMessage(msg)
 		if !ok {
-			// Unknown message types (bell, copy-mode, etc.) end the
-			// correction window — they belong to the normal message loop.
+			// Unknown message types (bell, copy-mode, etc.) end the correction
+			// window without failing attach. Later layout or pane-output updates
+			// still flow through the normal message loop.
 			return nil
 		}
 		applyAttachBootstrapMessage(cr, bufferedMsg)
 	}
+}
+
+func readAttachBootstrapPaneReplays(conn net.Conn, cr *ClientRenderer, remainingOutputs int, timeout time.Duration) (int, error) {
+	if remainingOutputs <= 0 {
+		return 0, nil
+	}
+	if err := conn.SetReadDeadline(time.Now().Add(timeout)); err != nil {
+		return remainingOutputs, err
+	}
+	defer conn.SetReadDeadline(time.Time{}) //nolint:errcheck // best-effort reset
+	for remainingOutputs > 0 {
+		msg, err := proto.ReadMsg(conn)
+		if err != nil {
+			if ne, ok := err.(net.Error); ok && ne.Timeout() {
+				return remainingOutputs, nil
+			}
+			return remainingOutputs, err
+		}
+		if msg.Type == proto.MsgTypeLayout {
+			cr.HandleLayout(msg.Layout)
+			continue
+		}
+		bufferedMsg, ok := newAttachBootstrapMessage(msg)
+		if !ok {
+			// Unknown message types during pane replay should not fail attach.
+			// Exit bootstrap early and let later state continue via the normal loop.
+			return remainingOutputs, nil
+		}
+		remainingOutputs -= applyAttachBootstrapMessage(cr, bufferedMsg)
+	}
+	return 0, nil
 }
 
 func readAttachBootstrap(conn net.Conn, cr *ClientRenderer) error {
@@ -133,16 +170,15 @@ func readAttachBootstrap(conn net.Conn, cr *ClientRenderer) error {
 		remainingOutputs -= applyAttachBootstrapMessage(cr, msg)
 	}
 
-	for remainingOutputs > 0 {
-		msg, err := proto.ReadMsg(conn)
-		if err != nil {
-			return err
-		}
-		bufferedMsg, ok := newAttachBootstrapMessage(msg)
-		if !ok {
-			return fmt.Errorf("unexpected attach bootstrap message type %d after layout", msg.Type)
-		}
-		remainingOutputs -= applyAttachBootstrapMessage(cr, bufferedMsg)
+	remainingOutputs, err := readAttachBootstrapPaneReplays(conn, cr, remainingOutputs, defaultBootstrapPaneReplayWait)
+	if err != nil {
+		return err
+	}
+	if remainingOutputs > 0 {
+		// A stuck pane replay should not keep the whole terminal black forever.
+		// Any late pane-output or layout messages are still applied by the
+		// normal message loop after the initial frame is rendered.
+		return nil
 	}
 
 	return readImmediateAttachCorrection(conn, cr, defaultBootstrapCorrectionWindow)
@@ -309,17 +345,6 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 		return fmt.Errorf("sending attach: %w", err)
 	}
 
-	// Enter raw mode + alternate screen buffer
-	oldState, err := term.MakeRaw(fd)
-	if err != nil {
-		return fmt.Errorf("raw mode: %w", err)
-	}
-	os.Stdout.Write([]byte(terminalEnterSequence(negotiatedAttachCaps)))
-	defer func() {
-		os.Stdout.Write([]byte(terminalExitSequence(negotiatedAttachCaps)))
-		term.Restore(fd, oldState)
-	}()
-
 	// Client-side renderer with per-pane emulators
 	cr := NewClientRendererWithScrollback(cols, rows, scrollbackLines)
 	cr.SetCapabilities(negotiatedAttachCaps)
@@ -332,6 +357,20 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 	if err := readAttachBootstrap(conn, cr); err != nil {
 		return fmt.Errorf("reading attach bootstrap: %w", err)
 	}
+
+	// Enter raw mode + alternate screen only once there is enough bootstrap
+	// state to draw a real frame. If the server stalls before that point, keep
+	// the user's current terminal visible instead of blanking it first.
+	oldState, err := term.MakeRaw(fd)
+	if err != nil {
+		return fmt.Errorf("raw mode: %w", err)
+	}
+	os.Stdout.Write([]byte(terminalEnterSequence(negotiatedAttachCaps)))
+	defer func() {
+		os.Stdout.Write([]byte(terminalExitSequence(negotiatedAttachCaps)))
+		term.Restore(fd, oldState)
+	}()
+
 	if initial := cr.Render(true); initial != "" {
 		io.WriteString(os.Stdout, initial)
 	}
