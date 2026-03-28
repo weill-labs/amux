@@ -75,6 +75,69 @@ func newAgentStatusTestPane(t *testing.T) *Pane {
 	return p
 }
 
+func newBashPromptSelfForkTestPane(t *testing.T, markerFile string) *Pane {
+	t.Helper()
+
+	bashPath, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skip("bash not available")
+	}
+
+	promptCommand := `printf started >"$MARKER_FILE"; PROMPT_COMMAND= PS1= bash --noprofile --norc -ic 'PROMPT_COMMAND= PS1= bash --noprofile --norc -ic "read -rt 0.3 _"; :'`
+	cmd := exec.Command(bashPath, "--noprofile", "--norc", "-i")
+	cmd.Env = append(os.Environ(),
+		"MARKER_FILE="+markerFile,
+		"PROMPT_COMMAND="+promptCommand,
+		"PS1=prompt> ",
+		"HISTFILE=/dev/null",
+	)
+
+	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{
+		Cols: 40,
+		Rows: 10,
+	})
+	if err != nil {
+		t.Fatalf("start bash prompt-self-fork test shell: %v", err)
+	}
+
+	p := &Pane{
+		ID:              125,
+		Meta:            PaneMeta{Name: "pane-125", Host: DefaultHost},
+		ptmx:            ptmx,
+		cmd:             cmd,
+		emulator:        NewVTEmulatorWithScrollback(40, 10, DefaultScrollbackLines),
+		exitDone:        make(chan struct{}),
+		createdAt:       time.Now().Add(-time.Minute),
+		scrollbackLines: effectiveScrollbackLines(DefaultScrollbackLines),
+		scrollbackLimit: effectiveScrollbackLines(DefaultScrollbackLines),
+	}
+	p.baseHistory.Store(&paneBaseHistory{})
+	wireScrollbackCallbacks(p)
+	p.Start()
+
+	waitUntil(t, time.Second, func() bool {
+		_, err := os.Stat(markerFile)
+		return err == nil
+	})
+	waitUntil(t, time.Second, func() bool {
+		return len(childPIDs(p.ProcessPid())) == 0
+	})
+	if err := os.Remove(markerFile); err != nil && !os.IsNotExist(err) {
+		t.Fatalf("remove initial marker: %v", err)
+	}
+
+	t.Cleanup(func() {
+		if err := p.Close(); err != nil {
+			t.Errorf("Close() = %v, want nil", err)
+		}
+		if err := p.WaitClosed(); err != nil {
+			t.Errorf("WaitClosed() = %v, want nil", err)
+		}
+	})
+
+	return p
+}
+
 func newResizeSignalTestPane(t *testing.T, signalFile, readyFile string) *Pane {
 	t.Helper()
 
@@ -618,6 +681,48 @@ func TestAgentStatusTracksBusyAndIdle(t *testing.T) {
 	})
 	if idle.IdleSince.IsZero() {
 		t.Fatal("idle AgentStatus IdleSince should be populated")
+	}
+}
+
+func TestAgentStatusTreatsPromptTimeBashSelfForkAsIdle(t *testing.T) {
+	// Keep this serialized within the package for the same reason as the other
+	// AgentStatus test: it shells out repeatedly and inspects a live PTY-backed
+	// process tree.
+	markerFile := filepath.Join(t.TempDir(), "prompt-marker")
+	pane := newBashPromptSelfForkTestPane(t, markerFile)
+
+	if _, err := pane.Write([]byte("echo READY\n")); err != nil {
+		t.Fatalf("write trigger command: %v", err)
+	}
+	waitUntil(t, time.Second, func() bool {
+		return pane.ScreenContains("READY")
+	})
+	waitUntil(t, time.Second, func() bool {
+		_, err := os.Stat(markerFile)
+		return err == nil
+	})
+
+	shellPID := pane.ProcessPid()
+	shellName := processName(shellPID)
+	if shellName == "" {
+		t.Fatal("processName(shell) = empty, want bash")
+	}
+
+	waitUntil(t, time.Second, func() bool {
+		children := childPIDs(shellPID)
+		if len(children) != 1 || processName(children[0]) != shellName {
+			return false
+		}
+		grandchildren := childPIDs(children[0])
+		return len(grandchildren) == 1 && processName(grandchildren[0]) == shellName
+	})
+
+	status := pane.AgentStatus()
+	if !status.Idle {
+		t.Fatalf("prompt-time bash self-fork reported busy: %+v", status)
+	}
+	if len(status.ChildPIDs) != 0 {
+		t.Fatalf("idle prompt-time bash self-fork should not expose child PIDs: %+v", status)
 	}
 }
 
