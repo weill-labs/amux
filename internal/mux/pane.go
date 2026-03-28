@@ -122,6 +122,16 @@ type CaptureSnapshot struct {
 	HasCursorBlock bool
 }
 
+// PaneTerminalSnapshot is a lightweight snapshot of the pane's cursor and
+// non-text terminal metadata. It avoids the history/content allocations used
+// by CaptureSnapshot when callers only need terminal metadata.
+type PaneTerminalSnapshot struct {
+	Terminal     TerminalState
+	CursorCol    int
+	CursorRow    int
+	CursorHidden bool
+}
+
 // NewPaneWithScrollback creates a new pane running the user's shell but does
 // NOT start the read/drain/wait goroutines. Call Start() after releasing any
 // locks that the onOutput/onExit callbacks might need.
@@ -593,6 +603,24 @@ func (p *Pane) HistoryScreenSnapshot() (history []string, screen string, seq uin
 	return history, screen, seq
 }
 
+func (p *Pane) terminalSnapshot() PaneTerminalSnapshot {
+	col, row := p.emulator.CursorPosition()
+	return PaneTerminalSnapshot{
+		Terminal:     p.emulator.TerminalState(),
+		CursorCol:    col,
+		CursorRow:    row,
+		CursorHidden: p.emulator.CursorHidden(),
+	}
+}
+
+// TerminalSnapshot returns a lightweight snapshot of the pane's cursor and
+// non-text terminal metadata without allocating content/history slices.
+func (p *Pane) TerminalSnapshot() PaneTerminalSnapshot {
+	return paneActorValue(p, func() PaneTerminalSnapshot {
+		return p.terminalSnapshot()
+	})
+}
+
 // CaptureSnapshot returns a consistent plain-text snapshot of retained
 // scrollback, visible screen content, and cursor state.
 func (p *Pane) CaptureSnapshot() CaptureSnapshot {
@@ -601,19 +629,19 @@ func (p *Pane) CaptureSnapshot() CaptureSnapshot {
 		liveHistory := EmulatorScrollbackHistoryLines(p.emulator, p.loadScrollbackWidths())
 		baseHistory, liveHistory, history := p.captureScrollback(baseHistory, liveHistory)
 		contentRows := EmulatorContentHistoryLines(p.emulator)
+		terminal := p.terminalSnapshot()
 		width, _ := p.emulator.Size()
-		col, row := p.emulator.CursorPosition()
 		snap := CaptureSnapshot{
 			BaseHistory:    append([]string(nil), baseHistory...),
 			LiveHistory:    append([]CaptureHistoryLine(nil), liveHistory...),
 			History:        history,
 			ContentRows:    append([]CaptureHistoryLine(nil), contentRows...),
 			Content:        captureHistoryLineText(contentRows),
-			Terminal:       p.emulator.TerminalState(),
+			Terminal:       terminal.Terminal,
 			Width:          width,
-			CursorCol:      col,
-			CursorRow:      row,
-			CursorHidden:   p.emulator.CursorHidden(),
+			CursorCol:      terminal.CursorCol,
+			CursorRow:      terminal.CursorRow,
+			CursorHidden:   terminal.CursorHidden,
 			HasCursorBlock: false,
 		}
 		if blockCol, blockRow, ok := p.emulator.CursorBlockPosition(); ok {

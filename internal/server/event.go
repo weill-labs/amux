@@ -1,7 +1,6 @@
 package server
 
 import (
-	"reflect"
 	"slices"
 	"time"
 
@@ -109,7 +108,9 @@ func (s *Session) currentStateEvents() []Event {
 
 	// Current terminal state for each pane.
 	for _, p := range s.Panes {
-		events = append(events, s.capturePaneTerminalEvent(p))
+		ev := s.capturePaneTerminalEvent(p)
+		ev.Timestamp = now
+		events = append(events, ev)
 	}
 
 	// Current idle/busy state for each pane
@@ -157,19 +158,23 @@ type paneTerminalEventState struct {
 }
 
 func (s *Session) capturePaneTerminalState(pane *mux.Pane) paneTerminalEventState {
-	snap := pane.CaptureSnapshot()
+	snap := pane.TerminalSnapshot()
 	return paneTerminalEventState{
 		Cursor:   caputil.CursorFromState(snap.CursorCol, snap.CursorRow, snap.CursorHidden, snap.Terminal),
 		Terminal: caputil.TerminalFromState(snap.Terminal),
 	}
 }
 
-func (s *Session) capturePaneTerminalEvent(pane *mux.Pane) Event {
-	state := s.capturePaneTerminalState(pane)
+func (s *Session) ensureTerminalEventState() map[uint32]paneTerminalEventState {
 	if s.terminalEventState == nil {
 		s.terminalEventState = make(map[uint32]paneTerminalEventState)
 	}
-	s.terminalEventState[pane.ID] = state
+	return s.terminalEventState
+}
+
+func (s *Session) capturePaneTerminalEvent(pane *mux.Pane) Event {
+	state := s.capturePaneTerminalState(pane)
+	s.ensureTerminalEventState()[pane.ID] = state
 	return paneTerminalEvent(pane, state)
 }
 
@@ -185,7 +190,34 @@ func paneTerminalEvent(pane *mux.Pane, state paneTerminalEventState) Event {
 }
 
 func paneTerminalEventStateEqual(left, right paneTerminalEventState) bool {
-	return left.Cursor == right.Cursor && reflect.DeepEqual(left.Terminal, right.Terminal)
+	return left.Cursor == right.Cursor && captureTerminalEqual(left.Terminal, right.Terminal)
+}
+
+func captureTerminalEqual(left, right *proto.CaptureTerminal) bool {
+	if left == nil || right == nil {
+		return left == right
+	}
+	return left.AltScreen == right.AltScreen &&
+		left.ForegroundColor == right.ForegroundColor &&
+		left.BackgroundColor == right.BackgroundColor &&
+		left.CursorColor == right.CursorColor &&
+		captureHyperlinkEqual(left.Hyperlink, right.Hyperlink) &&
+		captureMouseEqual(left.Mouse, right.Mouse) &&
+		slices.Equal(left.Palette, right.Palette)
+}
+
+func captureHyperlinkEqual(left, right *proto.CaptureHyperlink) bool {
+	if left == nil || right == nil {
+		return left == right
+	}
+	return left.URL == right.URL && left.Params == right.Params
+}
+
+func captureMouseEqual(left, right *proto.CaptureMouseProtocol) bool {
+	if left == nil || right == nil {
+		return left == right
+	}
+	return left.Tracking == right.Tracking && left.SGR == right.SGR
 }
 
 func (s *Session) emitPaneTerminalEventIfChanged(pane *mux.Pane) {
@@ -193,13 +225,11 @@ func (s *Session) emitPaneTerminalEventIfChanged(pane *mux.Pane) {
 		return
 	}
 	state := s.capturePaneTerminalState(pane)
-	prev, ok := s.terminalEventState[pane.ID]
+	stateByPane := s.ensureTerminalEventState()
+	prev, ok := stateByPane[pane.ID]
 	if ok && paneTerminalEventStateEqual(prev, state) {
 		return
 	}
-	if s.terminalEventState == nil {
-		s.terminalEventState = make(map[uint32]paneTerminalEventState)
-	}
-	s.terminalEventState[pane.ID] = state
+	stateByPane[pane.ID] = state
 	s.emitEvent(paneTerminalEvent(pane, state))
 }

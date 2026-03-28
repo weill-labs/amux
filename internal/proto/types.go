@@ -182,7 +182,7 @@ type CaptureTerminal struct {
 	BackgroundColor string                `json:"background_color"`
 	CursorColor     string                `json:"cursor_color"`
 	Hyperlink       *CaptureHyperlink     `json:"hyperlink,omitempty"`
-	Mouse           *CaptureMouseProtocol `json:"mouse,omitempty"`
+	Mouse           *CaptureMouseProtocol `json:"mouse"`
 	Palette         []string              `json:"palette"`
 }
 
