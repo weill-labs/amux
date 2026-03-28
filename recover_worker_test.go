@@ -78,12 +78,39 @@ func TestRecoverWorkerScriptRejectsPaneWithoutKnownDialog(t *testing.T) {
 	}
 }
 
+func TestRecoverWorkerScriptRejectsPaneWithoutChildProcesses(t *testing.T) {
+	t.Parallel()
+
+	fixture := newRecoverWorkerFixture(t)
+
+	out, exitCode := runRecoverWorkerScript(t, fixture.tempDir,
+		"FAKE_AMUX_LOG="+fixture.logPath,
+		"FAKE_STAGE_FILE="+fixture.stagePath,
+		"FAKE_INITIAL_STAGE=no_children",
+	)
+	if exitCode != 1 {
+		t.Fatalf("exit code = %d, want 1\n%s", exitCode, out)
+	}
+	if !strings.Contains(out, "has no child processes") {
+		t.Fatalf("output missing child-process failure:\n%s", out)
+	}
+
+	got, err := os.ReadFile(fixture.logPath)
+	if err != nil {
+		t.Fatalf("read fake amux log: %v", err)
+	}
+	if strings.Contains(string(got), "send-keys") {
+		t.Fatalf("expected no recovery input without child processes, got log:\n%s", got)
+	}
+}
+
 func TestRecoverWorkerScriptFailsWhenOutputDoesNotAdvance(t *testing.T) {
 	t.Parallel()
 
 	fixture := newRecoverWorkerFixture(t)
 
 	out, exitCode := runRecoverWorkerScript(t, fixture.tempDir,
+		"FAKE_AMUX_LOG="+fixture.logPath,
 		"FAKE_STAGE_FILE="+fixture.stagePath,
 		"FAKE_FINAL_STAGE=unchanged",
 	)
@@ -92,6 +119,24 @@ func TestRecoverWorkerScriptFailsWhenOutputDoesNotAdvance(t *testing.T) {
 	}
 	if !strings.Contains(out, "pane content did not change") {
 		t.Fatalf("output missing no-progress failure:\n%s", out)
+	}
+}
+
+func TestRecoverWorkerScriptFailsWhenDialogStillBlocksAfterRecovery(t *testing.T) {
+	t.Parallel()
+
+	fixture := newRecoverWorkerFixture(t)
+
+	out, exitCode := runRecoverWorkerScript(t, fixture.tempDir,
+		"FAKE_AMUX_LOG="+fixture.logPath,
+		"FAKE_STAGE_FILE="+fixture.stagePath,
+		"FAKE_FINAL_STAGE=still_blocked",
+	)
+	if exitCode != 1 {
+		t.Fatalf("exit code = %d, want 1\n%s", exitCode, out)
+	}
+	if !strings.Contains(out, "still matches a blocking dialog") {
+		t.Fatalf("output missing dialog-still-blocked failure:\n%s", out)
 	}
 }
 
@@ -189,6 +234,16 @@ EOF
         not_stuck)
             cat <<'EOF'
 {"child_pids":[42],"content":["build passed","shell prompt ready"]}
+EOF
+            ;;
+        no_children)
+            cat <<'EOF'
+{"child_pids":[],"content":["Do you trust the contents of this directory?","Working with untrusted contents comes with higher risk of prompt injection.","Press enter to continue"]}
+EOF
+            ;;
+        still_blocked)
+            cat <<'EOF'
+{"child_pids":[42],"content":["Resumed rollout successfully from abc123","Press enter to continue"]}
 EOF
             ;;
         *)

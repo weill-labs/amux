@@ -36,14 +36,18 @@ require_cmd() {
     fi
 }
 
-pane=${1:-}
-if [[ $# -ne 1 ]] || [[ "$pane" == "-h" ]] || [[ "$pane" == "--help" ]] || [[ -z "$pane" ]]; then
-    if [[ "${1:-}" == "-h" ]] || [[ "${1:-}" == "--help" ]]; then
+case "${1:-}" in
+    -h|--help)
         usage
         exit 0
-    fi
+        ;;
+esac
+
+if [[ $# -ne 1 ]] || [[ -z "${1:-}" ]]; then
     die_usage
 fi
+
+pane=$1
 
 AMUX_BIN=${AMUX:-amux}
 VT_IDLE_TIMEOUT=${AMUX_RECOVER_VT_IDLE_TIMEOUT:-20s}
@@ -71,7 +75,7 @@ has_child_processes() {
 
 content_lines() {
     local capture=$1
-    jq -r '.content[]? // empty' <<<"$capture"
+    jq -r '.content[]?' <<<"$capture"
 }
 
 content_snapshot() {
