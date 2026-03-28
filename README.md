@@ -415,6 +415,7 @@ Shared repo guidance lives in [AGENTS.md](AGENTS.md). This is the instruction fi
 - Claude Code also loads repo automation from `.claude/settings.json` and `.claude/hooks/`.
 - Codex reads `AGENTS.md` and can discover repo skills from `.agents/skills/`.
 - `make setup` installs the repo Git hooks for everyone. It is not Claude-specific.
+- In an amux pane, prefer `scripts/gh-pr-create.sh ...` when opening a PR; with repo hooks active, later `git push` calls re-sync pane PR metadata for any agent.
 - Optional for Codex users: trust the repo, then install the OpenAI Docs MCP server with `codex mcp add openaiDeveloperDocs --url https://developers.openai.com/mcp`.
 
 ## License

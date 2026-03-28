@@ -129,6 +129,7 @@ func TestSyncPanePRMetaScriptAddsCurrentIssueAndPR(t *testing.T) {
 	t.Parallel()
 
 	tempDir := t.TempDir()
+	copyIssueMetaFixture(t, tempDir, "scripts/sync-pane-pr-meta.sh")
 	logPath := filepath.Join(tempDir, "amux.log")
 	amuxPath := filepath.Join(tempDir, "amux")
 	if err := os.WriteFile(amuxPath, []byte(`#!/bin/sh
@@ -155,8 +156,8 @@ printf '422\n'
 		t.Fatalf("write fake gh: %v", err)
 	}
 
-	cmd := exec.Command("bash", "scripts/sync-pane-pr-meta.sh")
-	cmd.Dir = "."
+	cmd := exec.Command("bash", filepath.Join(tempDir, "scripts/sync-pane-pr-meta.sh"))
+	cmd.Dir = tempDir
 	cmd.Env = issueMetaScriptEnv(tempDir, "FAKE_AMUX_LOG="+logPath)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -169,6 +170,130 @@ printf '422\n'
 	}
 	if strings.TrimSpace(string(got)) != "add-meta 7 pr=422 issue=LAB-445" {
 		t.Fatalf("amux args = %q, want %q", got, "add-meta 7 pr=422 issue=LAB-445")
+	}
+}
+
+func TestGHPRCreateScriptSyncsPanePRMeta(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	copyIssueMetaFixture(t, tempDir, "scripts/gh-pr-create.sh")
+	copyIssueMetaFixture(t, tempDir, "scripts/sync-pane-pr-meta.sh")
+	amuxLogPath := filepath.Join(tempDir, "amux.log")
+	ghLogPath := filepath.Join(tempDir, "gh.log")
+
+	amuxPath := filepath.Join(tempDir, "amux")
+	if err := os.WriteFile(amuxPath, []byte(`#!/bin/sh
+if [ "$1" = "capture" ]; then
+cat <<'EOF'
+{"meta":{"tracked_issues":[{"id":"LAB-445","status":"active"}]}}
+EOF
+exit 0
+fi
+printf '%s' "$1" >"$FAKE_AMUX_LOG"
+shift
+for arg in "$@"; do
+    printf ' %s' "$arg" >>"$FAKE_AMUX_LOG"
+done
+printf '\n' >>"$FAKE_AMUX_LOG"
+`), 0755); err != nil {
+		t.Fatalf("write fake amux: %v", err)
+	}
+
+	ghPath := filepath.Join(tempDir, "gh")
+	if err := os.WriteFile(ghPath, []byte(`#!/bin/sh
+printf '%s' "$1" >>"$FAKE_GH_LOG"
+shift
+for arg in "$@"; do
+    printf ' %s' "$arg" >>"$FAKE_GH_LOG"
+done
+printf '\n' >>"$FAKE_GH_LOG"
+
+if [ "$1" = "create" ]; then
+    printf 'https://github.com/weill-labs/amux/pull/422\n'
+    exit 0
+fi
+
+if [ "$1" = "view" ]; then
+    printf '422\n'
+    exit 0
+fi
+
+exit 1
+`), 0755); err != nil {
+		t.Fatalf("write fake gh: %v", err)
+	}
+
+	cmd := exec.Command("bash", filepath.Join(tempDir, "scripts/gh-pr-create.sh"), "--fill", "--draft")
+	cmd.Dir = tempDir
+	cmd.Env = issueMetaScriptEnv(tempDir, "FAKE_AMUX_LOG="+amuxLogPath, "FAKE_GH_LOG="+ghLogPath)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("expected success: %v\n%s", err, out)
+	}
+	if strings.TrimSpace(string(out)) != "https://github.com/weill-labs/amux/pull/422" {
+		t.Fatalf("stdout = %q, want PR URL", out)
+	}
+
+	ghLog, err := os.ReadFile(ghLogPath)
+	if err != nil {
+		t.Fatalf("read fake gh log: %v", err)
+	}
+	if got := strings.TrimSpace(string(ghLog)); got != "pr create --fill --draft\npr view --json number --jq .number" {
+		t.Fatalf("gh args = %q, want create then view", got)
+	}
+
+	amuxLog, err := os.ReadFile(amuxLogPath)
+	if err != nil {
+		t.Fatalf("read fake amux log: %v", err)
+	}
+	if strings.TrimSpace(string(amuxLog)) != "add-meta 7 pr=422 issue=LAB-445" {
+		t.Fatalf("amux args = %q, want %q", amuxLog, "add-meta 7 pr=422 issue=LAB-445")
+	}
+}
+
+func TestPrePushHookSyncsPanePRMeta(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	copyIssueMetaFixture(t, tempDir, ".githooks/pre-push")
+	syncLogPath := filepath.Join(tempDir, "sync.log")
+	syncScriptPath := filepath.Join(tempDir, "scripts/sync-pane-pr-meta.sh")
+	diffCoveragePath := filepath.Join(tempDir, "scripts/check-diff-coverage.sh")
+
+	if err := os.MkdirAll(filepath.Dir(syncScriptPath), 0755); err != nil {
+		t.Fatalf("mkdir scripts dir: %v", err)
+	}
+	if err := os.WriteFile(syncScriptPath, []byte(`#!/bin/sh
+printf 'sync\n' >"$FAKE_SYNC_LOG"
+`), 0755); err != nil {
+		t.Fatalf("write fake sync script: %v", err)
+	}
+	if err := os.WriteFile(diffCoveragePath, []byte("#!/bin/sh\nexit 0\n"), 0755); err != nil {
+		t.Fatalf("write fake diff coverage script: %v", err)
+	}
+
+	initRepo := exec.Command("git", "init", "-q")
+	initRepo.Dir = tempDir
+	if out, err := initRepo.CombinedOutput(); err != nil {
+		t.Fatalf("git init temp repo: %v\n%s", err, out)
+	}
+
+	cmd := exec.Command("bash", filepath.Join(tempDir, ".githooks/pre-push"), "origin", "git@github.com:weill-labs/amux.git")
+	cmd.Dir = tempDir
+	cmd.Env = issueMetaScriptEnv(tempDir, "FAKE_SYNC_LOG="+syncLogPath)
+	cmd.Stdin = strings.NewReader("refs/heads/pr-476 1111111111111111111111111111111111111111 refs/heads/pr-476 2222222222222222222222222222222222222222\n")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("expected success: %v\n%s", err, out)
+	}
+
+	syncLog, err := os.ReadFile(syncLogPath)
+	if err != nil {
+		t.Fatalf("read fake sync log: %v", err)
+	}
+	if strings.TrimSpace(string(syncLog)) != "sync" {
+		t.Fatalf("sync log = %q, want %q", syncLog, "sync")
 	}
 }
 
@@ -199,4 +324,26 @@ func upsertIssueMetaEnv(env []string, key, value string) []string {
 		}
 	}
 	return append(env, prefix+value)
+}
+
+func copyIssueMetaFixture(t *testing.T, root, relPath string) string {
+	t.Helper()
+
+	data, err := os.ReadFile(relPath)
+	if err != nil {
+		t.Fatalf("read fixture %s: %v", relPath, err)
+	}
+	info, err := os.Stat(relPath)
+	if err != nil {
+		t.Fatalf("stat fixture %s: %v", relPath, err)
+	}
+
+	dst := filepath.Join(root, relPath)
+	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+		t.Fatalf("mkdir fixture dir for %s: %v", relPath, err)
+	}
+	if err := os.WriteFile(dst, data, info.Mode()); err != nil {
+		t.Fatalf("write fixture %s: %v", relPath, err)
+	}
+	return dst
 }
