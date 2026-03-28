@@ -13,6 +13,11 @@ die() {
     exit 1
 }
 
+usage_error() {
+    usage
+    exit 2
+}
+
 require_cmd() {
     if ! command -v "$1" >/dev/null 2>&1; then
         die "missing required command: $1"
@@ -96,29 +101,23 @@ while True:
 
 pane="${1:-}"
 if [[ -z "$pane" ]]; then
-    usage
-    exit 2
+    usage_error
 fi
 shift
 
 issue=""
 timeout="3s"
+subscribe_timeout="5s"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --issue)
-            [[ $# -ge 2 ]] || {
-                usage
-                exit 2
-            }
+            [[ $# -ge 2 ]] || usage_error
             issue="$2"
             shift 2
             ;;
         --timeout)
-            [[ $# -ge 2 ]] || {
-                usage
-                exit 2
-            }
+            [[ $# -ge 2 ]] || usage_error
             timeout="$2"
             shift 2
             ;;
@@ -131,8 +130,7 @@ while [[ $# -gt 0 ]]; do
             break
             ;;
         -*)
-            usage
-            exit 2
+            usage_error
             ;;
         *)
             break
@@ -140,10 +138,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-[[ $# -ge 1 ]] || {
-    usage
-    exit 2
-}
+[[ $# -ge 1 ]] || usage_error
 
 task="$*"
 
@@ -167,7 +162,7 @@ coproc EVENT_STREAM { amux events --pane "$pane" --filter layout,output,vt-idle 
 events_pid="$EVENT_STREAM_PID"
 exec {events_fd}<&"${EVENT_STREAM[0]}"
 
-if ! wait_for_event "layout" "5s"; then
+if ! wait_for_event "layout" "$subscribe_timeout"; then
     die "failed to subscribe to $pane event stream"
 fi
 
