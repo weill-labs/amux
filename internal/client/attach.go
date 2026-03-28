@@ -108,6 +108,35 @@ func readImmediateAttachCorrection(conn net.Conn, cr *ClientRenderer, timeout ti
 	}
 }
 
+func readAttachBootstrapPaneReplays(conn net.Conn, cr *ClientRenderer, remainingOutputs int, timeout time.Duration) (int, error) {
+	if remainingOutputs <= 0 {
+		return 0, nil
+	}
+	if err := conn.SetReadDeadline(time.Now().Add(timeout)); err != nil {
+		return remainingOutputs, err
+	}
+	defer conn.SetReadDeadline(time.Time{}) //nolint:errcheck // best-effort reset
+	for remainingOutputs > 0 {
+		msg, err := proto.ReadMsg(conn)
+		if err != nil {
+			if ne, ok := err.(net.Error); ok && ne.Timeout() {
+				return remainingOutputs, nil
+			}
+			return remainingOutputs, err
+		}
+		if msg.Type == proto.MsgTypeLayout {
+			cr.HandleLayout(msg.Layout)
+			continue
+		}
+		bufferedMsg, ok := newAttachBootstrapMessage(msg)
+		if !ok {
+			return remainingOutputs, fmt.Errorf("unexpected attach bootstrap message type %d after layout", msg.Type)
+		}
+		remainingOutputs -= applyAttachBootstrapMessage(cr, bufferedMsg)
+	}
+	return 0, nil
+}
+
 func readAttachBootstrap(conn net.Conn, cr *ClientRenderer) error {
 	var layout *proto.LayoutSnapshot
 	var buffered []attachBootstrapMessage
@@ -136,29 +165,15 @@ func readAttachBootstrap(conn net.Conn, cr *ClientRenderer) error {
 		remainingOutputs -= applyAttachBootstrapMessage(cr, msg)
 	}
 
+	remainingOutputs, err := readAttachBootstrapPaneReplays(conn, cr, remainingOutputs, defaultBootstrapPaneReplayWait)
+	if err != nil {
+		return err
+	}
 	if remainingOutputs > 0 {
-		if err := conn.SetReadDeadline(time.Now().Add(defaultBootstrapPaneReplayWait)); err != nil {
-			return err
-		}
-		defer conn.SetReadDeadline(time.Time{}) //nolint:errcheck // best-effort reset
-		for remainingOutputs > 0 {
-			msg, err := proto.ReadMsg(conn)
-			if err != nil {
-				if ne, ok := err.(net.Error); ok && ne.Timeout() {
-					return nil
-				}
-				return err
-			}
-			if msg.Type == proto.MsgTypeLayout {
-				cr.HandleLayout(msg.Layout)
-				continue
-			}
-			bufferedMsg, ok := newAttachBootstrapMessage(msg)
-			if !ok {
-				return fmt.Errorf("unexpected attach bootstrap message type %d after layout", msg.Type)
-			}
-			remainingOutputs -= applyAttachBootstrapMessage(cr, bufferedMsg)
-		}
+		// A stuck pane replay should not keep the whole terminal black forever.
+		// Any late pane-output or layout messages are still applied by the
+		// normal message loop after the initial frame is rendered.
+		return nil
 	}
 
 	return readImmediateAttachCorrection(conn, cr, defaultBootstrapCorrectionWindow)
@@ -338,6 +353,9 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 		return fmt.Errorf("reading attach bootstrap: %w", err)
 	}
 
+	// Enter raw mode + alternate screen only once there is enough bootstrap
+	// state to draw a real frame. If the server stalls before that point, keep
+	// the user's current terminal visible instead of blanking it first.
 	oldState, err := term.MakeRaw(fd)
 	if err != nil {
 		return fmt.Errorf("raw mode: %w", err)
