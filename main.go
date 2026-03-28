@@ -29,7 +29,6 @@ const defaultSessionName = server.DefaultSessionName
 const (
 	sendKeysUsage = "usage: amux send-keys <pane> [--wait ready|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>..."
 	typeKeysUsage = "usage: amux type-keys [--wait ui=input-idle] [--timeout <duration>] [--hex] <keys>..."
-	delegateUsage = "usage: amux delegate <pane> [--timeout <duration>] [--start-timeout <duration>] [--hex] <keys>..."
 )
 
 const reconnectEventType = "reconnect"
@@ -237,14 +236,6 @@ func main() {
 			fmt.Fprintf(os.Stderr, "warning: %q looks like a pane ref; type-keys always targets the focused pane, use send-keys %s ... to target another pane\n", args[1], args[1])
 		}
 		runSessionCommand("type-keys", args[1:])
-	case "delegate":
-		if handled, exitCode := maybePrintKeyCommandUsage(os.Stdout, os.Stderr, args[1:], delegateUsage, 2); handled {
-			if exitCode != 0 {
-				os.Exit(exitCode)
-			}
-			return
-		}
-		runSessionCommand("delegate", args[1:])
 	case "set-lead":
 		runSessionCommand("set-lead", args[1:])
 	case "unset-lead":
@@ -510,8 +501,6 @@ Usage:
                                        Add a pane in clockwise spiral order without changing focus
   amux [-s session] type-keys [--wait ui=input-idle] [--timeout <duration>] [--hex] <keys>...
                                        Type keys through client input pipeline
-  amux [-s session] delegate <pane> [--timeout <duration>] [--start-timeout <duration>] [--hex] <keys>...
-                                       Send prompt text, submit it, and confirm the pane becomes busy
   amux [-s session] spawn --name NAME [--host HOST] [--task TASK] [--color COLOR]
                                        Spawn a new agent pane without changing focus
   amux [-s session] zoom [pane]        Toggle zoom (maximize) a pane
