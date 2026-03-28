@@ -63,9 +63,7 @@ fi
 require_cmd "$amux_bin"
 require_cmd "$git_bin"
 
-if ! split_out="$("$amux_bin" split "$parent" --horizontal)"; then
-    exit $?
-fi
+split_out="$("$amux_bin" split "$parent" --horizontal)" || exit $?
 
 if [[ ! "$split_out" =~ new[[:space:]]+pane[[:space:]]+([^[:space:]]+) ]]; then
     die "failed to parse new pane from: $split_out"
