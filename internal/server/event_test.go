@@ -167,6 +167,14 @@ func TestTerminalEventsInitialSnapshotAndUpdates(t *testing.T) {
 	defer stopSessionBackgroundLoops(t, sess)
 
 	pane := newTestPane(sess, 1, "pane-1")
+	window := newTestWindowWithPanes(t, sess, 1, "main", pane)
+	mustSessionQuery(t, sess, func(sess *Session) struct{} {
+		sess.Windows = []*mux.Window{window}
+		sess.ActiveWindowID = window.ID
+		sess.Panes = []*mux.Pane{pane}
+		return struct{}{}
+	})
+
 	pane.FeedOutput([]byte(
 		"\x1b]10;#112233\x07" +
 			"\x1b]11;#445566\x07" +
@@ -175,11 +183,6 @@ func TestTerminalEventsInitialSnapshotAndUpdates(t *testing.T) {
 			"\x1b[6 q" +
 			"\x1b[?1049h",
 	))
-
-	window := newTestWindowWithPanes(t, sess, 1, "main", pane)
-	sess.Windows = []*mux.Window{window}
-	sess.ActiveWindowID = window.ID
-	sess.Panes = []*mux.Pane{pane}
 
 	res := sess.enqueueEventSubscribe(eventFilter{Types: []string{EventTerminal}}, true)
 	if res.sub == nil {
