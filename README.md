@@ -135,7 +135,15 @@ Returns a JSON object with session metadata, window info, and per-pane state:
       },
       "color": "f5e0dc",
       "position": {"x": 0, "y": 0, "width": 100, "height": 49},
-      "cursor": {"col": 12, "row": 24, "hidden": false},
+      "cursor": {"col": 12, "row": 24, "hidden": false, "style": "block", "blinking": true},
+      "terminal": {
+        "alt_screen": false,
+        "foreground_color": "ffffff",
+        "background_color": "000000",
+        "cursor_color": "ffffff",
+        "mouse": {"tracking": "none", "sgr": false},
+        "palette": ["000000", "800000", "008000", "808000", "000080", "800080", "008080", "c0c0c0"]
+      },
       "content": ["$ make test", "PASS", "ok  github.com/weill-labs/amux 5.432s", "$ ▊"],
       "idle": true,
       "idle_since": "2025-06-15T10:30:00Z",
@@ -147,6 +155,8 @@ Returns a JSON object with session metadata, window info, and per-pane state:
 ```
 
 Pane JSON includes a nested `meta` object for user-managed metadata: `task`, `git_branch`, `pr`, tracked `prs`, and tracked `issues`. The legacy top-level `task`, `git_branch`, and `pr` fields remain for compatibility.
+
+`cursor.style` is one of `block`, `underline`, or `bar`. `terminal.palette` is the pane's effective 256-color ANSI palette in stable index order, encoded as lowercase hex without `#`. `terminal.hyperlink` is present when OSC 8 hyperlink state is active at the cursor. Capture JSON is additive: agents should ignore unknown fields so future releases can extend the schema without breaking existing parsers.
 
 Capture a single pane:
 
@@ -205,6 +215,7 @@ Use `amux list-clients` to discover attached client IDs for `--client` and `wait
 
 ```json
 {"type":"layout","ts":"2025-06-15T10:30:00.123Z","generation":42,"active_pane":"pane-1"}
+{"type":"terminal","ts":"2025-06-15T10:30:00.200Z","pane_id":1,"pane_name":"pane-1","host":"local","cursor":{"col":12,"row":24,"hidden":false,"style":"bar","blinking":false},"terminal":{"alt_screen":true,"foreground_color":"112233","background_color":"445566","cursor_color":"778899","hyperlink":{"url":"https://example.com"},"mouse":{"tracking":"none","sgr":false},"palette":["000000","800000","008000","808000","000080","800080","008080","c0c0c0"]}}
 {"type":"idle","ts":"2025-06-15T10:30:01.456Z","pane_id":2,"pane_name":"pane-2","host":"lambda-a100"}
 {"type":"busy","ts":"2025-06-15T10:30:05.789Z","pane_id":2,"pane_name":"pane-2","host":"lambda-a100"}
 {"type":"vt-idle","ts":"2025-06-15T10:30:05.850Z","pane_id":2,"pane_name":"pane-2","host":"lambda-a100"}
@@ -213,7 +224,7 @@ Use `amux list-clients` to discover attached client IDs for `--client` and `wait
 {"type":"reconnect","ts":"2025-06-15T10:30:06.000Z"}
 ```
 
-Event types: `layout`, `output`, `idle`, `busy`, `vt-idle`, `client-connect`, `client-disconnect`, and the client-generated `reconnect` event used by the CLI auto-reconnect path. By default `amux events` reconnects automatically after a dropped stream, emits a client-generated `reconnect` event, and resubscribes after exponential backoff. Use `--no-reconnect` for scripts that want exit-on-disconnect. New subscribers receive the current state as an initial snapshot, including already-attached clients as `client-connect` events, so no events are missed between subscribe and the first real event. Output events are throttled to at most one per pane per `--throttle` interval (default 50ms). Non-output events pass through immediately. Use `--throttle 0s` to disable throttling. `vt-idle` uses a fixed `2s` settle window in the stream.
+Event types: `layout`, `output`, `terminal`, `idle`, `busy`, `vt-idle`, `client-connect`, `client-disconnect`, and the client-generated `reconnect` event used by the CLI auto-reconnect path. `terminal` is pane-scoped and fires when preserved terminal metadata changes (cursor style, colors, hyperlink state, alt-screen state, palette view, and similar non-text state). By default `amux events` reconnects automatically after a dropped stream, emits a client-generated `reconnect` event, and resubscribes after exponential backoff. Use `--no-reconnect` for scripts that want exit-on-disconnect. New subscribers receive the current state as an initial snapshot, including already-attached clients as `client-connect` events, so no events are missed between subscribe and the first real event. Output events are throttled to at most one per pane per `--throttle` interval (default 50ms). Non-output events pass through immediately. Use `--throttle 0s` to disable throttling. `vt-idle` uses a fixed `2s` settle window in the stream.
 
 ### Agent Loop Example
 

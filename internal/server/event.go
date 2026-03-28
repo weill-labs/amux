@@ -170,6 +170,10 @@ func (s *Session) capturePaneTerminalEvent(pane *mux.Pane) Event {
 		s.terminalEventState = make(map[uint32]paneTerminalEventState)
 	}
 	s.terminalEventState[pane.ID] = state
+	return paneTerminalEvent(pane, state)
+}
+
+func paneTerminalEvent(pane *mux.Pane, state paneTerminalEventState) Event {
 	return Event{
 		Type:     EventTerminal,
 		PaneID:   pane.ID,
@@ -182,4 +186,20 @@ func (s *Session) capturePaneTerminalEvent(pane *mux.Pane) Event {
 
 func paneTerminalEventStateEqual(left, right paneTerminalEventState) bool {
 	return left.Cursor == right.Cursor && reflect.DeepEqual(left.Terminal, right.Terminal)
+}
+
+func (s *Session) emitPaneTerminalEventIfChanged(pane *mux.Pane) {
+	if pane == nil {
+		return
+	}
+	state := s.capturePaneTerminalState(pane)
+	prev, ok := s.terminalEventState[pane.ID]
+	if ok && paneTerminalEventStateEqual(prev, state) {
+		return
+	}
+	if s.terminalEventState == nil {
+		s.terminalEventState = make(map[uint32]paneTerminalEventState)
+	}
+	s.terminalEventState[pane.ID] = state
+	s.emitEvent(paneTerminalEvent(pane, state))
 }
