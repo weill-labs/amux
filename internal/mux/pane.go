@@ -53,6 +53,7 @@ type Pane struct {
 	emulator      TerminalEmulator
 	actorCommands chan paneCommand
 	actorDone     chan struct{}
+	readLoopDone  chan struct{}
 
 	outputSeq        atomic.Uint64
 	baseHistory      atomic.Pointer[paneBaseHistory]
@@ -384,6 +385,9 @@ func (p *Pane) ReplayScreen(data string) {
 // Start launches the goroutines that read PTY output and wait for exit.
 // Call this after releasing any locks that onOutput/onExit callbacks need.
 func (p *Pane) Start() {
+	if p.ptmx != nil && p.readLoopDone == nil {
+		p.readLoopDone = make(chan struct{})
+	}
 	go p.readLoop()
 	if !p.drainStarted {
 		go p.drainResponses()
@@ -411,6 +415,9 @@ func (p *Pane) SetOnMetaUpdate(fn func(paneID uint32, update MetaUpdate)) {
 
 // readLoop reads PTY output, feeds the emulator, and notifies the callback.
 func (p *Pane) readLoop() {
+	if p.readLoopDone != nil {
+		defer close(p.readLoopDone)
+	}
 	buf := make([]byte, 32*1024)
 	for {
 		n, err := p.ptmx.Read(buf)
@@ -820,6 +827,9 @@ func (p *Pane) closeBlocking() error {
 	var ptmxErr error
 	if p.ptmx != nil {
 		ptmxErr = p.ptmx.Close()
+	}
+	if p.readLoopDone != nil {
+		<-p.readLoopDone
 	}
 	if proc != nil {
 		select {

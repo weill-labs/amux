@@ -23,9 +23,7 @@ func setupWaitReadyTestPane(t *testing.T, writeOverride func([]byte) (int, error
 		Color: config.AccentColor(0),
 	}, 80, 23, sess.paneOutputCallback(), sess.paneExitCallback(), writeOverride)
 	w := newTestWindowWithPanes(t, sess, 1, "main", pane)
-	sess.Windows = []*mux.Window{w}
-	sess.ActiveWindowID = w.ID
-	sess.Panes = []*mux.Pane{pane}
+	setSessionLayoutForTest(t, sess, w.ID, []*mux.Window{w}, pane)
 	return srv, sess, pane, cleanup
 }
 
