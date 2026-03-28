@@ -31,6 +31,28 @@ func captureHistoryPaneFromAmux(tb testing.TB, h *AmuxHarness, pane string) prot
 	return capture
 }
 
+func waitForHistoryPaneCapture(tb testing.TB, h *AmuxHarness, pane string, timeout time.Duration, match func(proto.CapturePane) bool) proto.CapturePane {
+	tb.Helper()
+
+	var lastRaw string
+	raw := waitForOutput(tb, timeout, func() string {
+		lastRaw = h.runCmd("capture", "--history", "--format", "json", pane)
+		return lastRaw
+	}, func(out string) bool {
+		var capture proto.CapturePane
+		if err := json.Unmarshal([]byte(out), &capture); err != nil {
+			return false
+		}
+		return match(capture)
+	})
+
+	var capture proto.CapturePane
+	if err := json.Unmarshal([]byte(raw), &capture); err != nil {
+		tb.Fatalf("capture history JSON: %v\nraw:\n%s\nlast raw:\n%s", err, raw, lastRaw)
+	}
+	return capture
+}
+
 func linesWithPrefix(lines []string, prefix string) []string {
 	var out []string
 	for _, line := range lines {
@@ -521,12 +543,14 @@ func TestServerHotReloadFallsBackToCrashCheckpointAcrossVersionBump(t *testing.T
 	}
 
 	h.splitV()
+	uiBefore := h.uiGen()
 
 	if err := buildAmuxAtomicWithCheckpointVersionBumps(privateBin, "newbuild"); err != nil {
 		t.Fatalf("building version-bumped amux binary: %v", err)
 	}
 
 	h.runCmd("reload-server")
+	h.waitUIGenChange(uiBefore, 15*time.Second)
 
 	if !h.waitFor("[pane-", 15*time.Second) {
 		t.Fatalf("session did not recover after version-bumped reload\nScreen:\n%s", h.captureOuter())
@@ -578,9 +602,13 @@ func TestServerReloadPreservesHistoryCapture(t *testing.T) {
 		t.Fatalf("session did not recover after reload\nScreen:\n%s", h.captureOuter())
 	}
 
-	after := h.runCmd("capture", "--history", "pane-1")
-	if !strings.Contains(after, "RLDHIST-01") || !strings.Contains(after, "RLDHIST-45") {
-		t.Fatalf("history capture should survive reload, got:\n%s", after)
+	after := waitForHistoryPaneCapture(t, h, "pane-1", 10*time.Second, func(capture proto.CapturePane) bool {
+		all := strings.Join(append(append([]string(nil), capture.History...), capture.Content...), "\n")
+		return strings.Contains(all, "RLDHIST-01") && strings.Contains(all, "RLDHIST-45")
+	})
+	all := strings.Join(append(append([]string(nil), after.History...), after.Content...), "\n")
+	if !strings.Contains(all, "RLDHIST-01") || !strings.Contains(all, "RLDHIST-45") {
+		t.Fatalf("history capture should survive reload, got:\n%s", all)
 	}
 }
 
@@ -612,7 +640,9 @@ scrollback_lines = 5
 		t.Fatalf("session did not recover after reload\nScreen:\n%s", h.captureOuter())
 	}
 
-	after := captureHistoryPaneFromAmux(t, h, "pane-1")
+	after := waitForHistoryPaneCapture(t, h, "pane-1", 10*time.Second, func(capture proto.CapturePane) bool {
+		return len(linesWithPrefix(capture.History, "RLDCFG-")) == 5
+	})
 	if got := len(linesWithPrefix(after.History, "RLDCFG-")); got != 5 {
 		t.Fatalf("history markers after reload = %d, want 5\nhistory=%v", got, after.History)
 	}
