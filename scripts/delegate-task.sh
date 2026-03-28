@@ -24,6 +24,44 @@ require_cmd() {
     fi
 }
 
+validate_duration() {
+    local duration="$1"
+
+    python3 -c '
+import re
+import sys
+
+
+def parse_duration(raw: str) -> None:
+    units = {
+        "ns": 1e-9,
+        "us": 1e-6,
+        "µs": 1e-6,
+        "μs": 1e-6,
+        "ms": 1e-3,
+        "s": 1.0,
+        "m": 60.0,
+        "h": 3600.0,
+    }
+    pattern = re.compile(r"([0-9]+(?:\.[0-9]+)?)(ns|us|µs|μs|ms|s|m|h)")
+    pos = 0
+    for match in pattern.finditer(raw):
+        if match.start() != pos:
+            raise ValueError(raw)
+        _ = float(match.group(1)) * units[match.group(2)]
+        pos = match.end()
+    if pos != len(raw):
+        raise ValueError(raw)
+
+
+try:
+    parse_duration(sys.argv[1])
+except ValueError:
+    print(f"invalid duration: {sys.argv[1]}", file=sys.stderr)
+    sys.exit(1)
+' "$duration" >/dev/null
+}
+
 wait_for_event() {
     local want_event="$1"
     local timeout="$2"
@@ -144,6 +182,9 @@ task="$*"
 
 require_cmd amux
 require_cmd python3
+if ! validate_duration "$timeout"; then
+    exit 2
+fi
 
 events_pid=""
 events_fd=""
@@ -158,7 +199,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-coproc EVENT_STREAM { amux events --pane "$pane" --filter layout,output,vt-idle --throttle 0s --no-reconnect; }
+coproc EVENT_STREAM { amux events --pane "$pane" --filter layout,output --throttle 0s --no-reconnect; }
 events_pid="$EVENT_STREAM_PID"
 exec {events_fd}<&"${EVENT_STREAM[0]}"
 
@@ -177,7 +218,7 @@ else
     fi
     capture="$(amux capture "$pane" 2>&1 || true)"
     {
-        echo "scripts/delegate-task.sh: $pane appears stuck: expected vt-idle to break within $timeout."
+        echo "scripts/delegate-task.sh: $pane appears stuck: expected output within $timeout after sending the task."
         echo "Captured $pane:"
         printf '%s\n' "$capture"
     } >&2

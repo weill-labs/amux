@@ -61,6 +61,9 @@ func TestDelegateTaskScriptCapturesPaneWhenWorkerNeverAccepts(t *testing.T) {
 	if !strings.Contains(out, "pane-47 appears stuck") {
 		t.Fatalf("output = %q, want stuck-state message", out)
 	}
+	if !strings.Contains(out, "expected output within 100ms") {
+		t.Fatalf("output = %q, want output-timeout message", out)
+	}
 	if !strings.Contains(out, "worker prompt is still idle") {
 		t.Fatalf("output = %q, want captured pane contents", out)
 	}
@@ -132,6 +135,43 @@ func TestDelegateTaskScriptRejectsInvalidTimeout(t *testing.T) {
 	if strings.Contains(out, "appears stuck") {
 		t.Fatalf("output = %q, did not expect stuck-state fallback", out)
 	}
+
+	got, err := os.ReadFile(logPath)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			t.Fatalf("read fake amux log: %v", err)
+		}
+		return
+	}
+	if strings.Contains(string(got), "send-keys") {
+		t.Fatalf("amux log = %q, did not expect send-keys for invalid timeout", got)
+	}
+}
+
+func TestDelegateTaskScriptRequiresPaneArgument(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	out, exitCode := runDelegateTaskScript(t, tempDir, nil)
+	if exitCode != 2 {
+		t.Fatalf("exit code = %d, want 2\n%s", exitCode, out)
+	}
+	if !strings.Contains(out, "usage: scripts/delegate-task.sh") {
+		t.Fatalf("output = %q, want usage text", out)
+	}
+}
+
+func TestDelegateTaskScriptRequiresTaskArgument(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	out, exitCode := runDelegateTaskScript(t, tempDir, nil, "pane-47")
+	if exitCode != 2 {
+		t.Fatalf("exit code = %d, want 2\n%s", exitCode, out)
+	}
+	if !strings.Contains(out, "usage: scripts/delegate-task.sh") {
+		t.Fatalf("output = %q, want usage text", out)
+	}
 }
 
 func runDelegateTaskScript(t *testing.T, tempDir string, extraEnv []string, args ...string) (string, int) {
@@ -170,20 +210,20 @@ log_call() {
 cmd="${1:-}"
 shift || true
 
-	case "$cmd" in
-	    events)
-	        printf '{"type":"layout","pane_name":"pane-47"}\n'
-	        if [[ "${FAKE_AMUX_EVENT_MODE:-success}" == "success" ]]; then
-	            deadline=$((SECONDS + 5))
-	            while [[ ! -f "$FAKE_AMUX_SEND_MARKER" && $SECONDS -lt $deadline ]]; do
-	                sleep 0.01
-	            done
-	            printf '{"type":"output","pane_name":"pane-47"}\n'
-	            exit 0
-	        fi
-	        sleep 0.5
-	        exit 0
-	        ;;
+case "$cmd" in
+    events)
+        printf '{"type":"layout","pane_name":"pane-47"}\n'
+        if [[ "${FAKE_AMUX_EVENT_MODE:-success}" == "success" ]]; then
+            deadline=$((SECONDS + 5))
+            while [[ ! -f "$FAKE_AMUX_SEND_MARKER" && $SECONDS -lt $deadline ]]; do
+                sleep 0.01
+            done
+            printf '{"type":"output","pane_name":"pane-47"}\n'
+            exit 0
+        fi
+        sleep 0.5
+        exit 0
+        ;;
     send-keys)
         : >"$FAKE_AMUX_SEND_MARKER"
         log_call "$cmd" "$@"
