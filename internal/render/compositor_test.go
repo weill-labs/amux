@@ -21,7 +21,15 @@ type fakePaneData struct {
 
 func (f *fakePaneData) RenderScreen(bool) string { return f.screen }
 func (f *fakePaneData) CellAt(col, row int, active bool) ScreenCell {
-	return ScreenCell{Char: " ", Width: 1}
+	lines := strings.Split(f.screen, "\n")
+	if row < 0 || row >= len(lines) {
+		return ScreenCell{Char: " ", Width: 1}
+	}
+	runes := []rune(lines[row])
+	if col < 0 || col >= len(runes) {
+		return ScreenCell{Char: " ", Width: 1}
+	}
+	return ScreenCell{Char: string(runes[col]), Width: 1}
 }
 func (f *fakePaneData) CursorPos() (int, int)               { return 0, 0 }
 func (f *fakePaneData) CursorHidden() bool                  { return f.cursorHidden }

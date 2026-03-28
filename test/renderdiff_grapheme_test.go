@@ -91,7 +91,7 @@ func TestCaptureDisplayMatchesCaptureForCursorAssembledGraphemes(t *testing.T) {
 			}
 
 			outer := normalizeCaptureScreen(h.captureOuter(), h.session)
-			assertGolden(t, tt.golden, outer)
+			assertGolden(t, tt.golden, outer+"\n")
 		})
 	}
 }

@@ -193,10 +193,7 @@ func (c *Compositor) buildGridWithOverlay(root *mux.LayoutCell, activePaneID uin
 		// Pane content cells.
 		contentH := mux.PaneContentHeight(cell.H)
 		for row := 0; row < contentH; row++ {
-			for col := 0; col < cell.W; col++ {
-				sc := pd.CellAt(col, row, isActive)
-				g.Set(cell.X+col, cell.Y+mux.StatusLineRows+row, sc)
-			}
+			buildPaneContentCells(g, cell, row, isActive, pd)
 		}
 	})
 
@@ -218,6 +215,99 @@ func (c *Compositor) buildGridWithOverlay(root *mux.LayoutCell, activePaneID uin
 	}
 
 	return g
+}
+
+// buildPaneContentCells writes a pane row into the compositor grid using the
+// same visual grapheme grouping that RenderScreen's row serializer produces.
+// Some Unicode sequences are assembled incrementally at later cursor columns;
+// the VT buffer then stores the fragments as separate cells even though the
+// rendered row collapses them into a single grapheme cluster. Re-pack the row
+// before diffing so RenderDiff matches the RenderFull path.
+func buildPaneContentCells(g *ScreenGrid, cell *mux.LayoutCell, row int, active bool, pd PaneData) {
+	rowCells := paneContentRowCells(cell.W, row, active, pd)
+	for col, sc := range rowCells {
+		g.Set(cell.X+col, cell.Y+mux.StatusLineRows+row, sc)
+	}
+}
+
+func paneContentRowCells(width, row int, active bool, pd PaneData) []ScreenCell {
+	rowCells := make([]ScreenCell, width)
+	for i := range rowCells {
+		rowCells[i] = ScreenCell{Char: " ", Width: 1}
+	}
+
+	dstCol := 0
+	for srcCol := 0; srcCol < width && dstCol < width; {
+		sc := pd.CellAt(srcCol, row, active)
+		if sc.Width == 0 && sc.Char == " " {
+			srcCol++
+			continue
+		}
+
+		rendered, renderedWidth, nextSrc := compactRowCell(width, row, active, pd, srcCol, sc)
+		if renderedWidth <= 0 {
+			renderedWidth = 1
+		}
+
+		rowCells[dstCol] = rendered
+		for i := 1; i < renderedWidth && dstCol+i < width; i++ {
+			rowCells[dstCol+i] = ScreenCell{
+				Style: rendered.Style,
+				Width: 0,
+			}
+		}
+
+		dstCol += renderedWidth
+		srcCol = nextSrc
+	}
+	return rowCells
+}
+
+func compactRowCell(width, row int, active bool, pd PaneData, srcCol int, base ScreenCell) (ScreenCell, int, int) {
+	baseWidth := base.Width
+	if baseWidth <= 0 {
+		baseWidth = 1
+	}
+
+	merged := base
+	mergedWidth := baseWidth
+	nextSrc := srcCol + baseWidth
+	candidate := base.Char
+
+	for nextSrc < width {
+		next := pd.CellAt(nextSrc, row, active)
+		if next.Width == 0 && next.Char == " " {
+			nextSrc++
+			continue
+		}
+		if next.Char == " " || !merged.Style.Equal(&next.Style) {
+			break
+		}
+
+		concat := candidate + next.Char
+		cluster, clusterWidth := ansi.FirstGraphemeCluster(concat, ansi.GraphemeWidth)
+		if cluster != concat {
+			zwjConcat := candidate + "\u200d" + next.Char
+			cluster, clusterWidth = ansi.FirstGraphemeCluster(zwjConcat, ansi.GraphemeWidth)
+			if cluster != zwjConcat {
+				break
+			}
+			concat = zwjConcat
+		}
+
+		candidate = concat
+		merged.Char = candidate
+		merged.Width = clusterWidth
+		mergedWidth = clusterWidth
+
+		nextWidth := next.Width
+		if nextWidth <= 0 {
+			nextWidth = 1
+		}
+		nextSrc += nextWidth
+	}
+
+	return merged, mergedWidth, nextSrc
 }
 
 // styledChar represents a single character with styling for status/bar rendering.

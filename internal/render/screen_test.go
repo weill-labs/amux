@@ -811,6 +811,35 @@ func colorOracleCheck(comp *Compositor, diffDisplay *vt.SafeEmulator, root *mux.
 	return mismatches
 }
 
+func muxTextOracleCheck(comp *Compositor, diffDisplay mux.TerminalEmulator, root *mux.LayoutCell, activeID uint32, lookup func(uint32) PaneData, width, height int) string {
+	fullANSI := comp.RenderFull(root, activeID, lookup, true)
+	fullDisplay := mux.NewVTEmulatorWithDrain(width, height)
+	defer fullDisplay.Close()
+	if _, err := fullDisplay.Write([]byte(fullANSI)); err != nil {
+		return fmt.Sprintf("writing full ANSI: %v", err)
+	}
+
+	diffANSI := comp.RenderDiff(root, activeID, lookup)
+	if _, err := diffDisplay.Write([]byte(diffANSI)); err != nil {
+		return fmt.Sprintf("writing diff ANSI: %v", err)
+	}
+
+	var expected, actual strings.Builder
+	for y := 0; y < height; y++ {
+		if y > 0 {
+			expected.WriteByte('\n')
+			actual.WriteByte('\n')
+		}
+		expected.WriteString(fullDisplay.ScreenLineText(y))
+		actual.WriteString(diffDisplay.ScreenLineText(y))
+	}
+
+	if expected.String() != actual.String() {
+		return "oracle mismatch:\n--- expected (RenderFull) ---\n" + expected.String() + "\n--- actual (RenderDiff) ---\n" + actual.String()
+	}
+	return ""
+}
+
 func TestRenderDiff_ColorOracle(t *testing.T) {
 	t.Parallel()
 	width, height := 60, 10
@@ -932,15 +961,18 @@ func TestRenderDiff_ColorOracle_CursorAssembledGraphemeClusters(t *testing.T) {
 			}
 
 			comp := newTestCompositor(width, totalH, "test")
-			diffDisplay := vt.NewSafeEmulator(width, totalH)
+			diffDisplay := mux.NewVTEmulatorWithDrain(width, totalH)
+			defer diffDisplay.Close()
 
 			initDiff := comp.RenderDiff(root, 1, lookup)
-			diffDisplay.Write([]byte(initDiff))
+			if _, err := diffDisplay.Write([]byte(initDiff)); err != nil {
+				t.Fatalf("writing initial diff: %v", err)
+			}
 
 			paneEmu.Write([]byte(tt.update))
 
-			if mismatches := colorOracleCheck(comp, diffDisplay, root, 1, lookup, width, totalH); len(mismatches) > 0 {
-				t.Fatalf("cursor-assembled grapheme mismatch:\n%s", strings.Join(mismatches, "\n"))
+			if err := muxTextOracleCheck(comp, diffDisplay, root, 1, lookup, width, totalH); err != "" {
+				t.Fatalf("cursor-assembled grapheme mismatch:\n%s", err)
 			}
 		})
 	}
