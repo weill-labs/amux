@@ -34,8 +34,8 @@ func TestPTYClientKittyKeyboardChangesPaneBytes(t *testing.T) {
 			name:      "kitty keyboard",
 			env:       "AMUX_CLIENT_CAPABILITIES=kitty_keyboard",
 			wantKitty: true,
-			readBytes: 1,
-			wantHex:   "02",
+			readBytes: 7,
+			wantHex:   "1b5b39383b3575",
 		},
 	}
 
@@ -75,7 +75,7 @@ func TestPTYClientKittyKeyboardChangesPaneBytes(t *testing.T) {
 	}
 }
 
-func TestPTYClientKittyKeyboardPrintableCtrlFallbacks(t *testing.T) {
+func TestPTYClientKittyKeyboardPrintableCtrlSequences(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -85,22 +85,22 @@ func TestPTYClientKittyKeyboardPrintableCtrlFallbacks(t *testing.T) {
 		wantHex   string
 	}{
 		{
-			name:      "ctrl-9 becomes printable 9",
+			name:      "ctrl-9 preserves raw csi-u bytes",
 			input:     []byte("\x1b[57;5u"),
-			readBytes: 1,
-			wantHex:   "39",
+			readBytes: 7,
+			wantHex:   "1b5b35373b3575",
 		},
 		{
-			name:      "ctrl-3 becomes escape",
+			name:      "ctrl-3 preserves raw csi-u bytes",
 			input:     []byte("\x1b[51;5u"),
-			readBytes: 1,
-			wantHex:   "1b",
+			readBytes: 7,
+			wantHex:   "1b5b35313b3575",
 		},
 		{
-			name:      "ctrl-slash becomes unit separator",
+			name:      "ctrl-slash preserves raw csi-u bytes",
 			input:     []byte("\x1b[47;5u"),
-			readBytes: 1,
-			wantHex:   "1f",
+			readBytes: 7,
+			wantHex:   "1b5b34373b3575",
 		},
 	}
 
