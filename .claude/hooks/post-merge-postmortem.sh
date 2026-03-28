@@ -6,13 +6,18 @@ input=$(cat)
 command=$(echo "$input" | jq -r '.tool_input.command // empty' 2>/dev/null)
 
 refresh_pane_meta() {
+    local repo_root
     if [[ -z "${AMUX_PANE:-}" ]]; then
         return
     fi
-    if ! command -v amux >/dev/null 2>&1; then
+    repo_root=$(git rev-parse --show-toplevel 2>/dev/null)
+    if [[ -z "$repo_root" ]]; then
         return
     fi
-    amux refresh-meta "$AMUX_PANE" >/dev/null 2>&1 || true
+    if [[ ! -x "$repo_root/scripts/sync-pane-meta.sh" ]]; then
+        return
+    fi
+    "$repo_root/scripts/sync-pane-meta.sh" "$AMUX_PANE" >/dev/null 2>&1 || true
 }
 
 sync_main_after_merge() {

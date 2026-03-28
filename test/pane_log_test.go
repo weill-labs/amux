@@ -13,10 +13,34 @@ import (
 	listingcmd "github.com/weill-labs/amux/internal/server/commands/listing"
 )
 
-func TestRefreshMetaUpdatesPaneCwdAndBranch(t *testing.T) {
+func waitForListMetadata(t *testing.T, h *ServerHarness, want ...string) string {
+	t.Helper()
+
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		out := h.runCmd("list")
+		ok := true
+		for _, needle := range want {
+			if !strings.Contains(out, needle) {
+				ok = false
+				break
+			}
+		}
+		if ok {
+			return out
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	out := h.runCmd("list")
+	t.Fatalf("timed out waiting for list metadata %v:\n%s", want, out)
+	return ""
+}
+
+func TestIdleRefreshUpdatesPaneCwdAndBranch(t *testing.T) {
 	t.Parallel()
 
-	h := newServerHarness(t)
+	h := newServerHarnessWithOptions(t, 80, 24, "", false, false, "AMUX_DISABLE_META_REFRESH=0")
 
 	repoDir := filepath.Join(h.home, "refresh-meta-repo")
 	if err := os.MkdirAll(repoDir, 0o755); err != nil {
@@ -53,19 +77,15 @@ func TestRefreshMetaUpdatesPaneCwdAndBranch(t *testing.T) {
 
 	listOut := h.runCmd("list")
 	if strings.Contains(listOut, wantListCwd) || strings.Contains(listOut, "meta-branch") {
-		t.Fatalf("list reported pane metadata before refresh-meta:\n%s", listOut)
+		t.Fatalf("list reported pane metadata before idle refresh:\n%s", listOut)
 	}
 
-	if out := strings.TrimSpace(h.runCmd("refresh-meta", "pane-1")); out != "" {
-		t.Fatalf("refresh-meta returned unexpected output: %q", out)
-	}
-
-	listOut = h.runCmd("list")
+	listOut = waitForListMetadata(t, h, wantListCwd, "meta-branch")
 	if !strings.Contains(listOut, wantListCwd) {
-		t.Fatalf("list missing refreshed cwd %q:\n%s", wantListCwd, listOut)
+		t.Fatalf("list missing idle-refreshed cwd %q:\n%s", wantListCwd, listOut)
 	}
 	if !strings.Contains(listOut, "meta-branch") {
-		t.Fatalf("list missing refreshed git branch:\n%s", listOut)
+		t.Fatalf("list missing idle-refreshed git branch:\n%s", listOut)
 	}
 }
 
@@ -122,7 +142,7 @@ func TestPaneLogShowsExitReason(t *testing.T) {
 func TestPaneLogSnapshotsExitContext(t *testing.T) {
 	t.Parallel()
 
-	h := newServerHarness(t)
+	h := newServerHarnessWithOptions(t, 80, 24, "", false, false, "AMUX_DISABLE_META_REFRESH=0")
 	gen := h.generation()
 	h.splitH()
 	h.waitLayout(gen)
@@ -139,15 +159,12 @@ func TestPaneLogSnapshotsExitContext(t *testing.T) {
 	}
 	h.sendKeys("pane-2", fmt.Sprintf("cd %q && echo CWD_READY", tempDir), "Enter")
 	h.waitFor("pane-2", "CWD_READY")
-	if out := strings.TrimSpace(h.runCmd("refresh-meta", "pane-2")); out != "" {
-		t.Fatalf("refresh-meta returned unexpected output: %q", out)
-	}
 	wantListCwd := listingcmd.FormatListCwd(wantCwd, h.home, listingcmd.ListCwdWidth)
-	listOut := h.runCmd("list")
+	listOut := waitForListMetadata(t, h, wantListCwd)
 	if !strings.Contains(listOut, wantListCwd) {
 		logPath := filepath.Join(serverpkg.SocketDir(), h.session+".log")
 		logData, _ := os.ReadFile(logPath)
-		t.Fatalf("list did not report cached cwd %q after refresh-meta\n%s\nserver log:\n%s", wantListCwd, listOut, string(logData))
+		t.Fatalf("list did not report cached cwd %q after idle refresh\n%s\nserver log:\n%s", wantListCwd, listOut, string(logData))
 	}
 
 	if out := h.runCmd("set-meta", "pane-2", "branch=feat/postmortem"); out != "" {

@@ -490,6 +490,7 @@ func (r *Renderer) buildCapturePane(st *rendererActorState, snap *rendererSnapsh
 		ConnStatus:    info.ConnStatus,
 		GitBranch:     info.GitBranch,
 		PR:            info.PR,
+		KV:            info.KV,
 		TrackedPRs:    info.TrackedPRs,
 		TrackedIssues: info.TrackedIssues,
 		Cursor:        caputil.CursorFromState(col, row, emu.CursorHidden(), state),
