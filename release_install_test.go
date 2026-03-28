@@ -63,11 +63,10 @@ func TestReleaseInstallScriptResolvesLatestReleaseRedirect(t *testing.T) {
 	archive := fakeReleaseInstallArchive(t, script)
 	checksums := fmt.Sprintf("%x  %s\n", sha256.Sum256(archive), releaseArchiveName(version))
 
-	var ts *httptest.Server
-	ts = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/releases/latest":
-			http.Redirect(w, r, ts.URL+"/releases/tag/v"+version, http.StatusFound)
+			http.Redirect(w, r, "/releases/tag/v"+version, http.StatusFound)
 		case fmt.Sprintf("/releases/tag/v%s", version):
 			_, _ = w.Write([]byte("ok"))
 		case releaseArchivePath(version):

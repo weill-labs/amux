@@ -285,7 +285,7 @@ func (c *Compositor) renderCursor(buf *strings.Builder, root *mux.LayoutCell, ac
 }
 
 // blitPane writes a pane's rendered content below its status line.
-// Lines are clipped to cell.W visible characters to prevent content
+// Lines are clipped to cell.W display columns to prevent content
 // from bleeding into adjacent panes.
 func (c *Compositor) blitPane(buf *strings.Builder, cell *mux.LayoutCell, rendered string) {
 	lines := strings.Split(rendered, "\n")
