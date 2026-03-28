@@ -11,6 +11,17 @@ import (
 // processTimeout limits how long pgrep/ps subprocess calls can take.
 const processTimeout = 500 * time.Millisecond
 
+// processCommandOutput runs short-lived process inspection commands with both a
+// context timeout and WaitDelay so inherited stdout pipes cannot wedge waits.
+func processCommandOutput(name string, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), processTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.WaitDelay = processTimeout
+	return cmd.Output()
+}
+
 // AgentStatus holds the process-level status of a pane for JSON capture.
 type AgentStatus struct {
 	Idle           bool
@@ -135,9 +146,7 @@ func storeUnixTime(v interface{ Store(int64) }, ts time.Time) {
 
 // childPIDs returns the PIDs of direct children of the given process.
 func childPIDs(pid int) []int {
-	ctx, cancel := context.WithTimeout(context.Background(), processTimeout)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, "pgrep", "-P", strconv.Itoa(pid)).Output()
+	out, err := processCommandOutput("pgrep", "-P", strconv.Itoa(pid))
 	if err != nil {
 		return nil
 	}
@@ -156,9 +165,7 @@ func childPIDs(pid int) []int {
 
 // processName returns the short command name for a PID.
 func processName(pid int) string {
-	ctx, cancel := context.WithTimeout(context.Background(), processTimeout)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, "ps", "-o", "comm=", "-p", strconv.Itoa(pid)).Output()
+	out, err := processCommandOutput("ps", "-o", "comm=", "-p", strconv.Itoa(pid))
 	if err != nil {
 		return ""
 	}

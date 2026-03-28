@@ -82,6 +82,9 @@ amux events --filter idle
 # Tag the current pane when you start a Linear issue
 scripts/set-pane-issue.sh LAB-445
 
+# Find worker PRs with failing CI and see which pane owns each one
+scripts/check-worker-ci.sh
+
 # Discover attached clients
 amux list-clients
 
