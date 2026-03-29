@@ -33,7 +33,6 @@ amux capture --format json        # structured JSON output for agents
 - If `scripts/watch-pr-ci.sh` reports failures, inspect the printed failed logs, fix the issue or explain why it is flaky/unrelated before handing the PR back.
 - When leading a worker session, `scripts/check-worker-ci.sh` reports failing PRs, maps them back to owning panes, and nudges idle workers.
 - `scripts/check-pr-ready.sh` finds worker PRs that are green, Claude-approved, and conflict-free, then nudges the owning pane that the PR is ready for human merge.
-- After pushing fixes for Claude review findings, `scripts/check-claude-review.sh` reports whether the latest Claude verdict is `lgtm` or `findings`; add `--watch` to wait for the next Claude review comment.
 - Run `make setup` after cloning so repo Git hooks are active regardless of which tool you use.
 - When opening a PR from an amux pane, prefer `scripts/gh-pr-create.sh ...` so pane PR metadata syncs for any agent; later `git push` calls re-sync via the repo `pre-push` hook.
 - Optional for Codex users: trust the repo, then install the OpenAI Docs MCP server with `codex mcp add openaiDeveloperDocs --url https://developers.openai.com/mcp`.
