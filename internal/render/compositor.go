@@ -347,6 +347,8 @@ func lastPaneContentColumn(row []ScreenCell) int {
 }
 
 func (c *Compositor) visibleContentHeight(cell *mux.LayoutCell) int {
+	// Match the content rows the PTY was sized to in mux.Window. The status
+	// line is rendered separately above the pane content.
 	contentH := mux.PaneContentHeight(cell.H)
 	maxVisible := c.LayoutHeight() - cell.Y - mux.StatusLineRows
 	if maxVisible < 0 {
