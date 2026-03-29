@@ -199,7 +199,7 @@ exit 1
 func runWorkerStatusScript(t *testing.T, tempDir string, extraEnv ...string) (string, int) {
 	t.Helper()
 
-	cmd := exec.Command("bash", "scripts/worker-status.sh")
+	cmd := exec.Command("bash", ".agents/skills/amux/scripts/worker-status.sh")
 	cmd.Dir = "."
 	cmd.Env = issueMetaScriptEnv(tempDir, extraEnv...)
 	out, err := cmd.CombinedOutput()

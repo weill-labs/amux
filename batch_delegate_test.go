@@ -202,7 +202,7 @@ fi
 func runBatchDelegateScript(t *testing.T, tempDir string, extraEnv []string, manifestPath string) (string, int) {
 	t.Helper()
 
-	cmd := exec.Command("bash", "scripts/batch-delegate.sh", manifestPath)
+	cmd := exec.Command("bash", ".agents/skills/amux/scripts/batch-delegate.sh", manifestPath)
 	cmd.Dir = "."
 	cmd.Env = batchDelegateScriptEnv(tempDir, extraEnv...)
 	out, err := cmd.CombinedOutput()

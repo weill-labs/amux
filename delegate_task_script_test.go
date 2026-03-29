@@ -156,7 +156,7 @@ func TestDelegateTaskScriptRequiresPaneArgument(t *testing.T) {
 	if exitCode != 2 {
 		t.Fatalf("exit code = %d, want 2\n%s", exitCode, out)
 	}
-	if !strings.Contains(out, "usage: scripts/delegate-task.sh") {
+	if !strings.Contains(out, "usage: .agents/skills/amux/scripts/delegate-task.sh") {
 		t.Fatalf("output = %q, want usage text", out)
 	}
 }
@@ -169,7 +169,7 @@ func TestDelegateTaskScriptRequiresTaskArgument(t *testing.T) {
 	if exitCode != 2 {
 		t.Fatalf("exit code = %d, want 2\n%s", exitCode, out)
 	}
-	if !strings.Contains(out, "usage: scripts/delegate-task.sh") {
+	if !strings.Contains(out, "usage: .agents/skills/amux/scripts/delegate-task.sh") {
 		t.Fatalf("output = %q, want usage text", out)
 	}
 }
@@ -177,7 +177,7 @@ func TestDelegateTaskScriptRequiresTaskArgument(t *testing.T) {
 func runDelegateTaskScript(t *testing.T, tempDir string, extraEnv []string, args ...string) (string, int) {
 	t.Helper()
 
-	cmd := exec.Command("bash", append([]string{"scripts/delegate-task.sh"}, args...)...)
+	cmd := exec.Command("bash", append([]string{".agents/skills/amux/scripts/delegate-task.sh"}, args...)...)
 	cmd.Dir = "."
 	cmd.Env = issueMetaScriptEnv(tempDir, extraEnv...)
 	out, err := cmd.CombinedOutput()
