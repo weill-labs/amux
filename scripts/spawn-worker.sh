@@ -32,7 +32,7 @@ refresh_main_from_github() {
 }
 
 WORKTREE=""
-USED_DIRS=$(amux list 2>/dev/null | awk 'NR>1 {print $5}' | sed 's|~|'"$HOME"'|')
+USED_DIRS=$(amux list 2>/dev/null | awk 'NR>1 {print $6}' | sed 's|~|'"$HOME"'|')
 for dir in "$HOME"/sync/github/amux/amux*/; do
   [ -d "$dir/.git" ] || [ -f "$dir/.git" ] || continue
   branch=$(git -C "$dir" branch --show-current 2>/dev/null) || continue
