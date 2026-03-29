@@ -48,6 +48,12 @@ json_has_items() {
     [[ -n "$json" ]] && printf '%s\n' "$json" | jq -e 'length > 0' >/dev/null 2>&1
 }
 
+check_rows_tsv() {
+    local checks_json="$1"
+    printf '%s\n' "$checks_json" |
+        jq -r '.[] | [(.name // .workflow // "check"), (.bucket // ""), (.state // ""), (.startedAt // ""), (.completedAt // "")] | @tsv'
+}
+
 wait_for_head_runs() {
     local want_sha="$1"
     local deadline=$(( $(current_epoch) + run_discovery_timeout ))
@@ -219,10 +225,7 @@ print_check_updates() {
         fi
         echo "$name: $summary"
         last_check_state["$name"]="$summary"
-    done < <(
-        printf '%s\n' "$checks_json" |
-            jq -r '.[] | [(.name // .workflow // "check"), (.bucket // ""), (.state // ""), (.startedAt // ""), (.completedAt // "")] | @tsv'
-    )
+    done < <(check_rows_tsv "$checks_json")
 }
 
 render_heartbeat_line() {
@@ -234,10 +237,7 @@ render_heartbeat_line() {
 
     while IFS=$'\t' read -r name bucket state started_at completed_at; do
         parts+=("$name: $(format_status_summary "$bucket" "$state" "$started_at" "$now")")
-    done < <(
-        printf '%s\n' "$checks_json" |
-            jq -r '.[] | [(.name // .workflow // "check"), (.bucket // ""), (.state // ""), (.startedAt // ""), (.completedAt // "")] | @tsv'
-    )
+    done < <(check_rows_tsv "$checks_json")
 
     if ((${#parts[@]} == 0)); then
         return
@@ -352,7 +352,7 @@ if [[ -z "$checks_json" ]]; then
     checks_json="$(gh pr checks "$pr_num" --required --json name,link,bucket,state,workflow 2>/dev/null || true)"
 fi
 if json_has_items "$checks_json"; then
-    if ! printf '%s\n' "$checks_json" | jq -e '.[] | select(.bucket == "fail")' >/dev/null 2>&1; then
+    if ! printf '%s\n' "$checks_json" | jq -e '.[] | select(.bucket == "fail" or .bucket == "cancel")' >/dev/null 2>&1; then
         echo "- GitHub reported a failure, but no failed required checks were returned."
     else
         while IFS=$'\t' read -r workflow name link; do
@@ -366,7 +366,7 @@ if json_has_items "$checks_json"; then
             echo "$line"
         done < <(
             printf '%s\n' "$checks_json" |
-                jq -r '.[] | select(.bucket == "fail") | [.workflow, .name, .link] | @tsv'
+                jq -r '.[] | select(.bucket == "fail" or .bucket == "cancel") | [.workflow, .name, .link] | @tsv'
         )
     fi
 else
