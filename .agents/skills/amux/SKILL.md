@@ -155,7 +155,7 @@ These scripts compose amux primitives for common workflows. They are in the `scr
 scripts/spawn-worker.sh --parent pane-109 --issue LAB-499
 ```
 
-Does: split pane, create git worktree, start `codex --yolo`, wait for vt-idle, accept trust dialog, set issue metadata. Returns the new pane name. *(Pending: lands with PR #505 / LAB-513.)*
+Does: split pane, create git worktree, start `codex --yolo`, wait for vt-idle, accept trust dialog, set issue metadata. Returns the new pane name.
 
 ### Delegate a task with verification
 
