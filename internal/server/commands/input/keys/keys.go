@@ -43,14 +43,6 @@ func EncodeChunks(hexMode bool, keys []string) ([]Chunk, error) {
 	return chunks, nil
 }
 
-func TotalBytes(chunks []Chunk) int {
-	total := 0
-	for _, chunk := range chunks {
-		total += len(chunk.Data)
-	}
-	return total
-}
-
 func PacedKeyToken(key string) bool {
 	if key == "Enter" {
 		return true

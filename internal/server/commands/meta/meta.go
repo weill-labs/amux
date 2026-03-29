@@ -57,18 +57,6 @@ func ParseIssue(value string) (string, error) {
 	return value, nil
 }
 
-func RemoveIntValue(values []int, target int) []int {
-	return slices.DeleteFunc(values, func(value int) bool {
-		return value == target
-	})
-}
-
-func RemoveStringValue(values []string, target string) []string {
-	return slices.DeleteFunc(values, func(value string) bool {
-		return value == target
-	})
-}
-
 func UpsertTrackedPR(values []proto.TrackedPR, target int) []proto.TrackedPR {
 	for i := range values {
 		if values[i].Number == target {
