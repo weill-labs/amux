@@ -9,12 +9,7 @@ import (
 
 // ANSI escapes for copy mode highlighting.
 const (
-	reverseOn = "\033[7m" // reverse video (cursor character)
-
 	selectionBg = "\033[44m" // blue background (selection)
-
-	matchBg        = "\033[43m"   // yellow background (search match)
-	matchCurrentBg = "\033[43;1m" // yellow background + bold (current match)
 )
 
 // RenderViewport returns the viewport content as a newline-separated string
