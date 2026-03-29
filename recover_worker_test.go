@@ -155,7 +155,7 @@ func newRecoverWorkerFixture(t *testing.T) recoverWorkerFixture {
 func runRecoverWorkerScript(t *testing.T, tempDir string, extraEnv ...string) (string, int) {
 	t.Helper()
 
-	cmd := exec.Command("bash", "scripts/recover-worker.sh", "pane-68")
+	cmd := exec.Command("bash", ".agents/skills/amux/scripts/recover-worker.sh", "pane-68")
 	cmd.Dir = "."
 	cmd.Env = issueMetaScriptEnv(tempDir, extraEnv...)
 	out, err := cmd.CombinedOutput()

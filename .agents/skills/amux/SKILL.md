@@ -6,13 +6,23 @@ description: >
   panes, monitoring agent progress, typing keys into panes, or managing terminal
   layouts. Also trigger when AMUX_SESSION is set in the environment and the user
   wants to interact with other panes or agents. Covers: JSON capture for structured
-  pane inspection, type-keys for delegating to agents (codex, claude, grok),
-  wait primitives for monitoring, and event streaming.
+  pane inspection, send-keys for delegating to agents (codex, claude, grok),
+  wait primitives for monitoring, orchestration scripts, and event streaming.
 ---
 
 # amux — Agent Orchestration Skill
 
 amux is a terminal multiplexer designed for AI agents. It runs a background server that owns PTYs, while clients connect over a Unix socket. This skill covers using amux as an orchestration layer — capturing pane content, delegating tasks, and monitoring agent progress.
+
+## Critical Rules
+
+**Read before write.** Always read pane scrollback (`amux capture --history <pane> | grep -v '^$' | tail -30`) before sending keys or taking any action on a pane. Never assume a pane's state — check it.
+
+**Use `wait vt-idle` for agent readiness.** `wait idle` checks for child processes, which is useless for persistent agents (codex, claude, grok are always running). `wait vt-idle` checks if the screen stopped producing output — this works for both shells and agents.
+
+**Always start codex with `--yolo`.** Without it, codex stalls at permission prompts that are invisible to the orchestrator.
+
+**Use `amux list` for status sweeps.** The branch column shows what workers are working on. Then use `wait vt-idle` to check which are actively producing output vs sitting idle.
 
 ## Quick Reference
 
@@ -35,26 +45,26 @@ amux capture pane-1
 amux capture --ansi pane-1
 
 # Scrollback history (server-side, includes content above viewport)
-amux capture --history pane-1
+# IMPORTANT: filter blank lines before tail — buffer has trailing padding
+amux capture --history pane-1 | grep -v '^$' | tail -30
 ```
 
-The JSON capture is the primary interface for agents. It includes pane content lines, cursor position, active/minimized/zoomed state, host, task, color, cwd, git branch, and agent status (idle, current_command, child_pids).
+The JSON capture is the primary interface for agents. It includes pane content lines, cursor position, active/minimized/zoomed state, host, task, color, cwd, git branch, and agent status.
+
+**Note:** JSON capture currently only returns the visible viewport. `--history` only works with plain text output. See LAB-527 for tracking JSON + history support.
 
 ### Send Input to Panes
 
 ```bash
+# Send raw keystrokes directly to PTY (preferred for agent delegation)
+amux send-keys pane-1 'ls -la' Enter
+
 # Type text through client input pipeline (handles key translation)
 amux type-keys pane-1 'echo hello'
 amux type-keys pane-1 Enter
 
-# Send raw keystrokes directly to PTY (bypasses client)
-amux send-keys pane-1 'ls -la' Enter
-
-# Wait for an agent prompt before sending a task
-amux wait-ready pane-31 --timeout 30s
-
-# Or fold readiness into the send itself
-amux send-keys pane-31 --wait-ready 'Fix the bug in auth.go' Enter
+# Wait for screen to settle before sending
+amux send-keys pane-31 --wait ready 'Fix the bug in auth.go' Enter
 
 # Special keys
 amux type-keys pane-1 Escape
@@ -63,23 +73,29 @@ amux type-keys pane-1 C-u        # Clear line
 amux type-keys pane-1 C-a        # Beginning of line
 ```
 
-### Wait Primitives (monitoring)
+Prefer `send-keys` over `type-keys` for agent delegation — it sends text and Enter in one call. `type-keys` goes through the client input pipeline which can be slower.
+
+### Wait Primitives
 
 ```bash
-# Block until pane has no child processes (agent finished)
-amux wait-idle pane-1 --timeout 300s
+# Block until screen output quiesces (use this for agent readiness)
+amux wait vt-idle pane-1 --settle 2s --timeout 60s
 
 # Block until specific text appears in pane
-amux wait-for pane-1 "Tests passed" --timeout 60s
+amux wait content pane-1 "Tests passed" --timeout 60s
 
 # Block until pane has child processes (command started)
-amux wait-busy pane-1 --timeout 5s
+amux wait busy pane-1 --timeout 5s
 
 # Block until layout changes (split, close, resize)
-amux wait-layout --after 42 --timeout 3s
+amux wait layout --after 42 --timeout 3s
 ```
 
-`wait-idle` returns exit 0 on success, exit 1 on timeout or EOF (pane exited). Distinguish by checking if the pane still exists afterward.
+**Which wait to use:**
+- **`wait vt-idle`** — screen stopped changing. Use for: "is the agent at its prompt?", "did it finish rendering?"
+- **`wait idle`** — no child processes. Useless for agent panes (codex/claude are always a child process). Only useful for bare shell panes.
+- **`wait content`** — specific text appeared. Use for: "did the test output 'PASS'?"
+- **`wait busy`** — child processes started. Use for: "did the command begin?"
 
 ### Event Streaming
 
@@ -103,8 +119,10 @@ amux focus pane-1            # Focus a pane
 amux zoom pane-1             # Toggle zoom (maximize)
 amux spawn --name my-agent   # Create a new pane
 amux kill pane-1             # Kill a pane
-amux minimize pane-1         # Minimize a pane
-amux restore pane-1          # Restore minimized pane
+amux split pane-1 --horizontal  # Split a pane
+amux equalize                # Equalize column widths
+amux equalize --vertical     # Equalize row heights within columns
+amux equalize --all          # Equalize both dimensions
 ```
 
 ### Window Management
@@ -117,96 +135,149 @@ amux next-window             # Next window
 amux prev-window             # Previous window
 ```
 
-## Delegating Tasks to Agents
-
-When delegating work to an agent (codex, claude, grok) running in a pane, follow this sequence to avoid garbled input:
-
-### 1. Confirm the agent is ready
-
-Before typing a task, verify the agent is at its input prompt:
+### Pane Metadata
 
 ```bash
-# Prompt-aware wait for codex / claude / grok panes
-amux wait-ready pane-31 --timeout 30s
-
-# Codex trust dialog: fail fast by default, or auto-continue if you want
-amux wait-ready pane-31 --continue-known-dialogs --timeout 30s
-
-# Generic — capture and check the last lines
-amux capture --format json pane-31 | python3 -c "
-import sys, json
-d = json.load(sys.stdin)
-lines = [l for l in d.get('content', []) if l.strip()]
-print('\n'.join(lines[-3:]))
-"
+amux add-meta pane-1 issue=LAB-123    # Tag pane with Linear issue
+amux add-meta pane-1 pr=456           # Tag pane with PR number
+amux set-meta pane-1 task="fix auth"  # Set task description
+amux rm-meta pane-1 issue=LAB-123     # Remove metadata
+amux list                             # Shows metadata in META column
 ```
 
-### 2. Clear any stale input
+## Orchestration Scripts
+
+These scripts compose amux primitives for common workflows. They are in the `scripts/` directory alongside this SKILL.md file.
+
+### Spawn a worker
 
 ```bash
-amux type-keys pane-31 C-u    # Kill line — clears any partial input
+scripts/spawn-worker.sh --parent pane-109 --issue LAB-499
 ```
 
-### 3. Send the task
+Does: split pane, create git worktree, start `codex --yolo`, wait for vt-idle, accept trust dialog, set issue metadata. Returns the new pane name. *(Pending: lands with PR #505 / LAB-513.)*
+
+### Delegate a task with verification
 
 ```bash
-# One-shot delegation with readiness wait built in
-amux send-keys pane-31 --wait-ready --continue-known-dialogs \
-  'Fix the bug in auth.go where tokens expire too early' Enter
+# Send a task and verify the worker started working
+scripts/delegate-task.sh pane-47 --issue LAB-468 "Fix the black screen bug"
 ```
 
-If you already ran `wait-ready`, you can also send the task with `type-keys` or plain `send-keys`.
+Does: send task via send-keys, wait for vt-idle to break (output flowing = accepted), report if stuck.
 
-### 4. Monitor progress
+### Batch delegation
 
 ```bash
-# Option A: Block until done
-amux wait-idle pane-31 --timeout 300s
+# Dispatch multiple tasks from a JSON manifest
+scripts/batch-delegate.sh tasks.json
+```
 
-# Option B: Poll periodically
-while true; do
-  amux capture --format json pane-31 | python3 -c "
-import sys, json
-d = json.load(sys.stdin)
-lines = [l for l in d.get('content', []) if l.strip()]
-for l in lines[-5:]: print(l)
-"
-  sleep 30
+Manifest format:
+```json
+[
+  {"pane": "pane-47", "issue": "LAB-468", "task": "Fix black screen"},
+  {"pane": "pane-51", "issue": "LAB-174", "task": "Fix flaky tests"}
+]
+```
+
+### Worker status dashboard
+
+```bash
+# One-table view of all workers
+scripts/worker-status.sh
+```
+
+Shows: pane name, issue, idle/busy/stuck state, PR number, last output line.
+
+### Recover a stuck worker
+
+```bash
+# Detect and recover a codex worker stuck at a permission prompt
+scripts/recover-worker.sh pane-68
+```
+
+Does: detect stuck state, Escape, `/exit`, `codex --yolo resume`, select session, send "." to continue.
+
+## Delegating Tasks to Codex Workers
+
+### The read-before-write rule
+
+Before sending anything to a pane, always check what it's doing:
+
+```bash
+# Read scrollback (filter blank padding)
+amux capture --history pane-31 | grep -v '^$' | tail -30
+```
+
+### Spawning and delegating
+
+```bash
+# Manual steps (spawn-worker.sh pending PR #505)
+amux split pane-109 --horizontal --name worker-499
+# ... set up worktree, start codex --yolo, etc.
+```
+
+### Sending a task
+
+```bash
+# Check the pane is ready first
+amux wait vt-idle pane-31 --settle 2s --timeout 30s
+
+# Send the task
+amux send-keys pane-31 "Fix the black screen bug (LAB-468). TDD approach. Open a PR when done." Enter
+
+# Verify it started working (vt-idle should timeout = output flowing)
+amux wait vt-idle pane-31 --settle 2s --timeout 5s
+# exit 1 (timeout) = good, it's working
+# exit 0 (vt-idle) = bad, it didn't start — check the pane
+```
+
+### Monitoring progress
+
+```bash
+# Check if a worker is active or idle
+amux wait vt-idle pane-31 --settle 2s --timeout 3s
+# exit 0 = idle (screen quiet)
+# exit 1 = working (output flowing)
+
+# For a status sweep across all workers, use amux list + vt-idle:
+amux list  # check branches
+for pane in 47 51 54; do
+  amux wait vt-idle pane-$pane --settle 2s --timeout 3s 2>&1 | sed "s/^/pane-$pane: /"
 done
 
-# Option C: Background wait with periodic capture
-amux wait-idle pane-31 --timeout 300s &
-WAIT_PID=$!
-while kill -0 $WAIT_PID 2>/dev/null; do
-  sleep 30
-  echo "=== $(date +%H:%M:%S) ==="
-  amux capture --format json pane-31 | python3 -c "
-import sys, json; d = json.load(sys.stdin)
-lines = [l for l in d.get('content', []) if l.strip()]
-for l in lines[-5:]: print(l)
-"
-done
+# Or use the worker-status script
+scripts/worker-status.sh
 ```
 
-### 5. Check results
+### Resuming interrupted codex sessions
 
-After the agent finishes, capture the final state:
+If codex was interrupted (Escape, context ran out, error):
 
 ```bash
-amux capture --format json pane-31 | python3 -c "
-import sys, json
-d = json.load(sys.stdin)
-lines = [l for l in d.get('content', []) if l.strip()]
-for l in lines[-20:]: print(l)
-"
+# Send "." to continue — do NOT re-send the full task
+amux send-keys pane-31 "." Enter
 ```
 
-Also check what the agent left behind (branches, staged files):
+If codex needs a full restart:
 
 ```bash
-git branch --list '*lab-*' '*fix-*'
-git status --short
+# Exit cleanly first — Escape to cancel any prompt, then /exit
+amux send-keys pane-31 Escape
+amux wait vt-idle pane-31 --settle 2s --timeout 10s
+amux send-keys pane-31 "/exit" Enter
+amux wait vt-idle pane-31 --settle 3s --timeout 15s
+# Restart with --yolo and resume the session
+amux send-keys pane-31 "codex --yolo resume" Enter
+amux wait vt-idle pane-31 --settle 3s --timeout 30s
+# Select the session (Enter) then continue with "."
+amux send-keys pane-31 Enter
+amux wait vt-idle pane-31 --settle 3s --timeout 15s
+amux send-keys pane-31 "." Enter
 ```
+
+Or use the recovery script: `scripts/recover-worker.sh pane-31`
 
 ## Post-Delegation Cleanup
 
@@ -271,60 +342,24 @@ The `--format json` output looks like:
 ```
 
 Key fields for agent orchestration:
-- `agent_status.idle` — true when pane shell has no child processes
+- `agent_status.idle` — true when pane shell has no child processes. **Note:** useless for persistent agents like codex/claude — they are always a child process, so this is always false. Use `wait vt-idle` instead.
 - `agent_status.current_command` — what's currently running
-- `content` — array of strings, one per visible line
+- `agent_status.child_pids` — PIDs of child processes in the pane
+- `content` — array of strings, one per visible line (viewport only, no scrollback)
 - `active` — whether this is the focused pane
 
 ## CI-Style Commands Inside amux
 
-Never run `make build` from an agent. It installs the shared amux binary and can hot-reload unrelated sessions. When running compile checks or tests from within an amux session, strip `AMUX_SESSION` and `TMUX`:
+Never run `make install` from a worker agent. It installs the shared amux binary and can hot-reload unrelated sessions. When running compile checks or tests from within an amux session, strip `AMUX_SESSION` and `TMUX`:
 
 ```bash
 env -u AMUX_SESSION -u TMUX go build ./...
 env -u AMUX_SESSION -u TMUX go test ./...
 ```
 
-## Prefer `send-keys` Over `type-keys` for Agent Delegation
-
-When sending prompts to agents (codex, claude), use `send-keys` — it sends the text and Enter in one call. `type-keys` goes through the client input pipeline which can be slower and introduce translation issues.
-
-```bash
-# Preferred — one call, fast, and readiness-aware
-amux send-keys 32 --wait-ready "Fix the bug in auth.go" Enter
-
-# Also works but slower
-amux type-keys 32 'Fix the bug in auth.go'
-amux type-keys 32 Enter
-```
-
-## Prefer `wait-idle` Over `sleep` Loops
-
-Never use `sleep` to poll for agent completion. `wait-idle` blocks until the pane's shell has no child processes — it's event-driven, not polling.
-
-```bash
-# Good — event-driven, returns immediately when done
-amux wait-idle 32 --timeout 300s
-
-# Bad — wastes time, misses completion
-sleep 30 && amux capture 32
-```
-
-If `wait-idle` times out, capture the pane to check progress, then wait again with a longer timeout.
-
-## Feedback Pattern
-
-After an agent finishes work, you can send conversational feedback:
-
-```bash
-amux send-keys 32 "Nice work. One thing to optimize: the scan is slow because it fetches all markets before filtering. Consider server-side filtering." Enter
-```
-
-This is useful for iterative delegation — give feedback, let the agent refine.
-
 ## Pane References
 
 Panes can be referenced by:
-- Name: `pane-1`, `my-agent`
+- Name: `pane-1`, `my-agent`, `worker-499`
 - Numeric ID: `1`, `31`
 - Prefix match: `pane-` matches `pane-1` if unambiguous
