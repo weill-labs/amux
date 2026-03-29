@@ -5,7 +5,7 @@ set -euo pipefail
 codex_trust_dialog_question="Do you trust the contents of this directory?"
 codex_trust_dialog_warning="higher risk of prompt injection."
 table_format='%-20s %-16s %-10s %-8s %s\n'
-vt_idle_probe_timeout="50ms"
+idle_probe_timeout="50ms"
 
 die() {
     echo "scripts/worker-status.sh: $*" >&2
@@ -47,9 +47,9 @@ is_worker_pane() {
     [[ "$task" == "worker" ]] || is_worker_name "$name"
 }
 
-pane_vt_idle() {
+pane_idle() {
     local pane="$1"
-    amux wait vt-idle "$pane" --settle 0s --timeout "$vt_idle_probe_timeout" >/dev/null 2>&1
+    amux wait idle "$pane" --settle 0s --timeout "$idle_probe_timeout" >/dev/null 2>&1
 }
 
 require_cmd amux
@@ -126,11 +126,11 @@ while IFS= read -r pane; do
     state="busy"
     if [[ "$idle" == "true" ]]; then
         state="idle"
-    elif pane_vt_idle "$pane"; then
-        state="vt-idle"
+    elif pane_idle "$pane"; then
+        state="idle"
     fi
 
-    if [[ "$state" == "vt-idle" && "$child_count" -gt 0 && "$dialog_visible" == "true" ]]; then
+    if [[ "$state" == "idle" && "$child_count" -gt 0 && "$dialog_visible" == "true" ]]; then
         state="stuck"
     fi
 

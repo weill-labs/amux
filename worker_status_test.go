@@ -128,10 +128,10 @@ exit 0
 esac
 fi
 
-if [ "$1" = "wait" ] && [ "$2" = "vt-idle" ]; then
+if [ "$1" = "wait" ] && [ "$2" = "idle" ]; then
 case "$3" in
     logs-worker|pane-9|pane-13)
-        printf 'vt-idle\n'
+        printf 'idle\n'
         exit 0
         ;;
     *)
@@ -159,7 +159,7 @@ exit 1
 	assertWorkerStatusRow(t, out, "pane-7", "LAB-517", "busy", "422", "streaming output")
 	assertWorkerStatusRow(t, out, "logs-worker", "LAB-600", "idle", "600", "worker finished")
 	assertWorkerStatusRow(t, out, "pane-9", "LAB-500", "stuck", "500", "higher risk of prompt injection.")
-	assertWorkerStatusRow(t, out, "pane-13", "LAB-513", "vt-idle", "513", "waiting quietly")
+	assertWorkerStatusRow(t, out, "pane-13", "LAB-513", "idle", "513", "waiting quietly")
 	assertWorkerStatusRowAbsent(t, out, "pane-10")
 	assertWorkerStatusRowAbsent(t, out, "pane-11")
 	assertWorkerStatusRowAbsent(t, out, "pane-12")

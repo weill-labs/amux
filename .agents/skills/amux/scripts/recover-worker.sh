@@ -13,9 +13,9 @@ Example:
   scripts/recover-worker.sh pane-68
 
 Environment:
-  AMUX=amux                         amux binary to invoke
-  AMUX_RECOVER_VT_IDLE_TIMEOUT=20s  timeout for each vt-idle wait
-  AMUX_RECOVER_VT_IDLE_SETTLE=2s    settle window for vt-idle waits
+  AMUX=amux                      amux binary to invoke
+  AMUX_RECOVER_IDLE_TIMEOUT=20s  timeout for each idle wait
+  AMUX_RECOVER_IDLE_SETTLE=2s    settle window for idle waits
 EOF
 }
 
@@ -50,8 +50,8 @@ fi
 pane=$1
 
 AMUX_BIN=${AMUX:-amux}
-VT_IDLE_TIMEOUT=${AMUX_RECOVER_VT_IDLE_TIMEOUT:-20s}
-VT_IDLE_SETTLE=${AMUX_RECOVER_VT_IDLE_SETTLE:-2s}
+IDLE_TIMEOUT=${AMUX_RECOVER_IDLE_TIMEOUT:-20s}
+IDLE_SETTLE=${AMUX_RECOVER_IDLE_SETTLE:-2s}
 
 require_cmd "$AMUX_BIN"
 require_cmd jq
@@ -64,8 +64,8 @@ capture_json() {
     "$AMUX_BIN" capture --format json "$pane"
 }
 
-wait_vt_idle() {
-    "$AMUX_BIN" wait vt-idle "$pane" --settle "$VT_IDLE_SETTLE" --timeout "$VT_IDLE_TIMEOUT" >/dev/null
+wait_idle() {
+    "$AMUX_BIN" wait idle "$pane" --settle "$IDLE_SETTLE" --timeout "$IDLE_TIMEOUT" >/dev/null
 }
 
 has_child_processes() {
@@ -117,12 +117,12 @@ send_and_settle() {
     shift
     step "$description"
     send_keys "$@"
-    wait_vt_idle || fail "$pane did not become vt-idle after: $description"
+    wait_idle || fail "$pane did not become idle after: $description"
 }
 
 step "Checking whether $pane is stuck"
-if ! wait_vt_idle; then
-    fail "$pane is not vt-idle; refusing recovery"
+if ! wait_idle; then
+    fail "$pane is not idle; refusing recovery"
 fi
 
 initial_capture="$(capture_json)" || fail "failed to capture $pane"

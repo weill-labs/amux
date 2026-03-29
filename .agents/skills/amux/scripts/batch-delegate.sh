@@ -9,7 +9,7 @@ Dispatch tasks to multiple amux panes from a JSON manifest:
   [{"pane":"pane-47","issue":"LAB-468","task":"Fix black screen"}]
 
 Environment:
-  AMUX_BATCH_READY_TIMEOUT   Timeout passed to `amux send-keys --wait ready` (default: 30s)
+  AMUX_BATCH_IDLE_TIMEOUT    Timeout passed to `amux send-keys --wait idle` (default: 30s)
   AMUX_BATCH_ACCEPT_TIMEOUT  Seconds to wait for output after dispatch (default: 5)
 EOF
 }
@@ -68,7 +68,7 @@ start_acceptance_stream() {
     acceptance_err=$acceptance_dir/events.err
     mkfifo "$acceptance_fifo"
 
-    amux events --filter output,terminal,idle,busy,vt-idle --pane "$pane" --throttle 0s --no-reconnect >"$acceptance_fifo" 2>"$acceptance_err" &
+    amux events --filter output,terminal,idle,busy --pane "$pane" --throttle 0s --no-reconnect >"$acceptance_fifo" 2>"$acceptance_err" &
     acceptance_pid=$!
     exec 3<"$acceptance_fifo"
 }
@@ -142,7 +142,7 @@ if [[ $# -ne 1 ]]; then
 fi
 
 manifest_path=$1
-ready_timeout=${AMUX_BATCH_READY_TIMEOUT:-30s}
+idle_timeout=${AMUX_BATCH_IDLE_TIMEOUT:-30s}
 accept_timeout=${AMUX_BATCH_ACCEPT_TIMEOUT:-5}
 
 require_cmd amux
@@ -194,7 +194,7 @@ dispatch_entry() {
         return
     fi
 
-    if ! amux send-keys "$pane" --wait ready --timeout "$ready_timeout" "$task" Enter >/dev/null; then
+    if ! amux send-keys "$pane" --wait idle --timeout "$idle_timeout" "$task" Enter >/dev/null; then
         cleanup_acceptance_stream
         record_result "$pane" "$issue" "FAILURE" "send-keys failed"
         return

@@ -90,7 +90,7 @@ var commandUsageByName = map[string]string{
 	"unset-lead":       "usage: amux unset-lead",
 	"unsplice":         "usage: amux unsplice <host>",
 	"version":          "usage: amux version [--hash]",
-	"wait":             "usage: amux wait <idle|busy|vt-idle|ready|content|layout|clipboard|checkpoint|ui> ...",
+	"wait":             "usage: amux wait <idle|busy|exited|content|layout|clipboard|checkpoint|ui> ...",
 	"zoom":             "usage: amux zoom [pane]",
 }
 

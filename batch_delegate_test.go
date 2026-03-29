@@ -49,6 +49,7 @@ case "${1:-}" in
         touch "$FAKE_AMUX_SENT_DIR/$pane"
         ;;
     events)
+        log_call "$@"
         pane=""
         while [[ $# -gt 0 ]]; do
             case "$1" in
@@ -61,7 +62,6 @@ case "${1:-}" in
                     ;;
             esac
         done
-        log_call events --pane "$pane"
         printf '{"type":"idle","pane_name":"%s"}\n' "$pane"
         case " ${FAKE_AMUX_OUTPUT_PANES:-} " in
             *" ${pane} "*)
@@ -94,7 +94,7 @@ esac
 	}
 	if err := os.WriteFile(manifestPath, []byte(`[
   {"pane":"pane-47","issue":"LAB-468","task":"Fix black screen"},
-  {"pane":"pane-48","issue":"LAB-469","task":"Add vt-idle logging"}
+  {"pane":"pane-48","issue":"LAB-469","task":"Add idle logging"}
 ]`), 0644); err != nil {
 		t.Fatalf("write manifest: %v", err)
 	}
@@ -104,7 +104,7 @@ esac
 		"FAKE_AMUX_OUTPUT_PANES=pane-47",
 		"FAKE_AMUX_SENT_DIR=" + sentDir,
 		"AMUX_BATCH_ACCEPT_TIMEOUT=0.05",
-		"AMUX_BATCH_READY_TIMEOUT=7s",
+		"AMUX_BATCH_IDLE_TIMEOUT=7s",
 	}, manifestPath)
 	if exitCode != 1 {
 		t.Fatalf("exit code = %d, want 1\n%s", exitCode, out)
@@ -127,10 +127,11 @@ esac
 	if !strings.Contains(log, "add-meta pane-47 issue=LAB-468") {
 		t.Fatalf("amux log missing issue metadata write:\n%s", log)
 	}
-	if !strings.Contains(log, "send-keys pane-47 --wait ready --timeout 7s Fix black screen Enter") {
+	if !strings.Contains(log, "send-keys pane-47 --wait idle --timeout 7s Fix black screen Enter") {
 		t.Fatalf("amux log missing send-keys dispatch:\n%s", log)
 	}
-	if !strings.Contains(log, "events --pane pane-47") || !strings.Contains(log, "events --pane pane-48") {
+	if !strings.Contains(log, "events --filter output,terminal,idle,busy --pane pane-47 --throttle 0s --no-reconnect") ||
+		!strings.Contains(log, "events --filter output,terminal,idle,busy --pane pane-48 --throttle 0s --no-reconnect") {
 		t.Fatalf("amux log missing output-event acceptance checks:\n%s", log)
 	}
 }
