@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"hash/crc32"
 	"net"
@@ -9,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/weill-labs/amux/internal/server"
 )
@@ -45,12 +48,39 @@ func runHermeticMain(t *testing.T, args ...string) (output string, exitCode int)
 	return string(out), exitErr.ExitCode()
 }
 
+func runHermeticMainWithTimeout(t *testing.T, timeout time.Duration, args ...string) (output string, exitCode int, timedOut bool) {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	cmd := newHermeticMainCmdContext(t, ctx, args...)
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		return string(out), 0, false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return string(out), -1, true
+	}
+
+	exitErr, ok := err.(*exec.ExitError)
+	if !ok {
+		t.Fatalf("helper error = %v\n%s", err, out)
+	}
+	return string(out), exitErr.ExitCode(), false
+}
+
 func newHermeticMainCmd(t *testing.T, args ...string) *exec.Cmd {
+	t.Helper()
+	return newHermeticMainCmdContext(t, context.Background(), args...)
+}
+
+func newHermeticMainCmdContext(t *testing.T, ctx context.Context, args ...string) *exec.Cmd {
 	t.Helper()
 
 	session := hermeticMainSession(t.Name())
 	cmdArgs := append([]string{"-test.run=TestMainCLISubprocessHelper", "--", "-s", session}, args...)
-	cmd := exec.Command(os.Args[0], cmdArgs...)
+	cmd := exec.CommandContext(ctx, os.Args[0], cmdArgs...)
 	cmd.Env = hermeticMainEnv()
 	return cmd
 }

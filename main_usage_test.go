@@ -1,8 +1,13 @@
 package main
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestMainUsageHelperIsolatesAmbientSessionEnv(t *testing.T) {
@@ -329,6 +334,102 @@ func TestMainHelpIncludesWaitCheckpoint(t *testing.T) {
 	if !strings.Contains(out, "amux [-s session] wait checkpoint [--after N] [--timeout 15s]") {
 		t.Fatalf("help output missing wait-checkpoint:\n%s", out)
 	}
+}
+
+func TestMainAllCommandsSupportLongHelp(t *testing.T) {
+	t.Parallel()
+
+	for _, command := range mainDispatchCommands(t) {
+		command := command
+		t.Run(command, func(t *testing.T) {
+			t.Parallel()
+
+			out, code, timedOut := runHermeticMainWithTimeout(t, 2*time.Second, command, "--help")
+			if timedOut {
+				t.Fatalf("%s --help timed out\n%s", command, out)
+			}
+			if code != 0 {
+				t.Fatalf("%s --help exit code = %d, want 0\n%s", command, code, out)
+			}
+			want := "usage: amux " + command
+			if !strings.Contains(out, want) {
+				t.Fatalf("%s --help output = %q, want substring %q", command, out, want)
+			}
+			if strings.Contains(out, "connecting to server") {
+				t.Fatalf("%s --help should not dispatch to the server:\n%s", command, out)
+			}
+		})
+	}
+}
+
+func mainDispatchCommands(t *testing.T) []string {
+	t.Helper()
+
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "main.go", nil, 0)
+	if err != nil {
+		t.Fatalf("ParseFile(main.go): %v", err)
+	}
+
+	commands := map[string]struct{}{}
+	var mainBody *ast.BlockStmt
+	for _, decl := range file.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Name.Name != "main" {
+			continue
+		}
+		mainBody = fn.Body
+		break
+	}
+	if mainBody == nil {
+		t.Fatal("main function not found")
+	}
+
+	ast.Inspect(mainBody, func(n ast.Node) bool {
+		switchStmt, ok := n.(*ast.SwitchStmt)
+		if !ok || !isArgsIndexZeroExpr(switchStmt.Tag) {
+			return true
+		}
+		for _, stmt := range switchStmt.Body.List {
+			clause, ok := stmt.(*ast.CaseClause)
+			if !ok {
+				continue
+			}
+			for _, expr := range clause.List {
+				lit, ok := expr.(*ast.BasicLit)
+				if !ok || lit.Kind != token.STRING {
+					continue
+				}
+				name := strings.Trim(lit.Value, `"`)
+				switch name {
+				case "help", "--help", "-h":
+					continue
+				}
+				commands[name] = struct{}{}
+			}
+		}
+		return false
+	})
+
+	names := make([]string, 0, len(commands))
+	for name := range commands {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	return names
+}
+
+func isArgsIndexZeroExpr(expr ast.Expr) bool {
+	indexExpr, ok := expr.(*ast.IndexExpr)
+	if !ok {
+		return false
+	}
+	ident, ok := indexExpr.X.(*ast.Ident)
+	if !ok || ident.Name != "args" {
+		return false
+	}
+	lit, ok := indexExpr.Index.(*ast.BasicLit)
+	return ok && lit.Kind == token.INT && lit.Value == "0"
 }
 
 func TestMainKillAllowsImplicitActivePane(t *testing.T) {
