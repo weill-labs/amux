@@ -21,6 +21,10 @@ run_quiet() {
     "$@" >/dev/null
 }
 
+refresh_origin_main_from_github() {
+    run_quiet "$git_bin" fetch "git@github.com:weill-labs/amux.git" "main:refs/remotes/origin/main"
+}
+
 parent=""
 issue=""
 amux_bin="${AMUX:-amux}"
@@ -77,7 +81,8 @@ branch_name="${issue_slug}-${pane}"
 worktree_root="$(dirname "$repo_root")"
 worktree_path="$worktree_root/${repo_name}-${branch_name}"
 
-run_quiet "$git_bin" worktree add -b "$branch_name" "$worktree_path"
+refresh_origin_main_from_github
+run_quiet "$git_bin" worktree add -b "$branch_name" "$worktree_path" origin/main
 
 printf -v cd_cmd 'cd %q' "$worktree_path"
 run_quiet "$amux_bin" send-keys "$pane" "$cd_cmd" Enter

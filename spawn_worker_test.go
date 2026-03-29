@@ -54,7 +54,8 @@ func TestSpawnWorkerScriptCreatesWorkerPaneWorktreeAndCodexSession(t *testing.T)
 
 	wantGitLog := strings.Join([]string{
 		"rev-parse --show-toplevel",
-		"worktree add -b lab-499-pane-210 " + worktreePath,
+		"fetch git@github.com:weill-labs/amux.git main:refs/remotes/origin/main",
+		"worktree add -b lab-499-pane-210 " + worktreePath + " origin/main",
 	}, "\n")
 	if got := readTrimmedFile(t, gitLogPath); got != wantGitLog {
 		t.Fatalf("git log = %q, want %q", got, wantGitLog)
@@ -228,7 +229,7 @@ case "$cmd" in
         printf '%s\n' "$FAKE_GIT_TOPLEVEL"
         ;;
     worktree)
-        eval "worktree_path=\${$#}"
+        worktree_path="$4"
         mkdir -p "$worktree_path"
         ;;
 esac
