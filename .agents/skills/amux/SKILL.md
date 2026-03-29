@@ -213,10 +213,7 @@ amux capture --history pane-31 | grep -v '^$' | tail -30
 ### Spawning and delegating
 
 ```bash
-# Option A: Use the spawn-worker script (preferred)
-scripts/spawn-worker.sh --parent pane-109 --issue LAB-499
-
-# Option B: Manual steps
+# Manual steps (spawn-worker.sh pending PR #505)
 amux split pane-109 --horizontal --name worker-499
 # ... set up worktree, start codex --yolo, etc.
 ```
@@ -347,6 +344,7 @@ The `--format json` output looks like:
 Key fields for agent orchestration:
 - `agent_status.idle` — true when pane shell has no child processes. **Note:** useless for persistent agents like codex/claude — they are always a child process, so this is always false. Use `wait vt-idle` instead.
 - `agent_status.current_command` — what's currently running
+- `agent_status.child_pids` — PIDs of child processes in the pane
 - `content` — array of strings, one per visible line (viewport only, no scrollback)
 - `active` — whether this is the focused pane
 
