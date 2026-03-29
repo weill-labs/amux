@@ -63,10 +63,16 @@ func TestParseSendKeysArgs(t *testing.T) {
 			wantKeys:      []string{"task"},
 		},
 		{
-			name: "literal args after first key",
-			args: []string{"task", "--wait", "ready"},
+			name:        "literal args after first key",
+			args:        []string{"task", "--wait", "ready"},
 			wantTimeout: 10 * time.Second,
 			wantKeys:    []string{"task", "--wait", "ready"},
+		},
+		{
+			name:        "leading dash key stays literal",
+			args:        []string{"-"},
+			wantTimeout: 10 * time.Second,
+			wantKeys:    []string{"-"},
 		},
 		{
 			name:    "missing wait value",

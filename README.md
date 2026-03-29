@@ -75,13 +75,13 @@ amux capture --history pane-1
 
 # Send a command to a pane and wait for it to finish
 amux send-keys pane-1 "ls" Enter
-amux wait idle pane-1
+amux wait exited pane-1
 
 # Broadcast the same command to multiple panes
 amux broadcast --panes pane-1,pane-2 "make test" Enter
 
-# Send a task to an agent pane after it reaches its prompt
-amux send-keys pane-31 --wait ready "Fix the auth timeout bug" Enter
+# Send a task to an agent pane after its screen output goes quiet
+amux send-keys pane-31 --wait idle "Fix the auth timeout bug" Enter
 
 # Compose higher-level prompt orchestration in your own script
 amux send-keys pane-31 --wait ready "Summarize the failing tests and propose a fix" Enter
@@ -195,11 +195,10 @@ Block until a condition is met. No polling.
 
 | Command | Description | Default timeout |
 |---------|-------------|-----------------|
-| `wait idle <pane>` | Block until pane has no foreground process | 5s |
-| `wait vt-idle <pane>` | Block until pane terminal output settles | 60s |
+| `wait idle <pane>` | Block until pane terminal output settles | 60s |
+| `wait exited <pane>` | Block until pane has no foreground process | 5s |
 | `wait busy <pane>` | Block until pane has a child process | 5s |
 | `wait content <pane> <substring>` | Block until substring appears in pane content | 10s |
-| `wait ready <pane>` | Block until pane VT output settles and no child processes remain | 10s |
 | `wait layout [--after N]` | Block until layout generation exceeds N | 3s |
 | `wait clipboard [--after N]` | Block until clipboard content changes | 3s |
 | `wait checkpoint [--after N]` | Block until a crash checkpoint write completes | 15s |
@@ -208,16 +207,14 @@ Block until a condition is met. No polling.
 | `cursor clipboard` | Show the current clipboard cursor | n/a |
 | `cursor ui [--client client-1]` | Show the current client UI cursor | n/a |
 
-`wait vt-idle` also accepts `--settle <duration>` (default `2s`). All wait commands accept `--timeout <duration>` (e.g., `--timeout 30s`).
-
-`wait ready` is the conjunction of `wait vt-idle` and `wait idle`: the visible screen has stopped changing and the pane has no foreground child processes. It does not inspect prompt text, so custom shell prompts work the same as agent prompts.
+`wait idle` also accepts `--settle <duration>` (default `2s`). `wait exited` stays process-based. All wait commands accept `--timeout <duration>` (e.g., `--timeout 30s`).
 
 ### Event Stream
 
 Subscribe to real-time session events as NDJSON:
 
 ```bash
-amux events [--filter layout,idle,busy,vt-idle,client-connect,client-disconnect,display-panes-shown,choose-window-shown] [--pane pane-1] [--host lambda-a100] [--client client-1] [--throttle 50ms] [--no-reconnect]
+amux events [--filter layout,idle,busy,exited,client-connect,client-disconnect,display-panes-shown,choose-window-shown] [--pane pane-1] [--host lambda-a100] [--client client-1] [--throttle 50ms] [--no-reconnect]
 ```
 
 Use `amux list-clients` to discover attached client IDs for `--client` and `wait ui`.
@@ -227,7 +224,7 @@ Use `amux list-clients` to discover attached client IDs for `--client` and `wait
 {"type":"terminal","ts":"2025-06-15T10:30:00.200Z","pane_id":1,"pane_name":"pane-1","host":"local","cursor":{"col":12,"row":24,"hidden":false,"style":"bar","blinking":false},"terminal":{"alt_screen":true,"foreground_color":"112233","background_color":"445566","cursor_color":"778899","hyperlink":{"url":"https://example.com"},"mouse":{"tracking":"none","sgr":false},"palette":["000000","800000","008000","808000","000080","800080","008080","c0c0c0"]}}
 {"type":"idle","ts":"2025-06-15T10:30:01.456Z","pane_id":2,"pane_name":"pane-2","host":"lambda-a100"}
 {"type":"busy","ts":"2025-06-15T10:30:05.789Z","pane_id":2,"pane_name":"pane-2","host":"lambda-a100"}
-{"type":"vt-idle","ts":"2025-06-15T10:30:05.850Z","pane_id":2,"pane_name":"pane-2","host":"lambda-a100"}
+{"type":"exited","ts":"2025-06-15T10:30:07.850Z","pane_id":2,"pane_name":"pane-2","host":"lambda-a100"}
 {"type":"client-connect","ts":"2025-06-15T10:30:05.900Z","client_id":"client-2"}
 {"type":"client-disconnect","ts":"2025-06-15T10:30:06.000Z","client_id":"client-2","reason":"explicit-detach"}
 {"type":"reconnect","ts":"2025-06-15T10:30:06.000Z"}
@@ -235,7 +232,7 @@ Use `amux list-clients` to discover attached client IDs for `--client` and `wait
 
 The terminal-event example above abbreviates `terminal.palette`; the real event payload always includes all 256 entries.
 
-Event types: `layout`, `output`, `terminal`, `idle`, `busy`, `vt-idle`, `client-connect`, `client-disconnect`, and the client-generated `reconnect` event used by the CLI auto-reconnect path. `terminal` is pane-scoped and fires when preserved terminal metadata changes (cursor style, colors, hyperlink state, alt-screen state, palette view, and similar non-text state). By default `amux events` reconnects automatically after a dropped stream, emits a client-generated `reconnect` event, and resubscribes after exponential backoff. Use `--no-reconnect` for scripts that want exit-on-disconnect. New subscribers receive the current state as an initial snapshot, including already-attached clients as `client-connect` events, so no events are missed between subscribe and the first real event. Output events are throttled to at most one per pane per `--throttle` interval (default 50ms). Non-output events pass through immediately. Use `--throttle 0s` to disable throttling. `vt-idle` uses a fixed `2s` settle window in the stream.
+Event types: `layout`, `output`, `terminal`, `idle`, `busy`, `exited`, `client-connect`, `client-disconnect`, and the client-generated `reconnect` event used by the CLI auto-reconnect path. `idle`/`busy` are screen-quiet transitions; `exited` is the process-based signal that no child processes remain. `terminal` is pane-scoped and fires when preserved terminal metadata changes (cursor style, colors, hyperlink state, alt-screen state, palette view, and similar non-text state). By default `amux events` reconnects automatically after a dropped stream, emits a client-generated `reconnect` event, and resubscribes after exponential backoff. Use `--no-reconnect` for scripts that want exit-on-disconnect. New subscribers receive the current state as an initial snapshot, including already-attached clients as `client-connect` events, so no events are missed between subscribe and the first real event. Output events are throttled to at most one per pane per `--throttle` interval (default 50ms). Non-output events pass through immediately. Use `--throttle 0s` to disable throttling.
 
 ### Agent Loop Example
 
@@ -251,8 +248,8 @@ amux send-keys "$PANE" "make test" Enter
 # 2. Wait for the command to start (pane becomes busy)
 amux wait busy "$PANE" --timeout 5s
 
-# 3. Wait for it to finish (pane becomes idle)
-amux wait idle "$PANE" --timeout 120s
+# 3. Wait for it to finish (pane exits back to its shell)
+amux wait exited "$PANE" --timeout 120s
 
 # 4. Capture the result as structured JSON
 output=$(amux capture --format json "$PANE")
@@ -307,7 +304,8 @@ All commands accept `-s <session>` to target a specific session. Panes are refer
 | `amux spawn --name NAME [--host HOST] [--task TASK]` | Spawn a new named pane without changing focus |
 | `amux zoom [pane]` | Toggle zoom on a pane |
 | `amux kill [pane]` | Kill a pane (default: active) |
-| `amux send-keys <pane> [--wait ready\|ui=input-idle] [--continue-known-dialogs] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>...` | Send keystrokes to a pane |
+| `amux send-keys <pane> [--wait idle\|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>...` | Send keystrokes to a pane |
+| `amux delegate <pane> [--timeout <duration>] [--start-timeout <duration>] [--hex] <keys>...` | Type a prompt into a pane, submit it, and wait for the agent to start |
 | `amux broadcast (--panes <pane,pane,...> \| --window <index\|name> \| --match <glob>) [--hex] <keys>...` | Send the same keystrokes to multiple panes |
 | `amux swap <p1> <p2>` | Swap two panes |
 | `amux swap forward\|backward` | Swap active pane with neighbor |
@@ -344,11 +342,10 @@ Higher-level prompt delegation now lives at the script layer: compose `send-keys
 | `amux capture --history --rewrap <width> --format json <pane>` | Pane JSON rewrapped to the requested width |
 | `amux capture --ansi [pane]` | Capture with ANSI escape codes |
 | `amux capture --colors` | Capture border color map |
-| `amux wait idle <pane> [--timeout 5s]` | Block until pane becomes idle |
-| `amux wait vt-idle <pane> [--settle 2s] [--timeout 60s]` | Block until pane VT output quiesces |
+| `amux wait idle <pane> [--settle 2s] [--timeout 60s]` | Block until pane VT output quiesces |
+| `amux wait exited <pane> [--timeout 5s]` | Block until pane has no child processes |
 | `amux wait busy <pane> [--timeout 5s]` | Block until pane has child processes |
 | `amux wait content <pane> <substring> [--timeout 10s]` | Block until substring appears in pane |
-| `amux wait ready <pane> [--timeout 10s]` | Block until pane VT output settles and no child processes remain |
 | `amux wait layout [--after N] [--timeout 3s]` | Block until layout generation > N |
 | `amux wait clipboard [--after N] [--timeout 3s]` | Block until clipboard content changes |
 | `amux wait checkpoint [--after N] [--timeout 15s]` | Block until a crash checkpoint write completes |

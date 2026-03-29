@@ -131,10 +131,10 @@ wait_for_socket() {
     return 1
 }
 
-wait_for_ready() {
+wait_for_idle() {
     local session="$1"
     local pane="$2"
-    "$AMUX" -s "$session" wait ready "$pane" --timeout 10s >/dev/null
+    "$AMUX" -s "$session" wait idle "$pane" --timeout 10s >/dev/null
 }
 
 agent() {
@@ -160,8 +160,8 @@ agent() {
     "$AMUX" -s "$session" send-keys review "bash ${SIMDIR}/agent.sh review ${SIMDIR}/resp-review.sh" Enter >/dev/null
 
     sleep 1.6
-    wait_for_ready "$session" 2
-    wait_for_ready "$session" review
+    wait_for_idle "$session" 2
+    wait_for_idle "$session" review
     sleep 0.8
 
     run_scripted_prompt "$session" 2 "Patch the demo split flow and rerun the focused tests"

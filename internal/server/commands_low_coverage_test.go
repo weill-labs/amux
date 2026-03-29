@@ -384,10 +384,6 @@ func TestCommandCaptureHistoryAndWaitCommands(t *testing.T) {
 
 	w := newTestWindowWithPanes(t, sess, 1, "main", p1)
 	setSessionLayoutForTest(t, sess, w.ID, []*mux.Window{w}, p1)
-	mustSessionQuery(t, sess, func(sess *Session) struct{} {
-		sess.idle.MarkIdle(p1.ID)
-		return struct{}{}
-	})
 
 	captureUsage := runTestCommand(t, srv, sess, "capture", "--history")
 	if captureUsage.cmdErr != "--history requires a pane target" {
@@ -410,13 +406,18 @@ func TestCommandCaptureHistoryAndWaitCommands(t *testing.T) {
 	}
 
 	waitIdleUsage := runTestCommand(t, srv, sess, "wait", "idle")
-	if waitIdleUsage.cmdErr != "usage: wait idle <pane> [--timeout <duration>]" {
+	if waitIdleUsage.cmdErr != "usage: wait idle <pane> [--settle <duration>] [--timeout <duration>]" {
 		t.Fatalf("wait-idle usage error = %q", waitIdleUsage.cmdErr)
 	}
 
-	waitIdleRes := runTestCommand(t, srv, sess, "wait", "idle", "pane-1", "--timeout", "1ms")
+	waitIdleRes := runTestCommand(t, srv, sess, "wait", "idle", "pane-1", "--settle", "0s", "--timeout", "1ms")
 	if waitIdleRes.cmdErr != "" || strings.TrimSpace(waitIdleRes.output) != "idle" {
 		t.Fatalf("wait-idle result = %#v", waitIdleRes)
+	}
+
+	waitExitedRes := runTestCommand(t, srv, sess, "wait", "exited", "pane-1", "--timeout", "1ms")
+	if waitExitedRes.cmdErr != "" || strings.TrimSpace(waitExitedRes.output) != "exited" {
+		t.Fatalf("wait-exited result = %#v", waitExitedRes)
 	}
 
 	waitBusyUsage := runTestCommand(t, srv, sess, "wait", "busy")

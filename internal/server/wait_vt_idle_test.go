@@ -233,7 +233,7 @@ func TestCmdWaitVTIdleResetsSettleTimerOnOutput(t *testing.T) {
 func TestPaneOutputCallbackEmitsIdleEventAfterQuiescence(t *testing.T) {
 	t.Parallel()
 
-	sess := newSession("test-vt-idle-event")
+	sess := newSession("test-idle-event")
 	sess.VTIdleSettle = 20 * time.Millisecond
 	stopCrashCheckpointLoop(t, sess)
 	defer stopSessionBackgroundLoops(t, sess)
@@ -269,7 +269,7 @@ func TestPaneOutputCallbackEmitsIdleEventAfterQuiescence(t *testing.T) {
 func TestCurrentStateEventsIncludeExitedForIdlePane(t *testing.T) {
 	t.Parallel()
 
-	sess := newSession("test-vt-idle-snapshot")
+	sess := newSession("test-exited-snapshot")
 	sess.VTIdleSettle = 20 * time.Millisecond
 	stopCrashCheckpointLoop(t, sess)
 	defer stopSessionBackgroundLoops(t, sess)

@@ -243,17 +243,13 @@ func (s *Session) trackPaneVTIdle(paneID uint32) {
 	})
 }
 
-// trackPaneActivity is called on every PTY output. It resets the idle timer.
-// When the idle state transitions (idle↔busy), a layout broadcast is sent so clients see the
-// updated PaneSnapshot.Idle (used for idle indicators in the status bar).
+// trackPaneActivity is called on every PTY output. It resets the screen-quiet
+// timer. When the quiet state transitions (idle↔busy), a layout broadcast is
+// sent so clients see the updated PaneSnapshot.Idle in the status bar.
 func (s *Session) trackPaneActivity(paneID uint32) {
 	wasIdle := s.idle.TrackActivity(paneID, s.vtIdleSettle(), func() {
 		s.enqueueIdleTimeout(paneID)
 	})
-
-	if pane := s.findPaneByID(paneID); pane != nil && !pane.IsProxy() {
-		s.scheduleExitedPoll(paneID)
-	}
 
 	if wasIdle {
 		pane := s.findPaneByID(paneID)

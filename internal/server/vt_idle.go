@@ -9,7 +9,7 @@ import (
 // DefaultVTIdleSettle is the default settle window for VT idle tracking.
 const DefaultVTIdleSettle = 2 * time.Second
 
-// DefaultVTIdleTimeout is the default timeout for wait-vt-idle.
+// DefaultVTIdleTimeout is the default timeout for wait idle.
 const DefaultVTIdleTimeout = 60 * time.Second
 
 // VTIdleTracker tracks per-pane VT output quiescence.
@@ -37,8 +37,8 @@ func NewVTIdleTracker(clock Clock) *VTIdleTracker {
 	return t
 }
 
-// TrackOutput records fresh VT output and schedules a vt-idle callback for the
-// settle window.
+// TrackOutput records fresh VT output and schedules a screen-quiet callback for
+// the settle window.
 func (t *VTIdleTracker) TrackOutput(paneID uint32, settle time.Duration, onSettled func(time.Time)) {
 	now := t.clock.Now()
 	t.lastOutput[paneID] = now
@@ -71,8 +71,8 @@ func (t *VTIdleTracker) PrimeSettling(paneID uint32, at time.Time) {
 	t.publish()
 }
 
-// MarkSettled transitions the pane into vt-idle if the timer still matches the
-// most recent output edge. Stale callbacks return false.
+// MarkSettled records that the quiet timer still matches the most recent output
+// edge. Stale callbacks return false.
 func (t *VTIdleTracker) MarkSettled(paneID uint32, expected time.Time) bool {
 	last, ok := t.lastOutput[paneID]
 	if !ok || !last.Equal(expected) || t.settled[paneID] {

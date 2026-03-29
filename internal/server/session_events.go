@@ -359,8 +359,6 @@ func (e idleTimeoutEvent) handle(s *Session) {
 		Host:     host,
 	})
 	if pane != nil && pane.AgentStatus().Idle {
-		delete(s.exitedPollPending, e.paneID)
-		delete(s.exitedPollSawBusy, e.paneID)
 		s.emitEvent(Event{
 			Type:     EventExited,
 			PaneID:   e.paneID,
@@ -383,49 +381,6 @@ func (e vtIdleTimeoutEvent) handle(s *Session) {
 	if !s.vtIdle.MarkSettled(e.paneID, e.lastOutput) {
 		return
 	}
-}
-
-type exitedPollEvent struct {
-	paneID uint32
-}
-
-func (e exitedPollEvent) handle(s *Session) {
-	if !s.exitedPollPending[e.paneID] {
-		return
-	}
-
-	pane := s.findPaneByID(e.paneID)
-	if pane == nil {
-		delete(s.exitedPollPending, e.paneID)
-		delete(s.exitedPollSawBusy, e.paneID)
-		return
-	}
-
-	status := pane.AgentStatus()
-	if status.Idle {
-		if s.exitedPollSawBusy[e.paneID] {
-			delete(s.exitedPollPending, e.paneID)
-			delete(s.exitedPollSawBusy, e.paneID)
-			s.emitEvent(Event{
-				Type:     EventExited,
-				PaneID:   e.paneID,
-				PaneName: pane.Meta.Name,
-				Host:     pane.Meta.Host,
-			})
-			return
-		}
-		if s.snapshotIdleState()[e.paneID] {
-			delete(s.exitedPollPending, e.paneID)
-			delete(s.exitedPollSawBusy, e.paneID)
-			return
-		}
-	} else {
-		s.exitedPollSawBusy[e.paneID] = true
-	}
-
-	s.clock().AfterFunc(50*time.Millisecond, func() {
-		s.enqueueExitedPoll(e.paneID)
-	})
 }
 
 type cwdBranchResultEvent struct {
@@ -624,21 +579,6 @@ func (s *Session) enqueueIdleTimeout(paneID uint32) {
 
 func (s *Session) enqueueVTIdleTimeout(paneID uint32, lastOutput time.Time) {
 	s.enqueueEvent(vtIdleTimeoutEvent{paneID: paneID, lastOutput: lastOutput})
-}
-
-func (s *Session) scheduleExitedPoll(paneID uint32) {
-	if s.exitedPollPending[paneID] {
-		return
-	}
-	s.exitedPollPending[paneID] = true
-	s.exitedPollSawBusy[paneID] = false
-	s.clock().AfterFunc(50*time.Millisecond, func() {
-		s.enqueueExitedPoll(paneID)
-	})
-}
-
-func (s *Session) enqueueExitedPoll(paneID uint32) {
-	s.enqueueEvent(exitedPollEvent{paneID: paneID})
 }
 
 func (s *Session) enqueueTakeover(srv *Server, paneID uint32, req mux.TakeoverRequest) {

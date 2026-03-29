@@ -2,7 +2,6 @@ package server
 
 import (
 	"fmt"
-	"strings"
 	"time"
 )
 
@@ -44,6 +43,8 @@ func parseSendKeysArgs(args []string) (sendKeysOptions, error) {
 			i++
 		case "--wait-ready":
 			return sendKeysOptions{}, fmt.Errorf("send-keys: --wait-ready was removed; use --wait idle")
+		case "--continue-known-dialogs":
+			return sendKeysOptions{}, fmt.Errorf("unknown flag: --continue-known-dialogs")
 		case "--timeout":
 			if i+1 >= len(args) {
 				return sendKeysOptions{}, fmt.Errorf("missing value for --timeout")
@@ -71,9 +72,6 @@ func parseSendKeysArgs(args []string) (sendKeysOptions, error) {
 			opts.hexMode = true
 			i++
 		default:
-			if strings.HasPrefix(args[i], "-") {
-				return sendKeysOptions{}, fmt.Errorf("unknown flag: %s", args[i])
-			}
 			opts.keys = append(opts.keys, args[i:]...)
 			i = len(args)
 		}

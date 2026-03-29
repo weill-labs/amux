@@ -1024,13 +1024,19 @@ func TestCmdEventsStreamsAndThrottlesOutput(t *testing.T) {
 			cmdEvents(&CommandContext{CC: cc, Sess: sess, Args: []string{"--throttle", "0s"}})
 		}()
 
-		drainInitialPaneState(t, peerConn, 1)
+			drainInitialPaneState(t, peerConn, 1)
 
-		sess.paneOutputCallback()(pane.ID, []byte("hello"), 1)
-		ev := readCmdResultEvent(t, peerConn)
-		if ev.Type != EventOutput || ev.PaneID != pane.ID || ev.PaneName != "pane-1" {
-			t.Fatalf("output event = %+v", ev)
-		}
+			sess.paneOutputCallback()(pane.ID, []byte("hello"), 1)
+			var ev Event
+			for {
+				ev = readCmdResultEvent(t, peerConn)
+				if ev.Type == EventOutput {
+					break
+				}
+			}
+			if ev.Type != EventOutput || ev.PaneID != pane.ID || ev.PaneName != "pane-1" {
+				t.Fatalf("output event = %+v", ev)
+			}
 
 		_ = peerConn.Close()
 		sess.paneOutputCallback()(pane.ID, []byte("again"), 2)
@@ -1070,15 +1076,23 @@ func TestCmdEventsStreamsAndThrottlesOutput(t *testing.T) {
 
 		drainInitialPaneState(t, peerConn, 2)
 
-		sess.paneOutputCallback()(pane2.ID, []byte("pane2"), 1)
-		sess.paneOutputCallback()(pane1.ID, []byte("pane1"), 1)
-		sess.paneOutputCallback()(pane1.ID, []byte("pane1 again"), 2)
+			sess.paneOutputCallback()(pane2.ID, []byte("pane2"), 1)
+			sess.paneOutputCallback()(pane1.ID, []byte("pane1"), 1)
+			sess.paneOutputCallback()(pane1.ID, []byte("pane1 again"), 2)
 
-		first := readCmdResultEvent(t, peerConn)
-		second := readCmdResultEvent(t, peerConn)
-		if first.Type != EventOutput || second.Type != EventOutput {
-			t.Fatalf("expected output events, got %+v and %+v", first, second)
-		}
+			var outputs []Event
+			for len(outputs) < 2 {
+				ev := readCmdResultEvent(t, peerConn)
+				if ev.Type != EventOutput {
+					continue
+				}
+				outputs = append(outputs, ev)
+			}
+			first := outputs[0]
+			second := outputs[1]
+			if first.Type != EventOutput || second.Type != EventOutput {
+				t.Fatalf("expected output events, got %+v and %+v", first, second)
+			}
 		ids := [2]uint32{first.PaneID, second.PaneID}
 		if ids[0] > ids[1] {
 			ids[0], ids[1] = ids[1], ids[0]
