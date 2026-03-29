@@ -1,9 +1,11 @@
 package server
 
 import (
+	"encoding/json"
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"runtime/coverage"
 	"syscall"
 	"time"
@@ -101,6 +103,13 @@ func (s *Server) Reload(execPath string) error {
 		return fmt.Errorf("writing crash checkpoint: %w", err)
 	}
 
+	if nextCheckpointVersion, versionErr := queryBinaryCheckpointVersion(execPath); versionErr == nil {
+		if nextCheckpointVersion != checkpoint.ServerCheckpointVersion {
+			fmt.Fprintf(os.Stderr, "amux server: reload checkpoint v%d incompatible with new binary checkpoint v%d; crash checkpoint fallback required\n",
+				checkpoint.ServerCheckpointVersion, nextCheckpointVersion)
+		}
+	}
+
 	// Write checkpoint to temp file
 	cpPath, err := checkpoint.Write(cp)
 	if err != nil {
@@ -147,6 +156,25 @@ func (s *Server) Reload(execPath string) error {
 	sess.shutdown.Store(false)
 	os.Remove(cpPath)
 	return fmt.Errorf("server exec: %w", execErr)
+}
+
+func queryBinaryCheckpointVersion(execPath string) (int, error) {
+	cmd := exec.Command(execPath, "version", "--json")
+	out, err := cmd.Output()
+	if err != nil {
+		return 0, fmt.Errorf("querying binary version: %w", err)
+	}
+
+	var info struct {
+		CheckpointVersion int `json:"checkpoint_version"`
+	}
+	if err := json.Unmarshal(out, &info); err != nil {
+		return 0, fmt.Errorf("decoding binary version: %w", err)
+	}
+	if info.CheckpointVersion <= 0 {
+		return 0, fmt.Errorf("missing checkpoint version in binary version output")
+	}
+	return info.CheckpointVersion, nil
 }
 
 func restorePaneRuntimeState(pane *mux.Pane, manualBranch bool) {

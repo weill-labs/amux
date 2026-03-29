@@ -546,14 +546,14 @@ func TestServerHotReloadFallsBackToCrashCheckpointAcrossVersionBump(t *testing.T
 	}
 
 	h.splitV()
-	uiBefore := h.uiGen()
+	reloadGen := h.generation()
 
 	if err := buildAmuxAtomicWithCheckpointVersionBumps(privateBin, "newbuild"); err != nil {
 		t.Fatalf("building version-bumped amux binary: %v", err)
 	}
 
 	h.runCmd("reload-server")
-	h.waitUIGenChange(uiBefore, 15*time.Second)
+	h.waitForReloadedClient(reloadGen, 15*time.Second)
 
 	if !h.waitFor("[pane-", 15*time.Second) {
 		t.Fatalf("session did not recover after version-bumped reload\nScreen:\n%s", h.captureOuter())
@@ -584,7 +584,7 @@ func TestServerHotReloadFallsBackToCrashCheckpointAcrossVersionBump(t *testing.T
 	if err != nil {
 		t.Fatalf("reading server log %s: %v", logPath, err)
 	}
-	wantLog := "reload checkpoint v" + strconv.Itoa(checkpoint.ServerCheckpointVersion) + " incompatible with new binary checkpoint v" + strconv.Itoa(checkpoint.ServerCheckpointVersion+1)
+	wantLog := "reload checkpoint v" + strconv.Itoa(checkpoint.ServerCheckpointVersion) + " incompatible with new binary checkpoint v" + strconv.Itoa(checkpoint.ServerCheckpointVersion+1) + "; crash checkpoint fallback required"
 	if !strings.Contains(string(logData), wantLog) {
 		t.Fatalf("server log missing pre-exec incompatibility warning %q\nserver log:\n%s", wantLog, logData)
 	}

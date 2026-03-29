@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func envWithHome(home string) []string {
@@ -68,6 +69,98 @@ exec %q "$@"
 	return append(env, extra...)
 }
 
+func prependPath(env []string, dir string) []string {
+	pathValue := dir
+	for i, e := range env {
+		if strings.HasPrefix(e, "PATH=") {
+			env[i] = "PATH=" + dir + string(os.PathListSeparator) + strings.TrimPrefix(e, "PATH=")
+			return env
+		}
+	}
+	return append(env, "PATH="+pathValue)
+}
+
+func newInstallTestToolDir(t *testing.T, fakeUID string) string {
+	t.Helper()
+
+	goPath, err := exec.LookPath("go")
+	if err != nil {
+		t.Fatalf("look up go: %v", err)
+	}
+	idPath, err := exec.LookPath("id")
+	if err != nil {
+		t.Fatalf("look up id: %v", err)
+	}
+
+	dir := t.TempDir()
+	writeTool := func(name, body string) {
+		t.Helper()
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, []byte(body), 0755); err != nil {
+			t.Fatalf("write fake %s: %v", name, err)
+		}
+	}
+
+	writeTool("go", fmt.Sprintf(`#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${1:-}" == "build" ]]; then
+	out=""
+	while [[ $# -gt 0 ]]; do
+		case "$1" in
+			-o)
+				out="$2"
+				shift 2
+				;;
+			*)
+				shift
+				;;
+		esac
+	done
+
+	if [[ -z "$out" ]]; then
+		echo "fake go build: missing -o" >&2
+		exit 1
+	fi
+
+	cat >"$out" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${1:-}" == "version" && "${2:-}" == "--json" ]]; then
+	printf '{"build":"newbuild","checkpoint_version":2}\n'
+	exit 0
+fi
+
+if [[ "${1:-}" == "install-terminfo" ]]; then
+	exit 0
+fi
+
+printf 'unexpected args: %%s\n' "$*" >&2
+exit 1
+EOF
+	chmod +x "$out"
+	exit 0
+fi
+
+exec %q "$@"
+`, goPath))
+	writeTool("codesign", "#!/usr/bin/env bash\nexit 0\n")
+	writeTool("xattr", "#!/usr/bin/env bash\nexit 0\n")
+	writeTool("id", fmt.Sprintf(`#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${1:-}" == "-u" ]]; then
+	printf '%%s\n' %q
+	exit 0
+fi
+
+exec %q "$@"
+`, fakeUID, idPath))
+
+	return dir
+}
+
 func TestBuildInstallInstallsTerminfo(t *testing.T) {
 	t.Parallel()
 
@@ -123,6 +216,7 @@ func TestBuildInstallBlocksIncompatibleCheckpointHotReloadWithoutConfirmation(t 
 
 	home := t.TempDir()
 	dest := filepath.Join(t.TempDir(), "amux")
+	fakeUID := "424242"
 	if err := os.WriteFile(dest, []byte(`#!/usr/bin/env bash
 set -euo pipefail
 
@@ -146,11 +240,11 @@ exit 1
 		t.Fatalf("write fake amux: %v", err)
 	}
 
-	socketDir := filepath.Join(os.TempDir(), fmt.Sprintf("amux-%d", os.Getuid()))
+	socketDir := filepath.Join("/tmp", "amux-"+fakeUID)
 	if err := os.MkdirAll(socketDir, 0700); err != nil {
 		t.Fatalf("mkdir socket dir: %v", err)
 	}
-	session := "install-guard"
+	session := fmt.Sprintf("install-guard-%d", time.Now().UnixNano())
 	socketPath := filepath.Join(socketDir, session)
 	ln, err := net.Listen("unix", socketPath)
 	if err != nil {
@@ -162,7 +256,7 @@ exit 1
 	}()
 
 	cmd := exec.Command("bash", "scripts/install.sh", dest)
-	cmd.Env = envWithHomeAndBranch(t, home, "main")
+	cmd.Env = prependPath(envWithHomeAndBranch(t, home, "main"), newInstallTestToolDir(t, fakeUID))
 	out, err := cmd.CombinedOutput()
 	if err == nil {
 		t.Fatalf("install should fail without confirmation for incompatible live checkpoint\n%s", out)

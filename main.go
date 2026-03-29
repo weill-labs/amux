@@ -89,7 +89,7 @@ var commandUsageByName = map[string]string{
 	"undo":             "usage: amux undo",
 	"unset-lead":       "usage: amux unset-lead",
 	"unsplice":         "usage: amux unsplice <host>",
-	"version":          "usage: amux version [--hash]",
+	"version":          "usage: amux version [--hash|--json]",
 	"wait":             "usage: amux wait <idle|busy|exited|content|layout|clipboard|checkpoint|ui> ...",
 	"zoom":             "usage: amux zoom [pane]",
 }
@@ -98,8 +98,24 @@ var commandUsageByName = map[string]string{
 // Falls back to VCS info from runtime/debug at startup.
 var BuildCommit string
 
-// buildVersion returns the build identifier (commit hash or "dev").
-func buildVersion() string {
+type versionInfo struct {
+	Build             string `json:"build"`
+	CheckpointVersion int    `json:"checkpoint_version"`
+}
+
+func (v versionInfo) String() string {
+	return fmt.Sprintf("%s (checkpoint v%d)", v.Build, v.CheckpointVersion)
+}
+
+func currentVersionInfo() versionInfo {
+	return versionInfo{
+		Build:             buildHash(),
+		CheckpointVersion: checkpoint.ServerCheckpointVersion,
+	}
+}
+
+// buildHash returns the build identifier (commit hash or "dev").
+func buildHash() string {
 	if BuildCommit != "" {
 		return BuildCommit
 	}
@@ -111,6 +127,27 @@ func buildVersion() string {
 		}
 	}
 	return "dev"
+}
+
+func buildVersion() string {
+	return currentVersionInfo().String()
+}
+
+func writeVersionOutput(w io.Writer, args []string) error {
+	switch len(args) {
+	case 0:
+		_, err := fmt.Fprintf(w, "amux build: %s\n", buildVersion())
+		return err
+	case 1:
+		switch args[0] {
+		case "--hash":
+			_, err := fmt.Fprintln(w, buildHash())
+			return err
+		case "--json":
+			return json.NewEncoder(w).Encode(currentVersionInfo())
+		}
+	}
+	return fmt.Errorf("usage: amux version [--hash|--json]")
 }
 
 func main() {
@@ -142,10 +179,9 @@ func main() {
 
 	switch args[0] {
 	case "version":
-		if len(args) > 1 && args[1] == "--hash" {
-			fmt.Println(buildVersion())
-		} else {
-			fmt.Printf("amux build: %s\n", buildVersion())
+		if err := writeVersionOutput(os.Stdout, args[1:]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
 		}
 		return
 
