@@ -1,6 +1,7 @@
 package render
 
 import (
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -271,9 +272,10 @@ func paneStatusMetadataSegments(items []paneStatusMetadataItem, maxWidth int) []
 		return nil
 	}
 
-	segments := make([]paneStatusMetadataSegment, 0, len(items)*2)
+	orderedItems := orderPaneStatusMetadataItems(items)
+	segments := make([]paneStatusMetadataSegment, 0, len(orderedItems)*2)
 	usedWidth := 0
-	for i, item := range items {
+	for i, item := range orderedItems {
 		labelWidth := runewidth.StringWidth(item.text)
 		if labelWidth <= 0 {
 			continue
@@ -312,6 +314,21 @@ func paneStatusMetadataSegments(items []paneStatusMetadataItem, maxWidth int) []
 	}
 
 	return segments
+}
+
+func orderPaneStatusMetadataItems(items []paneStatusMetadataItem) []paneStatusMetadataItem {
+	ordered := append([]paneStatusMetadataItem(nil), items...)
+	sort.SliceStable(ordered, func(i, j int) bool {
+		return paneStatusMetadataOrder(ordered[i].status) < paneStatusMetadataOrder(ordered[j].status)
+	})
+	return ordered
+}
+
+func paneStatusMetadataOrder(status proto.TrackedStatus) int {
+	if normalizeTrackedStatus(status) == proto.TrackedStatusCompleted {
+		return 1
+	}
+	return 0
 }
 
 func truncateRunewidth(s string, maxWidth int) string {
