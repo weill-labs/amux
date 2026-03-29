@@ -249,6 +249,10 @@ done
 
 # Or use the worker-status script
 scripts/worker-status.sh
+
+# After pushing review fixes, wait for Claude's next verdict on the PR
+scripts/check-claude-review.sh --watch
+# exit 0 = LGTM, exit 1 = findings remain
 ```
 
 ### Resuming interrupted codex sessions

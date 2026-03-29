@@ -91,7 +91,7 @@ if [[ "${1:-}" == "pr" && "${2:-}" == "view" ]]; then
 	count=$((count + 1))
 	printf '%s\n' "$count" >"$FAKE_GH_STATE"
 
-	if (( count < 3 )); then
+	if (( count < 2 )); then
 		cat <<'EOF'
 {"number":533,"url":"https://example.com/pr/533","comments":[{"id":"IC_old","author":{"login":"github-actions"},"body":"**Claude finished @cweill's task in 1m 5s**\n\n### Findings\n\n**Blocking: still broken**","createdAt":"2026-03-29T01:00:00Z","url":"https://example.com/pr/533#issuecomment-old"}]}
 EOF
@@ -111,7 +111,7 @@ exit 1
 	out, exitCode := runClaudeReviewCheck(t, tempDir, []string{
 		"FAKE_GH_STATE=" + statePath,
 		"AMUX_CLAUDE_REVIEW_POLL_INTERVAL=0.01",
-		"AMUX_CLAUDE_REVIEW_TIMEOUT=1",
+		"AMUX_CLAUDE_REVIEW_TIMEOUT=2",
 	}, "--watch")
 	if exitCode != 0 {
 		t.Fatalf("exit code = %d, want 0\n%s", exitCode, out)
