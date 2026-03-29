@@ -72,7 +72,7 @@ pane="${BASH_REMATCH[1]}"
 
 repo_root="$("$git_bin" rev-parse --show-toplevel)"
 repo_name="$(basename "$repo_root")"
-issue_slug="${issue,,}"
+issue_slug="$(printf '%s' "$issue" | tr '[:upper:]' '[:lower:]')"
 branch_name="${issue_slug}-${pane}"
 worktree_root="$(dirname "$repo_root")"
 worktree_path="$worktree_root/${repo_name}-${branch_name}"
@@ -81,8 +81,10 @@ run_quiet "$git_bin" worktree add -b "$branch_name" "$worktree_path"
 
 printf -v cd_cmd 'cd %q' "$worktree_path"
 run_quiet "$amux_bin" send-keys "$pane" "$cd_cmd" Enter
+run_quiet "$amux_bin" wait vt-idle "$pane"
 run_quiet "$amux_bin" send-keys "$pane" "codex --yolo" Enter
 run_quiet "$amux_bin" wait vt-idle "$pane"
+# Clear the Codex trust prompt that appears on first launch.
 run_quiet "$amux_bin" send-keys "$pane" Enter
 run_quiet "$amux_bin" add-meta "$pane" "issue=$issue"
 
