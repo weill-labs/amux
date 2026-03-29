@@ -101,6 +101,7 @@ func (s *Session) recoverInitialWindowFromOrphansLocked(cols, rows int) (bool, e
 			return false, err
 		}
 	}
+	w.LeadPaneID = orphans[0].ID
 	s.Windows = append(s.Windows, w)
 	s.ActiveWindowID = winID
 	return true, nil
@@ -130,6 +131,7 @@ func (s *Session) ensureInitialWindowLocked(srv *Server, cols, rows int) (ensure
 	winID := s.windowCounter.Add(1)
 	w := mux.NewWindow(pane, cols, layoutH)
 	w.ID = winID
+	w.LeadPaneID = pane.ID
 	w.Name = fmt.Sprintf(WindowNameFormat, winID)
 	s.Windows = append(s.Windows, w)
 	s.ActiveWindowID = winID

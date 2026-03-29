@@ -332,6 +332,7 @@ func TestSendKeysToSpecificPane(t *testing.T) {
 func TestShutdownLeavesNoOrphans(t *testing.T) {
 	t.Parallel()
 	h := newServerHarnessPersistent(t)
+	h.unsetLead()
 
 	// Create 3 panes
 	h.runCmd("split", "pane-1")

@@ -625,9 +625,21 @@ func (h *AmuxHarness) runCmd(args ...string) string {
 
 func (h *AmuxHarness) doSplit(key string) {
 	h.tb.Helper()
+	before := h.captureJSON()
+	if len(before.Panes) == 1 && before.Panes[0].Lead && before.Panes[0].Active {
+		h.unsetLead()
+	}
 	gen := h.generation()
 	h.sendKeys("C-a", key)
 	h.waitLayout(gen)
+}
+
+func (h *AmuxHarness) unsetLead() {
+	h.tb.Helper()
+	out := h.runCmd("unset-lead")
+	if strings.Contains(out, "error") || strings.Contains(out, "cannot") {
+		h.tb.Fatalf("unset-lead failed: %s", out)
+	}
 }
 
 func (h *AmuxHarness) splitV()     { h.tb.Helper(); h.doSplit("\\") }

@@ -10,6 +10,7 @@ func TestEqualizeCommandHorizontal(t *testing.T) {
 	t.Parallel()
 
 	h := newServerHarness(t)
+	h.unsetLead()
 	h.runCmd("split", "pane-1", "root", "v")
 	h.runCmd("split", "pane-1", "root", "v")
 
@@ -37,6 +38,7 @@ func TestEqualizeCommandVertical(t *testing.T) {
 	t.Parallel()
 
 	h := newServerHarness(t)
+	h.unsetLead()
 	h.runCmd("split", "pane-1", "root", "v")
 	h.runCmd("split", "pane-1", "root", "v")
 	h.runCmd("focus", "pane-2")
@@ -83,6 +85,7 @@ func TestEqualizeCommandAll(t *testing.T) {
 	t.Parallel()
 
 	h := newServerHarness(t)
+	h.unsetLead()
 	h.runCmd("split", "pane-1", "root", "v")
 	h.runCmd("split", "pane-1", "root", "v")
 	h.runCmd("focus", "pane-2")
@@ -125,6 +128,7 @@ func TestEqualizeKeybindingHorizontal(t *testing.T) {
 	t.Parallel()
 
 	h := newAmuxHarness(t)
+	h.unsetLead()
 	h.runCmd("split", "pane-1", "root", "v")
 	h.runCmd("split", "pane-1", "root", "v")
 	h.runCmd("focus", "pane-2")
