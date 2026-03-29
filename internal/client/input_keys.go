@@ -45,9 +45,13 @@ func normalizeLocalInput(raw []byte) []byte {
 }
 
 func forwardedBytesForDecodedInput(decoded decodedInputEvent) []byte {
-	// Preserve the original bytes for pane forwarding. decodeInputEvents
-	// already gives each decoded event its own copy, so callers can forward
-	// the slice directly without re-encoding or cloning it again.
+	// Pane PTYs still expect the legacy ETX byte for Ctrl-C so the shell line
+	// discipline can deliver SIGINT. Leave other kitty CSI-u input untouched.
+	if key, ok := decoded.event.(uv.KeyPressEvent); ok {
+		if legacy := legacyBytesForKeyPress(key); len(legacy) == 1 && legacy[0] == 0x03 {
+			return legacy
+		}
+	}
 	return decoded.raw
 }
 
