@@ -46,6 +46,7 @@ case "${1:-}" in
             *" ${pane} "*) log_call "$@"; exit 1 ;;
         esac
         log_call "$@"
+        touch "$FAKE_AMUX_SENT_DIR/$pane"
         ;;
     events)
         pane=""
@@ -61,8 +62,20 @@ case "${1:-}" in
             esac
         done
         log_call events --pane "$pane"
+        printf '{"type":"idle","pane_name":"%s"}\n' "$pane"
         case " ${FAKE_AMUX_OUTPUT_PANES:-} " in
-            *" ${pane} "*) printf '{"type":"output","pane_name":"%s"}\n' "$pane" ;;
+            *" ${pane} "*)
+                if [[ -e "$FAKE_AMUX_SENT_DIR/$pane" ]]; then
+                    exit 0
+                fi
+                for _ in {1..50}; do
+                    if [[ -e "$FAKE_AMUX_SENT_DIR/$pane" ]]; then
+                        printf '{"type":"output","pane_name":"%s"}\n' "$pane"
+                        exit 0
+                    fi
+                    sleep 0.01
+                done
+                ;;
             *) sleep "${FAKE_AMUX_EVENT_SLEEP:-0.2}" ;;
         esac
         ;;
@@ -75,6 +88,10 @@ esac
 	}
 
 	manifestPath := filepath.Join(tempDir, "manifest.json")
+	sentDir := filepath.Join(tempDir, "sent")
+	if err := os.Mkdir(sentDir, 0755); err != nil {
+		t.Fatalf("mkdir sent dir: %v", err)
+	}
 	if err := os.WriteFile(manifestPath, []byte(`[
   {"pane":"pane-47","issue":"LAB-468","task":"Fix black screen"},
   {"pane":"pane-48","issue":"LAB-469","task":"Add vt-idle logging"}
@@ -85,6 +102,7 @@ esac
 	out, exitCode := runBatchDelegateScript(t, tempDir, []string{
 		"FAKE_AMUX_LOG=" + logPath,
 		"FAKE_AMUX_OUTPUT_PANES=pane-47",
+		"FAKE_AMUX_SENT_DIR=" + sentDir,
 		"AMUX_BATCH_ACCEPT_TIMEOUT=0.05",
 		"AMUX_BATCH_READY_TIMEOUT=7s",
 	}, manifestPath)
@@ -130,14 +148,18 @@ func TestBatchDelegateScriptSkipsDispatchWhenIssueMetadataFails(t *testing.T) {
 	if err := os.WriteFile(amuxPath, []byte(`#!/usr/bin/env bash
 set -euo pipefail
 
-{
-    printf '%s' "$1"
-    shift
-    for arg in "$@"; do
-        printf ' %s' "$arg"
-    done
-    printf '\n'
-} >>"$FAKE_AMUX_LOG"
+log_call() {
+    {
+        printf '%s' "$1"
+        shift
+        for arg in "$@"; do
+            printf ' %s' "$arg"
+        done
+        printf '\n'
+    } >>"$FAKE_AMUX_LOG"
+}
+
+log_call "$@"
 
 if [[ "${1:-}" == "add-meta" && "${2:-}" == "pane-49" ]]; then
     exit 1
