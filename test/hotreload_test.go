@@ -235,18 +235,19 @@ func buildAmuxAtomicWithCheckpointVersionBumps(binPath, buildCommit string) erro
 		return err
 	}
 	if info, err := queryBinaryVersionInfo(tmpBinPath); err == nil && info.CheckpointVersion != wantCheckpointVersion {
-		sourceCopyRoot, copyErr := os.MkdirTemp("", "amux-version-bump-src-*")
+		sourceCopyParent, copyErr := os.MkdirTemp("", "amux-version-bump-src-*")
 		if copyErr != nil {
 			os.Remove(tmpBinPath)
 			return fmt.Errorf("creating source copy dir: %w", copyErr)
 		}
-		defer os.RemoveAll(sourceCopyRoot)
+		defer os.RemoveAll(sourceCopyParent)
 
-		copyCmd := exec.Command("cp", "-R", filepath.Join(repoRoot, "."), sourceCopyRoot)
+		copyCmd := exec.Command("cp", "-R", repoRoot, sourceCopyParent)
 		if out, err := copyCmd.CombinedOutput(); err != nil {
 			os.Remove(tmpBinPath)
 			return fmt.Errorf("copying source tree for version-bumped build: %v\n%s", err, out)
 		}
+		sourceCopyRoot := filepath.Join(sourceCopyParent, filepath.Base(repoRoot))
 		if err := os.WriteFile(filepath.Join(sourceCopyRoot, "internal", "checkpoint", "checkpoint.go"), []byte(checkpointOverride), 0o600); err != nil {
 			os.Remove(tmpBinPath)
 			return fmt.Errorf("writing copied server checkpoint override: %w", err)
