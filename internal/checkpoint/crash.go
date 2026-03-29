@@ -13,8 +13,8 @@ import (
 	"github.com/weill-labs/amux/internal/proto"
 )
 
-// CrashVersion is the current crash checkpoint format version.
-// Increment when the format changes in a backward-incompatible way.
+// CrashVersion is the newest crash checkpoint format version.
+// Older JSON checkpoints remain readable when the format change is additive.
 const CrashVersion = 2
 
 // CrashCheckpoint captures the full server state for crash recovery.
@@ -121,8 +121,8 @@ func ReadCrash(path string) (*CrashCheckpoint, error) {
 		return nil, fmt.Errorf("decoding crash checkpoint: %w", err)
 	}
 
-	if cp.Version != CrashVersion {
-		return nil, fmt.Errorf("unsupported crash checkpoint version %d (want %d)", cp.Version, CrashVersion)
+	if cp.Version <= 0 || cp.Version > CrashVersion {
+		return nil, fmt.Errorf("unsupported crash checkpoint version %d (want %d or older)", cp.Version, CrashVersion)
 	}
 
 	return &cp, nil

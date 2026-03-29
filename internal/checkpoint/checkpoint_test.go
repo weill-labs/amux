@@ -1,9 +1,12 @@
 package checkpoint
 
 import (
+	"errors"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
@@ -15,6 +18,7 @@ func TestRoundTrip(t *testing.T) {
 	cp := &ServerCheckpoint{
 		Version:     ServerCheckpointVersion,
 		SessionName: "test-session",
+		StartedAt:   time.Date(2026, time.March, 27, 12, 0, 0, 0, time.UTC),
 		Counter:     5,
 		ListenerFd:  10,
 		Layout: proto.LayoutSnapshot{
@@ -84,6 +88,9 @@ func TestRoundTrip(t *testing.T) {
 	}
 	if got.Version != cp.Version {
 		t.Errorf("Version = %d, want %d", got.Version, cp.Version)
+	}
+	if !got.StartedAt.Equal(cp.StartedAt) {
+		t.Errorf("StartedAt = %v, want %v", got.StartedAt, cp.StartedAt)
 	}
 	if got.ListenerFd != cp.ListenerFd {
 		t.Errorf("ListenerFd = %d, want %d", got.ListenerFd, cp.ListenerFd)
@@ -158,6 +165,72 @@ func TestReadRejectsUnsupportedVersion(t *testing.T) {
 
 	if _, err := Read(path); err == nil || !strings.Contains(err.Error(), "unsupported checkpoint version") {
 		t.Fatalf("Read() error = %v, want unsupported checkpoint version", err)
+	}
+}
+
+func TestReadReturnsCheckpointOnUnsupportedVersion(t *testing.T) {
+	t.Parallel()
+
+	path, err := Write(&ServerCheckpoint{
+		Version:     ServerCheckpointVersion - 1,
+		SessionName: "unsupported",
+		ListenerFd:  17,
+	})
+	if err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+
+	cp, err := Read(path)
+	if err == nil {
+		t.Fatal("Read() error = nil, want unsupported checkpoint version")
+	}
+
+	var versionErr UnsupportedServerCheckpointVersionError
+	if !errors.As(err, &versionErr) {
+		t.Fatalf("Read() error = %T %v, want UnsupportedServerCheckpointVersionError", err, err)
+	}
+	if got, want := versionErr.Error(), "unsupported checkpoint version 1 (want 2)"; got != want {
+		t.Fatalf("UnsupportedServerCheckpointVersionError.Error() = %q, want %q", got, want)
+	}
+	if cp == nil {
+		t.Fatal("Read() checkpoint = nil, want decoded checkpoint on version error")
+	}
+	if cp.SessionName != "unsupported" || cp.ListenerFd != 17 {
+		t.Fatalf("checkpoint = %+v, want session unsupported with listener fd 17", cp)
+	}
+	if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
+		t.Fatalf("checkpoint file should be removed after version error, stat err = %v", statErr)
+	}
+}
+
+func TestReadReturnsNilOnDecodeError(t *testing.T) {
+	t.Parallel()
+
+	// Write a file with invalid gob content to trigger a decode error.
+	f, err := os.CreateTemp("", "amux-corrupt-*.gob")
+	if err != nil {
+		t.Fatalf("os.CreateTemp: %v", err)
+	}
+	path := f.Name()
+	if _, err := f.WriteString("this is not valid gob data"); err != nil {
+		f.Close()
+		t.Fatalf("WriteString: %v", err)
+	}
+	f.Close()
+
+	cp, err := Read(path)
+	if err == nil {
+		t.Fatal("Read() error = nil, want decode error")
+	}
+	if cp != nil {
+		t.Fatalf("Read() checkpoint = %+v, want nil on decode error", cp)
+	}
+	if !strings.Contains(err.Error(), "decoding checkpoint") {
+		t.Fatalf("Read() error = %v, want decode error context", err)
+	}
+	// File must be consumed even when decoding fails.
+	if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
+		t.Fatalf("checkpoint file should be removed after decode error, stat err = %v", statErr)
 	}
 }
 

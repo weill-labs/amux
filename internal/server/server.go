@@ -317,23 +317,29 @@ func (s *Session) crashCheckpointLoop() {
 	}
 }
 
+func (s *Session) writeCrashCheckpointNow() (string, error) {
+	cp := s.buildCrashCheckpoint()
+	if cp == nil {
+		return "", nil
+	}
+	path := checkpoint.CrashCheckpointPathTimestamped(s.Name, s.startedAt)
+	if err := checkpoint.WriteCrash(cp, s.Name, s.startedAt); err != nil {
+		return "", err
+	}
+	s.enqueueEvent(crashCheckpointWrittenEvent{path: path})
+	return path, nil
+}
+
 // writeCrashCheckpoint builds and writes a crash checkpoint to disk.
 // Skips writing if the session is shutting down (clean shutdown removes the checkpoint).
 func (s *Session) writeCrashCheckpoint() {
 	if s.shutdown.Load() {
 		return
 	}
-	cp := s.buildCrashCheckpoint()
-	if cp == nil {
-		return
-	}
-	if err := checkpoint.WriteCrash(cp, s.Name, s.startedAt); err != nil {
+	if _, err := s.writeCrashCheckpointNow(); err != nil {
 		fmt.Fprintf(os.Stderr, "amux: crash checkpoint write: %v\n", err)
 		return
 	}
-	s.enqueueEvent(crashCheckpointWrittenEvent{
-		path: checkpoint.CrashCheckpointPathTimestamped(s.Name, s.startedAt),
-	})
 }
 
 func (s *Session) hasClient(cc *clientConn) bool {
@@ -492,24 +498,7 @@ func NewServerWithScrollback(sessionName string, scrollbackLines int) (*Server, 
 	return s, nil
 }
 
-// NewServerFromCrashCheckpointWithScrollback restores a server from a crash
-// checkpoint with an explicit retained scrollback limit.
-func NewServerFromCrashCheckpointWithScrollback(sessionName string, cp *checkpoint.CrashCheckpoint, crashPath string, scrollbackLines int) (*Server, error) {
-	sockDir := SocketDir()
-	if err := os.MkdirAll(sockDir, 0700); err != nil {
-		return nil, fmt.Errorf("creating socket dir: %w", err)
-	}
-
-	sockPath := SocketPath(sessionName)
-	// Clean up any stale socket from the crashed server
-	os.Remove(sockPath)
-
-	listener, err := net.Listen("unix", sockPath)
-	if err != nil {
-		return nil, fmt.Errorf("listening: %w", err)
-	}
-	os.Chmod(sockPath, 0700)
-
+func newServerFromCrashCheckpointWithListener(sessionName string, listener net.Listener, sockPath string, cp *checkpoint.CrashCheckpoint, crashPath string, scrollbackLines int) (*Server, error) {
 	sess := newSessionWithScrollback(sessionName, scrollbackLines)
 	sess.startedAt = cp.Timestamp
 	sess.counter.Store(cp.Counter)
@@ -559,6 +548,9 @@ func NewServerFromCrashCheckpointWithScrollback(sessionName string, cp *checkpoi
 				continue
 			}
 			pane = sess.ownPane(pane)
+			if sess.vtIdle != nil {
+				sess.vtIdle.PrimeSettling(ps.ID, pane.CreatedAt())
+			}
 		}
 
 		pane.SetOnClipboard(sess.clipboardCallback())
@@ -606,9 +598,42 @@ func NewServerFromCrashCheckpointWithScrollback(sessionName string, cp *checkpoi
 	}
 
 	// Remove crash checkpoint — recovery is complete
-	_ = checkpoint.RemoveCrashFile(crashPath)
+	if crashPath != "" {
+		_ = checkpoint.RemoveCrashFile(crashPath)
+	}
 
 	return s, nil
+}
+
+// NewServerFromCrashCheckpointWithScrollback restores a server from a crash
+// checkpoint with an explicit retained scrollback limit.
+func NewServerFromCrashCheckpointWithScrollback(sessionName string, cp *checkpoint.CrashCheckpoint, crashPath string, scrollbackLines int) (*Server, error) {
+	sockDir := SocketDir()
+	if err := os.MkdirAll(sockDir, 0700); err != nil {
+		return nil, fmt.Errorf("creating socket dir: %w", err)
+	}
+
+	sockPath := SocketPath(sessionName)
+	// Clean up any stale socket from the crashed server
+	os.Remove(sockPath)
+
+	listener, err := net.Listen("unix", sockPath)
+	if err != nil {
+		return nil, fmt.Errorf("listening: %w", err)
+	}
+	os.Chmod(sockPath, 0700)
+
+	return newServerFromCrashCheckpointWithListener(sessionName, listener, sockPath, cp, crashPath, scrollbackLines)
+}
+
+// NewServerFromCrashCheckpointWithListenerFd restores crash state onto the
+// listener inherited across a failed hot-reload restore.
+func NewServerFromCrashCheckpointWithListenerFd(sessionName string, listenerFd int, cp *checkpoint.CrashCheckpoint, crashPath string, scrollbackLines int) (*Server, error) {
+	listener, err := restoreListenerFromFD(listenerFd)
+	if err != nil {
+		return nil, fmt.Errorf("restoring listener: %w", err)
+	}
+	return newServerFromCrashCheckpointWithListener(sessionName, listener, SocketPath(sessionName), cp, crashPath, scrollbackLines)
 }
 
 // SetupRemoteManager initializes the remote manager for all sessions.

@@ -301,6 +301,29 @@ func (h *AmuxHarness) waitUIAfter(event string, afterGen uint64, timeout time.Du
 	}
 }
 
+func (h *AmuxHarness) waitUIGenChange(previousGen uint64, timeout time.Duration) uint64 {
+	h.tb.Helper()
+
+	deadline := time.Now().Add(timeout)
+	var out string
+	for {
+		out = strings.TrimSpace(h.runCmd("cursor", "ui"))
+		n, err := strconv.ParseUint(out, 10, 64)
+		if err == nil {
+			if n != previousGen {
+				return n
+			}
+		} else if !isCommandConnectError(out) || !time.Now().Before(deadline) {
+			h.tb.Fatalf("parsing inner ui-gen after %d: %v (output: %q)", previousGen, err, out)
+		}
+
+		if !time.Now().Before(deadline) {
+			h.tb.Fatalf("ui generation did not change from %d within %v (last output: %q)\nouter:\n%s", previousGen, timeout, out, h.captureOuter())
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+}
+
 // waitForFunc polls the inner compositor capture until fn returns true or
 // timeout expires. Used for complex predicates that can't be expressed as
 // a simple substring match. Prefer waitLayout for layout changes.

@@ -221,6 +221,35 @@ func TestCrashVersionValidation(t *testing.T) {
 	}
 }
 
+func TestReadCrashAcceptsOlderVersion(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", dir)
+	startTime := time.Date(2026, time.January, 2, 3, 4, 5, 0, time.UTC)
+
+	cp := &CrashCheckpoint{
+		Version:       CrashVersion - 1,
+		SessionName:   "older-version",
+		Counter:       7,
+		WindowCounter: 2,
+		Timestamp:     startTime,
+	}
+
+	if err := WriteCrash(cp, cp.SessionName, startTime); err != nil {
+		t.Fatalf("WriteCrash: %v", err)
+	}
+
+	got, err := ReadCrash(CrashCheckpointPathTimestamped(cp.SessionName, startTime))
+	if err != nil {
+		t.Fatalf("ReadCrash: %v", err)
+	}
+	if got.Version != cp.Version {
+		t.Fatalf("Version = %d, want %d", got.Version, cp.Version)
+	}
+	if got.Counter != cp.Counter {
+		t.Fatalf("Counter = %d, want %d", got.Counter, cp.Counter)
+	}
+}
+
 func TestCrashCheckpointPathTimestamped(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", dir)
