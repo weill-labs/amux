@@ -75,6 +75,40 @@ exit 1
 	}
 }
 
+func TestCheckClaudeReviewScriptMatchesGitHubActionsBotAuthor(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	writeExecutable(t, filepath.Join(tempDir, "gh"), `#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${1:-}" == "pr" && "${2:-}" == "view" ]]; then
+	cat <<'EOF'
+{"number":512,"url":"https://example.com/pr/512","comments":[{"id":"IC_bot","author":{"login":"github-actions[bot]"},"body":"**Claude finished @cweill's task in 40s**\n\n### Review\n\nNo blocking issues.\n\nLGTM","createdAt":"2026-03-29T01:04:00Z","url":"https://example.com/pr/512#issuecomment-bot"}]}
+EOF
+	exit 0
+fi
+
+echo "unexpected gh invocation: $*" >&2
+exit 1
+`)
+
+	out, exitCode := runClaudeReviewCheck(t, tempDir, nil)
+	if exitCode != 0 {
+		t.Fatalf("exit code = %d, want 0\n%s", exitCode, out)
+	}
+	for _, want := range []string{
+		"pr=512",
+		"verdict=lgtm",
+		"author=github-actions[bot]",
+		"comment_id=IC_bot",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("output missing %q:\n%s", want, out)
+		}
+	}
+}
+
 func TestCheckClaudeReviewScriptWatchesForNextClaudeReview(t *testing.T) {
 	t.Parallel()
 
