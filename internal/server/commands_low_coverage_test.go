@@ -694,14 +694,19 @@ func TestCommandSplitSpawnKillAndEvents(t *testing.T) {
 		})
 	}()
 
+	initial := readCmdResultEvent(t, peerConn)
+	if initial.Type != EventLayout {
+		t.Fatalf("initial events message = %+v, want layout", initial)
+	}
+
 	mustSessionQuery(t, sess, func(sess *Session) struct{} {
 		sess.emitEvent(Event{Type: EventLayout, Generation: 9})
 		return struct{}{}
 	})
 
-	msg := mustReadMessage(t, peerConn)
-	if msg.Type != MsgTypeCmdResult || !strings.Contains(msg.CmdOutput, `"type":"layout"`) {
-		t.Fatalf("events message = %#v", msg)
+	ev := readCmdResultEvent(t, peerConn)
+	if ev.Type != EventLayout || ev.Generation != 9 {
+		t.Fatalf("events message = %+v", ev)
 	}
 
 	_ = peerConn.Close()
