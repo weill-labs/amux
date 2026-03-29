@@ -45,14 +45,21 @@ func normalizeLocalInput(raw []byte) []byte {
 }
 
 func forwardedBytesForDecodedInput(decoded decodedInputEvent) []byte {
-	// Pane PTYs still expect the legacy ETX byte for Ctrl-C so the shell line
-	// discipline can deliver SIGINT. Leave other kitty CSI-u input untouched.
 	if key, ok := decoded.event.(uv.KeyPressEvent); ok {
-		if legacy := legacyBytesForKeyPress(key); len(legacy) == 1 && legacy[0] == 0x03 {
+		if legacy := legacyPaneBytesForKeyPress(key); len(legacy) > 0 {
 			return legacy
 		}
 	}
 	return decoded.raw
+}
+
+func legacyPaneBytesForKeyPress(key uv.KeyPressEvent) []byte {
+	// Pane PTYs still expect the legacy ETX byte for Ctrl-C so the shell line
+	// discipline can deliver SIGINT. Leave other kitty CSI-u input untouched.
+	if legacy := legacyBytesForKeyPress(key); len(legacy) == 1 && legacy[0] == 0x03 {
+		return legacy
+	}
+	return nil
 }
 
 func keyPressMatchesByte(key uv.KeyPressEvent, want byte) bool {
