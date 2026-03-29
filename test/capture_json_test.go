@@ -80,6 +80,45 @@ func TestCaptureJSON_FullScreen(t *testing.T) {
 	}
 }
 
+func TestCaptureJSON_FullScreenHistoryPrependsScrollback(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	scriptPath := filepath.Join(os.TempDir(), "amux-json-history-"+h.session+".sh")
+	if err := os.WriteFile(scriptPath, []byte("#!/bin/bash\nfor i in $(seq -w 1 40); do echo \"JSONFULL-$i\"; done\n"), 0755); err != nil {
+		t.Fatalf("writing history script: %v", err)
+	}
+	t.Cleanup(func() { os.Remove(scriptPath) })
+
+	h.sendKeys("pane-1", scriptPath, "Enter")
+	h.waitFor("pane-1", "JSONFULL-40")
+
+	capture := captureJSONWithArgsFor(t, h.runCmd, "capture", "--history", "--format", "json")
+	pane1 := jsonPaneFor(t, capture, "pane-1")
+
+	firstIdx, lastIdx := -1, -1
+	for i, line := range pane1.Content {
+		switch {
+		case firstIdx == -1 && strings.Contains(line, "JSONFULL-01"):
+			firstIdx = i
+		case strings.Contains(line, "JSONFULL-40"):
+			lastIdx = i
+		}
+	}
+	if firstIdx == -1 {
+		t.Fatalf("pane-1 content should include off-screen history, got: %v", pane1.Content)
+	}
+	if lastIdx == -1 {
+		t.Fatalf("pane-1 content should include visible viewport lines, got: %v", pane1.Content)
+	}
+	if firstIdx >= lastIdx {
+		t.Fatalf("pane-1 content should prepend history before viewport, got: %v", pane1.Content)
+	}
+	if len(pane1.Content) <= 22 {
+		t.Fatalf("pane-1 content should include history plus viewport, got %d lines", len(pane1.Content))
+	}
+}
+
 func TestCaptureJSON_SinglePane(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)

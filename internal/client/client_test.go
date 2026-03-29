@@ -598,6 +598,31 @@ func TestClientRendererCapturePaneJSON(t *testing.T) {
 	}
 }
 
+func TestClientRendererHandleCaptureRequestHistoryJSONPrependsScrollback(t *testing.T) {
+	t.Parallel()
+
+	cr := NewClientRenderer(20, 3)
+	cr.HandleLayout(singlePane20x3())
+	cr.HandlePaneHistory(1, []string{"old-1", "old-2"})
+	cr.HandlePaneOutput(1, []byte("cur-1\r\ncur-2"))
+
+	resp := cr.HandleCaptureRequest([]string{"--history", "--format", "json"}, nil)
+	if resp.CmdErr != "" {
+		t.Fatalf("HandleCaptureRequest error = %q", resp.CmdErr)
+	}
+
+	var capture proto.CaptureJSON
+	if err := json.Unmarshal([]byte(resp.CmdOutput), &capture); err != nil {
+		t.Fatalf("JSON parse: %v\nraw: %s", err, resp.CmdOutput)
+	}
+	if len(capture.Panes) != 1 {
+		t.Fatalf("panes = %d, want 1", len(capture.Panes))
+	}
+	if got, want := capture.Panes[0].Content, []string{"old-1", "old-2", "cur-1", "cur-2"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("content = %#v, want %#v", got, want)
+	}
+}
+
 func TestClientRendererCapturePaneJSONReturnsErrorObjectWithoutLayout(t *testing.T) {
 	t.Parallel()
 
