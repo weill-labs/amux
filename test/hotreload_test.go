@@ -155,16 +155,9 @@ func TestHotReloadKeybinding(t *testing.T) {
 		t.Fatalf("RELOADME not visible\nScreen:\n%s", h.captureOuter())
 	}
 
+	reloadGen := h.generation()
 	h.sendKeys("C-a", "r")
-
-	if !h.waitFor("[pane-", 8*time.Second) {
-		screen := h.captureOuter()
-		t.Fatalf("session did not recover after Ctrl-a r\nScreen:\n%s", screen)
-	}
-
-	// Outer pane text can survive across the client re-exec, so wait for a
-	// fresh client-backed capture before sending post-reload input.
-	h.waitForCaptureJSONReady(8 * time.Second)
+	h.waitForReloadedClient(reloadGen, 8*time.Second)
 
 	// Send a marker command to confirm the shell is ready after reload.
 	h.sendKeys("echo POSTRELOAD", "Enter")
