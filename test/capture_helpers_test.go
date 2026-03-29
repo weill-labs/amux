@@ -16,15 +16,20 @@ const (
 
 func captureJSONFor(tb testing.TB, runCmd func(...string) string) proto.CaptureJSON {
 	tb.Helper()
+	return captureJSONWithArgsFor(tb, runCmd, "capture", "--format", "json")
+}
+
+func captureJSONWithArgsFor(tb testing.TB, runCmd func(...string) string, args ...string) proto.CaptureJSON {
+	tb.Helper()
 
 	deadline := time.Now().Add(queryRetryTimeout)
 	for {
-		raw := runCmd("capture", "--format", "json")
+		raw := runCmd(args...)
 		var capture proto.CaptureJSON
 		if err := json.Unmarshal([]byte(raw), &capture); err == nil {
 			return capture
 		} else if time.Now().After(deadline) || !(isCaptureUnavailable(raw) || isTransientSessionQueryFailure(raw)) {
-			tb.Fatalf("captureJSON: %v\nraw: %s", err, raw)
+			tb.Fatalf("captureJSON(%v): %v\nraw: %s", args, err, raw)
 		}
 		time.Sleep(queryRetryDelay)
 	}

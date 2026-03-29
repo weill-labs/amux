@@ -515,6 +515,8 @@ Usage:
   amux [-s session] connection-log     Show recent client attach/detach history
   amux [-s session] pane-log           Show pane create/exit history with exit cwd/branch context
   amux [-s session] capture            Capture full composited screen
+  amux [-s session] capture --history --format json
+                                       Capture full-session JSON with per-pane scrollback prepended to content
   amux [-s session] capture <pane>     Capture a single pane's output
   amux [-s session] capture --history <pane>
                                        Capture a pane's retained history + visible screen

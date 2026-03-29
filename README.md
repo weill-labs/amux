@@ -113,6 +113,7 @@ Capture the full session state as structured JSON:
 
 ```bash
 amux capture --format json
+amux capture --history --format json
 ```
 
 Returns a JSON object with session metadata, window info, and per-pane state:
@@ -160,6 +161,8 @@ Examples abbreviate `terminal.palette` for readability. Real capture output alwa
 Pane JSON includes a nested `meta` object for user-managed metadata: `task`, `git_branch`, `pr`, tracked `prs`, and tracked `issues`. The legacy top-level `task`, `git_branch`, and `pr` fields remain for compatibility.
 
 `cursor.style` is one of `block`, `underline`, or `bar`. `terminal.palette` is the pane's effective 256-color ANSI palette in stable index order, encoded as lowercase hex without `#`. `terminal.hyperlink` is present when OSC 8 hyperlink state is active at the cursor. Capture JSON is additive: agents should ignore unknown fields so future releases can extend the schema without breaking existing parsers.
+
+For full-session JSON capture, `amux capture --history --format json` prepends each pane's retained scrollback to that pane's `content` array so agents can read the full pane buffer from one field.
 
 Capture a single pane:
 
@@ -333,6 +336,7 @@ Higher-level prompt delegation now lives at the script layer: compose `send-keys
 | `amux capture --history <pane>` | Capture retained scrollback plus visible screen |
 | `amux capture --history --rewrap <width> <pane>` | Best-effort rewrap retained history and visible content to a wider width |
 | `amux capture --format json [pane]` | Structured JSON capture |
+| `amux capture --history --format json` | Full-session JSON with per-pane scrollback prepended to `content` |
 | `amux capture --history --format json <pane>` | Pane JSON with separate `history` and visible `content` |
 | `amux capture --history --rewrap <width> --format json <pane>` | Pane JSON rewrapped to the requested width |
 | `amux capture --ansi [pane]` | Capture with ANSI escape codes |
