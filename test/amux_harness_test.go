@@ -515,6 +515,24 @@ func (h *AmuxHarness) waitForCaptureJSONReady(timeout time.Duration) proto.Captu
 	return proto.CaptureJSON{}
 }
 
+// waitForReloadedClient blocks until hot-reload has attached a fresh client.
+// A capture request can still succeed against the pre-reload client if it is
+// issued before the reload disconnect/reattach cycle completes, so first wait
+// for layout generation to advance past the pre-reload value, then require a
+// client-backed JSON capture from the reattached client.
+func (h *AmuxHarness) waitForReloadedClient(afterGen uint64, timeout time.Duration) proto.CaptureJSON {
+	h.tb.Helper()
+
+	deadline := time.Now().Add(timeout)
+	h.waitLayoutTimeout(afterGen, timeout.String())
+
+	remaining := time.Until(deadline)
+	if remaining <= 0 {
+		remaining = time.Millisecond
+	}
+	return h.waitForCaptureJSONReady(remaining)
+}
+
 // jsonPane finds a pane by name in a CaptureJSON, or fails the test.
 // Also fails if Position is nil (full-screen captures always set it).
 func (h *AmuxHarness) jsonPane(capture proto.CaptureJSON, name string) proto.CapturePane {
