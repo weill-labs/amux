@@ -929,18 +929,6 @@ func runServer(sessionName string, managedTakeover bool) {
 // Server command client (for amux list, etc.)
 // ---------------------------------------------------------------------------
 
-// runStreamingCommand opens a persistent connection to the server and streams
-// MsgTypeCmdResult messages to stdout until the connection closes.
-// Used for long-lived commands like "events".
-func runStreamingCommand(sessionName, cmdName string, args []string) {
-	conn, err := connectStreamingCommand(sessionName, cmdName, args)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "amux %s: %v\n", cmdName, err)
-		os.Exit(1)
-	}
-	streamCommandOutput(conn, cmdName)
-}
-
 type eventsClientOptions struct {
 	reconnect      bool
 	initialBackoff time.Duration

@@ -103,15 +103,6 @@ func (s *Session) broadcastPaneHistoryNow(paneID uint32, history []string) {
 	}
 }
 
-// broadcastPaneOutput sends raw PTY output for one pane to all clients,
-// notifies any wait-for subscribers, and tracks pane activity.
-func (s *Session) broadcastPaneOutput(paneID uint32, data []byte, seq uint64) {
-	_, _ = enqueueSessionQuery(s, func(s *Session) (struct{}, error) {
-		s.broadcastPaneOutputNow(paneID, data, seq)
-		return struct{}{}, nil
-	})
-}
-
 func (s *Session) notifyLayoutWaiters(gen uint64) {
 	s.ensureWaiters().notifyLayoutWaiters(gen)
 }
