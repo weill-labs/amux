@@ -82,6 +82,22 @@ installed_checkpoint_version_from_meta() {
 	printf '%s\n' "$version"
 }
 
+resolve_running_checkpoint_version() {
+	local version="$1"
+
+	if [[ -n "$version" ]]; then
+		printf '%s\n' "$version"
+		return 0
+	fi
+
+	version="$(query_binary_checkpoint_version "$dest" || true)"
+	if [[ -z "$version" ]]; then
+		version="$(installed_checkpoint_version_from_meta || true)"
+	fi
+
+	printf '%s\n' "$version"
+}
+
 discover_live_sessions() {
 	local session sock out
 
@@ -169,10 +185,7 @@ while IFS=$'\t' read -r session status_out; do
 done < <(discover_live_sessions)
 
 if [[ -z "$running_checkpoint_version" ]]; then
-	running_checkpoint_version="$(query_binary_checkpoint_version "$dest" || true)"
-fi
-if [[ -z "$running_checkpoint_version" ]]; then
-	running_checkpoint_version="$(installed_checkpoint_version_from_meta || true)"
+	running_checkpoint_version="$(resolve_running_checkpoint_version "$running_checkpoint_version")"
 fi
 if (( live_session_count > 0 )) && [[ -n "$running_checkpoint_version" && "$running_checkpoint_version" != "$new_checkpoint_version" ]]; then
 	confirm_incompatible_install "$running_checkpoint_version" "$new_checkpoint_version" "$live_session_count"
