@@ -22,6 +22,7 @@ require_cmd() {
 notify=true
 claude_login_regex="claude"
 gh_repo=()
+repo_override=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -42,6 +43,7 @@ while [[ $# -gt 0 ]]; do
                 usage
                 exit 2
             }
+            repo_override="$2"
             gh_repo=(-R "$2")
             shift 2
             ;;
@@ -105,6 +107,20 @@ fi
 repo_from_url() {
     local url="$1"
     printf '%s\n' "$url" | sed -E 's#^https?://[^/]+/([^/]+/[^/]+)/pull/[0-9]+/?$#\1#'
+}
+
+repo_slug_for_pr() {
+    local url="$1"
+
+    if [[ -n "$repo_override" ]]; then
+        printf '%s\n' "$repo_override"
+        return
+    fi
+    if [[ -n "${GH_REPO:-}" ]]; then
+        printf '%s\n' "$GH_REPO"
+        return
+    fi
+    repo_from_url "$url"
 }
 
 pane_state() {
@@ -198,7 +214,7 @@ while IFS= read -r pr; do
         continue
     fi
 
-    repo_slug="$(repo_from_url "$url")"
+    repo_slug="$(repo_slug_for_pr "$url")"
     if [[ -z "$repo_slug" || "$repo_slug" == "$url" ]]; then
         continue
     fi

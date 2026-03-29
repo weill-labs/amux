@@ -96,6 +96,9 @@ scripts/set-pane-issue.sh LAB-445
 # Find worker PRs with failing CI and see which pane owns each one
 scripts/check-worker-ci.sh
 
+# Find worker PRs that are ready for human merge and notify the owning pane
+scripts/check-pr-ready.sh
+
 # Discover attached clients
 amux list-clients
 
