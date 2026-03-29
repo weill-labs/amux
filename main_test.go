@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"io"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -210,5 +212,34 @@ func TestMaybePrintKeyCommandUsage(t *testing.T) {
 				t.Fatalf("stderr = %q, want %q", got, tt.wantStderr)
 			}
 		})
+	}
+}
+
+func TestPrintUsageOmitsDelegate(t *testing.T) {
+	origStdout := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	os.Stdout = w
+	defer func() {
+		os.Stdout = origStdout
+	}()
+
+	printUsage()
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close write pipe: %v", err)
+	}
+
+	var buf bytes.Buffer
+	if _, err := io.Copy(&buf, r); err != nil {
+		t.Fatalf("io.Copy: %v", err)
+	}
+	if err := r.Close(); err != nil {
+		t.Fatalf("Close read pipe: %v", err)
+	}
+
+	if strings.Contains(buf.String(), "amux [-s session] delegate <pane>") {
+		t.Fatalf("printUsage should omit delegate:\n%s", buf.String())
 	}
 }

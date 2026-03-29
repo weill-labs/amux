@@ -68,7 +68,6 @@ var commandRegistry = map[string]CommandHandler{
 	"kill":           cmdKill,
 	"undo":           cmdUndo,
 	"send-keys":      cmdSendKeys,
-	"delegate":       cmdDelegate,
 	"broadcast":      cmdBroadcast,
 	"status":         cmdStatus,
 	"new-window":     cmdNewWindow,

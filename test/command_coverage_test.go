@@ -130,11 +130,11 @@ func TestUnknownCommand(t *testing.T) {
 	}
 }
 
-func TestRemovedMinimizeCommandsAreUnknown(t *testing.T) {
+func TestRemovedBuiltInCommandsAreUnknown(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)
 
-	for _, cmd := range []string{"minimize", "restore"} {
+	for _, cmd := range []string{"minimize", "restore", "delegate"} {
 		out := h.runCmd(cmd, "pane-1")
 		if !strings.Contains(out, "unknown command") {
 			t.Fatalf("%s should be unknown, got: %s", cmd, out)

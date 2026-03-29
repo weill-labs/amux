@@ -34,7 +34,7 @@ clear
 
 printf "\n"
 printf " \033[1magent:\033[0m %s\n" "$LABEL"
-printf " \033[2mlocal worker ready for delegated input\033[0m\n"
+printf " \033[2mlocal worker ready for scripted input\033[0m\n"
 printf "\n"
 
 printf "\033[1;35m>\033[0m "
@@ -101,6 +101,19 @@ run_human() {
     sleep 1.0
 }
 
+run_scripted_prompt() {
+    local session="$1"
+    local pane="$2"
+    local prompt="$3"
+    local escaped_prompt
+    local cmd
+
+    escaped_prompt="${prompt//\\/\\\\}"
+    escaped_prompt="${escaped_prompt//\"/\\\"}"
+    cmd="amux send-keys ${pane} --wait ready \"${escaped_prompt}\" Enter && amux wait busy ${pane} --timeout 5s"
+    run_human "$session" "$cmd"
+}
+
 cycle_focus() {
     local session="$1"
     "$AMUX" -s "$session" type-keys C-a o >/dev/null
@@ -151,9 +164,9 @@ agent() {
     wait_for_ready "$session" review
     sleep 0.8
 
-    run_human "$session" 'amux delegate 2 "Patch the demo split flow and rerun the focused tests"'
+    run_scripted_prompt "$session" 2 "Patch the demo split flow and rerun the focused tests"
     sleep 1.2
-    run_human "$session" 'amux delegate review "Watch pane-2 and flag anything risky"'
+    run_scripted_prompt "$session" review "Watch pane-2 and flag anything risky"
     sleep 1.1
 
     run_human "$session" 'amux wait idle 2 --timeout 30s && echo "pane-2 idle"'

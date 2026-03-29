@@ -83,8 +83,9 @@ amux broadcast --panes pane-1,pane-2 "make test" Enter
 # Send a task to an agent pane after it reaches its prompt
 amux send-keys pane-31 --wait ready "Fix the auth timeout bug" Enter
 
-# Delegate a prompt without stealing focus from your current pane
-amux delegate pane-31 "Summarize the failing tests and propose a fix"
+# Compose higher-level prompt orchestration in your own script
+amux send-keys pane-31 --wait ready "Summarize the failing tests and propose a fix" Enter
+amux wait busy pane-31 --timeout 5s
 
 # Subscribe to state changes
 amux events --filter idle
@@ -300,8 +301,7 @@ All commands accept `-s <session>` to target a specific session. Panes are refer
 | `amux spawn --name NAME [--host HOST] [--task TASK]` | Spawn a new named pane without changing focus |
 | `amux zoom [pane]` | Toggle zoom on a pane |
 | `amux kill [pane]` | Kill a pane (default: active) |
-| `amux send-keys <pane> [--wait ready\|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>...` | Send keystrokes to a pane |
-| `amux delegate <pane> [--timeout <duration>] [--start-timeout <duration>] [--hex] <keys>...` | Type a prompt into a pane, submit it, and wait for the agent to start |
+| `amux send-keys <pane> [--wait ready\|ui=input-idle] [--continue-known-dialogs] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>...` | Send keystrokes to a pane |
 | `amux broadcast (--panes <pane,pane,...> \| --window <index\|name> \| --match <glob>) [--hex] <keys>...` | Send the same keystrokes to multiple panes |
 | `amux swap <p1> <p2>` | Swap two panes |
 | `amux swap forward\|backward` | Swap active pane with neighbor |
@@ -320,6 +320,7 @@ All commands accept `-s <session>` to target a specific session. Panes are refer
 `move-up` and `move-down` are shorthand for nudging a pane one slot earlier or later within its current split group.
 `move-to` instead moves exactly one pane into the target pane's logical column and appends it to the bottom of that stack.
 `split`, `spawn`, and `add-pane` are pure layout mutations: they create the pane but do not change focus. Use `amux focus <pane|direction>` when you want a focus change explicitly. When the active pane is zoomed, these commands preserve the zoom and keep the focused pane unchanged.
+Higher-level prompt delegation now lives at the script layer: compose `send-keys --wait ready`, `wait busy`, and `wait idle` to match the workflow you want.
 
 `add-pane` builds outward in a clockwise spiral. At 1, 4, 9, 16, ... panes the spiral canvas reaches a uniform `N x N` grid. When a lead pane is active, the lead column stays pinned on the left and `add-pane` spirals only within the right subtree.
 
