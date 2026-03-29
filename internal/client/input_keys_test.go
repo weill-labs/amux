@@ -210,9 +210,9 @@ func TestForwardedBytesForDecodedInput(t *testing.T) {
 		want  []byte
 	}{
 		{
-			name:  "kitty ctrl-c preserves raw csi-u bytes",
+			name:  "kitty ctrl-c translates to legacy control byte",
 			input: []byte("\x1b[99;5u"),
-			want:  []byte("\x1b[99;5u"),
+			want:  []byte{0x03},
 		},
 		{
 			name:  "kitty ctrl-shift-a preserves raw csi-u bytes",

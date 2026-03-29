@@ -838,7 +838,7 @@ func TestRunSessionHandlesServerMessagesAndInteractiveInput(t *testing.T) {
 
 	h.writeInput(t, []byte("\x1b[99;5u"))
 	h.waitMessage(t, func(msg *proto.Message) bool {
-		return msg.Type == proto.MsgTypeInput && string(msg.Input) == "\x1b[99;5u"
+		return msg.Type == proto.MsgTypeInput && string(msg.Input) == "\x03"
 	})
 
 	h.writeInput(t, []byte{0x01, 'q', '2'})
