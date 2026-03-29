@@ -215,7 +215,6 @@ func TestMaybePrintKeyCommandUsage(t *testing.T) {
 	}
 }
 
-<<<<<<< HEAD
 func TestMaybePrintCommandHelp(t *testing.T) {
 	t.Parallel()
 
