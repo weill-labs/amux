@@ -548,6 +548,9 @@ func newServerFromCrashCheckpointWithListener(sessionName string, listener net.L
 				continue
 			}
 			pane = sess.ownPane(pane)
+			if sess.vtIdle != nil {
+				sess.vtIdle.PrimeSettling(ps.ID, pane.CreatedAt())
+			}
 		}
 
 		pane.SetOnClipboard(sess.clipboardCallback())

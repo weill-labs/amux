@@ -571,10 +571,7 @@ func TestServerHotReloadFallsBackToCrashCheckpointAcrossVersionBump(t *testing.T
 		t.Fatalf("status after reload = %q, want new build marker", after)
 	}
 
-	out := h.runCmd("send-keys", "pane-1", "--delay-final", "250ms", "echo AFTERBUMP", "Enter")
-	if strings.Contains(out, "not found") {
-		t.Fatalf("send-keys after version-bumped reload failed: %s", out)
-	}
+	h.sendKeys("echo AFTERBUMP", "Enter")
 	if !h.waitFor("AFTERBUMP", 5*time.Second) {
 		t.Fatalf("PTY should work after version-bumped reload\nScreen:\n%s", h.captureOuter())
 	}

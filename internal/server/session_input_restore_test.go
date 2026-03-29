@@ -245,6 +245,57 @@ func TestNewServerFromCrashCheckpointWithScrollbackPreservesManualBranchOverride
 	}
 }
 
+func TestNewServerFromCrashCheckpointWithScrollbackPrimesVTIdleFromRecoveryTime(t *testing.T) {
+	// Not parallel: uses t.Setenv for crash checkpoint paths, so it cannot call t.Parallel().
+	sessionName := fmt.Sprintf("crash-vt-idle-%d", time.Now().UnixNano())
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	pane, layout := restoreTestLayout()
+	restoreStart := time.Now()
+	originalCreatedAt := restoreStart.Add(-time.Hour)
+	cp := &ckpt.CrashCheckpoint{
+		Version:       ckpt.CrashVersion,
+		SessionName:   sessionName,
+		WindowCounter: 1,
+		Layout:        layout,
+		PaneStates: []ckpt.CrashPaneState{{
+			ID:        pane.ID,
+			Meta:      pane.Meta,
+			Cols:      80,
+			Rows:      23,
+			CreatedAt: originalCreatedAt,
+			Cwd:       t.TempDir(),
+			IsProxy:   false,
+		}},
+		Timestamp: time.Now(),
+	}
+
+	crashPath := ckpt.CrashCheckpointPathTimestamped(sessionName, cp.Timestamp)
+	srv, err := NewServerFromCrashCheckpointWithScrollback(sessionName, cp, crashPath, mux.DefaultScrollbackLines)
+	if err != nil {
+		t.Fatalf("NewServerFromCrashCheckpointWithScrollback: %v", err)
+	}
+	defer srv.Shutdown()
+
+	sess := srv.firstSession()
+	restored := sess.findPaneByID(pane.ID)
+	if restored == nil {
+		t.Fatal("restored pane = nil")
+	}
+	if !restored.CreatedAt().Equal(originalCreatedAt) {
+		t.Fatalf("CreatedAt() = %v, want %v", restored.CreatedAt(), originalCreatedAt)
+	}
+
+	early := sess.paneVTIdleStatus(restored.ID, restored.CreatedAt(), restoreStart.Add(time.Second))
+	if early.idle {
+		t.Fatal("vt-idle should still be settling from the fresh crash-recovery runtime")
+	}
+
+	settled := sess.paneVTIdleStatus(restored.ID, restored.CreatedAt(), restoreStart.Add(3*time.Second))
+	if !settled.idle {
+		t.Fatal("vt-idle should settle after the recovery-time grace window")
+	}
+}
+
 func TestNewServerFromCrashCheckpointWithListenerErrorsWhenNoPanesRestore(t *testing.T) {
 	t.Parallel()
 
