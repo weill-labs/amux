@@ -1327,7 +1327,7 @@ func (h *ServerHarness) doSplit(args ...string) {
 	before := h.layoutSnapshot()
 	if before.Root.IsLeaf && len(before.Panes) == 1 && before.LeadPaneID == before.ActivePaneID {
 		h.unsetLead()
-		before = h.layoutSnapshot()
+		before.LeadPaneID = 0
 	}
 	gen := h.generation()
 	pane, ok := activePaneNameFromLayout(before)
@@ -1379,7 +1379,7 @@ func (h *ServerHarness) doSplitPane(pane string, args ...string) {
 	before := h.layoutSnapshot()
 	if before.Root.IsLeaf && len(before.Panes) == 1 && before.LeadPaneID == before.ActivePaneID {
 		h.unsetLead()
-		before = h.layoutSnapshot()
+		before.LeadPaneID = 0
 	}
 	gen := h.generation()
 	cmdArgs := append([]string{"split", pane}, args...)

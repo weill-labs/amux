@@ -636,9 +636,13 @@ func (h *AmuxHarness) doSplit(key string) {
 
 func (h *AmuxHarness) unsetLead() {
 	h.tb.Helper()
-	out := h.runCmd("unset-lead")
-	if strings.Contains(out, "error") || strings.Contains(out, "cannot") {
-		h.tb.Fatalf("unset-lead failed: %s", out)
+	gen := h.generation()
+	h.sendKeys("C-a", "P")
+	h.waitLayout(gen)
+	for _, pane := range h.captureJSON().Panes {
+		if pane.Lead {
+			h.tb.Fatalf("toggle-lead keybinding should clear the initial lead, but %s is still lead", pane.Name)
+		}
 	}
 	h.initialLeadHandled = true
 }
