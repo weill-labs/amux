@@ -110,7 +110,7 @@ run_scripted_prompt() {
 
     escaped_prompt="${prompt//\\/\\\\}"
     escaped_prompt="${escaped_prompt//\"/\\\"}"
-    cmd="amux send-keys ${pane} --wait ready \"${escaped_prompt}\" Enter && amux wait busy ${pane} --timeout 5s"
+    cmd="amux send-keys ${pane} --wait idle \"${escaped_prompt}\" Enter && amux wait busy ${pane} --timeout 5s"
     run_human "$session" "$cmd"
 }
 
