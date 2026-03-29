@@ -117,25 +117,25 @@ func TestForwardCaptureFullScreenJSONUsesActiveWindowPanesOnly(t *testing.T) {
 	deliverCaptureResponseForTest(t, sess, msg, respCh)
 }
 
-func TestForwardCaptureJSONIncludesVTIdleStatus(t *testing.T) {
+func TestForwardCaptureJSONIncludesIdleStatus(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name          string
 		advance       time.Duration
-		wantVTIdle    bool
+		wantIdle      bool
 		wantIdleSince bool
 	}{
 		{
-			name:          "settled pane reports vt-idle timestamps",
+			name:          "settled pane reports idle timestamps",
 			advance:       30 * time.Millisecond,
-			wantVTIdle:    true,
+			wantIdle:      true,
 			wantIdleSince: true,
 		},
 		{
 			name:          "fresh output stays active",
 			advance:       0,
-			wantVTIdle:    false,
+			wantIdle:      false,
 			wantIdleSince: false,
 		},
 	}
@@ -175,14 +175,14 @@ func TestForwardCaptureJSONIncludesVTIdleStatus(t *testing.T) {
 			if !ok {
 				t.Fatal("pane-1 missing from forwarded agent status")
 			}
-			if got := status.VTIdle; got != tt.wantVTIdle {
-				t.Fatalf("VTIdle = %v, want %v", got, tt.wantVTIdle)
+			if got := status.Idle; got != tt.wantIdle {
+				t.Fatalf("Idle = %v, want %v", got, tt.wantIdle)
 			}
-			if got := status.LastVTOutput; got == "" {
-				t.Fatalf("LastVTOutput = %q, want RFC3339 string", got)
+			if got := status.LastOutput; got == "" {
+				t.Fatalf("LastOutput = %q, want RFC3339 string", got)
 			}
-			if got := status.VTIdleSince; (got != "") != tt.wantIdleSince {
-				t.Fatalf("VTIdleSince = %q, want present=%v", got, tt.wantIdleSince)
+			if got := status.IdleSince; (got != "") != tt.wantIdleSince {
+				t.Fatalf("IdleSince = %q, want present=%v", got, tt.wantIdleSince)
 			}
 
 			deliverCaptureResponseForTest(t, sess, msg, respCh)

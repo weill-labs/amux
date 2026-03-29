@@ -338,6 +338,7 @@ The `--format json` output looks like:
       "content": ["line 1", "line 2", "..."],
       "position": {"x": 0, "y": 0, "width": 100, "height": 25},
       "agent_status": {
+        "exited": false,
         "idle": false,
         "current_command": "go test ./...",
         "child_pids": [12345]
@@ -348,8 +349,8 @@ The `--format json` output looks like:
 ```
 
 Key fields for agent orchestration:
-- `agent_status.idle` — true when pane shell has no child processes. This corresponds to `wait exited`, not `wait idle`.
-- `agent_status.vt_idle` — true when pane output is screen-quiet. This corresponds to `wait idle`.
+- `agent_status.exited` — true when pane shell has no child processes. This corresponds to `wait exited`, not `wait idle`.
+- `agent_status.idle` — true when pane output is screen-quiet. This corresponds to `wait idle`.
 - `agent_status.current_command` — what's currently running
 - `agent_status.child_pids` — PIDs of child processes in the pane
 - `content` — array of strings, one per visible line (viewport only, no scrollback)

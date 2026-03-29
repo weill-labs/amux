@@ -150,10 +150,13 @@ Returns a JSON object with session metadata, window info, and per-pane state:
         "palette": ["000000", "800000", "008000", "808000", "000080", "800080", "008080", "c0c0c0"]
       },
       "content": ["$ make test", "PASS", "ok  github.com/weill-labs/amux 5.432s", "$ ▊"],
+      "exited": true,
+      "exited_since": "2025-06-15T10:30:01Z",
       "idle": true,
       "idle_since": "2025-06-15T10:30:00Z",
       "current_command": "bash",
-      "child_pids": []
+      "child_pids": [],
+      "last_output": "2025-06-15T10:29:58Z"
     }
   ]
 }

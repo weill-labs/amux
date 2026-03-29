@@ -783,20 +783,20 @@ func TestClientRendererCapturePaneJSONIncludesCopyMode(t *testing.T) {
 	}
 }
 
-func TestClientRendererCapturePaneJSONIncludesVTIdleFields(t *testing.T) {
+func TestClientRendererCapturePaneJSONIncludesIdleFields(t *testing.T) {
 	t.Parallel()
 
 	cr := buildTestRenderer(t)
 
 	const rawStatus = `{
 	  "1": {
+	    "Exited": true,
+	    "ExitedSince": "2026-03-28T12:00:05Z",
 	    "Idle": true,
-	    "IdleSince": "2026-03-28T12:00:05Z",
+	    "IdleSince": "2026-03-28T12:00:02Z",
 	    "CurrentCommand": "bash",
 	    "ChildPIDs": [],
-	    "VTIdle": true,
-	    "VTIdleSince": "2026-03-28T12:00:02Z",
-	    "LastVTOutput": "2026-03-28T12:00:00Z"
+	    "LastOutput": "2026-03-28T12:00:00Z"
 	  }
 	}`
 
@@ -811,14 +811,20 @@ func TestClientRendererCapturePaneJSONIncludesVTIdleFields(t *testing.T) {
 		t.Fatalf("json.Unmarshal(capture): %v\nraw: %s", err, raw)
 	}
 
-	if got, ok := pane["vt_idle"].(bool); !ok || !got {
-		t.Fatalf("vt_idle = %#v, want true", pane["vt_idle"])
+	if got, ok := pane["exited"].(bool); !ok || !got {
+		t.Fatalf("exited = %#v, want true", pane["exited"])
 	}
-	if got, ok := pane["vt_idle_since"].(string); !ok || got == "" {
-		t.Fatalf("vt_idle_since = %#v, want RFC3339 string", pane["vt_idle_since"])
+	if got, ok := pane["exited_since"].(string); !ok || got == "" {
+		t.Fatalf("exited_since = %#v, want RFC3339 string", pane["exited_since"])
 	}
-	if got, ok := pane["last_vt_output"].(string); !ok || got == "" {
-		t.Fatalf("last_vt_output = %#v, want RFC3339 string", pane["last_vt_output"])
+	if got, ok := pane["idle"].(bool); !ok || !got {
+		t.Fatalf("idle = %#v, want true", pane["idle"])
+	}
+	if got, ok := pane["idle_since"].(string); !ok || got == "" {
+		t.Fatalf("idle_since = %#v, want RFC3339 string", pane["idle_since"])
+	}
+	if got, ok := pane["last_output"].(string); !ok || got == "" {
+		t.Fatalf("last_output = %#v, want RFC3339 string", pane["last_output"])
 	}
 }
 

@@ -14,7 +14,7 @@ func TestIdleStatus_ShellAtPrompt(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)
 
-	// A freshly spawned pane with shell at prompt should be idle.
+	// A freshly spawned pane with shell at prompt should be exited.
 	out := h.runCmd("capture", "--format", "json", "pane-1")
 
 	var pane proto.CapturePane
@@ -22,8 +22,8 @@ func TestIdleStatus_ShellAtPrompt(t *testing.T) {
 		t.Fatalf("failed to parse JSON: %v\nraw output:\n%s", err, out)
 	}
 
-	if !pane.Idle {
-		t.Error("pane at shell prompt should be idle")
+	if !pane.Exited {
+		t.Error("pane at shell prompt should be exited")
 	}
 }
 
@@ -38,8 +38,8 @@ func TestIdleStatus_BusyWhileRunning(t *testing.T) {
 
 	for _, p := range capture.Panes {
 		if p.Name == "pane-1" {
-			if p.Idle {
-				t.Error("pane running 'sleep 30' should be busy (not idle)")
+			if p.Exited {
+				t.Error("pane running 'sleep 30' should be busy (not exited)")
 			}
 			stopLongRunningCommand(t, h, "pane-1")
 			return
@@ -64,7 +64,7 @@ func TestIdleStatus_BusyWithMultiplePanes(t *testing.T) {
 	}
 
 	for _, p := range capture.Panes {
-		if p.Name == "pane-1" && p.Idle {
+		if p.Name == "pane-1" && p.Exited {
 			t.Error("pane-1 running 'sleep 30' should be busy")
 		}
 	}
@@ -105,7 +105,7 @@ func TestWaitBusy_WaitsForChildProcessNotPromptEcho(t *testing.T) {
 	h.waitBusy("pane-1")
 
 	pane := captureJSONPane(t, h, "pane-1")
-	if pane.Idle {
+	if pane.Exited {
 		t.Error("pane should be busy after waitBusy returns")
 	}
 	if len(pane.ChildPIDs) == 0 {

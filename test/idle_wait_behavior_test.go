@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestWaitReadyAcceptsNonAgentPromptMarkers(t *testing.T) {
+func TestWaitIdleAcceptsNonAgentPromptMarkers(t *testing.T) {
 	t.Parallel()
 
 	h := newServerHarness(t)
@@ -19,7 +19,7 @@ func TestWaitReadyAcceptsNonAgentPromptMarkers(t *testing.T) {
 	}
 }
 
-func TestSendKeysWaitReadyAcceptsNonAgentPromptMarkers(t *testing.T) {
+func TestSendKeysWaitIdleAcceptsNonAgentPromptMarkers(t *testing.T) {
 	t.Parallel()
 
 	h := newServerHarness(t)
@@ -36,7 +36,7 @@ func TestSendKeysWaitReadyAcceptsNonAgentPromptMarkers(t *testing.T) {
 	h.waitIdle("pane-1")
 }
 
-func TestWaitReadyIsRemoved(t *testing.T) {
+func TestWaitReadyCommandIsRemoved(t *testing.T) {
 	t.Parallel()
 
 	h := newServerHarness(t)
@@ -47,7 +47,7 @@ func TestWaitReadyIsRemoved(t *testing.T) {
 	}
 }
 
-func TestSendKeysWaitReadyIsRemoved(t *testing.T) {
+func TestSendKeysWaitReadyFlagIsRemoved(t *testing.T) {
 	t.Parallel()
 
 	h := newServerHarness(t)
@@ -72,4 +72,19 @@ func TestWaitIdleReturnsWhenOutputQuiescesEvenIfChildStillRuns(t *testing.T) {
 	}
 
 	stopLongRunningCommand(t, h, "pane-1")
+}
+
+func TestWaitIdleWithSettleFlag_EventBased(t *testing.T) {
+	t.Parallel()
+
+	h := newServerHarness(t)
+
+	h.sendKeys("pane-1", "printf 'one'; sleep 0.05; printf 'two'; echo done", "Enter")
+
+	out := h.runCmd("wait", "idle", "pane-1", "--settle", "30ms", "--timeout", "2s")
+	if strings.Contains(out, "timeout") || strings.Contains(out, "unknown command") {
+		t.Fatalf("wait-idle failed: %s", out)
+	}
+
+	h.waitFor("pane-1", "done")
 }

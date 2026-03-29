@@ -19,7 +19,7 @@ func toListingPaneEntry(entry paneListEntry) listingcmd.PaneEntry {
 		Task:          entry.task,
 		Cwd:           entry.cwd,
 		GitBranch:     entry.gitBranch,
-		VTIdle:        entry.vtIdle,
+		Idle:          entry.idle,
 		PR:            entry.pr,
 		TrackedPRs:    proto.CloneTrackedPRs(entry.prs),
 		TrackedIssues: proto.CloneTrackedIssues(entry.issues),

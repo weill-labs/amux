@@ -39,7 +39,7 @@ func startAsyncCommand(t *testing.T, srv *Server, sess *Session, name string, ar
 	return clientConn, cc, done
 }
 
-func setupWaitVTIdleTestPane(t *testing.T) (*Server, *Session, *mux.Pane, func()) {
+func setupWaitIdleTestPane(t *testing.T) (*Server, *Session, *mux.Pane, func()) {
 	t.Helper()
 
 	srv, sess, cleanup := newCommandTestSession(t)
@@ -57,7 +57,7 @@ func setupWaitVTIdleTestPane(t *testing.T) (*Server, *Session, *mux.Pane, func()
 	return srv, sess, pane, cleanup
 }
 
-func TestCmdWaitVTIdleUsage(t *testing.T) {
+func TestCmdWaitIdleUsage(t *testing.T) {
 	t.Parallel()
 
 	srv, sess, cleanup := newCommandTestSession(t)
@@ -69,27 +69,27 @@ func TestCmdWaitVTIdleUsage(t *testing.T) {
 	}
 }
 
-func TestParseWaitVTIdleArgs(t *testing.T) {
+func TestParseWaitIdleArgs(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name     string
 		args     []string
 		wantPane string
-		wantOpts waitVTIdleOptions
+		wantOpts waitIdleOptions
 		wantErr  string
 	}{
 		{
 			name:     "defaults",
 			args:     []string{"pane-1"},
 			wantPane: "pane-1",
-			wantOpts: waitVTIdleOptions{settle: DefaultVTIdleSettle, timeout: DefaultVTIdleTimeout},
+			wantOpts: waitIdleOptions{settle: DefaultVTIdleSettle, timeout: DefaultVTIdleTimeout},
 		},
 		{
 			name:     "custom settle and timeout",
 			args:     []string{"pane-2", "--settle", "25ms", "--timeout", "3s"},
 			wantPane: "pane-2",
-			wantOpts: waitVTIdleOptions{settle: 25 * time.Millisecond, timeout: 3 * time.Second},
+			wantOpts: waitIdleOptions{settle: 25 * time.Millisecond, timeout: 3 * time.Second},
 		},
 		{
 			name:    "missing settle value",
@@ -123,15 +123,15 @@ func TestParseWaitVTIdleArgs(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			gotPane, gotOpts, err := parseWaitVTIdleArgs(tt.args)
+			gotPane, gotOpts, err := parseWaitIdleArgs(tt.args)
 			if tt.wantErr != "" {
 				if err == nil || err.Error() != tt.wantErr {
-					t.Fatalf("parseWaitVTIdleArgs(%v) error = %v, want %q", tt.args, err, tt.wantErr)
+					t.Fatalf("parseWaitIdleArgs(%v) error = %v, want %q", tt.args, err, tt.wantErr)
 				}
 				return
 			}
 			if err != nil {
-				t.Fatalf("parseWaitVTIdleArgs(%v) error = %v", tt.args, err)
+				t.Fatalf("parseWaitIdleArgs(%v) error = %v", tt.args, err)
 			}
 			if gotPane != tt.wantPane {
 				t.Fatalf("pane = %q, want %q", gotPane, tt.wantPane)
@@ -143,10 +143,10 @@ func TestParseWaitVTIdleArgs(t *testing.T) {
 	}
 }
 
-func TestCmdWaitVTIdleImmediateWhenAlreadySettled(t *testing.T) {
+func TestCmdWaitIdleImmediateWhenAlreadySettled(t *testing.T) {
 	t.Parallel()
 
-	srv, sess, pane, cleanup := setupWaitVTIdleTestPane(t)
+	srv, sess, pane, cleanup := setupWaitIdleTestPane(t)
 	defer cleanup()
 
 	pane.SetCreatedAt(time.Now().Add(-time.Second))
@@ -157,11 +157,11 @@ func TestCmdWaitVTIdleImmediateWhenAlreadySettled(t *testing.T) {
 	}
 }
 
-func TestCmdWaitVTIdleTimeout(t *testing.T) {
+func TestCmdWaitIdleTimeout(t *testing.T) {
 	t.Parallel()
 
 	clk := NewFakeClock(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC))
-	srv, sess, pane, cleanup := setupWaitVTIdleTestPane(t)
+	srv, sess, pane, cleanup := setupWaitIdleTestPane(t)
 	defer cleanup()
 	sess.Clock = clk
 	sess.vtIdle = NewVTIdleTracker(clk)
@@ -169,7 +169,7 @@ func TestCmdWaitVTIdleTimeout(t *testing.T) {
 
 	clientConn, _, done := startAsyncCommand(t, srv, sess, "wait", "idle", "pane-1", "--settle", "200ms", "--timeout", "40ms")
 
-	// Wait for cmdWaitVTIdle to create its two timers (settle + timeout).
+	// Wait for cmdWaitIdle to create its two timers (settle + timeout).
 	// Because fakeTimer.ch is buffered, Advance can fire a timer even if the
 	// goroutine hasn't entered its select yet.
 	clk.AwaitTimers(2)
@@ -189,11 +189,11 @@ func TestCmdWaitVTIdleTimeout(t *testing.T) {
 	}
 }
 
-func TestCmdWaitVTIdleResetsSettleTimerOnOutput(t *testing.T) {
+func TestCmdWaitIdleResetsSettleTimerOnOutput(t *testing.T) {
 	t.Parallel()
 
 	clk := NewFakeClock(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC))
-	srv, sess, pane, cleanup := setupWaitVTIdleTestPane(t)
+	srv, sess, pane, cleanup := setupWaitIdleTestPane(t)
 	defer cleanup()
 	sess.Clock = clk
 	sess.vtIdle = NewVTIdleTracker(clk)

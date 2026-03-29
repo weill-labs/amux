@@ -26,11 +26,6 @@ func setupSendKeysWaitIdleTestPane(t *testing.T, writeOverride func([]byte) (int
 	return srv, sess, pane, cleanup
 }
 
-func setupWaitReadyTestPane(t *testing.T, writeOverride func([]byte) (int, error)) (*Server, *Session, *mux.Pane, func()) {
-	t.Helper()
-	return setupSendKeysWaitIdleTestPane(t, writeOverride)
-}
-
 func TestParseSendKeysArgs(t *testing.T) {
 	t.Parallel()
 
