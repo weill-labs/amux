@@ -121,6 +121,9 @@ func TestWriteReadMsgAllMessageTypes(t *testing.T) {
 						IdleSince:      "",
 						CurrentCommand: "go",
 						ChildPIDs:      []int{101, 202},
+						VTIdle:         true,
+						VTIdleSince:    "2026-03-28T12:00:02Z",
+						LastVTOutput:   "2026-03-28T12:00:00Z",
 					},
 				},
 			},
@@ -316,7 +319,14 @@ func TestCapturePaneApplyAgentStatus(t *testing.T) {
 			name: "nil child pids normalize to empty slice",
 			pane: CapturePane{ID: 2},
 			status: map[uint32]PaneAgentStatus{
-				2: {Idle: true, IdleSince: "2025-01-01T00:00:00Z", CurrentCommand: "bash"},
+				2: {
+					Idle:           true,
+					IdleSince:      "2025-01-01T00:00:00Z",
+					CurrentCommand: "bash",
+					VTIdle:         true,
+					VTIdleSince:    "2025-01-01T00:00:02Z",
+					LastVTOutput:   "2025-01-01T00:00:00Z",
+				},
 			},
 			want: CapturePane{
 				ID:             2,
@@ -324,19 +334,30 @@ func TestCapturePaneApplyAgentStatus(t *testing.T) {
 				IdleSince:      "2025-01-01T00:00:00Z",
 				CurrentCommand: "bash",
 				ChildPIDs:      []int{},
+				VTIdle:         true,
+				VTIdleSince:    "2025-01-01T00:00:02Z",
+				LastVTOutput:   "2025-01-01T00:00:00Z",
 			},
 		},
 		{
 			name: "child pids preserved",
 			pane: CapturePane{ID: 3},
 			status: map[uint32]PaneAgentStatus{
-				3: {Idle: false, CurrentCommand: "go", ChildPIDs: []int{11, 22}},
+				3: {
+					Idle:           false,
+					CurrentCommand: "go",
+					ChildPIDs:      []int{11, 22},
+					VTIdle:         false,
+					LastVTOutput:   "2025-01-01T00:00:04Z",
+				},
 			},
 			want: CapturePane{
 				ID:             3,
 				Idle:           false,
 				CurrentCommand: "go",
 				ChildPIDs:      []int{11, 22},
+				VTIdle:         false,
+				LastVTOutput:   "2025-01-01T00:00:04Z",
 			},
 		},
 	}

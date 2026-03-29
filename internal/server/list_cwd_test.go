@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/weill-labs/amux/internal/mux"
 )
@@ -173,5 +174,121 @@ func TestCmdListRejectsUnknownArgs(t *testing.T) {
 	res := runTestCommand(t, srv, sess, "list", "--bogus")
 	if res.cmdErr != "usage: list [--no-cwd]" {
 		t.Fatalf("cmdErr = %q, want usage", res.cmdErr)
+	}
+}
+
+func TestCmdListIncludesVTIdleColumnAndState(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	clk := NewFakeClock(time.Date(2026, 3, 28, 12, 0, 0, 0, time.UTC))
+	mustSessionMutation(t, sess, func(sess *Session) {
+		sess.Clock = clk
+		sess.VTIdleSettle = 2 * time.Second
+		sess.vtIdle = NewVTIdleTracker(clk)
+	})
+
+	p1 := newTestPane(sess, 1, "pane-1")
+	p2 := newTestPane(sess, 2, "pane-2")
+	w := newTestWindowWithPanes(t, sess, 1, "main", p1, p2)
+	setSessionLayoutForTest(t, sess, w.ID, []*mux.Window{w}, p1, p2)
+
+	mustSessionMutation(t, sess, func(sess *Session) {
+		sess.vtIdle.TrackOutput(p1.ID, sess.vtIdleSettle(), func(time.Time) {})
+	})
+	clk.AwaitTimers(1)
+	clk.Advance(3 * time.Second)
+
+	mustSessionMutation(t, sess, func(sess *Session) {
+		sess.vtIdle.TrackOutput(p2.ID, sess.vtIdleSettle(), func(time.Time) {})
+	})
+	clk.AwaitTimers(2)
+
+	res := runTestCommand(t, srv, sess, "list")
+	if res.cmdErr != "" {
+		t.Fatalf("list error: %s", res.cmdErr)
+	}
+	if !strings.Contains(res.output, "VT-IDLE") {
+		t.Fatalf("list output missing VT-IDLE header:\n%s", res.output)
+	}
+
+	var pane1Line, pane2Line string
+	for _, line := range strings.Split(res.output, "\n") {
+		switch {
+		case strings.Contains(line, "pane-1"):
+			pane1Line = line
+		case strings.Contains(line, "pane-2"):
+			pane2Line = line
+		}
+	}
+	if !strings.Contains(pane1Line, "3s ago") {
+		t.Fatalf("pane-1 should show settled VT-idle age, got:\n%s", pane1Line)
+	}
+	if !strings.Contains(pane2Line, "--") {
+		t.Fatalf("pane-2 should show -- while VT output is still active, got:\n%s", pane2Line)
+	}
+}
+
+func TestVTIdleTrackerLastOutputWithoutSnapshot(t *testing.T) {
+	t.Parallel()
+
+	var tracker VTIdleTracker
+	if got, ok := tracker.LastOutput(99); ok || !got.IsZero() {
+		t.Fatalf("LastOutput() = (%v, %v), want (zero, false)", got, ok)
+	}
+}
+
+func TestPaneVTIdleStatusUsesCreatedAtWhenNoOutput(t *testing.T) {
+	t.Parallel()
+
+	sess := &Session{VTIdleSettle: 2 * time.Second}
+	createdAt := time.Date(2026, 3, 28, 12, 0, 0, 0, time.UTC)
+	now := createdAt.Add(5 * time.Second)
+
+	status := sess.paneVTIdleStatus(1, createdAt, now)
+	if !status.idle {
+		t.Fatal("pane should be vt-idle once createdAt+settle has passed without output")
+	}
+	if want := createdAt.Add(2 * time.Second); !status.idleSince.Equal(want) {
+		t.Fatalf("idleSince = %v, want %v", status.idleSince, want)
+	}
+	if got := status.listDisplay(now, createdAt); got != "5s ago" {
+		t.Fatalf("listDisplay() = %q, want %q", got, "5s ago")
+	}
+}
+
+func TestPaneVTIdleStatusListDisplayClampsFutureBase(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 3, 28, 12, 0, 0, 0, time.UTC)
+	status := paneVTIdleStatus{
+		idle:          true,
+		lastOutput:    now.Add(time.Second),
+		hasLastOutput: true,
+	}
+
+	if got := status.listDisplay(now, now.Add(-time.Second)); got != "0s ago" {
+		t.Fatalf("listDisplay() = %q, want %q", got, "0s ago")
+	}
+}
+
+func TestFormatPaneListDefaultsEmptyVTIdleWithoutCwd(t *testing.T) {
+	t.Parallel()
+
+	out := formatPaneList([]paneListEntry{{
+		paneID:     1,
+		name:       "pane-1",
+		host:       "local",
+		windowName: "main",
+		active:     true,
+	}}, "/Users/alice", false)
+
+	if !strings.Contains(out, "VT-IDLE") {
+		t.Fatalf("formatPaneList should include VT-IDLE header:\n%s", out)
+	}
+	if lines := strings.Split(strings.TrimSpace(out), "\n"); len(lines) < 2 || !strings.Contains(lines[1], "--") {
+		t.Fatalf("formatPaneList should default VT-IDLE to --:\n%s", out)
 	}
 }

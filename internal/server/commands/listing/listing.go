@@ -36,6 +36,7 @@ type PaneEntry struct {
 	Task          string
 	Cwd           string
 	GitBranch     string
+	VTIdle        string
 	PR            string
 	TrackedPRs    []proto.TrackedPR
 	TrackedIssues []proto.TrackedIssue
@@ -50,9 +51,9 @@ func FormatPaneList(entries []PaneEntry, home string, showCwd bool) string {
 
 	var buf strings.Builder
 	if showCwd {
-		fmt.Fprintf(&buf, "%-6s %-20s %-15s %-30s %-36s %-10s %-12s %s\n", "PANE", "NAME", "HOST", "BRANCH", "CWD", "WINDOW", "TASK", "META")
+		fmt.Fprintf(&buf, "%-6s %-20s %-15s %-30s %-9s %-36s %-10s %-12s %s\n", "PANE", "NAME", "HOST", "BRANCH", "VT-IDLE", "CWD", "WINDOW", "TASK", "META")
 	} else {
-		fmt.Fprintf(&buf, "%-6s %-20s %-15s %-30s %-10s %-12s %s\n", "PANE", "NAME", "HOST", "BRANCH", "WINDOW", "TASK", "META")
+		fmt.Fprintf(&buf, "%-6s %-20s %-15s %-30s %-9s %-10s %-12s %s\n", "PANE", "NAME", "HOST", "BRANCH", "VT-IDLE", "WINDOW", "TASK", "META")
 	}
 	for _, entry := range entries {
 		fmt.Fprint(&buf, formatPaneListRow(entry, home, showCwd))
@@ -76,12 +77,16 @@ func formatPaneListRow(entry PaneEntry, home string, showCwd bool) string {
 	paneID := fmt.Sprintf("%s%d", active, entry.PaneID)
 	branch := FormatPaneListBranch(entry)
 	meta := formatPaneListMeta(entry)
-	if showCwd {
-		return fmt.Sprintf("%-6s %-20s %-15s %-30s %-36s %-10s %-12s %s\n",
-			paneID, entry.Name, entry.Host, branch, FormatListCwd(entry.Cwd, home, ListCwdWidth), entry.WindowName, entry.Task, meta)
+	vtIdle := entry.VTIdle
+	if vtIdle == "" {
+		vtIdle = "--"
 	}
-	return fmt.Sprintf("%-6s %-20s %-15s %-30s %-10s %-12s %s\n",
-		paneID, entry.Name, entry.Host, branch, entry.WindowName, entry.Task, meta)
+	if showCwd {
+		return fmt.Sprintf("%-6s %-20s %-15s %-30s %-9s %-36s %-10s %-12s %s\n",
+			paneID, entry.Name, entry.Host, branch, vtIdle, FormatListCwd(entry.Cwd, home, ListCwdWidth), entry.WindowName, entry.Task, meta)
+	}
+	return fmt.Sprintf("%-6s %-20s %-15s %-30s %-9s %-10s %-12s %s\n",
+		paneID, entry.Name, entry.Host, branch, vtIdle, entry.WindowName, entry.Task, meta)
 }
 
 func formatPaneListMeta(entry PaneEntry) string {

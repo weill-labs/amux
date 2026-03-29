@@ -117,6 +117,79 @@ func TestForwardCaptureFullScreenJSONUsesActiveWindowPanesOnly(t *testing.T) {
 	deliverCaptureResponseForTest(t, sess, msg, respCh)
 }
 
+func TestForwardCaptureJSONIncludesVTIdleStatus(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		advance       time.Duration
+		wantVTIdle    bool
+		wantIdleSince bool
+	}{
+		{
+			name:          "settled pane reports vt-idle timestamps",
+			advance:       30 * time.Millisecond,
+			wantVTIdle:    true,
+			wantIdleSince: true,
+		},
+		{
+			name:          "fresh output stays active",
+			advance:       0,
+			wantVTIdle:    false,
+			wantIdleSince: false,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, sess, cleanup := newCommandTestSession(t)
+			defer cleanup()
+
+			clk := NewFakeClock(time.Date(2026, 3, 28, 12, 0, 0, 0, time.UTC))
+			mustSessionMutation(t, sess, func(sess *Session) {
+				sess.Clock = clk
+				sess.VTIdleSettle = 20 * time.Millisecond
+				sess.vtIdle = NewVTIdleTracker(clk)
+			})
+
+			pane := newTestPane(sess, 1, "pane-1")
+			window := newTestWindowWithPanes(t, sess, 1, "window-1", pane)
+			setSessionLayoutForTest(t, sess, window.ID, []*mux.Window{window}, pane)
+
+			mustSessionMutation(t, sess, func(sess *Session) {
+				sess.vtIdle.TrackOutput(pane.ID, sess.vtIdleSettle(), func(time.Time) {})
+			})
+			clk.AwaitTimers(1)
+			if tt.advance > 0 {
+				clk.Advance(tt.advance)
+			}
+
+			msg, respCh := startForwardCaptureForTest(t, sess, []string{"--format", "json", "pane-1"})
+			if msg.Type != MsgTypeCaptureRequest {
+				t.Fatalf("message type = %v, want capture request", msg.Type)
+			}
+			status, ok := msg.AgentStatus[1]
+			if !ok {
+				t.Fatal("pane-1 missing from forwarded agent status")
+			}
+			if got := status.VTIdle; got != tt.wantVTIdle {
+				t.Fatalf("VTIdle = %v, want %v", got, tt.wantVTIdle)
+			}
+			if got := status.LastVTOutput; got == "" {
+				t.Fatalf("LastVTOutput = %q, want RFC3339 string", got)
+			}
+			if got := status.VTIdleSince; (got != "") != tt.wantIdleSince {
+				t.Fatalf("VTIdleSince = %q, want present=%v", got, tt.wantIdleSince)
+			}
+
+			deliverCaptureResponseForTest(t, sess, msg, respCh)
+		})
+	}
+}
+
 func TestForwardCapturePaneFallsBackWithoutClient(t *testing.T) {
 	t.Parallel()
 

@@ -151,18 +151,23 @@ func (s *Session) captureAgentStatus(panes []*mux.Pane) map[uint32]proto.PaneAge
 	}
 
 	_, sinceSnap := s.snapshotIdleFull()
+	now := s.clock().Now()
 	agentStatus := make(map[uint32]proto.PaneAgentStatus, len(panes))
 	for _, p := range panes {
 		st := p.AgentStatus()
+		vtIdle := s.paneVTIdleStatus(p.ID, p.CreatedAt(), now)
 		pas := proto.PaneAgentStatus{
 			Idle:           st.Idle,
-			IdleSince:      formatIdleSince(st.IdleSince),
+			IdleSince:      formatRFC3339Time(st.IdleSince),
 			CurrentCommand: st.CurrentCommand,
 			ChildPIDs:      nonNilPIDs(st.ChildPIDs),
+			VTIdle:         vtIdle.idle,
+			VTIdleSince:    formatRFC3339Time(vtIdle.idleSince),
+			LastVTOutput:   formatRFC3339Time(vtIdle.lastOutput),
 		}
 		if st.Idle {
 			if t, ok := sinceSnap[p.ID]; ok {
-				pas.IdleSince = formatIdleSince(t)
+				pas.IdleSince = formatRFC3339Time(t)
 			}
 			pas.CurrentCommand = p.ShellName()
 			pas.ChildPIDs = []int{}
