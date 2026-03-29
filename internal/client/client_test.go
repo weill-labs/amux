@@ -623,6 +623,32 @@ func TestClientRendererHandleCaptureRequestHistoryJSONPrependsScrollback(t *test
 	}
 }
 
+func TestClientRendererCaptureJSONWithHistoryReturnsErrorObjectWithoutLayout(t *testing.T) {
+	t.Parallel()
+
+	cr := NewClientRenderer(80, 24)
+
+	var capture struct {
+		Error *struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	out := cr.CaptureJSONWithHistory(nil)
+	if err := json.Unmarshal([]byte(out), &capture); err != nil {
+		t.Fatalf("JSON parse: %v\nraw: %s", err, out)
+	}
+	if capture.Error == nil {
+		t.Fatalf("history JSON capture should return an error object when state is unavailable, got: %s", out)
+	}
+	if capture.Error.Code != "state_unavailable" {
+		t.Fatalf("error code = %q, want state_unavailable", capture.Error.Code)
+	}
+	if capture.Error.Message == "" {
+		t.Fatal("error message should be non-empty")
+	}
+}
+
 func TestClientRendererCapturePaneJSONReturnsErrorObjectWithoutLayout(t *testing.T) {
 	t.Parallel()
 
@@ -672,6 +698,56 @@ func TestRendererCapturePaneJSONReturnsErrorObjectWithoutLayout(t *testing.T) {
 	}
 	if pane.Error.Message == "" {
 		t.Fatal("error message should be non-empty")
+	}
+}
+
+func TestRendererCaptureJSONWithHistoryReturnsErrorObjectWithoutLayout(t *testing.T) {
+	t.Parallel()
+
+	r := NewWithScrollback(80, 24, mux.DefaultScrollbackLines)
+
+	var capture struct {
+		Error *struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	out := r.CaptureJSONWithHistory(nil, nil)
+	if err := json.Unmarshal([]byte(out), &capture); err != nil {
+		t.Fatalf("JSON parse: %v\nraw: %s", err, out)
+	}
+	if capture.Error == nil {
+		t.Fatalf("history JSON capture should return an error object when state is unavailable, got: %s", out)
+	}
+	if capture.Error.Code != "state_unavailable" {
+		t.Fatalf("error code = %q, want state_unavailable", capture.Error.Code)
+	}
+	if capture.Error.Message == "" {
+		t.Fatal("error message should be non-empty")
+	}
+}
+
+func TestRendererHandleCaptureRequestHistoryJSONWithoutBootstrapHistory(t *testing.T) {
+	t.Parallel()
+
+	r := NewWithScrollback(20, 3, mux.DefaultScrollbackLines)
+	r.HandleLayout(singlePane20x3())
+	r.HandlePaneOutput(1, []byte("cur-1\r\ncur-2"))
+
+	resp := r.HandleCaptureRequest([]string{"--history", "--format", "json"}, nil)
+	if resp.CmdErr != "" {
+		t.Fatalf("HandleCaptureRequest error = %q", resp.CmdErr)
+	}
+
+	var capture proto.CaptureJSON
+	if err := json.Unmarshal([]byte(resp.CmdOutput), &capture); err != nil {
+		t.Fatalf("JSON parse: %v\nraw: %s", err, resp.CmdOutput)
+	}
+	if len(capture.Panes) != 1 {
+		t.Fatalf("panes = %d, want 1", len(capture.Panes))
+	}
+	if got, want := capture.Panes[0].Content, []string{"cur-1", "cur-2"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("content = %#v, want %#v", got, want)
 	}
 }
 

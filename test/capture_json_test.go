@@ -114,8 +114,8 @@ func TestCaptureJSON_FullScreenHistoryPrependsScrollback(t *testing.T) {
 	if firstIdx >= lastIdx {
 		t.Fatalf("pane-1 content should prepend history before viewport, got: %v", pane1.Content)
 	}
-	if len(pane1.Content) <= 22 {
-		t.Fatalf("pane-1 content should include history plus viewport, got %d lines", len(pane1.Content))
+	if len(pane1.Content) < 40 {
+		t.Fatalf("pane-1 content should include the emitted history plus viewport, got %d lines", len(pane1.Content))
 	}
 }
 
