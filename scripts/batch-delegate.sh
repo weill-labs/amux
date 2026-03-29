@@ -129,6 +129,8 @@ wait_for_acceptance() {
     return 1
 }
 
+trap cleanup_acceptance_stream EXIT
+
 if [[ ${1:-} == "-h" || ${1:-} == "--help" ]]; then
     usage
     exit 0
