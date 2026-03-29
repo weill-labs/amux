@@ -84,7 +84,7 @@ amux broadcast --panes pane-1,pane-2 "make test" Enter
 amux send-keys pane-31 --wait idle "Fix the auth timeout bug" Enter
 
 # Compose higher-level prompt orchestration in your own script
-amux send-keys pane-31 --wait ready "Summarize the failing tests and propose a fix" Enter
+amux send-keys pane-31 --wait idle "Summarize the failing tests and propose a fix" Enter
 amux wait busy pane-31 --timeout 5s
 
 # Subscribe to state changes
@@ -325,7 +325,7 @@ All commands accept `-s <session>` to target a specific session. Panes are refer
 `move-up` and `move-down` are shorthand for nudging a pane one slot earlier or later within its current split group.
 `move-to` instead moves exactly one pane into the target pane's logical column and appends it to the bottom of that stack.
 `split`, `spawn`, and `add-pane` are pure layout mutations: they create the pane but do not change focus. Use `amux focus <pane|direction>` when you want a focus change explicitly. When the active pane is zoomed, these commands preserve the zoom and keep the focused pane unchanged.
-Higher-level prompt delegation now lives at the script layer: compose `send-keys --wait ready`, `wait busy`, and `wait idle` to match the workflow you want.
+Higher-level prompt delegation now lives at the script layer: compose `send-keys --wait idle`, `wait busy`, and `wait exited` to match the workflow you want.
 
 `add-pane` builds outward in a clockwise spiral. At 1, 4, 9, 16, ... panes the spiral canvas reaches a uniform `N x N` grid. When a lead pane is active, the lead column stays pinned on the left and `add-pane` spirals only within the right subtree.
 
