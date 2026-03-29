@@ -297,12 +297,132 @@ printf 'sync\n' >"$FAKE_SYNC_LOG"
 	}
 }
 
+func TestPrePushHookWarnsWhenOriginMainDiffersFromGitHubMain(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	copyIssueMetaFixture(t, tempDir, ".githooks/pre-push")
+	syncLogPath := filepath.Join(tempDir, "sync.log")
+	syncScriptPath := filepath.Join(tempDir, "scripts/sync-pane-pr-meta.sh")
+	diffCoveragePath := filepath.Join(tempDir, "scripts/check-diff-coverage.sh")
+	ghPath := filepath.Join(tempDir, "gh")
+
+	if err := os.MkdirAll(filepath.Dir(syncScriptPath), 0755); err != nil {
+		t.Fatalf("mkdir scripts dir: %v", err)
+	}
+	if err := os.WriteFile(syncScriptPath, []byte(`#!/bin/sh
+printf 'sync\n' >"$FAKE_SYNC_LOG"
+`), 0755); err != nil {
+		t.Fatalf("write fake sync script: %v", err)
+	}
+	if err := os.WriteFile(diffCoveragePath, []byte("#!/bin/sh\nexit 0\n"), 0755); err != nil {
+		t.Fatalf("write fake diff coverage script: %v", err)
+	}
+	if err := os.WriteFile(ghPath, []byte(`#!/bin/sh
+printf '%s\n' "$FAKE_GITHUB_MAIN_SHA"
+`), 0755); err != nil {
+		t.Fatalf("write fake gh: %v", err)
+	}
+
+	initRepo := exec.Command("git", "init", "-q")
+	initRepo.Dir = tempDir
+	if out, err := initRepo.CombinedOutput(); err != nil {
+		t.Fatalf("git init temp repo: %v\n%s", err, out)
+	}
+
+	writeTrackedFile(t, tempDir, "README.md", "one\n")
+	firstSHA := commitAll(t, tempDir, "first")
+	writeTrackedFile(t, tempDir, "README.md", "two\n")
+	secondSHA := commitAll(t, tempDir, "second")
+
+	updateRef := exec.Command("git", "update-ref", "refs/remotes/origin/main", firstSHA)
+	updateRef.Dir = tempDir
+	if out, err := updateRef.CombinedOutput(); err != nil {
+		t.Fatalf("git update-ref origin/main: %v\n%s", err, out)
+	}
+
+	cmd := exec.Command("bash", filepath.Join(tempDir, ".githooks/pre-push"), "origin", "git@github.com:weill-labs/amux.git")
+	cmd.Dir = tempDir
+	cmd.Env = issueMetaScriptEnv(
+		tempDir,
+		"FAKE_SYNC_LOG="+syncLogPath,
+		"FAKE_GITHUB_MAIN_SHA="+secondSHA,
+	)
+	cmd.Stdin = strings.NewReader("refs/heads/pr-537 1111111111111111111111111111111111111111 refs/heads/pr-537 2222222222222222222222222222222222222222\n")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("expected success: %v\n%s", err, out)
+	}
+
+	if !strings.Contains(string(out), "WARNING: local origin/main") {
+		t.Fatalf("expected drift warning in output:\n%s", out)
+	}
+	if !strings.Contains(string(out), firstSHA[:12]) || !strings.Contains(string(out), secondSHA[:12]) {
+		t.Fatalf("warning missing short SHAs:\n%s", out)
+	}
+	if !strings.Contains(string(out), "git fetch git@github.com:weill-labs/amux.git main:refs/remotes/origin/main") {
+		t.Fatalf("warning missing GitHub fetch guidance:\n%s", out)
+	}
+
+	syncLog, err := os.ReadFile(syncLogPath)
+	if err != nil {
+		t.Fatalf("read fake sync log: %v", err)
+	}
+	if strings.TrimSpace(string(syncLog)) != "sync" {
+		t.Fatalf("sync log = %q, want %q", syncLog, "sync")
+	}
+}
+
 func issueMetaScriptEnv(tempDir string, extra ...string) []string {
 	env := append([]string{}, hermeticMainEnv()...)
 	env = upsertIssueMetaEnv(env, "PATH", tempDir+string(os.PathListSeparator)+issueMetaEnvValue(env, "PATH"))
 	env = upsertIssueMetaEnv(env, "AMUX_PANE", "7")
 	env = upsertIssueMetaEnv(env, "AMUX_SESSION", "test-session")
 	return append(env, extra...)
+}
+
+func writeTrackedFile(t *testing.T, repoDir, relPath, contents string) {
+	t.Helper()
+
+	path := filepath.Join(repoDir, relPath)
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatalf("mkdir %s: %v", relPath, err)
+	}
+	if err := os.WriteFile(path, []byte(contents), 0644); err != nil {
+		t.Fatalf("write %s: %v", relPath, err)
+	}
+}
+
+func commitAll(t *testing.T, repoDir, message string) string {
+	t.Helper()
+
+	add := exec.Command("git", "add", ".")
+	add.Dir = repoDir
+	if out, err := add.CombinedOutput(); err != nil {
+		t.Fatalf("git add .: %v\n%s", err, out)
+	}
+
+	commit := exec.Command(
+		"git",
+		"-c", "user.name=amux-tests",
+		"-c", "user.email=amux-tests@example.com",
+		"commit",
+		"-q",
+		"-m",
+		message,
+	)
+	commit.Dir = repoDir
+	if out, err := commit.CombinedOutput(); err != nil {
+		t.Fatalf("git commit %q: %v\n%s", message, err, out)
+	}
+
+	revParse := exec.Command("git", "rev-parse", "HEAD")
+	revParse.Dir = repoDir
+	out, err := revParse.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git rev-parse HEAD: %v\n%s", err, out)
+	}
+	return strings.TrimSpace(string(out))
 }
 
 func issueMetaEnvValue(env []string, key string) string {
