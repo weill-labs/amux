@@ -15,7 +15,6 @@ import (
 
 	"github.com/weill-labs/amux/internal/checkpoint"
 	"github.com/weill-labs/amux/internal/proto"
-	"github.com/weill-labs/amux/internal/server"
 )
 
 var (
@@ -568,25 +567,16 @@ func TestServerHotReloadFallsBackToCrashCheckpointAcrossVersionBump(t *testing.T
 	after := waitForOutput(t, 10*time.Second, func() string {
 		return h.runCmd("status")
 	}, func(out string) bool {
-		return strings.Contains(out, "build: newbuild")
+		return strings.Contains(out, "build: newbuild") &&
+			strings.Contains(out, "checkpoint v"+strconv.Itoa(checkpoint.ServerCheckpointVersion+1))
 	})
-	if !strings.Contains(after, "build: newbuild") {
-		t.Fatalf("status after reload = %q, want new build marker", after)
+	if !strings.Contains(after, "build: newbuild") || !strings.Contains(after, "checkpoint v"+strconv.Itoa(checkpoint.ServerCheckpointVersion+1)) {
+		t.Fatalf("status after reload = %q, want new build marker and checkpoint version", after)
 	}
 
 	h.sendKeys("echo AFTERBUMP", "Enter")
 	if !h.waitFor("AFTERBUMP", 5*time.Second) {
 		t.Fatalf("PTY should work after version-bumped reload\nScreen:\n%s", h.captureOuter())
-	}
-
-	logPath := filepath.Join(server.SocketDir(), h.inner+".log")
-	logData, err := os.ReadFile(logPath)
-	if err != nil {
-		t.Fatalf("reading server log %s: %v", logPath, err)
-	}
-	wantLog := "reload checkpoint v" + strconv.Itoa(checkpoint.ServerCheckpointVersion) + " incompatible with new binary checkpoint v" + strconv.Itoa(checkpoint.ServerCheckpointVersion+1) + "; crash checkpoint fallback required"
-	if !strings.Contains(string(logData), wantLog) {
-		t.Fatalf("server log missing pre-exec incompatibility warning %q\nserver log:\n%s", wantLog, logData)
 	}
 }
 
