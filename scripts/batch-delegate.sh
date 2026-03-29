@@ -174,41 +174,54 @@ record_result() {
     fi
 }
 
-while IFS= read -r entry; do
+dispatch_entry() {
+    local entry=$1
+    local pane issue task
+
     pane=$(jq -r '.pane' <<<"$entry")
     issue=$(jq -r '.issue' <<<"$entry")
     task=$(jq -r '.task' <<<"$entry")
 
     if ! amux add-meta "$pane" "issue=$issue" >/dev/null; then
         record_result "$pane" "$issue" "FAILURE" "set issue metadata failed"
-        continue
+        return
     fi
 
     if ! prepare_acceptance_check "$pane" "$accept_timeout"; then
         record_result "$pane" "$issue" "FAILURE" "$acceptance_error"
-        continue
+        return
     fi
 
     if ! amux send-keys "$pane" --wait ready --timeout "$ready_timeout" "$task" Enter >/dev/null; then
         cleanup_acceptance_stream
         record_result "$pane" "$issue" "FAILURE" "send-keys failed"
-        continue
+        return
     fi
 
     if ! wait_for_acceptance "$accept_timeout"; then
         record_result "$pane" "$issue" "FAILURE" "$acceptance_error"
-        continue
+        return
     fi
 
     record_result "$pane" "$issue" "SUCCESS" "accepted"
+}
+
+print_summary() {
+    local row pane issue status detail
+
+    printf '%-12s %-10s %-8s %s\n' "PANE" "ISSUE" "STATUS" "DETAIL"
+    for row in "${summary_rows[@]}"; do
+        IFS='|' read -r pane issue status detail <<<"$row"
+        printf '%-12s %-10s %-8s %s\n' "$pane" "$issue" "$status" "$detail"
+    done
+    printf '\nSuccesses: %d  Failures: %d\n' "$success_count" "$failure_count"
+}
+
+while IFS= read -r entry; do
+    dispatch_entry "$entry"
 done < <(jq -c '.[]' "$manifest_path")
 
-printf '%-12s %-10s %-8s %s\n' "PANE" "ISSUE" "STATUS" "DETAIL"
-for row in "${summary_rows[@]}"; do
-    IFS='|' read -r pane issue status detail <<<"$row"
-    printf '%-12s %-10s %-8s %s\n' "$pane" "$issue" "$status" "$detail"
-done
-printf '\nSuccesses: %d  Failures: %d\n' "$success_count" "$failure_count"
+print_summary
 
 if (( failure_count > 0 )); then
     exit 1
