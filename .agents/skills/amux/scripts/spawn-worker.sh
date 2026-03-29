@@ -81,9 +81,9 @@ run_quiet "$git_bin" worktree add -b "$branch_name" "$worktree_path"
 
 printf -v cd_cmd 'cd %q' "$worktree_path"
 run_quiet "$amux_bin" send-keys "$pane" "$cd_cmd" Enter
-run_quiet "$amux_bin" wait vt-idle "$pane"
+run_quiet "$amux_bin" wait idle "$pane"
 run_quiet "$amux_bin" send-keys "$pane" "codex --yolo" Enter
-run_quiet "$amux_bin" wait vt-idle "$pane"
+run_quiet "$amux_bin" wait idle "$pane"
 # Clear the Codex trust prompt that appears on first launch.
 run_quiet "$amux_bin" send-keys "$pane" Enter
 run_quiet "$amux_bin" add-meta "$pane" "issue=$issue"

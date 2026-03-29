@@ -133,25 +133,25 @@ type CapturePane struct {
 	PR        string `json:"pr,omitempty"`
 
 	// Agent status fields (LAB-159).
-	// Idle is true when no foreground command is running in the pane.
-	Idle bool `json:"idle"`
-	// IdleSince is the RFC3339 timestamp of the last busy→idle transition.
+	// Exited is true when no foreground command is running in the pane.
+	Exited bool `json:"exited"`
+	// ExitedSince is the RFC3339 timestamp of the last busy→exited transition.
 	// Omitted when the pane is busy.
-	IdleSince string `json:"idle_since,omitempty"`
+	ExitedSince string `json:"exited_since,omitempty"`
 	// CurrentCommand is the foreground process name when busy, or the
-	// shell name (e.g., "bash") when idle.
+	// shell name (e.g., "bash") when exited.
 	CurrentCommand string `json:"current_command"`
 	// ChildPIDs lists the direct child PIDs of the pane's shell process.
 	// These are ephemeral OS-level PIDs — they change across captures.
 	ChildPIDs []int `json:"child_pids"`
-	// VTIdle is true when VT output has been quiet for the settle window.
-	VTIdle bool `json:"vt_idle"`
-	// VTIdleSince is the RFC3339 timestamp when the pane most recently
-	// became VT-idle. Omitted while VT output is still active.
-	VTIdleSince string `json:"vt_idle_since,omitempty"`
-	// LastVTOutput is the RFC3339 timestamp of the most recent VT output edge.
-	// Omitted when no VT output has been observed for the pane.
-	LastVTOutput string `json:"last_vt_output,omitempty"`
+	// Idle is true when pane output has been quiet for the settle window.
+	Idle bool `json:"idle"`
+	// IdleSince is the RFC3339 timestamp when the pane most recently
+	// became screen-quiet. Omitted while output is still active.
+	IdleSince string `json:"idle_since,omitempty"`
+	// LastOutput is the RFC3339 timestamp of the most recent pane output edge.
+	// Omitted when no output has been observed for the pane.
+	LastOutput string `json:"last_output,omitempty"`
 
 	Error *CaptureError `json:"error,omitempty"`
 }
@@ -159,13 +159,13 @@ type CapturePane struct {
 // PaneAgentStatus holds process-level status for a pane, gathered by the
 // server and forwarded to the client for JSON capture.
 type PaneAgentStatus struct {
-	Idle           bool
-	IdleSince      string // RFC3339 or ""
+	Exited         bool
+	ExitedSince    string // RFC3339 or ""
 	CurrentCommand string
 	ChildPIDs      []int
-	VTIdle         bool
-	VTIdleSince    string // RFC3339 or ""
-	LastVTOutput   string // RFC3339 or ""
+	Idle           bool
+	IdleSince      string // RFC3339 or ""
+	LastOutput     string // RFC3339 or ""
 }
 
 // CapturePos holds a pane's position and size within the layout.
@@ -217,12 +217,12 @@ func (cp *CapturePane) ApplyAgentStatus(status map[uint32]PaneAgentStatus) {
 	if !ok {
 		return
 	}
+	cp.Exited = st.Exited
+	cp.ExitedSince = st.ExitedSince
 	cp.Idle = st.Idle
 	cp.IdleSince = st.IdleSince
 	cp.CurrentCommand = st.CurrentCommand
-	cp.VTIdle = st.VTIdle
-	cp.VTIdleSince = st.VTIdleSince
-	cp.LastVTOutput = st.LastVTOutput
+	cp.LastOutput = st.LastOutput
 	if st.ChildPIDs != nil {
 		cp.ChildPIDs = st.ChildPIDs
 	} else {

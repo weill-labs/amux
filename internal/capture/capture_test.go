@@ -204,10 +204,13 @@ func TestBuildPane(t *testing.T) {
 	}
 	status := map[uint32]proto.PaneAgentStatus{
 		7: {
+			Exited:         true,
+			ExitedSince:    "2026-03-20T12:00:05Z",
 			Idle:           true,
 			IdleSince:      "2026-03-20T12:00:00Z",
 			CurrentCommand: "bash",
 			ChildPIDs:      nil,
+			LastOutput:     "2026-03-20T11:59:58Z",
 		},
 	}
 
@@ -238,10 +241,13 @@ func TestBuildPane(t *testing.T) {
 		},
 		Content:        []string{"screen-1", "screen-2"},
 		History:        []string{"history-1"},
+		Exited:         true,
+		ExitedSince:    "2026-03-20T12:00:05Z",
 		Idle:           true,
 		IdleSince:      "2026-03-20T12:00:00Z",
 		CurrentCommand: "bash",
 		ChildPIDs:      []int{},
+		LastOutput:     "2026-03-20T11:59:58Z",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("BuildPane() = %+v, want %+v", got, want)

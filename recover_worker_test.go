@@ -35,19 +35,19 @@ func TestRecoverWorkerScriptRecoversStuckWorker(t *testing.T) {
 		t.Fatalf("read fake amux log: %v", err)
 	}
 	assertRecoverWorkerLogSequence(t, string(got), []string{
-		"wait vt-idle pane-68 --settle 2s --timeout 20s",
+		"wait idle pane-68 --settle 2s --timeout 20s",
 		"capture --format json pane-68",
 		"send-keys pane-68 Escape",
-		"wait vt-idle pane-68 --settle 2s --timeout 20s",
+		"wait idle pane-68 --settle 2s --timeout 20s",
 		"send-keys pane-68 /exit Enter",
-		"wait vt-idle pane-68 --settle 2s --timeout 20s",
+		"wait idle pane-68 --settle 2s --timeout 20s",
 		"send-keys pane-68 codex --yolo resume Enter",
-		"wait vt-idle pane-68 --settle 2s --timeout 20s",
+		"wait idle pane-68 --settle 2s --timeout 20s",
 		"send-keys pane-68 Enter",
-		"wait vt-idle pane-68 --settle 2s --timeout 20s",
+		"wait idle pane-68 --settle 2s --timeout 20s",
 		"capture --format json pane-68",
 		"send-keys pane-68 . Enter",
-		"wait vt-idle pane-68 --settle 2s --timeout 20s",
+		"wait idle pane-68 --settle 2s --timeout 20s",
 		"capture --format json pane-68",
 	})
 }

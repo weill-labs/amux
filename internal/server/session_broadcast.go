@@ -161,7 +161,21 @@ func (s *Session) broadcastLayout() {
 
 // snapshotIdleState returns a copy of the session's idle state map.
 func (s *Session) snapshotIdleState() map[uint32]bool {
-	return s.idle.SnapshotState()
+	idleSnap := s.idle.SnapshotState()
+	if s.vtIdle == nil {
+		return idleSnap
+	}
+
+	now := s.clock().Now()
+	for _, pane := range s.Panes {
+		if idleSnap[pane.ID] {
+			continue
+		}
+		if s.vtIdle.IsSettled(pane.ID, pane.CreatedAt(), s.vtIdleSettle(), now) {
+			idleSnap[pane.ID] = true
+		}
+	}
+	return idleSnap
 }
 
 // snapshotIdleFull returns copies of both idle state and since maps.
@@ -229,11 +243,11 @@ func (s *Session) trackPaneVTIdle(paneID uint32) {
 	})
 }
 
-// trackPaneActivity is called on every PTY output. It resets the idle timer.
-// When the idle state transitions (idle↔busy), a layout broadcast is sent so clients see the
-// updated PaneSnapshot.Idle (used for idle indicators in the status bar).
+// trackPaneActivity is called on every PTY output. It resets the screen-quiet
+// timer. When the quiet state transitions (idle↔busy), a layout broadcast is
+// sent so clients see the updated PaneSnapshot.Idle in the status bar.
 func (s *Session) trackPaneActivity(paneID uint32) {
-	wasIdle := s.idle.TrackActivity(paneID, DefaultIdleTimeout, func() {
+	wasIdle := s.idle.TrackActivity(paneID, s.vtIdleSettle(), func() {
 		s.enqueueIdleTimeout(paneID)
 	})
 

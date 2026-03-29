@@ -177,7 +177,7 @@ func TestCmdListRejectsUnknownArgs(t *testing.T) {
 	}
 }
 
-func TestCmdListIncludesVTIdleColumnAndState(t *testing.T) {
+func TestCmdListIncludesIdleColumnAndState(t *testing.T) {
 	t.Parallel()
 
 	srv, sess, cleanup := newCommandTestSession(t)
@@ -210,8 +210,8 @@ func TestCmdListIncludesVTIdleColumnAndState(t *testing.T) {
 	if res.cmdErr != "" {
 		t.Fatalf("list error: %s", res.cmdErr)
 	}
-	if !strings.Contains(res.output, "VT-IDLE") {
-		t.Fatalf("list output missing VT-IDLE header:\n%s", res.output)
+	if !strings.Contains(res.output, "IDLE") {
+		t.Fatalf("list output missing IDLE header:\n%s", res.output)
 	}
 
 	var pane1Line, pane2Line string
@@ -224,14 +224,14 @@ func TestCmdListIncludesVTIdleColumnAndState(t *testing.T) {
 		}
 	}
 	if !strings.Contains(pane1Line, "3s ago") {
-		t.Fatalf("pane-1 should show settled VT-idle age, got:\n%s", pane1Line)
+		t.Fatalf("pane-1 should show settled idle age, got:\n%s", pane1Line)
 	}
 	if !strings.Contains(pane2Line, "--") {
-		t.Fatalf("pane-2 should show -- while VT output is still active, got:\n%s", pane2Line)
+		t.Fatalf("pane-2 should show -- while output is still active, got:\n%s", pane2Line)
 	}
 }
 
-func TestVTIdleTrackerLastOutputWithoutSnapshot(t *testing.T) {
+func TestIdleTrackerLastOutputWithoutSnapshot(t *testing.T) {
 	t.Parallel()
 
 	var tracker VTIdleTracker
@@ -240,16 +240,16 @@ func TestVTIdleTrackerLastOutputWithoutSnapshot(t *testing.T) {
 	}
 }
 
-func TestPaneVTIdleStatusUsesCreatedAtWhenNoOutput(t *testing.T) {
+func TestPaneIdleStatusUsesCreatedAtWhenNoOutput(t *testing.T) {
 	t.Parallel()
 
 	sess := &Session{VTIdleSettle: 2 * time.Second}
 	createdAt := time.Date(2026, 3, 28, 12, 0, 0, 0, time.UTC)
 	now := createdAt.Add(5 * time.Second)
 
-	status := sess.paneVTIdleStatus(1, createdAt, now)
+	status := sess.paneIdleStatus(1, createdAt, now)
 	if !status.idle {
-		t.Fatal("pane should be vt-idle once createdAt+settle has passed without output")
+		t.Fatal("pane should be idle once createdAt+settle has passed without output")
 	}
 	if want := createdAt.Add(2 * time.Second); !status.idleSince.Equal(want) {
 		t.Fatalf("idleSince = %v, want %v", status.idleSince, want)
@@ -259,11 +259,11 @@ func TestPaneVTIdleStatusUsesCreatedAtWhenNoOutput(t *testing.T) {
 	}
 }
 
-func TestPaneVTIdleStatusListDisplayClampsFutureBase(t *testing.T) {
+func TestPaneIdleStatusListDisplayClampsFutureBase(t *testing.T) {
 	t.Parallel()
 
 	now := time.Date(2026, 3, 28, 12, 0, 0, 0, time.UTC)
-	status := paneVTIdleStatus{
+	status := paneIdleStatus{
 		idle:          true,
 		lastOutput:    now.Add(time.Second),
 		hasLastOutput: true,
@@ -274,7 +274,7 @@ func TestPaneVTIdleStatusListDisplayClampsFutureBase(t *testing.T) {
 	}
 }
 
-func TestFormatPaneListDefaultsEmptyVTIdleWithoutCwd(t *testing.T) {
+func TestFormatPaneListDefaultsEmptyIdleWithoutCwd(t *testing.T) {
 	t.Parallel()
 
 	out := formatPaneList([]paneListEntry{{
@@ -285,10 +285,10 @@ func TestFormatPaneListDefaultsEmptyVTIdleWithoutCwd(t *testing.T) {
 		active:     true,
 	}}, "/Users/alice", false)
 
-	if !strings.Contains(out, "VT-IDLE") {
-		t.Fatalf("formatPaneList should include VT-IDLE header:\n%s", out)
+	if !strings.Contains(out, "IDLE") {
+		t.Fatalf("formatPaneList should include IDLE header:\n%s", out)
 	}
 	if lines := strings.Split(strings.TrimSpace(out), "\n"); len(lines) < 2 || !strings.Contains(lines[1], "--") {
-		t.Fatalf("formatPaneList should default VT-IDLE to --:\n%s", out)
+		t.Fatalf("formatPaneList should default IDLE to --:\n%s", out)
 	}
 }

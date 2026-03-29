@@ -23,21 +23,13 @@ func newProxyPane(id uint32, meta mux.PaneMeta, cols, rows int,
 func stopCrashCheckpointLoop(t *testing.T, sess *Session) {
 	t.Helper()
 
-	if sess.crashCheckpointStop != nil {
-		close(sess.crashCheckpointStop)
-		<-sess.crashCheckpointDone
-		sess.crashCheckpointStop = nil
-	}
+	sess.stopCrashCheckpointLoop()
 }
 
 func stopSessionBackgroundLoops(t *testing.T, sess *Session) {
 	t.Helper()
 
-	if sess.sessionEventStop != nil {
-		close(sess.sessionEventStop)
-		<-sess.sessionEventDone
-		sess.sessionEventStop = nil
-	}
+	sess.stopEventLoop()
 	stopCrashCheckpointLoop(t, sess)
 }
 

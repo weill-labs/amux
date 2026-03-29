@@ -13,10 +13,11 @@ func TestKittyKeyboardPrefixSplit(t *testing.T) {
 
 	h := newAmuxHarness(t, "AMUX_CLIENT_CAPABILITIES=kitty_keyboard")
 
-	gen := h.generation()
 	h.sendKeysHex([]byte("\x1b[97;5u"))
 	h.sendKeys("-")
-	h.waitLayout(gen)
+	if !h.waitFor("[pane-2]", 3*time.Second) {
+		t.Fatalf("expected pane-2 after kitty ctrl-a prefix split\nScreen:\n%s", h.captureOuter())
+	}
 
 	out := h.runCmd("status")
 	if !strings.Contains(out, "2 total") {

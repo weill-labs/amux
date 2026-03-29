@@ -20,7 +20,7 @@ const tokenKeyGap = 50 * time.Millisecond
 
 const (
 	broadcastUsage              = "usage: broadcast (--panes <pane,pane,...> | --window <index|name> | --match <glob>) [--hex] <keys>..."
-	sendKeysUsage               = "usage: send-keys <pane> [--wait ready|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>..."
+	sendKeysUsage               = "usage: send-keys <pane> [--wait idle|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>..."
 	typeKeysUsage               = "usage: type-keys [--wait ui=input-idle] [--timeout <duration>] [--hex] <keys>..."
 	defaultCommandUIWaitTimeout = 5 * time.Second
 )
@@ -64,6 +64,84 @@ func totalEncodedKeyBytes(chunks []encodedKeyChunk) int {
 		total += len(chunk.data)
 	}
 	return total
+}
+
+type sendKeysWaitTarget int
+
+const (
+	sendKeysNoWait sendKeysWaitTarget = iota
+	sendKeysWaitIdle
+	sendKeysWaitInputIdle
+)
+
+type sendKeysOptions struct {
+	waitTarget  sendKeysWaitTarget
+	waitTimeout time.Duration
+	delayFinal  time.Duration
+	hexMode     bool
+	keys        []string
+}
+
+func parseSendKeysArgs(args []string) (sendKeysOptions, error) {
+	opts := sendKeysOptions{waitTimeout: 10 * time.Second}
+	timeoutSet := false
+	i := 0
+	for i < len(args) {
+		switch args[i] {
+		case "--wait":
+			if i+1 >= len(args) {
+				return sendKeysOptions{}, fmt.Errorf("missing value for --wait")
+			}
+			i++
+			switch args[i] {
+			case "idle":
+				opts.waitTarget = sendKeysWaitIdle
+			case "ui=input-idle":
+				opts.waitTarget = sendKeysWaitInputIdle
+			default:
+				return sendKeysOptions{}, fmt.Errorf("send-keys: unsupported --wait target %q (want idle or ui=input-idle)", args[i])
+			}
+			i++
+		case "--wait-ready":
+			return sendKeysOptions{}, fmt.Errorf("send-keys: --wait-ready was removed; use --wait idle")
+		case "--continue-known-dialogs":
+			return sendKeysOptions{}, fmt.Errorf("unknown flag: --continue-known-dialogs")
+		case "--timeout":
+			if i+1 >= len(args) {
+				return sendKeysOptions{}, fmt.Errorf("missing value for --timeout")
+			}
+			i++
+			timeout, err := time.ParseDuration(args[i])
+			if err != nil {
+				return sendKeysOptions{}, fmt.Errorf("invalid timeout: %s", args[i])
+			}
+			opts.waitTimeout = timeout
+			timeoutSet = true
+			i++
+		case "--delay-final":
+			if i+1 >= len(args) {
+				return sendKeysOptions{}, fmt.Errorf("missing value for --delay-final")
+			}
+			i++
+			delay, err := time.ParseDuration(args[i])
+			if err != nil {
+				return sendKeysOptions{}, fmt.Errorf("invalid delay-final: %s", args[i])
+			}
+			opts.delayFinal = delay
+			i++
+		case "--hex":
+			opts.hexMode = true
+			i++
+		default:
+			opts.keys = append(opts.keys, args[i:]...)
+			i = len(args)
+		}
+	}
+
+	if timeoutSet && opts.waitTarget == sendKeysNoWait {
+		return sendKeysOptions{}, fmt.Errorf("send-keys: --timeout requires --wait idle or --wait ui=input-idle")
+	}
+	return opts, nil
 }
 
 type typeKeysOptions struct {
@@ -146,8 +224,11 @@ func cmdSendKeys(ctx *CommandContext) {
 		return
 	}
 	switch opts.waitTarget {
-	case sendKeysWaitReady:
-		if err := waitForPaneReady(ctx.Sess, ctx.Args[0], pane, waitReadyOptions{timeout: opts.waitTimeout}); err != nil {
+	case sendKeysWaitIdle:
+		if err := waitForPaneIdle(ctx.Sess, ctx.Args[0], pane.paneID, waitIdleOptions{
+			settle:  ctx.Sess.vtIdleSettle(),
+			timeout: opts.waitTimeout,
+		}); err != nil {
 			ctx.replyErr(err.Error())
 			return
 		}

@@ -36,7 +36,7 @@ type PaneEntry struct {
 	Task          string
 	Cwd           string
 	GitBranch     string
-	VTIdle        string
+	Idle          string
 	PR            string
 	TrackedPRs    []proto.TrackedPR
 	TrackedIssues []proto.TrackedIssue
@@ -51,9 +51,9 @@ func FormatPaneList(entries []PaneEntry, home string, showCwd bool) string {
 
 	var buf strings.Builder
 	if showCwd {
-		fmt.Fprintf(&buf, "%-6s %-20s %-15s %-30s %-9s %-36s %-10s %-12s %s\n", "PANE", "NAME", "HOST", "BRANCH", "VT-IDLE", "CWD", "WINDOW", "TASK", "META")
+		fmt.Fprintf(&buf, "%-6s %-20s %-15s %-30s %-9s %-36s %-10s %-12s %s\n", "PANE", "NAME", "HOST", "BRANCH", "IDLE", "CWD", "WINDOW", "TASK", "META")
 	} else {
-		fmt.Fprintf(&buf, "%-6s %-20s %-15s %-30s %-9s %-10s %-12s %s\n", "PANE", "NAME", "HOST", "BRANCH", "VT-IDLE", "WINDOW", "TASK", "META")
+		fmt.Fprintf(&buf, "%-6s %-20s %-15s %-30s %-9s %-10s %-12s %s\n", "PANE", "NAME", "HOST", "BRANCH", "IDLE", "WINDOW", "TASK", "META")
 	}
 	for _, entry := range entries {
 		fmt.Fprint(&buf, formatPaneListRow(entry, home, showCwd))
@@ -77,16 +77,16 @@ func formatPaneListRow(entry PaneEntry, home string, showCwd bool) string {
 	paneID := fmt.Sprintf("%s%d", active, entry.PaneID)
 	branch := FormatPaneListBranch(entry)
 	meta := formatPaneListMeta(entry)
-	vtIdle := entry.VTIdle
-	if vtIdle == "" {
-		vtIdle = "--"
+	idle := entry.Idle
+	if idle == "" {
+		idle = "--"
 	}
 	if showCwd {
 		return fmt.Sprintf("%-6s %-20s %-15s %-30s %-9s %-36s %-10s %-12s %s\n",
-			paneID, entry.Name, entry.Host, branch, vtIdle, FormatListCwd(entry.Cwd, home, ListCwdWidth), entry.WindowName, entry.Task, meta)
+			paneID, entry.Name, entry.Host, branch, idle, FormatListCwd(entry.Cwd, home, ListCwdWidth), entry.WindowName, entry.Task, meta)
 	}
 	return fmt.Sprintf("%-6s %-20s %-15s %-30s %-9s %-10s %-12s %s\n",
-		paneID, entry.Name, entry.Host, branch, vtIdle, entry.WindowName, entry.Task, meta)
+		paneID, entry.Name, entry.Host, branch, idle, entry.WindowName, entry.Task, meta)
 }
 
 func formatPaneListMeta(entry PaneEntry) string {

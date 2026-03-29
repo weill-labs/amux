@@ -206,6 +206,18 @@ func TestCmdCursorAndWaitUsageAndUnknownKind(t *testing.T) {
 	}
 }
 
+func TestCmdWaitExitedUsage(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	res := runTestCommand(t, srv, sess, "wait", "exited")
+	if got := res.cmdErr; got != "usage: wait exited <pane> [--timeout <duration>]" {
+		t.Fatalf("wait-exited usage error = %q", got)
+	}
+}
+
 func TestCmdWaitSubcommandsUsageAndParseErrors(t *testing.T) {
 	t.Parallel()
 
@@ -223,7 +235,7 @@ func TestCmdWaitSubcommandsUsageAndParseErrors(t *testing.T) {
 		{
 			name:    "idle usage",
 			fn:      cmdWaitIdle,
-			wantErr: "usage: wait idle <pane> [--timeout <duration>]",
+			wantErr: "usage: wait idle <pane> [--settle <duration>] [--timeout <duration>]",
 		},
 		{
 			name:    "busy usage",

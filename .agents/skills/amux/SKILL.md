@@ -18,11 +18,11 @@ amux is a terminal multiplexer designed for AI agents. It runs a background serv
 
 **Read before write.** Always read pane scrollback (`amux capture --history <pane> | grep -v '^$' | tail -30`) before sending keys or taking any action on a pane. Never assume a pane's state — check it.
 
-**Use `wait vt-idle` for agent readiness.** `wait idle` checks for child processes, which is useless for persistent agents (codex, claude, grok are always running). `wait vt-idle` checks if the screen stopped producing output — this works for both shells and agents.
+**Use `wait idle` for agent readiness.** `wait exited` checks for child processes, which is useless for persistent agents (codex, claude, grok are always running). `wait idle` checks if the screen stopped producing output — this works for both shells and agents.
 
 **Always start codex with `--yolo`.** Without it, codex stalls at permission prompts that are invisible to the orchestrator.
 
-**Use `amux list` for status sweeps.** The branch column shows what workers are working on. Then use `wait vt-idle` to check which are actively producing output vs sitting idle.
+**Use `amux list` for status sweeps.** The branch column shows what workers are working on. Then use `wait idle` to check which are actively producing output vs sitting screen-quiet.
 
 ## Quick Reference
 
@@ -63,8 +63,11 @@ amux send-keys pane-1 'ls -la' Enter
 amux type-keys pane-1 'echo hello'
 amux type-keys pane-1 Enter
 
-# Wait for screen to settle before sending
-amux send-keys pane-31 --wait ready 'Fix the bug in auth.go' Enter
+# Wait for the pane to go screen-quiet before sending
+amux wait idle pane-31 --settle 2s --timeout 30s
+
+# Or fold the screen-quiet wait into the send itself
+amux send-keys pane-31 --wait idle 'Fix the bug in auth.go' Enter
 
 # Special keys
 amux type-keys pane-1 Escape
@@ -79,7 +82,10 @@ Prefer `send-keys` over `type-keys` for agent delegation — it sends text and E
 
 ```bash
 # Block until screen output quiesces (use this for agent readiness)
-amux wait vt-idle pane-1 --settle 2s --timeout 60s
+amux wait idle pane-1 --settle 2s --timeout 60s
+
+# Block until pane has no child processes
+amux wait exited pane-1 --timeout 300s
 
 # Block until specific text appears in pane
 amux wait content pane-1 "Tests passed" --timeout 60s
@@ -92,9 +98,9 @@ amux wait layout --after 42 --timeout 3s
 ```
 
 **Which wait to use:**
-- **`wait vt-idle`** — screen stopped changing. Use for: "is the agent at its prompt?", "did it finish rendering?"
-- **`wait idle`** — no child processes. Useless for agent panes (codex/claude are always a child process). Only useful for bare shell panes.
-- **`wait content`** — specific text appeared. Use for: "did the test output 'PASS'?"
+- **`wait idle`** — screen stopped changing. Use for: "is the agent at its prompt?", "did it finish rendering?"
+- **`wait exited`** — no child processes. Useless for persistent agent panes (codex/claude are always a child process). Useful for bare shell panes and short-lived commands.
+- **`wait content`** — specific text appeared. Use for: "did the test output `PASS`?"
 - **`wait busy`** — child processes started. Use for: "did the command begin?"
 
 ### Event Streaming
@@ -107,7 +113,7 @@ amux events
 amux events --pane pane-1
 
 # Filter by event type
-amux events --filter idle,busy
+amux events --filter idle,busy,exited
 ```
 
 ### Pane Management
@@ -155,7 +161,7 @@ These scripts compose amux primitives for common workflows. They are in the `scr
 scripts/spawn-worker.sh --parent pane-109 --issue LAB-499
 ```
 
-Does: split pane, create git worktree, start `codex --yolo`, wait for vt-idle, accept trust dialog, set issue metadata. Returns the new pane name.
+Does: split pane, create git worktree, start `codex --yolo`, wait for `idle`, accept the trust dialog when needed, and set issue metadata. Returns the new pane name.
 
 ### Delegate a task with verification
 
@@ -164,7 +170,7 @@ Does: split pane, create git worktree, start `codex --yolo`, wait for vt-idle, a
 scripts/delegate-task.sh pane-47 --issue LAB-468 "Fix the black screen bug"
 ```
 
-Does: send task via send-keys, wait for vt-idle to break (output flowing = accepted), report if stuck.
+Does: send task via `send-keys`, wait for `idle` to break (output flowing = accepted), report if stuck.
 
 ### Batch delegation
 
@@ -197,7 +203,7 @@ Shows: pane name, issue, idle/busy/stuck state, PR number, last output line.
 scripts/recover-worker.sh pane-68
 ```
 
-Does: detect stuck state, Escape, `/exit`, `codex --yolo resume`, select session, send "." to continue.
+Does: detect stuck state, Escape, `/exit`, `codex --yolo resume`, select session, send `.` to continue.
 
 ## Delegating Tasks to Codex Workers
 
@@ -222,29 +228,29 @@ amux split pane-109 --horizontal --name worker-499
 
 ```bash
 # Check the pane is ready first
-amux wait vt-idle pane-31 --settle 2s --timeout 30s
+amux wait idle pane-31 --settle 2s --timeout 30s
 
 # Send the task
 amux send-keys pane-31 "Fix the black screen bug (LAB-468). TDD approach. Open a PR when done." Enter
 
-# Verify it started working (vt-idle should timeout = output flowing)
-amux wait vt-idle pane-31 --settle 2s --timeout 5s
+# Verify it started working (idle should timeout = output flowing)
+amux wait idle pane-31 --settle 2s --timeout 5s
 # exit 1 (timeout) = good, it's working
-# exit 0 (vt-idle) = bad, it didn't start — check the pane
+# exit 0 (idle) = bad, it didn't start — check the pane
 ```
 
 ### Monitoring progress
 
 ```bash
 # Check if a worker is active or idle
-amux wait vt-idle pane-31 --settle 2s --timeout 3s
+amux wait idle pane-31 --settle 2s --timeout 3s
 # exit 0 = idle (screen quiet)
 # exit 1 = working (output flowing)
 
-# For a status sweep across all workers, use amux list + vt-idle:
+# For a status sweep across all workers, use amux list + idle:
 amux list  # check branches
 for pane in 47 51 54; do
-  amux wait vt-idle pane-$pane --settle 2s --timeout 3s 2>&1 | sed "s/^/pane-$pane: /"
+  amux wait idle pane-$pane --settle 2s --timeout 3s 2>&1 | sed "s/^/pane-$pane: /"
 done
 
 # Or use the worker-status script
@@ -265,15 +271,15 @@ If codex needs a full restart:
 ```bash
 # Exit cleanly first — Escape to cancel any prompt, then /exit
 amux send-keys pane-31 Escape
-amux wait vt-idle pane-31 --settle 2s --timeout 10s
+amux wait idle pane-31 --settle 2s --timeout 10s
 amux send-keys pane-31 "/exit" Enter
-amux wait vt-idle pane-31 --settle 3s --timeout 15s
+amux wait idle pane-31 --settle 3s --timeout 15s
 # Restart with --yolo and resume the session
 amux send-keys pane-31 "codex --yolo resume" Enter
-amux wait vt-idle pane-31 --settle 3s --timeout 30s
+amux wait idle pane-31 --settle 3s --timeout 30s
 # Select the session (Enter) then continue with "."
 amux send-keys pane-31 Enter
-amux wait vt-idle pane-31 --settle 3s --timeout 15s
+amux wait idle pane-31 --settle 3s --timeout 15s
 amux send-keys pane-31 "." Enter
 ```
 
@@ -332,6 +338,7 @@ The `--format json` output looks like:
       "content": ["line 1", "line 2", "..."],
       "position": {"x": 0, "y": 0, "width": 100, "height": 25},
       "agent_status": {
+        "exited": false,
         "idle": false,
         "current_command": "go test ./...",
         "child_pids": [12345]
@@ -342,7 +349,8 @@ The `--format json` output looks like:
 ```
 
 Key fields for agent orchestration:
-- `agent_status.idle` — true when pane shell has no child processes. **Note:** useless for persistent agents like codex/claude — they are always a child process, so this is always false. Use `wait vt-idle` instead.
+- `agent_status.exited` — true when pane shell has no child processes. This corresponds to `wait exited`, not `wait idle`.
+- `agent_status.idle` — true when pane output is screen-quiet. This corresponds to `wait idle`.
 - `agent_status.current_command` — what's currently running
 - `agent_status.child_pids` — PIDs of child processes in the pane
 - `content` — array of strings, one per visible line (viewport only, no scrollback)

@@ -14,7 +14,7 @@ func TestIdleStatus_ShellAtPrompt(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)
 
-	// A freshly spawned pane with shell at prompt should be idle.
+	// A freshly spawned pane with shell at prompt should be exited.
 	out := h.runCmd("capture", "--format", "json", "pane-1")
 
 	var pane proto.CapturePane
@@ -22,8 +22,8 @@ func TestIdleStatus_ShellAtPrompt(t *testing.T) {
 		t.Fatalf("failed to parse JSON: %v\nraw output:\n%s", err, out)
 	}
 
-	if !pane.Idle {
-		t.Error("pane at shell prompt should be idle")
+	if !pane.Exited {
+		t.Error("pane at shell prompt should be exited")
 	}
 }
 
@@ -38,8 +38,8 @@ func TestIdleStatus_BusyWhileRunning(t *testing.T) {
 
 	for _, p := range capture.Panes {
 		if p.Name == "pane-1" {
-			if p.Idle {
-				t.Error("pane running 'sleep 30' should be busy (not idle)")
+			if p.Exited {
+				t.Error("pane running 'sleep 30' should be busy (not exited)")
 			}
 			stopLongRunningCommand(t, h, "pane-1")
 			return
@@ -64,7 +64,7 @@ func TestIdleStatus_BusyWithMultiplePanes(t *testing.T) {
 	}
 
 	for _, p := range capture.Panes {
-		if p.Name == "pane-1" && p.Idle {
+		if p.Name == "pane-1" && p.Exited {
 			t.Error("pane-1 running 'sleep 30' should be busy")
 		}
 	}
@@ -105,7 +105,7 @@ func TestWaitBusy_WaitsForChildProcessNotPromptEcho(t *testing.T) {
 	h.waitBusy("pane-1")
 
 	pane := captureJSONPane(t, h, "pane-1")
-	if pane.Idle {
+	if pane.Exited {
 		t.Error("pane should be busy after waitBusy returns")
 	}
 	if len(pane.ChildPIDs) == 0 {
@@ -164,7 +164,21 @@ func TestWaitIdle_AlreadyIdle(t *testing.T) {
 	}
 }
 
-func TestWaitIdle_DoesNotTreatQuietBusyPaneAsIdle(t *testing.T) {
+func TestWaitExited_AlreadyExited(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	h.sendKeys("pane-1", "echo READY", "Enter")
+	h.waitFor("pane-1", "READY")
+	h.waitIdle("pane-1")
+
+	out := h.runCmd("wait", "exited", "pane-1", "--timeout", "1s")
+	if strings.Contains(out, "timeout") || strings.Contains(out, "not found") {
+		t.Fatalf("wait-exited should return immediately for an exited pane, got: %s", strings.TrimSpace(out))
+	}
+}
+
+func TestWaitIdle_TreatsQuietBusyPaneAsIdle(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)
 
@@ -172,9 +186,25 @@ func TestWaitIdle_DoesNotTreatQuietBusyPaneAsIdle(t *testing.T) {
 
 	time.Sleep(server.DefaultIdleTimeout + time.Second)
 
-	out := h.runCmd("wait", "busy", "pane-1", "--timeout", "1s")
+	out := h.runCmd("wait", "idle", "pane-1", "--timeout", "1s")
 	if strings.Contains(out, "timeout") || strings.Contains(out, "not found") {
-		t.Fatalf("quiet pane should still be busy after the idle window, got: %s", strings.TrimSpace(out))
+		t.Fatalf("quiet pane should become idle after the idle window, got: %s", strings.TrimSpace(out))
+	}
+
+	stopLongRunningCommand(t, h, "pane-1")
+}
+
+func TestWaitExited_DoesNotTreatQuietBusyPaneAsExited(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	h.startLongSleep("pane-1")
+
+	time.Sleep(server.DefaultIdleTimeout + time.Second)
+
+	out := h.runCmd("wait", "exited", "pane-1", "--timeout", "1s")
+	if !strings.Contains(out, "timeout") {
+		t.Fatalf("quiet busy pane should not be treated as exited, got: %s", strings.TrimSpace(out))
 	}
 
 	stopLongRunningCommand(t, h, "pane-1")

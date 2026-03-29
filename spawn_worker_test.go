@@ -42,9 +42,9 @@ func TestSpawnWorkerScriptCreatesWorkerPaneWorktreeAndCodexSession(t *testing.T)
 	wantAmuxLog := strings.Join([]string{
 		"split pane-109 --horizontal",
 		"send-keys pane-210 cd " + worktreePath + " Enter",
-		"wait vt-idle pane-210",
+		"wait idle pane-210",
 		"send-keys pane-210 codex --yolo Enter",
-		"wait vt-idle pane-210",
+		"wait idle pane-210",
 		"send-keys pane-210 Enter",
 		"add-meta pane-210 issue=LAB-499",
 	}, "\n")

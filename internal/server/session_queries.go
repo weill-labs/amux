@@ -37,7 +37,7 @@ type paneListEntry struct {
 	task       string
 	cwd        string
 	gitBranch  string
-	vtIdle     string
+	idle       string
 	pr         string
 	prs        []proto.TrackedPR
 	issues     []proto.TrackedIssue
@@ -294,7 +294,7 @@ func (s *Session) queryPaneList() ([]paneListEntry, error) {
 		w := s.activeWindow()
 		now := s.clock().Now()
 		for _, p := range s.Panes {
-			vtIdle := s.paneVTIdleStatus(p.ID, p.CreatedAt(), now)
+			idle := s.paneIdleStatus(p.ID, p.CreatedAt(), now)
 			entry := paneListEntry{
 				paneID:    p.ID,
 				name:      p.Meta.Name,
@@ -302,7 +302,7 @@ func (s *Session) queryPaneList() ([]paneListEntry, error) {
 				task:      p.Meta.Task,
 				cwd:       effectivePaneCwd(p),
 				gitBranch: p.Meta.GitBranch,
-				vtIdle:    vtIdle.listDisplay(now, p.CreatedAt()),
+				idle:      idle.listDisplay(now, p.CreatedAt()),
 				pr:        p.Meta.PR,
 				prs:       proto.CloneTrackedPRs(p.Meta.TrackedPRs),
 				issues:    proto.CloneTrackedIssues(p.Meta.TrackedIssues),

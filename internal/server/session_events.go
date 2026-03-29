@@ -358,6 +358,14 @@ func (e idleTimeoutEvent) handle(s *Session) {
 		PaneName: paneName,
 		Host:     host,
 	})
+	if pane != nil && pane.AgentStatus().Idle {
+		s.emitEvent(Event{
+			Type:     EventExited,
+			PaneID:   e.paneID,
+			PaneName: paneName,
+			Host:     host,
+		})
+	}
 	s.broadcastLayoutNow()
 }
 
@@ -367,21 +375,12 @@ type vtIdleTimeoutEvent struct {
 }
 
 func (e vtIdleTimeoutEvent) handle(s *Session) {
+	if s.vtIdle == nil {
+		return
+	}
 	if !s.vtIdle.MarkSettled(e.paneID, e.lastOutput) {
 		return
 	}
-
-	pane := s.findPaneByID(e.paneID)
-	if pane == nil {
-		return
-	}
-
-	s.emitEvent(Event{
-		Type:     EventVTIdle,
-		PaneID:   e.paneID,
-		PaneName: pane.Meta.Name,
-		Host:     pane.Meta.Host,
-	})
 }
 
 type cwdBranchResultEvent struct {
@@ -466,6 +465,19 @@ func (s *Session) startEventLoop() {
 	s.sessionEventStop = make(chan struct{})
 	s.sessionEventDone = make(chan struct{})
 	go s.eventLoop()
+}
+
+func (s *Session) stopEventLoop() {
+	if s.sessionEventStop == nil || s.sessionEventDone == nil {
+		return
+	}
+	select {
+	case <-s.sessionEventDone:
+		return
+	default:
+	}
+	close(s.sessionEventStop)
+	<-s.sessionEventDone
 }
 
 func (s *Session) eventLoop() {

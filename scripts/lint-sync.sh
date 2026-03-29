@@ -24,7 +24,6 @@ ALLOWLIST=(
   "pane_output_recorder_test.go"       # test pane output accumulator
   "attach_session_test.go"             # test session/conn mocks
   "clock_test.go"                      # fakeClock and fakeTimer
-  "wait_ready_test.go"                 # test wait-ready helpers
   "hooks_test.go"                      # hook test recorder
   "pty_client_harness_test.go"         # PTY client test harness
   "capture_forward_test.go"            # capture test state tracking

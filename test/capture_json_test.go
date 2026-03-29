@@ -348,8 +348,8 @@ func TestCaptureJSON_AgentStatus_Busy(t *testing.T) {
 
 	pane1 := capturePaneJSONFor(t, "pane-1", h.runCmd)
 
-	if pane1.Idle {
-		t.Errorf("pane should not be idle (current_command=%q, child_pids=%v)", pane1.CurrentCommand, pane1.ChildPIDs)
+	if pane1.Exited {
+		t.Errorf("pane should not be exited (current_command=%q, child_pids=%v)", pane1.CurrentCommand, pane1.ChildPIDs)
 	}
 	if pane1.CurrentCommand == "" {
 		t.Error("current_command should be non-empty")
@@ -357,8 +357,8 @@ func TestCaptureJSON_AgentStatus_Busy(t *testing.T) {
 	if len(pane1.ChildPIDs) == 0 {
 		t.Error("child_pids should be non-empty while command is running")
 	}
-	if pane1.IdleSince != "" {
-		t.Errorf("idle_since should be empty when busy, got %q", pane1.IdleSince)
+	if pane1.ExitedSince != "" {
+		t.Errorf("exited_since should be empty when busy, got %q", pane1.ExitedSince)
 	}
 
 	stopLongRunningCommand(t, h, "pane-1")
@@ -377,13 +377,22 @@ func TestCaptureJSON_AgentStatus_Idle(t *testing.T) {
 	pane := captureJSONPane(t, h, "pane-1")
 
 	if !pane.Idle {
-		t.Errorf("pane should be idle (current_command=%q, child_pids=%v)", pane.CurrentCommand, pane.ChildPIDs)
+		t.Errorf("pane should be screen-quiet (current_command=%q, child_pids=%v)", pane.CurrentCommand, pane.ChildPIDs)
 	}
 	if pane.IdleSince == "" {
 		t.Error("idle_since should be set when pane is idle")
 	}
 	if _, err := time.Parse(time.RFC3339, pane.IdleSince); err != nil {
 		t.Errorf("idle_since should be RFC3339, got %q: %v", pane.IdleSince, err)
+	}
+	if !pane.Exited {
+		t.Errorf("pane should be exited at the shell prompt (current_command=%q, child_pids=%v)", pane.CurrentCommand, pane.ChildPIDs)
+	}
+	if pane.ExitedSince == "" {
+		t.Error("exited_since should be set when pane is exited")
+	}
+	if _, err := time.Parse(time.RFC3339, pane.ExitedSince); err != nil {
+		t.Errorf("exited_since should be RFC3339, got %q: %v", pane.ExitedSince, err)
 	}
 	if pane.CurrentCommand == "" {
 		t.Error("current_command should report the shell even when idle")
@@ -398,8 +407,8 @@ func TestCaptureJSON_AgentStatus_SinglePane(t *testing.T) {
 
 	pane := capturePaneJSONFor(t, "pane-1", h.runCmd)
 
-	if pane.Idle {
-		t.Errorf("pane should not be idle (current_command=%q, child_pids=%v)", pane.CurrentCommand, pane.ChildPIDs)
+	if pane.Exited {
+		t.Errorf("pane should not be exited (current_command=%q, child_pids=%v)", pane.CurrentCommand, pane.ChildPIDs)
 	}
 	if pane.CurrentCommand == "" {
 		t.Error("current_command should be non-empty while command is running")
@@ -421,8 +430,14 @@ func TestCaptureJSON_AgentStatus_Transition(t *testing.T) {
 	h.waitIdle("pane-1")
 
 	pane := capturePaneJSONFor(t, "pane-1", h.runCmd)
+	if !pane.Exited {
+		t.Fatal("pane should start exited")
+	}
+	if pane.ExitedSince == "" {
+		t.Fatal("exited_since should be set initially")
+	}
 	if !pane.Idle {
-		t.Fatal("pane should start idle")
+		t.Fatal("pane should start screen-quiet")
 	}
 	if pane.IdleSince == "" {
 		t.Fatal("idle_since should be set initially")
@@ -432,11 +447,11 @@ func TestCaptureJSON_AgentStatus_Transition(t *testing.T) {
 	h.startLongSleep("pane-1")
 
 	pane = capturePaneJSONFor(t, "pane-1", h.runCmd)
-	if pane.Idle {
-		t.Error("pane should be busy after running sleep")
+	if pane.Exited {
+		t.Error("pane should not be exited after running sleep")
 	}
-	if pane.IdleSince != "" {
-		t.Errorf("idle_since should be empty when busy, got %q", pane.IdleSince)
+	if pane.ExitedSince != "" {
+		t.Errorf("exited_since should be empty when busy, got %q", pane.ExitedSince)
 	}
 
 	stopLongRunningCommand(t, h, "pane-1")
@@ -474,10 +489,13 @@ func TestCaptureJSON_AgentStatus_MultiPane(t *testing.T) {
 	for _, p := range capture.Panes {
 		switch p.Name {
 		case "pane-1":
-			if p.Idle {
-				t.Error("pane-1 should be busy")
+			if p.Exited {
+				t.Error("pane-1 should not be exited")
 			}
 		case "pane-2":
+			if !p.Exited {
+				t.Error("pane-2 should be exited")
+			}
 			if !p.Idle {
 				t.Error("pane-2 should be idle")
 			}

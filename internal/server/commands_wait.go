@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	waitCommandUsage   = "usage: wait <idle|busy|vt-idle|ready|content|layout|clipboard|checkpoint|ui> ..."
+	waitCommandUsage   = "usage: wait <idle|busy|exited|content|layout|clipboard|checkpoint|ui> ..."
 	cursorCommandUsage = "usage: cursor <layout|clipboard|ui> [--client <id>]"
 )
 
@@ -82,12 +82,10 @@ func cmdWait(ctx *CommandContext) {
 		cmdWaitCheckpoint(waitSubcommandContext(ctx, ctx.Args[1:]))
 	case "content":
 		cmdWaitFor(waitSubcommandContext(ctx, ctx.Args[1:]))
-	case "ready":
-		cmdWaitReady(waitSubcommandContext(ctx, ctx.Args[1:]))
-	case "vt-idle":
-		cmdWaitVTIdle(waitSubcommandContext(ctx, ctx.Args[1:]))
 	case "idle":
 		cmdWaitIdle(waitSubcommandContext(ctx, ctx.Args[1:]))
+	case "exited":
+		cmdWaitExited(waitSubcommandContext(ctx, ctx.Args[1:]))
 	case "busy":
 		cmdWaitBusy(waitSubcommandContext(ctx, ctx.Args[1:]))
 	case "ui":
@@ -255,9 +253,9 @@ func cmdWaitFor(ctx *CommandContext) {
 	}
 }
 
-func cmdWaitIdle(ctx *CommandContext) {
+func cmdWaitExited(ctx *CommandContext) {
 	if len(ctx.Args) < 1 {
-		ctx.replyErr("usage: wait idle <pane> [--timeout <duration>]")
+		ctx.replyErr("usage: wait exited <pane> [--timeout <duration>]")
 		return
 	}
 	paneRef := ctx.Args[0]
@@ -282,7 +280,7 @@ func cmdWaitIdle(ctx *CommandContext) {
 			return false, err
 		}
 		if pane == nil {
-			return false, fmt.Errorf("pane %q disappeared while waiting to become idle", paneRef)
+			return false, fmt.Errorf("pane %q disappeared while waiting to become exited", paneRef)
 		}
 		if !pane.AgentStatus().Idle {
 			return false, nil
@@ -290,7 +288,7 @@ func cmdWaitIdle(ctx *CommandContext) {
 		return true, nil
 	}
 
-	res := ctx.Sess.enqueueEventSubscribe(eventFilter{Types: []string{EventIdle}, PaneID: paneID}, true)
+	res := ctx.Sess.enqueueEventSubscribe(eventFilter{Types: []string{EventExited}, PaneID: paneID}, true)
 	if res.sub == nil {
 		ctx.replyErr("session shutting down")
 		return
@@ -304,7 +302,7 @@ func cmdWaitIdle(ctx *CommandContext) {
 			return
 		}
 		if idle {
-			ctx.reply("idle\n")
+			ctx.reply("exited\n")
 			return
 		}
 	}
@@ -321,11 +319,11 @@ func cmdWaitIdle(ctx *CommandContext) {
 				return
 			}
 			if idle {
-				ctx.reply("idle\n")
+				ctx.reply("exited\n")
 				return
 			}
 		case <-timer.C:
-			ctx.replyErr(fmt.Sprintf("timeout waiting for %s to become idle", paneRef))
+			ctx.replyErr(fmt.Sprintf("timeout waiting for %s to become exited", paneRef))
 			return
 		}
 	}

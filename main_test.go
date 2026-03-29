@@ -243,6 +243,12 @@ func TestMaybePrintCommandHelp(t *testing.T) {
 			wantStdout:  "usage: amux equalize [--vertical|--all]\n",
 		},
 		{
+			name:        "wait long help reflects idle rename",
+			args:        []string{"wait", "--help"},
+			wantHandled: true,
+			wantStdout:  "usage: amux wait <idle|busy|exited|content|layout|clipboard|checkpoint|ui> ...\n",
+		},
+		{
 			name:        "help after command args stays unhandled",
 			args:        []string{"send-keys", "pane-1", "--help"},
 			wantHandled: false,
