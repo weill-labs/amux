@@ -262,13 +262,10 @@ func TestServerHotReload(t *testing.T) {
 	h.waitFor("BEFORERLD", 3*time.Second)
 
 	h.splitV()
+	reloadGen := h.generation()
 
 	h.runCmd("reload-server")
-
-	if !h.waitFor("[pane-", 5*time.Second) {
-		screen := h.captureOuter()
-		t.Fatalf("session did not recover after reload-server\nScreen:\n%s", screen)
-	}
+	h.waitForReloadedClient(reloadGen, 5*time.Second)
 
 	if !h.waitForFunc(func(s string) bool {
 		return strings.Contains(s, "[pane-1]") && strings.Contains(s, "[pane-2]")
