@@ -170,7 +170,7 @@ func TestRenderPaneStatusStylesCompletedMetadataInANSIOnly(t *testing.T) {
 	}
 
 	line := MaterializeGrid(raw, cell.W, 1)
-	if !strings.Contains(line, "#42, #314, LAB-450") {
+	if !strings.Contains(line, "#314, #42, LAB-450") {
 		t.Fatalf("materialized status line %q should keep plain metadata text", line)
 	}
 }
