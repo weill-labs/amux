@@ -8,11 +8,14 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/weill-labs/amux/internal/checkpoint"
 	"github.com/weill-labs/amux/internal/proto"
+	"github.com/weill-labs/amux/internal/server"
 )
 
 var (
@@ -574,6 +577,16 @@ func TestServerHotReloadFallsBackToCrashCheckpointAcrossVersionBump(t *testing.T
 	h.sendKeys("echo AFTERBUMP", "Enter")
 	if !h.waitFor("AFTERBUMP", 5*time.Second) {
 		t.Fatalf("PTY should work after version-bumped reload\nScreen:\n%s", h.captureOuter())
+	}
+
+	logPath := filepath.Join(server.SocketDir(), h.inner+".log")
+	logData, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("reading server log %s: %v", logPath, err)
+	}
+	wantLog := "reload checkpoint v" + strconv.Itoa(checkpoint.ServerCheckpointVersion) + " incompatible with new binary checkpoint v" + strconv.Itoa(checkpoint.ServerCheckpointVersion+1)
+	if !strings.Contains(string(logData), wantLog) {
+		t.Fatalf("server log missing pre-exec incompatibility warning %q\nserver log:\n%s", wantLog, logData)
 	}
 }
 

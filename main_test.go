@@ -5,8 +5,11 @@ import (
 	"io"
 	"os"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/weill-labs/amux/internal/checkpoint"
 )
 
 func TestParseSplitArgs(t *testing.T) {
@@ -91,6 +94,16 @@ func TestDefaultSessionNameValue(t *testing.T) {
 
 	if defaultSessionName != "main" {
 		t.Fatalf("defaultSessionName = %q, want %q", defaultSessionName, "main")
+	}
+}
+
+func TestBuildVersionIncludesCheckpointVersion(t *testing.T) {
+	t.Parallel()
+
+	got := buildVersion()
+	want := "checkpoint v" + strconv.Itoa(checkpoint.ServerCheckpointVersion)
+	if !strings.Contains(got, want) {
+		t.Fatalf("buildVersion() = %q, want substring %q", got, want)
 	}
 }
 

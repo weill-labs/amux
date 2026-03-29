@@ -2,6 +2,7 @@ package main_test
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -114,6 +115,69 @@ func TestBuildInstallRewritesInvalidMetadata(t *testing.T) {
 	}
 	if !strings.Contains(string(meta), "source_repo="+repoRoot) {
 		t.Fatalf("expected metadata rewrite, got:\n%s", meta)
+	}
+}
+
+func TestBuildInstallBlocksIncompatibleCheckpointHotReloadWithoutConfirmation(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	dest := filepath.Join(t.TempDir(), "amux")
+	if err := os.WriteFile(dest, []byte(`#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${1:-}" == "version" && "${2:-}" == "--json" ]]; then
+	printf '{"build":"oldbuild","checkpoint_version":1}\n'
+	exit 0
+fi
+
+if [[ "${1:-}" == "-s" ]]; then
+	shift 2
+fi
+
+if [[ "${1:-}" == "status" ]]; then
+	printf 'windows: 1, panes: 1 total, build: oldbuild (checkpoint v1)\n'
+	exit 0
+fi
+
+printf 'unexpected args: %s\n' "$*" >&2
+exit 1
+`), 0755); err != nil {
+		t.Fatalf("write fake amux: %v", err)
+	}
+
+	socketDir := filepath.Join(os.TempDir(), fmt.Sprintf("amux-%d", os.Getuid()))
+	if err := os.MkdirAll(socketDir, 0700); err != nil {
+		t.Fatalf("mkdir socket dir: %v", err)
+	}
+	session := "install-guard"
+	socketPath := filepath.Join(socketDir, session)
+	ln, err := net.Listen("unix", socketPath)
+	if err != nil {
+		t.Fatalf("listen unix socket: %v", err)
+	}
+	defer func() {
+		_ = ln.Close()
+		_ = os.Remove(socketPath)
+	}()
+
+	cmd := exec.Command("bash", "scripts/install.sh", dest)
+	cmd.Env = envWithHomeAndBranch(t, home, "main")
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("install should fail without confirmation for incompatible live checkpoint\n%s", out)
+	}
+	output := string(out)
+	if !strings.Contains(output, "checkpoint version") || !strings.Contains(output, "Proceed with install?") {
+		t.Fatalf("install output = %q, want incompatible checkpoint warning with prompt", output)
+	}
+
+	destData, readErr := os.ReadFile(dest)
+	if readErr != nil {
+		t.Fatalf("read dest after failed install: %v", readErr)
+	}
+	if !strings.Contains(string(destData), "checkpoint_version\":1") {
+		t.Fatalf("dest should remain the original fake binary after refusal, got:\n%s", destData)
 	}
 }
 
