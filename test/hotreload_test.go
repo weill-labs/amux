@@ -22,6 +22,11 @@ var (
 	crashCheckpointVersionPattern  = regexp.MustCompile(`const CrashVersion = \d+`)
 )
 
+type binaryVersionInfo struct {
+	Build             string `json:"build"`
+	CheckpointVersion int    `json:"checkpoint_version"`
+}
+
 func captureHistoryPaneFromAmux(tb testing.TB, h *AmuxHarness, pane string) proto.CapturePane {
 	tb.Helper()
 
@@ -142,7 +147,8 @@ func buildAmuxAtomicWithCheckpointVersionBumps(binPath, buildCommit string) erro
 	if serverVersionMatch == "" {
 		return fmt.Errorf("finding server checkpoint version constant")
 	}
-	serverVersionOverride := serverCheckpointVersionPattern.ReplaceAllString(serverVersionMatch, fmt.Sprintf("const ServerCheckpointVersion = %d", currentServerCheckpointVersion(checkpointSrc)+1))
+	wantCheckpointVersion := currentServerCheckpointVersion(checkpointSrc) + 1
+	serverVersionOverride := serverCheckpointVersionPattern.ReplaceAllString(serverVersionMatch, fmt.Sprintf("const ServerCheckpointVersion = %d", wantCheckpointVersion))
 	checkpointOverride := serverCheckpointVersionPattern.ReplaceAllString(string(checkpointSrc), serverVersionOverride)
 
 	crashSrcPath := filepath.Join(repoRoot, "internal", "checkpoint", "crash.go")
@@ -202,6 +208,17 @@ func buildAmuxAtomicWithCheckpointVersionBumps(binPath, buildCommit string) erro
 	}
 
 	args := []string{"build", "-overlay", overlayPath}
+	buildWithBumpedSources := func(cmdArgs []string, dir string) error {
+		cmd := exec.Command("go", cmdArgs...)
+		if dir != "" {
+			cmd.Dir = dir
+		}
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("building version-bumped amux: %v\n%s", err, out)
+		}
+		return nil
+	}
 	if os.Getenv("AMUX_TEST_RACE") == "1" {
 		args = append(args, "-race")
 	}
@@ -213,10 +230,56 @@ func buildAmuxAtomicWithCheckpointVersionBumps(binPath, buildCommit string) erro
 	}
 	args = append(args, "-o", tmpBinPath, repoRoot)
 
-	out, err := exec.Command("go", args...).CombinedOutput()
+	if err := buildWithBumpedSources(args, ""); err != nil {
+		os.Remove(tmpBinPath)
+		return err
+	}
+	if info, err := queryBinaryVersionInfo(tmpBinPath); err == nil && info.CheckpointVersion != wantCheckpointVersion {
+		sourceCopyRoot, copyErr := os.MkdirTemp("", "amux-version-bump-src-*")
+		if copyErr != nil {
+			os.Remove(tmpBinPath)
+			return fmt.Errorf("creating source copy dir: %w", copyErr)
+		}
+		defer os.RemoveAll(sourceCopyRoot)
+
+		copyCmd := exec.Command("cp", "-R", filepath.Join(repoRoot, "."), sourceCopyRoot)
+		if out, err := copyCmd.CombinedOutput(); err != nil {
+			os.Remove(tmpBinPath)
+			return fmt.Errorf("copying source tree for version-bumped build: %v\n%s", err, out)
+		}
+		if err := os.WriteFile(filepath.Join(sourceCopyRoot, "internal", "checkpoint", "checkpoint.go"), []byte(checkpointOverride), 0o600); err != nil {
+			os.Remove(tmpBinPath)
+			return fmt.Errorf("writing copied server checkpoint override: %w", err)
+		}
+		if err := os.WriteFile(filepath.Join(sourceCopyRoot, "internal", "checkpoint", "crash.go"), []byte(crashOverride), 0o600); err != nil {
+			os.Remove(tmpBinPath)
+			return fmt.Errorf("writing copied crash checkpoint override: %w", err)
+		}
+
+		rebuildArgs := []string{"build"}
+		if os.Getenv("AMUX_TEST_RACE") == "1" {
+			rebuildArgs = append(rebuildArgs, "-race")
+		}
+		if os.Getenv("GOCOVERDIR") != "" {
+			rebuildArgs = append(rebuildArgs, "-cover", "-covermode=atomic")
+		}
+		if buildCommit != "" {
+			rebuildArgs = append(rebuildArgs, "-ldflags", "-X main.BuildCommit="+buildCommit)
+		}
+		rebuildArgs = append(rebuildArgs, "-o", tmpBinPath, ".")
+		if err := buildWithBumpedSources(rebuildArgs, sourceCopyRoot); err != nil {
+			os.Remove(tmpBinPath)
+			return err
+		}
+	}
+	info, err := queryBinaryVersionInfo(tmpBinPath)
 	if err != nil {
 		os.Remove(tmpBinPath)
-		return fmt.Errorf("building version-bumped amux: %v\n%s", err, out)
+		return err
+	}
+	if info.CheckpointVersion != wantCheckpointVersion {
+		os.Remove(tmpBinPath)
+		return fmt.Errorf("built binary checkpoint version = %d, want %d", info.CheckpointVersion, wantCheckpointVersion)
 	}
 	if err := os.Rename(tmpBinPath, binPath); err != nil {
 		os.Remove(tmpBinPath)
@@ -256,6 +319,19 @@ func runAmuxCommandWithBin(tb testing.TB, binPath, home, coverDir, session strin
 	cmd.Env = env
 	out, _ := cmd.CombinedOutput()
 	return string(out)
+}
+
+func queryBinaryVersionInfo(binPath string) (binaryVersionInfo, error) {
+	out, err := exec.Command(binPath, "version", "--json").CombinedOutput()
+	if err != nil {
+		return binaryVersionInfo{}, fmt.Errorf("querying built binary version: %v\n%s", err, out)
+	}
+
+	var info binaryVersionInfo
+	if err := json.Unmarshal(out, &info); err != nil {
+		return binaryVersionInfo{}, fmt.Errorf("decoding built binary version: %w\n%s", err, out)
+	}
+	return info, nil
 }
 
 func waitForOutput(tb testing.TB, timeout time.Duration, fn func() string, match func(string) bool) string {
