@@ -147,13 +147,18 @@ amux list                             # Shows metadata in META column
 
 ## Orchestration Scripts
 
-These scripts compose amux primitives for common workflows. They live in `scripts/` — not in the amux binary.
+These scripts compose amux primitives for common workflows. They live next to this SKILL.md in `scripts/` within the skill directory, so any agent can find them regardless of which repo they're in.
+
+```bash
+# Resolve the scripts directory from the skill symlink
+AMUX_SCRIPTS="$(dirname "$(readlink -f ~/.claude/skills/amux/SKILL.md)")/scripts"
+```
 
 ### Spawn a worker
 
 ```bash
 # Create a new codex worker pane with its own worktree
-scripts/spawn-worker.sh --parent pane-109 --issue LAB-499
+"$AMUX_SCRIPTS"/spawn-worker.sh --parent pane-109 --issue LAB-499
 ```
 
 Does: split pane, create git worktree, start `codex --yolo`, wait for vt-idle, accept trust dialog, set issue metadata. Returns the new pane name.
@@ -162,7 +167,7 @@ Does: split pane, create git worktree, start `codex --yolo`, wait for vt-idle, a
 
 ```bash
 # Send a task and verify the worker started working
-scripts/delegate-task.sh pane-47 --issue LAB-468 "Fix the black screen bug"
+"$AMUX_SCRIPTS"/delegate-task.sh pane-47 --issue LAB-468 "Fix the black screen bug"
 ```
 
 Does: send task via send-keys, wait for vt-idle to break (output flowing = accepted), report if stuck.
@@ -171,7 +176,7 @@ Does: send task via send-keys, wait for vt-idle to break (output flowing = accep
 
 ```bash
 # Dispatch multiple tasks from a JSON manifest
-scripts/batch-delegate.sh tasks.json
+"$AMUX_SCRIPTS"/batch-delegate.sh tasks.json
 ```
 
 Manifest format:
@@ -186,7 +191,7 @@ Manifest format:
 
 ```bash
 # One-table view of all workers
-scripts/worker-status.sh
+"$AMUX_SCRIPTS"/worker-status.sh
 ```
 
 Shows: pane name, issue, idle/busy/stuck state, PR number, last output line.
@@ -195,7 +200,7 @@ Shows: pane name, issue, idle/busy/stuck state, PR number, last output line.
 
 ```bash
 # Detect and recover a codex worker stuck at a permission prompt
-scripts/recover-worker.sh pane-68
+"$AMUX_SCRIPTS"/recover-worker.sh pane-68
 ```
 
 Does: detect stuck state, Escape, `/exit`, `codex --yolo resume`, select session, send "." to continue.
@@ -215,7 +220,7 @@ amux capture --history pane-31 | grep -v '^$' | tail -30
 
 ```bash
 # Option A: Use the spawn-worker script (preferred)
-scripts/spawn-worker.sh --parent pane-109 --issue LAB-499
+"$AMUX_SCRIPTS"/spawn-worker.sh --parent pane-109 --issue LAB-499
 
 # Option B: Manual steps
 amux split pane-109 --horizontal --name worker-499
@@ -252,7 +257,7 @@ for pane in 47 51 54; do
 done
 
 # Or use the worker-status script
-scripts/worker-status.sh
+"$AMUX_SCRIPTS"/worker-status.sh
 ```
 
 ### Resuming interrupted codex sessions
