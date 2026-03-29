@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -127,15 +128,48 @@ func TestRestoreServerFromReloadCheckpointFallsBackToCrashCheckpoint(t *testing.
 		t.Fatalf("checkpoint.WriteCrash: %v", err)
 	}
 
-	srv, err := restoreServerFromReloadCheckpoint(sessionName, reloadCPPath, mux.DefaultScrollbackLines)
-	if err != nil {
-		t.Fatalf("restoreServerFromReloadCheckpoint: %v", err)
+	stderr := captureStderr(t, func() {
+		srv, err := restoreServerFromReloadCheckpoint(sessionName, reloadCPPath, mux.DefaultScrollbackLines)
+		if err != nil {
+			t.Fatalf("restoreServerFromReloadCheckpoint: %v", err)
+		}
+		srv.Shutdown()
+	})
+	if !strings.Contains(stderr, "reload checkpoint incompatible, falling back to crash checkpoint") {
+		t.Fatalf("stderr = %q, want crash fallback log", stderr)
 	}
-	srv.Shutdown()
 
 	if _, statErr := os.Stat(crashPath); !os.IsNotExist(statErr) {
 		t.Fatalf("crash checkpoint should be removed after fallback restore, err=%v", statErr)
 	}
+}
+
+func captureStderr(t *testing.T, fn func()) string {
+	t.Helper()
+
+	orig := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	os.Stderr = w
+	defer func() {
+		os.Stderr = orig
+	}()
+
+	fn()
+
+	if err := w.Close(); err != nil {
+		t.Fatalf("closing stderr writer: %v", err)
+	}
+	data, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("reading stderr: %v", err)
+	}
+	if err := r.Close(); err != nil {
+		t.Fatalf("closing stderr reader: %v", err)
+	}
+	return string(data)
 }
 
 func TestRestoreServerFromReloadCheckpointErrorsWithoutCrashFallback(t *testing.T) {
