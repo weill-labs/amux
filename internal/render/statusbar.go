@@ -319,16 +319,13 @@ func paneStatusMetadataSegments(items []paneStatusMetadataItem, maxWidth int) []
 func orderPaneStatusMetadataItems(items []paneStatusMetadataItem) []paneStatusMetadataItem {
 	ordered := append([]paneStatusMetadataItem(nil), items...)
 	sort.SliceStable(ordered, func(i, j int) bool {
-		return paneStatusMetadataOrder(ordered[i].status) < paneStatusMetadataOrder(ordered[j].status)
+		return paneStatusMetadataIsCompleted(ordered[j].status) && !paneStatusMetadataIsCompleted(ordered[i].status)
 	})
 	return ordered
 }
 
-func paneStatusMetadataOrder(status proto.TrackedStatus) int {
-	if normalizeTrackedStatus(status) == proto.TrackedStatusCompleted {
-		return 1
-	}
-	return 0
+func paneStatusMetadataIsCompleted(status proto.TrackedStatus) bool {
+	return normalizeTrackedStatus(status) == proto.TrackedStatusCompleted
 }
 
 func truncateRunewidth(s string, maxWidth int) string {
