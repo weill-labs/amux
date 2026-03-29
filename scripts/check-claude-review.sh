@@ -89,6 +89,7 @@ extract_latest_claude_review() {
             (
                 ($author == "claude") or
                 ($author == "claude[bot]") or
+                ($author == "github-actions[bot]") or
                 ($author == "github-actions")
             ) and ($body | startswith("**Claude finished "));
 
