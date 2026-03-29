@@ -256,6 +256,49 @@ func TestBlitPaneClipsContentToVisibleLayoutHeight(t *testing.T) {
 	}
 }
 
+func TestVisibleContentHeightMatchesPaneContentHeightWhenCellFullyVisible(t *testing.T) {
+	t.Parallel()
+
+	comp := NewCompositor(20, 8, "test")
+	cell := mux.NewLeafByID(1, 0, 0, 20, 4)
+
+	if got, want := comp.visibleContentHeight(cell), mux.PaneContentHeight(cell.H); got != want {
+		t.Fatalf("visibleContentHeight() = %d, want %d", got, want)
+	}
+}
+
+func TestBlitPaneStopsAtPaneContentHeightWithinCell(t *testing.T) {
+	t.Parallel()
+
+	root := mux.NewLeaf(&mux.Pane{ID: 1, Meta: mux.PaneMeta{Name: "pane-1"}}, 0, 0, 20, 4)
+	comp := NewCompositor(20, 8, "test")
+
+	output := comp.RenderFull(root, 1, func(id uint32) PaneData {
+		if id != 1 {
+			return nil
+		}
+		return &fakePaneData{
+			id:     1,
+			name:   "pane-1",
+			screen: "line-1\nline-2\nline-3\nline-4",
+		}
+	})
+
+	grid := MaterializeGrid(output, 20, 8)
+	lines := strings.Split(grid, "\n")
+	for row, want := range []string{"line-1", "line-2", "line-3"} {
+		if got := strings.TrimRight(lines[row+1], " "); got != want {
+			t.Fatalf("row %d = %q, want %q", row+2, got, want)
+		}
+	}
+	if strings.Contains(output, "\033[5;1Hline-4") {
+		t.Fatalf("pane content should stop at PaneContentHeight(cell.H):\n%s", output)
+	}
+	if got := strings.TrimSpace(lines[4]); got != "" {
+		t.Fatalf("row 5 should stay empty below the pane content, got %q", got)
+	}
+}
+
 func TestRenderPaneContentSkipsEmptyRowsAndResetsAfterVisibleRows(t *testing.T) {
 	t.Parallel()
 
