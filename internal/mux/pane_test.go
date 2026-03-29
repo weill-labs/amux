@@ -200,6 +200,44 @@ func TestSetMetaManualBranchToggle(t *testing.T) {
 	}
 }
 
+func TestNewProxyPaneWithScrollbackDoesNotPinTypedGitBranch(t *testing.T) {
+	t.Parallel()
+
+	p := NewProxyPaneWithScrollback(1, PaneMeta{
+		Name:      "pane-1",
+		GitBranch: "restored-branch",
+	}, 80, 24, DefaultScrollbackLines, nil, nil, nil)
+
+	p.ApplyCwdBranch("/tmp/project", "auto-branch")
+
+	if p.MetaManualBranch() {
+		t.Fatal("MetaManualBranch() = true, want false for typed GitBranch without kv override")
+	}
+	if p.Meta.GitBranch != "auto-branch" {
+		t.Fatalf("GitBranch = %q, want auto-branch", p.Meta.GitBranch)
+	}
+}
+
+func TestNewProxyPaneWithScrollbackPinsExplicitBranchKV(t *testing.T) {
+	t.Parallel()
+
+	p := NewProxyPaneWithScrollback(1, PaneMeta{
+		Name: "pane-1",
+		KV: map[string]string{
+			PaneMetaKeyBranch: "manual-branch",
+		},
+	}, 80, 24, DefaultScrollbackLines, nil, nil, nil)
+
+	p.ApplyCwdBranch("/tmp/project", "auto-branch")
+
+	if !p.MetaManualBranch() {
+		t.Fatal("MetaManualBranch() = false, want true for explicit kv branch")
+	}
+	if p.Meta.GitBranch != "manual-branch" {
+		t.Fatalf("GitBranch = %q, want manual-branch", p.Meta.GitBranch)
+	}
+}
+
 func TestSetOnMetaUpdateCallback(t *testing.T) {
 	t.Parallel()
 

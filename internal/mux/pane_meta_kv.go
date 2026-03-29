@@ -159,11 +159,14 @@ func applyPaneMetaKV(meta *PaneMeta) error {
 }
 
 func NormalizePaneMeta(meta *PaneMeta) (manualBranch bool, err error) {
+	if meta != nil && meta.KV != nil {
+		_, manualBranch = meta.KV[PaneMetaKeyBranch]
+	}
 	hydrateReservedKV(meta)
 	if err := applyPaneMetaKV(meta); err != nil {
 		return false, err
 	}
-	return meta != nil && meta.GitBranch != "", nil
+	return manualBranch && meta != nil && meta.GitBranch != "", nil
 }
 
 func SetPaneMetaKV(meta *PaneMeta, key, value string) (manualBranch bool, err error) {
