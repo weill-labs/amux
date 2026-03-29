@@ -24,6 +24,13 @@ PROMPT="${3:?Usage: spawn-worker.sh <parent-pane> <issue> <prompt>}"
 GITHUB_REMOTE_URL="git@github.com:weill-labs/amux.git"
 GITHUB_MAIN_REFSPEC="main:refs/remotes/origin/main"
 
+refresh_main_from_github() {
+  local worktree="$1"
+
+  git -C "$worktree" fetch "$GITHUB_REMOTE_URL" "$GITHUB_MAIN_REFSPEC" >/dev/null
+  git -C "$worktree" merge --ff-only origin/main >/dev/null
+}
+
 WORKTREE=""
 USED_DIRS=$(amux list 2>/dev/null | awk 'NR>1 {print $5}' | sed 's|~|'"$HOME"'|')
 for dir in "$HOME"/sync/github/amux/amux*/; do
@@ -45,8 +52,7 @@ if [ -z "$WORKTREE" ]; then
 fi
 echo "Using worktree: $WORKTREE"
 
-git -C "$WORKTREE" fetch "$GITHUB_REMOTE_URL" "$GITHUB_MAIN_REFSPEC" >/dev/null
-git -C "$WORKTREE" merge --ff-only origin/main >/dev/null
+refresh_main_from_github "$WORKTREE"
 echo "Refreshed $WORKTREE main from GitHub"
 
 SPLIT_OUTPUT=$(amux split "$PARENT" --horizontal)
