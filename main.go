@@ -426,18 +426,22 @@ func resolveSessionName(explicit string, explicitSet bool) string {
 
 func hasHelpFlag(args []string) bool {
 	for _, arg := range args {
-		if arg == "--help" || arg == "-h" {
+		if isHelpFlag(arg) {
 			return true
 		}
 	}
 	return false
 }
 
+func isHelpFlag(arg string) bool {
+	return arg == "--help" || arg == "-h"
+}
+
 func maybePrintCommandHelp(stdout io.Writer, args []string) bool {
 	if len(args) < 2 {
 		return false
 	}
-	if args[1] != "--help" && args[1] != "-h" {
+	if !isHelpFlag(args[1]) {
 		return false
 	}
 	usage, ok := commandUsageByName[args[0]]
