@@ -220,6 +220,15 @@ func (cr *ClientRenderer) CaptureJSON(agentStatus map[uint32]proto.PaneAgentStat
 	return marshalIndented(capture)
 }
 
+func (cr *ClientRenderer) CaptureJSONWithHistory(agentStatus map[uint32]proto.PaneAgentStatus) string {
+	capture, ok := cr.renderer.captureJSONValueWithHistory(agentStatus, cr.loadState().baseHistory, true)
+	if !ok {
+		return caputil.JSONErrorOutput(false, "state_unavailable", "capture state is unavailable because no layout is ready")
+	}
+	capture.UI = cr.captureUIState()
+	return marshalIndented(capture)
+}
+
 // CapturePaneJSON returns a single pane's JSON from client-side emulators.
 func (cr *ClientRenderer) CapturePaneJSON(paneID uint32, agentStatus map[uint32]proto.PaneAgentStatus) string {
 	pane, ok := cr.renderer.capturePaneValue(paneID, agentStatus)
@@ -712,6 +721,9 @@ func (cr *ClientRenderer) HandleCaptureRequest(args []string, agentStatus map[ui
 			return &proto.Message{Type: proto.MsgTypeCaptureResponse, CmdErr: err.Error()}
 		}
 		return &proto.Message{Type: proto.MsgTypeCaptureResponse, CmdOutput: cr.CapturePaneJSON(paneID, agentStatus) + "\n"}
+	}
+	if req.HistoryMode {
+		return &proto.Message{Type: proto.MsgTypeCaptureResponse, CmdOutput: cr.CaptureJSONWithHistory(agentStatus) + "\n"}
 	}
 	return &proto.Message{Type: proto.MsgTypeCaptureResponse, CmdOutput: cr.CaptureJSON(agentStatus) + "\n"}
 }

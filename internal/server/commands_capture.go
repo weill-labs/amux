@@ -4,7 +4,7 @@ import caputil "github.com/weill-labs/amux/internal/capture"
 
 func cmdCapture(ctx *CommandContext) {
 	req := caputil.ParseArgs(ctx.Args)
-	if req.HistoryMode {
+	if req.HistoryMode && (req.PaneRef != "" || !req.FormatJSON) {
 		ctx.CC.Send(ctx.Sess.captureHistory(ctx.ActorPaneID, ctx.Args))
 		return
 	}

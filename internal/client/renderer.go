@@ -298,6 +298,10 @@ func marshalIndented(v any) string {
 // captureJSONValue builds the structured JSON capture payload.
 // Returns false when no layout is available.
 func (r *Renderer) captureJSONValue(agentStatus map[uint32]proto.PaneAgentStatus) (proto.CaptureJSON, bool) {
+	return r.captureJSONValueWithHistory(agentStatus, nil, false)
+}
+
+func (r *Renderer) captureJSONValueWithHistory(agentStatus map[uint32]proto.PaneAgentStatus, baseHistory map[uint32][]string, includeHistory bool) (proto.CaptureJSON, bool) {
 	capture := proto.CaptureJSON{}
 	ok := false
 	r.withActor(func(st *rendererActorState) {
@@ -329,7 +333,7 @@ func (r *Renderer) captureJSONValue(agentStatus map[uint32]proto.PaneAgentStatus
 			if paneID == 0 {
 				return
 			}
-			cp, ok := r.buildCapturePane(st, snap, paneID, agentStatus)
+			cp, ok := r.buildCapturePane(st, snap, paneID, agentStatus, includeHistory, baseHistory[paneID])
 			if !ok {
 				return
 			}
@@ -348,6 +352,14 @@ func (r *Renderer) captureJSONValue(agentStatus map[uint32]proto.PaneAgentStatus
 // Agent status (idle, current_command, child_pids) comes from the server.
 func (r *Renderer) CaptureJSON(agentStatus map[uint32]proto.PaneAgentStatus) string {
 	capture, ok := r.captureJSONValue(agentStatus)
+	if !ok {
+		return caputil.JSONErrorOutput(false, "state_unavailable", "capture state is unavailable because no layout is ready")
+	}
+	return marshalIndented(capture)
+}
+
+func (r *Renderer) CaptureJSONWithHistory(agentStatus map[uint32]proto.PaneAgentStatus, baseHistory map[uint32][]string) string {
+	capture, ok := r.captureJSONValueWithHistory(agentStatus, baseHistory, true)
 	if !ok {
 		return caputil.JSONErrorOutput(false, "state_unavailable", "capture state is unavailable because no layout is ready")
 	}
@@ -375,7 +387,7 @@ func (r *Renderer) capturePaneValue(paneID uint32, agentStatus map[uint32]proto.
 	pane := proto.CapturePane{}
 	ok := false
 	r.withActor(func(st *rendererActorState) {
-		pane, ok = r.buildCapturePane(st, st.snapshot, paneID, agentStatus)
+		pane, ok = r.buildCapturePane(st, st.snapshot, paneID, agentStatus, false, nil)
 	})
 	return pane, ok
 }
@@ -443,7 +455,7 @@ func (r *Renderer) PaneInfo(paneID uint32) (proto.PaneSnapshot, bool) {
 	return info, ok
 }
 
-func (r *Renderer) buildCapturePane(st *rendererActorState, snap *rendererSnapshot, paneID uint32, agentStatus map[uint32]proto.PaneAgentStatus) (proto.CapturePane, bool) {
+func (r *Renderer) buildCapturePane(st *rendererActorState, snap *rendererSnapshot, paneID uint32, agentStatus map[uint32]proto.PaneAgentStatus, includeHistory bool, baseHistory []string) (proto.CapturePane, bool) {
 	emu, ok := st.emulators[paneID]
 	if !ok {
 		return proto.CapturePane{}, false
@@ -454,6 +466,17 @@ func (r *Renderer) buildCapturePane(st *rendererActorState, snap *rendererSnapsh
 	}
 	state := emu.TerminalState()
 	col, row := emu.CursorPosition()
+	content := mux.EmulatorContentLines(emu)
+	if includeHistory {
+		buffer := capturePaneBufferSnapshot(emu, append([]string(nil), baseHistory...), snap.scrollbackLines)
+		content = make([]string, 0, len(buffer.scrollback)+len(buffer.screen))
+		for _, line := range buffer.scrollback {
+			content = append(content, line.text)
+		}
+		for _, line := range buffer.screen {
+			content = append(content, line.text)
+		}
+	}
 	cp := caputil.BuildPane(caputil.PaneInput{
 		ID:            info.ID,
 		Name:          info.Name,
@@ -471,7 +494,7 @@ func (r *Renderer) buildCapturePane(st *rendererActorState, snap *rendererSnapsh
 		TrackedIssues: info.TrackedIssues,
 		Cursor:        caputil.CursorFromState(col, row, emu.CursorHidden(), state),
 		Terminal:      caputil.TerminalFromState(state),
-		Content:       mux.EmulatorContentLines(emu),
+		Content:       content,
 	}, agentStatus)
 	return cp, true
 }
@@ -563,7 +586,11 @@ func (r *Renderer) HandleCaptureRequest(args []string, agentStatus map[uint32]pr
 
 	var out string
 	if req.FormatJSON {
-		out = r.CaptureJSON(agentStatus) + "\n"
+		if req.HistoryMode {
+			out = r.CaptureJSONWithHistory(agentStatus, nil) + "\n"
+		} else {
+			out = r.CaptureJSON(agentStatus) + "\n"
+		}
 	} else if req.ColorMap {
 		out = r.CaptureColorMap()
 	} else {
