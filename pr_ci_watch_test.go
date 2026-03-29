@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -43,7 +44,7 @@ EOF
 	exit 0
 fi
 
-if [[ "${1:-}" == "pr" && "${2:-}" == "checks" && " $* " == *" --watch "* ]]; then
+if [[ "${1:-}" == "pr" && "${2:-}" == "checks" && " $* " == *" --json "* ]]; then
 	count=0
 	if [[ -f "$FAKE_GH_STATE" ]]; then
 		count="$(cat "$FAKE_GH_STATE")"
@@ -54,6 +55,9 @@ if [[ "${1:-}" == "pr" && "${2:-}" == "checks" && " $* " == *" --watch "* ]]; th
 		echo "no checks reported on the 'lab-489-workers-self-monitor-ci' branch" >&2
 		exit 1
 	fi
+	cat <<'EOF'
+[{"name":"test","bucket":"pass","state":"SUCCESS","link":"https://example.com/run/999","workflow":"CI","startedAt":"2024-01-01T00:00:00Z","completedAt":"2024-01-01T00:00:05Z"}]
+EOF
 	exit 0
 fi
 
@@ -80,8 +84,119 @@ exit 1
 	if !strings.Contains(log, "run list --commit deadbeef") {
 		t.Fatalf("gh log = %q, want pre-watch head run discovery", log)
 	}
-	if !strings.Contains(log, "pr checks 422 --required --watch") {
-		t.Fatalf("gh log = %q, want watch invocation", log)
+	if got := strings.Count(log, "pr checks 422 --required --json"); got < 2 {
+		t.Fatalf("gh log = %q, want repeated required-check polling", log)
+	}
+}
+
+func TestWatchPRCIScriptPrintsCheckProgressHeartbeatsAndTransitions(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	ghLog := filepath.Join(tempDir, "gh.log")
+	ghState := filepath.Join(tempDir, "gh.state")
+	nowFile := installFakeClock(t, tempDir, 1700000000)
+
+	writeExecutable(t, filepath.Join(tempDir, "git"), `#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${1:-}" == "rev-parse" && "${2:-}" == "HEAD" ]]; then
+	printf 'deadbeef\n'
+	exit 0
+fi
+
+echo "unexpected git invocation: $*" >&2
+exit 1
+`)
+	writeExecutable(t, filepath.Join(tempDir, "gh"), `#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >>"$FAKE_GH_LOG"
+
+if [[ "${1:-}" == "pr" && "${2:-}" == "view" ]]; then
+	cat <<'EOF'
+{"number":422,"url":"https://example.com/pr/422","headRefName":"feat/ci-watch","headRefOid":"stale-sha"}
+EOF
+	exit 0
+fi
+
+if [[ "${1:-}" == "run" && "${2:-}" == "list" ]]; then
+	cat <<'EOF'
+[{"databaseId":999,"workflowName":"CI","displayTitle":"ci / test","url":"https://example.com/run/999","conclusion":"","status":"in_progress"}]
+EOF
+	exit 0
+fi
+
+if [[ "${1:-}" == "pr" && "${2:-}" == "checks" && " $* " == *" --json "* ]]; then
+	count=0
+	if [[ -f "$FAKE_GH_STATE" ]]; then
+		count="$(cat "$FAKE_GH_STATE")"
+	fi
+	count=$((count + 1))
+	printf '%s\n' "$count" >"$FAKE_GH_STATE"
+
+	case "$count" in
+		1)
+			cat <<'EOF'
+[{"name":"test","bucket":"pending","state":"QUEUED","link":"https://example.com/run/1000","workflow":"CI","startedAt":"","completedAt":""},{"name":"claude-review","bucket":"pending","state":"QUEUED","link":"https://example.com/run/1001","workflow":"Claude","startedAt":"","completedAt":""}]
+EOF
+			exit 8
+			;;
+		2|3|4)
+			cat <<'EOF'
+[{"name":"test","bucket":"pending","state":"IN_PROGRESS","link":"https://example.com/run/1000","workflow":"CI","startedAt":"2023-11-14T22:13:20Z","completedAt":""},{"name":"claude-review","bucket":"pending","state":"QUEUED","link":"https://example.com/run/1001","workflow":"Claude","startedAt":"","completedAt":""}]
+EOF
+			exit 8
+			;;
+		5)
+			cat <<'EOF'
+[{"name":"test","bucket":"pass","state":"SUCCESS","link":"https://example.com/run/1000","workflow":"CI","startedAt":"2023-11-14T22:13:20Z","completedAt":"2023-11-14T22:13:58Z"},{"name":"claude-review","bucket":"pending","state":"IN_PROGRESS","link":"https://example.com/run/1001","workflow":"Claude","startedAt":"2023-11-14T22:13:50Z","completedAt":""}]
+EOF
+			exit 8
+			;;
+		*)
+			cat <<'EOF'
+[{"name":"test","bucket":"pass","state":"SUCCESS","link":"https://example.com/run/1000","workflow":"CI","startedAt":"2023-11-14T22:13:20Z","completedAt":"2023-11-14T22:13:58Z"},{"name":"claude-review","bucket":"pass","state":"SUCCESS","link":"https://example.com/run/1001","workflow":"Claude","startedAt":"2023-11-14T22:13:50Z","completedAt":"2023-11-14T22:14:05Z"}]
+EOF
+			exit 0
+			;;
+	esac
+fi
+
+echo "unexpected gh invocation: $*" >&2
+exit 1
+`)
+
+	cmd := exec.Command("bash", "scripts/watch-pr-ci.sh")
+	cmd.Dir = "."
+	cmd.Env = ciWatchScriptEnv(
+		t,
+		tempDir,
+		"FAKE_GH_LOG="+ghLog,
+		"FAKE_GH_STATE="+ghState,
+		"FAKE_NOW_FILE="+nowFile,
+		"AMUX_PR_CHECK_INTERVAL=10",
+		"AMUX_PR_HEARTBEAT_INTERVAL=30",
+	)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("expected success: %v\n%s", err, out)
+	}
+
+	output := string(out)
+	for _, want := range []string{
+		"Waiting for: test, claude-review",
+		"test: queued",
+		"claude-review: queued",
+		"test: in_progress",
+		"Heartbeat: test: in_progress (30s), claude-review: queued",
+		"test: completed (pass)",
+		"claude-review: in_progress",
+		"claude-review: completed (pass)",
+		"PR #422 CI passed",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("output missing %q:\n%s", want, out)
+		}
 	}
 }
 
@@ -110,10 +225,6 @@ if [[ "${1:-}" == "pr" && "${2:-}" == "view" ]]; then
 {"number":422,"url":"https://example.com/pr/422","headRefName":"feat/ci-watch","headRefOid":"stale-sha"}
 EOF
 	exit 0
-fi
-
-if [[ "${1:-}" == "pr" && "${2:-}" == "checks" && " $* " == *" --watch "* ]]; then
-	exit 1
 fi
 
 if [[ "${1:-}" == "pr" && "${2:-}" == "checks" && " $* " == *" --json "* ]]; then
@@ -208,10 +319,6 @@ EOF
 	exit 0
 fi
 
-if [[ "${1:-}" == "pr" && "${2:-}" == "checks" && " $* " == *" --watch "* ]]; then
-	exit 1
-fi
-
 if [[ "${1:-}" == "pr" && "${2:-}" == "checks" && " $* " == *" --json "* ]]; then
 	cat <<'EOF'
 [{"name":"go test ./...","bucket":"fail","state":"FAILURE","link":"","workflow":"CI"}]
@@ -301,7 +408,10 @@ EOF
 	exit 0
 fi
 
-if [[ "${1:-}" == "pr" && "${2:-}" == "checks" && " $* " == *" --watch "* ]]; then
+if [[ "${1:-}" == "pr" && "${2:-}" == "checks" && " $* " == *" --json "* ]]; then
+	cat <<'EOF'
+[{"name":"test","bucket":"pass","state":"SUCCESS","link":"https://example.com/run/999","workflow":"CI","startedAt":"2024-01-01T00:00:00Z","completedAt":"2024-01-01T00:00:05Z"}]
+EOF
 	exit 0
 fi
 
@@ -336,8 +446,8 @@ exit 1
 	if err != nil {
 		t.Fatalf("read gh log: %v", err)
 	}
-	if !strings.Contains(string(ghBytes), "pr checks 422 --required --watch") {
-		t.Fatalf("gh log = %q, want watch invocation", ghBytes)
+	if !strings.Contains(string(ghBytes), "pr checks 422 --required --json") {
+		t.Fatalf("gh log = %q, want required-check polling", ghBytes)
 	}
 }
 
@@ -346,6 +456,9 @@ func ciWatchScriptEnv(t *testing.T, fakeBinDir string, extra ...string) []string
 
 	env := append([]string{}, hermeticMainEnv()...)
 	env = upsertCIWatchEnv(env, "PATH", fakeBinDir+string(os.PathListSeparator)+ciWatchEnvValue(env, "PATH"))
+	env = upsertCIWatchEnv(env, "AMUX_PR_CHECK_INTERVAL", "0")
+	env = upsertCIWatchEnv(env, "AMUX_PR_RUN_DISCOVERY_TIMEOUT", "1")
+	env = upsertCIWatchEnv(env, "AMUX_PR_RUN_DISCOVERY_INTERVAL", "0")
 	return append(env, extra...)
 }
 
@@ -376,4 +489,33 @@ func writeExecutable(t *testing.T, path, content string) {
 	if err := os.WriteFile(path, []byte(content), 0755); err != nil {
 		t.Fatalf("write executable %s: %v", path, err)
 	}
+}
+
+func installFakeClock(t *testing.T, dir string, start int) string {
+	t.Helper()
+
+	nowFile := filepath.Join(dir, "now")
+	if err := os.WriteFile(nowFile, []byte(strconv.Itoa(start)+"\n"), 0644); err != nil {
+		t.Fatalf("write fake clock state: %v", err)
+	}
+
+	writeExecutable(t, filepath.Join(dir, "date"), `#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${1:-}" == "+%s" ]]; then
+	cat "$FAKE_NOW_FILE"
+	exit 0
+fi
+
+exec /bin/date "$@"
+`)
+	writeExecutable(t, filepath.Join(dir, "sleep"), `#!/usr/bin/env bash
+set -euo pipefail
+
+delay="${1:-0}"
+current="$(cat "$FAKE_NOW_FILE")"
+printf '%s\n' $((current + delay)) >"$FAKE_NOW_FILE"
+`)
+
+	return nowFile
 }
