@@ -320,7 +320,7 @@ All commands accept `-s <session>` to target a specific session. Panes are refer
 | `amux equalize [--vertical\|--all]` | Rebalance root columns, rows within columns, or both |
 | `amux copy-mode [pane] [--wait ui=copy-mode-shown] [--timeout <duration>]` | Enter copy/scroll mode |
 | `amux set-kv <pane> key=value...` | Set arbitrary pane metadata keys |
-| `amux get-kv <pane> [key...]` | Show pane metadata keys as `key=value` lines |
+| `amux get-kv <pane> [key...]` | Show pane metadata keys as `key=value` lines. Missing keys print nothing. |
 | `amux rm-kv <pane> key...` | Remove pane metadata keys |
 | `amux set-meta <pane> key=value...` | Set single-value pane metadata (`task`, `branch`, `pr`) |
 | `amux add-meta <pane> key=value...` | Compatibility wrapper that adds tracked metadata values (`pr=NUMBER`, `issue=ID`) |

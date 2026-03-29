@@ -653,7 +653,7 @@ Usage:
   amux [-s session] set-kv <pane> key=value [key=value...]
                                        Set arbitrary pane metadata keys
   amux [-s session] get-kv <pane> [key...]
-                                       Show pane metadata keys as key=value lines
+                                       Show pane metadata keys as key=value lines; missing keys print nothing
   amux [-s session] rm-kv <pane> key [key...]
                                        Remove pane metadata keys
   amux [-s session] set-meta <pane> key=value [key=value...]

@@ -186,11 +186,9 @@ func SetPaneMetaKV(meta *PaneMeta, key, value string) (manualBranch bool, err er
 func RemovePaneMetaKV(meta *PaneMeta, key string) (manualBranch bool, err error) {
 	next := clonePaneMeta(meta)
 	hydrateReservedKV(&next)
-	if next.KV != nil {
-		delete(next.KV, key)
-		if len(next.KV) == 0 {
-			next.KV = nil
-		}
+	delete(next.KV, key)
+	if len(next.KV) == 0 {
+		next.KV = nil
 	}
 	manualBranch, err = func() (bool, error) {
 		if err := applyPaneMetaKV(&next); err != nil {

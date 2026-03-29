@@ -78,6 +78,56 @@ func TestRmKVRemovesArbitraryMetadataAndClearsReservedProjection(t *testing.T) {
 	}
 }
 
+func TestSetKVRejectsInvalidTrackedPRJSONWithoutMutation(t *testing.T) {
+	t.Parallel()
+
+	h := newServerHarness(t)
+
+	h.runCmd("set-kv", "pane-1", "foo=bar")
+
+	out := h.runCmd("set-kv", "pane-1", "tracked_prs=not-json")
+	if !strings.Contains(out, "invalid tracked_prs value") {
+		t.Fatalf("set-kv should reject malformed tracked_prs JSON, got:\n%s", out)
+	}
+
+	got := h.runCmd("get-kv", "pane-1")
+	if !strings.Contains(got, "foo=bar") {
+		t.Fatalf("existing kv should remain after failed set-kv:\n%s", got)
+	}
+	if strings.Contains(got, "tracked_prs=") {
+		t.Fatalf("failed set-kv should not leave tracked_prs behind:\n%s", got)
+	}
+}
+
+func TestGetKVMissingKeyReturnsEmptyOutput(t *testing.T) {
+	t.Parallel()
+
+	h := newServerHarness(t)
+
+	h.runCmd("set-kv", "pane-1", "foo=bar")
+
+	if out := h.runCmd("get-kv", "pane-1", "missing"); strings.TrimSpace(out) != "" {
+		t.Fatalf("get-kv missing key should return empty output, got:\n%s", out)
+	}
+}
+
+func TestRmKVMissingKeyIsNoOp(t *testing.T) {
+	t.Parallel()
+
+	h := newServerHarness(t)
+
+	h.runCmd("set-kv", "pane-1", "foo=bar")
+
+	if out := h.runCmd("rm-kv", "pane-1", "missing"); out != "" {
+		t.Fatalf("rm-kv missing key should succeed, got:\n%s", out)
+	}
+
+	got := h.runCmd("get-kv", "pane-1")
+	if !strings.Contains(got, "foo=bar") {
+		t.Fatalf("rm-kv missing key should leave existing kv unchanged:\n%s", got)
+	}
+}
+
 func TestCaptureJSONIncludesPaneKV(t *testing.T) {
 	t.Parallel()
 

@@ -198,28 +198,32 @@ func cmdAddMeta(ctx *CommandContext) {
 			return commandMutationResult{err: err}
 		}
 
-		prs := pane.Meta.TrackedPRs
-		for _, pr := range update.PRs {
-			prs = metacmd.UpsertTrackedPR(prs, pr)
-		}
-		if len(prs) == 0 {
-			if err := removePaneKVValue(pane, mux.PaneMetaKeyTrackedPRs); err != nil {
+		if len(update.PRs) > 0 {
+			prs := pane.Meta.TrackedPRs
+			for _, pr := range update.PRs {
+				prs = metacmd.UpsertTrackedPR(prs, pr)
+			}
+			if len(prs) == 0 {
+				if err := removePaneKVValue(pane, mux.PaneMetaKeyTrackedPRs); err != nil {
+					return commandMutationResult{err: err}
+				}
+			} else if err := setPaneKVValue(pane, mux.PaneMetaKeyTrackedPRs, mux.FormatTrackedPRsValue(prs)); err != nil {
 				return commandMutationResult{err: err}
 			}
-		} else if err := setPaneKVValue(pane, mux.PaneMetaKeyTrackedPRs, mux.FormatTrackedPRsValue(prs)); err != nil {
-			return commandMutationResult{err: err}
 		}
 
-		issues := pane.Meta.TrackedIssues
-		for _, issue := range update.Issues {
-			issues = metacmd.UpsertTrackedIssue(issues, issue)
-		}
-		if len(issues) == 0 {
-			if err := removePaneKVValue(pane, mux.PaneMetaKeyTrackedIssues); err != nil {
+		if len(update.Issues) > 0 {
+			issues := pane.Meta.TrackedIssues
+			for _, issue := range update.Issues {
+				issues = metacmd.UpsertTrackedIssue(issues, issue)
+			}
+			if len(issues) == 0 {
+				if err := removePaneKVValue(pane, mux.PaneMetaKeyTrackedIssues); err != nil {
+					return commandMutationResult{err: err}
+				}
+			} else if err := setPaneKVValue(pane, mux.PaneMetaKeyTrackedIssues, mux.FormatTrackedIssuesValue(issues)); err != nil {
 				return commandMutationResult{err: err}
 			}
-		} else if err := setPaneKVValue(pane, mux.PaneMetaKeyTrackedIssues, mux.FormatTrackedIssuesValue(issues)); err != nil {
-			return commandMutationResult{err: err}
 		}
 
 		return commandMutationResult{broadcastLayout: true}
@@ -244,28 +248,32 @@ func cmdRmMeta(ctx *CommandContext) {
 			return commandMutationResult{err: err}
 		}
 
-		prs := pane.Meta.TrackedPRs
-		for _, pr := range update.PRs {
-			prs = metacmd.RemoveTrackedPR(prs, pr)
-		}
-		if len(prs) == 0 {
-			if err := removePaneKVValue(pane, mux.PaneMetaKeyTrackedPRs); err != nil {
+		if len(update.PRs) > 0 {
+			prs := pane.Meta.TrackedPRs
+			for _, pr := range update.PRs {
+				prs = metacmd.RemoveTrackedPR(prs, pr)
+			}
+			if len(prs) == 0 {
+				if err := removePaneKVValue(pane, mux.PaneMetaKeyTrackedPRs); err != nil {
+					return commandMutationResult{err: err}
+				}
+			} else if err := setPaneKVValue(pane, mux.PaneMetaKeyTrackedPRs, mux.FormatTrackedPRsValue(prs)); err != nil {
 				return commandMutationResult{err: err}
 			}
-		} else if err := setPaneKVValue(pane, mux.PaneMetaKeyTrackedPRs, mux.FormatTrackedPRsValue(prs)); err != nil {
-			return commandMutationResult{err: err}
 		}
 
-		issues := pane.Meta.TrackedIssues
-		for _, issue := range update.Issues {
-			issues = metacmd.RemoveTrackedIssue(issues, issue)
-		}
-		if len(issues) == 0 {
-			if err := removePaneKVValue(pane, mux.PaneMetaKeyTrackedIssues); err != nil {
+		if len(update.Issues) > 0 {
+			issues := pane.Meta.TrackedIssues
+			for _, issue := range update.Issues {
+				issues = metacmd.RemoveTrackedIssue(issues, issue)
+			}
+			if len(issues) == 0 {
+				if err := removePaneKVValue(pane, mux.PaneMetaKeyTrackedIssues); err != nil {
+					return commandMutationResult{err: err}
+				}
+			} else if err := setPaneKVValue(pane, mux.PaneMetaKeyTrackedIssues, mux.FormatTrackedIssuesValue(issues)); err != nil {
 				return commandMutationResult{err: err}
 			}
-		} else if err := setPaneKVValue(pane, mux.PaneMetaKeyTrackedIssues, mux.FormatTrackedIssuesValue(issues)); err != nil {
-			return commandMutationResult{err: err}
 		}
 
 		return commandMutationResult{broadcastLayout: true}
