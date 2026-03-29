@@ -846,7 +846,6 @@ func runServer(sessionName string, managedTakeover bool) {
 	// Check for checkpoint restore (after server hot-reload)
 	if cpPath := os.Getenv("AMUX_CHECKPOINT"); cpPath != "" {
 		os.Unsetenv("AMUX_CHECKPOINT")
-		restoredSession = true
 		s, err = restoreServerFromReloadCheckpoint(sessionName, cpPath, scrollbackLines)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "amux server: reading checkpoint: %v\n", err)
