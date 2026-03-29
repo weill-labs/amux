@@ -33,6 +33,29 @@ func TestPaneStatusMetadataSegmentsTruncatesLongFirstItem(t *testing.T) {
 	}
 }
 
+func TestPaneStatusMetadataSegmentsOrdersOpenItemsBeforeCompleted(t *testing.T) {
+	t.Parallel()
+
+	got := paneStatusMetadataSegments([]paneStatusMetadataItem{
+		{text: "#42", status: proto.TrackedStatusCompleted},
+		{text: "LAB-450", status: proto.TrackedStatusActive},
+		{text: "#314", status: proto.TrackedStatusUnknown},
+		{text: "LAB-451", status: proto.TrackedStatusCompleted},
+	}, 64)
+	want := []paneStatusMetadataSegment{
+		{text: "LAB-450", status: proto.TrackedStatusActive},
+		{text: ", "},
+		{text: "#314", status: proto.TrackedStatusUnknown},
+		{text: ", "},
+		{text: "#42", status: proto.TrackedStatusCompleted},
+		{text: ", "},
+		{text: "LAB-451", status: proto.TrackedStatusCompleted},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("paneStatusMetadataSegments() = %#v, want %#v", got, want)
+	}
+}
+
 func TestAvailableMetadataWidthReturnsZeroWithoutMetadata(t *testing.T) {
 	t.Parallel()
 
