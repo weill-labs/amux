@@ -171,6 +171,22 @@ func (t *VTIdleTracker) TrackOutput(paneID uint32, settle time.Duration, onSettl
 	})
 }
 
+// PrimeSettling marks a pane as having recent activity without scheduling a
+// synthetic settled callback. Restores use this when a fresh runtime replaces
+// an older pane but the pane keeps its historical CreatedAt for display.
+func (t *VTIdleTracker) PrimeSettling(paneID uint32, at time.Time) {
+	if at.IsZero() {
+		at = t.clock.Now()
+	}
+	if timer := t.timers[paneID]; timer != nil {
+		timer.Stop()
+		delete(t.timers, paneID)
+	}
+	t.lastOutput[paneID] = at
+	t.settled[paneID] = false
+	t.publish()
+}
+
 // MarkSettled records that the quiet timer still matches the most recent output
 // edge. Stale callbacks return false.
 func (t *VTIdleTracker) MarkSettled(paneID uint32, expected time.Time) bool {

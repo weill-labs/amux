@@ -285,12 +285,12 @@ func TestNewServerFromCrashCheckpointWithScrollbackPrimesVTIdleFromRecoveryTime(
 		t.Fatalf("CreatedAt() = %v, want %v", restored.CreatedAt(), originalCreatedAt)
 	}
 
-	early := sess.paneVTIdleStatus(restored.ID, restored.CreatedAt(), restoreStart.Add(time.Second))
+	early := sess.paneIdleStatus(restored.ID, restored.CreatedAt(), restoreStart.Add(time.Second))
 	if early.idle {
 		t.Fatal("vt-idle should still be settling from the fresh crash-recovery runtime")
 	}
 
-	settled := sess.paneVTIdleStatus(restored.ID, restored.CreatedAt(), restoreStart.Add(3*time.Second))
+	settled := sess.paneIdleStatus(restored.ID, restored.CreatedAt(), restoreStart.Add(3*time.Second))
 	if !settled.idle {
 		t.Fatal("vt-idle should settle after the recovery-time grace window")
 	}
