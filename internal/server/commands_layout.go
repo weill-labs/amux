@@ -833,6 +833,59 @@ func cmdResizePane(ctx *CommandContext) {
 	}))
 }
 
+func parseEqualizeCommandArgs(args []string) (widths, heights bool, err error) {
+	mode := ""
+	for _, arg := range args {
+		switch arg {
+		case "--vertical":
+			if mode != "" && mode != arg {
+				return false, false, fmt.Errorf("equalize: conflicting equalize modes")
+			}
+			mode = arg
+		case "--all":
+			if mode != "" && mode != arg {
+				return false, false, fmt.Errorf("equalize: conflicting equalize modes")
+			}
+			mode = arg
+		default:
+			return false, false, fmt.Errorf(`equalize: unknown mode %q (use --vertical or --all)`, arg)
+		}
+	}
+	switch mode {
+	case "":
+		return true, false, nil
+	case "--vertical":
+		return false, true, nil
+	case "--all":
+		return true, true, nil
+	default:
+		return false, false, fmt.Errorf(`equalize: unknown mode %q (use --vertical or --all)`, mode)
+	}
+}
+
+func cmdEqualize(ctx *CommandContext) {
+	widths, heights, err := parseEqualizeCommandArgs(ctx.Args)
+	if err != nil {
+		ctx.replyErr(err.Error())
+		return
+	}
+	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
+		w := sess.activeWindow()
+		if w == nil {
+			return commandMutationResult{err: fmt.Errorf("no window")}
+		}
+		changed := w.Equalize(widths, heights)
+		output := "Already equalized\n"
+		if changed {
+			output = "Equalized layout\n"
+		}
+		return commandMutationResult{
+			output:          output,
+			broadcastLayout: changed,
+		}
+	}))
+}
+
 func cmdResizeWindow(ctx *CommandContext) {
 	if len(ctx.Args) < 2 {
 		ctx.replyErr("usage: resize-window <cols> <rows>")

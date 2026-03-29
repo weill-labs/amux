@@ -381,6 +381,20 @@ func proportionalSubtreeChildSizes(children []*LayoutCell, axis SplitDir, target
 	return sizes
 }
 
+func equalSplitSizes(total, count int) []int {
+	if count <= 0 {
+		return nil
+	}
+	seps := count - 1
+	each := (total - seps) / count
+	sizes := make([]int, count)
+	for i := range sizes {
+		sizes[i] = each
+	}
+	sizes[count-1] = total - seps - each*(count-1)
+	return sizes
+}
+
 func (c *LayoutCell) resizeCheck(axis SplitDir) int {
 	if c.IsLeaf() {
 		size := c.W
@@ -721,6 +735,37 @@ func (c *LayoutCell) FindBorderAt(x, y int) *BorderHit {
 	return nil
 }
 
+func (c *LayoutCell) equalizeChildren() {
+	if c == nil || c.IsLeaf() || len(c.Children) == 0 {
+		return
+	}
+
+	sizes := equalSplitSizes(c.axisSize(c.Dir), len(c.Children))
+	for i, child := range c.Children {
+		if c.Dir == SplitVertical {
+			child.ResizeSubtree(sizes[i], c.H)
+			continue
+		}
+		child.ResizeSubtree(c.W, sizes[i])
+	}
+}
+
+// equalizeChildrenNeeded reports whether distributeEqual would change any
+// direct child size along this cell's split axis.
+func (c *LayoutCell) equalizeChildrenNeeded() bool {
+	if c == nil || c.IsLeaf() || len(c.Children) == 0 {
+		return false
+	}
+
+	sizes := equalSplitSizes(c.axisSize(c.Dir), len(c.Children))
+	for i, child := range c.Children {
+		if child.axisSize(c.Dir) != sizes[i] {
+			return true
+		}
+	}
+	return false
+}
+
 // FindBorderNear returns a border at (x, y) or within a one-cell cardinal
 // neighborhood. This matches tmux's drag behavior, which tolerates slight
 // pointer drift while dragging a border.
@@ -743,37 +788,7 @@ func (c *LayoutCell) FindBorderNear(x, y int) *BorderHit {
 // distributeEqual sets all children to equal sizes along the split direction.
 // The last child receives the remainder to account for integer rounding.
 func (c *LayoutCell) distributeEqual() {
-	n := len(c.Children)
-	seps := n - 1
-	if c.Dir == SplitVertical {
-		each := (c.W - seps) / n
-		for i, child := range c.Children {
-			targetW := each
-			if i == n-1 {
-				targetW = c.W - seps - each*(n-1)
-			}
-			if child.IsLeaf() {
-				child.W = targetW
-				child.H = c.H
-			} else {
-				child.ResizeSubtree(targetW, c.H)
-			}
-		}
-	} else {
-		each := (c.H - seps) / n
-		for i, child := range c.Children {
-			targetH := each
-			if i == n-1 {
-				targetH = c.H - seps - each*(n-1)
-			}
-			if child.IsLeaf() {
-				child.H = targetH
-				child.W = c.W
-			} else {
-				child.ResizeSubtree(c.W, targetH)
-			}
-		}
-	}
+	c.equalizeChildren()
 }
 
 // IndexInParent returns the index of this cell within its parent's Children

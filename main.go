@@ -199,6 +199,14 @@ func main() {
 			os.Exit(1)
 		}
 		runSessionCommand("resize-pane", args[1:])
+	case "equalize":
+		equalizeArgs, err := parseEqualizeArgs(args[1:])
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "amux equalize: %v\n", err)
+			fmt.Fprintf(os.Stderr, "usage: amux equalize [--vertical|--all]\n")
+			os.Exit(1)
+		}
+		runSessionCommand("equalize", equalizeArgs)
 	case "reset", "focus":
 		if len(args) < 2 {
 			fmt.Fprintf(os.Stderr, "usage: amux %s <pane>\n", args[0])
@@ -475,6 +483,25 @@ func parseSplitArgs(args []string) ([]string, error) {
 	return parsed, nil
 }
 
+func parseEqualizeArgs(args []string) ([]string, error) {
+	mode := ""
+	for _, arg := range args {
+		switch arg {
+		case "--vertical", "--all":
+			if mode != "" && mode != arg {
+				return nil, fmt.Errorf("conflicting equalize modes")
+			}
+			mode = arg
+		default:
+			return nil, fmt.Errorf("unknown equalize arg %q", arg)
+		}
+	}
+	if mode == "" {
+		return nil, nil
+	}
+	return []string{mode}, nil
+}
+
 func printUsage() {
 	fmt.Println(`amux — Agent-Centric Terminal Multiplexer
 
@@ -519,6 +546,8 @@ Usage:
   amux [-s session] reset <pane>       Clear pane history and reset terminal state
   amux [-s session] resize-pane <pane> <dir> [n]
                                        Resize pane (dir: left/right/up/down)
+  amux [-s session] equalize [--vertical|--all]
+                                       Rebalance root columns, column rows, or both
   amux [-s session] kill <pane>        Kill a pane
   amux [-s session] undo              Undo last pane close
   amux [-s session] focus <pane>       Focus a pane by name or ID

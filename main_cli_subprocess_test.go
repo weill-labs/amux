@@ -170,3 +170,18 @@ func assertMainCommandConnectError(t *testing.T, out, cmdName string) {
 		t.Fatalf("output = %q, want substring %q", out, want)
 	}
 }
+
+func TestMainEqualizeUsage(t *testing.T) {
+	t.Parallel()
+
+	output, exitCode := runHermeticMain(t, "equalize", "--bogus")
+	if exitCode == 0 {
+		t.Fatalf("exit code = %d, want non-zero\noutput:\n%s", exitCode, output)
+	}
+	if !strings.Contains(output, `amux equalize: unknown equalize arg "--bogus"`) {
+		t.Fatalf("output = %q, want equalize parse error", output)
+	}
+	if !strings.Contains(output, "usage: amux equalize [--vertical|--all]") {
+		t.Fatalf("output = %q, want equalize usage", output)
+	}
+}
