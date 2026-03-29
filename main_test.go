@@ -237,6 +237,12 @@ func TestMaybePrintCommandHelp(t *testing.T) {
 			wantStdout:  "usage: amux status\n",
 		},
 		{
+			name:        "equalize long help as first arg",
+			args:        []string{"equalize", "--help"},
+			wantHandled: true,
+			wantStdout:  "usage: amux equalize [--vertical|--all]\n",
+		},
+		{
 			name:        "help after command args stays unhandled",
 			args:        []string{"send-keys", "pane-1", "--help"},
 			wantHandled: false,

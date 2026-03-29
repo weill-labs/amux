@@ -47,6 +47,7 @@ var commandUsageByName = map[string]string{
 	"cursor":           "usage: amux cursor <layout|clipboard|ui> [--client <id>]",
 	"dashboard":        "usage: amux dashboard",
 	"disconnect":       "usage: amux disconnect <host>",
+	"equalize":         "usage: amux equalize [--vertical|--all]",
 	"events":           "usage: amux events [--filter type1,type2] [--pane <ref>] [--host <name>] [--client <id>] [--no-reconnect]",
 	"focus":            "usage: amux focus <pane>",
 	"hosts":            "usage: amux hosts",
