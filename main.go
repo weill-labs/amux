@@ -349,18 +349,30 @@ func main() {
 		}
 		runSessionCommand("resize-window", args[1:])
 	case "set-kv":
+		if hasHelpFlag(args[1:]) {
+			fmt.Fprintln(os.Stdout, "usage: amux set-kv <pane> key=value [key=value...]")
+			return
+		}
 		if len(args) < 3 {
 			fmt.Fprintf(os.Stderr, "usage: amux set-kv <pane> key=value [key=value...]\n")
 			os.Exit(1)
 		}
 		runSessionCommand("set-kv", args[1:])
 	case "get-kv":
+		if hasHelpFlag(args[1:]) {
+			fmt.Fprintln(os.Stdout, "usage: amux get-kv <pane> [key...]")
+			return
+		}
 		if len(args) < 2 {
 			fmt.Fprintf(os.Stderr, "usage: amux get-kv <pane> [key...]\n")
 			os.Exit(1)
 		}
 		runSessionCommand("get-kv", args[1:])
 	case "rm-kv":
+		if hasHelpFlag(args[1:]) {
+			fmt.Fprintln(os.Stdout, "usage: amux rm-kv <pane> key [key...]")
+			return
+		}
 		if len(args) < 3 {
 			fmt.Fprintf(os.Stderr, "usage: amux rm-kv <pane> key [key...]\n")
 			os.Exit(1)
