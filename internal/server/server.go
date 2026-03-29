@@ -285,6 +285,19 @@ func (s *Session) startCrashCheckpointLoop() {
 	go s.crashCheckpointLoop()
 }
 
+func (s *Session) stopCrashCheckpointLoop() {
+	if s.crashCheckpointStop == nil || s.crashCheckpointDone == nil {
+		return
+	}
+	select {
+	case <-s.crashCheckpointDone:
+		return
+	default:
+	}
+	close(s.crashCheckpointStop)
+	<-s.crashCheckpointDone
+}
+
 // crashCheckpointLoop debounces checkpoint triggers and writes crash
 // checkpoints periodically. Runs until crashCheckpointStop is closed.
 func (s *Session) crashCheckpointLoop() {
@@ -688,21 +701,11 @@ func (s *Server) shutdown() {
 	for _, sess := range s.sessions {
 		sess.shutdown.Store(true)
 
-		if sess.sessionEventStop != nil {
-			close(sess.sessionEventStop)
-			<-sess.sessionEventDone
-			sess.sessionEventStop = nil
-		}
+		sess.stopEventLoop()
 
 		// Stop crash checkpoint loop and wait for it to exit.
 		// The shutdown flag prevents any further writes.
-		// Nil out after close so Shutdown() is safe to call twice
-		// (exit-unattached can race with signal-based shutdown).
-		if sess.crashCheckpointStop != nil {
-			close(sess.crashCheckpointStop)
-			<-sess.crashCheckpointDone
-			sess.crashCheckpointStop = nil
-		}
+		sess.stopCrashCheckpointLoop()
 
 		// Clean shutdown: remove crash checkpoint (no recovery needed)
 		_ = checkpoint.RemoveCrashFile(checkpoint.CrashCheckpointPathTimestamped(sess.Name, sess.startedAt))

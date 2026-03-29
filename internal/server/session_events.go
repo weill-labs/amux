@@ -467,6 +467,19 @@ func (s *Session) startEventLoop() {
 	go s.eventLoop()
 }
 
+func (s *Session) stopEventLoop() {
+	if s.sessionEventStop == nil || s.sessionEventDone == nil {
+		return
+	}
+	select {
+	case <-s.sessionEventDone:
+		return
+	default:
+	}
+	close(s.sessionEventStop)
+	<-s.sessionEventDone
+}
+
 func (s *Session) eventLoop() {
 	defer close(s.sessionEventDone)
 	s.eventLoopOwner.Assert("server.Session", "eventLoop")
