@@ -12,6 +12,18 @@ if [[ "$branch_update" != true ]]; then
     exit 0
 fi
 
+if command -v gh >/dev/null 2>&1; then
+    local_origin_main_sha="$(git rev-parse --verify refs/remotes/origin/main 2>/dev/null || true)"
+    github_main_sha="$(gh api repos/weill-labs/amux/git/ref/heads/main --jq .object.sha 2>/dev/null || true)"
+
+    if [[ -n "$local_origin_main_sha" && -n "$github_main_sha" && "$local_origin_main_sha" != "$github_main_sha" ]]; then
+        echo "WARNING: local origin/main (${local_origin_main_sha:0:12}) differs from GitHub main (${github_main_sha:0:12})." >&2
+        echo "  Refresh before rebasing with:" >&2
+        echo "  git fetch git@github.com:weill-labs/amux.git main:refs/remotes/origin/main" >&2
+        echo "  git rebase origin/main" >&2
+    fi
+fi
+
 if ! bash scripts/check-diff-coverage.sh; then
     echo ""
     echo "ERROR: diff coverage check failed"
