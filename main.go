@@ -33,6 +33,65 @@ const (
 
 const reconnectEventType = "reconnect"
 
+var commandUsageByName = map[string]string{
+	"_inject-proxy":    "usage: amux _inject-proxy <host>",
+	"_layout-json":     "usage: amux _layout-json",
+	"_server":          "usage: amux _server [session]",
+	"add-meta":         "usage: amux add-meta <pane> key=value [key=value...]",
+	"add-pane":         "usage: amux add-pane [--name NAME] [--host HOST]",
+	"attach":           "usage: amux attach [-d] [session]",
+	"broadcast":        "usage: amux broadcast (--panes <pane,pane,...> | --window <index|name> | --match <glob>) [--hex] <keys>...",
+	"capture":          "usage: amux capture [pane] [--history <pane>] [--ansi] [--colors]",
+	"connection-log":   "usage: amux connection-log",
+	"copy-mode":        "usage: amux copy-mode [pane] [--wait ui=copy-mode-shown] [--timeout <duration>]",
+	"cursor":           "usage: amux cursor <layout|clipboard|ui> [--client <id>]",
+	"dashboard":        "usage: amux dashboard",
+	"disconnect":       "usage: amux disconnect <host>",
+	"events":           "usage: amux events [--filter type1,type2] [--pane <ref>] [--host <name>] [--client <id>] [--no-reconnect]",
+	"focus":            "usage: amux focus <pane>",
+	"hosts":            "usage: amux hosts",
+	"install-terminfo": "usage: amux install-terminfo",
+	"kill":             "usage: amux kill [--cleanup] [--timeout <duration>] [pane]",
+	"list":             "usage: amux list [--no-cwd]",
+	"list-clients":     "usage: amux list-clients",
+	"list-windows":     "usage: amux list-windows",
+	"move":             "usage: amux move <pane> --before <target> | move <pane> --after <target>",
+	"move-down":        "usage: amux move-down <pane>",
+	"move-to":          "usage: amux move-to <pane> <target>",
+	"move-up":          "usage: amux move-up <pane>",
+	"new":              "usage: amux new [name]",
+	"new-window":       "usage: amux new-window [--name NAME]",
+	"next-window":      "usage: amux next-window",
+	"pane-log":         "usage: amux pane-log",
+	"prev-window":      "usage: amux prev-window",
+	"reconnect":        "usage: amux reconnect <host>",
+	"refresh-meta":     "usage: amux refresh-meta [pane]",
+	"reload-server":    "usage: amux reload-server",
+	"rename-window":    "usage: amux rename-window <name>",
+	"reset":            "usage: amux reset <pane>",
+	"resize-pane":      "usage: amux resize-pane <pane> <direction> [delta]",
+	"resize-window":    "usage: amux resize-window <cols> <rows>",
+	"rm-meta":          "usage: amux rm-meta <pane> key=value [key=value...]",
+	"rotate":           "usage: amux rotate [--reverse]",
+	"select-window":    "usage: amux select-window <index|name>",
+	"send-keys":        sendKeysUsage,
+	"set-lead":         "usage: amux set-lead [pane]",
+	"set-meta":         "usage: amux set-meta <pane> key=value [key=value...]",
+	"spawn":            "usage: amux spawn --name NAME [--host HOST] [--task TASK] [--color COLOR]",
+	"split":            "usage: amux split <pane> [root] [--vertical|--horizontal] [--name NAME] [--host HOST]",
+	"status":           "usage: amux status",
+	"swap":             "usage: amux swap <pane1> <pane2> | swap forward | swap backward",
+	"swap-tree":        "usage: amux swap-tree <pane1> <pane2>",
+	"toggle-lead":      "usage: amux toggle-lead",
+	"type-keys":        typeKeysUsage,
+	"undo":             "usage: amux undo",
+	"unset-lead":       "usage: amux unset-lead",
+	"unsplice":         "usage: amux unsplice <host>",
+	"version":          "usage: amux version [--hash]",
+	"wait":             "usage: amux wait <idle|busy|vt-idle|ready|content|layout|clipboard|checkpoint|ui> ...",
+	"zoom":             "usage: amux zoom [pane]",
+}
+
 // BuildCommit can be set via -ldflags "-X main.BuildCommit=abc1234".
 // Falls back to VCS info from runtime/debug at startup.
 var BuildCommit string
@@ -73,6 +132,9 @@ func main() {
 			fmt.Fprintf(os.Stderr, "amux: %v\n", err)
 			os.Exit(1)
 		}
+		return
+	}
+	if maybePrintCommandHelp(os.Stdout, args) {
 		return
 	}
 
@@ -369,6 +431,21 @@ func hasHelpFlag(args []string) bool {
 		}
 	}
 	return false
+}
+
+func maybePrintCommandHelp(stdout io.Writer, args []string) bool {
+	if len(args) < 2 {
+		return false
+	}
+	if args[1] != "--help" && args[1] != "-h" {
+		return false
+	}
+	usage, ok := commandUsageByName[args[0]]
+	if !ok {
+		return false
+	}
+	fmt.Fprintln(stdout, usage)
+	return true
 }
 
 func maybePrintKeyCommandUsage(stdout, stderr io.Writer, args []string, usage string, minArgs int) (handled bool, exitCode int) {

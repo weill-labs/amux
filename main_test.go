@@ -215,6 +215,63 @@ func TestMaybePrintKeyCommandUsage(t *testing.T) {
 	}
 }
 
+<<<<<<< HEAD
+func TestMaybePrintCommandHelp(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		args        []string
+		wantHandled bool
+		wantStdout  string
+	}{
+		{
+			name:        "recognized long help as first arg",
+			args:        []string{"new-window", "--help"},
+			wantHandled: true,
+			wantStdout:  "usage: amux new-window [--name NAME]\n",
+		},
+		{
+			name:        "recognized short help as first arg",
+			args:        []string{"status", "-h"},
+			wantHandled: true,
+			wantStdout:  "usage: amux status\n",
+		},
+		{
+			name:        "help after command args stays unhandled",
+			args:        []string{"send-keys", "pane-1", "--help"},
+			wantHandled: false,
+		},
+		{
+			name:        "unknown command stays unhandled",
+			args:        []string{"unknown", "--help"},
+			wantHandled: false,
+		},
+		{
+			name:        "missing help flag stays unhandled",
+			args:        []string{"rotate", "--reverse"},
+			wantHandled: false,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var stdout bytes.Buffer
+
+			handled := maybePrintCommandHelp(&stdout, tt.args)
+			if handled != tt.wantHandled {
+				t.Fatalf("handled = %t, want %t", handled, tt.wantHandled)
+			}
+			if got := stdout.String(); got != tt.wantStdout {
+				t.Fatalf("stdout = %q, want %q", got, tt.wantStdout)
+			}
+		})
+	}
+}
+
 func TestPrintUsageOmitsDelegate(t *testing.T) {
 	origStdout := os.Stdout
 	r, w, err := os.Pipe()
