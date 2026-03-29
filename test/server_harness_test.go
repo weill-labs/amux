@@ -1326,9 +1326,7 @@ func (h *ServerHarness) doSplit(args ...string) {
 	defer restore()
 	before := h.layoutSnapshot()
 	if before.Root.IsLeaf && len(before.Panes) == 1 && before.LeadPaneID == before.ActivePaneID {
-		if out := h.runCmd("unset-lead"); strings.Contains(out, "error") || strings.Contains(out, "cannot") {
-			h.tb.Fatalf("unset-lead before split %v failed: %s", args, out)
-		}
+		h.unsetLead()
 		before = h.layoutSnapshot()
 	}
 	gen := h.generation()
@@ -1380,9 +1378,7 @@ func (h *ServerHarness) doSplitPane(pane string, args ...string) {
 	defer restore()
 	before := h.layoutSnapshot()
 	if before.Root.IsLeaf && len(before.Panes) == 1 && before.LeadPaneID == before.ActivePaneID {
-		if out := h.runCmd("unset-lead"); strings.Contains(out, "error") || strings.Contains(out, "cannot") {
-			h.tb.Fatalf("unset-lead before split %s %v failed: %s", pane, args, out)
-		}
+		h.unsetLead()
 		before = h.layoutSnapshot()
 	}
 	gen := h.generation()
