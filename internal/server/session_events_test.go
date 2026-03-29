@@ -1412,6 +1412,21 @@ func TestIdleTimeoutEventEmitsExitedWhenPaneHasNoChildren(t *testing.T) {
 	}
 }
 
+func TestStopSessionBackgroundLoopsKeepsLateEnqueueClosed(t *testing.T) {
+	t.Parallel()
+
+	sess := newSession("stop-keeps-closed")
+	stopCrashCheckpointLoop(t, sess)
+	stopSessionBackgroundLoops(t, sess)
+
+	if sess.sessionEventStop == nil {
+		t.Fatal("sessionEventStop = nil, want closed channel retained")
+	}
+	if sess.enqueueEvent(crashCheckpointWrittenEvent{path: "/tmp/checkpoint.json"}) {
+		t.Fatal("enqueueEvent() = true after stop, want false")
+	}
+}
+
 func TestUIEventCmdIncrementsClientGenerationOnlyOnRealChanges(t *testing.T) {
 	t.Parallel()
 
