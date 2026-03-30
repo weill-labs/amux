@@ -1,6 +1,10 @@
 package client
 
-import "os"
+import (
+	"os"
+
+	"github.com/weill-labs/amux/internal/config"
+)
 
 // Local render actions are reserved for client state that cannot be updated
 // safely through the clientSnapshot CAS helpers. CopyMode instances are shared,
@@ -12,7 +16,7 @@ import "os"
 func applyLocalRenderResultDirect(cr *ClientRenderer, result localRenderResult) {
 	state := &clientRenderLoopState{
 		useFull:             os.Getenv("AMUX_RENDER") == "full",
-		renderFrameInterval: defaultRenderFrameInterval,
+		renderFrameInterval: config.RenderFrameInterval,
 	}
 	_ = cr.executeRenderEffects(state, result.effects, func(string) {})
 }

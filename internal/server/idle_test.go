@@ -83,7 +83,7 @@ func TestParseWaitIdleArgs(t *testing.T) {
 			name:     "defaults",
 			args:     []string{"pane-1"},
 			wantPane: "pane-1",
-			wantOpts: waitIdleOptions{settle: DefaultVTIdleSettle, timeout: DefaultVTIdleTimeout},
+			wantOpts: waitIdleOptions{settle: config.VTIdleSettle, timeout: config.VTIdleTimeout},
 		},
 		{
 			name:     "custom settle and timeout",

@@ -76,13 +76,6 @@ func applyAttachBootstrapMessage(cr *ClientRenderer, msg attachBootstrapMessage)
 	}
 }
 
-const (
-	// Wait only briefly for the rest of attach replay so a stuck pane does not
-	// hold the terminal on a blank attach indefinitely.
-	defaultBootstrapPaneReplayWait   = 50 * time.Millisecond
-	defaultBootstrapCorrectionWindow = 50 * time.Millisecond
-)
-
 func readImmediateAttachCorrection(conn net.Conn, cr *ClientRenderer, timeout time.Duration) error {
 	if err := conn.SetReadDeadline(time.Now().Add(timeout)); err != nil {
 		return err
@@ -170,7 +163,7 @@ func readAttachBootstrap(conn net.Conn, cr *ClientRenderer) error {
 		remainingOutputs -= applyAttachBootstrapMessage(cr, msg)
 	}
 
-	remainingOutputs, err := readAttachBootstrapPaneReplays(conn, cr, remainingOutputs, defaultBootstrapPaneReplayWait)
+	remainingOutputs, err := readAttachBootstrapPaneReplays(conn, cr, remainingOutputs, config.BootstrapPaneReplayWait)
 	if err != nil {
 		return err
 	}
@@ -181,7 +174,7 @@ func readAttachBootstrap(conn net.Conn, cr *ClientRenderer) error {
 		return nil
 	}
 
-	return readImmediateAttachCorrection(conn, cr, defaultBootstrapCorrectionWindow)
+	return readImmediateAttachCorrection(conn, cr, config.BootstrapCorrectionWindow)
 }
 
 type displayPaneSelectionResult struct {

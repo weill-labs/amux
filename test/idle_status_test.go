@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/proto"
-	"github.com/weill-labs/amux/internal/server"
 )
 
 func TestIdleStatus_ShellAtPrompt(t *testing.T) {
@@ -184,7 +184,7 @@ func TestWaitIdle_TreatsQuietBusyPaneAsIdle(t *testing.T) {
 
 	h.startLongSleep("pane-1")
 
-	time.Sleep(server.DefaultIdleTimeout + time.Second)
+	time.Sleep(config.VTIdleSettle + time.Second)
 
 	out := h.runCmd("wait", "idle", "pane-1", "--timeout", "1s")
 	if strings.Contains(out, "timeout") || strings.Contains(out, "not found") {
@@ -200,7 +200,7 @@ func TestWaitExited_DoesNotTreatQuietBusyPaneAsExited(t *testing.T) {
 
 	h.startLongSleep("pane-1")
 
-	time.Sleep(server.DefaultIdleTimeout + time.Second)
+	time.Sleep(config.VTIdleSettle + time.Second)
 
 	out := h.runCmd("wait", "exited", "pane-1", "--timeout", "1s")
 	if !strings.Contains(out, "timeout") {
