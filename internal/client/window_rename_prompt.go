@@ -24,25 +24,17 @@ func (cr *ClientRenderer) WindowRenamePromptActive() bool {
 
 func (cr *ClientRenderer) ShowWindowRenamePrompt() bool {
 	windows, activeWindowID := cr.renderer.WindowSnapshots()
-	if len(windows) == 0 {
-		return false
-	}
-	found := false
 	for _, ws := range windows {
-		if ws.ID == activeWindowID {
-			found = true
-			break
+		if ws.ID != activeWindowID {
+			continue
 		}
+		result := cr.reduceUI(uiActionShowWindowRenamePrompt{
+			prompt: &windowRenamePromptState{},
+		})
+		cr.emitUIEvents(result.uiEvents)
+		return true
 	}
-	if !found {
-		return false
-	}
-
-	result := cr.reduceUI(uiActionShowWindowRenamePrompt{
-		prompt: &windowRenamePromptState{},
-	})
-	cr.emitUIEvents(result.uiEvents)
-	return true
+	return false
 }
 
 func (cr *ClientRenderer) HideWindowRenamePrompt() bool {
