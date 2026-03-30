@@ -107,8 +107,14 @@ func activePaneRender(w *mux.Window) []paneRender {
 	}}
 }
 
-func runSplit(ctx *CommandContext) {
-	args, err := layoutcmd.ParseSplitArgs(ctx.Args)
+func appendFocusFlag(args []string) []string {
+	withFocus := make([]string, 0, len(args)+1)
+	withFocus = append(withFocus, args...)
+	return append(withFocus, "--focus")
+}
+
+func runSplit(ctx *CommandContext, rawArgs []string) {
+	args, err := layoutcmd.ParseSplitArgs(rawArgs)
 	if err != nil {
 		ctx.replyErr(err.Error())
 		return
@@ -141,7 +147,7 @@ func runSplit(ctx *CommandContext) {
 	}
 
 	if args.HostName != "" {
-		pane, err := ctx.CC.splitRemotePane(ctx.Sess, args.HostName, args.Dir, args.RootLevel, args.Name, args.NoFocus)
+		pane, err := ctx.CC.splitRemotePane(ctx.Sess, args.HostName, args.Dir, args.RootLevel, args.Name, !args.Focus)
 		if err != nil {
 			ctx.replyErr(err.Error())
 			return
@@ -181,7 +187,7 @@ func runSplit(ctx *CommandContext) {
 		if err != nil {
 			return commandMutationResult{err: err}
 		}
-		opts := mux.SplitOptions{KeepFocus: args.NoFocus || w.ZoomedPaneID != 0}
+		opts := mux.SplitOptions{KeepFocus: !args.Focus || w.ZoomedPaneID != 0}
 		if args.RootLevel {
 			_, err = w.SplitRootWithOptions(args.Dir, pane, opts)
 		} else {
@@ -199,7 +205,11 @@ func runSplit(ctx *CommandContext) {
 }
 
 func cmdSplit(ctx *CommandContext) {
-	runSplit(ctx)
+	runSplit(ctx, ctx.Args)
+}
+
+func cmdSplitFocus(ctx *CommandContext) {
+	runSplit(ctx, appendFocusFlag(ctx.Args))
 }
 
 type spiralAddSnapshot struct {
@@ -212,8 +222,8 @@ type spiralAddSnapshot struct {
 	plan         mux.SpiralAddPlan
 }
 
-func runAddPane(ctx *CommandContext) {
-	args, err := layoutcmd.ParseAddPaneArgs(ctx.Args)
+func runAddPane(ctx *CommandContext, rawArgs []string) {
+	args, err := layoutcmd.ParseAddPaneArgs(rawArgs)
 	if err != nil {
 		ctx.replyErr(err.Error())
 		return
@@ -275,7 +285,7 @@ func runAddPane(ctx *CommandContext) {
 				return commandMutationResult{err: fmt.Errorf("window changed during add-pane")}
 			}
 			sess.Panes = append(sess.Panes, pane)
-			if _, err := w.ApplySpiralAddPlan(snapshot.plan, pane, mux.SplitOptions{KeepFocus: args.NoFocus || w.ZoomedPaneID != 0}); err != nil {
+			if _, err := w.ApplySpiralAddPlan(snapshot.plan, pane, mux.SplitOptions{KeepFocus: !args.Focus || w.ZoomedPaneID != 0}); err != nil {
 				return cleanupFailedPaneMutation(sess, pane, err)
 			}
 			return commandMutationResult{
@@ -304,7 +314,7 @@ func runAddPane(ctx *CommandContext) {
 		if err != nil {
 			return commandMutationResult{err: err}
 		}
-		if _, err := w.ApplySpiralAddPlan(snapshot.plan, pane, mux.SplitOptions{KeepFocus: args.NoFocus || w.ZoomedPaneID != 0}); err != nil {
+		if _, err := w.ApplySpiralAddPlan(snapshot.plan, pane, mux.SplitOptions{KeepFocus: !args.Focus || w.ZoomedPaneID != 0}); err != nil {
 			return cleanupFailedPaneMutation(sess, pane, err)
 		}
 		return commandMutationResult{
@@ -316,7 +326,11 @@ func runAddPane(ctx *CommandContext) {
 }
 
 func cmdAddPane(ctx *CommandContext) {
-	runAddPane(ctx)
+	runAddPane(ctx, ctx.Args)
+}
+
+func cmdAddPaneFocus(ctx *CommandContext) {
+	runAddPane(ctx, appendFocusFlag(ctx.Args))
 }
 
 func cmdFocus(ctx *CommandContext) {
@@ -356,8 +370,8 @@ func cmdFocus(ctx *CommandContext) {
 	}))
 }
 
-func runSpawn(ctx *CommandContext) {
-	args, err := layoutcmd.ParseSpawnArgs(ctx.Args)
+func runSpawn(ctx *CommandContext, rawArgs []string) {
+	args, err := layoutcmd.ParseSpawnArgs(rawArgs)
 	if err != nil {
 		ctx.replyErr(err.Error())
 		return
@@ -365,7 +379,7 @@ func runSpawn(ctx *CommandContext) {
 
 	remoteHost := args.Meta.Host
 	if remoteHost != "" && remoteHost != mux.DefaultHost {
-		pane, err := ctx.CC.splitRemotePane(ctx.Sess, remoteHost, mux.SplitVertical, false, args.Meta.Name, args.NoFocus)
+		pane, err := ctx.CC.splitRemotePane(ctx.Sess, remoteHost, mux.SplitVertical, false, args.Meta.Name, !args.Focus)
 		if err != nil {
 			ctx.replyErr(err.Error())
 			return
@@ -409,7 +423,7 @@ func runSpawn(ctx *CommandContext) {
 		if err != nil {
 			return commandMutationResult{err: err}
 		}
-		opts := mux.SplitOptions{KeepFocus: args.NoFocus || w.ZoomedPaneID != 0}
+		opts := mux.SplitOptions{KeepFocus: !args.Focus || w.ZoomedPaneID != 0}
 		_, err = w.SplitWithOptions(mux.SplitVertical, pane, opts)
 		if err != nil {
 			return cleanupFailedPaneMutation(sess, pane, err)
@@ -423,7 +437,11 @@ func runSpawn(ctx *CommandContext) {
 }
 
 func cmdSpawn(ctx *CommandContext) {
-	runSpawn(ctx)
+	runSpawn(ctx, ctx.Args)
+}
+
+func cmdSpawnFocus(ctx *CommandContext) {
+	runSpawn(ctx, appendFocusFlag(ctx.Args))
 }
 
 func cmdZoom(ctx *CommandContext) {

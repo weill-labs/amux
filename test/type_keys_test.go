@@ -60,15 +60,15 @@ func TestTypeKeysFocus(t *testing.T) {
 	h.sendClientKeys("C-a", "-")
 	h.waitLayout(gen)
 
-	// pane-2 should be active after split.
-	h.assertActive("pane-2")
+	// split keeps focus on pane-1 by default.
+	h.assertActive("pane-1")
 
 	// type-keys C-a o cycles focus to the next pane.
 	gen = h.generation()
 	h.sendClientKeys("C-a", "o")
 	h.waitLayout(gen)
 
-	h.assertActive("pane-1")
+	h.assertActive("pane-2")
 }
 
 func TestTypeKeysRootHorizontalSplitWhileLeadFocused(t *testing.T) {

@@ -14,10 +14,8 @@ func TestRepeatResize(t *testing.T) {
 	// Split vertically: [pane-1 | pane-2]
 	h.splitV()
 
-	// Focus left pane
-	gen := h.generation()
-	h.sendKeys("C-a", "h")
-	h.waitLayout(gen)
+	// split keeps focus on pane-1, so no extra setup is required.
+	h.assertActive("pane-1")
 
 	initialBorder := h.captureAmuxVerticalBorderCol()
 	if initialBorder < 0 {
@@ -26,7 +24,7 @@ func TestRepeatResize(t *testing.T) {
 
 	// Press Prefix+L once, then L twice more WITHOUT prefix (repeat mode).
 	// Use waitLayout between presses for deterministic synchronization.
-	gen = h.generation()
+	gen := h.generation()
 	h.sendKeys("C-a", "L")
 	h.waitLayout(gen)
 
@@ -58,6 +56,7 @@ func TestRepeatFocus(t *testing.T) {
 	// Create 3 panes: [pane-1 | pane-2 | pane-3]
 	h.splitV()
 	h.splitV()
+	runLayoutCommand(t, h, "focus", "pane-3")
 
 	// Focus is on pane-3 (rightmost). Press Prefix+h then h again without prefix.
 	// Should end up on pane-1 (two moves left).
@@ -81,6 +80,7 @@ func TestRepeatCrossKey(t *testing.T) {
 	// Create 3 panes: [pane-1 | pane-2 | pane-3]
 	h.splitV()
 	h.splitV()
+	runLayoutCommand(t, h, "focus", "pane-3")
 
 	// Focus is on pane-3. Press Prefix+h (focus left to pane-2),
 	// then l without prefix (focus right back to pane-3).
@@ -105,10 +105,8 @@ func TestRepeatExpiresAfterTimeout(t *testing.T) {
 	// Split: [pane-1 | pane-2]
 	h.splitV()
 
-	// Focus left pane
-	gen := h.generation()
-	h.sendKeys("C-a", "h")
-	h.waitLayout(gen)
+	// split keeps focus on pane-1, so no extra setup is required.
+	h.assertActive("pane-1")
 
 	initialBorder := h.captureAmuxVerticalBorderCol()
 	if initialBorder < 0 {
@@ -116,7 +114,7 @@ func TestRepeatExpiresAfterTimeout(t *testing.T) {
 	}
 
 	// Press Prefix+L, then wait longer than repeat timeout (500ms), then press L
-	gen = h.generation()
+	gen := h.generation()
 	h.sendKeys("C-a", "L")
 	h.waitLayout(gen)
 	uiGen := h.uiGen()

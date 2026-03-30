@@ -303,7 +303,7 @@ The public CLI keeps one command path per concept: target sessions with `-s`, cr
 | Command | Description |
 |---------|-------------|
 | `amux list [--no-cwd]` | List panes with metadata (including cwd by default) |
-| `amux spawn [--at <pane>] [--vertical\|--horizontal] [--root] [--spiral] [--no-focus] [--name NAME] [--host HOST] [--task TASK] [--color COLOR]` | Create a new pane using default spawn, targeted split, or spiral placement |
+| `amux spawn [--at <pane>] [--vertical\|--horizontal] [--root] [--spiral] [--focus] [--name NAME] [--host HOST] [--task TASK] [--color COLOR]` | Create a new pane using default spawn, targeted split, or spiral placement |
 | `amux focus <pane\|direction>` | Focus by name, ID, or direction (left/right/up/down/next) |
 | `amux zoom [pane]` | Toggle zoom on a pane |
 | `amux kill [pane]` | Kill a pane (default: active) |
@@ -324,7 +324,7 @@ The public CLI keeps one command path per concept: target sessions with `-s`, cr
 `move` first checks whether both panes are siblings in the same split group. When they are, it reorders only that group. Otherwise it falls back to the existing root-level-group behavior, so moving `pane-3` can still move an entire column or row when the panes are in different branches.
 `move up` and `move down` are shorthand for nudging a pane one slot earlier or later within its current split group.
 `move --to-column` instead moves exactly one pane into the target pane's logical column and appends it to the bottom of that stack.
-`spawn` is the canonical pane-creation command. Use plain `spawn` for the default vertical split path, `spawn --at ...` for targeted splits, and `spawn --spiral` for clockwise spiral placement. These layout mutations focus the newly created pane by default. Use `--no-focus` to keep focus on the existing pane instead. When the active pane is zoomed, they preserve the zoom and keep the focused pane unchanged.
+`spawn` is the canonical pane-creation command. Use plain `spawn` for the default vertical split path, `spawn --at ...` for targeted splits, and `spawn --spiral` for clockwise spiral placement. These layout mutations keep focus on the existing pane by default so the lead pane can continue orchestrating workers. Use `--focus` when you want the new pane to become active instead. The legacy `split-focus`, `add-pane-focus`, and `spawn-focus` names remain as aliases. When the active pane is zoomed, they preserve the zoom and keep the focused pane unchanged.
 Higher-level prompt delegation now lives at the script layer: compose `wait idle`, `send-keys`, `wait busy`, and `wait exited` or `wait ready` to match the workflow you want.
 
 `spawn --spiral` builds outward in a clockwise spiral. At 1, 4, 9, 16, ... panes the spiral canvas reaches a uniform `N x N` grid. When a lead pane is active, the lead column stays pinned on the left and the spiral grows only within the right subtree.
@@ -377,7 +377,7 @@ Higher-level prompt delegation now lives at the script layer: compose `wait idle
 |---------|-------------|
 | `amux hosts` | List configured remote hosts and connection status |
 | `amux spawn --at <pane> [--root] [--vertical\|--horizontal] [--name NAME] --host HOST` | Create a remote split pane on HOST |
-| `amux spawn --spiral [--name NAME] [--no-focus] --host HOST` | Add a remote pane in clockwise spiral order |
+| `amux spawn --spiral [--name NAME] [--focus] --host HOST` | Add a remote pane in clockwise spiral order |
 | `amux disconnect <host>` | Drop SSH connection to a host |
 | `amux reconnect <host>` | Reconnect to a remote host |
 | `amux unsplice <host>` | Revert SSH takeover, replace remote panes with local |

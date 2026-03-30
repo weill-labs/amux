@@ -14,13 +14,8 @@ func TestOnlyActivePaneBordersColored(t *testing.T) {
 	h.splitV()
 	h.splitV()
 
-	// Focus pane-1 (leftmost)
-	gen := h.generation()
-	h.sendKeys("C-a", "h")
-	h.waitLayout(gen)
-	gen = h.generation()
-	h.sendKeys("C-a", "h")
-	h.waitLayout(gen)
+	// split keeps focus on pane-1 (leftmost)
+	h.assertActive("pane-1")
 
 	colorLine := pickContentLine(h.captureANSI())
 	borders := extractBorderColors(colorLine)

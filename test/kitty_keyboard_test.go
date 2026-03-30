@@ -30,6 +30,7 @@ func TestKittyKeyboardAltFocus(t *testing.T) {
 
 	h := newAmuxHarness(t, "AMUX_CLIENT_CAPABILITIES=kitty_keyboard")
 	h.splitV()
+	runLayoutCommand(t, h, "focus", "pane-2")
 	h.assertActive("pane-2")
 
 	h.sendKeysHex([]byte("\x1b[104;3u"))

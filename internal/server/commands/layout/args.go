@@ -10,7 +10,7 @@ type SplitArgs struct {
 	PaneRef   string // explicit target pane to split (empty = use actor context)
 	RootLevel bool
 	Dir       mux.SplitDir
-	NoFocus   bool
+	Focus     bool
 	HostName  string
 	Name      string
 	Task      string
@@ -22,7 +22,7 @@ type AddPaneArgs struct {
 	Name     string
 	Task     string
 	Color    string
-	NoFocus  bool
+	Focus    bool
 }
 
 func ParseSplitArgs(args []string) (SplitArgs, error) {
@@ -56,8 +56,8 @@ func ParseSplitArgs(args []string) (SplitArgs, error) {
 			}
 			parsed.HostName = args[i+1]
 			i++
-		case "--no-focus":
-			parsed.NoFocus = true
+		case "--focus":
+			parsed.Focus = true
 		case "--name":
 			if i+1 >= len(args) {
 				return SplitArgs{}, fmt.Errorf("--name requires a value")
@@ -99,8 +99,8 @@ func ParseAddPaneArgs(args []string) (AddPaneArgs, error) {
 			}
 			parsed.HostName = args[i+1]
 			i++
-		case "--no-focus":
-			parsed.NoFocus = true
+		case "--focus":
+			parsed.Focus = true
 		case "--name":
 			if i+1 >= len(args) {
 				return AddPaneArgs{}, fmt.Errorf("--name requires a value")
@@ -128,8 +128,8 @@ func ParseAddPaneArgs(args []string) (AddPaneArgs, error) {
 }
 
 type SpawnArgs struct {
-	Meta    mux.PaneMeta
-	NoFocus bool
+	Meta  mux.PaneMeta
+	Focus bool
 }
 
 func ParseSpawnArgs(args []string) (SpawnArgs, error) {
@@ -145,8 +145,8 @@ func ParseSpawnArgs(args []string) (SpawnArgs, error) {
 			}
 			parsed.Meta.Name = args[i+1]
 			i++
-		case "--no-focus":
-			parsed.NoFocus = true
+		case "--focus":
+			parsed.Focus = true
 		case "--host":
 			if i+1 >= len(args) {
 				return SpawnArgs{}, fmt.Errorf("--host requires a value")

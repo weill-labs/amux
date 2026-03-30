@@ -18,6 +18,7 @@ func TestFocusByName(t *testing.T) {
 	h := newServerHarness(t)
 
 	h.splitV()
+	h.doFocus("pane-2")
 
 	h.assertActive("pane-2")
 
@@ -35,6 +36,7 @@ func TestFocusByID(t *testing.T) {
 	h := newServerHarness(t)
 
 	h.splitV()
+	h.doFocus("pane-2")
 
 	output := h.doFocus("1")
 	if !strings.Contains(output, "Focused") {
@@ -98,14 +100,14 @@ func TestFocusCycle(t *testing.T) {
 
 	h.splitV()
 
-	h.assertActive("pane-2")
+	h.assertActive("pane-1")
 
 	gen := h.generation()
 	h.sendKeys("C-a", "o")
 	h.waitLayout(gen)
 
-	h.assertActive("pane-1")
-	h.assertInactive("pane-2")
+	h.assertActive("pane-2")
+	h.assertInactive("pane-1")
 }
 
 func TestFocusNavigationThreePanes(t *testing.T) {
@@ -137,6 +139,7 @@ func TestDirectionalFocusAfterRootSplit(t *testing.T) {
 	// Create: pane-1 top-left, pane-2 bottom-left, pane-3 right (root split)
 	h.splitH()
 	h.splitRootV()
+	runLayoutCommand(t, h, "focus", "pane-3")
 
 	// pane-3 is active (rightmost). Navigate left with h.
 	gen := h.generation()
@@ -186,6 +189,7 @@ func TestNavigateBackToRightPaneAfterRootHSplit(t *testing.T) {
 
 	// Root horizontal split: top (pane-1 | pane-2), bottom (pane-3)
 	h.splitRootH()
+	runLayoutCommand(t, h, "focus", "pane-3")
 
 	// pane-3 is active (bottom). Navigate up with k.
 	gen := h.generation()
@@ -219,6 +223,7 @@ func TestPrefixArrowFocus(t *testing.T) {
 
 	// Split vertically: pane-1 (left) | pane-2 (right, active)
 	h.splitV()
+	runLayoutCommand(t, h, "focus", "pane-2")
 
 	h.assertActive("pane-2")
 
@@ -243,6 +248,7 @@ func TestAltHJKLFocus(t *testing.T) {
 
 	// Split vertically: pane-1 (left) | pane-2 (right, active)
 	h.splitV()
+	runLayoutCommand(t, h, "focus", "pane-2")
 
 	h.assertActive("pane-2")
 
@@ -368,6 +374,7 @@ func TestAltHJKLFocusVertical(t *testing.T) {
 
 	// Split horizontally: pane-1 (top) / pane-2 (bottom, active)
 	h.splitH()
+	runLayoutCommand(t, h, "focus", "pane-2")
 
 	// Alt+k should focus up (pane-1)
 	gen := h.generation()
@@ -394,6 +401,7 @@ func TestEscapeThenJDoesNotFocus(t *testing.T) {
 
 	// Split horizontally: pane-1 (top) / pane-2 (bottom, active)
 	h.splitH()
+	runLayoutCommand(t, h, "focus", "pane-2")
 	h.assertActive("pane-2")
 
 	// Send Escape and j as separate keystrokes. We use wait-ui input-idle
@@ -418,6 +426,7 @@ func TestPrefixArrowFocusVertical(t *testing.T) {
 
 	// Split horizontally: pane-1 (top) / pane-2 (bottom, active)
 	h.splitH()
+	runLayoutCommand(t, h, "focus", "pane-2")
 
 	// Prefix + Up arrow should focus pane-1
 	gen := h.generation()

@@ -15,6 +15,7 @@ func TestSwapForward(t *testing.T) {
 
 	// Split to get 2 panes side-by-side: pane-1 (left) | pane-2 (right, active)
 	h.splitV()
+	runLayoutCommand(t, h, "focus", "pane-2")
 
 	// Verify initial order: pane-1 left of pane-2
 	c := h.captureJSON()
@@ -45,6 +46,7 @@ func TestSwapBackward(t *testing.T) {
 	// 3 panes: pane-1 | pane-2 | pane-3 (active)
 	h.splitV()
 	h.splitV()
+	runLayoutCommand(t, h, "focus", "pane-3")
 
 	// Swap backward: Ctrl-a { swaps active (pane-3) with previous (pane-2)
 	gen := h.generation()

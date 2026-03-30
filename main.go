@@ -557,7 +557,7 @@ type spawnCLIOptions struct {
 	hasExplicitDir bool
 	root           bool
 	spiral         bool
-	noFocus        bool
+	focus          bool
 	name           string
 	host           string
 	task           string
@@ -596,8 +596,8 @@ func parseSpawnCommandArgs(args []string) (string, []string, error) {
 			opts.root = true
 		case "--spiral":
 			opts.spiral = true
-		case "--no-focus":
-			opts.noFocus = true
+		case "--focus":
+			opts.focus = true
 		case "--name":
 			if i+1 >= len(args) {
 				return "", nil, fmt.Errorf(spawnUsage)
@@ -633,8 +633,8 @@ func parseSpawnCommandArgs(args []string) (string, []string, error) {
 
 	cmdArgs := make([]string, 0, 10)
 	if opts.spiral {
-		if opts.noFocus {
-			cmdArgs = append(cmdArgs, "--no-focus")
+		if opts.focus {
+			cmdArgs = append(cmdArgs, "--focus")
 		}
 		if opts.host != "" {
 			cmdArgs = append(cmdArgs, "--host", opts.host)
@@ -661,8 +661,8 @@ func parseSpawnCommandArgs(args []string) (string, []string, error) {
 		if opts.dir == mux.SplitVertical {
 			cmdArgs = append(cmdArgs, "v")
 		}
-		if opts.noFocus {
-			cmdArgs = append(cmdArgs, "--no-focus")
+		if opts.focus {
+			cmdArgs = append(cmdArgs, "--focus")
 		}
 		if opts.host != "" {
 			cmdArgs = append(cmdArgs, "--host", opts.host)
@@ -679,8 +679,8 @@ func parseSpawnCommandArgs(args []string) (string, []string, error) {
 		return "split", cmdArgs, nil
 	}
 
-	if opts.noFocus {
-		cmdArgs = append(cmdArgs, "--no-focus")
+	if opts.focus {
+		cmdArgs = append(cmdArgs, "--focus")
 	}
 	if opts.name != "" {
 		cmdArgs = append(cmdArgs, "--name", opts.name)
@@ -739,7 +739,7 @@ Usage:
                                        Send keystrokes to a pane
   amux [-s session] broadcast (--panes <pane,pane,...> | --window <index|name> | --match <glob>) [--hex] <keys>...
                                        Send the same keystrokes to multiple panes
-  amux [-s session] spawn [--at <pane>] [--vertical|--horizontal] [--root] [--spiral] [--no-focus] [--name NAME] [--host HOST] [--task TASK] [--color COLOR]
+  amux [-s session] spawn [--at <pane>] [--vertical|--horizontal] [--root] [--spiral] [--focus] [--name NAME] [--host HOST] [--task TASK] [--color COLOR]
                                        Create a new pane using split, spiral, or default spawn placement
   amux [-s session] zoom [pane]        Toggle zoom (maximize) a pane
   amux [-s session] swap <p1> <p2> [--tree]

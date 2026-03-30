@@ -18,6 +18,7 @@ func TestMouseClickFocus(t *testing.T) {
 	h := newAmuxHarness(t)
 
 	h.splitV()
+	runLayoutCommand(t, h, "focus", "pane-2")
 
 	h.assertActive("pane-2")
 
@@ -41,6 +42,7 @@ func TestMouseClickFocusHorizontalSplit(t *testing.T) {
 	h := newAmuxHarness(t)
 
 	h.splitH()
+	runLayoutCommand(t, h, "focus", "pane-2")
 
 	h.assertActive("pane-2")
 
@@ -323,6 +325,7 @@ func TestMouseScrollWheelTargetsInactivePaneWithoutFocusChange(t *testing.T) {
 	t.Parallel()
 	h := newAmuxHarness(t)
 	h.splitV()
+	runLayoutCommand(t, h, "focus", "pane-2")
 	h.assertActive("pane-2")
 
 	scriptPath := writeMouseScript(t, h, "mouse-inactive", `#!/bin/bash

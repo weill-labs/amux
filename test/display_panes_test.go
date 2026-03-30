@@ -20,7 +20,7 @@ func TestDisplayPanesOverlayShowsLabels(t *testing.T) {
 		t.Fatalf("expected pane overlay labels in outer capture, got:\n%s", h.captureOuter())
 	}
 
-	if got := h.activePaneName(); got != "pane-2" {
+	if got := h.activePaneName(); got != "pane-1" {
 		t.Fatalf("display-panes should not change focus, got %s", got)
 	}
 }
@@ -71,7 +71,7 @@ func TestDisplayPanesInvalidKeyDismissesWithoutLeak(t *testing.T) {
 	if strings.Contains(outer, "[1]") || strings.Contains(outer, "[2]") {
 		t.Fatalf("overlay should clear after invalid key, got:\n%s", outer)
 	}
-	if got := h.activePaneName(); got != "pane-2" {
+	if got := h.activePaneName(); got != "pane-1" {
 		t.Fatalf("invalid overlay key should not change focus, got %s", got)
 	}
 }

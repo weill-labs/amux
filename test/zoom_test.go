@@ -423,13 +423,11 @@ func TestZoomKeybinding(t *testing.T) {
 
 	h.splitH()
 
-	// Focus pane-1 via Ctrl-a k
-	gen := h.generation()
-	h.sendKeys("C-a", "k")
-	h.waitLayout(gen)
+	// split keeps focus on pane-1.
+	h.assertActive("pane-1")
 
 	// Zoom via Ctrl-a z
-	gen = h.generation()
+	gen := h.generation()
 	h.sendKeys("C-a", "z")
 	h.waitLayout(gen)
 
@@ -490,8 +488,9 @@ func TestZoomAutoUnzoomOnFocus(t *testing.T) {
 	h := newAmuxHarness(t)
 
 	h.splitH()
+	runLayoutCommand(t, h, "focus", "pane-2")
 
-	// Zoom via Ctrl-a z (active pane is pane-2 after split)
+	// Zoom via Ctrl-a z from pane-2.
 	gen := h.generation()
 	h.sendKeys("C-a", "z")
 	h.waitLayout(gen)

@@ -261,15 +261,13 @@ func TestCopyModePrefixZoom(t *testing.T) {
 
 	h.splitH()
 
-	// Focus pane-1 so zooming has an obvious before/after screen shape.
-	gen := h.generation()
-	h.sendKeys("C-a", "k")
-	h.waitLayout(gen)
+	// split keeps focus on pane-1 so zooming has an obvious before/after screen shape.
+	h.assertActive("pane-1")
 
 	h.sendKeys("C-a", "[")
 	h.waitUI(proto.UIEventCopyModeShown, 3*time.Second)
 
-	gen = h.generation()
+	gen := h.generation()
 	h.sendKeys("C-a", "z")
 	h.waitLayout(gen)
 
@@ -288,6 +286,7 @@ func TestCopyModeKittyAltFocus(t *testing.T) {
 	h := newAmuxHarness(t, "AMUX_CLIENT_CAPABILITIES=kitty_keyboard")
 
 	h.splitV()
+	runLayoutCommand(t, h, "focus", "pane-2")
 	h.assertActive("pane-2")
 
 	h.sendKeys("C-a", "[")
