@@ -75,6 +75,19 @@ func applyAttachBootstrapMessage(cr *ClientRenderer, msg attachBootstrapMessage)
 	}
 }
 
+func waitForRunSessionEnd(done <-chan struct{}, triggerReload <-chan struct{}, reload func()) {
+	select {
+	case <-done:
+		select {
+		case <-triggerReload:
+			reload()
+		default:
+		}
+	case <-triggerReload:
+		reload()
+	}
+}
+
 func readImmediateAttachCorrection(conn net.Conn, cr *ClientRenderer, timeout time.Duration) error {
 	if err := conn.SetReadDeadline(time.Now().Add(timeout)); err != nil {
 		return err
@@ -983,17 +996,13 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 		}
 	}()
 
-	// Wait for session end or hot reload trigger
-	select {
-	case <-done:
-		return nil
-	case <-triggerReload:
+	waitForRunSessionEnd(done, triggerReload, func() {
 		if execPath != "" {
 			ExecSelf(execPath, sender, fd, oldState, negotiatedAttachCaps)
 		}
 		// ExecSelf replaces the process; if we get here, exec failed fatally
-		return nil
-	}
+	})
+	return nil
 }
 
 func handleSplitBinding(cr *ClientRenderer, sender *messageSender, binding config.Binding, out io.Writer) {
