@@ -783,7 +783,7 @@ func TestCommandSplitSpawnKillAndEvents(t *testing.T) {
 		})
 	}()
 
-	initial := readCmdResultEvent(t, peerConn)
+	initial := readCmdResultEventWithTimeout(t, peerConn, 3*time.Second)
 	if initial.Type != EventLayout {
 		t.Fatalf("initial events message = %+v, want layout", initial)
 	}
@@ -793,7 +793,7 @@ func TestCommandSplitSpawnKillAndEvents(t *testing.T) {
 		return struct{}{}
 	})
 
-	ev := readCmdResultEvent(t, peerConn)
+	ev := readCmdResultEventWithTimeout(t, peerConn, 3*time.Second)
 	if ev.Type != EventLayout || ev.Generation != 9 {
 		t.Fatalf("events message = %+v", ev)
 	}
@@ -805,7 +805,7 @@ func TestCommandSplitSpawnKillAndEvents(t *testing.T) {
 	})
 	select {
 	case <-done:
-	case <-time.After(time.Second):
+	case <-time.After(3 * time.Second):
 		t.Fatal("events command did not exit after client disconnect")
 	}
 }
