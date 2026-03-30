@@ -578,3 +578,253 @@ func TestPrintUsageOmitsDelegate(t *testing.T) {
 		t.Fatalf("printUsage should omit delegate:\n%s", buf.String())
 	}
 }
+
+func TestRunMainDefaultSession(t *testing.T) {
+	t.Run("attaches to resolved session", func(t *testing.T) {
+		t.Setenv("AMUX_CHECKPOINT", "")
+
+		h := newCLIRuntimeHarness()
+		if exitCode := runMain(nil, h.runtime()); exitCode != 0 {
+			t.Fatalf("runMain() exit = %d, want 0", exitCode)
+		}
+
+		want := []cliCall{
+			{kind: "check-nesting", session: defaultSessionName},
+			{kind: "attach", session: defaultSessionName},
+		}
+		if !reflect.DeepEqual(h.calls, want) {
+			t.Fatalf("calls = %#v, want %#v", h.calls, want)
+		}
+	})
+
+	t.Run("uses takeover when available", func(t *testing.T) {
+		t.Setenv("AMUX_CHECKPOINT", "")
+
+		h := newCLIRuntimeHarness()
+		h.shouldTakeover = true
+		h.tryTakeoverResult = true
+
+		if exitCode := runMain(nil, h.runtime()); exitCode != 0 {
+			t.Fatalf("runMain() exit = %d, want 0", exitCode)
+		}
+
+		want := []cliCall{{kind: "try-takeover", session: defaultSessionName}}
+		if !reflect.DeepEqual(h.calls, want) {
+			t.Fatalf("calls = %#v, want %#v", h.calls, want)
+		}
+	})
+}
+
+func TestRunMainDispatchesCommands(t *testing.T) {
+	tests := []struct {
+		name       string
+		args       []string
+		env        map[string]string
+		wantExit   int
+		wantCalls  []cliCall
+		wantStdout string
+		wantStderr string
+	}{
+		{
+			name:     "checkpoint env starts server",
+			env:      map[string]string{"AMUX_CHECKPOINT": "/tmp/checkpoint"},
+			wantExit: 0,
+			wantCalls: []cliCall{
+				{kind: "run-server", session: defaultSessionName},
+			},
+		},
+		{
+			name:       "version dispatch",
+			args:       []string{"version", "--hash"},
+			wantExit:   0,
+			wantStdout: "version\n",
+			wantCalls: []cliCall{
+				{kind: "version", args: []string{"--hash"}},
+			},
+		},
+		{
+			name:     "spawn focus dispatches parsed command",
+			args:     []string{"spawn", "--focus"},
+			wantExit: 0,
+			wantCalls: []cliCall{
+				{kind: "server-command", session: defaultSessionName, cmd: "spawn-focus"},
+			},
+		},
+		{
+			name:     "window command honors explicit session",
+			args:     []string{"-s", "demo", "select-window", "2"},
+			wantExit: 0,
+			wantCalls: []cliCall{
+				{kind: "server-command", session: "demo", cmd: "select-window", args: []string{"2"}},
+			},
+		},
+		{
+			name:     "events command uses streaming runner",
+			args:     []string{"events", "--no-reconnect"},
+			wantExit: 0,
+			wantCalls: []cliCall{
+				{kind: "events", session: defaultSessionName, args: []string{"--no-reconnect"}},
+			},
+		},
+		{
+			name:     "remote command dispatches through server",
+			args:     []string{"disconnect", "host-a"},
+			wantExit: 0,
+			wantCalls: []cliCall{
+				{kind: "server-command", session: defaultSessionName, cmd: "disconnect", args: []string{"host-a"}},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("AMUX_CHECKPOINT", "")
+			for key, value := range tt.env {
+				t.Setenv(key, value)
+			}
+
+			h := newCLIRuntimeHarness()
+			if exitCode := runMain(tt.args, h.runtime()); exitCode != tt.wantExit {
+				t.Fatalf("runMain(%v) exit = %d, want %d", tt.args, exitCode, tt.wantExit)
+			}
+			if !reflect.DeepEqual(h.calls, tt.wantCalls) {
+				t.Fatalf("calls = %#v, want %#v", h.calls, tt.wantCalls)
+			}
+			if got := h.stdout.String(); got != tt.wantStdout {
+				t.Fatalf("stdout = %q, want %q", got, tt.wantStdout)
+			}
+			if got := h.stderr.String(); got != tt.wantStderr {
+				t.Fatalf("stderr = %q, want %q", got, tt.wantStderr)
+			}
+		})
+	}
+}
+
+func TestRunMainHelpAndUsageErrors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		args           []string
+		wantExit       int
+		wantUsageCalls int
+		wantStderr     string
+	}{
+		{
+			name:           "help command prints usage",
+			args:           []string{"help"},
+			wantExit:       0,
+			wantUsageCalls: 1,
+		},
+		{
+			name:           "unknown command prints usage and error",
+			args:           []string{"bogus"},
+			wantExit:       1,
+			wantUsageCalls: 1,
+			wantStderr:     "amux: unknown command \"bogus\"\n",
+		},
+		{
+			name:       "send-keys usage error stays in dispatch layer",
+			args:       []string{"send-keys", "pane-1"},
+			wantExit:   1,
+			wantStderr: sendKeysUsage + "\n",
+		},
+		{
+			name:       "dashboard remains explicit not-implemented error",
+			args:       []string{"dashboard"},
+			wantExit:   1,
+			wantStderr: "amux dashboard: not yet migrated to built-in mux\n",
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newCLIRuntimeHarness()
+			if exitCode := runMain(tt.args, h.runtime()); exitCode != tt.wantExit {
+				t.Fatalf("runMain(%v) exit = %d, want %d", tt.args, exitCode, tt.wantExit)
+			}
+			if h.usageCalls != tt.wantUsageCalls {
+				t.Fatalf("usageCalls = %d, want %d", h.usageCalls, tt.wantUsageCalls)
+			}
+			if got := h.stderr.String(); got != tt.wantStderr {
+				t.Fatalf("stderr = %q, want %q", got, tt.wantStderr)
+			}
+		})
+	}
+}
+
+type cliCall struct {
+	kind    string
+	session string
+	cmd     string
+	args    []string
+	managed bool
+}
+
+type cliRuntimeHarness struct {
+	stdout            bytes.Buffer
+	stderr            bytes.Buffer
+	usageCalls        int
+	shouldTakeover    bool
+	tryTakeoverResult bool
+	calls             []cliCall
+}
+
+func newCLIRuntimeHarness() *cliRuntimeHarness {
+	return &cliRuntimeHarness{}
+}
+
+func (h *cliRuntimeHarness) runtime() cliRuntime {
+	return cliRuntime{
+		stdout: &h.stdout,
+		stderr: &h.stderr,
+		attachSession: func(sessionName string) error {
+			h.calls = append(h.calls, cliCall{kind: "attach", session: sessionName})
+			return nil
+		},
+		writeVersionOutput: func(w io.Writer, args []string) error {
+			h.calls = append(h.calls, cliCall{kind: "version", args: append([]string(nil), args...)})
+			_, err := io.WriteString(w, "version\n")
+			return err
+		},
+		installTerminfo: func() error {
+			h.calls = append(h.calls, cliCall{kind: "install-terminfo"})
+			return nil
+		},
+		runServer: func(sessionName string, managed bool) {
+			h.calls = append(h.calls, cliCall{kind: "run-server", session: sessionName, managed: managed})
+		},
+		runServerCommand: func(sessionName, cmdName string, args []string) {
+			h.calls = append(h.calls, cliCall{
+				kind:    "server-command",
+				session: sessionName,
+				cmd:     cmdName,
+				args:    append([]string(nil), args...),
+			})
+		},
+		runEventsCommand: func(sessionName string, args []string) {
+			h.calls = append(h.calls, cliCall{
+				kind:    "events",
+				session: sessionName,
+				args:    append([]string(nil), args...),
+			})
+		},
+		checkNesting: func(sessionName string) {
+			h.calls = append(h.calls, cliCall{kind: "check-nesting", session: sessionName})
+		},
+		shouldTakeover: func() bool {
+			return h.shouldTakeover
+		},
+		tryTakeover: func(sessionName string) bool {
+			h.calls = append(h.calls, cliCall{kind: "try-takeover", session: sessionName})
+			return h.tryTakeoverResult
+		},
+		printUsage: func() {
+			h.usageCalls++
+		},
+	}
+}
