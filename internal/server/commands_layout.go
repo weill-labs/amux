@@ -352,7 +352,7 @@ func cmdFocus(ctx *CommandContext) {
 				return commandMutationResult{err: err}
 			}
 			if pw != nil {
-				sess.ActiveWindowID = pw.ID
+				sess.activateWindow(pw)
 				pw.FocusPane(pane)
 			}
 			return commandMutationResult{
@@ -753,7 +753,7 @@ func cmdSelectWindow(ctx *CommandContext) {
 		if w == nil {
 			return commandMutationResult{err: fmt.Errorf("window %q not found", ref)}
 		}
-		sess.ActiveWindowID = w.ID
+		sess.activateWindow(w)
 		return commandMutationResult{
 			output:          "Switched window\n",
 			broadcastLayout: true,

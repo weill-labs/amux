@@ -9,20 +9,35 @@ import (
 	"github.com/weill-labs/amux/internal/render"
 )
 
-// recalcSize resizes all windows to the latest active client's terminal size,
-// matching tmux's "window-size latest" behavior. Event-loop only.
-func (s *Session) recalcSize() {
+func (s *Session) effectiveLayoutSize() (cols, layoutH int, ok bool) {
 	sizeClient := s.effectiveSizeClient()
 	if sizeClient == nil || sizeClient.cols == 0 || sizeClient.rows == 0 {
+		return 0, 0, false
+	}
+	return sizeClient.cols, sizeClient.rows - render.GlobalBarHeight, true
+}
+
+func (s *Session) syncWindowSizeToEffectiveClient(w *mux.Window) {
+	if w == nil {
 		return
 	}
-	layoutH := sizeClient.rows - render.GlobalBarHeight
-	if aw := s.activeWindow(); aw != nil && sizeClient.cols == aw.Width && layoutH == aw.Height {
+	cols, layoutH, ok := s.effectiveLayoutSize()
+	if !ok || (w.Width == cols && w.Height == layoutH) {
 		return
 	}
-	for _, w := range s.Windows {
-		w.Resize(sizeClient.cols, layoutH)
-	}
+	w.Resize(cols, layoutH)
+}
+
+func (s *Session) syncActiveWindowSize() {
+	s.syncWindowSizeToEffectiveClient(s.activeWindow())
+}
+
+// recalcSize resizes only the active window to the latest active client's
+// terminal size. Hidden windows defer layout recalculation until selected so
+// inactive panes do not receive redraw signals on every terminal resize.
+// Event-loop only.
+func (s *Session) recalcSize() {
+	s.syncActiveWindowSize()
 }
 
 func (s *Session) broadcastNow(msg *Message) {
