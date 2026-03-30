@@ -60,8 +60,8 @@ amux
 # Or create a named session
 amux new my-project
 
-# Or attach to an existing named session
-amux -s my-project attach
+# Or target an existing named session directly
+amux -s my-project
 ```
 
 **Agent**
@@ -286,14 +286,14 @@ No, and it doesn't aim to. amux implements what matters for human+agent pairing:
 ## CLI Reference
 
 All commands accept `-s <session>` to target a specific session. Panes are referenced by name (`pane-1`) or numeric ID (`1`). Prefix matches are also supported.
+The public CLI keeps one command path per concept: target sessions with `-s`, create panes with `spawn`, inspect history with `log`, and reorder layouts with `move` or `swap`.
 
 ### Session
 
 | Command | Description |
 |---------|-------------|
-| `amux` | Start or attach to main session |
-| `amux new [name]` | Start a new named session |
-| `amux attach [session]` | Attach to a session |
+| `amux` | Start or attach to the selected session (`main` by default) |
+| `amux new [name]` | Start or attach to a named session |
 | `amux status` | Show pane/window summary |
 | `amux version` | Show build version |
 | `amux reload-server` | Hot-reload the server (preserves panes) |

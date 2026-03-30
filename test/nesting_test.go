@@ -50,17 +50,27 @@ func TestPaneShellStripsColorSuppressorsFromServerEnv(t *testing.T) {
 func TestNestingSameSessionBlocked(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name   string
-		suffix string // appended after "amux -s <session>"
+		name string
+		cmd  func(h *ServerHarness) string
 	}{
-		{"bare", ""},
-		{"attach", " attach"},
+		{
+			name: "bare",
+			cmd: func(h *ServerHarness) string {
+				return amuxBin + " -s " + h.session
+			},
+		},
+		{
+			name: "new",
+			cmd: func(h *ServerHarness) string {
+				return amuxBin + " new " + h.session
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			h := newServerHarness(t)
-			h.sendKeys("pane-1", amuxBin+" -s "+h.session+tt.suffix, "Enter")
+			h.sendKeys("pane-1", tt.cmd(h), "Enter")
 			h.waitFor("pane-1", "recursive nesting")
 		})
 	}

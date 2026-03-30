@@ -105,7 +105,7 @@ ensure_client_attached() {
   if printf '%s\n' "$clients" | grep -q '^No clients attached\.$'; then
     echo
     echo "No client is attached to session '$SESSION'."
-    echo "Open 'amux new $SESSION' or 'amux -s $SESSION attach' in another terminal first."
+    echo "Open 'amux -s $SESSION' in another terminal first."
     exit 1
   fi
 }

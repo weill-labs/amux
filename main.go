@@ -28,28 +28,80 @@ import (
 const defaultSessionName = server.DefaultSessionName
 
 const (
-	sendKeysUsage = "usage: amux send-keys <pane> [--via pty|client] [--wait ready|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>..."
-	logUsage      = "usage: amux log <clients|panes>"
-	leadUsage     = "usage: amux lead [pane] | amux lead --clear"
-	metaUsage     = "usage: amux meta <set|get|rm> ..."
-	moveUsage     = "usage: amux move <pane> up|down | amux move <pane> (--before <target>|--after <target>|--to-column <target>)"
-	spawnUsage    = "usage: amux spawn [--at <pane>] [--vertical|--horizontal] [--root] [--spiral] [--focus] [--name NAME] [--host HOST] [--task TASK] [--color COLOR]"
-	swapUsage     = "usage: amux swap <pane1> <pane2> [--tree] | amux swap forward | amux swap backward"
+	sendKeysUsage     = "usage: amux send-keys <pane> [--via pty|client] [--wait ready|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>..."
+	logUsage          = "usage: amux log <clients|panes>"
+	leadUsage         = "usage: amux lead [pane] | amux lead --clear"
+	metaUsage         = "usage: amux meta <set|get|rm> ..."
+	moveUsage         = "usage: amux move <pane> up|down | amux move <pane> (--before <target>|--after <target>|--to-column <target>)"
+	spawnUsage        = "usage: amux spawn [--at <pane>] [--vertical|--horizontal] [--root] [--spiral] [--focus] [--name NAME] [--host HOST] [--task TASK] [--color COLOR]"
+	swapUsage         = "usage: amux swap <pane1> <pane2> [--tree] | amux swap forward | amux swap backward"
+	cursorUsage       = "usage: amux cursor <layout|clipboard|ui> [--client <id>]"
+	disconnectUsage   = "usage: amux disconnect <host>"
+	focusUsage        = "usage: amux focus <pane>"
+	reconnectUsage    = "usage: amux reconnect <host>"
+	renameWindowUsage = "usage: amux rename-window <name>"
+	resetUsage        = "usage: amux reset <pane>"
+	resizeWindowUsage = "usage: amux resize-window <cols> <rows>"
+	selectWindowUsage = "usage: amux select-window <index|name>"
+	unspliceUsage     = "usage: amux unsplice <host>"
+	waitUsage         = "usage: amux wait <idle|busy|exited|ready|content|layout|clipboard|checkpoint|ui> ..."
 )
 
 const reconnectEventType = "reconnect"
+
+type sessionCommandArgMode int
+
+const (
+	sessionCommandForwardArgs sessionCommandArgMode = iota
+	sessionCommandNoArgs
+	sessionCommandFirstArg
+)
+
+type sessionCommandSpec struct {
+	connectName string
+	minArgs     int
+	usage       string
+	argMode     sessionCommandArgMode
+}
+
+var canonicalSessionCommands = map[string]sessionCommandSpec{
+	"_inject-proxy": {connectName: "_inject-proxy", argMode: sessionCommandForwardArgs},
+	"_layout-json":  {connectName: "_layout-json", argMode: sessionCommandNoArgs},
+	"capture":       {connectName: "capture", argMode: sessionCommandForwardArgs},
+	"copy-mode":     {connectName: "copy-mode", argMode: sessionCommandForwardArgs},
+	"cursor":        {connectName: "cursor", minArgs: 1, usage: cursorUsage, argMode: sessionCommandForwardArgs},
+	"disconnect":    {connectName: "disconnect", minArgs: 1, usage: disconnectUsage, argMode: sessionCommandFirstArg},
+	"focus":         {connectName: "focus", minArgs: 1, usage: focusUsage, argMode: sessionCommandFirstArg},
+	"hosts":         {connectName: "hosts", argMode: sessionCommandNoArgs},
+	"list":          {connectName: "list", argMode: sessionCommandForwardArgs},
+	"list-clients":  {connectName: "list-clients", argMode: sessionCommandNoArgs},
+	"list-windows":  {connectName: "list-windows", argMode: sessionCommandNoArgs},
+	"new-window":    {connectName: "new-window", argMode: sessionCommandForwardArgs},
+	"next-window":   {connectName: "next-window", argMode: sessionCommandNoArgs},
+	"prev-window":   {connectName: "prev-window", argMode: sessionCommandNoArgs},
+	"reconnect":     {connectName: "reconnect", minArgs: 1, usage: reconnectUsage, argMode: sessionCommandFirstArg},
+	"reload-server": {connectName: "reload-server", argMode: sessionCommandNoArgs},
+	"rename-window": {connectName: "rename-window", minArgs: 1, usage: renameWindowUsage, argMode: sessionCommandFirstArg},
+	"reset":         {connectName: "reset", minArgs: 1, usage: resetUsage, argMode: sessionCommandFirstArg},
+	"resize-window": {connectName: "resize-window", minArgs: 2, usage: resizeWindowUsage, argMode: sessionCommandForwardArgs},
+	"rotate":        {connectName: "rotate", argMode: sessionCommandForwardArgs},
+	"select-window": {connectName: "select-window", minArgs: 1, usage: selectWindowUsage, argMode: sessionCommandFirstArg},
+	"status":        {connectName: "status", argMode: sessionCommandNoArgs},
+	"undo":          {connectName: "undo", argMode: sessionCommandNoArgs},
+	"unsplice":      {connectName: "unsplice", minArgs: 1, usage: unspliceUsage, argMode: sessionCommandFirstArg},
+	"wait":          {connectName: "wait", minArgs: 1, usage: waitUsage, argMode: sessionCommandForwardArgs},
+	"zoom":          {connectName: "zoom", argMode: sessionCommandForwardArgs},
+}
 
 var commandUsageByName = map[string]string{
 	"_inject-proxy":    "usage: amux _inject-proxy <host>",
 	"_layout-json":     "usage: amux _layout-json",
 	"_server":          "usage: amux _server [session]",
-	"attach":           "usage: amux attach [-d] [session]",
 	"broadcast":        "usage: amux broadcast (--panes <pane,pane,...> | --window <index|name> | --match <glob>) [--hex] <keys>...",
 	"capture":          "usage: amux capture [pane] [--history <pane>] [--ansi] [--colors]",
 	"copy-mode":        "usage: amux copy-mode [pane] [--wait ui=copy-mode-shown] [--timeout <duration>]",
 	"cursor":           "usage: amux cursor <layout|clipboard|ui> [--client <id>]",
-	"dashboard":        "usage: amux dashboard",
-	"disconnect":       "usage: amux disconnect <host>",
+	"disconnect":       disconnectUsage,
 	"equalize":         "usage: amux equalize [--vertical|--all]",
 	"events":           "usage: amux events [--filter type1,type2] [--pane <ref>] [--host <name>] [--client <id>] [--no-reconnect]",
 	"focus":            "usage: amux focus <pane>",
@@ -67,20 +119,20 @@ var commandUsageByName = map[string]string{
 	"new-window":       "usage: amux new-window [--name NAME]",
 	"next-window":      "usage: amux next-window",
 	"prev-window":      "usage: amux prev-window",
-	"reconnect":        "usage: amux reconnect <host>",
+	"reconnect":        reconnectUsage,
 	"reload-server":    "usage: amux reload-server",
-	"rename-window":    "usage: amux rename-window <name>",
+	"rename-window":    renameWindowUsage,
 	"reset":            "usage: amux reset <pane>",
 	"resize-pane":      "usage: amux resize-pane <pane> <direction> [delta]",
-	"resize-window":    "usage: amux resize-window <cols> <rows>",
+	"resize-window":    resizeWindowUsage,
 	"rotate":           "usage: amux rotate [--reverse]",
-	"select-window":    "usage: amux select-window <index|name>",
+	"select-window":    selectWindowUsage,
 	"send-keys":        sendKeysUsage,
 	"spawn":            spawnUsage,
 	"status":           "usage: amux status",
 	"undo":             "usage: amux undo",
 	"swap":             swapUsage,
-	"unsplice":         "usage: amux unsplice <host>",
+	"unsplice":         unspliceUsage,
 	"version":          "usage: amux version [--hash|--json]",
 	"wait":             "usage: amux wait <idle|busy|exited|ready|content|layout|clipboard|checkpoint|ui> ...",
 	"zoom":             "usage: amux zoom [pane]",
@@ -168,6 +220,14 @@ func main() {
 	if maybePrintCommandHelp(os.Stdout, args) {
 		return
 	}
+	if cmdName, cmdArgs, handled, err := resolveCanonicalSessionCommand(args); handled {
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		runSessionCommand(cmdName, cmdArgs)
+		return
+	}
 
 	switch args[0] {
 	case "version":
@@ -191,17 +251,6 @@ func main() {
 		}
 		runServer(name, false)
 
-	case "attach":
-		name, _ := parseAttachArgs(args[1:])
-		if name == "" {
-			name = resolvedSessionName
-		}
-		checkNesting(name)
-		if err := client.RunSession(name, term.GetSize); err != nil {
-			fmt.Fprintf(os.Stderr, "amux: %v\n", err)
-			os.Exit(1)
-		}
-
 	case "new":
 		name := resolvedSessionName
 		if len(args) > 1 {
@@ -213,12 +262,6 @@ func main() {
 			os.Exit(1)
 		}
 
-	case "list":
-		runSessionCommand("list", args[1:])
-	case "status":
-		runSessionCommand("status", nil)
-	case "list-clients":
-		runSessionCommand("list-clients", nil)
 	case "log":
 		cmdName, cmdArgs, err := parseLogArgs(args[1:])
 		if err != nil {
@@ -226,20 +269,6 @@ func main() {
 			os.Exit(1)
 		}
 		runSessionCommand(cmdName, cmdArgs)
-	case "capture":
-		runSessionCommand("capture", args[1:])
-	case "copy-mode":
-		runSessionCommand("copy-mode", args[1:])
-	case "cursor":
-		if len(args) < 2 {
-			fmt.Fprintln(os.Stderr, "usage: amux cursor <layout|clipboard|ui> [--client <id>]")
-			os.Exit(1)
-		}
-		runSessionCommand("cursor", args[1:])
-	case "zoom":
-		runSessionCommand("zoom", args[1:])
-	case "undo":
-		runSessionCommand("undo", args[1:])
 	case "swap":
 		cmdName, cmdArgs, err := parseSwapArgs(args[1:])
 		if err != nil {
@@ -254,8 +283,6 @@ func main() {
 			os.Exit(1)
 		}
 		runSessionCommand(cmdName, cmdArgs)
-	case "rotate":
-		runSessionCommand("rotate", args[1:])
 	case "resize-pane":
 		if len(args) < 3 {
 			fmt.Fprintf(os.Stderr, "usage: amux resize-pane <pane> <direction> [delta]\n")
@@ -270,18 +297,6 @@ func main() {
 			os.Exit(1)
 		}
 		runSessionCommand("equalize", equalizeArgs)
-	case "reset":
-		if len(args) < 2 {
-			fmt.Fprintln(os.Stderr, "usage: amux reset <pane>")
-			os.Exit(1)
-		}
-		runSessionCommand("reset", []string{args[1]})
-	case "focus":
-		if len(args) < 2 {
-			fmt.Fprintln(os.Stderr, "usage: amux focus <pane>")
-			os.Exit(1)
-		}
-		runSessionCommand("focus", []string{args[1]})
 	case "kill":
 		if err := server.ValidateKillCommandArgs(args[1:]); err != nil {
 			fmt.Fprintf(os.Stderr, "%s\n", server.FormatKillCommandError(err, "amux"))
@@ -322,70 +337,9 @@ func main() {
 			os.Exit(1)
 		}
 		runSessionCommand("meta", args[1:])
-	case "new-window":
-		runSessionCommand("new-window", args[1:])
-	case "list-windows":
-		runSessionCommand("list-windows", nil)
-	case "select-window":
-		if len(args) < 2 {
-			fmt.Fprintf(os.Stderr, "usage: amux select-window <index|name>\n")
-			os.Exit(1)
-		}
-		runSessionCommand("select-window", []string{args[1]})
-	case "next-window":
-		runSessionCommand("next-window", nil)
-	case "prev-window":
-		runSessionCommand("prev-window", nil)
-	case "rename-window":
-		if len(args) < 2 {
-			fmt.Fprintf(os.Stderr, "usage: amux rename-window <name>\n")
-			os.Exit(1)
-		}
-		runSessionCommand("rename-window", []string{args[1]})
-	case "wait":
-		if len(args) < 2 {
-			fmt.Fprintln(os.Stderr, "usage: amux wait <idle|busy|exited|ready|content|layout|clipboard|checkpoint|ui> ...")
-			os.Exit(1)
-		}
-		runSessionCommand("wait", args[1:])
-	case "resize-window":
-		if len(args) < 3 {
-			fmt.Fprintf(os.Stderr, "usage: amux resize-window <cols> <rows>\n")
-			os.Exit(1)
-		}
-		runSessionCommand("resize-window", args[1:])
 
 	case "events":
 		runEventsCommand(resolvedSessionName, args[1:])
-	case "hosts":
-		runSessionCommand("hosts", nil)
-	case "disconnect":
-		if len(args) < 2 {
-			fmt.Fprintf(os.Stderr, "usage: amux disconnect <host>\n")
-			os.Exit(1)
-		}
-		runSessionCommand("disconnect", []string{args[1]})
-	case "reconnect":
-		if len(args) < 2 {
-			fmt.Fprintf(os.Stderr, "usage: amux reconnect <host>\n")
-			os.Exit(1)
-		}
-		runSessionCommand("reconnect", []string{args[1]})
-	case "unsplice":
-		if len(args) < 2 {
-			fmt.Fprintf(os.Stderr, "usage: amux unsplice <host>\n")
-			os.Exit(1)
-		}
-		runSessionCommand("unsplice", []string{args[1]})
-	case "reload-server":
-		runSessionCommand("reload-server", nil)
-	case "_layout-json":
-		runSessionCommand("_layout-json", nil)
-	case "_inject-proxy":
-		runSessionCommand("_inject-proxy", args[1:])
-	case "dashboard":
-		fmt.Fprintln(os.Stderr, "amux dashboard: not yet migrated to built-in mux")
-		os.Exit(1)
 
 	case "help", "--help", "-h":
 		printUsage()
@@ -448,6 +402,29 @@ func maybePrintKeyCommandUsage(stdout, stderr io.Writer, args []string, usage st
 	return false, 0
 }
 
+func resolveCanonicalSessionCommand(args []string) (cmdName string, cmdArgs []string, handled bool, err error) {
+	if len(args) == 0 {
+		return "", nil, false, nil
+	}
+
+	spec, ok := canonicalSessionCommands[args[0]]
+	if !ok {
+		return "", nil, false, nil
+	}
+	if len(args)-1 < spec.minArgs {
+		return "", nil, true, errors.New(spec.usage)
+	}
+
+	switch spec.argMode {
+	case sessionCommandNoArgs:
+		return spec.connectName, nil, true, nil
+	case sessionCommandFirstArg:
+		return spec.connectName, []string{args[1]}, true, nil
+	default:
+		return spec.connectName, args[1:], true, nil
+	}
+}
+
 func resolveInvocationSession(args []string) (string, []string) {
 	explicit := defaultSessionName
 	explicitSet := false
@@ -459,19 +436,6 @@ func resolveInvocationSession(args []string) (string, []string) {
 		}
 	}
 	return resolveSessionName(explicit, explicitSet), args
-}
-
-// parseAttachArgs parses args for "amux attach [-d] [session]".
-func parseAttachArgs(args []string) (sessionName string, detachOthers bool) {
-	for _, arg := range args {
-		switch arg {
-		case "-d":
-			detachOthers = true
-		default:
-			sessionName = arg
-		}
-	}
-	return
 }
 
 func parseLogArgs(args []string) (string, []string, error) {
@@ -744,8 +708,7 @@ func printUsage() {
 
 Usage:
   amux [-s session]                    Start or attach to amux session
-  amux [-s session] attach [session]   Attach to a session
-  amux [-s session] new [name]         Start a new named session
+  amux [-s session] new [name]         Start or attach to a named session
   amux [-s session] list [--no-cwd]    List panes with metadata
   amux [-s session] status             Show pane/window summary
   amux [-s session] list-clients       List attached clients + client-local UI state
