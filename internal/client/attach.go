@@ -79,7 +79,11 @@ func applyAttachBootstrapMessage(cr *ClientRenderer, msg attachBootstrapMessage)
 func waitForRunSessionEnd(done <-chan struct{}, triggerReload <-chan struct{}, reload func()) {
 	select {
 	case <-done:
-		return
+		select {
+		case <-triggerReload:
+			reload()
+		default:
+		}
 	case <-triggerReload:
 		reload()
 	}
