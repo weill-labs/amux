@@ -1020,6 +1020,8 @@ func formatUnboundPrefixMessage(prefix, key byte) string {
 	return "No binding for " + formatKeyName(prefix) + " " + formatKeyName(key)
 }
 
+// preferReloadOnSessionEnd handles the race where the server reload signal
+// arrives just before the render loop drains and closes done.
 func preferReloadOnSessionEnd(done <-chan struct{}, triggerReload <-chan struct{}) bool {
 	select {
 	case <-done:
