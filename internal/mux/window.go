@@ -174,9 +174,9 @@ func (w *Window) SplitPaneWithOptions(targetPaneID uint32, dir SplitDir, newPane
 	if w.IsLeadPane(targetPaneID) {
 		return nil, fmt.Errorf("cannot operate on lead pane")
 	}
-	cell := w.Root.FindPane(targetPaneID)
-	if cell == nil {
-		return nil, fmt.Errorf("pane %d not found in layout", targetPaneID)
+	cell, err := w.mustFindPane(targetPaneID)
+	if err != nil {
+		return nil, err
 	}
 	return w.splitCellWithOptions(cell, dir, newPane, opts)
 }
@@ -217,9 +217,9 @@ func (w *Window) splitCellWithOptions(cell *LayoutCell, dir SplitDir, newPane *P
 // If the closed pane was zoomed, zoom is automatically cleared.
 func (w *Window) ClosePane(paneID uint32) error {
 	w.assertOwner("ClosePane")
-	cell := w.Root.FindPane(paneID)
-	if cell == nil {
-		return fmt.Errorf("pane %d not found", paneID)
+	cell, err := w.mustFindPane(paneID)
+	if err != nil {
+		return err
 	}
 
 	// Count leaves to prevent closing the last pane
@@ -763,6 +763,17 @@ func (w *Window) ResolvePane(ref string) (*Pane, error) {
 	return byID[paneID], nil
 }
 
+func (w *Window) mustFindPane(paneID uint32) (*LayoutCell, error) {
+	var cell *LayoutCell
+	if w.Root != nil {
+		cell = w.Root.FindPane(paneID)
+	}
+	if cell == nil {
+		return nil, fmt.Errorf("pane %d not found in layout", paneID)
+	}
+	return cell, nil
+}
+
 func (w *Window) rootChildForPaneID(paneID uint32) (*LayoutCell, int, error) {
 	if w.IsLeadPane(paneID) {
 		return nil, -1, fmt.Errorf("cannot operate on lead pane")
@@ -773,9 +784,9 @@ func (w *Window) rootChildForPaneID(paneID uint32) (*LayoutCell, int, error) {
 		return nil, -1, fmt.Errorf("window has no root-level split")
 	}
 
-	leaf := root.FindPane(paneID)
-	if leaf == nil {
-		return nil, -1, fmt.Errorf("pane %d not found", paneID)
+	leaf, err := w.mustFindPane(paneID)
+	if err != nil {
+		return nil, -1, err
 	}
 
 	cell := leaf
@@ -792,8 +803,8 @@ func (w *Window) ColumnIndexForPaneID(paneID uint32) (int, error) {
 	if w == nil || w.Root == nil {
 		return 0, fmt.Errorf("window has no layout")
 	}
-	if w.Root.FindPane(paneID) == nil {
-		return 0, fmt.Errorf("pane %d not found", paneID)
+	if _, err := w.mustFindPane(paneID); err != nil {
+		return 0, err
 	}
 	if w.IsLeadPane(paneID) {
 		return 0, nil
@@ -819,8 +830,8 @@ func (w *Window) columnContainerForPaneID(paneID uint32) (*LayoutCell, error) {
 	if w.Root == nil {
 		return nil, fmt.Errorf("window has no layout")
 	}
-	if w.Root.FindPane(paneID) == nil {
-		return nil, fmt.Errorf("pane %d not found", paneID)
+	if _, err := w.mustFindPane(paneID); err != nil {
+		return nil, err
 	}
 	if w.Root.IsLeaf() || w.Root.Dir != SplitVertical {
 		return w.Root, nil
@@ -916,9 +927,9 @@ func (w *Window) splitGroupForPaneID(paneID uint32) (*LayoutCell, int, error) {
 	if w.IsLeadPane(paneID) {
 		return nil, -1, fmt.Errorf("cannot operate on lead pane")
 	}
-	cell := w.Root.FindPane(paneID)
-	if cell == nil {
-		return nil, -1, fmt.Errorf("pane %d not found", paneID)
+	cell, err := w.mustFindPane(paneID)
+	if err != nil {
+		return nil, -1, err
 	}
 	if cell.Parent == nil {
 		return nil, -1, fmt.Errorf("pane %d is not in a split group", paneID)
@@ -937,13 +948,13 @@ func (w *Window) SwapPanes(id1, id2 uint32) error {
 	if w.IsLeadPane(id1) || w.IsLeadPane(id2) {
 		return fmt.Errorf("cannot operate on lead pane")
 	}
-	cell1 := w.Root.FindPane(id1)
-	if cell1 == nil {
-		return fmt.Errorf("pane %d not found", id1)
+	cell1, err := w.mustFindPane(id1)
+	if err != nil {
+		return err
 	}
-	cell2 := w.Root.FindPane(id2)
-	if cell2 == nil {
-		return fmt.Errorf("pane %d not found", id2)
+	cell2, err := w.mustFindPane(id2)
+	if err != nil {
+		return err
 	}
 	cell1.Pane, cell2.Pane = cell2.Pane, cell1.Pane
 	w.resizePTYs()
@@ -988,13 +999,13 @@ func (w *Window) MovePane(paneID, targetPaneID uint32, before bool) error {
 		return fmt.Errorf("cannot operate on lead pane")
 	}
 
-	sourceCell := w.Root.FindPane(paneID)
-	if sourceCell == nil {
-		return fmt.Errorf("pane %d not found", paneID)
+	sourceCell, err := w.mustFindPane(paneID)
+	if err != nil {
+		return err
 	}
-	targetCell := w.Root.FindPane(targetPaneID)
-	if targetCell == nil {
-		return fmt.Errorf("pane %d not found", targetPaneID)
+	targetCell, err := w.mustFindPane(targetPaneID)
+	if err != nil {
+		return err
 	}
 	if sourceCell.Parent != nil && sourceCell.Parent == targetCell.Parent {
 		if w.ZoomedPaneID != 0 {
@@ -1074,12 +1085,9 @@ func (w *Window) MovePaneToColumn(paneID, targetPaneID uint32) error {
 		}
 	}
 
-	sourceCell := w.Root.FindPane(paneID)
-	if sourceCell == nil {
-		return fmt.Errorf("pane %d not found", paneID)
-	}
-	if w.Root.FindPane(targetPaneID) == nil {
-		return fmt.Errorf("pane %d not found", targetPaneID)
+	sourceCell, err := w.mustFindPane(paneID)
+	if err != nil {
+		return err
 	}
 
 	sourcePane := sourceCell.Pane
@@ -1237,9 +1245,9 @@ func (w *Window) Zoom(paneID uint32) error {
 		w.Unzoom()
 	}
 
-	cell := w.Root.FindPane(paneID)
-	if cell == nil {
-		return fmt.Errorf("pane %d not found", paneID)
+	cell, err := w.mustFindPane(paneID)
+	if err != nil {
+		return err
 	}
 
 	// Cannot zoom if only one pane
@@ -1289,9 +1297,9 @@ func (w *Window) SplicePane(oldPaneID uint32, newPanes []*Pane) ([]*LayoutCell, 
 		return nil, fmt.Errorf("no panes to splice")
 	}
 
-	cell := w.Root.FindPane(oldPaneID)
-	if cell == nil {
-		return nil, fmt.Errorf("pane %d not found in layout", oldPaneID)
+	cell, err := w.mustFindPane(oldPaneID)
+	if err != nil {
+		return nil, err
 	}
 
 	// Auto-unzoom if the spliced pane was zoomed
