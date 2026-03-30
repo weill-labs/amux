@@ -56,7 +56,7 @@ func defaultCLIRuntime() cliRuntime {
 func buildCLICommands() map[string]cliCommandHandler {
 	commands := make(map[string]cliCommandHandler)
 	addCLICommands(commands, sessionCLICommands())
-	addCLICommands(commands, paneCLICommands())
+	addCLICommands(commands, layoutCLICommands())
 	addCLICommands(commands, windowCLICommands())
 	addCLICommands(commands, remoteCLICommands())
 	return commands
