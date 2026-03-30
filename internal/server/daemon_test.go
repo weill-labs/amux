@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/weill-labs/amux/internal/checkpoint"
+	"github.com/weill-labs/amux/internal/ipc"
 )
 
 func cleanStaleSocketsIn(dir string) {
@@ -25,7 +26,7 @@ func cleanStaleSocketsIn(dir string) {
 			continue
 		}
 		sockPath := filepath.Join(dir, name)
-		if SocketAlive(sockPath) {
+		if ipc.SocketAlive(sockPath) {
 			continue
 		}
 		os.Remove(sockPath)
@@ -118,5 +119,40 @@ func TestDetectCrashedSessionReturnsNewestCheckpoint(t *testing.T) {
 
 	if got := DetectCrashedSession(session); got != newer {
 		t.Fatalf("DetectCrashedSession() = %q, want %q", got, newer)
+	}
+}
+
+func TestDetectCrashedSessionWithoutCheckpoint(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+
+	if got := DetectCrashedSession(fmt.Sprintf("detect-none-%d", time.Now().UnixNano())); got != "" {
+		t.Fatalf("DetectCrashedSession() = %q, want empty string when no checkpoint exists", got)
+	}
+}
+
+func TestDetectCrashedSessionSkipsLiveSocket(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+
+	session := fmt.Sprintf("detect-live-%d", time.Now().UnixNano())
+	socketPath := SocketPath(session)
+	_ = os.Remove(socketPath)
+	t.Cleanup(func() { _ = os.Remove(socketPath) })
+
+	crashPath := checkpoint.CrashCheckpointPathTimestamped(session, time.Date(2026, time.March, 21, 12, 34, 56, 0, time.UTC))
+	if err := os.MkdirAll(filepath.Dir(crashPath), 0700); err != nil {
+		t.Fatalf("MkdirAll(%q): %v", filepath.Dir(crashPath), err)
+	}
+	if err := os.WriteFile(crashPath, []byte("{}"), 0600); err != nil {
+		t.Fatalf("WriteFile(%q): %v", crashPath, err)
+	}
+
+	ln, err := net.Listen("unix", socketPath)
+	if err != nil {
+		t.Fatalf("Listen(%q): %v", socketPath, err)
+	}
+	defer ln.Close()
+
+	if got := DetectCrashedSession(session); got != "" {
+		t.Fatalf("DetectCrashedSession() = %q, want empty string while socket is live", got)
 	}
 }

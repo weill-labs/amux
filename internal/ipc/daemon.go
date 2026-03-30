@@ -18,22 +18,54 @@ var (
 
 // StartDaemon launches the server as a background daemon.
 func StartDaemon(sessionName string) error {
-	exe, err := os.Executable()
+	return startDaemonWithDeps(
+		sessionName,
+		os.Executable,
+		os.MkdirAll,
+		func(path string) (*os.File, error) {
+			return os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+		},
+		func(exe, sessionName string, logFile *os.File) error {
+			return launchDaemonProcess(exec.Command, exe, sessionName, logFile)
+		},
+	)
+}
+
+func startDaemonWithDeps(
+	sessionName string,
+	executable func() (string, error),
+	mkdirAll func(string, os.FileMode) error,
+	openLog func(string) (*os.File, error),
+	launch func(exe, sessionName string, logFile *os.File) error,
+) error {
+	exe, err := executable()
 	if err != nil {
 		return err
 	}
 
 	logDir := SocketDir()
-	if err := os.MkdirAll(logDir, 0700); err != nil {
+	if err := mkdirAll(logDir, 0700); err != nil {
 		return fmt.Errorf("creating log dir: %w", err)
 	}
 	logPath := filepath.Join(logDir, sessionName+".log")
-	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+	logFile, err := openLog(logPath)
 	if err != nil {
 		return fmt.Errorf("opening log: %w", err)
 	}
+	defer logFile.Close()
 
-	cmd := exec.Command(exe, "_server", sessionName)
+	if err := launch(exe, sessionName, logFile); err != nil {
+		return err
+	}
+	return nil
+}
+
+func launchDaemonProcess(
+	command func(string, ...string) *exec.Cmd,
+	exe, sessionName string,
+	logFile *os.File,
+) error {
+	cmd := command(exe, "_server", sessionName)
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		Setsid: true, // Detach from controlling terminal
 	}
@@ -42,10 +74,8 @@ func StartDaemon(sessionName string) error {
 	cmd.Stdin = nil
 
 	if err := cmd.Start(); err != nil {
-		logFile.Close()
 		return err
 	}
-	logFile.Close()
 
 	// Release the child process so it runs independently.
 	cmd.Process.Release()
@@ -93,21 +123,39 @@ func WaitForSocket(sockPath string, timeout time.Duration) error {
 }
 
 func withSessionStartupLock(sessionName string, fn func() error) error {
-	if err := os.MkdirAll(SocketDir(), 0700); err != nil {
+	return withSessionStartupLockWithDeps(
+		sessionName,
+		os.MkdirAll,
+		func(path string, flag int, perm os.FileMode) (*os.File, error) {
+			return os.OpenFile(path, flag, perm)
+		},
+		syscall.Flock,
+		fn,
+	)
+}
+
+func withSessionStartupLockWithDeps(
+	sessionName string,
+	mkdirAll func(string, os.FileMode) error,
+	openFile func(string, int, os.FileMode) (*os.File, error),
+	flock func(int, int) error,
+	fn func() error,
+) error {
+	if err := mkdirAll(SocketDir(), 0700); err != nil {
 		return fmt.Errorf("creating socket dir: %w", err)
 	}
 
 	lockPath := filepath.Join(SocketDir(), sessionName+".start.lock")
-	lockFile, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0600)
+	lockFile, err := openFile(lockPath, os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {
 		return fmt.Errorf("opening startup lock: %w", err)
 	}
 	defer lockFile.Close()
 
-	if err := syscall.Flock(int(lockFile.Fd()), syscall.LOCK_EX); err != nil {
+	if err := flock(int(lockFile.Fd()), syscall.LOCK_EX); err != nil {
 		return fmt.Errorf("locking startup lock: %w", err)
 	}
-	defer syscall.Flock(int(lockFile.Fd()), syscall.LOCK_UN)
+	defer flock(int(lockFile.Fd()), syscall.LOCK_UN)
 
 	return fn()
 }
