@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -12,6 +11,7 @@ import (
 	"github.com/weill-labs/amux/internal/checkpoint"
 	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/debugowner"
+	"github.com/weill-labs/amux/internal/ipc"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
 	"github.com/weill-labs/amux/internal/remote"
@@ -19,15 +19,15 @@ import (
 
 // Default terminal dimensions when the client doesn't report a size.
 const (
-	DefaultTermCols = 80
-	DefaultTermRows = 24
+	DefaultTermCols = ipc.DefaultTermCols
+	DefaultTermRows = ipc.DefaultTermRows
 )
 
 // DefaultOutputLines is how many lines `amux output` shows by default.
 const DefaultOutputLines = 50
 
 // DefaultSessionName is the implicit session used when callers do not specify one.
-const DefaultSessionName = "main"
+const DefaultSessionName = ipc.DefaultSessionName
 
 // WindowNameFormat is the default name for auto-created windows.
 const WindowNameFormat = "window-%d"
@@ -433,12 +433,12 @@ func (s *Server) firstSession() *Session {
 
 // SocketDir returns the directory for amux Unix sockets.
 func SocketDir() string {
-	return fmt.Sprintf("/tmp/amux-%d", os.Getuid())
+	return ipc.SocketDir()
 }
 
 // SocketPath returns the socket path for a session.
 func SocketPath(session string) string {
-	return filepath.Join(SocketDir(), session)
+	return ipc.SocketPath(session)
 }
 
 func newSessionWithScrollback(name string, scrollbackLines int) *Session {

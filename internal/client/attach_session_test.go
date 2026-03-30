@@ -14,9 +14,9 @@ import (
 	"time"
 
 	"github.com/creack/pty"
+	"github.com/weill-labs/amux/internal/ipc"
 	"github.com/weill-labs/amux/internal/proto"
 	"github.com/weill-labs/amux/internal/render"
-	"github.com/weill-labs/amux/internal/server"
 )
 
 type ptyOutputCollector struct {
@@ -128,8 +128,8 @@ func newRunSessionHarness(t *testing.T, sizeFn func(int) (int, int, error)) *run
 	t.Setenv("AMUX_NO_WATCH", "1")
 
 	session := fmt.Sprintf("c%d", time.Now().UnixNano()%1_000_000)
-	sockPath := server.SocketPath(session)
-	if err := os.MkdirAll(server.SocketDir(), 0700); err != nil {
+	sockPath := ipc.SocketPath(session)
+	if err := os.MkdirAll(ipc.SocketDir(), 0700); err != nil {
 		t.Fatalf("mkdir socket dir: %v", err)
 	}
 	_ = os.Remove(sockPath)
@@ -1119,6 +1119,10 @@ func TestRunSessionDetachFlushesPendingInput(t *testing.T) {
 	})
 }
 
+func TestRunSessionRejectsLegacyKeysConfig(t *testing.T) {
+	assertRunSessionRejectsLegacyKeysConfig(t)
+}
+
 func assertRunSessionRejectsLegacyKeysConfig(t *testing.T) {
 	t.Helper()
 	home := t.TempDir()
@@ -1161,7 +1165,7 @@ func assertRunSessionRejectsLegacyKeysConfig(t *testing.T) {
 	if got, want := err.Error(), `loading config: unsupported config section "keys"`; got != want {
 		t.Fatalf("RunSession() error = %q, want %q", got, want)
 	}
-	if _, statErr := os.Stat(server.SocketPath("legacy-keys")); !os.IsNotExist(statErr) {
+	if _, statErr := os.Stat(ipc.SocketPath("legacy-keys")); !os.IsNotExist(statErr) {
 		t.Fatalf("RunSession should fail before starting a server, stat error = %v", statErr)
 	}
 }
