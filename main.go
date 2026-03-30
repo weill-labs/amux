@@ -28,8 +28,13 @@ import (
 const defaultSessionName = server.DefaultSessionName
 
 const (
-	sendKeysUsage = "usage: amux send-keys <pane> [--wait idle|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>..."
-	typeKeysUsage = "usage: amux type-keys [--wait ui=input-idle] [--timeout <duration>] [--hex] <keys>..."
+	sendKeysUsage = "usage: amux send-keys <pane> [--via pty|client] [--wait ready|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>..."
+	logUsage      = "usage: amux log <clients|panes>"
+	leadUsage     = "usage: amux lead [pane] | amux lead --clear"
+	metaUsage     = "usage: amux meta <set|get|rm> ..."
+	moveUsage     = "usage: amux move <pane> up|down | amux move <pane> (--before <target>|--after <target>|--to-column <target>)"
+	spawnUsage    = "usage: amux spawn [--at <pane>] [--vertical|--horizontal] [--root] [--spiral] [--focus] [--name NAME] [--host HOST] [--task TASK] [--color COLOR]"
+	swapUsage     = "usage: amux swap <pane1> <pane2> [--tree] | amux swap forward | amux swap backward"
 )
 
 const reconnectEventType = "reconnect"
@@ -38,12 +43,9 @@ var commandUsageByName = map[string]string{
 	"_inject-proxy":    "usage: amux _inject-proxy <host>",
 	"_layout-json":     "usage: amux _layout-json",
 	"_server":          "usage: amux _server [session]",
-	"add-meta":         "usage: amux add-meta <pane> key=value [key=value...]",
-	"add-pane":         "usage: amux add-pane [--name NAME] [--host HOST]",
 	"attach":           "usage: amux attach [-d] [session]",
 	"broadcast":        "usage: amux broadcast (--panes <pane,pane,...> | --window <index|name> | --match <glob>) [--hex] <keys>...",
 	"capture":          "usage: amux capture [pane] [--history <pane>] [--ansi] [--colors]",
-	"connection-log":   "usage: amux connection-log",
 	"copy-mode":        "usage: amux copy-mode [pane] [--wait ui=copy-mode-shown] [--timeout <duration>]",
 	"cursor":           "usage: amux cursor <layout|clipboard|ui> [--client <id>]",
 	"dashboard":        "usage: amux dashboard",
@@ -54,43 +56,33 @@ var commandUsageByName = map[string]string{
 	"hosts":            "usage: amux hosts",
 	"install-terminfo": "usage: amux install-terminfo",
 	"kill":             "usage: amux kill [--cleanup] [--timeout <duration>] [pane]",
+	"lead":             leadUsage,
 	"list":             "usage: amux list [--no-cwd]",
 	"list-clients":     "usage: amux list-clients",
 	"list-windows":     "usage: amux list-windows",
-	"move":             "usage: amux move <pane> --before <target> | move <pane> --after <target>",
-	"move-down":        "usage: amux move-down <pane>",
-	"move-to":          "usage: amux move-to <pane> <target>",
-	"move-up":          "usage: amux move-up <pane>",
+	"log":              logUsage,
+	"meta":             metaUsage,
+	"move":             moveUsage,
 	"new":              "usage: amux new [name]",
 	"new-window":       "usage: amux new-window [--name NAME]",
 	"next-window":      "usage: amux next-window",
-	"pane-log":         "usage: amux pane-log",
 	"prev-window":      "usage: amux prev-window",
 	"reconnect":        "usage: amux reconnect <host>",
-	"refresh-meta":     "usage: amux refresh-meta [pane]",
 	"reload-server":    "usage: amux reload-server",
 	"rename-window":    "usage: amux rename-window <name>",
 	"reset":            "usage: amux reset <pane>",
 	"resize-pane":      "usage: amux resize-pane <pane> <direction> [delta]",
 	"resize-window":    "usage: amux resize-window <cols> <rows>",
-	"rm-meta":          "usage: amux rm-meta <pane> key=value [key=value...]",
 	"rotate":           "usage: amux rotate [--reverse]",
 	"select-window":    "usage: amux select-window <index|name>",
 	"send-keys":        sendKeysUsage,
-	"set-lead":         "usage: amux set-lead [pane]",
-	"set-meta":         "usage: amux set-meta <pane> key=value [key=value...]",
-	"spawn":            "usage: amux spawn --name NAME [--host HOST] [--task TASK] [--color COLOR]",
-	"split":            "usage: amux split <pane> [root] [--vertical|--horizontal] [--name NAME] [--host HOST]",
+	"spawn":            spawnUsage,
 	"status":           "usage: amux status",
-	"swap":             "usage: amux swap <pane1> <pane2> | swap forward | swap backward",
-	"swap-tree":        "usage: amux swap-tree <pane1> <pane2>",
-	"toggle-lead":      "usage: amux toggle-lead",
-	"type-keys":        typeKeysUsage,
 	"undo":             "usage: amux undo",
-	"unset-lead":       "usage: amux unset-lead",
+	"swap":             swapUsage,
 	"unsplice":         "usage: amux unsplice <host>",
 	"version":          "usage: amux version [--hash|--json]",
-	"wait":             "usage: amux wait <idle|busy|exited|content|layout|clipboard|checkpoint|ui> ...",
+	"wait":             "usage: amux wait <idle|busy|exited|ready|content|layout|clipboard|checkpoint|ui> ...",
 	"zoom":             "usage: amux zoom [pane]",
 }
 
@@ -221,26 +213,19 @@ func main() {
 			os.Exit(1)
 		}
 
-	case "split":
-		splitArgs, err := parseSplitArgs(args[1:])
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "amux split: %v\n", err)
-			fmt.Fprintf(os.Stderr, "usage: amux split <pane> [root] [--vertical|--horizontal] [--name NAME] [--host HOST]\n")
-			os.Exit(1)
-		}
-		runSessionCommand("split", splitArgs)
-	case "add-pane":
-		runSessionCommand("add-pane", args[1:])
 	case "list":
 		runSessionCommand("list", args[1:])
 	case "status":
 		runSessionCommand("status", nil)
 	case "list-clients":
 		runSessionCommand("list-clients", nil)
-	case "connection-log":
-		runSessionCommand("connection-log", nil)
-	case "pane-log":
-		runSessionCommand("pane-log", nil)
+	case "log":
+		cmdName, cmdArgs, err := parseLogArgs(args[1:])
+		if err != nil {
+			fmt.Fprintln(os.Stderr, logUsage)
+			os.Exit(1)
+		}
+		runSessionCommand(cmdName, cmdArgs)
 	case "capture":
 		runSessionCommand("capture", args[1:])
 	case "copy-mode":
@@ -256,41 +241,19 @@ func main() {
 	case "undo":
 		runSessionCommand("undo", args[1:])
 	case "swap":
-		if len(args) < 2 {
-			fmt.Fprintf(os.Stderr, "usage: amux swap <pane1> <pane2> | swap forward | swap backward\n")
+		cmdName, cmdArgs, err := parseSwapArgs(args[1:])
+		if err != nil {
+			fmt.Fprintln(os.Stderr, swapUsage)
 			os.Exit(1)
 		}
-		runSessionCommand("swap", args[1:])
-	case "swap-tree":
-		if len(args) != 3 {
-			fmt.Fprintf(os.Stderr, "usage: amux swap-tree <pane1> <pane2>\n")
-			os.Exit(1)
-		}
-		runSessionCommand("swap-tree", args[1:])
+		runSessionCommand(cmdName, cmdArgs)
 	case "move":
-		if len(args) < 4 {
-			fmt.Fprintf(os.Stderr, "usage: amux move <pane> --before <target> | move <pane> --after <target>\n")
+		cmdName, cmdArgs, err := parseMoveArgs(args[1:])
+		if err != nil {
+			fmt.Fprintln(os.Stderr, moveUsage)
 			os.Exit(1)
 		}
-		runSessionCommand("move", args[1:])
-	case "move-up":
-		if len(args) != 2 {
-			fmt.Fprintf(os.Stderr, "usage: amux move-up <pane>\n")
-			os.Exit(1)
-		}
-		runSessionCommand("move-up", args[1:])
-	case "move-down":
-		if len(args) != 2 {
-			fmt.Fprintf(os.Stderr, "usage: amux move-down <pane>\n")
-			os.Exit(1)
-		}
-		runSessionCommand("move-down", args[1:])
-	case "move-to":
-		if len(args) != 3 {
-			fmt.Fprintf(os.Stderr, "usage: amux move-to <pane> <target>\n")
-			os.Exit(1)
-		}
-		runSessionCommand("move-to", args[1:])
+		runSessionCommand(cmdName, cmdArgs)
 	case "rotate":
 		runSessionCommand("rotate", args[1:])
 	case "resize-pane":
@@ -307,12 +270,18 @@ func main() {
 			os.Exit(1)
 		}
 		runSessionCommand("equalize", equalizeArgs)
-	case "reset", "focus":
+	case "reset":
 		if len(args) < 2 {
-			fmt.Fprintf(os.Stderr, "usage: amux %s <pane>\n", args[0])
+			fmt.Fprintln(os.Stderr, "usage: amux reset <pane>")
 			os.Exit(1)
 		}
-		runSessionCommand(args[0], []string{args[1]})
+		runSessionCommand("reset", []string{args[1]})
+	case "focus":
+		if len(args) < 2 {
+			fmt.Fprintln(os.Stderr, "usage: amux focus <pane>")
+			os.Exit(1)
+		}
+		runSessionCommand("focus", []string{args[1]})
 	case "kill":
 		if err := server.ValidateKillCommandArgs(args[1:]); err != nil {
 			fmt.Fprintf(os.Stderr, "%s\n", server.FormatKillCommandError(err, "amux"))
@@ -333,25 +302,26 @@ func main() {
 			os.Exit(1)
 		}
 		runSessionCommand("broadcast", args[1:])
-	case "type-keys":
-		if handled, exitCode := maybePrintKeyCommandUsage(os.Stdout, os.Stderr, args[1:], typeKeysUsage, 1); handled {
-			if exitCode != 0 {
-				os.Exit(exitCode)
-			}
-			return
-		}
-		if len(args) >= 2 && !strings.HasPrefix(args[1], "-") && looksLikePaneRefArg(args[1]) {
-			fmt.Fprintf(os.Stderr, "warning: %q looks like a pane ref; type-keys always targets the focused pane, use send-keys %s ... to target another pane\n", args[1], args[1])
-		}
-		runSessionCommand("type-keys", args[1:])
-	case "set-lead":
-		runSessionCommand("set-lead", args[1:])
-	case "unset-lead":
-		runSessionCommand("unset-lead", nil)
-	case "toggle-lead":
-		runSessionCommand("toggle-lead", nil)
 	case "spawn":
-		runSessionCommand("spawn", args[1:])
+		cmdName, cmdArgs, err := parseSpawnCommandArgs(args[1:])
+		if err != nil {
+			fmt.Fprintln(os.Stderr, spawnUsage)
+			os.Exit(1)
+		}
+		runSessionCommand(cmdName, cmdArgs)
+	case "lead":
+		cmdName, cmdArgs, err := parseLeadArgs(args[1:])
+		if err != nil {
+			fmt.Fprintln(os.Stderr, leadUsage)
+			os.Exit(1)
+		}
+		runSessionCommand(cmdName, cmdArgs)
+	case "meta":
+		if err := validateMetaArgs(args[1:]); err != nil {
+			fmt.Fprintln(os.Stderr, err.Error())
+			os.Exit(1)
+		}
+		runSessionCommand("meta", args[1:])
 	case "new-window":
 		runSessionCommand("new-window", args[1:])
 	case "list-windows":
@@ -374,7 +344,7 @@ func main() {
 		runSessionCommand("rename-window", []string{args[1]})
 	case "wait":
 		if len(args) < 2 {
-			fmt.Fprintln(os.Stderr, "usage: amux wait <idle|busy|exited|content|layout|clipboard|checkpoint|ui> ...")
+			fmt.Fprintln(os.Stderr, "usage: amux wait <idle|busy|exited|ready|content|layout|clipboard|checkpoint|ui> ...")
 			os.Exit(1)
 		}
 		runSessionCommand("wait", args[1:])
@@ -384,54 +354,6 @@ func main() {
 			os.Exit(1)
 		}
 		runSessionCommand("resize-window", args[1:])
-	case "set-kv":
-		if hasHelpFlag(args[1:]) {
-			fmt.Fprintln(os.Stdout, "usage: amux set-kv <pane> key=value [key=value...]")
-			return
-		}
-		if len(args) < 3 {
-			fmt.Fprintf(os.Stderr, "usage: amux set-kv <pane> key=value [key=value...]\n")
-			os.Exit(1)
-		}
-		runSessionCommand("set-kv", args[1:])
-	case "get-kv":
-		if hasHelpFlag(args[1:]) {
-			fmt.Fprintln(os.Stdout, "usage: amux get-kv <pane> [key...]")
-			return
-		}
-		if len(args) < 2 {
-			fmt.Fprintf(os.Stderr, "usage: amux get-kv <pane> [key...]\n")
-			os.Exit(1)
-		}
-		runSessionCommand("get-kv", args[1:])
-	case "rm-kv":
-		if hasHelpFlag(args[1:]) {
-			fmt.Fprintln(os.Stdout, "usage: amux rm-kv <pane> key [key...]")
-			return
-		}
-		if len(args) < 3 {
-			fmt.Fprintf(os.Stderr, "usage: amux rm-kv <pane> key [key...]\n")
-			os.Exit(1)
-		}
-		runSessionCommand("rm-kv", args[1:])
-	case "set-meta":
-		if len(args) < 3 {
-			fmt.Fprintf(os.Stderr, "usage: amux set-meta <pane> key=value [key=value...]\n")
-			os.Exit(1)
-		}
-		runSessionCommand("set-meta", args[1:])
-	case "add-meta":
-		if len(args) < 3 {
-			fmt.Fprintf(os.Stderr, "usage: amux add-meta <pane> key=value [key=value...]\n")
-			os.Exit(1)
-		}
-		runSessionCommand("add-meta", args[1:])
-	case "rm-meta":
-		if len(args) < 3 {
-			fmt.Fprintf(os.Stderr, "usage: amux rm-meta <pane> key=value [key=value...]\n")
-			os.Exit(1)
-		}
-		runSessionCommand("rm-meta", args[1:])
 
 	case "events":
 		runEventsCommand(resolvedSessionName, args[1:])
@@ -552,78 +474,250 @@ func parseAttachArgs(args []string) (sessionName string, detachOthers bool) {
 	return
 }
 
-// parseSplitArgs parses args for "amux split <pane> [root] [--vertical|--horizontal] [--name NAME] [--host HOST]".
-// The pane arg is mandatory.
-// It canonicalizes args for the server command parser.
-func parseSplitArgs(args []string) ([]string, error) {
-	rootLevel := false
-	hostName := ""
-	name := ""
-	paneRef := ""
-	dir := mux.SplitHorizontal
-	hasExplicitDir := false
+func parseLogArgs(args []string) (string, []string, error) {
+	if len(args) != 1 {
+		return "", nil, fmt.Errorf(logUsage)
+	}
+	switch args[0] {
+	case "clients":
+		return "connection-log", nil, nil
+	case "panes":
+		return "pane-log", nil, nil
+	default:
+		return "", nil, fmt.Errorf(logUsage)
+	}
+}
+
+func parseLeadArgs(args []string) (string, []string, error) {
+	switch {
+	case len(args) == 0:
+		return "set-lead", nil, nil
+	case len(args) == 1 && args[0] == "--clear":
+		return "unset-lead", nil, nil
+	case len(args) == 1 && !strings.HasPrefix(args[0], "-"):
+		return "set-lead", []string{args[0]}, nil
+	default:
+		return "", nil, fmt.Errorf(leadUsage)
+	}
+}
+
+func validateMetaArgs(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf(metaUsage)
+	}
+	switch args[0] {
+	case "set":
+		if len(args) < 3 {
+			return fmt.Errorf("usage: amux meta set <pane> key=value [key=value...]")
+		}
+	case "get":
+		if len(args) < 2 || len(args) > 3 {
+			return fmt.Errorf("usage: amux meta get <pane> [key]")
+		}
+	case "rm":
+		if len(args) < 3 {
+			return fmt.Errorf("usage: amux meta rm <pane> key [key...]")
+		}
+	default:
+		return fmt.Errorf(metaUsage)
+	}
+	return nil
+}
+
+func parseSwapArgs(args []string) (string, []string, error) {
+	if len(args) == 0 {
+		return "", nil, fmt.Errorf(swapUsage)
+	}
+	filtered := make([]string, 0, len(args))
+	tree := false
+	for _, arg := range args {
+		if arg == "--tree" {
+			if tree {
+				return "", nil, fmt.Errorf(swapUsage)
+			}
+			tree = true
+			continue
+		}
+		filtered = append(filtered, arg)
+	}
+	if tree {
+		if len(filtered) != 2 {
+			return "", nil, fmt.Errorf(swapUsage)
+		}
+		return "swap-tree", filtered, nil
+	}
+	if len(filtered) == 1 && (filtered[0] == "forward" || filtered[0] == "backward") {
+		return "swap", filtered, nil
+	}
+	if len(filtered) == 2 {
+		return "swap", filtered, nil
+	}
+	return "", nil, fmt.Errorf(swapUsage)
+}
+
+func parseMoveArgs(args []string) (string, []string, error) {
+	if len(args) < 2 {
+		return "", nil, fmt.Errorf(moveUsage)
+	}
+	paneRef := args[0]
+	switch {
+	case len(args) == 2 && args[1] == "up":
+		return "move-up", []string{paneRef}, nil
+	case len(args) == 2 && args[1] == "down":
+		return "move-down", []string{paneRef}, nil
+	case len(args) == 3 && (args[1] == "--before" || args[1] == "--after"):
+		return "move", []string{paneRef, args[1], args[2]}, nil
+	case len(args) == 3 && args[1] == "--to-column":
+		return "move-to", []string{paneRef, args[2]}, nil
+	default:
+		return "", nil, fmt.Errorf(moveUsage)
+	}
+}
+
+type spawnCLIOptions struct {
+	at             string
+	dir            mux.SplitDir
+	hasExplicitDir bool
+	root           bool
+	spiral         bool
+	focus          bool
+	name           string
+	host           string
+	task           string
+	color          string
+}
+
+func parseSpawnCommandArgs(args []string) (string, []string, error) {
+	opts := spawnCLIOptions{dir: mux.SplitHorizontal}
 
 	setDir := func(next mux.SplitDir) error {
-		if hasExplicitDir && dir != next {
-			return fmt.Errorf("conflicting split directions")
+		if opts.hasExplicitDir && opts.dir != next {
+			return fmt.Errorf(spawnUsage)
 		}
-		dir = next
-		hasExplicitDir = true
+		opts.dir = next
+		opts.hasExplicitDir = true
 		return nil
 	}
 
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
-		case "root":
-			rootLevel = true
-		case "v", "--vertical":
+		case "--at":
+			if i+1 >= len(args) {
+				return "", nil, fmt.Errorf(spawnUsage)
+			}
+			opts.at = args[i+1]
+			i++
+		case "--vertical":
 			if err := setDir(mux.SplitVertical); err != nil {
-				return nil, err
+				return "", nil, err
 			}
 		case "--horizontal":
 			if err := setDir(mux.SplitHorizontal); err != nil {
-				return nil, err
+				return "", nil, err
 			}
-		case "--host":
-			if i+1 >= len(args) {
-				return nil, fmt.Errorf("--host requires a value")
-			}
-			hostName = args[i+1]
-			i++
+		case "--root":
+			opts.root = true
+		case "--spiral":
+			opts.spiral = true
+		case "--focus":
+			opts.focus = true
 		case "--name":
 			if i+1 >= len(args) {
-				return nil, fmt.Errorf("--name requires a value")
+				return "", nil, fmt.Errorf(spawnUsage)
 			}
-			name = args[i+1]
+			opts.name = args[i+1]
+			i++
+		case "--host":
+			if i+1 >= len(args) {
+				return "", nil, fmt.Errorf(spawnUsage)
+			}
+			opts.host = args[i+1]
+			i++
+		case "--task":
+			if i+1 >= len(args) {
+				return "", nil, fmt.Errorf(spawnUsage)
+			}
+			opts.task = args[i+1]
+			i++
+		case "--color":
+			if i+1 >= len(args) {
+				return "", nil, fmt.Errorf(spawnUsage)
+			}
+			opts.color = args[i+1]
 			i++
 		default:
-			if paneRef == "" && !strings.HasPrefix(args[i], "-") {
-				paneRef = args[i]
-			} else {
-				return nil, fmt.Errorf("unknown split arg %q", args[i])
-			}
+			return "", nil, fmt.Errorf(spawnUsage)
 		}
 	}
 
-	if paneRef == "" {
-		return nil, fmt.Errorf("pane argument required")
+	if opts.spiral && (opts.at != "" || opts.root || opts.hasExplicitDir) {
+		return "", nil, fmt.Errorf(spawnUsage)
 	}
 
-	parsed := make([]string, 0, 5)
-	parsed = append(parsed, paneRef)
-	if rootLevel {
-		parsed = append(parsed, "root")
+	cmdArgs := make([]string, 0, 10)
+	if opts.spiral {
+		if opts.host != "" {
+			cmdArgs = append(cmdArgs, "--host", opts.host)
+		}
+		if opts.name != "" {
+			cmdArgs = append(cmdArgs, "--name", opts.name)
+		}
+		if opts.task != "" {
+			cmdArgs = append(cmdArgs, "--task", opts.task)
+		}
+		if opts.color != "" {
+			cmdArgs = append(cmdArgs, "--color", opts.color)
+		}
+		if opts.focus {
+			return "add-pane-focus", cmdArgs, nil
+		}
+		return "add-pane", cmdArgs, nil
 	}
-	if dir == mux.SplitVertical {
-		parsed = append(parsed, "v")
+
+	if opts.at != "" || opts.root || opts.hasExplicitDir {
+		if opts.at != "" {
+			cmdArgs = append(cmdArgs, opts.at)
+		}
+		if opts.root {
+			cmdArgs = append(cmdArgs, "root")
+		}
+		if opts.dir == mux.SplitVertical {
+			cmdArgs = append(cmdArgs, "v")
+		}
+		if opts.host != "" {
+			cmdArgs = append(cmdArgs, "--host", opts.host)
+		}
+		if opts.name != "" {
+			cmdArgs = append(cmdArgs, "--name", opts.name)
+		}
+		if opts.task != "" {
+			cmdArgs = append(cmdArgs, "--task", opts.task)
+		}
+		if opts.color != "" {
+			cmdArgs = append(cmdArgs, "--color", opts.color)
+		}
+		if opts.focus {
+			return "split-focus", cmdArgs, nil
+		}
+		return "split", cmdArgs, nil
 	}
-	if hostName != "" {
-		parsed = append(parsed, "--host", hostName)
+
+	if opts.name != "" {
+		cmdArgs = append(cmdArgs, "--name", opts.name)
 	}
-	if name != "" {
-		parsed = append(parsed, "--name", name)
+	if opts.host != "" {
+		cmdArgs = append(cmdArgs, "--host", opts.host)
 	}
-	return parsed, nil
+	if opts.task != "" {
+		cmdArgs = append(cmdArgs, "--task", opts.task)
+	}
+	if opts.color != "" {
+		cmdArgs = append(cmdArgs, "--color", opts.color)
+	}
+	if opts.focus {
+		return "spawn-focus", cmdArgs, nil
+	}
+	return "spawn", cmdArgs, nil
 }
 
 func parseEqualizeArgs(args []string) ([]string, error) {
@@ -655,8 +749,8 @@ Usage:
   amux [-s session] list [--no-cwd]    List panes with metadata
   amux [-s session] status             Show pane/window summary
   amux [-s session] list-clients       List attached clients + client-local UI state
-  amux [-s session] connection-log     Show recent client attach/detach history
-  amux [-s session] pane-log           Show pane create/exit history with exit cwd/branch context
+  amux [-s session] log clients        Show recent client attach/detach history
+  amux [-s session] log panes          Show pane create/exit history with exit cwd/branch context
   amux [-s session] capture            Capture full composited screen
   amux [-s session] capture --history --format json
                                        Capture full-session JSON with per-pane scrollback prepended to content
@@ -665,27 +759,23 @@ Usage:
                                        Capture a pane's retained history + visible screen
   amux [-s session] capture --ansi     Capture with ANSI escape codes
   amux [-s session] capture --colors   Capture border color map
-  amux [-s session] send-keys <pane> [--wait idle|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>...
+  amux [-s session] send-keys <pane> [--via pty|client] [--wait ready|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>...
                                        Send keystrokes to a pane
   amux [-s session] broadcast (--panes <pane,pane,...> | --window <index|name> | --match <glob>) [--hex] <keys>...
                                        Send the same keystrokes to multiple panes
-  amux [-s session] add-pane [--name NAME] [--host HOST]
-                                       Add a pane in clockwise spiral order without changing focus
-  amux [-s session] type-keys [--wait ui=input-idle] [--timeout <duration>] [--hex] <keys>...
-                                       Type keys through client input pipeline
-  amux [-s session] spawn --name NAME [--host HOST] [--task TASK] [--color COLOR]
-                                       Spawn a new agent pane without changing focus
+  amux [-s session] spawn [--at <pane>] [--vertical|--horizontal] [--root] [--spiral] [--focus] [--name NAME] [--host HOST] [--task TASK] [--color COLOR]
+                                       Create a new pane using split, spiral, or default spawn placement
   amux [-s session] zoom [pane]        Toggle zoom (maximize) a pane
-  amux [-s session] swap <p1> <p2>     Swap two panes by name or ID
-  amux [-s session] swap-tree <p1> <p2>
-                                       Swap the root-level groups containing two panes
+  amux [-s session] swap <p1> <p2> [--tree]
+                                       Swap two panes, or their root-level groups with --tree
+  amux [-s session] swap forward|backward
+                                       Swap the active pane with its next or previous sibling
+  amux [-s session] move <pane> up|down
+                                       Move a pane one slot within its split group
   amux [-s session] move <pane> --before <target>
   amux [-s session] move <pane> --after <target>
-                                       Move a pane before or after another; reorders siblings when they share a split group
-  amux [-s session] move-up <pane>     Move a pane one slot earlier within its split group
-  amux [-s session] move-down <pane>   Move a pane one slot later within its split group
-  amux [-s session] move-to <pane> <target>
-                                       Move one pane into another pane's column, appending at the bottom
+  amux [-s session] move <pane> --to-column <target>
+                                       Reorder a pane relative to another pane or move it into another column
   amux [-s session] rotate             Rotate pane positions forward
   amux [-s session] rotate --reverse   Rotate pane positions backward
   amux [-s session] reset <pane>       Clear pane history and reset terminal state
@@ -696,20 +786,15 @@ Usage:
   amux [-s session] kill <pane>        Kill a pane
   amux [-s session] undo              Undo last pane close
   amux [-s session] focus <pane>       Focus a pane by name or ID
+  amux [-s session] lead [pane]
+  amux [-s session] lead --clear
+                                       Set or clear the lead pane
   amux [-s session] copy-mode [pane] [--wait ui=copy-mode-shown] [--timeout <duration>]
                                        Enter copy/scroll mode for a pane
-  amux [-s session] set-kv <pane> key=value [key=value...]
-                                       Set arbitrary pane metadata keys
-  amux [-s session] get-kv <pane> [key...]
-                                       Show pane metadata keys as key=value lines; missing keys print nothing
-  amux [-s session] rm-kv <pane> key [key...]
-                                       Remove pane metadata keys
-  amux [-s session] set-meta <pane> key=value [key=value...]
-                                       Set single-value pane metadata (task, branch, pr)
-  amux [-s session] add-meta <pane> key=value [key=value...]
-                                       Add pane metadata values (pr=NUMBER, issue=ID)
-  amux [-s session] rm-meta <pane> key=value [key=value...]
-                                       Remove pane metadata values (pr=NUMBER, issue=ID)
+  amux [-s session] meta set <pane> key=value [key=value...]
+  amux [-s session] meta get <pane> [key]
+  amux [-s session] meta rm <pane> key [key...]
+                                       Manage generic pane metadata
   amux [-s session] new-window         Create a new window
   amux [-s session] list-windows       List all windows
   amux [-s session] select-window <n>  Switch to window by index or name
@@ -720,8 +805,6 @@ Usage:
                                        Resize window to cols x rows
   amux [-s session] events [--filter type1,type2] [--pane <ref>] [--host <name>] [--client <id>] [--no-reconnect]
                                        Stream events as NDJSON (layout, output, idle, busy, exited, client-connect, client-disconnect, display-panes-*, choose-*, copy-mode-*, input-*, reconnect)
-  amux [-s session] split <pane> [root] [--vertical|--horizontal] [--name NAME] [--host HOST]
-                                       Split a pane without changing focus
   amux [-s session] hosts              List configured remote hosts + status
   amux [-s session] disconnect <host>  Drop SSH connection to a host
   amux [-s session] reconnect <host>   Reconnect to a remote host
@@ -741,8 +824,10 @@ Usage:
                                        Block until pane VT output quiesces
   amux [-s session] wait busy <pane> [--timeout 5s]
                                        Block until pane has child processes
+  amux [-s session] wait ready <pane> [--timeout 10s]
+                                       Block until pane VT output settles and no foreground child processes remain
   amux [-s session] wait exited <pane> [--timeout 5s]
-                                       Block until pane has no child processes
+                                       Block until pane has no foreground child processes
   amux [-s session] wait checkpoint [--after N] [--timeout 15s]
                                        Block until a crash checkpoint write completes
   amux [-s session] wait ui <event> [--client <id>] [--after N] [--timeout 5s]

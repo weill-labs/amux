@@ -30,15 +30,15 @@ func TestMainUsageHelperIsolatesAmbientSessionEnv(t *testing.T) {
 	}
 }
 
-func TestMainSendKeysUsageIncludesWaitIdleFlags(t *testing.T) {
+func TestMainSendKeysUsageIncludesWaitReadyFlags(t *testing.T) {
 	t.Parallel()
 
 	out, code := runHermeticMain(t, "send-keys", "pane-1")
 	if code != 1 {
 		t.Fatalf("exit code = %d, want 1\n%s", code, out)
 	}
-	if !strings.Contains(out, "usage: amux send-keys <pane> [--wait idle|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>...") {
-		t.Fatalf("usage output missing wait-idle flags:\n%s", out)
+	if !strings.Contains(out, "usage: amux send-keys <pane> [--via pty|client] [--wait ready|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>...") {
+		t.Fatalf("usage output missing via/wait flags:\n%s", out)
 	}
 }
 
@@ -53,22 +53,12 @@ func TestMainKeyCommandsHelpFlagsPrintUsage(t *testing.T) {
 		{
 			name: "send-keys long help",
 			args: []string{"send-keys", "pane-1", "--help"},
-			want: "usage: amux send-keys <pane> [--wait idle|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>...",
+			want: "usage: amux send-keys <pane> [--via pty|client] [--wait ready|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>...",
 		},
 		{
 			name: "send-keys short help",
 			args: []string{"send-keys", "pane-1", "-h"},
-			want: "usage: amux send-keys <pane> [--wait idle|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>...",
-		},
-		{
-			name: "type-keys long help",
-			args: []string{"type-keys", "--help"},
-			want: "usage: amux type-keys [--wait ui=input-idle] [--timeout <duration>] [--hex] <keys>...",
-		},
-		{
-			name: "type-keys short help",
-			args: []string{"type-keys", "-h"},
-			want: "usage: amux type-keys [--wait ui=input-idle] [--timeout <duration>] [--hex] <keys>...",
+			want: "usage: amux send-keys <pane> [--via pty|client] [--wait ready|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>...",
 		},
 	}
 
@@ -98,12 +88,12 @@ func TestMainWaitUsage(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("exit code = %d, want 1\n%s", code, out)
 	}
-	if !strings.Contains(out, "usage: amux wait <idle|busy|exited|content|layout|clipboard|checkpoint|ui> ...") {
+	if !strings.Contains(out, "usage: amux wait <idle|busy|exited|ready|content|layout|clipboard|checkpoint|ui> ...") {
 		t.Fatalf("wait usage output = %q", out)
 	}
 }
 
-func TestMainKVCommandsHelpFlagsPrintUsage(t *testing.T) {
+func TestMainMetaCommandsHelpFlagsPrintUsage(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -112,34 +102,14 @@ func TestMainKVCommandsHelpFlagsPrintUsage(t *testing.T) {
 		want string
 	}{
 		{
-			name: "set-kv long help",
-			args: []string{"set-kv", "pane-1", "--help"},
-			want: "usage: amux set-kv <pane> key=value [key=value...]",
+			name: "meta long help",
+			args: []string{"meta", "--help"},
+			want: metaUsage,
 		},
 		{
-			name: "set-kv short help",
-			args: []string{"set-kv", "pane-1", "-h"},
-			want: "usage: amux set-kv <pane> key=value [key=value...]",
-		},
-		{
-			name: "get-kv long help",
-			args: []string{"get-kv", "pane-1", "--help"},
-			want: "usage: amux get-kv <pane> [key...]",
-		},
-		{
-			name: "get-kv short help",
-			args: []string{"get-kv", "pane-1", "-h"},
-			want: "usage: amux get-kv <pane> [key...]",
-		},
-		{
-			name: "rm-kv long help",
-			args: []string{"rm-kv", "pane-1", "--help"},
-			want: "usage: amux rm-kv <pane> key [key...]",
-		},
-		{
-			name: "rm-kv short help",
-			args: []string{"rm-kv", "pane-1", "-h"},
-			want: "usage: amux rm-kv <pane> key [key...]",
+			name: "meta short help",
+			args: []string{"meta", "-h"},
+			want: metaUsage,
 		},
 	}
 
@@ -177,7 +147,12 @@ func TestMainCursorUsage(t *testing.T) {
 func TestMainRemovedCommandsAreUnknown(t *testing.T) {
 	t.Parallel()
 
-	for _, command := range []string{"set-hook", "unset-hook", "list-hooks", "delegate"} {
+	for _, command := range []string{
+		"set-hook", "unset-hook", "list-hooks", "delegate",
+		"type-keys", "split", "add-pane", "connection-log", "pane-log",
+		"set-kv", "get-kv", "rm-kv", "set-meta", "add-meta", "rm-meta", "refresh-meta",
+		"move-up", "move-down", "move-to", "set-lead", "unset-lead", "toggle-lead", "swap-tree",
+	} {
 		out, code := runHermeticMain(t, command)
 		if code != 1 {
 			t.Fatalf("%s exit code = %d, want 1\n%s", command, code, out)
@@ -227,82 +202,32 @@ func TestMainWaitDispatchesWhenKindProvided(t *testing.T) {
 	assertMainCommandConnectError(t, out, "wait")
 }
 
-func TestMainTypeKeysDispatchesWhenKeysProvided(t *testing.T) {
+func TestMainSendKeysDispatchesWhenKeysProvided(t *testing.T) {
 	t.Parallel()
 
-	out, code := runHermeticMain(t, "type-keys", "abc")
+	out, code := runHermeticMain(t, "send-keys", "pane-1", "abc")
 	if code != 1 {
 		t.Fatalf("exit code = %d, want 1\n%s", code, out)
 	}
-	if strings.Contains(out, "usage: amux type-keys") {
-		t.Fatalf("type-keys should dispatch when keys are provided, got usage output:\n%s", out)
+	if strings.Contains(out, "usage: amux send-keys") {
+		t.Fatalf("send-keys should dispatch when keys are provided, got usage output:\n%s", out)
 	}
-	assertMainCommandConnectError(t, out, "type-keys")
+	assertMainCommandConnectError(t, out, "send-keys")
 }
 
-func TestMainTypeKeysWarnsWhenFirstArgLooksLikePaneRef(t *testing.T) {
+func TestMainSendKeysUsageIncludesViaFlags(t *testing.T) {
 	t.Parallel()
 
-	tests := [][]string{
-		{"type-keys", "pane-1"},
-		{"type-keys", "pane-1", "hello"},
-	}
-
-	for _, args := range tests {
-		args := args
-		t.Run(strings.Join(args, "_"), func(t *testing.T) {
-			t.Parallel()
-
-			out, code := runHermeticMain(t, args...)
-			if code != 1 {
-				t.Fatalf("exit code = %d, want 1\n%s", code, out)
-			}
-			if !strings.Contains(out, `warning: "pane-1" looks like a pane ref`) ||
-				!strings.Contains(out, `use send-keys pane-1 ...`) {
-				t.Fatalf("type-keys pane-ref warning missing send-keys hint:\n%s", out)
-			}
-			assertMainCommandConnectError(t, out, "type-keys")
-		})
-	}
-}
-
-func TestLooksLikePaneRefArg(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		arg  string
-		want bool
-	}{
-		{arg: "pane-1", want: true},
-		{arg: "7", want: true},
-		{arg: "pane-one", want: true},
-		{arg: "task", want: false},
-	}
-
-	for _, tt := range tests {
-		tt := tt
-		t.Run(tt.arg, func(t *testing.T) {
-			t.Parallel()
-			if got := looksLikePaneRefArg(tt.arg); got != tt.want {
-				t.Fatalf("looksLikePaneRefArg(%q) = %v, want %v", tt.arg, got, tt.want)
-			}
-		})
-	}
-}
-
-func TestMainTypeKeysUsageIncludesWaitFlags(t *testing.T) {
-	t.Parallel()
-
-	out, code := runHermeticMain(t, "type-keys")
+	out, code := runHermeticMain(t, "send-keys")
 	if code != 1 {
 		t.Fatalf("exit code = %d, want 1\n%s", code, out)
 	}
-	if !strings.Contains(out, "usage: amux type-keys [--wait ui=input-idle] [--timeout <duration>] [--hex] <keys>...") {
-		t.Fatalf("type-keys usage output missing wait flags:\n%s", out)
+	if !strings.Contains(out, "usage: amux send-keys <pane> [--via pty|client] [--wait ready|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>...") {
+		t.Fatalf("send-keys usage output missing via flags:\n%s", out)
 	}
 }
 
-func TestMainMoveUpDownUsageAndDispatch(t *testing.T) {
+func TestMainMoveUsageAndDispatch(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -312,24 +237,29 @@ func TestMainMoveUpDownUsageAndDispatch(t *testing.T) {
 		wantConnectName string
 	}{
 		{
-			name:      "move-up usage",
-			args:      []string{"move-up"},
-			wantUsage: "usage: amux move-up <pane>",
+			name:      "move usage",
+			args:      []string{"move"},
+			wantUsage: moveUsage,
 		},
 		{
-			name:            "move-up dispatch",
-			args:            []string{"move-up", "pane-1"},
+			name:            "move up dispatch",
+			args:            []string{"move", "pane-1", "up"},
 			wantConnectName: "move-up",
 		},
 		{
-			name:      "move-down usage",
-			args:      []string{"move-down"},
-			wantUsage: "usage: amux move-down <pane>",
+			name:            "move down dispatch",
+			args:            []string{"move", "pane-1", "down"},
+			wantConnectName: "move-down",
 		},
 		{
-			name:            "move-down dispatch",
-			args:            []string{"move-down", "pane-1"},
-			wantConnectName: "move-down",
+			name:            "move before dispatch",
+			args:            []string{"move", "pane-1", "--before", "pane-2"},
+			wantConnectName: "move",
+		},
+		{
+			name:            "move to-column dispatch",
+			args:            []string{"move", "pane-1", "--to-column", "pane-2"},
+			wantConnectName: "move-to",
 		},
 	}
 
@@ -356,18 +286,24 @@ func TestMainMoveUpDownUsageAndDispatch(t *testing.T) {
 	}
 }
 
-func TestMainHelpIncludesMoveUpDown(t *testing.T) {
+func TestMainHelpIncludesCanonicalCommands(t *testing.T) {
 	t.Parallel()
 
 	out, code := runHermeticMain(t, "help")
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0\n%s", code, out)
 	}
-	if !strings.Contains(out, "amux [-s session] move-up <pane>") {
-		t.Fatalf("help output missing move-up:\n%s", out)
+	if !strings.Contains(out, "amux [-s session] log clients") {
+		t.Fatalf("help output missing log clients:\n%s", out)
 	}
-	if !strings.Contains(out, "amux [-s session] move-down <pane>") {
-		t.Fatalf("help output missing move-down:\n%s", out)
+	if !strings.Contains(out, "amux [-s session] meta set <pane> key=value [key=value...]") {
+		t.Fatalf("help output missing meta set:\n%s", out)
+	}
+	if !strings.Contains(out, "amux [-s session] lead [pane]") {
+		t.Fatalf("help output missing lead:\n%s", out)
+	}
+	if strings.Contains(out, "amux [-s session] move-up <pane>") || strings.Contains(out, "amux [-s session] move-down <pane>") {
+		t.Fatalf("help output should omit removed move aliases:\n%s", out)
 	}
 }
 
@@ -528,53 +464,27 @@ func TestMainResetUsage(t *testing.T) {
 	}
 }
 
-func TestMainSetKVDispatchesWhenPaneAndPairsProvided(t *testing.T) {
+func TestMainMetaDispatchesWhenSubcommandIsValid(t *testing.T) {
 	t.Parallel()
 
-	out, code := runHermeticMain(t, "set-kv", "pane-1", "foo=bar")
+	out, code := runHermeticMain(t, "meta", "get", "pane-1")
 	if code != 1 {
 		t.Fatalf("exit code = %d, want 1\n%s", code, out)
 	}
-	if strings.Contains(out, "usage: amux set-kv") {
-		t.Fatalf("set-kv should dispatch when pane and kv pairs are provided, got usage output:\n%s", out)
+	if strings.Contains(out, "usage: amux meta") {
+		t.Fatalf("meta should dispatch when subcommand args are valid, got usage output:\n%s", out)
 	}
-	assertMainCommandConnectError(t, out, "set-kv")
+	assertMainCommandConnectError(t, out, "meta")
 }
 
-func TestMainGetKVDispatchesWhenPaneProvided(t *testing.T) {
+func TestMainMetaUsageRejectsMissingArgs(t *testing.T) {
 	t.Parallel()
 
-	out, code := runHermeticMain(t, "get-kv", "pane-1")
+	out, code := runHermeticMain(t, "meta")
 	if code != 1 {
 		t.Fatalf("exit code = %d, want 1\n%s", code, out)
 	}
-	if strings.Contains(out, "usage: amux get-kv") {
-		t.Fatalf("get-kv should dispatch when a pane is provided, got usage output:\n%s", out)
-	}
-	assertMainCommandConnectError(t, out, "get-kv")
-}
-
-func TestMainRmKVDispatchesWhenPaneAndKeysProvided(t *testing.T) {
-	t.Parallel()
-
-	out, code := runHermeticMain(t, "rm-kv", "pane-1", "foo")
-	if code != 1 {
-		t.Fatalf("exit code = %d, want 1\n%s", code, out)
-	}
-	if strings.Contains(out, "usage: amux rm-kv") {
-		t.Fatalf("rm-kv should dispatch when pane and keys are provided, got usage output:\n%s", out)
-	}
-	assertMainCommandConnectError(t, out, "rm-kv")
-}
-
-func TestMainRefreshMetaIsUnknownCommand(t *testing.T) {
-	t.Parallel()
-
-	out, code := runHermeticMain(t, "refresh-meta")
-	if code != 1 {
-		t.Fatalf("exit code = %d, want 1\n%s", code, out)
-	}
-	if !strings.Contains(out, `amux: unknown command "refresh-meta"`) {
-		t.Fatalf("refresh-meta output = %q", out)
+	if !strings.Contains(out, metaUsage) {
+		t.Fatalf("meta usage output = %q", out)
 	}
 }

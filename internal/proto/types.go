@@ -51,11 +51,11 @@ type PaneSnapshot struct {
 	Name          string            `json:"name"`
 	Host          string            `json:"host"`
 	Task          string            `json:"task"`
-	KV            map[string]string `json:"kv,omitempty"`
 	Color         string            `json:"color"`
 	ColumnIndex   int               `json:"column_index"`
 	Idle          bool              `json:"idle"`
 	ConnStatus    string            `json:"conn_status,omitempty"` // "", "connected", "reconnecting", "disconnected" (remote panes only)
+	KV            map[string]string `json:"kv,omitempty"`
 	GitBranch     string            `json:"git_branch,omitempty"`
 	PR            string            `json:"pr,omitempty"`
 	TrackedPRs    []TrackedPR       `json:"tracked_prs,omitempty"`
@@ -92,10 +92,10 @@ type CaptureWindow struct {
 
 // CaptureMeta holds user-managed pane metadata for JSON capture.
 type CaptureMeta struct {
+	KV            map[string]string `json:"kv,omitempty"`
 	Task          string            `json:"task,omitempty"`
 	GitBranch     string            `json:"git_branch,omitempty"`
 	PR            string            `json:"pr,omitempty"`
-	KV            map[string]string `json:"kv,omitempty"`
 	TrackedPRs    []TrackedPR       `json:"tracked_prs,omitempty"`
 	TrackedIssues []TrackedIssue    `json:"tracked_issues,omitempty"`
 }

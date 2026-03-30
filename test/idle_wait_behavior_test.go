@@ -19,7 +19,7 @@ func TestWaitIdleAcceptsNonAgentPromptMarkers(t *testing.T) {
 	}
 }
 
-func TestSendKeysWaitIdleAcceptsNonAgentPromptMarkers(t *testing.T) {
+func TestSendKeysWaitReadyAcceptsNonAgentPromptMarkers(t *testing.T) {
 	t.Parallel()
 
 	h := newServerHarness(t)
@@ -27,35 +27,46 @@ func TestSendKeysWaitIdleAcceptsNonAgentPromptMarkers(t *testing.T) {
 	h.sendKeys("pane-1", "export PS1='READY$ '", "Enter")
 	h.waitIdle("pane-1")
 
-	out := h.runCmd("send-keys", "pane-1", "--wait", "idle", "echo READY", "Enter")
+	out := h.runCmd("send-keys", "pane-1", "--wait", "ready", "echo READY", "Enter")
 	if strings.TrimSpace(out) != "Sent 11 bytes to pane-1" {
-		t.Fatalf("send-keys --wait idle output = %q", out)
+		t.Fatalf("send-keys --wait ready output = %q", out)
 	}
 
 	h.waitFor("pane-1", "READY")
 	h.waitIdle("pane-1")
 }
 
-func TestWaitReadyCommandIsRemoved(t *testing.T) {
+func TestWaitReadyCommandReturnsReady(t *testing.T) {
 	t.Parallel()
 
 	h := newServerHarness(t)
 
+	h.sendKeys("pane-1", "echo READY", "Enter")
+	h.waitFor("pane-1", "READY")
+	h.waitIdle("pane-1")
+
 	out := h.runCmd("wait", "ready", "pane-1")
-	if strings.TrimSpace(out) != "amux wait: unknown wait kind: ready" {
-		t.Fatalf("wait-ready removal error = %q", out)
+	if strings.TrimSpace(out) != "ready" {
+		t.Fatalf("wait-ready output = %q", out)
 	}
 }
 
-func TestSendKeysWaitReadyFlagIsRemoved(t *testing.T) {
+func TestSendKeysWaitReadyWaitsForShellPrompt(t *testing.T) {
 	t.Parallel()
 
 	h := newServerHarness(t)
 
-	out := h.runCmd("send-keys", "pane-1", "--wait", "ready", "ship it")
-	if strings.TrimSpace(out) != `amux send-keys: send-keys: unsupported --wait target "ready" (want idle or ui=input-idle)` {
-		t.Fatalf("send-keys wait-ready removal error = %q", out)
+	h.sendKeys("pane-1", "echo READY", "Enter")
+	h.waitFor("pane-1", "READY")
+	h.waitIdle("pane-1")
+
+	out := h.runCmd("send-keys", "pane-1", "--wait", "ready", "echo AGAIN", "Enter")
+	if strings.TrimSpace(out) != "Sent 11 bytes to pane-1" {
+		t.Fatalf("send-keys wait-ready output = %q", out)
 	}
+
+	h.waitFor("pane-1", "AGAIN")
+	h.waitIdle("pane-1")
 }
 
 func TestWaitIdleReturnsWhenOutputQuiescesEvenIfChildStillRuns(t *testing.T) {

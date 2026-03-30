@@ -251,7 +251,7 @@ func TestCopyModeResizeSurvives(t *testing.T) {
 	// Should still be able to exit. Use inner type-keys here so the assertion
 	// only depends on the inner client handling copy-mode exit, not on the
 	// outer pane render catching up after the terminal resize.
-	h.runCmd("type-keys", "q")
+	h.sendClientKeys("q")
 	h.waitUI(proto.UIEventCopyModeHidden, 3*time.Second)
 }
 

@@ -81,10 +81,12 @@ amux wait exited pane-1
 amux broadcast --panes pane-1,pane-2 "make test" Enter
 
 # Send a task to an agent pane after its screen output goes quiet
-amux send-keys pane-31 --wait idle "Fix the auth timeout bug" Enter
+amux wait idle pane-31 --timeout 30s
+amux send-keys pane-31 "Fix the auth timeout bug" Enter
 
 # Compose higher-level prompt orchestration in your own script
-amux send-keys pane-31 --wait idle "Summarize the failing tests and propose a fix" Enter
+amux wait idle pane-31 --timeout 30s
+amux send-keys pane-31 "Summarize the failing tests and propose a fix" Enter
 amux wait busy pane-31 --timeout 5s
 
 # Subscribe to state changes
@@ -103,7 +105,7 @@ scripts/check-pr-ready.sh
 amux list-clients
 
 # Inspect recent client attach/detach history
-amux connection-log
+amux log clients
 ```
 
 ## Agent API
@@ -198,6 +200,7 @@ Block until a condition is met. No polling.
 | Command | Description | Default timeout |
 |---------|-------------|-----------------|
 | `wait idle <pane>` | Block until pane terminal output settles | 60s |
+| `wait ready <pane>` | Block until pane terminal output settles and no foreground process remains | 10s |
 | `wait exited <pane>` | Block until pane has no foreground process | 5s |
 | `wait busy <pane>` | Block until pane has a child process | 5s |
 | `wait content <pane> <substring>` | Block until substring appears in pane content | 10s |
@@ -209,7 +212,7 @@ Block until a condition is met. No polling.
 | `cursor clipboard` | Show the current clipboard cursor | n/a |
 | `cursor ui [--client client-1]` | Show the current client UI cursor | n/a |
 
-`wait idle` also accepts `--settle <duration>` (default `2s`). `wait exited` stays process-based. All wait commands accept `--timeout <duration>` (e.g., `--timeout 30s`).
+`wait idle` also accepts `--settle <duration>` (default `2s`). `wait ready` adds the process-idle requirement on top of screen quiescence, and `wait exited` stays process-based. All wait commands accept `--timeout <duration>` (e.g., `--timeout 30s`).
 
 ### Event Stream
 
@@ -300,38 +303,31 @@ All commands accept `-s <session>` to target a specific session. Panes are refer
 | Command | Description |
 |---------|-------------|
 | `amux list [--no-cwd]` | List panes with metadata (including cwd by default) |
-| `amux split <pane> [root] [--vertical\|--horizontal] [--name NAME] [--host HOST]` | Split a pane without changing focus (default: horizontal) |
-| `amux add-pane [--name NAME] [--host HOST]` | Add a pane in clockwise spiral order without changing focus |
+| `amux spawn [--at <pane>] [--vertical\|--horizontal] [--root] [--spiral] [--focus] [--name NAME] [--host HOST] [--task TASK] [--color COLOR]` | Create a new pane using default spawn, targeted split, or spiral placement |
 | `amux focus <pane\|direction>` | Focus by name, ID, or direction (left/right/up/down/next) |
-| `amux spawn --name NAME [--host HOST] [--task TASK]` | Spawn a new named pane without changing focus |
 | `amux zoom [pane]` | Toggle zoom on a pane |
 | `amux kill [pane]` | Kill a pane (default: active) |
-| `amux send-keys <pane> [--wait idle\|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>...` | Send keystrokes to a pane |
-| `amux delegate <pane> [--timeout <duration>] [--start-timeout <duration>] [--hex] <keys>...` | Type a prompt into a pane, submit it, and wait for the agent to start |
+| `amux send-keys <pane> [--via pty\|client] [--wait ready\|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>...` | Send keystrokes to a pane |
 | `amux broadcast (--panes <pane,pane,...> \| --window <index\|name> \| --match <glob>) [--hex] <keys>...` | Send the same keystrokes to multiple panes |
-| `amux swap <p1> <p2>` | Swap two panes |
+| `amux swap <p1> <p2> [--tree]` | Swap two panes, or their root-level groups with `--tree` |
 | `amux swap forward\|backward` | Swap active pane with neighbor |
-| `amux swap-tree <p1> <p2>` | Swap the root-level groups containing two panes |
+| `amux move <pane> up\|down` | Move a pane one slot within its split group |
 | `amux move <pane> --before\|--after <target>` | Move a pane before or after another, reordering siblings when they share a split group |
-| `amux move-up <pane>` | Move a pane one slot earlier within its split group |
-| `amux move-down <pane>` | Move a pane one slot later within its split group |
-| `amux move-to <pane> <target>` | Move one pane into the target pane's column, appending at the bottom |
+| `amux move <pane> --to-column <target>` | Move one pane into the target pane's column, appending at the bottom |
 | `amux rotate [--reverse]` | Rotate pane positions |
 | `amux equalize [--vertical\|--all]` | Rebalance root columns, rows within columns, or both |
 | `amux copy-mode [pane] [--wait ui=copy-mode-shown] [--timeout <duration>]` | Enter copy/scroll mode |
-| `amux set-kv <pane> key=value...` | Set arbitrary pane metadata keys |
-| `amux get-kv <pane> [key...]` | Show pane metadata keys as `key=value` lines. Missing keys print nothing. |
-| `amux rm-kv <pane> key...` | Remove pane metadata keys |
-| `amux set-meta <pane> key=value...` | Set single-value pane metadata (`task`, `branch`, `pr`) |
-| `amux add-meta <pane> key=value...` | Compatibility wrapper that adds tracked metadata values (`pr=NUMBER`, `issue=ID`) |
-| `amux rm-meta <pane> key=value...` | Compatibility wrapper that removes tracked metadata values (`pr=NUMBER`, `issue=ID`) |
+| `amux lead [pane]` / `amux lead --clear` | Set or clear the lead pane |
+| `amux meta set <pane> key=value...` | Set pane metadata |
+| `amux meta get <pane> [key]` | Read pane metadata |
+| `amux meta rm <pane> key...` | Remove pane metadata keys |
 `move` first checks whether both panes are siblings in the same split group. When they are, it reorders only that group. Otherwise it falls back to the existing root-level-group behavior, so moving `pane-3` can still move an entire column or row when the panes are in different branches.
-`move-up` and `move-down` are shorthand for nudging a pane one slot earlier or later within its current split group.
-`move-to` instead moves exactly one pane into the target pane's logical column and appends it to the bottom of that stack.
-`split`, `spawn`, and `add-pane` are pure layout mutations: they create the pane but do not change focus. Use `amux focus <pane|direction>` when you want a focus change explicitly. When the active pane is zoomed, these commands preserve the zoom and keep the focused pane unchanged.
-Higher-level prompt delegation now lives at the script layer: compose `send-keys --wait idle`, `wait busy`, and `wait exited` to match the workflow you want.
+`move up` and `move down` are shorthand for nudging a pane one slot earlier or later within its current split group.
+`move --to-column` instead moves exactly one pane into the target pane's logical column and appends it to the bottom of that stack.
+`spawn` is the canonical pane-creation command. Use plain `spawn` for the default vertical split path, `spawn --at ...` for targeted splits, and `spawn --spiral` for clockwise spiral placement. These layout mutations keep focus unless you add `--focus`. When the active pane is zoomed, they preserve the zoom and keep the focused pane unchanged unless `--focus` is set.
+Higher-level prompt delegation now lives at the script layer: compose `wait idle`, `send-keys`, `wait busy`, and `wait exited` or `wait ready` to match the workflow you want.
 
-`add-pane` builds outward in a clockwise spiral. At 1, 4, 9, 16, ... panes the spiral canvas reaches a uniform `N x N` grid. When a lead pane is active, the lead column stays pinned on the left and `add-pane` spirals only within the right subtree.
+`spawn --spiral` builds outward in a clockwise spiral. At 1, 4, 9, 16, ... panes the spiral canvas reaches a uniform `N x N` grid. When a lead pane is active, the lead column stays pinned on the left and the spiral grows only within the right subtree.
 
 ### Agent API
 
@@ -347,6 +343,7 @@ Higher-level prompt delegation now lives at the script layer: compose `send-keys
 | `amux capture --ansi [pane]` | Capture with ANSI escape codes |
 | `amux capture --colors` | Capture border color map |
 | `amux wait idle <pane> [--settle 2s] [--timeout 60s]` | Block until pane VT output quiesces |
+| `amux wait ready <pane> [--timeout 10s]` | Block until pane VT output settles and no foreground process remains |
 | `amux wait exited <pane> [--timeout 5s]` | Block until pane has no child processes |
 | `amux wait busy <pane> [--timeout 5s]` | Block until pane has child processes |
 | `amux wait content <pane> <substring> [--timeout 10s]` | Block until substring appears in pane |
@@ -359,8 +356,8 @@ Higher-level prompt delegation now lives at the script layer: compose `send-keys
 | `amux cursor clipboard` | Show current clipboard generation counter |
 | `amux events [--filter type,...] [--pane ref] [--host name] [--client id] [--throttle 50ms] [--no-reconnect]` | Stream events as NDJSON (output throttled, auto-reconnect by default) |
 | `amux list-clients` | List attached clients and client-local UI state |
-| `amux connection-log` | Show recent client attach/detach history |
-| `amux pane-log` | Show recent pane create/exit history with exit cwd, git branch, and reason |
+| `amux log clients` | Show recent client attach/detach history |
+| `amux log panes` | Show recent pane create/exit history with exit cwd, git branch, and reason |
 
 ### Windows
 
@@ -379,8 +376,8 @@ Higher-level prompt delegation now lives at the script layer: compose `send-keys
 | Command | Description |
 |---------|-------------|
 | `amux hosts` | List configured remote hosts and connection status |
-| `amux split <pane> [root] [--vertical\|--horizontal] [--name NAME] --host HOST` | Split a pane with a remote pane on HOST without changing focus |
-| `amux add-pane [--name NAME] --host HOST` | Add a remote pane in clockwise spiral order without changing focus |
+| `amux spawn --at <pane> [--root] [--vertical\|--horizontal] [--name NAME] --host HOST` | Create a remote split pane on HOST |
+| `amux spawn --spiral [--name NAME] --host HOST` | Add a remote pane in clockwise spiral order without changing focus |
 | `amux disconnect <host>` | Drop SSH connection to a host |
 | `amux reconnect <host>` | Reconnect to a remote host |
 | `amux unsplice <host>` | Revert SSH takeover, replace remote panes with local |

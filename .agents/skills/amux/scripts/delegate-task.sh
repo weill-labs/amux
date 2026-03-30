@@ -226,7 +226,7 @@ else
 fi
 
 if [[ -n "$issue" ]]; then
-    amux add-meta "$pane" "issue=$issue" >/dev/null
+    amux meta set "$pane" "issue=$issue" >/dev/null
 fi
 
 echo "$pane accepted task"

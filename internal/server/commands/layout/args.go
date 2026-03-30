@@ -12,11 +12,15 @@ type SplitArgs struct {
 	Dir       mux.SplitDir
 	HostName  string
 	Name      string
+	Task      string
+	Color     string
 }
 
 type AddPaneArgs struct {
 	HostName string
 	Name     string
+	Task     string
+	Color    string
 }
 
 func ParseSplitArgs(args []string) (SplitArgs, error) {
@@ -56,6 +60,18 @@ func ParseSplitArgs(args []string) (SplitArgs, error) {
 			}
 			parsed.Name = args[i+1]
 			i++
+		case "--task":
+			if i+1 >= len(args) {
+				return SplitArgs{}, fmt.Errorf("--task requires a value")
+			}
+			parsed.Task = args[i+1]
+			i++
+		case "--color":
+			if i+1 >= len(args) {
+				return SplitArgs{}, fmt.Errorf("--color requires a value")
+			}
+			parsed.Color = args[i+1]
+			i++
 		default:
 			if parsed.PaneRef == "" && args[i] != "" && args[i][0] != '-' {
 				parsed.PaneRef = args[i]
@@ -84,6 +100,18 @@ func ParseAddPaneArgs(args []string) (AddPaneArgs, error) {
 				return AddPaneArgs{}, fmt.Errorf("--name requires a value")
 			}
 			parsed.Name = args[i+1]
+			i++
+		case "--task":
+			if i+1 >= len(args) {
+				return AddPaneArgs{}, fmt.Errorf("--task requires a value")
+			}
+			parsed.Task = args[i+1]
+			i++
+		case "--color":
+			if i+1 >= len(args) {
+				return AddPaneArgs{}, fmt.Errorf("--color requires a value")
+			}
+			parsed.Color = args[i+1]
 			i++
 		default:
 			return AddPaneArgs{}, fmt.Errorf("unknown add-pane arg %q", args[i])
@@ -133,9 +161,6 @@ func ParseSpawnArgs(args []string) (SpawnArgs, error) {
 		}
 	}
 
-	if parsed.Meta.Name == "" {
-		return SpawnArgs{}, fmt.Errorf("--name is required")
-	}
 	return parsed, nil
 }
 

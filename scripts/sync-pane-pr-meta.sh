@@ -30,11 +30,10 @@ if ! capture="$(amux capture --format json "$AMUX_PANE" 2>/dev/null)"; then
     exit 0
 fi
 
-args=("add-meta" "$AMUX_PANE" "pr=$pr_num")
-while IFS= read -r issue; do
-    if [[ -n "$issue" ]]; then
-        args+=("issue=$issue")
-    fi
-done < <(printf '%s\n' "$capture" | jq -r '(.meta.tracked_issues // [])[].id' 2>/dev/null)
+args=("meta" "set" "$AMUX_PANE" "pr=$pr_num")
+issue="$(printf '%s\n' "$capture" | jq -r '.meta.kv.issue // empty' 2>/dev/null || true)"
+if [[ -n "$issue" ]]; then
+    args+=("issue=$issue")
+fi
 
 amux "${args[@]}" >/dev/null

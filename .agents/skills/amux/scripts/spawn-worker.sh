@@ -67,7 +67,7 @@ fi
 require_cmd "$amux_bin"
 require_cmd "$git_bin"
 
-split_out="$("$amux_bin" split "$parent" --horizontal)" || exit $?
+split_out="$("$amux_bin" spawn --at "$parent" --horizontal)" || exit $?
 
 if [[ ! "$split_out" =~ new[[:space:]]+pane[[:space:]]+([^[:space:]]+) ]]; then
     die "failed to parse new pane from: $split_out"
@@ -91,6 +91,6 @@ run_quiet "$amux_bin" send-keys "$pane" "codex --yolo" Enter
 run_quiet "$amux_bin" wait idle "$pane"
 # Clear the Codex trust prompt that appears on first launch.
 run_quiet "$amux_bin" send-keys "$pane" Enter
-run_quiet "$amux_bin" add-meta "$pane" "issue=$issue"
+run_quiet "$amux_bin" meta set "$pane" "issue=$issue"
 
 printf '%s\n' "$pane"

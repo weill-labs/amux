@@ -113,12 +113,24 @@ func runSplit(ctx *CommandContext, keepFocus bool) {
 		ctx.replyErr(err.Error())
 		return
 	}
-	if args.PaneRef == "" {
-		ctx.replyErr("pane argument required")
-		return
-	}
 
-	resolved, err := ctx.Sess.queryResolvedPaneForActor(ctx.ActorPaneID, args.PaneRef)
+	var resolved resolvedPaneRef
+	if args.PaneRef == "" {
+		resolved, err = enqueueSessionQuery(ctx.Sess, func(sess *Session) (resolvedPaneRef, error) {
+			w := sess.windowForActor(ctx.ActorPaneID)
+			if w == nil || w.ActivePane == nil {
+				return resolvedPaneRef{}, fmt.Errorf("no active pane")
+			}
+			return resolvedPaneRef{
+				pane:     w.ActivePane,
+				paneID:   w.ActivePane.ID,
+				paneName: w.ActivePane.Meta.Name,
+				windowID: w.ID,
+			}, nil
+		})
+	} else {
+		resolved, err = ctx.Sess.queryResolvedPaneForActor(ctx.ActorPaneID, args.PaneRef)
+	}
 	if err != nil {
 		ctx.replyErr(err.Error())
 		return
@@ -134,12 +146,32 @@ func runSplit(ctx *CommandContext, keepFocus bool) {
 			ctx.replyErr(err.Error())
 			return
 		}
-		ctx.reply(fmt.Sprintf("Split %s: new remote pane %s @%s\n", dirName(args.Dir), pane.Meta.Name, args.HostName))
+		ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
+			registered := sess.findPaneByID(pane.ID)
+			if registered == nil {
+				return commandMutationResult{err: fmt.Errorf("pane %q not found", pane.Meta.Name)}
+			}
+			if args.Task != "" {
+				registered.Meta.Task = args.Task
+			}
+			if args.Color != "" {
+				registered.Meta.Color = args.Color
+			}
+			return commandMutationResult{
+				output:          fmt.Sprintf("Split %s: new remote pane %s @%s\n", dirName(args.Dir), pane.Meta.Name, args.HostName),
+				broadcastLayout: args.Task != "" || args.Color != "",
+			}
+		}))
 		return
 	}
 
 	targetPaneID := resolved.paneID
-	meta := mux.PaneMeta{Name: args.Name, Dir: mux.PaneCwd(resolved.pane.ProcessPid())}
+	meta := mux.PaneMeta{
+		Name:  args.Name,
+		Task:  args.Task,
+		Color: args.Color,
+		Dir:   mux.PaneCwd(resolved.pane.ProcessPid()),
+	}
 	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
 		w := sess.findWindowByPaneID(targetPaneID)
 		if w == nil {
@@ -232,6 +264,12 @@ func runAddPane(ctx *CommandContext, keepFocus bool) {
 		if args.Name != "" {
 			pane.Meta.Name = args.Name
 		}
+		if args.Task != "" {
+			pane.Meta.Task = args.Task
+		}
+		if args.Color != "" {
+			pane.Meta.Color = args.Color
+		}
 		ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
 			w := sess.windowForActor(ctx.ActorPaneID)
 			if w == nil || w.ID != snapshot.windowID {
@@ -252,7 +290,12 @@ func runAddPane(ctx *CommandContext, keepFocus bool) {
 		return
 	}
 
-	meta := mux.PaneMeta{Name: args.Name, Dir: mux.PaneCwd(snapshot.inheritPID)}
+	meta := mux.PaneMeta{
+		Name:  args.Name,
+		Task:  args.Task,
+		Color: args.Color,
+		Dir:   mux.PaneCwd(snapshot.inheritPID),
+	}
 	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
 		w := sess.windowForActor(ctx.ActorPaneID)
 		if w == nil || w.ID != snapshot.windowID {
@@ -278,6 +321,10 @@ func runAddPane(ctx *CommandContext, keepFocus bool) {
 
 func cmdAddPane(ctx *CommandContext) {
 	runAddPane(ctx, true)
+}
+
+func cmdAddPaneFocus(ctx *CommandContext) {
+	runAddPane(ctx, false)
 }
 
 func cmdFocus(ctx *CommandContext) {
@@ -336,7 +383,9 @@ func runSpawn(ctx *CommandContext, keepFocus bool) {
 			if registered == nil {
 				return commandMutationResult{err: fmt.Errorf("pane %q not found", pane.Meta.Name)}
 			}
-			registered.Meta.Name = args.Meta.Name
+			if args.Meta.Name != "" {
+				registered.Meta.Name = args.Meta.Name
+			}
 			if args.Meta.Task != "" {
 				registered.Meta.Task = args.Meta.Task
 			}
@@ -344,7 +393,7 @@ func runSpawn(ctx *CommandContext, keepFocus bool) {
 				registered.Meta.Color = args.Meta.Color
 			}
 			return commandMutationResult{
-				output:          fmt.Sprintf("Spawned %s in pane %d @%s\n", args.Meta.Name, pane.ID, remoteHost),
+				output:          fmt.Sprintf("Spawned %s in pane %d @%s\n", registered.Meta.Name, pane.ID, remoteHost),
 				broadcastLayout: true,
 			}
 		}))
@@ -374,7 +423,7 @@ func runSpawn(ctx *CommandContext, keepFocus bool) {
 			return cleanupFailedPaneMutation(sess, pane, err)
 		}
 		return commandMutationResult{
-			output:          fmt.Sprintf("Spawned %s in pane %d\n", args.Meta.Name, pane.ID),
+			output:          fmt.Sprintf("Spawned %s in pane %d\n", pane.Meta.Name, pane.ID),
 			broadcastLayout: true,
 			startPanes:      []*mux.Pane{pane},
 		}

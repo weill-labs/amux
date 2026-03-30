@@ -116,7 +116,7 @@ run_scripted_prompt() {
 
 cycle_focus() {
     local session="$1"
-    "$AMUX" -s "$session" type-keys C-a o >/dev/null
+    "$AMUX" -s "$session" focus next >/dev/null
 }
 
 wait_for_socket() {
@@ -148,11 +148,11 @@ agent() {
     sleep 2.5
 
     layout=$("$AMUX" -s "$session" cursor layout)
-    "$AMUX" -s "$session" type-keys C-a '|' >/dev/null
+    "$AMUX" -s "$session" spawn --vertical --focus >/dev/null
     "$AMUX" -s "$session" wait layout --after "$layout" --timeout 5s >/dev/null
     sleep 1.0
 
-    run_human "$session" 'amux spawn --name review --task "summarize pane-2" && amux move-to review 2'
+    run_human "$session" 'amux spawn --name review --task "summarize pane-2" && amux move review --to-column 2'
     sleep 1.8
 
     "$AMUX" -s "$session" send-keys 2 "bash ${SIMDIR}/agent.sh fix ${SIMDIR}/resp-fix.sh" Enter >/dev/null

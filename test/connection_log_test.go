@@ -24,7 +24,7 @@ func TestConnectionLogCLI(t *testing.T) {
 	h.waitLayout(gen)
 	_ = conn.Close()
 
-	out := h.runCmd("connection-log")
+	out := h.runCmd("log", "clients")
 	for _, want := range []string{
 		"TS",
 		"EVENT",

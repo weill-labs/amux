@@ -22,4 +22,4 @@ else
     exit 1
 fi
 
-amux add-meta "$pane" "issue=$issue"
+amux meta set "$pane" "issue=$issue"

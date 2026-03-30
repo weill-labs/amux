@@ -191,6 +191,13 @@ func (h *AmuxHarness) sendKeys(keys ...string) {
 	h.outer.runCmd(args...)
 }
 
+func (h *AmuxHarness) sendClientKeys(keys ...string) string {
+	h.tb.Helper()
+	pane := h.activePaneName()
+	args := append([]string{"send-keys", pane, "--via", "client"}, keys...)
+	return h.runCmd(args...)
+}
+
 func (h *AmuxHarness) sendKeysHex(data []byte) {
 	h.tb.Helper()
 	var hexParts []string
@@ -603,6 +610,7 @@ func (h *AmuxHarness) globalBar() string {
 // runCmd runs an amux CLI command targeting the inner session.
 func (h *AmuxHarness) runCmd(args ...string) string {
 	h.tb.Helper()
+	args = rewriteLegacyHarnessArgs(args)
 	ctx, cancel := context.WithTimeout(context.Background(), runCmdTimeout)
 	defer cancel()
 	cmdArgs := append([]string{"-s", h.inner}, args...)

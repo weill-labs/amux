@@ -33,8 +33,8 @@ log_call() {
 }
 
 case "${1:-}" in
-    add-meta)
-        pane="${2:-}"
+    meta)
+        pane="${3:-}"
         case " ${FAKE_AMUX_FAIL_ADD_META_PANES:-} " in
             *" ${pane} "*) log_call "$@"; exit 1 ;;
         esac
@@ -124,7 +124,7 @@ esac
 		t.Fatalf("read fake amux log: %v", err)
 	}
 	log := string(got)
-	if !strings.Contains(log, "add-meta pane-47 issue=LAB-468") {
+	if !strings.Contains(log, "meta set pane-47 issue=LAB-468") {
 		t.Fatalf("amux log missing issue metadata write:\n%s", log)
 	}
 	if !strings.Contains(log, "send-keys pane-47 --wait idle --timeout 7s Fix black screen Enter") {
@@ -162,7 +162,7 @@ log_call() {
 
 log_call "$@"
 
-if [[ "${1:-}" == "add-meta" && "${2:-}" == "pane-49" ]]; then
+if [[ "${1:-}" == "meta" && "${3:-}" == "pane-49" ]]; then
     exit 1
 fi
 `), 0755); err != nil {
@@ -196,7 +196,7 @@ fi
 	}
 	log := string(got)
 	if strings.Contains(log, "send-keys pane-49") {
-		t.Fatalf("send-keys should not run after add-meta failure:\n%s", log)
+		t.Fatalf("send-keys should not run after meta set failure:\n%s", log)
 	}
 }
 

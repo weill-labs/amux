@@ -13,30 +13,28 @@ import (
 	"github.com/weill-labs/amux/internal/checkpoint"
 )
 
-func TestParseSplitArgs(t *testing.T) {
+func TestParseSpawnCommandArgs(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
-		args    []string
-		want    []string
-		wantErr string
+		name        string
+		args        []string
+		wantCmd     string
+		wantArgs    []string
+		wantErrText string
 	}{
-		{name: "pane only", args: []string{"pane-1"}, want: []string{"pane-1"}},
-		{name: "pane horizontal", args: []string{"pane-1", "--horizontal"}, want: []string{"pane-1"}},
-		{name: "pane vertical", args: []string{"pane-1", "--vertical"}, want: []string{"pane-1", "v"}},
-		{name: "pane root vertical", args: []string{"pane-1", "root", "--vertical"}, want: []string{"pane-1", "root", "v"}},
-		{name: "pane host vertical", args: []string{"pane-1", "--host", "gpu-server", "--vertical"}, want: []string{"pane-1", "v", "--host", "gpu-server"}},
-		{name: "pane named", args: []string{"pane-1", "--name", "worker"}, want: []string{"pane-1", "--name", "worker"}},
-		{name: "pane legacy vertical", args: []string{"pane-1", "v"}, want: []string{"pane-1", "v"}},
-		{name: "numeric pane id", args: []string{"42"}, want: []string{"42"}},
-		{name: "no args", args: nil, wantErr: "pane argument required"},
-		{name: "flags only", args: []string{"--vertical"}, wantErr: "pane argument required"},
-		{name: "conflicting directions", args: []string{"pane-1", "--vertical", "--horizontal"}, wantErr: "conflicting split directions"},
-		{name: "legacy background rejected", args: []string{"pane-1", "--background"}, wantErr: `unknown split arg "--background"`},
-		{name: "legacy pane flag rejected", args: []string{"--pane", "pane-1"}, wantErr: `unknown split arg "--pane"`},
-		{name: "missing host value", args: []string{"pane-1", "--host"}, wantErr: "--host requires a value"},
-		{name: "two pane refs", args: []string{"pane-1", "pane-2"}, wantErr: "unknown split arg"},
+		{name: "default spawn", args: nil, wantCmd: "spawn", wantArgs: []string{}},
+		{name: "focused spawn", args: []string{"--focus"}, wantCmd: "spawn-focus", wantArgs: []string{}},
+		{name: "split at pane", args: []string{"--at", "pane-1"}, wantCmd: "split", wantArgs: []string{"pane-1"}},
+		{name: "split active vertical", args: []string{"--vertical"}, wantCmd: "split", wantArgs: []string{"v"}},
+		{name: "split root vertical", args: []string{"--at", "pane-1", "--root", "--vertical"}, wantCmd: "split", wantArgs: []string{"pane-1", "root", "v"}},
+		{name: "split with metadata", args: []string{"--at", "pane-1", "--task", "build", "--color", "blue"}, wantCmd: "split", wantArgs: []string{"pane-1", "--task", "build", "--color", "blue"}},
+		{name: "spiral add", args: []string{"--spiral", "--name", "worker"}, wantCmd: "add-pane", wantArgs: []string{"--name", "worker"}},
+		{name: "spiral add focus", args: []string{"--spiral", "--focus"}, wantCmd: "add-pane-focus", wantArgs: []string{}},
+		{name: "conflicting directions", args: []string{"--vertical", "--horizontal"}, wantErrText: spawnUsage},
+		{name: "spiral with split flags rejected", args: []string{"--spiral", "--at", "pane-1"}, wantErrText: spawnUsage},
+		{name: "missing at value", args: []string{"--at"}, wantErrText: spawnUsage},
+		{name: "unknown arg", args: []string{"pane-1"}, wantErrText: spawnUsage},
 	}
 
 	for _, tt := range tests {
@@ -44,21 +42,24 @@ func TestParseSplitArgs(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := parseSplitArgs(tt.args)
-			if tt.wantErr != "" {
+			gotCmd, gotArgs, err := parseSpawnCommandArgs(tt.args)
+			if tt.wantErrText != "" {
 				if err == nil {
-					t.Fatalf("parseSplitArgs(%v): expected error containing %q", tt.args, tt.wantErr)
+					t.Fatalf("parseSpawnCommandArgs(%v): expected error containing %q", tt.args, tt.wantErrText)
 				}
-				if !strings.Contains(err.Error(), tt.wantErr) {
-					t.Fatalf("parseSplitArgs(%v): error = %q, want substring %q", tt.args, err.Error(), tt.wantErr)
+				if !strings.Contains(err.Error(), tt.wantErrText) {
+					t.Fatalf("parseSpawnCommandArgs(%v): error = %q, want substring %q", tt.args, err.Error(), tt.wantErrText)
 				}
 				return
 			}
 			if err != nil {
-				t.Fatalf("parseSplitArgs(%v): unexpected error: %v", tt.args, err)
+				t.Fatalf("parseSpawnCommandArgs(%v): unexpected error: %v", tt.args, err)
 			}
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Fatalf("parseSplitArgs(%v) = %v, want %v", tt.args, got, tt.want)
+			if gotCmd != tt.wantCmd {
+				t.Fatalf("parseSpawnCommandArgs(%v) cmd = %q, want %q", tt.args, gotCmd, tt.wantCmd)
+			}
+			if !reflect.DeepEqual(gotArgs, tt.wantArgs) {
+				t.Fatalf("parseSpawnCommandArgs(%v) args = %v, want %v", tt.args, gotArgs, tt.wantArgs)
 			}
 		})
 	}
@@ -214,23 +215,6 @@ func TestMaybePrintKeyCommandUsage(t *testing.T) {
 			wantStderr:   sendKeysUsage + "\n",
 		},
 		{
-			name:         "type-keys short help",
-			args:         []string{"-h"},
-			usage:        typeKeysUsage,
-			minArgs:      1,
-			wantHandled:  true,
-			wantExitCode: 0,
-			wantStdout:   typeKeysUsage + "\n",
-		},
-		{
-			name:         "type-keys dispatch with keys",
-			args:         []string{"abc"},
-			usage:        typeKeysUsage,
-			minArgs:      1,
-			wantHandled:  false,
-			wantExitCode: 0,
-		},
-		{
 			name:         "send-keys dispatch with flags and keys",
 			args:         []string{"pane-1", "--hex", "6162"},
 			usage:        sendKeysUsage,
@@ -260,6 +244,151 @@ func TestMaybePrintKeyCommandUsage(t *testing.T) {
 			}
 			if got := stderr.String(); got != tt.wantStderr {
 				t.Fatalf("stderr = %q, want %q", got, tt.wantStderr)
+			}
+		})
+	}
+}
+
+func TestParseSwapArgs(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		args     []string
+		wantCmd  string
+		wantArgs []string
+		wantErr  string
+	}{
+		{name: "forward", args: []string{"forward"}, wantCmd: "swap", wantArgs: []string{"forward"}},
+		{name: "pair", args: []string{"pane-1", "pane-2"}, wantCmd: "swap", wantArgs: []string{"pane-1", "pane-2"}},
+		{name: "tree", args: []string{"pane-1", "pane-2", "--tree"}, wantCmd: "swap-tree", wantArgs: []string{"pane-1", "pane-2"}},
+		{name: "missing args", args: nil, wantErr: swapUsage},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			gotCmd, gotArgs, err := parseSwapArgs(tt.args)
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("parseSwapArgs(%v) error = %v, want %q", tt.args, err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("parseSwapArgs(%v): %v", tt.args, err)
+			}
+			if gotCmd != tt.wantCmd || !reflect.DeepEqual(gotArgs, tt.wantArgs) {
+				t.Fatalf("parseSwapArgs(%v) = (%q, %v), want (%q, %v)", tt.args, gotCmd, gotArgs, tt.wantCmd, tt.wantArgs)
+			}
+		})
+	}
+}
+
+func TestParseMoveArgs(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		args     []string
+		wantCmd  string
+		wantArgs []string
+		wantErr  string
+	}{
+		{name: "up", args: []string{"pane-1", "up"}, wantCmd: "move-up", wantArgs: []string{"pane-1"}},
+		{name: "down", args: []string{"pane-1", "down"}, wantCmd: "move-down", wantArgs: []string{"pane-1"}},
+		{name: "before", args: []string{"pane-1", "--before", "pane-2"}, wantCmd: "move", wantArgs: []string{"pane-1", "--before", "pane-2"}},
+		{name: "to column", args: []string{"pane-1", "--to-column", "pane-2"}, wantCmd: "move-to", wantArgs: []string{"pane-1", "pane-2"}},
+		{name: "missing args", args: []string{"pane-1"}, wantErr: moveUsage},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			gotCmd, gotArgs, err := parseMoveArgs(tt.args)
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("parseMoveArgs(%v) error = %v, want %q", tt.args, err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("parseMoveArgs(%v): %v", tt.args, err)
+			}
+			if gotCmd != tt.wantCmd || !reflect.DeepEqual(gotArgs, tt.wantArgs) {
+				t.Fatalf("parseMoveArgs(%v) = (%q, %v), want (%q, %v)", tt.args, gotCmd, gotArgs, tt.wantCmd, tt.wantArgs)
+			}
+		})
+	}
+}
+
+func TestParseLeadArgs(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		args     []string
+		wantCmd  string
+		wantArgs []string
+		wantErr  string
+	}{
+		{name: "default", wantCmd: "set-lead"},
+		{name: "target pane", args: []string{"pane-1"}, wantCmd: "set-lead", wantArgs: []string{"pane-1"}},
+		{name: "clear", args: []string{"--clear"}, wantCmd: "unset-lead"},
+		{name: "invalid", args: []string{"--toggle"}, wantErr: leadUsage},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			gotCmd, gotArgs, err := parseLeadArgs(tt.args)
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("parseLeadArgs(%v) error = %v, want %q", tt.args, err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("parseLeadArgs(%v): %v", tt.args, err)
+			}
+			if gotCmd != tt.wantCmd || !reflect.DeepEqual(gotArgs, tt.wantArgs) {
+				t.Fatalf("parseLeadArgs(%v) = (%q, %v), want (%q, %v)", tt.args, gotCmd, gotArgs, tt.wantCmd, tt.wantArgs)
+			}
+		})
+	}
+}
+
+func TestValidateMetaArgs(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		args    []string
+		wantErr string
+	}{
+		{name: "set", args: []string{"set", "pane-1", "task=build"}},
+		{name: "get", args: []string{"get", "pane-1"}},
+		{name: "rm", args: []string{"rm", "pane-1", "issue"}},
+		{name: "missing", wantErr: metaUsage},
+		{name: "unknown", args: []string{"sync"}, wantErr: metaUsage},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := validateMetaArgs(tt.args)
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("validateMetaArgs(%v) error = %v, want %q", tt.args, err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("validateMetaArgs(%v): %v", tt.args, err)
 			}
 		})
 	}
@@ -296,7 +425,7 @@ func TestMaybePrintCommandHelp(t *testing.T) {
 			name:        "wait long help reflects idle rename",
 			args:        []string{"wait", "--help"},
 			wantHandled: true,
-			wantStdout:  "usage: amux wait <idle|busy|exited|content|layout|clipboard|checkpoint|ui> ...\n",
+			wantStdout:  "usage: amux wait <idle|busy|exited|ready|content|layout|clipboard|checkpoint|ui> ...\n",
 		},
 		{
 			name:        "help after command args stays unhandled",

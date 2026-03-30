@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	waitCommandUsage   = "usage: wait <idle|busy|exited|content|layout|clipboard|checkpoint|ui> ..."
+	waitCommandUsage   = "usage: wait <idle|busy|exited|ready|content|layout|clipboard|checkpoint|ui> ..."
 	cursorCommandUsage = "usage: cursor <layout|clipboard|ui> [--client <id>]"
 )
 
@@ -82,6 +82,8 @@ func cmdWait(ctx *CommandContext) {
 		cmdWaitCheckpoint(waitSubcommandContext(ctx, ctx.Args[1:]))
 	case "content":
 		cmdWaitFor(waitSubcommandContext(ctx, ctx.Args[1:]))
+	case "ready":
+		cmdWaitReady(waitSubcommandContext(ctx, ctx.Args[1:]))
 	case "idle":
 		cmdWaitIdle(waitSubcommandContext(ctx, ctx.Args[1:]))
 	case "exited":

@@ -79,7 +79,7 @@ func TestTypeKeysPacesEnterAfterText(t *testing.T) {
 		t.Fatalf("expected timing-sensitive reader to arm\nscreen:\n%s", h.captureOuter())
 	}
 
-	h.runCmd("type-keys", "HELLO", "Enter")
+	h.sendClientKeys("HELLO", "Enter")
 	if !h.waitFor("SUBMIT=HELLO", 3*time.Second) {
 		t.Fatalf("expected HELLO submit after paced type-keys\nscreen:\n%s", h.captureOuter())
 	}
