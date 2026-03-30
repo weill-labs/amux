@@ -302,6 +302,12 @@ func TestMainHelpIncludesCanonicalCommands(t *testing.T) {
 	if strings.Contains(out, "amux [-s session] attach [session]") {
 		t.Fatalf("help output should omit removed attach alias:\n%s", out)
 	}
+	if !strings.Contains(out, "amux [-s session] spawn [--at <pane>] [--vertical|--horizontal] [--root] [--spiral] [--focus] [--name NAME] [--host HOST] [--task TASK] [--color COLOR]") {
+		t.Fatalf("help output missing updated spawn usage:\n%s", out)
+	}
+	if strings.Contains(out, "[--no-focus]") {
+		t.Fatalf("help output should not advertise the removed --no-focus flag:\n%s", out)
+	}
 	if strings.Contains(out, "amux [-s session] move-up <pane>") || strings.Contains(out, "amux [-s session] move-down <pane>") {
 		t.Fatalf("help output should omit removed move aliases:\n%s", out)
 	}

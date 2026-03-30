@@ -97,7 +97,7 @@ func TestSpawnWhileZoomedKeepsZoomAndFocus(t *testing.T) {
 	})
 }
 
-func TestSplitKeepsFocus(t *testing.T) {
+func TestSplitFocusesNewPaneByDefault(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)
 
@@ -110,9 +110,9 @@ func TestSplitKeepsFocus(t *testing.T) {
 	}
 
 	capture := h.captureJSON()
-	p1 := h.jsonPane(capture, "pane-1")
-	if !p1.Active {
-		t.Fatal("pane-1 should remain active after split")
+	bgSplit := h.jsonPane(capture, "bg-split")
+	if !bgSplit.Active {
+		t.Fatal("bg-split should become active after split")
 	}
 	h.jsonPane(capture, "bg-split")
 	h.assertScreen("split should still be visible when not zoomed", func(s string) bool {
@@ -120,7 +120,7 @@ func TestSplitKeepsFocus(t *testing.T) {
 	})
 }
 
-func TestSpawnKeepsFocus(t *testing.T) {
+func TestSpawnFocusesNewPaneByDefault(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)
 
@@ -133,9 +133,9 @@ func TestSpawnKeepsFocus(t *testing.T) {
 	}
 
 	capture := h.captureJSON()
-	p1 := h.jsonPane(capture, "pane-1")
-	if !p1.Active {
-		t.Fatal("pane-1 should remain active after spawn")
+	bgWorker := h.jsonPane(capture, "bg-worker")
+	if !bgWorker.Active {
+		t.Fatal("bg-worker should become active after spawn")
 	}
 	h.jsonPane(capture, "bg-worker")
 	h.assertScreen("spawn should still be visible when not zoomed", func(s string) bool {

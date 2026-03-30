@@ -997,18 +997,25 @@ func TestCommandSplitTargetsExplicitInactivePane(t *testing.T) {
 		newPaneName  string
 	}{
 		{
-			name:         "pure split keeps the existing active pane",
+			name:         "split focuses the new pane by default",
 			command:      "split",
-			args:         []string{"pane-1", "--name", "target-split"},
+			args:         []string{"pane-1", "--name", "focus-target"},
+			wantActiveID: 3,
+			newPaneName:  "focus-target",
+		},
+		{
+			name:         "split --no-focus keeps the existing active pane",
+			command:      "split",
+			args:         []string{"pane-1", "--name", "target-split", "--no-focus"},
 			wantActiveID: 2,
 			newPaneName:  "target-split",
 		},
 		{
-			name:         "split-focus activates the new pane",
+			name:         "split-focus alias still focuses the new pane",
 			command:      "split-focus",
-			args:         []string{"pane-1", "--name", "focus-target"},
+			args:         []string{"pane-1", "--name", "alias-focus-target"},
 			wantActiveID: 3,
-			newPaneName:  "focus-target",
+			newPaneName:  "alias-focus-target",
 		},
 	}
 
@@ -1081,6 +1088,78 @@ func TestCommandSplitTargetsExplicitInactivePane(t *testing.T) {
 	}
 }
 
+func TestCommandAddPaneFocusModes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		command      string
+		args         []string
+		wantActiveID uint32
+	}{
+		{
+			name:         "add-pane focuses the new pane by default",
+			command:      "add-pane",
+			args:         []string{"--name", "spiral-focus"},
+			wantActiveID: 2,
+		},
+		{
+			name:         "add-pane --no-focus keeps the existing active pane",
+			command:      "add-pane",
+			args:         []string{"--name", "spiral-bg", "--no-focus"},
+			wantActiveID: 1,
+		},
+		{
+			name:         "add-pane-focus alias still focuses the new pane",
+			command:      "add-pane-focus",
+			args:         []string{"--name", "spiral-alias"},
+			wantActiveID: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			srv, sess, cleanup := newCommandTestSession(t)
+			defer cleanup()
+
+			p1 := mustCreatePane(t, sess, srv, 80, 23)
+			p1.Start()
+			w := mux.NewWindow(p1, 80, 23)
+			w.ID = 1
+			w.Name = "main"
+			setSessionLayoutForTest(t, sess, w.ID, []*mux.Window{w}, p1)
+
+			res := runTestCommand(t, srv, sess, tt.command, tt.args...)
+			if res.cmdErr != "" {
+				t.Fatalf("%s %v failed: %s", tt.command, tt.args, res.cmdErr)
+			}
+
+			state := mustSessionQuery(t, sess, func(sess *Session) struct {
+				activeID uint32
+				hasPane  bool
+			} {
+				w := sess.activeWindow()
+				return struct {
+					activeID uint32
+					hasPane  bool
+				}{
+					activeID: w.ActivePane.ID,
+					hasPane: func() bool {
+						_, err := sess.findPaneByRef(tt.args[1])
+						return err == nil
+					}(),
+				}
+			})
+			if state.activeID != tt.wantActiveID || !state.hasPane {
+				t.Fatalf("%s state = %+v, want active %d with added pane present", tt.command, state, tt.wantActiveID)
+			}
+		})
+	}
+}
+
 func TestCommandSpawnFocusModes(t *testing.T) {
 	t.Parallel()
 
@@ -1091,13 +1170,19 @@ func TestCommandSpawnFocusModes(t *testing.T) {
 		wantActiveID uint32
 	}{
 		{
-			name:         "spawn keeps the existing active pane",
+			name:         "spawn focuses the new pane by default",
 			command:      "spawn",
 			args:         []string{"--name", "worker-pure", "--task", "build"},
+			wantActiveID: 2,
+		},
+		{
+			name:         "spawn --no-focus keeps the existing active pane",
+			command:      "spawn",
+			args:         []string{"--name", "worker-bg", "--task", "build", "--no-focus"},
 			wantActiveID: 1,
 		},
 		{
-			name:         "spawn-focus activates the new pane",
+			name:         "spawn-focus alias still focuses the new pane",
 			command:      "spawn-focus",
 			args:         []string{"--name", "worker-focus", "--task", "build"},
 			wantActiveID: 2,

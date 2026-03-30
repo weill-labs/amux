@@ -7,41 +7,60 @@ import (
 	"github.com/weill-labs/amux/internal/mux"
 )
 
+func assertStructFields(t *testing.T, got any, want map[string]any) {
+	t.Helper()
+
+	value := reflect.ValueOf(got)
+	if value.Kind() == reflect.Pointer {
+		value = value.Elem()
+	}
+	for field, wantValue := range want {
+		gotField := value.FieldByName(field)
+		if !gotField.IsValid() {
+			t.Fatalf("%T is missing field %q", got, field)
+		}
+		if gotValue := gotField.Interface(); !reflect.DeepEqual(gotValue, wantValue) {
+			t.Fatalf("%T field %s = %#v, want %#v", got, field, gotValue, wantValue)
+		}
+	}
+}
+
 func TestParseSplitArgs(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name    string
 		args    []string
-		want    SplitArgs
+		want    map[string]any
 		wantErr string
 	}{
 		{
 			name: "defaults to horizontal",
-			want: SplitArgs{Dir: mux.SplitHorizontal},
+			want: map[string]any{"Dir": mux.SplitHorizontal, "NoFocus": false},
 		},
 		{
 			name: "pane ref",
 			args: []string{"pane-1"},
-			want: SplitArgs{PaneRef: "pane-1", Dir: mux.SplitHorizontal},
+			want: map[string]any{"PaneRef": "pane-1", "Dir": mux.SplitHorizontal, "NoFocus": false},
 		},
 		{
 			name: "pane ref with all flags",
-			args: []string{"pane-1", "root", "--vertical", "--host", "dev", "--name", "worker", "--task", "build", "--color", "blue"},
-			want: SplitArgs{
-				PaneRef:   "pane-1",
-				RootLevel: true,
-				Dir:       mux.SplitVertical,
-				HostName:  "dev",
-				Name:      "worker",
-				Task:      "build",
-				Color:     "blue",
+			args: []string{"pane-1", "root", "--vertical", "--host", "dev", "--name", "worker", "--task", "build", "--color", "blue", "--no-focus"},
+			want: map[string]any{
+				"PaneRef":   "pane-1",
+				"RootLevel": true,
+				"Dir":       mux.SplitVertical,
+				"HostName":  "dev",
+				"Name":      "worker",
+				"Task":      "build",
+				"Color":     "blue",
+				"NoFocus":   true,
 			},
 		},
 		{
 			name: "accepts legacy vertical shorthand",
 			args: []string{"v"},
-			want: SplitArgs{Dir: mux.SplitVertical},
+			want: map[string]any{"Dir": mux.SplitVertical, "NoFocus": false},
 		},
 		{
 			name:    "rejects legacy pane flag",
@@ -85,9 +104,7 @@ func TestParseSplitArgs(t *testing.T) {
 			if err != nil {
 				t.Fatalf("ParseSplitArgs(%v): %v", tt.args, err)
 			}
-			if got != tt.want {
-				t.Fatalf("ParseSplitArgs(%v) = %+v, want %+v", tt.args, got, tt.want)
-			}
+			assertStructFields(t, got, tt.want)
 		})
 	}
 }
@@ -98,39 +115,42 @@ func TestParseSpawnArgs(t *testing.T) {
 	tests := []struct {
 		name    string
 		args    []string
-		want    SpawnArgs
+		want    map[string]any
 		wantErr string
 	}{
 		{
 			name: "parses all fields",
-			args: []string{"--name", "worker-1", "--host", "dev", "--task", "build", "--color", "rosewater"},
-			want: SpawnArgs{
-				Meta: mux.PaneMeta{
+			args: []string{"--name", "worker-1", "--host", "dev", "--task", "build", "--color", "rosewater", "--no-focus"},
+			want: map[string]any{
+				"Meta": mux.PaneMeta{
 					Name:  "worker-1",
 					Host:  "dev",
 					Task:  "build",
 					Color: "rosewater",
 				},
+				"NoFocus": true,
 			},
 		},
 		{
 			name: "defaults host to local",
 			args: []string{"--name", "worker-1"},
-			want: SpawnArgs{
-				Meta: mux.PaneMeta{
+			want: map[string]any{
+				"Meta": mux.PaneMeta{
 					Name: "worker-1",
 					Host: mux.DefaultHost,
 				},
+				"NoFocus": false,
 			},
 		},
 		{
 			name: "allows unnamed spawn",
 			args: []string{"--task", "build"},
-			want: SpawnArgs{
-				Meta: mux.PaneMeta{
+			want: map[string]any{
+				"Meta": mux.PaneMeta{
 					Host: mux.DefaultHost,
 					Task: "build",
 				},
+				"NoFocus": false,
 			},
 		},
 		{
@@ -165,9 +185,7 @@ func TestParseSpawnArgs(t *testing.T) {
 			if err != nil {
 				t.Fatalf("ParseSpawnArgs(%v): %v", tt.args, err)
 			}
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Fatalf("ParseSpawnArgs(%v) = %+v, want %+v", tt.args, got, tt.want)
-			}
+			assertStructFields(t, got, tt.want)
 		})
 	}
 }
@@ -178,17 +196,17 @@ func TestParseAddPaneArgs(t *testing.T) {
 	tests := []struct {
 		name    string
 		args    []string
-		want    AddPaneArgs
+		want    map[string]any
 		wantErr string
 	}{
 		{
 			name: "defaults empty",
-			want: AddPaneArgs{},
+			want: map[string]any{"HostName": "", "Name": "", "Task": "", "Color": "", "NoFocus": false},
 		},
 		{
 			name: "parses name and host",
-			args: []string{"--name", "worker-1", "--host", "dev", "--task", "build", "--color", "blue"},
-			want: AddPaneArgs{Name: "worker-1", HostName: "dev", Task: "build", Color: "blue"},
+			args: []string{"--name", "worker-1", "--host", "dev", "--task", "build", "--color", "blue", "--no-focus"},
+			want: map[string]any{"Name": "worker-1", "HostName": "dev", "Task": "build", "Color": "blue", "NoFocus": true},
 		},
 		{
 			name:    "rejects missing name value",
@@ -222,9 +240,7 @@ func TestParseAddPaneArgs(t *testing.T) {
 			if err != nil {
 				t.Fatalf("ParseAddPaneArgs(%v): %v", tt.args, err)
 			}
-			if got != tt.want {
-				t.Fatalf("ParseAddPaneArgs(%v) = %+v, want %+v", tt.args, got, tt.want)
-			}
+			assertStructFields(t, got, tt.want)
 		})
 	}
 }
