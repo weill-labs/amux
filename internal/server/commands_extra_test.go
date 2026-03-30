@@ -566,72 +566,14 @@ func TestCmdCopyModeErrorPaths(t *testing.T) {
 	})
 }
 
-func TestMetaCollectionCommandsUsageAndErrors(t *testing.T) {
+func TestLegacyMetaCollectionCommandsAreUnknown(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name       string
-		cmd        string
-		args       []string
-		wantSubstr string
-	}{
-		{
-			name:       "add-meta usage",
-			cmd:        "add-meta",
-			wantSubstr: "usage: add-meta <pane> key=value [key=value...]",
-		},
-		{
-			name:       "add-meta invalid keyvalue",
-			cmd:        "add-meta",
-			args:       []string{"pane-1", "nope"},
-			wantSubstr: "invalid key=value",
-		},
-		{
-			name:       "add-meta invalid pr",
-			cmd:        "add-meta",
-			args:       []string{"pane-1", "pr=abc"},
-			wantSubstr: "invalid pr value",
-		},
-		{
-			name:       "add-meta invalid issue",
-			cmd:        "add-meta",
-			args:       []string{"pane-1", "issue="},
-			wantSubstr: "invalid issue value",
-		},
-		{
-			name:       "add-meta unknown key",
-			cmd:        "add-meta",
-			args:       []string{"pane-1", "task=ship"},
-			wantSubstr: "unknown meta key",
-		},
-		{
-			name:       "add-meta unknown pane",
-			cmd:        "add-meta",
-			args:       []string{"no-such-pane", "pr=1"},
-			wantSubstr: "not found",
-		},
-		{
-			name:       "rm-meta usage",
-			cmd:        "rm-meta",
-			wantSubstr: "usage: rm-meta <pane> key=value [key=value...]",
-		},
-		{
-			name:       "rm-meta invalid keyvalue",
-			cmd:        "rm-meta",
-			args:       []string{"pane-1", "nope"},
-			wantSubstr: "invalid key=value",
-		},
-		{
-			name:       "rm-meta unknown pane",
-			cmd:        "rm-meta",
-			args:       []string{"no-such-pane", "pr=1"},
-			wantSubstr: "not found",
-		},
-	}
+	tests := []string{"add-meta", "rm-meta"}
 
-	for _, tt := range tests {
-		tt := tt
-		t.Run(tt.name, func(t *testing.T) {
+	for _, command := range tests {
+		command := command
+		t.Run(command, func(t *testing.T) {
 			t.Parallel()
 
 			srv, sess, cleanup := newCommandTestSession(t)
@@ -643,9 +585,9 @@ func TestMetaCollectionCommandsUsageAndErrors(t *testing.T) {
 			sess.ActiveWindowID = window.ID
 			sess.Panes = []*mux.Pane{pane}
 
-			res := runTestCommand(t, srv, sess, tt.cmd, tt.args...)
-			if !strings.Contains(res.cmdErr, tt.wantSubstr) {
-				t.Fatalf("%s error = %q, want substring %q", tt.name, res.cmdErr, tt.wantSubstr)
+			res := runTestCommand(t, srv, sess, command)
+			if res.cmdErr != "unknown command: "+command {
+				t.Fatalf("%s error = %q", command, res.cmdErr)
 			}
 		})
 	}

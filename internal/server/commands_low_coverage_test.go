@@ -266,11 +266,6 @@ func TestCommandPaneMutationsAndMetadata(t *testing.T) {
 		t.Fatalf("rotate result = %#v", rotateRes)
 	}
 
-	setMetaUsage := runTestCommand(t, srv, sess, "set-meta", "pane-1")
-	if setMetaUsage.cmdErr != "usage: set-meta <pane> key=value [key=value...]" {
-		t.Fatalf("set-meta usage error = %q", setMetaUsage.cmdErr)
-	}
-
 	setKVUsage := runTestCommand(t, srv, sess, "set-kv", "pane-1")
 	if setKVUsage.cmdErr != "usage: set-kv <pane> key=value [key=value...]" {
 		t.Fatalf("set-kv usage error = %q", setKVUsage.cmdErr)
@@ -320,124 +315,6 @@ func TestCommandPaneMutationsAndMetadata(t *testing.T) {
 		}
 	}
 
-	setMetaErr := runTestCommand(t, srv, sess, "set-meta", "pane-1", "nope")
-	if setMetaErr.cmdErr != `invalid key=value: "nope"` {
-		t.Fatalf("set-meta invalid kv error = %q", setMetaErr.cmdErr)
-	}
-
-	setMetaUnknown := runTestCommand(t, srv, sess, "set-meta", "pane-1", "unknown=value")
-	if setMetaUnknown.cmdErr != `unknown meta key: "unknown" (valid: task, pr, branch)` {
-		t.Fatalf("set-meta unknown key error = %q", setMetaUnknown.cmdErr)
-	}
-
-	setMetaRes := runTestCommand(t, srv, sess, "set-meta", "pane-1", "task=ship", "pr=456", "branch=feature/x")
-	if setMetaRes.cmdErr != "" {
-		t.Fatalf("set-meta error: %s", setMetaRes.cmdErr)
-	}
-	meta = mustSessionQuery(t, sess, func(sess *Session) mux.PaneMeta { return sess.findPaneByID(p1.ID).Meta })
-	if meta.Task != "ship" || meta.PR != "456" || meta.GitBranch != "feature/x" {
-		t.Fatalf("pane metadata = %#v", meta)
-	}
-
-	clearBranchRes := runTestCommand(t, srv, sess, "set-meta", "pane-1", "branch=")
-	if clearBranchRes.cmdErr != "" {
-		t.Fatalf("set-meta clear branch error: %s", clearBranchRes.cmdErr)
-	}
-	if got := mustSessionQuery(t, sess, func(sess *Session) string { return sess.findPaneByID(p1.ID).Meta.GitBranch }); got != "" {
-		t.Fatalf("branch after clear = %q, want empty", got)
-	}
-	getKVAfterSetMeta := runTestCommand(t, srv, sess, "get-kv", "pane-1")
-	if getKVAfterSetMeta.cmdErr != "" {
-		t.Fatalf("get-kv after set-meta error: %s", getKVAfterSetMeta.cmdErr)
-	}
-	for _, want := range []string{"task=ship", "pr=456"} {
-		if !strings.Contains(getKVAfterSetMeta.output, want) {
-			t.Fatalf("get-kv after set-meta missing %q:\n%s", want, getKVAfterSetMeta.output)
-		}
-	}
-	if strings.Contains(getKVAfterSetMeta.output, "branch=") {
-		t.Fatalf("get-kv after clearing branch should not include branch key:\n%s", getKVAfterSetMeta.output)
-	}
-
-	addMetaUsage := runTestCommand(t, srv, sess, "add-meta", "pane-1")
-	if addMetaUsage.cmdErr != "usage: add-meta <pane> key=value [key=value...]" {
-		t.Fatalf("add-meta usage error = %q", addMetaUsage.cmdErr)
-	}
-
-	addMetaInvalid := runTestCommand(t, srv, sess, "add-meta", "pane-1", "nope")
-	if addMetaInvalid.cmdErr != `invalid key=value: "nope"` {
-		t.Fatalf("add-meta invalid kv error = %q", addMetaInvalid.cmdErr)
-	}
-
-	addMetaBadPR := runTestCommand(t, srv, sess, "add-meta", "pane-1", "pr=abc")
-	if addMetaBadPR.cmdErr != `invalid pr value: "abc"` {
-		t.Fatalf("add-meta invalid pr error = %q", addMetaBadPR.cmdErr)
-	}
-
-	addMetaUnknown := runTestCommand(t, srv, sess, "add-meta", "pane-1", "task=ship")
-	if addMetaUnknown.cmdErr != `unknown meta key: "task" (valid: pr, issue)` {
-		t.Fatalf("add-meta unknown key error = %q", addMetaUnknown.cmdErr)
-	}
-
-	addMetaRes := runTestCommand(t, srv, sess, "add-meta", "pane-1", "pr=42", "issue=LAB-338", "pr=42", "issue=LAB-338")
-	if addMetaRes.cmdErr != "" {
-		t.Fatalf("add-meta error: %s", addMetaRes.cmdErr)
-	}
-	meta = mustSessionQuery(t, sess, func(sess *Session) mux.PaneMeta { return sess.findPaneByID(p1.ID).Meta })
-	if prs := reflect.ValueOf(meta).FieldByName("TrackedPRs"); !prs.IsValid() || prs.Len() != 1 || prs.Index(0).FieldByName("Number").Int() != 42 {
-		t.Fatalf("pane PRs = %#v, want [42]", prs)
-	}
-	if issues := reflect.ValueOf(meta).FieldByName("TrackedIssues"); !issues.IsValid() || issues.Len() != 1 || issues.Index(0).FieldByName("ID").String() != "LAB-338" {
-		t.Fatalf("pane Issues = %#v, want [LAB-338]", issues)
-	}
-	getKVAfterAddMeta := runTestCommand(t, srv, sess, "get-kv", "pane-1", "tracked_prs", "tracked_issues")
-	if getKVAfterAddMeta.cmdErr != "" {
-		t.Fatalf("get-kv after add-meta error: %s", getKVAfterAddMeta.cmdErr)
-	}
-	for _, want := range []string{`tracked_prs=[{"number":42`, `tracked_issues=[{"id":"LAB-338"`} {
-		if !strings.Contains(getKVAfterAddMeta.output, want) {
-			t.Fatalf("get-kv after add-meta missing %q:\n%s", want, getKVAfterAddMeta.output)
-		}
-	}
-
-	mustSessionQuery(t, sess, func(sess *Session) struct{} {
-		p := sess.findPaneByID(p1.ID)
-		reflect.ValueOf(&p.Meta).Elem().FieldByName("TrackedPRs").Set(reflect.ValueOf([]proto.TrackedPR{{Number: 42}, {Number: 42}, {Number: 73}}))
-		reflect.ValueOf(&p.Meta).Elem().FieldByName("TrackedIssues").Set(reflect.ValueOf([]proto.TrackedIssue{{ID: "LAB-338"}, {ID: "LAB-338"}, {ID: "LAB-412"}}))
-		return struct{}{}
-	})
-
-	rmMetaUsage := runTestCommand(t, srv, sess, "rm-meta", "pane-1")
-	if rmMetaUsage.cmdErr != "usage: rm-meta <pane> key=value [key=value...]" {
-		t.Fatalf("rm-meta usage error = %q", rmMetaUsage.cmdErr)
-	}
-
-	rmMetaInvalid := runTestCommand(t, srv, sess, "rm-meta", "pane-1", "nope")
-	if rmMetaInvalid.cmdErr != `invalid key=value: "nope"` {
-		t.Fatalf("rm-meta invalid kv error = %q", rmMetaInvalid.cmdErr)
-	}
-
-	rmMetaBadPR := runTestCommand(t, srv, sess, "rm-meta", "pane-1", "pr=abc")
-	if rmMetaBadPR.cmdErr != `invalid pr value: "abc"` {
-		t.Fatalf("rm-meta invalid pr error = %q", rmMetaBadPR.cmdErr)
-	}
-
-	rmMetaUnknown := runTestCommand(t, srv, sess, "rm-meta", "pane-1", "task=ship")
-	if rmMetaUnknown.cmdErr != `unknown meta key: "task" (valid: pr, issue)` {
-		t.Fatalf("rm-meta unknown key error = %q", rmMetaUnknown.cmdErr)
-	}
-
-	rmMetaRes := runTestCommand(t, srv, sess, "rm-meta", "pane-1", "pr=42", "issue=LAB-338")
-	if rmMetaRes.cmdErr != "" {
-		t.Fatalf("rm-meta error: %s", rmMetaRes.cmdErr)
-	}
-	meta = mustSessionQuery(t, sess, func(sess *Session) mux.PaneMeta { return sess.findPaneByID(p1.ID).Meta })
-	if prs := reflect.ValueOf(meta).FieldByName("TrackedPRs"); !prs.IsValid() || prs.Len() != 1 || prs.Index(0).FieldByName("Number").Int() != 73 {
-		t.Fatalf("pane PRs after remove = %#v, want [73]", prs)
-	}
-	if issues := reflect.ValueOf(meta).FieldByName("TrackedIssues"); !issues.IsValid() || issues.Len() != 1 || issues.Index(0).FieldByName("ID").String() != "LAB-412" {
-		t.Fatalf("pane Issues after remove = %#v, want [LAB-412]", issues)
-	}
 	rmKVUsage := runTestCommand(t, srv, sess, "rm-kv", "pane-1")
 	if rmKVUsage.cmdErr != "usage: rm-kv <pane> key [key...]" {
 		t.Fatalf("rm-kv usage error = %q", rmKVUsage.cmdErr)
@@ -676,7 +553,7 @@ func TestCommandWaitClientsAndTypeKeys(t *testing.T) {
 		t.Fatalf("wait-ui success result = %#v", waitUISuccess)
 	}
 
-	for _, command := range []string{"set-hook", "unset-hook", "list-hooks", "delegate", "refresh-meta"} {
+	for _, command := range []string{"set-hook", "unset-hook", "list-hooks", "delegate", "refresh-meta", "set-meta", "add-meta", "rm-meta"} {
 		res := runTestCommand(t, srv, sess, command)
 		if res.cmdErr != "unknown command: "+command {
 			t.Fatalf("%s result = %#v", command, res)
