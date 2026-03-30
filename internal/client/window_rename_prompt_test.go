@@ -71,3 +71,86 @@ func TestWindowRenamePromptSubmitAndCancel(t *testing.T) {
 		}
 	})
 }
+
+func TestWindowRenamePromptEdgeCases(t *testing.T) {
+	t.Parallel()
+
+	t.Run("show prompt requires active window", func(t *testing.T) {
+		t.Parallel()
+
+		cr := NewClientRenderer(80, 24)
+		if cr.ShowWindowRenamePrompt() {
+			t.Fatal("ShowWindowRenamePrompt should fail without a layout")
+		}
+
+		cr = NewClientRenderer(80, 24)
+		snap := twoPane80x23()
+		snap.ActiveWindowID = 99
+		cr.HandleLayout(snap)
+		if cr.ShowWindowRenamePrompt() {
+			t.Fatal("ShowWindowRenamePrompt should fail without a matching active window")
+		}
+	})
+
+	t.Run("input helpers cover inactive and bell paths", func(t *testing.T) {
+		t.Parallel()
+
+		cr := buildTestRenderer(t)
+		if got := cr.HandleWindowRenamePromptInput(nil); got.command != "" || len(got.args) != 0 || got.bell {
+			t.Fatalf("HandleWindowRenamePromptInput(nil) = %+v, want zero", got)
+		}
+		if got := cr.HandleWindowRenamePromptInput([]byte("logs")); got.command != "" || len(got.args) != 0 || got.bell {
+			t.Fatalf("HandleWindowRenamePromptInput without prompt = %+v, want zero", got)
+		}
+		if got := handleWindowRenamePromptInputOnRenderLoop(cr, nil, []byte("logs")); got.command != "" || len(got.args) != 0 || got.bell {
+			t.Fatalf("handleWindowRenamePromptInputOnRenderLoop without prompt = %+v, want zero", got)
+		}
+
+		if !cr.ShowWindowRenamePrompt() {
+			t.Fatal("ShowWindowRenamePrompt should succeed")
+		}
+		if got := cr.HandleWindowRenamePromptInput([]byte{0x1b, '[', 'A'}); !got.bell {
+			t.Fatalf("arrow input should bell, got %+v", got)
+		}
+		if got := cr.HandleWindowRenamePromptInput([]byte{0xc3}); !got.bell {
+			t.Fatalf("non-ascii input should bell, got %+v", got)
+		}
+
+		cr.editWindowRenamePrompt(-1, 0)
+		if overlay := cr.windowRenamePromptOverlay(); overlay == nil || overlay.Input != "" {
+			t.Fatalf("backspace on empty prompt = %+v, want empty input", overlay)
+		}
+
+		cr.HandleWindowRenamePromptInput([]byte("logs"))
+		cr.HandleWindowRenamePromptInput([]byte{0x7f})
+		if overlay := cr.windowRenamePromptOverlay(); overlay == nil || overlay.Input != "log" {
+			t.Fatalf("backspace should remove one byte, got %+v", overlay)
+		}
+	})
+
+	t.Run("submit handles nil and empty prompts", func(t *testing.T) {
+		t.Parallel()
+
+		cr := buildTestRenderer(t)
+		if got := cr.submitWindowRenamePrompt(); got.command != "" || len(got.args) != 0 || got.bell {
+			t.Fatalf("submitWindowRenamePrompt without prompt = %+v, want zero", got)
+		}
+
+		if !cr.ShowWindowRenamePrompt() {
+			t.Fatal("ShowWindowRenamePrompt should succeed")
+		}
+		if got := cr.submitWindowRenamePrompt(); !got.bell {
+			t.Fatalf("submitWindowRenamePrompt with empty input = %+v, want bell", got)
+		}
+	})
+
+	t.Run("edit helper ignores missing prompt", func(t *testing.T) {
+		t.Parallel()
+
+		cr := buildTestRenderer(t)
+		cr.editWindowRenamePrompt(0, 'x')
+		if cr.WindowRenamePromptActive() {
+			t.Fatal("editWindowRenamePrompt should not create prompt state")
+		}
+	})
+}
