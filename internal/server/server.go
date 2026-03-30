@@ -23,9 +23,6 @@ const (
 	DefaultTermRows = 24
 )
 
-// DefaultIdleTimeout is how long a pane must be quiet before firing on-idle.
-const DefaultIdleTimeout = 2 * time.Second
-
 // DefaultOutputLines is how many lines `amux output` shows by default.
 const DefaultOutputLines = 50
 
@@ -140,7 +137,7 @@ func (s *Session) vtIdleSettle() time.Duration {
 	if s.VTIdleSettle != 0 {
 		return s.VTIdleSettle
 	}
-	return DefaultVTIdleSettle
+	return config.VTIdleSettle
 }
 
 func (s *Session) detectPaneCwdBranch(pane *mux.Pane) (cwd, branch string) {
@@ -153,14 +150,11 @@ func (s *Session) detectPaneCwdBranch(pane *mux.Pane) (cwd, branch string) {
 	return pane.DetectCwdBranch()
 }
 
-// DefaultUndoGracePeriod is how long a soft-closed pane stays undoable.
-const DefaultUndoGracePeriod = 30 * time.Second
-
 func (s *Session) undoGracePeriod() time.Duration {
 	if s.UndoGracePeriod != 0 {
 		return s.UndoGracePeriod
 	}
-	return DefaultUndoGracePeriod
+	return config.UndoGracePeriod
 }
 
 type captureTimingConfig struct {

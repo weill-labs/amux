@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sync/atomic"
 	"time"
+
+	"github.com/weill-labs/amux/internal/config"
 )
 
 // idleTracker manages per-pane idle timers and state transitions.
@@ -121,12 +123,6 @@ func (t *idleTracker) publish() {
 	}
 	t.snap.Store(&idleSnapshot{state: state, since: since})
 }
-
-// DefaultVTIdleSettle is the default settle window for screen-quiet tracking.
-const DefaultVTIdleSettle = 2 * time.Second
-
-// DefaultVTIdleTimeout is the default timeout for wait idle.
-const DefaultVTIdleTimeout = 60 * time.Second
 
 // VTIdleTracker tracks per-pane output quiescence.
 // Event-loop only.
@@ -335,8 +331,8 @@ func parseWaitIdleArgs(args []string) (string, waitIdleOptions, error) {
 	}
 
 	opts := waitIdleOptions{
-		settle:  DefaultVTIdleSettle,
-		timeout: DefaultVTIdleTimeout,
+		settle:  config.VTIdleSettle,
+		timeout: config.VTIdleTimeout,
 	}
 	for i := 1; i < len(args); i++ {
 		switch args[i] {

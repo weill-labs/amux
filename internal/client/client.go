@@ -7,6 +7,7 @@ import (
 	"time"
 
 	caputil "github.com/weill-labs/amux/internal/capture"
+	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/copymode"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
@@ -311,11 +312,6 @@ type clientEffect struct {
 	uiEvents []string
 }
 
-const (
-	defaultRenderFrameInterval  = 16 * time.Millisecond
-	defaultRenderPriorityWindow = 40 * time.Millisecond
-)
-
 type clientRenderLoopState struct {
 	renderTimer         *time.Timer
 	renderC             <-chan time.Time
@@ -506,11 +502,11 @@ func (cr *ClientRenderer) shouldPrioritizePaneOutput(paneID uint32) bool {
 // full repaint through the diff engine.
 func (cr *ClientRenderer) RenderCoalesced(msgCh <-chan *RenderMsg, write func(string)) {
 	if cr.renderPriorityWindow == 0 {
-		cr.renderPriorityWindow = defaultRenderPriorityWindow
+		cr.renderPriorityWindow = config.RenderPriorityWindow
 	}
 	frameInterval := cr.renderFrameInterval
 	if frameInterval == 0 {
-		frameInterval = defaultRenderFrameInterval
+		frameInterval = config.RenderFrameInterval
 	}
 	state := &clientRenderLoopState{
 		useFull:             os.Getenv("AMUX_RENDER") == "full",

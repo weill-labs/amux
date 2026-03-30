@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/proto"
 	"github.com/weill-labs/amux/internal/server"
 )
@@ -32,7 +33,7 @@ func TestEventsInitialSnapshot(t *testing.T) {
 
 	// Wait for the pane to be idle before subscribing to the event stream.
 	// This ensures the idle state is established so the initial snapshot
-	// includes it — avoids waiting for DefaultIdleTimeout on slow CI.
+	// includes it — avoids waiting for config.VTIdleSettle on slow CI.
 	h.waitIdle("pane-1")
 
 	scanner, closer := eventStream(t, h.session)
@@ -135,7 +136,7 @@ func TestEventsIdleBusyTransition(t *testing.T) {
 	}
 
 	// Wait for idle timeout — should trigger idle transition
-	ev = mustReadEvent(t, scanner, server.DefaultIdleTimeout+3*time.Second)
+	ev = mustReadEvent(t, scanner, config.VTIdleSettle+3*time.Second)
 	if ev.Type != "idle" {
 		t.Errorf("after quiet: got %q, want idle", ev.Type)
 	}
