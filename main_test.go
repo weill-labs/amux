@@ -582,6 +582,7 @@ func TestPrintUsageOmitsDelegate(t *testing.T) {
 func TestRunMainDefaultSession(t *testing.T) {
 	t.Run("attaches to resolved session", func(t *testing.T) {
 		t.Setenv("AMUX_CHECKPOINT", "")
+		t.Setenv("AMUX_SESSION", "")
 
 		h := newCLIRuntimeHarness()
 		if exitCode := runMain(nil, h.runtime()); exitCode != 0 {
@@ -599,6 +600,7 @@ func TestRunMainDefaultSession(t *testing.T) {
 
 	t.Run("uses takeover when available", func(t *testing.T) {
 		t.Setenv("AMUX_CHECKPOINT", "")
+		t.Setenv("AMUX_SESSION", "")
 
 		h := newCLIRuntimeHarness()
 		h.shouldTakeover = true
@@ -680,6 +682,7 @@ func TestRunMainDispatchesCommands(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Setenv("AMUX_CHECKPOINT", "")
+			t.Setenv("AMUX_SESSION", "")
 			for key, value := range tt.env {
 				t.Setenv(key, value)
 			}
