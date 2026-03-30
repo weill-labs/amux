@@ -662,6 +662,7 @@ func (h *ServerHarness) runCmdWithTimeout(timeout time.Duration, track bool, arg
 	if len(args) == 0 {
 		return "", fmt.Errorf("no command provided")
 	}
+	args = rewriteLegacyHarnessArgs(args)
 	if track {
 		restore := h.pushCommandState("amux " + strings.Join(args, " "))
 		defer restore()
@@ -1584,6 +1585,13 @@ func (h *ServerHarness) sendKeys(pane string, keys ...string) {
 	if strings.Contains(out, "not found") {
 		h.tb.Fatalf("sendKeys to %s: %s", pane, strings.TrimSpace(out))
 	}
+}
+
+func (h *ServerHarness) sendClientKeys(keys ...string) string {
+	h.tb.Helper()
+	pane := h.activePaneName()
+	args := append([]string{"send-keys", pane, "--via", "client"}, keys...)
+	return h.runCmd(args...)
 }
 
 func TestNewServerHarnessReturnsCommandReady(t *testing.T) {

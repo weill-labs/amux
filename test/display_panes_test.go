@@ -14,7 +14,7 @@ func TestDisplayPanesOverlayShowsLabels(t *testing.T) {
 	h := newAmuxHarness(t)
 	h.splitV()
 
-	h.runCmd("type-keys", "C-a", "q")
+	h.sendClientKeys("C-a", "q")
 	h.waitUI(proto.UIEventDisplayPanesShown, 3*time.Second)
 	if !h.waitFor("[1]", 3*time.Second) || !h.waitFor("[2]", 3*time.Second) {
 		t.Fatalf("expected pane overlay labels in outer capture, got:\n%s", h.captureOuter())
@@ -30,13 +30,13 @@ func TestDisplayPanesQuickJump(t *testing.T) {
 	h.splitV()
 	h.splitV()
 
-	h.runCmd("type-keys", "C-a", "q")
+	h.sendClientKeys("C-a", "q")
 	h.waitUI(proto.UIEventDisplayPanesShown, 3*time.Second)
 	if !h.waitFor("[3]", 3*time.Second) {
 		t.Fatalf("expected pane overlay labels before jump, got:\n%s", h.captureOuter())
 	}
 
-	h.runCmd("type-keys", "1")
+	h.sendClientKeys("1")
 	h.waitUI(proto.UIEventDisplayPanesHidden, 3*time.Second)
 	if !h.waitForActive("pane-1", 3*time.Second) {
 		t.Fatalf("expected pane-1 active after quick jump, got:\n%s", h.capture())
@@ -54,12 +54,12 @@ func TestDisplayPanesInvalidKeyDismissesWithoutLeak(t *testing.T) {
 	h := newAmuxHarness(t)
 	h.splitV()
 
-	h.runCmd("type-keys", "C-a", "q")
+	h.sendClientKeys("C-a", "q")
 	h.waitUI(proto.UIEventDisplayPanesShown, 3*time.Second)
 
-	h.runCmd("type-keys", "0")
+	h.sendClientKeys("0")
 	h.waitUI(proto.UIEventDisplayPanesHidden, 3*time.Second)
-	h.runCmd("type-keys", "Enter")
+	h.sendClientKeys("Enter")
 	if !h.waitFor("$", 3*time.Second) {
 		t.Fatalf("expected shell prompt after invalid key dismissal, got:\n%s", h.captureOuter())
 	}
@@ -83,7 +83,7 @@ func TestDisplayPanesZoomedOnlyShowsVisiblePane(t *testing.T) {
 	h.splitV()
 	h.runCmd("zoom", "pane-2")
 
-	h.runCmd("type-keys", "C-a", "q")
+	h.sendClientKeys("C-a", "q")
 	h.waitUI(proto.UIEventDisplayPanesShown, 3*time.Second)
 	if !h.waitFor("[1]", 3*time.Second) {
 		t.Fatalf("expected overlay label for zoomed pane, got:\n%s", h.captureOuter())
@@ -94,7 +94,7 @@ func TestDisplayPanesZoomedOnlyShowsVisiblePane(t *testing.T) {
 		t.Fatalf("zoomed overlay should not show hidden pane labels, got:\n%s", outer)
 	}
 
-	h.runCmd("type-keys", "2")
+	h.sendClientKeys("2")
 	h.waitUI(proto.UIEventDisplayPanesHidden, 3*time.Second)
 	if !waitForOuterGone(h, "[1]", 3*time.Second) {
 		t.Fatalf("expected overlay to clear after invalid zoomed label\nScreen:\n%s", h.captureOuter())
@@ -110,13 +110,13 @@ func TestDisplayPanesWaitUIShownAndHidden(t *testing.T) {
 	h := newAmuxHarness(t)
 	h.splitV()
 
-	h.runCmd("type-keys", "C-a", "q")
+	h.sendClientKeys("C-a", "q")
 	out := h.runCmd("wait", "ui", proto.UIEventDisplayPanesShown, "--timeout", "3s")
 	if !strings.Contains(out, proto.UIEventDisplayPanesShown) {
 		t.Fatalf("wait-ui shown output = %q", out)
 	}
 
-	h.runCmd("type-keys", "1")
+	h.sendClientKeys("1")
 	out = h.runCmd("wait", "ui", proto.UIEventDisplayPanesHidden, "--timeout", "3s")
 	if !strings.Contains(out, proto.UIEventDisplayPanesHidden) {
 		t.Fatalf("wait-ui hidden output = %q", out)

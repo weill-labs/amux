@@ -76,7 +76,7 @@ func TestDelegateTaskScriptCapturesPaneWhenWorkerNeverAccepts(t *testing.T) {
 	if !strings.Contains(log, "capture pane-47") {
 		t.Fatalf("amux log = %q, want capture call", log)
 	}
-	if strings.Contains(log, "add-meta pane-47 issue=") {
+	if strings.Contains(log, "meta set pane-47 issue=") {
 		t.Fatalf("amux log = %q, did not expect issue metadata on timeout", log)
 	}
 }
@@ -104,9 +104,9 @@ func TestDelegateTaskScriptSetsIssueMetadataAfterAcceptance(t *testing.T) {
 	}
 	log := strings.TrimSpace(string(got))
 	sendIndex := strings.Index(log, "send-keys pane-47 Fix the black screen bug Enter")
-	addMetaIndex := strings.Index(log, "add-meta pane-47 issue=LAB-468")
+	addMetaIndex := strings.Index(log, "meta set pane-47 issue=LAB-468")
 	if sendIndex == -1 || addMetaIndex == -1 {
-		t.Fatalf("amux log = %q, want send-keys then add-meta", log)
+		t.Fatalf("amux log = %q, want send-keys then meta set", log)
 	}
 	if addMetaIndex < sendIndex {
 		t.Fatalf("amux log = %q, want issue metadata after acceptance", log)
@@ -232,7 +232,7 @@ case "$cmd" in
         log_call "$cmd" "$@"
         printf '%s\n' "${FAKE_AMUX_CAPTURE_TEXT:-pane capture}"
         ;;
-    add-meta)
+    meta)
         log_call "$cmd" "$@"
         ;;
     *)

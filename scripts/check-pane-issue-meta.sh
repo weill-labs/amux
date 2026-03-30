@@ -22,12 +22,12 @@ if printf '%s\n' "$capture" | jq -e '.lead == true' >/dev/null 2>&1; then
     exit 0
 fi
 
-if ! issue_count=$(printf '%s\n' "$capture" | jq -r '(.meta.tracked_issues // []) | length' 2>/dev/null); then
+if ! issue=$(printf '%s\n' "$capture" | jq -r '.meta.kv.issue // empty' 2>/dev/null); then
     exit 0
 fi
 
-if [[ "$issue_count" == "0" ]]; then
-    echo "Pane $AMUX_PANE is missing issue metadata. Start work with \`scripts/set-pane-issue.sh LAB-XXX\` or tag it manually with \`amux add-meta \"\$AMUX_PANE\" issue=LAB-XXX\` before declaring work done." >&2
+if [[ -z "$issue" ]]; then
+    echo "Pane $AMUX_PANE is missing issue metadata. Start work with \`scripts/set-pane-issue.sh LAB-XXX\` or tag it manually with \`amux meta set \"\$AMUX_PANE\" issue=LAB-XXX\` before declaring work done." >&2
     exit 1
 fi
 

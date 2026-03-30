@@ -3,8 +3,6 @@ package listing
 import (
 	"strings"
 	"testing"
-
-	"github.com/weill-labs/amux/internal/proto"
 )
 
 func TestFormatPaneListMeta(t *testing.T) {
@@ -31,31 +29,21 @@ func TestFormatPaneListMeta(t *testing.T) {
 			want: "lead",
 		},
 		{
-			name: "tracked refs only",
+			name: "generic kv only",
 			entry: PaneEntry{
 				Name: "pane-1",
-				TrackedPRs: []proto.TrackedPR{
-					{Number: 42},
-				},
-				TrackedIssues: []proto.TrackedIssue{
-					{ID: "LAB-499"},
-				},
+				KV:   map[string]string{"issue": "LAB-499"},
 			},
-			want: "prs=[42] issues=[LAB-499]",
+			want: "issue=LAB-499",
 		},
 		{
-			name: "lead with tracked refs",
+			name: "lead with generic kv",
 			entry: PaneEntry{
 				Name: "pane-1",
 				Lead: true,
-				TrackedPRs: []proto.TrackedPR{
-					{Number: 42},
-				},
-				TrackedIssues: []proto.TrackedIssue{
-					{ID: "LAB-499"},
-				},
+				KV:   map[string]string{"issue": "LAB-499"},
 			},
-			want: "lead prs=[42] issues=[LAB-499]",
+			want: "lead issue=LAB-499",
 		},
 	}
 

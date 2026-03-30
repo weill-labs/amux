@@ -15,7 +15,7 @@ func TestTypeKeysSplit(t *testing.T) {
 	// type-keys C-a - sends prefix + split-horizontal keybinding through
 	// the client input pipeline, triggering a layout change.
 	gen := h.generation()
-	h.runCmd("type-keys", "C-a", "-")
+	h.sendClientKeys("C-a", "-")
 	h.waitLayout(gen)
 
 	out := h.runCmd("status")
@@ -29,7 +29,7 @@ func TestTypeKeysLiteral(t *testing.T) {
 	h := newAmuxHarness(t)
 
 	// Type literal text — should pass through to the active pane's PTY.
-	h.runCmd("type-keys", "echo", "Space", "TYPEKEYS_MARKER", "Enter")
+	h.sendClientKeys("echo", "Space", "TYPEKEYS_MARKER", "Enter")
 
 	if !h.waitFor("TYPEKEYS_MARKER", 5*time.Second) {
 		screen := h.captureOuter()
@@ -45,7 +45,7 @@ func TestTypeKeysNoClient(t *testing.T) {
 	h.client.close()
 	h.client = nil
 
-	out := h.runCmd("type-keys", "hello")
+	out := h.runCmd("send-keys", "pane-1", "--via", "client", "hello")
 	if !strings.Contains(out, "no client attached") {
 		t.Fatalf("expected 'no client attached' error, got: %s", out)
 	}
@@ -57,7 +57,7 @@ func TestTypeKeysFocus(t *testing.T) {
 
 	// Split first to have two panes.
 	gen := h.generation()
-	h.runCmd("type-keys", "C-a", "-")
+	h.sendClientKeys("C-a", "-")
 	h.waitLayout(gen)
 
 	// pane-2 should be active after split.
@@ -65,7 +65,7 @@ func TestTypeKeysFocus(t *testing.T) {
 
 	// type-keys C-a o cycles focus to the next pane.
 	gen = h.generation()
-	h.runCmd("type-keys", "C-a", "o")
+	h.sendClientKeys("C-a", "o")
 	h.waitLayout(gen)
 
 	h.assertActive("pane-1")
@@ -80,7 +80,7 @@ func TestTypeKeysRootHorizontalSplitWhileLeadFocused(t *testing.T) {
 	h.runCmd("focus", "pane-1")
 
 	gen := h.generation()
-	h.runCmd("type-keys", "C-a", "_")
+	h.sendClientKeys("C-a", "_")
 	h.waitLayout(gen)
 
 	out := h.runCmd("status")
@@ -94,11 +94,11 @@ func TestTypeKeysCopyMode(t *testing.T) {
 	h := newAmuxHarness(t)
 
 	// Enter copy mode via type-keys.
-	h.runCmd("type-keys", "C-a", "[")
+	h.sendClientKeys("C-a", "[")
 	h.waitUI(proto.UIEventCopyModeShown, 3*time.Second)
 
 	// Exit copy mode via type-keys.
-	h.runCmd("type-keys", "q")
+	h.sendClientKeys("q")
 	h.waitUI(proto.UIEventCopyModeHidden, 3*time.Second)
 }
 
@@ -114,10 +114,10 @@ func TestTypeKeysCopyModeScroll(t *testing.T) {
 	}
 
 	// Enter copy mode and scroll to top via type-keys.
-	h.runCmd("type-keys", "C-a", "[")
+	h.sendClientKeys("C-a", "[")
 	h.waitUI(proto.UIEventCopyModeShown, 3*time.Second)
 
-	h.runCmd("type-keys", "g")
+	h.sendClientKeys("g")
 
 	if !h.waitFor("TKSCROLL-01", 3*time.Second) {
 		screen := h.captureOuter()
@@ -136,7 +136,7 @@ func TestTypeKeysShiftMShowsUnboundFeedback(t *testing.T) {
 		t.Fatalf("expected 2 panes before unbound Shift-M test, got: %s", before)
 	}
 
-	h.runCmd("type-keys", "C-a", "M")
+	h.sendClientKeys("C-a", "M")
 	if !h.waitFor("No binding for C-a M", 3*time.Second) {
 		t.Fatalf("expected unbound Shift-M feedback\nScreen:\n%s", h.captureOuter())
 	}
@@ -159,8 +159,8 @@ func TestTypeKeysCompatBellKeyDoesNotChangeLayout(t *testing.T) {
 		t.Fatalf("expected 2 panes before compat-bell key test, got: %s", before)
 	}
 
-	h.runCmd("type-keys", "C-a", "m")
-	h.runCmd("type-keys", "e", "c", "h", "o", " ", "OLDKEY_OK", "Enter")
+	h.sendClientKeys("C-a", "m")
+	h.sendClientKeys("e", "c", "h", "o", " ", "OLDKEY_OK", "Enter")
 
 	if !h.waitFor("OLDKEY_OK", 3*time.Second) {
 		t.Fatalf("expected OLDKEY_OK marker after old key test\nScreen:\n%s", h.captureOuter())
@@ -184,7 +184,7 @@ func TestTypeKeysDisplayPanesConsumesOnlyOneKey(t *testing.T) {
 	h.splitV()
 
 	before := h.activePaneName()
-	h.runCmd("type-keys", "C-a", "q", "0", "e", "c", "h", "o", " ", "BATCH_OK", "Enter")
+	h.sendClientKeys("C-a", "q", "0", "e", "c", "h", "o", " ", "BATCH_OK", "Enter")
 
 	if !h.waitFor("BATCH_OK", 3*time.Second) {
 		t.Fatalf("expected BATCH_OK after invalid overlay key plus batched shell input\nScreen:\n%s", h.captureOuter())
@@ -203,7 +203,7 @@ func TestTypeKeysUnsupportedPrefixKeyDoesNotLeakInput(t *testing.T) {
 	t.Parallel()
 	h := newAmuxHarness(t)
 
-	h.runCmd("type-keys", "C-a", "f", "e", "c", "h", " ", "UNBOUND_OK", "Enter")
+	h.sendClientKeys("C-a", "f", "e", "c", "h", " ", "UNBOUND_OK", "Enter")
 
 	if !h.waitFor("UNBOUND_OK", 3*time.Second) {
 		t.Fatalf("expected UNBOUND_OK marker after unsupported key test\nScreen:\n%s", h.captureOuter())

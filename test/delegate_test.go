@@ -32,7 +32,7 @@ func TestTypeKeysSinglePaneLikeArgStillTypesLiteral(t *testing.T) {
 	t.Parallel()
 
 	h := newAmuxHarness(t)
-	h.runCmd("type-keys", "echo pane-1", "Enter")
+	h.sendClientKeys("echo pane-1", "Enter")
 	if !h.waitFor("pane-1", 3*time.Second) {
 		t.Fatalf("expected literal pane-like text to be typed\nscreen:\n%s", h.captureOuter())
 	}

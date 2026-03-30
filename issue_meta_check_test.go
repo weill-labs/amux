@@ -15,7 +15,7 @@ func TestCheckPaneIssueMetaWarnsWhenIssueMetadataMissing(t *testing.T) {
 	amuxPath := filepath.Join(tempDir, "amux")
 	if err := os.WriteFile(amuxPath, []byte(`#!/bin/sh
 cat <<'EOF'
-{"meta":{"tracked_issues":[]}}
+{"meta":{"kv":{}}}
 EOF
 `), 0755); err != nil {
 		t.Fatalf("write fake amux: %v", err)
@@ -73,7 +73,7 @@ func TestCheckPaneIssueMetaPassesWhenIssueMetadataExists(t *testing.T) {
 	amuxPath := filepath.Join(tempDir, "amux")
 	if err := os.WriteFile(amuxPath, []byte(`#!/bin/sh
 cat <<'EOF'
-{"meta":{"tracked_issues":[{"id":"LAB-445","status":"active"}]}}
+{"meta":{"kv":{"issue":"LAB-445"}}}
 EOF
 `), 0755); err != nil {
 		t.Fatalf("write fake amux: %v", err)
@@ -120,8 +120,8 @@ printf '\n' >>"$FAKE_AMUX_LOG"
 	if err != nil {
 		t.Fatalf("read fake amux log: %v", err)
 	}
-	if strings.TrimSpace(string(got)) != "add-meta 7 issue=LAB-445" {
-		t.Fatalf("amux args = %q, want %q", got, "add-meta 7 issue=LAB-445")
+	if strings.TrimSpace(string(got)) != "meta set 7 issue=LAB-445" {
+		t.Fatalf("amux args = %q, want %q", got, "meta set 7 issue=LAB-445")
 	}
 }
 
@@ -135,7 +135,7 @@ func TestSyncPanePRMetaScriptAddsCurrentIssueAndPR(t *testing.T) {
 	if err := os.WriteFile(amuxPath, []byte(`#!/bin/sh
 if [ "$1" = "capture" ]; then
 cat <<'EOF'
-{"meta":{"tracked_issues":[{"id":"LAB-445","status":"active"}]}}
+{"meta":{"kv":{"issue":"LAB-445"}}}
 EOF
 exit 0
 fi
@@ -168,8 +168,8 @@ printf '422\n'
 	if err != nil {
 		t.Fatalf("read fake amux log: %v", err)
 	}
-	if strings.TrimSpace(string(got)) != "add-meta 7 pr=422 issue=LAB-445" {
-		t.Fatalf("amux args = %q, want %q", got, "add-meta 7 pr=422 issue=LAB-445")
+	if strings.TrimSpace(string(got)) != "meta set 7 pr=422 issue=LAB-445" {
+		t.Fatalf("amux args = %q, want %q", got, "meta set 7 pr=422 issue=LAB-445")
 	}
 }
 
@@ -186,7 +186,7 @@ func TestGHPRCreateScriptSyncsPanePRMeta(t *testing.T) {
 	if err := os.WriteFile(amuxPath, []byte(`#!/bin/sh
 if [ "$1" = "capture" ]; then
 cat <<'EOF'
-{"meta":{"tracked_issues":[{"id":"LAB-445","status":"active"}]}}
+{"meta":{"kv":{"issue":"LAB-445"}}}
 EOF
 exit 0
 fi
@@ -247,8 +247,8 @@ exit 1
 	if err != nil {
 		t.Fatalf("read fake amux log: %v", err)
 	}
-	if strings.TrimSpace(string(amuxLog)) != "add-meta 7 pr=422 issue=LAB-445" {
-		t.Fatalf("amux args = %q, want %q", amuxLog, "add-meta 7 pr=422 issue=LAB-445")
+	if strings.TrimSpace(string(amuxLog)) != "meta set 7 pr=422 issue=LAB-445" {
+		t.Fatalf("amux args = %q, want %q", amuxLog, "meta set 7 pr=422 issue=LAB-445")
 	}
 }
 

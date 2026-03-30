@@ -426,7 +426,7 @@ func TestWaitUIInputIdleAfterTypeKeys(t *testing.T) {
 		t.Fatalf("wait-ui input-idle output = %q", out)
 	}
 
-	h.runCmd("type-keys", "e", "c", "h", "o", " ", "INPUT_IDLE_OK", "Enter")
+	h.sendClientKeys("e", "c", "h", "o", " ", "INPUT_IDLE_OK", "Enter")
 	h.waitUI(proto.UIEventInputIdle, 3*time.Second)
 	if !h.waitFor("INPUT_IDLE_OK", 3*time.Second) {
 		t.Fatalf("expected INPUT_IDLE_OK after type-keys\nScreen:\n%s", h.captureOuter())

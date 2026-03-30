@@ -731,24 +731,27 @@ func TestCommandSplitSpawnKillAndEvents(t *testing.T) {
 	setSessionLayoutForTest(t, sess, w.ID, []*mux.Window{w}, p1)
 
 	spawnUsage := runTestCommand(t, srv, sess, "spawn", "--task", "build")
-	if spawnUsage.cmdErr != "--name is required" {
-		t.Fatalf("spawn usage error = %q", spawnUsage.cmdErr)
+	if spawnUsage.cmdErr != "" || !strings.Contains(spawnUsage.output, "Spawned") {
+		t.Fatalf("spawn result = %#v", spawnUsage)
+	}
+	if got := mustSessionQuery(t, sess, func(sess *Session) int { return len(sess.Panes) }); got != 2 {
+		t.Fatalf("pane count after unnamed spawn = %d, want 2", got)
 	}
 
 	splitRes := runTestCommand(t, srv, sess, "split", "pane-1", "root", "v")
 	if splitRes.cmdErr != "" || !strings.Contains(splitRes.output, "Split vertical: new pane") {
 		t.Fatalf("split result = %#v", splitRes)
 	}
-	if got := mustSessionQuery(t, sess, func(sess *Session) int { return len(sess.Panes) }); got != 2 {
-		t.Fatalf("pane count after split = %d, want 2", got)
+	if got := mustSessionQuery(t, sess, func(sess *Session) int { return len(sess.Panes) }); got != 3 {
+		t.Fatalf("pane count after split = %d, want 3", got)
 	}
 
 	spawnRes := runTestCommand(t, srv, sess, "spawn", "--name", "worker-1", "--task", "build")
 	if spawnRes.cmdErr != "" || !strings.Contains(spawnRes.output, "Spawned worker-1") {
 		t.Fatalf("spawn result = %#v", spawnRes)
 	}
-	if got := mustSessionQuery(t, sess, func(sess *Session) int { return len(sess.Panes) }); got != 3 {
-		t.Fatalf("pane count after spawn = %d, want 3", got)
+	if got := mustSessionQuery(t, sess, func(sess *Session) int { return len(sess.Panes) }); got != 4 {
+		t.Fatalf("pane count after spawn = %d, want 4", got)
 	}
 
 	focusRes := runTestCommand(t, srv, sess, "focus", "pane-1")
@@ -760,8 +763,8 @@ func TestCommandSplitSpawnKillAndEvents(t *testing.T) {
 	if killRes.cmdErr != "" || !strings.Contains(killRes.output, "Killed worker-1") {
 		t.Fatalf("kill result = %#v", killRes)
 	}
-	if got := mustSessionQuery(t, sess, func(sess *Session) int { return len(sess.Panes) }); got != 2 {
-		t.Fatalf("pane count after kill = %d, want 2", got)
+	if got := mustSessionQuery(t, sess, func(sess *Session) int { return len(sess.Panes) }); got != 3 {
+		t.Fatalf("pane count after kill = %d, want 3", got)
 	}
 
 	serverConn, peerConn := net.Pipe()

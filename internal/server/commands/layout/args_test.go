@@ -27,13 +27,15 @@ func TestParseSplitArgs(t *testing.T) {
 		},
 		{
 			name: "pane ref with all flags",
-			args: []string{"pane-1", "root", "--vertical", "--host", "dev", "--name", "worker"},
+			args: []string{"pane-1", "root", "--vertical", "--host", "dev", "--name", "worker", "--task", "build", "--color", "blue"},
 			want: SplitArgs{
 				PaneRef:   "pane-1",
 				RootLevel: true,
 				Dir:       mux.SplitVertical,
 				HostName:  "dev",
 				Name:      "worker",
+				Task:      "build",
+				Color:     "blue",
 			},
 		},
 		{
@@ -122,9 +124,14 @@ func TestParseSpawnArgs(t *testing.T) {
 			},
 		},
 		{
-			name:    "requires name",
-			args:    []string{"--task", "build"},
-			wantErr: "--name is required",
+			name: "allows unnamed spawn",
+			args: []string{"--task", "build"},
+			want: SpawnArgs{
+				Meta: mux.PaneMeta{
+					Host: mux.DefaultHost,
+					Task: "build",
+				},
+			},
 		},
 		{
 			name:    "rejects missing color value",
@@ -180,8 +187,8 @@ func TestParseAddPaneArgs(t *testing.T) {
 		},
 		{
 			name: "parses name and host",
-			args: []string{"--name", "worker-1", "--host", "dev"},
-			want: AddPaneArgs{Name: "worker-1", HostName: "dev"},
+			args: []string{"--name", "worker-1", "--host", "dev", "--task", "build", "--color", "blue"},
+			want: AddPaneArgs{Name: "worker-1", HostName: "dev", Task: "build", Color: "blue"},
 		},
 		{
 			name:    "rejects missing name value",
@@ -195,8 +202,8 @@ func TestParseAddPaneArgs(t *testing.T) {
 		},
 		{
 			name:    "rejects unknown arg",
-			args:    []string{"--task", "build"},
-			wantErr: `unknown add-pane arg "--task"`,
+			args:    []string{"--bogus"},
+			wantErr: `unknown add-pane arg "--bogus"`,
 		},
 	}
 

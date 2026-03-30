@@ -34,6 +34,7 @@ type PaneMeta struct {
 	KV            map[string]string    `json:"kv,omitempty"`
 	Remote        string               `json:"remote,omitempty"`
 	Color         string               `json:"color"`
+	KV            map[string]string    `json:"kv,omitempty"`
 	Dormant       bool                 `json:"dormant,omitempty"`        // pane is in Session.Panes but not in any window layout (e.g., SSH takeover host)
 	Dir           string               `json:"dir,omitempty"`            // working directory override for new shell
 	GitBranch     string               `json:"git_branch,omitempty"`     // cached git branch (auto-detected or manually set)

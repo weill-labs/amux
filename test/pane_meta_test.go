@@ -2,10 +2,6 @@ package test
 
 import (
 	"encoding/json"
-	"os"
-	"os/exec"
-	"reflect"
-	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -28,8 +24,6 @@ func waitForJSONMap(t *testing.T, timeout time.Duration, capture func() string) 
 	t.Helper()
 
 	deadline := time.Now().Add(timeout)
-	ticker := time.NewTicker(25 * time.Millisecond)
-	defer ticker.Stop()
 	var last string
 	for time.Now().Before(deadline) {
 		last = capture()
@@ -37,20 +31,10 @@ func waitForJSONMap(t *testing.T, timeout time.Duration, capture func() string) 
 		if err := json.Unmarshal([]byte(last), &got); err == nil {
 			return got
 		}
-		<-ticker.C
+		time.Sleep(25 * time.Millisecond)
 	}
 	t.Fatalf("timed out waiting for JSON capture within %v\nlast output:\n%s", timeout, last)
 	return nil
-}
-
-func decodeJSONList(t *testing.T, value any, name string) []any {
-	t.Helper()
-
-	items, ok := value.([]any)
-	if !ok {
-		t.Fatalf("%s = %#v, want []any", name, value)
-	}
-	return items
 }
 
 func jsonStringValue(t *testing.T, m map[string]any, key string) string {
@@ -70,7 +54,11 @@ func jsonStringValue(t *testing.T, m map[string]any, key string) string {
 func jsonPaneByName(t *testing.T, capture map[string]any, name string) map[string]any {
 	t.Helper()
 
-	for _, paneValue := range decodeJSONList(t, capture["panes"], "panes") {
+	panes, ok := capture["panes"].([]any)
+	if !ok {
+		t.Fatalf("capture panes = %#v, want []any", capture["panes"])
+	}
+	for _, paneValue := range panes {
 		pane, ok := paneValue.(map[string]any)
 		if !ok {
 			t.Fatalf("pane = %#v, want map", paneValue)
@@ -97,112 +85,18 @@ func paneMetaJSON(t *testing.T, pane map[string]any) map[string]any {
 	return meta
 }
 
-func jsonIntList(t *testing.T, m map[string]any, key string) []int {
+func metaKVJSON(t *testing.T, meta map[string]any) map[string]any {
 	t.Helper()
 
-	items := decodeJSONList(t, m[key], key)
-	out := make([]int, 0, len(items))
-	for _, item := range items {
-		n, ok := item.(float64)
-		if !ok {
-			t.Fatalf("%q item = %#v, want float64", key, item)
-		}
-		out = append(out, int(n))
+	value, ok := meta["kv"]
+	if !ok {
+		t.Fatalf("meta missing kv field: %#v", meta)
 	}
-	return out
-}
-
-func jsonTrackedPRNumbers(t *testing.T, m map[string]any, key string) []int {
-	t.Helper()
-
-	items := decodeJSONList(t, m[key], key)
-	out := make([]int, 0, len(items))
-	for _, item := range items {
-		ref, ok := item.(map[string]any)
-		if !ok {
-			t.Fatalf("%q item = %#v, want map", key, item)
-		}
-		value, ok := ref["number"]
-		if !ok {
-			t.Fatalf("%q item = %#v, missing number", key, ref)
-		}
-		n, ok := value.(float64)
-		if !ok {
-			t.Fatalf("%q number = %#v, want float64", key, value)
-		}
-		out = append(out, int(n))
+	kv, ok := value.(map[string]any)
+	if !ok {
+		t.Fatalf("meta.kv = %#v, want map", value)
 	}
-	return out
-}
-
-func jsonStringList(t *testing.T, m map[string]any, key string) []string {
-	t.Helper()
-
-	items := decodeJSONList(t, m[key], key)
-	out := make([]string, 0, len(items))
-	for _, item := range items {
-		s, ok := item.(string)
-		if !ok {
-			t.Fatalf("%q item = %#v, want string", key, item)
-		}
-		out = append(out, s)
-	}
-	return out
-}
-
-func jsonTrackedIssueIDs(t *testing.T, m map[string]any, key string) []string {
-	t.Helper()
-
-	items := decodeJSONList(t, m[key], key)
-	out := make([]string, 0, len(items))
-	for _, item := range items {
-		ref, ok := item.(map[string]any)
-		if !ok {
-			t.Fatalf("%q item = %#v, want map", key, item)
-		}
-		value, ok := ref["id"]
-		if !ok {
-			t.Fatalf("%q item = %#v, missing id", key, ref)
-		}
-		s, ok := value.(string)
-		if !ok {
-			t.Fatalf("%q id = %#v, want string", key, value)
-		}
-		out = append(out, s)
-	}
-	return out
-}
-
-func paneMetaTrackedRefs(t *testing.T, meta any) ([]int, []string) {
-	t.Helper()
-
-	value := reflect.ValueOf(meta)
-	prsField := value.FieldByName("TrackedPRs")
-	if !prsField.IsValid() {
-		t.Fatal("PaneMeta.TrackedPRs field missing")
-	}
-	issuesField := value.FieldByName("TrackedIssues")
-	if !issuesField.IsValid() {
-		t.Fatal("PaneMeta.TrackedIssues field missing")
-	}
-
-	prs := make([]int, prsField.Len())
-	for i := 0; i < prsField.Len(); i++ {
-		number := prsField.Index(i).FieldByName("Number")
-		if !number.IsValid() {
-			t.Fatal("TrackedPR.Number field missing")
-		}
-		prs[i] = int(number.Int())
-	}
-	issues := make([]string, issuesField.Len())
-	for i := 0; i < issuesField.Len(); i++ {
-		id := issuesField.Index(i).FieldByName("ID")
-		if !id.IsValid() {
-			t.Fatal("TrackedIssue.ID field missing")
-		}
-		issues[i] = id.String()
-	}
-	return prs, issues
+	return kv
 }
 
 func assertPaneMetaValues(t *testing.T, pane map[string]any) {
@@ -218,258 +112,37 @@ func assertPaneMetaValues(t *testing.T, pane map[string]any) {
 	if got := jsonStringValue(t, meta, "pr"); got != "99" {
 		t.Fatalf("meta.pr = %q, want 99", got)
 	}
-	if _, ok := meta["prs"]; ok {
-		t.Fatalf("meta.prs should be removed, got %#v", meta["prs"])
+
+	kv := metaKVJSON(t, meta)
+	if got := jsonStringValue(t, kv, "issue"); got != "LAB-338" {
+		t.Fatalf("meta.kv.issue = %q, want LAB-338", got)
 	}
-	if _, ok := meta["issues"]; ok {
-		t.Fatalf("meta.issues should be removed, got %#v", meta["issues"])
-	}
-	if got := jsonTrackedPRNumbers(t, meta, "tracked_prs"); !reflect.DeepEqual(got, []int{42}) {
-		t.Fatalf("meta.tracked_prs = %v, want [42]", got)
-	}
-	if got := jsonTrackedIssueIDs(t, meta, "tracked_issues"); !reflect.DeepEqual(got, []string{"LAB-338"}) {
-		t.Fatalf("meta.tracked_issues = %v, want [LAB-338]", got)
+	if got := jsonStringValue(t, kv, "owner"); got != "codex" {
+		t.Fatalf("meta.kv.owner = %q, want codex", got)
 	}
 }
 
-func hasExpectedPaneMeta(pane map[string]any) bool {
-	meta, ok := pane["meta"].(map[string]any)
-	if !ok {
-		return false
-	}
-	if task, _ := meta["task"].(string); task != "ship" {
-		return false
-	}
-	if branch, _ := meta["git_branch"].(string); branch != "main" {
-		return false
-	}
-	if pr, _ := meta["pr"].(string); pr != "99" {
-		return false
-	}
-	prs, ok := meta["tracked_prs"].([]any)
-	if !ok || len(prs) != 1 {
-		return false
-	}
-	prRef, ok := prs[0].(map[string]any)
-	if !ok {
-		return false
-	}
-	prNumber, ok := prRef["number"].(float64)
-	if !ok || int(prNumber) != 42 {
-		return false
-	}
-	issues, ok := meta["tracked_issues"].([]any)
-	if !ok || len(issues) != 1 {
-		return false
-	}
-	issueRef, ok := issues[0].(map[string]any)
-	if !ok {
-		return false
-	}
-	issue, _ := issueRef["id"].(string)
-	return issue == "LAB-338"
-}
-
-func tryPaneCaptureJSON(runCmd func(...string) string, pane string) (map[string]any, bool) {
-	raw := runCmd("capture", "--format", "json", pane)
-	var got map[string]any
-	if err := json.Unmarshal([]byte(raw), &got); err != nil {
-		return nil, false
-	}
-	return got, true
-}
-
-func waitForPaneCaptureJSON(t *testing.T, pane string, timeout time.Duration, runCmd func(...string) string) map[string]any {
-	t.Helper()
-
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		if got, ok := tryPaneCaptureJSON(runCmd, pane); ok {
-			return got
-		}
-	}
-	t.Fatalf("timed out waiting for pane %s JSON capture within %v", pane, timeout)
-	return nil
-}
-
-func tryGeneration(runCmd func(...string) string) (uint64, bool) {
-	out := strings.TrimSpace(runCmd("cursor", "layout"))
-	n, err := strconv.ParseUint(out, 10, 64)
-	return n, err == nil
-}
-
-func waitForGeneration(t *testing.T, pane string, runCmd func(...string) string) uint64 {
-	t.Helper()
-
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		waitForPaneCaptureJSON(t, pane, time.Second, runCmd)
-		if gen, ok := tryGeneration(runCmd); ok {
-			return gen
-		}
-	}
-	t.Fatalf("generation command did not recover for %s within 5s", pane)
-	return 0
-}
-
-func waitForPaneIdle(t *testing.T, pane string, runCmd func(...string) string) {
-	t.Helper()
-
-	deadline := time.Now().Add(15 * time.Second)
-	for time.Now().Before(deadline) {
-		out := runCmd("wait", "idle", pane, "--timeout", "10s")
-		if isCommandConnectError(out) {
-			continue
-		}
-		if strings.Contains(out, "timeout") || strings.Contains(out, "not found") {
-			t.Fatalf("wait-idle %s: %s", pane, strings.TrimSpace(out))
-		}
-		return
-	}
-	t.Fatalf("wait-idle %s did not recover within 15s", pane)
-}
-
-func waitForPostIdleRefresh(t *testing.T, pane string, runCmd func(...string) string, waitLayoutOrTimeout func(uint64, string) bool) {
-	t.Helper()
-
-	before := waitForGeneration(t, pane, runCmd)
-	waitForPaneIdle(t, pane, runCmd)
-
-	deadline := time.Now().Add(15 * time.Second)
-	lastGen := before
-	for time.Now().Before(deadline) {
-		if got, ok := tryPaneCaptureJSON(runCmd, pane); ok && hasExpectedPaneMeta(got) {
-			return
-		}
-		gen, ok := tryGeneration(runCmd)
-		if !ok {
-			time.Sleep(25 * time.Millisecond)
-			continue
-		}
-		lastGen = gen
-		_ = waitLayoutOrTimeout(gen, "250ms")
-	}
-	t.Fatalf("pane %s did not recover expected pane metadata (generation before=%d after=%d)", pane, before, lastGen)
-}
-
-func runAmuxUsageCmd(t *testing.T, args ...string) string {
-	t.Helper()
-
-	cmd := exec.Command(amuxBin, args...)
-	env := os.Environ()
-	for _, key := range []string{"AMUX_PANE", "AMUX_SESSION", "TMUX"} {
-		env = removeEnv(env, key)
-	}
-	env = upsertEnv(env, "HOME", newTestHome(t))
-	if gocoverDir != "" {
-		env = upsertEnv(env, "GOCOVERDIR", gocoverDir)
-	}
-	cmd.Env = env
-	out, _ := cmd.CombinedOutput()
-	return string(out)
-}
-
-func TestAddMetaTracksPanePRsAndIssues(t *testing.T) {
+func TestCaptureJSONIncludesPaneMetaKV(t *testing.T) {
 	t.Parallel()
 
 	h := newServerHarness(t)
 
-	if out := h.runCmd("add-meta", "pane-1", "pr=42", "issue=LAB-338", "pr=73", "issue=LAB-412"); out != "" {
-		t.Fatalf("add-meta returned unexpected output: %q", out)
+	if out := h.runCmd("meta", "set", "pane-1", "task=build", "branch=feat/meta", "pr=99", "issue=LAB-338", "owner=codex"); strings.TrimSpace(out) != "" {
+		t.Fatalf("meta set output = %q, want empty", out)
 	}
-	if out := h.runCmd("add-meta", "pane-1", "pr=42", "issue=LAB-338"); out != "" {
-		t.Fatalf("idempotent add-meta returned unexpected output: %q", out)
-	}
-
-	list := h.runCmd("list")
-	if !strings.Contains(list, "META") {
-		t.Fatalf("list header should contain META column, got:\n%s", list)
-	}
-	if !strings.Contains(list, "prs=[42,73]") {
-		t.Fatalf("list should show PR collection, got:\n%s", list)
-	}
-	if !strings.Contains(list, "issues=[LAB-338,LAB-412]") {
-		t.Fatalf("list should show issue collection, got:\n%s", list)
-	}
-}
-
-func TestPaneMetaCLIUsageErrors(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name string
-		args []string
-		want string
-	}{
-		{
-			name: "add-meta usage",
-			args: []string{"add-meta"},
-			want: "usage: amux add-meta <pane> key=value [key=value...]",
-		},
-		{
-			name: "rm-meta usage",
-			args: []string{"rm-meta"},
-			want: "usage: amux rm-meta <pane> key=value [key=value...]",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			if out := runAmuxUsageCmd(t, tt.args...); !strings.Contains(out, tt.want) {
-				t.Fatalf("%s output = %q, want substring %q", tt.name, out, tt.want)
-			}
-		})
-	}
-}
-
-func TestRmMetaRemovesPanePRsAndIssues(t *testing.T) {
-	t.Parallel()
-
-	h := newServerHarness(t)
-
-	h.runCmd("add-meta", "pane-1", "pr=42", "pr=73", "issue=LAB-338", "issue=LAB-412")
-
-	if out := h.runCmd("rm-meta", "pane-1", "pr=42", "issue=LAB-338"); out != "" {
-		t.Fatalf("rm-meta returned unexpected output: %q", out)
-	}
-
-	list := h.runCmd("list")
-	if strings.Contains(list, "prs=[42,73]") {
-		t.Fatalf("removed PR should not remain in list output:\n%s", list)
-	}
-	if strings.Contains(list, "issues=[LAB-338,LAB-412]") {
-		t.Fatalf("removed issue should not remain in list output:\n%s", list)
-	}
-	if !strings.Contains(list, "prs=[73]") {
-		t.Fatalf("remaining PR should stay visible, got:\n%s", list)
-	}
-	if !strings.Contains(list, "issues=[LAB-412]") {
-		t.Fatalf("remaining issue should stay visible, got:\n%s", list)
-	}
-}
-
-func TestCaptureJSONIncludesNestedPaneMeta(t *testing.T) {
-	t.Parallel()
-
-	h := newServerHarness(t)
-
-	h.runCmd("set-meta", "pane-1", "task=build", "branch=feat/meta", "pr=99")
-	h.runCmd("add-meta", "pane-1", "pr=42", "issue=LAB-338")
 
 	fullCapture := decodeJSONMap(t, h.runCmd("capture", "--format", "json"))
 	pane := jsonPaneByName(t, fullCapture, "pane-1")
 	meta := paneMetaJSON(t, pane)
 
 	if got := jsonStringValue(t, pane, "task"); got != "build" {
-		t.Fatalf("legacy top-level task = %q, want build", got)
+		t.Fatalf("top-level task = %q, want build", got)
 	}
 	if got := jsonStringValue(t, pane, "git_branch"); got != "feat/meta" {
-		t.Fatalf("legacy top-level git_branch = %q, want feat/meta", got)
+		t.Fatalf("top-level git_branch = %q, want feat/meta", got)
 	}
 	if got := jsonStringValue(t, pane, "pr"); got != "99" {
-		t.Fatalf("legacy top-level pr = %q, want 99", got)
+		t.Fatalf("top-level pr = %q, want 99", got)
 	}
 	if got := jsonStringValue(t, meta, "task"); got != "build" {
 		t.Fatalf("meta.task = %q, want build", got)
@@ -480,45 +153,22 @@ func TestCaptureJSONIncludesNestedPaneMeta(t *testing.T) {
 	if got := jsonStringValue(t, meta, "pr"); got != "99" {
 		t.Fatalf("meta.pr = %q, want 99", got)
 	}
-	if _, ok := meta["prs"]; ok {
-		t.Fatalf("meta.prs should be removed, got %#v", meta["prs"])
-	}
-	if _, ok := meta["issues"]; ok {
-		t.Fatalf("meta.issues should be removed, got %#v", meta["issues"])
-	}
-	if got := jsonTrackedPRNumbers(t, meta, "tracked_prs"); !reflect.DeepEqual(got, []int{42}) {
-		t.Fatalf("meta.tracked_prs = %v, want [42]", got)
-	}
-	if got := jsonTrackedIssueIDs(t, meta, "tracked_issues"); !reflect.DeepEqual(got, []string{"LAB-338"}) {
-		t.Fatalf("meta.tracked_issues = %v, want [LAB-338]", got)
-	}
 
-	historyPane := decodeJSONMap(t, h.runCmd("capture", "--history", "--format", "json", "pane-1"))
-	historyMeta := paneMetaJSON(t, historyPane)
-	if _, ok := historyMeta["prs"]; ok {
-		t.Fatalf("history meta.prs should be removed, got %#v", historyMeta["prs"])
+	kv := metaKVJSON(t, meta)
+	if got := jsonStringValue(t, kv, "issue"); got != "LAB-338" {
+		t.Fatalf("meta.kv.issue = %q, want LAB-338", got)
 	}
-	if _, ok := historyMeta["issues"]; ok {
-		t.Fatalf("history meta.issues should be removed, got %#v", historyMeta["issues"])
-	}
-	if got := jsonTrackedPRNumbers(t, historyMeta, "tracked_prs"); !reflect.DeepEqual(got, []int{42}) {
-		t.Fatalf("history meta.tracked_prs = %v, want [42]", got)
-	}
-	if got := jsonTrackedIssueIDs(t, historyMeta, "tracked_issues"); !reflect.DeepEqual(got, []string{"LAB-338"}) {
-		t.Fatalf("history meta.tracked_issues = %v, want [LAB-338]", got)
+	if got := jsonStringValue(t, kv, "owner"); got != "codex" {
+		t.Fatalf("meta.kv.owner = %q, want codex", got)
 	}
 }
 
 func TestPaneMetaSurvivesReloadServer(t *testing.T) {
 	h := newAmuxHarness(t)
 
-	h.runCmd("set-meta", "pane-1", "task=ship", "branch=main", "pr=99")
-	h.runCmd("add-meta", "pane-1", "pr=42", "issue=LAB-338")
-
+	h.runCmd("meta", "set", "pane-1", "task=ship", "branch=main", "pr=99", "issue=LAB-338", "owner=codex")
 	h.runCmd("reload-server")
 	h.waitForCaptureJSONReady(15 * time.Second)
-
-	waitForPostIdleRefresh(t, "pane-1", h.runCmd, h.waitLayoutOrTimeout)
 
 	pane := waitForJSONMap(t, 5*time.Second, func() string {
 		return h.runCmd("capture", "--format", "json", "pane-1")
@@ -529,11 +179,8 @@ func TestPaneMetaSurvivesReloadServer(t *testing.T) {
 func TestPaneMetaSurvivesCrashRecovery(t *testing.T) {
 	h := newServerHarnessPersistent(t)
 
-	if out := strings.TrimSpace(h.runCmd("set-meta", "pane-1", "task=ship", "branch=main", "pr=99")); out != "" {
-		t.Fatalf("set-meta output = %q, want empty", out)
-	}
-	if out := strings.TrimSpace(h.runCmd("add-meta", "pane-1", "pr=42", "issue=LAB-338")); out != "" {
-		t.Fatalf("add-meta output = %q, want empty", out)
+	if out := strings.TrimSpace(h.runCmd("meta", "set", "pane-1", "task=ship", "branch=main", "pr=99", "issue=LAB-338", "owner=codex")); out != "" {
+		t.Fatalf("meta set output = %q, want empty", out)
 	}
 
 	_, _ = waitForCrashCheckpointMatch(t, h, 0, crashCheckpointTestTimeout, "checkpoint with pane metadata", func(cp checkpoint.CrashCheckpoint) bool {
@@ -544,8 +191,7 @@ func TestPaneMetaSurvivesCrashRecovery(t *testing.T) {
 		if ps.Meta.Task != "ship" || ps.Meta.GitBranch != "main" || ps.Meta.PR != "99" {
 			return false
 		}
-		prs, issues := paneMetaTrackedRefs(t, ps.Meta)
-		return reflect.DeepEqual(prs, []int{42}) && reflect.DeepEqual(issues, []string{"LAB-338"})
+		return ps.Meta.KV["issue"] == "LAB-338" && ps.Meta.KV["owner"] == "codex"
 	})
 
 	if h.client != nil {

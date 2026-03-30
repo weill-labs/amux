@@ -24,13 +24,13 @@ func TestSpawnLocalPane(t *testing.T) {
 	}
 }
 
-func TestSpawnRequiresName(t *testing.T) {
+func TestSpawnWithoutNameAutoNamesPane(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)
 
 	out := h.runCmd("spawn")
-	if !strings.Contains(out, "--name is required") {
-		t.Fatalf("expected --name error, got: %s", out)
+	if !strings.Contains(out, "Spawned pane-2") {
+		t.Fatalf("expected auto-named spawn, got: %s", out)
 	}
 }
 
@@ -84,7 +84,7 @@ func TestZoomUnzoom(t *testing.T) {
 	h := newServerHarness(t)
 
 	// Need 2 panes to zoom
-	h.runCmd("split", "pane-1")
+	h.runCmd("spawn", "--at", "pane-1")
 
 	out := h.runCmd("zoom")
 	if !strings.Contains(out, "Zoomed") {
@@ -101,7 +101,7 @@ func TestZoomByName(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)
 
-	h.runCmd("split", "pane-1")
+	h.runCmd("spawn", "--at", "pane-1")
 	h.runCmd("focus", "pane-1")
 
 	out := h.runCmd("zoom", "pane-2")
@@ -159,12 +159,12 @@ func TestReloadServer(t *testing.T) {
 	}
 }
 
-func TestSwapTreeUsage(t *testing.T) {
+func TestSwapUsageWithTreeFlag(t *testing.T) {
 	h := newServerHarness(t)
 
-	out := h.runCmd("swap-tree", "pane-1")
-	if !strings.Contains(out, "usage: amux swap-tree <pane1> <pane2>") {
-		t.Fatalf("expected swap-tree usage error, got: %s", out)
+	out := h.runCmd("swap", "pane-1", "--tree")
+	if !strings.Contains(out, "usage: amux swap <pane1> <pane2> [--tree] | amux swap forward | amux swap backward") {
+		t.Fatalf("expected swap usage error, got: %s", out)
 	}
 }
 
@@ -172,7 +172,7 @@ func TestMoveUsage(t *testing.T) {
 	h := newServerHarness(t)
 
 	out := h.runCmd("move", "pane-1", "--before")
-	if !strings.Contains(out, "usage: amux move <pane> --before <target> | move <pane> --after <target>") {
+	if !strings.Contains(out, "usage: amux move <pane> up|down | amux move <pane> (--before <target>|--after <target>|--to-column <target>)") {
 		t.Fatalf("expected move usage error, got: %s", out)
 	}
 }
@@ -183,17 +183,17 @@ func TestMoveRejectsConflictingFlags(t *testing.T) {
 	h.splitV()
 
 	out := h.runCmd("move", "pane-1", "--before", "pane-2", "--after", "pane-2")
-	if !strings.Contains(out, "usage: move <pane> --before <target> | move <pane> --after <target>") {
+	if !strings.Contains(out, "usage: amux move <pane> up|down | amux move <pane> (--before <target>|--after <target>|--to-column <target>)") {
 		t.Fatalf("expected move parser usage error, got: %s", out)
 	}
 }
 
-func TestMoveToUsage(t *testing.T) {
+func TestMoveToColumnUsage(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)
 
-	out := h.runCmd("move-to", "pane-1")
-	if !strings.Contains(out, "usage: amux move-to <pane> <target>") {
-		t.Fatalf("expected move-to usage error, got: %s", out)
+	out := h.runCmd("move", "pane-1", "--to-column")
+	if !strings.Contains(out, "usage: amux move <pane> up|down | amux move <pane> (--before <target>|--after <target>|--to-column <target>)") {
+		t.Fatalf("expected move usage error, got: %s", out)
 	}
 }

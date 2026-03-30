@@ -184,7 +184,7 @@ dispatch_entry() {
     issue=$(jq -r '.issue' <<<"$entry")
     task=$(jq -r '.task' <<<"$entry")
 
-    if ! amux add-meta "$pane" "issue=$issue" >/dev/null; then
+    if ! amux meta set "$pane" "issue=$issue" >/dev/null; then
         record_result "$pane" "$issue" "FAILURE" "set issue metadata failed"
         return
     fi

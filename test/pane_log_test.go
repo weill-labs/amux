@@ -84,13 +84,12 @@ func TestIdleRefreshUpdatesPaneCwdAndBranch(t *testing.T) {
 	}
 }
 
-func TestPaneLogCLI(t *testing.T) {
+func TestLogPanesCLI(t *testing.T) {
 	t.Parallel()
 
 	h := newServerHarness(t)
 
-	// The harness starts with one pane; pane-log should show its creation.
-	out := h.runCmd("pane-log")
+	out := h.runCmd("log", "panes")
 	for _, want := range []string{
 		"TS",
 		"EVENT",
@@ -105,12 +104,12 @@ func TestPaneLogCLI(t *testing.T) {
 		"local",
 	} {
 		if !strings.Contains(out, want) {
-			t.Fatalf("pane-log missing %q:\n%s", want, out)
+			t.Fatalf("log panes missing %q:\n%s", want, out)
 		}
 	}
 }
 
-func TestPaneLogShowsExitReason(t *testing.T) {
+func TestLogPanesShowsExitReason(t *testing.T) {
 	t.Parallel()
 
 	h := newServerHarness(t)
@@ -118,23 +117,22 @@ func TestPaneLogShowsExitReason(t *testing.T) {
 	h.splitH()
 	h.waitLayout(gen)
 
-	// Wait for the shell in pane-2 to start before sending exit.
 	h.waitForPaneContent("pane-2", "$", 5*time.Second)
 
 	gen = h.generation()
 	h.sendKeys("pane-2", "exit", "Enter")
 	h.waitLayout(gen)
 
-	out := h.runCmd("pane-log")
+	out := h.runCmd("log", "panes")
 	if !strings.Contains(out, "exit") {
-		t.Fatalf("pane-log should contain exit event:\n%s", out)
+		t.Fatalf("log panes should contain exit event:\n%s", out)
 	}
 	if !strings.Contains(out, "pane-2") {
-		t.Fatalf("pane-log should mention pane-2:\n%s", out)
+		t.Fatalf("log panes should mention pane-2:\n%s", out)
 	}
 }
 
-func TestPaneLogSnapshotsExitContext(t *testing.T) {
+func TestLogPanesSnapshotsExitContext(t *testing.T) {
 	t.Parallel()
 
 	h := newServerHarnessWithOptions(t, 80, 24, "", false, false, "AMUX_DISABLE_META_REFRESH=0")
@@ -154,6 +152,8 @@ func TestPaneLogSnapshotsExitContext(t *testing.T) {
 	}
 	h.sendKeys("pane-2", fmt.Sprintf("cd %q && echo CWD_READY", tempDir), "Enter")
 	h.waitFor("pane-2", "CWD_READY")
+	h.waitIdle("pane-2")
+
 	wantListCwd := listingcmd.FormatListCwd(wantCwd, h.home, listingcmd.ListCwdWidth)
 	listOut := waitForListMetadata(t, h, wantListCwd)
 	if !strings.Contains(listOut, wantListCwd) {
@@ -162,15 +162,15 @@ func TestPaneLogSnapshotsExitContext(t *testing.T) {
 		t.Fatalf("list did not report cached cwd %q after idle refresh\n%s\nserver log:\n%s", wantListCwd, listOut, string(logData))
 	}
 
-	if out := h.runCmd("set-meta", "pane-2", "branch=feat/postmortem"); out != "" {
-		t.Fatalf("set-meta returned unexpected output: %q", out)
+	if out := h.runCmd("meta", "set", "pane-2", "branch=feat/postmortem"); out != "" {
+		t.Fatalf("meta set returned unexpected output: %q", out)
 	}
 
 	gen = h.generation()
 	h.sendKeys("pane-2", "exit", "Enter")
 	h.waitLayout(gen)
 
-	out := h.runCmd("pane-log")
+	out := h.runCmd("log", "panes")
 	lines := strings.Split(strings.TrimSpace(out), "\n")
 	for _, line := range lines[1:] {
 		fields := strings.Fields(line)
@@ -189,5 +189,5 @@ func TestPaneLogSnapshotsExitContext(t *testing.T) {
 		return
 	}
 
-	t.Fatalf("pane-log missing exit row for pane-2 with exit context:\n%s", out)
+	t.Fatalf("log panes missing exit row for pane-2 with exit context:\n%s", out)
 }

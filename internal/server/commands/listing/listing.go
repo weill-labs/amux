@@ -3,10 +3,10 @@ package listing
 import (
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/weill-labs/amux/internal/proto"
-	metacmd "github.com/weill-labs/amux/internal/server/commands/meta"
 )
 
 const ListCwdWidth = 36
@@ -38,6 +38,7 @@ type PaneEntry struct {
 	GitBranch     string
 	Idle          string
 	PR            string
+	KV            map[string]string
 	TrackedPRs    []proto.TrackedPR
 	TrackedIssues []proto.TrackedIssue
 	Active        bool
@@ -90,14 +91,27 @@ func formatPaneListRow(entry PaneEntry, home string, showCwd bool) string {
 }
 
 func formatPaneListMeta(entry PaneEntry) string {
-	meta := metacmd.FormatCollections(entry.TrackedPRs, entry.TrackedIssues)
-	if !entry.Lead {
-		return meta
+	parts := make([]string, 0, len(entry.KV)+1)
+	if entry.Lead {
+		parts = append(parts, "lead")
 	}
-	if meta == "" {
-		return "lead"
+
+	if len(entry.KV) == 0 {
+		return strings.Join(parts, " ")
 	}
-	return "lead " + meta
+
+	keys := make([]string, 0, len(entry.KV))
+	for key := range entry.KV {
+		if key == "task" || key == "branch" || key == "pr" {
+			continue
+		}
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		parts = append(parts, fmt.Sprintf("%s=%s", key, entry.KV[key]))
+	}
+	return strings.Join(parts, " ")
 }
 
 func FormatListCwd(cwd, home string, max int) string {

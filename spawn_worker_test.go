@@ -40,13 +40,13 @@ func TestSpawnWorkerScriptCreatesWorkerPaneWorktreeAndCodexSession(t *testing.T)
 
 	worktreePath := filepath.Join(tempDir, "amux36-lab-499-pane-210")
 	wantAmuxLog := strings.Join([]string{
-		"split pane-109 --horizontal",
+		"spawn --at pane-109 --horizontal",
 		"send-keys pane-210 cd " + worktreePath + " Enter",
 		"wait idle pane-210",
 		"send-keys pane-210 codex --yolo Enter",
 		"wait idle pane-210",
 		"send-keys pane-210 Enter",
-		"add-meta pane-210 issue=LAB-499",
+		"meta set pane-210 issue=LAB-499",
 	}, "\n")
 	if got := readTrimmedFile(t, amuxLogPath); got != wantAmuxLog {
 		t.Fatalf("amux log = %q, want %q", got, wantAmuxLog)
@@ -127,8 +127,8 @@ func TestSpawnWorkerScriptFailsWhenSplitOutputIsUnparseable(t *testing.T) {
 	if !strings.Contains(string(out), "scripts/spawn-worker.sh: failed to parse new pane from: Split horizontal: pane missing") {
 		t.Fatalf("output = %q, want parse failure", out)
 	}
-	if got := readTrimmedFile(t, amuxLogPath); got != "split pane-109 --horizontal" {
-		t.Fatalf("amux log = %q, want only split call", got)
+	if got := readTrimmedFile(t, amuxLogPath); got != "spawn --at pane-109 --horizontal" {
+		t.Fatalf("amux log = %q, want only spawn call", got)
 	}
 }
 
@@ -156,10 +156,10 @@ func TestSpawnWorkerScriptPropagatesSplitFailure(t *testing.T) {
 		t.Fatalf("exit code = %d, want 7\n%s", exitCode, out)
 	}
 	if !strings.Contains(string(out), "split failed") {
-		t.Fatalf("output = %q, want split stderr", out)
+		t.Fatalf("output = %q, want spawn stderr", out)
 	}
-	if got := readTrimmedFile(t, amuxLogPath); got != "split pane-109 --horizontal" {
-		t.Fatalf("amux log = %q, want only split call", got)
+	if got := readTrimmedFile(t, amuxLogPath); got != "spawn --at pane-109 --horizontal" {
+		t.Fatalf("amux log = %q, want only spawn call", got)
 	}
 }
 
@@ -194,7 +194,7 @@ shift
     done
     printf '\n'
 } >>"$FAKE_AMUX_LOG"
-if [ "$cmd" = "split" ]; then
+if [ "$cmd" = "spawn" ]; then
     status="${FAKE_AMUX_SPLIT_STATUS:-0}"
     if [ -n "${FAKE_AMUX_SPLIT_STDERR:-}" ]; then
         printf '%s\n' "$FAKE_AMUX_SPLIT_STDERR" >&2

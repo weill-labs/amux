@@ -91,7 +91,7 @@ func TestPostMergeMainSyncScriptSkipsUntrackedFiles(t *testing.T) {
 	}
 }
 
-func TestPostMergeHookSyncsMainAndRunsPaneMetaSyncScript(t *testing.T) {
+func TestPostMergeHookSyncsMainWithoutPaneRefresh(t *testing.T) {
 	t.Parallel()
 
 	tempDir := t.TempDir()
@@ -121,8 +121,8 @@ func TestPostMergeHookSyncsMainAndRunsPaneMetaSyncScript(t *testing.T) {
 		t.Fatalf("output = %q, want postmortem reminder", out)
 	}
 
-	if got := readTrimmedFile(t, amuxLogPath); !strings.Contains(got, "set-kv 7 ") {
-		t.Fatalf("amux args = %q, want set-kv sync call", got)
+	if _, err := os.Stat(amuxLogPath); !os.IsNotExist(err) {
+		t.Fatalf("post-merge hook should not call amux; got log %q", readTrimmedFile(t, amuxLogPath))
 	}
 }
 

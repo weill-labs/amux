@@ -39,6 +39,7 @@ type paneListEntry struct {
 	gitBranch  string
 	idle       string
 	pr         string
+	kv         map[string]string
 	prs        []proto.TrackedPR
 	issues     []proto.TrackedIssue
 	active     bool
@@ -304,6 +305,7 @@ func (s *Session) queryPaneList() ([]paneListEntry, error) {
 				gitBranch: p.Meta.GitBranch,
 				idle:      idle.listDisplay(now, p.CreatedAt()),
 				pr:        p.Meta.PR,
+				kv:        mux.CloneMetaKV(mux.NormalizedMetaKV(p.Meta)),
 				prs:       proto.CloneTrackedPRs(p.Meta.TrackedPRs),
 				issues:    proto.CloneTrackedIssues(p.Meta.TrackedIssues),
 			}

@@ -9,7 +9,7 @@ import (
 	"github.com/weill-labs/amux/internal/mux"
 )
 
-func setupSendKeysWaitIdleTestPane(t *testing.T, writeOverride func([]byte) (int, error)) (*Server, *Session, *mux.Pane, func()) {
+func setupSendKeysWaitReadyTestPane(t *testing.T, writeOverride func([]byte) (int, error)) (*Server, *Session, *mux.Pane, func()) {
 	t.Helper()
 
 	srv, sess, cleanup := newCommandTestSession(t)
@@ -26,153 +26,24 @@ func setupSendKeysWaitIdleTestPane(t *testing.T, writeOverride func([]byte) (int
 	return srv, sess, pane, cleanup
 }
 
-func TestParseSendKeysArgs(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name          string
-		args          []string
-		wantWait      bool
-		wantInputIdle bool
-		wantTimeout   time.Duration
-		wantDelay     time.Duration
-		wantHex       bool
-		wantKeys      []string
-		wantErr       string
-	}{
-		{
-			name:        "wait idle and keys",
-			args:        []string{"--wait", "idle", "--timeout", "25ms", "--delay-final", "150ms", "--hex", "6869", "Enter"},
-			wantWait:    true,
-			wantTimeout: 25 * time.Millisecond,
-			wantDelay:   150 * time.Millisecond,
-			wantHex:     true,
-			wantKeys:    []string{"6869", "Enter"},
-		},
-		{
-			name:          "wait input idle",
-			args:          []string{"--wait", "ui=input-idle", "--timeout", "40ms", "task"},
-			wantWait:      true,
-			wantInputIdle: true,
-			wantTimeout:   40 * time.Millisecond,
-			wantKeys:      []string{"task"},
-		},
-		{
-			name:        "literal args after first key",
-			args:        []string{"task", "--wait", "ready"},
-			wantTimeout: 10 * time.Second,
-			wantKeys:    []string{"task", "--wait", "ready"},
-		},
-		{
-			name:        "leading dash key stays literal",
-			args:        []string{"-"},
-			wantTimeout: 10 * time.Second,
-			wantKeys:    []string{"-"},
-		},
-		{
-			name:    "missing wait value",
-			args:    []string{"--wait"},
-			wantErr: "missing value for --wait",
-		},
-		{
-			name:    "unsupported wait target ready",
-			args:    []string{"--wait", "ready", "task"},
-			wantErr: `send-keys: unsupported --wait target "ready" (want idle or ui=input-idle)`,
-		},
-		{
-			name:    "unsupported wait target later",
-			args:    []string{"--wait", "later", "task"},
-			wantErr: `send-keys: unsupported --wait target "later" (want idle or ui=input-idle)`,
-		},
-		{
-			name:    "missing timeout value",
-			args:    []string{"--wait", "idle", "--timeout"},
-			wantErr: "missing value for --timeout",
-		},
-		{
-			name:    "invalid timeout value",
-			args:    []string{"--wait", "idle", "--timeout", "later"},
-			wantErr: "invalid timeout: later",
-		},
-		{
-			name:    "removed continue flag",
-			args:    []string{"--wait", "idle", "--continue-known-dialogs", "task"},
-			wantErr: "unknown flag: --continue-known-dialogs",
-		},
-		{
-			name:    "timeout requires wait target",
-			args:    []string{"--timeout", "10ms", "task"},
-			wantErr: "send-keys: --timeout requires --wait idle or --wait ui=input-idle",
-		},
-		{
-			name:    "missing delay-final value",
-			args:    []string{"--delay-final"},
-			wantErr: "missing value for --delay-final",
-		},
-		{
-			name:    "invalid delay-final value",
-			args:    []string{"--delay-final", "later", "task"},
-			wantErr: "invalid delay-final: later",
-		},
-		{
-			name:    "legacy flag rejected",
-			args:    []string{"--wait-ready", "task"},
-			wantErr: "send-keys: --wait-ready was removed; use --wait idle",
-		},
-	}
-
-	for _, tt := range tests {
-		tt := tt
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			got, err := parseSendKeysArgs(tt.args)
-			if tt.wantErr != "" {
-				if err == nil || err.Error() != tt.wantErr {
-					t.Fatalf("parseSendKeysArgs(%v) error = %v, want %q", tt.args, err, tt.wantErr)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("parseSendKeysArgs(%v) error = %v", tt.args, err)
-			}
-			if tt.wantWait && got.waitTarget == sendKeysNoWait {
-				t.Fatalf("wait target = %v, want a wait target", got.waitTarget)
-			}
-			if !tt.wantWait && got.waitTarget != sendKeysNoWait {
-				t.Fatalf("wait target = %v, want no wait target", got.waitTarget)
-			}
-			if tt.wantInputIdle && got.waitTarget != sendKeysWaitInputIdle {
-				t.Fatalf("wait target = %v, want input-idle", got.waitTarget)
-			}
-			if got.waitTimeout != tt.wantTimeout ||
-				got.delayFinal != tt.wantDelay ||
-				got.hexMode != tt.wantHex ||
-				strings.Join(got.keys, "|") != strings.Join(tt.wantKeys, "|") {
-				t.Fatalf("opts = %#v", got)
-			}
-		})
-	}
-}
-
-func TestSendKeysWaitIdleUsage(t *testing.T) {
+func TestSendKeysWaitReadyUsage(t *testing.T) {
 	t.Parallel()
 
 	srv, sess, cleanup := newCommandTestSession(t)
 	defer cleanup()
 
 	res := runTestCommand(t, srv, sess, "send-keys", "pane-1")
-	if got := res.cmdErr; got != "usage: send-keys <pane> [--wait idle|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>..." {
+	if got := res.cmdErr; got != "usage: send-keys <pane> [--via pty|client] [--wait ready|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>..." {
 		t.Fatalf("send-keys usage error = %q", got)
 	}
 }
 
-func TestCmdSendKeysWaitIdleWaitsForIdle(t *testing.T) {
+func TestCmdSendKeysWaitReadyWaitsForReady(t *testing.T) {
 	t.Parallel()
 
 	clk := NewFakeClock(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC))
 	writes := make(chan string, 1)
-	srv, sess, pane, cleanup := setupSendKeysWaitIdleTestPane(t, func(data []byte) (int, error) {
+	srv, sess, pane, cleanup := setupSendKeysWaitReadyTestPane(t, func(data []byte) (int, error) {
 		writes <- string(data)
 		return len(data), nil
 	})
@@ -183,18 +54,18 @@ func TestCmdSendKeysWaitIdleWaitsForIdle(t *testing.T) {
 	sess.VTIdleSettle = 100 * time.Millisecond
 	pane.SetCreatedAt(clk.Now())
 
-	clientConn, _, done := startAsyncCommand(t, srv, sess, "send-keys", "pane-1", "--wait", "idle", "--timeout", "5s", "ab")
+	clientConn, _, done := startAsyncCommand(t, srv, sess, "send-keys", "pane-1", "--wait", "ready", "--timeout", "5s", "ab")
 	clk.AwaitTimers(2)
 
 	select {
 	case got := <-writes:
-		t.Fatalf("send-keys wrote before pane became idle: %q", got)
+		t.Fatalf("send-keys wrote before pane became ready: %q", got)
 	default:
 	}
 
 	select {
 	case <-done:
-		t.Fatal("send-keys returned before pane became idle")
+		t.Fatal("send-keys returned before pane became ready")
 	case <-time.After(20 * time.Millisecond):
 	}
 
@@ -217,17 +88,17 @@ func TestCmdSendKeysWaitIdleWaitsForIdle(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(time.Second):
-		t.Fatal("send-keys wait-idle command did not return")
+		t.Fatal("send-keys wait-ready command did not return")
 	}
 }
 
-func TestSendKeysWaitIdleMissingPane(t *testing.T) {
+func TestSendKeysWaitReadyMissingPane(t *testing.T) {
 	t.Parallel()
 
-	srv, sess, _, cleanup := setupSendKeysWaitIdleTestPane(t, nil)
+	srv, sess, _, cleanup := setupSendKeysWaitReadyTestPane(t, nil)
 	defer cleanup()
 
-	res := runTestCommand(t, srv, sess, "send-keys", "missing", "--wait", "idle", "ship it")
+	res := runTestCommand(t, srv, sess, "send-keys", "missing", "--wait", "ready", "ship it")
 	if !strings.Contains(res.cmdErr, "not found") {
 		t.Fatalf("send-keys missing pane error = %q", res.cmdErr)
 	}

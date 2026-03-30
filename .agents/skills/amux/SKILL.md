@@ -59,24 +59,25 @@ The JSON capture is the primary interface for agents. It includes pane content l
 # Send raw keystrokes directly to PTY (preferred for agent delegation)
 amux send-keys pane-1 'ls -la' Enter
 
-# Type text through client input pipeline (handles key translation)
-amux type-keys pane-1 'echo hello'
-amux type-keys pane-1 Enter
+# Route through the client input pipeline when key translation matters
+amux send-keys pane-1 --via client 'echo hello'
+amux send-keys pane-1 --via client Enter
 
 # Wait for the pane to go screen-quiet before sending
 amux wait idle pane-31 --settle 2s --timeout 30s
 
-# Or fold the screen-quiet wait into the send itself
-amux send-keys pane-31 --wait idle 'Fix the bug in auth.go' Enter
+# Or do the screen-quiet wait explicitly before sending
+amux wait idle pane-31 --settle 2s --timeout 30s
+amux send-keys pane-31 'Fix the bug in auth.go' Enter
 
 # Special keys
-amux type-keys pane-1 Escape
-amux type-keys pane-1 C-c        # Ctrl-C
-amux type-keys pane-1 C-u        # Clear line
-amux type-keys pane-1 C-a        # Beginning of line
+amux send-keys pane-1 --via client Escape
+amux send-keys pane-1 --via client C-c        # Ctrl-C
+amux send-keys pane-1 --via client C-u        # Clear line
+amux send-keys pane-1 --via client C-a        # Beginning of line
 ```
 
-Prefer `send-keys` over `type-keys` for agent delegation — it sends text and Enter in one call. `type-keys` goes through the client input pipeline which can be slower.
+`send-keys` is the canonical input command. Use the default PTY path for agent delegation, and `--via client` when you need client-side key translation or keybinding handling.
 
 ### Wait Primitives
 
@@ -125,7 +126,7 @@ amux focus pane-1            # Focus a pane
 amux zoom pane-1             # Toggle zoom (maximize)
 amux spawn --name my-agent   # Create a new pane
 amux kill pane-1             # Kill a pane
-amux split pane-1 --horizontal  # Split a pane
+amux spawn --at pane-1 --horizontal  # Split a pane
 amux equalize                # Equalize column widths
 amux equalize --vertical     # Equalize row heights within columns
 amux equalize --all          # Equalize both dimensions
@@ -144,10 +145,10 @@ amux prev-window             # Previous window
 ### Pane Metadata
 
 ```bash
-amux add-meta pane-1 issue=LAB-123    # Tag pane with Linear issue
-amux add-meta pane-1 pr=456           # Tag pane with PR number
-amux set-meta pane-1 task="fix auth"  # Set task description
-amux rm-meta pane-1 issue=LAB-123     # Remove metadata
+amux meta set pane-1 issue=LAB-123    # Tag pane with Linear issue
+amux meta set pane-1 pr=456           # Tag pane with PR number
+amux meta set pane-1 task="fix auth"  # Set task description
+amux meta rm pane-1 issue             # Remove metadata
 amux list                             # Shows metadata in META column
 ```
 
@@ -220,7 +221,7 @@ amux capture --history pane-31 | grep -v '^$' | tail -30
 
 ```bash
 # Manual steps (spawn-worker.sh pending PR #505)
-amux split pane-109 --horizontal --name worker-499
+amux spawn --at pane-109 --horizontal --name worker-499
 # ... set up worktree, start codex --yolo, etc.
 ```
 
