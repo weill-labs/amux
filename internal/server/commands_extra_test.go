@@ -566,10 +566,10 @@ func TestCmdCopyModeErrorPaths(t *testing.T) {
 	})
 }
 
-func TestLegacyMetaCollectionCommandsAreUnknown(t *testing.T) {
+func TestLegacyMetaV1CommandsAreUnknown(t *testing.T) {
 	t.Parallel()
 
-	tests := []string{"add-meta", "rm-meta"}
+	tests := []string{"set-meta", "add-meta", "rm-meta"}
 
 	for _, command := range tests {
 		command := command
