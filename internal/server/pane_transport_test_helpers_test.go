@@ -11,6 +11,7 @@ type stubPaneTransport struct {
 	createPaneErr    error
 	createPaneRemote uint32
 	createPaneCalls  []createPaneCall
+	sendInputCalls   []sendInputCall
 	sendInputErr     error
 	sendResizeErr    error
 	killPaneErr      error
@@ -31,6 +32,11 @@ type createPaneCall struct {
 	sessionName string
 }
 
+type sendInputCall struct {
+	localPaneID uint32
+	data        []byte
+}
+
 type attachForTakeoverCall struct {
 	hostName    string
 	sshAddr     string
@@ -46,7 +52,17 @@ type deployCall struct {
 	sshUser  string
 }
 
-func (s *stubPaneTransport) SendInput(uint32, []byte) error {
+type stubTakeoverOnlyTransport struct {
+	attachErr   error
+	attachCalls []attachForTakeoverCall
+	deployCalls []deployCall
+}
+
+func (s *stubPaneTransport) SendInput(localPaneID uint32, data []byte) error {
+	s.sendInputCalls = append(s.sendInputCalls, sendInputCall{
+		localPaneID: localPaneID,
+		data:        append([]byte(nil), data...),
+	})
 	return s.sendInputErr
 }
 
@@ -143,6 +159,30 @@ func (s *stubPaneTransport) AttachForTakeover(hostName, sshAddr, sshUser, remote
 }
 
 func (s *stubPaneTransport) DeployToAddress(hostName, sshAddr, sshUser string) {
+	s.deployCalls = append(s.deployCalls, deployCall{
+		hostName: hostName,
+		sshAddr:  sshAddr,
+		sshUser:  sshUser,
+	})
+}
+
+func (s *stubTakeoverOnlyTransport) AttachForTakeover(hostName, sshAddr, sshUser, remoteUID, sessionName string, paneMappings map[uint32]uint32) error {
+	copied := make(map[uint32]uint32, len(paneMappings))
+	for localPaneID, remotePaneID := range paneMappings {
+		copied[localPaneID] = remotePaneID
+	}
+	s.attachCalls = append(s.attachCalls, attachForTakeoverCall{
+		hostName:    hostName,
+		sshAddr:     sshAddr,
+		sshUser:     sshUser,
+		remoteUID:   remoteUID,
+		sessionName: sessionName,
+		paneMap:     copied,
+	})
+	return s.attachErr
+}
+
+func (s *stubTakeoverOnlyTransport) DeployToAddress(hostName, sshAddr, sshUser string) {
 	s.deployCalls = append(s.deployCalls, deployCall{
 		hostName: hostName,
 		sshAddr:  sshAddr,

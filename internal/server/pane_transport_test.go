@@ -63,3 +63,32 @@ func TestServerSetupPaneTransportInstallsTransportOnSessions(t *testing.T) {
 		t.Fatal("SetupPaneTransport should install the transport on the session")
 	}
 }
+
+func TestConfigurePaneTakeoverInstallsPaneTransportForProxyWrites(t *testing.T) {
+	t.Parallel()
+
+	_, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	transport := &stubPaneTransport{}
+	sess.configurePaneTakeover(transport)
+
+	if sess.RemoteManager != transport {
+		t.Fatal("configurePaneTakeover should install takeover transports that also satisfy PaneTransport")
+	}
+
+	n, err := sess.remoteWriteOverride(42)([]byte("pwd\n"))
+	if err != nil {
+		t.Fatalf("remoteWriteOverride: %v", err)
+	}
+	if n != len("pwd\n") {
+		t.Fatalf("remoteWriteOverride wrote %d bytes, want %d", n, len("pwd\n"))
+	}
+	if len(transport.sendInputCalls) != 1 {
+		t.Fatalf("SendInput calls = %d, want 1", len(transport.sendInputCalls))
+	}
+	call := transport.sendInputCalls[0]
+	if call.localPaneID != 42 || string(call.data) != "pwd\n" {
+		t.Fatalf("SendInput call = %+v, want pane 42 with pwd input", call)
+	}
+}

@@ -151,7 +151,7 @@ func (s *Session) handleTakeover(sshPaneID uint32, req mux.TakeoverRequest) {
 		failTakeover(err)
 		return
 	}
-	if needsInitialResize && len(proxyPanes) > 0 {
+	if needsInitialResize && len(proxyPanes) > 0 && s.RemoteManager != nil {
 		_ = s.RemoteManager.SendResize(proxyPanes[0].ID, layout.cols, mux.PaneContentHeight(layout.cellH))
 	}
 

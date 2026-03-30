@@ -65,6 +65,9 @@ func (s *Session) configurePaneTransport(transport proto.PaneTransport, hostColo
 
 func (s *Session) configurePaneTakeover(transport PaneTakeoverTransport) {
 	s.remoteTakeover = transport
+	if paneTransport, ok := transport.(proto.PaneTransport); ok {
+		s.RemoteManager = paneTransport
+	}
 }
 
 func (s *Session) remotePaneColor(hostName string) string {

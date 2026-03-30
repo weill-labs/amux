@@ -246,6 +246,84 @@ func TestHandleTakeoverFailureWithoutRemoteManager(t *testing.T) {
 	}
 }
 
+func TestHandleTakeoverSkipsInitialResizeWithoutRemoteManager(t *testing.T) {
+	t.Parallel()
+
+	_, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	var writes lockedBuffer
+	sshPane := newRecordingPane(sess, 1, "ssh-pane", &writes)
+	window := newTestWindowWithPanes(t, sess, 1, "main", sshPane)
+	setSessionLayoutForTest(t, sess, window.ID, []*mux.Window{window}, sshPane)
+	sess.counter.Store(sshPane.ID)
+
+	transport := &stubTakeoverOnlyTransport{}
+	sess.configurePaneTakeover(transport)
+
+	req := mux.TakeoverRequest{
+		Host:       "gpu-box",
+		SSHAddress: "127.0.0.1:22",
+		SSHUser:    "carol",
+		UID:        "remote-uid",
+	}
+
+	sess.handleTakeover(sshPane.ID, req)
+
+	wantAck := mux.FormatTakeoverAck(managedSessionName(sess.Name)) + "\n"
+	if got := writes.String(); got != wantAck {
+		t.Fatalf("takeover ack = %q, want %q", got, wantAck)
+	}
+	if len(transport.attachCalls) != 1 {
+		t.Fatalf("AttachForTakeover calls = %d, want 1", len(transport.attachCalls))
+	}
+	attachCall := transport.attachCalls[0]
+	if attachCall.hostName != "gpu-box" || attachCall.sshAddr != "127.0.0.1:22" || attachCall.sshUser != "carol" {
+		t.Fatalf("AttachForTakeover call = %+v, want gpu-box 127.0.0.1:22 carol", attachCall)
+	}
+	if len(attachCall.paneMap) != 1 {
+		t.Fatalf("AttachForTakeover pane map = %#v, want one proxy pane", attachCall.paneMap)
+	}
+
+	state := mustSessionQuery(t, sess, func(sess *Session) struct {
+		notice         string
+		sshDormant     bool
+		proxyPresent   bool
+		proxyConnState string
+	} {
+		ssh := sess.findPaneByID(sshPane.ID)
+		proxy := sess.findPaneByID(sshPane.ID + 1)
+		return struct {
+			notice         string
+			sshDormant     bool
+			proxyPresent   bool
+			proxyConnState string
+		}{
+			notice:       sess.notice,
+			sshDormant:   ssh != nil && ssh.Meta.Dormant,
+			proxyPresent: proxy != nil && sess.activeWindow().Root.FindPane(proxy.ID) != nil,
+			proxyConnState: func() string {
+				if proxy == nil {
+					return ""
+				}
+				return proxy.Meta.Remote
+			}(),
+		}
+	})
+	if state.notice != "" {
+		t.Fatalf("session notice = %q, want empty", state.notice)
+	}
+	if !state.sshDormant {
+		t.Fatal("ssh pane should be marked dormant after successful takeover")
+	}
+	if !state.proxyPresent {
+		t.Fatal("proxy pane should be inserted into the layout")
+	}
+	if state.proxyConnState != string(proto.Connected) {
+		t.Fatalf("proxy remote state = %q, want %q", state.proxyConnState, proto.Connected)
+	}
+}
+
 func TestPrepareRemotePaneAndInsertPreparedPane(t *testing.T) {
 	t.Parallel()
 
