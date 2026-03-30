@@ -14,6 +14,7 @@ type clientUIStateSnapshot struct {
 	message         string
 	displayPanes    bool
 	chooser         string
+	prompt          string
 	copyModePaneIDs []uint32
 	inputIdle       bool
 }
@@ -29,12 +30,17 @@ func snapshotClientUIState(st clientUIState) clientUIStateSnapshot {
 	if st.chooser != nil {
 		chooser = string(st.chooser.mode)
 	}
+	prompt := ""
+	if st.windowRenamePrompt != nil {
+		prompt = st.windowRenamePrompt.title()
+	}
 
 	return clientUIStateSnapshot{
 		dirty:           st.dirty,
 		message:         st.message,
 		displayPanes:    st.displayPanes != nil,
 		chooser:         chooser,
+		prompt:          prompt,
 		copyModePaneIDs: paneIDs,
 		inputIdle:       st.inputIdle,
 	}
@@ -67,6 +73,7 @@ func TestClientUIStateReduceTransitions(t *testing.T) {
 			setup: func(st *clientUIState) {
 				st.displayPanes = &displayPanesState{}
 				st.chooser = &chooserState{mode: chooserModeWindow}
+				st.windowRenamePrompt = &windowRenamePromptState{value: "logs"}
 				st.message = "command failed"
 			},
 			action: uiActionHandleLayout{structureChanged: true},
@@ -242,6 +249,38 @@ func TestClientUIStateReduceTransitions(t *testing.T) {
 			wantEvents: []string{
 				proto.UIEventDisplayPanesHidden,
 				proto.UIEventChooseWindowShown,
+			},
+		},
+		{
+			name: "show window rename prompt hides chooser and display panes",
+			setup: func(st *clientUIState) {
+				st.displayPanes = &displayPanesState{}
+				st.chooser = &chooserState{mode: chooserModeWindow}
+			},
+			action: uiActionShowWindowRenamePrompt{
+				prompt: &windowRenamePromptState{value: "logs"},
+			},
+			wantState: clientUIStateSnapshot{
+				dirty:           true,
+				prompt:          "rename-window",
+				copyModePaneIDs: []uint32{},
+				inputIdle:       true,
+			},
+			wantEvents: []string{
+				proto.UIEventDisplayPanesHidden,
+				proto.UIEventChooseWindowHidden,
+			},
+		},
+		{
+			name: "hide window rename prompt clears prompt state",
+			setup: func(st *clientUIState) {
+				st.windowRenamePrompt = &windowRenamePromptState{value: "logs"}
+			},
+			action: uiActionHideWindowRenamePrompt{},
+			wantState: clientUIStateSnapshot{
+				dirty:           true,
+				copyModePaneIDs: []uint32{},
+				inputIdle:       true,
 			},
 		},
 		{

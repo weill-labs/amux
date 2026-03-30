@@ -225,6 +225,18 @@ func showChooserOnRenderLoop(cr *ClientRenderer, msgCh chan<- *RenderMsg, mode c
 	})
 }
 
+func showWindowRenamePromptOnRenderLoop(cr *ClientRenderer, msgCh chan<- *RenderMsg) bool {
+	return callLocalRenderAction[bool](cr, msgCh, func(cr *ClientRenderer) localRenderResult {
+		if !cr.ShowWindowRenamePrompt() {
+			return localRenderResult{value: false}
+		}
+		return localRenderResult{
+			effects: overlayRenderNowResult().effects,
+			value:   true,
+		}
+	})
+}
+
 func handleChooserInputOnRenderLoop(cr *ClientRenderer, msgCh chan<- *RenderMsg, raw []byte) chooserInputResult {
 	return callLocalRenderAction[chooserInputResult](cr, msgCh, func(cr *ClientRenderer) localRenderResult {
 		if !cr.ChooserActive() {
@@ -237,6 +249,18 @@ func handleChooserInputOnRenderLoop(cr *ClientRenderer, msgCh chan<- *RenderMsg,
 				action:  action,
 				handled: true,
 			},
+		}
+	})
+}
+
+func handleWindowRenamePromptInputOnRenderLoop(cr *ClientRenderer, msgCh chan<- *RenderMsg, raw []byte) promptCommand {
+	return callLocalRenderAction[promptCommand](cr, msgCh, func(cr *ClientRenderer) localRenderResult {
+		if !cr.WindowRenamePromptActive() {
+			return localRenderResult{value: promptCommand{}}
+		}
+		return localRenderResult{
+			effects: overlayRenderNowResult().effects,
+			value:   cr.HandleWindowRenamePromptInput(raw),
 		}
 	})
 }
@@ -582,6 +606,10 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 					showChooser(chooserModeTree)
 				case "choose-window":
 					showChooser(chooserModeWindow)
+				case "rename-window":
+					if !showWindowRenamePromptOnRenderLoop(cr, msgCh) {
+						io.WriteString(os.Stdout, "\a")
+					}
 				case "split", "split-focus":
 					handleSplitBinding(cr, sender, binding, os.Stdout)
 				case "compat-bell":
@@ -837,6 +865,17 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 					} else {
 						cr.HideDisplayPanes()
 						runLocalRenderAction(cr, msgCh, func(*ClientRenderer) localRenderResult { return overlayRenderNowResult() })
+					}
+					return false
+				}
+
+				if cr.WindowRenamePromptActive() {
+					action := handleWindowRenamePromptInputOnRenderLoop(cr, msgCh, normalized)
+					if action.bell {
+						io.WriteString(os.Stdout, "\a")
+					}
+					if action.command != "" {
+						sender.Command(action.command, action.args)
 					}
 					return false
 				}

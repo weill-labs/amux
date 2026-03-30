@@ -1481,7 +1481,13 @@ func TestUIEventCmdClientFocusAlwaysIncrementsGeneration(t *testing.T) {
 func readMsgWithTimeout(t *testing.T, conn net.Conn) *Message {
 	t.Helper()
 
-	if err := conn.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+	return readMsgWithTimeoutDuration(t, conn, time.Second)
+}
+
+func readMsgWithTimeoutDuration(t *testing.T, conn net.Conn, timeout time.Duration) *Message {
+	t.Helper()
+
+	if err := conn.SetReadDeadline(time.Now().Add(timeout)); err != nil {
 		t.Fatalf("SetReadDeadline: %v", err)
 	}
 	defer conn.SetReadDeadline(time.Time{})

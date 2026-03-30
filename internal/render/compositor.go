@@ -146,6 +146,9 @@ func (c *Compositor) RenderFullWithOverlay(root *mux.LayoutCell, activePaneID ui
 	if overlay.Chooser != nil {
 		renderChooserOverlay(&buf, c.width, c.height, overlay.Chooser)
 	}
+	if overlay.TextInput != nil {
+		renderTextInputOverlay(&buf, c.width, c.height, overlay.TextInput)
+	}
 
 	// Position cursor and respect the active pane's cursor visibility state.
 	// If the application has hidden its cursor (e.g. during streaming output),

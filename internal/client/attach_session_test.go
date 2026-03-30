@@ -918,6 +918,102 @@ func TestRunSessionHandlesServerMessagesAndInteractiveInput(t *testing.T) {
 	h.output.waitContains(t, render.AltScreenExit)
 }
 
+func TestRunSessionRenameWindowPromptHandlesTypeKeys(t *testing.T) {
+	// Not parallel: newRunSessionHarness uses t.Setenv, so t.Parallel() would panic.
+	h := newRunSessionHarness(t, func(int) (int, int, error) {
+		return 80, 24, nil
+	})
+
+	attach := h.waitAttach(t)
+	if attach.Type != proto.MsgTypeAttach {
+		t.Fatalf("attach type = %d, want %d", attach.Type, proto.MsgTypeAttach)
+	}
+
+	h.send(t, &proto.Message{Type: proto.MsgTypeLayout, Layout: sessionLayoutSnapshot(h.session)})
+	h.send(t, &proto.Message{Type: proto.MsgTypePaneOutput, PaneID: 1, PaneData: []byte("left")})
+	h.send(t, &proto.Message{Type: proto.MsgTypePaneOutput, PaneID: 2, PaneData: []byte("right")})
+	h.output.waitContains(t, render.AltScreenEnter)
+
+	h.writeInput(t, []byte{0x01, ','})
+	h.output.waitContains(t, "rename-window")
+
+	h.send(t, &proto.Message{Type: proto.MsgTypeCaptureRequest, CmdArgs: []string{"--format", "json"}})
+	capture := h.waitMessage(t, func(msg *proto.Message) bool {
+		return msg.Type == proto.MsgTypeCaptureResponse
+	})
+	if !strings.Contains(capture.CmdOutput, `"prompt": "rename-window"`) {
+		t.Fatalf("capture output = %q, want rename-window prompt state", capture.CmdOutput)
+	}
+
+	h.send(t, &proto.Message{Type: proto.MsgTypeTypeKeys, Input: []byte("logs\r")})
+	h.waitMessage(t, func(msg *proto.Message) bool {
+		return msg.Type == proto.MsgTypeCommand && msg.CmdName == "rename-window" && len(msg.CmdArgs) == 1 && msg.CmdArgs[0] == "logs"
+	})
+
+	h.send(t, &proto.Message{Type: proto.MsgTypeExit})
+	if err := h.waitRunResult(t); err != nil {
+		t.Fatalf("RunSession() = %v, want nil", err)
+	}
+}
+
+func TestRunSessionRenameWindowPromptBellPaths(t *testing.T) {
+	// Not parallel: the subtests below use newRunSessionHarness, so t.Parallel() would panic.
+	t.Run("prefix binding bells when no active window can be resolved", func(t *testing.T) {
+		// Not parallel: newRunSessionHarness uses t.Setenv, so t.Parallel() would panic.
+		h := newRunSessionHarness(t, func(int) (int, int, error) {
+			return 80, 24, nil
+		})
+
+		attach := h.waitAttach(t)
+		if attach.Type != proto.MsgTypeAttach {
+			t.Fatalf("attach type = %d, want %d", attach.Type, proto.MsgTypeAttach)
+		}
+
+		snap := sessionLayoutSnapshot(h.session)
+		snap.ActiveWindowID = 99
+		h.send(t, &proto.Message{Type: proto.MsgTypeLayout, Layout: snap})
+		h.send(t, &proto.Message{Type: proto.MsgTypePaneOutput, PaneID: 1, PaneData: []byte("left")})
+		h.send(t, &proto.Message{Type: proto.MsgTypePaneOutput, PaneID: 2, PaneData: []byte("right")})
+		h.output.waitContains(t, render.AltScreenEnter)
+
+		h.writeInput(t, []byte{0x01, ','})
+		h.output.waitContains(t, "\a")
+
+		h.send(t, &proto.Message{Type: proto.MsgTypeExit})
+		if err := h.waitRunResult(t); err != nil {
+			t.Fatalf("RunSession() = %v, want nil", err)
+		}
+	})
+
+	t.Run("invalid prompt input rings bell", func(t *testing.T) {
+		// Not parallel: newRunSessionHarness uses t.Setenv, so t.Parallel() would panic.
+		h := newRunSessionHarness(t, func(int) (int, int, error) {
+			return 80, 24, nil
+		})
+
+		attach := h.waitAttach(t)
+		if attach.Type != proto.MsgTypeAttach {
+			t.Fatalf("attach type = %d, want %d", attach.Type, proto.MsgTypeAttach)
+		}
+
+		h.send(t, &proto.Message{Type: proto.MsgTypeLayout, Layout: sessionLayoutSnapshot(h.session)})
+		h.send(t, &proto.Message{Type: proto.MsgTypePaneOutput, PaneID: 1, PaneData: []byte("left")})
+		h.send(t, &proto.Message{Type: proto.MsgTypePaneOutput, PaneID: 2, PaneData: []byte("right")})
+		h.output.waitContains(t, render.AltScreenEnter)
+
+		h.writeInput(t, []byte{0x01, ','})
+		h.output.waitContains(t, "rename-window")
+
+		h.send(t, &proto.Message{Type: proto.MsgTypeTypeKeys, Input: []byte{0x1b, '[', 'A'}})
+		h.output.waitContains(t, "\a")
+
+		h.send(t, &proto.Message{Type: proto.MsgTypeExit})
+		if err := h.waitRunResult(t); err != nil {
+			t.Fatalf("RunSession() = %v, want nil", err)
+		}
+	})
+}
+
 func TestRunSessionDoesNotEnterAltScreenBeforeAttachBootstrapReady(t *testing.T) {
 	h := newRunSessionHarness(t, func(int) (int, int, error) {
 		return 80, 24, nil

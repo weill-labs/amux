@@ -59,6 +59,11 @@ func TestDefaultKeybindings(t *testing.T) {
 			want: Binding{Action: "choose-window"},
 		},
 		{
+			name: "comma opens rename window prompt",
+			key:  ',',
+			want: Binding{Action: "rename-window"},
+		},
+		{
 			name: "m remains reserved for compat bell",
 			key:  'm',
 			want: Binding{Action: "compat-bell"},

@@ -213,6 +213,9 @@ func (c *Compositor) buildGridWithOverlay(root *mux.LayoutCell, activePaneID uin
 	if overlay.Chooser != nil {
 		buildChooserOverlayCells(g, overlay.Chooser)
 	}
+	if overlay.TextInput != nil {
+		buildTextInputOverlayCells(g, overlay.TextInput)
+	}
 
 	return g
 }

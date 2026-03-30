@@ -177,6 +177,27 @@ func TestTypeKeysCompatBellKeyDoesNotChangeLayout(t *testing.T) {
 	}
 }
 
+func TestTypeKeysRenameWindowPrompt(t *testing.T) {
+	t.Parallel()
+	h := newAmuxHarness(t)
+
+	h.sendClientKeys("C-a", ",")
+	if !h.waitFor("rename-window", 3*time.Second) {
+		t.Fatalf("expected rename-window prompt, got:\n%s", h.captureOuter())
+	}
+
+	gen := h.generation()
+	h.sendClientKeys("l", "o", "g", "s", "Enter")
+	h.waitLayout(gen)
+
+	if got := h.captureJSON().Window.Name; got != "logs" {
+		t.Fatalf("window name = %q, want logs", got)
+	}
+	if strings.Contains(h.captureOuter(), "rename-window") {
+		t.Fatalf("rename-window prompt should hide after submit, got:\n%s", h.captureOuter())
+	}
+}
+
 func TestTypeKeysDisplayPanesConsumesOnlyOneKey(t *testing.T) {
 	t.Parallel()
 	h := newAmuxHarness(t)

@@ -41,7 +41,13 @@ func runOneShotCommand(t *testing.T, sess *Session, args []string, fn func(*Comm
 func readCmdResultEvent(t *testing.T, conn net.Conn) Event {
 	t.Helper()
 
-	msg := readMsgWithTimeout(t, conn)
+	return readCmdResultEventWithTimeout(t, conn, time.Second)
+}
+
+func readCmdResultEventWithTimeout(t *testing.T, conn net.Conn, timeout time.Duration) Event {
+	t.Helper()
+
+	msg := readMsgWithTimeoutDuration(t, conn, timeout)
 	if msg.Type != MsgTypeCmdResult {
 		t.Fatalf("message type = %v, want cmd result", msg.Type)
 	}
