@@ -13,7 +13,6 @@ import (
 
 	"github.com/creack/pty"
 	"github.com/weill-labs/amux/internal/debugowner"
-	"github.com/weill-labs/amux/internal/proto"
 )
 
 // DefaultHost is the host value for locally-running panes.
@@ -24,22 +23,6 @@ const PaneNameFormat = "pane-%d"
 
 func paneShellEnv(id uint32, sessionName string) []string {
 	return paneCommandEnv(os.Environ(), id, sessionName)
-}
-
-// PaneMeta holds amux metadata for a pane.
-type PaneMeta struct {
-	Name          string               `json:"name"`
-	Host          string               `json:"host"`
-	Task          string               `json:"task,omitempty"`
-	Remote        string               `json:"remote,omitempty"`
-	Color         string               `json:"color"`
-	KV            map[string]string    `json:"kv,omitempty"`
-	Dormant       bool                 `json:"dormant,omitempty"`        // pane is in Session.Panes but not in any window layout (e.g., SSH takeover host)
-	Dir           string               `json:"dir,omitempty"`            // working directory override for new shell
-	GitBranch     string               `json:"git_branch,omitempty"`     // cached git branch (auto-detected or manually set)
-	PR            string               `json:"pr,omitempty"`             // PR number (set via escape sequence or CLI)
-	TrackedPRs    []proto.TrackedPR    `json:"tracked_prs,omitempty"`    // tracked PRs (set via add-meta/rm-meta)
-	TrackedIssues []proto.TrackedIssue `json:"tracked_issues,omitempty"` // tracked issue IDs (set via add-meta/rm-meta)
 }
 
 // Pane manages a PTY, its terminal emulator, and metadata.
@@ -95,32 +78,6 @@ type Pane struct {
 
 type paneBaseHistory struct {
 	lines []string
-}
-
-// CaptureHistoryLine is one retained scrollback row plus the width it was
-// wrapped at when it entered live scrollback.
-type CaptureHistoryLine struct {
-	Text        string
-	SourceWidth int
-	Filled      bool
-}
-
-// CaptureSnapshot is a consistent plain-text snapshot of a pane's retained
-// history, visible screen, and cursor state.
-type CaptureSnapshot struct {
-	BaseHistory    []string
-	LiveHistory    []CaptureHistoryLine
-	History        []string
-	ContentRows    []CaptureHistoryLine
-	Content        []string
-	Terminal       TerminalState
-	Width          int
-	CursorCol      int
-	CursorRow      int
-	CursorHidden   bool
-	CursorBlockCol int
-	CursorBlockRow int
-	HasCursorBlock bool
 }
 
 // PaneTerminalSnapshot is a lightweight snapshot of the pane's cursor and

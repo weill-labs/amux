@@ -95,64 +95,11 @@ type TerminalEmulator interface {
 	EncodeMouse(ev mouse.Event, x, y int) []byte
 }
 
-// DefaultScrollbackLines is the retained history limit used by amux for pane
-// scrollback on both server and client emulators.
-const DefaultScrollbackLines = 10000
-
 func effectiveScrollbackLines(scrollbackLines int) int {
 	if scrollbackLines <= 0 {
 		return DefaultScrollbackLines
 	}
 	return scrollbackLines
-}
-
-// MouseTrackingMode is the pane's current application mouse-tracking mode.
-type MouseTrackingMode int
-
-const (
-	MouseTrackingNone MouseTrackingMode = iota
-	MouseTrackingStandard
-	MouseTrackingButton
-	MouseTrackingAny
-)
-
-// MouseProtocol describes how a pane wants mouse events encoded.
-type MouseProtocol struct {
-	Tracking MouseTrackingMode
-	SGR      bool
-}
-
-// Enabled reports whether the pane currently accepts mouse events.
-func (p MouseProtocol) Enabled() bool {
-	return p.Tracking != MouseTrackingNone
-}
-
-// TrackingName returns a stable string form for JSON capture and events.
-func (p MouseProtocol) TrackingName() string {
-	switch p.Tracking {
-	case MouseTrackingStandard:
-		return "standard"
-	case MouseTrackingButton:
-		return "button"
-	case MouseTrackingAny:
-		return "any"
-	default:
-		return "none"
-	}
-}
-
-// TerminalState is the pane's non-text terminal metadata at a point in time.
-type TerminalState struct {
-	AltScreen       bool
-	Mouse           MouseProtocol
-	ForegroundColor color.Color
-	BackgroundColor color.Color
-	CursorColor     color.Color
-	CursorStyle     string
-	CursorBlinking  bool
-	HyperlinkURL    string
-	HyperlinkParams string
-	Palette         []color.Color
 }
 
 // vtEmulator wraps charmbracelet/x/vt.Emulator.
@@ -390,23 +337,23 @@ func (v *vtEmulator) IsAltScreen() bool {
 
 func (v *vtEmulator) MouseProtocol() MouseProtocol {
 	flags := v.mouseFlags.Load()
-	proto := MouseProtocol{SGR: flags&mouseModeSGR != 0}
+	mouseProto := MouseProtocol{SGR: flags&mouseModeSGR != 0}
 	switch {
 	case flags&mouseModeAny != 0:
-		proto.Tracking = MouseTrackingAny
+		mouseProto.Tracking = MouseTrackingAny
 	case flags&mouseModeButton != 0:
-		proto.Tracking = MouseTrackingButton
+		mouseProto.Tracking = MouseTrackingButton
 	case flags&mouseModeStandard != 0:
-		proto.Tracking = MouseTrackingStandard
+		mouseProto.Tracking = MouseTrackingStandard
 	default:
-		proto.Tracking = MouseTrackingNone
+		mouseProto.Tracking = MouseTrackingNone
 	}
-	return proto
+	return mouseProto
 }
 
 func (v *vtEmulator) EncodeMouse(ev mouse.Event, x, y int) []byte {
-	proto := v.MouseProtocol()
-	if !proto.Enabled() {
+	mouseProto := v.MouseProtocol()
+	if !mouseProto.Enabled() {
 		return nil
 	}
 	if x < 0 || y < 0 {
@@ -415,11 +362,11 @@ func (v *vtEmulator) EncodeMouse(ev mouse.Event, x, y int) []byte {
 
 	switch ev.Action {
 	case mouse.Motion:
-		if proto.Tracking != MouseTrackingButton && proto.Tracking != MouseTrackingAny {
+		if mouseProto.Tracking != MouseTrackingButton && mouseProto.Tracking != MouseTrackingAny {
 			return nil
 		}
 	case mouse.Release:
-		if proto.Tracking == MouseTrackingNone {
+		if mouseProto.Tracking == MouseTrackingNone {
 			return nil
 		}
 	}
@@ -433,7 +380,7 @@ func (v *vtEmulator) EncodeMouse(ev mouse.Event, x, y int) []byte {
 		return nil
 	}
 
-	if proto.SGR {
+	if mouseProto.SGR {
 		return []byte(ansi.MouseSgr(code, x, y, ev.Action == mouse.Release))
 	}
 	return []byte(ansi.MouseX10(code, x, y))

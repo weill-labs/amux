@@ -7,7 +7,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
 )
 
@@ -155,7 +154,7 @@ func hexColor(c color.Color) string {
 	return fmt.Sprintf("%02x%02x%02x", uint8(r>>8), uint8(g>>8), uint8(b>>8))
 }
 
-func CursorFromState(col, row int, hidden bool, state mux.TerminalState) proto.CaptureCursor {
+func CursorFromState(col, row int, hidden bool, state proto.TerminalState) proto.CaptureCursor {
 	return proto.CaptureCursor{
 		Col:      col,
 		Row:      row,
@@ -165,7 +164,7 @@ func CursorFromState(col, row int, hidden bool, state mux.TerminalState) proto.C
 	}
 }
 
-func TerminalFromState(state mux.TerminalState) *proto.CaptureTerminal {
+func TerminalFromState(state proto.TerminalState) *proto.CaptureTerminal {
 	palette := make([]string, len(state.Palette))
 	for i, c := range state.Palette {
 		palette[i] = hexColor(c)

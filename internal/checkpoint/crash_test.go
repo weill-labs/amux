@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
 )
 
@@ -49,7 +48,7 @@ func TestCrashRoundTrip(t *testing.T) {
 		PaneStates: []CrashPaneState{
 			{
 				ID:           1,
-				Meta:         mux.PaneMeta{Name: "pane-1", Host: "local", Color: "f38ba8"},
+				Meta:         proto.PaneMeta{Name: "pane-1", Host: "local", Color: "f38ba8"},
 				ManualBranch: true,
 				Cols:         39,
 				Rows:         22,
@@ -60,7 +59,7 @@ func TestCrashRoundTrip(t *testing.T) {
 			},
 			{
 				ID:        2,
-				Meta:      mux.PaneMeta{Name: "pane-2", Host: "remote", Task: "TASK-1", Color: "a6e3a1"},
+				Meta:      proto.PaneMeta{Name: "pane-2", Host: "remote", Task: "TASK-1", Color: "a6e3a1"},
 				Cols:      39,
 				Rows:      22,
 				History:   []string{"remote-old-1"},

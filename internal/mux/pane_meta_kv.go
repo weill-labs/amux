@@ -205,12 +205,6 @@ func RemovePaneMetaKV(meta *PaneMeta, key string) (manualBranch bool, err error)
 	*meta = next
 	return manualBranch, nil
 }
-
-func (meta PaneMeta) KVSnapshot() map[string]string {
-	hydrateReservedKV(&meta)
-	return clonePaneMetaKV(meta.KV)
-}
-
 func FormatTrackedPRsValue(prs []proto.TrackedPR) string {
 	return formatTrackedPRsValue(prs)
 }

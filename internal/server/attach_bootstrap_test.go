@@ -311,7 +311,7 @@ func assertAttachReplayLayoutMatchesSnapshot(t *testing.T, replay *attachReplayS
 	}
 }
 
-func assertAttachReplayPaneMatchesSnapshot(t *testing.T, replay *attachReplayState, paneID uint32, want mux.CaptureSnapshot) {
+func assertAttachReplayPaneMatchesSnapshot(t *testing.T, replay *attachReplayState, paneID uint32, want proto.CaptureSnapshot) {
 	t.Helper()
 
 	emu := replay.emulators[paneID]

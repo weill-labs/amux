@@ -9,7 +9,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
 )
 
@@ -29,7 +28,7 @@ func (e UnsupportedServerCheckpointVersionError) Error() string {
 // PaneCheckpoint captures the state of a single pane for reload.
 type PaneCheckpoint struct {
 	ID           uint32
-	Meta         mux.PaneMeta
+	Meta         proto.PaneMeta
 	ManualBranch bool // preserve whether GitBranch was set manually
 	PtmxFd       int  // PTY master FD number (inherited across exec); -1 for proxy panes
 	PID          int  // Shell process PID (for waitLoop); 0 for proxy panes

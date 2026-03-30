@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
 )
 
@@ -34,18 +33,18 @@ type CrashCheckpoint struct {
 
 // CrashPaneState captures one pane's state for crash recovery.
 type CrashPaneState struct {
-	ID           uint32       `json:"id"`
-	Meta         mux.PaneMeta `json:"meta"`
-	ManualBranch bool         `json:"manual_branch,omitempty"`
-	Cols         int          `json:"cols"`
-	Rows         int          `json:"rows"`
-	History      []string     `json:"history,omitempty"`
-	Screen       string       `json:"screen"`
-	WasIdle      bool         `json:"was_idle,omitempty"`
-	Command      string       `json:"current_command,omitempty"`
-	CreatedAt    time.Time    `json:"created_at"`
-	IsProxy      bool         `json:"is_proxy"`
-	Cwd          string       `json:"cwd,omitempty"`
+	ID           uint32         `json:"id"`
+	Meta         proto.PaneMeta `json:"meta"`
+	ManualBranch bool           `json:"manual_branch,omitempty"`
+	Cols         int            `json:"cols"`
+	Rows         int            `json:"rows"`
+	History      []string       `json:"history,omitempty"`
+	Screen       string         `json:"screen"`
+	WasIdle      bool           `json:"was_idle,omitempty"`
+	Command      string         `json:"current_command,omitempty"`
+	CreatedAt    time.Time      `json:"created_at"`
+	IsProxy      bool           `json:"is_proxy"`
+	Cwd          string         `json:"cwd,omitempty"`
 }
 
 // CrashCheckpointDir returns the directory for crash checkpoint files.
