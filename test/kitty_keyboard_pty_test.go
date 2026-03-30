@@ -9,8 +9,10 @@ import (
 	"github.com/weill-labs/amux/internal/render"
 )
 
+const rawReadReadyMarker = "__RAW_READY__"
+
 func rawReadCommand(byteCount int) string {
-	return fmt.Sprintf(`old=$(stty -g); stty raw -echo; printf 'READY\n'; dd bs=1 count=%d 2>/dev/null | od -An -tx1 | tr -d ' \n'; printf '\n'; stty "$old"`, byteCount)
+	return fmt.Sprintf(`python3 -u -c 'import os,sys,tty,termios; fd=sys.stdin.fileno(); old=termios.tcgetattr(fd); marker="".join(chr(c) for c in [95,95,82,65,87,95,82,69,65,68,89,95,95]); tty.setraw(fd); print(marker, flush=True); data=os.read(fd, %d); print(data.hex(), flush=True); termios.tcsetattr(fd, termios.TCSADRAIN, old)'`, byteCount)
 }
 
 func TestPTYClientKittyKeyboardChangesPaneBytes(t *testing.T) {
@@ -49,7 +51,7 @@ func TestPTYClientKittyKeyboardChangesPaneBytes(t *testing.T) {
 			}
 
 			h.sendKeys("pane-1", rawReadCommand(tt.readBytes), "Enter")
-			h.waitFor("pane-1", "READY")
+			h.waitFor("pane-1", rawReadReadyMarker)
 
 			client.sendCtrl('b')
 			h.waitForTimeout("pane-1", tt.wantHex, "5s")
@@ -85,6 +87,12 @@ func TestPTYClientKittyKeyboardPrintableCtrlSequences(t *testing.T) {
 		wantHex   string
 	}{
 		{
+			name:      "ctrl-c translates to legacy control byte",
+			input:     []byte("\x1b[99;5u"),
+			readBytes: 1,
+			wantHex:   "03",
+		},
+		{
 			name:      "ctrl-9 preserves raw csi-u bytes",
 			input:     []byte("\x1b[57;5u"),
 			readBytes: 7,
@@ -116,7 +124,7 @@ func TestPTYClientKittyKeyboardPrintableCtrlSequences(t *testing.T) {
 			}
 
 			h.sendKeys("pane-1", rawReadCommand(tt.readBytes), "Enter")
-			h.waitFor("pane-1", "READY")
+			h.waitFor("pane-1", rawReadReadyMarker)
 
 			client.write(tt.input)
 			h.waitForTimeout("pane-1", tt.wantHex, "5s")
