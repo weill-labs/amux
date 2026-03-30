@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -12,6 +13,50 @@ import (
 const defaultSessionName = server.DefaultSessionName
 
 const reconnectEventType = "reconnect"
+
+type sessionCommandArgMode int
+
+const (
+	sessionCommandForwardArgs sessionCommandArgMode = iota
+	sessionCommandNoArgs
+	sessionCommandFirstArg
+)
+
+type sessionCommandSpec struct {
+	connectName string
+	minArgs     int
+	usage       string
+	argMode     sessionCommandArgMode
+}
+
+var canonicalSessionCommands = map[string]sessionCommandSpec{
+	"_inject-proxy": {connectName: "_inject-proxy", argMode: sessionCommandForwardArgs},
+	"_layout-json":  {connectName: "_layout-json", argMode: sessionCommandNoArgs},
+	"capture":       {connectName: "capture", argMode: sessionCommandForwardArgs},
+	"copy-mode":     {connectName: "copy-mode", argMode: sessionCommandForwardArgs},
+	"cursor":        {connectName: "cursor", minArgs: 1, usage: cursorUsage, argMode: sessionCommandForwardArgs},
+	"disconnect":    {connectName: "disconnect", minArgs: 1, usage: disconnectUsage, argMode: sessionCommandFirstArg},
+	"focus":         {connectName: "focus", minArgs: 1, usage: focusUsage, argMode: sessionCommandFirstArg},
+	"hosts":         {connectName: "hosts", argMode: sessionCommandNoArgs},
+	"list":          {connectName: "list", usage: listUsage, argMode: sessionCommandForwardArgs},
+	"list-clients":  {connectName: "list-clients", usage: listClientsUsage, argMode: sessionCommandNoArgs},
+	"list-windows":  {connectName: "list-windows", usage: listWindowsUsage, argMode: sessionCommandNoArgs},
+	"new-window":    {connectName: "new-window", usage: newWindowUsage, argMode: sessionCommandForwardArgs},
+	"next-window":   {connectName: "next-window", usage: nextWindowUsage, argMode: sessionCommandNoArgs},
+	"prev-window":   {connectName: "prev-window", usage: prevWindowUsage, argMode: sessionCommandNoArgs},
+	"reconnect":     {connectName: "reconnect", minArgs: 1, usage: reconnectUsage, argMode: sessionCommandFirstArg},
+	"reload-server": {connectName: "reload-server", usage: reloadServerUsage, argMode: sessionCommandNoArgs},
+	"rename-window": {connectName: "rename-window", minArgs: 1, usage: renameWindowUsage, argMode: sessionCommandFirstArg},
+	"reset":         {connectName: "reset", minArgs: 1, usage: resetUsage, argMode: sessionCommandFirstArg},
+	"resize-window": {connectName: "resize-window", minArgs: 2, usage: resizeWindowUsage, argMode: sessionCommandForwardArgs},
+	"rotate":        {connectName: "rotate", usage: rotateUsage, argMode: sessionCommandForwardArgs},
+	"select-window": {connectName: "select-window", minArgs: 1, usage: selectWindowUsage, argMode: sessionCommandFirstArg},
+	"status":        {connectName: "status", usage: statusUsage, argMode: sessionCommandNoArgs},
+	"undo":          {connectName: "undo", usage: undoUsage, argMode: sessionCommandNoArgs},
+	"unsplice":      {connectName: "unsplice", minArgs: 1, usage: unspliceUsage, argMode: sessionCommandFirstArg},
+	"wait":          {connectName: "wait", minArgs: 1, usage: waitUsage, argMode: sessionCommandForwardArgs},
+	"zoom":          {connectName: "zoom", usage: zoomUsage, argMode: sessionCommandForwardArgs},
+}
 
 func resolveSessionName(explicit string, explicitSet bool) string {
 	if explicitSet {
@@ -36,16 +81,27 @@ func resolveInvocationSession(args []string) (string, []string) {
 	return resolveSessionName(explicit, explicitSet), args
 }
 
-func parseAttachArgs(args []string) (sessionName string, detachOthers bool) {
-	for _, arg := range args {
-		switch arg {
-		case "-d":
-			detachOthers = true
-		default:
-			sessionName = arg
-		}
+func resolveCanonicalSessionCommand(args []string) (cmdName string, cmdArgs []string, handled bool, err error) {
+	if len(args) == 0 {
+		return "", nil, false, nil
 	}
-	return
+
+	spec, ok := canonicalSessionCommands[args[0]]
+	if !ok {
+		return "", nil, false, nil
+	}
+	if len(args)-1 < spec.minArgs {
+		return "", nil, true, errors.New(spec.usage)
+	}
+
+	switch spec.argMode {
+	case sessionCommandNoArgs:
+		return spec.connectName, nil, true, nil
+	case sessionCommandFirstArg:
+		return spec.connectName, []string{args[1]}, true, nil
+	default:
+		return spec.connectName, args[1:], true, nil
+	}
 }
 
 func parseLogArgs(args []string) (string, []string, error) {

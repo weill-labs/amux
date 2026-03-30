@@ -26,18 +26,6 @@ func sessionCLICommands() map[string]cliCommandHandler {
 			inv.runtime.runServer(name, false)
 			return 0
 		},
-		"attach": func(inv cliInvocation, args []string) int {
-			name, _ := parseAttachArgs(args)
-			if name == "" {
-				name = inv.sessionName
-			}
-			inv.runtime.checkNesting(name)
-			if err := inv.runtime.attachSession(name); err != nil {
-				fmt.Fprintf(inv.runtime.stderr, "amux: %v\n", err)
-				return 1
-			}
-			return 0
-		},
 		"new": func(inv cliInvocation, args []string) int {
 			name := inv.sessionName
 			if len(args) > 0 {

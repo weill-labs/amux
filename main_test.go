@@ -725,16 +725,17 @@ func TestRunMainHelpAndUsageErrors(t *testing.T) {
 			wantStderr:     "amux: unknown command \"bogus\"\n",
 		},
 		{
+			name:           "removed dashboard alias is unknown",
+			args:           []string{"dashboard"},
+			wantExit:       1,
+			wantUsageCalls: 1,
+			wantStderr:     "amux: unknown command \"dashboard\"\n",
+		},
+		{
 			name:       "send-keys usage error stays in dispatch layer",
 			args:       []string{"send-keys", "pane-1"},
 			wantExit:   1,
 			wantStderr: sendKeysUsage + "\n",
-		},
-		{
-			name:       "dashboard remains explicit not-implemented error",
-			args:       []string{"dashboard"},
-			wantExit:   1,
-			wantStderr: "amux dashboard: not yet migrated to built-in mux\n",
 		},
 	}
 

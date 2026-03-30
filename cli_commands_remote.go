@@ -37,9 +37,5 @@ func remoteCLICommands() map[string]cliCommandHandler {
 		"_inject-proxy": func(inv cliInvocation, args []string) int {
 			return inv.runSessionCommand("_inject-proxy", args)
 		},
-		"dashboard": func(inv cliInvocation, args []string) int {
-			fmt.Fprintln(inv.runtime.stderr, "amux dashboard: not yet migrated to built-in mux")
-			return 1
-		},
 	}
 }

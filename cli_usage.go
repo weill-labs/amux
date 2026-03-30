@@ -7,60 +7,79 @@ import (
 )
 
 const (
-	sendKeysUsage = "usage: amux send-keys <pane> [--via pty|client] [--wait ready|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>..."
-	logUsage      = "usage: amux log <clients|panes>"
-	leadUsage     = "usage: amux lead [pane] | amux lead --clear"
-	metaUsage     = "usage: amux meta <set|get|rm> ..."
-	moveUsage     = "usage: amux move <pane> up|down | amux move <pane> (--before <target>|--after <target>|--to-column <target>)"
-	spawnUsage    = "usage: amux spawn [--at <pane>] [--vertical|--horizontal] [--root] [--spiral] [--focus] [--name NAME] [--host HOST] [--task TASK] [--color COLOR]"
-	swapUsage     = "usage: amux swap <pane1> <pane2> [--tree] | amux swap forward | amux swap backward"
+	sendKeysUsage     = "usage: amux send-keys <pane> [--via pty|client] [--wait ready|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>..."
+	logUsage          = "usage: amux log <clients|panes>"
+	leadUsage         = "usage: amux lead [pane] | amux lead --clear"
+	metaUsage         = "usage: amux meta <set|get|rm> ..."
+	moveUsage         = "usage: amux move <pane> up|down | amux move <pane> (--before <target>|--after <target>|--to-column <target>)"
+	spawnUsage        = "usage: amux spawn [--at <pane>] [--vertical|--horizontal] [--root] [--spiral] [--focus] [--name NAME] [--host HOST] [--task TASK] [--color COLOR]"
+	swapUsage         = "usage: amux swap <pane1> <pane2> [--tree] | amux swap forward | amux swap backward"
+	cursorUsage       = "usage: amux cursor <layout|clipboard|ui> [--client <id>]"
+	disconnectUsage   = "usage: amux disconnect <host>"
+	focusUsage        = "usage: amux focus <pane>"
+	listClientsUsage  = "usage: amux list-clients"
+	listUsage         = "usage: amux list [--no-cwd]"
+	listWindowsUsage  = "usage: amux list-windows"
+	reconnectUsage    = "usage: amux reconnect <host>"
+	reloadServerUsage = "usage: amux reload-server"
+	renameWindowUsage = "usage: amux rename-window <name>"
+	resetUsage        = "usage: amux reset <pane>"
+	resizeWindowUsage = "usage: amux resize-window <cols> <rows>"
+	rotateUsage       = "usage: amux rotate [--reverse]"
+	selectWindowUsage = "usage: amux select-window <index|name>"
+	statusUsage       = "usage: amux status"
+	unspliceUsage     = "usage: amux unsplice <host>"
+	undoUsage         = "usage: amux undo"
+	waitUsage         = "usage: amux wait <idle|busy|exited|ready|content|layout|clipboard|checkpoint|ui> ..."
+	newWindowUsage    = "usage: amux new-window [--name NAME]"
+	nextWindowUsage   = "usage: amux next-window"
+	prevWindowUsage   = "usage: amux prev-window"
+	zoomUsage         = "usage: amux zoom [pane]"
 )
 
 var commandUsageByName = map[string]string{
 	"_inject-proxy":    "usage: amux _inject-proxy <host>",
 	"_layout-json":     "usage: amux _layout-json",
 	"_server":          "usage: amux _server [session]",
-	"attach":           "usage: amux attach [-d] [session]",
 	"broadcast":        "usage: amux broadcast (--panes <pane,pane,...> | --window <index|name> | --match <glob>) [--hex] <keys>...",
 	"capture":          "usage: amux capture [pane] [--history <pane>] [--ansi] [--colors]",
 	"copy-mode":        "usage: amux copy-mode [pane] [--wait ui=copy-mode-shown] [--timeout <duration>]",
-	"cursor":           "usage: amux cursor <layout|clipboard|ui> [--client <id>]",
-	"dashboard":        "usage: amux dashboard",
-	"disconnect":       "usage: amux disconnect <host>",
+	"cursor":           cursorUsage,
+	"disconnect":       disconnectUsage,
 	"equalize":         "usage: amux equalize [--vertical|--all]",
 	"events":           "usage: amux events [--filter type1,type2] [--pane <ref>] [--host <name>] [--client <id>] [--no-reconnect]",
-	"focus":            "usage: amux focus <pane>",
+	"focus":            focusUsage,
 	"hosts":            "usage: amux hosts",
 	"install-terminfo": "usage: amux install-terminfo",
 	"kill":             "usage: amux kill [--cleanup] [--timeout <duration>] [pane]",
 	"lead":             leadUsage,
-	"list":             "usage: amux list [--no-cwd]",
-	"list-clients":     "usage: amux list-clients",
-	"list-windows":     "usage: amux list-windows",
+	"list":             listUsage,
+	"list-clients":     listClientsUsage,
+	"list-windows":     listWindowsUsage,
 	"log":              logUsage,
 	"meta":             metaUsage,
 	"move":             moveUsage,
 	"new":              "usage: amux new [name]",
-	"new-window":       "usage: amux new-window [--name NAME]",
-	"next-window":      "usage: amux next-window",
-	"prev-window":      "usage: amux prev-window",
-	"reconnect":        "usage: amux reconnect <host>",
-	"reload-server":    "usage: amux reload-server",
-	"rename-window":    "usage: amux rename-window <name>",
-	"reset":            "usage: amux reset <pane>",
+	"new-window":       newWindowUsage,
+	"next-window":      nextWindowUsage,
+	"prev-window":      prevWindowUsage,
+	"reconnect":        reconnectUsage,
+	"reload-server":    reloadServerUsage,
+	"rename-window":    renameWindowUsage,
+	"reset":            resetUsage,
 	"resize-pane":      "usage: amux resize-pane <pane> <direction> [delta]",
-	"resize-window":    "usage: amux resize-window <cols> <rows>",
-	"rotate":           "usage: amux rotate [--reverse]",
-	"select-window":    "usage: amux select-window <index|name>",
+	"resize-window":    resizeWindowUsage,
+	"rotate":           rotateUsage,
+	"select-window":    selectWindowUsage,
 	"send-keys":        sendKeysUsage,
 	"spawn":            spawnUsage,
-	"status":           "usage: amux status",
-	"undo":             "usage: amux undo",
+	"status":           statusUsage,
+	"undo":             undoUsage,
 	"swap":             swapUsage,
-	"unsplice":         "usage: amux unsplice <host>",
+	"unsplice":         unspliceUsage,
 	"version":          "usage: amux version [--hash|--json]",
-	"wait":             "usage: amux wait <idle|busy|exited|ready|content|layout|clipboard|checkpoint|ui> ...",
-	"zoom":             "usage: amux zoom [pane]",
+	"wait":             waitUsage,
+	"zoom":             zoomUsage,
 }
 
 func hasHelpFlag(args []string) bool {
@@ -112,8 +131,7 @@ func writeUsage(w io.Writer) {
 
 Usage:
   amux [-s session]                    Start or attach to amux session
-  amux [-s session] attach [session]   Attach to a session
-  amux [-s session] new [name]         Start a new named session
+  amux [-s session] new [name]         Start or attach to a named session
   amux [-s session] list [--no-cwd]    List panes with metadata
   amux [-s session] status             Show pane/window summary
   amux [-s session] list-clients       List attached clients + client-local UI state
