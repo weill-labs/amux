@@ -93,11 +93,12 @@ func RenderPaneViewportANSI(width, height int, active bool, pd PaneData) string 
 	buf.Grow(width * height * 2)
 
 	var prevStyle *uv.Style
+	copyOverlay := pd.CopyModeOverlay()
 	for row := 0; row < height; row++ {
 		if row > 0 {
 			buf.WriteByte('\n')
 		}
-		rowCells := paneContentRowCells(width, row, active, pd)
+		rowCells := paneContentRowCells(width, row, active, pd, copyOverlay)
 		for col := 0; col < width; {
 			cell := rowCells[col]
 			if cell.Width == 0 {

@@ -118,7 +118,7 @@ func TestPaneContentRowCellsAppliesCopyModeOverlay(t *testing.T) {
 		},
 	}
 
-	row := paneContentRowCells(5, 0, true, pd)
+	row := paneContentRowCells(5, 0, true, pd, pd.CopyModeOverlay())
 
 	if row[1].Style.Bg == nil {
 		t.Fatal("selection cell should have a background highlight")
