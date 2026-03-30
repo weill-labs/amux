@@ -148,6 +148,7 @@ func TestCapturePaneHistoryWithoutAttachedClient(t *testing.T) {
 
 func TestCapturePaneAfterKillAndRespawnWithoutAttachedClient(t *testing.T) {
 	h := newServerHarnessPersistent(t)
+	h.unsetLead()
 
 	finalNames := []string{"pane-1"}
 	for i := 2; i <= 10; i++ {

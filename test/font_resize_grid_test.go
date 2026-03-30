@@ -80,6 +80,7 @@ func TestFontResize_RepeatedManualResizesReturnToBaseline(t *testing.T) {
 
 func makeThreeByThreeGrid(t *testing.T, h *AmuxHarness) {
 	t.Helper()
+	h.unsetLead()
 
 	runLayoutCommand(t, h, "split", "pane-1", "v", "root")
 	runLayoutCommand(t, h, "split", "pane-1", "v", "root")

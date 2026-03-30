@@ -27,11 +27,12 @@ import (
 //   - Shell output: waitFor(substr, timeout) via outer wait-for (blocking)
 //   - No time.Sleep for synchronization
 type AmuxHarness struct {
-	outer    *ServerHarness
-	inner    string // inner session name
-	innerBin string
-	tb       testing.TB
-	session  string // alias for inner, used by extractFrame
+	outer              *ServerHarness
+	inner              string // inner session name
+	innerBin           string
+	tb                 testing.TB
+	session            string // alias for inner, used by extractFrame
+	initialLeadHandled bool
 }
 
 var nestedHarnessStartupMu sync.Mutex
@@ -625,9 +626,25 @@ func (h *AmuxHarness) runCmd(args ...string) string {
 
 func (h *AmuxHarness) doSplit(key string) {
 	h.tb.Helper()
+	if !h.initialLeadHandled {
+		h.unsetLead()
+	}
 	gen := h.generation()
 	h.sendKeys("C-a", key)
 	h.waitLayout(gen)
+}
+
+func (h *AmuxHarness) unsetLead() {
+	h.tb.Helper()
+	gen := h.generation()
+	h.sendKeys("C-a", "P")
+	h.waitLayout(gen)
+	for _, pane := range h.captureJSON().Panes {
+		if pane.Lead {
+			h.tb.Fatalf("toggle-lead keybinding should clear the initial lead, but %s is still lead", pane.Name)
+		}
+	}
+	h.initialLeadHandled = true
 }
 
 func (h *AmuxHarness) splitV()     { h.tb.Helper(); h.doSplit("\\") }

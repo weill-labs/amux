@@ -689,6 +689,9 @@ func TestEnsureInitialWindowCreatesPaneWithoutClient(t *testing.T) {
 		if sess.ActiveWindowID == 0 {
 			t.Fatal("active window id = 0, want non-zero")
 		}
+		if sess.Windows[0].LeadPaneID != sess.Panes[0].ID {
+			t.Fatalf("LeadPaneID = %d, want %d", sess.Windows[0].LeadPaneID, sess.Panes[0].ID)
+		}
 		return sess.Panes[0]
 	})
 	if pane.Meta.Name != "pane-1" {
@@ -767,6 +770,9 @@ func TestEnsureInitialWindowReusesOrphanedPanes(t *testing.T) {
 		}
 		if len(sess.Panes) != len(orphans)+1 {
 			t.Fatalf("pane count = %d, want %d", len(sess.Panes), len(orphans)+1)
+		}
+		if sess.Windows[0].LeadPaneID != orphans[0].ID {
+			t.Fatalf("LeadPaneID = %d, want %d", sess.Windows[0].LeadPaneID, orphans[0].ID)
 		}
 		for _, pane := range orphans {
 			if sess.findWindowByPaneID(pane.ID) == nil {

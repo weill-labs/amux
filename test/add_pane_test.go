@@ -9,6 +9,7 @@ func TestAddPaneBuildsWholeWindowSpiralGrid(t *testing.T) {
 	t.Parallel()
 
 	h := newServerHarness(t)
+	h.unsetLead()
 	h.runCmd("focus", "pane-1")
 
 	for i := 0; i < 15; i++ {

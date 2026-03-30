@@ -1314,16 +1314,21 @@ func (h *ServerHarness) activePaneName() string {
 	return ""
 }
 
-// doSplit is a layout-construction helper for tests. It runs the public split
-// CLI command against the active pane, waits for the resulting layout update,
-// then explicitly focuses the newly created pane so repeated calls keep
-// building from the latest leaf. Tests that need raw split semantics should
-// call runCmd("split", ...) directly.
+// doSplit is a layout-construction helper for tests. It clears the default
+// single-pane pending lead so generic layout tests keep exercising ordinary
+// split semantics, then runs the public split CLI command against the active
+// pane, waits for the resulting layout update, and explicitly focuses the
+// newly created pane so repeated calls keep building from the latest leaf.
+// Tests that need raw split semantics should call runCmd("split", ...) directly.
 func (h *ServerHarness) doSplit(args ...string) {
 	h.tb.Helper()
 	restore := h.pushWaitState(fmt.Sprintf("waiting for split %v to create a new pane", args))
 	defer restore()
 	before := h.layoutSnapshot()
+	if before.Root.IsLeaf && len(before.Panes) == 1 && before.LeadPaneID == before.ActivePaneID {
+		h.unsetLead()
+		before.LeadPaneID = 0
+	}
 	gen := h.generation()
 	pane, ok := activePaneNameFromLayout(before)
 	if !ok {
@@ -1356,6 +1361,14 @@ func (h *ServerHarness) doFocus(args ...string) string {
 	return out
 }
 
+func (h *ServerHarness) unsetLead() {
+	h.tb.Helper()
+	out := h.runCmd("unset-lead")
+	if strings.Contains(out, "error") || strings.Contains(out, "cannot") {
+		h.tb.Fatalf("unset-lead failed: %s", out)
+	}
+}
+
 // doSplitPane is like doSplit but takes an explicit pane name instead of
 // querying the active pane. Use this when the capture may be stale
 // (for example after reload).
@@ -1364,6 +1377,10 @@ func (h *ServerHarness) doSplitPane(pane string, args ...string) {
 	restore := h.pushWaitState(fmt.Sprintf("waiting for split %s %v to create a new pane", pane, args))
 	defer restore()
 	before := h.layoutSnapshot()
+	if before.Root.IsLeaf && len(before.Panes) == 1 && before.LeadPaneID == before.ActivePaneID {
+		h.unsetLead()
+		before.LeadPaneID = 0
+	}
 	gen := h.generation()
 	cmdArgs := append([]string{"split", pane}, args...)
 	out := h.runCmd(cmdArgs...)

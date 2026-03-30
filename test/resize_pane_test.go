@@ -98,6 +98,7 @@ func TestResizePaneCLI(t *testing.T) {
 func TestResizePaneSinglePane(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)
+	h.unsetLead()
 
 	// Single pane — resize is a no-op, should not error
 	out := h.runCmd("resize-pane", "pane-1", "right")
