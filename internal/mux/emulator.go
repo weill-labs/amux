@@ -337,23 +337,23 @@ func (v *vtEmulator) IsAltScreen() bool {
 
 func (v *vtEmulator) MouseProtocol() MouseProtocol {
 	flags := v.mouseFlags.Load()
-	proto := MouseProtocol{SGR: flags&mouseModeSGR != 0}
+	mouseProto := MouseProtocol{SGR: flags&mouseModeSGR != 0}
 	switch {
 	case flags&mouseModeAny != 0:
-		proto.Tracking = MouseTrackingAny
+		mouseProto.Tracking = MouseTrackingAny
 	case flags&mouseModeButton != 0:
-		proto.Tracking = MouseTrackingButton
+		mouseProto.Tracking = MouseTrackingButton
 	case flags&mouseModeStandard != 0:
-		proto.Tracking = MouseTrackingStandard
+		mouseProto.Tracking = MouseTrackingStandard
 	default:
-		proto.Tracking = MouseTrackingNone
+		mouseProto.Tracking = MouseTrackingNone
 	}
-	return proto
+	return mouseProto
 }
 
 func (v *vtEmulator) EncodeMouse(ev mouse.Event, x, y int) []byte {
-	proto := v.MouseProtocol()
-	if !proto.Enabled() {
+	mouseProto := v.MouseProtocol()
+	if !mouseProto.Enabled() {
 		return nil
 	}
 	if x < 0 || y < 0 {
@@ -362,11 +362,11 @@ func (v *vtEmulator) EncodeMouse(ev mouse.Event, x, y int) []byte {
 
 	switch ev.Action {
 	case mouse.Motion:
-		if proto.Tracking != MouseTrackingButton && proto.Tracking != MouseTrackingAny {
+		if mouseProto.Tracking != MouseTrackingButton && mouseProto.Tracking != MouseTrackingAny {
 			return nil
 		}
 	case mouse.Release:
-		if proto.Tracking == MouseTrackingNone {
+		if mouseProto.Tracking == MouseTrackingNone {
 			return nil
 		}
 	}
@@ -380,7 +380,7 @@ func (v *vtEmulator) EncodeMouse(ev mouse.Event, x, y int) []byte {
 		return nil
 	}
 
-	if proto.SGR {
+	if mouseProto.SGR {
 		return []byte(ansi.MouseSgr(code, x, y, ev.Action == mouse.Release))
 	}
 	return []byte(ansi.MouseX10(code, x, y))

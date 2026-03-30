@@ -205,7 +205,6 @@ func RemovePaneMetaKV(meta *PaneMeta, key string) (manualBranch bool, err error)
 	*meta = next
 	return manualBranch, nil
 }
-
 func FormatTrackedPRsValue(prs []proto.TrackedPR) string {
 	return formatTrackedPRsValue(prs)
 }
