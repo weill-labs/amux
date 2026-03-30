@@ -113,12 +113,7 @@ func (s *Session) handleTakeover(sshPaneID uint32, req mux.TakeoverRequest) {
 		proxyPane := s.ownPane(mux.NewProxyPaneWithScrollback(id, meta, layout.cols, mux.PaneContentHeight(layout.cellH), s.scrollbackLines,
 			s.paneOutputCallback(),
 			s.paneExitCallback(),
-			func(data []byte) (int, error) {
-				if s.RemoteManager != nil {
-					return len(data), s.RemoteManager.SendInput(id, data)
-				}
-				return len(data), nil
-			},
+			s.remoteWriteOverride(id),
 		))
 		proxyPanes = append(proxyPanes, proxyPane)
 	}

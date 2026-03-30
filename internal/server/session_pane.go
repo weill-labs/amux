@@ -306,9 +306,7 @@ func (s *Session) prepareRemotePane(hostName string, cols, rows int) (*mux.Pane,
 	pane := s.ownPane(mux.NewProxyPaneWithScrollback(id, meta, cols, rows, s.scrollbackLines,
 		s.paneOutputCallback(),
 		s.paneExitCallback(),
-		func(data []byte) (int, error) {
-			return len(data), s.RemoteManager.SendInput(id, data)
-		},
+		s.remoteWriteOverride(id),
 	))
 
 	// Create the corresponding pane on the remote server

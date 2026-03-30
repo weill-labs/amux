@@ -74,6 +74,17 @@ func (s *Session) remotePaneColor(hostName string) string {
 	return config.ColorForHost(hostName)
 }
 
+func (s *Session) remoteWriteOverride(paneID uint32) func([]byte) (int, error) {
+	return func(data []byte) (int, error) {
+		if s.RemoteManager != nil {
+			return len(data), s.RemoteManager.SendInput(paneID, data)
+		}
+		// Restored proxy panes may exist before the transport is reinstalled.
+		// Drop input until the transport is ready again.
+		return len(data), nil
+	}
+}
+
 func managedSessionName(localSessionName string) string {
 	hostname, err := os.Hostname()
 	if err != nil {

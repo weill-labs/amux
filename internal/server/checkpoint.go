@@ -206,13 +206,7 @@ func NewServerFromCheckpointWithScrollback(cp *checkpoint.ServerCheckpoint, scro
 			meta.Remote = string(proto.Reconnecting)
 			pane = sess.ownPane(mux.NewProxyPaneWithScrollback(pc.ID, meta, pc.Cols, pc.Rows, sess.scrollbackLines,
 				onOutput, onExit,
-				func(data []byte) (int, error) {
-					// writeOverride will be reconnected by the remote manager
-					if sess.RemoteManager != nil {
-						return len(data), sess.RemoteManager.SendInput(pc.ID, data)
-					}
-					return len(data), nil // drop input until reconnected
-				},
+				sess.remoteWriteOverride(pc.ID),
 			))
 		} else {
 			var restoreErr error

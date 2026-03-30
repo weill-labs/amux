@@ -530,12 +530,7 @@ func newServerFromCrashCheckpointWithListener(sessionName string, listener net.L
 			meta.Remote = string(proto.Reconnecting)
 			pane = sess.ownPane(mux.NewProxyPaneWithScrollback(ps.ID, meta, ps.Cols, ps.Rows, sess.scrollbackLines,
 				onOutput, onExit,
-				func(data []byte) (int, error) {
-					if sess.RemoteManager != nil {
-						return len(data), sess.RemoteManager.SendInput(ps.ID, data)
-					}
-					return len(data), nil // drop input until reconnected
-				},
+				sess.remoteWriteOverride(ps.ID),
 			))
 		} else {
 			// Spawn fresh shell with restored cwd
