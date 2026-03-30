@@ -419,7 +419,9 @@ func TestMouseDragAutomaticallyEntersCopyModeAndCopiesSelection(t *testing.T) {
 
 	h := newAmuxHarness(t, "SSH_CONNECTION=1")
 
-	h.sendKeys("printf '\\033[2J\\033[Hhello from mouse\\n'; sleep 0.2", "Enter")
+	// Keep the target line visible long enough for slower CI runners to capture
+	// its screen coordinates before the shell prompt redraws.
+	h.sendKeys("printf '\\033[2J\\033[Hhello from mouse\\n'; sleep 1", "Enter")
 	if !h.waitFor("hello from mouse", 3*time.Second) {
 		t.Fatalf("expected mouse copy target output.\nScreen:\n%s", h.captureOuter())
 	}
@@ -430,8 +432,22 @@ func TestMouseDragAutomaticallyEntersCopyModeAndCopiesSelection(t *testing.T) {
 		t.Fatalf("parsing outer clipboard generation %q: %v", genStr, err)
 	}
 
-	screen := h.captureOuter()
-	startX, y, ok := outerTextCoords(screen, "hello from mouse")
+	var (
+		screen string
+		startX int
+		y      int
+		ok     bool
+	)
+	if !h.waitForOuterFunc(func(cur string) bool {
+		startX, y, ok = outerTextCoords(cur, "hello from mouse")
+		if ok {
+			screen = cur
+		}
+		return ok
+	}, 3*time.Second) {
+		screen = h.captureOuter()
+		startX, y, ok = outerTextCoords(screen, "hello from mouse")
+	}
 	if !ok {
 		t.Fatalf("expected visible mouse copy target in outer capture.\nScreen:\n%s", screen)
 	}
