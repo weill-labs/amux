@@ -269,6 +269,56 @@ func TestBuildSSHConfigWiresHostKeyCallback(t *testing.T) {
 	}
 }
 
+func TestBuildSSHConfigHostKeyCallbackReloadsKnownHostsFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("SSH_AUTH_SOCK", "")
+
+	sshDir := filepath.Join(tmpDir, ".ssh")
+	if err := os.MkdirAll(sshDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	writeTestKey(t, filepath.Join(sshDir, "id_ed25519"))
+
+	hc := NewHostConn("test", configStubHost(), "hash", nil, nil, nil)
+	defer hc.Close()
+
+	cfg, err := hc.buildSSHConfig()
+	if err != nil {
+		t.Fatalf("buildSSHConfig: %v", err)
+	}
+
+	oldKey := testHostKey(t)
+	newKey := testHostKey(t)
+	khPath := filepath.Join(sshDir, "known_hosts")
+
+	// Write an initial host key, then keep using the same callback after the
+	// file is rewritten to prove it does not cache stale known_hosts contents.
+	oldLine := knownhosts.Line([]string{"example.com:22"}, oldKey)
+	if err := os.WriteFile(khPath, []byte(oldLine+"\n"), 0600); err != nil {
+		t.Fatalf("writing initial known_hosts: %v", err)
+	}
+	if err := cfg.HostKeyCallback("example.com:22", fakeAddr{"1.2.3.4:22"}, oldKey); err != nil {
+		t.Fatalf("initial host key should match, got: %v", err)
+	}
+
+	newLine := knownhosts.Line([]string{"example.com:22"}, newKey)
+	if err := os.WriteFile(khPath, []byte(newLine+"\n"), 0600); err != nil {
+		t.Fatalf("rewriting known_hosts: %v", err)
+	}
+	if err := cfg.HostKeyCallback("example.com:22", fakeAddr{"1.2.3.4:22"}, newKey); err != nil {
+		t.Fatalf("rewritten known_hosts should be re-read by the same callback, got: %v", err)
+	}
+
+	err = cfg.HostKeyCallback("example.com:22", fakeAddr{"1.2.3.4:22"}, oldKey)
+	if err == nil {
+		t.Fatal("stale host key should be rejected after known_hosts rewrite")
+	}
+	if !strings.Contains(err.Error(), "CHANGED") {
+		t.Fatalf("stale host key error = %q, want changed-host warning", err)
+	}
+}
+
 func TestBuildSSHConfigInsecureEnvVar(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
