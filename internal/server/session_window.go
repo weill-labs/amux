@@ -47,7 +47,7 @@ func (s *Session) nextWindow() {
 	}
 	for i, w := range s.Windows {
 		if w.ID == s.ActiveWindowID {
-			s.ActiveWindowID = s.Windows[(i+1)%len(s.Windows)].ID
+			s.activateWindow(s.Windows[(i+1)%len(s.Windows)])
 			return
 		}
 	}
@@ -61,7 +61,7 @@ func (s *Session) prevWindow() {
 	for i, w := range s.Windows {
 		if w.ID == s.ActiveWindowID {
 			prev := (i - 1 + len(s.Windows)) % len(s.Windows)
-			s.ActiveWindowID = s.Windows[prev].ID
+			s.activateWindow(s.Windows[prev])
 			return
 		}
 	}
@@ -105,10 +105,18 @@ func (s *Session) closePaneInWindow(paneID uint32) string {
 		windowName := w.Name
 		s.removeWindow(w.ID)
 		if wasActive && len(s.Windows) > 0 {
-			s.ActiveWindowID = s.Windows[0].ID
+			s.activateWindow(s.Windows[0])
 		}
 		return windowName
 	}
 	w.ClosePane(paneID)
 	return ""
+}
+
+func (s *Session) activateWindow(w *mux.Window) bool {
+	if w == nil {
+		return false
+	}
+	s.ActiveWindowID = w.ID
+	return s.syncWindowSizeToEffectiveClient(w)
 }
