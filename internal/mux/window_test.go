@@ -932,7 +932,7 @@ func TestMustFindPane(t *testing.T) {
 		wantErr  string
 	}{
 		{name: "found", paneID: 2, wantCell: w.Root.Children[1]},
-		{name: "missing", paneID: 99, wantErr: "pane 99 not found"},
+		{name: "missing", paneID: 99, wantErr: "pane 99 not found in layout"},
 	}
 
 	for _, tt := range tests {
