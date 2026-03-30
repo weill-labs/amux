@@ -17,20 +17,19 @@ func (s *Session) effectiveLayoutSize() (cols, layoutH int, ok bool) {
 	return sizeClient.cols, sizeClient.rows - render.GlobalBarHeight, true
 }
 
-func (s *Session) syncWindowSizeToEffectiveClient(w *mux.Window) bool {
+func (s *Session) syncWindowSizeToEffectiveClient(w *mux.Window) {
 	if w == nil {
-		return false
+		return
 	}
 	cols, layoutH, ok := s.effectiveLayoutSize()
 	if !ok || (w.Width == cols && w.Height == layoutH) {
-		return false
+		return
 	}
 	w.Resize(cols, layoutH)
-	return true
 }
 
-func (s *Session) syncActiveWindowSize() bool {
-	return s.syncWindowSizeToEffectiveClient(s.activeWindow())
+func (s *Session) syncActiveWindowSize() {
+	s.syncWindowSizeToEffectiveClient(s.activeWindow())
 }
 
 // recalcSize resizes only the active window to the latest active client's

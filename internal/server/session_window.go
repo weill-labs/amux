@@ -113,10 +113,10 @@ func (s *Session) closePaneInWindow(paneID uint32) string {
 	return ""
 }
 
-func (s *Session) activateWindow(w *mux.Window) bool {
+func (s *Session) activateWindow(w *mux.Window) {
 	if w == nil {
-		return false
+		return
 	}
 	s.ActiveWindowID = w.ID
-	return s.syncWindowSizeToEffectiveClient(w)
+	s.syncWindowSizeToEffectiveClient(w)
 }
