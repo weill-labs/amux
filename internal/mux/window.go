@@ -764,10 +764,10 @@ func (w *Window) ResolvePane(ref string) (*Pane, error) {
 }
 
 func (w *Window) mustFindPane(paneID uint32) (*LayoutCell, error) {
-	if w.Root == nil {
-		return nil, fmt.Errorf("pane %d not found in layout", paneID)
+	var cell *LayoutCell
+	if w.Root != nil {
+		cell = w.Root.FindPane(paneID)
 	}
-	cell := w.Root.FindPane(paneID)
 	if cell == nil {
 		return nil, fmt.Errorf("pane %d not found in layout", paneID)
 	}
