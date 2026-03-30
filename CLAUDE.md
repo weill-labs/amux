@@ -79,6 +79,8 @@ scripts/sync-pane-pr-meta.sh 123
 
 Claude's stop hook still checks for missing pane issue metadata before the session ends. Other agents can run `scripts/check-pane-issue-meta.sh` manually if needed.
 
+When a worker pushes fixes for Claude review findings, `scripts/check-claude-review.sh` reports whether the latest Claude verdict is `lgtm` or `findings`. Add `--watch` to wait for the next Claude review comment after the push before deciding whether more fixes are needed.
+
 ### TDD Workflow
 
 All development follows red-green-refactor with **separate commits** for each phase:
