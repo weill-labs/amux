@@ -24,8 +24,8 @@ func TestAddPaneBuildsWholeWindowSpiralGrid(t *testing.T) {
 		{"pane-16", "pane-15", "pane-14", "pane-13"},
 	})
 
-	if !h.jsonPane(capture, "pane-16").Active {
-		t.Fatal("pane-16 should be active after repeated add-pane")
+	if !h.jsonPane(capture, "pane-1").Active {
+		t.Fatal("pane-1 should remain active after repeated add-pane")
 	}
 }
 
@@ -65,8 +65,8 @@ func TestAddPaneBuildsRightSubtreeWhenLeadIsSet(t *testing.T) {
 		{"pane-6", "pane-5", "pane-4"},
 	})
 
-	if !h.jsonPane(capture, "pane-10").Active {
-		t.Fatal("pane-10 should be active after lead-mode add-pane")
+	if !h.jsonPane(capture, "pane-2").Active {
+		t.Fatal("pane-2 should remain active after lead-mode add-pane")
 	}
 }
 

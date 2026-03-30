@@ -24,18 +24,18 @@ func TestParseSpawnCommandArgs(t *testing.T) {
 		wantErrText string
 	}{
 		{name: "default spawn", args: nil, wantCmd: "spawn", wantArgs: []string{}},
-		{name: "spawn no focus", args: []string{"--no-focus"}, wantCmd: "spawn", wantArgs: []string{"--no-focus"}},
+		{name: "spawn focus", args: []string{"--focus"}, wantCmd: "spawn", wantArgs: []string{"--focus"}},
 		{name: "split at pane", args: []string{"--at", "pane-1"}, wantCmd: "split", wantArgs: []string{"pane-1"}},
-		{name: "split at pane no focus", args: []string{"--at", "pane-1", "--no-focus"}, wantCmd: "split", wantArgs: []string{"pane-1", "--no-focus"}},
+		{name: "split at pane focus", args: []string{"--at", "pane-1", "--focus"}, wantCmd: "split", wantArgs: []string{"pane-1", "--focus"}},
 		{name: "split active vertical", args: []string{"--vertical"}, wantCmd: "split", wantArgs: []string{"v"}},
 		{name: "split root vertical", args: []string{"--at", "pane-1", "--root", "--vertical"}, wantCmd: "split", wantArgs: []string{"pane-1", "root", "v"}},
 		{name: "split with metadata", args: []string{"--at", "pane-1", "--task", "build", "--color", "blue"}, wantCmd: "split", wantArgs: []string{"pane-1", "--task", "build", "--color", "blue"}},
 		{name: "spiral add", args: []string{"--spiral", "--name", "worker"}, wantCmd: "add-pane", wantArgs: []string{"--name", "worker"}},
-		{name: "spiral add no focus", args: []string{"--spiral", "--no-focus"}, wantCmd: "add-pane", wantArgs: []string{"--no-focus"}},
+		{name: "spiral add focus", args: []string{"--spiral", "--focus"}, wantCmd: "add-pane", wantArgs: []string{"--focus"}},
 		{name: "conflicting directions", args: []string{"--vertical", "--horizontal"}, wantErrText: spawnUsage},
 		{name: "spiral with split flags rejected", args: []string{"--spiral", "--at", "pane-1"}, wantErrText: spawnUsage},
 		{name: "missing at value", args: []string{"--at"}, wantErrText: spawnUsage},
-		{name: "legacy focus flag rejected", args: []string{"--focus"}, wantErrText: spawnUsage},
+		{name: "legacy no focus flag rejected", args: []string{"--no-focus"}, wantErrText: spawnUsage},
 		{name: "unknown arg", args: []string{"pane-1"}, wantErrText: spawnUsage},
 	}
 

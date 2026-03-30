@@ -997,17 +997,17 @@ func TestCommandSplitTargetsExplicitInactivePane(t *testing.T) {
 		newPaneName  string
 	}{
 		{
-			name:         "split focuses the new pane by default",
+			name:         "split keeps the existing active pane by default",
 			command:      "split",
 			args:         []string{"pane-1", "--name", "focus-target"},
-			wantActiveID: 3,
+			wantActiveID: 2,
 			newPaneName:  "focus-target",
 		},
 		{
-			name:         "split --no-focus keeps the existing active pane",
+			name:         "split --focus activates the new pane",
 			command:      "split",
-			args:         []string{"pane-1", "--name", "target-split", "--no-focus"},
-			wantActiveID: 2,
+			args:         []string{"pane-1", "--name", "target-split", "--focus"},
+			wantActiveID: 3,
 			newPaneName:  "target-split",
 		},
 		{
@@ -1098,16 +1098,16 @@ func TestCommandAddPaneFocusModes(t *testing.T) {
 		wantActiveID uint32
 	}{
 		{
-			name:         "add-pane focuses the new pane by default",
+			name:         "add-pane keeps the existing active pane by default",
 			command:      "add-pane",
 			args:         []string{"--name", "spiral-focus"},
-			wantActiveID: 2,
+			wantActiveID: 1,
 		},
 		{
-			name:         "add-pane --no-focus keeps the existing active pane",
+			name:         "add-pane --focus activates the new pane",
 			command:      "add-pane",
-			args:         []string{"--name", "spiral-bg", "--no-focus"},
-			wantActiveID: 1,
+			args:         []string{"--name", "spiral-bg", "--focus"},
+			wantActiveID: 2,
 		},
 		{
 			name:         "add-pane-focus alias still focuses the new pane",
@@ -1170,16 +1170,16 @@ func TestCommandSpawnFocusModes(t *testing.T) {
 		wantActiveID uint32
 	}{
 		{
-			name:         "spawn focuses the new pane by default",
+			name:         "spawn keeps the existing active pane by default",
 			command:      "spawn",
 			args:         []string{"--name", "worker-pure", "--task", "build"},
-			wantActiveID: 2,
+			wantActiveID: 1,
 		},
 		{
-			name:         "spawn --no-focus keeps the existing active pane",
+			name:         "spawn --focus activates the new pane",
 			command:      "spawn",
-			args:         []string{"--name", "worker-bg", "--task", "build", "--no-focus"},
-			wantActiveID: 1,
+			args:         []string{"--name", "worker-bg", "--task", "build", "--focus"},
+			wantActiveID: 2,
 		},
 		{
 			name:         "spawn-focus alias still focuses the new pane",

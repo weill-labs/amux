@@ -97,7 +97,7 @@ func TestSpawnWhileZoomedKeepsZoomAndFocus(t *testing.T) {
 	})
 }
 
-func TestSplitFocusesNewPaneByDefault(t *testing.T) {
+func TestSplitKeepsFocusByDefault(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)
 
@@ -111,16 +111,18 @@ func TestSplitFocusesNewPaneByDefault(t *testing.T) {
 
 	capture := h.captureJSON()
 	bgSplit := h.jsonPane(capture, "bg-split")
-	if !bgSplit.Active {
-		t.Fatal("bg-split should become active after split")
+	if bgSplit.Active {
+		t.Fatal("bg-split should not become active after split")
 	}
-	h.jsonPane(capture, "bg-split")
+	if !h.jsonPane(capture, "pane-1").Active {
+		t.Fatal("pane-1 should remain active after split")
+	}
 	h.assertScreen("split should still be visible when not zoomed", func(s string) bool {
 		return strings.Contains(s, "[pane-1]") && strings.Contains(s, "[bg-split]")
 	})
 }
 
-func TestSpawnFocusesNewPaneByDefault(t *testing.T) {
+func TestSpawnKeepsFocusByDefault(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)
 
@@ -134,13 +136,33 @@ func TestSpawnFocusesNewPaneByDefault(t *testing.T) {
 
 	capture := h.captureJSON()
 	bgWorker := h.jsonPane(capture, "bg-worker")
-	if !bgWorker.Active {
-		t.Fatal("bg-worker should become active after spawn")
+	if bgWorker.Active {
+		t.Fatal("bg-worker should not become active after spawn")
 	}
-	h.jsonPane(capture, "bg-worker")
+	if !h.jsonPane(capture, "pane-1").Active {
+		t.Fatal("pane-1 should remain active after spawn")
+	}
 	h.assertScreen("spawn should still be visible when not zoomed", func(s string) bool {
 		return strings.Contains(s, "[pane-1]") && strings.Contains(s, "[bg-worker]")
 	})
+}
+
+func TestSpawnFocusFlagActivatesNewPane(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	h.splitH()
+	h.runCmd("focus", "pane-1")
+
+	output := h.runCmd("spawn", "--focus", "--name", "fg-worker", "--task", "TASK-42")
+	if !strings.Contains(output, "fg-worker") {
+		t.Fatalf("spawn should report the new pane name, got:\n%s", output)
+	}
+
+	capture := h.captureJSON()
+	if !h.jsonPane(capture, "fg-worker").Active {
+		t.Fatal("fg-worker should become active with --focus")
+	}
 }
 
 func TestResetClearsPaneStateAndAcceptsNewOutput(t *testing.T) {

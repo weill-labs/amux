@@ -23,7 +23,7 @@ func TestCommandAddPaneLocalKeepsFocus(t *testing.T) {
 	w.Name = "main"
 	setSessionLayoutForTest(t, sess, w.ID, []*mux.Window{w}, p1)
 
-	res := runTestCommand(t, srv, sess, "add-pane", "--name", "spiral-2", "--no-focus")
+	res := runTestCommand(t, srv, sess, "add-pane", "--name", "spiral-2")
 	if res.cmdErr != "" || !strings.Contains(res.output, "Added pane spiral-2") {
 		t.Fatalf("add-pane result = %#v", res)
 	}

@@ -36,16 +36,16 @@ func TestParseSplitArgs(t *testing.T) {
 	}{
 		{
 			name: "defaults to horizontal",
-			want: map[string]any{"Dir": mux.SplitHorizontal, "NoFocus": false},
+			want: map[string]any{"Dir": mux.SplitHorizontal, "Focus": false},
 		},
 		{
 			name: "pane ref",
 			args: []string{"pane-1"},
-			want: map[string]any{"PaneRef": "pane-1", "Dir": mux.SplitHorizontal, "NoFocus": false},
+			want: map[string]any{"PaneRef": "pane-1", "Dir": mux.SplitHorizontal, "Focus": false},
 		},
 		{
 			name: "pane ref with all flags",
-			args: []string{"pane-1", "root", "--vertical", "--host", "dev", "--name", "worker", "--task", "build", "--color", "blue", "--no-focus"},
+			args: []string{"pane-1", "root", "--vertical", "--host", "dev", "--name", "worker", "--task", "build", "--color", "blue", "--focus"},
 			want: map[string]any{
 				"PaneRef":   "pane-1",
 				"RootLevel": true,
@@ -54,13 +54,13 @@ func TestParseSplitArgs(t *testing.T) {
 				"Name":      "worker",
 				"Task":      "build",
 				"Color":     "blue",
-				"NoFocus":   true,
+				"Focus":     true,
 			},
 		},
 		{
 			name: "accepts legacy vertical shorthand",
 			args: []string{"v"},
-			want: map[string]any{"Dir": mux.SplitVertical, "NoFocus": false},
+			want: map[string]any{"Dir": mux.SplitVertical, "Focus": false},
 		},
 		{
 			name:    "rejects legacy pane flag",
@@ -120,7 +120,7 @@ func TestParseSpawnArgs(t *testing.T) {
 	}{
 		{
 			name: "parses all fields",
-			args: []string{"--name", "worker-1", "--host", "dev", "--task", "build", "--color", "rosewater", "--no-focus"},
+			args: []string{"--name", "worker-1", "--host", "dev", "--task", "build", "--color", "rosewater", "--focus"},
 			want: map[string]any{
 				"Meta": mux.PaneMeta{
 					Name:  "worker-1",
@@ -128,7 +128,7 @@ func TestParseSpawnArgs(t *testing.T) {
 					Task:  "build",
 					Color: "rosewater",
 				},
-				"NoFocus": true,
+				"Focus": true,
 			},
 		},
 		{
@@ -139,7 +139,7 @@ func TestParseSpawnArgs(t *testing.T) {
 					Name: "worker-1",
 					Host: mux.DefaultHost,
 				},
-				"NoFocus": false,
+				"Focus": false,
 			},
 		},
 		{
@@ -150,7 +150,7 @@ func TestParseSpawnArgs(t *testing.T) {
 					Host: mux.DefaultHost,
 					Task: "build",
 				},
-				"NoFocus": false,
+				"Focus": false,
 			},
 		},
 		{
@@ -201,12 +201,12 @@ func TestParseAddPaneArgs(t *testing.T) {
 	}{
 		{
 			name: "defaults empty",
-			want: map[string]any{"HostName": "", "Name": "", "Task": "", "Color": "", "NoFocus": false},
+			want: map[string]any{"HostName": "", "Name": "", "Task": "", "Color": "", "Focus": false},
 		},
 		{
 			name: "parses name and host",
-			args: []string{"--name", "worker-1", "--host", "dev", "--task", "build", "--color", "blue", "--no-focus"},
-			want: map[string]any{"Name": "worker-1", "HostName": "dev", "Task": "build", "Color": "blue", "NoFocus": true},
+			args: []string{"--name", "worker-1", "--host", "dev", "--task", "build", "--color", "blue", "--focus"},
+			want: map[string]any{"Name": "worker-1", "HostName": "dev", "Task": "build", "Color": "blue", "Focus": true},
 		},
 		{
 			name:    "rejects missing name value",
