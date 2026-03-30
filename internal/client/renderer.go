@@ -449,12 +449,6 @@ func (r *Renderer) WindowSnapshots() ([]proto.WindowSnapshot, uint32) {
 	return cloneWindowSnapshots(snap.windows), snap.activeWinID
 }
 
-// PaneInfo returns the pane snapshot for the given pane. Thread-safe.
-func (r *Renderer) PaneInfo(paneID uint32) (proto.PaneSnapshot, bool) {
-	info, ok := r.loadSnapshot().paneInfo[paneID]
-	return info, ok
-}
-
 func (r *Renderer) buildCapturePane(st *rendererActorState, snap *rendererSnapshot, paneID uint32, agentStatus map[uint32]proto.PaneAgentStatus, includeHistory bool, baseHistory []string) (proto.CapturePane, bool) {
 	emu, ok := st.emulators[paneID]
 	if !ok {

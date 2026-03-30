@@ -1,8 +1,6 @@
 package client
 
 import (
-	"strconv"
-
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/render"
@@ -33,15 +31,4 @@ func stripCursorBlock(sc *render.ScreenCell, emu mux.TerminalEmulator, x, y int)
 		}
 	}
 	sc.Style.Attrs &^= uv.AttrReverse
-}
-
-func formatPRNumbers(prs []int) []string {
-	if len(prs) == 0 {
-		return nil
-	}
-	out := make([]string, 0, len(prs))
-	for _, pr := range prs {
-		out = append(out, strconv.Itoa(pr))
-	}
-	return out
 }

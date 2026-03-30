@@ -1201,11 +1201,6 @@ func (w *Window) RotatePanes(forward bool) error {
 	return nil
 }
 
-// paneLeaves returns all leaf cells containing panes in depth-first order.
-func (w *Window) paneLeaves() []*LayoutCell {
-	return w.paneLeavesIn(w.Root)
-}
-
 func (w *Window) paneLeavesIn(root *LayoutCell) []*LayoutCell {
 	var cells []*LayoutCell
 	if root == nil {
