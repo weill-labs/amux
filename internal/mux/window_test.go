@@ -914,6 +914,52 @@ func TestSwapPanesNotFound(t *testing.T) {
 	}
 }
 
+func TestMustFindPane(t *testing.T) {
+	t.Parallel()
+
+	p1 := fakePaneID(1)
+	w := NewWindow(p1, 120, 24)
+
+	p2 := fakePaneID(2)
+	if _, err := w.SplitRoot(SplitVertical, p2); err != nil {
+		t.Fatalf("split root vertical: %v", err)
+	}
+
+	tests := []struct {
+		name     string
+		paneID   uint32
+		wantCell *LayoutCell
+		wantErr  string
+	}{
+		{name: "found", paneID: 2, wantCell: w.Root.Children[1]},
+		{name: "missing", paneID: 99, wantErr: "pane 99 not found"},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cell, err := w.mustFindPane(tt.paneID)
+			if tt.wantErr != "" {
+				if err == nil || err.Error() != tt.wantErr {
+					t.Fatalf("mustFindPane(%d) error = %v, want %q", tt.paneID, err, tt.wantErr)
+				}
+				if cell != nil {
+					t.Fatalf("mustFindPane(%d) cell = %#v, want nil", tt.paneID, cell)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("mustFindPane(%d): %v", tt.paneID, err)
+			}
+			if cell != tt.wantCell {
+				t.Fatalf("mustFindPane(%d) returned unexpected cell", tt.paneID)
+			}
+		})
+	}
+}
+
 func TestRootChildForPaneID(t *testing.T) {
 	t.Parallel()
 
