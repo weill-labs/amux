@@ -482,7 +482,6 @@ func (r *Renderer) buildCapturePane(st *rendererActorState, snap *rendererSnapsh
 		Color:         info.Color,
 		ColumnIndex:   info.ColumnIndex,
 		ConnStatus:    info.ConnStatus,
-		KV:            info.KV,
 		GitBranch:     info.GitBranch,
 		PR:            info.PR,
 		KV:            info.KV,

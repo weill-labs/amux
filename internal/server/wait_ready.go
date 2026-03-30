@@ -44,7 +44,7 @@ type sendKeysOptions struct {
 
 type paneReadyState struct {
 	pane   *mux.Pane
-	vtIdle vtIdleWaitState
+	vtIdle idleWaitState
 }
 
 func cmdWaitReady(ctx *CommandContext) {
@@ -271,7 +271,7 @@ func queryPaneReadyState(sess *Session, paneID uint32) (paneReadyState, error) {
 
 		return paneReadyState{
 			pane: pane,
-			vtIdle: vtIdleWaitState{
+			vtIdle: idleWaitState{
 				createdAt:     pane.CreatedAt(),
 				lastOutput:    lastOutput,
 				hasLastOutput: hasLastOutput,

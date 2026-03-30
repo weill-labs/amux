@@ -9,7 +9,7 @@ import (
 	"github.com/weill-labs/amux/internal/mux"
 )
 
-func setupSendKeysWaitReadyTestPane(t *testing.T, writeOverride func([]byte) (int, error)) (*Server, *Session, *mux.Pane, func()) {
+func setupSendKeysWaitIdleTestPane(t *testing.T, writeOverride func([]byte) (int, error)) (*Server, *Session, *mux.Pane, func()) {
 	t.Helper()
 
 	srv, sess, cleanup := newCommandTestSession(t)
@@ -26,7 +26,7 @@ func setupSendKeysWaitReadyTestPane(t *testing.T, writeOverride func([]byte) (in
 	return srv, sess, pane, cleanup
 }
 
-func TestSendKeysWaitReadyUsage(t *testing.T) {
+func TestSendKeysCommandUsageIncludesReadyAndVia(t *testing.T) {
 	t.Parallel()
 
 	srv, sess, cleanup := newCommandTestSession(t)
@@ -38,12 +38,12 @@ func TestSendKeysWaitReadyUsage(t *testing.T) {
 	}
 }
 
-func TestCmdSendKeysWaitReadyWaitsForReady(t *testing.T) {
+func TestCmdSendKeysCommandWaitReadyWaitsForReady(t *testing.T) {
 	t.Parallel()
 
 	clk := NewFakeClock(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC))
 	writes := make(chan string, 1)
-	srv, sess, pane, cleanup := setupSendKeysWaitReadyTestPane(t, func(data []byte) (int, error) {
+	srv, sess, pane, cleanup := setupSendKeysWaitIdleTestPane(t, func(data []byte) (int, error) {
 		writes <- string(data)
 		return len(data), nil
 	})
@@ -92,10 +92,10 @@ func TestCmdSendKeysWaitReadyWaitsForReady(t *testing.T) {
 	}
 }
 
-func TestSendKeysWaitReadyMissingPane(t *testing.T) {
+func TestSendKeysCommandWaitReadyMissingPane(t *testing.T) {
 	t.Parallel()
 
-	srv, sess, _, cleanup := setupSendKeysWaitReadyTestPane(t, nil)
+	srv, sess, _, cleanup := setupSendKeysWaitIdleTestPane(t, nil)
 	defer cleanup()
 
 	res := runTestCommand(t, srv, sess, "send-keys", "missing", "--wait", "ready", "ship it")

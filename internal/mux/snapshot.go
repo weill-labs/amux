@@ -61,7 +61,6 @@ func (p *Pane) ToSnapshot() proto.PaneSnapshot {
 		Name:          p.Meta.Name,
 		Host:          p.Meta.Host,
 		Task:          p.Meta.Task,
-		KV:            p.Meta.KVSnapshot(),
 		Color:         p.Meta.Color,
 		ConnStatus:    p.Meta.Remote,
 		KV:            CloneMetaKV(NormalizedMetaKV(p.Meta)),

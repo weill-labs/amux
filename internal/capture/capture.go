@@ -221,7 +221,6 @@ func BuildPane(input PaneInput, agentStatus map[uint32]proto.PaneAgentStatus) pr
 		Color:       input.Color,
 		ColumnIndex: input.ColumnIndex,
 		Meta: proto.CaptureMeta{
-			KV:            cloneStringMap(input.KV),
 			Task:          input.Task,
 			GitBranch:     input.GitBranch,
 			PR:            input.PR,

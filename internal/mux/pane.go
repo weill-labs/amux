@@ -31,7 +31,6 @@ type PaneMeta struct {
 	Name          string               `json:"name"`
 	Host          string               `json:"host"`
 	Task          string               `json:"task,omitempty"`
-	KV            map[string]string    `json:"kv,omitempty"`
 	Remote        string               `json:"remote,omitempty"`
 	Color         string               `json:"color"`
 	KV            map[string]string    `json:"kv,omitempty"`
