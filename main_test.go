@@ -582,16 +582,16 @@ func TestPrintUsageOmitsDelegate(t *testing.T) {
 func TestRunMainDefaultSession(t *testing.T) {
 	t.Run("attaches to resolved session", func(t *testing.T) {
 		t.Setenv("AMUX_CHECKPOINT", "")
-		t.Setenv("AMUX_SESSION", "")
 
 		h := newCLIRuntimeHarness()
 		if exitCode := runMain(nil, h.runtime()); exitCode != 0 {
 			t.Fatalf("runMain() exit = %d, want 0", exitCode)
 		}
 
+		wantSession := resolveSessionName("", false)
 		want := []cliCall{
-			{kind: "check-nesting", session: defaultSessionName},
-			{kind: "attach", session: defaultSessionName},
+			{kind: "check-nesting", session: wantSession},
+			{kind: "attach", session: wantSession},
 		}
 		if !reflect.DeepEqual(h.calls, want) {
 			t.Fatalf("calls = %#v, want %#v", h.calls, want)
@@ -600,7 +600,6 @@ func TestRunMainDefaultSession(t *testing.T) {
 
 	t.Run("uses takeover when available", func(t *testing.T) {
 		t.Setenv("AMUX_CHECKPOINT", "")
-		t.Setenv("AMUX_SESSION", "")
 
 		h := newCLIRuntimeHarness()
 		h.shouldTakeover = true
@@ -610,7 +609,7 @@ func TestRunMainDefaultSession(t *testing.T) {
 			t.Fatalf("runMain() exit = %d, want 0", exitCode)
 		}
 
-		want := []cliCall{{kind: "try-takeover", session: defaultSessionName}}
+		want := []cliCall{{kind: "try-takeover", session: resolveSessionName("", false)}}
 		if !reflect.DeepEqual(h.calls, want) {
 			t.Fatalf("calls = %#v, want %#v", h.calls, want)
 		}
@@ -632,7 +631,7 @@ func TestRunMainDispatchesCommands(t *testing.T) {
 			env:      map[string]string{"AMUX_CHECKPOINT": "/tmp/checkpoint"},
 			wantExit: 0,
 			wantCalls: []cliCall{
-				{kind: "run-server", session: defaultSessionName},
+				{kind: "run-server", session: resolvedSessionMarker},
 			},
 		},
 		{
@@ -649,7 +648,7 @@ func TestRunMainDispatchesCommands(t *testing.T) {
 			args:     []string{"spawn", "--focus"},
 			wantExit: 0,
 			wantCalls: []cliCall{
-				{kind: "server-command", session: defaultSessionName, cmd: "spawn-focus"},
+				{kind: "server-command", session: resolvedSessionMarker, cmd: "spawn-focus"},
 			},
 		},
 		{
@@ -665,7 +664,7 @@ func TestRunMainDispatchesCommands(t *testing.T) {
 			args:     []string{"events", "--no-reconnect"},
 			wantExit: 0,
 			wantCalls: []cliCall{
-				{kind: "events", session: defaultSessionName, args: []string{"--no-reconnect"}},
+				{kind: "events", session: resolvedSessionMarker, args: []string{"--no-reconnect"}},
 			},
 		},
 		{
@@ -673,7 +672,7 @@ func TestRunMainDispatchesCommands(t *testing.T) {
 			args:     []string{"disconnect", "host-a"},
 			wantExit: 0,
 			wantCalls: []cliCall{
-				{kind: "server-command", session: defaultSessionName, cmd: "disconnect", args: []string{"host-a"}},
+				{kind: "server-command", session: resolvedSessionMarker, cmd: "disconnect", args: []string{"host-a"}},
 			},
 		},
 	}
@@ -682,7 +681,6 @@ func TestRunMainDispatchesCommands(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Setenv("AMUX_CHECKPOINT", "")
-			t.Setenv("AMUX_SESSION", "")
 			for key, value := range tt.env {
 				t.Setenv(key, value)
 			}
@@ -691,8 +689,9 @@ func TestRunMainDispatchesCommands(t *testing.T) {
 			if exitCode := runMain(tt.args, h.runtime()); exitCode != tt.wantExit {
 				t.Fatalf("runMain(%v) exit = %d, want %d", tt.args, exitCode, tt.wantExit)
 			}
-			if !reflect.DeepEqual(h.calls, tt.wantCalls) {
-				t.Fatalf("calls = %#v, want %#v", h.calls, tt.wantCalls)
+			wantCalls := resolveTestSessions(tt.wantCalls)
+			if !reflect.DeepEqual(h.calls, wantCalls) {
+				t.Fatalf("calls = %#v, want %#v", h.calls, wantCalls)
 			}
 			if got := h.stdout.String(); got != tt.wantStdout {
 				t.Fatalf("stdout = %q, want %q", got, tt.wantStdout)
@@ -764,6 +763,8 @@ type cliCall struct {
 	managed bool
 }
 
+const resolvedSessionMarker = "__resolved_session__"
+
 type cliRuntimeHarness struct {
 	stdout            bytes.Buffer
 	stderr            bytes.Buffer
@@ -775,6 +776,18 @@ type cliRuntimeHarness struct {
 
 func newCLIRuntimeHarness() *cliRuntimeHarness {
 	return &cliRuntimeHarness{}
+}
+
+func resolveTestSessions(calls []cliCall) []cliCall {
+	resolved := resolveSessionName("", false)
+	out := make([]cliCall, len(calls))
+	for i, call := range calls {
+		out[i] = call
+		if out[i].session == resolvedSessionMarker {
+			out[i].session = resolved
+		}
+	}
+	return out
 }
 
 func (h *cliRuntimeHarness) runtime() cliRuntime {
