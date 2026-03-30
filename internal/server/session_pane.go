@@ -6,7 +6,7 @@ import (
 
 	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/mux"
-	"github.com/weill-labs/amux/internal/remote"
+	"github.com/weill-labs/amux/internal/proto"
 )
 
 type paneRemovalResult struct {
@@ -291,15 +291,15 @@ func (s *Session) createPaneWithMeta(srv *Server, meta mux.PaneMeta, cols, rows 
 // needs to make SSH calls).
 func (s *Session) prepareRemotePane(hostName string, cols, rows int) (*mux.Pane, error) {
 	if s.RemoteManager == nil {
-		return nil, fmt.Errorf("no remote hosts configured")
+		return nil, fmt.Errorf("no remote hosts configured for host %q", hostName)
 	}
 
 	id := s.counter.Add(1)
 	meta := mux.PaneMeta{
 		Name:   fmt.Sprintf(mux.PaneNameFormat, id),
 		Host:   hostName,
-		Color:  s.RemoteManager.Config().HostColor(hostName),
-		Remote: string(remote.Connected), // initial state
+		Color:  s.remotePaneColor(hostName),
+		Remote: string(proto.Connected), // initial state
 	}
 
 	// Create the proxy pane with a writeOverride that routes to the remote manager

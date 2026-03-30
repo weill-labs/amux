@@ -10,7 +10,7 @@ import (
 
 	"github.com/weill-labs/amux/internal/checkpoint"
 	"github.com/weill-labs/amux/internal/mux"
-	"github.com/weill-labs/amux/internal/remote"
+	"github.com/weill-labs/amux/internal/proto"
 )
 
 // Reload checkpoints the server state and exec's the new binary.
@@ -203,7 +203,7 @@ func NewServerFromCheckpointWithScrollback(cp *checkpoint.ServerCheckpoint, scro
 			// Restore proxy pane with frozen content, mark as reconnecting.
 			// The remote manager will re-establish the SSH connection.
 			meta := pc.Meta
-			meta.Remote = string(remote.Reconnecting)
+			meta.Remote = string(proto.Reconnecting)
 			pane = sess.ownPane(mux.NewProxyPaneWithScrollback(pc.ID, meta, pc.Cols, pc.Rows, sess.scrollbackLines,
 				onOutput, onExit,
 				func(data []byte) (int, error) {

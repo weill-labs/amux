@@ -10,11 +10,9 @@ import (
 	"time"
 
 	"github.com/weill-labs/amux/internal/checkpoint"
-	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/debugowner"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
-	"github.com/weill-labs/amux/internal/remote"
 )
 
 // Default terminal dimensions when the client doesn't report a size.
@@ -79,9 +77,10 @@ type Session struct {
 	// Tests inject short timings here instead of mutating package globals.
 	captureTiming captureTimingConfig
 
-	// Remote pane management — manages SSH connections to remote hosts.
-	// Nil when no config is loaded or no remote hosts are defined.
-	RemoteManager *remote.Manager
+	// Remote pane management — nil when no remote transport is configured.
+	RemoteManager   proto.PaneTransport
+	remoteTakeover  PaneTakeoverTransport
+	remoteHostColor func(string) string
 
 	// SSH takeover tracking — pane IDs that have already been taken over.
 	// Prevents duplicate takeover if the remote emits the sequence twice.
@@ -528,7 +527,7 @@ func newServerFromCrashCheckpointWithListener(sessionName string, listener net.L
 			// Restore proxy pane with frozen content, mark as reconnecting.
 			// The remote manager will re-establish the SSH connection.
 			meta := ps.Meta
-			meta.Remote = string(remote.Reconnecting)
+			meta.Remote = string(proto.Reconnecting)
 			pane = sess.ownPane(mux.NewProxyPaneWithScrollback(ps.ID, meta, ps.Cols, ps.Rows, sess.scrollbackLines,
 				onOutput, onExit,
 				func(data []byte) (int, error) {
@@ -637,13 +636,6 @@ func NewServerFromCrashCheckpointWithListenerFd(sessionName string, listenerFd i
 		return nil, fmt.Errorf("restoring listener: %w", err)
 	}
 	return newServerFromCrashCheckpointWithListener(sessionName, listener, SocketPath(sessionName), cp, crashPath, scrollbackLines)
-}
-
-// SetupRemoteManager initializes the remote manager for all sessions.
-func (s *Server) SetupRemoteManager(cfg *config.Config, buildHash string) {
-	for _, sess := range s.sessions {
-		sess.SetupRemoteManager(cfg, buildHash)
-	}
 }
 
 // Run accepts client connections in a loop.

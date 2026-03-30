@@ -18,7 +18,9 @@ import (
 	"github.com/weill-labs/amux/internal/client"
 	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/mux"
+	"github.com/weill-labs/amux/internal/proto"
 	"github.com/weill-labs/amux/internal/reload"
+	"github.com/weill-labs/amux/internal/remote"
 	"github.com/weill-labs/amux/internal/server"
 	"github.com/weill-labs/amux/internal/terminfo"
 	"golang.org/x/sys/unix"
@@ -1018,8 +1020,30 @@ func runServer(sessionName string, managedTakeover bool) {
 		}
 	}
 
-	// Set up remote pane manager for all sessions
-	s.SetupRemoteManager(cfg, server.BuildVersion)
+	hasRemoteHosts := false
+	for _, host := range cfg.Hosts {
+		if host.Type != "local" {
+			hasRemoteHosts = true
+			break
+		}
+	}
+	newRemoteManager := func(hooks server.PaneTransportHooks) *remote.Manager {
+		return remote.NewManager(cfg, server.BuildVersion, remote.ManagerDeps{
+			NewHostConn:   remote.NewHostConn,
+			OnPaneOutput:  hooks.OnPaneOutput,
+			OnPaneExit:    hooks.OnPaneExit,
+			OnStateChange: hooks.OnStateChange,
+		})
+	}
+	if hasRemoteHosts {
+		s.SetupPaneTransport(cfg.HostColor, func(hooks server.PaneTransportHooks) proto.PaneTransport {
+			return newRemoteManager(hooks)
+		})
+	} else {
+		s.SetupPaneTakeoverTransport(func(hooks server.PaneTransportHooks) server.PaneTakeoverTransport {
+			return newRemoteManager(hooks)
+		})
+	}
 
 	// Handle shutdown signals. The goroutine calls Shutdown() which closes
 	// the listener, unblocking Run() below.

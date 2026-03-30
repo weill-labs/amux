@@ -252,8 +252,8 @@ func TestPrepareRemotePaneAndInsertPreparedPane(t *testing.T) {
 	_, sess, cleanup := newCommandTestSession(t)
 	defer cleanup()
 
-	if _, err := sess.prepareRemotePane("dev", 80, 23); err == nil || err.Error() != "no remote hosts configured" {
-		t.Fatalf("prepareRemotePane without manager error = %v, want no remote hosts configured", err)
+	if _, err := sess.prepareRemotePane("dev", 80, 23); err == nil || !strings.Contains(err.Error(), `no remote hosts configured for host "dev"`) {
+		t.Fatalf("prepareRemotePane without manager error = %v, want host-aware no-remote message", err)
 	}
 
 	installTestPaneTransport(t, sess, &stubPaneTransport{
