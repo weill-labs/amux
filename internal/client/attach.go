@@ -18,7 +18,6 @@ import (
 	"github.com/weill-labs/amux/internal/proto"
 	"github.com/weill-labs/amux/internal/reload"
 	"github.com/weill-labs/amux/internal/render"
-	"github.com/weill-labs/amux/internal/server"
 
 	"golang.org/x/term"
 )
@@ -325,9 +324,9 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 	kb := config.DefaultKeybindings()
 	scrollbackLines := cfg.EffectiveScrollbackLines()
 
-	sockPath := server.SocketPath(sessionName)
+	sockPath := proto.SocketPath(sessionName)
 
-	if err := server.EnsureDaemon(sessionName, 5*time.Second); err != nil {
+	if err := proto.EnsureDaemon(sessionName, 5*time.Second); err != nil {
 		return err
 	}
 
@@ -342,10 +341,10 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 	fd := int(os.Stdin.Fd())
 	cols, rows, _ := getTermSize(fd)
 	if cols <= 0 {
-		cols = server.DefaultTermCols
+		cols = proto.DefaultTermCols
 	}
 	if rows <= 0 {
-		rows = server.DefaultTermRows
+		rows = proto.DefaultTermRows
 	}
 
 	// Send attach
