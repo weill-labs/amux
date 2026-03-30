@@ -6,12 +6,13 @@ import (
 )
 
 type clientUIState struct {
-	dirty        bool
-	copyModes    map[uint32]*copymode.CopyMode
-	displayPanes *displayPanesState
-	chooser      *chooserState
-	message      string
-	inputIdle    bool
+	dirty              bool
+	copyModes          map[uint32]*copymode.CopyMode
+	displayPanes       *displayPanesState
+	chooser            *chooserState
+	windowRenamePrompt *windowRenamePromptState
+	message            string
+	inputIdle          bool
 }
 
 func newClientUIState() clientUIState {
@@ -52,6 +53,12 @@ type uiActionShowChooser struct {
 }
 
 type uiActionHideChooser struct{}
+
+type uiActionShowWindowRenamePrompt struct {
+	prompt *windowRenamePromptState
+}
+
+type uiActionHideWindowRenamePrompt struct{}
 
 type uiActionEnterCopyMode struct {
 	paneID uint32
@@ -114,6 +121,15 @@ func (st *clientUIState) reduce(action any) clientUIResult {
 		st.chooser = nil
 		st.dirty = true
 		return clientUIResult{uiEvents: []string{mode.hiddenEvent()}}
+	case uiActionShowWindowRenamePrompt:
+		return st.reduceShowWindowRenamePrompt(action)
+	case uiActionHideWindowRenamePrompt:
+		if st.windowRenamePrompt == nil {
+			return clientUIResult{}
+		}
+		st.windowRenamePrompt = nil
+		st.dirty = true
+		return clientUIResult{}
 	case uiActionEnterCopyMode:
 		wasVisible := len(st.copyModes) > 0
 		if st.copyModes[action.paneID] != nil {
@@ -149,6 +165,9 @@ func (st *clientUIState) reduceHandleLayout(action uiActionHandleLayout) clientU
 			result.uiEvents = append(result.uiEvents, st.chooser.mode.hiddenEvent())
 			st.chooser = nil
 		}
+		if st.windowRenamePrompt != nil {
+			st.windowRenamePrompt = nil
+		}
 		if st.message != "" {
 			// Metadata-only layout refreshes are common (idle/CWD/branch updates).
 			// Keep local feedback visible until the layout actually changes.
@@ -177,6 +196,9 @@ func (st *clientUIState) reduceShowChooser(action uiActionShowChooser) clientUIR
 		st.displayPanes = nil
 		result.uiEvents = append(result.uiEvents, proto.UIEventDisplayPanesHidden)
 	}
+	if st.windowRenamePrompt != nil {
+		st.windowRenamePrompt = nil
+	}
 	previous := st.chooser
 	st.chooser = action.chooser
 	st.dirty = true
@@ -189,6 +211,21 @@ func (st *clientUIState) reduceShowChooser(action uiActionShowChooser) clientUIR
 	return result
 }
 
+func (st *clientUIState) reduceShowWindowRenamePrompt(action uiActionShowWindowRenamePrompt) clientUIResult {
+	result := clientUIResult{}
+	if st.displayPanes != nil {
+		st.displayPanes = nil
+		result.uiEvents = append(result.uiEvents, proto.UIEventDisplayPanesHidden)
+	}
+	if st.chooser != nil {
+		result.uiEvents = append(result.uiEvents, st.chooser.mode.hiddenEvent())
+		st.chooser = nil
+	}
+	st.windowRenamePrompt = action.prompt
+	st.dirty = true
+	return result
+}
+
 func (st *clientUIState) markRendered() {
 	st.dirty = false
 }
@@ -198,10 +235,15 @@ func (st *clientUIState) captureUI() *proto.CaptureUI {
 	if st.chooser != nil {
 		chooser = string(st.chooser.mode)
 	}
+	prompt := ""
+	if st.windowRenamePrompt != nil {
+		prompt = st.windowRenamePrompt.title()
+	}
 	return &proto.CaptureUI{
 		CopyMode:     len(st.copyModes) > 0,
 		DisplayPanes: st.displayPanes != nil,
 		Chooser:      chooser,
+		Prompt:       prompt,
 		InputIdle:    st.inputIdle,
 	}
 }

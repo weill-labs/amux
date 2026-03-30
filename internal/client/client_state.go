@@ -42,6 +42,7 @@ func cloneClientUIState(src clientUIState) clientUIState {
 	for paneID, mode := range src.copyModes {
 		dst.copyModes[paneID] = mode
 	}
+	dst.windowRenamePrompt = cloneWindowRenamePromptState(src.windowRenamePrompt)
 	return dst
 }
 
@@ -71,6 +72,14 @@ func cloneDisplayPanesState(src *displayPanesState) *displayPanesState {
 		dst.targets[key] = paneID
 	}
 	return dst
+}
+
+func cloneWindowRenamePromptState(src *windowRenamePromptState) *windowRenamePromptState {
+	if src == nil {
+		return nil
+	}
+	dst := *src
+	return &dst
 }
 
 func (cr *ClientRenderer) loadState() *clientSnapshot {

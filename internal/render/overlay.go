@@ -5,6 +5,7 @@ package render
 type OverlayState struct {
 	PaneLabels []PaneOverlayLabel
 	Chooser    *ChooserOverlay
+	TextInput  *TextInputOverlay
 	Message    string
 }
 
@@ -20,4 +21,10 @@ type ChooserOverlay struct {
 type ChooserOverlayRow struct {
 	Text       string
 	Selectable bool
+}
+
+// TextInputOverlay is a client-local modal prompt rendered above the layout.
+type TextInputOverlay struct {
+	Title string
+	Input string
 }

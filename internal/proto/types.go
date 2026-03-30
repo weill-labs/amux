@@ -80,6 +80,7 @@ type CaptureUI struct {
 	CopyMode     bool   `json:"copy_mode,omitempty"`
 	DisplayPanes bool   `json:"display_panes,omitempty"`
 	Chooser      string `json:"chooser,omitempty"`
+	Prompt       string `json:"prompt,omitempty"`
 	InputIdle    bool   `json:"input_idle"`
 }
 

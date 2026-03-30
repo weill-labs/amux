@@ -171,6 +171,7 @@ func (cr *ClientRenderer) overlayStateFromSnapshot(state *clientSnapshot) render
 	return render.OverlayState{
 		PaneLabels: cr.overlayLabelsFromSnapshot(state),
 		Chooser:    cr.chooserOverlayFromSnapshot(state),
+		TextInput:  cr.windowRenamePromptOverlayFromSnapshot(state),
 		Message:    state.ui.message,
 	}
 }
