@@ -448,7 +448,9 @@ func TestZoomKeybinding(t *testing.T) {
 }
 
 func TestZoomSplitKeepsZoomAndFocus(t *testing.T) {
-	t.Parallel()
+	// Keep this serial: nested AmuxHarness startup is globally serialized, and
+	// running this zoom split path in the flake-detection x3 job can leave it
+	// stuck behind package-wide waitParallel contention before the test body runs.
 	h := newAmuxHarness(t)
 
 	h.splitH()
@@ -486,7 +488,10 @@ func TestZoomSplitKeepsZoomAndFocus(t *testing.T) {
 }
 
 func TestZoomAutoUnzoomOnFocus(t *testing.T) {
-	t.Parallel()
+	// Keep this serial for the same reason as TestZoomSplitKeepsZoomAndFocus:
+	// the nested harness startup gate already removes the startup benefit of
+	// top-level parallelism, while Go's flake-detection run has timed out with
+	// this test queued in waitParallel under -count=3 -parallel=2.
 	h := newAmuxHarness(t)
 
 	h.splitH()
