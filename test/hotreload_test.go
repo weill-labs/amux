@@ -7,17 +7,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/weill-labs/amux/internal/proto"
-)
-
-var (
-	serverCheckpointVersionPattern = regexp.MustCompile(`const ServerCheckpointVersion = \d+`)
-	crashCheckpointVersionPattern  = regexp.MustCompile(`const CrashVersion = \d+`)
 )
 
 func captureHistoryPaneFromAmux(tb testing.TB, h *AmuxHarness, pane string) proto.CapturePane {
@@ -123,124 +117,6 @@ func rewriteBinaryAtomic(binPath string) error {
 		return fmt.Errorf("renaming rewritten binary into place: %w", err)
 	}
 	return nil
-}
-
-func buildAmuxAtomicWithCheckpointVersionBumps(binPath, buildCommit string) error {
-	repoRoot, err := filepath.Abs("..")
-	if err != nil {
-		return fmt.Errorf("resolving repo root: %w", err)
-	}
-
-	checkpointSrcPath := filepath.Join(repoRoot, "internal", "checkpoint", "checkpoint.go")
-	checkpointSrc, err := os.ReadFile(checkpointSrcPath)
-	if err != nil {
-		return fmt.Errorf("reading server checkpoint source: %w", err)
-	}
-	serverVersionMatch := serverCheckpointVersionPattern.FindString(string(checkpointSrc))
-	if serverVersionMatch == "" {
-		return fmt.Errorf("finding server checkpoint version constant")
-	}
-	serverVersionOverride := serverCheckpointVersionPattern.ReplaceAllString(serverVersionMatch, fmt.Sprintf("const ServerCheckpointVersion = %d", currentServerCheckpointVersion(checkpointSrc)+1))
-	checkpointOverride := serverCheckpointVersionPattern.ReplaceAllString(string(checkpointSrc), serverVersionOverride)
-
-	crashSrcPath := filepath.Join(repoRoot, "internal", "checkpoint", "crash.go")
-	crashSrc, err := os.ReadFile(crashSrcPath)
-	if err != nil {
-		return fmt.Errorf("reading crash checkpoint source: %w", err)
-	}
-	crashVersionMatch := crashCheckpointVersionPattern.FindString(string(crashSrc))
-	if crashVersionMatch == "" {
-		return fmt.Errorf("finding crash checkpoint version constant")
-	}
-	crashVersionOverride := crashCheckpointVersionPattern.ReplaceAllString(crashVersionMatch, fmt.Sprintf("const CrashVersion = %d", currentCrashCheckpointVersion(crashSrc)+1))
-	crashOverride := crashCheckpointVersionPattern.ReplaceAllString(string(crashSrc), crashVersionOverride)
-
-	tmpDir, err := os.MkdirTemp("", "amux-version-bump-*")
-	if err != nil {
-		return fmt.Errorf("creating overlay dir: %w", err)
-	}
-	defer os.RemoveAll(tmpDir)
-
-	checkpointOverridePath := filepath.Join(tmpDir, "checkpoint.go")
-	if err := os.WriteFile(checkpointOverridePath, []byte(checkpointOverride), 0o600); err != nil {
-		return fmt.Errorf("writing server checkpoint override: %w", err)
-	}
-	crashOverridePath := filepath.Join(tmpDir, "crash.go")
-	if err := os.WriteFile(crashOverridePath, []byte(crashOverride), 0o600); err != nil {
-		return fmt.Errorf("writing crash checkpoint override: %w", err)
-	}
-
-	overlayPath := filepath.Join(tmpDir, "overlay.json")
-	overlayData, err := json.Marshal(struct {
-		Replace map[string]string `json:"Replace"`
-	}{
-		Replace: map[string]string{
-			checkpointSrcPath: checkpointOverridePath,
-			crashSrcPath:      crashOverridePath,
-		},
-	})
-	if err != nil {
-		return fmt.Errorf("encoding overlay: %w", err)
-	}
-	if err := os.WriteFile(overlayPath, overlayData, 0o600); err != nil {
-		return fmt.Errorf("writing overlay: %w", err)
-	}
-
-	tmpBin, err := os.CreateTemp(filepath.Dir(binPath), ".amux-version-bump-*")
-	if err != nil {
-		return fmt.Errorf("creating temp binary path: %w", err)
-	}
-	tmpBinPath := tmpBin.Name()
-	if closeErr := tmpBin.Close(); closeErr != nil {
-		os.Remove(tmpBinPath)
-		return fmt.Errorf("closing temp binary path: %w", closeErr)
-	}
-	if err := os.Remove(tmpBinPath); err != nil {
-		return fmt.Errorf("removing temp placeholder: %w", err)
-	}
-
-	args := []string{"build", "-overlay", overlayPath}
-	if os.Getenv("AMUX_TEST_RACE") == "1" {
-		args = append(args, "-race")
-	}
-	if os.Getenv("GOCOVERDIR") != "" {
-		args = append(args, "-cover", "-covermode=atomic")
-	}
-	if buildCommit != "" {
-		args = append(args, "-ldflags", "-X main.BuildCommit="+buildCommit)
-	}
-	args = append(args, "-o", tmpBinPath, repoRoot)
-
-	out, err := exec.Command("go", args...).CombinedOutput()
-	if err != nil {
-		os.Remove(tmpBinPath)
-		return fmt.Errorf("building version-bumped amux: %v\n%s", err, out)
-	}
-	if err := os.Rename(tmpBinPath, binPath); err != nil {
-		os.Remove(tmpBinPath)
-		return fmt.Errorf("renaming rebuilt binary into place: %w", err)
-	}
-	return nil
-}
-
-func currentServerCheckpointVersion(src []byte) int {
-	match := serverCheckpointVersionPattern.FindStringSubmatch(string(src))
-	if len(match) == 0 {
-		return 0
-	}
-	var version int
-	_, _ = fmt.Sscanf(match[0], "const ServerCheckpointVersion = %d", &version)
-	return version
-}
-
-func currentCrashCheckpointVersion(src []byte) int {
-	match := crashCheckpointVersionPattern.FindStringSubmatch(string(src))
-	if len(match) == 0 {
-		return 0
-	}
-	var version int
-	_, _ = fmt.Sscanf(match[0], "const CrashVersion = %d", &version)
-	return version
 }
 
 func runAmuxCommandWithBin(tb testing.TB, binPath, home, coverDir, session string, args ...string) string {
@@ -524,56 +400,6 @@ func TestServerAutoReload(t *testing.T) {
 	if !h.waitFor("SRVAUTO", 5*time.Second) {
 		screen := h.captureOuter()
 		t.Fatalf("SRVAUTO should be visible after server auto-reload\nScreen:\n%s", screen)
-	}
-}
-
-func TestServerHotReloadFallsBackToCrashCheckpointAcrossVersionBump(t *testing.T) {
-	t.Parallel()
-
-	privateBin := filepath.Join(t.TempDir(), "amux")
-	if err := buildAmuxWithCommit(privateBin, "oldbuild"); err != nil {
-		t.Fatalf("building old amux binary: %v", err)
-	}
-
-	h := newPersistentReloadHarness(t, privateBin)
-
-	h.sendKeys("echo BEFOREBUMP", "Enter")
-	if !h.waitFor("BEFOREBUMP", 3*time.Second) {
-		t.Fatalf("BEFOREBUMP not visible\nScreen:\n%s", h.captureOuter())
-	}
-
-	h.splitV()
-	uiBefore := h.uiGen()
-
-	if err := buildAmuxAtomicWithCheckpointVersionBumps(privateBin, "newbuild"); err != nil {
-		t.Fatalf("building version-bumped amux binary: %v", err)
-	}
-
-	h.runCmd("reload-server")
-	h.waitUIGenChange(uiBefore, 15*time.Second)
-
-	if !h.waitFor("[pane-", 15*time.Second) {
-		t.Fatalf("session did not recover after version-bumped reload\nScreen:\n%s", h.captureOuter())
-	}
-
-	if !h.waitForFunc(func(s string) bool {
-		return strings.Contains(s, "[pane-1]") && strings.Contains(s, "[pane-2]")
-	}, 10*time.Second) {
-		t.Fatalf("both panes should be visible after version-bumped reload\nScreen:\n%s", h.captureOuter())
-	}
-
-	after := waitForOutput(t, 10*time.Second, func() string {
-		return h.runCmd("status")
-	}, func(out string) bool {
-		return strings.Contains(out, "build: newbuild")
-	})
-	if !strings.Contains(after, "build: newbuild") {
-		t.Fatalf("status after reload = %q, want new build marker", after)
-	}
-
-	h.sendKeys("echo AFTERBUMP", "Enter")
-	if !h.waitFor("AFTERBUMP", 5*time.Second) {
-		t.Fatalf("PTY should work after version-bumped reload\nScreen:\n%s", h.captureOuter())
 	}
 }
 

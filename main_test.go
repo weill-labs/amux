@@ -2,11 +2,15 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"os"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/weill-labs/amux/internal/checkpoint"
 )
 
 func TestParseSplitArgs(t *testing.T) {
@@ -91,6 +95,52 @@ func TestDefaultSessionNameValue(t *testing.T) {
 
 	if defaultSessionName != "main" {
 		t.Fatalf("defaultSessionName = %q, want %q", defaultSessionName, "main")
+	}
+}
+
+func TestBuildVersionIncludesCheckpointVersion(t *testing.T) {
+	t.Parallel()
+
+	got := buildVersion()
+	want := "checkpoint v" + strconv.Itoa(checkpoint.ServerCheckpointVersion)
+	if !strings.Contains(got, want) {
+		t.Fatalf("buildVersion() = %q, want substring %q", got, want)
+	}
+}
+
+func TestWriteVersionOutputJSON(t *testing.T) {
+	t.Parallel()
+
+	var out bytes.Buffer
+	if err := writeVersionOutput(&out, []string{"--json"}); err != nil {
+		t.Fatalf("writeVersionOutput(--json): %v", err)
+	}
+
+	var info struct {
+		Build             string `json:"build"`
+		CheckpointVersion int    `json:"checkpoint_version"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &info); err != nil {
+		t.Fatalf("json.Unmarshal(version output): %v\nraw:\n%s", err, out.String())
+	}
+	if info.Build == "" {
+		t.Fatal("version json build = empty, want build identifier")
+	}
+	if info.CheckpointVersion != checkpoint.ServerCheckpointVersion {
+		t.Fatalf("checkpoint_version = %d, want %d", info.CheckpointVersion, checkpoint.ServerCheckpointVersion)
+	}
+}
+
+func TestWriteVersionOutputHash(t *testing.T) {
+	t.Parallel()
+
+	var out bytes.Buffer
+	if err := writeVersionOutput(&out, []string{"--hash"}); err != nil {
+		t.Fatalf("writeVersionOutput(--hash): %v", err)
+	}
+
+	if got := strings.TrimSpace(out.String()); got != buildHash() {
+		t.Fatalf("hash output = %q, want %q", got, buildHash())
 	}
 }
 
