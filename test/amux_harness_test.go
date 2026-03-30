@@ -35,7 +35,48 @@ type AmuxHarness struct {
 	initialLeadHandled bool
 }
 
+// Nested harnesses only need startup serialization when an inner session is
+// explicitly watching the shared package-level test binary. Most integration
+// tests do not exercise auto-reload, so they disable watch by default.
 var nestedHarnessStartupMu sync.Mutex
+
+func prepareInnerAmuxEnv(envVars []string) []string {
+	out := append([]string(nil), envVars...)
+	if _, ok := lookupInnerAmuxEnv(out, "AMUX_NO_WATCH"); !ok {
+		out = append(out, "AMUX_NO_WATCH=1")
+	}
+	return out
+}
+
+func lookupInnerAmuxEnv(envVars []string, key string) (string, bool) {
+	prefix := key + "="
+	for _, ev := range envVars {
+		if strings.HasPrefix(ev, prefix) {
+			return strings.TrimPrefix(ev, prefix), true
+		}
+	}
+	return "", false
+}
+
+func needsNestedHarnessStartupLock(binPath string, envVars []string) bool {
+	if binPath != amuxBin {
+		return false
+	}
+	noWatch, ok := lookupInnerAmuxEnv(envVars, "AMUX_NO_WATCH")
+	return ok && noWatch != "1"
+}
+
+func buildInnerAmuxLaunchCommand(binPath, session, launchDir string, envVars []string) string {
+	parts := make([]string, 0, 3)
+	if launchDir != "" {
+		parts = append(parts, fmt.Sprintf("cd %q &&", launchDir))
+	}
+	if len(envVars) > 0 {
+		parts = append(parts, strings.Join(envVars, " "))
+	}
+	parts = append(parts, fmt.Sprintf("%q -s %s", binPath, session))
+	return strings.Join(parts, " ")
+}
 
 // newAmuxHarness starts an outer amux server, launches an inner amux inside
 // the outer pane, and waits for the inner amux to render its first pane.
@@ -55,8 +96,7 @@ func newAmuxHarnessWithBin(tb testing.TB, binPath string, envVars ...string) *Am
 // launchDir is non-empty, starts it from that working directory.
 func newAmuxHarnessWithBinInDir(tb testing.TB, binPath, launchDir string, envVars ...string) *AmuxHarness {
 	tb.Helper()
-	nestedHarnessStartupMu.Lock()
-	defer nestedHarnessStartupMu.Unlock()
+	envVars = prepareInnerAmuxEnv(envVars)
 
 	// The outer harness is just the container for the inner amux session.
 	// Only hot-reload tests that launch a custom binary need the secondary
@@ -66,6 +106,10 @@ func newAmuxHarnessWithBinInDir(tb testing.TB, binPath, launchDir string, envVar
 	if binPath != amuxBin {
 		outer = newServerHarnessPersistentKeepalive(tb)
 	}
+	if needsNestedHarnessStartupLock(binPath, envVars) {
+		nestedHarnessStartupMu.Lock()
+		defer nestedHarnessStartupMu.Unlock()
+	}
 
 	var b [4]byte
 	rand.Read(b[:])
@@ -73,24 +117,8 @@ func newAmuxHarnessWithBinInDir(tb testing.TB, binPath, launchDir string, envVar
 
 	h := &AmuxHarness{outer: outer, inner: inner, innerBin: binPath, tb: tb, session: inner}
 
-	// Export any extra environment variables before launching the inner amux.
-	for i, ev := range envVars {
-		if ev == "AMUX_EXIT_UNATTACHED=0" {
-			marker := fmt.Sprintf("__AMUX_ENV_%d__", i)
-			outer.sendKeys("pane-1", fmt.Sprintf("export %s && printf '%s\\n'", ev, marker), "Enter")
-			outer.waitForTimeout("pane-1", marker, "10s")
-			continue
-		}
-		outer.sendKeys("pane-1", "export "+ev, "Enter")
-	}
-
-	if launchDir != "" {
-		outer.sendKeys("pane-1", fmt.Sprintf("cd %q && printf '__AMUX_CWD__%%s\\n' \"$PWD\"", launchDir), "Enter")
-		outer.waitForTimeout("pane-1", "__AMUX_CWD__"+launchDir, "10s")
-	}
-
 	// Launch inner amux inside the outer pane.
-	outer.sendKeys("pane-1", fmt.Sprintf("%q -s %s", binPath, inner), "Enter")
+	outer.sendKeys("pane-1", buildInnerAmuxLaunchCommand(binPath, inner, launchDir, envVars), "Enter")
 
 	// Wait for the inner amux client to render (status bar appears in outer
 	// pane). Once the client has rendered, the inner server is guaranteed to
@@ -644,13 +672,9 @@ func (h *AmuxHarness) doSplit(key string) {
 
 func (h *AmuxHarness) unsetLead() {
 	h.tb.Helper()
-	gen := h.generation()
-	h.sendKeys("C-a", "P")
-	h.waitLayout(gen)
-	for _, pane := range h.captureJSON().Panes {
-		if pane.Lead {
-			h.tb.Fatalf("toggle-lead keybinding should clear the initial lead, but %s is still lead", pane.Name)
-		}
+	out := h.runCmd("unset-lead")
+	if strings.Contains(out, "error") || strings.Contains(out, "cannot") {
+		h.tb.Fatalf("unset-lead failed: %s", out)
 	}
 	h.initialLeadHandled = true
 }
