@@ -138,6 +138,7 @@ type PaneInput struct {
 	Cwd           string
 	GitBranch     string
 	PR            string
+	KV            map[string]string
 	TrackedPRs    []proto.TrackedPR
 	TrackedIssues []proto.TrackedIssue
 	Cursor        proto.CaptureCursor
@@ -223,6 +224,7 @@ func BuildPane(input PaneInput, agentStatus map[uint32]proto.PaneAgentStatus) pr
 			Task:          input.Task,
 			GitBranch:     input.GitBranch,
 			PR:            input.PR,
+			KV:            cloneStringMap(input.KV),
 			TrackedPRs:    proto.CloneTrackedPRs(input.TrackedPRs),
 			TrackedIssues: proto.CloneTrackedIssues(input.TrackedIssues),
 		},
@@ -237,6 +239,17 @@ func BuildPane(input PaneInput, agentStatus map[uint32]proto.PaneAgentStatus) pr
 	}
 	cp.ApplyAgentStatus(agentStatus)
 	return cp
+}
+
+func cloneStringMap(src map[string]string) map[string]string {
+	if len(src) == 0 {
+		return nil
+	}
+	dst := make(map[string]string, len(src))
+	for key, value := range src {
+		dst[key] = value
+	}
+	return dst
 }
 
 func marshalIndented(v any) string {

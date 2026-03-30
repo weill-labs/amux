@@ -31,6 +31,7 @@ type PaneMeta struct {
 	Name          string               `json:"name"`
 	Host          string               `json:"host"`
 	Task          string               `json:"task,omitempty"`
+	KV            map[string]string    `json:"kv,omitempty"`
 	Remote        string               `json:"remote,omitempty"`
 	Color         string               `json:"color"`
 	Dormant       bool                 `json:"dormant,omitempty"`        // pane is in Session.Panes but not in any window layout (e.g., SSH takeover host)
@@ -136,6 +137,11 @@ type PaneTerminalSnapshot struct {
 // NOT start the read/drain/wait goroutines. Call Start() after releasing any
 // locks that the onOutput/onExit callbacks might need.
 func NewPaneWithScrollback(id uint32, meta PaneMeta, cols, rows int, sessionName string, scrollbackLines int, onOutput func(uint32, []byte, uint64), onExit func(uint32, string)) (*Pane, error) {
+	manualBranch, err := NormalizePaneMeta(&meta)
+	if err != nil {
+		return nil, err
+	}
+
 	shell := os.Getenv("SHELL")
 	if shell == "" {
 		shell = "/bin/bash"
@@ -158,17 +164,18 @@ func NewPaneWithScrollback(id uint32, meta PaneMeta, cols, rows int, sessionName
 	emu := NewVTEmulatorWithScrollback(cols, rows, scrollbackLines)
 
 	p := &Pane{
-		ID:              id,
-		Meta:            meta,
-		ptmx:            ptmx,
-		cmd:             cmd,
-		emulator:        emu,
-		exitDone:        make(chan struct{}),
-		onOutput:        onOutput,
-		onExit:          onExit,
-		createdAt:       time.Now(),
-		scrollbackLines: effectiveScrollbackLines(scrollbackLines),
-		scrollbackLimit: effectiveScrollbackLines(scrollbackLines),
+		ID:               id,
+		Meta:             meta,
+		ptmx:             ptmx,
+		cmd:              cmd,
+		emulator:         emu,
+		exitDone:         make(chan struct{}),
+		onOutput:         onOutput,
+		onExit:           onExit,
+		createdAt:        time.Now(),
+		metaManualBranch: manualBranch,
+		scrollbackLines:  effectiveScrollbackLines(scrollbackLines),
+		scrollbackLimit:  effectiveScrollbackLines(scrollbackLines),
 	}
 	p.baseHistory.Store(&paneBaseHistory{})
 	wireScrollbackCallbacks(p)
@@ -218,6 +225,11 @@ func paneCommandEnv(base []string, paneID uint32, sessionName string) []string {
 // shell is spawned — the existing shell survives the exec. The drain goroutine
 // starts immediately to prevent deadlock during screen replay.
 func RestorePaneWithScrollback(id uint32, meta PaneMeta, ptmxFd, pid, cols, rows int, scrollbackLines int, onOutput func(uint32, []byte, uint64), onExit func(uint32, string)) (*Pane, error) {
+	manualBranch, err := NormalizePaneMeta(&meta)
+	if err != nil {
+		return nil, err
+	}
+
 	ptmx := os.NewFile(uintptr(ptmxFd), fmt.Sprintf("ptmx-%d", id))
 	if ptmx == nil {
 		return nil, fmt.Errorf("invalid FD %d for pane %d", ptmxFd, id)
@@ -231,18 +243,19 @@ func RestorePaneWithScrollback(id uint32, meta PaneMeta, ptmxFd, pid, cols, rows
 	emu := NewVTEmulatorWithScrollback(cols, rows, scrollbackLines)
 
 	p := &Pane{
-		ID:              id,
-		Meta:            meta,
-		ptmx:            ptmx,
-		process:         proc,
-		emulator:        emu,
-		exitDone:        make(chan struct{}),
-		drainStarted:    true,
-		onOutput:        onOutput,
-		onExit:          onExit,
-		createdAt:       time.Now(),
-		scrollbackLines: effectiveScrollbackLines(scrollbackLines),
-		scrollbackLimit: effectiveScrollbackLines(scrollbackLines),
+		ID:               id,
+		Meta:             meta,
+		ptmx:             ptmx,
+		process:          proc,
+		emulator:         emu,
+		exitDone:         make(chan struct{}),
+		drainStarted:     true,
+		onOutput:         onOutput,
+		onExit:           onExit,
+		createdAt:        time.Now(),
+		metaManualBranch: manualBranch,
+		scrollbackLines:  effectiveScrollbackLines(scrollbackLines),
+		scrollbackLimit:  effectiveScrollbackLines(scrollbackLines),
 	}
 	p.baseHistory.Store(&paneBaseHistory{})
 	wireScrollbackCallbacks(p)
@@ -885,22 +898,27 @@ func (p *Pane) closeBlocking() error {
 func NewProxyPaneWithScrollback(id uint32, meta PaneMeta, cols, rows int,
 	scrollbackLines int, onOutput func(uint32, []byte, uint64), onExit func(uint32, string),
 	writeOverride func([]byte) (int, error)) *Pane {
+	manualBranch, err := NormalizePaneMeta(&meta)
+	if err != nil {
+		panic(err)
+	}
 
 	emu := NewVTEmulatorWithScrollback(cols, rows, scrollbackLines)
 	exitDone := make(chan struct{})
 	close(exitDone) // proxy panes have no process to wait for
 	p := &Pane{
-		ID:              id,
-		Meta:            meta,
-		emulator:        emu,
-		writeOverride:   writeOverride,
-		exitDone:        exitDone,
-		onOutput:        onOutput,
-		onExit:          onExit,
-		createdAt:       time.Now(),
-		drainStarted:    true, // no PTY responses to drain
-		scrollbackLines: effectiveScrollbackLines(scrollbackLines),
-		scrollbackLimit: effectiveScrollbackLines(scrollbackLines),
+		ID:               id,
+		Meta:             meta,
+		emulator:         emu,
+		writeOverride:    writeOverride,
+		exitDone:         exitDone,
+		onOutput:         onOutput,
+		onExit:           onExit,
+		createdAt:        time.Now(),
+		metaManualBranch: manualBranch,
+		drainStarted:     true, // no PTY responses to drain
+		scrollbackLines:  effectiveScrollbackLines(scrollbackLines),
+		scrollbackLimit:  effectiveScrollbackLines(scrollbackLines),
 	}
 	p.baseHistory.Store(&paneBaseHistory{})
 	wireScrollbackCallbacks(p)

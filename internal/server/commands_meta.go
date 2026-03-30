@@ -2,11 +2,144 @@ package server
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/weill-labs/amux/internal/mux"
 	metacmd "github.com/weill-labs/amux/internal/server/commands/meta"
 )
+
+func parseKVArg(raw string) (key, value string, err error) {
+	key, value, ok := strings.Cut(raw, "=")
+	if !ok {
+		return "", "", fmt.Errorf("invalid key=value: %q", raw)
+	}
+	if strings.TrimSpace(key) == "" {
+		return "", "", fmt.Errorf("invalid key=value: %q", raw)
+	}
+	return key, value, nil
+}
+
+func setPaneKVValue(pane *mux.Pane, key, value string) error {
+	manualBranch, err := mux.SetPaneMetaKV(&pane.Meta, key, value)
+	if err != nil {
+		return err
+	}
+	if key == mux.PaneMetaKeyBranch {
+		pane.SetMetaManualBranch(manualBranch)
+	}
+	return nil
+}
+
+func removePaneKVValue(pane *mux.Pane, key string) error {
+	manualBranch, err := mux.RemovePaneMetaKV(&pane.Meta, key)
+	if err != nil {
+		return err
+	}
+	if key == mux.PaneMetaKeyBranch {
+		pane.SetMetaManualBranch(manualBranch)
+	}
+	return nil
+}
+
+func formatPaneKV(meta mux.PaneMeta, requested []string) string {
+	kv := meta.KVSnapshot()
+	if len(kv) == 0 {
+		return ""
+	}
+
+	keys := requested
+	if len(keys) == 0 {
+		keys = make([]string, 0, len(kv))
+		for key := range kv {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+	}
+
+	var out strings.Builder
+	for _, key := range keys {
+		value, ok := kv[key]
+		if !ok {
+			continue
+		}
+		out.WriteString(key)
+		out.WriteByte('=')
+		out.WriteString(value)
+		out.WriteByte('\n')
+	}
+	return out.String()
+}
+
+func cmdSetKV(ctx *CommandContext) {
+	if len(ctx.Args) < 2 {
+		ctx.replyErr("usage: set-kv <pane> key=value [key=value...]")
+		return
+	}
+	paneRef := ctx.Args[0]
+	kvPairs := ctx.Args[1:]
+
+	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
+		pane, _, err := sess.resolvePaneAcrossWindowsForActor(ctx.ActorPaneID, paneRef)
+		if err != nil {
+			return commandMutationResult{err: err}
+		}
+		for _, raw := range kvPairs {
+			key, value, err := parseKVArg(raw)
+			if err != nil {
+				return commandMutationResult{err: err}
+			}
+			if err := setPaneKVValue(pane, key, value); err != nil {
+				return commandMutationResult{err: err}
+			}
+		}
+		return commandMutationResult{broadcastLayout: true}
+	}))
+}
+
+func cmdGetKV(ctx *CommandContext) {
+	if len(ctx.Args) < 1 {
+		ctx.replyErr("usage: get-kv <pane> [key...]")
+		return
+	}
+	paneRef := ctx.Args[0]
+	requested := ctx.Args[1:]
+
+	output, err := enqueueSessionQuery(ctx.Sess, func(sess *Session) (string, error) {
+		pane, _, err := sess.resolvePaneAcrossWindowsForActor(ctx.ActorPaneID, paneRef)
+		if err != nil {
+			return "", err
+		}
+		return formatPaneKV(pane.Meta, requested), nil
+	})
+	if err != nil {
+		ctx.replyErr(err.Error())
+		return
+	}
+	ctx.reply(output)
+}
+
+func cmdRmKV(ctx *CommandContext) {
+	if len(ctx.Args) < 2 {
+		ctx.replyErr("usage: rm-kv <pane> key [key...]")
+		return
+	}
+	paneRef := ctx.Args[0]
+	keys := ctx.Args[1:]
+
+	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
+		pane, _, err := sess.resolvePaneAcrossWindowsForActor(ctx.ActorPaneID, paneRef)
+		if err != nil {
+			return commandMutationResult{err: err}
+		}
+		for _, key := range keys {
+			if err := removePaneKVValue(pane, key); err != nil {
+				return commandMutationResult{err: err}
+			}
+		}
+		return commandMutationResult{broadcastLayout: true}
+	}))
+}
 
 func cmdSetMeta(ctx *CommandContext) {
 	if len(ctx.Args) < 2 {
@@ -21,23 +154,23 @@ func cmdSetMeta(ctx *CommandContext) {
 		if err != nil {
 			return commandMutationResult{err: err}
 		}
-		for _, kv := range kvPairs {
-			key, value, ok := strings.Cut(kv, "=")
-			if !ok {
-				return commandMutationResult{err: fmt.Errorf("invalid key=value: %q", kv)}
+		for _, raw := range kvPairs {
+			key, value, err := parseKVArg(raw)
+			if err != nil {
+				return commandMutationResult{err: err}
 			}
 			switch key {
-			case "task":
-				pane.Meta.Task = value
-			case "pr":
-				pane.Meta.PR = value
-			case "branch":
+			case mux.PaneMetaKeyTask, mux.PaneMetaKeyPR:
+				if err := setPaneKVValue(pane, key, value); err != nil {
+					return commandMutationResult{err: err}
+				}
+			case mux.PaneMetaKeyBranch:
 				if value == "" {
-					pane.SetMetaManualBranch(false)
-					pane.Meta.GitBranch = ""
-				} else {
-					pane.Meta.GitBranch = value
-					pane.SetMetaManualBranch(true)
+					if err := removePaneKVValue(pane, key); err != nil {
+						return commandMutationResult{err: err}
+					}
+				} else if err := setPaneKVValue(pane, key, value); err != nil {
+					return commandMutationResult{err: err}
 				}
 			default:
 				return commandMutationResult{err: fmt.Errorf("unknown meta key: %q (valid: task, pr, branch)", key)}
@@ -59,28 +192,42 @@ func cmdAddMeta(ctx *CommandContext) {
 		return
 	}
 
-	res := ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
+	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
 		pane, _, err := sess.resolvePaneAcrossWindowsForActor(ctx.ActorPaneID, paneRef)
 		if err != nil {
 			return commandMutationResult{err: err}
 		}
-		for _, pr := range update.PRs {
-			pane.Meta.TrackedPRs = metacmd.UpsertTrackedPR(pane.Meta.TrackedPRs, pr)
+
+		if len(update.PRs) > 0 {
+			prs := pane.Meta.TrackedPRs
+			for _, pr := range update.PRs {
+				prs = metacmd.UpsertTrackedPR(prs, pr)
+			}
+			if len(prs) == 0 {
+				if err := removePaneKVValue(pane, mux.PaneMetaKeyTrackedPRs); err != nil {
+					return commandMutationResult{err: err}
+				}
+			} else if err := setPaneKVValue(pane, mux.PaneMetaKeyTrackedPRs, mux.FormatTrackedPRsValue(prs)); err != nil {
+				return commandMutationResult{err: err}
+			}
 		}
-		for _, issue := range update.Issues {
-			pane.Meta.TrackedIssues = metacmd.UpsertTrackedIssue(pane.Meta.TrackedIssues, issue)
+
+		if len(update.Issues) > 0 {
+			issues := pane.Meta.TrackedIssues
+			for _, issue := range update.Issues {
+				issues = metacmd.UpsertTrackedIssue(issues, issue)
+			}
+			if len(issues) == 0 {
+				if err := removePaneKVValue(pane, mux.PaneMetaKeyTrackedIssues); err != nil {
+					return commandMutationResult{err: err}
+				}
+			} else if err := setPaneKVValue(pane, mux.PaneMetaKeyTrackedIssues, mux.FormatTrackedIssuesValue(issues)); err != nil {
+				return commandMutationResult{err: err}
+			}
 		}
+
 		return commandMutationResult{broadcastLayout: true}
-	})
-	if res.err == nil {
-		if err := ctx.Sess.refreshTrackedMetaForPaneRef(ctx.ActorPaneID, paneRef); err != nil {
-			res.err = err
-		}
-	}
-	if res.err == nil {
-		ctx.Sess.transitionTrackedIssuesToStartedAsync(update.Issues)
-	}
-	ctx.replyCommandMutation(res)
+	}))
 }
 
 func cmdRmMeta(ctx *CommandContext) {
@@ -100,68 +247,35 @@ func cmdRmMeta(ctx *CommandContext) {
 		if err != nil {
 			return commandMutationResult{err: err}
 		}
-		for _, pr := range update.PRs {
-			pane.Meta.TrackedPRs = metacmd.RemoveTrackedPR(pane.Meta.TrackedPRs, pr)
+
+		if len(update.PRs) > 0 {
+			prs := pane.Meta.TrackedPRs
+			for _, pr := range update.PRs {
+				prs = metacmd.RemoveTrackedPR(prs, pr)
+			}
+			if len(prs) == 0 {
+				if err := removePaneKVValue(pane, mux.PaneMetaKeyTrackedPRs); err != nil {
+					return commandMutationResult{err: err}
+				}
+			} else if err := setPaneKVValue(pane, mux.PaneMetaKeyTrackedPRs, mux.FormatTrackedPRsValue(prs)); err != nil {
+				return commandMutationResult{err: err}
+			}
 		}
-		for _, issue := range update.Issues {
-			pane.Meta.TrackedIssues = metacmd.RemoveTrackedIssue(pane.Meta.TrackedIssues, issue)
+
+		if len(update.Issues) > 0 {
+			issues := pane.Meta.TrackedIssues
+			for _, issue := range update.Issues {
+				issues = metacmd.RemoveTrackedIssue(issues, issue)
+			}
+			if len(issues) == 0 {
+				if err := removePaneKVValue(pane, mux.PaneMetaKeyTrackedIssues); err != nil {
+					return commandMutationResult{err: err}
+				}
+			} else if err := setPaneKVValue(pane, mux.PaneMetaKeyTrackedIssues, mux.FormatTrackedIssuesValue(issues)); err != nil {
+				return commandMutationResult{err: err}
+			}
 		}
+
 		return commandMutationResult{broadcastLayout: true}
 	}))
-}
-
-func cmdRefreshMeta(ctx *CommandContext) {
-	if len(ctx.Args) > 1 {
-		ctx.replyErr("usage: refresh-meta [pane]")
-		return
-	}
-
-	paneRef := ""
-	if len(ctx.Args) == 1 {
-		paneRef = ctx.Args[0]
-	}
-
-	if err := ctx.Sess.refreshPaneMetaForPaneRef(ctx.ActorPaneID, paneRef); err != nil {
-		ctx.replyErr(err.Error())
-		return
-	}
-	if err := ctx.Sess.refreshTrackedMetaForPaneRef(ctx.ActorPaneID, paneRef); err != nil {
-		ctx.replyErr(err.Error())
-		return
-	}
-	ctx.reply("")
-}
-
-func (s *Session) refreshPaneMetaForPaneRef(actorPaneID uint32, ref string) error {
-	pane, err := enqueueSessionQuery(s, func(sess *Session) (*mux.Pane, error) {
-		if ref == "" {
-			w := sess.windowForActor(actorPaneID)
-			if w == nil || w.ActivePane == nil {
-				return nil, fmt.Errorf("no active pane")
-			}
-			return w.ActivePane, nil
-		}
-		pane, _, err := sess.resolvePaneAcrossWindowsForActor(actorPaneID, ref)
-		if err != nil {
-			return nil, err
-		}
-		return pane, nil
-	})
-	if err != nil {
-		return err
-	}
-	if pane == nil || pane.IsProxy() {
-		return nil
-	}
-
-	cwd, branch := s.detectPaneCwdBranch(pane)
-	res := s.enqueueCommandMutation(func(sess *Session) commandMutationResult {
-		target := sess.findPaneByID(pane.ID)
-		if target == nil {
-			return commandMutationResult{}
-		}
-		target.ApplyCwdBranch(cwd, branch)
-		return commandMutationResult{broadcastLayout: true}
-	})
-	return res.err
 }

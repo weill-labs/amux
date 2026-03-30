@@ -75,7 +75,7 @@ type Session struct {
 	// the pane's DetectCwdBranch implementation.
 	PaneMetaResolver func(*mux.Pane) (cwd, branch string)
 	// DisablePaneMetaAutoRefresh skips background cwd/git refresh on idle
-	// transitions. Explicit refresh-meta commands still work.
+	// transitions.
 	DisablePaneMetaAutoRefresh bool
 
 	// Internal capture timing overrides. Zero values use defaults.
@@ -95,10 +95,6 @@ type Session struct {
 	// Used for async failures such as SSH takeover attach errors.
 	notice      string
 	noticeToken uint64
-
-	// TrackedMetaResolver resolves cached completion state for tracked PRs/issues.
-	// Nil disables external refreshes.
-	TrackedMetaResolver TrackedMetaResolver
 
 	// Capture forwarding — routes capture requests through an attached
 	// client so the result reflects client-side emulator state.

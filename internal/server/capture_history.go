@@ -90,6 +90,7 @@ func (s *Session) buildServerCapturePane(target capturePaneTarget, req caputil.R
 		Cwd:           captureCwd,
 		GitBranch:     target.pane.Meta.GitBranch,
 		PR:            target.pane.Meta.PR,
+		KV:            target.pane.Meta.KVSnapshot(),
 		TrackedPRs:    target.pane.Meta.TrackedPRs,
 		TrackedIssues: target.pane.Meta.TrackedIssues,
 		Cursor:        cursor,

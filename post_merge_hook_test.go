@@ -91,7 +91,7 @@ func TestPostMergeMainSyncScriptSkipsUntrackedFiles(t *testing.T) {
 	}
 }
 
-func TestPostMergeHookSyncsMainAndRefreshesPaneMeta(t *testing.T) {
+func TestPostMergeHookSyncsMainAndRunsPaneMetaSyncScript(t *testing.T) {
 	t.Parallel()
 
 	tempDir := t.TempDir()
@@ -99,6 +99,9 @@ func TestPostMergeHookSyncsMainAndRefreshesPaneMeta(t *testing.T) {
 	amuxLogPath := filepath.Join(tempDir, "amux.log")
 	writeFakeGit(t, tempDir)
 	writeFakeAmux(t, tempDir)
+	writeFakeGH(t, tempDir)
+	writeFakeCurl(t, tempDir)
+	writeFakeDate(t, tempDir)
 
 	input := `{"tool_input":{"command":"gh pr merge 470 --squash"}}`
 	out, exitCode := runBashScriptWithInput(t, ".claude/hooks/post-merge-postmortem.sh", input, postMergeHookEnv(tempDir,
@@ -106,6 +109,7 @@ func TestPostMergeHookSyncsMainAndRefreshesPaneMeta(t *testing.T) {
 		"FAKE_GIT_BRANCH=lab-502-post-merge-main-sync",
 		"FAKE_AMUX_LOG="+amuxLogPath,
 		"AMUX_PANE=7",
+		"LINEAR_API_KEY=test-linear-token",
 	))
 	if exitCode != 2 {
 		t.Fatalf("exit code = %d, want 2\n%s", exitCode, out)
@@ -117,8 +121,8 @@ func TestPostMergeHookSyncsMainAndRefreshesPaneMeta(t *testing.T) {
 		t.Fatalf("output = %q, want postmortem reminder", out)
 	}
 
-	if got := readTrimmedFile(t, amuxLogPath); got != "refresh-meta 7" {
-		t.Fatalf("amux args = %q, want %q", got, "refresh-meta 7")
+	if got := readTrimmedFile(t, amuxLogPath); !strings.Contains(got, "set-kv 7 ") {
+		t.Fatalf("amux args = %q, want set-kv sync call", got)
 	}
 }
 
@@ -230,7 +234,13 @@ func writeFakeAmux(t *testing.T, dir string) {
 	t.Helper()
 
 	script := `#!/bin/sh
-printf '%s' "$1" >"$FAKE_AMUX_LOG"
+if [ "$1" = "capture" ]; then
+cat <<'EOF'
+{"cwd":"/tmp/project","meta":{"tracked_prs":[{"number":470}],"tracked_issues":[{"id":"LAB-445"}]}}
+EOF
+exit 0
+fi
+printf '%s' "$1" >>"$FAKE_AMUX_LOG"
 shift
 for arg in "$@"; do
     printf ' %s' "$arg" >>"$FAKE_AMUX_LOG"
@@ -239,6 +249,41 @@ printf '\n' >>"$FAKE_AMUX_LOG"
 `
 	if err := os.WriteFile(filepath.Join(dir, "amux"), []byte(script), 0755); err != nil {
 		t.Fatalf("write fake amux: %v", err)
+	}
+}
+
+func writeFakeGH(t *testing.T, dir string) {
+	t.Helper()
+
+	script := `#!/bin/sh
+printf '2026-03-28T12:34:56Z\n'
+`
+	if err := os.WriteFile(filepath.Join(dir, "gh"), []byte(script), 0755); err != nil {
+		t.Fatalf("write fake gh: %v", err)
+	}
+}
+
+func writeFakeCurl(t *testing.T, dir string) {
+	t.Helper()
+
+	script := `#!/bin/sh
+cat <<'EOF'
+{"data":{"issue":{"state":{"type":"completed"}}}}
+EOF
+`
+	if err := os.WriteFile(filepath.Join(dir, "curl"), []byte(script), 0755); err != nil {
+		t.Fatalf("write fake curl: %v", err)
+	}
+}
+
+func writeFakeDate(t *testing.T, dir string) {
+	t.Helper()
+
+	script := `#!/bin/sh
+printf '2026-03-28T12:34:56Z\n'
+`
+	if err := os.WriteFile(filepath.Join(dir, "date"), []byte(script), 0755); err != nil {
+		t.Fatalf("write fake date: %v", err)
 	}
 }
 

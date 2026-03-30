@@ -384,6 +384,36 @@ func main() {
 			os.Exit(1)
 		}
 		runSessionCommand("resize-window", args[1:])
+	case "set-kv":
+		if hasHelpFlag(args[1:]) {
+			fmt.Fprintln(os.Stdout, "usage: amux set-kv <pane> key=value [key=value...]")
+			return
+		}
+		if len(args) < 3 {
+			fmt.Fprintf(os.Stderr, "usage: amux set-kv <pane> key=value [key=value...]\n")
+			os.Exit(1)
+		}
+		runSessionCommand("set-kv", args[1:])
+	case "get-kv":
+		if hasHelpFlag(args[1:]) {
+			fmt.Fprintln(os.Stdout, "usage: amux get-kv <pane> [key...]")
+			return
+		}
+		if len(args) < 2 {
+			fmt.Fprintf(os.Stderr, "usage: amux get-kv <pane> [key...]\n")
+			os.Exit(1)
+		}
+		runSessionCommand("get-kv", args[1:])
+	case "rm-kv":
+		if hasHelpFlag(args[1:]) {
+			fmt.Fprintln(os.Stdout, "usage: amux rm-kv <pane> key [key...]")
+			return
+		}
+		if len(args) < 3 {
+			fmt.Fprintf(os.Stderr, "usage: amux rm-kv <pane> key [key...]\n")
+			os.Exit(1)
+		}
+		runSessionCommand("rm-kv", args[1:])
 	case "set-meta":
 		if len(args) < 3 {
 			fmt.Fprintf(os.Stderr, "usage: amux set-meta <pane> key=value [key=value...]\n")
@@ -402,12 +432,6 @@ func main() {
 			os.Exit(1)
 		}
 		runSessionCommand("rm-meta", args[1:])
-	case "refresh-meta":
-		if len(args) > 2 {
-			fmt.Fprintf(os.Stderr, "usage: amux refresh-meta [pane]\n")
-			os.Exit(1)
-		}
-		runSessionCommand("refresh-meta", args[1:])
 
 	case "events":
 		runEventsCommand(resolvedSessionName, args[1:])
@@ -674,14 +698,18 @@ Usage:
   amux [-s session] focus <pane>       Focus a pane by name or ID
   amux [-s session] copy-mode [pane] [--wait ui=copy-mode-shown] [--timeout <duration>]
                                        Enter copy/scroll mode for a pane
+  amux [-s session] set-kv <pane> key=value [key=value...]
+                                       Set arbitrary pane metadata keys
+  amux [-s session] get-kv <pane> [key...]
+                                       Show pane metadata keys as key=value lines; missing keys print nothing
+  amux [-s session] rm-kv <pane> key [key...]
+                                       Remove pane metadata keys
   amux [-s session] set-meta <pane> key=value [key=value...]
                                        Set single-value pane metadata (task, branch, pr)
   amux [-s session] add-meta <pane> key=value [key=value...]
                                        Add pane metadata values (pr=NUMBER, issue=ID)
   amux [-s session] rm-meta <pane> key=value [key=value...]
                                        Remove pane metadata values (pr=NUMBER, issue=ID)
-  amux [-s session] refresh-meta [pane]
-                                       Refresh tracked PR/issue completion state
   amux [-s session] new-window         Create a new window
   amux [-s session] list-windows       List all windows
   amux [-s session] select-window <n>  Switch to window by index or name
@@ -842,7 +870,6 @@ func runServer(sessionName string, managedTakeover bool) {
 
 	var s *server.Server
 	var err error
-	restoredSession := false
 
 	// Load config for remote host definitions
 	cfg, cfgErr := config.Load(config.DefaultPath())
@@ -855,14 +882,12 @@ func runServer(sessionName string, managedTakeover bool) {
 	// Check for checkpoint restore (after server hot-reload)
 	if cpPath := os.Getenv("AMUX_CHECKPOINT"); cpPath != "" {
 		os.Unsetenv("AMUX_CHECKPOINT")
-		restoredSession = true
 		s, err = restoreServerFromReloadCheckpoint(sessionName, cpPath, scrollbackLines)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "amux server: reading checkpoint: %v\n", err)
 			os.Exit(1)
 		}
 	} else if crashPath := server.DetectCrashedSession(sessionName); crashPath != "" {
-		restoredSession = true
 		// Crash recovery: checkpoint exists but no server is running
 		crashCP, readErr := checkpoint.ReadCrash(crashPath)
 		if readErr != nil {
@@ -910,12 +935,6 @@ func runServer(sessionName string, managedTakeover bool) {
 
 	// Set up remote pane manager for all sessions
 	s.SetupRemoteManager(cfg, server.BuildVersion)
-	if metaRefreshEnabled {
-		s.SetTrackedMetaResolver(server.NewExternalTrackedMetaResolver())
-		if restoredSession {
-			s.RefreshTrackedMetaAsync()
-		}
-	}
 
 	// Handle shutdown signals. The goroutine calls Shutdown() which closes
 	// the listener, unblocking Run() below.

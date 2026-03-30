@@ -47,19 +47,20 @@ type CellSnapshot struct {
 
 // PaneSnapshot holds metadata for one pane.
 type PaneSnapshot struct {
-	ID            uint32         `json:"id"`
-	Name          string         `json:"name"`
-	Host          string         `json:"host"`
-	Task          string         `json:"task"`
-	Color         string         `json:"color"`
-	ColumnIndex   int            `json:"column_index"`
-	Idle          bool           `json:"idle"`
-	ConnStatus    string         `json:"conn_status,omitempty"` // "", "connected", "reconnecting", "disconnected" (remote panes only)
-	GitBranch     string         `json:"git_branch,omitempty"`
-	PR            string         `json:"pr,omitempty"`
-	TrackedPRs    []TrackedPR    `json:"tracked_prs,omitempty"`
-	TrackedIssues []TrackedIssue `json:"tracked_issues,omitempty"`
-	Lead          bool           `json:"lead,omitempty"`
+	ID            uint32            `json:"id"`
+	Name          string            `json:"name"`
+	Host          string            `json:"host"`
+	Task          string            `json:"task"`
+	KV            map[string]string `json:"kv,omitempty"`
+	Color         string            `json:"color"`
+	ColumnIndex   int               `json:"column_index"`
+	Idle          bool              `json:"idle"`
+	ConnStatus    string            `json:"conn_status,omitempty"` // "", "connected", "reconnecting", "disconnected" (remote panes only)
+	GitBranch     string            `json:"git_branch,omitempty"`
+	PR            string            `json:"pr,omitempty"`
+	TrackedPRs    []TrackedPR       `json:"tracked_prs,omitempty"`
+	TrackedIssues []TrackedIssue    `json:"tracked_issues,omitempty"`
+	Lead          bool              `json:"lead,omitempty"`
 }
 
 // CaptureJSON is the full-screen JSON capture output.
@@ -91,11 +92,12 @@ type CaptureWindow struct {
 
 // CaptureMeta holds user-managed pane metadata for JSON capture.
 type CaptureMeta struct {
-	Task          string         `json:"task,omitempty"`
-	GitBranch     string         `json:"git_branch,omitempty"`
-	PR            string         `json:"pr,omitempty"`
-	TrackedPRs    []TrackedPR    `json:"tracked_prs,omitempty"`
-	TrackedIssues []TrackedIssue `json:"tracked_issues,omitempty"`
+	Task          string            `json:"task,omitempty"`
+	GitBranch     string            `json:"git_branch,omitempty"`
+	PR            string            `json:"pr,omitempty"`
+	KV            map[string]string `json:"kv,omitempty"`
+	TrackedPRs    []TrackedPR       `json:"tracked_prs,omitempty"`
+	TrackedIssues []TrackedIssue    `json:"tracked_issues,omitempty"`
 }
 
 // CaptureError describes an unavailable or invalid JSON capture result.

@@ -339,7 +339,7 @@ func (e idleTimeoutEvent) handle(s *Session) {
 
 	// Refresh CWD/branch off the event loop to avoid blocking on lsof/git.
 	// Tests can disable this background path to keep integration timing
-	// deterministic and refresh metadata explicitly through refresh-meta.
+	// deterministic when they need stable snapshots.
 	if p := s.findPaneByID(e.paneID); p != nil && !p.IsProxy() && !s.DisablePaneMetaAutoRefresh {
 		pane := p
 		go func() {
@@ -409,18 +409,16 @@ func (e metaUpdateEvent) handle(s *Session) {
 		return
 	}
 	if e.update.Task != nil {
-		p.Meta.Task = *e.update.Task
+		_ = setPaneKVValue(p, mux.PaneMetaKeyTask, *e.update.Task)
 	}
 	if e.update.PR != nil {
-		p.Meta.PR = *e.update.PR
+		_ = setPaneKVValue(p, mux.PaneMetaKeyPR, *e.update.PR)
 	}
 	if e.update.Branch != nil {
 		if *e.update.Branch == "" {
-			p.SetMetaManualBranch(false)
-			p.Meta.GitBranch = ""
+			_ = removePaneKVValue(p, mux.PaneMetaKeyBranch)
 		} else {
-			p.Meta.GitBranch = *e.update.Branch
-			p.SetMetaManualBranch(true)
+			_ = setPaneKVValue(p, mux.PaneMetaKeyBranch, *e.update.Branch)
 		}
 	}
 	s.broadcastLayoutNow()
@@ -879,7 +877,6 @@ func (s *Session) disconnectClientsForReload(clients []*clientConn) {
 func (s *Session) handleAttachEvent(srv *Server, cc *clientConn, cols, rows int) attachResult {
 	idleSnap := s.snapshotIdleState()
 	countsForExitUnattached := cc.participatesInSizeNegotiation()
-	firstAttach := countsForExitUnattached && !s.hadClient
 
 	cc.cols = cols
 	cc.rows = rows
@@ -924,10 +921,6 @@ func (s *Session) handleAttachEvent(srv *Server, cc *clientConn, cols, rows int)
 			screen:    []byte(screen),
 			outputSeq: seq,
 		})
-	}
-
-	if firstAttach {
-		s.refreshTrackedMetaAsync()
 	}
 
 	return res

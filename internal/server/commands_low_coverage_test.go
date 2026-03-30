@@ -272,6 +272,55 @@ func TestCommandPaneMutationsAndMetadata(t *testing.T) {
 		t.Fatalf("set-meta usage error = %q", setMetaUsage.cmdErr)
 	}
 
+	setKVUsage := runTestCommand(t, srv, sess, "set-kv", "pane-1")
+	if setKVUsage.cmdErr != "usage: set-kv <pane> key=value [key=value...]" {
+		t.Fatalf("set-kv usage error = %q", setKVUsage.cmdErr)
+	}
+
+	setKVErr := runTestCommand(t, srv, sess, "set-kv", "pane-1", "nope")
+	if setKVErr.cmdErr != `invalid key=value: "nope"` {
+		t.Fatalf("set-kv invalid kv error = %q", setKVErr.cmdErr)
+	}
+
+	setKVRes := runTestCommand(t, srv, sess, "set-kv", "pane-1", "foo=bar", "task=ship", "branch=feature/x", "pr=456")
+	if setKVRes.cmdErr != "" {
+		t.Fatalf("set-kv error: %s", setKVRes.cmdErr)
+	}
+	meta := mustSessionQuery(t, sess, func(sess *Session) mux.PaneMeta { return sess.findPaneByID(p1.ID).Meta })
+	if meta.Task != "ship" || meta.PR != "456" || meta.GitBranch != "feature/x" {
+		t.Fatalf("pane metadata after set-kv = %#v", meta)
+	}
+	kvs := reflect.ValueOf(meta).FieldByName("KV")
+	if !kvs.IsValid() {
+		t.Fatal("PaneMeta.KV field missing")
+	}
+	if got := kvs.MapIndex(reflect.ValueOf("foo")); !got.IsValid() || got.String() != "bar" {
+		t.Fatalf("KV[foo] = %#v, want bar", got)
+	}
+
+	getKVRes := runTestCommand(t, srv, sess, "get-kv", "pane-1")
+	if getKVRes.cmdErr != "" {
+		t.Fatalf("get-kv error: %s", getKVRes.cmdErr)
+	}
+	for _, want := range []string{"branch=feature/x", "foo=bar", "pr=456", "task=ship"} {
+		if !strings.Contains(getKVRes.output, want) {
+			t.Fatalf("get-kv output missing %q:\n%s", want, getKVRes.output)
+		}
+	}
+
+	getKVSubset := runTestCommand(t, srv, sess, "get-kv", "pane-1", "foo", "task")
+	if getKVSubset.cmdErr != "" {
+		t.Fatalf("get-kv subset error: %s", getKVSubset.cmdErr)
+	}
+	if strings.Contains(getKVSubset.output, "branch=feature/x") || strings.Contains(getKVSubset.output, "pr=456") {
+		t.Fatalf("get-kv subset output should only contain requested keys, got:\n%s", getKVSubset.output)
+	}
+	for _, want := range []string{"foo=bar", "task=ship"} {
+		if !strings.Contains(getKVSubset.output, want) {
+			t.Fatalf("get-kv subset output missing %q:\n%s", want, getKVSubset.output)
+		}
+	}
+
 	setMetaErr := runTestCommand(t, srv, sess, "set-meta", "pane-1", "nope")
 	if setMetaErr.cmdErr != `invalid key=value: "nope"` {
 		t.Fatalf("set-meta invalid kv error = %q", setMetaErr.cmdErr)
@@ -286,7 +335,7 @@ func TestCommandPaneMutationsAndMetadata(t *testing.T) {
 	if setMetaRes.cmdErr != "" {
 		t.Fatalf("set-meta error: %s", setMetaRes.cmdErr)
 	}
-	meta := mustSessionQuery(t, sess, func(sess *Session) mux.PaneMeta { return sess.findPaneByID(p1.ID).Meta })
+	meta = mustSessionQuery(t, sess, func(sess *Session) mux.PaneMeta { return sess.findPaneByID(p1.ID).Meta })
 	if meta.Task != "ship" || meta.PR != "456" || meta.GitBranch != "feature/x" {
 		t.Fatalf("pane metadata = %#v", meta)
 	}
@@ -297,6 +346,18 @@ func TestCommandPaneMutationsAndMetadata(t *testing.T) {
 	}
 	if got := mustSessionQuery(t, sess, func(sess *Session) string { return sess.findPaneByID(p1.ID).Meta.GitBranch }); got != "" {
 		t.Fatalf("branch after clear = %q, want empty", got)
+	}
+	getKVAfterSetMeta := runTestCommand(t, srv, sess, "get-kv", "pane-1")
+	if getKVAfterSetMeta.cmdErr != "" {
+		t.Fatalf("get-kv after set-meta error: %s", getKVAfterSetMeta.cmdErr)
+	}
+	for _, want := range []string{"task=ship", "pr=456"} {
+		if !strings.Contains(getKVAfterSetMeta.output, want) {
+			t.Fatalf("get-kv after set-meta missing %q:\n%s", want, getKVAfterSetMeta.output)
+		}
+	}
+	if strings.Contains(getKVAfterSetMeta.output, "branch=") {
+		t.Fatalf("get-kv after clearing branch should not include branch key:\n%s", getKVAfterSetMeta.output)
 	}
 
 	addMetaUsage := runTestCommand(t, srv, sess, "add-meta", "pane-1")
@@ -329,6 +390,15 @@ func TestCommandPaneMutationsAndMetadata(t *testing.T) {
 	}
 	if issues := reflect.ValueOf(meta).FieldByName("TrackedIssues"); !issues.IsValid() || issues.Len() != 1 || issues.Index(0).FieldByName("ID").String() != "LAB-338" {
 		t.Fatalf("pane Issues = %#v, want [LAB-338]", issues)
+	}
+	getKVAfterAddMeta := runTestCommand(t, srv, sess, "get-kv", "pane-1", "tracked_prs", "tracked_issues")
+	if getKVAfterAddMeta.cmdErr != "" {
+		t.Fatalf("get-kv after add-meta error: %s", getKVAfterAddMeta.cmdErr)
+	}
+	for _, want := range []string{`tracked_prs=[{"number":42`, `tracked_issues=[{"id":"LAB-338"`} {
+		if !strings.Contains(getKVAfterAddMeta.output, want) {
+			t.Fatalf("get-kv after add-meta missing %q:\n%s", want, getKVAfterAddMeta.output)
+		}
 	}
 
 	mustSessionQuery(t, sess, func(sess *Session) struct{} {
@@ -368,6 +438,22 @@ func TestCommandPaneMutationsAndMetadata(t *testing.T) {
 	}
 	if issues := reflect.ValueOf(meta).FieldByName("TrackedIssues"); !issues.IsValid() || issues.Len() != 1 || issues.Index(0).FieldByName("ID").String() != "LAB-412" {
 		t.Fatalf("pane Issues after remove = %#v, want [LAB-412]", issues)
+	}
+	rmKVUsage := runTestCommand(t, srv, sess, "rm-kv", "pane-1")
+	if rmKVUsage.cmdErr != "usage: rm-kv <pane> key [key...]" {
+		t.Fatalf("rm-kv usage error = %q", rmKVUsage.cmdErr)
+	}
+
+	rmKVRes := runTestCommand(t, srv, sess, "rm-kv", "pane-1", "task")
+	if rmKVRes.cmdErr != "" {
+		t.Fatalf("rm-kv error: %s", rmKVRes.cmdErr)
+	}
+	if got := mustSessionQuery(t, sess, func(sess *Session) string { return sess.findPaneByID(p1.ID).Meta.Task }); got != "" {
+		t.Fatalf("task after rm-kv = %q, want empty", got)
+	}
+	getKVAfterRmKV := runTestCommand(t, srv, sess, "get-kv", "pane-1")
+	if strings.Contains(getKVAfterRmKV.output, "task=") {
+		t.Fatalf("get-kv after rm-kv should not include task key:\n%s", getKVAfterRmKV.output)
 	}
 
 	assertSessionLayoutConsistent(t, sess)
@@ -591,7 +677,7 @@ func TestCommandWaitClientsAndTypeKeys(t *testing.T) {
 		t.Fatalf("wait-ui success result = %#v", waitUISuccess)
 	}
 
-	for _, command := range []string{"set-hook", "unset-hook", "list-hooks", "delegate"} {
+	for _, command := range []string{"set-hook", "unset-hook", "list-hooks", "delegate", "refresh-meta"} {
 		res := runTestCommand(t, srv, sess, command)
 		if res.cmdErr != "unknown command: "+command {
 			t.Fatalf("%s result = %#v", command, res)
