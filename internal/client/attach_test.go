@@ -192,3 +192,61 @@ func TestTerminalExitSequence(t *testing.T) {
 		})
 	}
 }
+
+func TestWaitForRunSessionEnd(t *testing.T) {
+	t.Parallel()
+
+	t.Run("done without reload returns", func(t *testing.T) {
+		t.Parallel()
+
+		done := make(chan struct{})
+		close(done)
+		triggerReload := make(chan struct{}, 1)
+		reloaded := false
+
+		waitForRunSessionEnd(done, triggerReload, func() {
+			reloaded = true
+		})
+
+		if reloaded {
+			t.Fatal("reload should not run when only done is ready")
+		}
+	})
+
+	t.Run("reload without done triggers reload", func(t *testing.T) {
+		t.Parallel()
+
+		done := make(chan struct{})
+		triggerReload := make(chan struct{}, 1)
+		triggerReload <- struct{}{}
+		reloaded := false
+
+		waitForRunSessionEnd(done, triggerReload, func() {
+			reloaded = true
+		})
+
+		if !reloaded {
+			t.Fatal("reload should run when reload is ready")
+		}
+	})
+
+	t.Run("done and reload both ready still triggers reload", func(t *testing.T) {
+		t.Parallel()
+
+		for i := 0; i < 1000; i++ {
+			done := make(chan struct{})
+			close(done)
+			triggerReload := make(chan struct{}, 1)
+			triggerReload <- struct{}{}
+			reloaded := false
+
+			waitForRunSessionEnd(done, triggerReload, func() {
+				reloaded = true
+			})
+
+			if !reloaded {
+				t.Fatalf("iteration %d: reload should win when done and reload are both ready", i)
+			}
+		}
+	})
+}
