@@ -1,9 +1,6 @@
 package main
 
 import (
-	"go/ast"
-	"go/parser"
-	"go/token"
 	"slices"
 	"strings"
 	"testing"
@@ -148,7 +145,7 @@ func TestMainRemovedCommandsAreUnknown(t *testing.T) {
 	t.Parallel()
 
 	for _, command := range []string{
-		"set-hook", "unset-hook", "list-hooks", "delegate",
+		"set-hook", "unset-hook", "list-hooks", "delegate", "attach", "dashboard",
 		"type-keys", "split", "add-pane", "connection-log", "pane-log",
 		"set-kv", "get-kv", "rm-kv", "set-meta", "add-meta", "rm-meta", "refresh-meta",
 		"move-up", "move-down", "move-to", "set-lead", "unset-lead", "toggle-lead", "swap-tree",
@@ -302,6 +299,9 @@ func TestMainHelpIncludesCanonicalCommands(t *testing.T) {
 	if !strings.Contains(out, "amux [-s session] lead [pane]") {
 		t.Fatalf("help output missing lead:\n%s", out)
 	}
+	if strings.Contains(out, "amux [-s session] attach [session]") {
+		t.Fatalf("help output should omit removed attach alias:\n%s", out)
+	}
 	if strings.Contains(out, "amux [-s session] move-up <pane>") || strings.Contains(out, "amux [-s session] move-down <pane>") {
 		t.Fatalf("help output should omit removed move aliases:\n%s", out)
 	}
@@ -360,51 +360,10 @@ func TestMainAllCommandsSupportLongHelp(t *testing.T) {
 func mainDispatchCommands(t *testing.T) []string {
 	t.Helper()
 
-	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, "main.go", nil, 0)
-	if err != nil {
-		t.Fatalf("ParseFile(main.go): %v", err)
-	}
-
 	commands := map[string]struct{}{}
-	var mainBody *ast.BlockStmt
-	for _, decl := range file.Decls {
-		fn, ok := decl.(*ast.FuncDecl)
-		if !ok || fn.Name.Name != "main" {
-			continue
-		}
-		mainBody = fn.Body
-		break
+	for name := range commandUsageByName {
+		commands[name] = struct{}{}
 	}
-	if mainBody == nil {
-		t.Fatal("main function not found")
-	}
-
-	ast.Inspect(mainBody, func(n ast.Node) bool {
-		switchStmt, ok := n.(*ast.SwitchStmt)
-		if !ok || !isArgsIndexZeroExpr(switchStmt.Tag) {
-			return true
-		}
-		for _, stmt := range switchStmt.Body.List {
-			clause, ok := stmt.(*ast.CaseClause)
-			if !ok {
-				continue
-			}
-			for _, expr := range clause.List {
-				lit, ok := expr.(*ast.BasicLit)
-				if !ok || lit.Kind != token.STRING {
-					continue
-				}
-				name := strings.Trim(lit.Value, `"`)
-				switch name {
-				case "help", "--help", "-h":
-					continue
-				}
-				commands[name] = struct{}{}
-			}
-		}
-		return false
-	})
 
 	names := make([]string, 0, len(commands))
 	for name := range commands {
@@ -412,19 +371,6 @@ func mainDispatchCommands(t *testing.T) []string {
 	}
 	slices.Sort(names)
 	return names
-}
-
-func isArgsIndexZeroExpr(expr ast.Expr) bool {
-	indexExpr, ok := expr.(*ast.IndexExpr)
-	if !ok {
-		return false
-	}
-	ident, ok := indexExpr.X.(*ast.Ident)
-	if !ok || ident.Name != "args" {
-		return false
-	}
-	lit, ok := indexExpr.Index.(*ast.BasicLit)
-	return ok && lit.Kind == token.INT && lit.Value == "0"
 }
 
 func TestMainKillAllowsImplicitActivePane(t *testing.T) {
