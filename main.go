@@ -38,13 +38,24 @@ const (
 	cursorUsage       = "usage: amux cursor <layout|clipboard|ui> [--client <id>]"
 	disconnectUsage   = "usage: amux disconnect <host>"
 	focusUsage        = "usage: amux focus <pane>"
+	listClientsUsage  = "usage: amux list-clients"
+	listUsage         = "usage: amux list [--no-cwd]"
+	listWindowsUsage  = "usage: amux list-windows"
 	reconnectUsage    = "usage: amux reconnect <host>"
+	reloadServerUsage = "usage: amux reload-server"
 	renameWindowUsage = "usage: amux rename-window <name>"
 	resetUsage        = "usage: amux reset <pane>"
 	resizeWindowUsage = "usage: amux resize-window <cols> <rows>"
+	rotateUsage       = "usage: amux rotate [--reverse]"
 	selectWindowUsage = "usage: amux select-window <index|name>"
+	statusUsage       = "usage: amux status"
 	unspliceUsage     = "usage: amux unsplice <host>"
+	undoUsage         = "usage: amux undo"
 	waitUsage         = "usage: amux wait <idle|busy|exited|ready|content|layout|clipboard|checkpoint|ui> ..."
+	newWindowUsage    = "usage: amux new-window [--name NAME]"
+	nextWindowUsage   = "usage: amux next-window"
+	prevWindowUsage   = "usage: amux prev-window"
+	zoomUsage         = "usage: amux zoom [pane]"
 )
 
 const reconnectEventType = "reconnect"
@@ -73,24 +84,24 @@ var canonicalSessionCommands = map[string]sessionCommandSpec{
 	"disconnect":    {connectName: "disconnect", minArgs: 1, usage: disconnectUsage, argMode: sessionCommandFirstArg},
 	"focus":         {connectName: "focus", minArgs: 1, usage: focusUsage, argMode: sessionCommandFirstArg},
 	"hosts":         {connectName: "hosts", argMode: sessionCommandNoArgs},
-	"list":          {connectName: "list", argMode: sessionCommandForwardArgs},
-	"list-clients":  {connectName: "list-clients", argMode: sessionCommandNoArgs},
-	"list-windows":  {connectName: "list-windows", argMode: sessionCommandNoArgs},
-	"new-window":    {connectName: "new-window", argMode: sessionCommandForwardArgs},
-	"next-window":   {connectName: "next-window", argMode: sessionCommandNoArgs},
-	"prev-window":   {connectName: "prev-window", argMode: sessionCommandNoArgs},
+	"list":          {connectName: "list", usage: listUsage, argMode: sessionCommandForwardArgs},
+	"list-clients":  {connectName: "list-clients", usage: listClientsUsage, argMode: sessionCommandNoArgs},
+	"list-windows":  {connectName: "list-windows", usage: listWindowsUsage, argMode: sessionCommandNoArgs},
+	"new-window":    {connectName: "new-window", usage: newWindowUsage, argMode: sessionCommandForwardArgs},
+	"next-window":   {connectName: "next-window", usage: nextWindowUsage, argMode: sessionCommandNoArgs},
+	"prev-window":   {connectName: "prev-window", usage: prevWindowUsage, argMode: sessionCommandNoArgs},
 	"reconnect":     {connectName: "reconnect", minArgs: 1, usage: reconnectUsage, argMode: sessionCommandFirstArg},
-	"reload-server": {connectName: "reload-server", argMode: sessionCommandNoArgs},
+	"reload-server": {connectName: "reload-server", usage: reloadServerUsage, argMode: sessionCommandNoArgs},
 	"rename-window": {connectName: "rename-window", minArgs: 1, usage: renameWindowUsage, argMode: sessionCommandFirstArg},
 	"reset":         {connectName: "reset", minArgs: 1, usage: resetUsage, argMode: sessionCommandFirstArg},
 	"resize-window": {connectName: "resize-window", minArgs: 2, usage: resizeWindowUsage, argMode: sessionCommandForwardArgs},
-	"rotate":        {connectName: "rotate", argMode: sessionCommandForwardArgs},
+	"rotate":        {connectName: "rotate", usage: rotateUsage, argMode: sessionCommandForwardArgs},
 	"select-window": {connectName: "select-window", minArgs: 1, usage: selectWindowUsage, argMode: sessionCommandFirstArg},
-	"status":        {connectName: "status", argMode: sessionCommandNoArgs},
-	"undo":          {connectName: "undo", argMode: sessionCommandNoArgs},
+	"status":        {connectName: "status", usage: statusUsage, argMode: sessionCommandNoArgs},
+	"undo":          {connectName: "undo", usage: undoUsage, argMode: sessionCommandNoArgs},
 	"unsplice":      {connectName: "unsplice", minArgs: 1, usage: unspliceUsage, argMode: sessionCommandFirstArg},
 	"wait":          {connectName: "wait", minArgs: 1, usage: waitUsage, argMode: sessionCommandForwardArgs},
-	"zoom":          {connectName: "zoom", argMode: sessionCommandForwardArgs},
+	"zoom":          {connectName: "zoom", usage: zoomUsage, argMode: sessionCommandForwardArgs},
 }
 
 var commandUsageByName = map[string]string{
@@ -109,33 +120,33 @@ var commandUsageByName = map[string]string{
 	"install-terminfo": "usage: amux install-terminfo",
 	"kill":             "usage: amux kill [--cleanup] [--timeout <duration>] [pane]",
 	"lead":             leadUsage,
-	"list":             "usage: amux list [--no-cwd]",
-	"list-clients":     "usage: amux list-clients",
-	"list-windows":     "usage: amux list-windows",
+	"list":             listUsage,
+	"list-clients":     listClientsUsage,
+	"list-windows":     listWindowsUsage,
 	"log":              logUsage,
 	"meta":             metaUsage,
 	"move":             moveUsage,
 	"new":              "usage: amux new [name]",
-	"new-window":       "usage: amux new-window [--name NAME]",
-	"next-window":      "usage: amux next-window",
-	"prev-window":      "usage: amux prev-window",
+	"new-window":       newWindowUsage,
+	"next-window":      nextWindowUsage,
+	"prev-window":      prevWindowUsage,
 	"reconnect":        reconnectUsage,
-	"reload-server":    "usage: amux reload-server",
+	"reload-server":    reloadServerUsage,
 	"rename-window":    renameWindowUsage,
 	"reset":            "usage: amux reset <pane>",
 	"resize-pane":      "usage: amux resize-pane <pane> <direction> [delta]",
 	"resize-window":    resizeWindowUsage,
-	"rotate":           "usage: amux rotate [--reverse]",
+	"rotate":           rotateUsage,
 	"select-window":    selectWindowUsage,
 	"send-keys":        sendKeysUsage,
 	"spawn":            spawnUsage,
-	"status":           "usage: amux status",
-	"undo":             "usage: amux undo",
+	"status":           statusUsage,
+	"undo":             undoUsage,
 	"swap":             swapUsage,
 	"unsplice":         unspliceUsage,
 	"version":          "usage: amux version [--hash|--json]",
 	"wait":             "usage: amux wait <idle|busy|exited|ready|content|layout|clipboard|checkpoint|ui> ...",
-	"zoom":             "usage: amux zoom [pane]",
+	"zoom":             zoomUsage,
 }
 
 // BuildCommit can be set via -ldflags "-X main.BuildCommit=abc1234".
