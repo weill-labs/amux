@@ -15,20 +15,15 @@ func TestCommandAddPaneLocalKeepsFocus(t *testing.T) {
 	srv, sess, cleanup := newCommandTestSession(t)
 	defer cleanup()
 
-	p1, err := sess.createPane(srv, 80, 23)
-	if err != nil {
-		t.Fatalf("createPane: %v", err)
-	}
+	p1 := mustCreatePane(t, sess, srv, 80, 23)
 	p1.Start()
 
 	w := mux.NewWindow(p1, 80, 24)
 	w.ID = 1
 	w.Name = "main"
-	sess.Windows = []*mux.Window{w}
-	sess.ActiveWindowID = w.ID
-	sess.Panes = []*mux.Pane{p1}
+	setSessionLayoutForTest(t, sess, w.ID, []*mux.Window{w}, p1)
 
-	res := runTestCommand(t, srv, sess, "add-pane", "--name", "spiral-2")
+	res := runTestCommand(t, srv, sess, "add-pane", "--name", "spiral-2", "--no-focus")
 	if res.cmdErr != "" || !strings.Contains(res.output, "Added pane spiral-2") {
 		t.Fatalf("add-pane result = %#v", res)
 	}

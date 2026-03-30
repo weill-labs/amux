@@ -148,7 +148,7 @@ agent() {
     sleep 2.5
 
     layout=$("$AMUX" -s "$session" cursor layout)
-    "$AMUX" -s "$session" spawn --vertical --focus >/dev/null
+    "$AMUX" -s "$session" spawn --vertical >/dev/null
     "$AMUX" -s "$session" wait layout --after "$layout" --timeout 5s >/dev/null
     sleep 1.0
 

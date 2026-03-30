@@ -19,10 +19,10 @@ func DefaultKeybindings() *Keybindings {
 	return &Keybindings{
 		Prefix: 0x01, // Ctrl-a
 		Bindings: map[byte]Binding{
-			'\\': {Action: "split-focus", Args: []string{"root", "v"}},
-			'-':  {Action: "split-focus"},
-			'|':  {Action: "split-focus", Args: []string{"v"}},
-			'_':  {Action: "split-focus", Args: []string{"root"}},
+			'\\': {Action: "split", Args: []string{"root", "v"}},
+			'-':  {Action: "split"},
+			'|':  {Action: "split", Args: []string{"v"}},
+			'_':  {Action: "split", Args: []string{"root"}},
 			'}':  {Action: "swap", Args: []string{"forward"}},
 			'{':  {Action: "swap", Args: []string{"backward"}},
 			'o':  {Action: "focus", Args: []string{"next"}},
