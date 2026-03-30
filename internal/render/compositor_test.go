@@ -8,6 +8,7 @@ import (
 
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/weill-labs/amux/internal/copymode"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
 )
@@ -18,6 +19,7 @@ type fakePaneData struct {
 	name         string
 	screen       string
 	cursorHidden bool
+	copyOverlay  *copymode.ViewportOverlay
 }
 
 func (f *fakePaneData) RenderScreen(bool) string { return f.screen }
@@ -67,6 +69,9 @@ func (f *fakePaneData) ConnStatus() string                  { return "" }
 func (f *fakePaneData) InCopyMode() bool                    { return false }
 func (f *fakePaneData) CopyModeSearch() string              { return "" }
 func (f *fakePaneData) HasCursorBlock() bool                { return false }
+func (f *fakePaneData) CopyModeOverlay() *copymode.ViewportOverlay {
+	return f.copyOverlay
+}
 
 func TestFakePaneDataCellAtUsesDisplayColumnsForGraphemes(t *testing.T) {
 	t.Parallel()
@@ -91,6 +96,38 @@ func TestFakePaneDataCellAtUsesDisplayColumnsForGraphemes(t *testing.T) {
 				t.Fatalf("CellAt(%d, 0) = %+v, want %+v", tt.col, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestPaneContentRowCellsAppliesCopyModeOverlay(t *testing.T) {
+	t.Parallel()
+
+	pd := &fakePaneData{
+		screen: "abcde",
+		copyOverlay: &copymode.ViewportOverlay{
+			Cursor: copymode.CursorPosition{Col: 3, Row: 0},
+			HighlightedLines: []copymode.HighlightLine{
+				{
+					Row: 0,
+					Spans: []copymode.HighlightSpan{
+						{StartCol: 1, EndCol: 2, Kind: copymode.HighlightSelection},
+						{StartCol: 2, EndCol: 3, Kind: copymode.HighlightCurrentMatch},
+					},
+				},
+			},
+		},
+	}
+
+	row := paneContentRowCells(5, 0, true, pd)
+
+	if row[1].Style.Bg == nil {
+		t.Fatal("selection cell should have a background highlight")
+	}
+	if row[2].Style.Bg == nil || row[2].Style.Attrs&uv.AttrBold == 0 {
+		t.Fatalf("current match cell = %+v, want highlighted bold cell", row[2])
+	}
+	if row[3].Style.Attrs&uv.AttrReverse == 0 {
+		t.Fatalf("cursor cell = %+v, want reverse-video cursor", row[3])
 	}
 }
 

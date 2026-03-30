@@ -1989,3 +1989,65 @@ func TestViWordEndWrapsToNextLine(t *testing.T) {
 		t.Fatalf("e wrap moved cursor to (%d,%d), want (1,1)", cx, cy)
 	}
 }
+
+func TestViewportOverlayIncludesSelectionRangeAndVisibleHighlights(t *testing.T) {
+	t.Parallel()
+
+	emu := newFakeEmulator(20, 3)
+	emu.screen = []string{"hello world", "second line", "third line"}
+	cm := New(emu, 20, 3, 0)
+
+	cm.cx = 2
+	cm.StartSelection()
+	cm.HandleInput([]byte{'j', 'l', 'l'})
+
+	overlay := cm.ViewportOverlay()
+	if overlay == nil {
+		t.Fatal("ViewportOverlay() = nil, want overlay")
+	}
+	if overlay.Cursor != (CursorPosition{Col: 4, Row: 1}) {
+		t.Fatalf("overlay.Cursor = %+v, want %+v", overlay.Cursor, CursorPosition{Col: 4, Row: 1})
+	}
+	if overlay.Selection == nil {
+		t.Fatal("overlay.Selection = nil, want selection range")
+	}
+	if overlay.Selection.Mode != SelectionModeCharacter {
+		t.Fatalf("overlay.Selection.Mode = %d, want %d", overlay.Selection.Mode, SelectionModeCharacter)
+	}
+	if overlay.Selection.StartLine != 0 || overlay.Selection.StartCol != 2 || overlay.Selection.EndLine != 1 || overlay.Selection.EndCol != 4 {
+		t.Fatalf("overlay.Selection = %+v, want start=(0,2) end=(1,4)", overlay.Selection)
+	}
+
+	wantLines := []HighlightLine{
+		{Row: 0, Spans: []HighlightSpan{{StartCol: 2, EndCol: 20, Kind: HighlightSelection}}},
+		{Row: 1, Spans: []HighlightSpan{{StartCol: 0, EndCol: 5, Kind: HighlightSelection}}},
+	}
+	if fmt.Sprintf("%#v", overlay.HighlightedLines) != fmt.Sprintf("%#v", wantLines) {
+		t.Fatalf("overlay.HighlightedLines = %#v, want %#v", overlay.HighlightedLines, wantLines)
+	}
+}
+
+func TestViewportOverlayMarksCurrentAndNonCurrentSearchMatches(t *testing.T) {
+	t.Parallel()
+
+	emu := newFakeEmulator(20, 3)
+	emu.screen = []string{"alpha one", "middle", "alpha two"}
+	cm := New(emu, 20, 3, 0)
+
+	cm.HandleInput([]byte{'/'})
+	cm.HandleInput([]byte("alpha"))
+	cm.HandleInput([]byte{'\r'})
+
+	overlay := cm.ViewportOverlay()
+	if overlay == nil {
+		t.Fatal("ViewportOverlay() = nil, want overlay")
+	}
+
+	wantLines := []HighlightLine{
+		{Row: 0, Spans: []HighlightSpan{{StartCol: 0, EndCol: 5, Kind: HighlightCurrentMatch}}},
+		{Row: 2, Spans: []HighlightSpan{{StartCol: 0, EndCol: 5, Kind: HighlightSearchMatch}}},
+	}
+	if fmt.Sprintf("%#v", overlay.HighlightedLines) != fmt.Sprintf("%#v", wantLines) {
+		t.Fatalf("overlay.HighlightedLines = %#v, want %#v", overlay.HighlightedLines, wantLines)
+	}
+}

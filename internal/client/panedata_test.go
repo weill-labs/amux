@@ -6,8 +6,10 @@ import (
 	"testing"
 
 	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/weill-labs/amux/internal/copymode"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
+	"github.com/weill-labs/amux/internal/render"
 )
 
 func newTestVTEmulator(width, height int) mux.TerminalEmulator {
@@ -175,5 +177,50 @@ func TestPaneDataAccessors(t *testing.T) {
 	}
 	if got := pane.CopyModeSearch(); got != "" {
 		t.Fatalf("CopyModeSearch() = %q, want empty", got)
+	}
+}
+
+func TestPaneDataCopyModeUsesFrozenBufferAndExposesOverlay(t *testing.T) {
+	t.Parallel()
+
+	copyBuffer := paneBufferSnapshot{
+		width:  5,
+		height: 1,
+		screen: []paneBufferLine{{
+			text: "hello",
+			cells: []render.ScreenCell{
+				{Char: "h", Width: 1},
+				{Char: "e", Width: 1},
+				{Char: "l", Width: 1},
+				{Char: "l", Width: 1},
+				{Char: "o", Width: 1},
+			},
+		}},
+	}
+	liveEmu := newTestVTEmulator(5, 1)
+	if _, err := liveEmu.Write([]byte("world")); err != nil {
+		t.Fatalf("Write live emulator: %v", err)
+	}
+
+	cm := copymode.New(copyBuffer, 5, 1, 0)
+	if action := cm.StartSelection(); action != copymode.ActionRedraw {
+		t.Fatalf("StartSelection() = %d, want %d", action, copymode.ActionRedraw)
+	}
+	cm.HandleInput([]byte{'l'})
+
+	pane := &clientPaneData{emu: liveEmu, cm: cm}
+	if got := pane.CellAt(1, 0, true); got.Char != "e" {
+		t.Fatalf("copy-mode CellAt(1, 0) = %q, want frozen buffer char %q", got.Char, "e")
+	}
+	if pane.CellAt(1, 0, true).Style.Bg != nil {
+		t.Fatal("copy-mode CellAt should return the base frozen cell without overlay styling")
+	}
+
+	overlay := pane.CopyModeOverlay()
+	if overlay == nil {
+		t.Fatal("CopyModeOverlay() = nil, want overlay")
+	}
+	if overlay.Selection == nil {
+		t.Fatal("overlay.Selection = nil, want selection range")
 	}
 }
