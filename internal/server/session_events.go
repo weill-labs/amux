@@ -11,7 +11,6 @@ import (
 
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
-	"github.com/weill-labs/amux/internal/remote"
 	"github.com/weill-labs/amux/internal/render"
 )
 
@@ -448,7 +447,7 @@ func (e remotePaneExitEvent) handle(s *Session) {
 
 type remoteStateChangeEvent struct {
 	hostName string
-	state    remote.ConnState
+	state    proto.ConnState
 }
 
 func (e remoteStateChangeEvent) handle(s *Session) {
@@ -602,7 +601,7 @@ func (s *Session) enqueueRemotePaneExit(paneID uint32, reason string) {
 	s.enqueueEvent(remotePaneExitEvent{paneID: paneID, reason: reason})
 }
 
-func (s *Session) enqueueRemoteStateChange(hostName string, state remote.ConnState) {
+func (s *Session) enqueueRemoteStateChange(hostName string, state proto.ConnState) {
 	s.enqueueEvent(remoteStateChangeEvent{hostName: hostName, state: state})
 }
 

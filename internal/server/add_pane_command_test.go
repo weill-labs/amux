@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -120,9 +121,9 @@ func TestCommandAddPaneExplicitHostUsesRemotePath(t *testing.T) {
 	sess.Windows = []*mux.Window{w}
 	sess.ActiveWindowID = w.ID
 	sess.Panes = []*mux.Pane{p1}
-	sess.SetupRemoteManager(&config.Config{Hosts: map[string]config.Host{
-		"dev": {Type: "remote", Address: "127.0.0.1:1"},
-	}}, "build-hash")
+	installTestPaneTransport(t, sess, &stubPaneTransport{
+		createPaneErr: fmt.Errorf("connecting to dev: SSH dial"),
+	}, config.ColorForHost)
 
 	res := runTestCommand(t, srv, sess, "add-pane", "--host", "dev")
 	if !strings.Contains(res.cmdErr, "connecting to dev:") {
@@ -153,9 +154,9 @@ func TestCommandAddPaneInheritsProxyHost(t *testing.T) {
 	sess.Windows = []*mux.Window{w}
 	sess.ActiveWindowID = w.ID
 	sess.Panes = []*mux.Pane{proxy}
-	sess.SetupRemoteManager(&config.Config{Hosts: map[string]config.Host{
-		"gpu-server": {Type: "remote", Address: "127.0.0.1:1"},
-	}}, "build-hash")
+	installTestPaneTransport(t, sess, &stubPaneTransport{
+		createPaneErr: fmt.Errorf("connecting to gpu-server: SSH dial"),
+	}, config.ColorForHost)
 
 	res := runTestCommand(t, srv, sess, "add-pane")
 	if !strings.Contains(res.cmdErr, "connecting to gpu-server:") {

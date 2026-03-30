@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"net"
 	"os"
 	"path/filepath"
@@ -9,10 +10,8 @@ import (
 	"time"
 
 	"github.com/weill-labs/amux/internal/checkpoint"
-	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
-	"github.com/weill-labs/amux/internal/remote"
 )
 
 func findCrashPaneState(t *testing.T, cp *checkpoint.CrashCheckpoint, name string) checkpoint.CrashPaneState {
@@ -215,7 +214,7 @@ func TestHandleTakeoverFailureWithoutRemoteManager(t *testing.T) {
 
 	sess.handleTakeover(sshPane.ID, req)
 
-	wantAck := mux.FormatTakeoverAck(remote.ManagedSessionName(sess.Name)) + "\n"
+	wantAck := mux.FormatTakeoverAck(managedSessionName(sess.Name)) + "\n"
 	if got := writes.String(); got != wantAck {
 		t.Fatalf("takeover ack = %q, want %q", got, wantAck)
 	}
@@ -253,13 +252,13 @@ func TestPrepareRemotePaneAndInsertPreparedPane(t *testing.T) {
 	_, sess, cleanup := newCommandTestSession(t)
 	defer cleanup()
 
-	if _, err := sess.prepareRemotePane("dev", 80, 23); err == nil || err.Error() != "no remote hosts configured" {
-		t.Fatalf("prepareRemotePane without manager error = %v, want no remote hosts configured", err)
+	if _, err := sess.prepareRemotePane("dev", 80, 23); err == nil || !strings.Contains(err.Error(), `no remote hosts configured for host "dev"`) {
+		t.Fatalf("prepareRemotePane without manager error = %v, want host-aware no-remote message", err)
 	}
 
-	sess.SetupRemoteManager(&config.Config{Hosts: map[string]config.Host{
-		"dev": {Type: "remote", Address: "127.0.0.1:1"},
-	}}, "build-hash")
+	installTestPaneTransport(t, sess, &stubPaneTransport{
+		createPaneErr: errors.New("connecting to dev: SSH dial"),
+	}, func(string) string { return "abcdef" })
 
 	pane, err := sess.prepareRemotePane("dev", 80, 23)
 	if err == nil || !strings.Contains(err.Error(), "connecting to dev:") {
@@ -341,18 +340,19 @@ func TestInsertPreparedPaneIntoActiveWindowKeepFocusPreservesZoomAndFocus(t *tes
 	}
 }
 
-func TestServerHandleConnAndSetupRemoteManager(t *testing.T) {
+func TestServerHandleConnAndSetupPaneTransport(t *testing.T) {
 	t.Parallel()
 
 	_, sess, cleanup := newCommandTestSession(t)
 	defer cleanup()
 
+	transport := &stubPaneTransport{}
 	srv := &Server{sessions: map[string]*Session{sess.Name: sess}}
-	srv.SetupRemoteManager(&config.Config{Hosts: map[string]config.Host{
-		"dev": {Type: "remote", Address: "127.0.0.1:22"},
-	}}, "build-hash")
+	srv.SetupPaneTransport(func(string) string { return "abc123" }, func(PaneTransportHooks) proto.PaneTransport {
+		return transport
+	})
 	if sess.RemoteManager == nil {
-		t.Fatal("SetupRemoteManager should install a manager on the session")
+		t.Fatal("SetupPaneTransport should install a transport on the session")
 	}
 
 	serverConn, peerConn := net.Pipe()

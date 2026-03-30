@@ -16,7 +16,6 @@ import (
 	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
-	"github.com/weill-labs/amux/internal/remote"
 )
 
 type lockedBuffer struct {
@@ -1236,7 +1235,17 @@ func TestCommandHostsAndRemoteErrors(t *testing.T) {
 		},
 	}
 	mustSessionMutation(t, sess, func(sess *Session) {
-		sess.RemoteManager = remote.NewManager(cfg, "", remote.ManagerDeps{NewHostConn: remote.NewHostConn})
+		sess.configurePaneTransport(&stubPaneTransport{
+			hostStatusByName: map[string]proto.ConnState{
+				"remote-a": proto.Disconnected,
+			},
+			disconnectErrs: map[string]error{
+				"remote-a": fmt.Errorf(`host "remote-a" not connected`),
+			},
+			reconnectErrs: map[string]error{
+				"remote-a": fmt.Errorf(`host "remote-a" not known`),
+			},
+		}, cfg.HostColor)
 	})
 
 	hostsRes := runTestCommand(t, srv, sess, "hosts")

@@ -15,16 +15,6 @@ import (
 	"github.com/weill-labs/amux/internal/config"
 )
 
-// ConnState represents the connection state of a remote host.
-type ConnState string
-
-const (
-	Disconnected ConnState = "disconnected"
-	Connecting   ConnState = "connecting"
-	Connected    ConnState = "connected"
-	Reconnecting ConnState = "reconnecting"
-)
-
 // PaneCreatedCallback is called when a remote pane is created and ready.
 // localPaneID is the local pane ID, remotePaneID is the ID on the remote server.
 type PaneCreatedCallback func(localPaneID, remotePaneID uint32)
