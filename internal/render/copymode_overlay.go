@@ -15,11 +15,15 @@ var (
 )
 
 func ScreenCellFromCopyMode(cell copymode.Cell) ScreenCell {
-	sc := ScreenCell{
+	return normalizeScreenCell(ScreenCell{
 		Char:  cell.Char,
 		Style: cell.Style,
 		Width: cell.Width,
-	}
+	})
+}
+
+func normalizeScreenCell(cell ScreenCell) ScreenCell {
+	sc := cell
 	if sc.Char == "" {
 		sc.Char = " "
 	}
@@ -30,12 +34,7 @@ func ScreenCellFromCopyMode(cell copymode.Cell) ScreenCell {
 }
 
 func applyCopyModeOverlay(base ScreenCell, overlay *copymode.ViewportOverlay, col, row int) ScreenCell {
-	if base.Char == "" {
-		base.Char = " "
-	}
-	if base.Width < 0 {
-		base.Width = 1
-	}
+	base = normalizeScreenCell(base)
 	if overlay == nil {
 		return base
 	}
