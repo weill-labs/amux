@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 	"net"
 	"strings"
 	"testing"
@@ -939,8 +940,11 @@ func TestRemoteHostCommandsReportConfiguredAndErrorStates(t *testing.T) {
 		sess := newSession("test-hosts-configured")
 		stopCrashCheckpointLoop(t, sess)
 		defer stopSessionBackgroundLoops(t, sess)
-		sess.SetupRemoteManager(cfg, "")
-		defer sess.RemoteManager.Shutdown()
+		installTestPaneTransport(t, sess, &stubPaneTransport{
+			hostStatusByName: map[string]proto.ConnState{
+				"dev": proto.Disconnected,
+			},
+		}, cfg.HostColor)
 
 		msg := runOneShotCommand(t, sess, nil, cmdHosts)
 		for _, want := range []string{"HOST", "STATUS", "dev", "disconnected"} {
@@ -980,8 +984,17 @@ func TestRemoteHostCommandsReportConfiguredAndErrorStates(t *testing.T) {
 		withMgr := newSession("test-host-commands-configured")
 		stopCrashCheckpointLoop(t, withMgr)
 		defer stopSessionBackgroundLoops(t, withMgr)
-		withMgr.SetupRemoteManager(cfg, "")
-		defer withMgr.RemoteManager.Shutdown()
+		installTestPaneTransport(t, withMgr, &stubPaneTransport{
+			hostStatusByName: map[string]proto.ConnState{
+				"dev": proto.Disconnected,
+			},
+			disconnectErrs: map[string]error{
+				"dev": fmt.Errorf(`host "dev" not connected`),
+			},
+			reconnectErrs: map[string]error{
+				"dev": fmt.Errorf(`host "dev" not known`),
+			},
+		}, cfg.HostColor)
 
 		msg = runOneShotCommand(t, withMgr, []string{"dev"}, cmdDisconnect)
 		if got := msg.CmdErr; got != "host \"dev\" not connected" {
