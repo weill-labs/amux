@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/weill-labs/amux/internal/mux"
+	"github.com/weill-labs/amux/internal/proto"
 )
 
 func TestLoadMissing(t *testing.T) {
@@ -257,7 +257,7 @@ func TestEffectiveScrollbackLinesDefaultsWhenUnset(t *testing.T) {
 	t.Parallel()
 
 	cfg := &Config{}
-	if got := cfg.EffectiveScrollbackLines(); got != mux.DefaultScrollbackLines {
-		t.Fatalf("EffectiveScrollbackLines() = %d, want %d", got, mux.DefaultScrollbackLines)
+	if got := cfg.EffectiveScrollbackLines(); got != proto.DefaultScrollbackLines {
+		t.Fatalf("EffectiveScrollbackLines() = %d, want %d", got, proto.DefaultScrollbackLines)
 	}
 }

@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/BurntSushi/toml"
-	"github.com/weill-labs/amux/internal/mux"
+	"github.com/weill-labs/amux/internal/proto"
 )
 
 // catppuccinMocha is the accent palette in official order (catppuccin.com/palette).
@@ -165,7 +165,7 @@ func hasLegacyKeysConfig(undecoded []toml.Key) bool {
 func ResolveScrollbackLines(lines *int) (int, error) {
 	switch {
 	case lines == nil:
-		return mux.DefaultScrollbackLines, nil
+		return proto.DefaultScrollbackLines, nil
 	case *lines < 1:
 		return 0, fmt.Errorf("scrollback_lines must be >= 1")
 	default:
@@ -177,11 +177,11 @@ func ResolveScrollbackLines(lines *int) (int, error) {
 // falling back to the built-in default for nil configs or unset values.
 func (c *Config) EffectiveScrollbackLines() int {
 	if c == nil {
-		return mux.DefaultScrollbackLines
+		return proto.DefaultScrollbackLines
 	}
 	lines, err := ResolveScrollbackLines(c.ScrollbackLines)
 	if err != nil {
-		return mux.DefaultScrollbackLines
+		return proto.DefaultScrollbackLines
 	}
 	return lines
 }

@@ -95,64 +95,11 @@ type TerminalEmulator interface {
 	EncodeMouse(ev mouse.Event, x, y int) []byte
 }
 
-// DefaultScrollbackLines is the retained history limit used by amux for pane
-// scrollback on both server and client emulators.
-const DefaultScrollbackLines = 10000
-
 func effectiveScrollbackLines(scrollbackLines int) int {
 	if scrollbackLines <= 0 {
 		return DefaultScrollbackLines
 	}
 	return scrollbackLines
-}
-
-// MouseTrackingMode is the pane's current application mouse-tracking mode.
-type MouseTrackingMode int
-
-const (
-	MouseTrackingNone MouseTrackingMode = iota
-	MouseTrackingStandard
-	MouseTrackingButton
-	MouseTrackingAny
-)
-
-// MouseProtocol describes how a pane wants mouse events encoded.
-type MouseProtocol struct {
-	Tracking MouseTrackingMode
-	SGR      bool
-}
-
-// Enabled reports whether the pane currently accepts mouse events.
-func (p MouseProtocol) Enabled() bool {
-	return p.Tracking != MouseTrackingNone
-}
-
-// TrackingName returns a stable string form for JSON capture and events.
-func (p MouseProtocol) TrackingName() string {
-	switch p.Tracking {
-	case MouseTrackingStandard:
-		return "standard"
-	case MouseTrackingButton:
-		return "button"
-	case MouseTrackingAny:
-		return "any"
-	default:
-		return "none"
-	}
-}
-
-// TerminalState is the pane's non-text terminal metadata at a point in time.
-type TerminalState struct {
-	AltScreen       bool
-	Mouse           MouseProtocol
-	ForegroundColor color.Color
-	BackgroundColor color.Color
-	CursorColor     color.Color
-	CursorStyle     string
-	CursorBlinking  bool
-	HyperlinkURL    string
-	HyperlinkParams string
-	Palette         []color.Color
 }
 
 // vtEmulator wraps charmbracelet/x/vt.Emulator.

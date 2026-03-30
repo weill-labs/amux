@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
 )
 
@@ -41,7 +40,7 @@ func TestRoundTrip(t *testing.T) {
 		Panes: []PaneCheckpoint{
 			{
 				ID:           1,
-				Meta:         mux.PaneMeta{Name: "pane-1", Host: "local", Color: "f38ba8"},
+				Meta:         proto.PaneMeta{Name: "pane-1", Host: "local", Color: "f38ba8"},
 				ManualBranch: true,
 				PtmxFd:       5,
 				PID:          1234,
@@ -55,7 +54,7 @@ func TestRoundTrip(t *testing.T) {
 			},
 			{
 				ID:     2,
-				Meta:   mux.PaneMeta{Name: "pane-2", Host: "remote", Task: "TASK-1", Color: "a6e3a1"},
+				Meta:   proto.PaneMeta{Name: "pane-2", Host: "remote", Task: "TASK-1", Color: "a6e3a1"},
 				PtmxFd: 7,
 				PID:    5678,
 				Cols:   39,
@@ -274,7 +273,7 @@ func TestWriteEmptyCheckpoint(t *testing.T) {
 	}
 }
 
-func setMetaCollections(t *testing.T, meta *mux.PaneMeta, prs []int, issues []string) {
+func setMetaCollections(t *testing.T, meta *proto.PaneMeta, prs []int, issues []string) {
 	t.Helper()
 
 	meta.TrackedPRs = make([]proto.TrackedPR, 0, len(prs))
@@ -287,7 +286,7 @@ func setMetaCollections(t *testing.T, meta *mux.PaneMeta, prs []int, issues []st
 	}
 }
 
-func metaCollections(t *testing.T, meta mux.PaneMeta) ([]int, []string) {
+func metaCollections(t *testing.T, meta proto.PaneMeta) ([]int, []string) {
 	t.Helper()
 
 	return proto.TrackedPRNumbers(meta.TrackedPRs), proto.TrackedIssueIDs(meta.TrackedIssues)

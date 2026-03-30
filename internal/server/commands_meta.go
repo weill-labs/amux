@@ -43,7 +43,7 @@ func removePaneKVValue(pane *mux.Pane, key string) error {
 }
 
 func formatPaneKV(meta mux.PaneMeta, requested []string) string {
-	kv := meta.KVSnapshot()
+	kv := mux.NormalizedMetaKV(meta)
 	if len(kv) == 0 {
 		return ""
 	}
