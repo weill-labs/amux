@@ -3,48 +3,7 @@ package copymode
 import (
 	"strconv"
 	"strings"
-
-	uv "github.com/charmbracelet/ultraviolet"
 )
-
-// ANSI escapes for copy mode highlighting.
-const (
-	selectionBg = "\033[44m" // blue background (selection)
-)
-
-// RenderViewport returns the viewport content as a newline-separated string
-// (no trailing newline), suitable for the compositor's blitPane.
-func (cm *CopyMode) RenderViewport() string {
-	var buf strings.Builder
-	buf.Grow(cm.width * cm.height * 2)
-
-	var prevStyle *uv.Style
-	for row := 0; row < cm.height; row++ {
-		if row > 0 {
-			buf.WriteByte('\n')
-		}
-		for col := 0; col < cm.width; col++ {
-			cell := cm.CellAt(col, row)
-			if cell.Width == 0 {
-				continue
-			}
-			if diff := uv.StyleDiff(prevStyle, &cell.Style); diff != "" {
-				buf.WriteString(diff)
-			}
-			styleCopy := cell.Style
-			prevStyle = &styleCopy
-
-			char := cell.Char
-			buf.WriteString(char)
-		}
-	}
-	if prevStyle != nil {
-		if diff := uv.StyleDiff(prevStyle, &uv.Style{}); diff != "" {
-			buf.WriteString(diff)
-		}
-	}
-	return buf.String()
-}
 
 // SearchBarText returns the search prompt to display in the status bar.
 // Returns empty string when not actively searching.

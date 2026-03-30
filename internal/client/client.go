@@ -737,7 +737,7 @@ type clientPaneData struct {
 func (c *clientPaneData) RenderScreen(active bool) string {
 	var rendered string
 	if c.cm != nil {
-		rendered = c.cm.RenderViewport()
+		rendered = render.RenderPaneViewportANSI(c.cm.ViewportWidth(), c.cm.ViewportHeight(), active, c)
 	} else if !active {
 		rendered = c.emu.RenderWithoutCursorBlock()
 	} else {
@@ -748,7 +748,7 @@ func (c *clientPaneData) RenderScreen(active bool) string {
 
 func (c *clientPaneData) CellAt(col, row int, active bool) render.ScreenCell {
 	if c.cm != nil {
-		return c.cm.CellAt(col, row)
+		return render.ScreenCellFromCopyMode(c.cm.ViewportCellAt(col, row))
 	}
 	cell := c.emu.CellAt(col, row)
 	sc := render.CellFromUV(cell)
@@ -763,6 +763,13 @@ func (c *clientPaneData) CursorPos() (col, row int) {
 		return c.cm.CursorPos()
 	}
 	return c.emu.CursorPosition()
+}
+
+func (c *clientPaneData) CopyModeOverlay() *copymode.ViewportOverlay {
+	if c.cm != nil {
+		return c.cm.ViewportOverlay()
+	}
+	return nil
 }
 
 func (c *clientPaneData) CursorHidden() bool {

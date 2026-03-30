@@ -187,6 +187,9 @@ func (e *cursorPaneData) IsLead() bool                        { return false }
 func (e *cursorPaneData) ConnStatus() string                  { return "" }
 func (e *cursorPaneData) InCopyMode() bool                    { return false }
 func (e *cursorPaneData) CopyModeSearch() string              { return "" }
+func (e *cursorPaneData) CopyModeOverlay() *copymode.ViewportOverlay {
+	return nil
+}
 
 func TestRenderCursorEdgeCases(t *testing.T) {
 	t.Parallel()

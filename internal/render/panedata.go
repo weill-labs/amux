@@ -1,6 +1,9 @@
 package render
 
-import "github.com/weill-labs/amux/internal/proto"
+import (
+	"github.com/weill-labs/amux/internal/copymode"
+	"github.com/weill-labs/amux/internal/proto"
+)
 
 // PaneData provides the data the compositor needs for rendering a pane.
 // Server-side *mux.Pane and client-side emulator+metadata adapters both
@@ -11,9 +14,11 @@ type PaneData interface {
 	// spaces) are stripped so unfocused panes don't show stray cursors.
 	RenderScreen(active bool) string
 	// CellAt returns the cell at (col, row) for cell-grid compositing.
-	// For copy mode panes, returns cells with selection/search/cursor overlays.
 	// For inactive panes, cursor block reverse-video is cleared.
 	CellAt(col, row int, active bool) ScreenCell
+	// CopyModeOverlay returns the current copy-mode overlay state for the pane,
+	// or nil when the pane is not in copy mode.
+	CopyModeOverlay() *copymode.ViewportOverlay
 	CursorPos() (col, row int)
 	CursorHidden() bool
 	// HasCursorBlock reports whether the screen contains an app-rendered
