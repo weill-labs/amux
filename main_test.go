@@ -174,6 +174,94 @@ func TestResolveInvocationSession(t *testing.T) {
 	}
 }
 
+func TestResolveCanonicalSessionCommand(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		args        []string
+		wantCmd     string
+		wantArgs    []string
+		wantHandled bool
+		wantErrText string
+	}{
+		{
+			name:        "unknown command falls through",
+			args:        []string{"spawn"},
+			wantHandled: false,
+		},
+		{
+			name:        "status ignores extra args",
+			args:        []string{"status", "ignored"},
+			wantCmd:     "status",
+			wantHandled: true,
+		},
+		{
+			name:        "list forwards args",
+			args:        []string{"list", "--no-cwd"},
+			wantCmd:     "list",
+			wantArgs:    []string{"--no-cwd"},
+			wantHandled: true,
+		},
+		{
+			name:        "cursor forwards args after minimum",
+			args:        []string{"cursor", "layout"},
+			wantCmd:     "cursor",
+			wantArgs:    []string{"layout"},
+			wantHandled: true,
+		},
+		{
+			name:        "reset narrows to pane arg",
+			args:        []string{"reset", "pane-1", "ignored"},
+			wantCmd:     "reset",
+			wantArgs:    []string{"pane-1"},
+			wantHandled: true,
+		},
+		{
+			name:        "wait needs a kind",
+			args:        []string{"wait"},
+			wantHandled: true,
+			wantErrText: "usage: amux wait <idle|busy|exited|ready|content|layout|clipboard|checkpoint|ui> ...",
+		},
+		{
+			name:        "unsplice needs a host",
+			args:        []string{"unsplice"},
+			wantHandled: true,
+			wantErrText: "usage: amux unsplice <host>",
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			gotCmd, gotArgs, gotHandled, err := resolveCanonicalSessionCommand(tt.args)
+			if gotHandled != tt.wantHandled {
+				t.Fatalf("resolveCanonicalSessionCommand(%v) handled = %v, want %v", tt.args, gotHandled, tt.wantHandled)
+			}
+			if tt.wantErrText != "" {
+				if err == nil {
+					t.Fatalf("resolveCanonicalSessionCommand(%v): expected error containing %q", tt.args, tt.wantErrText)
+				}
+				if !strings.Contains(err.Error(), tt.wantErrText) {
+					t.Fatalf("resolveCanonicalSessionCommand(%v): error = %q, want substring %q", tt.args, err.Error(), tt.wantErrText)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("resolveCanonicalSessionCommand(%v): unexpected error: %v", tt.args, err)
+			}
+			if gotCmd != tt.wantCmd {
+				t.Fatalf("resolveCanonicalSessionCommand(%v) cmd = %q, want %q", tt.args, gotCmd, tt.wantCmd)
+			}
+			if !reflect.DeepEqual(gotArgs, tt.wantArgs) {
+				t.Fatalf("resolveCanonicalSessionCommand(%v) args = %v, want %v", tt.args, gotArgs, tt.wantArgs)
+			}
+		})
+	}
+}
+
 func TestMaybePrintKeyCommandUsage(t *testing.T) {
 	t.Parallel()
 
