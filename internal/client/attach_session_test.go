@@ -16,7 +16,6 @@ import (
 	"github.com/creack/pty"
 	"github.com/weill-labs/amux/internal/proto"
 	"github.com/weill-labs/amux/internal/render"
-	"github.com/weill-labs/amux/internal/server"
 )
 
 type ptyOutputCollector struct {
@@ -128,8 +127,8 @@ func newRunSessionHarness(t *testing.T, sizeFn func(int) (int, int, error)) *run
 	t.Setenv("AMUX_NO_WATCH", "1")
 
 	session := fmt.Sprintf("c%d", time.Now().UnixNano()%1_000_000)
-	sockPath := server.SocketPath(session)
-	if err := os.MkdirAll(server.SocketDir(), 0700); err != nil {
+	sockPath := proto.SocketPath(session)
+	if err := os.MkdirAll(proto.SocketDir(), 0700); err != nil {
 		t.Fatalf("mkdir socket dir: %v", err)
 	}
 	_ = os.Remove(sockPath)
@@ -1084,6 +1083,31 @@ func TestRunSessionReturnsRawModeErrorAfterBootstrap(t *testing.T) {
 	}
 }
 
+func TestRunSessionFallsBackToDefaultTermSize(t *testing.T) {
+	// Not parallel: newRunSessionHarness uses t.Setenv, so t.Parallel() would panic.
+	h := newRunSessionHarness(t, func(int) (int, int, error) {
+		return 0, 0, nil
+	})
+
+	attach := h.waitAttach(t)
+	if attach.Type != proto.MsgTypeAttach {
+		t.Fatalf("attach type = %d, want %d", attach.Type, proto.MsgTypeAttach)
+	}
+	if attach.Cols != proto.DefaultTermCols || attach.Rows != proto.DefaultTermRows {
+		t.Fatalf("attach size = %dx%d, want %dx%d", attach.Cols, attach.Rows, proto.DefaultTermCols, proto.DefaultTermRows)
+	}
+
+	h.send(t, &proto.Message{Type: proto.MsgTypeLayout, Layout: sessionLayoutSnapshot(h.session)})
+	h.send(t, &proto.Message{Type: proto.MsgTypePaneOutput, PaneID: 1, PaneData: []byte("left")})
+	h.send(t, &proto.Message{Type: proto.MsgTypePaneOutput, PaneID: 2, PaneData: []byte("right")})
+	h.output.waitContains(t, render.AltScreenEnter)
+
+	h.send(t, &proto.Message{Type: proto.MsgTypeExit})
+	if err := h.waitRunResult(t); err != nil {
+		t.Fatalf("RunSession() = %v, want nil", err)
+	}
+}
+
 func TestRunSessionDetachFlushesPendingInput(t *testing.T) {
 	h := newRunSessionHarness(t, func(int) (int, int, error) {
 		return 80, 24, nil
@@ -1161,7 +1185,7 @@ func assertRunSessionRejectsLegacyKeysConfig(t *testing.T) {
 	if got, want := err.Error(), `loading config: unsupported config section "keys"`; got != want {
 		t.Fatalf("RunSession() error = %q, want %q", got, want)
 	}
-	if _, statErr := os.Stat(server.SocketPath("legacy-keys")); !os.IsNotExist(statErr) {
+	if _, statErr := os.Stat(proto.SocketPath("legacy-keys")); !os.IsNotExist(statErr) {
 		t.Fatalf("RunSession should fail before starting a server, stat error = %v", statErr)
 	}
 }

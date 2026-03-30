@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -19,8 +18,8 @@ import (
 
 // Default terminal dimensions when the client doesn't report a size.
 const (
-	DefaultTermCols = 80
-	DefaultTermRows = 24
+	DefaultTermCols = proto.DefaultTermCols
+	DefaultTermRows = proto.DefaultTermRows
 )
 
 // DefaultOutputLines is how many lines `amux output` shows by default.
@@ -433,12 +432,12 @@ func (s *Server) firstSession() *Session {
 
 // SocketDir returns the directory for amux Unix sockets.
 func SocketDir() string {
-	return fmt.Sprintf("/tmp/amux-%d", os.Getuid())
+	return proto.SocketDir()
 }
 
 // SocketPath returns the socket path for a session.
 func SocketPath(session string) string {
-	return filepath.Join(SocketDir(), session)
+	return proto.SocketPath(session)
 }
 
 func newSessionWithScrollback(name string, scrollbackLines int) *Session {
