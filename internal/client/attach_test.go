@@ -192,3 +192,37 @@ func TestTerminalExitSequence(t *testing.T) {
 		})
 	}
 }
+
+func TestPreferReloadOnSessionEnd(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		doneReady   bool
+		reloadReady bool
+		want        bool
+	}{
+		{name: "done only", doneReady: true, want: false},
+		{name: "reload only", reloadReady: true, want: true},
+		{name: "done and reload", doneReady: true, reloadReady: true, want: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			done := make(chan struct{})
+			triggerReload := make(chan struct{}, 1)
+			if tt.doneReady {
+				close(done)
+			}
+			if tt.reloadReady {
+				triggerReload <- struct{}{}
+			}
+
+			if got := preferReloadOnSessionEnd(done, triggerReload); got != tt.want {
+				t.Fatalf("preferReloadOnSessionEnd() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
