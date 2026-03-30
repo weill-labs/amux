@@ -984,17 +984,14 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 		}
 	}()
 
-	// Wait for session end or hot reload trigger
-	select {
-	case <-done:
-		return nil
-	case <-triggerReload:
+	// Wait for session end or hot reload trigger.
+	if preferReloadOnSessionEnd(done, triggerReload) {
 		if execPath != "" {
 			ExecSelf(execPath, sender, fd, oldState, negotiatedAttachCaps)
 		}
 		// ExecSelf replaces the process; if we get here, exec failed fatally
-		return nil
 	}
+	return nil
 }
 
 func handleSplitBinding(cr *ClientRenderer, sender *messageSender, binding config.Binding, out io.Writer) {
@@ -1021,6 +1018,22 @@ func splitBindingArgs(cr *ClientRenderer, binding config.Binding) ([]string, boo
 
 func formatUnboundPrefixMessage(prefix, key byte) string {
 	return "No binding for " + formatKeyName(prefix) + " " + formatKeyName(key)
+}
+
+func preferReloadOnSessionEnd(done <-chan struct{}, triggerReload <-chan struct{}) bool {
+	select {
+	case <-done:
+		// The message reader can signal reload, return, and close msgCh quickly
+		// enough that the render loop closes done before this select runs.
+		select {
+		case <-triggerReload:
+			return true
+		default:
+			return false
+		}
+	case <-triggerReload:
+		return true
+	}
 }
 
 func formatKeyName(b byte) string {
