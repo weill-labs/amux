@@ -64,6 +64,77 @@ func TestEventJSONOmitsZeroFields(t *testing.T) {
 	}
 }
 
+func TestMarshalMatchingEncodesOnlyMatchingEvents(t *testing.T) {
+	t.Parallel()
+
+	events := []Event{
+		{Type: EventLayout},
+		{Type: EventIdle, PaneName: "pane-1"},
+		{Type: EventIdle, PaneName: "pane-2"},
+	}
+
+	encoded := MarshalMatching(events, Filter{Types: []string{EventIdle}, PaneName: "pane-1"})
+	if len(encoded) != 1 {
+		t.Fatalf("MarshalMatching() count = %d, want 1", len(encoded))
+	}
+
+	var ev Event
+	if err := json.Unmarshal(encoded[0], &ev); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+	if ev.Type != EventIdle || ev.PaneName != "pane-1" {
+		t.Fatalf("decoded event = %+v, want idle pane-1", ev)
+	}
+}
+
+func TestEmitDeliversOnlyMatchingSubscribers(t *testing.T) {
+	t.Parallel()
+
+	var subs []*Subscriber
+	idleSub := Subscribe(&subs, Filter{Types: []string{EventIdle}})
+	layoutSub := Subscribe(&subs, Filter{Types: []string{EventLayout}})
+
+	Emit(subs, Event{Type: EventIdle, PaneName: "pane-1"})
+
+	select {
+	case data := <-idleSub.Ch:
+		var ev Event
+		if err := json.Unmarshal(data, &ev); err != nil {
+			t.Fatalf("json.Unmarshal: %v", err)
+		}
+		if ev.Timestamp == "" {
+			t.Fatal("Emit() should stamp timestamps")
+		}
+		if ev.Type != EventIdle {
+			t.Fatalf("emitted type = %q, want %q", ev.Type, EventIdle)
+		}
+	default:
+		t.Fatal("idle subscriber did not receive event")
+	}
+
+	select {
+	case data := <-layoutSub.Ch:
+		t.Fatalf("layout subscriber received unexpected event: %s", string(data))
+	default:
+	}
+}
+
+func TestUnsubscribeRemovesSubscriber(t *testing.T) {
+	t.Parallel()
+
+	var subs []*Subscriber
+	sub := Subscribe(&subs, Filter{})
+	Unsubscribe(&subs, sub)
+
+	Emit(subs, Event{Type: EventLayout})
+
+	select {
+	case data := <-sub.Ch:
+		t.Fatalf("unsubscribed subscriber received event: %s", string(data))
+	default:
+	}
+}
+
 func TestRunProcessesCommands(t *testing.T) {
 	t.Parallel()
 

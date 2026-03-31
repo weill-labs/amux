@@ -15,8 +15,7 @@ func NewBus() *Bus {
 }
 
 func (b *Bus) Subscribe(filter Filter) *Subscriber {
-	sub := Subscribe(&b.subs, filter)
-	return sub
+	return Subscribe(&b.subs, filter)
 }
 
 func (b *Bus) Unsubscribe(target *Subscriber) {

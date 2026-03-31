@@ -470,7 +470,7 @@ func (e remoteStateChangeEvent) handle(s *Session) {
 }
 
 func (s *Session) startEventLoop() {
-	s.sessionEvents = make(chan eventloop.Command[Session], 128)
+	s.sessionEvents = make(chan sessionEvent, 128)
 	s.sessionEventStop = make(chan struct{})
 	s.sessionEventDone = make(chan struct{})
 	go func() {
