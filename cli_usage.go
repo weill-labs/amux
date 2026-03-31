@@ -167,7 +167,7 @@ Usage:
   amux [-s session] rotate             Rotate pane positions forward
   amux [-s session] rotate --reverse   Rotate pane positions backward
   amux [-s session] reset <pane>       Clear pane history and reset terminal state
-  amux [-s session] respawn <pane>     Restart a pane with a fresh shell
+  amux [-s session] respawn <pane>     Restart a pane shell in place
   amux [-s session] resize-pane <pane> <dir> [n]
                                        Resize pane (dir: left/right/up/down)
   amux [-s session] equalize [--vertical|--all]

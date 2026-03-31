@@ -642,6 +642,23 @@ func (w *Window) Unzoom() error {
 	return nil
 }
 
+// ReplacePane swaps a leaf's pane pointer in place without changing the layout
+// geometry or pane ID-based zoom/lead bookkeeping.
+func (w *Window) ReplacePane(oldPaneID uint32, replacement *Pane) error {
+	w.assertOwner("ReplacePane")
+	cell, err := w.mustFindPane(oldPaneID)
+	if err != nil {
+		return err
+	}
+	cell.Pane = replacement
+	w.finishTreeMutation()
+	w.restoreZoomedPaneSize()
+	if w.ActivePane != nil && w.ActivePane.ID == oldPaneID {
+		w.setActive(replacement)
+	}
+	return nil
+}
+
 // SplicePane replaces a leaf pane (by ID) with one or more proxy panes.
 // If panes has 1 entry, it's a simple 1:1 replacement. If panes has 2+
 // entries, the leaf is converted to a vertical split containing the
