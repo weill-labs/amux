@@ -1158,6 +1158,125 @@ func TestWordEndWhitespaceAtBottom(t *testing.T) {
 	}
 }
 
+func TestRunWordMotion(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		key        byte
+		width      int
+		height     int
+		cursorRow  int
+		screen     []string
+		scrollback []string
+		before     func(*CopyMode)
+		wantAction Action
+		wantCX     int
+		wantCY     int
+		wantOY     int
+	}{
+		{
+			name:       "WORD forward wraps to next line",
+			key:        'W',
+			width:      40,
+			height:     2,
+			screen:     []string{"hello", "world foo"},
+			wantAction: ActionRedraw,
+			wantCX:     0,
+			wantCY:     1,
+			wantOY:     0,
+		},
+		{
+			name:       "vi word forward splits punctuation",
+			key:        'w',
+			width:      40,
+			height:     1,
+			screen:     []string{"alpha... beta"},
+			wantAction: ActionRedraw,
+			wantCX:     5,
+			wantCY:     0,
+			wantOY:     0,
+		},
+		{
+			name:       "WORD backward sticks to absolute top",
+			key:        'B',
+			width:      40,
+			height:     2,
+			screen:     []string{"hello", "world"},
+			wantAction: ActionRedraw,
+			wantCX:     0,
+			wantCY:     0,
+			wantOY:     0,
+		},
+		{
+			name:       "vi word backward restores scroll position on failure",
+			key:        'b',
+			width:      20,
+			height:     1,
+			screen:     []string{"world"},
+			scrollback: []string{"hello"},
+			before: func(cm *CopyMode) {
+				cm.oy = 1
+			},
+			wantAction: ActionNone,
+			wantCX:     0,
+			wantCY:     0,
+			wantOY:     1,
+		},
+		{
+			name:       "WORD end keeps last column when trailing whitespace exhausts buffer",
+			key:        'E',
+			width:      20,
+			height:     1,
+			screen:     []string{"   "},
+			wantAction: ActionRedraw,
+			wantCX:     2,
+			wantCY:     0,
+			wantOY:     0,
+		},
+		{
+			name:   "vi word end wraps to next line",
+			key:    'e',
+			width:  20,
+			height: 2,
+			screen: []string{"ab", "cd ef"},
+			before: func(cm *CopyMode) {
+				cm.cx = 1
+			},
+			wantAction: ActionRedraw,
+			wantCX:     1,
+			wantCY:     1,
+			wantOY:     0,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			emu := newFakeEmulator(tt.width, tt.height)
+			emu.screen = append([]string(nil), tt.screen...)
+			emu.scrollback = append([]string(nil), tt.scrollback...)
+			cm := New(emu, tt.width, tt.height, tt.cursorRow)
+			if tt.before != nil {
+				tt.before(cm)
+			}
+
+			action := cm.runWordMotion(tt.key)
+			if action != tt.wantAction {
+				t.Fatalf("runWordMotion(%q) action = %d, want %d", tt.key, action, tt.wantAction)
+			}
+			if got := cm.ScrollOffset(); got != tt.wantOY {
+				t.Fatalf("runWordMotion(%q) oy = %d, want %d", tt.key, got, tt.wantOY)
+			}
+			if cx, cy := cm.CursorPos(); cx != tt.wantCX || cy != tt.wantCY {
+				t.Fatalf("runWordMotion(%q) moved cursor to (%d,%d), want (%d,%d)", tt.key, cx, cy, tt.wantCX, tt.wantCY)
+			}
+		})
+	}
+}
+
 func TestCharSearchForward(t *testing.T) {
 	t.Parallel()
 	emu := newFakeEmulator(40, 3)

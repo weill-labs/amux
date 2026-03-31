@@ -516,23 +516,8 @@ func (cm *CopyMode) handleNormalKey(key int) Action {
 		cm.markY = cm.cursorAbsLine()
 		return ActionRedraw
 
-	case 'W': // forward WORD
-		return cm.repeatAction(count, cm.moveWordForward)
-
-	case 'B': // backward WORD
-		return cm.repeatAction(count, cm.moveWordBackward)
-
-	case 'E': // end of WORD
-		return cm.repeatAction(count, cm.moveWordEnd)
-
-	case 'w':
-		return cm.repeatAction(count, cm.moveViWordForward)
-
-	case 'b':
-		return cm.repeatAction(count, cm.moveViWordBackward)
-
-	case 'e':
-		return cm.repeatAction(count, cm.moveViWordEnd)
+	case 'W', 'B', 'E', 'w', 'b', 'e':
+		return cm.repeatAction(count, func() Action { return cm.runWordMotion(byte(key)) })
 
 	case 0x06, keyPageDown:
 		return cm.scrollBy(-cm.height*count, false)
