@@ -5,29 +5,6 @@ import (
 	"time"
 )
 
-// Bus manages event subscribers for a single actor-owned event stream.
-type Bus struct {
-	subs []*Subscriber
-}
-
-func NewBus() *Bus {
-	return &Bus{}
-}
-
-func (b *Bus) Subscribe(filter Filter) *Subscriber {
-	return Subscribe(&b.subs, filter)
-}
-
-func (b *Bus) Unsubscribe(target *Subscriber) {
-	Unsubscribe(&b.subs, target)
-}
-
-// Emit marshals an event and sends it to all matching subscribers.
-// If a subscriber channel is full the event is dropped.
-func (b *Bus) Emit(ev Event) {
-	Emit(b.subs, ev)
-}
-
 func Subscribe(subs *[]*Subscriber, filter Filter) *Subscriber {
 	sub := &Subscriber{
 		Ch:     make(chan []byte, 64),

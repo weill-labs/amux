@@ -643,11 +643,10 @@ func (e uiWaitSubscribeCmd) handle(s *Session) {
 		return
 	}
 
-	sub := &eventSub{
-		Ch:     make(chan []byte, 64),
-		Filter: eventFilter{Types: []string{e.eventName}, ClientID: client.clientID},
-	}
-	s.eventSubs = append(s.eventSubs, sub)
+	sub := eventloop.Subscribe(&s.eventSubs, eventFilter{
+		Types:    []string{e.eventName},
+		ClientID: client.clientID,
+	})
 
 	e.reply <- uiWaitSubscribeResult{subscription: uiWaitSubscription{
 		sub:          sub,
