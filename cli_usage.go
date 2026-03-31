@@ -248,7 +248,7 @@ Inside an amux session:
   Ctrl-a 1-9                         Select window by number
   Ctrl-a r                           Hot reload (re-exec binary)
   Ctrl-a d                           Detach from session
-  Ctrl-a a                           Add pane in clockwise spiral order
+  Ctrl-a a                           Spawn pane in clockwise spiral order
   Ctrl-a Ctrl-a                      Send literal Ctrl-a
 
 See https://github.com/weill-labs/amux for config format.`)

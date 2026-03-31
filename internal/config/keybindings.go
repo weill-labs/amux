@@ -42,7 +42,7 @@ func DefaultKeybindings() *Keybindings {
 			'U': {Action: "undo"},
 			'[': {Action: "copy-mode"},
 			'c': {Action: "new-window"},
-			'a': {Action: "add-pane"},
+			'a': {Action: "spawn", Args: []string{"--spiral"}},
 			'n': {Action: "next-window"},
 			'p': {Action: "prev-window"},
 			',': {Action: "rename-window"},

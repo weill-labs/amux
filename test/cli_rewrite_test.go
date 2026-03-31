@@ -36,8 +36,6 @@ func rewriteLegacyHarnessArgs(args []string) []string {
 		default:
 			return []string{"move", args[1], "--to-column", args[2]}
 		}
-	case "add-pane":
-		return append([]string{"spawn", "--spiral"}, args[1:]...)
 	case "split":
 		return rewriteLegacySplitArgs(args[1:])
 	default:

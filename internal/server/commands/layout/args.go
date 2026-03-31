@@ -17,14 +17,6 @@ type SplitArgs struct {
 	Color     string
 }
 
-type AddPaneArgs struct {
-	HostName string
-	Name     string
-	Task     string
-	Color    string
-	Focus    bool
-}
-
 func ParseSplitArgs(args []string) (SplitArgs, error) {
 	parsed := SplitArgs{Dir: mux.SplitHorizontal}
 	hasExplicitDir := false
@@ -88,48 +80,11 @@ func ParseSplitArgs(args []string) (SplitArgs, error) {
 	return parsed, nil
 }
 
-func ParseAddPaneArgs(args []string) (AddPaneArgs, error) {
-	parsed := AddPaneArgs{}
-
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--host":
-			if i+1 >= len(args) {
-				return AddPaneArgs{}, fmt.Errorf("--host requires a value")
-			}
-			parsed.HostName = args[i+1]
-			i++
-		case "--focus":
-			parsed.Focus = true
-		case "--name":
-			if i+1 >= len(args) {
-				return AddPaneArgs{}, fmt.Errorf("--name requires a value")
-			}
-			parsed.Name = args[i+1]
-			i++
-		case "--task":
-			if i+1 >= len(args) {
-				return AddPaneArgs{}, fmt.Errorf("--task requires a value")
-			}
-			parsed.Task = args[i+1]
-			i++
-		case "--color":
-			if i+1 >= len(args) {
-				return AddPaneArgs{}, fmt.Errorf("--color requires a value")
-			}
-			parsed.Color = args[i+1]
-			i++
-		default:
-			return AddPaneArgs{}, fmt.Errorf("unknown add-pane arg %q", args[i])
-		}
-	}
-
-	return parsed, nil
-}
-
 type SpawnArgs struct {
-	Meta  mux.PaneMeta
-	Focus bool
+	Meta         mux.PaneMeta
+	Focus        bool
+	Spiral       bool
+	HostExplicit bool
 }
 
 func ParseSpawnArgs(args []string) (SpawnArgs, error) {
@@ -152,6 +107,7 @@ func ParseSpawnArgs(args []string) (SpawnArgs, error) {
 				return SpawnArgs{}, fmt.Errorf("--host requires a value")
 			}
 			parsed.Meta.Host = args[i+1]
+			parsed.HostExplicit = true
 			i++
 		case "--task":
 			if i+1 >= len(args) {
@@ -165,6 +121,8 @@ func ParseSpawnArgs(args []string) (SpawnArgs, error) {
 			}
 			parsed.Meta.Color = args[i+1]
 			i++
+		case "--spiral":
+			parsed.Spiral = true
 		default:
 			return SpawnArgs{}, fmt.Errorf("unknown spawn arg %q", args[i])
 		}

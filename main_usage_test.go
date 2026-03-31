@@ -331,6 +331,21 @@ func TestMainHelpIncludesWaitCheckpoint(t *testing.T) {
 	}
 }
 
+func TestMainHelpDescribesCtrlASpiralSpawn(t *testing.T) {
+	t.Parallel()
+
+	out, code := runHermeticMain(t, "help")
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0\n%s", code, out)
+	}
+	if !strings.Contains(out, "Ctrl-a a                           Spawn pane in clockwise spiral order") {
+		t.Fatalf("help output missing updated Ctrl-a a text:\n%s", out)
+	}
+	if strings.Contains(out, "Ctrl-a a                           Add pane in clockwise spiral order") {
+		t.Fatalf("help output should not mention add-pane for Ctrl-a a:\n%s", out)
+	}
+}
+
 func TestMainAllCommandsSupportLongHelp(t *testing.T) {
 	t.Parallel()
 

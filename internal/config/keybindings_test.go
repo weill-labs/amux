@@ -44,9 +44,9 @@ func TestDefaultKeybindings(t *testing.T) {
 			want: Binding{Action: "display-panes"},
 		},
 		{
-			name: "a adds a pane",
+			name: "a spawns a pane in spiral order",
 			key:  'a',
-			want: Binding{Action: "add-pane"},
+			want: Binding{Action: "spawn", Args: []string{"--spiral"}},
 		},
 		{
 			name: "s opens choose tree",

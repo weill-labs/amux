@@ -377,7 +377,7 @@ Higher-level prompt delegation now lives at the script layer: compose `wait idle
 |---------|-------------|
 | `amux hosts` | List configured remote hosts and connection status |
 | `amux spawn --at <pane> [--root] [--vertical\|--horizontal] [--name NAME] --host HOST` | Create a remote split pane on HOST |
-| `amux spawn --spiral [--name NAME] --host HOST` | Add a remote pane in clockwise spiral order without changing focus |
+| `amux spawn --spiral [--name NAME] --host HOST` | Spawn a remote pane in clockwise spiral order without changing focus |
 | `amux disconnect <host>` | Drop SSH connection to a host |
 | `amux reconnect <host>` | Reconnect to a remote host |
 | `amux unsplice <host>` | Revert SSH takeover, replace remote panes with local |
@@ -402,7 +402,7 @@ Default prefix: `Ctrl-a`.
 | `Ctrl-a H/J/K/L` | Resize pane left/down/up/right |
 | `Ctrl-a =` | Equalize root column widths |
 | `Ctrl-a [` | Enter copy/scroll mode |
-| `Ctrl-a a` | Add pane in clockwise spiral order |
+| `Ctrl-a a` | Spawn pane in clockwise spiral order |
 | `Ctrl-a c` | Create new window |
 | `Ctrl-a n` / `Ctrl-a p` | Next/previous window |
 | `Ctrl-a q` | Show pane labels for quick jump |
