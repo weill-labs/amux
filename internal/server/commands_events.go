@@ -23,7 +23,7 @@ func cmdEvents(ctx *CommandContext) {
 	}
 
 	if ea.throttle <= 0 {
-		for data := range res.sub.ch {
+		for data := range res.sub.Ch {
 			if err := ctx.CC.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: string(data) + "\n"}); err != nil {
 				return
 			}
@@ -37,7 +37,7 @@ func cmdEvents(ctx *CommandContext) {
 
 	for {
 		select {
-		case data, ok := <-res.sub.ch:
+		case data, ok := <-res.sub.Ch:
 			if !ok {
 				return
 			}

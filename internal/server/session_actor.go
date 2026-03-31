@@ -3,57 +3,18 @@ package server
 import (
 	"fmt"
 	"log"
-	"runtime/debug"
 
+	"github.com/weill-labs/amux/internal/eventloop"
 	"github.com/weill-labs/amux/internal/proto"
 )
 
-type sessionQueryResult[T any] struct {
-	value T
-	err   error
-}
-
-type sessionQueryEvent[T any] struct {
-	fn    func(*Session) (T, error)
-	reply chan sessionQueryResult[T]
-}
-
-func (e sessionQueryEvent[T]) handle(s *Session) {
-	e.reply <- recoverSessionQuery(e.fn, s)
-}
-
-// recoverSessionQuery calls fn and converts any panic into an error result
-// so the event loop keeps running and the reply channel is always written.
-func recoverSessionQuery[T any](fn func(*Session) (T, error), s *Session) (res sessionQueryResult[T]) {
-	defer func() {
-		if r := recover(); r != nil {
-			log.Printf("[amux] panic in session query: %v\n%s", r, debug.Stack())
-			res = sessionQueryResult[T]{err: fmt.Errorf("internal error: %v", r)}
-		}
-	}()
-	value, err := fn(s)
-	return sessionQueryResult[T]{value: value, err: err}
+func recoverSessionQuery(r any, stack []byte) error {
+	log.Printf("[amux] panic in session query: %v\n%s", r, stack)
+	return fmt.Errorf("internal error: %v", r)
 }
 
 func enqueueSessionQuery[T any](s *Session, fn func(*Session) (T, error)) (T, error) {
-	var zero T
-
-	reply := make(chan sessionQueryResult[T], 1)
-	if !s.enqueueEvent(sessionQueryEvent[T]{fn: fn, reply: reply}) {
-		return zero, errSessionShuttingDown
-	}
-
-	select {
-	case res := <-reply:
-		return res.value, res.err
-	case <-s.sessionEventDone:
-		select {
-		case res := <-reply:
-			return res.value, res.err
-		default:
-			return zero, errSessionShuttingDown
-		}
-	}
+	return eventloop.EnqueueQuery(s.sessionEvents, s.sessionEventStop, s.sessionEventDone, fn, recoverSessionQuery, errSessionShuttingDown)
 }
 
 type captureRequest struct {

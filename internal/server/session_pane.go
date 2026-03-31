@@ -118,7 +118,7 @@ func (s *Session) prunePaneEventSubs(paneName string) {
 	}
 	subs := s.eventSubs[:0]
 	for _, sub := range s.eventSubs {
-		if sub.filter.PaneName == paneName {
+		if sub.Filter.PaneName == paneName {
 			continue
 		}
 		subs = append(subs, sub)

@@ -314,7 +314,7 @@ func cmdWaitExited(ctx *CommandContext) {
 
 	for {
 		select {
-		case <-res.sub.ch:
+		case <-res.sub.Ch:
 			idle, err := checkIdle()
 			if err != nil {
 				ctx.replyErr(err.Error())
@@ -453,7 +453,7 @@ func waitForUIEvent(sess *Session, requestedClientID, eventName string, afterGen
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
 	select {
-	case <-subscription.sub.ch:
+	case <-subscription.sub.Ch:
 		return subscription.clientID, nil
 	case <-timer.C:
 		return "", fmt.Errorf("timeout waiting for %s on %s", eventName, subscription.clientID)

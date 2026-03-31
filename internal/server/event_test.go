@@ -24,7 +24,7 @@ func TestEventFilterMatchesAll(t *testing.T) {
 	t.Parallel()
 	f := eventFilter{}
 	ev := Event{Type: EventLayout, PaneName: "pane-1", Host: "local"}
-	if !f.matches(ev) {
+	if !f.Matches(ev) {
 		t.Error("empty filter should match all events")
 	}
 }
@@ -33,13 +33,13 @@ func TestEventFilterMatchesType(t *testing.T) {
 	t.Parallel()
 	f := eventFilter{Types: []string{EventLayout, EventIdle}}
 
-	if !f.matches(Event{Type: EventLayout}) {
+	if !f.Matches(Event{Type: EventLayout}) {
 		t.Error("should match layout")
 	}
-	if !f.matches(Event{Type: EventIdle}) {
+	if !f.Matches(Event{Type: EventIdle}) {
 		t.Error("should match idle")
 	}
-	if f.matches(Event{Type: EventOutput}) {
+	if f.Matches(Event{Type: EventOutput}) {
 		t.Error("should not match output")
 	}
 }
@@ -48,14 +48,14 @@ func TestEventFilterMatchesPane(t *testing.T) {
 	t.Parallel()
 	f := eventFilter{PaneName: "pane-1"}
 
-	if !f.matches(Event{Type: EventIdle, PaneName: "pane-1"}) {
+	if !f.Matches(Event{Type: EventIdle, PaneName: "pane-1"}) {
 		t.Error("should match pane-1")
 	}
-	if f.matches(Event{Type: EventIdle, PaneName: "pane-2"}) {
+	if f.Matches(Event{Type: EventIdle, PaneName: "pane-2"}) {
 		t.Error("should not match pane-2")
 	}
 	// Layout events without pane name should not match pane filter
-	if f.matches(Event{Type: EventLayout}) {
+	if f.Matches(Event{Type: EventLayout}) {
 		t.Error("layout without pane should not match pane filter")
 	}
 }
@@ -64,10 +64,10 @@ func TestEventFilterMatchesHost(t *testing.T) {
 	t.Parallel()
 	f := eventFilter{Host: "gpu-box"}
 
-	if !f.matches(Event{Type: EventOutput, Host: "gpu-box"}) {
+	if !f.Matches(Event{Type: EventOutput, Host: "gpu-box"}) {
 		t.Error("should match gpu-box")
 	}
-	if f.matches(Event{Type: EventOutput, Host: "local"}) {
+	if f.Matches(Event{Type: EventOutput, Host: "local"}) {
 		t.Error("should not match local")
 	}
 }
@@ -76,13 +76,13 @@ func TestEventFilterCombined(t *testing.T) {
 	t.Parallel()
 	f := eventFilter{Types: []string{EventIdle}, PaneName: "pane-1"}
 
-	if !f.matches(Event{Type: EventIdle, PaneName: "pane-1"}) {
+	if !f.Matches(Event{Type: EventIdle, PaneName: "pane-1"}) {
 		t.Error("should match idle+pane-1")
 	}
-	if f.matches(Event{Type: EventBusy, PaneName: "pane-1"}) {
+	if f.Matches(Event{Type: EventBusy, PaneName: "pane-1"}) {
 		t.Error("should not match busy+pane-1")
 	}
-	if f.matches(Event{Type: EventIdle, PaneName: "pane-2"}) {
+	if f.Matches(Event{Type: EventIdle, PaneName: "pane-2"}) {
 		t.Error("should not match idle+pane-2")
 	}
 }
@@ -91,13 +91,13 @@ func TestEventFilterMatchesClient(t *testing.T) {
 	t.Parallel()
 	f := eventFilter{ClientID: "client-2"}
 
-	if !f.matches(Event{Type: proto.UIEventDisplayPanesShown, ClientID: "client-2"}) {
+	if !f.Matches(Event{Type: proto.UIEventDisplayPanesShown, ClientID: "client-2"}) {
 		t.Error("should match client-2")
 	}
-	if f.matches(Event{Type: proto.UIEventDisplayPanesShown, ClientID: "client-1"}) {
+	if f.Matches(Event{Type: proto.UIEventDisplayPanesShown, ClientID: "client-1"}) {
 		t.Error("should not match client-1")
 	}
-	if f.matches(Event{Type: EventLayout}) {
+	if f.Matches(Event{Type: EventLayout}) {
 		t.Error("session-wide event should not match client filter")
 	}
 }
@@ -235,7 +235,7 @@ func TestTerminalEventsInitialSnapshotAndUpdates(t *testing.T) {
 	pane.FeedOutput([]byte("\x1b]10;#abcdef\x07\x1b[4 q"))
 
 	select {
-	case data := <-res.sub.ch:
+	case data := <-res.sub.Ch:
 		var updated Event
 		if err := json.Unmarshal(data, &updated); err != nil {
 			t.Fatalf("json.Unmarshal update: %v", err)
@@ -363,7 +363,7 @@ func TestEmitEventDelivery(t *testing.T) {
 	})
 
 	select {
-	case data := <-res.sub.ch:
+	case data := <-res.sub.Ch:
 		var ev Event
 		if err := json.Unmarshal(data, &ev); err != nil {
 			t.Fatalf("unmarshal: %v", err)
@@ -394,7 +394,7 @@ func TestEmitEventFiltered(t *testing.T) {
 	})
 
 	select {
-	case data := <-res.sub.ch:
+	case data := <-res.sub.Ch:
 		var ev Event
 		json.Unmarshal(data, &ev)
 		if ev.Type != EventIdle {
@@ -406,7 +406,7 @@ func TestEmitEventFiltered(t *testing.T) {
 
 	// Verify no extra events
 	select {
-	case data := <-res.sub.ch:
+	case data := <-res.sub.Ch:
 		t.Errorf("unexpected event: %s", string(data))
 	case <-time.After(50 * time.Millisecond):
 		// good — no extra events

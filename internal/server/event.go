@@ -5,82 +5,34 @@ import (
 	"time"
 
 	caputil "github.com/weill-labs/amux/internal/capture"
+	"github.com/weill-labs/amux/internal/eventloop"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
 )
 
-// Event types emitted by the event stream.
 const (
-	EventLayout           = "layout"
-	EventOutput           = "output"
-	EventTerminal         = "terminal"
-	EventIdle             = "idle"
-	EventBusy             = "busy"
-	EventExited           = "exited"
-	EventClientConnect    = "client-connect"
-	EventClientDisconnect = "client-disconnect"
-	EventPaneExit         = "pane-exit"
+	EventLayout           = eventloop.EventLayout
+	EventOutput           = eventloop.EventOutput
+	EventTerminal         = eventloop.EventTerminal
+	EventIdle             = eventloop.EventIdle
+	EventBusy             = eventloop.EventBusy
+	EventExited           = eventloop.EventExited
+	EventClientConnect    = eventloop.EventClientConnect
+	EventClientDisconnect = eventloop.EventClientDisconnect
+	EventPaneExit         = eventloop.EventPaneExit
 )
 
 const (
-	DisconnectReasonServerReload   = "server-reload"
-	DisconnectReasonExplicitDetach = "explicit-detach"
-	DisconnectReasonSocketError    = "socket-error"
+	DisconnectReasonServerReload   = eventloop.DisconnectReasonServerReload
+	DisconnectReasonExplicitDetach = eventloop.DisconnectReasonExplicitDetach
+	DisconnectReasonSocketError    = eventloop.DisconnectReasonSocketError
 )
 
-// DefaultEventThrottle is the default throttle interval for `amux events`.
-// Output events are coalesced to at most one per pane per interval.
-const DefaultEventThrottle = 50 * time.Millisecond
+const DefaultEventThrottle = eventloop.DefaultEventThrottle
 
-// Event is a single event in the NDJSON event stream.
-type Event struct {
-	Type       string                 `json:"type"`
-	Timestamp  string                 `json:"ts"`
-	Generation uint64                 `json:"generation,omitempty"`
-	PaneID     uint32                 `json:"pane_id,omitempty"`
-	PaneName   string                 `json:"pane_name,omitempty"`
-	Host       string                 `json:"host,omitempty"`
-	ActivePane string                 `json:"active_pane,omitempty"`
-	ClientID   string                 `json:"client_id,omitempty"`
-	Reason     string                 `json:"reason,omitempty"`
-	Cursor     *proto.CaptureCursor   `json:"cursor,omitempty"`
-	Terminal   *proto.CaptureTerminal `json:"terminal,omitempty"`
-}
-
-// eventSub is a subscriber to the event stream.
-type eventSub struct {
-	ch     chan []byte // buffered, JSON-encoded events (one line per event)
-	filter eventFilter
-}
-
-// eventFilter controls which events a subscriber receives.
-type eventFilter struct {
-	Types    []string // event types to include (empty = all)
-	PaneID   uint32   // match pane ID (0 = all panes)
-	PaneName string   // match pane name (empty = all panes)
-	Host     string   // match host (empty = all hosts)
-	ClientID string   // match client ID (empty = all clients)
-}
-
-// matches returns true if the event passes the filter.
-func (f eventFilter) matches(ev Event) bool {
-	if len(f.Types) > 0 && !slices.Contains(f.Types, ev.Type) {
-		return false
-	}
-	if f.PaneID != 0 && ev.PaneID != f.PaneID {
-		return false
-	}
-	if f.PaneName != "" && ev.PaneName != f.PaneName {
-		return false
-	}
-	if f.Host != "" && ev.Host != f.Host {
-		return false
-	}
-	if f.ClientID != "" && ev.ClientID != f.ClientID {
-		return false
-	}
-	return true
-}
+type Event = eventloop.Event
+type eventSub = eventloop.Subscriber
+type eventFilter = eventloop.Filter
 
 // currentStateEvents builds synthetic events representing the current session
 // state. This allows new subscribers to receive the current state immediately
@@ -89,8 +41,7 @@ func (f eventFilter) matches(ev Event) bool {
 func (s *Session) currentStateEvents() []Event {
 	idleSnap := s.snapshotIdleState()
 
-	snapshotNow := time.Now()
-	now := snapshotNow.UTC().Format(time.RFC3339Nano)
+	now := s.clock().Now().UTC().Format(time.RFC3339Nano)
 	var events []Event
 
 	// Current layout state

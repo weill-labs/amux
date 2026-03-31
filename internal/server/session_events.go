@@ -1,7 +1,6 @@
 package server
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -9,6 +8,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/weill-labs/amux/internal/eventloop"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
 	"github.com/weill-labs/amux/internal/render"
@@ -16,8 +16,18 @@ import (
 
 var errSessionShuttingDown = errors.New("session shutting down")
 
-type sessionEvent interface {
+type sessionEvent = eventloop.Command[Session]
+
+type sessionAction interface {
 	handle(*Session)
+}
+
+type sessionEventCommand struct {
+	sessionAction
+}
+
+func (c sessionEventCommand) Handle(s *Session) {
+	c.sessionAction.handle(s)
 }
 
 type commandMutationResult struct {
@@ -463,7 +473,22 @@ func (s *Session) startEventLoop() {
 	s.sessionEvents = make(chan sessionEvent, 128)
 	s.sessionEventStop = make(chan struct{})
 	s.sessionEventDone = make(chan struct{})
-	go s.eventLoop()
+	go func() {
+		s.eventLoopOwner.Assert("server.Session", "eventLoop")
+		eventloop.Run(s, s.sessionEvents, s.sessionEventStop, s.sessionEventDone, func(s *Session) bool {
+			// Keep the active input target in sync with actor-owned focus/window
+			// state so the common input path can avoid a round-trip through the
+			// session queue.
+			s.refreshInputTarget()
+			if !s.wantShutdown {
+				return true
+			}
+			// Trigger shutdown asynchronously — Shutdown() waits on
+			// sessionEventDone, so the loop must exit first.
+			go s.exitServer.Shutdown()
+			return false
+		})
+	}()
 }
 
 func (s *Session) stopEventLoop() {
@@ -479,44 +504,8 @@ func (s *Session) stopEventLoop() {
 	<-s.sessionEventDone
 }
 
-func (s *Session) eventLoop() {
-	defer close(s.sessionEventDone)
-	s.eventLoopOwner.Assert("server.Session", "eventLoop")
-	for {
-		select {
-		case <-s.sessionEventStop:
-			return
-		case ev := <-s.sessionEvents:
-			if ev != nil {
-				ev.handle(s)
-			}
-			// Keep the active input target in sync with actor-owned focus/window
-			// state so the common input path can avoid a round-trip through the
-			// session queue.
-			s.refreshInputTarget()
-			if s.wantShutdown {
-				// Trigger shutdown asynchronously — Shutdown() waits
-				// on sessionEventDone, so we must return first.
-				go s.exitServer.Shutdown()
-				return
-			}
-		}
-	}
-}
-
-func (s *Session) enqueueEvent(ev sessionEvent) bool {
-	select {
-	case <-s.sessionEventStop:
-		return false
-	default:
-	}
-
-	select {
-	case <-s.sessionEventStop:
-		return false
-	case s.sessionEvents <- ev:
-		return true
-	}
+func (s *Session) enqueueEvent(ev sessionAction) bool {
+	return eventloop.Enqueue(s.sessionEvents, s.sessionEventStop, sessionEventCommand{sessionAction: ev})
 }
 
 func (s *Session) enqueueAttachClient(srv *Server, cc *clientConn, cols, rows int) attachResult {
@@ -632,17 +621,11 @@ type eventSubscribeCmd struct {
 }
 
 func (e eventSubscribeCmd) handle(s *Session) {
-	sub := &eventSub{ch: make(chan []byte, 64), filter: e.filter}
-	s.eventSubs = append(s.eventSubs, sub)
+	sub := eventloop.Subscribe(&s.eventSubs, e.filter)
 
 	result := eventSubscribeResult{sub: sub}
 	if e.sendInitial {
-		for _, ev := range s.currentStateEvents() {
-			if e.filter.matches(ev) {
-				data, _ := json.Marshal(ev)
-				result.initialState = append(result.initialState, data)
-			}
-		}
+		result.initialState = eventloop.MarshalMatching(s.currentStateEvents(), e.filter)
 	}
 	e.reply <- result
 }
@@ -660,11 +643,10 @@ func (e uiWaitSubscribeCmd) handle(s *Session) {
 		return
 	}
 
-	sub := &eventSub{
-		ch:     make(chan []byte, 64),
-		filter: eventFilter{Types: []string{e.eventName}, ClientID: client.clientID},
-	}
-	s.eventSubs = append(s.eventSubs, sub)
+	sub := eventloop.Subscribe(&s.eventSubs, eventFilter{
+		Types:    []string{e.eventName},
+		ClientID: client.clientID,
+	})
 
 	e.reply <- uiWaitSubscribeResult{subscription: uiWaitSubscription{
 		sub:          sub,
@@ -679,12 +661,7 @@ type eventUnsubscribeCmd struct {
 }
 
 func (e eventUnsubscribeCmd) handle(s *Session) {
-	for i, sub := range s.eventSubs {
-		if sub == e.sub {
-			s.eventSubs = append(s.eventSubs[:i], s.eventSubs[i+1:]...)
-			break
-		}
-	}
+	eventloop.Unsubscribe(&s.eventSubs, e.sub)
 }
 
 // --- Pane output subscribe/unsubscribe through the event loop ---
@@ -748,19 +725,7 @@ func (e uiEventCmd) handle(s *Session) {
 // Non-blocking: if a subscriber's channel is full the event is dropped.
 // Must be called from the session event loop (no mutex needed).
 func (s *Session) emitEvent(ev Event) {
-	ev.Timestamp = time.Now().UTC().Format(time.RFC3339Nano)
-	data, err := json.Marshal(ev)
-	if err != nil {
-		return
-	}
-	for _, sub := range s.eventSubs {
-		if sub.filter.matches(ev) {
-			select {
-			case sub.ch <- data:
-			default:
-			}
-		}
-	}
+	eventloop.Emit(s.eventSubs, ev)
 }
 
 // --- Enqueue helpers ---
