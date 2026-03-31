@@ -64,6 +64,11 @@ func TestDefaultKeybindings(t *testing.T) {
 			want: Binding{Action: "rename-window"},
 		},
 		{
+			name: "semicolon toggles the last window",
+			key:  ';',
+			want: Binding{Action: "last-window"},
+		},
+		{
 			name: "m remains reserved for compat bell",
 			key:  'm',
 			want: Binding{Action: "compat-bell"},

@@ -52,3 +52,32 @@ func TestSelectWindowNotFound(t *testing.T) {
 		t.Fatalf("expected not found error, got: %s", out)
 	}
 }
+
+func TestLastWindowCLI(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	h.runCmd("new-window", "--name", "second")
+
+	h.runCmd("last-window")
+	lw := h.runCmd("list-windows")
+	if !strings.Contains(lw, "*1:") {
+		t.Fatalf("last-window should switch back to window 1, got:\n%s", lw)
+	}
+
+	h.runCmd("last-window")
+	lw = h.runCmd("list-windows")
+	if !strings.Contains(lw, "*2:") {
+		t.Fatalf("second last-window should switch back to window 2, got:\n%s", lw)
+	}
+}
+
+func TestLastWindowBellsWithoutPreviousWindow(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	out := h.runCmd("last-window")
+	if !strings.Contains(out, "\a") {
+		t.Fatalf("last-window without history should ring bell, got %q", out)
+	}
+}
