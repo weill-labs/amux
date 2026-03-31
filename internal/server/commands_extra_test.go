@@ -221,6 +221,28 @@ func TestParseCopyModeArgs(t *testing.T) {
 	}
 }
 
+func TestCommandRespawnRejectsProxyPane(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	pane := newProxyPane(1, mux.PaneMeta{
+		Name:  "pane-1",
+		Host:  "fake-host",
+		Color: config.AccentColor(0),
+	}, 80, 23, sess.paneOutputCallback(), sess.paneExitCallback(), func(data []byte) (int, error) {
+		return len(data), nil
+	})
+	window := newTestWindowWithPanes(t, sess, 1, "main", pane)
+	setSessionLayoutForTest(t, sess, window.ID, []*mux.Window{window}, pane)
+
+	res := runTestCommand(t, srv, sess, "respawn", "pane-1")
+	if res.cmdErr != "cannot respawn remote pane pane-1 @fake-host" {
+		t.Fatalf("respawn proxy error = %q", res.cmdErr)
+	}
+}
+
 func TestCmdTypeKeysWaitsForInputIdle(t *testing.T) {
 	t.Parallel()
 

@@ -289,7 +289,7 @@ func TestRespawnPreservesPaneMetadataAndCwdWhileResettingState(t *testing.T) {
 	if strings.Contains(afterScreen, "RESPAWN-HISTORY") {
 		t.Fatalf("worker content after respawn should not include old history, got:\n%s", afterScreen)
 	}
-	if !strings.Contains(afterScreen, wantCwd) {
+	if !strings.Contains(strings.ReplaceAll(afterScreen, "\n", ""), strings.ReplaceAll(wantCwd, "\n", "")) {
 		t.Fatalf("worker content after respawn should include inherited cwd, got:\n%s", afterScreen)
 	}
 	if !strings.Contains(afterScreen, "RESPAWN-NEW-OUTPUT") {

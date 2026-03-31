@@ -316,6 +316,7 @@ The public CLI keeps one command path per concept: target sessions with `-s`, cr
 | `amux move <pane> --to-column <target>` | Move one pane into the target pane's column, appending at the bottom |
 | `amux rotate [--reverse]` | Rotate pane positions |
 | `amux equalize [--vertical\|--all]` | Rebalance root columns, rows within columns, or both |
+| `amux respawn <pane>` | Restart a local pane with a fresh shell in the same slot |
 | `amux copy-mode [pane] [--wait ui=copy-mode-shown] [--timeout <duration>]` | Enter copy/scroll mode |
 | `amux lead [pane]` / `amux lead --clear` | Set or clear the lead pane |
 | `amux meta set <pane> key=value...` | Set pane metadata |
