@@ -99,6 +99,44 @@ func TestHandleAttachAppliesQueuedLayoutAfterConcurrentSplit(t *testing.T) {
 	assertAttachReplayPaneMatchesSnapshot(t, replay, pane2.ID, wantPane2)
 }
 
+func TestHandleAttachPreservesAltScreenAndHiddenCursorInBootstrap(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	pane := newAttachTestPane(sess, 1, "pane-1", 80, 2)
+
+	w := mux.NewWindow(pane, 80, 3)
+	w.ID = 1
+	w.Name = "window-1"
+	if err := setAttachTestLayout(sess, []*mux.Window{w}, w.ID, []*mux.Pane{pane}); err != nil {
+		t.Fatalf("setAttachTestLayout: %v", err)
+	}
+	pane.FeedOutput([]byte("\x1b[?25l\x1b[?1049hgh-dash"))
+
+	want := pane.CaptureSnapshot()
+	if !want.CursorHidden {
+		t.Fatal("expected source snapshot cursor to be hidden")
+	}
+	if !want.Terminal.AltScreen {
+		t.Fatal("expected source snapshot terminal to be in alt screen")
+	}
+
+	peerConn, replay, paused, release, done := startPausedAttach(t, srv, sess, 80, 4)
+	defer closeAttach(t, peerConn, release, done)
+
+	readInitialAttachReplay(t, peerConn, replay)
+	waitForPause(t, paused)
+	release()
+
+	assertAttachReplayPaneMatchesSnapshot(t, replay, pane.ID, want)
+
+	if got := replay.emulators[pane.ID].IsAltScreen(); got != want.Terminal.AltScreen {
+		t.Fatalf("pane %d alt screen = %v, want %v", pane.ID, got, want.Terminal.AltScreen)
+	}
+}
+
 func TestNonInteractiveAttachDoesNotCountForExitUnattached(t *testing.T) {
 	t.Parallel()
 

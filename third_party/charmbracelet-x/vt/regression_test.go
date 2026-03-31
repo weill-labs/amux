@@ -29,3 +29,17 @@ func TestReflowWrappedPositionHandlesEmptyWrappedCounts(t *testing.T) {
 		t.Fatalf("reflowWrappedPosition(nil, ...) = (%d, %d), want (0, 0)", pos.X, pos.Y)
 	}
 }
+
+func TestAltScreenEntryPreservesHiddenCursorWhenHideArrivesFirst(t *testing.T) {
+	t.Parallel()
+
+	term := NewEmulator(40, 24)
+
+	if _, err := term.WriteString("\x1b[?25l\x1b[?1049h"); err != nil {
+		t.Fatalf("WriteString() error = %v", err)
+	}
+
+	if !term.Cursor().Hidden {
+		t.Fatal("Cursor().Hidden = false after hide-before-alt-screen, want true")
+	}
+}

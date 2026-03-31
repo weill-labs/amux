@@ -414,6 +414,16 @@ func RenderWithCursor(emu TerminalEmulator) string {
 	lines := strings.Split(rendered, "\n")
 
 	var buf strings.Builder
+	if emu.IsAltScreen() {
+		buf.WriteString("\x1b[?1049h")
+	} else {
+		buf.WriteString("\x1b[?1049l")
+	}
+	if emu.CursorHidden() {
+		buf.WriteString("\x1b[?25l")
+	} else {
+		buf.WriteString("\x1b[?25h")
+	}
 	for i, line := range lines {
 		// Position cursor at start of each row (CUP is 1-indexed)
 		buf.WriteString(fmt.Sprintf("\033[%d;1H", i+1))

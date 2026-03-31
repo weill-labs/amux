@@ -225,6 +225,30 @@ func TestRenderWithCursorRoundTrip(t *testing.T) {
 	}
 }
 
+func TestRenderWithCursorRoundTripPreservesHiddenCursor(t *testing.T) {
+	t.Parallel()
+
+	emu1 := NewVTEmulatorWithDrain(40, 10)
+	emu1.Write([]byte("\x1b[?25l"))
+	emu1.Write([]byte("\x1b[?1049h"))
+
+	emu2 := NewVTEmulatorWithDrain(40, 10)
+	emu2.Write([]byte(RenderWithCursor(emu1)))
+
+	if !emu1.IsAltScreen() {
+		t.Fatal("source IsAltScreen() = false, want true")
+	}
+	if !emu1.CursorHidden() {
+		t.Fatal("source CursorHidden() = false, want true")
+	}
+	if !emu2.IsAltScreen() {
+		t.Fatal("round-trip IsAltScreen() = false, want true")
+	}
+	if !emu2.CursorHidden() {
+		t.Fatal("round-trip CursorHidden() = false, want true")
+	}
+}
+
 func TestRenderWithoutCursorBlock(t *testing.T) {
 	t.Parallel()
 
