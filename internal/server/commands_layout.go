@@ -467,21 +467,7 @@ func cmdReset(ctx *CommandContext) {
 		}
 
 		pane.ResetState()
-
-		res := commandMutationResult{
-			output: fmt.Sprintf("Reset %s\n", pane.Meta.Name),
-			paneHistories: []paneHistoryUpdate{{
-				paneID:  pane.ID,
-				history: nil,
-			}},
-		}
-		if w != nil {
-			res.paneRenders = []paneRender{{
-				paneID: pane.ID,
-				data:   append([]byte("\x1bc"), []byte(pane.RenderScreen())...),
-			}}
-		}
-		return res
+		return clearedPaneRenderResult(fmt.Sprintf("Reset %s\n", pane.Meta.Name), pane, w != nil, nil, nil)
 	}))
 }
 
@@ -497,20 +483,33 @@ func cmdRespawn(ctx *CommandContext) {
 			return commandMutationResult{err: err}
 		}
 
-		return commandMutationResult{
-			output: fmt.Sprintf("Respawned %s\n", newPane.Meta.Name),
-			paneHistories: []paneHistoryUpdate{{
-				paneID:  newPane.ID,
-				history: nil,
-			}},
-			paneRenders: []paneRender{{
-				paneID: newPane.ID,
-				data:   append([]byte("\x1bc"), []byte(newPane.RenderScreen())...),
-			}},
-			startPanes: []*mux.Pane{newPane},
-			closePanes: []*mux.Pane{pane},
-		}
+		return clearedPaneRenderResult(
+			fmt.Sprintf("Respawned %s\n", newPane.Meta.Name),
+			newPane,
+			true,
+			[]*mux.Pane{newPane},
+			[]*mux.Pane{pane},
+		)
 	}))
+}
+
+func clearedPaneRenderResult(output string, pane *mux.Pane, includeRender bool, startPanes, closePanes []*mux.Pane) commandMutationResult {
+	res := commandMutationResult{
+		output: output,
+		paneHistories: []paneHistoryUpdate{{
+			paneID:  pane.ID,
+			history: nil,
+		}},
+		startPanes: startPanes,
+		closePanes: closePanes,
+	}
+	if includeRender {
+		res.paneRenders = []paneRender{{
+			paneID: pane.ID,
+			data:   append([]byte("\x1bc"), []byte(pane.RenderScreen())...),
+		}}
+	}
+	return res
 }
 
 func cmdKill(ctx *CommandContext) {
