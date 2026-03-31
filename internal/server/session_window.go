@@ -27,6 +27,17 @@ func (s *Session) windowByID(windowID uint32) *mux.Window {
 	return nil
 }
 
+func (s *Session) previousWindow() *mux.Window {
+	if s.PreviousWindowID == 0 || s.PreviousWindowID == s.ActiveWindowID {
+		return nil
+	}
+	w := s.windowByID(s.PreviousWindowID)
+	if w == nil {
+		s.PreviousWindowID = 0
+	}
+	return w
+}
+
 // findWindowByPaneID returns the window containing the given pane, or nil.
 func (s *Session) findWindowByPaneID(paneID uint32) *mux.Window {
 	for _, w := range s.Windows {
@@ -82,16 +93,11 @@ func (s *Session) prevWindow() {
 
 // lastWindow switches to the previously active window.
 func (s *Session) lastWindow() bool {
-	if s.PreviousWindowID == 0 || s.PreviousWindowID == s.ActiveWindowID {
-		return false
+	if w := s.previousWindow(); w != nil {
+		s.activateWindow(w)
+		return true
 	}
-	w := s.windowByID(s.PreviousWindowID)
-	if w == nil {
-		s.PreviousWindowID = 0
-		return false
-	}
-	s.activateWindow(w)
-	return true
+	return false
 }
 
 // resolveWindow finds a window by 1-based index, exact name, or name prefix.
