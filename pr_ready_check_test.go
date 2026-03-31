@@ -232,8 +232,8 @@ exit 1
 func runPRReadyCheck(t *testing.T, tempDir string, extraEnv []string, extraArgs []string) (string, int) {
 	t.Helper()
 
-	args := append([]string{"scripts/check-pr-ready.sh"}, extraArgs...)
-	cmd := exec.Command("bash", args...)
+	args := append([]string{"run", "./cmd/check-pr-ready"}, extraArgs...)
+	cmd := exec.Command("go", args...)
 	cmd.Dir = "."
 	cmd.Env = issueMetaScriptEnv(tempDir, extraEnv...)
 	out, err := cmd.CombinedOutput()
