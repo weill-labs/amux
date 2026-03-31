@@ -238,7 +238,7 @@ func RestorePaneWithScrollback(id uint32, meta PaneMeta, ptmxFd, pid, cols, rows
 
 	// Start drain immediately so screen replay doesn't deadlock
 	// on the emulator's unbuffered response pipe.
-	go p.drainResponses()
+	go p.drainResponses(emu, ptmx, nil)
 
 	return p, nil
 }
@@ -385,21 +385,49 @@ func (p *Pane) ReplayScreen(data string) {
 // Start launches the goroutines that read PTY output and wait for exit.
 // Call this after releasing any locks that onOutput/onExit callbacks need.
 func (p *Pane) Start() {
-	if p.ptmx != nil && p.readLoopDone == nil {
-		p.readLoopDone = make(chan struct{})
+	var (
+		ptmx          *os.File
+		emulator      TerminalEmulator
+		cmd           *exec.Cmd
+		proc          *os.Process
+		exitDone      chan struct{}
+		readLoopDone  chan struct{}
+		drainLoopDone chan struct{}
+		waitLoopDone  chan struct{}
+		startRead     bool
+		startDrain    bool
+	)
+	p.withActor(func() {
+		ptmx = p.ptmx
+		emulator = p.emulator
+		cmd = p.cmd
+		proc = p.process
+		exitDone = p.exitDone
+		if p.ptmx != nil && p.readLoopDone == nil {
+			p.readLoopDone = make(chan struct{})
+		}
+		if p.drainLoopDone == nil {
+			p.drainLoopDone = make(chan struct{})
+		}
+		if p.waitLoopDone == nil {
+			p.waitLoopDone = make(chan struct{})
+		}
+		readLoopDone = p.readLoopDone
+		drainLoopDone = p.drainLoopDone
+		waitLoopDone = p.waitLoopDone
+		startRead = ptmx != nil && readLoopDone != nil
+		if !p.drainStarted {
+			p.drainStarted = true
+			startDrain = true
+		}
+	})
+	if startRead {
+		go p.readLoop(ptmx, readLoopDone)
 	}
-	if p.drainLoopDone == nil {
-		p.drainLoopDone = make(chan struct{})
+	if startDrain {
+		go p.drainResponses(emulator, ptmx, drainLoopDone)
 	}
-	if p.waitLoopDone == nil {
-		p.waitLoopDone = make(chan struct{})
-	}
-	go p.readLoop()
-	if !p.drainStarted {
-		p.drainStarted = true
-		go p.drainResponses()
-	}
-	go p.waitLoop()
+	go p.waitLoop(cmd, proc, exitDone, waitLoopDone)
 }
 
 // SetOnClipboard sets the callback invoked when OSC 52 clipboard sequences
@@ -421,10 +449,9 @@ func (p *Pane) SetOnMetaUpdate(fn func(paneID uint32, update MetaUpdate)) {
 }
 
 // readLoop reads PTY output, feeds the emulator, and notifies the callback.
-func (p *Pane) readLoop() {
-	ptmx := p.ptmx
-	if p.readLoopDone != nil {
-		defer close(p.readLoopDone)
+func (p *Pane) readLoop(ptmx *os.File, done chan struct{}) {
+	if done != nil {
+		defer close(done)
 	}
 	buf := make([]byte, 32*1024)
 	for {
@@ -468,11 +495,9 @@ func (p *Pane) readLoop() {
 // cursor position reports, etc.) and writes them back to the PTY so the
 // shell receives them. Without this, the emulator's unbuffered io.Pipe
 // blocks on the first response, deadlocking the server.
-func (p *Pane) drainResponses() {
-	emulator := p.emulator
-	ptmx := p.ptmx
-	if p.drainLoopDone != nil {
-		defer close(p.drainLoopDone)
+func (p *Pane) drainResponses(emulator TerminalEmulator, ptmx *os.File, done chan struct{}) {
+	if done != nil {
+		defer close(done)
 	}
 	buf := make([]byte, 1024)
 	for {
@@ -497,11 +522,7 @@ func (p *Pane) applyOutput(data []byte) uint64 {
 
 // waitLoop waits for the shell process to exit. Closes exitDone so that
 // Close() can detect the process has exited without a redundant cmd.Wait().
-func (p *Pane) waitLoop() {
-	cmd := p.cmd
-	proc := p.process
-	exitDone := p.exitDone
-	waitLoopDone := p.waitLoopDone
+func (p *Pane) waitLoop(cmd *exec.Cmd, proc *os.Process, exitDone, waitLoopDone chan struct{}) {
 	if waitLoopDone != nil {
 		defer close(waitLoopDone)
 	}
@@ -927,17 +948,16 @@ func NewProxyPaneWithScrollback(id uint32, meta PaneMeta, cols, rows int,
 	p.startActor()
 	// Start drain goroutine for emulator responses (DA replies etc.)
 	// that would otherwise block the emulator's pipe.
-	go p.drainResponsesDiscard()
+	go p.drainResponsesDiscard(emu, p.drainLoopDone)
 	return p
 }
 
 // drainResponsesDiscard reads and discards terminal responses from the
 // emulator. Proxy panes have no PTY to forward responses to, but the
 // emulator's pipe must be drained to prevent blocking.
-func (p *Pane) drainResponsesDiscard() {
-	emulator := p.emulator
-	if p.drainLoopDone != nil {
-		defer close(p.drainLoopDone)
+func (p *Pane) drainResponsesDiscard(emulator TerminalEmulator, done chan struct{}) {
+	if done != nil {
+		defer close(done)
 	}
 	buf := make([]byte, 1024)
 	for {
