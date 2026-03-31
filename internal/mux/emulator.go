@@ -115,13 +115,6 @@ type vtEmulator struct {
 	scrollbackLimit   int
 }
 
-const (
-	mouseModeStandard uint32 = 1 << iota
-	mouseModeButton
-	mouseModeAny
-	mouseModeSGR
-)
-
 // NewVTEmulatorWithScrollback creates a terminal emulator with an explicit
 // retained scrollback limit.
 func NewVTEmulatorWithScrollback(width, height, scrollbackLines int) TerminalEmulator {
@@ -160,34 +153,6 @@ func NewVTEmulatorWithScrollback(width, height, scrollbackLines int) TerminalEmu
 		},
 	})
 	return v
-}
-
-func (v *vtEmulator) setMouseMode(mode ansi.Mode, enabled bool) {
-	var bit uint32
-	switch mode {
-	case ansi.ModeMouseNormal:
-		bit = mouseModeStandard
-	case ansi.ModeMouseButtonEvent:
-		bit = mouseModeButton
-	case ansi.ModeMouseAnyEvent:
-		bit = mouseModeAny
-	case ansi.ModeMouseExtSgr:
-		bit = mouseModeSGR
-	default:
-		return
-	}
-	for {
-		current := v.mouseFlags.Load()
-		next := current
-		if enabled {
-			next |= bit
-		} else {
-			next &^= bit
-		}
-		if v.mouseFlags.CompareAndSwap(current, next) {
-			return
-		}
-	}
 }
 
 func (v *vtEmulator) Write(data []byte) (int, error) {
@@ -335,80 +300,6 @@ func (v *vtEmulator) IsAltScreen() bool {
 	return v.altScreen.Load()
 }
 
-func (v *vtEmulator) MouseProtocol() MouseProtocol {
-	flags := v.mouseFlags.Load()
-	mouseProto := MouseProtocol{SGR: flags&mouseModeSGR != 0}
-	switch {
-	case flags&mouseModeAny != 0:
-		mouseProto.Tracking = MouseTrackingAny
-	case flags&mouseModeButton != 0:
-		mouseProto.Tracking = MouseTrackingButton
-	case flags&mouseModeStandard != 0:
-		mouseProto.Tracking = MouseTrackingStandard
-	default:
-		mouseProto.Tracking = MouseTrackingNone
-	}
-	return mouseProto
-}
-
-func (v *vtEmulator) EncodeMouse(ev mouse.Event, x, y int) []byte {
-	mouseProto := v.MouseProtocol()
-	if !mouseProto.Enabled() {
-		return nil
-	}
-	if x < 0 || y < 0 {
-		return nil
-	}
-
-	switch ev.Action {
-	case mouse.Motion:
-		if mouseProto.Tracking != MouseTrackingButton && mouseProto.Tracking != MouseTrackingAny {
-			return nil
-		}
-	case mouse.Release:
-		if mouseProto.Tracking == MouseTrackingNone {
-			return nil
-		}
-	}
-
-	btn, ok := encodeMouseButton(ev.Button)
-	if !ok {
-		return nil
-	}
-	code := ansi.EncodeMouseButton(btn, ev.Action == mouse.Motion, ev.Shift, ev.Alt, ev.Ctrl)
-	if code == 0xff {
-		return nil
-	}
-
-	if mouseProto.SGR {
-		return []byte(ansi.MouseSgr(code, x, y, ev.Action == mouse.Release))
-	}
-	return []byte(ansi.MouseX10(code, x, y))
-}
-
-func encodeMouseButton(btn mouse.Button) (ansi.MouseButton, bool) {
-	switch btn {
-	case mouse.ButtonLeft:
-		return ansi.MouseLeft, true
-	case mouse.ButtonMiddle:
-		return ansi.MouseMiddle, true
-	case mouse.ButtonRight:
-		return ansi.MouseRight, true
-	case mouse.ButtonNone:
-		return ansi.MouseNone, true
-	case mouse.ScrollUp:
-		return ansi.MouseWheelUp, true
-	case mouse.ScrollDown:
-		return ansi.MouseWheelDown, true
-	case mouse.ScrollLeft:
-		return ansi.MouseWheelLeft, true
-	case mouse.ScrollRight:
-		return ansi.MouseWheelRight, true
-	default:
-		return 0, false
-	}
-}
-
 func (v *vtEmulator) ScreenContains(substr string) bool {
 	w, h := int(v.w.Load()), int(v.h.Load())
 	// Join all lines without separators — terminal output is a continuous
@@ -419,99 +310,6 @@ func (v *vtEmulator) ScreenContains(substr string) bool {
 		buf.WriteString(v.screenLineTextInner(w, y))
 	}
 	return strings.Contains(buf.String(), substr)
-}
-
-// isCursorBlock returns true if the cell at (x, y) is an isolated
-// reverse-video space. "Isolated" means neither the left nor right neighbor
-// has the reverse-video attribute, which distinguishes single-cell cursors
-// from multi-cell highlights.
-func (v *vtEmulator) isCursorBlock(x, y, w int) bool {
-	cell := v.emu.CellAt(x, y)
-	if cell == nil || cell.Style.Attrs&uv.AttrReverse == 0 {
-		return false
-	}
-	if cell.Content != " " && cell.Content != "" {
-		return false
-	}
-	if x > 0 {
-		if left := v.emu.CellAt(x-1, y); left != nil && left.Style.Attrs&uv.AttrReverse != 0 {
-			return false
-		}
-	}
-	if x < w-1 {
-		if right := v.emu.CellAt(x+1, y); right != nil && right.Style.Attrs&uv.AttrReverse != 0 {
-			return false
-		}
-	}
-	return true
-}
-
-func (v *vtEmulator) currentCursorBlock() (x, y int, ok bool) {
-	w, h := int(v.w.Load()), int(v.h.Load())
-
-	x, y = v.CursorPosition()
-	if x < 0 || y < 0 || x >= w || y >= h {
-		return 0, 0, false
-	}
-	if !v.isCursorBlock(x, y, w) {
-		return v.fallbackCursorBlock(x, y, w, h)
-	}
-	return x, y, true
-}
-
-func (v *vtEmulator) fallbackCursorBlock(cursorX, cursorY, w, h int) (x, y int, ok bool) {
-	if cursorX != 0 {
-		return 0, 0, false
-	}
-
-	foundX, foundY := -1, -1
-	for yy := 0; yy < h; yy++ {
-		for xx := 0; xx < w; xx++ {
-			if !v.isCursorBlock(xx, yy, w) {
-				continue
-			}
-			// Claude Code sometimes leaves the reported cursor at column 0 on a
-			// later status/footer row while still drawing its real prompt cursor
-			// as an isolated reverse-video space above. Only trust this fallback
-			// when there is a single such candidate above the reported cursor.
-			if yy >= cursorY {
-				return 0, 0, false
-			}
-			if foundX != -1 {
-				return 0, 0, false
-			}
-			foundX, foundY = xx, yy
-		}
-	}
-	if foundX == -1 {
-		return 0, 0, false
-	}
-	return foundX, foundY, true
-}
-
-func (v *vtEmulator) RenderWithoutCursorBlock() string {
-	x, y, ok := v.currentCursorBlock()
-	if !ok {
-		return v.emu.Render()
-	}
-
-	cell := v.emu.CellAt(x, y)
-	saved := *cell
-	modified := cell.Clone()
-	modified.Style.Attrs &^= uv.AttrReverse
-	v.emu.SetCell(x, y, modified)
-	rendered := v.emu.Render()
-	v.emu.SetCell(x, y, &saved)
-	return rendered
-}
-
-func (v *vtEmulator) HasCursorBlock() bool {
-	_, _, ok := v.currentCursorBlock()
-	return ok
-}
-
-func (v *vtEmulator) CursorBlockPosition() (col, row int, ok bool) {
-	return v.currentCursorBlock()
 }
 
 // NewVTEmulatorWithDrain creates a terminal emulator that automatically
