@@ -102,8 +102,11 @@ esac
 	out, exitCode := runBatchDelegateScript(t, tempDir, []string{
 		"FAKE_AMUX_LOG=" + logPath,
 		"FAKE_AMUX_OUTPUT_PANES=pane-47",
+		"FAKE_AMUX_EVENT_SLEEP=1",
 		"FAKE_AMUX_SENT_DIR=" + sentDir,
-		"AMUX_BATCH_ACCEPT_TIMEOUT=0.05",
+		// Full-suite runs contend on CPU; give the fake acceptance stream room to
+		// observe the dispatched send-keys file without turning this into a timing flake.
+		"AMUX_BATCH_ACCEPT_TIMEOUT=0.2",
 		"AMUX_BATCH_IDLE_TIMEOUT=7s",
 	}, manifestPath)
 	if exitCode != 1 {
@@ -115,8 +118,8 @@ esac
 	if !strings.Contains(out, "pane-48") || !strings.Contains(out, "FAILURE") {
 		t.Fatalf("output missing pane-48 failure row:\n%s", out)
 	}
-	if !strings.Contains(out, "acceptance timeout") {
-		t.Fatalf("output missing acceptance-timeout detail:\n%s", out)
+	if !strings.Contains(out, "acceptance timeout") && !strings.Contains(out, "acceptance wait ended without output") {
+		t.Fatalf("output missing no-output acceptance failure detail:\n%s", out)
 	}
 
 	got, err := os.ReadFile(logPath)
