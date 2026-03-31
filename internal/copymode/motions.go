@@ -137,7 +137,6 @@ func (cm *CopyMode) runWordMotion(key byte) Action {
 	if !ok {
 		return ActionNone
 	}
-
 	switch spec.kind {
 	case wordMotionNextStart:
 		return cm.nextWordStart(spec.classify)
@@ -156,6 +155,22 @@ func (cm *CopyMode) saveCursor() cursorState {
 
 func (cm *CopyMode) restoreCursor(state cursorState) {
 	cm.cx, cm.cy, cm.oy = state.cx, state.cy, state.oy
+}
+
+func (cm *CopyMode) finishWordMotion(col int) Action {
+	cm.cx = col
+	cm.updateSelection()
+	return ActionRedraw
+}
+
+func (cm *CopyMode) restoreWordMotion(saved cursorState, col int) Action {
+	cm.restoreCursor(saved)
+	return cm.finishWordMotion(col)
+}
+
+func (cm *CopyMode) failWordMotion(saved cursorState) Action {
+	cm.restoreCursor(saved)
+	return ActionNone
 }
 
 func newMotionCursor(cm *CopyMode) motionCursor {
@@ -241,69 +256,46 @@ func (cm *CopyMode) nextWordStart(classify wordClassifier) Action {
 			cursor.skipForwardClass(classify, class)
 		}
 	}
-
 	if !cursor.seekForwardNonWhitespace(classify) {
-		cm.restoreCursor(saved)
-		return ActionNone
+		return cm.failWordMotion(saved)
 	}
-
-	cm.cx = cursor.pos
-	cm.updateSelection()
-	return ActionRedraw
+	return cm.finishWordMotion(cursor.pos)
 }
 
 func (cm *CopyMode) previousWordStart(classify wordClassifier, stickyTop bool) Action {
 	saved := cm.saveCursor()
 	cursor := newMotionCursor(cm)
 	cursor.pos--
-
 	if !cursor.seekBackwardNonWhitespace(classify) {
-		cm.restoreCursor(saved)
 		if stickyTop {
-			cm.cx = 0
-			cm.updateSelection()
-			return ActionRedraw
+			return cm.restoreWordMotion(saved, 0)
 		}
-		return ActionNone
+		return cm.failWordMotion(saved)
 	}
-
 	class := classify(cursor.line[cursor.pos])
 	for cursor.pos > 0 && classify(cursor.line[cursor.pos-1]) == class {
 		cursor.pos--
 	}
-
-	cm.cx = max(0, cursor.pos)
-	cm.updateSelection()
-	return ActionRedraw
+	return cm.finishWordMotion(max(0, cursor.pos))
 }
 
 func (cm *CopyMode) nextWordEnd(classify wordClassifier, stickyEnd bool) Action {
 	saved := cm.saveCursor()
 	cursor := newMotionCursor(cm)
-
 	if cursor.pos < len(cursor.line) && classify(cursor.line[cursor.pos]) != wordClassWhitespace {
 		if !cursor.stepForward() {
-			cm.restoreCursor(saved)
-			return ActionNone
+			return cm.failWordMotion(saved)
 		}
 	}
-
 	if !cursor.seekForwardNonWhitespace(classify) {
-		cm.restoreCursor(saved)
 		if stickyEnd {
-			cm.cx = max(0, len(cursor.line)-1)
-			cm.updateSelection()
-			return ActionRedraw
+			return cm.restoreWordMotion(saved, max(0, len(cursor.line)-1))
 		}
-		return ActionNone
+		return cm.failWordMotion(saved)
 	}
-
 	class := classify(cursor.line[cursor.pos])
 	for cursor.pos < len(cursor.line)-1 && classify(cursor.line[cursor.pos+1]) == class {
 		cursor.pos++
 	}
-
-	cm.cx = clamp(cursor.pos, 0, cm.width-1)
-	cm.updateSelection()
-	return ActionRedraw
+	return cm.finishWordMotion(clamp(cursor.pos, 0, cm.width-1))
 }
