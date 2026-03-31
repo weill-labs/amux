@@ -7,6 +7,82 @@ import (
 	"github.com/weill-labs/amux/internal/mux"
 )
 
+func TestParseCreatePaneArgs(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		mode    createPaneMode
+		args    []string
+		want    createPaneArgs
+		wantErr string
+	}{
+		{
+			name: "split keeps pane ref and direction",
+			mode: createPaneModeSplit,
+			args: []string{"pane-1", "root", "--vertical", "--host", "dev", "--name", "worker", "--task", "build", "--color", "blue"},
+			want: createPaneArgs{
+				PaneRef:   "pane-1",
+				RootLevel: true,
+				Dir:       mux.SplitVertical,
+				HostName:  "dev",
+				Name:      "worker",
+				Task:      "build",
+				Color:     "blue",
+			},
+		},
+		{
+			name: "spawn uses local vertical defaults",
+			mode: createPaneModeSpawn,
+			args: []string{"--name", "worker", "--task", "build"},
+			want: createPaneArgs{
+				Dir:  mux.SplitVertical,
+				Name: "worker",
+				Task: "build",
+			},
+		},
+		{
+			name: "add-pane parses shared metadata flags",
+			mode: createPaneModeAddPane,
+			args: []string{"--host", "dev", "--name", "worker", "--task", "build", "--color", "blue"},
+			want: createPaneArgs{
+				Dir:      mux.SplitHorizontal,
+				HostName: "dev",
+				Name:     "worker",
+				Task:     "build",
+				Color:    "blue",
+			},
+		},
+		{
+			name:    "spawn rejects split-only pane refs",
+			mode:    createPaneModeSpawn,
+			args:    []string{"pane-1"},
+			wantErr: `unknown spawn arg "pane-1"`,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := parseCreatePaneArgs(tt.mode, tt.args)
+			if tt.wantErr != "" {
+				if err == nil || err.Error() != tt.wantErr {
+					t.Fatalf("parseCreatePaneArgs(%v, %v) error = %v, want %q", tt.mode, tt.args, err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("parseCreatePaneArgs(%v, %v): %v", tt.mode, tt.args, err)
+			}
+			if got != tt.want {
+				t.Fatalf("parseCreatePaneArgs(%v, %v) = %+v, want %+v", tt.mode, tt.args, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestParseSplitArgs(t *testing.T) {
 	t.Parallel()
 

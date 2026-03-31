@@ -1043,6 +1043,79 @@ func TestLegacyFocusCommandsAreUnknown(t *testing.T) {
 	}
 }
 
+func TestCommandSpawnSplitsActivePaneSubtree(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	p1 := mustCreatePane(t, sess, srv, 80, 23)
+	p1.Start()
+	w := mux.NewWindow(p1, 80, 23)
+	w.ID = 1
+	w.Name = "main"
+	setSessionLayoutForTest(t, sess, w.ID, []*mux.Window{w}, p1)
+
+	if res := runTestCommand(t, srv, sess, "split", "pane-1"); res.cmdErr != "" {
+		t.Fatalf("initial split failed: %s", res.cmdErr)
+	}
+	if res := runTestCommand(t, srv, sess, "focus", "pane-2"); res.cmdErr != "" {
+		t.Fatalf("focus pane-2 failed: %s", res.cmdErr)
+	}
+	if res := runTestCommand(t, srv, sess, "spawn", "--name", "worker-3"); res.cmdErr != "" {
+		t.Fatalf("spawn failed: %s", res.cmdErr)
+	}
+
+	state := mustSessionQuery(t, sess, func(sess *Session) struct {
+		p2Y int
+		p3Y int
+	} {
+		w := sess.activeWindow()
+		p3, err := sess.findPaneByRef("worker-3")
+		if err != nil {
+			return struct {
+				p2Y int
+				p3Y int
+			}{}
+		}
+		return struct {
+			p2Y int
+			p3Y int
+		}{
+			p2Y: w.Root.FindPane(2).Y,
+			p3Y: w.Root.FindPane(p3.ID).Y,
+		}
+	})
+
+	if state.p2Y == 0 || state.p3Y != state.p2Y {
+		t.Fatalf("spawn should split the active pane subtree, got y positions pane-2=%d pane-3=%d", state.p2Y, state.p3Y)
+	}
+}
+
+func TestCommandSplitRejectsExplicitOrphanPane(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	p1 := mustCreatePane(t, sess, srv, 80, 23)
+	p1.Start()
+	w := mux.NewWindow(p1, 80, 23)
+	w.ID = 1
+	w.Name = "main"
+	setSessionLayoutForTest(t, sess, w.ID, []*mux.Window{w}, p1)
+
+	orphan := newTestPane(sess, 2, "orphan-pane")
+	mustSessionMutation(t, sess, func(sess *Session) {
+		sess.Panes = append(sess.Panes, orphan)
+	})
+
+	res := runTestCommand(t, srv, sess, "split", "orphan-pane")
+	if res.cmdErr != "pane not in any window" {
+		t.Fatalf("split orphan-pane error = %q, want %q", res.cmdErr, "pane not in any window")
+	}
+}
+
 func TestFlushPendingOutputEventsAndHelpers(t *testing.T) {
 	t.Parallel()
 
