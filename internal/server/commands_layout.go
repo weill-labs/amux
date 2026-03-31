@@ -485,6 +485,79 @@ func cmdReset(ctx *CommandContext) {
 	}))
 }
 
+func cmdRespawn(ctx *CommandContext) {
+	if len(ctx.Args) < 1 {
+		ctx.replyErr("usage: respawn <pane>")
+		return
+	}
+
+	type respawnSnapshot struct {
+		paneID   uint32
+		paneName string
+		host     string
+		proxy    bool
+		dir      string
+		pane     *mux.Pane
+	}
+
+	target, err := enqueueSessionQuery(ctx.Sess, func(sess *Session) (respawnSnapshot, error) {
+		pane, _, err := sess.resolvePaneAcrossWindowsForActor(ctx.ActorPaneID, ctx.Args[0])
+		if err != nil {
+			return respawnSnapshot{}, err
+		}
+		dir := mux.PaneCwd(pane.ProcessPid())
+		if dir == "" {
+			dir = pane.LiveCwd()
+		}
+		if dir == "" {
+			dir = pane.Meta.Dir
+		}
+		return respawnSnapshot{
+			paneID:   pane.ID,
+			paneName: pane.Meta.Name,
+			host:     pane.Meta.Host,
+			proxy:    pane.IsProxy(),
+			dir:      dir,
+			pane:     pane,
+		}, nil
+	})
+	if err != nil {
+		ctx.replyErr(err.Error())
+		return
+	}
+	if target.proxy {
+		ctx.replyErr(fmt.Sprintf("cannot respawn remote pane %s @%s", target.paneName, target.host))
+		return
+	}
+	if err := target.pane.Respawn(ctx.Sess.Name, target.dir); err != nil {
+		ctx.replyErr(err.Error())
+		return
+	}
+
+	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
+		pane := sess.findPaneByID(target.paneID)
+		if pane == nil {
+			return commandMutationResult{err: fmt.Errorf("pane %q not found", target.paneName)}
+		}
+		sess.idle.StopTimer(target.paneID)
+		if sess.vtIdle != nil {
+			sess.vtIdle.StopTimer(target.paneID)
+		}
+		return commandMutationResult{
+			output: fmt.Sprintf("Respawned %s\n", pane.Meta.Name),
+			paneHistories: []paneHistoryUpdate{{
+				paneID:  pane.ID,
+				history: nil,
+			}},
+			paneRenders: []paneRender{{
+				paneID: pane.ID,
+				data:   append([]byte("\x1bc"), []byte(pane.RenderScreen())...),
+			}},
+			startPanes: []*mux.Pane{pane},
+		}
+	}))
+}
+
 func cmdKill(ctx *CommandContext) {
 	opts, err := parseKillCommandArgs(ctx.Args)
 	if err != nil {

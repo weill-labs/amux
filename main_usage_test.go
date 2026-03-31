@@ -299,6 +299,9 @@ func TestMainHelpIncludesCanonicalCommands(t *testing.T) {
 	if !strings.Contains(out, "amux [-s session] lead [pane]") {
 		t.Fatalf("help output missing lead:\n%s", out)
 	}
+	if !strings.Contains(out, "amux [-s session] respawn <pane>") {
+		t.Fatalf("help output missing respawn:\n%s", out)
+	}
 	if strings.Contains(out, "amux [-s session] attach [session]") {
 		t.Fatalf("help output should omit removed attach alias:\n%s", out)
 	}
@@ -423,6 +426,31 @@ func TestMainResetUsage(t *testing.T) {
 	if !strings.Contains(out, "usage: amux reset <pane>") {
 		t.Fatalf("reset usage output = %q", out)
 	}
+}
+
+func TestMainRespawnUsage(t *testing.T) {
+	t.Parallel()
+
+	out, code := runHermeticMain(t, "respawn")
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1\n%s", code, out)
+	}
+	if !strings.Contains(out, "usage: amux respawn <pane>") {
+		t.Fatalf("respawn usage output = %q", out)
+	}
+}
+
+func TestMainRespawnDispatchesWhenPaneProvided(t *testing.T) {
+	t.Parallel()
+
+	out, code := runHermeticMain(t, "respawn", "pane-1")
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1\n%s", code, out)
+	}
+	if strings.Contains(out, "usage: amux respawn") {
+		t.Fatalf("respawn should dispatch when a pane is provided, got usage output:\n%s", out)
+	}
+	assertMainCommandConnectError(t, out, "respawn")
 }
 
 func TestMainMetaDispatchesWhenSubcommandIsValid(t *testing.T) {

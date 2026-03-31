@@ -1,11 +1,12 @@
 package mux
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -622,6 +623,108 @@ func TestCloseAcceptsForbiddenOwnerInNonDebugBuilds(t *testing.T) {
 	}
 	if err := p.WaitClosed(); err != nil {
 		t.Fatalf("WaitClosed() = %v, want nil", err)
+	}
+}
+
+func TestPaneRespawnPreservesMetadataAndSuppressesExitCallback(t *testing.T) {
+	t.Parallel()
+
+	var exitReasonMu sync.Mutex
+	var exitReasons []string
+	p, err := NewPaneWithScrollback(99, PaneMeta{
+		Name:  "pane-99",
+		Host:  DefaultHost,
+		Task:  "TASK-42",
+		Color: "f5e0dc",
+		KV: map[string]string{
+			"issue": "LAB-593",
+		},
+	}, 40, 10, "test", DefaultScrollbackLines, nil, func(_ uint32, reason string) {
+		exitReasonMu.Lock()
+		exitReasons = append(exitReasons, reason)
+		exitReasonMu.Unlock()
+	})
+	if err != nil {
+		t.Fatalf("NewPaneWithScrollback: %v", err)
+	}
+	p.Start()
+	t.Cleanup(func() {
+		if err := p.Close(); err != nil {
+			t.Errorf("Close() = %v, want nil", err)
+		}
+		if err := p.WaitClosed(); err != nil {
+			t.Errorf("WaitClosed() = %v, want nil", err)
+		}
+	})
+
+	tmpDir := t.TempDir()
+	wantDir := tmpDir
+	if resolved, err := filepath.EvalSymlinks(tmpDir); err == nil && resolved != "" {
+		wantDir = resolved
+	}
+
+	if _, err := p.Write([]byte(fmt.Sprintf("cd %q && printf 'RESPAWN-OLD\\n'\n", tmpDir))); err != nil {
+		t.Fatalf("write old marker: %v", err)
+	}
+	waitUntil(t, 2*time.Second, func() bool {
+		return p.ScreenContains("RESPAWN-OLD")
+	})
+
+	oldPID := p.ProcessPid()
+	if oldPID == 0 {
+		t.Fatal("ProcessPid() before respawn = 0, want live shell")
+	}
+
+	if err := p.Respawn("test", wantDir); err != nil {
+		t.Fatalf("Respawn(): %v", err)
+	}
+	if got := p.ProcessPid(); got == 0 || got == oldPID {
+		t.Fatalf("ProcessPid() after respawn = %d, want new non-zero pid (old=%d)", got, oldPID)
+	}
+	if p.ScreenContains("RESPAWN-OLD") {
+		t.Fatal("respawn should clear the old emulator state")
+	}
+	if p.Meta.Name != "pane-99" || p.Meta.Task != "TASK-42" || p.Meta.Color != "f5e0dc" {
+		t.Fatalf("metadata after respawn = %+v", p.Meta)
+	}
+	if p.Meta.KV["issue"] != "LAB-593" {
+		t.Fatalf("issue metadata after respawn = %q, want LAB-593", p.Meta.KV["issue"])
+	}
+	if p.Meta.Dir != wantDir {
+		t.Fatalf("Meta.Dir after respawn = %q, want %q", p.Meta.Dir, wantDir)
+	}
+	if p.LiveCwd() != wantDir {
+		t.Fatalf("LiveCwd() after respawn = %q, want %q", p.LiveCwd(), wantDir)
+	}
+	exitReasonMu.Lock()
+	if len(exitReasons) != 0 {
+		exitReasonMu.Unlock()
+		t.Fatalf("respawn should suppress the old onExit callback, got %v", exitReasons)
+	}
+	exitReasonMu.Unlock()
+
+	p.Start()
+	if _, err := p.Write([]byte("pwd -P\n")); err != nil {
+		t.Fatalf("write pwd after respawn: %v", err)
+	}
+	waitUntil(t, 5*time.Second, func() bool {
+		return p.ScreenContains(wantDir)
+	})
+}
+
+func TestPaneRespawnRejectsProxyPane(t *testing.T) {
+	t.Parallel()
+
+	p := NewProxyPaneWithScrollback(7, PaneMeta{
+		Name:  "pane-7",
+		Host:  "fake-host",
+		Color: "f5e0dc",
+	}, 20, 1, DefaultScrollbackLines, nil, nil, func(data []byte) (int, error) {
+		return len(data), nil
+	})
+
+	if err := p.Respawn("test", "/tmp"); err == nil || err.Error() != "cannot respawn proxy pane" {
+		t.Fatalf("Respawn() error = %v, want cannot respawn proxy pane", err)
 	}
 }
 

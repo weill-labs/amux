@@ -86,6 +86,13 @@ func layoutCLICommands() map[string]cliCommandHandler {
 			}
 			return inv.runSessionCommand("reset", []string{args[0]})
 		},
+		"respawn": func(inv cliInvocation, args []string) int {
+			if len(args) < 1 {
+				fmt.Fprintln(inv.runtime.stderr, respawnUsage)
+				return 1
+			}
+			return inv.runSessionCommand("respawn", []string{args[0]})
+		},
 		"focus": func(inv cliInvocation, args []string) int {
 			if len(args) < 1 {
 				fmt.Fprintln(inv.runtime.stderr, "usage: amux focus <pane>")
