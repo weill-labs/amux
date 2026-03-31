@@ -110,7 +110,16 @@ func activePaneRender(w *mux.Window) []paneRender {
 func appendFocusFlag(args []string) []string {
 	withFocus := make([]string, 0, len(args)+1)
 	withFocus = append(withFocus, args...)
+	for _, arg := range withFocus {
+		if arg == "--focus" {
+			return withFocus
+		}
+	}
 	return append(withFocus, "--focus")
+}
+
+func keepFocusOnCreate(w *mux.Window, focus bool) bool {
+	return !focus || w.ZoomedPaneID != 0
 }
 
 func runSplit(ctx *CommandContext, rawArgs []string) {
@@ -187,7 +196,7 @@ func runSplit(ctx *CommandContext, rawArgs []string) {
 		if err != nil {
 			return commandMutationResult{err: err}
 		}
-		opts := mux.SplitOptions{KeepFocus: !args.Focus || w.ZoomedPaneID != 0}
+		opts := mux.SplitOptions{KeepFocus: keepFocusOnCreate(w, args.Focus)}
 		if args.RootLevel {
 			_, err = w.SplitRootWithOptions(args.Dir, pane, opts)
 		} else {
@@ -285,7 +294,7 @@ func runAddPane(ctx *CommandContext, rawArgs []string) {
 				return commandMutationResult{err: fmt.Errorf("window changed during add-pane")}
 			}
 			sess.Panes = append(sess.Panes, pane)
-			if _, err := w.ApplySpiralAddPlan(snapshot.plan, pane, mux.SplitOptions{KeepFocus: !args.Focus || w.ZoomedPaneID != 0}); err != nil {
+			if _, err := w.ApplySpiralAddPlan(snapshot.plan, pane, mux.SplitOptions{KeepFocus: keepFocusOnCreate(w, args.Focus)}); err != nil {
 				return cleanupFailedPaneMutation(sess, pane, err)
 			}
 			return commandMutationResult{
@@ -314,7 +323,7 @@ func runAddPane(ctx *CommandContext, rawArgs []string) {
 		if err != nil {
 			return commandMutationResult{err: err}
 		}
-		if _, err := w.ApplySpiralAddPlan(snapshot.plan, pane, mux.SplitOptions{KeepFocus: !args.Focus || w.ZoomedPaneID != 0}); err != nil {
+		if _, err := w.ApplySpiralAddPlan(snapshot.plan, pane, mux.SplitOptions{KeepFocus: keepFocusOnCreate(w, args.Focus)}); err != nil {
 			return cleanupFailedPaneMutation(sess, pane, err)
 		}
 		return commandMutationResult{
@@ -423,7 +432,7 @@ func runSpawn(ctx *CommandContext, rawArgs []string) {
 		if err != nil {
 			return commandMutationResult{err: err}
 		}
-		opts := mux.SplitOptions{KeepFocus: !args.Focus || w.ZoomedPaneID != 0}
+		opts := mux.SplitOptions{KeepFocus: keepFocusOnCreate(w, args.Focus)}
 		_, err = w.SplitWithOptions(mux.SplitVertical, pane, opts)
 		if err != nil {
 			return cleanupFailedPaneMutation(sess, pane, err)
