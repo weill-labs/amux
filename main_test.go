@@ -218,6 +218,13 @@ func TestResolveCanonicalSessionCommand(t *testing.T) {
 			wantHandled: true,
 		},
 		{
+			name:        "respawn narrows to pane arg",
+			args:        []string{"respawn", "pane-1", "ignored"},
+			wantCmd:     "respawn",
+			wantArgs:    []string{"pane-1"},
+			wantHandled: true,
+		},
+		{
 			name:        "wait needs a kind",
 			args:        []string{"wait"},
 			wantHandled: true,

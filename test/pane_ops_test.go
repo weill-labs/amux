@@ -203,6 +203,100 @@ func TestResetClearsPaneStateAndAcceptsNewOutput(t *testing.T) {
 	}
 }
 
+func TestRespawnPreservesPaneMetadataAndCwdWhileResettingState(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	out := h.runCmd("spawn", "--focus", "--name", "worker", "--task", "TASK-42", "--color", "blue")
+	if !strings.Contains(out, "worker") {
+		t.Fatalf("spawn should report worker pane, got:\n%s", out)
+	}
+	if out := h.runCmd("meta", "set", "worker", "issue=LAB-593", "owner=codex"); strings.Contains(out, "usage:") {
+		t.Fatalf("meta set failed: %s", out)
+	}
+
+	tmpDir := t.TempDir()
+	wantCwd := tmpDir
+	if resolved, err := filepath.EvalSymlinks(tmpDir); err == nil && resolved != "" {
+		wantCwd = resolved
+	}
+
+	h.sendKeys("worker", fmt.Sprintf("cd %q && printf 'RESPAWN-HISTORY\\n'", tmpDir), "Enter")
+	h.waitFor("worker", "RESPAWN-HISTORY")
+
+	before := h.captureJSON()
+	beforePane := h.jsonPane(before, "worker")
+	if beforePane.Position == nil {
+		t.Fatal("worker position should be present before respawn")
+	}
+	beforePos := *beforePane.Position
+	beforeScreen := strings.Join(beforePane.Content, "\n")
+	if !strings.Contains(beforeScreen, "RESPAWN-HISTORY") {
+		t.Fatalf("worker content before respawn should include history marker, got:\n%s", beforeScreen)
+	}
+
+	beforeHistory := h.runCmd("capture", "--history", "worker")
+	if !strings.Contains(beforeHistory, "RESPAWN-HISTORY") {
+		t.Fatalf("worker history before respawn should include marker, got:\n%s", beforeHistory)
+	}
+
+	out = h.runCmd("respawn", "worker")
+	if !strings.Contains(out, "Respawned worker") {
+		t.Fatalf("respawn output = %q, want confirmation", out)
+	}
+
+	clearedPane := h.runCmd("capture", "worker")
+	if strings.Contains(clearedPane, "RESPAWN-HISTORY") {
+		t.Fatalf("pane capture should be cleared after respawn, got:\n%s", clearedPane)
+	}
+	clearedHistory := h.runCmd("capture", "--history", "worker")
+	if strings.Contains(clearedHistory, "RESPAWN-HISTORY") {
+		t.Fatalf("pane history should be cleared after respawn, got:\n%s", clearedHistory)
+	}
+
+	h.sendKeys("worker", "pwd -P", "Enter")
+	h.waitFor("worker", wantCwd)
+	h.sendKeys("worker", "echo RESPAWN-NEW-OUTPUT", "Enter")
+	h.waitFor("worker", "RESPAWN-NEW-OUTPUT")
+
+	after := h.captureJSON()
+	afterPane := h.jsonPane(after, "worker")
+	if afterPane.ID != beforePane.ID {
+		t.Fatalf("worker ID after respawn = %d, want %d", afterPane.ID, beforePane.ID)
+	}
+	if afterPane.Position == nil {
+		t.Fatal("worker position should be present after respawn")
+	}
+	if *afterPane.Position != beforePos {
+		t.Fatalf("worker position after respawn = %+v, want %+v", *afterPane.Position, beforePos)
+	}
+	if afterPane.Active != beforePane.Active {
+		t.Fatalf("worker active after respawn = %v, want %v", afterPane.Active, beforePane.Active)
+	}
+	if afterPane.Color != beforePane.Color {
+		t.Fatalf("worker color after respawn = %q, want %q", afterPane.Color, beforePane.Color)
+	}
+	if afterPane.Task != beforePane.Task {
+		t.Fatalf("worker task after respawn = %q, want %q", afterPane.Task, beforePane.Task)
+	}
+	if afterPane.Meta.KV["issue"] != "LAB-593" {
+		t.Fatalf("worker issue metadata after respawn = %q, want %q", afterPane.Meta.KV["issue"], "LAB-593")
+	}
+	if afterPane.Meta.KV["owner"] != "codex" {
+		t.Fatalf("worker owner metadata after respawn = %q, want %q", afterPane.Meta.KV["owner"], "codex")
+	}
+	afterScreen := strings.Join(afterPane.Content, "\n")
+	if strings.Contains(afterScreen, "RESPAWN-HISTORY") {
+		t.Fatalf("worker content after respawn should not include old history, got:\n%s", afterScreen)
+	}
+	if !strings.Contains(afterScreen, wantCwd) {
+		t.Fatalf("worker content after respawn should include inherited cwd, got:\n%s", afterScreen)
+	}
+	if !strings.Contains(afterScreen, "RESPAWN-NEW-OUTPUT") {
+		t.Fatalf("worker content after respawn should include new output, got:\n%s", afterScreen)
+	}
+}
+
 func TestKill(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)

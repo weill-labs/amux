@@ -48,3 +48,18 @@ func TestUnspliceNoProxy(t *testing.T) {
 		t.Fatalf("expected error about no spliced panes, got: %s", out)
 	}
 }
+
+func TestRespawnRejectsProxyPane(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	out := h.runCmd("_inject-proxy", "fake-host")
+	if !strings.Contains(out, "Injected proxy pane") {
+		t.Fatalf("unexpected inject output: %s", out)
+	}
+
+	out = h.runCmd("respawn", "pane-2")
+	if !strings.Contains(out, "cannot respawn remote pane") {
+		t.Fatalf("respawn proxy pane should be rejected, got: %s", out)
+	}
+}
