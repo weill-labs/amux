@@ -136,6 +136,19 @@ func TestParseSpawnArgs(t *testing.T) {
 			},
 		},
 		{
+			name: "allows spiral spawn",
+			args: []string{"--spiral", "--name", "worker-1", "--host", "dev", "--task", "build", "--color", "rosewater"},
+			want: SpawnArgs{
+				Meta: mux.PaneMeta{
+					Name:  "worker-1",
+					Host:  "dev",
+					Task:  "build",
+					Color: "rosewater",
+				},
+				Spiral: true,
+			},
+		},
+		{
 			name:    "rejects missing color value",
 			args:    []string{"--name", "worker-1", "--color"},
 			wantErr: "--color requires a value",
@@ -169,63 +182,6 @@ func TestParseSpawnArgs(t *testing.T) {
 			}
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Fatalf("ParseSpawnArgs(%v) = %+v, want %+v", tt.args, got, tt.want)
-			}
-		})
-	}
-}
-
-func TestParseAddPaneArgs(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name    string
-		args    []string
-		want    AddPaneArgs
-		wantErr string
-	}{
-		{
-			name: "defaults empty",
-			want: AddPaneArgs{},
-		},
-		{
-			name: "parses name and host",
-			args: []string{"--name", "worker-1", "--host", "dev", "--task", "build", "--color", "blue", "--focus"},
-			want: AddPaneArgs{Name: "worker-1", HostName: "dev", Task: "build", Color: "blue", Focus: true},
-		},
-		{
-			name:    "rejects missing name value",
-			args:    []string{"--name"},
-			wantErr: "--name requires a value",
-		},
-		{
-			name:    "rejects missing host value",
-			args:    []string{"--host"},
-			wantErr: "--host requires a value",
-		},
-		{
-			name:    "rejects unknown arg",
-			args:    []string{"--bogus"},
-			wantErr: `unknown add-pane arg "--bogus"`,
-		},
-	}
-
-	for _, tt := range tests {
-		tt := tt
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			got, err := ParseAddPaneArgs(tt.args)
-			if tt.wantErr != "" {
-				if err == nil || err.Error() != tt.wantErr {
-					t.Fatalf("ParseAddPaneArgs(%v) error = %v, want %q", tt.args, err, tt.wantErr)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("ParseAddPaneArgs(%v): %v", tt.args, err)
-			}
-			if got != tt.want {
-				t.Fatalf("ParseAddPaneArgs(%v) = %+v, want %+v", tt.args, got, tt.want)
 			}
 		})
 	}

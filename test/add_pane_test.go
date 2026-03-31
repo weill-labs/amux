@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestAddPaneBuildsWholeWindowSpiralGrid(t *testing.T) {
+func TestSpawnSpiralBuildsWholeWindowSpiralGrid(t *testing.T) {
 	t.Parallel()
 
 	h := newServerHarness(t)
@@ -13,7 +13,7 @@ func TestAddPaneBuildsWholeWindowSpiralGrid(t *testing.T) {
 	h.runCmd("focus", "pane-1")
 
 	for i := 0; i < 15; i++ {
-		h.runCmd("add-pane")
+		h.runCmd("spawn", "--spiral")
 	}
 
 	capture := h.captureJSON()
@@ -25,11 +25,11 @@ func TestAddPaneBuildsWholeWindowSpiralGrid(t *testing.T) {
 	})
 
 	if !h.jsonPane(capture, "pane-1").Active {
-		t.Fatal("pane-1 should remain active after repeated add-pane")
+		t.Fatal("pane-1 should remain active after repeated spawn --spiral")
 	}
 }
 
-func TestAddPaneBuildsRightSubtreeWhenLeadIsSet(t *testing.T) {
+func TestSpawnSpiralBuildsRightSubtreeWhenLeadIsSet(t *testing.T) {
 	t.Parallel()
 
 	h := newServerHarness(t)
@@ -38,7 +38,7 @@ func TestAddPaneBuildsRightSubtreeWhenLeadIsSet(t *testing.T) {
 	h.runCmd("focus", "pane-2")
 
 	for i := 0; i < 8; i++ {
-		h.runCmd("add-pane")
+		h.runCmd("spawn", "--spiral")
 	}
 
 	capture := h.captureJSON()
@@ -66,7 +66,7 @@ func TestAddPaneBuildsRightSubtreeWhenLeadIsSet(t *testing.T) {
 	})
 
 	if !h.jsonPane(capture, "pane-2").Active {
-		t.Fatal("pane-2 should remain active after lead-mode add-pane")
+		t.Fatal("pane-2 should remain active after lead-mode spawn --spiral")
 	}
 }
 

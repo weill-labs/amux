@@ -9,7 +9,7 @@ import (
 	"github.com/weill-labs/amux/internal/mux"
 )
 
-func TestCommandAddPaneLocalKeepsFocus(t *testing.T) {
+func TestCommandSpawnSpiralLocalKeepsFocus(t *testing.T) {
 	t.Parallel()
 
 	srv, sess, cleanup := newCommandTestSession(t)
@@ -28,9 +28,9 @@ func TestCommandAddPaneLocalKeepsFocus(t *testing.T) {
 	sess.ActiveWindowID = w.ID
 	sess.Panes = []*mux.Pane{p1}
 
-	res := runTestCommand(t, srv, sess, "add-pane", "--name", "spiral-2")
-	if res.cmdErr != "" || !strings.Contains(res.output, "Added pane spiral-2") {
-		t.Fatalf("add-pane result = %#v", res)
+	res := runTestCommand(t, srv, sess, "spawn", "--spiral", "--name", "spiral-2")
+	if res.cmdErr != "" || !strings.Contains(res.output, "Spawned spiral-2") {
+		t.Fatalf("spawn --spiral result = %#v", res)
 	}
 
 	state := mustSessionQuery(t, sess, func(sess *Session) struct {
@@ -60,90 +60,31 @@ func TestCommandAddPaneLocalKeepsFocus(t *testing.T) {
 	}
 }
 
-func TestCommandAddPaneFocusModes(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name         string
-		args         []string
-		wantActiveID uint32
-	}{
-		{
-			name:         "add-pane --focus activates the new pane",
-			args:         []string{"--name", "spiral-focus", "--focus"},
-			wantActiveID: 2,
-		},
-	}
-
-	for _, tt := range tests {
-		tt := tt
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			srv, sess, cleanup := newCommandTestSession(t)
-			defer cleanup()
-
-			p1 := mustCreatePane(t, sess, srv, 80, 23)
-			p1.Start()
-
-			w := mux.NewWindow(p1, 80, 24)
-			w.ID = 1
-			w.Name = "main"
-			setSessionLayoutForTest(t, sess, w.ID, []*mux.Window{w}, p1)
-
-			res := runTestCommand(t, srv, sess, "add-pane", tt.args...)
-			if res.cmdErr != "" {
-				t.Fatalf("add-pane %v failed: %s", tt.args, res.cmdErr)
-			}
-
-			state := mustSessionQuery(t, sess, func(sess *Session) struct {
-				activeID uint32
-				hasPane  bool
-			} {
-				w := sess.activeWindow()
-				return struct {
-					activeID uint32
-					hasPane  bool
-				}{
-					activeID: w.ActivePane.ID,
-					hasPane: func() bool {
-						_, err := sess.findPaneByRef(tt.args[1])
-						return err == nil
-					}(),
-				}
-			})
-			if state.activeID != tt.wantActiveID || !state.hasPane {
-				t.Fatalf("add-pane state = %+v, want active %d with added pane present", state, tt.wantActiveID)
-			}
-		})
-	}
-}
-
-func TestCommandAddPaneRejectsUnknownArg(t *testing.T) {
+func TestCommandAddPaneIsUnknown(t *testing.T) {
 	t.Parallel()
 
 	srv, sess, cleanup := newCommandTestSession(t)
 	defer cleanup()
 
 	res := runTestCommand(t, srv, sess, "add-pane", "pane-1")
-	if res.cmdErr != `unknown add-pane arg "pane-1"` {
-		t.Fatalf("add-pane unknown-arg error = %q", res.cmdErr)
+	if res.cmdErr != "unknown command: add-pane" {
+		t.Fatalf("add-pane unknown command error = %q", res.cmdErr)
 	}
 }
 
-func TestCommandAddPaneRequiresWindow(t *testing.T) {
+func TestCommandSpawnSpiralRequiresWindow(t *testing.T) {
 	t.Parallel()
 
 	srv, sess, cleanup := newCommandTestSession(t)
 	defer cleanup()
 
-	res := runTestCommand(t, srv, sess, "add-pane")
+	res := runTestCommand(t, srv, sess, "spawn", "--spiral")
 	if res.cmdErr != "no window" {
-		t.Fatalf("add-pane without window error = %q", res.cmdErr)
+		t.Fatalf("spawn --spiral without window error = %q", res.cmdErr)
 	}
 }
 
-func TestCommandAddPaneRejectsMissingInheritedPane(t *testing.T) {
+func TestCommandSpawnSpiralRejectsMissingInheritedPane(t *testing.T) {
 	t.Parallel()
 
 	srv, sess, cleanup := newCommandTestSession(t)
@@ -156,13 +97,13 @@ func TestCommandAddPaneRejectsMissingInheritedPane(t *testing.T) {
 	sess.Windows = []*mux.Window{w}
 	sess.ActiveWindowID = w.ID
 
-	res := runTestCommand(t, srv, sess, "add-pane")
+	res := runTestCommand(t, srv, sess, "spawn", "--spiral")
 	if res.cmdErr != "pane 1 not found" {
-		t.Fatalf("add-pane missing inherited pane error = %q", res.cmdErr)
+		t.Fatalf("spawn --spiral missing inherited pane error = %q", res.cmdErr)
 	}
 }
 
-func TestCommandAddPaneExplicitHostUsesRemotePath(t *testing.T) {
+func TestCommandSpawnSpiralExplicitHostUsesRemotePath(t *testing.T) {
 	t.Parallel()
 
 	srv, sess, cleanup := newCommandTestSession(t)
@@ -184,17 +125,17 @@ func TestCommandAddPaneExplicitHostUsesRemotePath(t *testing.T) {
 		createPaneErr: fmt.Errorf("connecting to dev: SSH dial"),
 	}, config.ColorForHost)
 
-	res := runTestCommand(t, srv, sess, "add-pane", "--host", "dev")
+	res := runTestCommand(t, srv, sess, "spawn", "--spiral", "--host", "dev")
 	if !strings.Contains(res.cmdErr, "connecting to dev:") {
-		t.Fatalf("add-pane --host error = %q, want remote connect failure", res.cmdErr)
+		t.Fatalf("spawn --spiral --host error = %q, want remote connect failure", res.cmdErr)
 	}
 
 	if got := mustSessionQuery(t, sess, func(sess *Session) int { return len(sess.Panes) }); got != 1 {
-		t.Fatalf("pane count after failed remote add-pane = %d, want 1", got)
+		t.Fatalf("pane count after failed remote spiral spawn = %d, want 1", got)
 	}
 }
 
-func TestCommandAddPaneInheritsProxyHost(t *testing.T) {
+func TestCommandSpawnSpiralInheritsProxyHost(t *testing.T) {
 	t.Parallel()
 
 	srv, sess, cleanup := newCommandTestSession(t)
@@ -217,13 +158,13 @@ func TestCommandAddPaneInheritsProxyHost(t *testing.T) {
 		createPaneErr: fmt.Errorf("connecting to gpu-server: SSH dial"),
 	}, config.ColorForHost)
 
-	res := runTestCommand(t, srv, sess, "add-pane")
+	res := runTestCommand(t, srv, sess, "spawn", "--spiral")
 	if !strings.Contains(res.cmdErr, "connecting to gpu-server:") {
-		t.Fatalf("add-pane inherited-host error = %q, want gpu-server remote connect failure", res.cmdErr)
+		t.Fatalf("spawn --spiral inherited-host error = %q, want gpu-server remote connect failure", res.cmdErr)
 	}
 }
 
-func TestCommandAddPaneRejectsInvalidLayout(t *testing.T) {
+func TestCommandSpawnSpiralRejectsInvalidLayout(t *testing.T) {
 	t.Parallel()
 
 	srv, sess, cleanup := newCommandTestSession(t)
@@ -245,13 +186,13 @@ func TestCommandAddPaneRejectsInvalidLayout(t *testing.T) {
 	sess.ActiveWindowID = w.ID
 	sess.Panes = []*mux.Pane{p1, p2, p3}
 
-	res := runTestCommand(t, srv, sess, "add-pane")
+	res := runTestCommand(t, srv, sess, "spawn", "--spiral")
 	if res.cmdErr != "add-pane requires a canonical spiral layout prefix for 3 panes" {
-		t.Fatalf("add-pane invalid-layout error = %q", res.cmdErr)
+		t.Fatalf("spawn --spiral invalid-layout error = %q", res.cmdErr)
 	}
 
 	if got := mustSessionQuery(t, sess, func(sess *Session) int { return len(sess.Panes) }); got != 3 {
-		t.Fatalf("pane count after rejected add-pane = %d, want 3", got)
+		t.Fatalf("pane count after rejected spiral spawn = %d, want 3", got)
 	}
 }
 
