@@ -187,34 +187,6 @@ func wireScrollbackCallbacks(p *Pane) {
 	}
 }
 
-func shellPath(shell string, pid int) string {
-	if shell != "" {
-		return shell
-	}
-	if pid != 0 {
-		if name := processName(pid); name != "" {
-			if path, err := exec.LookPath(name); err == nil {
-				return path
-			}
-			return name
-		}
-	}
-	shell = os.Getenv("SHELL")
-	if shell == "" {
-		shell = "/bin/bash"
-	}
-	return shell
-}
-
-func paneExecCommand(shell string, paneID uint32, sessionName, dir string) *exec.Cmd {
-	cmd := exec.Command(shell, "-l")
-	cmd.Env = paneShellEnv(paneID, sessionName)
-	if dir != "" {
-		cmd.Dir = dir
-	}
-	return cmd
-}
-
 func paneCommandEnv(base []string, paneID uint32, sessionName string) []string {
 	env := make([]string, 0, len(base)+3)
 	for _, entry := range base {
