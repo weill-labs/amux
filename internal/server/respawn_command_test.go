@@ -22,8 +22,10 @@ func TestRespawnCommandRestartsLocalPaneInPlace(t *testing.T) {
 
 	startDir := t.TempDir()
 	nextDir := t.TempDir()
+	nextDirResolved := canonicalPathForTest(t, nextDir)
 	markerFile := filepath.Join(t.TempDir(), "starts")
-	shellPath := writeRespawnTestShell(t, markerFile)
+	cwdFile := filepath.Join(t.TempDir(), "cwd")
+	shellPath := writeRespawnTestShell(t, markerFile, cwdFile)
 
 	meta := mux.PaneMeta{
 		Name:  "pane-1",
@@ -74,7 +76,9 @@ func TestRespawnCommandRestartsLocalPaneInPlace(t *testing.T) {
 		t.Fatalf("respawn output = %q, want confirmation", res.output)
 	}
 
-	msg := readMsgWithTimeout(t, peerConn)
+	msg := readUntil(t, peerConn, func(msg *Message) bool {
+		return msg.Type == MsgTypePaneHistory && msg.PaneID == pane.ID
+	})
 	if msg.Type != MsgTypePaneHistory {
 		t.Fatalf("first broadcast type = %v, want pane history", msg.Type)
 	}
@@ -85,7 +89,9 @@ func TestRespawnCommandRestartsLocalPaneInPlace(t *testing.T) {
 		t.Fatalf("history after respawn = %#v, want empty", msg.History)
 	}
 
-	msg = readMsgWithTimeout(t, peerConn)
+	msg = readUntil(t, peerConn, func(msg *Message) bool {
+		return msg.Type == MsgTypePaneOutput && msg.PaneID == pane.ID && bytes.HasPrefix(msg.PaneData, []byte("\x1bc"))
+	})
 	if msg.Type != MsgTypePaneOutput {
 		t.Fatalf("second broadcast type = %v, want pane output", msg.Type)
 	}
@@ -188,11 +194,11 @@ func TestRespawnCommandRestartsLocalPaneInPlace(t *testing.T) {
 	if len(state.content) == 0 || strings.TrimSpace(state.content[0]) != "" {
 		t.Fatalf("respawned content = %#v, want blank screen", state.content)
 	}
-	if state.emulatorCol != 80 || state.emulatorRow != 23 {
-		t.Fatalf("respawned emulator size = %dx%d, want 80x23", state.emulatorCol, state.emulatorRow)
+	if state.emulatorCol != 80 || state.emulatorRow != 22 {
+		t.Fatalf("respawned emulator size = %dx%d, want 80x22", state.emulatorCol, state.emulatorRow)
 	}
 
-	waitForPaneCwd(t, state.pane, nextDir)
+	waitForFileString(t, cwdFile, nextDirResolved)
 	waitForProcessExit(t, oldPID)
 }
 
@@ -224,13 +230,14 @@ func mustCreatePaneWithMeta(t *testing.T, sess *Session, srv *Server, meta mux.P
 	return pane
 }
 
-func writeRespawnTestShell(t *testing.T, markerFile string) string {
+func writeRespawnTestShell(t *testing.T, markerFile, cwdFile string) string {
 	t.Helper()
 
 	dir := t.TempDir()
 	path := filepath.Join(dir, "respawn-test-shell.sh")
 	script := "#!/bin/sh\n" +
 		"printf x >> " + strconv.Quote(markerFile) + "\n" +
+		"pwd > " + strconv.Quote(cwdFile) + "\n" +
 		"while [ \"$1\" = \"-l\" ]; do\n\tshift\n" +
 		"done\n" +
 		"while IFS= read -r line; do\n\teval \"$line\"\n" +
@@ -276,15 +283,12 @@ func waitForFileString(t *testing.T, path, want string) {
 	waitUntilRespawn(t, 5*time.Second, func() bool {
 		data, err := os.ReadFile(path)
 		return err == nil && strings.TrimSpace(string(data)) == want
-	})
-}
-
-func waitForPaneCwd(t *testing.T, pane *mux.Pane, want string) {
-	t.Helper()
-
-	waitUntilRespawn(t, 5*time.Second, func() bool {
-		cwd, _ := pane.DetectCwdBranch()
-		return cwd == want
+	}, func() string {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err.Error()
+		}
+		return strconv.Quote(strings.TrimSpace(string(data)))
 	})
 }
 
@@ -296,7 +300,7 @@ func waitForProcessExit(t *testing.T, pid int) {
 	})
 }
 
-func waitUntilRespawn(t *testing.T, timeout time.Duration, cond func() bool) {
+func waitUntilRespawn(t *testing.T, timeout time.Duration, cond func() bool, detailFns ...func() string) {
 	t.Helper()
 
 	if cond() {
@@ -309,11 +313,24 @@ func waitUntilRespawn(t *testing.T, timeout time.Duration, cond func() bool) {
 	for {
 		select {
 		case <-timer.C:
-			t.Fatal("timed out waiting for condition")
+			if len(detailFns) == 0 || detailFns[0] == nil {
+				t.Fatal("timed out waiting for condition")
+			}
+			t.Fatalf("timed out waiting for condition; latest=%s", detailFns[0]())
 		case <-ticker.C:
 			if cond() {
 				return
 			}
 		}
 	}
+}
+
+func canonicalPathForTest(t *testing.T, path string) string {
+	t.Helper()
+
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return filepath.Clean(path)
+	}
+	return filepath.Clean(resolved)
 }

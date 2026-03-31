@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -218,6 +219,74 @@ func (s *Session) undoClosePane() (pane *mux.Pane, err error) {
 		return nil, err
 	}
 	return pane, nil
+}
+
+func effectiveRespawnDir(pane *mux.Pane) string {
+	if pane == nil {
+		return ""
+	}
+	if cwd := pane.LiveCwd(); cwd != "" {
+		return cwd
+	}
+	if cwd, _ := pane.DetectCwdBranch(); cwd != "" {
+		return cwd
+	}
+	return pane.Meta.Dir
+}
+
+func (s *Session) replacePaneInstance(oldPane, newPane *mux.Pane, w *mux.Window) error {
+	if oldPane == nil || newPane == nil {
+		return fmt.Errorf("missing pane")
+	}
+	if w == nil {
+		return fmt.Errorf("pane not in any window")
+	}
+	replaced := false
+	for i, pane := range s.Panes {
+		if pane.ID != oldPane.ID {
+			continue
+		}
+		s.Panes[i] = newPane
+		replaced = true
+		break
+	}
+	if !replaced {
+		return fmt.Errorf("pane %q not found", oldPane.Meta.Name)
+	}
+	if err := w.ReplacePane(oldPane.ID, newPane); err != nil {
+		return err
+	}
+	delete(s.takenOverPanes, oldPane.ID)
+	delete(s.terminalEventState, oldPane.ID)
+	s.idle.StopTimer(oldPane.ID)
+	if s.vtIdle != nil {
+		s.vtIdle.StopTimer(oldPane.ID)
+	}
+	return nil
+}
+
+func (s *Session) respawnPane(srv *Server, pane *mux.Pane, w *mux.Window) (*mux.Pane, error) {
+	if pane == nil {
+		return nil, fmt.Errorf("missing pane")
+	}
+	if pane.IsProxy() {
+		return nil, fmt.Errorf("cannot respawn proxy pane")
+	}
+
+	newPane, err := pane.Replacement(s.Name, effectiveRespawnDir(pane), s.paneOutputCallback(), s.paneExitCallback())
+	if err != nil {
+		return nil, err
+	}
+	newPane = s.ownPane(newPane)
+	newPane.SetOnClipboard(s.clipboardCallback())
+	newPane.SetOnTakeover(s.takeoverCallback(srv))
+	newPane.SetOnMetaUpdate(s.metaCallback())
+
+	if err := s.replacePaneInstance(pane, newPane, w); err != nil {
+		return nil, errors.Join(err, newPane.Close())
+	}
+	pane.SuppressCallbacks()
+	return newPane, nil
 }
 
 // finalizeClosedPane removes a soft-closed pane from the undo stack and
