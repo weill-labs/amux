@@ -253,7 +253,7 @@ func TestPaneOutputCallbackEmitsIdleEventAfterQuiescence(t *testing.T) {
 	pane.FeedOutput([]byte("hello"))
 
 	select {
-	case data := <-res.sub.ch:
+	case data := <-res.sub.Ch:
 		var ev Event
 		if err := json.Unmarshal(data, &ev); err != nil {
 			t.Fatalf("json.Unmarshal: %v", err)

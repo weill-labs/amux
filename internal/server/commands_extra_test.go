@@ -679,7 +679,7 @@ func TestKillCommandUsageAndSubscriptionCleanup(t *testing.T) {
 		} {
 			hasEventSub := false
 			for _, existing := range sess.eventSubs {
-				if existing.filter.PaneName == "pane-2" {
+				if existing.Filter.PaneName == "pane-2" {
 					hasEventSub = true
 					break
 				}

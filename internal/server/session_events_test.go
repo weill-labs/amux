@@ -125,7 +125,7 @@ func TestHandleAttachEventEmitsClientConnect(t *testing.T) {
 	}
 
 	select {
-	case data := <-res.sub.ch:
+	case data := <-res.sub.Ch:
 		var ev Event
 		if err := json.Unmarshal(data, &ev); err != nil {
 			t.Fatalf("json.Unmarshal: %v", err)
@@ -301,7 +301,7 @@ func TestPaneOutputCallbackEnqueuesOutputNotifications(t *testing.T) {
 	}
 
 	select {
-	case data := <-res.sub.ch:
+	case data := <-res.sub.Ch:
 		var ev Event
 		if err := json.Unmarshal(data, &ev); err != nil {
 			t.Fatalf("json.Unmarshal: %v", err)
@@ -917,7 +917,7 @@ func TestDetachClientEventEmitsDisconnectReason(t *testing.T) {
 	sess.enqueueDetachClient(cc, DisconnectReasonExplicitDetach)
 
 	select {
-	case data := <-res.sub.ch:
+	case data := <-res.sub.Ch:
 		var ev Event
 		if err := json.Unmarshal(data, &ev); err != nil {
 			t.Fatalf("json.Unmarshal: %v", err)
@@ -969,7 +969,7 @@ func TestDisconnectClientsForReloadEmitsDisconnectWithoutLayoutMutation(t *testi
 
 	for _, wantID := range []string{cc1.ID, cc2.ID} {
 		select {
-		case data := <-res.sub.ch:
+		case data := <-res.sub.Ch:
 			var ev Event
 			if err := json.Unmarshal(data, &ev); err != nil {
 				t.Fatalf("json.Unmarshal: %v", err)
@@ -1055,7 +1055,7 @@ func TestEnqueueUIWaitSubscribeAvoidsStaleSnapshotGap(t *testing.T) {
 	}, false)
 	defer sess.enqueueEventUnsubscribe(naiveSub.sub)
 	select {
-	case <-naiveSub.sub.ch:
+	case <-naiveSub.sub.Ch:
 		t.Fatal("naive subscribe unexpectedly observed an already-emitted hidden event")
 	default:
 	}
@@ -1097,7 +1097,7 @@ func TestEnqueueUIWaitSubscribeAvoidsStaleSnapshotGap(t *testing.T) {
 
 	sess.enqueueUIEvent(cc, proto.UIEventCopyModeHidden)
 	select {
-	case data := <-futureSub.sub.ch:
+	case data := <-futureSub.sub.Ch:
 		var ev Event
 		if err := json.Unmarshal(data, &ev); err != nil {
 			t.Fatalf("json.Unmarshal: %v", err)
@@ -1405,7 +1405,7 @@ func TestIdleTimeoutEventEmitsExitedWhenPaneHasNoChildren(t *testing.T) {
 	sess.enqueueIdleTimeout(pane.ID)
 
 	select {
-	case data := <-res.sub.ch:
+	case data := <-res.sub.Ch:
 		var ev Event
 		if err := json.Unmarshal(data, &ev); err != nil {
 			t.Fatalf("json.Unmarshal: %v", err)

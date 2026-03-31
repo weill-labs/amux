@@ -83,7 +83,7 @@ func TestRunProcessesCommands(t *testing.T) {
 
 	result, err := EnqueueQuery(queue, stop, done, func(s *counterState) (int, error) {
 		return s.value, nil
-	}, nil, errLoopStopped)
+	}, nil, ErrStopped)
 	if err != nil {
 		t.Fatalf("EnqueueQuery() = %v, want nil", err)
 	}
@@ -121,7 +121,7 @@ func TestEnqueueQueryRecoversPanics(t *testing.T) {
 		panic("boom")
 	}, func(r any, _ []byte) error {
 		return errors.New("internal error: recovered boom")
-	}, errLoopStopped)
+	}, ErrStopped)
 	if err == nil || err.Error() != "internal error: recovered boom" {
 		t.Fatalf("EnqueueQuery() error = %v, want recovered panic error", err)
 	}
@@ -140,8 +140,8 @@ func TestEnqueueQueryReturnsShutdownErrorWhenLoopDone(t *testing.T) {
 
 	_, err := EnqueueQuery(queue, stop, done, func(*counterState) (int, error) {
 		return 0, nil
-	}, nil, errLoopStopped)
-	if !errors.Is(err, errLoopStopped) {
-		t.Fatalf("EnqueueQuery() error = %v, want %v", err, errLoopStopped)
+	}, nil, ErrStopped)
+	if !errors.Is(err, ErrStopped) {
+		t.Fatalf("EnqueueQuery() error = %v, want %v", err, ErrStopped)
 	}
 }
