@@ -90,8 +90,17 @@ func (r *inputRouter) livePaneQueue(pane *mux.Pane) (*pacedInputQueue, error) {
 	return r.paneQueueLocked(pane), nil
 }
 
-func (r *inputRouter) paneByID(paneID uint32) *mux.Pane {
-	return r.panes[paneID]
+func (r *inputRouter) paneByIDOnActor(sess *Session, paneID uint32) *mux.Pane {
+	if pane := r.panes[paneID]; pane != nil {
+		return pane
+	}
+	pane := sess.findPaneByID(paneID)
+	if pane == nil {
+		return nil
+	}
+	delete(r.removed, paneID)
+	r.panes[paneID] = pane
+	return pane
 }
 
 func (r *inputRouter) paneQueueLocked(pane *mux.Pane) *pacedInputQueue {

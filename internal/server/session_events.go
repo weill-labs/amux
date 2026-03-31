@@ -248,7 +248,7 @@ type liveInputPaneEvent struct {
 }
 
 func (e liveInputPaneEvent) handle(s *Session) {
-	pane := s.ensureInputRouter().paneByID(e.paneID)
+	pane := s.ensureInputRouter().paneByIDOnActor(s, e.paneID)
 	if pane == nil {
 		return
 	}
