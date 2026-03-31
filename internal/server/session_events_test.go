@@ -211,6 +211,45 @@ func TestHandleAttachSendsPaneHistoryBeforePaneOutput(t *testing.T) {
 	}
 }
 
+func TestEnqueueLiveInputPaneResolvesFreshSessionPane(t *testing.T) {
+	t.Parallel()
+
+	sess := newSession("test-live-input-pane-fresh-session")
+	stopCrashCheckpointLoop(t, sess)
+	defer stopSessionBackgroundLoops(t, sess)
+
+	writes := make(chan []byte, 1)
+	pane := newProxyPane(1, mux.PaneMeta{
+		Name:  "pane-1",
+		Host:  mux.DefaultHost,
+		Color: "f5e0dc",
+	}, 80, 23, nil, nil, func(data []byte) (int, error) {
+		writes <- append([]byte(nil), data...)
+		return len(data), nil
+	})
+	w := mux.NewWindow(pane, 80, 24-render.GlobalBarHeight)
+	w.ID = 1
+	w.Name = "window-1"
+
+	sess.Windows = []*mux.Window{w}
+	sess.ActiveWindowID = w.ID
+	sess.Panes = []*mux.Pane{pane}
+	sess.refreshInputTarget()
+
+	if ok := sess.enqueueLiveInputPane(pane.ID, []byte("hello")); !ok {
+		t.Fatal("enqueueLiveInputPane returned false")
+	}
+
+	select {
+	case got := <-writes:
+		if string(got) != "hello" {
+			t.Fatalf("pane write = %q, want hello", string(got))
+		}
+	case <-time.After(time.Second):
+		t.Fatal("targeted live input did not reach the fresh-session pane")
+	}
+}
+
 func TestResetCommandBroadcastsClearedHistoryAndBlankScreen(t *testing.T) {
 	t.Parallel()
 
