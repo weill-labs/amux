@@ -54,11 +54,17 @@ func (r *inputRouter) syncPanes(panes []*mux.Pane) {
 		}
 	}
 	for id, queue := range r.paneQueues {
-		if _, ok := next[id]; ok {
-			continue
+		nextPane, ok := next[id]
+		if ok {
+			if current := r.panes[id]; current == nextPane {
+				continue
+			}
 		}
 		queue.close()
 		delete(r.paneQueues, id)
+		if ok {
+			continue
+		}
 		r.removed[id] = struct{}{}
 	}
 	r.panes = next
