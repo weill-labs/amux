@@ -292,48 +292,7 @@ func (cc *clientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 			CmdErr: fmt.Sprintf("unknown command: %s", msg.CmdName)})
 		return
 	}
-	handler(&CommandContext{CC: cc, Srv: srv, Sess: sess, Args: msg.CmdArgs, ActorPaneID: msg.ActorPaneID})
-}
-
-// splitRemotePane prepares a proxy pane connected to a remote host, then
-// inserts it into the active window through the session event loop.
-func (cc *clientConn) splitRemotePane(sess *Session, hostName string, dir mux.SplitDir, rootLevel bool, name string, keepFocus bool) (*mux.Pane, error) {
-	type activeWindowSize struct {
-		width  int
-		height int
-	}
-
-	size, err := enqueueSessionQuery(sess, func(sess *Session) (activeWindowSize, error) {
-		w := sess.activeWindow()
-		if w == nil {
-			return activeWindowSize{}, fmt.Errorf("no window")
-		}
-		return activeWindowSize{width: w.Width, height: w.Height}, nil
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	pane, err := sess.prepareRemotePane(hostName, size.width, mux.PaneContentHeight(size.height))
-	if err != nil {
-		return nil, err
-	}
-	if name != "" {
-		pane.Meta.Name = name
-	}
-
-	res := sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
-		if err := sess.insertPreparedPaneIntoActiveWindow(pane, dir, rootLevel, keepFocus); err != nil {
-			return commandMutationResult{err: err}
-		}
-		return commandMutationResult{broadcastLayout: true}
-	})
-	if res.err != nil {
-		pane.Close()
-		return nil, res.err
-	}
-
-	return pane, nil
+	handler(&CommandContext{CommandName: msg.CmdName, CC: cc, Srv: srv, Sess: sess, Args: msg.CmdArgs, ActorPaneID: msg.ActorPaneID})
 }
 
 // eventsArgs holds parsed arguments for the events command.

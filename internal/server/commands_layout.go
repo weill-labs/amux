@@ -98,8 +98,270 @@ func activePaneRender(w *mux.Window) []paneRender {
 	}}
 }
 
-func keepFocusOnCreate(w *mux.Window, focus bool) bool {
-	return !focus || w.ZoomedPaneID != 0
+type createPanePlacement uint8
+
+const (
+	createPanePlacementSplitAt createPanePlacement = iota
+	createPanePlacementSpiral
+	createPanePlacementRootSplit
+)
+
+type createPaneRequest struct {
+	paneRef      string
+	hostName     string
+	hostExplicit bool
+	name         string
+	task         string
+	color        string
+	dir          mux.SplitDir
+}
+
+type createPaneSnapshot struct {
+	windowID     uint32
+	windowWidth  int
+	windowHeight int
+	inheritHost  string
+	inheritPID   int
+	inheritProxy bool
+	targetPaneID uint32
+	plan         mux.SpiralAddPlan
+}
+
+func runCreatePane(ctx *CommandContext, placement createPanePlacement, keepFocus bool) {
+	req, err := parseCreatePaneRequest(ctx)
+	if err != nil {
+		ctx.replyErr(err.Error())
+		return
+	}
+
+	snapshot, err := queryCreatePaneSnapshot(ctx, placement, req.paneRef)
+	if err != nil {
+		ctx.replyErr(err.Error())
+		return
+	}
+
+	switch {
+	case ctx.CommandName == "split" && req.hostName == "" && snapshot.inheritProxy:
+		req.hostName = snapshot.inheritHost
+	case placement == createPanePlacementSpiral && !req.hostExplicit && snapshot.inheritProxy:
+		req.hostName = snapshot.inheritHost
+	}
+
+	if req.hostName != "" {
+		pane, err := ctx.Sess.prepareRemotePane(req.hostName, snapshot.windowWidth, mux.PaneContentHeight(snapshot.windowHeight))
+		if err != nil {
+			ctx.replyErr(err.Error())
+			return
+		}
+		applyCreatePaneMeta(&pane.Meta, req)
+		ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
+			w, err := resolveCreatePaneWindow(sess, ctx.ActorPaneID, placement, snapshot)
+			if err != nil {
+				pane.Close()
+				return commandMutationResult{err: err}
+			}
+			sess.Panes = append(sess.Panes, pane)
+			if err := placeCreatedPaneInWindow(w, placement, snapshot, pane, req.dir, keepFocus); err != nil {
+				return cleanupFailedPaneMutation(sess, pane, err)
+			}
+			return commandMutationResult{
+				output:          createPaneOutput(ctx.CommandName, placement, req.dir, pane, req.hostName),
+				broadcastLayout: true,
+			}
+		}))
+		return
+	}
+
+	meta := mux.PaneMeta{
+		Name:  req.name,
+		Task:  req.task,
+		Color: req.color,
+		Dir:   mux.PaneCwd(snapshot.inheritPID),
+	}
+	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
+		w, err := resolveCreatePaneWindow(sess, ctx.ActorPaneID, placement, snapshot)
+		if err != nil {
+			return commandMutationResult{err: err}
+		}
+		pane, err := sess.createPaneWithMeta(ctx.Srv, meta, w.Width, mux.PaneContentHeight(w.Height))
+		if err != nil {
+			return commandMutationResult{err: err}
+		}
+		if err := placeCreatedPaneInWindow(w, placement, snapshot, pane, req.dir, keepFocus); err != nil {
+			return cleanupFailedPaneMutation(sess, pane, err)
+		}
+		return commandMutationResult{
+			output:          createPaneOutput(ctx.CommandName, placement, req.dir, pane, ""),
+			broadcastLayout: true,
+			startPanes:      []*mux.Pane{pane},
+		}
+	}))
+}
+
+func parseCreatePaneRequest(ctx *CommandContext) (createPaneRequest, error) {
+	switch ctx.CommandName {
+	case "split":
+		args, err := layoutcmd.ParseSplitArgs(ctx.Args)
+		return createPaneRequest{
+			paneRef:  args.PaneRef,
+			hostName: args.HostName,
+			name:     args.Name,
+			task:     args.Task,
+			color:    args.Color,
+			dir:      args.Dir,
+		}, err
+	default:
+		args, err := layoutcmd.ParseSpawnArgs(ctx.Args)
+		hostName := args.Meta.Host
+		if hostName == mux.DefaultHost {
+			hostName = ""
+		}
+		return createPaneRequest{
+			hostName:     hostName,
+			hostExplicit: args.HostExplicit,
+			name:         args.Meta.Name,
+			task:         args.Meta.Task,
+			color:        args.Meta.Color,
+			dir:          mux.SplitVertical,
+		}, err
+	}
+}
+
+func queryCreatePaneSnapshot(ctx *CommandContext, placement createPanePlacement, paneRef string) (createPaneSnapshot, error) {
+	if placement == createPanePlacementSpiral {
+		return enqueueSessionQuery(ctx.Sess, func(sess *Session) (createPaneSnapshot, error) {
+			w := sess.windowForActor(ctx.ActorPaneID)
+			if w == nil {
+				return createPaneSnapshot{}, fmt.Errorf("no window")
+			}
+			plan, err := w.PlanSpiralAdd()
+			if err != nil {
+				return createPaneSnapshot{}, err
+			}
+			inheritPane := sess.findPaneByID(plan.InheritPaneID)
+			if inheritPane == nil {
+				return createPaneSnapshot{}, fmt.Errorf("pane %d not found", plan.InheritPaneID)
+			}
+			return createPaneSnapshot{
+				windowID:     w.ID,
+				windowWidth:  w.Width,
+				windowHeight: w.Height,
+				inheritHost:  inheritPane.Meta.Host,
+				inheritPID:   inheritPane.ProcessPid(),
+				inheritProxy: inheritPane.IsProxy(),
+				plan:         plan,
+			}, nil
+		})
+	}
+
+	return enqueueSessionQuery(ctx.Sess, func(sess *Session) (createPaneSnapshot, error) {
+		w := sess.windowForActor(ctx.ActorPaneID)
+		if paneRef != "" {
+			pane, resolvedWindow, err := sess.resolvePaneAcrossWindowsForActor(ctx.ActorPaneID, paneRef)
+			if err != nil {
+				return createPaneSnapshot{}, err
+			}
+			if resolvedWindow == nil {
+				return createPaneSnapshot{}, fmt.Errorf("pane not in any window")
+			}
+			return createPaneSnapshot{
+				windowID:     resolvedWindow.ID,
+				windowWidth:  resolvedWindow.Width,
+				windowHeight: resolvedWindow.Height,
+				inheritHost:  pane.Meta.Host,
+				inheritPID:   pane.ProcessPid(),
+				inheritProxy: pane.IsProxy(),
+				targetPaneID: pane.ID,
+			}, nil
+		}
+		if w == nil {
+			return createPaneSnapshot{}, createPaneWindowError(ctx.CommandName)
+		}
+		if w.ActivePane == nil {
+			return createPaneSnapshot{}, fmt.Errorf("no active pane")
+		}
+		return createPaneSnapshot{
+			windowID:     w.ID,
+			windowWidth:  w.Width,
+			windowHeight: w.Height,
+			inheritHost:  w.ActivePane.Meta.Host,
+			inheritPID:   w.ActivePane.ProcessPid(),
+			inheritProxy: w.ActivePane.IsProxy(),
+			targetPaneID: w.ActivePane.ID,
+		}, nil
+	})
+}
+
+func resolveCreatePaneWindow(sess *Session, actorPaneID uint32, placement createPanePlacement, snapshot createPaneSnapshot) (*mux.Window, error) {
+	if placement == createPanePlacementSpiral {
+		w := sess.windowForActor(actorPaneID)
+		if w == nil {
+			return nil, fmt.Errorf("no window")
+		}
+		if w.ID != snapshot.windowID {
+			return nil, fmt.Errorf("window changed during spawn --spiral")
+		}
+		return w, nil
+	}
+	w := sess.findWindowByPaneID(snapshot.targetPaneID)
+	if w == nil {
+		return nil, fmt.Errorf("pane not in any window")
+	}
+	return w, nil
+}
+
+func placeCreatedPaneInWindow(w *mux.Window, placement createPanePlacement, snapshot createPaneSnapshot, pane *mux.Pane, dir mux.SplitDir, keepFocus bool) error {
+	opts := mux.SplitOptions{KeepFocus: keepFocus || w.ZoomedPaneID != 0}
+	switch placement {
+	case createPanePlacementSplitAt:
+		_, err := w.SplitPaneWithOptions(snapshot.targetPaneID, dir, pane, opts)
+		return err
+	case createPanePlacementSpiral:
+		_, err := w.ApplySpiralAddPlan(snapshot.plan, pane, opts)
+		return err
+	case createPanePlacementRootSplit:
+		_, err := w.SplitRootWithOptions(dir, pane, opts)
+		return err
+	default:
+		return fmt.Errorf("unknown create-pane placement: %d", placement)
+	}
+}
+
+func applyCreatePaneMeta(meta *mux.PaneMeta, req createPaneRequest) {
+	if req.name != "" {
+		meta.Name = req.name
+	}
+	if req.task != "" {
+		meta.Task = req.task
+	}
+	if req.color != "" {
+		meta.Color = req.color
+	}
+}
+
+func createPaneWindowError(command string) error {
+	if command == "split" {
+		return fmt.Errorf("no active pane")
+	}
+	return fmt.Errorf("no window")
+}
+
+func createPaneOutput(command string, placement createPanePlacement, dir mux.SplitDir, pane *mux.Pane, hostName string) string {
+	switch command {
+	case "split":
+		if hostName != "" {
+			return fmt.Sprintf("Split %s: new remote pane %s @%s\n", dirName(dir), pane.Meta.Name, hostName)
+		}
+		return fmt.Sprintf("Split %s: new pane %s\n", dirName(dir), pane.Meta.Name)
+	default:
+		if placement == createPanePlacementSpiral && hostName != "" {
+			return fmt.Sprintf("Spawned %s @%s\n", pane.Meta.Name, hostName)
+		}
+		if hostName != "" {
+			return fmt.Sprintf("Spawned %s in pane %d @%s\n", pane.Meta.Name, pane.ID, hostName)
+		}
+		return fmt.Sprintf("Spawned %s in pane %d\n", pane.Meta.Name, pane.ID)
+	}
 }
 
 func runSplit(ctx *CommandContext, rawArgs []string) {
@@ -108,202 +370,32 @@ func runSplit(ctx *CommandContext, rawArgs []string) {
 		ctx.replyErr(err.Error())
 		return
 	}
-
-	var resolved resolvedPaneRef
-	if args.PaneRef == "" {
-		resolved, err = enqueueSessionQuery(ctx.Sess, func(sess *Session) (resolvedPaneRef, error) {
-			w := sess.windowForActor(ctx.ActorPaneID)
-			if w == nil || w.ActivePane == nil {
-				return resolvedPaneRef{}, fmt.Errorf("no active pane")
-			}
-			return resolvedPaneRef{
-				pane:     w.ActivePane,
-				paneID:   w.ActivePane.ID,
-				paneName: w.ActivePane.Meta.Name,
-				windowID: w.ID,
-			}, nil
-		})
-	} else {
-		resolved, err = ctx.Sess.queryResolvedPaneForActor(ctx.ActorPaneID, args.PaneRef)
+	placement := createPanePlacementSplitAt
+	if args.RootLevel {
+		placement = createPanePlacementRootSplit
 	}
-	if err != nil {
-		ctx.replyErr(err.Error())
-		return
-	}
-
-	if args.HostName == "" && resolved.pane.IsProxy() {
-		args.HostName = resolved.pane.Meta.Host
-	}
-
-	if args.HostName != "" {
-		pane, err := ctx.CC.splitRemotePane(ctx.Sess, args.HostName, args.Dir, args.RootLevel, args.Name, !args.Focus)
-		if err != nil {
-			ctx.replyErr(err.Error())
-			return
-		}
-		ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
-			registered := sess.findPaneByID(pane.ID)
-			if registered == nil {
-				return commandMutationResult{err: fmt.Errorf("pane %q not found", pane.Meta.Name)}
-			}
-			if args.Task != "" {
-				registered.Meta.Task = args.Task
-			}
-			if args.Color != "" {
-				registered.Meta.Color = args.Color
-			}
-			return commandMutationResult{
-				output:          fmt.Sprintf("Split %s: new remote pane %s @%s\n", dirName(args.Dir), pane.Meta.Name, args.HostName),
-				broadcastLayout: args.Task != "" || args.Color != "",
-			}
-		}))
-		return
-	}
-
-	targetPaneID := resolved.paneID
-	meta := mux.PaneMeta{
-		Name:  args.Name,
-		Task:  args.Task,
-		Color: args.Color,
-		Dir:   mux.PaneCwd(resolved.pane.ProcessPid()),
-	}
-	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
-		w := sess.findWindowByPaneID(targetPaneID)
-		if w == nil {
-			return commandMutationResult{err: fmt.Errorf("pane not in any window")}
-		}
-		pane, err := sess.createPaneWithMeta(ctx.Srv, meta, w.Width, mux.PaneContentHeight(w.Height))
-		if err != nil {
-			return commandMutationResult{err: err}
-		}
-		opts := mux.SplitOptions{KeepFocus: keepFocusOnCreate(w, args.Focus)}
-		if args.RootLevel {
-			_, err = w.SplitRootWithOptions(args.Dir, pane, opts)
-		} else {
-			_, err = w.SplitPaneWithOptions(targetPaneID, args.Dir, pane, opts)
-		}
-		if err != nil {
-			return cleanupFailedPaneMutation(sess, pane, err)
-		}
-		return commandMutationResult{
-			output:          fmt.Sprintf("Split %s: new pane %s\n", dirName(args.Dir), pane.Meta.Name),
-			broadcastLayout: true,
-			startPanes:      []*mux.Pane{pane},
-		}
-	}))
+	runCreatePane(ctx, placement, !args.Focus)
 }
 
 func cmdSplit(ctx *CommandContext) {
 	runSplit(ctx, ctx.Args)
 }
 
-type spiralSpawnSnapshot struct {
-	windowID     uint32
-	windowWidth  int
-	windowHeight int
-	inheritHost  string
-	inheritPID   int
-	inheritProxy bool
-	plan         mux.SpiralAddPlan
-}
-
-func runSpiralSpawn(ctx *CommandContext, args layoutcmd.SpawnArgs) {
-	snapshot, err := enqueueSessionQuery(ctx.Sess, func(sess *Session) (spiralSpawnSnapshot, error) {
-		w := sess.windowForActor(ctx.ActorPaneID)
-		if w == nil {
-			return spiralSpawnSnapshot{}, fmt.Errorf("no window")
-		}
-		plan, err := w.PlanSpiralAdd()
-		if err != nil {
-			return spiralSpawnSnapshot{}, err
-		}
-		inheritPane := sess.findPaneByID(plan.InheritPaneID)
-		if inheritPane == nil {
-			return spiralSpawnSnapshot{}, fmt.Errorf("pane %d not found", plan.InheritPaneID)
-		}
-		return spiralSpawnSnapshot{
-			windowID:     w.ID,
-			windowWidth:  w.Width,
-			windowHeight: w.Height,
-			inheritHost:  inheritPane.Meta.Host,
-			inheritPID:   inheritPane.ProcessPid(),
-			inheritProxy: inheritPane.IsProxy(),
-			plan:         plan,
-		}, nil
-	})
+func runSpawn(ctx *CommandContext, rawArgs []string) {
+	args, err := layoutcmd.ParseSpawnArgs(rawArgs)
 	if err != nil {
 		ctx.replyErr(err.Error())
 		return
 	}
-
-	remoteHost := ""
-	if args.HostExplicit {
-		if args.Meta.Host != "" && args.Meta.Host != mux.DefaultHost {
-			remoteHost = args.Meta.Host
-		}
-	} else if snapshot.inheritProxy {
-		remoteHost = snapshot.inheritHost
+	placement := createPanePlacementSplitAt
+	if args.Spiral {
+		placement = createPanePlacementSpiral
 	}
+	runCreatePane(ctx, placement, !args.Focus)
+}
 
-	if remoteHost != "" {
-		pane, err := ctx.Sess.prepareRemotePane(remoteHost, snapshot.windowWidth, mux.PaneContentHeight(snapshot.windowHeight))
-		if err != nil {
-			ctx.replyErr(err.Error())
-			return
-		}
-		if args.Meta.Name != "" {
-			pane.Meta.Name = args.Meta.Name
-		}
-		if args.Meta.Task != "" {
-			pane.Meta.Task = args.Meta.Task
-		}
-		if args.Meta.Color != "" {
-			pane.Meta.Color = args.Meta.Color
-		}
-		ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
-			w := sess.windowForActor(ctx.ActorPaneID)
-			if w == nil || w.ID != snapshot.windowID {
-				if w == nil {
-					return commandMutationResult{err: fmt.Errorf("no window")}
-				}
-				return commandMutationResult{err: fmt.Errorf("window changed during spawn --spiral")}
-			}
-			sess.Panes = append(sess.Panes, pane)
-			if _, err := w.ApplySpiralAddPlan(snapshot.plan, pane, mux.SplitOptions{KeepFocus: keepFocusOnCreate(w, args.Focus)}); err != nil {
-				return cleanupFailedPaneMutation(sess, pane, err)
-			}
-			return commandMutationResult{
-				output:          fmt.Sprintf("Spawned %s @%s\n", pane.Meta.Name, remoteHost),
-				broadcastLayout: true,
-			}
-		}))
-		return
-	}
-
-	if args.Meta.Dir == "" {
-		args.Meta.Dir = mux.PaneCwd(snapshot.inheritPID)
-	}
-	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
-		w := sess.windowForActor(ctx.ActorPaneID)
-		if w == nil || w.ID != snapshot.windowID {
-			if w == nil {
-				return commandMutationResult{err: fmt.Errorf("no window")}
-			}
-			return commandMutationResult{err: fmt.Errorf("window changed during spawn --spiral")}
-		}
-		pane, err := sess.createPaneWithMeta(ctx.Srv, args.Meta, w.Width, mux.PaneContentHeight(w.Height))
-		if err != nil {
-			return commandMutationResult{err: err}
-		}
-		if _, err := w.ApplySpiralAddPlan(snapshot.plan, pane, mux.SplitOptions{KeepFocus: keepFocusOnCreate(w, args.Focus)}); err != nil {
-			return cleanupFailedPaneMutation(sess, pane, err)
-		}
-		return commandMutationResult{
-			output:          fmt.Sprintf("Spawned %s in pane %d\n", pane.Meta.Name, pane.ID),
-			broadcastLayout: true,
-			startPanes:      []*mux.Pane{pane},
-		}
-	}))
+func cmdSpawn(ctx *CommandContext) {
+	runSpawn(ctx, ctx.Args)
 }
 
 func cmdFocus(ctx *CommandContext) {
@@ -341,80 +433,6 @@ func cmdFocus(ctx *CommandContext) {
 			}
 		}
 	}))
-}
-
-func runSpawn(ctx *CommandContext, rawArgs []string) {
-	args, err := layoutcmd.ParseSpawnArgs(rawArgs)
-	if err != nil {
-		ctx.replyErr(err.Error())
-		return
-	}
-	if args.Spiral {
-		runSpiralSpawn(ctx, args)
-		return
-	}
-
-	remoteHost := args.Meta.Host
-	if remoteHost != "" && remoteHost != mux.DefaultHost {
-		pane, err := ctx.CC.splitRemotePane(ctx.Sess, remoteHost, mux.SplitVertical, false, args.Meta.Name, !args.Focus)
-		if err != nil {
-			ctx.replyErr(err.Error())
-			return
-		}
-		ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
-			registered := sess.findPaneByID(pane.ID)
-			if registered == nil {
-				return commandMutationResult{err: fmt.Errorf("pane %q not found", pane.Meta.Name)}
-			}
-			if args.Meta.Name != "" {
-				registered.Meta.Name = args.Meta.Name
-			}
-			if args.Meta.Task != "" {
-				registered.Meta.Task = args.Meta.Task
-			}
-			if args.Meta.Color != "" {
-				registered.Meta.Color = args.Meta.Color
-			}
-			return commandMutationResult{
-				output:          fmt.Sprintf("Spawned %s in pane %d @%s\n", registered.Meta.Name, pane.ID, remoteHost),
-				broadcastLayout: true,
-			}
-		}))
-		return
-	}
-
-	activePid, _, _, err := ctx.activeWindowSnapshot()
-	if err != nil {
-		ctx.replyErr(err.Error())
-		return
-	}
-	if args.Meta.Dir == "" {
-		args.Meta.Dir = mux.PaneCwd(activePid)
-	}
-	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
-		w := sess.activeWindow()
-		if w == nil {
-			return commandMutationResult{err: fmt.Errorf("no window")}
-		}
-		pane, err := sess.createPaneWithMeta(ctx.Srv, args.Meta, w.Width, mux.PaneContentHeight(w.Height))
-		if err != nil {
-			return commandMutationResult{err: err}
-		}
-		opts := mux.SplitOptions{KeepFocus: keepFocusOnCreate(w, args.Focus)}
-		_, err = w.SplitWithOptions(mux.SplitVertical, pane, opts)
-		if err != nil {
-			return cleanupFailedPaneMutation(sess, pane, err)
-		}
-		return commandMutationResult{
-			output:          fmt.Sprintf("Spawned %s in pane %d\n", pane.Meta.Name, pane.ID),
-			broadcastLayout: true,
-			startPanes:      []*mux.Pane{pane},
-		}
-	}))
-}
-
-func cmdSpawn(ctx *CommandContext) {
-	runSpawn(ctx, ctx.Args)
 }
 
 func cmdZoom(ctx *CommandContext) {

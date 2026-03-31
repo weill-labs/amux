@@ -5,6 +5,7 @@ type CommandHandler func(ctx *CommandContext)
 
 // CommandContext provides all state a command handler needs.
 type CommandContext struct {
+	CommandName string
 	CC          *clientConn
 	Srv         *Server
 	Sess        *Session
