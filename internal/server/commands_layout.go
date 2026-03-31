@@ -4,12 +4,12 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
 	"github.com/weill-labs/amux/internal/render"
+	cmdflags "github.com/weill-labs/amux/internal/server/commands/flags"
 	layoutcmd "github.com/weill-labs/amux/internal/server/commands/layout"
 )
 
@@ -60,34 +60,25 @@ func FormatKillCommandError(err error, command string) string {
 }
 
 func parseKillCommandArgs(args []string) (killCommandArgs, error) {
-	opts := killCommandArgs{timeout: defaultKillCleanupTimeout}
-	timeoutSet := false
-	for i := 0; i < len(args); i++ {
-		switch arg := args[i]; arg {
-		case "--cleanup":
-			opts.cleanup = true
-		case "--timeout":
-			if i+1 >= len(args) {
-				return killCommandArgs{}, newKillUsageError()
-			}
-			timeout, err := time.ParseDuration(args[i+1])
-			if err != nil {
-				return killCommandArgs{}, &killArgError{msg: fmt.Sprintf("invalid timeout: %s", args[i+1])}
-			}
-			opts.timeout = timeout
-			timeoutSet = true
-			i++
-		default:
-			if strings.HasPrefix(arg, "--") {
-				return killCommandArgs{}, &killArgError{msg: fmt.Sprintf("unknown flag: %s", arg)}
-			}
-			if opts.paneRef != "" {
-				return killCommandArgs{}, newKillUsageError()
-			}
-			opts.paneRef = arg
-		}
+	flags, err := cmdflags.ParseCommandFlags(args, []cmdflags.FlagSpec{
+		{Name: "--cleanup", Type: cmdflags.FlagTypeBool},
+		{Name: "--timeout", Type: cmdflags.FlagTypeDuration, Default: defaultKillCleanupTimeout},
+	})
+	if err != nil {
+		return killCommandArgs{}, &killArgError{msg: err.Error()}
 	}
-	if timeoutSet && !opts.cleanup {
+	positionals := flags.Positionals()
+	if len(positionals) > 1 {
+		return killCommandArgs{}, newKillUsageError()
+	}
+	opts := killCommandArgs{
+		cleanup: flags.Bool("--cleanup"),
+		timeout: flags.Duration("--timeout"),
+	}
+	if len(positionals) == 1 {
+		opts.paneRef = positionals[0]
+	}
+	if flags.Seen("--timeout") && !opts.cleanup {
 		return killCommandArgs{}, newKillUsageError()
 	}
 	return opts, nil
@@ -643,43 +634,30 @@ type copyModeOptions struct {
 }
 
 func parseCopyModeArgs(args []string) (copyModeOptions, error) {
-	opts := copyModeOptions{waitTimeout: defaultCommandUIWaitTimeout}
-	timeoutSet := false
-
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--wait":
-			if i+1 >= len(args) {
-				return copyModeOptions{}, fmt.Errorf("missing value for --wait")
-			}
-			i++
-			if args[i] != "ui=copy-mode-shown" {
-				return copyModeOptions{}, fmt.Errorf("copy-mode: unsupported --wait target %q (want ui=copy-mode-shown)", args[i])
-			}
-			opts.waitCopyModeShown = true
-		case "--timeout":
-			if i+1 >= len(args) {
-				return copyModeOptions{}, fmt.Errorf("missing value for --timeout")
-			}
-			i++
-			timeout, err := time.ParseDuration(args[i])
-			if err != nil {
-				return copyModeOptions{}, fmt.Errorf("invalid timeout: %s", args[i])
-			}
-			opts.waitTimeout = timeout
-			timeoutSet = true
-		default:
-			if strings.HasPrefix(args[i], "-") {
-				return copyModeOptions{}, fmt.Errorf("unknown flag: %s", args[i])
-			}
-			if opts.paneRef != "" {
-				return copyModeOptions{}, fmt.Errorf(copyModeUsage)
-			}
-			opts.paneRef = args[i]
+	flags, err := cmdflags.ParseCommandFlags(args, []cmdflags.FlagSpec{
+		{Name: "--wait", Type: cmdflags.FlagTypeString},
+		{Name: "--timeout", Type: cmdflags.FlagTypeDuration, Default: defaultCommandUIWaitTimeout},
+	})
+	if err != nil {
+		return copyModeOptions{}, err
+	}
+	positionals := flags.Positionals()
+	if len(positionals) > 1 {
+		return copyModeOptions{}, fmt.Errorf(copyModeUsage)
+	}
+	opts := copyModeOptions{waitTimeout: flags.Duration("--timeout")}
+	if len(positionals) == 1 {
+		opts.paneRef = positionals[0]
+	}
+	if flags.Seen("--wait") {
+		target := flags.String("--wait")
+		if target != "ui=copy-mode-shown" {
+			return copyModeOptions{}, fmt.Errorf("copy-mode: unsupported --wait target %q (want ui=copy-mode-shown)", target)
 		}
+		opts.waitCopyModeShown = true
 	}
 
-	if timeoutSet && !opts.waitCopyModeShown {
+	if flags.Seen("--timeout") && !opts.waitCopyModeShown {
 		return copyModeOptions{}, fmt.Errorf("copy-mode: --timeout requires --wait ui=copy-mode-shown")
 	}
 
@@ -687,33 +665,27 @@ func parseCopyModeArgs(args []string) (copyModeOptions, error) {
 }
 
 func parseEqualizeCommandArgs(args []string) (widths, heights bool, err error) {
-	mode := ""
-	for _, arg := range args {
-		switch arg {
-		case "--vertical":
-			if mode != "" && mode != arg {
-				return false, false, fmt.Errorf("equalize: conflicting equalize modes")
-			}
-			mode = arg
-		case "--all":
-			if mode != "" && mode != arg {
-				return false, false, fmt.Errorf("equalize: conflicting equalize modes")
-			}
-			mode = arg
-		default:
-			return false, false, fmt.Errorf(`equalize: unknown mode %q (use --vertical or --all)`, arg)
-		}
+	flags, err := cmdflags.ParseCommandFlags(args, []cmdflags.FlagSpec{
+		{Name: "--vertical", Type: cmdflags.FlagTypeBool},
+		{Name: "--all", Type: cmdflags.FlagTypeBool},
+	})
+	if err != nil {
+		return false, false, err
 	}
-	switch mode {
-	case "":
-		return true, false, nil
-	case "--vertical":
-		return false, true, nil
-	case "--all":
+	positionals := flags.Positionals()
+	if len(positionals) > 0 {
+		return false, false, fmt.Errorf(`equalize: unknown mode %q (use --vertical or --all)`, positionals[0])
+	}
+	if flags.Bool("--vertical") && flags.Bool("--all") {
+		return false, false, fmt.Errorf("equalize: conflicting equalize modes")
+	}
+	if flags.Bool("--all") {
 		return true, true, nil
-	default:
-		return false, false, fmt.Errorf(`equalize: unknown mode %q (use --vertical or --all)`, mode)
 	}
+	if flags.Bool("--vertical") {
+		return false, true, nil
+	}
+	return true, false, nil
 }
 
 func cmdEqualize(ctx *CommandContext) {

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/weill-labs/amux/internal/config"
+	cmdflags "github.com/weill-labs/amux/internal/server/commands/flags"
 )
 
 // idleTracker manages per-pane idle timers and state transitions.
@@ -330,38 +331,22 @@ func parseWaitIdleArgs(args []string) (string, waitIdleOptions, error) {
 		return "", waitIdleOptions{}, fmt.Errorf(waitIdleUsage)
 	}
 
-	opts := waitIdleOptions{
-		settle:  config.VTIdleSettle,
-		timeout: config.VTIdleTimeout,
+	flags, err := cmdflags.ParseCommandFlags(args[1:], []cmdflags.FlagSpec{
+		{Name: "--settle", Type: cmdflags.FlagTypeDuration, Default: config.VTIdleSettle},
+		{Name: "--timeout", Type: cmdflags.FlagTypeDuration, Default: config.VTIdleTimeout},
+	})
+	if err != nil {
+		return "", waitIdleOptions{}, err
 	}
-	for i := 1; i < len(args); i++ {
-		switch args[i] {
-		case "--settle":
-			if i+1 >= len(args) {
-				return "", waitIdleOptions{}, fmt.Errorf("missing value for --settle")
-			}
-			i++
-			settle, err := time.ParseDuration(args[i])
-			if err != nil {
-				return "", waitIdleOptions{}, fmt.Errorf("invalid settle: %s", args[i])
-			}
-			opts.settle = settle
-		case "--timeout":
-			if i+1 >= len(args) {
-				return "", waitIdleOptions{}, fmt.Errorf("missing value for --timeout")
-			}
-			i++
-			timeout, err := time.ParseDuration(args[i])
-			if err != nil {
-				return "", waitIdleOptions{}, fmt.Errorf("invalid timeout: %s", args[i])
-			}
-			opts.timeout = timeout
-		default:
-			return "", waitIdleOptions{}, fmt.Errorf("unknown flag: %s", args[i])
-		}
+	positionals := flags.Positionals()
+	if len(positionals) > 0 {
+		return "", waitIdleOptions{}, fmt.Errorf("unknown flag: %s", positionals[0])
 	}
 
-	return args[0], opts, nil
+	return args[0], waitIdleOptions{
+		settle:  flags.Duration("--settle"),
+		timeout: flags.Duration("--timeout"),
+	}, nil
 }
 
 func resetTimer(timer Timer, d time.Duration) {
