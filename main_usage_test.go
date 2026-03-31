@@ -452,7 +452,6 @@ func TestMainRespawnDispatchesWhenPaneProvided(t *testing.T) {
 	}
 	assertMainCommandConnectError(t, out, "respawn")
 }
-
 func TestMainMetaDispatchesWhenSubcommandIsValid(t *testing.T) {
 	t.Parallel()
 
