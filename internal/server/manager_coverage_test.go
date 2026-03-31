@@ -133,6 +133,7 @@ func TestWaiterManagerTimeoutSeesStateRecordedWithoutNotification(t *testing.T) 
 		sess := newSession("test-waiter-clipboard-timeout")
 		stopCrashCheckpointLoop(t, sess)
 		defer stopSessionBackgroundLoops(t, sess)
+		timeout := 200 * time.Millisecond
 
 		sess.waiters.setClipboardStateForTest(1, "old")
 
@@ -140,7 +141,9 @@ func TestWaiterManagerTimeoutSeesStateRecordedWithoutNotification(t *testing.T) 
 		var payload string
 		var ok bool
 		go func() {
-			payload, ok = sess.waitClipboard(1, 50*time.Millisecond)
+			// This assertion exercises the timeout fallback, not notification delivery.
+			// Keep enough margin for the event-loop mutation to land before the waiter times out.
+			payload, ok = sess.waitClipboard(1, timeout)
 			close(done)
 		}()
 
