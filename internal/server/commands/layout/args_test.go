@@ -148,7 +148,6 @@ func TestParseSpawnArgs(t *testing.T) {
 					Task:  "build",
 					Color: "rosewater",
 				},
-				Spiral: true,
 			},
 		},
 		{
