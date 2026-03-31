@@ -36,7 +36,6 @@ type ServerHarness struct {
 	coverDir          string // per-test GOCOVERDIR subdirectory (avoids coverage metadata races)
 	extraEnv          []string
 	logPath           string
-	processState      string
 	exitUnattached    bool
 	ownsProcessGroup  bool
 	client            *headlessClient // attached headless client for capture
@@ -296,8 +295,7 @@ func (h *ServerHarness) cleanup() {
 	if h.cmd != nil && h.cmd.Process != nil {
 		serverPid = h.cmd.Process.Pid
 	}
-	if h.cmd != nil && h.cmd.ProcessState != nil {
-		h.processState = h.cmd.ProcessState.String()
+	if h.processWaitComplete() {
 		h.cmd = nil
 	}
 
@@ -314,9 +312,6 @@ func (h *ServerHarness) cleanup() {
 		}
 		if h.shutdownPipe != nil {
 			gracefulShutdown = h.waitForShutdownSignalWithin(5 * time.Second)
-		}
-		if h.cmd.ProcessState != nil {
-			h.processState = h.cmd.ProcessState.String()
 		}
 	}
 
@@ -338,8 +333,8 @@ func (h *ServerHarness) cleanup() {
 	}
 	h.cmd = nil
 	if h.tb != nil && h.tb.Failed() {
-		if h.processState != "" {
-			h.tb.Logf("server process state: %s", h.processState)
+		if state := h.processStateSummary(); state != "" {
+			h.tb.Logf("server process state: %s", state)
 		}
 		if tail := h.serverLogTail(diagnosticLogTailBytes); tail != "" {
 			h.tb.Logf("server log tail:\n%s", tail)
@@ -916,6 +911,18 @@ func (h *ServerHarness) startProcessWait() {
 	})
 }
 
+func (h *ServerHarness) processWaitComplete() bool {
+	if h == nil || h.waitDone == nil {
+		return false
+	}
+	select {
+	case <-h.waitDone:
+		return true
+	default:
+		return false
+	}
+}
+
 func (h *ServerHarness) processStateSummary() string {
 	if h == nil {
 		return ""
@@ -1026,11 +1033,11 @@ func (h *ServerHarness) waitForProcessExit(timeout time.Duration) bool {
 	if h.cmd == nil {
 		return true
 	}
-	if h.cmd.ProcessState != nil {
+	h.startProcessWait()
+	if h.processWaitComplete() {
 		h.cmd = nil
 		return true
 	}
-	h.startProcessWait()
 	select {
 	case <-h.waitDone:
 		h.cmd = nil
