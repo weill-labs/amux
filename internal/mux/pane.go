@@ -25,6 +25,35 @@ func paneShellEnv(id uint32, sessionName string) []string {
 	return paneCommandEnv(os.Environ(), id, sessionName)
 }
 
+func paneShellPath() string {
+	shell := os.Getenv("SHELL")
+	if shell == "" {
+		return "/bin/bash"
+	}
+	return shell
+}
+
+func newPaneShellCommand(id uint32, sessionName, dir string) *exec.Cmd {
+	cmd := exec.Command(paneShellPath(), "-l")
+	cmd.Env = paneShellEnv(id, sessionName)
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	return cmd
+}
+
+func startPaneShell(id uint32, sessionName, dir string, cols, rows int) (*exec.Cmd, *os.File, error) {
+	cmd := newPaneShellCommand(id, sessionName, dir)
+	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{
+		Cols: uint16(cols),
+		Rows: uint16(rows),
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return cmd, ptmx, nil
+}
+
 // Pane manages a PTY, its terminal emulator, and metadata.
 type Pane struct {
 	ID          uint32
@@ -38,7 +67,10 @@ type Pane struct {
 	actorCommands chan paneCommand
 	actorDone     chan struct{}
 	readLoopDone  chan struct{}
+	drainLoopDone chan struct{}
+	waitLoopDone  chan struct{}
 	actorClosing  atomic.Bool
+	suppressExit  atomic.Bool
 
 	outputSeq        atomic.Uint64
 	baseHistory      atomic.Pointer[paneBaseHistory]
@@ -99,21 +131,7 @@ func NewPaneWithScrollback(id uint32, meta PaneMeta, cols, rows int, sessionName
 		return nil, err
 	}
 
-	shell := os.Getenv("SHELL")
-	if shell == "" {
-		shell = "/bin/bash"
-	}
-
-	cmd := exec.Command(shell, "-l")
-	cmd.Env = paneShellEnv(id, sessionName)
-	if meta.Dir != "" {
-		cmd.Dir = meta.Dir
-	}
-
-	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{
-		Cols: uint16(cols),
-		Rows: uint16(rows),
-	})
+	cmd, ptmx, err := startPaneShell(id, sessionName, meta.Dir, cols, rows)
 	if err != nil {
 		return nil, err
 	}
@@ -370,8 +388,15 @@ func (p *Pane) Start() {
 	if p.ptmx != nil && p.readLoopDone == nil {
 		p.readLoopDone = make(chan struct{})
 	}
+	if p.drainLoopDone == nil {
+		p.drainLoopDone = make(chan struct{})
+	}
+	if p.waitLoopDone == nil {
+		p.waitLoopDone = make(chan struct{})
+	}
 	go p.readLoop()
 	if !p.drainStarted {
+		p.drainStarted = true
 		go p.drainResponses()
 	}
 	go p.waitLoop()
@@ -397,12 +422,13 @@ func (p *Pane) SetOnMetaUpdate(fn func(paneID uint32, update MetaUpdate)) {
 
 // readLoop reads PTY output, feeds the emulator, and notifies the callback.
 func (p *Pane) readLoop() {
+	ptmx := p.ptmx
 	if p.readLoopDone != nil {
 		defer close(p.readLoopDone)
 	}
 	buf := make([]byte, 32*1024)
 	for {
-		n, err := p.ptmx.Read(buf)
+		n, err := ptmx.Read(buf)
 		if n > 0 {
 			data := make([]byte, n)
 			copy(data, buf[:n])
@@ -443,11 +469,16 @@ func (p *Pane) readLoop() {
 // shell receives them. Without this, the emulator's unbuffered io.Pipe
 // blocks on the first response, deadlocking the server.
 func (p *Pane) drainResponses() {
+	emulator := p.emulator
+	ptmx := p.ptmx
+	if p.drainLoopDone != nil {
+		defer close(p.drainLoopDone)
+	}
 	buf := make([]byte, 1024)
 	for {
-		n, err := p.emulator.Read(buf)
+		n, err := emulator.Read(buf)
 		if n > 0 {
-			p.ptmx.Write(buf[:n])
+			ptmx.Write(buf[:n])
 		}
 		if err != nil {
 			return
@@ -467,13 +498,23 @@ func (p *Pane) applyOutput(data []byte) uint64 {
 // waitLoop waits for the shell process to exit. Closes exitDone so that
 // Close() can detect the process has exited without a redundant cmd.Wait().
 func (p *Pane) waitLoop() {
-	var err error
-	if p.cmd != nil {
-		err = p.cmd.Wait()
-	} else if p.process != nil {
-		_, err = p.process.Wait()
+	cmd := p.cmd
+	proc := p.process
+	exitDone := p.exitDone
+	waitLoopDone := p.waitLoopDone
+	if waitLoopDone != nil {
+		defer close(waitLoopDone)
 	}
-	close(p.exitDone)
+	var err error
+	if cmd != nil {
+		err = cmd.Wait()
+	} else if proc != nil {
+		_, err = proc.Wait()
+	}
+	close(exitDone)
+	if p.suppressExit.Swap(false) {
+		return
+	}
 	if p.onExit != nil {
 		p.onExit(p.ID, formatExitReason(err))
 	}
@@ -847,6 +888,9 @@ func (p *Pane) closeBlocking() error {
 		}
 		return p.emulator.Close()
 	}()
+	if p.drainLoopDone != nil {
+		<-p.drainLoopDone
+	}
 	return errors.Join(ptmxErr, emuErr)
 }
 
@@ -869,6 +913,7 @@ func NewProxyPaneWithScrollback(id uint32, meta PaneMeta, cols, rows int,
 		emulator:         emu,
 		writeOverride:    writeOverride,
 		exitDone:         exitDone,
+		drainLoopDone:    make(chan struct{}),
 		onOutput:         onOutput,
 		onExit:           onExit,
 		createdAt:        time.Now(),
@@ -890,9 +935,13 @@ func NewProxyPaneWithScrollback(id uint32, meta PaneMeta, cols, rows int,
 // emulator. Proxy panes have no PTY to forward responses to, but the
 // emulator's pipe must be drained to prevent blocking.
 func (p *Pane) drainResponsesDiscard() {
+	emulator := p.emulator
+	if p.drainLoopDone != nil {
+		defer close(p.drainLoopDone)
+	}
 	buf := make([]byte, 1024)
 	for {
-		_, err := p.emulator.Read(buf)
+		_, err := emulator.Read(buf)
 		if err != nil {
 			return
 		}
@@ -930,4 +979,90 @@ func (p *Pane) combinedScrollback(baseHistory []string) []string {
 // IsProxy returns true if this is a proxy pane (no local PTY).
 func (p *Pane) IsProxy() bool {
 	return p.writeOverride != nil
+}
+
+// Respawn replaces the pane's local shell process with a fresh login shell in
+// the same pane slot without changing pane identity.
+func (p *Pane) Respawn(sessionName, dir string) error {
+	if p.IsProxy() {
+		return fmt.Errorf("cannot respawn proxy pane")
+	}
+	if p.closed.Load() {
+		return fmt.Errorf("pane is closed")
+	}
+
+	cols, rows := p.EmulatorSize()
+	if cols <= 0 || rows <= 0 {
+		cols, rows = 80, 24
+	}
+	if dir == "" {
+		dir = p.LiveCwd()
+	}
+	if dir == "" {
+		dir = p.Meta.Dir
+	}
+
+	cmd, ptmx, err := startPaneShell(p.ID, sessionName, dir, cols, rows)
+	if err != nil {
+		return err
+	}
+	emu := NewVTEmulatorWithScrollback(cols, rows, p.scrollbackLimit)
+	oldEmu := p.emulator
+	oldDrainLoopDone := p.drainLoopDone
+
+	p.suppressExit.Store(true)
+	p.stopForRespawn()
+	p.withActor(func() {
+		p.ptmx = ptmx
+		p.cmd = cmd
+		p.process = nil
+		p.emulator = emu
+		p.readLoopDone = nil
+		p.drainLoopDone = nil
+		p.waitLoopDone = nil
+		p.drainStarted = false
+		p.exitDone = make(chan struct{})
+		p.baseHistory.Store(&paneBaseHistory{})
+		p.clearScrollbackWidths()
+		p.osc52Scanner = OSC52Scanner{}
+		p.controlScanner = AmuxControlScanner{}
+		p.metaScanner = AmuxMetaScanner{}
+		p.createdAt = time.Now()
+		storeUnixTime(&p.lastBusySeenUnix, time.Time{})
+		storeUnixTime(&p.idleSinceUnix, time.Time{})
+		p.liveCwd = dir
+		p.Meta.Dir = dir
+		wireScrollbackCallbacks(p)
+	})
+	if oldEmu != nil {
+		_ = oldEmu.Close()
+	}
+	if oldDrainLoopDone != nil {
+		<-oldDrainLoopDone
+	}
+	return nil
+}
+
+func (p *Pane) stopForRespawn() {
+	proc := p.shellProcess()
+	if proc != nil {
+		_ = proc.Signal(syscall.SIGHUP)
+	}
+	if p.ptmx != nil {
+		_ = p.ptmx.Close()
+	}
+	if p.readLoopDone != nil {
+		<-p.readLoopDone
+	}
+	if proc != nil {
+		select {
+		case <-p.exitDone:
+		case <-time.After(2 * time.Second):
+			_ = proc.Signal(syscall.SIGKILL)
+			<-p.exitDone
+		}
+	}
+	if p.waitLoopDone != nil {
+		<-p.waitLoopDone
+	}
 }

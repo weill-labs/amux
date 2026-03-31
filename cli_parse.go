@@ -48,6 +48,7 @@ var canonicalSessionCommands = map[string]sessionCommandSpec{
 	"reload-server": {connectName: "reload-server", usage: reloadServerUsage, argMode: sessionCommandNoArgs},
 	"rename-window": {connectName: "rename-window", minArgs: 1, usage: renameWindowUsage, argMode: sessionCommandFirstArg},
 	"reset":         {connectName: "reset", minArgs: 1, usage: resetUsage, argMode: sessionCommandFirstArg},
+	"respawn":       {connectName: "respawn", minArgs: 1, usage: respawnUsage, argMode: sessionCommandFirstArg},
 	"resize-window": {connectName: "resize-window", minArgs: 2, usage: resizeWindowUsage, argMode: sessionCommandForwardArgs},
 	"rotate":        {connectName: "rotate", usage: rotateUsage, argMode: sessionCommandForwardArgs},
 	"select-window": {connectName: "select-window", minArgs: 1, usage: selectWindowUsage, argMode: sessionCommandFirstArg},

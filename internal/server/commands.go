@@ -62,6 +62,7 @@ var commandRegistry = map[string]CommandHandler{
 	"spawn":          cmdSpawn,
 	"zoom":           cmdZoom,
 	"reset":          cmdReset,
+	"respawn":        cmdRespawn,
 	"kill":           cmdKill,
 	"undo":           cmdUndo,
 	"send-keys":      cmdSendKeys,

@@ -24,6 +24,7 @@ const (
 	reloadServerUsage = "usage: amux reload-server"
 	renameWindowUsage = "usage: amux rename-window <name>"
 	resetUsage        = "usage: amux reset <pane>"
+	respawnUsage      = "usage: amux respawn <pane>"
 	resizeWindowUsage = "usage: amux resize-window <cols> <rows>"
 	rotateUsage       = "usage: amux rotate [--reverse]"
 	selectWindowUsage = "usage: amux select-window <index|name>"
@@ -67,6 +68,7 @@ var commandUsageByName = map[string]string{
 	"reload-server":    reloadServerUsage,
 	"rename-window":    renameWindowUsage,
 	"reset":            resetUsage,
+	"respawn":          respawnUsage,
 	"resize-pane":      "usage: amux resize-pane <pane> <direction> [delta]",
 	"resize-window":    resizeWindowUsage,
 	"rotate":           rotateUsage,
@@ -165,6 +167,7 @@ Usage:
   amux [-s session] rotate             Rotate pane positions forward
   amux [-s session] rotate --reverse   Rotate pane positions backward
   amux [-s session] reset <pane>       Clear pane history and reset terminal state
+  amux [-s session] respawn <pane>     Restart a pane with a fresh shell
   amux [-s session] resize-pane <pane> <dir> [n]
                                        Resize pane (dir: left/right/up/down)
   amux [-s session] equalize [--vertical|--all]
