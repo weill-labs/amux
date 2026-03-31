@@ -143,6 +143,24 @@ func TestSpawnKeepsFocus(t *testing.T) {
 	})
 }
 
+func TestSpawnFocusesWhenRequested(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	h.splitH()
+	h.runCmd("focus", "pane-1")
+
+	output := h.runCmd("spawn", "--focus", "--name", "fg-worker", "--task", "TASK-42")
+	if !strings.Contains(output, "fg-worker") {
+		t.Fatalf("spawn should report the new pane name, got:\n%s", output)
+	}
+
+	capture := h.captureJSON()
+	if !h.jsonPane(capture, "fg-worker").Active {
+		t.Fatal("fg-worker should become active with --focus")
+	}
+}
+
 func TestResetClearsPaneStateAndAcceptsNewOutput(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)

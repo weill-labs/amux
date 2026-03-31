@@ -60,6 +60,73 @@ func TestCommandAddPaneLocalKeepsFocus(t *testing.T) {
 	}
 }
 
+func TestCommandAddPaneFocusModes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		command      string
+		args         []string
+		wantActiveID uint32
+	}{
+		{
+			name:         "add-pane --focus activates the new pane",
+			command:      "add-pane",
+			args:         []string{"--name", "spiral-focus", "--focus"},
+			wantActiveID: 2,
+		},
+		{
+			name:         "add-pane-focus activates the new pane",
+			command:      "add-pane-focus",
+			args:         []string{"--name", "spiral-alias-focus"},
+			wantActiveID: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			srv, sess, cleanup := newCommandTestSession(t)
+			defer cleanup()
+
+			p1 := mustCreatePane(t, sess, srv, 80, 23)
+			p1.Start()
+
+			w := mux.NewWindow(p1, 80, 24)
+			w.ID = 1
+			w.Name = "main"
+			setSessionLayoutForTest(t, sess, w.ID, []*mux.Window{w}, p1)
+
+			res := runTestCommand(t, srv, sess, tt.command, tt.args...)
+			if res.cmdErr != "" {
+				t.Fatalf("%s %v failed: %s", tt.command, tt.args, res.cmdErr)
+			}
+
+			state := mustSessionQuery(t, sess, func(sess *Session) struct {
+				activeID uint32
+				hasPane  bool
+			} {
+				w := sess.activeWindow()
+				return struct {
+					activeID uint32
+					hasPane  bool
+				}{
+					activeID: w.ActivePane.ID,
+					hasPane: func() bool {
+						_, err := sess.findPaneByRef(tt.args[1])
+						return err == nil
+					}(),
+				}
+			})
+			if state.activeID != tt.wantActiveID || !state.hasPane {
+				t.Fatalf("%s state = %+v, want active %d with added pane present", tt.command, state, tt.wantActiveID)
+			}
+		})
+	}
+}
+
 func TestCommandAddPaneRejectsUnknownArg(t *testing.T) {
 	t.Parallel()
 

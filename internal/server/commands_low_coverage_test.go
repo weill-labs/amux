@@ -881,6 +881,13 @@ func TestCommandSplitTargetsExplicitInactivePane(t *testing.T) {
 			newPaneName:  "target-split",
 		},
 		{
+			name:         "split --focus activates the new pane",
+			command:      "split",
+			args:         []string{"pane-1", "--name", "flag-focus-target", "--focus"},
+			wantActiveID: 3,
+			newPaneName:  "flag-focus-target",
+		},
+		{
 			name:         "split-focus activates the new pane",
 			command:      "split-focus",
 			args:         []string{"pane-1", "--name", "focus-target"},
@@ -972,6 +979,12 @@ func TestCommandSpawnFocusModes(t *testing.T) {
 			command:      "spawn",
 			args:         []string{"--name", "worker-pure", "--task", "build"},
 			wantActiveID: 1,
+		},
+		{
+			name:         "spawn --focus activates the new pane",
+			command:      "spawn",
+			args:         []string{"--name", "worker-flag-focus", "--task", "build", "--focus"},
+			wantActiveID: 2,
 		},
 		{
 			name:         "spawn-focus activates the new pane",

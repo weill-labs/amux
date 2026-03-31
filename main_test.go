@@ -24,13 +24,13 @@ func TestParseSpawnCommandArgs(t *testing.T) {
 		wantErrText string
 	}{
 		{name: "default spawn", args: nil, wantCmd: "spawn", wantArgs: []string{}},
-		{name: "focused spawn", args: []string{"--focus"}, wantCmd: "spawn-focus", wantArgs: []string{}},
+		{name: "focused spawn", args: []string{"--focus"}, wantCmd: "spawn", wantArgs: []string{"--focus"}},
 		{name: "split at pane", args: []string{"--at", "pane-1"}, wantCmd: "split", wantArgs: []string{"pane-1"}},
 		{name: "split active vertical", args: []string{"--vertical"}, wantCmd: "split", wantArgs: []string{"v"}},
 		{name: "split root vertical", args: []string{"--at", "pane-1", "--root", "--vertical"}, wantCmd: "split", wantArgs: []string{"pane-1", "root", "v"}},
 		{name: "split with metadata", args: []string{"--at", "pane-1", "--task", "build", "--color", "blue"}, wantCmd: "split", wantArgs: []string{"pane-1", "--task", "build", "--color", "blue"}},
 		{name: "spiral add", args: []string{"--spiral", "--name", "worker"}, wantCmd: "add-pane", wantArgs: []string{"--name", "worker"}},
-		{name: "spiral add focus", args: []string{"--spiral", "--focus"}, wantCmd: "add-pane-focus", wantArgs: []string{}},
+		{name: "spiral add focus", args: []string{"--spiral", "--focus"}, wantCmd: "add-pane", wantArgs: []string{"--focus"}},
 		{name: "conflicting directions", args: []string{"--vertical", "--horizontal"}, wantErrText: spawnUsage},
 		{name: "spiral with split flags rejected", args: []string{"--spiral", "--at", "pane-1"}, wantErrText: spawnUsage},
 		{name: "missing at value", args: []string{"--at"}, wantErrText: spawnUsage},
@@ -648,7 +648,7 @@ func TestRunMainDispatchesCommands(t *testing.T) {
 			args:     []string{"spawn", "--focus"},
 			wantExit: 0,
 			wantCalls: []cliCall{
-				{kind: "server-command", session: resolvedSessionMarker, cmd: "spawn-focus"},
+				{kind: "server-command", session: resolvedSessionMarker, cmd: "spawn", args: []string{"--focus"}},
 			},
 		},
 		{
