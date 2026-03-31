@@ -205,7 +205,7 @@ EOF
 exit 0
 fi
 if [ "$1" = "api" ]; then
-case "$3" in
+case "$4" in
 repos/{owner}/{repo}/pulls/580/reviews?per_page=100)
 cat <<'EOF'
 []
@@ -296,7 +296,7 @@ EOF
 exit 0
 fi
 if [ "$1" = "api" ]; then
-case "$3" in
+case "$4" in
 repos/{owner}/{repo}/pulls/581/reviews?per_page=100)
 cat <<'EOF'
 [{"user":{"login":"claude[bot]"},"body":"Looks good.\n\nLGTM","submitted_at":"2026-03-30T19:59:00Z"}]
