@@ -60,7 +60,7 @@ func TestCommandSpawnSpiralLocalKeepsFocus(t *testing.T) {
 	}
 }
 
-func TestCommandAddPaneIsUnknown(t *testing.T) {
+func TestCommandLegacyAddPaneIsUnknown(t *testing.T) {
 	t.Parallel()
 
 	srv, sess, cleanup := newCommandTestSession(t)
@@ -90,7 +90,7 @@ func TestCommandSpawnSpiralRejectsMissingInheritedPane(t *testing.T) {
 	srv, sess, cleanup := newCommandTestSession(t)
 	defer cleanup()
 
-	p1 := newAddPaneTestProxyPane(1, "pane-1")
+	p1 := newSpiralSpawnTestProxyPane(1, "pane-1")
 	w := mux.NewWindow(p1, 80, 24)
 	w.ID = 1
 	w.Name = "main"
@@ -170,9 +170,9 @@ func TestCommandSpawnSpiralRejectsInvalidLayout(t *testing.T) {
 	srv, sess, cleanup := newCommandTestSession(t)
 	defer cleanup()
 
-	p1 := newAddPaneTestProxyPane(1, "pane-1")
-	p2 := newAddPaneTestProxyPane(2, "pane-2")
-	p3 := newAddPaneTestProxyPane(3, "pane-3")
+	p1 := newSpiralSpawnTestProxyPane(1, "pane-1")
+	p2 := newSpiralSpawnTestProxyPane(2, "pane-2")
+	p3 := newSpiralSpawnTestProxyPane(3, "pane-3")
 	w := mux.NewWindow(p1, 80, 24)
 	w.ID = 1
 	w.Name = "main"
@@ -196,7 +196,7 @@ func TestCommandSpawnSpiralRejectsInvalidLayout(t *testing.T) {
 	}
 }
 
-func newAddPaneTestProxyPane(id uint32, name string) *mux.Pane {
+func newSpiralSpawnTestProxyPane(id uint32, name string) *mux.Pane {
 	return mux.NewProxyPaneWithScrollback(id, mux.PaneMeta{
 		Name:  name,
 		Host:  mux.DefaultHost,
