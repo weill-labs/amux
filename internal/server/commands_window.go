@@ -39,7 +39,7 @@ func cmdNewWindow(ctx *CommandContext) {
 			newWin.Name = fmt.Sprintf(WindowNameFormat, winID)
 		}
 		sess.Windows = append(sess.Windows, newWin)
-		sess.ActiveWindowID = winID
+		sess.activateWindow(newWin)
 
 		return commandMutationResult{
 			output:          fmt.Sprintf("Created %s\n", newWin.Name),
@@ -86,6 +86,19 @@ func cmdPrevWindow(ctx *CommandContext) {
 		sess.prevWindow()
 		return commandMutationResult{
 			output:          "Previous window\n",
+			broadcastLayout: true,
+			paneRenders:     activePaneRender(sess.activeWindow()),
+		}
+	}))
+}
+
+func cmdLastWindow(ctx *CommandContext) {
+	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
+		if !sess.lastWindow() {
+			return commandMutationResult{bell: true}
+		}
+		return commandMutationResult{
+			output:          "Last window\n",
 			broadcastLayout: true,
 			paneRenders:     activePaneRender(sess.activeWindow()),
 		}
