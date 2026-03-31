@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/weill-labs/amux/internal/mux"
+	cmdflags "github.com/weill-labs/amux/internal/server/commands/flags"
 )
 
 const (
@@ -71,27 +72,23 @@ func parseWaitReadyArgs(args []string) (string, waitReadyOptions, error) {
 		return "", waitReadyOptions{}, fmt.Errorf(waitReadyUsage)
 	}
 
-	opts := waitReadyOptions{timeout: 10 * time.Second}
-	for i := 1; i < len(args); i++ {
-		switch args[i] {
-		case "--continue-known-dialogs":
+	for _, arg := range args[1:] {
+		if arg == "--continue-known-dialogs" {
 			return "", waitReadyOptions{}, fmt.Errorf(waitReadyRemovedContinueFlagErr)
-		case "--timeout":
-			if i+1 >= len(args) {
-				return "", waitReadyOptions{}, fmt.Errorf("missing value for --timeout")
-			}
-			i++
-			timeout, err := time.ParseDuration(args[i])
-			if err != nil {
-				return "", waitReadyOptions{}, fmt.Errorf("invalid timeout: %s", args[i])
-			}
-			opts.timeout = timeout
-		default:
-			return "", waitReadyOptions{}, fmt.Errorf("unknown flag: %s", args[i])
 		}
 	}
+	flags, err := cmdflags.ParseCommandFlags(args[1:], []cmdflags.FlagSpec{
+		{Name: "--timeout", Type: cmdflags.FlagTypeDuration, Default: 10 * time.Second},
+	})
+	if err != nil {
+		return "", waitReadyOptions{}, err
+	}
+	positionals := flags.Positionals()
+	if len(positionals) > 0 {
+		return "", waitReadyOptions{}, fmt.Errorf("unknown flag: %s", positionals[0])
+	}
 
-	return args[0], opts, nil
+	return args[0], waitReadyOptions{timeout: flags.Duration("--timeout")}, nil
 }
 
 func parseSendKeysArgs(args []string) (sendKeysOptions, error) {

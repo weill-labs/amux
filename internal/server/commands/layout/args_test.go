@@ -47,12 +47,12 @@ func TestParseSplitArgs(t *testing.T) {
 		{
 			name:    "rejects legacy pane flag",
 			args:    []string{"--pane", "pane-1"},
-			wantErr: `unknown split arg "--pane"`,
+			wantErr: "unknown flag: --pane",
 		},
 		{
 			name:    "rejects legacy background flag",
 			args:    []string{"pane-1", "--background"},
-			wantErr: `unknown split arg "--background"`,
+			wantErr: "unknown flag: --background",
 		},
 		{
 			name:    "rejects conflicting directions",
@@ -62,12 +62,12 @@ func TestParseSplitArgs(t *testing.T) {
 		{
 			name:    "rejects missing host value",
 			args:    []string{"--host"},
-			wantErr: "--host requires a value",
+			wantErr: "missing value for --host",
 		},
 		{
 			name:    "rejects unknown arg",
 			args:    []string{"--bogus"},
-			wantErr: `unknown split arg "--bogus"`,
+			wantErr: "unknown flag: --bogus",
 		},
 	}
 
@@ -153,17 +153,17 @@ func TestParseSpawnArgs(t *testing.T) {
 		{
 			name:    "rejects missing color value",
 			args:    []string{"--name", "worker-1", "--color"},
-			wantErr: "--color requires a value",
+			wantErr: "missing value for --color",
 		},
 		{
 			name:    "rejects legacy background flag",
 			args:    []string{"--name", "worker-1", "--background"},
-			wantErr: `unknown spawn arg "--background"`,
+			wantErr: "unknown flag: --background",
 		},
 		{
 			name:    "rejects unknown arg",
 			args:    []string{"--name", "worker-1", "--bogus"},
-			wantErr: `unknown spawn arg "--bogus"`,
+			wantErr: "unknown flag: --bogus",
 		},
 	}
 

@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/weill-labs/amux/internal/mux"
+	cmdflags "github.com/weill-labs/amux/internal/server/commands/flags"
 )
 
 type SplitArgs struct {
@@ -18,7 +19,27 @@ type SplitArgs struct {
 }
 
 func ParseSplitArgs(args []string) (SplitArgs, error) {
-	parsed := SplitArgs{Dir: mux.SplitHorizontal}
+	flags, err := cmdflags.ParseCommandFlags(args, []cmdflags.FlagSpec{
+		{Name: "--vertical", Type: cmdflags.FlagTypeBool},
+		{Name: "--horizontal", Type: cmdflags.FlagTypeBool},
+		{Name: "--host", Type: cmdflags.FlagTypeString},
+		{Name: "--focus", Type: cmdflags.FlagTypeBool},
+		{Name: "--name", Type: cmdflags.FlagTypeString},
+		{Name: "--task", Type: cmdflags.FlagTypeString},
+		{Name: "--color", Type: cmdflags.FlagTypeString},
+	})
+	if err != nil {
+		return SplitArgs{}, err
+	}
+
+	parsed := SplitArgs{
+		Dir:      mux.SplitHorizontal,
+		Focus:    flags.Bool("--focus"),
+		HostName: flags.String("--host"),
+		Name:     flags.String("--name"),
+		Task:     flags.String("--task"),
+		Color:    flags.String("--color"),
+	}
 	hasExplicitDir := false
 
 	setDir := func(next mux.SplitDir) error {
@@ -30,56 +51,36 @@ func ParseSplitArgs(args []string) (SplitArgs, error) {
 		return nil
 	}
 
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
+	if flags.Bool("--vertical") {
+		if err := setDir(mux.SplitVertical); err != nil {
+			return SplitArgs{}, err
+		}
+	}
+	if flags.Bool("--horizontal") {
+		if err := setDir(mux.SplitHorizontal); err != nil {
+			return SplitArgs{}, err
+		}
+	}
+
+	for _, arg := range flags.Positionals() {
+		switch arg {
 		case "root":
 			parsed.RootLevel = true
-		case "v", "--vertical":
+		case "v":
 			if err := setDir(mux.SplitVertical); err != nil {
 				return SplitArgs{}, err
 			}
-		case "--horizontal":
-			if err := setDir(mux.SplitHorizontal); err != nil {
-				return SplitArgs{}, err
-			}
-		case "--host":
-			if i+1 >= len(args) {
-				return SplitArgs{}, fmt.Errorf("--host requires a value")
-			}
-			parsed.HostName = args[i+1]
-			i++
-		case "--focus":
-			parsed.Focus = true
-		case "--name":
-			if i+1 >= len(args) {
-				return SplitArgs{}, fmt.Errorf("--name requires a value")
-			}
-			parsed.Name = args[i+1]
-			i++
-		case "--task":
-			if i+1 >= len(args) {
-				return SplitArgs{}, fmt.Errorf("--task requires a value")
-			}
-			parsed.Task = args[i+1]
-			i++
-		case "--color":
-			if i+1 >= len(args) {
-				return SplitArgs{}, fmt.Errorf("--color requires a value")
-			}
-			parsed.Color = args[i+1]
-			i++
 		default:
-			if parsed.PaneRef == "" && args[i] != "" && args[i][0] != '-' {
-				parsed.PaneRef = args[i]
+			if parsed.PaneRef == "" && arg != "" {
+				parsed.PaneRef = arg
 			} else {
-				return SplitArgs{}, fmt.Errorf("unknown split arg %q", args[i])
+				return SplitArgs{}, fmt.Errorf("unknown split arg %q", arg)
 			}
 		}
 	}
 
 	return parsed, nil
 }
-
 type SpawnArgs struct {
 	Meta         mux.PaneMeta
 	Focus        bool
@@ -88,47 +89,37 @@ type SpawnArgs struct {
 }
 
 func ParseSpawnArgs(args []string) (SpawnArgs, error) {
-	parsed := SpawnArgs{
-		Meta: mux.PaneMeta{Host: mux.DefaultHost},
+	flags, err := cmdflags.ParseCommandFlags(args, []cmdflags.FlagSpec{
+		{Name: "--name", Type: cmdflags.FlagTypeString},
+		{Name: "--focus", Type: cmdflags.FlagTypeBool},
+		{Name: "--host", Type: cmdflags.FlagTypeString},
+		{Name: "--task", Type: cmdflags.FlagTypeString},
+		{Name: "--color", Type: cmdflags.FlagTypeString},
+		{Name: "--spiral", Type: cmdflags.FlagTypeBool},
+	})
+	if err != nil {
+		return SpawnArgs{}, err
+	}
+	positionals := flags.Positionals()
+	if len(positionals) > 0 {
+		return SpawnArgs{}, fmt.Errorf("unknown spawn arg %q", positionals[0])
 	}
 
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--name":
-			if i+1 >= len(args) {
-				return SpawnArgs{}, fmt.Errorf("--name requires a value")
-			}
-			parsed.Meta.Name = args[i+1]
-			i++
-		case "--focus":
-			parsed.Focus = true
-		case "--host":
-			if i+1 >= len(args) {
-				return SpawnArgs{}, fmt.Errorf("--host requires a value")
-			}
-			parsed.Meta.Host = args[i+1]
-			parsed.HostExplicit = true
-			i++
-		case "--task":
-			if i+1 >= len(args) {
-				return SpawnArgs{}, fmt.Errorf("--task requires a value")
-			}
-			parsed.Meta.Task = args[i+1]
-			i++
-		case "--color":
-			if i+1 >= len(args) {
-				return SpawnArgs{}, fmt.Errorf("--color requires a value")
-			}
-			parsed.Meta.Color = args[i+1]
-			i++
-		case "--spiral":
-			parsed.Spiral = true
-		default:
-			return SpawnArgs{}, fmt.Errorf("unknown spawn arg %q", args[i])
-		}
+	host := flags.String("--host")
+	if host == "" {
+		host = mux.DefaultHost
 	}
-
-	return parsed, nil
+	return SpawnArgs{
+		Focus:        flags.Bool("--focus"),
+		Spiral:       flags.Bool("--spiral"),
+		HostExplicit: flags.Seen("--host"),
+		Meta: mux.PaneMeta{
+			Name:  flags.String("--name"),
+			Host:  host,
+			Task:  flags.String("--task"),
+			Color: flags.String("--color"),
+		},
+	}, nil
 }
 
 func DirName(dir mux.SplitDir) string {

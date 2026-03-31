@@ -2,10 +2,10 @@ package wait
 
 import (
 	"fmt"
-	"strconv"
 	"time"
 
 	"github.com/weill-labs/amux/internal/mux"
+	cmdflags "github.com/weill-labs/amux/internal/server/commands/flags"
 )
 
 func ParseWaitArgs(args []string) (afterGen uint64, afterSet bool, timeout time.Duration, err error) {
@@ -13,63 +13,55 @@ func ParseWaitArgs(args []string) (afterGen uint64, afterSet bool, timeout time.
 }
 
 func ParseWaitArgsWithDefault(args []string, defaultTimeout time.Duration) (afterGen uint64, afterSet bool, timeout time.Duration, err error) {
-	timeout = defaultTimeout
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--after":
-			if i+1 >= len(args) {
-				return 0, false, 0, fmt.Errorf("missing value for --after")
-			}
-			i++
-			afterSet = true
-			afterGen, err = strconv.ParseUint(args[i], 10, 64)
-			if err != nil {
-				return 0, false, 0, fmt.Errorf("invalid generation: %s", args[i])
-			}
-		case "--timeout":
-			if i+1 >= len(args) {
-				return 0, false, 0, fmt.Errorf("missing value for --timeout")
-			}
-			i++
-			timeout, err = time.ParseDuration(args[i])
-			if err != nil {
-				return 0, false, 0, fmt.Errorf("invalid timeout: %s", args[i])
-			}
-		default:
-			return 0, false, 0, fmt.Errorf("unknown flag: %s", args[i])
+	parsed, err := cmdflags.ParseCommandFlags(args, []cmdflags.FlagSpec{
+		{Name: "--after", Type: cmdflags.FlagTypeInt},
+		{Name: "--timeout", Type: cmdflags.FlagTypeDuration, Default: defaultTimeout},
+	})
+	if err != nil {
+		return 0, false, 0, err
+	}
+	positionals := parsed.Positionals()
+	if len(positionals) > 0 {
+		return 0, false, 0, fmt.Errorf("unknown flag: %s", positionals[0])
+	}
+	timeout = parsed.Duration("--timeout")
+	afterSet = parsed.Seen("--after")
+	if afterSet {
+		after := parsed.Int("--after")
+		if after < 0 {
+			return 0, false, 0, fmt.Errorf("invalid value for --after: %d", after)
 		}
+		afterGen = uint64(after)
 	}
 	return afterGen, afterSet, timeout, nil
 }
 
 func ParseTimeout(args []string, startIdx int, defaultTimeout time.Duration) (time.Duration, error) {
-	for i := startIdx; i < len(args); i++ {
-		if args[i] == "--timeout" && i+1 < len(args) {
-			i++
-			d, err := time.ParseDuration(args[i])
-			if err != nil {
-				return 0, fmt.Errorf("invalid timeout: %s", args[i])
-			}
-			return d, nil
-		}
+	parsed, err := cmdflags.ParseCommandFlags(args[startIdx:], []cmdflags.FlagSpec{
+		{Name: "--timeout", Type: cmdflags.FlagTypeDuration, Default: defaultTimeout},
+	})
+	if err != nil {
+		return 0, err
 	}
-	return defaultTimeout, nil
+	positionals := parsed.Positionals()
+	if len(positionals) > 0 {
+		return 0, fmt.Errorf("unknown flag: %s", positionals[0])
+	}
+	return parsed.Duration("--timeout"), nil
 }
 
 func ParseUIGenArgs(args []string) (clientID string, err error) {
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--client":
-			if i+1 >= len(args) {
-				return "", fmt.Errorf("missing value for --client")
-			}
-			i++
-			clientID = args[i]
-		default:
-			return "", fmt.Errorf("unknown flag: %s", args[i])
-		}
+	parsed, err := cmdflags.ParseCommandFlags(args, []cmdflags.FlagSpec{
+		{Name: "--client", Type: cmdflags.FlagTypeString},
+	})
+	if err != nil {
+		return "", err
 	}
-	return clientID, nil
+	positionals := parsed.Positionals()
+	if len(positionals) > 0 {
+		return "", fmt.Errorf("unknown flag: %s", positionals[0])
+	}
+	return parsed.String("--client"), nil
 }
 
 func ParseWaitUIArgs(args []string) (eventName, clientID string, afterGen uint64, afterSet bool, timeout time.Duration, err error) {
@@ -77,38 +69,28 @@ func ParseWaitUIArgs(args []string) (eventName, clientID string, afterGen uint64
 		return "", "", 0, false, 0, fmt.Errorf("usage: wait ui <event> [--client <id>] [--after N] [--timeout <duration>]")
 	}
 	eventName = args[0]
-	timeout = 5 * time.Second
-	for i := 1; i < len(args); i++ {
-		switch args[i] {
-		case "--client":
-			if i+1 >= len(args) {
-				return "", "", 0, false, 0, fmt.Errorf("missing value for --client")
-			}
-			i++
-			clientID = args[i]
-		case "--after":
-			if i+1 >= len(args) {
-				return "", "", 0, false, 0, fmt.Errorf("missing value for --after")
-			}
-			i++
-			afterSet = true
-			afterGen, err = strconv.ParseUint(args[i], 10, 64)
-			if err != nil {
-				return "", "", 0, false, 0, fmt.Errorf("invalid --after generation: %s", args[i])
-			}
-		case "--timeout":
-			if i+1 >= len(args) {
-				return "", "", 0, false, 0, fmt.Errorf("missing value for --timeout")
-			}
-			i++
-			timeout, err = time.ParseDuration(args[i])
-			if err != nil {
-				return "", "", 0, false, 0, fmt.Errorf("invalid timeout: %s", args[i])
-			}
-		default:
-			return "", "", 0, false, 0, fmt.Errorf("unknown flag: %s", args[i])
-		}
+	parsed, err := cmdflags.ParseCommandFlags(args[1:], []cmdflags.FlagSpec{
+		{Name: "--client", Type: cmdflags.FlagTypeString},
+		{Name: "--after", Type: cmdflags.FlagTypeInt},
+		{Name: "--timeout", Type: cmdflags.FlagTypeDuration, Default: 5 * time.Second},
+	})
+	if err != nil {
+		return "", "", 0, false, 0, err
 	}
+	positionals := parsed.Positionals()
+	if len(positionals) > 0 {
+		return "", "", 0, false, 0, fmt.Errorf("unknown flag: %s", positionals[0])
+	}
+	clientID = parsed.String("--client")
+	afterSet = parsed.Seen("--after")
+	if afterSet {
+		after := parsed.Int("--after")
+		if after < 0 {
+			return "", "", 0, false, 0, fmt.Errorf("invalid value for --after: %d", after)
+		}
+		afterGen = uint64(after)
+	}
+	timeout = parsed.Duration("--timeout")
 	return eventName, clientID, afterGen, afterSet, timeout, nil
 }
 
