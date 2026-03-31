@@ -8,7 +8,6 @@ import (
 	"net"
 	"runtime/debug"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -24,24 +23,21 @@ const (
 
 // clientConn manages a single client connection to the server.
 type clientConn struct {
-	conn                net.Conn
-	ID                  string
-	displayPanesShown   bool
-	prefixMessageShown  bool
-	chooserMode         string
-	copyModeShown       bool
-	inputIdle           bool
-	uiGeneration        uint64
-	cols                int // last reported terminal width
-	rows                int // last reported terminal height
-	nonInteractive      bool
-	writer              *clientWriter
-	typeKeyQueue        *pacedInputQueue
-	typeKeyRouteMu      sync.Mutex
-	inputTargetOverride atomic.Pointer[mux.Pane]
-	capabilities        proto.ClientCapabilities
-	disconnectReasonMu  sync.Mutex
-	disconnectReason    string
+	conn               net.Conn
+	ID                 string
+	displayPanesShown  bool
+	prefixMessageShown bool
+	chooserMode        string
+	copyModeShown      bool
+	inputIdle          bool
+	uiGeneration       uint64
+	cols               int // last reported terminal width
+	rows               int // last reported terminal height
+	nonInteractive     bool
+	writer             *clientWriter
+	typeKeyQueue       *pacedInputQueue
+	capabilities       proto.ClientCapabilities
+	disconnectReason   atomic.Pointer[string]
 }
 
 type pendingMessage struct {
@@ -93,26 +89,20 @@ func (cc *clientConn) enqueueTypeKeys(chunks []encodedKeyChunk) error {
 	return queue.enqueue(chunks)
 }
 
-// withInputTargetOverride temporarily routes this client's injected input to a
-// specific pane without mutating global focus/layout state.
-func (cc *clientConn) withInputTargetOverride(pane *mux.Pane, fn func() error) error {
-	if pane == nil {
-		return fn()
+func (cc *clientConn) enqueueTypeKeysToPane(paneID uint32, chunks []encodedKeyChunk) error {
+	queue := cc.typeKeyQueue
+	if queue == nil {
+		return errPacedInputClosed
 	}
-	cc.typeKeyRouteMu.Lock()
-	defer cc.typeKeyRouteMu.Unlock()
-
-	cc.inputTargetOverride.Store(pane)
-	defer cc.inputTargetOverride.Store(nil)
-	return fn()
+	return queue.enqueueToPane(paneID, chunks)
 }
 
 func (cc *clientConn) initTypeKeyQueue() {
 	if cc.typeKeyQueue != nil {
 		return
 	}
-	cc.typeKeyQueue = newPacedInputQueue("client "+cc.ID, func(data []byte) error {
-		return cc.Send(&Message{Type: MsgTypeTypeKeys, Input: data})
+	cc.typeKeyQueue = newPacedInputQueue("client "+cc.ID, func(paneID uint32, data []byte) error {
+		return cc.Send(&Message{Type: MsgTypeTypeKeys, PaneID: paneID, Input: data})
 	})
 }
 
@@ -152,20 +142,19 @@ func (cc *clientConn) markDisconnectReason(reason string) {
 	if cc == nil || reason == "" {
 		return
 	}
-	cc.disconnectReasonMu.Lock()
-	defer cc.disconnectReasonMu.Unlock()
-	if cc.disconnectReason == "" {
-		cc.disconnectReason = reason
-	}
+	reasonCopy := reason
+	cc.disconnectReason.CompareAndSwap(nil, &reasonCopy)
 }
 
 func (cc *clientConn) disconnectReasonValue() string {
 	if cc == nil {
 		return ""
 	}
-	cc.disconnectReasonMu.Lock()
-	defer cc.disconnectReasonMu.Unlock()
-	return cc.disconnectReason
+	reason := cc.disconnectReason.Load()
+	if reason == nil {
+		return ""
+	}
+	return *reason
 }
 
 func (cc *clientConn) finalizeDisconnectReason(sess *Session, err error) {
@@ -210,9 +199,6 @@ func cloneMessage(msg *Message) *Message {
 }
 
 func (cc *clientConn) activeInputPaneForWrite(sess *Session) *mux.Pane {
-	if pane := cc.inputTargetOverride.Load(); pane != nil {
-		return pane
-	}
 	return sess.activeInputPaneForWrite(cc)
 }
 
@@ -233,32 +219,13 @@ func (cc *clientConn) readLoop(srv *Server, sess *Session) {
 
 		switch msg.Type {
 		case MsgTypeInput:
-			if pane := cc.activeInputPaneForWrite(sess); pane != nil {
-				if err := sess.enqueueLivePaneInput(pane, msg.Input); err != nil && !errors.Is(err, errPacedInputClosed) {
-					log.Printf("[amux] live input %s: %v", pane.Meta.Name, err)
-				}
-			}
+			sess.enqueueLiveInput(cc, msg.Input)
 
 		case MsgTypeResize:
 			sess.enqueueResizeClient(cc, msg.Cols, msg.Rows)
 
 		case MsgTypeInputPane:
-			// Targeted input for a specific pane (used by remote proxy connections)
-			pane := sess.ensureInputRouter().paneByID(msg.PaneID)
-			if pane == nil {
-				var err error
-				pane, err = enqueueSessionQuery(sess, func(sess *Session) (*mux.Pane, error) {
-					return sess.findPaneByID(msg.PaneID), nil
-				})
-				if err != nil {
-					break
-				}
-			}
-			if pane != nil {
-				if err := sess.enqueueLivePaneInput(pane, msg.PaneData); err != nil && !errors.Is(err, errPacedInputClosed) {
-					log.Printf("[amux] live input %s: %v", pane.Meta.Name, err)
-				}
-			}
+			sess.enqueueLiveInputPane(msg.PaneID, msg.PaneData)
 
 		case MsgTypeDetach:
 			cc.markDisconnectReason(disconnectReasonClientDetach)

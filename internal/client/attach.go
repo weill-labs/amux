@@ -410,7 +410,11 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 	execPath, _ := reload.ResolveExecutable()
 
 	// Channel for injecting keystrokes from type-keys (server → client).
-	injectCh := make(chan []byte, 16)
+	type injectedInput struct {
+		data   []byte
+		paneID uint32
+	}
+	injectCh := make(chan injectedInput, 16)
 
 	// Server → client renderer → stdout
 	// Messages are dispatched to a coalescing render loop that caps at ~60fps.
@@ -454,7 +458,7 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 				sender.Send(resp)
 			case proto.MsgTypeTypeKeys:
 				select {
-				case injectCh <- msg.Input:
+				case injectCh <- injectedInput{data: msg.Input, paneID: msg.PaneID}:
 				default:
 				}
 			case proto.MsgTypeServerReload:
@@ -758,6 +762,7 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 
 		for {
 			var raw []byte
+			injectedPaneID := uint32(0)
 			localInput := false
 			localActivity := false
 			var wordCopyTimer <-chan time.Time
@@ -775,8 +780,9 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 				}
 				raw = data
 				localInput = true
-			case data := <-injectCh:
-				raw = data
+			case injected := <-injectCh:
+				raw = injected.data
+				injectedPaneID = injected.paneID
 			case <-wordCopyTimer:
 				if drag.PendingWordCopyPaneID != 0 {
 					_ = callLocalRenderAction[struct{}](cr, msgCh, func(cr *ClientRenderer) localRenderResult {
@@ -821,6 +827,24 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 			var forward []byte
 			var copyInput []byte
 			shouldExit := false
+
+			sendForward := func(data []byte) {
+				if len(data) == 0 {
+					return
+				}
+				if injectedPaneID != 0 {
+					_ = sender.SendAsync(&proto.Message{
+						Type:     proto.MsgTypeInputPane,
+						PaneID:   injectedPaneID,
+						PaneData: data,
+					})
+					return
+				}
+				_ = sender.SendAsync(&proto.Message{
+					Type:  proto.MsgTypeInput,
+					Input: data,
+				})
+			}
 
 			flushCopyInput := func() {
 				if len(copyInput) == 0 {
@@ -955,9 +979,7 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 					flushCopyInput()
 					// Flush any accumulated forward bytes before handling mouse
 					if len(forward) > 0 {
-						_ = sender.SendAsync(&proto.Message{
-							Type: proto.MsgTypeInput, Input: forward,
-						})
+						sendForward(forward)
 						forward = nil
 					}
 					handleMouseEvent(ev, cr, sender, &drag, msgCh)
@@ -986,9 +1008,7 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 			flushCopyInput()
 
 			if len(forward) > 0 {
-				_ = sender.SendAsync(&proto.Message{
-					Type: proto.MsgTypeInput, Input: forward,
-				})
+				sendForward(forward)
 			}
 			if inputActivity {
 				cr.SetInputIdle(true)

@@ -227,6 +227,36 @@ func (e clientActivityEvent) handle(s *Session) {
 	s.broadcastLayoutNow()
 }
 
+type liveInputEvent struct {
+	cc   *clientConn
+	data []byte
+}
+
+func (e liveInputEvent) handle(s *Session) {
+	pane := s.ensureInputRouter().activeInputPaneForWriteOnActor(s, e.cc)
+	if pane == nil {
+		return
+	}
+	if err := s.enqueueLivePaneInput(pane, e.data); err != nil && !errors.Is(err, errPacedInputClosed) {
+		log.Printf("[amux] live input %s: %v", pane.Meta.Name, err)
+	}
+}
+
+type liveInputPaneEvent struct {
+	paneID uint32
+	data   []byte
+}
+
+func (e liveInputPaneEvent) handle(s *Session) {
+	pane := s.ensureInputRouter().paneByID(e.paneID)
+	if pane == nil {
+		return
+	}
+	if err := s.enqueueLivePaneInput(pane, e.data); err != nil && !errors.Is(err, errPacedInputClosed) {
+		log.Printf("[amux] live input %s: %v", pane.Meta.Name, err)
+	}
+}
+
 type paneOutputEvent struct {
 	paneID uint32
 	data   []byte
@@ -556,6 +586,20 @@ func (s *Session) enqueueDetachClient(cc *clientConn, reason string) {
 
 func (s *Session) enqueueResizeClient(cc *clientConn, cols, rows int) {
 	s.enqueueEvent(resizeClientEvent{cc: cc, cols: cols, rows: rows})
+}
+
+func (s *Session) enqueueLiveInput(cc *clientConn, data []byte) bool {
+	if len(data) == 0 {
+		return true
+	}
+	return s.enqueueEvent(liveInputEvent{cc: cc, data: append([]byte(nil), data...)})
+}
+
+func (s *Session) enqueueLiveInputPane(paneID uint32, data []byte) bool {
+	if len(data) == 0 {
+		return true
+	}
+	return s.enqueueEvent(liveInputPaneEvent{paneID: paneID, data: append([]byte(nil), data...)})
 }
 
 func (s *Session) enqueuePaneOutput(paneID uint32, data []byte, seq uint64) {

@@ -2,7 +2,6 @@ package server
 
 import (
 	"fmt"
-	"sync"
 	"sync/atomic"
 
 	"github.com/weill-labs/amux/internal/mux"
@@ -10,7 +9,6 @@ import (
 
 type inputRouter struct {
 	target     atomic.Pointer[mux.Pane]
-	mu         sync.RWMutex
 	panes      map[uint32]*mux.Pane
 	paneQueues map[uint32]*pacedInputQueue
 	removed    map[uint32]struct{}
@@ -40,9 +38,6 @@ func (r *inputRouter) targetPane() *mux.Pane {
 }
 
 func (r *inputRouter) syncPanes(panes []*mux.Pane) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
 	next := make(map[uint32]*mux.Pane, len(panes))
 	for _, pane := range panes {
 		next[pane.ID] = pane
@@ -71,9 +66,6 @@ func (r *inputRouter) syncPanes(panes []*mux.Pane) {
 }
 
 func (r *inputRouter) removePane(paneID uint32) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
 	delete(r.panes, paneID)
 	if queue := r.paneQueues[paneID]; queue != nil {
 		queue.close()
@@ -83,8 +75,6 @@ func (r *inputRouter) removePane(paneID uint32) {
 }
 
 func (r *inputRouter) paneQueue(pane *mux.Pane) *pacedInputQueue {
-	r.mu.Lock()
-	defer r.mu.Unlock()
 	return r.paneQueueLocked(pane)
 }
 
@@ -93,8 +83,6 @@ func (r *inputRouter) livePaneQueue(pane *mux.Pane) (*pacedInputQueue, error) {
 		return nil, errPacedInputClosed
 	}
 
-	r.mu.Lock()
-	defer r.mu.Unlock()
 	if _, removed := r.removed[pane.ID]; removed {
 		return nil, errPacedInputClosed
 	}
@@ -103,8 +91,6 @@ func (r *inputRouter) livePaneQueue(pane *mux.Pane) (*pacedInputQueue, error) {
 }
 
 func (r *inputRouter) paneByID(paneID uint32) *mux.Pane {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
 	return r.panes[paneID]
 }
 
@@ -112,7 +98,7 @@ func (r *inputRouter) paneQueueLocked(pane *mux.Pane) *pacedInputQueue {
 	if queue := r.paneQueues[pane.ID]; queue != nil {
 		return queue
 	}
-	queue := newPacedInputQueue("pane "+pane.Meta.Name, func(data []byte) error {
+	queue := newPacedInputQueue("pane "+pane.Meta.Name, func(_ uint32, data []byte) error {
 		_, err := pane.Write(data)
 		return err
 	})
@@ -131,18 +117,26 @@ func (r *inputRouter) activeInputPaneForWrite(sess *Session, cc *clientConn) *mu
 	}
 
 	pane, err := enqueueSessionQuery(sess, func(sess *Session) (*mux.Pane, error) {
-		if s := sess.currentSizeClient(); s == nil || s != cc {
-			if sess.noteClientActivity(cc) {
-				sess.recalcSize()
-				sess.broadcastLayoutNow()
-			}
-		}
-		return sess.inputTargetPane(), nil
+		return sess.ensureInputRouter().activeInputPaneForWriteOnActor(sess, cc), nil
 	})
 	if err != nil {
 		return nil
 	}
 	return pane
+}
+
+func (r *inputRouter) activeInputPaneForWriteOnActor(sess *Session, cc *clientConn) *mux.Pane {
+	pane := r.targetPane()
+	if pane == nil {
+		return nil
+	}
+	if s := sess.currentSizeClient(); s == nil || s != cc {
+		if sess.noteClientActivity(cc) {
+			sess.recalcSize()
+			sess.broadcastLayoutNow()
+		}
+	}
+	return r.targetPane()
 }
 
 func (s *Session) activeInputPaneForWrite(cc *clientConn) *mux.Pane {

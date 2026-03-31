@@ -13,6 +13,7 @@ const pacedInputRequestBufferSize = 256
 
 type pacedInputRequest struct {
 	chunks []encodedKeyChunk
+	paneID uint32
 	reply  chan error
 }
 
@@ -24,11 +25,11 @@ type pacedInputQueue struct {
 	stop     chan struct{}
 	done     chan struct{}
 	stopOnce sync.Once
-	write    func([]byte) error
+	write    func(uint32, []byte) error
 	label    string
 }
 
-func newPacedInputQueue(label string, write func([]byte) error) *pacedInputQueue {
+func newPacedInputQueue(label string, write func(uint32, []byte) error) *pacedInputQueue {
 	q := &pacedInputQueue{
 		requests: make(chan pacedInputRequest, pacedInputRequestBufferSize),
 		stop:     make(chan struct{}),
@@ -49,7 +50,23 @@ func (q *pacedInputQueue) enqueue(chunks []encodedKeyChunk) error {
 		chunks: cloneEncodedKeyChunks(chunks),
 		reply:  make(chan error, 1),
 	}
+	return q.enqueueRequest(req)
+}
 
+func (q *pacedInputQueue) enqueueToPane(paneID uint32, chunks []encodedKeyChunk) error {
+	if len(chunks) == 0 {
+		return nil
+	}
+
+	req := pacedInputRequest{
+		chunks: cloneEncodedKeyChunks(chunks),
+		paneID: paneID,
+		reply:  make(chan error, 1),
+	}
+	return q.enqueueRequest(req)
+}
+
+func (q *pacedInputQueue) enqueueRequest(req pacedInputRequest) error {
 	select {
 	case <-q.stop:
 		return errPacedInputClosed
@@ -79,7 +96,10 @@ func (q *pacedInputQueue) enqueueAsync(chunks []encodedKeyChunk) error {
 	req := pacedInputRequest{
 		chunks: cloneEncodedKeyChunks(chunks),
 	}
+	return q.enqueueAsyncRequest(req)
+}
 
+func (q *pacedInputQueue) enqueueAsyncRequest(req pacedInputRequest) error {
 	select {
 	case <-q.stop:
 		return errPacedInputClosed
@@ -113,7 +133,7 @@ func (q *pacedInputQueue) loop() {
 			default:
 			}
 
-			err := q.writeBatch(req.chunks)
+			err := q.writeBatch(req)
 			if req.reply != nil {
 				req.reply <- err
 			}
@@ -128,8 +148,8 @@ func (q *pacedInputQueue) loop() {
 	}
 }
 
-func (q *pacedInputQueue) writeBatch(chunks []encodedKeyChunk) error {
-	for i, chunk := range chunks {
+func (q *pacedInputQueue) writeBatch(req pacedInputRequest) error {
+	for i, chunk := range req.chunks {
 		delay := time.Duration(0)
 		switch {
 		case chunk.delayBefore > 0:
@@ -158,7 +178,7 @@ func (q *pacedInputQueue) writeBatch(chunks []encodedKeyChunk) error {
 		default:
 		}
 
-		if err := q.write(chunk.data); err != nil {
+		if err := q.write(req.paneID, chunk.data); err != nil {
 			return err
 		}
 	}
