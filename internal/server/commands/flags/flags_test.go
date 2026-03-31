@@ -11,7 +11,7 @@ func TestParseCommandFlags(t *testing.T) {
 	tests := []struct {
 		name            string
 		args            []string
-		specs           []flagSpec
+		specs           []FlagSpec
 		wantPositionals []string
 		wantName        string
 		wantTimeout     time.Duration
@@ -23,11 +23,11 @@ func TestParseCommandFlags(t *testing.T) {
 		{
 			name: "parses defaults flags and positionals",
 			args: []string{"pane-1", "--cleanup", "--timeout", "25ms", "--name", "worker", "tail"},
-			specs: []flagSpec{
-				{Name: "--name", Type: flagTypeString},
-				{Name: "--timeout", Type: flagTypeDuration, Default: 5 * time.Second},
-				{Name: "--cleanup", Type: flagTypeBool},
-				{Name: "--after", Type: flagTypeInt, Default: 3},
+			specs: []FlagSpec{
+				{Name: "--name", Type: FlagTypeString},
+				{Name: "--timeout", Type: FlagTypeDuration, Default: 5 * time.Second},
+				{Name: "--cleanup", Type: FlagTypeBool},
+				{Name: "--after", Type: FlagTypeInt, Default: 3},
 			},
 			wantPositionals: []string{"pane-1", "tail"},
 			wantName:        "worker",
@@ -44,32 +44,32 @@ func TestParseCommandFlags(t *testing.T) {
 		{
 			name: "missing string value",
 			args: []string{"--name"},
-			specs: []flagSpec{
-				{Name: "--name", Type: flagTypeString},
+			specs: []FlagSpec{
+				{Name: "--name", Type: FlagTypeString},
 			},
 			wantErr: "missing value for --name",
 		},
 		{
 			name: "invalid duration value",
 			args: []string{"--timeout", "later"},
-			specs: []flagSpec{
-				{Name: "--timeout", Type: flagTypeDuration},
+			specs: []FlagSpec{
+				{Name: "--timeout", Type: FlagTypeDuration},
 			},
 			wantErr: "invalid value for --timeout: later",
 		},
 		{
 			name: "invalid int value",
 			args: []string{"--after", "later"},
-			specs: []flagSpec{
-				{Name: "--after", Type: flagTypeInt},
+			specs: []FlagSpec{
+				{Name: "--after", Type: FlagTypeInt},
 			},
 			wantErr: "invalid value for --after: later",
 		},
 		{
 			name: "unknown flag",
 			args: []string{"--bogus"},
-			specs: []flagSpec{
-				{Name: "--timeout", Type: flagTypeDuration},
+			specs: []FlagSpec{
+				{Name: "--timeout", Type: FlagTypeDuration},
 			},
 			wantErr: "unknown flag: --bogus",
 		},

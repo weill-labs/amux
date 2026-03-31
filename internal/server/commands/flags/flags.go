@@ -16,20 +16,11 @@ const (
 	FlagTypeInt
 )
 
-const (
-	flagTypeString   = FlagTypeString
-	flagTypeDuration = FlagTypeDuration
-	flagTypeBool     = FlagTypeBool
-	flagTypeInt      = FlagTypeInt
-)
-
 type FlagSpec struct {
 	Name    string
 	Type    FlagType
 	Default any
 }
-
-type flagSpec = FlagSpec
 
 type ParsedFlags struct {
 	values      map[string]any
@@ -41,12 +32,12 @@ func ParseCommandFlags(args []string, specs []FlagSpec) (ParsedFlags, error) {
 	return parseCommandFlags(args, specs)
 }
 
-func parseCommandFlags(args []string, specs []flagSpec) (ParsedFlags, error) {
+func parseCommandFlags(args []string, specs []FlagSpec) (ParsedFlags, error) {
 	parsed := ParsedFlags{
 		values: make(map[string]any, len(specs)),
 		seen:   make(map[string]bool, len(specs)),
 	}
-	byName := make(map[string]flagSpec, len(specs))
+	byName := make(map[string]FlagSpec, len(specs))
 	for _, spec := range specs {
 		byName[spec.Name] = spec
 		parsed.values[spec.Name] = spec.Default
