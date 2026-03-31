@@ -909,9 +909,6 @@ func (p *Pane) closeBlocking() error {
 		}
 		return p.emulator.Close()
 	}()
-	if p.drainLoopDone != nil {
-		<-p.drainLoopDone
-	}
 	return errors.Join(ptmxErr, emuErr)
 }
 
