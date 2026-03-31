@@ -46,6 +46,44 @@ func TestLatestMatchingReviewBody(t *testing.T) {
 	}
 }
 
+func TestLatestMatchingIssueCommentSignal(t *testing.T) {
+	t.Parallel()
+
+	commentsJSON := `[
+  [
+    {"user":{"login":"github-actions[bot]"},"body":"**Claude finished @cweill's task in 1m**\n\n### Findings\n\n**Blocking: old finding**","created_at":"2026-03-28T10:00:00Z"}
+  ],
+  [
+    {"user":{"login":"codecov"},"body":"coverage looks good","created_at":"2026-03-28T11:00:00Z"},
+    {"user":{"login":"github-actions[bot]"},"body":"**Claude finished @cweill's task in 45s**\n\n### Review\n\nNo blocking issues.\n\nLGTM","created_at":"2026-03-28T12:00:00Z"}
+  ]
+]`
+
+	got, ok := latestMatchingIssueCommentSignal(commentsJSON, "claude")
+	if !ok {
+		t.Fatal("latestMatchingIssueCommentSignal() = no match, want latest Claude issue comment")
+	}
+	if got.At != "2026-03-28T12:00:00Z" {
+		t.Fatalf("latestMatchingIssueCommentSignal() at = %q, want %q", got.At, "2026-03-28T12:00:00Z")
+	}
+	if got.Body != "**Claude finished @cweill's task in 45s**\n\n### Review\n\nNo blocking issues.\n\nLGTM" {
+		t.Fatalf("latestMatchingIssueCommentSignal() body = %q, want latest LGTM comment", got.Body)
+	}
+}
+
+func TestLatestClaudeSignalBodyPrefersNewestAcrossReviewsAndIssueComments(t *testing.T) {
+	t.Parallel()
+
+	reviewsJSON := `[{"user":{"login":"claude[bot]"},"body":"Looks good.\n\nLGTM","submitted_at":"2026-03-28T10:00:00Z"}]`
+	commentsJSON := `[{"user":{"login":"github-actions[bot]"},"body":"**Claude finished @cweill's task in 50s**\n\n### Findings\n\n**Blocking: one more fix**","created_at":"2026-03-28T11:00:00Z"}]`
+
+	got := latestClaudeSignalBody(reviewsJSON, commentsJSON, "claude")
+	want := "**Claude finished @cweill's task in 50s**\n\n### Findings\n\n**Blocking: one more fix**"
+	if got != want {
+		t.Fatalf("latestClaudeSignalBody() = %q, want %q", got, want)
+	}
+}
+
 func TestReviewEndsWithLGTM(t *testing.T) {
 	t.Parallel()
 

@@ -159,6 +159,177 @@ exit 1
 	}
 }
 
+func TestCheckPRReadyScriptAcceptsLatestClaudeIssueCommentFromGitHubActionsBot(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	logPath := filepath.Join(tempDir, "amux.log")
+
+	amuxPath := filepath.Join(tempDir, "amux")
+	if err := os.WriteFile(amuxPath, []byte(`#!/bin/sh
+if [ "$1" = "list" ]; then
+cat <<'EOF'
+PANE   NAME                 HOST            BRANCH                         WINDOW     TASK         META
+ 8     pane-8               local           feature/pr-580                 main       worker       prs=[580]
+EOF
+exit 0
+fi
+if [ "$1" = "capture" ]; then
+cat <<'EOF'
+{"idle":true,"current_command":"bash"}
+EOF
+exit 0
+fi
+printf '%s' "$1" >"$FAKE_AMUX_LOG"
+shift
+for arg in "$@"; do
+    printf ' %s' "$arg" >>"$FAKE_AMUX_LOG"
+done
+printf '\n' >>"$FAKE_AMUX_LOG"
+`), 0755); err != nil {
+		t.Fatalf("write fake amux: %v", err)
+	}
+
+	ghPath := filepath.Join(tempDir, "gh")
+	if err := os.WriteFile(ghPath, []byte(`#!/bin/sh
+if [ "$1" = "pr" ] && [ "$2" = "list" ]; then
+cat <<'EOF'
+[{"number":580,"title":"Ready via issue comment","url":"https://github.com/weill-labs/amux/pull/580","mergeable":"MERGEABLE"}]
+EOF
+exit 0
+fi
+if [ "$1" = "pr" ] && [ "$2" = "checks" ]; then
+cat <<'EOF'
+[{"name":"test","bucket":"pass","state":"SUCCESS"}]
+EOF
+exit 0
+fi
+if [ "$1" = "api" ]; then
+case "$4" in
+repos/{owner}/{repo}/pulls/580/reviews?per_page=100)
+cat <<'EOF'
+[]
+EOF
+exit 0
+;;
+repos/{owner}/{repo}/issues/580/comments?per_page=100)
+cat <<'EOF'
+[{"user":{"login":"github-actions[bot]"},"body":"**Claude finished @cweill's task in 40s**\n\n### Review\n\nNo blocking issues.\n\nLGTM","created_at":"2026-03-30T20:00:00Z"}]
+EOF
+exit 0
+;;
+esac
+fi
+echo "unexpected gh invocation: $*" >&2
+exit 1
+`), 0755); err != nil {
+		t.Fatalf("write fake gh: %v", err)
+	}
+
+	out, exitCode := runPRReadyCheck(t, tempDir, []string{"FAKE_AMUX_LOG=" + logPath}, nil)
+	if exitCode != 0 {
+		t.Fatalf("exit code = %d, want 0\n%s", exitCode, out)
+	}
+	if !strings.Contains(out, `owner=pane-8`) {
+		t.Fatalf("output missing pane owner:\n%s", out)
+	}
+	if !strings.Contains(out, `notify=sent`) {
+		t.Fatalf("output missing sent notification:\n%s", out)
+	}
+	if !strings.Contains(out, `review=LGTM`) {
+		t.Fatalf("output missing Claude LGTM status:\n%s", out)
+	}
+
+	got, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read fake amux log: %v", err)
+	}
+	log := strings.TrimSpace(string(got))
+	if !strings.Contains(log, "send-keys pane-8 PR #580 is ready for human merge. CI is green, Claude left LGTM, and there are no merge conflicts. Enter") {
+		t.Fatalf("amux log = %q, want ready notification", log)
+	}
+}
+
+func TestCheckPRReadyScriptUsesLatestClaudeSignalAcrossReviewsAndIssueComments(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	logPath := filepath.Join(tempDir, "amux.log")
+
+	amuxPath := filepath.Join(tempDir, "amux")
+	if err := os.WriteFile(amuxPath, []byte(`#!/bin/sh
+if [ "$1" = "list" ]; then
+cat <<'EOF'
+PANE   NAME                 HOST            BRANCH                         WINDOW     TASK         META
+ 9     pane-9               local           feature/pr-581                 main       worker       prs=[581]
+EOF
+exit 0
+fi
+if [ "$1" = "capture" ]; then
+cat <<'EOF'
+{"idle":true,"current_command":"bash"}
+EOF
+exit 0
+fi
+printf '%s' "$1" >"$FAKE_AMUX_LOG"
+shift
+for arg in "$@"; do
+    printf ' %s' "$arg" >>"$FAKE_AMUX_LOG"
+done
+printf '\n' >>"$FAKE_AMUX_LOG"
+`), 0755); err != nil {
+		t.Fatalf("write fake amux: %v", err)
+	}
+
+	ghPath := filepath.Join(tempDir, "gh")
+	if err := os.WriteFile(ghPath, []byte(`#!/bin/sh
+if [ "$1" = "pr" ] && [ "$2" = "list" ]; then
+cat <<'EOF'
+[{"number":581,"title":"Latest Claude signal has findings","url":"https://github.com/weill-labs/amux/pull/581","mergeable":"MERGEABLE"}]
+EOF
+exit 0
+fi
+if [ "$1" = "pr" ] && [ "$2" = "checks" ]; then
+cat <<'EOF'
+[{"name":"test","bucket":"pass","state":"SUCCESS"}]
+EOF
+exit 0
+fi
+if [ "$1" = "api" ]; then
+case "$4" in
+repos/{owner}/{repo}/pulls/581/reviews?per_page=100)
+cat <<'EOF'
+[{"user":{"login":"claude[bot]"},"body":"Looks good.\n\nLGTM","submitted_at":"2026-03-30T19:59:00Z"}]
+EOF
+exit 0
+;;
+repos/{owner}/{repo}/issues/581/comments?per_page=100)
+cat <<'EOF'
+[{"user":{"login":"github-actions[bot]"},"body":"**Claude finished @cweill's task in 50s**\n\n### Findings\n\n**Blocking: one more fix**","created_at":"2026-03-30T20:01:00Z"}]
+EOF
+exit 0
+;;
+esac
+fi
+echo "unexpected gh invocation: $*" >&2
+exit 1
+`), 0755); err != nil {
+		t.Fatalf("write fake gh: %v", err)
+	}
+
+	out, exitCode := runPRReadyCheck(t, tempDir, []string{"FAKE_AMUX_LOG=" + logPath}, nil)
+	if exitCode != 0 {
+		t.Fatalf("exit code = %d, want 0\n%s", exitCode, out)
+	}
+	if !strings.Contains(out, "No open PRs are ready for human merge.") {
+		t.Fatalf("output = %q, want no-ready message", out)
+	}
+
+	if got, err := os.ReadFile(logPath); err == nil && strings.TrimSpace(string(got)) != "" {
+		t.Fatalf("expected no send-keys call, got log:\n%s", got)
+	}
+}
+
 func TestCheckPRReadyScriptSkipsConflictingPRs(t *testing.T) {
 	t.Parallel()
 

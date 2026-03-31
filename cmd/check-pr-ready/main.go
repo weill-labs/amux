@@ -32,6 +32,7 @@ type commandDeps interface {
 	PRList(repoOverride string) (string, error)
 	PRChecks(prNumber int, repoOverride string) (string, int, error)
 	PRReviews(repo string, prNumber int) (string, error)
+	PRIssueComments(repo string, prNumber int) (string, error)
 }
 
 type realDeps struct{}
@@ -54,6 +55,19 @@ type review struct {
 	} `json:"user"`
 	Body        string `json:"body"`
 	SubmittedAt string `json:"submitted_at"`
+}
+
+type issueComment struct {
+	User struct {
+		Login string `json:"login"`
+	} `json:"user"`
+	Body      string `json:"body"`
+	CreatedAt string `json:"created_at"`
+}
+
+type claudeSignal struct {
+	Body string
+	At   string
 }
 
 type paneState struct {
@@ -112,12 +126,16 @@ func run(args []string, stdout, stderr io.Writer, deps commandDeps, getenv func(
 			continue
 		}
 
-		reviewBody, err := deps.PRReviews(repoSlug, pr.Number)
-		if err == nil {
-			reviewBody = latestMatchingReviewBody(reviewBody, opts.claudeLoginRegex)
-		} else {
-			reviewBody = ""
+		reviewsJSON, reviewsErr := deps.PRReviews(repoSlug, pr.Number)
+		if reviewsErr != nil {
+			reviewsJSON = ""
 		}
+		commentsJSON, commentsErr := deps.PRIssueComments(repoSlug, pr.Number)
+		if commentsErr != nil {
+			commentsJSON = ""
+		}
+
+		reviewBody := latestClaudeSignalBody(reviewsJSON, commentsJSON, opts.claudeLoginRegex)
 		if !reviewEndsWithLGTM(reviewBody) {
 			continue
 		}
@@ -306,33 +324,44 @@ func requiredChecksPass(checksJSON string) bool {
 }
 
 func latestMatchingReviewBody(reviewsJSON, loginPattern string) string {
-	if reviewsJSON == "" {
+	signal, ok := latestMatchingReviewSignal(reviewsJSON, loginPattern)
+	if !ok {
 		return ""
+	}
+	return signal.Body
+}
+
+func latestMatchingReviewSignal(reviewsJSON, loginPattern string) (claudeSignal, bool) {
+	if reviewsJSON == "" {
+		return claudeSignal{}, false
 	}
 	loginRE, err := regexp.Compile("(?i)" + loginPattern)
 	if err != nil {
-		return ""
+		return claudeSignal{}, false
 	}
 
 	reviews, err := flattenReviews(reviewsJSON)
 	if err != nil {
-		return ""
+		return claudeSignal{}, false
 	}
 
-	filtered := make([]review, 0, len(reviews))
+	filtered := make([]claudeSignal, 0, len(reviews))
 	for _, review := range reviews {
 		if loginRE.MatchString(review.User.Login) {
-			filtered = append(filtered, review)
+			filtered = append(filtered, claudeSignal{
+				Body: review.Body,
+				At:   review.SubmittedAt,
+			})
 		}
 	}
 	if len(filtered) == 0 {
-		return ""
+		return claudeSignal{}, false
 	}
 
 	sort.Slice(filtered, func(i, j int) bool {
-		return filtered[i].SubmittedAt < filtered[j].SubmittedAt
+		return filtered[i].At < filtered[j].At
 	})
-	return filtered[len(filtered)-1].Body
+	return filtered[len(filtered)-1], true
 }
 
 func flattenReviews(reviewsJSON string) ([]review, error) {
@@ -359,6 +388,91 @@ func flattenReviews(reviewsJSON string) ([]review, error) {
 
 	flat := []review{}
 	if err := json.Unmarshal([]byte(reviewsJSON), &flat); err != nil {
+		return nil, err
+	}
+	return flat, nil
+}
+
+func latestMatchingIssueCommentSignal(commentsJSON, loginPattern string) (claudeSignal, bool) {
+	if commentsJSON == "" {
+		return claudeSignal{}, false
+	}
+	loginRE, err := regexp.Compile("(?i)" + loginPattern)
+	if err != nil {
+		return claudeSignal{}, false
+	}
+
+	comments, err := flattenIssueComments(commentsJSON)
+	if err != nil {
+		return claudeSignal{}, false
+	}
+
+	filtered := make([]claudeSignal, 0, len(comments))
+	for _, comment := range comments {
+		login := comment.User.Login
+		if !(loginRE.MatchString(login) || login == "github-actions[bot]" || login == "github-actions") {
+			continue
+		}
+		if !strings.HasPrefix(comment.Body, "**Claude finished ") {
+			continue
+		}
+		filtered = append(filtered, claudeSignal{
+			Body: comment.Body,
+			At:   comment.CreatedAt,
+		})
+	}
+	if len(filtered) == 0 {
+		return claudeSignal{}, false
+	}
+
+	sort.Slice(filtered, func(i, j int) bool {
+		return filtered[i].At < filtered[j].At
+	})
+	return filtered[len(filtered)-1], true
+}
+
+func latestClaudeSignalBody(reviewsJSON, commentsJSON, loginPattern string) string {
+	signals := make([]claudeSignal, 0, 2)
+	if signal, ok := latestMatchingReviewSignal(reviewsJSON, loginPattern); ok {
+		signals = append(signals, signal)
+	}
+	if signal, ok := latestMatchingIssueCommentSignal(commentsJSON, loginPattern); ok {
+		signals = append(signals, signal)
+	}
+	if len(signals) == 0 {
+		return ""
+	}
+
+	sort.Slice(signals, func(i, j int) bool {
+		return signals[i].At < signals[j].At
+	})
+	return signals[len(signals)-1].Body
+}
+
+func flattenIssueComments(commentsJSON string) ([]issueComment, error) {
+	raws := []json.RawMessage{}
+	if err := json.Unmarshal([]byte(commentsJSON), &raws); err != nil {
+		return nil, err
+	}
+	if len(raws) == 0 {
+		return nil, nil
+	}
+
+	first := bytes.TrimSpace(raws[0])
+	if len(first) > 0 && first[0] == '[' {
+		all := []issueComment{}
+		for _, raw := range raws {
+			page := []issueComment{}
+			if err := json.Unmarshal(raw, &page); err != nil {
+				return nil, err
+			}
+			all = append(all, page...)
+		}
+		return all, nil
+	}
+
+	flat := []issueComment{}
+	if err := json.Unmarshal([]byte(commentsJSON), &flat); err != nil {
 		return nil, err
 	}
 	return flat, nil
@@ -419,6 +533,11 @@ func (realDeps) PRChecks(prNumber int, repoOverride string) (string, int, error)
 
 func (realDeps) PRReviews(repo string, prNumber int) (string, error) {
 	path := fmt.Sprintf("repos/{owner}/{repo}/pulls/%d/reviews?per_page=100", prNumber)
+	return runCommandWithEnv([]string{"GH_REPO=" + repo}, "gh", "api", "--paginate", "--slurp", path)
+}
+
+func (realDeps) PRIssueComments(repo string, prNumber int) (string, error) {
+	path := fmt.Sprintf("repos/{owner}/{repo}/issues/%d/comments?per_page=100", prNumber)
 	return runCommandWithEnv([]string{"GH_REPO=" + repo}, "gh", "api", "--paginate", "--slurp", path)
 }
 
