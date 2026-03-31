@@ -238,7 +238,7 @@ func TestCommandRespawnRejectsProxyPane(t *testing.T) {
 	setSessionLayoutForTest(t, sess, window.ID, []*mux.Window{window}, pane)
 
 	res := runTestCommand(t, srv, sess, "respawn", "pane-1")
-	if res.cmdErr != "cannot respawn remote pane pane-1 @fake-host" {
+	if res.cmdErr != "cannot respawn proxy pane" {
 		t.Fatalf("respawn proxy error = %q", res.cmdErr)
 	}
 }
