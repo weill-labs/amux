@@ -8,7 +8,6 @@ import (
 
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/weill-labs/amux/internal/copymode"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
 )
@@ -19,7 +18,7 @@ type fakePaneData struct {
 	name         string
 	screen       string
 	cursorHidden bool
-	copyOverlay  *copymode.ViewportOverlay
+	copyOverlay  *proto.ViewportOverlay
 }
 
 func (f *fakePaneData) RenderScreen(bool) string { return f.screen }
@@ -69,7 +68,7 @@ func (f *fakePaneData) ConnStatus() string                  { return "" }
 func (f *fakePaneData) InCopyMode() bool                    { return false }
 func (f *fakePaneData) CopyModeSearch() string              { return "" }
 func (f *fakePaneData) HasCursorBlock() bool                { return false }
-func (f *fakePaneData) CopyModeOverlay() *copymode.ViewportOverlay {
+func (f *fakePaneData) CopyModeOverlay() *proto.ViewportOverlay {
 	return f.copyOverlay
 }
 
@@ -104,14 +103,14 @@ func TestPaneContentRowCellsAppliesCopyModeOverlay(t *testing.T) {
 
 	pd := &fakePaneData{
 		screen: "abcde",
-		copyOverlay: &copymode.ViewportOverlay{
-			Cursor: copymode.CursorPosition{Col: 3, Row: 0},
-			HighlightedLines: []copymode.HighlightLine{
+		copyOverlay: &proto.ViewportOverlay{
+			Cursor: proto.CursorPosition{Col: 3, Row: 0},
+			HighlightedLines: []proto.HighlightLine{
 				{
 					Row: 0,
-					Spans: []copymode.HighlightSpan{
-						{StartCol: 1, EndCol: 2, Kind: copymode.HighlightSelection},
-						{StartCol: 2, EndCol: 3, Kind: copymode.HighlightCurrentMatch},
+					Spans: []proto.HighlightSpan{
+						{StartCol: 1, EndCol: 2, Kind: proto.HighlightSelection},
+						{StartCol: 2, EndCol: 3, Kind: proto.HighlightCurrentMatch},
 					},
 				},
 			},
@@ -187,7 +186,7 @@ func (e *cursorPaneData) IsLead() bool                        { return false }
 func (e *cursorPaneData) ConnStatus() string                  { return "" }
 func (e *cursorPaneData) InCopyMode() bool                    { return false }
 func (e *cursorPaneData) CopyModeSearch() string              { return "" }
-func (e *cursorPaneData) CopyModeOverlay() *copymode.ViewportOverlay {
+func (e *cursorPaneData) CopyModeOverlay() *proto.ViewportOverlay {
 	return nil
 }
 

@@ -1,9 +1,9 @@
 package client
 
 import (
-	"github.com/weill-labs/amux/internal/copymode"
 	"github.com/weill-labs/amux/internal/mouse"
 	"github.com/weill-labs/amux/internal/mux"
+	"github.com/weill-labs/amux/internal/proto"
 	"github.com/weill-labs/amux/internal/render"
 )
 
@@ -54,11 +54,11 @@ func (p paneBufferSnapshot) ScreenLineText(y int) string {
 	return p.screen[y].text
 }
 
-func (p paneBufferSnapshot) ScrollbackCellAt(col, row int) copymode.Cell {
+func (p paneBufferSnapshot) ScrollbackCellAt(col, row int) proto.Cell {
 	return copyModeCellFromScreen(paneBufferLineCell(p.scrollback, row, col))
 }
 
-func (p paneBufferSnapshot) ScreenCellAt(col, row int) copymode.Cell {
+func (p paneBufferSnapshot) ScreenCellAt(col, row int) proto.Cell {
 	return copyModeCellFromScreen(paneBufferLineCell(p.screen, row, col))
 }
 
@@ -84,8 +84,8 @@ func plainTextHistoryCell(line string, col int) render.ScreenCell {
 	return render.ScreenCell{Char: string(runes[col]), Width: 1}
 }
 
-func copyModeCellFromScreen(cell render.ScreenCell) copymode.Cell {
-	return copymode.Cell{
+func copyModeCellFromScreen(cell render.ScreenCell) proto.Cell {
+	return proto.Cell{
 		Char:  cell.Char,
 		Style: cell.Style,
 		Width: cell.Width,

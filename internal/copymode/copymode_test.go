@@ -7,6 +7,7 @@ import (
 
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/weill-labs/amux/internal/proto"
 )
 
 // fakeEmulator implements TerminalEmulator for testing.
@@ -14,8 +15,8 @@ type fakeEmulator struct {
 	width, height int
 	screen        []string // current screen lines (plain text)
 	scrollback    []string // scrollback lines (0=oldest)
-	screenCells   map[[2]int]Cell
-	scrollCells   map[[2]int]Cell
+	screenCells   map[[2]int]proto.Cell
+	scrollCells   map[[2]int]proto.Cell
 }
 
 func newFakeEmulator(w, h int) *fakeEmulator {
@@ -27,8 +28,8 @@ func newFakeEmulator(w, h int) *fakeEmulator {
 		width:       w,
 		height:      h,
 		screen:      screen,
-		screenCells: make(map[[2]int]Cell),
-		scrollCells: make(map[[2]int]Cell),
+		screenCells: make(map[[2]int]proto.Cell),
+		scrollCells: make(map[[2]int]proto.Cell),
 	}
 }
 
@@ -54,9 +55,9 @@ func (e *fakeEmulator) ScreenLineText(y int) string {
 	return e.screen[y]
 }
 
-func (e *fakeEmulator) ScreenCellAt(col, row int) Cell {
+func (e *fakeEmulator) ScreenCellAt(col, row int) proto.Cell {
 	if row < 0 || row >= len(e.screen) {
-		return Cell{Char: " ", Width: 1}
+		return proto.Cell{Char: " ", Width: 1}
 	}
 	if cell, ok := e.screenCells[[2]int{col, row}]; ok {
 		return cell
@@ -64,9 +65,9 @@ func (e *fakeEmulator) ScreenCellAt(col, row int) Cell {
 	return plainTextCell(e.screen[row], col)
 }
 
-func (e *fakeEmulator) ScrollbackCellAt(col, row int) Cell {
+func (e *fakeEmulator) ScrollbackCellAt(col, row int) proto.Cell {
 	if row < 0 || row >= len(e.scrollback) {
-		return Cell{Char: " ", Width: 1}
+		return proto.Cell{Char: " ", Width: 1}
 	}
 	if cell, ok := e.scrollCells[[2]int{col, row}]; ok {
 		return cell
@@ -74,12 +75,12 @@ func (e *fakeEmulator) ScrollbackCellAt(col, row int) Cell {
 	return plainTextCell(e.scrollback[row], col)
 }
 
-func plainTextCell(line string, col int) Cell {
+func plainTextCell(line string, col int) proto.Cell {
 	runes := []rune(line)
 	if col < 0 || col >= len(runes) {
-		return Cell{Char: " ", Width: 1}
+		return proto.Cell{Char: " ", Width: 1}
 	}
-	return Cell{Char: string(runes[col]), Width: 1}
+	return proto.Cell{Char: string(runes[col]), Width: 1}
 }
 
 func TestNewCopyMode(t *testing.T) {
@@ -740,7 +741,7 @@ func TestViewportCellAt_PreservesForegroundStyle(t *testing.T) {
 	emu := newFakeEmulator(10, 3)
 	emu.screen = []string{"hello", "world", "test!"}
 	red := ansi.BasicColor(1)
-	emu.screenCells[[2]int{2, 0}] = Cell{
+	emu.screenCells[[2]int{2, 0}] = proto.Cell{
 		Char:  "l",
 		Width: 1,
 		Style: uv.Style{Fg: red},
@@ -764,7 +765,7 @@ func TestViewportCellAt_PreservesScrollbackStyle(t *testing.T) {
 	emu.scrollback = []string{"older"}
 	emu.screen = []string{"live", "tail"}
 	blue := ansi.BasicColor(4)
-	emu.scrollCells[[2]int{1, 0}] = Cell{
+	emu.scrollCells[[2]int{1, 0}] = proto.Cell{
 		Char:  "l",
 		Width: 1,
 		Style: uv.Style{Fg: blue},
@@ -785,7 +786,7 @@ func TestViewportCellAt_NormalizesEmptyCharAndNegativeWidth(t *testing.T) {
 
 	emu := newFakeEmulator(10, 1)
 	emu.screen = []string{"x"}
-	emu.screenCells[[2]int{0, 0}] = Cell{Char: "", Width: -1}
+	emu.screenCells[[2]int{0, 0}] = proto.Cell{Char: "", Width: -1}
 
 	cm := New(emu, 10, 1, 0)
 	cell := cm.ViewportCellAt(0, 0)
@@ -1716,22 +1717,22 @@ func TestViewportOverlayIncludesSelectionRangeAndVisibleHighlights(t *testing.T)
 	if overlay == nil {
 		t.Fatal("ViewportOverlay() = nil, want overlay")
 	}
-	if overlay.Cursor != (CursorPosition{Col: 4, Row: 1}) {
-		t.Fatalf("overlay.Cursor = %+v, want %+v", overlay.Cursor, CursorPosition{Col: 4, Row: 1})
+	if overlay.Cursor != (proto.CursorPosition{Col: 4, Row: 1}) {
+		t.Fatalf("overlay.Cursor = %+v, want %+v", overlay.Cursor, proto.CursorPosition{Col: 4, Row: 1})
 	}
 	if overlay.Selection == nil {
 		t.Fatal("overlay.Selection = nil, want selection range")
 	}
-	if overlay.Selection.Mode != SelectionModeCharacter {
-		t.Fatalf("overlay.Selection.Mode = %d, want %d", overlay.Selection.Mode, SelectionModeCharacter)
+	if overlay.Selection.Mode != proto.SelectionModeCharacter {
+		t.Fatalf("overlay.Selection.Mode = %d, want %d", overlay.Selection.Mode, proto.SelectionModeCharacter)
 	}
 	if overlay.Selection.StartLine != 0 || overlay.Selection.StartCol != 2 || overlay.Selection.EndLine != 1 || overlay.Selection.EndCol != 4 {
 		t.Fatalf("overlay.Selection = %+v, want start=(0,2) end=(1,4)", overlay.Selection)
 	}
 
-	wantLines := []HighlightLine{
-		{Row: 0, Spans: []HighlightSpan{{StartCol: 2, EndCol: 20, Kind: HighlightSelection}}},
-		{Row: 1, Spans: []HighlightSpan{{StartCol: 0, EndCol: 5, Kind: HighlightSelection}}},
+	wantLines := []proto.HighlightLine{
+		{Row: 0, Spans: []proto.HighlightSpan{{StartCol: 2, EndCol: 20, Kind: proto.HighlightSelection}}},
+		{Row: 1, Spans: []proto.HighlightSpan{{StartCol: 0, EndCol: 5, Kind: proto.HighlightSelection}}},
 	}
 	if fmt.Sprintf("%#v", overlay.HighlightedLines) != fmt.Sprintf("%#v", wantLines) {
 		t.Fatalf("overlay.HighlightedLines = %#v, want %#v", overlay.HighlightedLines, wantLines)
@@ -1754,9 +1755,9 @@ func TestViewportOverlayMarksCurrentAndNonCurrentSearchMatches(t *testing.T) {
 		t.Fatal("ViewportOverlay() = nil, want overlay")
 	}
 
-	wantLines := []HighlightLine{
-		{Row: 0, Spans: []HighlightSpan{{StartCol: 0, EndCol: 5, Kind: HighlightCurrentMatch}}},
-		{Row: 2, Spans: []HighlightSpan{{StartCol: 0, EndCol: 5, Kind: HighlightSearchMatch}}},
+	wantLines := []proto.HighlightLine{
+		{Row: 0, Spans: []proto.HighlightSpan{{StartCol: 0, EndCol: 5, Kind: proto.HighlightCurrentMatch}}},
+		{Row: 2, Spans: []proto.HighlightSpan{{StartCol: 0, EndCol: 5, Kind: proto.HighlightSearchMatch}}},
 	}
 	if fmt.Sprintf("%#v", overlay.HighlightedLines) != fmt.Sprintf("%#v", wantLines) {
 		t.Fatalf("overlay.HighlightedLines = %#v, want %#v", overlay.HighlightedLines, wantLines)

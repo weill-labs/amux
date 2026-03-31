@@ -9,8 +9,8 @@ import (
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/weill-labs/amux/internal/config"
-	"github.com/weill-labs/amux/internal/copymode"
 	"github.com/weill-labs/amux/internal/mux"
+	"github.com/weill-labs/amux/internal/proto"
 )
 
 // ScreenCell represents a single cell in the composited screen grid.
@@ -228,14 +228,14 @@ func (c *Compositor) buildGridWithOverlay(root *mux.LayoutCell, activePaneID uin
 // the VT buffer then stores the fragments as separate cells even though the
 // rendered row collapses them into a single grapheme cluster. Re-pack the row
 // before diffing so RenderDiff matches the RenderFull path.
-func buildPaneContentCells(g *ScreenGrid, cell *mux.LayoutCell, row int, active bool, pd PaneData, copyOverlay *copymode.ViewportOverlay) {
+func buildPaneContentCells(g *ScreenGrid, cell *mux.LayoutCell, row int, active bool, pd PaneData, copyOverlay *proto.ViewportOverlay) {
 	rowCells := paneContentRowCells(cell.W, row, active, pd, copyOverlay)
 	for col, sc := range rowCells {
 		g.Set(cell.X+col, cell.Y+mux.StatusLineRows+row, sc)
 	}
 }
 
-func paneContentRowCells(width, row int, active bool, pd PaneData, copyOverlay *copymode.ViewportOverlay) []ScreenCell {
+func paneContentRowCells(width, row int, active bool, pd PaneData, copyOverlay *proto.ViewportOverlay) []ScreenCell {
 	rowCells := make([]ScreenCell, width)
 	for i := range rowCells {
 		rowCells[i] = ScreenCell{Char: " ", Width: 1}
@@ -271,11 +271,11 @@ func paneContentRowCells(width, row int, active bool, pd PaneData, copyOverlay *
 	return rowCells
 }
 
-func paneContentCellAt(row, col int, active bool, pd PaneData, copyOverlay *copymode.ViewportOverlay) ScreenCell {
+func paneContentCellAt(row, col int, active bool, pd PaneData, copyOverlay *proto.ViewportOverlay) ScreenCell {
 	return applyCopyModeOverlay(pd.CellAt(col, row, active), copyOverlay, col, row)
 }
 
-func compactRowCell(width, row int, active bool, pd PaneData, copyOverlay *copymode.ViewportOverlay, srcCol int, base ScreenCell) (ScreenCell, int, int) {
+func compactRowCell(width, row int, active bool, pd PaneData, copyOverlay *proto.ViewportOverlay, srcCol int, base ScreenCell) (ScreenCell, int, int) {
 	baseWidth := base.Width
 	if baseWidth <= 0 {
 		baseWidth = 1

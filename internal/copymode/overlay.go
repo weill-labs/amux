@@ -3,65 +3,12 @@ package copymode
 import (
 	"sort"
 
-	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/weill-labs/amux/internal/proto"
 )
 
-// Cell is a frozen viewport cell independent of the render package.
-type Cell struct {
-	Char  string
-	Style uv.Style
-	Width int
-}
-
-type CursorPosition struct {
-	Col int
-	Row int
-}
-
-type SelectionMode uint8
-
-const (
-	SelectionModeCharacter SelectionMode = iota
-	SelectionModeLine
-	SelectionModeRectangle
-)
-
-type SelectionRange struct {
-	StartLine int
-	StartCol  int
-	EndLine   int
-	EndCol    int
-	Mode      SelectionMode
-}
-
-type HighlightKind uint8
-
-const (
-	HighlightSelection HighlightKind = iota + 1
-	HighlightSearchMatch
-	HighlightCurrentMatch
-)
-
-type HighlightSpan struct {
-	StartCol int
-	EndCol   int
-	Kind     HighlightKind
-}
-
-type HighlightLine struct {
-	Row   int
-	Spans []HighlightSpan
-}
-
-type ViewportOverlay struct {
-	Cursor           CursorPosition
-	Selection        *SelectionRange
-	HighlightedLines []HighlightLine
-}
-
-func (cm *CopyMode) ViewportOverlay() *ViewportOverlay {
-	overlay := &ViewportOverlay{
-		Cursor: CursorPosition{Col: cm.cx, Row: cm.cy},
+func (cm *CopyMode) ViewportOverlay() *proto.ViewportOverlay {
+	overlay := &proto.ViewportOverlay{
+		Cursor: proto.CursorPosition{Col: cm.cx, Row: cm.cy},
 	}
 
 	builder := newHighlightBuilder()
@@ -72,25 +19,25 @@ func (cm *CopyMode) ViewportOverlay() *ViewportOverlay {
 }
 
 type highlightBuilder struct {
-	spansByRow map[int][]HighlightSpan
+	spansByRow map[int][]proto.HighlightSpan
 }
 
 func newHighlightBuilder() *highlightBuilder {
-	return &highlightBuilder{spansByRow: make(map[int][]HighlightSpan)}
+	return &highlightBuilder{spansByRow: make(map[int][]proto.HighlightSpan)}
 }
 
-func (b *highlightBuilder) add(row, startCol, endCol int, kind HighlightKind) {
+func (b *highlightBuilder) add(row, startCol, endCol int, kind proto.HighlightKind) {
 	if endCol <= startCol {
 		return
 	}
-	b.spansByRow[row] = append(b.spansByRow[row], HighlightSpan{
+	b.spansByRow[row] = append(b.spansByRow[row], proto.HighlightSpan{
 		StartCol: startCol,
 		EndCol:   endCol,
 		Kind:     kind,
 	})
 }
 
-func (b *highlightBuilder) build() []HighlightLine {
+func (b *highlightBuilder) build() []proto.HighlightLine {
 	if len(b.spansByRow) == 0 {
 		return nil
 	}
@@ -100,30 +47,30 @@ func (b *highlightBuilder) build() []HighlightLine {
 	}
 	sort.Ints(rows)
 
-	lines := make([]HighlightLine, 0, len(rows))
+	lines := make([]proto.HighlightLine, 0, len(rows))
 	for _, row := range rows {
-		lines = append(lines, HighlightLine{
+		lines = append(lines, proto.HighlightLine{
 			Row:   row,
-			Spans: append([]HighlightSpan(nil), b.spansByRow[row]...),
+			Spans: append([]proto.HighlightSpan(nil), b.spansByRow[row]...),
 		})
 	}
 	return lines
 }
 
-func (cm *CopyMode) selectionRange(builder *highlightBuilder) *SelectionRange {
+func (cm *CopyMode) selectionRange(builder *highlightBuilder) *proto.SelectionRange {
 	if !cm.selecting {
 		return nil
 	}
 
 	startY, startX, endY, endX := cm.normalizedSelection()
-	mode := SelectionModeCharacter
+	mode := proto.SelectionModeCharacter
 	if cm.lineSelect {
-		mode = SelectionModeLine
+		mode = proto.SelectionModeLine
 	} else if cm.rectSelect {
-		mode = SelectionModeRectangle
+		mode = proto.SelectionModeRectangle
 	}
 
-	selection := &SelectionRange{
+	selection := &proto.SelectionRange{
 		StartLine: startY,
 		StartCol:  startX,
 		EndLine:   endY,
@@ -148,7 +95,7 @@ func (cm *CopyMode) selectionRange(builder *highlightBuilder) *SelectionRange {
 				colEnd = endX + 1
 			}
 		}
-		builder.add(absIdx-firstVisible, colStart, colEnd, HighlightSelection)
+		builder.add(absIdx-firstVisible, colStart, colEnd, proto.HighlightSelection)
 	}
 
 	return selection
@@ -162,9 +109,9 @@ func (cm *CopyMode) addMatchHighlights(builder *highlightBuilder) {
 			continue
 		}
 
-		kind := HighlightSearchMatch
+		kind := proto.HighlightSearchMatch
 		if i == cm.matchIdx {
-			kind = HighlightCurrentMatch
+			kind = proto.HighlightCurrentMatch
 		}
 		builder.add(match.LineIdx-firstVisible, match.Col, match.Col+match.Len, kind)
 	}

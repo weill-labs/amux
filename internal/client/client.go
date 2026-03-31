@@ -765,7 +765,7 @@ func (c *clientPaneData) CursorPos() (col, row int) {
 	return c.emu.CursorPosition()
 }
 
-func (c *clientPaneData) CopyModeOverlay() *copymode.ViewportOverlay {
+func (c *clientPaneData) CopyModeOverlay() *proto.ViewportOverlay {
 	if c.cm != nil {
 		return c.cm.ViewportOverlay()
 	}

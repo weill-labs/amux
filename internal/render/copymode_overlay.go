@@ -5,7 +5,7 @@ import (
 
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/weill-labs/amux/internal/copymode"
+	"github.com/weill-labs/amux/internal/proto"
 )
 
 var (
@@ -14,7 +14,7 @@ var (
 	copyCurrentBg   = ansi.BasicColor(11) // bright yellow
 )
 
-func ScreenCellFromCopyMode(cell copymode.Cell) ScreenCell {
+func ScreenCellFromCopyMode(cell proto.Cell) ScreenCell {
 	return normalizeScreenCell(ScreenCell{
 		Char:  cell.Char,
 		Style: cell.Style,
@@ -33,7 +33,7 @@ func normalizeScreenCell(cell ScreenCell) ScreenCell {
 	return sc
 }
 
-func applyCopyModeOverlay(base ScreenCell, overlay *copymode.ViewportOverlay, col, row int) ScreenCell {
+func applyCopyModeOverlay(base ScreenCell, overlay *proto.ViewportOverlay, col, row int) ScreenCell {
 	base = normalizeScreenCell(base)
 	if overlay == nil {
 		return base
@@ -41,24 +41,24 @@ func applyCopyModeOverlay(base ScreenCell, overlay *copymode.ViewportOverlay, co
 
 	kind := copyModeHighlightAt(overlay, row, col)
 	switch kind {
-	case copymode.HighlightSelection:
+	case proto.HighlightSelection:
 		base.Style.Bg = copySelectionBg
-	case copymode.HighlightSearchMatch:
+	case proto.HighlightSearchMatch:
 		base.Style.Bg = copyMatchBg
-	case copymode.HighlightCurrentMatch:
+	case proto.HighlightCurrentMatch:
 		base.Style.Bg = copyCurrentBg
 		base.Style.Attrs |= uv.AttrBold
 	}
 
-	if overlay.Cursor == (copymode.CursorPosition{Col: col, Row: row}) {
+	if overlay.Cursor == (proto.CursorPosition{Col: col, Row: row}) {
 		base.Style.Attrs |= uv.AttrReverse
 	}
 
 	return base
 }
 
-func copyModeHighlightAt(overlay *copymode.ViewportOverlay, row, col int) copymode.HighlightKind {
-	var best copymode.HighlightKind
+func copyModeHighlightAt(overlay *proto.ViewportOverlay, row, col int) proto.HighlightKind {
+	var best proto.HighlightKind
 	for _, line := range overlay.HighlightedLines {
 		if line.Row != row {
 			continue
@@ -75,13 +75,13 @@ func copyModeHighlightAt(overlay *copymode.ViewportOverlay, row, col int) copymo
 	return best
 }
 
-func highlightPriority(kind copymode.HighlightKind) int {
+func highlightPriority(kind proto.HighlightKind) int {
 	switch kind {
-	case copymode.HighlightCurrentMatch:
+	case proto.HighlightCurrentMatch:
 		return 3
-	case copymode.HighlightSearchMatch:
+	case proto.HighlightSearchMatch:
 		return 2
-	case copymode.HighlightSelection:
+	case proto.HighlightSelection:
 		return 1
 	default:
 		return 0

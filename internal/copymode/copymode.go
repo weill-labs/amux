@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/weill-labs/amux/internal/debugowner"
+	"github.com/weill-labs/amux/internal/proto"
 )
 
 // TerminalEmulator is the subset of a pane's emulator that copy mode needs.
@@ -13,8 +14,8 @@ type TerminalEmulator interface {
 	ScrollbackLen() int
 	ScrollbackLineText(y int) string // plain text of scrollback line y (0=oldest)
 	ScreenLineText(y int) string     // plain text of screen line y (0=top row)
-	ScrollbackCellAt(col, row int) Cell
-	ScreenCellAt(col, row int) Cell
+	ScrollbackCellAt(col, row int) proto.Cell
+	ScreenCellAt(col, row int) proto.Cell
 }
 
 // Match represents a single search hit in the scrollback/screen buffer.
@@ -776,7 +777,7 @@ func (cm *CopyMode) lineText(absIdx int) string {
 	return cm.emu.ScreenLineText(screenRow)
 }
 
-func (cm *CopyMode) baseCellAt(col, absIdx int) Cell {
+func (cm *CopyMode) baseCellAt(col, absIdx int) proto.Cell {
 	sbLen := cm.emu.ScrollbackLen()
 	if absIdx < sbLen {
 		return cm.emu.ScrollbackCellAt(col, absIdx)
@@ -910,7 +911,7 @@ func (cm *CopyMode) LineText(absIdx int) string {
 
 // ViewportCellAt returns the frozen base cell at (col, viewportRow) without
 // copy-mode overlays applied.
-func (cm *CopyMode) ViewportCellAt(col, viewportRow int) Cell {
+func (cm *CopyMode) ViewportCellAt(col, viewportRow int) proto.Cell {
 	absIdx := cm.FirstVisibleLine() + viewportRow
 	cell := cm.baseCellAt(col, absIdx)
 	if cell.Char == "" {
