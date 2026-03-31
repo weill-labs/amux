@@ -12,7 +12,6 @@ set -euo pipefail
 ALLOWLIST=(
   # Production — tracked for conversion
   "hooks.go"                           # hooks.Registry RWMutex — LAB-427
-  "client_conn.go"                     # clientConn.disconnectReasonMu — small, low priority
 
   # Third-party — not our code
   "safe_emulator.go"                   # charmbracelet/x/vt SafeEmulator
@@ -31,6 +30,8 @@ ALLOWLIST=(
   "daemon_test.go"                     # daemon test state tracking
   "headless_client_test.go"            # test headless client connection bookkeeping
   "server_harness_test.go"             # integration harness diagnostics bookkeeping
+  "pane_window_process_test.go"        # pane process exit-order assertions
+  "commands_low_coverage_test.go"      # test command output synchronization
 )
 
 allowlist_pattern=$(printf "|%s" "${ALLOWLIST[@]}")
