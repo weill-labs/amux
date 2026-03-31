@@ -83,7 +83,7 @@ type Message struct {
 	// MsgTypeNotify
 	Text string
 
-	// MsgTypePaneOutput, MsgTypeInputPane
+	// MsgTypePaneOutput, MsgTypeInputPane, MsgTypeTypeKeys (optional target pane)
 	PaneID   uint32
 	PaneData []byte
 

@@ -346,7 +346,7 @@ func TestCmdSendKeysWaitsForInputIdle(t *testing.T) {
 	cmdPeerConn, _, done := startAsyncCommand(t, srv, sess, "send-keys", "pane-1", "--wait", "ui=input-idle", "--timeout", "100ms", "ab")
 
 	typeKeysMsg := readMsgWithTimeout(t, uiPeerConn)
-	if typeKeysMsg.Type != MsgTypeTypeKeys || string(typeKeysMsg.Input) != "ab" {
+	if typeKeysMsg.Type != MsgTypeTypeKeys || typeKeysMsg.PaneID != 1 || string(typeKeysMsg.Input) != "ab" {
 		t.Fatalf("send-keys type-keys message = %#v", typeKeysMsg)
 	}
 

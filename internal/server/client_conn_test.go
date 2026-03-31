@@ -226,7 +226,7 @@ func mustSetupSinglePaneSession(t *testing.T, sess *Session, writeOverride func(
 	return pane
 }
 
-func TestClientConnInputDoesNotBlockOnBusySessionActor(t *testing.T) {
+func TestClientConnQueuesInputBehindBusySessionActor(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -259,6 +259,12 @@ func TestClientConnInputDoesNotBlockOnBusySessionActor(t *testing.T) {
 			})
 
 			release := make(chan struct{})
+			released := false
+			t.Cleanup(func() {
+				if !released {
+					close(release)
+				}
+			})
 			blocker := blockingSessionEvent{entered: make(chan struct{}), release: release}
 			if !sess.enqueueEvent(blocker) {
 				t.Fatal("enqueue blocking event")
@@ -282,20 +288,38 @@ func TestClientConnInputDoesNotBlockOnBusySessionActor(t *testing.T) {
 				cc.readLoop(&Server{}, sess)
 			}()
 
-			if err := WriteMsg(peerConn, tt.input); err != nil {
-				t.Fatalf("WriteMsg input: %v", err)
+			writeDone := make(chan error, 1)
+			go func() {
+				writeDone <- WriteMsg(peerConn, tt.input)
+			}()
+
+			select {
+			case err := <-writeDone:
+				if err != nil {
+					t.Fatalf("WriteMsg input = %v", err)
+				}
+			case <-time.After(200 * time.Millisecond):
+				t.Fatal("input blocked on busy session actor")
 			}
+
+			select {
+			case got := <-writes:
+				t.Fatalf("input reached pane before actor released: %q", string(got))
+			case <-time.After(50 * time.Millisecond):
+			}
+
+			released = true
+			close(release)
 
 			select {
 			case got := <-writes:
 				if string(got) != "hello" {
 					t.Fatalf("input write = %q, want hello", string(got))
 				}
-			case <-time.After(200 * time.Millisecond):
-				t.Fatal("input blocked on busy session actor")
+			case <-time.After(time.Second):
+				t.Fatal("queued input did not reach pane after actor release")
 			}
 
-			close(release)
 			if err := WriteMsg(peerConn, &Message{Type: MsgTypeDetach}); err != nil {
 				t.Fatalf("WriteMsg detach: %v", err)
 			}

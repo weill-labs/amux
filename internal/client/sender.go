@@ -3,6 +3,7 @@ package client
 import (
 	"net"
 	"sync"
+	"sync/atomic"
 
 	"github.com/weill-labs/amux/internal/proto"
 )
@@ -15,8 +16,7 @@ type messageSender struct {
 	stop      chan struct{}
 	done      chan struct{}
 	closeOnce sync.Once
-	errMu     sync.Mutex
-	err       error
+	err       atomic.Pointer[error]
 }
 
 type senderCommand interface {
@@ -127,17 +127,16 @@ func (s *messageSender) storeError(err error) {
 	if err == nil {
 		return
 	}
-	s.errMu.Lock()
-	defer s.errMu.Unlock()
-	if s.err == nil {
-		s.err = err
-	}
+	errCopy := err
+	s.err.CompareAndSwap(nil, &errCopy)
 }
 
 func (s *messageSender) loadError() error {
-	s.errMu.Lock()
-	defer s.errMu.Unlock()
-	return s.err
+	err := s.err.Load()
+	if err == nil {
+		return nil
+	}
+	return *err
 }
 
 func cloneProtoMessage(msg *proto.Message) *proto.Message {

@@ -206,15 +206,13 @@ func applyFinalDelay(chunks []encodedKeyChunk, delay time.Duration) {
 }
 
 func enqueueTargetedClientKeys(sess *Session, client *clientConn, pane *mux.Pane, chunks []encodedKeyChunk, uiWait *uiClientSnapshot, waitTimeout time.Duration) error {
-	return client.withInputTargetOverride(pane, func() error {
-		if err := client.enqueueTypeKeys(chunks); err != nil {
-			return err
-		}
-		if uiWait == nil {
-			return nil
-		}
-		return waitForNextUIEvent(sess, *uiWait, proto.UIEventInputIdle, waitTimeout)
-	})
+	if err := client.enqueueTypeKeysToPane(pane.ID, chunks); err != nil {
+		return err
+	}
+	if uiWait == nil {
+		return nil
+	}
+	return waitForNextUIEvent(sess, *uiWait, proto.UIEventInputIdle, waitTimeout)
 }
 
 type broadcastCommandArgs struct {
