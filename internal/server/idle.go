@@ -7,6 +7,7 @@ import (
 
 	"github.com/weill-labs/amux/internal/config"
 	cmdflags "github.com/weill-labs/amux/internal/server/commands/flags"
+	waitcmd "github.com/weill-labs/amux/internal/server/commands/wait"
 )
 
 // idleTracker manages per-pane idle timers and state transitions.
@@ -416,20 +417,5 @@ func waitForPaneIdle(sess *Session, paneRef string, paneID uint32, opts waitIdle
 }
 
 func cmdWaitIdle(ctx *CommandContext) {
-	paneRef, opts, err := parseWaitIdleArgs(ctx.Args)
-	if err != nil {
-		ctx.replyErr(err.Error())
-		return
-	}
-
-	pane, err := ctx.Sess.queryResolvedPaneForActor(ctx.ActorPaneID, paneRef)
-	if err != nil {
-		ctx.replyErr(err.Error())
-		return
-	}
-	if err := waitForPaneIdle(ctx.Sess, paneRef, pane.paneID, opts); err != nil {
-		ctx.replyErr(err.Error())
-		return
-	}
-	ctx.reply("idle\n")
+	ctx.applyCommandResult(waitcmd.WaitIdle(waitCommandContext{ctx}, ctx.ActorPaneID, ctx.Args))
 }

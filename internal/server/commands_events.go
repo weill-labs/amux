@@ -1,88 +1,65 @@
 package server
 
 import (
-	"bytes"
-	"encoding/json"
-	"slices"
+	"fmt"
 	"time"
+
+	eventscmd "github.com/weill-labs/amux/internal/server/commands/events"
 )
 
 func cmdEvents(ctx *CommandContext) {
-	ea := parseEventsArgs(ctx.Args)
-	res := ctx.Sess.enqueueEventSubscribe(ea.filter, true)
+	ctx.applyCommandResult(eventscmd.Events(eventsCommandContext{ctx}, ctx.Args))
+}
+
+type eventsArgs struct {
+	filter   eventFilter
+	throttle time.Duration
+}
+
+func parseEventsArgs(args []string) eventsArgs {
+	parsed := eventscmd.ParseArgs(args, DefaultEventThrottle)
+	return eventsArgs{
+		filter: eventFilter{
+			Types:    append([]string(nil), parsed.Filter.Types...),
+			PaneName: parsed.Filter.PaneName,
+			Host:     parsed.Filter.Host,
+			ClientID: parsed.Filter.ClientID,
+		},
+		throttle: parsed.Throttle,
+	}
+}
+
+type eventsCommandContext struct {
+	*CommandContext
+}
+
+func (ctx eventsCommandContext) DefaultThrottle() time.Duration {
+	return DefaultEventThrottle
+}
+
+func (ctx eventsCommandContext) Subscribe(filter eventscmd.Filter) (eventscmd.Subscription, error) {
+	res := ctx.Sess.enqueueEventSubscribe(eventFilter{
+		Types:    append([]string(nil), filter.Types...),
+		PaneName: filter.PaneName,
+		Host:     filter.Host,
+		ClientID: filter.ClientID,
+	}, true)
 	if res.sub == nil {
-		ctx.replyErr("session shutting down")
-		return
+		return eventscmd.Subscription{}, fmt.Errorf("session shutting down")
 	}
-	defer ctx.Sess.enqueueEventUnsubscribe(res.sub)
-
-	for _, data := range res.initialState {
-		if err := ctx.CC.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: string(data) + "\n"}); err != nil {
-			return
-		}
-	}
-
-	if ea.throttle <= 0 {
-		for data := range res.sub.Ch {
-			if err := ctx.CC.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: string(data) + "\n"}); err != nil {
-				return
-			}
-		}
-		return
-	}
-
-	ticker := time.NewTicker(ea.throttle)
-	defer ticker.Stop()
-	pending := make(map[uint32][]byte)
-
-	for {
-		select {
-		case data, ok := <-res.sub.Ch:
-			if !ok {
-				return
-			}
-			if paneID, isOutput := peekOutputPaneID(data); isOutput {
-				pending[paneID] = data
-			} else {
-				if err := ctx.CC.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: string(data) + "\n"}); err != nil {
-					return
-				}
-			}
-		case <-ticker.C:
-			if err := flushPendingOutputEvents(ctx, pending); err != nil {
-				return
-			}
-		}
-	}
+	return eventscmd.Subscription{
+		InitialState: res.initialState,
+		Events:       res.sub.Ch,
+		Close: func() {
+			ctx.Sess.enqueueEventUnsubscribe(res.sub)
+		},
+	}, nil
 }
 
 func flushPendingOutputEvents(ctx *CommandContext, pending map[uint32][]byte) error {
-	if len(pending) == 0 {
-		return nil
-	}
-	ids := make([]uint32, 0, len(pending))
-	for id := range pending {
-		ids = append(ids, id)
-	}
-	slices.Sort(ids)
-	for _, id := range ids {
-		if err := ctx.CC.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: string(pending[id]) + "\n"}); err != nil {
-			return err
-		}
-		delete(pending, id)
-	}
-	return nil
+	return eventscmd.FlushPendingOutputEvents(commandStreamSender{cc: ctx.CC}, pending)
 }
 
 func peekOutputPaneID(data []byte) (uint32, bool) {
-	if !bytes.Contains(data, []byte(`"type":"output"`)) {
-		return 0, false
-	}
-	var partial struct {
-		PaneID uint32 `json:"pane_id"`
-	}
-	if err := json.Unmarshal(data, &partial); err != nil {
-		return 0, false
-	}
-	return partial.PaneID, true
+	return eventscmd.PeekOutputPaneID(data)
 }

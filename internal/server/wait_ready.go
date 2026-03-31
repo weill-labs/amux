@@ -6,6 +6,7 @@ import (
 
 	"github.com/weill-labs/amux/internal/mux"
 	cmdflags "github.com/weill-labs/amux/internal/server/commands/flags"
+	waitcmd "github.com/weill-labs/amux/internal/server/commands/wait"
 )
 
 const (
@@ -49,22 +50,7 @@ type paneReadyState struct {
 }
 
 func cmdWaitReady(ctx *CommandContext) {
-	paneRef, opts, err := parseWaitReadyArgs(ctx.Args)
-	if err != nil {
-		ctx.replyErr(err.Error())
-		return
-	}
-
-	pane, err := ctx.Sess.queryResolvedPaneForActor(ctx.ActorPaneID, paneRef)
-	if err != nil {
-		ctx.replyErr(err.Error())
-		return
-	}
-	if err := waitForPaneReady(ctx.Sess, paneRef, pane, opts); err != nil {
-		ctx.replyErr(err.Error())
-		return
-	}
-	ctx.reply("ready\n")
+	ctx.applyCommandResult(waitcmd.WaitReady(waitCommandContext{ctx}, ctx.ActorPaneID, ctx.Args))
 }
 
 func parseWaitReadyArgs(args []string) (string, waitReadyOptions, error) {

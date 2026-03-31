@@ -1,10 +1,7 @@
 package server
 
 import (
-	"fmt"
 	"os"
-	"strings"
-	"time"
 
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
@@ -74,6 +71,38 @@ func toListingClientEntries(entries []clientListEntry) []listingcmd.ClientEntry 
 	return out
 }
 
+func toListingConnectionLogEntries(entries []ConnectionLogEntry) []listingcmd.ConnectionLogEntry {
+	out := make([]listingcmd.ConnectionLogEntry, 0, len(entries))
+	for _, entry := range entries {
+		out = append(out, listingcmd.ConnectionLogEntry{
+			Timestamp:        entry.Timestamp,
+			Event:            entry.Event,
+			ClientID:         entry.ClientID,
+			Cols:             entry.Cols,
+			Rows:             entry.Rows,
+			DisconnectReason: entry.DisconnectReason,
+		})
+	}
+	return out
+}
+
+func toListingPaneLogEntries(entries []PaneLogEntry) []listingcmd.PaneLogEntry {
+	out := make([]listingcmd.PaneLogEntry, 0, len(entries))
+	for _, entry := range entries {
+		out = append(out, listingcmd.PaneLogEntry{
+			Timestamp:  entry.Timestamp,
+			Event:      entry.Event,
+			PaneID:     entry.PaneID,
+			PaneName:   entry.PaneName,
+			Host:       entry.Host,
+			Cwd:        entry.Cwd,
+			GitBranch:  entry.GitBranch,
+			ExitReason: entry.ExitReason,
+		})
+	}
+	return out
+}
+
 func formatPaneList(entries []paneListEntry, home string, showCwd bool) string {
 	return listingcmd.FormatPaneList(toListingPaneEntries(entries), home, showCwd)
 }
@@ -86,116 +115,87 @@ func formatListCwd(cwd, home string, max int) string {
 	return listingcmd.FormatListCwd(cwd, home, max)
 }
 
-func cmdList(ctx *CommandContext) {
-	args, err := listingcmd.ParseListArgs(ctx.Args)
-	if err != nil {
-		ctx.replyErr(err.Error())
-		return
-	}
+type listingCommandContext struct {
+	*CommandContext
+}
+
+func (ctx listingCommandContext) HomeDir() string {
+	home, _ := os.UserHomeDir()
+	return home
+}
+
+func (ctx listingCommandContext) BuildVersion() string {
+	return BuildVersion
+}
+
+func (ctx listingCommandContext) QueryPaneList() ([]listingcmd.PaneEntry, error) {
 	entries, err := ctx.Sess.queryPaneList()
 	if err != nil {
-		ctx.replyErr(err.Error())
-		return
+		return nil, err
 	}
-	home, _ := os.UserHomeDir()
-	ctx.reply(formatPaneList(entries, home, args.ShowCwd))
+	return toListingPaneEntries(entries), nil
+}
+
+func (ctx listingCommandContext) QuerySessionStatus() (listingcmd.SessionStatus, error) {
+	snap, err := ctx.Sess.querySessionStatus()
+	if err != nil {
+		return listingcmd.SessionStatus{}, err
+	}
+	return toListingStatus(snap), nil
+}
+
+func (ctx listingCommandContext) QueryWindowList() ([]listingcmd.WindowEntry, error) {
+	entries, err := ctx.Sess.queryWindowList()
+	if err != nil {
+		return nil, err
+	}
+	return toListingWindowEntries(entries), nil
+}
+
+func (ctx listingCommandContext) QueryClientList() ([]listingcmd.ClientEntry, error) {
+	clients, err := ctx.Sess.queryClientList()
+	if err != nil {
+		return nil, err
+	}
+	return toListingClientEntries(clients), nil
+}
+
+func (ctx listingCommandContext) QueryConnectionLog() ([]listingcmd.ConnectionLogEntry, error) {
+	entries, err := ctx.Sess.queryConnectionLog()
+	if err != nil {
+		return nil, err
+	}
+	return toListingConnectionLogEntries(entries), nil
+}
+
+func (ctx listingCommandContext) QueryPaneLog() ([]listingcmd.PaneLogEntry, error) {
+	entries, err := ctx.Sess.queryPaneLog()
+	if err != nil {
+		return nil, err
+	}
+	return toListingPaneLogEntries(entries), nil
+}
+
+func cmdList(ctx *CommandContext) {
+	ctx.applyCommandResult(listingcmd.List(listingCommandContext{ctx}, ctx.Args))
 }
 
 func cmdStatus(ctx *CommandContext) {
-	snap, err := ctx.Sess.querySessionStatus()
-	if err != nil {
-		ctx.replyErr(err.Error())
-		return
-	}
-	ctx.reply(listingcmd.FormatStatus(toListingStatus(snap), BuildVersion))
+	ctx.applyCommandResult(listingcmd.Status(listingCommandContext{ctx}, ctx.Args))
 }
 
 func cmdListWindows(ctx *CommandContext) {
-	entries, err := ctx.Sess.queryWindowList()
-	if err != nil {
-		ctx.replyErr(err.Error())
-		return
-	}
-	ctx.reply(listingcmd.FormatWindowList(toListingWindowEntries(entries)))
+	ctx.applyCommandResult(listingcmd.ListWindows(listingCommandContext{ctx}, ctx.Args))
 }
 
 func cmdListClients(ctx *CommandContext) {
-	clients, err := ctx.Sess.queryClientList()
-	if err != nil {
-		ctx.replyErr(err.Error())
-		return
-	}
-	ctx.reply(listingcmd.FormatClientList(toListingClientEntries(clients)))
+	ctx.applyCommandResult(listingcmd.ListClients(listingCommandContext{ctx}, ctx.Args))
 }
 
 func cmdConnectionLog(ctx *CommandContext) {
-	entries, err := ctx.Sess.queryConnectionLog()
-	if err != nil {
-		ctx.replyErr(err.Error())
-		return
-	}
-	if len(entries) == 0 {
-		ctx.reply("No client connections recorded.\n")
-		return
-	}
-
-	var output strings.Builder
-	output.WriteString(fmt.Sprintf("%-30s %-8s %-10s %-6s %-6s %s\n", "TS", "EVENT", "CLIENT", "COLS", "ROWS", "REASON"))
-	for _, entry := range entries {
-		reason := entry.DisconnectReason
-		if reason == "" {
-			reason = "-"
-		}
-		output.WriteString(fmt.Sprintf(
-			"%-30s %-8s %-10s %-6d %-6d %s\n",
-			entry.Timestamp.UTC().Format(time.RFC3339Nano),
-			entry.Event,
-			entry.ClientID,
-			entry.Cols,
-			entry.Rows,
-			reason,
-		))
-	}
-	ctx.reply(output.String())
+	ctx.applyCommandResult(listingcmd.ConnectionLog(listingCommandContext{ctx}, ctx.Args))
 }
 
 func cmdPaneLog(ctx *CommandContext) {
-	entries, err := ctx.Sess.queryPaneLog()
-	if err != nil {
-		ctx.replyErr(err.Error())
-		return
-	}
-	if len(entries) == 0 {
-		ctx.reply("No pane lifecycle events recorded.\n")
-		return
-	}
-
-	var output strings.Builder
-	output.WriteString(fmt.Sprintf("%-30s %-8s %-5s %-12s %-10s %-40s %-24s %s\n", "TS", "EVENT", "ID", "PANE", "HOST", "CWD", "GIT_BRANCH", "REASON"))
-	for _, entry := range entries {
-		cwd := entry.Cwd
-		if cwd == "" {
-			cwd = "-"
-		}
-		gitBranch := entry.GitBranch
-		if gitBranch == "" {
-			gitBranch = "-"
-		}
-		reason := entry.ExitReason
-		if reason == "" {
-			reason = "-"
-		}
-		output.WriteString(fmt.Sprintf(
-			"%-30s %-8s %-5d %-12s %-10s %-40s %-24s %s\n",
-			entry.Timestamp.UTC().Format(time.RFC3339Nano),
-			entry.Event,
-			entry.PaneID,
-			entry.PaneName,
-			entry.Host,
-			cwd,
-			gitBranch,
-			reason,
-		))
-	}
-	ctx.reply(output.String())
+	ctx.applyCommandResult(listingcmd.PaneLog(listingCommandContext{ctx}, ctx.Args))
 }

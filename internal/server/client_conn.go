@@ -9,7 +9,6 @@ import (
 	"runtime/debug"
 	"strings"
 	"sync/atomic"
-	"time"
 
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
@@ -260,47 +259,4 @@ func (cc *clientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 		return
 	}
 	handler(&CommandContext{CommandName: msg.CmdName, CC: cc, Srv: srv, Sess: sess, Args: msg.CmdArgs, ActorPaneID: msg.ActorPaneID})
-}
-
-// eventsArgs holds parsed arguments for the events command.
-type eventsArgs struct {
-	filter   eventFilter
-	throttle time.Duration
-}
-
-// parseEventsArgs parses --filter, --pane, --host, --client, and --throttle flags for the events command.
-func parseEventsArgs(args []string) eventsArgs {
-	ea := eventsArgs{throttle: DefaultEventThrottle}
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--filter":
-			if i+1 < len(args) {
-				i++
-				ea.filter.Types = strings.Split(args[i], ",")
-			}
-		case "--pane":
-			if i+1 < len(args) {
-				i++
-				ea.filter.PaneName = args[i]
-			}
-		case "--host":
-			if i+1 < len(args) {
-				i++
-				ea.filter.Host = args[i]
-			}
-		case "--client":
-			if i+1 < len(args) {
-				i++
-				ea.filter.ClientID = args[i]
-			}
-		case "--throttle":
-			if i+1 < len(args) {
-				i++
-				if d, err := time.ParseDuration(args[i]); err == nil {
-					ea.throttle = d
-				}
-			}
-		}
-	}
-	return ea
 }

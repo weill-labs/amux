@@ -1,17 +1,23 @@
 package server
 
-import caputil "github.com/weill-labs/amux/internal/capture"
+import capturecmd "github.com/weill-labs/amux/internal/server/commands/capture"
+
+type captureCommandContext struct {
+	*CommandContext
+}
+
+func (ctx captureCommandContext) CaptureHistory(args []string) *Message {
+	return ctx.Sess.captureHistory(ctx.ActorPaneID, args)
+}
+
+func (ctx captureCommandContext) CapturePaneWithFallback(args []string) *Message {
+	return ctx.Sess.capturePaneWithFallback(ctx.ActorPaneID, args)
+}
+
+func (ctx captureCommandContext) ForwardCapture(args []string) *Message {
+	return ctx.Sess.forwardCaptureForActor(ctx.ActorPaneID, args)
+}
 
 func cmdCapture(ctx *CommandContext) {
-	req := caputil.ParseArgs(ctx.Args)
-	if req.HistoryMode && (req.PaneRef != "" || !req.FormatJSON) {
-		ctx.CC.Send(ctx.Sess.captureHistory(ctx.ActorPaneID, ctx.Args))
-		return
-	}
-	if req.PaneRef != "" {
-		ctx.CC.Send(ctx.Sess.capturePaneWithFallback(ctx.ActorPaneID, ctx.Args))
-		return
-	}
-	result := ctx.Sess.forwardCaptureForActor(ctx.ActorPaneID, ctx.Args)
-	ctx.CC.Send(result)
+	ctx.applyCommandResult(capturecmd.Capture(captureCommandContext{ctx}, ctx.Args))
 }
