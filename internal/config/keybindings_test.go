@@ -21,12 +21,12 @@ func TestDefaultKeybindings(t *testing.T) {
 		{
 			name: "backslash creates a root vertical split",
 			key:  '\\',
-			want: Binding{Action: "split-focus", Args: []string{"root", "v"}},
+			want: Binding{Action: "split", Args: []string{"root", "v", "--focus"}},
 		},
 		{
 			name: "pipe creates a local vertical split",
 			key:  '|',
-			want: Binding{Action: "split-focus", Args: []string{"v"}},
+			want: Binding{Action: "split", Args: []string{"v", "--focus"}},
 		},
 		{
 			name: "d detaches",

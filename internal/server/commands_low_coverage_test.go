@@ -887,13 +887,6 @@ func TestCommandSplitTargetsExplicitInactivePane(t *testing.T) {
 			wantActiveID: 3,
 			newPaneName:  "flag-focus-target",
 		},
-		{
-			name:         "split-focus activates the new pane",
-			command:      "split-focus",
-			args:         []string{"pane-1", "--name", "focus-target"},
-			wantActiveID: 3,
-			newPaneName:  "focus-target",
-		},
 	}
 
 	for _, tt := range tests {
@@ -986,12 +979,6 @@ func TestCommandSpawnFocusModes(t *testing.T) {
 			args:         []string{"--name", "worker-flag-focus", "--task", "build", "--focus"},
 			wantActiveID: 2,
 		},
-		{
-			name:         "spawn-focus activates the new pane",
-			command:      "spawn-focus",
-			args:         []string{"--name", "worker-focus", "--task", "build"},
-			wantActiveID: 2,
-		},
 	}
 
 	for _, tt := range tests {
@@ -1032,6 +1019,25 @@ func TestCommandSpawnFocusModes(t *testing.T) {
 			})
 			if state.activeID != tt.wantActiveID || !state.hasPane {
 				t.Fatalf("%s state = %+v, want active %d with spawned pane present", tt.command, state, tt.wantActiveID)
+			}
+		})
+	}
+}
+
+func TestLegacyFocusCommandsAreUnknown(t *testing.T) {
+	t.Parallel()
+
+	for _, command := range []string{"split-focus", "add-pane-focus", "spawn-focus"} {
+		command := command
+		t.Run(command, func(t *testing.T) {
+			t.Parallel()
+
+			srv, sess, cleanup := newCommandTestSession(t)
+			defer cleanup()
+
+			res := runTestCommand(t, srv, sess, command)
+			if res.cmdErr != "unknown command: "+command {
+				t.Fatalf("%s cmdErr = %q, want %q", command, res.cmdErr, "unknown command: "+command)
 			}
 		})
 	}

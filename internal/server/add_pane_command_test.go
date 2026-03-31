@@ -65,20 +65,12 @@ func TestCommandAddPaneFocusModes(t *testing.T) {
 
 	tests := []struct {
 		name         string
-		command      string
 		args         []string
 		wantActiveID uint32
 	}{
 		{
 			name:         "add-pane --focus activates the new pane",
-			command:      "add-pane",
 			args:         []string{"--name", "spiral-focus", "--focus"},
-			wantActiveID: 2,
-		},
-		{
-			name:         "add-pane-focus activates the new pane",
-			command:      "add-pane-focus",
-			args:         []string{"--name", "spiral-alias-focus"},
 			wantActiveID: 2,
 		},
 	}
@@ -99,9 +91,9 @@ func TestCommandAddPaneFocusModes(t *testing.T) {
 			w.Name = "main"
 			setSessionLayoutForTest(t, sess, w.ID, []*mux.Window{w}, p1)
 
-			res := runTestCommand(t, srv, sess, tt.command, tt.args...)
+			res := runTestCommand(t, srv, sess, "add-pane", tt.args...)
 			if res.cmdErr != "" {
-				t.Fatalf("%s %v failed: %s", tt.command, tt.args, res.cmdErr)
+				t.Fatalf("add-pane %v failed: %s", tt.args, res.cmdErr)
 			}
 
 			state := mustSessionQuery(t, sess, func(sess *Session) struct {
@@ -121,7 +113,7 @@ func TestCommandAddPaneFocusModes(t *testing.T) {
 				}
 			})
 			if state.activeID != tt.wantActiveID || !state.hasPane {
-				t.Fatalf("%s state = %+v, want active %d with added pane present", tt.command, state, tt.wantActiveID)
+				t.Fatalf("add-pane state = %+v, want active %d with added pane present", state, tt.wantActiveID)
 			}
 		})
 	}
