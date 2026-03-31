@@ -1,0 +1,443 @@
+package main
+
+import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"flag"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"regexp"
+	"sort"
+	"strconv"
+	"strings"
+)
+
+func main() {
+	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr, realDeps{}, os.Getenv))
+}
+
+type options struct {
+	notify           bool
+	claudeLoginRegex string
+	repoOverride     string
+}
+
+type commandDeps interface {
+	LookPath(name string) error
+	PaneList() (string, error)
+	PaneCapture(pane string) (string, error)
+	SendKeys(pane string, message string) error
+	PRList(repoOverride string) (string, error)
+	PRChecks(prNumber int, repoOverride string) (string, int, error)
+	PRReviews(repo string, prNumber int) (string, error)
+}
+
+type realDeps struct{}
+
+type pullRequest struct {
+	Number    int    `json:"number"`
+	Title     string `json:"title"`
+	URL       string `json:"url"`
+	Mergeable string `json:"mergeable"`
+}
+
+type paneCapture struct {
+	Idle           *bool  `json:"idle"`
+	CurrentCommand string `json:"current_command"`
+}
+
+type review struct {
+	User struct {
+		Login string `json:"login"`
+	} `json:"user"`
+	Body        string `json:"body"`
+	SubmittedAt string `json:"submitted_at"`
+}
+
+type paneState struct {
+	State          string
+	CurrentCommand string
+}
+
+func run(args []string, stdout, stderr io.Writer, deps commandDeps, getenv func(string) string) int {
+	opts, exitCode, ok := parseOptions(args, stderr)
+	if !ok {
+		return exitCode
+	}
+
+	for _, cmd := range []string{"amux", "gh"} {
+		if err := deps.LookPath(cmd); err != nil {
+			die(stderr, "missing required command: %s", cmd)
+			return 2
+		}
+	}
+
+	paneList, err := deps.PaneList()
+	if err != nil {
+		die(stderr, "failed to list panes")
+		return 2
+	}
+	prToPanes := parsePanePRMap(paneList)
+
+	prJSON, err := deps.PRList(opts.repoOverride)
+	if err != nil {
+		die(stderr, "failed to query open PRs")
+		return 2
+	}
+
+	prs := []pullRequest{}
+	if err := json.Unmarshal([]byte(prJSON), &prs); err != nil {
+		die(stderr, "failed to parse open PRs")
+		return 2
+	}
+
+	readyCount := 0
+	for _, pr := range prs {
+		if pr.Mergeable != "MERGEABLE" {
+			continue
+		}
+
+		checksJSON, status, err := deps.PRChecks(pr.Number, opts.repoOverride)
+		if err != nil && status != 0 && status != 8 {
+			continue
+		}
+		if !requiredChecksPass(checksJSON) {
+			continue
+		}
+
+		repoSlug := repoSlugForPR(pr.URL, opts.repoOverride, getenv("GH_REPO"))
+		if repoSlug == "" || repoSlug == pr.URL {
+			continue
+		}
+
+		reviewBody, err := deps.PRReviews(repoSlug, pr.Number)
+		if err == nil {
+			reviewBody = latestMatchingReviewBody(reviewBody, opts.claudeLoginRegex)
+		} else {
+			reviewBody = ""
+		}
+		if !reviewEndsWithLGTM(reviewBody) {
+			continue
+		}
+
+		readyCount++
+		panes := prToPanes[pr.Number]
+		if len(panes) == 0 {
+			fmt.Fprintf(stdout, "PR #%d %q owner=orphaned state=unknown review=LGTM notify=skipped-orphaned\n", pr.Number, pr.Title)
+			continue
+		}
+
+		for _, pane := range panes {
+			state := paneState{State: "unknown"}
+			captureJSON, err := deps.PaneCapture(pane)
+			if err == nil {
+				state = parsePaneState(captureJSON)
+			}
+
+			notifyState := "disabled"
+			if opts.notify {
+				switch state.State {
+				case "idle":
+					if err := deps.SendKeys(pane, readyMessage(pr.Number)); err == nil {
+						notifyState = "sent"
+					} else {
+						notifyState = "send-error"
+					}
+				case "busy":
+					notifyState = "skipped-busy"
+				default:
+					notifyState = "skipped-unknown"
+				}
+			}
+
+			displayState := state.State
+			if state.State == "busy" && state.CurrentCommand != "" {
+				displayState = fmt.Sprintf("busy(%s)", state.CurrentCommand)
+			}
+
+			fmt.Fprintf(stdout, "PR #%d %q owner=%s state=%s review=LGTM notify=%s\n", pr.Number, pr.Title, pane, displayState, notifyState)
+		}
+	}
+
+	if readyCount == 0 {
+		fmt.Fprintln(stdout, "No open PRs are ready for human merge.")
+		return 0
+	}
+
+	fmt.Fprintf(stdout, "Found %d open PR(s) ready for human merge.\n", readyCount)
+	return 0
+}
+
+func parseOptions(args []string, stderr io.Writer) (options, int, bool) {
+	opts := options{
+		notify:           true,
+		claudeLoginRegex: "claude",
+	}
+
+	fs := flag.NewFlagSet("check-pr-ready", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.Usage = func() {
+		fmt.Fprintln(stderr, "usage: check-pr-ready [--no-notify] [--claude-login-regex REGEX] [--repo OWNER/REPO]")
+	}
+
+	noNotify := fs.Bool("no-notify", false, "")
+	fs.StringVar(&opts.claudeLoginRegex, "claude-login-regex", opts.claudeLoginRegex, "")
+	fs.StringVar(&opts.repoOverride, "repo", "", "")
+	fs.StringVar(&opts.repoOverride, "R", "", "")
+
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return opts, 0, false
+		}
+		fs.Usage()
+		return opts, 2, false
+	}
+	if fs.NArg() != 0 {
+		fs.Usage()
+		return opts, 2, false
+	}
+
+	opts.notify = !*noNotify
+	return opts, 0, true
+}
+
+func parsePanePRMap(paneList string) map[int][]string {
+	prToPanes := map[int][]string{}
+	prsPattern := regexp.MustCompile(`prs=\[([^\]]*)\]`)
+
+	lines := strings.Split(paneList, "\n")
+	for _, line := range lines[1:] {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		pane := fields[1]
+		matches := prsPattern.FindStringSubmatch(line)
+		if len(matches) != 2 {
+			continue
+		}
+		for _, rawPR := range strings.Split(matches[1], ",") {
+			rawPR = strings.TrimSpace(rawPR)
+			if rawPR == "" {
+				continue
+			}
+			prNumber, err := strconv.Atoi(rawPR)
+			if err != nil {
+				continue
+			}
+			if !containsPane(prToPanes[prNumber], pane) {
+				prToPanes[prNumber] = append(prToPanes[prNumber], pane)
+			}
+		}
+	}
+
+	return prToPanes
+}
+
+func containsPane(panes []string, pane string) bool {
+	for _, existing := range panes {
+		if existing == pane {
+			return true
+		}
+	}
+	return false
+}
+
+func repoSlugForPR(url, repoOverride, envRepo string) string {
+	if repoOverride != "" {
+		return repoOverride
+	}
+	if envRepo != "" {
+		return envRepo
+	}
+	return repoFromURL(url)
+}
+
+func repoFromURL(url string) string {
+	matches := regexp.MustCompile(`^https?://[^/]+/([^/]+/[^/]+)/pull/[0-9]+/?$`).FindStringSubmatch(url)
+	if len(matches) != 2 {
+		return url
+	}
+	return matches[1]
+}
+
+func parsePaneState(captureJSON string) paneState {
+	capture := paneCapture{}
+	if err := json.Unmarshal([]byte(captureJSON), &capture); err != nil {
+		return paneState{State: "unknown"}
+	}
+	if capture.Idle != nil && *capture.Idle {
+		return paneState{State: "idle"}
+	}
+	return paneState{
+		State:          "busy",
+		CurrentCommand: capture.CurrentCommand,
+	}
+}
+
+func requiredChecksPass(checksJSON string) bool {
+	checks := []struct {
+		Bucket string `json:"bucket"`
+	}{}
+	if err := json.Unmarshal([]byte(checksJSON), &checks); err != nil {
+		return false
+	}
+	if len(checks) == 0 {
+		return false
+	}
+	for _, check := range checks {
+		switch strings.ToLower(check.Bucket) {
+		case "pass", "skipping":
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func latestMatchingReviewBody(reviewsJSON, loginPattern string) string {
+	if reviewsJSON == "" {
+		return ""
+	}
+	loginRE, err := regexp.Compile("(?i)" + loginPattern)
+	if err != nil {
+		return ""
+	}
+
+	reviews, err := flattenReviews(reviewsJSON)
+	if err != nil {
+		return ""
+	}
+
+	filtered := make([]review, 0, len(reviews))
+	for _, review := range reviews {
+		if loginRE.MatchString(review.User.Login) {
+			filtered = append(filtered, review)
+		}
+	}
+	if len(filtered) == 0 {
+		return ""
+	}
+
+	sort.Slice(filtered, func(i, j int) bool {
+		return filtered[i].SubmittedAt < filtered[j].SubmittedAt
+	})
+	return filtered[len(filtered)-1].Body
+}
+
+func flattenReviews(reviewsJSON string) ([]review, error) {
+	raws := []json.RawMessage{}
+	if err := json.Unmarshal([]byte(reviewsJSON), &raws); err != nil {
+		return nil, err
+	}
+	if len(raws) == 0 {
+		return nil, nil
+	}
+
+	first := bytes.TrimSpace(raws[0])
+	if len(first) > 0 && first[0] == '[' {
+		all := []review{}
+		for _, raw := range raws {
+			page := []review{}
+			if err := json.Unmarshal(raw, &page); err != nil {
+				return nil, err
+			}
+			all = append(all, page...)
+		}
+		return all, nil
+	}
+
+	flat := []review{}
+	if err := json.Unmarshal([]byte(reviewsJSON), &flat); err != nil {
+		return nil, err
+	}
+	return flat, nil
+}
+
+func reviewEndsWithLGTM(body string) bool {
+	lgtmSuffixPattern := regexp.MustCompile(`(^|[^[:alnum:]_])LGTM$`)
+	body = strings.ReplaceAll(body, "\r", "")
+	body = strings.TrimRightFunc(body, func(r rune) bool {
+		return r == ' ' || r == '\t' || r == '\n' || r == '\r'
+	})
+	return lgtmSuffixPattern.MatchString(body)
+}
+
+func readyMessage(prNumber int) string {
+	return fmt.Sprintf("PR #%d is ready for human merge. CI is green, Claude left LGTM, and there are no merge conflicts.", prNumber)
+}
+
+func die(stderr io.Writer, format string, args ...any) {
+	fmt.Fprintf(stderr, "check-pr-ready: "+format+"\n", args...)
+}
+
+func (realDeps) LookPath(name string) error {
+	_, err := exec.LookPath(name)
+	return err
+}
+
+func (realDeps) PaneList() (string, error) {
+	return runCommand("amux", "list", "--no-cwd")
+}
+
+func (realDeps) PaneCapture(pane string) (string, error) {
+	return runCommand("amux", "capture", "--format", "json", pane)
+}
+
+func (realDeps) SendKeys(pane string, message string) error {
+	_, err := runCommand("amux", "send-keys", pane, message, "Enter")
+	return err
+}
+
+func (realDeps) PRList(repoOverride string) (string, error) {
+	args := []string{"pr", "list"}
+	if repoOverride != "" {
+		args = append(args, "-R", repoOverride)
+	}
+	args = append(args, "--limit", "200", "--json", "number,title,url,mergeable")
+	return runCommand("gh", args...)
+}
+
+func (realDeps) PRChecks(prNumber int, repoOverride string) (string, int, error) {
+	args := []string{"pr", "checks", strconv.Itoa(prNumber)}
+	if repoOverride != "" {
+		args = append(args, "-R", repoOverride)
+	}
+	args = append(args, "--required", "--json", "bucket,name,state")
+	return runCommandWithStatus(nil, "gh", args...)
+}
+
+func (realDeps) PRReviews(repo string, prNumber int) (string, error) {
+	path := fmt.Sprintf("repos/{owner}/{repo}/pulls/%d/reviews?per_page=100", prNumber)
+	return runCommandWithEnv([]string{"GH_REPO=" + repo}, "gh", "api", "--paginate", "--slurp", path)
+}
+
+func runCommand(name string, args ...string) (string, error) {
+	out, _, err := runCommandWithStatus(nil, name, args...)
+	return out, err
+}
+
+func runCommandWithEnv(extraEnv []string, name string, args ...string) (string, error) {
+	out, _, err := runCommandWithStatus(extraEnv, name, args...)
+	return out, err
+}
+
+func runCommandWithStatus(extraEnv []string, name string, args ...string) (string, int, error) {
+	cmd := exec.Command(name, args...)
+	if len(extraEnv) > 0 {
+		cmd.Env = append(os.Environ(), extraEnv...)
+	}
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		return string(out), 0, nil
+	}
+
+	exitErr := &exec.ExitError{}
+	if errors.As(err, &exitErr) {
+		return string(out), exitErr.ExitCode(), err
+	}
+	return string(out), -1, err
+}
