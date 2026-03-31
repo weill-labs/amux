@@ -138,7 +138,6 @@ func (s *Session) closePaneInWindow(paneID uint32) string {
 		windowName := w.Name
 		s.removeWindow(w.ID)
 		if wasActive && len(s.Windows) > 0 {
-			s.PreviousWindowID = 0
 			s.activateWindow(s.Windows[0])
 		}
 		return windowName

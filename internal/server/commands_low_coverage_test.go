@@ -1413,6 +1413,44 @@ func TestSessionWindowHelpers(t *testing.T) {
 	}
 }
 
+func TestCloseActiveWindowPreservesPreviousWindow(t *testing.T) {
+	t.Parallel()
+
+	sess := &Session{}
+	p1 := newTestPane(sess, 1, "pane-1")
+	p2 := newTestPane(sess, 2, "pane-2")
+	p3 := newTestPane(sess, 3, "pane-3")
+
+	w1 := newTestWindowWithPanes(t, sess, 1, "one", p1)
+	w2 := newTestWindowWithPanes(t, sess, 2, "two", p2)
+	w3 := newTestWindowWithPanes(t, sess, 3, "three", p3)
+	sess.Windows = []*mux.Window{w3, w2, w1}
+	sess.ActiveWindowID = w3.ID
+
+	sess.activateWindow(w1)
+	sess.activateWindow(w2)
+
+	if got := sess.PreviousWindowID; got != w1.ID {
+		t.Fatalf("previous before close = %d, want %d", got, w1.ID)
+	}
+
+	if got := sess.closePaneInWindow(p2.ID); got != "two" {
+		t.Fatalf("closePaneInWindow(active last pane) = %q, want %q", got, "two")
+	}
+	if got := sess.ActiveWindowID; got != w3.ID {
+		t.Fatalf("active after close = %d, want %d", got, w3.ID)
+	}
+	if got := sess.PreviousWindowID; got != w1.ID {
+		t.Fatalf("previous after close = %d, want %d", got, w1.ID)
+	}
+	if !sess.lastWindow() {
+		t.Fatal("lastWindow() = false, want true")
+	}
+	if got := sess.ActiveWindowID; got != w1.ID {
+		t.Fatalf("active after lastWindow = %d, want %d", got, w1.ID)
+	}
+}
+
 func TestParseKeyArgsAndEncodeKeyChunks(t *testing.T) {
 	t.Parallel()
 
