@@ -286,6 +286,9 @@ func parseSpawnCommandArgs(args []string) (string, []string, error) {
 
 	cmdArgs := make([]string, 0, 10)
 	if opts.spiral {
+		if opts.focus {
+			cmdArgs = append(cmdArgs, "--focus")
+		}
 		if opts.host != "" {
 			cmdArgs = append(cmdArgs, "--host", opts.host)
 		}
@@ -297,9 +300,6 @@ func parseSpawnCommandArgs(args []string) (string, []string, error) {
 		}
 		if opts.color != "" {
 			cmdArgs = append(cmdArgs, "--color", opts.color)
-		}
-		if opts.focus {
-			return "add-pane-focus", cmdArgs, nil
 		}
 		return "add-pane", cmdArgs, nil
 	}
@@ -314,6 +314,9 @@ func parseSpawnCommandArgs(args []string) (string, []string, error) {
 		if opts.dir == mux.SplitVertical {
 			cmdArgs = append(cmdArgs, "v")
 		}
+		if opts.focus {
+			cmdArgs = append(cmdArgs, "--focus")
+		}
 		if opts.host != "" {
 			cmdArgs = append(cmdArgs, "--host", opts.host)
 		}
@@ -326,12 +329,12 @@ func parseSpawnCommandArgs(args []string) (string, []string, error) {
 		if opts.color != "" {
 			cmdArgs = append(cmdArgs, "--color", opts.color)
 		}
-		if opts.focus {
-			return "split-focus", cmdArgs, nil
-		}
 		return "split", cmdArgs, nil
 	}
 
+	if opts.focus {
+		cmdArgs = append(cmdArgs, "--focus")
+	}
 	if opts.name != "" {
 		cmdArgs = append(cmdArgs, "--name", opts.name)
 	}
@@ -343,9 +346,6 @@ func parseSpawnCommandArgs(args []string) (string, []string, error) {
 	}
 	if opts.color != "" {
 		cmdArgs = append(cmdArgs, "--color", opts.color)
-	}
-	if opts.focus {
-		return "spawn-focus", cmdArgs, nil
 	}
 	return "spawn", cmdArgs, nil
 }
