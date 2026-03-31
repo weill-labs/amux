@@ -13,12 +13,14 @@ func TestCopyModeOverlayTypesLiveInProto(t *testing.T) {
 	t.Parallel()
 
 	required := []string{
-		"ViewportOverlay",
+		"Cell",
 		"CursorPosition",
 		"HighlightKind",
 		"HighlightLine",
 		"HighlightSpan",
-		"Cell",
+		"SelectionMode",
+		"SelectionRange",
+		"ViewportOverlay",
 	}
 
 	_, thisFile, _, ok := runtime.Caller(0)
