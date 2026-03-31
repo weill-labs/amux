@@ -99,7 +99,7 @@ scripts/set-pane-issue.sh LAB-445
 scripts/check-worker-ci.sh
 
 # Find worker PRs that are ready for human merge and notify the owning pane
-scripts/check-pr-ready.sh
+go run ./cmd/check-pr-ready
 
 # Discover attached clients
 amux list-clients

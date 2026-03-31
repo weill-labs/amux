@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"reflect"
 	"testing"
 )
@@ -148,6 +149,85 @@ func TestRepoSlugForPR(t *testing.T) {
 
 			if got := repoSlugForPR(tt.url, tt.repoOverride, tt.envRepo); got != tt.want {
 				t.Fatalf("repoSlugForPR() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestParseOptions(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		args       []string
+		want       options
+		wantExit   int
+		wantOK     bool
+		wantStderr string
+	}{
+		{
+			name: "defaults",
+			want: options{
+				notify:           true,
+				claudeLoginRegex: "claude",
+			},
+			wantExit: 0,
+			wantOK:   true,
+		},
+		{
+			name: "flags",
+			args: []string{"--no-notify", "--claude-login-regex", "Claude Code", "-R", "weill-labs/amux"},
+			want: options{
+				notify:           false,
+				claudeLoginRegex: "Claude Code",
+				repoOverride:     "weill-labs/amux",
+			},
+			wantExit: 0,
+			wantOK:   true,
+		},
+		{
+			name:       "help",
+			args:       []string{"--help"},
+			want:       options{notify: true, claudeLoginRegex: "claude"},
+			wantExit:   0,
+			wantOK:     false,
+			wantStderr: "usage: check-pr-ready",
+		},
+		{
+			name:       "missing value",
+			args:       []string{"--repo"},
+			want:       options{notify: true, claudeLoginRegex: "claude"},
+			wantExit:   2,
+			wantOK:     false,
+			wantStderr: "usage: check-pr-ready",
+		},
+		{
+			name:       "unknown flag",
+			args:       []string{"--bogus"},
+			want:       options{notify: true, claudeLoginRegex: "claude"},
+			wantExit:   2,
+			wantOK:     false,
+			wantStderr: "usage: check-pr-ready",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var stderr bytes.Buffer
+			got, exitCode, ok := parseOptions(tt.args, &stderr)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("parseOptions() options = %#v, want %#v", got, tt.want)
+			}
+			if exitCode != tt.wantExit {
+				t.Fatalf("parseOptions() exit = %d, want %d", exitCode, tt.wantExit)
+			}
+			if ok != tt.wantOK {
+				t.Fatalf("parseOptions() ok = %v, want %v", ok, tt.wantOK)
+			}
+			if tt.wantStderr != "" && !bytes.Contains(stderr.Bytes(), []byte(tt.wantStderr)) {
+				t.Fatalf("stderr = %q, want substring %q", stderr.String(), tt.wantStderr)
 			}
 		})
 	}

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -177,31 +176,39 @@ func parseOptions(args []string, stderr io.Writer) (options, int, bool) {
 		claudeLoginRegex: "claude",
 	}
 
-	fs := flag.NewFlagSet("check-pr-ready", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	fs.Usage = func() {
-		fmt.Fprintln(stderr, "usage: check-pr-ready [--no-notify] [--claude-login-regex REGEX] [--repo OWNER/REPO]")
-	}
-
-	noNotify := fs.Bool("no-notify", false, "")
-	fs.StringVar(&opts.claudeLoginRegex, "claude-login-regex", opts.claudeLoginRegex, "")
-	fs.StringVar(&opts.repoOverride, "repo", "", "")
-	fs.StringVar(&opts.repoOverride, "R", "", "")
-
-	if err := fs.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
+	for len(args) > 0 {
+		switch args[0] {
+		case "--no-notify":
+			opts.notify = false
+			args = args[1:]
+		case "--claude-login-regex":
+			if len(args) < 2 {
+				usage(stderr)
+				return opts, 2, false
+			}
+			opts.claudeLoginRegex = args[1]
+			args = args[2:]
+		case "--repo", "-R":
+			if len(args) < 2 {
+				usage(stderr)
+				return opts, 2, false
+			}
+			opts.repoOverride = args[1]
+			args = args[2:]
+		case "-h", "--help":
+			usage(stderr)
 			return opts, 0, false
+		default:
+			usage(stderr)
+			return opts, 2, false
 		}
-		fs.Usage()
-		return opts, 2, false
-	}
-	if fs.NArg() != 0 {
-		fs.Usage()
-		return opts, 2, false
 	}
 
-	opts.notify = !*noNotify
 	return opts, 0, true
+}
+
+func usage(stderr io.Writer) {
+	fmt.Fprintln(stderr, "usage: check-pr-ready [--no-notify] [--claude-login-regex REGEX] [--repo OWNER/REPO]")
 }
 
 func parsePanePRMap(paneList string) map[int][]string {
