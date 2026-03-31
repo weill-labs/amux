@@ -33,8 +33,23 @@ func paneShellPath() string {
 	return shell
 }
 
-func newPaneShellCommand(id uint32, sessionName, dir string) *exec.Cmd {
-	cmd := exec.Command(paneShellPath(), "-l")
+func shellPath(shell string, pid int) string {
+	if shell != "" {
+		return shell
+	}
+	if pid != 0 {
+		if name := processName(pid); name != "" {
+			if path, err := exec.LookPath(name); err == nil {
+				return path
+			}
+			return name
+		}
+	}
+	return paneShellPath()
+}
+
+func paneExecCommand(shell string, id uint32, sessionName, dir string) *exec.Cmd {
+	cmd := exec.Command(shell, "-l")
 	cmd.Env = paneShellEnv(id, sessionName)
 	if dir != "" {
 		cmd.Dir = dir
@@ -42,8 +57,8 @@ func newPaneShellCommand(id uint32, sessionName, dir string) *exec.Cmd {
 	return cmd
 }
 
-func startPaneShell(id uint32, sessionName, dir string, cols, rows int) (*exec.Cmd, *os.File, error) {
-	cmd := newPaneShellCommand(id, sessionName, dir)
+func startPaneShell(shell string, id uint32, sessionName, dir string, cols, rows int) (*exec.Cmd, *os.File, error) {
+	cmd := paneExecCommand(shell, id, sessionName, dir)
 	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{
 		Cols: uint16(cols),
 		Rows: uint16(rows),
@@ -97,6 +112,7 @@ type Pane struct {
 	osc52Scanner        OSC52Scanner
 	controlScanner      AmuxControlScanner
 	metaScanner         AmuxMetaScanner
+	suppressCallbacks   atomic.Bool
 
 	// Idle tracking (LAB-159)
 	createdAt        time.Time
@@ -126,12 +142,16 @@ type PaneTerminalSnapshot struct {
 // NOT start the read/drain/wait goroutines. Call Start() after releasing any
 // locks that the onOutput/onExit callbacks might need.
 func NewPaneWithScrollback(id uint32, meta PaneMeta, cols, rows int, sessionName string, scrollbackLines int, onOutput func(uint32, []byte, uint64), onExit func(uint32, string)) (*Pane, error) {
+	return newPaneWithShellPath(id, meta, cols, rows, sessionName, scrollbackLines, shellPath("", 0), onOutput, onExit)
+}
+
+func newPaneWithShellPath(id uint32, meta PaneMeta, cols, rows int, sessionName string, scrollbackLines int, shell string, onOutput func(uint32, []byte, uint64), onExit func(uint32, string)) (*Pane, error) {
 	manualBranch, err := NormalizePaneMeta(&meta)
 	if err != nil {
 		return nil, err
 	}
 
-	cmd, ptmx, err := startPaneShell(id, sessionName, meta.Dir, cols, rows)
+	cmd, ptmx, err := startPaneShell(shell, id, sessionName, meta.Dir, cols, rows)
 	if err != nil {
 		return nil, err
 	}
@@ -457,6 +477,12 @@ func (p *Pane) readLoop(ptmx *os.File, done chan struct{}) {
 	for {
 		n, err := ptmx.Read(buf)
 		if n > 0 {
+			if p.suppressCallbacks.Load() {
+				if err != nil {
+					return
+				}
+				continue
+			}
 			data := make([]byte, n)
 			copy(data, buf[:n])
 
@@ -536,7 +562,7 @@ func (p *Pane) waitLoop(cmd *exec.Cmd, proc *os.Process, exitDone, waitLoopDone 
 	if p.suppressExit.Swap(false) {
 		return
 	}
-	if p.onExit != nil {
+	if p.onExit != nil && !p.suppressCallbacks.Load() {
 		p.onExit(p.ID, formatExitReason(err))
 	}
 }
@@ -565,6 +591,13 @@ func (p *Pane) Write(data []byte) (int, error) {
 		return p.writeOverride(data)
 	}
 	return p.ptmx.Write(data)
+}
+
+// SuppressCallbacks prevents further output and exit callbacks from this pane.
+// Used when replacing a live PTY-backed pane in-place so late bytes from the
+// old process cannot tear down or dirty the replacement slot.
+func (p *Pane) SuppressCallbacks() {
+	p.suppressCallbacks.Store(true)
 }
 
 // EmulatorSize returns the current emulator dimensions.
@@ -1019,7 +1052,11 @@ func (p *Pane) Respawn(sessionName, dir string) error {
 		dir = p.Meta.Dir
 	}
 
-	cmd, ptmx, err := startPaneShell(p.ID, sessionName, dir, cols, rows)
+	shell := shellPath("", p.ProcessPid())
+	if p.cmd != nil && p.cmd.Path != "" {
+		shell = shellPath(p.cmd.Path, p.ProcessPid())
+	}
+	cmd, ptmx, err := startPaneShell(shell, p.ID, sessionName, dir, cols, rows)
 	if err != nil {
 		return err
 	}
@@ -1082,4 +1119,35 @@ func (p *Pane) stopForRespawn() {
 	if p.waitLoopDone != nil {
 		<-p.waitLoopDone
 	}
+}
+
+// Replacement clones a local PTY pane into a fresh shell process with the same
+// pane ID and metadata. The caller is responsible for swapping the returned
+// pane into session/window state and closing the old pane.
+func (p *Pane) Replacement(sessionName, startDir string, onOutput func(uint32, []byte, uint64), onExit func(uint32, string)) (*Pane, error) {
+	if p.IsProxy() {
+		return nil, fmt.Errorf("cannot replace proxy pane")
+	}
+
+	cols, rows := p.EmulatorSize()
+	meta := p.Meta
+	launchMeta := meta
+	if startDir != "" {
+		launchMeta.Dir = startDir
+	}
+
+	shell := shellPath("", p.ProcessPid())
+	if p.cmd != nil && p.cmd.Path != "" {
+		shell = shellPath(p.cmd.Path, p.ProcessPid())
+	}
+	pane, err := newPaneWithShellPath(p.ID, launchMeta, cols, rows, sessionName, p.scrollbackLines, shell, onOutput, onExit)
+	if err != nil {
+		return nil, err
+	}
+	pane.Meta = meta
+	pane.SetMetaManualBranch(p.MetaManualBranch())
+	if startDir != "" {
+		pane.ApplyCwdBranch(startDir, p.Meta.GitBranch)
+	}
+	return pane, nil
 }

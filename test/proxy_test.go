@@ -59,7 +59,7 @@ func TestRespawnRejectsProxyPane(t *testing.T) {
 	}
 
 	out = h.runCmd("respawn", "pane-2")
-	if !strings.Contains(out, "cannot respawn remote pane") {
+	if !strings.Contains(out, "cannot respawn proxy pane") {
 		t.Fatalf("respawn proxy pane should be rejected, got: %s", out)
 	}
 }

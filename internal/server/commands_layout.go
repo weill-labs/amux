@@ -485,95 +485,49 @@ func cmdReset(ctx *CommandContext) {
 		}
 
 		pane.ResetState()
-
-		res := commandMutationResult{
-			output: fmt.Sprintf("Reset %s\n", pane.Meta.Name),
-			paneHistories: []paneHistoryUpdate{{
-				paneID:  pane.ID,
-				history: nil,
-			}},
-		}
-		if w != nil {
-			res.paneRenders = []paneRender{{
-				paneID: pane.ID,
-				data:   append([]byte("\x1bc"), []byte(pane.RenderScreen())...),
-			}}
-		}
-		return res
+		return clearedPaneRenderResult(fmt.Sprintf("Reset %s\n", pane.Meta.Name), pane, w != nil, nil, nil)
 	}))
 }
 
 func cmdRespawn(ctx *CommandContext) {
-	if len(ctx.Args) < 1 {
-		ctx.replyErr("usage: respawn <pane>")
-		return
-	}
-
-	type respawnSnapshot struct {
-		paneID   uint32
-		paneName string
-		host     string
-		proxy    bool
-		dir      string
-		pane     *mux.Pane
-	}
-
-	target, err := enqueueSessionQuery(ctx.Sess, func(sess *Session) (respawnSnapshot, error) {
-		pane, _, err := sess.resolvePaneAcrossWindowsForActor(ctx.ActorPaneID, ctx.Args[0])
-		if err != nil {
-			return respawnSnapshot{}, err
-		}
-		dir := mux.PaneCwd(pane.ProcessPid())
-		if dir == "" {
-			dir = pane.LiveCwd()
-		}
-		if dir == "" {
-			dir = pane.Meta.Dir
-		}
-		return respawnSnapshot{
-			paneID:   pane.ID,
-			paneName: pane.Meta.Name,
-			host:     pane.Meta.Host,
-			proxy:    pane.IsProxy(),
-			dir:      dir,
-			pane:     pane,
-		}, nil
-	})
-	if err != nil {
-		ctx.replyErr(err.Error())
-		return
-	}
-	if target.proxy {
-		ctx.replyErr(fmt.Sprintf("cannot respawn remote pane %s @%s", target.paneName, target.host))
-		return
-	}
-	if err := target.pane.Respawn(ctx.Sess.Name, target.dir); err != nil {
-		ctx.replyErr(err.Error())
-		return
-	}
-
 	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
-		pane := sess.findPaneByID(target.paneID)
-		if pane == nil {
-			return commandMutationResult{err: fmt.Errorf("pane %q not found", target.paneName)}
+		pane, w, err := sess.resolvePaneWindowForActor(ctx.ActorPaneID, "respawn", ctx.Args)
+		if err != nil {
+			return commandMutationResult{err: err}
 		}
-		sess.idle.StopTimer(target.paneID)
-		if sess.vtIdle != nil {
-			sess.vtIdle.StopTimer(target.paneID)
+
+		newPane, err := sess.respawnPane(ctx.Srv, pane, w)
+		if err != nil {
+			return commandMutationResult{err: err}
 		}
-		return commandMutationResult{
-			output: fmt.Sprintf("Respawned %s\n", pane.Meta.Name),
-			paneHistories: []paneHistoryUpdate{{
-				paneID:  pane.ID,
-				history: nil,
-			}},
-			paneRenders: []paneRender{{
-				paneID: pane.ID,
-				data:   append([]byte("\x1bc"), []byte(pane.RenderScreen())...),
-			}},
-			startPanes: []*mux.Pane{pane},
-		}
+
+		return clearedPaneRenderResult(
+			fmt.Sprintf("Respawned %s\n", newPane.Meta.Name),
+			newPane,
+			true,
+			[]*mux.Pane{newPane},
+			[]*mux.Pane{pane},
+		)
 	}))
+}
+
+func clearedPaneRenderResult(output string, pane *mux.Pane, includeRender bool, startPanes, closePanes []*mux.Pane) commandMutationResult {
+	res := commandMutationResult{
+		output: output,
+		paneHistories: []paneHistoryUpdate{{
+			paneID:  pane.ID,
+			history: nil,
+		}},
+		startPanes: startPanes,
+		closePanes: closePanes,
+	}
+	if includeRender {
+		res.paneRenders = []paneRender{{
+			paneID: pane.ID,
+			data:   append([]byte("\x1bc"), []byte(pane.RenderScreen())...),
+		}}
+	}
+	return res
 }
 
 func cmdKill(ctx *CommandContext) {
