@@ -131,11 +131,11 @@ func TestSplitBindingArgsInjectsActivePane(t *testing.T) {
 
 	cr := buildTestRenderer(t)
 
-	got, ok := splitBindingArgs(cr, config.Binding{Action: "split-focus", Args: []string{"root", "v"}})
+	got, ok := splitBindingArgs(cr, config.Binding{Action: "split", Args: []string{"root", "v", "--focus"}})
 	if !ok {
 		t.Fatal("splitBindingArgs should succeed when layout is ready")
 	}
-	want := []string{"pane-1", "root", "v"}
+	want := []string{"pane-1", "root", "v", "--focus"}
 	if len(got) != len(want) {
 		t.Fatalf("splitBindingArgs length = %v, want %v", got, want)
 	}
@@ -151,7 +151,7 @@ func TestSplitBindingArgsRejectsUnknownActivePane(t *testing.T) {
 
 	cr := NewClientRenderer(80, 24)
 
-	if got, ok := splitBindingArgs(cr, config.Binding{Action: "split-focus", Args: []string{"v"}}); ok || got != nil {
+	if got, ok := splitBindingArgs(cr, config.Binding{Action: "split", Args: []string{"v", "--focus"}}); ok || got != nil {
 		t.Fatalf("splitBindingArgs without layout = (%v, %t), want (nil, false)", got, ok)
 	}
 }
@@ -171,7 +171,7 @@ func TestHandleSplitBindingShowsErrorWhenLayoutNotReady(t *testing.T) {
 	t.Cleanup(sender.Close)
 
 	var rendered bytes.Buffer
-	handleSplitBinding(cr, sender, config.Binding{Action: "split-focus", Args: []string{"v"}}, &rendered)
+	handleSplitBinding(cr, sender, config.Binding{Action: "split", Args: []string{"v", "--focus"}}, &rendered)
 
 	if !strings.Contains(rendered.String(), "\a") {
 		t.Fatalf("split binding error should ring bell, got %q", rendered.String())
@@ -206,7 +206,7 @@ func TestHandleSplitBindingSendsCommandWhenLayoutReady(t *testing.T) {
 	var rendered bytes.Buffer
 	done := make(chan struct{})
 	go func() {
-		handleSplitBinding(cr, sender, config.Binding{Action: "split-focus", Args: []string{"root", "v"}}, &rendered)
+		handleSplitBinding(cr, sender, config.Binding{Action: "split", Args: []string{"root", "v", "--focus"}}, &rendered)
 		close(done)
 	}()
 
@@ -214,10 +214,10 @@ func TestHandleSplitBindingSendsCommandWhenLayoutReady(t *testing.T) {
 	if msg.Type != proto.MsgTypeCommand {
 		t.Fatalf("message type = %d, want %d", msg.Type, proto.MsgTypeCommand)
 	}
-	if msg.CmdName != "split-focus" {
-		t.Fatalf("command = %q, want split-focus", msg.CmdName)
+	if msg.CmdName != "split" {
+		t.Fatalf("command = %q, want split", msg.CmdName)
 	}
-	if want := []string{"pane-1", "root", "v"}; len(msg.CmdArgs) != len(want) {
+	if want := []string{"pane-1", "root", "v", "--focus"}; len(msg.CmdArgs) != len(want) {
 		t.Fatalf("command args length = %v, want %v", msg.CmdArgs, want)
 	} else {
 		for i := range want {
