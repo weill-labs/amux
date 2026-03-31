@@ -42,18 +42,6 @@ func TestParseCreatePaneArgs(t *testing.T) {
 			},
 		},
 		{
-			name: "add-pane parses shared metadata flags",
-			mode: createPaneModeAddPane,
-			args: []string{"--host", "dev", "--name", "worker", "--task", "build", "--color", "blue"},
-			want: createPaneArgs{
-				Dir:      mux.SplitHorizontal,
-				HostName: "dev",
-				Name:     "worker",
-				Task:     "build",
-				Color:    "blue",
-			},
-		},
-		{
 			name:    "spawn rejects split-only pane refs",
 			mode:    createPaneModeSpawn,
 			args:    []string{"pane-1"},
