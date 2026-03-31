@@ -107,17 +107,6 @@ func activePaneRender(w *mux.Window) []paneRender {
 	}}
 }
 
-func appendFocusFlag(args []string) []string {
-	withFocus := make([]string, 0, len(args)+1)
-	withFocus = append(withFocus, args...)
-	for _, arg := range withFocus {
-		if arg == "--focus" {
-			return withFocus
-		}
-	}
-	return append(withFocus, "--focus")
-}
-
 func keepFocusOnCreate(w *mux.Window, focus bool) bool {
 	return !focus || w.ZoomedPaneID != 0
 }
@@ -215,10 +204,6 @@ func runSplit(ctx *CommandContext, rawArgs []string) {
 
 func cmdSplit(ctx *CommandContext) {
 	runSplit(ctx, ctx.Args)
-}
-
-func cmdSplitFocus(ctx *CommandContext) {
-	runSplit(ctx, appendFocusFlag(ctx.Args))
 }
 
 type spiralAddSnapshot struct {
@@ -338,10 +323,6 @@ func cmdAddPane(ctx *CommandContext) {
 	runAddPane(ctx, ctx.Args)
 }
 
-func cmdAddPaneFocus(ctx *CommandContext) {
-	runAddPane(ctx, appendFocusFlag(ctx.Args))
-}
-
 func cmdFocus(ctx *CommandContext) {
 	direction := "next"
 	if len(ctx.Args) > 0 {
@@ -447,10 +428,6 @@ func runSpawn(ctx *CommandContext, rawArgs []string) {
 
 func cmdSpawn(ctx *CommandContext) {
 	runSpawn(ctx, ctx.Args)
-}
-
-func cmdSpawnFocus(ctx *CommandContext) {
-	runSpawn(ctx, appendFocusFlag(ctx.Args))
 }
 
 func cmdZoom(ctx *CommandContext) {

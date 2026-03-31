@@ -615,7 +615,7 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 					if !showWindowRenamePromptOnRenderLoop(cr, msgCh) {
 						io.WriteString(os.Stdout, "\a")
 					}
-				case "split", "split-focus":
+				case "split":
 					handleSplitBinding(cr, sender, binding, os.Stdout)
 				case "compat-bell":
 					io.WriteString(os.Stdout, "\a")
