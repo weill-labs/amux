@@ -9,13 +9,20 @@ import (
 
 // activeWindow returns the currently active window, or nil.
 func (s *Session) activeWindow() *mux.Window {
-	for _, w := range s.Windows {
-		if w.ID == s.ActiveWindowID {
-			return w
-		}
+	if w := s.windowByID(s.ActiveWindowID); w != nil {
+		return w
 	}
 	if len(s.Windows) > 0 {
 		return s.Windows[0]
+	}
+	return nil
+}
+
+func (s *Session) windowByID(windowID uint32) *mux.Window {
+	for _, w := range s.Windows {
+		if w.ID == windowID {
+			return w
+		}
 	}
 	return nil
 }
@@ -35,6 +42,12 @@ func (s *Session) removeWindow(windowID uint32) {
 	for i, w := range s.Windows {
 		if w.ID == windowID {
 			s.Windows = append(s.Windows[:i], s.Windows[i+1:]...)
+			if s.ActiveWindowID == windowID {
+				s.ActiveWindowID = 0
+			}
+			if s.PreviousWindowID == windowID {
+				s.PreviousWindowID = 0
+			}
 			return
 		}
 	}
@@ -65,6 +78,20 @@ func (s *Session) prevWindow() {
 			return
 		}
 	}
+}
+
+// lastWindow switches to the previously active window.
+func (s *Session) lastWindow() bool {
+	if s.PreviousWindowID == 0 || s.PreviousWindowID == s.ActiveWindowID {
+		return false
+	}
+	w := s.windowByID(s.PreviousWindowID)
+	if w == nil {
+		s.PreviousWindowID = 0
+		return false
+	}
+	s.activateWindow(w)
+	return true
 }
 
 // resolveWindow finds a window by 1-based index, exact name, or name prefix.
@@ -105,6 +132,7 @@ func (s *Session) closePaneInWindow(paneID uint32) string {
 		windowName := w.Name
 		s.removeWindow(w.ID)
 		if wasActive && len(s.Windows) > 0 {
+			s.PreviousWindowID = 0
 			s.activateWindow(s.Windows[0])
 		}
 		return windowName
@@ -116,6 +144,13 @@ func (s *Session) closePaneInWindow(paneID uint32) string {
 func (s *Session) activateWindow(w *mux.Window) {
 	if w == nil {
 		return
+	}
+	if current := s.ActiveWindowID; current != 0 && current != w.ID {
+		if s.windowByID(current) != nil {
+			s.PreviousWindowID = current
+		} else {
+			s.PreviousWindowID = 0
+		}
 	}
 	s.ActiveWindowID = w.ID
 	s.syncWindowSizeToEffectiveClient(w)

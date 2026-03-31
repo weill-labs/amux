@@ -150,6 +150,14 @@ func connectStreamingCommand(sessionName, cmdName string, args []string) (net.Co
 	return conn, nil
 }
 
+func emitBellMessage(msg *server.Message) bool {
+	if msg != nil && msg.Type == server.MsgTypeBell {
+		fmt.Fprint(os.Stdout, "\a")
+		return true
+	}
+	return false
+}
+
 func streamCommandOutput(conn net.Conn, cmdName string) error {
 	defer conn.Close()
 
@@ -157,6 +165,9 @@ func streamCommandOutput(conn net.Conn, cmdName string) error {
 		msg, err := server.ReadMsg(conn)
 		if err != nil {
 			return err
+		}
+		if emitBellMessage(msg) {
+			continue
 		}
 		if msg.CmdErr != "" {
 			fmt.Fprintf(os.Stderr, "amux %s: %s\n", cmdName, msg.CmdErr)
@@ -183,17 +194,25 @@ func runServerCommand(sessionName, cmdName string, args []string) {
 		os.Exit(1)
 	}
 
-	reply, err := server.ReadMsg(conn)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "amux %s: %v\n", cmdName, err)
-		os.Exit(1)
+	for {
+		reply, err := server.ReadMsg(conn)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "amux %s: %v\n", cmdName, err)
+			os.Exit(1)
+		}
+		if emitBellMessage(reply) {
+			continue
+		}
+		if reply.Type != server.MsgTypeCmdResult {
+			continue
+		}
+		if reply.CmdErr != "" {
+			fmt.Fprintf(os.Stderr, "amux %s: %s\n", cmdName, reply.CmdErr)
+			os.Exit(1)
+		}
+		fmt.Print(reply.CmdOutput)
+		return
 	}
-
-	if reply.CmdErr != "" {
-		fmt.Fprintf(os.Stderr, "amux %s: %s\n", cmdName, reply.CmdErr)
-		os.Exit(1)
-	}
-	fmt.Print(reply.CmdOutput)
 }
 
 func prependReloadExecPathArg(resolve func() (string, error), args []string) []string {

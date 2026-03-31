@@ -33,6 +33,7 @@ func (c sessionEventCommand) Handle(s *Session) {
 type commandMutationResult struct {
 	output          string
 	err             error
+	bell            bool
 	broadcastLayout bool
 	paneHistories   []paneHistoryUpdate
 	paneRenders     []paneRender

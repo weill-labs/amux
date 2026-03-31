@@ -36,14 +36,16 @@ type Session struct {
 	startedAt      time.Time
 	Windows        []*mux.Window // ordered list of windows
 	ActiveWindowID uint32        // which window is displayed
-	Panes          []*mux.Pane   // flat list of ALL panes across all windows
-	eventLoopOwner debugowner.Checker
-	clientState    *clientManager
-	paneLog        *PaneLog
-	counter        atomic.Uint32 // pane ID counter
-	windowCounter  atomic.Uint32 // window ID counter
-	shutdown       atomic.Bool
-	input          *inputRouter // cached active pane and paced input queues
+	// PreviousWindowID tracks the last active window for `last-window`.
+	PreviousWindowID uint32
+	Panes            []*mux.Pane // flat list of ALL panes across all windows
+	eventLoopOwner   debugowner.Checker
+	clientState      *clientManager
+	paneLog          *PaneLog
+	counter          atomic.Uint32 // pane ID counter
+	windowCounter    atomic.Uint32 // window ID counter
+	shutdown         atomic.Bool
+	input            *inputRouter // cached active pane and paced input queues
 
 	// Layout generation counter — incremented on every broadcastLayout.
 	// Used by wait-layout to block until a layout change occurs.
@@ -576,6 +578,7 @@ func newServerFromCrashCheckpointWithListener(sessionName string, listener net.L
 			sess.Windows = append(sess.Windows, w)
 		}
 		sess.ActiveWindowID = cp.Layout.ActiveWindowID
+		sess.PreviousWindowID = cp.Layout.PreviousWindowID
 	} else {
 		// Fallback: single window from legacy root
 		w := mux.RebuildFromSnapshot(cp.Layout, paneMap)

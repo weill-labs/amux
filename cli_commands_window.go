@@ -23,6 +23,9 @@ func windowCLICommands() map[string]cliCommandHandler {
 		"prev-window": func(inv cliInvocation, args []string) int {
 			return inv.runSessionCommand("prev-window", nil)
 		},
+		"last-window": func(inv cliInvocation, args []string) int {
+			return inv.runSessionCommand("last-window", nil)
+		},
 		"rename-window": func(inv cliInvocation, args []string) int {
 			if len(args) < 1 {
 				fmt.Fprintln(inv.runtime.stderr, "usage: amux rename-window <name>")

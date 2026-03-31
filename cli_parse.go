@@ -44,6 +44,7 @@ var canonicalSessionCommands = map[string]sessionCommandSpec{
 	"new-window":    {connectName: "new-window", usage: newWindowUsage, argMode: sessionCommandForwardArgs},
 	"next-window":   {connectName: "next-window", usage: nextWindowUsage, argMode: sessionCommandNoArgs},
 	"prev-window":   {connectName: "prev-window", usage: prevWindowUsage, argMode: sessionCommandNoArgs},
+	"last-window":   {connectName: "last-window", usage: lastWindowUsage, argMode: sessionCommandNoArgs},
 	"reconnect":     {connectName: "reconnect", minArgs: 1, usage: reconnectUsage, argMode: sessionCommandFirstArg},
 	"reload-server": {connectName: "reload-server", usage: reloadServerUsage, argMode: sessionCommandNoArgs},
 	"rename-window": {connectName: "rename-window", minArgs: 1, usage: renameWindowUsage, argMode: sessionCommandFirstArg},
