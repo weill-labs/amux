@@ -10,7 +10,6 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/vt"
 	"github.com/weill-labs/amux/internal/config"
-	"github.com/weill-labs/amux/internal/copymode"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
 )
@@ -365,7 +364,7 @@ func (e *emuPaneData) IsLead() bool                        { return e.lead }
 func (e *emuPaneData) ConnStatus() string                  { return "" }
 func (e *emuPaneData) InCopyMode() bool                    { return false }
 func (e *emuPaneData) CopyModeSearch() string              { return "" }
-func (e *emuPaneData) CopyModeOverlay() *copymode.ViewportOverlay {
+func (e *emuPaneData) CopyModeOverlay() *proto.ViewportOverlay {
 	return nil
 }
 

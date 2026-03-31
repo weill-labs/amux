@@ -1,7 +1,6 @@
 package render
 
 import (
-	"github.com/weill-labs/amux/internal/copymode"
 	"github.com/weill-labs/amux/internal/proto"
 )
 
@@ -18,7 +17,7 @@ type PaneData interface {
 	CellAt(col, row int, active bool) ScreenCell
 	// CopyModeOverlay returns the current copy-mode overlay state for the pane,
 	// or nil when the pane is not in copy mode.
-	CopyModeOverlay() *copymode.ViewportOverlay
+	CopyModeOverlay() *proto.ViewportOverlay
 	CursorPos() (col, row int)
 	CursorHidden() bool
 	// HasCursorBlock reports whether the screen contains an app-rendered
