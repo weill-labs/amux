@@ -57,7 +57,6 @@ func (ctx *CommandContext) activeWindowSnapshot() (activePid, width, height int,
 var commandRegistry = map[string]CommandHandler{
 	"list":           cmdList,
 	"split":          cmdSplit,
-	"add-pane":       cmdAddPane,
 	"focus":          cmdFocus,
 	"capture":        cmdCapture,
 	"spawn":          cmdSpawn,

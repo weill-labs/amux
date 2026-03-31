@@ -187,7 +187,7 @@ func TestCommandSpawnSpiralRejectsInvalidLayout(t *testing.T) {
 	sess.Panes = []*mux.Pane{p1, p2, p3}
 
 	res := runTestCommand(t, srv, sess, "spawn", "--spiral")
-	if res.cmdErr != "add-pane requires a canonical spiral layout prefix for 3 panes" {
+	if res.cmdErr != "spawn --spiral requires a canonical spiral layout prefix for 3 panes" {
 		t.Fatalf("spawn --spiral invalid-layout error = %q", res.cmdErr)
 	}
 

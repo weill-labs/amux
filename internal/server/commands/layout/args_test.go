@@ -106,6 +106,7 @@ func TestParseSpawnArgs(t *testing.T) {
 			name: "parses all fields",
 			args: []string{"--name", "worker-1", "--host", "dev", "--task", "build", "--color", "rosewater", "--focus"},
 			want: SpawnArgs{
+				HostExplicit: true,
 				Meta: mux.PaneMeta{
 					Name:  "worker-1",
 					Host:  "dev",
@@ -139,6 +140,8 @@ func TestParseSpawnArgs(t *testing.T) {
 			name: "allows spiral spawn",
 			args: []string{"--spiral", "--name", "worker-1", "--host", "dev", "--task", "build", "--color", "rosewater"},
 			want: SpawnArgs{
+				Spiral:       true,
+				HostExplicit: true,
 				Meta: mux.PaneMeta{
 					Name:  "worker-1",
 					Host:  "dev",

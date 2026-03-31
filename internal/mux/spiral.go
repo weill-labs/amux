@@ -2,7 +2,7 @@ package mux
 
 import "fmt"
 
-// SpiralAddPlan describes the next clockwise add-pane mutation for a window.
+// SpiralAddPlan describes the next clockwise spiral spawn mutation for a window.
 // In lead mode the plan targets only the right subtree.
 type SpiralAddPlan struct {
 	InheritPaneID     uint32
@@ -21,7 +21,7 @@ type spiralCanvas struct {
 }
 
 // PlanSpiralAdd validates the current layout prefix and returns the next
-// add-pane mutation for either the whole window or the lead window's right
+// spiral spawn mutation for either the whole window or the lead window's right
 // subtree.
 func (w *Window) PlanSpiralAdd() (SpiralAddPlan, error) {
 	w.assertOwner("PlanSpiralAdd")
@@ -258,7 +258,7 @@ func rootLeafCount(cell *LayoutCell) int {
 }
 
 func spiralLayoutError(count int) error {
-	return fmt.Errorf("add-pane requires a canonical spiral layout prefix for %d panes", count)
+	return fmt.Errorf("spawn --spiral requires a canonical spiral layout prefix for %d panes", count)
 }
 
 func (w *Window) splitSubtreeRootWithOptions(root *LayoutCell, dir SplitDir, newPane *Pane, insertFirst bool, opts SplitOptions) (*Pane, error) {
