@@ -9,6 +9,7 @@ import (
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/weill-labs/amux/internal/config"
+	"github.com/weill-labs/amux/internal/copymode"
 	"github.com/weill-labs/amux/internal/mux"
 )
 
@@ -186,6 +187,7 @@ func (c *Compositor) buildGridWithOverlay(root *mux.LayoutCell, activePaneID uin
 		}
 		paneCount++
 		isActive := pid == activePaneID
+		copyOverlay := pd.CopyModeOverlay()
 
 		// Status line cells.
 		buildStatusCells(g, cell, isActive, pd)
@@ -193,7 +195,7 @@ func (c *Compositor) buildGridWithOverlay(root *mux.LayoutCell, activePaneID uin
 		// Pane content cells.
 		contentH := mux.PaneContentHeight(cell.H)
 		for row := 0; row < contentH; row++ {
-			buildPaneContentCells(g, cell, row, isActive, pd)
+			buildPaneContentCells(g, cell, row, isActive, pd, copyOverlay)
 		}
 	})
 
@@ -226,14 +228,14 @@ func (c *Compositor) buildGridWithOverlay(root *mux.LayoutCell, activePaneID uin
 // the VT buffer then stores the fragments as separate cells even though the
 // rendered row collapses them into a single grapheme cluster. Re-pack the row
 // before diffing so RenderDiff matches the RenderFull path.
-func buildPaneContentCells(g *ScreenGrid, cell *mux.LayoutCell, row int, active bool, pd PaneData) {
-	rowCells := paneContentRowCells(cell.W, row, active, pd)
+func buildPaneContentCells(g *ScreenGrid, cell *mux.LayoutCell, row int, active bool, pd PaneData, copyOverlay *copymode.ViewportOverlay) {
+	rowCells := paneContentRowCells(cell.W, row, active, pd, copyOverlay)
 	for col, sc := range rowCells {
 		g.Set(cell.X+col, cell.Y+mux.StatusLineRows+row, sc)
 	}
 }
 
-func paneContentRowCells(width, row int, active bool, pd PaneData) []ScreenCell {
+func paneContentRowCells(width, row int, active bool, pd PaneData, copyOverlay *copymode.ViewportOverlay) []ScreenCell {
 	rowCells := make([]ScreenCell, width)
 	for i := range rowCells {
 		rowCells[i] = ScreenCell{Char: " ", Width: 1}
@@ -241,13 +243,13 @@ func paneContentRowCells(width, row int, active bool, pd PaneData) []ScreenCell 
 
 	dstCol := 0
 	for srcCol := 0; srcCol < width && dstCol < width; {
-		sc := pd.CellAt(srcCol, row, active)
+		sc := paneContentCellAt(row, srcCol, active, pd, copyOverlay)
 		if sc.Width == 0 && sc.Char == " " {
 			srcCol++
 			continue
 		}
 
-		rendered, renderedWidth, nextSrc := compactRowCell(width, row, active, pd, srcCol, sc)
+		rendered, renderedWidth, nextSrc := compactRowCell(width, row, active, pd, copyOverlay, srcCol, sc)
 		if renderedWidth <= 0 {
 			renderedWidth = 1
 		}
@@ -269,7 +271,11 @@ func paneContentRowCells(width, row int, active bool, pd PaneData) []ScreenCell 
 	return rowCells
 }
 
-func compactRowCell(width, row int, active bool, pd PaneData, srcCol int, base ScreenCell) (ScreenCell, int, int) {
+func paneContentCellAt(row, col int, active bool, pd PaneData, copyOverlay *copymode.ViewportOverlay) ScreenCell {
+	return applyCopyModeOverlay(pd.CellAt(col, row, active), copyOverlay, col, row)
+}
+
+func compactRowCell(width, row int, active bool, pd PaneData, copyOverlay *copymode.ViewportOverlay, srcCol int, base ScreenCell) (ScreenCell, int, int) {
 	baseWidth := base.Width
 	if baseWidth <= 0 {
 		baseWidth = 1
@@ -281,7 +287,7 @@ func compactRowCell(width, row int, active bool, pd PaneData, srcCol int, base S
 	candidate := base.Char
 
 	for nextSrc < width {
-		next := pd.CellAt(nextSrc, row, active)
+		next := paneContentCellAt(row, nextSrc, active, pd, copyOverlay)
 		if next.Width == 0 && next.Char == " " {
 			nextSrc++
 			continue

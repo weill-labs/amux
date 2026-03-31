@@ -293,8 +293,9 @@ func (c *Compositor) renderCursor(buf *strings.Builder, root *mux.LayoutCell, ac
 
 func (c *Compositor) renderPaneContent(buf *strings.Builder, cell *mux.LayoutCell, active bool, pd PaneData) {
 	contentH := c.visibleContentHeight(cell)
+	copyOverlay := pd.CopyModeOverlay()
 	for row := 0; row < contentH; row++ {
-		rowCells := paneContentRowCells(cell.W, row, active, pd)
+		rowCells := paneContentRowCells(cell.W, row, active, pd, copyOverlay)
 		lastCol := lastPaneContentColumn(rowCells)
 		if lastCol < 0 {
 			continue

@@ -4,10 +4,7 @@ import (
 	"strconv"
 	"strings"
 
-	uv "github.com/charmbracelet/ultraviolet"
-	"github.com/charmbracelet/x/ansi"
 	"github.com/weill-labs/amux/internal/debugowner"
-	"github.com/weill-labs/amux/internal/render"
 )
 
 // TerminalEmulator is the subset of a pane's emulator that copy mode needs.
@@ -16,8 +13,8 @@ type TerminalEmulator interface {
 	ScrollbackLen() int
 	ScrollbackLineText(y int) string // plain text of scrollback line y (0=oldest)
 	ScreenLineText(y int) string     // plain text of screen line y (0=top row)
-	ScrollbackCellAt(col, row int) render.ScreenCell
-	ScreenCellAt(col, row int) render.ScreenCell
+	ScrollbackCellAt(col, row int) Cell
+	ScreenCellAt(col, row int) Cell
 }
 
 // Match represents a single search hit in the scrollback/screen buffer.
@@ -779,7 +776,7 @@ func (cm *CopyMode) lineText(absIdx int) string {
 	return cm.emu.ScreenLineText(screenRow)
 }
 
-func (cm *CopyMode) baseCellAt(col, absIdx int) render.ScreenCell {
+func (cm *CopyMode) baseCellAt(col, absIdx int) Cell {
 	sbLen := cm.emu.ScrollbackLen()
 	if absIdx < sbLen {
 		return cm.emu.ScrollbackCellAt(col, absIdx)
@@ -896,6 +893,11 @@ func (cm *CopyMode) ViewportHeight() int {
 	return cm.height
 }
 
+// ViewportWidth returns the viewport width in columns.
+func (cm *CopyMode) ViewportWidth() int {
+	return cm.width
+}
+
 // FirstVisibleLine returns the absolute line index of the first visible row.
 func (cm *CopyMode) FirstVisibleLine() int {
 	return max(0, cm.TotalLines()-cm.height-cm.oy)
@@ -906,69 +908,18 @@ func (cm *CopyMode) LineText(absIdx int) string {
 	return cm.lineText(absIdx)
 }
 
-// Copy mode cell colors — using basic ANSI colors to match terminal themes.
-var (
-	copySelectionBg = ansi.BasicColor(4)  // blue
-	copyMatchBg     = ansi.BasicColor(3)  // yellow
-	copyCurrentBg   = ansi.BasicColor(11) // bright yellow
-)
-
-// CellAt returns the cell at (col, viewportRow) with copy mode overlays applied.
-// The base character comes from the line text. Selection, search matches, and
-// the cursor are overlaid as style changes.
-func (cm *CopyMode) CellAt(col, viewportRow int) render.ScreenCell {
+// ViewportCellAt returns the frozen base cell at (col, viewportRow) without
+// copy-mode overlays applied.
+func (cm *CopyMode) ViewportCellAt(col, viewportRow int) Cell {
 	absIdx := cm.FirstVisibleLine() + viewportRow
-	sc := cm.baseCellAt(col, absIdx)
-	if sc.Char == "" {
-		sc.Char = " "
+	cell := cm.baseCellAt(col, absIdx)
+	if cell.Char == "" {
+		cell.Char = " "
 	}
-	if sc.Width < 0 {
-		sc.Width = 1
+	if cell.Width < 0 {
+		cell.Width = 1
 	}
-
-	// Selection overlay.
-	if cm.selecting {
-		startY, startX, endY, endX := cm.normalizedSelection()
-		if absIdx >= startY && absIdx <= endY {
-			colStart, colEnd := 0, cm.width
-			switch {
-			case cm.rectSelect:
-				colStart, colEnd = startX, endX+1
-			default:
-				if absIdx == startY {
-					colStart = startX
-				}
-				if absIdx == endY {
-					colEnd = endX + 1
-				}
-			}
-			if col >= colStart && col < colEnd {
-				sc.Style.Bg = copySelectionBg
-			}
-		}
-	}
-
-	// Search match overlay (takes priority over selection).
-	for i, m := range cm.matches {
-		if m.LineIdx != absIdx {
-			continue
-		}
-		if col >= m.Col && col < m.Col+m.Len {
-			if i == cm.matchIdx {
-				sc.Style.Bg = copyCurrentBg
-				sc.Style.Attrs |= uv.AttrBold
-			} else {
-				sc.Style.Bg = copyMatchBg
-			}
-		}
-	}
-
-	// Cursor overlay (takes priority over everything).
-	if viewportRow == cm.cy && col == cm.cx {
-		sc.Style.Attrs |= uv.AttrReverse
-	}
-
-	return sc
+	return cell
 }
 
 // SetCursor moves the copy-mode cursor to a viewport-relative position.

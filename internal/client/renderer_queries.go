@@ -1,6 +1,7 @@
 package client
 
 import (
+	"github.com/weill-labs/amux/internal/copymode"
 	"github.com/weill-labs/amux/internal/mouse"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/render"
@@ -53,12 +54,12 @@ func (p paneBufferSnapshot) ScreenLineText(y int) string {
 	return p.screen[y].text
 }
 
-func (p paneBufferSnapshot) ScrollbackCellAt(col, row int) render.ScreenCell {
-	return paneBufferLineCell(p.scrollback, row, col)
+func (p paneBufferSnapshot) ScrollbackCellAt(col, row int) copymode.Cell {
+	return copyModeCellFromScreen(paneBufferLineCell(p.scrollback, row, col))
 }
 
-func (p paneBufferSnapshot) ScreenCellAt(col, row int) render.ScreenCell {
-	return paneBufferLineCell(p.screen, row, col)
+func (p paneBufferSnapshot) ScreenCellAt(col, row int) copymode.Cell {
+	return copyModeCellFromScreen(paneBufferLineCell(p.screen, row, col))
 }
 
 func paneBufferLineCell(lines []paneBufferLine, row, col int) render.ScreenCell {
@@ -81,6 +82,14 @@ func plainTextHistoryCell(line string, col int) render.ScreenCell {
 		return render.ScreenCell{Char: " ", Width: 1}
 	}
 	return render.ScreenCell{Char: string(runes[col]), Width: 1}
+}
+
+func copyModeCellFromScreen(cell render.ScreenCell) copymode.Cell {
+	return copymode.Cell{
+		Char:  cell.Char,
+		Style: cell.Style,
+		Width: cell.Width,
+	}
 }
 
 func capturePaneBufferSnapshot(emu mux.TerminalEmulator, baseHistory []string, scrollbackLines int) paneBufferSnapshot {

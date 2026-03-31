@@ -6,8 +6,12 @@ import (
 	"testing"
 
 	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/charmbracelet/x/ansi"
+	"github.com/charmbracelet/x/vt"
+	"github.com/weill-labs/amux/internal/copymode"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
+	"github.com/weill-labs/amux/internal/render"
 )
 
 func newTestVTEmulator(width, height int) mux.TerminalEmulator {
@@ -175,5 +179,134 @@ func TestPaneDataAccessors(t *testing.T) {
 	}
 	if got := pane.CopyModeSearch(); got != "" {
 		t.Fatalf("CopyModeSearch() = %q, want empty", got)
+	}
+}
+
+func TestPaneDataCopyModeUsesFrozenBufferAndExposesOverlay(t *testing.T) {
+	t.Parallel()
+
+	copyBuffer := paneBufferSnapshot{
+		width:  5,
+		height: 1,
+		screen: []paneBufferLine{{
+			text: "hello",
+			cells: []render.ScreenCell{
+				{Char: "h", Width: 1},
+				{Char: "e", Width: 1},
+				{Char: "l", Width: 1},
+				{Char: "l", Width: 1},
+				{Char: "o", Width: 1},
+			},
+		}},
+	}
+	liveEmu := newTestVTEmulator(5, 1)
+	if _, err := liveEmu.Write([]byte("world")); err != nil {
+		t.Fatalf("Write live emulator: %v", err)
+	}
+
+	cm := copymode.New(copyBuffer, 5, 1, 0)
+	if action := cm.StartSelection(); action != copymode.ActionRedraw {
+		t.Fatalf("StartSelection() = %d, want %d", action, copymode.ActionRedraw)
+	}
+	cm.HandleInput([]byte{'l'})
+
+	pane := &clientPaneData{emu: liveEmu, cm: cm}
+	if got := pane.CellAt(1, 0, true); got.Char != "e" {
+		t.Fatalf("copy-mode CellAt(1, 0) = %q, want frozen buffer char %q", got.Char, "e")
+	}
+	if pane.CellAt(1, 0, true).Style.Bg != nil {
+		t.Fatal("copy-mode CellAt should return the base frozen cell without overlay styling")
+	}
+
+	overlay := pane.CopyModeOverlay()
+	if overlay == nil {
+		t.Fatal("CopyModeOverlay() = nil, want overlay")
+	}
+	if overlay.Selection == nil {
+		t.Fatal("overlay.Selection = nil, want selection range")
+	}
+}
+
+func TestPaneDataRenderScreenInCopyModeAppliesOverlayAndPreservesBaseStyle(t *testing.T) {
+	t.Parallel()
+
+	green := ansi.BasicColor(2)
+	copyBuffer := paneBufferSnapshot{
+		width:  5,
+		height: 1,
+		screen: []paneBufferLine{{
+			text: "hello",
+			cells: []render.ScreenCell{
+				{Char: "h", Width: 1},
+				{Char: "e", Width: 1, Style: uv.Style{Fg: green}},
+				{Char: "l", Width: 1},
+				{Char: "l", Width: 1},
+				{Char: "o", Width: 1},
+			},
+		}},
+	}
+
+	cm := copymode.New(copyBuffer, 5, 1, 0)
+	if action := cm.SetCursor(1, 0); action != copymode.ActionRedraw {
+		t.Fatalf("SetCursor() = %d, want %d", action, copymode.ActionRedraw)
+	}
+	cm.StartSelection()
+	cm.HandleInput([]byte{'l'})
+
+	pane := &clientPaneData{cm: cm}
+	rendered := pane.RenderScreen(true)
+
+	term := vt.NewSafeEmulator(5, 1)
+	term.Write([]byte(rendered))
+	cell := term.CellAt(1, 0)
+	if cell == nil {
+		t.Fatal("CellAt(1, 0) = nil, want styled cell")
+	}
+	if cell.Content != "e" {
+		t.Fatalf("CellAt(1, 0).Content = %q, want %q", cell.Content, "e")
+	}
+	if cell.Style.Bg == nil {
+		t.Fatal("CellAt(1, 0).Style.Bg = nil, want copy-mode highlight")
+	}
+	if cell.Style.Fg == nil {
+		t.Fatal("CellAt(1, 0).Style.Fg = nil, want preserved base foreground")
+	}
+	assertSameColor(t, cell.Style.Fg, green)
+}
+
+func TestPaneDataRenderScreenInCopyModeResetsTrailingStyle(t *testing.T) {
+	t.Parallel()
+
+	green := ansi.BasicColor(2)
+	copyBuffer := paneBufferSnapshot{
+		width:  1,
+		height: 1,
+		screen: []paneBufferLine{{
+			text: "a",
+			cells: []render.ScreenCell{{
+				Char:  "a",
+				Width: 1,
+				Style: uv.Style{Fg: green},
+			}},
+		}},
+	}
+
+	pane := &clientPaneData{cm: copymode.New(copyBuffer, 1, 1, 0)}
+	rendered := pane.RenderScreen(true)
+
+	term := vt.NewSafeEmulator(2, 1)
+	term.Write([]byte(rendered + "X"))
+	trailing := term.CellAt(1, 0)
+	if trailing == nil {
+		t.Fatal("CellAt(1, 0) = nil, want trailing cell")
+	}
+	if trailing.Content != "X" {
+		t.Fatalf("CellAt(1, 0).Content = %q, want %q", trailing.Content, "X")
+	}
+	if trailing.Style.Attrs&uv.AttrReverse != 0 {
+		t.Fatalf("CellAt(1, 0).Style.Attrs = %v, want no reverse video", trailing.Style.Attrs)
+	}
+	if trailing.Style.Fg != nil {
+		t.Fatalf("CellAt(1, 0).Style.Fg = %v, want nil default fg", trailing.Style.Fg)
 	}
 }

@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/vt"
 	"github.com/weill-labs/amux/internal/config"
+	"github.com/weill-labs/amux/internal/copymode"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
 )
@@ -364,6 +365,9 @@ func (e *emuPaneData) IsLead() bool                        { return e.lead }
 func (e *emuPaneData) ConnStatus() string                  { return "" }
 func (e *emuPaneData) InCopyMode() bool                    { return false }
 func (e *emuPaneData) CopyModeSearch() string              { return "" }
+func (e *emuPaneData) CopyModeOverlay() *copymode.ViewportOverlay {
+	return nil
+}
 
 // twoPaneLookup returns a lookup function for two side-by-side panes with
 // standard test colors (rosewater for pane-1, mauve for pane-2).
@@ -756,7 +760,7 @@ func TestCompactRowCell_DoesNotMergeUnrelatedCells(t *testing.T) {
 	pd := &emuPaneData{emu: paneEmu, cursorHidden: true}
 
 	base := pd.CellAt(0, 0, true)
-	got, gotWidth, nextSrc := compactRowCell(4, 0, true, pd, 0, base)
+	got, gotWidth, nextSrc := compactRowCell(4, 0, true, pd, nil, 0, base)
 
 	if got.Char != "A" || got.Width != 1 {
 		t.Fatalf("compactRowCell() = %+v, want single-cell A", got)

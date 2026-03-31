@@ -7,6 +7,7 @@ import (
 
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/weill-labs/amux/internal/config"
+	"github.com/weill-labs/amux/internal/copymode"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
 )
@@ -48,6 +49,9 @@ func (p *statusPaneData) ConnStatus() string                  { return p.connSta
 func (p *statusPaneData) InCopyMode() bool                    { return p.copyMode }
 func (p *statusPaneData) CopyModeSearch() string              { return p.copySearch }
 func (p *statusPaneData) HasCursorBlock() bool                { return false }
+func (p *statusPaneData) CopyModeOverlay() *copymode.ViewportOverlay {
+	return nil
+}
 
 func TestRenderPaneStatusVariants(t *testing.T) {
 	t.Parallel()
