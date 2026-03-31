@@ -39,7 +39,7 @@ func TestParseWaitArgs(t *testing.T) {
 		{
 			name:    "invalid after value",
 			args:    []string{"--after", "bogus"},
-			wantErr: "invalid generation: bogus",
+			wantErr: "invalid value for --after: bogus",
 		},
 		{
 			name:    "missing timeout value",
@@ -49,7 +49,7 @@ func TestParseWaitArgs(t *testing.T) {
 		{
 			name:    "invalid timeout value",
 			args:    []string{"--timeout", "later"},
-			wantErr: "invalid timeout: later",
+			wantErr: "invalid value for --timeout: later",
 		},
 		{
 			name:    "unknown flag",
@@ -122,7 +122,21 @@ func TestParseTimeout(t *testing.T) {
 			args:        []string{"pane-1", "--timeout", "later"},
 			startIdx:    1,
 			defaultTime: 5 * time.Second,
-			wantErr:     "invalid timeout: later",
+			wantErr:     "invalid value for --timeout: later",
+		},
+		{
+			name:        "missing timeout value",
+			args:        []string{"pane-1", "--timeout"},
+			startIdx:    1,
+			defaultTime: 5 * time.Second,
+			wantErr:     "missing value for --timeout",
+		},
+		{
+			name:        "unknown flag",
+			args:        []string{"pane-1", "--bogus"},
+			startIdx:    1,
+			defaultTime: 5 * time.Second,
+			wantErr:     "unknown flag: --bogus",
 		},
 	}
 

@@ -99,7 +99,7 @@ func TestParseWaitIdleArgs(t *testing.T) {
 		{
 			name:    "invalid settle",
 			args:    []string{"pane-1", "--settle", "later"},
-			wantErr: "invalid settle: later",
+			wantErr: "invalid value for --settle: later",
 		},
 		{
 			name:    "missing timeout value",
@@ -109,7 +109,7 @@ func TestParseWaitIdleArgs(t *testing.T) {
 		{
 			name:    "invalid timeout",
 			args:    []string{"pane-1", "--timeout", "soon"},
-			wantErr: "invalid timeout: soon",
+			wantErr: "invalid value for --timeout: soon",
 		},
 		{
 			name:    "unknown flag",

@@ -180,7 +180,7 @@ func TestParseCopyModeArgs(t *testing.T) {
 		{
 			name:    "invalid timeout value",
 			args:    []string{"--wait", "ui=copy-mode-shown", "--timeout", "later"},
-			wantErr: "invalid timeout: later",
+			wantErr: "invalid value for --timeout: later",
 		},
 		{
 			name:    "unknown flag",
@@ -612,7 +612,7 @@ func TestKillCommandUsageAndSubscriptionCleanup(t *testing.T) {
 			{
 				name:       "invalid timeout",
 				args:       []string{"--cleanup", "--timeout", "bogus", "pane-1"},
-				wantSubstr: "invalid timeout: bogus",
+				wantSubstr: "invalid value for --timeout: bogus",
 			},
 			{
 				name:       "extra pane argument",

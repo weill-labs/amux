@@ -44,7 +44,7 @@ func TestParseEqualizeCommandArgs(t *testing.T) {
 		{
 			name:    "unknown mode",
 			args:    []string{"--bogus"},
-			wantErr: `equalize: unknown mode "--bogus" (use --vertical or --all)`,
+			wantErr: "unknown flag: --bogus",
 		},
 		{
 			name:    "conflicting modes",

@@ -154,9 +154,9 @@ func TestParseWaitUIArgs(t *testing.T) {
 		{name: "missing event", wantErr: "usage: wait ui"},
 		{name: "missing client value", args: []string{"input-idle", "--client"}, wantErr: "missing value for --client"},
 		{name: "missing after value", args: []string{"input-idle", "--after"}, wantErr: "missing value for --after"},
-		{name: "invalid after value", args: []string{"input-idle", "--after", "abc"}, wantErr: "invalid --after generation: abc"},
+		{name: "invalid after value", args: []string{"input-idle", "--after", "abc"}, wantErr: "invalid value for --after: abc"},
 		{name: "missing timeout value", args: []string{"input-idle", "--timeout"}, wantErr: "missing value for --timeout"},
-		{name: "invalid timeout", args: []string{"input-idle", "--timeout", "later"}, wantErr: "invalid timeout: later"},
+		{name: "invalid timeout", args: []string{"input-idle", "--timeout", "later"}, wantErr: "invalid value for --timeout: later"},
 		{name: "unknown flag", args: []string{"input-idle", "--wat"}, wantErr: "unknown flag: --wat"},
 		{name: "all flags", args: []string{"input-idle", "--client", "client-3", "--after", "9", "--timeout", "250ms"}, wantEvent: "input-idle", wantID: "client-3", wantAfter: 9, wantSet: true, wantDur: 250 * time.Millisecond},
 	}

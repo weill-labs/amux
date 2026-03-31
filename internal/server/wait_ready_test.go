@@ -73,7 +73,7 @@ func TestParseWaitReadyArgs(t *testing.T) {
 		{
 			name:    "invalid timeout",
 			args:    []string{"pane-1", "--timeout", "later"},
-			wantErr: "invalid timeout: later",
+			wantErr: "invalid value for --timeout: later",
 		},
 		{
 			name:    "unknown flag",
