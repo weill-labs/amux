@@ -32,6 +32,15 @@ func newBootstrapLogger() *charmlog.Logger {
 	})
 }
 
+func exitBootstrapError(logger *charmlog.Logger, sessionName, msg string, err error) {
+	logger.Error(msg,
+		"event", "server_bootstrap",
+		"session", sessionName,
+		"error", err,
+	)
+	os.Exit(1)
+}
+
 func openSignalFD(envVar, name string) *os.File {
 	fdStr := os.Getenv(envVar)
 	if fdStr == "" {
@@ -106,12 +115,7 @@ func runServer(sessionName string, managedTakeover bool) {
 	logger := newBootstrapLogger()
 
 	if err := terminfo.Install(); err != nil {
-		logger.Error("server bootstrap failed",
-			"event", "server_bootstrap",
-			"session", sessionName,
-			"error", err,
-		)
-		os.Exit(1)
+		exitBootstrapError(logger, sessionName, "server bootstrap failed", err)
 	}
 
 	var s *server.Server
@@ -154,12 +158,7 @@ func runServer(sessionName string, managedTakeover bool) {
 			_ = checkpoint.RemoveCrashFile(crashPath)
 			s, err = server.NewServerWithScrollbackLogger(sessionName, scrollbackLines, logger)
 			if err != nil {
-				logger.Error("creating server failed",
-					"event", "server_bootstrap",
-					"session", sessionName,
-					"error", err,
-				)
-				os.Exit(1)
+				exitBootstrapError(logger, sessionName, "creating server failed", err)
 			}
 		} else {
 			logger.Info("recovering crashed session",
@@ -183,12 +182,7 @@ func runServer(sessionName string, managedTakeover bool) {
 	} else {
 		s, err = server.NewServerWithScrollbackLogger(sessionName, scrollbackLines, logger)
 		if err != nil {
-			logger.Error("creating server failed",
-				"event", "server_bootstrap",
-				"session", sessionName,
-				"error", err,
-			)
-			os.Exit(1)
+			exitBootstrapError(logger, sessionName, "creating server failed", err)
 		}
 	}
 
@@ -204,12 +198,7 @@ func runServer(sessionName string, managedTakeover bool) {
 
 	if managedTakeover {
 		if err := s.EnsureInitialWindow(server.DefaultTermCols, server.DefaultTermRows); err != nil {
-			logger.Error("initializing managed takeover session failed",
-				"event", "server_bootstrap",
-				"session", sessionName,
-				"error", err,
-			)
-			os.Exit(1)
+			exitBootstrapError(logger, sessionName, "initializing managed takeover session failed", err)
 		}
 	}
 
