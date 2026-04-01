@@ -379,6 +379,26 @@ func TestCapturePaneANSI_PreservesOSC8Hyperlinks(t *testing.T) {
 	}
 }
 
+func TestCaptureANSI_PreservesCompositedHyperlinksAndUnderlineMetadata(t *testing.T) {
+	t.Parallel()
+	h := newServerHarness(t)
+
+	link := "\033]8;;https://example.com\aHi\033]8;;\a"
+	underline := "\033[4:3;58;2;1;2;3mU"
+	h.sendKeys("pane-1",
+		`clear; printf '\033]8;;https://example.com\033\\Hi\033]8;;\033\\ \033[4:3;58:2::1:2:3mU\033[m\n'; printf COMP; printf 'DONE\n'`,
+		"Enter")
+	h.waitFor("pane-1", "COMPDONE")
+
+	ansi := h.runCmd("capture", "--ansi")
+	if !strings.Contains(ansi, link) {
+		t.Fatalf("capture --ansi should preserve compositor OSC 8 hyperlinks, want substring %q in:\n%s", link, ansi)
+	}
+	if !strings.Contains(ansi, underline) {
+		t.Fatalf("capture --ansi should preserve compositor underline style/color, want substring %q in:\n%s", underline, ansi)
+	}
+}
+
 func TestCursorBlockOnlyInActivePane(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)

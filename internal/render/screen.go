@@ -17,13 +17,14 @@ import (
 // ScreenCell represents a single cell in the composited screen grid.
 type ScreenCell struct {
 	Char  string   // grapheme cluster ("" treated as space)
+	Link  uv.Link  // OSC-8 hyperlink state for this cell
 	Style uv.Style // foreground, background, attributes
 	Width int      // 1=normal, 2=wide, 0=continuation
 }
 
 // Equal reports whether two cells are visually identical.
 func (c ScreenCell) Equal(o ScreenCell) bool {
-	return c.Char == o.Char && c.Width == o.Width && c.Style.Equal(&o.Style)
+	return c.Char == o.Char && c.Width == o.Width && c.Style.Equal(&o.Style) && c.Link.Equal(&o.Link)
 }
 
 // OOBWrite records a single out-of-bounds Set() call.
@@ -121,7 +122,7 @@ func emitDiffWithProfile(changes []CellChange, profile termenv.Profile) string {
 	var buf strings.Builder
 	buf.Grow(len(changes) * 8)
 
-	var prevStyle *uv.Style
+	var state emittedCellState
 	expectX, expectY := -1, -1
 
 	for _, ch := range changes {
@@ -130,13 +131,7 @@ func emitDiffWithProfile(changes []CellChange, profile termenv.Profile) string {
 			writeCursorTo(&buf, ch.Y+1, ch.X+1)
 		}
 
-		// Minimal style transition.
-		s := ch.Cell.Style
-		if diff := styleDiffWithProfile(prevStyle, s, profile); diff != "" {
-			buf.WriteString(diff)
-		}
-		sCopy := s
-		prevStyle = &sCopy
+		state.transition(&buf, ch.Cell, profile)
 
 		// Write character.
 		char := ch.Cell.Char
@@ -153,6 +148,7 @@ func emitDiffWithProfile(changes []CellChange, profile termenv.Profile) string {
 		}
 		expectX = ch.X + w
 	}
+	state.closeHyperlink(&buf)
 	return buf.String()
 }
 
@@ -165,7 +161,7 @@ func CellFromUV(c *uv.Cell) ScreenCell {
 	if char == "" {
 		char = " "
 	}
-	return ScreenCell{Char: char, Style: c.Style, Width: c.Width}
+	return ScreenCell{Char: char, Link: c.Link, Style: c.Style, Width: c.Width}
 }
 
 func (c *Compositor) buildGridWithOverlay(root *mux.LayoutCell, activePaneID uint32, lookup func(uint32) PaneData, overlay OverlayState) *ScreenGrid {
@@ -265,6 +261,7 @@ func paneContentRowCells(width, row int, active bool, pd PaneData, copyOverlay *
 		rowCells[dstCol] = rendered
 		for i := 1; i < renderedWidth && dstCol+i < width; i++ {
 			rowCells[dstCol+i] = ScreenCell{
+				Link:  rendered.Link,
 				Style: rendered.Style,
 				Width: 0,
 			}
@@ -297,7 +294,7 @@ func compactRowCell(width, row int, active bool, pd PaneData, copyOverlay *proto
 			nextSrc++
 			continue
 		}
-		if next.Char == " " || !merged.Style.Equal(&next.Style) {
+		if next.Char == " " || !merged.Style.Equal(&next.Style) || !merged.Link.Equal(&next.Link) {
 			break
 		}
 
@@ -328,6 +325,55 @@ func compactRowCell(width, row int, active bool, pd PaneData, copyOverlay *proto
 	}
 
 	return merged, mergedWidth, nextSrc
+}
+
+type emittedCellState struct {
+	hasStyle bool
+	style    uv.Style
+	link     uv.Link
+}
+
+func (s *emittedCellState) stylePtr() *uv.Style {
+	if !s.hasStyle {
+		return nil
+	}
+	return &s.style
+}
+
+func (s *emittedCellState) transition(buf *strings.Builder, cell ScreenCell, profile termenv.Profile) {
+	if diff := styleDiffWithProfile(s.stylePtr(), cell.Style, profile); diff != "" {
+		buf.WriteString(diff)
+	}
+	if !cell.Link.Equal(&s.link) {
+		if !linkIsZero(s.link) {
+			buf.WriteString(ansi.ResetHyperlink())
+		}
+		if !linkIsZero(cell.Link) {
+			buf.WriteString(hyperlinkSequence(cell.Link))
+		}
+	}
+
+	s.style = cell.Style
+	s.hasStyle = true
+	s.link = cell.Link
+}
+
+func (s *emittedCellState) closeHyperlink(buf *strings.Builder) {
+	if !linkIsZero(s.link) {
+		buf.WriteString(ansi.ResetHyperlink())
+		s.link = uv.Link{}
+	}
+}
+
+func hyperlinkSequence(link uv.Link) string {
+	if link.Params == "" {
+		return ansi.SetHyperlink(link.URL)
+	}
+	return ansi.SetHyperlink(link.URL, link.Params)
+}
+
+func linkIsZero(link uv.Link) bool {
+	return link.URL == "" && link.Params == ""
 }
 
 // styledChar represents a single character with styling for status/bar rendering.
