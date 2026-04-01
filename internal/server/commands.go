@@ -32,6 +32,9 @@ func (ctx *CommandContext) replyCommandMutation(res commandMutationResult) {
 	for _, pane := range res.startPanes {
 		pane.Start()
 	}
+	if res.bell {
+		ctx.CC.Send(&Message{Type: MsgTypeBell})
+	}
 	if res.output != "" {
 		ctx.reply(res.output)
 	} else {
@@ -77,6 +80,7 @@ var commandRegistry = map[string]CommandHandler{
 	"select-window":  cmdSelectWindow,
 	"next-window":    cmdNextWindow,
 	"prev-window":    cmdPrevWindow,
+	"last-window":    cmdLastWindow,
 	"rename-window":  cmdRenameWindow,
 	"resize-border":  cmdResizeBorder,
 	"resize-active":  cmdResizeActive,

@@ -17,8 +17,9 @@ type LayoutSnapshot struct {
 	Height       int            `json:"height"`
 
 	// Multi-window fields
-	Windows        []WindowSnapshot `json:"windows,omitempty"`
-	ActiveWindowID uint32           `json:"active_window_id,omitempty"`
+	Windows          []WindowSnapshot `json:"windows,omitempty"`
+	ActiveWindowID   uint32           `json:"active_window_id,omitempty"`
+	PreviousWindowID uint32           `json:"previous_window_id,omitempty"`
 }
 
 // WindowSnapshot captures one window's state for the wire protocol.

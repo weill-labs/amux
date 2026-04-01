@@ -369,6 +369,7 @@ Higher-level prompt delegation now lives at the script layer: compose `wait idle
 | `amux select-window <index\|name>` | Switch to a window |
 | `amux next-window` | Switch to next window |
 | `amux prev-window` | Switch to previous window |
+| `amux last-window` | Switch to the previously active window |
 | `amux rename-window <name>` | Rename the active window |
 | `amux resize-window <cols> <rows>` | Resize window to given dimensions |
 
@@ -406,6 +407,7 @@ Default prefix: `Ctrl-a`.
 | `Ctrl-a a` | Spawn pane in clockwise spiral order |
 | `Ctrl-a c` | Create new window |
 | `Ctrl-a n` / `Ctrl-a p` | Next/previous window |
+| `Ctrl-a ;` | Last active window |
 | `Ctrl-a q` | Show pane labels for quick jump |
 | `Ctrl-a 1-9` | Select window by number |
 | `Ctrl-a r` | Hot reload (re-exec binary) |

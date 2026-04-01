@@ -205,6 +205,12 @@ func TestWindowSwitchResyncsStaleCursorState(t *testing.T) {
 				h.runCmd("prev-window")
 			},
 		},
+		{
+			name: "last-window",
+			switchFn: func(h *ServerHarness) {
+				h.runCmd("last-window")
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -332,6 +338,26 @@ func TestSelectWindowByNumber(t *testing.T) {
 	h.sendKeys("C-a", "2")
 	if !h.waitFor("[pane-2]", 3*time.Second) {
 		t.Fatalf("Ctrl-a 2 should select window 2.\nScreen:\n%s", h.capture())
+	}
+}
+
+func TestLastWindowKeybinding(t *testing.T) {
+	t.Parallel()
+	h := newAmuxHarness(t)
+
+	h.sendKeys("C-a", "c")
+	if !h.waitFor("[pane-2]", 3*time.Second) {
+		t.Fatalf("window 2 did not appear.\nScreen:\n%s", h.capture())
+	}
+
+	h.sendKeys("C-a", ";")
+	if !h.waitFor("[pane-1]", 3*time.Second) {
+		t.Fatalf("Ctrl-a ; should switch back to pane-1.\nScreen:\n%s", h.capture())
+	}
+
+	h.sendKeys("C-a", ";")
+	if !h.waitFor("[pane-2]", 3*time.Second) {
+		t.Fatalf("second Ctrl-a ; should switch back to pane-2.\nScreen:\n%s", h.capture())
 	}
 }
 

@@ -197,6 +197,12 @@ func TestResolveCanonicalSessionCommand(t *testing.T) {
 			wantHandled: true,
 		},
 		{
+			name:        "last-window uses no-arg session command",
+			args:        []string{"last-window"},
+			wantCmd:     "last-window",
+			wantHandled: true,
+		},
+		{
 			name:        "list forwards args",
 			args:        []string{"list", "--no-cwd"},
 			wantCmd:     "list",
@@ -523,6 +529,12 @@ func TestMaybePrintCommandHelp(t *testing.T) {
 			wantStdout:  "usage: amux wait <idle|busy|exited|ready|content|layout|clipboard|checkpoint|ui> ...\n",
 		},
 		{
+			name:        "last-window help",
+			args:        []string{"last-window", "--help"},
+			wantHandled: true,
+			wantStdout:  "usage: amux last-window\n",
+		},
+		{
 			name:        "help after command args stays unhandled",
 			args:        []string{"send-keys", "pane-1", "--help"},
 			wantHandled: false,
@@ -664,6 +676,14 @@ func TestRunMainDispatchesCommands(t *testing.T) {
 			wantExit: 0,
 			wantCalls: []cliCall{
 				{kind: "server-command", session: "demo", cmd: "select-window", args: []string{"2"}},
+			},
+		},
+		{
+			name:     "last-window dispatches through server",
+			args:     []string{"last-window"},
+			wantExit: 0,
+			wantCalls: []cliCall{
+				{kind: "server-command", session: resolvedSessionMarker, cmd: "last-window"},
 			},
 		},
 		{

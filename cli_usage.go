@@ -35,6 +35,7 @@ const (
 	newWindowUsage    = "usage: amux new-window [--name NAME]"
 	nextWindowUsage   = "usage: amux next-window"
 	prevWindowUsage   = "usage: amux prev-window"
+	lastWindowUsage   = "usage: amux last-window"
 	zoomUsage         = "usage: amux zoom [pane]"
 )
 
@@ -64,6 +65,7 @@ var commandUsageByName = map[string]string{
 	"new-window":       newWindowUsage,
 	"next-window":      nextWindowUsage,
 	"prev-window":      prevWindowUsage,
+	"last-window":      lastWindowUsage,
 	"reconnect":        reconnectUsage,
 	"reload-server":    reloadServerUsage,
 	"rename-window":    renameWindowUsage,
@@ -189,6 +191,7 @@ Usage:
   amux [-s session] select-window <n>  Switch to window by index or name
   amux [-s session] next-window        Switch to next window
   amux [-s session] prev-window        Switch to previous window
+  amux [-s session] last-window        Switch to the previously active window
   amux [-s session] rename-window <n>  Rename the active window
   amux [-s session] resize-window <c> <r>
                                        Resize window to cols x rows
@@ -245,6 +248,7 @@ Inside an amux session:
   Ctrl-a c                           Create new window
   Ctrl-a n                           Next window
   Ctrl-a p                           Previous window
+  Ctrl-a ;                           Last active window
   Ctrl-a s                           Open window/pane chooser
   Ctrl-a w                           Open window chooser
   Ctrl-a q                           Show pane labels for quick jump

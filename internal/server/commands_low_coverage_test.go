@@ -80,6 +80,46 @@ func mustReadMessage(t *testing.T, conn net.Conn) *Message {
 	return msg
 }
 
+func runTestCommandMessages(t *testing.T, srv *Server, sess *Session, name string, args ...string) []*Message {
+	t.Helper()
+
+	serverConn, peerConn := net.Pipe()
+	defer serverConn.Close()
+	defer peerConn.Close()
+	cc := newClientConn(serverConn)
+	defer cc.Close()
+
+	results := make(chan []*Message, 1)
+	go func() {
+		var msgs []*Message
+		for {
+			msg, err := ReadMsg(peerConn)
+			if err != nil {
+				return
+			}
+			msgs = append(msgs, msg)
+			if msg.Type == MsgTypeCmdResult {
+				results <- msgs
+				return
+			}
+		}
+	}()
+
+	go cc.handleCommand(srv, sess, &Message{
+		Type:    MsgTypeCommand,
+		CmdName: name,
+		CmdArgs: args,
+	})
+
+	select {
+	case msgs := <-results:
+		return msgs
+	case <-time.After(5 * time.Second):
+		t.Fatalf("timeout waiting for %s messages", name)
+		return nil
+	}
+}
+
 func TestCommandStatusListAndWindowNavigation(t *testing.T) {
 	t.Parallel()
 
@@ -150,6 +190,94 @@ func TestCommandStatusListAndWindowNavigation(t *testing.T) {
 	}
 	if got := mustSessionQuery(t, sess, func(sess *Session) uint32 { return sess.ActiveWindowID }); got != w2.ID {
 		t.Fatalf("active window after prev = %d, want %d", got, w2.ID)
+	}
+}
+
+func TestLastWindowCommandTracksPreviousWindow(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	p1 := newTestPane(sess, 1, "pane-1")
+	p2 := newTestPane(sess, 2, "pane-2")
+	w1 := newTestWindowWithPanes(t, sess, 1, "main", p1)
+	w2 := newTestWindowWithPanes(t, sess, 2, "logs", p2)
+	setSessionLayoutForTest(t, sess, w1.ID, []*mux.Window{w1, w2}, p1, p2)
+
+	selectRes := runTestCommand(t, srv, sess, "select-window", "logs")
+	if selectRes.cmdErr != "" || !strings.Contains(selectRes.output, "Switched window") {
+		t.Fatalf("select-window result = %#v", selectRes)
+	}
+	if got := mustSessionQuery(t, sess, func(sess *Session) uint32 { return sess.PreviousWindowID }); got != w1.ID {
+		t.Fatalf("previous window after select = %d, want %d", got, w1.ID)
+	}
+
+	lastRes := runTestCommand(t, srv, sess, "last-window")
+	if lastRes.cmdErr != "" || !strings.Contains(lastRes.output, "Last window") {
+		t.Fatalf("last-window result = %#v", lastRes)
+	}
+	if got := mustSessionQuery(t, sess, func(sess *Session) uint32 { return sess.ActiveWindowID }); got != w1.ID {
+		t.Fatalf("active window after first last-window = %d, want %d", got, w1.ID)
+	}
+	if got := mustSessionQuery(t, sess, func(sess *Session) uint32 { return sess.PreviousWindowID }); got != w2.ID {
+		t.Fatalf("previous window after first last-window = %d, want %d", got, w2.ID)
+	}
+
+	lastRes = runTestCommand(t, srv, sess, "last-window")
+	if lastRes.cmdErr != "" || !strings.Contains(lastRes.output, "Last window") {
+		t.Fatalf("second last-window result = %#v", lastRes)
+	}
+	if got := mustSessionQuery(t, sess, func(sess *Session) uint32 { return sess.ActiveWindowID }); got != w2.ID {
+		t.Fatalf("active window after second last-window = %d, want %d", got, w2.ID)
+	}
+}
+
+func TestLastWindowCommandBellsWithoutPreviousWindow(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	p1 := newTestPane(sess, 1, "pane-1")
+	w1 := newTestWindowWithPanes(t, sess, 1, "main", p1)
+	setSessionLayoutForTest(t, sess, w1.ID, []*mux.Window{w1}, p1)
+
+	msgs := runTestCommandMessages(t, srv, sess, "last-window")
+	if len(msgs) != 2 {
+		t.Fatalf("message count = %d, want 2", len(msgs))
+	}
+	if msgs[0].Type != MsgTypeBell {
+		t.Fatalf("first message type = %d, want bell", msgs[0].Type)
+	}
+	if msgs[1].Type != MsgTypeCmdResult {
+		t.Fatalf("second message type = %d, want command result", msgs[1].Type)
+	}
+	if msgs[1].CmdErr != "" || msgs[1].CmdOutput != "" {
+		t.Fatalf("last-window bell result = %+v, want empty cmd result", msgs[1])
+	}
+}
+
+func TestSnapshotLayoutIncludesPreviousWindowID(t *testing.T) {
+	t.Parallel()
+
+	_, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	p1 := newTestPane(sess, 1, "pane-1")
+	p2 := newTestPane(sess, 2, "pane-2")
+	w1 := newTestWindowWithPanes(t, sess, 1, "main", p1)
+	w2 := newTestWindowWithPanes(t, sess, 2, "logs", p2)
+	setSessionLayoutForTest(t, sess, w2.ID, []*mux.Window{w1, w2}, p1, p2)
+	mustSessionMutation(t, sess, func(sess *Session) {
+		sess.PreviousWindowID = w1.ID
+	})
+
+	snap := mustSessionQuery(t, sess, func(sess *Session) *proto.LayoutSnapshot {
+		return sess.snapshotLayout(nil)
+	})
+	if snap.PreviousWindowID != w1.ID {
+		t.Fatalf("snapshot previous window = %d, want %d", snap.PreviousWindowID, w1.ID)
 	}
 }
 
@@ -1282,6 +1410,44 @@ func TestSessionWindowHelpers(t *testing.T) {
 	sess.removeWindow(w1.ID)
 	if len(sess.Windows) != 0 {
 		t.Fatalf("removeWindow left %d windows, want 0", len(sess.Windows))
+	}
+}
+
+func TestCloseActiveWindowPreservesPreviousWindow(t *testing.T) {
+	t.Parallel()
+
+	sess := &Session{}
+	p1 := newTestPane(sess, 1, "pane-1")
+	p2 := newTestPane(sess, 2, "pane-2")
+	p3 := newTestPane(sess, 3, "pane-3")
+
+	w1 := newTestWindowWithPanes(t, sess, 1, "one", p1)
+	w2 := newTestWindowWithPanes(t, sess, 2, "two", p2)
+	w3 := newTestWindowWithPanes(t, sess, 3, "three", p3)
+	sess.Windows = []*mux.Window{w3, w2, w1}
+	sess.ActiveWindowID = w3.ID
+
+	sess.activateWindow(w1)
+	sess.activateWindow(w2)
+
+	if got := sess.PreviousWindowID; got != w1.ID {
+		t.Fatalf("previous before close = %d, want %d", got, w1.ID)
+	}
+
+	if got := sess.closePaneInWindow(p2.ID); got != "two" {
+		t.Fatalf("closePaneInWindow(active last pane) = %q, want %q", got, "two")
+	}
+	if got := sess.ActiveWindowID; got != w3.ID {
+		t.Fatalf("active after close = %d, want %d", got, w3.ID)
+	}
+	if got := sess.PreviousWindowID; got != w1.ID {
+		t.Fatalf("previous after close = %d, want %d", got, w1.ID)
+	}
+	if !sess.lastWindow() {
+		t.Fatal("lastWindow() = false, want true")
+	}
+	if got := sess.ActiveWindowID; got != w1.ID {
+		t.Fatalf("active after lastWindow = %d, want %d", got, w1.ID)
 	}
 }
 

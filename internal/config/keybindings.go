@@ -45,6 +45,7 @@ func DefaultKeybindings() *Keybindings {
 			'a': {Action: "spawn", Args: []string{"--spiral"}},
 			'n': {Action: "next-window"},
 			'p': {Action: "prev-window"},
+			';': {Action: "last-window"},
 			',': {Action: "rename-window"},
 			'q': {Action: "display-panes"},
 			's': {Action: "choose-tree"},

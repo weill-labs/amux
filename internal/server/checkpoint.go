@@ -245,6 +245,7 @@ func NewServerFromCheckpointWithScrollback(cp *checkpoint.ServerCheckpoint, scro
 			sess.Windows = append(sess.Windows, w)
 		}
 		sess.ActiveWindowID = cp.Layout.ActiveWindowID
+		sess.PreviousWindowID = cp.Layout.PreviousWindowID
 	} else {
 		// Legacy single-window checkpoint
 		w := mux.RebuildFromSnapshot(cp.Layout, paneMap)
