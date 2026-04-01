@@ -28,7 +28,8 @@ func decodeANSISequence(s string, i int) (ansi.Cmd, ansi.Params, int, bool) {
 		return 0, nil, 0, false
 	}
 
-	return ansi.Cmd(parser.Command()), parser.Params(), n, true
+	params := append(ansi.Params(nil), parser.Params()...)
+	return ansi.Cmd(parser.Command()), params, n, true
 }
 
 // skipANSISequence advances past an ANSI escape sequence starting at s[i].
