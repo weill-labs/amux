@@ -258,7 +258,7 @@ func (w *clientWriter) send(msg *Message) error {
 	if !w.enqueue(clientWriterSendCommand{msg: msg, reply: reply}) {
 		return nil
 	}
-	return <-reply
+	return waitClientWriterError(w.done, reply, net.ErrClosed)
 }
 
 func (w *clientWriter) sendBroadcast(msg *Message) {
@@ -276,7 +276,7 @@ func (w *clientWriter) sendBroadcastSync(msg *Message) {
 	if !w.enqueueAsync(clientWriterBroadcastCommand{msg: msg, reply: reply}) {
 		return
 	}
-	<-reply
+	waitClientWriterAck(w.done, reply)
 }
 
 func (w *clientWriter) sendPaneOutput(msg *Message, paneID uint32, seq uint64) {
@@ -301,7 +301,7 @@ func (w *clientWriter) startBootstrap() {
 	if !w.enqueue(clientWriterStartBootstrapCommand{reply: reply}) {
 		return
 	}
-	<-reply
+	waitClientWriterAck(w.done, reply)
 }
 
 func (w *clientWriter) finishBootstrap(minOutputSeq map[uint32]uint64) {
@@ -315,7 +315,7 @@ func (w *clientWriter) finishBootstrap(minOutputSeq map[uint32]uint64) {
 	}) {
 		return
 	}
-	<-reply
+	waitClientWriterAck(w.done, reply)
 }
 
 func (w *clientWriter) isBootstrapping() bool {
@@ -326,7 +326,7 @@ func (w *clientWriter) isBootstrapping() bool {
 	if !w.enqueue(clientWriterBootstrappingQuery{reply: reply}) {
 		return false
 	}
-	return <-reply
+	return waitClientWriterBool(w.done, reply, false)
 }
 
 func (w *clientWriter) close() {
@@ -427,4 +427,58 @@ func writeClientMessage(state *clientWriterState, conn net.Conn, msg *Message) e
 		return err
 	}
 	return nil
+}
+
+func waitClientWriterError(done <-chan struct{}, reply <-chan error, fallback error) error {
+	select {
+	case err := <-reply:
+		return err
+	default:
+	}
+	select {
+	case err := <-reply:
+		return err
+	case <-done:
+		select {
+		case err := <-reply:
+			return err
+		default:
+			return fallback
+		}
+	}
+}
+
+func waitClientWriterAck(done <-chan struct{}, reply <-chan struct{}) {
+	select {
+	case <-reply:
+		return
+	default:
+	}
+	select {
+	case <-reply:
+	case <-done:
+		select {
+		case <-reply:
+		default:
+		}
+	}
+}
+
+func waitClientWriterBool(done <-chan struct{}, reply <-chan bool, fallback bool) bool {
+	select {
+	case value := <-reply:
+		return value
+	default:
+	}
+	select {
+	case value := <-reply:
+		return value
+	case <-done:
+		select {
+		case value := <-reply:
+			return value
+		default:
+			return fallback
+		}
+	}
 }

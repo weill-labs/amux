@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"net"
 	"testing"
 	"time"
@@ -308,6 +309,155 @@ func TestClientWriterSendBroadcastSyncDropsFrameWhenQueueFull(t *testing.T) {
 	case <-w.stop:
 		t.Fatal("sendBroadcastSync stopped the writer; want frame drop only")
 	default:
+	}
+}
+
+func TestClientWriterSynchronousHelpersReturnWhenWriterExitsAfterEnqueue(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		run  func(*clientWriter)
+	}{
+		{
+			name: "send",
+			run: func(w *clientWriter) {
+				errCh := make(chan error, 1)
+				go func() {
+					errCh <- w.send(&Message{Type: MsgTypeCmdResult})
+				}()
+
+				select {
+				case <-w.commands:
+				case <-time.After(time.Second):
+					t.Fatal("send() did not enqueue")
+				}
+
+				close(w.done)
+
+				select {
+				case err := <-errCh:
+					if !errors.Is(err, net.ErrClosed) {
+						t.Fatalf("send() error = %v, want %v", err, net.ErrClosed)
+					}
+				case <-time.After(time.Second):
+					t.Fatal("send() did not return after writer exit")
+				}
+			},
+		},
+		{
+			name: "sendBroadcastSync",
+			run: func(w *clientWriter) {
+				done := make(chan struct{})
+				go func() {
+					defer close(done)
+					w.sendBroadcastSync(&Message{Type: MsgTypeServerReload})
+				}()
+
+				select {
+				case <-w.commands:
+				case <-time.After(time.Second):
+					t.Fatal("sendBroadcastSync() did not enqueue")
+				}
+
+				close(w.done)
+
+				select {
+				case <-done:
+				case <-time.After(time.Second):
+					t.Fatal("sendBroadcastSync() did not return after writer exit")
+				}
+			},
+		},
+		{
+			name: "startBootstrap",
+			run: func(w *clientWriter) {
+				done := make(chan struct{})
+				go func() {
+					defer close(done)
+					w.startBootstrap()
+				}()
+
+				select {
+				case <-w.commands:
+				case <-time.After(time.Second):
+					t.Fatal("startBootstrap() did not enqueue")
+				}
+
+				close(w.done)
+
+				select {
+				case <-done:
+				case <-time.After(time.Second):
+					t.Fatal("startBootstrap() did not return after writer exit")
+				}
+			},
+		},
+		{
+			name: "finishBootstrap",
+			run: func(w *clientWriter) {
+				done := make(chan struct{})
+				go func() {
+					defer close(done)
+					w.finishBootstrap(map[uint32]uint64{1: 3})
+				}()
+
+				select {
+				case <-w.commands:
+				case <-time.After(time.Second):
+					t.Fatal("finishBootstrap() did not enqueue")
+				}
+
+				close(w.done)
+
+				select {
+				case <-done:
+				case <-time.After(time.Second):
+					t.Fatal("finishBootstrap() did not return after writer exit")
+				}
+			},
+		},
+		{
+			name: "isBootstrapping",
+			run: func(w *clientWriter) {
+				resultCh := make(chan bool, 1)
+				go func() {
+					resultCh <- w.isBootstrapping()
+				}()
+
+				select {
+				case <-w.commands:
+				case <-time.After(time.Second):
+					t.Fatal("isBootstrapping() did not enqueue")
+				}
+
+				close(w.done)
+
+				select {
+				case got := <-resultCh:
+					if got {
+						t.Fatal("isBootstrapping() = true after writer exit, want false")
+					}
+				case <-time.After(time.Second):
+					t.Fatal("isBootstrapping() did not return after writer exit")
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			w := &clientWriter{
+				commands:     make(chan clientWriterCommand, 1),
+				paneCommands: make(chan clientWriterCommand, 1),
+				stop:         make(chan struct{}),
+				done:         make(chan struct{}),
+			}
+
+			tt.run(w)
+		})
 	}
 }
 

@@ -10,6 +10,7 @@ import (
 
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
+	inputcmd "github.com/weill-labs/amux/internal/server/commands/input"
 	keyscmd "github.com/weill-labs/amux/internal/server/commands/input/keys"
 )
 
@@ -73,6 +74,10 @@ type typeKeysOptions struct {
 	keys          []string
 }
 
+type inputCommandContext struct {
+	*CommandContext
+}
+
 func parseTypeKeysArgs(args []string) (typeKeysOptions, error) {
 	opts := typeKeysOptions{waitTimeout: defaultCommandUIWaitTimeout}
 	timeoutSet := false
@@ -120,58 +125,52 @@ func parseTypeKeysArgs(args []string) (typeKeysOptions, error) {
 	return opts, nil
 }
 
-func cmdSendKeys(ctx *CommandContext) {
-	if len(ctx.Args) < 2 {
-		ctx.replyErr(sendKeysUsage)
-		return
+func (ctx inputCommandContext) SendKeys(actorPaneID uint32, args []string) (string, int, error) {
+	if len(args) < 2 {
+		return "", 0, fmt.Errorf(sendKeysUsage)
 	}
-	opts, err := parseSendKeysArgs(ctx.Args[1:])
+	opts, err := parseSendKeysArgs(args[1:])
 	if err != nil {
-		ctx.replyErr(err.Error())
-		return
+		return "", 0, err
 	}
 	if len(opts.keys) == 0 {
-		ctx.replyErr(sendKeysUsage)
-		return
+		return "", 0, fmt.Errorf(sendKeysUsage)
 	}
 	chunks, err := encodeKeyChunks(opts.hexMode, opts.keys)
 	if err != nil {
-		ctx.replyErr(err.Error())
-		return
+		return "", 0, err
 	}
 	applyFinalDelay(chunks, opts.delayFinal)
-	pane, err := ctx.Sess.queryResolvedPaneForActor(ctx.ActorPaneID, ctx.Args[0])
+	pane, err := ctx.Sess.queryResolvedPaneForActor(actorPaneID, args[0])
 	if err != nil {
-		ctx.replyErr(err.Error())
-		return
+		return "", 0, err
 	}
 	switch opts.waitTarget {
 	case sendKeysWaitReady:
-		if err := waitForPaneReady(ctx.Sess, ctx.Args[0], pane, waitReadyOptions{timeout: opts.waitTimeout}); err != nil {
-			ctx.replyErr(err.Error())
-			return
+		if err := waitForPaneReady(ctx.Sess, args[0], pane, waitReadyOptions{timeout: opts.waitTimeout}); err != nil {
+			return "", 0, err
 		}
 		if err := enqueueSendKeysInput(ctx.Sess, pane, chunks, opts, nil); err != nil {
-			ctx.replyErr(err.Error())
-			return
+			return "", 0, err
 		}
 	case sendKeysWaitInputIdle:
 		uiWait, err := ctx.Sess.queryUIClient("", proto.UIEventInputIdle)
 		if err != nil {
-			ctx.replyErr(err.Error())
-			return
+			return "", 0, err
 		}
 		if err := enqueueSendKeysInput(ctx.Sess, pane, chunks, opts, &uiWait); err != nil {
-			ctx.replyErr(err.Error())
-			return
+			return "", 0, err
 		}
 	default:
 		if err := enqueueSendKeysInput(ctx.Sess, pane, chunks, opts, nil); err != nil {
-			ctx.replyErr(err.Error())
-			return
+			return "", 0, err
 		}
 	}
-	ctx.reply(fmt.Sprintf("Sent %d bytes to %s\n", totalEncodedKeyBytes(chunks), pane.paneName))
+	return pane.paneName, totalEncodedKeyBytes(chunks), nil
+}
+
+func cmdSendKeys(ctx *CommandContext) {
+	ctx.applyCommandResult(inputcmd.SendKeys(inputCommandContext{ctx}, ctx.ActorPaneID, ctx.Args))
 }
 
 func enqueueSendKeysInput(sess *Session, pane resolvedPaneRef, chunks []encodedKeyChunk, opts sendKeysOptions, uiWait *uiClientSnapshot) error {
@@ -223,40 +222,35 @@ type broadcastCommandArgs struct {
 	keys         []string
 }
 
-func cmdBroadcast(ctx *CommandContext) {
-	parsed, err := parseBroadcastCommandArgs(ctx.Args)
+func (ctx inputCommandContext) Broadcast(actorPaneID uint32, args []string) ([]string, int, error) {
+	parsed, err := parseBroadcastCommandArgs(args)
 	if err != nil {
-		ctx.replyErr(err.Error())
-		return
+		return nil, 0, err
 	}
 
 	chunks, err := encodeKeyChunks(parsed.hexMode, parsed.keys)
 	if err != nil {
-		ctx.replyErr(err.Error())
-		return
+		return nil, 0, err
 	}
 
-	targets, err := resolveBroadcastTargetsForActor(ctx.Sess, ctx.ActorPaneID, parsed)
+	targets, err := resolveBroadcastTargetsForActor(ctx.Sess, actorPaneID, parsed)
 	if err != nil {
-		ctx.replyErr(err.Error())
-		return
+		return nil, 0, err
 	}
 
 	if err := enqueueBroadcastInput(ctx.Sess, targets, chunks); err != nil {
-		ctx.replyErr(err.Error())
-		return
+		return nil, 0, err
 	}
 
 	names := make([]string, 0, len(targets))
 	for _, target := range targets {
 		names = append(names, target.paneName)
 	}
+	return names, totalEncodedKeyBytes(chunks), nil
+}
 
-	noun := "panes"
-	if len(targets) == 1 {
-		noun = "pane"
-	}
-	ctx.reply(fmt.Sprintf("Sent %d bytes to %d %s: %s\n", totalEncodedKeyBytes(chunks), len(targets), noun, strings.Join(names, ", ")))
+func cmdBroadcast(ctx *CommandContext) {
+	ctx.applyCommandResult(inputcmd.Broadcast(inputCommandContext{ctx}, ctx.ActorPaneID, ctx.Args))
 }
 
 func parseBroadcastCommandArgs(args []string) (broadcastCommandArgs, error) {
@@ -455,20 +449,17 @@ func enqueueBroadcastInput(sess *Session, targets []resolvedPaneRef, chunks []en
 	return fmt.Errorf("broadcast: failed for %d/%d panes: %s", len(failures), len(targets), strings.Join(failures, ", "))
 }
 
-func cmdTypeKeys(ctx *CommandContext) {
-	opts, err := parseTypeKeysArgs(ctx.Args)
+func (ctx inputCommandContext) TypeKeys(args []string) (int, error) {
+	opts, err := parseTypeKeysArgs(args)
 	if err != nil {
-		ctx.replyErr(err.Error())
-		return
+		return 0, err
 	}
 	if len(opts.keys) == 0 {
-		ctx.replyErr(typeKeysUsage)
-		return
+		return 0, fmt.Errorf(typeKeysUsage)
 	}
 	chunks, err := encodeKeyChunks(opts.hexMode, opts.keys)
 	if err != nil {
-		ctx.replyErr(err.Error())
-		return
+		return 0, err
 	}
 
 	var (
@@ -478,27 +469,27 @@ func cmdTypeKeys(ctx *CommandContext) {
 	if opts.waitInputIdle {
 		uiWait, err = ctx.Sess.queryUIClient("", proto.UIEventInputIdle)
 		if err != nil {
-			ctx.replyErr(err.Error())
-			return
+			return 0, err
 		}
 		client = uiWait.client
 	} else {
 		client, err = ctx.Sess.queryFirstClient()
 		if err != nil {
-			ctx.replyErr(err.Error())
-			return
+			return 0, err
 		}
 	}
 
 	if err := client.enqueueTypeKeys(chunks); err != nil {
-		ctx.replyErr(err.Error())
-		return
+		return 0, err
 	}
 	if opts.waitInputIdle {
 		if err := waitForNextUIEvent(ctx.Sess, uiWait, proto.UIEventInputIdle, opts.waitTimeout); err != nil {
-			ctx.replyErr(err.Error())
-			return
+			return 0, err
 		}
 	}
-	ctx.reply(fmt.Sprintf("Typed %d bytes\n", totalEncodedKeyBytes(chunks)))
+	return totalEncodedKeyBytes(chunks), nil
+}
+
+func cmdTypeKeys(ctx *CommandContext) {
+	ctx.applyCommandResult(inputcmd.TypeKeys(inputCommandContext{ctx}, ctx.Args))
 }

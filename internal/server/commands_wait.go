@@ -15,6 +15,200 @@ const (
 	cursorCommandUsage = "usage: cursor <layout|clipboard|ui> [--client <id>]"
 )
 
+type waitCommandContext struct {
+	*CommandContext
+}
+
+func (ctx waitCommandContext) Generation() uint64 {
+	return ctx.Sess.generation.Load()
+}
+
+func (ctx waitCommandContext) LayoutJSON() (string, error) {
+	snap, err := enqueueSessionQuery(ctx.Sess, func(sess *Session) (*proto.LayoutSnapshot, error) {
+		return sess.snapshotLayout(nil), nil
+	})
+	if err != nil {
+		return "", err
+	}
+	data, err := json.MarshalIndent(snap, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	return string(data) + "\n", nil
+}
+
+func (ctx waitCommandContext) WaitLayout(afterGen uint64, afterSet bool, timeout time.Duration) (uint64, bool) {
+	if afterSet {
+		return ctx.Sess.waitGeneration(afterGen, timeout)
+	}
+	return ctx.Sess.waitGenerationAfterCurrent(timeout)
+}
+
+func (ctx waitCommandContext) ClipboardGeneration() uint64 {
+	return ctx.Sess.clipboardGeneration()
+}
+
+func (ctx waitCommandContext) WaitClipboard(afterGen uint64, afterSet bool, timeout time.Duration) (string, bool) {
+	if afterSet {
+		return ctx.Sess.waitClipboard(afterGen, timeout)
+	}
+	return ctx.Sess.waitClipboardAfterCurrent(timeout)
+}
+
+func (ctx waitCommandContext) WaitCheckpoint(afterGen uint64, afterSet bool, timeout time.Duration) (waitcmd.CheckpointRecord, bool) {
+	var (
+		record crashCheckpointRecord
+		ok     bool
+	)
+	if afterSet {
+		record, ok = ctx.Sess.waitCrashCheckpoint(afterGen, timeout)
+	} else {
+		record, ok = ctx.Sess.waitCrashCheckpointAfterCurrent(timeout)
+	}
+	return waitcmd.CheckpointRecord{
+		Generation: record.generation,
+		Path:       record.path,
+	}, ok
+}
+
+func (ctx waitCommandContext) UIGeneration(requestedClientID string) (uint64, error) {
+	client, err := ctx.Sess.queryUIClient(requestedClientID, "")
+	if err != nil {
+		return 0, err
+	}
+	return client.currentGen, nil
+}
+
+func (ctx waitCommandContext) WaitContent(actorPaneID uint32, paneRef, substr string, timeout time.Duration) error {
+	pane, err := ctx.Sess.queryResolvedPaneForActor(actorPaneID, paneRef)
+	if err != nil {
+		return err
+	}
+	paneID := pane.paneID
+
+	start, err := ctx.Sess.beginPaneOutputWait(paneID, substr)
+	if err != nil {
+		return fmt.Errorf("session shutting down")
+	}
+	if !start.exists {
+		return fmt.Errorf("pane %q disappeared while waiting for %q", paneRef, substr)
+	}
+	defer ctx.Sess.enqueuePaneOutputUnsubscribe(paneID, start.ch)
+	if start.matched {
+		return nil
+	}
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	for {
+		select {
+		case <-start.ch:
+			if ctx.Sess.paneScreenContains(paneID, substr) {
+				return nil
+			}
+		case <-timer.C:
+			return fmt.Errorf("timeout waiting for %q in %s", substr, paneRef)
+		}
+	}
+}
+
+func (ctx waitCommandContext) WaitExited(actorPaneID uint32, paneRef string, timeout time.Duration) error {
+	pane, err := ctx.Sess.queryResolvedPaneForActor(actorPaneID, paneRef)
+	if err != nil {
+		return err
+	}
+	paneID := pane.paneID
+
+	checkIdle := func() (bool, error) {
+		pane, err := enqueueSessionQuery(ctx.Sess, func(sess *Session) (*mux.Pane, error) {
+			return sess.findPaneByID(paneID), nil
+		})
+		if err != nil {
+			return false, err
+		}
+		if pane == nil {
+			return false, fmt.Errorf("pane %q disappeared while waiting to become exited", paneRef)
+		}
+		if !pane.AgentStatus().Idle {
+			return false, nil
+		}
+		return true, nil
+	}
+
+	res := ctx.Sess.enqueueEventSubscribe(eventFilter{Types: []string{EventExited}, PaneID: paneID}, true)
+	if res.sub == nil {
+		return fmt.Errorf("session shutting down")
+	}
+	defer ctx.Sess.enqueueEventUnsubscribe(res.sub)
+
+	if len(res.initialState) > 0 {
+		idle, err := checkIdle()
+		if err != nil {
+			return err
+		}
+		if idle {
+			return nil
+		}
+	}
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	for {
+		select {
+		case <-res.sub.Ch:
+			idle, err := checkIdle()
+			if err != nil {
+				return err
+			}
+			if idle {
+				return nil
+			}
+		case <-timer.C:
+			return fmt.Errorf("timeout waiting for %s to become exited", paneRef)
+		}
+	}
+}
+
+func (ctx waitCommandContext) WaitBusy(actorPaneID uint32, paneRef string, timeout time.Duration) error {
+	pane, err := ctx.Sess.queryResolvedPaneForActor(actorPaneID, paneRef)
+	if err != nil {
+		return err
+	}
+	return waitForPaneBusy(ctx.Sess, pane.paneID, paneRef, timeout)
+}
+
+func (ctx waitCommandContext) WaitUI(eventName, requestedClientID string, afterGen uint64, afterSet bool, timeout time.Duration) error {
+	_, err := waitForUIEvent(ctx.Sess, requestedClientID, eventName, afterGen, afterSet, timeout)
+	return err
+}
+
+func (ctx waitCommandContext) WaitReady(actorPaneID uint32, args []string) error {
+	paneRef, opts, err := parseWaitReadyArgs(args)
+	if err != nil {
+		return err
+	}
+
+	pane, err := ctx.Sess.queryResolvedPaneForActor(actorPaneID, paneRef)
+	if err != nil {
+		return err
+	}
+	return waitForPaneReady(ctx.Sess, paneRef, pane, opts)
+}
+
+func (ctx waitCommandContext) WaitIdle(actorPaneID uint32, args []string) error {
+	paneRef, opts, err := parseWaitIdleArgs(args)
+	if err != nil {
+		return err
+	}
+
+	pane, err := ctx.Sess.queryResolvedPaneForActor(actorPaneID, paneRef)
+	if err != nil {
+		return err
+	}
+	return waitForPaneIdle(ctx.Sess, paneRef, pane.paneID, opts)
+}
+
 func waitSubcommandContext(ctx *CommandContext, args []string) *CommandContext {
 	sub := *ctx
 	sub.Args = args
@@ -50,309 +244,51 @@ func waitBusyReady(candidatePID int, status mux.AgentStatus) (nextPID int, ready
 }
 
 func cmdCursor(ctx *CommandContext) {
-	if len(ctx.Args) == 0 {
-		ctx.replyErr(cursorCommandUsage)
-		return
-	}
-
-	switch ctx.Args[0] {
-	case "layout":
-		cmdGeneration(waitSubcommandContext(ctx, ctx.Args[1:]))
-	case "clipboard":
-		cmdClipboardGen(waitSubcommandContext(ctx, ctx.Args[1:]))
-	case "ui":
-		cmdUIGen(waitSubcommandContext(ctx, ctx.Args[1:]))
-	default:
-		ctx.replyErr(fmt.Sprintf("unknown cursor kind: %s", ctx.Args[0]))
-	}
+	ctx.applyCommandResult(waitcmd.Cursor(waitCommandContext{ctx}, ctx.Args))
 }
 
 func cmdWait(ctx *CommandContext) {
-	if len(ctx.Args) == 0 {
-		ctx.replyErr(waitCommandUsage)
-		return
-	}
-
-	switch ctx.Args[0] {
-	case "layout":
-		cmdWaitLayout(waitSubcommandContext(ctx, ctx.Args[1:]))
-	case "clipboard":
-		cmdWaitClipboard(waitSubcommandContext(ctx, ctx.Args[1:]))
-	case "checkpoint":
-		cmdWaitCheckpoint(waitSubcommandContext(ctx, ctx.Args[1:]))
-	case "content":
-		cmdWaitFor(waitSubcommandContext(ctx, ctx.Args[1:]))
-	case "ready":
-		cmdWaitReady(waitSubcommandContext(ctx, ctx.Args[1:]))
-	case "idle":
-		cmdWaitIdle(waitSubcommandContext(ctx, ctx.Args[1:]))
-	case "exited":
-		cmdWaitExited(waitSubcommandContext(ctx, ctx.Args[1:]))
-	case "busy":
-		cmdWaitBusy(waitSubcommandContext(ctx, ctx.Args[1:]))
-	case "ui":
-		cmdWaitUI(waitSubcommandContext(ctx, ctx.Args[1:]))
-	default:
-		ctx.replyErr(fmt.Sprintf("unknown wait kind: %s", ctx.Args[0]))
-	}
+	ctx.applyCommandResult(waitcmd.Wait(waitCommandContext{ctx}, ctx.ActorPaneID, ctx.Args))
 }
 
 func cmdGeneration(ctx *CommandContext) {
-	gen := ctx.Sess.generation.Load()
-	ctx.reply(fmt.Sprintf("%d\n", gen))
+	ctx.applyCommandResult(waitcmd.Generation(waitCommandContext{ctx}, ctx.Args))
 }
 
 func cmdLayoutJSON(ctx *CommandContext) {
-	snap, err := enqueueSessionQuery(ctx.Sess, func(sess *Session) (*proto.LayoutSnapshot, error) {
-		return sess.snapshotLayout(nil), nil
-	})
-	if err != nil {
-		ctx.replyErr(err.Error())
-		return
-	}
-	data, err := json.MarshalIndent(snap, "", "  ")
-	if err != nil {
-		ctx.replyErr(err.Error())
-		return
-	}
-	ctx.reply(string(data) + "\n")
+	ctx.applyCommandResult(waitcmd.LayoutJSON(waitCommandContext{ctx}, ctx.Args))
 }
 
 func cmdWaitLayout(ctx *CommandContext) {
-	afterGen, afterSet, timeout, err := parseWaitArgs(ctx.Args)
-	if err != nil {
-		ctx.replyErr(err.Error())
-		return
-	}
-	var (
-		gen uint64
-		ok  bool
-	)
-	if afterSet {
-		gen, ok = ctx.Sess.waitGeneration(afterGen, timeout)
-	} else {
-		gen, ok = ctx.Sess.waitGenerationAfterCurrent(timeout)
-	}
-	if !ok {
-		ctx.replyErr(fmt.Sprintf("timeout waiting for generation > %d (current: %d)", afterGen, gen))
-		return
-	}
-	ctx.reply(fmt.Sprintf("%d\n", gen))
+	ctx.applyCommandResult(waitcmd.WaitLayout(waitCommandContext{ctx}, ctx.Args))
 }
 
 func cmdClipboardGen(ctx *CommandContext) {
-	gen := ctx.Sess.clipboardGeneration()
-	ctx.reply(fmt.Sprintf("%d\n", gen))
+	ctx.applyCommandResult(waitcmd.ClipboardGen(waitCommandContext{ctx}, ctx.Args))
 }
 
 func cmdWaitClipboard(ctx *CommandContext) {
-	afterGen, afterSet, timeout, err := parseWaitArgs(ctx.Args)
-	if err != nil {
-		ctx.replyErr(err.Error())
-		return
-	}
-	var (
-		data string
-		ok   bool
-	)
-	if afterSet {
-		data, ok = ctx.Sess.waitClipboard(afterGen, timeout)
-	} else {
-		data, ok = ctx.Sess.waitClipboardAfterCurrent(timeout)
-	}
-	if !ok {
-		ctx.replyErr("timeout waiting for clipboard event")
-		return
-	}
-	ctx.reply(data + "\n")
+	ctx.applyCommandResult(waitcmd.WaitClipboard(waitCommandContext{ctx}, ctx.Args))
 }
 
 func cmdWaitCheckpoint(ctx *CommandContext) {
-	afterGen, afterSet, timeout, err := parseWaitArgsWithDefault(ctx.Args, 15*time.Second)
-	if err != nil {
-		ctx.replyErr(err.Error())
-		return
-	}
-	var (
-		record crashCheckpointRecord
-		ok     bool
-	)
-	if afterSet {
-		record, ok = ctx.Sess.waitCrashCheckpoint(afterGen, timeout)
-	} else {
-		record, ok = ctx.Sess.waitCrashCheckpointAfterCurrent(timeout)
-	}
-	if !ok {
-		ctx.replyErr(fmt.Sprintf("timeout waiting for checkpoint write after %d", afterGen))
-		return
-	}
-	ctx.reply(fmt.Sprintf("%d %s\n", record.generation, record.path))
+	ctx.applyCommandResult(waitcmd.WaitCheckpoint(waitCommandContext{ctx}, ctx.Args))
 }
 
 func cmdUIGen(ctx *CommandContext) {
-	requestedClientID, err := parseUIGenArgs(ctx.Args)
-	if err != nil {
-		ctx.replyErr(err.Error())
-		return
-	}
-
-	client, err := ctx.Sess.queryUIClient(requestedClientID, "")
-	if err != nil {
-		ctx.replyErr(err.Error())
-		return
-	}
-	ctx.reply(fmt.Sprintf("%d\n", client.currentGen))
+	ctx.applyCommandResult(waitcmd.UIGen(waitCommandContext{ctx}, ctx.Args))
 }
 
 func cmdWaitFor(ctx *CommandContext) {
-	if len(ctx.Args) < 2 {
-		ctx.replyErr("usage: wait content <pane> <substring> [--timeout <duration>]")
-		return
-	}
-	paneRef := ctx.Args[0]
-	substr := ctx.Args[1]
-	timeout, err := parseTimeout(ctx.Args, 2, 10*time.Second)
-	if err != nil {
-		ctx.replyErr(err.Error())
-		return
-	}
-
-	pane, err := ctx.Sess.queryResolvedPaneForActor(ctx.ActorPaneID, paneRef)
-	if err != nil {
-		ctx.replyErr(err.Error())
-		return
-	}
-	paneID := pane.paneID
-
-	start, err := ctx.Sess.beginPaneOutputWait(paneID, substr)
-	if err != nil {
-		ctx.replyErr("session shutting down")
-		return
-	}
-	if !start.exists {
-		ctx.replyErr(fmt.Sprintf("pane %q disappeared while waiting for %q", paneRef, substr))
-		return
-	}
-	defer ctx.Sess.enqueuePaneOutputUnsubscribe(paneID, start.ch)
-	if start.matched {
-		ctx.reply("matched\n")
-		return
-	}
-
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
-	for {
-		select {
-		case <-start.ch:
-			if ctx.Sess.paneScreenContains(paneID, substr) {
-				ctx.reply("matched\n")
-				return
-			}
-		case <-timer.C:
-			ctx.replyErr(fmt.Sprintf("timeout waiting for %q in %s", substr, paneRef))
-			return
-		}
-	}
+	ctx.applyCommandResult(waitcmd.WaitFor(waitCommandContext{ctx}, ctx.ActorPaneID, ctx.Args))
 }
 
 func cmdWaitExited(ctx *CommandContext) {
-	if len(ctx.Args) < 1 {
-		ctx.replyErr("usage: wait exited <pane> [--timeout <duration>]")
-		return
-	}
-	paneRef := ctx.Args[0]
-	timeout, err := parseTimeout(ctx.Args, 1, 5*time.Second)
-	if err != nil {
-		ctx.replyErr(err.Error())
-		return
-	}
-
-	pane, err := ctx.Sess.queryResolvedPaneForActor(ctx.ActorPaneID, paneRef)
-	if err != nil {
-		ctx.replyErr(err.Error())
-		return
-	}
-	paneID := pane.paneID
-
-	checkIdle := func() (bool, error) {
-		pane, err := enqueueSessionQuery(ctx.Sess, func(sess *Session) (*mux.Pane, error) {
-			return sess.findPaneByID(paneID), nil
-		})
-		if err != nil {
-			return false, err
-		}
-		if pane == nil {
-			return false, fmt.Errorf("pane %q disappeared while waiting to become exited", paneRef)
-		}
-		if !pane.AgentStatus().Idle {
-			return false, nil
-		}
-		return true, nil
-	}
-
-	res := ctx.Sess.enqueueEventSubscribe(eventFilter{Types: []string{EventExited}, PaneID: paneID}, true)
-	if res.sub == nil {
-		ctx.replyErr("session shutting down")
-		return
-	}
-	defer ctx.Sess.enqueueEventUnsubscribe(res.sub)
-
-	if len(res.initialState) > 0 {
-		idle, err := checkIdle()
-		if err != nil {
-			ctx.replyErr(err.Error())
-			return
-		}
-		if idle {
-			ctx.reply("exited\n")
-			return
-		}
-	}
-
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
-
-	for {
-		select {
-		case <-res.sub.Ch:
-			idle, err := checkIdle()
-			if err != nil {
-				ctx.replyErr(err.Error())
-				return
-			}
-			if idle {
-				ctx.reply("exited\n")
-				return
-			}
-		case <-timer.C:
-			ctx.replyErr(fmt.Sprintf("timeout waiting for %s to become exited", paneRef))
-			return
-		}
-	}
+	ctx.applyCommandResult(waitcmd.WaitExited(waitCommandContext{ctx}, ctx.ActorPaneID, ctx.Args))
 }
 
 func cmdWaitBusy(ctx *CommandContext) {
-	if len(ctx.Args) < 1 {
-		ctx.replyErr("usage: wait busy <pane> [--timeout <duration>]")
-		return
-	}
-	paneRef := ctx.Args[0]
-	timeout, err := parseTimeout(ctx.Args, 1, 5*time.Second)
-	if err != nil {
-		ctx.replyErr(err.Error())
-		return
-	}
-
-	pane, err := ctx.Sess.queryResolvedPaneForActor(ctx.ActorPaneID, paneRef)
-	if err != nil {
-		ctx.replyErr(err.Error())
-		return
-	}
-	if err := waitForPaneBusy(ctx.Sess, pane.paneID, paneRef, timeout); err != nil {
-		ctx.replyErr(err.Error())
-		return
-	}
-	ctx.reply("busy\n")
+	ctx.applyCommandResult(waitcmd.WaitBusy(waitCommandContext{ctx}, ctx.ActorPaneID, ctx.Args))
 }
 
 func waitForPaneBusy(sess *Session, paneID uint32, paneRef string, timeout time.Duration) error {
@@ -466,16 +402,7 @@ func waitForNextUIEvent(sess *Session, client uiClientSnapshot, eventName string
 }
 
 func cmdWaitUI(ctx *CommandContext) {
-	eventName, requestedClientID, afterGen, afterSet, timeout, err := parseWaitUIArgs(ctx.Args)
-	if err != nil {
-		ctx.replyErr(err.Error())
-		return
-	}
-	if _, err := waitForUIEvent(ctx.Sess, requestedClientID, eventName, afterGen, afterSet, timeout); err != nil {
-		ctx.replyErr(err.Error())
-		return
-	}
-	ctx.reply(eventName + "\n")
+	ctx.applyCommandResult(waitcmd.WaitUI(waitCommandContext{ctx}, ctx.Args))
 }
 
 func hasAfterFlag(args []string) bool {

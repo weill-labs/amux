@@ -1,5 +1,10 @@
 package server
 
+import (
+	"github.com/weill-labs/amux/internal/proto"
+	commandpkg "github.com/weill-labs/amux/internal/server/commands"
+)
+
 // CommandHandler processes a single CLI command.
 type CommandHandler func(ctx *CommandContext)
 
@@ -45,6 +50,89 @@ func (ctx *CommandContext) replyCommandMutation(res commandMutationResult) {
 	}
 	if res.shutdownServer {
 		go ctx.Srv.Shutdown()
+	}
+}
+
+type commandStreamSender struct {
+	cc *clientConn
+}
+
+func (s commandStreamSender) Send(msg *proto.Message) error {
+	return s.cc.Send(msg)
+}
+
+func (ctx *CommandContext) applyCommandResult(res commandpkg.Result) {
+	switch {
+	case res.Mutate != nil:
+		ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
+			return toCommandMutationResult(res.Mutate())
+		}))
+	case res.Stream != nil:
+		if err := res.Stream(commandStreamSender{cc: ctx.CC}); err != nil {
+			ctx.replyErr(err.Error())
+		}
+	case res.Message != nil:
+		if err := ctx.CC.Send(res.Message); err != nil {
+			return
+		}
+	default:
+		ctx.replyCommandMutation(toCommandMutationResult(res))
+	}
+}
+
+func toCommandMutationResult(res commandpkg.Result) commandMutationResult {
+	histories := make([]paneHistoryUpdate, 0, len(res.PaneHistories))
+	for _, update := range res.PaneHistories {
+		histories = append(histories, paneHistoryUpdate{
+			paneID:  update.PaneID,
+			history: update.History,
+		})
+	}
+	renders := make([]paneRender, 0, len(res.PaneRenders))
+	for _, render := range res.PaneRenders {
+		renders = append(renders, paneRender{
+			paneID: render.PaneID,
+			data:   render.Data,
+		})
+	}
+	return commandMutationResult{
+		output:          res.Output,
+		err:             res.Err,
+		broadcastLayout: res.BroadcastLayout,
+		paneHistories:   histories,
+		paneRenders:     renders,
+		startPanes:      res.StartPanes,
+		closePanes:      res.ClosePanes,
+		sendExit:        res.SendExit,
+		shutdownServer:  res.ShutdownServer,
+	}
+}
+
+func toCommandResult(res commandMutationResult) commandpkg.Result {
+	histories := make([]commandpkg.PaneHistoryUpdate, 0, len(res.paneHistories))
+	for _, update := range res.paneHistories {
+		histories = append(histories, commandpkg.PaneHistoryUpdate{
+			PaneID:  update.paneID,
+			History: update.history,
+		})
+	}
+	renders := make([]commandpkg.PaneRender, 0, len(res.paneRenders))
+	for _, render := range res.paneRenders {
+		renders = append(renders, commandpkg.PaneRender{
+			PaneID: render.paneID,
+			Data:   render.data,
+		})
+	}
+	return commandpkg.Result{
+		Output:          res.output,
+		Err:             res.err,
+		BroadcastLayout: res.broadcastLayout,
+		PaneHistories:   histories,
+		PaneRenders:     renders,
+		StartPanes:      res.startPanes,
+		ClosePanes:      res.closePanes,
+		SendExit:        res.sendExit,
+		ShutdownServer:  res.shutdownServer,
 	}
 }
 

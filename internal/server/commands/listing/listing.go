@@ -5,11 +5,24 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/weill-labs/amux/internal/proto"
+	commandpkg "github.com/weill-labs/amux/internal/server/commands"
 )
 
 const ListCwdWidth = 36
+
+type Context interface {
+	HomeDir() string
+	BuildVersion() string
+	QueryPaneList() ([]PaneEntry, error)
+	QuerySessionStatus() (SessionStatus, error)
+	QueryWindowList() ([]WindowEntry, error)
+	QueryClientList() ([]ClientEntry, error)
+	QueryConnectionLog() ([]ConnectionLogEntry, error)
+	QueryPaneLog() ([]PaneLogEntry, error)
+}
 
 type ListArgs struct {
 	ShowCwd bool
@@ -26,6 +39,20 @@ func ParseListArgs(args []string) (ListArgs, error) {
 		}
 	}
 	return parsed, nil
+}
+
+func List(ctx Context, args []string) commandpkg.Result {
+	parsed, err := ParseListArgs(args)
+	if err != nil {
+		return commandpkg.Result{Err: err}
+	}
+	entries, err := ctx.QueryPaneList()
+	if err != nil {
+		return commandpkg.Result{Err: err}
+	}
+	return commandpkg.Result{
+		Output: FormatPaneList(entries, ctx.HomeDir(), parsed.ShowCwd),
+	}
 }
 
 type PaneEntry struct {
@@ -234,6 +261,16 @@ func FormatStatus(snap SessionStatus, buildVersion string) string {
 	return statusLine + "\n"
 }
 
+func Status(ctx Context, _ []string) commandpkg.Result {
+	snap, err := ctx.QuerySessionStatus()
+	if err != nil {
+		return commandpkg.Result{Err: err}
+	}
+	return commandpkg.Result{
+		Output: FormatStatus(snap, ctx.BuildVersion()),
+	}
+}
+
 type WindowEntry struct {
 	Index     int
 	Name      string
@@ -253,6 +290,14 @@ func FormatWindowList(entries []WindowEntry) string {
 			fmt.Sprintf("%s%d:", active, entry.Index), entry.Name, entry.PaneCount))
 	}
 	return output.String()
+}
+
+func ListWindows(ctx Context, _ []string) commandpkg.Result {
+	entries, err := ctx.QueryWindowList()
+	if err != nil {
+		return commandpkg.Result{Err: err}
+	}
+	return commandpkg.Result{Output: FormatWindowList(entries)}
 }
 
 type ClientEntry struct {
@@ -280,4 +325,108 @@ func FormatClientList(entries []ClientEntry) string {
 			entry.ID, owner, entry.Size, entry.DisplayPanes, entry.Chooser, entry.Capabilities))
 	}
 	return output.String()
+}
+
+func ListClients(ctx Context, _ []string) commandpkg.Result {
+	entries, err := ctx.QueryClientList()
+	if err != nil {
+		return commandpkg.Result{Err: err}
+	}
+	return commandpkg.Result{Output: FormatClientList(entries)}
+}
+
+type ConnectionLogEntry struct {
+	Timestamp        time.Time
+	Event            string
+	ClientID         string
+	Cols             int
+	Rows             int
+	DisconnectReason string
+}
+
+func FormatConnectionLog(entries []ConnectionLogEntry) string {
+	if len(entries) == 0 {
+		return "No client connections recorded.\n"
+	}
+
+	var output strings.Builder
+	output.WriteString(fmt.Sprintf("%-30s %-8s %-10s %-6s %-6s %s\n", "TS", "EVENT", "CLIENT", "COLS", "ROWS", "REASON"))
+	for _, entry := range entries {
+		reason := entry.DisconnectReason
+		if reason == "" {
+			reason = "-"
+		}
+		output.WriteString(fmt.Sprintf(
+			"%-30s %-8s %-10s %-6d %-6d %s\n",
+			entry.Timestamp.UTC().Format(time.RFC3339Nano),
+			entry.Event,
+			entry.ClientID,
+			entry.Cols,
+			entry.Rows,
+			reason,
+		))
+	}
+	return output.String()
+}
+
+func ConnectionLog(ctx Context, _ []string) commandpkg.Result {
+	entries, err := ctx.QueryConnectionLog()
+	if err != nil {
+		return commandpkg.Result{Err: err}
+	}
+	return commandpkg.Result{Output: FormatConnectionLog(entries)}
+}
+
+type PaneLogEntry struct {
+	Timestamp  time.Time
+	Event      string
+	PaneID     uint32
+	PaneName   string
+	Host       string
+	Cwd        string
+	GitBranch  string
+	ExitReason string
+}
+
+func FormatPaneLog(entries []PaneLogEntry) string {
+	if len(entries) == 0 {
+		return "No pane lifecycle events recorded.\n"
+	}
+
+	var output strings.Builder
+	output.WriteString(fmt.Sprintf("%-30s %-8s %-5s %-12s %-10s %-40s %-24s %s\n", "TS", "EVENT", "ID", "PANE", "HOST", "CWD", "GIT_BRANCH", "REASON"))
+	for _, entry := range entries {
+		cwd := entry.Cwd
+		if cwd == "" {
+			cwd = "-"
+		}
+		gitBranch := entry.GitBranch
+		if gitBranch == "" {
+			gitBranch = "-"
+		}
+		reason := entry.ExitReason
+		if reason == "" {
+			reason = "-"
+		}
+		output.WriteString(fmt.Sprintf(
+			"%-30s %-8s %-5d %-12s %-10s %-40s %-24s %s\n",
+			entry.Timestamp.UTC().Format(time.RFC3339Nano),
+			entry.Event,
+			entry.PaneID,
+			entry.PaneName,
+			entry.Host,
+			cwd,
+			gitBranch,
+			reason,
+		))
+	}
+	return output.String()
+}
+
+func PaneLog(ctx Context, _ []string) commandpkg.Result {
+	entries, err := ctx.QueryPaneLog()
+	if err != nil {
+		return commandpkg.Result{Err: err}
+	}
+	return commandpkg.Result{Output: FormatPaneLog(entries)}
 }

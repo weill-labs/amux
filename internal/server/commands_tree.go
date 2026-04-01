@@ -3,7 +3,7 @@ package server
 import (
 	"fmt"
 
-	"github.com/weill-labs/amux/internal/mux"
+	commandpkg "github.com/weill-labs/amux/internal/server/commands"
 	treecmd "github.com/weill-labs/amux/internal/server/commands/layout/tree"
 )
 
@@ -24,74 +24,123 @@ func parseMoveSiblingArgs(args []string, usage string) (paneRef string, err erro
 	return treecmd.ParseMoveSiblingArgs(args, usage)
 }
 
-func cmdSwap(ctx *CommandContext) {
-	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
-		w := sess.windowForActor(ctx.ActorPaneID)
+type treeCommandContext struct {
+	*CommandContext
+}
+
+func (ctx treeCommandContext) SwapForward(actorPaneID uint32) commandpkg.Result {
+	return runSwapForward(ctx.CommandContext, actorPaneID)
+}
+
+func (ctx treeCommandContext) SwapBackward(actorPaneID uint32) commandpkg.Result {
+	return runSwapBackward(ctx.CommandContext, actorPaneID)
+}
+
+func (ctx treeCommandContext) Swap(actorPaneID uint32, paneRef, targetRef string) commandpkg.Result {
+	return runSwap(ctx.CommandContext, actorPaneID, paneRef, targetRef)
+}
+
+func (ctx treeCommandContext) SwapTree(actorPaneID uint32, paneRef, targetRef string) commandpkg.Result {
+	return runSwapTree(ctx.CommandContext, actorPaneID, paneRef, targetRef)
+}
+
+func (ctx treeCommandContext) Move(actorPaneID uint32, paneRef, targetRef string, before bool) commandpkg.Result {
+	return runMove(ctx.CommandContext, actorPaneID, paneRef, targetRef, before)
+}
+
+func (ctx treeCommandContext) MoveTo(actorPaneID uint32, paneRef, targetRef string) commandpkg.Result {
+	return runMoveTo(ctx.CommandContext, actorPaneID, paneRef, targetRef)
+}
+
+func (ctx treeCommandContext) MoveSibling(actorPaneID uint32, paneRef, direction string) commandpkg.Result {
+	return runMoveSibling(ctx.CommandContext, actorPaneID, paneRef, direction)
+}
+
+func (ctx treeCommandContext) Rotate(forward bool) commandpkg.Result {
+	return runRotate(ctx.CommandContext, forward)
+}
+
+func runSwapForward(ctx *CommandContext, actorPaneID uint32) commandpkg.Result {
+	return toCommandResult(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
+		w := sess.windowForActor(actorPaneID)
 		if w == nil {
 			return commandMutationResult{err: fmt.Errorf("no session")}
 		}
-
-		var err error
-		switch {
-		case len(ctx.Args) == 1 && ctx.Args[0] == "forward":
-			err = w.SwapPaneForward()
-		case len(ctx.Args) == 1 && ctx.Args[0] == "backward":
-			err = w.SwapPaneBackward()
-		case len(ctx.Args) == 2:
-			pane1, err := w.ResolvePane(ctx.Args[0])
-			if err != nil {
-				return commandMutationResult{err: err}
-			}
-			pane2, err := w.ResolvePane(ctx.Args[1])
-			if err != nil {
-				return commandMutationResult{err: err}
-			}
-			err = w.SwapPanes(pane1.ID, pane2.ID)
-		default:
-			return commandMutationResult{err: fmt.Errorf("usage: swap <pane1> <pane2> | swap forward | swap backward")}
-		}
-		if err != nil {
+		if err := w.SwapPaneForward(); err != nil {
 			return commandMutationResult{err: err}
 		}
 		return commandMutationResult{output: "Swapped\n", broadcastLayout: true}
 	}))
 }
 
-func cmdSwapTree(ctx *CommandContext) {
-	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
-		if len(ctx.Args) != 2 {
-			return commandMutationResult{err: fmt.Errorf("usage: swap-tree <pane1> <pane2>")}
+func runSwapBackward(ctx *CommandContext, actorPaneID uint32) commandpkg.Result {
+	return toCommandResult(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
+		w := sess.windowForActor(actorPaneID)
+		if w == nil {
+			return commandMutationResult{err: fmt.Errorf("no session")}
 		}
+		if err := w.SwapPaneBackward(); err != nil {
+			return commandMutationResult{err: err}
+		}
+		return commandMutationResult{output: "Swapped\n", broadcastLayout: true}
+	}))
+}
 
-		w := sess.windowForActor(ctx.ActorPaneID)
+func runSwap(ctx *CommandContext, actorPaneID uint32, paneRef, targetRef string) commandpkg.Result {
+	return toCommandResult(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
+		w := sess.windowForActor(actorPaneID)
 		if w == nil {
 			return commandMutationResult{err: fmt.Errorf("no session")}
 		}
 
-		pane1, err := w.ResolvePane(ctx.Args[0])
+		pane1, err := w.ResolvePane(paneRef)
 		if err != nil {
 			return commandMutationResult{err: err}
 		}
-		pane2, err := w.ResolvePane(ctx.Args[1])
+		pane2, err := w.ResolvePane(targetRef)
+		if err != nil {
+			return commandMutationResult{err: err}
+		}
+		if err := w.SwapPanes(pane1.ID, pane2.ID); err != nil {
+			return commandMutationResult{err: err}
+		}
+		return commandMutationResult{output: "Swapped\n", broadcastLayout: true}
+	}))
+}
+
+func cmdSwap(ctx *CommandContext) {
+	ctx.applyCommandResult(treecmd.Swap(treeCommandContext{ctx}, ctx.ActorPaneID, ctx.Args))
+}
+
+func runSwapTree(ctx *CommandContext, actorPaneID uint32, paneRef, targetRef string) commandpkg.Result {
+	return toCommandResult(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
+		w := sess.windowForActor(actorPaneID)
+		if w == nil {
+			return commandMutationResult{err: fmt.Errorf("no session")}
+		}
+
+		pane1, err := w.ResolvePane(paneRef)
+		if err != nil {
+			return commandMutationResult{err: err}
+		}
+		pane2, err := w.ResolvePane(targetRef)
 		if err != nil {
 			return commandMutationResult{err: err}
 		}
 		if err := w.SwapTree(pane1.ID, pane2.ID); err != nil {
 			return commandMutationResult{err: err}
 		}
-
 		return commandMutationResult{output: "Swapped tree\n", broadcastLayout: true}
 	}))
 }
 
-func cmdMove(ctx *CommandContext) {
-	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
-		paneRef, targetRef, before, err := parseMoveArgs(ctx.Args)
-		if err != nil {
-			return commandMutationResult{err: err}
-		}
+func cmdSwapTree(ctx *CommandContext) {
+	ctx.applyCommandResult(treecmd.SwapTree(treeCommandContext{ctx}, ctx.ActorPaneID, ctx.Args))
+}
 
-		w := sess.windowForActor(ctx.ActorPaneID)
+func runMove(ctx *CommandContext, actorPaneID uint32, paneRef, targetRef string, before bool) commandpkg.Result {
+	return toCommandResult(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
+		w := sess.windowForActor(actorPaneID)
 		if w == nil {
 			return commandMutationResult{err: fmt.Errorf("no session")}
 		}
@@ -119,14 +168,13 @@ func cmdMove(ctx *CommandContext) {
 	}))
 }
 
-func cmdMoveTo(ctx *CommandContext) {
-	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
-		paneRef, targetRef, err := parseMoveToArgs(ctx.Args)
-		if err != nil {
-			return commandMutationResult{err: err}
-		}
+func cmdMove(ctx *CommandContext) {
+	ctx.applyCommandResult(treecmd.Move(treeCommandContext{ctx}, ctx.ActorPaneID, ctx.Args))
+}
 
-		w := sess.windowForActor(ctx.ActorPaneID)
+func runMoveTo(ctx *CommandContext, actorPaneID uint32, paneRef, targetRef string) commandpkg.Result {
+	return toCommandResult(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
+		w := sess.windowForActor(actorPaneID)
 		if w == nil {
 			return commandMutationResult{err: fmt.Errorf("no session")}
 		}
@@ -150,22 +198,13 @@ func cmdMoveTo(ctx *CommandContext) {
 	}))
 }
 
-func cmdMoveUp(ctx *CommandContext) {
-	cmdMoveSibling(ctx, moveUpUsage, "up", (*mux.Window).MovePaneUp)
+func cmdMoveTo(ctx *CommandContext) {
+	ctx.applyCommandResult(treecmd.MoveTo(treeCommandContext{ctx}, ctx.ActorPaneID, ctx.Args))
 }
 
-func cmdMoveDown(ctx *CommandContext) {
-	cmdMoveSibling(ctx, moveDownUsage, "down", (*mux.Window).MovePaneDown)
-}
-
-func cmdMoveSibling(ctx *CommandContext, usage, direction string, move func(*mux.Window, uint32) error) {
-	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
-		paneRef, err := parseMoveSiblingArgs(ctx.Args, usage)
-		if err != nil {
-			return commandMutationResult{err: err}
-		}
-
-		w := sess.windowForActor(ctx.ActorPaneID)
+func runMoveSibling(ctx *CommandContext, actorPaneID uint32, paneRef, direction string) commandpkg.Result {
+	return toCommandResult(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
+		w := sess.windowForActor(actorPaneID)
 		if w == nil {
 			return commandMutationResult{err: fmt.Errorf("no session")}
 		}
@@ -174,8 +213,17 @@ func cmdMoveSibling(ctx *CommandContext, usage, direction string, move func(*mux
 		if err != nil {
 			return commandMutationResult{err: err}
 		}
-		if err := move(w, pane.ID); err != nil {
-			return commandMutationResult{err: err}
+		var moveErr error
+		switch direction {
+		case "up":
+			moveErr = w.MovePaneUp(pane.ID)
+		case "down":
+			moveErr = w.MovePaneDown(pane.ID)
+		default:
+			moveErr = fmt.Errorf("unknown move direction: %s", direction)
+		}
+		if moveErr != nil {
+			return commandMutationResult{err: moveErr}
 		}
 
 		return commandMutationResult{
@@ -185,23 +233,27 @@ func cmdMoveSibling(ctx *CommandContext, usage, direction string, move func(*mux
 	}))
 }
 
-func cmdRotate(ctx *CommandContext) {
-	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
+func cmdMoveUp(ctx *CommandContext) {
+	ctx.applyCommandResult(treecmd.MoveUp(treeCommandContext{ctx}, ctx.ActorPaneID, ctx.Args))
+}
+
+func cmdMoveDown(ctx *CommandContext) {
+	ctx.applyCommandResult(treecmd.MoveDown(treeCommandContext{ctx}, ctx.ActorPaneID, ctx.Args))
+}
+
+func runRotate(ctx *CommandContext, forward bool) commandpkg.Result {
+	return toCommandResult(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
 		w := sess.activeWindow()
 		if w == nil {
 			return commandMutationResult{err: fmt.Errorf("no session")}
 		}
-
-		forward := true
-		for _, arg := range ctx.Args {
-			if arg == "--reverse" {
-				forward = false
-			}
-		}
-
 		if err := w.RotatePanes(forward); err != nil {
 			return commandMutationResult{err: err}
 		}
 		return commandMutationResult{output: "Rotated\n", broadcastLayout: true}
 	}))
+}
+
+func cmdRotate(ctx *CommandContext) {
+	ctx.applyCommandResult(treecmd.Rotate(treeCommandContext{ctx}, ctx.Args))
 }
