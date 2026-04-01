@@ -255,19 +255,19 @@ func TestForwardedBytesForDecodedInput(t *testing.T) {
 			want:  []byte{0x1f},
 		},
 		{
-			name:  "kitty alt-h preserves raw csi-u bytes",
+			name:  "kitty alt-h translates to legacy esc-prefixed bytes",
 			input: []byte("\x1b[104;3u"),
-			want:  []byte("\x1b[104;3u"),
+			want:  []byte{0x1b, 'h'},
 		},
 		{
-			name:  "kitty alt-shift-a preserves raw csi-u bytes",
+			name:  "kitty alt-shift-a translates to legacy esc-prefixed bytes",
 			input: []byte("\x1b[97;4;65u"),
-			want:  []byte("\x1b[97;4;65u"),
+			want:  []byte{0x1b, 'A'},
 		},
 		{
-			name:  "kitty alt-up preserves raw special-key bytes",
+			name:  "kitty alt-up translates to legacy esc-prefixed special-key bytes",
 			input: []byte("\x1b[1;3A"),
-			want:  []byte("\x1b[1;3A"),
+			want:  []byte{0x1b, 0x1b, '[', 'A'},
 		},
 		{
 			name:  "kitty composed key preserves associated text sequence",
