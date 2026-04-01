@@ -78,6 +78,8 @@ func TestTakeoverFromInteractiveSSHShell(t *testing.T) {
 }
 
 func TestTakeoverAttachFailureLeavesSSHPaneVisible(t *testing.T) {
+	t.Parallel()
+
 	h := newServerHarness(t)
 	h.sendKeys("pane-1",
 		`printf '\033]999;amux-takeover;{"session":"main@badhost","host":"badhost","uid":"1","ssh_address":"127.0.0.1:1","ssh_user":"nobody","panes":[{"id":1,"name":"pane-1","cols":80,"rows":22}]}\007'`,
@@ -129,6 +131,8 @@ func TestTakeoverAttachHostKeyMismatchShowsNotice(t *testing.T) {
 }
 
 func TestTakeoverFailureNoticeExpires(t *testing.T) {
+	t.Parallel()
+
 	h := newServerHarnessWithOptions(t, 80, 24, "", true, false, "AMUX_NOTICE_DURATION=500ms")
 	h.sendKeys("pane-1",
 		`printf '\033]999;amux-takeover;{"session":"main@badhost","host":"badhost","uid":"1","ssh_address":"127.0.0.1:1","ssh_user":"nobody","panes":[{"id":1,"name":"pane-1","cols":80,"rows":22}]}\007'`,

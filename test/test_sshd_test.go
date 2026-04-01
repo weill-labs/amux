@@ -613,6 +613,8 @@ func newTestSSHClient(t *testing.T, fixture testSSHFixture) *ssh.Client {
 }
 
 func TestSSHExecBackgroundChildDoesNotHoldSessionOpen(t *testing.T) {
+	t.Parallel()
+
 	fixture := setupTestSSHWithOptions(t, testSSHServerOptions{preloadAmux: true})
 	client := newTestSSHClient(t, fixture)
 

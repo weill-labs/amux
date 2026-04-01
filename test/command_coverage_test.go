@@ -160,6 +160,8 @@ func TestReloadServer(t *testing.T) {
 }
 
 func TestSwapUsageWithTreeFlag(t *testing.T) {
+	t.Parallel()
+
 	h := newServerHarness(t)
 
 	out := h.runCmd("swap", "pane-1", "--tree")
@@ -169,6 +171,8 @@ func TestSwapUsageWithTreeFlag(t *testing.T) {
 }
 
 func TestMoveUsage(t *testing.T) {
+	t.Parallel()
+
 	h := newServerHarness(t)
 
 	out := h.runCmd("move", "pane-1", "--before")
@@ -178,6 +182,8 @@ func TestMoveUsage(t *testing.T) {
 }
 
 func TestMoveRejectsConflictingFlags(t *testing.T) {
+	t.Parallel()
+
 	h := newServerHarness(t)
 
 	h.splitV()

@@ -27,6 +27,8 @@ func TestShowSessionNoticeLifecycle(t *testing.T) {
 }
 
 func TestShowSessionNoticeReplacementIgnoresStaleTimer(t *testing.T) {
+	t.Parallel()
+
 	sess := &Session{idle: newIdleTracker(), takenOverPanes: make(map[uint32]bool)}
 
 	firstReply := make(chan sessionNoticeSetResult, 1)
@@ -49,6 +51,8 @@ func TestShowSessionNoticeReplacementIgnoresStaleTimer(t *testing.T) {
 }
 
 func TestShowSessionNoticeIgnoresEmptyMessage(t *testing.T) {
+	t.Parallel()
+
 	sess := newSession("test-session-notice-empty")
 	stopCrashCheckpointLoop(t, sess)
 	defer stopSessionBackgroundLoops(t, sess)
@@ -77,6 +81,8 @@ func TestSessionNoticeDurationFallback(t *testing.T) {
 }
 
 func TestEnqueueSessionNoticeSetReturnsZeroWhenSessionIsShuttingDown(t *testing.T) {
+	t.Parallel()
+
 	sess := &Session{
 		sessionEvents:    make(chan sessionEvent, 1),
 		sessionEventStop: make(chan struct{}),
@@ -90,6 +96,8 @@ func TestEnqueueSessionNoticeSetReturnsZeroWhenSessionIsShuttingDown(t *testing.
 }
 
 func TestEnqueueSessionNoticeSetReturnsZeroWhenSessionStopsBeforeReply(t *testing.T) {
+	t.Parallel()
+
 	sess := &Session{
 		sessionEvents:    make(chan sessionEvent, 1),
 		sessionEventStop: make(chan struct{}),
@@ -117,6 +125,8 @@ func TestEnqueueSessionNoticeSetReturnsZeroWhenSessionStopsBeforeReply(t *testin
 }
 
 func TestShowSessionNoticeReturnsWhenSessionIsShuttingDown(t *testing.T) {
+	t.Parallel()
+
 	sess := &Session{
 		sessionEvents:    make(chan sessionEvent, 1),
 		sessionEventStop: make(chan struct{}),

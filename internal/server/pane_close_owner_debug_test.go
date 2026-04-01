@@ -8,6 +8,8 @@ import (
 )
 
 func TestPaneClosePanicsFromSessionEventLoop(t *testing.T) {
+	t.Parallel()
+
 	sess := newSession("test-pane-close-owner")
 	stopCrashCheckpointLoop(t, sess)
 	defer stopSessionBackgroundLoops(t, sess)

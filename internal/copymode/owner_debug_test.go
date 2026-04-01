@@ -8,6 +8,8 @@ import (
 )
 
 func TestCopyModePanicsOnCrossGoroutineMutation(t *testing.T) {
+	t.Parallel()
+
 	emu := newFakeEmulator(80, 24)
 	cm := New(emu, 80, 24, 0)
 

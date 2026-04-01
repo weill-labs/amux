@@ -20,6 +20,8 @@ func TestWriteFailsWhenTempDirUnavailable(t *testing.T) {
 }
 
 func TestReadRejectsCorruptGobAndDeletesFile(t *testing.T) {
+	t.Parallel()
+
 	path := filepath.Join(t.TempDir(), "corrupt.gob")
 	if err := os.WriteFile(path, []byte("not a gob"), 0600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
@@ -109,6 +111,8 @@ func TestWriteCrashFailsWhenDestinationPathNeedsMissingParent(t *testing.T) {
 }
 
 func TestReadCrashRejectsCorruptJSON(t *testing.T) {
+	t.Parallel()
+
 	path := filepath.Join(t.TempDir(), "corrupt.json")
 	if err := os.WriteFile(path, []byte(`{"version":1,"session_name":`), 0600); err != nil {
 		t.Fatalf("WriteFile: %v", err)

@@ -214,6 +214,8 @@ func TestTrySystemClipboardFallsThroughCommands(t *testing.T) {
 }
 
 func TestWriteOSC52ClipboardNilWriter(t *testing.T) {
+	t.Parallel()
+
 	writeOSC52Clipboard(nil, "ignored")
 }
 

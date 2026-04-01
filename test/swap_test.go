@@ -87,6 +87,8 @@ func TestSwapCLI(t *testing.T) {
 }
 
 func TestSwapTreeCLI(t *testing.T) {
+	t.Parallel()
+
 	h := newServerHarness(t)
 
 	h.splitV()
@@ -115,6 +117,8 @@ func TestSwapTreeCLI(t *testing.T) {
 }
 
 func TestSwapTreeCLIRejectsSameRootBranch(t *testing.T) {
+	t.Parallel()
+
 	h := newServerHarness(t)
 
 	h.splitV()
@@ -128,6 +132,8 @@ func TestSwapTreeCLIRejectsSameRootBranch(t *testing.T) {
 }
 
 func TestMoveBeforeCLI(t *testing.T) {
+	t.Parallel()
+
 	h := newServerHarness(t)
 
 	h.splitV()
@@ -170,6 +176,8 @@ func TestMoveBeforeCLI(t *testing.T) {
 }
 
 func TestMoveAfterCLI(t *testing.T) {
+	t.Parallel()
+
 	h := newServerHarness(t)
 
 	h.splitV()

@@ -158,6 +158,8 @@ func TestCrashRecovery_CleanShutdown(t *testing.T) {
 // TestCrashRecovery_CheckpointIsValidJSON verifies the crash checkpoint file
 // is human-readable JSON with expected structure.
 func TestCrashRecovery_CheckpointIsValidJSON(t *testing.T) {
+	t.Parallel()
+
 	h := newServerHarness(t)
 	h.splitV()
 

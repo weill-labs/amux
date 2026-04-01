@@ -84,6 +84,8 @@ func plainTextCell(line string, col int) proto.Cell {
 }
 
 func TestNewCopyMode(t *testing.T) {
+	t.Parallel()
+
 	emu := newFakeEmulator(80, 24)
 	cm := New(emu, 80, 24, 0)
 
@@ -97,6 +99,8 @@ func TestNewCopyMode(t *testing.T) {
 }
 
 func TestNewCopyModeCursorPosition(t *testing.T) {
+	t.Parallel()
+
 	emu := newFakeEmulator(80, 24)
 	cm := New(emu, 80, 24, 10)
 
@@ -107,6 +111,8 @@ func TestNewCopyModeCursorPosition(t *testing.T) {
 }
 
 func TestNewCopyModeCursorClamped(t *testing.T) {
+	t.Parallel()
+
 	emu := newFakeEmulator(80, 24)
 	cm := New(emu, 80, 24, 100) // beyond viewport
 
@@ -117,6 +123,8 @@ func TestNewCopyModeCursorClamped(t *testing.T) {
 }
 
 func TestCursorMovement(t *testing.T) {
+	t.Parallel()
+
 	emu := newFakeEmulator(80, 10)
 	for i := 0; i < 20; i++ {
 		emu.scrollback = append(emu.scrollback, fmt.Sprintf("scrollback-line-%d", i))
@@ -145,6 +153,8 @@ func TestCursorMovement(t *testing.T) {
 }
 
 func TestCursorEdgeScrolling(t *testing.T) {
+	t.Parallel()
+
 	emu := newFakeEmulator(80, 10)
 	for i := 0; i < 20; i++ {
 		emu.scrollback = append(emu.scrollback, fmt.Sprintf("scrollback-line-%d", i))
@@ -173,6 +183,8 @@ func TestCursorEdgeScrolling(t *testing.T) {
 }
 
 func TestCursorBottomEdgeScrolling(t *testing.T) {
+	t.Parallel()
+
 	emu := newFakeEmulator(80, 5)
 	for i := 0; i < 10; i++ {
 		emu.scrollback = append(emu.scrollback, fmt.Sprintf("line-%d", i))
@@ -207,6 +219,8 @@ func TestCursorBottomEdgeScrolling(t *testing.T) {
 }
 
 func TestHorizontalMovement(t *testing.T) {
+	t.Parallel()
+
 	emu := newFakeEmulator(80, 10)
 	cm := New(emu, 80, 10, 0)
 
@@ -247,6 +261,8 @@ func TestHorizontalMovement(t *testing.T) {
 }
 
 func TestScrollToTopBottom(t *testing.T) {
+	t.Parallel()
+
 	emu := newFakeEmulator(80, 10)
 	for i := 0; i < 50; i++ {
 		emu.scrollback = append(emu.scrollback, fmt.Sprintf("line-%d", i))
@@ -275,6 +291,8 @@ func TestScrollToTopBottom(t *testing.T) {
 }
 
 func TestExitKeys(t *testing.T) {
+	t.Parallel()
+
 	emu := newFakeEmulator(80, 24)
 	cm := New(emu, 80, 24, 0)
 
@@ -293,6 +311,8 @@ func TestExitKeys(t *testing.T) {
 }
 
 func TestSearchBasic(t *testing.T) {
+	t.Parallel()
+
 	emu := newFakeEmulator(80, 5)
 	emu.scrollback = []string{
 		"first line",
@@ -326,6 +346,8 @@ func TestSearchBasic(t *testing.T) {
 }
 
 func TestSearchCancel(t *testing.T) {
+	t.Parallel()
+
 	emu := newFakeEmulator(80, 5)
 	cm := New(emu, 80, 5, 0)
 
@@ -362,6 +384,8 @@ func TestSearchBackward(t *testing.T) {
 }
 
 func TestHalfPageScroll(t *testing.T) {
+	t.Parallel()
+
 	emu := newFakeEmulator(80, 10)
 	for i := 0; i < 30; i++ {
 		emu.scrollback = append(emu.scrollback, fmt.Sprintf("line-%d", i))
@@ -402,6 +426,8 @@ func TestStarAndHashSearchWordUnderCursor(t *testing.T) {
 }
 
 func TestLineSelectYank(t *testing.T) {
+	t.Parallel()
+
 	emu := newFakeEmulator(20, 3)
 	emu.screen = []string{"hello world", "second line", "third line"}
 	cm := New(emu, 20, 3, 0)
@@ -460,6 +486,8 @@ func TestSelectedTextReversedLineSelection(t *testing.T) {
 }
 
 func TestLineSelectToggleOff(t *testing.T) {
+	t.Parallel()
+
 	emu := newFakeEmulator(20, 3)
 	emu.screen = []string{"hello", "world", "test"}
 	cm := New(emu, 20, 3, 0)
@@ -480,6 +508,8 @@ func TestLineSelectToggleOff(t *testing.T) {
 }
 
 func TestVClearsLineSelect(t *testing.T) {
+	t.Parallel()
+
 	emu := newFakeEmulator(20, 3)
 	emu.screen = []string{"hello", "world", "test"}
 	cm := New(emu, 20, 3, 0)
@@ -622,6 +652,8 @@ func TestTogglePositionIndicator(t *testing.T) {
 }
 
 func TestBatchedInputVy(t *testing.T) {
+	t.Parallel()
+
 	emu := newFakeEmulator(20, 3)
 	emu.screen = []string{"hello world", "second line", "third line"}
 	cm := New(emu, 20, 3, 0)
@@ -642,6 +674,8 @@ func TestBatchedInputVy(t *testing.T) {
 }
 
 func TestBatchedInputMovement(t *testing.T) {
+	t.Parallel()
+
 	emu := newFakeEmulator(20, 5)
 	emu.screen = []string{"line-0", "line-1", "line-2", "line-3", "line-4"}
 	cm := New(emu, 20, 5, 0)
@@ -658,6 +692,8 @@ func TestBatchedInputMovement(t *testing.T) {
 }
 
 func TestBatchedInputSearchThenNormal(t *testing.T) {
+	t.Parallel()
+
 	emu := newFakeEmulator(20, 3)
 	emu.scrollback = []string{"hello world"}
 	emu.screen = []string{"screen-0", "screen-1", "screen-2"}
@@ -1449,6 +1485,8 @@ func TestBatchedCharSearch(t *testing.T) {
 }
 
 func TestJAtBottomOfLiveView(t *testing.T) {
+	t.Parallel()
+
 	emu := newFakeEmulator(80, 10)
 	// No scrollback — j at bottom with oy=0 should be a no-op
 	cm := New(emu, 80, 10, 9) // cursor at bottom

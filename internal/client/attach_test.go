@@ -37,6 +37,8 @@ func assertNoMessage(t *testing.T, conn net.Conn) {
 }
 
 func TestSyncTerminalSizeSendsResizeWhenSizeChanges(t *testing.T) {
+	t.Parallel()
+
 	clientConn, serverConn := net.Pipe()
 	t.Cleanup(func() {
 		_ = clientConn.Close()
@@ -81,6 +83,8 @@ func TestSyncTerminalSizeSendsResizeWhenSizeChanges(t *testing.T) {
 }
 
 func TestSyncTerminalSizeSkipsUnchangedOrInvalidSizes(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name string
 		fn   func(int) (int, int, error)
@@ -106,7 +110,10 @@ func TestSyncTerminalSizeSkipsUnchangedOrInvalidSizes(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			clientConn, serverConn := net.Pipe()
 			t.Cleanup(func() {
 				_ = clientConn.Close()

@@ -117,6 +117,8 @@ func TestChooserOverlayRenderAndCells(t *testing.T) {
 }
 
 func TestRenderGlobalBarAndTruncateRunes(t *testing.T) {
+	t.Parallel()
+
 	frozen := time.Date(2026, time.March, 22, 9, 41, 0, 0, time.UTC)
 
 	if got := truncateRunes("abcdef", 4); got != "abc…" {

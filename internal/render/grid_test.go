@@ -5,6 +5,8 @@ import (
 )
 
 func TestMaterializeGrid(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name   string
 		input  string
@@ -71,7 +73,10 @@ func TestMaterializeGrid(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			got := MaterializeGrid(tt.input, tt.width, tt.height)
 			if got != tt.want {
 				t.Errorf("MaterializeGrid() =\n%q\nwant:\n%q", got, tt.want)

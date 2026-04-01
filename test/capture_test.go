@@ -101,6 +101,8 @@ func TestCapturePaneHistoryJSON(t *testing.T) {
 }
 
 func TestCapturePaneHistoryWithoutAttachedClient(t *testing.T) {
+	t.Parallel()
+
 	h := newServerHarnessPersistent(t)
 
 	scriptPath := filepath.Join(os.TempDir(), fmt.Sprintf("amux-history-headless-%s.sh", h.session))
@@ -147,6 +149,8 @@ func TestCapturePaneHistoryWithoutAttachedClient(t *testing.T) {
 }
 
 func TestCapturePaneAfterKillAndRespawnWithoutAttachedClient(t *testing.T) {
+	t.Parallel()
+
 	h := newServerHarnessPersistent(t)
 	h.unsetLead()
 

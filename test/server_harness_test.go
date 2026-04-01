@@ -1618,6 +1618,8 @@ func TestNewServerHarnessReturnsCommandReady(t *testing.T) {
 }
 
 func TestServerHarnessSequentialLifecyclesKeepNextSessionAlive(t *testing.T) {
+	t.Parallel()
+
 	const iterations = 6
 
 	for i := 0; i < iterations; i++ {
