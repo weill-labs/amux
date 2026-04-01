@@ -56,7 +56,8 @@ func TestServerBootstrapFailsWithoutTic(t *testing.T) {
 	if err == nil {
 		t.Fatalf("server bootstrap unexpectedly succeeded:\n%s", out)
 	}
-	if !strings.Contains(string(out), "amux server:") {
-		t.Fatalf("missing server bootstrap failure prefix:\n%s", out)
+	output := string(out)
+	if !strings.Contains(output, `"event":"server_bootstrap"`) || !strings.Contains(output, `"msg":"server bootstrap failed"`) {
+		t.Fatalf("missing structured server bootstrap failure log:\n%s", out)
 	}
 }

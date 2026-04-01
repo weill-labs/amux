@@ -57,6 +57,19 @@ func findAuditRecord(records []map[string]any, event string) map[string]any {
 	return nil
 }
 
+func requireAuditDuration(t *testing.T, record map[string]any) string {
+	t.Helper()
+
+	got, ok := record["duration"].(string)
+	if !ok || got == "" {
+		t.Fatalf("duration = %v, want non-empty string in %v", record["duration"], record)
+	}
+	if got == "0s" {
+		t.Fatalf("duration = %q, want non-zero restore duration in %v", got, record)
+	}
+	return got
+}
+
 func lockAuditStateHome(t *testing.T) string {
 	t.Helper()
 
@@ -309,4 +322,70 @@ func TestCheckpointRestoreAuditLogsRestoreEvent(t *testing.T) {
 	if record == nil {
 		t.Fatalf("missing checkpoint_restore audit record in %v", buf.String())
 	}
+	if record["checkpoint_kind"] != "crash" {
+		t.Fatalf("checkpoint_kind = %v, want crash", record["checkpoint_kind"])
+	}
+	requireAuditDuration(t, record)
+}
+
+func TestReloadCheckpointRestoreAuditLogsRestoreEvent(t *testing.T) {
+	t.Parallel()
+
+	logger, buf := newAuditTestLogger()
+	lockAuditStateHome(t)
+
+	sessionName := fmt.Sprintf("reload-restore-audit-%d", time.Now().UnixNano())
+	pane, layout := restoreTestLayout()
+	layout.SessionName = sessionName
+
+	socketPath := filepath.Join(os.TempDir(), fmt.Sprintf("amux-reload-restore-audit-%d.sock", time.Now().UnixNano()))
+	listener, err := net.Listen("unix", socketPath)
+	if err != nil {
+		t.Fatalf("net.Listen: %v", err)
+	}
+	defer os.Remove(socketPath)
+
+	unixListener, ok := listener.(*net.UnixListener)
+	if !ok {
+		t.Fatalf("listener type = %T, want *net.UnixListener", listener)
+	}
+	listenerFile, err := unixListener.File()
+	if err != nil {
+		t.Fatalf("(*net.UnixListener).File(): %v", err)
+	}
+	defer listenerFile.Close()
+	if err := listener.Close(); err != nil {
+		t.Fatalf("listener.Close(): %v", err)
+	}
+
+	cp := &ckpt.ServerCheckpoint{
+		Version:       ckpt.ServerCheckpointVersion,
+		SessionName:   sessionName,
+		WindowCounter: 1,
+		ListenerFd:    int(listenerFile.Fd()),
+		Layout:        layout,
+		Panes: []ckpt.PaneCheckpoint{{
+			ID:        pane.ID,
+			Meta:      pane.Meta,
+			Cols:      80,
+			Rows:      23,
+			CreatedAt: time.Now(),
+			IsProxy:   true,
+		}},
+	}
+
+	srv, err := NewServerFromCheckpointWithScrollbackLogger(cp, mux.DefaultScrollbackLines, logger)
+	if err != nil {
+		t.Fatalf("NewServerFromCheckpointWithScrollbackLogger: %v", err)
+	}
+	defer srv.Shutdown()
+
+	record := findAuditRecord(parseAuditRecords(t, buf), "checkpoint_restore")
+	if record == nil {
+		t.Fatalf("missing checkpoint_restore audit record in %v", buf.String())
+	}
+	if record["checkpoint_kind"] != "reload" {
+		t.Fatalf("checkpoint_kind = %v, want reload", record["checkpoint_kind"])
+	}
+	requireAuditDuration(t, record)
 }

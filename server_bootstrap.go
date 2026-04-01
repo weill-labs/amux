@@ -242,14 +242,7 @@ func runServer(sessionName string, managedTakeover bool) {
 		go reload.WatchBinary(execPath, triggerReload, nil)
 		go func() {
 			for range triggerReload {
-				if reloadErr := s.Reload(execPath); reloadErr != nil {
-					logger.Error("reload failed",
-						"event", "hot_reload",
-						"session", sessionName,
-						"exec_path", execPath,
-						"error", reloadErr,
-					)
-				}
+				_ = s.Reload(execPath)
 			}
 		}()
 	}

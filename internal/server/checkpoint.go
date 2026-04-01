@@ -196,6 +196,7 @@ func NewServerFromCheckpointWithScrollbackLogger(cp *checkpoint.ServerCheckpoint
 	if logger == nil {
 		logger = auditlog.Discard()
 	}
+	restoreStarted := time.Now()
 	// Reconstruct listener from inherited FD
 	listener, err := restoreListenerFromFD(cp.ListenerFd)
 	if err != nil {
@@ -339,7 +340,7 @@ func NewServerFromCheckpointWithScrollbackLogger(cp *checkpoint.ServerCheckpoint
 		}
 	}()
 
-	sess.logCheckpointRestore("reload", "", len(sess.Panes), len(sess.Windows), 0)
+	sess.logCheckpointRestore("reload", "", len(sess.Panes), len(sess.Windows), time.Since(restoreStarted))
 
 	return s, nil
 }

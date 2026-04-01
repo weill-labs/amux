@@ -534,6 +534,7 @@ func newServerFromCrashCheckpointWithListenerLogger(sessionName string, listener
 	if logger == nil {
 		logger = auditlog.Discard()
 	}
+	restoreStarted := time.Now()
 	sess := newSessionWithLogger(sessionName, scrollbackLines, logger.With("session", sessionName))
 	sess.startedAt = cp.Timestamp
 	sess.counter.Store(cp.Counter)
@@ -638,7 +639,7 @@ func newServerFromCrashCheckpointWithListenerLogger(sessionName string, listener
 	if crashPath != "" {
 		_ = checkpoint.RemoveCrashFile(crashPath)
 	}
-	sess.logCheckpointRestore("crash", crashPath, len(sess.Panes), len(sess.Windows), 0)
+	sess.logCheckpointRestore("crash", crashPath, len(sess.Panes), len(sess.Windows), time.Since(restoreStarted))
 
 	return s, nil
 }

@@ -53,6 +53,9 @@ func Detect(output io.Writer, environ termenv.Environ, outputOpts ...termenv.Out
 	if environ == nil {
 		environ = emptyEnviron{}
 	}
+	if inherited, ok := inheritedProfile(environ); ok {
+		return inherited
+	}
 
 	opts := []termenv.OutputOption{termenv.WithEnvironment(environ)}
 	opts = append(opts, outputOpts...)
@@ -69,16 +72,26 @@ func EnvEntry(environ termenv.Environ) string {
 }
 
 func fallbackProfile(profile termenv.Profile, environ termenv.Environ) termenv.Profile {
-	if profile != termenv.Ascii || envNoColor(environ) {
+	if profile != termenv.Ascii {
 		return profile
 	}
-	if inherited, ok := Parse(environ.Getenv(EnvKey)); ok {
+	if inherited, ok := inheritedProfile(environ); ok {
 		return inherited
 	}
-	if strings.EqualFold(environ.Getenv("TERM"), "amux") {
-		return termenv.ANSI256
-	}
 	return profile
+}
+
+func inheritedProfile(environ termenv.Environ) (termenv.Profile, bool) {
+	if envNoColor(environ) {
+		return termenv.Ascii, true
+	}
+	if inherited, ok := Parse(environ.Getenv(EnvKey)); ok {
+		return inherited, true
+	}
+	if strings.EqualFold(environ.Getenv("TERM"), "amux") {
+		return termenv.ANSI256, true
+	}
+	return termenv.Ascii, false
 }
 
 func envNoColor(environ termenv.Environ) bool {

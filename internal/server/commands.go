@@ -16,7 +16,6 @@ type CommandContext struct {
 	Sess        *Session
 	Args        []string
 	ActorPaneID uint32
-	commandName string
 	auditErr    string
 }
 
