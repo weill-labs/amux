@@ -64,6 +64,9 @@ type Message struct {
 	// semantics: attached clients participate in size negotiation unless they
 	// explicitly opt out.
 	AttachMode AttachMode
+	// AttachColorProfile is optional. Empty means the client did not advertise
+	// an explicit terminal color profile.
+	AttachColorProfile string
 	// AttachCapabilities is optional. Nil means the client used the legacy
 	// attach path and did not advertise explicit capability support.
 	AttachCapabilities *ClientCapabilities

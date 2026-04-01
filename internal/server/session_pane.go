@@ -322,6 +322,13 @@ func (s *Session) createPane(srv *Server, cols, rows int) (*mux.Pane, error) {
 	return s.createPaneWithMeta(srv, mux.PaneMeta{}, cols, rows)
 }
 
+func (s *Session) paneLaunchColorProfile(preferred *clientConn) string {
+	if cc := s.effectiveSizeClient(); cc != nil {
+		return cc.colorProfile
+	}
+	return ""
+}
+
 // createPaneWithMeta creates a new pane with explicit metadata (for spawn).
 // Name, Host, and Color are auto-assigned if empty.
 func (s *Session) createPaneWithMeta(srv *Server, meta mux.PaneMeta, cols, rows int) (*mux.Pane, error) {

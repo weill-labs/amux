@@ -99,6 +99,15 @@ func TestDetectTerminalColorProfileUsesProcessEnvironment(t *testing.T) {
 	}
 }
 
+func TestAttachColorProfileFormatsDetectedProfile(t *testing.T) {
+	t.Parallel()
+
+	got := attachColorProfile(io.Discard, stubEnviron{"TERM": "xterm-ghostty"}, termenv.WithTTY(true))
+	if got != "TrueColor" {
+		t.Fatalf("attachColorProfile() = %q, want %q", got, "TrueColor")
+	}
+}
+
 func TestClientRendererColorProfileNilGuards(t *testing.T) {
 	t.Parallel()
 

@@ -37,6 +37,7 @@ type clientConn struct {
 	writer             *clientWriter
 	typeKeyQueue       *pacedInputQueue
 	capabilities       proto.ClientCapabilities
+	colorProfile       string
 	disconnectReason   atomic.Pointer[string]
 }
 

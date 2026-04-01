@@ -28,6 +28,10 @@ func detectTerminalColorProfile(output io.Writer, environ termenv.Environ, outpu
 	return termprofile.Detect(output, environ, outputOpts...)
 }
 
+func attachColorProfile(output io.Writer, environ termenv.Environ, outputOpts ...termenv.OutputOption) string {
+	return ""
+}
+
 func newAttachClientRenderer(cols, rows, scrollbackLines int, output io.Writer, environ termenv.Environ, outputOpts ...termenv.OutputOption) *ClientRenderer {
 	cr := NewClientRendererWithScrollback(cols, rows, scrollbackLines)
 	cr.SetColorProfile(detectTerminalColorProfile(output, environ, outputOpts...))

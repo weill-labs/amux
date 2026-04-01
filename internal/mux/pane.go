@@ -23,7 +23,7 @@ const DefaultHost = "local"
 const PaneNameFormat = "pane-%d"
 
 func paneShellEnv(id uint32, sessionName string) []string {
-	return paneCommandEnv(os.Environ(), id, sessionName)
+	return paneCommandEnvWithProfile(os.Environ(), id, sessionName, "")
 }
 
 func paneShellPath() string {
@@ -189,6 +189,10 @@ func wireScrollbackCallbacks(p *Pane) {
 }
 
 func paneCommandEnv(base []string, paneID uint32, sessionName string) []string {
+	return paneCommandEnvWithProfile(base, paneID, sessionName, "")
+}
+
+func paneCommandEnvWithProfile(base []string, paneID uint32, sessionName, colorProfile string) []string {
 	env := make([]string, 0, len(base)+4)
 	for _, entry := range base {
 		key, _, ok := strings.Cut(entry, "=")

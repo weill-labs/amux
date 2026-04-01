@@ -138,6 +138,23 @@ func TestPaneEnvScrubsLauncherColorFlags(t *testing.T) {
 	}
 }
 
+func TestPaneEnvironmentExplicitColorProfileWins(t *testing.T) {
+	t.Parallel()
+
+	env := paneCommandEnvWithProfile([]string{
+		"TERM=xterm-256color",
+		"PATH=/bin",
+	}, 9, "session-c", "ANSI")
+
+	joined := strings.Join(env, "\n")
+	if !strings.Contains(joined, "AMUX_COLOR_PROFILE=ANSI") {
+		t.Fatalf("paneCommandEnvWithProfile missing explicit profile:\n%s", joined)
+	}
+	if strings.Contains(joined, "AMUX_COLOR_PROFILE=ANSI256") {
+		t.Fatalf("paneCommandEnvWithProfile ignored explicit profile:\n%s", joined)
+	}
+}
+
 func TestEncodeMouseButton(t *testing.T) {
 	t.Parallel()
 
