@@ -1646,6 +1646,48 @@ func TestPromptModesStatusAndGotoLine(t *testing.T) {
 	}
 }
 
+func TestSearchPromptSupportsCursorEditingKeys(t *testing.T) {
+	t.Parallel()
+
+	emu := newFakeEmulator(20, 5)
+	emu.screen = []string{"alpha beta", "gamma", "delta", "epsilon", "zeta"}
+	cm := New(emu, 20, 5, 0)
+
+	if action := cm.HandleInput([]byte{'/'}); action != ActionRedraw {
+		t.Fatalf("enter search prompt = %d, want %d", action, ActionRedraw)
+	}
+	if action := cm.HandleInput([]byte("logs")); action != ActionRedraw {
+		t.Fatalf("typing prompt text = %d, want %d", action, ActionRedraw)
+	}
+	if action := cm.HandleInput([]byte("\x1b[D")); action != ActionRedraw {
+		t.Fatalf("left arrow in search prompt = %d, want %d", action, ActionRedraw)
+	}
+	if action := cm.HandleInput([]byte("\x1b[D")); action != ActionRedraw {
+		t.Fatalf("second left arrow in search prompt = %d, want %d", action, ActionRedraw)
+	}
+	if action := cm.HandleInput([]byte{0x0b}); action != ActionRedraw {
+		t.Fatalf("ctrl-k in search prompt = %d, want %d", action, ActionRedraw)
+	}
+	if got := cm.SearchBarText(); got != "/lo" {
+		t.Fatalf("SearchBarText after ctrl-k = %q, want %q", got, "/lo")
+	}
+	if action := cm.HandleInput([]byte{0x01}); action != ActionRedraw {
+		t.Fatalf("ctrl-a in search prompt = %d, want %d", action, ActionRedraw)
+	}
+	if action := cm.HandleInput([]byte("x")); action != ActionRedraw {
+		t.Fatalf("typing after ctrl-a = %d, want %d", action, ActionRedraw)
+	}
+	if got := cm.SearchBarText(); got != "/xlo" {
+		t.Fatalf("SearchBarText after ctrl-a insert = %q, want %q", got, "/xlo")
+	}
+	if action := cm.HandleInput([]byte{'\r'}); action != ActionRedraw {
+		t.Fatalf("submit search prompt = %d, want %d", action, ActionRedraw)
+	}
+	if got := cm.SearchQuery(); got != "xlo" {
+		t.Fatalf("SearchQuery after edited submit = %q, want %q", got, "xlo")
+	}
+}
+
 func TestSearchAgainAndMatchCopyWithoutSelection(t *testing.T) {
 	t.Parallel()
 

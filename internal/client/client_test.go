@@ -1919,6 +1919,33 @@ func TestChooseTreeNavigationSelectsPane(t *testing.T) {
 	}
 }
 
+func TestChooseWindowSupportsHomeAndEndKeys(t *testing.T) {
+	t.Parallel()
+
+	cr := buildMultiWindowRenderer(t)
+	if !cr.ShowChooser(chooserModeWindow) {
+		t.Fatal("ShowChooser window should succeed")
+	}
+
+	if got := cr.HandleChooserInput([]byte("\x1b[F")); got.bell {
+		t.Fatalf("End key should navigate the chooser, got %+v", got)
+	}
+	if cmd := cr.selectChooser(); cmd.command != "select-window" || len(cmd.args) != 1 || cmd.args[0] != "2" {
+		t.Fatalf("selection after End = %+v, want window 2", cmd)
+	}
+
+	if !cr.ShowChooser(chooserModeWindow) {
+		t.Fatal("ShowChooser window should succeed after reselection")
+	}
+	cr.HandleChooserInput([]byte("j"))
+	if got := cr.HandleChooserInput([]byte("\x1b[H")); got.bell {
+		t.Fatalf("Home key should navigate the chooser, got %+v", got)
+	}
+	if cmd := cr.selectChooser(); cmd.command != "select-window" || len(cmd.args) != 1 || cmd.args[0] != "1" {
+		t.Fatalf("selection after Home = %+v, want window 1", cmd)
+	}
+}
+
 func TestChooserUIEvents(t *testing.T) {
 	t.Parallel()
 

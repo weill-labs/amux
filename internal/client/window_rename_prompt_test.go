@@ -154,3 +154,38 @@ func TestWindowRenamePromptEdgeCases(t *testing.T) {
 		}
 	})
 }
+
+func TestWindowRenamePromptSupportsCursorEditingKeys(t *testing.T) {
+	t.Parallel()
+
+	cr := buildTestRenderer(t)
+	if !cr.ShowWindowRenamePrompt() {
+		t.Fatal("ShowWindowRenamePrompt should succeed")
+	}
+
+	cr.HandleWindowRenamePromptInput([]byte("logs"))
+	if got := cr.HandleWindowRenamePromptInput([]byte("\x1b[D")); got.bell {
+		t.Fatalf("left arrow should move the cursor, got %+v", got)
+	}
+	if got := cr.HandleWindowRenamePromptInput([]byte("\x1b[D")); got.bell {
+		t.Fatalf("second left arrow should move the cursor, got %+v", got)
+	}
+	if got := cr.HandleWindowRenamePromptInput([]byte{0x0b}); got.bell {
+		t.Fatalf("ctrl-k should delete to end, got %+v", got)
+	}
+	if overlay := cr.windowRenamePromptOverlay(); overlay == nil || overlay.Input != "lo" {
+		t.Fatalf("prompt after ctrl-k = %+v, want input %q", overlay, "lo")
+	}
+
+	if got := cr.HandleWindowRenamePromptInput([]byte{0x01}); got.bell {
+		t.Fatalf("ctrl-a should move to start, got %+v", got)
+	}
+	if got := cr.HandleWindowRenamePromptInput([]byte("x")); got.bell {
+		t.Fatalf("typing after ctrl-a should edit locally, got %+v", got)
+	}
+
+	submit := cr.HandleWindowRenamePromptInput([]byte{'\r'})
+	if submit.command != "rename-window" || len(submit.args) != 1 || submit.args[0] != "xlo" {
+		t.Fatalf("submit after cursor edits = %+v, want rename-window xlo", submit)
+	}
+}
