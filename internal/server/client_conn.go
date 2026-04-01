@@ -8,6 +8,7 @@ import (
 	"runtime/debug"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	charmlog "github.com/charmbracelet/log"
 	"github.com/weill-labs/amux/internal/auditlog"
