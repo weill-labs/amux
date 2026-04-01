@@ -752,7 +752,7 @@ func runNewWindow(ctx *CommandContext, name string) commandpkg.Result {
 			newWin.Name = fmt.Sprintf(WindowNameFormat, winID)
 		}
 		sess.Windows = append(sess.Windows, newWin)
-		sess.ActiveWindowID = winID
+		sess.activateWindow(newWin)
 
 		return commandMutationResult{
 			output:          fmt.Sprintf("Created %s\n", newWin.Name),
