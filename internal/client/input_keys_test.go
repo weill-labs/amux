@@ -8,6 +8,17 @@ import (
 	"github.com/weill-labs/amux/internal/proto"
 )
 
+func decodeSingleInputEvent(t *testing.T, input []byte) decodedInputEvent {
+	t.Helper()
+
+	events := decodeInputEvents(input)
+	if len(events) != 1 {
+		t.Fatalf("len(events) = %d, want 1", len(events))
+	}
+
+	return events[0]
+}
+
 func TestNormalizeLocalInput(t *testing.T) {
 	t.Parallel()
 
@@ -92,14 +103,10 @@ func TestNormalizeLocalInput(t *testing.T) {
 func TestDecodeInputEventsKittyCtrlA(t *testing.T) {
 	t.Parallel()
 
-	events := decodeInputEvents([]byte("\x1b[97;5u"))
-	if len(events) != 1 {
-		t.Fatalf("len(events) = %d, want 1", len(events))
-	}
-
-	key, ok := events[0].event.(uv.KeyPressEvent)
+	event := decodeSingleInputEvent(t, []byte("\x1b[97;5u")).event
+	key, ok := event.(uv.KeyPressEvent)
 	if !ok {
-		t.Fatalf("event type = %T, want uv.KeyPressEvent", events[0].event)
+		t.Fatalf("event type = %T, want uv.KeyPressEvent", event)
 	}
 	if !key.MatchString("ctrl+a") {
 		t.Fatalf("decoded key = %q, want ctrl+a", key.Keystroke())
@@ -130,11 +137,7 @@ func TestDecodeInputEventsFocusAndBlur(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			events := decodeInputEvents(tt.input)
-			if len(events) != 1 {
-				t.Fatalf("len(events) = %d, want 1", len(events))
-			}
-			if got := events[0].event; got != tt.want {
+			if got := decodeSingleInputEvent(t, tt.input).event; got != tt.want {
 				t.Fatalf("event = %T, want %T", got, tt.want)
 			}
 		})
@@ -215,34 +218,59 @@ func TestForwardedBytesForDecodedInput(t *testing.T) {
 			want:  []byte{0x03},
 		},
 		{
-			name:  "kitty ctrl-shift-a preserves raw csi-u bytes",
+			name:  "kitty ctrl-r translates to legacy control byte",
+			input: []byte("\x1b[114;5u"),
+			want:  []byte{0x12},
+		},
+		{
+			name:  "kitty ctrl-d translates to legacy control byte",
+			input: []byte("\x1b[100;5u"),
+			want:  []byte{0x04},
+		},
+		{
+			name:  "kitty ctrl-z translates to legacy control byte",
+			input: []byte("\x1b[122;5u"),
+			want:  []byte{0x1a},
+		},
+		{
+			name:  "kitty ctrl-l translates to legacy control byte",
+			input: []byte("\x1b[108;5u"),
+			want:  []byte{0x0c},
+		},
+		{
+			name:  "kitty ctrl-w translates to legacy control byte",
+			input: []byte("\x1b[119;5u"),
+			want:  []byte{0x17},
+		},
+		{
+			name:  "kitty ctrl-shift-a translates to legacy control byte",
 			input: []byte("\x1b[97;6;65u"),
-			want:  []byte("\x1b[97;6;65u"),
+			want:  []byte{0x01},
 		},
 		{
-			name:  "kitty ctrl-9 preserves raw csi-u bytes",
+			name:  "kitty ctrl-9 translates to legacy printable byte",
 			input: []byte("\x1b[57;5u"),
-			want:  []byte("\x1b[57;5u"),
+			want:  []byte("9"),
 		},
 		{
-			name:  "kitty ctrl-slash preserves raw csi-u bytes",
+			name:  "kitty ctrl-slash translates to legacy control byte",
 			input: []byte("\x1b[47;5u"),
-			want:  []byte("\x1b[47;5u"),
+			want:  []byte{0x1f},
 		},
 		{
-			name:  "kitty alt-h preserves raw csi-u bytes",
+			name:  "kitty alt-h translates to legacy esc-prefixed bytes",
 			input: []byte("\x1b[104;3u"),
-			want:  []byte("\x1b[104;3u"),
+			want:  []byte{0x1b, 'h'},
 		},
 		{
-			name:  "kitty alt-shift-a preserves raw csi-u bytes",
+			name:  "kitty alt-shift-a translates to legacy esc-prefixed bytes",
 			input: []byte("\x1b[97;4;65u"),
-			want:  []byte("\x1b[97;4;65u"),
+			want:  []byte{0x1b, 'A'},
 		},
 		{
-			name:  "kitty alt-up preserves raw special-key bytes",
+			name:  "kitty alt-up translates to legacy esc-prefixed special-key bytes",
 			input: []byte("\x1b[1;3A"),
-			want:  []byte("\x1b[1;3A"),
+			want:  []byte{0x1b, 0x1b, '[', 'A'},
 		},
 		{
 			name:  "kitty composed key preserves associated text sequence",
@@ -265,11 +293,7 @@ func TestForwardedBytesForDecodedInput(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			events := decodeInputEvents(tt.input)
-			if len(events) != 1 {
-				t.Fatalf("len(events) = %d, want 1", len(events))
-			}
-			if got := forwardedBytesForDecodedInput(events[0]); !bytes.Equal(got, tt.want) {
+			if got := forwardedBytesForDecodedInput(decodeSingleInputEvent(t, tt.input)); !bytes.Equal(got, tt.want) {
 				t.Fatalf("forwardedBytesForDecodedInput(%q) = %q, want %q", tt.input, got, tt.want)
 			}
 		})
