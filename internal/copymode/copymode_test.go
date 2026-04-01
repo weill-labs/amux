@@ -1688,6 +1688,30 @@ func TestSearchPromptSupportsCursorEditingKeys(t *testing.T) {
 	}
 }
 
+func TestSearchPromptIgnoresUnsupportedAndNoopKeys(t *testing.T) {
+	t.Parallel()
+
+	emu := newFakeEmulator(20, 5)
+	emu.screen = []string{"alpha beta", "gamma", "delta", "epsilon", "zeta"}
+	cm := New(emu, 20, 5, 0)
+
+	if action := cm.HandleInput([]byte{'/'}); action != ActionRedraw {
+		t.Fatalf("enter search prompt = %d, want %d", action, ActionRedraw)
+	}
+	if action := cm.HandleInput([]byte{0xc3}); action != ActionNone {
+		t.Fatalf("invalid utf-8 lead byte in prompt = %d, want %d", action, ActionNone)
+	}
+	if action := cm.HandleInput([]byte("\x1b[A")); action != ActionNone {
+		t.Fatalf("up arrow in prompt = %d, want %d", action, ActionNone)
+	}
+	if action := cm.HandleInput([]byte{0x7f}); action != ActionNone {
+		t.Fatalf("backspace on empty prompt = %d, want %d", action, ActionNone)
+	}
+	if got := cm.SearchBarText(); got != "/" {
+		t.Fatalf("SearchBarText after ignored keys = %q, want %q", got, "/")
+	}
+}
+
 func TestSearchAgainAndMatchCopyWithoutSelection(t *testing.T) {
 	t.Parallel()
 

@@ -153,6 +153,19 @@ func TestWindowRenamePromptEdgeCases(t *testing.T) {
 			t.Fatal("editWindowRenamePrompt should not create prompt state")
 		}
 	})
+
+	t.Run("edit helper no-op keeps prompt unchanged", func(t *testing.T) {
+		t.Parallel()
+
+		cr := buildTestRenderer(t)
+		if !cr.ShowWindowRenamePrompt() {
+			t.Fatal("ShowWindowRenamePrompt should succeed")
+		}
+		cr.editWindowRenamePrompt(0, 0)
+		if overlay := cr.windowRenamePromptOverlay(); overlay == nil || overlay.Input != "" {
+			t.Fatalf("no-op edit should leave prompt empty, got %+v", overlay)
+		}
+	})
 }
 
 func TestWindowRenamePromptSupportsCursorEditingKeys(t *testing.T) {

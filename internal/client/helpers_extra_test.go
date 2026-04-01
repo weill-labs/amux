@@ -1,8 +1,11 @@
 package client
 
 import (
+	"bytes"
 	"testing"
 
+	"github.com/charmbracelet/bubbles/list"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/weill-labs/amux/internal/proto"
 )
 
@@ -169,5 +172,67 @@ func TestMoveAndSelectChooserBellPaths(t *testing.T) {
 	}
 	if got := cr.selectChooser(); !got.bell {
 		t.Fatalf("selectChooser should bell when selected row is not selectable, got %+v", got)
+	}
+}
+
+func TestChooserNavigationCoverageHelpers(t *testing.T) {
+	t.Parallel()
+
+	if got := chooserListHeight(0); got != 1 {
+		t.Fatalf("chooserListHeight(0) = %d, want 1", got)
+	}
+
+	delegate := chooserListDelegate{}
+	var buf bytes.Buffer
+	model := list.New(nil, delegate, 10, 1)
+	delegate.Render(&buf, model, 0, chooserListItem{})
+	if got := delegate.Height(); got != 1 {
+		t.Fatalf("delegate.Height() = %d, want 1", got)
+	}
+	if got := delegate.Spacing(); got != 0 {
+		t.Fatalf("delegate.Spacing() = %d, want 0", got)
+	}
+	if cmd := delegate.Update(tea.WindowSizeMsg{}, &model); cmd != nil {
+		t.Fatalf("delegate.Update() = %v, want nil", cmd)
+	}
+
+	cr := buildMultiWindowRenderer(t)
+	if got := cr.chooserQueryValue(); got != "" {
+		t.Fatalf("chooserQueryValue() without chooser = %q, want empty", got)
+	}
+
+	if !cr.ShowChooser(chooserModeWindow) {
+		t.Fatal("ShowChooser window should succeed")
+	}
+	if got := cr.HandleChooserInput([]byte("k")); got.bell {
+		t.Fatalf("k should wrap to the last row, got %+v", got)
+	}
+	if cmd := cr.selectChooser(); cmd.command != "select-window" || len(cmd.args) != 1 || cmd.args[0] != "2" {
+		t.Fatalf("selection after k wrap = %+v, want window 2", cmd)
+	}
+
+	if !cr.ShowChooser(chooserModeWindow) {
+		t.Fatal("ShowChooser window should succeed after wrap")
+	}
+	if got := cr.HandleChooserInput([]byte("\x1b[A")); got.bell {
+		t.Fatalf("up arrow should navigate the chooser, got %+v", got)
+	}
+	if cmd := cr.selectChooser(); cmd.command != "select-window" || len(cmd.args) != 1 || cmd.args[0] != "2" {
+		t.Fatalf("selection after up arrow = %+v, want window 2", cmd)
+	}
+
+	if !cr.ShowChooser(chooserModeWindow) {
+		t.Fatal("ShowChooser window should succeed for page navigation")
+	}
+	if got := cr.HandleChooserInput([]byte("\x1b[5~")); got.bell {
+		t.Fatalf("page up should be accepted, got %+v", got)
+	}
+	if got := cr.HandleChooserInput([]byte("\x1b[6~")); got.bell {
+		t.Fatalf("page down should be accepted, got %+v", got)
+	}
+
+	cr.HandleChooserInput([]byte("no-match"))
+	if got := cr.HandleChooserInput([]byte("\x1b[6~")); !got.bell {
+		t.Fatalf("page down without visible rows should bell, got %+v", got)
 	}
 }
