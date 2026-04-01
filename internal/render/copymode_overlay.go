@@ -92,7 +92,7 @@ func RenderPaneViewportANSI(width, height int, active bool, pd PaneData) string 
 	var buf strings.Builder
 	buf.Grow(width * height * 2)
 
-	var prevStyle *uv.Style
+	var state emittedCellState
 	copyOverlay := pd.CopyModeOverlay()
 	for row := 0; row < height; row++ {
 		if row > 0 {
@@ -105,11 +105,7 @@ func RenderPaneViewportANSI(width, height int, active bool, pd PaneData) string 
 				col++
 				continue
 			}
-			if diff := uv.StyleDiff(prevStyle, &cell.Style); diff != "" {
-				buf.WriteString(diff)
-			}
-			styleCopy := cell.Style
-			prevStyle = &styleCopy
+			state.transition(&buf, cell, defaultColorProfile)
 
 			char := cell.Char
 			if char == "" {
@@ -124,8 +120,9 @@ func RenderPaneViewportANSI(width, height int, active bool, pd PaneData) string 
 			col += cellWidth
 		}
 	}
-	if prevStyle != nil {
-		if diff := uv.StyleDiff(prevStyle, &uv.Style{}); diff != "" {
+	state.closeHyperlink(&buf)
+	if state.hasStyle {
+		if diff := styleDiffWithProfile(state.stylePtr(), uv.Style{}, defaultColorProfile); diff != "" {
 			buf.WriteString(diff)
 		}
 	}
