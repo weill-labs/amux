@@ -84,6 +84,7 @@ func TestPaneEnvironmentAndCreatedAt(t *testing.T) {
 	}
 
 	t.Setenv("TERM", "xterm-256color")
+	t.Setenv("COLORTERM", "")
 	t.Setenv("AMUX_PANE", "old-pane")
 	t.Setenv("AMUX_SESSION", "old-session")
 	t.Setenv("AMUX_COLOR_PROFILE", "Ascii")
