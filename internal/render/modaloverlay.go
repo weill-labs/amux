@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/muesli/termenv"
 	"github.com/weill-labs/amux/internal/config"
 )
 
@@ -43,6 +44,10 @@ func buildChooserOverlayCells(g *ScreenGrid, overlay *ChooserOverlay) {
 }
 
 func renderChooserOverlay(buf *strings.Builder, width, height int, overlay *ChooserOverlay) {
+	renderChooserOverlayWithProfile(buf, width, height, overlay, defaultColorProfile)
+}
+
+func renderChooserOverlayWithProfile(buf *strings.Builder, width, height int, overlay *ChooserOverlay, profile termenv.Profile) {
 	if overlay == nil {
 		return
 	}
@@ -50,12 +55,14 @@ func renderChooserOverlay(buf *strings.Builder, width, height int, overlay *Choo
 	if len(lines) == 0 {
 		return
 	}
+	surface0Bg := bgHexSequence(config.Surface0Hex, profile)
+	textFg := fgHexSequence(config.TextColorHex, profile)
 	for row, line := range lines {
 		writeCursorTo(buf, y+row+1, x+1)
 		if row == 0 || row == len(lines)-1 {
-			buf.WriteString(Surface0Bg + Bold + TextFg)
+			buf.WriteString(surface0Bg + Bold + textFg)
 		} else {
-			buf.WriteString(Surface0Bg + TextFg)
+			buf.WriteString(surface0Bg + textFg)
 		}
 		buf.WriteString(line)
 		buf.WriteString(Reset)

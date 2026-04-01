@@ -8,6 +8,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/mattn/go-runewidth"
+	"github.com/muesli/termenv"
 	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
@@ -159,28 +160,38 @@ func paneStatusSegmentsWidth(segments []paneStatusSegment) int {
 }
 
 func paneStatusSegmentANSI(role paneStatusSegmentRole, colorHex string) string {
+	return paneStatusSegmentANSIWithProfile(role, colorHex, defaultColorProfile)
+}
+
+func paneStatusSegmentANSIWithProfile(role paneStatusSegmentRole, colorHex string, profile termenv.Profile) string {
 	if colorHex == "" {
 		colorHex = config.TextColorHex
 	}
+	surface0Bg := bgHexSequence(config.Surface0Hex, profile)
+	textFg := fgHexSequence(config.TextColorHex, profile)
+	dimFg := fgHexSequence(config.DimColorHex, profile)
+	yellowFg := fgHexSequence(config.YellowHex, profile)
+	greenFg := fgHexSequence(config.GreenHex, profile)
+	redFg := fgHexSequence(config.RedHex, profile)
 	switch role {
 	case paneStatusSegmentPane:
-		return Reset + Surface0Bg + hexToANSI(colorHex)
+		return Reset + surface0Bg + hexToANSIWithProfile(colorHex, profile)
 	case paneStatusSegmentPaneBold:
-		return Reset + Surface0Bg + Bold + hexToANSI(colorHex)
+		return Reset + surface0Bg + Bold + hexToANSIWithProfile(colorHex, profile)
 	case paneStatusSegmentDim:
-		return Reset + Surface0Bg + DimFg
+		return Reset + surface0Bg + dimFg
 	case paneStatusSegmentText:
-		return Reset + Surface0Bg + TextFg
+		return Reset + surface0Bg + textFg
 	case paneStatusSegmentYellow:
-		return Reset + Surface0Bg + YellowFg
+		return Reset + surface0Bg + yellowFg
 	case paneStatusSegmentGreen:
-		return Reset + Surface0Bg + GreenFg
+		return Reset + surface0Bg + greenFg
 	case paneStatusSegmentRed:
-		return Reset + Surface0Bg + RedFg
+		return Reset + surface0Bg + redFg
 	case paneStatusSegmentCompletedMeta:
-		return Reset + Surface0Bg + DimFg + StrikeOn
+		return Reset + surface0Bg + dimFg + StrikeOn
 	default:
-		return Reset + Surface0Bg
+		return Reset + surface0Bg
 	}
 }
 
@@ -192,18 +203,22 @@ func paneStatusSegmentANSI(role paneStatusSegmentRole, colorHex string) string {
 //   - Inactive + busy:      ○ (hollow circle, dim)
 //   - Inactive + idle:      ◇ (diamond outline, dim)
 func renderPaneStatus(buf *strings.Builder, cell *mux.LayoutCell, isActive bool, pd PaneData) {
+	renderPaneStatusWithProfile(buf, cell, isActive, pd, defaultColorProfile)
+}
+
+func renderPaneStatusWithProfile(buf *strings.Builder, cell *mux.LayoutCell, isActive bool, pd PaneData, profile termenv.Profile) {
 	writeCursorTo(buf, cell.Y+1, cell.X+1)
 
 	colorHex := paneStatusColorHex(pd)
 	segments := buildPaneStatusSegments(cell.W, isActive, pd)
 	for _, segment := range segments {
-		buf.WriteString(paneStatusSegmentANSI(segment.role, colorHex))
+		buf.WriteString(paneStatusSegmentANSIWithProfile(segment.role, colorHex, profile))
 		buf.WriteString(segment.text)
 	}
 
 	remaining := cell.W - paneStatusSegmentsWidth(segments)
 	if remaining > 0 {
-		buf.WriteString(paneStatusSegmentANSI(paneStatusSegmentBackground, colorHex))
+		buf.WriteString(paneStatusSegmentANSIWithProfile(paneStatusSegmentBackground, colorHex, profile))
 		buf.WriteString(strings.Repeat(" ", remaining))
 	}
 
@@ -415,10 +430,17 @@ func GlobalBarWindowAtColumn(windows []WindowInfo, x int) (WindowInfo, bool) {
 
 // renderGlobalBar draws the global status bar at the bottom of the terminal.
 func renderGlobalBar(buf *strings.Builder, sessionName string, paneCount int, width, yPos int, windows []WindowInfo, message string, now time.Time) {
+	renderGlobalBarWithProfile(buf, sessionName, paneCount, width, yPos, windows, message, now, defaultColorProfile)
+}
+
+func renderGlobalBarWithProfile(buf *strings.Builder, sessionName string, paneCount int, width, yPos int, windows []WindowInfo, message string, now time.Time, profile termenv.Profile) {
 	writeCursorTo(buf, yPos+1, 1)
 
 	// Catppuccin surface0 bg, text fg
-	buf.WriteString(Surface0Bg + TextFg)
+	surface0Bg := bgHexSequence(config.Surface0Hex, profile)
+	textFg := fgHexSequence(config.TextColorHex, profile)
+	redFg := fgHexSequence(config.RedHex, profile)
+	buf.WriteString(surface0Bg + textFg)
 
 	nowStr := now.Format("15:04")
 	tabs := buildGlobalBarWindowTabs(windows)
@@ -429,7 +451,7 @@ func renderGlobalBar(buf *strings.Builder, sessionName string, paneCount int, wi
 	// Show window tabs if there are multiple windows
 	if len(tabs) > 0 {
 		for _, tab := range tabs {
-			left += hexToANSI(globalBarTabColorHex(tab.window))
+			left += hexToANSIWithProfile(globalBarTabColorHex(tab.window), profile)
 			if tab.window.IsActive {
 				left += Bold
 			}
@@ -437,7 +459,7 @@ func renderGlobalBar(buf *strings.Builder, sessionName string, paneCount int, wi
 			if tab.window.IsActive {
 				left += NoBold
 			}
-			left += TextFg + " "
+			left += textFg + " "
 			leftVisible += utf8.RuneCountInString(tab.display) + 1
 		}
 		left += "│ "
@@ -448,11 +470,11 @@ func renderGlobalBar(buf *strings.Builder, sessionName string, paneCount int, wi
 	}
 
 	right := ""
-	rightColor := TextFg
+	rightColor := textFg
 	if message != "" {
 		maxText := width - leftVisible - 2
 		right = " " + truncateRunes(message, maxText) + " "
-		rightColor = RedFg
+		rightColor = redFg
 		message = ""
 	} else {
 		paneCountStr := strconv.Itoa(paneCount)

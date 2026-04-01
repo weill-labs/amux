@@ -3,6 +3,8 @@ package render
 import (
 	"strings"
 
+	"github.com/muesli/termenv"
+	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/mux"
 )
 
@@ -135,7 +137,12 @@ func markBorders(bm *borderMap, cell *mux.LayoutCell) {
 // renderBorders draws all border cells with junction characters and per-cell coloring.
 // Iterates the sparse position list instead of scanning the full w*h grid.
 func renderBorders(buf *strings.Builder, bm *borderMap, root *mux.LayoutCell, activePaneID uint32, activeColor string) {
+	renderBordersWithProfile(buf, bm, root, activePaneID, activeColor, defaultColorProfile)
+}
+
+func renderBordersWithProfile(buf *strings.Builder, bm *borderMap, root *mux.LayoutCell, activePaneID uint32, activeColor string, profile termenv.Profile) {
 	lastColor := ""
+	dimColor := fgHexSequence(config.DimColorHex, profile)
 	for _, pos := range bm.positions {
 		x, y := pos.x, pos.y
 
@@ -150,12 +157,17 @@ func renderBorders(buf *strings.Builder, bm *borderMap, root *mux.LayoutCell, ac
 		bc := bm.get(x, y)
 		isJunction := (up || down) && (left || right)
 		color := borderColor(bc.left, bc.right, x, y, isJunction, activePaneID, activeColor)
+		if color == DimFg {
+			color = dimColor
+		}
 
 		if color != lastColor {
 			if lastColor != "" {
 				buf.WriteString(Reset)
 			}
-			buf.WriteString(color)
+			if color != "" {
+				buf.WriteString(color)
+			}
 			lastColor = color
 		}
 

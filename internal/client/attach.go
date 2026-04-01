@@ -375,7 +375,7 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 	}
 
 	// Client-side renderer with per-pane emulators
-	cr := NewClientRendererWithScrollback(cols, rows, scrollbackLines)
+	cr := newAttachClientRenderer(cols, rows, scrollbackLines, os.Stdout, processEnviron{})
 	cr.SetCapabilities(negotiatedAttachCaps)
 	cr.OnUIEvent = func(name string) {
 		_ = sender.Send(&proto.Message{

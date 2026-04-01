@@ -9,6 +9,7 @@ import (
 
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/mattn/go-runewidth"
+	"github.com/muesli/termenv"
 	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/mux"
 )
@@ -35,7 +36,8 @@ type Compositor struct {
 	cachedBorderRoot *mux.LayoutCell
 
 	// Previous frame's grid for diff rendering. Nil forces full paint.
-	prevGrid *ScreenGrid
+	prevGrid     *ScreenGrid
+	colorProfile termenv.Profile
 }
 
 // SetWindows sets the window list for the global bar.
@@ -45,7 +47,12 @@ func (c *Compositor) SetWindows(windows []WindowInfo) {
 
 // NewCompositor creates a compositor for the given terminal dimensions.
 func NewCompositor(width, height int, sessionName string) *Compositor {
-	return &Compositor{width: width, height: height, sessionName: sessionName}
+	return &Compositor{
+		width:        width,
+		height:       height,
+		sessionName:  sessionName,
+		colorProfile: defaultColorProfile,
+	}
 }
 
 // now returns the current time using the compositor's clock or time.Now.
@@ -69,6 +76,20 @@ func (c *Compositor) Resize(width, height int) {
 // SetSessionName updates the session name shown in the global bar.
 func (c *Compositor) SetSessionName(name string) {
 	c.sessionName = name
+}
+
+// SetColorProfile updates the terminal color profile used for ANSI rendering.
+func (c *Compositor) SetColorProfile(profile termenv.Profile) {
+	if c.colorProfile == profile {
+		return
+	}
+	c.colorProfile = profile
+	c.prevGrid = nil
+}
+
+// ColorProfile reports the compositor's current terminal color profile.
+func (c *Compositor) ColorProfile() termenv.Profile {
+	return c.colorProfile
 }
 
 // LayoutHeight returns the height available for the layout tree
@@ -101,9 +122,9 @@ func (c *Compositor) RenderFullWithOverlay(root *mux.LayoutCell, activePaneID ui
 	// Determine active pane color for borders
 	var activeColor string
 	if pd := lookup(activePaneID); pd != nil && pd.Color() != "" {
-		activeColor = hexToANSI(pd.Color())
+		activeColor = hexToANSIWithProfile(pd.Color(), c.colorProfile)
 	} else {
-		activeColor = BlueFg
+		activeColor = fgHexSequence(config.BlueHex, c.colorProfile)
 	}
 
 	// Render each pane's status line and content
@@ -121,7 +142,7 @@ func (c *Compositor) RenderFullWithOverlay(root *mux.LayoutCell, activePaneID ui
 		isActive := pid == activePaneID
 
 		// Per-pane status line
-		renderPaneStatus(&buf, cell, isActive, pd)
+		renderPaneStatusWithProfile(&buf, cell, isActive, pd, c.colorProfile)
 
 		// Pane content (shifted down by status line)
 		c.renderPaneContent(&buf, cell, isActive, pd)
@@ -135,19 +156,19 @@ func (c *Compositor) RenderFullWithOverlay(root *mux.LayoutCell, activePaneID ui
 		c.cachedBorderMap = buildBorderMap(root, c.width, c.height)
 		c.cachedBorderRoot = root
 	}
-	renderBorders(&buf, c.cachedBorderMap, root, activePaneID, activeColor)
+	renderBordersWithProfile(&buf, c.cachedBorderMap, root, activePaneID, activeColor, c.colorProfile)
 
 	if len(overlay.PaneLabels) > 0 {
-		renderPaneOverlay(&buf, root, lookup, overlay.PaneLabels)
+		renderPaneOverlayWithProfile(&buf, root, lookup, overlay.PaneLabels, c.colorProfile)
 	}
 
 	// Global status bar at bottom
-	renderGlobalBar(&buf, c.sessionName, paneCount, c.width, c.height-1, c.windows, overlay.Message, c.now())
+	renderGlobalBarWithProfile(&buf, c.sessionName, paneCount, c.width, c.height-1, c.windows, overlay.Message, c.now(), c.colorProfile)
 	if overlay.Chooser != nil {
-		renderChooserOverlay(&buf, c.width, c.height, overlay.Chooser)
+		renderChooserOverlayWithProfile(&buf, c.width, c.height, overlay.Chooser, c.colorProfile)
 	}
 	if overlay.TextInput != nil {
-		renderTextInputOverlay(&buf, c.width, c.height, overlay.TextInput)
+		renderTextInputOverlayWithProfile(&buf, c.width, c.height, overlay.TextInput, c.colorProfile)
 	}
 
 	// Position cursor and respect the active pane's cursor visibility state.
@@ -181,7 +202,7 @@ func (c *Compositor) RenderDiffWithOverlay(root *mux.LayoutCell, activePaneID ui
 	if len(changes) > 0 {
 		buf.WriteString(Reset)
 	}
-	buf.WriteString(EmitDiff(changes))
+	buf.WriteString(emitDiffWithProfile(changes, c.colorProfile))
 
 	// Position cursor.
 	c.renderCursorDiff(&buf, root, activePaneID, lookup)
@@ -312,7 +333,7 @@ func (c *Compositor) renderPaneContent(buf *strings.Builder, cell *mux.LayoutCel
 			}
 
 			s := sc.Style
-			if diff := uv.StyleDiff(prevStyle, &s); diff != "" {
+			if diff := styleDiffWithProfile(prevStyle, s, c.colorProfile); diff != "" {
 				buf.WriteString(diff)
 			}
 			sCopy := s
@@ -431,4 +452,14 @@ func hexToANSI(hex string) string {
 		return cached
 	}
 	return computeANSI(hex)
+}
+
+func hexToANSIWithProfile(hex string, profile termenv.Profile) string {
+	if profile == defaultColorProfile {
+		return hexToANSI(hex)
+	}
+	if len(hex) < 6 {
+		return fgHexSequence(config.DimColorHex, profile)
+	}
+	return fgHexSequence(hex, profile)
 }
