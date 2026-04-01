@@ -215,19 +215,44 @@ func TestForwardedBytesForDecodedInput(t *testing.T) {
 			want:  []byte{0x03},
 		},
 		{
-			name:  "kitty ctrl-shift-a preserves raw csi-u bytes",
+			name:  "kitty ctrl-r translates to legacy control byte",
+			input: []byte("\x1b[114;5u"),
+			want:  []byte{0x12},
+		},
+		{
+			name:  "kitty ctrl-d translates to legacy control byte",
+			input: []byte("\x1b[100;5u"),
+			want:  []byte{0x04},
+		},
+		{
+			name:  "kitty ctrl-z translates to legacy control byte",
+			input: []byte("\x1b[122;5u"),
+			want:  []byte{0x1a},
+		},
+		{
+			name:  "kitty ctrl-l translates to legacy control byte",
+			input: []byte("\x1b[108;5u"),
+			want:  []byte{0x0c},
+		},
+		{
+			name:  "kitty ctrl-w translates to legacy control byte",
+			input: []byte("\x1b[119;5u"),
+			want:  []byte{0x17},
+		},
+		{
+			name:  "kitty ctrl-shift-a translates to legacy control byte",
 			input: []byte("\x1b[97;6;65u"),
-			want:  []byte("\x1b[97;6;65u"),
+			want:  []byte{0x01},
 		},
 		{
-			name:  "kitty ctrl-9 preserves raw csi-u bytes",
+			name:  "kitty ctrl-9 translates to legacy printable byte",
 			input: []byte("\x1b[57;5u"),
-			want:  []byte("\x1b[57;5u"),
+			want:  []byte("9"),
 		},
 		{
-			name:  "kitty ctrl-slash preserves raw csi-u bytes",
+			name:  "kitty ctrl-slash translates to legacy control byte",
 			input: []byte("\x1b[47;5u"),
-			want:  []byte("\x1b[47;5u"),
+			want:  []byte{0x1f},
 		},
 		{
 			name:  "kitty alt-h preserves raw csi-u bytes",
