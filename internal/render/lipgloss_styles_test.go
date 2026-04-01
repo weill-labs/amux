@@ -54,11 +54,10 @@ func TestStatusBarStylesExposeSemanticRoles(t *testing.T) {
 		wantStrikeout bool
 	}{
 		{
-			name:      "dim",
-			style:     styles.dim,
-			wantFG:    "#" + config.DimColorHex,
-			wantBG:    "#" + config.Surface0Hex,
-			wantFaint: true,
+			name:   "dim",
+			style:  styles.dim,
+			wantFG: "#" + config.DimColorHex,
+			wantBG: "#" + config.Surface0Hex,
 		},
 		{
 			name:   "active",
@@ -74,11 +73,10 @@ func TestStatusBarStylesExposeSemanticRoles(t *testing.T) {
 			wantBold: true,
 		},
 		{
-			name:      "idle",
-			style:     styles.idle,
-			wantFG:    "#" + config.DimColorHex,
-			wantBG:    "#" + config.Surface0Hex,
-			wantFaint: true,
+			name:   "idle",
+			style:  styles.idle,
+			wantFG: "#" + config.DimColorHex,
+			wantBG: "#" + config.Surface0Hex,
 		},
 		{
 			name:   "busy",
@@ -91,7 +89,6 @@ func TestStatusBarStylesExposeSemanticRoles(t *testing.T) {
 			style:         styles.completedMeta,
 			wantFG:        "#" + config.DimColorHex,
 			wantBG:        "#" + config.Surface0Hex,
-			wantFaint:     true,
 			wantStrikeout: true,
 		},
 	}
