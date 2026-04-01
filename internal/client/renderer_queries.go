@@ -196,6 +196,12 @@ func (r *Renderer) PaneInteractionSnapshot(paneID uint32) (paneInteractionSnapsh
 	return snap, ok
 }
 
+func (r *Renderer) PaneInfoSnapshot(paneID uint32) (proto.PaneSnapshot, bool) {
+	snap := r.loadSnapshot()
+	info, ok := snap.paneInfo[paneID]
+	return info, ok
+}
+
 func (r *Renderer) EncodeMouse(paneID uint32, ev mouse.Event, x, y int) []byte {
 	return withRendererActorValue(r, func(st *rendererActorState) []byte {
 		emu, ok := st.emulators[paneID]

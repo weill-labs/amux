@@ -80,10 +80,14 @@ func (cr *ClientRenderer) overlayLabels() []render.PaneOverlayLabel {
 }
 
 func (cr *ClientRenderer) overlayLabelsFromSnapshot(state *clientSnapshot) []render.PaneOverlayLabel {
-	if state.ui.displayPanes == nil {
+	var labels []render.PaneOverlayLabel
+	if state.ui.displayPanes != nil {
+		labels = make([]render.PaneOverlayLabel, len(state.ui.displayPanes.labels))
+		copy(labels, state.ui.displayPanes.labels)
+	}
+	labels = append(labels, cr.paneDragLabelsFromSnapshot(state)...)
+	if len(labels) == 0 {
 		return nil
 	}
-	labels := make([]render.PaneOverlayLabel, len(state.ui.displayPanes.labels))
-	copy(labels, state.ui.displayPanes.labels)
 	return labels
 }

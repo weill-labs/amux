@@ -1,12 +1,15 @@
 package render
 
+import "github.com/weill-labs/amux/internal/mux"
+
 // OverlayState captures optional client-local overlays that sit on top of the
 // normal pane layout rendering.
 type OverlayState struct {
-	PaneLabels []PaneOverlayLabel
-	Chooser    *ChooserOverlay
-	TextInput  *TextInputOverlay
-	Message    string
+	PaneLabels    []PaneOverlayLabel
+	DropIndicator *DropIndicatorOverlay
+	Chooser       *ChooserOverlay
+	TextInput     *TextInputOverlay
+	Message       string
 }
 
 // ChooserOverlay is a client-local modal chooser rendered above the layout.
@@ -27,4 +30,12 @@ type ChooserOverlayRow struct {
 type TextInputOverlay struct {
 	Title string
 	Input string
+}
+
+// DropIndicatorOverlay draws a temporary insertion line while a pane is being
+// dragged to a new drop target.
+type DropIndicatorOverlay struct {
+	X, Y   int
+	Length int
+	Dir    mux.SplitDir
 }

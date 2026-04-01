@@ -9,6 +9,7 @@ type clientUIState struct {
 	dirty              bool
 	copyModes          map[uint32]*copymode.CopyMode
 	displayPanes       *displayPanesState
+	paneDrag           *paneDragOverlayState
 	chooser            *chooserState
 	windowRenamePrompt *windowRenamePromptState
 	message            string
@@ -53,6 +54,12 @@ type uiActionShowChooser struct {
 }
 
 type uiActionHideChooser struct{}
+
+type uiActionShowPaneDrag struct {
+	drag *paneDragOverlayState
+}
+
+type uiActionHidePaneDrag struct{}
 
 type uiActionShowWindowRenamePrompt struct {
 	prompt *windowRenamePromptState
@@ -121,6 +128,17 @@ func (st *clientUIState) reduce(action any) clientUIResult {
 		st.chooser = nil
 		st.dirty = true
 		return clientUIResult{uiEvents: []string{mode.hiddenEvent()}}
+	case uiActionShowPaneDrag:
+		st.paneDrag = action.drag
+		st.dirty = true
+		return clientUIResult{}
+	case uiActionHidePaneDrag:
+		if st.paneDrag == nil {
+			return clientUIResult{}
+		}
+		st.paneDrag = nil
+		st.dirty = true
+		return clientUIResult{}
 	case uiActionShowWindowRenamePrompt:
 		return st.reduceShowWindowRenamePrompt(action)
 	case uiActionHideWindowRenamePrompt:
@@ -161,6 +179,9 @@ func (st *clientUIState) reduceHandleLayout(action uiActionHandleLayout) clientU
 			st.displayPanes = nil
 			result.uiEvents = append(result.uiEvents, proto.UIEventDisplayPanesHidden)
 		}
+		if st.paneDrag != nil {
+			st.paneDrag = nil
+		}
 		if st.chooser != nil {
 			result.uiEvents = append(result.uiEvents, st.chooser.mode.hiddenEvent())
 			st.chooser = nil
@@ -196,6 +217,9 @@ func (st *clientUIState) reduceShowChooser(action uiActionShowChooser) clientUIR
 		st.displayPanes = nil
 		result.uiEvents = append(result.uiEvents, proto.UIEventDisplayPanesHidden)
 	}
+	if st.paneDrag != nil {
+		st.paneDrag = nil
+	}
 	if st.windowRenamePrompt != nil {
 		st.windowRenamePrompt = nil
 	}
@@ -216,6 +240,9 @@ func (st *clientUIState) reduceShowWindowRenamePrompt(action uiActionShowWindowR
 	if st.displayPanes != nil {
 		st.displayPanes = nil
 		result.uiEvents = append(result.uiEvents, proto.UIEventDisplayPanesHidden)
+	}
+	if st.paneDrag != nil {
+		st.paneDrag = nil
 	}
 	if st.chooser != nil {
 		result.uiEvents = append(result.uiEvents, st.chooser.mode.hiddenEvent())

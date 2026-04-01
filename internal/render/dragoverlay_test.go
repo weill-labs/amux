@@ -1,0 +1,98 @@
+package render
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/weill-labs/amux/internal/mux"
+)
+
+func TestBuildDropIndicatorCells(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		overlay *DropIndicatorOverlay
+		want    []struct {
+			x, y int
+			char string
+		}
+	}{
+		{
+			name:    "horizontal",
+			overlay: &DropIndicatorOverlay{X: 1, Y: 2, Length: 4, Dir: mux.SplitHorizontal},
+			want: []struct {
+				x, y int
+				char string
+			}{
+				{x: 1, y: 2, char: "━"},
+				{x: 2, y: 2, char: "━"},
+				{x: 3, y: 2, char: "━"},
+				{x: 4, y: 2, char: "━"},
+			},
+		},
+		{
+			name:    "vertical",
+			overlay: &DropIndicatorOverlay{X: 3, Y: 1, Length: 3, Dir: mux.SplitVertical},
+			want: []struct {
+				x, y int
+				char string
+			}{
+				{x: 3, y: 1, char: "┃"},
+				{x: 3, y: 2, char: "┃"},
+				{x: 3, y: 3, char: "┃"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			grid := NewScreenGrid(8, 6)
+			buildDropIndicatorCells(grid, tt.overlay)
+
+			for _, want := range tt.want {
+				if got := grid.Get(want.x, want.y).Char; got != want.char {
+					t.Fatalf("grid.Get(%d, %d).Char = %q, want %q", want.x, want.y, got, want.char)
+				}
+			}
+		})
+	}
+}
+
+func TestRenderDropIndicator(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		overlay *DropIndicatorOverlay
+		want    string
+	}{
+		{
+			name:    "horizontal",
+			overlay: &DropIndicatorOverlay{X: 2, Y: 1, Length: 4, Dir: mux.SplitHorizontal},
+			want:    "━━━━",
+		},
+		{
+			name:    "vertical",
+			overlay: &DropIndicatorOverlay{X: 0, Y: 1, Length: 3, Dir: mux.SplitVertical},
+			want:    "┃",
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var buf strings.Builder
+			renderDropIndicator(&buf, tt.overlay)
+
+			if got := buf.String(); !strings.Contains(got, tt.want) {
+				t.Fatalf("renderDropIndicator() = %q, want substring %q", got, tt.want)
+			}
+		})
+	}
+}

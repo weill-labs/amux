@@ -20,6 +20,8 @@ type dragState struct {
 	BorderY   int
 	BorderDir mux.SplitDir
 
+	PaneDragActive bool
+	PaneDragPaneID uint32
 	CopyModeActive bool
 	CopyModePaneID uint32
 	CopyStartX     int
