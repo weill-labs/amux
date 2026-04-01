@@ -8,7 +8,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/charmbracelet/lipgloss"
-	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/mattn/go-runewidth"
 	"github.com/muesli/termenv"
@@ -326,7 +325,7 @@ func (c *Compositor) renderPaneContent(buf *strings.Builder, cell *mux.LayoutCel
 
 		writeCursorTo(buf, cell.Y+mux.StatusLineRows+row+1, cell.X+1)
 
-		prevStyle := (*uv.Style)(nil)
+		var state emittedCellState
 		for col := 0; col <= lastCol; {
 			sc := rowCells[col]
 			if sc.Width == 0 {
@@ -334,12 +333,7 @@ func (c *Compositor) renderPaneContent(buf *strings.Builder, cell *mux.LayoutCel
 				continue
 			}
 
-			s := sc.Style
-			if diff := styleDiffWithProfile(prevStyle, s, c.colorProfile); diff != "" {
-				buf.WriteString(diff)
-			}
-			sCopy := s
-			prevStyle = &sCopy
+			state.transition(buf, sc, c.colorProfile)
 
 			char := sc.Char
 			if char == "" {
@@ -354,6 +348,7 @@ func (c *Compositor) renderPaneContent(buf *strings.Builder, cell *mux.LayoutCel
 			col += w
 		}
 
+		state.closeHyperlink(buf)
 		// Reset after each rendered row so styled cells cannot bleed when the
 		// compositor jumps to a later row with an explicit CUP sequence.
 		buf.WriteString(Reset)
