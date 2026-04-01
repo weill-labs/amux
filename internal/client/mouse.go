@@ -253,6 +253,10 @@ func clearPaneDragState(cr *ClientRenderer, drag *dragState) {
 	cr.hidePaneDragOverlay()
 }
 
+func rerenderOverlay(cr *ClientRenderer, msgCh chan<- *RenderMsg) {
+	runLocalRenderAction(cr, msgCh, func(*ClientRenderer) localRenderResult { return overlayRenderNowResult() })
+}
+
 func focusPane(sender *messageSender, paneID uint32, activePaneID uint32) {
 	if sender == nil || paneID == activePaneID {
 		return
@@ -365,7 +369,7 @@ func handleMouseEvent(ev mouse.Event, cr *ClientRenderer, sender *messageSender,
 			drag.PaneDragPaneID = target.paneID
 			drag.PaneDropTarget = nil
 			updatePaneDragOverlay(cr, drag)
-			runLocalRenderAction(cr, msgCh, func(*ClientRenderer) localRenderResult { return overlayRenderNowResult() })
+			rerenderOverlay(cr, msgCh)
 		} else if target := mouseTargetAt(layout, ev.X, ev.Y); target != nil {
 			clearPaneDragState(cr, drag)
 			focusPane(sender, target.paneID, cr.ActivePaneID())
@@ -412,7 +416,7 @@ func handleMouseEvent(ev mouse.Event, cr *ClientRenderer, sender *messageSender,
 	case ev.Action == mouse.Motion && drag.PaneDragActive:
 		drag.PaneDropTarget = resolvePaneDropTarget(cr, layout, drag.PaneDragPaneID, ev.X, ev.Y)
 		updatePaneDragOverlay(cr, drag)
-		runLocalRenderAction(cr, msgCh, func(*ClientRenderer) localRenderResult { return overlayRenderNowResult() })
+		rerenderOverlay(cr, msgCh)
 
 	case ev.Action == mouse.Motion && drag.CopyModePaneID != 0:
 		target := mouseTargetAt(layout, ev.X, ev.Y)
@@ -450,7 +454,7 @@ func handleMouseEvent(ev mouse.Event, cr *ClientRenderer, sender *messageSender,
 		if drag.PaneDragActive {
 			target := drag.PaneDropTarget
 			clearPaneDragState(cr, drag)
-			runLocalRenderAction(cr, msgCh, func(*ClientRenderer) localRenderResult { return overlayRenderNowResult() })
+			rerenderOverlay(cr, msgCh)
 			if target != nil && sender != nil {
 				for _, cmd := range target.commands {
 					sender.Command(cmd.name, cmd.args)
