@@ -4,17 +4,20 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	charmlog "github.com/charmbracelet/log"
+	"github.com/muesli/termenv"
 	"github.com/weill-labs/amux/internal/auditlog"
 	"github.com/weill-labs/amux/internal/checkpoint"
 	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/debugowner"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
+	"github.com/weill-labs/amux/internal/termprofile"
 )
 
 // Default terminal dimensions when the client doesn't report a size.
@@ -39,16 +42,17 @@ type Session struct {
 	Windows        []*mux.Window // ordered list of windows
 	ActiveWindowID uint32        // which window is displayed
 	// PreviousWindowID tracks the last active window for `last-window`.
-	PreviousWindowID uint32
-	Panes            []*mux.Pane // flat list of ALL panes across all windows
-	logger           *charmlog.Logger
-	eventLoopOwner   debugowner.Checker
-	clientState      *clientManager
-	paneLog          *PaneLog
-	counter          atomic.Uint32 // pane ID counter
-	windowCounter    atomic.Uint32 // window ID counter
-	shutdown         atomic.Bool
-	input            *inputRouter // cached active pane and paced input queues
+	PreviousWindowID   uint32
+	Panes              []*mux.Pane // flat list of ALL panes across all windows
+	logger             *charmlog.Logger
+	launchColorProfile string
+	eventLoopOwner     debugowner.Checker
+	clientState        *clientManager
+	paneLog            *PaneLog
+	counter            atomic.Uint32 // pane ID counter
+	windowCounter      atomic.Uint32 // window ID counter
+	shutdown           atomic.Bool
+	input              *inputRouter // cached active pane and paced input queues
 
 	// Layout generation counter — incremented on every broadcastLayout.
 	// Used by wait-layout to block until a layout change occurs.
@@ -128,6 +132,61 @@ type Session struct {
 	// from inside the handler, which would deadlock.
 	wantShutdown    bool
 	scrollbackLines int
+}
+
+type processEnviron struct{}
+
+func (processEnviron) Environ() []string {
+	return os.Environ()
+}
+
+func (processEnviron) Getenv(key string) string {
+	return os.Getenv(key)
+}
+
+type sessionLaunchEnviron struct {
+	base termenv.Environ
+}
+
+func ignoredLaunchEnvKey(key string) bool {
+	return key == "NO_COLOR" || key == "CODEX_CI"
+}
+
+func filterLaunchEnv(env []string) []string {
+	out := make([]string, 0, len(env))
+	for _, entry := range env {
+		key, _, ok := strings.Cut(entry, "=")
+		if ok && ignoredLaunchEnvKey(key) {
+			continue
+		}
+		out = append(out, entry)
+	}
+	return out
+}
+
+func (e sessionLaunchEnviron) Environ() []string {
+	if e.base == nil {
+		return filterLaunchEnv(processEnviron{}.Environ())
+	}
+	return filterLaunchEnv(e.base.Environ())
+}
+
+func (e sessionLaunchEnviron) Getenv(key string) string {
+	if ignoredLaunchEnvKey(key) {
+		return ""
+	}
+	if e.base == nil {
+		return processEnviron{}.Getenv(key)
+	}
+	return e.base.Getenv(key)
+}
+
+func sessionLaunchColorProfile(environ termenv.Environ) string {
+	return termprofile.Format(termprofile.DetectFromEnvironment(sessionLaunchEnviron{base: environ}))
+}
+
+func defaultSessionLaunchColorProfile() string {
+	return sessionLaunchColorProfile(processEnviron{})
 }
 
 func (s *Session) clock() Clock {
@@ -455,12 +514,13 @@ func newSessionWithLogger(name string, scrollbackLines int, logger *charmlog.Log
 		logger = auditlog.Discard()
 	}
 	sess := &Session{
-		Name:            name,
-		startedAt:       time.Now(),
-		scrollbackLines: scrollbackLines,
-		logger:          logger,
-		clientState:     newClientManager(),
-		paneLog:         newPaneLog(defaultPaneLogSize),
+		Name:               name,
+		startedAt:          time.Now(),
+		scrollbackLines:    scrollbackLines,
+		logger:             logger,
+		launchColorProfile: defaultSessionLaunchColorProfile(),
+		clientState:        newClientManager(),
+		paneLog:            newPaneLog(defaultPaneLogSize),
 	}
 	sess.idle = newIdleTracker()
 	sess.vtIdle = NewVTIdleTracker(sess.clock())

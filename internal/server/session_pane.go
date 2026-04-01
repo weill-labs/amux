@@ -329,7 +329,7 @@ func (s *Session) paneLaunchColorProfile(preferred *clientConn) string {
 	if cc := s.effectiveSizeClient(); cc != nil {
 		return cc.colorProfileValue()
 	}
-	return ""
+	return s.launchColorProfile
 }
 
 // createPaneWithMeta creates a new pane with explicit metadata (for spawn).
