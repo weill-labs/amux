@@ -8,6 +8,17 @@ import (
 	"github.com/weill-labs/amux/internal/proto"
 )
 
+func decodeSingleInputEvent(t *testing.T, input []byte) decodedInputEvent {
+	t.Helper()
+
+	events := decodeInputEvents(input)
+	if len(events) != 1 {
+		t.Fatalf("len(events) = %d, want 1", len(events))
+	}
+
+	return events[0]
+}
+
 func TestNormalizeLocalInput(t *testing.T) {
 	t.Parallel()
 
@@ -92,14 +103,10 @@ func TestNormalizeLocalInput(t *testing.T) {
 func TestDecodeInputEventsKittyCtrlA(t *testing.T) {
 	t.Parallel()
 
-	events := decodeInputEvents([]byte("\x1b[97;5u"))
-	if len(events) != 1 {
-		t.Fatalf("len(events) = %d, want 1", len(events))
-	}
-
-	key, ok := events[0].event.(uv.KeyPressEvent)
+	event := decodeSingleInputEvent(t, []byte("\x1b[97;5u")).event
+	key, ok := event.(uv.KeyPressEvent)
 	if !ok {
-		t.Fatalf("event type = %T, want uv.KeyPressEvent", events[0].event)
+		t.Fatalf("event type = %T, want uv.KeyPressEvent", event)
 	}
 	if !key.MatchString("ctrl+a") {
 		t.Fatalf("decoded key = %q, want ctrl+a", key.Keystroke())
@@ -130,11 +137,7 @@ func TestDecodeInputEventsFocusAndBlur(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			events := decodeInputEvents(tt.input)
-			if len(events) != 1 {
-				t.Fatalf("len(events) = %d, want 1", len(events))
-			}
-			if got := events[0].event; got != tt.want {
+			if got := decodeSingleInputEvent(t, tt.input).event; got != tt.want {
 				t.Fatalf("event = %T, want %T", got, tt.want)
 			}
 		})
@@ -290,11 +293,7 @@ func TestForwardedBytesForDecodedInput(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			events := decodeInputEvents(tt.input)
-			if len(events) != 1 {
-				t.Fatalf("len(events) = %d, want 1", len(events))
-			}
-			if got := forwardedBytesForDecodedInput(events[0]); !bytes.Equal(got, tt.want) {
+			if got := forwardedBytesForDecodedInput(decodeSingleInputEvent(t, tt.input)); !bytes.Equal(got, tt.want) {
 				t.Fatalf("forwardedBytesForDecodedInput(%q) = %q, want %q", tt.input, got, tt.want)
 			}
 		})
