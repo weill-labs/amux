@@ -111,6 +111,8 @@ func TestHostConnEnsureConnectedForTakeoverErrors(t *testing.T) {
 }
 
 func TestEnsureRemoteServerAndWaitForSocket(t *testing.T) {
+	t.Parallel()
+
 	ts := startTestSSH(t)
 	writeFakeRemoteAmux(t, ts)
 
@@ -134,6 +136,8 @@ func TestEnsureRemoteServerAndWaitForSocket(t *testing.T) {
 }
 
 func TestWaitForSocketTimeout(t *testing.T) {
+	t.Parallel()
+
 	ts := startTestSSH(t)
 
 	err := waitForSocket(ts.Client, socketPath("1000", "missing"), 50*time.Millisecond)
@@ -200,6 +204,8 @@ func TestHostConnDoConnectTakeoverWaitsForSocketThenReturnsDialError(t *testing.
 }
 
 func TestHostConnRunCommandAndCreateRemotePaneDialErrors(t *testing.T) {
+	t.Parallel()
+
 	ts := startTestSSH(t)
 
 	hc := NewHostConn("test-host", config.Host{}, "", nil, nil, nil)
@@ -225,6 +231,8 @@ func TestHostConnRunCommandAndCreateRemotePaneDialErrors(t *testing.T) {
 }
 
 func TestHostConnReadLoopHandlesOutputAndDisconnectPaths(t *testing.T) {
+	t.Parallel()
+
 	t.Run("routes pane output through layout", func(t *testing.T) {
 		outputs := make(chan []byte, 1)
 		hc := NewHostConn("test", config.Host{}, "", func(_ uint32, data []byte) {

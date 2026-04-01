@@ -784,6 +784,8 @@ func (a *atomicInt64) Load() int64   { return a.value }
 func (a *atomicInt64) Store(v int64) { a.value = v }
 
 func TestAgentStatusTracksBusyAndIdle(t *testing.T) {
+	// Not parallel: AgentStatus shells out to pgrep/ps repeatedly against live
+	// PTY-backed processes, and this has timed out in CI under concurrent load.
 	// Keep this serialized within the package: AgentStatus shells out to pgrep/ps
 	// multiple times per poll, and running it alongside the other PTY/process
 	// tests under -race has timed out in CI.
@@ -828,6 +830,8 @@ func TestAgentStatusTracksBusyAndIdle(t *testing.T) {
 }
 
 func TestAgentStatusTreatsPromptTimeBashSelfForkAsIdle(t *testing.T) {
+	// Not parallel: this shells out repeatedly against a live PTY-backed process
+	// tree, and it shares the same CI timeout risk as the other AgentStatus test.
 	// Keep this serialized within the package for the same reason as the other
 	// AgentStatus test: it shells out repeatedly and inspects a live PTY-backed
 	// process tree.

@@ -8,6 +8,8 @@ import (
 )
 
 func TestWindowPanicsOnCrossGoroutineMutation(t *testing.T) {
+	t.Parallel()
+
 	w := NewWindow(fakePaneID(1), 80, 24)
 
 	w.Resize(81, 24)

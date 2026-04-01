@@ -16,6 +16,8 @@ import (
 )
 
 func TestNewServerFromCheckpointWithScrollbackRefreshesInputTarget(t *testing.T) {
+	// Not parallel: this test hands a live listener FD into a restored server and
+	// the close lifecycle has flaked under concurrent package load.
 	socketPath := filepath.Join(os.TempDir(), fmt.Sprintf("amux-restore-%d.sock", time.Now().UnixNano()))
 	listener, err := net.Listen("unix", socketPath)
 	if err != nil {
@@ -61,6 +63,8 @@ func TestNewServerFromCheckpointWithScrollbackRefreshesInputTarget(t *testing.T)
 }
 
 func TestNewServerFromCheckpointWithScrollbackPreservesManualBranchOverride(t *testing.T) {
+	// Not parallel: this test hands a live listener FD into a restored server and
+	// the close lifecycle has flaked under concurrent package load.
 	socketPath := filepath.Join(os.TempDir(), fmt.Sprintf("amux-restore-%d.sock", time.Now().UnixNano()))
 	listener, err := net.Listen("unix", socketPath)
 	if err != nil {
@@ -119,6 +123,8 @@ func TestNewServerFromCheckpointWithScrollbackPreservesManualBranchOverride(t *t
 }
 
 func TestNewServerFromCheckpointWithScrollbackPreservesStartedAt(t *testing.T) {
+	// Not parallel: this test hands a live listener FD into a restored server and
+	// the close lifecycle has flaked under concurrent package load.
 	socketPath := filepath.Join(os.TempDir(), fmt.Sprintf("amux-restore-%d.sock", time.Now().UnixNano()))
 	listener, err := net.Listen("unix", socketPath)
 	if err != nil {
@@ -323,6 +329,8 @@ func TestNewServerFromCrashCheckpointWithListenerErrorsWhenNoPanesRestore(t *tes
 }
 
 func TestNewServerFromCheckpointWithScrollbackErrorsWhenAllPanesFailToRestore(t *testing.T) {
+	// Not parallel: this test hands a live listener FD into a restored server and
+	// the close lifecycle has flaked under concurrent package load.
 	socketPath := filepath.Join(os.TempDir(), fmt.Sprintf("amux-restore-empty-%d.sock", time.Now().UnixNano()))
 	listener, err := net.Listen("unix", socketPath)
 	if err != nil {
@@ -365,6 +373,8 @@ func TestNewServerFromCheckpointWithScrollbackErrorsWhenAllPanesFailToRestore(t 
 }
 
 func TestNewServerFromCheckpointWithScrollbackUsesLegacySingleWindowFallback(t *testing.T) {
+	// Not parallel: this test hands a live listener FD into a restored server and
+	// the close lifecycle has flaked under concurrent package load.
 	socketPath := filepath.Join(os.TempDir(), fmt.Sprintf("amux-restore-legacy-%d.sock", time.Now().UnixNano()))
 	listener, err := net.Listen("unix", socketPath)
 	if err != nil {

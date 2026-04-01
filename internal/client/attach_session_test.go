@@ -1014,6 +1014,7 @@ func TestRunSessionRenameWindowPromptBellPaths(t *testing.T) {
 }
 
 func TestRunSessionDoesNotEnterAltScreenBeforeAttachBootstrapReady(t *testing.T) {
+	// Not parallel: newRunSessionHarness uses t.Setenv and swaps os.Stdin/os.Stdout.
 	h := newRunSessionHarness(t, func(int) (int, int, error) {
 		return 80, 24, nil
 	})
@@ -1038,6 +1039,7 @@ func TestRunSessionDoesNotEnterAltScreenBeforeAttachBootstrapReady(t *testing.T)
 }
 
 func TestRunSessionRendersLayoutWhenAttachBootstrapPaneOutputStalls(t *testing.T) {
+	// Not parallel: newRunSessionHarness uses t.Setenv and swaps os.Stdin/os.Stdout.
 	h := newRunSessionHarness(t, func(int) (int, int, error) {
 		return 80, 24, nil
 	})
@@ -1062,6 +1064,7 @@ func TestRunSessionRendersLayoutWhenAttachBootstrapPaneOutputStalls(t *testing.T
 }
 
 func TestRunSessionReturnsRawModeErrorAfterBootstrap(t *testing.T) {
+	// Not parallel: newRunSessionHarness uses t.Setenv and swaps os.Stdin/os.Stdout.
 	h := newRunSessionHarness(t, func(int) (int, int, error) {
 		return 80, 24, nil
 	})
@@ -1109,6 +1112,7 @@ func TestRunSessionFallsBackToDefaultTermSize(t *testing.T) {
 }
 
 func TestRunSessionDetachFlushesPendingInput(t *testing.T) {
+	// Not parallel: newRunSessionHarness uses t.Setenv and swaps os.Stdin/os.Stdout.
 	h := newRunSessionHarness(t, func(int) (int, int, error) {
 		return 80, 24, nil
 	})
@@ -1204,6 +1208,8 @@ func TestAdvertisedAttachCapabilitiesUsesEnvironment(t *testing.T) {
 }
 
 func TestFormatKeyHelpers(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		in   byte
 		want string
@@ -1226,6 +1232,8 @@ func TestFormatKeyHelpers(t *testing.T) {
 }
 
 func TestExecSelfMissingBinaryReturnsWithoutDetaching(t *testing.T) {
+	t.Parallel()
+
 	clientConn, serverConn := net.Pipe()
 	t.Cleanup(func() {
 		_ = clientConn.Close()

@@ -130,6 +130,8 @@ func TestDrainPendingReloadEventsNoMatch(t *testing.T) {
 }
 
 func TestWatchBinaryDebounce(t *testing.T) {
+	t.Parallel()
+
 	// Create a temp directory with a fake binary
 	dir := t.TempDir()
 	binPath := filepath.Join(dir, "amux-test")
@@ -166,6 +168,8 @@ func TestWatchBinaryDebounce(t *testing.T) {
 }
 
 func TestWatchBinaryIgnoresOtherFiles(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	binPath := filepath.Join(dir, "amux-test")
 	otherPath := filepath.Join(dir, "other-file")
@@ -193,6 +197,8 @@ func TestWatchBinaryIgnoresOtherFiles(t *testing.T) {
 }
 
 func TestWatchBinaryNilReady(t *testing.T) {
+	t.Parallel()
+
 	// Passing nil for the ready channel should not panic.
 	dir := t.TempDir()
 	binPath := filepath.Join(dir, "amux-test")
@@ -217,6 +223,8 @@ func TestWatchBinaryNilReady(t *testing.T) {
 }
 
 func TestWatchBinaryBadDirClosesReady(t *testing.T) {
+	t.Parallel()
+
 	// When the directory doesn't exist, watcher.Add fails and ready
 	// should still be closed so callers don't block forever.
 	ready := make(chan struct{})
@@ -233,6 +241,8 @@ func TestWatchBinaryBadDirClosesReady(t *testing.T) {
 }
 
 func TestWatchBinaryDeleteAndRecreate(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	binPath := filepath.Join(dir, "amux-test")
 

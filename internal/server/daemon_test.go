@@ -35,6 +35,8 @@ func cleanStaleSocketsIn(dir string) {
 }
 
 func TestCleanStaleSocketsIn(t *testing.T) {
+	// Not parallel: live socket probes in this test have flaked under package-level
+	// parallel load, causing cleanStaleSocketsIn to misclassify the active listener.
 	tmpDir := t.TempDir()
 
 	// Create a stale socket: listen, disable auto-unlink, then close.

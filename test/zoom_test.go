@@ -162,6 +162,7 @@ func TestZoomResyncsStaleCursorState(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// Not parallel: these subtests share a single harness and mutate its layout.
 			// Simulate stale client-side cursor state for the active pane before zoom transition.
 			h.client.renderer.HandlePaneOutput(2, []byte("\033[1;24H"))
 

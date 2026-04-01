@@ -8,6 +8,8 @@ import (
 )
 
 func TestGitBranch(t *testing.T) {
+	t.Parallel()
+
 	t.Run("empty dir", func(t *testing.T) {
 		if got := GitBranch(""); got != "" {
 			t.Errorf("GitBranch(\"\") = %q, want \"\"", got)

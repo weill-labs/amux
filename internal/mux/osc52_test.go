@@ -5,6 +5,8 @@ import (
 )
 
 func TestOSC52ScanBEL(t *testing.T) {
+	t.Parallel()
+
 	s := &OSC52Scanner{}
 	data := []byte("before\x1b]52;c;SGVsbG8=\x07after")
 	results := s.Scan(data)
@@ -19,6 +21,8 @@ func TestOSC52ScanBEL(t *testing.T) {
 }
 
 func TestOSC52ScanST(t *testing.T) {
+	t.Parallel()
+
 	s := &OSC52Scanner{}
 	data := []byte("before\x1b]52;c;SGVsbG8=\x1b\\after")
 	results := s.Scan(data)
@@ -33,6 +37,8 @@ func TestOSC52ScanST(t *testing.T) {
 }
 
 func TestOSC52ScanNoSequence(t *testing.T) {
+	t.Parallel()
+
 	s := &OSC52Scanner{}
 	data := []byte("normal terminal output \x1b[32mgreen\x1b[0m")
 	results := s.Scan(data)
@@ -43,6 +49,8 @@ func TestOSC52ScanNoSequence(t *testing.T) {
 }
 
 func TestOSC52ScanMultiple(t *testing.T) {
+	t.Parallel()
+
 	s := &OSC52Scanner{}
 	data := []byte("\x1b]52;c;Zmlyc3Q=\x07text\x1b]52;c;c2Vjb25k\x07")
 	results := s.Scan(data)
@@ -59,6 +67,8 @@ func TestOSC52ScanMultiple(t *testing.T) {
 }
 
 func TestOSC52ScanPartialAcrossReads(t *testing.T) {
+	t.Parallel()
+
 	s := &OSC52Scanner{}
 
 	// First read: partial OSC 52 (no terminator)
@@ -79,6 +89,8 @@ func TestOSC52ScanPartialAcrossReads(t *testing.T) {
 }
 
 func TestOSC52ScanEmpty(t *testing.T) {
+	t.Parallel()
+
 	s := &OSC52Scanner{}
 	results := s.Scan(nil)
 	if len(results) != 0 {
@@ -91,6 +103,8 @@ func TestOSC52ScanEmpty(t *testing.T) {
 }
 
 func TestOSC52ScanPartialPrefix(t *testing.T) {
+	t.Parallel()
+
 	s := &OSC52Scanner{}
 
 	// First read ends mid-prefix: "\x1b]5" is the start of "\x1b]52;"
@@ -111,6 +125,8 @@ func TestOSC52ScanPartialPrefix(t *testing.T) {
 }
 
 func TestOSC52ScanMaxSizeGuard(t *testing.T) {
+	t.Parallel()
+
 	s := &OSC52Scanner{}
 
 	// Build a sequence that exceeds maxOSC52Size (prefix + >4MB of data, no terminator)
@@ -129,6 +145,8 @@ func TestOSC52ScanMaxSizeGuard(t *testing.T) {
 }
 
 func TestOSC52ScanPrimarySelection(t *testing.T) {
+	t.Parallel()
+
 	s := &OSC52Scanner{}
 	// Test with primary selection "p" instead of clipboard "c"
 	data := []byte("\x1b]52;p;dGVzdA==\x07")

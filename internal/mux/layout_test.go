@@ -617,7 +617,10 @@ func TestFindLeafAt(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			leaf := root.FindLeafAt(tt.x, tt.y)
 			if tt.wantID == 0 {
 				if leaf != nil {

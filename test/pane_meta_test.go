@@ -164,6 +164,8 @@ func TestCaptureJSONIncludesPaneMetaKV(t *testing.T) {
 }
 
 func TestPaneMetaSurvivesReloadServer(t *testing.T) {
+	t.Parallel()
+
 	h := newAmuxHarness(t)
 
 	h.runCmd("meta", "set", "pane-1", "task=ship", "branch=main", "pr=99", "issue=LAB-338", "owner=codex")
@@ -177,6 +179,8 @@ func TestPaneMetaSurvivesReloadServer(t *testing.T) {
 }
 
 func TestPaneMetaSurvivesCrashRecovery(t *testing.T) {
+	t.Parallel()
+
 	h := newServerHarnessPersistent(t)
 
 	if out := strings.TrimSpace(h.runCmd("meta", "set", "pane-1", "task=ship", "branch=main", "pr=99", "issue=LAB-338", "owner=codex")); out != "" {

@@ -949,8 +949,8 @@ func TestCommandSplitParsesDirectionFlags(t *testing.T) {
 	for _, tt := range tests {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
+			// Not parallel: these cases create PTY-backed panes and have flaked with
+			// "device not configured" errors under concurrent package load.
 			srv, sess, cleanup := newCommandTestSession(t)
 			defer cleanup()
 
@@ -1020,6 +1020,8 @@ func TestCommandSplitTargetsExplicitInactivePane(t *testing.T) {
 	for _, tt := range tests {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			srv, sess, cleanup := newCommandTestSession(t)
 			defer cleanup()
 

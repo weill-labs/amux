@@ -221,6 +221,7 @@ func TestForwardCapturePaneFallsBackWithoutClient(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// Not parallel: these subtests share a single session and pane fixture.
 			resp := sess.capturePaneWithFallback(0, tt.args)
 			if resp.CmdErr != "" {
 				t.Fatalf("capturePaneWithFallback(%v) error: %s", tt.args, resp.CmdErr)
@@ -328,6 +329,8 @@ func TestForwardCaptureJSONWrapsBadClientResponses(t *testing.T) {
 }
 
 func TestForwardCaptureJSONNoClientReturnsErrorObject(t *testing.T) {
+	t.Parallel()
+
 	_, sess, cleanup := newCommandTestSession(t)
 	defer cleanup()
 
@@ -341,6 +344,8 @@ func TestForwardCaptureJSONNoClientReturnsErrorObject(t *testing.T) {
 }
 
 func TestForwardCaptureJSONNoClientRetriesBeforeErrorObject(t *testing.T) {
+	t.Parallel()
+
 	_, sess, cleanup := newCommandTestSession(t)
 	defer cleanup()
 
@@ -437,6 +442,8 @@ func TestForwardCaptureJSONHandlesNilAndErrResponses(t *testing.T) {
 }
 
 func TestForwardCaptureJSONTimeoutReturnsErrorObject(t *testing.T) {
+	t.Parallel()
+
 	_, sess, cleanup := newCommandTestSession(t)
 	defer cleanup()
 

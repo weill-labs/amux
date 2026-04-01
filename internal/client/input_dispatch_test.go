@@ -491,6 +491,8 @@ func TestHandleMouseEventBorderPressClearsCopyDragState(t *testing.T) {
 }
 
 func TestHandleMouseEventDragStartsCopyModeAndCopiesSelection(t *testing.T) {
+	t.Parallel()
+
 	cr := buildTestRenderer(t)
 
 	clientConn, serverConn := net.Pipe()
@@ -554,6 +556,8 @@ func TestHandleMouseEventDragStartsCopyModeAndCopiesSelection(t *testing.T) {
 }
 
 func TestHandleMouseEventQueuedDragStartsCopyModeAndCopiesSelection(t *testing.T) {
+	t.Parallel()
+
 	cr := buildTestRenderer(t)
 	msgCh := startTestRenderLoop(t, cr)
 
@@ -637,6 +641,8 @@ func TestHandleMouseEventDragMotionWithMissingPaneDoesNotEnterCopyMode(t *testin
 }
 
 func TestHandleMouseEventCopyModeDragCopiesSelectionAndExits(t *testing.T) {
+	t.Parallel()
+
 	cr := buildTestRenderer(t)
 	cr.EnterCopyMode(1)
 
@@ -774,6 +780,8 @@ func TestHandleMouseEventQueuedCopyModeDoubleClickSelectsWordAndArmsCopy(t *test
 }
 
 func TestHandleMouseEventCopyModeTripleClickCopiesLine(t *testing.T) {
+	t.Parallel()
+
 	cr := buildTestRenderer(t)
 	cr.EnterCopyMode(1)
 
@@ -851,6 +859,8 @@ func TestHandleMouseEventQueuedScrollUpAndDownUsesCopyMode(t *testing.T) {
 }
 
 func TestCopyModeHelpersSetCursorStartSelectionAndCopy(t *testing.T) {
+	t.Parallel()
+
 	cr := buildTestRenderer(t)
 	cr.EnterCopyMode(1)
 
@@ -888,6 +898,8 @@ func TestCopyModeHelpersSetCursorStartSelectionAndCopy(t *testing.T) {
 }
 
 func TestCopyModeCopySelectionAppendsCopyBuffer(t *testing.T) {
+	t.Parallel()
+
 	cr := buildTestRenderer(t)
 
 	var copied []string

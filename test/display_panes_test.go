@@ -26,6 +26,8 @@ func TestDisplayPanesOverlayShowsLabels(t *testing.T) {
 }
 
 func TestDisplayPanesQuickJump(t *testing.T) {
+	t.Parallel()
+
 	h := newAmuxHarness(t)
 	h.splitV()
 	h.splitV()

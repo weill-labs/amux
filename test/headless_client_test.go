@@ -478,6 +478,8 @@ func TestParallelServerStartupKeepsAllSocketsAlive(t *testing.T) {
 }
 
 func TestHeadlessClientRunCommand(t *testing.T) {
+	t.Parallel()
+
 	h := newServerHarness(t)
 
 	msg := h.client.runCommand("list")
@@ -490,6 +492,8 @@ func TestHeadlessClientRunCommand(t *testing.T) {
 }
 
 func TestHeadlessClientRunCommandConcurrent(t *testing.T) {
+	t.Parallel()
+
 	h := newServerHarness(t)
 
 	results := make(chan *server.Message, 2)

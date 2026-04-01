@@ -15,6 +15,8 @@ func paneTestHexColor(c color.Color) string {
 }
 
 func TestContentLines(t *testing.T) {
+	t.Parallel()
+
 	emu := NewVTEmulatorWithDrain(40, 5)
 
 	p := &Pane{
@@ -45,6 +47,8 @@ func TestContentLines(t *testing.T) {
 }
 
 func TestContentLinesStripsANSI(t *testing.T) {
+	t.Parallel()
+
 	emu := NewVTEmulatorWithDrain(40, 3)
 
 	p := &Pane{
@@ -66,6 +70,8 @@ func TestContentLinesStripsANSI(t *testing.T) {
 }
 
 func TestCaptureSnapshotIncludesHistoryContentAndCursor(t *testing.T) {
+	t.Parallel()
+
 	emu := NewVTEmulatorWithDrain(12, 2)
 
 	p := &Pane{

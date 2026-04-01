@@ -8,6 +8,8 @@ import (
 )
 
 func TestRendererCloseClosesPaneEmulators(t *testing.T) {
+	t.Parallel()
+
 	r := NewWithScrollback(20, 4, mux.DefaultScrollbackLines)
 	r.HandleLayout(singlePane20x3())
 

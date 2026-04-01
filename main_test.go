@@ -731,6 +731,8 @@ func TestRunMainDispatchesCommands(t *testing.T) {
 }
 
 func TestRunMainHelpAndUsageErrors(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name           string
 		args           []string
@@ -769,6 +771,8 @@ func TestRunMainHelpAndUsageErrors(t *testing.T) {
 	for _, tt := range tests {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			h := newCLIRuntimeHarness()
 			if exitCode := runMain(tt.args, h.runtime()); exitCode != tt.wantExit {
 				t.Fatalf("runMain(%v) exit = %d, want %d", tt.args, exitCode, tt.wantExit)

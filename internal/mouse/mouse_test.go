@@ -21,6 +21,8 @@ func feedAll(t *testing.T, p *Parser, input []byte) ([]Event, []byte) {
 }
 
 func TestParseLeftClick(t *testing.T) {
+	t.Parallel()
+
 	p := &Parser{}
 	// \033[<0;10;5M — left click at column 10, row 5 (1-based)
 	events, flushed := feedAll(t, p, []byte("\033[<0;10;5M"))
@@ -44,6 +46,8 @@ func TestParseLeftClick(t *testing.T) {
 }
 
 func TestParseRightClick(t *testing.T) {
+	t.Parallel()
+
 	p := &Parser{}
 	events, _ := feedAll(t, p, []byte("\033[<2;20;10M"))
 
@@ -56,6 +60,8 @@ func TestParseRightClick(t *testing.T) {
 }
 
 func TestParseRelease(t *testing.T) {
+	t.Parallel()
+
 	p := &Parser{}
 	// lowercase 'm' indicates release
 	events, _ := feedAll(t, p, []byte("\033[<0;10;5m"))
@@ -69,6 +75,8 @@ func TestParseRelease(t *testing.T) {
 }
 
 func TestParseScrollUp(t *testing.T) {
+	t.Parallel()
+
 	p := &Parser{}
 	events, _ := feedAll(t, p, []byte("\033[<64;15;8M"))
 
@@ -81,6 +89,8 @@ func TestParseScrollUp(t *testing.T) {
 }
 
 func TestParseScrollDown(t *testing.T) {
+	t.Parallel()
+
 	p := &Parser{}
 	events, _ := feedAll(t, p, []byte("\033[<65;15;8M"))
 
@@ -93,6 +103,8 @@ func TestParseScrollDown(t *testing.T) {
 }
 
 func TestParseMotion(t *testing.T) {
+	t.Parallel()
+
 	p := &Parser{}
 	// Button 0 + 32 (motion flag) = 32
 	events, _ := feedAll(t, p, []byte("\033[<32;10;5M"))
@@ -109,6 +121,8 @@ func TestParseMotion(t *testing.T) {
 }
 
 func TestParseModifiers(t *testing.T) {
+	t.Parallel()
+
 	p := &Parser{}
 	// Shift(4) + Alt(8) + Ctrl(16) = 28, button 0 → Cb = 28
 	events, _ := feedAll(t, p, []byte("\033[<28;1;1M"))
@@ -123,6 +137,8 @@ func TestParseModifiers(t *testing.T) {
 }
 
 func TestNonMouseEscapeFlushes(t *testing.T) {
+	t.Parallel()
+
 	p := &Parser{}
 	// A regular escape sequence like \033[A (cursor up)
 	events, flushed := feedAll(t, p, []byte("\033[A"))
@@ -136,6 +152,8 @@ func TestNonMouseEscapeFlushes(t *testing.T) {
 }
 
 func TestNonMouseCSIUFlushesAsSingleSequence(t *testing.T) {
+	t.Parallel()
+
 	p := &Parser{}
 
 	events, flushed := feedAll(t, p, []byte("\033[97;5u"))
@@ -149,6 +167,8 @@ func TestNonMouseCSIUFlushesAsSingleSequence(t *testing.T) {
 }
 
 func TestNormalInputFlushes(t *testing.T) {
+	t.Parallel()
+
 	p := &Parser{}
 	events, flushed := feedAll(t, p, []byte("hello"))
 
@@ -161,6 +181,8 @@ func TestNormalInputFlushes(t *testing.T) {
 }
 
 func TestMixedInputAndMouse(t *testing.T) {
+	t.Parallel()
+
 	p := &Parser{}
 	// "abc" + mouse click + "def"
 	input := []byte("abc\033[<0;5;3Mdef")
@@ -178,6 +200,8 @@ func TestMixedInputAndMouse(t *testing.T) {
 }
 
 func TestMultipleMouseEvents(t *testing.T) {
+	t.Parallel()
+
 	p := &Parser{}
 	// Press then release
 	input := []byte("\033[<0;5;3M\033[<0;5;3m")
@@ -195,6 +219,8 @@ func TestMultipleMouseEvents(t *testing.T) {
 }
 
 func TestLargeCoordinates(t *testing.T) {
+	t.Parallel()
+
 	p := &Parser{}
 	// SGR mode has no coordinate limit — test column 500, row 300
 	events, _ := feedAll(t, p, []byte("\033[<0;500;300M"))
@@ -208,6 +234,8 @@ func TestLargeCoordinates(t *testing.T) {
 }
 
 func TestInProgress(t *testing.T) {
+	t.Parallel()
+
 	p := &Parser{}
 	if p.InProgress() {
 		t.Error("should not be in progress initially")
@@ -232,6 +260,8 @@ func TestInProgress(t *testing.T) {
 }
 
 func TestDragDeltaTracking(t *testing.T) {
+	t.Parallel()
+
 	p := &Parser{}
 
 	// Press at (10, 5)
@@ -275,6 +305,8 @@ func TestDragDeltaTracking(t *testing.T) {
 }
 
 func TestButtonString(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		btn  Button
 		want string

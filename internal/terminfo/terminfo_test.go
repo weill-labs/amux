@@ -45,6 +45,7 @@ func TestInstallMissingTic(t *testing.T) {
 }
 
 func TestInstallMissingHome(t *testing.T) {
+	// Not parallel: overrides the package-level userHomeDir test stub.
 	prev := userHomeDir
 	userHomeDir = func() (string, error) { return "", nil }
 	t.Cleanup(func() { userHomeDir = prev })
