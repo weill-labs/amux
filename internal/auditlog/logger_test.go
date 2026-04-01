@@ -2,6 +2,11 @@ package auditlog
 
 import (
 	"bytes"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -113,4 +118,54 @@ func TestNewNilWriterAndDiscard(t *testing.T) {
 
 	New(nil, Options{Format: FormatJSON, Level: charmlog.InfoLevel}).Info("hello")
 	Discard().Info("discarded")
+}
+
+func TestLogWithLevelLivesInAuditlog(t *testing.T) {
+	t.Parallel()
+
+	_, thisFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller(0) failed")
+	}
+
+	internalDir := filepath.Dir(filepath.Dir(thisFile))
+	auditlogDir := filepath.Join(internalDir, "auditlog")
+	serverDir := filepath.Join(internalDir, "server")
+	remoteDir := filepath.Join(internalDir, "remote")
+
+	if !packageDeclaresFunc(t, auditlogDir, "LogWithLevel") {
+		t.Fatal("internal/auditlog must declare LogWithLevel")
+	}
+	for _, dir := range []string{serverDir, remoteDir} {
+		if packageDeclaresFunc(t, dir, "logWithLevel") || packageDeclaresFunc(t, dir, "LogWithLevel") {
+			t.Fatalf("%s still declares its own logWithLevel helper", dir)
+		}
+	}
+}
+
+func packageDeclaresFunc(t *testing.T, dir, name string) bool {
+	t.Helper()
+
+	matches, err := filepath.Glob(filepath.Join(dir, "*.go"))
+	if err != nil {
+		t.Fatalf("filepath.Glob(%q): %v", dir, err)
+	}
+
+	fset := token.NewFileSet()
+	for _, path := range matches {
+		file, err := parser.ParseFile(fset, path, nil, 0)
+		if err != nil {
+			t.Fatalf("parser.ParseFile(%q): %v", path, err)
+		}
+		for _, decl := range file.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Recv != nil || fn.Name == nil {
+				continue
+			}
+			if fn.Name.Name == name {
+				return true
+			}
+		}
+	}
+	return false
 }

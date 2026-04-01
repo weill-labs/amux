@@ -65,7 +65,7 @@ func hostKeyCallback(knownHostsPath string, loggers ...*charmlog.Logger) ssh.Hos
 		if err := appendKnownHost(path, hostname, key); err != nil {
 			return fmt.Errorf("amux: failed to save host key: %w", err)
 		}
-		logger.Debug("trusted new ssh host key",
+		logger.Info("trusted new ssh host key",
 			"event", "ssh_hostkey_trust",
 			"host", hostname,
 			"key_type", key.Type(),

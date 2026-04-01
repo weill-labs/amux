@@ -80,7 +80,7 @@ func TestPaneAuditFields(t *testing.T) {
 	}
 }
 
-func TestLogWithLevel(t *testing.T) {
+func TestAuditLogWithLevel(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -100,7 +100,7 @@ func TestLogWithLevel(t *testing.T) {
 
 			var buf bytes.Buffer
 			logger := auditlog.New(&buf, auditlog.Options{Format: auditlog.FormatJSON, Level: charmlog.DebugLevel})
-			logWithLevel(logger, tt.level, "hello", "event", "audit_event")
+			auditlog.LogWithLevel(logger, tt.level, "hello", "event", "audit_event")
 			output := buf.String()
 			if !strings.Contains(output, `"msg":"hello"`) || !strings.Contains(output, tt.want) {
 				t.Fatalf("output %q missing expected content %q", output, tt.want)
@@ -109,10 +109,10 @@ func TestLogWithLevel(t *testing.T) {
 	}
 }
 
-func TestLogWithLevelNilLogger(t *testing.T) {
+func TestAuditLogWithLevelNilLogger(t *testing.T) {
 	t.Parallel()
 
-	logWithLevel(nil, charmlog.InfoLevel, "hello", "event", "audit_event")
+	auditlog.LogWithLevel(nil, charmlog.InfoLevel, "hello", "event", "audit_event")
 }
 
 func TestServerSetLogger(t *testing.T) {

@@ -1,6 +1,7 @@
 package remote
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
 	"os"
@@ -8,9 +9,11 @@ import (
 	"strings"
 	"testing"
 
+	charmlog "github.com/charmbracelet/log"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
 
+	"github.com/weill-labs/amux/internal/auditlog"
 	"github.com/weill-labs/amux/internal/config"
 )
 
@@ -167,6 +170,33 @@ func TestHostKeyMissingDirCreated(t *testing.T) {
 	}
 	if perm := info.Mode().Perm(); perm != 0700 {
 		t.Errorf("dir permissions = %o, want 0700", perm)
+	}
+}
+
+func TestHostKeyTOFUAuditLogsAtInfo(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "known_hosts")
+	key := testHostKey(t)
+
+	var buf bytes.Buffer
+	logger := auditlog.New(&buf, auditlog.Options{
+		Format: auditlog.FormatJSON,
+		Level:  charmlog.InfoLevel,
+	})
+
+	cb := hostKeyCallback(path, logger)
+	if err := cb("example.com:22", fakeAddr{"1.2.3.4:22"}, key); err != nil {
+		t.Fatalf("TOFU should accept unknown host, got: %v", err)
+	}
+
+	output := buf.String()
+	if !strings.Contains(output, `"event":"ssh_hostkey_trust"`) {
+		t.Fatalf("output %q missing ssh_hostkey_trust event", output)
+	}
+	if !strings.Contains(output, `"level":"info"`) {
+		t.Fatalf("output %q missing info level", output)
 	}
 }
 

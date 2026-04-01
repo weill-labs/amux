@@ -16,12 +16,6 @@ import (
 	"github.com/weill-labs/amux/internal/mux"
 )
 
-var auditEnvGate = func() chan struct{} {
-	ch := make(chan struct{}, 1)
-	ch <- struct{}{}
-	return ch
-}()
-
 func newAuditTestLogger() (*charmlog.Logger, *bytes.Buffer) {
 	var buf bytes.Buffer
 	logger := auditlog.New(&buf, auditlog.Options{
@@ -74,26 +68,12 @@ func lockAuditStateHome(t *testing.T) string {
 	t.Helper()
 
 	dir := t.TempDir()
-	<-auditEnvGate
-	prev, hadPrev := os.LookupEnv("XDG_STATE_HOME")
-	if err := os.Setenv("XDG_STATE_HOME", dir); err != nil {
-		auditEnvGate <- struct{}{}
-		t.Fatalf("os.Setenv(XDG_STATE_HOME): %v", err)
-	}
-	t.Cleanup(func() {
-		if hadPrev {
-			_ = os.Setenv("XDG_STATE_HOME", prev)
-		} else {
-			_ = os.Unsetenv("XDG_STATE_HOME")
-		}
-		auditEnvGate <- struct{}{}
-	})
+	t.Setenv("XDG_STATE_HOME", dir)
 	return dir
 }
 
 func TestSessionAuditLogsLifecycleEvents(t *testing.T) {
-	t.Parallel()
-
+	// Not parallel: lockAuditStateHome uses t.Setenv for a per-test checkpoint dir.
 	logger, buf := newAuditTestLogger()
 	lockAuditStateHome(t)
 
@@ -233,8 +213,7 @@ func TestHandleCommandAuditLogsCommandAndDuration(t *testing.T) {
 }
 
 func TestServerReloadAuditLogsHotReload(t *testing.T) {
-	t.Parallel()
-
+	// Not parallel: lockAuditStateHome uses t.Setenv for a per-test checkpoint dir.
 	logger, buf := newAuditTestLogger()
 	lockAuditStateHome(t)
 
@@ -282,8 +261,7 @@ func TestServerReloadAuditLogsHotReload(t *testing.T) {
 }
 
 func TestCheckpointRestoreAuditLogsRestoreEvent(t *testing.T) {
-	t.Parallel()
-
+	// Not parallel: lockAuditStateHome uses t.Setenv for a per-test checkpoint dir.
 	logger, buf := newAuditTestLogger()
 	lockAuditStateHome(t)
 
@@ -329,8 +307,7 @@ func TestCheckpointRestoreAuditLogsRestoreEvent(t *testing.T) {
 }
 
 func TestReloadCheckpointRestoreAuditLogsRestoreEvent(t *testing.T) {
-	t.Parallel()
-
+	// Not parallel: lockAuditStateHome uses t.Setenv for a per-test checkpoint dir.
 	logger, buf := newAuditTestLogger()
 	lockAuditStateHome(t)
 
