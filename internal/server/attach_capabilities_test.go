@@ -101,3 +101,67 @@ func TestHandleAttachStoresNegotiatedCapabilities(t *testing.T) {
 		})
 	}
 }
+
+func TestHandleAttachStoresColorProfile(t *testing.T) {
+	t.Parallel()
+
+	sess := newSession("test-attach-color-profile")
+	stopCrashCheckpointLoop(t, sess)
+	defer stopSessionBackgroundLoops(t, sess)
+
+	pane := newProxyPane(1, mux.PaneMeta{
+		Name:  "pane-1",
+		Host:  mux.DefaultHost,
+		Color: "f5e0dc",
+	}, 80, 23, nil, nil, func(data []byte) (int, error) { return len(data), nil })
+	pane.FeedOutput([]byte("hello from pane"))
+
+	w := mux.NewWindow(pane, 80, 24-render.GlobalBarHeight)
+	w.ID = 1
+	w.Name = "window-1"
+	sess.Windows = []*mux.Window{w}
+	sess.ActiveWindowID = w.ID
+	sess.Panes = []*mux.Pane{pane}
+
+	srv := &Server{sessions: map[string]*Session{sess.Name: sess}}
+	serverConn, peerConn := net.Pipe()
+	defer peerConn.Close()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		srv.handleAttach(serverConn, &Message{
+			Type:               MsgTypeAttach,
+			Session:            sess.Name,
+			Cols:               80,
+			Rows:               24,
+			AttachColorProfile: "ANSI256",
+		})
+	}()
+
+	readMsgWithTimeout(t, peerConn)
+	readMsgWithTimeout(t, peerConn)
+	readUntil(t, peerConn, func(msg *Message) bool {
+		return msg.Type == MsgTypeLayout
+	})
+
+	got := mustSessionQuery(t, sess, func(sess *Session) string {
+		if cc := sess.currentSizeClient(); cc != nil {
+			return cc.colorProfile
+		}
+		return ""
+	})
+	if got != "ANSI256" {
+		t.Fatalf("current size client color profile = %q, want %q", got, "ANSI256")
+	}
+
+	if err := WriteMsg(peerConn, &Message{Type: MsgTypeDetach}); err != nil {
+		t.Fatalf("WriteMsg detach: %v", err)
+	}
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("handleAttach did not exit after detach")
+	}
+}

@@ -136,6 +136,7 @@ func newServerHarnessForSession(tb testing.TB, session, home string, cols, rows 
 	}
 	env := removeEnv(os.Environ(), "AMUX_EXIT_UNATTACHED")
 	env = upsertEnv(env, "HOME", home)
+	env = upsertEnv(env, "AMUX_COLOR_PROFILE", "TrueColor")
 	env = append(env, "AMUX_READY_FD=3", "AMUX_SHUTDOWN_FD=4", "AMUX_NO_WATCH=1", "AMUX_DISABLE_META_REFRESH=1")
 	if exitUnattached {
 		env = append(env, "AMUX_EXIT_UNATTACHED=1")

@@ -121,7 +121,7 @@ func (s *Session) recoverInitialWindowFromOrphansLocked(cols, rows int) (bool, e
 // session using the provided terminal size. If orphaned panes already exist
 // without any window, it rehabilitates them into a recovery window instead of
 // allocating a fresh pane. Event-loop only.
-func (s *Session) ensureInitialWindowLocked(srv *Server, cols, rows int) (ensureInitialWindowResult, error) {
+func (s *Session) ensureInitialWindowLocked(srv *Server, cols, rows int, preferred *clientConn) (ensureInitialWindowResult, error) {
 	if len(s.Windows) > 0 {
 		return ensureInitialWindowResult{}, nil
 	}
@@ -133,7 +133,7 @@ func (s *Session) ensureInitialWindowLocked(srv *Server, cols, rows int) (ensure
 
 	layoutH := rows - render.GlobalBarHeight
 	paneH := mux.PaneContentHeight(layoutH)
-	pane, err := s.createPane(srv, cols, paneH)
+	pane, err := s.createPaneWithMetaForColorProfile(srv, mux.PaneMeta{}, cols, paneH, s.paneLaunchColorProfile(preferred))
 	if err != nil {
 		return ensureInitialWindowResult{}, err
 	}
@@ -898,7 +898,7 @@ func (s *Session) handleAttachEvent(srv *Server, cc *clientConn, cols, rows int)
 		oldHeight = w.Height
 	}
 
-	initRes, err := s.ensureInitialWindowLocked(srv, cols, rows)
+	initRes, err := s.ensureInitialWindowLocked(srv, cols, rows, cc)
 	if err != nil {
 		res.err = err
 		return res

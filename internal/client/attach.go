@@ -12,6 +12,7 @@ import (
 	"time"
 
 	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/muesli/termenv"
 	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/copymode"
 	"github.com/weill-labs/amux/internal/mouse"
@@ -363,19 +364,21 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 	// Send attach
 	attachCaps := advertisedAttachCapabilities()
 	negotiatedAttachCaps := proto.NegotiateClientCapabilities(attachCaps)
+	attachProfile := attachColorProfile(os.Stdout, processEnviron{}, termenv.WithTTY(true))
 	if err := sender.Send(&proto.Message{
 		Type:               proto.MsgTypeAttach,
 		Session:            sessionName,
 		Cols:               cols,
 		Rows:               rows,
 		AttachMode:         proto.AttachModeInteractive,
+		AttachColorProfile: attachProfile,
 		AttachCapabilities: attachCaps,
 	}); err != nil {
 		return fmt.Errorf("sending attach: %w", err)
 	}
 
 	// Client-side renderer with per-pane emulators
-	cr := NewClientRendererWithScrollback(cols, rows, scrollbackLines)
+	cr := newAttachClientRenderer(cols, rows, scrollbackLines, os.Stdout, processEnviron{}, termenv.WithTTY(true))
 	cr.SetCapabilities(negotiatedAttachCaps)
 	cr.OnUIEvent = func(name string) {
 		_ = sender.Send(&proto.Message{

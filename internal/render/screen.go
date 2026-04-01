@@ -8,6 +8,7 @@ import (
 
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/muesli/termenv"
 	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
@@ -110,6 +111,10 @@ func DiffGrid(prev, next *ScreenGrid) []CellChange {
 // Consecutive cells on the same row share a single CUP escape.
 // Does not emit HideCursor/ShowCursor — the compositor handles those.
 func EmitDiff(changes []CellChange) string {
+	return emitDiffWithProfile(changes, defaultColorProfile)
+}
+
+func emitDiffWithProfile(changes []CellChange, profile termenv.Profile) string {
 	if len(changes) == 0 {
 		return ""
 	}
@@ -127,7 +132,7 @@ func EmitDiff(changes []CellChange) string {
 
 		// Minimal style transition.
 		s := ch.Cell.Style
-		if diff := uv.StyleDiff(prevStyle, &s); diff != "" {
+		if diff := styleDiffWithProfile(prevStyle, s, profile); diff != "" {
 			buf.WriteString(diff)
 		}
 		sCopy := s

@@ -25,11 +25,12 @@ func TestWriteReadMsg(t *testing.T) {
 		{
 			name: "attach message",
 			msg: Message{
-				Type:       MsgTypeAttach,
-				Session:    "test-session",
-				Cols:       80,
-				Rows:       24,
-				AttachMode: proto.AttachModeNonInteractive,
+				Type:               MsgTypeAttach,
+				Session:            "test-session",
+				Cols:               80,
+				Rows:               24,
+				AttachMode:         proto.AttachModeNonInteractive,
+				AttachColorProfile: "ANSI256",
 				AttachCapabilities: &proto.ClientCapabilities{
 					Hyperlinks:     true,
 					PromptMarkers:  true,
@@ -100,6 +101,9 @@ func TestWriteReadMsg(t *testing.T) {
 			}
 			if got.Session != tt.msg.Session {
 				t.Errorf("Session = %q, want %q", got.Session, tt.msg.Session)
+			}
+			if got.AttachColorProfile != tt.msg.AttachColorProfile {
+				t.Errorf("AttachColorProfile = %q, want %q", got.AttachColorProfile, tt.msg.AttachColorProfile)
 			}
 			if !reflect.DeepEqual(got.AttachCapabilities, tt.msg.AttachCapabilities) {
 				t.Errorf("AttachCapabilities = %+v, want %+v", got.AttachCapabilities, tt.msg.AttachCapabilities)

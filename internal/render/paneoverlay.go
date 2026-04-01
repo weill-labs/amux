@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/muesli/termenv"
 	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/mux"
 )
@@ -44,6 +45,11 @@ func buildPaneOverlayCells(g *ScreenGrid, root *mux.LayoutCell, lookup func(uint
 }
 
 func renderPaneOverlay(buf *strings.Builder, root *mux.LayoutCell, lookup func(uint32) PaneData, labels []PaneOverlayLabel) {
+	renderPaneOverlayWithProfile(buf, root, lookup, labels, defaultColorProfile)
+}
+
+func renderPaneOverlayWithProfile(buf *strings.Builder, root *mux.LayoutCell, lookup func(uint32) PaneData, labels []PaneOverlayLabel, profile termenv.Profile) {
+	surface0Bg := bgHexSequence(config.Surface0Hex, profile)
 	for _, label := range labels {
 		cell := root.FindByPaneID(label.PaneID)
 		if cell == nil || label.Label == "" {
@@ -58,9 +64,9 @@ func renderPaneOverlay(buf *strings.Builder, root *mux.LayoutCell, lookup func(u
 			color = pd.Color()
 		}
 		writeCursorTo(buf, y+1, x+1)
-		buf.WriteString(Surface0Bg)
+		buf.WriteString(surface0Bg)
 		buf.WriteString(Bold)
-		buf.WriteString(hexToANSI(color))
+		buf.WriteString(hexToANSIWithProfile(color, profile))
 		buf.WriteString(badge)
 		buf.WriteString(Reset)
 	}

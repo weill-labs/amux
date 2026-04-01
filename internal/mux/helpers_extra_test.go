@@ -56,6 +56,7 @@ func TestPaneEnvironmentAndCreatedAt(t *testing.T) {
 		"TERM=screen-256color",
 		"AMUX_PANE=old",
 		"AMUX_SESSION=old-session",
+		"AMUX_COLOR_PROFILE=Ascii",
 		"NO_COLOR=1",
 		"CODEX_CI=1",
 		"PATH=/bin",
@@ -69,7 +70,14 @@ func TestPaneEnvironmentAndCreatedAt(t *testing.T) {
 			t.Fatalf("paneCommandEnv leaked %q:\n%s", forbidden, joined)
 		}
 	}
-	for _, required := range []string{"TERM=amux", "AMUX_PANE=7", "AMUX_SESSION=session-a", "PATH=/bin", "ODDENTRY"} {
+	for _, required := range []string{
+		"TERM=amux",
+		"AMUX_PANE=7",
+		"AMUX_SESSION=session-a",
+		"AMUX_COLOR_PROFILE=ANSI256",
+		"PATH=/bin",
+		"ODDENTRY",
+	} {
 		if !strings.Contains(joined, required) {
 			t.Fatalf("paneCommandEnv missing %q:\n%s", required, joined)
 		}
@@ -78,10 +86,16 @@ func TestPaneEnvironmentAndCreatedAt(t *testing.T) {
 	t.Setenv("TERM", "xterm-256color")
 	t.Setenv("AMUX_PANE", "old-pane")
 	t.Setenv("AMUX_SESSION", "old-session")
+	t.Setenv("AMUX_COLOR_PROFILE", "Ascii")
 	t.Setenv("NO_COLOR", "1")
 	t.Setenv("CODEX_CI", "1")
 	shellEnv := strings.Join(paneShellEnv(8, "session-b"), "\n")
-	for _, required := range []string{"TERM=amux", "AMUX_PANE=8", "AMUX_SESSION=session-b"} {
+	for _, required := range []string{
+		"TERM=amux",
+		"AMUX_PANE=8",
+		"AMUX_SESSION=session-b",
+		"AMUX_COLOR_PROFILE=ANSI256",
+	} {
 		if !strings.Contains(shellEnv, required) {
 			t.Fatalf("paneShellEnv missing %q:\n%s", required, shellEnv)
 		}
@@ -97,6 +111,47 @@ func TestPaneEnvironmentAndCreatedAt(t *testing.T) {
 	pane.SetCreatedAt(want)
 	if got := pane.CreatedAt(); !got.Equal(want) {
 		t.Fatalf("CreatedAt() = %v, want %v", got, want)
+	}
+}
+
+func TestPaneEnvScrubsLauncherColorFlags(t *testing.T) {
+	t.Parallel()
+
+	env := paneEnv([]string{
+		"TERM=xterm-256color",
+		"NO_COLOR=1",
+		"CODEX_CI=1",
+		"PATH=/bin",
+	})
+
+	joined := strings.Join(env.Environ(), "\n")
+	for _, forbidden := range []string{"NO_COLOR=1", "CODEX_CI=1"} {
+		if strings.Contains(joined, forbidden) {
+			t.Fatalf("paneEnv.Environ() leaked %q:\n%s", forbidden, joined)
+		}
+	}
+	if got := env.Getenv("NO_COLOR"); got != "" {
+		t.Fatalf("paneEnv.Getenv(NO_COLOR) = %q, want empty string", got)
+	}
+	if got := env.Getenv("PATH"); got != "/bin" {
+		t.Fatalf("paneEnv.Getenv(PATH) = %q, want %q", got, "/bin")
+	}
+}
+
+func TestPaneEnvironmentExplicitColorProfileWins(t *testing.T) {
+	t.Parallel()
+
+	env := paneCommandEnvWithProfile([]string{
+		"TERM=xterm-256color",
+		"PATH=/bin",
+	}, 9, "session-c", "ANSI")
+
+	joined := strings.Join(env, "\n")
+	if !strings.Contains(joined, "AMUX_COLOR_PROFILE=ANSI") {
+		t.Fatalf("paneCommandEnvWithProfile missing explicit profile:\n%s", joined)
+	}
+	if strings.Contains(joined, "AMUX_COLOR_PROFILE=ANSI256") {
+		t.Fatalf("paneCommandEnvWithProfile ignored explicit profile:\n%s", joined)
 	}
 }
 
