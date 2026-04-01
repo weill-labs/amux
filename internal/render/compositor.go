@@ -1,7 +1,6 @@
 package render
 
 import (
-	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -415,14 +414,7 @@ func buildHexColorCache() map[string]string {
 
 // computeANSI converts a 6-digit hex color to an ANSI truecolor escape.
 func computeANSI(hex string) string {
-	r, _ := strconv.ParseUint(hex[0:2], 16, 8)
-	g, _ := strconv.ParseUint(hex[2:4], 16, 8)
-	b, _ := strconv.ParseUint(hex[4:6], 16, 8)
-	return ansi.NewStyle().ForegroundColor(ansi.RGBColor{
-		R: uint8(r),
-		G: uint8(g),
-		B: uint8(b),
-	}).String()
+	return ansi.NewStyle().ForegroundColor(hexToColor(hex)).String()
 }
 
 // hexToANSI converts a 6-digit hex color to an ANSI truecolor escape.

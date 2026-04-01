@@ -29,7 +29,7 @@ func TestRenderPaneStatusUsesXAnsiResetAndCursorPosition(t *testing.T) {
 	}
 }
 
-func TestRenderCursorDiffUsesXAnsiResetAndOriginCursor(t *testing.T) {
+func TestRenderCursorDiffUsesXAnsiResetAndCursorPosition(t *testing.T) {
 	t.Parallel()
 
 	root := mux.NewLeaf(&mux.Pane{ID: 1, Meta: mux.PaneMeta{Name: "pane-1"}}, 0, 0, 10, 3)

@@ -14,12 +14,9 @@ var ansiParserPool = sync.Pool{
 	},
 }
 
-// skipANSISequence advances past an ANSI escape sequence starting at s[i].
-// Returns the index of the first byte after the sequence.
-// If s[i] is not ESC (\033), returns i unchanged.
-func skipANSISequence(s string, i int) int {
-	if i >= len(s) || s[i] != '\033' {
-		return i
+func decodeANSISequence(s string, i int) (ansi.Cmd, ansi.Params, int, bool) {
+	if i < 0 || i >= len(s) {
+		return 0, nil, 0, false
 	}
 
 	parser := ansiParserPool.Get().(*ansi.Parser)
@@ -28,6 +25,21 @@ func skipANSISequence(s string, i int) int {
 	parser.Reset()
 	_, _, n, _ := ansi.DecodeSequence(s[i:], ansi.NormalState, parser)
 	if n <= 0 {
+		return 0, nil, 0, false
+	}
+
+	return ansi.Cmd(parser.Command()), parser.Params(), n, true
+}
+
+// skipANSISequence advances past an ANSI escape sequence starting at s[i].
+// Returns the index of the first byte after the sequence.
+// If s[i] is not ESC (\033), returns i unchanged.
+func skipANSISequence(s string, i int) int {
+	if i >= len(s) || s[i] != '\033' {
+		return i
+	}
+	_, _, n, ok := decodeANSISequence(s, i)
+	if !ok {
 		return i
 	}
 	return i + n
@@ -42,17 +54,11 @@ func CSIParams(s string, i int) (string, byte, int) {
 	if i < 2 || start < 0 || s[start] != '\033' || s[start+1] != '[' {
 		return "", 0, i
 	}
-
-	parser := ansiParserPool.Get().(*ansi.Parser)
-	defer ansiParserPool.Put(parser)
-
-	parser.Reset()
-	_, _, n, _ := ansi.DecodeSequence(s[start:], ansi.NormalState, parser)
-	if n <= 0 {
+	cmd, params, n, ok := decodeANSISequence(s, start)
+	if !ok {
 		return "", 0, i
 	}
-
-	return csiParamString(ansi.Cmd(parser.Command()), parser.Params()), ansi.Cmd(parser.Command()).Final(), start + n
+	return csiParamString(cmd, params), cmd.Final(), start + n
 }
 
 func csiParamString(cmd ansi.Cmd, params ansi.Params) string {
