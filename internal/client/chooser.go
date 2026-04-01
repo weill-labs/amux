@@ -173,11 +173,11 @@ func (cr *ClientRenderer) HandleChooserInput(raw []byte) chooserCommand {
 				return chooserCommand{}
 			}
 			cr.applyChooserQueryKey(msg)
-		case tea.KeyLeft, tea.KeyRight, tea.KeyBackspace, tea.KeyDelete,
-			tea.KeyCtrlA, tea.KeyCtrlB, tea.KeyCtrlD, tea.KeyCtrlE, tea.KeyCtrlF,
-			tea.KeyCtrlK, tea.KeyCtrlN, tea.KeyCtrlP, tea.KeyCtrlU, tea.KeyCtrlW:
-			cr.applyChooserQueryKey(msg)
 		default:
+			if bubblesutil.IsInlineEditingKey(msg.Type) {
+				cr.applyChooserQueryKey(msg)
+				continue
+			}
 			result.bell = true
 		}
 	}

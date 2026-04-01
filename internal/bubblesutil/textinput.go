@@ -28,6 +28,25 @@ func (s *TextInputState) Update(msg tea.KeyMsg) {
 	s.Cursor = model.Position()
 }
 
+// IsInlineEditingKey reports whether the key performs cursor movement or
+// deletion within a text input without inserting runes or claiming Home/End.
+func IsInlineEditingKey(key tea.KeyType) bool {
+	switch key {
+	case tea.KeyLeft, tea.KeyRight, tea.KeyBackspace, tea.KeyDelete,
+		tea.KeyCtrlA, tea.KeyCtrlB, tea.KeyCtrlD, tea.KeyCtrlE, tea.KeyCtrlF,
+		tea.KeyCtrlK, tea.KeyCtrlN, tea.KeyCtrlP, tea.KeyCtrlU, tea.KeyCtrlW:
+		return true
+	default:
+		return false
+	}
+}
+
+// IsTextInputKey reports whether the key should be routed into a Bubbles
+// textinput model.
+func IsTextInputKey(key tea.KeyType) bool {
+	return key == tea.KeyRunes || key == tea.KeyHome || key == tea.KeyEnd || IsInlineEditingKey(key)
+}
+
 // DecodeKey translates normalized legacy terminal bytes into a Bubble Tea key
 // message. The caller is expected to pass input after any kitty-keyboard
 // normalization.

@@ -581,15 +581,7 @@ func (cm *CopyMode) handleNormalKey(key int) Action {
 }
 
 func copyModePromptKeySupported(key tea.KeyType) bool {
-	switch key {
-	case tea.KeyRunes, tea.KeyLeft, tea.KeyRight, tea.KeyBackspace, tea.KeyDelete,
-		tea.KeyCtrlA, tea.KeyCtrlB, tea.KeyCtrlD, tea.KeyCtrlE, tea.KeyCtrlF,
-		tea.KeyCtrlK, tea.KeyCtrlN, tea.KeyCtrlP, tea.KeyCtrlU, tea.KeyCtrlW,
-		tea.KeyHome, tea.KeyEnd:
-		return true
-	default:
-		return false
-	}
+	return bubblesutil.IsTextInputKey(key)
 }
 
 // IsSearching returns true when the user is typing a search query.

@@ -74,12 +74,11 @@ func (cr *ClientRenderer) HandleWindowRenamePromptInput(raw []byte) promptComman
 			return promptCommand{}
 		case tea.KeyEnter:
 			return cr.submitWindowRenamePrompt()
-		case tea.KeyRunes, tea.KeyLeft, tea.KeyRight, tea.KeyBackspace, tea.KeyDelete,
-			tea.KeyCtrlA, tea.KeyCtrlB, tea.KeyCtrlD, tea.KeyCtrlE, tea.KeyCtrlF,
-			tea.KeyCtrlK, tea.KeyCtrlN, tea.KeyCtrlP, tea.KeyCtrlU, tea.KeyCtrlW,
-			tea.KeyHome, tea.KeyEnd:
-			cr.applyWindowRenamePromptKey(msg)
 		default:
+			if bubblesutil.IsTextInputKey(msg.Type) {
+				cr.applyWindowRenamePromptKey(msg)
+				continue
+			}
 			result.bell = true
 		}
 	}
