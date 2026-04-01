@@ -5,6 +5,7 @@ go 1.25.0
 require (
 	github.com/BurntSushi/toml v1.5.0
 	github.com/charmbracelet/colorprofile v0.4.2
+	github.com/charmbracelet/lipgloss v1.0.0
 	github.com/charmbracelet/ultraviolet v0.0.0-20260303162955-0b88c25f3fff
 	github.com/charmbracelet/x/ansi v0.11.6
 	github.com/charmbracelet/x/vt v0.0.0-20260311145557-c83711a11ffa
