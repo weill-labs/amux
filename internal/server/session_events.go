@@ -3,7 +3,6 @@ package server
 import (
 	"errors"
 	"fmt"
-	"log"
 	"runtime/debug"
 	"syscall"
 	"time"
@@ -181,8 +180,7 @@ func (e commandMutationEvent) handle(s *Session) {
 func recoverCommandMutation(fn func(*Session) commandMutationResult, s *Session) (res commandMutationResult) {
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("[amux] panic in command mutation: %v\n%s", r, debug.Stack())
-			res = commandMutationResult{err: fmt.Errorf("internal error: %v", r)}
+			res = commandMutationResult{err: s.logPanic("command_mutation_panic", r, debug.Stack())}
 		}
 	}()
 	return fn(s)
@@ -199,6 +197,7 @@ func (e detachClientEvent) handle(s *Session) {
 	}
 	s.appendConnectionLog(connectionLogEventDetach, e.cc.ID, e.cc.cols, e.cc.rows, e.cc.disconnectReasonValue())
 	s.emitClientDisconnectEvent(e.cc, e.reason)
+	s.logClientDisconnect(e.cc, e.cc.disconnectReasonValue())
 	s.removeClient(e.cc)
 }
 
@@ -239,7 +238,12 @@ func (e liveInputEvent) handle(s *Session) {
 		return
 	}
 	if err := s.enqueueLivePaneInput(pane, e.data); err != nil && !errors.Is(err, errPacedInputClosed) {
-		log.Printf("[amux] live input %s: %v", pane.Meta.Name, err)
+		s.logger.Warn("live input failed",
+			"event", "live_input",
+			"pane_id", pane.ID,
+			"pane_name", pane.Meta.Name,
+			"error", err,
+		)
 	}
 }
 
@@ -254,7 +258,12 @@ func (e liveInputPaneEvent) handle(s *Session) {
 		return
 	}
 	if err := s.enqueueLivePaneInput(pane, e.data); err != nil && !errors.Is(err, errPacedInputClosed) {
-		log.Printf("[amux] live input %s: %v", pane.Meta.Name, err)
+		s.logger.Warn("live input failed",
+			"event", "live_input",
+			"pane_id", pane.ID,
+			"pane_name", pane.Meta.Name,
+			"error", err,
+		)
 	}
 }
 
@@ -333,6 +342,7 @@ func (s *Session) handleFinalizedPaneRemoval(paneID uint32, closePane bool, reas
 		Host:     removed.pane.Meta.Host,
 		Reason:   reason,
 	})
+	s.logPaneExit(removed.pane, reason)
 	if closePane {
 		s.closePaneAsync(removed.pane)
 	}
@@ -879,6 +889,7 @@ func (s *Session) disconnectClientsForReload(clients []*clientConn) {
 		}
 		s.appendConnectionLog(connectionLogEventDetach, cc.ID, cc.cols, cc.rows, DisconnectReasonServerReload)
 		s.emitClientDisconnectEvent(cc, DisconnectReasonServerReload)
+		s.logClientDisconnect(cc, DisconnectReasonServerReload)
 		s.removeClientWithoutLayout(cc)
 	}
 }
@@ -912,6 +923,7 @@ func (s *Session) handleAttachEvent(srv *Server, cc *clientConn, cols, rows int)
 	s.appendConnectionLog(connectionLogEventAttach, cc.ID, cc.cols, cc.rows, "")
 	s.noteClientActivity(cc)
 	s.emitClientConnectEvent(cc)
+	s.logClientConnect(cc)
 	s.recalcSize()
 	if aw := s.activeWindow(); aw != nil {
 		res.layoutBroadcasted = aw.Width != oldWidth || aw.Height != oldHeight

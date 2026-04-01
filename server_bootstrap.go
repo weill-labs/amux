@@ -10,6 +10,8 @@ import (
 	"syscall"
 	"time"
 
+	charmlog "github.com/charmbracelet/log"
+	"github.com/weill-labs/amux/internal/auditlog"
 	"github.com/weill-labs/amux/internal/checkpoint"
 	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/mux"
@@ -20,6 +22,15 @@ import (
 	"github.com/weill-labs/amux/internal/terminfo"
 	"golang.org/x/sys/unix"
 )
+
+func newBootstrapLogger() *charmlog.Logger {
+	return auditlog.New(os.Stderr, auditlog.Options{
+		Format:          auditlog.FormatAuto,
+		Level:           charmlog.InfoLevel,
+		Prefix:          "amux",
+		ReportTimestamp: true,
+	})
+}
 
 func openSignalFD(envVar, name string) *os.File {
 	fdStr := os.Getenv(envVar)
@@ -46,9 +57,13 @@ func writeSignalFD(f **os.File, msg string) {
 }
 
 func restoreServerFromReloadCheckpoint(sessionName, cpPath string, scrollbackLines int) (*server.Server, error) {
+	return restoreServerFromReloadCheckpointLogger(sessionName, cpPath, scrollbackLines, newBootstrapLogger())
+}
+
+func restoreServerFromReloadCheckpointLogger(sessionName, cpPath string, scrollbackLines int, logger *charmlog.Logger) (*server.Server, error) {
 	cp, err := checkpoint.Read(cpPath)
 	if err == nil {
-		return server.NewServerFromCheckpointWithScrollback(cp, scrollbackLines)
+		return server.NewServerFromCheckpointWithScrollbackLogger(cp, scrollbackLines, logger)
 	}
 
 	var versionErr checkpoint.UnsupportedServerCheckpointVersionError
@@ -75,15 +90,27 @@ func restoreServerFromReloadCheckpoint(sessionName, cpPath string, scrollbackLin
 		return nil, fmt.Errorf("%w; invalid listener fd %d in reload checkpoint", err, cp.ListenerFd)
 	}
 
-	fmt.Fprintf(os.Stderr, "amux server: reload checkpoint incompatible, falling back to crash checkpoint %s\n", crashPath)
-	return server.NewServerFromCrashCheckpointWithListenerFd(restoreSessionName, cp.ListenerFd, crashCP, crashPath, scrollbackLines)
+	logger.Warn("reload checkpoint incompatible; falling back to crash checkpoint",
+		"event", "checkpoint_restore_fallback",
+		"session", restoreSessionName,
+		"checkpoint_kind", "reload",
+		"fallback_kind", "crash",
+		"path", crashPath,
+		"error", err,
+	)
+	return server.NewServerFromCrashCheckpointWithListenerFdLogger(restoreSessionName, cp.ListenerFd, crashCP, crashPath, scrollbackLines, logger)
 }
 
 func runServer(sessionName string, managedTakeover bool) {
 	server.BuildVersion = buildVersion()
+	logger := newBootstrapLogger()
 
 	if err := terminfo.Install(); err != nil {
-		fmt.Fprintf(os.Stderr, "amux server: %v\n", err)
+		logger.Error("server bootstrap failed",
+			"event", "server_bootstrap",
+			"session", sessionName,
+			"error", err,
+		)
 		os.Exit(1)
 	}
 
@@ -92,40 +119,75 @@ func runServer(sessionName string, managedTakeover bool) {
 
 	cfg, cfgErr := config.Load(config.DefaultPath())
 	if cfgErr != nil {
-		fmt.Fprintf(os.Stderr, "amux server: loading config: %v\n", cfgErr)
+		logger.Warn("loading config failed; using defaults",
+			"event", "server_config",
+			"session", sessionName,
+			"error", cfgErr,
+		)
 		cfg = &config.Config{Hosts: make(map[string]config.Host)}
 	}
 	scrollbackLines := cfg.EffectiveScrollbackLines()
 
 	if cpPath := os.Getenv("AMUX_CHECKPOINT"); cpPath != "" {
 		os.Unsetenv("AMUX_CHECKPOINT")
-		s, err = restoreServerFromReloadCheckpoint(sessionName, cpPath, scrollbackLines)
+		s, err = restoreServerFromReloadCheckpointLogger(sessionName, cpPath, scrollbackLines, logger)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "amux server: reading checkpoint: %v\n", err)
+			logger.Error("reading reload checkpoint failed",
+				"event", "checkpoint_restore",
+				"session", sessionName,
+				"checkpoint_kind", "reload",
+				"path", cpPath,
+				"error", err,
+			)
 			os.Exit(1)
 		}
 	} else if crashPath := server.DetectCrashedSession(sessionName); crashPath != "" {
 		crashCP, readErr := checkpoint.ReadCrash(crashPath)
 		if readErr != nil {
-			fmt.Fprintf(os.Stderr, "amux server: unreadable crash checkpoint, starting fresh: %v\n", readErr)
+			logger.Warn("unreadable crash checkpoint; starting fresh",
+				"event", "checkpoint_restore",
+				"session", sessionName,
+				"checkpoint_kind", "crash",
+				"path", crashPath,
+				"error", readErr,
+			)
 			_ = checkpoint.RemoveCrashFile(crashPath)
-			s, err = server.NewServerWithScrollback(sessionName, scrollbackLines)
+			s, err = server.NewServerWithScrollbackLogger(sessionName, scrollbackLines, logger)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "amux server: %v\n", err)
+				logger.Error("creating server failed",
+					"event", "server_bootstrap",
+					"session", sessionName,
+					"error", err,
+				)
 				os.Exit(1)
 			}
 		} else {
-			fmt.Fprintf(os.Stderr, "amux server: recovering crashed session %q\n", sessionName)
-			s, err = server.NewServerFromCrashCheckpointWithScrollback(sessionName, crashCP, crashPath, scrollbackLines)
+			logger.Info("recovering crashed session",
+				"event", "checkpoint_restore",
+				"session", sessionName,
+				"checkpoint_kind", "crash",
+				"path", crashPath,
+			)
+			s, err = server.NewServerFromCrashCheckpointWithScrollbackLogger(sessionName, crashCP, crashPath, scrollbackLines, logger)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "amux server: crash recovery: %v\n", err)
+				logger.Error("crash recovery failed",
+					"event", "checkpoint_restore",
+					"session", sessionName,
+					"checkpoint_kind", "crash",
+					"path", crashPath,
+					"error", err,
+				)
 				os.Exit(1)
 			}
 		}
 	} else {
-		s, err = server.NewServerWithScrollback(sessionName, scrollbackLines)
+		s, err = server.NewServerWithScrollbackLogger(sessionName, scrollbackLines, logger)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "amux server: %v\n", err)
+			logger.Error("creating server failed",
+				"event", "server_bootstrap",
+				"session", sessionName,
+				"error", err,
+			)
 			os.Exit(1)
 		}
 	}
@@ -142,7 +204,11 @@ func runServer(sessionName string, managedTakeover bool) {
 
 	if managedTakeover {
 		if err := s.EnsureInitialWindow(server.DefaultTermCols, server.DefaultTermRows); err != nil {
-			fmt.Fprintf(os.Stderr, "amux server: initializing managed takeover session: %v\n", err)
+			logger.Error("initializing managed takeover session failed",
+				"event", "server_bootstrap",
+				"session", sessionName,
+				"error", err,
+			)
 			os.Exit(1)
 		}
 	}
@@ -160,6 +226,7 @@ func runServer(sessionName string, managedTakeover bool) {
 			OnPaneOutput:  hooks.OnPaneOutput,
 			OnPaneExit:    hooks.OnPaneExit,
 			OnStateChange: hooks.OnStateChange,
+			Logger:        logger.With("component", "ssh"),
 		})
 	}
 	if hasRemoteHosts {
@@ -171,6 +238,7 @@ func runServer(sessionName string, managedTakeover bool) {
 			return newRemoteManager(hooks)
 		})
 	}
+	s.SetLogger(logger)
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
@@ -186,7 +254,12 @@ func runServer(sessionName string, managedTakeover bool) {
 		go func() {
 			for range triggerReload {
 				if reloadErr := s.Reload(execPath); reloadErr != nil {
-					fmt.Fprintf(os.Stderr, "amux server: reload failed: %v\n", reloadErr)
+					logger.Error("reload failed",
+						"event", "hot_reload",
+						"session", sessionName,
+						"exec_path", execPath,
+						"error", reloadErr,
+					)
 				}
 			}
 		}()
@@ -204,15 +277,23 @@ func runServer(sessionName string, managedTakeover bool) {
 	writeSignalFD(&shutdownSignal, "shutdown\n")
 
 	if runResult != nil && !strings.Contains(runResult.Error(), "use of closed") {
-		fmt.Fprintf(os.Stderr, "amux server: %v\n", runResult)
+		logger.Error("server run failed",
+			"event", "server_run",
+			"session", sessionName,
+			"error", runResult,
+		)
 		os.Exit(1)
 	}
 }
 
 func checkNesting(target string) {
 	if envSession := os.Getenv("AMUX_SESSION"); envSession == target {
-		fmt.Fprintf(os.Stderr, "amux: cannot attach to session %q from inside itself (recursive nesting)\n", target)
-		fmt.Fprintln(os.Stderr, "  unset AMUX_SESSION to override")
+		logger := newBootstrapLogger()
+		logger.Error("cannot attach to session from inside itself (recursive nesting)",
+			"event", "nesting_check",
+			"session", target,
+			"hint", "unset AMUX_SESSION to override",
+		)
 		os.Exit(1)
 	}
 }
@@ -246,7 +327,10 @@ func tryTakeover(sessionName string) bool {
 	if !ok {
 		return false
 	}
-	fmt.Fprintln(os.Stderr, "amux: takeover acked, entering managed mode")
+	newBootstrapLogger().Info("takeover acked, entering managed mode",
+		"event", "ssh_takeover_ack",
+		"session", session,
+	)
 	runServer(session, true)
 	return true
 }

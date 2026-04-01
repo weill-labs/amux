@@ -69,7 +69,7 @@ func TestMainCheckpointReloadStartsServerWithoutSubcommand(t *testing.T) {
 	}
 
 	output := string(out)
-	if !strings.Contains(output, "amux server: reading checkpoint:") {
+	if !strings.Contains(output, `"event":"checkpoint_restore"`) || !strings.Contains(output, `"msg":"reading reload checkpoint failed"`) {
 		t.Fatalf("expected checkpoint reload to route into server startup, got:\n%s", output)
 	}
 	if strings.Contains(output, "amux: server not running") {
@@ -135,7 +135,7 @@ func TestRestoreServerFromReloadCheckpointFallsBackToCrashCheckpoint(t *testing.
 		}
 		srv.Shutdown()
 	})
-	if !strings.Contains(stderr, "reload checkpoint incompatible, falling back to crash checkpoint") {
+	if !strings.Contains(stderr, `"event":"checkpoint_restore_fallback"`) || !strings.Contains(stderr, `"msg":"reload checkpoint incompatible; falling back to crash checkpoint"`) {
 		t.Fatalf("stderr = %q, want crash fallback log", stderr)
 	}
 

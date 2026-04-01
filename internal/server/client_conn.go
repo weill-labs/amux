@@ -4,12 +4,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"runtime/debug"
 	"strings"
 	"sync/atomic"
 
+	charmlog "github.com/charmbracelet/log"
+	"github.com/weill-labs/amux/internal/auditlog"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
 	"github.com/weill-labs/amux/internal/termprofile"
@@ -38,6 +39,7 @@ type clientConn struct {
 	typeKeyQueue       *pacedInputQueue
 	capabilities       proto.ClientCapabilities
 	colorProfile       string
+	logger             *charmlog.Logger
 	disconnectReason   atomic.Pointer[string]
 }
 
@@ -52,6 +54,7 @@ func newClientConn(conn net.Conn) *clientConn {
 	cc := &clientConn{
 		conn:      conn,
 		inputIdle: true,
+		logger:    auditlog.Discard(),
 	}
 	cc.writer = newClientWriter(conn)
 	return cc
@@ -114,7 +117,7 @@ func (cc *clientConn) initTypeKeyQueue() {
 	if cc.typeKeyQueue != nil {
 		return
 	}
-	cc.typeKeyQueue = newPacedInputQueue("client "+cc.ID, func(paneID uint32, data []byte) error {
+	cc.typeKeyQueue = newPacedInputQueue("client "+cc.ID, cc.logger, func(paneID uint32, data []byte) error {
 		return cc.Send(&Message{Type: MsgTypeTypeKeys, PaneID: paneID, Input: data})
 	})
 }
@@ -258,19 +261,30 @@ func (cc *clientConn) readLoop(srv *Server, sess *Session) {
 
 // handleCommand dispatches CLI commands through the command registry.
 func (cc *clientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
+	started := time.Now()
+	ctx := &CommandContext{
+		CommandName: msg.CmdName,
+		CC:          cc,
+		Srv:         srv,
+		Sess:        sess,
+		Args:        msg.CmdArgs,
+		ActorPaneID: msg.ActorPaneID,
+	}
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("[amux] panic in command %q: %v\n%s", msg.CmdName, r, debug.Stack())
-			cc.Send(&Message{Type: MsgTypeCmdResult,
-				CmdErr: fmt.Sprintf("internal error: panic in command %q", msg.CmdName)})
+			ctx.auditErr = fmt.Sprintf("internal error: panic in command %q", msg.CmdName)
+			sess.logPanic("command_panic", r, debug.Stack())
+			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: ctx.auditErr})
 		}
+		sess.logCommandExecution(cc.ID, msg.CmdName, msg.CmdArgs, msg.ActorPaneID, time.Since(started), ctx.auditErr)
 	}()
 	sess.enqueueClientActivity(cc)
 	handler, ok := srv.lookupCommand(msg.CmdName)
 	if !ok {
+		ctx.auditErr = fmt.Sprintf("unknown command: %s", msg.CmdName)
 		cc.Send(&Message{Type: MsgTypeCmdResult,
-			CmdErr: fmt.Sprintf("unknown command: %s", msg.CmdName)})
+			CmdErr: ctx.auditErr})
 		return
 	}
-	handler(&CommandContext{CommandName: msg.CmdName, CC: cc, Srv: srv, Sess: sess, Args: msg.CmdArgs, ActorPaneID: msg.ActorPaneID})
+	handler(ctx)
 }

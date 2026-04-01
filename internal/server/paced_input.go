@@ -2,9 +2,11 @@ package server
 
 import (
 	"errors"
-	"log"
 	"sync"
 	"time"
+
+	charmlog "github.com/charmbracelet/log"
+	"github.com/weill-labs/amux/internal/auditlog"
 )
 
 var errPacedInputClosed = errors.New("paced input queue closed")
@@ -25,15 +27,20 @@ type pacedInputQueue struct {
 	stop     chan struct{}
 	done     chan struct{}
 	stopOnce sync.Once
+	logger   *charmlog.Logger
 	write    func(uint32, []byte) error
 	label    string
 }
 
-func newPacedInputQueue(label string, write func(uint32, []byte) error) *pacedInputQueue {
+func newPacedInputQueue(label string, logger *charmlog.Logger, write func(uint32, []byte) error) *pacedInputQueue {
+	if logger == nil {
+		logger = auditlog.Discard()
+	}
 	q := &pacedInputQueue{
 		requests: make(chan pacedInputRequest, pacedInputRequestBufferSize),
 		stop:     make(chan struct{}),
 		done:     make(chan struct{}),
+		logger:   logger,
 		write:    write,
 		label:    label,
 	}
@@ -139,7 +146,11 @@ func (q *pacedInputQueue) loop() {
 			}
 			if err != nil {
 				if !errors.Is(err, errPacedInputClosed) {
-					log.Printf("[amux] paced input %s: %v", q.label, err)
+					q.logger.Warn("paced input failed",
+						"event", "paced_input",
+						"queue", q.label,
+						"error", err,
+					)
 				}
 				q.close()
 				return

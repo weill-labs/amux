@@ -24,6 +24,17 @@ func (s *Server) Reload(execPath string) error {
 	if sess == nil {
 		return fmt.Errorf("no session to reload")
 	}
+	if s.logger == nil {
+		s.logger = auditlog.Discard()
+	}
+	if sess.logger == nil {
+		sess.logger = s.logger.With("session", sess.Name)
+	}
+	reloadStarted := time.Now()
+	sess.logger.Info("hot reload requested",
+		"event", "hot_reload",
+		"exec_path", execPath,
+	)
 
 	clients, err := enqueueSessionQuery(sess, func(sess *Session) ([]*clientConn, error) {
 		return sess.ensureClientManager().snapshotClients(), nil
@@ -109,6 +120,7 @@ func (s *Server) Reload(execPath string) error {
 		sess.shutdown.Store(false)
 		return fmt.Errorf("writing checkpoint: %w", err)
 	}
+	sess.logCheckpointWrite("reload", cpPath, time.Since(reloadStarted), nil)
 
 	// Clear FD_CLOEXEC on inherited FDs (skip proxy panes — they have no PTY)
 	clearCloexec(uintptr(cp.ListenerFd))
@@ -148,6 +160,12 @@ func (s *Server) Reload(execPath string) error {
 	// If we get here, the exec call failed — undo changes
 	sess.shutdown.Store(false)
 	os.Remove(cpPath)
+	sess.logger.Error("hot reload failed",
+		"event", "hot_reload",
+		"exec_path", execPath,
+		"duration", durationField(time.Since(reloadStarted)),
+		"error", execErr,
+	)
 	return fmt.Errorf("server exec: %w", execErr)
 }
 
@@ -171,10 +189,10 @@ func restoreListenerFromFD(listenerFD int) (net.Listener, error) {
 // NewServerFromCheckpointWithScrollback restores a server from a checkpoint
 // using an explicit retained scrollback limit for restored panes.
 func NewServerFromCheckpointWithScrollback(cp *checkpoint.ServerCheckpoint, scrollbackLines int) (*Server, error) {
-	return newServerFromCheckpointWithScrollbackLogger(cp, scrollbackLines, nil)
+	return NewServerFromCheckpointWithScrollbackLogger(cp, scrollbackLines, nil)
 }
 
-func newServerFromCheckpointWithScrollbackLogger(cp *checkpoint.ServerCheckpoint, scrollbackLines int, logger *charmlog.Logger) (*Server, error) {
+func NewServerFromCheckpointWithScrollbackLogger(cp *checkpoint.ServerCheckpoint, scrollbackLines int, logger *charmlog.Logger) (*Server, error) {
 	if logger == nil {
 		logger = auditlog.Discard()
 	}
@@ -320,6 +338,8 @@ func newServerFromCheckpointWithScrollbackLogger(cp *checkpoint.ServerCheckpoint
 			return
 		}
 	}()
+
+	sess.logCheckpointRestore("reload", "", len(sess.Panes), len(sess.Windows), 0)
 
 	return s, nil
 }

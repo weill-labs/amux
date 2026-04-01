@@ -5,7 +5,6 @@ package remote
 
 import (
 	"fmt"
-	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -47,6 +46,7 @@ type ManagerDeps struct {
 	OnPaneExit    PaneExitCallback
 	OnStateChange StateChangeCallback
 	NewHostConn   HostConnFactory
+	Logger        *charmlog.Logger
 }
 
 // Manager coordinates all remote host connections. It maps local pane IDs
@@ -91,12 +91,15 @@ func NewManager(cfg *config.Config, buildHash string, deps ManagerDeps) *Manager
 		cfg:           cfg,
 		buildHash:     buildHash,
 		newHostConn:   deps.NewHostConn,
-		logger:        auditlog.Discard(),
+		logger:        deps.Logger,
 		onPaneOutput:  deps.OnPaneOutput,
 		onPaneExit:    deps.OnPaneExit,
 		onStateChange: deps.OnStateChange,
 		hosts:         make(map[string]*HostConn),
 		localToHost:   make(map[uint32]string),
+	}
+	if m.logger == nil {
+		m.logger = auditlog.Discard()
 	}
 	m.startEventLoop()
 	return m
@@ -108,11 +111,15 @@ func (m *Manager) Config() *config.Config {
 }
 
 func (m *Manager) newManagedHostConn(name string, cfg config.Host) *HostConn {
-	return m.newHostConn(name, cfg, m.buildHash, m.onPaneOutput, m.onPaneExit, m.onStateChange)
+	hc := m.newHostConn(name, cfg, m.buildHash, m.onPaneOutput, m.onPaneExit, m.onStateChange)
+	hc.logger = m.logger.With("host", name)
+	return hc
 }
 
 func (m *Manager) newDeployHostConn(name string, cfg config.Host) *HostConn {
-	return m.newHostConn(name, cfg, m.buildHash, nil, nil, nil)
+	hc := m.newHostConn(name, cfg, m.buildHash, nil, nil, nil)
+	hc.logger = m.logger.With("host", name)
+	return hc
 }
 
 // DeployToAddress deploys the local binary to a remote host via a temporary SSH
@@ -135,19 +142,19 @@ func (m *Manager) DeployToAddress(hostName, sshAddr, sshUser string) {
 
 	sshCfg, err := hc.buildSSHConfig()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "amux: deploy to %s: %v\n", hostName, err)
+		m.logDeployFailure(hostName, "build_ssh_config", err)
 		return
 	}
 
 	client, err := ssh.Dial("tcp", normalizeAddr(sshAddr), sshCfg)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "amux: deploy to %s: SSH dial: %v\n", hostName, err)
+		m.logDeployFailure(hostName, "dial", err)
 		return
 	}
 	defer client.Close()
 
 	if err := DeployBinary(client, m.buildHash); err != nil {
-		fmt.Fprintf(os.Stderr, "amux: deploy to %s: %v\n", hostName, err)
+		m.logDeployFailure(hostName, "deploy", err)
 	}
 }
 

@@ -107,7 +107,7 @@ func (r *inputRouter) paneQueueLocked(pane *mux.Pane) *pacedInputQueue {
 	if queue := r.paneQueues[pane.ID]; queue != nil {
 		return queue
 	}
-	queue := newPacedInputQueue("pane "+pane.Meta.Name, func(_ uint32, data []byte) error {
+	queue := newPacedInputQueue("pane "+pane.Meta.Name, nil, func(_ uint32, data []byte) error {
 		_, err := pane.Write(data)
 		return err
 	})

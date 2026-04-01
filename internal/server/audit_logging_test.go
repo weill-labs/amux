@@ -185,15 +185,23 @@ func TestHandleCommandAuditLogsCommandAndDuration(t *testing.T) {
 		_, _ = ReadMsg(peerConn)
 	}()
 
-	go cc.handleCommand(srv, sess, &Message{
-		Type:    MsgTypeCommand,
-		CmdName: "audit-ok",
-	})
-
+	commandDone := make(chan struct{})
+	go func() {
+		defer close(commandDone)
+		cc.handleCommand(srv, sess, &Message{
+			Type:    MsgTypeCommand,
+			CmdName: "audit-ok",
+		})
+	}()
 	select {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		t.Fatal("timeout waiting for command reply")
+	}
+	select {
+	case <-commandDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout waiting for command handler completion")
 	}
 
 	record := findAuditRecord(parseAuditRecords(t, buf), "command_execute")

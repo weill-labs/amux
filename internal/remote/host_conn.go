@@ -201,7 +201,12 @@ func (hc *HostConn) doConnectWithAddr(sessionName, addr string) (*connectOutcome
 	// Deploy local binary to remote if needed (best-effort)
 	if hc.shouldDeploy() {
 		if err := DeployBinary(sshClient, hc.buildHash); err != nil {
-			fmt.Fprintf(os.Stderr, "amux: deploy to %s: %v\n", hc.name, err)
+			hc.logger.Warn("ssh deploy failed",
+				"event", "ssh_deploy",
+				"host", hc.name,
+				"stage", "deploy",
+				"error", err,
+			)
 		}
 	}
 
@@ -640,7 +645,7 @@ func (hc *HostConn) buildSSHConfig() (*ssh.ClientConfig, error) {
 	if os.Getenv("AMUX_SSH_INSECURE") == "1" {
 		hkCallback = ssh.InsecureIgnoreHostKey()
 	} else {
-		hkCallback = hostKeyCallback("")
+		hkCallback = hostKeyCallback("", hc.logger)
 	}
 
 	return &ssh.ClientConfig{

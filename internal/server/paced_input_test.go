@@ -13,7 +13,7 @@ func TestPacedInputQueueWaitsForFullBatch(t *testing.T) {
 	releaseSecondWrite := make(chan struct{})
 	writes := make(chan []byte, 2)
 
-	q := newPacedInputQueue("test", func(_ uint32, data []byte) error {
+	q := newPacedInputQueue("test", nil, func(_ uint32, data []byte) error {
 		copyData := append([]byte(nil), data...)
 		writes <- copyData
 		if string(data) == "\r" {
@@ -64,7 +64,7 @@ func TestPacedInputQueueCloseAbortsPendingBatch(t *testing.T) {
 	firstWrite := make(chan struct{}, 1)
 	secondWrite := make(chan struct{}, 1)
 
-	q := newPacedInputQueue("test", func(_ uint32, data []byte) error {
+	q := newPacedInputQueue("test", nil, func(_ uint32, data []byte) error {
 		if string(data) == "HELLO" {
 			firstWrite <- struct{}{}
 			return nil
@@ -103,7 +103,7 @@ func TestPacedInputQueueAsyncReturnsBeforeBlockedWriteCompletes(t *testing.T) {
 	release := make(chan struct{})
 	writes := make(chan []byte, 3)
 
-	q := newPacedInputQueue("test", func(_ uint32, data []byte) error {
+	q := newPacedInputQueue("test", nil, func(_ uint32, data []byte) error {
 		copyData := append([]byte(nil), data...)
 		writes <- copyData
 		if string(data) == "first" {

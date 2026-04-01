@@ -369,6 +369,7 @@ func (s *Session) createPaneWithMetaForColorProfile(srv *Server, meta mux.PaneMe
 
 	s.Panes = append(s.Panes, pane)
 	s.appendPaneLog(paneLogEventCreate, pane, "")
+	s.logPaneCreate(pane, "local")
 	return pane, nil
 }
 
@@ -415,6 +416,7 @@ func (s *Session) insertPreparedPaneIntoActiveWindow(pane *mux.Pane, dir mux.Spl
 	}
 
 	s.Panes = append(s.Panes, pane)
+	s.logPaneCreate(pane, "remote")
 	opts := mux.SplitOptions{KeepFocus: keepFocus || w.ZoomedPaneID != 0}
 	var err error
 	if rootLevel {
