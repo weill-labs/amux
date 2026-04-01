@@ -1,9 +1,12 @@
 package server
 
 import (
+	"bytes"
 	"errors"
 	"testing"
 	"time"
+
+	"github.com/weill-labs/amux/internal/mux"
 )
 
 func TestPacedInputQueueWaitsForFullBatch(t *testing.T) {
@@ -157,5 +160,48 @@ func TestPacedInputQueueAsyncReturnsBeforeBlockedWriteCompletes(t *testing.T) {
 
 	if err := <-doneWait; err != nil {
 		t.Fatalf("enqueue(third) = %v", err)
+	}
+}
+
+func TestEnqueuePacedPaneInputRetriesShortWrites(t *testing.T) {
+	t.Parallel()
+
+	sess := newSession("test-enqueue-paced-pane-input-retries-short-writes")
+	stopCrashCheckpointLoop(t, sess)
+	defer stopSessionBackgroundLoops(t, sess)
+
+	payload := []byte("\U0001f642\u6f22\u5b57 boundary paste payload")
+	var got []byte
+	var calls int
+
+	pane := sess.ownPane(newProxyPane(1, mux.PaneMeta{
+		Name:  "pane-1",
+		Host:  mux.DefaultHost,
+		Color: "f5e0dc",
+	}, 80, 23, nil, nil, func(data []byte) (int, error) {
+		calls++
+		if len(data) == 0 {
+			t.Fatal("write override called with empty payload")
+		}
+		n := 1 + (calls % 5)
+		if n > len(data) {
+			n = len(data)
+		}
+		got = append(got, data[:n]...)
+		return n, nil
+	}))
+
+	mustSessionMutation(t, sess, func(sess *Session) {
+		sess.Panes = []*mux.Pane{pane}
+	})
+
+	if err := sess.enqueuePacedPaneInput(pane, []encodedKeyChunk{{data: payload}}); err != nil {
+		t.Fatalf("enqueuePacedPaneInput() error = %v", err)
+	}
+	if !bytes.Equal(got, payload) {
+		t.Fatalf("paced pane input wrote %q, want %q", got, payload)
+	}
+	if calls < 2 {
+		t.Fatalf("short-write retry count = %d, want multiple writes", calls)
 	}
 }
