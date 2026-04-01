@@ -38,7 +38,7 @@ var (
 	RedFg      = foregroundSequence(config.RedHex)
 
 	KittyKeyboardEnable  = ansi.PushKittyKeyboard(1)
-	KittyKeyboardDisable = ansi.PopKittyKeyboard(0)
+	KittyKeyboardDisable = ansi.DisableKittyKeyboard
 
 	ResetTitle = ansi.SetIconNameWindowTitle("")
 )

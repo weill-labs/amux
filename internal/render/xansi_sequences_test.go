@@ -46,6 +46,17 @@ func TestRenderCursorDiffUsesXAnsiResetAndCursorPosition(t *testing.T) {
 	}
 }
 
+func TestKittyKeyboardSequencesUsePushAndDisable(t *testing.T) {
+	t.Parallel()
+
+	if KittyKeyboardEnable != ansi.PushKittyKeyboard(1) {
+		t.Fatalf("KittyKeyboardEnable = %q, want %q", KittyKeyboardEnable, ansi.PushKittyKeyboard(1))
+	}
+	if KittyKeyboardDisable != ansi.DisableKittyKeyboard {
+		t.Fatalf("KittyKeyboardDisable = %q, want %q", KittyKeyboardDisable, ansi.DisableKittyKeyboard)
+	}
+}
+
 func min(a, b int) int {
 	if a < b {
 		return a
