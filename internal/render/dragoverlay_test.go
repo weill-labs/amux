@@ -78,7 +78,7 @@ func TestRenderDropIndicator(t *testing.T) {
 		{
 			name:    "vertical",
 			overlay: &DropIndicatorOverlay{X: 0, Y: 1, Length: 3, Dir: mux.SplitVertical},
-			want:    "┃",
+			want:    "\x1b[2;1H┃\x1b[3;1H┃\x1b[4;1H┃",
 		},
 	}
 

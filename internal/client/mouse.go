@@ -11,9 +11,9 @@ import (
 	"github.com/weill-labs/amux/internal/render"
 )
 
-// dragState tracks an in-progress border drag. The border direction is
-// cached from the initial press so motion events don't need to re-query
-// the layout (which may be stale during fast drags).
+// dragState tracks in-progress mouse interactions: border drags, pane drags,
+// and copy-mode selections. Border direction is cached from the initial press
+// so motion events don't need to re-query the layout mid-drag.
 type dragState struct {
 	Active    bool
 	BorderX   int

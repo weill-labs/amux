@@ -278,7 +278,9 @@ func TestMouseStatusLineDragMovesPaneToOtherColumn(t *testing.T) {
 
 	h := newAmuxHarness(t)
 	h.splitV()
-	h.clickAt(10, 5)
+	focusGen := h.generation()
+	h.runCmd("focus", "pane-1")
+	h.waitLayout(focusGen)
 	if !h.waitForActive("pane-1", 3*time.Second) {
 		t.Fatalf("pane-1 should be active before splitting left column.\nScreen:\n%s", h.capture())
 	}
@@ -318,7 +320,9 @@ func TestMouseStatusLineDragInsertsPaneBetweenPanesAcrossColumns(t *testing.T) {
 
 	h := newAmuxHarness(t)
 	h.splitV()
-	h.clickAt(10, 5)
+	focusGen := h.generation()
+	h.runCmd("focus", "pane-1")
+	h.waitLayout(focusGen)
 	if !h.waitForActive("pane-1", 3*time.Second) {
 		t.Fatalf("pane-1 should be active before splitting left column.\nScreen:\n%s", h.capture())
 	}
