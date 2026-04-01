@@ -273,7 +273,7 @@ func (s *Session) respawnPane(srv *Server, pane *mux.Pane, w *mux.Window) (*mux.
 		return nil, fmt.Errorf("cannot respawn proxy pane")
 	}
 
-	newPane, err := pane.Replacement(s.Name, effectiveRespawnDir(pane), s.paneOutputCallback(), s.paneExitCallback())
+	newPane, err := pane.ReplacementWithColorProfile(s.Name, effectiveRespawnDir(pane), s.paneLaunchColorProfile(nil), s.paneOutputCallback(), s.paneExitCallback())
 	if err != nil {
 		return nil, err
 	}
@@ -319,12 +319,15 @@ func (s *Session) paneExitCallback() func(uint32, string) {
 
 // createPane creates a new pane with auto-assigned metadata.
 func (s *Session) createPane(srv *Server, cols, rows int) (*mux.Pane, error) {
-	return s.createPaneWithMeta(srv, mux.PaneMeta{}, cols, rows)
+	return s.createPaneWithMetaForColorProfile(srv, mux.PaneMeta{}, cols, rows, "")
 }
 
 func (s *Session) paneLaunchColorProfile(preferred *clientConn) string {
+	if preferred != nil && preferred.colorProfileValue() != "" {
+		return preferred.colorProfileValue()
+	}
 	if cc := s.effectiveSizeClient(); cc != nil {
-		return cc.colorProfile
+		return cc.colorProfileValue()
 	}
 	return ""
 }
@@ -332,6 +335,10 @@ func (s *Session) paneLaunchColorProfile(preferred *clientConn) string {
 // createPaneWithMeta creates a new pane with explicit metadata (for spawn).
 // Name, Host, and Color are auto-assigned if empty.
 func (s *Session) createPaneWithMeta(srv *Server, meta mux.PaneMeta, cols, rows int) (*mux.Pane, error) {
+	return s.createPaneWithMetaForColorProfile(srv, meta, cols, rows, "")
+}
+
+func (s *Session) createPaneWithMetaForColorProfile(srv *Server, meta mux.PaneMeta, cols, rows int, colorProfile string) (*mux.Pane, error) {
 	id := s.counter.Add(1)
 	if meta.Name == "" {
 		meta.Name = fmt.Sprintf(mux.PaneNameFormat, id)
@@ -343,7 +350,11 @@ func (s *Session) createPaneWithMeta(srv *Server, meta mux.PaneMeta, cols, rows 
 		meta.Color = config.AccentColor(id - 1)
 	}
 
-	pane, err := mux.NewPaneWithScrollback(id, meta, cols, rows, s.Name, s.scrollbackLines,
+	if colorProfile == "" {
+		colorProfile = s.paneLaunchColorProfile(nil)
+	}
+
+	pane, err := mux.NewPaneWithScrollbackColorProfile(id, meta, cols, rows, s.Name, s.scrollbackLines, colorProfile,
 		s.paneOutputCallback(),
 		s.paneExitCallback(),
 	)

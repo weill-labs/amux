@@ -13,6 +13,7 @@ import (
 
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
+	"github.com/weill-labs/amux/internal/termprofile"
 )
 
 const (
@@ -63,6 +64,18 @@ func (cc *clientConn) setNegotiatedCapabilities(caps proto.ClientCapabilities) {
 
 func (cc *clientConn) capabilitySummary() string {
 	return cc.capabilities.Summary()
+}
+
+func (cc *clientConn) setColorProfile(name string) {
+	if profile, ok := termprofile.Parse(name); ok {
+		cc.colorProfile = termprofile.Format(profile)
+		return
+	}
+	cc.colorProfile = ""
+}
+
+func (cc *clientConn) colorProfileValue() string {
+	return cc.colorProfile
 }
 
 func (cc *clientConn) participatesInSizeNegotiation() bool {

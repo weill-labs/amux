@@ -364,12 +364,14 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 	// Send attach
 	attachCaps := advertisedAttachCapabilities()
 	negotiatedAttachCaps := proto.NegotiateClientCapabilities(attachCaps)
+	attachProfile := attachColorProfile(os.Stdout, processEnviron{}, termenv.WithTTY(true))
 	if err := sender.Send(&proto.Message{
 		Type:               proto.MsgTypeAttach,
 		Session:            sessionName,
 		Cols:               cols,
 		Rows:               rows,
 		AttachMode:         proto.AttachModeInteractive,
+		AttachColorProfile: attachProfile,
 		AttachCapabilities: attachCaps,
 	}); err != nil {
 		return fmt.Errorf("sending attach: %w", err)

@@ -49,17 +49,17 @@ func shellPath(shell string, pid int) string {
 	return paneShellPath()
 }
 
-func paneExecCommand(shell string, id uint32, sessionName, dir string) *exec.Cmd {
+func paneExecCommand(shell string, id uint32, sessionName, dir, colorProfile string) *exec.Cmd {
 	cmd := exec.Command(shell, "-l")
-	cmd.Env = paneShellEnv(id, sessionName)
+	cmd.Env = paneCommandEnvWithProfile(os.Environ(), id, sessionName, colorProfile)
 	if dir != "" {
 		cmd.Dir = dir
 	}
 	return cmd
 }
 
-func startPaneShell(shell string, id uint32, sessionName, dir string, cols, rows int) (*exec.Cmd, *os.File, error) {
-	cmd := paneExecCommand(shell, id, sessionName, dir)
+func startPaneShell(shell string, id uint32, sessionName, dir string, cols, rows int, colorProfile string) (*exec.Cmd, *os.File, error) {
+	cmd := paneExecCommand(shell, id, sessionName, dir, colorProfile)
 	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{
 		Cols: uint16(cols),
 		Rows: uint16(rows),
@@ -143,16 +143,20 @@ type PaneTerminalSnapshot struct {
 // NOT start the read/drain/wait goroutines. Call Start() after releasing any
 // locks that the onOutput/onExit callbacks might need.
 func NewPaneWithScrollback(id uint32, meta PaneMeta, cols, rows int, sessionName string, scrollbackLines int, onOutput func(uint32, []byte, uint64), onExit func(uint32, string)) (*Pane, error) {
-	return newPaneWithShellPath(id, meta, cols, rows, sessionName, scrollbackLines, shellPath("", 0), onOutput, onExit)
+	return NewPaneWithScrollbackColorProfile(id, meta, cols, rows, sessionName, scrollbackLines, "", onOutput, onExit)
 }
 
-func newPaneWithShellPath(id uint32, meta PaneMeta, cols, rows int, sessionName string, scrollbackLines int, shell string, onOutput func(uint32, []byte, uint64), onExit func(uint32, string)) (*Pane, error) {
+func NewPaneWithScrollbackColorProfile(id uint32, meta PaneMeta, cols, rows int, sessionName string, scrollbackLines int, colorProfile string, onOutput func(uint32, []byte, uint64), onExit func(uint32, string)) (*Pane, error) {
+	return newPaneWithShellPath(id, meta, cols, rows, sessionName, scrollbackLines, shellPath("", 0), colorProfile, onOutput, onExit)
+}
+
+func newPaneWithShellPath(id uint32, meta PaneMeta, cols, rows int, sessionName string, scrollbackLines int, shell, colorProfile string, onOutput func(uint32, []byte, uint64), onExit func(uint32, string)) (*Pane, error) {
 	manualBranch, err := NormalizePaneMeta(&meta)
 	if err != nil {
 		return nil, err
 	}
 
-	cmd, ptmx, err := startPaneShell(shell, id, sessionName, meta.Dir, cols, rows)
+	cmd, ptmx, err := startPaneShell(shell, id, sessionName, meta.Dir, cols, rows, colorProfile)
 	if err != nil {
 		return nil, err
 	}
@@ -215,8 +219,12 @@ func paneCommandEnvWithProfile(base []string, paneID uint32, sessionName, colorP
 		"TERM=amux",
 		fmt.Sprintf("AMUX_PANE=%d", paneID),
 		"AMUX_SESSION="+sessionName,
-		termprofile.EnvEntry(paneEnv(base)),
 	)
+	if colorProfile == "" {
+		env = append(env, termprofile.EnvEntry(paneEnv(base)))
+	} else {
+		env = append(env, fmt.Sprintf("%s=%s", termprofile.EnvKey, colorProfile))
+	}
 	return env
 }
 
@@ -1089,7 +1097,7 @@ func (p *Pane) Respawn(sessionName, dir string) error {
 	if p.cmd != nil && p.cmd.Path != "" {
 		shell = shellPath(p.cmd.Path, p.ProcessPid())
 	}
-	cmd, ptmx, err := startPaneShell(shell, p.ID, sessionName, dir, cols, rows)
+	cmd, ptmx, err := startPaneShell(shell, p.ID, sessionName, dir, cols, rows, "")
 	if err != nil {
 		return err
 	}
@@ -1158,6 +1166,10 @@ func (p *Pane) stopForRespawn() {
 // pane ID and metadata. The caller is responsible for swapping the returned
 // pane into session/window state and closing the old pane.
 func (p *Pane) Replacement(sessionName, startDir string, onOutput func(uint32, []byte, uint64), onExit func(uint32, string)) (*Pane, error) {
+	return p.ReplacementWithColorProfile(sessionName, startDir, "", onOutput, onExit)
+}
+
+func (p *Pane) ReplacementWithColorProfile(sessionName, startDir, colorProfile string, onOutput func(uint32, []byte, uint64), onExit func(uint32, string)) (*Pane, error) {
 	if p.IsProxy() {
 		return nil, fmt.Errorf("cannot replace proxy pane")
 	}
@@ -1173,7 +1185,7 @@ func (p *Pane) Replacement(sessionName, startDir string, onOutput func(uint32, [
 	if p.cmd != nil && p.cmd.Path != "" {
 		shell = shellPath(p.cmd.Path, p.ProcessPid())
 	}
-	pane, err := newPaneWithShellPath(p.ID, launchMeta, cols, rows, sessionName, p.scrollbackLines, shell, onOutput, onExit)
+	pane, err := newPaneWithShellPath(p.ID, launchMeta, cols, rows, sessionName, p.scrollbackLines, shell, colorProfile, onOutput, onExit)
 	if err != nil {
 		return nil, err
 	}

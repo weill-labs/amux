@@ -29,7 +29,7 @@ func detectTerminalColorProfile(output io.Writer, environ termenv.Environ, outpu
 }
 
 func attachColorProfile(output io.Writer, environ termenv.Environ, outputOpts ...termenv.OutputOption) string {
-	return ""
+	return termprofile.Format(detectTerminalColorProfile(output, environ, outputOpts...))
 }
 
 func newAttachClientRenderer(cols, rows, scrollbackLines int, output io.Writer, environ termenv.Environ, outputOpts ...termenv.OutputOption) *ClientRenderer {

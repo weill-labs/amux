@@ -744,6 +744,7 @@ func (s *Server) handleAttach(conn net.Conn, msg *Message) {
 	cc.nonInteractive = !msg.AttachMode.IsInteractive()
 	cc.initTypeKeyQueue()
 	cc.setNegotiatedCapabilities(proto.NegotiateClientCapabilities(msg.AttachCapabilities))
+	cc.setColorProfile(msg.AttachColorProfile)
 	cc.startBootstrap()
 
 	cols, rows := msg.Cols, msg.Rows
@@ -808,7 +809,7 @@ func (s *Server) EnsureInitialWindow(cols, rows int) error {
 	}
 
 	res := sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
-		initRes, err := sess.ensureInitialWindowLocked(s, cols, rows)
+		initRes, err := sess.ensureInitialWindowLocked(s, cols, rows, nil)
 		if err != nil {
 			return commandMutationResult{err: err}
 		}
