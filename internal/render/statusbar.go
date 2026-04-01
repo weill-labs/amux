@@ -176,12 +176,12 @@ func renderPaneStatusWithProfile(buf *strings.Builder, cell *mux.LayoutCell, isA
 	styles := newStatusBarStyles(paneStatusColorHex(pd))
 	segments := buildPaneStatusSegments(cell.W, isActive, pd)
 	for _, segment := range segments {
-		buf.WriteString(renderStyledTextWithProfile(styles.pane(segment.role), segment.text, profile))
+		writeStyledTextWithProfile(buf, styles.pane(segment.role), segment.text, profile)
 	}
 
 	remaining := cell.W - paneStatusSegmentsWidth(segments)
 	if remaining > 0 {
-		buf.WriteString(renderStyledTextWithProfile(styles.background, strings.Repeat(" ", remaining), profile))
+		writeStyledTextWithProfile(buf, styles.background, strings.Repeat(" ", remaining), profile)
 	}
 
 	buf.WriteString(Reset)
@@ -402,25 +402,21 @@ func renderGlobalBarWithProfile(buf *strings.Builder, sessionName string, paneCo
 	nowStr := now.Format("15:04")
 	tabs := buildGlobalBarWindowTabs(windows)
 	leftVisible := globalBarPrefixVisibleWidth
-	buf.WriteString(renderStyledTextWithProfile(styles.background, " ", profile))
-	buf.WriteString(renderStyledTextWithProfile(styles.title, "amux", profile))
-	buf.WriteString(renderStyledTextWithProfile(styles.busy, " │ ", profile))
+	writeStyledTextWithProfile(buf, styles.background, " ", profile)
+	writeStyledTextWithProfile(buf, styles.title, "amux", profile)
+	writeStyledTextWithProfile(buf, styles.busy, " │ ", profile)
 
 	// Show window tabs if there are multiple windows
 	if len(tabs) > 0 {
 		for _, tab := range tabs {
-			style := styles.busy
-			if tab.window.IsActive {
-				style = styles.focused
-			}
-			buf.WriteString(renderStyledTextWithProfile(style, tab.display, profile))
-			buf.WriteString(renderStyledTextWithProfile(styles.busy, " ", profile))
+			writeStyledTextWithProfile(buf, styles.windowTab(tab.window), tab.display, profile)
+			writeStyledTextWithProfile(buf, styles.busy, " ", profile)
 			leftVisible += utf8.RuneCountInString(tab.display) + 1
 		}
-		buf.WriteString(renderStyledTextWithProfile(styles.busy, "│ ", profile))
+		writeStyledTextWithProfile(buf, styles.busy, "│ ", profile)
 		leftVisible += 2
 	} else {
-		buf.WriteString(renderStyledTextWithProfile(styles.busy, sessionName+" ", profile))
+		writeStyledTextWithProfile(buf, styles.busy, sessionName+" ", profile)
 		leftVisible += utf8.RuneCountInString(sessionName) + 1
 	}
 
@@ -438,9 +434,9 @@ func renderGlobalBarWithProfile(buf *strings.Builder, sessionName string, paneCo
 
 	fill := width - leftVisible - rightVisible
 	if fill > 0 {
-		buf.WriteString(renderStyledTextWithProfile(styles.background, strings.Repeat(" ", fill), profile))
+		writeStyledTextWithProfile(buf, styles.background, strings.Repeat(" ", fill), profile)
 	}
 
-	buf.WriteString(renderStyledTextWithProfile(rightStyle, right, profile))
+	writeStyledTextWithProfile(buf, rightStyle, right, profile)
 	buf.WriteString(Reset)
 }

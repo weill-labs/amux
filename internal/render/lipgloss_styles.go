@@ -95,6 +95,13 @@ func (s statusBarStyles) pane(role paneStatusSegmentRole) lipgloss.Style {
 	}
 }
 
+func (s statusBarStyles) windowTab(window WindowInfo) lipgloss.Style {
+	if window.IsActive {
+		return s.focused
+	}
+	return s.busy
+}
+
 func renderStyledText(style lipgloss.Style, text string) string {
 	return renderStyledTextWithProfile(style, text, defaultColorProfile)
 }
@@ -104,6 +111,17 @@ func renderStyledTextWithProfile(style lipgloss.Style, text string, profile term
 		return ""
 	}
 	return styleANSIWithProfile(style, profile) + text + Reset
+}
+
+func writeStyledText(buf *strings.Builder, style lipgloss.Style, text string) {
+	writeStyledTextWithProfile(buf, style, text, defaultColorProfile)
+}
+
+func writeStyledTextWithProfile(buf *strings.Builder, style lipgloss.Style, text string, profile termenv.Profile) {
+	if text == "" {
+		return
+	}
+	buf.WriteString(renderStyledTextWithProfile(style, text, profile))
 }
 
 func styleANSI(style lipgloss.Style) string {
