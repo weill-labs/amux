@@ -454,10 +454,7 @@ func computeANSI(hex string) string {
 }
 
 func computeANSIBg(hex string) string {
-	r, _ := strconv.ParseUint(hex[0:2], 16, 8)
-	g, _ := strconv.ParseUint(hex[2:4], 16, 8)
-	b, _ := strconv.ParseUint(hex[4:6], 16, 8)
-	return fmt.Sprintf("\033[48;2;%d;%d;%dm", r, g, b)
+	return ansi.NewStyle().BackgroundColor(hexToColor(hex)).String()
 }
 
 // hexToANSI converts a 6-digit hex color to an ANSI truecolor escape.
