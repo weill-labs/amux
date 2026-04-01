@@ -1,6 +1,8 @@
 package render
 
 import (
+	"fmt"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
