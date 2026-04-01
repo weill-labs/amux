@@ -10,6 +10,20 @@ import (
 
 const EnvKey = "AMUX_COLOR_PROFILE"
 
+var profileNames = map[termenv.Profile]string{
+	termenv.TrueColor: "TrueColor",
+	termenv.ANSI256:   "ANSI256",
+	termenv.ANSI:      "ANSI",
+	termenv.Ascii:     "Ascii",
+}
+
+var profileValues = map[string]termenv.Profile{
+	"truecolor": termenv.TrueColor,
+	"ansi256":   termenv.ANSI256,
+	"ansi":      termenv.ANSI,
+	"ascii":     termenv.Ascii,
+}
+
 type emptyEnviron struct{}
 
 func (emptyEnviron) Environ() []string {
@@ -21,33 +35,18 @@ func (emptyEnviron) Getenv(string) string {
 }
 
 func Parse(value string) (termenv.Profile, bool) {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "truecolor":
-		return termenv.TrueColor, true
-	case "ansi256":
-		return termenv.ANSI256, true
-	case "ansi":
-		return termenv.ANSI, true
-	case "ascii":
-		return termenv.Ascii, true
-	default:
+	profile, ok := profileValues[strings.ToLower(strings.TrimSpace(value))]
+	if !ok {
 		return termenv.Ascii, false
 	}
+	return profile, true
 }
 
 func Format(profile termenv.Profile) string {
-	switch profile {
-	case termenv.TrueColor:
-		return "TrueColor"
-	case termenv.ANSI256:
-		return "ANSI256"
-	case termenv.ANSI:
-		return "ANSI"
-	case termenv.Ascii:
-		return "Ascii"
-	default:
-		return profile.Name()
+	if name, ok := profileNames[profile]; ok {
+		return name
 	}
+	return profile.Name()
 }
 
 func Detect(output io.Writer, environ termenv.Environ, outputOpts ...termenv.OutputOption) termenv.Profile {
