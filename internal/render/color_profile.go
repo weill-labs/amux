@@ -1,6 +1,9 @@
 package render
 
 import (
+	"fmt"
+	"strconv"
+
 	"github.com/charmbracelet/colorprofile"
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/muesli/termenv"
@@ -37,12 +40,26 @@ func colorSequence(hex string, bg bool, profile termenv.Profile) string {
 	if len(hex) < 6 {
 		return ""
 	}
+	if profile == defaultColorProfile {
+		return trueColorSequence(hex, bg)
+	}
 
 	seq := profile.Color("#" + hex).Sequence(bg)
 	if seq == "" {
 		return ""
 	}
 	return "\033[" + seq + "m"
+}
+
+func trueColorSequence(hex string, bg bool) string {
+	r, _ := strconv.ParseUint(hex[0:2], 16, 8)
+	g, _ := strconv.ParseUint(hex[2:4], 16, 8)
+	b, _ := strconv.ParseUint(hex[4:6], 16, 8)
+	prefix := 38
+	if bg {
+		prefix = 48
+	}
+	return fmt.Sprintf("\033[%d;2;%d;%d;%dm", prefix, r, g, b)
 }
 
 func fgHexSequence(hex string, profile termenv.Profile) string {
