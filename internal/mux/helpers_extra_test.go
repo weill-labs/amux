@@ -114,6 +114,30 @@ func TestPaneEnvironmentAndCreatedAt(t *testing.T) {
 	}
 }
 
+func TestPaneEnvScrubsLauncherColorFlags(t *testing.T) {
+	t.Parallel()
+
+	env := paneEnv([]string{
+		"TERM=xterm-256color",
+		"NO_COLOR=1",
+		"CODEX_CI=1",
+		"PATH=/bin",
+	})
+
+	joined := strings.Join(env.Environ(), "\n")
+	for _, forbidden := range []string{"NO_COLOR=1", "CODEX_CI=1"} {
+		if strings.Contains(joined, forbidden) {
+			t.Fatalf("paneEnv.Environ() leaked %q:\n%s", forbidden, joined)
+		}
+	}
+	if got := env.Getenv("NO_COLOR"); got != "" {
+		t.Fatalf("paneEnv.Getenv(NO_COLOR) = %q, want empty string", got)
+	}
+	if got := env.Getenv("PATH"); got != "/bin" {
+		t.Fatalf("paneEnv.Getenv(PATH) = %q, want %q", got, "/bin")
+	}
+}
+
 func TestEncodeMouseButton(t *testing.T) {
 	t.Parallel()
 

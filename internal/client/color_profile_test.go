@@ -75,3 +75,37 @@ func TestNewAttachClientRendererDetectsColorProfile(t *testing.T) {
 		})
 	}
 }
+
+func TestDetectTerminalColorProfileUsesProcessEnvironment(t *testing.T) {
+	t.Parallel()
+
+	env := processEnviron{}
+	if got := env.Getenv("__AMUX_MISSING_ENV__"); got != "" {
+		t.Fatalf("processEnviron.Getenv() = %q, want empty string", got)
+	}
+	if got := env.Environ(); len(got) == 0 {
+		t.Fatal("processEnviron.Environ() returned no environment entries")
+	}
+
+	switch got := detectTerminalColorProfile(nil, nil, termenv.WithTTY(true)); got {
+	case termenv.TrueColor, termenv.ANSI256, termenv.ANSI, termenv.Ascii:
+	default:
+		t.Fatalf("detectTerminalColorProfile(nil, nil) = %v, want known termenv profile", got)
+	}
+}
+
+func TestClientRendererColorProfileNilGuards(t *testing.T) {
+	t.Parallel()
+
+	var nilRenderer *ClientRenderer
+	nilRenderer.SetColorProfile(termenv.ANSI256)
+	if got := nilRenderer.ColorProfile(); got != termenv.TrueColor {
+		t.Fatalf("(*ClientRenderer)(nil).ColorProfile() = %v, want %v", got, termenv.TrueColor)
+	}
+
+	empty := &ClientRenderer{}
+	empty.SetColorProfile(termenv.ANSI)
+	if got := empty.ColorProfile(); got != termenv.TrueColor {
+		t.Fatalf("(&ClientRenderer{}).ColorProfile() = %v, want %v", got, termenv.TrueColor)
+	}
+}
