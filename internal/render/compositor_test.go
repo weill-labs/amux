@@ -428,6 +428,30 @@ func TestHexToANSI(t *testing.T) {
 	}
 }
 
+func TestComputeANSIBg(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		hex  string
+		want string
+	}{
+		{name: "orange", hex: "ff8800", want: "\033[48;2;255;136;0m"},
+		{name: "catppuccin rosewater", hex: "f5e0dc", want: "\033[48;2;245;224;220m"},
+		{name: "black", hex: "000000", want: "\033[48;2;0;0;0m"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := computeANSIBg(tt.hex); got != tt.want {
+				t.Fatalf("computeANSIBg(%q) = %q, want %q", tt.hex, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestGlobalBarMultipleWindows(t *testing.T) {
 	t.Parallel()
 
