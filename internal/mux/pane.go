@@ -13,6 +13,7 @@ import (
 
 	"github.com/creack/pty"
 	"github.com/weill-labs/amux/internal/debugowner"
+	"github.com/weill-labs/amux/internal/termprofile"
 )
 
 // DefaultHost is the host value for locally-running panes.
@@ -188,7 +189,7 @@ func wireScrollbackCallbacks(p *Pane) {
 }
 
 func paneCommandEnv(base []string, paneID uint32, sessionName string) []string {
-	env := make([]string, 0, len(base)+3)
+	env := make([]string, 0, len(base)+4)
 	for _, entry := range base {
 		key, _, ok := strings.Cut(entry, "=")
 		if !ok {
@@ -196,7 +197,7 @@ func paneCommandEnv(base []string, paneID uint32, sessionName string) []string {
 			continue
 		}
 		switch key {
-		case "TERM", "AMUX_PANE", "AMUX_SESSION":
+		case "TERM", "AMUX_PANE", "AMUX_SESSION", termprofile.EnvKey:
 			// amux owns these values for pane shells.
 			continue
 		case "NO_COLOR", "CODEX_CI":
@@ -210,8 +211,36 @@ func paneCommandEnv(base []string, paneID uint32, sessionName string) []string {
 		"TERM=amux",
 		fmt.Sprintf("AMUX_PANE=%d", paneID),
 		"AMUX_SESSION="+sessionName,
+		termprofile.EnvEntry(paneEnv(base)),
 	)
 	return env
+}
+
+type paneEnv []string
+
+func (e paneEnv) Environ() []string {
+	out := make([]string, 0, len(e))
+	for _, entry := range e {
+		key, _, ok := strings.Cut(entry, "=")
+		if ok && (key == "NO_COLOR" || key == "CODEX_CI") {
+			continue
+		}
+		out = append(out, entry)
+	}
+	return out
+}
+
+func (e paneEnv) Getenv(key string) string {
+	if key == "NO_COLOR" || key == "CODEX_CI" {
+		return ""
+	}
+	prefix := key + "="
+	for _, entry := range e {
+		if strings.HasPrefix(entry, prefix) {
+			return strings.TrimPrefix(entry, prefix)
+		}
+	}
+	return ""
 }
 
 // RestorePaneWithScrollback creates a pane from inherited file descriptors

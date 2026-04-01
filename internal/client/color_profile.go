@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/muesli/termenv"
+	"github.com/weill-labs/amux/internal/termprofile"
 )
 
 type processEnviron struct{}
@@ -24,10 +25,7 @@ func detectTerminalColorProfile(output io.Writer, environ termenv.Environ, outpu
 	if environ == nil {
 		environ = processEnviron{}
 	}
-
-	opts := []termenv.OutputOption{termenv.WithEnvironment(environ)}
-	opts = append(opts, outputOpts...)
-	return termenv.NewOutput(output, opts...).EnvColorProfile()
+	return termprofile.Detect(output, environ, outputOpts...)
 }
 
 func newAttachClientRenderer(cols, rows, scrollbackLines int, output io.Writer, environ termenv.Environ, outputOpts ...termenv.OutputOption) *ClientRenderer {
