@@ -109,8 +109,8 @@ func TestWindowRenamePromptEdgeCases(t *testing.T) {
 		if !cr.ShowWindowRenamePrompt() {
 			t.Fatal("ShowWindowRenamePrompt should succeed")
 		}
-		if got := cr.HandleWindowRenamePromptInput([]byte{0x1b, '[', 'A'}); !got.bell {
-			t.Fatalf("arrow input should bell, got %+v", got)
+		if got := cr.HandleWindowRenamePromptInput([]byte{0x03}); !got.bell {
+			t.Fatalf("unsupported control input should bell, got %+v", got)
 		}
 		if got := cr.HandleWindowRenamePromptInput([]byte{0xc3}); !got.bell {
 			t.Fatalf("non-ascii input should bell, got %+v", got)

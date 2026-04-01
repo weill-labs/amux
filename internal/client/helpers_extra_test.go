@@ -121,7 +121,7 @@ func TestChooserHelpersAndInputBranches(t *testing.T) {
 	if cmd := cr.HandleChooserInput([]byte{0x1b, '[', 'B'}); cmd.bell || cmd.command != "" {
 		t.Fatalf("down-arrow command = %+v, want movement only", cmd)
 	}
-	if cmd := cr.HandleChooserInput([]byte{0x01}); !cmd.bell {
+	if cmd := cr.HandleChooserInput([]byte{0x03}); !cmd.bell {
 		t.Fatalf("invalid control byte should ring bell, got %+v", cmd)
 	}
 
@@ -158,8 +158,8 @@ func TestMoveAndSelectChooserBellPaths(t *testing.T) {
 	cr := NewClientRenderer(20, 8)
 	cr.updateState(func(next *clientSnapshot) clientUIResult {
 		next.ui.chooser = &chooserState{
-			mode: chooserModeWindow,
-			rows: []chooserItem{{text: "header", selectable: false}},
+			mode:  chooserModeWindow,
+			items: []chooserItem{{text: "header", selectable: false}},
 		}
 		return clientUIResult{}
 	})

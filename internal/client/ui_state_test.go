@@ -5,6 +5,7 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/weill-labs/amux/internal/bubblesutil"
 	"github.com/weill-labs/amux/internal/copymode"
 	"github.com/weill-labs/amux/internal/proto"
 )
@@ -73,7 +74,7 @@ func TestClientUIStateReduceTransitions(t *testing.T) {
 			setup: func(st *clientUIState) {
 				st.displayPanes = &displayPanesState{}
 				st.chooser = &chooserState{mode: chooserModeWindow}
-				st.windowRenamePrompt = &windowRenamePromptState{value: "logs"}
+				st.windowRenamePrompt = &windowRenamePromptState{input: bubblesutil.TextInputState{Value: "logs", Cursor: 4}}
 				st.message = "command failed"
 			},
 			action: uiActionHandleLayout{structureChanged: true},
@@ -258,7 +259,7 @@ func TestClientUIStateReduceTransitions(t *testing.T) {
 				st.chooser = &chooserState{mode: chooserModeWindow}
 			},
 			action: uiActionShowWindowRenamePrompt{
-				prompt: &windowRenamePromptState{value: "logs"},
+				prompt: &windowRenamePromptState{input: bubblesutil.TextInputState{Value: "logs", Cursor: 4}},
 			},
 			wantState: clientUIStateSnapshot{
 				dirty:           true,
@@ -274,7 +275,7 @@ func TestClientUIStateReduceTransitions(t *testing.T) {
 		{
 			name: "hide window rename prompt clears prompt state",
 			setup: func(st *clientUIState) {
-				st.windowRenamePrompt = &windowRenamePromptState{value: "logs"}
+				st.windowRenamePrompt = &windowRenamePromptState{input: bubblesutil.TextInputState{Value: "logs", Cursor: 4}}
 			},
 			action: uiActionHideWindowRenamePrompt{},
 			wantState: clientUIStateSnapshot{
