@@ -1,56 +1,81 @@
 package render
 
+import (
+	"strconv"
+	"strings"
+	"sync"
+
+	"github.com/charmbracelet/x/ansi"
+)
+
+var ansiParserPool = sync.Pool{
+	New: func() any {
+		return ansi.NewParser()
+	},
+}
+
+func decodeANSISequence(s string, i int) (ansi.Cmd, ansi.Params, int) {
+	if i < 0 || i >= len(s) {
+		return 0, nil, 0
+	}
+
+	parser := ansiParserPool.Get().(*ansi.Parser)
+	defer ansiParserPool.Put(parser)
+
+	parser.Reset()
+	_, _, n, _ := ansi.DecodeSequence(s[i:], ansi.NormalState, parser)
+
+	params := append(ansi.Params(nil), parser.Params()...)
+	return ansi.Cmd(parser.Command()), params, n
+}
+
 // skipANSISequence advances past an ANSI escape sequence starting at s[i].
 // Returns the index of the first byte after the sequence.
 // If s[i] is not ESC (\033), returns i unchanged.
 func skipANSISequence(s string, i int) int {
-	if i >= len(s) || s[i] != '\033' || i+1 >= len(s) {
+	if i >= len(s) || s[i] != '\033' {
 		return i
 	}
-	next := s[i+1]
-
-	// CSI: \033[ params intermediate final_byte
-	if next == '[' {
-		j := i + 2
-		for j < len(s) && s[j] >= 0x20 && s[j] <= 0x3F {
-			j++
-		}
-		if j < len(s) && s[j] >= 0x40 {
-			return j + 1 // skip final byte (0x40–0x7E)
-		}
-		return j // truncated or malformed — stop before the non-ANSI byte
-	}
-
-	// OSC: \033] ... BEL(\007) or ST(\033\\)
-	if next == ']' {
-		j := i + 2
-		for j < len(s) {
-			if s[j] == '\007' {
-				return j + 1
-			}
-			if s[j] == '\033' && j+1 < len(s) && s[j+1] == '\\' {
-				return j + 2
-			}
-			j++
-		}
-		return j
-	}
-
-	// Other ESC sequences (charset designation etc.) — ESC + one byte
-	return i + 2
+	_, _, n := decodeANSISequence(s, i)
+	return i + n
 }
 
 // CSIParams returns the parameter string and final byte of a CSI sequence
-// starting at s[i] (which must be the byte after '['). Returns ("", 0, i)
-// if the sequence is malformed or truncated. On success returns
+// starting at s[i] (which must be the byte after '['). On success it returns
 // (params, finalByte, endIndex) where endIndex is one past the final byte.
+// Truncated sequences preserve any parameters collected before parsing stopped.
 func CSIParams(s string, i int) (string, byte, int) {
-	j := i
-	for j < len(s) && s[j] >= 0x20 && s[j] <= 0x3F {
-		j++
+	start := i - 2
+	if i < 2 || start < 0 || s[start] != '\033' || s[start+1] != '[' {
+		return "", 0, i
 	}
-	if j >= len(s) || s[j] < 0x40 {
-		return "", 0, i // truncated or malformed
+	cmd, params, n := decodeANSISequence(s, start)
+	return csiParamString(cmd, params), cmd.Final(), start + n
+}
+
+func csiParamString(cmd ansi.Cmd, params ansi.Params) string {
+	var buf strings.Builder
+
+	if prefix := cmd.Prefix(); prefix != 0 {
+		buf.WriteByte(prefix)
 	}
-	return s[i:j], s[j], j + 1
+
+	for i, param := range params {
+		if i > 0 {
+			if params[i-1].HasMore() {
+				buf.WriteByte(':')
+			} else {
+				buf.WriteByte(';')
+			}
+		}
+		if value := param.Param(-1); value >= 0 {
+			buf.WriteString(strconv.Itoa(value))
+		}
+	}
+
+	if inter := cmd.Intermediate(); inter != 0 {
+		buf.WriteByte(inter)
+	}
+
+	return buf.String()
 }
