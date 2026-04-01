@@ -3,6 +3,7 @@ package mux
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -629,9 +630,28 @@ func formatExitReason(err error) string {
 // For proxy panes, input is routed through writeOverride to the remote server.
 func (p *Pane) Write(data []byte) (int, error) {
 	if p.writeOverride != nil {
-		return p.writeOverride(data)
+		return writeAll(data, p.writeOverride)
 	}
-	return p.ptmx.Write(data)
+	return writeAll(data, p.ptmx.Write)
+}
+
+func writeAll(data []byte, write func([]byte) (int, error)) (int, error) {
+	total := 0
+	for len(data) > 0 {
+		n, err := write(data)
+		if n < 0 || n > len(data) {
+			return total, fmt.Errorf("invalid write count %d", n)
+		}
+		total += n
+		data = data[n:]
+		if err != nil {
+			return total, err
+		}
+		if n == 0 {
+			return total, io.ErrShortWrite
+		}
+	}
+	return total, nil
 }
 
 // SuppressCallbacks prevents further output and exit callbacks from this pane.
