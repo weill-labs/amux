@@ -46,6 +46,21 @@ func TestNewAttachClientRendererDetectsColorProfile(t *testing.T) {
 			env:  stubEnviron{"TERM": "xterm-256color", "NO_COLOR": "1"},
 			want: termenv.Ascii,
 		},
+		{
+			name: "nested amux inherits truecolor profile",
+			env:  stubEnviron{"TERM": "amux", "AMUX_COLOR_PROFILE": "TrueColor"},
+			want: termenv.TrueColor,
+		},
+		{
+			name: "nested amux inherits ansi256 profile",
+			env:  stubEnviron{"TERM": "amux", "AMUX_COLOR_PROFILE": "ANSI256"},
+			want: termenv.ANSI256,
+		},
+		{
+			name: "nested amux defaults to ansi256",
+			env:  stubEnviron{"TERM": "amux"},
+			want: termenv.ANSI256,
+		},
 	}
 
 	for _, tt := range tests {

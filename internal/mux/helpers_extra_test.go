@@ -56,6 +56,7 @@ func TestPaneEnvironmentAndCreatedAt(t *testing.T) {
 		"TERM=screen-256color",
 		"AMUX_PANE=old",
 		"AMUX_SESSION=old-session",
+		"AMUX_COLOR_PROFILE=Ascii",
 		"NO_COLOR=1",
 		"CODEX_CI=1",
 		"PATH=/bin",
@@ -69,7 +70,14 @@ func TestPaneEnvironmentAndCreatedAt(t *testing.T) {
 			t.Fatalf("paneCommandEnv leaked %q:\n%s", forbidden, joined)
 		}
 	}
-	for _, required := range []string{"TERM=amux", "AMUX_PANE=7", "AMUX_SESSION=session-a", "PATH=/bin", "ODDENTRY"} {
+	for _, required := range []string{
+		"TERM=amux",
+		"AMUX_PANE=7",
+		"AMUX_SESSION=session-a",
+		"AMUX_COLOR_PROFILE=ANSI256",
+		"PATH=/bin",
+		"ODDENTRY",
+	} {
 		if !strings.Contains(joined, required) {
 			t.Fatalf("paneCommandEnv missing %q:\n%s", required, joined)
 		}
@@ -78,10 +86,16 @@ func TestPaneEnvironmentAndCreatedAt(t *testing.T) {
 	t.Setenv("TERM", "xterm-256color")
 	t.Setenv("AMUX_PANE", "old-pane")
 	t.Setenv("AMUX_SESSION", "old-session")
+	t.Setenv("AMUX_COLOR_PROFILE", "Ascii")
 	t.Setenv("NO_COLOR", "1")
 	t.Setenv("CODEX_CI", "1")
 	shellEnv := strings.Join(paneShellEnv(8, "session-b"), "\n")
-	for _, required := range []string{"TERM=amux", "AMUX_PANE=8", "AMUX_SESSION=session-b"} {
+	for _, required := range []string{
+		"TERM=amux",
+		"AMUX_PANE=8",
+		"AMUX_SESSION=session-b",
+		"AMUX_COLOR_PROFILE=ANSI256",
+	} {
 		if !strings.Contains(shellEnv, required) {
 			t.Fatalf("paneShellEnv missing %q:\n%s", required, shellEnv)
 		}
