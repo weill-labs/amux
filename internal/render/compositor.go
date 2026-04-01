@@ -1,13 +1,13 @@
 package render
 
 import (
-	"fmt"
 	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
 
 	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/mattn/go-runewidth"
 	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/mux"
@@ -418,7 +418,11 @@ func computeANSI(hex string) string {
 	r, _ := strconv.ParseUint(hex[0:2], 16, 8)
 	g, _ := strconv.ParseUint(hex[2:4], 16, 8)
 	b, _ := strconv.ParseUint(hex[4:6], 16, 8)
-	return fmt.Sprintf("\033[38;2;%d;%d;%dm", r, g, b)
+	return ansi.NewStyle().ForegroundColor(ansi.RGBColor{
+		R: uint8(r),
+		G: uint8(g),
+		B: uint8(b),
+	}).String()
 }
 
 // hexToANSI converts a 6-digit hex color to an ANSI truecolor escape.

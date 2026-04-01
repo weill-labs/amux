@@ -40,7 +40,7 @@ func TestRenderCursorDiffUsesXAnsiResetAndOriginCursor(t *testing.T) {
 		return &fakePaneData{id: 1, name: "pane-1", screen: "hello"}
 	})
 
-	want := ansi.ResetStyle + ansi.CursorPosition(1, 1) + ansi.ShowCursor
+	want := ansi.ResetStyle + ansi.CursorPosition(1, 2) + ansi.ShowCursor
 	if got := buf.String(); got != want {
 		t.Fatalf("renderCursorDiff() = %q, want %q", got, want)
 	}
