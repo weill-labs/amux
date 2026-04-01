@@ -1,7 +1,9 @@
 package mux
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,6 +18,108 @@ import (
 	"github.com/creack/pty"
 	"github.com/weill-labs/amux/internal/debugowner"
 )
+
+func TestWriteAll(t *testing.T) {
+	t.Parallel()
+
+	t.Run("retries short writes until complete", func(t *testing.T) {
+		t.Parallel()
+
+		payload := []byte("abcdef")
+		var writes [][]byte
+		call := 0
+
+		got, err := writeAll(payload, func(data []byte) (int, error) {
+			writes = append(writes, append([]byte(nil), data...))
+			call++
+			switch call {
+			case 1:
+				return 2, nil
+			case 2:
+				return 1, nil
+			default:
+				return len(data), nil
+			}
+		})
+		if err != nil {
+			t.Fatalf("writeAll() error = %v, want nil", err)
+		}
+		if got != len(payload) {
+			t.Fatalf("writeAll() bytes = %d, want %d", got, len(payload))
+		}
+
+		wantWrites := [][]byte{
+			[]byte("abcdef"),
+			[]byte("cdef"),
+			[]byte("def"),
+		}
+		if len(writes) != len(wantWrites) {
+			t.Fatalf("write calls = %d, want %d", len(writes), len(wantWrites))
+		}
+		for i := range wantWrites {
+			if string(writes[i]) != string(wantWrites[i]) {
+				t.Fatalf("write call %d = %q, want %q", i, writes[i], wantWrites[i])
+			}
+		}
+	})
+
+	t.Run("returns partial byte count on writer error", func(t *testing.T) {
+		t.Parallel()
+
+		wantErr := errors.New("boom")
+		got, err := writeAll([]byte("abcdef"), func(data []byte) (int, error) {
+			return 2, wantErr
+		})
+		if !errors.Is(err, wantErr) {
+			t.Fatalf("writeAll() error = %v, want %v", err, wantErr)
+		}
+		if got != 2 {
+			t.Fatalf("writeAll() bytes = %d, want 2", got)
+		}
+	})
+
+	tests := []struct {
+		name      string
+		writeFunc func([]byte) (int, error)
+		wantErr   string
+	}{
+		{
+			name: "rejects negative write counts",
+			writeFunc: func([]byte) (int, error) {
+				return -1, nil
+			},
+			wantErr: "invalid write count -1",
+		},
+		{
+			name: "rejects oversized write counts",
+			writeFunc: func(data []byte) (int, error) {
+				return len(data) + 1, nil
+			},
+			wantErr: "invalid write count 4",
+		},
+		{
+			name: "treats zero-byte writes as short writes",
+			writeFunc: func([]byte) (int, error) {
+				return 0, nil
+			},
+			wantErr: io.ErrShortWrite.Error(),
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := writeAll([]byte("abc"), tt.writeFunc)
+			if err == nil || err.Error() != tt.wantErr {
+				t.Fatalf("writeAll() error = %v, want %q", err, tt.wantErr)
+			}
+			if got != 0 {
+				t.Fatalf("writeAll() bytes = %d, want 0", got)
+			}
+		})
+	}
+}
 
 func waitUntil(t *testing.T, timeout time.Duration, cond func() bool) {
 	t.Helper()
