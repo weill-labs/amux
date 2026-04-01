@@ -51,7 +51,7 @@ func TestRemoteAuditHelpers(t *testing.T) {
 	}
 	hc.logSSHConnect()
 	hc.logSSHDisconnect(charmlog.WarnLevel, "reconnect")
-	logWithLevel(logger, charmlog.ErrorLevel, "ssh error", "event", "ssh_disconnect")
+	auditlog.LogWithLevel(logger, charmlog.ErrorLevel, "ssh error", "event", "ssh_disconnect")
 
 	mgr := &Manager{logger: logger}
 	mgr.logDeployFailure("alpha", "deploy", errors.New("boom"))
@@ -61,6 +61,23 @@ func TestRemoteAuditHelpers(t *testing.T) {
 		if !strings.Contains(output, want) {
 			t.Fatalf("output %q missing %q", output, want)
 		}
+	}
+}
+
+func TestRemoteLogWithLevelPreservesDebug(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	logger := auditlog.New(&buf, auditlog.Options{Format: auditlog.FormatJSON, Level: charmlog.DebugLevel})
+
+	auditlog.LogWithLevel(logger, charmlog.DebugLevel, "ssh debug", "event", "ssh_disconnect")
+
+	output := buf.String()
+	if !strings.Contains(output, `"msg":"ssh debug"`) {
+		t.Fatalf("output %q missing debug message", output)
+	}
+	if !strings.Contains(output, `"level":"debug"`) {
+		t.Fatalf("output %q missing debug level", output)
 	}
 }
 
@@ -74,5 +91,5 @@ func TestRemoteAuditHelpersHandleNil(t *testing.T) {
 	var nilManager *Manager
 	nilManager.logDeployFailure("alpha", "deploy", errors.New("boom"))
 
-	logWithLevel(nil, charmlog.InfoLevel, "ssh info", "event", "ssh_disconnect")
+	auditlog.LogWithLevel(nil, charmlog.InfoLevel, "ssh info", "event", "ssh_disconnect")
 }

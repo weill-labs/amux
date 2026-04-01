@@ -36,22 +36,6 @@ func paneAuditFields(pane *mux.Pane) []any {
 	}
 }
 
-func logWithLevel(logger *charmlog.Logger, level charmlog.Level, msg string, fields ...any) {
-	if logger == nil {
-		logger = auditlog.Discard()
-	}
-	switch level {
-	case charmlog.DebugLevel:
-		logger.Debug(msg, fields...)
-	case charmlog.WarnLevel:
-		logger.Warn(msg, fields...)
-	case charmlog.ErrorLevel:
-		logger.Error(msg, fields...)
-	default:
-		logger.Info(msg, fields...)
-	}
-}
-
 func (s *Server) SetLogger(logger *charmlog.Logger) {
 	if s == nil {
 		return
@@ -78,7 +62,7 @@ func (s *Session) logClientConnect(cc *clientConn) {
 	if s == nil || cc == nil {
 		return
 	}
-	s.logger.Info("client connected",
+	auditlog.LogWithLevel(s.logger, charmlog.InfoLevel, "client connected",
 		"event", "client_connect",
 		"client_id", cc.ID,
 		"cols", cc.cols,
@@ -91,7 +75,7 @@ func (s *Session) logClientDisconnect(cc *clientConn, reason string) {
 	if s == nil || cc == nil {
 		return
 	}
-	s.logger.Info("client disconnected",
+	auditlog.LogWithLevel(s.logger, charmlog.InfoLevel, "client disconnected",
 		"event", "client_disconnect",
 		"client_id", cc.ID,
 		"cols", cc.cols,
@@ -106,7 +90,7 @@ func (s *Session) logPaneCreate(pane *mux.Pane, source string) {
 	}
 	fields := append([]any{"event", "pane_create"}, paneAuditFields(pane)...)
 	fields = append(fields, "source", source, "remote", pane.IsProxy())
-	s.logger.Info("pane created", fields...)
+	auditlog.LogWithLevel(s.logger, charmlog.InfoLevel, "pane created", fields...)
 }
 
 func (s *Session) logPaneExit(pane *mux.Pane, reason string) {
@@ -115,11 +99,11 @@ func (s *Session) logPaneExit(pane *mux.Pane, reason string) {
 	}
 	fields := append([]any{"event", "pane_exit"}, paneAuditFields(pane)...)
 	fields = append(fields, "reason", reason)
-	s.logger.Info("pane exited", fields...)
+	auditlog.LogWithLevel(s.logger, charmlog.InfoLevel, "pane exited", fields...)
 	if isPaneCrash(reason) {
 		crashFields := append([]any{"event", "pane_crash"}, paneAuditFields(pane)...)
 		crashFields = append(crashFields, "reason", reason)
-		s.logger.Error("pane crashed", crashFields...)
+		auditlog.LogWithLevel(s.logger, charmlog.ErrorLevel, "pane crashed", crashFields...)
 	}
 }
 
@@ -135,17 +119,17 @@ func (s *Session) logCheckpointWrite(kind, path string, duration time.Duration, 
 	}
 	if err != nil {
 		fields = append(fields, "error", err)
-		s.logger.Warn("checkpoint write failed", fields...)
+		auditlog.LogWithLevel(s.logger, charmlog.WarnLevel, "checkpoint write failed", fields...)
 		return
 	}
-	s.logger.Info("checkpoint written", fields...)
+	auditlog.LogWithLevel(s.logger, charmlog.InfoLevel, "checkpoint written", fields...)
 }
 
 func (s *Session) logCheckpointRestore(kind, path string, panes, windows int, duration time.Duration) {
 	if s == nil {
 		return
 	}
-	s.logger.Info("checkpoint restored",
+	auditlog.LogWithLevel(s.logger, charmlog.InfoLevel, "checkpoint restored",
 		"event", "checkpoint_restore",
 		"checkpoint_kind", kind,
 		"path", path,
@@ -169,15 +153,15 @@ func (s *Session) logCommandExecution(clientID, command string, args []string, a
 	}
 	if errMsg != "" {
 		fields = append(fields, "error", errMsg)
-		s.logger.Warn("command executed with error", fields...)
+		auditlog.LogWithLevel(s.logger, charmlog.WarnLevel, "command executed with error", fields...)
 		return
 	}
-	s.logger.Info("command executed", fields...)
+	auditlog.LogWithLevel(s.logger, charmlog.InfoLevel, "command executed", fields...)
 }
 
 func (s *Session) logPanic(event string, recovered any, stack []byte) error {
 	if s != nil {
-		s.logger.Error("panic recovered",
+		auditlog.LogWithLevel(s.logger, charmlog.ErrorLevel, "panic recovered",
 			"event", event,
 			"error", fmt.Sprint(recovered),
 			"stack", string(stack),

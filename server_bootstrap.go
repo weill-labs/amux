@@ -227,7 +227,6 @@ func runServer(sessionName string, managedTakeover bool) {
 			return newRemoteManager(hooks)
 		})
 	}
-	s.SetLogger(logger)
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
@@ -251,6 +250,12 @@ func runServer(sessionName string, managedTakeover bool) {
 	go func() {
 		runErr <- s.Run()
 	}()
+	logger.Info("server started",
+		"event", "server_start",
+		"session", sessionName,
+		"socket", server.SocketPath(sessionName),
+		"managed_takeover", managedTakeover,
+	)
 
 	writeSignalFD(&readySignal, "ready\n")
 

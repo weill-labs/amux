@@ -41,6 +41,22 @@ func Discard() *charmlog.Logger {
 	return New(io.Discard, Options{Format: FormatJSON})
 }
 
+func LogWithLevel(logger *charmlog.Logger, level charmlog.Level, msg string, fields ...any) {
+	if logger == nil {
+		logger = Discard()
+	}
+	switch level {
+	case charmlog.DebugLevel:
+		logger.Debug(msg, fields...)
+	case charmlog.WarnLevel:
+		logger.Warn(msg, fields...)
+	case charmlog.ErrorLevel:
+		logger.Error(msg, fields...)
+	default:
+		logger.Info(msg, fields...)
+	}
+}
+
 func ParseLevel(raw string, fallback charmlog.Level) charmlog.Level {
 	if raw == "" {
 		return fallback

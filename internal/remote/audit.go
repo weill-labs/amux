@@ -38,7 +38,7 @@ func (hc *HostConn) logSSHDisconnect(level charmlog.Level, reason string) {
 	if hc == nil {
 		return
 	}
-	logWithLevel(hc.logger, level, "ssh disconnected",
+	auditlog.LogWithLevel(hc.logger, level, "ssh disconnected",
 		"event", "ssh_disconnect",
 		"host", hc.name,
 		"ssh_addr", hc.connectAddr,
@@ -58,18 +58,4 @@ func (m *Manager) logDeployFailure(hostName, stage string, err error) {
 		"stage", stage,
 		"error", err,
 	)
-}
-
-func logWithLevel(logger *charmlog.Logger, level charmlog.Level, msg string, fields ...any) {
-	if logger == nil {
-		logger = auditlog.Discard()
-	}
-	switch level {
-	case charmlog.WarnLevel:
-		logger.Warn(msg, fields...)
-	case charmlog.ErrorLevel:
-		logger.Error(msg, fields...)
-	default:
-		logger.Info(msg, fields...)
-	}
 }
