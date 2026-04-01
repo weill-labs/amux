@@ -8,6 +8,8 @@ import (
 	"syscall"
 	"time"
 
+	charmlog "github.com/charmbracelet/log"
+	"github.com/weill-labs/amux/internal/auditlog"
 	"github.com/weill-labs/amux/internal/checkpoint"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
@@ -169,13 +171,20 @@ func restoreListenerFromFD(listenerFD int) (net.Listener, error) {
 // NewServerFromCheckpointWithScrollback restores a server from a checkpoint
 // using an explicit retained scrollback limit for restored panes.
 func NewServerFromCheckpointWithScrollback(cp *checkpoint.ServerCheckpoint, scrollbackLines int) (*Server, error) {
+	return newServerFromCheckpointWithScrollbackLogger(cp, scrollbackLines, nil)
+}
+
+func newServerFromCheckpointWithScrollbackLogger(cp *checkpoint.ServerCheckpoint, scrollbackLines int, logger *charmlog.Logger) (*Server, error) {
+	if logger == nil {
+		logger = auditlog.Discard()
+	}
 	// Reconstruct listener from inherited FD
 	listener, err := restoreListenerFromFD(cp.ListenerFd)
 	if err != nil {
 		return nil, fmt.Errorf("restoring listener: %w", err)
 	}
 
-	sess := newSessionWithScrollback(cp.SessionName, scrollbackLines)
+	sess := newSessionWithLogger(cp.SessionName, scrollbackLines, logger.With("session", cp.SessionName))
 	if !cp.StartedAt.IsZero() {
 		sess.startedAt = cp.StartedAt
 	}
@@ -187,6 +196,7 @@ func NewServerFromCheckpointWithScrollback(cp *checkpoint.ServerCheckpoint, scro
 		listener:     listener,
 		sessions:     map[string]*Session{cp.SessionName: sess},
 		sockPath:     SocketPath(cp.SessionName),
+		logger:       logger,
 		shutdownDone: make(chan struct{}),
 	}
 	sess.exitServer = s

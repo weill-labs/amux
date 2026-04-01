@@ -10,8 +10,10 @@ import (
 	"sync/atomic"
 	"time"
 
+	charmlog "github.com/charmbracelet/log"
 	"golang.org/x/crypto/ssh"
 
+	"github.com/weill-labs/amux/internal/auditlog"
 	"github.com/weill-labs/amux/internal/config"
 )
 
@@ -60,6 +62,7 @@ type Manager struct {
 	cfg         *config.Config
 	buildHash   string
 	newHostConn HostConnFactory
+	logger      *charmlog.Logger
 
 	onPaneOutput  PaneOutputCallback
 	onPaneExit    PaneExitCallback
@@ -88,6 +91,7 @@ func NewManager(cfg *config.Config, buildHash string, deps ManagerDeps) *Manager
 		cfg:           cfg,
 		buildHash:     buildHash,
 		newHostConn:   deps.NewHostConn,
+		logger:        auditlog.Discard(),
 		onPaneOutput:  deps.OnPaneOutput,
 		onPaneExit:    deps.OnPaneExit,
 		onStateChange: deps.OnStateChange,
