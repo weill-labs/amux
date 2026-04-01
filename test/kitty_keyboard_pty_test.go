@@ -36,8 +36,8 @@ func TestPTYClientKittyKeyboardChangesPaneBytes(t *testing.T) {
 			name:      "kitty keyboard",
 			env:       "AMUX_CLIENT_CAPABILITIES=kitty_keyboard",
 			wantKitty: true,
-			readBytes: 7,
-			wantHex:   "1b5b39383b3575",
+			readBytes: 1,
+			wantHex:   "02",
 		},
 	}
 
@@ -77,7 +77,7 @@ func TestPTYClientKittyKeyboardChangesPaneBytes(t *testing.T) {
 	}
 }
 
-func TestPTYClientKittyKeyboardPrintableCtrlSequences(t *testing.T) {
+func TestPTYClientKittyKeyboardCtrlSequencesUseLegacyPaneBytes(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -93,22 +93,52 @@ func TestPTYClientKittyKeyboardPrintableCtrlSequences(t *testing.T) {
 			wantHex:   "03",
 		},
 		{
-			name:      "ctrl-9 preserves raw csi-u bytes",
+			name:      "ctrl-r translates to legacy control byte",
+			input:     []byte("\x1b[114;5u"),
+			readBytes: 1,
+			wantHex:   "12",
+		},
+		{
+			name:      "ctrl-d translates to legacy control byte",
+			input:     []byte("\x1b[100;5u"),
+			readBytes: 1,
+			wantHex:   "04",
+		},
+		{
+			name:      "ctrl-z translates to legacy control byte",
+			input:     []byte("\x1b[122;5u"),
+			readBytes: 1,
+			wantHex:   "1a",
+		},
+		{
+			name:      "ctrl-l translates to legacy control byte",
+			input:     []byte("\x1b[108;5u"),
+			readBytes: 1,
+			wantHex:   "0c",
+		},
+		{
+			name:      "ctrl-w translates to legacy control byte",
+			input:     []byte("\x1b[119;5u"),
+			readBytes: 1,
+			wantHex:   "17",
+		},
+		{
+			name:      "ctrl-9 translates to legacy printable byte",
 			input:     []byte("\x1b[57;5u"),
-			readBytes: 7,
-			wantHex:   "1b5b35373b3575",
+			readBytes: 1,
+			wantHex:   "39",
 		},
 		{
-			name:      "ctrl-3 preserves raw csi-u bytes",
+			name:      "ctrl-3 translates to legacy escape byte",
 			input:     []byte("\x1b[51;5u"),
-			readBytes: 7,
-			wantHex:   "1b5b35313b3575",
+			readBytes: 1,
+			wantHex:   "1b",
 		},
 		{
-			name:      "ctrl-slash preserves raw csi-u bytes",
+			name:      "ctrl-slash translates to legacy control byte",
 			input:     []byte("\x1b[47;5u"),
-			readBytes: 7,
-			wantHex:   "1b5b34373b3575",
+			readBytes: 1,
+			wantHex:   "1f",
 		},
 	}
 
