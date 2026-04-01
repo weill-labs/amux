@@ -5,6 +5,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/charmbracelet/lipgloss"
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/mattn/go-runewidth"
@@ -423,6 +424,9 @@ func clipLine(line string, maxWidth int) string {
 // computed inline via computeANSI (cheap: three ParseUint + one Sprintf).
 var hexColorCache = buildHexColorCache()
 
+// lipGlossColorCache maps hex color strings to reusable Lip Gloss colors.
+var lipGlossColorCache = buildLipGlossColorCache()
+
 func buildHexColorCache() map[string]string {
 	m := make(map[string]string, len(config.AccentColors())+2)
 	for _, hex := range config.AccentColors() {
@@ -433,9 +437,27 @@ func buildHexColorCache() map[string]string {
 	return m
 }
 
+func buildLipGlossColorCache() map[string]lipgloss.Color {
+	m := make(map[string]lipgloss.Color, len(config.AccentColors())+4)
+	for _, hex := range config.AccentColors() {
+		m[hex] = lipgloss.Color("#" + hex)
+	}
+	m[config.Surface0Hex] = lipgloss.Color("#" + config.Surface0Hex)
+	m[config.DimColorHex] = lipgloss.Color("#" + config.DimColorHex)
+	m[config.TextColorHex] = lipgloss.Color("#" + config.TextColorHex)
+	return m
+}
+
 // computeANSI converts a 6-digit hex color to an ANSI truecolor escape.
 func computeANSI(hex string) string {
 	return ansi.NewStyle().ForegroundColor(hexToColor(hex)).String()
+}
+
+func computeANSIBg(hex string) string {
+	r, _ := strconv.ParseUint(hex[0:2], 16, 8)
+	g, _ := strconv.ParseUint(hex[2:4], 16, 8)
+	b, _ := strconv.ParseUint(hex[4:6], 16, 8)
+	return fmt.Sprintf("\033[48;2;%d;%d;%dm", r, g, b)
 }
 
 // hexToANSI converts a 6-digit hex color to an ANSI truecolor escape.
@@ -458,4 +480,21 @@ func hexToANSIWithProfile(hex string, profile termenv.Profile) string {
 		return fgHexSequence(config.DimColorHex, profile)
 	}
 	return fgHexSequence(hex, profile)
+}
+
+func hexToANSIBg(hex string) string {
+	if len(hex) < 6 {
+		return Surface0Bg
+	}
+	return computeANSIBg(hex)
+}
+
+func hexToLipGlossColor(hex string) lipgloss.Color {
+	if len(hex) < 6 {
+		return lipGlossColorCache[config.DimColorHex]
+	}
+	if cached, ok := lipGlossColorCache[hex]; ok {
+		return cached
+	}
+	return lipgloss.Color("#" + hex)
 }

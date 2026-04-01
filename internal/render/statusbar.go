@@ -159,42 +159,6 @@ func paneStatusSegmentsWidth(segments []paneStatusSegment) int {
 	return usedWidth
 }
 
-func paneStatusSegmentANSI(role paneStatusSegmentRole, colorHex string) string {
-	return paneStatusSegmentANSIWithProfile(role, colorHex, defaultColorProfile)
-}
-
-func paneStatusSegmentANSIWithProfile(role paneStatusSegmentRole, colorHex string, profile termenv.Profile) string {
-	if colorHex == "" {
-		colorHex = config.TextColorHex
-	}
-	surface0Bg := bgHexSequence(config.Surface0Hex, profile)
-	textFg := fgHexSequence(config.TextColorHex, profile)
-	dimFg := fgHexSequence(config.DimColorHex, profile)
-	yellowFg := fgHexSequence(config.YellowHex, profile)
-	greenFg := fgHexSequence(config.GreenHex, profile)
-	redFg := fgHexSequence(config.RedHex, profile)
-	switch role {
-	case paneStatusSegmentPane:
-		return Reset + surface0Bg + hexToANSIWithProfile(colorHex, profile)
-	case paneStatusSegmentPaneBold:
-		return Reset + surface0Bg + Bold + hexToANSIWithProfile(colorHex, profile)
-	case paneStatusSegmentDim:
-		return Reset + surface0Bg + dimFg
-	case paneStatusSegmentText:
-		return Reset + surface0Bg + textFg
-	case paneStatusSegmentYellow:
-		return Reset + surface0Bg + yellowFg
-	case paneStatusSegmentGreen:
-		return Reset + surface0Bg + greenFg
-	case paneStatusSegmentRed:
-		return Reset + surface0Bg + redFg
-	case paneStatusSegmentCompletedMeta:
-		return Reset + surface0Bg + dimFg + StrikeOn
-	default:
-		return Reset + surface0Bg
-	}
-}
-
 // renderPaneStatus draws a per-pane status line at the top of a pane cell.
 // Format: ● [name] @host task
 //
@@ -209,17 +173,15 @@ func renderPaneStatus(buf *strings.Builder, cell *mux.LayoutCell, isActive bool,
 func renderPaneStatusWithProfile(buf *strings.Builder, cell *mux.LayoutCell, isActive bool, pd PaneData, profile termenv.Profile) {
 	writeCursorTo(buf, cell.Y+1, cell.X+1)
 
-	colorHex := paneStatusColorHex(pd)
+	styles := newStatusBarStyles(paneStatusColorHex(pd))
 	segments := buildPaneStatusSegments(cell.W, isActive, pd)
 	for _, segment := range segments {
-		buf.WriteString(paneStatusSegmentANSIWithProfile(segment.role, colorHex, profile))
-		buf.WriteString(segment.text)
+		writeStyledTextWithProfile(buf, styles.pane(segment.role), segment.text, profile)
 	}
 
 	remaining := cell.W - paneStatusSegmentsWidth(segments)
 	if remaining > 0 {
-		buf.WriteString(paneStatusSegmentANSIWithProfile(paneStatusSegmentBackground, colorHex, profile))
-		buf.WriteString(strings.Repeat(" ", remaining))
+		writeStyledTextWithProfile(buf, styles.background, strings.Repeat(" ", remaining), profile)
 	}
 
 	buf.WriteString(Reset)
@@ -435,68 +397,46 @@ func renderGlobalBar(buf *strings.Builder, sessionName string, paneCount int, wi
 
 func renderGlobalBarWithProfile(buf *strings.Builder, sessionName string, paneCount int, width, yPos int, windows []WindowInfo, message string, now time.Time, profile termenv.Profile) {
 	writeCursorTo(buf, yPos+1, 1)
-
-	// Catppuccin surface0 bg, text fg
-	surface0Bg := bgHexSequence(config.Surface0Hex, profile)
-	textFg := fgHexSequence(config.TextColorHex, profile)
-	redFg := fgHexSequence(config.RedHex, profile)
-	buf.WriteString(surface0Bg + textFg)
+	styles := newStatusBarStyles(config.TextColorHex)
 
 	nowStr := now.Format("15:04")
 	tabs := buildGlobalBarWindowTabs(windows)
-
-	left := " " + Bold + "amux" + NoBold + " │ "
 	leftVisible := globalBarPrefixVisibleWidth
+	writeStyledTextWithProfile(buf, styles.background, " ", profile)
+	writeStyledTextWithProfile(buf, styles.title, "amux", profile)
+	writeStyledTextWithProfile(buf, styles.busy, " │ ", profile)
 
 	// Show window tabs if there are multiple windows
 	if len(tabs) > 0 {
 		for _, tab := range tabs {
-			left += hexToANSIWithProfile(globalBarTabColorHex(tab.window), profile)
-			if tab.window.IsActive {
-				left += Bold
-			}
-			left += tab.display
-			if tab.window.IsActive {
-				left += NoBold
-			}
-			left += textFg + " "
+			writeStyledTextWithProfile(buf, styles.windowTab(tab.window), tab.display, profile)
+			writeStyledTextWithProfile(buf, styles.busy, " ", profile)
 			leftVisible += utf8.RuneCountInString(tab.display) + 1
 		}
-		left += "│ "
+		writeStyledTextWithProfile(buf, styles.busy, "│ ", profile)
 		leftVisible += 2
 	} else {
-		left += sessionName + " "
+		writeStyledTextWithProfile(buf, styles.busy, sessionName+" ", profile)
 		leftVisible += utf8.RuneCountInString(sessionName) + 1
 	}
 
 	right := ""
-	rightColor := textFg
+	rightStyle := styles.busy
 	if message != "" {
 		maxText := width - leftVisible - 2
 		right = " " + truncateRunes(message, maxText) + " "
-		rightColor = redFg
-		message = ""
+		rightStyle = styles.error
 	} else {
 		paneCountStr := strconv.Itoa(paneCount)
 		right = " " + paneCountStr + " panes │ " + nowStr + " "
 	}
 	rightVisible := utf8.RuneCountInString(right)
 
-	buf.WriteString(left)
-
 	fill := width - leftVisible - rightVisible
-	messageRunes := []rune(message)
 	if fill > 0 {
-		if len(messageRunes) > fill {
-			messageRunes = messageRunes[:fill]
-		}
-		buf.WriteString(string(messageRunes))
-		if remaining := fill - len(messageRunes); remaining > 0 {
-			buf.WriteString(strings.Repeat(" ", remaining))
-		}
+		writeStyledTextWithProfile(buf, styles.background, strings.Repeat(" ", fill), profile)
 	}
 
-	buf.WriteString(rightColor)
-	buf.WriteString(right)
+	writeStyledTextWithProfile(buf, rightStyle, right, profile)
 	buf.WriteString(Reset)
 }

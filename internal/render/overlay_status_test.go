@@ -1,6 +1,7 @@
 package render
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -165,10 +166,10 @@ func TestRenderPaneStatusStylesCompletedMetadataInANSIOnly(t *testing.T) {
 	})
 
 	raw := buf.String()
-	if !strings.Contains(raw, StrikeOn+"#42") {
+	if !regexp.MustCompile(`\x1b\[[0-9;]*9m#`).MatchString(raw) {
 		t.Fatalf("raw status output missing completed PR styling:\n%q", raw)
 	}
-	if !strings.Contains(raw, StrikeOn+"LAB-450") {
+	if !regexp.MustCompile(`\x1b\[[0-9;]*9mL`).MatchString(raw) {
 		t.Fatalf("raw status output missing completed issue styling:\n%q", raw)
 	}
 

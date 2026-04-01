@@ -128,7 +128,7 @@ func TestRenderGlobalBarAndTruncateRunes(t *testing.T) {
 		{Index: 1, Name: "dev", IsActive: true},
 		{Index: 2, Name: "logs", IsActive: false},
 	}, "very long command feedback that must truncate", frozen)
-	rendered := buf.String()
+	rendered := MaterializeGrid(buf.String(), 36, 1)
 	for _, want := range []string{"1:dev", "2:logs", "very long …"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("renderGlobalBar missing %q:\n%s", want, rendered)
@@ -137,7 +137,7 @@ func TestRenderGlobalBarAndTruncateRunes(t *testing.T) {
 
 	buf.Reset()
 	renderGlobalBar(&buf, "main", 7, 30, 8, nil, "", frozen)
-	rendered = buf.String()
+	rendered = MaterializeGrid(buf.String(), 30, 1)
 	for _, want := range []string{" main ", "7 panes", "09:41"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("renderGlobalBar missing %q:\n%s", want, rendered)
