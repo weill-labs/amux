@@ -183,7 +183,7 @@ func resolvePaneDropTarget(cr *ClientRenderer, layout *mux.LayoutCell, sourcePan
 		}
 	case hit.Dir == mux.SplitHorizontal && parent.Dir == mux.SplitHorizontal:
 		targetPaneID := firstPaneID(hit.Right)
-		if targetPaneID == 0 || paneIsLead(cr, targetPaneID) {
+		if targetPaneID == 0 || targetPaneID == sourcePaneID || paneIsLead(cr, targetPaneID) {
 			return nil
 		}
 		sourceLeaf := layout.FindByPaneID(sourcePaneID)

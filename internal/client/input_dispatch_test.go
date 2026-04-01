@@ -529,6 +529,18 @@ func TestHandleMouseEventPaneDragBetweenPanesAcrossColumnsSendsMoveSequence(t *t
 	<-done
 }
 
+func TestResolvePaneDropTargetRejectsHorizontalBorderTargetingSourcePane(t *testing.T) {
+	t.Parallel()
+
+	cr := buildColumnDragRenderer(t, 3)
+	layout := cr.VisibleLayout()
+
+	target := resolvePaneDropTarget(cr, layout, 3, 10, 11)
+	if target != nil {
+		t.Fatalf("horizontal border target = %+v, want nil when hit.Right resolves to source pane", target)
+	}
+}
+
 func TestCaptureDisplayShowsPaneDragOverlay(t *testing.T) {
 	t.Parallel()
 
