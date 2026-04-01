@@ -4,15 +4,20 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	charmlog "github.com/charmbracelet/log"
+	"github.com/muesli/termenv"
+	"github.com/weill-labs/amux/internal/auditlog"
 	"github.com/weill-labs/amux/internal/checkpoint"
 	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/debugowner"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
+	"github.com/weill-labs/amux/internal/termprofile"
 )
 
 // Default terminal dimensions when the client doesn't report a size.
@@ -37,15 +42,17 @@ type Session struct {
 	Windows        []*mux.Window // ordered list of windows
 	ActiveWindowID uint32        // which window is displayed
 	// PreviousWindowID tracks the last active window for `last-window`.
-	PreviousWindowID uint32
-	Panes            []*mux.Pane // flat list of ALL panes across all windows
-	eventLoopOwner   debugowner.Checker
-	clientState      *clientManager
-	paneLog          *PaneLog
-	counter          atomic.Uint32 // pane ID counter
-	windowCounter    atomic.Uint32 // window ID counter
-	shutdown         atomic.Bool
-	input            *inputRouter // cached active pane and paced input queues
+	PreviousWindowID   uint32
+	Panes              []*mux.Pane // flat list of ALL panes across all windows
+	logger             *charmlog.Logger
+	launchColorProfile string
+	eventLoopOwner     debugowner.Checker
+	clientState        *clientManager
+	paneLog            *PaneLog
+	counter            atomic.Uint32 // pane ID counter
+	windowCounter      atomic.Uint32 // window ID counter
+	shutdown           atomic.Bool
+	input              *inputRouter // cached active pane and paced input queues
 
 	// Layout generation counter — incremented on every broadcastLayout.
 	// Used by wait-layout to block until a layout change occurs.
@@ -125,6 +132,61 @@ type Session struct {
 	// from inside the handler, which would deadlock.
 	wantShutdown    bool
 	scrollbackLines int
+}
+
+type processEnviron struct{}
+
+func (processEnviron) Environ() []string {
+	return os.Environ()
+}
+
+func (processEnviron) Getenv(key string) string {
+	return os.Getenv(key)
+}
+
+type sessionLaunchEnviron struct {
+	base termenv.Environ
+}
+
+func ignoredLaunchEnvKey(key string) bool {
+	return key == "NO_COLOR" || key == "CODEX_CI"
+}
+
+func filterLaunchEnv(env []string) []string {
+	out := make([]string, 0, len(env))
+	for _, entry := range env {
+		key, _, ok := strings.Cut(entry, "=")
+		if ok && ignoredLaunchEnvKey(key) {
+			continue
+		}
+		out = append(out, entry)
+	}
+	return out
+}
+
+func (e sessionLaunchEnviron) Environ() []string {
+	if e.base == nil {
+		return filterLaunchEnv(processEnviron{}.Environ())
+	}
+	return filterLaunchEnv(e.base.Environ())
+}
+
+func (e sessionLaunchEnviron) Getenv(key string) string {
+	if ignoredLaunchEnvKey(key) {
+		return ""
+	}
+	if e.base == nil {
+		return processEnviron{}.Getenv(key)
+	}
+	return e.base.Getenv(key)
+}
+
+func sessionLaunchColorProfile(environ termenv.Environ) string {
+	return termprofile.Format(termprofile.DetectFromEnvironment(sessionLaunchEnviron{base: environ}))
+}
+
+func defaultSessionLaunchColorProfile() string {
+	return sessionLaunchColorProfile(processEnviron{})
 }
 
 func (s *Session) clock() Clock {
@@ -268,7 +330,11 @@ func (s *Session) startCrashCheckpointLoop() {
 	// Ensure the checkpoint directory exists before tests or tooling watch it.
 	// Writes still happen lazily on layout changes.
 	if err := os.MkdirAll(checkpoint.CrashCheckpointDir(), 0700); err != nil {
-		fmt.Fprintf(os.Stderr, "amux: crash checkpoint dir: %v\n", err)
+		s.logger.Warn("crash checkpoint dir unavailable",
+			"event", "checkpoint_write",
+			"checkpoint_kind", "crash",
+			"error", err,
+		)
 	}
 	s.crashCheckpointTrigger = make(chan struct{}, 1)
 	s.crashCheckpointStop = make(chan struct{})
@@ -322,15 +388,18 @@ func (s *Session) crashCheckpointLoop() {
 }
 
 func (s *Session) writeCrashCheckpointNow() (string, error) {
+	started := time.Now()
 	cp := s.buildCrashCheckpoint()
 	if cp == nil {
 		return "", nil
 	}
 	path := checkpoint.CrashCheckpointPathTimestamped(s.Name, s.startedAt)
 	if err := checkpoint.WriteCrash(cp, s.Name, s.startedAt); err != nil {
+		s.logCheckpointWrite("crash", path, time.Since(started), err)
 		return "", err
 	}
 	s.enqueueEvent(crashCheckpointWrittenEvent{path: path})
+	s.logCheckpointWrite("crash", path, time.Since(started), nil)
 	return path, nil
 }
 
@@ -340,10 +409,7 @@ func (s *Session) writeCrashCheckpoint() {
 	if s.shutdown.Load() {
 		return
 	}
-	if _, err := s.writeCrashCheckpointNow(); err != nil {
-		fmt.Fprintf(os.Stderr, "amux: crash checkpoint write: %v\n", err)
-		return
-	}
+	_, _ = s.writeCrashCheckpointNow()
 }
 
 func (s *Session) hasClient(cc *clientConn) bool {
@@ -394,6 +460,7 @@ type Server struct {
 	listener net.Listener
 	sessions map[string]*Session
 	sockPath string
+	logger   *charmlog.Logger
 
 	// Shutdown is serialized with atomics so concurrent callers all observe
 	// one cleanup pass and later callers can wait for completion.
@@ -442,13 +509,18 @@ func SocketPath(session string) string {
 	return proto.SocketPath(session)
 }
 
-func newSessionWithScrollback(name string, scrollbackLines int) *Session {
+func newSessionWithLogger(name string, scrollbackLines int, logger *charmlog.Logger) *Session {
+	if logger == nil {
+		logger = auditlog.Discard()
+	}
 	sess := &Session{
-		Name:            name,
-		startedAt:       time.Now(),
-		scrollbackLines: scrollbackLines,
-		clientState:     newClientManager(),
-		paneLog:         newPaneLog(defaultPaneLogSize),
+		Name:               name,
+		startedAt:          time.Now(),
+		scrollbackLines:    scrollbackLines,
+		logger:             logger,
+		launchColorProfile: defaultSessionLaunchColorProfile(),
+		clientState:        newClientManager(),
+		paneLog:            newPaneLog(defaultPaneLogSize),
 	}
 	sess.idle = newIdleTracker()
 	sess.vtIdle = NewVTIdleTracker(sess.clock())
@@ -463,9 +535,16 @@ func newSessionWithScrollback(name string, scrollbackLines int) *Session {
 	return sess
 }
 
+func newSessionWithScrollback(name string, scrollbackLines int) *Session {
+	return newSessionWithLogger(name, scrollbackLines, nil)
+}
+
 // NewServerWithScrollback creates a new server with an explicit retained
 // scrollback limit for all panes in the session.
-func NewServerWithScrollback(sessionName string, scrollbackLines int) (*Server, error) {
+func newServerWithScrollbackLogger(sessionName string, scrollbackLines int, logger *charmlog.Logger) (*Server, error) {
+	if logger == nil {
+		logger = auditlog.Discard()
+	}
 	sockDir := SocketDir()
 	if err := os.MkdirAll(sockDir, 0700); err != nil {
 		return nil, fmt.Errorf("creating socket dir: %w", err)
@@ -489,12 +568,13 @@ func NewServerWithScrollback(sessionName string, scrollbackLines int) (*Server, 
 	}
 	os.Chmod(sockPath, 0700)
 
-	sess := newSessionWithScrollback(sessionName, scrollbackLines)
+	sess := newSessionWithLogger(sessionName, scrollbackLines, logger.With("session", sessionName))
 
 	s := &Server{
 		listener:     listener,
 		sessions:     map[string]*Session{sessionName: sess},
 		sockPath:     sockPath,
+		logger:       logger,
 		shutdownDone: make(chan struct{}),
 	}
 	sess.exitServer = s
@@ -502,8 +582,20 @@ func NewServerWithScrollback(sessionName string, scrollbackLines int) (*Server, 
 	return s, nil
 }
 
-func newServerFromCrashCheckpointWithListener(sessionName string, listener net.Listener, sockPath string, cp *checkpoint.CrashCheckpoint, crashPath string, scrollbackLines int) (*Server, error) {
-	sess := newSessionWithScrollback(sessionName, scrollbackLines)
+func NewServerWithScrollback(sessionName string, scrollbackLines int) (*Server, error) {
+	return NewServerWithScrollbackLogger(sessionName, scrollbackLines, nil)
+}
+
+func NewServerWithScrollbackLogger(sessionName string, scrollbackLines int, logger *charmlog.Logger) (*Server, error) {
+	return newServerWithScrollbackLogger(sessionName, scrollbackLines, logger)
+}
+
+func newServerFromCrashCheckpointWithListenerLogger(sessionName string, listener net.Listener, sockPath string, cp *checkpoint.CrashCheckpoint, crashPath string, scrollbackLines int, logger *charmlog.Logger) (*Server, error) {
+	if logger == nil {
+		logger = auditlog.Discard()
+	}
+	restoreStarted := time.Now()
+	sess := newSessionWithLogger(sessionName, scrollbackLines, logger.With("session", sessionName))
 	sess.startedAt = cp.Timestamp
 	sess.counter.Store(cp.Counter)
 	sess.windowCounter.Store(cp.WindowCounter)
@@ -513,6 +605,7 @@ func newServerFromCrashCheckpointWithListener(sessionName string, listener net.L
 		listener:     listener,
 		sessions:     map[string]*Session{sessionName: sess},
 		sockPath:     sockPath,
+		logger:       logger,
 		shutdownDone: make(chan struct{}),
 	}
 	sess.exitServer = s
@@ -543,7 +636,12 @@ func newServerFromCrashCheckpointWithListener(sessionName string, listener net.L
 				onOutput, onExit,
 			)
 			if newErr != nil {
-				fmt.Fprintf(os.Stderr, "amux: crash recovery: skipping pane %d: %v\n", ps.ID, newErr)
+				sess.logger.Warn("crash recovery skipped pane",
+					"event", "checkpoint_restore",
+					"checkpoint_kind", "crash",
+					"pane_id", ps.ID,
+					"error", newErr,
+				)
 				continue
 			}
 			pane = sess.ownPane(pane)
@@ -601,13 +699,22 @@ func newServerFromCrashCheckpointWithListener(sessionName string, listener net.L
 	if crashPath != "" {
 		_ = checkpoint.RemoveCrashFile(crashPath)
 	}
+	sess.logCheckpointRestore("crash", crashPath, len(sess.Panes), len(sess.Windows), time.Since(restoreStarted))
 
 	return s, nil
+}
+
+func newServerFromCrashCheckpointWithListener(sessionName string, listener net.Listener, sockPath string, cp *checkpoint.CrashCheckpoint, crashPath string, scrollbackLines int) (*Server, error) {
+	return newServerFromCrashCheckpointWithListenerLogger(sessionName, listener, sockPath, cp, crashPath, scrollbackLines, nil)
 }
 
 // NewServerFromCrashCheckpointWithScrollback restores a server from a crash
 // checkpoint with an explicit retained scrollback limit.
 func NewServerFromCrashCheckpointWithScrollback(sessionName string, cp *checkpoint.CrashCheckpoint, crashPath string, scrollbackLines int) (*Server, error) {
+	return NewServerFromCrashCheckpointWithScrollbackLogger(sessionName, cp, crashPath, scrollbackLines, nil)
+}
+
+func NewServerFromCrashCheckpointWithScrollbackLogger(sessionName string, cp *checkpoint.CrashCheckpoint, crashPath string, scrollbackLines int, logger *charmlog.Logger) (*Server, error) {
 	sockDir := SocketDir()
 	if err := os.MkdirAll(sockDir, 0700); err != nil {
 		return nil, fmt.Errorf("creating socket dir: %w", err)
@@ -623,17 +730,21 @@ func NewServerFromCrashCheckpointWithScrollback(sessionName string, cp *checkpoi
 	}
 	os.Chmod(sockPath, 0700)
 
-	return newServerFromCrashCheckpointWithListener(sessionName, listener, sockPath, cp, crashPath, scrollbackLines)
+	return newServerFromCrashCheckpointWithListenerLogger(sessionName, listener, sockPath, cp, crashPath, scrollbackLines, logger)
 }
 
 // NewServerFromCrashCheckpointWithListenerFd restores crash state onto the
 // listener inherited across a failed hot-reload restore.
 func NewServerFromCrashCheckpointWithListenerFd(sessionName string, listenerFd int, cp *checkpoint.CrashCheckpoint, crashPath string, scrollbackLines int) (*Server, error) {
+	return NewServerFromCrashCheckpointWithListenerFdLogger(sessionName, listenerFd, cp, crashPath, scrollbackLines, nil)
+}
+
+func NewServerFromCrashCheckpointWithListenerFdLogger(sessionName string, listenerFd int, cp *checkpoint.CrashCheckpoint, crashPath string, scrollbackLines int, logger *charmlog.Logger) (*Server, error) {
 	listener, err := restoreListenerFromFD(listenerFd)
 	if err != nil {
 		return nil, fmt.Errorf("restoring listener: %w", err)
 	}
-	return newServerFromCrashCheckpointWithListener(sessionName, listener, SocketPath(sessionName), cp, crashPath, scrollbackLines)
+	return newServerFromCrashCheckpointWithListenerLogger(sessionName, listener, SocketPath(sessionName), cp, crashPath, scrollbackLines, logger)
 }
 
 // Run accepts client connections in a loop.
@@ -741,6 +852,7 @@ func (s *Server) handleAttach(conn net.Conn, msg *Message) {
 
 	cc := newClientConn(conn)
 	cc.ID = fmt.Sprintf("client-%d", sess.ensureClientManager().nextClientOrdinal())
+	cc.logger = sess.logger.With("client_id", cc.ID)
 	cc.nonInteractive = !msg.AttachMode.IsInteractive()
 	cc.initTypeKeyQueue()
 	cc.setNegotiatedCapabilities(proto.NegotiateClientCapabilities(msg.AttachCapabilities))

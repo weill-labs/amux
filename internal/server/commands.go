@@ -16,6 +16,7 @@ type CommandContext struct {
 	Sess        *Session
 	Args        []string
 	ActorPaneID uint32
+	auditErr    string
 }
 
 func (ctx *CommandContext) reply(output string) {
@@ -23,6 +24,7 @@ func (ctx *CommandContext) reply(output string) {
 }
 
 func (ctx *CommandContext) replyErr(errMsg string) {
+	ctx.auditErr = errMsg
 	ctx.CC.Send(&Message{Type: MsgTypeCmdResult, CmdErr: errMsg})
 }
 

@@ -2,7 +2,6 @@ package server
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/mux"
@@ -146,7 +145,13 @@ func (s *Session) handleTakeover(sshPaneID uint32, req mux.TakeoverRequest) {
 	if err := s.remoteTakeover.AttachForTakeover(
 		start.hostname, req.SSHAddress, req.SSHUser, req.UID, start.managedSession, paneMappings,
 	); err != nil {
-		fmt.Fprintf(os.Stderr, "amux: takeover AttachForTakeover: %v\n", err)
+		s.logger.Warn("ssh takeover attach failed",
+			"event", "ssh_takeover_attach",
+			"host", start.hostname,
+			"ssh_addr", req.SSHAddress,
+			"session", start.managedSession,
+			"error", err,
+		)
 		removeRemoteMappings()
 		failTakeover(err)
 		return

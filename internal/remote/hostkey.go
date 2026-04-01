@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 
+	charmlog "github.com/charmbracelet/log"
+	"github.com/weill-labs/amux/internal/auditlog"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
 )
@@ -17,7 +19,11 @@ import (
 // On each invocation the callback re-reads knownHostsPath to pick up
 // entries written by concurrent connections. If knownHostsPath is "",
 // defaultKnownHostsPath() is used.
-func hostKeyCallback(knownHostsPath string) ssh.HostKeyCallback {
+func hostKeyCallback(knownHostsPath string, loggers ...*charmlog.Logger) ssh.HostKeyCallback {
+	logger := auditlog.Discard()
+	if len(loggers) > 0 && loggers[0] != nil {
+		logger = loggers[0]
+	}
 	return func(hostname string, remote net.Addr, key ssh.PublicKey) error {
 		path := knownHostsPath
 		if path == "" {
@@ -59,7 +65,12 @@ func hostKeyCallback(knownHostsPath string) ssh.HostKeyCallback {
 		if err := appendKnownHost(path, hostname, key); err != nil {
 			return fmt.Errorf("amux: failed to save host key: %w", err)
 		}
-		fmt.Fprintf(os.Stderr, "amux: trusting new host key for %s (%s)\n", hostname, key.Type())
+		logger.Debug("trusted new ssh host key",
+			"event", "ssh_hostkey_trust",
+			"host", hostname,
+			"key_type", key.Type(),
+			"known_hosts", path,
+		)
 		return nil
 	}
 }

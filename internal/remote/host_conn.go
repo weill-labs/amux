@@ -8,9 +8,11 @@ import (
 	"sync"
 	"time"
 
+	charmlog "github.com/charmbracelet/log"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
 
+	"github.com/weill-labs/amux/internal/auditlog"
 	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/proto"
 )
@@ -31,6 +33,7 @@ type HostConn struct {
 	name      string
 	config    config.Host
 	buildHash string // local build hash for deploy decisions
+	logger    *charmlog.Logger
 
 	// Actor-owned state — accessed only from eventLoop goroutine.
 	state     ConnState
@@ -72,6 +75,7 @@ func NewHostConn(name string, cfg config.Host, buildHash string,
 		name:          name,
 		config:        cfg,
 		buildHash:     buildHash,
+		logger:        auditlog.Discard(),
 		state:         Disconnected,
 		remoteToLocal: make(map[uint32]uint32),
 		localToRemote: make(map[uint32]uint32),
@@ -197,7 +201,12 @@ func (hc *HostConn) doConnectWithAddr(sessionName, addr string) (*connectOutcome
 	// Deploy local binary to remote if needed (best-effort)
 	if hc.shouldDeploy() {
 		if err := DeployBinary(sshClient, hc.buildHash); err != nil {
-			fmt.Fprintf(os.Stderr, "amux: deploy to %s: %v\n", hc.name, err)
+			hc.logger.Warn("ssh deploy failed",
+				"event", "ssh_deploy",
+				"host", hc.name,
+				"stage", "deploy",
+				"error", err,
+			)
 		}
 	}
 
@@ -636,7 +645,7 @@ func (hc *HostConn) buildSSHConfig() (*ssh.ClientConfig, error) {
 	if os.Getenv("AMUX_SSH_INSECURE") == "1" {
 		hkCallback = ssh.InsecureIgnoreHostKey()
 	} else {
-		hkCallback = hostKeyCallback("")
+		hkCallback = hostKeyCallback("", hc.logger)
 	}
 
 	return &ssh.ClientConfig{

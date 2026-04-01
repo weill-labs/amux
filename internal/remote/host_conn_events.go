@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net"
 
+	charmlog "github.com/charmbracelet/log"
 	"golang.org/x/crypto/ssh"
 
 	"github.com/weill-labs/amux/internal/proto"
@@ -178,6 +179,9 @@ type disconnectEvent struct {
 }
 
 func (e disconnectEvent) handle(hc *HostConn) {
+	if hc.state == Connected {
+		hc.logSSHDisconnect(charmlog.InfoLevel, "explicit disconnect")
+	}
 	hc.disconnectAndDrainPending()
 	if e.reply != nil {
 		close(e.reply)
@@ -190,6 +194,9 @@ type reconnectCmd struct {
 }
 
 func (e reconnectCmd) handle(hc *HostConn) {
+	if hc.state == Connected {
+		hc.logSSHDisconnect(charmlog.InfoLevel, "reconnect")
+	}
 	hc.disconnectAndDrainPending()
 
 	// Start a new connect.
@@ -310,6 +317,7 @@ func (e readDisconnectEvent) handle(hc *HostConn) {
 	if hc.state != Connected {
 		return // already disconnected or reconnecting
 	}
+	hc.logSSHDisconnect(charmlog.WarnLevel, "remote disconnect")
 	hc.setState(Reconnecting)
 	hc.closeConns()
 
@@ -349,6 +357,7 @@ func (hc *HostConn) applyOutcome(o *connectOutcome) {
 		hc.takeoverMode = true
 	}
 	hc.setState(Connected)
+	hc.logSSHConnect()
 	hc.bufferPendingInputs = false
 	hc.flushPendingInputs()
 	go hc.readLoop(hc.amuxConn)

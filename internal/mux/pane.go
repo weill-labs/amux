@@ -234,7 +234,7 @@ func (e paneEnv) Environ() []string {
 	out := make([]string, 0, len(e))
 	for _, entry := range e {
 		key, _, ok := strings.Cut(entry, "=")
-		if ok && (key == "NO_COLOR" || key == "CODEX_CI") {
+		if ok && (key == "NO_COLOR" || key == "CODEX_CI" || key == termprofile.EnvKey) {
 			continue
 		}
 		out = append(out, entry)
@@ -243,7 +243,7 @@ func (e paneEnv) Environ() []string {
 }
 
 func (e paneEnv) Getenv(key string) string {
-	if key == "NO_COLOR" || key == "CODEX_CI" {
+	if key == "NO_COLOR" || key == "CODEX_CI" || key == termprofile.EnvKey {
 		return ""
 	}
 	prefix := key + "="

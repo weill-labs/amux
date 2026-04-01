@@ -1,11 +1,13 @@
 package client
 
 import (
+	"bytes"
 	"io"
 	"testing"
 
 	"github.com/muesli/termenv"
 	"github.com/weill-labs/amux/internal/mux"
+	"github.com/weill-labs/amux/internal/termprofile"
 )
 
 type stubEnviron map[string]string
@@ -105,6 +107,22 @@ func TestAttachColorProfileFormatsDetectedProfile(t *testing.T) {
 	got := attachColorProfile(io.Discard, stubEnviron{"TERM": "xterm-ghostty"}, termenv.WithTTY(true))
 	if got != "TrueColor" {
 		t.Fatalf("attachColorProfile() = %q, want %q", got, "TrueColor")
+	}
+}
+
+func TestDetectTerminalColorProfileSkipsTerminalProbeForInheritedAmuxProfile(t *testing.T) {
+	t.Parallel()
+
+	var output bytes.Buffer
+	got := detectTerminalColorProfile(&output, stubEnviron{
+		"TERM":             "amux",
+		termprofile.EnvKey: "TrueColor",
+	}, termenv.WithTTY(true))
+	if got != termenv.TrueColor {
+		t.Fatalf("detectTerminalColorProfile() = %v, want %v", got, termenv.TrueColor)
+	}
+	if output.Len() != 0 {
+		t.Fatalf("detectTerminalColorProfile() wrote %q, want no terminal probe", output.String())
 	}
 }
 

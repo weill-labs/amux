@@ -1,7 +1,6 @@
 package server
 
 import (
-	"log"
 	"time"
 
 	"github.com/weill-labs/amux/internal/mux"
@@ -228,7 +227,11 @@ func (s *Session) assertPaneLayoutConsistency() int {
 			continue
 		}
 		if s.findWindowByPaneID(p.ID) == nil {
-			log.Printf("[amux] consistency warning: pane %d (%s) is non-dormant but not in any window layout", p.ID, p.Meta.Name)
+			s.logger.Warn("pane layout consistency warning",
+				"event", "layout_consistency_warning",
+				"pane_id", p.ID,
+				"pane_name", p.Meta.Name,
+			)
 			n++
 		}
 	}

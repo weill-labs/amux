@@ -43,8 +43,28 @@ func newPTYClientHarnessForSession(tb testing.TB, session, home, coverDir string
 	tb.Helper()
 
 	cmd := exec.Command(amuxBin, "-s", session)
-	env := upsertEnv(os.Environ(), "HOME", home)
-	env = upsertEnv(env, "TERM", "xterm-256color")
+	env := os.Environ()
+	for _, key := range []string{
+		"AMUX_COLOR_PROFILE",
+		"AMUX_PANE",
+		"AMUX_SESSION",
+		"COLORTERM",
+		"CLICOLOR",
+		"CLICOLOR_FORCE",
+		"NO_COLOR",
+		"SSH_CONNECTION",
+		"TERM",
+		"TERM_PROGRAM",
+		"TMUX",
+	} {
+		env = removeEnv(env, key)
+	}
+	env = upsertEnv(env, "HOME", home)
+	// PTY integration tests exercise attach/render/input behavior, not terminal
+	// profile probing or outer-session inheritance. Use a scrubbed terminal
+	// environment so the compiled client behaves like the direct RunSession
+	// harness instead of probing the fake PTY.
+	env = upsertEnv(env, "TERM", "dumb")
 	env = upsertEnv(env, "AMUX_NO_WATCH", "1")
 	if coverDir != "" {
 		env = upsertEnv(env, "GOCOVERDIR", coverDir)

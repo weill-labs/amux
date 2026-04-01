@@ -1,6 +1,24 @@
 package server
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/weill-labs/amux/internal/termprofile"
+)
+
+type stubLaunchEnviron map[string]string
+
+func (e stubLaunchEnviron) Environ() []string {
+	env := make([]string, 0, len(e))
+	for key, value := range e {
+		env = append(env, key+"="+value)
+	}
+	return env
+}
+
+func (e stubLaunchEnviron) Getenv(key string) string {
+	return e[key]
+}
 
 func TestPaneLaunchColorProfileUsesAttachingClient(t *testing.T) {
 	t.Parallel()
@@ -27,5 +45,30 @@ func TestPaneLaunchColorProfileFallsBackToEffectiveClient(t *testing.T) {
 
 	if got := sess.paneLaunchColorProfile(nil); got != "TrueColor" {
 		t.Fatalf("paneLaunchColorProfile(nil) = %q, want %q", got, "TrueColor")
+	}
+}
+
+func TestPaneLaunchColorProfileFallsBackToSessionLaunchProfile(t *testing.T) {
+	t.Parallel()
+
+	sess := newSession("test-pane-launch-color-profile-session")
+	stopCrashCheckpointLoop(t, sess)
+	defer stopSessionBackgroundLoops(t, sess)
+	sess.launchColorProfile = "TrueColor"
+
+	if got := sess.paneLaunchColorProfile(nil); got != "TrueColor" {
+		t.Fatalf("paneLaunchColorProfile(nil) = %q, want %q", got, "TrueColor")
+	}
+}
+
+func TestSessionLaunchColorProfileIgnoresLauncherNoColor(t *testing.T) {
+	t.Parallel()
+
+	got := sessionLaunchColorProfile(stubLaunchEnviron{
+		termprofile.EnvKey: "TrueColor",
+		"NO_COLOR":         "1",
+	})
+	if got != "TrueColor" {
+		t.Fatalf("sessionLaunchColorProfile() = %q, want %q", got, "TrueColor")
 	}
 }
