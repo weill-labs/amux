@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -87,7 +88,7 @@ func findMissingParallelCalls(root string) ([]parallelFinding, error) {
 					findings = append(findings, parallelFinding{
 						kind: "top",
 						file: strings.TrimPrefix(path, "./"),
-						line: itoa(pos.Line),
+						line: strconv.Itoa(pos.Line),
 						name: fn.Name.Name,
 					})
 				}
@@ -123,7 +124,7 @@ func findMissingParallelCalls(root string) ([]parallelFinding, error) {
 					findings = append(findings, parallelFinding{
 						kind: "sub",
 						file: strings.TrimPrefix(path, "./"),
-						line: itoa(pos.Line),
+						line: strconv.Itoa(pos.Line),
 						name: fn.Name.Name + "/" + exprString(fset, call.Args[0]),
 					})
 					return true
@@ -278,23 +279,4 @@ func exprString(fset *token.FileSet, expr ast.Expr) string {
 	var buf bytes.Buffer
 	_ = printer.Fprint(&buf, fset, expr)
 	return buf.String()
-}
-
-func itoa(v int) string {
-	return string(strconvAppendInt(nil, int64(v)))
-}
-
-func strconvAppendInt(dst []byte, v int64) []byte {
-	if v == 0 {
-		return append(dst, '0')
-	}
-
-	var buf [20]byte
-	i := len(buf)
-	for v > 0 {
-		i--
-		buf[i] = byte('0' + v%10)
-		v /= 10
-	}
-	return append(dst, buf[i:]...)
 }
