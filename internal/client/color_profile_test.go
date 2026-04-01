@@ -57,6 +57,11 @@ func TestNewAttachClientRendererDetectsColorProfile(t *testing.T) {
 			want: termenv.ANSI256,
 		},
 		{
+			name: "nested amux inherits ansi256 profile in ci",
+			env:  stubEnviron{"TERM": "amux", "AMUX_COLOR_PROFILE": "ANSI256", "CI": "true"},
+			want: termenv.ANSI256,
+		},
+		{
 			name: "nested amux defaults to ansi256",
 			env:  stubEnviron{"TERM": "amux"},
 			want: termenv.ANSI256,

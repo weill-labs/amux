@@ -12,6 +12,7 @@ import (
 	"time"
 
 	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/muesli/termenv"
 	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/copymode"
 	"github.com/weill-labs/amux/internal/mouse"
@@ -375,7 +376,7 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 	}
 
 	// Client-side renderer with per-pane emulators
-	cr := newAttachClientRenderer(cols, rows, scrollbackLines, os.Stdout, processEnviron{})
+	cr := newAttachClientRenderer(cols, rows, scrollbackLines, os.Stdout, processEnviron{}, termenv.WithTTY(true))
 	cr.SetCapabilities(negotiatedAttachCaps)
 	cr.OnUIEvent = func(name string) {
 		_ = sender.Send(&proto.Message{
