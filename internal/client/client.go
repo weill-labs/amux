@@ -170,10 +170,11 @@ func (cr *ClientRenderer) overlayState() render.OverlayState {
 
 func (cr *ClientRenderer) overlayStateFromSnapshot(state *clientSnapshot) render.OverlayState {
 	return render.OverlayState{
-		PaneLabels: cr.overlayLabelsFromSnapshot(state),
-		Chooser:    cr.chooserOverlayFromSnapshot(state),
-		TextInput:  cr.windowRenamePromptOverlayFromSnapshot(state),
-		Message:    state.ui.message,
+		PaneLabels:    cr.overlayLabelsFromSnapshot(state),
+		DropIndicator: cr.paneDragIndicatorFromSnapshot(state),
+		Chooser:       cr.chooserOverlayFromSnapshot(state),
+		TextInput:     cr.windowRenamePromptOverlayFromSnapshot(state),
+		Message:       state.ui.message,
 	}
 }
 

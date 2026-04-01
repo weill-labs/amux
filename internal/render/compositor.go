@@ -160,6 +160,9 @@ func (c *Compositor) RenderFullWithOverlay(root *mux.LayoutCell, activePaneID ui
 	if len(overlay.PaneLabels) > 0 {
 		renderPaneOverlayWithProfile(&buf, root, lookup, overlay.PaneLabels, c.colorProfile)
 	}
+	if overlay.DropIndicator != nil {
+		renderDropIndicator(&buf, overlay.DropIndicator)
+	}
 
 	// Global status bar at bottom
 	renderGlobalBarWithProfile(&buf, c.sessionName, paneCount, c.width, c.height-1, c.windows, overlay.Message, c.now(), c.colorProfile)

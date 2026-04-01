@@ -161,6 +161,35 @@ func windowTabCoords(t *testing.T, screen, label string) (x, y int) {
 	return x + len(label)/2, y
 }
 
+func paneStatusCoords(t *testing.T, h *AmuxHarness, name string) (x, y int) {
+	t.Helper()
+
+	label := "[" + name + "]"
+	screen := h.captureOuter()
+	x, y, ok := outerTextCoords(screen, label)
+	if !ok {
+		t.Fatalf("expected pane status label %q in outer capture.\nScreen:\n%s", label, screen)
+	}
+	return x + len(label)/2, y
+}
+
+func waitForCaptureJSON(t *testing.T, h *AmuxHarness, timeout time.Duration, fn func(proto.CaptureJSON) bool) proto.CaptureJSON {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		capture := h.captureJSON()
+		if fn(capture) {
+			return capture
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	capture := h.captureJSON()
+	t.Fatalf("capture JSON condition not met within %v.\nCapture:\n%s\nOuter:\n%s", timeout, h.runCmd("capture", "--format", "json"), h.captureOuter())
+	return capture
+}
+
 func TestMouseHorizontalBorderDrag(t *testing.T) {
 	t.Parallel()
 	h := newAmuxHarness(t)
@@ -184,6 +213,150 @@ func TestMouseHorizontalBorderDrag(t *testing.T) {
 	if newBorderRow <= borderRow {
 		t.Errorf("border should have moved down: was at %d, now at %d.\nScreen:\n%s",
 			borderRow, newBorderRow, h.captureAmux())
+	}
+}
+
+func TestMouseStatusLineDragSwapsPanes(t *testing.T) {
+	t.Parallel()
+
+	h := newAmuxHarness(t)
+	h.splitV()
+
+	startX, startY := paneStatusCoords(t, h, "pane-1")
+	endX, endY := paneStatusCoords(t, h, "pane-2")
+
+	h.sendMouseSGR(0, startX, startY, true)
+	time.Sleep(50 * time.Millisecond)
+	h.sendMouseSGR(32, endX, endY, true)
+	time.Sleep(50 * time.Millisecond)
+	h.sendMouseSGR(0, endX, endY, false)
+
+	capture := waitForCaptureJSON(t, h, 3*time.Second, func(capture proto.CaptureJSON) bool {
+		p1 := h.jsonPane(capture, "pane-1")
+		p2 := h.jsonPane(capture, "pane-2")
+		return p1.Position.X > p2.Position.X
+	})
+
+	p1 := h.jsonPane(capture, "pane-1")
+	p2 := h.jsonPane(capture, "pane-2")
+	if p1.Position.X <= p2.Position.X {
+		t.Fatalf("pane-1 should swap to the right of pane-2: p1=%+v p2=%+v", p1.Position, p2.Position)
+	}
+}
+
+func TestMouseStatusLineDragShowsSwapOverlay(t *testing.T) {
+	t.Parallel()
+
+	h := newAmuxHarness(t)
+	h.splitV()
+
+	startX, startY := paneStatusCoords(t, h, "pane-1")
+	endX, endY := paneStatusCoords(t, h, "pane-2")
+
+	h.sendMouseSGR(0, startX, startY, true)
+	time.Sleep(50 * time.Millisecond)
+	h.sendMouseSGR(32, endX, endY, true)
+
+	if !waitForOuterContains(h, func(screen string) bool {
+		return strings.Contains(screen, "[drag]") && strings.Contains(screen, "[swap]")
+	}, 3*time.Second) {
+		t.Fatalf("expected drag overlay while hovering swap target.\nOuter:\n%s", h.captureOuter())
+	}
+
+	time.Sleep(50 * time.Millisecond)
+	h.sendMouseSGR(0, endX, endY, false)
+
+	if !waitForOuterContains(h, func(screen string) bool {
+		return !strings.Contains(screen, "[drag]") && !strings.Contains(screen, "[swap]")
+	}, 3*time.Second) {
+		t.Fatalf("expected drag overlay to clear after release.\nOuter:\n%s", h.captureOuter())
+	}
+}
+
+func TestMouseStatusLineDragMovesPaneToOtherColumn(t *testing.T) {
+	t.Parallel()
+
+	h := newAmuxHarness(t)
+	h.splitV()
+	focusGen := h.generation()
+	h.runCmd("focus", "pane-1")
+	h.waitLayout(focusGen)
+	if !h.waitForActive("pane-1", 3*time.Second) {
+		t.Fatalf("pane-1 should be active before splitting left column.\nScreen:\n%s", h.capture())
+	}
+	h.splitH()
+
+	borderCol := h.captureAmuxVerticalBorderCol()
+	if borderCol < 0 {
+		t.Fatalf("expected a root vertical border.\nScreen:\n%s", h.captureAmux())
+	}
+
+	startX, startY := paneStatusCoords(t, h, "pane-1")
+	endY := h.jsonPane(h.captureJSON(), "pane-2").Position.Y + 3
+
+	h.sendMouseSGR(0, startX, startY, true)
+	time.Sleep(50 * time.Millisecond)
+	h.sendMouseSGR(32, borderCol+1, endY, true)
+	time.Sleep(50 * time.Millisecond)
+	h.sendMouseSGR(0, borderCol+1, endY, false)
+
+	capture := waitForCaptureJSON(t, h, 3*time.Second, func(capture proto.CaptureJSON) bool {
+		p1 := h.jsonPane(capture, "pane-1")
+		p2 := h.jsonPane(capture, "pane-2")
+		p3 := h.jsonPane(capture, "pane-3")
+		return p1.Position.X == p2.Position.X && p1.Position.Y > p2.Position.Y && p3.Position.X < p1.Position.X
+	})
+
+	p1 := h.jsonPane(capture, "pane-1")
+	p2 := h.jsonPane(capture, "pane-2")
+	p3 := h.jsonPane(capture, "pane-3")
+	if p1.Position.X != p2.Position.X || p1.Position.Y <= p2.Position.Y || p3.Position.X >= p1.Position.X {
+		t.Fatalf("expected pane-1 to move into pane-2's column below it: p1=%+v p2=%+v p3=%+v", p1.Position, p2.Position, p3.Position)
+	}
+}
+
+func TestMouseStatusLineDragInsertsPaneBetweenPanesAcrossColumns(t *testing.T) {
+	t.Parallel()
+
+	h := newAmuxHarness(t)
+	h.splitV()
+	focusGen := h.generation()
+	h.runCmd("focus", "pane-1")
+	h.waitLayout(focusGen)
+	if !h.waitForActive("pane-1", 3*time.Second) {
+		t.Fatalf("pane-1 should be active before splitting left column.\nScreen:\n%s", h.capture())
+	}
+	h.splitH()
+
+	borderRow := h.captureAmuxHorizontalBorderRow()
+	if borderRow < 0 {
+		t.Fatalf("expected a horizontal border inside the left column.\nScreen:\n%s", h.captureAmux())
+	}
+
+	startX, startY := paneStatusCoords(t, h, "pane-2")
+	endX, _ := paneStatusCoords(t, h, "pane-1")
+
+	h.sendMouseSGR(0, startX, startY, true)
+	time.Sleep(50 * time.Millisecond)
+	h.sendMouseSGR(32, endX, borderRow+1, true)
+	time.Sleep(50 * time.Millisecond)
+	h.sendMouseSGR(0, endX, borderRow+1, false)
+
+	capture := waitForCaptureJSON(t, h, 3*time.Second, func(capture proto.CaptureJSON) bool {
+		p1 := h.jsonPane(capture, "pane-1")
+		p2 := h.jsonPane(capture, "pane-2")
+		p3 := h.jsonPane(capture, "pane-3")
+		return p1.Position.X == p2.Position.X &&
+			p2.Position.X == p3.Position.X &&
+			p1.Position.Y < p2.Position.Y &&
+			p2.Position.Y < p3.Position.Y
+	})
+
+	p1 := h.jsonPane(capture, "pane-1")
+	p2 := h.jsonPane(capture, "pane-2")
+	p3 := h.jsonPane(capture, "pane-3")
+	if p1.Position.X != p2.Position.X || p2.Position.X != p3.Position.X || p1.Position.Y >= p2.Position.Y || p2.Position.Y >= p3.Position.Y {
+		t.Fatalf("expected pane-2 to move between pane-1 and pane-3 in the left column: p1=%+v p2=%+v p3=%+v", p1.Position, p2.Position, p3.Position)
 	}
 }
 

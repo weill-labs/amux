@@ -12,6 +12,7 @@ import (
 	"github.com/weill-labs/amux/internal/mouse"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
+	"github.com/weill-labs/amux/internal/render"
 )
 
 func stubCopyToClipboard(cr *ClientRenderer, fn func(string)) {
@@ -87,6 +88,52 @@ func globalBarRow(t *testing.T, cr *ClientRenderer) int {
 		t.Fatal("visible layout missing")
 	}
 	return layout.H
+}
+
+func stackedColumn80x23(activePaneID uint32) *proto.LayoutSnapshot {
+	leftColumn := proto.CellSnapshot{
+		X: 0, Y: 0, W: 39, H: 23,
+		Dir: int(mux.SplitHorizontal),
+		Children: []proto.CellSnapshot{
+			{X: 0, Y: 0, W: 39, H: 11, IsLeaf: true, Dir: -1, PaneID: 1},
+			{X: 0, Y: 12, W: 39, H: 11, IsLeaf: true, Dir: -1, PaneID: 3},
+		},
+	}
+	root := proto.CellSnapshot{
+		X: 0, Y: 0, W: 80, H: 23,
+		Dir: int(mux.SplitVertical),
+		Children: []proto.CellSnapshot{
+			leftColumn,
+			{X: 40, Y: 0, W: 39, H: 23, IsLeaf: true, Dir: -1, PaneID: 2},
+		},
+	}
+	panes := []proto.PaneSnapshot{
+		{ID: 1, Name: "pane-1", Host: "local", Color: "f5e0dc", ColumnIndex: 0},
+		{ID: 2, Name: "pane-2", Host: "local", Color: "f2cdcd", ColumnIndex: 1},
+		{ID: 3, Name: "pane-3", Host: "local", Color: "cba6f7", ColumnIndex: 0},
+	}
+	return &proto.LayoutSnapshot{
+		SessionName:  "test",
+		ActivePaneID: activePaneID,
+		Width:        80,
+		Height:       23,
+		Root:         root,
+		Panes:        panes,
+		Windows: []proto.WindowSnapshot{{
+			ID: 1, Name: "window-1", Index: 1, ActivePaneID: activePaneID,
+			Root:  root,
+			Panes: panes,
+		}},
+		ActiveWindowID: 1,
+	}
+}
+
+func buildColumnDragRenderer(t *testing.T, activePaneID uint32) *ClientRenderer {
+	t.Helper()
+
+	cr := NewClientRenderer(80, 24)
+	cr.HandleLayout(stackedColumn80x23(activePaneID))
+	return cr
 }
 
 func TestHandleDisplayPaneSelectionSendsFocusCommand(t *testing.T) {
@@ -267,6 +314,258 @@ func TestHandleMouseEventClickSendsFocusCommand(t *testing.T) {
 		t.Fatalf("command args = %v, want [2]", msg.CmdArgs)
 	}
 	<-done
+}
+
+func TestHandleMouseEventStatusLinePressStartsPaneDragAndShowsSourceOverlay(t *testing.T) {
+	t.Parallel()
+
+	cr := buildTestRenderer(t)
+
+	clientConn, serverConn := net.Pipe()
+	t.Cleanup(func() {
+		clientConn.Close()
+		serverConn.Close()
+	})
+
+	sender := newMessageSender(clientConn)
+	t.Cleanup(sender.Close)
+
+	var drag dragState
+	done := make(chan struct{})
+	go func() {
+		handleMouseEvent(mouse.Event{
+			Action: mouse.Press,
+			Button: mouse.ButtonLeft,
+			X:      60,
+			Y:      0,
+		}, cr, sender, &drag, nil)
+		close(done)
+	}()
+
+	msg := readCommandMessage(t, serverConn)
+	if msg.CmdName != "focus" || len(msg.CmdArgs) != 1 || msg.CmdArgs[0] != "2" {
+		t.Fatalf("status-line press focus command = %q %v, want focus [2]", msg.CmdName, msg.CmdArgs)
+	}
+	<-done
+	if !drag.PaneDragActive {
+		t.Fatal("status-line press should start pane drag mode")
+	}
+	if drag.PaneDragPaneID != 2 {
+		t.Fatalf("drag source pane = %d, want 2", drag.PaneDragPaneID)
+	}
+	labels := cr.overlayState().PaneLabels
+	if len(labels) != 1 || labels[0].PaneID != 2 || labels[0].Label != "drag" {
+		t.Fatalf("drag overlay labels = %+v, want pane-2 [drag]", labels)
+	}
+}
+
+func TestHandleMouseEventPaneDragReleaseOnPaneSendsSwapCommand(t *testing.T) {
+	t.Parallel()
+
+	cr := buildTestRenderer(t)
+
+	clientConn, serverConn := net.Pipe()
+	t.Cleanup(func() {
+		clientConn.Close()
+		serverConn.Close()
+	})
+
+	sender := newMessageSender(clientConn)
+	t.Cleanup(sender.Close)
+
+	var drag dragState
+	handleMouseEvent(mouse.Event{
+		Action: mouse.Press,
+		Button: mouse.ButtonLeft,
+		X:      10,
+		Y:      0,
+	}, cr, sender, &drag, nil)
+	handleMouseEvent(mouse.Event{
+		Action: mouse.Motion,
+		Button: mouse.ButtonLeft,
+		X:      60,
+		Y:      0,
+		LastX:  10,
+		LastY:  0,
+	}, cr, sender, &drag, nil)
+
+	labels := cr.overlayState().PaneLabels
+	if len(labels) != 2 {
+		t.Fatalf("pane drag labels = %+v, want source and swap labels", labels)
+	}
+	if labels[0].PaneID != 1 || labels[0].Label != "drag" {
+		t.Fatalf("source drag label = %+v, want pane-1 drag", labels[0])
+	}
+	if labels[1].PaneID != 2 || labels[1].Label != "swap" {
+		t.Fatalf("swap target label = %+v, want pane-2 swap", labels[1])
+	}
+
+	done := make(chan struct{})
+	go func() {
+		handleMouseEvent(mouse.Event{
+			Action: mouse.Release,
+			Button: mouse.ButtonLeft,
+			X:      60,
+			Y:      0,
+			LastX:  60,
+			LastY:  0,
+		}, cr, sender, &drag, nil)
+		close(done)
+	}()
+
+	msg := readCommandMessage(t, serverConn)
+	if msg.CmdName != "swap" || len(msg.CmdArgs) != 2 || msg.CmdArgs[0] != "1" || msg.CmdArgs[1] != "2" {
+		t.Fatalf("swap command = %q %v, want swap [1 2]", msg.CmdName, msg.CmdArgs)
+	}
+	<-done
+	if drag.PaneDragActive {
+		t.Fatal("pane drag should clear after release")
+	}
+	if labels := cr.overlayState().PaneLabels; len(labels) != 0 {
+		t.Fatalf("drag overlay should clear after release, got %+v", labels)
+	}
+}
+
+func TestHandleMouseEventPaneDragReleaseOnColumnBorderSendsMoveToCommand(t *testing.T) {
+	t.Parallel()
+
+	cr := buildColumnDragRenderer(t, 1)
+
+	clientConn, serverConn := net.Pipe()
+	t.Cleanup(func() {
+		clientConn.Close()
+		serverConn.Close()
+	})
+
+	sender := newMessageSender(clientConn)
+	t.Cleanup(sender.Close)
+
+	var drag dragState
+	done := make(chan struct{})
+	go func() {
+		handleMouseEvent(mouse.Event{
+			Action: mouse.Press,
+			Button: mouse.ButtonLeft,
+			X:      10,
+			Y:      0,
+		}, cr, sender, &drag, nil)
+		handleMouseEvent(mouse.Event{
+			Action: mouse.Motion,
+			Button: mouse.ButtonLeft,
+			X:      39,
+			Y:      5,
+			LastX:  10,
+			LastY:  0,
+		}, cr, sender, &drag, nil)
+		handleMouseEvent(mouse.Event{
+			Action: mouse.Release,
+			Button: mouse.ButtonLeft,
+			X:      39,
+			Y:      5,
+			LastX:  39,
+			LastY:  5,
+		}, cr, sender, &drag, nil)
+		close(done)
+	}()
+
+	msg := readCommandMessage(t, serverConn)
+	if msg.CmdName != "move-to" || len(msg.CmdArgs) != 2 || msg.CmdArgs[0] != "1" || msg.CmdArgs[1] != "2" {
+		t.Fatalf("move-to command = %q %v, want move-to [1 2]", msg.CmdName, msg.CmdArgs)
+	}
+	<-done
+}
+
+func TestHandleMouseEventPaneDragBetweenPanesAcrossColumnsSendsMoveSequence(t *testing.T) {
+	t.Parallel()
+
+	cr := buildColumnDragRenderer(t, 2)
+
+	clientConn, serverConn := net.Pipe()
+	t.Cleanup(func() {
+		clientConn.Close()
+		serverConn.Close()
+	})
+
+	sender := newMessageSender(clientConn)
+	t.Cleanup(sender.Close)
+
+	var drag dragState
+	done := make(chan struct{})
+	go func() {
+		handleMouseEvent(mouse.Event{
+			Action: mouse.Press,
+			Button: mouse.ButtonLeft,
+			X:      60,
+			Y:      0,
+		}, cr, sender, &drag, nil)
+		handleMouseEvent(mouse.Event{
+			Action: mouse.Motion,
+			Button: mouse.ButtonLeft,
+			X:      10,
+			Y:      11,
+			LastX:  60,
+			LastY:  0,
+		}, cr, sender, &drag, nil)
+		handleMouseEvent(mouse.Event{
+			Action: mouse.Release,
+			Button: mouse.ButtonLeft,
+			X:      10,
+			Y:      11,
+			LastX:  10,
+			LastY:  11,
+		}, cr, sender, &drag, nil)
+		close(done)
+	}()
+
+	first := readCommandMessage(t, serverConn)
+	if first.CmdName != "move-to" || len(first.CmdArgs) != 2 || first.CmdArgs[0] != "2" || first.CmdArgs[1] != "3" {
+		t.Fatalf("first command = %q %v, want move-to [2 3]", first.CmdName, first.CmdArgs)
+	}
+
+	second := readCommandMessage(t, serverConn)
+	if second.CmdName != "move" || len(second.CmdArgs) != 3 || second.CmdArgs[0] != "2" || second.CmdArgs[1] != "--before" || second.CmdArgs[2] != "3" {
+		t.Fatalf("second command = %q %v, want move [2 --before 3]", second.CmdName, second.CmdArgs)
+	}
+	<-done
+}
+
+func TestResolvePaneDropTargetRejectsHorizontalBorderTargetingSourcePane(t *testing.T) {
+	t.Parallel()
+
+	cr := buildColumnDragRenderer(t, 3)
+	layout := cr.VisibleLayout()
+
+	target := resolvePaneDropTarget(cr, layout, 3, 10, 11)
+	if target != nil {
+		t.Fatalf("horizontal border target = %+v, want nil when hit.Right resolves to source pane", target)
+	}
+}
+
+func TestCaptureDisplayShowsPaneDragOverlay(t *testing.T) {
+	t.Parallel()
+
+	cr := buildColumnDragRenderer(t, 2)
+	cr.showPaneDragOverlay(2, 0, "", &render.DropIndicatorOverlay{
+		X:      0,
+		Y:      11,
+		Length: 39,
+		Dir:    mux.SplitHorizontal,
+	})
+	cr.RenderDiff()
+
+	display := cr.CaptureDisplay()
+	if !strings.Contains(display, "[drag]") {
+		t.Fatalf("display capture missing drag label:\n%s", display)
+	}
+	if !strings.Contains(display, "━━") {
+		t.Fatalf("display capture missing drop indicator line:\n%s", display)
+	}
+
+	cr.hidePaneDragOverlay()
+	cr.RenderDiff()
+	if cleared := cr.CaptureDisplay(); strings.Contains(cleared, "[drag]") || strings.Contains(cleared, "━━") {
+		t.Fatalf("display capture should clear drag overlay:\n%s", cleared)
+	}
 }
 
 func TestHandleMouseEventGlobalBarClickSendsSelectWindowCommand(t *testing.T) {

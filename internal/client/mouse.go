@@ -11,15 +11,18 @@ import (
 	"github.com/weill-labs/amux/internal/render"
 )
 
-// dragState tracks an in-progress border drag. The border direction is
-// cached from the initial press so motion events don't need to re-query
-// the layout (which may be stale during fast drags).
+// dragState tracks in-progress mouse interactions: border drags, pane drags,
+// and copy-mode selections. Border direction is cached from the initial press
+// so motion events don't need to re-query the layout mid-drag.
 type dragState struct {
 	Active    bool
 	BorderX   int
 	BorderY   int
 	BorderDir mux.SplitDir
 
+	PaneDragActive bool
+	PaneDragPaneID uint32
+	PaneDropTarget *paneDropTarget
 	CopyModeActive bool
 	CopyModePaneID uint32
 	CopyStartX     int
@@ -41,6 +44,18 @@ type paneMouseTarget struct {
 	localX    int
 	localY    int
 	inContent bool
+}
+
+type paneDragCommand struct {
+	name string
+	args []string
+}
+
+type paneDropTarget struct {
+	commands   []paneDragCommand
+	targetPane uint32
+	targetText string
+	indicator  *render.DropIndicatorOverlay
 }
 
 const (
@@ -68,8 +83,182 @@ func mouseTargetAt(layout *mux.LayoutCell, x, y int) *paneMouseTarget {
 	}
 }
 
+func paneStatusTargetAt(layout *mux.LayoutCell, x, y int) *paneMouseTarget {
+	target := mouseTargetAt(layout, x, y)
+	if target == nil || target.cell == nil {
+		return nil
+	}
+	if y < target.cell.Y || y >= target.cell.Y+mux.StatusLineRows {
+		return nil
+	}
+	return target
+}
+
+func paneRef(paneID uint32) string {
+	return fmt.Sprintf("%d", paneID)
+}
+
+func firstPaneID(cell *mux.LayoutCell) uint32 {
+	if cell == nil {
+		return 0
+	}
+	var paneID uint32
+	cell.Walk(func(leaf *mux.LayoutCell) {
+		if paneID == 0 {
+			paneID = leaf.CellPaneID()
+		}
+	})
+	return paneID
+}
+
+func rootColumnCell(layout *mux.LayoutCell, paneID uint32) *mux.LayoutCell {
+	if layout == nil {
+		return nil
+	}
+	if layout.IsLeaf() || layout.Dir != mux.SplitVertical {
+		return layout
+	}
+	leaf := layout.FindByPaneID(paneID)
+	if leaf == nil {
+		return nil
+	}
+	cell := leaf
+	for cell.Parent != nil && cell.Parent != layout {
+		cell = cell.Parent
+	}
+	return cell
+}
+
+func paneIsLead(cr *ClientRenderer, paneID uint32) bool {
+	info, ok := cr.renderer.PaneInfoSnapshot(paneID)
+	return ok && info.Lead
+}
+
+func resolvePaneDropTarget(cr *ClientRenderer, layout *mux.LayoutCell, sourcePaneID uint32, x, y int) *paneDropTarget {
+	if layout == nil || sourcePaneID == 0 || paneIsLead(cr, sourcePaneID) {
+		return nil
+	}
+
+	if target := mouseTargetAt(layout, x, y); target != nil && target.paneID != 0 && target.paneID != sourcePaneID {
+		if paneIsLead(cr, target.paneID) {
+			return nil
+		}
+		return &paneDropTarget{
+			commands: []paneDragCommand{{
+				name: "swap",
+				args: []string{paneRef(sourcePaneID), paneRef(target.paneID)},
+			}},
+			targetPane: target.paneID,
+			targetText: "swap",
+		}
+	}
+
+	hit := layout.FindBorderAt(x, y)
+	if hit == nil || hit.Left == nil || hit.Right == nil || hit.Left.Parent != hit.Right.Parent {
+		return nil
+	}
+	parent := hit.Left.Parent
+	switch {
+	case hit.Dir == mux.SplitVertical && parent == layout && layout.Dir == mux.SplitVertical:
+		targetPaneID := firstPaneID(hit.Right)
+		if hit.Left.FindByPaneID(sourcePaneID) == nil && hit.Right.FindByPaneID(sourcePaneID) != nil {
+			targetPaneID = firstPaneID(hit.Left)
+		}
+		if targetPaneID == 0 || targetPaneID == sourcePaneID || paneIsLead(cr, targetPaneID) {
+			return nil
+		}
+		return &paneDropTarget{
+			commands: []paneDragCommand{{
+				name: "move-to",
+				args: []string{paneRef(sourcePaneID), paneRef(targetPaneID)},
+			}},
+			targetPane: targetPaneID,
+			targetText: "column",
+			indicator: &render.DropIndicatorOverlay{
+				X:      hit.Left.X + hit.Left.W,
+				Y:      parent.Y,
+				Length: parent.H,
+				Dir:    mux.SplitVertical,
+			},
+		}
+	case hit.Dir == mux.SplitHorizontal && parent.Dir == mux.SplitHorizontal:
+		targetPaneID := firstPaneID(hit.Right)
+		if targetPaneID == 0 || targetPaneID == sourcePaneID || paneIsLead(cr, targetPaneID) {
+			return nil
+		}
+		sourceLeaf := layout.FindByPaneID(sourcePaneID)
+		if sourceLeaf == nil {
+			return nil
+		}
+		sourceColumn := rootColumnCell(layout, sourcePaneID)
+		targetColumn := rootColumnCell(layout, targetPaneID)
+		if sourceColumn == nil || targetColumn == nil {
+			return nil
+		}
+
+		commands := make([]paneDragCommand, 0, 2)
+		if sourceColumn == targetColumn {
+			if sourceLeaf.Parent != parent {
+				return nil
+			}
+		} else {
+			commands = append(commands, paneDragCommand{
+				name: "move-to",
+				args: []string{paneRef(sourcePaneID), paneRef(targetPaneID)},
+			})
+		}
+		commands = append(commands, paneDragCommand{
+			name: "move",
+			args: []string{paneRef(sourcePaneID), "--before", paneRef(targetPaneID)},
+		})
+		return &paneDropTarget{
+			commands: commands,
+			indicator: &render.DropIndicatorOverlay{
+				X:      parent.X,
+				Y:      hit.Left.Y + hit.Left.H,
+				Length: parent.W,
+				Dir:    mux.SplitHorizontal,
+			},
+		}
+	default:
+		return nil
+	}
+}
+
+func updatePaneDragOverlay(cr *ClientRenderer, drag *dragState) {
+	if drag == nil || !drag.PaneDragActive || drag.PaneDragPaneID == 0 {
+		cr.hidePaneDragOverlay()
+		return
+	}
+
+	targetPaneID := uint32(0)
+	targetText := ""
+	var indicator *render.DropIndicatorOverlay
+	if drag.PaneDropTarget != nil {
+		targetPaneID = drag.PaneDropTarget.targetPane
+		targetText = drag.PaneDropTarget.targetText
+		indicator = drag.PaneDropTarget.indicator
+	}
+	cr.showPaneDragOverlay(drag.PaneDragPaneID, targetPaneID, targetText, indicator)
+}
+
+func clearPaneDragState(cr *ClientRenderer, drag *dragState) {
+	if drag == nil {
+		cr.hidePaneDragOverlay()
+		return
+	}
+	drag.PaneDragActive = false
+	drag.PaneDragPaneID = 0
+	drag.PaneDropTarget = nil
+	cr.hidePaneDragOverlay()
+}
+
+func rerenderOverlay(cr *ClientRenderer, msgCh chan<- *RenderMsg) {
+	runLocalRenderAction(cr, msgCh, func(*ClientRenderer) localRenderResult { return overlayRenderNowResult() })
+}
+
 func focusPane(sender *messageSender, paneID uint32, activePaneID uint32) {
-	if paneID == activePaneID {
+	if sender == nil || paneID == activePaneID {
 		return
 	}
 	sender.Command("focus", []string{fmt.Sprintf("%d", paneID)})
@@ -147,6 +336,9 @@ func handleGlobalBarClick(ev mouse.Event, layout *mux.LayoutCell, cr *ClientRend
 // handleMouseEvent dispatches a parsed mouse event to the appropriate action:
 // click-to-focus, border drag, or scroll wheel.
 func handleMouseEvent(ev mouse.Event, cr *ClientRenderer, sender *messageSender, drag *dragState, msgCh chan<- *RenderMsg) {
+	if drag == nil {
+		drag = &dragState{}
+	}
 	layout := cr.VisibleLayout()
 
 	if layout == nil {
@@ -160,13 +352,26 @@ func handleMouseEvent(ev mouse.Event, cr *ClientRenderer, sender *messageSender,
 	case ev.Action == mouse.Press && ev.Button == mouse.ButtonLeft:
 		// Check if clicking on a border (start drag) or a pane (focus)
 		if hit := layout.FindBorderAt(ev.X, ev.Y); hit != nil {
+			clearPaneDragState(cr, drag)
 			drag.Active = true
 			drag.CopyModeActive = false
 			drag.CopyModePaneID = 0
 			drag.BorderX = ev.X
 			drag.BorderY = ev.Y
 			drag.BorderDir = hit.Dir
+		} else if target := paneStatusTargetAt(layout, ev.X, ev.Y); target != nil {
+			focusPane(sender, target.paneID, cr.ActivePaneID())
+			drag.Active = false
+			drag.CopyModeActive = false
+			drag.CopyModePaneID = 0
+			drag.CopyMoved = false
+			drag.PaneDragActive = !paneIsLead(cr, target.paneID)
+			drag.PaneDragPaneID = target.paneID
+			drag.PaneDropTarget = nil
+			updatePaneDragOverlay(cr, drag)
+			rerenderOverlay(cr, msgCh)
 		} else if target := mouseTargetAt(layout, ev.X, ev.Y); target != nil {
+			clearPaneDragState(cr, drag)
 			focusPane(sender, target.paneID, cr.ActivePaneID())
 			drag.CopyModeActive = false
 			drag.CopyModePaneID = 0
@@ -208,6 +413,11 @@ func handleMouseEvent(ev mouse.Event, cr *ClientRenderer, sender *messageSender,
 			}
 		}
 
+	case ev.Action == mouse.Motion && drag.PaneDragActive:
+		drag.PaneDropTarget = resolvePaneDropTarget(cr, layout, drag.PaneDragPaneID, ev.X, ev.Y)
+		updatePaneDragOverlay(cr, drag)
+		rerenderOverlay(cr, msgCh)
+
 	case ev.Action == mouse.Motion && drag.CopyModePaneID != 0:
 		target := mouseTargetAt(layout, ev.X, ev.Y)
 		if target == nil || !target.inContent || target.paneID != drag.CopyModePaneID {
@@ -241,6 +451,17 @@ func handleMouseEvent(ev mouse.Event, cr *ClientRenderer, sender *messageSender,
 
 	case ev.Action == mouse.Release:
 		drag.Active = false
+		if drag.PaneDragActive {
+			target := drag.PaneDropTarget
+			clearPaneDragState(cr, drag)
+			rerenderOverlay(cr, msgCh)
+			if target != nil && sender != nil {
+				for _, cmd := range target.commands {
+					sender.Command(cmd.name, cmd.args)
+				}
+			}
+			return
+		}
 		if drag.CopyModePaneID != 0 {
 			if drag.CopyModeActive {
 				if drag.CopyMoved {
