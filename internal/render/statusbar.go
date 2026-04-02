@@ -419,10 +419,16 @@ func globalBarShowsHelp(width int, sessionName string, paneCount int, windows []
 		(globalBarPrefixVisibleWidth-globalBarTitlePrefixVisibleWidth)
 }
 
+// GlobalBarShowsHelp reports whether the current terminal width can render the
+// clickable "? help" segment without colliding with the right-side status text.
+func GlobalBarShowsHelp(width int, sessionName string, paneCount int, windows []WindowInfo, message string, now time.Time) bool {
+	return globalBarShowsHelp(width, sessionName, paneCount, windows, message, now)
+}
+
 // GlobalBarWindowAtColumn resolves a 0-based terminal column within the
 // rendered global bar to the corresponding window tab.
-func GlobalBarWindowAtColumn(windows []WindowInfo, x int) (WindowInfo, bool) {
-	return globalBarWindowAtColumnWithHelp(windows, x, true)
+func GlobalBarWindowAtColumn(windows []WindowInfo, x int, showHelp bool) (WindowInfo, bool) {
+	return globalBarWindowAtColumnWithHelp(windows, x, showHelp)
 }
 
 func globalBarWindowAtColumnWithHelp(windows []WindowInfo, x int, showHelp bool) (WindowInfo, bool) {
@@ -436,7 +442,10 @@ func globalBarWindowAtColumnWithHelp(windows []WindowInfo, x int, showHelp bool)
 
 // GlobalBarHelpToggleAtColumn reports whether x hits the clickable "? help"
 // region in the global status bar.
-func GlobalBarHelpToggleAtColumn(x int) bool {
+func GlobalBarHelpToggleAtColumn(x int, showHelp bool) bool {
+	if !showHelp {
+		return false
+	}
 	return x >= globalBarHelpStartColumn && x < globalBarHelpEndColumn
 }
 

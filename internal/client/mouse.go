@@ -317,21 +317,61 @@ func globalBarWindowInfos(cr *ClientRenderer) []render.WindowInfo {
 	return infos
 }
 
+func globalBarMessage(cr *ClientRenderer, snap *rendererSnapshot) string {
+	if message := cr.prefixMessage(); message != "" {
+		return message
+	}
+	if snap == nil {
+		return ""
+	}
+	return snap.sessionNotice
+}
+
+func globalBarPaneCount(layout *mux.LayoutCell) int {
+	if layout == nil {
+		return 0
+	}
+	count := 0
+	layout.Walk(func(cell *mux.LayoutCell) {
+		if cell.CellPaneID() != 0 {
+			count++
+		}
+	})
+	return count
+}
+
+func globalBarShowsHelp(cr *ClientRenderer, layout *mux.LayoutCell, windows []render.WindowInfo) bool {
+	snap := cr.renderer.loadSnapshot()
+	if snap == nil {
+		return false
+	}
+	return render.GlobalBarShowsHelp(
+		snap.width,
+		snap.sessionName,
+		globalBarPaneCount(layout),
+		windows,
+		globalBarMessage(cr, snap),
+		time.Now(),
+	)
+}
+
 func handleGlobalBarClick(ev mouse.Event, layout *mux.LayoutCell, cr *ClientRenderer, sender *messageSender, msgCh chan<- *RenderMsg) bool {
 	if ev.Action != mouse.Press || ev.Button != mouse.ButtonLeft || layout == nil || ev.Y != layout.H {
 		return false
 	}
-	if cr.prefixMessage() == "" && render.GlobalBarHelpToggleAtColumn(ev.X) {
+
+	windows := globalBarWindowInfos(cr)
+	showHelp := globalBarShowsHelp(cr, layout, windows)
+	if render.GlobalBarHelpToggleAtColumn(ev.X, showHelp) {
 		toggleHelpBarOnRenderLoop(cr, msgCh, config.DefaultKeybindings())
 		return true
 	}
 
-	windows := globalBarWindowInfos(cr)
 	if len(windows) <= 1 {
 		return true
 	}
 
-	window, ok := render.GlobalBarWindowAtColumn(windows, ev.X)
+	window, ok := render.GlobalBarWindowAtColumn(windows, ev.X, showHelp)
 	if ok && !window.IsActive && sender != nil {
 		sender.Command("select-window", []string{fmt.Sprintf("%d", window.Index)})
 	}
