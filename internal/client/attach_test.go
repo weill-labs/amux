@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/x/ansi"
+	"github.com/weill-labs/amux/internal/mouse"
 	"github.com/weill-labs/amux/internal/proto"
 	"github.com/weill-labs/amux/internal/render"
 )
@@ -246,4 +248,116 @@ func TestWaitForRunSessionEnd(t *testing.T) {
 			}
 		}
 	})
+}
+
+func TestDispatchQueuedMouseInputChunksCoalescesConsecutiveDragMotions(t *testing.T) {
+	t.Parallel()
+
+	parser := &mouse.Parser{}
+	chunks := [][]byte{
+		[]byte(ansi.MouseSgr(0, 10, 0, false)),
+		[]byte(ansi.MouseSgr(32, 11, 0, false)),
+		[]byte(ansi.MouseSgr(32, 12, 0, false)),
+		[]byte(ansi.MouseSgr(32, 20, 0, false)),
+		[]byte(ansi.MouseSgr(0, 20, 0, true)),
+	}
+
+	var got []mouse.Event
+	shouldExit := dispatchQueuedMouseInputChunks(
+		parser,
+		chunks,
+		func() bool { return true },
+		func(ev mouse.Event) { got = append(got, ev) },
+		func([]byte) bool { return false },
+	)
+	if shouldExit {
+		t.Fatal("dispatchQueuedMouseInputChunks should not request exit")
+	}
+	if len(got) != 3 {
+		t.Fatalf("mouse events = %d, want 3 (press, last motion, release)", len(got))
+	}
+	if got[0].Action != mouse.Press {
+		t.Fatalf("first event action = %v, want press", got[0].Action)
+	}
+	if got[1].Action != mouse.Motion {
+		t.Fatalf("second event action = %v, want motion", got[1].Action)
+	}
+	if got[2].Action != mouse.Release {
+		t.Fatalf("third event action = %v, want release", got[2].Action)
+	}
+	if got[1].X != 20 || got[1].Y != 0 {
+		t.Fatalf("coalesced motion = (%d,%d), want (20,0)", got[1].X, got[1].Y)
+	}
+	if got[1].LastX != 10 || got[1].LastY != 0 {
+		t.Fatalf("coalesced motion last = (%d,%d), want press origin (10,0)", got[1].LastX, got[1].LastY)
+	}
+}
+
+func TestDispatchQueuedMouseInputChunksKeepsAllMotionsOutsideDrag(t *testing.T) {
+	t.Parallel()
+
+	parser := &mouse.Parser{}
+	chunks := [][]byte{
+		[]byte(ansi.MouseSgr(0, 10, 0, false)),
+		[]byte(ansi.MouseSgr(32, 11, 0, false)),
+		[]byte(ansi.MouseSgr(32, 12, 0, false)),
+		[]byte(ansi.MouseSgr(0, 12, 0, true)),
+	}
+
+	var got []mouse.Event
+	shouldExit := dispatchQueuedMouseInputChunks(
+		parser,
+		chunks,
+		func() bool { return false },
+		func(ev mouse.Event) { got = append(got, ev) },
+		func([]byte) bool { return false },
+	)
+	if shouldExit {
+		t.Fatal("dispatchQueuedMouseInputChunks should not request exit")
+	}
+	if len(got) != 4 {
+		t.Fatalf("mouse events = %d, want 4 when drag coalescing is disabled", len(got))
+	}
+}
+
+func TestShouldBatchQueuedMouseInput(t *testing.T) {
+	t.Parallel()
+
+	parser := &mouse.Parser{}
+	mousePress := []byte(ansi.MouseSgr(0, 10, 0, false))
+
+	tests := []struct {
+		name string
+		raw  []byte
+		drag dragState
+		want bool
+	}{
+		{
+			name: "drag already active keeps batching non-mouse reads",
+			raw:  []byte("k"),
+			drag: dragState{Active: true},
+			want: true,
+		},
+		{
+			name: "mouse-looking read batches before drag state flips",
+			raw:  mousePress,
+			want: true,
+		},
+		{
+			name: "plain key input does not batch when idle",
+			raw:  []byte("k"),
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := shouldBatchQueuedMouseInput(tt.raw, parser, &tt.drag); got != tt.want {
+				t.Fatalf("shouldBatchQueuedMouseInput(%q) = %v, want %v", tt.raw, got, tt.want)
+			}
+		})
+	}
 }

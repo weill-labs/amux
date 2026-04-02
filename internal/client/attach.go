@@ -89,6 +89,97 @@ func waitForRunSessionEnd(done <-chan struct{}, triggerReload <-chan struct{}, r
 	}
 }
 
+func dragMotionCoalescingActive(drag *dragState) bool {
+	if drag == nil {
+		return false
+	}
+	return drag.Active || drag.PaneDragActive || drag.CopyModePaneID != 0
+}
+
+func shouldBatchQueuedMouseInput(raw []byte, parser *mouse.Parser, drag *dragState) bool {
+	if dragMotionCoalescingActive(drag) {
+		return true
+	}
+	return parser != nil && parser.InputLooksLikeMouse(raw)
+}
+
+func drainQueuedStdinChunks(first []byte, stdinCh <-chan []byte) (chunks [][]byte, closed bool) {
+	chunks = [][]byte{first}
+	for {
+		select {
+		case data, ok := <-stdinCh:
+			if !ok {
+				return chunks, true
+			}
+			chunks = append(chunks, data)
+		default:
+			return chunks, false
+		}
+	}
+}
+
+func dispatchQueuedMouseInputChunks(
+	parser *mouse.Parser,
+	chunks [][]byte,
+	shouldCoalesceMotion func() bool,
+	handleMouse func(mouse.Event),
+	handleBytes func([]byte) bool,
+) bool {
+	var pendingMotion *mouse.Event
+
+	flushPendingMotion := func() {
+		if pendingMotion == nil {
+			return
+		}
+		handleMouse(*pendingMotion)
+		pendingMotion = nil
+	}
+
+	dispatchMouse := func(ev mouse.Event) {
+		if ev.Action != mouse.Motion || !shouldCoalesceMotion() {
+			flushPendingMotion()
+			handleMouse(ev)
+			return
+		}
+		if pendingMotion == nil {
+			evCopy := ev
+			pendingMotion = &evCopy
+			return
+		}
+		ev.LastX = pendingMotion.LastX
+		ev.LastY = pendingMotion.LastY
+		evCopy := ev
+		pendingMotion = &evCopy
+	}
+
+	for _, chunk := range chunks {
+		for i := 0; i < len(chunk); i++ {
+			ev, isMouse, flushed := parser.Feed(chunk[i])
+			if isMouse {
+				dispatchMouse(ev)
+				continue
+			}
+			if len(flushed) == 0 {
+				continue
+			}
+			flushPendingMotion()
+			if handleBytes(flushed) {
+				return true
+			}
+		}
+
+		if flushed := parser.FlushPending(); len(flushed) > 0 {
+			flushPendingMotion()
+			if handleBytes(flushed) {
+				return true
+			}
+		}
+	}
+
+	flushPendingMotion()
+	return false
+}
+
 func readImmediateAttachCorrection(conn net.Conn, cr *ClientRenderer, timeout time.Duration) error {
 	if err := conn.SetReadDeadline(time.Now().Add(timeout)); err != nil {
 		return err
@@ -836,6 +927,7 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 			var forward []byte
 			var copyInput []byte
 			shouldExit := false
+			stdinClosed := false
 
 			sendForward := func(data []byte) {
 				if len(data) == 0 {
@@ -876,6 +968,15 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 					}
 					return renderNowResult()
 				})
+			}
+
+			dispatchMouse := func(ev mouse.Event) {
+				flushCopyInput()
+				if len(forward) > 0 {
+					sendForward(forward)
+					forward = nil
+				}
+				handleMouseEvent(ev, cr, sender, &drag, msgCh)
 			}
 
 			// dispatchDecoded routes one decoded input event through local
@@ -1004,28 +1105,34 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 				cr.SetInputIdle(true)
 				continue
 			}
-			for i := 0; i < len(raw) && !shouldExit; i++ {
-				ev, isMouse, flushed := mouseParser.Feed(raw[i])
+			if localInput && shouldBatchQueuedMouseInput(raw, mouseParser, &drag) {
+				var chunks [][]byte
+				chunks, stdinClosed = drainQueuedStdinChunks(raw, stdinCh)
+				shouldExit = dispatchQueuedMouseInputChunks(
+					mouseParser,
+					chunks,
+					func() bool { return dragMotionCoalescingActive(&drag) },
+					dispatchMouse,
+					decodeAndDispatch,
+				)
+			} else {
+				for i := 0; i < len(raw) && !shouldExit; i++ {
+					ev, isMouse, flushed := mouseParser.Feed(raw[i])
 
-				if isMouse {
-					flushCopyInput()
-					// Flush any accumulated forward bytes before handling mouse
-					if len(forward) > 0 {
-						sendForward(forward)
-						forward = nil
+					if isMouse {
+						dispatchMouse(ev)
+						continue
 					}
-					handleMouseEvent(ev, cr, sender, &drag, msgCh)
-					continue
+
+					shouldExit = decodeAndDispatch(flushed)
 				}
 
-				shouldExit = decodeAndDispatch(flushed)
-			}
-
-			// Flush a standalone Escape at the end of a read so Esc then j
-			// does not coalesce into Alt+j. Split CSI and mouse sequences
-			// stay buffered in the parser and complete on the next read.
-			if !shouldExit {
-				shouldExit = decodeAndDispatch(mouseParser.FlushPending())
+				// Flush a standalone Escape at the end of a read so Esc then j
+				// does not coalesce into Alt+j. Split CSI and mouse sequences
+				// stay buffered in the parser and complete on the next read.
+				if !shouldExit {
+					shouldExit = decodeAndDispatch(mouseParser.FlushPending())
+				}
 			}
 
 			if shouldExit {
@@ -1042,6 +1149,9 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 			}
 			if inputActivity {
 				cr.SetInputIdle(true)
+			}
+			if stdinClosed {
+				return
 			}
 		}
 	}()
