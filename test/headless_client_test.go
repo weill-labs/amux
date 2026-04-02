@@ -281,16 +281,48 @@ func (hc *headlessClient) shutdown(sendDetach bool) error {
 	var err error
 	hc.closeOnce.Do(func() {
 		close(hc.closing)
-		if conn := hc.currentConn(); conn != nil {
+		conn := hc.currentConn()
+		waitForPeerClose := false
+		if conn != nil {
 			if sendDetach {
 				err = hc.writeConn(conn, &server.Message{Type: server.MsgTypeDetach})
+				if err == nil {
+					// Half-close after detach so the server can decode the detach
+					// frame before observing EOF on the socket.
+					waitForPeerClose = closeWriteSide(conn)
+				}
 			}
+			if !waitForPeerClose {
+				_ = conn.Close()
+			}
+		}
+		if waitForPeerClose {
+			select {
+			case <-hc.done:
+			case <-time.After(2 * time.Second):
+				_ = conn.Close()
+				<-hc.done
+			}
+		} else {
+			<-hc.done
+		}
+		if conn != nil {
 			_ = conn.Close()
 		}
-		<-hc.done
 		hc.renderer.Close()
 	})
 	return err
+}
+
+func closeWriteSide(conn net.Conn) bool {
+	unixConn, ok := conn.(*net.UnixConn)
+	if !ok {
+		return false
+	}
+	if err := unixConn.CloseWrite(); err != nil {
+		return false
+	}
+	return true
 }
 
 func (hc *headlessClient) readLoop() {
