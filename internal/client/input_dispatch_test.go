@@ -1404,10 +1404,10 @@ func TestHandleMouseEventForwardsAppMouseClickToPane(t *testing.T) {
 	if got := string(press.PaneData); got != "\x1b[<0;1;1M" {
 		t.Fatalf("press pane data = %q, want %q", got, "\x1b[<0;1;1M")
 	}
+	<-pressDone
 	if drag.Active || drag.PaneDragActive || drag.CopyModeActive || drag.CopyModePaneID != 0 {
 		t.Fatalf("press should not start local mouse handling, got %+v", drag)
 	}
-	<-pressDone
 	assertNoMessage(t, serverConn)
 
 	releaseDone := make(chan struct{}, 1)
