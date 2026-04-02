@@ -436,14 +436,20 @@ func TestHandleMouseEventPaneDragTogglesFocusedPaneCursor(t *testing.T) {
 				t.Fatalf("drag render should hide the focused pane cursor, output=%q", duringDrag)
 			}
 
-			handleMouseEvent(tt.release, cr, sender, &drag, nil)
 			if tt.wantCommand == "" {
+				handleMouseEvent(tt.release, cr, sender, &drag, nil)
 				assertNoMessage(t, serverConn)
 			} else {
+				done := make(chan struct{})
+				go func() {
+					handleMouseEvent(tt.release, cr, sender, &drag, nil)
+					close(done)
+				}()
 				msg := readCommandMessage(t, serverConn)
 				if msg.CmdName != tt.wantCommand || !slices.Equal(msg.CmdArgs, tt.wantArgs) {
 					t.Fatalf("release command = %q %v, want %q %v", msg.CmdName, msg.CmdArgs, tt.wantCommand, tt.wantArgs)
 				}
+				<-done
 			}
 
 			afterDrag := cr.RenderDiff()
