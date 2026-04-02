@@ -90,6 +90,12 @@ func (e *Emulator) setMode(mode ansi.Mode, setting ansi.ModeSetting) {
 			e.saveCursor()
 		}
 		e.setAltScreenMode(setting.IsSet())
+	case ansi.ModeSynchronizedOutput:
+		if setting.IsSet() {
+			e.beginSynchronizedOutput()
+		} else {
+			e.endSynchronizedOutput()
+		}
 	case ansi.ModeInBandResize:
 		if setting.IsSet() {
 			_, _ = io.WriteString(e.pw, ansi.InBandResize(e.Height(), e.Width(), 0, 0))
