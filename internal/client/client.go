@@ -742,11 +742,19 @@ type clientPaneData struct {
 	caps       proto.ClientCapabilities
 }
 
+func (c *clientPaneData) suppressCursor(active bool) bool {
+	return !active || c.hideCursor
+}
+
+func (c *clientPaneData) localCursorHidden() bool {
+	return c.cm != nil || c.hideCursor
+}
+
 func (c *clientPaneData) RenderScreen(active bool) string {
 	var rendered string
 	if c.cm != nil {
 		rendered = render.RenderPaneViewportANSI(c.cm.ViewportWidth(), c.cm.ViewportHeight(), active, c)
-	} else if !active || c.hideCursor {
+	} else if c.suppressCursor(active) {
 		rendered = c.emu.RenderWithoutCursorBlock()
 	} else {
 		rendered = c.emu.Render()
@@ -760,7 +768,7 @@ func (c *clientPaneData) CellAt(col, row int, active bool) render.ScreenCell {
 	}
 	cell := c.emu.CellAt(col, row)
 	sc := render.CellFromUV(cell)
-	if !active || c.hideCursor {
+	if c.suppressCursor(active) {
 		stripCursorBlock(&sc, c.emu, col, row)
 	}
 	return sc
@@ -781,18 +789,15 @@ func (c *clientPaneData) CopyModeOverlay() *proto.ViewportOverlay {
 }
 
 func (c *clientPaneData) CursorHidden() bool {
-	if c.cm != nil {
-		return true // copy mode manages its own cursor via reverse video
-	}
-	if c.hideCursor {
-		return true
+	if c.localCursorHidden() {
+		return true // copy mode and pane drag manage cursor visibility locally
 	}
 	return c.emu.CursorHidden()
 }
 
 func (c *clientPaneData) HasCursorBlock() bool {
-	if c.cm != nil || c.hideCursor {
-		return false // copy mode renders its own reverse-video cursor
+	if c.localCursorHidden() {
+		return false // local cursor suppression strips any emulator cursor block
 	}
 	return c.emu.HasCursorBlock()
 }
