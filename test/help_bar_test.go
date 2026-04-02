@@ -75,19 +75,22 @@ func TestHelpBarGlobalBarClickToggles(t *testing.T) {
 	t.Parallel()
 
 	h := newAmuxHarness(t)
-
-	bar := h.globalBar()
-	x := strings.Index(bar, "? help")
-	if x < 0 {
-		t.Fatalf("global bar %q missing ? help toggle", bar)
+	if !h.waitFor("? help", 3*time.Second) {
+		t.Fatalf("expected initial global bar to render ? help\nScreen:\n%s", h.captureOuter())
 	}
 
-	h.clickAt(x+1, 24)
+	screen := h.captureOuter()
+	x, y, ok := outerTextCoords(screen, "? help")
+	if !ok {
+		t.Fatalf("expected ? help in outer capture, got:\n%s", screen)
+	}
+
+	h.clickAt(x+1, y)
 	if !h.waitFor("nav", 3*time.Second) {
 		t.Fatalf("expected global bar click to show help bar\nScreen:\n%s", h.captureOuter())
 	}
 
-	h.clickAt(x+1, 24)
+	h.clickAt(x+1, y)
 	if !waitForOuterGone(h, "nav", 3*time.Second) {
 		t.Fatalf("expected second global bar click to hide help bar\nScreen:\n%s", h.captureOuter())
 	}

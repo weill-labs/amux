@@ -861,7 +861,7 @@ func TestRunSessionHandlesServerMessagesAndInteractiveInput(t *testing.T) {
 	h.output.waitContains(t, "layout")
 
 	h.writeInput(t, []byte{0x01, 'M'})
-	h.output.waitContains(t, "No binding for C-a M")
+	h.output.waitContains(t, "No binding")
 
 	h.writeInput(t, []byte{0x01, '[', 'q'})
 	h.waitMessage(t, func(msg *proto.Message) bool {

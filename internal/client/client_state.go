@@ -46,6 +46,7 @@ func cloneClientUIState(src clientUIState) clientUIState {
 	dst.chooser = cloneChooserState(src.chooser)
 	dst.paneDrag = clonePaneDragOverlayState(src.paneDrag)
 	dst.windowRenamePrompt = cloneWindowRenamePromptState(src.windowRenamePrompt)
+	dst.helpBar = cloneHelpBarState(src.helpBar)
 	return dst
 }
 
@@ -93,6 +94,17 @@ func clonePaneDragOverlayState(src *paneDragOverlayState) *paneDragOverlayState 
 	if src.indicator != nil {
 		indicator := *src.indicator
 		dst.indicator = &indicator
+	}
+	return &dst
+}
+
+func cloneHelpBarState(src *helpBarState) *helpBarState {
+	if src == nil {
+		return nil
+	}
+	dst := *src
+	if src.bindings != nil {
+		dst.bindings = append(dst.bindings[:0:0], src.bindings...)
 	}
 	return &dst
 }

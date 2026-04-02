@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/copymode"
 	"github.com/weill-labs/amux/internal/mouse"
 	"github.com/weill-labs/amux/internal/mux"
@@ -316,9 +317,13 @@ func globalBarWindowInfos(cr *ClientRenderer) []render.WindowInfo {
 	return infos
 }
 
-func handleGlobalBarClick(ev mouse.Event, layout *mux.LayoutCell, cr *ClientRenderer, sender *messageSender) bool {
+func handleGlobalBarClick(ev mouse.Event, layout *mux.LayoutCell, cr *ClientRenderer, sender *messageSender, msgCh chan<- *RenderMsg) bool {
 	if ev.Action != mouse.Press || ev.Button != mouse.ButtonLeft || layout == nil || ev.Y != layout.H {
 		return false
+	}
+	if cr.prefixMessage() == "" && render.GlobalBarHelpToggleAtColumn(ev.X) {
+		toggleHelpBarOnRenderLoop(cr, msgCh, config.DefaultKeybindings())
+		return true
 	}
 
 	windows := globalBarWindowInfos(cr)
@@ -344,7 +349,7 @@ func handleMouseEvent(ev mouse.Event, cr *ClientRenderer, sender *messageSender,
 	if layout == nil {
 		return
 	}
-	if handleGlobalBarClick(ev, layout, cr, sender) {
+	if handleGlobalBarClick(ev, layout, cr, sender, msgCh) {
 		return
 	}
 

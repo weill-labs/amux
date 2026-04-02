@@ -17,7 +17,14 @@ import (
 // GlobalBarHeight is the number of rows reserved for the global status bar.
 const GlobalBarHeight = 1
 
-const globalBarPrefixVisibleWidth = 8 // " amux │ "
+const (
+	globalBarTitlePrefixVisibleWidth = 8  // " amux │ "
+	globalBarHelpVisibleWidth        = 6  // "? help"
+	globalBarSeparatorVisibleWidth   = 3  // " │ "
+	globalBarPrefixVisibleWidth      = 17 // " amux │ ? help │ "
+	globalBarHelpStartColumn         = globalBarTitlePrefixVisibleWidth
+	globalBarHelpEndColumn           = globalBarHelpStartColumn + globalBarHelpVisibleWidth
+)
 const missingIssueHint = "set issue"
 
 type globalBarWindowTab struct {
@@ -350,12 +357,19 @@ func paneStatusUsedWidthWithoutMetadata(pd PaneData) int {
 }
 
 func buildGlobalBarWindowTabs(windows []WindowInfo) []globalBarWindowTab {
+	return buildGlobalBarWindowTabsWithHelp(windows, true)
+}
+
+func buildGlobalBarWindowTabsWithHelp(windows []WindowInfo, showHelp bool) []globalBarWindowTab {
 	if len(windows) <= 1 {
 		return nil
 	}
 
 	tabs := make([]globalBarWindowTab, 0, len(windows))
-	col := globalBarPrefixVisibleWidth
+	col := globalBarTitlePrefixVisibleWidth
+	if showHelp {
+		col = globalBarPrefixVisibleWidth
+	}
 	for _, w := range windows {
 		label := strconv.Itoa(w.Index) + ":" + w.Name
 		display := label
@@ -379,15 +393,51 @@ func globalBarTabColorHex(window WindowInfo) string {
 	return config.TextColorHex
 }
 
+func globalBarLeftVisibleWidth(sessionName string, windows []WindowInfo, showHelp bool) int {
+	leftVisible := globalBarTitlePrefixVisibleWidth
+	if showHelp {
+		leftVisible = globalBarPrefixVisibleWidth
+	}
+	if len(windows) > 1 {
+		for _, tab := range buildGlobalBarWindowTabsWithHelp(windows, showHelp) {
+			leftVisible += utf8.RuneCountInString(tab.display) + 1
+		}
+		return leftVisible + 2
+	}
+	return leftVisible + utf8.RuneCountInString(sessionName) + 1
+}
+
+func globalBarStatusRightWidth(paneCount int, now time.Time) int {
+	return utf8.RuneCountInString(" " + strconv.Itoa(paneCount) + " panes │ " + now.Format("15:04") + " ")
+}
+
+func globalBarShowsHelp(width int, sessionName string, paneCount int, windows []WindowInfo, message string, now time.Time) bool {
+	if message != "" {
+		return false
+	}
+	return width >= globalBarLeftVisibleWidth(sessionName, windows, false)+globalBarStatusRightWidth(paneCount, now)+
+		(globalBarPrefixVisibleWidth-globalBarTitlePrefixVisibleWidth)
+}
+
 // GlobalBarWindowAtColumn resolves a 0-based terminal column within the
 // rendered global bar to the corresponding window tab.
 func GlobalBarWindowAtColumn(windows []WindowInfo, x int) (WindowInfo, bool) {
-	for _, tab := range buildGlobalBarWindowTabs(windows) {
+	return globalBarWindowAtColumnWithHelp(windows, x, true)
+}
+
+func globalBarWindowAtColumnWithHelp(windows []WindowInfo, x int, showHelp bool) (WindowInfo, bool) {
+	for _, tab := range buildGlobalBarWindowTabsWithHelp(windows, showHelp) {
 		if x >= tab.start && x < tab.end {
 			return tab.window, true
 		}
 	}
 	return WindowInfo{}, false
+}
+
+// GlobalBarHelpToggleAtColumn reports whether x hits the clickable "? help"
+// region in the global status bar.
+func GlobalBarHelpToggleAtColumn(x int) bool {
+	return x >= globalBarHelpStartColumn && x < globalBarHelpEndColumn
 }
 
 // renderGlobalBar draws the global status bar at the bottom of the terminal.
@@ -400,24 +450,26 @@ func renderGlobalBarWithProfile(buf *strings.Builder, sessionName string, paneCo
 	styles := newStatusBarStyles(config.TextColorHex)
 
 	nowStr := now.Format("15:04")
-	tabs := buildGlobalBarWindowTabs(windows)
-	leftVisible := globalBarPrefixVisibleWidth
+	showHelp := globalBarShowsHelp(width, sessionName, paneCount, windows, message, now)
+	tabs := buildGlobalBarWindowTabsWithHelp(windows, showHelp)
+	leftVisible := globalBarLeftVisibleWidth(sessionName, windows, showHelp)
 	writeStyledTextWithProfile(buf, styles.background, " ", profile)
 	writeStyledTextWithProfile(buf, styles.title, "amux", profile)
 	writeStyledTextWithProfile(buf, styles.busy, " │ ", profile)
+	if showHelp {
+		writeStyledTextWithProfile(buf, styles.focused, "? help", profile)
+		writeStyledTextWithProfile(buf, styles.busy, " │ ", profile)
+	}
 
 	// Show window tabs if there are multiple windows
 	if len(tabs) > 0 {
 		for _, tab := range tabs {
 			writeStyledTextWithProfile(buf, styles.windowTab(tab.window), tab.display, profile)
 			writeStyledTextWithProfile(buf, styles.busy, " ", profile)
-			leftVisible += utf8.RuneCountInString(tab.display) + 1
 		}
 		writeStyledTextWithProfile(buf, styles.busy, "│ ", profile)
-		leftVisible += 2
 	} else {
 		writeStyledTextWithProfile(buf, styles.busy, sessionName+" ", profile)
-		leftVisible += utf8.RuneCountInString(sessionName) + 1
 	}
 
 	right := ""
