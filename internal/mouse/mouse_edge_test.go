@@ -23,6 +23,75 @@ func TestFlushPendingReturnsIncompleteSequence(t *testing.T) {
 	}
 }
 
+func TestFlushPendingKeepsSplitKittyCSISequence(t *testing.T) {
+	t.Parallel()
+
+	p := &Parser{}
+	events, flushed := feedAll(t, p, []byte("\x1b[114;"))
+	if len(events) != 0 {
+		t.Fatalf("events = %v, want none for incomplete kitty CSI", events)
+	}
+	if len(flushed) != 0 {
+		t.Fatalf("flushed = %q, want incomplete kitty CSI to stay buffered", flushed)
+	}
+	if got := p.FlushPending(); got != nil {
+		t.Fatalf("FlushPending() = %q, want nil for incomplete kitty CSI", got)
+	}
+	if !p.InProgress() {
+		t.Fatal("parser should remain in progress for incomplete kitty CSI")
+	}
+
+	events, flushed = feedAll(t, p, []byte("5u"))
+	if len(events) != 0 {
+		t.Fatalf("events = %v, want none for non-mouse kitty CSI", events)
+	}
+	if got := string(flushed); got != "\x1b[114;5u" {
+		t.Fatalf("flushed = %q, want complete kitty CSI", got)
+	}
+	if p.InProgress() {
+		t.Fatal("parser should reset after complete kitty CSI")
+	}
+}
+
+func TestFlushPendingKeepsSplitMouseSequence(t *testing.T) {
+	t.Parallel()
+
+	p := &Parser{}
+	events, flushed := feedAll(t, p, []byte("\x1b[<32;10;"))
+	if len(events) != 0 {
+		t.Fatalf("events = %v, want none for incomplete mouse sequence", events)
+	}
+	if len(flushed) != 0 {
+		t.Fatalf("flushed = %q, want incomplete mouse sequence to stay buffered", flushed)
+	}
+	if got := p.FlushPending(); got != nil {
+		t.Fatalf("FlushPending() = %q, want nil for incomplete mouse sequence", got)
+	}
+	if !p.InProgress() {
+		t.Fatal("parser should remain in progress for incomplete mouse sequence")
+	}
+
+	events, flushed = feedAll(t, p, []byte("5M"))
+	if len(flushed) != 0 {
+		t.Fatalf("flushed = %q, want no flushed bytes after completing mouse sequence", flushed)
+	}
+	if len(events) != 1 {
+		t.Fatalf("events = %v, want one mouse event", events)
+	}
+	if events[0].Action != Motion {
+		t.Fatalf("action = %v, want %v", events[0].Action, Motion)
+	}
+	if events[0].Button != ButtonLeft {
+		t.Fatalf("button = %v, want %v", events[0].Button, ButtonLeft)
+	}
+	if events[0].X != 9 || events[0].Y != 4 {
+		t.Fatalf("position = (%d,%d), want (9,4)", events[0].X, events[0].Y)
+	}
+	if p.InProgress() {
+		t.Fatal("parser should reset after complete mouse sequence")
+	}
+}
+
 func TestFeedFlushesRunawayCSIAndMouseParams(t *testing.T) {
 	t.Parallel()
 
