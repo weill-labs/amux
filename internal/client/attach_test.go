@@ -319,3 +319,45 @@ func TestDispatchQueuedMouseInputChunksKeepsAllMotionsOutsideDrag(t *testing.T) 
 		t.Fatalf("mouse events = %d, want 4 when drag coalescing is disabled", len(got))
 	}
 }
+
+func TestShouldBatchQueuedMouseInput(t *testing.T) {
+	t.Parallel()
+
+	parser := &mouse.Parser{}
+	mousePress := []byte(ansi.MouseSgr(0, 10, 0, false))
+
+	tests := []struct {
+		name string
+		raw  []byte
+		drag dragState
+		want bool
+	}{
+		{
+			name: "drag already active keeps batching non-mouse reads",
+			raw:  []byte("k"),
+			drag: dragState{Active: true},
+			want: true,
+		},
+		{
+			name: "mouse-looking read batches before drag state flips",
+			raw:  mousePress,
+			want: true,
+		},
+		{
+			name: "plain key input does not batch when idle",
+			raw:  []byte("k"),
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := shouldBatchQueuedMouseInput(tt.raw, parser, &tt.drag); got != tt.want {
+				t.Fatalf("shouldBatchQueuedMouseInput(%q) = %v, want %v", tt.raw, got, tt.want)
+			}
+		})
+	}
+}

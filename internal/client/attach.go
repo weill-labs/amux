@@ -96,6 +96,13 @@ func dragMotionCoalescingActive(drag *dragState) bool {
 	return drag.Active || drag.PaneDragActive || drag.CopyModePaneID != 0
 }
 
+func shouldBatchQueuedMouseInput(raw []byte, parser *mouse.Parser, drag *dragState) bool {
+	if dragMotionCoalescingActive(drag) {
+		return true
+	}
+	return parser != nil && parser.InputLooksLikeMouse(raw)
+}
+
 func drainQueuedStdinChunks(first []byte, stdinCh <-chan []byte) (chunks [][]byte, closed bool) {
 	chunks = [][]byte{first}
 	for {
@@ -1098,7 +1105,7 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 				cr.SetInputIdle(true)
 				continue
 			}
-			if localInput && dragMotionCoalescingActive(&drag) {
+			if localInput && shouldBatchQueuedMouseInput(raw, mouseParser, &drag) {
 				var chunks [][]byte
 				chunks, stdinClosed = drainQueuedStdinChunks(raw, stdinCh)
 				shouldExit = dispatchQueuedMouseInputChunks(
