@@ -207,11 +207,11 @@ func (c *Compositor) buildGridWithOverlay(root *mux.LayoutCell, activePaneID uin
 	}
 	buildBorderCells(g, c.cachedBorderMap, activePaneID, activeColorHex)
 
-	if len(overlay.PaneLabels) > 0 {
-		buildPaneOverlayCells(g, root, lookup, overlay.PaneLabels)
-	}
 	if overlay.DropIndicator != nil {
 		buildDropIndicatorCells(g, overlay.DropIndicator)
+	}
+	if len(overlay.PaneLabels) > 0 {
+		buildPaneOverlayCells(g, root, lookup, overlay.PaneLabels)
 	}
 
 	// Global bar cells.

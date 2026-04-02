@@ -181,7 +181,7 @@ func (w *Window) SplitPaneWithOptions(targetPaneID uint32, dir SplitDir, newPane
 }
 
 func (w *Window) splitCellWithOptions(cell *LayoutCell, dir SplitDir, newPane *Pane, opts SplitOptions) (*Pane, error) {
-	newCell, err := cell.Split(dir, newPane)
+	newCell, err := cell.splitWithOrder(dir, newPane, false)
 	if err != nil {
 		return nil, err
 	}
@@ -210,6 +210,147 @@ func (w *Window) splitCellWithOptions(cell *LayoutCell, dir SplitDir, newPane *P
 	}
 
 	return newPane, nil
+}
+
+func canSplitCell(cell *LayoutCell, dir SplitDir) bool {
+	if cell == nil {
+		return false
+	}
+	available := cell.W
+	if dir == SplitHorizontal {
+		available = cell.H
+	}
+	return available >= 2*PaneMinSize+1
+}
+
+func splitAvailable(cell *LayoutCell, dir SplitDir) int {
+	if cell == nil {
+		return 0
+	}
+	if dir == SplitHorizontal {
+		return cell.H
+	}
+	return cell.W
+}
+
+func (w *Window) restoreActivePaneByID(activePaneID uint32, preferred *Pane) {
+	if preferred != nil && activePaneID == preferred.ID {
+		w.setActive(preferred)
+		return
+	}
+	if activePaneID != 0 && w.Root != nil {
+		if cell := w.Root.FindPane(activePaneID); cell != nil && cell.Pane != nil {
+			w.setActive(cell.Pane)
+			return
+		}
+	}
+	if preferred != nil {
+		w.setActive(preferred)
+	}
+}
+
+// MovePaneIntoSplit reparents paneID into a split of targetPaneID, inserting
+// the moved pane before the target for left/top drops and after for right/bottom.
+func (w *Window) MovePaneIntoSplit(paneID, targetPaneID uint32, dir SplitDir, insertFirst bool) error {
+	w.assertOwner("MovePaneIntoSplit")
+	if paneID == targetPaneID {
+		return nil
+	}
+	if w.IsLeadPane(paneID) || w.IsLeadPane(targetPaneID) {
+		return fmt.Errorf("cannot operate on lead pane")
+	}
+
+	sourceCell, err := w.mustFindPane(paneID)
+	if err != nil {
+		return err
+	}
+	targetCell, err := w.mustFindPane(targetPaneID)
+	if err != nil {
+		return err
+	}
+	if !canSplitCell(targetCell, dir) {
+		return fmt.Errorf("not enough space to split (%d < %d)", splitAvailable(targetCell, dir), 2*PaneMinSize+1)
+	}
+
+	sourcePane := sourceCell.Pane
+	activePaneID := uint32(0)
+	if w.ActivePane != nil {
+		activePaneID = w.ActivePane.ID
+	}
+	if w.ZoomedPaneID != 0 {
+		w.Unzoom()
+	}
+
+	if err := w.ClosePane(paneID); err != nil {
+		return err
+	}
+	targetCell, err = w.mustFindPane(targetPaneID)
+	if err != nil {
+		return err
+	}
+
+	newCell, err := targetCell.splitWithOrder(dir, sourcePane, insertFirst)
+	if err != nil {
+		return err
+	}
+	sourcePane.Resize(newCell.W, PaneContentHeight(newCell.H))
+
+	var existingCell *LayoutCell
+	if targetCell.IsLeaf() {
+		existingCell = targetCell
+	} else if insertFirst && len(targetCell.Children) > 1 {
+		existingCell = targetCell.Children[1]
+	} else if len(targetCell.Children) > 0 {
+		existingCell = targetCell.Children[0]
+	}
+	if existingCell != nil && existingCell.Pane != nil {
+		existingCell.Pane.Resize(existingCell.W, PaneContentHeight(existingCell.H))
+	}
+
+	w.Root.FixOffsets()
+	w.resizePTYs()
+	w.restoreZoomedPaneSize()
+	w.restoreActivePaneByID(activePaneID, sourcePane)
+	return nil
+}
+
+// MovePaneToRootEdge reparents paneID into a new split at the logical root.
+func (w *Window) MovePaneToRootEdge(paneID uint32, dir SplitDir, insertFirst bool) error {
+	w.assertOwner("MovePaneToRootEdge")
+	if w.IsLeadPane(paneID) {
+		return fmt.Errorf("cannot operate on lead pane")
+	}
+
+	root := w.logicalRoot()
+	if !canSplitCell(root, dir) {
+		return fmt.Errorf("not enough space to split (%d < %d)", splitAvailable(root, dir), 2*PaneMinSize+1)
+	}
+
+	sourceCell, err := w.mustFindPane(paneID)
+	if err != nil {
+		return err
+	}
+	sourcePane := sourceCell.Pane
+	activePaneID := uint32(0)
+	if w.ActivePane != nil {
+		activePaneID = w.ActivePane.ID
+	}
+	if w.ZoomedPaneID != 0 {
+		w.Unzoom()
+	}
+
+	if err := w.ClosePane(paneID); err != nil {
+		return err
+	}
+	root = w.logicalRoot()
+	if root == nil {
+		return fmt.Errorf("no layout")
+	}
+	if _, err := w.splitSubtreeRootWithOptions(root, dir, sourcePane, insertFirst, SplitOptions{}); err != nil {
+		return err
+	}
+	w.restoreActivePaneByID(activePaneID, sourcePane)
+	return nil
 }
 
 // ClosePane removes a pane from the layout and reclaims its space.

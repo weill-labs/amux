@@ -692,7 +692,11 @@ func TestHandleMouseEventPaneDragReleaseOnPaneEdgeSendsDropPaneCommand(t *testin
 func TestHandleMouseEventPaneDragReleaseOnWindowEdgeSendsRootDropCommand(t *testing.T) {
 	t.Parallel()
 
-	cr := buildTestRenderer(t)
+	snap := twoPane80x23()
+	snap.ActivePaneID = 2
+	snap.Windows[0].ActivePaneID = 2
+	cr := NewClientRenderer(80, 24)
+	cr.HandleLayout(snap)
 
 	clientConn, serverConn := net.Pipe()
 	t.Cleanup(func() {
@@ -811,10 +815,10 @@ func TestCaptureDisplayShowsPaneDragOverlay(t *testing.T) {
 
 	cr := buildColumnDragRenderer(t, 2)
 	cr.showPaneDragOverlay(2, 0, "", &render.DropIndicatorOverlay{
-		X:      0,
-		Y:      11,
-		Length: 39,
-		Dir:    mux.SplitHorizontal,
+		X: 0,
+		Y: 12,
+		W: 39,
+		H: 10,
 	})
 	cr.RenderDiff()
 
@@ -822,13 +826,13 @@ func TestCaptureDisplayShowsPaneDragOverlay(t *testing.T) {
 	if !strings.Contains(display, "[drag]") {
 		t.Fatalf("display capture missing drag label:\n%s", display)
 	}
-	if !strings.Contains(display, "━━") {
-		t.Fatalf("display capture missing drop indicator line:\n%s", display)
+	if !strings.Contains(display, "░░") {
+		t.Fatalf("display capture missing placeholder overlay:\n%s", display)
 	}
 
 	cr.hidePaneDragOverlay()
 	cr.RenderDiff()
-	if cleared := cr.CaptureDisplay(); strings.Contains(cleared, "[drag]") || strings.Contains(cleared, "━━") {
+	if cleared := cr.CaptureDisplay(); strings.Contains(cleared, "[drag]") || strings.Contains(cleared, "░░") {
 		t.Fatalf("display capture should clear drag overlay:\n%s", cleared)
 	}
 }

@@ -157,11 +157,11 @@ func (c *Compositor) RenderFullWithOverlay(root *mux.LayoutCell, activePaneID ui
 	}
 	renderBordersWithProfile(&buf, c.cachedBorderMap, root, activePaneID, activeColor, c.colorProfile)
 
-	if len(overlay.PaneLabels) > 0 {
-		renderPaneOverlayWithProfile(&buf, root, lookup, overlay.PaneLabels, c.colorProfile)
-	}
 	if overlay.DropIndicator != nil {
 		renderDropIndicator(&buf, overlay.DropIndicator)
+	}
+	if len(overlay.PaneLabels) > 0 {
+		renderPaneOverlayWithProfile(&buf, root, lookup, overlay.PaneLabels, c.colorProfile)
 	}
 
 	// Global status bar at bottom
