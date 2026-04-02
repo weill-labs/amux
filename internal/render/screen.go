@@ -595,10 +595,6 @@ func buildGlobalBarCells(g *ScreenGrid, sessionName string, paneCount int, width
 	chars = appendStyledStr(chars, " ", baseStyle)
 	chars = appendStyledStr(chars, "amux", boldStyle)
 	chars = appendStyledStr(chars, " │ ", baseStyle)
-	if showHelp {
-		chars = appendStyledStr(chars, "? help", focusedStyle)
-		chars = appendStyledStr(chars, " │ ", baseStyle)
-	}
 
 	if tabs := buildGlobalBarWindowTabsWithHelp(windows, showHelp); len(tabs) > 0 {
 		for _, tab := range tabs {
@@ -623,9 +619,7 @@ func buildGlobalBarCells(g *ScreenGrid, sessionName string, paneCount int, width
 		rightStyle = errorStyle
 		message = ""
 	} else {
-		paneCountStr := strconv.Itoa(paneCount)
-		now := now.Format("15:04")
-		rightText = " " + paneCountStr + " panes │ " + now + " "
+		rightText = globalBarStatusRightText(paneCount, showHelp, now)
 	}
 
 	// Fill middle.
