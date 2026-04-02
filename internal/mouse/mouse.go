@@ -197,8 +197,9 @@ func (p *Parser) Feed(b byte) (Event, bool, []byte) {
 	return Event{}, false, []byte{b}
 }
 
-// FlushPending resets the parser and returns any buffered bytes from an
-// incomplete non-mouse sequence candidate (for example, a lone Escape).
+// FlushPending returns a buffered standalone Escape press at the end of a read.
+// Incomplete CSI and SGR mouse candidates must stay buffered so split terminal
+// sequences can finish when the next read arrives.
 func (p *Parser) FlushPending() []byte {
 	if p.state != stateEsc || len(p.buf) == 0 {
 		return nil
