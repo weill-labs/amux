@@ -431,6 +431,8 @@ func (cr *ClientRenderer) handleRenderMsg(msg *RenderMsg) []clientEffect {
 		if structureChanged {
 			effects = append(effects, clientEffect{kind: clientEffectClearPrevGrid})
 		} else {
+			// Focus and metadata-only layout updates still change border and
+			// status styling outside pane-output dirty regions.
 			cr.RequestFullRedraw()
 		}
 		return appendStopAndRenderNow(effects)
