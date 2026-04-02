@@ -289,13 +289,13 @@ func mouseChunksForAction(layout *mux.LayoutCell, opts mouseCommandOptions, pane
 		}
 		return []encodedKeyChunk{chunk}, nil
 	case mouseCommandMotion:
-		chunk, err := mouseMotionChunk(opts.x, opts.y, 0)
+		chunk, err := mouseMotionChunk(opts.x, opts.y, mouseEventGap)
 		if err != nil {
 			return nil, err
 		}
 		return []encodedKeyChunk{chunk}, nil
 	case mouseCommandRelease:
-		chunk, err := mouseReleaseChunk(opts.x, opts.y, 0)
+		chunk, err := mouseReleaseChunk(opts.x, opts.y, mouseEventGap)
 		if err != nil {
 			return nil, err
 		}
