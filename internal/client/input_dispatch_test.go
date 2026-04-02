@@ -137,6 +137,68 @@ func buildColumnDragRenderer(t *testing.T, activePaneID uint32) *ClientRenderer 
 	return cr
 }
 
+func visiblePaneCell(t *testing.T, cr *ClientRenderer, paneID uint32) *mux.LayoutCell {
+	t.Helper()
+
+	layout := cr.VisibleLayout()
+	if layout == nil {
+		t.Fatal("visible layout missing")
+	}
+	cell := layout.FindByPaneID(paneID)
+	if cell == nil {
+		t.Fatalf("pane-%d missing from visible layout", paneID)
+	}
+	return cell
+}
+
+func paneCenterPoint(t *testing.T, cr *ClientRenderer, paneID uint32) (int, int) {
+	t.Helper()
+
+	cell := visiblePaneCell(t, cr, paneID)
+	return cell.X + cell.W/2, cell.Y + cell.H/2
+}
+
+func paneEdgePoint(t *testing.T, cr *ClientRenderer, paneID uint32, edge string) (int, int) {
+	t.Helper()
+
+	cell := visiblePaneCell(t, cr, paneID)
+	switch edge {
+	case "left":
+		return cell.X + 1, cell.Y + cell.H/2
+	case "right":
+		return cell.X + cell.W - 2, cell.Y + cell.H/2
+	case "top":
+		return cell.X + cell.W/2, cell.Y + 1
+	case "bottom":
+		return cell.X + cell.W/2, cell.Y + cell.H - 2
+	default:
+		t.Fatalf("unknown pane edge %q", edge)
+		return 0, 0
+	}
+}
+
+func windowEdgePoint(t *testing.T, cr *ClientRenderer, edge string) (int, int) {
+	t.Helper()
+
+	layout := cr.VisibleLayout()
+	if layout == nil {
+		t.Fatal("visible layout missing")
+	}
+	switch edge {
+	case "left":
+		return layout.X, layout.Y + layout.H/2
+	case "right":
+		return layout.X + layout.W - 1, layout.Y + layout.H/2
+	case "top":
+		return layout.X + layout.W/2, layout.Y
+	case "bottom":
+		return layout.X + layout.W/2, layout.Y + layout.H - 1
+	default:
+		t.Fatalf("unknown window edge %q", edge)
+		return 0, 0
+	}
+}
+
 func TestHandleDisplayPaneSelectionSendsFocusCommand(t *testing.T) {
 	t.Parallel()
 
@@ -382,21 +444,13 @@ func TestHandleMouseEventPaneDragTogglesFocusedPaneCursor(t *testing.T) {
 			},
 		},
 		{
-			name: "restore cursor after dropping on swap target",
-			motions: []mouse.Event{{
-				Action: mouse.Motion,
-				Button: mouse.ButtonLeft,
-				X:      60,
-				Y:      0,
-				LastX:  10,
-				LastY:  0,
-			}},
+			name:        "restore cursor after dropping on pane center swap target",
 			release: mouse.Event{
 				Action: mouse.Release,
 				Button: mouse.ButtonLeft,
-				X:      60,
+				X:      0,
 				Y:      0,
-				LastX:  60,
+				LastX:  0,
 				LastY:  0,
 			},
 			wantCommand: "swap",
@@ -427,6 +481,25 @@ func TestHandleMouseEventPaneDragTogglesFocusedPaneCursor(t *testing.T) {
 				X:      10,
 				Y:      0,
 			}, cr, sender, &drag, nil)
+			if tt.wantCommand == "swap" {
+				x, y := paneCenterPoint(t, cr, 2)
+				tt.motions = []mouse.Event{{
+					Action: mouse.Motion,
+					Button: mouse.ButtonLeft,
+					X:      x,
+					Y:      y,
+					LastX:  10,
+					LastY:  0,
+				}}
+				tt.release = mouse.Event{
+					Action: mouse.Release,
+					Button: mouse.ButtonLeft,
+					X:      x,
+					Y:      y,
+					LastX:  x,
+					LastY:  y,
+				}
+			}
 			for _, ev := range tt.motions {
 				handleMouseEvent(ev, cr, sender, &drag, nil)
 			}
@@ -460,7 +533,7 @@ func TestHandleMouseEventPaneDragTogglesFocusedPaneCursor(t *testing.T) {
 	}
 }
 
-func TestHandleMouseEventPaneDragReleaseOnPaneSendsSwapCommand(t *testing.T) {
+func TestHandleMouseEventPaneDragHoveringPaneCenterShowsPlaceholderPreview(t *testing.T) {
 	t.Parallel()
 
 	cr := buildTestRenderer(t)
@@ -475,6 +548,7 @@ func TestHandleMouseEventPaneDragReleaseOnPaneSendsSwapCommand(t *testing.T) {
 	t.Cleanup(sender.Close)
 
 	var drag dragState
+	centerX, centerY := paneCenterPoint(t, cr, 2)
 	handleMouseEvent(mouse.Event{
 		Action: mouse.Press,
 		Button: mouse.ButtonLeft,
@@ -484,32 +558,70 @@ func TestHandleMouseEventPaneDragReleaseOnPaneSendsSwapCommand(t *testing.T) {
 	handleMouseEvent(mouse.Event{
 		Action: mouse.Motion,
 		Button: mouse.ButtonLeft,
-		X:      60,
-		Y:      0,
+		X:      centerX,
+		Y:      centerY,
 		LastX:  10,
 		LastY:  0,
 	}, cr, sender, &drag, nil)
 
 	labels := cr.overlayState().PaneLabels
-	if len(labels) != 2 {
-		t.Fatalf("pane drag labels = %+v, want source and swap labels", labels)
+	if len(labels) != 1 {
+		t.Fatalf("pane drag labels = %+v, want source drag label only", labels)
 	}
 	if labels[0].PaneID != 1 || labels[0].Label != "drag" {
 		t.Fatalf("source drag label = %+v, want pane-1 drag", labels[0])
 	}
-	if labels[1].PaneID != 2 || labels[1].Label != "swap" {
-		t.Fatalf("swap target label = %+v, want pane-2 swap", labels[1])
+
+	cr.RenderDiff()
+	display := cr.CaptureDisplay()
+	if !strings.Contains(display, "░") {
+		t.Fatalf("display capture missing gray placeholder preview:\n%s", display)
 	}
+	if strings.Contains(display, "[swap]") {
+		t.Fatalf("display capture should not show the old swap label preview:\n%s", display)
+	}
+}
+
+func TestHandleMouseEventPaneDragReleaseOnPaneCenterSendsSwapCommand(t *testing.T) {
+	t.Parallel()
+
+	cr := buildTestRenderer(t)
+
+	clientConn, serverConn := net.Pipe()
+	t.Cleanup(func() {
+		clientConn.Close()
+		serverConn.Close()
+	})
+
+	sender := newMessageSender(clientConn)
+	t.Cleanup(sender.Close)
+
+	var drag dragState
+	centerX, centerY := paneCenterPoint(t, cr, 2)
+	handleMouseEvent(mouse.Event{
+		Action: mouse.Press,
+		Button: mouse.ButtonLeft,
+		X:      10,
+		Y:      0,
+	}, cr, sender, &drag, nil)
+	handleMouseEvent(mouse.Event{
+		Action: mouse.Motion,
+		Button: mouse.ButtonLeft,
+		X:      centerX,
+		Y:      centerY,
+		LastX:  10,
+		LastY:  0,
+	}, cr, sender, &drag, nil)
 
 	done := make(chan struct{})
 	go func() {
 		handleMouseEvent(mouse.Event{
 			Action: mouse.Release,
 			Button: mouse.ButtonLeft,
-			X:      60,
-			Y:      0,
-			LastX:  60,
-			LastY:  0,
+			X:      centerX,
+			Y:      centerY,
+			LastX:  centerX,
+			LastY:  centerY,
 		}, cr, sender, &drag, nil)
 		close(done)
 	}()
@@ -527,7 +639,7 @@ func TestHandleMouseEventPaneDragReleaseOnPaneSendsSwapCommand(t *testing.T) {
 	}
 }
 
-func TestHandleMouseEventPaneDragReleaseOnColumnBorderSendsMoveToCommand(t *testing.T) {
+func TestHandleMouseEventPaneDragReleaseOnPaneEdgeSendsDropPaneCommand(t *testing.T) {
 	t.Parallel()
 
 	cr := buildColumnDragRenderer(t, 1)
@@ -542,6 +654,7 @@ func TestHandleMouseEventPaneDragReleaseOnColumnBorderSendsMoveToCommand(t *test
 	t.Cleanup(sender.Close)
 
 	var drag dragState
+	edgeX, edgeY := paneEdgePoint(t, cr, 2, "left")
 	done := make(chan struct{})
 	go func() {
 		handleMouseEvent(mouse.Event{
@@ -553,33 +666,33 @@ func TestHandleMouseEventPaneDragReleaseOnColumnBorderSendsMoveToCommand(t *test
 		handleMouseEvent(mouse.Event{
 			Action: mouse.Motion,
 			Button: mouse.ButtonLeft,
-			X:      39,
-			Y:      5,
+			X:      edgeX,
+			Y:      edgeY,
 			LastX:  10,
 			LastY:  0,
 		}, cr, sender, &drag, nil)
 		handleMouseEvent(mouse.Event{
 			Action: mouse.Release,
 			Button: mouse.ButtonLeft,
-			X:      39,
-			Y:      5,
-			LastX:  39,
-			LastY:  5,
+			X:      edgeX,
+			Y:      edgeY,
+			LastX:  edgeX,
+			LastY:  edgeY,
 		}, cr, sender, &drag, nil)
 		close(done)
 	}()
 
 	msg := readCommandMessage(t, serverConn)
-	if msg.CmdName != "move-to" || len(msg.CmdArgs) != 2 || msg.CmdArgs[0] != "1" || msg.CmdArgs[1] != "2" {
-		t.Fatalf("move-to command = %q %v, want move-to [1 2]", msg.CmdName, msg.CmdArgs)
+	if msg.CmdName != "drop-pane" || len(msg.CmdArgs) != 3 || msg.CmdArgs[0] != "1" || msg.CmdArgs[1] != "2" || msg.CmdArgs[2] != "left" {
+		t.Fatalf("drop-pane command = %q %v, want drop-pane [1 2 left]", msg.CmdName, msg.CmdArgs)
 	}
 	<-done
 }
 
-func TestHandleMouseEventPaneDragBetweenPanesAcrossColumnsSendsMoveSequence(t *testing.T) {
+func TestHandleMouseEventPaneDragReleaseOnWindowEdgeSendsRootDropCommand(t *testing.T) {
 	t.Parallel()
 
-	cr := buildColumnDragRenderer(t, 2)
+	cr := buildTestRenderer(t)
 
 	clientConn, serverConn := net.Pipe()
 	t.Cleanup(func() {
@@ -591,6 +704,7 @@ func TestHandleMouseEventPaneDragBetweenPanesAcrossColumnsSendsMoveSequence(t *t
 	t.Cleanup(sender.Close)
 
 	var drag dragState
+	rootX, rootY := windowEdgePoint(t, cr, "left")
 	done := make(chan struct{})
 	go func() {
 		handleMouseEvent(mouse.Event{
@@ -602,43 +716,93 @@ func TestHandleMouseEventPaneDragBetweenPanesAcrossColumnsSendsMoveSequence(t *t
 		handleMouseEvent(mouse.Event{
 			Action: mouse.Motion,
 			Button: mouse.ButtonLeft,
-			X:      10,
-			Y:      11,
+			X:      rootX,
+			Y:      rootY,
 			LastX:  60,
 			LastY:  0,
 		}, cr, sender, &drag, nil)
 		handleMouseEvent(mouse.Event{
 			Action: mouse.Release,
 			Button: mouse.ButtonLeft,
-			X:      10,
-			Y:      11,
-			LastX:  10,
-			LastY:  11,
+			X:      rootX,
+			Y:      rootY,
+			LastX:  rootX,
+			LastY:  rootY,
 		}, cr, sender, &drag, nil)
 		close(done)
 	}()
 
-	first := readCommandMessage(t, serverConn)
-	if first.CmdName != "move-to" || len(first.CmdArgs) != 2 || first.CmdArgs[0] != "2" || first.CmdArgs[1] != "3" {
-		t.Fatalf("first command = %q %v, want move-to [2 3]", first.CmdName, first.CmdArgs)
-	}
-
-	second := readCommandMessage(t, serverConn)
-	if second.CmdName != "move" || len(second.CmdArgs) != 3 || second.CmdArgs[0] != "2" || second.CmdArgs[1] != "--before" || second.CmdArgs[2] != "3" {
-		t.Fatalf("second command = %q %v, want move [2 --before 3]", second.CmdName, second.CmdArgs)
+	msg := readCommandMessage(t, serverConn)
+	if msg.CmdName != "drop-pane" || len(msg.CmdArgs) != 3 || msg.CmdArgs[0] != "2" || msg.CmdArgs[1] != "root" || msg.CmdArgs[2] != "left" {
+		t.Fatalf("root drop command = %q %v, want drop-pane [2 root left]", msg.CmdName, msg.CmdArgs)
 	}
 	<-done
 }
 
-func TestResolvePaneDropTargetRejectsHorizontalBorderTargetingSourcePane(t *testing.T) {
+func TestResolvePaneDropTargetUsesZoneTargets(t *testing.T) {
 	t.Parallel()
 
-	cr := buildColumnDragRenderer(t, 3)
-	layout := cr.VisibleLayout()
+	tests := []struct {
+		name       string
+		cr         *ClientRenderer
+		sourcePane uint32
+		point      func(t *testing.T, cr *ClientRenderer) (int, int)
+		wantCmds   []paneDragCommand
+	}{
+		{
+			name:       "center zone swaps hovered pane",
+			cr:         buildTestRenderer(t),
+			sourcePane: 1,
+			point: func(t *testing.T, cr *ClientRenderer) (int, int) {
+				return paneCenterPoint(t, cr, 2)
+			},
+			wantCmds: []paneDragCommand{{
+				name: "swap",
+				args: []string{"1", "2"},
+			}},
+		},
+		{
+			name:       "edge zone splits hovered pane at nearest edge",
+			cr:         buildColumnDragRenderer(t, 1),
+			sourcePane: 1,
+			point: func(t *testing.T, cr *ClientRenderer) (int, int) {
+				return paneEdgePoint(t, cr, 2, "left")
+			},
+			wantCmds: []paneDragCommand{{
+				name: "drop-pane",
+				args: []string{"1", "2", "left"},
+			}},
+		},
+		{
+			name:       "window boundary takes root split precedence",
+			cr:         buildTestRenderer(t),
+			sourcePane: 2,
+			point: func(t *testing.T, cr *ClientRenderer) (int, int) {
+				return windowEdgePoint(t, cr, "left")
+			},
+			wantCmds: []paneDragCommand{{
+				name: "drop-pane",
+				args: []string{"2", "root", "left"},
+			}},
+		},
+	}
 
-	target := resolvePaneDropTarget(cr, layout, 3, 10, 11)
-	if target != nil {
-		t.Fatalf("horizontal border target = %+v, want nil when hit.Right resolves to source pane", target)
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			x, y := tt.point(t, tt.cr)
+			target := resolvePaneDropTarget(tt.cr, tt.cr.VisibleLayout(), tt.sourcePane, x, y)
+			if target == nil {
+				t.Fatal("resolvePaneDropTarget() = nil, want target")
+			}
+			if !slices.EqualFunc(target.commands, tt.wantCmds, func(a, b paneDragCommand) bool {
+				return a.name == b.name && slices.Equal(a.args, b.args)
+			}) {
+				t.Fatalf("commands = %+v, want %+v", target.commands, tt.wantCmds)
+			}
+		})
 	}
 }
 

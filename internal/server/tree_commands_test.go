@@ -280,6 +280,85 @@ func TestQueuedCommandMoveErrorPaths(t *testing.T) {
 	}
 }
 
+func TestQueuedCommandDropPaneSplitsTargetPaneAtEdge(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	p1 := newTestPane(sess, 1, "pane-1")
+	p2 := newTestPane(sess, 2, "pane-2")
+	p3 := newTestPane(sess, 3, "pane-3")
+	w := mux.NewWindow(p1, 80, 23)
+	w.ID = 1
+	w.Name = "main"
+	if _, err := w.SplitRoot(mux.SplitVertical, p2); err != nil {
+		t.Fatalf("SplitRoot: %v", err)
+	}
+	w.FocusPane(p1)
+	if _, err := w.SplitPaneWithOptions(p1.ID, mux.SplitHorizontal, p3, mux.SplitOptions{}); err != nil {
+		t.Fatalf("SplitPaneWithOptions: %v", err)
+	}
+	if err := setAttachTestLayout(sess, []*mux.Window{w}, w.ID, []*mux.Pane{p1, p2, p3}); err != nil {
+		t.Fatalf("setAttachTestLayout: %v", err)
+	}
+
+	res := runTestCommand(t, srv, sess, "drop-pane", "pane-1", "pane-2", "left")
+	if res.cmdErr != "" {
+		t.Fatalf("drop-pane edge split error = %q", res.cmdErr)
+	}
+
+	c1 := w.Root.FindPane(p1.ID)
+	c2 := w.Root.FindPane(p2.ID)
+	c3 := w.Root.FindPane(p3.ID)
+	if c1 == nil || c2 == nil || c3 == nil {
+		t.Fatalf("expected all panes after drop-pane, got c1=%v c2=%v c3=%v", c1, c2, c3)
+	}
+	if !(c3.X < c1.X && c1.X < c2.X && c1.Y == c2.Y) {
+		t.Fatalf("expected pane-1 to split pane-2 on the left: c1=(%d,%d %dx%d) c2=(%d,%d %dx%d) c3=(%d,%d %dx%d)",
+			c1.X, c1.Y, c1.W, c1.H,
+			c2.X, c2.Y, c2.W, c2.H,
+			c3.X, c3.Y, c3.W, c3.H,
+		)
+	}
+}
+
+func TestQueuedCommandDropPaneCreatesRootSplitAtWindowEdge(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	p1 := newTestPane(sess, 1, "pane-1")
+	p2 := newTestPane(sess, 2, "pane-2")
+	w := mux.NewWindow(p1, 80, 23)
+	w.ID = 1
+	w.Name = "main"
+	if _, err := w.SplitRoot(mux.SplitVertical, p2); err != nil {
+		t.Fatalf("SplitRoot: %v", err)
+	}
+	if err := setAttachTestLayout(sess, []*mux.Window{w}, w.ID, []*mux.Pane{p1, p2}); err != nil {
+		t.Fatalf("setAttachTestLayout: %v", err)
+	}
+
+	res := runTestCommand(t, srv, sess, "drop-pane", "pane-2", "root", "left")
+	if res.cmdErr != "" {
+		t.Fatalf("drop-pane root split error = %q", res.cmdErr)
+	}
+
+	c1 := w.Root.FindPane(p1.ID)
+	c2 := w.Root.FindPane(p2.ID)
+	if c1 == nil || c2 == nil {
+		t.Fatalf("expected both panes after root drop, got c1=%v c2=%v", c1, c2)
+	}
+	if c2.X >= c1.X {
+		t.Fatalf("expected pane-2 to become the left root pane: c1=(%d,%d %dx%d) c2=(%d,%d %dx%d)",
+			c1.X, c1.Y, c1.W, c1.H,
+			c2.X, c2.Y, c2.W, c2.H,
+		)
+	}
+}
+
 func TestQueuedCommandMoveToErrorPaths(t *testing.T) {
 	t.Parallel()
 
