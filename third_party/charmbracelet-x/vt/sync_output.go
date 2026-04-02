@@ -8,31 +8,25 @@ import (
 	"github.com/charmbracelet/x/ansi/parser"
 )
 
+const defaultSynchronizedOutputTimeout = 100 * time.Millisecond
+
 var synchronizedOutputResetSequence = []byte(ansi.ResetModeSynchronizedOutput)
 
 func (e *Emulator) beginSynchronizedOutput() {
+	e.resetSynchronizedOutputState()
 	e.syncOutputActive = true
-	e.syncOutputBuffer = nil
-	if e.now == nil {
-		e.now = time.Now
-	}
-	e.syncOutputDeadline = e.now().Add(e.syncOutputTimeout)
+	e.syncOutputDeadline = e.synchronizedOutputNow().Add(e.syncOutputTimeout)
 }
 
 func (e *Emulator) endSynchronizedOutput() {
-	e.syncOutputActive = false
-	e.syncOutputBuffer = nil
-	e.syncOutputDeadline = time.Time{}
+	e.resetSynchronizedOutputState()
 }
 
 func (e *Emulator) flushExpiredSynchronizedOutput() {
 	if !e.syncOutputActive || e.syncOutputDeadline.IsZero() {
 		return
 	}
-	if e.now == nil {
-		e.now = time.Now
-	}
-	if e.now().Before(e.syncOutputDeadline) {
+	if e.synchronizedOutputNow().Before(e.syncOutputDeadline) {
 		return
 	}
 	e.flushSynchronizedOutputBuffer(true)
@@ -40,9 +34,7 @@ func (e *Emulator) flushExpiredSynchronizedOutput() {
 
 func (e *Emulator) flushSynchronizedOutputBuffer(implicitReset bool) {
 	buffered := append([]byte(nil), e.syncOutputBuffer...)
-	e.syncOutputActive = false
-	e.syncOutputBuffer = nil
-	e.syncOutputDeadline = time.Time{}
+	e.resetSynchronizedOutputState()
 	if len(buffered) > 0 {
 		e.parseBytes(buffered)
 	}
@@ -73,9 +65,7 @@ func (e *Emulator) bufferSynchronizedOutput(p []byte) {
 	end := idx + len(synchronizedOutputResetSequence)
 	buffered := append([]byte(nil), e.syncOutputBuffer[:end]...)
 	suffix := append([]byte(nil), e.syncOutputBuffer[end:]...)
-	e.syncOutputBuffer = nil
-	e.syncOutputActive = false
-	e.syncOutputDeadline = time.Time{}
+	e.resetSynchronizedOutputState()
 	e.parseBytes(buffered)
 	if len(suffix) == 0 {
 		return
@@ -104,4 +94,17 @@ func (e *Emulator) parseBytes(p []byte) {
 			return
 		}
 	}
+}
+
+func (e *Emulator) resetSynchronizedOutputState() {
+	e.syncOutputActive = false
+	e.syncOutputBuffer = nil
+	e.syncOutputDeadline = time.Time{}
+}
+
+func (e *Emulator) synchronizedOutputNow() time.Time {
+	if e.now == nil {
+		e.now = time.Now
+	}
+	return e.now()
 }

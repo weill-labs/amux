@@ -112,7 +112,7 @@ func NewEmulator(w, h int) *Emulator {
 	t.resetModes()
 	t.tabstops = uv.DefaultTabStops(w)
 	t.registerDefaultHandlers()
-	t.syncOutputTimeout = 100 * time.Millisecond
+	t.syncOutputTimeout = defaultSynchronizedOutputTimeout
 	t.now = time.Now
 
 	// Default colors
