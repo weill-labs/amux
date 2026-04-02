@@ -1383,12 +1383,16 @@ func TestHandleMouseEventForwardsAppMouseClickToPane(t *testing.T) {
 	var drag dragState
 	y := mux.StatusLineRows
 
-	handleMouseEvent(mouse.Event{
-		Action: mouse.Press,
-		Button: mouse.ButtonLeft,
-		X:      0,
-		Y:      y,
-	}, cr, sender, &drag, nil)
+	pressDone := make(chan struct{}, 1)
+	go func() {
+		handleMouseEvent(mouse.Event{
+			Action: mouse.Press,
+			Button: mouse.ButtonLeft,
+			X:      0,
+			Y:      y,
+		}, cr, sender, &drag, nil)
+		pressDone <- struct{}{}
+	}()
 
 	press := readCommandMessage(t, serverConn)
 	if press.Type != proto.MsgTypeInputPane {
@@ -1403,14 +1407,19 @@ func TestHandleMouseEventForwardsAppMouseClickToPane(t *testing.T) {
 	if drag.Active || drag.PaneDragActive || drag.CopyModeActive || drag.CopyModePaneID != 0 {
 		t.Fatalf("press should not start local mouse handling, got %+v", drag)
 	}
+	<-pressDone
 	assertNoMessage(t, serverConn)
 
-	handleMouseEvent(mouse.Event{
-		Action: mouse.Release,
-		Button: mouse.ButtonLeft,
-		X:      0,
-		Y:      y,
-	}, cr, sender, &drag, nil)
+	releaseDone := make(chan struct{}, 1)
+	go func() {
+		handleMouseEvent(mouse.Event{
+			Action: mouse.Release,
+			Button: mouse.ButtonLeft,
+			X:      0,
+			Y:      y,
+		}, cr, sender, &drag, nil)
+		releaseDone <- struct{}{}
+	}()
 
 	release := readCommandMessage(t, serverConn)
 	if release.Type != proto.MsgTypeInputPane {
@@ -1422,6 +1431,7 @@ func TestHandleMouseEventForwardsAppMouseClickToPane(t *testing.T) {
 	if got := string(release.PaneData); got != "\x1b[<0;1;1m" {
 		t.Fatalf("release pane data = %q, want %q", got, "\x1b[<0;1;1m")
 	}
+	<-releaseDone
 	assertNoMessage(t, serverConn)
 }
 

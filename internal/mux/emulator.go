@@ -424,6 +424,7 @@ func RenderWithCursor(emu TerminalEmulator) string {
 	} else {
 		buf.WriteString("\x1b[?25h")
 	}
+	buf.WriteString(renderMouseProtocol(emu.MouseProtocol()))
 	for i, line := range lines {
 		// Position cursor at start of each row (CUP is 1-indexed)
 		buf.WriteString(fmt.Sprintf("\033[%d;1H", i+1))
@@ -432,5 +433,33 @@ func RenderWithCursor(emu TerminalEmulator) string {
 
 	col, row := emu.CursorPosition()
 	buf.WriteString(fmt.Sprintf("\033[%d;%dH", row+1, col+1))
+	return buf.String()
+}
+
+func renderMouseProtocol(proto MouseProtocol) string {
+	var buf strings.Builder
+	switch proto.Tracking {
+	case MouseTrackingStandard:
+		buf.WriteString("\x1b[?1000h")
+		buf.WriteString("\x1b[?1002l")
+		buf.WriteString("\x1b[?1003l")
+	case MouseTrackingButton:
+		buf.WriteString("\x1b[?1000l")
+		buf.WriteString("\x1b[?1002h")
+		buf.WriteString("\x1b[?1003l")
+	case MouseTrackingAny:
+		buf.WriteString("\x1b[?1000l")
+		buf.WriteString("\x1b[?1002l")
+		buf.WriteString("\x1b[?1003h")
+	default:
+		buf.WriteString("\x1b[?1000l")
+		buf.WriteString("\x1b[?1002l")
+		buf.WriteString("\x1b[?1003l")
+	}
+	if proto.SGR {
+		buf.WriteString("\x1b[?1006h")
+	} else {
+		buf.WriteString("\x1b[?1006l")
+	}
 	return buf.String()
 }
