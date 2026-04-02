@@ -54,7 +54,7 @@ func EncodeChunks(hexMode bool, keys []string) ([]Chunk, error) {
 }
 
 func PacedKeyToken(key string) bool {
-	if key == "Enter" || key == "Return" {
+	if canonicalKeyName(key) == "Enter" {
 		return true
 	}
 	if _, mods, _, ok := parseKeyToken(key); ok && mods&keyModCtrl != 0 {
@@ -137,16 +137,16 @@ func baseKeyBytes(base string, shift bool) ([]byte, bool) {
 }
 
 func ctrlModifiedKeyByte(base string) (byte, bool) {
-	switch base {
+	switch canonicalKeyName(base) {
 	case "Space":
 		return 0x00, true
 	case "Tab":
 		return '\t', true
-	case "Enter", "Return":
+	case "Enter":
 		return '\r', true
-	case "Escape", "Esc":
+	case "Escape":
 		return 0x1b, true
-	case "BSpace", "Backspace":
+	case "BSpace":
 		return 0x08, true
 	}
 
@@ -221,23 +221,36 @@ func asciiRuneByte(r rune) (byte, bool) {
 }
 
 func namedKeyBytes(key string) ([]byte, bool) {
-	b, ok := specialKeys[key]
+	b, ok := specialKeys[canonicalKeyName(key)]
 	if !ok {
 		return nil, false
 	}
 	return append([]byte(nil), b...), true
 }
 
+func canonicalKeyName(key string) string {
+	if alias, ok := specialKeyAliases[key]; ok {
+		return alias
+	}
+	return key
+}
+
+var specialKeyAliases = map[string]string{
+	"Return":    "Enter",
+	"Esc":       "Escape",
+	"Backspace": "BSpace",
+	"PgUp":      "PageUp",
+	"PgDn":      "PageDown",
+	"KPPeriod":  "KPDecimal",
+}
+
 var specialKeys = map[string][]byte{
 	"Enter":      {'\r'},
-	"Return":     {'\r'},
 	"Tab":        {'\t'},
 	"BTab":       {0x1b, '[', 'Z'},
 	"Escape":     {0x1b},
-	"Esc":        {0x1b},
 	"Space":      {' '},
 	"BSpace":     {0x7f},
-	"Backspace":  {0x7f},
 	"Up":         {0x1b, '[', 'A'},
 	"Down":       {0x1b, '[', 'B'},
 	"Right":      {0x1b, '[', 'C'},
@@ -245,9 +258,7 @@ var specialKeys = map[string][]byte{
 	"Home":       {0x1b, '[', 'H'},
 	"End":        {0x1b, '[', 'F'},
 	"PageUp":     {0x1b, '[', '5', '~'},
-	"PgUp":       {0x1b, '[', '5', '~'},
 	"PageDown":   {0x1b, '[', '6', '~'},
-	"PgDn":       {0x1b, '[', '6', '~'},
 	"Delete":     {0x1b, '[', '3', '~'},
 	"Insert":     {0x1b, '[', '2', '~'},
 	"F1":         {0x1b, 'O', 'P'},
@@ -279,6 +290,5 @@ var specialKeys = map[string][]byte{
 	"KPComma":    {0x1b, 'O', 'l'},
 	"KPMinus":    {0x1b, 'O', 'm'},
 	"KPDecimal":  {0x1b, 'O', 'n'},
-	"KPPeriod":   {0x1b, 'O', 'n'},
 	"KPDivide":   {0x1b, 'O', 'o'},
 }
