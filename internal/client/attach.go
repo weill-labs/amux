@@ -1020,11 +1020,9 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 				shouldExit = decodeAndDispatch(flushed)
 			}
 
-			// Flush any bytes the mouse parser is holding from an
-			// incomplete escape sequence (typically a bare \x1b from a
-			// standalone Escape press). Without this, a lone Escape at the
-			// end of a read stays buffered and coalesces with the next
-			// read's first byte — turning Esc then j into Alt+j.
+			// Flush a standalone Escape at the end of a read so Esc then j
+			// does not coalesce into Alt+j. Split CSI and mouse sequences
+			// stay buffered in the parser and complete on the next read.
 			if !shouldExit {
 				shouldExit = decodeAndDispatch(mouseParser.FlushPending())
 			}
