@@ -13,6 +13,7 @@ import (
 
 type clientUIStateSnapshot struct {
 	dirty           bool
+	fullRedraw      bool
 	message         string
 	displayPanes    bool
 	paneDrag        bool
@@ -20,6 +21,7 @@ type clientUIStateSnapshot struct {
 	helpBar         bool
 	prompt          string
 	copyModePaneIDs []uint32
+	dirtyPaneIDs    []uint32
 	inputIdle       bool
 }
 
@@ -29,6 +31,12 @@ func snapshotClientUIState(st clientUIState) clientUIStateSnapshot {
 		paneIDs = append(paneIDs, paneID)
 	}
 	sort.Slice(paneIDs, func(i, j int) bool { return paneIDs[i] < paneIDs[j] })
+
+	dirtyPaneIDs := make([]uint32, 0, len(st.dirtyPanes))
+	for paneID := range st.dirtyPanes {
+		dirtyPaneIDs = append(dirtyPaneIDs, paneID)
+	}
+	sort.Slice(dirtyPaneIDs, func(i, j int) bool { return dirtyPaneIDs[i] < dirtyPaneIDs[j] })
 
 	chooser := ""
 	if st.chooser != nil {
@@ -41,6 +49,7 @@ func snapshotClientUIState(st clientUIState) clientUIStateSnapshot {
 
 	return clientUIStateSnapshot{
 		dirty:           st.dirty,
+		fullRedraw:      st.fullRedraw,
 		message:         st.message,
 		displayPanes:    st.displayPanes != nil,
 		paneDrag:        st.paneDrag != nil,
@@ -48,6 +57,7 @@ func snapshotClientUIState(st clientUIState) clientUIStateSnapshot {
 		helpBar:         st.helpBar != nil,
 		prompt:          prompt,
 		copyModePaneIDs: paneIDs,
+		dirtyPaneIDs:    dirtyPaneIDs,
 		inputIdle:       st.inputIdle,
 	}
 }
@@ -143,11 +153,12 @@ func TestClientUIStateReduceTransitions(t *testing.T) {
 			setup: func(st *clientUIState) {
 				st.message = "No binding for C-a f"
 			},
-			action: uiActionPaneOutput{},
+			action: uiActionPaneOutput{paneID: 7},
 			wantState: clientUIStateSnapshot{
 				dirty:           true,
 				message:         "No binding for C-a f",
 				copyModePaneIDs: []uint32{},
+				dirtyPaneIDs:    []uint32{7},
 				inputIdle:       true,
 			},
 		},
@@ -523,14 +534,20 @@ func TestClientUIStateDirtyLifecycle(t *testing.T) {
 		t.Fatal("markRendered should clear dirty state")
 	}
 
-	st.reduce(uiActionPaneOutput{})
+	st.reduce(uiActionPaneOutput{paneID: 3})
 	if !st.dirty {
 		t.Fatal("pane output should mark state dirty")
+	}
+	if !reflect.DeepEqual(snapshotClientUIState(st).dirtyPaneIDs, []uint32{3}) {
+		t.Fatalf("dirty pane ids = %v, want [3]", snapshotClientUIState(st).dirtyPaneIDs)
 	}
 
 	st.markRendered()
 	if st.dirty {
 		t.Fatal("markRendered should clear dirty state after pane output")
+	}
+	if got := snapshotClientUIState(st).dirtyPaneIDs; len(got) != 0 {
+		t.Fatalf("dirty pane ids after markRendered = %v, want none", got)
 	}
 }
 
