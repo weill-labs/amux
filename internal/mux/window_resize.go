@@ -186,10 +186,10 @@ func (w *Window) Equalize(widths, heights bool) bool {
 	}
 
 	if widthChanged {
-		logical.equalizeAxis(SplitVertical)
+		logical.equalizeAxisRecursive(SplitVertical)
 	}
 	if heightChanged {
-		logical.equalizeAxis(SplitHorizontal)
+		logical.equalizeAxisRecursive(SplitHorizontal)
 	}
 
 	w.Root.FixOffsets()

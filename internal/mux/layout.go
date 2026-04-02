@@ -787,11 +787,11 @@ func (c *LayoutCell) equalizeChildrenNeeded() bool {
 }
 
 func (c *LayoutCell) equalizeAxisNeeded(axis SplitDir) bool {
-	if c == nil || c.IsLeaf() {
+	if c == nil {
 		return false
 	}
 
-	if c.Dir == axis && len(c.Children) > 1 && c.equalizeChildrenNeeded() {
+	if c.Dir == axis && c.equalizeChildrenNeeded() {
 		return true
 	}
 	for _, child := range c.Children {
@@ -802,16 +802,16 @@ func (c *LayoutCell) equalizeAxisNeeded(axis SplitDir) bool {
 	return false
 }
 
-func (c *LayoutCell) equalizeAxis(axis SplitDir) {
-	if c == nil || c.IsLeaf() {
+func (c *LayoutCell) equalizeAxisRecursive(axis SplitDir) {
+	if c == nil {
 		return
 	}
 
-	if c.Dir == axis && len(c.Children) > 1 {
+	if c.Dir == axis {
 		c.distributeEqual()
 	}
 	for _, child := range c.Children {
-		child.equalizeAxis(axis)
+		child.equalizeAxisRecursive(axis)
 	}
 }
 
