@@ -8,18 +8,36 @@ import (
 	"time"
 )
 
-const rawReadDoneMarker = "__RAW_DONE__"
+const rawReadArmSettle = 10 * time.Millisecond
+const rawReadProbeTimeout = 50 * time.Millisecond
 
-func rawReadCommandWithDeadline(byteCount int, timeout time.Duration) string {
+type rawReadMarkers struct {
+	ready string
+	hex   string
+	done  string
+	exit  string
+}
+
+func newRawReadMarkers(id int) rawReadMarkers {
+	return rawReadMarkers{
+		ready: fmt.Sprintf("__RAW_READY_%02d__", id),
+		hex:   fmt.Sprintf("__RAW_HEX_%02d__=", id),
+		done:  fmt.Sprintf("__RAW_DONE_%02d__", id),
+		exit:  fmt.Sprintf("__RAW_EXIT_%02d__", id),
+	}
+}
+
+func rawReadCommandWithDeadline(byteCount int, timeout time.Duration, markers rawReadMarkers) string {
 	return fmt.Sprintf(`python3 -u -c 'import os,select,sys,termios,time,tty
 fd=sys.stdin.fileno()
 old=termios.tcgetattr(fd)
-ready="".join(chr(c) for c in [95,95,82,65,87,95,82,69,65,68,89,95,95])
-done="".join(chr(c) for c in [95,95,82,65,87,95,68,79,78,69,95,95])
+ready=%q
+hex_marker=%q
+done=%q
 tty.setraw(fd)
 try:
     while True:
-        r, _, _ = select.select([fd], [], [], 0)
+        r, _, _ = select.select([fd], [], [], %0.3f)
         if not r:
             break
         if not os.read(fd, 4096):
@@ -36,10 +54,10 @@ try:
         if not chunk:
             break
         data.extend(chunk)
-    print("HEX="+data.hex(), flush=True)
+    print(hex_marker+data.hex(), flush=True)
     print(done, flush=True)
 finally:
-    termios.tcsetattr(fd, termios.TCSADRAIN, old)'`, timeout.Seconds(), byteCount, byteCount)
+    termios.tcsetattr(fd, termios.TCSADRAIN, old)'; printf '%%s\n' %q`, markers.ready, markers.hex, markers.done, rawReadArmSettle.Seconds(), timeout.Seconds(), byteCount, byteCount, markers.exit)
 }
 
 func TestSendKeysEncodeParityMatrix(t *testing.T) {
@@ -125,27 +143,29 @@ func TestSendKeysEncodeParityMatrix(t *testing.T) {
 	}
 
 	h := newServerHarness(t)
-	for _, tt := range tests {
+	for i, tt := range tests {
+		markers := newRawReadMarkers(i)
 		t.Run(tt.name, func(t *testing.T) {
 			readBytes := len(tt.want)
 			if len(tt.token) > readBytes {
 				readBytes = len(tt.token)
 			}
 
-			h.sendKeys("pane-1", rawReadCommandWithDeadline(readBytes, 250*time.Millisecond), "Enter")
-			h.waitFor("pane-1", rawReadReadyMarker)
+			h.sendKeys("pane-1", rawReadCommandWithDeadline(readBytes, rawReadProbeTimeout, markers), "Enter")
+			h.waitFor("pane-1", markers.ready)
 
 			out := h.runCmd("send-keys", "pane-1", tt.token)
 			if strings.Contains(out, "invalid") {
 				t.Fatalf("send-keys %q failed: %s", tt.token, out)
 			}
 
-			h.waitFor("pane-1", rawReadDoneMarker)
+			h.waitFor("pane-1", markers.done)
+			h.waitFor("pane-1", markers.exit)
 
 			wantHex := hex.EncodeToString(tt.want)
 			pane := h.runCmd("capture", "pane-1")
-			if !strings.Contains(pane, "HEX="+wantHex) {
-				t.Fatalf("send-keys %q hex output missing %q\nPane:\n%s", tt.token, "HEX="+wantHex, pane)
+			if !strings.Contains(pane, markers.hex+wantHex) {
+				t.Fatalf("send-keys %q hex output missing %q\nPane:\n%s", tt.token, markers.hex+wantHex, pane)
 			}
 		})
 	}
