@@ -147,6 +147,27 @@ func TestRenderGlobalBarAndTruncateRunes(t *testing.T) {
 	}
 }
 
+func TestRenderGlobalBarPlacesHelpToggleNextToClock(t *testing.T) {
+	t.Parallel()
+
+	var buf strings.Builder
+	frozen := time.Date(2026, time.March, 22, 9, 41, 0, 0, time.UTC)
+
+	renderGlobalBar(&buf, "main", 3, 44, 0, nil, "", frozen)
+	rendered := MaterializeGrid(buf.String(), 44, 1)
+
+	sessionIdx := strings.Index(rendered, "main")
+	panesIdx := strings.Index(rendered, "3 panes")
+	helpIdx := strings.Index(rendered, "? help")
+	clockIdx := strings.Index(rendered, "09:41")
+	if sessionIdx < 0 || panesIdx < 0 || helpIdx < 0 || clockIdx < 0 {
+		t.Fatalf("global bar missing expected segments: %q", rendered)
+	}
+	if !(sessionIdx < panesIdx && panesIdx < helpIdx && helpIdx < clockIdx) {
+		t.Fatalf("global bar should place ? help to the right of the pane count and left of the clock: %q", rendered)
+	}
+}
+
 func TestGlobalBarWindowAtColumn(t *testing.T) {
 	t.Parallel()
 
