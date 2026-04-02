@@ -154,11 +154,11 @@ func (ctx inputCommandContext) SendKeys(actorPaneID uint32, args []string) (stri
 			return "", 0, err
 		}
 	case sendKeysWaitInputIdle:
-		uiWait, err := ctx.Sess.queryUIClient(opts.requestedClientID, proto.UIEventInputIdle)
+		uiWait, err := querySendKeysClient(ctx.Sess, opts.requestedClientID, proto.UIEventInputIdle)
 		if err != nil {
 			return "", 0, err
 		}
-		if err := enqueueSendKeysInput(ctx.Sess, pane, chunks, opts, &uiWait); err != nil {
+		if err := enqueueSendKeysInput(ctx.Sess, pane, chunks, opts, uiWait); err != nil {
 			return "", 0, err
 		}
 	default:
@@ -177,7 +177,7 @@ func enqueueSendKeysInput(sess *Session, pane resolvedPaneRef, chunks []encodedK
 	if opts.transport == sendKeysViaClient {
 		if uiWait == nil {
 			var err error
-			uiWait, err = querySendKeysClient(sess, opts.requestedClientID)
+			uiWait, err = querySendKeysClient(sess, opts.requestedClientID, "")
 			if err != nil {
 				return err
 			}
@@ -187,8 +187,8 @@ func enqueueSendKeysInput(sess *Session, pane resolvedPaneRef, chunks []encodedK
 	return sess.enqueuePacedPaneInput(pane.pane, chunks)
 }
 
-func querySendKeysClient(sess *Session, requestedClientID string) (*uiClientSnapshot, error) {
-	snap, err := sess.queryUIClient(requestedClientID, "")
+func querySendKeysClient(sess *Session, requestedClientID, eventName string) (*uiClientSnapshot, error) {
+	snap, err := sess.queryUIClient(requestedClientID, eventName)
 	if err != nil {
 		return nil, err
 	}
