@@ -4,17 +4,13 @@ import "github.com/weill-labs/amux/internal/render"
 
 type paneDragOverlayState struct {
 	sourcePaneID uint32
-	targetPaneID uint32
-	targetLabel  string
 	indicator    *render.DropIndicatorOverlay
 }
 
-func (cr *ClientRenderer) showPaneDragOverlay(sourcePaneID, targetPaneID uint32, targetLabel string, indicator *render.DropIndicatorOverlay) {
+func (cr *ClientRenderer) showPaneDragOverlay(sourcePaneID uint32, indicator *render.DropIndicatorOverlay) {
 	result := cr.updateState(func(next *clientSnapshot) clientUIResult {
 		return next.ui.reduce(uiActionShowPaneDrag{drag: &paneDragOverlayState{
 			sourcePaneID: sourcePaneID,
-			targetPaneID: targetPaneID,
-			targetLabel:  targetLabel,
 			indicator:    cloneDropIndicator(indicator),
 		}})
 	})
@@ -45,17 +41,10 @@ func (cr *ClientRenderer) paneDragLabelsFromSnapshot(state *clientSnapshot) []re
 		return nil
 	}
 
-	labels := []render.PaneOverlayLabel{{
+	return []render.PaneOverlayLabel{{
 		PaneID: state.ui.paneDrag.sourcePaneID,
 		Label:  "drag",
 	}}
-	if state.ui.paneDrag.targetPaneID != 0 && state.ui.paneDrag.targetLabel != "" {
-		labels = append(labels, render.PaneOverlayLabel{
-			PaneID: state.ui.paneDrag.targetPaneID,
-			Label:  state.ui.paneDrag.targetLabel,
-		})
-	}
-	return labels
 }
 
 func (cr *ClientRenderer) paneDragIndicatorFromSnapshot(state *clientSnapshot) *render.DropIndicatorOverlay {

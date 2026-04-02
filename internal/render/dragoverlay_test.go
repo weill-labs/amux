@@ -3,8 +3,6 @@ package render
 import (
 	"strings"
 	"testing"
-
-	"github.com/weill-labs/amux/internal/mux"
 )
 
 func TestBuildDropIndicatorCells(t *testing.T) {
@@ -19,28 +17,20 @@ func TestBuildDropIndicatorCells(t *testing.T) {
 		}
 	}{
 		{
-			name:    "horizontal",
-			overlay: &DropIndicatorOverlay{X: 1, Y: 2, Length: 4, Dir: mux.SplitHorizontal},
+			name:    "rectangle",
+			overlay: &DropIndicatorOverlay{X: 1, Y: 2, W: 4, H: 2},
 			want: []struct {
 				x, y int
 				char string
 			}{
-				{x: 1, y: 2, char: "━"},
-				{x: 2, y: 2, char: "━"},
-				{x: 3, y: 2, char: "━"},
-				{x: 4, y: 2, char: "━"},
-			},
-		},
-		{
-			name:    "vertical",
-			overlay: &DropIndicatorOverlay{X: 3, Y: 1, Length: 3, Dir: mux.SplitVertical},
-			want: []struct {
-				x, y int
-				char string
-			}{
-				{x: 3, y: 1, char: "┃"},
-				{x: 3, y: 2, char: "┃"},
-				{x: 3, y: 3, char: "┃"},
+				{x: 1, y: 2, char: dropPlaceholderChar},
+				{x: 2, y: 2, char: dropPlaceholderChar},
+				{x: 3, y: 2, char: dropPlaceholderChar},
+				{x: 4, y: 2, char: dropPlaceholderChar},
+				{x: 1, y: 3, char: dropPlaceholderChar},
+				{x: 2, y: 3, char: dropPlaceholderChar},
+				{x: 3, y: 3, char: dropPlaceholderChar},
+				{x: 4, y: 3, char: dropPlaceholderChar},
 			},
 		},
 	}
@@ -71,14 +61,9 @@ func TestRenderDropIndicator(t *testing.T) {
 		want    string
 	}{
 		{
-			name:    "horizontal",
-			overlay: &DropIndicatorOverlay{X: 2, Y: 1, Length: 4, Dir: mux.SplitHorizontal},
-			want:    "━━━━",
-		},
-		{
-			name:    "vertical",
-			overlay: &DropIndicatorOverlay{X: 0, Y: 1, Length: 3, Dir: mux.SplitVertical},
-			want:    "\x1b[2;1H┃\x1b[3;1H┃\x1b[4;1H┃",
+			name:    "rectangle",
+			overlay: &DropIndicatorOverlay{X: 2, Y: 1, W: 4, H: 2},
+			want:    "\x1b[2;3H" + strings.Repeat(dropPlaceholderChar, 4) + "\x1b[3;3H" + strings.Repeat(dropPlaceholderChar, 4),
 		},
 	}
 

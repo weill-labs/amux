@@ -76,6 +76,10 @@ func (c *LayoutCell) IsLeaf() bool {
 // Split divides this leaf cell into two. The existing pane stays in the first
 // child; the new pane goes in the second. Returns the new leaf cell.
 func (c *LayoutCell) Split(dir SplitDir, newPane *Pane) (*LayoutCell, error) {
+	return c.splitWithOrder(dir, newPane, false)
+}
+
+func (c *LayoutCell) splitWithOrder(dir SplitDir, newPane *Pane, insertFirst bool) (*LayoutCell, error) {
 	if !c.isLeaf {
 		return nil, fmt.Errorf("can only split leaf cells")
 	}
@@ -97,12 +101,16 @@ func (c *LayoutCell) Split(dir SplitDir, newPane *Pane) (*LayoutCell, error) {
 		newLeaf := NewLeaf(newPane, 0, 0, 0, 0)
 		newLeaf.Parent = c.Parent
 
-		// Insert after c in parent's children
+		// Insert before or after c in parent's children.
 		idx := c.IndexInParent()
 		parent := c.Parent
+		insertIdx := idx + 1
+		if insertFirst {
+			insertIdx = idx
+		}
 		parent.Children = append(parent.Children, nil)
-		copy(parent.Children[idx+2:], parent.Children[idx+1:])
-		parent.Children[idx+1] = newLeaf
+		copy(parent.Children[insertIdx+1:], parent.Children[insertIdx:])
+		parent.Children[insertIdx] = newLeaf
 
 		parent.distributeEqual()
 		return newLeaf, nil
@@ -122,17 +130,29 @@ func (c *LayoutCell) Split(dir SplitDir, newPane *Pane) (*LayoutCell, error) {
 	// Create two leaf children
 	var child1, child2 *LayoutCell
 	if dir == SplitVertical {
-		child1 = NewLeaf(oldPane, c.X, c.Y, size1, c.H)
-		child2 = NewLeaf(newPane, c.X+size1+1, c.Y, size2, c.H)
+		if insertFirst {
+			child1 = NewLeaf(newPane, c.X, c.Y, size1, c.H)
+			child2 = NewLeaf(oldPane, c.X+size1+1, c.Y, size2, c.H)
+		} else {
+			child1 = NewLeaf(oldPane, c.X, c.Y, size1, c.H)
+			child2 = NewLeaf(newPane, c.X+size1+1, c.Y, size2, c.H)
+		}
 	} else {
-		child1 = NewLeaf(oldPane, c.X, c.Y, c.W, size1)
-		child2 = NewLeaf(newPane, c.X, c.Y+size1+1, c.W, size2)
+		if insertFirst {
+			child1 = NewLeaf(newPane, c.X, c.Y, c.W, size1)
+			child2 = NewLeaf(oldPane, c.X, c.Y+size1+1, c.W, size2)
+		} else {
+			child1 = NewLeaf(oldPane, c.X, c.Y, c.W, size1)
+			child2 = NewLeaf(newPane, c.X, c.Y+size1+1, c.W, size2)
+		}
 	}
 	child1.Parent = c
 	child2.Parent = c
 	c.Children = []*LayoutCell{child1, child2}
 
-	// Update the pane's layout cell reference
+	if insertFirst {
+		return child1, nil
+	}
 	return child2, nil
 }
 

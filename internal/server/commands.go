@@ -183,6 +183,7 @@ var commandRegistry = map[string]CommandHandler{
 	"move-up":        cmdMoveUp,
 	"move-down":      cmdMoveDown,
 	"move-to":        cmdMoveTo,
+	"drop-pane":      cmdDropPane,
 	"rotate":         cmdRotate,
 	"copy-mode":      cmdCopyMode,
 	"cursor":         cmdCursor,

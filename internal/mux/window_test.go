@@ -1202,6 +1202,45 @@ func TestMovePaneBefore(t *testing.T) {
 	}
 }
 
+func TestMovePaneIntoSplit(t *testing.T) {
+	t.Parallel()
+
+	p1 := fakePaneID(1)
+	w := NewWindow(p1, 120, 24)
+
+	p2 := fakePaneID(2)
+	if _, err := w.SplitRoot(SplitVertical, p2); err != nil {
+		t.Fatalf("split root vertical: %v", err)
+	}
+	w.FocusPane(p1)
+	p3 := fakePaneID(3)
+	if _, err := w.Split(SplitHorizontal, p3); err != nil {
+		t.Fatalf("split left column horizontal: %v", err)
+	}
+
+	w.FocusPane(p1)
+	if err := w.MovePaneIntoSplit(1, 2, SplitVertical, true); err != nil {
+		t.Fatalf("MovePaneIntoSplit: %v", err)
+	}
+
+	c1 := w.Root.FindPane(1)
+	c2 := w.Root.FindPane(2)
+	c3 := w.Root.FindPane(3)
+	if c1 == nil || c2 == nil || c3 == nil {
+		t.Fatalf("expected all panes after split move, got c1=%v c2=%v c3=%v", c1, c2, c3)
+	}
+	if !(c3.X < c1.X && c1.X < c2.X && c1.Y == c2.Y) {
+		t.Fatalf("expected pane-1 to split pane-2 on the left: c1=(%d,%d %dx%d) c2=(%d,%d %dx%d) c3=(%d,%d %dx%d)",
+			c1.X, c1.Y, c1.W, c1.H,
+			c2.X, c2.Y, c2.W, c2.H,
+			c3.X, c3.Y, c3.W, c3.H,
+		)
+	}
+	if w.ActivePane != p1 {
+		t.Fatalf("active pane = %v, want pane-1 pointer", w.ActivePane)
+	}
+}
+
 func TestMovePaneErrorPaths(t *testing.T) {
 	t.Parallel()
 
@@ -1454,6 +1493,38 @@ func TestMovePaneAfter(t *testing.T) {
 	ids := collectPaneIDs(w)
 	if ids[0] != 2 || ids[1] != 3 || ids[2] != 1 {
 		t.Fatalf("after move after: %v, want [2 3 1]", ids)
+	}
+}
+
+func TestMovePaneToRootEdge(t *testing.T) {
+	t.Parallel()
+
+	p1 := fakePaneID(1)
+	w := NewWindow(p1, 80, 24)
+
+	p2 := fakePaneID(2)
+	if _, err := w.SplitRoot(SplitVertical, p2); err != nil {
+		t.Fatalf("split root vertical: %v", err)
+	}
+
+	w.FocusPane(p2)
+	if err := w.MovePaneToRootEdge(2, SplitVertical, true); err != nil {
+		t.Fatalf("MovePaneToRootEdge: %v", err)
+	}
+
+	c1 := w.Root.FindPane(1)
+	c2 := w.Root.FindPane(2)
+	if c1 == nil || c2 == nil {
+		t.Fatalf("expected both panes after root move, got c1=%v c2=%v", c1, c2)
+	}
+	if c2.X >= c1.X {
+		t.Fatalf("expected pane-2 to become the left root pane: c1=(%d,%d %dx%d) c2=(%d,%d %dx%d)",
+			c1.X, c1.Y, c1.W, c1.H,
+			c2.X, c2.Y, c2.W, c2.H,
+		)
+	}
+	if w.ActivePane != p2 {
+		t.Fatalf("active pane = %v, want pane-2 pointer", w.ActivePane)
 	}
 }
 

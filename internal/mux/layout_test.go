@@ -119,6 +119,52 @@ func TestSplitHorizontal(t *testing.T) {
 	}
 }
 
+func TestSplitWithOrderInsertFirst(t *testing.T) {
+	t.Parallel()
+
+	p1 := fakePaneID(1)
+	root := NewLeaf(p1, 0, 0, 80, 24)
+
+	p2 := fakePaneID(2)
+	newCell, err := root.splitWithOrder(SplitVertical, p2, true)
+	if err != nil {
+		t.Fatalf("splitWithOrder: %v", err)
+	}
+
+	if got := root.Children[0].Pane.ID; got != 2 {
+		t.Fatalf("left pane ID = %d, want 2", got)
+	}
+	if got := root.Children[1].Pane.ID; got != 1 {
+		t.Fatalf("right pane ID = %d, want 1", got)
+	}
+	if got := newCell.Pane.ID; got != 2 {
+		t.Fatalf("returned cell pane ID = %d, want 2", got)
+	}
+}
+
+func TestSplitWithOrderSiblingInsertionBeforeTarget(t *testing.T) {
+	t.Parallel()
+
+	root := NewLeaf(fakePaneID(1), 0, 0, 80, 24)
+	if _, err := root.Split(SplitVertical, fakePaneID(2)); err != nil {
+		t.Fatalf("Split: %v", err)
+	}
+
+	if _, err := root.Children[1].splitWithOrder(SplitVertical, fakePaneID(3), true); err != nil {
+		t.Fatalf("splitWithOrder sibling insertion: %v", err)
+	}
+
+	got := []uint32{
+		root.Children[0].Pane.ID,
+		root.Children[1].Pane.ID,
+		root.Children[2].Pane.ID,
+	}
+	want := []uint32{1, 3, 2}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("child order = %v, want %v", got, want)
+	}
+}
+
 func TestSplitTooSmall(t *testing.T) {
 	t.Parallel()
 	p1 := fakePaneID(1)

@@ -53,10 +53,8 @@ type paneDragCommand struct {
 }
 
 type paneDropTarget struct {
-	commands   []paneDragCommand
-	targetPane uint32
-	targetText string
-	indicator  *render.DropIndicatorOverlay
+	commands  []paneDragCommand
+	indicator *render.DropIndicatorOverlay
 }
 
 const (
@@ -99,35 +97,18 @@ func paneRef(paneID uint32) string {
 	return fmt.Sprintf("%d", paneID)
 }
 
-func firstPaneID(cell *mux.LayoutCell) uint32 {
-	if cell == nil {
-		return 0
-	}
-	var paneID uint32
-	cell.Walk(func(leaf *mux.LayoutCell) {
-		if paneID == 0 {
-			paneID = leaf.CellPaneID()
-		}
-	})
-	return paneID
-}
-
-func rootColumnCell(layout *mux.LayoutCell, paneID uint32) *mux.LayoutCell {
+func logicalRootCell(cr *ClientRenderer, layout *mux.LayoutCell) *mux.LayoutCell {
 	if layout == nil {
 		return nil
 	}
-	if layout.IsLeaf() || layout.Dir != mux.SplitVertical {
+	if layout.IsLeaf() || layout.Dir != mux.SplitVertical || len(layout.Children) < 2 {
 		return layout
 	}
-	leaf := layout.FindByPaneID(paneID)
-	if leaf == nil {
-		return nil
+	lead := layout.Children[0]
+	if lead == nil || !lead.IsLeaf() || !paneIsLead(cr, lead.CellPaneID()) {
+		return layout
 	}
-	cell := leaf
-	for cell.Parent != nil && cell.Parent != layout {
-		cell = cell.Parent
-	}
-	return cell
+	return layout.Children[1]
 }
 
 func paneIsLead(cr *ClientRenderer, paneID uint32) bool {
@@ -135,94 +116,165 @@ func paneIsLead(cr *ClientRenderer, paneID uint32) bool {
 	return ok && info.Lead
 }
 
+const (
+	mousePaneCenterMin     = 0.30
+	mousePaneCenterMax     = 0.70
+	mouseRootEdgeThreshold = 0.05
+)
+
+func edgePlacement(edge string) (mux.SplitDir, bool) {
+	switch edge {
+	case "left":
+		return mux.SplitVertical, true
+	case "right":
+		return mux.SplitVertical, false
+	case "top":
+		return mux.SplitHorizontal, true
+	default:
+		return mux.SplitHorizontal, false
+	}
+}
+
+func normalizedCoord(pos, start, size int) float64 {
+	if size <= 0 {
+		return 0.5
+	}
+	return (float64(pos-start) + 0.5) / float64(size)
+}
+
+func nearestDropEdge(x, y int, cell *mux.LayoutCell) (string, float64) {
+	relX := normalizedCoord(x, cell.X, cell.W)
+	relY := normalizedCoord(y, cell.Y, cell.H)
+	left := relX
+	right := 1 - relX
+	top := relY
+	bottom := 1 - relY
+
+	edge := "left"
+	minDistance := left
+	if right < minDistance {
+		edge = "right"
+		minDistance = right
+	}
+	if top < minDistance {
+		edge = "top"
+		minDistance = top
+	}
+	if bottom < minDistance {
+		edge = "bottom"
+		minDistance = bottom
+	}
+	return edge, minDistance
+}
+
+func pointInCell(cell *mux.LayoutCell, x, y int) bool {
+	return cell != nil &&
+		x >= cell.X &&
+		x < cell.X+cell.W &&
+		y >= cell.Y &&
+		y < cell.Y+cell.H
+}
+
+func canSplitDrop(cell *mux.LayoutCell, edge string) bool {
+	dir, _ := edgePlacement(edge)
+	if cell == nil {
+		return false
+	}
+	available := cell.W
+	if dir == mux.SplitHorizontal {
+		available = cell.H
+	}
+	return available >= 2*mux.PaneMinSize+1
+}
+
+func splitPreviewSizes(size int) (int, int) {
+	second := (size - 1) / 2
+	first := size - 1 - second
+	return first, second
+}
+
+func fullPanePreview(cell *mux.LayoutCell) *render.DropIndicatorOverlay {
+	if cell == nil {
+		return nil
+	}
+	return &render.DropIndicatorOverlay{
+		X: cell.X,
+		Y: cell.Y,
+		W: cell.W,
+		H: cell.H,
+	}
+}
+
+func splitPanePreview(cell *mux.LayoutCell, edge string) *render.DropIndicatorOverlay {
+	if cell == nil {
+		return nil
+	}
+	switch edge {
+	case "left":
+		firstW, _ := splitPreviewSizes(cell.W)
+		return &render.DropIndicatorOverlay{X: cell.X, Y: cell.Y, W: firstW, H: cell.H}
+	case "right":
+		firstW, secondW := splitPreviewSizes(cell.W)
+		return &render.DropIndicatorOverlay{X: cell.X + firstW + 1, Y: cell.Y, W: secondW, H: cell.H}
+	case "top":
+		firstH, _ := splitPreviewSizes(cell.H)
+		return &render.DropIndicatorOverlay{X: cell.X, Y: cell.Y, W: cell.W, H: firstH}
+	default:
+		firstH, secondH := splitPreviewSizes(cell.H)
+		return &render.DropIndicatorOverlay{X: cell.X, Y: cell.Y + firstH + 1, W: cell.W, H: secondH}
+	}
+}
+
 func resolvePaneDropTarget(cr *ClientRenderer, layout *mux.LayoutCell, sourcePaneID uint32, x, y int) *paneDropTarget {
 	if layout == nil || sourcePaneID == 0 || paneIsLead(cr, sourcePaneID) {
 		return nil
 	}
 
-	if target := mouseTargetAt(layout, x, y); target != nil && target.paneID != 0 && target.paneID != sourcePaneID {
-		if paneIsLead(cr, target.paneID) {
-			return nil
+	root := logicalRootCell(cr, layout)
+	if pointInCell(root, x, y) {
+		edge, distance := nearestDropEdge(x, y, root)
+		if distance <= mouseRootEdgeThreshold && canSplitDrop(root, edge) {
+			return &paneDropTarget{
+				commands: []paneDragCommand{{
+					name: "drop-pane",
+					args: []string{paneRef(sourcePaneID), "root", edge},
+				}},
+				indicator: splitPanePreview(root, edge),
+			}
 		}
+	}
+
+	target := mouseTargetAt(layout, x, y)
+	if target == nil || target.paneID == 0 || target.paneID == sourcePaneID {
+		return nil
+	}
+	if paneIsLead(cr, target.paneID) {
+		return nil
+	}
+
+	relX := normalizedCoord(x, target.cell.X, target.cell.W)
+	relY := normalizedCoord(y, target.cell.Y, target.cell.H)
+	if relX >= mousePaneCenterMin && relX <= mousePaneCenterMax &&
+		relY >= mousePaneCenterMin && relY <= mousePaneCenterMax {
 		return &paneDropTarget{
 			commands: []paneDragCommand{{
 				name: "swap",
 				args: []string{paneRef(sourcePaneID), paneRef(target.paneID)},
 			}},
-			targetPane: target.paneID,
-			targetText: "swap",
+			indicator: fullPanePreview(target.cell),
 		}
 	}
 
-	hit := layout.FindBorderAt(x, y)
-	if hit == nil || hit.Left == nil || hit.Right == nil || hit.Left.Parent != hit.Right.Parent {
+	edge, _ := nearestDropEdge(x, y, target.cell)
+	if !canSplitDrop(target.cell, edge) {
 		return nil
 	}
-	parent := hit.Left.Parent
-	switch {
-	case hit.Dir == mux.SplitVertical && parent == layout && layout.Dir == mux.SplitVertical:
-		targetPaneID := firstPaneID(hit.Right)
-		if hit.Left.FindByPaneID(sourcePaneID) == nil && hit.Right.FindByPaneID(sourcePaneID) != nil {
-			targetPaneID = firstPaneID(hit.Left)
-		}
-		if targetPaneID == 0 || targetPaneID == sourcePaneID || paneIsLead(cr, targetPaneID) {
-			return nil
-		}
-		return &paneDropTarget{
-			commands: []paneDragCommand{{
-				name: "move-to",
-				args: []string{paneRef(sourcePaneID), paneRef(targetPaneID)},
-			}},
-			targetPane: targetPaneID,
-			targetText: "column",
-			indicator: &render.DropIndicatorOverlay{
-				X:      hit.Left.X + hit.Left.W,
-				Y:      parent.Y,
-				Length: parent.H,
-				Dir:    mux.SplitVertical,
-			},
-		}
-	case hit.Dir == mux.SplitHorizontal && parent.Dir == mux.SplitHorizontal:
-		targetPaneID := firstPaneID(hit.Right)
-		if targetPaneID == 0 || targetPaneID == sourcePaneID || paneIsLead(cr, targetPaneID) {
-			return nil
-		}
-		sourceLeaf := layout.FindByPaneID(sourcePaneID)
-		if sourceLeaf == nil {
-			return nil
-		}
-		sourceColumn := rootColumnCell(layout, sourcePaneID)
-		targetColumn := rootColumnCell(layout, targetPaneID)
-		if sourceColumn == nil || targetColumn == nil {
-			return nil
-		}
-
-		commands := make([]paneDragCommand, 0, 2)
-		if sourceColumn == targetColumn {
-			if sourceLeaf.Parent != parent {
-				return nil
-			}
-		} else {
-			commands = append(commands, paneDragCommand{
-				name: "move-to",
-				args: []string{paneRef(sourcePaneID), paneRef(targetPaneID)},
-			})
-		}
-		commands = append(commands, paneDragCommand{
-			name: "move",
-			args: []string{paneRef(sourcePaneID), "--before", paneRef(targetPaneID)},
-		})
-		return &paneDropTarget{
-			commands: commands,
-			indicator: &render.DropIndicatorOverlay{
-				X:      parent.X,
-				Y:      hit.Left.Y + hit.Left.H,
-				Length: parent.W,
-				Dir:    mux.SplitHorizontal,
-			},
-		}
-	default:
-		return nil
+	return &paneDropTarget{
+		commands: []paneDragCommand{{
+			name: "drop-pane",
+			args: []string{paneRef(sourcePaneID), paneRef(target.paneID), edge},
+		}},
+		indicator: splitPanePreview(target.cell, edge),
 	}
 }
 
@@ -232,15 +284,11 @@ func updatePaneDragOverlay(cr *ClientRenderer, drag *dragState) {
 		return
 	}
 
-	targetPaneID := uint32(0)
-	targetText := ""
 	var indicator *render.DropIndicatorOverlay
 	if drag.PaneDropTarget != nil {
-		targetPaneID = drag.PaneDropTarget.targetPane
-		targetText = drag.PaneDropTarget.targetText
 		indicator = drag.PaneDropTarget.indicator
 	}
-	cr.showPaneDragOverlay(drag.PaneDragPaneID, targetPaneID, targetText, indicator)
+	cr.showPaneDragOverlay(drag.PaneDragPaneID, indicator)
 }
 
 func clearPaneDragState(cr *ClientRenderer, drag *dragState) {

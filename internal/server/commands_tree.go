@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 
+	"github.com/weill-labs/amux/internal/mux"
 	commandpkg "github.com/weill-labs/amux/internal/server/commands"
 	treecmd "github.com/weill-labs/amux/internal/server/commands/layout/tree"
 )
@@ -11,6 +12,7 @@ const moveUsage = treecmd.MoveUsage
 const moveToUsage = treecmd.MoveToUsage
 const moveUpUsage = treecmd.MoveUpUsage
 const moveDownUsage = treecmd.MoveDownUsage
+const dropPaneUsage = "usage: drop-pane <pane> <target|root> <left|right|top|bottom>"
 
 func parseMoveArgs(args []string) (paneRef, targetRef string, before bool, err error) {
 	return treecmd.ParseMoveArgs(args)
@@ -22,6 +24,34 @@ func parseMoveToArgs(args []string) (paneRef, targetRef string, err error) {
 
 func parseMoveSiblingArgs(args []string, usage string) (paneRef string, err error) {
 	return treecmd.ParseMoveSiblingArgs(args, usage)
+}
+
+func parseDropPaneArgs(args []string) (paneRef, targetRef, edge string, err error) {
+	if len(args) != 3 {
+		return "", "", "", fmt.Errorf(dropPaneUsage)
+	}
+	paneRef = args[0]
+	targetRef = args[1]
+	edge = args[2]
+	switch edge {
+	case "left", "right", "top", "bottom":
+		return paneRef, targetRef, edge, nil
+	default:
+		return "", "", "", fmt.Errorf(dropPaneUsage)
+	}
+}
+
+func dropPanePlacement(edge string) (mux.SplitDir, bool) {
+	switch edge {
+	case "left":
+		return mux.SplitVertical, true
+	case "right":
+		return mux.SplitVertical, false
+	case "top":
+		return mux.SplitHorizontal, true
+	default:
+		return mux.SplitHorizontal, false
+	}
 }
 
 type treeCommandContext struct {
@@ -200,6 +230,52 @@ func runMoveTo(ctx *CommandContext, actorPaneID uint32, paneRef, targetRef strin
 
 func cmdMoveTo(ctx *CommandContext) {
 	ctx.applyCommandResult(treecmd.MoveTo(treeCommandContext{ctx}, ctx.ActorPaneID, ctx.Args))
+}
+
+func runDropPane(ctx *CommandContext, actorPaneID uint32, paneRef, targetRef, edge string) commandpkg.Result {
+	return toCommandResult(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
+		w := sess.windowForActor(actorPaneID)
+		if w == nil {
+			return commandMutationResult{err: fmt.Errorf("no session")}
+		}
+
+		pane, err := w.ResolvePane(paneRef)
+		if err != nil {
+			return commandMutationResult{err: err}
+		}
+
+		dir, insertFirst := dropPanePlacement(edge)
+		if targetRef == "root" {
+			if err := w.MovePaneToRootEdge(pane.ID, dir, insertFirst); err != nil {
+				return commandMutationResult{err: err}
+			}
+			return commandMutationResult{
+				output:          fmt.Sprintf("Moved %s to root %s\n", pane.Meta.Name, edge),
+				broadcastLayout: true,
+			}
+		}
+
+		target, err := w.ResolvePane(targetRef)
+		if err != nil {
+			return commandMutationResult{err: err}
+		}
+		if err := w.MovePaneIntoSplit(pane.ID, target.ID, dir, insertFirst); err != nil {
+			return commandMutationResult{err: err}
+		}
+		return commandMutationResult{
+			output:          fmt.Sprintf("Moved %s to %s %s\n", pane.Meta.Name, edge, target.Meta.Name),
+			broadcastLayout: true,
+		}
+	}))
+}
+
+func cmdDropPane(ctx *CommandContext) {
+	paneRef, targetRef, edge, err := parseDropPaneArgs(ctx.Args)
+	if err != nil {
+		ctx.replyErr(err.Error())
+		return
+	}
+	ctx.applyCommandResult(runDropPane(ctx, ctx.ActorPaneID, paneRef, targetRef, edge))
 }
 
 func runMoveSibling(ctx *CommandContext, actorPaneID uint32, paneRef, direction string) commandpkg.Result {

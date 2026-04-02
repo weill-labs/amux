@@ -187,6 +187,57 @@ func TestOuterTextCoordsUsesDisplayColumns(t *testing.T) {
 	}
 }
 
+func paneCenterCoords(t *testing.T, h *AmuxHarness, name string) (x, y int) {
+	t.Helper()
+
+	pane := h.jsonPane(h.captureJSON(), name)
+	if pane.Position == nil {
+		t.Fatalf("pane %q missing position in capture JSON", name)
+	}
+	return pane.Position.X + pane.Position.Width/2 + 1, pane.Position.Y + pane.Position.Height/2 + 1
+}
+
+func paneEdgeCoords(t *testing.T, h *AmuxHarness, name, edge string) (x, y int) {
+	t.Helper()
+
+	pane := h.jsonPane(h.captureJSON(), name)
+	if pane.Position == nil {
+		t.Fatalf("pane %q missing position in capture JSON", name)
+	}
+	switch edge {
+	case "left":
+		return pane.Position.X + 2, pane.Position.Y + pane.Position.Height/2 + 1
+	case "right":
+		return pane.Position.X + pane.Position.Width - 1, pane.Position.Y + pane.Position.Height/2 + 1
+	case "top":
+		return pane.Position.X + pane.Position.Width/2 + 1, pane.Position.Y + 2
+	case "bottom":
+		return pane.Position.X + pane.Position.Width/2 + 1, pane.Position.Y + pane.Position.Height - 1
+	default:
+		t.Fatalf("unknown pane edge %q", edge)
+		return 0, 0
+	}
+}
+
+func windowEdgeCoords(t *testing.T, h *AmuxHarness, edge string) (x, y int) {
+	t.Helper()
+
+	capture := h.captureJSON()
+	switch edge {
+	case "left":
+		return 1, capture.Height/2 + 1
+	case "right":
+		return capture.Width, capture.Height/2 + 1
+	case "top":
+		return capture.Width/2 + 1, 1
+	case "bottom":
+		return capture.Width/2 + 1, capture.Height
+	default:
+		t.Fatalf("unknown window edge %q", edge)
+		return 0, 0
+	}
+}
+
 func waitForCaptureJSON(t *testing.T, h *AmuxHarness, timeout time.Duration, fn func(proto.CaptureJSON) bool) proto.CaptureJSON {
 	t.Helper()
 
@@ -237,7 +288,7 @@ func TestMouseStatusLineDragSwapsPanes(t *testing.T) {
 	h.splitV()
 
 	startX, startY := paneStatusCoords(t, h, "pane-1")
-	endX, endY := paneStatusCoords(t, h, "pane-2")
+	endX, endY := paneCenterCoords(t, h, "pane-2")
 
 	h.sendMouseSGR(0, startX, startY, true)
 	time.Sleep(50 * time.Millisecond)
@@ -258,36 +309,36 @@ func TestMouseStatusLineDragSwapsPanes(t *testing.T) {
 	}
 }
 
-func TestMouseStatusLineDragShowsSwapOverlay(t *testing.T) {
+func TestMouseStatusLineDragShowsPlaceholderOverlay(t *testing.T) {
 	t.Parallel()
 
 	h := newAmuxHarness(t)
 	h.splitV()
 
 	startX, startY := paneStatusCoords(t, h, "pane-1")
-	endX, endY := paneStatusCoords(t, h, "pane-2")
+	endX, endY := paneCenterCoords(t, h, "pane-2")
 
 	h.sendMouseSGR(0, startX, startY, true)
 	time.Sleep(50 * time.Millisecond)
 	h.sendMouseSGR(32, endX, endY, true)
 
 	if !waitForOuterContains(h, func(screen string) bool {
-		return strings.Contains(screen, "[drag]") && strings.Contains(screen, "[swap]")
+		return strings.Contains(screen, "[drag]") && strings.Contains(screen, "░")
 	}, 3*time.Second) {
-		t.Fatalf("expected drag overlay while hovering swap target.\nOuter:\n%s", h.captureOuter())
+		t.Fatalf("expected gray placeholder overlay while hovering the pane center.\nOuter:\n%s", h.captureOuter())
 	}
 
 	time.Sleep(50 * time.Millisecond)
 	h.sendMouseSGR(0, endX, endY, false)
 
 	if !waitForOuterContains(h, func(screen string) bool {
-		return !strings.Contains(screen, "[drag]") && !strings.Contains(screen, "[swap]")
+		return !strings.Contains(screen, "[drag]") && !strings.Contains(screen, "░")
 	}, 3*time.Second) {
-		t.Fatalf("expected drag overlay to clear after release.\nOuter:\n%s", h.captureOuter())
+		t.Fatalf("expected placeholder overlay to clear after release.\nOuter:\n%s", h.captureOuter())
 	}
 }
 
-func TestMouseStatusLineDragMovesPaneToOtherColumn(t *testing.T) {
+func TestMouseStatusLineDragSplitsTargetPaneAtNearestEdge(t *testing.T) {
 	t.Parallel()
 
 	h := newAmuxHarness(t)
@@ -306,71 +357,56 @@ func TestMouseStatusLineDragMovesPaneToOtherColumn(t *testing.T) {
 	}
 
 	startX, startY := paneStatusCoords(t, h, "pane-1")
-	endY := h.jsonPane(h.captureJSON(), "pane-2").Position.Y + 3
+	endX, endY := paneEdgeCoords(t, h, "pane-2", "left")
 
 	h.sendMouseSGR(0, startX, startY, true)
 	time.Sleep(50 * time.Millisecond)
-	h.sendMouseSGR(32, borderCol+1, endY, true)
+	h.sendMouseSGR(32, endX, endY, true)
 	time.Sleep(50 * time.Millisecond)
-	h.sendMouseSGR(0, borderCol+1, endY, false)
+	h.sendMouseSGR(0, endX, endY, false)
 
 	capture := waitForCaptureJSON(t, h, 3*time.Second, func(capture proto.CaptureJSON) bool {
 		p1 := h.jsonPane(capture, "pane-1")
 		p2 := h.jsonPane(capture, "pane-2")
 		p3 := h.jsonPane(capture, "pane-3")
-		return p1.Position.X == p2.Position.X && p1.Position.Y > p2.Position.Y && p3.Position.X < p1.Position.X
+		return p3.Position.X < p1.Position.X &&
+			p1.Position.X < p2.Position.X &&
+			p1.Position.Y == p2.Position.Y
 	})
 
 	p1 := h.jsonPane(capture, "pane-1")
 	p2 := h.jsonPane(capture, "pane-2")
 	p3 := h.jsonPane(capture, "pane-3")
-	if p1.Position.X != p2.Position.X || p1.Position.Y <= p2.Position.Y || p3.Position.X >= p1.Position.X {
-		t.Fatalf("expected pane-1 to move into pane-2's column below it: p1=%+v p2=%+v p3=%+v", p1.Position, p2.Position, p3.Position)
+	if p3.Position.X >= p1.Position.X || p1.Position.X >= p2.Position.X || p1.Position.Y != p2.Position.Y {
+		t.Fatalf("expected pane-1 to split pane-2 at its left edge: p1=%+v p2=%+v p3=%+v", p1.Position, p2.Position, p3.Position)
 	}
 }
 
-func TestMouseStatusLineDragInsertsPaneBetweenPanesAcrossColumns(t *testing.T) {
+func TestMouseStatusLineDragAtWindowBoundaryCreatesRootSplit(t *testing.T) {
 	t.Parallel()
 
 	h := newAmuxHarness(t)
 	h.splitV()
-	focusGen := h.generation()
-	h.runCmd("focus", "pane-1")
-	h.waitLayout(focusGen)
-	if !h.waitForActive("pane-1", 3*time.Second) {
-		t.Fatalf("pane-1 should be active before splitting left column.\nScreen:\n%s", h.capture())
-	}
-	h.splitH()
-
-	borderRow := h.captureAmuxHorizontalBorderRow()
-	if borderRow < 0 {
-		t.Fatalf("expected a horizontal border inside the left column.\nScreen:\n%s", h.captureAmux())
-	}
 
 	startX, startY := paneStatusCoords(t, h, "pane-2")
-	endX, _ := paneStatusCoords(t, h, "pane-1")
+	endX, endY := windowEdgeCoords(t, h, "left")
 
 	h.sendMouseSGR(0, startX, startY, true)
 	time.Sleep(50 * time.Millisecond)
-	h.sendMouseSGR(32, endX, borderRow+1, true)
+	h.sendMouseSGR(32, endX, endY, true)
 	time.Sleep(50 * time.Millisecond)
-	h.sendMouseSGR(0, endX, borderRow+1, false)
+	h.sendMouseSGR(0, endX, endY, false)
 
 	capture := waitForCaptureJSON(t, h, 3*time.Second, func(capture proto.CaptureJSON) bool {
 		p1 := h.jsonPane(capture, "pane-1")
 		p2 := h.jsonPane(capture, "pane-2")
-		p3 := h.jsonPane(capture, "pane-3")
-		return p1.Position.X == p2.Position.X &&
-			p2.Position.X == p3.Position.X &&
-			p1.Position.Y < p2.Position.Y &&
-			p2.Position.Y < p3.Position.Y
+		return p2.Position.X < p1.Position.X
 	})
 
 	p1 := h.jsonPane(capture, "pane-1")
 	p2 := h.jsonPane(capture, "pane-2")
-	p3 := h.jsonPane(capture, "pane-3")
-	if p1.Position.X != p2.Position.X || p2.Position.X != p3.Position.X || p1.Position.Y >= p2.Position.Y || p2.Position.Y >= p3.Position.Y {
-		t.Fatalf("expected pane-2 to move between pane-1 and pane-3 in the left column: p1=%+v p2=%+v p3=%+v", p1.Position, p2.Position, p3.Position)
+	if p2.Position.X >= p1.Position.X {
+		t.Fatalf("expected pane-2 to become the left root pane: p1=%+v p2=%+v", p1.Position, p2.Position)
 	}
 }
 
