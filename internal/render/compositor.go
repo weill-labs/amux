@@ -33,6 +33,7 @@ type Compositor struct {
 	// Cached border map — rebuilt only when layout root changes.
 	cachedBorderMap  *borderMap
 	cachedBorderRoot *mux.LayoutCell
+	cachedBorderH    int
 
 	// Previous frame's grid for diff rendering. Nil forces full paint.
 	prevGrid     *ScreenGrid
@@ -69,6 +70,7 @@ func (c *Compositor) Resize(width, height int) {
 	// Invalidate caches — dimensions changed.
 	c.cachedBorderMap = nil
 	c.cachedBorderRoot = nil
+	c.cachedBorderH = 0
 	c.prevGrid = nil // force full repaint
 }
 
@@ -97,6 +99,14 @@ func (c *Compositor) LayoutHeight() int {
 	return c.height - GlobalBarHeight
 }
 
+func (c *Compositor) layoutHeightForHelpBar(overlay *HelpBarOverlay) int {
+	layoutHeight := c.LayoutHeight() - helpBarRowCount(overlay)
+	if layoutHeight < 0 {
+		return 0
+	}
+	return layoutHeight
+}
+
 // RenderFullWithOverlay composes all panes, status lines, and borders into ANSI
 // output plus optional client-local overlays. lookup maps pane IDs to their
 // rendering data. Client provides emulator-backed adapters; server could
@@ -117,6 +127,7 @@ func (c *Compositor) RenderFullWithOverlay(root *mux.LayoutCell, activePaneID ui
 
 	// Count panes for global bar
 	paneCount := 0
+	layoutHeight := c.layoutHeightForHelpBar(overlay.HelpBar)
 
 	// Determine active pane color for borders
 	var activeColor string
@@ -144,16 +155,17 @@ func (c *Compositor) RenderFullWithOverlay(root *mux.LayoutCell, activePaneID ui
 		renderPaneStatusWithProfile(&buf, cell, isActive, pd, c.colorProfile)
 
 		// Pane content (shifted down by status line)
-		c.renderPaneContent(&buf, cell, isActive, pd)
+		c.renderPaneContentWithLayoutHeight(&buf, cell, isActive, pd, layoutHeight)
 	})
 
 	// Draw borders with proper junction characters.
 	// Cache the border map — it only changes when the layout root changes.
 	// Pointer identity is sufficient: RebuildLayout always allocates a new root,
 	// and Resize() explicitly invalidates the cache.
-	if c.cachedBorderMap == nil || c.cachedBorderRoot != root {
-		c.cachedBorderMap = buildBorderMap(root, c.width, c.height)
+	if c.cachedBorderMap == nil || c.cachedBorderRoot != root || c.cachedBorderH != layoutHeight {
+		c.cachedBorderMap = buildBorderMap(root, c.width, layoutHeight)
 		c.cachedBorderRoot = root
+		c.cachedBorderH = layoutHeight
 	}
 	renderBordersWithProfile(&buf, c.cachedBorderMap, root, activePaneID, activeColor, c.colorProfile)
 
@@ -181,7 +193,7 @@ func (c *Compositor) RenderFullWithOverlay(root *mux.LayoutCell, activePaneID ui
 	// keep it hidden rather than showing it at a stale position.
 	// If the application renders its own block cursor (reverse-video space),
 	// hide the terminal cursor to avoid showing two cursors.
-	c.renderCursor(&buf, root, activePaneID, lookup)
+	c.renderCursorWithLayoutHeight(&buf, root, activePaneID, lookup, layoutHeight)
 
 	return buf.String()
 }
@@ -210,7 +222,7 @@ func (c *Compositor) RenderDiffWithOverlay(root *mux.LayoutCell, activePaneID ui
 	buf.WriteString(emitDiffWithProfile(changes, c.colorProfile))
 
 	// Position cursor.
-	c.renderCursorDiff(&buf, root, activePaneID, lookup)
+	c.renderCursorDiffWithLayoutHeight(&buf, root, activePaneID, lookup, c.layoutHeightForHelpBar(overlay.HelpBar))
 
 	return buf.String()
 }
@@ -258,6 +270,10 @@ func gridToText(g *ScreenGrid) string {
 // renderCursorDiff positions the cursor for the diff path — same logic as
 // renderCursor but writes to a builder that already has HideCursor.
 func (c *Compositor) renderCursorDiff(buf *strings.Builder, root *mux.LayoutCell, activePaneID uint32, lookup func(uint32) PaneData) {
+	c.renderCursorDiffWithLayoutHeight(buf, root, activePaneID, lookup, c.LayoutHeight())
+}
+
+func (c *Compositor) renderCursorDiffWithLayoutHeight(buf *strings.Builder, root *mux.LayoutCell, activePaneID uint32, lookup func(uint32) PaneData, layoutHeight int) {
 	if activePaneID == 0 {
 		buf.WriteString(ShowCursor)
 		return
@@ -276,7 +292,7 @@ func (c *Compositor) renderCursorDiff(buf *strings.Builder, root *mux.LayoutCell
 		return // keep cursor hidden
 	}
 	col, row := pd.CursorPos()
-	if row < 0 || row >= c.visibleContentHeight(cell) {
+	if row < 0 || row >= c.visibleContentHeightForLayoutHeight(cell, layoutHeight) {
 		return
 	}
 	absRow := cell.Y + mux.StatusLineRows + row + 1
@@ -290,6 +306,10 @@ func (c *Compositor) renderCursorDiff(buf *strings.Builder, root *mux.LayoutCell
 // location, or hides it when the active pane has a hidden cursor or renders
 // its own block cursor.
 func (c *Compositor) renderCursor(buf *strings.Builder, root *mux.LayoutCell, activePaneID uint32, lookup func(uint32) PaneData) {
+	c.renderCursorWithLayoutHeight(buf, root, activePaneID, lookup, c.LayoutHeight())
+}
+
+func (c *Compositor) renderCursorWithLayoutHeight(buf *strings.Builder, root *mux.LayoutCell, activePaneID uint32, lookup func(uint32) PaneData, layoutHeight int) {
 	if activePaneID == 0 {
 		buf.WriteString(ShowCursor)
 		return
@@ -308,7 +328,7 @@ func (c *Compositor) renderCursor(buf *strings.Builder, root *mux.LayoutCell, ac
 		return // keep cursor hidden (HideCursor was written at start of render)
 	}
 	col, row := pd.CursorPos()
-	if row < 0 || row >= c.visibleContentHeight(cell) {
+	if row < 0 || row >= c.visibleContentHeightForLayoutHeight(cell, layoutHeight) {
 		return
 	}
 	absRow := cell.Y + mux.StatusLineRows + row + 1
@@ -318,7 +338,11 @@ func (c *Compositor) renderCursor(buf *strings.Builder, root *mux.LayoutCell, ac
 }
 
 func (c *Compositor) renderPaneContent(buf *strings.Builder, cell *mux.LayoutCell, active bool, pd PaneData) {
-	contentH := c.visibleContentHeight(cell)
+	c.renderPaneContentWithLayoutHeight(buf, cell, active, pd, c.LayoutHeight())
+}
+
+func (c *Compositor) renderPaneContentWithLayoutHeight(buf *strings.Builder, cell *mux.LayoutCell, active bool, pd PaneData, layoutHeight int) {
+	contentH := c.visibleContentHeightForLayoutHeight(cell, layoutHeight)
 	copyOverlay := pd.CopyModeOverlay()
 	for row := 0; row < contentH; row++ {
 		rowCells := paneContentRowCells(cell.W, row, active, pd, copyOverlay)
@@ -373,10 +397,14 @@ func lastPaneContentColumn(row []ScreenCell) int {
 }
 
 func (c *Compositor) visibleContentHeight(cell *mux.LayoutCell) int {
+	return c.visibleContentHeightForLayoutHeight(cell, c.LayoutHeight())
+}
+
+func (c *Compositor) visibleContentHeightForLayoutHeight(cell *mux.LayoutCell, layoutHeight int) int {
 	// Match the content rows the PTY was sized to in mux.Window. The status
 	// line is rendered separately above the pane content.
 	contentH := mux.PaneContentHeight(cell.H)
-	maxVisible := c.LayoutHeight() - cell.Y - mux.StatusLineRows
+	maxVisible := layoutHeight - cell.Y - mux.StatusLineRows
 	if maxVisible < 0 {
 		return 0
 	}

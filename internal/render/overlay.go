@@ -33,10 +33,10 @@ type TextInputOverlay struct {
 	Input string
 }
 
-// HelpBarOverlay is a client-local single-line help row rendered above the
+// HelpBarOverlay is a client-local multi-row help footer rendered above the
 // global session bar.
 type HelpBarOverlay struct {
-	Text string
+	Rows []string
 }
 
 // DropIndicatorOverlay draws a temporary insertion line while a pane is being

@@ -34,8 +34,9 @@ func TestBuildHelpBarUsesBindingMap(t *testing.T) {
 			t.Fatalf("help bar view = %q, want %q item", view, want)
 		}
 	}
-	for _, forbidden := range []string{" nav", " layout", " pane", " wins", " other"} {
-		if strings.Contains(view, forbidden) {
+	normalized := " " + strings.ReplaceAll(view, "\n", " ") + " "
+	for _, forbidden := range []string{" nav ", " layout ", " pane ", " wins ", " other "} {
+		if strings.Contains(normalized, forbidden) {
 			t.Fatalf("help bar view = %q, should not contain grouped category labels like %q", view, forbidden)
 		}
 	}
@@ -98,7 +99,7 @@ func TestHelpBarDisplayOnlyAndDismiss(t *testing.T) {
 	}
 
 	plain := cr.Capture(true)
-	if strings.Contains(plain, "? help") && strings.Contains(plain, "nav") {
+	if strings.Contains(plain, "? close") && strings.Contains(plain, "x kill") {
 		t.Fatalf("plain capture should not include client-local help bar, got:\n%s", plain)
 	}
 
