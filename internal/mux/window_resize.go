@@ -257,12 +257,11 @@ func (c *LayoutCell) horizontalLeafCount() int {
 }
 
 func (c *LayoutCell) equalizeLeafHeightsNeeded() bool {
-	leafCount := c.horizontalLeafCount()
-	if leafCount < 2 {
+	targets := c.equalizeLeafHeightTargets()
+	if len(targets) == 0 {
 		return false
 	}
 
-	targets := equalSplitSizes(c.H, leafCount)
 	index := 0
 	needed := false
 	c.Walk(func(leaf *LayoutCell) {
@@ -279,11 +278,19 @@ func (c *LayoutCell) equalizeLeafHeightsNeeded() bool {
 }
 
 func (c *LayoutCell) equalizeLeafHeights() {
-	leafCount := c.horizontalLeafCount()
-	if leafCount < 2 {
+	targets := c.equalizeLeafHeightTargets()
+	if len(targets) == 0 {
 		return
 	}
-	c.equalizeLeafHeightsWithTargets(equalSplitSizes(c.H, leafCount))
+	c.equalizeLeafHeightsWithTargets(targets)
+}
+
+func (c *LayoutCell) equalizeLeafHeightTargets() []int {
+	leafCount := c.horizontalLeafCount()
+	if leafCount < 2 {
+		return nil
+	}
+	return equalSplitSizes(c.H, leafCount)
 }
 
 func (c *LayoutCell) equalizeLeafHeightsWithTargets(targets []int) {
