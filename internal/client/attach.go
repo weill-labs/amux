@@ -420,7 +420,8 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 	injectCh := make(chan injectedInput, 16)
 
 	// Server → client renderer → stdout
-	// Messages are dispatched to a deadline-based render loop that caps at ~30fps.
+	// Messages are dispatched to a deadline-based render loop that preserves the
+	// 60fps default while coalescing pane output inside each frame budget.
 	done := make(chan struct{})
 	msgCh := make(chan *RenderMsg, 256)
 
