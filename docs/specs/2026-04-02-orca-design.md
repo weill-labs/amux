@@ -87,7 +87,8 @@ two daemon instances sharing the same DB file, each seeing only its own rows.
 
 - **Tasks** — project, issue ID, status (queued/active/done/cancelled), assigned
   worker, assigned clone, PR number, timestamps.
-- **Workers** — pane name, agent profile, current task, health state, clone
+- **Workers** — pane ID, pane name, agent profile, current task, health state,
+  clone
   assignment.
 - **Clones** — filesystem path, status (free/occupied), current branch, assigned
   task.
@@ -112,7 +113,7 @@ coordinator repo, or backup directories that happen to match the glob.
 [pool]
 pattern = "~/sync/github/amux/amux*"
 # Only directories containing .orca-pool are eligible.
-# Create markers: for i in 01..36; do touch amux$i/.orca-pool; done
+# Create markers: for i in {01..36}; do touch amux$i/.orca-pool; done
 ```
 
 **Creation.** Orca can create new clones on demand:
@@ -129,7 +130,7 @@ assignment through PR merge. On task completion or cancellation, orca resets the
 clone:
 
 ```
-git reset --hard && git checkout main && git pull && git clean -fdx && git branch -D TASK_BRANCH
+git reset --hard && git checkout main && git pull && git clean -fdx --exclude=.orca-pool && git branch -D TASK_BRANCH
 ```
 
 The clone returns to the free pool. Pool size equals max concurrency; there is no
@@ -238,7 +239,7 @@ Claude: orca assign LAB-123 --prompt "Implement the auth feature..."
  10. Poll for PR merge
  11. On merge: notify agent "PR merged, wrap up"
  12. Wait for agent idle/exit (max 10m, force-kill if exceeded)
- 13. Clean clone: git reset --hard && git checkout main && git pull && git clean -fdx && git branch -D TASK_BRANCH
+ 13. Clean clone: git reset --hard && git checkout main && git pull && git clean -fdx --exclude=.orca-pool && git branch -D TASK_BRANCH
  14. Return clone to pool, mark task done
  15. Notify lead pane
 
