@@ -41,7 +41,6 @@ type mouseCommandOptions struct {
 type mouseClientTarget struct {
 	uiWait       uiClientSnapshot
 	layout       *mux.LayoutCell
-	activeWindow uint32
 	paneID       uint32
 	targetPaneID uint32
 }
@@ -214,9 +213,8 @@ func queryMouseClientTarget(sess *Session, actorPaneID uint32, requestedClientID
 		}
 
 		target := mouseClientTarget{
-			uiWait:       uiWait,
-			layout:       layout,
-			activeWindow: activeWindow.ID,
+			uiWait: uiWait,
+			layout: layout,
 		}
 
 		if paneRef != "" {
@@ -245,18 +243,13 @@ func queryMouseClientTarget(sess *Session, actorPaneID uint32, requestedClientID
 	})
 }
 
-func paneStatusMouseCenter(layout *mux.LayoutCell, paneID uint32) (int, int, error) {
+func paneMouseCenter(layout *mux.LayoutCell, paneID uint32, statusLine bool) (int, int, error) {
 	cell := layout.FindByPaneID(paneID)
 	if cell == nil {
 		return 0, 0, fmt.Errorf("pane %d is not visible in the current client layout", paneID)
 	}
-	return cell.X + cell.W/2 + 1, cell.Y + 1, nil
-}
-
-func paneContentMouseCenter(layout *mux.LayoutCell, paneID uint32) (int, int, error) {
-	cell := layout.FindByPaneID(paneID)
-	if cell == nil {
-		return 0, 0, fmt.Errorf("pane %d is not visible in the current client layout", paneID)
+	if statusLine {
+		return cell.X + cell.W/2 + 1, cell.Y + 1, nil
 	}
 	return cell.X + cell.W/2 + 1, cell.Y + cell.H/2 + 1, nil
 }
@@ -323,11 +316,7 @@ func mouseChunksForAction(layout *mux.LayoutCell, opts mouseCommandOptions, pane
 			y   int
 			err error
 		)
-		if opts.statusLine {
-			x, y, err = paneStatusMouseCenter(layout, paneID)
-		} else {
-			x, y, err = paneContentMouseCenter(layout, paneID)
-		}
+		x, y, err = paneMouseCenter(layout, paneID, opts.statusLine)
 		if err != nil {
 			return nil, err
 		}
@@ -341,11 +330,11 @@ func mouseChunksForAction(layout *mux.LayoutCell, opts mouseCommandOptions, pane
 		}
 		return []encodedKeyChunk{press, release}, nil
 	case mouseCommandDragPane:
-		startX, startY, err := paneStatusMouseCenter(layout, paneID)
+		startX, startY, err := paneMouseCenter(layout, paneID, true)
 		if err != nil {
 			return nil, err
 		}
-		endX, endY, err := paneContentMouseCenter(layout, targetPaneID)
+		endX, endY, err := paneMouseCenter(layout, targetPaneID, false)
 		if err != nil {
 			return nil, err
 		}
