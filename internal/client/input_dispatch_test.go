@@ -814,7 +814,7 @@ func TestCaptureDisplayShowsPaneDragOverlay(t *testing.T) {
 	t.Parallel()
 
 	cr := buildColumnDragRenderer(t, 2)
-	cr.showPaneDragOverlay(2, 0, "", &render.DropIndicatorOverlay{
+	cr.showPaneDragOverlay(2, &render.DropIndicatorOverlay{
 		X: 0,
 		Y: 12,
 		W: 39,

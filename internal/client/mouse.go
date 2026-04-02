@@ -53,10 +53,8 @@ type paneDragCommand struct {
 }
 
 type paneDropTarget struct {
-	commands   []paneDragCommand
-	targetPane uint32
-	targetText string
-	indicator  *render.DropIndicatorOverlay
+	commands  []paneDragCommand
+	indicator *render.DropIndicatorOverlay
 }
 
 const (
@@ -97,19 +95,6 @@ func paneStatusTargetAt(layout *mux.LayoutCell, x, y int) *paneMouseTarget {
 
 func paneRef(paneID uint32) string {
 	return fmt.Sprintf("%d", paneID)
-}
-
-func firstPaneID(cell *mux.LayoutCell) uint32 {
-	if cell == nil {
-		return 0
-	}
-	var paneID uint32
-	cell.Walk(func(leaf *mux.LayoutCell) {
-		if paneID == 0 {
-			paneID = leaf.CellPaneID()
-		}
-	})
-	return paneID
 }
 
 func logicalRootCell(cr *ClientRenderer, layout *mux.LayoutCell) *mux.LayoutCell {
@@ -299,15 +284,11 @@ func updatePaneDragOverlay(cr *ClientRenderer, drag *dragState) {
 		return
 	}
 
-	targetPaneID := uint32(0)
-	targetText := ""
 	var indicator *render.DropIndicatorOverlay
 	if drag.PaneDropTarget != nil {
-		targetPaneID = drag.PaneDropTarget.targetPane
-		targetText = drag.PaneDropTarget.targetText
 		indicator = drag.PaneDropTarget.indicator
 	}
-	cr.showPaneDragOverlay(drag.PaneDragPaneID, targetPaneID, targetText, indicator)
+	cr.showPaneDragOverlay(drag.PaneDragPaneID, indicator)
 }
 
 func clearPaneDragState(cr *ClientRenderer, drag *dragState) {
