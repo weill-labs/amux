@@ -78,10 +78,13 @@ vanished workers as lost, and reports the delta to the lead pane.
 
 ### State
 
-All state lives in a global SQLite database at `~/.config/orca/state.db`:
+All state lives in a global SQLite database at `~/.config/orca/state.db`.
+One orca daemon runs per project. All tables are scoped by a `project` column
+(the `--project` path canonicalized). Running two projects simultaneously means
+two daemon instances sharing the same DB file, each seeing only its own rows.
 
-- **Tasks** — issue ID, status (queued/active/done/cancelled), assigned worker,
-  assigned clone, PR number, timestamps.
+- **Tasks** — project, issue ID, status (queued/active/done/cancelled), assigned
+  worker, assigned clone, PR number, timestamps.
 - **Workers** — pane name, agent profile, current task, health state, clone
   assignment.
 - **Clones** — filesystem path, status (free/occupied), current branch, assigned
@@ -166,8 +169,14 @@ Orca uses these profiles to:
 
 ### Notifications
 
-Orca pushes notifications to the lead pane via `amux send-keys`. When something
-needs Claude Code's attention, orca types a message into the pane:
+Orca needs to alert the lieutenant (Claude Code in the lead pane) when events
+require attention. Typing directly into the pane via `amux send-keys` would
+corrupt Claude Code's state if it's mid-task — it has no input queue, just a PTY.
+
+**Approach: orca emits events, Claude Code polls.** Orca writes notifications to
+its own event stream (`orca events`) and to a notification log in SQLite. Claude
+Code (or a monitoring loop it runs) periodically checks `orca status` or
+subscribes to `orca events` to pick up alerts:
 
 ```
 [orca] pane-5 stuck on LAB-123 — nudge failed 3x, needs attention
@@ -175,8 +184,10 @@ needs Claude Code's attention, orca types a message into the pane:
 [orca] worker pool exhausted — 3 tasks queued, 0 clones free
 ```
 
-Claude Code sees these as text input and reacts accordingly — inspecting the
-worker, reassigning the task, spawning more clones, etc.
+The exact integration mechanism (Claude Code polling, a background watcher
+process that alerts the lead pane during idle windows, or amux gaining a
+notification overlay) is an open question — the key constraint is that
+notifications must not corrupt an active agent's PTY state.
 
 ### PR Merge Detection
 
@@ -280,6 +291,12 @@ orca dash                                       # live TUI dashboard (own pane)
 orca events                                     # NDJSON event stream
 ```
 
+`orca events` emits orca-level events as NDJSON: task state transitions
+(queued → active → done), worker health changes (healthy → stuck → recovered),
+clone pool changes, and escalation alerts. These are distinct from `amux events`
+(pane output, idle, layout changes) — orca consumes amux events internally and
+produces higher-level orchestration events.
+
 ### Dashboard
 
 `orca dash` runs a TUI in its own amux pane. At-a-glance view:
@@ -373,7 +390,7 @@ First milestone — enough to replace the shell scripts:
 - SQLite state persistence
 - Convention-based clone pool discovery
 - Single agent profile (codex)
-- Stuck detection + lead-pane push notification
+- Stuck detection + notification via `orca events` / `orca status`
 - PR merge polling via `gh` CLI
 - Clone cleanup on completion/cancellation
 
@@ -403,6 +420,16 @@ First milestone — enough to replace the shell scripts:
    should roll back (free the clone). What other partial failure modes need
    explicit rollback handling?
 
-5. **Repo scope.** Orca is described as project-scoped, but state.db is global.
+5. **Notification delivery.** Claude Code needs to learn about orca events
+   (stuck workers, merged PRs, exhausted pool). Options: Claude Code polls
+   `orca status` periodically, a background watcher tails `orca events` and
+   injects alerts during idle windows, or amux gains a notification overlay
+   that orca can post to without corrupting active panes.
+
+6. **`gh` auth expiry.** The daemon runs unattended for hours. GitHub tokens
+   can expire mid-session. Orca should detect `gh` auth failures (401/403)
+   and escalate immediately rather than silently failing to poll.
+
+7. **Repo scope.** Orca is described as project-scoped, but state.db is global.
    Should `orca start` require `--project` to namespace tasks within the global
    DB, or is one active project at a time sufficient?
