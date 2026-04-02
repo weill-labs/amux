@@ -1,8 +1,8 @@
 package vt
 
 import (
-	"fmt"
 	"io"
+	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -57,7 +57,7 @@ func (e *Emulator) popKittyKeyboard(count int) {
 }
 
 func (e *Emulator) reportKittyKeyboard() {
-	_, _ = io.WriteString(e.pw, fmt.Sprintf("\x1b[?%du", e.kittyKeyboardFlags()))
+	_, _ = io.WriteString(e.pw, "\x1b[?"+strconv.Itoa(e.kittyKeyboardFlags())+"u")
 }
 
 func (e *Emulator) resetKittyKeyboard() {
@@ -113,10 +113,10 @@ func (e *Emulator) kittyKeySequence(ev uv.KeyEvent) (string, bool) {
 	modifiers := kittyModifierBits(key.Mod)
 	if modifiers != 0 || eventType != 1 {
 		seq.WriteByte(';')
-		seq.WriteString(fmt.Sprintf("%d", modifiers+1))
+		seq.WriteString(strconv.Itoa(modifiers + 1))
 		if eventType != 1 {
 			seq.WriteByte(':')
-			seq.WriteString(fmt.Sprintf("%d", eventType))
+			seq.WriteString(strconv.Itoa(eventType))
 		}
 	}
 
@@ -176,7 +176,7 @@ func kittyKeyCodeField(key uv.Key, flags int) (string, bool) {
 	}
 
 	var field strings.Builder
-	field.WriteString(fmt.Sprintf("%d", code))
+	field.WriteString(strconv.Itoa(code))
 
 	if flags&ansi.KittyReportAlternateKeys == 0 {
 		return field.String(), true
@@ -194,7 +194,7 @@ func kittyKeyCodeField(key uv.Key, flags int) (string, bool) {
 
 	field.WriteByte(':')
 	if shifted != 0 && unicode.IsPrint(shifted) {
-		field.WriteString(fmt.Sprintf("%d", shifted))
+		field.WriteString(strconv.Itoa(int(shifted)))
 	}
 
 	if base == 0 || !unicode.IsPrint(base) {
@@ -202,7 +202,7 @@ func kittyKeyCodeField(key uv.Key, flags int) (string, bool) {
 	}
 
 	field.WriteByte(':')
-	field.WriteString(fmt.Sprintf("%d", base))
+	field.WriteString(strconv.Itoa(int(base)))
 	return field.String(), true
 }
 
@@ -355,7 +355,7 @@ func kittyAssociatedTextField(text string) (string, bool) {
 		if field.Len() > 0 {
 			field.WriteByte(':')
 		}
-		field.WriteString(fmt.Sprintf("%d", r))
+		field.WriteString(strconv.Itoa(int(r)))
 		text = text[size:]
 	}
 
