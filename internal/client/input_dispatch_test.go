@@ -1365,6 +1365,66 @@ func TestHandleMouseEventQueuedScrollUpAndDownUsesCopyMode(t *testing.T) {
 	}
 }
 
+func TestHandleMouseEventForwardsAppMouseClickToPane(t *testing.T) {
+	t.Parallel()
+
+	cr := buildTestRenderer(t)
+	cr.HandlePaneOutput(1, []byte("\x1b[?1000h\x1b[?1006h"))
+
+	clientConn, serverConn := net.Pipe()
+	t.Cleanup(func() {
+		clientConn.Close()
+		serverConn.Close()
+	})
+
+	sender := newMessageSender(clientConn)
+	t.Cleanup(sender.Close)
+
+	var drag dragState
+	y := mux.StatusLineRows
+
+	handleMouseEvent(mouse.Event{
+		Action: mouse.Press,
+		Button: mouse.ButtonLeft,
+		X:      0,
+		Y:      y,
+	}, cr, sender, &drag, nil)
+
+	press := readCommandMessage(t, serverConn)
+	if press.Type != proto.MsgTypeInputPane {
+		t.Fatalf("press message type = %d, want %d", press.Type, proto.MsgTypeInputPane)
+	}
+	if press.PaneID != 1 {
+		t.Fatalf("press pane id = %d, want 1", press.PaneID)
+	}
+	if got := string(press.PaneData); got != "\x1b[<0;1;1M" {
+		t.Fatalf("press pane data = %q, want %q", got, "\x1b[<0;1;1M")
+	}
+	if drag.Active || drag.PaneDragActive || drag.CopyModeActive || drag.CopyModePaneID != 0 {
+		t.Fatalf("press should not start local mouse handling, got %+v", drag)
+	}
+	assertNoMessage(t, serverConn)
+
+	handleMouseEvent(mouse.Event{
+		Action: mouse.Release,
+		Button: mouse.ButtonLeft,
+		X:      0,
+		Y:      y,
+	}, cr, sender, &drag, nil)
+
+	release := readCommandMessage(t, serverConn)
+	if release.Type != proto.MsgTypeInputPane {
+		t.Fatalf("release message type = %d, want %d", release.Type, proto.MsgTypeInputPane)
+	}
+	if release.PaneID != 1 {
+		t.Fatalf("release pane id = %d, want 1", release.PaneID)
+	}
+	if got := string(release.PaneData); got != "\x1b[<0;1;1m" {
+		t.Fatalf("release pane data = %q, want %q", got, "\x1b[<0;1;1m")
+	}
+	assertNoMessage(t, serverConn)
+}
+
 func TestCopyModeHelpersSetCursorStartSelectionAndCopy(t *testing.T) {
 	t.Parallel()
 
