@@ -116,7 +116,7 @@ func buildPaneStatusSegments(cellWidth int, isActive bool, pd PaneData) []paneSt
 		segments = appendPaneStatusSegment(segments, copyText, paneStatusSegmentYellow)
 	}
 
-	metaItems := paneStatusMetadataItems(pd.TrackedPRs(), pd.TrackedIssues(), pd.Issue(), isActive)
+	metaItems := paneStatusMetadataItemsForPane(pd, isActive)
 	metaSegments := paneStatusMetadataSegments(metaItems, availableMetadataWidth(cellWidth, pd, isActive))
 	if len(metaSegments) > 0 {
 		segments = appendPaneStatusSegment(segments, " ", paneStatusSegmentBackground)
@@ -249,8 +249,12 @@ func paneStatusTrackedIssues(issues []proto.TrackedIssue, rawIssue string) []pro
 	}}
 }
 
+func paneStatusMetadataItemsForPane(pd PaneData, showMissingIssueHint bool) []paneStatusMetadataItem {
+	return paneStatusMetadataItems(pd.TrackedPRs(), pd.TrackedIssues(), pd.Issue(), showMissingIssueHint)
+}
+
 func availableMetadataWidth(cellWidth int, pd PaneData, showMissingIssueHint bool) int {
-	if len(paneStatusMetadataItems(pd.TrackedPRs(), pd.TrackedIssues(), pd.Issue(), showMissingIssueHint)) == 0 {
+	if len(paneStatusMetadataItemsForPane(pd, showMissingIssueHint)) == 0 {
 		return 0
 	}
 	return cellWidth - paneStatusUsedWidthWithoutMetadata(pd) - 1
