@@ -209,6 +209,13 @@ func paneCommandEnvWithProfile(base []string, paneID uint32, sessionName, colorP
 		case "TERM", "AMUX_PANE", "AMUX_SESSION", termprofile.EnvKey:
 			// amux owns these values for pane shells.
 			continue
+		case "TERM_PROGRAM", "TERM_PROGRAM_VERSION":
+			// These identify the outer terminal (e.g. Ghostty, iTerm).
+			// Inside amux the terminal emulator is the vt library, not the
+			// outer app. Propagating these causes TUI apps to enable
+			// features (like DEC 2026 synchronized output) that amux's
+			// emulator does not implement, leading to rendering corruption.
+			continue
 		case "NO_COLOR", "CODEX_CI":
 			// These are launcher-context flags. Passing them through to an
 			// interactive pane makes nested tools like Codex suppress ANSI.
