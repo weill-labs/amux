@@ -113,6 +113,98 @@ func TestDecodeInputEventsKittyCtrlA(t *testing.T) {
 	}
 }
 
+func TestDecodeInputEventsKeyNameMatrix(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		input    []byte
+		wantCode rune
+		wantName string
+	}{
+		{name: "enter", input: []byte{'\r'}, wantCode: uv.KeyEnter, wantName: "enter"},
+		{name: "tab", input: []byte{'\t'}, wantCode: uv.KeyTab, wantName: "tab"},
+		{name: "escape", input: []byte{0x1b}, wantCode: uv.KeyEscape, wantName: "esc"},
+		{name: "backspace", input: []byte{0x7f}, wantCode: uv.KeyBackspace, wantName: "backspace"},
+		{name: "shift tab", input: []byte("\x1b[Z"), wantCode: uv.KeyTab, wantName: "shift+tab"},
+
+		{name: "csi up", input: []byte("\x1b[A"), wantCode: uv.KeyUp, wantName: "up"},
+		{name: "ss3 up alias", input: []byte("\x1bOA"), wantCode: uv.KeyUp, wantName: "up"},
+		{name: "csi down", input: []byte("\x1b[B"), wantCode: uv.KeyDown, wantName: "down"},
+		{name: "ss3 down alias", input: []byte("\x1bOB"), wantCode: uv.KeyDown, wantName: "down"},
+		{name: "csi right", input: []byte("\x1b[C"), wantCode: uv.KeyRight, wantName: "right"},
+		{name: "ss3 right alias", input: []byte("\x1bOC"), wantCode: uv.KeyRight, wantName: "right"},
+		{name: "csi left", input: []byte("\x1b[D"), wantCode: uv.KeyLeft, wantName: "left"},
+		{name: "ss3 left alias", input: []byte("\x1bOD"), wantCode: uv.KeyLeft, wantName: "left"},
+		{name: "home csi", input: []byte("\x1b[H"), wantCode: uv.KeyHome, wantName: "home"},
+		{name: "home ss3 alias", input: []byte("\x1bOH"), wantCode: uv.KeyHome, wantName: "home"},
+		{name: "end csi", input: []byte("\x1b[F"), wantCode: uv.KeyEnd, wantName: "end"},
+		{name: "end ss3 alias", input: []byte("\x1bOF"), wantCode: uv.KeyEnd, wantName: "end"},
+		{name: "ctrl up", input: []byte("\x1b[1;5A"), wantCode: uv.KeyUp, wantName: "ctrl+up"},
+		{name: "alt up", input: []byte("\x1b[1;3A"), wantCode: uv.KeyUp, wantName: "alt+up"},
+		{name: "page up", input: []byte("\x1b[5~"), wantCode: uv.KeyPgUp, wantName: "pgup"},
+		{name: "page down", input: []byte("\x1b[6~"), wantCode: uv.KeyPgDown, wantName: "pgdown"},
+		{name: "insert", input: []byte("\x1b[2~"), wantCode: uv.KeyInsert, wantName: "insert"},
+		{name: "delete", input: []byte("\x1b[3~"), wantCode: uv.KeyDelete, wantName: "delete"},
+
+		{name: "f1 ss3", input: []byte("\x1bOP"), wantCode: uv.KeyF1, wantName: "f1"},
+		{name: "f1 csi alias", input: []byte("\x1b[11~"), wantCode: uv.KeyF1, wantName: "f1"},
+		{name: "f2 ss3", input: []byte("\x1bOQ"), wantCode: uv.KeyF2, wantName: "f2"},
+		{name: "f3 ss3", input: []byte("\x1bOR"), wantCode: uv.KeyF3, wantName: "f3"},
+		{name: "f4 ss3", input: []byte("\x1bOS"), wantCode: uv.KeyF4, wantName: "f4"},
+		{name: "f5 csi", input: []byte("\x1b[15~"), wantCode: uv.KeyF5, wantName: "f5"},
+		{name: "f6 csi", input: []byte("\x1b[17~"), wantCode: uv.KeyF6, wantName: "f6"},
+		{name: "f7 csi", input: []byte("\x1b[18~"), wantCode: uv.KeyF7, wantName: "f7"},
+		{name: "f8 csi", input: []byte("\x1b[19~"), wantCode: uv.KeyF8, wantName: "f8"},
+		{name: "f9 csi", input: []byte("\x1b[20~"), wantCode: uv.KeyF9, wantName: "f9"},
+		{name: "f10 csi", input: []byte("\x1b[21~"), wantCode: uv.KeyF10, wantName: "f10"},
+		{name: "f11 csi", input: []byte("\x1b[23~"), wantCode: uv.KeyF11, wantName: "f11"},
+		{name: "f12 csi", input: []byte("\x1b[24~"), wantCode: uv.KeyF12, wantName: "f12"},
+
+		{name: "kitty ctrl a", input: []byte("\x1b[97;5u"), wantCode: 'a', wantName: "ctrl+a"},
+		{name: "kitty alt shift a", input: []byte("\x1b[97;4;65u"), wantCode: 'a', wantName: "alt+shift+a"},
+		{name: "kitty escape", input: []byte("\x1b[27u"), wantCode: uv.KeyEscape, wantName: "esc"},
+
+		{name: "keypad zero application", input: []byte("\x1bOp"), wantCode: uv.KeyKp0, wantName: "0"},
+		{name: "keypad one application", input: []byte("\x1bOq"), wantCode: uv.KeyKp1, wantName: "1"},
+		{name: "keypad two application", input: []byte("\x1bOr"), wantCode: uv.KeyKp2, wantName: "2"},
+		{name: "keypad three application", input: []byte("\x1bOs"), wantCode: uv.KeyKp3, wantName: "3"},
+		{name: "keypad four application", input: []byte("\x1bOt"), wantCode: uv.KeyKp4, wantName: "4"},
+		{name: "keypad five application", input: []byte("\x1bOu"), wantCode: uv.KeyKp5, wantName: "5"},
+		{name: "keypad six application", input: []byte("\x1bOv"), wantCode: uv.KeyKp6, wantName: "6"},
+		{name: "keypad seven application", input: []byte("\x1bOw"), wantCode: uv.KeyKp7, wantName: "7"},
+		{name: "keypad eight application", input: []byte("\x1bOx"), wantCode: uv.KeyKp8, wantName: "8"},
+		{name: "keypad nine application", input: []byte("\x1bOy"), wantCode: uv.KeyKp9, wantName: "9"},
+		{name: "keypad enter application", input: []byte("\x1bOM"), wantCode: uv.KeyKpEnter, wantName: "enter"},
+		{name: "keypad equal application", input: []byte("\x1bOX"), wantCode: uv.KeyKpEqual, wantName: "equal"},
+		{name: "keypad multiply application", input: []byte("\x1bOj"), wantCode: uv.KeyKpMultiply, wantName: "mul"},
+		{name: "keypad plus application", input: []byte("\x1bOk"), wantCode: uv.KeyKpPlus, wantName: "plus"},
+		{name: "keypad comma application", input: []byte("\x1bOl"), wantCode: uv.KeyKpComma, wantName: "comma"},
+		{name: "keypad minus application", input: []byte("\x1bOm"), wantCode: uv.KeyKpMinus, wantName: "minus"},
+		{name: "keypad decimal application", input: []byte("\x1bOn"), wantCode: uv.KeyKpDecimal, wantName: "period"},
+		{name: "keypad divide application", input: []byte("\x1bOo"), wantCode: uv.KeyKpDivide, wantName: "div"},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			event := decodeSingleInputEvent(t, tt.input).event
+			key, ok := event.(uv.KeyPressEvent)
+			if !ok {
+				t.Fatalf("event type = %T, want uv.KeyPressEvent", event)
+			}
+			if key.Code != tt.wantCode {
+				t.Fatalf("decoded code = %v, want %v", key.Code, tt.wantCode)
+			}
+			if got := key.Keystroke(); got != tt.wantName {
+				t.Fatalf("decoded name = %q, want %q", got, tt.wantName)
+			}
+		})
+	}
+}
+
 func TestDecodeInputEventsFocusAndBlur(t *testing.T) {
 	t.Parallel()
 
