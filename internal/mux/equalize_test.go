@@ -84,6 +84,51 @@ func TestWindowEqualizeVerticalWithinColumns(t *testing.T) {
 	}
 }
 
+func TestWindowEqualizeRebalancesNestedColumnsUnderHorizontalRoot(t *testing.T) {
+	t.Parallel()
+
+	p1 := fakePaneID(1)
+	w := NewWindow(p1, 246, 30)
+	for id := uint32(2); id <= 6; id++ {
+		if _, err := w.SplitRoot(SplitVertical, fakePaneID(id)); err != nil {
+			t.Fatalf("SplitRoot pane-%d: %v", id, err)
+		}
+	}
+	if _, err := w.SplitRoot(SplitHorizontal, fakePaneID(147)); err != nil {
+		t.Fatalf("SplitRoot pane-147: %v", err)
+	}
+
+	if !w.ResizePane(p1.ID, "right", 46) {
+		t.Fatal("ResizePane should skew top-row column widths")
+	}
+
+	top := w.Root.Children[0]
+	if top.IsLeaf() || top.Dir != SplitVertical {
+		t.Fatalf("top row = %+v, want vertical columns", top)
+	}
+
+	widthsBefore := make([]int, 0, len(top.Children))
+	for _, child := range top.Children {
+		widthsBefore = append(widthsBefore, child.W)
+	}
+	if reflect.DeepEqual(widthsBefore, []int{40, 40, 40, 40, 40, 41}) {
+		t.Fatalf("top-row widths before equalize = %v, want skewed widths", widthsBefore)
+	}
+
+	if !w.Equalize(true, true) {
+		t.Fatal("Equalize(widths=true, heights=true) = false, want true")
+	}
+
+	got := make([]int, 0, len(top.Children))
+	for _, child := range top.Children {
+		got = append(got, child.W)
+	}
+	want := []int{40, 40, 40, 40, 40, 41}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("top-row column widths after equalize = %v, want %v", got, want)
+	}
+}
+
 func TestWindowEqualizeUsesLogicalRootWhenLeadAnchored(t *testing.T) {
 	t.Parallel()
 
