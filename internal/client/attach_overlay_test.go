@@ -1,6 +1,10 @@
 package client
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/weill-labs/amux/internal/config"
+)
 
 func queueBlockingLocalAction(msgCh chan<- *RenderMsg) (started <-chan struct{}, release chan<- struct{}) {
 	startedCh := make(chan struct{})
@@ -155,5 +159,52 @@ func TestHandleChooserInputOnRenderLoopReturnsUnhandledWhenChooserInactive(t *te
 	}
 	if result.action.command != "" || result.action.bell || len(result.action.args) != 0 {
 		t.Fatalf("chooser action = %+v, want zero value", result.action)
+	}
+}
+
+func TestToggleHelpOverlayOnRenderLoopWaitsForQueuedLayout(t *testing.T) {
+	t.Parallel()
+
+	cr := NewClientRenderer(80, 24)
+	msgCh := startTestRenderLoop(t, cr)
+
+	started, release := queueBlockingLocalAction(msgCh)
+	<-started
+
+	msgCh <- &RenderMsg{Typ: RenderMsgLayout, Layout: twoPane80x23()}
+
+	resultCh := make(chan bool, 1)
+	go func() {
+		resultCh <- toggleHelpOverlayOnRenderLoop(cr, msgCh, config.DefaultKeybindings())
+	}()
+
+	close(release)
+
+	if ok := <-resultCh; !ok {
+		t.Fatal("toggleHelpOverlayOnRenderLoop should succeed after queued layout")
+	}
+	if !cr.HelpOverlayActive() {
+		t.Fatal("help overlay should be active after queued layout")
+	}
+}
+
+func TestToggleHelpOverlayOnRenderLoopHidesActiveOverlay(t *testing.T) {
+	t.Parallel()
+
+	cr := buildTestRenderer(t)
+	msgCh := startTestRenderLoop(t, cr)
+
+	if !toggleHelpOverlayOnRenderLoop(cr, msgCh, config.DefaultKeybindings()) {
+		t.Fatal("toggleHelpOverlayOnRenderLoop should show help")
+	}
+	if !cr.HelpOverlayActive() {
+		t.Fatal("help overlay should be active after first toggle")
+	}
+
+	if !toggleHelpOverlayOnRenderLoop(cr, msgCh, config.DefaultKeybindings()) {
+		t.Fatal("toggleHelpOverlayOnRenderLoop should hide an active overlay")
+	}
+	if cr.HelpOverlayActive() {
+		t.Fatal("help overlay should be inactive after second toggle")
 	}
 }

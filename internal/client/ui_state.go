@@ -12,6 +12,7 @@ type clientUIState struct {
 	paneDrag           *paneDragOverlayState
 	chooser            *chooserState
 	windowRenamePrompt *windowRenamePromptState
+	helpOverlay        *helpOverlayState
 	message            string
 	inputIdle          bool
 }
@@ -66,6 +67,12 @@ type uiActionShowWindowRenamePrompt struct {
 }
 
 type uiActionHideWindowRenamePrompt struct{}
+
+type uiActionShowHelpOverlay struct {
+	overlay *helpOverlayState
+}
+
+type uiActionHideHelpOverlay struct{}
 
 type uiActionEnterCopyMode struct {
 	paneID uint32
@@ -148,6 +155,15 @@ func (st *clientUIState) reduce(action any) clientUIResult {
 		st.windowRenamePrompt = nil
 		st.dirty = true
 		return clientUIResult{}
+	case uiActionShowHelpOverlay:
+		return st.reduceShowHelpOverlay(action)
+	case uiActionHideHelpOverlay:
+		if st.helpOverlay == nil {
+			return clientUIResult{}
+		}
+		st.helpOverlay = nil
+		st.dirty = true
+		return clientUIResult{}
 	case uiActionEnterCopyMode:
 		wasVisible := len(st.copyModes) > 0
 		if st.copyModes[action.paneID] != nil {
@@ -189,6 +205,9 @@ func (st *clientUIState) reduceHandleLayout(action uiActionHandleLayout) clientU
 		if st.windowRenamePrompt != nil {
 			st.windowRenamePrompt = nil
 		}
+		if st.helpOverlay != nil {
+			st.helpOverlay = nil
+		}
 		if st.message != "" {
 			// Metadata-only layout refreshes are common (idle/CWD/branch updates).
 			// Keep local feedback visible until the layout actually changes.
@@ -223,6 +242,9 @@ func (st *clientUIState) reduceShowChooser(action uiActionShowChooser) clientUIR
 	if st.windowRenamePrompt != nil {
 		st.windowRenamePrompt = nil
 	}
+	if st.helpOverlay != nil {
+		st.helpOverlay = nil
+	}
 	previous := st.chooser
 	st.chooser = action.chooser
 	st.dirty = true
@@ -248,7 +270,28 @@ func (st *clientUIState) reduceShowWindowRenamePrompt(action uiActionShowWindowR
 		result.uiEvents = append(result.uiEvents, st.chooser.mode.hiddenEvent())
 		st.chooser = nil
 	}
+	if st.helpOverlay != nil {
+		st.helpOverlay = nil
+	}
 	st.windowRenamePrompt = action.prompt
+	st.dirty = true
+	return result
+}
+
+func (st *clientUIState) reduceShowHelpOverlay(action uiActionShowHelpOverlay) clientUIResult {
+	result := clientUIResult{}
+	if st.displayPanes != nil {
+		st.displayPanes = nil
+		result.uiEvents = append(result.uiEvents, proto.UIEventDisplayPanesHidden)
+	}
+	if st.chooser != nil {
+		result.uiEvents = append(result.uiEvents, st.chooser.mode.hiddenEvent())
+		st.chooser = nil
+	}
+	if st.windowRenamePrompt != nil {
+		st.windowRenamePrompt = nil
+	}
+	st.helpOverlay = action.overlay
 	st.dirty = true
 	return result
 }
@@ -265,6 +308,8 @@ func (st *clientUIState) captureUI() *proto.CaptureUI {
 	prompt := ""
 	if st.windowRenamePrompt != nil {
 		prompt = st.windowRenamePrompt.title()
+	} else if st.helpOverlay != nil {
+		prompt = st.helpOverlay.title()
 	}
 	return &proto.CaptureUI{
 		CopyMode:     len(st.copyModes) > 0,

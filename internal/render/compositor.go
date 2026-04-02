@@ -169,6 +169,9 @@ func (c *Compositor) RenderFullWithOverlay(root *mux.LayoutCell, activePaneID ui
 	if overlay.Chooser != nil {
 		renderChooserOverlayWithProfile(&buf, c.width, c.height, overlay.Chooser, c.colorProfile)
 	}
+	if overlay.Help != nil {
+		renderChooserOverlayWithProfile(&buf, c.width, c.height, overlay.Help, c.colorProfile)
+	}
 	if overlay.TextInput != nil {
 		renderTextInputOverlayWithProfile(&buf, c.width, c.height, overlay.TextInput, c.colorProfile)
 	}

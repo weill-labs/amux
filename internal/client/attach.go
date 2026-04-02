@@ -614,6 +614,10 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 					if !toggleDisplayPanesOnRenderLoop(cr, msgCh) {
 						io.WriteString(os.Stdout, "\a")
 					}
+				case "help":
+					if !toggleHelpOverlayOnRenderLoop(cr, msgCh, kb) {
+						io.WriteString(os.Stdout, "\a")
+					}
 				case "choose-tree":
 					showChooser(chooserModeTree)
 				case "choose-window":
@@ -891,6 +895,11 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 					normalized = decoded.raw
 				}
 
+				if cr.HelpOverlayActive() {
+					dismissHelpOverlayOnRenderLoop(cr, msgCh)
+					return false
+				}
+
 				if cr.DisplayPanesActive() {
 					if len(normalized) > 0 {
 						handleDisplayPaneSelection(cr, sender, normalized[0], msgCh)
@@ -971,6 +980,24 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 				}
 				if result.action.command != "" {
 					sender.Command(result.action.command, result.action.args)
+				}
+				cr.SetInputIdle(true)
+				continue
+			}
+			if cr.HelpOverlayActive() {
+				events := decodeInputEvents(raw)
+				consumed := helpOverlayConsumedEvents(events, kb)
+				dismissHelpOverlayOnRenderLoop(cr, msgCh)
+				for _, decoded := range events[consumed:] {
+					if dispatchDecoded(decoded) {
+						shouldExit = true
+						break
+					}
+				}
+				flushCopyInput()
+				sendForward(forward)
+				if shouldExit {
+					return
 				}
 				cr.SetInputIdle(true)
 				continue

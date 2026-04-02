@@ -10,6 +10,7 @@ type OverlayState struct {
 	Chooser       *ChooserOverlay
 	TextInput     *TextInputOverlay
 	Message       string
+	Help          *ChooserOverlay
 }
 
 // ChooserOverlay is a client-local modal chooser rendered above the layout.
