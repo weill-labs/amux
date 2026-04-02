@@ -794,6 +794,38 @@ func TestHandleMouseEventGlobalBarClickSingleWindowDoesNothing(t *testing.T) {
 	assertNoMessage(t, serverConn)
 }
 
+func TestHandleMouseEventGlobalBarHelpClickTogglesHelpBar(t *testing.T) {
+	t.Parallel()
+
+	cr := buildTestRenderer(t)
+	msgCh := startTestRenderLoop(t, cr)
+	cr.RenderDiff()
+
+	var drag dragState
+	x := globalBarClickColumn(t, cr, "? help")
+	y := globalBarRow(t, cr)
+
+	handleMouseEvent(mouse.Event{
+		Action: mouse.Press,
+		Button: mouse.ButtonLeft,
+		X:      x,
+		Y:      y,
+	}, cr, nil, &drag, msgCh)
+	if !cr.HelpBarActive() {
+		t.Fatal("global bar help click should show the help bar")
+	}
+
+	handleMouseEvent(mouse.Event{
+		Action: mouse.Press,
+		Button: mouse.ButtonLeft,
+		X:      x,
+		Y:      y,
+	}, cr, nil, &drag, msgCh)
+	if cr.HelpBarActive() {
+		t.Fatal("second global bar help click should hide the help bar")
+	}
+}
+
 func TestPaneAllowsMouseCopySelection(t *testing.T) {
 	t.Parallel()
 
