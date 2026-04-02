@@ -430,6 +430,8 @@ func (cr *ClientRenderer) handleRenderMsg(msg *RenderMsg) []clientEffect {
 		effects := appendUIEventEffect(nil, result.uiEvents)
 		if structureChanged {
 			effects = append(effects, clientEffect{kind: clientEffectClearPrevGrid})
+		} else {
+			cr.RequestFullRedraw()
 		}
 		return appendStopAndRenderNow(effects)
 	case RenderMsgPaneOutput:
