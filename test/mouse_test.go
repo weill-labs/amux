@@ -616,9 +616,11 @@ PY
 		t.Fatalf("expected active pane to receive click events.\nScreen:\n%s", h.captureOuter())
 	}
 	screen := h.captureOuter()
+	// ESC[<0;40;11M
 	if !strings.Contains(screen, "1b5b3c303b34303b31314d") {
 		t.Fatalf("expected click press sequence to reach pane input.\nScreen:\n%s", screen)
 	}
+	// ESC[<0;40;11m
 	if !strings.Contains(screen, "1b5b3c303b34303b31316d") {
 		t.Fatalf("expected click release sequence to reach pane input.\nScreen:\n%s", screen)
 	}

@@ -408,7 +408,7 @@ func handleMouseEvent(ev mouse.Event, cr *ClientRenderer, sender *messageSender,
 	if handleGlobalBarClick(ev, layout, cr, sender, msgCh) {
 		return
 	}
-	if forwardMouseEventToApp(cr, sender, layout, ev) {
+	if !drag.Active && !drag.PaneDragActive && forwardMouseEventToApp(cr, sender, layout, ev) {
 		drag.Active = false
 		clearPaneDragState(cr, drag)
 		drag.CopyModeActive = false

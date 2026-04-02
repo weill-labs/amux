@@ -2,6 +2,7 @@ package client
 
 import (
 	"bytes"
+	"fmt"
 	"net"
 	"slices"
 	"strings"
@@ -995,6 +996,79 @@ func TestHandleMouseEventBorderPressClearsCopyDragState(t *testing.T) {
 	if drag.CopyModePaneID != 0 {
 		t.Fatalf("border press should clear copy-mode pane id, got %d", drag.CopyModePaneID)
 	}
+}
+
+func TestHandleMouseEventBorderDragMotionOverAppMousePaneKeepsDragActive(t *testing.T) {
+	t.Parallel()
+
+	cr := buildTestRenderer(t)
+	cr.HandlePaneOutput(2, []byte("\x1b[?1002h\x1b[?1006h"))
+
+	layout := cr.VisibleLayout()
+	if layout == nil {
+		t.Fatal("visible layout missing")
+	}
+
+	borderX := -1
+	for x := 0; x < 80; x++ {
+		if layout.FindBorderAt(x, 5) != nil {
+			borderX = x
+			break
+		}
+	}
+	if borderX < 0 {
+		t.Fatal("expected a vertical border in the test layout")
+	}
+
+	var drag dragState
+	handleMouseEvent(mouse.Event{
+		Action: mouse.Press,
+		Button: mouse.ButtonLeft,
+		X:      borderX,
+		Y:      5,
+	}, cr, nil, &drag, nil)
+
+	clientConn, serverConn := net.Pipe()
+	t.Cleanup(func() {
+		clientConn.Close()
+		serverConn.Close()
+	})
+
+	sender := newMessageSender(clientConn)
+	t.Cleanup(sender.Close)
+
+	done := make(chan struct{})
+	go func() {
+		handleMouseEvent(mouse.Event{
+			Action: mouse.Motion,
+			Button: mouse.ButtonLeft,
+			X:      60,
+			Y:      5,
+			LastX:  borderX,
+			LastY:  5,
+		}, cr, sender, &drag, nil)
+		close(done)
+	}()
+
+	msg := readCommandMessage(t, serverConn)
+	if msg.Type != proto.MsgTypeCommand {
+		t.Fatalf("message type = %d, want %d", msg.Type, proto.MsgTypeCommand)
+	}
+	if msg.CmdName != "resize-border" {
+		t.Fatalf("command = %q, want resize-border", msg.CmdName)
+	}
+	if got, want := msg.CmdArgs, []string{fmt.Sprintf("%d", borderX), "5", fmt.Sprintf("%d", 60-borderX)}; !slices.Equal(got, want) {
+		t.Fatalf("command args = %v, want %v", got, want)
+	}
+	<-done
+
+	if !drag.Active {
+		t.Fatal("border drag motion over app-mouse pane should keep the drag active")
+	}
+	if drag.BorderX != 60 {
+		t.Fatalf("border drag x = %d, want 60", drag.BorderX)
+	}
+	assertNoMessage(t, serverConn)
 }
 
 func TestHandleMouseEventDragStartsCopyModeAndCopiesSelection(t *testing.T) {
