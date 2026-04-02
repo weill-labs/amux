@@ -116,7 +116,7 @@ func buildPaneStatusSegments(cellWidth int, isActive bool, pd PaneData) []paneSt
 		segments = appendPaneStatusSegment(segments, copyText, paneStatusSegmentYellow)
 	}
 
-	metaItems := paneStatusMetadataItems(pd.TrackedPRs(), pd.TrackedIssues(), isActive)
+	metaItems := paneStatusMetadataItemsForPane(pd, isActive)
 	metaSegments := paneStatusMetadataSegments(metaItems, availableMetadataWidth(cellWidth, pd, isActive))
 	if len(metaSegments) > 0 {
 		segments = appendPaneStatusSegment(segments, " ", paneStatusSegmentBackground)
@@ -204,7 +204,8 @@ func truncateRunes(s string, max int) string {
 	return string(runes[:max-1]) + "…"
 }
 
-func paneStatusMetadataItems(prs []proto.TrackedPR, issues []proto.TrackedIssue, showMissingIssueHint bool) []paneStatusMetadataItem {
+func paneStatusMetadataItems(prs []proto.TrackedPR, issues []proto.TrackedIssue, rawIssue string, showMissingIssueHint bool) []paneStatusMetadataItem {
+	issues = paneStatusTrackedIssues(issues, rawIssue)
 	items := make([]paneStatusMetadataItem, 0, len(prs)+len(issues)+1)
 	for _, pr := range prs {
 		if pr.Number <= 0 {
@@ -233,8 +234,27 @@ func paneStatusMetadataItems(prs []proto.TrackedPR, issues []proto.TrackedIssue,
 	return items
 }
 
+func paneStatusTrackedIssues(issues []proto.TrackedIssue, rawIssue string) []proto.TrackedIssue {
+	if len(issues) > 0 {
+		return issues
+	}
+
+	id := strings.TrimSpace(rawIssue)
+	if id == "" {
+		return nil
+	}
+	return []proto.TrackedIssue{{
+		ID:     id,
+		Status: proto.TrackedStatusActive,
+	}}
+}
+
+func paneStatusMetadataItemsForPane(pd PaneData, showMissingIssueHint bool) []paneStatusMetadataItem {
+	return paneStatusMetadataItems(pd.TrackedPRs(), pd.TrackedIssues(), pd.Issue(), showMissingIssueHint)
+}
+
 func availableMetadataWidth(cellWidth int, pd PaneData, showMissingIssueHint bool) int {
-	if len(paneStatusMetadataItems(pd.TrackedPRs(), pd.TrackedIssues(), showMissingIssueHint)) == 0 {
+	if len(paneStatusMetadataItemsForPane(pd, showMissingIssueHint)) == 0 {
 		return 0
 	}
 	return cellWidth - paneStatusUsedWidthWithoutMetadata(pd) - 1

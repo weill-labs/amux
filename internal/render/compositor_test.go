@@ -59,6 +59,7 @@ func (f *fakePaneData) ID() uint32                          { return f.id }
 func (f *fakePaneData) Name() string                        { return f.name }
 func (f *fakePaneData) TrackedPRs() []proto.TrackedPR       { return nil }
 func (f *fakePaneData) TrackedIssues() []proto.TrackedIssue { return nil }
+func (f *fakePaneData) Issue() string                       { return "" }
 func (f *fakePaneData) Host() string                        { return "local" }
 func (f *fakePaneData) Task() string                        { return "" }
 func (f *fakePaneData) Color() string                       { return "f5e0dc" }
@@ -77,23 +78,24 @@ type countingPaneData struct {
 	cellReads *int
 }
 
-func (c *countingPaneData) RenderScreen(active bool) string          { return c.base.RenderScreen(active) }
-func (c *countingPaneData) CursorPos() (int, int)                    { return c.base.CursorPos() }
-func (c *countingPaneData) CursorHidden() bool                       { return c.base.CursorHidden() }
-func (c *countingPaneData) ID() uint32                               { return c.base.ID() }
-func (c *countingPaneData) Name() string                             { return c.base.Name() }
-func (c *countingPaneData) TrackedPRs() []proto.TrackedPR            { return c.base.TrackedPRs() }
-func (c *countingPaneData) TrackedIssues() []proto.TrackedIssue      { return c.base.TrackedIssues() }
-func (c *countingPaneData) Host() string                             { return c.base.Host() }
-func (c *countingPaneData) Task() string                             { return c.base.Task() }
-func (c *countingPaneData) Color() string                            { return c.base.Color() }
-func (c *countingPaneData) Idle() bool                               { return c.base.Idle() }
-func (c *countingPaneData) IsLead() bool                             { return c.base.IsLead() }
-func (c *countingPaneData) ConnStatus() string                       { return c.base.ConnStatus() }
-func (c *countingPaneData) InCopyMode() bool                         { return c.base.InCopyMode() }
-func (c *countingPaneData) CopyModeSearch() string                   { return c.base.CopyModeSearch() }
-func (c *countingPaneData) HasCursorBlock() bool                     { return c.base.HasCursorBlock() }
-func (c *countingPaneData) CopyModeOverlay() *proto.ViewportOverlay  { return c.base.CopyModeOverlay() }
+func (c *countingPaneData) RenderScreen(active bool) string         { return c.base.RenderScreen(active) }
+func (c *countingPaneData) CursorPos() (int, int)                   { return c.base.CursorPos() }
+func (c *countingPaneData) CursorHidden() bool                      { return c.base.CursorHidden() }
+func (c *countingPaneData) ID() uint32                              { return c.base.ID() }
+func (c *countingPaneData) Name() string                            { return c.base.Name() }
+func (c *countingPaneData) TrackedPRs() []proto.TrackedPR           { return c.base.TrackedPRs() }
+func (c *countingPaneData) TrackedIssues() []proto.TrackedIssue     { return c.base.TrackedIssues() }
+func (c *countingPaneData) Issue() string                           { return c.base.Issue() }
+func (c *countingPaneData) Host() string                            { return c.base.Host() }
+func (c *countingPaneData) Task() string                            { return c.base.Task() }
+func (c *countingPaneData) Color() string                           { return c.base.Color() }
+func (c *countingPaneData) Idle() bool                              { return c.base.Idle() }
+func (c *countingPaneData) IsLead() bool                            { return c.base.IsLead() }
+func (c *countingPaneData) ConnStatus() string                      { return c.base.ConnStatus() }
+func (c *countingPaneData) InCopyMode() bool                        { return c.base.InCopyMode() }
+func (c *countingPaneData) CopyModeSearch() string                  { return c.base.CopyModeSearch() }
+func (c *countingPaneData) HasCursorBlock() bool                    { return c.base.HasCursorBlock() }
+func (c *countingPaneData) CopyModeOverlay() *proto.ViewportOverlay { return c.base.CopyModeOverlay() }
 func (c *countingPaneData) CellAt(col, row int, active bool) ScreenCell {
 	*c.cellReads = *c.cellReads + 1
 	return c.base.CellAt(col, row, active)
@@ -205,6 +207,7 @@ func (e *cursorPaneData) ID() uint32                          { return e.id }
 func (e *cursorPaneData) Name() string                        { return e.name }
 func (e *cursorPaneData) TrackedPRs() []proto.TrackedPR       { return nil }
 func (e *cursorPaneData) TrackedIssues() []proto.TrackedIssue { return nil }
+func (e *cursorPaneData) Issue() string                       { return "" }
 func (e *cursorPaneData) Host() string                        { return "local" }
 func (e *cursorPaneData) Task() string                        { return "" }
 func (e *cursorPaneData) Color() string                       { return e.color }
@@ -308,11 +311,11 @@ func TestRenderDiffWithOverlayDirtySkipsCleanPaneCellReads(t *testing.T) {
 	pane2Reads := 0
 	panes := map[uint32]PaneData{
 		1: &countingPaneData{
-			base: &fakePaneData{id: 1, name: "pane-1", screen: strings.Repeat("A", 39)},
+			base:      &fakePaneData{id: 1, name: "pane-1", screen: strings.Repeat("A", 39)},
 			cellReads: &pane1Reads,
 		},
 		2: &countingPaneData{
-			base: &fakePaneData{id: 2, name: "pane-2", screen: strings.Repeat("B", 39)},
+			base:      &fakePaneData{id: 2, name: "pane-2", screen: strings.Repeat("B", 39)},
 			cellReads: &pane2Reads,
 		},
 	}
