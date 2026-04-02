@@ -65,6 +65,15 @@ amux capture --format json        # structured JSON for agents
 amux capture --format json pane-1 # single pane JSON
 ```
 
+### Pause Before Irreversible Actions on Workers
+
+Before any irreversible action on worker panes, state what information will be lost and confirm the order of operations:
+
+- **Before killing a process**: capture diagnostics first (`kill -6` for Go goroutine trace). The trace is the only evidence for deadlock root cause and is destroyed on kill.
+- **Before `/exit` on codex**: run postmortem first. Session context (reasoning, corrections, decisions) is destroyed on exit and cannot be recovered.
+- **Before mass `send-keys`**: if sending to more than 3 panes, present the message and pane list to the user for approval. Batch operations are where mistakes scale.
+- **Recovery ≠ assignment**: restoring a codex process is a separate action from giving it work. After recovery, leave workers at idle prompts. Only assign specific, user-approved issues.
+
 ### Working In amux
 
 When working in an amux pane, start Linear work with the helper script so the current pane is tagged automatically. Outside an amux pane, pass the pane explicitly. Open PRs with `scripts/gh-pr-create.sh ...` so pane PR metadata syncs regardless of which agent created the PR. With `make setup` active, the repo `pre-push` hook also re-syncs pane PR metadata for any later `git push`. Keep the repair helpers handy:
