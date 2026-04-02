@@ -179,18 +179,12 @@ func (w *Window) Equalize(widths, heights bool) bool {
 		len(logical.Children) > 1 &&
 		logical.equalizeChildrenNeeded()
 
-	columns := []*LayoutCell{logical}
-	if !logical.IsLeaf() && logical.Dir == SplitVertical {
-		columns = logical.Children
-	}
+	columns := collectEqualizeColumns(logical)
 
 	heightChanged := false
 	if heights {
 		for _, column := range columns {
-			if column == nil || column.IsLeaf() || column.Dir != SplitHorizontal || len(column.Children) < 2 {
-				continue
-			}
-			if column.equalizeChildrenNeeded() {
+			if column.equalizeLeafHeightsNeeded() {
 				heightChanged = true
 				break
 			}
@@ -210,19 +204,109 @@ func (w *Window) Equalize(widths, heights bool) bool {
 	}
 	if heights {
 		for _, column := range columns {
-			if column == nil || column.IsLeaf() || column.Dir != SplitHorizontal || len(column.Children) < 2 {
+			if !column.equalizeLeafHeightsNeeded() {
 				continue
 			}
-			if !column.equalizeChildrenNeeded() {
-				continue
-			}
-			column.distributeEqual()
+			column.equalizeLeafHeights()
 		}
 	}
 
 	w.Root.FixOffsets()
 	w.resizePTYs()
 	return true
+}
+
+func collectEqualizeColumns(root *LayoutCell) []*LayoutCell {
+	if root == nil {
+		return nil
+	}
+	if leafCount := root.horizontalLeafCount(); leafCount > 1 {
+		return []*LayoutCell{root}
+	}
+	if root.IsLeaf() {
+		return nil
+	}
+
+	columns := make([]*LayoutCell, 0, len(root.Children))
+	for _, child := range root.Children {
+		columns = append(columns, collectEqualizeColumns(child)...)
+	}
+	return columns
+}
+
+func (c *LayoutCell) horizontalLeafCount() int {
+	if c == nil {
+		return 0
+	}
+	if c.IsLeaf() {
+		return 1
+	}
+	if c.Dir != SplitHorizontal {
+		return 0
+	}
+
+	total := 0
+	for _, child := range c.Children {
+		count := child.horizontalLeafCount()
+		if count == 0 {
+			return 0
+		}
+		total += count
+	}
+	return total
+}
+
+func (c *LayoutCell) equalizeLeafHeightsNeeded() bool {
+	leafCount := c.horizontalLeafCount()
+	if leafCount < 2 {
+		return false
+	}
+
+	targets := equalSplitSizes(c.H, leafCount)
+	index := 0
+	needed := false
+	c.Walk(func(leaf *LayoutCell) {
+		if needed || index >= len(targets) {
+			return
+		}
+		if leaf.H != targets[index] {
+			needed = true
+			return
+		}
+		index++
+	})
+	return needed
+}
+
+func (c *LayoutCell) equalizeLeafHeights() {
+	leafCount := c.horizontalLeafCount()
+	if leafCount < 2 {
+		return
+	}
+	c.equalizeLeafHeightsWithTargets(equalSplitSizes(c.H, leafCount))
+}
+
+func (c *LayoutCell) equalizeLeafHeightsWithTargets(targets []int) {
+	if c == nil || len(targets) == 0 {
+		return
+	}
+	if c.IsLeaf() {
+		c.ResizeSubtree(c.W, targets[0])
+		return
+	}
+
+	offset := 0
+	for _, child := range c.Children {
+		leafCount := child.horizontalLeafCount()
+		childTargets := targets[offset : offset+leafCount]
+		targetHeight := leafCount - 1
+		for _, height := range childTargets {
+			targetHeight += height
+		}
+		child.ResizeSubtree(c.W, targetHeight)
+		child.equalizeLeafHeightsWithTargets(childTargets)
+		offset += leafCount
+	}
 }
 
 func (w *Window) resizePaneGrow(siblings []*LayoutCell, idx int, axis SplitDir, needed int) int {
