@@ -69,7 +69,7 @@ amux capture --format json pane-1 # single pane JSON
 
 Before any irreversible action on worker panes, state what information will be lost and confirm the order of operations:
 
-- **Before killing a process**: capture diagnostics first (`kill -6` for Go goroutine trace). The trace is the only evidence for deadlock root cause and is destroyed on kill.
+- **Before killing a process**: capture diagnostics first (`kill -3` / SIGQUIT for Go goroutine trace). The trace is the only evidence for deadlock root cause and is destroyed on kill.
 - **Before `/exit` on codex**: run postmortem first. Session context (reasoning, corrections, decisions) is destroyed on exit and cannot be recovered.
 - **Before mass `send-keys`**: if sending to more than 3 panes, present the message and pane list to the user for approval. Batch operations are where mistakes scale.
 - **Recovery ≠ assignment**: restoring a codex process is a separate action from giving it work. After recovery, leave workers at idle prompts. Only assign specific, user-approved issues.

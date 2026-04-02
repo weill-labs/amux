@@ -12,8 +12,8 @@ if ! echo "$command" | grep -qE 'amux (send-keys|type-keys)'; then
     exit 0
 fi
 
-# Block /exit commands
-if echo "$command" | grep -qE "'/exit'|\"/exit\"|/exit"; then
+# Block /exit commands (match as standalone token, not substring)
+if echo "$command" | grep -qE "'/exit'|\"/exit\"|(^|[[:space:]])/exit($|[[:space:]]|\")"; then
     echo "BLOCKED: Do not send /exit to codex workers without running a postmortem first. Session context is destroyed on exit and cannot be recovered. Send the postmortem command first, wait for it to complete, then /exit." >&2
     exit 2
 fi
