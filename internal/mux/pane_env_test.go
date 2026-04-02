@@ -38,3 +38,24 @@ func TestPaneCommandEnvOverridesInheritedAmuxVars(t *testing.T) {
 		}
 	}
 }
+
+func TestPaneCommandEnvStripsOuterTerminalVars(t *testing.T) {
+	t.Parallel()
+
+	env := paneCommandEnv([]string{
+		"PATH=/usr/bin:/bin",
+		"TERM=xterm-ghostty",
+		"TERM_PROGRAM=ghostty",
+		"TERM_PROGRAM_VERSION=1.5.0",
+	}, 1, "default")
+
+	stripped := []string{"TERM_PROGRAM", "TERM_PROGRAM_VERSION"}
+	for _, key := range stripped {
+		prefix := key + "="
+		for _, entry := range env {
+			if strings.HasPrefix(entry, prefix) {
+				t.Fatalf("%s should be stripped but found: %s", key, entry)
+			}
+		}
+	}
+}
