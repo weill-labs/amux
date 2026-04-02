@@ -17,6 +17,7 @@ type statusPaneData struct {
 	name          string
 	trackedPRs    []proto.TrackedPR
 	trackedIssues []proto.TrackedIssue
+	issue         string
 	host          string
 	task          string
 	color         string
@@ -230,6 +231,32 @@ func TestRenderPaneStatusHintsWhenActivePaneHasNoIssueMetadata(t *testing.T) {
 		if !strings.Contains(line, want) {
 			t.Fatalf("status line %q missing %q", line, want)
 		}
+	}
+}
+
+func TestRenderPaneStatusFallsBackToPlainIssueKV(t *testing.T) {
+	t.Parallel()
+
+	cell := mux.NewLeaf(&mux.Pane{ID: 1}, 0, 0, 60, 3)
+	buf := strings.Builder{}
+	renderPaneStatus(&buf, cell, true, &statusPaneData{
+		id:    1,
+		name:  "pane-1",
+		issue: "LAB-698",
+		trackedPRs: []proto.TrackedPR{
+			{Number: 42},
+		},
+		color: config.TextColorHex,
+	})
+
+	line := MaterializeGrid(buf.String(), cell.W, 1)
+	for _, want := range []string{"[pane-1]", "#42", "LAB-698"} {
+		if !strings.Contains(line, want) {
+			t.Fatalf("status line %q missing %q", line, want)
+		}
+	}
+	if strings.Contains(line, missingIssueHint) {
+		t.Fatalf("status line %q should not show %q when raw issue metadata exists", line, missingIssueHint)
 	}
 }
 
