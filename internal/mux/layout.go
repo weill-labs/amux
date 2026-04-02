@@ -786,6 +786,35 @@ func (c *LayoutCell) equalizeChildrenNeeded() bool {
 	return false
 }
 
+func (c *LayoutCell) equalizeAxisNeeded(axis SplitDir) bool {
+	if c == nil {
+		return false
+	}
+
+	if c.Dir == axis && c.equalizeChildrenNeeded() {
+		return true
+	}
+	for _, child := range c.Children {
+		if child.equalizeAxisNeeded(axis) {
+			return true
+		}
+	}
+	return false
+}
+
+func (c *LayoutCell) equalizeAxisRecursive(axis SplitDir) {
+	if c == nil {
+		return
+	}
+
+	if c.Dir == axis {
+		c.distributeEqual()
+	}
+	for _, child := range c.Children {
+		child.equalizeAxisRecursive(axis)
+	}
+}
+
 // FindBorderNear returns a border at (x, y) or within a one-cell cardinal
 // neighborhood. This matches tmux's drag behavior, which tolerates slight
 // pointer drift while dragging a border.

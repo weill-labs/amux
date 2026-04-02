@@ -124,6 +124,52 @@ func TestEqualizeCommandAll(t *testing.T) {
 	}
 }
 
+func TestEqualizeCommandAllBalancesNestedTopRowColumns(t *testing.T) {
+	t.Parallel()
+
+	h := newServerHarnessWithSize(t, 246, 30)
+	h.unsetLead()
+	for i := 0; i < 5; i++ {
+		h.runCmd("split", "pane-1", "root", "v")
+	}
+	h.runCmd("split", "pane-1", "root", "h")
+
+	if out := h.runCmd("resize-pane", "pane-1", "right", "46"); !strings.Contains(out, "Resized") {
+		t.Fatalf("resize-pane width skew failed: %s", out)
+	}
+
+	before := h.captureJSON()
+	widthsBefore := []int{
+		h.jsonPane(before, "pane-1").Position.Width,
+		h.jsonPane(before, "pane-2").Position.Width,
+		h.jsonPane(before, "pane-3").Position.Width,
+		h.jsonPane(before, "pane-4").Position.Width,
+		h.jsonPane(before, "pane-5").Position.Width,
+		h.jsonPane(before, "pane-6").Position.Width,
+	}
+	if reflect.DeepEqual(widthsBefore, []int{40, 40, 40, 40, 40, 41}) {
+		t.Fatalf("top-row widths before equalize = %v, want skewed widths", widthsBefore)
+	}
+
+	out := h.runCmd("equalize", "--all")
+	if !strings.Contains(out, "Equalized") {
+		t.Fatalf("equalize --all output = %q, want Equalized confirmation", out)
+	}
+
+	after := h.captureJSON()
+	widthsAfter := []int{
+		h.jsonPane(after, "pane-1").Position.Width,
+		h.jsonPane(after, "pane-2").Position.Width,
+		h.jsonPane(after, "pane-3").Position.Width,
+		h.jsonPane(after, "pane-4").Position.Width,
+		h.jsonPane(after, "pane-5").Position.Width,
+		h.jsonPane(after, "pane-6").Position.Width,
+	}
+	if !reflect.DeepEqual(widthsAfter, []int{40, 40, 40, 40, 40, 41}) {
+		t.Fatalf("equalize --all nested top-row widths = %v, want [40 40 40 40 40 41]", widthsAfter)
+	}
+}
+
 func TestEqualizeKeybindingHorizontal(t *testing.T) {
 	t.Parallel()
 
