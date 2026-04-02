@@ -360,9 +360,15 @@ func handleGlobalBarClick(ev mouse.Event, layout *mux.LayoutCell, cr *ClientRend
 		return false
 	}
 
+	snap := cr.renderer.loadSnapshot()
+	if snap == nil {
+		return false
+	}
+
 	windows := globalBarWindowInfos(cr)
+	paneCount := globalBarPaneCount(layout)
 	showHelp := globalBarShowsHelp(cr, layout, windows)
-	if render.GlobalBarHelpToggleAtColumn(ev.X, showHelp) {
+	if render.GlobalBarHelpToggleAtColumn(ev.X, snap.width, paneCount, showHelp, time.Now()) {
 		toggleHelpBarOnRenderLoop(cr, msgCh, config.DefaultKeybindings())
 		return true
 	}

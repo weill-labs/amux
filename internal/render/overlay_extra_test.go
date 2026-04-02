@@ -220,7 +220,21 @@ func TestGlobalBarWindowAtColumn(t *testing.T) {
 	if got, ok := GlobalBarWindowAtColumn(windows, hiddenHelpTabs[1].start, false); !ok || got.Index != 2 {
 		t.Fatalf("GlobalBarWindowAtColumn(..., %d, false) = (%d, %v), want (2, true)", hiddenHelpTabs[1].start, got.Index, ok)
 	}
-	if GlobalBarHelpToggleAtColumn(globalBarHelpStartColumn, false) {
+	frozen := time.Date(2026, time.March, 22, 9, 41, 0, 0, time.UTC)
+	if GlobalBarHelpToggleAtColumn(globalBarTitlePrefixVisibleWidth, 44, 3, true, frozen) {
+		t.Fatal("GlobalBarHelpToggleAtColumn should ignore the old left-side help columns")
+	}
+	var buf strings.Builder
+	renderGlobalBar(&buf, "main", 3, 44, 0, nil, "", frozen)
+	rendered := MaterializeGrid(buf.String(), 44, 1)
+	helpStart := strings.Index(rendered, "? help")
+	if helpStart < 0 {
+		t.Fatalf("rendered global bar missing ? help: %q", rendered)
+	}
+	if !GlobalBarHelpToggleAtColumn(helpStart, 44, 3, true, frozen) {
+		t.Fatal("GlobalBarHelpToggleAtColumn should match the rendered right-side help segment")
+	}
+	if GlobalBarHelpToggleAtColumn(helpStart, 44, 3, false, frozen) {
 		t.Fatal("GlobalBarHelpToggleAtColumn should ignore clicks when help is hidden")
 	}
 }
