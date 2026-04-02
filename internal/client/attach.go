@@ -963,6 +963,15 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 				})
 			}
 
+			dispatchMouse := func(ev mouse.Event) {
+				flushCopyInput()
+				if len(forward) > 0 {
+					sendForward(forward)
+					forward = nil
+				}
+				handleMouseEvent(ev, cr, sender, &drag, msgCh)
+			}
+
 			// dispatchDecoded routes one decoded input event through local
 			// key handling, copy mode, or pane forwarding. Returns true if
 			// the input goroutine should exit (detach).
@@ -1096,14 +1105,7 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 					mouseParser,
 					chunks,
 					func() bool { return dragMotionCoalescingActive(&drag) },
-					func(ev mouse.Event) {
-						flushCopyInput()
-						if len(forward) > 0 {
-							sendForward(forward)
-							forward = nil
-						}
-						handleMouseEvent(ev, cr, sender, &drag, msgCh)
-					},
+					dispatchMouse,
 					decodeAndDispatch,
 				)
 			} else {
@@ -1111,13 +1113,7 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 					ev, isMouse, flushed := mouseParser.Feed(raw[i])
 
 					if isMouse {
-						flushCopyInput()
-						// Flush any accumulated forward bytes before handling mouse
-						if len(forward) > 0 {
-							sendForward(forward)
-							forward = nil
-						}
-						handleMouseEvent(ev, cr, sender, &drag, msgCh)
+						dispatchMouse(ev)
 						continue
 					}
 
