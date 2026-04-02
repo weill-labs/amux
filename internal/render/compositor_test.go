@@ -401,6 +401,45 @@ func TestBlitPaneStopsAtPaneContentHeightWithinCell(t *testing.T) {
 	}
 }
 
+func TestRenderFullWithHelpBarAllocatesMultipleRows(t *testing.T) {
+	t.Parallel()
+
+	root := mux.NewLeaf(&mux.Pane{ID: 1, Meta: mux.PaneMeta{Name: "pane-1"}}, 0, 0, 20, 5)
+	comp := NewCompositor(20, 6, "test")
+
+	output := comp.RenderFullWithOverlay(root, 1, func(id uint32) PaneData {
+		if id != 1 {
+			return nil
+		}
+		return &fakePaneData{
+			id:     1,
+			name:   "pane-1",
+			screen: "line-1\nline-2\nline-3\nline-4",
+		}
+	}, OverlayState{
+		HelpBar: &HelpBarOverlay{Rows: []string{"? close", "x kill"}},
+	})
+
+	if strings.Contains(output, "\033[4;1Hline-3") {
+		t.Fatalf("pane content should not be blitted onto the first help row:\n%s", output)
+	}
+
+	grid := MaterializeGrid(output, 20, 6)
+	lines := strings.Split(grid, "\n")
+	if got := strings.TrimRight(lines[1], " "); got != "line-1" {
+		t.Fatalf("row 2 = %q, want %q", got, "line-1")
+	}
+	if got := strings.TrimRight(lines[2], " "); got != "line-2" {
+		t.Fatalf("row 3 = %q, want %q", got, "line-2")
+	}
+	if !strings.Contains(lines[3], "? close") {
+		t.Fatalf("row 4 should contain the first help row, got %q", lines[3])
+	}
+	if !strings.Contains(lines[4], "x kill") {
+		t.Fatalf("row 5 should contain the second help row, got %q", lines[4])
+	}
+}
+
 func TestRenderPaneContentSkipsEmptyRowsAndResetsAfterVisibleRows(t *testing.T) {
 	t.Parallel()
 
