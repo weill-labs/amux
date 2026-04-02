@@ -404,7 +404,7 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 	}()
 
 	if initial := cr.Render(true); initial != "" {
-		io.WriteString(os.Stdout, render.SynchronizedUpdateBegin+initial+render.SynchronizedUpdateEnd)
+		io.WriteString(os.Stdout, wrapSynchronizedFrame(initial))
 	}
 
 	// Resolve the current binary once so explicit reloads and server reload

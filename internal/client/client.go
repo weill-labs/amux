@@ -146,10 +146,7 @@ func (cr *ClientRenderer) RenderDiff() string {
 		fullRedraw bool
 	}
 	state, _ := updateClientStateValue(cr, func(next *clientSnapshot) (renderState, clientUIResult) {
-		dirtyPanes := make(map[uint32]struct{}, len(next.ui.dirtyPanes))
-		for paneID := range next.ui.dirtyPanes {
-			dirtyPanes[paneID] = struct{}{}
-		}
+		dirtyPanes := cloneDirtyPanes(next.ui.dirtyPanes)
 		result := renderState{
 			snapshot:   next,
 			dirtyPanes: dirtyPanes,
@@ -528,7 +525,7 @@ func (cr *ClientRenderer) renderNow(state *clientRenderLoopState, write func(str
 		data = cr.RenderDiff()
 	}
 	if data != "" {
-		write(render.SynchronizedUpdateBegin + data + render.SynchronizedUpdateEnd)
+		write(wrapSynchronizedFrame(data))
 	}
 	state.lastRender = time.Now()
 	state.renderTimer = nil
@@ -592,6 +589,21 @@ func (cr *ClientRenderer) RenderCoalesced(msgCh <-chan *RenderMsg, write func(st
 			cr.renderNow(state, write)
 		}
 	}
+}
+
+func wrapSynchronizedFrame(data string) string {
+	if data == "" {
+		return ""
+	}
+	return render.SynchronizedUpdateBegin + data + render.SynchronizedUpdateEnd
+}
+
+func cloneDirtyPanes(src map[uint32]struct{}) map[uint32]struct{} {
+	dst := make(map[uint32]struct{}, len(src))
+	for paneID := range src {
+		dst[paneID] = struct{}{}
+	}
+	return dst
 }
 
 func (cr *ClientRenderer) syncCopyModeSizes() {
