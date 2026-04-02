@@ -38,6 +38,7 @@ type sendKeysOptions struct {
 	waitTarget        sendKeysWaitTarget
 	transport         sendKeysTransport
 	transportExplicit bool
+	requestedClientID string
 	waitTimeout       time.Duration
 	delayFinal        time.Duration
 	hexMode           bool
@@ -100,6 +101,13 @@ func parseSendKeysArgs(args []string) (sendKeysOptions, error) {
 				return sendKeysOptions{}, fmt.Errorf("send-keys: unsupported --via target %q (want pty or client)", args[i])
 			}
 			opts.transportExplicit = true
+			i++
+		case "--client":
+			if i+1 >= len(args) {
+				return sendKeysOptions{}, fmt.Errorf("missing value for --client")
+			}
+			i++
+			opts.requestedClientID = args[i]
 			i++
 		case "--wait":
 			if i+1 >= len(args) {

@@ -222,7 +222,7 @@ Subscribe to real-time session events as NDJSON:
 amux events [--filter layout,idle,busy,exited,client-connect,client-disconnect,display-panes-shown,choose-window-shown] [--pane pane-1] [--host lambda-a100] [--client client-1] [--throttle 50ms] [--no-reconnect]
 ```
 
-Use `amux list-clients` to discover attached client IDs for `--client` and `wait ui`.
+Use `amux list-clients` to discover attached client IDs for `send-keys --client`, `--client` event filters, and `wait ui`.
 
 ```json
 {"type":"layout","ts":"2025-06-15T10:30:00.123Z","generation":42,"active_pane":"pane-1"}
@@ -307,7 +307,7 @@ The public CLI keeps one command path per concept: target sessions with `-s`, cr
 | `amux focus <pane\|direction>` | Focus by name, ID, or direction (left/right/up/down/next) |
 | `amux zoom [pane]` | Toggle zoom on a pane |
 | `amux kill [pane]` | Kill a pane (default: active) |
-| `amux send-keys <pane> [--via pty\|client] [--wait ready\|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>...` | Send keystrokes to a pane |
+| `amux send-keys <pane> [--via pty\|client] [--client <id>] [--wait ready\|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>...` | Send keystrokes to a pane |
 | `amux broadcast (--panes <pane,pane,...> \| --window <index\|name> \| --match <glob>) [--hex] <keys>...` | Send the same keystrokes to multiple panes |
 | `amux swap <p1> <p2> [--tree]` | Swap two panes, or their root-level groups with `--tree` |
 | `amux swap forward\|backward` | Swap active pane with neighbor |

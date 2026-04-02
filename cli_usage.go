@@ -7,7 +7,7 @@ import (
 )
 
 const (
-	sendKeysUsage     = "usage: amux send-keys <pane> [--via pty|client] [--wait ready|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>..."
+	sendKeysUsage     = "usage: amux send-keys <pane> [--via pty|client] [--client <id>] [--wait ready|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>..."
 	logUsage          = "usage: amux log <clients|panes>"
 	leadUsage         = "usage: amux lead [pane] | amux lead --clear"
 	metaUsage         = "usage: amux meta <set|get|rm> ..."
@@ -149,7 +149,7 @@ Usage:
                                        Capture a pane's retained history + visible screen
   amux [-s session] capture --ansi     Capture with ANSI escape codes
   amux [-s session] capture --colors   Capture border color map
-  amux [-s session] send-keys <pane> [--via pty|client] [--wait ready|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>...
+  amux [-s session] send-keys <pane> [--via pty|client] [--client <id>] [--wait ready|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>...
                                        Send keystrokes to a pane
   amux [-s session] broadcast (--panes <pane,pane,...> | --window <index|name> | --match <glob>) [--hex] <keys>...
                                        Send the same keystrokes to multiple panes

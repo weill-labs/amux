@@ -154,6 +154,7 @@ func TestParseSendKeysArgs(t *testing.T) {
 			want: sendKeysOptions{
 				transport:         sendKeysViaClient,
 				transportExplicit: true,
+				requestedClientID: "client-2",
 				waitTimeout:       10 * time.Second,
 				keys:              []string{"task"},
 			},
@@ -242,6 +243,7 @@ func TestParseSendKeysArgs(t *testing.T) {
 			if got.waitTarget != tt.want.waitTarget ||
 				got.transport != tt.want.transport ||
 				got.transportExplicit != tt.want.transportExplicit ||
+				got.requestedClientID != tt.want.requestedClientID ||
 				got.waitTimeout != tt.want.waitTimeout ||
 				got.delayFinal != tt.want.delayFinal ||
 				got.hexMode != tt.want.hexMode ||
@@ -388,7 +390,7 @@ func TestSendKeysWaitReadyUsage(t *testing.T) {
 	defer cleanup()
 
 	res := runTestCommand(t, srv, sess, "send-keys", "pane-1")
-	if got := res.cmdErr; got != "usage: send-keys <pane> [--via pty|client] [--wait ready|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>..." {
+	if got := res.cmdErr; got != "usage: send-keys <pane> [--via pty|client] [--client <id>] [--wait ready|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>..." {
 		t.Fatalf("send-keys usage error = %q", got)
 	}
 }

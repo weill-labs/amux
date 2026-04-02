@@ -35,7 +35,7 @@ func TestSendKeysCommandUsageIncludesReadyAndVia(t *testing.T) {
 	defer cleanup()
 
 	res := runTestCommand(t, srv, sess, "send-keys", "pane-1")
-	if got := res.cmdErr; got != "usage: send-keys <pane> [--via pty|client] [--wait ready|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>..." {
+	if got := res.cmdErr; got != "usage: send-keys <pane> [--via pty|client] [--client <id>] [--wait ready|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>..." {
 		t.Fatalf("send-keys usage error = %q", got)
 	}
 }
@@ -110,11 +110,15 @@ func TestCmdSendKeysViaClientUsesRequestedClient(t *testing.T) {
 
 	firstClient := newClientConn(firstServerConn)
 	firstClient.ID = "client-1"
+	firstClient.inputIdle = true
+	firstClient.uiGeneration = 1
 	firstClient.initTypeKeyQueue()
 	defer firstClient.Close()
 
 	secondClient := newClientConn(secondServerConn)
 	secondClient.ID = "client-2"
+	secondClient.inputIdle = true
+	secondClient.uiGeneration = 1
 	secondClient.initTypeKeyQueue()
 	defer secondClient.Close()
 
@@ -125,10 +129,19 @@ func TestCmdSendKeysViaClientUsesRequestedClient(t *testing.T) {
 
 	cmdPeerConn, _, done := startAsyncCommand(t, srv, sess, "send-keys", "pane-1", "--via", "client", "--client", "client-2", "ab")
 
+	select {
+	case <-done:
+		t.Fatal("send-keys returned before fresh input-idle on requested client")
+	case <-time.After(20 * time.Millisecond):
+	}
+
 	typeKeysMsg := readMsgWithTimeout(t, secondPeerConn)
 	if typeKeysMsg.Type != MsgTypeTypeKeys || typeKeysMsg.PaneID != 1 || string(typeKeysMsg.Input) != "ab" {
 		t.Fatalf("send-keys type-keys message = %#v", typeKeysMsg)
 	}
+
+	sess.enqueueUIEvent(secondClient, proto.UIEventInputBusy)
+	sess.enqueueUIEvent(secondClient, proto.UIEventInputIdle)
 
 	result := readMsgWithTimeout(t, cmdPeerConn)
 	if got := result.CmdOutput; got != "Sent 2 bytes to pane-1\n" {

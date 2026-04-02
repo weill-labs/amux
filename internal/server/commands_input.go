@@ -21,7 +21,7 @@ const tokenKeyGap = 50 * time.Millisecond
 
 const (
 	broadcastUsage              = "usage: broadcast (--panes <pane,pane,...> | --window <index|name> | --match <glob>) [--hex] <keys>..."
-	sendKeysUsage               = "usage: send-keys <pane> [--via pty|client] [--wait ready|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>..."
+	sendKeysUsage               = "usage: send-keys <pane> [--via pty|client] [--client <id>] [--wait ready|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>..."
 	typeKeysUsage               = "usage: type-keys [--wait ui=input-idle] [--timeout <duration>] [--hex] <keys>..."
 	defaultCommandUIWaitTimeout = 5 * time.Second
 )
@@ -154,7 +154,7 @@ func (ctx inputCommandContext) SendKeys(actorPaneID uint32, args []string) (stri
 			return "", 0, err
 		}
 	case sendKeysWaitInputIdle:
-		uiWait, err := ctx.Sess.queryUIClient("", proto.UIEventInputIdle)
+		uiWait, err := ctx.Sess.queryUIClient(opts.requestedClientID, proto.UIEventInputIdle)
 		if err != nil {
 			return "", 0, err
 		}
@@ -177,7 +177,7 @@ func enqueueSendKeysInput(sess *Session, pane resolvedPaneRef, chunks []encodedK
 	if opts.transport == sendKeysViaClient {
 		if uiWait == nil {
 			var err error
-			uiWait, err = querySendKeysClient(sess)
+			uiWait, err = querySendKeysClient(sess, opts.requestedClientID)
 			if err != nil {
 				return err
 			}
@@ -187,8 +187,8 @@ func enqueueSendKeysInput(sess *Session, pane resolvedPaneRef, chunks []encodedK
 	return sess.enqueuePacedPaneInput(pane.pane, chunks)
 }
 
-func querySendKeysClient(sess *Session) (*uiClientSnapshot, error) {
-	snap, err := sess.queryUIClient("", "")
+func querySendKeysClient(sess *Session, requestedClientID string) (*uiClientSnapshot, error) {
+	snap, err := sess.queryUIClient(requestedClientID, "")
 	if err != nil {
 		return nil, err
 	}
