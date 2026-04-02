@@ -113,6 +113,17 @@ func layoutCLICommands() map[string]cliCommandHandler {
 			}
 			return inv.runSessionCommand("send-keys", args)
 		},
+		"mouse": func(inv cliInvocation, args []string) int {
+			if hasHelpFlag(args) {
+				fmt.Fprintln(inv.runtime.stdout, mouseUsage)
+				return 0
+			}
+			if len(args) == 0 {
+				fmt.Fprintln(inv.runtime.stderr, mouseUsage)
+				return 1
+			}
+			return inv.runSessionCommand("mouse", args)
+		},
 		"broadcast": func(inv cliInvocation, args []string) int {
 			if len(args) < 1 {
 				fmt.Fprintln(inv.runtime.stderr, "usage: amux broadcast (--panes <pane,pane,...> | --window <index|name> | --match <glob>) [--hex] <keys>...")

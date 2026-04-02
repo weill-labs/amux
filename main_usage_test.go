@@ -212,6 +212,53 @@ func TestMainSendKeysDispatchesWhenKeysProvided(t *testing.T) {
 	assertMainCommandConnectError(t, out, "send-keys")
 }
 
+func TestMainMouseUsage(t *testing.T) {
+	t.Parallel()
+
+	out, code := runHermeticMain(t, "mouse")
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1\n%s", code, out)
+	}
+	if !strings.Contains(out, "usage: amux mouse [--client <id>] [--timeout <duration>] (press <x> <y> | motion <x> <y> | release <x> <y> | click <x> <y> | click <pane> [--status-line] | drag <pane> --to <pane>)") {
+		t.Fatalf("mouse usage output = %q", out)
+	}
+}
+
+func TestMainMouseDispatchesWhenArgsProvided(t *testing.T) {
+	t.Parallel()
+
+	out, code := runHermeticMain(t, "mouse", "click", "1", "1")
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1\n%s", code, out)
+	}
+	if strings.Contains(out, "usage: amux mouse") {
+		t.Fatalf("mouse should dispatch when coordinates are provided, got usage output:\n%s", out)
+	}
+	assertMainCommandConnectError(t, out, "mouse")
+}
+
+func TestMainMouseHelpFlagsPrintUsage(t *testing.T) {
+	t.Parallel()
+
+	for _, helpFlag := range []string{"--help", "-h"} {
+		helpFlag := helpFlag
+		t.Run(helpFlag, func(t *testing.T) {
+			t.Parallel()
+
+			out, code := runHermeticMain(t, "mouse", helpFlag)
+			if code != 0 {
+				t.Fatalf("exit code = %d, want 0\n%s", code, out)
+			}
+			if !strings.Contains(out, mouseUsage) {
+				t.Fatalf("mouse help output = %q, want substring %q", out, mouseUsage)
+			}
+			if strings.Contains(out, "connecting to server") {
+				t.Fatalf("mouse help should not dispatch to the server:\n%s", out)
+			}
+		})
+	}
+}
+
 func TestMainSendKeysUsageIncludesViaFlags(t *testing.T) {
 	t.Parallel()
 
