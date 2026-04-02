@@ -356,10 +356,6 @@ func paneStatusUsedWidthWithoutMetadata(pd PaneData) int {
 	return usedWidth
 }
 
-func buildGlobalBarWindowTabs(windows []WindowInfo) []globalBarWindowTab {
-	return buildGlobalBarWindowTabsWithHelp(windows, true)
-}
-
 func buildGlobalBarWindowTabsWithHelp(windows []WindowInfo, showHelp bool) []globalBarWindowTab {
 	if len(windows) <= 1 {
 		return nil

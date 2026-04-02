@@ -155,7 +155,7 @@ func TestGlobalBarWindowAtColumn(t *testing.T) {
 		{Index: 2, Name: "bugs", IsActive: true},
 		{Index: 3, Name: "docs", IsActive: false},
 	}
-	tabs := buildGlobalBarWindowTabs(windows)
+	tabs := buildGlobalBarWindowTabsWithHelp(windows, true)
 	if len(tabs) != 3 {
 		t.Fatalf("len(tabs) = %d, want 3", len(tabs))
 	}
