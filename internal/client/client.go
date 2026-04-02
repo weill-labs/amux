@@ -879,6 +879,12 @@ func (c *clientPaneData) TrackedPRs() []proto.TrackedPR {
 func (c *clientPaneData) TrackedIssues() []proto.TrackedIssue {
 	return proto.CloneTrackedIssues(c.info.TrackedIssues)
 }
+func (c *clientPaneData) Issue() string {
+	if c.info.KV == nil {
+		return ""
+	}
+	return c.info.KV["issue"]
+}
 func (c *clientPaneData) Host() string       { return c.info.Host }
 func (c *clientPaneData) Task() string       { return c.info.Task }
 func (c *clientPaneData) Color() string      { return c.info.Color }

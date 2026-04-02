@@ -356,6 +356,7 @@ func (e *emuPaneData) ID() uint32                          { return e.id }
 func (e *emuPaneData) Name() string                        { return e.name }
 func (e *emuPaneData) TrackedPRs() []proto.TrackedPR       { return nil }
 func (e *emuPaneData) TrackedIssues() []proto.TrackedIssue { return nil }
+func (e *emuPaneData) Issue() string                       { return "" }
 func (e *emuPaneData) Host() string                        { return "local" }
 func (e *emuPaneData) Task() string                        { return "" }
 func (e *emuPaneData) Color() string                       { return e.color }

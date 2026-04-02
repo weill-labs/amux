@@ -59,6 +59,7 @@ func (f *fakePaneData) ID() uint32                          { return f.id }
 func (f *fakePaneData) Name() string                        { return f.name }
 func (f *fakePaneData) TrackedPRs() []proto.TrackedPR       { return nil }
 func (f *fakePaneData) TrackedIssues() []proto.TrackedIssue { return nil }
+func (f *fakePaneData) Issue() string                       { return "" }
 func (f *fakePaneData) Host() string                        { return "local" }
 func (f *fakePaneData) Task() string                        { return "" }
 func (f *fakePaneData) Color() string                       { return "f5e0dc" }
@@ -84,6 +85,7 @@ func (c *countingPaneData) ID() uint32                               { return c.
 func (c *countingPaneData) Name() string                             { return c.base.Name() }
 func (c *countingPaneData) TrackedPRs() []proto.TrackedPR            { return c.base.TrackedPRs() }
 func (c *countingPaneData) TrackedIssues() []proto.TrackedIssue      { return c.base.TrackedIssues() }
+func (c *countingPaneData) Issue() string                            { return c.base.Issue() }
 func (c *countingPaneData) Host() string                             { return c.base.Host() }
 func (c *countingPaneData) Task() string                             { return c.base.Task() }
 func (c *countingPaneData) Color() string                            { return c.base.Color() }
@@ -205,6 +207,7 @@ func (e *cursorPaneData) ID() uint32                          { return e.id }
 func (e *cursorPaneData) Name() string                        { return e.name }
 func (e *cursorPaneData) TrackedPRs() []proto.TrackedPR       { return nil }
 func (e *cursorPaneData) TrackedIssues() []proto.TrackedIssue { return nil }
+func (e *cursorPaneData) Issue() string                       { return "" }
 func (e *cursorPaneData) Host() string                        { return "local" }
 func (e *cursorPaneData) Task() string                        { return "" }
 func (e *cursorPaneData) Color() string                       { return e.color }

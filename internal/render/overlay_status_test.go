@@ -40,6 +40,7 @@ func (p *statusPaneData) ID() uint32                          { return p.id }
 func (p *statusPaneData) Name() string                        { return p.name }
 func (p *statusPaneData) TrackedPRs() []proto.TrackedPR       { return p.trackedPRs }
 func (p *statusPaneData) TrackedIssues() []proto.TrackedIssue { return p.trackedIssues }
+func (p *statusPaneData) Issue() string                       { return p.issue }
 func (p *statusPaneData) Host() string                        { return p.host }
 func (p *statusPaneData) Task() string                        { return p.task }
 func (p *statusPaneData) Color() string                       { return p.color }

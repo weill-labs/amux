@@ -34,6 +34,7 @@ func (p *ansiGoldenPaneData) ID() uint32                          { return p.id 
 func (p *ansiGoldenPaneData) Name() string                        { return p.name }
 func (p *ansiGoldenPaneData) TrackedPRs() []proto.TrackedPR       { return nil }
 func (p *ansiGoldenPaneData) TrackedIssues() []proto.TrackedIssue { return nil }
+func (p *ansiGoldenPaneData) Issue() string                       { return "" }
 func (p *ansiGoldenPaneData) Host() string                        { return "local" }
 func (p *ansiGoldenPaneData) Task() string                        { return "" }
 func (p *ansiGoldenPaneData) Color() string                       { return p.color }

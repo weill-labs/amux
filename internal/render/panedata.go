@@ -28,6 +28,7 @@ type PaneData interface {
 	Name() string
 	TrackedPRs() []proto.TrackedPR
 	TrackedIssues() []proto.TrackedIssue
+	Issue() string
 	Host() string
 	Task() string
 	Color() string
