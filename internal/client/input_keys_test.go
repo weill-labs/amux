@@ -113,6 +113,127 @@ func TestDecodeInputEventsKittyCtrlA(t *testing.T) {
 	}
 }
 
+func TestDecodeInputEventsKeyNameMatrix(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		input    []byte
+		wantCode rune
+		wantName string
+	}{
+		{
+			name:     "csi up",
+			input:    []byte("\x1b[A"),
+			wantCode: uv.KeyUp,
+			wantName: "up",
+		},
+		{
+			name:     "ss3 up alias",
+			input:    []byte("\x1bOA"),
+			wantCode: uv.KeyUp,
+			wantName: "up",
+		},
+		{
+			name:     "ctrl up",
+			input:    []byte("\x1b[1;5A"),
+			wantCode: uv.KeyUp,
+			wantName: "ctrl+up",
+		},
+		{
+			name:     "alt up",
+			input:    []byte("\x1b[1;3A"),
+			wantCode: uv.KeyUp,
+			wantName: "alt+up",
+		},
+		{
+			name:     "f1 ss3",
+			input:    []byte("\x1bOP"),
+			wantCode: uv.KeyF1,
+			wantName: "f1",
+		},
+		{
+			name:     "f1 csi alias",
+			input:    []byte("\x1b[11~"),
+			wantCode: uv.KeyF1,
+			wantName: "f1",
+		},
+		{
+			name:     "f12 csi",
+			input:    []byte("\x1b[24~"),
+			wantCode: uv.KeyF12,
+			wantName: "f12",
+		},
+		{
+			name:     "page up",
+			input:    []byte("\x1b[5~"),
+			wantCode: uv.KeyPgUp,
+			wantName: "pgup",
+		},
+		{
+			name:     "shift tab",
+			input:    []byte("\x1b[Z"),
+			wantCode: uv.KeyTab,
+			wantName: "shift+tab",
+		},
+		{
+			name:     "kitty ctrl a",
+			input:    []byte("\x1b[97;5u"),
+			wantCode: 'a',
+			wantName: "ctrl+a",
+		},
+		{
+			name:     "kitty alt shift a",
+			input:    []byte("\x1b[97;4;65u"),
+			wantCode: 'a',
+			wantName: "alt+shift+a",
+		},
+		{
+			name:     "kitty escape",
+			input:    []byte("\x1b[27u"),
+			wantCode: uv.KeyEscape,
+			wantName: "esc",
+		},
+		{
+			name:     "keypad zero application",
+			input:    []byte("\x1bOp"),
+			wantCode: uv.KeyKp0,
+			wantName: "0",
+		},
+		{
+			name:     "keypad enter application",
+			input:    []byte("\x1bOM"),
+			wantCode: uv.KeyKpEnter,
+			wantName: "enter",
+		},
+		{
+			name:     "keypad equal application",
+			input:    []byte("\x1bOX"),
+			wantCode: uv.KeyKpEqual,
+			wantName: "equal",
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			event := decodeSingleInputEvent(t, tt.input).event
+			key, ok := event.(uv.KeyPressEvent)
+			if !ok {
+				t.Fatalf("event type = %T, want uv.KeyPressEvent", event)
+			}
+			if key.Code != tt.wantCode {
+				t.Fatalf("decoded code = %v, want %v", key.Code, tt.wantCode)
+			}
+			if got := key.Keystroke(); got != tt.wantName {
+				t.Fatalf("decoded name = %q, want %q", got, tt.wantName)
+			}
+		})
+	}
+}
+
 func TestDecodeInputEventsFocusAndBlur(t *testing.T) {
 	t.Parallel()
 
