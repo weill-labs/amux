@@ -200,7 +200,7 @@ func (p *Parser) Feed(b byte) (Event, bool, []byte) {
 // FlushPending resets the parser and returns any buffered bytes from an
 // incomplete non-mouse sequence candidate (for example, a lone Escape).
 func (p *Parser) FlushPending() []byte {
-	if p.state == stateNone || len(p.buf) == 0 {
+	if p.state != stateEsc || len(p.buf) == 0 {
 		return nil
 	}
 	return p.flush(0)
