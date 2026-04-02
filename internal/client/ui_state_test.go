@@ -15,6 +15,7 @@ type clientUIStateSnapshot struct {
 	dirty           bool
 	message         string
 	displayPanes    bool
+	paneDrag        bool
 	chooser         string
 	prompt          string
 	copyModePaneIDs []uint32
@@ -43,6 +44,7 @@ func snapshotClientUIState(st clientUIState) clientUIStateSnapshot {
 		dirty:           st.dirty,
 		message:         st.message,
 		displayPanes:    st.displayPanes != nil,
+		paneDrag:        st.paneDrag != nil,
 		chooser:         chooser,
 		prompt:          prompt,
 		copyModePaneIDs: paneIDs,
@@ -277,9 +279,10 @@ func TestClientUIStateReduceTransitions(t *testing.T) {
 			},
 		},
 		{
-			name: "show help overlay hides chooser display panes and prompt",
+			name: "show help overlay hides chooser display panes prompt and pane drag",
 			setup: func(st *clientUIState) {
 				st.displayPanes = &displayPanesState{}
+				st.paneDrag = &paneDragOverlayState{sourcePaneID: 7}
 				st.chooser = &chooserState{mode: chooserModeWindow}
 				st.windowRenamePrompt = &windowRenamePromptState{input: bubblesutil.TextInputState{Value: "logs", Cursor: 4}}
 			},

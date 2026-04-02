@@ -291,6 +291,9 @@ func (st *clientUIState) reduceShowHelpOverlay(action uiActionShowHelpOverlay) c
 	if st.windowRenamePrompt != nil {
 		st.windowRenamePrompt = nil
 	}
+	if st.paneDrag != nil {
+		st.paneDrag = nil
+	}
 	st.helpOverlay = action.overlay
 	st.dirty = true
 	return result
