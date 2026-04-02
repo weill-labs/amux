@@ -159,9 +159,10 @@ func (w *Window) ResizePane(paneID uint32, direction string, delta int) bool {
 	return false
 }
 
-// Equalize rebalances the current logical root. When widths is true, root-level
-// columns are redistributed evenly. When heights is true, each logical column's
-// top-level rows are redistributed evenly. Returns true if the layout changed.
+// Equalize rebalances the current logical root. When widths is true, vertical
+// splits within the logical root are redistributed evenly. When heights is
+// true, horizontal splits within the logical root are redistributed evenly.
+// Returns true if the layout changed.
 func (w *Window) Equalize(widths, heights bool) bool {
 	w.assertOwner("Equalize")
 	if w.Root == nil || (!widths && !heights) {
@@ -173,29 +174,8 @@ func (w *Window) Equalize(widths, heights bool) bool {
 		return false
 	}
 
-	widthChanged := widths &&
-		!logical.IsLeaf() &&
-		logical.Dir == SplitVertical &&
-		len(logical.Children) > 1 &&
-		logical.equalizeChildrenNeeded()
-
-	columns := []*LayoutCell{logical}
-	if !logical.IsLeaf() && logical.Dir == SplitVertical {
-		columns = logical.Children
-	}
-
-	heightChanged := false
-	if heights {
-		for _, column := range columns {
-			if column == nil || column.IsLeaf() || column.Dir != SplitHorizontal || len(column.Children) < 2 {
-				continue
-			}
-			if column.equalizeChildrenNeeded() {
-				heightChanged = true
-				break
-			}
-		}
-	}
+	widthChanged := widths && logical.equalizeAxisNeeded(SplitVertical)
+	heightChanged := heights && logical.equalizeAxisNeeded(SplitHorizontal)
 
 	if !widthChanged && !heightChanged {
 		return false
@@ -206,18 +186,10 @@ func (w *Window) Equalize(widths, heights bool) bool {
 	}
 
 	if widthChanged {
-		logical.distributeEqual()
+		logical.equalizeAxis(SplitVertical)
 	}
-	if heights {
-		for _, column := range columns {
-			if column == nil || column.IsLeaf() || column.Dir != SplitHorizontal || len(column.Children) < 2 {
-				continue
-			}
-			if !column.equalizeChildrenNeeded() {
-				continue
-			}
-			column.distributeEqual()
-		}
+	if heightChanged {
+		logical.equalizeAxis(SplitHorizontal)
 	}
 
 	w.Root.FixOffsets()
