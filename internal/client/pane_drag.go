@@ -64,3 +64,7 @@ func (cr *ClientRenderer) paneDragIndicatorFromSnapshot(state *clientSnapshot) *
 	}
 	return cloneDropIndicator(state.ui.paneDrag.indicator)
 }
+
+func paneDragHidesCursor(state *clientSnapshot, activePaneID, paneID uint32) bool {
+	return state.ui.paneDrag != nil && activePaneID != 0 && paneID == activePaneID
+}

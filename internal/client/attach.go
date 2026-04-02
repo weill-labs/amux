@@ -749,11 +749,12 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 		// Read stdin in a dedicated goroutine, sending chunks on stdinCh.
 		// This allows the main input loop to select between stdin and
 		// injected keystrokes from type-keys.
+		stdin := os.Stdin
 		stdinCh := make(chan []byte, 4)
 		go func() {
 			defer close(stdinCh)
 			for {
-				n, err := os.Stdin.Read(buf)
+				n, err := stdin.Read(buf)
 				if err != nil {
 					return
 				}
