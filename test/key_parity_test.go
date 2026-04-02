@@ -146,6 +146,8 @@ func TestSendKeysEncodeParityMatrix(t *testing.T) {
 	for i, tt := range tests {
 		markers := newRawReadMarkers(i)
 		t.Run(tt.name, func(t *testing.T) {
+			// Not parallel: this matrix intentionally reuses one harness so the PTY
+			// probe and send-keys traffic stay serialized across cases.
 			readBytes := len(tt.want)
 			if len(tt.token) > readBytes {
 				readBytes = len(tt.token)
