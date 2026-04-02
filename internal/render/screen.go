@@ -596,7 +596,7 @@ func buildGlobalBarCells(g *ScreenGrid, sessionName string, paneCount int, width
 	chars = appendStyledStr(chars, "amux", boldStyle)
 	chars = appendStyledStr(chars, " │ ", baseStyle)
 
-	if tabs := buildGlobalBarWindowTabsWithHelp(windows, showHelp); len(tabs) > 0 {
+	if tabs := buildGlobalBarWindowTabs(windows); len(tabs) > 0 {
 		for _, tab := range tabs {
 			style := baseStyle
 			if tab.window.IsActive {
