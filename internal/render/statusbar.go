@@ -20,10 +20,6 @@ const GlobalBarHeight = 1
 const (
 	globalBarTitlePrefixVisibleWidth = 8  // " amux │ "
 	globalBarHelpVisibleWidth        = 6  // "? help"
-	globalBarSeparatorVisibleWidth   = 3  // " │ "
-	globalBarPrefixVisibleWidth      = 17 // " amux │ ? help │ "
-	globalBarHelpStartColumn         = globalBarTitlePrefixVisibleWidth
-	globalBarHelpEndColumn           = globalBarHelpStartColumn + globalBarHelpVisibleWidth
 )
 const missingIssueHint = "set issue"
 
@@ -356,7 +352,7 @@ func paneStatusUsedWidthWithoutMetadata(pd PaneData) int {
 	return usedWidth
 }
 
-func buildGlobalBarWindowTabsWithHelp(windows []WindowInfo, showHelp bool) []globalBarWindowTab {
+func buildGlobalBarWindowTabs(windows []WindowInfo) []globalBarWindowTab {
 	if len(windows) <= 1 {
 		return nil
 	}
@@ -386,10 +382,10 @@ func globalBarTabColorHex(window WindowInfo) string {
 	return config.TextColorHex
 }
 
-func globalBarLeftVisibleWidth(sessionName string, windows []WindowInfo, showHelp bool) int {
+func globalBarLeftVisibleWidth(sessionName string, windows []WindowInfo) int {
 	leftVisible := globalBarTitlePrefixVisibleWidth
 	if len(windows) > 1 {
-		for _, tab := range buildGlobalBarWindowTabsWithHelp(windows, showHelp) {
+		for _, tab := range buildGlobalBarWindowTabs(windows) {
 			leftVisible += utf8.RuneCountInString(tab.display) + 1
 		}
 		return leftVisible + 2
@@ -427,7 +423,7 @@ func globalBarShowsHelp(width int, sessionName string, paneCount int, windows []
 	if message != "" {
 		return false
 	}
-	return width >= globalBarLeftVisibleWidth(sessionName, windows, false)+globalBarStatusRightWidth(paneCount, true, now)
+	return width >= globalBarLeftVisibleWidth(sessionName, windows)+globalBarStatusRightWidth(paneCount, true, now)
 }
 
 // GlobalBarShowsHelp reports whether the current terminal width can render the
@@ -438,12 +434,8 @@ func GlobalBarShowsHelp(width int, sessionName string, paneCount int, windows []
 
 // GlobalBarWindowAtColumn resolves a 0-based terminal column within the
 // rendered global bar to the corresponding window tab.
-func GlobalBarWindowAtColumn(windows []WindowInfo, x int, showHelp bool) (WindowInfo, bool) {
-	return globalBarWindowAtColumnWithHelp(windows, x, showHelp)
-}
-
-func globalBarWindowAtColumnWithHelp(windows []WindowInfo, x int, showHelp bool) (WindowInfo, bool) {
-	for _, tab := range buildGlobalBarWindowTabsWithHelp(windows, showHelp) {
+func GlobalBarWindowAtColumn(windows []WindowInfo, x int) (WindowInfo, bool) {
+	for _, tab := range buildGlobalBarWindowTabs(windows) {
 		if x >= tab.start && x < tab.end {
 			return tab.window, true
 		}
@@ -471,8 +463,8 @@ func renderGlobalBarWithProfile(buf *strings.Builder, sessionName string, paneCo
 	styles := newStatusBarStyles(config.TextColorHex)
 
 	showHelp := globalBarShowsHelp(width, sessionName, paneCount, windows, message, now)
-	tabs := buildGlobalBarWindowTabsWithHelp(windows, showHelp)
-	leftVisible := globalBarLeftVisibleWidth(sessionName, windows, showHelp)
+	tabs := buildGlobalBarWindowTabs(windows)
+	leftVisible := globalBarLeftVisibleWidth(sessionName, windows)
 	writeStyledTextWithProfile(buf, styles.background, " ", profile)
 	writeStyledTextWithProfile(buf, styles.title, "amux", profile)
 	writeStyledTextWithProfile(buf, styles.busy, " │ ", profile)

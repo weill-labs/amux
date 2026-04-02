@@ -377,7 +377,7 @@ func handleGlobalBarClick(ev mouse.Event, layout *mux.LayoutCell, cr *ClientRend
 		return true
 	}
 
-	window, ok := render.GlobalBarWindowAtColumn(windows, ev.X, showHelp)
+	window, ok := render.GlobalBarWindowAtColumn(windows, ev.X)
 	if ok && !window.IsActive && sender != nil {
 		sender.Command("select-window", []string{fmt.Sprintf("%d", window.Index)})
 	}
