@@ -4,6 +4,8 @@ import (
 	"strconv"
 	"strings"
 
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/weill-labs/amux/internal/bubblesutil"
 	"github.com/weill-labs/amux/internal/debugowner"
 	"github.com/weill-labs/amux/internal/proto"
 )
@@ -65,6 +67,7 @@ type CopyMode struct {
 	// Prompt/search state.
 	prompt            promptMode
 	promptBuf         string
+	promptCursor      int
 	searchQuery       string
 	lastSearchForward bool
 	matches           []Match
@@ -268,13 +271,18 @@ func isScrollKey(key int) bool {
 }
 
 func (cm *CopyMode) handlePromptInput(data []byte) (Action, int) {
-	key := int(data[0])
-	switch key {
-	case '\r', '\n':
+	msg, consumed, ok := bubblesutil.DecodeKey(data)
+	if !ok || consumed <= 0 {
+		return ActionNone, 1
+	}
+
+	switch msg.Type {
+	case tea.KeyEnter:
 		buf := cm.promptBuf
 		mode := cm.prompt
 		cm.prompt = promptNone
 		cm.promptBuf = ""
+		cm.promptCursor = 0
 		switch mode {
 		case promptSearchForward:
 			cm.searchQuery = buf
@@ -290,27 +298,38 @@ func (cm *CopyMode) handlePromptInput(data []byte) (Action, int) {
 				cm.updateSelection()
 			}
 		}
-		return ActionRedraw, 1
-	case 0x1b:
+		return ActionRedraw, consumed
+	case tea.KeyEsc:
 		cm.prompt = promptNone
 		cm.promptBuf = ""
-		return ActionRedraw, 1
-	case 0x7f, 0x08:
-		if len(cm.promptBuf) > 0 {
-			cm.promptBuf = cm.promptBuf[:len(cm.promptBuf)-1]
-			return ActionRedraw, 1
-		}
-		return ActionNone, 1
-	default:
-		if key >= 0x20 && key < 0x7f {
-			if cm.prompt == promptGotoLine && (key < '0' || key > '9') {
-				return ActionNone, 1
+		cm.promptCursor = 0
+		return ActionRedraw, consumed
+	case tea.KeyRunes:
+		if cm.prompt == promptGotoLine {
+			for _, r := range msg.Runes {
+				if r < '0' || r > '9' {
+					return ActionNone, consumed
+				}
 			}
-			cm.promptBuf += string(rune(key))
-			return ActionRedraw, 1
 		}
-		return ActionNone, 1
+	default:
+		if !copyModePromptKeySupported(msg.Type) {
+			return ActionNone, consumed
+		}
 	}
+
+	input := bubblesutil.TextInputState{
+		Value:  cm.promptBuf,
+		Cursor: cm.promptCursor,
+	}
+	before := input
+	input.Update(msg)
+	cm.promptBuf = input.Value
+	cm.promptCursor = input.Cursor
+	if input != before {
+		return ActionRedraw, consumed
+	}
+	return ActionNone, consumed
 }
 
 func (cm *CopyMode) handleNormalKey(key int) Action {
@@ -381,16 +400,19 @@ func (cm *CopyMode) handleNormalKey(key int) Action {
 	case '/':
 		cm.prompt = promptSearchForward
 		cm.promptBuf = ""
+		cm.promptCursor = 0
 		return ActionRedraw
 
 	case '?':
 		cm.prompt = promptSearchBackward
 		cm.promptBuf = ""
+		cm.promptCursor = 0
 		return ActionRedraw
 
 	case ':':
 		cm.prompt = promptGotoLine
 		cm.promptBuf = ""
+		cm.promptCursor = 0
 		return ActionRedraw
 
 	case 'n':
@@ -556,6 +578,10 @@ func (cm *CopyMode) handleNormalKey(key int) Action {
 		return ActionYank
 	}
 	return ActionNone
+}
+
+func copyModePromptKeySupported(key tea.KeyType) bool {
+	return bubblesutil.IsTextInputKey(key)
 }
 
 // IsSearching returns true when the user is typing a search query.

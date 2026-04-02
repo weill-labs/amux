@@ -310,7 +310,7 @@ func TestHandleChooserInputBranches(t *testing.T) {
 	if !cr.ShowChooser(chooserModeTree) {
 		t.Fatal("ShowChooser tree should succeed")
 	}
-	cmd = cr.HandleChooserInput([]byte{0x01})
+	cmd = cr.HandleChooserInput([]byte{0x03})
 	if !cmd.bell {
 		t.Fatalf("control byte chooser command = %+v, want bell", cmd)
 	}

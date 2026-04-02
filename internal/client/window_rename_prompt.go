@@ -1,11 +1,15 @@
 package client
 
-import "github.com/weill-labs/amux/internal/render"
+import (
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/weill-labs/amux/internal/bubblesutil"
+	"github.com/weill-labs/amux/internal/render"
+)
 
 const windowRenamePromptTitle = "rename-window"
 
 type windowRenamePromptState struct {
-	value string
+	input bubblesutil.TextInputState
 }
 
 type promptCommand struct {
@@ -54,23 +58,27 @@ func (cr *ClientRenderer) HandleWindowRenamePromptInput(raw []byte) promptComman
 		return promptCommand{}
 	}
 
-	if len(raw) == 3 && raw[0] == 0x1b && raw[1] == '[' {
-		return promptCommand{bell: true}
-	}
-
 	result := promptCommand{}
-	for _, b := range raw {
-		switch {
-		case b == 0x1b:
+	for len(raw) > 0 {
+		msg, consumed, ok := bubblesutil.DecodeKey(raw)
+		if !ok || consumed <= 0 {
+			result.bell = true
+			raw = raw[1:]
+			continue
+		}
+		raw = raw[consumed:]
+
+		switch msg.Type {
+		case tea.KeyEsc:
 			cr.HideWindowRenamePrompt()
 			return promptCommand{}
-		case b == '\r' || b == '\n':
+		case tea.KeyEnter:
 			return cr.submitWindowRenamePrompt()
-		case b == 0x7f || b == 0x08:
-			cr.editWindowRenamePrompt(-1, 0)
-		case b >= 0x20 && b <= 0x7e:
-			cr.editWindowRenamePrompt(0, b)
 		default:
+			if bubblesutil.IsTextInputKey(msg.Type) {
+				cr.applyWindowRenamePromptKey(msg)
+				continue
+			}
 			result.bell = true
 		}
 	}
@@ -78,18 +86,23 @@ func (cr *ClientRenderer) HandleWindowRenamePromptInput(raw []byte) promptComman
 }
 
 func (cr *ClientRenderer) editWindowRenamePrompt(backspace int, ch byte) {
+	switch {
+	case backspace < 0:
+		cr.applyWindowRenamePromptKey(tea.KeyMsg{Type: tea.KeyBackspace})
+	case ch != 0:
+		cr.applyWindowRenamePromptKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{rune(ch)}})
+	default:
+		return
+	}
+}
+
+func (cr *ClientRenderer) applyWindowRenamePromptKey(msg tea.KeyMsg) {
 	cr.updateState(func(next *clientSnapshot) clientUIResult {
 		if next.ui.windowRenamePrompt == nil {
 			return clientUIResult{}
 		}
 		next.ui.windowRenamePrompt = cloneWindowRenamePromptState(next.ui.windowRenamePrompt)
-		if backspace < 0 {
-			if len(next.ui.windowRenamePrompt.value) > 0 {
-				next.ui.windowRenamePrompt.value = next.ui.windowRenamePrompt.value[:len(next.ui.windowRenamePrompt.value)-1]
-			}
-		} else if ch != 0 {
-			next.ui.windowRenamePrompt.value += string(ch)
-		}
+		next.ui.windowRenamePrompt.input.Update(msg)
 		next.ui.dirty = true
 		return clientUIResult{}
 	})
@@ -100,10 +113,10 @@ func (cr *ClientRenderer) submitWindowRenamePrompt() promptCommand {
 		if next.ui.windowRenamePrompt == nil {
 			return promptCommand{}, clientUIResult{}
 		}
-		if next.ui.windowRenamePrompt.value == "" {
+		if next.ui.windowRenamePrompt.input.Value == "" {
 			return promptCommand{bell: true}, clientUIResult{}
 		}
-		value := next.ui.windowRenamePrompt.value
+		value := next.ui.windowRenamePrompt.input.Value
 		return promptCommand{
 			command: "rename-window",
 			args:    []string{value},
@@ -123,6 +136,6 @@ func (cr *ClientRenderer) windowRenamePromptOverlayFromSnapshot(state *clientSna
 	}
 	return &render.TextInputOverlay{
 		Title: state.ui.windowRenamePrompt.title(),
-		Input: state.ui.windowRenamePrompt.value,
+		Input: state.ui.windowRenamePrompt.input.Value,
 	}
 }
