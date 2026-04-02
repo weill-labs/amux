@@ -1439,11 +1439,11 @@ func TestRenderCoalescedLocalActionReplySentBeforeExit(t *testing.T) {
 	}
 }
 
-func TestRenderCoalescedPaneOutputWaitsForFrameDeadline(t *testing.T) {
+func TestRenderCoalescedPaneOutputRendersImmediatelyAfterIdle(t *testing.T) {
 	t.Parallel()
 
 	cr := buildTestRenderer(t)
-	cr.renderFrameInterval = 50 * time.Millisecond
+	cr.renderFrameInterval = 250 * time.Millisecond
 	msgCh := make(chan *RenderMsg, 2)
 	rendered := make(chan time.Time, 1)
 	done := make(chan struct{})
@@ -1463,17 +1463,11 @@ func TestRenderCoalescedPaneOutputWaitsForFrameDeadline(t *testing.T) {
 
 	select {
 	case ts := <-rendered:
-		t.Fatalf("first pane output rendered too early after %v", ts.Sub(start))
-	case <-time.After(15 * time.Millisecond):
-	}
-
-	select {
-	case ts := <-rendered:
-		if delta := ts.Sub(start); delta < 35*time.Millisecond {
-			t.Fatalf("first pane output rendered after %v, want it deferred close to frame interval %v", delta, cr.renderFrameInterval)
+		if ts.Sub(start) >= 100*time.Millisecond {
+			t.Fatalf("first pane output rendered after %v, want immediate render well below frame interval %v", ts.Sub(start), cr.renderFrameInterval)
 		}
-	case <-time.After(150 * time.Millisecond):
-		t.Fatalf("first pane output did not render within frame interval %v", cr.renderFrameInterval)
+	case <-time.After(100 * time.Millisecond):
+		t.Fatalf("first pane output did not render immediately; frame interval is %v", cr.renderFrameInterval)
 	}
 
 	msgCh <- &RenderMsg{Typ: RenderMsgExit}

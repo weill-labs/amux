@@ -66,6 +66,18 @@ func assertClientUIState(t *testing.T, st clientUIState, want clientUIStateSnaps
 	t.Helper()
 
 	got := snapshotClientUIState(st)
+	if got.copyModePaneIDs == nil {
+		got.copyModePaneIDs = []uint32{}
+	}
+	if got.dirtyPaneIDs == nil {
+		got.dirtyPaneIDs = []uint32{}
+	}
+	if want.copyModePaneIDs == nil {
+		want.copyModePaneIDs = []uint32{}
+	}
+	if want.dirtyPaneIDs == nil {
+		want.dirtyPaneIDs = []uint32{}
+	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("state = %+v, want %+v", got, want)
 	}

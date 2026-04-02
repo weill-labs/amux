@@ -404,7 +404,7 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 	}()
 
 	if initial := cr.Render(true); initial != "" {
-		io.WriteString(os.Stdout, initial)
+		io.WriteString(os.Stdout, render.SynchronizedUpdateBegin+initial+render.SynchronizedUpdateEnd)
 	}
 
 	// Resolve the current binary once so explicit reloads and server reload
@@ -420,7 +420,7 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 	injectCh := make(chan injectedInput, 16)
 
 	// Server → client renderer → stdout
-	// Messages are dispatched to a coalescing render loop that caps at ~60fps.
+	// Messages are dispatched to a deadline-based render loop that caps at ~30fps.
 	done := make(chan struct{})
 	msgCh := make(chan *RenderMsg, 256)
 

@@ -191,7 +191,21 @@ func (c *Compositor) RenderFullWithOverlay(root *mux.LayoutCell, activePaneID ui
 // optional client-local overlays. On the first call (or after Resize), prevGrid
 // is nil and every cell is emitted.
 func (c *Compositor) RenderDiffWithOverlay(root *mux.LayoutCell, activePaneID uint32, lookup func(uint32) PaneData, overlay OverlayState) string {
-	newGrid := c.buildGridWithOverlay(root, activePaneID, lookup, overlay)
+	return c.RenderDiffWithOverlayDirty(root, activePaneID, lookup, overlay, nil, true)
+}
+
+// RenderDiffWithOverlayDirty composes all panes into a cell grid, reusing
+// cached cells for clean panes when possible, diffs against the previous
+// frame, and returns minimal ANSI output for the changed cells.
+func (c *Compositor) RenderDiffWithOverlayDirty(
+	root *mux.LayoutCell,
+	activePaneID uint32,
+	lookup func(uint32) PaneData,
+	overlay OverlayState,
+	dirtyPanes map[uint32]struct{},
+	fullRedraw bool,
+) string {
+	newGrid := c.buildGridWithOverlayDirty(root, activePaneID, lookup, overlay, dirtyPanes, fullRedraw)
 	changes := DiffGrid(c.prevGrid, newGrid)
 	c.prevGrid = newGrid
 

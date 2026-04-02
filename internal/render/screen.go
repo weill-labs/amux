@@ -49,6 +49,21 @@ func NewScreenGrid(width, height int) *ScreenGrid {
 	return &ScreenGrid{Width: width, Height: height, Cells: cells}
 }
 
+// Clone returns a deep copy of the grid cell contents.
+func (g *ScreenGrid) Clone() *ScreenGrid {
+	if g == nil {
+		return nil
+	}
+	dup := &ScreenGrid{
+		Width:  g.Width,
+		Height: g.Height,
+		Debug:  g.Debug,
+		Cells:  make([]ScreenCell, len(g.Cells)),
+	}
+	copy(dup.Cells, g.Cells)
+	return dup
+}
+
 // Set writes a cell at (x, y). Out-of-bounds writes are silently ignored.
 // When Debug is true, OOB writes are also recorded for later inspection.
 func (g *ScreenGrid) Set(x, y int, cell ScreenCell) {
@@ -215,6 +230,66 @@ func (c *Compositor) buildGridWithOverlay(root *mux.LayoutCell, activePaneID uin
 	}
 
 	// Global bar cells.
+	buildGlobalBarCells(g, c.sessionName, paneCount, c.width, c.height-1, c.windows, overlay.Message, c.now())
+	if overlay.HelpBar != nil {
+		buildHelpBarCells(g, overlay.HelpBar)
+	}
+	if overlay.Chooser != nil {
+		buildChooserOverlayCells(g, overlay.Chooser)
+	}
+	if overlay.TextInput != nil {
+		buildTextInputOverlayCells(g, overlay.TextInput)
+	}
+
+	return g
+}
+
+func (c *Compositor) buildGridWithOverlayDirty(
+	root *mux.LayoutCell,
+	activePaneID uint32,
+	lookup func(uint32) PaneData,
+	overlay OverlayState,
+	dirtyPanes map[uint32]struct{},
+	fullRedraw bool,
+) *ScreenGrid {
+	if fullRedraw || c.prevGrid == nil {
+		return c.buildGridWithOverlay(root, activePaneID, lookup, overlay)
+	}
+
+	g := c.prevGrid.Clone()
+	g.Debug = c.debug
+
+	paneCount := 0
+	root.Walk(func(cell *mux.LayoutCell) {
+		pid := cell.CellPaneID()
+		if pid == 0 {
+			return
+		}
+		pd := lookup(pid)
+		if pd == nil {
+			return
+		}
+		paneCount++
+		if _, ok := dirtyPanes[pid]; !ok {
+			return
+		}
+
+		isActive := pid == activePaneID
+		copyOverlay := pd.CopyModeOverlay()
+		buildStatusCells(g, cell, isActive, pd)
+		contentH := mux.PaneContentHeight(cell.H)
+		for row := 0; row < contentH; row++ {
+			buildPaneContentCells(g, cell, row, isActive, pd, copyOverlay)
+		}
+	})
+
+	if overlay.DropIndicator != nil {
+		buildDropIndicatorCells(g, overlay.DropIndicator)
+	}
+	if len(overlay.PaneLabels) > 0 {
+		buildPaneOverlayCells(g, root, lookup, overlay.PaneLabels)
+	}
+
 	buildGlobalBarCells(g, c.sessionName, paneCount, c.width, c.height-1, c.windows, overlay.Message, c.now())
 	if overlay.HelpBar != nil {
 		buildHelpBarCells(g, overlay.HelpBar)

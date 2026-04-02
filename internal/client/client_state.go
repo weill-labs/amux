@@ -42,6 +42,10 @@ func cloneClientUIState(src clientUIState) clientUIState {
 	for paneID, mode := range src.copyModes {
 		dst.copyModes[paneID] = mode
 	}
+	dst.dirtyPanes = make(map[uint32]struct{}, len(src.dirtyPanes))
+	for paneID := range src.dirtyPanes {
+		dst.dirtyPanes[paneID] = struct{}{}
+	}
 	dst.displayPanes = cloneDisplayPanesState(src.displayPanes)
 	dst.chooser = cloneChooserState(src.chooser)
 	dst.paneDrag = clonePaneDragOverlayState(src.paneDrag)

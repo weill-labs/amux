@@ -233,6 +233,18 @@ func (r *Renderer) RenderFullWithOverlay(paneLookup func(*rendererActorState, ui
 // previous frame, plus optional client-local overlays. Returns empty string if
 // no layout is available.
 func (r *Renderer) RenderDiffWithOverlay(paneLookup func(*rendererActorState, uint32) render.PaneData, overlay render.OverlayState) string {
+	return r.RenderDiffWithOverlayDirty(paneLookup, overlay, nil, true)
+}
+
+// RenderDiffWithOverlayDirty produces minimal ANSI output by diffing against
+// the previous frame and only re-compositing the supplied dirty panes unless a
+// full redraw is requested.
+func (r *Renderer) RenderDiffWithOverlayDirty(
+	paneLookup func(*rendererActorState, uint32) render.PaneData,
+	overlay render.OverlayState,
+	dirtyPanes map[uint32]struct{},
+	fullRedraw bool,
+) string {
 	return withRendererActorValue(r, func(st *rendererActorState) string {
 		snap := st.snapshot
 		if snap.layout == nil {
@@ -240,9 +252,9 @@ func (r *Renderer) RenderDiffWithOverlay(paneLookup func(*rendererActorState, ui
 		}
 		root, activePaneID := snap.captureRoot(st.compositor.LayoutHeight())
 		overlay = r.mergeOverlay(snap, overlay)
-		return st.compositor.RenderDiffWithOverlay(root, activePaneID, func(paneID uint32) render.PaneData {
+		return st.compositor.RenderDiffWithOverlayDirty(root, activePaneID, func(paneID uint32) render.PaneData {
 			return paneLookup(st, paneID)
-		}, overlay)
+		}, overlay, dirtyPanes, fullRedraw)
 	})
 }
 

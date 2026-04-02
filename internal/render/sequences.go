@@ -13,6 +13,9 @@ const (
 	ClearAll   = ansi.EraseEntireScreen
 	Reset      = ansi.ResetStyle
 
+	SynchronizedUpdateBegin = "\x1b[?2026h"
+	SynchronizedUpdateEnd   = "\x1b[?2026l"
+
 	MouseEnable  = ansi.SetModeMouseButtonEvent + ansi.SetModeMouseExtSgr
 	MouseDisable = ansi.ResetModeMouseExtSgr + ansi.ResetModeMouseButtonEvent
 

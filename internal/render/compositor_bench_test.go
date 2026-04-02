@@ -76,6 +76,60 @@ func BenchmarkRenderFull(b *testing.B) {
 	}
 }
 
+func BenchmarkRenderDiffDirtyPanes(b *testing.B) {
+	const (
+		width  = 200
+		height = 60
+		panes  = 20
+	)
+
+	root, _ := benchLayoutTree(panes, width, height)
+	paneDataMap := make(map[uint32]*fakePaneData, panes)
+	root.Walk(func(c *mux.LayoutCell) {
+		pid := c.CellPaneID()
+		paneDataMap[pid] = &fakePaneData{
+			id:     pid,
+			name:   fmt.Sprintf("pane-%d", pid),
+			screen: benchScreen(c.W, mux.PaneContentHeight(c.H)),
+		}
+	})
+	lookup := func(id uint32) PaneData { return paneDataMap[id] }
+	dirtyScreenA := paneDataMap[1].screen
+	dirtyScreenB := strings.ReplaceAll(dirtyScreenA, "x", "y")
+
+	b.Run("dirty_one_of_twenty", func(b *testing.B) {
+		comp := NewCompositor(width, height+GlobalBarHeight, "bench")
+		comp.RenderDiffWithOverlayDirty(root, 1, lookup, OverlayState{}, map[uint32]struct{}{1: {}, 2: {}, 3: {}}, true)
+
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			if i%2 == 0 {
+				paneDataMap[1].screen = dirtyScreenB
+			} else {
+				paneDataMap[1].screen = dirtyScreenA
+			}
+			comp.RenderDiffWithOverlayDirty(root, 1, lookup, OverlayState{}, map[uint32]struct{}{1: {}}, false)
+		}
+	})
+
+	b.Run("full_redraw_one_of_twenty", func(b *testing.B) {
+		comp := NewCompositor(width, height+GlobalBarHeight, "bench")
+		comp.RenderDiffWithOverlayDirty(root, 1, lookup, OverlayState{}, map[uint32]struct{}{1: {}, 2: {}, 3: {}}, true)
+
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			if i%2 == 0 {
+				paneDataMap[1].screen = dirtyScreenB
+			} else {
+				paneDataMap[1].screen = dirtyScreenA
+			}
+			comp.RenderDiffWithOverlayDirty(root, 1, lookup, OverlayState{}, map[uint32]struct{}{1: {}}, true)
+		}
+	})
+}
+
 func BenchmarkClipLine(b *testing.B) {
 	for _, width := range []int{40, 80, 200} {
 		b.Run(fmt.Sprintf("width_%d", width), func(b *testing.B) {

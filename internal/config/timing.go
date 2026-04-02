@@ -10,6 +10,6 @@ const (
 	UndoGracePeriod           = 30 * time.Second
 	BootstrapPaneReplayWait   = 50 * time.Millisecond
 	BootstrapCorrectionWindow = 50 * time.Millisecond
-	RenderFrameInterval       = 16 * time.Millisecond
+	RenderFrameInterval       = time.Second / 30
 	RenderPriorityWindow      = 40 * time.Millisecond
 )
