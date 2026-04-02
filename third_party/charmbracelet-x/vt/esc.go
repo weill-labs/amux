@@ -25,6 +25,7 @@ func (e *Emulator) fullReset() {
 	e.scrs[0].Reset()
 	e.scrs[1].Reset()
 	e.resetTabStops()
+	e.resetKittyKeyboard()
 
 	// XXX: Do we reset all modes here? Investigate.
 	e.resetModes()

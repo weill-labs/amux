@@ -23,13 +23,16 @@ type KeyPressEvent = uv.KeyPressEvent
 
 // SendKey returns the default key map.
 func (e *Emulator) SendKey(k uv.KeyEvent) {
+	if seq, ok := e.kittyKeySequence(k); ok {
+		_, _ = io.WriteString(e.pw, seq)
+		return
+	}
+
 	var seq string
 
 	ack := e.isModeSet(ansi.ModeCursorKeys)    // Application cursor keys mode
 	akk := e.isModeSet(ansi.ModeNumericKeypad) // Application keypad keys mode
 
-	//nolint:godox
-	// TODO: Support Kitty, CSI u, and XTerm modifyOtherKeys.
 	switch key := k.(type) {
 	case KeyPressEvent:
 		if key.Mod&ModAlt != 0 {

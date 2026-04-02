@@ -23,6 +23,9 @@ type Emulator struct {
 	// The terminal's indexed 256 colors.
 	colors [256]color.Color
 
+	// The Kitty keyboard enhancement stacks for the main and alternate screens.
+	kittyKeyboard [2]kittyKeyboardMode
+
 	// Both main and alt screens and a pointer to the currently active screen.
 	scrs [2]Screen
 	scr  *Screen

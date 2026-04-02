@@ -831,6 +831,23 @@ func (e *Emulator) registerDefaultCsiHandlers() {
 		return true
 	})
 
+	e.RegisterCsiHandler(ansi.Command('>', 0, 'u'), func(params ansi.Params) bool {
+		flags, _, _ := params.Param(0, 0)
+		e.pushKittyKeyboard(flags)
+		return true
+	})
+
+	e.RegisterCsiHandler(ansi.Command('<', 0, 'u'), func(params ansi.Params) bool {
+		count, _, _ := params.Param(0, 1)
+		e.popKittyKeyboard(count)
+		return true
+	})
+
+	e.RegisterCsiHandler(ansi.Command('?', 0, 'u'), func(params ansi.Params) bool {
+		e.reportKittyKeyboard()
+		return true
+	})
+
 	e.RegisterCsiHandler(ansi.Command(0, '$', 'p'), func(params ansi.Params) bool {
 		// Request Mode [ansi.DECRQM] - ANSI
 		e.handleRequestMode(params, true)
