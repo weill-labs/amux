@@ -123,7 +123,7 @@ assignment through PR merge. On task completion or cancellation, orca resets the
 clone:
 
 ```
-git checkout main && git pull && git clean -fd
+git checkout main && git pull && git clean -fdx
 ```
 
 The clone returns to the free pool. Pool size equals max concurrency; there is no
@@ -138,8 +138,8 @@ Profiles encode agent-specific behavior without orca containing any AI:
 start_command = "codex --yolo"
 idle_signal = "screen_quiet"
 idle_timeout = "30s"
-stuck_signals = ["permission prompt", "idle > 5m without PR"]
-stuck_timeout = "5m"
+stuck_text_patterns = ["permission prompt"]  # matched against screen output
+stuck_timeout = "5m"                         # idle longer than this = stuck
 nudge_command = "y\n"
 max_nudge_retries = 3
 
@@ -147,7 +147,7 @@ max_nudge_retries = 3
 start_command = "claude --dangerously-skip-permissions"
 idle_signal = "screen_quiet"
 idle_timeout = "30s"
-stuck_signals = ["tool denied", "idle > 5m without PR"]
+stuck_text_patterns = ["tool denied"]
 stuck_timeout = "5m"
 nudge_command = "\n"
 max_nudge_retries = 3
@@ -156,15 +156,21 @@ max_nudge_retries = 3
 start_command = "aider"
 idle_signal = "screen_quiet"
 idle_timeout = "30s"
-stuck_signals = ["idle > 5m"]
+stuck_text_patterns = []
 stuck_timeout = "5m"
 nudge_command = "/run\n"
 max_nudge_retries = 2
 ```
 
-Orca uses these profiles to:
+Stuck detection uses two independent mechanisms:
+- **Text patterns** (`stuck_text_patterns`): matched against captured screen
+  output via `amux capture`. Triggers immediately on match.
+- **Timeout** (`stuck_timeout`): fires when the agent has been idle (no screen
+  output) for longer than this duration without having created a PR.
+
+Either mechanism triggers the nudge sequence. Orca uses these profiles to:
 1. Start agents in panes with the correct command.
-2. Detect stuck states by matching screen output against `stuck_signals`.
+2. Detect stuck states via text pattern matching or idle timeout.
 3. Auto-nudge up to `max_nudge_retries` times before escalating.
 
 ### Notifications
@@ -204,7 +210,7 @@ changing orca's architecture.
 
 On merge detection:
 1. Notify the agent in the pane: "PR merged, wrap up."
-2. Wait for the agent to go idle or exit.
+2. Wait for the agent to go idle or exit (max 10 minutes; force-kill if exceeded).
 3. Clean the clone (reset to main) and return it to the pool.
 4. Mark the task as done.
 5. Notify the lead pane.
@@ -222,11 +228,11 @@ Claude: orca assign LAB-123 --prompt "Implement the auth feature..."
   6. Send prompt (provided by Claude) to the pane
   7. Set pane metadata: task, issue, branch
   8. Monitor: health checks, stuck detection, auto-nudge per profile
-  9. Poll for PR creation → record PR number
+  9. Poll for PR creation (gh pr list --head BRANCH, 30s interval) → record PR number
  10. Poll for PR merge
  11. On merge: notify agent "PR merged, wrap up"
- 12. Wait for agent idle/exit
- 13. Clean clone: git checkout main && git pull && git clean -fd
+ 12. Wait for agent idle/exit (max 10m, force-kill if exceeded)
+ 13. Clean clone: git checkout main && git pull && git clean -fdx
  14. Return clone to pool, mark task done
  15. Notify lead pane
 
@@ -323,7 +329,7 @@ POOL: 34 free / 36 total    QUEUE: 1    STUCK: 0    MERGED: 12
 ```toml
 [daemon]
 poll_interval = "30s"        # PR merge poll frequency
-notification_pane = "pane-1" # lead pane for push notifications
+notification_pane = "pane-1" # fragile — see open question 2 re: auto-detection
 
 [pool]
 pattern = "~/sync/github/amux/amux*"
@@ -333,7 +339,7 @@ clone_origin = "git@github.com:weill-labs/amux.git"
 start_command = "codex --yolo"
 idle_timeout = "30s"
 stuck_timeout = "5m"
-stuck_signals = ["permission prompt"]
+stuck_text_patterns = ["permission prompt"]
 nudge_command = "y\n"
 max_nudge_retries = 3
 
@@ -341,10 +347,13 @@ max_nudge_retries = 3
 start_command = "claude --dangerously-skip-permissions"
 idle_timeout = "30s"
 stuck_timeout = "5m"
-stuck_signals = ["tool denied"]
+stuck_text_patterns = ["tool denied"]
 nudge_command = "\n"
 max_nudge_retries = 3
 
+# Fleet uses a single-coordinator topology: one orca daemon (on the local
+# machine) owns all state in SQLite and drives remote amux sessions over SSH.
+# Remote hosts run amux but not orca.
 [fleet]
 hosts = ["localhost", "devbox-1", "devbox-2"]
 
@@ -430,6 +439,7 @@ First milestone — enough to replace the shell scripts:
    can expire mid-session. Orca should detect `gh` auth failures (401/403)
    and escalate immediately rather than silently failing to poll.
 
-7. **Repo scope.** Orca is described as project-scoped, but state.db is global.
-   Should `orca start` require `--project` to namespace tasks within the global
-   DB, or is one active project at a time sufficient?
+7. **Repo scope.** `--project` is required on `orca start` and all rows are
+   scoped by project (resolved in the State section). Remaining question: should
+   `orca status` (without `--project`) show all projects or require explicit
+   scoping?
