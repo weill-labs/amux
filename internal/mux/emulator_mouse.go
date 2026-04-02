@@ -1,6 +1,8 @@
 package mux
 
 import (
+	"strings"
+
 	"github.com/charmbracelet/x/ansi"
 	"github.com/weill-labs/amux/internal/mouse"
 )
@@ -112,4 +114,32 @@ func encodeMouseButton(btn mouse.Button) (ansi.MouseButton, bool) {
 	default:
 		return 0, false
 	}
+}
+
+func renderMouseProtocol(mouseProto MouseProtocol) string {
+	var buf strings.Builder
+	switch mouseProto.Tracking {
+	case MouseTrackingStandard:
+		buf.WriteString("\x1b[?1000h")
+		buf.WriteString("\x1b[?1002l")
+		buf.WriteString("\x1b[?1003l")
+	case MouseTrackingButton:
+		buf.WriteString("\x1b[?1000l")
+		buf.WriteString("\x1b[?1002h")
+		buf.WriteString("\x1b[?1003l")
+	case MouseTrackingAny:
+		buf.WriteString("\x1b[?1000l")
+		buf.WriteString("\x1b[?1002l")
+		buf.WriteString("\x1b[?1003h")
+	default:
+		buf.WriteString("\x1b[?1000l")
+		buf.WriteString("\x1b[?1002l")
+		buf.WriteString("\x1b[?1003l")
+	}
+	if mouseProto.SGR {
+		buf.WriteString("\x1b[?1006h")
+	} else {
+		buf.WriteString("\x1b[?1006l")
+	}
+	return buf.String()
 }
