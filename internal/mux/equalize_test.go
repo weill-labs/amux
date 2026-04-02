@@ -137,6 +137,100 @@ func TestWindowEqualizeUsesLogicalRootWhenLeadAnchored(t *testing.T) {
 	}
 }
 
+func TestWindowEqualizeVerticalBalancesNestedVisualColumns(t *testing.T) {
+	t.Parallel()
+
+	p1 := fakePaneID(1)
+	p2 := fakePaneID(2)
+	p3 := fakePaneID(3)
+	p4 := fakePaneID(4)
+	p5 := fakePaneID(5)
+	p6 := fakePaneID(6)
+	p7 := fakePaneID(7)
+	p8 := fakePaneID(8)
+	p9 := fakePaneID(9)
+	p10 := fakePaneID(10)
+	p11 := fakePaneID(11)
+
+	w := NewWindow(p1, 160, 48)
+	if _, err := w.SplitRoot(SplitVertical, p2); err != nil {
+		t.Fatalf("SplitRoot pane-2: %v", err)
+	}
+	if _, err := w.SplitRoot(SplitVertical, p3); err != nil {
+		t.Fatalf("SplitRoot pane-3: %v", err)
+	}
+	if err := w.SetLead(p1.ID); err != nil {
+		t.Fatalf("SetLead: %v", err)
+	}
+	if _, err := w.SplitRoot(SplitHorizontal, p4); err != nil {
+		t.Fatalf("SplitRoot pane-4 below logical root: %v", err)
+	}
+
+	for _, pane := range []*Pane{p5, p6, p7, p8} {
+		if _, err := w.SplitPaneWithOptions(p2.ID, SplitHorizontal, pane, SplitOptions{KeepFocus: true}); err != nil {
+			t.Fatalf("SplitPaneWithOptions first column pane-%d: %v", pane.ID, err)
+		}
+	}
+	for _, pane := range []*Pane{p9, p10, p11} {
+		if _, err := w.SplitPaneWithOptions(p3.ID, SplitHorizontal, pane, SplitOptions{KeepFocus: true}); err != nil {
+			t.Fatalf("SplitPaneWithOptions second column pane-%d: %v", pane.ID, err)
+		}
+	}
+
+	if !w.ResizePane(p2.ID, "down", 6) {
+		t.Fatal("ResizePane should skew nested visual column heights")
+	}
+
+	right := w.logicalRoot()
+	if right == nil || right.IsLeaf() || right.Dir != SplitHorizontal {
+		t.Fatalf("logical root = %+v, want horizontal wrapper", right)
+	}
+	top := right.Children[0]
+	if top == nil || top.IsLeaf() || top.Dir != SplitVertical {
+		t.Fatalf("top logical child = %+v, want vertical columns", top)
+	}
+
+	firstColumn := top.Children[0]
+	if firstColumn == nil || firstColumn.IsLeaf() || firstColumn.Dir != SplitHorizontal {
+		t.Fatalf("first visual column = %+v, want horizontal stack", firstColumn)
+	}
+
+	heightsBefore := []int{
+		firstColumn.Children[0].H,
+		firstColumn.Children[1].H,
+		firstColumn.Children[2].H,
+		firstColumn.Children[3].H,
+		firstColumn.Children[4].H,
+	}
+	wantHeights := equalSplitSizes(firstColumn.H, len(firstColumn.Children))
+	if reflect.DeepEqual(heightsBefore, wantHeights) {
+		t.Fatalf("nested visual column heights before equalize = %v, want a skewed column", heightsBefore)
+	}
+
+	topHeightBefore := top.H
+	bottomHeightBefore := right.Children[1].H
+	if !w.Equalize(false, true) {
+		t.Fatal("Equalize(widths=false, heights=true) = false, want true")
+	}
+
+	gotHeights := []int{
+		firstColumn.Children[0].H,
+		firstColumn.Children[1].H,
+		firstColumn.Children[2].H,
+		firstColumn.Children[3].H,
+		firstColumn.Children[4].H,
+	}
+	if !reflect.DeepEqual(gotHeights, wantHeights) {
+		t.Fatalf("nested visual column heights after equalize = %v, want %v", gotHeights, wantHeights)
+	}
+	if got := top.H; got != topHeightBefore {
+		t.Fatalf("top wrapper height after equalize = %d, want %d", got, topHeightBefore)
+	}
+	if got := right.Children[1].H; got != bottomHeightBefore {
+		t.Fatalf("bottom spanning pane height after equalize = %d, want %d", got, bottomHeightBefore)
+	}
+}
+
 func TestWindowEqualizeNoopKeepsZoom(t *testing.T) {
 	t.Parallel()
 
