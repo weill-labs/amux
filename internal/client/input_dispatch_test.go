@@ -794,6 +794,113 @@ func TestHandleMouseEventGlobalBarClickSingleWindowDoesNothing(t *testing.T) {
 	assertNoMessage(t, serverConn)
 }
 
+func TestHandleMouseEventGlobalBarHelpClickTogglesHelpBar(t *testing.T) {
+	t.Parallel()
+
+	cr := buildTestRenderer(t)
+	msgCh := startTestRenderLoop(t, cr)
+	cr.RenderDiff()
+
+	var drag dragState
+	x := globalBarClickColumn(t, cr, "? help")
+	y := globalBarRow(t, cr)
+
+	handleMouseEvent(mouse.Event{
+		Action: mouse.Press,
+		Button: mouse.ButtonLeft,
+		X:      x,
+		Y:      y,
+	}, cr, nil, &drag, msgCh)
+	if !cr.HelpBarActive() {
+		t.Fatal("global bar help click should show the help bar")
+	}
+
+	handleMouseEvent(mouse.Event{
+		Action: mouse.Press,
+		Button: mouse.ButtonLeft,
+		X:      x,
+		Y:      y,
+	}, cr, nil, &drag, msgCh)
+	if cr.HelpBarActive() {
+		t.Fatal("second global bar help click should hide the help bar")
+	}
+}
+
+func TestHandleMouseEventGlobalBarClickSelectsWindowWhenHelpIsHidden(t *testing.T) {
+	t.Parallel()
+
+	cr := buildMultiWindowRenderer(t)
+	cr.Resize(44, 24)
+
+	if strings.Contains(cr.Capture(true), "? help") {
+		t.Fatal("narrow global bar should hide the help toggle")
+	}
+
+	clientConn, serverConn := net.Pipe()
+	t.Cleanup(func() {
+		clientConn.Close()
+		serverConn.Close()
+	})
+
+	sender := newMessageSender(clientConn)
+	t.Cleanup(sender.Close)
+
+	var drag dragState
+	x := globalBarClickColumn(t, cr, "2:logs")
+	y := globalBarRow(t, cr)
+
+	done := make(chan struct{})
+	go func() {
+		handleMouseEvent(mouse.Event{
+			Action: mouse.Press,
+			Button: mouse.ButtonLeft,
+			X:      x,
+			Y:      y,
+		}, cr, sender, &drag, nil)
+		close(done)
+	}()
+
+	msg := readCommandMessage(t, serverConn)
+	if msg.Type != proto.MsgTypeCommand {
+		t.Fatalf("message type = %d, want %d", msg.Type, proto.MsgTypeCommand)
+	}
+	if msg.CmdName != "select-window" {
+		t.Fatalf("command = %q, want select-window", msg.CmdName)
+	}
+	if len(msg.CmdArgs) != 1 || msg.CmdArgs[0] != "2" {
+		t.Fatalf("command args = %v, want [2]", msg.CmdArgs)
+	}
+	<-done
+}
+
+func TestHandleMouseEventGlobalBarSessionClickDoesNotToggleHelpWhenHidden(t *testing.T) {
+	t.Parallel()
+
+	cr := buildTestRenderer(t)
+	cr.Resize(36, 24)
+
+	if strings.Contains(cr.Capture(true), "? help") {
+		t.Fatal("narrow global bar should hide the help toggle")
+	}
+
+	msgCh := startTestRenderLoop(t, cr)
+	cr.RenderDiff()
+
+	var drag dragState
+	x := globalBarClickColumn(t, cr, "test")
+	y := globalBarRow(t, cr)
+
+	handleMouseEvent(mouse.Event{
+		Action: mouse.Press,
+		Button: mouse.ButtonLeft,
+		X:      x,
+		Y:      y,
+	}, cr, nil, &drag, msgCh)
+	if cr.HelpBarActive() {
+		t.Fatal("clicking the session name should not toggle the help bar when help is hidden")
+	}
+}
+
 func TestPaneAllowsMouseCopySelection(t *testing.T) {
 	t.Parallel()
 

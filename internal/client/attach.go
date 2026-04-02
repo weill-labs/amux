@@ -615,7 +615,7 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 						io.WriteString(os.Stdout, "\a")
 					}
 				case "help":
-					if !toggleHelpOverlayOnRenderLoop(cr, msgCh, kb) {
+					if !toggleHelpBarOnRenderLoop(cr, msgCh, kb) {
 						io.WriteString(os.Stdout, "\a")
 					}
 				case "choose-tree":
@@ -896,8 +896,8 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 					normalized = decoded.raw
 				}
 
-				if cr.HelpOverlayActive() {
-					dismissHelpOverlayOnRenderLoop(cr, msgCh)
+				if cr.HelpBarActive() {
+					dismissHelpBarOnRenderLoop(cr, msgCh)
 					return false
 				}
 
@@ -985,10 +985,10 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 				cr.SetInputIdle(true)
 				continue
 			}
-			if cr.HelpOverlayActive() {
+			if cr.HelpBarActive() && !mouseParser.InputLooksLikeMouse(raw) {
 				events := decodeInputEvents(raw)
-				consumed := helpOverlayConsumedEvents(events, kb)
-				dismissHelpOverlayOnRenderLoop(cr, msgCh)
+				consumed := helpBarConsumedEvents(events, kb)
+				dismissHelpBarOnRenderLoop(cr, msgCh)
 				for _, decoded := range events[consumed:] {
 					if dispatchDecoded(decoded) {
 						shouldExit = true

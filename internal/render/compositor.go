@@ -166,11 +166,11 @@ func (c *Compositor) RenderFullWithOverlay(root *mux.LayoutCell, activePaneID ui
 
 	// Global status bar at bottom
 	renderGlobalBarWithProfile(&buf, c.sessionName, paneCount, c.width, c.height-1, c.windows, overlay.Message, c.now(), c.colorProfile)
+	if overlay.HelpBar != nil {
+		renderHelpBarWithProfile(&buf, c.width, c.height, overlay.HelpBar, c.colorProfile)
+	}
 	if overlay.Chooser != nil {
 		renderChooserOverlayWithProfile(&buf, c.width, c.height, overlay.Chooser, c.colorProfile)
-	}
-	if overlay.Help != nil {
-		renderChooserOverlayWithProfile(&buf, c.width, c.height, overlay.Help, c.colorProfile)
 	}
 	if overlay.TextInput != nil {
 		renderTextInputOverlayWithProfile(&buf, c.width, c.height, overlay.TextInput, c.colorProfile)

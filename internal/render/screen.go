@@ -216,11 +216,11 @@ func (c *Compositor) buildGridWithOverlay(root *mux.LayoutCell, activePaneID uin
 
 	// Global bar cells.
 	buildGlobalBarCells(g, c.sessionName, paneCount, c.width, c.height-1, c.windows, overlay.Message, c.now())
+	if overlay.HelpBar != nil {
+		buildHelpBarCells(g, overlay.HelpBar)
+	}
 	if overlay.Chooser != nil {
 		buildChooserOverlayCells(g, overlay.Chooser)
-	}
-	if overlay.Help != nil {
-		buildChooserOverlayCells(g, overlay.Help)
 	}
 	if overlay.TextInput != nil {
 		buildTextInputOverlayCells(g, overlay.TextInput)
@@ -507,16 +507,23 @@ func buildGlobalBarCells(g *ScreenGrid, sessionName string, paneCount int, width
 	baseStyle := uv.Style{Fg: textFg, Bg: bg}
 	boldStyle := baseStyle
 	boldStyle.Attrs |= uv.AttrBold
+	focusedStyle := boldStyle
+	focusedStyle.Fg = hexToColor(config.BlueHex)
 	errorStyle := uv.Style{Fg: redFg, Bg: bg}
 
 	var chars []styledChar
+	showHelp := globalBarShowsHelp(width, sessionName, paneCount, windows, message, now)
 
 	// " amux │ "
 	chars = appendStyledStr(chars, " ", baseStyle)
 	chars = appendStyledStr(chars, "amux", boldStyle)
 	chars = appendStyledStr(chars, " │ ", baseStyle)
+	if showHelp {
+		chars = appendStyledStr(chars, "? help", focusedStyle)
+		chars = appendStyledStr(chars, " │ ", baseStyle)
+	}
 
-	if tabs := buildGlobalBarWindowTabs(windows); len(tabs) > 0 {
+	if tabs := buildGlobalBarWindowTabsWithHelp(windows, showHelp); len(tabs) > 0 {
 		for _, tab := range tabs {
 			style := baseStyle
 			if tab.window.IsActive {

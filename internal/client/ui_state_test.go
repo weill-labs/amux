@@ -17,6 +17,7 @@ type clientUIStateSnapshot struct {
 	displayPanes    bool
 	paneDrag        bool
 	chooser         string
+	helpBar         bool
 	prompt          string
 	copyModePaneIDs []uint32
 	inputIdle       bool
@@ -36,8 +37,6 @@ func snapshotClientUIState(st clientUIState) clientUIStateSnapshot {
 	prompt := ""
 	if st.windowRenamePrompt != nil {
 		prompt = st.windowRenamePrompt.title()
-	} else if st.helpOverlay != nil {
-		prompt = st.helpOverlay.title()
 	}
 
 	return clientUIStateSnapshot{
@@ -46,6 +45,7 @@ func snapshotClientUIState(st clientUIState) clientUIStateSnapshot {
 		displayPanes:    st.displayPanes != nil,
 		paneDrag:        st.paneDrag != nil,
 		chooser:         chooser,
+		helpBar:         st.helpBar != nil,
 		prompt:          prompt,
 		copyModePaneIDs: paneIDs,
 		inputIdle:       st.inputIdle,
@@ -80,7 +80,7 @@ func TestClientUIStateReduceTransitions(t *testing.T) {
 				st.displayPanes = &displayPanesState{}
 				st.chooser = &chooserState{mode: chooserModeWindow}
 				st.windowRenamePrompt = &windowRenamePromptState{input: bubblesutil.TextInputState{Value: "logs", Cursor: 4}}
-				st.helpOverlay = buildHelpOverlay(config.DefaultKeybindings())
+				st.helpBar = buildHelpBar(config.DefaultKeybindings())
 				st.message = "command failed"
 			},
 			action: uiActionHandleLayout{structureChanged: true},
@@ -279,19 +279,19 @@ func TestClientUIStateReduceTransitions(t *testing.T) {
 			},
 		},
 		{
-			name: "show help overlay hides chooser display panes prompt and pane drag",
+			name: "show help bar hides chooser display panes prompt and pane drag",
 			setup: func(st *clientUIState) {
 				st.displayPanes = &displayPanesState{}
 				st.paneDrag = &paneDragOverlayState{sourcePaneID: 7}
 				st.chooser = &chooserState{mode: chooserModeWindow}
 				st.windowRenamePrompt = &windowRenamePromptState{input: bubblesutil.TextInputState{Value: "logs", Cursor: 4}}
 			},
-			action: uiActionShowHelpOverlay{
-				overlay: buildHelpOverlay(config.DefaultKeybindings()),
+			action: uiActionShowHelpBar{
+				bar: buildHelpBar(config.DefaultKeybindings()),
 			},
 			wantState: clientUIStateSnapshot{
 				dirty:           true,
-				prompt:          helpOverlayTitle,
+				helpBar:         true,
 				copyModePaneIDs: []uint32{},
 				inputIdle:       true,
 			},
@@ -301,11 +301,11 @@ func TestClientUIStateReduceTransitions(t *testing.T) {
 			},
 		},
 		{
-			name: "hide help overlay clears prompt state",
+			name: "hide help bar clears help state",
 			setup: func(st *clientUIState) {
-				st.helpOverlay = buildHelpOverlay(config.DefaultKeybindings())
+				st.helpBar = buildHelpBar(config.DefaultKeybindings())
 			},
-			action: uiActionHideHelpOverlay{},
+			action: uiActionHideHelpBar{},
 			wantState: clientUIStateSnapshot{
 				dirty:           true,
 				copyModePaneIDs: []uint32{},

@@ -12,7 +12,7 @@ type clientUIState struct {
 	paneDrag           *paneDragOverlayState
 	chooser            *chooserState
 	windowRenamePrompt *windowRenamePromptState
-	helpOverlay        *helpOverlayState
+	helpBar            *helpBarState
 	message            string
 	inputIdle          bool
 }
@@ -68,11 +68,11 @@ type uiActionShowWindowRenamePrompt struct {
 
 type uiActionHideWindowRenamePrompt struct{}
 
-type uiActionShowHelpOverlay struct {
-	overlay *helpOverlayState
+type uiActionShowHelpBar struct {
+	bar *helpBarState
 }
 
-type uiActionHideHelpOverlay struct{}
+type uiActionHideHelpBar struct{}
 
 type uiActionEnterCopyMode struct {
 	paneID uint32
@@ -155,13 +155,13 @@ func (st *clientUIState) reduce(action any) clientUIResult {
 		st.windowRenamePrompt = nil
 		st.dirty = true
 		return clientUIResult{}
-	case uiActionShowHelpOverlay:
-		return st.reduceShowHelpOverlay(action)
-	case uiActionHideHelpOverlay:
-		if st.helpOverlay == nil {
+	case uiActionShowHelpBar:
+		return st.reduceShowHelpBar(action)
+	case uiActionHideHelpBar:
+		if st.helpBar == nil {
 			return clientUIResult{}
 		}
-		st.helpOverlay = nil
+		st.helpBar = nil
 		st.dirty = true
 		return clientUIResult{}
 	case uiActionEnterCopyMode:
@@ -205,8 +205,8 @@ func (st *clientUIState) reduceHandleLayout(action uiActionHandleLayout) clientU
 		if st.windowRenamePrompt != nil {
 			st.windowRenamePrompt = nil
 		}
-		if st.helpOverlay != nil {
-			st.helpOverlay = nil
+		if st.helpBar != nil {
+			st.helpBar = nil
 		}
 		if st.message != "" {
 			// Metadata-only layout refreshes are common (idle/CWD/branch updates).
@@ -242,8 +242,8 @@ func (st *clientUIState) reduceShowChooser(action uiActionShowChooser) clientUIR
 	if st.windowRenamePrompt != nil {
 		st.windowRenamePrompt = nil
 	}
-	if st.helpOverlay != nil {
-		st.helpOverlay = nil
+	if st.helpBar != nil {
+		st.helpBar = nil
 	}
 	previous := st.chooser
 	st.chooser = action.chooser
@@ -270,15 +270,15 @@ func (st *clientUIState) reduceShowWindowRenamePrompt(action uiActionShowWindowR
 		result.uiEvents = append(result.uiEvents, st.chooser.mode.hiddenEvent())
 		st.chooser = nil
 	}
-	if st.helpOverlay != nil {
-		st.helpOverlay = nil
+	if st.helpBar != nil {
+		st.helpBar = nil
 	}
 	st.windowRenamePrompt = action.prompt
 	st.dirty = true
 	return result
 }
 
-func (st *clientUIState) reduceShowHelpOverlay(action uiActionShowHelpOverlay) clientUIResult {
+func (st *clientUIState) reduceShowHelpBar(action uiActionShowHelpBar) clientUIResult {
 	result := clientUIResult{}
 	if st.displayPanes != nil {
 		st.displayPanes = nil
@@ -294,7 +294,7 @@ func (st *clientUIState) reduceShowHelpOverlay(action uiActionShowHelpOverlay) c
 	if st.paneDrag != nil {
 		st.paneDrag = nil
 	}
-	st.helpOverlay = action.overlay
+	st.helpBar = action.bar
 	st.dirty = true
 	return result
 }
@@ -311,8 +311,6 @@ func (st *clientUIState) captureUI() *proto.CaptureUI {
 	prompt := ""
 	if st.windowRenamePrompt != nil {
 		prompt = st.windowRenamePrompt.title()
-	} else if st.helpOverlay != nil {
-		prompt = st.helpOverlay.title()
 	}
 	return &proto.CaptureUI{
 		CopyMode:     len(st.copyModes) > 0,

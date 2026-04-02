@@ -10,7 +10,7 @@ type OverlayState struct {
 	Chooser       *ChooserOverlay
 	TextInput     *TextInputOverlay
 	Message       string
-	Help          *ChooserOverlay
+	HelpBar       *HelpBarOverlay
 }
 
 // ChooserOverlay is a client-local modal chooser rendered above the layout.
@@ -31,6 +31,12 @@ type ChooserOverlayRow struct {
 type TextInputOverlay struct {
 	Title string
 	Input string
+}
+
+// HelpBarOverlay is a client-local single-line help row rendered above the
+// global session bar.
+type HelpBarOverlay struct {
+	Text string
 }
 
 // DropIndicatorOverlay draws a temporary insertion line while a pane is being

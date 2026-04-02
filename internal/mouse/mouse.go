@@ -206,6 +206,28 @@ func (p *Parser) FlushPending() []byte {
 	return p.flush(0)
 }
 
+// InputLooksLikeMouse reports whether raw should continue through mouse parsing
+// rather than being treated as ordinary keyboard input. It returns true for a
+// complete SGR mouse sequence and for an in-progress SGR mouse candidate that
+// still needs more bytes to finish parsing.
+func (p Parser) InputLooksLikeMouse(raw []byte) bool {
+	sawMouse := false
+	for _, b := range raw {
+		_, isMouse, flushed := p.Feed(b)
+		if isMouse {
+			sawMouse = true
+			continue
+		}
+		if len(flushed) > 0 {
+			return false
+		}
+	}
+	if sawMouse {
+		return true
+	}
+	return p.state == stateLt || p.state == stateParams
+}
+
 // flush resets the parser and returns accumulated bytes plus the extra byte.
 func (p *Parser) flush(extra byte) []byte {
 	out := make([]byte, len(p.buf))

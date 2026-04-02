@@ -409,7 +409,7 @@ Default prefix: `Ctrl-a`.
 | `Ctrl-a n` / `Ctrl-a p` | Next/previous window |
 | `Ctrl-a ;` | Last active window |
 | `Ctrl-a q` | Show pane labels for quick jump |
-| `Ctrl-a ?` | Toggle keybinding help overlay |
+| `Ctrl-a ?` | Toggle keybinding help bar |
 | `Ctrl-a 1-9` | Select window by number |
 | `Ctrl-a r` | Hot reload (re-exec binary) |
 | `Ctrl-a d` | Detach from session |

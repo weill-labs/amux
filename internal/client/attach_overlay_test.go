@@ -162,7 +162,7 @@ func TestHandleChooserInputOnRenderLoopReturnsUnhandledWhenChooserInactive(t *te
 	}
 }
 
-func TestToggleHelpOverlayOnRenderLoopWaitsForQueuedLayout(t *testing.T) {
+func TestToggleHelpBarOnRenderLoopWaitsForQueuedLayout(t *testing.T) {
 	t.Parallel()
 
 	cr := NewClientRenderer(80, 24)
@@ -175,36 +175,36 @@ func TestToggleHelpOverlayOnRenderLoopWaitsForQueuedLayout(t *testing.T) {
 
 	resultCh := make(chan bool, 1)
 	go func() {
-		resultCh <- toggleHelpOverlayOnRenderLoop(cr, msgCh, config.DefaultKeybindings())
+		resultCh <- toggleHelpBarOnRenderLoop(cr, msgCh, config.DefaultKeybindings())
 	}()
 
 	close(release)
 
 	if ok := <-resultCh; !ok {
-		t.Fatal("toggleHelpOverlayOnRenderLoop should succeed after queued layout")
+		t.Fatal("toggleHelpBarOnRenderLoop should succeed after queued layout")
 	}
-	if !cr.HelpOverlayActive() {
-		t.Fatal("help overlay should be active after queued layout")
+	if !cr.HelpBarActive() {
+		t.Fatal("help bar should be active after queued layout")
 	}
 }
 
-func TestToggleHelpOverlayOnRenderLoopHidesActiveOverlay(t *testing.T) {
+func TestToggleHelpBarOnRenderLoopHidesActiveOverlay(t *testing.T) {
 	t.Parallel()
 
 	cr := buildTestRenderer(t)
 	msgCh := startTestRenderLoop(t, cr)
 
-	if !toggleHelpOverlayOnRenderLoop(cr, msgCh, config.DefaultKeybindings()) {
-		t.Fatal("toggleHelpOverlayOnRenderLoop should show help")
+	if !toggleHelpBarOnRenderLoop(cr, msgCh, config.DefaultKeybindings()) {
+		t.Fatal("toggleHelpBarOnRenderLoop should show help")
 	}
-	if !cr.HelpOverlayActive() {
-		t.Fatal("help overlay should be active after first toggle")
+	if !cr.HelpBarActive() {
+		t.Fatal("help bar should be active after first toggle")
 	}
 
-	if !toggleHelpOverlayOnRenderLoop(cr, msgCh, config.DefaultKeybindings()) {
-		t.Fatal("toggleHelpOverlayOnRenderLoop should hide an active overlay")
+	if !toggleHelpBarOnRenderLoop(cr, msgCh, config.DefaultKeybindings()) {
+		t.Fatal("toggleHelpBarOnRenderLoop should hide an active overlay")
 	}
-	if cr.HelpOverlayActive() {
-		t.Fatal("help overlay should be inactive after second toggle")
+	if cr.HelpBarActive() {
+		t.Fatal("help bar should be inactive after second toggle")
 	}
 }

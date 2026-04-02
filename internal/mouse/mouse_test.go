@@ -120,6 +120,52 @@ func TestParseMotion(t *testing.T) {
 	}
 }
 
+func TestInputLooksLikeMouse(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		raw  []byte
+		want bool
+	}{
+		{name: "full sgr mouse press", raw: []byte("\033[<0;10;5M"), want: true},
+		{name: "partial sgr mouse prefix", raw: []byte("\033[<0;10;5"), want: true},
+		{name: "escape key", raw: []byte{0x1b}, want: false},
+		{name: "arrow key", raw: []byte("\033[A"), want: false},
+		{name: "plain text", raw: []byte("a"), want: false},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var p Parser
+			if got := p.InputLooksLikeMouse(tt.raw); got != tt.want {
+				t.Fatalf("InputLooksLikeMouse(%q) = %v, want %v", tt.raw, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestInputLooksLikeMouseFromInProgressParser(t *testing.T) {
+	t.Parallel()
+
+	var p Parser
+	if _, ok, flushed := p.Feed(0x1b); ok || len(flushed) != 0 {
+		t.Fatalf("first byte should start escape buffering, got ok=%v flushed=%q", ok, flushed)
+	}
+	if _, ok, flushed := p.Feed('['); ok || len(flushed) != 0 {
+		t.Fatalf("second byte should keep buffering, got ok=%v flushed=%q", ok, flushed)
+	}
+	if _, ok, flushed := p.Feed('<'); ok || len(flushed) != 0 {
+		t.Fatalf("third byte should mark mouse candidate, got ok=%v flushed=%q", ok, flushed)
+	}
+	if !p.InputLooksLikeMouse([]byte("0;10;5M")) {
+		t.Fatal("continuation bytes should still be recognized as mouse input")
+	}
+}
+
 func TestParseModifiers(t *testing.T) {
 	t.Parallel()
 

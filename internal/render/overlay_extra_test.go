@@ -155,7 +155,7 @@ func TestGlobalBarWindowAtColumn(t *testing.T) {
 		{Index: 2, Name: "bugs", IsActive: true},
 		{Index: 3, Name: "docs", IsActive: false},
 	}
-	tabs := buildGlobalBarWindowTabs(windows)
+	tabs := buildGlobalBarWindowTabsWithHelp(windows, true)
 	if len(tabs) != 3 {
 		t.Fatalf("len(tabs) = %d, want 3", len(tabs))
 	}
@@ -178,7 +178,7 @@ func TestGlobalBarWindowAtColumn(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, ok := GlobalBarWindowAtColumn(windows, tt.x)
+			got, ok := GlobalBarWindowAtColumn(windows, tt.x, true)
 			if ok != tt.ok {
 				t.Fatalf("GlobalBarWindowAtColumn(..., %d) ok = %v, want %v", tt.x, ok, tt.ok)
 			}
@@ -191,8 +191,16 @@ func TestGlobalBarWindowAtColumn(t *testing.T) {
 		})
 	}
 
-	if _, ok := GlobalBarWindowAtColumn([]WindowInfo{{Index: 1, Name: "solo", IsActive: true}}, globalBarPrefixVisibleWidth); ok {
+	if _, ok := GlobalBarWindowAtColumn([]WindowInfo{{Index: 1, Name: "solo", IsActive: true}}, globalBarPrefixVisibleWidth, true); ok {
 		t.Fatal("single-window global bar should not expose a clickable tab")
+	}
+
+	hiddenHelpTabs := buildGlobalBarWindowTabsWithHelp(windows, false)
+	if got, ok := GlobalBarWindowAtColumn(windows, hiddenHelpTabs[1].start, false); !ok || got.Index != 2 {
+		t.Fatalf("GlobalBarWindowAtColumn(..., %d, false) = (%d, %v), want (2, true)", hiddenHelpTabs[1].start, got.Index, ok)
+	}
+	if GlobalBarHelpToggleAtColumn(globalBarHelpStartColumn, false) {
+		t.Fatal("GlobalBarHelpToggleAtColumn should ignore clicks when help is hidden")
 	}
 }
 
