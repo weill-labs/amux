@@ -149,6 +149,16 @@ func TestParseSendKeysArgs(t *testing.T) {
 			},
 		},
 		{
+			name: "explicit client selection",
+			args: []string{"--via", "client", "--client", "client-2", "task"},
+			want: sendKeysOptions{
+				transport:         sendKeysViaClient,
+				transportExplicit: true,
+				waitTimeout:       10 * time.Second,
+				keys:              []string{"task"},
+			},
+		},
+		{
 			name: "literal args after first key",
 			args: []string{"task", "--wait", "ready"},
 			want: sendKeysOptions{

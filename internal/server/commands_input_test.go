@@ -1,12 +1,14 @@
 package server
 
 import (
+	"net"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/mux"
+	"github.com/weill-labs/amux/internal/proto"
 )
 
 func setupSendKeysWaitIdleTestPane(t *testing.T, writeOverride func([]byte) (int, error)) (*Server, *Session, *mux.Pane, func()) {
@@ -89,6 +91,115 @@ func TestCmdSendKeysCommandWaitReadyWaitsForReady(t *testing.T) {
 	case <-done:
 	case <-time.After(time.Second):
 		t.Fatal("send-keys wait-ready command did not return")
+	}
+}
+
+func TestCmdSendKeysViaClientUsesRequestedClient(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, _, cleanup := setupSendKeysWaitIdleTestPane(t, nil)
+	defer cleanup()
+
+	firstServerConn, firstPeerConn := net.Pipe()
+	defer firstServerConn.Close()
+	defer firstPeerConn.Close()
+
+	secondServerConn, secondPeerConn := net.Pipe()
+	defer secondServerConn.Close()
+	defer secondPeerConn.Close()
+
+	firstClient := newClientConn(firstServerConn)
+	firstClient.ID = "client-1"
+	firstClient.initTypeKeyQueue()
+	defer firstClient.Close()
+
+	secondClient := newClientConn(secondServerConn)
+	secondClient.ID = "client-2"
+	secondClient.initTypeKeyQueue()
+	defer secondClient.Close()
+
+	mustSessionQuery(t, sess, func(sess *Session) struct{} {
+		sess.ensureClientManager().setClientsForTest(firstClient, secondClient)
+		return struct{}{}
+	})
+
+	cmdPeerConn, _, done := startAsyncCommand(t, srv, sess, "send-keys", "pane-1", "--via", "client", "--client", "client-2", "ab")
+
+	typeKeysMsg := readMsgWithTimeout(t, secondPeerConn)
+	if typeKeysMsg.Type != MsgTypeTypeKeys || typeKeysMsg.PaneID != 1 || string(typeKeysMsg.Input) != "ab" {
+		t.Fatalf("send-keys type-keys message = %#v", typeKeysMsg)
+	}
+
+	result := readMsgWithTimeout(t, cmdPeerConn)
+	if got := result.CmdOutput; got != "Sent 2 bytes to pane-1\n" {
+		t.Fatalf("send-keys output = %q", got)
+	}
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("send-keys via-client command did not return")
+	}
+}
+
+func TestCmdSendKeysWaitInputIdleUsesRequestedClient(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, _, cleanup := setupSendKeysWaitIdleTestPane(t, nil)
+	defer cleanup()
+
+	firstServerConn, firstPeerConn := net.Pipe()
+	defer firstServerConn.Close()
+	defer firstPeerConn.Close()
+
+	secondServerConn, secondPeerConn := net.Pipe()
+	defer secondServerConn.Close()
+	defer secondPeerConn.Close()
+
+	firstClient := newClientConn(firstServerConn)
+	firstClient.ID = "client-1"
+	firstClient.inputIdle = true
+	firstClient.uiGeneration = 1
+	firstClient.initTypeKeyQueue()
+	defer firstClient.Close()
+
+	secondClient := newClientConn(secondServerConn)
+	secondClient.ID = "client-2"
+	secondClient.inputIdle = true
+	secondClient.uiGeneration = 1
+	secondClient.initTypeKeyQueue()
+	defer secondClient.Close()
+
+	mustSessionQuery(t, sess, func(sess *Session) struct{} {
+		sess.ensureClientManager().setClientsForTest(firstClient, secondClient)
+		return struct{}{}
+	})
+
+	cmdPeerConn, _, done := startAsyncCommand(t, srv, sess, "send-keys", "pane-1", "--wait", "ui=input-idle", "--client", "client-2", "--timeout", "100ms", "ab")
+
+	select {
+	case <-done:
+		t.Fatal("send-keys returned before fresh input-idle on requested client")
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	typeKeysMsg := readMsgWithTimeout(t, secondPeerConn)
+	if typeKeysMsg.Type != MsgTypeTypeKeys || typeKeysMsg.PaneID != 1 || string(typeKeysMsg.Input) != "ab" {
+		t.Fatalf("send-keys type-keys message = %#v", typeKeysMsg)
+	}
+
+	sess.enqueueUIEvent(secondClient, proto.UIEventInputBusy)
+	sess.enqueueUIEvent(secondClient, proto.UIEventInputIdle)
+
+	result := readMsgWithTimeout(t, cmdPeerConn)
+	if got := result.CmdOutput; got != "Sent 2 bytes to pane-1\n" {
+		t.Fatalf("send-keys output = %q", got)
+	}
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("send-keys wait-input-idle command did not return")
 	}
 }
 
