@@ -182,6 +182,7 @@ func CellFromUV(c *uv.Cell) ScreenCell {
 func (c *Compositor) buildGridWithOverlay(root *mux.LayoutCell, activePaneID uint32, lookup func(uint32) PaneData, overlay OverlayState) *ScreenGrid {
 	g := NewScreenGrid(c.width, c.height)
 	g.Debug = c.debug
+	layoutHeight := c.layoutHeightForHelpBar(overlay.HelpBar)
 
 	// Determine active pane color for borders.
 	var activeColorHex string
@@ -209,16 +210,17 @@ func (c *Compositor) buildGridWithOverlay(root *mux.LayoutCell, activePaneID uin
 		buildStatusCells(g, cell, isActive, pd)
 
 		// Pane content cells.
-		contentH := mux.PaneContentHeight(cell.H)
+		contentH := c.visibleContentHeightForLayoutHeight(cell, layoutHeight)
 		for row := 0; row < contentH; row++ {
 			buildPaneContentCells(g, cell, row, isActive, pd, copyOverlay)
 		}
 	})
 
 	// Border cells.
-	if c.cachedBorderMap == nil || c.cachedBorderRoot != root {
-		c.cachedBorderMap = buildBorderMap(root, c.width, c.height)
+	if c.cachedBorderMap == nil || c.cachedBorderRoot != root || c.cachedBorderH != layoutHeight {
+		c.cachedBorderMap = buildBorderMap(root, c.width, layoutHeight)
 		c.cachedBorderRoot = root
+		c.cachedBorderH = layoutHeight
 	}
 	buildBorderCells(g, c.cachedBorderMap, activePaneID, activeColorHex)
 
