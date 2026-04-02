@@ -20,10 +20,6 @@ const GlobalBarHeight = 1
 const (
 	globalBarTitlePrefixVisibleWidth = 8  // " amux │ "
 	globalBarHelpVisibleWidth        = 6  // "? help"
-	globalBarSeparatorVisibleWidth   = 3  // " │ "
-	globalBarPrefixVisibleWidth      = 17 // " amux │ ? help │ "
-	globalBarHelpStartColumn         = globalBarTitlePrefixVisibleWidth
-	globalBarHelpEndColumn           = globalBarHelpStartColumn + globalBarHelpVisibleWidth
 )
 const missingIssueHint = "set issue"
 
@@ -356,16 +352,13 @@ func paneStatusUsedWidthWithoutMetadata(pd PaneData) int {
 	return usedWidth
 }
 
-func buildGlobalBarWindowTabsWithHelp(windows []WindowInfo, showHelp bool) []globalBarWindowTab {
+func buildGlobalBarWindowTabs(windows []WindowInfo) []globalBarWindowTab {
 	if len(windows) <= 1 {
 		return nil
 	}
 
 	tabs := make([]globalBarWindowTab, 0, len(windows))
 	col := globalBarTitlePrefixVisibleWidth
-	if showHelp {
-		col = globalBarPrefixVisibleWidth
-	}
 	for _, w := range windows {
 		label := strconv.Itoa(w.Index) + ":" + w.Name
 		display := label
@@ -389,13 +382,10 @@ func globalBarTabColorHex(window WindowInfo) string {
 	return config.TextColorHex
 }
 
-func globalBarLeftVisibleWidth(sessionName string, windows []WindowInfo, showHelp bool) int {
+func globalBarLeftVisibleWidth(sessionName string, windows []WindowInfo) int {
 	leftVisible := globalBarTitlePrefixVisibleWidth
-	if showHelp {
-		leftVisible = globalBarPrefixVisibleWidth
-	}
 	if len(windows) > 1 {
-		for _, tab := range buildGlobalBarWindowTabsWithHelp(windows, showHelp) {
+		for _, tab := range buildGlobalBarWindowTabs(windows) {
 			leftVisible += utf8.RuneCountInString(tab.display) + 1
 		}
 		return leftVisible + 2
@@ -403,16 +393,37 @@ func globalBarLeftVisibleWidth(sessionName string, windows []WindowInfo, showHel
 	return leftVisible + utf8.RuneCountInString(sessionName) + 1
 }
 
-func globalBarStatusRightWidth(paneCount int, now time.Time) int {
-	return utf8.RuneCountInString(" " + strconv.Itoa(paneCount) + " panes │ " + now.Format("15:04") + " ")
+func globalBarStatusPrefix(paneCount int) string {
+	return " " + strconv.Itoa(paneCount) + " panes │ "
+}
+
+func globalBarStatusRightText(paneCount int, showHelp bool, now time.Time) string {
+	right := globalBarStatusPrefix(paneCount)
+	if showHelp {
+		right += "? help │ "
+	}
+	return right + now.Format("15:04") + " "
+}
+
+func globalBarStatusRightWidth(paneCount int, showHelp bool, now time.Time) int {
+	return utf8.RuneCountInString(globalBarStatusRightText(paneCount, showHelp, now))
+}
+
+func globalBarHelpColumns(width, paneCount int, showHelp bool, now time.Time) (start, end int, ok bool) {
+	if !showHelp {
+		return 0, 0, false
+	}
+	rightVisible := globalBarStatusRightWidth(paneCount, showHelp, now)
+	rightStart := width - rightVisible
+	start = rightStart + utf8.RuneCountInString(globalBarStatusPrefix(paneCount))
+	return start, start + globalBarHelpVisibleWidth, true
 }
 
 func globalBarShowsHelp(width int, sessionName string, paneCount int, windows []WindowInfo, message string, now time.Time) bool {
 	if message != "" {
 		return false
 	}
-	return width >= globalBarLeftVisibleWidth(sessionName, windows, false)+globalBarStatusRightWidth(paneCount, now)+
-		(globalBarPrefixVisibleWidth-globalBarTitlePrefixVisibleWidth)
+	return width >= globalBarLeftVisibleWidth(sessionName, windows)+globalBarStatusRightWidth(paneCount, true, now)
 }
 
 // GlobalBarShowsHelp reports whether the current terminal width can render the
@@ -423,12 +434,8 @@ func GlobalBarShowsHelp(width int, sessionName string, paneCount int, windows []
 
 // GlobalBarWindowAtColumn resolves a 0-based terminal column within the
 // rendered global bar to the corresponding window tab.
-func GlobalBarWindowAtColumn(windows []WindowInfo, x int, showHelp bool) (WindowInfo, bool) {
-	return globalBarWindowAtColumnWithHelp(windows, x, showHelp)
-}
-
-func globalBarWindowAtColumnWithHelp(windows []WindowInfo, x int, showHelp bool) (WindowInfo, bool) {
-	for _, tab := range buildGlobalBarWindowTabsWithHelp(windows, showHelp) {
+func GlobalBarWindowAtColumn(windows []WindowInfo, x int) (WindowInfo, bool) {
+	for _, tab := range buildGlobalBarWindowTabs(windows) {
 		if x >= tab.start && x < tab.end {
 			return tab.window, true
 		}
@@ -438,11 +445,12 @@ func globalBarWindowAtColumnWithHelp(windows []WindowInfo, x int, showHelp bool)
 
 // GlobalBarHelpToggleAtColumn reports whether x hits the clickable "? help"
 // region in the global status bar.
-func GlobalBarHelpToggleAtColumn(x int, showHelp bool) bool {
-	if !showHelp {
+func GlobalBarHelpToggleAtColumn(x, width, paneCount int, showHelp bool, now time.Time) bool {
+	start, end, ok := globalBarHelpColumns(width, paneCount, showHelp, now)
+	if !ok {
 		return false
 	}
-	return x >= globalBarHelpStartColumn && x < globalBarHelpEndColumn
+	return x >= start && x < end
 }
 
 // renderGlobalBar draws the global status bar at the bottom of the terminal.
@@ -454,17 +462,12 @@ func renderGlobalBarWithProfile(buf *strings.Builder, sessionName string, paneCo
 	writeCursorTo(buf, yPos+1, 1)
 	styles := newStatusBarStyles(config.TextColorHex)
 
-	nowStr := now.Format("15:04")
 	showHelp := globalBarShowsHelp(width, sessionName, paneCount, windows, message, now)
-	tabs := buildGlobalBarWindowTabsWithHelp(windows, showHelp)
-	leftVisible := globalBarLeftVisibleWidth(sessionName, windows, showHelp)
+	tabs := buildGlobalBarWindowTabs(windows)
+	leftVisible := globalBarLeftVisibleWidth(sessionName, windows)
 	writeStyledTextWithProfile(buf, styles.background, " ", profile)
 	writeStyledTextWithProfile(buf, styles.title, "amux", profile)
 	writeStyledTextWithProfile(buf, styles.busy, " │ ", profile)
-	if showHelp {
-		writeStyledTextWithProfile(buf, styles.focused, "? help", profile)
-		writeStyledTextWithProfile(buf, styles.busy, " │ ", profile)
-	}
 
 	// Show window tabs if there are multiple windows
 	if len(tabs) > 0 {
@@ -484,8 +487,7 @@ func renderGlobalBarWithProfile(buf *strings.Builder, sessionName string, paneCo
 		right = " " + truncateRunes(message, maxText) + " "
 		rightStyle = styles.error
 	} else {
-		paneCountStr := strconv.Itoa(paneCount)
-		right = " " + paneCountStr + " panes │ " + nowStr + " "
+		right = globalBarStatusRightText(paneCount, showHelp, now)
 	}
 	rightVisible := utf8.RuneCountInString(right)
 

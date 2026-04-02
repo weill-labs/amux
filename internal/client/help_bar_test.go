@@ -20,16 +20,55 @@ func TestBuildHelpBarUsesBindingMap(t *testing.T) {
 	}
 
 	view := bar.view(80)
-	if !strings.Contains(view, "g nav") {
-		t.Fatalf("help bar view = %q, want remapped display-panes binding in nav group", view)
+	if !strings.Contains(view, "g panes") {
+		t.Fatalf("help bar view = %q, want remapped display-panes binding with a direct description", view)
 	}
-	if strings.Contains(view, "q nav") {
+	if strings.Contains(view, "q panes") {
 		t.Fatalf("help bar view = %q, want help bar to avoid hardcoded q binding", view)
 	}
-	for _, want := range []string{"layout", "pane", "wins"} {
+	if !strings.Contains(view, "? close") {
+		t.Fatalf("help bar view = %q, want the toggle key to advertise close while active", view)
+	}
+	for _, want := range []string{"\\ root-vsplit", "_ root-hsplit", "x kill", "z zoom"} {
 		if !strings.Contains(view, want) {
-			t.Fatalf("help bar view = %q, want %q category", view, want)
+			t.Fatalf("help bar view = %q, want %q item", view, want)
 		}
+	}
+	normalized := " " + strings.ReplaceAll(view, "\n", " ") + " "
+	for _, forbidden := range []string{" nav ", " layout ", " pane ", " wins ", " other "} {
+		if strings.Contains(normalized, forbidden) {
+			t.Fatalf("help bar view = %q, should not contain grouped category labels like %q", view, forbidden)
+		}
+	}
+
+	rows := strings.Split(view, "\n")
+	if len(rows) < 2 || len(rows) > 4 {
+		t.Fatalf("help bar rows = %d, want 2-4\n%s", len(rows), view)
+	}
+}
+
+func TestHelpBarReflowsAcrossRows(t *testing.T) {
+	t.Parallel()
+
+	bar := buildHelpBar(config.DefaultKeybindings())
+	if bar == nil {
+		t.Fatal("buildHelpBar returned nil")
+	}
+
+	narrow := bar.renderOverlay(80)
+	if narrow == nil {
+		t.Fatal("renderOverlay(80) returned nil")
+	}
+	if got := len(narrow.Rows); got < 2 || got > 4 {
+		t.Fatalf("renderOverlay(80) rows = %d, want 2-4", got)
+	}
+
+	wide := bar.renderOverlay(160)
+	if wide == nil {
+		t.Fatal("renderOverlay(160) returned nil")
+	}
+	if len(wide.Rows) >= len(narrow.Rows) {
+		t.Fatalf("wide help bar rows = %d, want fewer than narrow rows = %d", len(wide.Rows), len(narrow.Rows))
 	}
 }
 
@@ -47,7 +86,12 @@ func TestHelpBarDisplayOnlyAndDismiss(t *testing.T) {
 	cr.RenderDiff()
 
 	display := cr.CaptureDisplay()
-	if !strings.Contains(display, "? help") || !strings.Contains(display, "nav") || !strings.Contains(display, "wins") {
+	for _, want := range []string{"? close", "x kill", "c new-win"} {
+		if !strings.Contains(display, want) {
+			t.Fatalf("display capture should include %q in the bottom help bar, got:\n%s", want, display)
+		}
+	}
+	if strings.Contains(display, " nav") || strings.Contains(display, " wins") || strings.Contains(display, " layout") {
 		t.Fatalf("display capture should include the bottom help bar, got:\n%s", display)
 	}
 	if strings.Contains(display, "keybindings") || strings.Contains(display, "Navigation") {
@@ -55,7 +99,7 @@ func TestHelpBarDisplayOnlyAndDismiss(t *testing.T) {
 	}
 
 	plain := cr.Capture(true)
-	if strings.Contains(plain, "? help") && strings.Contains(plain, "nav") {
+	if strings.Contains(plain, "? close") && strings.Contains(plain, "x kill") {
 		t.Fatalf("plain capture should not include client-local help bar, got:\n%s", plain)
 	}
 

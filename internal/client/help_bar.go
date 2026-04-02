@@ -7,10 +7,8 @@ import (
 	"strconv"
 	"strings"
 
-	bubbleshelp "github.com/charmbracelet/bubbles/help"
-	bubbleskey "github.com/charmbracelet/bubbles/key"
 	uv "github.com/charmbracelet/ultraviolet"
-	"github.com/charmbracelet/x/ansi"
+	"github.com/mattn/go-runewidth"
 	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/render"
 )
@@ -20,33 +18,35 @@ type helpBindingSelector struct {
 	args   []string
 }
 
+type helpBarItem struct {
+	keys string
+	desc string
+}
+
 type helpBarState struct {
-	model    bubbleshelp.Model
-	bindings []bubbleskey.Binding
+	items []helpBarItem
 }
 
 func (st *helpBarState) view(width int) string {
-	if st == nil {
-		return ""
-	}
-	model := st.model
-	if width > 1 {
-		model.Width = width - 1
-	} else {
-		model.Width = width
-	}
-	return strings.TrimSpace(ansi.Strip(model.ShortHelpView(st.bindings)))
+	return strings.Join(st.rows(width), "\n")
 }
 
 func (st *helpBarState) renderOverlay(width int) *render.HelpBarOverlay {
 	if st == nil {
 		return nil
 	}
-	view := st.view(width)
-	if view == "" {
+	rows := st.rows(width)
+	if len(rows) == 0 {
 		return nil
 	}
-	return &render.HelpBarOverlay{Text: view}
+	return &render.HelpBarOverlay{Rows: rows}
+}
+
+func (st *helpBarState) rows(width int) []string {
+	if st == nil {
+		return nil
+	}
+	return layoutHelpBarRows(st.items, width)
 }
 
 func buildHelpBar(kb *config.Keybindings) *helpBarState {
@@ -54,99 +54,63 @@ func buildHelpBar(kb *config.Keybindings) *helpBarState {
 		return nil
 	}
 
-	bindings := compactHelpBarBindings(
-		helpBarBinding(helpBindingDisplay(kb, helpBindingSelector{action: "help"}), "help"),
-		helpBarBinding(helpBarJoinParts(
-			helpBarCompactCluster(
-				helpBindingDisplay(kb, helpBindingSelector{action: "focus", args: []string{"left"}}),
-				helpBindingDisplay(kb, helpBindingSelector{action: "focus", args: []string{"down"}}),
-				helpBindingDisplay(kb, helpBindingSelector{action: "focus", args: []string{"up"}}),
-				helpBindingDisplay(kb, helpBindingSelector{action: "focus", args: []string{"right"}}),
-			),
-			helpBindingDisplay(kb, helpBindingSelector{action: "display-panes"}),
-		), "nav"),
-		helpBarBinding(helpBarJoinParts(
-			helpBarCompactCluster(
-				helpBindingDisplay(kb, helpBindingSelector{action: "split", args: []string{"root", "v", "--focus"}}),
-				helpBindingDisplay(kb, helpBindingSelector{action: "split", args: []string{"--focus"}}),
-				helpBindingDisplay(kb, helpBindingSelector{action: "split", args: []string{"v", "--focus"}}),
-				helpBindingDisplay(kb, helpBindingSelector{action: "split", args: []string{"root", "--focus"}}),
-			),
-			helpBindingDisplay(kb, helpBindingSelector{action: "spawn", args: []string{"--spiral"}}),
-			helpBindingDisplay(kb, helpBindingSelector{action: "equalize"}),
-		), "layout"),
-		helpBarBinding(helpBarCompactCluster(
-			helpBindingDisplay(kb, helpBindingSelector{action: "kill"}),
-			helpBindingDisplay(kb, helpBindingSelector{action: "zoom"}),
-			helpBindingDisplay(kb, helpBindingSelector{action: "undo"}),
+	items := compactHelpBarItems(
+		helpBarItemForKeys(helpBindingDisplay(kb, helpBindingSelector{action: "help"}), "close"),
+		helpBarItemForKeys(helpBarJoinParts(
+			helpBindingDisplay(kb, helpBindingSelector{action: "focus", args: []string{"left"}}),
+			helpBindingDisplay(kb, helpBindingSelector{action: "focus", args: []string{"down"}}),
+			helpBindingDisplay(kb, helpBindingSelector{action: "focus", args: []string{"up"}}),
+			helpBindingDisplay(kb, helpBindingSelector{action: "focus", args: []string{"right"}}),
+		), "focus"),
+		helpBarItemForKeys(helpBindingDisplay(kb, helpBindingSelector{action: "display-panes"}), "panes"),
+		helpBarItemForKeys(helpBindingDisplay(kb, helpBindingSelector{action: "split", args: []string{"root", "v", "--focus"}}), "root-vsplit"),
+		helpBarItemForKeys(helpBindingDisplay(kb, helpBindingSelector{action: "split", args: []string{"root", "--focus"}}), "root-hsplit"),
+		helpBarItemForKeys(helpBindingDisplay(kb, helpBindingSelector{action: "split", args: []string{"v", "--focus"}}), "vsplit"),
+		helpBarItemForKeys(helpBindingDisplay(kb, helpBindingSelector{action: "split", args: []string{"--focus"}}), "hsplit"),
+		helpBarItemForKeys(helpBindingDisplay(kb, helpBindingSelector{action: "spawn", args: []string{"--spiral"}}), "spiral"),
+		helpBarItemForKeys(helpBindingDisplay(kb, helpBindingSelector{action: "equalize"}), "equalize"),
+		helpBarItemForKeys(helpBindingDisplay(kb, helpBindingSelector{action: "kill"}), "kill"),
+		helpBarItemForKeys(helpBindingDisplay(kb, helpBindingSelector{action: "zoom"}), "zoom"),
+		helpBarItemForKeys(helpBindingDisplay(kb, helpBindingSelector{action: "undo"}), "undo"),
+		helpBarItemForKeys(helpBarJoinParts(
 			helpBindingDisplay(kb, helpBindingSelector{action: "swap", args: []string{"backward"}}),
 			helpBindingDisplay(kb, helpBindingSelector{action: "swap", args: []string{"forward"}}),
-		), "pane"),
-		helpBarBinding(helpBarJoinParts(
-			helpBarCompactCluster(
-				helpBindingDisplay(kb, helpBindingSelector{action: "new-window"}),
-				helpBindingDisplay(kb, helpBindingSelector{action: "next-window"}),
-				helpBindingDisplay(kb, helpBindingSelector{action: "prev-window"}),
-			),
-			helpWindowNumberDisplay(kb),
-			helpBindingDisplay(kb, helpBindingSelector{action: "rename-window"}),
-			helpBindingDisplay(kb, helpBindingSelector{action: "last-window"}),
-		), "wins"),
-		helpBarBinding(helpBarJoinParts(
-			helpBarCompactCluster(
-				helpBindingDisplay(kb, helpBindingSelector{action: "copy-mode"}),
-				helpBindingDisplay(kb, helpBindingSelector{action: "reload"}),
-				helpBindingDisplay(kb, helpBindingSelector{action: "detach"}),
-				helpBindingDisplay(kb, helpBindingSelector{action: "toggle-lead"}),
-			),
-			helpBindingDisplay(kb, helpBindingSelector{action: "choose-tree"}),
-			helpBindingDisplay(kb, helpBindingSelector{action: "choose-window"}),
-		), "other"),
+		), "swap"),
+		helpBarItemForKeys(helpBindingDisplay(kb, helpBindingSelector{action: "copy-mode"}), "copy"),
+		helpBarItemForKeys(helpBindingDisplay(kb, helpBindingSelector{action: "reload"}), "reload"),
+		helpBarItemForKeys(helpBindingDisplay(kb, helpBindingSelector{action: "new-window"}), "new-win"),
+		helpBarItemForKeys(helpBindingDisplay(kb, helpBindingSelector{action: "next-window"}), "next-win"),
+		helpBarItemForKeys(helpBindingDisplay(kb, helpBindingSelector{action: "prev-window"}), "prev-win"),
+		helpBarItemForKeys(helpWindowNumberDisplay(kb), "jump"),
+		helpBarItemForKeys(helpBindingDisplay(kb, helpBindingSelector{action: "rename-window"}), "rename"),
+		helpBarItemForKeys(helpBindingDisplay(kb, helpBindingSelector{action: "last-window"}), "last-win"),
+		helpBarItemForKeys(helpBindingDisplay(kb, helpBindingSelector{action: "toggle-lead"}), "lead"),
+		helpBarItemForKeys(helpBindingDisplay(kb, helpBindingSelector{action: "detach"}), "detach"),
+		helpBarItemForKeys(helpBindingDisplay(kb, helpBindingSelector{action: "choose-tree"}), "tree"),
+		helpBarItemForKeys(helpBindingDisplay(kb, helpBindingSelector{action: "choose-window"}), "windows"),
 	)
-	if len(bindings) == 0 {
+	if len(items) == 0 {
 		return nil
 	}
 
-	model := bubbleshelp.New()
-	model.ShortSeparator = " • "
 	return &helpBarState{
-		model:    model,
-		bindings: bindings,
+		items: items,
 	}
 }
 
-func compactHelpBarBindings(bindings ...bubbleskey.Binding) []bubbleskey.Binding {
-	result := make([]bubbleskey.Binding, 0, len(bindings))
-	for _, binding := range bindings {
-		if !binding.Enabled() {
+func compactHelpBarItems(items ...helpBarItem) []helpBarItem {
+	result := make([]helpBarItem, 0, len(items))
+	for _, item := range items {
+		if item.keys == "" || item.desc == "" {
 			continue
 		}
-		result = append(result, binding)
+		result = append(result, item)
 	}
 	return result
 }
 
-func helpBarBinding(keys, desc string) bubbleskey.Binding {
-	if keys == "" || desc == "" {
-		return bubbleskey.Binding{}
-	}
-	return bubbleskey.NewBinding(
-		bubbleskey.WithKeys(keys),
-		bubbleskey.WithHelp(keys, desc),
-	)
-}
-
-func helpBarCompactCluster(keys ...string) string {
-	compact := compactHelpKeys(keys...)
-	if len(compact) == 0 {
-		return ""
-	}
-	for _, key := range compact {
-		if len([]rune(key)) != 1 {
-			return strings.Join(compact, "/")
-		}
-	}
-	return strings.Join(compact, "")
+func helpBarItemForKeys(keys, desc string) helpBarItem {
+	return helpBarItem{keys: keys, desc: desc}
 }
 
 func helpBarJoinParts(parts ...string) string {
@@ -162,6 +126,153 @@ func compactHelpKeys(keys ...string) []string {
 		result = append(result, key)
 	}
 	return result
+}
+
+const helpBarItemSeparator = "  "
+
+type helpBarLayoutResult struct {
+	ends       []int
+	maxRowWide int
+	totalSlack int
+	ok         bool
+}
+
+func layoutHelpBarRows(items []helpBarItem, width int) []string {
+	if len(items) == 0 || width <= 0 {
+		return nil
+	}
+
+	segments := make([]string, 0, len(items))
+	widths := make([]int, 0, len(items))
+	for _, item := range items {
+		segment := strings.TrimSpace(item.keys + " " + item.desc)
+		if segment == "" {
+			continue
+		}
+		segments = append(segments, segment)
+		widths = append(widths, runewidth.StringWidth(segment))
+	}
+	if len(segments) == 0 {
+		return nil
+	}
+
+	maxWidth := width
+	if maxWidth > 1 {
+		maxWidth--
+	}
+	for targetRows := 2; targetRows <= 4 && targetRows <= len(segments); targetRows++ {
+		if rows, ok := partitionHelpBarRows(segments, widths, maxWidth, targetRows); ok {
+			return rows
+		}
+	}
+	return greedyHelpBarRows(segments, widths, maxWidth)
+}
+
+func partitionHelpBarRows(segments []string, widths []int, maxWidth, targetRows int) ([]string, bool) {
+	sepWidth := runewidth.StringWidth(helpBarItemSeparator)
+	prefixWidths := make([]int, len(widths)+1)
+	for i, width := range widths {
+		prefixWidths[i+1] = prefixWidths[i] + width
+	}
+	rowWidth := func(start, end int) int {
+		if start >= end {
+			return 0
+		}
+		return prefixWidths[end] - prefixWidths[start] + sepWidth*(end-start-1)
+	}
+
+	type stateKey struct {
+		start    int
+		rowsLeft int
+	}
+	memo := make(map[stateKey]helpBarLayoutResult)
+	var search func(start, rowsLeft int) helpBarLayoutResult
+	search = func(start, rowsLeft int) helpBarLayoutResult {
+		key := stateKey{start: start, rowsLeft: rowsLeft}
+		if cached, ok := memo[key]; ok {
+			return cached
+		}
+
+		remaining := len(segments) - start
+		if remaining < rowsLeft {
+			return helpBarLayoutResult{}
+		}
+		if rowsLeft == 1 {
+			width := rowWidth(start, len(segments))
+			if width > maxWidth {
+				return helpBarLayoutResult{}
+			}
+			result := helpBarLayoutResult{
+				ends:       []int{len(segments)},
+				maxRowWide: width,
+				totalSlack: maxWidth - width,
+				ok:         true,
+			}
+			memo[key] = result
+			return result
+		}
+
+		best := helpBarLayoutResult{}
+		maxEnd := len(segments) - rowsLeft + 1
+		for end := start + 1; end <= maxEnd; end++ {
+			width := rowWidth(start, end)
+			if width > maxWidth {
+				break
+			}
+			tail := search(end, rowsLeft-1)
+			if !tail.ok {
+				continue
+			}
+			candidate := helpBarLayoutResult{
+				ends:       append([]int{end}, tail.ends...),
+				maxRowWide: max(width, tail.maxRowWide),
+				totalSlack: (maxWidth - width) + tail.totalSlack,
+				ok:         true,
+			}
+			if !best.ok || candidate.maxRowWide < best.maxRowWide ||
+				(candidate.maxRowWide == best.maxRowWide && candidate.totalSlack < best.totalSlack) {
+				best = candidate
+			}
+		}
+		memo[key] = best
+		return best
+	}
+
+	best := search(0, targetRows)
+	if !best.ok {
+		return nil, false
+	}
+
+	rows := make([]string, 0, targetRows)
+	start := 0
+	for _, end := range best.ends {
+		rows = append(rows, strings.Join(segments[start:end], helpBarItemSeparator))
+		start = end
+	}
+	return rows, true
+}
+
+func greedyHelpBarRows(segments []string, widths []int, maxWidth int) []string {
+	if len(segments) == 0 {
+		return nil
+	}
+	sepWidth := runewidth.StringWidth(helpBarItemSeparator)
+	rows := make([]string, 0, 4)
+	current := segments[0]
+	currentWidth := widths[0]
+	for i := 1; i < len(segments); i++ {
+		width := widths[i]
+		if currentWidth+sepWidth+width > maxWidth && current != "" {
+			rows = append(rows, current)
+			current = segments[i]
+			currentWidth = width
+			continue
+		}
+		current += helpBarItemSeparator + segments[i]
+		currentWidth += sepWidth + width
+	}
+	rows = append(rows, current)
+	return rows
 }
 
 func helpBindingDisplay(kb *config.Keybindings, selector helpBindingSelector) string {

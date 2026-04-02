@@ -147,6 +147,27 @@ func TestRenderGlobalBarAndTruncateRunes(t *testing.T) {
 	}
 }
 
+func TestRenderGlobalBarPlacesHelpToggleNextToClock(t *testing.T) {
+	t.Parallel()
+
+	var buf strings.Builder
+	frozen := time.Date(2026, time.March, 22, 9, 41, 0, 0, time.UTC)
+
+	renderGlobalBar(&buf, "main", 3, 44, 0, nil, "", frozen)
+	rendered := MaterializeGrid(buf.String(), 44, 1)
+
+	sessionIdx := strings.Index(rendered, "main")
+	panesIdx := strings.Index(rendered, "3 panes")
+	helpIdx := strings.Index(rendered, "? help")
+	clockIdx := strings.Index(rendered, "09:41")
+	if sessionIdx < 0 || panesIdx < 0 || helpIdx < 0 || clockIdx < 0 {
+		t.Fatalf("global bar missing expected segments: %q", rendered)
+	}
+	if !(sessionIdx < panesIdx && panesIdx < helpIdx && helpIdx < clockIdx) {
+		t.Fatalf("global bar should place ? help to the right of the pane count and left of the clock: %q", rendered)
+	}
+}
+
 func TestGlobalBarWindowAtColumn(t *testing.T) {
 	t.Parallel()
 
@@ -155,7 +176,7 @@ func TestGlobalBarWindowAtColumn(t *testing.T) {
 		{Index: 2, Name: "bugs", IsActive: true},
 		{Index: 3, Name: "docs", IsActive: false},
 	}
-	tabs := buildGlobalBarWindowTabsWithHelp(windows, true)
+	tabs := buildGlobalBarWindowTabs(windows)
 	if len(tabs) != 3 {
 		t.Fatalf("len(tabs) = %d, want 3", len(tabs))
 	}
@@ -178,7 +199,7 @@ func TestGlobalBarWindowAtColumn(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, ok := GlobalBarWindowAtColumn(windows, tt.x, true)
+			got, ok := GlobalBarWindowAtColumn(windows, tt.x)
 			if ok != tt.ok {
 				t.Fatalf("GlobalBarWindowAtColumn(..., %d) ok = %v, want %v", tt.x, ok, tt.ok)
 			}
@@ -191,15 +212,29 @@ func TestGlobalBarWindowAtColumn(t *testing.T) {
 		})
 	}
 
-	if _, ok := GlobalBarWindowAtColumn([]WindowInfo{{Index: 1, Name: "solo", IsActive: true}}, globalBarPrefixVisibleWidth, true); ok {
+	if _, ok := GlobalBarWindowAtColumn([]WindowInfo{{Index: 1, Name: "solo", IsActive: true}}, globalBarTitlePrefixVisibleWidth); ok {
 		t.Fatal("single-window global bar should not expose a clickable tab")
 	}
 
-	hiddenHelpTabs := buildGlobalBarWindowTabsWithHelp(windows, false)
-	if got, ok := GlobalBarWindowAtColumn(windows, hiddenHelpTabs[1].start, false); !ok || got.Index != 2 {
-		t.Fatalf("GlobalBarWindowAtColumn(..., %d, false) = (%d, %v), want (2, true)", hiddenHelpTabs[1].start, got.Index, ok)
+	hiddenHelpTabs := buildGlobalBarWindowTabs(windows)
+	if got, ok := GlobalBarWindowAtColumn(windows, hiddenHelpTabs[1].start); !ok || got.Index != 2 {
+		t.Fatalf("GlobalBarWindowAtColumn(..., %d) = (%d, %v), want (2, true)", hiddenHelpTabs[1].start, got.Index, ok)
 	}
-	if GlobalBarHelpToggleAtColumn(globalBarHelpStartColumn, false) {
+	frozen := time.Date(2026, time.March, 22, 9, 41, 0, 0, time.UTC)
+	if GlobalBarHelpToggleAtColumn(globalBarTitlePrefixVisibleWidth, 44, 3, true, frozen) {
+		t.Fatal("GlobalBarHelpToggleAtColumn should ignore the old left-side help columns")
+	}
+	var buf strings.Builder
+	renderGlobalBar(&buf, "main", 3, 44, 0, nil, "", frozen)
+	rendered := MaterializeGrid(buf.String(), 44, 1)
+	helpStart := strings.Index(rendered, "? help")
+	if helpStart < 0 {
+		t.Fatalf("rendered global bar missing ? help: %q", rendered)
+	}
+	if !GlobalBarHelpToggleAtColumn(helpStart, 44, 3, true, frozen) {
+		t.Fatal("GlobalBarHelpToggleAtColumn should match the rendered right-side help segment")
+	}
+	if GlobalBarHelpToggleAtColumn(helpStart, 44, 3, false, frozen) {
 		t.Fatal("GlobalBarHelpToggleAtColumn should ignore clicks when help is hidden")
 	}
 }

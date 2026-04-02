@@ -107,8 +107,8 @@ func cloneHelpBarState(src *helpBarState) *helpBarState {
 		return nil
 	}
 	dst := *src
-	if src.bindings != nil {
-		dst.bindings = append(dst.bindings[:0:0], src.bindings...)
+	if src.items != nil {
+		dst.items = append(dst.items[:0:0], src.items...)
 	}
 	return &dst
 }

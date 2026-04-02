@@ -177,13 +177,13 @@ func paneStatusCoords(t *testing.T, h *AmuxHarness, name string) (x, y int) {
 func TestOuterTextCoordsUsesDisplayColumns(t *testing.T) {
 	t.Parallel()
 
-	screen := " amux │ ? help │ 1:main 2:bugs 3:docs │ 1 panes │ 12:46"
+	screen := " amux │ 1:main 2:bugs 3:docs │ 1 panes │ ? help │ 12:46"
 	x, y, ok := outerTextCoords(screen, "1:main")
 	if !ok {
 		t.Fatalf("expected to find 1:main in %q", screen)
 	}
-	if x != 18 || y != 1 {
-		t.Fatalf("outerTextCoords(...) = (%d, %d), want (18, 1)", x, y)
+	if x != 9 || y != 1 {
+		t.Fatalf("outerTextCoords(...) = (%d, %d), want (9, 1)", x, y)
 	}
 }
 

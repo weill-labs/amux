@@ -856,9 +856,9 @@ func TestRunSessionHandlesServerMessagesAndInteractiveInput(t *testing.T) {
 	h.send(t, &proto.Message{Type: proto.MsgTypeLayout, Layout: focusSnap})
 
 	h.writeInput(t, []byte{0x01, '?'})
-	h.output.waitContains(t, "? help")
-	h.output.waitContains(t, "nav")
-	h.output.waitContains(t, "layout")
+	h.output.waitContains(t, "? close")
+	h.output.waitContains(t, "q panes")
+	h.output.waitContains(t, "\\ root-vsplit")
 
 	h.writeInput(t, []byte{0x01, 'M'})
 	h.output.waitContains(t, "No binding")
