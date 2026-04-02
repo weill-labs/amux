@@ -80,6 +80,23 @@ func TestHelpBarGlobalBarClickToggles(t *testing.T) {
 	}
 
 	screen := h.captureOuter()
+	bar := ""
+	for _, line := range strings.Split(screen, "\n") {
+		if isGlobalBar(line) {
+			bar = line
+		}
+	}
+	if bar == "" {
+		t.Fatalf("expected global bar in outer capture, got:\n%s", screen)
+	}
+	panesIdx := strings.Index(bar, "1 panes")
+	helpIdx := strings.Index(bar, "? help")
+	if panesIdx < 0 || helpIdx < 0 {
+		t.Fatalf("expected pane count and ? help in outer capture, got:\n%s", screen)
+	}
+	if helpIdx <= panesIdx {
+		t.Fatalf("expected ? help to appear to the right of the pane count in the global bar, got:\n%s", screen)
+	}
 	x, y, ok := outerTextCoords(screen, "? help")
 	if !ok {
 		t.Fatalf("expected ? help in outer capture, got:\n%s", screen)
