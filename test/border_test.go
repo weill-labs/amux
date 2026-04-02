@@ -22,6 +22,13 @@ func TestOnlyActivePaneBordersColored(t *testing.T) {
 	h.sendKeys("C-a", "h")
 	h.waitLayout(gen)
 
+	// waitLayout only guarantees the inner server applied focus. This assertion
+	// reads the outer ANSI capture, so wait until the active pane-1 status
+	// marker has reached the outer PTY as well.
+	if !h.waitFor("● [pane-1]", 3*time.Second) {
+		t.Fatal("timed out waiting for pane-1 to become active in outer capture")
+	}
+
 	colorLine := pickContentLine(h.captureANSI())
 	borders := extractBorderColors(colorLine)
 

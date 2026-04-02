@@ -7,6 +7,8 @@ import (
 
 type clientUIState struct {
 	dirty              bool
+	dirtyPanes         map[uint32]struct{}
+	fullRedraw         bool
 	copyModes          map[uint32]*copymode.CopyMode
 	displayPanes       *displayPanesState
 	paneDrag           *paneDragOverlayState
@@ -19,8 +21,9 @@ type clientUIState struct {
 
 func newClientUIState() clientUIState {
 	return clientUIState{
-		copyModes: make(map[uint32]*copymode.CopyMode),
-		inputIdle: true,
+		copyModes:  make(map[uint32]*copymode.CopyMode),
+		dirtyPanes: make(map[uint32]struct{}),
+		inputIdle:  true,
 	}
 }
 
@@ -36,7 +39,9 @@ type uiActionSetInputIdle struct {
 	idle bool
 }
 
-type uiActionPaneOutput struct{}
+type uiActionPaneOutput struct {
+	paneID uint32
+}
 
 type uiActionSetMessage struct {
 	message string
@@ -90,7 +95,7 @@ func (st *clientUIState) reduce(action any) clientUIResult {
 	case uiActionSetInputIdle:
 		return st.reduceSetInputIdle(action)
 	case uiActionPaneOutput:
-		st.dirty = true
+		st.markPaneDirty(action.paneID)
 		return clientUIResult{}
 	case uiActionSetMessage:
 		wasVisible := st.message != ""
@@ -301,6 +306,19 @@ func (st *clientUIState) reduceShowHelpBar(action uiActionShowHelpBar) clientUIR
 
 func (st *clientUIState) markRendered() {
 	st.dirty = false
+	st.fullRedraw = false
+	st.dirtyPanes = make(map[uint32]struct{})
+}
+
+func (st *clientUIState) markPaneDirty(paneID uint32) {
+	st.dirty = true
+	if paneID == 0 {
+		return
+	}
+	if st.dirtyPanes == nil {
+		st.dirtyPanes = make(map[uint32]struct{})
+	}
+	st.dirtyPanes[paneID] = struct{}{}
 }
 
 func (st *clientUIState) captureUI() *proto.CaptureUI {

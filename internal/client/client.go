@@ -120,7 +120,7 @@ func (cr *ClientRenderer) SetInputIdle(idle bool) {
 // HandlePaneOutput feeds raw PTY data into a pane's local emulator.
 func (cr *ClientRenderer) HandlePaneOutput(paneID uint32, data []byte) {
 	cr.renderer.HandlePaneOutput(paneID, data)
-	result := cr.reduceUI(uiActionPaneOutput{})
+	result := cr.reduceUI(uiActionPaneOutput{paneID: paneID})
 	cr.emitUIEvents(result.uiEvents)
 }
 
@@ -140,12 +140,27 @@ func (cr *ClientRenderer) Render(clearScreen ...bool) string {
 // RenderDiff produces minimal ANSI output by diffing against the previous frame.
 // This is the primary render path — no screen clearing, no flicker.
 func (cr *ClientRenderer) RenderDiff() string {
-	cr.updateState(func(next *clientSnapshot) clientUIResult {
+	type renderState struct {
+		snapshot   *clientSnapshot
+		dirtyPanes map[uint32]struct{}
+		fullRedraw bool
+	}
+	state, _ := updateClientStateValue(cr, func(next *clientSnapshot) (renderState, clientUIResult) {
+		dirtyPanes := cloneDirtyPanes(next.ui.dirtyPanes)
+		result := renderState{
+			snapshot:   next,
+			dirtyPanes: dirtyPanes,
+			fullRedraw: next.ui.fullRedraw || len(dirtyPanes) == 0,
+		}
 		next.ui.markRendered()
-		return clientUIResult{}
+		return result, clientUIResult{}
 	})
-	state := cr.loadState()
-	return cr.renderer.RenderDiffWithOverlay(cr.paneLookup(state), cr.overlayStateFromSnapshot(state))
+	return cr.renderer.RenderDiffWithOverlayDirty(
+		cr.paneLookup(state.snapshot),
+		cr.overlayStateFromSnapshot(state.snapshot),
+		state.dirtyPanes,
+		state.fullRedraw,
+	)
 }
 
 // paneLookup returns a lookup function for pane data including copy mode.
@@ -218,6 +233,23 @@ func (cr *ClientRenderer) IsDirty() bool {
 func (cr *ClientRenderer) Resize(width, height int) {
 	cr.renderer.Resize(width, height)
 	cr.syncCopyModeSizes()
+}
+
+func (cr *ClientRenderer) RequestFullRedraw() {
+	cr.updateState(func(next *clientSnapshot) clientUIResult {
+		next.ui.dirty = true
+		next.ui.fullRedraw = true
+		return clientUIResult{}
+	})
+}
+
+func (cr *ClientRenderer) renderOverflowThreshold() int {
+	snap := cr.renderer.loadSnapshot()
+	area := snap.width * snap.height
+	if area < 1 {
+		area = 1
+	}
+	return area * 4
 }
 
 // CaptureJSON renders a structured JSON capture from client-side emulators.
@@ -326,6 +358,8 @@ type clientRenderLoopState struct {
 	useFull             bool
 	lastRender          time.Time
 	renderFrameInterval time.Duration
+	pendingOutputBytes  int
+	forceFullRedraw     bool
 }
 
 func (st *clientRenderLoopState) stopScheduledRender() {
@@ -345,6 +379,16 @@ func (st *clientRenderLoopState) shouldRenderNow() bool {
 		return true
 	}
 	return time.Since(st.lastRender) >= st.renderFrameInterval
+}
+
+func (st *clientRenderLoopState) recordPaneOutput(bytes, threshold int) bool {
+	if bytes > 0 {
+		st.pendingOutputBytes += bytes
+	}
+	if threshold > 0 && st.pendingOutputBytes > threshold {
+		st.forceFullRedraw = true
+	}
+	return st.forceFullRedraw
 }
 
 func (st *clientRenderLoopState) scheduleRender() {
@@ -386,6 +430,10 @@ func (cr *ClientRenderer) handleRenderMsg(msg *RenderMsg) []clientEffect {
 		effects := appendUIEventEffect(nil, result.uiEvents)
 		if structureChanged {
 			effects = append(effects, clientEffect{kind: clientEffectClearPrevGrid})
+		} else {
+			// Focus and metadata-only layout updates still change border and
+			// status styling outside pane-output dirty regions.
+			cr.RequestFullRedraw()
 		}
 		return appendStopAndRenderNow(effects)
 	case RenderMsgPaneOutput:
@@ -481,11 +529,13 @@ func (cr *ClientRenderer) renderNow(state *clientRenderLoopState, write func(str
 		data = cr.RenderDiff()
 	}
 	if data != "" {
-		write(data)
+		write(wrapSynchronizedFrame(data))
 	}
 	state.lastRender = time.Now()
 	state.renderTimer = nil
 	state.renderC = nil
+	state.pendingOutputBytes = 0
+	state.forceFullRedraw = false
 }
 
 func (cr *ClientRenderer) MarkLocalInput() {
@@ -533,6 +583,9 @@ func (cr *ClientRenderer) RenderCoalesced(msgCh <-chan *RenderMsg, write func(st
 				}
 				continue
 			}
+			if msg.Typ == RenderMsgPaneOutput && state.recordPaneOutput(len(msg.Data), cr.renderOverflowThreshold()) {
+				cr.RequestFullRedraw()
+			}
 			if cr.executeRenderEffects(state, cr.handleRenderMsg(msg), write) {
 				return
 			}
@@ -540,6 +593,21 @@ func (cr *ClientRenderer) RenderCoalesced(msgCh <-chan *RenderMsg, write func(st
 			cr.renderNow(state, write)
 		}
 	}
+}
+
+func wrapSynchronizedFrame(data string) string {
+	if data == "" {
+		return ""
+	}
+	return render.SynchronizedUpdateBegin + data + render.SynchronizedUpdateEnd
+}
+
+func cloneDirtyPanes(src map[uint32]struct{}) map[uint32]struct{} {
+	dst := make(map[uint32]struct{}, len(src))
+	for paneID := range src {
+		dst[paneID] = struct{}{}
+	}
+	return dst
 }
 
 func (cr *ClientRenderer) syncCopyModeSizes() {

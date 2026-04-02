@@ -1239,7 +1239,7 @@ func TestHandleRenderMsgEffects(t *testing.T) {
 			},
 		},
 		{
-			name: "non-structural layout change preserves overlay message and skips grid clear",
+			name: "non-structural layout change preserves overlay message and requests a full redraw",
 			prepare: func(t *testing.T, cr *ClientRenderer) {
 				if !cr.ShowDisplayPanes() {
 					t.Fatal("ShowDisplayPanes should succeed")
@@ -1258,6 +1258,9 @@ func TestHandleRenderMsgEffects(t *testing.T) {
 				}
 				if got := cr.prefixMessage(); got != "command failed" {
 					t.Fatalf("metadata-only layout update should preserve command feedback, got %q", got)
+				}
+				if !cr.loadState().ui.fullRedraw {
+					t.Fatal("non-structural layout change should request a full redraw")
 				}
 			},
 		},
@@ -1646,6 +1649,24 @@ func TestClientRenderLoopStateScheduleRenderClampsPastDueDelayToZero(t *testing.
 	case <-state.renderC:
 	case <-time.After(20 * time.Millisecond):
 		t.Fatal("scheduleRender did not fire immediately for an overdue render")
+	}
+}
+
+func TestClientRenderLoopStateRecordPaneOutputForcesFullRedrawAfterOverflow(t *testing.T) {
+	t.Parallel()
+
+	state := clientRenderLoopState{}
+	if state.recordPaneOutput(80, 320) {
+		t.Fatal("recordPaneOutput should not force a full redraw below the threshold")
+	}
+	if state.pendingOutputBytes != 80 {
+		t.Fatalf("pendingOutputBytes = %d, want 80", state.pendingOutputBytes)
+	}
+	if !state.recordPaneOutput(241, 320) {
+		t.Fatal("recordPaneOutput should force a full redraw once the threshold is exceeded")
+	}
+	if !state.forceFullRedraw {
+		t.Fatal("forceFullRedraw should be set after overflow")
 	}
 }
 
@@ -2312,6 +2333,43 @@ func TestRenderCoalesced_FullRenderMode(t *testing.T) {
 	if rendered == "" {
 		t.Fatal("AMUX_RENDER=full should produce output")
 	}
+}
+
+func TestRenderCoalescedWrapsFramesInSynchronizedOutput(t *testing.T) {
+	t.Parallel()
+
+	cr := buildTestRenderer(t)
+	cr.renderFrameInterval = 20 * time.Millisecond
+	msgCh := make(chan *RenderMsg, 2)
+	rendered := make(chan string, 2)
+	done := make(chan struct{})
+
+	go func() {
+		cr.RenderCoalesced(msgCh, func(s string) {
+			rendered <- s
+		})
+		close(done)
+	}()
+
+	msgCh <- &RenderMsg{Typ: RenderMsgPaneOutput, PaneID: 1, Data: []byte("hello")}
+
+	var frame string
+	select {
+	case frame = <-rendered:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("timed out waiting for rendered frame")
+	}
+
+	if !strings.HasPrefix(frame, render.SynchronizedUpdateBegin) {
+		t.Fatalf("frame prefix = %q, want synchronized update begin %q", frame, render.SynchronizedUpdateBegin)
+	}
+	if !strings.HasSuffix(frame, render.SynchronizedUpdateEnd) {
+		t.Fatalf("frame suffix = %q, want synchronized update end %q", frame, render.SynchronizedUpdateEnd)
+	}
+
+	msgCh <- &RenderMsg{Typ: RenderMsgExit}
+	close(msgCh)
+	<-done
 }
 
 func TestRescaleLayoutForSmallerClient(t *testing.T) {
