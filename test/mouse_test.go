@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mattn/go-runewidth"
 	"github.com/weill-labs/amux/internal/proto"
 )
 
@@ -146,7 +147,7 @@ func outerTextCoords(screen, substr string) (x, y int, ok bool) {
 		if col < 0 {
 			continue
 		}
-		return col + 1, row + 1, true
+		return runewidth.StringWidth(line[:col]) + 1, row + 1, true
 	}
 	return 0, 0, false
 }
@@ -158,7 +159,7 @@ func windowTabCoords(t *testing.T, screen, label string) (x, y int) {
 	if !ok {
 		t.Fatalf("expected window tab %q in screen.\nScreen:\n%s", label, screen)
 	}
-	return x + len(label)/2, y
+	return x + runewidth.StringWidth(label)/2, y
 }
 
 func paneStatusCoords(t *testing.T, h *AmuxHarness, name string) (x, y int) {
@@ -170,7 +171,20 @@ func paneStatusCoords(t *testing.T, h *AmuxHarness, name string) (x, y int) {
 	if !ok {
 		t.Fatalf("expected pane status label %q in outer capture.\nScreen:\n%s", label, screen)
 	}
-	return x + len(label)/2, y
+	return x + runewidth.StringWidth(label)/2, y
+}
+
+func TestOuterTextCoordsUsesDisplayColumns(t *testing.T) {
+	t.Parallel()
+
+	screen := " amux │ ? help │ 1:main 2:bugs 3:docs │ 1 panes │ 12:46"
+	x, y, ok := outerTextCoords(screen, "1:main")
+	if !ok {
+		t.Fatalf("expected to find 1:main in %q", screen)
+	}
+	if x != 18 || y != 1 {
+		t.Fatalf("outerTextCoords(...) = (%d, %d), want (18, 1)", x, y)
+	}
 }
 
 func waitForCaptureJSON(t *testing.T, h *AmuxHarness, timeout time.Duration, fn func(proto.CaptureJSON) bool) proto.CaptureJSON {
