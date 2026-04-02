@@ -249,6 +249,23 @@ func TestRenderWithCursorRoundTripPreservesHiddenCursor(t *testing.T) {
 	}
 }
 
+func TestRenderWithCursorRoundTripPreservesMouseProtocol(t *testing.T) {
+	t.Parallel()
+
+	emu1 := NewVTEmulatorWithDrain(40, 10)
+	emu1.Write([]byte("\x1b[?1002h\x1b[?1006h"))
+
+	emu2 := NewVTEmulatorWithDrain(40, 10)
+	emu2.Write([]byte(RenderWithCursor(emu1)))
+
+	if got := emu1.MouseProtocol(); got.Tracking != MouseTrackingButton || !got.SGR {
+		t.Fatalf("source MouseProtocol() = %+v, want button+SGR", got)
+	}
+	if got := emu2.MouseProtocol(); got.Tracking != MouseTrackingButton || !got.SGR {
+		t.Fatalf("round-trip MouseProtocol() = %+v, want button+SGR", got)
+	}
+}
+
 func TestRenderWithoutCursorBlock(t *testing.T) {
 	t.Parallel()
 

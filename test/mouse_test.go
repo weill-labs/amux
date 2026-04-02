@@ -613,6 +613,58 @@ PY
 	}
 }
 
+func TestMouseClickPassThroughAppMouse(t *testing.T) {
+	t.Parallel()
+
+	h := newAmuxHarness(t)
+
+	scriptPath := writeMouseScript(t, h, "mouse-click-pass", `#!/bin/bash
+orig=$(stty -g)
+trap 'stty "$orig"' EXIT
+stty raw -echo
+python3 -c "$(cat <<'PY'
+import os
+
+os.write(1, b"\x1b[?1000h\x1b[?1006hREADY\n")
+events = []
+for _ in range(2):
+    buf = b''
+    while not buf.endswith(b"M") and not buf.endswith(b"m"):
+        chunk = os.read(0, 1)
+        if not chunk:
+            break
+        buf += chunk
+    events.append(buf.hex())
+
+print("CLICK1=" + events[0], flush=True)
+print("CLICK2=" + events[1], flush=True)
+PY
+)"
+`)
+	h.sendKeys(scriptPath, "Enter")
+	if !h.waitFor("READY", 3*time.Second) {
+		t.Fatalf("expected click pass-through script to arm mouse mode.\nScreen:\n%s", h.captureOuter())
+	}
+
+	h.clickAt(40, 12)
+
+	if !h.waitFor("CLICK1=", 3*time.Second) || !h.waitFor("CLICK2=", 3*time.Second) {
+		t.Fatalf("expected active pane to receive click events.\nScreen:\n%s", h.captureOuter())
+	}
+	screen := h.captureOuter()
+	// ESC[<0;40;11M
+	if !strings.Contains(screen, "1b5b3c303b34303b31314d") {
+		t.Fatalf("expected click press sequence to reach pane input.\nScreen:\n%s", screen)
+	}
+	// ESC[<0;40;11m
+	if !strings.Contains(screen, "1b5b3c303b34303b31316d") {
+		t.Fatalf("expected click release sequence to reach pane input.\nScreen:\n%s", screen)
+	}
+	if strings.Contains(screen, "[copy]") {
+		t.Fatalf("app mouse click pass-through should not enter copy mode.\nScreen:\n%s", screen)
+	}
+}
+
 func TestMouseDragCopiesSelectionInCopyMode(t *testing.T) {
 	t.Parallel()
 

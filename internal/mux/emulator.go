@@ -424,6 +424,7 @@ func RenderWithCursor(emu TerminalEmulator) string {
 	} else {
 		buf.WriteString("\x1b[?25h")
 	}
+	buf.WriteString(renderMouseProtocol(emu.MouseProtocol()))
 	for i, line := range lines {
 		// Position cursor at start of each row (CUP is 1-indexed)
 		buf.WriteString(fmt.Sprintf("\033[%d;1H", i+1))

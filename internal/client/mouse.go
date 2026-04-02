@@ -314,7 +314,7 @@ func focusPane(sender *messageSender, paneID uint32, activePaneID uint32) {
 }
 
 func writePaneInput(sender *messageSender, paneID uint32, data []byte) {
-	if len(data) == 0 {
+	if sender == nil || len(data) == 0 {
 		return
 	}
 	_ = sender.Send(&proto.Message{
@@ -325,7 +325,7 @@ func writePaneInput(sender *messageSender, paneID uint32, data []byte) {
 }
 
 func forwardMouseToPane(cr *ClientRenderer, sender *messageSender, target *paneMouseTarget, ev mouse.Event) bool {
-	if target == nil || !target.inContent {
+	if sender == nil || target == nil || !target.inContent {
 		return false
 	}
 	data := cr.renderer.EncodeMouse(target.paneID, ev, target.localX, target.localY)
@@ -334,6 +334,22 @@ func forwardMouseToPane(cr *ClientRenderer, sender *messageSender, target *paneM
 	}
 	writePaneInput(sender, target.paneID, data)
 	return true
+}
+
+func paneWantsMousePassthrough(cr *ClientRenderer, paneID uint32) bool {
+	if cr == nil || cr.InCopyMode(paneID) {
+		return false
+	}
+	interaction, ok := cr.renderer.PaneInteractionSnapshot(paneID)
+	return ok && interaction.MouseProtocol.Enabled()
+}
+
+func forwardMouseEventToApp(cr *ClientRenderer, sender *messageSender, layout *mux.LayoutCell, ev mouse.Event) bool {
+	target := mouseTargetAt(layout, ev.X, ev.Y)
+	if target == nil || !paneWantsMousePassthrough(cr, target.paneID) {
+		return false
+	}
+	return forwardMouseToPane(cr, sender, target, ev)
 }
 
 func paneAllowsMouseCopySelection(cr *ClientRenderer, paneID uint32) bool {
@@ -438,6 +454,14 @@ func handleMouseEvent(ev mouse.Event, cr *ClientRenderer, sender *messageSender,
 		return
 	}
 	if handleGlobalBarClick(ev, layout, cr, sender, msgCh) {
+		return
+	}
+	if !drag.Active && !drag.PaneDragActive && forwardMouseEventToApp(cr, sender, layout, ev) {
+		drag.Active = false
+		clearPaneDragState(cr, drag)
+		drag.CopyModeActive = false
+		drag.CopyModePaneID = 0
+		drag.CopyMoved = false
 		return
 	}
 

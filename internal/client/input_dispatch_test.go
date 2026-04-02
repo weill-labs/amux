@@ -2,6 +2,7 @@ package client
 
 import (
 	"bytes"
+	"fmt"
 	"net"
 	"slices"
 	"strings"
@@ -1285,6 +1286,79 @@ func TestHandleMouseEventBorderPressClearsCopyDragState(t *testing.T) {
 	}
 }
 
+func TestHandleMouseEventBorderDragMotionOverAppMousePaneKeepsDragActive(t *testing.T) {
+	t.Parallel()
+
+	cr := buildTestRenderer(t)
+	cr.HandlePaneOutput(2, []byte("\x1b[?1002h\x1b[?1006h"))
+
+	layout := cr.VisibleLayout()
+	if layout == nil {
+		t.Fatal("visible layout missing")
+	}
+
+	borderX := -1
+	for x := 0; x < 80; x++ {
+		if layout.FindBorderAt(x, 5) != nil {
+			borderX = x
+			break
+		}
+	}
+	if borderX < 0 {
+		t.Fatal("expected a vertical border in the test layout")
+	}
+
+	var drag dragState
+	handleMouseEvent(mouse.Event{
+		Action: mouse.Press,
+		Button: mouse.ButtonLeft,
+		X:      borderX,
+		Y:      5,
+	}, cr, nil, &drag, nil)
+
+	clientConn, serverConn := net.Pipe()
+	t.Cleanup(func() {
+		clientConn.Close()
+		serverConn.Close()
+	})
+
+	sender := newMessageSender(clientConn)
+	t.Cleanup(sender.Close)
+
+	done := make(chan struct{})
+	go func() {
+		handleMouseEvent(mouse.Event{
+			Action: mouse.Motion,
+			Button: mouse.ButtonLeft,
+			X:      60,
+			Y:      5,
+			LastX:  borderX,
+			LastY:  5,
+		}, cr, sender, &drag, nil)
+		close(done)
+	}()
+
+	msg := readCommandMessage(t, serverConn)
+	if msg.Type != proto.MsgTypeCommand {
+		t.Fatalf("message type = %d, want %d", msg.Type, proto.MsgTypeCommand)
+	}
+	if msg.CmdName != "resize-border" {
+		t.Fatalf("command = %q, want resize-border", msg.CmdName)
+	}
+	if got, want := msg.CmdArgs, []string{fmt.Sprintf("%d", borderX), "5", fmt.Sprintf("%d", 60-borderX)}; !slices.Equal(got, want) {
+		t.Fatalf("command args = %v, want %v", got, want)
+	}
+	<-done
+
+	if !drag.Active {
+		t.Fatal("border drag motion over app-mouse pane should keep the drag active")
+	}
+	if drag.BorderX != 60 {
+		t.Fatalf("border drag x = %d, want 60", drag.BorderX)
+	}
+	assertNoMessage(t, serverConn)
+}
+
 func TestHandleMouseEventDragStartsCopyModeAndCopiesSelection(t *testing.T) {
 	t.Parallel()
 
@@ -1651,6 +1725,76 @@ func TestHandleMouseEventQueuedScrollUpAndDownUsesCopyMode(t *testing.T) {
 	if cr.InCopyMode(1) {
 		t.Fatal("scroll down back to live view should exit copy mode when scroll-exit is armed")
 	}
+}
+
+func TestHandleMouseEventForwardsAppMouseClickToPane(t *testing.T) {
+	t.Parallel()
+
+	cr := buildTestRenderer(t)
+	cr.HandlePaneOutput(1, []byte("\x1b[?1000h\x1b[?1006h"))
+
+	clientConn, serverConn := net.Pipe()
+	t.Cleanup(func() {
+		clientConn.Close()
+		serverConn.Close()
+	})
+
+	sender := newMessageSender(clientConn)
+	t.Cleanup(sender.Close)
+
+	var drag dragState
+	y := mux.StatusLineRows
+
+	pressDone := make(chan struct{}, 1)
+	go func() {
+		handleMouseEvent(mouse.Event{
+			Action: mouse.Press,
+			Button: mouse.ButtonLeft,
+			X:      0,
+			Y:      y,
+		}, cr, sender, &drag, nil)
+		pressDone <- struct{}{}
+	}()
+
+	press := readCommandMessage(t, serverConn)
+	if press.Type != proto.MsgTypeInputPane {
+		t.Fatalf("press message type = %d, want %d", press.Type, proto.MsgTypeInputPane)
+	}
+	if press.PaneID != 1 {
+		t.Fatalf("press pane id = %d, want 1", press.PaneID)
+	}
+	if got := string(press.PaneData); got != "\x1b[<0;1;1M" {
+		t.Fatalf("press pane data = %q, want %q", got, "\x1b[<0;1;1M")
+	}
+	<-pressDone
+	if drag.Active || drag.PaneDragActive || drag.CopyModeActive || drag.CopyModePaneID != 0 {
+		t.Fatalf("press should not start local mouse handling, got %+v", drag)
+	}
+	assertNoMessage(t, serverConn)
+
+	releaseDone := make(chan struct{}, 1)
+	go func() {
+		handleMouseEvent(mouse.Event{
+			Action: mouse.Release,
+			Button: mouse.ButtonLeft,
+			X:      0,
+			Y:      y,
+		}, cr, sender, &drag, nil)
+		releaseDone <- struct{}{}
+	}()
+
+	release := readCommandMessage(t, serverConn)
+	if release.Type != proto.MsgTypeInputPane {
+		t.Fatalf("release message type = %d, want %d", release.Type, proto.MsgTypeInputPane)
+	}
+	if release.PaneID != 1 {
+		t.Fatalf("release pane id = %d, want 1", release.PaneID)
+	}
+	if got := string(release.PaneData); got != "\x1b[<0;1;1m" {
+		t.Fatalf("release pane data = %q, want %q", got, "\x1b[<0;1;1m")
+	}
+	<-releaseDone
+	assertNoMessage(t, serverConn)
 }
 
 func TestCopyModeHelpersSetCursorStartSelectionAndCopy(t *testing.T) {
