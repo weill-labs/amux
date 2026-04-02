@@ -8,6 +8,7 @@ import (
 
 const (
 	sendKeysUsage     = "usage: amux send-keys <pane> [--via pty|client] [--client <id>] [--wait ready|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>..."
+	mouseUsage        = "usage: amux mouse [--client <id>] [--timeout <duration>] (press <x> <y> | motion <x> <y> | release <x> <y> | click <x> <y> | click <pane> [--status-line] | drag <pane> --to <pane>)"
 	logUsage          = "usage: amux log <clients|panes>"
 	leadUsage         = "usage: amux lead [pane] | amux lead --clear"
 	metaUsage         = "usage: amux meta <set|get|rm> ..."
@@ -60,6 +61,7 @@ var commandUsageByName = map[string]string{
 	"list-windows":     listWindowsUsage,
 	"log":              logUsage,
 	"meta":             metaUsage,
+	"mouse":            mouseUsage,
 	"move":             moveUsage,
 	"new":              "usage: amux new [name]",
 	"new-window":       newWindowUsage,
@@ -151,6 +153,8 @@ Usage:
   amux [-s session] capture --colors   Capture border color map
   amux [-s session] send-keys <pane> [--via pty|client] [--client <id>] [--wait ready|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>...
                                        Send keystrokes to a pane
+  amux [-s session] mouse [--client <id>] [--timeout <duration>] ...
+                                       Simulate mouse input through an attached client
   amux [-s session] broadcast (--panes <pane,pane,...> | --window <index|name> | --match <glob>) [--hex] <keys>...
                                        Send the same keystrokes to multiple panes
   amux [-s session] spawn [--at <pane>] [--vertical|--horizontal] [--root] [--spiral] [--focus] [--name NAME] [--host HOST] [--task TASK] [--color COLOR]

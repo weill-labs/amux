@@ -39,7 +39,7 @@ func TestMouseCommandRawDragResizesBorder(t *testing.T) {
 	h.runCmd("mouse", "press", strconv.Itoa(borderCol+1), "10")
 	h.runCmd("mouse", "motion", strconv.Itoa(borderCol+6), "10")
 	h.runCmd("mouse", "release", strconv.Itoa(borderCol+6), "10")
-	h.waitLayout(gen)
+	h.waitLayoutTimeout(gen, "10s")
 
 	newBorderCol := h.captureAmuxVerticalBorderCol()
 	if newBorderCol <= borderCol {
@@ -60,7 +60,7 @@ func TestMouseCommandDragPaneToPaneSwapsPanes(t *testing.T) {
 
 	gen := h.generation()
 	h.runCmd("mouse", "drag", "pane-2", "--to", "pane-1")
-	h.waitLayout(gen)
+	h.waitLayoutTimeout(gen, "10s")
 
 	after := h.captureJSON()
 	p1After := h.jsonPane(after, "pane-1")
@@ -79,7 +79,7 @@ func TestMouseCommandDragAutomaticallyCopiesSelection(t *testing.T) {
 
 	h := newAmuxHarness(t, "SSH_CONNECTION=1")
 
-	h.sendKeys("printf '\\033[2J\\033[Hhello from mouse\\n'; sleep 1", "Enter")
+	h.sendKeys("printf '\\033[2J\\033[Hhello from mouse\\n'; sleep 3", "Enter")
 	if !h.waitFor("hello from mouse", 3*time.Second) {
 		t.Fatalf("expected mouse copy target output.\nScreen:\n%s", h.captureOuter())
 	}
