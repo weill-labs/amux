@@ -27,7 +27,10 @@ func (p *ansiGoldenPaneData) RenderScreen(bool) string { return p.emu.Render() }
 func (p *ansiGoldenPaneData) CellAt(col, row int, active bool) ScreenCell {
 	return CellFromUV(p.emu.CellAt(col, row))
 }
-func (p *ansiGoldenPaneData) CursorPos() (int, int)               { pos := p.emu.CursorPosition(); return pos.X, pos.Y }
+func (p *ansiGoldenPaneData) CursorPos() (int, int) {
+	pos := p.emu.CursorPosition()
+	return pos.X, pos.Y
+}
 func (p *ansiGoldenPaneData) CursorHidden() bool                  { return p.hidden }
 func (p *ansiGoldenPaneData) HasCursorBlock() bool                { return false }
 func (p *ansiGoldenPaneData) ID() uint32                          { return p.id }
