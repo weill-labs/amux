@@ -191,23 +191,6 @@ func ctrlModifiedKeyByte(base string) (byte, bool) {
 		return byte(r-'A') + 1, true
 	case r >= '@' && r <= '~':
 		return byte(r) & 0x1f, true
-	}
-
-	switch r {
-	case '@':
-		return 0x00, true
-	case '[':
-		return 0x1b, true
-	case '\\':
-		return 0x1c, true
-	case ']':
-		return 0x1d, true
-	case '^':
-		return 0x1e, true
-	case '_':
-		return 0x1f, true
-	case '?':
-		return 0x7f, true
 	default:
 		return 0, false
 	}
