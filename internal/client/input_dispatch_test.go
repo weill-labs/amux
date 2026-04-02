@@ -3,6 +3,7 @@ package client
 import (
 	"bytes"
 	"net"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -356,6 +357,100 @@ func TestHandleMouseEventStatusLinePressStartsPaneDragAndShowsSourceOverlay(t *t
 	labels := cr.overlayState().PaneLabels
 	if len(labels) != 1 || labels[0].PaneID != 2 || labels[0].Label != "drag" {
 		t.Fatalf("drag overlay labels = %+v, want pane-2 [drag]", labels)
+	}
+}
+
+func TestHandleMouseEventPaneDragTogglesFocusedPaneCursor(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		motions     []mouse.Event
+		release     mouse.Event
+		wantCommand string
+		wantArgs    []string
+	}{
+		{
+			name: "cancel on release without drop target",
+			release: mouse.Event{
+				Action: mouse.Release,
+				Button: mouse.ButtonLeft,
+				X:      10,
+				Y:      0,
+				LastX:  10,
+				LastY:  0,
+			},
+		},
+		{
+			name: "restore cursor after dropping on swap target",
+			motions: []mouse.Event{{
+				Action: mouse.Motion,
+				Button: mouse.ButtonLeft,
+				X:      60,
+				Y:      0,
+				LastX:  10,
+				LastY:  0,
+			}},
+			release: mouse.Event{
+				Action: mouse.Release,
+				Button: mouse.ButtonLeft,
+				X:      60,
+				Y:      0,
+				LastX:  60,
+				LastY:  0,
+			},
+			wantCommand: "swap",
+			wantArgs:    []string{"1", "2"},
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cr := buildTestRenderer(t)
+
+			clientConn, serverConn := net.Pipe()
+			t.Cleanup(func() {
+				clientConn.Close()
+				serverConn.Close()
+			})
+
+			sender := newMessageSender(clientConn)
+			t.Cleanup(sender.Close)
+
+			var drag dragState
+			handleMouseEvent(mouse.Event{
+				Action: mouse.Press,
+				Button: mouse.ButtonLeft,
+				X:      10,
+				Y:      0,
+			}, cr, sender, &drag, nil)
+			for _, ev := range tt.motions {
+				handleMouseEvent(ev, cr, sender, &drag, nil)
+			}
+
+			duringDrag := cr.RenderDiff()
+			if strings.Contains(duringDrag, render.ShowCursor) {
+				t.Fatalf("drag render should hide the focused pane cursor, output=%q", duringDrag)
+			}
+
+			handleMouseEvent(tt.release, cr, sender, &drag, nil)
+			if tt.wantCommand == "" {
+				assertNoMessage(t, serverConn)
+			} else {
+				msg := readCommandMessage(t, serverConn)
+				if msg.CmdName != tt.wantCommand || !slices.Equal(msg.CmdArgs, tt.wantArgs) {
+					t.Fatalf("release command = %q %v, want %q %v", msg.CmdName, msg.CmdArgs, tt.wantCommand, tt.wantArgs)
+				}
+			}
+
+			afterDrag := cr.RenderDiff()
+			if !strings.Contains(afterDrag, render.ShowCursor) {
+				t.Fatalf("post-drag render should restore the focused pane cursor, output=%q", afterDrag)
+			}
+		})
 	}
 }
 
