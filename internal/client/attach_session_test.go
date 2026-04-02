@@ -856,7 +856,8 @@ func TestRunSessionHandlesServerMessagesAndInteractiveInput(t *testing.T) {
 	h.send(t, &proto.Message{Type: proto.MsgTypeLayout, Layout: focusSnap})
 
 	h.writeInput(t, []byte{0x01, '?'})
-	h.output.waitContains(t, "No binding for C-a ?")
+	h.output.waitContains(t, "keybindings")
+	h.output.waitContains(t, "Navigation")
 
 	h.writeInput(t, []byte{0x01, 'M'})
 	h.output.waitContains(t, "No binding for C-a M")

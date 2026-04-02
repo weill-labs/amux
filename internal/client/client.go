@@ -179,6 +179,7 @@ func (cr *ClientRenderer) overlayStateFromSnapshot(state *clientSnapshot) render
 		PaneLabels:    cr.overlayLabelsFromSnapshot(state),
 		DropIndicator: cr.paneDragIndicatorFromSnapshot(state),
 		Chooser:       cr.chooserOverlayFromSnapshot(state),
+		Help:          state.ui.helpOverlay.renderOverlay(),
 		TextInput:     cr.windowRenamePromptOverlayFromSnapshot(state),
 		Message:       state.ui.message,
 	}

@@ -44,6 +44,11 @@ func TestDefaultKeybindings(t *testing.T) {
 			want: Binding{Action: "display-panes"},
 		},
 		{
+			name: "question mark opens keybinding help",
+			key:  '?',
+			want: Binding{Action: "help"},
+		},
+		{
 			name: "a spawns a pane in spiral order",
 			key:  'a',
 			want: Binding{Action: "spawn", Args: []string{"--spiral"}},

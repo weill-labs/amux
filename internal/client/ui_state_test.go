@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/weill-labs/amux/internal/bubblesutil"
+	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/copymode"
 	"github.com/weill-labs/amux/internal/proto"
 )
@@ -14,6 +15,7 @@ type clientUIStateSnapshot struct {
 	dirty           bool
 	message         string
 	displayPanes    bool
+	paneDrag        bool
 	chooser         string
 	prompt          string
 	copyModePaneIDs []uint32
@@ -34,12 +36,15 @@ func snapshotClientUIState(st clientUIState) clientUIStateSnapshot {
 	prompt := ""
 	if st.windowRenamePrompt != nil {
 		prompt = st.windowRenamePrompt.title()
+	} else if st.helpOverlay != nil {
+		prompt = st.helpOverlay.title()
 	}
 
 	return clientUIStateSnapshot{
 		dirty:           st.dirty,
 		message:         st.message,
 		displayPanes:    st.displayPanes != nil,
+		paneDrag:        st.paneDrag != nil,
 		chooser:         chooser,
 		prompt:          prompt,
 		copyModePaneIDs: paneIDs,
@@ -75,6 +80,7 @@ func TestClientUIStateReduceTransitions(t *testing.T) {
 				st.displayPanes = &displayPanesState{}
 				st.chooser = &chooserState{mode: chooserModeWindow}
 				st.windowRenamePrompt = &windowRenamePromptState{input: bubblesutil.TextInputState{Value: "logs", Cursor: 4}}
+				st.helpOverlay = buildHelpOverlay(config.DefaultKeybindings())
 				st.message = "command failed"
 			},
 			action: uiActionHandleLayout{structureChanged: true},
@@ -270,6 +276,40 @@ func TestClientUIStateReduceTransitions(t *testing.T) {
 			wantEvents: []string{
 				proto.UIEventDisplayPanesHidden,
 				proto.UIEventChooseWindowHidden,
+			},
+		},
+		{
+			name: "show help overlay hides chooser display panes prompt and pane drag",
+			setup: func(st *clientUIState) {
+				st.displayPanes = &displayPanesState{}
+				st.paneDrag = &paneDragOverlayState{sourcePaneID: 7}
+				st.chooser = &chooserState{mode: chooserModeWindow}
+				st.windowRenamePrompt = &windowRenamePromptState{input: bubblesutil.TextInputState{Value: "logs", Cursor: 4}}
+			},
+			action: uiActionShowHelpOverlay{
+				overlay: buildHelpOverlay(config.DefaultKeybindings()),
+			},
+			wantState: clientUIStateSnapshot{
+				dirty:           true,
+				prompt:          helpOverlayTitle,
+				copyModePaneIDs: []uint32{},
+				inputIdle:       true,
+			},
+			wantEvents: []string{
+				proto.UIEventDisplayPanesHidden,
+				proto.UIEventChooseWindowHidden,
+			},
+		},
+		{
+			name: "hide help overlay clears prompt state",
+			setup: func(st *clientUIState) {
+				st.helpOverlay = buildHelpOverlay(config.DefaultKeybindings())
+			},
+			action: uiActionHideHelpOverlay{},
+			wantState: clientUIStateSnapshot{
+				dirty:           true,
+				copyModePaneIDs: []uint32{},
+				inputIdle:       true,
 			},
 		},
 		{
