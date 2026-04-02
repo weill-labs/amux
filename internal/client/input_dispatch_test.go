@@ -199,6 +199,126 @@ func windowEdgePoint(t *testing.T, cr *ClientRenderer, edge string) (int, int) {
 	}
 }
 
+func TestPaneDropZoneHelpers(t *testing.T) {
+	t.Parallel()
+
+	t.Run("logical root skips anchored lead and lead targets are rejected", func(t *testing.T) {
+		t.Parallel()
+
+		root := proto.CellSnapshot{
+			X: 0, Y: 0, W: 80, H: 23,
+			Dir: int(mux.SplitVertical),
+			Children: []proto.CellSnapshot{
+				{X: 0, Y: 0, W: 39, H: 23, IsLeaf: true, Dir: -1, PaneID: 1},
+				{X: 40, Y: 0, W: 39, H: 23, IsLeaf: true, Dir: -1, PaneID: 2},
+			},
+		}
+		panes := []proto.PaneSnapshot{
+			{ID: 1, Name: "pane-1", Host: "local", Color: "f5e0dc", Lead: true},
+			{ID: 2, Name: "pane-2", Host: "local", Color: "f2cdcd"},
+		}
+		snap := &proto.LayoutSnapshot{
+			SessionName:  "test",
+			ActivePaneID: 2,
+			Width:        80,
+			Height:       23,
+			Root:         root,
+			Panes:        panes,
+			Windows: []proto.WindowSnapshot{{
+				ID: 1, Name: "window-1", Index: 1, ActivePaneID: 2,
+				Root:  root,
+				Panes: panes,
+			}},
+			ActiveWindowID: 1,
+		}
+
+		cr := NewClientRenderer(80, 24)
+		cr.HandleLayout(snap)
+
+		layout := cr.VisibleLayout()
+		if layout == nil {
+			t.Fatal("visible layout missing")
+		}
+		if got := logicalRootCell(cr, layout); got != layout.Children[1] {
+			t.Fatalf("logicalRootCell() = %#v, want right child %#v", got, layout.Children[1])
+		}
+
+		x, y := paneCenterPoint(t, cr, 1)
+		if got := resolvePaneDropTarget(cr, layout, 2, x, y); got != nil {
+			t.Fatalf("resolvePaneDropTarget() = %#v, want nil for lead target", got)
+		}
+	})
+
+	t.Run("placement helpers cover non-left branches", func(t *testing.T) {
+		t.Parallel()
+
+		if dir, first := edgePlacement("right"); dir != mux.SplitVertical || first {
+			t.Fatalf("edgePlacement(right) = (%v, %v), want (vertical, false)", dir, first)
+		}
+		if dir, first := edgePlacement("top"); dir != mux.SplitHorizontal || !first {
+			t.Fatalf("edgePlacement(top) = (%v, %v), want (horizontal, true)", dir, first)
+		}
+		if dir, first := edgePlacement("bottom"); dir != mux.SplitHorizontal || first {
+			t.Fatalf("edgePlacement(bottom) = (%v, %v), want (horizontal, false)", dir, first)
+		}
+		if got := normalizedCoord(0, 0, 0); got != 0.5 {
+			t.Fatalf("normalizedCoord(0, 0, 0) = %v, want 0.5", got)
+		}
+	})
+
+	t.Run("edge and preview helpers cover top bottom and nil paths", func(t *testing.T) {
+		t.Parallel()
+
+		cell := &mux.LayoutCell{X: 10, Y: 20, W: 9, H: 7}
+		if edge, _ := nearestDropEdge(cell.X+cell.W/2, cell.Y, cell); edge != "top" {
+			t.Fatalf("nearestDropEdge(top) = %q, want top", edge)
+		}
+		if edge, _ := nearestDropEdge(cell.X+cell.W/2, cell.Y+cell.H-1, cell); edge != "bottom" {
+			t.Fatalf("nearestDropEdge(bottom) = %q, want bottom", edge)
+		}
+		if canSplitDrop(nil, "left") {
+			t.Fatal("canSplitDrop(nil, left) = true, want false")
+		}
+		if !canSplitDrop(cell, "top") {
+			t.Fatal("canSplitDrop(cell, top) = false, want true")
+		}
+		if got := fullPanePreview(nil); got != nil {
+			t.Fatalf("fullPanePreview(nil) = %#v, want nil", got)
+		}
+		if got := splitPanePreview(nil, "left"); got != nil {
+			t.Fatalf("splitPanePreview(nil, left) = %#v, want nil", got)
+		}
+		if got := splitPanePreview(cell, "right"); got == nil || got.X != 15 || got.Y != 20 || got.W != 4 || got.H != 7 {
+			t.Fatalf("splitPanePreview(right) = %#v, want X=15 Y=20 W=4 H=7", got)
+		}
+		if got := splitPanePreview(cell, "top"); got == nil || got.X != 10 || got.Y != 20 || got.W != 9 || got.H != 3 {
+			t.Fatalf("splitPanePreview(top) = %#v, want X=10 Y=20 W=9 H=3", got)
+		}
+		if got := splitPanePreview(cell, "bottom"); got == nil || got.X != 10 || got.Y != 24 || got.W != 9 || got.H != 3 {
+			t.Fatalf("splitPanePreview(bottom) = %#v, want X=10 Y=24 W=9 H=3", got)
+		}
+	})
+
+	t.Run("too-small edge targets do not produce split drops", func(t *testing.T) {
+		t.Parallel()
+
+		left := mux.NewLeaf(&mux.Pane{ID: 1}, 0, 0, 5, 6)
+		right := mux.NewLeaf(&mux.Pane{ID: 2}, 6, 0, 4, 6)
+		root := &mux.LayoutCell{
+			X: 0, Y: 0, W: 10, H: 6,
+			Dir:      mux.SplitVertical,
+			Children: []*mux.LayoutCell{left, right},
+		}
+		left.Parent = root
+		right.Parent = root
+
+		cr := NewClientRenderer(10, 7)
+		if got := resolvePaneDropTarget(cr, root, 1, right.X+right.W-1, right.Y+right.H/2); got != nil {
+			t.Fatalf("resolvePaneDropTarget() = %#v, want nil for unsplittable target", got)
+		}
+	})
+}
+
 func TestHandleDisplayPaneSelectionSendsFocusCommand(t *testing.T) {
 	t.Parallel()
 
@@ -444,7 +564,7 @@ func TestHandleMouseEventPaneDragTogglesFocusedPaneCursor(t *testing.T) {
 			},
 		},
 		{
-			name:        "restore cursor after dropping on pane center swap target",
+			name: "restore cursor after dropping on pane center swap target",
 			release: mouse.Event{
 				Action: mouse.Release,
 				Button: mouse.ButtonLeft,

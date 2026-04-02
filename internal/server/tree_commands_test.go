@@ -173,6 +173,85 @@ func TestParseMoveSiblingArgs(t *testing.T) {
 	}
 }
 
+func TestParseDropPaneArgs(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		args       []string
+		wantPane   string
+		wantTarget string
+		wantEdge   string
+		wantErr    string
+	}{
+		{
+			name:       "valid",
+			args:       []string{"pane-1", "pane-2", "left"},
+			wantPane:   "pane-1",
+			wantTarget: "pane-2",
+			wantEdge:   "left",
+		},
+		{
+			name:    "too short",
+			args:    []string{"pane-1", "pane-2"},
+			wantErr: dropPaneUsage,
+		},
+		{
+			name:    "invalid edge",
+			args:    []string{"pane-1", "pane-2", "middle"},
+			wantErr: dropPaneUsage,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			paneRef, targetRef, edge, err := parseDropPaneArgs(tt.args)
+			if tt.wantErr != "" {
+				if err == nil || err.Error() != tt.wantErr {
+					t.Fatalf("parseDropPaneArgs(%v) error = %v, want %q", tt.args, err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("parseDropPaneArgs(%v): %v", tt.args, err)
+			}
+			if paneRef != tt.wantPane || targetRef != tt.wantTarget || edge != tt.wantEdge {
+				t.Fatalf("parseDropPaneArgs(%v) = (%q, %q, %q), want (%q, %q, %q)", tt.args, paneRef, targetRef, edge, tt.wantPane, tt.wantTarget, tt.wantEdge)
+			}
+		})
+	}
+}
+
+func TestDropPanePlacement(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		edge      string
+		wantDir   mux.SplitDir
+		wantFirst bool
+	}{
+		{edge: "left", wantDir: mux.SplitVertical, wantFirst: true},
+		{edge: "right", wantDir: mux.SplitVertical, wantFirst: false},
+		{edge: "top", wantDir: mux.SplitHorizontal, wantFirst: true},
+		{edge: "bottom", wantDir: mux.SplitHorizontal, wantFirst: false},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.edge, func(t *testing.T) {
+			t.Parallel()
+
+			gotDir, gotFirst := dropPanePlacement(tt.edge)
+			if gotDir != tt.wantDir || gotFirst != tt.wantFirst {
+				t.Fatalf("dropPanePlacement(%q) = (%v, %v), want (%v, %v)", tt.edge, gotDir, gotFirst, tt.wantDir, tt.wantFirst)
+			}
+		})
+	}
+}
+
 func TestQueuedCommandSwapTreeErrorPaths(t *testing.T) {
 	t.Parallel()
 
@@ -219,6 +298,45 @@ func TestQueuedCommandSwapTreeErrorPaths(t *testing.T) {
 	sameGroup := runTestCommand(t, srv, sess, "swap-tree", "pane-1", "pane-3")
 	if !strings.Contains(sameGroup.cmdErr, "same root-level group") {
 		t.Fatalf("swap-tree same group error = %q", sameGroup.cmdErr)
+	}
+}
+
+func TestQueuedCommandDropPaneErrorPaths(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	usageRes := runTestCommand(t, srv, sess, "drop-pane", "pane-1", "pane-2")
+	if usageRes.cmdErr != dropPaneUsage {
+		t.Fatalf("drop-pane usage error = %q", usageRes.cmdErr)
+	}
+
+	noSessionRes := runTestCommand(t, srv, sess, "drop-pane", "pane-1", "pane-2", "left")
+	if noSessionRes.cmdErr != "no session" {
+		t.Fatalf("drop-pane no session error = %q", noSessionRes.cmdErr)
+	}
+
+	p1 := newTestPane(sess, 1, "pane-1")
+	p2 := newTestPane(sess, 2, "pane-2")
+	w := mux.NewWindow(p1, 80, 23)
+	w.ID = 1
+	w.Name = "main"
+	if _, err := w.SplitRoot(mux.SplitVertical, p2); err != nil {
+		t.Fatalf("SplitRoot: %v", err)
+	}
+	if err := setAttachTestLayout(sess, []*mux.Window{w}, w.ID, []*mux.Pane{p1, p2}); err != nil {
+		t.Fatalf("setAttachTestLayout: %v", err)
+	}
+
+	missingPane := runTestCommand(t, srv, sess, "drop-pane", "missing", "pane-2", "left")
+	if missingPane.cmdErr != `pane "missing" not found` {
+		t.Fatalf("drop-pane missing pane error = %q", missingPane.cmdErr)
+	}
+
+	missingTarget := runTestCommand(t, srv, sess, "drop-pane", "pane-1", "missing", "left")
+	if missingTarget.cmdErr != `pane "missing" not found` {
+		t.Fatalf("drop-pane missing target error = %q", missingTarget.cmdErr)
 	}
 }
 
