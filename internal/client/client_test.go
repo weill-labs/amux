@@ -1239,7 +1239,7 @@ func TestHandleRenderMsgEffects(t *testing.T) {
 			},
 		},
 		{
-			name: "non-structural layout change preserves overlay message and skips grid clear",
+			name: "non-structural layout change preserves overlay message and requests a full redraw",
 			prepare: func(t *testing.T, cr *ClientRenderer) {
 				if !cr.ShowDisplayPanes() {
 					t.Fatal("ShowDisplayPanes should succeed")
@@ -1258,6 +1258,9 @@ func TestHandleRenderMsgEffects(t *testing.T) {
 				}
 				if got := cr.prefixMessage(); got != "command failed" {
 					t.Fatalf("metadata-only layout update should preserve command feedback, got %q", got)
+				}
+				if !cr.loadState().ui.fullRedraw {
+					t.Fatal("non-structural layout change should request a full redraw")
 				}
 			},
 		},
