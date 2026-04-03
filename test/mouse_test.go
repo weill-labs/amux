@@ -238,23 +238,6 @@ func windowEdgeCoords(t *testing.T, h *AmuxHarness, edge string) (x, y int) {
 	}
 }
 
-func waitForCaptureJSON(t *testing.T, h *AmuxHarness, timeout time.Duration, fn func(proto.CaptureJSON) bool) proto.CaptureJSON {
-	t.Helper()
-
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		capture := h.captureJSON()
-		if fn(capture) {
-			return capture
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-
-	capture := h.captureJSON()
-	t.Fatalf("capture JSON condition not met within %v.\nCapture:\n%s\nOuter:\n%s", timeout, h.runCmd("capture", "--format", "json"), h.captureOuter())
-	return capture
-}
-
 func TestMouseHorizontalBorderDrag(t *testing.T) {
 	t.Parallel()
 	h := newAmuxHarness(t)
@@ -296,11 +279,14 @@ func TestMouseStatusLineDragSwapsPanes(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 	h.sendMouseSGR(0, endX, endY, false)
 
-	capture := waitForCaptureJSON(t, h, 3*time.Second, func(capture proto.CaptureJSON) bool {
+	capture, ok := h.waitForCaptureJSON(func(capture proto.CaptureJSON) bool {
 		p1 := h.jsonPane(capture, "pane-1")
 		p2 := h.jsonPane(capture, "pane-2")
 		return p1.Position.X > p2.Position.X
-	})
+	}, 3*time.Second)
+	if !ok {
+		t.Fatalf("capture JSON condition not met within %v.\nCapture:\n%s\nOuter:\n%s", 3*time.Second, h.runCmd("capture", "--format", "json"), h.captureOuter())
+	}
 
 	p1 := h.jsonPane(capture, "pane-1")
 	p2 := h.jsonPane(capture, "pane-2")
@@ -365,14 +351,17 @@ func TestMouseStatusLineDragSplitsTargetPaneAtNearestEdge(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 	h.sendMouseSGR(0, endX, endY, false)
 
-	capture := waitForCaptureJSON(t, h, 3*time.Second, func(capture proto.CaptureJSON) bool {
+	capture, ok := h.waitForCaptureJSON(func(capture proto.CaptureJSON) bool {
 		p1 := h.jsonPane(capture, "pane-1")
 		p2 := h.jsonPane(capture, "pane-2")
 		p3 := h.jsonPane(capture, "pane-3")
 		return p3.Position.X < p1.Position.X &&
 			p1.Position.X < p2.Position.X &&
 			p1.Position.Y == p2.Position.Y
-	})
+	}, 3*time.Second)
+	if !ok {
+		t.Fatalf("capture JSON condition not met within %v.\nCapture:\n%s\nOuter:\n%s", 3*time.Second, h.runCmd("capture", "--format", "json"), h.captureOuter())
+	}
 
 	p1 := h.jsonPane(capture, "pane-1")
 	p2 := h.jsonPane(capture, "pane-2")
@@ -397,11 +386,14 @@ func TestMouseStatusLineDragAtWindowBoundaryCreatesRootSplit(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 	h.sendMouseSGR(0, endX, endY, false)
 
-	capture := waitForCaptureJSON(t, h, 3*time.Second, func(capture proto.CaptureJSON) bool {
+	capture, ok := h.waitForCaptureJSON(func(capture proto.CaptureJSON) bool {
 		p1 := h.jsonPane(capture, "pane-1")
 		p2 := h.jsonPane(capture, "pane-2")
 		return p2.Position.X < p1.Position.X
-	})
+	}, 3*time.Second)
+	if !ok {
+		t.Fatalf("capture JSON condition not met within %v.\nCapture:\n%s\nOuter:\n%s", 3*time.Second, h.runCmd("capture", "--format", "json"), h.captureOuter())
+	}
 
 	p1 := h.jsonPane(capture, "pane-1")
 	p2 := h.jsonPane(capture, "pane-2")

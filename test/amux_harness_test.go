@@ -428,6 +428,21 @@ func (h *AmuxHarness) waitForActive(name string, timeout time.Duration) bool {
 	return false
 }
 
+// waitForCaptureJSON polls JSON capture until fn returns true or timeout.
+// It waits on layout generation bumps between capture checks instead of sleeping.
+func (h *AmuxHarness) waitForCaptureJSON(fn func(proto.CaptureJSON) bool, timeout time.Duration) (proto.CaptureJSON, bool) {
+	h.tb.Helper()
+	return waitForCaptureJSONWithLayout(
+		h.captureJSON,
+		h.generation,
+		func(afterGen uint64, waitFor time.Duration) bool {
+			return h.waitLayoutOrTimeout(afterGen, waitFor.String())
+		},
+		fn,
+		timeout,
+	)
+}
+
 // ---------------------------------------------------------------------------
 // Capture — inner compositor and outer rendered content
 // ---------------------------------------------------------------------------
