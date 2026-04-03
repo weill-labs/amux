@@ -204,10 +204,11 @@ func (c *Compositor) buildGridWithOverlay(root *mux.LayoutCell, activePaneID uin
 		}
 		paneCount++
 		isActive := pid == activePaneID
+		pressed := overlay.IsPanePressed(pid)
 		copyOverlay := pd.CopyModeOverlay()
 
 		// Status line cells.
-		buildStatusCells(g, cell, isActive, pd)
+		buildStatusCellsPressed(g, cell, isActive, pressed, pd)
 
 		// Pane content cells.
 		contentH := c.visibleContentHeightForLayoutHeight(cell, layoutHeight)
@@ -277,8 +278,9 @@ func (c *Compositor) buildGridWithOverlayDirty(
 		}
 
 		isActive := pid == activePaneID
+		pressed := overlay.IsPanePressed(pid)
 		copyOverlay := pd.CopyModeOverlay()
-		buildStatusCells(g, cell, isActive, pd)
+		buildStatusCellsPressed(g, cell, isActive, pressed, pd)
 		contentH := mux.PaneContentHeight(cell.H)
 		for row := 0; row < contentH; row++ {
 			buildPaneContentCells(g, cell, row, isActive, pd, copyOverlay)
@@ -531,8 +533,16 @@ func appendStyledStr(chars []styledChar, s string, style uv.Style) []styledChar 
 
 // buildStatusCells writes the per-pane status line into the grid cell-by-cell.
 func buildStatusCells(g *ScreenGrid, cell *mux.LayoutCell, isActive bool, pd PaneData) {
+	buildStatusCellsPressed(g, cell, isActive, false, pd)
+}
+
+func buildStatusCellsPressed(g *ScreenGrid, cell *mux.LayoutCell, isActive, pressed bool, pd PaneData) {
 	y := cell.Y
-	bg := hexToColor(config.Surface0Hex)
+	bgHex := config.Surface0Hex
+	if pressed {
+		bgHex = config.Surface1Hex
+	}
+	bg := hexToColor(bgHex)
 	colorHex := paneStatusColorHex(pd)
 	palette := newPaneStatusGridPalette(colorHex, bg)
 	var chars []styledChar

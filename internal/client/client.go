@@ -197,6 +197,7 @@ func (cr *ClientRenderer) overlayStateFromSnapshot(state *clientSnapshot) render
 		HelpBar:       state.ui.helpBar.renderOverlay(cr.renderer.loadSnapshot().width),
 		TextInput:     cr.windowRenamePromptOverlayFromSnapshot(state),
 		Message:       state.ui.message,
+		PressedPaneID: paneDragSourcePaneID(state.ui.paneDrag),
 	}
 }
 

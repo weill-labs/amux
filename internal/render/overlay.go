@@ -9,6 +9,13 @@ type OverlayState struct {
 	TextInput     *TextInputOverlay
 	Message       string
 	HelpBar       *HelpBarOverlay
+	PressedPaneID uint32
+}
+
+// IsPanePressed reports whether the pane with the given ID is currently
+// in a pressed/drag state.
+func (o OverlayState) IsPanePressed(paneID uint32) bool {
+	return o.PressedPaneID != 0 && paneID == o.PressedPaneID
 }
 
 // ChooserOverlay is a client-local modal chooser rendered above the layout.

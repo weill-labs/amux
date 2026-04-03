@@ -47,11 +47,19 @@ type statusBarStyles struct {
 }
 
 func newStatusBarStyles(accentHex string) statusBarStyles {
+	return newStatusBarStylesPressed(accentHex, false)
+}
+
+func newStatusBarStylesPressed(accentHex string, pressed bool) statusBarStyles {
 	palette := newCatppuccinMochaLipGlossPalette()
+	bgColor := palette.surface0
+	if pressed {
+		bgColor = hexToLipGlossColor(config.Surface1Hex)
+	}
 	base := lipgloss.NewStyle().
 		Inline(true).
 		ColorWhitespace(true).
-		Background(palette.surface0)
+		Background(bgColor)
 	active := base.Foreground(hexToLipGlossColor(accentHex))
 	dim := base.Foreground(palette.dim)
 	busy := base.Foreground(palette.text)

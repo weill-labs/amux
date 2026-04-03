@@ -18,8 +18,8 @@ import (
 const GlobalBarHeight = 1
 
 const (
-	globalBarTitlePrefixVisibleWidth = 8  // " amux │ "
-	globalBarHelpVisibleWidth        = 6  // "? help"
+	globalBarTitlePrefixVisibleWidth = 8 // " amux │ "
+	globalBarHelpVisibleWidth        = 6 // "? help"
 )
 const missingIssueHint = "set issue"
 
@@ -174,9 +174,13 @@ func renderPaneStatus(buf *strings.Builder, cell *mux.LayoutCell, isActive bool,
 }
 
 func renderPaneStatusWithProfile(buf *strings.Builder, cell *mux.LayoutCell, isActive bool, pd PaneData, profile termenv.Profile) {
+	renderPaneStatusPressedWithProfile(buf, cell, isActive, false, pd, profile)
+}
+
+func renderPaneStatusPressedWithProfile(buf *strings.Builder, cell *mux.LayoutCell, isActive, pressed bool, pd PaneData, profile termenv.Profile) {
 	writeCursorTo(buf, cell.Y+1, cell.X+1)
 
-	styles := newStatusBarStyles(paneStatusColorHex(pd))
+	styles := newStatusBarStylesPressed(paneStatusColorHex(pd), pressed)
 	segments := buildPaneStatusSegments(cell.W, isActive, pd)
 	for _, segment := range segments {
 		writeStyledTextWithProfile(buf, styles.pane(segment.role), segment.text, profile)
