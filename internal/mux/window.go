@@ -24,7 +24,7 @@ type Window struct {
 	Width        int
 	Height       int
 	ZoomedPaneID uint32 // non-zero when a pane is zoomed to full window
-	LeadPaneID   uint32 // non-zero when a pane is pinned as lead (full-height left column)
+	LeadPaneID   uint32 // non-zero when a pane is designated lead; multi-pane windows anchor it as a full-height left column
 }
 
 // SplitOptions controls whether the existing active pane keeps focus.
@@ -393,11 +393,6 @@ func (w *Window) ClosePane(paneID uint32) error {
 
 	// Propagate sizes to all children after redistribution
 	w.Root.ResizeAll(w.Width, w.Height)
-
-	// Clear lead if only one pane remains (no column to pin against).
-	if w.LeadPaneID != 0 && w.Root.IsLeaf() {
-		w.LeadPaneID = 0
-	}
 
 	// Update active pane if the closed pane was active
 	if w.ActivePane.ID == paneID {

@@ -3,8 +3,10 @@ package mux
 import "fmt"
 
 // SetLead designates a pane as the lead pane for the window.
-// The lead pane is pinned to the left side at full height. When lead is set,
-// the window uses an "absolute root" shape:
+// In multi-pane windows the lead pane is pinned to the left side at full
+// height. When lead is set on a single-pane window, the role remains pending
+// until the window grows again. Anchored lead windows use an "absolute root"
+// shape:
 //
 //	Root
 //	├── Children[0] = lead pane
@@ -28,7 +30,8 @@ func (w *Window) SetLead(paneID uint32) error {
 	}
 
 	if w.Root.IsLeaf() {
-		return fmt.Errorf("cannot set lead with only one pane")
+		w.LeadPaneID = paneID
+		return nil
 	}
 
 	// Clear any existing lead before restructuring.
