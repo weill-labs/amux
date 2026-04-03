@@ -132,6 +132,13 @@ func TestRunCreatePaneRemoteWindowResolutionFailureDefersClose(t *testing.T) {
 	srv, sess, cleanup := newCommandTestSession(t)
 	defer cleanup()
 
+	closed := make(chan *mux.Pane, 1)
+	sess.paneCloser = func(pane *mux.Pane) {
+		closed <- pane
+		_ = pane.Close()
+		_ = pane.WaitClosed()
+	}
+
 	pane := newTestPane(sess, 1, "pane-1")
 	window := newTestWindowWithPanes(t, sess, 1, "main", pane)
 	setSessionLayoutForTest(t, sess, window.ID, []*mux.Window{window}, pane)
@@ -154,25 +161,24 @@ func TestRunCreatePaneRemoteWindowResolutionFailureDefersClose(t *testing.T) {
 		dir:          mux.SplitVertical,
 	}, true)
 
-	for _, closePane := range res.ClosePanes {
-		closePane := closePane
-		t.Cleanup(func() {
-			_ = closePane.Close()
-			_ = closePane.WaitClosed()
-		})
-	}
-
 	if res.Err == nil || res.Err.Error() != "pane not in any window" {
 		t.Fatalf("runCreatePane error = %v, want pane-not-in-window", res.Err)
 	}
-	if len(res.ClosePanes) != 1 {
-		t.Fatalf("runCreatePane close panes = %d, want 1", len(res.ClosePanes))
+	if len(res.ClosePanes) != 0 {
+		t.Fatalf("runCreatePane close panes = %d, want 0", len(res.ClosePanes))
 	}
-	if got := res.ClosePanes[0].Meta.Name; got != "worker" {
+
+	var closedPane *mux.Pane
+	select {
+	case closedPane = <-closed:
+	case <-time.After(time.Second):
+		t.Fatal("runCreatePane did not schedule the prepared pane for async close")
+	}
+	if got := closedPane.Meta.Name; got != "worker" {
 		t.Fatalf("prepared pane name = %q, want worker", got)
 	}
-	if len(transport.removedPanes) != 1 || transport.removedPanes[0] != res.ClosePanes[0].ID {
-		t.Fatalf("removed panes = %#v, want [%d]", transport.removedPanes, res.ClosePanes[0].ID)
+	if len(transport.removedPanes) != 1 || transport.removedPanes[0] != closedPane.ID {
+		t.Fatalf("removed panes = %#v, want [%d]", transport.removedPanes, closedPane.ID)
 	}
 	if got := mustSessionQuery(t, sess, func(sess *Session) int { return len(sess.Panes) }); got != 1 {
 		t.Fatalf("pane count after stale-window failure = %d, want 1", got)
