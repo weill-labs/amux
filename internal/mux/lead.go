@@ -153,6 +153,9 @@ func (w *Window) leadColumn() *LayoutCell {
 	return w.Root.Children[0]
 }
 
+// hasPendingLead reports whether the window currently has a single remaining
+// lead pane that should rematerialize as the anchored left column on the next
+// growth operation.
 func (w *Window) hasPendingLead() bool {
 	return w.LeadPaneID != 0 &&
 		w.Root != nil &&

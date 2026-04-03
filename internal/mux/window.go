@@ -394,6 +394,10 @@ func (w *Window) ClosePane(paneID uint32) error {
 	// Propagate sizes to all children after redistribution
 	w.Root.ResizeAll(w.Width, w.Height)
 
+	// Keep a surviving lead pane designated as pending lead when a lead window
+	// collapses back to one pane. The next split rematerializes the anchored
+	// left-column layout.
+
 	// Update active pane if the closed pane was active
 	if w.ActivePane.ID == paneID {
 		if result != nil && result.IsLeaf() && result.Pane != nil {
