@@ -19,14 +19,14 @@ func cmdPrevWindow(ctx *CommandContext) {
 }
 
 func cmdLastWindow(ctx *CommandContext) {
-	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
-		if !sess.lastWindow() {
+	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(ctx *MutationContext) commandMutationResult {
+		if !ctx.lastWindow() {
 			return commandMutationResult{bell: true}
 		}
 		return commandMutationResult{
 			output:          "Last window\n",
 			broadcastLayout: true,
-			paneRenders:     activePaneRender(sess.activeWindow()),
+			paneRenders:     activePaneRender(ctx.activeWindow()),
 		}
 	}))
 }

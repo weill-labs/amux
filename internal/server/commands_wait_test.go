@@ -378,7 +378,7 @@ func TestCmdWaitTransitionCommandsDefaultToNextChange(t *testing.T) {
 		case <-time.After(20 * time.Millisecond):
 		}
 
-		sess.enqueueCommandMutation(func(s *Session) commandMutationResult {
+		sess.enqueueCommandMutation(func(s *MutationContext) commandMutationResult {
 			gen := s.generation.Add(1)
 			s.notifyLayoutWaiters(gen)
 			return commandMutationResult{}
@@ -417,7 +417,7 @@ func TestCmdWaitTransitionCommandsDefaultToNextChange(t *testing.T) {
 		case <-time.After(20 * time.Millisecond):
 		}
 
-		sess.enqueueCommandMutation(func(s *Session) commandMutationResult {
+		sess.enqueueCommandMutation(func(s *MutationContext) commandMutationResult {
 			s.waiters.recordClipboard([]byte("new"))
 			return commandMutationResult{}
 		})

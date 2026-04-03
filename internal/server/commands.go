@@ -66,8 +66,10 @@ func (s commandStreamSender) Send(msg *proto.Message) error {
 func (ctx *CommandContext) applyCommandResult(res commandpkg.Result) {
 	switch {
 	case res.Mutate != nil:
-		ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
-			return toCommandMutationResult(res.Mutate())
+		ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(mctx *MutationContext) commandMutationResult {
+			result := res.Mutate()
+			mctx.syncFromSession()
+			return toCommandMutationResult(result)
 		}))
 	case res.Stream != nil:
 		if err := res.Stream(commandStreamSender{cc: ctx.CC}); err != nil {

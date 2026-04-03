@@ -357,7 +357,7 @@ func TestEmitEventDelivery(t *testing.T) {
 	defer sess.enqueueEventUnsubscribe(res.sub)
 
 	// Emit from within the event loop (emitEvent is event-loop-only).
-	sess.enqueueCommandMutation(func(s *Session) commandMutationResult {
+	sess.enqueueCommandMutation(func(s *MutationContext) commandMutationResult {
 		s.emitEvent(Event{Type: EventLayout, Generation: 1})
 		return commandMutationResult{}
 	})
@@ -387,7 +387,7 @@ func TestEmitEventFiltered(t *testing.T) {
 	res := sess.enqueueEventSubscribe(eventFilter{Types: []string{EventIdle}}, false)
 	defer sess.enqueueEventUnsubscribe(res.sub)
 
-	sess.enqueueCommandMutation(func(s *Session) commandMutationResult {
+	sess.enqueueCommandMutation(func(s *MutationContext) commandMutationResult {
 		s.emitEvent(Event{Type: EventLayout, Generation: 1})
 		s.emitEvent(Event{Type: EventIdle, PaneID: 1, PaneName: "pane-1"})
 		return commandMutationResult{}
@@ -421,7 +421,7 @@ func TestEmitEventDropsWhenFull(t *testing.T) {
 	res := sess.enqueueEventSubscribe(eventFilter{}, false)
 
 	// Fill the channel from within the event loop.
-	sess.enqueueCommandMutation(func(s *Session) commandMutationResult {
+	sess.enqueueCommandMutation(func(s *MutationContext) commandMutationResult {
 		for i := 0; i < 64; i++ {
 			s.emitEvent(Event{Type: EventOutput, PaneID: 1})
 		}
@@ -431,7 +431,7 @@ func TestEmitEventDropsWhenFull(t *testing.T) {
 	// This should not block — event is dropped.
 	done := make(chan struct{})
 	go func() {
-		sess.enqueueCommandMutation(func(s *Session) commandMutationResult {
+		sess.enqueueCommandMutation(func(s *MutationContext) commandMutationResult {
 			s.emitEvent(Event{Type: EventOutput, PaneID: 1})
 			return commandMutationResult{}
 		})
@@ -459,7 +459,7 @@ func TestEmitEventAfterRemove(t *testing.T) {
 	// Emit after unsubscribe: the event loop processes both sequentially,
 	// so by the time emitEvent runs the sub is already removed from the
 	// slice. No panic, no stale delivery.
-	sess.enqueueCommandMutation(func(s *Session) commandMutationResult {
+	sess.enqueueCommandMutation(func(s *MutationContext) commandMutationResult {
 		s.emitEvent(Event{Type: EventLayout, Generation: 1})
 		return commandMutationResult{}
 	})

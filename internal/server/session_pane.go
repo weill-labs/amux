@@ -48,12 +48,26 @@ func cleanupFailedPreparedPane(sess *Session, pane *mux.Pane, err error) command
 	}
 }
 
+func cleanupFailedPreparedPaneMutationContext(ctx *MutationContext, pane *mux.Pane, err error) commandMutationResult {
+	if pane != nil && pane.IsProxy() && ctx.RemoteManager != nil {
+		ctx.RemoteManager.RemovePane(pane.ID)
+	}
+	ctx.ScheduleClose(pane)
+	return commandMutationResult{err: err}
+}
+
 func cleanupFailedPaneMutation(sess *Session, pane *mux.Pane, err error) commandMutationResult {
 	sess.removePane(pane.ID)
 	return commandMutationResult{
 		err:        err,
 		closePanes: []*mux.Pane{pane},
 	}
+}
+
+func cleanupFailedPaneMutationContext(ctx *MutationContext, pane *mux.Pane, err error) commandMutationResult {
+	ctx.removePane(pane.ID)
+	ctx.ScheduleClose(pane)
+	return commandMutationResult{err: err}
 }
 
 // hasPane checks if a pane ID is still in the session's pane list.

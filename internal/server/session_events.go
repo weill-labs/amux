@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"runtime/debug"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -40,6 +41,292 @@ type commandMutationResult struct {
 	closePanes      []*mux.Pane
 	sendExit        bool
 	shutdownServer  bool // handled by caller goroutine, not event loop
+}
+
+// MutationContext exposes the subset of session state and helpers that command
+// mutation callbacks can use while running on the session event loop.
+type MutationContext struct {
+	Name             string
+	Window           *mux.Window
+	Windows          []*mux.Window
+	ActiveWindowID   uint32
+	PreviousWindowID uint32
+	Panes            []*mux.Pane
+	RemoteManager    proto.PaneTransport
+	generation       *atomic.Uint64
+	waiters          *waiterManager
+	takenOverPanes   map[uint32]bool
+
+	sess       *Session
+	startPanes []*mux.Pane
+	closePanes []*mux.Pane
+}
+
+func newMutationContext(sess *Session) *MutationContext {
+	ctx := &MutationContext{sess: sess}
+	ctx.syncFromSession()
+	return ctx
+}
+
+func (ctx *MutationContext) syncFromSession() {
+	if ctx == nil || ctx.sess == nil {
+		return
+	}
+	ctx.Name = ctx.sess.Name
+	ctx.Window = ctx.sess.activeWindow()
+	ctx.Windows = ctx.sess.Windows
+	ctx.ActiveWindowID = ctx.sess.ActiveWindowID
+	ctx.PreviousWindowID = ctx.sess.PreviousWindowID
+	ctx.Panes = ctx.sess.Panes
+	ctx.RemoteManager = ctx.sess.RemoteManager
+	ctx.generation = &ctx.sess.generation
+	ctx.waiters = ctx.sess.waiters
+	ctx.takenOverPanes = ctx.sess.takenOverPanes
+}
+
+func (ctx *MutationContext) commit() {
+	if ctx == nil || ctx.sess == nil {
+		return
+	}
+	ctx.sess.Name = ctx.Name
+	ctx.sess.Windows = ctx.Windows
+	ctx.sess.ActiveWindowID = ctx.ActiveWindowID
+	ctx.sess.PreviousWindowID = ctx.PreviousWindowID
+	ctx.sess.Panes = ctx.Panes
+	ctx.sess.RemoteManager = ctx.RemoteManager
+	ctx.sess.takenOverPanes = ctx.takenOverPanes
+	ctx.Window = ctx.sess.activeWindow()
+}
+
+func (ctx *MutationContext) ScheduleClose(pane *mux.Pane) {
+	if pane == nil {
+		return
+	}
+	ctx.closePanes = append(ctx.closePanes, pane)
+}
+
+func (ctx *MutationContext) ScheduleStart(pane *mux.Pane) {
+	if pane == nil {
+		return
+	}
+	ctx.startPanes = append(ctx.startPanes, pane)
+}
+
+func mutationContextCall[T any](ctx *MutationContext, fn func(*Session) (T, error)) (T, error) {
+	if ctx == nil || ctx.sess == nil {
+		var zero T
+		return zero, fmt.Errorf("no session")
+	}
+	ctx.commit()
+	value, err := fn(ctx.sess)
+	ctx.syncFromSession()
+	return value, err
+}
+
+func mutationContextDo(ctx *MutationContext, fn func(*Session) error) error {
+	_, err := mutationContextCall(ctx, func(sess *Session) (struct{}, error) {
+		return struct{}{}, fn(sess)
+	})
+	return err
+}
+
+func (ctx *MutationContext) activeWindow() *mux.Window {
+	w, _ := mutationContextCall(ctx, func(sess *Session) (*mux.Window, error) {
+		return sess.activeWindow(), nil
+	})
+	return w
+}
+
+func (ctx *MutationContext) windowForActor(actorPaneID uint32) *mux.Window {
+	w, _ := mutationContextCall(ctx, func(sess *Session) (*mux.Window, error) {
+		return sess.windowForActor(actorPaneID), nil
+	})
+	return w
+}
+
+func (ctx *MutationContext) resolveWindow(ref string) *mux.Window {
+	w, _ := mutationContextCall(ctx, func(sess *Session) (*mux.Window, error) {
+		return sess.resolveWindow(ref), nil
+	})
+	return w
+}
+
+func (ctx *MutationContext) activateWindow(w *mux.Window) {
+	_ = mutationContextDo(ctx, func(sess *Session) error {
+		sess.activateWindow(w)
+		return nil
+	})
+}
+
+func (ctx *MutationContext) nextWindow() {
+	_ = mutationContextDo(ctx, func(sess *Session) error {
+		sess.nextWindow()
+		return nil
+	})
+}
+
+func (ctx *MutationContext) prevWindow() {
+	_ = mutationContextDo(ctx, func(sess *Session) error {
+		sess.prevWindow()
+		return nil
+	})
+}
+
+func (ctx *MutationContext) lastWindow() bool {
+	changed, _ := mutationContextCall(ctx, func(sess *Session) (bool, error) {
+		return sess.lastWindow(), nil
+	})
+	return changed
+}
+
+func (ctx *MutationContext) resolvePaneAcrossWindowsForActor(actorPaneID uint32, paneRef string) (*mux.Pane, *mux.Window, error) {
+	type resolved struct {
+		pane   *mux.Pane
+		window *mux.Window
+	}
+	value, err := mutationContextCall(ctx, func(sess *Session) (resolved, error) {
+		pane, window, err := sess.resolvePaneAcrossWindowsForActor(actorPaneID, paneRef)
+		return resolved{pane: pane, window: window}, err
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return value.pane, value.window, nil
+}
+
+func (ctx *MutationContext) resolvePaneWindowForActor(actorPaneID uint32, command string, args []string) (*mux.Pane, *mux.Window, error) {
+	type resolved struct {
+		pane   *mux.Pane
+		window *mux.Window
+	}
+	value, err := mutationContextCall(ctx, func(sess *Session) (resolved, error) {
+		pane, window, err := sess.resolvePaneWindowForActor(actorPaneID, command, args)
+		return resolved{pane: pane, window: window}, err
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return value.pane, value.window, nil
+}
+
+func (ctx *MutationContext) findPaneByID(id uint32) *mux.Pane {
+	pane, _ := mutationContextCall(ctx, func(sess *Session) (*mux.Pane, error) {
+		return sess.findPaneByID(id), nil
+	})
+	return pane
+}
+
+func (ctx *MutationContext) findWindowByPaneID(id uint32) *mux.Window {
+	w, _ := mutationContextCall(ctx, func(sess *Session) (*mux.Window, error) {
+		return sess.findWindowByPaneID(id), nil
+	})
+	return w
+}
+
+func (ctx *MutationContext) createPaneWithMeta(srv *Server, meta mux.PaneMeta, cols, rows int) (*mux.Pane, error) {
+	return mutationContextCall(ctx, func(sess *Session) (*mux.Pane, error) {
+		return sess.createPaneWithMeta(srv, meta, cols, rows)
+	})
+}
+
+func (ctx *MutationContext) beginPaneCleanupKill(pane *mux.Pane, timeout time.Duration) error {
+	return mutationContextDo(ctx, func(sess *Session) error {
+		return sess.beginPaneCleanupKill(pane, timeout)
+	})
+}
+
+func (ctx *MutationContext) softClosePane(paneID uint32) paneRemovalResult {
+	result, _ := mutationContextCall(ctx, func(sess *Session) (paneRemovalResult, error) {
+		return sess.softClosePane(paneID), nil
+	})
+	return result
+}
+
+func (ctx *MutationContext) undoClosePane() (*mux.Pane, error) {
+	return mutationContextCall(ctx, func(sess *Session) (*mux.Pane, error) {
+		return sess.undoClosePane()
+	})
+}
+
+func (ctx *MutationContext) respawnPane(srv *Server, pane *mux.Pane, w *mux.Window) (*mux.Pane, error) {
+	return mutationContextCall(ctx, func(sess *Session) (*mux.Pane, error) {
+		return sess.respawnPane(srv, pane, w)
+	})
+}
+
+func (ctx *MutationContext) appendPaneLog(kind string, pane *mux.Pane, reason string) {
+	_ = mutationContextDo(ctx, func(sess *Session) error {
+		sess.appendPaneLog(kind, pane, reason)
+		return nil
+	})
+}
+
+func (ctx *MutationContext) emitEvent(ev Event) {
+	_ = mutationContextDo(ctx, func(sess *Session) error {
+		sess.emitEvent(ev)
+		return nil
+	})
+}
+
+func (ctx *MutationContext) ensureInitialWindowLocked(srv *Server, cols, rows int, preferred *clientConn) (ensureInitialWindowResult, error) {
+	return mutationContextCall(ctx, func(sess *Session) (ensureInitialWindowResult, error) {
+		return sess.ensureInitialWindowLocked(srv, cols, rows, preferred)
+	})
+}
+
+func (ctx *MutationContext) insertPreparedPaneIntoActiveWindow(pane *mux.Pane, dir mux.SplitDir, rootLevel, keepFocus bool) error {
+	return mutationContextDo(ctx, func(sess *Session) error {
+		return sess.insertPreparedPaneIntoActiveWindow(pane, dir, rootLevel, keepFocus)
+	})
+}
+
+func (ctx *MutationContext) removePane(id uint32) {
+	_ = mutationContextDo(ctx, func(sess *Session) error {
+		sess.removePane(id)
+		return nil
+	})
+}
+
+func (ctx *MutationContext) nextWindowID() uint32 {
+	id, _ := mutationContextCall(ctx, func(sess *Session) (uint32, error) {
+		return sess.windowCounter.Add(1), nil
+	})
+	return id
+}
+
+func (ctx *MutationContext) finalizePaneRemoval(paneID uint32) paneRemovalResult {
+	result, _ := mutationContextCall(ctx, func(sess *Session) (paneRemovalResult, error) {
+		return sess.finalizePaneRemoval(paneID), nil
+	})
+	return result
+}
+
+func (ctx *MutationContext) notifyLayoutWaiters(gen uint64) {
+	_ = mutationContextDo(ctx, func(sess *Session) error {
+		sess.notifyLayoutWaiters(gen)
+		return nil
+	})
+}
+
+func (ctx *MutationContext) notifyPaneOutputSubs(paneID uint32) {
+	_ = mutationContextDo(ctx, func(sess *Session) error {
+		sess.notifyPaneOutputSubs(paneID)
+		return nil
+	})
+}
+
+func (ctx *MutationContext) ensureClientManager() *clientManager {
+	manager, _ := mutationContextCall(ctx, func(sess *Session) (*clientManager, error) {
+		return sess.ensureClientManager(), nil
+	})
+	return manager
+}
+
+func (ctx *MutationContext) refreshInputTarget() {
+	_ = mutationContextDo(ctx, func(sess *Session) error {
+		sess.refreshInputTarget()
+		return nil
+	})
 }
 
 type paneHistoryUpdate struct {
@@ -148,12 +435,20 @@ func (s *Session) ensureInitialWindowLocked(srv *Server, cols, rows int, preferr
 }
 
 type commandMutationEvent struct {
-	fn    func(*Session) commandMutationResult
+	fn    func(*MutationContext) commandMutationResult
 	reply chan commandMutationResult
 }
 
 func (e commandMutationEvent) handle(s *Session) {
-	res := recoverCommandMutation(e.fn, s)
+	ctx := newMutationContext(s)
+	res := recoverCommandMutation(e.fn, ctx)
+	ctx.commit()
+	for _, pane := range ctx.closePanes {
+		s.closePaneAsync(pane)
+	}
+	for _, pane := range ctx.startPanes {
+		pane.Start()
+	}
 	if res.err == nil {
 		s.ensureInputRouter().syncPanes(s.Panes)
 		// Keep enqueueCommandMutation callers from observing stale input routing
@@ -177,13 +472,13 @@ func (e commandMutationEvent) handle(s *Session) {
 
 // recoverCommandMutation calls fn and converts any panic into an error result
 // so the event loop keeps running and the reply channel is always written.
-func recoverCommandMutation(fn func(*Session) commandMutationResult, s *Session) (res commandMutationResult) {
+func recoverCommandMutation(fn func(*MutationContext) commandMutationResult, ctx *MutationContext) (res commandMutationResult) {
 	defer func() {
 		if r := recover(); r != nil {
-			res = commandMutationResult{err: s.logPanic("command_mutation_panic", r, debug.Stack())}
+			res = commandMutationResult{err: ctx.sess.logPanic("command_mutation_panic", r, debug.Stack())}
 		}
 	}()
-	return fn(s)
+	return fn(ctx)
 }
 
 type detachClientEvent struct {
@@ -568,7 +863,7 @@ func (s *Session) enqueueAttachClient(srv *Server, cc *clientConn, cols, rows in
 	}
 }
 
-func (s *Session) enqueueCommandMutation(fn func(*Session) commandMutationResult) commandMutationResult {
+func (s *Session) enqueueCommandMutation(fn func(*MutationContext) commandMutationResult) commandMutationResult {
 	reply := make(chan commandMutationResult, 1)
 	if !s.enqueueEvent(commandMutationEvent{
 		fn:    fn,
