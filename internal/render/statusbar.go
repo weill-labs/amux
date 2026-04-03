@@ -180,7 +180,7 @@ func renderPaneStatusWithProfile(buf *strings.Builder, cell *mux.LayoutCell, isA
 func renderPaneStatusPressedWithProfile(buf *strings.Builder, cell *mux.LayoutCell, isActive, pressed bool, pd PaneData, profile termenv.Profile) {
 	writeCursorTo(buf, cell.Y+1, cell.X+1)
 
-	styles := newStatusBarStylesWithBg(paneStatusColorHex(pd), pressed)
+	styles := newStatusBarStylesPressed(paneStatusColorHex(pd), pressed)
 	segments := buildPaneStatusSegments(cell.W, isActive, pd)
 	for _, segment := range segments {
 		writeStyledTextWithProfile(buf, styles.pane(segment.role), segment.text, profile)

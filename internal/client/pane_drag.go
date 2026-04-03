@@ -7,6 +7,15 @@ type paneDragOverlayState struct {
 	indicator    *render.DropIndicatorOverlay
 }
 
+// paneDragSourcePaneID returns the pane ID being dragged, or 0 if no drag
+// is in progress.
+func paneDragSourcePaneID(drag *paneDragOverlayState) uint32 {
+	if drag == nil {
+		return 0
+	}
+	return drag.sourcePaneID
+}
+
 func (cr *ClientRenderer) showPaneDragOverlay(sourcePaneID uint32, indicator *render.DropIndicatorOverlay) {
 	result := cr.updateState(func(next *clientSnapshot) clientUIResult {
 		return next.ui.reduce(uiActionShowPaneDrag{drag: &paneDragOverlayState{

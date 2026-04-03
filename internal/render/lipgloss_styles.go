@@ -47,10 +47,10 @@ type statusBarStyles struct {
 }
 
 func newStatusBarStyles(accentHex string) statusBarStyles {
-	return newStatusBarStylesWithBg(accentHex, false)
+	return newStatusBarStylesPressed(accentHex, false)
 }
 
-func newStatusBarStylesWithBg(accentHex string, pressed bool) statusBarStyles {
+func newStatusBarStylesPressed(accentHex string, pressed bool) statusBarStyles {
 	palette := newCatppuccinMochaLipGlossPalette()
 	bgColor := palette.surface0
 	if pressed {

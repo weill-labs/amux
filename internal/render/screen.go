@@ -204,7 +204,7 @@ func (c *Compositor) buildGridWithOverlay(root *mux.LayoutCell, activePaneID uin
 		}
 		paneCount++
 		isActive := pid == activePaneID
-		pressed := overlay.PressedPaneID != 0 && pid == overlay.PressedPaneID
+		pressed := overlay.IsPanePressed(pid)
 		copyOverlay := pd.CopyModeOverlay()
 
 		// Status line cells.
@@ -278,7 +278,7 @@ func (c *Compositor) buildGridWithOverlayDirty(
 		}
 
 		isActive := pid == activePaneID
-		pressed := overlay.PressedPaneID != 0 && pid == overlay.PressedPaneID
+		pressed := overlay.IsPanePressed(pid)
 		copyOverlay := pd.CopyModeOverlay()
 		buildStatusCellsPressed(g, cell, isActive, pressed, pd)
 		contentH := mux.PaneContentHeight(cell.H)

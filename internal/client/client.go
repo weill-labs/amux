@@ -197,15 +197,8 @@ func (cr *ClientRenderer) overlayStateFromSnapshot(state *clientSnapshot) render
 		HelpBar:       state.ui.helpBar.renderOverlay(cr.renderer.loadSnapshot().width),
 		TextInput:     cr.windowRenamePromptOverlayFromSnapshot(state),
 		Message:       state.ui.message,
-		PressedPaneID: pressedPaneIDFromSnapshot(state),
+		PressedPaneID: paneDragSourcePaneID(state.ui.paneDrag),
 	}
-}
-
-func pressedPaneIDFromSnapshot(state *clientSnapshot) uint32 {
-	if state.ui.paneDrag == nil {
-		return 0
-	}
-	return state.ui.paneDrag.sourcePaneID
 }
 
 func (cr *ClientRenderer) ShowPrefixMessage(msg string) {

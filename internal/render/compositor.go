@@ -150,7 +150,7 @@ func (c *Compositor) RenderFullWithOverlay(root *mux.LayoutCell, activePaneID ui
 		paneCount++
 
 		isActive := pid == activePaneID
-		pressed := overlay.PressedPaneID != 0 && pid == overlay.PressedPaneID
+		pressed := overlay.IsPanePressed(pid)
 
 		// Per-pane status line
 		renderPaneStatusPressedWithProfile(&buf, cell, isActive, pressed, pd, c.colorProfile)
