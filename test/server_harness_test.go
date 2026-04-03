@@ -55,6 +55,12 @@ type ServerHarness struct {
 	currentCommand string
 }
 
+var harnessBlockedEnvKeys = map[string]struct{}{
+	"AMUX_PANE":    {},
+	"AMUX_SESSION": {},
+	"TMUX":         {},
+}
+
 // newServerHarnessWithSize starts a server harness with a custom terminal size.
 func newServerHarnessWithSize(tb testing.TB, cols, rows int) *ServerHarness {
 	return newServerHarnessWithConfig(tb, cols, rows, "")
@@ -135,13 +141,16 @@ func newServerHarnessForSession(tb testing.TB, session, home string, cols, rows 
 		home = newTestHome(tb)
 	}
 	env := removeEnv(os.Environ(), "AMUX_EXIT_UNATTACHED")
+	for key := range harnessBlockedEnvKeys {
+		env = removeEnv(env, key)
+	}
 	env = upsertEnv(env, "HOME", home)
 	env = upsertEnv(env, "AMUX_COLOR_PROFILE", "TrueColor")
 	env = append(env, "AMUX_READY_FD=3", "AMUX_SHUTDOWN_FD=4", "AMUX_NO_WATCH=1", "AMUX_DISABLE_META_REFRESH=1")
 	if exitUnattached {
 		env = append(env, "AMUX_EXIT_UNATTACHED=1")
 	}
-	env = append(env, extraEnv...)
+	env = appendHarnessExtraEnv(env, extraEnv)
 
 	// Write config to a temp file and pass via AMUX_CONFIG if provided.
 	if configContent != "" {
@@ -438,13 +447,32 @@ func (h *ServerHarness) diagnosticState() (wait, cmd string) {
 func (h *ServerHarness) commandWithContext(ctx context.Context, args ...string) *exec.Cmd {
 	cmdArgs := append([]string{"-s", h.session}, args...)
 	cmd := exec.CommandContext(ctx, amuxBin, cmdArgs...)
-	env := upsertEnv(os.Environ(), "HOME", h.home)
+	env := os.Environ()
+	for key := range harnessBlockedEnvKeys {
+		env = removeEnv(env, key)
+	}
+	env = upsertEnv(env, "HOME", h.home)
 	if h.coverDir != "" {
 		env = upsertEnv(env, "GOCOVERDIR", h.coverDir)
 	}
-	env = append(env, h.extraEnv...)
+	env = appendHarnessExtraEnv(env, h.extraEnv)
 	cmd.Env = env
 	return cmd
+}
+
+func appendHarnessExtraEnv(env, extraEnv []string) []string {
+	for _, entry := range extraEnv {
+		key, value, ok := strings.Cut(entry, "=")
+		if !ok {
+			env = append(env, entry)
+			continue
+		}
+		if _, blocked := harnessBlockedEnvKeys[key]; blocked {
+			continue
+		}
+		env = upsertEnv(env, key, value)
+	}
+	return env
 }
 
 func formatHarnessCommandResult(cmdName string, msg *server.Message) string {
