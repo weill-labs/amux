@@ -41,6 +41,7 @@ type clientConn struct {
 	capabilities       proto.ClientCapabilities
 	colorProfile       string
 	logger             *charmlog.Logger
+	bootstrapping      atomic.Bool
 	disconnectReason   atomic.Pointer[string]
 }
 
@@ -124,10 +125,12 @@ func (cc *clientConn) initTypeKeyQueue() {
 }
 
 func (cc *clientConn) startBootstrap() {
+	cc.bootstrapping.Store(true)
 	cc.ensureWriter().startBootstrap()
 }
 
 func (cc *clientConn) finishBootstrap(minOutputSeq map[uint32]uint64) {
+	defer cc.bootstrapping.Store(false)
 	cc.ensureWriter().finishBootstrap(minOutputSeq)
 }
 
@@ -148,7 +151,10 @@ func (cc *clientConn) sendPaneMessage(msg *Message) {
 }
 
 func (cc *clientConn) isBootstrapping() bool {
-	return cc.ensureWriter().isBootstrapping()
+	if cc == nil {
+		return false
+	}
+	return cc.bootstrapping.Load()
 }
 
 func (cc *clientConn) ensureWriter() *clientWriter {
