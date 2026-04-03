@@ -83,33 +83,22 @@ func TestMainHelpViaSubprocess(t *testing.T) {
 }
 
 func rootMainTestEnv() []string {
-	env := append([]string{}, os.Environ()...)
+	env := make([]string, 0, 8)
 	for _, key := range []string{
-		"AMUX_ROOT_HELPER",
-		"AMUX_PANE",
-		"AMUX_SESSION",
-		"TMUX",
-		"SSH_CONNECTION",
-		"SSH_CLIENT",
-		"SSH_TTY",
-		"TERM",
+		"HOME",
+		"LANG",
+		"LC_ALL",
+		"PATH",
+		"SHELL",
+		"TMPDIR",
+		"USER",
 	} {
-		env = removeEnvKey(env, key)
+		if value, ok := os.LookupEnv(key); ok {
+			env = append(env, key+"="+value)
+		}
 	}
 	return append(env,
 		"AMUX_ROOT_HELPER=1",
 		"TERM=xterm-256color",
 	)
-}
-
-func removeEnvKey(env []string, key string) []string {
-	prefix := key + "="
-	filtered := env[:0]
-	for _, entry := range env {
-		if strings.HasPrefix(entry, prefix) {
-			continue
-		}
-		filtered = append(filtered, entry)
-	}
-	return filtered
 }
