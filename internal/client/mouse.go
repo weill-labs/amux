@@ -332,6 +332,9 @@ func forwardMouseToPane(cr *ClientRenderer, sender *messageSender, target *paneM
 	if len(data) == 0 {
 		return false
 	}
+	if ev.Action == mouse.Press {
+		focusPane(sender, target.paneID, cr.ActivePaneID())
+	}
 	writePaneInput(sender, target.paneID, data)
 	return true
 }
