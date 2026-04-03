@@ -201,6 +201,15 @@ func TestClientConnBootstrappingStateTracksLifecycle(t *testing.T) {
 	}
 }
 
+func TestNilClientConnIsNotBootstrapping(t *testing.T) {
+	t.Parallel()
+
+	var cc *clientConn
+	if cc.isBootstrapping() {
+		t.Fatal("nil client should not report bootstrapping")
+	}
+}
+
 func mustSetupSinglePaneSession(t *testing.T, sess *Session, writeOverride func([]byte) (int, error)) *mux.Pane {
 	t.Helper()
 
