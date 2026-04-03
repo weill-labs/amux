@@ -1,4 +1,4 @@
-package main
+package test
 
 import (
 	"os"
@@ -151,8 +151,8 @@ func TestPostMergeHookIgnoresNonMergeCommands(t *testing.T) {
 func runBashScriptWithInput(t *testing.T, scriptPath, input string, env []string) (string, int) {
 	t.Helper()
 
-	cmd := exec.Command("bash", scriptPath)
-	cmd.Dir = "."
+	cmd := exec.Command("bash", repoPath(t, scriptPath))
+	cmd.Dir = repoRoot(t)
 	cmd.Env = env
 	cmd.Stdin = strings.NewReader(input)
 	out, err := cmd.CombinedOutput()

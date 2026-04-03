@@ -1,4 +1,4 @@
-package main
+package test
 
 import (
 	"os"
@@ -199,8 +199,8 @@ exit 1
 func runWorkerStatusScript(t *testing.T, tempDir string, extraEnv ...string) (string, int) {
 	t.Helper()
 
-	cmd := exec.Command("bash", ".agents/skills/amux/scripts/worker-status.sh")
-	cmd.Dir = "."
+	cmd := exec.Command("bash", repoPath(t, ".agents/skills/amux/scripts/worker-status.sh"))
+	cmd.Dir = repoRoot(t)
 	cmd.Env = issueMetaScriptEnv(tempDir, extraEnv...)
 	out, err := cmd.CombinedOutput()
 	if err == nil {

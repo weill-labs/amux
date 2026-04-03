@@ -1,4 +1,4 @@
-package main
+package test
 
 import (
 	"os/exec"
@@ -165,9 +165,9 @@ exit 1
 func runClaudeReviewCheck(t *testing.T, tempDir string, extraEnv []string, args ...string) (string, int) {
 	t.Helper()
 
-	cmdArgs := append([]string{"scripts/check-claude-review.sh"}, args...)
+	cmdArgs := append([]string{repoPath(t, "scripts/check-claude-review.sh")}, args...)
 	cmd := exec.Command("bash", cmdArgs...)
-	cmd.Dir = "."
+	cmd.Dir = repoRoot(t)
 	cmd.Env = issueMetaScriptEnv(tempDir, extraEnv...)
 	out, err := cmd.CombinedOutput()
 	if err == nil {

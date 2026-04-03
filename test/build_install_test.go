@@ -1,4 +1,4 @@
-package main_test
+package test
 
 import (
 	"fmt"
@@ -167,7 +167,8 @@ func TestBuildInstallInstallsTerminfo(t *testing.T) {
 	home := t.TempDir()
 	dest := filepath.Join(t.TempDir(), "amux")
 
-	cmd := exec.Command("bash", "scripts/install.sh", dest)
+	cmd := exec.Command("bash", repoPath(t, "scripts/install.sh"), dest)
+	cmd.Dir = repoRoot(t)
 	cmd.Env = envWithHomeAndBranch(t, home, "main")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -188,14 +189,15 @@ func TestBuildInstallInstallsTerminfo(t *testing.T) {
 func TestBuildInstallRewritesInvalidMetadata(t *testing.T) {
 	t.Parallel()
 
-	repoRoot := repoRoot(t)
+	rootDir := repoRoot(t)
 	dest := filepath.Join(t.TempDir(), "amux")
 	metaPath := dest + ".install-meta"
 	if err := os.WriteFile(metaPath, []byte("not-valid-metadata\n"), 0644); err != nil {
 		t.Fatalf("write meta: %v", err)
 	}
 
-	cmd := exec.Command("bash", "scripts/install.sh", dest)
+	cmd := exec.Command("bash", repoPath(t, "scripts/install.sh"), dest)
+	cmd.Dir = rootDir
 	cmd.Env = envWithHomeAndBranch(t, t.TempDir(), "main")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -206,7 +208,7 @@ func TestBuildInstallRewritesInvalidMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read meta: %v", err)
 	}
-	if !strings.Contains(string(meta), "source_repo="+repoRoot) {
+	if !strings.Contains(string(meta), "source_repo="+rootDir) {
 		t.Fatalf("expected metadata rewrite, got:\n%s", meta)
 	}
 }
@@ -255,7 +257,8 @@ exit 1
 		_ = os.Remove(socketPath)
 	}()
 
-	cmd := exec.Command("bash", "scripts/install.sh", dest)
+	cmd := exec.Command("bash", repoPath(t, "scripts/install.sh"), dest)
+	cmd.Dir = repoRoot(t)
 	cmd.Env = prependPath(envWithHomeAndBranch(t, home, "main"), newInstallTestToolDir(t, fakeUID))
 	out, err := cmd.CombinedOutput()
 	if err == nil {
@@ -275,16 +278,6 @@ exit 1
 	}
 }
 
-func repoRoot(t *testing.T) string {
-	t.Helper()
-
-	out, err := exec.Command("git", "rev-parse", "--show-toplevel").CombinedOutput()
-	if err != nil {
-		t.Fatalf("repo root: %v\n%s", err, out)
-	}
-	return strings.TrimSpace(string(out))
-}
-
 func envValue(env []string, key string) string {
 	prefix := key + "="
 	for _, entry := range env {
@@ -293,17 +286,6 @@ func envValue(env []string, key string) string {
 		}
 	}
 	return ""
-}
-
-func upsertEnv(env []string, key, value string) []string {
-	prefix := key + "="
-	for i, entry := range env {
-		if strings.HasPrefix(entry, prefix) {
-			env[i] = prefix + value
-			return env
-		}
-	}
-	return append(env, prefix+value)
 }
 
 func appendGoFlag(current, flag string) string {

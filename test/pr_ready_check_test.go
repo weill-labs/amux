@@ -1,4 +1,4 @@
-package main
+package test
 
 import (
 	"os"
@@ -405,7 +405,7 @@ func runPRReadyCheck(t *testing.T, tempDir string, extraEnv []string, extraArgs 
 
 	args := append([]string{"run", "./cmd/check-pr-ready"}, extraArgs...)
 	cmd := exec.Command("go", args...)
-	cmd.Dir = "."
+	cmd.Dir = repoRoot(t)
 	cmd.Env = issueMetaScriptEnv(tempDir, extraEnv...)
 	out, err := cmd.CombinedOutput()
 	if err == nil {

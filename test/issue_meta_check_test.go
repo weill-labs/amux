@@ -1,4 +1,4 @@
-package main
+package test
 
 import (
 	"os"
@@ -21,8 +21,8 @@ EOF
 		t.Fatalf("write fake amux: %v", err)
 	}
 
-	cmd := exec.Command("bash", "scripts/check-pane-issue-meta.sh")
-	cmd.Dir = "."
+	cmd := exec.Command("bash", repoPath(t, "scripts/check-pane-issue-meta.sh"))
+	cmd.Dir = repoRoot(t)
 	cmd.Env = issueMetaScriptEnv(tempDir)
 	out, err := cmd.CombinedOutput()
 	if err == nil {
@@ -54,8 +54,8 @@ EOF
 		t.Fatalf("write fake amux: %v", err)
 	}
 
-	cmd := exec.Command("bash", "scripts/check-pane-issue-meta.sh")
-	cmd.Dir = "."
+	cmd := exec.Command("bash", repoPath(t, "scripts/check-pane-issue-meta.sh"))
+	cmd.Dir = repoRoot(t)
 	cmd.Env = issueMetaScriptEnv(tempDir)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -79,8 +79,8 @@ EOF
 		t.Fatalf("write fake amux: %v", err)
 	}
 
-	cmd := exec.Command("bash", "scripts/check-pane-issue-meta.sh")
-	cmd.Dir = "."
+	cmd := exec.Command("bash", repoPath(t, "scripts/check-pane-issue-meta.sh"))
+	cmd.Dir = repoRoot(t)
 	cmd.Env = issueMetaScriptEnv(tempDir)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -108,8 +108,8 @@ printf '\n' >>"$FAKE_AMUX_LOG"
 		t.Fatalf("write fake amux: %v", err)
 	}
 
-	cmd := exec.Command("bash", "scripts/set-pane-issue.sh", "LAB-445")
-	cmd.Dir = "."
+	cmd := exec.Command("bash", repoPath(t, "scripts/set-pane-issue.sh"), "LAB-445")
+	cmd.Dir = repoRoot(t)
 	cmd.Env = issueMetaScriptEnv(tempDir, "FAKE_AMUX_LOG="+logPath)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -449,11 +449,13 @@ func upsertIssueMetaEnv(env []string, key, value string) []string {
 func copyIssueMetaFixture(t *testing.T, root, relPath string) string {
 	t.Helper()
 
-	data, err := os.ReadFile(relPath)
+	src := repoPath(t, relPath)
+
+	data, err := os.ReadFile(src)
 	if err != nil {
 		t.Fatalf("read fixture %s: %v", relPath, err)
 	}
-	info, err := os.Stat(relPath)
+	info, err := os.Stat(src)
 	if err != nil {
 		t.Fatalf("stat fixture %s: %v", relPath, err)
 	}

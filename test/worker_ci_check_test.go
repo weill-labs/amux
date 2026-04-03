@@ -1,4 +1,4 @@
-package main
+package test
 
 import (
 	"os"
@@ -341,9 +341,9 @@ EOF
 func runWorkerCICheck(t *testing.T, tempDir string, extraEnv []string, extraArgs []string) (string, int) {
 	t.Helper()
 
-	args := append([]string{"scripts/check-worker-ci.sh"}, extraArgs...)
+	args := append([]string{repoPath(t, "scripts/check-worker-ci.sh")}, extraArgs...)
 	cmd := exec.Command("bash", args...)
-	cmd.Dir = "."
+	cmd.Dir = repoRoot(t)
 	cmd.Env = issueMetaScriptEnv(tempDir, extraEnv...)
 	out, err := cmd.CombinedOutput()
 	if err == nil {

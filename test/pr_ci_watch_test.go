@@ -1,4 +1,4 @@
-package main
+package test
 
 import (
 	"os"
@@ -65,8 +65,8 @@ echo "unexpected gh invocation: $*" >&2
 exit 1
 `)
 
-	cmd := exec.Command("bash", "scripts/watch-pr-ci.sh")
-	cmd.Dir = "."
+	cmd := exec.Command("bash", repoPath(t, "scripts/watch-pr-ci.sh"))
+	cmd.Dir = repoRoot(t)
 	cmd.Env = ciWatchScriptEnv(t, tempDir, "FAKE_GH_LOG="+ghLog, "FAKE_GH_STATE="+ghState, "AMUX_PR_RUN_DISCOVERY_TIMEOUT=1", "AMUX_PR_RUN_DISCOVERY_INTERVAL=1")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -166,8 +166,8 @@ echo "unexpected gh invocation: $*" >&2
 exit 1
 `)
 
-	cmd := exec.Command("bash", "scripts/watch-pr-ci.sh")
-	cmd.Dir = "."
+	cmd := exec.Command("bash", repoPath(t, "scripts/watch-pr-ci.sh"))
+	cmd.Dir = repoRoot(t)
 	cmd.Env = ciWatchScriptEnv(
 		t,
 		tempDir,
@@ -253,8 +253,8 @@ echo "unexpected gh invocation: $*" >&2
 exit 1
 `)
 
-	cmd := exec.Command("bash", "scripts/watch-pr-ci.sh")
-	cmd.Dir = "."
+	cmd := exec.Command("bash", repoPath(t, "scripts/watch-pr-ci.sh"))
+	cmd.Dir = repoRoot(t)
 	cmd.Env = ciWatchScriptEnv(t, tempDir, "FAKE_GH_LOG="+ghLog)
 	out, err := cmd.CombinedOutput()
 	if err == nil {
@@ -345,8 +345,8 @@ echo "unexpected gh invocation: $*" >&2
 exit 1
 `)
 
-	cmd := exec.Command("bash", "scripts/watch-pr-ci.sh")
-	cmd.Dir = "."
+	cmd := exec.Command("bash", repoPath(t, "scripts/watch-pr-ci.sh"))
+	cmd.Dir = repoRoot(t)
 	cmd.Env = ciWatchScriptEnv(t, tempDir, "FAKE_GH_LOG="+ghLog)
 	out, err := cmd.CombinedOutput()
 	if err == nil {
@@ -426,8 +426,8 @@ echo "unexpected gh invocation: $*" >&2
 exit 1
 `)
 
-	cmd := exec.Command("bash", "scripts/push-and-watch-ci.sh", "origin", "HEAD")
-	cmd.Dir = "."
+	cmd := exec.Command("bash", repoPath(t, "scripts/push-and-watch-ci.sh"), "origin", "HEAD")
+	cmd.Dir = repoRoot(t)
 	cmd.Env = ciWatchScriptEnv(t, tempDir, "FAKE_GIT_LOG="+gitLog, "FAKE_GH_LOG="+ghLog)
 	out, err := cmd.CombinedOutput()
 	if err != nil {

@@ -1,4 +1,4 @@
-package main
+package test
 
 import (
 	"os"
@@ -155,8 +155,8 @@ func newRecoverWorkerFixture(t *testing.T) recoverWorkerFixture {
 func runRecoverWorkerScript(t *testing.T, tempDir string, extraEnv ...string) (string, int) {
 	t.Helper()
 
-	cmd := exec.Command("bash", ".agents/skills/amux/scripts/recover-worker.sh", "pane-68")
-	cmd.Dir = "."
+	cmd := exec.Command("bash", repoPath(t, ".agents/skills/amux/scripts/recover-worker.sh"), "pane-68")
+	cmd.Dir = repoRoot(t)
 	cmd.Env = issueMetaScriptEnv(tempDir, extraEnv...)
 	out, err := cmd.CombinedOutput()
 	if err == nil {

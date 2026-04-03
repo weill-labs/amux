@@ -1,4 +1,4 @@
-package main_test
+package test
 
 import (
 	"archive/tar"
@@ -39,7 +39,8 @@ func TestReleaseInstallScriptInstallsExplicitVersionArchive(t *testing.T) {
 
 	home := t.TempDir()
 	binDir := filepath.Join(t.TempDir(), "bin")
-	cmd := exec.Command("bash", "scripts/install-release.sh")
+	cmd := exec.Command("bash", repoPath(t, "scripts/install-release.sh"))
+	cmd.Dir = repoRoot(t)
 	cmd.Env = append(envWithHome(home),
 		"AMUX_INSTALL_BASE_URL="+ts.URL,
 		"AMUX_INSTALL_VERSION="+version,
@@ -82,7 +83,8 @@ func TestReleaseInstallScriptResolvesLatestReleaseRedirect(t *testing.T) {
 
 	home := t.TempDir()
 	binDir := filepath.Join(t.TempDir(), "bin")
-	cmd := exec.Command("bash", "scripts/install-release.sh")
+	cmd := exec.Command("bash", repoPath(t, "scripts/install-release.sh"))
+	cmd.Dir = repoRoot(t)
 	cmd.Env = append(envWithHome(home),
 		"AMUX_INSTALL_BASE_URL="+ts.URL,
 		"AMUX_INSTALL_BIN_DIR="+binDir,

@@ -1,4 +1,4 @@
-package main
+package test
 
 import (
 	"os"
@@ -177,8 +177,8 @@ func TestDelegateTaskScriptRequiresTaskArgument(t *testing.T) {
 func runDelegateTaskScript(t *testing.T, tempDir string, extraEnv []string, args ...string) (string, int) {
 	t.Helper()
 
-	cmd := exec.Command("bash", append([]string{".agents/skills/amux/scripts/delegate-task.sh"}, args...)...)
-	cmd.Dir = "."
+	cmd := exec.Command("bash", append([]string{repoPath(t, ".agents/skills/amux/scripts/delegate-task.sh")}, args...)...)
+	cmd.Dir = repoRoot(t)
 	cmd.Env = issueMetaScriptEnv(tempDir, extraEnv...)
 	out, err := cmd.CombinedOutput()
 	if err == nil {
