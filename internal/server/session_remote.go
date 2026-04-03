@@ -58,7 +58,7 @@ func (s *Session) handleTakeover(sshPaneID uint32, req mux.TakeoverRequest) {
 		return
 	}
 	clearTakeoverPending := func() {
-		s.enqueueCommandMutation(func(s *Session) commandMutationResult {
+		s.enqueueCommandMutation(func(s *MutationContext) commandMutationResult {
 			delete(s.takenOverPanes, sshPaneID)
 			return commandMutationResult{}
 		})
@@ -162,7 +162,7 @@ func (s *Session) handleTakeover(sshPaneID uint32, req mux.TakeoverRequest) {
 
 	// Splice the proxy panes into the layout only after the remote attach has
 	// been validated. This keeps the raw SSH pane visible on takeover failure.
-	res := s.enqueueCommandMutation(func(s *Session) commandMutationResult {
+	res := s.enqueueCommandMutation(func(s *MutationContext) commandMutationResult {
 		w := s.findWindowByPaneID(sshPaneID)
 		if w == nil {
 			return commandMutationResult{err: fmt.Errorf("pane %d not in any window", sshPaneID)}

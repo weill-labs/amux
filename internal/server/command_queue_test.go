@@ -22,7 +22,7 @@ func TestEnqueueCommandMutationReturnsOnSessionShutdown(t *testing.T) {
 
 	resultCh := make(chan commandMutationResult, 1)
 	go func() {
-		resultCh <- sess.enqueueCommandMutation(func(*Session) commandMutationResult {
+		resultCh <- sess.enqueueCommandMutation(func(*MutationContext) commandMutationResult {
 			return commandMutationResult{output: "unreachable\n"}
 		})
 	}()
@@ -364,7 +364,7 @@ func TestQueuedPreparedRemotePaneInsert(t *testing.T) {
 		return len(data), nil
 	})
 
-	res := sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
+	res := sess.enqueueCommandMutation(func(sess *MutationContext) commandMutationResult {
 		if err := sess.insertPreparedPaneIntoActiveWindow(proxy, mux.SplitVertical, false, false); err != nil {
 			return commandMutationResult{err: err}
 		}

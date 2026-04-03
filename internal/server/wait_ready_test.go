@@ -302,7 +302,7 @@ func TestWaitReadyFailsWhenPaneDisappearsMidWait(t *testing.T) {
 	clientConn, _, done := startAsyncCommand(t, srv, sess, "wait", "ready", "pane-1", "--timeout", "5s")
 	clk.AwaitTimers(3)
 
-	sess.enqueueCommandMutation(func(s *Session) commandMutationResult {
+	sess.enqueueCommandMutation(func(s *MutationContext) commandMutationResult {
 		s.finalizePaneRemoval(pane.ID)
 		return commandMutationResult{}
 	})
@@ -341,7 +341,7 @@ func TestWaitReadyRestartsSettleTimerAfterExpiredWindowSeesNewOutput(t *testing.
 	mutationDone := make(chan struct{})
 	go func() {
 		defer close(mutationDone)
-		sess.enqueueCommandMutation(func(s *Session) commandMutationResult {
+		sess.enqueueCommandMutation(func(s *MutationContext) commandMutationResult {
 			close(mutationStarted)
 			<-mutationRelease
 			return commandMutationResult{}

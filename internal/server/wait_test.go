@@ -42,7 +42,7 @@ func TestWaitGeneration_WakesOnIncrement(t *testing.T) {
 		})
 	})
 
-	sess.enqueueCommandMutation(func(s *Session) commandMutationResult {
+	sess.enqueueCommandMutation(func(s *MutationContext) commandMutationResult {
 		gen := s.generation.Add(1)
 		s.notifyLayoutWaiters(gen)
 		return commandMutationResult{}
@@ -170,7 +170,7 @@ func TestWaitGenerationAfterCurrent_WaitsForNextGeneration(t *testing.T) {
 		})
 	})
 
-	sess.enqueueCommandMutation(func(s *Session) commandMutationResult {
+	sess.enqueueCommandMutation(func(s *MutationContext) commandMutationResult {
 		gen := s.generation.Add(1)
 		s.notifyLayoutWaiters(gen)
 		return commandMutationResult{}
@@ -211,7 +211,7 @@ func TestWaitClipboardAfterCurrent_WaitsForNextClipboard(t *testing.T) {
 		})
 	})
 
-	sess.enqueueCommandMutation(func(s *Session) commandMutationResult {
+	sess.enqueueCommandMutation(func(s *MutationContext) commandMutationResult {
 		s.waiters.recordClipboard([]byte("new"))
 		return commandMutationResult{}
 	})
@@ -237,7 +237,7 @@ func TestNotifyPaneOutputSubs(t *testing.T) {
 	ch := sess.enqueuePaneOutputSubscribe(1)
 
 	// Notification should be received (routed through event loop).
-	sess.enqueueCommandMutation(func(s *Session) commandMutationResult {
+	sess.enqueueCommandMutation(func(s *MutationContext) commandMutationResult {
 		s.notifyPaneOutputSubs(1)
 		return commandMutationResult{}
 	})
@@ -249,7 +249,7 @@ func TestNotifyPaneOutputSubs(t *testing.T) {
 	}
 
 	// Notification for a different pane should NOT be received.
-	sess.enqueueCommandMutation(func(s *Session) commandMutationResult {
+	sess.enqueueCommandMutation(func(s *MutationContext) commandMutationResult {
 		s.notifyPaneOutputSubs(2)
 		return commandMutationResult{}
 	})
@@ -262,12 +262,12 @@ func TestNotifyPaneOutputSubs(t *testing.T) {
 
 	// Unsubscribe, then synchronize via a no-op mutation to ensure it's processed.
 	sess.enqueuePaneOutputUnsubscribe(1, ch)
-	sess.enqueueCommandMutation(func(s *Session) commandMutationResult {
+	sess.enqueueCommandMutation(func(s *MutationContext) commandMutationResult {
 		return commandMutationResult{}
 	})
 
 	// After unsubscribe, notification should NOT be received.
-	sess.enqueueCommandMutation(func(s *Session) commandMutationResult {
+	sess.enqueueCommandMutation(func(s *MutationContext) commandMutationResult {
 		s.notifyPaneOutputSubs(1)
 		return commandMutationResult{}
 	})
@@ -296,7 +296,7 @@ func TestBeginPaneOutputWait(t *testing.T) {
 		})
 
 		pane.FeedOutput([]byte("hello"))
-		sess.enqueueCommandMutation(func(s *Session) commandMutationResult { return commandMutationResult{} })
+		sess.enqueueCommandMutation(func(s *MutationContext) commandMutationResult { return commandMutationResult{} })
 
 		start, err := sess.beginPaneOutputWait(pane.ID, "hello")
 		if err != nil {

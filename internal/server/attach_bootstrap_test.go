@@ -435,7 +435,7 @@ func subscribeAttachTestPaneOutput(sess *Session, paneID uint32) (chan struct{},
 }
 
 func queueAttachTestSplit(sess *Session, pane *mux.Pane, dir mux.SplitDir, rootLevel bool) error {
-	res := sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
+	res := sess.enqueueCommandMutation(func(sess *MutationContext) commandMutationResult {
 		if err := sess.insertPreparedPaneIntoActiveWindow(pane, dir, rootLevel, false); err != nil {
 			return commandMutationResult{err: err}
 		}

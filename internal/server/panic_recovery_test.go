@@ -44,7 +44,7 @@ func TestCommandMutationPanicReturnsError(t *testing.T) {
 	defer stopSessionBackgroundLoops(t, sess)
 
 	// A panicking mutation closure should return an error result.
-	res := sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
+	res := sess.enqueueCommandMutation(func(sess *MutationContext) commandMutationResult {
 		panic("mutation boom")
 	})
 	if res.err == nil {
@@ -55,7 +55,7 @@ func TestCommandMutationPanicReturnsError(t *testing.T) {
 	}
 
 	// Event loop should still be alive.
-	res = sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
+	res = sess.enqueueCommandMutation(func(sess *MutationContext) commandMutationResult {
 		return commandMutationResult{output: "alive"}
 	})
 	if res.err != nil {

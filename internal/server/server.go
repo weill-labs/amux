@@ -920,25 +920,21 @@ func (s *Server) EnsureInitialWindow(cols, rows int) error {
 		return fmt.Errorf("no session")
 	}
 
-	res := sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
-		initRes, err := sess.ensureInitialWindowLocked(s, cols, rows, nil)
+	res := sess.enqueueCommandMutation(func(ctx *MutationContext) commandMutationResult {
+		initRes, err := ctx.ensureInitialWindowLocked(s, cols, rows, nil)
 		if err != nil {
 			return commandMutationResult{err: err}
 		}
 		if !initRes.layoutChanged {
 			return commandMutationResult{}
 		}
-		res := commandMutationResult{broadcastLayout: true}
 		if initRes.newPane != nil {
-			res.startPanes = []*mux.Pane{initRes.newPane}
+			ctx.ScheduleStart(initRes.newPane)
 		}
-		return res
+		return commandMutationResult{broadcastLayout: true}
 	})
 	if res.err != nil {
 		return res.err
-	}
-	for _, pane := range res.startPanes {
-		pane.Start()
 	}
 	return nil
 }

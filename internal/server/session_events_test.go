@@ -379,9 +379,14 @@ func TestCommandMutationBroadcastsLayoutBeforeQueuedPaneOutput(t *testing.T) {
 	t.Cleanup(cc.Close)
 	sess.ensureClientManager().setClientsForTest(cc)
 
-	res := sess.enqueueCommandMutation(func(s *Session) commandMutationResult {
-		s.enqueuePaneOutput(pane.ID, []byte("queued-output"), 1)
-		return commandMutationResult{broadcastLayout: true}
+	res := sess.enqueueCommandMutation(func(s *MutationContext) commandMutationResult {
+		return commandMutationResult{
+			broadcastLayout: true,
+			paneRenders: []paneRender{{
+				paneID: pane.ID,
+				data:   []byte("queued-output"),
+			}},
+		}
 	})
 	if res.err != nil {
 		t.Fatalf("enqueueCommandMutation error = %v", res.err)

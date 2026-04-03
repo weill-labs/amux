@@ -222,7 +222,7 @@ func mustSetupSinglePaneSession(t *testing.T, sess *Session, writeOverride func(
 	w.ID = 1
 	w.Name = "window-1"
 
-	res := sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
+	res := sess.enqueueCommandMutation(func(sess *MutationContext) commandMutationResult {
 		sess.Windows = []*mux.Window{w}
 		sess.ActiveWindowID = w.ID
 		sess.Panes = []*mux.Pane{pane}
@@ -474,7 +474,7 @@ func TestClientConnActiveInputPaneForWriteSwitchesSessionSizeToLatestClient(t *t
 	cc.cols = 60
 	cc.rows = 20
 
-	res := sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
+	res := sess.enqueueCommandMutation(func(sess *MutationContext) commandMutationResult {
 		sess.Windows = []*mux.Window{w}
 		sess.ActiveWindowID = w.ID
 		sess.Panes = []*mux.Pane{pane}
@@ -549,7 +549,7 @@ func TestClientConnInputTargetTracksFocusAndWindowChanges(t *testing.T) {
 	window2.ID = 2
 	window2.Name = "window-2"
 
-	res := sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
+	res := sess.enqueueCommandMutation(func(sess *MutationContext) commandMutationResult {
 		sess.Windows = []*mux.Window{window1, window2}
 		sess.ActiveWindowID = window1.ID
 		sess.Panes = []*mux.Pane{pane1, pane2, pane3}
@@ -574,7 +574,7 @@ func TestClientConnInputTargetTracksFocusAndWindowChanges(t *testing.T) {
 
 	assertReadLoopInputWrite(t, peerConn, pane1Writes, "one")
 
-	res = sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
+	res = sess.enqueueCommandMutation(func(sess *MutationContext) commandMutationResult {
 		window1.FocusPane(pane2)
 		return commandMutationResult{}
 	})
@@ -583,7 +583,7 @@ func TestClientConnInputTargetTracksFocusAndWindowChanges(t *testing.T) {
 	}
 	assertReadLoopInputWrite(t, peerConn, pane2Writes, "two")
 
-	res = sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
+	res = sess.enqueueCommandMutation(func(sess *MutationContext) commandMutationResult {
 		sess.ActiveWindowID = window2.ID
 		return commandMutationResult{}
 	})

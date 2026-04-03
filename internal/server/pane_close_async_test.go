@@ -132,6 +132,13 @@ func TestRunCreatePaneRemoteWindowResolutionFailureDefersClose(t *testing.T) {
 	srv, sess, cleanup := newCommandTestSession(t)
 	defer cleanup()
 
+	closed := make(chan *mux.Pane, 1)
+	sess.paneCloser = func(pane *mux.Pane) {
+		closed <- pane
+		_ = pane.Close()
+		_ = pane.WaitClosed()
+	}
+
 	pane := newTestPane(sess, 1, "pane-1")
 	window := newTestWindowWithPanes(t, sess, 1, "main", pane)
 	setSessionLayoutForTest(t, sess, window.ID, []*mux.Window{window}, pane)
@@ -154,25 +161,24 @@ func TestRunCreatePaneRemoteWindowResolutionFailureDefersClose(t *testing.T) {
 		dir:          mux.SplitVertical,
 	}, true)
 
-	for _, closePane := range res.ClosePanes {
-		closePane := closePane
-		t.Cleanup(func() {
-			_ = closePane.Close()
-			_ = closePane.WaitClosed()
-		})
-	}
-
 	if res.Err == nil || res.Err.Error() != "pane not in any window" {
 		t.Fatalf("runCreatePane error = %v, want pane-not-in-window", res.Err)
 	}
-	if len(res.ClosePanes) != 1 {
-		t.Fatalf("runCreatePane close panes = %d, want 1", len(res.ClosePanes))
+	if len(res.ClosePanes) != 0 {
+		t.Fatalf("runCreatePane close panes = %d, want 0", len(res.ClosePanes))
 	}
-	if got := res.ClosePanes[0].Meta.Name; got != "worker" {
+
+	var closedPane *mux.Pane
+	select {
+	case closedPane = <-closed:
+	case <-time.After(time.Second):
+		t.Fatal("runCreatePane did not schedule the prepared pane for async close")
+	}
+	if got := closedPane.Meta.Name; got != "worker" {
 		t.Fatalf("prepared pane name = %q, want worker", got)
 	}
-	if len(transport.removedPanes) != 1 || transport.removedPanes[0] != res.ClosePanes[0].ID {
-		t.Fatalf("removed panes = %#v, want [%d]", transport.removedPanes, res.ClosePanes[0].ID)
+	if len(transport.removedPanes) != 1 || transport.removedPanes[0] != closedPane.ID {
+		t.Fatalf("removed panes = %#v, want [%d]", transport.removedPanes, closedPane.ID)
 	}
 	if got := mustSessionQuery(t, sess, func(sess *Session) int { return len(sess.Panes) }); got != 1 {
 		t.Fatalf("pane count after stale-window failure = %d, want 1", got)
@@ -306,6 +312,71 @@ func TestReplyCommandMutationSendsErrorWhilePaneCloseBlocks(t *testing.T) {
 	}
 	if msg.CmdErr != "boom" {
 		t.Fatalf("CmdErr = %q, want boom", msg.CmdErr)
+	}
+
+	unblockOnce.Do(func() { close(unblock) })
+}
+
+func TestEnqueueCommandMutationSchedulesPaneCloseOffLoop(t *testing.T) {
+	t.Parallel()
+
+	sess := newSession("test-enqueue-command-mutation-schedule-close")
+	stopCrashCheckpointLoop(t, sess)
+
+	var unblockOnce sync.Once
+	unblock := make(chan struct{})
+	closeStarted := make(chan struct{})
+	sess.paneCloser = func(pane *mux.Pane) {
+		close(closeStarted)
+		<-unblock
+		_ = pane.Close()
+	}
+	t.Cleanup(func() {
+		unblockOnce.Do(func() { close(unblock) })
+		stopSessionBackgroundLoops(t, sess)
+	})
+
+	pane := newTestPane(sess, 1, "pane-1")
+
+	resultCh := make(chan commandMutationResult, 1)
+	go func() {
+		resultCh <- sess.enqueueCommandMutation(func(ctx *MutationContext) commandMutationResult {
+			ctx.ScheduleClose(pane)
+			return commandMutationResult{err: errors.New("boom")}
+		})
+	}()
+
+	var res commandMutationResult
+	select {
+	case res = <-resultCh:
+	case <-time.After(time.Second):
+		t.Fatal("enqueueCommandMutation did not return")
+	}
+	if res.err == nil || res.err.Error() != "boom" {
+		t.Fatalf("enqueueCommandMutation error = %v, want boom", res.err)
+	}
+
+	select {
+	case <-closeStarted:
+	case <-time.After(time.Second):
+		t.Fatal("scheduled pane close did not start")
+	}
+
+	queryDone := make(chan error, 1)
+	go func() {
+		_, err := enqueueSessionQuery(sess, func(sess *Session) (struct{}, error) {
+			return struct{}{}, nil
+		})
+		queryDone <- err
+	}()
+
+	select {
+	case err := <-queryDone:
+		if err != nil {
+			t.Fatalf("session query while scheduled close blocked: %v", err)
+		}
+	case <-time.After(250 * time.Millisecond):
+		t.Fatal("session event loop blocked while scheduled close was in progress")
 	}
 
 	unblockOnce.Do(func() { close(unblock) })
