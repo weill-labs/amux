@@ -1,7 +1,6 @@
 package server
 
 import (
-	"errors"
 	"fmt"
 	"time"
 
@@ -37,6 +36,16 @@ func (s *Session) closePaneAsync(pane *mux.Pane) {
 		}
 	}
 	go closePane(pane)
+}
+
+func cleanupFailedPreparedPane(sess *Session, pane *mux.Pane, err error) commandMutationResult {
+	if pane != nil && pane.IsProxy() && sess.RemoteManager != nil {
+		sess.RemoteManager.RemovePane(pane.ID)
+	}
+	return commandMutationResult{
+		err:        err,
+		closePanes: []*mux.Pane{pane},
+	}
 }
 
 func cleanupFailedPaneMutation(sess *Session, pane *mux.Pane, err error) commandMutationResult {
@@ -241,21 +250,21 @@ func (s *Session) replacePaneInstance(oldPane, newPane *mux.Pane, w *mux.Window)
 	if w == nil {
 		return fmt.Errorf("pane not in any window")
 	}
-	replaced := false
+	index := -1
 	for i, pane := range s.Panes {
 		if pane.ID != oldPane.ID {
 			continue
 		}
-		s.Panes[i] = newPane
-		replaced = true
+		index = i
 		break
 	}
-	if !replaced {
+	if index < 0 {
 		return fmt.Errorf("pane %q not found", oldPane.Meta.Name)
 	}
 	if err := w.ReplacePane(oldPane.ID, newPane); err != nil {
 		return err
 	}
+	s.Panes[index] = newPane
 	delete(s.takenOverPanes, oldPane.ID)
 	delete(s.terminalEventState, oldPane.ID)
 	s.idle.StopTimer(oldPane.ID)
@@ -283,7 +292,9 @@ func (s *Session) respawnPane(srv *Server, pane *mux.Pane, w *mux.Window) (*mux.
 	newPane.SetOnMetaUpdate(s.metaCallback())
 
 	if err := s.replacePaneInstance(pane, newPane, w); err != nil {
-		return nil, errors.Join(err, newPane.Close())
+		newPane.SuppressCallbacks()
+		s.closePaneAsync(newPane)
+		return nil, err
 	}
 	pane.SuppressCallbacks()
 	return newPane, nil

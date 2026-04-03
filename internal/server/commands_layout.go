@@ -113,8 +113,7 @@ func runCreatePane(ctx *CommandContext, actorPaneID uint32, command string, plac
 		return toCommandResult(ctx.Sess.enqueueCommandMutation(func(sess *Session) commandMutationResult {
 			w, err := resolveCreatePaneWindow(sess, actorPaneID, placement, snapshot)
 			if err != nil {
-				pane.Close()
-				return commandMutationResult{err: err}
+				return cleanupFailedPreparedPane(sess, pane, err)
 			}
 			sess.Panes = append(sess.Panes, pane)
 			if err := placeCreatedPaneInWindow(w, placement, snapshot, pane, req.dir, keepFocus); err != nil {
