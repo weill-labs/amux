@@ -68,6 +68,8 @@ func newMutationContext(sess *Session) *MutationContext {
 	return ctx
 }
 
+// syncFromSession refreshes the mirrored fields after helpers or legacy
+// commandpkg.Result.Mutate handlers touch Session directly.
 func (ctx *MutationContext) syncFromSession() {
 	if ctx == nil || ctx.sess == nil {
 		return
@@ -84,6 +86,8 @@ func (ctx *MutationContext) syncFromSession() {
 	ctx.takenOverPanes = ctx.sess.takenOverPanes
 }
 
+// commit copies field-level mutations back to the Session before helpers that
+// still operate on *Session run.
 func (ctx *MutationContext) commit() {
 	if ctx == nil || ctx.sess == nil {
 		return
@@ -443,12 +447,7 @@ func (e commandMutationEvent) handle(s *Session) {
 	ctx := newMutationContext(s)
 	res := recoverCommandMutation(e.fn, ctx)
 	ctx.commit()
-	for _, pane := range ctx.closePanes {
-		s.closePaneAsync(pane)
-	}
-	for _, pane := range ctx.startPanes {
-		pane.Start()
-	}
+	s.drainScheduledMutationPanes(ctx)
 	if res.err == nil {
 		s.ensureInputRouter().syncPanes(s.Panes)
 		// Keep enqueueCommandMutation callers from observing stale input routing
@@ -468,6 +467,15 @@ func (e commandMutationEvent) handle(s *Session) {
 		res.paneRenders = nil
 	}
 	e.reply <- res
+}
+
+func (s *Session) drainScheduledMutationPanes(ctx *MutationContext) {
+	for _, pane := range ctx.closePanes {
+		s.closePaneAsync(pane)
+	}
+	for _, pane := range ctx.startPanes {
+		pane.Start()
+	}
 }
 
 // recoverCommandMutation calls fn and converts any panic into an error result
