@@ -1,4 +1,4 @@
-package main
+package test
 
 import (
 	"bytes"
@@ -17,7 +17,7 @@ import (
 func TestParallelAudit(t *testing.T) {
 	t.Parallel()
 
-	findings, err := findMissingParallelCalls(".")
+	findings, err := findMissingParallelCalls(repoRoot(t))
 	if err != nil {
 		t.Fatalf("findMissingParallelCalls: %v", err)
 	}
@@ -87,7 +87,7 @@ func findMissingParallelCalls(root string) ([]parallelFinding, error) {
 					pos := fset.Position(fn.Pos())
 					findings = append(findings, parallelFinding{
 						kind: "top",
-						file: strings.TrimPrefix(path, "./"),
+						file: relativeAuditPath(root, path),
 						line: strconv.Itoa(pos.Line),
 						name: fn.Name.Name,
 					})
@@ -123,7 +123,7 @@ func findMissingParallelCalls(root string) ([]parallelFinding, error) {
 					pos := fset.Position(call.Pos())
 					findings = append(findings, parallelFinding{
 						kind: "sub",
-						file: strings.TrimPrefix(path, "./"),
+						file: relativeAuditPath(root, path),
 						line: strconv.Itoa(pos.Line),
 						name: fn.Name.Name + "/" + exprString(fset, call.Args[0]),
 					})
@@ -279,4 +279,12 @@ func exprString(fset *token.FileSet, expr ast.Expr) string {
 	var buf bytes.Buffer
 	_ = printer.Fprint(&buf, fset, expr)
 	return buf.String()
+}
+
+func relativeAuditPath(root, path string) string {
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return path
+	}
+	return rel
 }
