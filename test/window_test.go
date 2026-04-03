@@ -77,23 +77,7 @@ func TestNewWindowLeadPaneCanSpawnIntoAnchoredLayout(t *testing.T) {
 	}
 
 	capture := h.captureJSON()
-	lead := h.jsonPane(capture, "pane-2")
-	worker := h.jsonPane(capture, "worker")
-	if !lead.Lead {
-		t.Fatal("pane-2 should remain the lead pane after spawn")
-	}
-	if worker.Lead {
-		t.Fatal("worker should not be marked as lead")
-	}
-	if lead.Position == nil || worker.Position == nil {
-		t.Fatalf("spawned lead layout should include positions, lead=%+v worker=%+v", lead.Position, worker.Position)
-	}
-	if lead.Position.X >= worker.Position.X {
-		t.Fatalf("lead pane should stay left of worker: lead.x=%d worker.x=%d", lead.Position.X, worker.Position.X)
-	}
-	if lead.Position.Y != worker.Position.Y || lead.Position.Height != worker.Position.Height {
-		t.Fatalf("lead spawn should materialize a side-by-side layout: lead=%+v worker=%+v", lead.Position, worker.Position)
-	}
+	assertAnchoredLeadSpawnLayout(t, h, capture, "pane-2", "worker")
 }
 
 func TestNewWindowLeadPaneSpawnIgnoresOuterActorPaneEnv(t *testing.T) {
@@ -108,13 +92,28 @@ func TestNewWindowLeadPaneSpawnIgnoresOuterActorPaneEnv(t *testing.T) {
 	}
 
 	capture := h.captureJSON()
-	lead := h.jsonPane(capture, "pane-2")
-	worker := h.jsonPane(capture, "worker")
+	assertAnchoredLeadSpawnLayout(t, h, capture, "pane-2", "worker")
+}
+
+func listLineForPane(listOut, paneName string) string {
+	for _, line := range strings.Split(listOut, "\n") {
+		if strings.Contains(line, paneName) {
+			return line
+		}
+	}
+	return ""
+}
+
+func assertAnchoredLeadSpawnLayout(t *testing.T, h *ServerHarness, capture proto.CaptureJSON, leadName, workerName string) {
+	t.Helper()
+
+	lead := h.jsonPane(capture, leadName)
+	worker := h.jsonPane(capture, workerName)
 	if !lead.Lead {
-		t.Fatal("pane-2 should remain the lead pane after spawn")
+		t.Fatalf("%s should remain the lead pane after spawn", leadName)
 	}
 	if worker.Lead {
-		t.Fatal("worker should not be marked as lead")
+		t.Fatalf("%s should not be marked as lead", workerName)
 	}
 	if lead.Position == nil || worker.Position == nil {
 		t.Fatalf("spawned lead layout should include positions, lead=%+v worker=%+v", lead.Position, worker.Position)
@@ -125,15 +124,6 @@ func TestNewWindowLeadPaneSpawnIgnoresOuterActorPaneEnv(t *testing.T) {
 	if lead.Position.Y != worker.Position.Y || lead.Position.Height != worker.Position.Height {
 		t.Fatalf("lead spawn should materialize a side-by-side layout: lead=%+v worker=%+v", lead.Position, worker.Position)
 	}
-}
-
-func listLineForPane(listOut, paneName string) string {
-	for _, line := range strings.Split(listOut, "\n") {
-		if strings.Contains(line, paneName) {
-			return line
-		}
-	}
-	return ""
 }
 
 func TestListWindows(t *testing.T) {
