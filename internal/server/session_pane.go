@@ -38,6 +38,16 @@ func (s *Session) closePaneAsync(pane *mux.Pane) {
 	go closePane(pane)
 }
 
+func cleanupFailedPreparedPane(sess *Session, pane *mux.Pane, err error) commandMutationResult {
+	if pane != nil && pane.IsProxy() && sess.RemoteManager != nil {
+		sess.RemoteManager.RemovePane(pane.ID)
+	}
+	return commandMutationResult{
+		err:        err,
+		closePanes: []*mux.Pane{pane},
+	}
+}
+
 func cleanupFailedPaneMutation(sess *Session, pane *mux.Pane, err error) commandMutationResult {
 	sess.removePane(pane.ID)
 	return commandMutationResult{
