@@ -150,9 +150,10 @@ func (c *Compositor) RenderFullWithOverlay(root *mux.LayoutCell, activePaneID ui
 		paneCount++
 
 		isActive := pid == activePaneID
+		pressed := overlay.PressedPaneID != 0 && pid == overlay.PressedPaneID
 
 		// Per-pane status line
-		renderPaneStatusWithProfile(&buf, cell, isActive, pd, c.colorProfile)
+		renderPaneStatusPressedWithProfile(&buf, cell, isActive, pressed, pd, c.colorProfile)
 
 		// Pane content (shifted down by status line)
 		c.renderPaneContentWithLayoutHeight(&buf, cell, isActive, pd, layoutHeight)
@@ -486,6 +487,7 @@ func buildLipGlossColorCache() map[string]lipgloss.Color {
 		m[hex] = lipgloss.Color("#" + hex)
 	}
 	m[config.Surface0Hex] = lipgloss.Color("#" + config.Surface0Hex)
+	m[config.Surface1Hex] = lipgloss.Color("#" + config.Surface1Hex)
 	m[config.DimColorHex] = lipgloss.Color("#" + config.DimColorHex)
 	m[config.TextColorHex] = lipgloss.Color("#" + config.TextColorHex)
 	return m
