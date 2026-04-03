@@ -97,6 +97,8 @@ func TestNewWindowLeadPaneCanSpawnIntoAnchoredLayout(t *testing.T) {
 }
 
 func TestNewWindowLeadPaneSpawnIgnoresOuterActorPaneEnv(t *testing.T) {
+	t.Parallel()
+
 	h := newServerHarnessWithOptions(t, 80, 24, "", false, false, "AMUX_PANE=1")
 	h.runCmd("new-window")
 
