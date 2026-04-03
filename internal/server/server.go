@@ -460,6 +460,7 @@ type Server struct {
 	listener net.Listener
 	sessions map[string]*Session
 	sockPath string
+	pprof    *pprofEndpoint
 	logger   *charmlog.Logger
 
 	// Shutdown is serialized with atomics so concurrent callers all observe
@@ -786,6 +787,9 @@ func (s *Server) Shutdown() {
 
 // shutdown cleans up the server socket, remote connections, and panes.
 func (s *Server) shutdown() {
+	if s.pprof != nil {
+		s.pprof.close()
+	}
 	s.listener.Close()
 	os.Remove(s.sockPath)
 

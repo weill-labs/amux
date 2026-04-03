@@ -75,6 +75,7 @@ func defaultRuntime(buildCommit string) Runtime {
 			return writeVersionOutput(buildCommit, w, args)
 		},
 		InstallTerminfo: terminfo.Install,
+		RunDebugCommand: runDebugCommand,
 		RunServer: func(sessionName string, managedTakeover bool) {
 			RunServer(sessionName, managedTakeover, buildVersion(buildCommit))
 		},

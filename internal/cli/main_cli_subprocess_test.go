@@ -214,3 +214,15 @@ func TestMainEqualizeUsage(t *testing.T) {
 		t.Fatalf("output = %q, want equalize usage", output)
 	}
 }
+
+func TestMainDebugHelp(t *testing.T) {
+	t.Parallel()
+
+	output, exitCode := runHermeticMain(t, "debug", "--help")
+	if exitCode != 0 {
+		t.Fatalf("exit code = %d, want 0\noutput:\n%s", exitCode, output)
+	}
+	if !strings.Contains(output, "usage: amux debug <goroutines|profile|heap|socket>") {
+		t.Fatalf("output = %q, want debug usage", output)
+	}
+}

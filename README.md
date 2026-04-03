@@ -431,6 +431,25 @@ with `AMUX_CLIENT_CAPABILITIES`. Use a comma-separated list of capability names:
 scrollback_lines = 10000   # optional: retained history per pane (default: 10000, must be >= 1)
 ```
 
+### Debugging
+
+```toml
+[debug]
+pprof = true               # optional: expose net/http/pprof on a per-session Unix socket
+```
+
+When enabled, the server listens on `/tmp/amux-$UID/<session>.pprof` with mode `0600`
+and serves the standard `net/http/pprof` handlers over that Unix socket.
+
+Useful wrappers:
+
+```bash
+amux debug goroutines
+amux debug heap
+amux debug profile --duration 30s > cpu.pprof.gz
+amux debug socket
+```
+
 ### Remote Hosts
 
 ```toml

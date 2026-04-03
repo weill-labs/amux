@@ -522,6 +522,12 @@ func TestMaybePrintCommandHelp(t *testing.T) {
 			wantStdout:  "usage: amux equalize [--vertical|--all]\n",
 		},
 		{
+			name:        "debug long help as first arg",
+			args:        []string{"debug", "--help"},
+			wantHandled: true,
+			wantStdout:  debugUsage + "\n",
+		},
+		{
 			name:        "wait long help reflects idle rename",
 			args:        []string{"wait", "--help"},
 			wantHandled: true,
@@ -676,6 +682,14 @@ func TestRunMainDispatchesCommands(t *testing.T) {
 			},
 		},
 		{
+			name:     "debug command uses dedicated runner",
+			args:     []string{"debug", "goroutines"},
+			wantExit: 0,
+			wantCalls: []cliCall{
+				{kind: "debug", session: resolvedSessionMarker, args: []string{"goroutines"}},
+			},
+		},
+		{
 			name:     "remote command dispatches through server",
 			args:     []string{"disconnect", "host-a"},
 			wantExit: 0,
@@ -819,6 +833,13 @@ func (h *cliRuntimeHarness) runtime() Runtime {
 		InstallTerminfo: func() error {
 			h.calls = append(h.calls, cliCall{kind: "install-terminfo"})
 			return nil
+		},
+		RunDebugCommand: func(sessionName string, args []string) {
+			h.calls = append(h.calls, cliCall{
+				kind:    "debug",
+				session: sessionName,
+				args:    append([]string(nil), args...),
+			})
 		},
 		RunServer: func(sessionName string, managed bool) {
 			h.calls = append(h.calls, cliCall{kind: "run-server", session: sessionName, managed: managed})
