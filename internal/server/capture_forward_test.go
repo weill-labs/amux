@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"slices"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	caputil "github.com/weill-labs/amux/internal/capture"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
 )
@@ -357,6 +359,135 @@ func TestForwardCaptureJSONNoClientRetriesBeforeErrorObject(t *testing.T) {
 		t.Fatalf("forwardCapture error: %s", resp.CmdErr)
 	}
 	assertJSONErrorResponse(t, resp.CmdOutput, "no_client_attached")
+}
+
+type blockingWriteConn struct {
+	writeStarted sync.Once
+	writeSeen    chan struct{}
+	release      chan struct{}
+	closed       chan struct{}
+}
+
+func newBlockingWriteConn() *blockingWriteConn {
+	return &blockingWriteConn{
+		writeSeen: make(chan struct{}),
+		release:   make(chan struct{}),
+		closed:    make(chan struct{}),
+	}
+}
+
+func (c *blockingWriteConn) Read(_ []byte) (int, error) {
+	select {
+	case <-c.closed:
+		return 0, net.ErrClosed
+	default:
+		return 0, io.EOF
+	}
+}
+
+func (c *blockingWriteConn) Write(p []byte) (int, error) {
+	c.writeStarted.Do(func() { close(c.writeSeen) })
+	select {
+	case <-c.release:
+		return len(p), nil
+	case <-c.closed:
+		return 0, net.ErrClosed
+	}
+}
+
+func (c *blockingWriteConn) Close() error {
+	select {
+	case <-c.closed:
+	default:
+		close(c.closed)
+	}
+	select {
+	case <-c.release:
+	default:
+		close(c.release)
+	}
+	return nil
+}
+
+func (c *blockingWriteConn) LocalAddr() net.Addr              { return dummyNetAddr("local") }
+func (c *blockingWriteConn) RemoteAddr() net.Addr             { return dummyNetAddr("remote") }
+func (c *blockingWriteConn) SetDeadline(time.Time) error      { return nil }
+func (c *blockingWriteConn) SetReadDeadline(time.Time) error  { return nil }
+func (c *blockingWriteConn) SetWriteDeadline(time.Time) error { return nil }
+
+type dummyNetAddr string
+
+func (a dummyNetAddr) Network() string { return "test" }
+func (a dummyNetAddr) String() string  { return string(a) }
+
+func TestCaptureClientSnapshotSkipsBootstrappingClientWithoutWriterRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	_, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	blockedConn := newBlockingWriteConn()
+	blocked := newClientConn(blockedConn)
+	blocked.ID = "client-1"
+	t.Cleanup(blocked.Close)
+	blocked.startBootstrap()
+
+	sendDone := make(chan error, 1)
+	go func() {
+		sendDone <- blocked.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: strings.Repeat("x", 1<<20)})
+	}()
+
+	select {
+	case <-blockedConn.writeSeen:
+	case <-time.After(time.Second):
+		t.Fatal("blocked client writer did not start write")
+	}
+
+	serverConn, peerConn := net.Pipe()
+	t.Cleanup(func() { serverConn.Close() })
+	t.Cleanup(func() { peerConn.Close() })
+
+	ready := newClientConn(serverConn)
+	t.Cleanup(ready.Close)
+
+	if _, err := enqueueSessionQuery(sess, func(sess *Session) (struct{}, error) {
+		sess.ensureClientManager().setClientsForTest(blocked, ready)
+		return struct{}{}, nil
+	}); err != nil {
+		t.Fatalf("enqueueSessionQuery: %v", err)
+	}
+
+	done := make(chan struct{})
+	var (
+		snap captureClientSnapshot
+		err  error
+	)
+	go func() {
+		snap, err = sess.captureClientSnapshotForActor(caputil.Request{}, 0, nil)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("captureClientSnapshotForActor blocked on bootstrapping client")
+	}
+	if err != nil {
+		t.Fatalf("captureClientSnapshotForActor: %v", err)
+	}
+	if snap.client != ready {
+		t.Fatalf("capture client = %#v, want ready client", snap.client)
+	}
+
+	close(blockedConn.release)
+	select {
+	case sendErr := <-sendDone:
+		if sendErr != nil {
+			t.Fatalf("blocked client send error: %v", sendErr)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("blocked client send did not finish after release")
+	}
 }
 
 func TestForwardCaptureJSONReturnsSessionShuttingDownBeforeAttach(t *testing.T) {
