@@ -10,6 +10,18 @@ import (
 	"github.com/weill-labs/amux/internal/mux"
 )
 
+type createPaneHookTransport struct {
+	stubPaneTransport
+	onCreatePane func()
+}
+
+func (t *createPaneHookTransport) CreatePane(hostName string, localPaneID uint32, sessionName string) (uint32, error) {
+	if t.onCreatePane != nil {
+		t.onCreatePane()
+	}
+	return t.stubPaneTransport.CreatePane(hostName, localPaneID, sessionName)
+}
+
 func TestSessionEventLoopStaysResponsiveWhilePaneCloseBlocks(t *testing.T) {
 	t.Parallel()
 
@@ -111,6 +123,141 @@ func TestSessionEventLoopStaysResponsiveWhilePaneCloseBlocks(t *testing.T) {
 
 			unblockOnce.Do(func() { close(unblock) })
 		})
+	}
+}
+
+func TestRunCreatePaneRemoteWindowResolutionFailureDefersClose(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	pane := newTestPane(sess, 1, "pane-1")
+	window := newTestWindowWithPanes(t, sess, 1, "main", pane)
+	setSessionLayoutForTest(t, sess, window.ID, []*mux.Window{window}, pane)
+
+	transport := &createPaneHookTransport{
+		onCreatePane: func() {
+			mustSessionMutation(t, sess, func(sess *Session) {
+				sess.Windows = nil
+				sess.ActiveWindowID = 0
+			})
+		},
+	}
+	installTestPaneTransport(t, sess, transport, func(string) string { return "123abc" })
+
+	ctx := &CommandContext{Srv: srv, Sess: sess}
+	res := runCreatePane(ctx, 0, "spawn", createPanePlacementSplitAt, createPaneRequest{
+		hostName:     "dev",
+		hostExplicit: true,
+		name:         "worker",
+		dir:          mux.SplitVertical,
+	}, true)
+
+	for _, closePane := range res.ClosePanes {
+		closePane := closePane
+		t.Cleanup(func() {
+			_ = closePane.Close()
+			_ = closePane.WaitClosed()
+		})
+	}
+
+	if res.Err == nil || res.Err.Error() != "pane not in any window" {
+		t.Fatalf("runCreatePane error = %v, want pane-not-in-window", res.Err)
+	}
+	if len(res.ClosePanes) != 1 {
+		t.Fatalf("runCreatePane close panes = %d, want 1", len(res.ClosePanes))
+	}
+	if got := res.ClosePanes[0].Meta.Name; got != "worker" {
+		t.Fatalf("prepared pane name = %q, want worker", got)
+	}
+	if len(transport.removedPanes) != 1 || transport.removedPanes[0] != res.ClosePanes[0].ID {
+		t.Fatalf("removed panes = %#v, want [%d]", transport.removedPanes, res.ClosePanes[0].ID)
+	}
+	if got := mustSessionQuery(t, sess, func(sess *Session) int { return len(sess.Panes) }); got != 1 {
+		t.Fatalf("pane count after stale-window failure = %d, want 1", got)
+	}
+}
+
+func TestRespawnPaneReplaceFailureUsesSessionCloser(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := newCommandTestSession(t)
+
+	var unblockOnce sync.Once
+	unblock := make(chan struct{})
+	closeStarted := make(chan struct{})
+	closeFinished := make(chan struct{})
+	sess.paneCloser = func(pane *mux.Pane) {
+		close(closeStarted)
+		<-unblock
+		pane.Start()
+		_ = pane.Close()
+		_ = pane.WaitClosed()
+		close(closeFinished)
+	}
+	t.Cleanup(func() {
+		unblockOnce.Do(func() { close(unblock) })
+		cleanup()
+	})
+
+	pane := mustCreatePane(t, sess, srv, 80, 23)
+	pane.Start()
+
+	badWindow := newTestWindowWithPanes(t, sess, 99, "other", newTestPane(sess, 2, "pane-2"))
+	if _, err := sess.respawnPane(srv, pane, badWindow); err == nil {
+		t.Fatal("respawnPane should fail when target window does not contain the pane")
+	}
+
+	select {
+	case <-closeStarted:
+	case <-time.After(time.Second):
+		t.Fatal("respawnPane failure did not use the session pane closer")
+	}
+
+	state := mustSessionQuery(t, sess, func(sess *Session) struct {
+		paneCount int
+		session   *mux.Pane
+	} {
+		return struct {
+			paneCount int
+			session   *mux.Pane
+		}{
+			paneCount: len(sess.Panes),
+			session:   sess.findPaneByID(pane.ID),
+		}
+	})
+	if state.paneCount != 1 {
+		t.Fatalf("pane count after respawn failure = %d, want 1", state.paneCount)
+	}
+	if state.session != pane {
+		t.Fatal("respawn failure should keep the original pane registered")
+	}
+
+	unblockOnce.Do(func() { close(unblock) })
+	select {
+	case <-closeFinished:
+	case <-time.After(time.Second):
+		t.Fatal("respawnPane failure did not finish closing the replacement pane")
+	}
+
+	state = mustSessionQuery(t, sess, func(sess *Session) struct {
+		paneCount int
+		session   *mux.Pane
+	} {
+		return struct {
+			paneCount int
+			session   *mux.Pane
+		}{
+			paneCount: len(sess.Panes),
+			session:   sess.findPaneByID(pane.ID),
+		}
+	})
+	if state.paneCount != 1 {
+		t.Fatalf("pane count after replacement cleanup = %d, want 1", state.paneCount)
+	}
+	if state.session != pane {
+		t.Fatal("replacement cleanup should not remove the original pane")
 	}
 }
 
