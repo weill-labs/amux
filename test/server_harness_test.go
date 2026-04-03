@@ -1287,24 +1287,16 @@ func (h *ServerHarness) waitForCaptureJSON(fn func(proto.CaptureJSON) bool, time
 	h.tb.Helper()
 	restore := h.pushWaitState(fmt.Sprintf("waiting for json capture predicate (timeout %v)", timeout))
 	defer restore()
-
-	deadline := time.Now().Add(timeout)
-	gen := h.generation()
-	for time.Now().Before(deadline) {
-		capture := h.captureJSON()
-		if fn(capture) {
-			return true
-		}
-		waitFor := time.Until(deadline)
-		if waitFor > 250*time.Millisecond {
-			waitFor = 250 * time.Millisecond
-		}
-		if !h.waitLayoutOrTimeout(gen, waitFor.String()) {
-			continue
-		}
-		gen = h.generation()
-	}
-	return false
+	_, ok := waitForCaptureJSONWithLayout(
+		h.captureJSON,
+		h.generation,
+		func(afterGen uint64, waitFor time.Duration) bool {
+			return h.waitLayoutOrTimeout(afterGen, waitFor.String())
+		},
+		fn,
+		timeout,
+	)
+	return ok
 }
 
 // waitForPaneContent polls the client-rendered pane capture until substr
