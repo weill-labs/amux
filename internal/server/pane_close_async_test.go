@@ -310,3 +310,68 @@ func TestReplyCommandMutationSendsErrorWhilePaneCloseBlocks(t *testing.T) {
 
 	unblockOnce.Do(func() { close(unblock) })
 }
+
+func TestEnqueueCommandMutationSchedulesPaneCloseOffLoop(t *testing.T) {
+	t.Parallel()
+
+	sess := newSession("test-enqueue-command-mutation-schedule-close")
+	stopCrashCheckpointLoop(t, sess)
+
+	var unblockOnce sync.Once
+	unblock := make(chan struct{})
+	closeStarted := make(chan struct{})
+	sess.paneCloser = func(pane *mux.Pane) {
+		close(closeStarted)
+		<-unblock
+		_ = pane.Close()
+	}
+	t.Cleanup(func() {
+		unblockOnce.Do(func() { close(unblock) })
+		stopSessionBackgroundLoops(t, sess)
+	})
+
+	pane := newTestPane(sess, 1, "pane-1")
+
+	resultCh := make(chan commandMutationResult, 1)
+	go func() {
+		resultCh <- sess.enqueueCommandMutation(func(ctx *MutationContext) commandMutationResult {
+			ctx.ScheduleClose(pane)
+			return commandMutationResult{err: errors.New("boom")}
+		})
+	}()
+
+	var res commandMutationResult
+	select {
+	case res = <-resultCh:
+	case <-time.After(time.Second):
+		t.Fatal("enqueueCommandMutation did not return")
+	}
+	if res.err == nil || res.err.Error() != "boom" {
+		t.Fatalf("enqueueCommandMutation error = %v, want boom", res.err)
+	}
+
+	select {
+	case <-closeStarted:
+	case <-time.After(time.Second):
+		t.Fatal("scheduled pane close did not start")
+	}
+
+	queryDone := make(chan error, 1)
+	go func() {
+		_, err := enqueueSessionQuery(sess, func(sess *Session) (struct{}, error) {
+			return struct{}{}, nil
+		})
+		queryDone <- err
+	}()
+
+	select {
+	case err := <-queryDone:
+		if err != nil {
+			t.Fatalf("session query while scheduled close blocked: %v", err)
+		}
+	case <-time.After(250 * time.Millisecond):
+		t.Fatal("session event loop blocked while scheduled close was in progress")
+	}
+
+	unblockOnce.Do(func() { close(unblock) })
+}
