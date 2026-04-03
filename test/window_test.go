@@ -95,6 +95,65 @@ func TestNewWindowLeadPaneSpawnIgnoresOuterActorPaneEnv(t *testing.T) {
 	assertAnchoredLeadSpawnLayout(t, h, capture, "pane-2", "worker")
 }
 
+func TestSetLeadSinglePaneWindowSurvivesCollapseAndRegrowsAnchoredLayout(t *testing.T) {
+	t.Parallel()
+
+	h := newServerHarness(t)
+
+	setLead(t, h, "pane-1")
+
+	capture := h.captureJSON()
+	pane := h.jsonPane(capture, "pane-1")
+	if !pane.Lead {
+		t.Fatal("pane-1 should be marked lead after set-lead on a single-pane window")
+	}
+
+	single := h.runCmd("capture", "--format", "json", "pane-1")
+	var singlePane proto.CapturePane
+	if err := json.Unmarshal([]byte(single), &singlePane); err != nil {
+		t.Fatalf("unmarshal pane-1 capture: %v\nraw output:\n%s", err, single)
+	}
+	if !singlePane.Lead {
+		t.Fatal("pane-1 should be marked lead in single-pane capture after set-lead")
+	}
+
+	gen := h.generation()
+	out := h.runCmd("split", "pane-1", "v")
+	if strings.Contains(out, "error") || strings.Contains(out, "cannot") {
+		t.Fatalf("split after single-pane set-lead failed: %s", out)
+	}
+	h.waitLayout(gen)
+
+	capture = h.captureJSON()
+	assertAnchoredLeadSpawnLayout(t, h, capture, "pane-1", "pane-2")
+
+	gen = h.generation()
+	out = h.runCmd("kill", "pane-2")
+	if strings.Contains(out, "error") || strings.Contains(out, "Error") {
+		t.Fatalf("kill pane-2 failed: %s", out)
+	}
+	h.waitLayout(gen)
+
+	capture = h.captureJSON()
+	if len(capture.Panes) != 1 {
+		t.Fatalf("expected 1 pane after collapse, got %d", len(capture.Panes))
+	}
+	pane = h.jsonPane(capture, "pane-1")
+	if !pane.Lead {
+		t.Fatal("pane-1 should remain lead after the window collapses back to one pane")
+	}
+
+	gen = h.generation()
+	out = h.runCmd("split", "pane-1", "h")
+	if strings.Contains(out, "error") || strings.Contains(out, "cannot") {
+		t.Fatalf("split after collapse failed: %s", out)
+	}
+	h.waitLayout(gen)
+
+	capture = h.captureJSON()
+	assertAnchoredLeadSpawnLayout(t, h, capture, "pane-1", "pane-3")
+}
+
 func listLineForPane(listOut, paneName string) string {
 	for _, line := range strings.Split(listOut, "\n") {
 		if strings.Contains(line, paneName) {
