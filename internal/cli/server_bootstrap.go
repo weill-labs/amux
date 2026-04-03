@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"errors"
@@ -65,7 +65,7 @@ func writeSignalFD(f **os.File, msg string) {
 	*f = nil
 }
 
-func restoreServerFromReloadCheckpoint(sessionName, cpPath string, scrollbackLines int) (*server.Server, error) {
+func RestoreServerFromReloadCheckpoint(sessionName, cpPath string, scrollbackLines int) (*server.Server, error) {
 	return restoreServerFromReloadCheckpointLogger(sessionName, cpPath, scrollbackLines, newBootstrapLogger())
 }
 
@@ -110,8 +110,8 @@ func restoreServerFromReloadCheckpointLogger(sessionName, cpPath string, scrollb
 	return server.NewServerFromCrashCheckpointWithListenerFdLogger(restoreSessionName, cp.ListenerFd, crashCP, crashPath, scrollbackLines, logger)
 }
 
-func runServer(sessionName string, managedTakeover bool) {
-	server.BuildVersion = buildVersion()
+func RunServer(sessionName string, managedTakeover bool, buildVersion string) {
+	server.BuildVersion = buildVersion
 	logger := newBootstrapLogger()
 
 	if err := terminfo.Install(); err != nil {
@@ -273,7 +273,7 @@ func runServer(sessionName string, managedTakeover bool) {
 	}
 }
 
-func checkNesting(target string) {
+func CheckNesting(target string) {
 	if envSession := os.Getenv("AMUX_SESSION"); envSession == target {
 		logger := newBootstrapLogger()
 		logger.Error("cannot attach to session from inside itself (recursive nesting)",
@@ -285,11 +285,11 @@ func checkNesting(target string) {
 	}
 }
 
-func shouldAttemptTakeover() bool {
+func ShouldAttemptTakeover() bool {
 	return os.Getenv("SSH_CONNECTION") != "" && os.Getenv("TERM") == "amux" && os.Getenv("AMUX_PANE") == ""
 }
 
-func tryTakeover(sessionName string) bool {
+func TryTakeover(sessionName string, buildVersion string) bool {
 	hostname, _ := os.Hostname()
 
 	req := mux.TakeoverRequest{
@@ -318,7 +318,7 @@ func tryTakeover(sessionName string) bool {
 		"event", "ssh_takeover_ack",
 		"session", session,
 	)
-	runServer(session, true)
+	RunServer(session, true, buildVersion)
 	return true
 }
 

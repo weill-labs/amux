@@ -25,7 +25,7 @@ func TestRunServerDoesNotLateSetLogger(t *testing.T) {
 		t.Fatal("runtime.Caller(0) failed")
 	}
 
-	path := filepath.Join(filepath.Dir(thisFile), "server_bootstrap.go")
+	path := filepath.Join(filepath.Dir(thisFile), "internal", "cli", "server_bootstrap.go")
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, path, nil, 0)
 	if err != nil {
@@ -35,14 +35,14 @@ func TestRunServerDoesNotLateSetLogger(t *testing.T) {
 	var runServerBody *ast.BlockStmt
 	for _, decl := range file.Decls {
 		fn, ok := decl.(*ast.FuncDecl)
-		if !ok || fn.Name == nil || fn.Name.Name != "runServer" {
+		if !ok || fn.Name == nil || fn.Name.Name != "RunServer" {
 			continue
 		}
 		runServerBody = fn.Body
 		break
 	}
 	if runServerBody == nil {
-		t.Fatal("runServer not found")
+		t.Fatal("RunServer not found")
 	}
 
 	ast.Inspect(runServerBody, func(n ast.Node) bool {
@@ -55,7 +55,7 @@ func TestRunServerDoesNotLateSetLogger(t *testing.T) {
 			return true
 		}
 		pos := fset.Position(call.Pos())
-		t.Fatalf("runServer still calls SetLogger at %s", pos)
+		t.Fatalf("RunServer still calls SetLogger at %s", pos)
 		return false
 	})
 }

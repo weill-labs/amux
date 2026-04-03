@@ -10,6 +10,7 @@ import (
 	"github.com/weill-labs/amux/internal/checkpoint"
 	clicmd "github.com/weill-labs/amux/internal/cli"
 	"github.com/weill-labs/amux/internal/client"
+	"github.com/weill-labs/amux/internal/server"
 	"github.com/weill-labs/amux/internal/terminfo"
 	"golang.org/x/term"
 )
@@ -151,13 +152,17 @@ func defaultCLIRuntime() cliRuntime {
 		},
 		writeVersionOutput: writeVersionOutput,
 		installTerminfo:    terminfo.Install,
-		runServer:          runServer,
-		runServerCommand:   clicmd.RunServerCommand,
-		runEventsCommand:   clicmd.RunEventsCommand,
-		checkNesting:       checkNesting,
-		shouldTakeover:     shouldAttemptTakeover,
-		tryTakeover:        tryTakeover,
-		printUsage:         printUsage,
+		runServer: func(sessionName string, managedTakeover bool) {
+			clicmd.RunServer(sessionName, managedTakeover, buildVersion())
+		},
+		runServerCommand: clicmd.RunServerCommand,
+		runEventsCommand: clicmd.RunEventsCommand,
+		checkNesting:     clicmd.CheckNesting,
+		shouldTakeover:   clicmd.ShouldAttemptTakeover,
+		tryTakeover: func(sessionName string) bool {
+			return clicmd.TryTakeover(sessionName, buildVersion())
+		},
+		printUsage: printUsage,
 	}
 }
 
@@ -232,4 +237,12 @@ func printUsage() {
 
 func prependReloadExecPathArg(resolve func() (string, error), args []string) []string {
 	return clicmd.PrependReloadExecPathArg(resolve, args)
+}
+
+func restoreServerFromReloadCheckpoint(sessionName, cpPath string, scrollbackLines int) (*server.Server, error) {
+	return clicmd.RestoreServerFromReloadCheckpoint(sessionName, cpPath, scrollbackLines)
+}
+
+func shouldAttemptTakeover() bool {
+	return clicmd.ShouldAttemptTakeover()
 }
