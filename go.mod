@@ -47,4 +47,4 @@ require (
 	golang.org/x/text v0.35.0 // indirect
 )
 
-replace github.com/charmbracelet/x/vt => ./third_party/charmbracelet-x/vt
+replace github.com/charmbracelet/x/vt => github.com/weill-labs/x/vt v0.0.0-20260402232048-5463e0db6b45
