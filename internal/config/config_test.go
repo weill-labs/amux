@@ -201,6 +201,25 @@ func TestLoadScrollbackLines(t *testing.T) {
 	}
 }
 
+func TestLoadDebugPprof(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	if err := os.WriteFile(path, []byte("[debug]\npprof = true\n"), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if !cfg.PprofEnabled() {
+		t.Fatal("PprofEnabled() = false, want true")
+	}
+}
+
 func TestLoadRejectsZeroScrollbackLines(t *testing.T) {
 	t.Parallel()
 
