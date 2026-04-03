@@ -119,7 +119,6 @@ func runCreatePane(ctx *CommandContext, actorPaneID uint32, command string, plac
 			if err := placeCreatedPaneInWindow(w, placement, snapshot, pane, req.dir, keepFocus); err != nil {
 				return cleanupFailedPaneMutationContext(mctx, pane, err)
 			}
-			mctx.ScheduleStart(pane)
 			return commandMutationResult{
 				output:          createPaneOutput(command, placement, req.dir, pane, req.hostName),
 				broadcastLayout: true,
