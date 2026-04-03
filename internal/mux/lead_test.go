@@ -68,14 +68,79 @@ func TestSetLeadSwitchesAnchoredPaneWithoutNestingOldLeadRoot(t *testing.T) {
 	}
 }
 
-func TestSetLeadSinglePaneErrors(t *testing.T) {
+func TestSetLeadSinglePaneCreatesPendingLead(t *testing.T) {
 	t.Parallel()
 
 	p1 := fakePaneID(1)
 	w := NewWindow(p1, 80, 24)
 
-	if err := w.SetLead(p1.ID); err == nil {
-		t.Fatal("SetLead on single pane should error")
+	if err := w.SetLead(p1.ID); err != nil {
+		t.Fatalf("SetLead: %v", err)
+	}
+
+	if w.LeadPaneID != p1.ID {
+		t.Fatalf("LeadPaneID = %d, want %d", w.LeadPaneID, p1.ID)
+	}
+	if !w.hasPendingLead() {
+		t.Fatal("expected single-pane lead to remain pending")
+	}
+	if w.hasAnchoredLead() {
+		t.Fatal("single-pane lead should not materialize an anchored root")
+	}
+	if !w.Root.IsLeaf() {
+		t.Fatal("single-pane lead should leave the root as a leaf")
+	}
+	if got := w.Root.Pane; got != p1 {
+		t.Fatalf("root pane = %v, want %v", got, p1)
+	}
+}
+
+func TestClosePaneCollapsingLeadWindowRetainsPendingLead(t *testing.T) {
+	t.Parallel()
+
+	p1 := fakePaneID(1)
+	p2 := fakePaneID(2)
+	p3 := fakePaneID(3)
+	w := NewWindow(p1, 80, 24)
+	if _, err := w.SplitRoot(SplitVertical, p2); err != nil {
+		t.Fatalf("SplitRoot p2: %v", err)
+	}
+	if err := w.SetLead(p1.ID); err != nil {
+		t.Fatalf("SetLead: %v", err)
+	}
+
+	if err := w.ClosePane(p2.ID); err != nil {
+		t.Fatalf("ClosePane: %v", err)
+	}
+
+	if w.LeadPaneID != p1.ID {
+		t.Fatalf("LeadPaneID after collapse = %d, want %d", w.LeadPaneID, p1.ID)
+	}
+	if !w.hasPendingLead() {
+		t.Fatal("collapsed lead window should retain a pending lead")
+	}
+	if w.hasAnchoredLead() {
+		t.Fatal("collapsed lead window should no longer have an anchored root")
+	}
+	if !w.Root.IsLeaf() || w.Root.Pane != p1 {
+		t.Fatalf("collapsed root = %+v, want leaf for pane-1", w.Root)
+	}
+
+	if _, err := w.SplitRoot(SplitHorizontal, p3); err != nil {
+		t.Fatalf("SplitRoot p3 after collapse: %v", err)
+	}
+
+	if !w.hasAnchoredLead() {
+		t.Fatal("first growth after collapse should rematerialize anchored lead layout")
+	}
+	if w.Root.Dir != SplitVertical {
+		t.Fatalf("root dir after rematerializing lead = %v, want %v", w.Root.Dir, SplitVertical)
+	}
+	if got := w.Root.Children[0].Pane; got != p1 {
+		t.Fatalf("lead slot pane after rematerializing = %v, want %v", got, p1)
+	}
+	if logical := w.logicalRoot(); logical == nil || logical.FindPane(p3.ID) == nil {
+		t.Fatal("logical root should contain the new non-lead pane")
 	}
 }
 
