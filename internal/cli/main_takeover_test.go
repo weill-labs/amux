@@ -1,4 +1,4 @@
-package main
+package cli
 
 import "testing"
 
@@ -18,8 +18,8 @@ func TestShouldAttemptTakeover(t *testing.T) {
 			for k, v := range tt.env {
 				t.Setenv(k, v)
 			}
-			if got := shouldAttemptTakeover(); got != tt.want {
-				t.Errorf("shouldAttemptTakeover() = %v, want %v", got, tt.want)
+			if got := ShouldAttemptTakeover(); got != tt.want {
+				t.Errorf("ShouldAttemptTakeover() = %v, want %v", got, tt.want)
 			}
 		})
 	}

@@ -1,10 +1,9 @@
-package main
+package cli
 
 import (
 	"bytes"
 	"encoding/json"
 	"io"
-	"os"
 	"reflect"
 	"strconv"
 	"strings"
@@ -42,24 +41,24 @@ func TestParseSpawnCommandArgs(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			gotCmd, gotArgs, err := parseSpawnCommandArgs(tt.args)
+			gotCmd, gotArgs, err := ParseSpawnCommandArgs(tt.args)
 			if tt.wantErrText != "" {
 				if err == nil {
-					t.Fatalf("parseSpawnCommandArgs(%v): expected error containing %q", tt.args, tt.wantErrText)
+					t.Fatalf("ParseSpawnCommandArgs(%v): expected error containing %q", tt.args, tt.wantErrText)
 				}
 				if !strings.Contains(err.Error(), tt.wantErrText) {
-					t.Fatalf("parseSpawnCommandArgs(%v): error = %q, want substring %q", tt.args, err.Error(), tt.wantErrText)
+					t.Fatalf("ParseSpawnCommandArgs(%v): error = %q, want substring %q", tt.args, err.Error(), tt.wantErrText)
 				}
 				return
 			}
 			if err != nil {
-				t.Fatalf("parseSpawnCommandArgs(%v): unexpected error: %v", tt.args, err)
+				t.Fatalf("ParseSpawnCommandArgs(%v): unexpected error: %v", tt.args, err)
 			}
 			if gotCmd != tt.wantCmd {
-				t.Fatalf("parseSpawnCommandArgs(%v) cmd = %q, want %q", tt.args, gotCmd, tt.wantCmd)
+				t.Fatalf("ParseSpawnCommandArgs(%v) cmd = %q, want %q", tt.args, gotCmd, tt.wantCmd)
 			}
 			if !reflect.DeepEqual(gotArgs, tt.wantArgs) {
-				t.Fatalf("parseSpawnCommandArgs(%v) args = %v, want %v", tt.args, gotArgs, tt.wantArgs)
+				t.Fatalf("ParseSpawnCommandArgs(%v) args = %v, want %v", tt.args, gotArgs, tt.wantArgs)
 			}
 		})
 	}
@@ -73,7 +72,7 @@ func TestResolveSessionName(t *testing.T) {
 		envSession  string
 		want        string
 	}{
-		{name: "default when unset", want: defaultSessionName},
+		{name: "default when unset", want: DefaultSessionName},
 		{name: "use AMUX_SESSION when flag omitted", envSession: "current-session", want: "current-session"},
 		{name: "explicit session without env", explicit: "other-session", explicitSet: true, want: "other-session"},
 		{name: "explicit session beats AMUX_SESSION", explicit: "other-session", explicitSet: true, envSession: "current-session", want: "other-session"},
@@ -84,8 +83,8 @@ func TestResolveSessionName(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Setenv("AMUX_SESSION", tt.envSession)
 
-			if got := resolveSessionName(tt.explicit, tt.explicitSet); got != tt.want {
-				t.Fatalf("resolveSessionName(%q, %t) = %q, want %q", tt.explicit, tt.explicitSet, got, tt.want)
+			if got := ResolveSessionName(tt.explicit, tt.explicitSet); got != tt.want {
+				t.Fatalf("ResolveSessionName(%q, %t) = %q, want %q", tt.explicit, tt.explicitSet, got, tt.want)
 			}
 		})
 	}
@@ -94,18 +93,18 @@ func TestResolveSessionName(t *testing.T) {
 func TestDefaultSessionNameValue(t *testing.T) {
 	t.Parallel()
 
-	if defaultSessionName != "main" {
-		t.Fatalf("defaultSessionName = %q, want %q", defaultSessionName, "main")
+	if DefaultSessionName != "main" {
+		t.Fatalf("DefaultSessionName = %q, want %q", DefaultSessionName, "main")
 	}
 }
 
 func TestBuildVersionIncludesCheckpointVersion(t *testing.T) {
 	t.Parallel()
 
-	got := buildVersion()
+	got := buildVersion("")
 	want := "checkpoint v" + strconv.Itoa(checkpoint.ServerCheckpointVersion)
 	if !strings.Contains(got, want) {
-		t.Fatalf("buildVersion() = %q, want substring %q", got, want)
+		t.Fatalf("buildVersion(\"\") = %q, want substring %q", got, want)
 	}
 }
 
@@ -113,8 +112,8 @@ func TestWriteVersionOutputJSON(t *testing.T) {
 	t.Parallel()
 
 	var out bytes.Buffer
-	if err := writeVersionOutput(&out, []string{"--json"}); err != nil {
-		t.Fatalf("writeVersionOutput(--json): %v", err)
+	if err := writeVersionOutput("", &out, []string{"--json"}); err != nil {
+		t.Fatalf("writeVersionOutput(\"\", --json): %v", err)
 	}
 
 	var info struct {
@@ -136,12 +135,12 @@ func TestWriteVersionOutputHash(t *testing.T) {
 	t.Parallel()
 
 	var out bytes.Buffer
-	if err := writeVersionOutput(&out, []string{"--hash"}); err != nil {
-		t.Fatalf("writeVersionOutput(--hash): %v", err)
+	if err := writeVersionOutput("", &out, []string{"--hash"}); err != nil {
+		t.Fatalf("writeVersionOutput(\"\", --hash): %v", err)
 	}
 
-	if got := strings.TrimSpace(out.String()); got != buildHash() {
-		t.Fatalf("hash output = %q, want %q", got, buildHash())
+	if got := strings.TrimSpace(out.String()); got != buildHash("") {
+		t.Fatalf("hash output = %q, want %q", got, buildHash(""))
 	}
 }
 
@@ -153,7 +152,7 @@ func TestResolveInvocationSession(t *testing.T) {
 		wantName   string
 		wantArgs   []string
 	}{
-		{name: "default when unset", args: []string{"status"}, wantName: defaultSessionName, wantArgs: []string{"status"}},
+		{name: "default when unset", args: []string{"status"}, wantName: DefaultSessionName, wantArgs: []string{"status"}},
 		{name: "uses AMUX_SESSION when flag omitted", args: []string{"status"}, envSession: "current-session", wantName: "current-session", wantArgs: []string{"status"}},
 		{name: "strips explicit session flag", args: []string{"-s", "other-session", "status"}, envSession: "current-session", wantName: "other-session", wantArgs: []string{"status"}},
 		{name: "strips explicit session flag from middle", args: []string{"events", "-s", "other-session", "--no-reconnect"}, wantName: "other-session", wantArgs: []string{"events", "--no-reconnect"}},
@@ -163,12 +162,12 @@ func TestResolveInvocationSession(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Setenv("AMUX_SESSION", tt.envSession)
 
-			gotName, gotArgs := resolveInvocationSession(tt.args)
+			gotName, gotArgs := ResolveInvocationSession(tt.args)
 			if gotName != tt.wantName {
-				t.Fatalf("resolveInvocationSession(%v) session = %q, want %q", tt.args, gotName, tt.wantName)
+				t.Fatalf("ResolveInvocationSession(%v) session = %q, want %q", tt.args, gotName, tt.wantName)
 			}
 			if !reflect.DeepEqual(gotArgs, tt.wantArgs) {
-				t.Fatalf("resolveInvocationSession(%v) args = %v, want %v", tt.args, gotArgs, tt.wantArgs)
+				t.Fatalf("ResolveInvocationSession(%v) args = %v, want %v", tt.args, gotArgs, tt.wantArgs)
 			}
 		})
 	}
@@ -249,27 +248,27 @@ func TestResolveCanonicalSessionCommand(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			gotCmd, gotArgs, gotHandled, err := resolveCanonicalSessionCommand(tt.args)
+			gotCmd, gotArgs, gotHandled, err := ResolveCanonicalSessionCommand(tt.args)
 			if gotHandled != tt.wantHandled {
-				t.Fatalf("resolveCanonicalSessionCommand(%v) handled = %v, want %v", tt.args, gotHandled, tt.wantHandled)
+				t.Fatalf("ResolveCanonicalSessionCommand(%v) handled = %v, want %v", tt.args, gotHandled, tt.wantHandled)
 			}
 			if tt.wantErrText != "" {
 				if err == nil {
-					t.Fatalf("resolveCanonicalSessionCommand(%v): expected error containing %q", tt.args, tt.wantErrText)
+					t.Fatalf("ResolveCanonicalSessionCommand(%v): expected error containing %q", tt.args, tt.wantErrText)
 				}
 				if !strings.Contains(err.Error(), tt.wantErrText) {
-					t.Fatalf("resolveCanonicalSessionCommand(%v): error = %q, want substring %q", tt.args, err.Error(), tt.wantErrText)
+					t.Fatalf("ResolveCanonicalSessionCommand(%v): error = %q, want substring %q", tt.args, err.Error(), tt.wantErrText)
 				}
 				return
 			}
 			if err != nil {
-				t.Fatalf("resolveCanonicalSessionCommand(%v): unexpected error: %v", tt.args, err)
+				t.Fatalf("ResolveCanonicalSessionCommand(%v): unexpected error: %v", tt.args, err)
 			}
 			if gotCmd != tt.wantCmd {
-				t.Fatalf("resolveCanonicalSessionCommand(%v) cmd = %q, want %q", tt.args, gotCmd, tt.wantCmd)
+				t.Fatalf("ResolveCanonicalSessionCommand(%v) cmd = %q, want %q", tt.args, gotCmd, tt.wantCmd)
 			}
 			if !reflect.DeepEqual(gotArgs, tt.wantArgs) {
-				t.Fatalf("resolveCanonicalSessionCommand(%v) args = %v, want %v", tt.args, gotArgs, tt.wantArgs)
+				t.Fatalf("ResolveCanonicalSessionCommand(%v) args = %v, want %v", tt.args, gotArgs, tt.wantArgs)
 			}
 		})
 	}
@@ -333,7 +332,7 @@ func TestMaybePrintKeyCommandUsage(t *testing.T) {
 			var stdout bytes.Buffer
 			var stderr bytes.Buffer
 
-			handled, exitCode := maybePrintKeyCommandUsage(&stdout, &stderr, tt.args, tt.usage, tt.minArgs)
+			handled, exitCode := MaybePrintKeyCommandUsage(&stdout, &stderr, tt.args, tt.usage, tt.minArgs)
 			if handled != tt.wantHandled {
 				t.Fatalf("handled = %t, want %t", handled, tt.wantHandled)
 			}
@@ -370,7 +369,7 @@ func TestParseSwapArgs(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			gotCmd, gotArgs, err := parseSwapArgs(tt.args)
+			gotCmd, gotArgs, err := ParseSwapArgs(tt.args)
 			if tt.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 					t.Fatalf("parseSwapArgs(%v) error = %v, want %q", tt.args, err, tt.wantErr)
@@ -408,7 +407,7 @@ func TestParseMoveArgs(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			gotCmd, gotArgs, err := parseMoveArgs(tt.args)
+			gotCmd, gotArgs, err := ParseMoveArgs(tt.args)
 			if tt.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 					t.Fatalf("parseMoveArgs(%v) error = %v, want %q", tt.args, err, tt.wantErr)
@@ -445,7 +444,7 @@ func TestParseLeadArgs(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			gotCmd, gotArgs, err := parseLeadArgs(tt.args)
+			gotCmd, gotArgs, err := ParseLeadArgs(tt.args)
 			if tt.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 					t.Fatalf("parseLeadArgs(%v) error = %v, want %q", tt.args, err, tt.wantErr)
@@ -481,7 +480,7 @@ func TestValidateMetaArgs(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			err := validateMetaArgs(tt.args)
+			err := ValidateMetaArgs(tt.args)
 			if tt.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 					t.Fatalf("validateMetaArgs(%v) error = %v, want %q", tt.args, err, tt.wantErr)
@@ -558,7 +557,7 @@ func TestMaybePrintCommandHelp(t *testing.T) {
 
 			var stdout bytes.Buffer
 
-			handled := maybePrintCommandHelp(&stdout, tt.args)
+			handled := MaybePrintCommandHelp(&stdout, tt.args)
 			if handled != tt.wantHandled {
 				t.Fatalf("handled = %t, want %t", handled, tt.wantHandled)
 			}
@@ -570,28 +569,10 @@ func TestMaybePrintCommandHelp(t *testing.T) {
 }
 
 func TestPrintUsageOmitsDelegate(t *testing.T) {
-	origStdout := os.Stdout
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("os.Pipe: %v", err)
-	}
-	os.Stdout = w
-	defer func() {
-		os.Stdout = origStdout
-	}()
-
-	printUsage()
-	if err := w.Close(); err != nil {
-		t.Fatalf("Close write pipe: %v", err)
-	}
+	t.Parallel()
 
 	var buf bytes.Buffer
-	if _, err := io.Copy(&buf, r); err != nil {
-		t.Fatalf("io.Copy: %v", err)
-	}
-	if err := r.Close(); err != nil {
-		t.Fatalf("Close read pipe: %v", err)
-	}
+	WriteUsage(&buf)
 
 	if strings.Contains(buf.String(), "amux [-s session] delegate <pane>") {
 		t.Fatalf("printUsage should omit delegate:\n%s", buf.String())
@@ -603,11 +584,11 @@ func TestRunMainDefaultSession(t *testing.T) {
 		t.Setenv("AMUX_CHECKPOINT", "")
 
 		h := newCLIRuntimeHarness()
-		if exitCode := runMain(nil, h.runtime()); exitCode != 0 {
-			t.Fatalf("runMain() exit = %d, want 0", exitCode)
+		if exitCode := RunWithRuntime(nil, h.runtime()); exitCode != 0 {
+			t.Fatalf("RunWithRuntime() exit = %d, want 0", exitCode)
 		}
 
-		wantSession := resolveSessionName("", false)
+		wantSession := ResolveSessionName("", false)
 		want := []cliCall{
 			{kind: "check-nesting", session: wantSession},
 			{kind: "attach", session: wantSession},
@@ -624,11 +605,11 @@ func TestRunMainDefaultSession(t *testing.T) {
 		h.shouldTakeover = true
 		h.tryTakeoverResult = true
 
-		if exitCode := runMain(nil, h.runtime()); exitCode != 0 {
-			t.Fatalf("runMain() exit = %d, want 0", exitCode)
+		if exitCode := RunWithRuntime(nil, h.runtime()); exitCode != 0 {
+			t.Fatalf("RunWithRuntime() exit = %d, want 0", exitCode)
 		}
 
-		want := []cliCall{{kind: "try-takeover", session: resolveSessionName("", false)}}
+		want := []cliCall{{kind: "try-takeover", session: ResolveSessionName("", false)}}
 		if !reflect.DeepEqual(h.calls, want) {
 			t.Fatalf("calls = %#v, want %#v", h.calls, want)
 		}
@@ -713,8 +694,8 @@ func TestRunMainDispatchesCommands(t *testing.T) {
 			}
 
 			h := newCLIRuntimeHarness()
-			if exitCode := runMain(tt.args, h.runtime()); exitCode != tt.wantExit {
-				t.Fatalf("runMain(%v) exit = %d, want %d", tt.args, exitCode, tt.wantExit)
+			if exitCode := RunWithRuntime(tt.args, h.runtime()); exitCode != tt.wantExit {
+				t.Fatalf("RunWithRuntime(%v) exit = %d, want %d", tt.args, exitCode, tt.wantExit)
 			}
 			wantCalls := resolveTestSessions(tt.wantCalls)
 			if !reflect.DeepEqual(h.calls, wantCalls) {
@@ -774,8 +755,8 @@ func TestRunMainHelpAndUsageErrors(t *testing.T) {
 			t.Parallel()
 
 			h := newCLIRuntimeHarness()
-			if exitCode := runMain(tt.args, h.runtime()); exitCode != tt.wantExit {
-				t.Fatalf("runMain(%v) exit = %d, want %d", tt.args, exitCode, tt.wantExit)
+			if exitCode := RunWithRuntime(tt.args, h.runtime()); exitCode != tt.wantExit {
+				t.Fatalf("RunWithRuntime(%v) exit = %d, want %d", tt.args, exitCode, tt.wantExit)
 			}
 			if h.usageCalls != tt.wantUsageCalls {
 				t.Fatalf("usageCalls = %d, want %d", h.usageCalls, tt.wantUsageCalls)
@@ -811,7 +792,7 @@ func newCLIRuntimeHarness() *cliRuntimeHarness {
 }
 
 func resolveTestSessions(calls []cliCall) []cliCall {
-	resolved := resolveSessionName("", false)
+	resolved := ResolveSessionName("", false)
 	out := make([]cliCall, len(calls))
 	for i, call := range calls {
 		out[i] = call
@@ -822,27 +803,27 @@ func resolveTestSessions(calls []cliCall) []cliCall {
 	return out
 }
 
-func (h *cliRuntimeHarness) runtime() cliRuntime {
-	return cliRuntime{
-		stdout: &h.stdout,
-		stderr: &h.stderr,
-		attachSession: func(sessionName string) error {
+func (h *cliRuntimeHarness) runtime() Runtime {
+	return Runtime{
+		Stdout: &h.stdout,
+		Stderr: &h.stderr,
+		AttachSession: func(sessionName string) error {
 			h.calls = append(h.calls, cliCall{kind: "attach", session: sessionName})
 			return nil
 		},
-		writeVersionOutput: func(w io.Writer, args []string) error {
+		WriteVersionOutput: func(w io.Writer, args []string) error {
 			h.calls = append(h.calls, cliCall{kind: "version", args: append([]string(nil), args...)})
 			_, err := io.WriteString(w, "version\n")
 			return err
 		},
-		installTerminfo: func() error {
+		InstallTerminfo: func() error {
 			h.calls = append(h.calls, cliCall{kind: "install-terminfo"})
 			return nil
 		},
-		runServer: func(sessionName string, managed bool) {
+		RunServer: func(sessionName string, managed bool) {
 			h.calls = append(h.calls, cliCall{kind: "run-server", session: sessionName, managed: managed})
 		},
-		runServerCommand: func(sessionName, cmdName string, args []string) {
+		RunServerCommand: func(sessionName, cmdName string, args []string) {
 			h.calls = append(h.calls, cliCall{
 				kind:    "server-command",
 				session: sessionName,
@@ -850,24 +831,24 @@ func (h *cliRuntimeHarness) runtime() cliRuntime {
 				args:    append([]string(nil), args...),
 			})
 		},
-		runEventsCommand: func(sessionName string, args []string) {
+		RunEventsCommand: func(sessionName string, args []string) {
 			h.calls = append(h.calls, cliCall{
 				kind:    "events",
 				session: sessionName,
 				args:    append([]string(nil), args...),
 			})
 		},
-		checkNesting: func(sessionName string) {
+		CheckNesting: func(sessionName string) {
 			h.calls = append(h.calls, cliCall{kind: "check-nesting", session: sessionName})
 		},
-		shouldTakeover: func() bool {
+		ShouldTakeover: func() bool {
 			return h.shouldTakeover
 		},
-		tryTakeover: func(sessionName string) bool {
+		TryTakeover: func(sessionName string) bool {
 			h.calls = append(h.calls, cliCall{kind: "try-takeover", session: sessionName})
 			return h.tryTakeoverResult
 		},
-		printUsage: func() {
+		PrintUsage: func() {
 			h.usageCalls++
 		},
 	}

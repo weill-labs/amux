@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"errors"
@@ -26,7 +26,7 @@ func TestPrependReloadExecPathArgIncludesResolvedExecutable(t *testing.T) {
 		t.Fatalf("ResolveExecutable() error = %v", err)
 	}
 
-	got := prependReloadExecPathArg(reload.ResolveExecutable, []string{"reload-server"})
+	got := PrependReloadExecPathArg(reload.ResolveExecutable, []string{"reload-server"})
 	if len(got) != 3 {
 		t.Fatalf("len(prependReloadExecPathArg) = %d, want 3", len(got))
 	}
@@ -45,11 +45,11 @@ func TestPrependReloadExecPathArgLeavesArgsUnchangedOnResolverError(t *testing.T
 	t.Parallel()
 
 	args := []string{"reload-server"}
-	got := prependReloadExecPathArg(func() (string, error) {
+	got := PrependReloadExecPathArg(func() (string, error) {
 		return "", errors.New("boom")
 	}, args)
 	if len(got) != 1 || got[0] != "reload-server" {
-		t.Fatalf("prependReloadExecPathArg() = %v, want %v", got, args)
+		t.Fatalf("PrependReloadExecPathArg() = %v, want %v", got, args)
 	}
 }
 
@@ -129,7 +129,7 @@ func TestRestoreServerFromReloadCheckpointFallsBackToCrashCheckpoint(t *testing.
 	}
 
 	stderr := captureStderr(t, func() {
-		srv, err := restoreServerFromReloadCheckpoint(sessionName, reloadCPPath, mux.DefaultScrollbackLines)
+		srv, err := RestoreServerFromReloadCheckpoint(sessionName, reloadCPPath, mux.DefaultScrollbackLines)
 		if err != nil {
 			t.Fatalf("restoreServerFromReloadCheckpoint: %v", err)
 		}
@@ -202,7 +202,7 @@ func TestRestoreServerFromReloadCheckpointErrorsWithoutCrashFallback(t *testing.
 		t.Fatalf("checkpoint.Write: %v", err)
 	}
 
-	_, err = restoreServerFromReloadCheckpoint("reload-missing-crash", reloadCPPath, mux.DefaultScrollbackLines)
+	_, err = RestoreServerFromReloadCheckpoint("reload-missing-crash", reloadCPPath, mux.DefaultScrollbackLines)
 	if err == nil {
 		t.Fatal("restoreServerFromReloadCheckpoint error = nil, want missing crash fallback")
 	}
@@ -251,7 +251,7 @@ func TestRestoreServerFromReloadCheckpointErrorsWhenCrashFallbackUnreadable(t *t
 		t.Fatalf("os.WriteFile(%q): %v", crashPath, err)
 	}
 
-	_, err = restoreServerFromReloadCheckpoint(sessionName, reloadCPPath, mux.DefaultScrollbackLines)
+	_, err = RestoreServerFromReloadCheckpoint(sessionName, reloadCPPath, mux.DefaultScrollbackLines)
 	if err == nil {
 		t.Fatal("restoreServerFromReloadCheckpoint error = nil, want unreadable crash fallback")
 	}
@@ -291,7 +291,7 @@ func TestRestoreServerFromReloadCheckpointRejectsInvalidFallbackListenerFD(t *te
 		t.Fatalf("checkpoint.WriteCrash: %v", err)
 	}
 
-	_, err = restoreServerFromReloadCheckpoint(sessionName, reloadCPPath, mux.DefaultScrollbackLines)
+	_, err = RestoreServerFromReloadCheckpoint(sessionName, reloadCPPath, mux.DefaultScrollbackLines)
 	if err == nil {
 		t.Fatal("restoreServerFromReloadCheckpoint error = nil, want invalid listener fd")
 	}

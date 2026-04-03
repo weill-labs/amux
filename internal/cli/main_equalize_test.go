@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"reflect"
@@ -28,21 +28,21 @@ func TestParseEqualizeArgs(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := parseEqualizeArgs(tt.args)
+			got, err := ParseEqualizeArgs(tt.args)
 			if tt.wantErr != "" {
 				if err == nil {
-					t.Fatalf("parseEqualizeArgs(%v): expected error containing %q", tt.args, tt.wantErr)
+					t.Fatalf("ParseEqualizeArgs(%v): expected error containing %q", tt.args, tt.wantErr)
 				}
 				if !strings.Contains(err.Error(), tt.wantErr) {
-					t.Fatalf("parseEqualizeArgs(%v): error = %q, want substring %q", tt.args, err.Error(), tt.wantErr)
+					t.Fatalf("ParseEqualizeArgs(%v): error = %q, want substring %q", tt.args, err.Error(), tt.wantErr)
 				}
 				return
 			}
 			if err != nil {
-				t.Fatalf("parseEqualizeArgs(%v): unexpected error: %v", tt.args, err)
+				t.Fatalf("ParseEqualizeArgs(%v): unexpected error: %v", tt.args, err)
 			}
 			if !reflect.DeepEqual(got, tt.want) {
-				t.Fatalf("parseEqualizeArgs(%v) = %v, want %v", tt.args, got, tt.want)
+				t.Fatalf("ParseEqualizeArgs(%v) = %v, want %v", tt.args, got, tt.want)
 			}
 		})
 	}

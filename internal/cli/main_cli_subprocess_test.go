@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"context"
@@ -25,8 +25,7 @@ func TestMainCLISubprocessHelper(t *testing.T) {
 	for i, arg := range args {
 		if arg == "--" {
 			os.Args = append([]string{"amux"}, args[i+1:]...)
-			main()
-			return
+			os.Exit(Run("", os.Args[1:]))
 		}
 	}
 	t.Fatal("missing -- separator")

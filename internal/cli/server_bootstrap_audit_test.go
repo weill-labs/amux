@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"bytes"
@@ -25,7 +25,7 @@ func TestRunServerDoesNotLateSetLogger(t *testing.T) {
 		t.Fatal("runtime.Caller(0) failed")
 	}
 
-	path := filepath.Join(filepath.Dir(thisFile), "internal", "cli", "server_bootstrap.go")
+	path := filepath.Join(filepath.Dir(thisFile), "server_bootstrap.go")
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, path, nil, 0)
 	if err != nil {
