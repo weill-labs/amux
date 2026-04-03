@@ -18,6 +18,10 @@ func sessionCLICommands() map[string]commandHandler {
 			}
 			return 0
 		},
+		"debug": func(inv invocation, args []string) int {
+			inv.runtime.RunDebugCommand(inv.sessionName, args)
+			return 0
+		},
 		"_server": func(inv invocation, args []string) int {
 			name := inv.sessionName
 			if len(args) > 0 {

@@ -12,6 +12,7 @@ type Runtime struct {
 	AttachSession      func(string) error
 	WriteVersionOutput func(io.Writer, []string) error
 	InstallTerminfo    func() error
+	RunDebugCommand    func(string, []string)
 	RunServer          func(string, bool)
 	RunServerCommand   func(string, string, []string)
 	RunEventsCommand   func(string, []string)

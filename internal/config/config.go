@@ -94,9 +94,14 @@ type Host struct {
 	Deploy       *bool  `toml:"deploy"` // auto-deploy binary; nil = true (opt-out with false)
 }
 
+type DebugConfig struct {
+	Pprof bool `toml:"pprof"`
+}
+
 // Config is the top-level amux configuration.
 type Config struct {
 	ScrollbackLines *int            `toml:"scrollback_lines"`
+	Debug           DebugConfig     `toml:"debug"`
 	Hosts           map[string]Host `toml:"hosts"`
 }
 
@@ -185,6 +190,10 @@ func (c *Config) EffectiveScrollbackLines() int {
 		return proto.DefaultScrollbackLines
 	}
 	return lines
+}
+
+func (c *Config) PprofEnabled() bool {
+	return c != nil && c.Debug.Pprof
 }
 
 // ColorForHost deterministically picks a Catppuccin color based on hostname.

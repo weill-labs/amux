@@ -188,6 +188,11 @@ func RunServer(sessionName string, managedTakeover bool, buildVersion string) {
 
 	// Must be set before event loops can observe Env (e.g., exit-unattached).
 	s.Env = server.ReadServerEnv()
+	if cfg.PprofEnabled() {
+		if err := s.EnablePprof(); err != nil {
+			exitBootstrapError(logger, sessionName, "enabling pprof debug endpoint failed", err)
+		}
+	}
 	readySignal := openSignalFD("AMUX_READY_FD", "ready-signal")
 	shutdownSignal := openSignalFD("AMUX_SHUTDOWN_FD", "shutdown-signal")
 	defer writeSignalFD(&readySignal, "")
