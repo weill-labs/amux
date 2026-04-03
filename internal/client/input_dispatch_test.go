@@ -1797,6 +1797,85 @@ func TestHandleMouseEventForwardsAppMouseClickToPane(t *testing.T) {
 	assertNoMessage(t, serverConn)
 }
 
+func TestHandleMouseEventAppMousePressFocusesInactivePaneBeforePassthrough(t *testing.T) {
+	t.Parallel()
+
+	cr := buildTestRenderer(t)
+	cr.HandlePaneOutput(2, []byte("\x1b[?1000h\x1b[?1006h"))
+
+	clientConn, serverConn := net.Pipe()
+	t.Cleanup(func() {
+		clientConn.Close()
+		serverConn.Close()
+	})
+
+	sender := newMessageSender(clientConn)
+	t.Cleanup(sender.Close)
+
+	var drag dragState
+	x, y := paneCenterPoint(t, cr, 2)
+	target := mouseTargetAt(cr.VisibleLayout(), x, y)
+	if target == nil {
+		t.Fatal("expected pane-2 mouse target")
+	}
+
+	pressDone := make(chan struct{}, 1)
+	go func() {
+		handleMouseEvent(mouse.Event{
+			Action: mouse.Press,
+			Button: mouse.ButtonLeft,
+			X:      x,
+			Y:      y,
+		}, cr, sender, &drag, nil)
+		pressDone <- struct{}{}
+	}()
+
+	focus := readCommandMessage(t, serverConn)
+	if focus.Type != proto.MsgTypeCommand {
+		t.Fatalf("focus message type = %d, want %d", focus.Type, proto.MsgTypeCommand)
+	}
+	if focus.CmdName != "focus" || len(focus.CmdArgs) != 1 || focus.CmdArgs[0] != "2" {
+		t.Fatalf("focus command = %q %v, want focus [2]", focus.CmdName, focus.CmdArgs)
+	}
+
+	press := readCommandMessage(t, serverConn)
+	if press.Type != proto.MsgTypeInputPane {
+		t.Fatalf("press message type = %d, want %d", press.Type, proto.MsgTypeInputPane)
+	}
+	if press.PaneID != 2 {
+		t.Fatalf("press pane id = %d, want 2", press.PaneID)
+	}
+	if got := string(press.PaneData); got != fmt.Sprintf("\x1b[<0;%d;%dM", target.localX+1, target.localY+1) {
+		t.Fatalf("press pane data = %q, want %q", got, fmt.Sprintf("\x1b[<0;%d;%dM", target.localX+1, target.localY+1))
+	}
+	<-pressDone
+	assertNoMessage(t, serverConn)
+
+	releaseDone := make(chan struct{}, 1)
+	go func() {
+		handleMouseEvent(mouse.Event{
+			Action: mouse.Release,
+			Button: mouse.ButtonLeft,
+			X:      x,
+			Y:      y,
+		}, cr, sender, &drag, nil)
+		releaseDone <- struct{}{}
+	}()
+
+	release := readCommandMessage(t, serverConn)
+	if release.Type != proto.MsgTypeInputPane {
+		t.Fatalf("release message type = %d, want %d", release.Type, proto.MsgTypeInputPane)
+	}
+	if release.PaneID != 2 {
+		t.Fatalf("release pane id = %d, want 2", release.PaneID)
+	}
+	if got := string(release.PaneData); got != fmt.Sprintf("\x1b[<0;%d;%dm", target.localX+1, target.localY+1) {
+		t.Fatalf("release pane data = %q, want %q", got, fmt.Sprintf("\x1b[<0;%d;%dm", target.localX+1, target.localY+1))
+	}
+	<-releaseDone
+	assertNoMessage(t, serverConn)
+}
+
 func TestCopyModeHelpersSetCursorStartSelectionAndCopy(t *testing.T) {
 	t.Parallel()
 
