@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"encoding/json"
@@ -72,7 +72,7 @@ func overridePositiveIntFromEnv(name string, fallback int) int {
 	return n
 }
 
-func runEventsCommand(sessionName string, args []string) {
+func RunEventsCommand(sessionName string, args []string) {
 	serverArgs, opts := parseEventsClientArgs(args)
 
 	conn, err := connectStreamingCommand(sessionName, "events", serverArgs)
@@ -177,7 +177,7 @@ func streamCommandOutput(conn net.Conn, cmdName string) error {
 	}
 }
 
-func runServerCommand(sessionName, cmdName string, args []string) {
+func RunServerCommand(sessionName, cmdName string, args []string) {
 	conn, err := dialServer(sessionName)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "amux %s: %v\n", cmdName, err)
@@ -186,7 +186,7 @@ func runServerCommand(sessionName, cmdName string, args []string) {
 	defer conn.Close()
 
 	if cmdName == "reload-server" {
-		args = prependReloadExecPathArg(reload.ResolveExecutable, args)
+		args = PrependReloadExecPathArg(reload.ResolveExecutable, args)
 	}
 
 	if err := server.WriteMsg(conn, newCommandMessage(cmdName, args)); err != nil {
@@ -215,7 +215,7 @@ func runServerCommand(sessionName, cmdName string, args []string) {
 	}
 }
 
-func prependReloadExecPathArg(resolve func() (string, error), args []string) []string {
+func PrependReloadExecPathArg(resolve func() (string, error), args []string) []string {
 	execPath, err := resolve()
 	if err != nil {
 		return args

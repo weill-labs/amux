@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"fmt"
@@ -101,7 +101,7 @@ func isHelpFlag(arg string) bool {
 	return arg == "--help" || arg == "-h"
 }
 
-func maybePrintCommandHelp(stdout io.Writer, args []string) bool {
+func MaybePrintCommandHelp(stdout io.Writer, args []string) bool {
 	if len(args) < 2 {
 		return false
 	}
@@ -116,7 +116,7 @@ func maybePrintCommandHelp(stdout io.Writer, args []string) bool {
 	return true
 }
 
-func maybePrintKeyCommandUsage(stdout, stderr io.Writer, args []string, usage string, minArgs int) (handled bool, exitCode int) {
+func MaybePrintKeyCommandUsage(stdout, stderr io.Writer, args []string, usage string, minArgs int) (handled bool, exitCode int) {
 	if hasHelpFlag(args) {
 		fmt.Fprintln(stdout, usage)
 		return true, 0
@@ -128,11 +128,11 @@ func maybePrintKeyCommandUsage(stdout, stderr io.Writer, args []string, usage st
 	return false, 0
 }
 
-func printUsage() {
-	writeUsage(os.Stdout)
+func PrintUsage() {
+	WriteUsage(os.Stdout)
 }
 
-func writeUsage(w io.Writer) {
+func WriteUsage(w io.Writer) {
 	fmt.Fprint(w, `amux — Agent-Centric Terminal Multiplexer
 
 Usage:

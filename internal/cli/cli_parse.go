@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"errors"
@@ -10,7 +10,7 @@ import (
 	"github.com/weill-labs/amux/internal/server"
 )
 
-const defaultSessionName = server.DefaultSessionName
+const DefaultSessionName = server.DefaultSessionName
 
 const reconnectEventType = "reconnect"
 
@@ -60,30 +60,30 @@ var canonicalSessionCommands = map[string]sessionCommandSpec{
 	"zoom":          {connectName: "zoom", usage: zoomUsage, argMode: sessionCommandForwardArgs},
 }
 
-func resolveSessionName(explicit string, explicitSet bool) string {
+func ResolveSessionName(explicit string, explicitSet bool) string {
 	if explicitSet {
 		return explicit
 	}
 	if envSession := os.Getenv("AMUX_SESSION"); envSession != "" {
 		return envSession
 	}
-	return defaultSessionName
+	return DefaultSessionName
 }
 
-func resolveInvocationSession(args []string) (string, []string) {
-	explicit := defaultSessionName
+func ResolveInvocationSession(args []string) (string, []string) {
+	explicit := DefaultSessionName
 	explicitSet := false
 	for i := 0; i < len(args); i++ {
 		if args[i] == "-s" && i+1 < len(args) {
 			explicit = args[i+1]
 			explicitSet = true
-			return resolveSessionName(explicit, explicitSet), append(args[:i], args[i+2:]...)
+			return ResolveSessionName(explicit, explicitSet), append(args[:i], args[i+2:]...)
 		}
 	}
-	return resolveSessionName(explicit, explicitSet), args
+	return ResolveSessionName(explicit, explicitSet), args
 }
 
-func resolveCanonicalSessionCommand(args []string) (cmdName string, cmdArgs []string, handled bool, err error) {
+func ResolveCanonicalSessionCommand(args []string) (cmdName string, cmdArgs []string, handled bool, err error) {
 	if len(args) == 0 {
 		return "", nil, false, nil
 	}
@@ -106,7 +106,7 @@ func resolveCanonicalSessionCommand(args []string) (cmdName string, cmdArgs []st
 	}
 }
 
-func parseLogArgs(args []string) (string, []string, error) {
+func ParseLogArgs(args []string) (string, []string, error) {
 	if len(args) != 1 {
 		return "", nil, fmt.Errorf(logUsage)
 	}
@@ -120,7 +120,7 @@ func parseLogArgs(args []string) (string, []string, error) {
 	}
 }
 
-func parseLeadArgs(args []string) (string, []string, error) {
+func ParseLeadArgs(args []string) (string, []string, error) {
 	switch {
 	case len(args) == 0:
 		return "set-lead", nil, nil
@@ -133,7 +133,7 @@ func parseLeadArgs(args []string) (string, []string, error) {
 	}
 }
 
-func validateMetaArgs(args []string) error {
+func ValidateMetaArgs(args []string) error {
 	if len(args) == 0 {
 		return fmt.Errorf(metaUsage)
 	}
@@ -156,7 +156,7 @@ func validateMetaArgs(args []string) error {
 	return nil
 }
 
-func parseSwapArgs(args []string) (string, []string, error) {
+func ParseSwapArgs(args []string) (string, []string, error) {
 	if len(args) == 0 {
 		return "", nil, fmt.Errorf(swapUsage)
 	}
@@ -187,7 +187,7 @@ func parseSwapArgs(args []string) (string, []string, error) {
 	return "", nil, fmt.Errorf(swapUsage)
 }
 
-func parseMoveArgs(args []string) (string, []string, error) {
+func ParseMoveArgs(args []string) (string, []string, error) {
 	if len(args) < 2 {
 		return "", nil, fmt.Errorf(moveUsage)
 	}
@@ -219,7 +219,7 @@ type spawnCLIOptions struct {
 	color          string
 }
 
-func parseSpawnCommandArgs(args []string) (string, []string, error) {
+func ParseSpawnCommandArgs(args []string) (string, []string, error) {
 	opts := spawnCLIOptions{dir: mux.SplitHorizontal}
 
 	setDir := func(next mux.SplitDir) error {
@@ -353,7 +353,7 @@ func parseSpawnCommandArgs(args []string) (string, []string, error) {
 	return "spawn", cmdArgs, nil
 }
 
-func parseEqualizeArgs(args []string) ([]string, error) {
+func ParseEqualizeArgs(args []string) ([]string, error) {
 	mode := ""
 	for _, arg := range args {
 		switch arg {
