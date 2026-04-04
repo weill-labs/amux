@@ -24,6 +24,10 @@ type fakePaneData struct {
 func (f *fakePaneData) RenderScreen(bool) string { return f.screen }
 func (f *fakePaneData) CellAt(col, row int, active bool) ScreenCell {
 	lines := strings.Split(f.screen, "\n")
+	return screenCellAt(lines, col, row)
+}
+
+func screenCellAt(lines []string, col, row int) ScreenCell {
 	if row < 0 || row >= len(lines) {
 		return ScreenCell{Char: " ", Width: 1}
 	}
@@ -53,6 +57,7 @@ func (f *fakePaneData) CellAt(col, row int, active bool) ScreenCell {
 
 	return ScreenCell{Char: " ", Width: 1}
 }
+
 func (f *fakePaneData) CursorPos() (int, int)               { return 0, 0 }
 func (f *fakePaneData) CursorHidden() bool                  { return f.cursorHidden }
 func (f *fakePaneData) ID() uint32                          { return f.id }
@@ -99,6 +104,15 @@ func (c *countingPaneData) CopyModeOverlay() *proto.ViewportOverlay { return c.b
 func (c *countingPaneData) CellAt(col, row int, active bool) ScreenCell {
 	*c.cellReads = *c.cellReads + 1
 	return c.base.CellAt(col, row, active)
+}
+
+type recomposedPaneData struct {
+	*fakePaneData
+	rows []string
+}
+
+func (r *recomposedPaneData) CellAt(col, row int, active bool) ScreenCell {
+	return screenCellAt(r.rows, col, row)
 }
 
 func TestFakePaneDataCellAtUsesDisplayColumnsForGraphemes(t *testing.T) {
@@ -340,14 +354,17 @@ func TestRenderDiffWithOverlayDirtyMatchesFullRenderAfterShorterRecompose(t *tes
 	t.Parallel()
 
 	const width = 12
-	const totalH = 5 + GlobalBarHeight
+	const totalH = 4
 
 	root := mux.NewLeaf(&mux.Pane{ID: 1, Meta: mux.PaneMeta{Name: "pane-1"}}, 0, 0, width, 5)
-	pane := &fakePaneData{
-		id:           1,
-		name:         "pane-1",
-		cursorHidden: true,
-		screen:       "AAAAAA\nBBBBBB\nCCCCCC\nDDDDDD",
+	pane := &recomposedPaneData{
+		fakePaneData: &fakePaneData{
+			id:           1,
+			name:         "pane-1",
+			cursorHidden: true,
+			screen:       "AAAAAA\nBBBBBB\nCCCCCC\nDDDDDD",
+		},
+		rows: []string{"AAAAAA", "BBBBBB", "CCCCCC", "DDDDDD"},
 	}
 	lookup := func(id uint32) PaneData {
 		if id != 1 {
@@ -359,16 +376,21 @@ func TestRenderDiffWithOverlayDirtyMatchesFullRenderAfterShorterRecompose(t *tes
 	diffComp := newTestCompositor(width, totalH, "test")
 	diffComp.RenderDiffWithOverlayDirty(root, 1, lookup, OverlayState{}, map[uint32]struct{}{1: {}}, true)
 
-	// A TUI full-screen repaint can replace long rows with shorter ones and
-	// blank out intervening lines. Dirty-pane rendering still needs to rebuild
-	// the pane from current cells instead of merging with cached row content.
-	pane.screen = "11\n\n33\n44"
+	// A TUI full-screen repaint can shrink the rendered screen while lower
+	// emulator rows still expose stale cells. Dirty-pane rendering must clear
+	// rows below the new rendered boundary instead of reusing or re-reading
+	// stale lower cells from the cached pane buffer.
+	pane.screen = "11"
+	pane.rows = []string{"11", "stale-row", "CCCCCC", "DDDDDD"}
 	diffComp.RenderDiffWithOverlayDirty(root, 1, lookup, OverlayState{}, map[uint32]struct{}{1: {}}, false)
 
 	fullComp := newTestCompositor(width, totalH, "test")
 	want := MaterializeGrid(fullComp.RenderFull(root, 1, lookup), width, totalH)
 	if got := diffComp.PrevGridText(); got != want {
 		t.Fatalf("dirty recompose grid =\n%s\nwant:\n%s", got, want)
+	}
+	if errs := oobErrors(diffComp); len(errs) > 0 {
+		t.Fatalf("dirty recompose should stay within the clipped visible grid:\n%s", strings.Join(errs, "\n"))
 	}
 }
 
