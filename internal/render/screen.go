@@ -282,6 +282,10 @@ func (c *Compositor) buildGridWithOverlayDirty(
 		copyOverlay := pd.CopyModeOverlay()
 		buildStatusCellsPressed(g, cell, isActive, pressed, pd)
 		contentH := mux.PaneContentHeight(cell.H)
+		// Rebuild every row for dirty panes. TUI full-screen recomposes can
+		// move or clear lines without producing a pane-local dirty report that
+		// safely describes every changed row, so reusing cached rows here can
+		// leave stale cells until the next full redraw.
 		for row := 0; row < contentH; row++ {
 			buildPaneContentCells(g, cell, row, isActive, pd, copyOverlay)
 		}
