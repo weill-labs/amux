@@ -327,6 +327,9 @@ func buildPaneContentCells(g *ScreenGrid, cell *mux.LayoutCell, row int, active 
 	}
 }
 
+// clearPaneContentRows blanks rows in the cloned dirty grid that are no longer
+// visible for this pane so clipped panes cannot retain stale content from the
+// previous frame.
 func clearPaneContentRows(g *ScreenGrid, cell *mux.LayoutCell, startRow, endRow int) {
 	if startRow >= endRow {
 		return
