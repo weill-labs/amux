@@ -61,6 +61,8 @@ var harnessBlockedEnvKeys = map[string]struct{}{
 	"TMUX":         {},
 }
 
+const harnessCommandWaitDelay = 250 * time.Millisecond
+
 // newServerHarnessWithSize starts a server harness with a custom terminal size.
 func newServerHarnessWithSize(tb testing.TB, cols, rows int) *ServerHarness {
 	return newServerHarnessWithConfig(tb, cols, rows, "")
@@ -457,6 +459,14 @@ func (h *ServerHarness) commandWithContext(ctx context.Context, args ...string) 
 	}
 	env = appendHarnessExtraEnv(env, h.extraEnv)
 	cmd.Env = env
+	if cmd.SysProcAttr == nil {
+		cmd.SysProcAttr = &syscall.SysProcAttr{}
+	}
+	cmd.SysProcAttr.Setpgid = true
+	cmd.WaitDelay = harnessCommandWaitDelay
+	cmd.Cancel = func() error {
+		return killCmdProcessGroup(cmd)
+	}
 	return cmd
 }
 
@@ -1593,6 +1603,29 @@ func TestSummarizeDiagnosticCaptureJSONIncludesPaneState(t *testing.T) {
 		if !strings.Contains(summary, want) {
 			t.Fatalf("capture summary missing %q\nsummary:\n%s", want, summary)
 		}
+	}
+}
+
+func TestCommandWithContextSetsProcessGroupKillAndWaitDelay(t *testing.T) {
+	t.Parallel()
+
+	h := &ServerHarness{
+		session: "t-config",
+		home:    t.TempDir(),
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	cmd := h.commandWithContext(ctx, "capture", "--format", "json")
+	if cmd.SysProcAttr == nil || !cmd.SysProcAttr.Setpgid {
+		t.Fatal("commandWithContext should run CLI subprocesses in their own process group")
+	}
+	if cmd.WaitDelay <= 0 {
+		t.Fatal("commandWithContext should set WaitDelay so timed-out subprocesses cannot wedge Wait")
+	}
+	if cmd.Cancel == nil {
+		t.Fatal("commandWithContext should override Cancel to kill the subprocess process group")
 	}
 }
 
