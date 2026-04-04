@@ -10,7 +10,7 @@ const (
 	sendKeysUsage     = "usage: amux send-keys <pane> [--via pty|client] [--client <id>] [--wait ready|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>..."
 	mouseUsage        = "usage: amux mouse [--client <id>] [--timeout <duration>] (press <x> <y> | motion <x> <y> | release <x> <y> | click <x> <y> | click <pane> [--status-line] | drag <pane> --to <pane>)"
 	logUsage          = "usage: amux log <clients|panes>"
-	debugUsage        = "usage: amux debug <goroutines|profile|heap|socket> [--duration <duration>]"
+	debugUsage        = "usage: amux debug <goroutines|profile|heap|socket|frames> [--duration <duration>]"
 	leadUsage         = "usage: amux lead [pane] | amux lead --clear"
 	metaUsage         = "usage: amux meta <set|get|rm> ..."
 	moveUsage         = "usage: amux move <pane> up|down | amux move <pane> (--before <target>|--after <target>|--to-column <target>)"
@@ -150,6 +150,7 @@ Usage:
                                        Stream a CPU profile from the server pprof endpoint
   amux [-s session] debug heap         Print a live heap profile summary from the server pprof endpoint
   amux [-s session] debug socket       Print the Unix socket path for the server pprof endpoint
+  amux [-s session] debug frames       Dump client render frame stats from the attached client
   amux [-s session] capture            Capture full composited screen
   amux [-s session] capture --history --format json
                                        Capture full-session JSON with per-pane scrollback prepended to content
