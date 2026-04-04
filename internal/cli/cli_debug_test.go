@@ -90,8 +90,11 @@ func TestParseDebugCommand(t *testing.T) {
 			wantErr:    debugUsage,
 		},
 		{
-			name:         "parses frames without loading config",
-			loadConfig:   func() (*config.Config, error) { t.Fatal("loadConfig should not be called for debug frames"); return nil, nil },
+			name: "parses frames without loading config",
+			loadConfig: func() (*config.Config, error) {
+				t.Fatal("loadConfig should not be called for debug frames")
+				return nil, nil
+			},
 			args:         []string{"frames"},
 			wantCommand:  "debug-frames",
 			wantTimeout:  5 * time.Second,

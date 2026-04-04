@@ -39,35 +39,51 @@ func (s *Session) forwardCaptureForActor(actorPaneID uint32, args []string) *Mes
 		}
 	}
 
-	// Wait briefly for a client to attach (covers post-reload reconnection).
-	snap := captureClientSnapshot{}
-	err := error(nil)
+	snap, err := s.waitForCaptureClient(captureReq, actorPaneID, nil)
+	if err != nil {
+		if captureReq.FormatJSON {
+			return jsonErrorResult("session_shutting_down", err.Error())
+		}
+		return &Message{Type: MsgTypeCmdResult, CmdErr: err.Error()}
+	}
+	if snap.client == nil {
+		if captureReq.FormatJSON {
+			return jsonErrorResult("no_client_attached", "no client attached")
+		}
+		return &Message{Type: MsgTypeCmdResult, CmdErr: "no client attached"}
+	}
+
+	return s.runClientCaptureRequest(args, captureReq, snap.client, s.captureAgentStatus(snap.statusPanes), jsonErrorResult)
+}
+
+func (s *Session) waitForCaptureClient(req caputil.Request, actorPaneID uint32, target *capturePaneTarget) (captureClientSnapshot, error) {
 	maxRetries := s.captureAttachMaxRetries()
 	retryDelay := s.captureAttachRetryDelay()
 	for attempt := 0; attempt < maxRetries; attempt++ {
-		snap, err = s.captureClientSnapshotForActor(captureReq, actorPaneID, nil)
+		snap, err := s.captureClientSnapshotForActor(req, actorPaneID, target)
 		if err != nil {
-			if captureReq.FormatJSON {
-				return jsonErrorResult("session_shutting_down", err.Error())
-			}
-			return &Message{Type: MsgTypeCmdResult, CmdErr: err.Error()}
+			return captureClientSnapshot{}, err
 		}
-		if snap.client != nil {
-			break
-		}
-		if attempt == maxRetries-1 {
-			if captureReq.FormatJSON {
-				return jsonErrorResult("no_client_attached", "no client attached")
-			}
-			return &Message{Type: MsgTypeCmdResult, CmdErr: "no client attached"}
+		if snap.client != nil || attempt == maxRetries-1 {
+			return snap, nil
 		}
 		// Client capture can race with hot-reload reattach. A short backoff
 		// avoids busy-spinning the actor while giving the interactive client
 		// a chance to reconnect and serve the capture request.
 		time.Sleep(retryDelay)
 	}
+	return captureClientSnapshot{}, nil
+}
 
-	return s.runClientCaptureRequest(args, captureReq, snap.client, s.captureAgentStatus(snap.statusPanes), jsonErrorResult)
+func (s *Session) forwardDebugFramesForActor(actorPaneID uint32) *Message {
+	snap, err := s.waitForCaptureClient(caputil.Request{}, actorPaneID, nil)
+	if err != nil {
+		return &Message{Type: MsgTypeCmdResult, CmdErr: err.Error()}
+	}
+	if snap.client == nil {
+		return &Message{Type: MsgTypeCmdResult, CmdErr: "no client attached"}
+	}
+	return s.runClientCaptureRequest([]string{proto.ClientQueryDebugFramesArg}, caputil.Request{}, snap.client, nil, nil)
 }
 
 func (s *Session) captureClientSnapshot(req caputil.Request, target *capturePaneTarget) (captureClientSnapshot, error) {

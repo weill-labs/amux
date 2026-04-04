@@ -216,17 +216,28 @@ func (r *Renderer) ClearPrevGrid() {
 // interactive client renders from a single goroutine and the headless client is
 // sequential.
 func (r *Renderer) RenderFullWithOverlay(paneLookup func(*rendererActorState, uint32) render.PaneData, overlay render.OverlayState, clearScreen ...bool) string {
-	return withRendererActorValue(r, func(st *rendererActorState) string {
+	out, _ := r.RenderFullWithOverlayStats(paneLookup, overlay, clearScreen...)
+	return out
+}
+
+func (r *Renderer) RenderFullWithOverlayStats(paneLookup func(*rendererActorState, uint32) render.PaneData, overlay render.OverlayState, clearScreen ...bool) (string, render.RenderStats) {
+	type result struct {
+		out   string
+		stats render.RenderStats
+	}
+	res := withRendererActorValue(r, func(st *rendererActorState) result {
 		snap := st.snapshot
 		if snap.layout == nil {
-			return ""
+			return result{}
 		}
 		root, activePaneID := snap.captureRoot(st.compositor.LayoutHeight())
 		overlay = r.mergeOverlay(snap, overlay)
-		return st.compositor.RenderFullWithOverlay(root, activePaneID, func(paneID uint32) render.PaneData {
+		out, stats := st.compositor.RenderFullWithOverlayStats(root, activePaneID, func(paneID uint32) render.PaneData {
 			return paneLookup(st, paneID)
 		}, overlay, clearScreen...)
+		return result{out: out, stats: stats}
 	})
+	return res.out, res.stats
 }
 
 // RenderDiffWithOverlay produces minimal ANSI output by diffing against the
@@ -245,17 +256,33 @@ func (r *Renderer) RenderDiffWithOverlayDirty(
 	dirtyPanes map[uint32]struct{},
 	fullRedraw bool,
 ) string {
-	return withRendererActorValue(r, func(st *rendererActorState) string {
+	out, _ := r.RenderDiffWithOverlayDirtyStats(paneLookup, overlay, dirtyPanes, fullRedraw)
+	return out
+}
+
+func (r *Renderer) RenderDiffWithOverlayDirtyStats(
+	paneLookup func(*rendererActorState, uint32) render.PaneData,
+	overlay render.OverlayState,
+	dirtyPanes map[uint32]struct{},
+	fullRedraw bool,
+) (string, render.RenderStats) {
+	type result struct {
+		out   string
+		stats render.RenderStats
+	}
+	res := withRendererActorValue(r, func(st *rendererActorState) result {
 		snap := st.snapshot
 		if snap.layout == nil {
-			return ""
+			return result{}
 		}
 		root, activePaneID := snap.captureRoot(st.compositor.LayoutHeight())
 		overlay = r.mergeOverlay(snap, overlay)
-		return st.compositor.RenderDiffWithOverlayDirty(root, activePaneID, func(paneID uint32) render.PaneData {
+		out, stats := st.compositor.RenderDiffWithOverlayDirtyStats(root, activePaneID, func(paneID uint32) render.PaneData {
 			return paneLookup(st, paneID)
 		}, overlay, dirtyPanes, fullRedraw)
+		return result{out: out, stats: stats}
 	})
+	return res.out, res.stats
 }
 
 // Capture renders the full composited screen from client-side emulators.
@@ -558,6 +585,10 @@ func (r *Renderer) resizeSnapshotEmulators(next *rendererSnapshot, emulators map
 // with the rendered output. This is the shared implementation used by both
 // the live client (main package) and the headless test client.
 func (r *Renderer) HandleCaptureRequest(args []string, agentStatus map[uint32]proto.PaneAgentStatus) *proto.Message {
+	if isDebugFramesClientQuery(args) {
+		var stats clientFrameStats
+		return &proto.Message{Type: proto.MsgTypeCaptureResponse, CmdOutput: stats.format() + "\n"}
+	}
 	req := caputil.ParseArgs(args)
 	if err := caputil.ValidateScreenRequest(req); err != nil {
 		return &proto.Message{Type: proto.MsgTypeCaptureResponse,

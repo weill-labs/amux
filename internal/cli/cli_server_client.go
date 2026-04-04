@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"strconv"
@@ -178,10 +179,16 @@ func streamCommandOutput(conn net.Conn, cmdName string) error {
 }
 
 func RunServerCommand(sessionName, cmdName string, args []string) {
-	conn, err := dialServer(sessionName)
-	if err != nil {
+	if err := runServerCommandWithIO(os.Stdout, sessionName, cmdName, args); err != nil {
 		fmt.Fprintf(os.Stderr, "amux %s: %v\n", cmdName, err)
 		os.Exit(1)
+	}
+}
+
+func runServerCommandWithIO(w io.Writer, sessionName, cmdName string, args []string) error {
+	conn, err := dialServer(sessionName)
+	if err != nil {
+		return err
 	}
 	defer conn.Close()
 
@@ -190,28 +197,28 @@ func RunServerCommand(sessionName, cmdName string, args []string) {
 	}
 
 	if err := server.WriteMsg(conn, newCommandMessage(cmdName, args)); err != nil {
-		fmt.Fprintf(os.Stderr, "amux %s: %v\n", cmdName, err)
-		os.Exit(1)
+		return err
 	}
 
 	for {
 		reply, err := server.ReadMsg(conn)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "amux %s: %v\n", cmdName, err)
-			os.Exit(1)
+			return err
 		}
-		if emitBellMessage(reply) {
+		if reply != nil && reply.Type == server.MsgTypeBell {
+			if _, err := fmt.Fprint(w, "\a"); err != nil {
+				return err
+			}
 			continue
 		}
 		if reply.Type != server.MsgTypeCmdResult {
 			continue
 		}
 		if reply.CmdErr != "" {
-			fmt.Fprintf(os.Stderr, "amux %s: %s\n", cmdName, reply.CmdErr)
-			os.Exit(1)
+			return fmt.Errorf("%s", reply.CmdErr)
 		}
-		fmt.Print(reply.CmdOutput)
-		return
+		_, err = io.WriteString(w, reply.CmdOutput)
+		return err
 	}
 }
 
