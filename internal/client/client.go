@@ -811,7 +811,7 @@ func (cr *ClientRenderer) CopyBuffer() string {
 // It renders from the client-side emulators and returns a response message.
 func (cr *ClientRenderer) HandleCaptureRequest(args []string, agentStatus map[uint32]proto.PaneAgentStatus) *proto.Message {
 	if isDebugFramesClientQuery(args) {
-		return &proto.Message{Type: proto.MsgTypeCaptureResponse, CmdOutput: cr.frameStats.format() + "\n"}
+		return clientFrameStatsResponse(cr.frameStats)
 	}
 	req := caputil.ParseArgs(args)
 	if !req.FormatJSON || req.IncludeANSI || req.ColorMap || req.DisplayMode {

@@ -158,3 +158,10 @@ func percentileIndex(n, percentile int) int {
 func isDebugFramesClientQuery(args []string) bool {
 	return len(args) == 1 && args[0] == proto.ClientQueryDebugFramesArg
 }
+
+func clientFrameStatsResponse(stats clientFrameStats) *proto.Message {
+	return &proto.Message{
+		Type:      proto.MsgTypeCaptureResponse,
+		CmdOutput: stats.format() + "\n",
+	}
+}
