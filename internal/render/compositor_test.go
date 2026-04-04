@@ -339,7 +339,10 @@ func TestRenderDiffWithOverlayDirtySkipsCleanPaneCellReads(t *testing.T) {
 func TestRenderDiffWithOverlayDirtyMatchesFullRenderAfterShorterRecompose(t *testing.T) {
 	t.Parallel()
 
-	root := mux.NewLeaf(&mux.Pane{ID: 1, Meta: mux.PaneMeta{Name: "pane-1"}}, 0, 0, 12, 5)
+	const width = 12
+	const totalH = 5 + GlobalBarHeight
+
+	root := mux.NewLeaf(&mux.Pane{ID: 1, Meta: mux.PaneMeta{Name: "pane-1"}}, 0, 0, width, 5)
 	pane := &fakePaneData{
 		id:           1,
 		name:         "pane-1",
@@ -353,7 +356,7 @@ func TestRenderDiffWithOverlayDirtyMatchesFullRenderAfterShorterRecompose(t *tes
 		return pane
 	}
 
-	diffComp := NewCompositor(12, 5+GlobalBarHeight, "test")
+	diffComp := newTestCompositor(width, totalH, "test")
 	diffComp.RenderDiffWithOverlayDirty(root, 1, lookup, OverlayState{}, map[uint32]struct{}{1: {}}, true)
 
 	// A TUI full-screen repaint can replace long rows with shorter ones and
@@ -362,8 +365,8 @@ func TestRenderDiffWithOverlayDirtyMatchesFullRenderAfterShorterRecompose(t *tes
 	pane.screen = "11\n\n33\n44"
 	diffComp.RenderDiffWithOverlayDirty(root, 1, lookup, OverlayState{}, map[uint32]struct{}{1: {}}, false)
 
-	fullComp := NewCompositor(12, 5+GlobalBarHeight, "test")
-	want := MaterializeGrid(fullComp.RenderFull(root, 1, lookup), 12, 5+GlobalBarHeight)
+	fullComp := newTestCompositor(width, totalH, "test")
+	want := MaterializeGrid(fullComp.RenderFull(root, 1, lookup), width, totalH)
 	if got := diffComp.PrevGridText(); got != want {
 		t.Fatalf("dirty recompose grid =\n%s\nwant:\n%s", got, want)
 	}
