@@ -1596,6 +1596,29 @@ func TestSummarizeDiagnosticCaptureJSONIncludesPaneState(t *testing.T) {
 	}
 }
 
+func TestCommandWithContextSetsProcessGroupKillAndWaitDelay(t *testing.T) {
+	t.Parallel()
+
+	h := &ServerHarness{
+		session: "t-config",
+		home:    t.TempDir(),
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	cmd := h.commandWithContext(ctx, "capture", "--format", "json")
+	if cmd.SysProcAttr == nil || !cmd.SysProcAttr.Setpgid {
+		t.Fatal("commandWithContext should run CLI subprocesses in their own process group")
+	}
+	if cmd.WaitDelay <= 0 {
+		t.Fatal("commandWithContext should set WaitDelay so timed-out subprocesses cannot wedge Wait")
+	}
+	if cmd.Cancel == nil {
+		t.Fatal("commandWithContext should override Cancel to kill the subprocess process group")
+	}
+}
+
 func (h *ServerHarness) splitV()     { h.tb.Helper(); h.doSplit("v") }
 func (h *ServerHarness) splitH()     { h.tb.Helper(); h.doSplit() }
 func (h *ServerHarness) splitRootV() { h.tb.Helper(); h.doSplit("root", "v") }
