@@ -261,6 +261,7 @@ func (c *Compositor) buildGridWithOverlayDirty(
 
 	g := c.prevGrid.Clone()
 	g.Debug = c.debug
+	layoutHeight := c.layoutHeightForHelpBar(overlay.HelpBar)
 
 	paneCount := 0
 	root.Walk(func(cell *mux.LayoutCell) {
@@ -281,7 +282,7 @@ func (c *Compositor) buildGridWithOverlayDirty(
 		pressed := overlay.IsPanePressed(pid)
 		copyOverlay := pd.CopyModeOverlay()
 		buildStatusCellsPressed(g, cell, isActive, pressed, pd)
-		contentH := mux.PaneContentHeight(cell.H)
+		contentH := c.visibleContentHeightForLayoutHeight(cell, layoutHeight)
 		// Rebuild every row for dirty panes. TUI full-screen recomposes can
 		// move or clear lines without producing a pane-local dirty report that
 		// safely describes every changed row, so reusing cached rows here can
@@ -289,6 +290,7 @@ func (c *Compositor) buildGridWithOverlayDirty(
 		for row := 0; row < contentH; row++ {
 			buildPaneContentCells(g, cell, row, isActive, pd, copyOverlay)
 		}
+		clearPaneContentRows(g, cell, contentH, mux.PaneContentHeight(cell.H))
 	})
 
 	if overlay.DropIndicator != nil {
@@ -322,6 +324,21 @@ func buildPaneContentCells(g *ScreenGrid, cell *mux.LayoutCell, row int, active 
 	rowCells := paneContentRowCells(cell.W, row, active, pd, copyOverlay)
 	for col, sc := range rowCells {
 		g.Set(cell.X+col, cell.Y+mux.StatusLineRows+row, sc)
+	}
+}
+
+func clearPaneContentRows(g *ScreenGrid, cell *mux.LayoutCell, startRow, endRow int) {
+	if startRow >= endRow {
+		return
+	}
+	for row := startRow; row < endRow; row++ {
+		y := cell.Y + mux.StatusLineRows + row
+		if y < 0 || y >= g.Height {
+			continue
+		}
+		for col := 0; col < cell.W; col++ {
+			g.Set(cell.X+col, y, ScreenCell{Char: " ", Width: 1})
+		}
 	}
 }
 
