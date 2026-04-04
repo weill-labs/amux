@@ -61,6 +61,8 @@ var harnessBlockedEnvKeys = map[string]struct{}{
 	"TMUX":         {},
 }
 
+const harnessCommandWaitDelay = 250 * time.Millisecond
+
 // newServerHarnessWithSize starts a server harness with a custom terminal size.
 func newServerHarnessWithSize(tb testing.TB, cols, rows int) *ServerHarness {
 	return newServerHarnessWithConfig(tb, cols, rows, "")
@@ -457,6 +459,14 @@ func (h *ServerHarness) commandWithContext(ctx context.Context, args ...string) 
 	}
 	env = appendHarnessExtraEnv(env, h.extraEnv)
 	cmd.Env = env
+	if cmd.SysProcAttr == nil {
+		cmd.SysProcAttr = &syscall.SysProcAttr{}
+	}
+	cmd.SysProcAttr.Setpgid = true
+	cmd.WaitDelay = harnessCommandWaitDelay
+	cmd.Cancel = func() error {
+		return killCmdProcessGroup(cmd)
+	}
 	return cmd
 }
 
