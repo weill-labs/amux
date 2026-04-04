@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -27,6 +28,7 @@ func TestParseDebugCommand(t *testing.T) {
 		loadConfig   debugConfigLoader
 		args         []string
 		wantPath     string
+		wantCommand  string
 		wantTimeout  time.Duration
 		wantSockPath string
 		wantEnabled  bool
@@ -88,6 +90,17 @@ func TestParseDebugCommand(t *testing.T) {
 			wantErr:    debugUsage,
 		},
 		{
+			name: "parses frames without loading config",
+			loadConfig: func() (*config.Config, error) {
+				t.Fatal("loadConfig should not be called for debug frames")
+				return nil, nil
+			},
+			args:         []string{"frames"},
+			wantCommand:  "debug-frames",
+			wantTimeout:  5 * time.Second,
+			wantSockPath: wantSocket,
+		},
+		{
 			name:         "parses default profile duration",
 			loadConfig:   func() (*config.Config, error) { return &config.Config{Debug: config.DebugConfig{Pprof: true}}, nil },
 			args:         []string{"profile"},
@@ -145,6 +158,9 @@ func TestParseDebugCommand(t *testing.T) {
 			}
 			if req.path != tt.wantPath {
 				t.Fatalf("path = %q, want %q", req.path, tt.wantPath)
+			}
+			if req.serverCommand != tt.wantCommand {
+				t.Fatalf("serverCommand = %q, want %q", req.serverCommand, tt.wantCommand)
 			}
 			if req.timeout != tt.wantTimeout {
 				t.Fatalf("timeout = %v, want %v", req.timeout, tt.wantTimeout)
@@ -204,6 +220,39 @@ func TestRunDebugCommandWithIO(t *testing.T) {
 		}
 		if got := out.String(); got != sockPath+"\n" {
 			t.Fatalf("stdout = %q, want %q", got, sockPath+"\n")
+		}
+	})
+
+	t.Run("delegates frames to server command runner", func(t *testing.T) {
+		t.Parallel()
+
+		var out bytes.Buffer
+		called := false
+		err := runDebugCommandWithDeps(&out, "frames-session", []string{"frames"}, func() (*config.Config, error) {
+			t.Fatal("loadConfig should not be called for debug frames")
+			return nil, nil
+		}, func(w io.Writer, sessionName string, cmdName string, args []string) error {
+			called = true
+			if sessionName != "frames-session" {
+				t.Fatalf("sessionName = %q, want %q", sessionName, "frames-session")
+			}
+			if cmdName != "debug-frames" {
+				t.Fatalf("cmdName = %q, want %q", cmdName, "debug-frames")
+			}
+			if len(args) != 0 {
+				t.Fatalf("args = %v, want empty", args)
+			}
+			_, writeErr := io.WriteString(w, "frame stats\n")
+			return writeErr
+		})
+		if err != nil {
+			t.Fatalf("runDebugCommandWithDeps(frames): %v", err)
+		}
+		if !called {
+			t.Fatal("frames runner was not called")
+		}
+		if got := out.String(); got != "frame stats\n" {
+			t.Fatalf("stdout = %q, want %q", got, "frame stats\n")
 		}
 	})
 }

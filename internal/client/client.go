@@ -21,6 +21,7 @@ type ClientRenderer struct {
 	renderer *Renderer
 
 	state           atomic.Pointer[clientSnapshot]
+	frameStats      clientFrameStats
 	recentInputUnix atomic.Int64
 	scrollbackLines int
 	OnUIEvent       func(string)
@@ -129,17 +130,27 @@ func (cr *ClientRenderer) HandlePaneOutput(paneID uint32, data []byte) {
 // after layout changes). When false, content is overwritten in-place to avoid
 // flicker during incremental updates like copy mode navigation.
 func (cr *ClientRenderer) Render(clearScreen ...bool) string {
+	data, _ := cr.renderFull(clearScreen...)
+	return data
+}
+
+func (cr *ClientRenderer) renderFull(clearScreen ...bool) (string, render.RenderStats) {
 	cr.updateState(func(next *clientSnapshot) clientUIResult {
 		next.ui.markRendered()
 		return clientUIResult{}
 	})
 	state := cr.loadState()
-	return cr.renderer.RenderFullWithOverlay(cr.paneLookup(state), cr.overlayStateFromSnapshot(state), clearScreen...)
+	return cr.renderer.RenderFullWithOverlayStats(cr.paneLookup(state), cr.overlayStateFromSnapshot(state), clearScreen...)
 }
 
 // RenderDiff produces minimal ANSI output by diffing against the previous frame.
 // This is the primary render path — no screen clearing, no flicker.
 func (cr *ClientRenderer) RenderDiff() string {
+	data, _ := cr.renderDiff()
+	return data
+}
+
+func (cr *ClientRenderer) renderDiff() (string, render.RenderStats) {
 	type renderState struct {
 		snapshot   *clientSnapshot
 		dirtyPanes map[uint32]struct{}
@@ -155,7 +166,7 @@ func (cr *ClientRenderer) RenderDiff() string {
 		next.ui.markRendered()
 		return result, clientUIResult{}
 	})
-	return cr.renderer.RenderDiffWithOverlayDirty(
+	return cr.renderer.RenderDiffWithOverlayDirtyStats(
 		cr.paneLookup(state.snapshot),
 		cr.overlayStateFromSnapshot(state.snapshot),
 		state.dirtyPanes,
@@ -523,16 +534,30 @@ func (cr *ClientRenderer) executeRenderEffects(state *clientRenderLoopState, eff
 }
 
 func (cr *ClientRenderer) renderNow(state *clientRenderLoopState, write func(string)) {
-	var data string
+	start := time.Now()
+	var (
+		data  string
+		stats render.RenderStats
+	)
 	if state.useFull {
-		data = cr.Render()
+		data, stats = cr.renderFull()
 	} else {
-		data = cr.RenderDiff()
+		data, stats = cr.renderDiff()
 	}
+	end := time.Now()
+	ansiBytes := 0
 	if data != "" {
-		write(wrapSynchronizedFrame(data))
+		frame := wrapSynchronizedFrame(data)
+		ansiBytes = len(frame)
+		write(frame)
 	}
-	state.lastRender = time.Now()
+	cr.frameStats.record(clientFrameSample{
+		frameDuration:   end.Sub(start),
+		cellsDiffed:     stats.CellsDiffed,
+		ansiBytes:       ansiBytes,
+		panesComposited: stats.PanesComposited,
+	})
+	state.lastRender = end
 	state.renderTimer = nil
 	state.renderC = nil
 	state.pendingOutputBytes = 0
@@ -785,6 +810,9 @@ func (cr *ClientRenderer) CopyBuffer() string {
 // HandleCaptureRequest processes a capture request forwarded from the server.
 // It renders from the client-side emulators and returns a response message.
 func (cr *ClientRenderer) HandleCaptureRequest(args []string, agentStatus map[uint32]proto.PaneAgentStatus) *proto.Message {
+	if isDebugFramesClientQuery(args) {
+		return clientFrameStatsResponse(cr.frameStats)
+	}
 	req := caputil.ParseArgs(args)
 	if !req.FormatJSON || req.IncludeANSI || req.ColorMap || req.DisplayMode {
 		return cr.renderer.HandleCaptureRequest(args, agentStatus)

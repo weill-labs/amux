@@ -18,6 +18,7 @@ import (
 const debugDisabledHint = "pprof debug endpoint is disabled; set [debug].pprof = true in config.toml and restart the server"
 
 type debugConfigLoader func() (*config.Config, error)
+type debugServerCommandRunner func(io.Writer, string, string, []string) error
 
 func runDebugCommand(sessionName string, args []string) {
 	if err := runDebugCommandWithIO(os.Stdout, sessionName, args); err != nil {
@@ -31,9 +32,16 @@ func runDebugCommandWithIO(w io.Writer, sessionName string, args []string) error
 }
 
 func runDebugCommandWithConfigLoader(w io.Writer, sessionName string, args []string, loadConfig debugConfigLoader) error {
+	return runDebugCommandWithDeps(w, sessionName, args, loadConfig, runServerCommandWithIO)
+}
+
+func runDebugCommandWithDeps(w io.Writer, sessionName string, args []string, loadConfig debugConfigLoader, runServerCommand debugServerCommandRunner) error {
 	endpoint, err := parseDebugCommandWithConfigLoader(sessionName, args, loadConfig)
 	if err != nil {
 		return err
+	}
+	if endpoint.serverCommand != "" {
+		return runServerCommand(w, sessionName, endpoint.serverCommand, nil)
 	}
 	if endpoint.path == "" {
 		if err := ensureDebugSocketAvailable(endpoint); err != nil {
@@ -54,6 +62,7 @@ func runDebugCommandWithConfigLoader(w io.Writer, sessionName string, args []str
 type debugEndpointRequest struct {
 	sockPath      string
 	path          string
+	serverCommand string
 	timeout       time.Duration
 	configEnabled bool
 }
@@ -69,6 +78,17 @@ func loadDebugConfig() (*config.Config, error) {
 func parseDebugCommandWithConfigLoader(sessionName string, args []string, loadConfig debugConfigLoader) (debugEndpointRequest, error) {
 	if len(args) == 0 {
 		return debugEndpointRequest{}, fmt.Errorf(debugUsage)
+	}
+
+	if args[0] == "frames" {
+		if len(args) != 1 {
+			return debugEndpointRequest{}, fmt.Errorf(debugUsage)
+		}
+		return debugEndpointRequest{
+			sockPath:      server.PprofSocketPath(sessionName),
+			serverCommand: "debug-frames",
+			timeout:       5 * time.Second,
+		}, nil
 	}
 
 	cfg, err := loadConfig()

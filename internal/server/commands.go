@@ -155,6 +155,7 @@ var commandRegistry = map[string]CommandHandler{
 	"split":          cmdSplit,
 	"focus":          cmdFocus,
 	"capture":        cmdCapture,
+	"debug-frames":   cmdDebugFrames,
 	"spawn":          cmdSpawn,
 	"zoom":           cmdZoom,
 	"reset":          cmdReset,

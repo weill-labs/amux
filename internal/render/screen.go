@@ -179,7 +179,7 @@ func CellFromUV(c *uv.Cell) ScreenCell {
 	return ScreenCell{Char: char, Link: c.Link, Style: c.Style, Width: c.Width}
 }
 
-func (c *Compositor) buildGridWithOverlay(root *mux.LayoutCell, activePaneID uint32, lookup func(uint32) PaneData, overlay OverlayState) *ScreenGrid {
+func (c *Compositor) buildGridWithOverlay(root *mux.LayoutCell, activePaneID uint32, lookup func(uint32) PaneData, overlay OverlayState) (*ScreenGrid, int) {
 	g := NewScreenGrid(c.width, c.height)
 	g.Debug = c.debug
 	layoutHeight := c.layoutHeightForHelpBar(overlay.HelpBar)
@@ -244,7 +244,7 @@ func (c *Compositor) buildGridWithOverlay(root *mux.LayoutCell, activePaneID uin
 		buildTextInputOverlayCells(g, overlay.TextInput)
 	}
 
-	return g
+	return g, paneCount
 }
 
 func (c *Compositor) buildGridWithOverlayDirty(
@@ -254,7 +254,7 @@ func (c *Compositor) buildGridWithOverlayDirty(
 	overlay OverlayState,
 	dirtyPanes map[uint32]struct{},
 	fullRedraw bool,
-) *ScreenGrid {
+) (*ScreenGrid, int) {
 	if fullRedraw || c.prevGrid == nil {
 		return c.buildGridWithOverlay(root, activePaneID, lookup, overlay)
 	}
@@ -264,6 +264,7 @@ func (c *Compositor) buildGridWithOverlayDirty(
 	layoutHeight := c.layoutHeightForHelpBar(overlay.HelpBar)
 
 	paneCount := 0
+	compositedPanes := 0
 	root.Walk(func(cell *mux.LayoutCell) {
 		pid := cell.CellPaneID()
 		if pid == 0 {
@@ -277,6 +278,7 @@ func (c *Compositor) buildGridWithOverlayDirty(
 		if _, ok := dirtyPanes[pid]; !ok {
 			return
 		}
+		compositedPanes++
 
 		isActive := pid == activePaneID
 		pressed := overlay.IsPanePressed(pid)
@@ -311,7 +313,7 @@ func (c *Compositor) buildGridWithOverlayDirty(
 		buildTextInputOverlayCells(g, overlay.TextInput)
 	}
 
-	return g
+	return g, compositedPanes
 }
 
 // buildPaneContentCells writes a pane row into the compositor grid using the

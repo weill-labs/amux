@@ -21,6 +21,12 @@ type WindowInfo struct {
 	Panes    int
 }
 
+// RenderStats captures lightweight render counters alongside ANSI output.
+type RenderStats struct {
+	CellsDiffed     int
+	PanesComposited int
+}
+
 // Compositor composes pane content into terminal output.
 type Compositor struct {
 	width       int
@@ -116,6 +122,11 @@ func (c *Compositor) layoutHeightForHelpBar(overlay *HelpBarOverlay) int {
 // is required after layout changes (panes move/resize) but should be skipped
 // for incremental updates (pane output, copy mode navigation) to avoid flicker.
 func (c *Compositor) RenderFullWithOverlay(root *mux.LayoutCell, activePaneID uint32, lookup func(uint32) PaneData, overlay OverlayState, clearScreen ...bool) string {
+	out, _ := c.RenderFullWithOverlayStats(root, activePaneID, lookup, overlay, clearScreen...)
+	return out
+}
+
+func (c *Compositor) RenderFullWithOverlayStats(root *mux.LayoutCell, activePaneID uint32, lookup func(uint32) PaneData, overlay OverlayState, clearScreen ...bool) (string, RenderStats) {
 	var buf strings.Builder
 	buf.Grow(c.width * c.height * 4) // pre-allocate for typical ANSI output
 
@@ -196,7 +207,10 @@ func (c *Compositor) RenderFullWithOverlay(root *mux.LayoutCell, activePaneID ui
 	// hide the terminal cursor to avoid showing two cursors.
 	c.renderCursorWithLayoutHeight(&buf, root, activePaneID, lookup, layoutHeight)
 
-	return buf.String()
+	return buf.String(), RenderStats{
+		CellsDiffed:     c.width * c.height,
+		PanesComposited: paneCount,
+	}
 }
 
 // RenderDiffWithOverlay composes all panes into a cell grid, diffs against the
@@ -218,7 +232,19 @@ func (c *Compositor) RenderDiffWithOverlayDirty(
 	dirtyPanes map[uint32]struct{},
 	fullRedraw bool,
 ) string {
-	newGrid := c.buildGridWithOverlayDirty(root, activePaneID, lookup, overlay, dirtyPanes, fullRedraw)
+	out, _ := c.RenderDiffWithOverlayDirtyStats(root, activePaneID, lookup, overlay, dirtyPanes, fullRedraw)
+	return out
+}
+
+func (c *Compositor) RenderDiffWithOverlayDirtyStats(
+	root *mux.LayoutCell,
+	activePaneID uint32,
+	lookup func(uint32) PaneData,
+	overlay OverlayState,
+	dirtyPanes map[uint32]struct{},
+	fullRedraw bool,
+) (string, RenderStats) {
+	newGrid, panesComposited := c.buildGridWithOverlayDirty(root, activePaneID, lookup, overlay, dirtyPanes, fullRedraw)
 	changes := DiffGrid(c.prevGrid, newGrid)
 	c.prevGrid = newGrid
 
@@ -239,7 +265,10 @@ func (c *Compositor) RenderDiffWithOverlayDirty(
 	// Position cursor.
 	c.renderCursorDiffWithLayoutHeight(&buf, root, activePaneID, lookup, c.layoutHeightForHelpBar(overlay.HelpBar))
 
-	return buf.String()
+	return buf.String(), RenderStats{
+		CellsDiffed:     len(changes),
+		PanesComposited: panesComposited,
+	}
 }
 
 // ClearPrevGrid forces a full repaint on the next RenderDiff call.
