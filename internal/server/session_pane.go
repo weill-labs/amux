@@ -178,15 +178,34 @@ func (s *Session) startPendingLocalPaneBuild(srv *Server, placeholder *mux.Pane,
 	if placeholder == nil {
 		return
 	}
+	s.localPaneBuilds.Add(1)
 	go func() {
+		defer s.localPaneBuilds.Done()
 		pane, err := s.buildConfiguredLocalPane(srv, req)
-		s.enqueueEvent(localPaneBuildResultEvent{
+		if s.enqueueEvent(localPaneBuildResultEvent{
 			placeholder: placeholder,
 			pane:        pane,
 			err:         err,
 			done:        done,
-		})
+		}) {
+			return
+		}
+		if pane != nil {
+			pane.SuppressCallbacks()
+			s.closePaneAsync(pane)
+		}
+		if done != nil {
+			if err != nil {
+				done <- err
+			} else {
+				done <- errSessionShuttingDown
+			}
+		}
 	}()
+}
+
+func (s *Session) waitPendingLocalPaneBuilds() {
+	s.localPaneBuilds.Wait()
 }
 
 func (s *Session) failPendingLocalPaneBuild(placeholder *mux.Pane, err error) {

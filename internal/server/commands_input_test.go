@@ -94,6 +94,67 @@ func TestCmdSendKeysCommandWaitReadyWaitsForReady(t *testing.T) {
 	}
 }
 
+func TestCmdSendKeysWaitsForPendingLocalPaneInputTarget(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	buildStarted := make(chan struct{})
+	releaseBuild := make(chan struct{})
+	sess.localPaneBuilder = func(req localPaneBuildRequest) (*mux.Pane, error) {
+		close(buildStarted)
+		<-releaseBuild
+		return defaultLocalPaneBuilder(req)
+	}
+
+	_, err := enqueueSessionQuery(sess, func(sess *Session) (ensureInitialWindowResult, error) {
+		return sess.ensureInitialWindowLocked(srv, 80, 24, nil)
+	})
+	if err != nil {
+		t.Fatalf("ensureInitialWindowLocked() error = %v", err)
+	}
+
+	clientConn, _, done := startAsyncCommand(t, srv, sess, "send-keys", "pane-1", "printf PENDING_OK", "Enter")
+
+	waitForSignal(t, buildStarted, "pending local pane build")
+
+	select {
+	case <-done:
+		t.Fatal("send-keys returned before pending local pane finished building")
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	close(releaseBuild)
+
+	waitUntil(t, func() bool {
+		snap := mustSessionQuery(t, sess, func(sess *Session) mux.CaptureSnapshot {
+			pane := sess.findPaneByID(1)
+			if pane == nil {
+				return mux.CaptureSnapshot{}
+			}
+			return pane.CaptureSnapshot()
+		})
+		return strings.Contains(strings.Join(snap.History, "\n")+"\n"+strings.Join(snap.Content, "\n"), "PENDING_OK")
+	})
+
+	result := readUntil(t, clientConn, func(msg *Message) bool {
+		return msg.Type == MsgTypeCmdResult
+	})
+	if result.CmdErr != "" {
+		t.Fatalf("send-keys cmdErr = %q", result.CmdErr)
+	}
+	if got := result.CmdOutput; got != "Sent 18 bytes to pane-1\n" {
+		t.Fatalf("send-keys result = %#v", result)
+	}
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("send-keys against pending pane did not return")
+	}
+}
+
 func TestCmdSendKeysViaClientUsesRequestedClient(t *testing.T) {
 	t.Parallel()
 

@@ -552,14 +552,12 @@ func newCommandTestSession(t *testing.T) (*Server, *Session, func()) {
 	srv := &Server{sessions: map[string]*Session{sess.Name: sess}}
 	cleanup := func() {
 		sess.shutdown.Store(true)
-		panes := mustSessionQuery(t, sess, func(sess *Session) []*mux.Pane {
-			return append([]*mux.Pane(nil), sess.Panes...)
-		})
+		stopSessionBackgroundLoops(t, sess)
+		panes := append([]*mux.Pane(nil), sess.Panes...)
 		for _, p := range panes {
 			_ = p.Close()
 			_ = p.WaitClosed()
 		}
-		stopSessionBackgroundLoops(t, sess)
 	}
 	return srv, sess, cleanup
 }

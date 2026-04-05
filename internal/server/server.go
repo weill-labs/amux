@@ -123,6 +123,7 @@ type Session struct {
 	// localPaneBuilder builds PTY-backed local panes. Tests stub it to control
 	// pane creation timing without mutable package-level state.
 	localPaneBuilder func(localPaneBuildRequest) (*mux.Pane, error)
+	localPaneBuilds  sync.WaitGroup
 
 	// Exit-unattached: server exits when all clients disconnect after
 	// at least one has connected. Used by test harness to avoid orphans.

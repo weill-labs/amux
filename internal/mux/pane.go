@@ -673,6 +673,16 @@ func (p *Pane) Write(data []byte) (int, error) {
 	return writeAll(data, p.ptmx.Write)
 }
 
+// AcceptsInput reports whether writes can be routed to the pane immediately.
+// Pending local panes return false until the real PTY-backed pane replaces the
+// placeholder in session state.
+func (p *Pane) AcceptsInput() bool {
+	if p == nil {
+		return false
+	}
+	return p.writeOverride != nil || p.ptmx != nil
+}
+
 func writeAll(data []byte, write func([]byte) (int, error)) (int, error) {
 	total := 0
 	for len(data) > 0 {

@@ -192,6 +192,9 @@ func waitForPaneReady(sess *Session, paneRef string, paneRefData resolvedPaneRef
 		if err != nil {
 			return false, fmt.Errorf("pane %q disappeared while waiting to become ready", paneRef)
 		}
+		if !state.pane.AcceptsInput() {
+			return false, nil
+		}
 
 		remaining := state.vtIdle.remaining(sess.vtIdleSettle(), clk.Now())
 		if remaining > 0 {

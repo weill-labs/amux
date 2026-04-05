@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	"sync/atomic"
+	"time"
 
 	"github.com/weill-labs/amux/internal/mux"
 )
@@ -51,7 +52,13 @@ func (r *inputRouter) syncPanes(panes []*mux.Pane) {
 	for id, queue := range r.paneQueues {
 		nextPane, ok := next[id]
 		if ok {
-			if current := r.panes[id]; current == nextPane {
+			current := r.panes[id]
+			if current == nextPane {
+				continue
+			}
+			if current != nil && !current.AcceptsInput() && nextPane != nil && nextPane.AcceptsInput() {
+				// Keep queued input attached to the pane slot while a pending
+				// placeholder is replaced by the real PTY-backed pane.
 				continue
 			}
 		}
@@ -74,22 +81,6 @@ func (r *inputRouter) removePane(paneID uint32) {
 	r.removed[paneID] = struct{}{}
 }
 
-func (r *inputRouter) paneQueue(pane *mux.Pane) *pacedInputQueue {
-	return r.paneQueueLocked(pane)
-}
-
-func (r *inputRouter) livePaneQueue(pane *mux.Pane) (*pacedInputQueue, error) {
-	if pane == nil {
-		return nil, errPacedInputClosed
-	}
-
-	if _, removed := r.removed[pane.ID]; removed {
-		return nil, errPacedInputClosed
-	}
-	r.panes[pane.ID] = pane
-	return r.paneQueueLocked(pane), nil
-}
-
 func (r *inputRouter) paneByIDOnActor(sess *Session, paneID uint32) *mux.Pane {
 	if pane := r.panes[paneID]; pane != nil {
 		return pane
@@ -103,13 +94,32 @@ func (r *inputRouter) paneByIDOnActor(sess *Session, paneID uint32) *mux.Pane {
 	return pane
 }
 
-func (r *inputRouter) paneQueueLocked(pane *mux.Pane) *pacedInputQueue {
+func (r *inputRouter) paneQueue(sess *Session, pane *mux.Pane) *pacedInputQueue {
+	delete(r.removed, pane.ID)
+	r.panes[pane.ID] = pane
+	return r.paneQueueLocked(sess, pane)
+}
+
+func (r *inputRouter) livePaneQueue(sess *Session, pane *mux.Pane) (*pacedInputQueue, error) {
+	if pane == nil {
+		return nil, errPacedInputClosed
+	}
+
+	if _, removed := r.removed[pane.ID]; removed {
+		return nil, errPacedInputClosed
+	}
+	r.panes[pane.ID] = pane
+	return r.paneQueueLocked(sess, pane), nil
+}
+
+func (r *inputRouter) paneQueueLocked(sess *Session, pane *mux.Pane) *pacedInputQueue {
 	if queue := r.paneQueues[pane.ID]; queue != nil {
 		return queue
 	}
-	queue := newPacedInputQueue("pane "+pane.Meta.Name, nil, func(_ uint32, data []byte) error {
-		_, err := pane.Write(data)
-		return err
+	paneID := pane.ID
+	paneName := pane.Meta.Name
+	queue := newPacedInputQueue("pane "+paneName, nil, func(_ uint32, data []byte) error {
+		return waitAndWritePaneInput(sess, paneID, paneName, data)
 	})
 	r.paneQueues[pane.ID] = queue
 	return queue
@@ -157,7 +167,7 @@ func (s *Session) enqueuePacedPaneInput(pane *mux.Pane, chunks []encodedKeyChunk
 		if !sess.hasPane(pane.ID) {
 			return nil, fmt.Errorf("%s not found", pane.Meta.Name)
 		}
-		return sess.ensureInputRouter().paneQueue(pane), nil
+		return sess.ensureInputRouter().paneQueue(sess, pane), nil
 	})
 	if err != nil {
 		return err
@@ -169,9 +179,57 @@ func (s *Session) enqueueLivePaneInput(pane *mux.Pane, data []byte) error {
 	if len(data) == 0 {
 		return nil
 	}
-	queue, err := s.ensureInputRouter().livePaneQueue(pane)
+	queue, err := s.ensureInputRouter().livePaneQueue(s, pane)
 	if err != nil {
 		return err
 	}
 	return queue.enqueueAsync([]encodedKeyChunk{{data: append([]byte(nil), data...)}})
+}
+
+type paneInputTarget struct {
+	pane  *mux.Pane
+	ready bool
+}
+
+func waitAndWritePaneInput(sess *Session, paneID uint32, paneName string, data []byte) error {
+	pane, err := waitForPaneInputTarget(sess, paneID, paneName)
+	if err != nil {
+		return err
+	}
+	_, err = pane.Write(data)
+	return err
+}
+
+func waitForPaneInputTarget(sess *Session, paneID uint32, paneName string) (*mux.Pane, error) {
+	ticker := time.NewTicker(5 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		target, err := enqueueSessionQuery(sess, func(sess *Session) (paneInputTarget, error) {
+			pane := sess.findPaneByID(paneID)
+			if pane == nil {
+				return paneInputTarget{}, nil
+			}
+			return paneInputTarget{
+				pane:  pane,
+				ready: pane.AcceptsInput(),
+			}, nil
+		})
+		if err != nil {
+			return nil, err
+		}
+		if target.pane == nil {
+			return nil, fmt.Errorf("%s not found", paneName)
+		}
+		paneName = target.pane.Meta.Name
+		if target.ready {
+			return target.pane, nil
+		}
+
+		select {
+		case <-sess.sessionEventDone:
+			return nil, errSessionShuttingDown
+		case <-ticker.C:
+		}
+	}
 }

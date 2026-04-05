@@ -30,6 +30,7 @@ func stopSessionBackgroundLoops(t *testing.T, sess *Session) {
 	t.Helper()
 
 	sess.stopEventLoop()
+	sess.waitPendingLocalPaneBuilds()
 	stopCrashCheckpointLoop(t, sess)
 }
 
