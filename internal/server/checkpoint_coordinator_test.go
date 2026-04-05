@@ -46,12 +46,12 @@ func TestCheckpointCoordinatorTriggerDebouncesWrites(t *testing.T) {
 	})
 	defer coord.Stop()
 
+	clock.AwaitTimers(1)
+
+	coord.Trigger()
+	coord.Trigger()
+
 	clock.AwaitTimers(2)
-
-	coord.Trigger()
-	coord.Trigger()
-
-	clock.AwaitTimers(3)
 	clock.Advance(499 * time.Millisecond)
 
 	select {
@@ -98,14 +98,14 @@ func TestCheckpointCoordinatorWritesPeriodically(t *testing.T) {
 	})
 	defer coord.Stop()
 
-	clock.AwaitTimers(2)
+	clock.AwaitTimers(1)
 
 	clock.Advance(30 * time.Second)
 	if got := awaitCheckpointWrite(t, writes); got != "periodic-session" {
 		t.Fatalf("first periodic checkpoint session = %q, want periodic-session", got)
 	}
 
-	clock.AwaitTimers(3)
+	clock.AwaitTimers(2)
 	clock.Advance(30 * time.Second)
 	if got := awaitCheckpointWrite(t, writes); got != "periodic-session" {
 		t.Fatalf("second periodic checkpoint session = %q, want periodic-session", got)
@@ -192,9 +192,9 @@ func TestCheckpointCoordinatorWriteSkipsWhenShuttingDown(t *testing.T) {
 	t.Parallel()
 
 	coord := NewCheckpointCoordinator(CheckpointCoordinatorConfig{
-		SessionName:     func() string { return "shutdown-session" },
-		SessionStart:    func() time.Time { return time.Date(2026, time.April, 5, 11, 0, 0, 0, time.UTC) },
-		IsShuttingDown:  func() bool { return true },
+		SessionName:    func() string { return "shutdown-session" },
+		SessionStart:   func() time.Time { return time.Date(2026, time.April, 5, 11, 0, 0, 0, time.UTC) },
+		IsShuttingDown: func() bool { return true },
 		BuildCrashCheckpoint: func() *checkpoint.CrashCheckpoint {
 			t.Fatal("BuildCrashCheckpoint called while shutting down")
 			return nil
@@ -232,7 +232,7 @@ func TestCheckpointCoordinatorStopPreventsFutureWrites(t *testing.T) {
 		},
 	})
 
-	clock.AwaitTimers(2)
+	clock.AwaitTimers(1)
 	coord.Stop()
 	coord.Stop()
 

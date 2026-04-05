@@ -91,11 +91,7 @@ func (s *Session) benchBroadcastLayoutNow(w io.Writer) error {
 		}
 	}
 	s.emitEvent(Event{Type: EventLayout, Generation: gen, ActivePane: activePaneName})
-
-	select {
-	case s.crashCheckpointTrigger <- struct{}{}:
-	default:
-	}
+	s.triggerCrashCheckpoint()
 
 	return nil
 }
