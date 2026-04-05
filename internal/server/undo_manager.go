@@ -26,6 +26,8 @@ type undoManagerConfig struct {
 	afterFunc   undoAfterFunc
 }
 
+// UndoManager owns soft-close state, grace-period timers, and undo cleanup
+// event handling for a session.
 type UndoManager struct {
 	gracePeriod         time.Duration
 	afterFunc           undoAfterFunc
@@ -128,13 +130,17 @@ func (m *UndoManager) closedPaneCount() int {
 	return len(m.closedPanes)
 }
 
-func (m *UndoManager) handlePaneExit(paneID uint32, closePane func(*mux.Pane)) bool {
+func (m *UndoManager) closeFinalizedPane(paneID uint32, closePane func(*mux.Pane)) bool {
 	pane := m.finalizeClosedPane(paneID)
 	if pane == nil {
 		return false
 	}
 	closePane(pane)
 	return true
+}
+
+func (m *UndoManager) handlePaneExit(paneID uint32, closePane func(*mux.Pane)) bool {
+	return m.closeFinalizedPane(paneID, closePane)
 }
 
 func (m *UndoManager) handlePaneCleanupTimeout(paneID uint32, findPane func(uint32) *mux.Pane, signal func(*mux.Pane) error, finalize func(uint32, bool, string)) {
@@ -147,10 +153,7 @@ func (m *UndoManager) handlePaneCleanupTimeout(paneID uint32, findPane func(uint
 }
 
 func (m *UndoManager) handleUndoExpiry(paneID uint32, closePane func(*mux.Pane)) {
-	pane := m.finalizeClosedPane(paneID)
-	if pane != nil {
-		closePane(pane)
-	}
+	m.closeFinalizedPane(paneID, closePane)
 }
 
 type paneCleanupTimeoutEvent struct {
