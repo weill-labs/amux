@@ -235,7 +235,7 @@ func (s *Session) sendCaptureRequestAsync(req *captureRequest) {
 	if req == nil {
 		return
 	}
-	req.client.SendAsync(s.captureRequestMessage(req))
+	req.client.Send(s.captureRequestMessage(req))
 }
 
 func (s *Session) startNextCaptureRequest() {

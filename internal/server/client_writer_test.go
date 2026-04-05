@@ -1,7 +1,6 @@
 package server
 
 import (
-	"errors"
 	"net"
 	"testing"
 	"time"
@@ -312,7 +311,7 @@ func TestClientWriterSendBroadcastSyncDropsFrameWhenQueueFull(t *testing.T) {
 	}
 }
 
-func TestClientWriterSynchronousHelpersReturnWhenWriterExitsAfterEnqueue(t *testing.T) {
+func TestClientWriterHelpersReturnWhenWriterExitsAfterEnqueue(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -337,8 +336,8 @@ func TestClientWriterSynchronousHelpersReturnWhenWriterExitsAfterEnqueue(t *test
 
 				select {
 				case err := <-errCh:
-					if !errors.Is(err, net.ErrClosed) {
-						t.Fatalf("send() error = %v, want %v", err, net.ErrClosed)
+					if err != nil {
+						t.Fatalf("send() error = %v, want nil", err)
 					}
 				case <-time.After(time.Second):
 					t.Fatal("send() did not return after writer exit")

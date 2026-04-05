@@ -20,12 +20,12 @@ type CommandContext struct {
 }
 
 func (ctx *CommandContext) reply(output string) {
-	ctx.CC.SendAsync(&Message{Type: MsgTypeCmdResult, CmdOutput: output})
+	ctx.CC.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: output})
 }
 
 func (ctx *CommandContext) replyErr(errMsg string) {
 	ctx.auditErr = errMsg
-	ctx.CC.SendAsync(&Message{Type: MsgTypeCmdResult, CmdErr: errMsg})
+	ctx.CC.Send(&Message{Type: MsgTypeCmdResult, CmdErr: errMsg})
 }
 
 func (ctx *CommandContext) replyCommandMutation(res commandMutationResult) {
@@ -40,12 +40,12 @@ func (ctx *CommandContext) replyCommandMutation(res commandMutationResult) {
 		pane.Start()
 	}
 	if res.bell {
-		ctx.CC.SendAsync(&Message{Type: MsgTypeBell})
+		ctx.CC.Send(&Message{Type: MsgTypeBell})
 	}
 	if res.output != "" {
 		ctx.reply(res.output)
 	} else {
-		ctx.CC.SendAsync(&Message{Type: MsgTypeCmdResult})
+		ctx.CC.Send(&Message{Type: MsgTypeCmdResult})
 	}
 	if res.sendExit {
 		ctx.Sess.broadcast(&Message{Type: MsgTypeExit})
@@ -60,7 +60,7 @@ type commandStreamSender struct {
 }
 
 func (s commandStreamSender) Send(msg *proto.Message) error {
-	return s.cc.SendAsync(msg)
+	return s.cc.Send(msg)
 }
 
 func (ctx *CommandContext) applyCommandResult(res commandpkg.Result) {
@@ -76,7 +76,7 @@ func (ctx *CommandContext) applyCommandResult(res commandpkg.Result) {
 			ctx.replyErr(err.Error())
 		}
 	case res.Message != nil:
-		ctx.CC.SendAsync(res.Message)
+		ctx.CC.Send(res.Message)
 	default:
 		ctx.replyCommandMutation(toCommandMutationResult(res))
 	}

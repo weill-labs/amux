@@ -29,21 +29,11 @@ type clientWriter struct {
 	stopOnce  sync.Once
 }
 
-type clientWriterSendCommand struct {
-	msg   *Message
-	reply chan error
-}
-
-func (c clientWriterSendCommand) handle(state *clientWriterState, conn net.Conn) bool {
-	c.reply <- writeClientMessage(state, conn, c.msg)
-	return state.closed
-}
-
-type clientWriterSendAsyncCommand struct {
+type clientWriterMessageCommand struct {
 	msg *Message
 }
 
-func (c clientWriterSendAsyncCommand) handle(state *clientWriterState, conn net.Conn) bool {
+func (c clientWriterMessageCommand) handle(state *clientWriterState, conn net.Conn) bool {
 	_ = writeClientMessage(state, conn, c.msg)
 	return state.closed
 }
@@ -272,18 +262,10 @@ func (w *clientWriter) send(msg *Message) error {
 	if w == nil {
 		return nil
 	}
-	reply := make(chan error, 1)
-	if !w.enqueue(clientWriterSendCommand{msg: msg, reply: reply}) {
-		return nil
+	if !w.enqueue(clientWriterMessageCommand{msg: cloneMessage(msg)}) {
+		return net.ErrClosed
 	}
-	return waitClientWriterError(w.done, reply, net.ErrClosed)
-}
-
-func (w *clientWriter) sendAsync(msg *Message) bool {
-	if w == nil {
-		return true
-	}
-	return w.enqueueAsync(clientWriterSendAsyncCommand{msg: msg})
+	return nil
 }
 
 func (w *clientWriter) flush() {
@@ -463,25 +445,6 @@ func writeClientMessage(state *clientWriterState, conn net.Conn, msg *Message) e
 		return err
 	}
 	return nil
-}
-
-func waitClientWriterError(done <-chan struct{}, reply <-chan error, fallback error) error {
-	select {
-	case err := <-reply:
-		return err
-	default:
-	}
-	select {
-	case err := <-reply:
-		return err
-	case <-done:
-		select {
-		case err := <-reply:
-			return err
-		default:
-			return fallback
-		}
-	}
 }
 
 func waitClientWriterAck(done <-chan struct{}, reply <-chan struct{}) {
