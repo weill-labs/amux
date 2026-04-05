@@ -142,6 +142,36 @@ amux next-window             # Next window
 amux prev-window             # Previous window
 ```
 
+### Server Administration
+
+```bash
+amux reload-server               # Hot-reload server binary (preserves all panes)
+amux debug goroutines            # Goroutine dump from server pprof endpoint
+amux debug heap                  # Heap profile summary
+amux debug profile --duration 30s > cpu.pprof.gz  # CPU profile
+amux debug socket                # Print the pprof Unix socket path
+amux debug frames                # Client render frame stats
+```
+
+`reload-server` re-execs the server from the current binary, preserving all panes and shells via checkpoint/restore. Use after `make install` or config changes. The `debug` subcommands (except `frames`) require `[debug].pprof = true` in `~/.config/amux/config.toml`.
+
+**If amux freezes**, capture a goroutine dump before killing the server -- the dump is the only evidence for deadlock diagnosis and is destroyed on kill:
+
+```bash
+# 1. Try pprof first (works if the debug socket is responsive)
+amux debug goroutines > /tmp/amux-goroutine-dump-$(date +%s).txt 2>&1
+
+# 2. If pprof is unresponsive, send SIGQUIT. Go prints all goroutines to
+#    stderr and exits. Find where stderr goes so you can retrieve the dump:
+SERVER_PID=$(pgrep -f "amux _server ${AMUX_SESSION:-main}$")
+readlink /proc/"$SERVER_PID"/fd/2   # shows stderr destination
+# If stderr is a log file, tail it before sending the signal:
+#   tail -f /path/to/logfile > /tmp/amux-goroutine-dump-$(date +%s).txt &
+# If stderr is a TTY, the dump prints to that terminal — copy from scrollback.
+kill -QUIT "$SERVER_PID"
+# SIGQUIT terminates the process after dumping — no separate kill needed.
+```
+
 ### Pane Metadata
 
 ```bash
