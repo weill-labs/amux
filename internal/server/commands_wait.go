@@ -197,7 +197,8 @@ func (ctx waitCommandContext) WaitReady(actorPaneID uint32, args []string) error
 }
 
 func (ctx waitCommandContext) WaitIdle(actorPaneID uint32, args []string) error {
-	paneRef, opts, err := parseWaitIdleArgs(args)
+	idle := ctx.Sess.ensureIdleTracker()
+	paneRef, opts, err := parseWaitIdleArgsWithDefaults(args, idle.Settle(), idle.Timeout())
 	if err != nil {
 		return err
 	}

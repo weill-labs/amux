@@ -295,8 +295,7 @@ func TestWaitReadyFailsWhenPaneDisappearsMidWait(t *testing.T) {
 	}()
 
 	sess.Clock = clk
-	sess.vtIdle = NewVTIdleTracker(clk)
-	sess.VTIdleSettle = 100 * time.Millisecond
+	sess.ensureIdleTracker().VTIdleSettle = 100 * time.Millisecond
 	pane.SetCreatedAt(clk.Now())
 
 	clientConn, _, done := startAsyncCommand(t, srv, sess, "wait", "ready", "pane-1", "--timeout", "5s")
@@ -329,8 +328,7 @@ func TestWaitReadyRestartsSettleTimerAfterExpiredWindowSeesNewOutput(t *testing.
 	defer cleanup()
 
 	sess.Clock = clk
-	sess.vtIdle = NewVTIdleTracker(clk)
-	sess.VTIdleSettle = 100 * time.Millisecond
+	sess.ensureIdleTracker().VTIdleSettle = 100 * time.Millisecond
 	pane.SetCreatedAt(clk.Now())
 
 	clientConn, _, done := startAsyncCommand(t, srv, sess, "wait", "ready", "pane-1", "--timeout", "5s")
@@ -352,7 +350,7 @@ func TestWaitReadyRestartsSettleTimerAfterExpiredWindowSeesNewOutput(t *testing.
 	// Hold the session query so the old settle tick can fire, then inject a
 	// fresh VT output sample before syncReady re-reads state.
 	clk.Advance(100 * time.Millisecond)
-	sess.vtIdle.TrackOutput(pane.ID, sess.vtIdleSettle(), func(time.Time) {})
+	sess.ensureIdleTracker().TrackOutput(pane.ID, func() {}, func(time.Time) {})
 	close(mutationRelease)
 
 	select {
@@ -361,7 +359,10 @@ func TestWaitReadyRestartsSettleTimerAfterExpiredWindowSeesNewOutput(t *testing.
 		t.Fatal("blocking mutation did not release")
 	}
 
-	clk.AwaitTimers(5)
+	// Initial wait-start work creates 3 timer ops. The replacement output adds
+	// vt-idle and input-idle tracker timers (+2), and syncReady re-arms the
+	// command settle timer (+1).
+	clk.AwaitTimers(6)
 
 	select {
 	case <-done:
@@ -407,8 +408,7 @@ func TestCmdSendKeysWaitReadyWaitsForReady(t *testing.T) {
 	defer cleanup()
 
 	sess.Clock = clk
-	sess.vtIdle = NewVTIdleTracker(clk)
-	sess.VTIdleSettle = 100 * time.Millisecond
+	sess.ensureIdleTracker().VTIdleSettle = 100 * time.Millisecond
 	pane.SetCreatedAt(clk.Now())
 
 	clientConn, _, done := startAsyncCommand(t, srv, sess, "send-keys", "pane-1", "--wait", "ready", "--timeout", "5s", "ab")

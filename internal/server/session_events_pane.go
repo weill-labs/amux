@@ -127,7 +127,7 @@ type idleTimeoutEvent struct {
 }
 
 func (e idleTimeoutEvent) handle(s *Session) {
-	s.idle.MarkIdle(e.paneID)
+	s.ensureIdleTracker().HandleIdleTimeout(e.paneID)
 
 	// Refresh CWD/branch off the event loop to avoid blocking on lsof/git.
 	// Tests can disable this background path to keep integration timing
@@ -169,10 +169,7 @@ type vtIdleTimeoutEvent struct {
 }
 
 func (e vtIdleTimeoutEvent) handle(s *Session) {
-	if s.vtIdle == nil {
-		return
-	}
-	if !s.vtIdle.MarkSettled(e.paneID, e.lastOutput) {
+	if !s.ensureIdleTracker().HandleVTIdleTimeout(e.paneID, e.lastOutput) {
 		return
 	}
 }
