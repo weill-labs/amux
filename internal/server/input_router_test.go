@@ -38,7 +38,7 @@ func TestInputRouterSyncPanesReplacesQueueWhenPaneInstanceChanges(t *testing.T) 
 	})
 	router.syncPanes([]*mux.Pane{oldPane})
 	oldQueue := router.paneQueue(sess, oldPane)
-	if err := oldQueue.enqueue([]encodedKeyChunk{{data: []byte("old")}}); err != nil {
+	if err := oldQueue.queue.enqueue([]encodedKeyChunk{{data: []byte("old")}}); err != nil {
 		t.Fatalf("enqueue old pane input: %v", err)
 	}
 
@@ -50,7 +50,7 @@ func TestInputRouterSyncPanesReplacesQueueWhenPaneInstanceChanges(t *testing.T) 
 	if newQueue == oldQueue {
 		t.Fatal("syncPanes should replace the pane queue when the pane pointer changes")
 	}
-	if err := newQueue.enqueue([]encodedKeyChunk{{data: []byte("new")}}); err != nil {
+	if err := newQueue.queue.enqueue([]encodedKeyChunk{{data: []byte("new")}}); err != nil {
 		t.Fatalf("enqueue new pane input: %v", err)
 	}
 

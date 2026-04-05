@@ -11,14 +11,19 @@ import (
 type inputRouter struct {
 	target     atomic.Pointer[mux.Pane]
 	panes      map[uint32]*mux.Pane
-	paneQueues map[uint32]*pacedInputQueue
+	paneQueues map[uint32]*paneInputQueue
 	removed    map[uint32]struct{}
+}
+
+type paneInputQueue struct {
+	pane  atomic.Pointer[mux.Pane]
+	queue *pacedInputQueue
 }
 
 func newInputRouter() *inputRouter {
 	return &inputRouter{
 		panes:      make(map[uint32]*mux.Pane),
-		paneQueues: make(map[uint32]*pacedInputQueue),
+		paneQueues: make(map[uint32]*paneInputQueue),
 		removed:    make(map[uint32]struct{}),
 	}
 }
@@ -54,11 +59,13 @@ func (r *inputRouter) syncPanes(panes []*mux.Pane) {
 		if ok {
 			current := r.panes[id]
 			if current == nextPane {
+				queue.setPane(nextPane)
 				continue
 			}
 			if current != nil && !current.AcceptsInput() && nextPane != nil && nextPane.AcceptsInput() {
 				// Keep queued input attached to the pane slot while a pending
 				// placeholder is replaced by the real PTY-backed pane.
+				queue.setPane(nextPane)
 				continue
 			}
 		}
@@ -94,13 +101,13 @@ func (r *inputRouter) paneByIDOnActor(sess *Session, paneID uint32) *mux.Pane {
 	return pane
 }
 
-func (r *inputRouter) paneQueue(sess *Session, pane *mux.Pane) *pacedInputQueue {
+func (r *inputRouter) paneQueue(sess *Session, pane *mux.Pane) *paneInputQueue {
 	delete(r.removed, pane.ID)
 	r.panes[pane.ID] = pane
 	return r.paneQueueLocked(sess, pane)
 }
 
-func (r *inputRouter) livePaneQueue(sess *Session, pane *mux.Pane) (*pacedInputQueue, error) {
+func (r *inputRouter) livePaneQueue(sess *Session, pane *mux.Pane) (*paneInputQueue, error) {
 	if pane == nil {
 		return nil, errPacedInputClosed
 	}
@@ -112,14 +119,17 @@ func (r *inputRouter) livePaneQueue(sess *Session, pane *mux.Pane) (*pacedInputQ
 	return r.paneQueueLocked(sess, pane), nil
 }
 
-func (r *inputRouter) paneQueueLocked(sess *Session, pane *mux.Pane) *pacedInputQueue {
+func (r *inputRouter) paneQueueLocked(sess *Session, pane *mux.Pane) *paneInputQueue {
 	if queue := r.paneQueues[pane.ID]; queue != nil {
+		queue.setPane(pane)
 		return queue
 	}
 	paneID := pane.ID
 	paneName := pane.Meta.Name
-	queue := newPacedInputQueue("pane "+paneName, nil, func(_ uint32, data []byte) error {
-		return waitAndWritePaneInput(sess, paneID, paneName, data)
+	queue := &paneInputQueue{}
+	queue.setPane(pane)
+	queue.queue = newPacedInputQueue("pane "+paneName, nil, func(_ uint32, data []byte) error {
+		return queue.write(sess, paneID, paneName, data)
 	})
 	r.paneQueues[pane.ID] = queue
 	return queue
@@ -163,7 +173,7 @@ func (s *Session) activeInputPaneForWrite(cc *clientConn) *mux.Pane {
 }
 
 func (s *Session) enqueuePacedPaneInput(pane *mux.Pane, chunks []encodedKeyChunk) error {
-	queue, err := enqueueSessionQuery(s, func(sess *Session) (*pacedInputQueue, error) {
+	queue, err := enqueueSessionQuery(s, func(sess *Session) (*paneInputQueue, error) {
 		if !sess.hasPane(pane.ID) {
 			return nil, fmt.Errorf("%s not found", pane.Meta.Name)
 		}
@@ -172,7 +182,7 @@ func (s *Session) enqueuePacedPaneInput(pane *mux.Pane, chunks []encodedKeyChunk
 	if err != nil {
 		return err
 	}
-	return queue.enqueue(chunks)
+	return queue.queue.enqueue(chunks)
 }
 
 func (s *Session) enqueueLivePaneInput(pane *mux.Pane, data []byte) error {
@@ -183,7 +193,7 @@ func (s *Session) enqueueLivePaneInput(pane *mux.Pane, data []byte) error {
 	if err != nil {
 		return err
 	}
-	return queue.enqueueAsync([]encodedKeyChunk{{data: append([]byte(nil), data...)}})
+	return queue.queue.enqueueAsync([]encodedKeyChunk{{data: append([]byte(nil), data...)}})
 }
 
 type paneInputTarget struct {
@@ -191,11 +201,29 @@ type paneInputTarget struct {
 	ready bool
 }
 
-func waitAndWritePaneInput(sess *Session, paneID uint32, paneName string, data []byte) error {
+func (q *paneInputQueue) setPane(pane *mux.Pane) {
+	q.pane.Store(pane)
+}
+
+func (q *paneInputQueue) close() {
+	if q == nil || q.queue == nil {
+		return
+	}
+	q.queue.close()
+}
+
+func (q *paneInputQueue) write(sess *Session, paneID uint32, paneName string, data []byte) error {
+	pane := q.pane.Load()
+	if pane != nil && pane.AcceptsInput() {
+		_, err := pane.Write(data)
+		return err
+	}
+
 	pane, err := waitForPaneInputTarget(sess, paneID, paneName)
 	if err != nil {
 		return err
 	}
+	q.setPane(pane)
 	_, err = pane.Write(data)
 	return err
 }
