@@ -46,7 +46,7 @@ func TestMessageSenderSendReturnsBeforePeerReads(t *testing.T) {
 	}
 }
 
-func TestMessageSenderSendAsyncPreservesOrderingWithLaterSyncSend(t *testing.T) {
+func TestMessageSenderSendPreservesOrdering(t *testing.T) {
 	t.Parallel()
 
 	serverConn, peerConn := net.Pipe()
@@ -56,17 +56,15 @@ func TestMessageSenderSendAsyncPreservesOrderingWithLaterSyncSend(t *testing.T) 
 	sender := newMessageSender(serverConn)
 	t.Cleanup(sender.Close)
 
-	if err := sender.SendAsync(&proto.Message{Type: proto.MsgTypeInput, Input: []byte("first")}); err != nil {
-		t.Fatalf("SendAsync(first) = %v", err)
+	if err := sender.Send(&proto.Message{Type: proto.MsgTypeInput, Input: []byte("first")}); err != nil {
+		t.Fatalf("Send(first) = %v", err)
 	}
-	if err := sender.SendAsync(&proto.Message{Type: proto.MsgTypeInput, Input: []byte("second")}); err != nil {
-		t.Fatalf("SendAsync(second) = %v", err)
+	if err := sender.Send(&proto.Message{Type: proto.MsgTypeInput, Input: []byte("second")}); err != nil {
+		t.Fatalf("Send(second) = %v", err)
 	}
-
-	done := make(chan error, 1)
-	go func() {
-		done <- sender.Send(&proto.Message{Type: proto.MsgTypeDetach})
-	}()
+	if err := sender.Send(&proto.Message{Type: proto.MsgTypeDetach}); err != nil {
+		t.Fatalf("Send(detach) = %v", err)
+	}
 
 	msg := readSenderMessageWithTimeout(t, peerConn)
 	if msg.Type != proto.MsgTypeInput || string(msg.Input) != "first" {
@@ -82,18 +80,9 @@ func TestMessageSenderSendAsyncPreservesOrderingWithLaterSyncSend(t *testing.T) 
 	if msg.Type != proto.MsgTypeDetach {
 		t.Fatalf("third message type = %v, want detach", msg.Type)
 	}
-
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("Send(detach) = %v", err)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("sync Send did not complete after queued async input drained")
-	}
 }
 
-func TestMessageSenderSendAsyncClonesInput(t *testing.T) {
+func TestMessageSenderSendClonesInput(t *testing.T) {
 	t.Parallel()
 
 	serverConn, peerConn := net.Pipe()
@@ -104,8 +93,8 @@ func TestMessageSenderSendAsyncClonesInput(t *testing.T) {
 	t.Cleanup(sender.Close)
 
 	input := []byte("hello")
-	if err := sender.SendAsync(&proto.Message{Type: proto.MsgTypeInput, Input: input}); err != nil {
-		t.Fatalf("SendAsync(input) = %v", err)
+	if err := sender.Send(&proto.Message{Type: proto.MsgTypeInput, Input: input}); err != nil {
+		t.Fatalf("Send(input) = %v", err)
 	}
 	input[0] = 'j'
 
@@ -115,14 +104,62 @@ func TestMessageSenderSendAsyncClonesInput(t *testing.T) {
 	}
 }
 
-func TestMessageSenderCloseDoesNotBlockOnBlockedAsyncWrite(t *testing.T) {
+func TestMessageSenderFlushWaitsForQueuedMessages(t *testing.T) {
+	t.Parallel()
+
+	serverConn, peerConn := net.Pipe()
+	t.Cleanup(func() { _ = serverConn.Close() })
+	t.Cleanup(func() { _ = peerConn.Close() })
+
+	sender := newMessageSender(serverConn)
+	t.Cleanup(sender.Close)
+
+	if err := sender.Send(&proto.Message{Type: proto.MsgTypeInput, Input: []byte("first")}); err != nil {
+		t.Fatalf("Send(first) = %v", err)
+	}
+	if err := sender.Send(&proto.Message{Type: proto.MsgTypeDetach}); err != nil {
+		t.Fatalf("Send(detach) = %v", err)
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- sender.Flush()
+	}()
+
+	select {
+	case err := <-done:
+		t.Fatalf("Flush returned before queued messages drained: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	msg := readSenderMessageWithTimeout(t, peerConn)
+	if msg.Type != proto.MsgTypeInput || string(msg.Input) != "first" {
+		t.Fatalf("first message = %+v, want input first", msg)
+	}
+
+	msg = readSenderMessageWithTimeout(t, peerConn)
+	if msg.Type != proto.MsgTypeDetach {
+		t.Fatalf("second message type = %v, want detach", msg.Type)
+	}
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Flush() = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Flush did not complete after queued messages drained")
+	}
+}
+
+func TestMessageSenderCloseDoesNotBlockOnBlockedWrite(t *testing.T) {
 	t.Parallel()
 
 	conn := newBlockingSenderConn()
 	sender := newMessageSender(conn)
 
-	if err := sender.SendAsync(&proto.Message{Type: proto.MsgTypeInput, Input: []byte("blocked")}); err != nil {
-		t.Fatalf("SendAsync(blocked) = %v", err)
+	if err := sender.Send(&proto.Message{Type: proto.MsgTypeInput, Input: []byte("blocked")}); err != nil {
+		t.Fatalf("Send(blocked) = %v", err)
 	}
 
 	select {

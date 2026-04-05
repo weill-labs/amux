@@ -31,6 +31,15 @@ func (r sendRequest) handle(conn net.Conn) (bool, error) {
 	return false, proto.WriteMsg(conn, r.msg)
 }
 
+type senderFlushRequest struct {
+	reply chan error
+}
+
+func (r senderFlushRequest) handle(net.Conn) (bool, error) {
+	r.reply <- nil
+	return false, nil
+}
+
 func newMessageSender(conn net.Conn) *messageSender {
 	s := &messageSender{
 		conn:     conn,
@@ -49,8 +58,17 @@ func (s *messageSender) Send(msg *proto.Message) error {
 	return nil
 }
 
-func (s *messageSender) SendAsync(msg *proto.Message) error {
-	return s.Send(msg)
+func (s *messageSender) Flush() error {
+	reply := make(chan error, 1)
+	if !s.enqueue(senderFlushRequest{reply: reply}) {
+		return s.loadError()
+	}
+	select {
+	case err := <-reply:
+		return err
+	case <-s.done:
+		return s.loadError()
+	}
 }
 
 func (s *messageSender) Command(name string, args []string) {
