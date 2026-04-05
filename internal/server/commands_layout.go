@@ -91,6 +91,11 @@ type createPaneSnapshot struct {
 	plan         mux.SpiralAddPlan
 }
 
+type respawnTarget struct {
+	pane         *mux.Pane
+	colorProfile string
+}
+
 func runCreatePane(ctx *CommandContext, actorPaneID uint32, command string, placement createPanePlacement, req createPaneRequest, keepFocus bool) commandpkg.Result {
 	snapshot, err := queryCreatePaneSnapshot(ctx.Sess, actorPaneID, command, placement, req.paneRef)
 	if err != nil {
@@ -529,19 +534,7 @@ func runReset(ctx *CommandContext, actorPaneID uint32, paneRef string) commandpk
 }
 
 func cmdRespawn(ctx *CommandContext) {
-	target, err := enqueueSessionQuery(ctx.Sess, func(sess *Session) (struct {
-		pane *mux.Pane
-	}, error) {
-		pane, _, err := sess.resolvePaneWindowForActor(ctx.ActorPaneID, "respawn", ctx.Args)
-		if err != nil {
-			return struct {
-				pane *mux.Pane
-			}{}, err
-		}
-		return struct {
-			pane *mux.Pane
-		}{pane: pane}, nil
-	})
+	target, err := queryRespawnTarget(ctx.Sess, ctx.ActorPaneID, ctx.Args)
 	if err != nil {
 		ctx.replyErr(err.Error())
 		return
@@ -554,7 +547,7 @@ func cmdRespawn(ctx *CommandContext) {
 	newPane, err := ctx.Sess.buildConfiguredLocalPane(ctx.Srv, localPaneBuildRequest{
 		sourcePane:   target.pane,
 		sessionName:  ctx.Sess.Name,
-		colorProfile: ctx.Sess.paneLaunchColorProfile(nil),
+		colorProfile: target.colorProfile,
 		startDir:     effectiveRespawnDir(target.pane),
 		onOutput:     ctx.Sess.paneOutputCallback(),
 		onExit:       ctx.Sess.paneExitCallback(),
@@ -595,6 +588,19 @@ func cmdRespawn(ctx *CommandContext) {
 			nil,
 		)
 	}))
+}
+
+func queryRespawnTarget(sess *Session, actorPaneID uint32, args []string) (respawnTarget, error) {
+	return enqueueSessionQuery(sess, func(sess *Session) (respawnTarget, error) {
+		pane, _, err := sess.resolvePaneWindowForActor(actorPaneID, "respawn", args)
+		if err != nil {
+			return respawnTarget{}, err
+		}
+		return respawnTarget{
+			pane:         pane,
+			colorProfile: sess.paneLaunchColorProfile(nil),
+		}, nil
+	})
 }
 
 func clearedPaneRenderResult(output string, pane *mux.Pane, includeRender bool, startPanes, closePanes []*mux.Pane) commandMutationResult {
