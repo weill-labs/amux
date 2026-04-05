@@ -313,7 +313,7 @@ func (s *Session) prunePaneEventSubs(paneName string) {
 }
 
 func (s *Session) beginPaneCleanupKill(pane *mux.Pane, timeout time.Duration) error {
-	return s.ensureUndoManager().beginPaneCleanupKill(s, pane, timeout)
+	return s.ensureUndoManager().beginPaneCleanupKill(pane, timeout, s.enqueuePaneCleanupTimeout)
 }
 
 func (s *Session) finalizePaneRemoval(paneID uint32) paneRemovalResult {
@@ -373,7 +373,7 @@ func (s *Session) softClosePane(paneID uint32) paneRemovalResult {
 	s.ensureIdleTracker().StopPane(paneID)
 	s.prunePaneEventSubs(pane.Meta.Name)
 
-	s.ensureUndoManager().trackSoftClosedPane(s, pane)
+	s.ensureUndoManager().trackSoftClosedPane(pane, s.enqueueUndoExpiry)
 
 	return result
 }

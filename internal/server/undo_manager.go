@@ -5,6 +5,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/mux"
 )
 
@@ -14,27 +15,50 @@ type closedPaneRecord struct {
 	pane *mux.Pane
 }
 
-type undoManager struct {
-	pendingCleanupKills map[uint32]*time.Timer
-	closedPanes         []closedPaneRecord
-	closedPaneTimers    map[uint32]*time.Timer
+type undoTimer interface {
+	Stop() bool
 }
 
-func newUndoManager() *undoManager {
-	return &undoManager{
-		pendingCleanupKills: make(map[uint32]*time.Timer),
-		closedPaneTimers:    make(map[uint32]*time.Timer),
+type undoAfterFunc func(time.Duration, func()) undoTimer
+
+type undoManagerConfig struct {
+	gracePeriod time.Duration
+	afterFunc   undoAfterFunc
+}
+
+type UndoManager struct {
+	gracePeriod         time.Duration
+	afterFunc           undoAfterFunc
+	pendingCleanupKills map[uint32]undoTimer
+	closedPanes         []closedPaneRecord
+	closedPaneTimers    map[uint32]undoTimer
+}
+
+func newUndoManager(cfg undoManagerConfig) *UndoManager {
+	if cfg.gracePeriod == 0 {
+		cfg.gracePeriod = config.UndoGracePeriod
+	}
+	if cfg.afterFunc == nil {
+		cfg.afterFunc = func(delay time.Duration, fn func()) undoTimer {
+			return time.AfterFunc(delay, fn)
+		}
+	}
+	return &UndoManager{
+		gracePeriod:         cfg.gracePeriod,
+		afterFunc:           cfg.afterFunc,
+		pendingCleanupKills: make(map[uint32]undoTimer),
+		closedPaneTimers:    make(map[uint32]undoTimer),
 	}
 }
 
-func (s *Session) ensureUndoManager() *undoManager {
+func (s *Session) ensureUndoManager() *UndoManager {
 	if s.undo == nil {
-		s.undo = newUndoManager()
+		s.undo = newUndoManager(undoManagerConfig{})
 	}
 	return s.undo
 }
 
-func (m *undoManager) removePane(paneID uint32) {
+func (m *UndoManager) removePane(paneID uint32) {
 	if timer := m.pendingCleanupKills[paneID]; timer != nil {
 		timer.Stop()
 		delete(m.pendingCleanupKills, paneID)
@@ -45,7 +69,7 @@ func (m *undoManager) removePane(paneID uint32) {
 	}
 }
 
-func (m *undoManager) beginPaneCleanupKill(sess *Session, pane *mux.Pane, timeout time.Duration) error {
+func (m *UndoManager) beginPaneCleanupKill(pane *mux.Pane, timeout time.Duration, enqueueTimeout func(uint32)) error {
 	if pane == nil {
 		return nil
 	}
@@ -55,23 +79,23 @@ func (m *undoManager) beginPaneCleanupKill(sess *Session, pane *mux.Pane, timeou
 	if err := pane.SignalForegroundProcessGroup(syscall.SIGTERM); err != nil {
 		return err
 	}
-	m.pendingCleanupKills[pane.ID] = time.AfterFunc(timeout, func() {
-		sess.enqueuePaneCleanupTimeout(pane.ID)
+	m.pendingCleanupKills[pane.ID] = m.afterFunc(timeout, func() {
+		enqueueTimeout(pane.ID)
 	})
 	return nil
 }
 
-func (m *undoManager) trackSoftClosedPane(sess *Session, pane *mux.Pane) {
+func (m *UndoManager) trackSoftClosedPane(pane *mux.Pane, enqueueExpiry func(uint32)) {
 	if pane == nil {
 		return
 	}
 	m.closedPanes = append(m.closedPanes, closedPaneRecord{pane: pane})
-	m.closedPaneTimers[pane.ID] = time.AfterFunc(sess.undoGracePeriod(), func() {
-		sess.enqueueUndoExpiry(pane.ID)
+	m.closedPaneTimers[pane.ID] = m.afterFunc(m.gracePeriod, func() {
+		enqueueExpiry(pane.ID)
 	})
 }
 
-func (m *undoManager) popClosedPane() (*mux.Pane, error) {
+func (m *UndoManager) popClosedPane() (*mux.Pane, error) {
 	if len(m.closedPanes) == 0 {
 		return nil, fmt.Errorf("no closed pane to undo")
 	}
@@ -86,7 +110,7 @@ func (m *undoManager) popClosedPane() (*mux.Pane, error) {
 	return rec.pane, nil
 }
 
-func (m *undoManager) finalizeClosedPane(paneID uint32) *mux.Pane {
+func (m *UndoManager) finalizeClosedPane(paneID uint32) *mux.Pane {
 	for i, rec := range m.closedPanes {
 		if rec.pane.ID == paneID {
 			m.closedPanes = append(m.closedPanes[:i], m.closedPanes[i+1:]...)
@@ -100,6 +124,68 @@ func (m *undoManager) finalizeClosedPane(paneID uint32) *mux.Pane {
 	return nil
 }
 
-func (m *undoManager) closedPaneCount() int {
+func (m *UndoManager) closedPaneCount() int {
 	return len(m.closedPanes)
+}
+
+func (m *UndoManager) handlePaneExit(paneID uint32, closePane func(*mux.Pane)) bool {
+	pane := m.finalizeClosedPane(paneID)
+	if pane == nil {
+		return false
+	}
+	closePane(pane)
+	return true
+}
+
+func (m *UndoManager) handlePaneCleanupTimeout(paneID uint32, findPane func(uint32) *mux.Pane, signal func(*mux.Pane) error, finalize func(uint32, bool, string)) {
+	pane := findPane(paneID)
+	if pane == nil {
+		return
+	}
+	_ = signal(pane)
+	finalize(paneID, true, "cleanup timeout")
+}
+
+func (m *UndoManager) handleUndoExpiry(paneID uint32, closePane func(*mux.Pane)) {
+	pane := m.finalizeClosedPane(paneID)
+	if pane != nil {
+		closePane(pane)
+	}
+}
+
+type paneCleanupTimeoutEvent struct {
+	paneID uint32
+}
+
+func (e paneCleanupTimeoutEvent) handle(s *Session) {
+	if s.shutdown.Load() {
+		return
+	}
+	s.ensureUndoManager().handlePaneCleanupTimeout(
+		e.paneID,
+		s.findPaneByID,
+		func(pane *mux.Pane) error {
+			return pane.SignalForegroundProcessGroup(syscall.SIGKILL)
+		},
+		s.handleFinalizedPaneRemoval,
+	)
+}
+
+type undoExpiryEvent struct {
+	paneID uint32
+}
+
+func (e undoExpiryEvent) handle(s *Session) {
+	if s.shutdown.Load() {
+		return
+	}
+	s.ensureUndoManager().handleUndoExpiry(e.paneID, s.closePaneAsync)
+}
+
+func (s *Session) enqueueUndoExpiry(paneID uint32) {
+	s.enqueueEvent(undoExpiryEvent{paneID: paneID})
+}
+
+func (s *Session) enqueuePaneCleanupTimeout(paneID uint32) {
+	s.enqueueEvent(paneCleanupTimeoutEvent{paneID: paneID})
 }

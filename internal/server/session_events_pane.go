@@ -2,7 +2,6 @@ package server
 
 import (
 	"fmt"
-	"syscall"
 	"time"
 
 	"github.com/weill-labs/amux/internal/mux"
@@ -28,47 +27,10 @@ func (e paneExitEvent) handle(s *Session) {
 	if s.shutdown.Load() {
 		return
 	}
-	// If the pane is in the undo stack (soft-closed), finalize it there
-	// instead of going through the normal removal path.
-	if pane := s.finalizeClosedPane(e.paneID); pane != nil {
-		s.closePaneAsync(pane)
+	if s.ensureUndoManager().handlePaneExit(e.paneID, s.closePaneAsync) {
 		return
 	}
 	s.handleFinalizedPaneRemoval(e.paneID, false, e.reason)
-}
-
-type paneCleanupTimeoutEvent struct {
-	paneID uint32
-}
-
-func (e paneCleanupTimeoutEvent) handle(s *Session) {
-	if s.shutdown.Load() {
-		return
-	}
-	pane := s.findPaneByID(e.paneID)
-	if pane == nil {
-		return
-	}
-	_ = pane.SignalForegroundProcessGroup(syscall.SIGKILL)
-	s.handleFinalizedPaneRemoval(e.paneID, true, "cleanup timeout")
-}
-
-type undoExpiryEvent struct {
-	paneID uint32
-}
-
-func (e undoExpiryEvent) handle(s *Session) {
-	if s.shutdown.Load() {
-		return
-	}
-	pane := s.finalizeClosedPane(e.paneID)
-	if pane != nil {
-		s.closePaneAsync(pane)
-	}
-}
-
-func (s *Session) enqueueUndoExpiry(paneID uint32) {
-	s.enqueueEvent(undoExpiryEvent{paneID: paneID})
 }
 
 func (s *Session) handleFinalizedPaneRemoval(paneID uint32, closePane bool, reason string) {
@@ -325,10 +287,6 @@ func (s *Session) enqueuePaneOutput(paneID uint32, data []byte, seq uint64) {
 
 func (s *Session) enqueuePaneExit(paneID uint32, reason string) {
 	s.enqueueEvent(paneExitEvent{paneID: paneID, reason: reason})
-}
-
-func (s *Session) enqueuePaneCleanupTimeout(paneID uint32) {
-	s.enqueueEvent(paneCleanupTimeoutEvent{paneID: paneID})
 }
 
 func (s *Session) enqueueClipboard(paneID uint32, data []byte) {

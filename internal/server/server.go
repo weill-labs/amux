@@ -68,11 +68,11 @@ type Session struct {
 	// duplicate terminal events.
 	terminalEventState map[uint32]paneTerminalEventState
 
-	undo *undoManager
+	undo *UndoManager
 
 	// Configurable timing — zero values use defaults. Tests inject short durations.
-	UndoGracePeriod time.Duration // default: 30s
-	Clock           Clock         // nil uses RealClock
+	VTIdleSettle time.Duration // default: 2s
+	Clock        Clock         // nil uses RealClock
 	// PaneMetaResolver refreshes live cwd/git metadata for a pane. Nil uses
 	// the pane's DetectCwdBranch implementation.
 	PaneMetaResolver func(*mux.Pane) (cwd, branch string)
@@ -210,13 +210,6 @@ func (s *Session) detectPaneCwdBranch(pane *mux.Pane) (cwd, branch string) {
 		return s.PaneMetaResolver(pane)
 	}
 	return pane.DetectCwdBranch()
-}
-
-func (s *Session) undoGracePeriod() time.Duration {
-	if s.UndoGracePeriod != 0 {
-		return s.UndoGracePeriod
-	}
-	return config.UndoGracePeriod
 }
 
 type captureTimingConfig struct {
@@ -439,8 +432,8 @@ func newSessionWithLogger(name string, scrollbackLines int, logger *charmlog.Log
 	sess.waiters = newWaiterManager()
 	sess.capture = newCaptureForwarder()
 	sess.input = newInputRouter()
-	sess.undo = newUndoManager()
 	sess.checkpointCoordinator = newSessionCheckpointCoordinator(sess)
+	sess.undo = newUndoManager(undoManagerConfig{})
 	sess.startEventLoop()
 	return sess
 }
