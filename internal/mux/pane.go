@@ -151,6 +151,34 @@ func NewPaneWithScrollbackColorProfile(id uint32, meta PaneMeta, cols, rows int,
 	return newPaneWithShellPath(id, meta, cols, rows, sessionName, scrollbackLines, shellPath("", 0), colorProfile, onOutput, onExit)
 }
 
+// NewPendingPaneWithScrollback creates a local pane placeholder with emulator
+// state but no PTY or process. Callers can place it in layout immediately
+// while the real PTY is created on a background goroutine.
+func NewPendingPaneWithScrollback(id uint32, meta PaneMeta, cols, rows int, scrollbackLines int, onOutput func(uint32, []byte, uint64), onExit func(uint32, string)) (*Pane, error) {
+	manualBranch, err := NormalizePaneMeta(&meta)
+	if err != nil {
+		return nil, err
+	}
+
+	emu := NewVTEmulatorWithScrollback(cols, rows, scrollbackLines)
+	p := &Pane{
+		ID:               id,
+		Meta:             meta,
+		emulator:         emu,
+		exitDone:         make(chan struct{}),
+		onOutput:         onOutput,
+		onExit:           onExit,
+		createdAt:        time.Now(),
+		metaManualBranch: manualBranch,
+		scrollbackLines:  effectiveScrollbackLines(scrollbackLines),
+		scrollbackLimit:  effectiveScrollbackLines(scrollbackLines),
+	}
+	p.baseHistory.Store(&paneBaseHistory{})
+	wireScrollbackCallbacks(p)
+	p.startActor()
+	return p, nil
+}
+
 func newPaneWithShellPath(id uint32, meta PaneMeta, cols, rows int, sessionName string, scrollbackLines int, shell, colorProfile string, onOutput func(uint32, []byte, uint64), onExit func(uint32, string)) (*Pane, error) {
 	manualBranch, err := NormalizePaneMeta(&meta)
 	if err != nil {
@@ -638,6 +666,9 @@ func formatExitReason(err error) string {
 func (p *Pane) Write(data []byte) (int, error) {
 	if p.writeOverride != nil {
 		return writeAll(data, p.writeOverride)
+	}
+	if p.ptmx == nil {
+		return 0, errors.New("pane not ready")
 	}
 	return writeAll(data, p.ptmx.Write)
 }

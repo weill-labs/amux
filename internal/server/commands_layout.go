@@ -137,14 +137,15 @@ func runCreatePane(ctx *CommandContext, actorPaneID uint32, command string, plac
 		if err != nil {
 			return commandMutationResult{err: err}
 		}
-		pane, err := mctx.createPaneWithMeta(ctx.Srv, meta, w.Width, mux.PaneContentHeight(w.Height))
+		prepared, err := mctx.preparePendingLocalPane(ctx.Srv, meta, w.Width, mux.PaneContentHeight(w.Height), "")
 		if err != nil {
 			return commandMutationResult{err: err}
 		}
+		pane := prepared.pane
 		if err := placeCreatedPaneInWindow(w, placement, snapshot, pane, req.dir, keepFocus); err != nil {
 			return cleanupFailedPaneMutationContext(mctx, pane, err)
 		}
-		mctx.ScheduleStart(pane)
+		mctx.startPendingLocalPaneBuild(ctx.Srv, pane, prepared.build)
 		return commandMutationResult{
 			output:          createPaneOutput(command, placement, req.dir, pane, ""),
 			broadcastLayout: true,
@@ -528,17 +529,62 @@ func runReset(ctx *CommandContext, actorPaneID uint32, paneRef string) commandpk
 }
 
 func cmdRespawn(ctx *CommandContext) {
+	target, err := enqueueSessionQuery(ctx.Sess, func(sess *Session) (struct {
+		pane *mux.Pane
+	}, error) {
+		pane, _, err := sess.resolvePaneWindowForActor(ctx.ActorPaneID, "respawn", ctx.Args)
+		if err != nil {
+			return struct {
+				pane *mux.Pane
+			}{}, err
+		}
+		return struct {
+			pane *mux.Pane
+		}{pane: pane}, nil
+	})
+	if err != nil {
+		ctx.replyErr(err.Error())
+		return
+	}
+	if target.pane.IsProxy() {
+		ctx.replyErr("cannot respawn proxy pane")
+		return
+	}
+
+	newPane, err := ctx.Sess.buildConfiguredLocalPane(ctx.Srv, localPaneBuildRequest{
+		sourcePane:   target.pane,
+		sessionName:  ctx.Sess.Name,
+		colorProfile: ctx.Sess.paneLaunchColorProfile(nil),
+		startDir:     effectiveRespawnDir(target.pane),
+		onOutput:     ctx.Sess.paneOutputCallback(),
+		onExit:       ctx.Sess.paneExitCallback(),
+	})
+	if err != nil {
+		ctx.replyErr(err.Error())
+		return
+	}
+
 	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(mctx *MutationContext) commandMutationResult {
-		pane, w, err := mctx.resolvePaneWindowForActor(ctx.ActorPaneID, "respawn", ctx.Args)
-		if err != nil {
+		pane := mctx.findPaneByID(target.pane.ID)
+		if pane == nil {
+			mctx.ScheduleClose(newPane)
+			return commandMutationResult{err: fmt.Errorf("pane %q not found", target.pane.Meta.Name)}
+		}
+		if pane != target.pane {
+			mctx.ScheduleClose(newPane)
+			return commandMutationResult{err: fmt.Errorf("pane %q changed during respawn", target.pane.Meta.Name)}
+		}
+		w := mctx.findWindowByPaneID(pane.ID)
+		if w == nil {
+			mctx.ScheduleClose(newPane)
+			return commandMutationResult{err: fmt.Errorf("pane not in any window")}
+		}
+		if err := mctx.replacePaneInstance(pane, newPane, w); err != nil {
+			mctx.ScheduleClose(newPane)
 			return commandMutationResult{err: err}
 		}
 
-		newPane, err := mctx.respawnPane(ctx.Srv, pane, w)
-		if err != nil {
-			return commandMutationResult{err: err}
-		}
-
+		pane.SuppressCallbacks()
 		mctx.ScheduleStart(newPane)
 		mctx.ScheduleClose(pane)
 		return clearedPaneRenderResult(
@@ -738,10 +784,11 @@ func runNewWindow(ctx *CommandContext, name string) commandpkg.Result {
 		if w == nil {
 			return commandMutationResult{err: fmt.Errorf("no session")}
 		}
-		pane, err := mctx.createPaneWithMeta(ctx.Srv, meta, w.Width, mux.PaneContentHeight(w.Height))
+		prepared, err := mctx.preparePendingLocalPane(ctx.Srv, meta, w.Width, mux.PaneContentHeight(w.Height), "")
 		if err != nil {
 			return commandMutationResult{err: err}
 		}
+		pane := prepared.pane
 
 		winID := mctx.nextWindowID()
 		newWin := mux.NewWindow(pane, w.Width, w.Height)
@@ -754,7 +801,7 @@ func runNewWindow(ctx *CommandContext, name string) commandpkg.Result {
 		}
 		mctx.Windows = append(mctx.Windows, newWin)
 		mctx.activateWindow(newWin)
-		mctx.ScheduleStart(pane)
+		mctx.startPendingLocalPaneBuild(ctx.Srv, pane, prepared.build)
 
 		return commandMutationResult{
 			output:          fmt.Sprintf("Created %s\n", newWin.Name),

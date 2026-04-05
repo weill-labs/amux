@@ -120,6 +120,9 @@ type Session struct {
 	// paneCloser runs the blocking Pane.Close path. Tests stub it to verify the
 	// session event loop never waits on pane shutdown directly.
 	paneCloser func(*mux.Pane)
+	// localPaneBuilder builds PTY-backed local panes. Tests stub it to control
+	// pane creation timing without mutable package-level state.
+	localPaneBuilder func(localPaneBuildRequest) (*mux.Pane, error)
 
 	// Exit-unattached: server exits when all clients disconnect after
 	// at least one has connected. Used by test harness to avoid orphans.
@@ -894,10 +897,6 @@ func (s *Server) handleAttach(conn net.Conn, msg *Message) {
 		sess.broadcastLayout()
 	}
 
-	if res.newPane != nil {
-		res.newPane.Start()
-	}
-
 	cc.readLoop(s, sess)
 }
 
@@ -924,21 +923,25 @@ func (s *Server) EnsureInitialWindow(cols, rows int) error {
 		return fmt.Errorf("no session")
 	}
 
+	buildDone := (chan error)(nil)
 	res := sess.enqueueCommandMutation(func(ctx *MutationContext) commandMutationResult {
 		initRes, err := ctx.ensureInitialWindowLocked(s, cols, rows, nil)
 		if err != nil {
 			return commandMutationResult{err: err}
 		}
+		buildDone = initRes.buildDone
 		if !initRes.layoutChanged {
 			return commandMutationResult{}
-		}
-		if initRes.newPane != nil {
-			ctx.ScheduleStart(initRes.newPane)
 		}
 		return commandMutationResult{broadcastLayout: true}
 	})
 	if res.err != nil {
 		return res.err
+	}
+	if buildDone != nil {
+		if err := <-buildDone; err != nil {
+			return err
+		}
 	}
 	return nil
 }

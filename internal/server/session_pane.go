@@ -17,6 +17,20 @@ type paneRemovalResult struct {
 	sendExit        bool
 }
 
+type localPaneBuildRequest struct {
+	sourcePane      *mux.Pane
+	id              uint32
+	meta            mux.PaneMeta
+	cols            int
+	rows            int
+	sessionName     string
+	scrollbackLines int
+	colorProfile    string
+	startDir        string
+	onOutput        func(uint32, []byte, uint64)
+	onExit          func(uint32, string)
+}
+
 func (s *Session) ownPane(pane *mux.Pane) *mux.Pane {
 	if pane == nil {
 		return nil
@@ -68,6 +82,138 @@ func cleanupFailedPaneMutationContext(ctx *MutationContext, pane *mux.Pane, err 
 	ctx.removePane(pane.ID)
 	ctx.ScheduleClose(pane)
 	return commandMutationResult{err: err}
+}
+
+func defaultLocalPaneBuilder(req localPaneBuildRequest) (*mux.Pane, error) {
+	if req.sourcePane != nil {
+		return req.sourcePane.ReplacementWithColorProfile(req.sessionName, req.startDir, req.colorProfile, req.onOutput, req.onExit)
+	}
+	return mux.NewPaneWithScrollbackColorProfile(
+		req.id,
+		req.meta,
+		req.cols,
+		req.rows,
+		req.sessionName,
+		req.scrollbackLines,
+		req.colorProfile,
+		req.onOutput,
+		req.onExit,
+	)
+}
+
+func (s *Session) buildLocalPane(req localPaneBuildRequest) (*mux.Pane, error) {
+	builder := s.localPaneBuilder
+	if builder == nil {
+		builder = defaultLocalPaneBuilder
+	}
+	return builder(req)
+}
+
+func (s *Session) configureLocalPane(pane *mux.Pane, srv *Server) *mux.Pane {
+	if pane == nil {
+		return nil
+	}
+	pane = s.ownPane(pane)
+	pane.SetOnClipboard(s.clipboardCallback())
+	pane.SetOnTakeover(s.takeoverCallback(srv))
+	pane.SetOnMetaUpdate(s.metaCallback())
+	return pane
+}
+
+func (s *Session) reserveLocalPaneMeta(meta mux.PaneMeta) (uint32, mux.PaneMeta) {
+	id := s.counter.Add(1)
+	if meta.Name == "" {
+		meta.Name = fmt.Sprintf(mux.PaneNameFormat, id)
+	}
+	if meta.Host == "" {
+		meta.Host = mux.DefaultHost
+	}
+	if meta.Color == "" {
+		meta.Color = config.AccentColor(id - 1)
+	}
+	return id, meta
+}
+
+func (s *Session) newLocalPaneBuildRequest(id uint32, meta mux.PaneMeta, cols, rows int, colorProfile string) localPaneBuildRequest {
+	return localPaneBuildRequest{
+		id:              id,
+		meta:            meta,
+		cols:            cols,
+		rows:            rows,
+		sessionName:     s.Name,
+		scrollbackLines: s.scrollbackLines,
+		colorProfile:    colorProfile,
+		onOutput:        s.paneOutputCallback(),
+		onExit:          s.paneExitCallback(),
+	}
+}
+
+func (s *Session) buildConfiguredLocalPane(srv *Server, req localPaneBuildRequest) (*mux.Pane, error) {
+	pane, err := s.buildLocalPane(req)
+	if err != nil {
+		return nil, err
+	}
+	return s.configureLocalPane(pane, srv), nil
+}
+
+func (s *Session) preparePendingLocalPane(srv *Server, meta mux.PaneMeta, cols, rows int, colorProfile string) (*mux.Pane, localPaneBuildRequest, error) {
+	id, meta := s.reserveLocalPaneMeta(meta)
+	if colorProfile == "" {
+		colorProfile = s.paneLaunchColorProfile(nil)
+	}
+
+	pane, err := mux.NewPendingPaneWithScrollback(id, meta, cols, rows, s.scrollbackLines, s.paneOutputCallback(), s.paneExitCallback())
+	if err != nil {
+		return nil, localPaneBuildRequest{}, err
+	}
+	pane = s.configureLocalPane(pane, srv)
+
+	s.Panes = append(s.Panes, pane)
+	s.appendPaneLog(paneLogEventCreate, pane, "")
+	s.logPaneCreate(pane, "local")
+	return pane, s.newLocalPaneBuildRequest(id, meta, cols, rows, colorProfile), nil
+}
+
+func (s *Session) startPendingLocalPaneBuild(srv *Server, placeholder *mux.Pane, req localPaneBuildRequest, done chan error) {
+	if placeholder == nil {
+		return
+	}
+	go func() {
+		pane, err := s.buildConfiguredLocalPane(srv, req)
+		s.enqueueEvent(localPaneBuildResultEvent{
+			placeholder: placeholder,
+			pane:        pane,
+			err:         err,
+			done:        done,
+		})
+	}()
+}
+
+func (s *Session) failPendingLocalPaneBuild(placeholder *mux.Pane, err error) {
+	if placeholder == nil {
+		return
+	}
+	current := s.findPaneByID(placeholder.ID)
+	if current == nil {
+		return
+	}
+	placeholder = current
+
+	reason := fmt.Sprintf("start failed: %v", err)
+	s.removePane(placeholder.ID)
+	s.closePaneInWindow(placeholder.ID)
+	s.appendPaneLog(paneLogEventExit, placeholder, reason)
+	s.emitEvent(Event{
+		Type:     EventPaneExit,
+		PaneID:   placeholder.ID,
+		PaneName: placeholder.Meta.Name,
+		Host:     placeholder.Meta.Host,
+		Reason:   reason,
+	})
+	s.logPaneExit(placeholder, reason)
+	placeholder.SuppressCallbacks()
+	s.closePaneAsync(placeholder)
+	s.broadcastLayoutNow()
 }
 
 // hasPane checks if a pane ID is still in the session's pane list.
@@ -296,14 +442,18 @@ func (s *Session) respawnPane(srv *Server, pane *mux.Pane, w *mux.Window) (*mux.
 		return nil, fmt.Errorf("cannot respawn proxy pane")
 	}
 
-	newPane, err := pane.ReplacementWithColorProfile(s.Name, effectiveRespawnDir(pane), s.paneLaunchColorProfile(nil), s.paneOutputCallback(), s.paneExitCallback())
+	newPane, err := s.buildLocalPane(localPaneBuildRequest{
+		sourcePane:   pane,
+		sessionName:  s.Name,
+		colorProfile: s.paneLaunchColorProfile(nil),
+		startDir:     effectiveRespawnDir(pane),
+		onOutput:     s.paneOutputCallback(),
+		onExit:       s.paneExitCallback(),
+	})
 	if err != nil {
 		return nil, err
 	}
-	newPane = s.ownPane(newPane)
-	newPane.SetOnClipboard(s.clipboardCallback())
-	newPane.SetOnTakeover(s.takeoverCallback(srv))
-	newPane.SetOnMetaUpdate(s.metaCallback())
+	newPane = s.configureLocalPane(newPane, srv)
 
 	if err := s.replacePaneInstance(pane, newPane, w); err != nil {
 		newPane.SuppressCallbacks()
@@ -364,33 +514,16 @@ func (s *Session) createPaneWithMeta(srv *Server, meta mux.PaneMeta, cols, rows 
 }
 
 func (s *Session) createPaneWithMetaForColorProfile(srv *Server, meta mux.PaneMeta, cols, rows int, colorProfile string) (*mux.Pane, error) {
-	id := s.counter.Add(1)
-	if meta.Name == "" {
-		meta.Name = fmt.Sprintf(mux.PaneNameFormat, id)
-	}
-	if meta.Host == "" {
-		meta.Host = mux.DefaultHost
-	}
-	if meta.Color == "" {
-		meta.Color = config.AccentColor(id - 1)
-	}
+	id, meta := s.reserveLocalPaneMeta(meta)
 
 	if colorProfile == "" {
 		colorProfile = s.paneLaunchColorProfile(nil)
 	}
 
-	pane, err := mux.NewPaneWithScrollbackColorProfile(id, meta, cols, rows, s.Name, s.scrollbackLines, colorProfile,
-		s.paneOutputCallback(),
-		s.paneExitCallback(),
-	)
+	pane, err := s.buildConfiguredLocalPane(srv, s.newLocalPaneBuildRequest(id, meta, cols, rows, colorProfile))
 	if err != nil {
 		return nil, err
 	}
-	pane = s.ownPane(pane)
-
-	pane.SetOnClipboard(s.clipboardCallback())
-	pane.SetOnTakeover(s.takeoverCallback(srv))
-	pane.SetOnMetaUpdate(s.metaCallback())
 
 	s.Panes = append(s.Panes, pane)
 	s.appendPaneLog(paneLogEventCreate, pane, "")

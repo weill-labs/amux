@@ -233,6 +233,28 @@ func (ctx *MutationContext) createPaneWithMeta(srv *Server, meta mux.PaneMeta, c
 	})
 }
 
+type pendingLocalPaneResult struct {
+	pane  *mux.Pane
+	build localPaneBuildRequest
+}
+
+func (ctx *MutationContext) preparePendingLocalPane(srv *Server, meta mux.PaneMeta, cols, rows int, colorProfile string) (pendingLocalPaneResult, error) {
+	return mutationContextCall(ctx, func(sess *Session) (pendingLocalPaneResult, error) {
+		pane, build, err := sess.preparePendingLocalPane(srv, meta, cols, rows, colorProfile)
+		if err != nil {
+			return pendingLocalPaneResult{}, err
+		}
+		return pendingLocalPaneResult{pane: pane, build: build}, nil
+	})
+}
+
+func (ctx *MutationContext) startPendingLocalPaneBuild(srv *Server, placeholder *mux.Pane, req localPaneBuildRequest) {
+	if ctx == nil || ctx.sess == nil {
+		return
+	}
+	ctx.sess.startPendingLocalPaneBuild(srv, placeholder, req, nil)
+}
+
 func (ctx *MutationContext) beginPaneCleanupKill(pane *mux.Pane, timeout time.Duration) error {
 	return mutationContextDo(ctx, func(sess *Session) error {
 		return sess.beginPaneCleanupKill(pane, timeout)
@@ -255,6 +277,12 @@ func (ctx *MutationContext) undoClosePane() (*mux.Pane, error) {
 func (ctx *MutationContext) respawnPane(srv *Server, pane *mux.Pane, w *mux.Window) (*mux.Pane, error) {
 	return mutationContextCall(ctx, func(sess *Session) (*mux.Pane, error) {
 		return sess.respawnPane(srv, pane, w)
+	})
+}
+
+func (ctx *MutationContext) replacePaneInstance(oldPane, newPane *mux.Pane, w *mux.Window) error {
+	return mutationContextDo(ctx, func(sess *Session) error {
+		return sess.replacePaneInstance(oldPane, newPane, w)
 	})
 }
 
@@ -353,14 +381,13 @@ type attachPaneSnapshot struct {
 type attachResult struct {
 	snap              *proto.LayoutSnapshot
 	paneSnapshots     []attachPaneSnapshot
-	newPane           *mux.Pane
 	layoutBroadcasted bool
 	err               error
 }
 
 type ensureInitialWindowResult struct {
-	newPane       *mux.Pane
 	layoutChanged bool
+	buildDone     chan error
 }
 
 type attachClientEvent struct {
@@ -423,7 +450,7 @@ func (s *Session) ensureInitialWindowLocked(srv *Server, cols, rows int, preferr
 
 	layoutH := rows - render.GlobalBarHeight
 	paneH := mux.PaneContentHeight(layoutH)
-	pane, err := s.createPaneWithMetaForColorProfile(srv, mux.PaneMeta{}, cols, paneH, s.paneLaunchColorProfile(preferred))
+	pane, build, err := s.preparePendingLocalPane(srv, mux.PaneMeta{}, cols, paneH, s.paneLaunchColorProfile(preferred))
 	if err != nil {
 		return ensureInitialWindowResult{}, err
 	}
@@ -435,7 +462,9 @@ func (s *Session) ensureInitialWindowLocked(srv *Server, cols, rows int, preferr
 	w.Name = fmt.Sprintf(WindowNameFormat, winID)
 	s.Windows = append(s.Windows, w)
 	s.ActiveWindowID = winID
-	return ensureInitialWindowResult{newPane: pane, layoutChanged: true}, nil
+	buildDone := make(chan error, 1)
+	s.startPendingLocalPaneBuild(srv, pane, build, buildDone)
+	return ensureInitialWindowResult{layoutChanged: true, buildDone: buildDone}, nil
 }
 
 type commandMutationEvent struct {
@@ -811,6 +840,76 @@ func (e remoteStateChangeEvent) handle(s *Session) {
 		}
 	}
 	s.broadcastLayoutNow()
+}
+
+type localPaneBuildResultEvent struct {
+	placeholder *mux.Pane
+	pane        *mux.Pane
+	err         error
+	done        chan error
+}
+
+func (e localPaneBuildResultEvent) handle(s *Session) {
+	notify := func(err error) {
+		if e.done == nil {
+			return
+		}
+		e.done <- err
+	}
+
+	if e.placeholder == nil {
+		if e.pane != nil {
+			e.pane.SuppressCallbacks()
+			s.closePaneAsync(e.pane)
+		}
+		notify(fmt.Errorf("missing pending pane"))
+		return
+	}
+
+	current := s.findPaneByID(e.placeholder.ID)
+	if current == nil {
+		if e.pane != nil {
+			e.pane.SuppressCallbacks()
+			s.closePaneAsync(e.pane)
+		}
+		notify(e.err)
+		return
+	}
+
+	if e.err != nil {
+		s.failPendingLocalPaneBuild(current, e.err)
+		notify(e.err)
+		return
+	}
+	if e.pane == nil {
+		err := fmt.Errorf("missing local pane runtime")
+		s.failPendingLocalPaneBuild(current, err)
+		notify(err)
+		return
+	}
+
+	w := s.findWindowByPaneID(current.ID)
+	if w == nil {
+		e.pane.SuppressCallbacks()
+		s.closePaneAsync(e.pane)
+		err := fmt.Errorf("pane not in any window")
+		s.failPendingLocalPaneBuild(current, err)
+		notify(err)
+		return
+	}
+	if err := s.replacePaneInstance(current, e.pane, w); err != nil {
+		e.pane.SuppressCallbacks()
+		s.closePaneAsync(e.pane)
+		s.failPendingLocalPaneBuild(current, err)
+		notify(err)
+		return
+	}
+
+	s.ensureInputRouter().syncPanes(s.Panes)
+	current.SuppressCallbacks()
+	s.closePaneAsync(current)
+	e.pane.Start()
+	notify(nil)
 }
 
 func (s *Session) startEventLoop() {
@@ -1217,7 +1316,6 @@ func (s *Session) handleAttachEvent(srv *Server, cc *clientConn, cols, rows int)
 		res.err = err
 		return res
 	}
-	res.newPane = initRes.newPane
 
 	s.ensureClientManager().addClient(cc)
 	if countsForExitUnattached {
