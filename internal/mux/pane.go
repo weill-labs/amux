@@ -1036,14 +1036,7 @@ func (p *Pane) closeBlocking() error {
 	if p.readLoopDone != nil {
 		<-p.readLoopDone
 	}
-	if proc != nil {
-		select {
-		case <-p.exitDone:
-		case <-time.After(2 * time.Second):
-			_ = proc.Signal(syscall.SIGKILL)
-			<-p.exitDone
-		}
-	}
+	p.waitForProcessExit(proc, 2*time.Second)
 	p.stopActor()
 	emuErr := func() error {
 		if p.emulator == nil {
@@ -1052,6 +1045,51 @@ func (p *Pane) closeBlocking() error {
 		return p.emulator.Close()
 	}()
 	return errors.Join(ptmxErr, emuErr)
+}
+
+func (p *Pane) waitForProcessExit(proc *os.Process, timeout time.Duration) {
+	if proc == nil {
+		return
+	}
+	if p.waitLoopDone != nil {
+		select {
+		case <-p.exitDone:
+		case <-time.After(timeout):
+			_ = proc.Signal(syscall.SIGKILL)
+			<-p.exitDone
+		}
+		<-p.waitLoopDone
+		return
+	}
+	if p.cmd == nil {
+		select {
+		case <-p.exitDone:
+		case <-time.After(timeout):
+			_ = proc.Signal(syscall.SIGKILL)
+			<-p.exitDone
+		}
+		return
+	}
+
+	waitDone := make(chan struct{})
+	cmd := p.cmd
+	exitDone := p.exitDone
+	go func() {
+		if cmd != nil {
+			_ = cmd.Wait()
+		} else {
+			_, _ = proc.Wait()
+		}
+		close(exitDone)
+		close(waitDone)
+	}()
+
+	select {
+	case <-waitDone:
+	case <-time.After(timeout):
+		_ = proc.Signal(syscall.SIGKILL)
+		<-waitDone
+	}
 }
 
 // NewProxyPaneWithScrollback creates a proxy pane with an explicit retained
@@ -1217,17 +1255,7 @@ func (p *Pane) stopForRespawn() {
 	if p.readLoopDone != nil {
 		<-p.readLoopDone
 	}
-	if proc != nil {
-		select {
-		case <-p.exitDone:
-		case <-time.After(2 * time.Second):
-			_ = proc.Signal(syscall.SIGKILL)
-			<-p.exitDone
-		}
-	}
-	if p.waitLoopDone != nil {
-		<-p.waitLoopDone
-	}
+	p.waitForProcessExit(proc, 2*time.Second)
 }
 
 // Replacement clones a local PTY pane into a fresh shell process with the same
