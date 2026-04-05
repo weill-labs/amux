@@ -151,6 +151,34 @@ func NewPaneWithScrollbackColorProfile(id uint32, meta PaneMeta, cols, rows int,
 	return newPaneWithShellPath(id, meta, cols, rows, sessionName, scrollbackLines, shellPath("", 0), colorProfile, onOutput, onExit)
 }
 
+// NewPendingPaneWithScrollback creates a local pane placeholder with emulator
+// state but no PTY or process. Callers can place it in layout immediately
+// while the real PTY is created on a background goroutine.
+func NewPendingPaneWithScrollback(id uint32, meta PaneMeta, cols, rows int, scrollbackLines int, onOutput func(uint32, []byte, uint64), onExit func(uint32, string)) (*Pane, error) {
+	manualBranch, err := NormalizePaneMeta(&meta)
+	if err != nil {
+		return nil, err
+	}
+
+	emu := NewVTEmulatorWithScrollback(cols, rows, scrollbackLines)
+	p := &Pane{
+		ID:               id,
+		Meta:             meta,
+		emulator:         emu,
+		exitDone:         make(chan struct{}),
+		onOutput:         onOutput,
+		onExit:           onExit,
+		createdAt:        time.Now(),
+		metaManualBranch: manualBranch,
+		scrollbackLines:  effectiveScrollbackLines(scrollbackLines),
+		scrollbackLimit:  effectiveScrollbackLines(scrollbackLines),
+	}
+	p.baseHistory.Store(&paneBaseHistory{})
+	wireScrollbackCallbacks(p)
+	p.startActor()
+	return p, nil
+}
+
 func newPaneWithShellPath(id uint32, meta PaneMeta, cols, rows int, sessionName string, scrollbackLines int, shell, colorProfile string, onOutput func(uint32, []byte, uint64), onExit func(uint32, string)) (*Pane, error) {
 	manualBranch, err := NormalizePaneMeta(&meta)
 	if err != nil {
@@ -639,7 +667,20 @@ func (p *Pane) Write(data []byte) (int, error) {
 	if p.writeOverride != nil {
 		return writeAll(data, p.writeOverride)
 	}
+	if p.ptmx == nil {
+		return 0, errors.New("pane not ready")
+	}
 	return writeAll(data, p.ptmx.Write)
+}
+
+// AcceptsInput reports whether writes can be routed to the pane immediately.
+// Pending local panes return false until the real PTY-backed pane replaces the
+// placeholder in session state.
+func (p *Pane) AcceptsInput() bool {
+	if p == nil {
+		return false
+	}
+	return p.writeOverride != nil || p.ptmx != nil
 }
 
 func writeAll(data []byte, write func([]byte) (int, error)) (int, error) {
@@ -995,14 +1036,7 @@ func (p *Pane) closeBlocking() error {
 	if p.readLoopDone != nil {
 		<-p.readLoopDone
 	}
-	if proc != nil {
-		select {
-		case <-p.exitDone:
-		case <-time.After(2 * time.Second):
-			_ = proc.Signal(syscall.SIGKILL)
-			<-p.exitDone
-		}
-	}
+	p.waitForProcessExit(proc, 2*time.Second)
 	p.stopActor()
 	emuErr := func() error {
 		if p.emulator == nil {
@@ -1011,6 +1045,47 @@ func (p *Pane) closeBlocking() error {
 		return p.emulator.Close()
 	}()
 	return errors.Join(ptmxErr, emuErr)
+}
+
+func (p *Pane) waitForProcessExit(proc *os.Process, timeout time.Duration) {
+	if proc == nil {
+		return
+	}
+	if p.waitLoopDone != nil {
+		select {
+		case <-p.exitDone:
+		case <-time.After(timeout):
+			_ = proc.Signal(syscall.SIGKILL)
+			<-p.exitDone
+		}
+		<-p.waitLoopDone
+		return
+	}
+	if p.cmd == nil {
+		select {
+		case <-p.exitDone:
+		case <-time.After(timeout):
+			_ = proc.Signal(syscall.SIGKILL)
+			<-p.exitDone
+		}
+		return
+	}
+
+	waitDone := make(chan struct{})
+	cmd := p.cmd
+	exitDone := p.exitDone
+	go func() {
+		_ = cmd.Wait()
+		close(exitDone)
+		close(waitDone)
+	}()
+
+	select {
+	case <-waitDone:
+	case <-time.After(timeout):
+		_ = proc.Signal(syscall.SIGKILL)
+		<-waitDone
+	}
 }
 
 // NewProxyPaneWithScrollback creates a proxy pane with an explicit retained
@@ -1176,17 +1251,7 @@ func (p *Pane) stopForRespawn() {
 	if p.readLoopDone != nil {
 		<-p.readLoopDone
 	}
-	if proc != nil {
-		select {
-		case <-p.exitDone:
-		case <-time.After(2 * time.Second):
-			_ = proc.Signal(syscall.SIGKILL)
-			<-p.exitDone
-		}
-	}
-	if p.waitLoopDone != nil {
-		<-p.waitLoopDone
-	}
+	p.waitForProcessExit(proc, 2*time.Second)
 }
 
 // Replacement clones a local PTY pane into a fresh shell process with the same

@@ -9,6 +9,9 @@ import (
 func TestInputRouterSyncPanesReplacesQueueWhenPaneInstanceChanges(t *testing.T) {
 	t.Parallel()
 
+	_, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
 	var oldWrites [][]byte
 	oldPane := mux.NewProxyPaneWithScrollback(7, mux.PaneMeta{
 		Name:  "worker",
@@ -30,18 +33,24 @@ func TestInputRouterSyncPanesReplacesQueueWhenPaneInstanceChanges(t *testing.T) 
 	})
 
 	router := newInputRouter()
+	mustSessionMutation(t, sess, func(sess *Session) {
+		sess.Panes = []*mux.Pane{oldPane}
+	})
 	router.syncPanes([]*mux.Pane{oldPane})
-	oldQueue := router.paneQueue(oldPane)
-	if err := oldQueue.enqueue([]encodedKeyChunk{{data: []byte("old")}}); err != nil {
+	oldQueue := router.paneQueue(sess, oldPane)
+	if err := oldQueue.queue.enqueue([]encodedKeyChunk{{data: []byte("old")}}); err != nil {
 		t.Fatalf("enqueue old pane input: %v", err)
 	}
 
+	mustSessionMutation(t, sess, func(sess *Session) {
+		sess.Panes = []*mux.Pane{newPane}
+	})
 	router.syncPanes([]*mux.Pane{newPane})
-	newQueue := router.paneQueue(newPane)
+	newQueue := router.paneQueue(sess, newPane)
 	if newQueue == oldQueue {
 		t.Fatal("syncPanes should replace the pane queue when the pane pointer changes")
 	}
-	if err := newQueue.enqueue([]encodedKeyChunk{{data: []byte("new")}}); err != nil {
+	if err := newQueue.queue.enqueue([]encodedKeyChunk{{data: []byte("new")}}); err != nil {
 		t.Fatalf("enqueue new pane input: %v", err)
 	}
 

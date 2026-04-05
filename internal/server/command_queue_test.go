@@ -2,6 +2,7 @@ package server
 
 import (
 	"errors"
+	"fmt"
 	"net"
 	"strings"
 	"testing"
@@ -227,6 +228,145 @@ func TestQueuedCommandSpawnLocal(t *testing.T) {
 	assertSessionLayoutConsistent(t, sess)
 }
 
+func TestQueuedCommandSpawnDoesNotBlockEventLoopWhileLocalPaneBuildRuns(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	p1, err := sess.createPane(srv, 80, 23)
+	if err != nil {
+		t.Fatalf("createPane: %v", err)
+	}
+	p1.Start()
+	w := newTestWindowWithPanes(t, sess, 1, "window-1", p1)
+	sess.Windows = []*mux.Window{w}
+	sess.ActiveWindowID = w.ID
+	sess.Panes = []*mux.Pane{p1}
+
+	buildStarted := make(chan struct{})
+	buildFinished := make(chan struct{})
+	releaseBuild := make(chan struct{})
+	buildErr := errors.New("grantpt blocked")
+	sess.localPaneBuilder = func(req localPaneBuildRequest) (*mux.Pane, error) {
+		defer close(buildFinished)
+		close(buildStarted)
+		<-releaseBuild
+		return nil, buildErr
+	}
+
+	serverConn, peerConn := net.Pipe()
+	defer serverConn.Close()
+	defer peerConn.Close()
+	cc := newClientConn(serverConn)
+	defer cc.Close()
+
+	cmdResult := make(chan *Message, 1)
+	go func() {
+		for {
+			msg, err := ReadMsg(peerConn)
+			if err != nil {
+				return
+			}
+			if msg.Type == MsgTypeCmdResult {
+				cmdResult <- msg
+				return
+			}
+		}
+	}()
+
+	go cc.handleCommand(srv, sess, &Message{
+		Type:    MsgTypeCommand,
+		CmdName: "spawn",
+		CmdArgs: []string{"--name", "worker-1"},
+	})
+
+	waitForSignal(t, buildStarted, "blocked local pane build")
+
+	queryDone := make(chan struct{}, 1)
+	go func() {
+		mustSessionQuery(t, sess, func(sess *Session) int { return len(sess.Panes) })
+		queryDone <- struct{}{}
+	}()
+
+	select {
+	case <-queryDone:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("event loop blocked while local pane build was in progress")
+	}
+
+	pendingState := mustSessionQuery(t, sess, func(sess *Session) struct {
+		paneCount int
+		hasPane   bool
+		pid       int
+	} {
+		pane, _ := sess.findPaneByRef("worker-1")
+		state := struct {
+			paneCount int
+			hasPane   bool
+			pid       int
+		}{
+			paneCount: len(sess.Panes),
+		}
+		if pane != nil {
+			state.hasPane = true
+			state.pid = pane.ProcessPid()
+		}
+		return state
+	})
+	if pendingState.paneCount != 2 || !pendingState.hasPane {
+		t.Fatalf("pending pane state = %#v, want spawned placeholder in session", pendingState)
+	}
+	if pendingState.pid != 0 {
+		t.Fatalf("pending placeholder pid = %d, want 0 before local pane build completes", pendingState.pid)
+	}
+
+	select {
+	case msg := <-cmdResult:
+		if got := msg.CmdErr; got != "" {
+			t.Fatalf("spawn returned unexpected error before local pane build finished: %q", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for spawn command result")
+	}
+
+	close(releaseBuild)
+
+	waitForSignal(t, buildFinished, "local pane build finished")
+
+	waitUntilRespawn(t, time.Second, func() bool {
+		state := mustSessionQuery(t, sess, func(sess *Session) struct {
+			paneCount int
+			hasPane   bool
+		} {
+			pane, _ := sess.findPaneByRef("worker-1")
+			return struct {
+				paneCount int
+				hasPane   bool
+			}{
+				paneCount: len(sess.Panes),
+				hasPane:   pane != nil,
+			}
+		})
+		return state.paneCount == 1 && !state.hasPane
+	}, func() string {
+		state := mustSessionQuery(t, sess, func(sess *Session) struct {
+			paneCount int
+			hasPane   bool
+		} {
+			pane, _ := sess.findPaneByRef("worker-1")
+			return struct {
+				paneCount int
+				hasPane   bool
+			}{
+				paneCount: len(sess.Panes),
+				hasPane:   pane != nil,
+			}
+		})
+		return fmt.Sprintf("paneCount=%d hasPane=%v", state.paneCount, state.hasPane)
+	})
+}
+
 func TestQueuedCommandKillOrphanPane(t *testing.T) {
 	t.Parallel()
 
@@ -412,14 +552,12 @@ func newCommandTestSession(t *testing.T) (*Server, *Session, func()) {
 	srv := &Server{sessions: map[string]*Session{sess.Name: sess}}
 	cleanup := func() {
 		sess.shutdown.Store(true)
-		panes := mustSessionQuery(t, sess, func(sess *Session) []*mux.Pane {
-			return append([]*mux.Pane(nil), sess.Panes...)
-		})
+		stopSessionBackgroundLoops(t, sess)
+		panes := append([]*mux.Pane(nil), sess.Panes...)
 		for _, p := range panes {
 			_ = p.Close()
 			_ = p.WaitClosed()
 		}
-		stopSessionBackgroundLoops(t, sess)
 	}
 	return srv, sess, cleanup
 }

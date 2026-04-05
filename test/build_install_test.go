@@ -80,7 +80,7 @@ func prependPath(env []string, dir string) []string {
 	return append(env, "PATH="+pathValue)
 }
 
-func newInstallTestToolDir(t *testing.T, fakeUID string) string {
+func newInstallTestToolDir(t *testing.T, fakeUID, installTerminfoBin string) string {
 	t.Helper()
 
 	goPath, err := exec.LookPath("go")
@@ -93,6 +93,10 @@ func newInstallTestToolDir(t *testing.T, fakeUID string) string {
 	}
 
 	dir := t.TempDir()
+	installTerminfoCmd := "exit 0"
+	if installTerminfoBin != "" {
+		installTerminfoCmd = fmt.Sprintf("exec %q install-terminfo", installTerminfoBin)
+	}
 	writeTool := func(name, body string) {
 		t.Helper()
 		path := filepath.Join(dir, name)
@@ -133,7 +137,7 @@ if [[ "${1:-}" == "version" && "${2:-}" == "--json" ]]; then
 fi
 
 if [[ "${1:-}" == "install-terminfo" ]]; then
-	exit 0
+	%s
 fi
 
 printf 'unexpected args: %%s\n' "$*" >&2
@@ -144,7 +148,7 @@ EOF
 fi
 
 exec %q "$@"
-`, goPath))
+`, installTerminfoCmd, goPath))
 	writeTool("codesign", "#!/usr/bin/env bash\nexit 0\n")
 	writeTool("xattr", "#!/usr/bin/env bash\nexit 0\n")
 	writeTool("id", fmt.Sprintf(`#!/usr/bin/env bash
@@ -166,10 +170,11 @@ func TestBuildInstallInstallsTerminfo(t *testing.T) {
 
 	home := t.TempDir()
 	dest := filepath.Join(t.TempDir(), "amux")
+	toolDir := newInstallTestToolDir(t, fmt.Sprintf("%d", os.Getuid()), amuxBin)
 
 	cmd := exec.Command("bash", repoPath(t, "scripts/install.sh"), dest)
 	cmd.Dir = repoRoot(t)
-	cmd.Env = envWithHomeAndBranch(t, home, "main")
+	cmd.Env = prependPath(envWithHomeAndBranch(t, home, "main"), toolDir)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("build install failed: %v\n%s", err, out)
@@ -192,13 +197,14 @@ func TestBuildInstallRewritesInvalidMetadata(t *testing.T) {
 	rootDir := repoRoot(t)
 	dest := filepath.Join(t.TempDir(), "amux")
 	metaPath := dest + ".install-meta"
+	toolDir := newInstallTestToolDir(t, fmt.Sprintf("%d", os.Getuid()), amuxBin)
 	if err := os.WriteFile(metaPath, []byte("not-valid-metadata\n"), 0644); err != nil {
 		t.Fatalf("write meta: %v", err)
 	}
 
 	cmd := exec.Command("bash", repoPath(t, "scripts/install.sh"), dest)
 	cmd.Dir = rootDir
-	cmd.Env = envWithHomeAndBranch(t, t.TempDir(), "main")
+	cmd.Env = prependPath(envWithHomeAndBranch(t, t.TempDir(), "main"), toolDir)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("install with invalid metadata failed: %v\n%s", err, out)
@@ -259,7 +265,7 @@ exit 1
 
 	cmd := exec.Command("bash", repoPath(t, "scripts/install.sh"), dest)
 	cmd.Dir = repoRoot(t)
-	cmd.Env = prependPath(envWithHomeAndBranch(t, home, "main"), newInstallTestToolDir(t, fakeUID))
+	cmd.Env = prependPath(envWithHomeAndBranch(t, home, "main"), newInstallTestToolDir(t, fakeUID, ""))
 	out, err := cmd.CombinedOutput()
 	if err == nil {
 		t.Fatalf("install should fail without confirmation for incompatible live checkpoint\n%s", out)

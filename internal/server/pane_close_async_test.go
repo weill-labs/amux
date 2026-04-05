@@ -185,7 +185,7 @@ func TestRunCreatePaneRemoteWindowResolutionFailureDefersClose(t *testing.T) {
 	}
 }
 
-func TestRespawnPaneReplaceFailureUsesSessionCloser(t *testing.T) {
+func TestRespawnCommandFailureUsesSessionCloser(t *testing.T) {
 	t.Parallel()
 
 	srv, sess, cleanup := newCommandTestSession(t)
@@ -209,16 +209,30 @@ func TestRespawnPaneReplaceFailureUsesSessionCloser(t *testing.T) {
 
 	pane := mustCreatePane(t, sess, srv, 80, 23)
 	pane.Start()
+	window := newTestWindowWithPanes(t, sess, 1, "main", pane)
+	setSessionLayoutForTest(t, sess, window.ID, []*mux.Window{window}, pane)
 
-	badWindow := newTestWindowWithPanes(t, sess, 99, "other", newTestPane(sess, 2, "pane-2"))
-	if _, err := sess.respawnPane(srv, pane, badWindow); err == nil {
-		t.Fatal("respawnPane should fail when target window does not contain the pane")
+	sess.localPaneBuilder = func(req localPaneBuildRequest) (*mux.Pane, error) {
+		replacement, err := defaultLocalPaneBuilder(req)
+		if err != nil {
+			return nil, err
+		}
+		mustSessionMutation(t, sess, func(sess *Session) {
+			sess.Windows = nil
+			sess.ActiveWindowID = 0
+		})
+		return replacement, nil
+	}
+
+	res := runTestCommand(t, srv, sess, "respawn", pane.Meta.Name)
+	if got := res.cmdErr; got != "pane not in any window" {
+		t.Fatalf("respawn cmdErr = %q, want %q", got, "pane not in any window")
 	}
 
 	select {
 	case <-closeStarted:
 	case <-time.After(time.Second):
-		t.Fatal("respawnPane failure did not use the session pane closer")
+		t.Fatal("respawn command failure did not use the session pane closer")
 	}
 
 	state := mustSessionQuery(t, sess, func(sess *Session) struct {
@@ -244,7 +258,7 @@ func TestRespawnPaneReplaceFailureUsesSessionCloser(t *testing.T) {
 	select {
 	case <-closeFinished:
 	case <-time.After(time.Second):
-		t.Fatal("respawnPane failure did not finish closing the replacement pane")
+		t.Fatal("respawn command failure did not finish closing the replacement pane")
 	}
 
 	state = mustSessionQuery(t, sess, func(sess *Session) struct {

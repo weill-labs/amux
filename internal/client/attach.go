@@ -428,6 +428,8 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 	}
 	kb := config.DefaultKeybindings()
 	scrollbackLines := cfg.EffectiveScrollbackLines()
+	stdin := os.Stdin
+	stdout := os.Stdout
 
 	sockPath := proto.SocketPath(sessionName)
 
@@ -443,7 +445,7 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 	sender := newMessageSender(conn)
 	defer sender.Close()
 
-	fd := int(os.Stdin.Fd())
+	fd := int(stdin.Fd())
 	cols, rows, _ := getTermSize(fd)
 	if cols <= 0 {
 		cols = proto.DefaultTermCols
@@ -455,7 +457,7 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 	// Send attach
 	attachCaps := advertisedAttachCapabilities()
 	negotiatedAttachCaps := proto.NegotiateClientCapabilities(attachCaps)
-	attachProfile := attachColorProfile(os.Stdout, processEnviron{}, termenv.WithTTY(true))
+	attachProfile := attachColorProfile(stdout, processEnviron{}, termenv.WithTTY(true))
 	if err := sender.Send(&proto.Message{
 		Type:               proto.MsgTypeAttach,
 		Session:            sessionName,
@@ -469,7 +471,7 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 	}
 
 	// Client-side renderer with per-pane emulators
-	cr := newAttachClientRenderer(cols, rows, scrollbackLines, os.Stdout, processEnviron{}, termenv.WithTTY(true))
+	cr := newAttachClientRenderer(cols, rows, scrollbackLines, stdout, processEnviron{}, termenv.WithTTY(true))
 	cr.SetCapabilities(negotiatedAttachCaps)
 	cr.OnUIEvent = func(name string) {
 		_ = sender.Send(&proto.Message{
@@ -488,14 +490,14 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 	if err != nil {
 		return fmt.Errorf("raw mode: %w", err)
 	}
-	os.Stdout.Write([]byte(terminalEnterSequence(negotiatedAttachCaps)))
+	stdout.Write([]byte(terminalEnterSequence(negotiatedAttachCaps)))
 	defer func() {
-		os.Stdout.Write([]byte(terminalExitSequence(negotiatedAttachCaps)))
+		stdout.Write([]byte(terminalExitSequence(negotiatedAttachCaps)))
 		term.Restore(fd, oldState)
 	}()
 
 	if initial := cr.Render(true); initial != "" {
-		io.WriteString(os.Stdout, wrapSynchronizedFrame(initial))
+		io.WriteString(stdout, wrapSynchronizedFrame(initial))
 	}
 
 	// Resolve the current binary once so explicit reloads and server reload
@@ -571,7 +573,7 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 	go func() {
 		defer close(done)
 		cr.RenderCoalesced(msgCh, func(data string) {
-			io.WriteString(os.Stdout, data)
+			io.WriteString(stdout, data)
 		})
 	}()
 
@@ -650,13 +652,13 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 		execPrefixKey := func(b byte, forward *[]byte) bool {
 			showChooser := func(mode chooserMode) {
 				if !showChooserOnRenderLoop(cr, msgCh, mode) {
-					io.WriteString(os.Stdout, "\a")
+					io.WriteString(stdout, "\a")
 					return
 				}
 			}
 			showPrefixMessage := func(key byte) {
 				cr.ShowPrefixMessage(formatUnboundPrefixMessage(kb.Prefix, key))
-				io.WriteString(os.Stdout, "\a")
+				io.WriteString(stdout, "\a")
 				runLocalRenderAction(cr, msgCh, func(*ClientRenderer) localRenderResult { return overlayRenderNowResult() })
 			}
 			clearPrefixMessage := func() {
@@ -704,11 +706,11 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 					})
 				case "display-panes":
 					if !toggleDisplayPanesOnRenderLoop(cr, msgCh) {
-						io.WriteString(os.Stdout, "\a")
+						io.WriteString(stdout, "\a")
 					}
 				case "help":
 					if !toggleHelpBarOnRenderLoop(cr, msgCh, kb) {
-						io.WriteString(os.Stdout, "\a")
+						io.WriteString(stdout, "\a")
 					}
 				case "choose-tree":
 					showChooser(chooserModeTree)
@@ -716,12 +718,12 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 					showChooser(chooserModeWindow)
 				case "rename-window":
 					if !showWindowRenamePromptOnRenderLoop(cr, msgCh) {
-						io.WriteString(os.Stdout, "\a")
+						io.WriteString(stdout, "\a")
 					}
 				case "split":
-					handleSplitBinding(cr, sender, binding, os.Stdout)
+					handleSplitBinding(cr, sender, binding, stdout)
 				case "compat-bell":
-					io.WriteString(os.Stdout, "\a")
+					io.WriteString(stdout, "\a")
 				default:
 					// Generic server command
 					sender.Command(binding.Action, binding.Args)
@@ -845,7 +847,6 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 		// Read stdin in a dedicated goroutine, sending chunks on stdinCh.
 		// This allows the main input loop to select between stdin and
 		// injected keystrokes from type-keys.
-		stdin := os.Stdin
 		stdinCh := make(chan []byte, 4)
 		go func() {
 			defer close(stdinCh)
@@ -1016,7 +1017,7 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 				if cr.WindowRenamePromptActive() {
 					action := handleWindowRenamePromptInputOnRenderLoop(cr, msgCh, normalized)
 					if action.bell {
-						io.WriteString(os.Stdout, "\a")
+						io.WriteString(stdout, "\a")
 					}
 					if action.command != "" {
 						sender.Command(action.command, action.args)
@@ -1079,7 +1080,7 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 					continue
 				}
 				if result.action.bell {
-					io.WriteString(os.Stdout, "\a")
+					io.WriteString(stdout, "\a")
 				}
 				if result.action.command != "" {
 					sender.Command(result.action.command, result.action.args)
