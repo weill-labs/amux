@@ -92,8 +92,16 @@ func (cc *clientConn) Send(msg *Message) error {
 }
 
 // SendAsync enqueues a message to the client without waiting for the write to complete.
-func (cc *clientConn) SendAsync(msg *Message) {
-	cc.ensureWriter().sendAsync(msg)
+func (cc *clientConn) SendAsync(msg *Message) error {
+	if cc.ensureWriter().sendAsync(msg) {
+		return nil
+	}
+	return net.ErrClosed
+}
+
+func (cc *clientConn) Flush() error {
+	cc.ensureWriter().flush()
+	return nil
 }
 
 // Close shuts down the connection.
@@ -125,7 +133,7 @@ func (cc *clientConn) initTypeKeyQueue() {
 		return
 	}
 	cc.typeKeyQueue = newPacedInputQueue("client "+cc.ID, cc.logger, func(paneID uint32, data []byte) error {
-		return cc.Send(&Message{Type: MsgTypeTypeKeys, PaneID: paneID, Input: data})
+		return cc.SendAsync(&Message{Type: MsgTypeTypeKeys, PaneID: paneID, Input: data})
 	})
 }
 
@@ -286,7 +294,7 @@ func (cc *clientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 		if r := recover(); r != nil {
 			ctx.auditErr = fmt.Sprintf("internal error: panic in command %q", msg.CmdName)
 			sess.logPanic("command_panic", r, debug.Stack())
-			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: ctx.auditErr})
+			cc.SendAsync(&Message{Type: MsgTypeCmdResult, CmdErr: ctx.auditErr})
 		}
 		sess.logCommandExecution(cc.ID, msg.CmdName, msg.CmdArgs, msg.ActorPaneID, time.Since(started), ctx.auditErr)
 	}()
@@ -294,7 +302,7 @@ func (cc *clientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 	handler, ok := srv.lookupCommand(msg.CmdName)
 	if !ok {
 		ctx.auditErr = fmt.Sprintf("unknown command: %s", msg.CmdName)
-		cc.Send(&Message{Type: MsgTypeCmdResult,
+		cc.SendAsync(&Message{Type: MsgTypeCmdResult,
 			CmdErr: ctx.auditErr})
 		return
 	}

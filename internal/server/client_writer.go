@@ -48,6 +48,15 @@ func (c clientWriterSendAsyncCommand) handle(state *clientWriterState, conn net.
 	return state.closed
 }
 
+type clientWriterFlushCommand struct {
+	reply chan struct{}
+}
+
+func (c clientWriterFlushCommand) handle(state *clientWriterState, _ net.Conn) bool {
+	c.reply <- struct{}{}
+	return state.closed
+}
+
 type clientWriterBroadcastCommand struct {
 	msg   *Message
 	reply chan struct{}
@@ -270,11 +279,22 @@ func (w *clientWriter) send(msg *Message) error {
 	return waitClientWriterError(w.done, reply, net.ErrClosed)
 }
 
-func (w *clientWriter) sendAsync(msg *Message) {
+func (w *clientWriter) sendAsync(msg *Message) bool {
+	if w == nil {
+		return true
+	}
+	return w.enqueueAsync(clientWriterSendAsyncCommand{msg: msg})
+}
+
+func (w *clientWriter) flush() {
 	if w == nil {
 		return
 	}
-	w.enqueueAsync(clientWriterSendAsyncCommand{msg: msg})
+	reply := make(chan struct{}, 1)
+	if !w.enqueue(clientWriterFlushCommand{reply: reply}) {
+		return
+	}
+	waitClientWriterAck(w.done, reply)
 }
 
 func (w *clientWriter) sendBroadcast(msg *Message) {
