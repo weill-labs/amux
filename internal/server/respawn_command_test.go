@@ -218,6 +218,39 @@ func TestRespawnCommandRejectsProxyPane(t *testing.T) {
 	}
 }
 
+func TestQueryRespawnTargetCapturesColorProfile(t *testing.T) {
+	t.Parallel()
+
+	sess := newSession("test-respawn-target-color-profile")
+	stopCrashCheckpointLoop(t, sess)
+	t.Cleanup(func() {
+		stopSessionBackgroundLoops(t, sess)
+	})
+
+	pane := newTestPane(sess, 1, "pane-1")
+	window := newTestWindowWithPanes(t, sess, 1, "main", pane)
+	client := &clientConn{ID: "client-1", colorProfile: "ANSI256"}
+
+	mustSessionMutation(t, sess, func(sess *Session) {
+		sess.launchColorProfile = "TrueColor"
+		sess.Windows = []*mux.Window{window}
+		sess.ActiveWindowID = window.ID
+		sess.Panes = []*mux.Pane{pane}
+		sess.ensureClientManager().setClientsForTest(client)
+	})
+
+	target, err := queryRespawnTarget(sess, 0, []string{"pane-1"})
+	if err != nil {
+		t.Fatalf("queryRespawnTarget: %v", err)
+	}
+	if target.pane != pane {
+		t.Fatal("respawn target pane = nil or wrong pane")
+	}
+	if target.colorProfile != "ANSI256" {
+		t.Fatalf("respawn target color profile = %q, want %q", target.colorProfile, "ANSI256")
+	}
+}
+
 func mustCreatePaneWithMeta(t *testing.T, sess *Session, srv *Server, meta mux.PaneMeta, cols, rows int) *mux.Pane {
 	t.Helper()
 
