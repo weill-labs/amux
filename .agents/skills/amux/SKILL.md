@@ -161,16 +161,15 @@ amux debug frames                # Client render frame stats
 # 1. Try pprof first (works if the debug socket is responsive)
 amux debug goroutines > /tmp/amux-goroutine-dump-$(date +%s).txt 2>&1
 
-# 2. If pprof is unresponsive, use strace to capture the SIGQUIT goroutine dump.
-#    Go's runtime writes all goroutines to stderr on unhandled SIGQUIT.
+# 2. If pprof is unresponsive, send SIGQUIT. Go prints all goroutines to
+#    stderr and exits. Find where stderr goes so you can retrieve the dump:
 SERVER_PID=$(pgrep -f "amux _server ${AMUX_SESSION:-main}$")
-DUMP=/tmp/amux-goroutine-dump-$(date +%s).txt
-strace -p "$SERVER_PID" -e trace=write -e write=2 -s 1000000 -o "$DUMP" &
-sleep 0.5
+readlink /proc/"$SERVER_PID"/fd/2   # shows stderr destination
+# If stderr is a log file, tail it before sending the signal:
+#   tail -f /path/to/logfile > /tmp/amux-goroutine-dump-$(date +%s).txt &
+# If stderr is a TTY, the dump prints to that terminal — copy from scrollback.
 kill -QUIT "$SERVER_PID"
-
-# 3. Only after saving the dump, kill if needed
-kill "$SERVER_PID"
+# SIGQUIT terminates the process after dumping — no separate kill needed.
 ```
 
 ### Pane Metadata
