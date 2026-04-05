@@ -218,9 +218,7 @@ func ensureTrailingNewline(s string) string {
 // to the waiting forwardCapture caller. Thread-safe.
 func (s *Session) routeCaptureResponse(msg *Message) {
 	_, _ = enqueueSessionQuery(s, func(s *Session) (struct{}, error) {
-		s.ensureCaptureForwarder().routeResponse(msg, func(req *captureRequest) {
-			req.client.Send(s.captureRequestMessage(req))
-		})
+		s.ensureCaptureForwarder().routeResponse(msg, s.sendCaptureRequestAsync)
 		return struct{}{}, nil
 	})
 }
@@ -233,17 +231,20 @@ func (s *Session) captureRequestMessage(req *captureRequest) *Message {
 	}
 }
 
+func (s *Session) sendCaptureRequestAsync(req *captureRequest) {
+	if req == nil {
+		return
+	}
+	req.client.SendAsync(s.captureRequestMessage(req))
+}
+
 func (s *Session) startNextCaptureRequest() {
-	s.ensureCaptureForwarder().startNext(func(req *captureRequest) {
-		req.client.Send(s.captureRequestMessage(req))
-	})
+	s.ensureCaptureForwarder().startNext(s.sendCaptureRequestAsync)
 }
 
 func (s *Session) enqueueCaptureRequest(req *captureRequest) error {
 	_, err := enqueueSessionQuery(s, func(s *Session) (struct{}, error) {
-		s.ensureCaptureForwarder().enqueue(req, func(req *captureRequest) {
-			req.client.Send(s.captureRequestMessage(req))
-		})
+		s.ensureCaptureForwarder().enqueue(req, s.sendCaptureRequestAsync)
 		return struct{}{}, nil
 	})
 	return err
@@ -251,9 +252,7 @@ func (s *Session) enqueueCaptureRequest(req *captureRequest) error {
 
 func (s *Session) cancelCaptureRequest(id uint64) {
 	_, _ = enqueueSessionQuery(s, func(s *Session) (struct{}, error) {
-		s.ensureCaptureForwarder().cancel(id, func(req *captureRequest) {
-			req.client.Send(s.captureRequestMessage(req))
-		})
+		s.ensureCaptureForwarder().cancel(id, s.sendCaptureRequestAsync)
 		return struct{}{}, nil
 	})
 }

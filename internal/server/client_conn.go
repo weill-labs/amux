@@ -91,6 +91,11 @@ func (cc *clientConn) Send(msg *Message) error {
 	return cc.ensureWriter().send(msg)
 }
 
+// SendAsync enqueues a message to the client without waiting for the write to complete.
+func (cc *clientConn) SendAsync(msg *Message) {
+	cc.ensureWriter().sendAsync(msg)
+}
+
 // Close shuts down the connection.
 func (cc *clientConn) Close() {
 	if cc.typeKeyQueue != nil {
