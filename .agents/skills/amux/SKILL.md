@@ -153,7 +153,7 @@ amux debug socket                # Print the pprof Unix socket path
 amux debug frames                # Client render frame stats
 ```
 
-`reload-server` re-execs the server from the current binary, preserving all panes and shells via checkpoint/restore. Use after `make install` or config changes. The `debug` subcommands require `[debug].pprof = true` in `~/.config/amux/config.toml`.
+`reload-server` re-execs the server from the current binary, preserving all panes and shells via checkpoint/restore. Use after `make install` or config changes. The `debug` subcommands (except `frames`) require `[debug].pprof = true` in `~/.config/amux/config.toml`.
 
 **If amux freezes**, capture a goroutine dump before killing the server -- the dump is the only evidence for deadlock diagnosis and is destroyed on kill:
 
@@ -161,13 +161,16 @@ amux debug frames                # Client render frame stats
 # 1. Try pprof first (works if the debug socket is responsive)
 amux debug goroutines > /tmp/amux-goroutine-dump-$(date +%s).txt 2>&1
 
-# 2. If pprof is unresponsive, send SIGQUIT -- Go prints all goroutines to stderr
-SERVER_PID=$(pgrep -f 'amux _server')
-cat /proc/$SERVER_PID/fd/2 > /tmp/amux-goroutine-dump-$(date +%s).txt &
-kill -QUIT $SERVER_PID
+# 2. If pprof is unresponsive, use strace to capture the SIGQUIT goroutine dump.
+#    Go's runtime writes all goroutines to stderr on unhandled SIGQUIT.
+SERVER_PID=$(pgrep -f "amux _server ${AMUX_SESSION:-main}$")
+DUMP=/tmp/amux-goroutine-dump-$(date +%s).txt
+strace -p "$SERVER_PID" -e trace=write -e write=2 -s 1000000 -o "$DUMP" &
+sleep 0.5
+kill -QUIT "$SERVER_PID"
 
 # 3. Only after saving the dump, kill if needed
-kill $SERVER_PID
+kill "$SERVER_PID"
 ```
 
 ### Pane Metadata
