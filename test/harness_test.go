@@ -83,6 +83,9 @@ func privateAmuxBin(tb testing.TB) string {
 }
 
 func TestMain(m *testing.M) {
+	_ = os.Unsetenv("AMUX_SESSION")
+	_ = os.Unsetenv("TMUX")
+
 	socketDir := fmt.Sprintf("/tmp/amux-%d", os.Getuid())
 	lockPath, err := writeTestRunLock(socketDir, os.Getpid())
 	if err != nil {
