@@ -196,7 +196,7 @@ func waitForPaneReady(sess *Session, paneRef string, paneRefData resolvedPaneRef
 			return false, nil
 		}
 
-		remaining := state.vtIdle.remaining(sess.vtIdleSettle(), clk.Now())
+		remaining := state.vtIdle.remaining(sess.ensureIdleTracker().Settle(), clk.Now())
 		if remaining > 0 {
 			if settleActive {
 				resetTimer(settleTimer, remaining)
@@ -257,16 +257,9 @@ func queryPaneReadyState(sess *Session, paneID uint32) (paneReadyState, error) {
 			return paneReadyState{}, nil
 		}
 
-		lastOutput, hasLastOutput := sess.ensureIdleTracker().LastOutput(paneID)
-
 		return paneReadyState{
-			pane: pane,
-			vtIdle: idleWaitState{
-				createdAt:     pane.CreatedAt(),
-				lastOutput:    lastOutput,
-				hasLastOutput: hasLastOutput,
-				exists:        true,
-			},
+			pane:   pane,
+			vtIdle: sess.ensureIdleTracker().WaitState(paneID, pane.CreatedAt()),
 		}, nil
 	})
 	if err != nil {

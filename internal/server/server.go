@@ -205,10 +205,6 @@ func (s *Session) ensureIdleTracker() *IdleTracker {
 	return s.idle
 }
 
-func (s *Session) vtIdleSettle() time.Duration {
-	return s.ensureIdleTracker().Settle()
-}
-
 func (s *Session) detectPaneCwdBranch(pane *mux.Pane) (cwd, branch string) {
 	if pane == nil {
 		return "", ""

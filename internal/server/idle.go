@@ -47,13 +47,7 @@ func (s *Session) queryIdleWaitState(paneID uint32) (idleWaitState, error) {
 		if pane == nil {
 			return idleWaitState{}, nil
 		}
-		lastOutput, hasLastOutput := sess.ensureIdleTracker().LastOutput(paneID)
-		return idleWaitState{
-			createdAt:     pane.CreatedAt(),
-			lastOutput:    lastOutput,
-			hasLastOutput: hasLastOutput,
-			exists:        true,
-		}, nil
+		return sess.ensureIdleTracker().WaitState(paneID, pane.CreatedAt()), nil
 	})
 }
 

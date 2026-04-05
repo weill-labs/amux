@@ -142,6 +142,16 @@ func (t *IdleTracker) PaneStatus(paneID uint32, createdAt, now time.Time) paneId
 	return status
 }
 
+func (t *IdleTracker) WaitState(paneID uint32, createdAt time.Time) idleWaitState {
+	lastOutput, hasLastOutput := t.LastOutput(paneID)
+	return idleWaitState{
+		createdAt:     createdAt,
+		lastOutput:    lastOutput,
+		hasLastOutput: hasLastOutput,
+		exists:        true,
+	}
+}
+
 type inputIdleTracker struct {
 	clock  func() Clock
 	timers map[uint32]Timer
