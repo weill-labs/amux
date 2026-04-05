@@ -351,98 +351,6 @@ func (cm *CopyMode) handleNormalKey(key int) Action {
 		cm.pendingCount = 0
 		return cm.ClearSelection()
 
-	case 'j', keyDown:
-		return cm.repeatMotion(count, cm.moveDown)
-
-	case 'k', keyUp:
-		return cm.repeatMotion(count, cm.moveUp)
-
-	case 'h', keyLeft, 0x08, 0x7f:
-		return cm.repeatAction(count, func() Action {
-			if cm.cx == 0 {
-				return ActionNone
-			}
-			cm.cx--
-			cm.updateSelection()
-			return ActionRedraw
-		})
-
-	case 'l', keyRight:
-		return cm.repeatAction(count, func() Action {
-			if cm.cx >= cm.width-1 {
-				return ActionNone
-			}
-			cm.cx++
-			cm.updateSelection()
-			return ActionRedraw
-		})
-
-	case 0x04: // Ctrl-d — half page down
-		return cm.scrollBy(-(cm.height/2)*count, false)
-
-	case 0x15: // Ctrl-u — half page up
-		return cm.scrollBy((cm.height/2)*count, false)
-
-	case 'g': // scroll to top
-		cm.oy = cm.maxOY()
-		cm.cy = 0
-		cm.cx = 0
-		cm.updateSelection()
-		return ActionRedraw
-
-	case 'G': // scroll to bottom
-		cm.oy = 0
-		cm.cy = cm.height - 1
-		cm.cx = 0
-		cm.updateSelection()
-		return ActionRedraw
-
-	case '/':
-		cm.prompt = promptSearchForward
-		cm.promptBuf = ""
-		cm.promptCursor = 0
-		return ActionRedraw
-
-	case '?':
-		cm.prompt = promptSearchBackward
-		cm.promptBuf = ""
-		cm.promptCursor = 0
-		return ActionRedraw
-
-	case ':':
-		cm.prompt = promptGotoLine
-		cm.promptBuf = ""
-		cm.promptCursor = 0
-		return ActionRedraw
-
-	case 'n':
-		cm.searchAgain(false)
-		return ActionRedraw
-
-	case 'N':
-		cm.searchAgain(true)
-		return ActionRedraw
-
-	case '*':
-		query := cm.wordUnderCursor()
-		if query == "" {
-			return ActionNone
-		}
-		cm.searchQuery = query
-		cm.lastSearchForward = true
-		cm.runSearch(true)
-		return ActionRedraw
-
-	case '#':
-		query := cm.wordUnderCursor()
-		if query == "" {
-			return ActionNone
-		}
-		cm.searchQuery = query
-		cm.lastSearchForward = false
-		cm.runSearch(false)
-		return ActionRedraw
-
 	case ' ':
 		return cm.StartSelection()
 
@@ -480,102 +388,16 @@ func (cm *CopyMode) handleNormalKey(key int) Action {
 		}
 		return cm.OtherEnd()
 
-	case '0', keyHome:
-		cm.cx = 0
-		cm.updateSelection()
-		return ActionRedraw
-
-	case '$', keyEnd:
-		cm.cx = cm.lineEndCol()
-		cm.updateSelection()
-		return ActionRedraw
-
-	case '^': // first non-blank character
-		cm.cx = cm.firstNonBlankCol()
-		cm.updateSelection()
-		return ActionRedraw
-
-	case 'H':
-		cm.cx = 0
-		cm.cy = 0
-		cm.updateSelection()
-		return ActionRedraw
-
-	case 'L':
-		cm.cx = 0
-		cm.cy = cm.height - 1
-		cm.updateSelection()
-		return ActionRedraw
-
-	case 'M':
-		cm.cx = 0
-		cm.cy = (cm.height - 1) / 2
-		cm.updateSelection()
-		return ActionRedraw
-
-	case 'z':
-		return cm.scrollCursorToRow((cm.height - 1) / 2)
-
-	case 'J', 0x05, keyCtrlDown:
-		return cm.WheelScrollDown(count)
-
-	case 'K', 0x19, keyCtrlUp:
-		return cm.WheelScrollUp(count)
-
 	case 'P':
 		cm.showPosition = !cm.showPosition
 		return ActionRedraw
 
-	case 'r':
-		if cm.searchQuery != "" {
-			cm.runSearch(cm.lastSearchForward)
-		}
-		return ActionRedraw
-
-	case 'X':
-		cm.markSet = true
-		cm.markX = cm.cx
-		cm.markY = cm.cursorAbsLine()
-		return ActionRedraw
-
-	case 'W', 'B', 'E', 'w', 'b', 'e':
-		return cm.repeatAction(count, func() Action { return cm.runWordMotion(byte(key)) })
-
-	case 0x06, keyPageDown:
-		return cm.scrollBy(-cm.height*count, false)
-
-	case 0x02, keyPageUp:
-		return cm.scrollBy(cm.height*count, false)
-
-	case 'f', 'F', 't', 'T':
-		cm.pendingCharSearch = byte(key)
-		cm.pendingCharSearchCount = count
-		return ActionNone
-
-	case ';':
-		return cm.repeatAction(count, func() Action { return cm.repeatCharSearch(false) })
-
-	case ',':
-		return cm.repeatAction(count, func() Action { return cm.repeatCharSearch(true) })
-
-	case '{':
-		return cm.repeatAction(count, cm.previousParagraph)
-
-	case '}':
-		return cm.repeatAction(count, cm.nextParagraph)
-
-	case '%':
-		return cm.repeatAction(count, cm.matchingBracket)
-
-	case keyAltX:
-		if !cm.markSet {
-			return ActionNone
-		}
-		return cm.jumpToMark()
-
 	case 'y': // amux keeps y as an extra copy shortcut
 		cm.queueCopyText(cm.SelectedText(), false)
 		return ActionYank
+	}
+	if action, handled := cm.handleMotionKey(key, count); handled {
+		return action
 	}
 	return ActionNone
 }
@@ -796,110 +618,6 @@ func (cm *CopyMode) baseCellAt(col, absIdx int) proto.Cell {
 	return cm.emu.ScreenCellAt(col, absIdx-sbLen)
 }
 
-// runSearch finds all case-insensitive occurrences of searchQuery across
-// all lines and jumps to the nearest match at or below the current cursor.
-func (cm *CopyMode) runSearch(directions ...bool) {
-	cm.matches = nil
-	cm.matchIdx = -1
-
-	if cm.searchQuery == "" {
-		return
-	}
-	forward := cm.lastSearchForward
-	if len(directions) > 0 {
-		forward = directions[0]
-	}
-
-	queryRunes := []rune(strings.ToLower(cm.searchQuery))
-	queryLen := len(queryRunes)
-	total := cm.TotalLines()
-
-	for i := 0; i < total; i++ {
-		lineRunes := []rune(strings.ToLower(cm.lineText(i)))
-		for idx := 0; idx+queryLen <= len(lineRunes); idx++ {
-			if !runeSliceHasPrefix(lineRunes[idx:], queryRunes) {
-				continue
-			}
-			cm.matches = append(cm.matches, Match{
-				LineIdx: i,
-				Col:     idx,
-				Len:     queryLen,
-			})
-			idx += queryLen - 1
-		}
-	}
-
-	if len(cm.matches) == 0 {
-		return
-	}
-
-	cursorAbs := cm.cursorAbsLine()
-	cursorCol := cm.cx
-	cm.lastSearchForward = forward
-	if forward {
-		cm.matchIdx = 0
-		for i, m := range cm.matches {
-			if m.LineIdx > cursorAbs || (m.LineIdx == cursorAbs && m.Col >= cursorCol) {
-				cm.matchIdx = i
-				break
-			}
-		}
-	} else {
-		cm.matchIdx = len(cm.matches) - 1
-		for i := len(cm.matches) - 1; i >= 0; i-- {
-			m := cm.matches[i]
-			if m.LineIdx < cursorAbs || (m.LineIdx == cursorAbs && m.Col <= cursorCol) {
-				cm.matchIdx = i
-				break
-			}
-		}
-	}
-	cm.scrollToMatch()
-}
-
-func runeSliceHasPrefix(line, query []rune) bool {
-	for i := range query {
-		if line[i] != query[i] {
-			return false
-		}
-	}
-	return true
-}
-
-// nextMatch advances to the next search match (wrapping around).
-func (cm *CopyMode) nextMatch() {
-	if len(cm.matches) == 0 {
-		return
-	}
-	cm.matchIdx = (cm.matchIdx + 1) % len(cm.matches)
-	cm.scrollToMatch()
-}
-
-// prevMatch moves to the previous search match (wrapping around).
-func (cm *CopyMode) prevMatch() {
-	if len(cm.matches) == 0 {
-		return
-	}
-	cm.matchIdx = (cm.matchIdx - 1 + len(cm.matches)) % len(cm.matches)
-	cm.scrollToMatch()
-}
-
-// scrollToMatch adjusts oy and cy so the current match is visible in the viewport
-// and the cursor is positioned on the match line.
-func (cm *CopyMode) scrollToMatch() {
-	if cm.matchIdx < 0 || cm.matchIdx >= len(cm.matches) {
-		return
-	}
-	m := cm.matches[cm.matchIdx]
-	// Place the match line in the center of the viewport.
-	center := cm.height / 2
-	cm.oy = clamp(cm.TotalLines()-cm.height-m.LineIdx+center, 0, cm.maxOY())
-	// Position cursor on the match line within the viewport.
-	firstVisible := cm.TotalLines() - cm.height - cm.oy
-	cm.cy = clamp(m.LineIdx-firstVisible, 0, cm.height-1)
-	cm.cx = m.Col
-}
-
 // ViewportHeight returns the viewport height in rows.
 func (cm *CopyMode) ViewportHeight() int {
 	return cm.height
@@ -1093,100 +811,6 @@ func (cm *CopyMode) consumePendingCharCount() int {
 	return count
 }
 
-func (cm *CopyMode) repeatMotion(count int, move func() bool) Action {
-	moved := false
-	for i := 0; i < count; i++ {
-		if !move() {
-			break
-		}
-		moved = true
-	}
-	if !moved {
-		return ActionNone
-	}
-	cm.updateSelection()
-	return ActionRedraw
-}
-
-func (cm *CopyMode) repeatAction(count int, fn func() Action) Action {
-	result := ActionNone
-	for i := 0; i < count; i++ {
-		action := fn()
-		if action == ActionExit || action == ActionYank {
-			return action
-		}
-		if action == ActionRedraw {
-			result = ActionRedraw
-		}
-	}
-	return result
-}
-
-func (cm *CopyMode) scrollBy(delta int, scrollExit bool) Action {
-	next := clamp(cm.oy+delta, 0, cm.maxOY())
-	if next == cm.oy {
-		if scrollExit && cm.scrollExit && cm.oy == 0 {
-			return ActionExit
-		}
-		return ActionNone
-	}
-	cm.oy = next
-	cm.updateSelection()
-	if scrollExit && cm.scrollExit && cm.oy == 0 {
-		return ActionExit
-	}
-	return ActionRedraw
-}
-
-func (cm *CopyMode) scrollCursorToRow(row int) Action {
-	absY := cm.cursorAbsLine()
-	cm.oy = clamp(cm.TotalLines()-cm.height-absY+row, 0, cm.maxOY())
-	cm.cy = clamp(row, 0, cm.height-1)
-	cm.updateSelection()
-	return ActionRedraw
-}
-
-func (cm *CopyMode) searchAgain(reverse bool) {
-	if len(cm.matches) == 0 {
-		return
-	}
-	forward := cm.lastSearchForward
-	if reverse {
-		forward = !forward
-	}
-	if forward {
-		cm.nextMatch()
-	} else {
-		cm.prevMatch()
-	}
-}
-
-func (cm *CopyMode) wordUnderCursor() string {
-	line := cm.cursorLineRunes()
-	if len(line) == 0 {
-		return ""
-	}
-	pos := clamp(cm.cx, 0, len(line)-1)
-	class := classifyViWordRune(line[pos])
-	if class == wordClassWhitespace {
-		for pos < len(line) && classifyViWordRune(line[pos]) == wordClassWhitespace {
-			pos++
-		}
-		if pos >= len(line) {
-			return ""
-		}
-		class = classifyViWordRune(line[pos])
-	}
-	start, end := pos, pos
-	for start > 0 && classifyViWordRune(line[start-1]) == class {
-		start--
-	}
-	for end < len(line)-1 && classifyViWordRune(line[end+1]) == class {
-		end++
-	}
-	return string(line[start : end+1])
-}
-
 func (cm *CopyMode) currentMatchText() string {
 	if cm.matchIdx < 0 || cm.matchIdx >= len(cm.matches) {
 		return ""
@@ -1215,18 +839,6 @@ func (cm *CopyMode) scrollToAbsolute(absY, col int) {
 	firstVisible := cm.FirstVisibleLine()
 	cm.cy = clamp(absY-firstVisible, 0, cm.height-1)
 	cm.cx = clamp(col, 0, cm.width-1)
-}
-
-func (cm *CopyMode) jumpToMark() Action {
-	if !cm.markSet {
-		return ActionNone
-	}
-	oldX, oldY := cm.cx, cm.cursorAbsLine()
-	targetX, targetY := cm.markX, cm.markY
-	cm.scrollToAbsolute(targetY, targetX)
-	cm.markX, cm.markY = oldX, oldY
-	cm.updateSelection()
-	return ActionRedraw
 }
 
 // clamp returns v clamped to the range [lo, hi].
