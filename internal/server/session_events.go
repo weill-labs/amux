@@ -274,12 +274,6 @@ func (ctx *MutationContext) undoClosePane() (*mux.Pane, error) {
 	})
 }
 
-func (ctx *MutationContext) respawnPane(srv *Server, pane *mux.Pane, w *mux.Window) (*mux.Pane, error) {
-	return mutationContextCall(ctx, func(sess *Session) (*mux.Pane, error) {
-		return sess.respawnPane(srv, pane, w)
-	})
-}
-
 func (ctx *MutationContext) replacePaneInstance(oldPane, newPane *mux.Pane, w *mux.Window) error {
 	return mutationContextDo(ctx, func(sess *Session) error {
 		return sess.replacePaneInstance(oldPane, newPane, w)

@@ -1075,11 +1075,7 @@ func (p *Pane) waitForProcessExit(proc *os.Process, timeout time.Duration) {
 	cmd := p.cmd
 	exitDone := p.exitDone
 	go func() {
-		if cmd != nil {
-			_ = cmd.Wait()
-		} else {
-			_, _ = proc.Wait()
-		}
+		_ = cmd.Wait()
 		close(exitDone)
 		close(waitDone)
 	}()

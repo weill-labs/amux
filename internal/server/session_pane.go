@@ -453,36 +453,6 @@ func (s *Session) replacePaneInstance(oldPane, newPane *mux.Pane, w *mux.Window)
 	return nil
 }
 
-func (s *Session) respawnPane(srv *Server, pane *mux.Pane, w *mux.Window) (*mux.Pane, error) {
-	if pane == nil {
-		return nil, fmt.Errorf("missing pane")
-	}
-	if pane.IsProxy() {
-		return nil, fmt.Errorf("cannot respawn proxy pane")
-	}
-
-	newPane, err := s.buildLocalPane(localPaneBuildRequest{
-		sourcePane:   pane,
-		sessionName:  s.Name,
-		colorProfile: s.paneLaunchColorProfile(nil),
-		startDir:     effectiveRespawnDir(pane),
-		onOutput:     s.paneOutputCallback(),
-		onExit:       s.paneExitCallback(),
-	})
-	if err != nil {
-		return nil, err
-	}
-	newPane = s.configureLocalPane(newPane, srv)
-
-	if err := s.replacePaneInstance(pane, newPane, w); err != nil {
-		newPane.SuppressCallbacks()
-		s.closePaneAsync(newPane)
-		return nil, err
-	}
-	pane.SuppressCallbacks()
-	return newPane, nil
-}
-
 // finalizeClosedPane removes a soft-closed pane from the undo stack and
 // returns it for final cleanup (PTY close). The pane was already removed
 // from Session.Panes during soft close.

@@ -560,19 +560,23 @@ func cmdRespawn(ctx *CommandContext) {
 	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(mctx *MutationContext) commandMutationResult {
 		pane := mctx.findPaneByID(target.pane.ID)
 		if pane == nil {
+			newPane.SuppressCallbacks()
 			mctx.ScheduleClose(newPane)
 			return commandMutationResult{err: fmt.Errorf("pane %q not found", target.pane.Meta.Name)}
 		}
 		if pane != target.pane {
+			newPane.SuppressCallbacks()
 			mctx.ScheduleClose(newPane)
 			return commandMutationResult{err: fmt.Errorf("pane %q changed during respawn", target.pane.Meta.Name)}
 		}
 		w := mctx.findWindowByPaneID(pane.ID)
 		if w == nil {
+			newPane.SuppressCallbacks()
 			mctx.ScheduleClose(newPane)
 			return commandMutationResult{err: fmt.Errorf("pane not in any window")}
 		}
 		if err := mctx.replacePaneInstance(pane, newPane, w); err != nil {
+			newPane.SuppressCallbacks()
 			mctx.ScheduleClose(newPane)
 			return commandMutationResult{err: err}
 		}
