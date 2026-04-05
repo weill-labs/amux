@@ -86,14 +86,14 @@ func (cc *clientConn) participatesInSizeNegotiation() bool {
 	return cc != nil && !cc.nonInteractive
 }
 
-// Send writes a message to the client. Thread-safe.
+// Send enqueues a message to the client. Thread-safe.
 func (cc *clientConn) Send(msg *Message) error {
 	return cc.ensureWriter().send(msg)
 }
 
-// SendAsync enqueues a message to the client without waiting for the write to complete.
-func (cc *clientConn) SendAsync(msg *Message) {
-	cc.ensureWriter().sendAsync(msg)
+func (cc *clientConn) Flush() error {
+	cc.ensureWriter().flush()
+	return nil
 }
 
 // Close shuts down the connection.

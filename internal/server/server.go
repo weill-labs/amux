@@ -903,7 +903,10 @@ func (s *Server) handleAttach(conn net.Conn, msg *Message) {
 
 func (s *Server) handleOneShot(conn net.Conn, msg *Message) {
 	cc := newClientConn(conn)
-	defer cc.Close()
+	defer func() {
+		_ = cc.Flush()
+		cc.Close()
+	}()
 
 	sess := s.firstSession()
 

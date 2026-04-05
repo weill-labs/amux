@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"sync"
 	"time"
 
 	eventscmd "github.com/weill-labs/amux/internal/server/commands/events"
@@ -47,12 +48,41 @@ func (ctx eventsCommandContext) Subscribe(filter eventscmd.Filter) (eventscmd.Su
 	if res.sub == nil {
 		return eventscmd.Subscription{}, fmt.Errorf("session shutting down")
 	}
+	events := make(chan []byte, 64)
+	stop := make(chan struct{})
+	writerDone := ctx.CC.ensureWriter().done
+	var closeOnce sync.Once
+	closeSub := func() {
+		closeOnce.Do(func() {
+			close(stop)
+			ctx.Sess.enqueueEventUnsubscribe(res.sub)
+		})
+	}
+	go func() {
+		defer close(events)
+		for {
+			select {
+			case <-stop:
+				return
+			case <-writerDone:
+				closeSub()
+				return
+			case data := <-res.sub.Ch:
+				select {
+				case events <- data:
+				case <-stop:
+					return
+				case <-writerDone:
+					closeSub()
+					return
+				}
+			}
+		}
+	}()
 	return eventscmd.Subscription{
 		InitialState: res.initialState,
-		Events:       res.sub.Ch,
-		Close: func() {
-			ctx.Sess.enqueueEventUnsubscribe(res.sub)
-		},
+		Events:       events,
+		Close:        closeSub,
 	}, nil
 }
 

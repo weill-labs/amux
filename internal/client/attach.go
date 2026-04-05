@@ -635,6 +635,7 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 		}
 		var repeatKey byte
 		var repeatDeadline time.Time
+		disconnectRequested := false
 
 		// isRepeatableKey returns true for keys that can repeat without prefix.
 		isRepeatableKey := func(b byte) bool {
@@ -681,16 +682,17 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 				switch binding.Action {
 				case "detach":
 					if len(*forward) > 0 {
-						_ = sender.SendAsync(&proto.Message{
+						_ = sender.Send(&proto.Message{
 							Type: proto.MsgTypeInput, Input: *forward,
 						})
 					}
-					sender.Send(&proto.Message{Type: proto.MsgTypeDetach})
-					conn.Close()
+					_ = sender.Send(&proto.Message{Type: proto.MsgTypeDetach})
+					_ = sender.Flush()
+					disconnectRequested = true
 					return true
 				case "reload":
 					if len(*forward) > 0 {
-						_ = sender.SendAsync(&proto.Message{
+						_ = sender.Send(&proto.Message{
 							Type: proto.MsgTypeInput, Input: *forward,
 						})
 						*forward = nil
@@ -796,7 +798,7 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 
 			if b == kb.Prefix {
 				if len(*forward) > 0 {
-					_ = sender.SendAsync(&proto.Message{
+					_ = sender.Send(&proto.Message{
 						Type: proto.MsgTypeInput, Input: *forward,
 					})
 					*forward = nil
@@ -935,14 +937,14 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 					return
 				}
 				if injectedPaneID != 0 {
-					_ = sender.SendAsync(&proto.Message{
+					_ = sender.Send(&proto.Message{
 						Type:     proto.MsgTypeInputPane,
 						PaneID:   injectedPaneID,
 						PaneData: data,
 					})
 					return
 				}
-				_ = sender.SendAsync(&proto.Message{
+				_ = sender.Send(&proto.Message{
 					Type:  proto.MsgTypeInput,
 					Input: data,
 				})
@@ -1137,8 +1139,11 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 			}
 
 			if shouldExit {
-				if inputActivity {
+				if inputActivity && !disconnectRequested {
 					cr.SetInputIdle(true)
+				}
+				if disconnectRequested {
+					_ = conn.Close()
 				}
 				return
 			}
@@ -1215,7 +1220,8 @@ func ExecSelf(execPath string, sender *messageSender, fd int, oldState *term.Sta
 	}
 
 	// Clean disconnect from server
-	sender.Send(&proto.Message{Type: proto.MsgTypeDetach})
+	_ = sender.Send(&proto.Message{Type: proto.MsgTypeDetach})
+	_ = sender.Flush()
 	sender.conn.Close()
 
 	// Restore terminal state

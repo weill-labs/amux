@@ -76,9 +76,7 @@ func (ctx *CommandContext) applyCommandResult(res commandpkg.Result) {
 			ctx.replyErr(err.Error())
 		}
 	case res.Message != nil:
-		if err := ctx.CC.Send(res.Message); err != nil {
-			return
-		}
+		ctx.CC.Send(res.Message)
 	default:
 		ctx.replyCommandMutation(toCommandMutationResult(res))
 	}

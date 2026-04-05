@@ -24,16 +24,20 @@ type senderCommand interface {
 }
 
 type sendRequest struct {
-	msg   *proto.Message
-	reply chan error
+	msg *proto.Message
 }
 
 func (r sendRequest) handle(conn net.Conn) (bool, error) {
-	err := proto.WriteMsg(conn, r.msg)
-	if r.reply != nil {
-		r.reply <- err
-	}
-	return false, err
+	return false, proto.WriteMsg(conn, r.msg)
+}
+
+type senderFlushRequest struct {
+	reply chan error
+}
+
+func (r senderFlushRequest) handle(net.Conn) (bool, error) {
+	r.reply <- nil
+	return false, nil
 }
 
 func newMessageSender(conn net.Conn) *messageSender {
@@ -48,28 +52,23 @@ func newMessageSender(conn net.Conn) *messageSender {
 }
 
 func (s *messageSender) Send(msg *proto.Message) error {
+	if !s.enqueue(sendRequest{msg: cloneProtoMessage(msg)}) {
+		return s.loadError()
+	}
+	return nil
+}
+
+func (s *messageSender) Flush() error {
 	reply := make(chan error, 1)
-	if !s.enqueue(sendRequest{msg: cloneProtoMessage(msg), reply: reply}) {
+	if !s.enqueue(senderFlushRequest{reply: reply}) {
 		return s.loadError()
 	}
 	select {
 	case err := <-reply:
 		return err
 	case <-s.done:
-		select {
-		case err := <-reply:
-			return err
-		default:
-			return s.loadError()
-		}
-	}
-}
-
-func (s *messageSender) SendAsync(msg *proto.Message) error {
-	if !s.enqueue(sendRequest{msg: cloneProtoMessage(msg)}) {
 		return s.loadError()
 	}
-	return nil
 }
 
 func (s *messageSender) Command(name string, args []string) {
