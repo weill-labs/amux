@@ -201,6 +201,9 @@ func TestWatchEventMatchesTarget(t *testing.T) {
 	if !watchEventMatchesTarget(fsnotify.Event{Name: "/tmp/amux", Op: fsnotify.Create}, "amux", false) {
 		t.Fatal("create event for target binary should match")
 	}
+	if !watchEventMatchesTarget(fsnotify.Event{Name: "/tmp/amux", Op: fsnotify.Rename}, "amux", false) {
+		t.Fatal("rename event for target binary should match")
+	}
 	if watchEventMatchesTarget(fsnotify.Event{Name: "/tmp/amux", Op: fsnotify.Chmod}, "amux", false) {
 		t.Fatal("chmod event for a regular target binary should not match")
 	}
@@ -229,6 +232,23 @@ func TestNormalizeExecutablePathPreservesSymlinkPath(t *testing.T) {
 	}
 	if got != linkPath {
 		t.Fatalf("NormalizeExecutablePath(%q) = %q, want %q", linkPath, got, linkPath)
+	}
+}
+
+func TestNormalizeExecutablePathRejectsEmptyPath(t *testing.T) {
+	t.Parallel()
+
+	if _, err := NormalizeExecutablePath(""); err == nil {
+		t.Fatal("NormalizeExecutablePath(\"\") should fail")
+	}
+}
+
+func TestNormalizeExecutablePathRejectsMissingPath(t *testing.T) {
+	t.Parallel()
+
+	missingPath := filepath.Join(t.TempDir(), "missing-amux")
+	if _, err := NormalizeExecutablePath(missingPath); err == nil {
+		t.Fatalf("NormalizeExecutablePath(%q) should fail", missingPath)
 	}
 }
 
