@@ -709,6 +709,62 @@ func TestWaitClosedReturnsNilBeforeClose(t *testing.T) {
 	}
 }
 
+func TestCloseHandlesUnstartedProcessPane(t *testing.T) {
+	t.Parallel()
+
+	cmd := exec.Command("sleep", "30")
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start child: %v", err)
+	}
+
+	ptmxRead, ptmxWrite, err := os.Pipe()
+	if err != nil {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	_ = ptmxWrite.Close()
+
+	p := &Pane{
+		ID:       9,
+		ptmx:     ptmxRead,
+		cmd:      cmd,
+		emulator: NewVTEmulatorWithScrollback(20, 4, DefaultScrollbackLines),
+		exitDone: make(chan struct{}),
+	}
+	p.startActor()
+
+	waitDone := make(chan error, 1)
+	if err := p.Close(); err != nil {
+		t.Fatalf("Close() = %v, want nil", err)
+	}
+	go func() {
+		waitDone <- p.WaitClosed()
+	}()
+
+	select {
+	case err := <-waitDone:
+		if err != nil {
+			t.Fatalf("WaitClosed() = %v, want nil", err)
+		}
+	case <-time.After(3 * time.Second):
+		_ = cmd.Process.Kill()
+		close(p.exitDone)
+		select {
+		case <-waitDone:
+		case <-time.After(5 * time.Second):
+			t.Fatal("timed out releasing stuck WaitClosed")
+		}
+		t.Fatal("WaitClosed() blocked for unstarted process pane")
+	}
+
+	if cmd.ProcessState == nil {
+		if err := cmd.Wait(); err != nil {
+			t.Fatalf("Wait() = %v, want nil", err)
+		}
+	}
+}
+
 func TestCloseAcceptsForbiddenOwnerInNonDebugBuilds(t *testing.T) {
 	t.Parallel()
 
