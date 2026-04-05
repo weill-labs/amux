@@ -359,7 +359,10 @@ func TestWaitReadyRestartsSettleTimerAfterExpiredWindowSeesNewOutput(t *testing.
 		t.Fatal("blocking mutation did not release")
 	}
 
-	clk.AwaitTimers(5)
+	// Initial wait-start work creates 3 timer ops. The replacement output adds
+	// vt-idle and input-idle tracker timers (+2), and syncReady re-arms the
+	// command settle timer (+1).
+	clk.AwaitTimers(6)
 
 	select {
 	case <-done:

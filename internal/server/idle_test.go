@@ -202,15 +202,17 @@ func TestCmdWaitIdleResetsSettleTimerOnOutput(t *testing.T) {
 	// Wait for the two initial timers (settle + timeout).
 	clk.AwaitTimers(2)
 
-	// Send output — the event loop calls TrackOutput (AfterFunc, +1) and
-	// notifies the command handler which calls resetTimer (Reset, +1).
+	// Send output — the event loop calls TrackOutput, which now schedules both
+	// vt-idle and input-idle timers (+2), and the command handler resets its
+	// settle timer (+1).
 	pane.FeedOutput([]byte("first"))
-	clk.AwaitTimers(4) // 2 initial + 1 AfterFunc + 1 Reset
+	clk.AwaitTimers(5) // 2 initial + 2 tracker timers + 1 Reset
 	clk.Advance(50 * time.Millisecond)
 
-	// More output — same pattern: AfterFunc (+1) + Reset (+1).
+	// More output — the vt-idle timer is recreated (+1), the input-idle timer
+	// is reset (+1), and the command settle timer is reset (+1).
 	pane.FeedOutput([]byte("second"))
-	clk.AwaitTimers(6) // 4 prev + 1 AfterFunc + 1 Reset
+	clk.AwaitTimers(8) // 5 prev + 3 timer ops
 	clk.Advance(50 * time.Millisecond)
 
 	// Advance past the settle window from the last output.
