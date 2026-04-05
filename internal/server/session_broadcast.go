@@ -96,11 +96,7 @@ func (s *Session) broadcastPaneOutputNow(paneID uint32, data []byte, seq uint64)
 		s.emitPaneTerminalEventIfChanged(p)
 	}
 	s.emitEvent(Event{Type: EventOutput, PaneID: paneID, PaneName: paneName, Host: host})
-
-	select {
-	case s.crashCheckpointTrigger <- struct{}{}:
-	default:
-	}
+	s.triggerCrashCheckpoint()
 }
 
 func (s *Session) broadcastPaneHistoryNow(paneID uint32, history []string) {
@@ -110,10 +106,7 @@ func (s *Session) broadcastPaneHistoryNow(paneID uint32, history []string) {
 		c.sendPaneMessage(msg)
 	}
 
-	select {
-	case s.crashCheckpointTrigger <- struct{}{}:
-	default:
-	}
+	s.triggerCrashCheckpoint()
 }
 
 func (s *Session) notifyLayoutWaiters(gen uint64) {
@@ -148,10 +141,7 @@ func (s *Session) broadcastLayoutNow() {
 	}
 	s.emitEvent(Event{Type: EventLayout, Generation: gen, ActivePane: activePaneName})
 
-	select {
-	case s.crashCheckpointTrigger <- struct{}{}:
-	default:
-	}
+	s.triggerCrashCheckpoint()
 }
 
 // broadcastLayout sends the current layout snapshot to all clients

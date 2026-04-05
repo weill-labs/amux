@@ -104,11 +104,8 @@ type Session struct {
 	// The event loop owns the single in-flight request and queued requests.
 	capture *captureForwarder
 
-	// Crash checkpoint — non-blocking trigger from broadcastLayout().
-	// The crashCheckpointLoop goroutine debounces and writes periodically.
-	crashCheckpointTrigger chan struct{}
-	crashCheckpointStop    chan struct{}
-	crashCheckpointDone    chan struct{} // closed when loop exits
+	// Crash checkpoint coordination owns debounce/periodic scheduling and disk writes.
+	checkpointCoordinator crashCheckpointCoordinator
 
 	// Async session event loop — phase 1 serializes callback-driven writes.
 	sessionEvents    chan sessionEvent
@@ -325,95 +322,6 @@ func (s *Session) buildCrashCheckpoint() *checkpoint.CrashCheckpoint {
 	return snap.cp
 }
 
-// startCrashCheckpointLoop starts the background goroutine that writes crash
-// checkpoints on layout and pane-output changes (debounced 500ms) and periodic
-// full snapshots (every 30s).
-func (s *Session) startCrashCheckpointLoop() {
-	// Ensure the checkpoint directory exists before tests or tooling watch it.
-	// Writes still happen lazily on layout changes.
-	if err := os.MkdirAll(checkpoint.CrashCheckpointDir(), 0700); err != nil {
-		s.logger.Warn("crash checkpoint dir unavailable",
-			"event", "checkpoint_write",
-			"checkpoint_kind", "crash",
-			"error", err,
-		)
-	}
-	s.crashCheckpointTrigger = make(chan struct{}, 1)
-	s.crashCheckpointStop = make(chan struct{})
-	s.crashCheckpointDone = make(chan struct{})
-	go s.crashCheckpointLoop()
-}
-
-func (s *Session) stopCrashCheckpointLoop() {
-	if s.crashCheckpointStop == nil || s.crashCheckpointDone == nil {
-		return
-	}
-	select {
-	case <-s.crashCheckpointDone:
-		return
-	default:
-	}
-	close(s.crashCheckpointStop)
-	<-s.crashCheckpointDone
-}
-
-// crashCheckpointLoop debounces checkpoint triggers and writes crash
-// checkpoints periodically. Runs until crashCheckpointStop is closed.
-func (s *Session) crashCheckpointLoop() {
-	defer close(s.crashCheckpointDone)
-
-	const debounce = 500 * time.Millisecond
-	const periodic = 30 * time.Second
-
-	debounceTimer := time.NewTimer(debounce)
-	debounceTimer.Stop()
-	periodicTicker := time.NewTicker(periodic)
-	defer periodicTicker.Stop()
-
-	for {
-		select {
-		case <-s.crashCheckpointStop:
-			debounceTimer.Stop()
-			return
-
-		case <-s.crashCheckpointTrigger:
-			// Layout changed — debounce before writing
-			debounceTimer.Reset(debounce)
-
-		case <-debounceTimer.C:
-			s.writeCrashCheckpoint()
-
-		case <-periodicTicker.C:
-			s.writeCrashCheckpoint()
-		}
-	}
-}
-
-func (s *Session) writeCrashCheckpointNow() (string, error) {
-	started := time.Now()
-	cp := s.buildCrashCheckpoint()
-	if cp == nil {
-		return "", nil
-	}
-	path := checkpoint.CrashCheckpointPathTimestamped(s.Name, s.startedAt)
-	if err := checkpoint.WriteCrash(cp, s.Name, s.startedAt); err != nil {
-		s.logCheckpointWrite("crash", path, time.Since(started), err)
-		return "", err
-	}
-	s.enqueueEvent(crashCheckpointWrittenEvent{path: path})
-	s.logCheckpointWrite("crash", path, time.Since(started), nil)
-	return path, nil
-}
-
-// writeCrashCheckpoint builds and writes a crash checkpoint to disk.
-// Skips writing if the session is shutting down (clean shutdown removes the checkpoint).
-func (s *Session) writeCrashCheckpoint() {
-	if s.shutdown.Load() {
-		return
-	}
-	_, _ = s.writeCrashCheckpointNow()
-}
-
 func (s *Session) hasClient(cc *clientConn) bool {
 	return s.ensureClientManager().hasClient(cc)
 }
@@ -532,7 +440,7 @@ func newSessionWithLogger(name string, scrollbackLines int, logger *charmlog.Log
 	sess.capture = newCaptureForwarder()
 	sess.input = newInputRouter()
 	sess.undo = newUndoManager()
-	sess.startCrashCheckpointLoop()
+	sess.checkpointCoordinator = newSessionCheckpointCoordinator(sess)
 	sess.startEventLoop()
 	return sess
 }
