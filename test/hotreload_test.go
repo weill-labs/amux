@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -400,6 +401,59 @@ func TestServerAutoReload(t *testing.T) {
 	if !h.waitFor("SRVAUTO", 5*time.Second) {
 		screen := h.captureOuter()
 		t.Fatalf("SRVAUTO should be visible after server auto-reload\nScreen:\n%s", screen)
+	}
+}
+
+func TestServerAutoReloadViaSymlinkedLaunchPath(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS != "darwin" {
+		t.Skip("symlinked launch-path auto-reload reproduces on macOS")
+	}
+
+	binDir := t.TempDir()
+	realPath := filepath.Join(binDir, "amux-real")
+	if err := buildAmuxWithCommit(realPath, "oldbuild"); err != nil {
+		t.Fatalf("building old amux binary: %v", err)
+	}
+
+	linkPath := filepath.Join(binDir, "amux")
+	if err := os.Symlink(realPath, linkPath); err != nil {
+		t.Fatalf("creating symlinked amux path: %v", err)
+	}
+
+	h := newPersistentReloadHarness(t, linkPath)
+
+	before := waitForOutput(t, 10*time.Second, func() string {
+		return h.runCmd("status")
+	}, func(out string) bool {
+		return strings.Contains(out, "build: oldbuild")
+	})
+	if !strings.Contains(before, "build: oldbuild") {
+		t.Fatalf("status before symlinked auto-reload = %q, want old build marker", before)
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	repoRoot := filepath.Clean(filepath.Join(cwd, ".."))
+
+	cmd := exec.Command("bash", filepath.Join(repoRoot, "scripts", "install.sh"), linkPath)
+	cmd.Dir = repoRoot
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("install script for symlinked amux path: %v\n%s", err, out)
+	}
+
+	after := waitForOutput(t, 15*time.Second, func() string {
+		return h.runCmd("status")
+	}, func(out string) bool {
+		return strings.Contains(out, "build:") && !strings.Contains(out, "build: oldbuild")
+	})
+	if strings.Contains(after, "build: oldbuild") {
+		t.Fatalf("status after symlinked auto-reload should not report old build, got %q", after)
+	}
+	if !strings.Contains(after, "build:") {
+		t.Fatalf("status after symlinked auto-reload = %q, want build marker", after)
 	}
 }
 

@@ -3,6 +3,7 @@
 package reload
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -11,13 +12,34 @@ import (
 	"github.com/fsnotify/fsnotify"
 )
 
-// ResolveExecutable returns the resolved absolute path of the running binary.
+// ResolveExecutable returns the absolute invocation path of the running binary.
 func ResolveExecutable() (string, error) {
 	exe, err := os.Executable()
 	if err != nil {
 		return "", err
 	}
-	return filepath.EvalSymlinks(exe)
+	return NormalizeExecutablePath(exe)
+}
+
+// NormalizeExecutablePath returns an absolute executable path without
+// collapsing the invocation symlink. `make install` replaces the invoked path,
+// so preserving it keeps auto-reload pointed at the file that actually changes.
+func NormalizeExecutablePath(exe string) (string, error) {
+	if exe == "" {
+		return "", fmt.Errorf("empty executable path")
+	}
+	if !filepath.IsAbs(exe) {
+		abs, err := filepath.Abs(exe)
+		if err != nil {
+			return "", err
+		}
+		exe = abs
+	}
+	exe = filepath.Clean(exe)
+	if _, err := os.Stat(exe); err != nil {
+		return "", err
+	}
+	return exe, nil
 }
 
 func resetDebounceTimer(timer *time.Timer, delay time.Duration) *time.Timer {
@@ -34,11 +56,19 @@ func resetDebounceTimer(timer *time.Timer, delay time.Duration) *time.Timer {
 	return timer
 }
 
-func watchEventMatchesTarget(event fsnotify.Event, base string) bool {
-	return filepath.Base(event.Name) == base && event.Op&(fsnotify.Write|fsnotify.Create) != 0
+func watchEventMatchesTarget(event fsnotify.Event, base string, matchChmod bool) bool {
+	if filepath.Base(event.Name) != base {
+		return false
+	}
+
+	mask := fsnotify.Write | fsnotify.Create | fsnotify.Rename
+	if matchChmod {
+		mask |= fsnotify.Chmod
+	}
+	return event.Op&mask != 0
 }
 
-func drainPendingReloadEvents(events <-chan fsnotify.Event, errors <-chan error, base string) bool {
+func drainPendingReloadEvents(events <-chan fsnotify.Event, errors <-chan error, base string, matchChmod bool) bool {
 	drained := false
 	for {
 		select {
@@ -46,7 +76,7 @@ func drainPendingReloadEvents(events <-chan fsnotify.Event, errors <-chan error,
 			if !ok {
 				return drained
 			}
-			if watchEventMatchesTarget(event, base) {
+			if watchEventMatchesTarget(event, base, matchChmod) {
 				drained = true
 			}
 		case _, ok := <-errors:
@@ -65,6 +95,10 @@ func drainPendingReloadEvents(events <-chan fsnotify.Event, errors <-chan error,
 func WatchBinary(execPath string, triggerReload chan<- struct{}, ready chan<- struct{}) {
 	dir := filepath.Dir(execPath)
 	base := filepath.Base(execPath)
+	matchChmod := false
+	if info, err := os.Lstat(execPath); err == nil {
+		matchChmod = info.Mode()&os.ModeSymlink != 0
+	}
 
 	var signalReady sync.Once
 	closeReady := func() {
@@ -96,7 +130,7 @@ func WatchBinary(execPath string, triggerReload chan<- struct{}, ready chan<- st
 			if !ok {
 				return
 			}
-			if !watchEventMatchesTarget(event, base) {
+			if !watchEventMatchesTarget(event, base, matchChmod) {
 				continue
 			}
 			debounce = resetDebounceTimer(debounce, 200*time.Millisecond)
@@ -104,7 +138,7 @@ func WatchBinary(execPath string, triggerReload chan<- struct{}, ready chan<- st
 
 		case <-debounceC:
 			debounceC = nil
-			if drainPendingReloadEvents(watcher.Events, watcher.Errors, base) {
+			if drainPendingReloadEvents(watcher.Events, watcher.Errors, base, matchChmod) {
 				debounce = resetDebounceTimer(debounce, 200*time.Millisecond)
 				debounceC = debounce.C
 				continue
