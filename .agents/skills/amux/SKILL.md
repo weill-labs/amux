@@ -142,6 +142,36 @@ amux next-window             # Next window
 amux prev-window             # Previous window
 ```
 
+### Server Administration
+
+```bash
+amux reload-server               # Hot-reload server binary (preserves all panes)
+amux debug goroutines            # Goroutine dump from server pprof endpoint
+amux debug heap                  # Heap profile summary
+amux debug profile --duration 30s > cpu.pprof.gz  # CPU profile
+amux debug socket                # Print the pprof Unix socket path
+amux debug frames                # Client render frame stats
+```
+
+`reload-server` re-execs the server from the current binary, preserving all panes and shells via checkpoint/restore. Use it after `make install` or config changes (e.g., enabling `[debug].pprof` in `~/.config/amux/config.toml`). The `debug` subcommands require `[debug].pprof = true` in the config.
+
+**If amux freezes**, always capture a goroutine dump before killing the server — the dump is the only evidence for diagnosing deadlocks and is destroyed on kill:
+
+```bash
+# 1. Try pprof first (works if the debug socket is still responsive)
+amux debug goroutines > /tmp/amux-goroutine-dump-$(date +%s).txt 2>&1
+
+# 2. If pprof is unresponsive, send SIGQUIT to the server process.
+#    Go's runtime prints all goroutines to stderr on unhandled SIGQUIT.
+#    Redirect stderr via /proc to capture it:
+SERVER_PID=$(pgrep -f 'amux _server')
+cat /proc/$SERVER_PID/fd/2 > /tmp/amux-goroutine-dump-$(date +%s).txt &
+kill -QUIT $SERVER_PID
+
+# 3. Only after saving the dump, kill if needed
+kill $SERVER_PID
+```
+
 ### Pane Metadata
 
 ```bash
