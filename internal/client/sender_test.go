@@ -9,6 +9,43 @@ import (
 	"github.com/weill-labs/amux/internal/proto"
 )
 
+func TestMessageSenderSendReturnsBeforePeerReads(t *testing.T) {
+	t.Parallel()
+
+	serverConn, peerConn := net.Pipe()
+	t.Cleanup(func() { _ = serverConn.Close() })
+	t.Cleanup(func() { _ = peerConn.Close() })
+
+	sender := newMessageSender(serverConn)
+	t.Cleanup(sender.Close)
+
+	done := make(chan error, 1)
+	go func() {
+		done <- sender.Send(&proto.Message{Type: proto.MsgTypeInput, Input: []byte("first")})
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Send(first) = %v", err)
+		}
+	case <-time.After(100 * time.Millisecond):
+		msg := readSenderMessageWithTimeout(t, peerConn)
+		if msg.Type != proto.MsgTypeInput || string(msg.Input) != "first" {
+			t.Fatalf("first message = %+v, want input first", msg)
+		}
+		if err := <-done; err != nil {
+			t.Fatalf("Send(first) after drain = %v", err)
+		}
+		t.Fatal("Send blocked until the peer drained the socket")
+	}
+
+	msg := readSenderMessageWithTimeout(t, peerConn)
+	if msg.Type != proto.MsgTypeInput || string(msg.Input) != "first" {
+		t.Fatalf("first message = %+v, want input first", msg)
+	}
+}
+
 func TestMessageSenderSendAsyncPreservesOrderingWithLaterSyncSend(t *testing.T) {
 	t.Parallel()
 
