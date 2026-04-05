@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -405,6 +406,9 @@ func TestServerAutoReload(t *testing.T) {
 
 func TestServerAutoReloadViaSymlinkedLaunchPath(t *testing.T) {
 	t.Parallel()
+	if runtime.GOOS != "darwin" {
+		t.Skip("symlinked launch-path auto-reload reproduces on macOS")
+	}
 
 	binDir := t.TempDir()
 	realPath := filepath.Join(binDir, "amux-real")

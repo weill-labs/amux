@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -214,6 +215,23 @@ func TestWatchEventMatchesTarget(t *testing.T) {
 	}
 }
 
+func TestNormalizeExecutablePathPreservesSymlinkPath(t *testing.T) {
+	t.Parallel()
+
+	linkPath := filepath.Join(t.TempDir(), "amux-test")
+	if err := os.Symlink(os.Args[0], linkPath); err != nil {
+		t.Fatalf("symlink test binary: %v", err)
+	}
+
+	got, err := NormalizeExecutablePath(linkPath)
+	if err != nil {
+		t.Fatalf("NormalizeExecutablePath(%q): %v", linkPath, err)
+	}
+	if got != linkPath {
+		t.Fatalf("NormalizeExecutablePath(%q) = %q, want %q", linkPath, got, linkPath)
+	}
+}
+
 func TestResolveExecutablePreservesSymlinkPath(t *testing.T) {
 	if os.Getenv("AMUX_RESOLVE_EXEC_HELPER") == "1" {
 		execPath, err := ResolveExecutable()
@@ -226,6 +244,9 @@ func TestResolveExecutablePreservesSymlinkPath(t *testing.T) {
 	}
 
 	t.Parallel()
+	if runtime.GOOS != "darwin" {
+		t.Skip("os.Executable preserves the invoked symlink path on macOS only")
+	}
 
 	linkPath := filepath.Join(t.TempDir(), "amux-test")
 	if err := os.Symlink(os.Args[0], linkPath); err != nil {
