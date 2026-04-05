@@ -59,7 +59,7 @@ func benchSessionWithPanes(n int) *Session {
 		Windows:        []*mux.Window{w},
 		ActiveWindowID: w.ID,
 		Panes:          panes,
-		idle:           newIdleTracker(),
+		idle:           NewIdleTracker(nil),
 		waiters:        newWaiterManager(),
 	}
 }

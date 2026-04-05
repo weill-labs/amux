@@ -288,10 +288,7 @@ func (s *Session) removePane(id uint32) {
 	s.ensureWaiters().removePane(id)
 	delete(s.takenOverPanes, id)
 	delete(s.terminalEventState, id)
-	s.idle.StopTimer(id)
-	if s.vtIdle != nil {
-		s.vtIdle.StopTimer(id)
-	}
+	s.ensureIdleTracker().StopPane(id)
 	if pane == nil {
 		return
 	}
@@ -373,10 +370,7 @@ func (s *Session) softClosePane(paneID uint32) paneRemovalResult {
 	s.ensureWaiters().removePane(paneID)
 	delete(s.takenOverPanes, paneID)
 	delete(s.terminalEventState, paneID)
-	s.idle.StopTimer(paneID)
-	if s.vtIdle != nil {
-		s.vtIdle.StopTimer(paneID)
-	}
+	s.ensureIdleTracker().StopPane(paneID)
 	s.prunePaneEventSubs(pane.Meta.Name)
 
 	s.ensureUndoManager().trackSoftClosedPane(s, pane)
@@ -446,10 +440,7 @@ func (s *Session) replacePaneInstance(oldPane, newPane *mux.Pane, w *mux.Window)
 	s.Panes[index] = newPane
 	delete(s.takenOverPanes, oldPane.ID)
 	delete(s.terminalEventState, oldPane.ID)
-	s.idle.StopTimer(oldPane.ID)
-	if s.vtIdle != nil {
-		s.vtIdle.StopTimer(oldPane.ID)
-	}
+	s.ensureIdleTracker().StopPane(oldPane.ID)
 	return nil
 }
 

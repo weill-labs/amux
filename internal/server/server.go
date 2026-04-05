@@ -59,8 +59,7 @@ type Session struct {
 	generation atomic.Uint64
 	waiters    *waiterManager
 
-	idle   *idleTracker
-	vtIdle *VTIdleTracker
+	idle *IdleTracker
 
 	// Event stream — used by `amux events` for push-based notifications.
 	// Only accessed from the session event loop (no mutex needed).
@@ -72,7 +71,6 @@ type Session struct {
 	undo *undoManager
 
 	// Configurable timing — zero values use defaults. Tests inject short durations.
-	VTIdleSettle    time.Duration // default: 2s
 	UndoGracePeriod time.Duration // default: 30s
 	Clock           Clock         // nil uses RealClock
 	// PaneMetaResolver refreshes live cwd/git metadata for a pane. Nil uses
@@ -200,11 +198,15 @@ func (s *Session) clock() Clock {
 	return RealClock{}
 }
 
-func (s *Session) vtIdleSettle() time.Duration {
-	if s.VTIdleSettle != 0 {
-		return s.VTIdleSettle
+func (s *Session) ensureIdleTracker() *IdleTracker {
+	if s.idle == nil {
+		s.idle = NewIdleTracker(s.clock)
 	}
-	return config.VTIdleSettle
+	return s.idle
+}
+
+func (s *Session) vtIdleSettle() time.Duration {
+	return s.ensureIdleTracker().Settle()
 }
 
 func (s *Session) detectPaneCwdBranch(pane *mux.Pane) (cwd, branch string) {
@@ -527,8 +529,7 @@ func newSessionWithLogger(name string, scrollbackLines int, logger *charmlog.Log
 		clientState:        newClientManager(),
 		paneLog:            newPaneLog(defaultPaneLogSize),
 	}
-	sess.idle = newIdleTracker()
-	sess.vtIdle = NewVTIdleTracker(sess.clock())
+	sess.idle = NewIdleTracker(sess.clock)
 	sess.takenOverPanes = make(map[uint32]bool)
 	sess.terminalEventState = make(map[uint32]paneTerminalEventState)
 	sess.waiters = newWaiterManager()
@@ -650,9 +651,7 @@ func newServerFromCrashCheckpointWithListenerLogger(sessionName string, listener
 				continue
 			}
 			pane = sess.ownPane(pane)
-			if sess.vtIdle != nil {
-				sess.vtIdle.PrimeSettling(ps.ID, pane.CreatedAt())
-			}
+			sess.ensureIdleTracker().PrimeSettling(ps.ID, pane.CreatedAt())
 		}
 
 		pane.SetOnClipboard(sess.clipboardCallback())

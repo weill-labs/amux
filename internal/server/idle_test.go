@@ -164,7 +164,6 @@ func TestCmdWaitIdleTimeout(t *testing.T) {
 	srv, sess, pane, cleanup := setupWaitIdleTestPane(t)
 	defer cleanup()
 	sess.Clock = clk
-	sess.vtIdle = NewVTIdleTracker(clk)
 	pane.SetCreatedAt(clk.Now())
 
 	clientConn, _, done := startAsyncCommand(t, srv, sess, "wait", "idle", "pane-1", "--settle", "200ms", "--timeout", "40ms")
@@ -196,7 +195,6 @@ func TestCmdWaitIdleResetsSettleTimerOnOutput(t *testing.T) {
 	srv, sess, pane, cleanup := setupWaitIdleTestPane(t)
 	defer cleanup()
 	sess.Clock = clk
-	sess.vtIdle = NewVTIdleTracker(clk)
 	pane.SetCreatedAt(clk.Now())
 
 	clientConn, _, done := startAsyncCommand(t, srv, sess, "wait", "idle", "pane-1", "--settle", "100ms", "--timeout", "5s")
@@ -234,7 +232,7 @@ func TestPaneOutputCallbackEmitsIdleEventAfterQuiescence(t *testing.T) {
 	t.Parallel()
 
 	sess := newSession("test-idle-event")
-	sess.VTIdleSettle = 20 * time.Millisecond
+	sess.ensureIdleTracker().VTIdleSettle = 20 * time.Millisecond
 	stopCrashCheckpointLoop(t, sess)
 	defer stopSessionBackgroundLoops(t, sess)
 
@@ -270,7 +268,7 @@ func TestCurrentStateEventsIncludeExitedForIdlePane(t *testing.T) {
 	t.Parallel()
 
 	sess := newSession("test-exited-snapshot")
-	sess.VTIdleSettle = 20 * time.Millisecond
+	sess.ensureIdleTracker().VTIdleSettle = 20 * time.Millisecond
 	stopCrashCheckpointLoop(t, sess)
 	defer stopSessionBackgroundLoops(t, sess)
 

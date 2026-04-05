@@ -186,8 +186,7 @@ func TestCmdListIncludesIdleColumnAndState(t *testing.T) {
 	clk := NewFakeClock(time.Date(2026, 3, 28, 12, 0, 0, 0, time.UTC))
 	mustSessionMutation(t, sess, func(sess *Session) {
 		sess.Clock = clk
-		sess.VTIdleSettle = 2 * time.Second
-		sess.vtIdle = NewVTIdleTracker(clk)
+		sess.ensureIdleTracker().VTIdleSettle = 2 * time.Second
 	})
 
 	p1 := newTestPane(sess, 1, "pane-1")
@@ -196,13 +195,13 @@ func TestCmdListIncludesIdleColumnAndState(t *testing.T) {
 	setSessionLayoutForTest(t, sess, w.ID, []*mux.Window{w}, p1, p2)
 
 	mustSessionMutation(t, sess, func(sess *Session) {
-		sess.vtIdle.TrackOutput(p1.ID, sess.vtIdleSettle(), func(time.Time) {})
+		sess.ensureIdleTracker().TrackOutput(p1.ID, func() {}, func(time.Time) {})
 	})
 	clk.AwaitTimers(1)
 	clk.Advance(3 * time.Second)
 
 	mustSessionMutation(t, sess, func(sess *Session) {
-		sess.vtIdle.TrackOutput(p2.ID, sess.vtIdleSettle(), func(time.Time) {})
+		sess.ensureIdleTracker().TrackOutput(p2.ID, func() {}, func(time.Time) {})
 	})
 	clk.AwaitTimers(2)
 
@@ -243,11 +242,12 @@ func TestIdleTrackerLastOutputWithoutSnapshot(t *testing.T) {
 func TestPaneIdleStatusUsesCreatedAtWhenNoOutput(t *testing.T) {
 	t.Parallel()
 
-	sess := &Session{VTIdleSettle: 2 * time.Second}
+	tracker := NewIdleTracker(testClockFn(RealClock{}))
+	tracker.VTIdleSettle = 2 * time.Second
 	createdAt := time.Date(2026, 3, 28, 12, 0, 0, 0, time.UTC)
 	now := createdAt.Add(5 * time.Second)
 
-	status := sess.paneIdleStatus(1, createdAt, now)
+	status := tracker.PaneStatus(1, createdAt, now)
 	if !status.idle {
 		t.Fatal("pane should be idle once createdAt+settle has passed without output")
 	}

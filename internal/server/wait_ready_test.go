@@ -295,8 +295,7 @@ func TestWaitReadyFailsWhenPaneDisappearsMidWait(t *testing.T) {
 	}()
 
 	sess.Clock = clk
-	sess.vtIdle = NewVTIdleTracker(clk)
-	sess.VTIdleSettle = 100 * time.Millisecond
+	sess.ensureIdleTracker().VTIdleSettle = 100 * time.Millisecond
 	pane.SetCreatedAt(clk.Now())
 
 	clientConn, _, done := startAsyncCommand(t, srv, sess, "wait", "ready", "pane-1", "--timeout", "5s")
@@ -329,8 +328,7 @@ func TestWaitReadyRestartsSettleTimerAfterExpiredWindowSeesNewOutput(t *testing.
 	defer cleanup()
 
 	sess.Clock = clk
-	sess.vtIdle = NewVTIdleTracker(clk)
-	sess.VTIdleSettle = 100 * time.Millisecond
+	sess.ensureIdleTracker().VTIdleSettle = 100 * time.Millisecond
 	pane.SetCreatedAt(clk.Now())
 
 	clientConn, _, done := startAsyncCommand(t, srv, sess, "wait", "ready", "pane-1", "--timeout", "5s")
@@ -352,7 +350,7 @@ func TestWaitReadyRestartsSettleTimerAfterExpiredWindowSeesNewOutput(t *testing.
 	// Hold the session query so the old settle tick can fire, then inject a
 	// fresh VT output sample before syncReady re-reads state.
 	clk.Advance(100 * time.Millisecond)
-	sess.vtIdle.TrackOutput(pane.ID, sess.vtIdleSettle(), func(time.Time) {})
+	sess.ensureIdleTracker().TrackOutput(pane.ID, func() {}, func(time.Time) {})
 	close(mutationRelease)
 
 	select {
@@ -407,8 +405,7 @@ func TestCmdSendKeysWaitReadyWaitsForReady(t *testing.T) {
 	defer cleanup()
 
 	sess.Clock = clk
-	sess.vtIdle = NewVTIdleTracker(clk)
-	sess.VTIdleSettle = 100 * time.Millisecond
+	sess.ensureIdleTracker().VTIdleSettle = 100 * time.Millisecond
 	pane.SetCreatedAt(clk.Now())
 
 	clientConn, _, done := startAsyncCommand(t, srv, sess, "send-keys", "pane-1", "--wait", "ready", "--timeout", "5s", "ab")

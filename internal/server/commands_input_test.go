@@ -52,8 +52,7 @@ func TestCmdSendKeysCommandWaitReadyWaitsForReady(t *testing.T) {
 	defer cleanup()
 
 	sess.Clock = clk
-	sess.vtIdle = NewVTIdleTracker(clk)
-	sess.VTIdleSettle = 100 * time.Millisecond
+	sess.ensureIdleTracker().VTIdleSettle = 100 * time.Millisecond
 	pane.SetCreatedAt(clk.Now())
 
 	clientConn, _, done := startAsyncCommand(t, srv, sess, "send-keys", "pane-1", "--wait", "ready", "--timeout", "5s", "ab")

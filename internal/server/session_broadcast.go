@@ -87,7 +87,6 @@ func (s *Session) broadcastPaneOutputNow(paneID uint32, data []byte, seq uint64)
 		c.sendPaneOutput(msg, paneID, seq)
 	}
 	s.notifyPaneOutputSubs(paneID)
-	s.trackPaneVTIdle(paneID)
 	s.trackPaneActivity(paneID)
 
 	var paneName, host string
@@ -166,26 +165,12 @@ func (s *Session) broadcastLayout() {
 
 // snapshotIdleState returns a copy of the session's idle state map.
 func (s *Session) snapshotIdleState() map[uint32]bool {
-	idleSnap := s.idle.SnapshotState()
-	if s.vtIdle == nil {
-		return idleSnap
-	}
-
-	now := s.clock().Now()
-	for _, pane := range s.Panes {
-		if idleSnap[pane.ID] {
-			continue
-		}
-		if s.vtIdle.IsSettled(pane.ID, pane.CreatedAt(), s.vtIdleSettle(), now) {
-			idleSnap[pane.ID] = true
-		}
-	}
-	return idleSnap
+	return s.ensureIdleTracker().SnapshotState(s.Panes, s.clock().Now())
 }
 
 // snapshotIdleFull returns copies of both idle state and since maps.
 func (s *Session) snapshotIdleFull() (map[uint32]bool, map[uint32]time.Time) {
-	return s.idle.SnapshotFull()
+	return s.ensureIdleTracker().SnapshotFull()
 }
 
 // snapshotLayout builds a LayoutSnapshot with multi-window data.
@@ -244,22 +229,19 @@ func (s *Session) notifyPaneOutputSubs(paneID uint32) {
 	s.ensureWaiters().notifyPaneOutputSubs(paneID)
 }
 
-func (s *Session) trackPaneVTIdle(paneID uint32) {
-	if s.vtIdle == nil {
-		return
-	}
-	s.vtIdle.TrackOutput(paneID, s.vtIdleSettle(), func(lastOutput time.Time) {
-		s.enqueueVTIdleTimeout(paneID, lastOutput)
-	})
-}
-
 // trackPaneActivity is called on every PTY output. It resets the screen-quiet
 // timer. When the quiet state transitions (idle↔busy), a layout broadcast is
 // sent so clients see the updated PaneSnapshot.Idle in the status bar.
 func (s *Session) trackPaneActivity(paneID uint32) {
-	wasIdle := s.idle.TrackActivity(paneID, s.vtIdleSettle(), func() {
-		s.enqueueIdleTimeout(paneID)
-	})
+	wasIdle := s.ensureIdleTracker().TrackOutput(
+		paneID,
+		func() {
+			s.enqueueIdleTimeout(paneID)
+		},
+		func(lastOutput time.Time) {
+			s.enqueueVTIdleTimeout(paneID, lastOutput)
+		},
+	)
 
 	if wasIdle {
 		pane := s.findPaneByID(paneID)

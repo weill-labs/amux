@@ -153,8 +153,7 @@ func TestForwardCaptureJSONIncludesIdleStatus(t *testing.T) {
 			clk := NewFakeClock(time.Date(2026, 3, 28, 12, 0, 0, 0, time.UTC))
 			mustSessionMutation(t, sess, func(sess *Session) {
 				sess.Clock = clk
-				sess.VTIdleSettle = 20 * time.Millisecond
-				sess.vtIdle = NewVTIdleTracker(clk)
+				sess.ensureIdleTracker().VTIdleSettle = 20 * time.Millisecond
 			})
 
 			pane := newTestPane(sess, 1, "pane-1")
@@ -162,7 +161,7 @@ func TestForwardCaptureJSONIncludesIdleStatus(t *testing.T) {
 			setSessionLayoutForTest(t, sess, window.ID, []*mux.Window{window}, pane)
 
 			mustSessionMutation(t, sess, func(sess *Session) {
-				sess.vtIdle.TrackOutput(pane.ID, sess.vtIdleSettle(), func(time.Time) {})
+				sess.ensureIdleTracker().TrackOutput(pane.ID, func() {}, func(time.Time) {})
 			})
 			clk.AwaitTimers(1)
 			if tt.advance > 0 {

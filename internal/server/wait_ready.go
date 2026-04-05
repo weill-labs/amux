@@ -257,11 +257,7 @@ func queryPaneReadyState(sess *Session, paneID uint32) (paneReadyState, error) {
 			return paneReadyState{}, nil
 		}
 
-		var lastOutput time.Time
-		hasLastOutput := false
-		if sess.vtIdle != nil {
-			lastOutput, hasLastOutput = sess.vtIdle.LastOutput(paneID)
-		}
+		lastOutput, hasLastOutput := sess.ensureIdleTracker().LastOutput(paneID)
 
 		return paneReadyState{
 			pane: pane,
