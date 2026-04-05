@@ -420,6 +420,212 @@ type dummyNetAddr string
 func (a dummyNetAddr) Network() string { return "test" }
 func (a dummyNetAddr) String() string  { return string(a) }
 
+func blockClientWriterForTest(t *testing.T, id string) (*clientConn, func()) {
+	t.Helper()
+
+	blockedConn := newBlockingWriteConn()
+	cc := newClientConn(blockedConn)
+	cc.ID = id
+
+	sendDone := make(chan error, 1)
+	go func() {
+		sendDone <- cc.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: strings.Repeat("x", 1<<20)})
+	}()
+
+	select {
+	case <-blockedConn.writeSeen:
+	case <-time.After(time.Second):
+		t.Fatal("blocked client writer did not start write")
+	}
+
+	cleanup := func() {
+		close(blockedConn.release)
+		select {
+		case err := <-sendDone:
+			if err != nil {
+				t.Fatalf("blocked client send error: %v", err)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("blocked client send did not finish after release")
+		}
+		cc.Close()
+	}
+
+	return cc, cleanup
+}
+
+func captureForwarderSnapshotForTest(t *testing.T, sess *Session) captureForwarderState {
+	t.Helper()
+	return mustSessionQuery(t, sess, func(sess *Session) captureForwarderState {
+		return sess.ensureCaptureForwarder().snapshot()
+	})
+}
+
+func assertSessionEventLoopResponsive(t *testing.T, sess *Session) {
+	t.Helper()
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := enqueueSessionQuery(sess, func(sess *Session) (struct{}, error) {
+			return struct{}{}, nil
+		})
+		done <- err
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("event loop query failed: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("session event loop blocked")
+	}
+}
+
+func TestEnqueueCaptureRequestBlockedWriterDoesNotFreezeEventLoop(t *testing.T) {
+	t.Parallel()
+
+	_, sess, cleanup := newCommandTestSession(t)
+	t.Cleanup(cleanup)
+
+	blocked, releaseBlocked := blockClientWriterForTest(t, "client-blocked")
+	t.Cleanup(releaseBlocked)
+
+	req := &captureRequest{
+		id:     1,
+		client: blocked,
+		reply:  make(chan *Message, 1),
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- sess.enqueueCaptureRequest(req)
+	}()
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("enqueueCaptureRequest: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("enqueueCaptureRequest blocked on a stuck client writer")
+	}
+
+	state := captureForwarderSnapshotForTest(t, sess)
+	if !state.hasCurrent || state.currentID != req.id {
+		t.Fatalf("forwarder state = %+v, want current request %d", state, req.id)
+	}
+	assertSessionEventLoopResponsive(t, sess)
+}
+
+func TestRouteCaptureResponseQueuedBlockedWriterDoesNotFreezeEventLoop(t *testing.T) {
+	t.Parallel()
+
+	_, sess, cleanup := newCommandTestSession(t)
+	t.Cleanup(cleanup)
+
+	ready := newClientConn(discardConn{})
+	t.Cleanup(ready.Close)
+
+	blocked, releaseBlocked := blockClientWriterForTest(t, "client-blocked")
+	t.Cleanup(releaseBlocked)
+
+	req1 := &captureRequest{
+		id:     1,
+		client: ready,
+		reply:  make(chan *Message, 1),
+	}
+	req2 := &captureRequest{
+		id:     2,
+		client: blocked,
+		reply:  make(chan *Message, 1),
+	}
+
+	if err := sess.enqueueCaptureRequest(req1); err != nil {
+		t.Fatalf("enqueueCaptureRequest(req1): %v", err)
+	}
+	if err := sess.enqueueCaptureRequest(req2); err != nil {
+		t.Fatalf("enqueueCaptureRequest(req2): %v", err)
+	}
+
+	resp := &Message{Type: MsgTypeCaptureResponse, CmdOutput: "ok"}
+	done := make(chan struct{})
+	go func() {
+		sess.routeCaptureResponse(resp)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("routeCaptureResponse blocked while starting the next capture request")
+	}
+
+	select {
+	case got := <-req1.reply:
+		if got != resp {
+			t.Fatalf("req1 reply = %#v, want %#v", got, resp)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("current request did not receive the routed response")
+	}
+
+	state := captureForwarderSnapshotForTest(t, sess)
+	if !state.hasCurrent || state.currentID != req2.id {
+		t.Fatalf("forwarder state = %+v, want current request %d", state, req2.id)
+	}
+	assertSessionEventLoopResponsive(t, sess)
+}
+
+func TestCancelCaptureRequestQueuedBlockedWriterDoesNotFreezeEventLoop(t *testing.T) {
+	t.Parallel()
+
+	_, sess, cleanup := newCommandTestSession(t)
+	t.Cleanup(cleanup)
+
+	ready := newClientConn(discardConn{})
+	t.Cleanup(ready.Close)
+
+	blocked, releaseBlocked := blockClientWriterForTest(t, "client-blocked")
+	t.Cleanup(releaseBlocked)
+
+	req1 := &captureRequest{
+		id:     1,
+		client: ready,
+		reply:  make(chan *Message, 1),
+	}
+	req2 := &captureRequest{
+		id:     2,
+		client: blocked,
+		reply:  make(chan *Message, 1),
+	}
+
+	if err := sess.enqueueCaptureRequest(req1); err != nil {
+		t.Fatalf("enqueueCaptureRequest(req1): %v", err)
+	}
+	if err := sess.enqueueCaptureRequest(req2); err != nil {
+		t.Fatalf("enqueueCaptureRequest(req2): %v", err)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		sess.cancelCaptureRequest(req1.id)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("cancelCaptureRequest blocked while starting the next capture request")
+	}
+
+	state := captureForwarderSnapshotForTest(t, sess)
+	if !state.hasCurrent || state.currentID != req2.id {
+		t.Fatalf("forwarder state = %+v, want current request %d", state, req2.id)
+	}
+	assertSessionEventLoopResponsive(t, sess)
+}
+
 func TestCaptureClientSnapshotSkipsBootstrappingClientWithoutWriterRoundTrip(t *testing.T) {
 	t.Parallel()
 
