@@ -361,7 +361,7 @@ func TestManagerEnsureAndErrorHelpers(t *testing.T) {
 			t.Fatalf("removePane() should clear timers, got cleanup=%d closed=%d", len(manager.pendingCleanupKills), len(manager.closedPaneTimers))
 		}
 
-		if err := manager.beginPaneCleanupKill(sess, nil, time.Second); err != nil {
+		if err := manager.beginPaneCleanupKill(nil, time.Second, func(uint32) {}); err != nil {
 			t.Fatalf("beginPaneCleanupKill(nil) error = %v", err)
 		}
 
@@ -376,12 +376,12 @@ func TestManagerEnsureAndErrorHelpers(t *testing.T) {
 		dupTimer := time.NewTimer(time.Hour)
 		defer dupTimer.Stop()
 		manager.pendingCleanupKills[pane.ID] = dupTimer
-		if err := manager.beginPaneCleanupKill(sess, pane, time.Second); err == nil {
+		if err := manager.beginPaneCleanupKill(pane, time.Second, func(uint32) {}); err == nil {
 			t.Fatal("beginPaneCleanupKill() with duplicate timer should fail")
 		}
 
 		before := manager.closedPaneCount()
-		manager.trackSoftClosedPane(sess, nil)
+		manager.trackSoftClosedPane(nil, func(uint32) {})
 		if got := manager.closedPaneCount(); got != before {
 			t.Fatalf("trackSoftClosedPane(nil) changed closed pane count from %d to %d", before, got)
 		}

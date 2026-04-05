@@ -41,9 +41,7 @@ func TestUndoClosePaneUnit(t *testing.T) {
 		pane1 := newTestPane(sess, 1, "pane-1")
 		pane2 := newTestPane(sess, 2, "pane-2")
 		window := newTestWindowWithPanes(t, sess, 1, "main", pane1, pane2)
-		sess.Windows = []*mux.Window{window}
-		sess.ActiveWindowID = window.ID
-		sess.Panes = []*mux.Pane{pane1, pane2}
+		setSessionLayoutForTest(t, sess, window.ID, []*mux.Window{window}, pane1, pane2)
 
 		res := runTestCommand(t, srv, sess, "kill", "pane-2")
 		if res.cmdErr != "" || !strings.Contains(res.output, "Killed pane-2") {
@@ -78,9 +76,7 @@ func TestUndoClosePaneUnit(t *testing.T) {
 
 		pane1 := newTestPane(sess, 1, "pane-1")
 		window := newTestWindowWithPanes(t, sess, 1, "main", pane1)
-		sess.Windows = []*mux.Window{window}
-		sess.ActiveWindowID = window.ID
-		sess.Panes = []*mux.Pane{pane1}
+		setSessionLayoutForTest(t, sess, window.ID, []*mux.Window{window}, pane1)
 
 		res := runTestCommand(t, srv, sess, "undo")
 		if res.cmdErr == "" || !strings.Contains(res.cmdErr, "no closed pane") {
@@ -97,9 +93,7 @@ func TestUndoClosePaneUnit(t *testing.T) {
 		pane1 := newTestPane(sess, 1, "pane-1")
 		pane2 := newTestPane(sess, 2, "pane-2")
 		window := newTestWindowWithPanes(t, sess, 1, "main", pane1, pane2)
-		sess.Windows = []*mux.Window{window}
-		sess.ActiveWindowID = window.ID
-		sess.Panes = []*mux.Pane{pane1, pane2}
+		setSessionLayoutForTest(t, sess, window.ID, []*mux.Window{window}, pane1, pane2)
 
 		res := runTestCommand(t, srv, sess, "kill", "pane-2")
 		if res.cmdErr != "" {
@@ -126,9 +120,7 @@ func TestUndoClosePaneUnit(t *testing.T) {
 		pane2 := newTestPane(sess, 2, "pane-2")
 		pane3 := newTestPane(sess, 3, "pane-3")
 		window := newTestWindowWithPanes(t, sess, 1, "main", pane1, pane2, pane3)
-		sess.Windows = []*mux.Window{window}
-		sess.ActiveWindowID = window.ID
-		sess.Panes = []*mux.Pane{pane1, pane2, pane3}
+		setSessionLayoutForTest(t, sess, window.ID, []*mux.Window{window}, pane1, pane2, pane3)
 
 		runTestCommand(t, srv, sess, "kill", "pane-2")
 		runTestCommand(t, srv, sess, "kill", "pane-3")
@@ -149,15 +141,15 @@ func TestUndoGracePeriodExpiry(t *testing.T) {
 	t.Parallel()
 
 	srv, sess, cleanup := newCommandTestSession(t)
-	sess.UndoGracePeriod = 50 * time.Millisecond
+	mustSessionMutation(t, sess, func(sess *Session) {
+		sess.undo = newUndoManager(undoManagerConfig{gracePeriod: 50 * time.Millisecond})
+	})
 	defer cleanup()
 
 	pane1 := newTestPane(sess, 1, "pane-1")
 	pane2 := newTestPane(sess, 2, "pane-2")
 	window := newTestWindowWithPanes(t, sess, 1, "main", pane1, pane2)
-	sess.Windows = []*mux.Window{window}
-	sess.ActiveWindowID = window.ID
-	sess.Panes = []*mux.Pane{pane1, pane2}
+	setSessionLayoutForTest(t, sess, window.ID, []*mux.Window{window}, pane1, pane2)
 
 	res := runTestCommand(t, srv, sess, "kill", "pane-2")
 	if res.cmdErr != "" {
