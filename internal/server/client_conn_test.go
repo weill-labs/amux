@@ -7,6 +7,7 @@ import (
 
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
+	commandpkg "github.com/weill-labs/amux/internal/server/commands"
 )
 
 func TestClientConnQueuesBroadcastsDuringBootstrap(t *testing.T) {
@@ -441,6 +442,153 @@ func TestClientConnLiveInputDoesNotBlockOnBlockedPaneWriter(t *testing.T) {
 				t.Fatal("readLoop did not exit after detach")
 			}
 		})
+	}
+}
+
+func TestClientConnReadLoopCommandRepliesDoNotBlockOnBlockedWriter(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		command string
+		server  *Server
+	}{
+		{
+			name:    "unknown command",
+			command: "nope",
+			server:  &Server{},
+		},
+		{
+			name:    "reply output",
+			command: "reply",
+			server: &Server{commands: map[string]CommandHandler{
+				"reply": func(ctx *CommandContext) {
+					ctx.reply("ok\n")
+				},
+			}},
+		},
+		{
+			name:    "reply error",
+			command: "reply-err",
+			server: &Server{commands: map[string]CommandHandler{
+				"reply-err": func(ctx *CommandContext) {
+					ctx.replyErr("boom")
+				},
+			}},
+		},
+		{
+			name:    "mutation bell and empty result",
+			command: "bell",
+			server: &Server{commands: map[string]CommandHandler{
+				"bell": func(ctx *CommandContext) {
+					ctx.replyCommandMutation(commandMutationResult{bell: true})
+				},
+			}},
+		},
+		{
+			name:    "stream sender",
+			command: "stream",
+			server: &Server{commands: map[string]CommandHandler{
+				"stream": func(ctx *CommandContext) {
+					ctx.applyCommandResult(commandpkg.Result{
+						Stream: func(sender commandpkg.StreamSender) error {
+							return sender.Send(&proto.Message{
+								Type:      proto.MsgTypeCmdResult,
+								CmdOutput: "stream\n",
+							})
+						},
+					})
+				},
+			}},
+		},
+		{
+			name:    "panic recovery",
+			command: "panic",
+			server: &Server{commands: map[string]CommandHandler{
+				"panic": func(*CommandContext) {
+					panic("boom")
+				},
+			}},
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			sess := newSession("test-client-command-read-loop-fast-path")
+			stopCrashCheckpointLoop(t, sess)
+			defer stopSessionBackgroundLoops(t, sess)
+
+			serverConn, peerConn := net.Pipe()
+			t.Cleanup(func() { _ = peerConn.Close() })
+			t.Cleanup(func() { _ = serverConn.Close() })
+
+			cc := newClientConn(serverConn)
+			t.Cleanup(cc.Close)
+
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				cc.readLoop(tt.server, sess)
+			}()
+
+			if err := WriteMsg(peerConn, &Message{Type: MsgTypeCommand, CmdName: tt.command}); err != nil {
+				t.Fatalf("WriteMsg command: %v", err)
+			}
+
+			detachDone := make(chan error, 1)
+			go func() {
+				detachDone <- WriteMsg(peerConn, &Message{Type: MsgTypeDetach})
+			}()
+
+			select {
+			case err := <-detachDone:
+				if err != nil {
+					t.Fatalf("WriteMsg detach = %v", err)
+				}
+			case <-time.After(200 * time.Millisecond):
+				cc.Close()
+				<-detachDone
+				t.Fatal("detach blocked on a blocked command reply")
+			}
+
+			select {
+			case <-done:
+			case <-time.After(time.Second):
+				t.Fatal("readLoop did not exit after detach")
+			}
+		})
+	}
+}
+
+func TestClientConnTypeKeyQueueDoesNotBlockOnBlockedWriter(t *testing.T) {
+	t.Parallel()
+
+	serverConn, peerConn := net.Pipe()
+	t.Cleanup(func() { _ = peerConn.Close() })
+	t.Cleanup(func() { _ = serverConn.Close() })
+
+	cc := newClientConn(serverConn)
+	cc.ID = "client-1"
+	cc.initTypeKeyQueue()
+	t.Cleanup(cc.Close)
+
+	done := make(chan error, 1)
+	go func() {
+		done <- cc.enqueueTypeKeys([]encodedKeyChunk{{data: []byte("ab")}})
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("enqueueTypeKeys() = %v", err)
+		}
+	case <-time.After(200 * time.Millisecond):
+		cc.Close()
+		<-done
+		t.Fatal("enqueueTypeKeys blocked on a stuck client writer")
 	}
 }
 
