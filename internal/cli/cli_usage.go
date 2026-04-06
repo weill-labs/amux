@@ -14,7 +14,7 @@ const (
 	leadUsage         = "usage: amux lead [pane] | amux lead --clear"
 	metaUsage         = "usage: amux meta <set|get|rm> ..."
 	moveUsage         = "usage: amux move <pane> up|down | amux move <pane> (--before <target>|--after <target>|--to-column <target>)"
-	spawnUsage        = "usage: amux spawn [--at <pane>] [--vertical|--horizontal] [--root] [--spiral] [--focus] [--name NAME] [--host HOST] [--task TASK] [--color COLOR]"
+	spawnUsage        = "usage: amux spawn [--at <pane>] [--vertical|--horizontal] [--root] [--focus] [--name NAME] [--host HOST] [--task TASK] [--color COLOR]"
 	swapUsage         = "usage: amux swap <pane1> <pane2> [--tree] | amux swap forward | amux swap backward"
 	cursorUsage       = "usage: amux cursor <layout|clipboard|ui> [--client <id>]"
 	disconnectUsage   = "usage: amux disconnect <host>"
@@ -165,8 +165,8 @@ Usage:
                                        Simulate mouse input through an attached client
   amux [-s session] broadcast (--panes <pane,pane,...> | --window <index|name> | --match <glob>) [--hex] <keys>...
                                        Send the same keystrokes to multiple panes
-  amux [-s session] spawn [--at <pane>] [--vertical|--horizontal] [--root] [--spiral] [--focus] [--name NAME] [--host HOST] [--task TASK] [--color COLOR]
-                                       Create a new pane using split, spiral, or default spawn placement
+  amux [-s session] spawn [--at <pane>] [--vertical|--horizontal] [--root] [--focus] [--name NAME] [--host HOST] [--task TASK] [--color COLOR]
+                                       Create a new pane using default spawn or targeted split placement
   amux [-s session] zoom [pane]        Toggle zoom (maximize) a pane
   amux [-s session] swap <p1> <p2> [--tree]
                                        Swap two panes, or their root-level groups with --tree
@@ -267,7 +267,6 @@ Inside an amux session:
   Ctrl-a 1-9                         Select window by number
   Ctrl-a r                           Hot reload (re-exec binary)
   Ctrl-a d                           Detach from session
-  Ctrl-a a                           Spawn pane in clockwise spiral order
   Ctrl-a Ctrl-a                      Send literal Ctrl-a
 
 See https://github.com/weill-labs/amux for config format.`)

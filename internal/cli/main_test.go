@@ -28,10 +28,8 @@ func TestParseSpawnCommandArgs(t *testing.T) {
 		{name: "split active vertical", args: []string{"--vertical"}, wantCmd: "split", wantArgs: []string{"v"}},
 		{name: "split root vertical", args: []string{"--at", "pane-1", "--root", "--vertical"}, wantCmd: "split", wantArgs: []string{"pane-1", "root", "v"}},
 		{name: "split with metadata", args: []string{"--at", "pane-1", "--task", "build", "--color", "blue"}, wantCmd: "split", wantArgs: []string{"pane-1", "--task", "build", "--color", "blue"}},
-		{name: "spiral add", args: []string{"--spiral", "--name", "worker"}, wantCmd: "spawn", wantArgs: []string{"--spiral", "--name", "worker"}},
-		{name: "spiral add focus", args: []string{"--spiral", "--focus"}, wantCmd: "spawn", wantArgs: []string{"--focus", "--spiral"}},
 		{name: "conflicting directions", args: []string{"--vertical", "--horizontal"}, wantErrText: spawnUsage},
-		{name: "spiral with split flags rejected", args: []string{"--spiral", "--at", "pane-1"}, wantErrText: spawnUsage},
+		{name: "spiral rejected", args: []string{"--spiral"}, wantErrText: spawnUsage},
 		{name: "missing at value", args: []string{"--at"}, wantErrText: spawnUsage},
 		{name: "unknown arg", args: []string{"pane-1"}, wantErrText: spawnUsage},
 	}

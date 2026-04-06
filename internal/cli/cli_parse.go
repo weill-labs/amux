@@ -211,7 +211,6 @@ type spawnCLIOptions struct {
 	dir            mux.SplitDir
 	hasExplicitDir bool
 	root           bool
-	spiral         bool
 	focus          bool
 	name           string
 	host           string
@@ -249,8 +248,6 @@ func ParseSpawnCommandArgs(args []string) (string, []string, error) {
 			}
 		case "--root":
 			opts.root = true
-		case "--spiral":
-			opts.spiral = true
 		case "--focus":
 			opts.focus = true
 		case "--name":
@@ -282,31 +279,7 @@ func ParseSpawnCommandArgs(args []string) (string, []string, error) {
 		}
 	}
 
-	if opts.spiral && (opts.at != "" || opts.root || opts.hasExplicitDir) {
-		return "", nil, fmt.Errorf(spawnUsage)
-	}
-
 	cmdArgs := make([]string, 0, 10)
-	if opts.spiral {
-		if opts.focus {
-			cmdArgs = append(cmdArgs, "--focus")
-		}
-		cmdArgs = append(cmdArgs, "--spiral")
-		if opts.host != "" {
-			cmdArgs = append(cmdArgs, "--host", opts.host)
-		}
-		if opts.name != "" {
-			cmdArgs = append(cmdArgs, "--name", opts.name)
-		}
-		if opts.task != "" {
-			cmdArgs = append(cmdArgs, "--task", opts.task)
-		}
-		if opts.color != "" {
-			cmdArgs = append(cmdArgs, "--color", opts.color)
-		}
-		return "spawn", cmdArgs, nil
-	}
-
 	if opts.at != "" || opts.root || opts.hasExplicitDir {
 		if opts.at != "" {
 			cmdArgs = append(cmdArgs, opts.at)

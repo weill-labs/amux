@@ -226,10 +226,9 @@ func TestSpawnParsesArgsAndDelegates(t *testing.T) {
 		spawnResult: commandpkg.Result{Output: "spawned\n"},
 	}
 
-	got := Spawn(ctx, 12, []string{"--spiral", "--focus", "--host", "dev", "--name", "worker", "--task", "build", "--color", "rosewater"})
+	got := Spawn(ctx, 12, []string{"--focus", "--host", "dev", "--name", "worker", "--task", "build", "--color", "rosewater"})
 	wantArgs := SpawnArgs{
 		Focus:        true,
-		Spiral:       true,
 		HostExplicit: true,
 		Meta: mux.PaneMeta{
 			Name:  "worker",

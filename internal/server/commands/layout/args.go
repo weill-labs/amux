@@ -19,7 +19,6 @@ type createPaneArgs struct {
 	RootLevel    bool
 	Dir          mux.SplitDir
 	Focus        bool
-	Spiral       bool
 	HostName     string
 	HostExplicit bool
 	Name         string
@@ -57,7 +56,6 @@ func parseCreatePaneArgs(mode createPaneMode, args []string) (createPaneArgs, er
 		)
 	} else {
 		parsed.Dir = mux.SplitVertical
-		specs = append(specs, cmdflags.FlagSpec{Name: "--spiral", Type: cmdflags.FlagTypeBool})
 	}
 
 	flags, err := cmdflags.ParseCommandFlags(args, specs)
@@ -71,7 +69,6 @@ func parseCreatePaneArgs(mode createPaneMode, args []string) (createPaneArgs, er
 	parsed.Task = flags.String("--task")
 	parsed.Color = flags.String("--color")
 	if mode == createPaneModeSpawn {
-		parsed.Spiral = flags.Bool("--spiral")
 		parsed.HostExplicit = flags.Seen("--host")
 	}
 
@@ -149,7 +146,6 @@ func ParseSplitArgs(args []string) (SplitArgs, error) {
 type SpawnArgs struct {
 	Meta         mux.PaneMeta
 	Focus        bool
-	Spiral       bool
 	HostExplicit bool
 }
 
@@ -170,7 +166,6 @@ func ParseSpawnArgs(args []string) (SpawnArgs, error) {
 			Color: parsed.Color,
 		},
 		Focus:        parsed.Focus,
-		Spiral:       parsed.Spiral,
 		HostExplicit: parsed.HostExplicit,
 	}, nil
 }

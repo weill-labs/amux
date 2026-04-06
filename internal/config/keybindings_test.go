@@ -49,11 +49,6 @@ func TestDefaultKeybindings(t *testing.T) {
 			want: Binding{Action: "help"},
 		},
 		{
-			name: "a spawns a pane in spiral order",
-			key:  'a',
-			want: Binding{Action: "spawn", Args: []string{"--spiral"}},
-		},
-		{
 			name: "s opens choose tree",
 			key:  's',
 			want: Binding{Action: "choose-tree"},
@@ -99,5 +94,8 @@ func TestDefaultKeybindings(t *testing.T) {
 
 	if _, ok := kb.Bindings['M']; ok {
 		t.Error("default: M should be unbound")
+	}
+	if _, ok := kb.Bindings['a']; ok {
+		t.Error("default: a should be unbound")
 	}
 }

@@ -66,7 +66,6 @@ type createPanePlacement uint8
 
 const (
 	createPanePlacementSplitAt createPanePlacement = iota
-	createPanePlacementSpiral
 	createPanePlacementRootSplit
 )
 
@@ -82,14 +81,11 @@ type createPaneRequest struct {
 
 type createPaneSnapshot struct {
 	inheritPane  *mux.Pane
-	windowID     uint32
 	windowWidth  int
 	windowHeight int
 	inheritHost  string
-	inheritPID   int
 	inheritProxy bool
 	targetPaneID uint32
-	plan         mux.SpiralAddPlan
 }
 
 const (
@@ -130,8 +126,6 @@ func runCreatePane(ctx *CommandContext, actorPaneID uint32, command string, plac
 	switch {
 	case command == "split" && req.hostName == "" && snapshot.inheritProxy:
 		req.hostName = snapshot.inheritHost
-	case placement == createPanePlacementSpiral && !req.hostExplicit && snapshot.inheritProxy:
-		req.hostName = snapshot.inheritHost
 	}
 
 	if req.hostName != "" {
@@ -150,7 +144,7 @@ func runCreatePane(ctx *CommandContext, actorPaneID uint32, command string, plac
 				return cleanupFailedPaneMutationContext(mctx, pane, err)
 			}
 			return commandMutationResult{
-				output:          createPaneOutput(command, placement, req.dir, pane, req.hostName),
+				output:          createPaneOutput(command, req.dir, pane, req.hostName),
 				broadcastLayout: true,
 			}
 		}))
@@ -177,40 +171,13 @@ func runCreatePane(ctx *CommandContext, actorPaneID uint32, command string, plac
 		}
 		mctx.startPendingLocalPaneBuild(ctx.Srv, pane, prepared.build)
 		return commandMutationResult{
-			output:          createPaneOutput(command, placement, req.dir, pane, ""),
+			output:          createPaneOutput(command, req.dir, pane, ""),
 			broadcastLayout: true,
 		}
 	}))
 }
 
 func queryCreatePaneSnapshot(sess *Session, actorPaneID uint32, command string, placement createPanePlacement, paneRef string) (createPaneSnapshot, error) {
-	if placement == createPanePlacementSpiral {
-		return enqueueSessionQuery(sess, func(sess *Session) (createPaneSnapshot, error) {
-			w := sess.windowForActor(actorPaneID)
-			if w == nil {
-				return createPaneSnapshot{}, fmt.Errorf("no window")
-			}
-			plan, err := w.PlanSpiralAdd()
-			if err != nil {
-				return createPaneSnapshot{}, err
-			}
-			inheritPane := sess.findPaneByID(plan.InheritPaneID)
-			if inheritPane == nil {
-				return createPaneSnapshot{}, fmt.Errorf("pane %d not found", plan.InheritPaneID)
-			}
-			return createPaneSnapshot{
-				inheritPane:  inheritPane,
-				windowID:     w.ID,
-				windowWidth:  w.Width,
-				windowHeight: w.Height,
-				inheritHost:  inheritPane.Meta.Host,
-				inheritPID:   inheritPane.ProcessPid(),
-				inheritProxy: inheritPane.IsProxy(),
-				plan:         plan,
-			}, nil
-		})
-	}
-
 	return enqueueSessionQuery(sess, func(sess *Session) (createPaneSnapshot, error) {
 		w := sess.windowForActor(actorPaneID)
 		if paneRef != "" {
@@ -223,11 +190,9 @@ func queryCreatePaneSnapshot(sess *Session, actorPaneID uint32, command string, 
 			}
 			return createPaneSnapshot{
 				inheritPane:  pane,
-				windowID:     resolvedWindow.ID,
 				windowWidth:  resolvedWindow.Width,
 				windowHeight: resolvedWindow.Height,
 				inheritHost:  pane.Meta.Host,
-				inheritPID:   pane.ProcessPid(),
 				inheritProxy: pane.IsProxy(),
 				targetPaneID: pane.ID,
 			}, nil
@@ -240,11 +205,9 @@ func queryCreatePaneSnapshot(sess *Session, actorPaneID uint32, command string, 
 		}
 		return createPaneSnapshot{
 			inheritPane:  w.ActivePane,
-			windowID:     w.ID,
 			windowWidth:  w.Width,
 			windowHeight: w.Height,
 			inheritHost:  w.ActivePane.Meta.Host,
-			inheritPID:   w.ActivePane.ProcessPid(),
 			inheritProxy: w.ActivePane.IsProxy(),
 			targetPaneID: w.ActivePane.ID,
 		}, nil
@@ -252,16 +215,6 @@ func queryCreatePaneSnapshot(sess *Session, actorPaneID uint32, command string, 
 }
 
 func resolveCreatePaneWindow(ctx *MutationContext, actorPaneID uint32, placement createPanePlacement, snapshot createPaneSnapshot) (*mux.Window, error) {
-	if placement == createPanePlacementSpiral {
-		w := ctx.windowForActor(actorPaneID)
-		if w == nil {
-			return nil, fmt.Errorf("no window")
-		}
-		if w.ID != snapshot.windowID {
-			return nil, fmt.Errorf("window changed during spawn --spiral")
-		}
-		return w, nil
-	}
 	w := ctx.findWindowByPaneID(snapshot.targetPaneID)
 	if w == nil {
 		return nil, fmt.Errorf("pane not in any window")
@@ -274,9 +227,6 @@ func placeCreatedPaneInWindow(w *mux.Window, placement createPanePlacement, snap
 	switch placement {
 	case createPanePlacementSplitAt:
 		_, err := w.SplitPaneWithOptions(snapshot.targetPaneID, dir, pane, opts)
-		return err
-	case createPanePlacementSpiral:
-		_, err := w.ApplySpiralAddPlan(snapshot.plan, pane, opts)
 		return err
 	case createPanePlacementRootSplit:
 		_, err := w.SplitRootWithOptions(dir, pane, opts)
@@ -305,7 +255,7 @@ func createPaneWindowError(command string) error {
 	return fmt.Errorf("no window")
 }
 
-func createPaneOutput(command string, placement createPanePlacement, dir mux.SplitDir, pane *mux.Pane, hostName string) string {
+func createPaneOutput(command string, dir mux.SplitDir, pane *mux.Pane, hostName string) string {
 	switch command {
 	case "split":
 		if hostName != "" {
@@ -313,9 +263,6 @@ func createPaneOutput(command string, placement createPanePlacement, dir mux.Spl
 		}
 		return fmt.Sprintf("Split %s: new pane %s\n", dirName(dir), pane.Meta.Name)
 	default:
-		if placement == createPanePlacementSpiral && hostName != "" {
-			return fmt.Sprintf("Spawned %s @%s\n", pane.Meta.Name, hostName)
-		}
 		if hostName != "" {
 			return fmt.Sprintf("Spawned %s in pane %d @%s\n", pane.Meta.Name, pane.ID, hostName)
 		}
@@ -495,11 +442,7 @@ func cmdFocus(ctx *CommandContext) {
 }
 
 func runSpawn(ctx *CommandContext, actorPaneID uint32, args layoutcmd.SpawnArgs) commandpkg.Result {
-	placement := createPanePlacementSplitAt
-	if args.Spiral {
-		placement = createPanePlacementSpiral
-	}
-	return runCreatePane(ctx, actorPaneID, "spawn", placement, createPaneRequestFromSpawnArgs(args), !args.Focus)
+	return runCreatePane(ctx, actorPaneID, "spawn", createPanePlacementSplitAt, createPaneRequestFromSpawnArgs(args), !args.Focus)
 }
 
 func cmdSpawn(ctx *CommandContext) {

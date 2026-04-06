@@ -67,7 +67,6 @@ func buildHelpBar(kb *config.Keybindings) *helpBarState {
 		helpBarItemForKeys(helpBindingDisplay(kb, helpBindingSelector{action: "split", args: []string{"root", "--focus"}}), "root-hsplit"),
 		helpBarItemForKeys(helpBindingDisplay(kb, helpBindingSelector{action: "split", args: []string{"v", "--focus"}}), "vsplit"),
 		helpBarItemForKeys(helpBindingDisplay(kb, helpBindingSelector{action: "split", args: []string{"--focus"}}), "hsplit"),
-		helpBarItemForKeys(helpBindingDisplay(kb, helpBindingSelector{action: "spawn", args: []string{"--spiral"}}), "spiral"),
 		helpBarItemForKeys(helpBindingDisplay(kb, helpBindingSelector{action: "equalize"}), "equalize"),
 		helpBarItemForKeys(helpBindingDisplay(kb, helpBindingSelector{action: "kill"}), "kill"),
 		helpBarItemForKeys(helpBindingDisplay(kb, helpBindingSelector{action: "zoom"}), "zoom"),

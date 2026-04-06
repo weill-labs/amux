@@ -142,15 +142,6 @@ func TestDefaultBindingsWithoutConfig(t *testing.T) {
 
 	h.assertActive("pane-1")
 
-	// Ctrl-a a should spiral-spawn a pane without changing focus.
-	gen = h.generation()
-	h.sendKeys("C-a", "a")
-	h.waitLayout(gen)
-
-	h.assertActive("pane-1")
-	h.assertScreen("default spiral spawn should work", func(s string) bool {
-		return strings.Contains(s, "[pane-3]")
-	})
 }
 
 func TestRootHorizontalBindingWhileLeadFocused(t *testing.T) {
