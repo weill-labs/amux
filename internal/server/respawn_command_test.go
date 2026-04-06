@@ -276,6 +276,62 @@ func TestRespawnCommandRetriesTransientEmptyCwdDetection(t *testing.T) {
 	}
 }
 
+func TestRespawnCommandPrefersFreshCwdDetectionOverStaleLiveCwd(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	staleDir := t.TempDir()
+	wantDir := t.TempDir()
+	meta := mux.PaneMeta{
+		Name:  "pane-1",
+		Host:  mux.DefaultHost,
+		Color: "f5e0dc",
+		Dir:   staleDir,
+	}
+
+	pane := mustCreatePaneWithMeta(t, sess, srv, meta, 80, 23)
+	pane.ApplyCwdBranch(staleDir, "old-branch")
+
+	window := newTestWindowWithPanes(t, sess, 1, "main", pane)
+	setSessionLayoutForTest(t, sess, window.ID, []*mux.Window{window}, pane)
+
+	attempts := 0
+	sess.PaneMetaResolver = func(got *mux.Pane) (string, string) {
+		if got != pane {
+			t.Fatalf("PaneMetaResolver pane = %p, want %p", got, pane)
+		}
+		attempts++
+		return wantDir, "main"
+	}
+
+	gotStartDir := ""
+	sess.localPaneBuilder = func(req localPaneBuildRequest) (*mux.Pane, error) {
+		gotStartDir = req.startDir
+		return mux.NewPendingPaneWithScrollback(
+			req.sourcePane.ID,
+			req.sourcePane.Meta,
+			80,
+			23,
+			mux.DefaultScrollbackLines,
+			nil,
+			nil,
+		)
+	}
+
+	res := runTestCommand(t, srv, sess, "respawn", "pane-1")
+	if res.cmdErr != "" {
+		t.Fatalf("respawn cmdErr = %q", res.cmdErr)
+	}
+	if gotStartDir != wantDir {
+		t.Fatalf("respawn startDir = %q, want %q", gotStartDir, wantDir)
+	}
+	if attempts != 1 {
+		t.Fatalf("PaneMetaResolver calls = %d, want 1", attempts)
+	}
+}
+
 func TestQueryRespawnTargetCapturesColorProfile(t *testing.T) {
 	t.Parallel()
 
