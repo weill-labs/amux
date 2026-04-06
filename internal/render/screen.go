@@ -4,6 +4,7 @@ import (
 	"image/color"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	uv "github.com/charmbracelet/ultraviolet"
@@ -264,8 +265,16 @@ func (c *Compositor) buildGridWithOverlayDirty(
 	g.Debug = c.debug
 	layoutHeight := c.layoutHeightForHelpBar(overlay.HelpBar)
 
+	type dirtyPaneComposite struct {
+		cell        *mux.LayoutCell
+		pd          PaneData
+		isActive    bool
+		pressed     bool
+		copyOverlay *proto.ViewportOverlay
+	}
+
 	paneCount := 0
-	compositedPanes := 0
+	dirtyCells := make([]dirtyPaneComposite, 0, len(dirtyPanes))
 	root.Walk(func(cell *mux.LayoutCell) {
 		pid := cell.CellPaneID()
 		if pid == 0 {
@@ -279,22 +288,44 @@ func (c *Compositor) buildGridWithOverlayDirty(
 		if _, ok := dirtyPanes[pid]; !ok {
 			return
 		}
-		compositedPanes++
+		dirtyCells = append(dirtyCells, dirtyPaneComposite{
+			cell:        cell,
+			pd:          pd,
+			isActive:    pid == activePaneID,
+			pressed:     overlay.IsPanePressed(pid),
+			copyOverlay: pd.CopyModeOverlay(),
+		})
+	})
+	compositedPanes := len(dirtyCells)
 
-		isActive := pid == activePaneID
-		pressed := overlay.IsPanePressed(pid)
-		copyOverlay := pd.CopyModeOverlay()
-		buildStatusCellsPressed(g, cell, isActive, pressed, pd)
-		contentH := c.visibleContentHeightForLayoutHeight(cell, layoutHeight)
+	composeDirtyPane := func(pane dirtyPaneComposite) {
+		buildStatusCellsPressed(g, pane.cell, pane.isActive, pane.pressed, pane.pd)
+		contentH := c.visibleContentHeightForLayoutHeight(pane.cell, layoutHeight)
 		// Rebuild every row for dirty panes. TUI full-screen recomposes can
 		// move or clear lines without producing a pane-local dirty report that
 		// safely describes every changed row, so reusing cached rows here can
 		// leave stale cells until the next full redraw.
 		for row := 0; row < contentH; row++ {
-			buildPaneContentCells(g, cell, row, isActive, pd, copyOverlay)
+			buildPaneContentCells(g, pane.cell, row, pane.isActive, pane.pd, pane.copyOverlay)
 		}
-		clearPaneContentRows(g, cell, contentH, mux.PaneContentHeight(cell.H))
-	})
+		clearPaneContentRows(g, pane.cell, contentH, mux.PaneContentHeight(pane.cell.H))
+	}
+
+	if len(dirtyCells) < 4 {
+		for _, pane := range dirtyCells {
+			composeDirtyPane(pane)
+		}
+	} else {
+		var wg sync.WaitGroup
+		wg.Add(len(dirtyCells))
+		for _, pane := range dirtyCells {
+			go func(pane dirtyPaneComposite) {
+				defer wg.Done()
+				composeDirtyPane(pane)
+			}(pane)
+		}
+		wg.Wait()
+	}
 
 	if overlay.DropIndicator != nil {
 		buildDropIndicatorCells(g, overlay.DropIndicator)
