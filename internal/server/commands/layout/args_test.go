@@ -201,20 +201,6 @@ func TestParseSpawnArgs(t *testing.T) {
 			},
 		},
 		{
-			name: "allows spiral spawn",
-			args: []string{"--spiral", "--name", "worker-1", "--host", "dev", "--task", "build", "--color", "rosewater"},
-			want: SpawnArgs{
-				Spiral:       true,
-				HostExplicit: true,
-				Meta: mux.PaneMeta{
-					Name:  "worker-1",
-					Host:  "dev",
-					Task:  "build",
-					Color: "rosewater",
-				},
-			},
-		},
-		{
 			name:    "rejects missing color value",
 			args:    []string{"--name", "worker-1", "--color"},
 			wantErr: "missing value for --color",
@@ -228,6 +214,11 @@ func TestParseSpawnArgs(t *testing.T) {
 			name:    "rejects unknown arg",
 			args:    []string{"--name", "worker-1", "--bogus"},
 			wantErr: "unknown flag: --bogus",
+		},
+		{
+			name:    "rejects spiral flag",
+			args:    []string{"--spiral"},
+			wantErr: "unknown flag: --spiral",
 		},
 	}
 

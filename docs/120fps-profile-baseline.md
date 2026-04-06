@@ -8,7 +8,7 @@
 - Host: Apple M4, macOS 15.6
 - Session: `profile-baseline-744`
 - Window size: `200x60`
-- Layout: 10 panes created with `spawn --spiral` and rebalanced with `equalize --all`
+- Layout: 10 panes created with `spawn` and rebalanced with `equalize --all`
 - Sustained output panes: `2`, `3`, `4`
 - Load generator: `while true; do seq 1 1000; done`
 
@@ -32,7 +32,7 @@ make install
 AMUX_CONFIG=.tmp/120fps-profile-baseline/config.toml amux new profile-baseline-744
 AMUX_CONFIG=.tmp/120fps-profile-baseline/config.toml amux -s profile-baseline-744 resize-window 200 60
 for i in $(seq 2 10); do
-  AMUX_CONFIG=.tmp/120fps-profile-baseline/config.toml amux -s profile-baseline-744 spawn --spiral --name load-$i
+  AMUX_CONFIG=.tmp/120fps-profile-baseline/config.toml amux -s profile-baseline-744 spawn --name load-$i
 done
 AMUX_CONFIG=.tmp/120fps-profile-baseline/config.toml amux -s profile-baseline-744 equalize --all
 
