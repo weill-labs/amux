@@ -23,6 +23,7 @@ func DefaultKeybindings() *Keybindings {
 			'-':  {Action: "split", Args: []string{"--focus"}},
 			'|':  {Action: "split", Args: []string{"v", "--focus"}},
 			'_':  {Action: "split", Args: []string{"root", "--focus"}},
+			'a':  {Action: "spawn", Args: []string{"--auto"}},
 			'}':  {Action: "swap", Args: []string{"forward"}},
 			'{':  {Action: "swap", Args: []string{"backward"}},
 			'o':  {Action: "focus", Args: []string{"next"}},
