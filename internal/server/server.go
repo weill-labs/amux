@@ -369,6 +369,8 @@ type Server struct {
 	// one cleanup pass and later callers can wait for completion.
 	shutdownState atomic.Uint32
 	shutdownDone  chan struct{}
+	// oneShotWG tracks CLI one-shot command handlers so process shutdown does
+	// not exit before they flush their final CmdResult.
 	oneShotWG     sync.WaitGroup
 
 	// attachBootstrapHook is a test-only hook invoked after the initial
@@ -694,6 +696,8 @@ func (s *Server) shutdown() {
 		s.listener.Close()
 	}
 	os.Remove(s.sockPath)
+	// One-shot CLI commands are not session clients, so the daemon must wait
+	// for their handlers explicitly before the process can exit.
 	s.oneShotWG.Wait()
 
 	for _, sess := range s.sessions {
