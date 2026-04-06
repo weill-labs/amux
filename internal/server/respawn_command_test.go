@@ -43,6 +43,17 @@ func TestRespawnCommandRestartsLocalPaneInPlace(t *testing.T) {
 	}()
 	pane.Start()
 	waitForMarkerCount(t, markerFile, 1)
+	if _, err := pane.Write([]byte("cd " + strconv.Quote(nextDir) + "\n")); err != nil {
+		t.Fatalf("write cd: %v", err)
+	}
+	waitUntilRespawn(t, 5*time.Second, func() bool {
+		cwd, _ := pane.DetectCwdBranch()
+		return cwd == nextDirResolved
+	}, func() string {
+		cwd, _ := pane.DetectCwdBranch()
+		return "detected cwd=" + cwd
+	})
+	pane.ApplyCwdBranch(nextDirResolved, "feat/respawn")
 
 	window := newTestWindowWithPanes(t, sess, 1, "main", pane)
 
@@ -61,8 +72,6 @@ func TestRespawnCommandRestartsLocalPaneInPlace(t *testing.T) {
 
 	pane.SetRetainedHistory([]string{"base-1", "base-2"})
 	pane.FeedOutput([]byte("stale-screen"))
-	pane.ApplyCwdBranch(nextDir, "feat/respawn")
-
 	oldPID := pane.ProcessPid()
 	if oldPID == 0 {
 		t.Fatal("old process pid = 0, want live shell")
@@ -185,8 +194,8 @@ func TestRespawnCommandRestartsLocalPaneInPlace(t *testing.T) {
 	if state.task != meta.Task || state.color != meta.Color || state.kvOwner != "lab-593" {
 		t.Fatalf("respawned metadata = task %q color %q kv owner %q", state.task, state.color, state.kvOwner)
 	}
-	if state.liveCwd != nextDir {
-		t.Fatalf("live cwd after respawn = %q, want %q", state.liveCwd, nextDir)
+	if state.liveCwd != nextDirResolved {
+		t.Fatalf("live cwd after respawn = %q, want %q", state.liveCwd, nextDirResolved)
 	}
 	if len(state.history) != 0 {
 		t.Fatalf("respawned scrollback = %#v, want empty", state.history)
@@ -329,6 +338,64 @@ func TestRespawnCommandPrefersFreshCwdDetectionOverStaleLiveCwd(t *testing.T) {
 	}
 	if attempts != 1 {
 		t.Fatalf("PaneMetaResolver calls = %d, want 1", attempts)
+	}
+}
+
+func TestRespawnCommandRetriesTransientStaleMetaCwdDetection(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	staleDir := t.TempDir()
+	wantDir := t.TempDir()
+	meta := mux.PaneMeta{
+		Name:  "pane-1",
+		Host:  mux.DefaultHost,
+		Color: "f5e0dc",
+		Dir:   staleDir,
+	}
+
+	pane := mustCreatePaneWithMeta(t, sess, srv, meta, 80, 23)
+
+	window := newTestWindowWithPanes(t, sess, 1, "main", pane)
+	setSessionLayoutForTest(t, sess, window.ID, []*mux.Window{window}, pane)
+
+	attempts := 0
+	sess.PaneMetaResolver = func(got *mux.Pane) (string, string) {
+		if got != pane {
+			t.Fatalf("PaneMetaResolver pane = %p, want %p", got, pane)
+		}
+		attempts++
+		if attempts < 3 {
+			return staleDir, "stale"
+		}
+		return wantDir, "main"
+	}
+
+	gotStartDir := ""
+	sess.localPaneBuilder = func(req localPaneBuildRequest) (*mux.Pane, error) {
+		gotStartDir = req.startDir
+		return mux.NewPendingPaneWithScrollback(
+			req.sourcePane.ID,
+			req.sourcePane.Meta,
+			80,
+			23,
+			mux.DefaultScrollbackLines,
+			nil,
+			nil,
+		)
+	}
+
+	res := runTestCommand(t, srv, sess, "respawn", "pane-1")
+	if res.cmdErr != "" {
+		t.Fatalf("respawn cmdErr = %q", res.cmdErr)
+	}
+	if gotStartDir != wantDir {
+		t.Fatalf("respawn startDir = %q, want %q", gotStartDir, wantDir)
+	}
+	if attempts != 3 {
+		t.Fatalf("PaneMetaResolver calls = %d, want 3", attempts)
 	}
 }
 

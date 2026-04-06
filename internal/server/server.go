@@ -211,6 +211,41 @@ func (s *Session) detectPaneCwdBranch(pane *mux.Pane) (cwd, branch string) {
 	return pane.DetectCwdBranch()
 }
 
+const (
+	respawnCwdDetectAttempts = 3
+	respawnCwdRetryDelay     = 10 * time.Millisecond
+)
+
+func (s *Session) respawnStartDir(pane *mux.Pane) string {
+	if pane == nil {
+		return ""
+	}
+
+	for attempt := 0; attempt < respawnCwdDetectAttempts; attempt++ {
+		cwd, branch := s.detectPaneCwdBranch(pane)
+		if shouldRetryStaleRespawnDir(pane, cwd) && attempt+1 < respawnCwdDetectAttempts {
+			time.Sleep(respawnCwdRetryDelay)
+			continue
+		}
+		if cwd != "" {
+			pane.ApplyCwdBranch(cwd, branch)
+			return cwd
+		}
+		if attempt+1 < respawnCwdDetectAttempts {
+			time.Sleep(respawnCwdRetryDelay)
+		}
+	}
+
+	if cwd := pane.LiveCwd(); cwd != "" {
+		return cwd
+	}
+	return pane.Meta.Dir
+}
+
+func shouldRetryStaleRespawnDir(pane *mux.Pane, cwd string) bool {
+	return pane != nil && pane.LiveCwd() == "" && pane.Meta.Dir != "" && cwd == pane.Meta.Dir
+}
+
 type captureTimingConfig struct {
 	attachMaxRetries int
 	attachRetryDelay time.Duration

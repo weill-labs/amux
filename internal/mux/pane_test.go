@@ -3,6 +3,8 @@ package mux
 import (
 	"fmt"
 	"image/color"
+	"os"
+	"os/exec"
 	"testing"
 )
 
@@ -176,6 +178,64 @@ func TestApplyCwdBranchRespectsManualOverride(t *testing.T) {
 	}
 	if p.Meta.GitBranch != "manual-branch" {
 		t.Fatalf("GitBranch = %q, want manual override preserved", p.Meta.GitBranch)
+	}
+}
+
+func TestDetectCwdBranchPrefersShellChildChainCwd(t *testing.T) {
+	t.Parallel()
+
+	p := &Pane{
+		cmd: &exec.Cmd{
+			Path: "/bin/bash",
+			Process: &os.Process{
+				Pid: 100,
+			},
+		},
+	}
+
+	cwd, branch := p.detectCwdBranchWithLookups(
+		func(pid int) string {
+			switch pid {
+			case 100:
+				return "/repo"
+			case 200:
+				return "/tmp/project"
+			default:
+				return ""
+			}
+		},
+		func(dir string) string {
+			switch dir {
+			case "/repo":
+				return "repo-branch"
+			case "/tmp/project":
+				return "project-branch"
+			default:
+				return ""
+			}
+		},
+		func(pid int) []int {
+			switch pid {
+			case 100:
+				return []int{200}
+			default:
+				return nil
+			}
+		},
+		func(pid int) string {
+			switch pid {
+			case 100, 200:
+				return "bash"
+			default:
+				return ""
+			}
+		},
+	)
+	if cwd != "/tmp/project" {
+		t.Fatalf("DetectCwdBranch cwd = %q, want %q", cwd, "/tmp/project")
+	}
+	if branch != "project-branch" {
+		t.Fatalf("DetectCwdBranch branch = %q, want %q", branch, "project-branch")
 	}
 }
 
