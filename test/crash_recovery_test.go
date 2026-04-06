@@ -108,26 +108,25 @@ func TestCrashRecovery_LayoutRestored(t *testing.T) {
 	}
 }
 
-// TestCrashRecovery_CleanShutdown verifies that a clean shutdown
-// removes the crash checkpoint file (no stale checkpoint left behind).
-func TestCrashRecovery_CleanShutdown(t *testing.T) {
+// TestCrashRecovery_GracefulShutdownCheckpointSurvivesAndRestores verifies that
+// a clean shutdown leaves behind a fresh crash checkpoint that the next server
+// start restores.
+func TestCrashRecovery_GracefulShutdownCheckpointSurvivesAndRestores(t *testing.T) {
 	t.Parallel()
 
 	h := newServerHarness(t)
 
-	// Create some layout to trigger checkpoint writes
 	h.splitV()
+	cpWrite, preShutdownCP := waitForCrashCheckpointMatch(t, h, 0, crashCheckpointTestTimeout, "checkpoint with split layout", func(cp checkpoint.CrashCheckpoint) bool {
+		return len(cp.PaneStates) == 2
+	})
 
-	// Wait for crash checkpoint to appear
-	cpWrite := waitForCrashCheckpoint(t, h, 0, crashCheckpointTestTimeout)
-
-	// Verify checkpoint exists
-	if _, err := os.Stat(cpWrite.path); err != nil {
-		t.Fatalf("checkpoint should exist: %v", err)
-	}
+	gen := h.generation()
+	h.runCmd("rename-window", "graceful")
+	h.waitLayout(gen)
 
 	// Trigger a clean shutdown explicitly and wait for the server's
-	// shutdown-complete signal before asserting on filesystem cleanup.
+	// shutdown-complete signal before asserting on crash checkpoint contents.
 	if h.client != nil {
 		h.client.close()
 		h.client = nil
@@ -149,9 +148,26 @@ func TestCrashRecovery_CleanShutdown(t *testing.T) {
 	}
 	h.cmd = nil // prevent double cleanup
 
-	// Verify checkpoint file was removed
-	if _, err := os.Stat(cpWrite.path); !os.IsNotExist(err) {
-		t.Fatalf("crash checkpoint %s should be removed after clean shutdown, err=%v", cpWrite.path, err)
+	// Verify the checkpoint survives the graceful shutdown and captures the
+	// last-minute rename that only a shutdown-time write can persist.
+	if _, err := os.Stat(cpWrite.path); err != nil {
+		t.Fatalf("crash checkpoint should survive graceful shutdown: %v", err)
+	}
+	postShutdownCP := readCrashCheckpoint(t, cpWrite.path)
+	if postShutdownCP.Generation <= preShutdownCP.Generation {
+		t.Fatalf("shutdown checkpoint generation = %d, want > %d", postShutdownCP.Generation, preShutdownCP.Generation)
+	}
+	if got := crashCheckpointWindowName(postShutdownCP); got != "graceful" {
+		t.Fatalf("shutdown checkpoint window name = %q, want graceful", got)
+	}
+
+	h2 := startServerForSession(t, h.session, h.home)
+	postJSON := h2.captureJSON()
+	if postJSON.Window.Name != "graceful" {
+		t.Fatalf("restored window name = %q, want graceful", postJSON.Window.Name)
+	}
+	if len(postJSON.Panes) != 2 {
+		t.Fatalf("restored pane count = %d, want 2", len(postJSON.Panes))
 	}
 }
 
