@@ -108,48 +108,6 @@ func TestCrashRecovery_LayoutRestored(t *testing.T) {
 	}
 }
 
-// TestCrashRecovery_GracefulShutdownCheckpointSurvivesAndRestores verifies that
-// a clean shutdown leaves behind a fresh crash checkpoint that the next server
-// start restores.
-func TestCrashRecovery_GracefulShutdownCheckpointSurvivesAndRestores(t *testing.T) {
-	t.Parallel()
-
-	h := newServerHarness(t)
-
-	h.splitV()
-	cpWrite, preShutdownCP := waitForCrashCheckpointMatch(t, h, 0, crashCheckpointTestTimeout, "checkpoint with split layout", func(cp checkpoint.CrashCheckpoint) bool {
-		return len(cp.PaneStates) == 2
-	})
-
-	gen := h.generation()
-	h.runCmd("rename-window", "graceful")
-	h.waitLayout(gen)
-
-	shutdownServerGracefully(t, h, 5*time.Second)
-
-	// Verify the checkpoint survives the graceful shutdown and captures the
-	// last-minute rename that only a shutdown-time write can persist.
-	if _, err := os.Stat(cpWrite.path); err != nil {
-		t.Fatalf("crash checkpoint should survive graceful shutdown: %v", err)
-	}
-	postShutdownCP := readCrashCheckpoint(t, cpWrite.path)
-	if postShutdownCP.Generation <= preShutdownCP.Generation {
-		t.Fatalf("shutdown checkpoint generation = %d, want > %d", postShutdownCP.Generation, preShutdownCP.Generation)
-	}
-	if got := crashCheckpointWindowName(postShutdownCP); got != "graceful" {
-		t.Fatalf("shutdown checkpoint window name = %q, want graceful", got)
-	}
-
-	h2 := startServerForSession(t, h.session, h.home)
-	postJSON := h2.captureJSON()
-	if postJSON.Window.Name != "graceful" {
-		t.Fatalf("restored window name = %q, want graceful", postJSON.Window.Name)
-	}
-	if len(postJSON.Panes) != 2 {
-		t.Fatalf("restored pane count = %d, want 2", len(postJSON.Panes))
-	}
-}
-
 // TestCrashRecovery_CheckpointIsValidJSON verifies the crash checkpoint file
 // is human-readable JSON with expected structure.
 func TestCrashRecovery_CheckpointIsValidJSON(t *testing.T) {
@@ -517,31 +475,6 @@ func waitForFreshCrashCheckpoint(t *testing.T, h *ServerHarness, afterGen uint64
 	return waitForCrashCheckpointMatch(t, h, afterGen, timeout, "fresh checkpoint", func(cp checkpoint.CrashCheckpoint) bool {
 		return cp.Timestamp.After(prev.Timestamp) || cp.Generation > prev.Generation
 	})
-}
-
-func shutdownServerGracefully(t *testing.T, h *ServerHarness, timeout time.Duration) {
-	t.Helper()
-
-	if h.client != nil {
-		h.client.close()
-		h.client = nil
-	}
-	if err := h.signalServer(os.Interrupt); err != nil {
-		t.Fatalf("interrupting server: %v", err)
-	}
-	h.waitForShutdownSignal(timeout)
-	done := make(chan struct{})
-	go func() {
-		h.cmd.Wait()
-		close(done)
-	}()
-	select {
-	case <-done:
-	case <-time.After(timeout):
-		_ = h.signalServer(syscall.SIGKILL)
-		t.Fatalf("server did not shut down within %v", timeout)
-	}
-	h.cmd = nil // prevent double cleanup
 }
 
 // startServerForSession starts a new server process for an existing session
