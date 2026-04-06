@@ -611,21 +611,8 @@ func TestPaneHistoryWithStyledCellsRoundTrips(t *testing.T) {
 		t.Fatalf("ReadMsg: %v", err)
 	}
 
-	if got.Type != MsgTypePaneHistory {
-		t.Fatalf("Type = %d, want %d", got.Type, MsgTypePaneHistory)
-	}
-	if got.PaneID != 42 {
-		t.Fatalf("PaneID = %d, want 42", got.PaneID)
-	}
-	if len(got.StyledHistory) != 2 {
-		t.Fatalf("len(StyledHistory) = %d, want 2", len(got.StyledHistory))
-	}
-	if len(got.StyledHistory[1].Cells) != 3 {
-		t.Fatalf("len(Cells) = %d, want 3", len(got.StyledHistory[1].Cells))
-	}
-	cell := got.StyledHistory[1].Cells[0]
-	if cell.Char != "s" || cell.Width != 1 {
-		t.Fatalf("cell[0] = %+v, want Char=s Width=1", cell)
+	if !reflect.DeepEqual(got, msg) {
+		t.Fatalf("round-trip mismatch:\n got = %+v\nwant = %+v", got, msg)
 	}
 }
 
