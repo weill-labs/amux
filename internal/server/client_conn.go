@@ -290,7 +290,8 @@ func (cc *clientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 		}
 		sess.logCommandExecution(cc.ID, msg.CmdName, msg.CmdArgs, msg.ActorPaneID, time.Since(started), ctx.auditErr)
 	}()
-	sess.enqueueClientActivity(cc)
+	// Command RPCs are control traffic. Only real terminal interaction
+	// (input, resize, focus) should transfer size ownership between clients.
 	handler, ok := srv.lookupCommand(msg.CmdName)
 	if !ok {
 		ctx.auditErr = fmt.Sprintf("unknown command: %s", msg.CmdName)
