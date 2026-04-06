@@ -249,6 +249,29 @@ func (c *Compositor) buildGridWithOverlay(root *mux.LayoutCell, activePaneID uin
 	return g, paneCount
 }
 
+const dirtyPaneParallelThreshold = 4
+
+type dirtyPaneComposite struct {
+	cell        *mux.LayoutCell
+	pd          PaneData
+	isActive    bool
+	pressed     bool
+	copyOverlay *proto.ViewportOverlay
+}
+
+func (c *Compositor) composeDirtyPane(g *ScreenGrid, layoutHeight int, pane dirtyPaneComposite) {
+	buildStatusCellsPressed(g, pane.cell, pane.isActive, pane.pressed, pane.pd)
+	contentH := c.visibleContentHeightForLayoutHeight(pane.cell, layoutHeight)
+	// Rebuild every row for dirty panes. TUI full-screen recomposes can
+	// move or clear lines without producing a pane-local dirty report that
+	// safely describes every changed row, so reusing cached rows here can
+	// leave stale cells until the next full redraw.
+	for row := 0; row < contentH; row++ {
+		buildPaneContentCells(g, pane.cell, row, pane.isActive, pane.pd, pane.copyOverlay)
+	}
+	clearPaneContentRows(g, pane.cell, contentH, mux.PaneContentHeight(pane.cell.H))
+}
+
 func (c *Compositor) buildGridWithOverlayDirty(
 	root *mux.LayoutCell,
 	activePaneID uint32,
@@ -264,14 +287,6 @@ func (c *Compositor) buildGridWithOverlayDirty(
 	g := c.prevGrid.Clone()
 	g.Debug = c.debug
 	layoutHeight := c.layoutHeightForHelpBar(overlay.HelpBar)
-
-	type dirtyPaneComposite struct {
-		cell        *mux.LayoutCell
-		pd          PaneData
-		isActive    bool
-		pressed     bool
-		copyOverlay *proto.ViewportOverlay
-	}
 
 	paneCount := 0
 	dirtyCells := make([]dirtyPaneComposite, 0, len(dirtyPanes))
@@ -298,22 +313,9 @@ func (c *Compositor) buildGridWithOverlayDirty(
 	})
 	compositedPanes := len(dirtyCells)
 
-	composeDirtyPane := func(pane dirtyPaneComposite) {
-		buildStatusCellsPressed(g, pane.cell, pane.isActive, pane.pressed, pane.pd)
-		contentH := c.visibleContentHeightForLayoutHeight(pane.cell, layoutHeight)
-		// Rebuild every row for dirty panes. TUI full-screen recomposes can
-		// move or clear lines without producing a pane-local dirty report that
-		// safely describes every changed row, so reusing cached rows here can
-		// leave stale cells until the next full redraw.
-		for row := 0; row < contentH; row++ {
-			buildPaneContentCells(g, pane.cell, row, pane.isActive, pane.pd, pane.copyOverlay)
-		}
-		clearPaneContentRows(g, pane.cell, contentH, mux.PaneContentHeight(pane.cell.H))
-	}
-
-	if len(dirtyCells) < 4 {
+	if len(dirtyCells) < dirtyPaneParallelThreshold {
 		for _, pane := range dirtyCells {
-			composeDirtyPane(pane)
+			c.composeDirtyPane(g, layoutHeight, pane)
 		}
 	} else {
 		var wg sync.WaitGroup
@@ -321,7 +323,7 @@ func (c *Compositor) buildGridWithOverlayDirty(
 		for _, pane := range dirtyCells {
 			go func(pane dirtyPaneComposite) {
 				defer wg.Done()
-				composeDirtyPane(pane)
+				c.composeDirtyPane(g, layoutHeight, pane)
 			}(pane)
 		}
 		wg.Wait()
