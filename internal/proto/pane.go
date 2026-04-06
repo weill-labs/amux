@@ -79,6 +79,13 @@ type CaptureHistoryLine struct {
 	Filled      bool
 }
 
+// StyledLine is one frozen line of text plus optional per-cell styling.
+// Cells may be nil when only plain text is available.
+type StyledLine struct {
+	Text  string
+	Cells []Cell
+}
+
 // CaptureSnapshot is a consistent plain-text snapshot of a pane's retained
 // history, visible screen, and cursor state.
 type CaptureSnapshot struct {

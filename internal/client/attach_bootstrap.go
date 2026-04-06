@@ -10,19 +10,21 @@ import (
 )
 
 type attachBootstrapMessage struct {
-	typ     proto.MsgType
-	paneID  uint32
-	history []string
-	data    []byte
+	typ           proto.MsgType
+	paneID        uint32
+	history       []string
+	styledHistory []proto.StyledLine
+	data          []byte
 }
 
 func newAttachBootstrapMessage(msg *proto.Message) (attachBootstrapMessage, bool) {
 	switch msg.Type {
 	case proto.MsgTypePaneHistory:
 		return attachBootstrapMessage{
-			typ:     msg.Type,
-			paneID:  msg.PaneID,
-			history: append([]string(nil), msg.History...),
+			typ:           msg.Type,
+			paneID:        msg.PaneID,
+			history:       append([]string(nil), msg.History...),
+			styledHistory: append([]proto.StyledLine(nil), msg.StyledHistory...),
 		}, true
 	case proto.MsgTypePaneOutput:
 		return attachBootstrapMessage{

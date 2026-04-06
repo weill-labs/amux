@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/creack/pty"
 	"github.com/weill-labs/amux/internal/proto"
 	"github.com/weill-labs/amux/internal/render"
@@ -358,17 +360,29 @@ func TestAttachBootstrapHelpers(t *testing.T) {
 			Type:    proto.MsgTypePaneHistory,
 			PaneID:  7,
 			History: []string{"older", "newer"},
+			StyledHistory: []proto.StyledLine{{
+				Text: "older",
+				Cells: []proto.Cell{{
+					Char:  "o",
+					Width: 1,
+					Style: uv.Style{Fg: ansi.BasicColor(1)},
+				}},
+			}},
 		}
 		historyBootstrap, ok := newAttachBootstrapMessage(historyMsg)
 		if !ok {
 			t.Fatal("history message should be accepted")
 		}
 		historyMsg.History[0] = "mutated"
+		historyMsg.StyledHistory[0].Text = "mutated"
 		if historyBootstrap.typ != proto.MsgTypePaneHistory || historyBootstrap.paneID != 7 {
 			t.Fatalf("history bootstrap = %+v, want pane history for pane 7", historyBootstrap)
 		}
 		if len(historyBootstrap.history) != 2 || historyBootstrap.history[0] != "older" {
 			t.Fatalf("history bootstrap copy = %q, want original history", historyBootstrap.history)
+		}
+		if len(historyBootstrap.styledHistory) != 1 || historyBootstrap.styledHistory[0].Text != "older" {
+			t.Fatalf("styled history bootstrap copy = %+v, want original styled history", historyBootstrap.styledHistory)
 		}
 
 		outputMsg := &proto.Message{
@@ -574,6 +588,40 @@ func TestReadAttachBootstrapAppliesImmediateReattachResizeCorrectionBeforeReturn
 	if len(lines) == 0 || lines[0] != resizedLine {
 		t.Fatalf("pane-1 first line after bootstrap = %q, want %q", lines[0], resizedLine)
 	}
+}
+
+func TestApplyAttachBootstrapMessagePreservesStyledPaneHistory(t *testing.T) {
+	t.Parallel()
+
+	cr := NewClientRenderer(20, 4)
+	cr.HandleLayout(singlePane20x3())
+	red := ansi.BasicColor(1)
+
+	applyAttachBootstrapMessage(cr, attachBootstrapMessage{
+		typ:     proto.MsgTypePaneHistory,
+		paneID:  1,
+		history: []string{"base"},
+		styledHistory: []proto.StyledLine{{
+			Text: "base",
+			Cells: []proto.Cell{
+				{Char: "b", Width: 1, Style: uv.Style{Fg: red}},
+				{Char: "a", Width: 1},
+				{Char: "s", Width: 1},
+				{Char: "e", Width: 1},
+			},
+		}},
+	})
+
+	cr.EnterCopyMode(1)
+	cm := cr.CopyModeForPane(1)
+	if cm == nil {
+		t.Fatal("copy mode should exist for pane-1")
+	}
+	cell := cm.ViewportCellAt(0, 0)
+	if cell.Style.Fg == nil {
+		t.Fatal("copy-mode scrollback cell should preserve its foreground color")
+	}
+	assertSameColor(t, cell.Style.Fg, red)
 }
 
 func TestReadImmediateAttachCorrectionReturnsErrorOnConnectionClose(t *testing.T) {
