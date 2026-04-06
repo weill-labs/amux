@@ -697,14 +697,15 @@ func (s *Server) shutdown() {
 	for _, sess := range s.sessions {
 		sess.shutdown.Store(true)
 
+		// Persist one final snapshot before the checkpoint coordinator stops so
+		// the next start can restore the latest clean-shutdown state.
+		_, _ = sess.writeCrashCheckpointNow()
+
 		sess.stopEventLoop()
 
 		// Stop crash checkpoint loop and wait for it to exit.
 		// The shutdown flag prevents any further writes.
 		sess.stopCrashCheckpointLoop()
-
-		// Clean shutdown: remove crash checkpoint (no recovery needed)
-		_ = checkpoint.RemoveCrashFile(checkpoint.CrashCheckpointPathTimestamped(sess.Name, sess.startedAt))
 
 		if sess.RemoteManager != nil {
 			sess.RemoteManager.Shutdown()
