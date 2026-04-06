@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -174,4 +175,40 @@ func (s *Session) reorderWindow(from, to int) bool {
 	}
 	s.Windows[to-1] = window
 	return true
+}
+
+func (s *Session) movePaneToWindow(paneID, targetWindowID uint32) error {
+	source := s.findWindowByPaneID(paneID)
+	if source == nil {
+		return fmt.Errorf("pane %d not found", paneID)
+	}
+	target := s.windowByID(targetWindowID)
+	if target == nil {
+		return fmt.Errorf("window %d not found", targetWindowID)
+	}
+	if source.ID == target.ID {
+		return nil
+	}
+
+	pane := s.findPaneByID(paneID)
+	if pane == nil {
+		return fmt.Errorf("pane %d not found", paneID)
+	}
+
+	sourceWasActive := source.ID == s.ActiveWindowID
+	sourceRemoved := source.PaneCount() <= 1
+	if sourceRemoved {
+		s.removeWindow(source.ID)
+	} else if err := source.ClosePane(paneID); err != nil {
+		return err
+	}
+
+	if _, err := target.SplitRootWithOptions(mux.SplitVertical, pane, mux.SplitOptions{KeepFocus: true}); err != nil {
+		return err
+	}
+
+	if sourceWasActive && sourceRemoved {
+		s.activateWindow(target)
+	}
+	return nil
 }

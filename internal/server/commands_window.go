@@ -1,6 +1,11 @@
 package server
 
-import layoutcmd "github.com/weill-labs/amux/internal/server/commands/layout"
+import (
+	"fmt"
+
+	commandpkg "github.com/weill-labs/amux/internal/server/commands"
+	layoutcmd "github.com/weill-labs/amux/internal/server/commands/layout"
+)
 
 func cmdNewWindow(ctx *CommandContext) {
 	ctx.applyCommandResult(layoutcmd.NewWindow(layoutCommandContext{ctx}, ctx.Args))
@@ -37,4 +42,31 @@ func cmdRenameWindow(ctx *CommandContext) {
 
 func cmdReorderWindow(ctx *CommandContext) {
 	ctx.applyCommandResult(layoutcmd.ReorderWindow(layoutCommandContext{ctx}, ctx.Args))
+}
+
+func cmdMovePaneToWindow(ctx *CommandContext) {
+	if len(ctx.Args) != 2 {
+		ctx.applyCommandResult(commandpkg.Result{Err: fmt.Errorf("usage: move-pane-to-window <pane> <window>")})
+		return
+	}
+	ctx.replyCommandMutation(ctx.Sess.enqueueCommandMutation(func(mctx *MutationContext) commandMutationResult {
+		if err := movePaneToWindow(mctx, ctx.ActorPaneID, ctx.Args[0], ctx.Args[1]); err != nil {
+			return commandMutationResult{err: err}
+		}
+		return commandMutationResult{broadcastLayout: true}
+	}))
+}
+
+func movePaneToWindow(mctx *MutationContext, actorPaneID uint32, paneRef, windowRef string) error {
+	pane, _, err := mctx.resolvePaneAcrossWindowsForActor(actorPaneID, paneRef)
+	if err != nil {
+		return err
+	}
+	target := mctx.resolveWindow(windowRef)
+	if target == nil {
+		return fmt.Errorf("window %q not found", windowRef)
+	}
+	return mutationContextDo(mctx, func(sess *Session) error {
+		return sess.movePaneToWindow(pane.ID, target.ID)
+	})
 }

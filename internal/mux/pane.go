@@ -727,24 +727,28 @@ func (p *Pane) WaitClosed() error {
 }
 
 func (p *Pane) closeBlocking() error {
-	proc := p.shellProcess()
+	state := p.detachRuntimeState()
+	proc := state.process
+	if proc == nil && state.cmd != nil {
+		proc = state.cmd.Process
+	}
 	if proc != nil {
 		_ = proc.Signal(syscall.SIGHUP)
 	}
 	var ptmxErr error
-	if p.ptmx != nil {
-		ptmxErr = p.ptmx.Close()
+	if state.ptmx != nil {
+		ptmxErr = state.ptmx.Close()
 	}
-	if p.readLoopDone != nil {
-		<-p.readLoopDone
+	if state.readLoopDone != nil {
+		<-state.readLoopDone
 	}
-	p.waitForProcessExit(proc, 2*time.Second)
+	p.waitForDetachedProcessExit(state, proc, 2*time.Second)
 	p.stopActor()
 	emuErr := func() error {
-		if p.emulator == nil {
+		if state.emulator == nil {
 			return nil
 		}
-		return p.emulator.Close()
+		return state.emulator.Close()
 	}()
 	return errors.Join(ptmxErr, emuErr)
 }
@@ -862,11 +866,10 @@ func (p *Pane) Respawn(sessionName, dir string) error {
 		return err
 	}
 	emu := newPaneEmulator(cols, rows, p.scrollbackLimit)
-	oldEmu := p.emulator
-	oldDrainLoopDone := p.drainLoopDone
 
 	p.suppressExit.Store(true)
-	p.stopForRespawn()
+	old := p.detachForRespawn()
+	p.stopDetachedForRespawn(old)
 	p.withActor(func() {
 		p.ptmx = ptmx
 		p.cmd = cmd
@@ -889,27 +892,108 @@ func (p *Pane) Respawn(sessionName, dir string) error {
 		p.Meta.Dir = dir
 		wireScrollbackCallbacks(p)
 	})
-	if oldEmu != nil {
-		_ = oldEmu.Close()
-	}
-	if oldDrainLoopDone != nil {
-		<-oldDrainLoopDone
-	}
 	return nil
 }
 
-func (p *Pane) stopForRespawn() {
-	proc := p.shellProcess()
+type detachedPaneState struct {
+	ptmx          *os.File
+	cmd           *exec.Cmd
+	process       *os.Process
+	emulator      TerminalEmulator
+	readLoopDone  chan struct{}
+	drainLoopDone chan struct{}
+	waitLoopDone  chan struct{}
+	exitDone      chan struct{}
+}
+
+func (p *Pane) detachRuntimeState() detachedPaneState {
+	return paneActorValue(p, func() detachedPaneState {
+		state := detachedPaneState{
+			ptmx:          p.ptmx,
+			cmd:           p.cmd,
+			process:       p.process,
+			emulator:      p.emulator,
+			readLoopDone:  p.readLoopDone,
+			drainLoopDone: p.drainLoopDone,
+			waitLoopDone:  p.waitLoopDone,
+			exitDone:      p.exitDone,
+		}
+		p.ptmx = nil
+		p.cmd = nil
+		p.process = nil
+		p.readLoopDone = nil
+		p.drainLoopDone = nil
+		p.waitLoopDone = nil
+		return state
+	})
+}
+
+func (p *Pane) detachForRespawn() detachedPaneState {
+	return p.detachRuntimeState()
+}
+
+func (p *Pane) stopDetachedForRespawn(state detachedPaneState) {
+	proc := state.process
+	if proc == nil && state.cmd != nil {
+		proc = state.cmd.Process
+	}
 	if proc != nil {
 		_ = proc.Signal(syscall.SIGHUP)
 	}
-	if p.ptmx != nil {
-		_ = p.ptmx.Close()
+	if state.ptmx != nil {
+		_ = state.ptmx.Close()
 	}
-	if p.readLoopDone != nil {
-		<-p.readLoopDone
+	if state.readLoopDone != nil {
+		<-state.readLoopDone
 	}
-	p.waitForProcessExit(proc, 2*time.Second)
+	p.waitForDetachedProcessExit(state, proc, 2*time.Second)
+	if state.emulator != nil {
+		_ = state.emulator.Close()
+	}
+	if state.drainLoopDone != nil {
+		<-state.drainLoopDone
+	}
+}
+
+func (p *Pane) waitForDetachedProcessExit(state detachedPaneState, proc *os.Process, timeout time.Duration) {
+	if proc == nil {
+		return
+	}
+	if state.waitLoopDone != nil {
+		select {
+		case <-state.exitDone:
+		case <-time.After(timeout):
+			_ = proc.Signal(syscall.SIGKILL)
+			<-state.exitDone
+		}
+		<-state.waitLoopDone
+		return
+	}
+	if state.cmd == nil {
+		select {
+		case <-state.exitDone:
+		case <-time.After(timeout):
+			_ = proc.Signal(syscall.SIGKILL)
+			<-state.exitDone
+		}
+		return
+	}
+
+	waitDone := make(chan struct{})
+	cmd := state.cmd
+	exitDone := state.exitDone
+	go func() {
+		_ = cmd.Wait()
+		close(exitDone)
+		close(waitDone)
+	}()
+
+	select {
+	case <-waitDone:
+	case <-time.After(timeout):
+		_ = proc.Signal(syscall.SIGKILL)
+		<-waitDone
+	}
 }
 
 // Replacement clones a local PTY pane into a fresh shell process with the same

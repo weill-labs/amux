@@ -874,3 +874,63 @@ sleep 2
 		t.Fatalf("wheel-up in alt-screen without mouse mode should not enter copy mode.\nScreen:\n%s", h.captureOuter())
 	}
 }
+
+func TestMouseDragOntoWindowTabMovesPaneToWindow(t *testing.T) {
+	t.Parallel()
+
+	h := newAmuxHarness(t)
+
+	h.splitV()
+	h.runCmd("new-window", "--name", "logs")
+	h.runCmd("select-window", "1")
+
+	startX, startY := paneStatusCoords(t, h, "pane-2")
+	tabX, tabY := windowTabCoords(t, h.captureOuter(), "2:logs")
+
+	h.sendMouseSGR(0, startX, startY, true)
+	time.Sleep(50 * time.Millisecond)
+	h.sendMouseSGR(32, tabX, tabY, true)
+	time.Sleep(50 * time.Millisecond)
+	h.sendMouseSGR(0, tabX, tabY, false)
+
+	h.assertScreen("source window should keep pane-1 after drag-to-tab", func(s string) bool {
+		return strings.Contains(s, "[pane-1]") && !strings.Contains(s, "[pane-2]")
+	})
+
+	h.runCmd("select-window", "2")
+	h.assertScreen("target window should receive pane-2 after drag-to-tab", func(s string) bool {
+		return strings.Contains(s, "[pane-2]") && strings.Contains(s, "[pane-3]")
+	})
+}
+
+func TestMouseDragWindowTabDwellSwitchesWindowAndKeepsDrag(t *testing.T) {
+	t.Parallel()
+
+	h := newAmuxHarness(t)
+
+	h.splitV()
+	h.runCmd("new-window", "--name", "logs")
+	h.runCmd("select-window", "1")
+
+	startX, startY := paneStatusCoords(t, h, "pane-2")
+	tabX, tabY := windowTabCoords(t, h.captureOuter(), "2:logs")
+
+	h.sendMouseSGR(0, startX, startY, true)
+	time.Sleep(50 * time.Millisecond)
+	h.sendMouseSGR(32, tabX, tabY, true)
+
+	if !waitForOuterContains(h, func(s string) bool {
+		return strings.Contains(s, "[pane-3]") && !strings.Contains(s, "[pane-2]")
+	}, 2*time.Second) {
+		t.Fatalf("dwell should switch to logs window while drag stays active\nScreen:\n%s", h.captureOuter())
+	}
+
+	dropX, dropY := paneEdgeCoords(t, h, "pane-3", "left")
+	h.sendMouseSGR(32, dropX, dropY, true)
+	time.Sleep(50 * time.Millisecond)
+	h.sendMouseSGR(0, dropX, dropY, false)
+
+	h.assertScreen("dropping after dwell should position pane-2 in target window", func(s string) bool {
+		return strings.Contains(s, "[pane-2]") && strings.Contains(s, "[pane-3]")
+	})
+}

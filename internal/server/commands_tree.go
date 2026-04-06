@@ -234,19 +234,21 @@ func cmdMoveTo(ctx *CommandContext) {
 
 func runDropPane(ctx *CommandContext, actorPaneID uint32, paneRef, targetRef, edge string) commandpkg.Result {
 	return toCommandResult(ctx.Sess.enqueueCommandMutation(func(mctx *MutationContext) commandMutationResult {
-		w := mctx.windowForActor(actorPaneID)
-		if w == nil {
-			return commandMutationResult{err: fmt.Errorf("no session")}
-		}
-
-		pane, err := w.ResolvePane(paneRef)
+		pane, sourceWindow, err := mctx.resolvePaneAcrossWindowsForActor(actorPaneID, paneRef)
 		if err != nil {
 			return commandMutationResult{err: err}
 		}
 
 		dir, insertFirst := dropPanePlacement(edge)
 		if targetRef == "root" {
-			if err := w.MovePaneToRootEdge(pane.ID, dir, insertFirst); err != nil {
+			targetWindow := mctx.windowForActor(actorPaneID)
+			if targetWindow == nil {
+				return commandMutationResult{err: fmt.Errorf("no session")}
+			}
+			if err := ensurePaneInWindow(mctx, pane.ID, sourceWindow, targetWindow); err != nil {
+				return commandMutationResult{err: err}
+			}
+			if err := targetWindow.MovePaneToRootEdge(pane.ID, dir, insertFirst); err != nil {
 				return commandMutationResult{err: err}
 			}
 			return commandMutationResult{
@@ -255,11 +257,17 @@ func runDropPane(ctx *CommandContext, actorPaneID uint32, paneRef, targetRef, ed
 			}
 		}
 
-		target, err := w.ResolvePane(targetRef)
+		target, targetWindow, err := mctx.resolvePaneAcrossWindowsForActor(actorPaneID, targetRef)
 		if err != nil {
 			return commandMutationResult{err: err}
 		}
-		if err := w.MovePaneIntoSplit(pane.ID, target.ID, dir, insertFirst); err != nil {
+		if targetWindow == nil {
+			return commandMutationResult{err: fmt.Errorf("no session")}
+		}
+		if err := ensurePaneInWindow(mctx, pane.ID, sourceWindow, targetWindow); err != nil {
+			return commandMutationResult{err: err}
+		}
+		if err := targetWindow.MovePaneIntoSplit(pane.ID, target.ID, dir, insertFirst); err != nil {
 			return commandMutationResult{err: err}
 		}
 		return commandMutationResult{
@@ -267,6 +275,15 @@ func runDropPane(ctx *CommandContext, actorPaneID uint32, paneRef, targetRef, ed
 			broadcastLayout: true,
 		}
 	}))
+}
+
+func ensurePaneInWindow(mctx *MutationContext, paneID uint32, sourceWindow, targetWindow *mux.Window) error {
+	if sourceWindow == nil || targetWindow == nil || sourceWindow.ID == targetWindow.ID {
+		return nil
+	}
+	return mutationContextDo(mctx, func(sess *Session) error {
+		return sess.movePaneToWindow(paneID, targetWindow.ID)
+	})
 }
 
 func cmdDropPane(ctx *CommandContext) {
