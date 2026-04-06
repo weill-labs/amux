@@ -30,6 +30,13 @@ type globalBarWindowTab struct {
 	end     int
 }
 
+// GlobalBarWindowDropTarget describes a tab reorder destination resolved from
+// a hovered global-bar tab.
+type GlobalBarWindowDropTarget struct {
+	DestinationIndex int
+	IndicatorColumn  int
+}
+
 type paneStatusMetadataItem struct {
 	text   string
 	status proto.TrackedStatus
@@ -465,6 +472,43 @@ func GlobalBarWindowAtColumn(windows []WindowInfo, x int) (WindowInfo, bool) {
 		}
 	}
 	return WindowInfo{}, false
+}
+
+// GlobalBarWindowDropTargetAtColumn resolves a hovered tab to a destination
+// index and insertion-marker column for drag-reordering window tabs.
+func GlobalBarWindowDropTargetAtColumn(windows []WindowInfo, sourceIndex, x int) (GlobalBarWindowDropTarget, bool) {
+	tabs := buildGlobalBarWindowTabs(windows)
+	if len(tabs) == 0 || sourceIndex < 1 || sourceIndex > len(tabs) {
+		return GlobalBarWindowDropTarget{}, false
+	}
+
+	for i, tab := range tabs {
+		if x < tab.start || x >= tab.end {
+			continue
+		}
+		hoveredIndex := i + 1
+		if hoveredIndex == sourceIndex {
+			return GlobalBarWindowDropTarget{}, false
+		}
+
+		dest := hoveredIndex
+		col := tab.start
+		if x >= tab.start+(tab.end-tab.start)/2 {
+			dest++
+			col = tab.end
+		} else if hoveredIndex > 1 {
+			col = tabs[i-1].end
+		}
+		if sourceIndex < hoveredIndex {
+			dest--
+		}
+		return GlobalBarWindowDropTarget{
+			DestinationIndex: dest,
+			IndicatorColumn:  col,
+		}, true
+	}
+
+	return GlobalBarWindowDropTarget{}, false
 }
 
 // GlobalBarHelpToggleAtColumn reports whether x hits the clickable "? help"

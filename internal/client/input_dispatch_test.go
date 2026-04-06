@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/copymode"
@@ -67,6 +68,50 @@ func buildMultiWindowRendererAt(t *testing.T, activeWindowID uint32) *ClientRend
 	return cr
 }
 
+func threeWindow80x23(activeWindowID uint32) *proto.LayoutSnapshot {
+	windows := []proto.WindowSnapshot{
+		{
+			ID: 1, Name: "editor", Index: 1, ActivePaneID: 1,
+			Root:  proto.CellSnapshot{X: 0, Y: 0, W: 80, H: 23, IsLeaf: true, Dir: -1, PaneID: 1},
+			Panes: []proto.PaneSnapshot{{ID: 1, Name: "pane-1", Host: "local", Task: "server", Color: "f5e0dc"}},
+		},
+		{
+			ID: 2, Name: "logs", Index: 2, ActivePaneID: 2,
+			Root:  proto.CellSnapshot{X: 0, Y: 0, W: 80, H: 23, IsLeaf: true, Dir: -1, PaneID: 2},
+			Panes: []proto.PaneSnapshot{{ID: 2, Name: "pane-2", Host: "local", Task: "tail", Color: "f2cdcd"}},
+		},
+		{
+			ID: 3, Name: "docs", Index: 3, ActivePaneID: 3,
+			Root:  proto.CellSnapshot{X: 0, Y: 0, W: 80, H: 23, IsLeaf: true, Dir: -1, PaneID: 3},
+			Panes: []proto.PaneSnapshot{{ID: 3, Name: "pane-3", Host: "local", Task: "notes", Color: "cba6f7"}},
+		},
+	}
+
+	snap := &proto.LayoutSnapshot{
+		SessionName:    "test",
+		Width:          80,
+		Height:         23,
+		Windows:        windows,
+		ActiveWindowID: activeWindowID,
+	}
+	for _, ws := range windows {
+		if ws.ID == activeWindowID {
+			snap.ActivePaneID = ws.ActivePaneID
+			snap.Root = ws.Root
+			break
+		}
+	}
+	return snap
+}
+
+func buildThreeWindowRendererAt(t *testing.T, activeWindowID uint32) *ClientRenderer {
+	t.Helper()
+
+	cr := NewClientRenderer(80, 24)
+	cr.HandleLayout(threeWindow80x23(activeWindowID))
+	return cr
+}
+
 func globalBarClickColumn(t *testing.T, cr *ClientRenderer, label string) int {
 	t.Helper()
 
@@ -79,7 +124,7 @@ func globalBarClickColumn(t *testing.T, cr *ClientRenderer, label string) int {
 	if col < 0 {
 		t.Fatalf("global bar %q missing %q", bar, label)
 	}
-	return col
+	return utf8.RuneCountInString(bar[:col])
 }
 
 func globalBarRow(t *testing.T, cr *ClientRenderer) int {
@@ -964,18 +1009,21 @@ func TestHandleMouseEventGlobalBarClickSendsSelectWindowCommand(t *testing.T) {
 	tests := []struct {
 		name         string
 		activeWindow uint32
+		sourceWindow int
 		clickLabel   string
 		wantWindow   string
 	}{
 		{
 			name:         "click second tab from first window",
 			activeWindow: 1,
+			sourceWindow: 2,
 			clickLabel:   "2:logs",
 			wantWindow:   "2",
 		},
 		{
 			name:         "click first tab from second window",
 			activeWindow: 2,
+			sourceWindow: 1,
 			clickLabel:   "1:editor",
 			wantWindow:   "1",
 		},
@@ -1001,10 +1049,21 @@ func TestHandleMouseEventGlobalBarClickSendsSelectWindowCommand(t *testing.T) {
 			x := globalBarClickColumn(t, cr, tt.clickLabel)
 			y := globalBarRow(t, cr)
 
+			handleMouseEvent(mouse.Event{
+				Action: mouse.Press,
+				Button: mouse.ButtonLeft,
+				X:      x,
+				Y:      y,
+			}, cr, sender, &drag, nil)
+			if !drag.WindowTabActive || drag.WindowDragSourceIndex != tt.sourceWindow {
+				t.Fatalf("window drag state after press = %+v", drag)
+			}
+			assertNoMessage(t, serverConn)
+
 			done := make(chan struct{})
 			go func() {
 				handleMouseEvent(mouse.Event{
-					Action: mouse.Press,
+					Action: mouse.Release,
 					Button: mouse.ButtonLeft,
 					X:      x,
 					Y:      y,
@@ -1023,7 +1082,75 @@ func TestHandleMouseEventGlobalBarClickSendsSelectWindowCommand(t *testing.T) {
 				t.Fatalf("command args = %v, want [%s]", msg.CmdArgs, tt.wantWindow)
 			}
 			<-done
+			if drag.WindowTabActive {
+				t.Fatalf("window drag should clear on release, got %+v", drag)
+			}
 		})
+	}
+}
+
+func TestHandleMouseEventGlobalBarDragSendsReorderWindowCommand(t *testing.T) {
+	t.Parallel()
+
+	cr := buildThreeWindowRendererAt(t, 2)
+
+	clientConn, serverConn := net.Pipe()
+	t.Cleanup(func() {
+		clientConn.Close()
+		serverConn.Close()
+	})
+
+	sender := newMessageSender(clientConn)
+	t.Cleanup(sender.Close)
+
+	var drag dragState
+	pressX := globalBarClickColumn(t, cr, "1:editor")
+	hoverX := globalBarClickColumn(t, cr, "3:docs") + len("3:docs") - 1
+	y := globalBarRow(t, cr)
+
+	handleMouseEvent(mouse.Event{
+		Action: mouse.Press,
+		Button: mouse.ButtonLeft,
+		X:      pressX,
+		Y:      y,
+	}, cr, sender, &drag, nil)
+	assertNoMessage(t, serverConn)
+
+	handleMouseEvent(mouse.Event{
+		Action: mouse.Motion,
+		Button: mouse.ButtonLeft,
+		X:      hoverX,
+		Y:      y,
+	}, cr, sender, &drag, nil)
+
+	if indicator := cr.overlayState().WindowDropIndicator; indicator == nil {
+		t.Fatal("window drag motion should show a drop indicator")
+	}
+
+	done := make(chan struct{})
+	go func() {
+		handleMouseEvent(mouse.Event{
+			Action: mouse.Release,
+			Button: mouse.ButtonLeft,
+			X:      hoverX,
+			Y:      y,
+		}, cr, sender, &drag, nil)
+		close(done)
+	}()
+
+	msg := readCommandMessage(t, serverConn)
+	if msg.Type != proto.MsgTypeCommand {
+		t.Fatalf("message type = %d, want %d", msg.Type, proto.MsgTypeCommand)
+	}
+	if msg.CmdName != "reorder-window" {
+		t.Fatalf("command = %q, want reorder-window", msg.CmdName)
+	}
+	if len(msg.CmdArgs) != 2 || msg.CmdArgs[0] != "1" || msg.CmdArgs[1] != "3" {
+		t.Fatalf("command args = %v, want [1 3]", msg.CmdArgs)
+	}
+	<-done
+	if indicator := cr.overlayState().WindowDropIndicator; indicator != nil {
+		t.Fatalf("window drag release should clear the drop indicator, got %+v", indicator)
 	}
 }
 
@@ -1138,10 +1265,18 @@ func TestHandleMouseEventGlobalBarClickSelectsWindowWhenHelpIsHidden(t *testing.
 	x := globalBarClickColumn(t, cr, "2:logs")
 	y := globalBarRow(t, cr)
 
+	handleMouseEvent(mouse.Event{
+		Action: mouse.Press,
+		Button: mouse.ButtonLeft,
+		X:      x,
+		Y:      y,
+	}, cr, sender, &drag, nil)
+	assertNoMessage(t, serverConn)
+
 	done := make(chan struct{})
 	go func() {
 		handleMouseEvent(mouse.Event{
-			Action: mouse.Press,
+			Action: mouse.Release,
 			Button: mouse.ButtonLeft,
 			X:      x,
 			Y:      y,

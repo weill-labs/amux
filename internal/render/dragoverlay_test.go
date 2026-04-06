@@ -81,3 +81,20 @@ func TestRenderDropIndicator(t *testing.T) {
 		})
 	}
 }
+
+func TestWindowDropIndicatorOverlay(t *testing.T) {
+	t.Parallel()
+
+	grid := NewScreenGrid(8, 3)
+	buildWindowDropIndicatorCell(grid, &WindowDropIndicatorOverlay{Column: 4}, 2)
+	if got := grid.Get(4, 2).Char; got != windowDropIndicatorChar {
+		t.Fatalf("grid.Get(4, 2).Char = %q, want %q", got, windowDropIndicatorChar)
+	}
+
+	var buf strings.Builder
+	renderWindowDropIndicator(&buf, &WindowDropIndicatorOverlay{Column: 4}, 2, defaultColorProfile)
+	got := buf.String()
+	if !strings.Contains(got, "\x1b[3;5H") || !strings.Contains(got, windowDropIndicatorChar) {
+		t.Fatalf("renderWindowDropIndicator() = %q, want cursor move and indicator char", got)
+	}
+}

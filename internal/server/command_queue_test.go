@@ -105,6 +105,40 @@ func TestQueuedCommandResizeWindow(t *testing.T) {
 	assertSessionLayoutConsistent(t, sess)
 }
 
+func TestQueuedCommandReorderWindow(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	w1 := newTestWindowWithPanes(t, sess, 1, "window-1", newTestPane(sess, 1, "pane-1"))
+	w2 := newTestWindowWithPanes(t, sess, 2, "window-2", newTestPane(sess, 2, "pane-2"))
+	w3 := newTestWindowWithPanes(t, sess, 3, "window-3", newTestPane(sess, 3, "pane-3"))
+	sess.Windows = []*mux.Window{w1, w2, w3}
+	sess.ActiveWindowID = w2.ID
+	sess.Panes = append(append(w1.Panes(), w2.Panes()...), w3.Panes()...)
+
+	before := sess.generation.Load()
+	res := runTestCommand(t, srv, sess, "reorder-window", "3", "1")
+
+	if res.cmdErr != "" {
+		t.Fatalf("reorder-window error: %s", res.cmdErr)
+	}
+	if !strings.Contains(res.output, "Reordered window") {
+		t.Fatalf("reorder-window output = %q", res.output)
+	}
+	if got := []uint32{sess.Windows[0].ID, sess.Windows[1].ID, sess.Windows[2].ID}; got[0] != w3.ID || got[1] != w1.ID || got[2] != w2.ID {
+		t.Fatalf("window order = %v, want [%d %d %d]", got, w3.ID, w1.ID, w2.ID)
+	}
+	if sess.ActiveWindowID != w2.ID {
+		t.Fatalf("active window = %d, want %d", sess.ActiveWindowID, w2.ID)
+	}
+	if sess.generation.Load() <= before {
+		t.Fatal("expected layout generation to increment")
+	}
+	assertSessionLayoutConsistent(t, sess)
+}
+
 func TestQueuedCommandFocusAcrossWindows(t *testing.T) {
 	t.Parallel()
 

@@ -160,3 +160,18 @@ func (s *Session) activateWindow(w *mux.Window) {
 	s.ActiveWindowID = w.ID
 	s.syncWindowSizeToEffectiveClient(w)
 }
+
+func (s *Session) reorderWindow(from, to int) bool {
+	if from < 1 || from > len(s.Windows) || to < 1 || to > len(s.Windows) || from == to {
+		return false
+	}
+
+	window := s.Windows[from-1]
+	if from < to {
+		copy(s.Windows[from-1:to-1], s.Windows[from:to])
+	} else {
+		copy(s.Windows[to:from], s.Windows[to-1:from-1])
+	}
+	s.Windows[to-1] = window
+	return true
+}

@@ -175,6 +175,13 @@ func (ctx *MutationContext) prevWindow() {
 	})
 }
 
+func (ctx *MutationContext) reorderWindow(from, to int) bool {
+	changed, _ := mutationContextCall(ctx, func(sess *Session) (bool, error) {
+		return sess.reorderWindow(from, to), nil
+	})
+	return changed
+}
+
 func (ctx *MutationContext) lastWindow() bool {
 	changed, _ := mutationContextCall(ctx, func(sess *Session) (bool, error) {
 		return sess.lastWindow(), nil
