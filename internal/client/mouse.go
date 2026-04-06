@@ -624,7 +624,7 @@ func handleGlobalBarMouseEvent(ev mouse.Event, layout *mux.LayoutCell, cr *Clien
 		return false
 	}
 	if ev.Action != mouse.Press || ev.Button != mouse.ButtonLeft {
-		return true
+		return false
 	}
 
 	paneCount := globalBarPaneCount(layout)

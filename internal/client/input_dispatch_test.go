@@ -1593,7 +1593,7 @@ func TestResolveWindowTabDropTarget(t *testing.T) {
 	}
 
 	inactiveX := globalBarClickColumn(t, cr, "2:logs")
-	target, overWindowTab := resolveWindowTabDropTarget(cr, layout, 2, inactiveX, globalBarRow(t, cr))
+	target, overWindowTab := resolvePaneWindowTabDropTarget(cr, layout, 2, inactiveX, globalBarRow(t, cr))
 	if !overWindowTab {
 		t.Fatal("inactive tab should be recognized as a window-tab target")
 	}
@@ -1602,7 +1602,7 @@ func TestResolveWindowTabDropTarget(t *testing.T) {
 	}
 
 	activeX := globalBarClickColumn(t, cr, "1:editor")
-	target, overWindowTab = resolveWindowTabDropTarget(cr, layout, 2, activeX, globalBarRow(t, cr))
+	target, overWindowTab = resolvePaneWindowTabDropTarget(cr, layout, 2, activeX, globalBarRow(t, cr))
 	if !overWindowTab {
 		t.Fatal("active tab should still be recognized as a window-tab hit")
 	}
@@ -1610,7 +1610,7 @@ func TestResolveWindowTabDropTarget(t *testing.T) {
 		t.Fatalf("active tab target = %#v, want nil", target)
 	}
 
-	target, overWindowTab = resolveWindowTabDropTarget(cr, layout, 2, globalBarClickColumn(t, cr, "panes"), globalBarRow(t, cr))
+	target, overWindowTab = resolvePaneWindowTabDropTarget(cr, layout, 2, globalBarClickColumn(t, cr, "panes"), globalBarRow(t, cr))
 	if overWindowTab || target != nil {
 		t.Fatalf("non-tab global bar hit = (%#v, %v), want (nil, false)", target, overWindowTab)
 	}
