@@ -114,13 +114,18 @@ func (e idleTimeoutEvent) handle(s *Session) {
 		PaneName: paneName,
 		Host:     host,
 	})
-	if pane != nil && pane.AgentStatus().Idle {
-		s.emitEvent(Event{
-			Type:     EventExited,
-			PaneID:   e.paneID,
-			PaneName: paneName,
-			Host:     host,
-		})
+	// Check AgentStatus off the event loop — it forks pgrep/ps subprocesses
+	// that can block for 50-200ms per pane (see #657).
+	if pane != nil {
+		go func() {
+			idle := pane.AgentStatus().Idle
+			s.enqueueEvent(agentIdleCheckResultEvent{
+				paneID:   e.paneID,
+				paneName: paneName,
+				host:     host,
+				idle:     idle,
+			})
+		}()
 	}
 	s.broadcastLayoutNow()
 }
@@ -134,6 +139,25 @@ func (e vtIdleTimeoutEvent) handle(s *Session) {
 	if !s.ensureIdleTracker().HandleVTIdleTimeout(e.paneID, e.lastOutput) {
 		return
 	}
+}
+
+type agentIdleCheckResultEvent struct {
+	paneID   uint32
+	paneName string
+	host     string
+	idle     bool
+}
+
+func (e agentIdleCheckResultEvent) handle(s *Session) {
+	if !e.idle {
+		return
+	}
+	s.emitEvent(Event{
+		Type:     EventExited,
+		PaneID:   e.paneID,
+		PaneName: e.paneName,
+		Host:     e.host,
+	})
 }
 
 type cwdBranchResultEvent struct {

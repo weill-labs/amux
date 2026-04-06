@@ -1462,6 +1462,108 @@ func TestIdleTimeoutEventEmitsExitedWhenPaneHasNoChildren(t *testing.T) {
 	}
 }
 
+func TestIdleTimeoutEventEmitsExitedAsyncWithoutBlockingLoop(t *testing.T) {
+	t.Parallel()
+
+	sess := newSession("test-idle-timeout-async")
+	stopCrashCheckpointLoop(t, sess)
+	defer stopSessionBackgroundLoops(t, sess)
+
+	pane := newProxyPane(1, mux.PaneMeta{
+		Name:  "pane-1",
+		Host:  mux.DefaultHost,
+		Color: "f5e0dc",
+	}, 80, 23, nil, nil, nil)
+	w := mux.NewWindow(pane, 80, 23)
+	w.ID = 1
+	w.Name = "window-1"
+	sess.Windows = []*mux.Window{w}
+	sess.ActiveWindowID = w.ID
+	sess.Panes = []*mux.Pane{pane}
+
+	// Subscribe to both idle and exited events to verify ordering.
+	res := sess.enqueueEventSubscribe(eventFilter{Types: []string{EventIdle, EventExited}}, false)
+	if res.sub == nil {
+		t.Fatal("subscribe returned nil")
+	}
+	defer sess.enqueueEventUnsubscribe(res.sub)
+
+	sess.enqueueIdleTimeout(pane.ID)
+
+	// Collect both events — idle should arrive first, exited second.
+	var events []Event
+	for i := 0; i < 2; i++ {
+		select {
+		case data := <-res.sub.Ch:
+			var ev Event
+			if err := json.Unmarshal(data, &ev); err != nil {
+				t.Fatalf("json.Unmarshal: %v", err)
+			}
+			events = append(events, ev)
+		case <-time.After(time.Second):
+			t.Fatalf("timed out waiting for event %d; got %d events so far", i+1, len(events))
+		}
+	}
+
+	if events[0].Type != EventIdle {
+		t.Fatalf("first event = %q, want %q", events[0].Type, EventIdle)
+	}
+	if events[1].Type != EventExited {
+		t.Fatalf("second event = %q, want %q", events[1].Type, EventExited)
+	}
+	if events[1].PaneID != pane.ID || events[1].PaneName != "pane-1" {
+		t.Fatalf("exited event pane mismatch: %+v", events[1])
+	}
+}
+
+func TestIdleTimeoutEventSkipsExitedWhenPaneIsBusy(t *testing.T) {
+	t.Parallel()
+
+	sess := newSession("test-idle-timeout-busy")
+	stopCrashCheckpointLoop(t, sess)
+	defer stopSessionBackgroundLoops(t, sess)
+
+	// Test the result-event path directly: enqueue a non-idle result
+	// instead of going through AgentStatus (which needs a real process).
+	pane := newProxyPane(1, mux.PaneMeta{
+		Name:  "pane-1",
+		Host:  mux.DefaultHost,
+		Color: "f5e0dc",
+	}, 80, 23, nil, nil, nil)
+	w := mux.NewWindow(pane, 80, 23)
+	w.ID = 1
+	w.Name = "window-1"
+	sess.Windows = []*mux.Window{w}
+	sess.ActiveWindowID = w.ID
+	sess.Panes = []*mux.Pane{pane}
+
+	res := sess.enqueueEventSubscribe(eventFilter{Types: []string{EventExited}}, false)
+	if res.sub == nil {
+		t.Fatal("subscribe returned nil")
+	}
+	defer sess.enqueueEventUnsubscribe(res.sub)
+
+	// Directly enqueue a non-idle result — this simulates AgentStatus
+	// reporting the pane as busy.
+	sess.enqueueEvent(agentIdleCheckResultEvent{
+		paneID:   pane.ID,
+		paneName: "pane-1",
+		host:     mux.DefaultHost,
+		idle:     false,
+	})
+
+	// Enqueue a no-op event after to ensure the result was processed.
+	sess.enqueueEvent(crashCheckpointWrittenEvent{path: ""})
+
+	// No EventExited should arrive.
+	select {
+	case data := <-res.sub.Ch:
+		t.Fatalf("unexpected exited event: %s", data)
+	case <-time.After(50 * time.Millisecond):
+		// Expected: no exited event for a busy pane.
+	}
+}
+
 func TestStopSessionBackgroundLoopsKeepsLateEnqueueClosed(t *testing.T) {
 	t.Parallel()
 
