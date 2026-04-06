@@ -1529,6 +1529,93 @@ func TestHandleMouseEventPaneDragHoverWindowTabCancelsDwellWhenLeavingTab(t *tes
 	assertNoMessage(t, serverConn)
 }
 
+func TestDragStateNowTimeUsesInjectedClock(t *testing.T) {
+	t.Parallel()
+
+	want := time.Unix(123, 0)
+	drag := dragState{now: func() time.Time { return want }}
+	if got := drag.nowTime(); !got.Equal(want) {
+		t.Fatalf("nowTime() = %v, want %v", got, want)
+	}
+}
+
+func TestDragStateSchedulePaneDragDwellDeduplicatesWindowTimer(t *testing.T) {
+	t.Parallel()
+
+	scheduler := &fakeDragScheduler{}
+	drag := dragState{afterFunc: scheduler.AfterFunc}
+
+	calls := 0
+	drag.schedulePaneDragDwell(2, func() { calls++ })
+	drag.schedulePaneDragDwell(2, func() { calls++ })
+
+	if len(scheduler.timers) != 1 {
+		t.Fatalf("timers = %d, want 1", len(scheduler.timers))
+	}
+
+	scheduler.Latest().Fire()
+	if calls != 1 {
+		t.Fatalf("dwell callback count = %d, want 1", calls)
+	}
+}
+
+func TestDragStateCancelPaneDragDwellStopsTimerAndConsumeRejectsMismatch(t *testing.T) {
+	t.Parallel()
+
+	scheduler := &fakeDragScheduler{}
+	drag := dragState{afterFunc: scheduler.AfterFunc}
+
+	calls := 0
+	drag.schedulePaneDragDwell(2, func() { calls++ })
+	if drag.consumePaneDragDwell(3, 1) {
+		t.Fatal("consumePaneDragDwell should reject mismatched window/sequence")
+	}
+
+	timer := scheduler.Latest()
+	if timer == nil {
+		t.Fatal("expected dwell timer to be scheduled")
+	}
+
+	drag.cancelPaneDragDwell()
+	timer.Fire()
+	if calls != 0 {
+		t.Fatalf("dwell callback count = %d, want 0 after cancel", calls)
+	}
+}
+
+func TestResolveWindowTabDropTarget(t *testing.T) {
+	t.Parallel()
+
+	cr := buildMultiWindowRenderer(t)
+	layout := cr.VisibleLayout()
+	if layout == nil {
+		t.Fatal("visible layout missing")
+	}
+
+	inactiveX := globalBarClickColumn(t, cr, "2:logs")
+	target, overWindowTab := resolveWindowTabDropTarget(cr, layout, 2, inactiveX, globalBarRow(t, cr))
+	if !overWindowTab {
+		t.Fatal("inactive tab should be recognized as a window-tab target")
+	}
+	if target == nil || target.window != 2 {
+		t.Fatalf("inactive tab target = %#v, want window 2", target)
+	}
+
+	activeX := globalBarClickColumn(t, cr, "1:editor")
+	target, overWindowTab = resolveWindowTabDropTarget(cr, layout, 2, activeX, globalBarRow(t, cr))
+	if !overWindowTab {
+		t.Fatal("active tab should still be recognized as a window-tab hit")
+	}
+	if target != nil {
+		t.Fatalf("active tab target = %#v, want nil", target)
+	}
+
+	target, overWindowTab = resolveWindowTabDropTarget(cr, layout, 2, globalBarClickColumn(t, cr, "panes"), globalBarRow(t, cr))
+	if overWindowTab || target != nil {
+		t.Fatalf("non-tab global bar hit = (%#v, %v), want (nil, false)", target, overWindowTab)
+	}
+}
+
 func TestHandleMouseEventGlobalBarSessionClickDoesNotToggleHelpWhenHidden(t *testing.T) {
 	t.Parallel()
 
