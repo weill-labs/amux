@@ -133,14 +133,17 @@ func TestRestoreServerFromReloadCheckpointFallsBackToCrashCheckpoint(t *testing.
 		if err != nil {
 			t.Fatalf("restoreServerFromReloadCheckpoint: %v", err)
 		}
+		if _, statErr := os.Stat(crashPath); !os.IsNotExist(statErr) {
+			t.Fatalf("crash checkpoint should be removed immediately after fallback restore, err=%v", statErr)
+		}
 		srv.Shutdown()
 	})
 	if !strings.Contains(stderr, `"event":"checkpoint_restore_fallback"`) || !strings.Contains(stderr, `"msg":"reload checkpoint incompatible; falling back to crash checkpoint"`) {
 		t.Fatalf("stderr = %q, want crash fallback log", stderr)
 	}
 
-	if _, statErr := os.Stat(crashPath); !os.IsNotExist(statErr) {
-		t.Fatalf("crash checkpoint should be removed after fallback restore, err=%v", statErr)
+	if _, statErr := os.Stat(crashPath); statErr != nil {
+		t.Fatalf("crash checkpoint should be rewritten on clean shutdown after fallback restore, err=%v", statErr)
 	}
 }
 
