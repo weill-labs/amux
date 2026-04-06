@@ -10,19 +10,21 @@ import (
 )
 
 type attachBootstrapMessage struct {
-	typ     proto.MsgType
-	paneID  uint32
-	history []string
-	data    []byte
+	typ           proto.MsgType
+	paneID        uint32
+	history       []string
+	styledHistory []proto.StyledLine
+	data          []byte
 }
 
 func newAttachBootstrapMessage(msg *proto.Message) (attachBootstrapMessage, bool) {
 	switch msg.Type {
 	case proto.MsgTypePaneHistory:
 		return attachBootstrapMessage{
-			typ:     msg.Type,
-			paneID:  msg.PaneID,
-			history: append([]string(nil), msg.History...),
+			typ:           msg.Type,
+			paneID:        msg.PaneID,
+			history:       append([]string(nil), msg.History...),
+			styledHistory: append([]proto.StyledLine(nil), msg.StyledHistory...),
 		}, true
 	case proto.MsgTypePaneOutput:
 		return attachBootstrapMessage{
@@ -52,7 +54,7 @@ func attachBootstrapPaneCount(layout *proto.LayoutSnapshot) int {
 func applyAttachBootstrapMessage(cr *ClientRenderer, msg attachBootstrapMessage) int {
 	switch msg.typ {
 	case proto.MsgTypePaneHistory:
-		cr.HandlePaneHistory(msg.paneID, msg.history)
+		cr.HandlePaneHistoryMessage(msg.paneID, msg.history, msg.styledHistory)
 		return 0
 	case proto.MsgTypePaneOutput:
 		cr.HandlePaneOutput(msg.paneID, msg.data)

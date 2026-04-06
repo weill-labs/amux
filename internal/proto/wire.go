@@ -91,7 +91,8 @@ type Message struct {
 	PaneData []byte
 
 	// MsgTypePaneHistory
-	History []string
+	History       []string
+	StyledHistory []StyledLine
 
 	// MsgTypeLayout
 	Layout *LayoutSnapshot

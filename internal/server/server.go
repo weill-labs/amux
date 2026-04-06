@@ -780,8 +780,13 @@ func (s *Server) handleAttach(conn net.Conn, msg *Message) {
 	cc.Send(&Message{Type: MsgTypeLayout, Layout: res.snap})
 	bootstrapSeqs := make(map[uint32]uint64, len(res.paneSnapshots))
 	for _, ps := range res.paneSnapshots {
-		if len(ps.history) > 0 {
-			cc.Send(&Message{Type: MsgTypePaneHistory, PaneID: ps.paneID, History: ps.history})
+		if len(ps.styledHistory) > 0 {
+			cc.Send(&Message{
+				Type:          MsgTypePaneHistory,
+				PaneID:        ps.paneID,
+				History:       proto.StyledLineText(ps.styledHistory),
+				StyledHistory: proto.CloneStyledLines(ps.styledHistory),
+			})
 		}
 		cc.Send(&Message{Type: MsgTypePaneOutput, PaneID: ps.paneID, PaneData: ps.screen})
 		bootstrapSeqs[ps.paneID] = ps.outputSeq

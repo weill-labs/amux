@@ -3,6 +3,8 @@ package mux
 import (
 	"os"
 	"strings"
+
+	"github.com/weill-labs/amux/internal/proto"
 )
 
 func newPaneEmulator(cols, rows, scrollbackLines int) TerminalEmulator {
@@ -106,6 +108,25 @@ func (p *Pane) RenderScreen() string {
 func (p *Pane) HistoryScreenSnapshot() (history []string, screen string, seq uint64) {
 	p.withActor(func() {
 		history = p.combinedScrollback(p.loadBaseHistory())
+		screen = RenderWithCursor(p.emulator)
+		seq = p.outputSeq.Load()
+	})
+	return history, screen, seq
+}
+
+// StyledHistoryScreenSnapshot returns retained history with frozen cell styles,
+// current screen, and the latest live-output sequence included in that state.
+func (p *Pane) StyledHistoryScreenSnapshot() (history []proto.StyledLine, screen string, seq uint64) {
+	p.withActor(func() {
+		baseHistory := p.loadBaseHistory()
+		liveHistory := EmulatorScrollbackStyledLines(p.emulator)
+		baseStart, liveStart := trimScrollbackStarts(len(baseHistory), len(liveHistory), effectiveScrollbackLines(p.scrollbackLines))
+
+		history = make([]proto.StyledLine, 0, len(baseHistory)-baseStart+len(liveHistory)-liveStart)
+		for _, line := range baseHistory[baseStart:] {
+			history = append(history, proto.StyledLine{Text: line})
+		}
+		history = append(history, proto.CloneStyledLines(liveHistory[liveStart:])...)
 		screen = RenderWithCursor(p.emulator)
 		seq = p.outputSeq.Load()
 	})

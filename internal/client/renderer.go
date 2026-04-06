@@ -340,7 +340,7 @@ func (r *Renderer) captureJSONValue(agentStatus map[uint32]proto.PaneAgentStatus
 	return r.captureJSONValueWithHistory(agentStatus, nil, false)
 }
 
-func (r *Renderer) captureJSONValueWithHistory(agentStatus map[uint32]proto.PaneAgentStatus, baseHistory map[uint32][]string, includeHistory bool) (proto.CaptureJSON, bool) {
+func (r *Renderer) captureJSONValueWithHistory(agentStatus map[uint32]proto.PaneAgentStatus, baseHistory map[uint32][]proto.StyledLine, includeHistory bool) (proto.CaptureJSON, bool) {
 	capture := proto.CaptureJSON{}
 	ok := false
 	r.withActor(func(st *rendererActorState) {
@@ -397,7 +397,7 @@ func (r *Renderer) CaptureJSON(agentStatus map[uint32]proto.PaneAgentStatus) str
 	return marshalIndented(capture)
 }
 
-func (r *Renderer) CaptureJSONWithHistory(agentStatus map[uint32]proto.PaneAgentStatus, baseHistory map[uint32][]string) string {
+func (r *Renderer) CaptureJSONWithHistory(agentStatus map[uint32]proto.PaneAgentStatus, baseHistory map[uint32][]proto.StyledLine) string {
 	capture, ok := r.captureJSONValueWithHistory(agentStatus, baseHistory, true)
 	if !ok {
 		return caputil.JSONErrorOutput(false, "state_unavailable", "capture state is unavailable because no layout is ready")
@@ -488,7 +488,7 @@ func (r *Renderer) WindowSnapshots() ([]proto.WindowSnapshot, uint32) {
 	return cloneWindowSnapshots(snap.windows), snap.activeWinID
 }
 
-func (r *Renderer) buildCapturePane(st *rendererActorState, snap *rendererSnapshot, paneID uint32, agentStatus map[uint32]proto.PaneAgentStatus, includeHistory bool, baseHistory []string) (proto.CapturePane, bool) {
+func (r *Renderer) buildCapturePane(st *rendererActorState, snap *rendererSnapshot, paneID uint32, agentStatus map[uint32]proto.PaneAgentStatus, includeHistory bool, baseHistory []proto.StyledLine) (proto.CapturePane, bool) {
 	emu, ok := st.emulators[paneID]
 	if !ok {
 		return proto.CapturePane{}, false
@@ -501,7 +501,7 @@ func (r *Renderer) buildCapturePane(st *rendererActorState, snap *rendererSnapsh
 	col, row := emu.CursorPosition()
 	content := mux.EmulatorContentLines(emu)
 	if includeHistory {
-		buffer := capturePaneBufferSnapshot(emu, append([]string(nil), baseHistory...), snap.scrollbackLines)
+		buffer := capturePaneBufferSnapshotStyled(emu, proto.CloneStyledLines(baseHistory), snap.scrollbackLines)
 		content = make([]string, 0, len(buffer.scrollback)+len(buffer.screen))
 		for _, line := range buffer.scrollback {
 			content = append(content, line.text)

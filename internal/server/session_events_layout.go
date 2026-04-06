@@ -356,7 +356,7 @@ func (ctx *MutationContext) refreshInputTarget() {
 
 type paneHistoryUpdate struct {
 	paneID  uint32
-	history []string
+	history []proto.StyledLine
 }
 
 type paneRender struct {

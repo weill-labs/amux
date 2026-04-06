@@ -79,6 +79,40 @@ type CaptureHistoryLine struct {
 	Filled      bool
 }
 
+// StyledLine is one frozen line of text plus optional per-cell styling.
+// Cells may be nil when only plain text is available.
+type StyledLine struct {
+	Text  string
+	Cells []Cell
+}
+
+// CloneStyledLines deep-copies styled lines and their cell slices.
+func CloneStyledLines(src []StyledLine) []StyledLine {
+	if len(src) == 0 {
+		return nil
+	}
+	dst := make([]StyledLine, len(src))
+	for i, line := range src {
+		dst[i].Text = line.Text
+		if len(line.Cells) != 0 {
+			dst[i].Cells = append([]Cell(nil), line.Cells...)
+		}
+	}
+	return dst
+}
+
+// StyledLineText returns the text content for each styled line.
+func StyledLineText(lines []StyledLine) []string {
+	if len(lines) == 0 {
+		return nil
+	}
+	text := make([]string, len(lines))
+	for i, line := range lines {
+		text[i] = line.Text
+	}
+	return text
+}
+
 // CaptureSnapshot is a consistent plain-text snapshot of a pane's retained
 // history, visible screen, and cursor state.
 type CaptureSnapshot struct {

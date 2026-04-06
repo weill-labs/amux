@@ -22,7 +22,7 @@ type Result struct {
 
 type PaneHistoryUpdate struct {
 	PaneID  uint32
-	History []string
+	History []proto.StyledLine
 }
 
 type PaneRender struct {
