@@ -179,6 +179,7 @@ var commandRegistry = map[string]CommandHandler{
 	"prev-window":    cmdPrevWindow,
 	"last-window":    cmdLastWindow,
 	"rename-window":  cmdRenameWindow,
+	"reorder-window": cmdReorderWindow,
 	"resize-border":  cmdResizeBorder,
 	"resize-active":  cmdResizeActive,
 	"resize-pane":    cmdResizePane,

@@ -12,6 +12,7 @@ type clientUIState struct {
 	copyModes          map[uint32]*copymode.CopyMode
 	displayPanes       *displayPanesState
 	paneDrag           *paneDragOverlayState
+	windowTabDrag      *windowTabDragOverlayState
 	chooser            *chooserState
 	windowRenamePrompt *windowRenamePromptState
 	helpBar            *helpBarState
@@ -66,6 +67,12 @@ type uiActionShowPaneDrag struct {
 }
 
 type uiActionHidePaneDrag struct{}
+
+type uiActionShowWindowTabDrag struct {
+	drag *windowTabDragOverlayState
+}
+
+type uiActionHideWindowTabDrag struct{}
 
 type uiActionShowWindowRenamePrompt struct {
 	prompt *windowRenamePromptState
@@ -151,6 +158,17 @@ func (st *clientUIState) reduce(action any) clientUIResult {
 		st.paneDrag = nil
 		st.dirty = true
 		return clientUIResult{}
+	case uiActionShowWindowTabDrag:
+		st.windowTabDrag = action.drag
+		st.dirty = true
+		return clientUIResult{}
+	case uiActionHideWindowTabDrag:
+		if st.windowTabDrag == nil {
+			return clientUIResult{}
+		}
+		st.windowTabDrag = nil
+		st.dirty = true
+		return clientUIResult{}
 	case uiActionShowWindowRenamePrompt:
 		return st.reduceShowWindowRenamePrompt(action)
 	case uiActionHideWindowRenamePrompt:
@@ -202,6 +220,9 @@ func (st *clientUIState) reduceHandleLayout(action uiActionHandleLayout) clientU
 		}
 		if st.paneDrag != nil {
 			st.paneDrag = nil
+		}
+		if st.windowTabDrag != nil {
+			st.windowTabDrag = nil
 		}
 		if st.chooser != nil {
 			result.uiEvents = append(result.uiEvents, st.chooser.mode.hiddenEvent())

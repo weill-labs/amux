@@ -3,13 +3,14 @@ package render
 // OverlayState captures optional client-local overlays that sit on top of the
 // normal pane layout rendering.
 type OverlayState struct {
-	PaneLabels    []PaneOverlayLabel
-	DropIndicator *DropIndicatorOverlay
-	Chooser       *ChooserOverlay
-	TextInput     *TextInputOverlay
-	Message       string
-	HelpBar       *HelpBarOverlay
-	PressedPaneID uint32
+	PaneLabels          []PaneOverlayLabel
+	DropIndicator       *DropIndicatorOverlay
+	WindowDropIndicator *WindowDropIndicatorOverlay
+	Chooser             *ChooserOverlay
+	TextInput           *TextInputOverlay
+	Message             string
+	HelpBar             *HelpBarOverlay
+	PressedPaneID       uint32
 }
 
 // IsPanePressed reports whether the pane with the given ID is currently
@@ -49,4 +50,10 @@ type HelpBarOverlay struct {
 type DropIndicatorOverlay struct {
 	X, Y int
 	W, H int
+}
+
+// WindowDropIndicatorOverlay draws a temporary insertion marker in the global
+// status bar while a window tab is being dragged.
+type WindowDropIndicatorOverlay struct {
+	Column int
 }

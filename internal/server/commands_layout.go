@@ -334,6 +334,10 @@ func (ctx layoutCommandContext) RenameWindow(name string) commandpkg.Result {
 	return runRenameWindow(ctx.CommandContext, name)
 }
 
+func (ctx layoutCommandContext) ReorderWindow(from, to int) commandpkg.Result {
+	return runReorderWindow(ctx.CommandContext, from, to)
+}
+
 func (ctx layoutCommandContext) ResizeBorder(x, y, delta int) commandpkg.Result {
 	return runResizeBorder(ctx.CommandContext, x, y, delta)
 }
@@ -838,6 +842,25 @@ func runRenameWindow(ctx *CommandContext, name string) commandpkg.Result {
 		return commandMutationResult{
 			output:          fmt.Sprintf("Renamed window to %s\n", name),
 			broadcastLayout: true,
+		}
+	}))
+}
+
+func runReorderWindow(ctx *CommandContext, from, to int) commandpkg.Result {
+	return toCommandResult(ctx.Sess.enqueueCommandMutation(func(mctx *MutationContext) commandMutationResult {
+		if len(mctx.Windows) == 0 {
+			return commandMutationResult{err: fmt.Errorf("no window")}
+		}
+		if from < 1 || from > len(mctx.Windows) || to < 1 || to > len(mctx.Windows) {
+			return commandMutationResult{err: fmt.Errorf("reorder-window: window indices out of range")}
+		}
+		if !mctx.reorderWindow(from, to) {
+			return commandMutationResult{output: "Window order unchanged\n"}
+		}
+		return commandMutationResult{
+			output:          "Reordered window\n",
+			broadcastLayout: true,
+			paneRenders:     activePaneRender(mctx.activeWindow()),
 		}
 	}))
 }

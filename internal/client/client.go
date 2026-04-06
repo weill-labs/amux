@@ -216,13 +216,14 @@ func (cr *ClientRenderer) overlayState() render.OverlayState {
 
 func (cr *ClientRenderer) overlayStateFromSnapshot(state *clientSnapshot) render.OverlayState {
 	return render.OverlayState{
-		PaneLabels:    cr.overlayLabelsFromSnapshot(state),
-		DropIndicator: cr.paneDragIndicatorFromSnapshot(state),
-		Chooser:       cr.chooserOverlayFromSnapshot(state),
-		HelpBar:       state.ui.helpBar.renderOverlay(cr.renderer.loadSnapshot().width),
-		TextInput:     cr.windowRenamePromptOverlayFromSnapshot(state),
-		Message:       state.ui.message,
-		PressedPaneID: paneDragSourcePaneID(state.ui.paneDrag),
+		PaneLabels:          cr.overlayLabelsFromSnapshot(state),
+		DropIndicator:       cr.paneDragIndicatorFromSnapshot(state),
+		WindowDropIndicator: cr.windowTabDragIndicatorFromSnapshot(state),
+		Chooser:             cr.chooserOverlayFromSnapshot(state),
+		HelpBar:             state.ui.helpBar.renderOverlay(cr.renderer.loadSnapshot().width),
+		TextInput:           cr.windowRenamePromptOverlayFromSnapshot(state),
+		Message:             state.ui.message,
+		PressedPaneID:       paneDragSourcePaneID(state.ui.paneDrag),
 	}
 }
 

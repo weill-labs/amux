@@ -190,6 +190,9 @@ func (c *Compositor) RenderFullWithOverlayStats(root *mux.LayoutCell, activePane
 
 	// Global status bar at bottom
 	renderGlobalBarWithProfile(&buf, c.sessionName, paneCount, c.width, c.height-1, c.windows, overlay.Message, c.now(), c.colorProfile)
+	if overlay.WindowDropIndicator != nil {
+		renderWindowDropIndicator(&buf, overlay.WindowDropIndicator, c.height-1, c.colorProfile)
+	}
 	if overlay.HelpBar != nil {
 		renderHelpBarWithProfile(&buf, c.width, c.height, overlay.HelpBar, c.colorProfile)
 	}

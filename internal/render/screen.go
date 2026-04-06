@@ -234,6 +234,7 @@ func (c *Compositor) buildGridWithOverlay(root *mux.LayoutCell, activePaneID uin
 
 	// Global bar cells.
 	buildGlobalBarCells(g, c.sessionName, paneCount, c.width, c.height-1, c.windows, overlay.Message, c.now())
+	buildWindowDropIndicatorCell(g, overlay.WindowDropIndicator, c.height-1)
 	if overlay.HelpBar != nil {
 		buildHelpBarCells(g, overlay.HelpBar)
 	}
@@ -303,6 +304,7 @@ func (c *Compositor) buildGridWithOverlayDirty(
 	}
 
 	buildGlobalBarCells(g, c.sessionName, paneCount, c.width, c.height-1, c.windows, overlay.Message, c.now())
+	buildWindowDropIndicatorCell(g, overlay.WindowDropIndicator, c.height-1)
 	if overlay.HelpBar != nil {
 		buildHelpBarCells(g, overlay.HelpBar)
 	}

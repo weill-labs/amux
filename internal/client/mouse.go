@@ -21,14 +21,19 @@ type dragState struct {
 	BorderY   int
 	BorderDir mux.SplitDir
 
-	PaneDragActive bool
-	PaneDragPaneID uint32
-	PaneDropTarget *paneDropTarget
-	CopyModeActive bool
-	CopyModePaneID uint32
-	CopyStartX     int
-	CopyStartY     int
-	CopyMoved      bool
+	PaneDragActive         bool
+	PaneDragPaneID         uint32
+	PaneDropTarget         *paneDropTarget
+	WindowTabActive        bool
+	WindowDragMoved        bool
+	WindowDragSourceActive bool
+	WindowDragSourceIndex  int
+	WindowDropTarget       *windowTabDropTarget
+	CopyModeActive         bool
+	CopyModePaneID         uint32
+	CopyStartX             int
+	CopyStartY             int
+	CopyMoved              bool
 
 	LastClickAt time.Time
 	LastClickX  int
@@ -55,6 +60,11 @@ type paneDragCommand struct {
 type paneDropTarget struct {
 	commands  []paneDragCommand
 	indicator *render.DropIndicatorOverlay
+}
+
+type windowTabDropTarget struct {
+	destinationIndex int
+	indicator        *render.WindowDropIndicatorOverlay
 }
 
 const (
@@ -302,6 +312,27 @@ func clearPaneDragState(cr *ClientRenderer, drag *dragState) {
 	cr.hidePaneDragOverlay()
 }
 
+func updateWindowTabDragOverlay(cr *ClientRenderer, drag *dragState) {
+	if drag == nil || !drag.WindowTabActive || drag.WindowDropTarget == nil {
+		cr.hideWindowTabDragOverlay()
+		return
+	}
+	cr.showWindowTabDragOverlay(drag.WindowDropTarget.indicator)
+}
+
+func clearWindowTabDragState(cr *ClientRenderer, drag *dragState) {
+	if drag == nil {
+		cr.hideWindowTabDragOverlay()
+		return
+	}
+	drag.WindowTabActive = false
+	drag.WindowDragMoved = false
+	drag.WindowDragSourceActive = false
+	drag.WindowDragSourceIndex = 0
+	drag.WindowDropTarget = nil
+	cr.hideWindowTabDragOverlay()
+}
+
 func rerenderOverlay(cr *ClientRenderer, msgCh chan<- *RenderMsg) {
 	runLocalRenderAction(cr, msgCh, func(*ClientRenderer) localRenderResult { return overlayRenderNowResult() })
 }
@@ -422,8 +453,21 @@ func globalBarShowsHelp(cr *ClientRenderer, layout *mux.LayoutCell, windows []re
 	)
 }
 
-func handleGlobalBarClick(ev mouse.Event, layout *mux.LayoutCell, cr *ClientRenderer, sender *messageSender, msgCh chan<- *RenderMsg) bool {
-	if ev.Action != mouse.Press || ev.Button != mouse.ButtonLeft || layout == nil || ev.Y != layout.H {
+func resolveWindowTabDropTarget(windows []render.WindowInfo, sourceIndex, x int) *windowTabDropTarget {
+	target, ok := render.GlobalBarWindowDropTargetAtColumn(windows, sourceIndex, x)
+	if !ok {
+		return nil
+	}
+	return &windowTabDropTarget{
+		destinationIndex: target.DestinationIndex,
+		indicator: &render.WindowDropIndicatorOverlay{
+			Column: target.IndicatorColumn,
+		},
+	}
+}
+
+func handleGlobalBarMouseEvent(ev mouse.Event, layout *mux.LayoutCell, cr *ClientRenderer, sender *messageSender, drag *dragState, msgCh chan<- *RenderMsg) bool {
+	if layout == nil {
 		return false
 	}
 
@@ -432,7 +476,52 @@ func handleGlobalBarClick(ev mouse.Event, layout *mux.LayoutCell, cr *ClientRend
 		return false
 	}
 
+	isGlobalBarRow := ev.Y == layout.H
 	windows := globalBarWindowInfos(cr)
+	if drag != nil && drag.WindowTabActive {
+		switch ev.Action {
+		case mouse.Motion:
+			drag.WindowDragMoved = true
+			if isGlobalBarRow {
+				drag.WindowDropTarget = resolveWindowTabDropTarget(windows, drag.WindowDragSourceIndex, ev.X)
+			} else {
+				drag.WindowDropTarget = nil
+			}
+			updateWindowTabDragOverlay(cr, drag)
+			rerenderOverlay(cr, msgCh)
+			return true
+		case mouse.Release:
+			sourceIndex := drag.WindowDragSourceIndex
+			sourceActive := drag.WindowDragSourceActive
+			moved := drag.WindowDragMoved
+			target := drag.WindowDropTarget
+			clearWindowTabDragState(cr, drag)
+			rerenderOverlay(cr, msgCh)
+			if target != nil && sender != nil && target.destinationIndex != sourceIndex {
+				sender.Command("reorder-window", []string{
+					fmt.Sprintf("%d", sourceIndex),
+					fmt.Sprintf("%d", target.destinationIndex),
+				})
+				return true
+			}
+			if !moved && !sourceActive && isGlobalBarRow && sender != nil {
+				if window, ok := render.GlobalBarWindowAtColumn(windows, ev.X); ok && window.Index == sourceIndex {
+					sender.Command("select-window", []string{fmt.Sprintf("%d", sourceIndex)})
+				}
+			}
+			return true
+		default:
+			return true
+		}
+	}
+
+	if !isGlobalBarRow {
+		return false
+	}
+	if ev.Action != mouse.Press || ev.Button != mouse.ButtonLeft {
+		return true
+	}
+
 	paneCount := globalBarPaneCount(layout)
 	showHelp := globalBarShowsHelp(cr, layout, windows)
 	if render.GlobalBarHelpToggleAtColumn(ev.X, snap.width, paneCount, showHelp, time.Now()) {
@@ -445,8 +534,12 @@ func handleGlobalBarClick(ev mouse.Event, layout *mux.LayoutCell, cr *ClientRend
 	}
 
 	window, ok := render.GlobalBarWindowAtColumn(windows, ev.X)
-	if ok && !window.IsActive && sender != nil {
-		sender.Command("select-window", []string{fmt.Sprintf("%d", window.Index)})
+	if ok {
+		clearWindowTabDragState(cr, drag)
+		drag.WindowTabActive = true
+		drag.WindowDragMoved = false
+		drag.WindowDragSourceActive = window.IsActive
+		drag.WindowDragSourceIndex = window.Index
 	}
 	return true
 }
@@ -462,7 +555,7 @@ func handleMouseEvent(ev mouse.Event, cr *ClientRenderer, sender *messageSender,
 	if layout == nil {
 		return
 	}
-	if handleGlobalBarClick(ev, layout, cr, sender, msgCh) {
+	if handleGlobalBarMouseEvent(ev, layout, cr, sender, drag, msgCh) {
 		return
 	}
 	if !drag.Active && !drag.PaneDragActive && forwardMouseEventToApp(cr, sender, layout, ev) {

@@ -34,3 +34,7 @@ func cmdLastWindow(ctx *CommandContext) {
 func cmdRenameWindow(ctx *CommandContext) {
 	ctx.applyCommandResult(layoutcmd.RenameWindow(layoutCommandContext{ctx}, ctx.Args))
 }
+
+func cmdReorderWindow(ctx *CommandContext) {
+	ctx.applyCommandResult(layoutcmd.ReorderWindow(layoutCommandContext{ctx}, ctx.Args))
+}

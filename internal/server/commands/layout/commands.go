@@ -30,6 +30,7 @@ type Context interface {
 	NextWindow() commandpkg.Result
 	PrevWindow() commandpkg.Result
 	RenameWindow(name string) commandpkg.Result
+	ReorderWindow(from, to int) commandpkg.Result
 	ResizeBorder(x, y, delta int) commandpkg.Result
 	ResizeActive(direction string, delta int) commandpkg.Result
 	ResizePane(actorPaneID uint32, paneRef, direction string, delta int) commandpkg.Result
@@ -148,6 +149,18 @@ func RenameWindow(ctx Context, args []string) commandpkg.Result {
 		return commandpkg.Result{Err: fmt.Errorf("usage: rename-window <name>")}
 	}
 	return ctx.RenameWindow(args[0])
+}
+
+func ReorderWindow(ctx Context, args []string) commandpkg.Result {
+	if len(args) < 2 {
+		return commandpkg.Result{Err: fmt.Errorf("usage: reorder-window <from-index> <to-index>")}
+	}
+	from, err1 := strconv.Atoi(args[0])
+	to, err2 := strconv.Atoi(args[1])
+	if err1 != nil || err2 != nil || from <= 0 || to <= 0 {
+		return commandpkg.Result{Err: fmt.Errorf("reorder-window: invalid window indices")}
+	}
+	return ctx.ReorderWindow(from, to)
 }
 
 func ResizeBorder(ctx Context, args []string) commandpkg.Result {
