@@ -3,6 +3,7 @@ package render
 import (
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -113,6 +114,54 @@ type recomposedPaneData struct {
 
 func (r *recomposedPaneData) CellAt(col, row int, active bool) ScreenCell {
 	return screenCellAt(r.rows, col, row)
+}
+
+type paneComposeBarrier struct {
+	target   int32
+	timeout  time.Duration
+	arrivals atomic.Int32
+	timeouts atomic.Int32
+	release  chan struct{}
+}
+
+func newPaneComposeBarrier(target int, timeout time.Duration) *paneComposeBarrier {
+	return &paneComposeBarrier{
+		target:  int32(target),
+		timeout: timeout,
+		release: make(chan struct{}),
+	}
+}
+
+func (b *paneComposeBarrier) wait() {
+	if b.arrivals.Add(1) == b.target {
+		close(b.release)
+	}
+
+	timer := time.NewTimer(b.timeout)
+	defer timer.Stop()
+
+	select {
+	case <-b.release:
+	case <-timer.C:
+		b.timeouts.Add(1)
+	}
+}
+
+func (b *paneComposeBarrier) timeoutCount() int {
+	return int(b.timeouts.Load())
+}
+
+type synchronizingPaneData struct {
+	*fakePaneData
+	barrier *paneComposeBarrier
+	entered atomic.Bool
+}
+
+func (p *synchronizingPaneData) CellAt(col, row int, active bool) ScreenCell {
+	if p.entered.CompareAndSwap(false, true) {
+		p.barrier.wait()
+	}
+	return p.fakePaneData.CellAt(col, row, active)
 }
 
 func TestFakePaneDataCellAtUsesDisplayColumnsForGraphemes(t *testing.T) {
@@ -391,6 +440,157 @@ func TestRenderDiffWithOverlayDirtyMatchesFullRenderAfterShorterRecompose(t *tes
 	}
 	if errs := oobErrors(diffComp); len(errs) > 0 {
 		t.Fatalf("dirty recompose should stay within the clipped visible grid:\n%s", strings.Join(errs, "\n"))
+	}
+}
+
+func TestBuildGridWithOverlayDirtyParallelizesFourDirtyPanes(t *testing.T) {
+	t.Parallel()
+
+	const (
+		width       = 120
+		layoutH     = 24
+		composeWait = 100 * time.Millisecond
+	)
+
+	root, paneIDs := benchLayoutTree(4, width, layoutH)
+	dirtyPanes := make(map[uint32]struct{}, len(paneIDs))
+	serialLookup := make(map[uint32]PaneData, len(paneIDs))
+	barrier := newPaneComposeBarrier(4, composeWait)
+	parallelLookup := make(map[uint32]PaneData, len(paneIDs))
+
+	root.Walk(func(cell *mux.LayoutCell) {
+		pid := cell.CellPaneID()
+		if pid == 0 {
+			return
+		}
+
+		base := &fakePaneData{
+			id:     pid,
+			name:   fmt.Sprintf("pane-%d", pid),
+			screen: benchScreen(cell.W, mux.PaneContentHeight(cell.H)),
+		}
+		dirtyPanes[pid] = struct{}{}
+		serialLookup[pid] = base
+		parallelLookup[pid] = &synchronizingPaneData{
+			fakePaneData: base,
+			barrier:      barrier,
+		}
+	})
+
+	comp := NewCompositor(width, layoutH+GlobalBarHeight, "test")
+	comp.prevGrid, _ = comp.buildGridWithOverlay(root, paneIDs[0], func(id uint32) PaneData { return serialLookup[id] }, OverlayState{})
+
+	comp.buildGridWithOverlayDirty(root, paneIDs[0], func(id uint32) PaneData { return parallelLookup[id] }, OverlayState{}, dirtyPanes, false)
+
+	if got := barrier.timeoutCount(); got != 0 {
+		t.Fatalf("four dirty panes should start composing concurrently; timed out waiting for %d pane(s)", got)
+	}
+}
+
+func TestBuildGridWithOverlayDirtyKeepsThreeDirtyPanesSerial(t *testing.T) {
+	t.Parallel()
+
+	const (
+		width       = 120
+		layoutH     = 24
+		composeWait = 100 * time.Millisecond
+	)
+
+	root, paneIDs := benchLayoutTree(4, width, layoutH)
+	dirtyPanes := map[uint32]struct{}{
+		paneIDs[0]: {},
+		paneIDs[1]: {},
+		paneIDs[2]: {},
+	}
+	serialLookup := make(map[uint32]PaneData, len(paneIDs))
+	barrier := newPaneComposeBarrier(3, composeWait)
+	probeLookup := make(map[uint32]PaneData, len(paneIDs))
+
+	root.Walk(func(cell *mux.LayoutCell) {
+		pid := cell.CellPaneID()
+		if pid == 0 {
+			return
+		}
+
+		base := &fakePaneData{
+			id:     pid,
+			name:   fmt.Sprintf("pane-%d", pid),
+			screen: benchScreen(cell.W, mux.PaneContentHeight(cell.H)),
+		}
+		serialLookup[pid] = base
+		probeLookup[pid] = base
+		if _, ok := dirtyPanes[pid]; ok {
+			probeLookup[pid] = &synchronizingPaneData{
+				fakePaneData: base,
+				barrier:      barrier,
+			}
+		}
+	})
+
+	comp := NewCompositor(width, layoutH+GlobalBarHeight, "test")
+	comp.prevGrid, _ = comp.buildGridWithOverlay(root, paneIDs[0], func(id uint32) PaneData { return serialLookup[id] }, OverlayState{})
+
+	comp.buildGridWithOverlayDirty(root, paneIDs[0], func(id uint32) PaneData { return probeLookup[id] }, OverlayState{}, dirtyPanes, false)
+
+	if got := barrier.timeoutCount(); got == 0 {
+		t.Fatal("three dirty panes should stay on the serial path")
+	}
+}
+
+func TestRenderDiffWithOverlayDirtyMatchesFullRenderWithPaneLabelsOnParallelPath(t *testing.T) {
+	t.Parallel()
+
+	const (
+		width   = 120
+		layoutH = 24
+	)
+
+	root, paneIDs := benchLayoutTree(4, width, layoutH)
+	overlay := OverlayState{
+		PaneLabels: []PaneOverlayLabel{
+			{PaneID: paneIDs[0], Label: "1"},
+			{PaneID: paneIDs[1], Label: "2"},
+			{PaneID: paneIDs[2], Label: "3"},
+			{PaneID: paneIDs[3], Label: "4"},
+		},
+		Message: "parallel labels",
+	}
+	dirtyPanes := make(map[uint32]struct{}, len(paneIDs))
+	paneDataMap := make(map[uint32]*fakePaneData, len(paneIDs))
+
+	root.Walk(func(cell *mux.LayoutCell) {
+		pid := cell.CellPaneID()
+		if pid == 0 {
+			return
+		}
+		dirtyPanes[pid] = struct{}{}
+		line := strings.Repeat(string(rune('A'+pid-1)), cell.W)
+		screen := strings.TrimSuffix(strings.Repeat(line+"\n", mux.PaneContentHeight(cell.H)), "\n")
+		paneDataMap[pid] = &fakePaneData{
+			id:     pid,
+			name:   fmt.Sprintf("pane-%d", pid),
+			screen: screen,
+		}
+	})
+
+	lookup := func(id uint32) PaneData { return paneDataMap[id] }
+
+	diffComp := newTestCompositor(width, layoutH+GlobalBarHeight, "test")
+	diffComp.RenderDiffWithOverlayDirty(root, paneIDs[0], lookup, overlay, dirtyPanes, true)
+
+	for _, pid := range paneIDs {
+		oldLine := string(rune('A' + pid - 1))
+		paneDataMap[pid].screen = strings.ReplaceAll(paneDataMap[pid].screen, oldLine, fmt.Sprintf("%d", pid))
+	}
+	diffComp.RenderDiffWithOverlayDirty(root, paneIDs[0], lookup, overlay, dirtyPanes, false)
+
+	fullComp := newTestCompositor(width, layoutH+GlobalBarHeight, "test")
+	want := MaterializeGrid(fullComp.RenderFullWithOverlay(root, paneIDs[0], lookup, overlay), width, layoutH+GlobalBarHeight)
+	if got := diffComp.PrevGridText(); got != want {
+		t.Fatalf("dirty parallel grid =\n%s\nwant:\n%s", got, want)
+	}
+	if errs := oobErrors(diffComp); len(errs) > 0 {
+		t.Fatalf("dirty parallel render should stay within bounds:\n%s", strings.Join(errs, "\n"))
 	}
 }
 
