@@ -1579,6 +1579,36 @@ func TestStopSessionBackgroundLoopsKeepsLateEnqueueClosed(t *testing.T) {
 	}
 }
 
+func TestStopEventLoopIgnoresAlreadyClosedStopChannel(t *testing.T) {
+	t.Parallel()
+
+	sess := &Session{
+		sessionEventStop: make(chan struct{}),
+		sessionEventDone: make(chan struct{}),
+	}
+	close(sess.sessionEventStop)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		sess.stopEventLoop()
+	}()
+
+	select {
+	case <-done:
+		t.Fatal("stopEventLoop returned before sessionEventDone closed")
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	close(sess.sessionEventDone)
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("stopEventLoop did not return after sessionEventDone closed")
+	}
+}
+
 func TestUIEventCmdIncrementsClientGenerationOnlyOnRealChanges(t *testing.T) {
 	t.Parallel()
 

@@ -523,8 +523,17 @@ func (s *Session) stopEventLoop() {
 		return
 	default:
 	}
-	close(s.sessionEventStop)
+	closeStopSignal(s.sessionEventStop)
 	<-s.sessionEventDone
+}
+
+func closeStopSignal(ch chan struct{}) {
+	defer func() {
+		// Shutdown can race with tests or other cleanup paths that already
+		// closed the stop channel; in that case just wait for the done signal.
+		_ = recover()
+	}()
+	close(ch)
 }
 
 func (s *Session) enqueueEvent(ev sessionAction) bool {
