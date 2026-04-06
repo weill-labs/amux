@@ -18,6 +18,42 @@ import (
 	"github.com/weill-labs/amux/internal/render"
 )
 
+type fakeDragTimer struct {
+	callback func()
+	stopped  bool
+}
+
+func (t *fakeDragTimer) Stop() bool {
+	wasActive := !t.stopped
+	t.stopped = true
+	return wasActive
+}
+
+func (t *fakeDragTimer) Fire() {
+	if t.stopped || t.callback == nil {
+		return
+	}
+	t.stopped = true
+	t.callback()
+}
+
+type fakeDragScheduler struct {
+	timers []*fakeDragTimer
+}
+
+func (s *fakeDragScheduler) AfterFunc(_ time.Duration, fn func()) dragTimer {
+	timer := &fakeDragTimer{callback: fn}
+	s.timers = append(s.timers, timer)
+	return timer
+}
+
+func (s *fakeDragScheduler) Latest() *fakeDragTimer {
+	if len(s.timers) == 0 {
+		return nil
+	}
+	return s.timers[len(s.timers)-1]
+}
+
 func stubCopyToClipboard(cr *ClientRenderer, fn func(string)) {
 	cr.CopyToClipboard = fn
 }
@@ -32,6 +68,15 @@ func readCommandMessage(t *testing.T, conn net.Conn) *proto.Message {
 		t.Fatalf("read command message: %v", err)
 	}
 	return msg
+}
+
+func readFocusCommand(t *testing.T, conn net.Conn, paneID string) {
+	t.Helper()
+
+	msg := readCommandMessage(t, conn)
+	if msg.Type != proto.MsgTypeCommand || msg.CmdName != "focus" || len(msg.CmdArgs) != 1 || msg.CmdArgs[0] != paneID {
+		t.Fatalf("focus command = %q %v, want focus [%s]", msg.CmdName, msg.CmdArgs, paneID)
+	}
 }
 
 func startTestRenderLoop(t *testing.T, cr *ClientRenderer) chan *RenderMsg {
@@ -135,6 +180,25 @@ func globalBarRow(t *testing.T, cr *ClientRenderer) int {
 		t.Fatal("visible layout missing")
 	}
 	return layout.H
+}
+
+func paneStatusTargetCenter(t *testing.T, cr *ClientRenderer, paneID uint32) (int, int) {
+	t.Helper()
+
+	layout := cr.VisibleLayout()
+	if layout == nil {
+		t.Fatal("visible layout missing")
+	}
+	var cell *mux.LayoutCell
+	layout.Walk(func(candidate *mux.LayoutCell) {
+		if cell == nil && candidate.CellPaneID() == paneID {
+			cell = candidate
+		}
+	})
+	if cell == nil {
+		t.Fatalf("pane %d not found in visible layout", paneID)
+	}
+	return cell.X + cell.W/2, cell.Y
 }
 
 func stackedColumn80x23(activePaneID uint32) *proto.LayoutSnapshot {
@@ -1295,6 +1359,174 @@ func TestHandleMouseEventGlobalBarClickSelectsWindowWhenHelpIsHidden(t *testing.
 		t.Fatalf("command args = %v, want [2]", msg.CmdArgs)
 	}
 	<-done
+}
+
+func TestHandleMouseEventPaneDragReleaseOnWindowTabMovesPaneToWindow(t *testing.T) {
+	t.Parallel()
+
+	cr := buildMultiWindowRenderer(t)
+
+	clientConn, serverConn := net.Pipe()
+	t.Cleanup(func() {
+		clientConn.Close()
+		serverConn.Close()
+	})
+
+	sender := newMessageSender(clientConn)
+	t.Cleanup(sender.Close)
+
+	var drag dragState
+	startX, startY := paneStatusTargetCenter(t, cr, 2)
+	tabX := globalBarClickColumn(t, cr, "2:logs")
+	tabY := globalBarRow(t, cr)
+
+	handleMouseEvent(mouse.Event{
+		Action: mouse.Press,
+		Button: mouse.ButtonLeft,
+		X:      startX,
+		Y:      startY,
+	}, cr, sender, &drag, nil)
+	readFocusCommand(t, serverConn, "2")
+	handleMouseEvent(mouse.Event{
+		Action: mouse.Motion,
+		Button: mouse.ButtonLeft,
+		X:      tabX,
+		Y:      tabY,
+		LastX:  startX,
+		LastY:  startY,
+	}, cr, sender, &drag, nil)
+	handleMouseEvent(mouse.Event{
+		Action: mouse.Release,
+		Button: mouse.ButtonLeft,
+		X:      tabX,
+		Y:      tabY,
+		LastX:  tabX,
+		LastY:  tabY,
+	}, cr, sender, &drag, nil)
+
+	msg := readCommandMessage(t, serverConn)
+	if msg.Type != proto.MsgTypeCommand {
+		t.Fatalf("message type = %d, want %d", msg.Type, proto.MsgTypeCommand)
+	}
+	if msg.CmdName != "move-pane-to-window" {
+		t.Fatalf("command = %q, want move-pane-to-window", msg.CmdName)
+	}
+	if want := []string{"2", "2"}; !slices.Equal(msg.CmdArgs, want) {
+		t.Fatalf("command args = %v, want %v", msg.CmdArgs, want)
+	}
+}
+
+func TestHandleMouseEventPaneDragHoverWindowTabTriggersDwellSelect(t *testing.T) {
+	t.Parallel()
+
+	cr := buildMultiWindowRenderer(t)
+
+	clientConn, serverConn := net.Pipe()
+	t.Cleanup(func() {
+		clientConn.Close()
+		serverConn.Close()
+	})
+
+	sender := newMessageSender(clientConn)
+	t.Cleanup(sender.Close)
+
+	scheduler := &fakeDragScheduler{}
+	drag := dragState{afterFunc: scheduler.AfterFunc}
+
+	startX, startY := paneStatusTargetCenter(t, cr, 2)
+	tabX := globalBarClickColumn(t, cr, "2:logs")
+	tabY := globalBarRow(t, cr)
+
+	handleMouseEvent(mouse.Event{
+		Action: mouse.Press,
+		Button: mouse.ButtonLeft,
+		X:      startX,
+		Y:      startY,
+	}, cr, sender, &drag, nil)
+	readFocusCommand(t, serverConn, "2")
+	handleMouseEvent(mouse.Event{
+		Action: mouse.Motion,
+		Button: mouse.ButtonLeft,
+		X:      tabX,
+		Y:      tabY,
+		LastX:  startX,
+		LastY:  startY,
+	}, cr, sender, &drag, nil)
+
+	timer := scheduler.Latest()
+	if timer == nil {
+		t.Fatal("expected dwell timer to be scheduled")
+	}
+	timer.Fire()
+
+	msg := readCommandMessage(t, serverConn)
+	if msg.Type != proto.MsgTypeCommand {
+		t.Fatalf("message type = %d, want %d", msg.Type, proto.MsgTypeCommand)
+	}
+	if msg.CmdName != "select-window" {
+		t.Fatalf("command = %q, want select-window", msg.CmdName)
+	}
+	if want := []string{"2"}; !slices.Equal(msg.CmdArgs, want) {
+		t.Fatalf("command args = %v, want %v", msg.CmdArgs, want)
+	}
+	if !drag.PaneDragActive {
+		t.Fatal("pane drag should remain active after dwell activation")
+	}
+}
+
+func TestHandleMouseEventPaneDragHoverWindowTabCancelsDwellWhenLeavingTab(t *testing.T) {
+	t.Parallel()
+
+	cr := buildMultiWindowRenderer(t)
+
+	clientConn, serverConn := net.Pipe()
+	t.Cleanup(func() {
+		clientConn.Close()
+		serverConn.Close()
+	})
+
+	sender := newMessageSender(clientConn)
+	t.Cleanup(sender.Close)
+
+	scheduler := &fakeDragScheduler{}
+	drag := dragState{afterFunc: scheduler.AfterFunc}
+
+	startX, startY := paneStatusTargetCenter(t, cr, 2)
+	tabX := globalBarClickColumn(t, cr, "2:logs")
+	tabY := globalBarRow(t, cr)
+
+	handleMouseEvent(mouse.Event{
+		Action: mouse.Press,
+		Button: mouse.ButtonLeft,
+		X:      startX,
+		Y:      startY,
+	}, cr, sender, &drag, nil)
+	readFocusCommand(t, serverConn, "2")
+	handleMouseEvent(mouse.Event{
+		Action: mouse.Motion,
+		Button: mouse.ButtonLeft,
+		X:      tabX,
+		Y:      tabY,
+		LastX:  startX,
+		LastY:  startY,
+	}, cr, sender, &drag, nil)
+
+	timer := scheduler.Latest()
+	if timer == nil {
+		t.Fatal("expected dwell timer to be scheduled")
+	}
+
+	handleMouseEvent(mouse.Event{
+		Action: mouse.Motion,
+		Button: mouse.ButtonLeft,
+		X:      10,
+		Y:      10,
+		LastX:  tabX,
+		LastY:  tabY,
+	}, cr, sender, &drag, nil)
+
+	timer.Fire()
+	assertNoMessage(t, serverConn)
 }
 
 func TestHandleMouseEventGlobalBarSessionClickDoesNotToggleHelpWhenHidden(t *testing.T) {
