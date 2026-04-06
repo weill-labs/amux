@@ -1648,6 +1648,16 @@ func (h *ServerHarness) sendKeys(pane string, keys ...string) {
 	}
 }
 
+// runShellCommand sends a shell command followed by Enter, waits for a marker
+// substring, then waits for the shell prompt to become idle again before
+// returning. This avoids matching echoed input before the command has finished.
+func (h *ServerHarness) runShellCommand(pane, command, marker string) {
+	h.tb.Helper()
+	h.sendKeys(pane, command, "Enter")
+	h.waitFor(pane, marker)
+	h.waitIdle(pane)
+}
+
 func (h *ServerHarness) sendClientKeys(keys ...string) string {
 	h.tb.Helper()
 	pane := h.activePaneName()

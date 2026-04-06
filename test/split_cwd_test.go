@@ -10,9 +10,7 @@ func TestSplitInheritsCwd(t *testing.T) {
 	h := newServerHarness(t)
 
 	// Change pane-1's working directory to /tmp.
-	// Waiting for the marker is enough: the command already finished.
-	h.sendKeys("pane-1", "cd /tmp && echo CWD_READY", "Enter")
-	h.waitFor("pane-1", "CWD_READY")
+	h.runShellCommand("pane-1", "cd /tmp && echo CWD_READY", "CWD_READY")
 
 	// Split — the new pane should inherit /tmp as its cwd.
 	h.splitV()
@@ -30,8 +28,7 @@ func TestNewWindowInheritsCwd(t *testing.T) {
 	h := newServerHarness(t)
 
 	// Change pane-1's working directory to /tmp.
-	h.sendKeys("pane-1", "cd /tmp && echo CWD_READY", "Enter")
-	h.waitFor("pane-1", "CWD_READY")
+	h.runShellCommand("pane-1", "cd /tmp && echo CWD_READY", "CWD_READY")
 
 	// Create a new window — its pane should inherit /tmp.
 	gen := h.generation()

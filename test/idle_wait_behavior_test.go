@@ -41,9 +41,7 @@ func TestWaitReadyCommandReturnsReady(t *testing.T) {
 
 	h := newServerHarness(t)
 
-	h.sendKeys("pane-1", "echo READY", "Enter")
-	h.waitFor("pane-1", "READY")
-	h.waitIdle("pane-1")
+	h.runShellCommand("pane-1", "echo READY", "READY")
 
 	out := h.runCmd("wait", "ready", "pane-1")
 	if strings.TrimSpace(out) != "ready" {
@@ -56,9 +54,7 @@ func TestSendKeysWaitReadyWaitsForShellPrompt(t *testing.T) {
 
 	h := newServerHarness(t)
 
-	h.sendKeys("pane-1", "echo READY", "Enter")
-	h.waitFor("pane-1", "READY")
-	h.waitIdle("pane-1")
+	h.runShellCommand("pane-1", "echo READY", "READY")
 
 	out := h.runCmd("send-keys", "pane-1", "--wait", "ready", "echo AGAIN", "Enter")
 	if strings.TrimSpace(out) != "Sent 11 bytes to pane-1" {
@@ -98,4 +94,17 @@ func TestWaitIdleWithSettleFlag_EventBased(t *testing.T) {
 	}
 
 	h.waitFor("pane-1", "done")
+}
+
+func TestRunShellCommandWaitsForShellReady(t *testing.T) {
+	t.Parallel()
+
+	h := newServerHarness(t)
+
+	h.runShellCommand("pane-1", "sleep 0.3 # READY_ECHO_MARKER", "READY_ECHO_MARKER")
+
+	out := h.runCmd("wait", "ready", "pane-1", "--timeout", "50ms")
+	if strings.Contains(out, "timeout") || strings.Contains(out, "not found") {
+		t.Fatalf("runShellCommand should wait for the shell prompt, got: %s", strings.TrimSpace(out))
+	}
 }

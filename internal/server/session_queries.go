@@ -9,6 +9,7 @@ import (
 )
 
 type activeWindowSnapshot struct {
+	activePane *mux.Pane
 	activePID int
 	width     int
 	height    int
@@ -237,6 +238,7 @@ func (s *Session) queryActiveWindowSnapshot() (activeWindowSnapshot, error) {
 			height: w.Height,
 		}
 		if w.ActivePane != nil {
+			snap.activePane = w.ActivePane
 			snap.activePID = w.ActivePane.ProcessPid()
 			if w.ActivePane.IsProxy() {
 				snap.proxyHost = w.ActivePane.Meta.Host
