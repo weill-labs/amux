@@ -124,7 +124,6 @@ func TestCrashRecovery_GracefulShutdownCheckpointSurvivesAndRestores(t *testing.
 	gen := h.generation()
 	h.runCmd("rename-window", "graceful")
 	h.waitLayout(gen)
-
 	shutdownServerGracefully(t, h, 5*time.Second)
 
 	// Verify the checkpoint survives the graceful shutdown and captures the
