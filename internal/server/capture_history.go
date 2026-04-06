@@ -151,11 +151,30 @@ func (s *Session) captureAgentStatus(panes []*mux.Pane) map[uint32]proto.PaneAge
 		return nil
 	}
 
+	// Fetch AgentStatus for all panes concurrently — each call forks
+	// pgrep/ps subprocesses that take 50-200ms, so sequential iteration
+	// over 20+ panes creates multi-second stalls.
+	type agentResult struct {
+		paneID uint32
+		status mux.AgentStatus
+	}
+	ch := make(chan agentResult, len(panes))
+	for _, p := range panes {
+		go func(p *mux.Pane) {
+			ch <- agentResult{paneID: p.ID, status: p.AgentStatus()}
+		}(p)
+	}
+	statuses := make(map[uint32]mux.AgentStatus, len(panes))
+	for range panes {
+		r := <-ch
+		statuses[r.paneID] = r.status
+	}
+
 	_, sinceSnap := s.snapshotIdleFull()
 	now := s.clock().Now()
 	agentStatus := make(map[uint32]proto.PaneAgentStatus, len(panes))
 	for _, p := range panes {
-		st := p.AgentStatus()
+		st := statuses[p.ID]
 		idle := s.paneIdleStatus(p.ID, p.CreatedAt(), now)
 		pas := proto.PaneAgentStatus{
 			Exited:         st.Idle,

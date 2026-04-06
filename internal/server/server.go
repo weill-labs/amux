@@ -303,12 +303,31 @@ func (s *Session) buildCrashCheckpoint() *checkpoint.CrashCheckpoint {
 		return nil
 	}
 
-	// Resolve cwds outside the lock (lsof can be slow on macOS)
+	// Resolve cwds and agent status outside the lock concurrently —
+	// both PaneCwd (lsof) and AgentStatus (pgrep/ps) fork subprocesses.
+	type cwdResult struct {
+		index   int
+		cwd     string
+		wasIdle bool
+		command string
+	}
+	ch := make(chan cwdResult, len(snap.cwdWork))
 	for _, w := range snap.cwdWork {
-		snap.cp.PaneStates[w.index].Cwd = mux.PaneCwd(w.pid)
-		status := w.pane.AgentStatus()
-		snap.cp.PaneStates[w.index].WasIdle = status.Idle
-		snap.cp.PaneStates[w.index].Command = status.CurrentCommand
+		go func(w pidEntry) {
+			status := w.pane.AgentStatus()
+			ch <- cwdResult{
+				index:   w.index,
+				cwd:     mux.PaneCwd(w.pid),
+				wasIdle: status.Idle,
+				command: status.CurrentCommand,
+			}
+		}(w)
+	}
+	for range snap.cwdWork {
+		r := <-ch
+		snap.cp.PaneStates[r.index].Cwd = r.cwd
+		snap.cp.PaneStates[r.index].WasIdle = r.wasIdle
+		snap.cp.PaneStates[r.index].Command = r.command
 	}
 
 	return snap.cp
