@@ -7,14 +7,14 @@ import (
 )
 
 type clientSnapshot struct {
-	baseHistory map[uint32][]string
+	baseHistory map[uint32][]proto.StyledLine
 	ui          clientUIState
 	copyBuffer  string
 }
 
 func newClientSnapshot() *clientSnapshot {
 	return &clientSnapshot{
-		baseHistory: make(map[uint32][]string),
+		baseHistory: make(map[uint32][]proto.StyledLine),
 		ui:          newClientUIState(),
 	}
 }
@@ -28,10 +28,10 @@ func cloneClientSnapshot(prev *clientSnapshot) clientSnapshot {
 	return next
 }
 
-func cloneBaseHistory(src map[uint32][]string) map[uint32][]string {
-	dst := make(map[uint32][]string, len(src))
+func cloneBaseHistory(src map[uint32][]proto.StyledLine) map[uint32][]proto.StyledLine {
+	dst := make(map[uint32][]proto.StyledLine, len(src))
 	for paneID, lines := range src {
-		dst[paneID] = lines
+		dst[paneID] = proto.CloneStyledLines(lines)
 	}
 	return dst
 }

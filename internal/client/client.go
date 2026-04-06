@@ -84,7 +84,17 @@ func (cr *ClientRenderer) handleLayoutResult(snap *proto.LayoutSnapshot) (bool, 
 // HandlePaneHistory stores retained server history for a pane during attach
 // bootstrap. History is oldest-first and excludes the current visible screen.
 func (cr *ClientRenderer) HandlePaneHistory(paneID uint32, lines []string) {
-	history := append([]string(nil), lines...)
+	styled := make([]proto.StyledLine, len(lines))
+	for i, line := range lines {
+		styled[i] = proto.StyledLine{Text: line}
+	}
+	cr.HandlePaneHistoryStyled(paneID, styled)
+}
+
+// HandlePaneHistoryStyled stores retained server history with frozen cells for
+// a pane during attach bootstrap.
+func (cr *ClientRenderer) HandlePaneHistoryStyled(paneID uint32, lines []proto.StyledLine) {
+	history := proto.CloneStyledLines(lines)
 	cr.updateState(func(next *clientSnapshot) clientUIResult {
 		next.baseHistory[paneID] = history
 		return clientUIResult{}
@@ -683,7 +693,7 @@ func (cr *ClientRenderer) enterCopyModeResult(paneID uint32) clientUIResult {
 	if state.ui.copyModes[paneID] != nil {
 		return clientUIResult{} // already in copy mode
 	}
-	buffer, ok := cr.renderer.PaneBufferSnapshot(paneID, state.baseHistory[paneID])
+	buffer, ok := cr.renderer.PaneBufferSnapshotStyled(paneID, state.baseHistory[paneID])
 	if !ok {
 		return clientUIResult{}
 	}

@@ -376,7 +376,11 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 			case proto.MsgTypeLayout:
 				msgCh <- &RenderMsg{Typ: RenderMsgLayout, Layout: msg.Layout}
 			case proto.MsgTypePaneHistory:
-				cr.HandlePaneHistory(msg.PaneID, msg.History)
+				if len(msg.StyledHistory) > 0 {
+					cr.HandlePaneHistoryStyled(msg.PaneID, msg.StyledHistory)
+				} else {
+					cr.HandlePaneHistory(msg.PaneID, msg.History)
+				}
 			case proto.MsgTypePaneOutput:
 				msgCh <- &RenderMsg{Typ: RenderMsgPaneOutput, PaneID: msg.PaneID, Data: msg.PaneData}
 			case proto.MsgTypeCmdResult:

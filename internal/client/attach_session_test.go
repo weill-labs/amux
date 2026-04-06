@@ -511,7 +511,7 @@ func TestReadAttachBootstrapAppliesZoomedReplayBeforeReturn(t *testing.T) {
 	}
 
 	history := cr.loadState().baseHistory[2]
-	if len(history) != 1 || history[0] != "older-zoomed-line" {
+	if len(history) != 1 || history[0].Text != "older-zoomed-line" {
 		t.Fatalf("pane-2 bootstrap history = %q, want %q", history, []string{"older-zoomed-line"})
 	}
 }
@@ -617,6 +617,7 @@ func TestApplyAttachBootstrapMessagePreservesStyledPaneHistory(t *testing.T) {
 	if cm == nil {
 		t.Fatal("copy mode should exist for pane-1")
 	}
+	cm.HandleInput([]byte{'g'})
 	cell := cm.ViewportCellAt(0, 0)
 	if cell.Style.Fg == nil {
 		t.Fatal("copy-mode scrollback cell should preserve its foreground color")

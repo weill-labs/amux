@@ -92,7 +92,7 @@ func toCommandMutationResult(res commandpkg.Result) commandMutationResult {
 	for _, update := range res.PaneHistories {
 		histories = append(histories, paneHistoryUpdate{
 			paneID:  update.PaneID,
-			history: update.History,
+			history: proto.CloneStyledLines(update.History),
 		})
 	}
 	renders := make([]paneRender, 0, len(res.PaneRenders))
@@ -120,7 +120,7 @@ func toCommandResult(res commandMutationResult) commandpkg.Result {
 	for _, update := range res.paneHistories {
 		histories = append(histories, commandpkg.PaneHistoryUpdate{
 			PaneID:  update.paneID,
-			History: update.history,
+			History: proto.CloneStyledLines(update.history),
 		})
 	}
 	renders := make([]commandpkg.PaneRender, 0, len(res.paneRenders))

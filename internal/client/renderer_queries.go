@@ -93,6 +93,10 @@ func copyModeCellFromScreen(cell render.ScreenCell) proto.Cell {
 }
 
 func capturePaneBufferSnapshot(emu mux.TerminalEmulator, baseHistory []string, scrollbackLines int) paneBufferSnapshot {
+	return capturePaneBufferSnapshotStyled(emu, plainStyledHistory(baseHistory), scrollbackLines)
+}
+
+func capturePaneBufferSnapshotStyled(emu mux.TerminalEmulator, baseHistory []proto.StyledLine, scrollbackLines int) paneBufferSnapshot {
 	width, height := emu.Size()
 	cursorCol, cursorRow := emu.CursorPosition()
 	scrollbackLen := emu.ScrollbackLen()
@@ -100,7 +104,10 @@ func capturePaneBufferSnapshot(emu mux.TerminalEmulator, baseHistory []string, s
 
 	scrollback := make([]paneBufferLine, 0, len(baseHistory)-baseStart+scrollbackLen-liveStart)
 	for _, line := range baseHistory[baseStart:] {
-		scrollback = append(scrollback, paneBufferLine{text: line})
+		scrollback = append(scrollback, paneBufferLine{
+			text:  line.Text,
+			cells: screenCellsFromProto(line.Cells),
+		})
 	}
 	for row := liveStart; row < scrollbackLen; row++ {
 		scrollback = append(scrollback, paneBufferLine{
@@ -126,6 +133,40 @@ func capturePaneBufferSnapshot(emu mux.TerminalEmulator, baseHistory []string, s
 		scrollback:   scrollback,
 		screen:       screen,
 	}
+}
+
+func plainStyledHistory(lines []string) []proto.StyledLine {
+	if len(lines) == 0 {
+		return nil
+	}
+	styled := make([]proto.StyledLine, len(lines))
+	for i, line := range lines {
+		styled[i] = proto.StyledLine{Text: line}
+	}
+	return styled
+}
+
+func screenCellsFromProto(cells []proto.Cell) []render.ScreenCell {
+	if len(cells) == 0 {
+		return nil
+	}
+	out := make([]render.ScreenCell, len(cells))
+	for i, cell := range cells {
+		char := cell.Char
+		if char == "" {
+			char = " "
+		}
+		width := cell.Width
+		if width < 0 {
+			width = 1
+		}
+		out[i] = render.ScreenCell{
+			Char:  char,
+			Style: cell.Style,
+			Width: width,
+		}
+	}
+	return out
 }
 
 func trimPaneBufferStarts(baseLen, liveLen, limit int) (baseStart, liveStart int) {
@@ -217,6 +258,10 @@ func (r *Renderer) EncodeMouse(paneID uint32, ev mouse.Event, x, y int) []byte {
 }
 
 func (r *Renderer) PaneBufferSnapshot(paneID uint32, baseHistory []string) (paneBufferSnapshot, bool) {
+	return r.PaneBufferSnapshotStyled(paneID, plainStyledHistory(baseHistory))
+}
+
+func (r *Renderer) PaneBufferSnapshotStyled(paneID uint32, baseHistory []proto.StyledLine) (paneBufferSnapshot, bool) {
 	snap := paneBufferSnapshot{}
 	ok := false
 	r.withActor(func(st *rendererActorState) {
@@ -224,7 +269,7 @@ func (r *Renderer) PaneBufferSnapshot(paneID uint32, baseHistory []string) (pane
 		if !exists {
 			return
 		}
-		snap = capturePaneBufferSnapshot(emu, append([]string(nil), baseHistory...), st.snapshot.scrollbackLines)
+		snap = capturePaneBufferSnapshotStyled(emu, proto.CloneStyledLines(baseHistory), st.snapshot.scrollbackLines)
 		ok = true
 	})
 	return snap, ok

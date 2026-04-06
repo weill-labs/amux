@@ -99,9 +99,14 @@ func (s *Session) broadcastPaneOutputNow(paneID uint32, data []byte, seq uint64)
 	s.triggerCrashCheckpoint()
 }
 
-func (s *Session) broadcastPaneHistoryNow(paneID uint32, history []string) {
+func (s *Session) broadcastPaneHistoryNow(paneID uint32, history []proto.StyledLine) {
 	clients := s.ensureClientManager().snapshotClients()
-	msg := &Message{Type: MsgTypePaneHistory, PaneID: paneID, History: append([]string(nil), history...)}
+	msg := &Message{
+		Type:          MsgTypePaneHistory,
+		PaneID:        paneID,
+		History:       proto.StyledLineText(history),
+		StyledHistory: proto.CloneStyledLines(history),
+	}
 	for _, c := range clients {
 		c.sendPaneMessage(msg)
 	}

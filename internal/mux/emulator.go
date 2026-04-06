@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/vt"
 	"github.com/weill-labs/amux/internal/mouse"
+	"github.com/weill-labs/amux/internal/proto"
 )
 
 // TerminalEmulator abstracts a virtual terminal emulator for pane rendering.
@@ -375,6 +376,24 @@ func EmulatorScrollbackHistoryLines(emu TerminalEmulator, widths []int) []Captur
 	return lines
 }
 
+// EmulatorScrollbackStyledLines returns retained scrollback rows with frozen
+// per-cell styling suitable for copy-mode history bootstrap.
+func EmulatorScrollbackStyledLines(emu TerminalEmulator) []proto.StyledLine {
+	width, _ := emu.Size()
+	lines := make([]proto.StyledLine, emu.ScrollbackLen())
+	for y := range len(lines) {
+		line := proto.StyledLine{
+			Text:  emu.ScrollbackLineText(y),
+			Cells: make([]proto.Cell, width),
+		}
+		for x := 0; x < width; x++ {
+			line.Cells[x] = protoCellFromUV(emu.ScrollbackCellAt(x, y))
+		}
+		lines[y] = line
+	}
+	return lines
+}
+
 // EmulatorContentHistoryLines returns visible screen rows with the width they
 // were wrapped at and whether they filled the available width.
 func EmulatorContentHistoryLines(emu TerminalEmulator) []CaptureHistoryLine {
@@ -402,6 +421,25 @@ func lineUsesFullWidth(width int, cellAt func(int) *uv.Cell) bool {
 		return true
 	}
 	return cell.Content != "" || (!cell.IsZero() && !cell.Equal(&uv.EmptyCell))
+}
+
+func protoCellFromUV(cell *uv.Cell) proto.Cell {
+	if cell == nil {
+		return proto.Cell{Char: " ", Width: 1}
+	}
+	char := cell.Content
+	if char == "" {
+		char = " "
+	}
+	width := cell.Width
+	if width < 0 {
+		width = 1
+	}
+	return proto.Cell{
+		Char:  char,
+		Style: cell.Style,
+		Width: width,
+	}
 }
 
 // RenderWithCursor returns the emulator's screen using explicit cursor
