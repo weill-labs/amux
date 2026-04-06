@@ -381,15 +381,15 @@ func TestMainHelpIncludesWaitCheckpoint(t *testing.T) {
 	}
 }
 
-func TestMainHelpOmitsCtrlASpiralSpawn(t *testing.T) {
+func TestMainHelpIncludesCtrlAAutoSpawn(t *testing.T) {
 	t.Parallel()
 
 	out, code := runHermeticMain(t, "help")
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0\n%s", code, out)
 	}
-	if strings.Contains(out, "Ctrl-a a                           ") {
-		t.Fatalf("help output should omit removed Ctrl-a a binding:\n%s", out)
+	if !strings.Contains(out, "Ctrl-a a                           Spawn pane in column-fill order") {
+		t.Fatalf("help output missing Ctrl-a a auto spawn binding:\n%s", out)
 	}
 }
 

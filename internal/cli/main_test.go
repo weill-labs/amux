@@ -24,11 +24,13 @@ func TestParseSpawnCommandArgs(t *testing.T) {
 	}{
 		{name: "default spawn", args: nil, wantCmd: "spawn", wantArgs: []string{}},
 		{name: "focused spawn", args: []string{"--focus"}, wantCmd: "spawn", wantArgs: []string{"--focus"}},
+		{name: "auto spawn", args: []string{"--auto"}, wantCmd: "spawn", wantArgs: []string{"--auto"}},
 		{name: "split at pane", args: []string{"--at", "pane-1"}, wantCmd: "split", wantArgs: []string{"pane-1"}},
 		{name: "split active vertical", args: []string{"--vertical"}, wantCmd: "split", wantArgs: []string{"v"}},
 		{name: "split root vertical", args: []string{"--at", "pane-1", "--root", "--vertical"}, wantCmd: "split", wantArgs: []string{"pane-1", "root", "v"}},
 		{name: "split with metadata", args: []string{"--at", "pane-1", "--task", "build", "--color", "blue"}, wantCmd: "split", wantArgs: []string{"pane-1", "--task", "build", "--color", "blue"}},
 		{name: "conflicting directions", args: []string{"--vertical", "--horizontal"}, wantErrText: spawnUsage},
+		{name: "auto conflicts with explicit placement", args: []string{"--auto", "--vertical"}, wantErrText: spawnUsage},
 		{name: "spiral rejected", args: []string{"--spiral"}, wantErrText: spawnUsage},
 		{name: "missing at value", args: []string{"--at"}, wantErrText: spawnUsage},
 		{name: "unknown arg", args: []string{"pane-1"}, wantErrText: spawnUsage},

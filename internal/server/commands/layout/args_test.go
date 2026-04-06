@@ -42,6 +42,16 @@ func TestParseCreatePaneArgs(t *testing.T) {
 			},
 		},
 		{
+			name: "spawn parses auto mode",
+			mode: createPaneModeSpawn,
+			args: []string{"--auto", "--name", "worker"},
+			want: createPaneArgs{
+				Auto: true,
+				Dir:  mux.SplitVertical,
+				Name: "worker",
+			},
+		},
+		{
 			name:    "spawn rejects split-only pane refs",
 			mode:    createPaneModeSpawn,
 			args:    []string{"pane-1"},
@@ -184,6 +194,17 @@ func TestParseSpawnArgs(t *testing.T) {
 			name: "defaults host to local",
 			args: []string{"--name", "worker-1"},
 			want: SpawnArgs{
+				Meta: mux.PaneMeta{
+					Name: "worker-1",
+					Host: mux.DefaultHost,
+				},
+			},
+		},
+		{
+			name: "parses auto mode",
+			args: []string{"--auto", "--name", "worker-1"},
+			want: SpawnArgs{
+				Auto: true,
 				Meta: mux.PaneMeta{
 					Name: "worker-1",
 					Host: mux.DefaultHost,
