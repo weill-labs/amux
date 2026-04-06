@@ -4,6 +4,7 @@ import (
 	"image/color"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	uv "github.com/charmbracelet/ultraviolet"
@@ -248,6 +249,29 @@ func (c *Compositor) buildGridWithOverlay(root *mux.LayoutCell, activePaneID uin
 	return g, paneCount
 }
 
+const dirtyPaneParallelThreshold = 4
+
+type dirtyPaneComposite struct {
+	cell        *mux.LayoutCell
+	pd          PaneData
+	isActive    bool
+	pressed     bool
+	copyOverlay *proto.ViewportOverlay
+}
+
+func (c *Compositor) composeDirtyPane(g *ScreenGrid, layoutHeight int, pane dirtyPaneComposite) {
+	buildStatusCellsPressed(g, pane.cell, pane.isActive, pane.pressed, pane.pd)
+	contentH := c.visibleContentHeightForLayoutHeight(pane.cell, layoutHeight)
+	// Rebuild every row for dirty panes. TUI full-screen recomposes can
+	// move or clear lines without producing a pane-local dirty report that
+	// safely describes every changed row, so reusing cached rows here can
+	// leave stale cells until the next full redraw.
+	for row := 0; row < contentH; row++ {
+		buildPaneContentCells(g, pane.cell, row, pane.isActive, pane.pd, pane.copyOverlay)
+	}
+	clearPaneContentRows(g, pane.cell, contentH, mux.PaneContentHeight(pane.cell.H))
+}
+
 func (c *Compositor) buildGridWithOverlayDirty(
 	root *mux.LayoutCell,
 	activePaneID uint32,
@@ -265,7 +289,7 @@ func (c *Compositor) buildGridWithOverlayDirty(
 	layoutHeight := c.layoutHeightForHelpBar(overlay.HelpBar)
 
 	paneCount := 0
-	compositedPanes := 0
+	dirtyCells := make([]dirtyPaneComposite, 0, len(dirtyPanes))
 	root.Walk(func(cell *mux.LayoutCell) {
 		pid := cell.CellPaneID()
 		if pid == 0 {
@@ -279,22 +303,31 @@ func (c *Compositor) buildGridWithOverlayDirty(
 		if _, ok := dirtyPanes[pid]; !ok {
 			return
 		}
-		compositedPanes++
-
-		isActive := pid == activePaneID
-		pressed := overlay.IsPanePressed(pid)
-		copyOverlay := pd.CopyModeOverlay()
-		buildStatusCellsPressed(g, cell, isActive, pressed, pd)
-		contentH := c.visibleContentHeightForLayoutHeight(cell, layoutHeight)
-		// Rebuild every row for dirty panes. TUI full-screen recomposes can
-		// move or clear lines without producing a pane-local dirty report that
-		// safely describes every changed row, so reusing cached rows here can
-		// leave stale cells until the next full redraw.
-		for row := 0; row < contentH; row++ {
-			buildPaneContentCells(g, cell, row, isActive, pd, copyOverlay)
-		}
-		clearPaneContentRows(g, cell, contentH, mux.PaneContentHeight(cell.H))
+		dirtyCells = append(dirtyCells, dirtyPaneComposite{
+			cell:        cell,
+			pd:          pd,
+			isActive:    pid == activePaneID,
+			pressed:     overlay.IsPanePressed(pid),
+			copyOverlay: pd.CopyModeOverlay(),
+		})
 	})
+	compositedPanes := len(dirtyCells)
+
+	if len(dirtyCells) < dirtyPaneParallelThreshold {
+		for _, pane := range dirtyCells {
+			c.composeDirtyPane(g, layoutHeight, pane)
+		}
+	} else {
+		var wg sync.WaitGroup
+		wg.Add(len(dirtyCells))
+		for _, pane := range dirtyCells {
+			go func(pane dirtyPaneComposite) {
+				defer wg.Done()
+				c.composeDirtyPane(g, layoutHeight, pane)
+			}(pane)
+		}
+		wg.Wait()
+	}
 
 	if overlay.DropIndicator != nil {
 		buildDropIndicatorCells(g, overlay.DropIndicator)
