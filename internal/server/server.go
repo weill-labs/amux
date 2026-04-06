@@ -311,25 +311,23 @@ func (s *Session) buildCrashCheckpoint() *checkpoint.CrashCheckpoint {
 		wasIdle bool
 		command string
 	}
-	if len(snap.cwdWork) > 0 {
-		ch := make(chan cwdResult, len(snap.cwdWork))
-		for _, w := range snap.cwdWork {
-			go func(w pidEntry) {
-				status := w.pane.AgentStatus()
-				ch <- cwdResult{
-					index:   w.index,
-					cwd:     mux.PaneCwd(w.pid),
-					wasIdle: status.Idle,
-					command: status.CurrentCommand,
-				}
-			}(w)
-		}
-		for range snap.cwdWork {
-			r := <-ch
-			snap.cp.PaneStates[r.index].Cwd = r.cwd
-			snap.cp.PaneStates[r.index].WasIdle = r.wasIdle
-			snap.cp.PaneStates[r.index].Command = r.command
-		}
+	ch := make(chan cwdResult, len(snap.cwdWork))
+	for _, w := range snap.cwdWork {
+		go func(w pidEntry) {
+			status := w.pane.AgentStatus()
+			ch <- cwdResult{
+				index:   w.index,
+				cwd:     mux.PaneCwd(w.pid),
+				wasIdle: status.Idle,
+				command: status.CurrentCommand,
+			}
+		}(w)
+	}
+	for range snap.cwdWork {
+		r := <-ch
+		snap.cp.PaneStates[r.index].Cwd = r.cwd
+		snap.cp.PaneStates[r.index].WasIdle = r.wasIdle
+		snap.cp.PaneStates[r.index].Command = r.command
 	}
 
 	return snap.cp

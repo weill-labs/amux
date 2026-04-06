@@ -66,22 +66,20 @@ func (s *Session) currentStateEvents() []Event {
 
 	// Fetch AgentStatus for all panes concurrently — each call forks
 	// pgrep/ps subprocesses, so sequential iteration stalls the event loop.
+	type idleResult struct {
+		id   uint32
+		idle bool
+	}
+	ch := make(chan idleResult, len(s.Panes))
+	for _, p := range s.Panes {
+		go func(p *mux.Pane) {
+			ch <- idleResult{id: p.ID, idle: p.AgentStatus().Idle}
+		}(p)
+	}
 	agentIdle := make(map[uint32]bool, len(s.Panes))
-	if len(s.Panes) > 0 {
-		type idleResult struct {
-			id   uint32
-			idle bool
-		}
-		ch := make(chan idleResult, len(s.Panes))
-		for _, p := range s.Panes {
-			go func(p *mux.Pane) {
-				ch <- idleResult{id: p.ID, idle: p.AgentStatus().Idle}
-			}(p)
-		}
-		for range s.Panes {
-			r := <-ch
-			agentIdle[r.id] = r.idle
-		}
+	for range s.Panes {
+		r := <-ch
+		agentIdle[r.id] = r.idle
 	}
 
 	// Current idle/busy state for each pane

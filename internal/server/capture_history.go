@@ -158,15 +158,15 @@ func (s *Session) captureAgentStatus(panes []*mux.Pane) map[uint32]proto.PaneAge
 		paneID uint32
 		status mux.AgentStatus
 	}
-	results := make(chan agentResult, len(panes))
+	ch := make(chan agentResult, len(panes))
 	for _, p := range panes {
 		go func(p *mux.Pane) {
-			results <- agentResult{paneID: p.ID, status: p.AgentStatus()}
+			ch <- agentResult{paneID: p.ID, status: p.AgentStatus()}
 		}(p)
 	}
 	statuses := make(map[uint32]mux.AgentStatus, len(panes))
 	for range panes {
-		r := <-results
+		r := <-ch
 		statuses[r.paneID] = r.status
 	}
 
