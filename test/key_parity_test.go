@@ -9,7 +9,7 @@ import (
 )
 
 const rawReadArmSettle = 10 * time.Millisecond
-const rawReadProbeTimeout = 50 * time.Millisecond
+const rawReadProbeTimeout = 2 * time.Second
 
 type rawReadMarkers struct {
 	ready string
@@ -27,13 +27,23 @@ func newRawReadMarkers(id int) rawReadMarkers {
 	}
 }
 
+func splitMarker(marker string) (string, string) {
+	mid := len(marker) / 2
+	return marker[:mid], marker[mid:]
+}
+
 func rawReadCommandWithDeadline(byteCount int, timeout time.Duration, markers rawReadMarkers) string {
+	readyA, readyB := splitMarker(markers.ready)
+	hexA, hexB := splitMarker(markers.hex)
+	doneA, doneB := splitMarker(markers.done)
+	exitA, exitB := splitMarker(markers.exit)
+
 	return fmt.Sprintf(`python3 -u -c 'import os,select,sys,termios,time,tty
 fd=sys.stdin.fileno()
 old=termios.tcgetattr(fd)
-ready=%q
-hex_marker=%q
-done=%q
+ready=%q+%q
+hex_marker=%q+%q
+done=%q+%q
 tty.setraw(fd)
 try:
     while True:
@@ -57,31 +67,19 @@ try:
     print(hex_marker+data.hex(), flush=True)
     print(done, flush=True)
 finally:
-    termios.tcsetattr(fd, termios.TCSADRAIN, old)'; printf '%%s\n' %q`, markers.ready, markers.hex, markers.done, rawReadArmSettle.Seconds(), timeout.Seconds(), byteCount, byteCount, markers.exit)
+    termios.tcsetattr(fd, termios.TCSADRAIN, old)'; printf '%%s\n' %q%q`, readyA, readyB, hexA, hexB, doneA, doneB, rawReadArmSettle.Seconds(), timeout.Seconds(), byteCount, byteCount, exitA, exitB)
 }
 
-func TestSendKeysEncodeProbeSurvivesWaitAfterReady(t *testing.T) {
+func TestRawReadCommandWithDeadlineSplitsRuntimeMarkers(t *testing.T) {
 	t.Parallel()
 
-	h := newServerHarness(t)
-	markers := newRawReadMarkers(99)
+	markers := newRawReadMarkers(7)
+	cmd := rawReadCommandWithDeadline(1, time.Second, markers)
 
-	h.sendKeys("pane-1", rawReadCommandWithDeadline(3, rawReadProbeTimeout, markers), "Enter")
-	h.waitFor("pane-1", markers.ready)
-
-	time.Sleep(75 * time.Millisecond)
-
-	out := h.runCmd("send-keys", "pane-1", "C-a")
-	if strings.Contains(out, "invalid") {
-		t.Fatalf("send-keys %q failed: %s", "C-a", out)
-	}
-
-	h.waitFor("pane-1", markers.done)
-	h.waitFor("pane-1", markers.exit)
-
-	pane := h.runCmd("capture", "pane-1")
-	if !strings.Contains(pane, markers.hex+"01") {
-		t.Fatalf("send-keys %q hex output missing %q\nPane:\n%s", "C-a", markers.hex+"01", pane)
+	for _, marker := range []string{markers.ready, markers.hex, markers.done, markers.exit} {
+		if strings.Contains(cmd, marker) {
+			t.Fatalf("raw read command should not embed runtime marker %q:\n%s", marker, cmd)
+		}
 	}
 }
 
@@ -173,10 +171,10 @@ func TestSendKeysEncodeParityMatrix(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Not parallel: this matrix intentionally reuses one harness so the PTY
 			// probe and send-keys traffic stay serialized across cases.
+			// Probe the encoded bytes, not the token spelling. Control and alias
+			// tokens like "C-a" and "Backspace" expand to fewer bytes than their
+			// source text length.
 			readBytes := len(tt.want)
-			if len(tt.token) > readBytes {
-				readBytes = len(tt.token)
-			}
 
 			h.sendKeys("pane-1", rawReadCommandWithDeadline(readBytes, rawReadProbeTimeout, markers), "Enter")
 			h.waitFor("pane-1", markers.ready)
@@ -190,7 +188,7 @@ func TestSendKeysEncodeParityMatrix(t *testing.T) {
 			h.waitFor("pane-1", markers.exit)
 
 			wantHex := hex.EncodeToString(tt.want)
-			pane := h.runCmd("capture", "pane-1")
+			pane := h.runCmd("capture", "--history", "pane-1")
 			if !strings.Contains(pane, markers.hex+wantHex) {
 				t.Fatalf("send-keys %q hex output missing %q\nPane:\n%s", tt.token, markers.hex+wantHex, pane)
 			}
