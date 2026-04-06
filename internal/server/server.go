@@ -689,7 +689,9 @@ func (s *Server) shutdown() {
 	if s.pprof != nil {
 		s.pprof.close()
 	}
-	s.listener.Close()
+	if s.listener != nil {
+		s.listener.Close()
+	}
 	os.Remove(s.sockPath)
 
 	for _, sess := range s.sessions {
