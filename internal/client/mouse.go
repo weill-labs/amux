@@ -44,12 +44,16 @@ type dragState struct {
 	PendingWordCopyPaneID uint32
 	PendingWordCopyAt     time.Time
 
-	mu                    sync.Mutex
-	now                   func() time.Time
-	afterFunc             func(time.Duration, func()) dragTimer
-	paneDragDwellTimer    dragTimer
-	paneDragDwellWindow   int
-	paneDragDwellSequence uint64
+	now       func() time.Time
+	afterFunc func(time.Duration, func()) dragTimer
+	dwell     *paneDragDwellState
+}
+
+type paneDragDwellState struct {
+	mu       sync.Mutex
+	timer    dragTimer
+	window   int
+	sequence uint64
 }
 
 type paneMouseTarget struct {
@@ -94,30 +98,41 @@ func (d *dragState) nowTime() time.Time {
 	return time.Now()
 }
 
+func (d *dragState) dwellState() *paneDragDwellState {
+	if d == nil {
+		return nil
+	}
+	if d.dwell == nil {
+		d.dwell = &paneDragDwellState{}
+	}
+	return d.dwell
+}
+
 func (d *dragState) schedulePaneDragDwell(windowIndex int, fn func()) {
 	if d == nil {
 		return
 	}
 
-	d.mu.Lock()
-	defer d.mu.Unlock()
+	state := d.dwellState()
+	state.mu.Lock()
+	defer state.mu.Unlock()
 
-	if d.paneDragDwellWindow == windowIndex && d.paneDragDwellTimer != nil {
+	if state.window == windowIndex && state.timer != nil {
 		return
 	}
-	if d.paneDragDwellTimer != nil {
-		d.paneDragDwellTimer.Stop()
+	if state.timer != nil {
+		state.timer.Stop()
 	}
-	d.paneDragDwellSequence++
-	seq := d.paneDragDwellSequence
+	state.sequence++
+	seq := state.sequence
 	afterFunc := d.afterFunc
 	if afterFunc == nil {
 		afterFunc = func(delay time.Duration, fn func()) dragTimer {
 			return time.AfterFunc(delay, fn)
 		}
 	}
-	d.paneDragDwellWindow = windowIndex
-	d.paneDragDwellTimer = afterFunc(paneDragDwellDelay, func() {
+	state.window = windowIndex
+	state.timer = afterFunc(paneDragDwellDelay, func() {
 		if d.consumePaneDragDwell(windowIndex, seq) {
 			fn()
 		}
@@ -129,14 +144,15 @@ func (d *dragState) consumePaneDragDwell(windowIndex int, seq uint64) bool {
 		return false
 	}
 
-	d.mu.Lock()
-	defer d.mu.Unlock()
+	state := d.dwellState()
+	state.mu.Lock()
+	defer state.mu.Unlock()
 
-	if d.paneDragDwellSequence != seq || d.paneDragDwellWindow != windowIndex {
+	if state.sequence != seq || state.window != windowIndex {
 		return false
 	}
-	d.paneDragDwellTimer = nil
-	d.paneDragDwellWindow = 0
+	state.timer = nil
+	state.window = 0
 	return true
 }
 
@@ -145,15 +161,16 @@ func (d *dragState) cancelPaneDragDwell() {
 		return
 	}
 
-	d.mu.Lock()
-	defer d.mu.Unlock()
+	state := d.dwellState()
+	state.mu.Lock()
+	defer state.mu.Unlock()
 
-	d.paneDragDwellSequence++
-	if d.paneDragDwellTimer != nil {
-		d.paneDragDwellTimer.Stop()
+	state.sequence++
+	if state.timer != nil {
+		state.timer.Stop()
 	}
-	d.paneDragDwellTimer = nil
-	d.paneDragDwellWindow = 0
+	state.timer = nil
+	state.window = 0
 }
 
 func mouseTargetAt(layout *mux.LayoutCell, x, y int) *paneMouseTarget {
