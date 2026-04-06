@@ -84,11 +84,7 @@ func (cr *ClientRenderer) handleLayoutResult(snap *proto.LayoutSnapshot) (bool, 
 // HandlePaneHistory stores retained server history for a pane during attach
 // bootstrap. History is oldest-first and excludes the current visible screen.
 func (cr *ClientRenderer) HandlePaneHistory(paneID uint32, lines []string) {
-	styled := make([]proto.StyledLine, len(lines))
-	for i, line := range lines {
-		styled[i] = proto.StyledLine{Text: line}
-	}
-	cr.HandlePaneHistoryStyled(paneID, styled)
+	cr.HandlePaneHistoryStyled(paneID, plainStyledHistory(lines))
 }
 
 // HandlePaneHistoryStyled stores retained server history with frozen cells for
@@ -99,6 +95,14 @@ func (cr *ClientRenderer) HandlePaneHistoryStyled(paneID uint32, lines []proto.S
 		next.baseHistory[paneID] = history
 		return clientUIResult{}
 	})
+}
+
+func (cr *ClientRenderer) HandlePaneHistoryMessage(paneID uint32, history []string, styledHistory []proto.StyledLine) {
+	if len(styledHistory) > 0 {
+		cr.HandlePaneHistoryStyled(paneID, styledHistory)
+		return
+	}
+	cr.HandlePaneHistory(paneID, history)
 }
 
 func (cr *ClientRenderer) emitUIEvent(name string) {
