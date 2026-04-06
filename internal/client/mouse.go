@@ -107,6 +107,10 @@ func paneRef(paneID uint32) string {
 	return fmt.Sprintf("%d", paneID)
 }
 
+func windowIndexRef(index int) string {
+	return fmt.Sprintf("%d", index)
+}
+
 func logicalRootCell(cr *ClientRenderer, layout *mux.LayoutCell) *mux.LayoutCell {
 	if layout == nil {
 		return nil
@@ -499,14 +503,14 @@ func handleGlobalBarMouseEvent(ev mouse.Event, layout *mux.LayoutCell, cr *Clien
 			rerenderOverlay(cr, msgCh)
 			if target != nil && sender != nil && target.destinationIndex != sourceIndex {
 				sender.Command("reorder-window", []string{
-					fmt.Sprintf("%d", sourceIndex),
-					fmt.Sprintf("%d", target.destinationIndex),
+					windowIndexRef(sourceIndex),
+					windowIndexRef(target.destinationIndex),
 				})
 				return true
 			}
 			if !moved && !sourceActive && isGlobalBarRow && sender != nil {
 				if window, ok := render.GlobalBarWindowAtColumn(windows, ev.X); ok && window.Index == sourceIndex {
-					sender.Command("select-window", []string{fmt.Sprintf("%d", sourceIndex)})
+					sender.Command("select-window", []string{windowIndexRef(sourceIndex)})
 				}
 			}
 			return true
