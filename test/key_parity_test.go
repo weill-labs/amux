@@ -60,6 +60,31 @@ finally:
     termios.tcsetattr(fd, termios.TCSADRAIN, old)'; printf '%%s\n' %q`, markers.ready, markers.hex, markers.done, rawReadArmSettle.Seconds(), timeout.Seconds(), byteCount, byteCount, markers.exit)
 }
 
+func TestSendKeysEncodeProbeSurvivesWaitAfterReady(t *testing.T) {
+	t.Parallel()
+
+	h := newServerHarness(t)
+	markers := newRawReadMarkers(99)
+
+	h.sendKeys("pane-1", rawReadCommandWithDeadline(3, rawReadProbeTimeout, markers), "Enter")
+	h.waitFor("pane-1", markers.ready)
+
+	time.Sleep(75 * time.Millisecond)
+
+	out := h.runCmd("send-keys", "pane-1", "C-a")
+	if strings.Contains(out, "invalid") {
+		t.Fatalf("send-keys %q failed: %s", "C-a", out)
+	}
+
+	h.waitFor("pane-1", markers.done)
+	h.waitFor("pane-1", markers.exit)
+
+	pane := h.runCmd("capture", "pane-1")
+	if !strings.Contains(pane, markers.hex+"01") {
+		t.Fatalf("send-keys %q hex output missing %q\nPane:\n%s", "C-a", markers.hex+"01", pane)
+	}
+}
+
 func TestSendKeysEncodeParityMatrix(t *testing.T) {
 	t.Parallel()
 
