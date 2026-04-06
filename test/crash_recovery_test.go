@@ -125,28 +125,7 @@ func TestCrashRecovery_GracefulShutdownCheckpointSurvivesAndRestores(t *testing.
 	h.runCmd("rename-window", "graceful")
 	h.waitLayout(gen)
 
-	// Trigger a clean shutdown explicitly and wait for the server's
-	// shutdown-complete signal before asserting on crash checkpoint contents.
-	if h.client != nil {
-		h.client.close()
-		h.client = nil
-	}
-	if err := h.signalServer(os.Interrupt); err != nil {
-		t.Fatalf("interrupting server: %v", err)
-	}
-	h.waitForShutdownSignal(5 * time.Second)
-	done := make(chan struct{})
-	go func() {
-		h.cmd.Wait()
-		close(done)
-	}()
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		_ = h.signalServer(syscall.SIGKILL)
-		t.Fatal("server did not shut down within 5s")
-	}
-	h.cmd = nil // prevent double cleanup
+	shutdownServerGracefully(t, h, 5*time.Second)
 
 	// Verify the checkpoint survives the graceful shutdown and captures the
 	// last-minute rename that only a shutdown-time write can persist.
@@ -538,6 +517,31 @@ func waitForFreshCrashCheckpoint(t *testing.T, h *ServerHarness, afterGen uint64
 	return waitForCrashCheckpointMatch(t, h, afterGen, timeout, "fresh checkpoint", func(cp checkpoint.CrashCheckpoint) bool {
 		return cp.Timestamp.After(prev.Timestamp) || cp.Generation > prev.Generation
 	})
+}
+
+func shutdownServerGracefully(t *testing.T, h *ServerHarness, timeout time.Duration) {
+	t.Helper()
+
+	if h.client != nil {
+		h.client.close()
+		h.client = nil
+	}
+	if err := h.signalServer(os.Interrupt); err != nil {
+		t.Fatalf("interrupting server: %v", err)
+	}
+	h.waitForShutdownSignal(timeout)
+	done := make(chan struct{})
+	go func() {
+		h.cmd.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(timeout):
+		_ = h.signalServer(syscall.SIGKILL)
+		t.Fatalf("server did not shut down within %v", timeout)
+	}
+	h.cmd = nil // prevent double cleanup
 }
 
 // startServerForSession starts a new server process for an existing session
