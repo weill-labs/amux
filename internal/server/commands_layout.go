@@ -81,6 +81,7 @@ type createPaneRequest struct {
 }
 
 type createPaneSnapshot struct {
+	inheritPane  *mux.Pane
 	windowID     uint32
 	windowWidth  int
 	windowHeight int
@@ -89,6 +90,30 @@ type createPaneSnapshot struct {
 	inheritProxy bool
 	targetPaneID uint32
 	plan         mux.SpiralAddPlan
+}
+
+const (
+	inheritedPaneCwdResolveAttempts = 3
+	inheritedPaneCwdRetryDelay      = 25 * time.Millisecond
+)
+
+func resolveInheritedPaneDir(sess *Session, pane *mux.Pane) string {
+	if pane == nil {
+		return ""
+	}
+	for attempt := 0; attempt < inheritedPaneCwdResolveAttempts; attempt++ {
+		cwd, _ := sess.detectPaneCwdBranch(pane)
+		if cwd != "" {
+			return cwd
+		}
+		if attempt+1 < inheritedPaneCwdResolveAttempts {
+			time.Sleep(inheritedPaneCwdRetryDelay)
+		}
+	}
+	if cwd := pane.LiveCwd(); cwd != "" {
+		return cwd
+	}
+	return pane.Meta.Dir
 }
 
 type respawnTarget struct {
@@ -135,7 +160,7 @@ func runCreatePane(ctx *CommandContext, actorPaneID uint32, command string, plac
 		Name:  req.name,
 		Task:  req.task,
 		Color: req.color,
-		Dir:   mux.PaneCwd(snapshot.inheritPID),
+		Dir:   resolveInheritedPaneDir(ctx.Sess, snapshot.inheritPane),
 	}
 	return toCommandResult(ctx.Sess.enqueueCommandMutation(func(mctx *MutationContext) commandMutationResult {
 		w, err := resolveCreatePaneWindow(mctx, actorPaneID, placement, snapshot)
@@ -174,6 +199,7 @@ func queryCreatePaneSnapshot(sess *Session, actorPaneID uint32, command string, 
 				return createPaneSnapshot{}, fmt.Errorf("pane %d not found", plan.InheritPaneID)
 			}
 			return createPaneSnapshot{
+				inheritPane:  inheritPane,
 				windowID:     w.ID,
 				windowWidth:  w.Width,
 				windowHeight: w.Height,
@@ -196,6 +222,7 @@ func queryCreatePaneSnapshot(sess *Session, actorPaneID uint32, command string, 
 				return createPaneSnapshot{}, fmt.Errorf("pane not in any window")
 			}
 			return createPaneSnapshot{
+				inheritPane:  pane,
 				windowID:     resolvedWindow.ID,
 				windowWidth:  resolvedWindow.Width,
 				windowHeight: resolvedWindow.Height,
@@ -212,6 +239,7 @@ func queryCreatePaneSnapshot(sess *Session, actorPaneID uint32, command string, 
 			return createPaneSnapshot{}, fmt.Errorf("no active pane")
 		}
 		return createPaneSnapshot{
+			inheritPane:  w.ActivePane,
 			windowID:     w.ID,
 			windowWidth:  w.Width,
 			windowHeight: w.Height,
@@ -784,11 +812,11 @@ func cmdCopyMode(ctx *CommandContext) {
 }
 
 func runNewWindow(ctx *CommandContext, name string) commandpkg.Result {
-	activePid, _, _, err := ctx.activeWindowSnapshot()
+	snap, err := ctx.Sess.queryActiveWindowSnapshot()
 	if err != nil {
 		return commandpkg.Result{Err: err}
 	}
-	meta := mux.PaneMeta{Dir: mux.PaneCwd(activePid)}
+	meta := mux.PaneMeta{Dir: resolveInheritedPaneDir(ctx.Sess, snap.activePane)}
 	return toCommandResult(ctx.Sess.enqueueCommandMutation(func(mctx *MutationContext) commandMutationResult {
 		w := mctx.activeWindow()
 		if w == nil {
