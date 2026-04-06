@@ -403,6 +403,19 @@ func (s *Session) undoClosePane() (pane *mux.Pane, err error) {
 	return pane, nil
 }
 
+func effectiveRespawnDir(pane *mux.Pane) string {
+	if pane == nil {
+		return ""
+	}
+	if cwd := pane.LiveCwd(); cwd != "" {
+		return cwd
+	}
+	if cwd, _ := pane.DetectCwdBranch(); cwd != "" {
+		return cwd
+	}
+	return pane.Meta.Dir
+}
+
 func (s *Session) replacePaneInstance(oldPane, newPane *mux.Pane, w *mux.Window) error {
 	if oldPane == nil || newPane == nil {
 		return fmt.Errorf("missing pane")

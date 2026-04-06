@@ -428,73 +428,16 @@ func (p *Pane) ProcessPid() int {
 // DetectCwdBranch returns the current CWD and git branch without mutating state.
 // Safe to call from any goroutine.
 func (p *Pane) DetectCwdBranch() (cwd, branch string) {
-	return p.detectCwdBranchWithLookups(PaneCwd, GitBranch, childPIDs, processName)
-}
-
-func (p *Pane) detectCwdBranchWithLookups(
-	cwdForPID func(int) string,
-	branchForDir func(string) string,
-	childPIDsForPID func(int) []int,
-	nameForPID func(int) string,
-) (cwd, branch string) {
 	pid := p.ProcessPid()
 	if pid == 0 {
 		return "", ""
 	}
-	shellName := p.ShellName()
-	if shellName == "" {
-		shellName = nameForPID(pid)
-	}
-	rootCwd := cwdForPID(pid)
-	if shellName != "" {
-		if childCwd := detectShellChildChainCwd(pid, shellName, cwdForPID, childPIDsForPID, nameForPID); childCwd != "" {
-			return childCwd, branchForDir(childCwd)
-		}
-	}
-	cwd = rootCwd
+	cwd = PaneCwd(pid)
 	if cwd == "" {
 		return "", ""
 	}
-	branch = branchForDir(cwd)
+	branch = GitBranch(cwd)
 	return cwd, branch
-}
-
-func detectShellChildChainCwd(
-	rootPID int,
-	shellName string,
-	cwdForPID func(int) string,
-	childPIDsForPID func(int) []int,
-	nameForPID func(int) string,
-) string {
-	if rootPID <= 0 || shellName == "" {
-		return ""
-	}
-
-	const maxShellChainDepth = 8
-	children := childPIDsForPID(rootPID)
-	if len(children) != 1 {
-		return ""
-	}
-
-	pid := children[0]
-	deepestCwd := ""
-	for depth := 0; depth < maxShellChainDepth; depth++ {
-		if nameForPID(pid) != shellName {
-			return ""
-		}
-		if cwd := cwdForPID(pid); cwd != "" {
-			deepestCwd = cwd
-		}
-		next := childPIDsForPID(pid)
-		if len(next) == 0 {
-			return deepestCwd
-		}
-		if len(next) != 1 {
-			return ""
-		}
-		pid = next[0]
-	}
-	return deepestCwd
 }
 
 // ApplyCwdBranch updates cached CWD/branch. Only call from the session event loop.
