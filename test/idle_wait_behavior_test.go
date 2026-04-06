@@ -99,3 +99,16 @@ func TestWaitIdleWithSettleFlag_EventBased(t *testing.T) {
 
 	h.waitFor("pane-1", "done")
 }
+
+func TestRunShellCommandWaitsForShellReady(t *testing.T) {
+	t.Parallel()
+
+	h := newServerHarness(t)
+
+	h.runShellCommand("pane-1", "sleep 0.3 # READY_ECHO_MARKER", "READY_ECHO_MARKER")
+
+	out := h.runCmd("wait", "ready", "pane-1", "--timeout", "50ms")
+	if strings.Contains(out, "timeout") || strings.Contains(out, "not found") {
+		t.Fatalf("runShellCommand should wait for the shell prompt, got: %s", strings.TrimSpace(out))
+	}
+}

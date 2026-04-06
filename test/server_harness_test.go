@@ -1648,6 +1648,14 @@ func (h *ServerHarness) sendKeys(pane string, keys ...string) {
 	}
 }
 
+// runShellCommand sends a shell command followed by Enter, then waits for a
+// marker substring before returning.
+func (h *ServerHarness) runShellCommand(pane, command, marker string) {
+	h.tb.Helper()
+	h.sendKeys(pane, command, "Enter")
+	h.waitFor(pane, marker)
+}
+
 func (h *ServerHarness) sendClientKeys(keys ...string) string {
 	h.tb.Helper()
 	pane := h.activePaneName()
