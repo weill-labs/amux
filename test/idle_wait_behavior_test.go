@@ -41,9 +41,7 @@ func TestWaitReadyCommandReturnsReady(t *testing.T) {
 
 	h := newServerHarness(t)
 
-	h.sendKeys("pane-1", "echo READY", "Enter")
-	h.waitFor("pane-1", "READY")
-	h.waitIdle("pane-1")
+	h.runShellCommand("pane-1", "echo READY", "READY")
 
 	out := h.runCmd("wait", "ready", "pane-1")
 	if strings.TrimSpace(out) != "ready" {
@@ -56,9 +54,7 @@ func TestSendKeysWaitReadyWaitsForShellPrompt(t *testing.T) {
 
 	h := newServerHarness(t)
 
-	h.sendKeys("pane-1", "echo READY", "Enter")
-	h.waitFor("pane-1", "READY")
-	h.waitIdle("pane-1")
+	h.runShellCommand("pane-1", "echo READY", "READY")
 
 	out := h.runCmd("send-keys", "pane-1", "--wait", "ready", "echo AGAIN", "Enter")
 	if strings.TrimSpace(out) != "Sent 11 bytes to pane-1" {

@@ -65,9 +65,7 @@ func TestIdleRefreshUpdatesPaneCwdAndBranch(t *testing.T) {
 		t.Fatalf("git commit: %v\n%s", err, out)
 	}
 
-	h.sendKeys("pane-1", fmt.Sprintf("cd %q && echo META_READY", repoDir), "Enter")
-	h.waitFor("pane-1", "META_READY")
-	h.waitIdle("pane-1")
+	h.runShellCommand("pane-1", fmt.Sprintf("cd %q && echo META_READY", repoDir), "META_READY")
 
 	wantCwd := repoDir
 	if resolved, err := filepath.EvalSymlinks(repoDir); err == nil && resolved != "" {
@@ -150,9 +148,7 @@ func TestLogPanesSnapshotsExitContext(t *testing.T) {
 	if resolved, err := filepath.EvalSymlinks(tempDir); err == nil && resolved != "" {
 		wantCwd = resolved
 	}
-	h.sendKeys("pane-2", fmt.Sprintf("cd %q && echo CWD_READY", tempDir), "Enter")
-	h.waitFor("pane-2", "CWD_READY")
-	h.waitIdle("pane-2")
+	h.runShellCommand("pane-2", fmt.Sprintf("cd %q && echo CWD_READY", tempDir), "CWD_READY")
 
 	wantListCwd := listingcmd.FormatListCwd(wantCwd, h.home, listingcmd.ListCwdWidth)
 	listOut := waitForListMetadata(t, h, wantListCwd)

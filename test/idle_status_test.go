@@ -77,9 +77,7 @@ func TestWaitBusy_EventBased(t *testing.T) {
 	h := newServerHarness(t)
 
 	// Wait for pane to become idle first so wait-busy has something to wait for.
-	h.sendKeys("pane-1", "echo INIT", "Enter")
-	h.waitFor("pane-1", "INIT")
-	h.waitIdle("pane-1")
+	h.runShellCommand("pane-1", "echo INIT", "INIT")
 
 	// wait-busy should block until a real child exists, not just prompt echo.
 	h.sendKeys("pane-1", "sleep 300", "Enter")
@@ -97,9 +95,7 @@ func TestWaitBusy_WaitsForChildProcessNotPromptEcho(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)
 
-	h.sendKeys("pane-1", "echo READY", "Enter")
-	h.waitFor("pane-1", "READY")
-	h.waitIdle("pane-1")
+	h.runShellCommand("pane-1", "echo READY", "READY")
 
 	h.sendKeys("pane-1", "sleep 300", "Enter")
 	h.waitBusy("pane-1")
@@ -118,9 +114,7 @@ func TestWaitIdle_EventBased(t *testing.T) {
 	h := newServerHarness(t)
 
 	// Generate activity, then wait for idle.
-	h.sendKeys("pane-1", "echo ACTIVITY", "Enter")
-	h.waitFor("pane-1", "ACTIVITY")
-	h.waitIdle("pane-1")
+	h.runShellCommand("pane-1", "echo ACTIVITY", "ACTIVITY")
 
 	// Verify via JSON capture — should report idle with shell name.
 	pane := captureJSONPane(t, h, "pane-1")
@@ -154,9 +148,7 @@ func TestWaitIdle_AlreadyIdle(t *testing.T) {
 	h := newServerHarness(t)
 
 	// Wait for idle, then call wait-idle again — should return immediately.
-	h.sendKeys("pane-1", "echo READY", "Enter")
-	h.waitFor("pane-1", "READY")
-	h.waitIdle("pane-1")
+	h.runShellCommand("pane-1", "echo READY", "READY")
 
 	out := h.runCmd("wait", "idle", "pane-1", "--timeout", "1s")
 	if strings.Contains(out, "timeout") {
@@ -168,9 +160,7 @@ func TestWaitExited_AlreadyExited(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)
 
-	h.sendKeys("pane-1", "echo READY", "Enter")
-	h.waitFor("pane-1", "READY")
-	h.waitIdle("pane-1")
+	h.runShellCommand("pane-1", "echo READY", "READY")
 
 	out := h.runCmd("wait", "exited", "pane-1", "--timeout", "1s")
 	if strings.Contains(out, "timeout") || strings.Contains(out, "not found") {
