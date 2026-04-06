@@ -27,16 +27,18 @@ func newRawReadMarkers(id int) rawReadMarkers {
 	}
 }
 
-func splitMarker(marker string) (string, string) {
+// Split runtime markers so wait-content only sees them after the probe emits
+// output, not while the shell is still echoing the Python source.
+func splitRuntimeMarker(marker string) (string, string) {
 	mid := len(marker) / 2
 	return marker[:mid], marker[mid:]
 }
 
 func rawReadCommandWithDeadline(byteCount int, timeout time.Duration, markers rawReadMarkers) string {
-	readyA, readyB := splitMarker(markers.ready)
-	hexA, hexB := splitMarker(markers.hex)
-	doneA, doneB := splitMarker(markers.done)
-	exitA, exitB := splitMarker(markers.exit)
+	readyA, readyB := splitRuntimeMarker(markers.ready)
+	hexA, hexB := splitRuntimeMarker(markers.hex)
+	doneA, doneB := splitRuntimeMarker(markers.done)
+	exitA, exitB := splitRuntimeMarker(markers.exit)
 
 	return fmt.Sprintf(`python3 -u -c 'import os,select,sys,termios,time,tty
 fd=sys.stdin.fileno()
