@@ -47,6 +47,11 @@ func (ctx *CommandContext) replyCommandMutation(res commandMutationResult) {
 	} else {
 		ctx.CC.Send(&Message{Type: MsgTypeCmdResult})
 	}
+	if res.shutdownServer {
+		// Flush the command reply before starting shutdown so one-shot CLI
+		// callers do not observe EOF in place of the final CmdResult.
+		ctx.CC.Flush()
+	}
 	if res.sendExit {
 		ctx.Sess.broadcast(&Message{Type: MsgTypeExit})
 	}

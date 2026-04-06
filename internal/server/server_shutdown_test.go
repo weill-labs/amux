@@ -2,43 +2,55 @@ package server
 
 import (
 	"net"
+	"sync"
 	"testing"
 	"time"
 )
 
-func TestShutdownWaitsForInFlightOneShotCommands(t *testing.T) {
+func TestShutdownCommandFlushesReplyBeforeShutdownStarts(t *testing.T) {
 	t.Parallel()
 
-	srv, sess, cleanup := newCommandTestSession(t)
+	srv, _, cleanup := newCommandTestSession(t)
 	defer cleanup()
 
-	srv.listener = &trackingListener{}
+	listener := &notifyListener{closed: make(chan struct{})}
+	srv.listener = listener
 	srv.sockPath = t.TempDir() + "/amux.sock"
 	srv.shutdownDone = make(chan struct{})
-
-	started := make(chan struct{})
-	release := make(chan struct{})
 	srv.commands = map[string]CommandHandler{
-		"block": func(ctx *CommandContext) {
-			close(started)
-			<-release
-			ctx.reply("ok\n")
+		"shutdown": func(ctx *CommandContext) {
+			ctx.replyCommandMutation(commandMutationResult{
+				output:         "ok\n",
+				shutdownServer: true,
+			})
 		},
 	}
 
 	serverConn, clientConn := net.Pipe()
 	defer clientConn.Close()
 
+	gated := &gatedConn{
+		Conn:         serverConn,
+		writeStarted: make(chan struct{}),
+		writeGate:    make(chan struct{}),
+	}
+
 	commandDone := make(chan struct{})
 	go func() {
 		defer close(commandDone)
-		srv.handleOneShot(serverConn, &Message{Type: MsgTypeCommand, CmdName: "block"})
+		srv.handleOneShot(gated, &Message{Type: MsgTypeCommand, CmdName: "shutdown"})
 	}()
 
 	select {
-	case <-started:
+	case <-gated.writeStarted:
 	case <-time.After(time.Second):
-		t.Fatal("one-shot command did not start")
+		t.Fatal("shutdown command did not start writing reply")
+	}
+
+	select {
+	case <-listener.closed:
+		t.Fatal("shutdown started before reply flush completed")
+	case <-time.After(100 * time.Millisecond):
 	}
 
 	replyCh := make(chan *Message, 1)
@@ -52,29 +64,23 @@ func TestShutdownWaitsForInFlightOneShotCommands(t *testing.T) {
 		replyCh <- msg
 	}()
 
-	shutdownDone := make(chan struct{})
-	go func() {
-		srv.Shutdown()
-		close(shutdownDone)
-	}()
-
-	select {
-	case <-shutdownDone:
-		t.Fatal("Shutdown returned before in-flight one-shot command finished")
-	case <-time.After(100 * time.Millisecond):
-	}
-
-	close(release)
+	close(gated.writeGate)
 
 	select {
 	case msg := <-replyCh:
 		if msg.Type != MsgTypeCmdResult || msg.CmdOutput != "ok\n" {
-			t.Fatalf("one-shot reply = %#v, want ok cmd result", msg)
+			t.Fatalf("shutdown reply = %#v, want ok cmd result", msg)
 		}
 	case err := <-readErrCh:
 		t.Fatalf("ReadMsg() error = %v", err)
 	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for one-shot reply")
+		t.Fatal("timed out waiting for shutdown reply")
+	}
+
+	select {
+	case <-listener.closed:
+	case <-time.After(time.Second):
+		t.Fatal("shutdown did not start after reply flush")
 	}
 
 	select {
@@ -82,14 +88,35 @@ func TestShutdownWaitsForInFlightOneShotCommands(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("handleOneShot did not return")
 	}
+}
 
-	select {
-	case <-shutdownDone:
-	case <-time.After(time.Second):
-		t.Fatal("Shutdown did not return after one-shot completed")
-	}
+type gatedConn struct {
+	net.Conn
+	writeStarted chan struct{}
+	writeGate    chan struct{}
+	startOnce    sync.Once
+}
 
-	if sess.shutdown.Load() != true {
-		t.Fatal("session shutdown flag not set")
-	}
+func (c *gatedConn) Write(p []byte) (int, error) {
+	c.startOnce.Do(func() { close(c.writeStarted) })
+	<-c.writeGate
+	return c.Conn.Write(p)
+}
+
+type notifyListener struct {
+	closed chan struct{}
+	once   sync.Once
+}
+
+func (l *notifyListener) Accept() (net.Conn, error) {
+	return nil, net.ErrClosed
+}
+
+func (l *notifyListener) Close() error {
+	l.once.Do(func() { close(l.closed) })
+	return nil
+}
+
+func (l *notifyListener) Addr() net.Addr {
+	return trackingAddr("notify")
 }
