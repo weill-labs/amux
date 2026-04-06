@@ -1523,15 +1523,13 @@ func TestIdleTimeoutEventSkipsExitedWhenPaneIsBusy(t *testing.T) {
 	stopCrashCheckpointLoop(t, sess)
 	defer stopSessionBackgroundLoops(t, sess)
 
-	// Use a real pane with a running shell so AgentStatus reports busy.
+	// Test the result-event path directly: enqueue a non-idle result
+	// instead of going through AgentStatus (which needs a real process).
 	pane := newProxyPane(1, mux.PaneMeta{
 		Name:  "pane-1",
 		Host:  mux.DefaultHost,
 		Color: "f5e0dc",
 	}, 80, 23, nil, nil, nil)
-	// Give the pane a fake PID that won't resolve, making AgentStatus
-	// treat it as a dead process and return idle. Instead we test the
-	// result event path: enqueue a non-idle result directly.
 	w := mux.NewWindow(pane, 80, 23)
 	w.ID = 1
 	w.Name = "window-1"

@@ -117,9 +117,8 @@ func (e idleTimeoutEvent) handle(s *Session) {
 	// Check AgentStatus off the event loop — it forks pgrep/ps subprocesses
 	// that can block for 50-200ms per pane (see #657).
 	if pane != nil {
-		p := pane
 		go func() {
-			idle := p.AgentStatus().Idle
+			idle := pane.AgentStatus().Idle
 			s.enqueueEvent(agentIdleCheckResultEvent{
 				paneID:   e.paneID,
 				paneName: paneName,
