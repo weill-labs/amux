@@ -221,8 +221,8 @@ func TestRespawnPreservesPaneMetadataAndCwdWhileResettingState(t *testing.T) {
 		wantCwd = resolved
 	}
 
-	h.sendKeys("worker", fmt.Sprintf("cd %q && printf 'RESPAWN-HISTORY\\n'", tmpDir), "Enter")
-	h.waitFor("worker", "RESPAWN-HISTORY")
+	h.sendKeys("worker", fmt.Sprintf("cd %q && pwd -P && printf 'RESPAWN-HISTORY\\n'", tmpDir), "Enter")
+	h.waitFor("worker", wantCwd)
 
 	before := h.captureJSON()
 	beforePane := h.jsonPane(before, "worker")

@@ -1,6 +1,10 @@
 package test
 
-import "testing"
+import (
+	"fmt"
+	"path/filepath"
+	"testing"
+)
 
 // TestSplitInheritsCwd verifies that splitting a pane inherits the active
 // pane's current working directory. The new shell should start in the same
@@ -9,16 +13,21 @@ func TestSplitInheritsCwd(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)
 
-	// Change pane-1's working directory to /tmp.
-	h.runShellCommand("pane-1", "cd /tmp && echo CWD_READY", "CWD_READY")
+	tmpDir := t.TempDir()
+	wantCwd := tmpDir
+	if resolved, err := filepath.EvalSymlinks(tmpDir); err == nil && resolved != "" {
+		wantCwd = resolved
+	}
 
-	// Split — the new pane should inherit /tmp as its cwd.
+	// Wait for canonical pwd output so we don't race on the echoed command line.
+	h.sendKeys("pane-1", fmt.Sprintf("cd %q && pwd -P", tmpDir), "Enter")
+	h.waitFor("pane-1", wantCwd)
+
+	// Split — the new pane should inherit the source pane's cwd.
 	h.splitV()
 
-	// Ask pane-2 for its working directory. On macOS, /tmp resolves to
-	// /private/tmp, so check for the common suffix.
-	h.sendKeys("pane-2", "pwd", "Enter")
-	h.waitFor("pane-2", "tmp")
+	h.sendKeys("pane-2", "pwd -P", "Enter")
+	h.waitFor("pane-2", wantCwd)
 }
 
 // TestNewWindowInheritsCwd verifies that creating a new window inherits the
@@ -27,15 +36,21 @@ func TestNewWindowInheritsCwd(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)
 
-	// Change pane-1's working directory to /tmp.
-	h.runShellCommand("pane-1", "cd /tmp && echo CWD_READY", "CWD_READY")
+	tmpDir := t.TempDir()
+	wantCwd := tmpDir
+	if resolved, err := filepath.EvalSymlinks(tmpDir); err == nil && resolved != "" {
+		wantCwd = resolved
+	}
 
-	// Create a new window — its pane should inherit /tmp.
+	// Wait for canonical pwd output so we don't race on the echoed command line.
+	h.sendKeys("pane-1", fmt.Sprintf("cd %q && pwd -P", tmpDir), "Enter")
+	h.waitFor("pane-1", wantCwd)
+
+	// Create a new window — its pane should inherit the source pane's cwd.
 	gen := h.generation()
 	h.runCmd("new-window")
 	h.waitLayout(gen)
 
-	// The new window's pane (pane-2) should start in /tmp.
-	h.sendKeys("pane-2", "pwd", "Enter")
-	h.waitFor("pane-2", "tmp")
+	h.sendKeys("pane-2", "pwd -P", "Enter")
+	h.waitFor("pane-2", wantCwd)
 }

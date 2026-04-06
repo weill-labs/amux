@@ -150,8 +150,8 @@ func TestLogPanesSnapshotsExitContext(t *testing.T) {
 	if resolved, err := filepath.EvalSymlinks(tempDir); err == nil && resolved != "" {
 		wantCwd = resolved
 	}
-	h.sendKeys("pane-2", fmt.Sprintf("cd %q && echo CWD_READY", tempDir), "Enter")
-	h.waitFor("pane-2", "CWD_READY")
+	h.sendKeys("pane-2", fmt.Sprintf("cd %q && pwd -P", tempDir), "Enter")
+	h.waitFor("pane-2", wantCwd)
 	h.waitIdle("pane-2")
 
 	wantListCwd := listingcmd.FormatListCwd(wantCwd, h.home, listingcmd.ListCwdWidth)

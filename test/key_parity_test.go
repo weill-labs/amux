@@ -27,25 +27,17 @@ func newRawReadMarkers(id int) rawReadMarkers {
 	}
 }
 
-// Split runtime markers so wait-content only sees them after the probe emits
-// output, not while the shell is still echoing the Python source.
-func splitRuntimeMarker(marker string) (string, string) {
-	mid := len(marker) / 2
-	return marker[:mid], marker[mid:]
-}
-
 func rawReadCommandWithDeadline(byteCount int, timeout time.Duration, markers rawReadMarkers) string {
-	readyA, readyB := splitRuntimeMarker(markers.ready)
-	hexA, hexB := splitRuntimeMarker(markers.hex)
-	doneA, doneB := splitRuntimeMarker(markers.done)
-	exitA, exitB := splitRuntimeMarker(markers.exit)
-
+	readyPrefix, readySuffix, _ := strings.Cut(markers.ready, "_READY_")
+	hexPrefix, hexSuffix, _ := strings.Cut(markers.hex, "_HEX_")
+	donePrefix, doneSuffix, _ := strings.Cut(markers.done, "_DONE_")
+	exitPrefix, exitSuffix, _ := strings.Cut(markers.exit, "_EXIT_")
 	return fmt.Sprintf(`python3 -u -c 'import os,select,sys,termios,time,tty
 fd=sys.stdin.fileno()
 old=termios.tcgetattr(fd)
-ready=%q+%q
-hex_marker=%q+%q
-done=%q+%q
+ready=%q+"_READY_"+%q
+hex_marker=%q+"_HEX_"+%q
+done=%q+"_DONE_"+%q
 tty.setraw(fd)
 try:
     while True:
@@ -69,7 +61,7 @@ try:
     print(hex_marker+data.hex(), flush=True)
     print(done, flush=True)
 finally:
-    termios.tcsetattr(fd, termios.TCSADRAIN, old)'; printf '%%s\n' %q%q`, readyA, readyB, hexA, hexB, doneA, doneB, rawReadArmSettle.Seconds(), timeout.Seconds(), byteCount, byteCount, exitA, exitB)
+    termios.tcsetattr(fd, termios.TCSADRAIN, old)'; printf '%%s\n' %q"_EXIT_"%q`, readyPrefix, readySuffix, hexPrefix, hexSuffix, donePrefix, doneSuffix, rawReadArmSettle.Seconds(), timeout.Seconds(), byteCount, byteCount, exitPrefix, exitSuffix)
 }
 
 func TestRawReadCommandWithDeadlineSplitsRuntimeMarkers(t *testing.T) {
