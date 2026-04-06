@@ -5,10 +5,14 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"image/color"
 	"io"
 	"reflect"
 	"strings"
 	"testing"
+
+	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/charmbracelet/x/ansi"
 )
 
 func sampleLayoutSnapshot() *LayoutSnapshot {
@@ -572,4 +576,46 @@ func ExampleFindPaneDimensions() {
 	fmt.Printf("%d x %d\n", w, h)
 	// Output:
 	// 80 x 23
+}
+
+func TestPaneHistoryWithStyledCellsRoundTrips(t *testing.T) {
+	t.Parallel()
+
+	msg := &Message{
+		Type:   MsgTypePaneHistory,
+		PaneID: 42,
+		History: []string{
+			"hello world",
+			"styled line",
+		},
+		StyledHistory: []StyledLine{
+			{Text: "hello world"},
+			{
+				Text: "styled line",
+				Cells: []Cell{
+					{Char: "s", Style: uvStyle(ansi.Red, ansi.BrightWhite), Width: 1},
+					{Char: "t", Style: uvStyle(ansi.TrueColor(0xff8800), nil), Width: 1},
+					{Char: "y", Style: uvStyle(ansi.IndexedColor(42), nil), Width: 1},
+				},
+			},
+		},
+	}
+
+	var buf bytes.Buffer
+	if err := WriteMsg(&buf, msg); err != nil {
+		t.Fatalf("WriteMsg: %v", err)
+	}
+
+	got, err := ReadMsg(&buf)
+	if err != nil {
+		t.Fatalf("ReadMsg: %v", err)
+	}
+
+	if !reflect.DeepEqual(got, msg) {
+		t.Fatalf("round-trip mismatch:\n got = %+v\nwant = %+v", got, msg)
+	}
+}
+
+func uvStyle(fg, bg color.Color) uv.Style {
+	return uv.Style{Fg: fg, Bg: bg}
 }
