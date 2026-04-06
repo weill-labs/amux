@@ -62,18 +62,6 @@ func (e resizeClientEvent) handle(s *Session) {
 	s.broadcastLayoutNow()
 }
 
-type clientActivityEvent struct {
-	cc *clientConn
-}
-
-func (e clientActivityEvent) handle(s *Session) {
-	if !s.noteClientActivity(e.cc) {
-		return
-	}
-	s.recalcSize()
-	s.broadcastLayoutNow()
-}
-
 type liveInputEvent struct {
 	cc   *clientConn
 	data []byte
@@ -315,10 +303,6 @@ func (s *Session) enqueueEventUnsubscribe(sub *eventSub) {
 
 func (s *Session) enqueueUIEvent(cc *clientConn, uiEvent string) {
 	s.enqueueEvent(uiEventCmd{cc: cc, uiEvent: uiEvent})
-}
-
-func (s *Session) enqueueClientActivity(cc *clientConn) {
-	s.enqueueEvent(clientActivityEvent{cc: cc})
 }
 
 func (s *Session) emitClientConnectEvent(cc *clientConn) {
