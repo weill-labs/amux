@@ -152,6 +152,71 @@ func outerTextCoords(screen, substr string) (x, y int, ok bool) {
 	return 0, 0, false
 }
 
+func waitOuterTextCoords(wait func(string, time.Duration) bool, capture func() string, substr string, timeout time.Duration) (x, y int, screen string, ok bool) {
+	if !wait(substr, timeout) {
+		return 0, 0, capture(), false
+	}
+	screen = capture()
+	x, y, ok = outerTextCoords(screen, substr)
+	return x, y, screen, ok
+}
+
+func TestWaitOuterTextCoordsWaitsForUpdatedCapture(t *testing.T) {
+	t.Parallel()
+
+	waited := false
+	screen := " amux │ [pane-2]"
+	wantX, wantY, ok := outerTextCoords(screen, "[pane-2]")
+	if !ok {
+		t.Fatal("test screen should contain [pane-2]")
+	}
+
+	x, y, gotScreen, ok := waitOuterTextCoords(
+		func(substr string, timeout time.Duration) bool {
+			if substr != "[pane-2]" {
+				t.Fatalf("wait substring = %q, want %q", substr, "[pane-2]")
+			}
+			if timeout != 3*time.Second {
+				t.Fatalf("wait timeout = %v, want %v", timeout, 3*time.Second)
+			}
+			waited = true
+			return true
+		},
+		func() string {
+			if !waited {
+				return " amux │ [pane-1]"
+			}
+			return screen
+		},
+		"[pane-2]",
+		3*time.Second,
+	)
+	if !ok {
+		t.Fatalf("waitOuterTextCoords(...) = false, want true (screen=%q)", gotScreen)
+	}
+	if x != wantX || y != wantY {
+		t.Fatalf("waitOuterTextCoords(...) = (%d, %d), want (%d, %d)", x, y, wantX, wantY)
+	}
+}
+
+func TestWaitOuterTextCoordsReturnsLatestCaptureOnTimeout(t *testing.T) {
+	t.Parallel()
+
+	const screen = " amux │ [pane-1]"
+	_, _, gotScreen, ok := waitOuterTextCoords(
+		func(string, time.Duration) bool { return false },
+		func() string { return screen },
+		"[pane-2]",
+		3*time.Second,
+	)
+	if ok {
+		t.Fatal("waitOuterTextCoords(...) = true, want false")
+	}
+	if gotScreen != screen {
+		t.Fatalf("waitOuterTextCoords screen = %q, want %q", gotScreen, screen)
+	}
+}
+
 func windowTabCoords(t *testing.T, screen, label string) (x, y int) {
 	t.Helper()
 
@@ -166,8 +231,7 @@ func paneStatusCoords(t *testing.T, h *AmuxHarness, name string) (x, y int) {
 	t.Helper()
 
 	label := "[" + name + "]"
-	screen := h.captureOuter()
-	x, y, ok := outerTextCoords(screen, label)
+	x, y, screen, ok := waitOuterTextCoords(h.waitFor, h.captureOuter, label, 3*time.Second)
 	if !ok {
 		t.Fatalf("expected pane status label %q in outer capture.\nScreen:\n%s", label, screen)
 	}
