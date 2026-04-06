@@ -2,6 +2,7 @@ package client
 
 import (
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/weill-labs/amux/internal/config"
@@ -42,6 +43,13 @@ type dragState struct {
 
 	PendingWordCopyPaneID uint32
 	PendingWordCopyAt     time.Time
+
+	mu                    sync.Mutex
+	now                   func() time.Time
+	afterFunc             func(time.Duration, func()) dragTimer
+	paneDragDwellTimer    dragTimer
+	paneDragDwellWindow   int
+	paneDragDwellSequence uint64
 }
 
 type paneMouseTarget struct {
@@ -60,6 +68,11 @@ type paneDragCommand struct {
 type paneDropTarget struct {
 	commands  []paneDragCommand
 	indicator *render.DropIndicatorOverlay
+	window    int
+}
+
+type dragTimer interface {
+	Stop() bool
 }
 
 type windowTabDropTarget struct {
@@ -71,7 +84,77 @@ const (
 	wheelScrollLines      = 5
 	mouseMultiClickWindow = 300 * time.Millisecond
 	mouseWordCopyDelay    = 300 * time.Millisecond
+	paneDragDwellDelay    = 500 * time.Millisecond
 )
+
+func (d *dragState) nowTime() time.Time {
+	if d != nil && d.now != nil {
+		return d.now()
+	}
+	return time.Now()
+}
+
+func (d *dragState) schedulePaneDragDwell(windowIndex int, fn func()) {
+	if d == nil {
+		return
+	}
+
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	if d.paneDragDwellWindow == windowIndex && d.paneDragDwellTimer != nil {
+		return
+	}
+	if d.paneDragDwellTimer != nil {
+		d.paneDragDwellTimer.Stop()
+	}
+	d.paneDragDwellSequence++
+	seq := d.paneDragDwellSequence
+	afterFunc := d.afterFunc
+	if afterFunc == nil {
+		afterFunc = func(delay time.Duration, fn func()) dragTimer {
+			return time.AfterFunc(delay, fn)
+		}
+	}
+	d.paneDragDwellWindow = windowIndex
+	d.paneDragDwellTimer = afterFunc(paneDragDwellDelay, func() {
+		if d.consumePaneDragDwell(windowIndex, seq) {
+			fn()
+		}
+	})
+}
+
+func (d *dragState) consumePaneDragDwell(windowIndex int, seq uint64) bool {
+	if d == nil {
+		return false
+	}
+
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	if d.paneDragDwellSequence != seq || d.paneDragDwellWindow != windowIndex {
+		return false
+	}
+	d.paneDragDwellTimer = nil
+	d.paneDragDwellWindow = 0
+	return true
+}
+
+func (d *dragState) cancelPaneDragDwell() {
+	if d == nil {
+		return
+	}
+
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	d.paneDragDwellSequence++
+	if d.paneDragDwellTimer != nil {
+		d.paneDragDwellTimer.Stop()
+	}
+	d.paneDragDwellTimer = nil
+	d.paneDragDwellWindow = 0
+}
 
 func mouseTargetAt(layout *mux.LayoutCell, x, y int) *paneMouseTarget {
 	if layout == nil {
@@ -310,6 +393,7 @@ func clearPaneDragState(cr *ClientRenderer, drag *dragState) {
 		cr.hidePaneDragOverlay()
 		return
 	}
+	drag.cancelPaneDragDwell()
 	drag.PaneDragActive = false
 	drag.PaneDragPaneID = 0
 	drag.PaneDropTarget = nil
@@ -548,6 +632,27 @@ func handleGlobalBarMouseEvent(ev mouse.Event, layout *mux.LayoutCell, cr *Clien
 	return true
 }
 
+func resolvePaneWindowTabDropTarget(cr *ClientRenderer, layout *mux.LayoutCell, sourcePaneID uint32, x, y int) (*paneDropTarget, bool) {
+	if layout == nil || sourcePaneID == 0 || y != layout.H {
+		return nil, false
+	}
+
+	window, ok := render.GlobalBarWindowAtColumn(globalBarWindowInfos(cr), x)
+	if !ok {
+		return nil, false
+	}
+	if window.IsActive {
+		return nil, true
+	}
+	return &paneDropTarget{
+		commands: []paneDragCommand{{
+			name: "move-pane-to-window",
+			args: []string{paneRef(sourcePaneID), fmt.Sprintf("%d", window.Index)},
+		}},
+		window: window.Index,
+	}, true
+}
+
 // handleMouseEvent dispatches a parsed mouse event to the appropriate action:
 // click-to-focus, border drag, or scroll wheel.
 func handleMouseEvent(ev mouse.Event, cr *ClientRenderer, sender *messageSender, drag *dragState, msgCh chan<- *RenderMsg) {
@@ -637,7 +742,19 @@ func handleMouseEvent(ev mouse.Event, cr *ClientRenderer, sender *messageSender,
 		}
 
 	case ev.Action == mouse.Motion && drag.PaneDragActive:
-		drag.PaneDropTarget = resolvePaneDropTarget(cr, layout, drag.PaneDragPaneID, ev.X, ev.Y)
+		if target, overWindowTab := resolvePaneWindowTabDropTarget(cr, layout, drag.PaneDragPaneID, ev.X, ev.Y); overWindowTab {
+			drag.PaneDropTarget = target
+			if target != nil && sender != nil && target.window > 0 {
+				drag.schedulePaneDragDwell(target.window, func() {
+					sender.Command("select-window", []string{fmt.Sprintf("%d", target.window)})
+				})
+			} else {
+				drag.cancelPaneDragDwell()
+			}
+		} else {
+			drag.cancelPaneDragDwell()
+			drag.PaneDropTarget = resolvePaneDropTarget(cr, layout, drag.PaneDragPaneID, ev.X, ev.Y)
+		}
 		updatePaneDragOverlay(cr, drag)
 		rerenderOverlay(cr, msgCh)
 
@@ -676,6 +793,9 @@ func handleMouseEvent(ev mouse.Event, cr *ClientRenderer, sender *messageSender,
 		drag.Active = false
 		if drag.PaneDragActive {
 			target := drag.PaneDropTarget
+			if windowTarget, overWindowTab := resolvePaneWindowTabDropTarget(cr, layout, drag.PaneDragPaneID, ev.X, ev.Y); overWindowTab {
+				target = windowTarget
+			}
 			clearPaneDragState(cr, drag)
 			rerenderOverlay(cr, msgCh)
 			if target != nil && sender != nil {
@@ -696,7 +816,7 @@ func handleMouseEvent(ev mouse.Event, cr *ClientRenderer, sender *messageSender,
 						return renderNowResult()
 					})
 				} else if target := mouseTargetAt(layout, ev.X, ev.Y); target != nil && target.inContent && target.paneID == drag.CopyModePaneID {
-					now := time.Now()
+					now := drag.nowTime()
 					if target.localX == drag.LastClickX &&
 						target.localY == drag.LastClickY &&
 						now.Sub(drag.LastClickAt) <= mouseMultiClickWindow {

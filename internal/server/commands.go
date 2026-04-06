@@ -175,6 +175,7 @@ var commandRegistry = map[string]CommandHandler{
 	"connection-log": cmdConnectionLog,
 	"pane-log":       cmdPaneLog,
 	"select-window":  cmdSelectWindow,
+	"move-pane-to-window": cmdMovePaneToWindow,
 	"next-window":    cmdNextWindow,
 	"prev-window":    cmdPrevWindow,
 	"last-window":    cmdLastWindow,
