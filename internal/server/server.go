@@ -369,6 +369,7 @@ type Server struct {
 	// one cleanup pass and later callers can wait for completion.
 	shutdownState atomic.Uint32
 	shutdownDone  chan struct{}
+	oneShotWG     sync.WaitGroup
 
 	// attachBootstrapHook is a test-only hook invoked after the initial
 	// attach replay is sent but before bootstrap flushes queued messages.
@@ -689,8 +690,11 @@ func (s *Server) shutdown() {
 	if s.pprof != nil {
 		s.pprof.close()
 	}
-	s.listener.Close()
+	if s.listener != nil {
+		s.listener.Close()
+	}
 	os.Remove(s.sockPath)
+	s.oneShotWG.Wait()
 
 	for _, sess := range s.sessions {
 		sess.shutdown.Store(true)
@@ -797,6 +801,9 @@ func (s *Server) handleAttach(conn net.Conn, msg *Message) {
 }
 
 func (s *Server) handleOneShot(conn net.Conn, msg *Message) {
+	s.oneShotWG.Add(1)
+	defer s.oneShotWG.Done()
+
 	cc := newClientConn(conn)
 	defer func() {
 		_ = cc.Flush()
