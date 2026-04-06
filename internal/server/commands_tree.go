@@ -245,12 +245,8 @@ func runDropPane(ctx *CommandContext, actorPaneID uint32, paneRef, targetRef, ed
 			if targetWindow == nil {
 				return commandMutationResult{err: fmt.Errorf("no session")}
 			}
-			if sourceWindow != nil && sourceWindow.ID != targetWindow.ID {
-				if err := mutationContextDo(mctx, func(sess *Session) error {
-					return sess.movePaneToWindow(pane.ID, targetWindow.ID)
-				}); err != nil {
-					return commandMutationResult{err: err}
-				}
+			if err := ensurePaneInWindow(mctx, pane.ID, sourceWindow, targetWindow); err != nil {
+				return commandMutationResult{err: err}
 			}
 			if err := targetWindow.MovePaneToRootEdge(pane.ID, dir, insertFirst); err != nil {
 				return commandMutationResult{err: err}
@@ -268,12 +264,8 @@ func runDropPane(ctx *CommandContext, actorPaneID uint32, paneRef, targetRef, ed
 		if targetWindow == nil {
 			return commandMutationResult{err: fmt.Errorf("no session")}
 		}
-		if sourceWindow != nil && sourceWindow.ID != targetWindow.ID {
-			if err := mutationContextDo(mctx, func(sess *Session) error {
-				return sess.movePaneToWindow(pane.ID, targetWindow.ID)
-			}); err != nil {
-				return commandMutationResult{err: err}
-			}
+		if err := ensurePaneInWindow(mctx, pane.ID, sourceWindow, targetWindow); err != nil {
+			return commandMutationResult{err: err}
 		}
 		if err := targetWindow.MovePaneIntoSplit(pane.ID, target.ID, dir, insertFirst); err != nil {
 			return commandMutationResult{err: err}
@@ -283,6 +275,15 @@ func runDropPane(ctx *CommandContext, actorPaneID uint32, paneRef, targetRef, ed
 			broadcastLayout: true,
 		}
 	}))
+}
+
+func ensurePaneInWindow(mctx *MutationContext, paneID uint32, sourceWindow, targetWindow *mux.Window) error {
+	if sourceWindow == nil || targetWindow == nil || sourceWindow.ID == targetWindow.ID {
+		return nil
+	}
+	return mutationContextDo(mctx, func(sess *Session) error {
+		return sess.movePaneToWindow(paneID, targetWindow.ID)
+	})
 }
 
 func cmdDropPane(ctx *CommandContext) {
