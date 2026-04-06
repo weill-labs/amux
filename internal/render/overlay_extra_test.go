@@ -239,6 +239,91 @@ func TestGlobalBarWindowAtColumn(t *testing.T) {
 	}
 }
 
+func TestGlobalBarWindowDropTargetAtColumn(t *testing.T) {
+	t.Parallel()
+
+	windows := []WindowInfo{
+		{Index: 1, Name: "main", IsActive: true},
+		{Index: 2, Name: "bugs", IsActive: false},
+		{Index: 3, Name: "docs", IsActive: false},
+	}
+	tabs := buildGlobalBarWindowTabs(windows)
+	if len(tabs) != 3 {
+		t.Fatalf("len(tabs) = %d, want 3", len(tabs))
+	}
+
+	tests := []struct {
+		name      string
+		source    int
+		x         int
+		wantDest  int
+		wantCol   int
+		wantMatch bool
+	}{
+		{
+			name:      "left half keeps source before hovered tab",
+			source:    1,
+			x:         tabs[1].start,
+			wantDest:  1,
+			wantCol:   tabs[1].start - 1,
+			wantMatch: true,
+		},
+		{
+			name:      "right half moves source after hovered tab",
+			source:    1,
+			x:         tabs[1].end - 1,
+			wantDest:  2,
+			wantCol:   tabs[1].end,
+			wantMatch: true,
+		},
+		{
+			name:      "left half of first tab moves later source to front",
+			source:    3,
+			x:         tabs[0].start,
+			wantDest:  1,
+			wantCol:   tabs[0].start,
+			wantMatch: true,
+		},
+		{
+			name:      "source tab does not become a drop target",
+			source:    2,
+			x:         tabs[1].start + 1,
+			wantMatch: false,
+		},
+		{
+			name:      "space between tabs is ignored",
+			source:    1,
+			x:         tabs[0].end,
+			wantMatch: false,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, ok := GlobalBarWindowDropTargetAtColumn(windows, tt.source, tt.x)
+			if ok != tt.wantMatch {
+				t.Fatalf("GlobalBarWindowDropTargetAtColumn(..., %d, %d) ok = %v, want %v", tt.source, tt.x, ok, tt.wantMatch)
+			}
+			if !tt.wantMatch {
+				return
+			}
+			if got.DestinationIndex != tt.wantDest {
+				t.Fatalf("destination index = %d, want %d", got.DestinationIndex, tt.wantDest)
+			}
+			if got.IndicatorColumn != tt.wantCol {
+				t.Fatalf("indicator column = %d, want %d", got.IndicatorColumn, tt.wantCol)
+			}
+		})
+	}
+
+	if _, ok := GlobalBarWindowDropTargetAtColumn([]WindowInfo{{Index: 1, Name: "solo", IsActive: true}}, 1, globalBarTitlePrefixVisibleWidth); ok {
+		t.Fatal("single-window global bar should not expose a reorder drop target")
+	}
+}
+
 func TestCompositorHelpersAndClipLine(t *testing.T) {
 	t.Parallel()
 

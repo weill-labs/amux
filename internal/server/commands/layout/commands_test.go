@@ -40,6 +40,11 @@ type fakeLayoutContext struct {
 	equalizeCalled  bool
 	equalizeResult  commandpkg.Result
 
+	reorderWindowFrom   int
+	reorderWindowTo     int
+	reorderWindowCalled bool
+	reorderWindowResult commandpkg.Result
+
 	resizePaneActorPaneID uint32
 	resizePanePaneRef     string
 	resizePaneDirection   string
@@ -118,6 +123,13 @@ func (f *fakeLayoutContext) PrevWindow() commandpkg.Result {
 
 func (f *fakeLayoutContext) RenameWindow(string) commandpkg.Result {
 	return commandpkg.Result{}
+}
+
+func (f *fakeLayoutContext) ReorderWindow(from, to int) commandpkg.Result {
+	f.reorderWindowFrom = from
+	f.reorderWindowTo = to
+	f.reorderWindowCalled = true
+	return f.reorderWindowResult
 }
 
 func (f *fakeLayoutContext) ResizeBorder(int, int, int) commandpkg.Result {
@@ -325,6 +337,51 @@ func TestEqualizeParsesModesAndDelegates(t *testing.T) {
 	}
 	if got.Output != "equalized\n" {
 		t.Fatalf("result output = %q, want %q", got.Output, "equalized\n")
+	}
+}
+
+func TestReorderWindowParsesArgsAndDelegates(t *testing.T) {
+	t.Parallel()
+
+	ctx := &fakeLayoutContext{
+		reorderWindowResult: commandpkg.Result{Output: "reordered\n"},
+	}
+
+	got := ReorderWindow(ctx, []string{"3", "1"})
+
+	if !ctx.reorderWindowCalled {
+		t.Fatal("ReorderWindow() did not call context")
+	}
+	if ctx.reorderWindowFrom != 3 || ctx.reorderWindowTo != 1 {
+		t.Fatalf("reorder args = (%d, %d), want (%d, %d)", ctx.reorderWindowFrom, ctx.reorderWindowTo, 3, 1)
+	}
+	if got.Output != "reordered\n" {
+		t.Fatalf("result output = %q, want %q", got.Output, "reordered\n")
+	}
+}
+
+func TestReorderWindowRejectsInvalidArgs(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		args    []string
+		wantErr string
+	}{
+		{name: "missing destination", args: []string{"1"}, wantErr: "usage: reorder-window <from-index> <to-index>"},
+		{name: "non numeric", args: []string{"left", "2"}, wantErr: "reorder-window: invalid window indices"},
+		{name: "zero", args: []string{"0", "2"}, wantErr: "reorder-window: invalid window indices"},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := ReorderWindow(&fakeLayoutContext{}, tt.args).Err; got == nil || got.Error() != tt.wantErr {
+				t.Fatalf("ReorderWindow(%v) error = %v, want %q", tt.args, got, tt.wantErr)
+			}
+		})
 	}
 }
 
