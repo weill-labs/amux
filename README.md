@@ -303,7 +303,7 @@ The public CLI keeps one command path per concept: target sessions with `-s`, cr
 | Command | Description |
 |---------|-------------|
 | `amux list [--no-cwd]` | List panes with metadata (including cwd by default) |
-| `amux spawn [--at <pane>] [--vertical\|--horizontal] [--root] [--focus] [--name NAME] [--host HOST] [--task TASK] [--color COLOR]` | Create a new pane using default spawn or targeted split placement |
+| `amux spawn [--auto] [--at <pane>] [--vertical\|--horizontal] [--root] [--focus] [--name NAME] [--host HOST] [--task TASK] [--color COLOR]` | Create a new pane using default spawn, column-fill auto spawn, or targeted split placement |
 | `amux focus <pane\|direction>` | Focus by name, ID, or direction (left/right/up/down/next) |
 | `amux zoom [pane]` | Toggle zoom on a pane |
 | `amux kill [pane]` | Kill a pane (default: active) |
@@ -325,7 +325,7 @@ The public CLI keeps one command path per concept: target sessions with `-s`, cr
 `move` first checks whether both panes are siblings in the same split group. When they are, it reorders only that group. Otherwise it falls back to the existing root-level-group behavior, so moving `pane-3` can still move an entire column or row when the panes are in different branches.
 `move up` and `move down` are shorthand for nudging a pane one slot earlier or later within its current split group.
 `move --to-column` instead moves exactly one pane into the target pane's logical column and appends it to the bottom of that stack.
-`spawn` is the canonical pane-creation command. Use plain `spawn` for the default vertical split path and `spawn --at ...` for targeted splits. These layout mutations keep focus unless you add `--focus`. When the active pane is zoomed, they preserve the zoom and keep the focused pane unchanged unless `--focus` is set.
+`spawn` is the canonical pane-creation command. Use plain `spawn` for the default vertical split path, `spawn --auto` for column-fill placement that rebalances after each insert, and `spawn --at ...` for targeted splits. These layout mutations keep focus unless you add `--focus`. When the active pane is zoomed, they preserve the zoom and keep the focused pane unchanged unless `--focus` is set.
 Higher-level prompt delegation now lives at the script layer: compose `wait idle`, `send-keys`, `wait busy`, and `wait exited` or `wait ready` to match the workflow you want.
 
 ### Agent API
@@ -391,6 +391,7 @@ Default prefix: `Ctrl-a`.
 | `Ctrl-a -` | Split active pane top/bottom |
 | `Ctrl-a \|` | Split active pane left/right |
 | `Ctrl-a _` | Root-level split top/bottom |
+| `Ctrl-a a` | Spawn pane in column-fill order |
 | `Ctrl-a x` | Kill active pane |
 | `Ctrl-a z` | Toggle zoom on active pane |
 | `Ctrl-a }` / `Ctrl-a {` | Swap active pane with next/previous |

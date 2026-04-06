@@ -14,7 +14,7 @@ const (
 	leadUsage         = "usage: amux lead [pane] | amux lead --clear"
 	metaUsage         = "usage: amux meta <set|get|rm> ..."
 	moveUsage         = "usage: amux move <pane> up|down | amux move <pane> (--before <target>|--after <target>|--to-column <target>)"
-	spawnUsage        = "usage: amux spawn [--at <pane>] [--vertical|--horizontal] [--root] [--focus] [--name NAME] [--host HOST] [--task TASK] [--color COLOR]"
+	spawnUsage        = "usage: amux spawn [--auto] [--at <pane>] [--vertical|--horizontal] [--root] [--focus] [--name NAME] [--host HOST] [--task TASK] [--color COLOR]"
 	swapUsage         = "usage: amux swap <pane1> <pane2> [--tree] | amux swap forward | amux swap backward"
 	cursorUsage       = "usage: amux cursor <layout|clipboard|ui> [--client <id>]"
 	disconnectUsage   = "usage: amux disconnect <host>"
@@ -165,8 +165,8 @@ Usage:
                                        Simulate mouse input through an attached client
   amux [-s session] broadcast (--panes <pane,pane,...> | --window <index|name> | --match <glob>) [--hex] <keys>...
                                        Send the same keystrokes to multiple panes
-  amux [-s session] spawn [--at <pane>] [--vertical|--horizontal] [--root] [--focus] [--name NAME] [--host HOST] [--task TASK] [--color COLOR]
-                                       Create a new pane using default spawn or targeted split placement
+  amux [-s session] spawn [--auto] [--at <pane>] [--vertical|--horizontal] [--root] [--focus] [--name NAME] [--host HOST] [--task TASK] [--color COLOR]
+                                       Create a new pane using default spawn, column-fill auto spawn, or targeted split placement
   amux [-s session] zoom [pane]        Toggle zoom (maximize) a pane
   amux [-s session] swap <p1> <p2> [--tree]
                                        Swap two panes, or their root-level groups with --tree
@@ -246,6 +246,7 @@ Inside an amux session:
   Ctrl-a -                           Split active pane top/bottom
   Ctrl-a |                           Split active pane left/right
   Ctrl-a _                           Root-level split top/bottom
+  Ctrl-a a                           Spawn pane in column-fill order
   Ctrl-a x                           Kill active pane
   Ctrl-a z                           Toggle zoom on active pane
   Ctrl-a q                           Show pane labels and jump to a pane

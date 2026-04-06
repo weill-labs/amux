@@ -67,6 +67,7 @@ type createPanePlacement uint8
 const (
 	createPanePlacementSplitAt createPanePlacement = iota
 	createPanePlacementRootSplit
+	createPanePlacementColumnFill
 )
 
 type createPaneRequest struct {
@@ -80,12 +81,13 @@ type createPaneRequest struct {
 }
 
 type createPaneSnapshot struct {
-	inheritPane  *mux.Pane
-	windowWidth  int
-	windowHeight int
-	inheritHost  string
-	inheritProxy bool
-	targetPaneID uint32
+	inheritPane   *mux.Pane
+	windowWidth   int
+	windowHeight  int
+	inheritHost   string
+	inheritProxy  bool
+	targetPaneID  uint32
+	autoRootSplit bool
 }
 
 const (
@@ -179,6 +181,9 @@ func runCreatePane(ctx *CommandContext, actorPaneID uint32, command string, plac
 
 func queryCreatePaneSnapshot(sess *Session, actorPaneID uint32, command string, placement createPanePlacement, paneRef string) (createPaneSnapshot, error) {
 	return enqueueSessionQuery(sess, func(sess *Session) (createPaneSnapshot, error) {
+		if placement == createPanePlacementColumnFill {
+			return queryColumnFillCreatePaneSnapshot(sess, actorPaneID, command)
+		}
 		w := sess.windowForActor(actorPaneID)
 		if paneRef != "" {
 			pane, resolvedWindow, err := sess.resolvePaneAcrossWindowsForActor(actorPaneID, paneRef)
@@ -214,6 +219,35 @@ func queryCreatePaneSnapshot(sess *Session, actorPaneID uint32, command string, 
 	})
 }
 
+func queryColumnFillCreatePaneSnapshot(sess *Session, actorPaneID uint32, command string) (createPaneSnapshot, error) {
+	w := sess.windowForActor(actorPaneID)
+	if w == nil {
+		return createPaneSnapshot{}, createPaneWindowError(command)
+	}
+
+	plan, err := w.PlanColumnFillSpawn()
+	if err != nil {
+		return createPaneSnapshot{}, err
+	}
+	inheritPane := sess.findPaneByID(plan.InheritPaneID)
+	if inheritPane == nil {
+		return createPaneSnapshot{}, fmt.Errorf("pane %d not found", plan.InheritPaneID)
+	}
+	targetPaneID := plan.SplitTargetPaneID
+	if plan.RootSplit {
+		targetPaneID = plan.InheritPaneID
+	}
+	return createPaneSnapshot{
+		inheritPane:   inheritPane,
+		windowWidth:   w.Width,
+		windowHeight:  w.Height,
+		inheritHost:   inheritPane.Meta.Host,
+		inheritProxy:  inheritPane.IsProxy(),
+		targetPaneID:  targetPaneID,
+		autoRootSplit: plan.RootSplit,
+	}, nil
+}
+
 func resolveCreatePaneWindow(ctx *MutationContext, actorPaneID uint32, placement createPanePlacement, snapshot createPaneSnapshot) (*mux.Window, error) {
 	w := ctx.findWindowByPaneID(snapshot.targetPaneID)
 	if w == nil {
@@ -231,6 +265,18 @@ func placeCreatedPaneInWindow(w *mux.Window, placement createPanePlacement, snap
 	case createPanePlacementRootSplit:
 		_, err := w.SplitRootWithOptions(dir, pane, opts)
 		return err
+	case createPanePlacementColumnFill:
+		if snapshot.autoRootSplit {
+			if _, err := w.SplitRootWithOptions(mux.SplitVertical, pane, opts); err != nil {
+				return err
+			}
+		} else {
+			if _, err := w.SplitPaneWithOptions(snapshot.targetPaneID, mux.SplitHorizontal, pane, opts); err != nil {
+				return err
+			}
+		}
+		w.Equalize(true, true)
+		return nil
 	default:
 		return fmt.Errorf("unknown create-pane placement: %d", placement)
 	}
@@ -446,7 +492,11 @@ func cmdFocus(ctx *CommandContext) {
 }
 
 func runSpawn(ctx *CommandContext, actorPaneID uint32, args layoutcmd.SpawnArgs) commandpkg.Result {
-	return runCreatePane(ctx, actorPaneID, "spawn", createPanePlacementSplitAt, createPaneRequestFromSpawnArgs(args), !args.Focus)
+	placement := createPanePlacementSplitAt
+	if args.Auto {
+		placement = createPanePlacementColumnFill
+	}
+	return runCreatePane(ctx, actorPaneID, "spawn", placement, createPaneRequestFromSpawnArgs(args), !args.Focus)
 }
 
 func cmdSpawn(ctx *CommandContext) {

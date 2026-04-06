@@ -264,6 +264,36 @@ func TestSpawnParsesArgsAndDelegates(t *testing.T) {
 	}
 }
 
+func TestSpawnParsesAutoArgsAndDelegates(t *testing.T) {
+	t.Parallel()
+
+	ctx := &fakeLayoutContext{
+		spawnResult: commandpkg.Result{Output: "spawned\n"},
+	}
+
+	got := Spawn(ctx, 12, []string{"--auto", "--name", "worker"})
+	wantArgs := SpawnArgs{
+		Auto: true,
+		Meta: mux.PaneMeta{
+			Name: "worker",
+			Host: mux.DefaultHost,
+		},
+	}
+
+	if !ctx.spawnCalled {
+		t.Fatal("Spawn() did not call context")
+	}
+	if ctx.spawnActorPaneID != 12 {
+		t.Fatalf("actorPaneID = %d, want 12", ctx.spawnActorPaneID)
+	}
+	if !reflect.DeepEqual(ctx.spawnArgs, wantArgs) {
+		t.Fatalf("spawn args = %+v, want %+v", ctx.spawnArgs, wantArgs)
+	}
+	if got.Output != "spawned\n" {
+		t.Fatalf("result output = %q, want %q", got.Output, "spawned\n")
+	}
+}
+
 func TestKillParsesArgsAndDelegates(t *testing.T) {
 	t.Parallel()
 

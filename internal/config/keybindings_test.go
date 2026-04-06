@@ -29,6 +29,11 @@ func TestDefaultKeybindings(t *testing.T) {
 			want: Binding{Action: "split", Args: []string{"v", "--focus"}},
 		},
 		{
+			name: "a triggers column-fill spawn",
+			key:  'a',
+			want: Binding{Action: "spawn", Args: []string{"--auto"}},
+		},
+		{
 			name: "d detaches",
 			key:  'd',
 			want: Binding{Action: "detach"},
@@ -94,8 +99,5 @@ func TestDefaultKeybindings(t *testing.T) {
 
 	if _, ok := kb.Bindings['M']; ok {
 		t.Error("default: M should be unbound")
-	}
-	if _, ok := kb.Bindings['a']; ok {
-		t.Error("default: a should be unbound")
 	}
 }
