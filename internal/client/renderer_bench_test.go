@@ -127,6 +127,95 @@ func BenchmarkRendererHandlePaneOutput(b *testing.B) {
 	}
 }
 
+func benchMultiWindowLayoutSnapshot(visiblePanes, hiddenPanes, width, height int) *proto.LayoutSnapshot {
+	window1Root := proto.CellSnapshot{
+		X: 0, Y: 0, W: width, H: height,
+		Dir: int(mux.SplitVertical),
+	}
+	window2Root := proto.CellSnapshot{
+		X: 0, Y: 0, W: width, H: height,
+		Dir: int(mux.SplitVertical),
+	}
+
+	buildWindow := func(root *proto.CellSnapshot, startID, panes int) []proto.PaneSnapshot {
+		snaps := make([]proto.PaneSnapshot, 0, panes)
+		x := 0
+		cellW := (width - (panes - 1)) / panes
+		for i := 0; i < panes; i++ {
+			id := uint32(startID + i)
+			w := cellW
+			if i == panes-1 {
+				w = width - x
+			}
+			root.Children = append(root.Children, proto.CellSnapshot{
+				X: x, Y: 0, W: w, H: height,
+				IsLeaf: true, Dir: -1, PaneID: id,
+			})
+			snaps = append(snaps, proto.PaneSnapshot{
+				ID:    id,
+				Name:  fmt.Sprintf("pane-%d", id),
+				Host:  "local",
+				Color: config.AccentColor(uint32(i)),
+			})
+			x += w + 1
+		}
+		return snaps
+	}
+
+	window1Panes := buildWindow(&window1Root, 1, visiblePanes)
+	window2Panes := buildWindow(&window2Root, visiblePanes+1, hiddenPanes)
+
+	return &proto.LayoutSnapshot{
+		SessionName:  "bench",
+		ActivePaneID: 1,
+		Width:        width,
+		Height:       height,
+		Root:         window1Root,
+		Windows: []proto.WindowSnapshot{
+			{ID: 1, Name: "window-1", Index: 1, ActivePaneID: 1, Root: window1Root, Panes: window1Panes},
+			{ID: 2, Name: "window-2", Index: 2, ActivePaneID: uint32(visiblePanes + 1), Root: window2Root, Panes: window2Panes},
+		},
+		ActiveWindowID: 1,
+	}
+}
+
+func BenchmarkRendererHandlePaneOutputVisibility(b *testing.B) {
+	const (
+		width        = 200
+		layoutHeight = 23
+		payloadSize  = 4096
+	)
+
+	payload := benchTerminalPayload(payloadSize)
+	layout := benchMultiWindowLayoutSnapshot(10, 10, width, layoutHeight)
+
+	b.Run("visible", func(b *testing.B) {
+		r := NewWithScrollback(width, layoutHeight+1, mux.DefaultScrollbackLines)
+		r.HandleLayout(layout)
+
+		b.SetBytes(int64(payloadSize))
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; b.Loop(); i++ {
+			paneID := uint32((i % 10) + 1)
+			r.HandlePaneOutput(paneID, payload)
+		}
+	})
+
+	b.Run("hidden", func(b *testing.B) {
+		r := NewWithScrollback(width, layoutHeight+1, mux.DefaultScrollbackLines)
+		r.HandleLayout(layout)
+
+		b.SetBytes(int64(payloadSize))
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; b.Loop(); i++ {
+			paneID := uint32((i % 10) + 11)
+			r.HandlePaneOutput(paneID, payload)
+		}
+	})
+}
+
 func BenchmarkRendererCaptureJSON(b *testing.B) {
 	for _, panes := range []int{1, 20} {
 		b.Run(fmt.Sprintf("panes_%d/build", panes), func(b *testing.B) {
