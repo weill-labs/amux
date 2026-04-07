@@ -20,6 +20,10 @@ type TerminalEmulator interface {
 	// Write feeds PTY output data into the emulator.
 	Write(data []byte) (int, error)
 
+	// DrainScreenChanges reports whether screen cells changed since the last
+	// drain and clears the emulator's internal touched state.
+	DrainScreenChanges() bool
+
 	// Read returns terminal responses (DA queries, cursor reports, etc.).
 	// These must be drained and written back to the PTY so the shell
 	// receives the expected replies. Go's io.Pipe is unbuffered — if
@@ -160,8 +164,47 @@ func (v *vtEmulator) Write(data []byte) (int, error) {
 	return v.emu.Write(data)
 }
 
+func (v *vtEmulator) DrainScreenChanges() bool {
+	w, h := v.Size()
+	if w <= 0 || h <= 0 {
+		return false
+	}
+	probe := touchedScreenProbe{
+		bounds: uv.Rect(0, 0, w, h),
+	}
+	v.emu.Draw(&probe, probe.bounds)
+	return probe.changed
+}
+
 func (v *vtEmulator) Read(p []byte) (int, error) {
 	return v.emu.Read(p)
+}
+
+type touchedScreenProbe struct {
+	bounds  uv.Rectangle
+	changed bool
+}
+
+func (p *touchedScreenProbe) Bounds() uv.Rectangle {
+	return p.bounds
+}
+
+func (p *touchedScreenProbe) CellAt(x, y int) *uv.Cell {
+	if x < p.bounds.Min.X || x >= p.bounds.Max.X || y < p.bounds.Min.Y || y >= p.bounds.Max.Y {
+		return nil
+	}
+	return &uv.EmptyCell
+}
+
+func (p *touchedScreenProbe) SetCell(x, y int, c *uv.Cell) {
+	if x < p.bounds.Min.X || x >= p.bounds.Max.X || y < p.bounds.Min.Y || y >= p.bounds.Max.Y {
+		return
+	}
+	p.changed = true
+}
+
+func (p *touchedScreenProbe) WidthMethod() uv.WidthMethod {
+	return ansi.GraphemeWidth
 }
 
 func (v *vtEmulator) Close() error {
