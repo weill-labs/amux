@@ -67,6 +67,19 @@ func totalEncodedKeyBytes(chunks []encodedKeyChunk) int {
 	return total
 }
 
+// Shell prompts can consume injected text and Enter in one burst without the
+// extra gap; keep the automatic pacing only while a foreground job owns the PTY.
+func disableAutomaticPacingForIdlePane(chunks []encodedKeyChunk, pane *mux.Pane) {
+	if pane == nil || !pane.ForegroundJobState().Idle {
+		return
+	}
+	for i := range chunks {
+		if chunks[i].delayBefore == 0 {
+			chunks[i].paceBefore = false
+		}
+	}
+}
+
 type typeKeysOptions struct {
 	waitInputIdle bool
 	waitTimeout   time.Duration
@@ -145,6 +158,7 @@ func (ctx inputCommandContext) SendKeys(actorPaneID uint32, args []string) (stri
 	if err != nil {
 		return "", 0, err
 	}
+	disableAutomaticPacingForIdlePane(chunks, pane.pane)
 	switch opts.waitTarget {
 	case sendKeysWaitReady:
 		if err := waitForPaneReady(ctx.Sess, args[0], pane, waitReadyOptions{timeout: opts.waitTimeout}); err != nil {
