@@ -19,15 +19,14 @@ func TestSplitInheritsCwd(t *testing.T) {
 		wantCwd = resolved
 	}
 
-	// Wait for canonical pwd output so we don't race on the echoed command line.
-	h.sendKeys("pane-1", fmt.Sprintf("cd %q && pwd -P", tmpDir), "Enter")
-	h.waitFor("pane-1", wantCwd)
+	// Wait for canonical pwd output and the shell prompt to settle so the cwd
+	// inheritance probe observes the completed directory change, not echoed input.
+	h.runShellCommand("pane-1", fmt.Sprintf("cd %q && pwd -P", tmpDir), wantCwd)
 
 	// Split — the new pane should inherit the source pane's cwd.
 	h.splitV()
 
-	h.sendKeys("pane-2", "pwd -P", "Enter")
-	h.waitFor("pane-2", wantCwd)
+	h.runShellCommand("pane-2", "pwd -P", wantCwd)
 }
 
 // TestNewWindowInheritsCwd verifies that creating a new window inherits the
@@ -42,15 +41,14 @@ func TestNewWindowInheritsCwd(t *testing.T) {
 		wantCwd = resolved
 	}
 
-	// Wait for canonical pwd output so we don't race on the echoed command line.
-	h.sendKeys("pane-1", fmt.Sprintf("cd %q && pwd -P", tmpDir), "Enter")
-	h.waitFor("pane-1", wantCwd)
+	// Wait for canonical pwd output and the shell prompt to settle so the cwd
+	// inheritance probe observes the completed directory change, not echoed input.
+	h.runShellCommand("pane-1", fmt.Sprintf("cd %q && pwd -P", tmpDir), wantCwd)
 
 	// Create a new window — its pane should inherit the source pane's cwd.
 	gen := h.generation()
 	h.runCmd("new-window")
 	h.waitLayout(gen)
 
-	h.sendKeys("pane-2", "pwd -P", "Enter")
-	h.waitFor("pane-2", wantCwd)
+	h.runShellCommand("pane-2", "pwd -P", wantCwd)
 }
