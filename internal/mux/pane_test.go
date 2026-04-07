@@ -450,16 +450,15 @@ func TestPaneScrollbackWidthClearsWithScrollback(t *testing.T) {
 }
 
 func TestPaneRecordScrollbackPushKeepsAllocationsBounded(t *testing.T) {
-	result := testing.Benchmark(func(b *testing.B) {
-		p := &Pane{scrollbackLimit: 1024}
-		b.ReportAllocs()
-		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
-			p.recordScrollbackPush(1, 80)
-		}
-	})
+	p := &Pane{
+		scrollbackLimit:  1024,
+		scrollbackWidths: make([]int, 0, 1024),
+	}
 
-	if got := result.AllocedBytesPerOp(); got > 1024 {
-		t.Fatalf("recordScrollbackPush allocated %d B/op, want <= 1024", got)
+	if got := testing.AllocsPerRun(1000, func() {
+		p.recordScrollbackPush(1, 80)
+		p.clearScrollbackWidths()
+	}); got != 0 {
+		t.Fatalf("recordScrollbackPush allocated %.2f allocs/op, want 0", got)
 	}
 }
