@@ -146,12 +146,24 @@ type PaneInput struct {
 	History       []string
 }
 
+const lowerHexDigits = "0123456789abcdef"
+
 func hexColor(c color.Color) string {
 	if c == nil {
 		return ""
 	}
 	r, g, b, _ := c.RGBA()
-	return fmt.Sprintf("%02x%02x%02x", uint8(r>>8), uint8(g>>8), uint8(b>>8))
+
+	var buf [6]byte
+	encodeHexByte(buf[0:2], uint8(r>>8))
+	encodeHexByte(buf[2:4], uint8(g>>8))
+	encodeHexByte(buf[4:6], uint8(b>>8))
+	return string(buf[:])
+}
+
+func encodeHexByte(dst []byte, v uint8) {
+	dst[0] = lowerHexDigits[v>>4]
+	dst[1] = lowerHexDigits[v&0x0f]
 }
 
 func CursorFromState(col, row int, hidden bool, state proto.TerminalState) proto.CaptureCursor {

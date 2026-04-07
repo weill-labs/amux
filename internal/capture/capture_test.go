@@ -2,6 +2,7 @@ package capture
 
 import (
 	"encoding/json"
+	"image/color"
 	"reflect"
 	"strings"
 	"testing"
@@ -294,6 +295,51 @@ func TestBuildPane(t *testing.T) {
 	}
 	if got.Meta.TrackedPRs[0].Number != 42 || got.Meta.TrackedIssues[0].ID != "LAB-450" {
 		t.Fatalf("BuildPane should copy tracked refs, got tracked_prs=%v tracked_issues=%v", got.Meta.TrackedPRs, got.Meta.TrackedIssues)
+	}
+}
+
+func TestHexColor(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		in   color.Color
+		want string
+	}{
+		{
+			name: "nil",
+			in:   nil,
+			want: "",
+		},
+		{
+			name: "rgba",
+			in:   color.RGBA{R: 0x12, G: 0x34, B: 0x56, A: 0xff},
+			want: "123456",
+		},
+		{
+			name: "rgba64 preserves high byte",
+			in:   color.RGBA64{R: 0x1234, G: 0xabcd, B: 0xff01, A: 0xffff},
+			want: "12abff",
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := hexColor(tt.in); got != tt.want {
+				t.Fatalf("hexColor(%v) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
+func BenchmarkHexColor(b *testing.B) {
+	c := color.RGBA{R: 0x12, G: 0x34, B: 0x56, A: 0xff}
+
+	b.ReportAllocs()
+	for b.Loop() {
+		_ = hexColor(c)
 	}
 }
 
