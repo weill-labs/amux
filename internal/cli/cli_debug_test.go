@@ -81,6 +81,12 @@ func TestParseDebugCommand(t *testing.T) {
 			wantEnabled:  true,
 		},
 		{
+			name:       "rejects extra client goroutines args",
+			loadConfig: func() (*config.Config, error) { return &config.Config{}, nil },
+			args:       []string{"client-goroutines", "extra"},
+			wantErr:    debugUsage,
+		},
+		{
 			name:         "parses client heap",
 			loadConfig:   func() (*config.Config, error) { return &config.Config{Debug: config.DebugConfig{Pprof: true}}, nil },
 			args:         []string{"client-heap"},
@@ -88,6 +94,12 @@ func TestParseDebugCommand(t *testing.T) {
 			wantTimeout:  5 * time.Second,
 			wantSockPath: wantClientSocket,
 			wantEnabled:  true,
+		},
+		{
+			name:       "rejects extra client heap args",
+			loadConfig: func() (*config.Config, error) { return &config.Config{}, nil },
+			args:       []string{"client-heap", "extra"},
+			wantErr:    debugUsage,
 		},
 		{
 			name:       "rejects extra heap args",
@@ -146,6 +158,18 @@ func TestParseDebugCommand(t *testing.T) {
 			wantTimeout:  5*time.Second + 100*time.Millisecond,
 			wantSockPath: wantClientSocket,
 			wantEnabled:  true,
+		},
+		{
+			name:       "rejects invalid client profile flag",
+			loadConfig: func() (*config.Config, error) { return &config.Config{}, nil },
+			args:       []string{"client-profile", "--seconds", "1s"},
+			wantErr:    debugUsage,
+		},
+		{
+			name:       "rejects invalid client profile duration",
+			loadConfig: func() (*config.Config, error) { return &config.Config{}, nil },
+			args:       []string{"client-profile", "--duration", "later"},
+			wantErr:    `invalid profile duration "later"`,
 		},
 		{
 			name:         "rounds up short profile durations",

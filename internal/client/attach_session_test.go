@@ -1233,6 +1233,37 @@ func TestRunSessionEnablesPprofEndpointWhenConfigured(t *testing.T) {
 	}
 }
 
+func TestRunSessionReturnsClientPprofSetupError(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(configPath, []byte("[debug]\npprof = true\n"), 0644); err != nil {
+		t.Fatalf("WriteFile(%q): %v", configPath, err)
+	}
+	t.Setenv("AMUX_CONFIG", configPath)
+	t.Setenv("AMUX_NO_WATCH", "1")
+
+	session := "client-pprof-setup-error"
+	sockPath := PprofProcessSocketPath(session, os.Getpid())
+	if err := os.MkdirAll(filepath.Dir(sockPath), 0700); err != nil {
+		t.Fatalf("MkdirAll(%q): %v", filepath.Dir(sockPath), err)
+	}
+	_ = os.Remove(sockPath)
+	ln, err := net.Listen("unix", sockPath)
+	if err != nil {
+		t.Fatalf("Listen(%q): %v", sockPath, err)
+	}
+	defer func() {
+		_ = ln.Close()
+		_ = os.Remove(sockPath)
+	}()
+
+	err = RunSession(session, func(int) (int, int, error) {
+		return 80, 24, nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "enabling client pprof debug endpoint failed") {
+		t.Fatalf("RunSession() error = %v, want client pprof setup failure", err)
+	}
+}
+
 func assertRunSessionRejectsLegacyKeysConfig(t *testing.T) {
 	t.Helper()
 	home := t.TempDir()
