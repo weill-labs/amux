@@ -140,6 +140,13 @@ Heap graphs:
 ## Follow-Up
 
 To get a real render-pipeline baseline for `buildGridWithOverlayDirty`,
-`DiffGrid`, and `emitDiffWithProfile`, add a client-side profiling path or use an
-external profiler against the attached client process. The current server pprof
-endpoint cannot answer that question on its own.
+`DiffGrid`, and `emitDiffWithProfile`, use the client-side profiling path added
+after this baseline:
+
+```bash
+amux debug client-profile --duration 30s > client-cpu.pprof.gz
+amux debug client-heap > client-heap.txt
+```
+
+The server pprof endpoint still cannot answer client render-loop questions on
+its own.
