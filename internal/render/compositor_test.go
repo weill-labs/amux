@@ -399,6 +399,31 @@ func TestRenderDiffWithOverlayDirtySkipsCleanPaneCellReads(t *testing.T) {
 	}
 }
 
+func TestRenderDiffWithOverlayDirtySuppressesStableEmptyFrame(t *testing.T) {
+	t.Parallel()
+
+	root := mux.NewLeaf(&mux.Pane{ID: 1, Meta: mux.PaneMeta{Name: "pane-1"}}, 0, 0, 20, 3)
+	lookup := func(id uint32) PaneData {
+		if id != 1 {
+			return nil
+		}
+		return &fakePaneData{id: 1, name: "pane-1", screen: "hello", cursorHidden: true}
+	}
+
+	comp := NewCompositor(20, 4, "test")
+	if first := comp.RenderDiffWithOverlayDirty(root, 1, lookup, OverlayState{}, map[uint32]struct{}{1: {}}, true); first == "" {
+		t.Fatal("initial diff render should not be empty")
+	}
+
+	second, stats := comp.RenderDiffWithOverlayDirtyStats(root, 1, lookup, OverlayState{}, map[uint32]struct{}{1: {}}, false)
+	if second != "" {
+		t.Fatalf("stable diff render = %q, want empty output for an unchanged hidden cursor frame", second)
+	}
+	if stats.CellsDiffed != 0 {
+		t.Fatalf("CellsDiffed = %d, want 0 for an unchanged frame", stats.CellsDiffed)
+	}
+}
+
 func TestRenderDiffWithOverlayDirtyMatchesFullRenderAfterShorterRecompose(t *testing.T) {
 	t.Parallel()
 

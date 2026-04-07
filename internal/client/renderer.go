@@ -176,6 +176,57 @@ func (r *Renderer) HandlePaneOutput(paneID uint32, data []byte) bool {
 	})
 }
 
+type paneOutputRenderInfo struct {
+	paneVisible   bool
+	screenChanged bool
+	cursorChanged bool
+}
+
+type terminalCursorState struct {
+	col    int
+	row    int
+	hidden bool
+}
+
+func captureTerminalCursorState(emu mux.TerminalEmulator) terminalCursorState {
+	col, row := emu.CursorPosition()
+	return terminalCursorState{
+		col:    col,
+		row:    row,
+		hidden: emu.CursorHidden(),
+	}
+}
+
+func (r *Renderer) HandlePaneOutputInfo(paneID uint32, data []byte, trackCursor bool) paneOutputRenderInfo {
+	return withRendererActorValue(r, func(st *rendererActorState) paneOutputRenderInfo {
+		emu := st.emulators[paneID]
+		if emu == nil {
+			return paneOutputRenderInfo{}
+		}
+		if !st.snapshot.paneVisible(paneID) {
+			st.bufferPaneOutput(paneID, data)
+			return paneOutputRenderInfo{}
+		}
+		st.warmPaneOutput(paneID, st.emulators)
+
+		var before terminalCursorState
+		if trackCursor {
+			before = captureTerminalCursorState(emu)
+		}
+
+		_, _ = emu.Write(data)
+
+		info := paneOutputRenderInfo{
+			paneVisible: true,
+		}
+		info.screenChanged = emu.DrainScreenChanges()
+		if trackCursor {
+			info.cursorChanged = before != captureTerminalCursorState(emu)
+		}
+		return info
+	})
+}
+
 // Resize updates the client's terminal dimensions.
 func (r *Renderer) Resize(width, height int) {
 	r.withActor(func(st *rendererActorState) {
@@ -250,6 +301,7 @@ func (r *Renderer) RenderFullWithOverlayStats(paneLookup func(*rendererActorStat
 		out, stats := st.compositor.RenderFullWithOverlayStats(root, activePaneID, func(paneID uint32) render.PaneData {
 			return paneLookup(st, paneID)
 		}, overlay, clearScreen...)
+		r.drainVisiblePaneScreenChanges(st, root)
 		return result{out: out, stats: stats}
 	})
 	return res.out, res.stats
@@ -295,9 +347,25 @@ func (r *Renderer) RenderDiffWithOverlayDirtyStats(
 		out, stats := st.compositor.RenderDiffWithOverlayDirtyStats(root, activePaneID, func(paneID uint32) render.PaneData {
 			return paneLookup(st, paneID)
 		}, overlay, dirtyPanes, fullRedraw)
+		r.drainVisiblePaneScreenChanges(st, root)
 		return result{out: out, stats: stats}
 	})
 	return res.out, res.stats
+}
+
+func (r *Renderer) drainVisiblePaneScreenChanges(st *rendererActorState, root *mux.LayoutCell) {
+	if root == nil {
+		return
+	}
+	root.Walk(func(cell *mux.LayoutCell) {
+		paneID := cell.CellPaneID()
+		if paneID == 0 {
+			return
+		}
+		if emu := st.emulators[paneID]; emu != nil {
+			emu.DrainScreenChanges()
+		}
+	})
 }
 
 // Capture renders the full composited screen from client-side emulators.

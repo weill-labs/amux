@@ -1281,6 +1281,20 @@ func TestHandleRenderMsgEffects(t *testing.T) {
 			},
 		},
 		{
+			name: "pane output with no visible change skips render scheduling",
+			prepare: func(_ *testing.T, cr *ClientRenderer) {
+				cr.RenderDiff()
+			},
+			msg:       &RenderMsg{Typ: RenderMsgPaneOutput, PaneID: 2, Data: []byte("\x1b[?1002h\x1b[?1006h")},
+			wantKinds: []clientEffectKind{},
+			assert: func(t *testing.T, cr *ClientRenderer, _ []clientEffect) {
+				t.Helper()
+				if cr.IsDirty() {
+					t.Fatal("pane output without visible changes should leave the renderer clean")
+				}
+			},
+		},
+		{
 			name: "copy mode returns immediate render effects",
 			msg:  &RenderMsg{Typ: RenderMsgCopyMode, PaneID: 1},
 			wantKinds: []clientEffectKind{
@@ -1518,6 +1532,40 @@ func TestRenderCoalescedPaneOutputRespectsFrameBudget(t *testing.T) {
 	<-done
 }
 
+func TestRenderCoalescedPaneOutputWithoutVisibleChangeSkipsRender(t *testing.T) {
+	t.Parallel()
+
+	cr := buildTestRenderer(t)
+	cr.RenderDiff()
+	cr.renderFrameInterval = 20 * time.Millisecond
+	msgCh := make(chan *RenderMsg, 2)
+	rendered := make(chan string, 1)
+	done := make(chan struct{})
+
+	go func() {
+		cr.RenderCoalesced(msgCh, func(s string) {
+			rendered <- s
+		})
+		close(done)
+	}()
+
+	msgCh <- &RenderMsg{Typ: RenderMsgPaneOutput, PaneID: 2, Data: []byte("\x1b[?1002h\x1b[?1006h")}
+
+	select {
+	case frame := <-rendered:
+		t.Fatalf("no-op pane output should not render, got %q", frame)
+	case <-time.After(75 * time.Millisecond):
+	}
+
+	msgCh <- &RenderMsg{Typ: RenderMsgExit}
+	close(msgCh)
+	<-done
+
+	if got := cr.frameStats.snapshot().sampleCount; got != 0 {
+		t.Fatalf("frame stats sampleCount = %d, want 0 for suppressed no-op output", got)
+	}
+}
+
 func TestRenderCoalescedPrioritizesActivePaneOutputAfterLocalInput(t *testing.T) {
 	t.Parallel()
 
@@ -1549,6 +1597,44 @@ func TestRenderCoalescedPrioritizesActivePaneOutputAfterLocalInput(t *testing.T)
 		}
 	case <-time.After(100 * time.Millisecond):
 		t.Fatalf("active pane output did not bypass frame budget after local input")
+	}
+
+	msgCh <- &RenderMsg{Typ: RenderMsgExit}
+	close(msgCh)
+	<-done
+}
+
+func TestRenderCoalescedPrioritizesActivePaneCursorOnlyOutputAfterLocalInput(t *testing.T) {
+	t.Parallel()
+
+	cr := buildTestRenderer(t)
+	cr.renderFrameInterval = 250 * time.Millisecond
+	cr.renderPriorityWindow = 250 * time.Millisecond
+	msgCh := make(chan *RenderMsg, 4)
+	rendered := make(chan time.Time, 4)
+	done := make(chan struct{})
+
+	go func() {
+		cr.RenderCoalesced(msgCh, func(string) {
+			rendered <- time.Now()
+		})
+		close(done)
+	}()
+
+	msgCh <- &RenderMsg{Typ: RenderMsgPaneOutput, PaneID: 2, Data: []byte("background")}
+	<-rendered
+
+	cr.MarkLocalInput()
+	start := time.Now()
+	msgCh <- &RenderMsg{Typ: RenderMsgPaneOutput, PaneID: 1, Data: []byte("\r")}
+
+	select {
+	case ts := <-rendered:
+		if ts.Sub(start) >= 100*time.Millisecond {
+			t.Fatalf("active pane cursor-only output rendered after %v, want immediate render while priority window %v is active", ts.Sub(start), cr.renderPriorityWindow)
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("active pane cursor-only output did not bypass frame budget after local input")
 	}
 
 	msgCh <- &RenderMsg{Typ: RenderMsgExit}

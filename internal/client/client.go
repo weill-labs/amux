@@ -135,12 +135,27 @@ func (cr *ClientRenderer) SetInputIdle(idle bool) {
 // HandlePaneOutput applies pane output and reports whether it affects the
 // currently visible frame.
 func (cr *ClientRenderer) HandlePaneOutput(paneID uint32, data []byte) bool {
-	if !cr.renderer.HandlePaneOutput(paneID, data) {
-		return false
+	info := cr.handlePaneOutputRenderInfo(paneID, data)
+	return info.screenChanged || info.cursorChanged
+}
+
+func (cr *ClientRenderer) handlePaneOutputRenderInfo(paneID uint32, data []byte) paneOutputRenderInfo {
+	state := cr.loadState()
+	activePaneID := cr.renderer.ActivePaneID()
+	copyModeVisible := state.ui.copyModes[paneID] != nil
+	cursorVisible := paneID != 0 &&
+		paneID == activePaneID &&
+		!copyModeVisible &&
+		!paneDragHidesCursor(state, activePaneID, paneID)
+
+	info := cr.renderer.HandlePaneOutputInfo(paneID, data, cursorVisible)
+	needsRender := info.cursorChanged || (info.paneVisible && !copyModeVisible && info.screenChanged)
+	if !needsRender {
+		return info
 	}
 	result := cr.reduceUI(uiActionPaneOutput{paneID: paneID})
 	cr.emitUIEvents(result.uiEvents)
-	return true
+	return info
 }
 
 // Render produces ANSI output compositing all panes. Returns empty if no layout.

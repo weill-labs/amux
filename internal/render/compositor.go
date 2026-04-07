@@ -43,7 +43,22 @@ type Compositor struct {
 
 	// Previous frame's grid for diff rendering. Nil forces full paint.
 	prevGrid     *ScreenGrid
+	prevCursor   cursorRenderState
 	colorProfile termenv.Profile
+}
+
+type cursorRenderState struct {
+	visible    bool
+	positioned bool
+	col        int
+	row        int
+}
+
+func (s cursorRenderState) equal(other cursorRenderState) bool {
+	return s.visible == other.visible &&
+		s.positioned == other.positioned &&
+		s.col == other.col &&
+		s.row == other.row
 }
 
 // SetWindows sets the window list for the global bar.
@@ -78,6 +93,7 @@ func (c *Compositor) Resize(width, height int) {
 	c.cachedBorderRoot = nil
 	c.cachedBorderH = 0
 	c.prevGrid = nil // force full repaint
+	c.prevCursor = cursorRenderState{}
 }
 
 // SetSessionName updates the session name shown in the global bar.
@@ -92,6 +108,7 @@ func (c *Compositor) SetColorProfile(profile termenv.Profile) {
 	}
 	c.colorProfile = profile
 	c.prevGrid = nil
+	c.prevCursor = cursorRenderState{}
 }
 
 // ColorProfile reports the compositor's current terminal color profile.
@@ -250,11 +267,24 @@ func (c *Compositor) RenderDiffWithOverlayDirtyStats(
 	newGrid, panesComposited := c.buildGridWithOverlayDirty(root, activePaneID, lookup, overlay, dirtyPanes, fullRedraw)
 	changes := DiffGrid(c.prevGrid, newGrid)
 	c.prevGrid = newGrid
+	layoutHeight := c.layoutHeightForHelpBar(overlay.HelpBar)
+	nextCursor := c.cursorRenderStateForLayoutHeight(root, activePaneID, lookup, layoutHeight)
+	cursorChanged := !c.prevCursor.equal(nextCursor)
+	c.prevCursor = nextCursor
+
+	if len(changes) == 0 && !cursorChanged {
+		return "", RenderStats{
+			CellsDiffed:     0,
+			PanesComposited: panesComposited,
+		}
+	}
 
 	var buf strings.Builder
 	buf.Grow(c.width * c.height) // rough estimate
 
-	buf.WriteString(HideCursor)
+	if len(changes) > 0 || !nextCursor.visible {
+		buf.WriteString(HideCursor)
+	}
 	// Reset all styles before emitting diffs. The terminal retains the
 	// "current style" from the previous frame's last cell write (typically
 	// the global bar with bg=surface0). Without a reset, EmitDiff's first
@@ -266,7 +296,7 @@ func (c *Compositor) RenderDiffWithOverlayDirtyStats(
 	buf.WriteString(emitDiffWithProfile(changes, c.colorProfile))
 
 	// Position cursor.
-	c.renderCursorDiffWithLayoutHeight(&buf, root, activePaneID, lookup, c.layoutHeightForHelpBar(overlay.HelpBar))
+	c.renderCursorTransition(&buf, nextCursor, len(changes) > 0)
 
 	return buf.String(), RenderStats{
 		CellsDiffed:     len(changes),
@@ -277,6 +307,7 @@ func (c *Compositor) RenderDiffWithOverlayDirtyStats(
 // ClearPrevGrid forces a full repaint on the next RenderDiff call.
 func (c *Compositor) ClearPrevGrid() {
 	c.prevGrid = nil
+	c.prevCursor = cursorRenderState{}
 }
 
 // PrevGridText returns the previous frame's grid as plain text (no ANSI).
@@ -321,32 +352,7 @@ func (c *Compositor) renderCursorDiff(buf *strings.Builder, root *mux.LayoutCell
 }
 
 func (c *Compositor) renderCursorDiffWithLayoutHeight(buf *strings.Builder, root *mux.LayoutCell, activePaneID uint32, lookup func(uint32) PaneData, layoutHeight int) {
-	if activePaneID == 0 {
-		buf.WriteString(ShowCursor)
-		return
-	}
-	cell := root.FindByPaneID(activePaneID)
-	if cell == nil {
-		buf.WriteString(ShowCursor)
-		return
-	}
-	pd := lookup(activePaneID)
-	if pd == nil {
-		buf.WriteString(ShowCursor)
-		return
-	}
-	if pd.CursorHidden() || pd.HasCursorBlock() {
-		return // keep cursor hidden
-	}
-	col, row := pd.CursorPos()
-	if row < 0 || row >= c.visibleContentHeightForLayoutHeight(cell, layoutHeight) {
-		return
-	}
-	absRow := cell.Y + mux.StatusLineRows + row + 1
-	absCol := cell.X + col + 1
-	buf.WriteString(Reset)
-	writeCursorTo(buf, absRow, absCol)
-	buf.WriteString(ShowCursor)
+	c.renderCursorTransition(buf, c.cursorRenderStateForLayoutHeight(root, activePaneID, lookup, layoutHeight), false)
 }
 
 // renderCursor positions the terminal cursor at the active pane's cursor
@@ -357,30 +363,58 @@ func (c *Compositor) renderCursor(buf *strings.Builder, root *mux.LayoutCell, ac
 }
 
 func (c *Compositor) renderCursorWithLayoutHeight(buf *strings.Builder, root *mux.LayoutCell, activePaneID uint32, lookup func(uint32) PaneData, layoutHeight int) {
-	if activePaneID == 0 {
+	state := c.cursorRenderStateForLayoutHeight(root, activePaneID, lookup, layoutHeight)
+	if !state.visible {
+		return // keep cursor hidden (HideCursor was written at start of render)
+	}
+	if !state.positioned {
 		buf.WriteString(ShowCursor)
 		return
+	}
+	writeCursorTo(buf, state.row, state.col)
+	buf.WriteString(ShowCursor)
+}
+
+func (c *Compositor) cursorRenderStateForLayoutHeight(root *mux.LayoutCell, activePaneID uint32, lookup func(uint32) PaneData, layoutHeight int) cursorRenderState {
+	if activePaneID == 0 {
+		return cursorRenderState{visible: true}
 	}
 	cell := root.FindByPaneID(activePaneID)
 	if cell == nil {
-		buf.WriteString(ShowCursor)
-		return
+		return cursorRenderState{visible: true}
 	}
 	pd := lookup(activePaneID)
 	if pd == nil {
-		buf.WriteString(ShowCursor)
-		return
+		return cursorRenderState{visible: true}
 	}
 	if pd.CursorHidden() || pd.HasCursorBlock() {
-		return // keep cursor hidden (HideCursor was written at start of render)
+		return cursorRenderState{}
 	}
 	col, row := pd.CursorPos()
 	if row < 0 || row >= c.visibleContentHeightForLayoutHeight(cell, layoutHeight) {
+		return cursorRenderState{}
+	}
+	return cursorRenderState{
+		visible:    true,
+		positioned: true,
+		col:        cell.X + col + 1,
+		row:        cell.Y + mux.StatusLineRows + row + 1,
+	}
+}
+
+func (c *Compositor) renderCursorTransition(buf *strings.Builder, state cursorRenderState, hiddenCursorWritten bool) {
+	if !state.visible {
+		if !hiddenCursorWritten {
+			buf.WriteString(HideCursor)
+		}
 		return
 	}
-	absRow := cell.Y + mux.StatusLineRows + row + 1
-	absCol := cell.X + col + 1
-	writeCursorTo(buf, absRow, absCol)
+	if !state.positioned {
+		buf.WriteString(ShowCursor)
+		return
+	}
+	buf.WriteString(Reset)
+	writeCursorTo(buf, state.row, state.col)
 	buf.WriteString(ShowCursor)
 }
 
