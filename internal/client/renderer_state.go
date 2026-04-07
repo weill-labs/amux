@@ -104,6 +104,9 @@ type rendererActorState struct {
 	compositor        *render.Compositor
 }
 
+// paneOutputBuffer keeps raw PTY bytes for hidden panes until a visible or
+// capture path needs emulator state. This intentionally trades CPU for memory;
+// hidden-pane buffers are uncapped for now and can grow with hidden output.
 type paneOutputBuffer struct {
 	chunks [][]byte
 }

@@ -128,17 +128,35 @@ func BenchmarkRendererHandlePaneOutput(b *testing.B) {
 }
 
 func benchMultiWindowLayoutSnapshot(visiblePanes, hiddenPanes, width, height int) *proto.LayoutSnapshot {
-	window1Root := proto.CellSnapshot{
-		X: 0, Y: 0, W: width, H: height,
-		Dir: int(mux.SplitVertical),
+	windowRoot := func(panes int) proto.CellSnapshot {
+		root := proto.CellSnapshot{X: 0, Y: 0, W: width, H: height}
+		if panes == 1 {
+			root.IsLeaf = true
+			root.Dir = -1
+		} else {
+			root.Dir = int(mux.SplitVertical)
+		}
+		return root
 	}
-	window2Root := proto.CellSnapshot{
-		X: 0, Y: 0, W: width, H: height,
-		Dir: int(mux.SplitVertical),
-	}
+
+	window1Root := windowRoot(visiblePanes)
+	window2Root := windowRoot(hiddenPanes)
 
 	buildWindow := func(root *proto.CellSnapshot, startID, panes int) []proto.PaneSnapshot {
 		snaps := make([]proto.PaneSnapshot, 0, panes)
+		if panes == 0 {
+			return snaps
+		}
+		if panes == 1 {
+			id := uint32(startID)
+			root.PaneID = id
+			return append(snaps, proto.PaneSnapshot{
+				ID:    id,
+				Name:  fmt.Sprintf("pane-%d", id),
+				Host:  "local",
+				Color: config.AccentColor(0),
+			})
+		}
 		x := 0
 		cellW := (width - (panes - 1)) / panes
 		for i := 0; i < panes; i++ {
