@@ -265,6 +265,7 @@ func (r *Renderer) PaneBufferSnapshotStyled(paneID uint32, baseHistory []proto.S
 	snap := paneBufferSnapshot{}
 	ok := false
 	r.withActor(func(st *rendererActorState) {
+		st.warmPaneOutput(paneID, st.emulators)
 		emu, exists := st.emulators[paneID]
 		if !exists {
 			return
