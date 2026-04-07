@@ -155,13 +155,13 @@ func hexColor(c color.Color) string {
 	r, g, b, _ := c.RGBA()
 
 	var buf [6]byte
-	appendHexByte(buf[0:2], uint8(r>>8))
-	appendHexByte(buf[2:4], uint8(g>>8))
-	appendHexByte(buf[4:6], uint8(b>>8))
+	encodeHexByte(buf[0:2], uint8(r>>8))
+	encodeHexByte(buf[2:4], uint8(g>>8))
+	encodeHexByte(buf[4:6], uint8(b>>8))
 	return string(buf[:])
 }
 
-func appendHexByte(dst []byte, v uint8) {
+func encodeHexByte(dst []byte, v uint8) {
 	dst[0] = lowerHexDigits[v>>4]
 	dst[1] = lowerHexDigits[v&0x0f]
 }
