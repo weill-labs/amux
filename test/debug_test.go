@@ -163,15 +163,15 @@ func TestDebugClientCommandsUseInteractiveClientPprofEndpoint(t *testing.T) {
 		t.Fatalf("goroutine dump missing goroutine text:\n%s", goroutinesOut)
 	}
 
-	ctxProfile, cancelProfile := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancelProfile()
-	profileCmd := h.commandWithContext(ctxProfile, "debug", "client-profile", "--duration", "1s")
-	profileOut, err := profileCmd.CombinedOutput()
+	ctxHeap, cancelHeap := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelHeap()
+	heapCmd := h.commandWithContext(ctxHeap, "debug", "client-heap")
+	heapOut, err := heapCmd.CombinedOutput()
 	if err != nil {
-		t.Fatalf("debug client-profile: %v\n%s", err, profileOut)
+		t.Fatalf("debug client-heap: %v\n%s", err, heapOut)
 	}
-	if len(profileOut) < 2 || profileOut[0] != 0x1f || profileOut[1] != 0x8b {
-		t.Fatalf("profile output should start with gzip magic, got % x", profileOut[:min(8, len(profileOut))])
+	if !strings.Contains(string(heapOut), "heap profile") {
+		t.Fatalf("heap output missing heap profile text:\n%s", heapOut)
 	}
 
 	pty.detach()
