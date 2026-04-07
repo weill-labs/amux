@@ -122,3 +122,72 @@ func TestShellOnlyChildChain(t *testing.T) {
 		})
 	}
 }
+
+func TestShellOnlyForegroundChain(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		shellPID  int
+		shellName string
+		leaderPID int
+		names     map[int]string
+		parents   map[int]int
+		want      bool
+	}{
+		{
+			name:      "empty shell name returns false",
+			shellPID:  1,
+			shellName: "",
+			leaderPID: 2,
+			names:     map[int]string{2: "bash"},
+			parents:   map[int]int{2: 1},
+			want:      false,
+		},
+		{
+			name:      "matching shell-only chain returns true",
+			shellPID:  1,
+			shellName: "bash",
+			leaderPID: 3,
+			names:     map[int]string{1: "bash", 2: "bash", 3: "bash"},
+			parents:   map[int]int{3: 2, 2: 1},
+			want:      true,
+		},
+		{
+			name:      "name mismatch returns false",
+			shellPID:  1,
+			shellName: "bash",
+			leaderPID: 3,
+			names:     map[int]string{1: "bash", 2: "bash", 3: "sleep"},
+			parents:   map[int]int{3: 2, 2: 1},
+			want:      false,
+		},
+		{
+			name:      "missing parent chain returns false",
+			shellPID:  1,
+			shellName: "bash",
+			leaderPID: 3,
+			names:     map[int]string{3: "bash"},
+			parents:   map[int]int{},
+			want:      false,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := shellOnlyForegroundChainWithLookups(
+				tt.shellPID,
+				tt.shellName,
+				tt.leaderPID,
+				func(pid int) string { return tt.names[pid] },
+				func(pid int) int { return tt.parents[pid] },
+			)
+			if got != tt.want {
+				t.Fatalf("shellOnlyForegroundChainWithLookups(%d, %q, %d) = %v, want %v", tt.shellPID, tt.shellName, tt.leaderPID, got, tt.want)
+			}
+		})
+	}
+}

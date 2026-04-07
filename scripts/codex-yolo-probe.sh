@@ -83,15 +83,15 @@ capture_state() {
   "$AMUX_BIN" -s "$SESSION" capture --history --format json "$PANE" >"$capture_file"
   jq '{
     idle,
+    exited,
     current_command,
-    child_pids,
     history_tail: (.history[-4:] // []),
     content_tail: (.content[-12:] // [])
   }' "$capture_file"
 }
 
-pane_has_live_children() {
-  jq -e '(.child_pids | length) > 0' "$capture_file" >/dev/null
+pane_has_foreground_job() {
+  jq -e '.exited != true' "$capture_file" >/dev/null
 }
 
 list_clients() {
@@ -146,18 +146,18 @@ run "$AMUX_BIN" -s "$SESSION" send-keys "$PANE" "/help" Enter
 sleep 2
 capture_state
 
-step "Send Ctrl-C, then compare wait-idle against the JSON child process state"
+step "Send Ctrl-C, then compare wait-idle against the JSON exited state"
 run "$AMUX_BIN" -s "$SESSION" send-keys "$PANE" C-c
 sleep 1
 if run "$AMUX_BIN" -s "$SESSION" wait-idle "$PANE" --timeout 3s; then
   capture_state
-  if pane_has_live_children; then
-    warn "wait-idle returned but the pane still reports child_pids"
+  if pane_has_foreground_job; then
+    warn "wait-idle returned but the pane still reports an active foreground process"
     suspicious=1
   fi
 else
   capture_state
-  if pane_has_live_children; then
+  if pane_has_foreground_job; then
     note "Codex is still running after the first Ctrl-C; retrying once"
     run "$AMUX_BIN" -s "$SESSION" send-keys "$PANE" C-c
     sleep 1
@@ -167,14 +167,14 @@ else
     fi
     capture_state
   else
-    warn "wait-idle timed out after Ctrl-C even though the pane no longer reports child_pids"
+    warn "wait-idle timed out after Ctrl-C even though the pane no longer reports a foreground process"
     suspicious=1
   fi
 fi
 check_visible_capture
 
-if pane_has_live_children; then
-  warn "pane still has live children: $(jq -r '.child_pids | join(\",\")' "$capture_file")"
+if pane_has_foreground_job; then
+  warn "pane still has a live foreground process"
   suspicious=1
 fi
 

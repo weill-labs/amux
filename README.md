@@ -157,7 +157,6 @@ Returns a JSON object with session metadata, window info, and per-pane state:
       "idle": true,
       "idle_since": "2025-06-15T10:30:00Z",
       "current_command": "bash",
-      "child_pids": [],
       "last_output": "2025-06-15T10:29:58Z"
     }
   ]
@@ -202,7 +201,7 @@ Block until a condition is met. No polling.
 | `wait idle <pane>` | Block until pane terminal output settles | 60s |
 | `wait ready <pane>` | Block until pane terminal output settles and no foreground process remains | 10s |
 | `wait exited <pane>` | Block until pane has no foreground process | 5s |
-| `wait busy <pane>` | Block until pane has a child process | 5s |
+| `wait busy <pane>` | Block until pane has a foreground process | 5s |
 | `wait content <pane> <substring>` | Block until substring appears in pane content | 10s |
 | `wait layout [--after N]` | Block until layout generation exceeds N | 3s |
 | `wait clipboard [--after N]` | Block until clipboard content changes | 3s |
@@ -237,7 +236,7 @@ Use `amux list-clients` to discover attached client IDs for `send-keys --client`
 
 The terminal-event example above abbreviates `terminal.palette`; the real event payload always includes all 256 entries.
 
-Event types: `layout`, `output`, `terminal`, `idle`, `busy`, `exited`, `client-connect`, `client-disconnect`, and the client-generated `reconnect` event used by the CLI auto-reconnect path. `idle`/`busy` are screen-quiet transitions; `exited` is the process-based signal that no child processes remain. `terminal` is pane-scoped and fires when preserved terminal metadata changes (cursor style, colors, hyperlink state, alt-screen state, palette view, and similar non-text state). By default `amux events` reconnects automatically after a dropped stream, emits a client-generated `reconnect` event, and resubscribes after exponential backoff. Use `--no-reconnect` for scripts that want exit-on-disconnect. New subscribers receive the current state as an initial snapshot, including already-attached clients as `client-connect` events, so no events are missed between subscribe and the first real event. Output events are throttled to at most one per pane per `--throttle` interval (default 50ms). Non-output events pass through immediately. Use `--throttle 0s` to disable throttling.
+Event types: `layout`, `output`, `terminal`, `idle`, `busy`, `exited`, `client-connect`, `client-disconnect`, and the client-generated `reconnect` event used by the CLI auto-reconnect path. `idle`/`busy` are screen-quiet transitions; `exited` is the process-based signal that no foreground process remains. `terminal` is pane-scoped and fires when preserved terminal metadata changes (cursor style, colors, hyperlink state, alt-screen state, palette view, and similar non-text state). By default `amux events` reconnects automatically after a dropped stream, emits a client-generated `reconnect` event, and resubscribes after exponential backoff. Use `--no-reconnect` for scripts that want exit-on-disconnect. New subscribers receive the current state as an initial snapshot, including already-attached clients as `client-connect` events, so no events are missed between subscribe and the first real event. Output events are throttled to at most one per pane per `--throttle` interval (default 50ms). Non-output events pass through immediately. Use `--throttle 0s` to disable throttling.
 
 ### Agent Loop Example
 
@@ -343,8 +342,8 @@ Higher-level prompt delegation now lives at the script layer: compose `wait idle
 | `amux capture --colors` | Capture border color map |
 | `amux wait idle <pane> [--settle 2s] [--timeout 60s]` | Block until pane VT output quiesces |
 | `amux wait ready <pane> [--timeout 10s]` | Block until pane VT output settles and no foreground process remains |
-| `amux wait exited <pane> [--timeout 5s]` | Block until pane has no child processes |
-| `amux wait busy <pane> [--timeout 5s]` | Block until pane has child processes |
+| `amux wait exited <pane> [--timeout 5s]` | Block until pane has no foreground process |
+| `amux wait busy <pane> [--timeout 5s]` | Block until pane has a foreground process |
 | `amux wait content <pane> <substring> [--timeout 10s]` | Block until substring appears in pane |
 | `amux wait layout [--after N] [--timeout 3s]` | Block until layout generation > N |
 | `amux wait clipboard [--after N] [--timeout 3s]` | Block until clipboard content changes |

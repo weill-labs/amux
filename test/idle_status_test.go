@@ -91,7 +91,7 @@ func TestWaitBusy_EventBased(t *testing.T) {
 	stopLongRunningCommand(t, h, "pane-1")
 }
 
-func TestWaitBusy_WaitsForChildProcessNotPromptEcho(t *testing.T) {
+func TestWaitBusy_WaitsForForegroundProcessNotPromptEcho(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)
 
@@ -104,8 +104,8 @@ func TestWaitBusy_WaitsForChildProcessNotPromptEcho(t *testing.T) {
 	if pane.Exited {
 		t.Error("pane should be busy after waitBusy returns")
 	}
-	if len(pane.ChildPIDs) == 0 {
-		t.Error("waitBusy should not return on prompt echo alone")
+	if pane.CurrentCommand == "" {
+		t.Error("waitBusy should report the foreground command")
 	}
 }
 

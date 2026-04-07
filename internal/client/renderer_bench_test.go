@@ -104,7 +104,6 @@ func benchRendererWithContent(n int) (*Renderer, map[uint32]proto.PaneAgentStatu
 		status[pane.ID] = proto.PaneAgentStatus{
 			Idle:           true,
 			CurrentCommand: "bash",
-			ChildPIDs:      []int{},
 		}
 	}
 

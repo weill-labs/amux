@@ -349,13 +349,10 @@ func TestCaptureJSON_AgentStatus_Busy(t *testing.T) {
 	pane1 := capturePaneJSONFor(t, "pane-1", h.runCmd)
 
 	if pane1.Exited {
-		t.Errorf("pane should not be exited (current_command=%q, child_pids=%v)", pane1.CurrentCommand, pane1.ChildPIDs)
+		t.Errorf("pane should not be exited (current_command=%q)", pane1.CurrentCommand)
 	}
 	if pane1.CurrentCommand == "" {
 		t.Error("current_command should be non-empty")
-	}
-	if len(pane1.ChildPIDs) == 0 {
-		t.Error("child_pids should be non-empty while command is running")
 	}
 	if pane1.ExitedSince != "" {
 		t.Errorf("exited_since should be empty when busy, got %q", pane1.ExitedSince)
@@ -377,7 +374,7 @@ func TestCaptureJSON_AgentStatus_Idle(t *testing.T) {
 	pane := captureJSONPane(t, h, "pane-1")
 
 	if !pane.Idle {
-		t.Errorf("pane should be screen-quiet (current_command=%q, child_pids=%v)", pane.CurrentCommand, pane.ChildPIDs)
+		t.Errorf("pane should be screen-quiet (current_command=%q)", pane.CurrentCommand)
 	}
 	if pane.IdleSince == "" {
 		t.Error("idle_since should be set when pane is idle")
@@ -386,7 +383,7 @@ func TestCaptureJSON_AgentStatus_Idle(t *testing.T) {
 		t.Errorf("idle_since should be RFC3339, got %q: %v", pane.IdleSince, err)
 	}
 	if !pane.Exited {
-		t.Errorf("pane should be exited at the shell prompt (current_command=%q, child_pids=%v)", pane.CurrentCommand, pane.ChildPIDs)
+		t.Errorf("pane should be exited at the shell prompt (current_command=%q)", pane.CurrentCommand)
 	}
 	if pane.ExitedSince == "" {
 		t.Error("exited_since should be set when pane is exited")
@@ -408,13 +405,10 @@ func TestCaptureJSON_AgentStatus_SinglePane(t *testing.T) {
 	pane := capturePaneJSONFor(t, "pane-1", h.runCmd)
 
 	if pane.Exited {
-		t.Errorf("pane should not be exited (current_command=%q, child_pids=%v)", pane.CurrentCommand, pane.ChildPIDs)
+		t.Errorf("pane should not be exited (current_command=%q)", pane.CurrentCommand)
 	}
 	if pane.CurrentCommand == "" {
 		t.Error("current_command should be non-empty while command is running")
-	}
-	if len(pane.ChildPIDs) == 0 {
-		t.Error("child_pids should be non-empty")
 	}
 
 	stopLongRunningCommand(t, h, "pane-1")
@@ -457,18 +451,17 @@ func TestCaptureJSON_AgentStatus_Transition(t *testing.T) {
 	stopLongRunningCommand(t, h, "pane-1")
 }
 
-func TestCaptureJSON_AgentStatus_ChildPIDsArray(t *testing.T) {
+func TestCaptureJSON_AgentStatus_OmitsChildPIDs(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)
 
-	// Even when idle, child_pids should be a JSON array (not null).
 	h.sendKeys("pane-1", "echo ARRAY_TEST", "Enter")
 	h.waitFor("pane-1", "ARRAY_TEST")
 	h.waitIdle("pane-1")
 
 	out := h.runCmd("capture", "--format", "json", "pane-1")
-	if !strings.Contains(out, `"child_pids": []`) {
-		t.Errorf("idle pane should have child_pids as empty array, got:\n%s", out)
+	if strings.Contains(out, `"child_pids"`) {
+		t.Errorf("capture JSON should omit child_pids, got:\n%s", out)
 	}
 }
 

@@ -145,9 +145,6 @@ type CapturePane struct {
 	// CurrentCommand is the foreground process name when busy, or the
 	// shell name (e.g., "bash") when exited.
 	CurrentCommand string `json:"current_command"`
-	// ChildPIDs lists the direct child PIDs of the pane's shell process.
-	// These are ephemeral OS-level PIDs — they change across captures.
-	ChildPIDs []int `json:"child_pids"`
 	// Idle is true when pane output has been quiet for the settle window.
 	Idle bool `json:"idle"`
 	// IdleSince is the RFC3339 timestamp when the pane most recently
@@ -166,7 +163,6 @@ type PaneAgentStatus struct {
 	Exited         bool
 	ExitedSince    string // RFC3339 or ""
 	CurrentCommand string
-	ChildPIDs      []int
 	Idle           bool
 	IdleSince      string // RFC3339 or ""
 	LastOutput     string // RFC3339 or ""
@@ -214,8 +210,7 @@ type CaptureMouseProtocol struct {
 }
 
 // ApplyAgentStatus populates agent status fields on a CapturePane from
-// the server-gathered status map. ChildPIDs is normalized to an empty
-// slice (never nil) for consistent JSON output.
+// the server-gathered status map.
 func (cp *CapturePane) ApplyAgentStatus(status map[uint32]PaneAgentStatus) {
 	st, ok := status[cp.ID]
 	if !ok {
@@ -227,11 +222,6 @@ func (cp *CapturePane) ApplyAgentStatus(status map[uint32]PaneAgentStatus) {
 	cp.IdleSince = st.IdleSince
 	cp.CurrentCommand = st.CurrentCommand
 	cp.LastOutput = st.LastOutput
-	if st.ChildPIDs != nil {
-		cp.ChildPIDs = st.ChildPIDs
-	} else {
-		cp.ChildPIDs = []int{}
-	}
 }
 
 // FindCellInSnapshot finds a leaf cell by pane ID in a CellSnapshot tree.

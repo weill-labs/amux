@@ -388,7 +388,7 @@ func (r *Renderer) captureJSONValueWithHistory(agentStatus map[uint32]proto.Pane
 }
 
 // CaptureJSON renders a structured JSON capture from client-side emulators.
-// Agent status (idle, current_command, child_pids) comes from the server.
+// Agent status (idle, current_command) comes from the server.
 func (r *Renderer) CaptureJSON(agentStatus map[uint32]proto.PaneAgentStatus) string {
 	capture, ok := r.captureJSONValue(agentStatus)
 	if !ok {
