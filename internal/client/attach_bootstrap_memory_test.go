@@ -31,7 +31,7 @@ func TestReadAttachBootstrapKeepsPeakHeapUnderBound(t *testing.T) {
 	t.Cleanup(cr.renderer.Close)
 
 	peakHeap, err := samplePeakHeapAlloc(func() error {
-		return readAttachBootstrap(conn, cr)
+		return readAttachBootstrap(conn, proto.NewReader(conn), cr)
 	})
 	if err != nil {
 		t.Fatalf("readAttachBootstrap: %v", err)
