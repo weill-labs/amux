@@ -11,6 +11,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/weill-labs/amux/internal/proto"
 )
 
 // ---------------------------------------------------------------------------
@@ -22,11 +24,25 @@ func TestPaneClose(t *testing.T) {
 	h := newServerHarness(t)
 
 	h.splitV()
+	if !h.waitForCaptureJSON(func(c proto.CaptureJSON) bool {
+		for _, pane := range c.Panes {
+			if pane.Name != "pane-2" {
+				continue
+			}
+			return strings.TrimSpace(strings.Join(pane.Content, "\n")) != ""
+		}
+		return false
+	}, 5*time.Second) {
+		t.Fatal("pane-2 did not render a prompt within 5s")
+	}
 
 	// Send "exit" to pane-2 (the active pane after split).
-	gen := h.generation()
-	h.sendKeys("pane-2", "exit", "Enter")
-	h.waitLayout(gen) // blocks until pane exit triggers layout update
+	h.runCmd("send-keys", "pane-2", "--wait", "ready", "exit", "Enter")
+	if !h.waitForCaptureJSON(func(c proto.CaptureJSON) bool {
+		return len(c.Panes) == 1
+	}, 5*time.Second) {
+		t.Fatal("pane-2 did not close within 5s")
+	}
 
 	c := h.captureJSON()
 	if len(c.Panes) != 1 {
