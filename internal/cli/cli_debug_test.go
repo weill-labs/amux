@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weill-labs/amux/internal/client"
 	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/server"
 )
@@ -22,6 +23,7 @@ func TestParseDebugCommand(t *testing.T) {
 
 	sessionName := "debug-test"
 	wantSocket := server.PprofSocketPath(sessionName)
+	wantClientSocket := client.PprofSocketPath(sessionName)
 
 	tests := []struct {
 		name         string
@@ -70,6 +72,24 @@ func TestParseDebugCommand(t *testing.T) {
 			wantEnabled:  true,
 		},
 		{
+			name:         "parses client goroutines",
+			loadConfig:   func() (*config.Config, error) { return &config.Config{Debug: config.DebugConfig{Pprof: true}}, nil },
+			args:         []string{"client-goroutines"},
+			wantPath:     "/debug/pprof/goroutine?debug=2",
+			wantTimeout:  5 * time.Second,
+			wantSockPath: wantClientSocket,
+			wantEnabled:  true,
+		},
+		{
+			name:         "parses client heap",
+			loadConfig:   func() (*config.Config, error) { return &config.Config{Debug: config.DebugConfig{Pprof: true}}, nil },
+			args:         []string{"client-heap"},
+			wantPath:     "/debug/pprof/heap?debug=1",
+			wantTimeout:  5 * time.Second,
+			wantSockPath: wantClientSocket,
+			wantEnabled:  true,
+		},
+		{
 			name:       "rejects extra heap args",
 			loadConfig: func() (*config.Config, error) { return &config.Config{}, nil },
 			args:       []string{"heap", "extra"},
@@ -107,6 +127,24 @@ func TestParseDebugCommand(t *testing.T) {
 			wantPath:     "/debug/pprof/profile?seconds=30",
 			wantTimeout:  35 * time.Second,
 			wantSockPath: wantSocket,
+			wantEnabled:  true,
+		},
+		{
+			name:         "parses default client profile duration",
+			loadConfig:   func() (*config.Config, error) { return &config.Config{Debug: config.DebugConfig{Pprof: true}}, nil },
+			args:         []string{"client-profile"},
+			wantPath:     "/debug/pprof/profile?seconds=30",
+			wantTimeout:  35 * time.Second,
+			wantSockPath: wantClientSocket,
+			wantEnabled:  true,
+		},
+		{
+			name:         "rounds up short client profile durations",
+			loadConfig:   func() (*config.Config, error) { return &config.Config{Debug: config.DebugConfig{Pprof: true}}, nil },
+			args:         []string{"client-profile", "--duration", "100ms"},
+			wantPath:     "/debug/pprof/profile?seconds=1",
+			wantTimeout:  5*time.Second + 100*time.Millisecond,
+			wantSockPath: wantClientSocket,
 			wantEnabled:  true,
 		},
 		{
@@ -253,6 +291,62 @@ func TestRunDebugCommandWithIO(t *testing.T) {
 		}
 		if got := out.String(); got != "frame stats\n" {
 			t.Fatalf("stdout = %q, want %q", got, "frame stats\n")
+		}
+	})
+
+	t.Run("fetches client goroutines from the client pprof socket", func(t *testing.T) {
+		t.Parallel()
+
+		sessionName := "client-goroutines-fetch"
+		sockPath := client.PprofSocketPath(sessionName)
+		targetPath := client.PprofProcessSocketPath(sessionName, 4242)
+		if err := os.MkdirAll(server.SocketDir(), 0700); err != nil {
+			t.Fatalf("MkdirAll(%q): %v", server.SocketDir(), err)
+		}
+		_ = os.Remove(sockPath)
+		_ = os.Remove(targetPath)
+
+		ln, err := net.Listen("unix", targetPath)
+		if err != nil {
+			t.Fatalf("Listen(%q): %v", targetPath, err)
+		}
+		if err := os.Symlink(targetPath, sockPath); err != nil {
+			t.Fatalf("Symlink(%q, %q): %v", targetPath, sockPath, err)
+		}
+		t.Cleanup(func() {
+			_ = ln.Close()
+			_ = os.Remove(sockPath)
+			_ = os.Remove(targetPath)
+		})
+
+		srv := &http.Server{
+			Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_, _ = io.WriteString(w, "client goroutines\n")
+			}),
+		}
+		errCh := make(chan error, 1)
+		go func() {
+			errCh <- srv.Serve(ln)
+		}()
+		t.Cleanup(func() {
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			_ = srv.Shutdown(ctx)
+			err := <-errCh
+			if err != nil && !errors.Is(err, http.ErrServerClosed) {
+				t.Fatalf("Serve(%q): %v", targetPath, err)
+			}
+		})
+
+		var out bytes.Buffer
+		err = runDebugCommandWithConfigLoader(&out, sessionName, []string{"client-goroutines"}, func() (*config.Config, error) {
+			return &config.Config{Debug: config.DebugConfig{Pprof: true}}, nil
+		})
+		if err != nil {
+			t.Fatalf("runDebugCommandWithIO(client-goroutines): %v", err)
+		}
+		if got := out.String(); got != "client goroutines\n" {
+			t.Fatalf("stdout = %q, want %q", got, "client goroutines\n")
 		}
 	})
 }

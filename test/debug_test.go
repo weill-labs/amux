@@ -5,12 +5,14 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/weill-labs/amux/internal/client"
 	"github.com/weill-labs/amux/internal/server"
 )
 
@@ -82,6 +84,23 @@ func TestDebugGoroutinesCommandReportsDisabledEndpoint(t *testing.T) {
 	}
 }
 
+func TestDebugClientGoroutinesCommandReportsDisabledEndpoint(t *testing.T) {
+	t.Parallel()
+
+	h := newServerHarness(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	cmd := h.commandWithContext(ctx, "debug", "client-goroutines")
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("debug client-goroutines should fail when pprof is disabled.\nOutput:\n%s", out)
+	}
+	if !strings.Contains(string(out), "pprof debug endpoint is disabled") {
+		t.Fatalf("output = %q, want disabled-endpoint error", out)
+	}
+}
+
 func TestDebugGoroutinesCommandPrintsDump(t *testing.T) {
 	t.Parallel()
 
@@ -113,6 +132,51 @@ func TestDebugProfileCommandStreamsCPUProfile(t *testing.T) {
 	}
 	if len(out) < 2 || out[0] != 0x1f || out[1] != 0x8b {
 		t.Fatalf("profile output should start with gzip magic, got % x", out[:min(8, len(out))])
+	}
+}
+
+func TestDebugClientCommandsUseInteractiveClientPprofEndpoint(t *testing.T) {
+	t.Parallel()
+
+	h := newServerHarness(t)
+	configPath := filepath.Join(h.home, ".config", "amux", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0755); err != nil {
+		t.Fatalf("MkdirAll(%q): %v", filepath.Dir(configPath), err)
+	}
+	if err := os.WriteFile(configPath, []byte("[debug]\npprof = true\n"), 0644); err != nil {
+		t.Fatalf("WriteFile(%q): %v", configPath, err)
+	}
+
+	pty := newPTYClientHarness(t, h)
+	if _, err := os.Lstat(client.PprofSocketPath(h.session)); err != nil {
+		t.Fatalf("Lstat(%q): %v", client.PprofSocketPath(h.session), err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	goroutinesCmd := h.commandWithContext(ctx, "debug", "client-goroutines")
+	goroutinesOut, err := goroutinesCmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("debug client-goroutines: %v\n%s", err, goroutinesOut)
+	}
+	if !strings.Contains(string(goroutinesOut), "goroutine") {
+		t.Fatalf("goroutine dump missing goroutine text:\n%s", goroutinesOut)
+	}
+
+	ctxProfile, cancelProfile := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancelProfile()
+	profileCmd := h.commandWithContext(ctxProfile, "debug", "client-profile", "--duration", "1s")
+	profileOut, err := profileCmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("debug client-profile: %v\n%s", err, profileOut)
+	}
+	if len(profileOut) < 2 || profileOut[0] != 0x1f || profileOut[1] != 0x8b {
+		t.Fatalf("profile output should start with gzip magic, got % x", profileOut[:min(8, len(profileOut))])
+	}
+
+	pty.detach()
+	if !pty.waitExited(5 * time.Second) {
+		t.Fatal("interactive client did not exit after detach")
 	}
 }
 

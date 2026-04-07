@@ -1198,6 +1198,41 @@ func TestRunSessionDetachFlushesPendingInput(t *testing.T) {
 	})
 }
 
+func TestRunSessionEnablesPprofEndpointWhenConfigured(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(configPath, []byte("[debug]\npprof = true\n"), 0644); err != nil {
+		t.Fatalf("WriteFile(%q): %v", configPath, err)
+	}
+	t.Setenv("AMUX_CONFIG", configPath)
+
+	h := newRunSessionHarness(t, func(int) (int, int, error) {
+		return 80, 24, nil
+	})
+
+	attach := h.waitAttach(t)
+	if attach.Type != proto.MsgTypeAttach {
+		t.Fatalf("attach type = %d, want %d", attach.Type, proto.MsgTypeAttach)
+	}
+
+	h.send(t, &proto.Message{Type: proto.MsgTypeLayout, Layout: sessionLayoutSnapshot(h.session)})
+	h.send(t, &proto.Message{Type: proto.MsgTypePaneOutput, PaneID: 1, PaneData: []byte("left")})
+	h.send(t, &proto.Message{Type: proto.MsgTypePaneOutput, PaneID: 2, PaneData: []byte("right")})
+	h.output.waitContains(t, render.AltScreenEnter)
+
+	body := fetchUnixHTTP(t, PprofSocketPath(h.session), "/debug/pprof/goroutine?debug=2", 5*time.Second)
+	if !strings.Contains(body, "goroutine") {
+		t.Fatalf("goroutine dump missing goroutine text:\n%s", body)
+	}
+
+	h.send(t, &proto.Message{Type: proto.MsgTypeExit})
+	if err := h.waitRunResult(t); err != nil {
+		t.Fatalf("RunSession() = %v, want nil", err)
+	}
+	if _, err := os.Lstat(PprofSocketPath(h.session)); !os.IsNotExist(err) {
+		t.Fatalf("Lstat(%q) after exit = %v, want not exist", PprofSocketPath(h.session), err)
+	}
+}
+
 func assertRunSessionRejectsLegacyKeysConfig(t *testing.T) {
 	t.Helper()
 	home := t.TempDir()
