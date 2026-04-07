@@ -58,12 +58,13 @@ func buildAttachBootstrapReplay(t *testing.T, sessionName string, paneCount, his
 	screen := []byte("\033[2J\033[H" + strings.Repeat("x", lineWidth))
 
 	var buf bytes.Buffer
-	if err := proto.WriteMsg(&buf, &proto.Message{Type: proto.MsgTypeLayout, Layout: layout}); err != nil {
+	writer := proto.NewWriter(&buf)
+	if err := writer.WriteMsg(&proto.Message{Type: proto.MsgTypeLayout, Layout: layout}); err != nil {
 		t.Fatalf("write layout: %v", err)
 	}
 	for i := 0; i < paneCount; i++ {
 		paneID := uint32(i + 1)
-		if err := proto.WriteMsg(&buf, &proto.Message{
+		if err := writer.WriteMsg(&proto.Message{
 			Type:          proto.MsgTypePaneHistory,
 			PaneID:        paneID,
 			History:       plainHistory,
@@ -71,7 +72,7 @@ func buildAttachBootstrapReplay(t *testing.T, sessionName string, paneCount, his
 		}); err != nil {
 			t.Fatalf("write pane history for pane %d: %v", paneID, err)
 		}
-		if err := proto.WriteMsg(&buf, &proto.Message{
+		if err := writer.WriteMsg(&proto.Message{
 			Type:     proto.MsgTypePaneOutput,
 			PaneID:   paneID,
 			PaneData: screen,
@@ -79,7 +80,7 @@ func buildAttachBootstrapReplay(t *testing.T, sessionName string, paneCount, his
 			t.Fatalf("write pane output for pane %d: %v", paneID, err)
 		}
 	}
-	if err := proto.WriteMsg(&buf, &proto.Message{Type: proto.MsgTypeBell}); err != nil {
+	if err := writer.WriteMsg(&proto.Message{Type: proto.MsgTypeBell}); err != nil {
 		t.Fatalf("write correction terminator: %v", err)
 	}
 	return buf.Bytes()
