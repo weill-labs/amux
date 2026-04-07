@@ -353,7 +353,7 @@ func (a stubAttachAddr) String() string  { return string(a) }
 func TestAttachBootstrapHelpers(t *testing.T) {
 	t.Parallel()
 
-	t.Run("newAttachBootstrapMessage copies payloads", func(t *testing.T) {
+	t.Run("newAttachBootstrapMessage accepts replay payloads", func(t *testing.T) {
 		t.Parallel()
 
 		historyMsg := &proto.Message{
@@ -373,16 +373,17 @@ func TestAttachBootstrapHelpers(t *testing.T) {
 		if !ok {
 			t.Fatal("history message should be accepted")
 		}
-		historyMsg.History[0] = "mutated"
-		historyMsg.StyledHistory[0].Text = "mutated"
-		if historyBootstrap.typ != proto.MsgTypePaneHistory || historyBootstrap.paneID != 7 {
+		if historyBootstrap.msg == nil {
+			t.Fatal("history bootstrap message should keep the original proto message")
+		}
+		if historyBootstrap.msg.Type != proto.MsgTypePaneHistory || historyBootstrap.msg.PaneID != 7 {
 			t.Fatalf("history bootstrap = %+v, want pane history for pane 7", historyBootstrap)
 		}
-		if len(historyBootstrap.history) != 2 || historyBootstrap.history[0] != "older" {
-			t.Fatalf("history bootstrap copy = %q, want original history", historyBootstrap.history)
+		if len(historyBootstrap.msg.History) != 2 || historyBootstrap.msg.History[0] != "older" {
+			t.Fatalf("history bootstrap = %q, want original history", historyBootstrap.msg.History)
 		}
-		if len(historyBootstrap.styledHistory) != 1 || historyBootstrap.styledHistory[0].Text != "older" {
-			t.Fatalf("styled history bootstrap copy = %+v, want original styled history", historyBootstrap.styledHistory)
+		if len(historyBootstrap.msg.StyledHistory) != 1 || historyBootstrap.msg.StyledHistory[0].Text != "older" {
+			t.Fatalf("styled history bootstrap = %+v, want original styled history", historyBootstrap.msg.StyledHistory)
 		}
 
 		outputMsg := &proto.Message{
@@ -394,12 +395,14 @@ func TestAttachBootstrapHelpers(t *testing.T) {
 		if !ok {
 			t.Fatal("output message should be accepted")
 		}
-		outputMsg.PaneData[0] = 'n'
-		if outputBootstrap.typ != proto.MsgTypePaneOutput || outputBootstrap.paneID != 9 {
+		if outputBootstrap.msg == nil {
+			t.Fatal("output bootstrap message should keep the original proto message")
+		}
+		if outputBootstrap.msg.Type != proto.MsgTypePaneOutput || outputBootstrap.msg.PaneID != 9 {
 			t.Fatalf("output bootstrap = %+v, want pane output for pane 9", outputBootstrap)
 		}
-		if string(outputBootstrap.data) != "wide" {
-			t.Fatalf("output bootstrap copy = %q, want %q", outputBootstrap.data, "wide")
+		if string(outputBootstrap.msg.PaneData) != "wide" {
+			t.Fatalf("output bootstrap = %q, want %q", outputBootstrap.msg.PaneData, "wide")
 		}
 
 		if _, ok := newAttachBootstrapMessage(&proto.Message{Type: proto.MsgTypeLayout}); ok {
@@ -440,7 +443,10 @@ func TestAttachBootstrapHelpers(t *testing.T) {
 		t.Parallel()
 
 		cr := NewClientRenderer(20, 4)
-		if got := applyAttachBootstrapMessage(cr, attachBootstrapMessage{typ: proto.MsgTypeBell}); got != 0 {
+		t.Cleanup(cr.renderer.Close)
+		if got := applyAttachBootstrapMessage(cr, attachBootstrapMessage{
+			msg: &proto.Message{Type: proto.MsgTypeBell},
+		}); got != 0 {
 			t.Fatalf("applyAttachBootstrapMessage() = %d, want 0 for unexpected type", got)
 		}
 	})
@@ -594,22 +600,25 @@ func TestApplyAttachBootstrapMessagePreservesStyledPaneHistory(t *testing.T) {
 	t.Parallel()
 
 	cr := NewClientRenderer(20, 4)
+	t.Cleanup(cr.renderer.Close)
 	cr.HandleLayout(singlePane20x3())
 	red := ansi.BasicColor(1)
 
 	applyAttachBootstrapMessage(cr, attachBootstrapMessage{
-		typ:     proto.MsgTypePaneHistory,
-		paneID:  1,
-		history: []string{"base"},
-		styledHistory: []proto.StyledLine{{
-			Text: "base",
-			Cells: []proto.Cell{
-				{Char: "b", Width: 1, Style: uv.Style{Fg: red}},
-				{Char: "a", Width: 1},
-				{Char: "s", Width: 1},
-				{Char: "e", Width: 1},
-			},
-		}},
+		msg: &proto.Message{
+			Type:    proto.MsgTypePaneHistory,
+			PaneID:  1,
+			History: []string{"base"},
+			StyledHistory: []proto.StyledLine{{
+				Text: "base",
+				Cells: []proto.Cell{
+					{Char: "b", Width: 1, Style: uv.Style{Fg: red}},
+					{Char: "a", Width: 1},
+					{Char: "s", Width: 1},
+					{Char: "e", Width: 1},
+				},
+			}},
+		},
 	})
 
 	cr.EnterCopyMode(1)
