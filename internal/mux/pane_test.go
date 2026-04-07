@@ -448,3 +448,18 @@ func TestPaneScrollbackWidthClearsWithScrollback(t *testing.T) {
 		t.Fatalf("ScrollbackSourceWidth(0) after clear = %d, want 0", got)
 	}
 }
+
+func TestPaneRecordScrollbackPushKeepsAllocationsBounded(t *testing.T) {
+	// Not parallel: testing.AllocsPerRun panics in parallel tests.
+	p := &Pane{
+		scrollbackLimit:  1024,
+		scrollbackWidths: make([]int, 0, 1024),
+	}
+
+	if got := testing.AllocsPerRun(1000, func() {
+		p.recordScrollbackPush(1, 80)
+		p.clearScrollbackWidths()
+	}); got != 0 {
+		t.Fatalf("recordScrollbackPush allocated %.2f allocs/op, want 0", got)
+	}
+}
