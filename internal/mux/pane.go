@@ -91,7 +91,7 @@ type Pane struct {
 
 	outputSeq        atomic.Uint64
 	baseHistory      atomic.Pointer[paneBaseHistory]
-	scrollbackWidths atomic.Pointer[[]int]
+	scrollbackWidths []int
 	scrollbackLines  int
 	scrollbackLimit  int
 
@@ -349,32 +349,27 @@ func (p *Pane) loadBaseHistory() []string {
 	return base.lines
 }
 
+// Scrollback width callbacks fire synchronously during actor-owned emulator
+// writes, so the width slice can be reused in place without atomic snapshots.
 func (p *Pane) loadScrollbackWidths() []int {
-	if ptr := p.scrollbackWidths.Load(); ptr != nil {
-		return *ptr
-	}
-	return nil
+	return p.scrollbackWidths
 }
 
 func (p *Pane) recordScrollbackPush(count, width int) {
 	if count <= 0 || width <= 0 {
 		return
 	}
-	old := p.loadScrollbackWidths()
-	newWidths := make([]int, len(old), len(old)+count)
-	copy(newWidths, old)
 	for range count {
-		newWidths = append(newWidths, width)
+		p.scrollbackWidths = append(p.scrollbackWidths, width)
 	}
-	if overflow := len(newWidths) - p.scrollbackLimit; overflow > 0 {
-		newWidths = newWidths[overflow:]
+	if overflow := len(p.scrollbackWidths) - p.scrollbackLimit; overflow > 0 {
+		copy(p.scrollbackWidths, p.scrollbackWidths[overflow:])
+		p.scrollbackWidths = p.scrollbackWidths[:len(p.scrollbackWidths)-overflow]
 	}
-	p.scrollbackWidths.Store(&newWidths)
 }
 
 func (p *Pane) clearScrollbackWidths() {
-	empty := make([]int, 0)
-	p.scrollbackWidths.Store(&empty)
+	p.scrollbackWidths = p.scrollbackWidths[:0]
 }
 
 // ScrollbackSourceWidth returns the pane width at which the scrollback row
