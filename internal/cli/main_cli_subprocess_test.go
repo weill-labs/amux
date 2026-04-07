@@ -226,3 +226,77 @@ func TestMainDebugHelp(t *testing.T) {
 		t.Fatalf("output = %q, want debug usage", output)
 	}
 }
+
+func TestMainDebugFramesDispatchesDedicatedServerCommand(t *testing.T) {
+	t.Parallel()
+
+	sockPath := hermeticMainSocketPath(t)
+	ln, err := net.Listen("unix", sockPath)
+	if err != nil {
+		t.Fatalf("Listen(%q): %v", sockPath, err)
+	}
+	t.Cleanup(func() {
+		_ = ln.Close()
+	})
+
+	wantOutput := `samples: 2
+frame duration: p50 1ms  p95 2ms  p99 2ms
+cells diffed: p50 10  p95 20  p99 20
+ansi bytes emitted: p50 100  p95 200  p99 200
+panes composited: p50 2  p95 3  p99 3
+last 100 frame times (oldest -> newest): 1ms, 2ms
+`
+
+	errCh := make(chan error, 1)
+	go func() {
+		conn, acceptErr := ln.Accept()
+		if acceptErr != nil {
+			errCh <- fmt.Errorf("Accept: %w", acceptErr)
+			return
+		}
+		defer conn.Close()
+
+		msg, readErr := server.ReadMsg(conn)
+		if readErr != nil {
+			errCh <- fmt.Errorf("ReadMsg: %w", readErr)
+			return
+		}
+		if msg.Type != server.MsgTypeCommand {
+			errCh <- fmt.Errorf("message type = %v, want %v", msg.Type, server.MsgTypeCommand)
+			return
+		}
+		if msg.CmdName != "debug-frames" {
+			errCh <- fmt.Errorf("command = %q, want %q", msg.CmdName, "debug-frames")
+			return
+		}
+		if len(msg.CmdArgs) != 0 {
+			errCh <- fmt.Errorf("args = %v, want empty", msg.CmdArgs)
+			return
+		}
+		if writeErr := server.WriteMsg(conn, &server.Message{
+			Type:      server.MsgTypeCmdResult,
+			CmdOutput: wantOutput,
+		}); writeErr != nil {
+			errCh <- fmt.Errorf("WriteMsg: %w", writeErr)
+			return
+		}
+		errCh <- nil
+	}()
+
+	output, exitCode := runHermeticMain(t, "debug", "frames")
+	if exitCode != 0 {
+		t.Fatalf("exit code = %d, want 0\noutput:\n%s", exitCode, output)
+	}
+	if output != wantOutput {
+		t.Fatalf("output = %q, want %q", output, wantOutput)
+	}
+
+	select {
+	case serverErr := <-errCh:
+		if serverErr != nil {
+			t.Fatal(serverErr)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout waiting for debug frames request")
+	}
+}
