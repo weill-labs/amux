@@ -319,3 +319,21 @@ func TestSendKeysSkipsAutomaticEnterPacingWhenForegroundIdle(t *testing.T) {
 		t.Fatalf("second write = %q, want carriage return", got)
 	}
 }
+
+func TestDisableAutomaticEnterPacingForIdlePaneKeepsControlPacing(t *testing.T) {
+	t.Parallel()
+
+	chunks, err := encodeKeyChunks(false, []string{"HELLO", "Enter", "C-c"})
+	if err != nil {
+		t.Fatalf("encodeKeyChunks() error = %v", err)
+	}
+
+	disableAutomaticEnterPacingForIdlePane(chunks, &mux.Pane{})
+
+	if chunks[1].paceBefore {
+		t.Fatalf("Enter chunk pacing = %v, want false", chunks[1].paceBefore)
+	}
+	if !chunks[2].paceBefore {
+		t.Fatalf("control chunk pacing = %v, want true", chunks[2].paceBefore)
+	}
+}

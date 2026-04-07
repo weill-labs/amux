@@ -67,14 +67,15 @@ func totalEncodedKeyBytes(chunks []encodedKeyChunk) int {
 	return total
 }
 
-// Shell prompts can consume injected text and Enter in one burst without the
-// extra gap; keep the automatic pacing only while a foreground job owns the PTY.
-func disableAutomaticPacingForIdlePane(chunks []encodedKeyChunk, pane *mux.Pane) {
+// Shell prompts can consume injected text and carriage-return submit keys in one
+// burst without the extra gap. Keep control-key pacing intact so TUI key chords
+// still land on distinct input ticks.
+func disableAutomaticEnterPacingForIdlePane(chunks []encodedKeyChunk, pane *mux.Pane) {
 	if pane == nil || !pane.ForegroundJobState().Idle {
 		return
 	}
 	for i := range chunks {
-		if chunks[i].delayBefore == 0 {
+		if chunks[i].delayBefore == 0 && len(chunks[i].data) == 1 && chunks[i].data[0] == '\r' {
 			chunks[i].paceBefore = false
 		}
 	}
@@ -158,7 +159,7 @@ func (ctx inputCommandContext) SendKeys(actorPaneID uint32, args []string) (stri
 	if err != nil {
 		return "", 0, err
 	}
-	disableAutomaticPacingForIdlePane(chunks, pane.pane)
+	disableAutomaticEnterPacingForIdlePane(chunks, pane.pane)
 	switch opts.waitTarget {
 	case sendKeysWaitReady:
 		if err := waitForPaneReady(ctx.Sess, args[0], pane, waitReadyOptions{timeout: opts.waitTimeout}); err != nil {
