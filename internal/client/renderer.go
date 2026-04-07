@@ -111,6 +111,7 @@ func (r *Renderer) HandleLayout(snap *proto.LayoutSnapshot) bool {
 		// without Close() the goroutine and pipe FDs leak.
 		for id, emu := range prevEmulators {
 			if _, exists := nextEmulators[id]; !exists {
+				delete(st.pendingPaneOutput, id)
 				_ = emu.Close()
 			}
 		}
@@ -122,6 +123,10 @@ func (r *Renderer) HandleLayout(snap *proto.LayoutSnapshot) bool {
 			// and cursor metadata match this client's window, not the server's
 			// max-size snapshot.
 			next.layout.ResizeAll(next.width, clientLayoutH)
+		}
+		next.visiblePaneIDs = next.visiblePaneSet(clientLayoutH)
+		for paneID := range next.visiblePaneIDs {
+			st.warmPaneOutput(paneID, nextEmulators)
 		}
 		r.resizeSnapshotEmulators(next, nextEmulators)
 
@@ -155,12 +160,21 @@ func (r *Renderer) HandleLayout(snap *proto.LayoutSnapshot) bool {
 	})
 }
 
-// HandlePaneOutput feeds raw PTY data into a pane's local emulator.
-func (r *Renderer) HandlePaneOutput(paneID uint32, data []byte) {
-	r.withActor(func(st *rendererActorState) {
-		if emu := st.emulators[paneID]; emu != nil {
-			emu.Write(data)
+// HandlePaneOutput feeds raw PTY data into a pane's local emulator when that
+// pane is visible. Hidden panes buffer output and replay it lazily on demand.
+func (r *Renderer) HandlePaneOutput(paneID uint32, data []byte) bool {
+	return withRendererActorValue(r, func(st *rendererActorState) bool {
+		emu := st.emulators[paneID]
+		if emu == nil {
+			return false
 		}
+		if !st.snapshot.paneVisible(paneID) {
+			st.bufferPaneOutput(paneID, data)
+			return false
+		}
+		st.warmPaneOutput(paneID, st.emulators)
+		_, _ = emu.Write(data)
+		return true
 	})
 }
 
@@ -175,6 +189,9 @@ func (r *Renderer) Resize(width, height int) {
 			next.layout = mux.CloneLayout(prev.layout)
 			layoutH := height - render.GlobalBarHeight
 			next.layout.ResizeAll(width, layoutH)
+			next.visiblePaneIDs = next.visiblePaneSet(layoutH)
+		} else {
+			next.visiblePaneIDs = nil
 		}
 		st.compositor.Resize(width, height)
 		r.resizeSnapshotEmulators(&next, st.emulators)
@@ -409,6 +426,7 @@ func (r *Renderer) CaptureJSONWithHistory(agentStatus map[uint32]proto.PaneAgent
 func (r *Renderer) CapturePaneText(paneID uint32, includeANSI bool) string {
 	return withRendererActorValue(r, func(st *rendererActorState) string {
 		snap := st.snapshot
+		st.warmPaneOutput(paneID, st.emulators)
 		emu, ok := st.emulators[paneID]
 		if !ok {
 			return ""
@@ -489,6 +507,7 @@ func (r *Renderer) WindowSnapshots() ([]proto.WindowSnapshot, uint32) {
 }
 
 func (r *Renderer) buildCapturePane(st *rendererActorState, snap *rendererSnapshot, paneID uint32, agentStatus map[uint32]proto.PaneAgentStatus, includeHistory bool, baseHistory []proto.StyledLine) (proto.CapturePane, bool) {
+	st.warmPaneOutput(paneID, st.emulators)
 	emu, ok := st.emulators[paneID]
 	if !ok {
 		return proto.CapturePane{}, false

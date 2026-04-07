@@ -132,11 +132,15 @@ func (cr *ClientRenderer) SetInputIdle(idle bool) {
 	cr.emitUIEvents(result.uiEvents)
 }
 
-// HandlePaneOutput feeds raw PTY data into a pane's local emulator.
-func (cr *ClientRenderer) HandlePaneOutput(paneID uint32, data []byte) {
-	cr.renderer.HandlePaneOutput(paneID, data)
+// HandlePaneOutput applies pane output and reports whether it affects the
+// currently visible frame.
+func (cr *ClientRenderer) HandlePaneOutput(paneID uint32, data []byte) bool {
+	if !cr.renderer.HandlePaneOutput(paneID, data) {
+		return false
+	}
 	result := cr.reduceUI(uiActionPaneOutput{paneID: paneID})
 	cr.emitUIEvents(result.uiEvents)
+	return true
 }
 
 // Render produces ANSI output compositing all panes. Returns empty if no layout.
@@ -464,7 +468,9 @@ func (cr *ClientRenderer) handleRenderMsg(msg *RenderMsg) []clientEffect {
 		}
 		return appendStopAndRenderNow(effects)
 	case RenderMsgPaneOutput:
-		cr.HandlePaneOutput(msg.PaneID, msg.Data)
+		if !cr.HandlePaneOutput(msg.PaneID, msg.Data) {
+			return nil
+		}
 		if cr.shouldPrioritizePaneOutput(msg.PaneID) {
 			return appendStopAndRenderNow(nil)
 		}
@@ -624,8 +630,15 @@ func (cr *ClientRenderer) RenderCoalesced(msgCh <-chan *RenderMsg, write func(st
 				}
 				continue
 			}
-			if msg.Typ == RenderMsgPaneOutput && state.recordPaneOutput(len(msg.Data), cr.renderOverflowThreshold()) {
-				cr.RequestFullRedraw()
+			if msg.Typ == RenderMsgPaneOutput {
+				effects := cr.handleRenderMsg(msg)
+				if len(effects) != 0 && state.recordPaneOutput(len(msg.Data), cr.renderOverflowThreshold()) {
+					cr.RequestFullRedraw()
+				}
+				if cr.executeRenderEffects(state, effects, write) {
+					return
+				}
+				continue
 			}
 			if cr.executeRenderEffects(state, cr.handleRenderMsg(msg), write) {
 				return
