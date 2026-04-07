@@ -11,11 +11,12 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/weill-labs/amux/internal/client"
 	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/server"
 )
 
-const debugDisabledHint = "pprof debug endpoint is disabled; set [debug].pprof = true in config.toml and restart the server"
+const debugDisabledHint = "pprof debug endpoint is disabled; set [debug].pprof = true in config.toml and restart amux"
 
 type debugConfigLoader func() (*config.Config, error)
 type debugServerCommandRunner func(io.Writer, string, string, []string) error
@@ -65,6 +66,7 @@ type debugEndpointRequest struct {
 	serverCommand string
 	timeout       time.Duration
 	configEnabled bool
+	missingHint   string
 }
 
 func parseDebugCommand(sessionName string, args []string) (debugEndpointRequest, error) {
@@ -99,6 +101,7 @@ func parseDebugCommandWithConfigLoader(sessionName string, args []string, loadCo
 		sockPath:      server.PprofSocketPath(sessionName),
 		timeout:       5 * time.Second,
 		configEnabled: cfg.PprofEnabled(),
+		missingHint:   "pprof debug socket %s is not available; restart the server after enabling [debug].pprof",
 	}
 
 	switch args[0] {
@@ -112,24 +115,28 @@ func parseDebugCommandWithConfigLoader(sessionName string, args []string, loadCo
 			return debugEndpointRequest{}, fmt.Errorf(debugUsage)
 		}
 		req.path = "/debug/pprof/heap?debug=1"
+	case "client-goroutines":
+		if len(args) != 1 {
+			return debugEndpointRequest{}, fmt.Errorf(debugUsage)
+		}
+		req.sockPath = client.PprofSocketPath(sessionName)
+		req.path = "/debug/pprof/goroutine?debug=2"
+		req.missingHint = "pprof debug socket %s is not available; attach or restart a client after enabling [debug].pprof"
+	case "client-heap":
+		if len(args) != 1 {
+			return debugEndpointRequest{}, fmt.Errorf(debugUsage)
+		}
+		req.sockPath = client.PprofSocketPath(sessionName)
+		req.path = "/debug/pprof/heap?debug=1"
+		req.missingHint = "pprof debug socket %s is not available; attach or restart a client after enabling [debug].pprof"
 	case "socket":
 		if len(args) != 1 {
 			return debugEndpointRequest{}, fmt.Errorf(debugUsage)
 		}
 	case "profile":
-		duration := 30 * time.Second
-		switch len(args) {
-		case 1:
-		case 3:
-			if args[1] != "--duration" {
-				return debugEndpointRequest{}, fmt.Errorf(debugUsage)
-			}
-			duration, err = time.ParseDuration(args[2])
-			if err != nil || duration <= 0 {
-				return debugEndpointRequest{}, fmt.Errorf("invalid profile duration %q", args[2])
-			}
-		default:
-			return debugEndpointRequest{}, fmt.Errorf(debugUsage)
+		duration, parseErr := parseDebugProfileDuration(args[1:])
+		if parseErr != nil {
+			return debugEndpointRequest{}, parseErr
 		}
 		seconds := int(math.Ceil(duration.Seconds()))
 		if seconds < 1 {
@@ -137,11 +144,43 @@ func parseDebugCommandWithConfigLoader(sessionName string, args []string, loadCo
 		}
 		req.timeout = duration + 5*time.Second
 		req.path = "/debug/pprof/profile?seconds=" + strconv.Itoa(seconds)
+	case "client-profile":
+		duration, parseErr := parseDebugProfileDuration(args[1:])
+		if parseErr != nil {
+			return debugEndpointRequest{}, parseErr
+		}
+		seconds := int(math.Ceil(duration.Seconds()))
+		if seconds < 1 {
+			seconds = 1
+		}
+		req.sockPath = client.PprofSocketPath(sessionName)
+		req.timeout = duration + 5*time.Second
+		req.path = "/debug/pprof/profile?seconds=" + strconv.Itoa(seconds)
+		req.missingHint = "pprof debug socket %s is not available; attach or restart a client after enabling [debug].pprof"
 	default:
 		return debugEndpointRequest{}, fmt.Errorf(debugUsage)
 	}
 
 	return req, nil
+}
+
+func parseDebugProfileDuration(args []string) (time.Duration, error) {
+	duration := 30 * time.Second
+	switch len(args) {
+	case 0:
+	case 2:
+		if args[0] != "--duration" {
+			return 0, fmt.Errorf(debugUsage)
+		}
+		parsed, err := time.ParseDuration(args[1])
+		if err != nil || parsed <= 0 {
+			return 0, fmt.Errorf("invalid profile duration %q", args[1])
+		}
+		duration = parsed
+	default:
+		return 0, fmt.Errorf(debugUsage)
+	}
+	return duration, nil
 }
 
 func ensureDebugSocketAvailable(req debugEndpointRequest) error {
@@ -150,7 +189,11 @@ func ensureDebugSocketAvailable(req debugEndpointRequest) error {
 			if !req.configEnabled {
 				return fmt.Errorf(debugDisabledHint)
 			}
-			return fmt.Errorf("pprof debug socket %s is not available; restart the server after enabling [debug].pprof", req.sockPath)
+			missingHint := req.missingHint
+			if missingHint == "" {
+				missingHint = "pprof debug socket %s is not available; restart the server after enabling [debug].pprof"
+			}
+			return fmt.Errorf(missingHint, req.sockPath)
 		}
 		return fmt.Errorf("stat pprof debug socket: %w", err)
 	}

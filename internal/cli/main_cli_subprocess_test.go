@@ -222,7 +222,7 @@ func TestMainDebugHelp(t *testing.T) {
 	if exitCode != 0 {
 		t.Fatalf("exit code = %d, want 0\noutput:\n%s", exitCode, output)
 	}
-	if !strings.Contains(output, "usage: amux debug <goroutines|profile|heap|socket|frames>") {
+	if !strings.Contains(output, "usage: amux debug <goroutines|profile|heap|socket|frames|client-goroutines|client-profile|client-heap>") {
 		t.Fatalf("output = %q, want debug usage", output)
 	}
 }

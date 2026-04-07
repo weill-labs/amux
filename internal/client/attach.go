@@ -272,6 +272,18 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 	if err != nil {
 		return fmt.Errorf("loading config: %w", err)
 	}
+	var clientPprof *pprofEndpoint
+	if cfg.PprofEnabled() {
+		clientPprof, err = newPprofEndpoint(sessionName, os.Getpid())
+		if err != nil {
+			return fmt.Errorf("enabling client pprof debug endpoint failed: %w", err)
+		}
+	}
+	defer func() {
+		if clientPprof != nil {
+			clientPprof.close()
+		}
+	}()
 	kb := config.DefaultKeybindings()
 	scrollbackLines := cfg.EffectiveScrollbackLines()
 	stdin := os.Stdin
@@ -1009,6 +1021,10 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 	}()
 
 	waitForRunSessionEnd(done, triggerReload, func() {
+		if clientPprof != nil {
+			clientPprof.close()
+			clientPprof = nil
+		}
 		if execPath != "" {
 			ExecSelf(execPath, sender, fd, oldState, negotiatedAttachCaps)
 		}

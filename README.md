@@ -437,6 +437,11 @@ pprof = true               # optional: expose net/http/pprof on a per-session Un
 When enabled, the server listens on `/tmp/amux-$UID/<session>.pprof` with mode `0600`
 and serves the standard `net/http/pprof` handlers over that Unix socket.
 
+Interactive clients also publish pprof on per-process sockets at
+`/tmp/amux-$UID/<session>.client.<pid>.pprof`. The most recently attached client
+is aliased at `/tmp/amux-$UID/<session>.client.pprof`, which is what the CLI
+debug wrappers use.
+
 Useful wrappers:
 
 ```bash
@@ -444,6 +449,9 @@ amux debug goroutines
 amux debug heap
 amux debug profile --duration 30s > cpu.pprof.gz
 amux debug socket
+amux debug client-goroutines
+amux debug client-heap
+amux debug client-profile --duration 30s > client-cpu.pprof.gz
 ```
 
 ### Remote Hosts
