@@ -237,8 +237,7 @@ func TestRespawnPreservesPaneMetadataAndCwdWhileResettingState(t *testing.T) {
 		wantCwd = resolved
 	}
 
-	h.sendKeys("worker", fmt.Sprintf("cd %q && pwd -P && printf 'RESPAWN-HISTORY\\n'", tmpDir), "Enter")
-	h.waitFor("worker", wantCwd)
+	h.runShellCommand("worker", fmt.Sprintf("cd %q && pwd -P && printf 'RESPAWN-HISTORY\\n'", tmpDir), "RESPAWN-HISTORY")
 
 	before := h.captureJSON()
 	beforePane := h.jsonPane(before, "worker")
@@ -270,8 +269,7 @@ func TestRespawnPreservesPaneMetadataAndCwdWhileResettingState(t *testing.T) {
 		t.Fatalf("pane history should be cleared after respawn, got:\n%s", clearedHistory)
 	}
 
-	h.sendKeys("worker", "pwd -P", "Enter")
-	h.waitFor("worker", wantCwd)
+	h.runShellCommand("worker", "pwd -P", wantCwd)
 	h.sendKeys("worker", "echo RESPAWN-NEW-OUTPUT", "Enter")
 	h.waitFor("worker", "RESPAWN-NEW-OUTPUT")
 

@@ -545,6 +545,8 @@ func TestHostConnReconnectAndReconnectDonePaths(t *testing.T) {
 			(reconnectDoneEvent{
 				outcome: &connectOutcome{
 					amuxConn:    clientConn2,
+					amuxReader:  proto.NewReader(clientConn2),
+					amuxWriter:  proto.NewWriter(clientConn2),
 					sessionName: "main@test",
 					remoteUID:   "1000",
 					connectAddr: "127.0.0.1:22",
