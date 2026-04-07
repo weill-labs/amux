@@ -155,6 +155,12 @@ func (st *rendererActorState) warmPaneOutput(paneID uint32, emulators map[uint32
 	delete(st.pendingPaneOutput, paneID)
 }
 
+func (st *rendererActorState) warmVisiblePanes(snap *rendererSnapshot, emulators map[uint32]mux.TerminalEmulator) {
+	for paneID := range snap.visiblePaneIDs {
+		st.warmPaneOutput(paneID, emulators)
+	}
+}
+
 func (r *Renderer) loadSnapshot() *rendererSnapshot {
 	return r.state.Load()
 }

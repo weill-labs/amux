@@ -125,9 +125,7 @@ func (r *Renderer) HandleLayout(snap *proto.LayoutSnapshot) bool {
 			next.layout.ResizeAll(next.width, clientLayoutH)
 		}
 		next.visiblePaneIDs = next.visiblePaneSet(clientLayoutH)
-		for paneID := range next.visiblePaneIDs {
-			st.warmPaneOutput(paneID, nextEmulators)
-		}
+		st.warmVisiblePanes(next, nextEmulators)
 		r.resizeSnapshotEmulators(next, nextEmulators)
 
 		st.compositor.SetSessionName(snap.SessionName)
