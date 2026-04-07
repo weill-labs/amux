@@ -755,7 +755,7 @@ func TestHandleMouseEventPaneDragTogglesFocusedPaneCursor(t *testing.T) {
 				<-done
 			}
 
-			afterDrag := cr.RenderDiff()
+			afterDrag := cr.Render()
 			if !strings.Contains(afterDrag, render.ShowCursor) {
 				t.Fatalf("post-drag render should restore the focused pane cursor, output=%q", afterDrag)
 			}
