@@ -224,14 +224,17 @@ func readMsgGob(r io.Reader) (*Message, error) {
 		return nil, fmt.Errorf("message too large: %d bytes", length)
 	}
 
-	data := make([]byte, length)
-	if _, err := io.ReadFull(r, data); err != nil {
-		return nil, err
-	}
-
 	msg := &Message{}
-	if err := gob.NewDecoder(bytes.NewReader(data)).Decode(msg); err != nil {
+	lr := &io.LimitedReader{R: r, N: int64(length)}
+	// Stream gob directly from the connection so large bootstrap history
+	// messages do not require a second full-message buffer on the client.
+	if err := gob.NewDecoder(lr).Decode(msg); err != nil {
 		return nil, fmt.Errorf("decoding message: %w", err)
+	}
+	if lr.N > 0 {
+		if _, err := io.Copy(io.Discard, lr); err != nil {
+			return nil, fmt.Errorf("discarding message tail: %w", err)
+		}
 	}
 
 	return msg, nil
