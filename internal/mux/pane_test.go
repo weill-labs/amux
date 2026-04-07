@@ -450,6 +450,7 @@ func TestPaneScrollbackWidthClearsWithScrollback(t *testing.T) {
 }
 
 func TestPaneRecordScrollbackPushKeepsAllocationsBounded(t *testing.T) {
+	// Not parallel: testing.AllocsPerRun panics in parallel tests.
 	p := &Pane{
 		scrollbackLimit:  1024,
 		scrollbackWidths: make([]int, 0, 1024),
