@@ -31,7 +31,9 @@ func cloneClientSnapshot(prev *clientSnapshot) clientSnapshot {
 func cloneBaseHistory(src map[uint32][]proto.StyledLine) map[uint32][]proto.StyledLine {
 	dst := make(map[uint32][]proto.StyledLine, len(src))
 	for paneID, lines := range src {
-		dst[paneID] = proto.CloneStyledLines(lines)
+		// Retained history is immutable once stored; snapshots can share the
+		// styled-line slices and only copy the map header on UI-only updates.
+		dst[paneID] = lines
 	}
 	return dst
 }

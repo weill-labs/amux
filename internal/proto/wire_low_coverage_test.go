@@ -284,7 +284,7 @@ func TestReadMsgErrors(t *testing.T) {
 		{name: "oversize binary", data: oversizeBinary.Bytes(), want: "message too large"},
 		{name: "oversize gob", data: oversizeGob.Bytes(), want: "message too large"},
 		{name: "short binary payload", data: encodeRawMessage(wireFormatBinary, []byte{0, 0, 0, 1, 0, 0, 0, 4, 'o', 'k'}), want: "unexpected EOF"},
-		{name: "short gob payload", data: shortGob.Bytes(), want: "unexpected EOF"},
+		{name: "short gob payload", data: shortGob.Bytes(), want: "decoding message"},
 		{name: "invalid gob payload", data: encodeRawMessage(wireFormatGob, []byte{0, 0, 0, 1, 0xff}), want: "decoding message"},
 	}
 
