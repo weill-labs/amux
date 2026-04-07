@@ -287,3 +287,35 @@ func TestSendKeysCommandWaitReadyMissingPane(t *testing.T) {
 		t.Fatalf("send-keys missing pane error = %q", res.cmdErr)
 	}
 }
+
+func TestSendKeysSkipsAutomaticEnterPacingWhenForegroundIdle(t *testing.T) {
+	t.Parallel()
+
+	writes := make(chan string, 2)
+	srv, sess, _, cleanup := setupSendKeysWaitIdleTestPane(t, func(data []byte) (int, error) {
+		writes <- string(data)
+		return len(data), nil
+	})
+	defer cleanup()
+
+	start := time.Now()
+	res := runTestCommand(t, srv, sess, "send-keys", "pane-1", "HELLO", "Enter")
+	elapsed := time.Since(start)
+
+	if res.cmdErr != "" {
+		t.Fatalf("send-keys cmdErr = %q", res.cmdErr)
+	}
+	if got := res.output; got != "Sent 6 bytes to pane-1\n" {
+		t.Fatalf("send-keys output = %q", got)
+	}
+	if elapsed >= 40*time.Millisecond {
+		t.Fatalf("send-keys took %v for an idle pane; automatic Enter pacing should not apply", elapsed)
+	}
+
+	if got := <-writes; got != "HELLO" {
+		t.Fatalf("first write = %q, want %q", got, "HELLO")
+	}
+	if got := <-writes; got != "\r" {
+		t.Fatalf("second write = %q, want carriage return", got)
+	}
+}
