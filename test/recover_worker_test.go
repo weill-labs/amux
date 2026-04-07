@@ -91,8 +91,8 @@ func TestRecoverWorkerScriptRejectsPaneWithoutChildProcesses(t *testing.T) {
 	if exitCode != 1 {
 		t.Fatalf("exit code = %d, want 1\n%s", exitCode, out)
 	}
-	if !strings.Contains(out, "has no child processes") {
-		t.Fatalf("output missing child-process failure:\n%s", out)
+	if !strings.Contains(out, "has no foreground process") {
+		t.Fatalf("output missing foreground-process failure:\n%s", out)
 	}
 
 	got, err := os.ReadFile(fixture.logPath)
@@ -100,7 +100,7 @@ func TestRecoverWorkerScriptRejectsPaneWithoutChildProcesses(t *testing.T) {
 		t.Fatalf("read fake amux log: %v", err)
 	}
 	if strings.Contains(string(got), "send-keys") {
-		t.Fatalf("expected no recovery input without child processes, got log:\n%s", got)
+		t.Fatalf("expected no recovery input without a foreground process, got log:\n%s", got)
 	}
 }
 

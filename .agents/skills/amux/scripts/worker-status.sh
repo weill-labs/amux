@@ -71,7 +71,7 @@ while IFS= read -r pane; do
         continue
     fi
 
-    IFS=$'\t' read -r pane_name task issue pr idle child_count dialog_visible last_output <<<"$(jq -r \
+    IFS=$'\t' read -r pane_name task issue pr idle exited dialog_visible last_output <<<"$(jq -r \
         --arg question "$codex_trust_dialog_question" \
         --arg warning "$codex_trust_dialog_warning" '
         [
@@ -94,7 +94,7 @@ while IFS= read -r pane; do
                 end
             ),
             (if .idle == true then "true" else "false" end),
-            (((.child_pids // []) | length) | tostring),
+            (if .exited == true then "true" else "false" end),
             (
                 if (
                     ([.content[]? | select(contains($question))] | length) > 0 and
@@ -130,7 +130,7 @@ while IFS= read -r pane; do
         state="idle"
     fi
 
-    if [[ "$state" == "idle" && "$child_count" -gt 0 && "$dialog_visible" == "true" ]]; then
+    if [[ "$state" == "idle" && "$exited" != "true" && "$dialog_visible" == "true" ]]; then
         state="stuck"
     fi
 

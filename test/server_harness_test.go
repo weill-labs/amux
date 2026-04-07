@@ -1191,7 +1191,7 @@ func (h *ServerHarness) waitForTimeout(pane, substr, timeout string) {
 	}
 }
 
-// waitBusy blocks until the named pane has child processes (a command is running).
+// waitBusy blocks until the named pane has a foreground process running.
 // Uses the server's process-based wait-busy command.
 func (h *ServerHarness) waitBusy(pane string) {
 	h.tb.Helper()

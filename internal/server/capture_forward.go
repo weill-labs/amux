@@ -264,11 +264,3 @@ func formatRFC3339Time(t time.Time) string {
 	}
 	return t.UTC().Format(time.RFC3339)
 }
-
-// nonNilPIDs ensures a nil slice becomes an empty slice for JSON marshaling.
-func nonNilPIDs(pids []int) []int {
-	if pids == nil {
-		return []int{}
-	}
-	return pids
-}

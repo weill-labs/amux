@@ -129,7 +129,7 @@ func (ctx waitCommandContext) WaitExited(actorPaneID uint32, paneRef string, tim
 		if pane == nil {
 			return false, fmt.Errorf("pane %q disappeared while waiting to become exited", paneRef)
 		}
-		if !pane.AgentStatus().Idle {
+		if !pane.ForegroundJobState().Idle {
 			return false, nil
 		}
 		return true, nil
@@ -236,11 +236,11 @@ func parseWaitUIArgs(args []string) (eventName, clientID string, afterGen uint64
 	return waitcmd.ParseWaitUIArgs(args)
 }
 
-func waitBusyForegroundPID(status mux.AgentStatus) int {
+func waitBusyForegroundPID(status mux.ForegroundJobState) int {
 	return waitcmd.WaitBusyForegroundPID(status)
 }
 
-func waitBusyReady(candidatePID int, status mux.AgentStatus) (nextPID int, ready bool) {
+func waitBusyReady(candidatePID int, status mux.ForegroundJobState) (nextPID int, ready bool) {
 	return waitcmd.WaitBusyReady(candidatePID, status)
 }
 
@@ -303,19 +303,19 @@ func waitForPaneBusy(sess *Session, paneID uint32, paneRef string, timeout time.
 		if pane == nil {
 			return false, fmt.Errorf("pane %q disappeared while waiting to become busy", paneRef)
 		}
-		return !pane.AgentStatus().Idle, nil
+		return !pane.ForegroundJobState().Idle, nil
 	}
-	checkBusyStatus := func() (mux.AgentStatus, error) {
+	checkBusyStatus := func() (mux.ForegroundJobState, error) {
 		pane, err := enqueueSessionQuery(sess, func(sess *Session) (*mux.Pane, error) {
 			return sess.findPaneByID(paneID), nil
 		})
 		if err != nil {
-			return mux.AgentStatus{}, err
+			return mux.ForegroundJobState{}, err
 		}
 		if pane == nil {
-			return mux.AgentStatus{}, fmt.Errorf("pane %q disappeared while waiting to become busy", paneRef)
+			return mux.ForegroundJobState{}, fmt.Errorf("pane %q disappeared while waiting to become busy", paneRef)
 		}
-		return pane.AgentStatus(), nil
+		return pane.ForegroundJobState(), nil
 	}
 
 	outputCh := sess.enqueuePaneOutputSubscribe(paneID)

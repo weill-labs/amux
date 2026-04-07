@@ -180,14 +180,12 @@ func (s *Session) captureAgentStatus(panes []*mux.Pane) map[uint32]proto.PaneAge
 			Exited:         st.Idle,
 			ExitedSince:    formatRFC3339Time(st.IdleSince),
 			CurrentCommand: st.CurrentCommand,
-			ChildPIDs:      nonNilPIDs(st.ChildPIDs),
 			Idle:           idle.idle,
 			IdleSince:      formatRFC3339Time(idle.idleSince),
 			LastOutput:     formatRFC3339Time(idle.lastOutput),
 		}
 		if st.Idle {
 			pas.CurrentCommand = p.ShellName()
-			pas.ChildPIDs = []int{}
 		}
 		if idle.idle {
 			if t, ok := sinceSnap[p.ID]; ok {

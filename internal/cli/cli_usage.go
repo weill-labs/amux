@@ -227,11 +227,11 @@ Usage:
   amux [-s session] wait idle <pane> [--settle 2s] [--timeout 60s]
                                        Block until pane VT output quiesces
   amux [-s session] wait busy <pane> [--timeout 5s]
-                                       Block until pane has child processes
+                                       Block until pane has a foreground process
   amux [-s session] wait ready <pane> [--timeout 10s]
-                                       Block until pane VT output settles and no foreground child processes remain
+                                       Block until pane VT output settles and no foreground process remains
   amux [-s session] wait exited <pane> [--timeout 5s]
-                                       Block until pane has no foreground child processes
+                                       Block until pane has no foreground process
   amux [-s session] wait checkpoint [--after N] [--timeout 15s]
                                        Block until a crash checkpoint write completes
   amux [-s session] wait ui <event> [--client <id>] [--after N] [--timeout 5s]

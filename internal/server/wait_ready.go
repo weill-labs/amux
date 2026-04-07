@@ -215,7 +215,7 @@ func waitForPaneReady(sess *Session, paneRef string, paneRefData resolvedPaneRef
 			settleActive = false
 		}
 
-		return state.pane.AgentStatus().Idle, nil
+		return state.pane.ForegroundJobState().Idle, nil
 	}
 
 	ready, err := syncReady()

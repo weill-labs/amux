@@ -314,11 +314,12 @@ func (s *Session) buildCrashCheckpoint() *checkpoint.CrashCheckpoint {
 	ch := make(chan cwdResult, len(snap.cwdWork))
 	for _, w := range snap.cwdWork {
 		go func(w pidEntry) {
+			jobState := w.pane.ForegroundJobState()
 			status := w.pane.AgentStatus()
 			ch <- cwdResult{
 				index:   w.index,
 				cwd:     mux.PaneCwd(w.pid),
-				wasIdle: status.Idle,
+				wasIdle: jobState.Idle,
 				command: status.CurrentCommand,
 			}
 		}(w)

@@ -68,9 +68,9 @@ wait_idle() {
     "$AMUX_BIN" wait idle "$pane" --settle "$IDLE_SETTLE" --timeout "$IDLE_TIMEOUT" >/dev/null
 }
 
-has_child_processes() {
+has_foreground_job() {
     local capture=$1
-    jq -e '(.child_pids // []) | length > 0' <<<"$capture" >/dev/null
+    jq -e '.exited != true' <<<"$capture" >/dev/null
 }
 
 content_lines() {
@@ -126,8 +126,8 @@ if ! wait_idle; then
 fi
 
 initial_capture="$(capture_json)" || fail "failed to capture $pane"
-if ! has_child_processes "$initial_capture"; then
-    fail "$pane has no child processes; pane does not look stuck"
+if ! has_foreground_job "$initial_capture"; then
+    fail "$pane has no foreground process; pane does not look stuck"
 fi
 if ! matches_dialog_patterns "$initial_capture"; then
     fail "$pane does not look stuck; visible content does not match known dialog patterns"
@@ -152,8 +152,8 @@ fi
 if matches_dialog_patterns "$after_continue_capture"; then
     fail "pane still matches a blocking dialog after recovery"
 fi
-if ! has_child_processes "$after_continue_capture"; then
-    fail "recovery left $pane without child processes"
+if ! has_foreground_job "$after_continue_capture"; then
+    fail "recovery left $pane without a foreground process"
 fi
 
 step "Recovered $pane"

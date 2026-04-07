@@ -22,12 +22,20 @@ func processCommandOutput(name string, args ...string) ([]byte, error) {
 	return cmd.Output()
 }
 
-// AgentStatus holds the process-level status of a pane for JSON capture.
+// ForegroundJobState holds the pane's foreground-job state. Busy/exited waits
+// and exited events use this cheap PTY-driven view rather than shell child
+// enumeration.
+type ForegroundJobState struct {
+	Idle                   bool
+	IdleSince              time.Time
+	ForegroundProcessGroup int
+}
+
+// AgentStatus holds the pane's process-level status for JSON capture.
 type AgentStatus struct {
 	Idle           bool
 	IdleSince      time.Time
 	CurrentCommand string
-	ChildPIDs      []int
 }
 
 // shellOnlyChildChain reports whether the shell's descendants form a single
@@ -60,100 +68,104 @@ func shellOnlyChildChainWithLookups(shellName string, children []int, nameForPID
 	return false
 }
 
-// AgentStatus inspects the pane's process tree and returns its current status.
-// Uses pgrep/ps for portable macOS+Linux support. Safe to call without
-// holding any session-level locks.
-//
-// When idle, CurrentCommand reports the shell name (e.g., "bash").
-// When busy, CurrentCommand reports the foreground child's name.
-func (p *Pane) AgentStatus() AgentStatus {
+func shellOnlyForegroundChain(shellPID int, shellName string, foregroundPID int) bool {
+	return shellOnlyForegroundChainWithLookups(shellPID, shellName, foregroundPID, processName, processParentID)
+}
+
+func shellOnlyForegroundChainWithLookups(shellPID int, shellName string, foregroundPID int, nameForPID func(int) string, parentPIDForPID func(int) int) bool {
+	if shellPID <= 0 || foregroundPID <= 0 || shellName == "" {
+		return false
+	}
+
+	const maxShellChainDepth = 8
+	pid := foregroundPID
+	for depth := 0; depth < maxShellChainDepth; depth++ {
+		if nameForPID(pid) != shellName {
+			return false
+		}
+		if pid == shellPID {
+			return true
+		}
+		parent := parentPIDForPID(pid)
+		if parent <= 0 || parent == pid {
+			return false
+		}
+		pid = parent
+	}
+	return false
+}
+
+// ForegroundJobState reports whether the shell currently owns the terminal
+// foreground process group. Safe to call without holding any session-level
+// locks.
+func (p *Pane) ForegroundJobState() ForegroundJobState {
 	shellPid := p.ProcessPid()
 	if shellPid == 0 {
-		// Dead or restored pane with no process — report idle since creation
-		return AgentStatus{
+		return ForegroundJobState{
 			Idle:      true,
 			IdleSince: p.createdAt,
-			ChildPIDs: []int{},
 		}
 	}
 
-	children := childPIDs(shellPid)
-
-	// If pgrep returned empty but the pane was recently busy (within 500ms),
-	// retry once — pgrep can miss recently-forked children under load.
-	// Skip retry for panes that have been idle longer to avoid catching
-	// transient shell children during prompt processing.
-	if len(children) == 0 {
-		lastBusySeen := loadUnixTime(&p.lastBusySeenUnix)
-		recentlyBusy := !lastBusySeen.IsZero() && time.Since(lastBusySeen) < 500*time.Millisecond
-		if recentlyBusy {
-			time.Sleep(10 * time.Millisecond)
-			children = childPIDs(shellPid)
-		}
+	shellPgrp := processGroupID(shellPid)
+	if shellPgrp == 0 {
+		shellPgrp = shellPid
 	}
 
-	status := AgentStatus{
-		ChildPIDs: children,
+	foregroundPgrp, err := p.foregroundProcessGroup()
+	if err != nil || foregroundPgrp <= 0 {
+		foregroundPgrp = shellPgrp
 	}
-	if status.ChildPIDs == nil {
-		status.ChildPIDs = []int{}
+
+	state := ForegroundJobState{
+		ForegroundProcessGroup: foregroundPgrp,
 	}
-	shellName := processName(shellPid)
 	markIdle := func() {
-		status.Idle = true
-		status.ChildPIDs = []int{}
-		status.CurrentCommand = shellName
+		state.Idle = true
+		state.ForegroundProcessGroup = 0
 	}
-
-	if len(children) == 0 {
-		// No children — shell is at prompt
+	if foregroundPgrp == shellPgrp || shellOnlyForegroundChain(shellPid, p.ShellName(), foregroundPgrp) {
 		markIdle()
-	} else {
-		foregroundPid := children[len(children)-1] // last child is typically foreground
-		status.CurrentCommand = processName(foregroundPid)
-
-		// Heuristic: a single chain of same-name shell descendants is usually a
-		// prompt-time self-fork, not foreground work. This can still false-positive
-		// if the user explicitly runs nested shells of the same name.
-		if shellOnlyChildChain(shellName, children) {
-			markIdle()
-		}
-
-		// If still busy, recheck once after a brief delay to filter
-		// transient children from PROMPT_COMMAND or PS1 evaluation.
-		// These processes live <20ms and shouldn't count as "busy".
-		if !status.Idle {
-			time.Sleep(25 * time.Millisecond)
-			recheck := childPIDs(shellPid)
-			if len(recheck) == 0 || shellOnlyChildChain(shellName, recheck) {
-				markIdle()
-			} else {
-				status.ChildPIDs = recheck
-				status.CurrentCommand = processName(recheck[len(recheck)-1])
-			}
-		}
 	}
 
-	// Populate idle_since from tracked state
-	if status.Idle {
+	if state.Idle {
 		lastBusySeen := loadUnixTime(&p.lastBusySeenUnix)
 		idleSince := loadUnixTime(&p.idleSinceUnix)
 		if lastBusySeen.IsZero() {
-			// Never seen busy — idle since pane creation
-			status.IdleSince = p.createdAt
+			state.IdleSince = p.createdAt
 		} else if idleSince.IsZero() || idleSince.Before(lastBusySeen) {
-			// First time we see idle after being busy
 			now := time.Now()
 			storeUnixTime(&p.idleSinceUnix, now)
-			status.IdleSince = now
+			state.IdleSince = now
 		} else {
-			status.IdleSince = idleSince
+			state.IdleSince = idleSince
 		}
 	} else {
 		storeUnixTime(&p.lastBusySeenUnix, time.Now())
-		storeUnixTime(&p.idleSinceUnix, time.Time{}) // reset
+		storeUnixTime(&p.idleSinceUnix, time.Time{})
 	}
 
+	return state
+}
+
+// AgentStatus reports process-level status for capture/debugging. When idle,
+// CurrentCommand reports the shell name. When busy, it reports the foreground
+// process-group leader name when available.
+func (p *Pane) AgentStatus() AgentStatus {
+	state := p.ForegroundJobState()
+	status := AgentStatus{
+		Idle:      state.Idle,
+		IdleSince: state.IdleSince,
+	}
+	if state.Idle {
+		status.CurrentCommand = p.ShellName()
+		return status
+	}
+
+	status.CurrentCommand = processName(state.ForegroundProcessGroup)
+	if status.CurrentCommand == "" {
+		status.CurrentCommand = p.ShellName()
+	}
 	return status
 }
 
@@ -190,20 +202,4 @@ func childPIDs(pid int) []int {
 		}
 	}
 	return pids
-}
-
-// processName returns the short command name for a PID.
-func processName(pid int) string {
-	out, err := processCommandOutput("ps", "-o", "comm=", "-p", strconv.Itoa(pid))
-	if err != nil {
-		return ""
-	}
-	name := strings.TrimSpace(string(out))
-	// ps may return full path on some systems; extract basename
-	if idx := strings.LastIndex(name, "/"); idx >= 0 {
-		name = name[idx+1:]
-	}
-	// Strip leading "-" from login shells (e.g., "-bash" → "bash")
-	name = strings.TrimPrefix(name, "-")
-	return name
 }

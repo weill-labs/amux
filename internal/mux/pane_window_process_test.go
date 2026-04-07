@@ -184,7 +184,16 @@ func newProcessTestPane(t *testing.T, id uint32, name string, cmd *exec.Cmd) *Pa
 func newAgentStatusTestPane(t *testing.T) *Pane {
 	t.Helper()
 
-	cmd := exec.Command("sh", "-c", `while IFS= read -r line; do eval "$line"; done`)
+	bashPath, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skip("bash not available")
+	}
+
+	cmd := exec.Command(bashPath, "--noprofile", "--norc", "-i")
+	cmd.Env = append(os.Environ(),
+		"PS1=prompt> ",
+		"HISTFILE=/dev/null",
+	)
 	return newProcessTestPane(t, 123, "pane-123", cmd)
 }
 
@@ -958,8 +967,8 @@ func TestAgentStatusTracksBusyAndIdle(t *testing.T) {
 		return idle.Idle
 	})
 
-	if _, err := pane.Write([]byte("sleep 30 & child=$!\n")); err != nil {
-		t.Fatalf("start child through shell: %v", err)
+	if _, err := pane.Write([]byte("sleep 30\n")); err != nil {
+		t.Fatalf("start foreground job through shell: %v", err)
 	}
 
 	var busy ForegroundJobState
@@ -973,8 +982,8 @@ func TestAgentStatusTracksBusyAndIdle(t *testing.T) {
 		t.Fatal("AgentStatus CurrentCommand = empty, want command name")
 	}
 
-	if _, err := pane.Write([]byte("kill \"$child\" 2>/dev/null\nwait \"$child\" 2>/dev/null\n")); err != nil {
-		t.Fatalf("kill child through shell: %v", err)
+	if _, err := pane.Write([]byte("\003")); err != nil {
+		t.Fatalf("interrupt foreground job through shell: %v", err)
 	}
 
 	waitUntil(t, time.Second, func() bool {
