@@ -175,7 +175,7 @@ func TestHandleCommandAuditLogsCommandAndDuration(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		_, _ = ReadMsg(peerConn)
+		_, _ = readMsgOnConn(peerConn)
 	}()
 
 	commandDone := make(chan struct{})

@@ -298,7 +298,7 @@ func TestQueuedCommandSpawnDoesNotBlockEventLoopWhileLocalPaneBuildRuns(t *testi
 	cmdResult := make(chan *Message, 1)
 	go func() {
 		for {
-			msg, err := ReadMsg(peerConn)
+			msg, err := readMsgOnConn(peerConn)
 			if err != nil {
 				return
 			}
@@ -641,7 +641,7 @@ func runTestCommand(t *testing.T, srv *Server, sess *Session, name string, args 
 	}, 1)
 	go func() {
 		for {
-			msg, err := ReadMsg(peerConn)
+			msg, err := readMsgOnConn(peerConn)
 			if err != nil {
 				return
 			}

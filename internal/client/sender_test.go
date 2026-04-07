@@ -3,11 +3,23 @@ package client
 import (
 	"io"
 	"net"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/weill-labs/amux/internal/proto"
 )
+
+var senderReaders sync.Map
+
+func senderReader(conn net.Conn) *proto.Reader {
+	if reader, ok := senderReaders.Load(conn); ok {
+		return reader.(*proto.Reader)
+	}
+	reader := proto.NewReader(conn)
+	actual, _ := senderReaders.LoadOrStore(conn, reader)
+	return actual.(*proto.Reader)
+}
 
 func TestMessageSenderSendReturnsBeforePeerReads(t *testing.T) {
 	t.Parallel()
@@ -191,7 +203,7 @@ func readSenderMessageWithTimeout(t *testing.T, conn net.Conn) *proto.Message {
 
 	resultCh := make(chan readResult, 1)
 	go func() {
-		msg, err := proto.ReadMsg(conn)
+		msg, err := senderReader(conn).ReadMsg()
 		resultCh <- readResult{msg: msg, err: err}
 	}()
 

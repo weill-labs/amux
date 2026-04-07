@@ -746,24 +746,25 @@ func (s *Server) shutdown() {
 }
 
 func (s *Server) handleConn(conn net.Conn) {
-	msg, err := ReadMsg(conn)
+	cc := newClientConn(conn)
+	msg, err := cc.reader.ReadMsg()
 	if err != nil {
-		conn.Close()
+		cc.Close()
 		return
 	}
 
 	switch msg.Type {
 	case MsgTypeAttach:
-		s.handleAttach(conn, msg)
+		s.handleAttach(cc, msg)
 	case MsgTypeCommand:
-		s.handleOneShot(conn, msg)
+		s.handleOneShot(cc, msg)
 	default:
-		conn.Close()
+		cc.Close()
 	}
 }
 
 // handleAttach registers an attached client and starts its read loop.
-func (s *Server) handleAttach(conn net.Conn, msg *Message) {
+func (s *Server) handleAttach(cc *clientConn, msg *Message) {
 	sessionName := msg.Session
 	if sessionName == "" {
 		sessionName = DefaultSessionName
@@ -772,11 +773,10 @@ func (s *Server) handleAttach(conn net.Conn, msg *Message) {
 	sess, ok := s.sessions[sessionName]
 
 	if !ok {
-		conn.Close()
+		cc.Close()
 		return
 	}
 
-	cc := newClientConn(conn)
 	cc.ID = fmt.Sprintf("client-%d", sess.ensureClientManager().nextClientOrdinal())
 	cc.logger = sess.logger.With("client_id", cc.ID)
 	cc.nonInteractive = !msg.AttachMode.IsInteractive()
@@ -794,7 +794,7 @@ func (s *Server) handleAttach(conn net.Conn, msg *Message) {
 	}
 	res := sess.enqueueAttachClient(s, cc, cols, rows)
 	if res.err != nil {
-		conn.Close()
+		cc.Close()
 		return
 	}
 
@@ -824,8 +824,7 @@ func (s *Server) handleAttach(conn net.Conn, msg *Message) {
 	cc.readLoop(s, sess)
 }
 
-func (s *Server) handleOneShot(conn net.Conn, msg *Message) {
-	cc := newClientConn(conn)
+func (s *Server) handleOneShot(cc *clientConn, msg *Message) {
 	defer func() {
 		_ = cc.Flush()
 		cc.Close()

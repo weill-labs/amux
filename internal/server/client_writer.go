@@ -3,6 +3,8 @@ package server
 import (
 	"net"
 	"sync"
+
+	"github.com/weill-labs/amux/internal/proto"
 )
 
 const clientWriterQueueSize = 4096
@@ -15,11 +17,12 @@ type clientWriterState struct {
 }
 
 type clientWriterCommand interface {
-	handle(*clientWriterState, net.Conn) bool
+	handle(*clientWriterState, net.Conn, *proto.Writer) bool
 }
 
 type clientWriter struct {
 	conn         net.Conn
+	wire         *proto.Writer
 	commands     chan clientWriterCommand
 	paneCommands chan clientWriterCommand
 	stop         chan struct{}
@@ -33,8 +36,8 @@ type clientWriterMessageCommand struct {
 	msg *Message
 }
 
-func (c clientWriterMessageCommand) handle(state *clientWriterState, conn net.Conn) bool {
-	_ = writeClientMessage(state, conn, c.msg)
+func (c clientWriterMessageCommand) handle(state *clientWriterState, conn net.Conn, wire *proto.Writer) bool {
+	_ = writeClientMessage(state, conn, wire, c.msg)
 	return state.closed
 }
 
@@ -42,7 +45,7 @@ type clientWriterFlushCommand struct {
 	reply chan struct{}
 }
 
-func (c clientWriterFlushCommand) handle(state *clientWriterState, _ net.Conn) bool {
+func (c clientWriterFlushCommand) handle(state *clientWriterState, _ net.Conn, _ *proto.Writer) bool {
 	c.reply <- struct{}{}
 	return state.closed
 }
@@ -52,7 +55,7 @@ type clientWriterBroadcastCommand struct {
 	reply chan struct{}
 }
 
-func (c clientWriterBroadcastCommand) handle(state *clientWriterState, conn net.Conn) bool {
+func (c clientWriterBroadcastCommand) handle(state *clientWriterState, conn net.Conn, wire *proto.Writer) bool {
 	if state.closed {
 		if c.reply != nil {
 			c.reply <- struct{}{}
@@ -66,7 +69,7 @@ func (c clientWriterBroadcastCommand) handle(state *clientWriterState, conn net.
 		}
 		return false
 	}
-	_ = writeClientMessage(state, conn, c.msg)
+	_ = writeClientMessage(state, conn, wire, c.msg)
 	if c.reply != nil {
 		c.reply <- struct{}{}
 	}
@@ -79,7 +82,7 @@ type clientWriterPaneOutputCommand struct {
 	seq    uint64
 }
 
-func (c clientWriterPaneOutputCommand) handle(state *clientWriterState, conn net.Conn) bool {
+func (c clientWriterPaneOutputCommand) handle(state *clientWriterState, conn net.Conn, wire *proto.Writer) bool {
 	if state.closed {
 		return true
 	}
@@ -94,7 +97,7 @@ func (c clientWriterPaneOutputCommand) handle(state *clientWriterState, conn net
 	if c.seq != 0 && c.seq <= state.minOutputSeq[c.paneID] {
 		return false
 	}
-	_ = writeClientMessage(state, conn, c.msg)
+	_ = writeClientMessage(state, conn, wire, c.msg)
 	return state.closed
 }
 
@@ -102,7 +105,7 @@ type clientWriterPaneMessageCommand struct {
 	msg *Message
 }
 
-func (c clientWriterPaneMessageCommand) handle(state *clientWriterState, conn net.Conn) bool {
+func (c clientWriterPaneMessageCommand) handle(state *clientWriterState, conn net.Conn, wire *proto.Writer) bool {
 	if state.closed {
 		return true
 	}
@@ -110,7 +113,7 @@ func (c clientWriterPaneMessageCommand) handle(state *clientWriterState, conn ne
 		state.pendingMessages = append(state.pendingMessages, pendingMessage{msg: cloneMessage(c.msg)})
 		return false
 	}
-	_ = writeClientMessage(state, conn, c.msg)
+	_ = writeClientMessage(state, conn, wire, c.msg)
 	return state.closed
 }
 
@@ -118,7 +121,7 @@ type clientWriterStartBootstrapCommand struct {
 	reply chan struct{}
 }
 
-func (c clientWriterStartBootstrapCommand) handle(state *clientWriterState, _ net.Conn) bool {
+func (c clientWriterStartBootstrapCommand) handle(state *clientWriterState, _ net.Conn, _ *proto.Writer) bool {
 	if !state.closed {
 		state.bootstrapping = true
 		state.minOutputSeq = make(map[uint32]uint64)
@@ -133,7 +136,7 @@ type clientWriterFinishBootstrapCommand struct {
 	reply        chan struct{}
 }
 
-func (c clientWriterFinishBootstrapCommand) handle(state *clientWriterState, conn net.Conn) bool {
+func (c clientWriterFinishBootstrapCommand) handle(state *clientWriterState, conn net.Conn, wire *proto.Writer) bool {
 	if state.closed {
 		c.reply <- struct{}{}
 		return true
@@ -144,7 +147,7 @@ func (c clientWriterFinishBootstrapCommand) handle(state *clientWriterState, con
 		if pending.outputSeq != 0 && pending.outputSeq <= state.minOutputSeq[pending.paneID] {
 			continue
 		}
-		if err := writeClientMessage(state, conn, pending.msg); err != nil {
+		if err := writeClientMessage(state, conn, wire, pending.msg); err != nil {
 			break
 		}
 	}
@@ -158,7 +161,7 @@ type clientWriterBootstrappingQuery struct {
 	reply chan bool
 }
 
-func (c clientWriterBootstrappingQuery) handle(state *clientWriterState, _ net.Conn) bool {
+func (c clientWriterBootstrappingQuery) handle(state *clientWriterState, _ net.Conn, _ *proto.Writer) bool {
 	c.reply <- state.bootstrapping
 	return state.closed
 }
@@ -169,6 +172,7 @@ func newClientWriter(conn net.Conn) *clientWriter {
 	}
 	w := &clientWriter{
 		conn:         conn,
+		wire:         proto.NewWriter(conn),
 		commands:     make(chan clientWriterCommand, clientWriterQueueSize),
 		paneCommands: make(chan clientWriterCommand, clientWriterQueueSize),
 		stop:         make(chan struct{}),
@@ -199,7 +203,7 @@ func (w *clientWriter) loop() {
 				if cmd == nil {
 					continue
 				}
-				if cmd.handle(&state, w.conn) {
+				if cmd.handle(&state, w.conn, w.wire) {
 					return
 				}
 			default:
@@ -210,14 +214,14 @@ func (w *clientWriter) loop() {
 					if cmd == nil {
 						continue
 					}
-					if cmd.handle(&state, w.conn) {
+					if cmd.handle(&state, w.conn, w.wire) {
 						return
 					}
 				case cmd := <-w.paneCommands:
 					if cmd == nil {
 						continue
 					}
-					if cmd.handle(&state, w.conn) {
+					if cmd.handle(&state, w.conn, w.wire) {
 						return
 					}
 				}
@@ -232,7 +236,7 @@ func (w *clientWriter) loop() {
 			if cmd == nil {
 				continue
 			}
-			if cmd.handle(&state, w.conn) {
+			if cmd.handle(&state, w.conn, w.wire) {
 				return
 			}
 		default:
@@ -243,14 +247,14 @@ func (w *clientWriter) loop() {
 				if cmd == nil {
 					continue
 				}
-				if cmd.handle(&state, w.conn) {
+				if cmd.handle(&state, w.conn, w.wire) {
 					return
 				}
 			case cmd := <-w.paneCommands:
 				if cmd == nil {
 					continue
 				}
-				if cmd.handle(&state, w.conn) {
+				if cmd.handle(&state, w.conn, w.wire) {
 					return
 				}
 			}
@@ -435,11 +439,11 @@ func (w *clientWriter) requestStop() {
 	w.stopOnce.Do(func() { close(w.stop) })
 }
 
-func writeClientMessage(state *clientWriterState, conn net.Conn, msg *Message) error {
+func writeClientMessage(state *clientWriterState, conn net.Conn, wire *proto.Writer, msg *Message) error {
 	if state.closed || conn == nil {
 		return nil
 	}
-	if err := WriteMsg(conn, msg); err != nil {
+	if err := wire.WriteMsg(msg); err != nil {
 		state.closed = true
 		_ = conn.Close()
 		return err

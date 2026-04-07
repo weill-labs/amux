@@ -6,6 +6,7 @@ import (
 	"net"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 	"unicode/utf8"
@@ -58,12 +59,23 @@ func stubCopyToClipboard(cr *ClientRenderer, fn func(string)) {
 	cr.CopyToClipboard = fn
 }
 
+var inputDispatchReaders sync.Map
+
+func inputDispatchReader(conn net.Conn) *proto.Reader {
+	if reader, ok := inputDispatchReaders.Load(conn); ok {
+		return reader.(*proto.Reader)
+	}
+	reader := proto.NewReader(conn)
+	actual, _ := inputDispatchReaders.LoadOrStore(conn, reader)
+	return actual.(*proto.Reader)
+}
+
 func readCommandMessage(t *testing.T, conn net.Conn) *proto.Message {
 	t.Helper()
 	if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
 		t.Fatalf("set read deadline: %v", err)
 	}
-	msg, err := proto.ReadMsg(conn)
+	msg, err := inputDispatchReader(conn).ReadMsg()
 	if err != nil {
 		t.Fatalf("read command message: %v", err)
 	}
@@ -522,7 +534,7 @@ func TestHandleSplitBindingShowsErrorWhenLayoutNotReady(t *testing.T) {
 	if err := serverConn.SetReadDeadline(time.Now().Add(100 * time.Millisecond)); err != nil {
 		t.Fatalf("set read deadline: %v", err)
 	}
-	if _, err := proto.ReadMsg(serverConn); err == nil {
+	if _, err := inputDispatchReader(serverConn).ReadMsg(); err == nil {
 		t.Fatal("split binding without layout should not send a command")
 	} else if ne, ok := err.(net.Error); !ok || !ne.Timeout() {
 		t.Fatalf("read command message error = %v, want timeout", err)

@@ -39,6 +39,8 @@ type HostConn struct {
 	state     ConnState
 	sshClient *ssh.Client
 	amuxConn  net.Conn // persistent attach connection for pane I/O
+	amuxReader *proto.Reader
+	amuxWriter *proto.Writer
 
 	// Pane ID mapping: local ↔ remote (actor-owned)
 	remoteToLocal map[uint32]uint32
@@ -225,7 +227,9 @@ func (hc *HostConn) doConnectWithAddr(sessionName, addr string) (*connectOutcome
 		return nil, fmt.Errorf("dialing remote socket %s: %w", sockPath, err)
 	}
 
-	if err := attachAndWait(amuxConn, remoteSession, 10*time.Second); err != nil {
+	amuxReader := proto.NewReader(amuxConn)
+	amuxWriter := proto.NewWriter(amuxConn)
+	if err := attachAndWait(amuxConn, amuxWriter, amuxReader, remoteSession, 10*time.Second); err != nil {
 		amuxConn.Close()
 		sshClient.Close()
 		return nil, err
@@ -239,6 +243,8 @@ func (hc *HostConn) doConnectWithAddr(sessionName, addr string) (*connectOutcome
 	return &connectOutcome{
 		sshClient:   sshClient,
 		amuxConn:    amuxConn,
+		amuxReader:  amuxReader,
+		amuxWriter:  amuxWriter,
 		sessionName: remoteSession,
 		remoteUID:   remoteUID,
 		connectAddr: addr,
@@ -272,7 +278,9 @@ func (hc *HostConn) doConnectTakeover(sessionName, remoteUID, sshAddr string) (*
 		return nil, fmt.Errorf("dialing remote socket %s: %w", remoteSock, err)
 	}
 
-	if err := attachAndWait(amuxConn, sessionName, 10*time.Second); err != nil {
+	amuxReader := proto.NewReader(amuxConn)
+	amuxWriter := proto.NewWriter(amuxConn)
+	if err := attachAndWait(amuxConn, amuxWriter, amuxReader, sessionName, 10*time.Second); err != nil {
 		amuxConn.Close()
 		sshClient.Close()
 		return nil, err
@@ -286,6 +294,8 @@ func (hc *HostConn) doConnectTakeover(sessionName, remoteUID, sshAddr string) (*
 	return &connectOutcome{
 		sshClient:   sshClient,
 		amuxConn:    amuxConn,
+		amuxReader:  amuxReader,
+		amuxWriter:  amuxWriter,
 		sessionName: sessionName,
 		remoteUID:   remoteUID,
 		connectAddr: sshAddr,
@@ -470,9 +480,9 @@ func (hc *HostConn) validateRemoteSessionHasPanes(client *ssh.Client, sockPath, 
 // readLoop reads messages from the persistent attach connection and dispatches
 // them through the actor. Runs in its own goroutine; exits when conn is closed
 // or returns an error.
-func (hc *HostConn) readLoop(conn net.Conn) {
+func (hc *HostConn) readLoop(reader *proto.Reader) {
 	for {
-		msg, err := proto.ReadMsg(conn)
+		msg, err := reader.ReadMsg()
 		if err != nil {
 			hc.enqueue(readDisconnectEvent{})
 			return
@@ -502,6 +512,8 @@ func (hc *HostConn) closeConns() {
 		hc.amuxConn.Close()
 		hc.amuxConn = nil
 	}
+	hc.amuxReader = nil
+	hc.amuxWriter = nil
 	if hc.sshClient != nil {
 		hc.sshClient.Close()
 		hc.sshClient = nil
@@ -510,10 +522,10 @@ func (hc *HostConn) closeConns() {
 
 func (hc *HostConn) sendInputNow(localPaneID uint32, data []byte) {
 	remotePaneID, ok := hc.localToRemote[localPaneID]
-	if !ok || hc.amuxConn == nil {
+	if !ok || hc.amuxWriter == nil {
 		return
 	}
-	proto.WriteMsg(hc.amuxConn, &proto.Message{
+	hc.amuxWriter.WriteMsg(&proto.Message{
 		Type:     proto.MsgTypeInputPane,
 		PaneID:   remotePaneID,
 		PaneData: data,
@@ -536,8 +548,8 @@ func (hc *HostConn) flushPendingInputs() {
 
 // attachAndWait sends MsgTypeAttach and blocks until the remote server
 // responds with a MsgTypeLayout, confirming the session window exists.
-func attachAndWait(conn net.Conn, session string, timeout time.Duration) error {
-	if err := proto.WriteMsg(conn, &proto.Message{
+func attachAndWait(conn net.Conn, writer *proto.Writer, reader *proto.Reader, session string, timeout time.Duration) error {
+	if err := writer.WriteMsg(&proto.Message{
 		Type:       proto.MsgTypeAttach,
 		Session:    session,
 		Cols:       80,
@@ -546,7 +558,7 @@ func attachAndWait(conn net.Conn, session string, timeout time.Duration) error {
 	}); err != nil {
 		return fmt.Errorf("attaching to remote: %w", err)
 	}
-	if err := waitForLayout(conn, timeout); err != nil {
+	if err := waitForLayout(conn, reader, timeout); err != nil {
 		return fmt.Errorf("waiting for remote layout: %w", err)
 	}
 	return nil
@@ -555,11 +567,11 @@ func attachAndWait(conn net.Conn, session string, timeout time.Duration) error {
 // waitForLayout reads messages from conn until a usable MsgTypeLayout arrives,
 // confirming the remote server has an active window with at least one pane.
 // Non-layout or unusable layout messages are discarded until timeout.
-func waitForLayout(conn net.Conn, timeout time.Duration) error {
+func waitForLayout(conn net.Conn, reader *proto.Reader, timeout time.Duration) error {
 	conn.SetReadDeadline(time.Now().Add(timeout))
 	defer conn.SetReadDeadline(time.Time{})
 	for {
-		msg, err := proto.ReadMsg(conn)
+		msg, err := reader.ReadMsg()
 		if err != nil {
 			return err
 		}

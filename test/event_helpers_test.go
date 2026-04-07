@@ -38,7 +38,7 @@ func eventStream(t *testing.T, session string, args ...string) (*bufio.Scanner, 
 		t.Fatalf("dial: %v", err)
 	}
 
-	if err := server.WriteMsg(conn, &server.Message{
+	if err := writeMsgOnConn(conn, &server.Message{
 		Type:    server.MsgTypeCommand,
 		CmdName: "events",
 		CmdArgs: args,
@@ -51,7 +51,7 @@ func eventStream(t *testing.T, session string, args ...string) (*bufio.Scanner, 
 	go func() {
 		defer pw.Close()
 		for {
-			msg, err := server.ReadMsg(conn)
+			msg, err := readMsgOnConn(conn)
 			if err != nil {
 				return
 			}

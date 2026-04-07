@@ -25,7 +25,7 @@ func (h *ServerHarness) attachAt(cols, rows int) *server.Message {
 	}
 	defer conn.Close()
 
-	if err := server.WriteMsg(conn, &server.Message{
+	if err := writeMsgOnConn(conn, &server.Message{
 		Type:    server.MsgTypeAttach,
 		Session: h.session,
 		Cols:    cols,
@@ -36,7 +36,7 @@ func (h *ServerHarness) attachAt(cols, rows int) *server.Message {
 
 	conn.SetReadDeadline(time.Now().Add(10 * time.Second))
 	for {
-		msg, err := server.ReadMsg(conn)
+		msg, err := readMsgOnConn(conn)
 		if err != nil {
 			h.tb.Fatalf("attachAt: read: %v", err)
 		}
@@ -59,7 +59,7 @@ func (h *ServerHarness) attachRendererAt(cols, rows int, afterLayout func(*clien
 	}
 	defer conn.Close()
 
-	if err := server.WriteMsg(conn, &server.Message{
+	if err := writeMsgOnConn(conn, &server.Message{
 		Type:    server.MsgTypeAttach,
 		Session: h.session,
 		Cols:    cols,
@@ -74,7 +74,7 @@ func (h *ServerHarness) attachRendererAt(cols, rows int, afterLayout func(*clien
 	// under -race).
 	var layoutMsg *server.Message
 	for {
-		msg, err := server.ReadMsg(conn)
+		msg, err := readMsgOnConn(conn)
 		if err != nil {
 			h.tb.Fatalf("attachRendererAt: read: %v", err)
 		}
@@ -93,7 +93,7 @@ func (h *ServerHarness) attachRendererAt(cols, rows int, afterLayout func(*clien
 	// Read pane replay messages, skipping any interleaved non-pane messages.
 	replayed := 0
 	for replayed < len(layoutMsg.Layout.Panes) {
-		msg, err := server.ReadMsg(conn)
+		msg, err := readMsgOnConn(conn)
 		if err != nil {
 			h.tb.Fatalf("attachRendererAt: read pane output: %v", err)
 		}
@@ -110,7 +110,7 @@ func (h *ServerHarness) attachRendererAt(cols, rows int, afterLayout func(*clien
 	}
 	defer conn.SetReadDeadline(time.Time{}) //nolint:errcheck // best-effort reset
 	for {
-		msg, err := server.ReadMsg(conn)
+		msg, err := readMsgOnConn(conn)
 		if err != nil {
 			if ne, ok := err.(net.Error); ok && ne.Timeout() {
 				return r

@@ -101,7 +101,7 @@ func (hc *headlessClient) writeConn(conn net.Conn, msg *server.Message) error {
 	}
 	hc.writeMu.Lock()
 	defer hc.writeMu.Unlock()
-	return server.WriteMsg(conn, msg)
+	return writeMsgOnConn(conn, msg)
 }
 
 func (hc *headlessClient) replaceConn(conn net.Conn) {
@@ -137,7 +137,7 @@ func (hc *headlessClient) reconnect(timeout time.Duration) error {
 
 		conn, err := dialHeadlessSocket(hc.sockPath, 250*time.Millisecond)
 		if err == nil {
-			if err := server.WriteMsg(conn, &server.Message{
+			if err := writeMsgOnConn(conn, &server.Message{
 				Type:               server.MsgTypeAttach,
 				Session:            hc.session,
 				Cols:               hc.cols,
@@ -339,7 +339,7 @@ func (hc *headlessClient) readLoop() {
 			continue
 		}
 
-		msg, err := server.ReadMsg(conn)
+		msg, err := readMsgOnConn(conn)
 		if err != nil {
 			if hc.isClosing() {
 				return
@@ -406,7 +406,7 @@ func TestNewHeadlessClientWaitsForCommandReadyState(t *testing.T) {
 		}
 		defer conn.Close()
 
-		msg, err := server.ReadMsg(conn)
+		msg, err := readMsgOnConn(conn)
 		if err != nil {
 			return
 		}
@@ -429,21 +429,21 @@ func TestNewHeadlessClientWaitsForCommandReadyState(t *testing.T) {
 			},
 			Panes: []proto.PaneSnapshot{{ID: 1, Name: "pane-1"}},
 		}
-		if err := server.WriteMsg(conn, &server.Message{Type: server.MsgTypeLayout, Layout: layout}); err != nil {
+		if err := writeMsgOnConn(conn, &server.Message{Type: server.MsgTypeLayout, Layout: layout}); err != nil {
 			return
 		}
 		close(serverReady)
 
 		<-releaseCmdRead
 
-		cmd, err := server.ReadMsg(conn)
+		cmd, err := readMsgOnConn(conn)
 		if err != nil {
 			return
 		}
 		if cmd.Type != server.MsgTypeCommand || cmd.CmdName != "cursor" || len(cmd.CmdArgs) != 1 || cmd.CmdArgs[0] != "layout" {
 			return
 		}
-		_ = server.WriteMsg(conn, &server.Message{Type: server.MsgTypeCmdResult, CmdOutput: "1\n"})
+		_ = writeMsgOnConn(conn, &server.Message{Type: server.MsgTypeCmdResult, CmdOutput: "1\n"})
 		time.Sleep(20 * time.Millisecond)
 	}()
 

@@ -114,6 +114,7 @@ type runSessionHarness struct {
 
 	connMu sync.Mutex
 	conn   net.Conn
+	wire   *proto.Writer
 
 	pendingMu sync.Mutex
 	pending   []*proto.Message
@@ -189,8 +190,9 @@ func (h *runSessionHarness) acceptLoop() {
 		if err != nil {
 			return
 		}
+		reader := proto.NewReader(conn)
 		_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
-		msg, err := proto.ReadMsg(conn)
+		msg, err := reader.ReadMsg()
 		_ = conn.SetReadDeadline(time.Time{})
 		if err != nil {
 			_ = conn.Close()
@@ -199,17 +201,18 @@ func (h *runSessionHarness) acceptLoop() {
 
 		h.connMu.Lock()
 		h.conn = conn
+		h.wire = proto.NewWriter(conn)
 		h.connMu.Unlock()
 
 		h.attachCh <- msg
-		go h.readLoop(conn)
+		go h.readLoop(reader)
 		return
 	}
 }
 
-func (h *runSessionHarness) readLoop(conn net.Conn) {
+func (h *runSessionHarness) readLoop(reader *proto.Reader) {
 	for {
-		msg, err := proto.ReadMsg(conn)
+		msg, err := reader.ReadMsg()
 		if err != nil {
 			return
 		}
@@ -223,6 +226,7 @@ func (h *runSessionHarness) closeConn() {
 	if h.conn != nil {
 		_ = h.conn.Close()
 		h.conn = nil
+		h.wire = nil
 	}
 }
 
@@ -279,9 +283,19 @@ func (h *runSessionHarness) send(t *testing.T, msg *proto.Message) {
 	if h.conn == nil {
 		t.Fatal("server connection is not ready")
 	}
-	if err := proto.WriteMsg(h.conn, msg); err != nil {
+	if err := h.wire.WriteMsg(msg); err != nil {
 		t.Fatalf("write server message: %v", err)
 	}
+}
+
+func writeProtoMessages(conn net.Conn, msgs ...*proto.Message) error {
+	writer := proto.NewWriter(conn)
+	for _, msg := range msgs {
+		if err := writer.WriteMsg(msg); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (h *runSessionHarness) writeInput(t *testing.T, data []byte) {
@@ -468,33 +482,36 @@ func TestReadAttachBootstrapAppliesZoomedReplayBeforeReturn(t *testing.T) {
 	const hiddenLine = "hidden-window-pane"
 
 	go func() {
-		_ = proto.WriteMsg(serverConn, &proto.Message{
-			Type:    proto.MsgTypePaneHistory,
-			PaneID:  2,
-			History: []string{"older-zoomed-line"},
-		})
-		_ = proto.WriteMsg(serverConn, &proto.Message{
-			Type:   proto.MsgTypeLayout,
-			Layout: layout,
-		})
-		_ = proto.WriteMsg(serverConn, &proto.Message{
-			Type:     proto.MsgTypePaneOutput,
-			PaneID:   1,
-			PaneData: []byte("\033[2J\033[Hpeer-pane"),
-		})
-		_ = proto.WriteMsg(serverConn, &proto.Message{
-			Type:     proto.MsgTypePaneOutput,
-			PaneID:   2,
-			PaneData: []byte("\033[2J\033[H" + zoomedLine),
-		})
-		_ = proto.WriteMsg(serverConn, &proto.Message{
-			Type:     proto.MsgTypePaneOutput,
-			PaneID:   3,
-			PaneData: []byte("\033[2J\033[H" + hiddenLine),
-		})
+		_ = writeProtoMessages(
+			serverConn,
+			&proto.Message{
+				Type:    proto.MsgTypePaneHistory,
+				PaneID:  2,
+				History: []string{"older-zoomed-line"},
+			},
+			&proto.Message{
+				Type:   proto.MsgTypeLayout,
+				Layout: layout,
+			},
+			&proto.Message{
+				Type:     proto.MsgTypePaneOutput,
+				PaneID:   1,
+				PaneData: []byte("\033[2J\033[Hpeer-pane"),
+			},
+			&proto.Message{
+				Type:     proto.MsgTypePaneOutput,
+				PaneID:   2,
+				PaneData: []byte("\033[2J\033[H" + zoomedLine),
+			},
+			&proto.Message{
+				Type:     proto.MsgTypePaneOutput,
+				PaneID:   3,
+				PaneData: []byte("\033[2J\033[H" + hiddenLine),
+			},
+		)
 	}()
 
-	if err := readAttachBootstrap(clientConn, cr); err != nil {
+	if err := readAttachBootstrap(clientConn, proto.NewReader(clientConn), cr); err != nil {
 		t.Fatalf("readAttachBootstrap: %v", err)
 	}
 
@@ -570,15 +587,11 @@ func TestReadAttachBootstrapAppliesImmediateReattachResizeCorrectionBeforeReturn
 			{Type: proto.MsgTypeLayout, Layout: layout},
 			{Type: proto.MsgTypePaneOutput, PaneID: 1, PaneData: []byte("\033[2J\033[H" + resizedLine)},
 		}
-		for _, msg := range msgs {
-			if err := proto.WriteMsg(serverConn, msg); err != nil {
-				return
-			}
-		}
+		_ = writeProtoMessages(serverConn, msgs...)
 	}()
 
 	cr := NewClientRenderer(120, 40)
-	if err := readAttachBootstrap(clientConn, cr); err != nil {
+	if err := readAttachBootstrap(clientConn, proto.NewReader(clientConn), cr); err != nil {
 		t.Fatalf("readAttachBootstrap: %v", err)
 	}
 
@@ -644,12 +657,15 @@ func TestReadImmediateAttachCorrectionReturnsErrorOnConnectionClose(t *testing.T
 	// so the correction loop gets a read error (not a timeout).
 	layout := singlePane20x3()
 	go func() {
-		_ = proto.WriteMsg(serverConn, &proto.Message{Type: proto.MsgTypeLayout, Layout: layout})
-		_ = proto.WriteMsg(serverConn, &proto.Message{Type: proto.MsgTypePaneOutput, PaneID: 1, PaneData: []byte("hi")})
+		_ = writeProtoMessages(
+			serverConn,
+			&proto.Message{Type: proto.MsgTypeLayout, Layout: layout},
+			&proto.Message{Type: proto.MsgTypePaneOutput, PaneID: 1, PaneData: []byte("hi")},
+		)
 		_ = serverConn.Close()
 	}()
 
-	err := readAttachBootstrap(clientConn, NewClientRenderer(20, 4))
+	err := readAttachBootstrap(clientConn, proto.NewReader(clientConn), NewClientRenderer(20, 4))
 	if err == nil {
 		// EOF here means the server vanished before the client reached the
 		// normal message loop or saw an explicit exit path.
@@ -668,13 +684,16 @@ func TestReadImmediateAttachCorrectionEndsOnUnknownMessageType(t *testing.T) {
 
 	layout := singlePane20x3()
 	go func() {
-		_ = proto.WriteMsg(serverConn, &proto.Message{Type: proto.MsgTypeLayout, Layout: layout})
-		_ = proto.WriteMsg(serverConn, &proto.Message{Type: proto.MsgTypePaneOutput, PaneID: 1, PaneData: []byte("hi")})
-		// Unknown message type during correction window ends the phase gracefully.
-		_ = proto.WriteMsg(serverConn, &proto.Message{Type: proto.MsgTypeBell})
+		_ = writeProtoMessages(
+			serverConn,
+			&proto.Message{Type: proto.MsgTypeLayout, Layout: layout},
+			&proto.Message{Type: proto.MsgTypePaneOutput, PaneID: 1, PaneData: []byte("hi")},
+			// Unknown message type during correction window ends the phase gracefully.
+			&proto.Message{Type: proto.MsgTypeBell},
+		)
 	}()
 
-	if err := readAttachBootstrap(clientConn, NewClientRenderer(20, 4)); err != nil {
+	if err := readAttachBootstrap(clientConn, proto.NewReader(clientConn), NewClientRenderer(20, 4)); err != nil {
 		t.Fatalf("readAttachBootstrap returned error for unknown correction message: %v", err)
 	}
 }
@@ -685,7 +704,8 @@ func TestReadAttachBootstrapPaneReplaysBranches(t *testing.T) {
 	t.Run("returns immediately when no outputs remain", func(t *testing.T) {
 		t.Parallel()
 
-		remaining, err := readAttachBootstrapPaneReplays(&stubAttachConn{}, NewClientRenderer(20, 4), 0, time.Second)
+		conn := &stubAttachConn{}
+		remaining, err := readAttachBootstrapPaneReplays(conn, proto.NewReader(conn), NewClientRenderer(20, 4), 0, time.Second)
 		if err != nil {
 			t.Fatalf("readAttachBootstrapPaneReplays() error = %v, want nil", err)
 		}
@@ -698,8 +718,10 @@ func TestReadAttachBootstrapPaneReplaysBranches(t *testing.T) {
 		t.Parallel()
 
 		wantErr := errors.New("deadline boom")
+		conn := &stubAttachConn{setReadDeadlineErr: wantErr}
 		remaining, err := readAttachBootstrapPaneReplays(
-			&stubAttachConn{setReadDeadlineErr: wantErr},
+			conn,
+			proto.NewReader(conn),
 			NewClientRenderer(20, 4),
 			1,
 			time.Second,
@@ -716,8 +738,10 @@ func TestReadAttachBootstrapPaneReplaysBranches(t *testing.T) {
 		t.Parallel()
 
 		wantErr := errors.New("read boom")
+		conn := &stubAttachConn{readErr: wantErr}
 		remaining, err := readAttachBootstrapPaneReplays(
-			&stubAttachConn{readErr: wantErr},
+			conn,
+			proto.NewReader(conn),
 			NewClientRenderer(20, 4),
 			1,
 			time.Second,
@@ -741,12 +765,15 @@ func TestReadAttachBootstrapPaneReplaysBranches(t *testing.T) {
 
 		cr := NewClientRenderer(20, 4)
 		go func() {
-			_ = proto.WriteMsg(serverConn, &proto.Message{Type: proto.MsgTypeLayout, Layout: singlePane20x3()})
-			_ = proto.WriteMsg(serverConn, &proto.Message{Type: proto.MsgTypePaneOutput, PaneID: 1, PaneData: []byte("hello")})
+			_ = writeProtoMessages(
+				serverConn,
+				&proto.Message{Type: proto.MsgTypeLayout, Layout: singlePane20x3()},
+				&proto.Message{Type: proto.MsgTypePaneOutput, PaneID: 1, PaneData: []byte("hello")},
+			)
 			_ = serverConn.Close()
 		}()
 
-		remaining, err := readAttachBootstrapPaneReplays(clientConn, cr, 1, time.Second)
+		remaining, err := readAttachBootstrapPaneReplays(clientConn, proto.NewReader(clientConn), cr, 1, time.Second)
 		if err != nil {
 			t.Fatalf("readAttachBootstrapPaneReplays() error = %v, want nil", err)
 		}
@@ -771,11 +798,11 @@ func TestReadAttachBootstrapPropagatesPaneReplaySetupError(t *testing.T) {
 	wantErr := errors.New("deadline boom")
 	wrappedConn := &deadlineErrorConn{Conn: clientConn, setReadDeadlineErr: wantErr}
 	go func() {
-		_ = proto.WriteMsg(serverConn, &proto.Message{Type: proto.MsgTypeLayout, Layout: singlePane20x3()})
+		_ = writeProtoMessages(serverConn, &proto.Message{Type: proto.MsgTypeLayout, Layout: singlePane20x3()})
 		_ = serverConn.Close()
 	}()
 
-	err := readAttachBootstrap(wrappedConn, NewClientRenderer(20, 4))
+	err := readAttachBootstrap(wrappedConn, proto.NewReader(wrappedConn), NewClientRenderer(20, 4))
 	if !errors.Is(err, wantErr) {
 		t.Fatalf("readAttachBootstrap() error = %v, want %v", err, wantErr)
 	}
@@ -814,13 +841,11 @@ func TestReadAttachBootstrapRejectsUnexpectedMessages(t *testing.T) {
 			})
 
 			go func() {
-				for _, msg := range tt.messages {
-					_ = proto.WriteMsg(serverConn, msg)
-				}
+				_ = writeProtoMessages(serverConn, tt.messages...)
 				_ = serverConn.Close()
 			}()
 
-			err := readAttachBootstrap(clientConn, NewClientRenderer(20, 4))
+			err := readAttachBootstrap(clientConn, proto.NewReader(clientConn), NewClientRenderer(20, 4))
 			if tt.wantErr == "" {
 				if err != nil {
 					t.Fatalf("readAttachBootstrap() error = %v, want nil", err)

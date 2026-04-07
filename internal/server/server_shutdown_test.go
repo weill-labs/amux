@@ -38,7 +38,7 @@ func TestShutdownCommandFlushesReplyBeforeShutdownStarts(t *testing.T) {
 	commandDone := make(chan struct{})
 	go func() {
 		defer close(commandDone)
-		srv.handleOneShot(gated, &Message{Type: MsgTypeCommand, CmdName: "shutdown"})
+		srv.handleOneShot(newClientConn(gated), &Message{Type: MsgTypeCommand, CmdName: "shutdown"})
 	}()
 
 	select {
@@ -56,7 +56,7 @@ func TestShutdownCommandFlushesReplyBeforeShutdownStarts(t *testing.T) {
 	replyCh := make(chan *Message, 1)
 	readErrCh := make(chan error, 1)
 	go func() {
-		msg, err := ReadMsg(clientConn)
+		msg, err := readMsgOnConn(clientConn)
 		if err != nil {
 			readErrCh <- err
 			return

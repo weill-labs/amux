@@ -302,6 +302,7 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 	defer conn.Close()
 	sender := newMessageSender(conn)
 	defer sender.Close()
+	reader := proto.NewReader(conn)
 
 	fd := int(stdin.Fd())
 	cols, rows, _ := getTermSize(fd)
@@ -337,7 +338,7 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 			UIEvent: name,
 		})
 	}
-	if err := readAttachBootstrap(conn, cr); err != nil {
+	if err := readAttachBootstrap(conn, reader, cr); err != nil {
 		return fmt.Errorf("reading attach bootstrap: %w", err)
 	}
 
@@ -380,7 +381,7 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 	go func() {
 		defer close(msgCh)
 		for {
-			msg, err := proto.ReadMsg(conn)
+			msg, err := reader.ReadMsg()
 			if err != nil {
 				return
 			}

@@ -440,13 +440,13 @@ func TestServerHandleConnAndSetupPaneTransport(t *testing.T) {
 		close(done)
 	}()
 
-	if err := proto.WriteMsg(peerConn, &Message{Type: MsgTypeCommand, CmdName: "status"}); err != nil {
+	if err := writeMsgOnConn(peerConn, &Message{Type: MsgTypeCommand, CmdName: "status"}); err != nil {
 		t.Fatalf("WriteMsg command: %v", err)
 	}
 	if err := peerConn.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
 		t.Fatalf("SetReadDeadline: %v", err)
 	}
-	resp, err := ReadMsg(peerConn)
+	resp, err := readMsgOnConn(peerConn)
 	if err != nil {
 		t.Fatalf("ReadMsg response: %v", err)
 	}
@@ -466,7 +466,7 @@ func TestServerHandleConnAndSetupPaneTransport(t *testing.T) {
 		srv.handleConn(serverConn2)
 		close(done2)
 	}()
-	if err := proto.WriteMsg(clientConn2, &Message{Type: MsgTypeRender}); err != nil {
+	if err := writeMsgOnConn(clientConn2, &Message{Type: MsgTypeRender}); err != nil {
 		t.Fatalf("WriteMsg invalid type: %v", err)
 	}
 	select {

@@ -246,7 +246,7 @@ func TestHostConnReadLoopHandlesOutputAndDisconnectPaths(t *testing.T) {
 
 		done := make(chan struct{})
 		go func() {
-			hc.readLoop(clientConn)
+			hc.readLoop(remoteTestReader(clientConn))
 			close(done)
 		}()
 
@@ -255,10 +255,10 @@ func TestHostConnReadLoopHandlesOutputAndDisconnectPaths(t *testing.T) {
 		layout := testLayoutSnapshot()
 		layout.Panes = append(layout.Panes, proto.PaneSnapshot{ID: 100, Name: "pane-100"})
 		layout.Windows[0].Panes = append(layout.Windows[0].Panes, proto.PaneSnapshot{ID: 100, Name: "pane-100"})
-		if err := proto.WriteMsg(serverConn, &proto.Message{Type: proto.MsgTypeLayout, Layout: layout}); err != nil {
+		if err := remoteTestWriter(serverConn).WriteMsg(&proto.Message{Type: proto.MsgTypeLayout, Layout: layout}); err != nil {
 			t.Fatalf("WriteMsg layout: %v", err)
 		}
-		if err := proto.WriteMsg(serverConn, &proto.Message{Type: proto.MsgTypePaneOutput, PaneID: 100, PaneData: []byte("hello")}); err != nil {
+		if err := remoteTestWriter(serverConn).WriteMsg(&proto.Message{Type: proto.MsgTypePaneOutput, PaneID: 100, PaneData: []byte("hello")}); err != nil {
 			t.Fatalf("WriteMsg pane output: %v", err)
 		}
 
@@ -293,7 +293,7 @@ func TestHostConnReadLoopHandlesOutputAndDisconnectPaths(t *testing.T) {
 
 		done := make(chan struct{})
 		go func() {
-			hc.readLoop(clientConn)
+			hc.readLoop(remoteTestReader(clientConn))
 			close(done)
 		}()
 
@@ -302,7 +302,7 @@ func TestHostConnReadLoopHandlesOutputAndDisconnectPaths(t *testing.T) {
 		layout.Windows[0].Panes = []proto.PaneSnapshot{{ID: 200, Name: "pane-200"}}
 		layout.ActivePaneID = 200
 		layout.Windows[0].ActivePaneID = 200
-		if err := proto.WriteMsg(serverConn, &proto.Message{Type: proto.MsgTypeLayout, Layout: layout}); err != nil {
+		if err := remoteTestWriter(serverConn).WriteMsg(&proto.Message{Type: proto.MsgTypeLayout, Layout: layout}); err != nil {
 			t.Fatalf("WriteMsg layout: %v", err)
 		}
 
@@ -386,11 +386,11 @@ func TestHostConnReadLoopHandlesOutputAndDisconnectPaths(t *testing.T) {
 
 		done := make(chan struct{})
 		go func() {
-			hc.readLoop(clientConn)
+			hc.readLoop(remoteTestReader(clientConn))
 			close(done)
 		}()
 
-		if err := proto.WriteMsg(serverConn, &proto.Message{Type: proto.MsgTypeExit}); err != nil {
+		if err := remoteTestWriter(serverConn).WriteMsg(&proto.Message{Type: proto.MsgTypeExit}); err != nil {
 			t.Fatalf("WriteMsg exit: %v", err)
 		}
 
@@ -410,7 +410,7 @@ func TestHostConnReadLoopHandlesOutputAndDisconnectPaths(t *testing.T) {
 
 		done := make(chan struct{})
 		go func() {
-			hc.readLoop(clientConn)
+			hc.readLoop(remoteTestReader(clientConn))
 			close(done)
 		}()
 

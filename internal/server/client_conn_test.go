@@ -300,7 +300,7 @@ func TestClientConnQueuesInputBehindBusySessionActor(t *testing.T) {
 
 			writeDone := make(chan error, 1)
 			go func() {
-				writeDone <- WriteMsg(peerConn, tt.input)
+				writeDone <- writeMsgOnConn(peerConn, tt.input)
 			}()
 
 			select {
@@ -330,7 +330,7 @@ func TestClientConnQueuesInputBehindBusySessionActor(t *testing.T) {
 				t.Fatal("queued input did not reach pane after actor release")
 			}
 
-			if err := WriteMsg(peerConn, &Message{Type: MsgTypeDetach}); err != nil {
+			if err := writeMsgOnConn(peerConn, &Message{Type: MsgTypeDetach}); err != nil {
 				t.Fatalf("WriteMsg detach: %v", err)
 			}
 
@@ -399,7 +399,7 @@ func TestClientConnLiveInputDoesNotBlockOnBlockedPaneWriter(t *testing.T) {
 				cc.readLoop(&Server{}, sess)
 			}()
 
-			if err := WriteMsg(peerConn, tt.firstInput); err != nil {
+			if err := writeMsgOnConn(peerConn, tt.firstInput); err != nil {
 				t.Fatalf("WriteMsg first input: %v", err)
 			}
 
@@ -411,7 +411,7 @@ func TestClientConnLiveInputDoesNotBlockOnBlockedPaneWriter(t *testing.T) {
 
 			nextDone := make(chan error, 1)
 			go func() {
-				nextDone <- WriteMsg(peerConn, tt.nextInput)
+				nextDone <- writeMsgOnConn(peerConn, tt.nextInput)
 			}()
 
 			select {
@@ -432,7 +432,7 @@ func TestClientConnLiveInputDoesNotBlockOnBlockedPaneWriter(t *testing.T) {
 				t.Fatalf("second pane write = %q, want %q", got, "second")
 			}
 
-			if err := WriteMsg(peerConn, &Message{Type: MsgTypeDetach}); err != nil {
+			if err := writeMsgOnConn(peerConn, &Message{Type: MsgTypeDetach}); err != nil {
 				t.Fatalf("WriteMsg detach: %v", err)
 			}
 
@@ -534,13 +534,13 @@ func TestClientConnReadLoopCommandRepliesDoNotBlockOnBlockedWriter(t *testing.T)
 				cc.readLoop(tt.server, sess)
 			}()
 
-			if err := WriteMsg(peerConn, &Message{Type: MsgTypeCommand, CmdName: tt.command}); err != nil {
+			if err := writeMsgOnConn(peerConn, &Message{Type: MsgTypeCommand, CmdName: tt.command}); err != nil {
 				t.Fatalf("WriteMsg command: %v", err)
 			}
 
 			detachDone := make(chan error, 1)
 			go func() {
-				detachDone <- WriteMsg(peerConn, &Message{Type: MsgTypeDetach})
+				detachDone <- writeMsgOnConn(peerConn, &Message{Type: MsgTypeDetach})
 			}()
 
 			select {
@@ -740,7 +740,7 @@ func TestClientConnInputTargetTracksFocusAndWindowChanges(t *testing.T) {
 	}
 	assertReadLoopInputWrite(t, peerConn, pane3Writes, "three")
 
-	if err := WriteMsg(peerConn, &Message{Type: MsgTypeDetach}); err != nil {
+	if err := writeMsgOnConn(peerConn, &Message{Type: MsgTypeDetach}); err != nil {
 		t.Fatalf("WriteMsg detach: %v", err)
 	}
 
@@ -764,7 +764,7 @@ func (e blockingSessionEvent) handle(*Session) {
 func assertReadLoopInputWrite(t *testing.T, conn net.Conn, writes <-chan []byte, input string) {
 	t.Helper()
 
-	if err := WriteMsg(conn, &Message{Type: MsgTypeInput, Input: []byte(input)}); err != nil {
+	if err := writeMsgOnConn(conn, &Message{Type: MsgTypeInput, Input: []byte(input)}); err != nil {
 		t.Fatalf("WriteMsg input: %v", err)
 	}
 
@@ -783,7 +783,7 @@ func assertNoClientMessage(t *testing.T, conn net.Conn) {
 	if err := conn.SetReadDeadline(time.Now().Add(50 * time.Millisecond)); err != nil {
 		t.Fatalf("SetReadDeadline: %v", err)
 	}
-	msg, err := ReadMsg(conn)
+	msg, err := readMsgOnConn(conn)
 	if ne, ok := err.(net.Error); ok && ne.Timeout() {
 		if err := conn.SetReadDeadline(time.Time{}); err != nil {
 			t.Fatalf("reset read deadline: %v", err)

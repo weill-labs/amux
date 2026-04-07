@@ -39,10 +39,10 @@ func TestWaitForLayout(t *testing.T) {
 		defer client.Close()
 
 		go func() {
-			proto.WriteMsg(server, &proto.Message{Type: proto.MsgTypeLayout, Layout: testLayoutSnapshot()})
+			remoteTestWriter(server).WriteMsg(&proto.Message{Type: proto.MsgTypeLayout, Layout: testLayoutSnapshot()})
 		}()
 
-		if err := waitForLayout(client, 5*time.Second); err != nil {
+		if err := waitForLayout(client, remoteTestReader(client), 5*time.Second); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	})
@@ -54,11 +54,12 @@ func TestWaitForLayout(t *testing.T) {
 		defer client.Close()
 
 		go func() {
-			proto.WriteMsg(server, &proto.Message{Type: proto.MsgTypePaneOutput, PaneID: 1, PaneData: []byte("hello")})
-			proto.WriteMsg(server, &proto.Message{Type: proto.MsgTypeLayout, Layout: testLayoutSnapshot()})
+			writer := remoteTestWriter(server)
+			writer.WriteMsg(&proto.Message{Type: proto.MsgTypePaneOutput, PaneID: 1, PaneData: []byte("hello")})
+			writer.WriteMsg(&proto.Message{Type: proto.MsgTypeLayout, Layout: testLayoutSnapshot()})
 		}()
 
-		if err := waitForLayout(client, 5*time.Second); err != nil {
+		if err := waitForLayout(client, remoteTestReader(client), 5*time.Second); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	})
@@ -70,11 +71,12 @@ func TestWaitForLayout(t *testing.T) {
 		defer client.Close()
 
 		go func() {
-			proto.WriteMsg(server, &proto.Message{Type: proto.MsgTypeLayout})
-			proto.WriteMsg(server, &proto.Message{Type: proto.MsgTypeLayout, Layout: testLayoutSnapshot()})
+			writer := remoteTestWriter(server)
+			writer.WriteMsg(&proto.Message{Type: proto.MsgTypeLayout})
+			writer.WriteMsg(&proto.Message{Type: proto.MsgTypeLayout, Layout: testLayoutSnapshot()})
 		}()
 
-		if err := waitForLayout(client, 5*time.Second); err != nil {
+		if err := waitForLayout(client, remoteTestReader(client), 5*time.Second); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	})
@@ -84,7 +86,7 @@ func TestWaitForLayout(t *testing.T) {
 		server, client := net.Pipe()
 		server.Close() // close immediately
 
-		err := waitForLayout(client, 5*time.Second)
+		err := waitForLayout(client, remoteTestReader(client), 5*time.Second)
 		client.Close()
 		if err == nil {
 			t.Fatal("expected error for closed connection")
@@ -97,7 +99,7 @@ func TestWaitForLayout(t *testing.T) {
 		defer client.Close()
 		// Don't write anything — let the deadline expire
 
-		err := waitForLayout(client, 50*time.Millisecond)
+		err := waitForLayout(client, remoteTestReader(client), 50*time.Millisecond)
 		if err == nil {
 			t.Fatal("expected timeout error")
 		}
@@ -115,7 +117,7 @@ func TestAttachAndWait(t *testing.T) {
 
 		go func() {
 			// Read the attach message
-			msg, _ := proto.ReadMsg(server)
+			msg, _ := remoteTestReader(server).ReadMsg()
 			if msg.Type != proto.MsgTypeAttach {
 				return
 			}
@@ -123,10 +125,10 @@ func TestAttachAndWait(t *testing.T) {
 				t.Errorf("attach mode = %v, want %v", msg.AttachMode, proto.AttachModeNonInteractive)
 			}
 			// Reply with layout
-			proto.WriteMsg(server, &proto.Message{Type: proto.MsgTypeLayout, Layout: testLayoutSnapshot()})
+			remoteTestWriter(server).WriteMsg(&proto.Message{Type: proto.MsgTypeLayout, Layout: testLayoutSnapshot()})
 		}()
 
-		if err := attachAndWait(client, "test-session", 5*time.Second); err != nil {
+		if err := attachAndWait(client, remoteTestWriter(client), remoteTestReader(client), "test-session", 5*time.Second); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	})
@@ -136,7 +138,7 @@ func TestAttachAndWait(t *testing.T) {
 		server, client := net.Pipe()
 		server.Close() // close so write fails
 
-		err := attachAndWait(client, "test-session", 5*time.Second)
+		err := attachAndWait(client, remoteTestWriter(client), remoteTestReader(client), "test-session", 5*time.Second)
 		client.Close()
 		if err == nil {
 			t.Fatal("expected error")
@@ -153,11 +155,11 @@ func TestAttachAndWait(t *testing.T) {
 
 		go func() {
 			// Read the attach, then close without sending layout
-			proto.ReadMsg(server)
+			remoteTestReader(server).ReadMsg()
 			server.Close()
 		}()
 
-		err := attachAndWait(client, "test-session", 5*time.Second)
+		err := attachAndWait(client, remoteTestWriter(client), remoteTestReader(client), "test-session", 5*time.Second)
 		if err == nil {
 			t.Fatal("expected error")
 		}
@@ -172,12 +174,12 @@ func TestAttachAndWait(t *testing.T) {
 		defer client.Close()
 
 		go func() {
-			proto.ReadMsg(server)
-			proto.WriteMsg(server, &proto.Message{Type: proto.MsgTypeLayout})
+			remoteTestReader(server).ReadMsg()
+			remoteTestWriter(server).WriteMsg(&proto.Message{Type: proto.MsgTypeLayout})
 			server.Close()
 		}()
 
-		err := attachAndWait(client, "test-session", 5*time.Second)
+		err := attachAndWait(client, remoteTestWriter(client), remoteTestReader(client), "test-session", 5*time.Second)
 		if err == nil {
 			t.Fatal("expected error")
 		}

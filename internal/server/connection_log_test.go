@@ -49,7 +49,7 @@ func TestConnectionLogAttachAndExplicitDetach(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		srv.handleAttach(serverConn, &Message{
+		srv.handleAttach(newClientConn(serverConn), &Message{
 			Type:    MsgTypeAttach,
 			Session: sess.Name,
 			Cols:    90,
@@ -59,7 +59,7 @@ func TestConnectionLogAttachAndExplicitDetach(t *testing.T) {
 
 	drainAttachBootstrap(t, clientConn, pane.ID, 90, 30)
 
-	if err := WriteMsg(clientConn, &Message{Type: MsgTypeDetach}); err != nil {
+	if err := writeMsgOnConn(clientConn, &Message{Type: MsgTypeDetach}); err != nil {
 		t.Fatalf("WriteMsg detach: %v", err)
 	}
 
@@ -121,7 +121,7 @@ func TestConnectionLogRecordsClosedConnectionReason(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		srv.handleAttach(serverConn, &Message{
+		srv.handleAttach(newClientConn(serverConn), &Message{
 			Type:    MsgTypeAttach,
 			Session: sess.Name,
 			Cols:    70,
@@ -161,7 +161,7 @@ func TestHandleAttachUsesImplicitMainSessionWhenSessionEmpty(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		srv.handleAttach(serverConn, &Message{
+		srv.handleAttach(newClientConn(serverConn), &Message{
 			Type: MsgTypeAttach,
 			Cols: 80,
 			Rows: 24,
@@ -170,7 +170,7 @@ func TestHandleAttachUsesImplicitMainSessionWhenSessionEmpty(t *testing.T) {
 
 	drainAttachBootstrap(t, clientConn, pane.ID, 80, 24)
 
-	if err := WriteMsg(clientConn, &Message{Type: MsgTypeDetach}); err != nil {
+	if err := writeMsgOnConn(clientConn, &Message{Type: MsgTypeDetach}); err != nil {
 		t.Fatalf("WriteMsg detach: %v", err)
 	}
 

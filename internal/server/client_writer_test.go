@@ -4,6 +4,8 @@ import (
 	"net"
 	"testing"
 	"time"
+
+	"github.com/weill-labs/amux/internal/proto"
 )
 
 type testClientWriterCommand struct {
@@ -11,7 +13,7 @@ type testClientWriterCommand struct {
 	ret     bool
 }
 
-func (c testClientWriterCommand) handle(*clientWriterState, net.Conn) bool {
+func (c testClientWriterCommand) handle(*clientWriterState, net.Conn, *proto.Writer) bool {
 	if c.handled != nil {
 		close(c.handled)
 	}
@@ -25,7 +27,7 @@ type orderedClientWriterCommand struct {
 	release <-chan struct{}
 }
 
-func (c orderedClientWriterCommand) handle(*clientWriterState, net.Conn) bool {
+func (c orderedClientWriterCommand) handle(*clientWriterState, net.Conn, *proto.Writer) bool {
 	if c.started != nil {
 		close(c.started)
 	}
@@ -498,7 +500,7 @@ func TestClientWriterBroadcastCommandHandleNilReply(t *testing.T) {
 			t.Parallel()
 
 			cmd := clientWriterBroadcastCommand{msg: &Message{Type: MsgTypeLayout}}
-			got := cmd.handle(&tt.state, tt.conn)
+			got := cmd.handle(&tt.state, tt.conn, proto.NewWriter(tt.conn))
 
 			if got != tt.wantReturn {
 				t.Fatalf("handle() = %v, want %v", got, tt.wantReturn)
@@ -550,7 +552,7 @@ func TestClientWriterBroadcastCommandSignalsReply(t *testing.T) {
 				reply: reply,
 			}
 
-			if got := cmd.handle(&tt.state, tt.conn); got != tt.wantReturn {
+			if got := cmd.handle(&tt.state, tt.conn, proto.NewWriter(tt.conn)); got != tt.wantReturn {
 				t.Fatalf("handle() = %v, want %v", got, tt.wantReturn)
 			}
 

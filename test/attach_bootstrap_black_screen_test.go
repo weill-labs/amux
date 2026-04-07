@@ -153,7 +153,7 @@ func (s *fakeAttachServer) acceptLoop() {
 			return
 		}
 
-		msg, err := proto.ReadMsg(conn)
+		msg, err := testProtoReader(conn).ReadMsg()
 		if err != nil {
 			_ = conn.Close()
 			if errors.Is(err, net.ErrClosed) || errors.Is(err, os.ErrClosed) || errors.Is(err, net.ErrWriteToConnected) || errors.Is(err, os.ErrDeadlineExceeded) {
@@ -210,7 +210,7 @@ func (s *fakeAttachServer) writeMsg(t *testing.T, msg *proto.Message) {
 	if s.conn == nil {
 		t.Fatal("fake attach server connection not ready")
 	}
-	if err := proto.WriteMsg(s.conn, msg); err != nil {
+	if err := testProtoWriter(s.conn).WriteMsg(msg); err != nil {
 		t.Fatalf("write fake attach message: %v", err)
 	}
 }
