@@ -11,6 +11,8 @@ import (
 // continue to work unchanged.
 type MsgType = proto.MsgType
 type Message = proto.Message
+type Reader = proto.Reader
+type Writer = proto.Writer
 
 const (
 	MsgTypeInput        = proto.MsgTypeInput
@@ -52,4 +54,14 @@ func WriteMsg(w io.Writer, msg *Message) error {
 // ReadMsg reads a message from r.
 func ReadMsg(r io.Reader) (*Message, error) {
 	return proto.ReadMsg(r)
+}
+
+// NewWriter binds a connection-scoped wire writer to w.
+func NewWriter(w io.Writer) *Writer {
+	return proto.NewWriter(w)
+}
+
+// NewReader binds a connection-scoped wire reader to r.
+func NewReader(r io.Reader) *Reader {
+	return proto.NewReader(r)
 }

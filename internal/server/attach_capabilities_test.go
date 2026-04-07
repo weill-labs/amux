@@ -63,7 +63,7 @@ func TestHandleAttachStoresNegotiatedCapabilities(t *testing.T) {
 			done := make(chan struct{})
 			go func() {
 				defer close(done)
-				srv.handleAttach(serverConn, &Message{
+				srv.handleAttach(newClientConn(serverConn), &Message{
 					Type:               MsgTypeAttach,
 					Session:            sess.Name,
 					Cols:               80,
@@ -89,7 +89,7 @@ func TestHandleAttachStoresNegotiatedCapabilities(t *testing.T) {
 				t.Fatalf("capabilities = %q, want %q", got, tt.want)
 			}
 
-			if err := WriteMsg(peerConn, &Message{Type: MsgTypeDetach}); err != nil {
+			if err := writeMsgOnConn(peerConn, &Message{Type: MsgTypeDetach}); err != nil {
 				t.Fatalf("WriteMsg detach: %v", err)
 			}
 
@@ -130,7 +130,7 @@ func TestHandleAttachStoresColorProfile(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		srv.handleAttach(serverConn, &Message{
+		srv.handleAttach(newClientConn(serverConn), &Message{
 			Type:               MsgTypeAttach,
 			Session:            sess.Name,
 			Cols:               80,
@@ -155,7 +155,7 @@ func TestHandleAttachStoresColorProfile(t *testing.T) {
 		t.Fatalf("current size client color profile = %q, want %q", got, "ANSI256")
 	}
 
-	if err := WriteMsg(peerConn, &Message{Type: MsgTypeDetach}); err != nil {
+	if err := writeMsgOnConn(peerConn, &Message{Type: MsgTypeDetach}); err != nil {
 		t.Fatalf("WriteMsg detach: %v", err)
 	}
 

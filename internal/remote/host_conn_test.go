@@ -399,6 +399,8 @@ func TestBufferedInputFlushesAfterConnect(t *testing.T) {
 		testInActor(hc, func(hc *HostConn) {
 			hc.applyOutcome(&connectOutcome{
 				amuxConn:    clientConn,
+				amuxReader:  remoteTestReader(clientConn),
+				amuxWriter:  remoteTestWriter(clientConn),
 				sessionName: "session",
 				remoteUID:   "1000",
 				takeover:    true,
@@ -407,7 +409,7 @@ func TestBufferedInputFlushesAfterConnect(t *testing.T) {
 		close(done)
 	}()
 
-	msg, err := proto.ReadMsg(serverConn)
+	msg, err := remoteTestReader(serverConn).ReadMsg()
 	if err != nil {
 		t.Fatalf("ReadMsg first buffered input: %v", err)
 	}
@@ -415,7 +417,7 @@ func TestBufferedInputFlushesAfterConnect(t *testing.T) {
 		t.Fatalf("first buffered message = %#v, want input pane 100 hello", msg)
 	}
 
-	msg, err = proto.ReadMsg(serverConn)
+	msg, err = remoteTestReader(serverConn).ReadMsg()
 	if err != nil {
 		t.Fatalf("ReadMsg second buffered input: %v", err)
 	}

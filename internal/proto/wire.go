@@ -8,6 +8,75 @@ import (
 	"io"
 )
 
+// Writer caches gob encoder state for one connection. It is safe for sequential
+// use only; callers serialize writes at a higher level.
+type Writer struct {
+	dst    io.Writer
+	gobBuf bytes.Buffer
+	gobEnc *gob.Encoder
+}
+
+// NewWriter binds a stateful gob encoder to one output stream.
+func NewWriter(w io.Writer) *Writer {
+	if w == nil {
+		return nil
+	}
+	pw := &Writer{dst: w}
+	pw.gobEnc = gob.NewEncoder(&pw.gobBuf)
+	return pw
+}
+
+// WriteMsg writes one protocol message while preserving gob type state across
+// calls on the same stream.
+func (w *Writer) WriteMsg(msg *Message) error {
+	if w == nil {
+		return io.ErrClosedPipe
+	}
+	if msg.Type == MsgTypePaneOutput {
+		return writePaneOutputBinary(w.dst, msg)
+	}
+	w.gobBuf.Reset()
+	if err := w.gobEnc.Encode(msg); err != nil {
+		return fmt.Errorf("encoding message: %w", err)
+	}
+	return writeGobFrame(w.dst, w.gobBuf.Bytes())
+}
+
+// Reader caches gob decoder state for one connection. It is safe for
+// sequential use only; callers serialize reads at a higher level.
+type Reader struct {
+	src    io.Reader
+	gobBuf bytes.Buffer
+	gobDec *gob.Decoder
+}
+
+// NewReader binds a stateful gob decoder to one input stream.
+func NewReader(r io.Reader) *Reader {
+	if r == nil {
+		return nil
+	}
+	pr := &Reader{src: r}
+	pr.gobDec = gob.NewDecoder(&pr.gobBuf)
+	return pr
+}
+
+// ReadMsg reads one protocol message while preserving gob type state across
+// calls on the same stream.
+func (r *Reader) ReadMsg() (*Message, error) {
+	if r == nil {
+		return nil, io.ErrClosedPipe
+	}
+	var disc [1]byte
+	if _, err := io.ReadFull(r.src, disc[:]); err != nil {
+		return nil, err
+	}
+
+	if disc[0] == wireFormatBinary {
+		return readPaneOutputBinary(r.src)
+	}
+	return r.readMsgGob()
+}
+
 // MsgType identifies the kind of protocol message.
 type MsgType uint8
 
@@ -154,16 +223,19 @@ func writeMsgGob(w io.Writer, msg *Message) error {
 	if err := gob.NewEncoder(&buf).Encode(msg); err != nil {
 		return fmt.Errorf("encoding message: %w", err)
 	}
+	return writeGobFrame(w, buf.Bytes())
+}
 
+func writeGobFrame(w io.Writer, payload []byte) error {
 	// Header: 1 (discriminator) + 4 (length) = 5 bytes
 	var hdr [5]byte
 	hdr[0] = wireFormatGob
-	binary.BigEndian.PutUint32(hdr[1:5], uint32(buf.Len()))
+	binary.BigEndian.PutUint32(hdr[1:5], uint32(len(payload)))
 	if _, err := w.Write(hdr[:]); err != nil {
 		return fmt.Errorf("writing gob header: %w", err)
 	}
 
-	_, err := w.Write(buf.Bytes())
+	_, err := w.Write(payload)
 	return err
 }
 
@@ -238,4 +310,37 @@ func readMsgGob(r io.Reader) (*Message, error) {
 	}
 
 	return msg, nil
+}
+
+func (r *Reader) readMsgGob() (*Message, error) {
+	data, err := readGobPayload(r.src)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := r.gobBuf.Write(data); err != nil {
+		return nil, fmt.Errorf("buffering gob message: %w", err)
+	}
+	msg := &Message{}
+	if err := r.gobDec.Decode(msg); err != nil {
+		return nil, fmt.Errorf("decoding message: %w", err)
+	}
+	return msg, nil
+}
+
+func readGobPayload(r io.Reader) ([]byte, error) {
+	var lenBuf [4]byte
+	if _, err := io.ReadFull(r, lenBuf[:]); err != nil {
+		return nil, err
+	}
+	length := binary.BigEndian.Uint32(lenBuf[:])
+
+	if length > maxMessageSize {
+		return nil, fmt.Errorf("message too large: %d bytes", length)
+	}
+
+	data := make([]byte, length)
+	if _, err := io.ReadFull(r, data); err != nil {
+		return nil, err
+	}
+	return data, nil
 }

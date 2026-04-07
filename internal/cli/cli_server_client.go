@@ -76,20 +76,20 @@ func overridePositiveIntFromEnv(name string, fallback int) int {
 func RunEventsCommand(sessionName string, args []string) {
 	serverArgs, opts := parseEventsClientArgs(args)
 
-	conn, err := connectStreamingCommand(sessionName, "events", serverArgs)
+	socket, err := connectStreamingCommand(sessionName, "events", serverArgs)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "amux events: %v\n", err)
 		os.Exit(1)
 	}
 
 	for {
-		err := streamCommandOutput(conn, "events")
+		err := streamCommandOutput(socket, "events")
 		if !opts.reconnect {
 			return
 		}
 
 		emitReconnectEvent()
-		conn, err = reconnectStreamingCommand(sessionName, "events", serverArgs, opts)
+		socket, err = reconnectStreamingCommand(sessionName, "events", serverArgs, opts)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "amux events: reconnect failed after %d attempts: %v\n", opts.maxRetries, err)
 			os.Exit(1)
@@ -97,7 +97,7 @@ func RunEventsCommand(sessionName string, args []string) {
 	}
 }
 
-func reconnectStreamingCommand(sessionName, cmdName string, args []string, opts eventsClientOptions) (net.Conn, error) {
+func reconnectStreamingCommand(sessionName, cmdName string, args []string, opts eventsClientOptions) (*serverSocket, error) {
 	delay := opts.initialBackoff
 	var lastErr error
 	for attempt := 1; attempt <= opts.maxRetries; attempt++ {
@@ -130,25 +130,35 @@ func emitReconnectEvent() {
 	fmt.Println(string(data))
 }
 
-func dialServer(sessionName string) (net.Conn, error) {
+type serverSocket struct {
+	conn   net.Conn
+	reader *server.Reader
+	writer *server.Writer
+}
+
+func dialServer(sessionName string) (*serverSocket, error) {
 	conn, err := net.Dial("unix", server.SocketPath(sessionName))
 	if err != nil {
 		return nil, fmt.Errorf("connecting to server: %w", err)
 	}
-	return conn, nil
+	return &serverSocket{
+		conn:   conn,
+		reader: server.NewReader(conn),
+		writer: server.NewWriter(conn),
+	}, nil
 }
 
-func connectStreamingCommand(sessionName, cmdName string, args []string) (net.Conn, error) {
-	conn, err := dialServer(sessionName)
+func connectStreamingCommand(sessionName, cmdName string, args []string) (*serverSocket, error) {
+	socket, err := dialServer(sessionName)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := server.WriteMsg(conn, newCommandMessage(cmdName, args)); err != nil {
-		conn.Close()
+	if err := socket.writer.WriteMsg(newCommandMessage(cmdName, args)); err != nil {
+		socket.conn.Close()
 		return nil, err
 	}
-	return conn, nil
+	return socket, nil
 }
 
 func emitBellMessage(msg *server.Message) bool {
@@ -159,11 +169,11 @@ func emitBellMessage(msg *server.Message) bool {
 	return false
 }
 
-func streamCommandOutput(conn net.Conn, cmdName string) error {
-	defer conn.Close()
+func streamCommandOutput(socket *serverSocket, cmdName string) error {
+	defer socket.conn.Close()
 
 	for {
-		msg, err := server.ReadMsg(conn)
+		msg, err := socket.reader.ReadMsg()
 		if err != nil {
 			return err
 		}
@@ -186,22 +196,22 @@ func RunServerCommand(sessionName, cmdName string, args []string) {
 }
 
 func runServerCommandWithIO(w io.Writer, sessionName, cmdName string, args []string) error {
-	conn, err := dialServer(sessionName)
+	socket, err := dialServer(sessionName)
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
+	defer socket.conn.Close()
 
 	if cmdName == "reload-server" {
 		args = PrependReloadExecPathArg(reload.ResolveExecutable, args)
 	}
 
-	if err := server.WriteMsg(conn, newCommandMessage(cmdName, args)); err != nil {
+	if err := socket.writer.WriteMsg(newCommandMessage(cmdName, args)); err != nil {
 		return err
 	}
 
 	for {
-		reply, err := server.ReadMsg(conn)
+		reply, err := socket.reader.ReadMsg()
 		if err != nil {
 			return err
 		}

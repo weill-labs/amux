@@ -47,7 +47,7 @@ func TestQueuedCommandDebugFramesForwardsThroughAttachedClient(t *testing.T) {
 			errCh <- err
 			return
 		}
-		msg, err := ReadMsg(peerConn)
+		msg, err := readMsgOnConn(peerConn)
 		if err != nil {
 			errCh <- err
 			return

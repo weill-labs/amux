@@ -35,7 +35,7 @@ func newPaneOutputRecorder(tb testing.TB, sockPath, session string, cols, rows i
 	}
 
 	caps := proto.KnownClientCapabilities()
-	if err := server.WriteMsg(conn, &server.Message{
+	if err := writeMsgOnConn(conn, &server.Message{
 		Type:               server.MsgTypeAttach,
 		Session:            session,
 		Cols:               cols,
@@ -122,7 +122,7 @@ func (r *paneOutputRecorder) close() {
 func (r *paneOutputRecorder) readLoop() {
 	defer close(r.done)
 	for {
-		msg, err := server.ReadMsg(r.conn)
+		msg, err := readMsgOnConn(r.conn)
 		if err != nil {
 			r.setErr(err)
 			r.readyOnce.Do(func() { close(r.ready) })

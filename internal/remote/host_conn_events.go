@@ -25,6 +25,8 @@ type hostEvent interface {
 type connectOutcome struct {
 	sshClient   *ssh.Client
 	amuxConn    net.Conn
+	amuxReader  *proto.Reader
+	amuxWriter  *proto.Writer
 	sessionName string
 	remoteUID   string
 	connectAddr string
@@ -350,6 +352,8 @@ func (e reconnectDoneEvent) handle(hc *HostConn) {
 func (hc *HostConn) applyOutcome(o *connectOutcome) {
 	hc.sshClient = o.sshClient
 	hc.amuxConn = o.amuxConn
+	hc.amuxReader = o.amuxReader
+	hc.amuxWriter = o.amuxWriter
 	hc.sessionName = o.sessionName
 	hc.remoteUID = o.remoteUID
 	hc.connectAddr = o.connectAddr
@@ -360,7 +364,7 @@ func (hc *HostConn) applyOutcome(o *connectOutcome) {
 	hc.logSSHConnect()
 	hc.bufferPendingInputs = false
 	hc.flushPendingInputs()
-	go hc.readLoop(hc.amuxConn)
+	go hc.readLoop(hc.amuxReader)
 }
 
 // drainPendingReplies sends err to all pending connect waiters and clears the slice.

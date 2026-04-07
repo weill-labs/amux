@@ -70,7 +70,7 @@ func mustReadMessage(t *testing.T, conn net.Conn) *Message {
 	if err := conn.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
 		t.Fatalf("SetReadDeadline: %v", err)
 	}
-	msg, err := ReadMsg(conn)
+	msg, err := readMsgOnConn(conn)
 	if err != nil {
 		t.Fatalf("ReadMsg: %v", err)
 	}
@@ -93,7 +93,7 @@ func runTestCommandMessages(t *testing.T, srv *Server, sess *Session, name strin
 	go func() {
 		var msgs []*Message
 		for {
-			msg, err := ReadMsg(peerConn)
+			msg, err := readMsgOnConn(peerConn)
 			if err != nil {
 				return
 			}
@@ -703,7 +703,7 @@ func TestCommandWaitClientsAndTypeKeys(t *testing.T) {
 			readCh <- typeKeyRead{err: err}
 			return
 		}
-		msg, err := ReadMsg(peerConn)
+		msg, err := readMsgOnConn(peerConn)
 		readCh <- typeKeyRead{msg: msg, err: err}
 	}()
 
@@ -1272,12 +1272,12 @@ func TestFlushPendingOutputEventsAndHelpers(t *testing.T) {
 			readCh <- flushRead{err: err}
 			return
 		}
-		msg1, err := ReadMsg(peerConn)
+		msg1, err := readMsgOnConn(peerConn)
 		if err != nil {
 			readCh <- flushRead{err: err}
 			return
 		}
-		msg2, err := ReadMsg(peerConn)
+		msg2, err := readMsgOnConn(peerConn)
 		readCh <- flushRead{msgs: []*Message{msg1, msg2}, err: err}
 	}()
 

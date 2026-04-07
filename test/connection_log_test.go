@@ -18,7 +18,7 @@ func TestConnectionLogCLI(t *testing.T) {
 	h.waitLayout(gen)
 
 	gen = h.generation()
-	if err := server.WriteMsg(conn, &server.Message{Type: server.MsgTypeDetach}); err != nil {
+	if err := writeMsgOnConn(conn, &server.Message{Type: server.MsgTypeDetach}); err != nil {
 		t.Fatalf("WriteMsg detach: %v", err)
 	}
 	h.waitLayout(gen)
@@ -55,7 +55,7 @@ func attachClientForConnectionLog(t *testing.T, session string, cols, rows int) 
 		t.Fatalf("Dial: %v", err)
 	}
 
-	if err := server.WriteMsg(conn, &server.Message{
+	if err := writeMsgOnConn(conn, &server.Message{
 		Type:    server.MsgTypeAttach,
 		Session: session,
 		Cols:    cols,
@@ -72,7 +72,7 @@ func attachClientForConnectionLog(t *testing.T, session string, cols, rows int) 
 
 	var layout *server.Message
 	for {
-		msg, err := server.ReadMsg(conn)
+		msg, err := readMsgOnConn(conn)
 		if err != nil {
 			_ = conn.Close()
 			t.Fatalf("ReadMsg initial layout: %v", err)
@@ -86,7 +86,7 @@ func attachClientForConnectionLog(t *testing.T, session string, cols, rows int) 
 	replayed := 0
 	wantReplays := len(layout.Layout.Panes)
 	for {
-		msg, err := server.ReadMsg(conn)
+		msg, err := readMsgOnConn(conn)
 		if err != nil {
 			_ = conn.Close()
 			t.Fatalf("ReadMsg bootstrap: %v", err)

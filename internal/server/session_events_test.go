@@ -40,7 +40,7 @@ func TestHandleAttachAndResizeThroughSessionQueue(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		srv.handleAttach(serverConn, &Message{
+		srv.handleAttach(newClientConn(serverConn), &Message{
 			Type:    MsgTypeAttach,
 			Session: sess.Name,
 			Cols:    80,
@@ -73,7 +73,7 @@ func TestHandleAttachAndResizeThroughSessionQueue(t *testing.T) {
 			msg.Layout.Width == 80 && msg.Layout.Height == 23
 	})
 
-	if err := WriteMsg(peerConn, &Message{Type: MsgTypeResize, Cols: 100, Rows: 30}); err != nil {
+	if err := writeMsgOnConn(peerConn, &Message{Type: MsgTypeResize, Cols: 100, Rows: 30}); err != nil {
 		t.Fatalf("WriteMsg resize: %v", err)
 	}
 
@@ -85,7 +85,7 @@ func TestHandleAttachAndResizeThroughSessionQueue(t *testing.T) {
 		t.Fatalf("active window id = %d, want %d", resized.Layout.ActiveWindowID, w.ID)
 	}
 
-	if err := WriteMsg(peerConn, &Message{Type: MsgTypeDetach}); err != nil {
+	if err := writeMsgOnConn(peerConn, &Message{Type: MsgTypeDetach}); err != nil {
 		t.Fatalf("WriteMsg detach: %v", err)
 	}
 
@@ -164,7 +164,7 @@ func TestHandleAttachSendsPaneHistoryBeforePaneOutput(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		srv.handleAttach(serverConn, &Message{
+		srv.handleAttach(newClientConn(serverConn), &Message{
 			Type:    MsgTypeAttach,
 			Session: sess.Name,
 			Cols:    80,
@@ -200,7 +200,7 @@ func TestHandleAttachSendsPaneHistoryBeforePaneOutput(t *testing.T) {
 			msg.Layout.Width == 80 && msg.Layout.Height == 23
 	})
 
-	if err := WriteMsg(peerConn, &Message{Type: MsgTypeDetach}); err != nil {
+	if err := writeMsgOnConn(peerConn, &Message{Type: MsgTypeDetach}); err != nil {
 		t.Fatalf("WriteMsg detach: %v", err)
 	}
 
@@ -585,7 +585,7 @@ func TestResizeFromNonInteractiveClientDoesNotResizeSession(t *testing.T) {
 	waitForPause(t, paused)
 	release()
 
-	if err := WriteMsg(attachConn, &Message{Type: MsgTypeResize, Cols: 60, Rows: 20}); err != nil {
+	if err := writeMsgOnConn(attachConn, &Message{Type: MsgTypeResize, Cols: 60, Rows: 20}); err != nil {
 		t.Fatalf("WriteMsg resize: %v", err)
 	}
 
@@ -1668,7 +1668,7 @@ func readMsgWithTimeoutDuration(t *testing.T, conn net.Conn, timeout time.Durati
 	}
 	defer conn.SetReadDeadline(time.Time{})
 
-	msg, err := ReadMsg(conn)
+	msg, err := readMsgOnConn(conn)
 	if err != nil {
 		t.Fatalf("ReadMsg: %v", err)
 	}

@@ -429,7 +429,7 @@ func BenchmarkOutputDetection(b *testing.B) {
 				}
 				defer conn.Close()
 
-				server.WriteMsg(conn, &server.Message{
+				writeMsgOnConn(conn, &server.Message{
 					Type:    server.MsgTypeCommand,
 					CmdName: "events",
 					CmdArgs: []string{"--filter", "layout"},
@@ -440,7 +440,7 @@ func BenchmarkOutputDetection(b *testing.B) {
 				go func() {
 					defer pw.Close()
 					for {
-						msg, err := server.ReadMsg(conn)
+						msg, err := readMsgOnConn(conn)
 						if err != nil {
 							return
 						}
@@ -503,7 +503,7 @@ func BenchmarkDetectLayoutChange(b *testing.B) {
 		}
 		defer conn.Close()
 
-		server.WriteMsg(conn, &server.Message{
+		writeMsgOnConn(conn, &server.Message{
 			Type:    server.MsgTypeCommand,
 			CmdName: "events",
 			CmdArgs: []string{"--filter", "layout"},
@@ -514,7 +514,7 @@ func BenchmarkDetectLayoutChange(b *testing.B) {
 		go func() {
 			defer pw.Close()
 			for {
-				msg, err := server.ReadMsg(conn)
+				msg, err := readMsgOnConn(conn)
 				if err != nil {
 					return
 				}

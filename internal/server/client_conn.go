@@ -26,6 +26,7 @@ const (
 // clientConn manages a single client connection to the server.
 type clientConn struct {
 	conn               net.Conn
+	reader             *proto.Reader
 	ID                 string
 	displayPanesShown  bool
 	prefixMessageShown bool
@@ -55,6 +56,7 @@ type pendingMessage struct {
 func newClientConn(conn net.Conn) *clientConn {
 	cc := &clientConn{
 		conn:      conn,
+		reader:    proto.NewReader(conn),
 		inputIdle: true,
 		logger:    auditlog.Discard(),
 	}
@@ -239,7 +241,7 @@ func (cc *clientConn) readLoop(srv *Server, sess *Session) {
 	}()
 
 	for {
-		msg, err := ReadMsg(cc.conn)
+		msg, err := cc.reader.ReadMsg()
 		if err != nil {
 			cc.finalizeDisconnectReason(sess, err)
 			return

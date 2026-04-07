@@ -228,7 +228,16 @@ func (s *Session) notifyPaneOutputSubs(paneID uint32) {
 // timer. When the quiet state transitions (idle↔busy), a layout broadcast is
 // sent so clients see the updated PaneSnapshot.Idle in the status bar.
 func (s *Session) trackPaneActivity(paneID uint32) {
-	wasIdle := s.ensureIdleTracker().TrackOutput(
+	pane := s.findPaneByID(paneID)
+	paneName, host := "", ""
+	wasIdle := false
+	if pane != nil {
+		paneName = pane.Meta.Name
+		host = pane.Meta.Host
+		wasIdle = s.ensureIdleTracker().PaneStatus(paneID, pane.CreatedAt(), s.clock().Now()).idle
+	}
+
+	s.ensureIdleTracker().TrackOutput(
 		paneID,
 		func() {
 			s.enqueueIdleTimeout(paneID)
@@ -239,12 +248,6 @@ func (s *Session) trackPaneActivity(paneID uint32) {
 	)
 
 	if wasIdle {
-		pane := s.findPaneByID(paneID)
-		paneName, host := "", ""
-		if pane != nil {
-			paneName = pane.Meta.Name
-			host = pane.Meta.Host
-		}
 		s.emitEvent(Event{
 			Type:     EventBusy,
 			PaneID:   paneID,

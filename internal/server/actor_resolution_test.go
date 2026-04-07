@@ -39,7 +39,7 @@ func runTestCommandWithActor(t *testing.T, srv *Server, sess *Session, actorPane
 	}, 1)
 	go func() {
 		for {
-			msg, err := ReadMsg(peerConn)
+			msg, err := readMsgOnConn(peerConn)
 			if err != nil {
 				return
 			}

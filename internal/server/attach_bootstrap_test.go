@@ -233,7 +233,7 @@ func startPausedAttachWithInteractivity(t *testing.T, srv *Server, sess *Session
 		if !interactive {
 			mode = proto.AttachModeNonInteractive
 		}
-		srv.handleAttach(serverConn, &Message{
+		srv.handleAttach(newClientConn(serverConn), &Message{
 			Type:       MsgTypeAttach,
 			Session:    sess.Name,
 			Cols:       cols,
@@ -252,7 +252,7 @@ func closeAttach(t *testing.T, peerConn net.Conn, release func(), done <-chan st
 
 	release()
 	if peerConn != nil {
-		_ = WriteMsg(peerConn, &Message{Type: MsgTypeDetach})
+		_ = writeMsgOnConn(peerConn, &Message{Type: MsgTypeDetach})
 		_ = peerConn.Close()
 	}
 

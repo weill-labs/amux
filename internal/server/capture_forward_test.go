@@ -883,7 +883,7 @@ func TestForwardCaptureJSONStressUnderPaneOutput(t *testing.T) {
 	go func() {
 		defer close(clientDone)
 		for {
-			msg, err := ReadMsg(clientEnd)
+			msg, err := readMsgOnConn(clientEnd)
 			if err != nil {
 				return
 			}
@@ -911,7 +911,7 @@ func TestForwardCaptureJSONStressUnderPaneOutput(t *testing.T) {
 						},
 					}
 					data, _ := json.MarshalIndent(errResp, "", "  ")
-					if err := WriteMsg(clientEnd, &Message{Type: MsgTypeCaptureResponse, CmdOutput: string(data) + "\n"}); err != nil {
+					if err := writeMsgOnConn(clientEnd, &Message{Type: MsgTypeCaptureResponse, CmdOutput: string(data) + "\n"}); err != nil {
 						return
 					}
 					continue
@@ -929,7 +929,7 @@ func TestForwardCaptureJSONStressUnderPaneOutput(t *testing.T) {
 					})
 				}
 				data, _ := json.MarshalIndent(capture, "", "  ")
-				if err := WriteMsg(clientEnd, &Message{Type: MsgTypeCaptureResponse, CmdOutput: string(data) + "\n"}); err != nil {
+				if err := writeMsgOnConn(clientEnd, &Message{Type: MsgTypeCaptureResponse, CmdOutput: string(data) + "\n"}); err != nil {
 					return
 				}
 			}
@@ -939,7 +939,7 @@ func TestForwardCaptureJSONStressUnderPaneOutput(t *testing.T) {
 	go func() {
 		defer close(serverReadDone)
 		for {
-			msg, err := ReadMsg(serverConn)
+			msg, err := readMsgOnConn(serverConn)
 			if err != nil {
 				return
 			}
@@ -1052,7 +1052,7 @@ func readCaptureRequestForTest(t *testing.T, conn net.Conn) *Message {
 	}
 	defer conn.SetReadDeadline(time.Time{})
 
-	msg, err := ReadMsg(conn)
+	msg, err := readMsgOnConn(conn)
 	if err != nil {
 		t.Fatalf("ReadMsg: %v", err)
 	}

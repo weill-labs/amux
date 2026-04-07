@@ -51,13 +51,13 @@ func applyAttachBootstrapMessage(cr *ClientRenderer, msg attachBootstrapMessage)
 	}
 }
 
-func readImmediateAttachCorrection(conn net.Conn, cr *ClientRenderer, timeout time.Duration) error {
+func readImmediateAttachCorrection(conn net.Conn, reader *proto.Reader, cr *ClientRenderer, timeout time.Duration) error {
 	if err := conn.SetReadDeadline(time.Now().Add(timeout)); err != nil {
 		return err
 	}
 	defer conn.SetReadDeadline(time.Time{}) //nolint:errcheck // best-effort reset
 	for {
-		msg, err := proto.ReadMsg(conn)
+		msg, err := reader.ReadMsg()
 		if err != nil {
 			if ne, ok := err.(net.Error); ok && ne.Timeout() {
 				return nil
@@ -79,7 +79,7 @@ func readImmediateAttachCorrection(conn net.Conn, cr *ClientRenderer, timeout ti
 	}
 }
 
-func readAttachBootstrapPaneReplays(conn net.Conn, cr *ClientRenderer, remainingOutputs int, timeout time.Duration) (int, error) {
+func readAttachBootstrapPaneReplays(conn net.Conn, reader *proto.Reader, cr *ClientRenderer, remainingOutputs int, timeout time.Duration) (int, error) {
 	if remainingOutputs <= 0 {
 		return 0, nil
 	}
@@ -88,7 +88,7 @@ func readAttachBootstrapPaneReplays(conn net.Conn, cr *ClientRenderer, remaining
 	}
 	defer conn.SetReadDeadline(time.Time{}) //nolint:errcheck // best-effort reset
 	for remainingOutputs > 0 {
-		msg, err := proto.ReadMsg(conn)
+		msg, err := reader.ReadMsg()
 		if err != nil {
 			if ne, ok := err.(net.Error); ok && ne.Timeout() {
 				return remainingOutputs, nil
@@ -110,12 +110,12 @@ func readAttachBootstrapPaneReplays(conn net.Conn, cr *ClientRenderer, remaining
 	return 0, nil
 }
 
-func readAttachBootstrap(conn net.Conn, cr *ClientRenderer) error {
+func readAttachBootstrap(conn net.Conn, reader *proto.Reader, cr *ClientRenderer) error {
 	var layout *proto.LayoutSnapshot
 	var buffered []attachBootstrapMessage
 
 	for layout == nil {
-		msg, err := proto.ReadMsg(conn)
+		msg, err := reader.ReadMsg()
 		if err != nil {
 			return err
 		}
@@ -138,7 +138,7 @@ func readAttachBootstrap(conn net.Conn, cr *ClientRenderer) error {
 		remainingOutputs -= applyAttachBootstrapMessage(cr, msg)
 	}
 
-	remainingOutputs, err := readAttachBootstrapPaneReplays(conn, cr, remainingOutputs, config.BootstrapPaneReplayWait)
+	remainingOutputs, err := readAttachBootstrapPaneReplays(conn, reader, cr, remainingOutputs, config.BootstrapPaneReplayWait)
 	if err != nil {
 		return err
 	}
@@ -149,5 +149,5 @@ func readAttachBootstrap(conn net.Conn, cr *ClientRenderer) error {
 		return nil
 	}
 
-	return readImmediateAttachCorrection(conn, cr, config.BootstrapCorrectionWindow)
+	return readImmediateAttachCorrection(conn, reader, cr, config.BootstrapCorrectionWindow)
 }

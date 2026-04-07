@@ -12,6 +12,7 @@ const senderRequestBufferSize = 256
 
 type messageSender struct {
 	conn      net.Conn
+	writer    *proto.Writer
 	requests  chan senderCommand
 	stop      chan struct{}
 	done      chan struct{}
@@ -20,22 +21,22 @@ type messageSender struct {
 }
 
 type senderCommand interface {
-	handle(net.Conn) (bool, error)
+	handle(*proto.Writer) (bool, error)
 }
 
 type sendRequest struct {
 	msg *proto.Message
 }
 
-func (r sendRequest) handle(conn net.Conn) (bool, error) {
-	return false, proto.WriteMsg(conn, r.msg)
+func (r sendRequest) handle(writer *proto.Writer) (bool, error) {
+	return false, writer.WriteMsg(r.msg)
 }
 
 type senderFlushRequest struct {
 	reply chan error
 }
 
-func (r senderFlushRequest) handle(net.Conn) (bool, error) {
+func (r senderFlushRequest) handle(*proto.Writer) (bool, error) {
 	r.reply <- nil
 	return false, nil
 }
@@ -43,6 +44,7 @@ func (r senderFlushRequest) handle(net.Conn) (bool, error) {
 func newMessageSender(conn net.Conn) *messageSender {
 	s := &messageSender{
 		conn:     conn,
+		writer:   proto.NewWriter(conn),
 		requests: make(chan senderCommand, senderRequestBufferSize),
 		stop:     make(chan struct{}),
 		done:     make(chan struct{}),
@@ -99,7 +101,7 @@ func (s *messageSender) loop() {
 			if req == nil {
 				continue
 			}
-			stop, err := req.handle(s.conn)
+			stop, err := req.handle(s.writer)
 			if err != nil {
 				s.storeError(err)
 				return

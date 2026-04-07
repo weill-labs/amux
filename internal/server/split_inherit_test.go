@@ -63,7 +63,7 @@ func TestSplitInheritsRemoteHost(t *testing.T) {
 	results := make(chan cmdResult, 1)
 	go func() {
 		for {
-			msg, err := ReadMsg(peerConn)
+			msg, err := readMsgOnConn(peerConn)
 			if err != nil {
 				return
 			}
