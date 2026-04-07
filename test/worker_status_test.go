@@ -41,7 +41,7 @@ cat <<'EOF'
     "tracked_prs": [{"number": 422, "status": "active"}]
   },
   "idle": false,
-  "child_pids": [101],
+  "exited": false,
   "content": ["running tests", "streaming output"]
 }
 EOF
@@ -57,7 +57,7 @@ cat <<'EOF'
     "tracked_prs": [{"number": 600, "status": "active"}]
   },
   "idle": true,
-  "child_pids": [],
+  "exited": true,
   "content": ["", "worker finished"]
 }
 EOF
@@ -73,7 +73,7 @@ cat <<'EOF'
     "tracked_prs": [{"number": 500, "status": "active"}]
   },
   "idle": false,
-  "child_pids": [202],
+  "exited": false,
   "content": [
     "  Do you trust the contents of this directory? Working with untrusted contents",
     "  higher risk of prompt injection."
@@ -92,7 +92,7 @@ cat <<'EOF'
     "tracked_prs": [{"number": 700, "status": "active"}]
   },
   "idle": false,
-  "child_pids": [303],
+  "exited": false,
   "content": ["not a worker"]
 }
 EOF
@@ -119,7 +119,7 @@ cat <<'EOF'
     "tracked_prs": [{"number": 513, "status": "active"}]
   },
   "idle": false,
-  "child_pids": [],
+  "exited": true,
   "content": ["waiting quietly"]
 }
 EOF

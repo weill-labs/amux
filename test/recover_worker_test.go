@@ -208,42 +208,42 @@ emit_capture() {
     case "$(read_stage)" in
         stuck)
             cat <<'EOF'
-{"child_pids":[42],"content":["Do you trust the contents of this directory?","Working with untrusted contents comes with higher risk of prompt injection.","Press enter to continue"]}
+{"exited":false,"content":["Do you trust the contents of this directory?","Working with untrusted contents comes with higher risk of prompt injection.","Press enter to continue"]}
 EOF
             ;;
         dismissed|exited)
             cat <<'EOF'
-{"child_pids":[42],"content":["Exited current dialog"]}
+{"exited":false,"content":["Exited current dialog"]}
 EOF
             ;;
         resume_picker)
             cat <<'EOF'
-{"child_pids":[42],"content":["Recent sessions:","  abc123  LAB-518 worker","Press Enter to continue"]}
+{"exited":false,"content":["Recent sessions:","  abc123  LAB-518 worker","Press Enter to continue"]}
 EOF
             ;;
         ready_to_continue|unchanged)
             cat <<'EOF'
-{"child_pids":[42],"content":["Resumed rollout successfully from abc123","> ."]}
+{"exited":false,"content":["Resumed rollout successfully from abc123","> ."]}
 EOF
             ;;
         recovered)
             cat <<'EOF'
-{"child_pids":[42],"content":["Resumed rollout successfully from abc123","Working on it now","Inspecting tests..."]}
+{"exited":false,"content":["Resumed rollout successfully from abc123","Working on it now","Inspecting tests..."]}
 EOF
             ;;
         not_stuck)
             cat <<'EOF'
-{"child_pids":[42],"content":["build passed","shell prompt ready"]}
+{"exited":true,"content":["build passed","shell prompt ready"]}
 EOF
             ;;
         no_children)
             cat <<'EOF'
-{"child_pids":[],"content":["Do you trust the contents of this directory?","Working with untrusted contents comes with higher risk of prompt injection.","Press enter to continue"]}
+{"exited":true,"content":["Do you trust the contents of this directory?","Working with untrusted contents comes with higher risk of prompt injection.","Press enter to continue"]}
 EOF
             ;;
         still_blocked)
             cat <<'EOF'
-{"child_pids":[42],"content":["Resumed rollout successfully from abc123","Press enter to continue"]}
+{"exited":false,"content":["Resumed rollout successfully from abc123","Press enter to continue"]}
 EOF
             ;;
         *)

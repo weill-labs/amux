@@ -944,36 +944,33 @@ func (a *atomicInt64) Load() int64   { return a.value }
 func (a *atomicInt64) Store(v int64) { a.value = v }
 
 func TestAgentStatusTracksBusyAndIdle(t *testing.T) {
-	// Not parallel: AgentStatus shells out to pgrep/ps repeatedly against live
-	// PTY-backed processes, and this has timed out in CI under concurrent load.
-	// Keep this serialized within the package: AgentStatus shells out to pgrep/ps
-	// multiple times per poll, and running it alongside the other PTY/process
-	// tests under -race has timed out in CI.
+	// Not parallel: this exercises foreground job detection against live
+	// PTY-backed processes and waits for shell/job transitions.
 	pane := newAgentStatusTestPane(t)
 
-	idle := (&Pane{createdAt: pane.createdAt}).AgentStatus()
-	if !idle.Idle || len(idle.ChildPIDs) != 0 || !idle.IdleSince.Equal(pane.createdAt) {
-		t.Fatalf("idle-without-process = %+v, want idle since creation with no children", idle)
+	idle := (&Pane{createdAt: pane.createdAt}).ForegroundJobState()
+	if !idle.Idle || !idle.IdleSince.Equal(pane.createdAt) {
+		t.Fatalf("idle-without-process = %+v, want idle since creation", idle)
 	}
 
 	waitUntil(t, time.Second, func() bool {
-		idle = pane.AgentStatus()
-		return idle.Idle && len(idle.ChildPIDs) == 0 && idle.CurrentCommand != ""
+		idle = pane.ForegroundJobState()
+		return idle.Idle
 	})
 
 	if _, err := pane.Write([]byte("sleep 30 & child=$!\n")); err != nil {
 		t.Fatalf("start child through shell: %v", err)
 	}
 
-	var busy AgentStatus
+	var busy ForegroundJobState
 	waitUntil(t, time.Second, func() bool {
-		busy = pane.AgentStatus()
-		return !busy.Idle && len(busy.ChildPIDs) > 0 && busy.CurrentCommand != ""
+		busy = pane.ForegroundJobState()
+		return !busy.Idle && busy.ForegroundProcessGroup != 0
 	})
 
-	childPID := busy.ChildPIDs[len(busy.ChildPIDs)-1]
-	if got := processName(childPID); got == "" {
-		t.Fatal("processName(child) = empty, want command name")
+	status := pane.AgentStatus()
+	if got := status.CurrentCommand; got == "" {
+		t.Fatal("AgentStatus CurrentCommand = empty, want command name")
 	}
 
 	if _, err := pane.Write([]byte("kill \"$child\" 2>/dev/null\nwait \"$child\" 2>/dev/null\n")); err != nil {
@@ -981,20 +978,17 @@ func TestAgentStatusTracksBusyAndIdle(t *testing.T) {
 	}
 
 	waitUntil(t, time.Second, func() bool {
-		idle = pane.AgentStatus()
-		return idle.Idle && len(idle.ChildPIDs) == 0 && idle.CurrentCommand != ""
+		idle = pane.ForegroundJobState()
+		return idle.Idle
 	})
 	if idle.IdleSince.IsZero() {
-		t.Fatal("idle AgentStatus IdleSince should be populated")
+		t.Fatal("idle ForegroundJobState IdleSince should be populated")
 	}
 }
 
 func TestAgentStatusTreatsPromptTimeBashSelfForkAsIdle(t *testing.T) {
-	// Not parallel: this shells out repeatedly against a live PTY-backed process
-	// tree, and it shares the same CI timeout risk as the other AgentStatus test.
-	// Keep this serialized within the package for the same reason as the other
-	// AgentStatus test: it shells out repeatedly and inspects a live PTY-backed
-	// process tree.
+	// Not parallel: this exercises prompt-time shell self-fork behavior against
+	// a live PTY-backed process tree.
 	dir := t.TempDir()
 	markerFile := filepath.Join(dir, "prompt-marker")
 	readyFile := filepath.Join(dir, "ready")
@@ -1032,8 +1026,8 @@ func TestAgentStatusTreatsPromptTimeBashSelfForkAsIdle(t *testing.T) {
 	if !status.Idle {
 		t.Fatalf("prompt-time bash self-fork reported busy: %+v", status)
 	}
-	if len(status.ChildPIDs) != 0 {
-		t.Fatalf("idle prompt-time bash self-fork should not expose child PIDs: %+v", status)
+	if status.CurrentCommand == "" {
+		t.Fatalf("idle prompt-time bash self-fork should report a shell command: %+v", status)
 	}
 }
 

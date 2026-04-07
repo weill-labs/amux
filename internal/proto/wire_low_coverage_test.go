@@ -124,7 +124,6 @@ func TestWriteReadMsgAllMessageTypes(t *testing.T) {
 						Exited:         false,
 						ExitedSince:    "",
 						CurrentCommand: "go",
-						ChildPIDs:      []int{101, 202},
 						Idle:           true,
 						IdleSince:      "2026-03-28T12:00:02Z",
 						LastOutput:     "2026-03-28T12:00:00Z",
@@ -320,7 +319,7 @@ func TestCapturePaneApplyAgentStatus(t *testing.T) {
 			want:   CapturePane{ID: 2, Name: "pane-2"},
 		},
 		{
-			name: "nil child pids normalize to empty slice",
+			name: "status fields are applied",
 			pane: CapturePane{ID: 2},
 			status: map[uint32]PaneAgentStatus{
 				2: {
@@ -339,29 +338,7 @@ func TestCapturePaneApplyAgentStatus(t *testing.T) {
 				Idle:           true,
 				IdleSince:      "2025-01-01T00:00:02Z",
 				CurrentCommand: "bash",
-				ChildPIDs:      []int{},
 				LastOutput:     "2025-01-01T00:00:00Z",
-			},
-		},
-		{
-			name: "child pids preserved",
-			pane: CapturePane{ID: 3},
-			status: map[uint32]PaneAgentStatus{
-				3: {
-					Exited:         false,
-					CurrentCommand: "go",
-					ChildPIDs:      []int{11, 22},
-					Idle:           false,
-					LastOutput:     "2025-01-01T00:00:04Z",
-				},
-			},
-			want: CapturePane{
-				ID:             3,
-				Exited:         false,
-				Idle:           false,
-				CurrentCommand: "go",
-				ChildPIDs:      []int{11, 22},
-				LastOutput:     "2025-01-01T00:00:04Z",
 			},
 		},
 	}

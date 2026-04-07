@@ -354,22 +354,22 @@ func TestWaitBusyForegroundPID(t *testing.T) {
 
 	tests := []struct {
 		name   string
-		status mux.AgentStatus
+		status mux.ForegroundJobState
 		want   int
 	}{
 		{
 			name:   "idle",
-			status: mux.AgentStatus{Idle: true, ChildPIDs: []int{12}},
+			status: mux.ForegroundJobState{Idle: true, ForegroundProcessGroup: 12},
 			want:   0,
 		},
 		{
-			name:   "no children",
-			status: mux.AgentStatus{Idle: false, ChildPIDs: nil},
+			name:   "no foreground process group",
+			status: mux.ForegroundJobState{Idle: false},
 			want:   0,
 		},
 		{
-			name:   "last child is foreground",
-			status: mux.AgentStatus{ChildPIDs: []int{12, 34, 56}},
+			name:   "foreground process group is returned",
+			status: mux.ForegroundJobState{ForegroundProcessGroup: 56},
 			want:   56,
 		},
 	}
@@ -391,35 +391,35 @@ func TestWaitBusyReady(t *testing.T) {
 	tests := []struct {
 		name         string
 		candidatePID int
-		status       mux.AgentStatus
+		status       mux.ForegroundJobState
 		wantNext     int
 		wantReady    bool
 	}{
 		{
 			name:         "zero candidate does not satisfy readiness",
 			candidatePID: 0,
-			status:       mux.AgentStatus{ChildPIDs: []int{91}},
+			status:       mux.ForegroundJobState{ForegroundProcessGroup: 91},
 			wantNext:     91,
 			wantReady:    false,
 		},
 		{
-			name:         "different foreground child updates candidate",
+			name:         "different foreground process group updates candidate",
 			candidatePID: 91,
-			status:       mux.AgentStatus{ChildPIDs: []int{104}},
+			status:       mux.ForegroundJobState{ForegroundProcessGroup: 104},
 			wantNext:     104,
 			wantReady:    false,
 		},
 		{
-			name:         "same foreground child is ready",
+			name:         "same foreground process group is ready",
 			candidatePID: 104,
-			status:       mux.AgentStatus{ChildPIDs: []int{104}},
+			status:       mux.ForegroundJobState{ForegroundProcessGroup: 104},
 			wantNext:     104,
 			wantReady:    true,
 		},
 		{
 			name:         "idle clears candidate",
 			candidatePID: 104,
-			status:       mux.AgentStatus{Idle: true, ChildPIDs: []int{104}},
+			status:       mux.ForegroundJobState{Idle: true, ForegroundProcessGroup: 104},
 			wantNext:     0,
 			wantReady:    false,
 		},

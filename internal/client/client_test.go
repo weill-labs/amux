@@ -336,7 +336,7 @@ func TestClientRendererCaptureJSON(t *testing.T) {
 
 	// With agent status
 	status := map[uint32]proto.PaneAgentStatus{
-		1: {Idle: true, CurrentCommand: "bash", ChildPIDs: []int{}},
+		1: {Idle: true, CurrentCommand: "bash"},
 	}
 	out2 := cr.CaptureJSON(status)
 	var capture2 proto.CaptureJSON
@@ -475,7 +475,7 @@ func TestRendererCaptureJSONValueMatchesCaptureJSON(t *testing.T) {
 	cr := buildTestRenderer(t)
 
 	status := map[uint32]proto.PaneAgentStatus{
-		1: {Idle: true, CurrentCommand: "bash", ChildPIDs: []int{}},
+		1: {Idle: true, CurrentCommand: "bash"},
 	}
 	capture, ok := cr.renderer.captureJSONValue(status)
 	if !ok {
@@ -756,7 +756,7 @@ func TestRendererCapturePaneValueMatchesCapturePaneJSON(t *testing.T) {
 	cr := buildTestRenderer(t)
 
 	status := map[uint32]proto.PaneAgentStatus{
-		1: {Idle: true, CurrentCommand: "bash", ChildPIDs: []int{}},
+		1: {Idle: true, CurrentCommand: "bash"},
 	}
 	pane, ok := cr.renderer.capturePaneValue(1, status)
 	if !ok {
@@ -795,7 +795,6 @@ func TestClientRendererCapturePaneJSONIncludesIdleFields(t *testing.T) {
 	    "Idle": true,
 	    "IdleSince": "2026-03-28T12:00:02Z",
 	    "CurrentCommand": "bash",
-	    "ChildPIDs": [],
 	    "LastOutput": "2026-03-28T12:00:00Z"
 	  }
 	}`

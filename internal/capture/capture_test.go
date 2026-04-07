@@ -210,7 +210,6 @@ func TestBuildPane(t *testing.T) {
 			Idle:           true,
 			IdleSince:      "2026-03-20T12:00:00Z",
 			CurrentCommand: "bash",
-			ChildPIDs:      nil,
 			LastOutput:     "2026-03-20T11:59:58Z",
 		},
 	}
@@ -247,7 +246,6 @@ func TestBuildPane(t *testing.T) {
 		Idle:           true,
 		IdleSince:      "2026-03-20T12:00:00Z",
 		CurrentCommand: "bash",
-		ChildPIDs:      []int{},
 		LastOutput:     "2026-03-20T11:59:58Z",
 	}
 	if !reflect.DeepEqual(got, want) {
