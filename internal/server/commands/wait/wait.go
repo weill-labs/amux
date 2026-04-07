@@ -94,14 +94,14 @@ func ParseWaitUIArgs(args []string) (eventName, clientID string, afterGen uint64
 	return eventName, clientID, afterGen, afterSet, timeout, nil
 }
 
-func WaitBusyForegroundPID(status mux.ForegroundJobState) int {
+func WaitBusyForegroundProcessGroup(status mux.ForegroundJobState) int {
 	if status.Idle {
 		return 0
 	}
 	return status.ForegroundProcessGroup
 }
 
-func WaitBusyReady(candidatePID int, status mux.ForegroundJobState) (nextPID int, ready bool) {
-	nextPID = WaitBusyForegroundPID(status)
-	return nextPID, nextPID != 0 && nextPID == candidatePID
+func WaitBusyReady(candidateProcessGroup int, status mux.ForegroundJobState) (nextProcessGroup int, ready bool) {
+	nextProcessGroup = WaitBusyForegroundProcessGroup(status)
+	return nextProcessGroup, nextProcessGroup != 0 && nextProcessGroup == candidateProcessGroup
 }

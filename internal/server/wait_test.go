@@ -349,7 +349,7 @@ func TestBeginPaneOutputWait(t *testing.T) {
 	})
 }
 
-func TestWaitBusyForegroundPID(t *testing.T) {
+func TestWaitBusyForegroundProcessGroup(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -378,8 +378,8 @@ func TestWaitBusyForegroundPID(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			if got := waitBusyForegroundPID(tt.status); got != tt.want {
-				t.Fatalf("waitBusyForegroundPID(%+v) = %d, want %d", tt.status, got, tt.want)
+			if got := waitBusyForegroundProcessGroup(tt.status); got != tt.want {
+				t.Fatalf("waitBusyForegroundProcessGroup(%+v) = %d, want %d", tt.status, got, tt.want)
 			}
 		})
 	}

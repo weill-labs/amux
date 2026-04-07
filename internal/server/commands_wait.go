@@ -236,12 +236,12 @@ func parseWaitUIArgs(args []string) (eventName, clientID string, afterGen uint64
 	return waitcmd.ParseWaitUIArgs(args)
 }
 
-func waitBusyForegroundPID(status mux.ForegroundJobState) int {
-	return waitcmd.WaitBusyForegroundPID(status)
+func waitBusyForegroundProcessGroup(status mux.ForegroundJobState) int {
+	return waitcmd.WaitBusyForegroundProcessGroup(status)
 }
 
-func waitBusyReady(candidatePID int, status mux.ForegroundJobState) (nextPID int, ready bool) {
-	return waitcmd.WaitBusyReady(candidatePID, status)
+func waitBusyReady(candidateProcessGroup int, status mux.ForegroundJobState) (nextProcessGroup int, ready bool) {
+	return waitcmd.WaitBusyReady(candidateProcessGroup, status)
 }
 
 func cmdCursor(ctx *CommandContext) {
@@ -333,14 +333,14 @@ func waitForPaneBusy(sess *Session, paneID uint32, paneRef string, timeout time.
 		if err != nil {
 			return err
 		}
-		candidatePID := waitBusyForegroundPID(st)
-		if candidatePID != 0 {
+		candidateProcessGroup := waitBusyForegroundProcessGroup(st)
+		if candidateProcessGroup != 0 {
 			time.Sleep(50 * time.Millisecond)
 			st2, err := checkBusyStatus()
 			if err != nil {
 				return err
 			}
-			if _, ready := waitBusyReady(candidatePID, st2); ready {
+			if _, ready := waitBusyReady(candidateProcessGroup, st2); ready {
 				return nil
 			}
 		}
@@ -350,7 +350,7 @@ func waitForPaneBusy(sess *Session, paneID uint32, paneRef string, timeout time.
 	defer timeoutTimer.Stop()
 	ticker := time.NewTicker(50 * time.Millisecond)
 	defer ticker.Stop()
-	candidatePID := 0
+	candidateProcessGroup := 0
 
 	for {
 		select {
@@ -364,11 +364,11 @@ func waitForPaneBusy(sess *Session, paneID uint32, paneRef string, timeout time.
 		if err != nil {
 			return err
 		}
-		nextPID, ready := waitBusyReady(candidatePID, st)
+		nextProcessGroup, ready := waitBusyReady(candidateProcessGroup, st)
 		if ready {
 			return nil
 		}
-		candidatePID = nextPID
+		candidateProcessGroup = nextProcessGroup
 	}
 }
 

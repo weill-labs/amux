@@ -91,7 +91,7 @@ func TestWaitBusy_EventBased(t *testing.T) {
 	stopLongRunningCommand(t, h, "pane-1")
 }
 
-func TestWaitBusy_WaitsForChildProcessNotPromptEcho(t *testing.T) {
+func TestWaitBusy_WaitsForForegroundProcessNotPromptEcho(t *testing.T) {
 	t.Parallel()
 	h := newServerHarness(t)
 
