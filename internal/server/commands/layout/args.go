@@ -57,7 +57,13 @@ func parseCreatePaneArgs(mode createPaneMode, args []string) (createPaneArgs, er
 		)
 	} else {
 		parsed.Dir = mux.SplitVertical
-		specs = append(specs, cmdflags.FlagSpec{Name: "--auto", Type: cmdflags.FlagTypeBool})
+		specs = append(specs,
+			cmdflags.FlagSpec{Name: "--auto", Type: cmdflags.FlagTypeBool},
+			cmdflags.FlagSpec{Name: "--at", Type: cmdflags.FlagTypeString},
+			cmdflags.FlagSpec{Name: "--root", Type: cmdflags.FlagTypeBool},
+			cmdflags.FlagSpec{Name: "--vertical", Type: cmdflags.FlagTypeBool},
+			cmdflags.FlagSpec{Name: "--horizontal", Type: cmdflags.FlagTypeBool},
+		)
 	}
 
 	flags, err := cmdflags.ParseCommandFlags(args, specs)
@@ -72,6 +78,8 @@ func parseCreatePaneArgs(mode createPaneMode, args []string) (createPaneArgs, er
 	parsed.Color = flags.String("--color")
 	if mode == createPaneModeSpawn {
 		parsed.Auto = flags.Bool("--auto")
+		parsed.PaneRef = flags.String("--at")
+		parsed.RootLevel = flags.Bool("--root")
 		parsed.HostExplicit = flags.Seen("--host")
 	}
 
@@ -85,17 +93,18 @@ func parseCreatePaneArgs(mode createPaneMode, args []string) (createPaneArgs, er
 		return nil
 	}
 
+	if flags.Bool("--vertical") {
+		if err := setDir(mux.SplitVertical); err != nil {
+			return createPaneArgs{}, err
+		}
+	}
+	if flags.Bool("--horizontal") {
+		if err := setDir(mux.SplitHorizontal); err != nil {
+			return createPaneArgs{}, err
+		}
+	}
+
 	if mode == createPaneModeSplit {
-		if flags.Bool("--vertical") {
-			if err := setDir(mux.SplitVertical); err != nil {
-				return createPaneArgs{}, err
-			}
-		}
-		if flags.Bool("--horizontal") {
-			if err := setDir(mux.SplitHorizontal); err != nil {
-				return createPaneArgs{}, err
-			}
-		}
 		for _, arg := range flags.Positionals() {
 			switch arg {
 			case "root":
@@ -118,6 +127,12 @@ func parseCreatePaneArgs(mode createPaneMode, args []string) (createPaneArgs, er
 	positionals := flags.Positionals()
 	if len(positionals) > 0 {
 		return createPaneArgs{}, fmt.Errorf("unknown spawn arg %q", positionals[0])
+	}
+	if parsed.Auto && (parsed.PaneRef != "" || parsed.RootLevel || hasExplicitDir) {
+		return createPaneArgs{}, fmt.Errorf("spawn --auto cannot be combined with explicit placement")
+	}
+	if (parsed.PaneRef != "" || parsed.RootLevel) && !hasExplicitDir {
+		parsed.Dir = mux.SplitHorizontal
 	}
 	return parsed, nil
 }
@@ -147,6 +162,9 @@ func ParseSplitArgs(args []string) (SplitArgs, error) {
 }
 
 type SpawnArgs struct {
+	PaneRef      string
+	RootLevel    bool
+	Dir          mux.SplitDir
 	Meta         mux.PaneMeta
 	Auto         bool
 	Focus        bool
@@ -163,6 +181,9 @@ func ParseSpawnArgs(args []string) (SpawnArgs, error) {
 		host = mux.DefaultHost
 	}
 	return SpawnArgs{
+		PaneRef:   parsed.PaneRef,
+		RootLevel: parsed.RootLevel,
+		Dir:       parsed.Dir,
 		Meta: mux.PaneMeta{
 			Name:  parsed.Name,
 			Host:  host,

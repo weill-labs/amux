@@ -240,6 +240,7 @@ func TestSpawnParsesArgsAndDelegates(t *testing.T) {
 
 	got := Spawn(ctx, 12, []string{"--focus", "--host", "dev", "--name", "worker", "--task", "build", "--color", "rosewater"})
 	wantArgs := SpawnArgs{
+		Dir:          mux.SplitVertical,
 		Focus:        true,
 		HostExplicit: true,
 		Meta: mux.PaneMeta{
@@ -247,6 +248,37 @@ func TestSpawnParsesArgsAndDelegates(t *testing.T) {
 			Host:  "dev",
 			Task:  "build",
 			Color: "rosewater",
+		},
+	}
+
+	if !ctx.spawnCalled {
+		t.Fatal("Spawn() did not call context")
+	}
+	if ctx.spawnActorPaneID != 12 {
+		t.Fatalf("actorPaneID = %d, want 12", ctx.spawnActorPaneID)
+	}
+	if !reflect.DeepEqual(ctx.spawnArgs, wantArgs) {
+		t.Fatalf("spawn args = %+v, want %+v", ctx.spawnArgs, wantArgs)
+	}
+	if got.Output != "spawned\n" {
+		t.Fatalf("result output = %q, want %q", got.Output, "spawned\n")
+	}
+}
+
+func TestSpawnParsesTargetedArgsAndDelegates(t *testing.T) {
+	t.Parallel()
+
+	ctx := &fakeLayoutContext{
+		spawnResult: commandpkg.Result{Output: "spawned\n"},
+	}
+
+	got := Spawn(ctx, 12, []string{"--at", "pane-1", "--name", "worker"})
+	wantArgs := SpawnArgs{
+		PaneRef: "pane-1",
+		Dir:     mux.SplitHorizontal,
+		Meta: mux.PaneMeta{
+			Name: "worker",
+			Host: mux.DefaultHost,
 		},
 	}
 
@@ -274,6 +306,7 @@ func TestSpawnParsesAutoArgsAndDelegates(t *testing.T) {
 	got := Spawn(ctx, 12, []string{"--auto", "--name", "worker"})
 	wantArgs := SpawnArgs{
 		Auto: true,
+		Dir:  mux.SplitVertical,
 		Meta: mux.PaneMeta{
 			Name: "worker",
 			Host: mux.DefaultHost,

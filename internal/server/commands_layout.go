@@ -81,13 +81,14 @@ type createPaneRequest struct {
 }
 
 type createPaneSnapshot struct {
-	inheritPane   *mux.Pane
-	windowWidth   int
-	windowHeight  int
-	inheritHost   string
-	inheritProxy  bool
-	targetPaneID  uint32
-	autoRootSplit bool
+	inheritPane              *mux.Pane
+	windowWidth              int
+	windowHeight             int
+	inheritHost              string
+	inheritProxy             bool
+	targetPaneID             uint32
+	autoRootSplit            bool
+	treatLeadPaneAsWindowRef bool
 }
 
 const (
@@ -126,7 +127,7 @@ func runCreatePane(ctx *CommandContext, actorPaneID uint32, command string, plac
 	}
 
 	switch {
-	case command == "split" && req.hostName == "" && snapshot.inheritProxy:
+	case req.hostName == "" && snapshot.inheritProxy && (command == "split" || (command == "spawn" && req.paneRef != "")):
 		req.hostName = snapshot.inheritHost
 	}
 
@@ -194,12 +195,13 @@ func queryCreatePaneSnapshot(sess *Session, actorPaneID uint32, command string, 
 				return createPaneSnapshot{}, fmt.Errorf("pane not in any window")
 			}
 			return createPaneSnapshot{
-				inheritPane:  pane,
-				windowWidth:  resolvedWindow.Width,
-				windowHeight: resolvedWindow.Height,
-				inheritHost:  pane.Meta.Host,
-				inheritProxy: pane.IsProxy(),
-				targetPaneID: pane.ID,
+				inheritPane:              pane,
+				windowWidth:              resolvedWindow.Width,
+				windowHeight:             resolvedWindow.Height,
+				inheritHost:              pane.Meta.Host,
+				inheritProxy:             pane.IsProxy(),
+				targetPaneID:             pane.ID,
+				treatLeadPaneAsWindowRef: command == "spawn",
 			}, nil
 		}
 		if w == nil {
@@ -257,7 +259,10 @@ func resolveCreatePaneWindow(ctx *MutationContext, actorPaneID uint32, placement
 }
 
 func placeCreatedPaneInWindow(w *mux.Window, placement createPanePlacement, snapshot createPaneSnapshot, pane *mux.Pane, dir mux.SplitDir, keepFocus bool) error {
-	opts := mux.SplitOptions{KeepFocus: keepFocus || w.ZoomedPaneID != 0}
+	opts := mux.SplitOptions{
+		KeepFocus:                keepFocus || w.ZoomedPaneID != 0,
+		TreatLeadPaneAsWindowRef: snapshot.treatLeadPaneAsWindowRef,
+	}
 	switch placement {
 	case createPanePlacementSplitAt:
 		_, err := w.SplitPaneWithOptions(snapshot.targetPaneID, dir, pane, opts)
@@ -433,12 +438,13 @@ func createPaneRequestFromSpawnArgs(args layoutcmd.SpawnArgs) createPaneRequest 
 		hostName = ""
 	}
 	return createPaneRequest{
+		paneRef:      args.PaneRef,
 		hostName:     hostName,
 		hostExplicit: args.HostExplicit,
 		name:         args.Meta.Name,
 		task:         args.Meta.Task,
 		color:        args.Meta.Color,
-		dir:          mux.SplitVertical,
+		dir:          args.Dir,
 	}
 }
 
@@ -495,6 +501,8 @@ func runSpawn(ctx *CommandContext, actorPaneID uint32, args layoutcmd.SpawnArgs)
 	placement := createPanePlacementSplitAt
 	if args.Auto {
 		placement = createPanePlacementColumnFill
+	} else if args.RootLevel {
+		placement = createPanePlacementRootSplit
 	}
 	return runCreatePane(ctx, actorPaneID, "spawn", placement, createPaneRequestFromSpawnArgs(args), !args.Focus)
 }

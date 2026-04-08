@@ -27,10 +27,13 @@ type Window struct {
 	LeadPaneID   uint32 // non-zero when a pane is designated lead; multi-pane windows anchor it as a full-height left column
 }
 
-// SplitOptions controls whether the existing active pane keeps focus.
+// SplitOptions controls pane-splitting behavior.
 // KeepFocus preserves zoom state and leaves the active pane unchanged.
+// TreatLeadPaneAsWindowRef routes a lead-pane target to the logical root so
+// spawn-style placement can use the pane only to select the window.
 type SplitOptions struct {
-	KeepFocus bool
+	KeepFocus                bool
+	TreatLeadPaneAsWindowRef bool
 }
 
 // NewWindow creates a window with a single pane.
@@ -171,6 +174,10 @@ func (w *Window) SplitPaneWithOptions(targetPaneID uint32, dir SplitDir, newPane
 		return w.materializePendingLead(newPane, opts)
 	}
 	if w.IsLeadPane(targetPaneID) {
+		if opts.TreatLeadPaneAsWindowRef {
+			targetRoot, parent, parentIdx := w.logicalRootTarget()
+			return w.splitRootTargetWithOptions(targetRoot, parent, parentIdx, dir, newPane, opts)
+		}
 		return nil, fmt.Errorf("cannot operate on lead pane")
 	}
 	cell, err := w.mustFindPane(targetPaneID)

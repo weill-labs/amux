@@ -202,6 +202,45 @@ func TestSplitLeadPaneErrorsInBothDirections(t *testing.T) {
 	}
 }
 
+func TestSplitLeadPaneWithWindowRefOptionTargetsLogicalRoot(t *testing.T) {
+	t.Parallel()
+
+	p1 := fakePaneID(1)
+	p2 := fakePaneID(2)
+	p3 := fakePaneID(3)
+	w := NewWindow(p1, 80, 24)
+	if _, err := w.SplitRoot(SplitVertical, p2); err != nil {
+		t.Fatalf("SplitRoot: %v", err)
+	}
+	if err := w.SetLead(p1.ID); err != nil {
+		t.Fatalf("SetLead: %v", err)
+	}
+
+	if _, err := w.SplitPaneWithOptions(p1.ID, SplitHorizontal, p3, SplitOptions{TreatLeadPaneAsWindowRef: true}); err != nil {
+		t.Fatalf("SplitPaneWithOptions on lead with window-ref option: %v", err)
+	}
+
+	if !w.hasAnchoredLead() {
+		t.Fatal("lead layout should remain anchored after spawn-style split")
+	}
+	if got := w.Root.Children[0].Pane; got != p1 {
+		t.Fatalf("lead slot pane = %v, want %v", got, p1)
+	}
+	logical := w.logicalRoot()
+	if logical == nil {
+		t.Fatal("logical root = nil")
+	}
+	if logical.FindPane(p2.ID) == nil || logical.FindPane(p3.ID) == nil {
+		t.Fatal("logical root should contain both non-lead panes")
+	}
+	if logical.FindPane(p2.ID).X != logical.FindPane(p3.ID).X {
+		t.Fatalf("non-lead panes should stay in the same column, got x=%d and x=%d", logical.FindPane(p2.ID).X, logical.FindPane(p3.ID).X)
+	}
+	if logical.FindPane(p2.ID).Y == logical.FindPane(p3.ID).Y {
+		t.Fatalf("non-lead panes should stack vertically, got y=%d and y=%d", logical.FindPane(p2.ID).Y, logical.FindPane(p3.ID).Y)
+	}
+}
+
 func TestSplitRootWithLeadVerticalMutatesLogicalRoot(t *testing.T) {
 	t.Parallel()
 
