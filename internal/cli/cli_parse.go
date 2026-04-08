@@ -307,32 +307,18 @@ func ParseSpawnCommandArgs(args []string) (string, []string, error) {
 		return "spawn", cmdArgs, nil
 	}
 
-	if opts.at != "" || opts.root || opts.hasExplicitDir {
-		if opts.at != "" {
-			cmdArgs = append(cmdArgs, opts.at)
-		}
-		if opts.root {
-			cmdArgs = append(cmdArgs, "root")
-		}
+	if opts.at != "" {
+		cmdArgs = append(cmdArgs, "--at", opts.at)
+	}
+	if opts.root {
+		cmdArgs = append(cmdArgs, "--root")
+	}
+	if opts.hasExplicitDir {
 		if opts.dir == mux.SplitVertical {
-			cmdArgs = append(cmdArgs, "v")
+			cmdArgs = append(cmdArgs, "--vertical")
+		} else {
+			cmdArgs = append(cmdArgs, "--horizontal")
 		}
-		if opts.focus {
-			cmdArgs = append(cmdArgs, "--focus")
-		}
-		if opts.host != "" {
-			cmdArgs = append(cmdArgs, "--host", opts.host)
-		}
-		if opts.name != "" {
-			cmdArgs = append(cmdArgs, "--name", opts.name)
-		}
-		if opts.task != "" {
-			cmdArgs = append(cmdArgs, "--task", opts.task)
-		}
-		if opts.color != "" {
-			cmdArgs = append(cmdArgs, "--color", opts.color)
-		}
-		return "split", cmdArgs, nil
 	}
 
 	if opts.focus {

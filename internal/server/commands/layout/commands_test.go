@@ -240,6 +240,7 @@ func TestSpawnParsesArgsAndDelegates(t *testing.T) {
 
 	got := Spawn(ctx, 12, []string{"--focus", "--host", "dev", "--name", "worker", "--task", "build", "--color", "rosewater"})
 	wantArgs := SpawnArgs{
+		Dir:          mux.SplitVertical,
 		Focus:        true,
 		HostExplicit: true,
 		Meta: mux.PaneMeta{
@@ -305,6 +306,7 @@ func TestSpawnParsesAutoArgsAndDelegates(t *testing.T) {
 	got := Spawn(ctx, 12, []string{"--auto", "--name", "worker"})
 	wantArgs := SpawnArgs{
 		Auto: true,
+		Dir:  mux.SplitVertical,
 		Meta: mux.PaneMeta{
 			Name: "worker",
 			Host: mux.DefaultHost,

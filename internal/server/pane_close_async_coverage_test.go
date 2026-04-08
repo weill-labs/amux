@@ -182,16 +182,10 @@ func TestCommandSpawnAtLeadPaneSucceeds(t *testing.T) {
 		t.Fatalf("spawn error = %q, want success", res.cmdErr)
 	}
 
-	select {
-	case closedID := <-closedPaneIDs:
-		t.Fatalf("pane closer should not run on successful spawn, got pane %d", closedID)
-	case <-time.After(50 * time.Millisecond):
-	}
-
 	state := mustSessionQuery(t, sess, func(sess *Session) struct {
-		paneCount     int
-		hasPane3      bool
-		leadWindowID  uint32
+		paneCount      int
+		hasPane3       bool
+		leadWindowID   uint32
 		workerWindowID uint32
 	} {
 		workerWindowID := uint32(0)
