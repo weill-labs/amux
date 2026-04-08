@@ -109,3 +109,18 @@ test("toggleChartFullscreen falls back to a modal-style class toggle", async () 
   assert.deepEqual(container.classList.toArray(), []);
   assert.deepEqual(body.classList.toArray(), []);
 });
+
+test("toggleChartFullscreen falls back when requestFullscreen rejects", async () => {
+  const body = { classList: makeClassList() };
+  const doc = { fullscreenElement: null, body };
+  const container = {
+    classList: makeClassList(),
+    async requestFullscreen() {
+      throw new Error("fullscreen denied");
+    },
+  };
+
+  await toggleChartFullscreen(container, { document: doc });
+  assert.deepEqual(container.classList.toArray(), ["is-expanded"]);
+  assert.deepEqual(body.classList.toArray(), ["chart-modal-open"]);
+});
