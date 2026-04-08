@@ -24,7 +24,6 @@ func TestCommandSpawnAutoAppendsToFirstUnderfilledColumnAndEqualizes(t *testing.
 	if _, err := w.SplitRoot(mux.SplitVertical, p3); err != nil {
 		t.Fatalf("SplitRoot pane-3: %v", err)
 	}
-	sess.counter.Store(p3.ID)
 	setSessionLayoutForTest(t, sess, w.ID, []*mux.Window{w}, p1, p2, p3)
 
 	res := runTestCommand(t, srv, sess, "spawn", "--auto", "--name", "worker-4")
@@ -98,7 +97,6 @@ func TestCommandSpawnAutoRootSplitsWhenColumnsAreFull(t *testing.T) {
 	if _, err := w.SplitPaneWithOptions(p1.ID, mux.SplitHorizontal, p2, mux.SplitOptions{}); err != nil {
 		t.Fatalf("Split pane-1 horizontally: %v", err)
 	}
-	sess.counter.Store(p2.ID)
 	setSessionLayoutForTest(t, sess, w.ID, []*mux.Window{w}, p1, p2)
 
 	res := runTestCommand(t, srv, sess, "spawn", "--auto", "--name", "worker-3")
