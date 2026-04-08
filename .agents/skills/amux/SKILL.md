@@ -24,6 +24,8 @@ amux is a terminal multiplexer designed for AI agents. It runs a background serv
 
 **Use `amux list` for status sweeps.** The branch column shows what workers are working on. Then use `wait idle` to check which are actively producing output vs sitting screen-quiet.
 
+**Resolve pane refs from `amux list`, not `pane-$AMUX_PANE`.** `AMUX_PANE` is the numeric pane ID, not a guaranteed pane name. Use the numeric ref directly (`amux capture --history 65`) or the exact pane name shown in `amux list`, especially when the visible session is zoomed to another pane and `amux capture --format json` is showing that pane instead of the worker you need.
+
 ## Quick Reference
 
 ### Capture (inspect pane content)
@@ -52,6 +54,8 @@ amux capture --history pane-1 | grep -v '^$' | tail -30
 The JSON capture is the primary interface for agents. It includes pane content lines, cursor position, active/minimized/zoomed state, host, task, color, cwd, git branch, and agent status.
 
 **Note:** JSON capture currently only returns the visible viewport. `--history` only works with plain text output. See LAB-527 for tracking JSON + history support.
+
+**Pane-ref note:** when a workflow starts from `AMUX_PANE`, prefer the numeric ref directly or resolve the real pane name via `amux list`. Do not assume `pane-$AMUX_PANE` exists.
 
 ### Send Input to Panes
 
