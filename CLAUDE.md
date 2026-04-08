@@ -53,8 +53,6 @@ go test ./... -timeout 120s        # run all tests
 make coverage                      # merged unit + integration coverage (use this, not go test -coverprofile)
 ```
 
-**Reproduce CI from a clean shell when running inside `amux`/tmux.** Clipboard and harness behavior can change when `AMUX_SESSION` or `TMUX` are set. For CI-style verification from an attached pane, prefer `env -u AMUX_SESSION -u TMUX scripts/coverage.sh --ci`, and prefix other CI-style test commands the same way when you need the same environment.
-
 ### Testing Live
 
 See [README.md -- CLI Reference](README.md#cli-reference) for the full command reference. Key commands for testing:
