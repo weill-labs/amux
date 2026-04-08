@@ -85,10 +85,9 @@ func TestSessionAuditLogsLifecycleEvents(t *testing.T) {
 	pane1 := newTestPane(sess, 1, "pane-1")
 	window := newTestWindowWithPanes(t, sess, 1, "window-1", pane1)
 	mustSessionMutation(t, sess, func(sess *Session) {
-		sess.Panes = []*mux.Pane{pane1}
+		seedSessionPanesForTest(sess, pane1)
 		sess.Windows = []*mux.Window{window}
 		sess.ActiveWindowID = window.ID
-		sess.counter.Store(1)
 		sess.windowCounter.Store(1)
 		sess.refreshInputTarget()
 	})
@@ -233,10 +232,9 @@ func TestServerReloadAuditLogsHotReload(t *testing.T) {
 	mustSessionMutation(t, sess, func(sess *Session) {
 		pane := newTestPane(sess, 1, "pane-1")
 		window := newTestWindowWithPanes(t, sess, 1, "window-1", pane)
-		sess.Panes = []*mux.Pane{pane}
+		seedSessionPanesForTest(sess, pane)
 		sess.Windows = []*mux.Window{window}
 		sess.ActiveWindowID = window.ID
-		sess.counter.Store(1)
 		sess.windowCounter.Store(1)
 		sess.refreshInputTarget()
 	})

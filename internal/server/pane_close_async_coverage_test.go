@@ -233,10 +233,7 @@ func TestCommandUnspliceOrphanProxyCleansUpFailedPane(t *testing.T) {
 	w := mux.NewWindow(p1, 80, 24)
 	w.ID = 1
 	w.Name = "main"
-	sess.Windows = []*mux.Window{w}
-	sess.ActiveWindowID = w.ID
-	sess.Panes = []*mux.Pane{p1, orphanProxy}
-	sess.counter.Store(2)
+	setSessionLayoutForTest(t, sess, w.ID, []*mux.Window{w}, p1, orphanProxy)
 
 	res := runTestCommand(t, srv, sess, "unsplice", "fake-host")
 	if res.cmdErr != `no spliced panes found for host "fake-host"` {

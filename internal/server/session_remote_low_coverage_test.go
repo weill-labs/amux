@@ -46,7 +46,6 @@ func TestCrashCheckpointBuildAndWrite(t *testing.T) {
 
 	startedAt := time.Date(2026, time.March, 22, 12, 0, 0, 0, time.UTC)
 	sess.startedAt = startedAt
-	sess.counter.Store(2)
 	sess.windowCounter.Store(1)
 	sess.generation.Store(7)
 
@@ -256,7 +255,6 @@ func TestHandleTakeoverSkipsInitialResizeWithoutRemoteManager(t *testing.T) {
 	sshPane := newRecordingPane(sess, 1, "ssh-pane", &writes)
 	window := newTestWindowWithPanes(t, sess, 1, "main", sshPane)
 	setSessionLayoutForTest(t, sess, window.ID, []*mux.Window{window}, sshPane)
-	sess.counter.Store(sshPane.ID)
 
 	transport := &stubTakeoverOnlyTransport{}
 	sess.configurePaneTakeover(transport)
