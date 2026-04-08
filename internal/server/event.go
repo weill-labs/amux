@@ -123,6 +123,18 @@ func (s *Session) ensureTerminalEventState() map[uint32]paneTerminalEventState {
 	return s.terminalEventState
 }
 
+func (s *Session) hasMatchingEventSubscriber(ev Event) bool {
+	if len(s.eventSubs) == 0 {
+		return false
+	}
+	for _, sub := range s.eventSubs {
+		if sub.Filter.Matches(ev) {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Session) capturePaneTerminalEvent(pane *mux.Pane) Event {
 	state := s.capturePaneTerminalState(pane)
 	s.ensureTerminalEventState()[pane.ID] = state
@@ -173,6 +185,14 @@ func captureMouseEqual(left, right *proto.CaptureMouseProtocol) bool {
 
 func (s *Session) emitPaneTerminalEventIfChanged(pane *mux.Pane) {
 	if pane == nil {
+		return
+	}
+	if !s.hasMatchingEventSubscriber(Event{
+		Type:     EventTerminal,
+		PaneID:   pane.ID,
+		PaneName: pane.Meta.Name,
+		Host:     pane.Meta.Host,
+	}) {
 		return
 	}
 	state := s.capturePaneTerminalState(pane)
