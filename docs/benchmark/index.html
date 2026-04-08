@@ -6,31 +6,127 @@
   <title>amux benchmarks</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
   <style>
+    :root {
+      --bg: #1e1e2e;
+      --panel: #313244;
+      --panel-border: #45475a;
+      --panel-strong: #585b70;
+      --text: #cdd6f4;
+      --muted: #6c7086;
+      --link: #89b4fa;
+      --error: #f38ba8;
+    }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      background: #1e1e2e;
-      color: #cdd6f4;
+      background: var(--bg);
+      color: var(--text);
       font-family: system-ui, sans-serif;
       line-height: 1.5;
       padding: 2rem;
     }
     h1 { margin-bottom: 0.25rem; }
-    p.subtitle { color: #6c7086; margin-bottom: 0.5rem; }
+    p.subtitle { color: var(--muted); margin-bottom: 0.5rem; }
     p.meta { color: #a6adc8; margin-bottom: 2rem; }
-    a { color: #89b4fa; }
+    a { color: var(--link); }
     .chart-container {
-      background: #313244;
-      border-radius: 8px;
+      background: var(--panel);
+      border: 1px solid var(--panel-border);
+      border-radius: 14px;
+      box-shadow: 0 14px 32px rgba(17, 17, 27, 0.22);
       margin-bottom: 1.5rem;
       padding: 1rem;
+      position: relative;
     }
-    .chart-container h2 {
-      color: #89b4fa;
+    .chart-header {
+      align-items: center;
+      display: flex;
+      gap: 1rem;
+      justify-content: space-between;
+      margin-bottom: 0.75rem;
+    }
+    .chart-header h2 {
+      color: var(--link);
       font-size: 1rem;
-      margin-bottom: 0.5rem;
+      margin: 0;
     }
-    canvas { max-height: 300px; }
-    .error { color: #f38ba8; padding: 2rem 0; }
+    .fullscreen-toggle {
+      background: rgba(137, 180, 250, 0.12);
+      border: 1px solid rgba(137, 180, 250, 0.35);
+      border-radius: 999px;
+      color: var(--text);
+      cursor: pointer;
+      font: inherit;
+      padding: 0.35rem 0.8rem;
+      transition: background 120ms ease, border-color 120ms ease, transform 120ms ease;
+    }
+    .fullscreen-toggle:hover {
+      background: rgba(137, 180, 250, 0.2);
+      border-color: rgba(137, 180, 250, 0.55);
+      transform: translateY(-1px);
+    }
+    .fullscreen-toggle:focus-visible {
+      outline: 2px solid var(--link);
+      outline-offset: 2px;
+    }
+    .chart-canvas-wrap {
+      height: 320px;
+      position: relative;
+    }
+    canvas {
+      display: block;
+      height: 100%;
+      max-height: none;
+      width: 100%;
+    }
+    body.chart-modal-open {
+      overflow: hidden;
+    }
+    body.chart-modal-open::before {
+      background: rgba(17, 17, 27, 0.74);
+      backdrop-filter: blur(6px);
+      content: "";
+      inset: 0;
+      position: fixed;
+      z-index: 30;
+    }
+    .chart-container.is-expanded,
+    .chart-container:fullscreen {
+      background: var(--bg);
+      border-color: var(--panel-strong);
+      inset: 1rem;
+      margin: 0;
+      padding: 1.25rem;
+      position: fixed;
+      z-index: 40;
+    }
+    .chart-container.is-expanded .chart-canvas-wrap,
+    .chart-container:fullscreen .chart-canvas-wrap {
+      height: calc(100vh - 7rem);
+    }
+    .chart-container:fullscreen::backdrop {
+      background: rgba(17, 17, 27, 0.9);
+    }
+    .error { color: var(--error); padding: 2rem 0; }
+
+    @media (max-width: 720px) {
+      body { padding: 1rem; }
+      .chart-header {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+      .chart-canvas-wrap {
+        height: 260px;
+      }
+      .chart-container.is-expanded,
+      .chart-container:fullscreen {
+        inset: 0.5rem;
+        padding: 1rem;
+      }
+      .chart-container.is-expanded .chart-canvas-wrap,
+      .chart-container:fullscreen .chart-canvas-wrap {
+        height: calc(100vh - 7.5rem);
+      }
+    }
   </style>
 </head>
 <body>
@@ -38,112 +134,10 @@
   <p class="subtitle"><a href="../">Back to amux</a> · Updated by the benchmark publish workflow on merges to main.</p>
   <p id="meta" class="meta">Loading latest run metadata...</p>
   <div id="charts"></div>
-  <script>
-    const COLORS = ["#89b4fa", "#a6e3a1", "#f9e2af", "#f38ba8", "#cba6f7", "#94e2d5", "#fab387", "#74c7ec"];
+  <script type="module">
+    import { main } from "./dashboard.mjs";
 
-    function renderMeta(run) {
-      const meta = document.getElementById("meta");
-      if (!run || !run.head_sha) {
-        meta.textContent = "No benchmark metadata yet.";
-        return;
-      }
-      const status = run.benchmark_success ? "successful benchmark run" : "benchmark run failed";
-      meta.textContent = `Latest run ${run.head_sha.slice(0, 7)} on ${run.runner_os}, ${status}.`;
-    }
-
-    async function fetchJSON(path) {
-      const res = await fetch(path);
-      if (!res.ok) {
-        throw new Error(`failed to fetch ${path}`);
-      }
-      return res.json();
-    }
-
-    function groupSuites(data) {
-      const suites = {};
-      for (const run of data) {
-        for (const suite of (run.Suites || [])) {
-          for (const bench of (suite.Benchmarks || [])) {
-            const name = bench.Name;
-            const parts = name.split("/");
-            const suiteName = parts[0].replace(/^Benchmark/, "");
-            if (!suites[suiteName]) suites[suiteName] = {};
-            if (!suites[suiteName][name]) suites[suiteName][name] = [];
-            suites[suiteName][name].push({
-              date: run.Date ? new Date(run.Date * 1000).toLocaleDateString() : "?",
-              nsOp: bench.NsPerOp || 0,
-            });
-          }
-        }
-      }
-      return suites;
-    }
-
-    async function main() {
-      const container = document.getElementById("charts");
-      try {
-        renderMeta(await fetchJSON("latest-run.json"));
-      } catch (_err) {
-        renderMeta(null);
-      }
-
-      let data;
-      try {
-        data = await fetchJSON("benchmarks.json");
-      } catch (_err) {
-        container.innerHTML = '<p class="error">No benchmark history published yet.</p>';
-        return;
-      }
-
-      if (!Array.isArray(data) || data.length === 0) {
-        container.innerHTML = '<p class="error">No benchmark history published yet.</p>';
-        return;
-      }
-
-      const suites = groupSuites(data);
-      let colorIdx = 0;
-      for (const [suiteName, benchmarks] of Object.entries(suites)) {
-        const div = document.createElement("div");
-        div.className = "chart-container";
-        div.innerHTML = `<h2>${suiteName}</h2><canvas></canvas>`;
-        container.appendChild(div);
-
-        const datasets = [];
-        let labels = [];
-        for (const [name, points] of Object.entries(benchmarks)) {
-          const shortName = name.split("/").slice(1).join("/") || name;
-          if (points.length > labels.length) labels = points.map((point) => point.date);
-          datasets.push({
-            label: shortName,
-            data: points.map((point) => point.nsOp / 1e6),
-            borderColor: COLORS[colorIdx % COLORS.length],
-            backgroundColor: `${COLORS[colorIdx % COLORS.length]}33`,
-            tension: 0.3,
-            pointRadius: 3,
-          });
-          colorIdx++;
-        }
-
-        new Chart(div.querySelector("canvas"), {
-          type: "line",
-          data: { labels, datasets },
-          options: {
-            responsive: true,
-            plugins: { legend: { labels: { color: "#cdd6f4" } } },
-            scales: {
-              x: { ticks: { color: "#6c7086" }, grid: { color: "#45475a" } },
-              y: {
-                title: { display: true, text: "ms/op", color: "#6c7086" },
-                ticks: { color: "#6c7086" },
-                grid: { color: "#45475a" },
-              },
-            },
-          },
-        });
-      }
-    }
-
-    main();
+    main({ Chart: window.Chart });
   </script>
 </body>
 </html>
