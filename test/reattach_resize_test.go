@@ -223,6 +223,8 @@ func TestAttachResyncsStaleCursorState(t *testing.T) {
 
 	h.splitV()
 	h.waitFor("pane-2", "$")
+	h.sendKeys("pane-2", "export PS1='SYNC# '", "Enter")
+	waitForLastNonEmptyPaneLine(t, h, "pane-2", "SYNC#", 5*time.Second)
 
 	healthyCapture := h.captureJSON()
 	healthy := h.jsonPane(healthyCapture, "pane-2")
@@ -245,8 +247,8 @@ func TestAttachResyncsStaleCursorState(t *testing.T) {
 	if err := json.Unmarshal([]byte(r.CapturePaneJSON(2, nil)), &after); err != nil {
 		t.Fatalf("unmarshal pane-2 after replay: %v", err)
 	}
-	if got, want := strings.TrimLeft(after.Content[0], " "), strings.TrimLeft(healthy.Content[0], " "); got != want {
-		t.Fatalf("pane-2 content after attach = %q (raw %q), want %q (raw %q)", got, after.Content[0], want, healthy.Content[0])
+	if got, want := strings.TrimLeft(lastNonEmptyContentLine(after.Content), " "), strings.TrimLeft(lastNonEmptyContentLine(healthy.Content), " "); got != want {
+		t.Fatalf("pane-2 prompt after attach = %q, want %q", got, want)
 	}
 	if got, want := after.Cursor.Col, healthy.Cursor.Col; got != want {
 		t.Fatalf("pane-2 cursor col after attach = %d, want %d", got, want)
