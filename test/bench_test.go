@@ -204,6 +204,30 @@ func BenchmarkInputLatency(b *testing.B) {
 	})
 }
 
+// BenchmarkInputLatencyPersistent isolates the keystroke-to-visible-output path
+// by sending commands over the already-attached headless client connection
+// instead of spawning fresh `amux` processes for each iteration.
+func BenchmarkInputLatencyPersistent(b *testing.B) {
+	b.Run("amux", func(b *testing.B) {
+		b.StopTimer()
+		h := newServerHarness(b)
+		b.StartTimer()
+		for i := range b.N {
+			marker := fmt.Sprintf("BENCH-%04d", i)
+
+			msg := h.client.runCommand("send-keys", "pane-1", fmt.Sprintf("echo %s", marker), "Enter")
+			if msg.CmdErr != "" {
+				b.Fatalf("send-keys failed: %s", msg.CmdErr)
+			}
+
+			msg = h.client.runCommand("wait", "content", "pane-1", marker, "--timeout", "10s")
+			if msg.CmdErr != "" {
+				b.Fatalf("wait-for failed: %s", msg.CmdErr)
+			}
+		}
+	})
+}
+
 // ---------------------------------------------------------------------------
 // BenchmarkThroughput — high-bandwidth output via CLI round-trips.
 // This includes two short-lived `amux` command processes per iteration
