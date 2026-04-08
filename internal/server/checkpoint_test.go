@@ -69,10 +69,9 @@ func TestServerReloadWritesCrashCheckpointBeforeExec(t *testing.T) {
 		win.ID = 1
 		win.Name = "window-1"
 
-		sess.Panes = append(sess.Panes, pane)
+		seedSessionPanesForTest(sess, pane)
 		sess.Windows = append(sess.Windows, win)
 		sess.ActiveWindowID = win.ID
-		sess.counter.Store(1)
 		sess.windowCounter.Store(1)
 		sess.refreshInputTarget()
 		return struct{}{}
@@ -137,10 +136,9 @@ func TestServerShutdownPreservesCrashCheckpointForCrashRestore(t *testing.T) {
 	}
 
 	mustSessionMutation(t, sess, func(sess *Session) {
-		sess.Panes = []*mux.Pane{pane1, pane2}
+		seedSessionPanesForTest(sess, pane1, pane2)
 		sess.Windows = []*mux.Window{win}
 		sess.ActiveWindowID = win.ID
-		sess.counter.Store(2)
 		sess.windowCounter.Store(1)
 		sess.refreshInputTarget()
 	})
