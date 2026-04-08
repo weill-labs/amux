@@ -212,6 +212,31 @@ func TestParseSpawnArgs(t *testing.T) {
 			},
 		},
 		{
+			name: "parses targeted spawn placement",
+			args: []string{"--at", "pane-1", "--name", "worker-1"},
+			want: SpawnArgs{
+				PaneRef: "pane-1",
+				Dir:     mux.SplitHorizontal,
+				Meta: mux.PaneMeta{
+					Name: "worker-1",
+					Host: mux.DefaultHost,
+				},
+			},
+		},
+		{
+			name: "parses root-level targeted spawn placement",
+			args: []string{"--at", "pane-1", "--root", "--vertical", "--name", "worker-1"},
+			want: SpawnArgs{
+				PaneRef:   "pane-1",
+				RootLevel: true,
+				Dir:       mux.SplitVertical,
+				Meta: mux.PaneMeta{
+					Name: "worker-1",
+					Host: mux.DefaultHost,
+				},
+			},
+		},
+		{
 			name: "allows unnamed spawn",
 			args: []string{"--task", "build"},
 			want: SpawnArgs{
@@ -235,6 +260,11 @@ func TestParseSpawnArgs(t *testing.T) {
 			name:    "rejects unknown arg",
 			args:    []string{"--name", "worker-1", "--bogus"},
 			wantErr: "unknown flag: --bogus",
+		},
+		{
+			name:    "rejects auto with explicit target",
+			args:    []string{"--auto", "--at", "pane-1"},
+			wantErr: "spawn --auto cannot be combined with explicit placement",
 		},
 		{
 			name:    "rejects spiral flag",

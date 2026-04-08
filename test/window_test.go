@@ -95,6 +95,43 @@ func TestNewWindowLeadPaneSpawnIgnoresOuterActorPaneEnv(t *testing.T) {
 	assertAnchoredLeadSpawnLayout(t, h, capture, "pane-2", "worker")
 }
 
+func TestSpawnAtLeadPaneUsesWindowPlacement(t *testing.T) {
+	t.Parallel()
+
+	h := newServerHarness(t)
+	setLead(t, h, "pane-1")
+
+	out := h.runCmd("spawn", "--name", "worker-1")
+	if strings.Contains(out, "cannot operate on lead pane") {
+		t.Fatalf("spawn should not reject the pending lead pane, got: %s", out)
+	}
+
+	out = h.runCmd("spawn", "--at", "pane-1", "--name", "worker-2")
+	if strings.Contains(out, "cannot operate on lead pane") {
+		t.Fatalf("spawn --at should treat the lead pane as a window reference, got: %s", out)
+	}
+
+	capture := h.captureJSON()
+	lead := h.jsonPane(capture, "pane-1")
+	worker1 := h.jsonPane(capture, "worker-1")
+	worker2 := h.jsonPane(capture, "worker-2")
+	if !lead.Lead {
+		t.Fatal("pane-1 should remain the lead pane after targeted spawn")
+	}
+	if lead.Position == nil || worker1.Position == nil || worker2.Position == nil {
+		t.Fatalf("targeted spawn should include positions, lead=%+v worker-1=%+v worker-2=%+v", lead.Position, worker1.Position, worker2.Position)
+	}
+	if lead.Position.X >= worker1.Position.X || lead.Position.X >= worker2.Position.X {
+		t.Fatalf("lead pane should remain left of worker panes: lead=%+v worker-1=%+v worker-2=%+v", lead.Position, worker1.Position, worker2.Position)
+	}
+	if worker1.Position.X != worker2.Position.X {
+		t.Fatalf("targeted spawn should keep non-lead panes in the same column: worker-1=%+v worker-2=%+v", worker1.Position, worker2.Position)
+	}
+	if worker1.Position.Y == worker2.Position.Y {
+		t.Fatalf("targeted spawn should stack the non-lead panes vertically: worker-1=%+v worker-2=%+v", worker1.Position, worker2.Position)
+	}
+}
+
 func TestSetLeadSinglePaneWindowSurvivesCollapseAndRegrowsAnchoredLayout(t *testing.T) {
 	t.Parallel()
 

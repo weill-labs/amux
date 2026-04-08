@@ -141,7 +141,7 @@ func TestCommandSplitLeadPaneCleansUpFailedPane(t *testing.T) {
 	}
 }
 
-func TestCommandSpawnLeadPaneCleansUpFailedPane(t *testing.T) {
+func TestCommandSpawnAtLeadPaneSucceeds(t *testing.T) {
 	t.Parallel()
 
 	srv, sess, cleanup := newCommandTestSession(t)
@@ -177,37 +177,49 @@ func TestCommandSpawnLeadPaneCleansUpFailedPane(t *testing.T) {
 	sess.ActiveWindowID = w.ID
 	sess.Panes = []*mux.Pane{p1, p2}
 
-	res := runTestCommand(t, srv, sess, "spawn", "--name", "worker-1", "--task", "build")
-	if res.cmdErr != "cannot operate on lead pane" {
-		t.Fatalf("spawn error = %q, want %q", res.cmdErr, "cannot operate on lead pane")
+	res := runTestCommand(t, srv, sess, "spawn", "--at", "pane-1", "--name", "worker-1", "--task", "build")
+	if res.cmdErr != "" {
+		t.Fatalf("spawn error = %q, want success", res.cmdErr)
 	}
 
 	select {
 	case closedID := <-closedPaneIDs:
-		if closedID != 3 {
-			t.Fatalf("closed pane ID = %d, want 3", closedID)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for failed spawn pane cleanup")
+		t.Fatalf("pane closer should not run on successful spawn, got pane %d", closedID)
+	case <-time.After(50 * time.Millisecond):
 	}
 
 	state := mustSessionQuery(t, sess, func(sess *Session) struct {
-		paneCount int
-		hasPane3  bool
+		paneCount     int
+		hasPane3      bool
+		leadWindowID  uint32
+		workerWindowID uint32
 	} {
+		workerWindowID := uint32(0)
+		if worker, err := sess.findPaneByRef("worker-1"); err == nil {
+			if workerWindow := sess.findWindowByPaneID(worker.ID); workerWindow != nil {
+				workerWindowID = workerWindow.ID
+			}
+		}
 		return struct {
-			paneCount int
-			hasPane3  bool
+			paneCount      int
+			hasPane3       bool
+			leadWindowID   uint32
+			workerWindowID uint32
 		}{
-			paneCount: len(sess.Panes),
-			hasPane3:  sess.findPaneByID(3) != nil,
+			paneCount:      len(sess.Panes),
+			hasPane3:       sess.findPaneByID(3) != nil,
+			leadWindowID:   sess.findWindowByPaneID(p1.ID).ID,
+			workerWindowID: workerWindowID,
 		}
 	})
-	if state.paneCount != 2 {
-		t.Fatalf("pane count after failed spawn = %d, want 2", state.paneCount)
+	if state.paneCount != 3 {
+		t.Fatalf("pane count after spawn = %d, want 3", state.paneCount)
 	}
-	if state.hasPane3 {
-		t.Fatal("failed spawn pane should be removed from the session")
+	if !state.hasPane3 {
+		t.Fatal("successful spawn should keep the new pane in the session")
+	}
+	if state.workerWindowID != state.leadWindowID {
+		t.Fatalf("worker window ID = %d, want %d", state.workerWindowID, state.leadWindowID)
 	}
 }
 
