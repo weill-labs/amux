@@ -628,6 +628,31 @@ func TestCloseReapsShellProcess(t *testing.T) {
 	}
 }
 
+func TestProcessPidSurvivesDetachRuntimeState(t *testing.T) {
+	t.Parallel()
+
+	p, err := NewPaneWithScrollback(99, PaneMeta{
+		Name:  "pane-99",
+		Host:  DefaultHost,
+		Color: "f5e0dc",
+	}, 40, 10, "test", DefaultScrollbackLines, nil, nil)
+	if err != nil {
+		t.Fatalf("NewPaneWithScrollback: %v", err)
+	}
+
+	pid := p.ProcessPid()
+	if pid == 0 {
+		t.Fatal("ProcessPid() before detach = 0, want live shell")
+	}
+
+	state := p.detachRuntimeState()
+	if got := p.ProcessPid(); got != pid {
+		t.Fatalf("ProcessPid() after detach = %d, want %d", got, pid)
+	}
+
+	p.stopDetachedForRespawn(state)
+}
+
 func TestCloseReturnsBeforeBackgroundTeardownCompletes(t *testing.T) {
 	t.Parallel()
 

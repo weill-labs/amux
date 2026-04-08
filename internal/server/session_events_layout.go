@@ -569,5 +569,8 @@ func (s *Session) enqueueCommandMutation(fn func(*MutationContext) commandMutati
 // Non-blocking: if a subscriber's channel is full the event is dropped.
 // Must be called from the session event loop (no mutex needed).
 func (s *Session) emitEvent(ev Event) {
+	if !s.hasMatchingEventSubscriber(ev) {
+		return
+	}
 	eventloop.Emit(s.eventSubs, ev)
 }

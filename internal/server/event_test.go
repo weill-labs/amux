@@ -257,6 +257,49 @@ func TestTerminalEventsInitialSnapshotAndUpdates(t *testing.T) {
 	}
 }
 
+func TestPaneOutputWithoutTerminalSubscribersSkipsTerminalSnapshotting(t *testing.T) {
+	t.Parallel()
+
+	sess := newSession("test-terminal-events-skip-without-subscriber")
+	stopCrashCheckpointLoop(t, sess)
+	defer stopSessionBackgroundLoops(t, sess)
+
+	pane := newTestPane(sess, 1, "pane-1")
+	window := newTestWindowWithPanes(t, sess, 1, "main", pane)
+	mustSessionMutation(t, sess, func(sess *Session) {
+		sess.Windows = []*mux.Window{window}
+		sess.ActiveWindowID = window.ID
+		sess.Panes = []*mux.Pane{pane}
+	})
+
+	res := sess.enqueueEventSubscribe(eventFilter{Types: []string{EventOutput}}, false)
+	if res.sub == nil {
+		t.Fatal("output subscribe returned nil subscription")
+	}
+	defer sess.enqueueEventUnsubscribe(res.sub)
+
+	pane.FeedOutput([]byte("hello\n"))
+
+	select {
+	case data := <-res.sub.Ch:
+		var ev Event
+		if err := json.Unmarshal(data, &ev); err != nil {
+			t.Fatalf("json.Unmarshal output: %v", err)
+		}
+		if ev.Type != EventOutput {
+			t.Fatalf("output event type = %q, want %q", ev.Type, EventOutput)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for output event")
+	}
+
+	if got := mustSessionQuery(t, sess, func(sess *Session) int {
+		return len(sess.terminalEventState)
+	}); got != 0 {
+		t.Fatalf("terminalEventState entries = %d, want 0 without terminal subscribers", got)
+	}
+}
+
 func TestPaneTerminalEventStateEqual(t *testing.T) {
 	t.Parallel()
 
