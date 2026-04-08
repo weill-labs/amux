@@ -2,6 +2,9 @@ package test
 
 import (
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -26,6 +29,35 @@ func TestPTYClientTextInputEchoesInPane(t *testing.T) {
 	}
 	if err := client.waitError(); err != nil {
 		t.Fatalf("PTY client exited with error: %v\nOutput:\n%s", err, client.outputString())
+	}
+}
+
+func TestPTYClientTextInputEchoesWithLoginProfileNoise(t *testing.T) {
+	t.Parallel()
+
+	bashPath, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skip("bash not available")
+	}
+
+	home := newTestHome(t)
+	noisyPrompt := strings.Repeat("p", 77) + "$ "
+	profile := fmt.Sprintf("printf 'HARNESS_LOGIN_BANNER\\n'\nexport PS1=%q\n", noisyPrompt)
+	if err := os.WriteFile(filepath.Join(home, ".bash_profile"), []byte(profile), 0o644); err != nil {
+		t.Fatalf("writing .bash_profile: %v", err)
+	}
+
+	h := newServerHarnessForSession(t, "", home, 80, 24, "", false, false, "SHELL="+bashPath)
+	client := newPTYClientHarness(t, h)
+
+	token := fmt.Sprintf("ci-%d", time.Now().UnixNano()%1_000_000)
+	client.sendText(token)
+
+	if !client.waitForOutput(token, 5*time.Second) {
+		t.Fatalf("typed text %q did not echo in client output with login profile noise\nOutput:\n%s", token, client.outputString())
+	}
+	if strings.Contains(client.outputString(), "HARNESS_LOGIN_BANNER") {
+		t.Fatalf("pty client should ignore harness login profile output\nOutput:\n%s", client.outputString())
 	}
 }
 
