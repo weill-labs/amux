@@ -3,7 +3,6 @@ package test
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -35,11 +34,6 @@ func TestPTYClientTextInputEchoesInPane(t *testing.T) {
 func TestPTYClientTextInputEchoesWithLoginProfileNoise(t *testing.T) {
 	t.Parallel()
 
-	bashPath, err := exec.LookPath("bash")
-	if err != nil {
-		t.Skip("bash not available")
-	}
-
 	home := newTestHome(t)
 	noisyPrompt := strings.Repeat("p", 77) + "$ "
 	profile := fmt.Sprintf("printf 'HARNESS_LOGIN_BANNER\\n'\nexport PS1=%q\n", noisyPrompt)
@@ -47,7 +41,7 @@ func TestPTYClientTextInputEchoesWithLoginProfileNoise(t *testing.T) {
 		t.Fatalf("writing .bash_profile: %v", err)
 	}
 
-	h := newServerHarnessForSession(t, "", home, 80, 24, "", false, false, "SHELL="+bashPath)
+	h := newServerHarnessForSession(t, "", home, 80, 24, "", false, false)
 	client := newPTYClientHarness(t, h)
 
 	token := fmt.Sprintf("ci-%d", time.Now().UnixNano()%1_000_000)
