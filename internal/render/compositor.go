@@ -423,8 +423,16 @@ func (c *Compositor) renderPaneContent(buf *strings.Builder, cell *mux.LayoutCel
 }
 
 func (c *Compositor) renderPaneContentWithLayoutHeight(buf *strings.Builder, cell *mux.LayoutCell, active bool, pd PaneData, layoutHeight int) {
-	contentH := c.visibleContentHeightForLayoutHeight(cell, layoutHeight)
 	copyOverlay := pd.CopyModeOverlay()
+	if c.colorProfile == defaultColorProfile && copyOverlay == nil {
+		rendered := pd.RenderScreen(active)
+		if canFastBlitPaneContent(rendered, c.visibleContentHeightForLayoutHeight(cell, layoutHeight)) {
+			c.blitPaneWithLayoutHeight(buf, cell, rendered, layoutHeight)
+			return
+		}
+	}
+
+	contentH := c.visibleContentHeightForLayoutHeight(cell, layoutHeight)
 	for row := 0; row < contentH; row++ {
 		rowCells := paneContentRowCells(cell.W, row, active, pd, copyOverlay)
 		lastCol := lastPaneContentColumn(rowCells)
@@ -460,6 +468,68 @@ func (c *Compositor) renderPaneContentWithLayoutHeight(buf *strings.Builder, cel
 		state.closeHyperlink(buf)
 		// Reset after each rendered row so styled cells cannot bleed when the
 		// compositor jumps to a later row with an explicit CUP sequence.
+		buf.WriteString(Reset)
+	}
+}
+
+// Fast replay is safe only when the rendered pane content already matches the
+// exact ANSI we want to emit: full-height rows, ASCII text, and plain SGR
+// styling. Shortened repaints, OSC-8 hyperlinks, underline metadata, and
+// non-ASCII grapheme assembly still need cell-by-cell recomposition.
+func canFastBlitPaneContent(rendered string, visibleRows int) bool {
+	if visibleRows <= 0 || strings.Count(rendered, "\n")+1 != visibleRows {
+		return false
+	}
+	for i := 0; i < len(rendered); i++ {
+		if rendered[i] != '\033' {
+			if rendered[i] >= utf8.RuneSelf {
+				return false
+			}
+			continue
+		}
+		if i+1 < len(rendered) && rendered[i+1] == ']' {
+			return false
+		}
+
+		cmd, params, n := decodeANSISequence(rendered, i)
+		if n <= 0 {
+			return false
+		}
+		if cmd.Final() != 'm' || sgrNeedsPaneContentReserialize(params) {
+			return false
+		}
+		i += n - 1
+	}
+	return true
+}
+
+func sgrNeedsPaneContentReserialize(params ansi.Params) bool {
+	for _, param := range params {
+		switch param.Param(-1) {
+		case 4, 21, 24, 58, 59:
+			return true
+		}
+	}
+	return false
+}
+
+// blitPaneWithLayoutHeight writes pre-rendered pane rows below the status
+// line. This is the fast path for default-profile panes without copy-mode
+// overlays, where the pane already has the exact ANSI we want to replay.
+func (c *Compositor) blitPaneWithLayoutHeight(buf *strings.Builder, cell *mux.LayoutCell, rendered string, layoutHeight int) {
+	lines := strings.Split(rendered, "\n")
+	contentH := c.visibleContentHeightForLayoutHeight(cell, layoutHeight)
+
+	for i, line := range lines {
+		if i >= contentH {
+			break
+		}
+		if line == "" {
+			continue
+		}
+		row := cell.Y + mux.StatusLineRows + i + 1
+		writeCursorTo(buf, row, cell.X+1)
+		buf.WriteString(clipLine(line, cell.W))
 		buf.WriteString(Reset)
 	}
 }

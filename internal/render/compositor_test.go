@@ -9,6 +9,7 @@ import (
 
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/muesli/termenv"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
 )
@@ -360,6 +361,46 @@ func TestRenderCursorIgnoresOffCursorReverseVideoSpace(t *testing.T) {
 
 	if !strings.Contains(output, ShowCursor) {
 		t.Fatal("cursor should remain visible when reverse-video space is away from the cursor")
+	}
+}
+
+func TestRenderFullUsesRenderedScreenFastPathForDefaultProfile(t *testing.T) {
+	t.Parallel()
+
+	root := mux.NewLeaf(&mux.Pane{ID: 1, Meta: mux.PaneMeta{Name: "pane-1"}}, 0, 0, 20, 4)
+	cellReads := 0
+	pane := &countingPaneData{
+		base:      &fakePaneData{id: 1, name: "pane-1", screen: "alpha\nbeta\ngamma"},
+		cellReads: &cellReads,
+	}
+
+	comp := NewCompositor(20, 4+GlobalBarHeight, "test")
+	output := comp.RenderFull(root, 1, func(uint32) PaneData { return pane })
+
+	if cellReads != 0 {
+		t.Fatalf("RenderFull() read %d cells, want 0 on the default-profile fast path", cellReads)
+	}
+	if !strings.Contains(output, "gamma") {
+		t.Fatalf("RenderFull() = %q, want pane content", output)
+	}
+}
+
+func TestRenderFullUsesCellCompositionForNonDefaultProfiles(t *testing.T) {
+	t.Parallel()
+
+	root := mux.NewLeaf(&mux.Pane{ID: 1, Meta: mux.PaneMeta{Name: "pane-1"}}, 0, 0, 20, 4)
+	cellReads := 0
+	pane := &countingPaneData{
+		base:      &fakePaneData{id: 1, name: "pane-1", screen: "hello"},
+		cellReads: &cellReads,
+	}
+
+	comp := NewCompositor(20, 4+GlobalBarHeight, "test")
+	comp.SetColorProfile(termenv.ANSI256)
+	comp.RenderFull(root, 1, func(uint32) PaneData { return pane })
+
+	if cellReads == 0 {
+		t.Fatal("RenderFull() did not read pane cells after switching away from the default color profile")
 	}
 }
 
