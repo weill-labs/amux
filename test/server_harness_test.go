@@ -63,6 +63,36 @@ var harnessBlockedEnvKeys = map[string]struct{}{
 
 const harnessCommandWaitDelay = 250 * time.Millisecond
 
+func harnessShellPath(tb testing.TB) string {
+	tb.Helper()
+
+	bashPath, err := exec.LookPath("bash")
+	if err != nil {
+		tb.Skip("bash not available")
+	}
+
+	scriptPath := filepath.Join(tb.TempDir(), "amux-harness-shell")
+	// Pane startup uses "<shell> -l"; the wrapper intentionally drops that
+	// login flag so host profile files and prompt hooks stay out of test panes.
+	script := fmt.Sprintf("#!/usr/bin/env bash\nexec %q --noprofile --norc -i\n", bashPath)
+	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
+		tb.Fatalf("writing harness shell wrapper: %v", err)
+	}
+	return scriptPath
+}
+
+func applyHarnessShellEnv(tb testing.TB, env []string) []string {
+	tb.Helper()
+
+	env = removeEnv(env, "BASH_ENV")
+	env = removeEnv(env, "ENV")
+	env = upsertEnv(env, "HISTFILE", "/dev/null")
+	env = upsertEnv(env, "PROMPT_COMMAND", "")
+	env = upsertEnv(env, "PS1", "prompt> ")
+	env = upsertEnv(env, "SHELL", harnessShellPath(tb))
+	return env
+}
+
 // newServerHarnessWithSize starts a server harness with a custom terminal size.
 func newServerHarnessWithSize(tb testing.TB, cols, rows int) *ServerHarness {
 	return newServerHarnessWithConfig(tb, cols, rows, "")
@@ -153,6 +183,7 @@ func newServerHarnessForSession(tb testing.TB, session, home string, cols, rows 
 		env = append(env, "AMUX_EXIT_UNATTACHED=1")
 	}
 	env = appendHarnessExtraEnv(env, extraEnv)
+	env = applyHarnessShellEnv(tb, env)
 
 	// Write config to a temp file and pass via AMUX_CONFIG if provided.
 	if configContent != "" {
