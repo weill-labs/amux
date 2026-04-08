@@ -135,7 +135,7 @@ function syncFullscreenButton(container, button, doc) {
   button.setAttribute("aria-pressed", isExpanded ? "true" : "false");
 }
 
-function renderChart(container, suiteName, chartData, colorOffset, ChartCtor) {
+function createChartCard(suiteName) {
   const card = document.createElement("section");
   card.className = "chart-container";
 
@@ -162,6 +162,11 @@ function renderChart(container, suiteName, chartData, colorOffset, ChartCtor) {
   canvasWrap.appendChild(canvas);
 
   card.append(header, canvasWrap);
+  return { button, canvas, card };
+}
+
+function renderChart(container, suiteName, chartData, colorOffset, ChartCtor) {
+  const { button, canvas, card } = createChartCard(suiteName);
   container.appendChild(card);
 
   const datasets = chartData.datasets.map((dataset, index) => {
@@ -212,6 +217,10 @@ function renderChart(container, suiteName, chartData, colorOffset, ChartCtor) {
   document.addEventListener("fullscreenchange", resizeChart);
 }
 
+function showNoData(container) {
+  container.innerHTML = NO_DATA_MESSAGE;
+}
+
 export async function main({ Chart: ChartCtor } = {}) {
   const container = document.getElementById("charts");
   try {
@@ -224,12 +233,12 @@ export async function main({ Chart: ChartCtor } = {}) {
   try {
     data = await fetchJSON("benchmarks.json");
   } catch (_err) {
-    container.innerHTML = NO_DATA_MESSAGE;
+    showNoData(container);
     return;
   }
 
   if (!Array.isArray(data) || data.length === 0 || !ChartCtor) {
-    container.innerHTML = NO_DATA_MESSAGE;
+    showNoData(container);
     return;
   }
 
