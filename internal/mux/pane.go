@@ -77,6 +77,10 @@ type Pane struct {
 	ActivePoint uint64 // monotonic counter — higher means more recently focused
 	Meta        PaneMeta
 
+	runtimeInfoMu   sync.RWMutex
+	runtimePID      int
+	runtimeShellCmd string
+
 	ptmx          *os.File
 	cmd           *exec.Cmd
 	process       *os.Process // set for restored panes (where cmd is nil)
@@ -174,6 +178,7 @@ func NewPendingPaneWithScrollback(id uint32, meta PaneMeta, cols, rows int, scro
 		scrollbackLimit:  effectiveScrollbackLines(scrollbackLines),
 	}
 	p.baseHistory.Store(&paneBaseHistory{})
+	p.setRuntimeProcessInfo(nil, nil)
 	wireScrollbackCallbacks(p)
 	p.startActor()
 	return p, nil
@@ -207,6 +212,7 @@ func newPaneWithShellPath(id uint32, meta PaneMeta, cols, rows int, sessionName 
 		scrollbackLimit:  effectiveScrollbackLines(scrollbackLines),
 	}
 	p.baseHistory.Store(&paneBaseHistory{})
+	p.setRuntimeProcessInfo(cmd, nil)
 	wireScrollbackCallbacks(p)
 	p.startActor()
 	return p, nil
@@ -321,6 +327,7 @@ func RestorePaneWithScrollback(id uint32, meta PaneMeta, ptmxFd, pid, cols, rows
 		scrollbackLimit:  effectiveScrollbackLines(scrollbackLines),
 	}
 	p.baseHistory.Store(&paneBaseHistory{})
+	p.setRuntimeProcessInfo(nil, proc)
 	wireScrollbackCallbacks(p)
 	p.startActor()
 
@@ -396,8 +403,9 @@ func (p *Pane) PtmxFd() int {
 // ShellName returns the shell's command name (e.g., "bash", "zsh") without
 // forking a subprocess. Falls back to processName() if the cmd path is unavailable.
 func (p *Pane) ShellName() string {
-	if p.cmd != nil {
-		name := p.cmd.Path
+	_, shellCmd := p.runtimeProcessInfo()
+	if shellCmd != "" {
+		name := shellCmd
 		if idx := strings.LastIndex(name, "/"); idx >= 0 {
 			name = name[idx+1:]
 		}
@@ -411,13 +419,31 @@ func (p *Pane) ShellName() string {
 
 // ProcessPid returns the PID of the shell process.
 func (p *Pane) ProcessPid() int {
-	if p.cmd != nil {
-		return p.cmd.Process.Pid
+	pid, _ := p.runtimeProcessInfo()
+	return pid
+}
+
+func (p *Pane) runtimeProcessInfo() (pid int, shellCmd string) {
+	p.runtimeInfoMu.RLock()
+	defer p.runtimeInfoMu.RUnlock()
+	return p.runtimePID, p.runtimeShellCmd
+}
+
+func (p *Pane) setRuntimeProcessInfo(cmd *exec.Cmd, proc *os.Process) {
+	pid := 0
+	shellCmd := ""
+	if cmd != nil {
+		shellCmd = cmd.Path
+		if cmd.Process != nil {
+			pid = cmd.Process.Pid
+		}
+	} else if proc != nil {
+		pid = proc.Pid
 	}
-	if p.process != nil {
-		return p.process.Pid
-	}
-	return 0
+	p.runtimeInfoMu.Lock()
+	p.runtimePID = pid
+	p.runtimeShellCmd = shellCmd
+	p.runtimeInfoMu.Unlock()
 }
 
 // DetectCwdBranch returns the current CWD and git branch without mutating state.
@@ -478,6 +504,7 @@ func (p *Pane) Start() {
 		emulator = p.emulator
 		cmd = p.cmd
 		proc = p.process
+		p.setRuntimeProcessInfo(cmd, proc)
 		exitDone = p.exitDone
 		if p.ptmx != nil && p.readLoopDone == nil {
 			p.readLoopDone = make(chan struct{})
@@ -818,6 +845,7 @@ func NewProxyPaneWithScrollback(id uint32, meta PaneMeta, cols, rows int,
 		scrollbackLimit:  effectiveScrollbackLines(scrollbackLines),
 	}
 	p.baseHistory.Store(&paneBaseHistory{})
+	p.setRuntimeProcessInfo(nil, nil)
 	wireScrollbackCallbacks(p)
 	p.startActor()
 	// Start drain goroutine for emulator responses (DA replies etc.)
@@ -853,8 +881,8 @@ func (p *Pane) Respawn(sessionName, dir string) error {
 	}
 
 	shell := shellPath("", p.ProcessPid())
-	if p.cmd != nil && p.cmd.Path != "" {
-		shell = shellPath(p.cmd.Path, p.ProcessPid())
+	if _, shellCmd := p.runtimeProcessInfo(); shellCmd != "" {
+		shell = shellPath(shellCmd, p.ProcessPid())
 	}
 	cmd, ptmx, err := startPaneShell(shell, p.ID, sessionName, dir, cols, rows, "")
 	if err != nil {
@@ -869,6 +897,7 @@ func (p *Pane) Respawn(sessionName, dir string) error {
 		p.ptmx = ptmx
 		p.cmd = cmd
 		p.process = nil
+		p.setRuntimeProcessInfo(cmd, nil)
 		p.emulator = emu
 		p.readLoopDone = nil
 		p.drainLoopDone = nil
@@ -1011,8 +1040,8 @@ func (p *Pane) ReplacementWithColorProfile(sessionName, startDir, colorProfile s
 	}
 
 	shell := shellPath("", p.ProcessPid())
-	if p.cmd != nil && p.cmd.Path != "" {
-		shell = shellPath(p.cmd.Path, p.ProcessPid())
+	if _, shellCmd := p.runtimeProcessInfo(); shellCmd != "" {
+		shell = shellPath(shellCmd, p.ProcessPid())
 	}
 	pane, err := newPaneWithShellPath(p.ID, launchMeta, cols, rows, sessionName, p.scrollbackLines, shell, colorProfile, onOutput, onExit)
 	if err != nil {
