@@ -123,7 +123,18 @@ func TestZoomCLIFocusSamePaneNoUnzoom(t *testing.T) {
 
 func TestZoomResyncsStaleCursorState(t *testing.T) {
 	t.Parallel()
-	h := newServerHarnessWithSize(t, 255, 62)
+	assertZoomResyncsStaleCursorState(t, newServerHarnessWithSize(t, 255, 62))
+}
+
+func TestZoomResyncsStaleCursorStateWithBannerShell(t *testing.T) {
+	t.Parallel()
+	bannerShell := writeLoginBannerShell(t)
+	h := newServerHarnessWithOptions(t, 255, 62, "", false, false, "SHELL="+bannerShell)
+	assertZoomResyncsStaleCursorState(t, h)
+}
+
+func assertZoomResyncsStaleCursorState(t *testing.T, h *ServerHarness) {
+	t.Helper()
 
 	// The headless control client can become command-ready slightly before
 	// short-lived CLI subprocesses are able to connect. Establish CLI command
@@ -186,6 +197,24 @@ func TestZoomResyncsStaleCursorState(t *testing.T) {
 			}
 		})
 	}
+}
+
+func writeLoginBannerShell(t *testing.T) string {
+	t.Helper()
+
+	path := filepath.Join(t.TempDir(), "banner-shell.sh")
+	script := `#!/usr/bin/env bash
+while [ "$1" = "-l" ]; do
+  shift
+done
+printf 'To run a command as administrator (user "root"), use "sudo <command>".\n'
+printf 'BANNER-LINE-2.................................................................................\n'
+exec /bin/bash --noprofile --norc -i
+`
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatalf("write banner shell: %v", err)
+	}
+	return path
 }
 
 func TestZoomRedrawsAltScreenPaneAtExpandedSize(t *testing.T) {
