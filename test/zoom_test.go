@@ -131,6 +131,8 @@ func TestZoomResyncsStaleCursorState(t *testing.T) {
 	_ = h.generation()
 	h.splitH()
 	h.waitFor("pane-2", "$")
+	h.sendKeys("pane-2", "export PS1='SYNC# '", "Enter")
+	waitForLastNonEmptyPaneLine(t, h, "pane-2", "SYNC#", 5*time.Second)
 
 	healthyCapture := h.captureJSON()
 	healthy := h.jsonPane(healthyCapture, "pane-2")
@@ -178,14 +180,46 @@ func TestZoomResyncsStaleCursorState(t *testing.T) {
 
 			afterCapture := h.captureJSON()
 			after := h.jsonPane(afterCapture, "pane-2")
-			if got, want := strings.TrimLeft(after.Content[0], " "), strings.TrimLeft(healthy.Content[0], " "); got != want {
-				t.Fatalf("pane-2 content after %s = %q, want %q", tt.name, got, want)
+			if got, want := strings.TrimLeft(lastNonEmptyContentLine(after.Content), " "), strings.TrimLeft(lastNonEmptyContentLine(healthy.Content), " "); got != want {
+				t.Fatalf("pane-2 prompt after %s = %q, want %q", tt.name, got, want)
 			}
 			if got, want := after.Cursor.Col, healthy.Cursor.Col; got != want {
 				t.Fatalf("pane-2 cursor col after %s = %d, want %d", tt.name, got, want)
 			}
 		})
 	}
+}
+
+func lastNonEmptyContentLine(lines []string) string {
+	for i := len(lines) - 1; i >= 0; i-- {
+		if strings.TrimSpace(lines[i]) != "" {
+			return lines[i]
+		}
+	}
+	return ""
+}
+
+func waitForLastNonEmptyPaneLine(t *testing.T, h *ServerHarness, pane, want string, timeout time.Duration) {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	ticker := time.NewTicker(25 * time.Millisecond)
+	defer ticker.Stop()
+	for time.Now().Before(deadline) {
+		capture := h.captureJSON()
+		for _, p := range capture.Panes {
+			if p.Name != pane {
+				continue
+			}
+			if strings.TrimSpace(lastNonEmptyContentLine(p.Content)) == want {
+				return
+			}
+			break
+		}
+		<-ticker.C
+	}
+
+	t.Fatalf("pane %s last non-empty line did not become %q within %v", pane, want, timeout)
 }
 
 func TestZoomRedrawsAltScreenPaneAtExpandedSize(t *testing.T) {
