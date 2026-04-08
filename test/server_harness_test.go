@@ -74,7 +74,18 @@ func harnessShellPath(tb testing.TB) string {
 	scriptPath := filepath.Join(tb.TempDir(), "amux-harness-shell")
 	// Pane startup uses "<shell> -l"; the wrapper intentionally drops that
 	// login flag so host profile files and prompt hooks stay out of test panes.
-	script := fmt.Sprintf("#!/usr/bin/env bash\nexec %q --noprofile --norc -i\n", bashPath)
+	script := fmt.Sprintf(`#!/usr/bin/env bash
+while [ "$1" = "-l" ]; do
+  shift
+done
+export SHELL=%q
+export PS1='PROMPT$ '
+unset PROMPT_COMMAND
+unset BASH_ENV
+unset ENV
+export HISTFILE=/dev/null
+exec %q --noprofile --norc -i "$@"
+`, bashPath, bashPath)
 	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
 		tb.Fatalf("writing harness shell wrapper: %v", err)
 	}
@@ -88,7 +99,7 @@ func applyHarnessShellEnv(tb testing.TB, env []string) []string {
 	env = removeEnv(env, "ENV")
 	env = upsertEnv(env, "HISTFILE", "/dev/null")
 	env = upsertEnv(env, "PROMPT_COMMAND", "")
-	env = upsertEnv(env, "PS1", "prompt> ")
+	env = upsertEnv(env, "PS1", "PROMPT$ ")
 	env = upsertEnv(env, "SHELL", harnessShellPath(tb))
 	return env
 }

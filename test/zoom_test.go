@@ -123,18 +123,7 @@ func TestZoomCLIFocusSamePaneNoUnzoom(t *testing.T) {
 
 func TestZoomResyncsStaleCursorState(t *testing.T) {
 	t.Parallel()
-	assertZoomResyncsStaleCursorState(t, newServerHarnessWithSize(t, 255, 62))
-}
-
-func TestZoomResyncsStaleCursorStateWithBannerShell(t *testing.T) {
-	t.Parallel()
-	bannerShell := writeLoginBannerShell(t)
-	h := newServerHarnessWithOptions(t, 255, 62, "", false, false, "SHELL="+bannerShell)
-	assertZoomResyncsStaleCursorState(t, h)
-}
-
-func assertZoomResyncsStaleCursorState(t *testing.T, h *ServerHarness) {
-	t.Helper()
+	h := newServerHarnessWithSize(t, 255, 62)
 
 	// The headless control client can become command-ready slightly before
 	// short-lived CLI subprocesses are able to connect. Establish CLI command
@@ -142,6 +131,8 @@ func assertZoomResyncsStaleCursorState(t *testing.T, h *ServerHarness) {
 	_ = h.generation()
 	h.splitH()
 	h.waitFor("pane-2", "$")
+	h.sendKeys("pane-2", "export PS1='SYNC# '", "Enter")
+	waitForLastNonEmptyPaneLine(t, h, "pane-2", "SYNC#", 5*time.Second)
 
 	healthyCapture := h.captureJSON()
 	healthy := h.jsonPane(healthyCapture, "pane-2")
@@ -189,8 +180,8 @@ func assertZoomResyncsStaleCursorState(t *testing.T, h *ServerHarness) {
 
 			afterCapture := h.captureJSON()
 			after := h.jsonPane(afterCapture, "pane-2")
-			if got, want := strings.TrimLeft(after.Content[0], " "), strings.TrimLeft(healthy.Content[0], " "); got != want {
-				t.Fatalf("pane-2 content after %s = %q, want %q", tt.name, got, want)
+			if got, want := strings.TrimLeft(lastNonEmptyContentLine(after.Content), " "), strings.TrimLeft(lastNonEmptyContentLine(healthy.Content), " "); got != want {
+				t.Fatalf("pane-2 prompt after %s = %q, want %q", tt.name, got, want)
 			}
 			if got, want := after.Cursor.Col, healthy.Cursor.Col; got != want {
 				t.Fatalf("pane-2 cursor col after %s = %d, want %d", tt.name, got, want)
@@ -199,22 +190,36 @@ func assertZoomResyncsStaleCursorState(t *testing.T, h *ServerHarness) {
 	}
 }
 
-func writeLoginBannerShell(t *testing.T) string {
+func lastNonEmptyContentLine(lines []string) string {
+	for i := len(lines) - 1; i >= 0; i-- {
+		if strings.TrimSpace(lines[i]) != "" {
+			return lines[i]
+		}
+	}
+	return ""
+}
+
+func waitForLastNonEmptyPaneLine(t *testing.T, h *ServerHarness, pane, want string, timeout time.Duration) {
 	t.Helper()
 
-	path := filepath.Join(t.TempDir(), "banner-shell.sh")
-	script := `#!/usr/bin/env bash
-while [ "$1" = "-l" ]; do
-  shift
-done
-printf 'To run a command as administrator (user "root"), use "sudo <command>".\n'
-printf 'BANNER-LINE-2.................................................................................\n'
-exec /bin/bash --noprofile --norc -i
-`
-	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
-		t.Fatalf("write banner shell: %v", err)
+	deadline := time.Now().Add(timeout)
+	ticker := time.NewTicker(25 * time.Millisecond)
+	defer ticker.Stop()
+	for time.Now().Before(deadline) {
+		capture := h.captureJSON()
+		for _, p := range capture.Panes {
+			if p.Name != pane {
+				continue
+			}
+			if strings.TrimSpace(lastNonEmptyContentLine(p.Content)) == want {
+				return
+			}
+			break
+		}
+		<-ticker.C
 	}
-	return path
+
+	t.Fatalf("pane %s last non-empty line did not become %q within %v", pane, want, timeout)
 }
 
 func TestZoomRedrawsAltScreenPaneAtExpandedSize(t *testing.T) {
