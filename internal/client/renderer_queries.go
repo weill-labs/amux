@@ -265,11 +265,11 @@ func (r *Renderer) PaneBufferSnapshotStyled(paneID uint32, baseHistory []proto.S
 	snap := paneBufferSnapshot{}
 	ok := false
 	r.withActor(func(st *rendererActorState) {
-		st.warmPaneOutput(paneID, st.emulators)
-		emu, exists := st.emulators[paneID]
-		if !exists {
+		emu := st.ensurePaneEmulator(paneID)
+		if emu == nil {
 			return
 		}
+		st.warmPaneOutput(paneID, st.emulators)
 		snap = capturePaneBufferSnapshotStyled(emu, proto.CloneStyledLines(baseHistory), st.snapshot.scrollbackLines)
 		ok = true
 	})

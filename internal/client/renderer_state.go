@@ -74,6 +74,10 @@ func (s *rendererSnapshot) paneVisible(paneID uint32) bool {
 	return ok
 }
 
+func (s *rendererSnapshot) paneInActiveLayout(paneID uint32) bool {
+	return s.layout != nil && s.layout.FindByPaneID(paneID) != nil
+}
+
 func (s *rendererSnapshot) visiblePaneSet(layoutHeight int) map[uint32]struct{} {
 	root := s.visibleLayout(layoutHeight)
 	if root == nil {
@@ -86,6 +90,24 @@ func (s *rendererSnapshot) visiblePaneSet(layoutHeight int) map[uint32]struct{} 
 		}
 	})
 	return visible
+}
+
+func (s *rendererSnapshot) paneDimensions(paneID uint32) (int, int, bool) {
+	if s.layout != nil {
+		if cell := s.layout.FindByPaneID(paneID); cell != nil {
+			return cell.W, mux.PaneContentHeight(cell.H), true
+		}
+	}
+	for _, ws := range s.windows {
+		if cell := proto.FindCellInSnapshot(ws.Root, paneID); cell != nil {
+			return cell.W, mux.PaneContentHeight(cell.H), true
+		}
+	}
+	layoutHeight := s.height - render.GlobalBarHeight
+	if s.width <= 0 || layoutHeight <= 0 {
+		return 0, 0, false
+	}
+	return s.width, mux.PaneContentHeight(layoutHeight), true
 }
 
 func cloneWindowSnapshots(src []proto.WindowSnapshot) []proto.WindowSnapshot {
@@ -139,6 +161,25 @@ func (st *rendererActorState) bufferPaneOutput(paneID uint32, data []byte) {
 		st.pendingPaneOutput[paneID] = buf
 	}
 	buf.appendChunk(data)
+}
+
+func (st *rendererActorState) ensurePaneEmulator(paneID uint32) mux.TerminalEmulator {
+	if paneID == 0 {
+		return nil
+	}
+	if emu := st.emulators[paneID]; emu != nil {
+		return emu
+	}
+	if _, ok := st.snapshot.paneInfo[paneID]; !ok {
+		return nil
+	}
+	width, height, ok := st.snapshot.paneDimensions(paneID)
+	if !ok {
+		return nil
+	}
+	emu := mux.NewVTEmulatorWithDrainAndScrollback(width, height, st.snapshot.scrollbackLines)
+	st.emulators[paneID] = emu
+	return emu
 }
 
 func (st *rendererActorState) warmPaneOutput(paneID uint32, emulators map[uint32]mux.TerminalEmulator) {
