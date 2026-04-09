@@ -78,7 +78,6 @@ func (r *Renderer) HandleLayout(snap *proto.LayoutSnapshot) bool {
 			activeWinID:     snap.ActiveWindowID,
 			scrollbackLines: prev.scrollbackLines,
 		}
-		nextEmulators := make(map[uint32]mux.TerminalEmulator)
 
 		allPanes := snap.Panes
 		activeRoot := snap.Root
@@ -98,22 +97,6 @@ func (r *Renderer) HandleLayout(snap *proto.LayoutSnapshot) bool {
 		for _, ps := range allPanes {
 			next.paneOrder = append(next.paneOrder, ps.ID)
 			next.paneInfo[ps.ID] = ps
-			emu := prevEmulators[ps.ID]
-			if emu == nil {
-				w, h := proto.FindPaneDimensions(snap, activeRoot, ps.ID, mux.PaneContentHeight)
-				emu = mux.NewVTEmulatorWithDrainAndScrollback(w, h, prev.scrollbackLines)
-			}
-			nextEmulators[ps.ID] = emu
-		}
-
-		// Close emulators for panes that no longer exist in the layout.
-		// Each emulator has a drain goroutine that blocks on io.Pipe.Read;
-		// without Close() the goroutine and pipe FDs leak.
-		for id, emu := range prevEmulators {
-			if _, exists := nextEmulators[id]; !exists {
-				delete(st.pendingPaneOutput, id)
-				_ = emu.Close()
-			}
 		}
 
 		next.layout = mux.RebuildLayout(activeRoot)
@@ -125,6 +108,29 @@ func (r *Renderer) HandleLayout(snap *proto.LayoutSnapshot) bool {
 			next.layout.ResizeAll(next.width, clientLayoutH)
 		}
 		next.visiblePaneIDs = next.visiblePaneSet(clientLayoutH)
+		nextEmulators := make(map[uint32]mux.TerminalEmulator, len(prevEmulators)+len(next.visiblePaneIDs))
+		for _, ps := range allPanes {
+			if emu := prevEmulators[ps.ID]; emu != nil {
+				nextEmulators[ps.ID] = emu
+				continue
+			}
+			if next.layout == nil || next.layout.FindByPaneID(ps.ID) == nil {
+				continue
+			}
+			w, h := proto.FindPaneDimensions(snap, activeRoot, ps.ID, mux.PaneContentHeight)
+			nextEmulators[ps.ID] = mux.NewVTEmulatorWithDrainAndScrollback(w, h, next.scrollbackLines)
+		}
+
+		// Close emulators for panes that no longer exist in the layout.
+		// Each emulator has a drain goroutine that blocks on io.Pipe.Read;
+		// without Close() the goroutine and pipe FDs leak.
+		for id, emu := range prevEmulators {
+			if _, exists := next.paneInfo[id]; exists {
+				continue
+			}
+			delete(st.pendingPaneOutput, id)
+			_ = emu.Close()
+		}
 		st.warmVisiblePanes(next, nextEmulators)
 		r.resizeSnapshotEmulators(next, nextEmulators)
 
@@ -162,12 +168,15 @@ func (r *Renderer) HandleLayout(snap *proto.LayoutSnapshot) bool {
 // pane is visible. Hidden panes buffer output and replay it lazily on demand.
 func (r *Renderer) HandlePaneOutput(paneID uint32, data []byte) bool {
 	return withRendererActorValue(r, func(st *rendererActorState) bool {
-		emu := st.emulators[paneID]
-		if emu == nil {
+		if _, ok := st.snapshot.paneInfo[paneID]; !ok {
 			return false
 		}
 		if !st.snapshot.paneVisible(paneID) {
 			st.bufferPaneOutput(paneID, data)
+			return false
+		}
+		emu := st.ensurePaneEmulator(paneID)
+		if emu == nil {
 			return false
 		}
 		st.warmPaneOutput(paneID, st.emulators)
@@ -199,12 +208,15 @@ func captureTerminalCursorState(emu mux.TerminalEmulator) terminalCursorState {
 
 func (r *Renderer) HandlePaneOutputInfo(paneID uint32, data []byte, trackCursor bool) paneOutputRenderInfo {
 	return withRendererActorValue(r, func(st *rendererActorState) paneOutputRenderInfo {
-		emu := st.emulators[paneID]
-		if emu == nil {
+		if _, ok := st.snapshot.paneInfo[paneID]; !ok {
 			return paneOutputRenderInfo{}
 		}
 		if !st.snapshot.paneVisible(paneID) {
 			st.bufferPaneOutput(paneID, data)
+			return paneOutputRenderInfo{}
+		}
+		emu := st.ensurePaneEmulator(paneID)
+		if emu == nil {
 			return paneOutputRenderInfo{}
 		}
 		st.warmPaneOutput(paneID, st.emulators)
@@ -492,11 +504,11 @@ func (r *Renderer) CaptureJSONWithHistory(agentStatus map[uint32]proto.PaneAgent
 func (r *Renderer) CapturePaneText(paneID uint32, includeANSI bool) string {
 	return withRendererActorValue(r, func(st *rendererActorState) string {
 		snap := st.snapshot
-		st.warmPaneOutput(paneID, st.emulators)
-		emu, ok := st.emulators[paneID]
-		if !ok {
+		emu := st.ensurePaneEmulator(paneID)
+		if emu == nil {
 			return ""
 		}
+		st.warmPaneOutput(paneID, st.emulators)
 		if includeANSI {
 			return filterRenderedANSI(emu.Render(), snap.capabilities)
 		}
@@ -573,11 +585,11 @@ func (r *Renderer) WindowSnapshots() ([]proto.WindowSnapshot, uint32) {
 }
 
 func (r *Renderer) buildCapturePane(st *rendererActorState, snap *rendererSnapshot, paneID uint32, agentStatus map[uint32]proto.PaneAgentStatus, includeHistory bool, baseHistory []proto.StyledLine) (proto.CapturePane, bool) {
-	st.warmPaneOutput(paneID, st.emulators)
-	emu, ok := st.emulators[paneID]
-	if !ok {
+	emu := st.ensurePaneEmulator(paneID)
+	if emu == nil {
 		return proto.CapturePane{}, false
 	}
+	st.warmPaneOutput(paneID, st.emulators)
 	info, ok := snap.paneInfo[paneID]
 	if !ok {
 		return proto.CapturePane{}, false
