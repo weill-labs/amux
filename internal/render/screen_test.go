@@ -1418,9 +1418,8 @@ func TestRenderDiff_ColorOracle_TwoPanes(t *testing.T) {
 // --- Fuzz compositor (#169) ---
 
 // Fuzz-specific minimum pane dimensions. Larger than PaneMinSize (2) to avoid
-// triggering known oracle divergences where RenderFull's ANSI path doesn't clip
-// status text to pane width but BuildGrid does. Width=12 fits "● [pane-NN]",
-// height=4 fits status line + 2 content rows + 1 border.
+// overly cramped layouts where the status line leaves no useful content area.
+// Width=12 fits "● [pane-NN]", height=4 fits status line + 2 content rows + 1 border.
 const (
 	fuzzMinW = 12
 	fuzzMinH = 4

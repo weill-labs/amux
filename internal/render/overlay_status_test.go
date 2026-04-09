@@ -213,6 +213,30 @@ func TestRenderPaneStatusTruncatesMetadata(t *testing.T) {
 	}
 }
 
+func TestRenderPaneStatusClipsLongTaskToPaneWidth(t *testing.T) {
+	t.Parallel()
+
+	cell := mux.NewLeaf(&mux.Pane{ID: 1}, 0, 0, 24, 3)
+	buf := strings.Builder{}
+	renderPaneStatus(&buf, cell, true, &statusPaneData{
+		id:    1,
+		name:  "pane-1",
+		task:  "sync-build-with-a-very-long-name",
+		color: config.TextColorHex,
+	})
+
+	line := strings.SplitN(MaterializeGrid(buf.String(), 48, 1), "\n", 2)[0]
+	visible := string([]rune(line)[:cell.W])
+	if !strings.Contains(visible, "…") {
+		t.Fatalf("visible status line %q should include an ellipsis when clipped", visible)
+	}
+	for col, ch := range []rune(line)[cell.W:] {
+		if ch != ' ' {
+			t.Fatalf("status line spilled past pane width at col %d: %q in %q", cell.W+col, string(ch), line)
+		}
+	}
+}
+
 func TestRenderPaneStatusHintsWhenActivePaneHasNoIssueMetadata(t *testing.T) {
 	t.Parallel()
 
@@ -668,6 +692,35 @@ func TestBuildStatusCellsHintsWhenActivePaneHasNoIssueMetadata(t *testing.T) {
 		if !strings.Contains(line, want) {
 			t.Fatalf("status row %q missing %q", line, want)
 		}
+	}
+}
+
+func TestBuildStatusCellsClipsLongTaskToPaneWidth(t *testing.T) {
+	t.Parallel()
+
+	cell := mux.NewLeaf(&mux.Pane{ID: 1}, 0, 0, 24, 4)
+	grid := NewScreenGrid(24, 4)
+	buildStatusCells(grid, cell, true, &statusPaneData{
+		id:    1,
+		name:  "pane-1",
+		task:  "sync-build-with-a-very-long-name",
+		color: config.TextColorHex,
+	})
+
+	var row strings.Builder
+	for x := 0; x < 24; x++ {
+		ch := grid.Get(x, 0).Char
+		if ch == "" {
+			ch = " "
+		}
+		row.WriteString(ch)
+	}
+	line := strings.TrimRight(row.String(), " ")
+	if !strings.Contains(line, "sync") {
+		t.Fatalf("status row %q should keep the task prefix", line)
+	}
+	if !strings.Contains(line, "…") {
+		t.Fatalf("status row %q should include an ellipsis when clipped", line)
 	}
 }
 
