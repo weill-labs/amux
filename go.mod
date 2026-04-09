@@ -3,7 +3,7 @@ module github.com/weill-labs/amux
 go 1.25.0
 
 require (
-	github.com/BurntSushi/toml v1.5.0
+	github.com/BurntSushi/toml v1.6.0
 	github.com/charmbracelet/bubbles v1.0.0
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/colorprofile v0.4.3
@@ -14,10 +14,10 @@ require (
 	github.com/charmbracelet/x/vt v0.0.0-20260311145557-c83711a11ffa
 	github.com/creack/pty v1.1.24
 	github.com/fsnotify/fsnotify v1.9.0
-	github.com/mattn/go-runewidth v0.0.19
+	github.com/mattn/go-runewidth v0.0.23
 	github.com/muesli/termenv v0.16.0
 	golang.org/x/crypto v0.49.0
-	golang.org/x/sys v0.42.0
+	golang.org/x/sys v0.43.0
 	golang.org/x/term v0.41.0
 )
 
@@ -35,7 +35,7 @@ require (
 	github.com/erikgeiser/coninput v0.0.0-20211004153227-1c3628e74d0f // indirect
 	github.com/go-logfmt/logfmt v0.6.0 // indirect
 	github.com/lucasb-eyer/go-colorful v1.4.0 // indirect
-	github.com/mattn/go-isatty v0.0.20 // indirect
+	github.com/mattn/go-isatty v0.0.21 // indirect
 	github.com/mattn/go-localereader v0.0.1 // indirect
 	github.com/muesli/ansi v0.0.0-20230316100256-276c6243b2f6 // indirect
 	github.com/muesli/cancelreader v0.2.2 // indirect
@@ -49,4 +49,4 @@ require (
 
 replace github.com/charmbracelet/ultraviolet => github.com/weill-labs/ultraviolet v0.0.0-20260404003102-9344cbfc286f
 
-replace github.com/charmbracelet/x/vt => github.com/weill-labs/x/vt v0.0.0-20260409003128-9ed944697a50
+replace github.com/charmbracelet/x/vt => github.com/weill-labs/x/vt v0.0.0-20260409063800-46c695d9bc39
