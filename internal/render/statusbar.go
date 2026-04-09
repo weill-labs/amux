@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/mattn/go-runewidth"
@@ -158,7 +159,7 @@ func buildPaneStatusSegments(cellWidth int, isActive bool, pd PaneData) []paneSt
 		segments = appendPaneStatusSegment(segments, pd.Task(), paneStatusSegmentText)
 	}
 
-	return segments
+	return clipPaneStatusSegments(segments, cellWidth)
 }
 
 func paneStatusSegmentsWidth(segments []paneStatusSegment) int {
@@ -167,6 +168,67 @@ func paneStatusSegmentsWidth(segments []paneStatusSegment) int {
 		usedWidth += runewidth.StringWidth(segment.text)
 	}
 	return usedWidth
+}
+
+func clipPaneStatusSegments(segments []paneStatusSegment, maxWidth int) []paneStatusSegment {
+	if maxWidth <= 0 || len(segments) == 0 {
+		return nil
+	}
+	if paneStatusSegmentsWidth(segments) <= maxWidth {
+		return segments
+	}
+	if maxWidth == 1 {
+		return []paneStatusSegment{{text: "…", role: paneStatusSegmentText}}
+	}
+
+	clipped := make([]paneStatusSegment, 0, len(segments)+1)
+	remaining := maxWidth - 1
+	ellipsisRole := paneStatusSegmentText
+
+	for _, segment := range segments {
+		segWidth := runewidth.StringWidth(segment.text)
+		if segWidth <= 0 {
+			continue
+		}
+		if segWidth <= remaining {
+			clipped = append(clipped, segment)
+			remaining -= segWidth
+			ellipsisRole = segment.role
+			continue
+		}
+
+		prefix := truncateRunewidth(segment.text, remaining)
+		if prefix != "" {
+			clipped = append(clipped, paneStatusSegment{text: prefix, role: segment.role})
+			ellipsisRole = segment.role
+		}
+		break
+	}
+
+	clipped = trimPaneStatusSegmentsRight(clipped)
+	if len(clipped) > 0 {
+		ellipsisRole = clipped[len(clipped)-1].role
+	}
+	return append(clipped, paneStatusSegment{text: "…", role: ellipsisRole})
+}
+
+func trimPaneStatusSegmentsRight(segments []paneStatusSegment) []paneStatusSegment {
+	for len(segments) > 0 {
+		last := segments[len(segments)-1]
+		trimmed := strings.TrimRightFunc(last.text, func(r rune) bool {
+			return unicode.IsSpace(r) || r == ','
+		})
+		if trimmed == last.text {
+			return segments
+		}
+		if trimmed == "" {
+			segments = segments[:len(segments)-1]
+			continue
+		}
+		segments[len(segments)-1].text = trimmed
+		return segments
+	}
+	return segments
 }
 
 // renderPaneStatus draws a per-pane status line at the top of a pane cell.
