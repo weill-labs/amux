@@ -74,6 +74,10 @@ func (s *rendererSnapshot) paneVisible(paneID uint32) bool {
 	return ok
 }
 
+func (s *rendererSnapshot) paneInActiveLayout(paneID uint32) bool {
+	return s.layout != nil && s.layout.FindByPaneID(paneID) != nil
+}
+
 func (s *rendererSnapshot) visiblePaneSet(layoutHeight int) map[uint32]struct{} {
 	root := s.visibleLayout(layoutHeight)
 	if root == nil {

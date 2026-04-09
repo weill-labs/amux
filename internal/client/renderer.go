@@ -114,7 +114,7 @@ func (r *Renderer) HandleLayout(snap *proto.LayoutSnapshot) bool {
 				nextEmulators[ps.ID] = emu
 				continue
 			}
-			if next.layout == nil || next.layout.FindByPaneID(ps.ID) == nil {
+			if !next.paneInActiveLayout(ps.ID) {
 				continue
 			}
 			w, h := proto.FindPaneDimensions(snap, activeRoot, ps.ID, mux.PaneContentHeight)
