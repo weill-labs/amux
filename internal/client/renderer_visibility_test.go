@@ -38,6 +38,33 @@ func paneScreenContains(t *testing.T, r *Renderer, paneID uint32, substr string)
 	return found
 }
 
+func paneHasEmulator(t *testing.T, r *Renderer, paneID uint32) bool {
+	t.Helper()
+
+	var ok bool
+	r.withActor(func(st *rendererActorState) {
+		_, ok = st.emulators[paneID]
+	})
+	return ok
+}
+
+func TestClientRendererHiddenWindowPaneStaysColdAfterLayout(t *testing.T) {
+	t.Parallel()
+
+	cr := NewClientRenderer(80, 24)
+	cr.HandleLayout(multiWindow80x23())
+
+	if !paneHasEmulator(t, cr.renderer, 1) {
+		t.Fatal("visible pane should allocate an emulator during layout")
+	}
+	if !paneHasEmulator(t, cr.renderer, 2) {
+		t.Fatal("second visible pane should allocate an emulator during layout")
+	}
+	if paneHasEmulator(t, cr.renderer, 3) {
+		t.Fatal("hidden window pane should stay cold until it becomes visible or is captured")
+	}
+}
+
 func TestClientRendererHiddenPaneOutputStaysColdUntilCapture(t *testing.T) {
 	t.Parallel()
 
