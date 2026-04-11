@@ -256,6 +256,65 @@ func TestCommandSpawnAutoTargetsSpecifiedWindow(t *testing.T) {
 	}
 }
 
+func TestQueryCreatePaneSnapshotColumnFillPaneHintErrors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		setup   func(t *testing.T, sess *Session) uint32
+		paneRef string
+		wantErr string
+	}{
+		{
+			name: "missing pane ref",
+			setup: func(t *testing.T, sess *Session) uint32 {
+				t.Helper()
+
+				p1 := newTestPane(sess, 1, "pane-1")
+				mainWindow := mux.NewWindow(p1, 80, 23)
+				mainWindow.ID = 1
+				mainWindow.Name = "main"
+				setSessionLayoutForTest(t, sess, mainWindow.ID, []*mux.Window{mainWindow}, p1)
+				return p1.ID
+			},
+			paneRef: "missing",
+			wantErr: `pane "missing" not found`,
+		},
+		{
+			name: "pane not in any window",
+			setup: func(t *testing.T, sess *Session) uint32 {
+				t.Helper()
+
+				p1 := newTestPane(sess, 1, "pane-1")
+				orphan := newTestPane(sess, 2, "orphan-pane")
+				mainWindow := mux.NewWindow(p1, 80, 23)
+				mainWindow.ID = 1
+				mainWindow.Name = "main"
+				setSessionLayoutForTest(t, sess, mainWindow.ID, []*mux.Window{mainWindow}, p1, orphan)
+				return p1.ID
+			},
+			paneRef: "orphan-pane",
+			wantErr: "pane not in any window",
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, sess, cleanup := newCommandTestSession(t)
+			defer cleanup()
+
+			actorPaneID := tt.setup(t, sess)
+			_, err := queryCreatePaneSnapshot(sess, actorPaneID, "spawn", createPanePlacementColumnFill, tt.paneRef, "")
+			if err == nil || err.Error() != tt.wantErr {
+				t.Fatalf("queryCreatePaneSnapshot(..., %q) error = %v, want %q", tt.paneRef, err, tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestCommandSpawnAutoUsesPaneTargetWindowHint(t *testing.T) {
 	t.Parallel()
 
