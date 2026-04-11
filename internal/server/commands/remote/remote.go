@@ -80,6 +80,11 @@ func ReloadServer(ctx Context, args []string) commandpkg.Result {
 			}); err != nil {
 				return err
 			}
+			// Reload may exec immediately, so wait for the queued command reply to
+			// reach the client before the server replaces its process image.
+			if err := sender.Flush(); err != nil {
+				return err
+			}
 			return ctx.ReloadServer(execPath)
 		},
 	}
