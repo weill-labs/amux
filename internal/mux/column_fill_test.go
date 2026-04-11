@@ -2,7 +2,7 @@ package mux
 
 import "testing"
 
-func TestPlanColumnFillSpawnSplitsBottomPaneOfFirstUnderfilledColumn(t *testing.T) {
+func TestPlanColumnFillSpawnSplitsBottomPaneOfShortestUnderfilledColumn(t *testing.T) {
 	t.Parallel()
 
 	p1 := fakePaneID(1)
@@ -32,11 +32,41 @@ func TestPlanColumnFillSpawnSplitsBottomPaneOfFirstUnderfilledColumn(t *testing.
 	if plan.RootSplit {
 		t.Fatal("RootSplit = true, want false")
 	}
-	if plan.InheritPaneID != p3.ID {
-		t.Fatalf("InheritPaneID = %d, want %d", plan.InheritPaneID, p3.ID)
+	if plan.InheritPaneID != p4.ID {
+		t.Fatalf("InheritPaneID = %d, want %d", plan.InheritPaneID, p4.ID)
 	}
-	if plan.SplitTargetPaneID != p3.ID {
-		t.Fatalf("SplitTargetPaneID = %d, want %d", plan.SplitTargetPaneID, p3.ID)
+	if plan.SplitTargetPaneID != p4.ID {
+		t.Fatalf("SplitTargetPaneID = %d, want %d", plan.SplitTargetPaneID, p4.ID)
+	}
+}
+
+func TestPlanColumnFillSpawnPrefersLeftmostColumnOnHeightTie(t *testing.T) {
+	t.Parallel()
+
+	p1 := fakePaneID(1)
+	p2 := fakePaneID(2)
+	p3 := fakePaneID(3)
+
+	w := NewWindow(p1, 120, 24)
+	if _, err := w.SplitRoot(SplitVertical, p2); err != nil {
+		t.Fatalf("SplitRoot pane-2: %v", err)
+	}
+	if _, err := w.SplitPaneWithOptions(p2.ID, SplitVertical, p3, SplitOptions{}); err != nil {
+		t.Fatalf("Split pane-2 vertically: %v", err)
+	}
+
+	plan, err := w.PlanColumnFillSpawn()
+	if err != nil {
+		t.Fatalf("PlanColumnFillSpawn: %v", err)
+	}
+	if plan.RootSplit {
+		t.Fatal("RootSplit = true, want false")
+	}
+	if plan.InheritPaneID != p1.ID {
+		t.Fatalf("InheritPaneID = %d, want %d", plan.InheritPaneID, p1.ID)
+	}
+	if plan.SplitTargetPaneID != p1.ID {
+		t.Fatalf("SplitTargetPaneID = %d, want %d", plan.SplitTargetPaneID, p1.ID)
 	}
 }
 
@@ -95,10 +125,10 @@ func TestPlanColumnFillSpawnUsesLogicalRootWhenLeadAnchored(t *testing.T) {
 	if plan.RootSplit {
 		t.Fatal("RootSplit = true, want false")
 	}
-	if plan.InheritPaneID != p3.ID {
-		t.Fatalf("InheritPaneID = %d, want %d", plan.InheritPaneID, p3.ID)
+	if plan.InheritPaneID != p4.ID {
+		t.Fatalf("InheritPaneID = %d, want %d", plan.InheritPaneID, p4.ID)
 	}
-	if plan.SplitTargetPaneID != p3.ID {
-		t.Fatalf("SplitTargetPaneID = %d, want %d", plan.SplitTargetPaneID, p3.ID)
+	if plan.SplitTargetPaneID != p4.ID {
+		t.Fatalf("SplitTargetPaneID = %d, want %d", plan.SplitTargetPaneID, p4.ID)
 	}
 }

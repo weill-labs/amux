@@ -33,11 +33,18 @@ func (w *Window) PlanColumnFillSpawn() (ColumnFillSpawnPlan, error) {
 	}
 
 	maxPanesPerColumn := len(columns) + 1
-	for _, column := range columns {
+	var shortestColumn *columnFillColumn
+	for i := range columns {
+		column := &columns[i]
 		if len(column.leaves) >= maxPanesPerColumn {
 			continue
 		}
-		bottom := column.leaves[len(column.leaves)-1]
+		if shortestColumn == nil || len(column.leaves) < len(shortestColumn.leaves) {
+			shortestColumn = column
+		}
+	}
+	if shortestColumn != nil {
+		bottom := shortestColumn.leaves[len(shortestColumn.leaves)-1]
 		return ColumnFillSpawnPlan{
 			InheritPaneID:     bottom.Pane.ID,
 			SplitTargetPaneID: bottom.Pane.ID,
