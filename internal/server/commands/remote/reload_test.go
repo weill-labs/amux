@@ -76,6 +76,21 @@ func TestReloadServerFlushesReplyBeforeReload(t *testing.T) {
 	}
 }
 
+func TestReloadServerReturnsFlushError(t *testing.T) {
+	t.Parallel()
+
+	res := ReloadServer(reloadTestContext{execPath: "/tmp/amux"}, nil)
+	if res.Stream == nil {
+		t.Fatal("ReloadServer() should stream the reload notice")
+	}
+
+	wantErr := fmt.Errorf("flush failed")
+	err := res.Stream(&reloadTestSender{flushErr: wantErr})
+	if err == nil || err.Error() != wantErr.Error() {
+		t.Fatalf("res.Stream() error = %v, want %v", err, wantErr)
+	}
+}
+
 type reloadTestContext struct {
 	execPath string
 	onReload func(string) error
@@ -96,8 +111,9 @@ func (ctx reloadTestContext) UnspliceHost(string) commandpkg.Result { return com
 func (ctx reloadTestContext) InjectProxy(string) commandpkg.Result { return commandpkg.Result{} }
 
 type reloadTestSender struct {
-	msgs    []*proto.Message
-	flushed bool
+	msgs     []*proto.Message
+	flushed  bool
+	flushErr error
 }
 
 func (s *reloadTestSender) Send(msg *proto.Message) error {
@@ -107,5 +123,5 @@ func (s *reloadTestSender) Send(msg *proto.Message) error {
 
 func (s *reloadTestSender) Flush() error {
 	s.flushed = true
-	return nil
+	return s.flushErr
 }
