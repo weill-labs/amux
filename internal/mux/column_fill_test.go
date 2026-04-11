@@ -125,10 +125,10 @@ func TestPlanColumnFillSpawnUsesLogicalRootWhenLeadAnchored(t *testing.T) {
 	if plan.RootSplit {
 		t.Fatal("RootSplit = true, want false")
 	}
-	if plan.InheritPaneID != p3.ID {
-		t.Fatalf("InheritPaneID = %d, want %d", plan.InheritPaneID, p3.ID)
+	if plan.InheritPaneID != p4.ID {
+		t.Fatalf("InheritPaneID = %d, want %d", plan.InheritPaneID, p4.ID)
 	}
-	if plan.SplitTargetPaneID != p3.ID {
-		t.Fatalf("SplitTargetPaneID = %d, want %d", plan.SplitTargetPaneID, p3.ID)
+	if plan.SplitTargetPaneID != p4.ID {
+		t.Fatalf("SplitTargetPaneID = %d, want %d", plan.SplitTargetPaneID, p4.ID)
 	}
 }
