@@ -68,6 +68,13 @@ func (s commandStreamSender) Send(msg *proto.Message) error {
 	return s.cc.Send(msg)
 }
 
+func (s commandStreamSender) Flush() error {
+	if s.cc == nil {
+		return nil
+	}
+	return s.cc.Flush()
+}
+
 func (ctx *CommandContext) applyCommandResult(res commandpkg.Result) {
 	switch {
 	case res.Mutate != nil:

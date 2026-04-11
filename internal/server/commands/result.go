@@ -32,4 +32,5 @@ type PaneRender struct {
 
 type StreamSender interface {
 	Send(*proto.Message) error
+	Flush() error
 }
