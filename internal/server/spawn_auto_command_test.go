@@ -6,7 +6,7 @@ import (
 	"github.com/weill-labs/amux/internal/mux"
 )
 
-func TestCommandSpawnAutoAppendsToFirstUnderfilledColumnAndEqualizes(t *testing.T) {
+func TestCommandSpawnAutoAppendsToShortestUnderfilledColumnAndEqualizes(t *testing.T) {
 	t.Parallel()
 
 	srv, sess, cleanup := newCommandTestSession(t)
@@ -38,6 +38,7 @@ func TestCommandSpawnAutoAppendsToFirstUnderfilledColumnAndEqualizes(t *testing.
 		p4X int
 		p1H int
 		p2H int
+		p3H int
 		p4H int
 	} {
 		w := sess.activeWindow()
@@ -50,6 +51,7 @@ func TestCommandSpawnAutoAppendsToFirstUnderfilledColumnAndEqualizes(t *testing.
 				p4X int
 				p1H int
 				p2H int
+				p3H int
 				p4H int
 			}{}
 		}
@@ -60,6 +62,7 @@ func TestCommandSpawnAutoAppendsToFirstUnderfilledColumnAndEqualizes(t *testing.
 			p4X int
 			p1H int
 			p2H int
+			p3H int
 			p4H int
 		}{
 			p1X: w.Root.FindPane(p1.ID).X,
@@ -68,17 +71,21 @@ func TestCommandSpawnAutoAppendsToFirstUnderfilledColumnAndEqualizes(t *testing.
 			p4X: w.Root.FindPane(p4.ID).X,
 			p1H: w.Root.FindPane(p1.ID).H,
 			p2H: w.Root.FindPane(p2.ID).H,
+			p3H: w.Root.FindPane(p3.ID).H,
 			p4H: w.Root.FindPane(p4.ID).H,
 		}
 	})
 
-	if state.p1X != state.p2X || state.p1X != state.p4X {
-		t.Fatalf("auto spawn should keep pane-1, pane-2, and worker-4 in the same column: %+v", state)
+	if state.p1X != state.p2X {
+		t.Fatalf("auto spawn should keep pane-1 and pane-2 in the original column: %+v", state)
 	}
-	if state.p3X == state.p4X {
-		t.Fatalf("auto spawn should leave pane-3 in a different column: %+v", state)
+	if state.p3X != state.p4X {
+		t.Fatalf("auto spawn should place pane-3 and worker-4 in the shortest column: %+v", state)
 	}
-	if state.p1H != state.p2H || state.p2H != state.p4H {
+	if state.p1X == state.p4X {
+		t.Fatalf("auto spawn should leave pane-1/pane-2 in a different column from worker-4: %+v", state)
+	}
+	if state.p3H != state.p4H {
 		t.Fatalf("auto spawn should equalize row heights in the filled column: %+v", state)
 	}
 }
