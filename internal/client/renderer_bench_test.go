@@ -114,6 +114,7 @@ func BenchmarkRendererHandlePaneOutput(b *testing.B) {
 	for _, size := range []int{256, 4096, 32768} {
 		b.Run(fmt.Sprintf("bytes_%d", size), func(b *testing.B) {
 			r, _ := benchRendererWithContent(1)
+			defer r.Close()
 			payload := benchTerminalPayload(size)
 
 			b.SetBytes(int64(size))
@@ -208,6 +209,7 @@ func BenchmarkRendererHandlePaneOutputVisibility(b *testing.B) {
 
 	b.Run("visible", func(b *testing.B) {
 		r := NewWithScrollback(width, layoutHeight+1, mux.DefaultScrollbackLines)
+		defer r.Close()
 		r.HandleLayout(layout)
 
 		b.SetBytes(int64(payloadSize))
@@ -221,6 +223,7 @@ func BenchmarkRendererHandlePaneOutputVisibility(b *testing.B) {
 
 	b.Run("hidden", func(b *testing.B) {
 		r := NewWithScrollback(width, layoutHeight+1, mux.DefaultScrollbackLines)
+		defer r.Close()
 		r.HandleLayout(layout)
 
 		b.SetBytes(int64(payloadSize))
@@ -237,6 +240,7 @@ func BenchmarkRendererCaptureJSON(b *testing.B) {
 	for _, panes := range []int{1, 20} {
 		b.Run(fmt.Sprintf("panes_%d/build", panes), func(b *testing.B) {
 			r, status := benchRendererWithContent(panes)
+			defer r.Close()
 
 			b.ReportAllocs()
 			b.ResetTimer()
@@ -249,6 +253,7 @@ func BenchmarkRendererCaptureJSON(b *testing.B) {
 
 		b.Run(fmt.Sprintf("panes_%d/marshal", panes), func(b *testing.B) {
 			r, status := benchRendererWithContent(panes)
+			defer r.Close()
 			capture, ok := r.captureJSONValue(status)
 			if !ok {
 				b.Fatal("captureJSONValue returned no layout")
@@ -272,12 +277,14 @@ func BenchmarkRendererHandleLayout(b *testing.B) {
 		target := benchLayoutSnapshot(panes, width, layoutHeight)
 		b.Run(fmt.Sprintf("panes_%d", panes), func(b *testing.B) {
 			b.ReportAllocs()
-			for b.Loop() {
+			for i := 0; i < b.N; i++ {
 				b.StopTimer()
 				r := NewWithScrollback(width, layoutHeight+1, mux.DefaultScrollbackLines)
 				r.HandleLayout(base)
 				b.StartTimer()
 				r.HandleLayout(target)
+				b.StopTimer()
+				r.Close()
 			}
 		})
 	}

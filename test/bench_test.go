@@ -13,6 +13,12 @@ import (
 	"github.com/weill-labs/amux/internal/server"
 )
 
+func throughputBenchCommand(i int) (marker, command string) {
+	marker = fmt.Sprintf("DONE-%04d", i)
+	command = fmt.Sprintf("marker=$(printf 'DONE-%%04d' %d); seq 1 10000; printf '%%s\\n' \"$marker\"", i)
+	return marker, command
+}
+
 // ---------------------------------------------------------------------------
 // TmuxBenchHarness — lightweight tmux wrapper for comparison benchmarks
 // ---------------------------------------------------------------------------
@@ -239,11 +245,16 @@ func BenchmarkThroughput(b *testing.B) {
 	b.Run("amux", func(b *testing.B) {
 		b.StopTimer()
 		h := newServerHarness(b)
-		b.StartTimer()
+		h.waitIdle("pane-1")
 		for i := range b.N {
-			marker := fmt.Sprintf("DONE-%04d", i)
-			h.sendKeys("pane-1", fmt.Sprintf("seq 1 10000; echo %s", marker), "Enter")
+			marker, command := throughputBenchCommand(i)
+			b.StartTimer()
+			h.sendKeys("pane-1", command, "Enter")
 			h.waitForTimeout("pane-1", marker, "30s")
+			b.StopTimer()
+			// Wait for the prompt to settle before injecting the next command.
+			// Slow runners can render the marker before the shell is fully idle.
+			h.waitIdle("pane-1")
 		}
 	})
 
@@ -252,8 +263,8 @@ func BenchmarkThroughput(b *testing.B) {
 		th := newTmuxBenchHarness(b)
 		b.StartTimer()
 		for i := range b.N {
-			marker := fmt.Sprintf("DONE-%04d", i)
-			th.run("send-keys", "-t", th.session, fmt.Sprintf("seq 1 10000; echo %s", marker), "Enter")
+			marker, command := throughputBenchCommand(i)
+			th.run("send-keys", "-t", th.session, command, "Enter")
 			deadline := time.Now().Add(30 * time.Second)
 			for time.Now().Before(deadline) {
 				out := th.run("capture-pane", "-t", th.session, "-p")
@@ -273,18 +284,25 @@ func BenchmarkThroughputPersistent(b *testing.B) {
 	b.Run("amux", func(b *testing.B) {
 		b.StopTimer()
 		h := newServerHarness(b)
-		b.StartTimer()
+		h.waitIdle("pane-1")
 		for i := range b.N {
-			marker := fmt.Sprintf("DONE-%04d", i)
+			marker, command := throughputBenchCommand(i)
 
-			msg := h.client.runCommand("send-keys", "pane-1", fmt.Sprintf("seq 1 10000; echo %s", marker), "Enter")
+			b.StartTimer()
+			msg := h.client.runCommandWithTimeout(45*time.Second, "send-keys", "pane-1", command, "Enter")
 			if msg.CmdErr != "" {
 				b.Fatalf("send-keys failed: %s", msg.CmdErr)
 			}
 
-			msg = h.client.runCommand("wait", "content", "pane-1", marker, "--timeout", "30s")
+			msg = h.client.runCommandWithTimeout(45*time.Second, "wait", "content", "pane-1", marker, "--timeout", "30s")
 			if msg.CmdErr != "" {
 				b.Fatalf("wait-for failed: %s", msg.CmdErr)
+			}
+			b.StopTimer()
+
+			msg = h.client.runCommandWithTimeout(45*time.Second, "wait", "idle", "pane-1", "--timeout", "20s")
+			if msg.CmdErr != "" {
+				b.Fatalf("wait-idle failed: %s", msg.CmdErr)
 			}
 		}
 	})
