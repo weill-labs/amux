@@ -301,9 +301,17 @@ func TestParseSpawnArgs(t *testing.T) {
 			wantErr: "unknown flag: --bogus",
 		},
 		{
-			name:    "rejects auto with explicit target",
-			args:    []string{"--auto", "--at", "pane-1"},
-			wantErr: "spawn --auto cannot be combined with explicit placement",
+			name: "parses auto mode with pane target as window hint",
+			args: []string{"--auto", "--at", "pane-1", "--name", "worker-1"},
+			want: SpawnArgs{
+				Auto:    true,
+				PaneRef: "pane-1",
+				Dir:     mux.SplitVertical,
+				Meta: mux.PaneMeta{
+					Name: "worker-1",
+					Host: mux.DefaultHost,
+				},
+			},
 		},
 		{
 			name:    "rejects window with explicit pane target",
