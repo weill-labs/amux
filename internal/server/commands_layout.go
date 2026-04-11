@@ -185,17 +185,11 @@ func runCreatePane(ctx *CommandContext, actorPaneID uint32, command string, plac
 func queryCreatePaneSnapshot(sess *Session, actorPaneID uint32, command string, placement createPanePlacement, paneRef, windowRef string) (createPaneSnapshot, error) {
 	return enqueueSessionQuery(sess, func(sess *Session) (createPaneSnapshot, error) {
 		if placement == createPanePlacementColumnFill {
-			if paneRef != "" {
-				_, resolvedWindow, err := sess.resolvePaneAcrossWindowsForActor(actorPaneID, paneRef)
-				if err != nil {
-					return createPaneSnapshot{}, err
-				}
-				if resolvedWindow == nil {
-					return createPaneSnapshot{}, fmt.Errorf("pane not in any window")
-				}
-				windowRef = strconv.Itoa(int(resolvedWindow.ID))
+			resolvedWindowRef, err := resolveCreatePaneWindowHint(sess, actorPaneID, paneRef, windowRef)
+			if err != nil {
+				return createPaneSnapshot{}, err
 			}
-			return queryColumnFillCreatePaneSnapshot(sess, actorPaneID, command, windowRef)
+			return queryColumnFillCreatePaneSnapshot(sess, actorPaneID, command, resolvedWindowRef)
 		}
 		if paneRef != "" {
 			pane, resolvedWindow, err := sess.resolvePaneAcrossWindowsForActor(actorPaneID, paneRef)
@@ -234,6 +228,20 @@ func queryCreatePaneSnapshot(sess *Session, actorPaneID uint32, command string, 
 			targetPaneID: w.ActivePane.ID,
 		}, nil
 	})
+}
+
+func resolveCreatePaneWindowHint(sess *Session, actorPaneID uint32, paneRef, windowRef string) (string, error) {
+	if paneRef == "" {
+		return windowRef, nil
+	}
+	_, resolvedWindow, err := sess.resolvePaneAcrossWindowsForActor(actorPaneID, paneRef)
+	if err != nil {
+		return "", err
+	}
+	if resolvedWindow == nil {
+		return "", fmt.Errorf("pane not in any window")
+	}
+	return strconv.Itoa(int(resolvedWindow.ID)), nil
 }
 
 func resolveCreatePaneTargetWindow(sess *Session, actorPaneID uint32, command, windowRef string) (*mux.Window, error) {
