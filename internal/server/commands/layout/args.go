@@ -16,6 +16,7 @@ const (
 
 type createPaneArgs struct {
 	PaneRef      string
+	WindowRef    string
 	RootLevel    bool
 	Dir          mux.SplitDir
 	Auto         bool
@@ -60,6 +61,7 @@ func parseCreatePaneArgs(mode createPaneMode, args []string) (createPaneArgs, er
 		specs = append(specs,
 			cmdflags.FlagSpec{Name: "--auto", Type: cmdflags.FlagTypeBool},
 			cmdflags.FlagSpec{Name: "--at", Type: cmdflags.FlagTypeString},
+			cmdflags.FlagSpec{Name: "--window", Type: cmdflags.FlagTypeString},
 			cmdflags.FlagSpec{Name: "--root", Type: cmdflags.FlagTypeBool},
 			cmdflags.FlagSpec{Name: "--vertical", Type: cmdflags.FlagTypeBool},
 			cmdflags.FlagSpec{Name: "--horizontal", Type: cmdflags.FlagTypeBool},
@@ -79,6 +81,7 @@ func parseCreatePaneArgs(mode createPaneMode, args []string) (createPaneArgs, er
 	if mode == createPaneModeSpawn {
 		parsed.Auto = flags.Bool("--auto")
 		parsed.PaneRef = flags.String("--at")
+		parsed.WindowRef = flags.String("--window")
 		parsed.RootLevel = flags.Bool("--root")
 		parsed.HostExplicit = flags.Seen("--host")
 	}
@@ -128,10 +131,13 @@ func parseCreatePaneArgs(mode createPaneMode, args []string) (createPaneArgs, er
 	if len(positionals) > 0 {
 		return createPaneArgs{}, fmt.Errorf("unknown spawn arg %q", positionals[0])
 	}
+	if parsed.WindowRef != "" && parsed.PaneRef != "" {
+		return createPaneArgs{}, fmt.Errorf("spawn --window cannot be combined with --at")
+	}
 	if parsed.Auto && (parsed.PaneRef != "" || parsed.RootLevel || hasExplicitDir) {
 		return createPaneArgs{}, fmt.Errorf("spawn --auto cannot be combined with explicit placement")
 	}
-	if (parsed.PaneRef != "" || parsed.RootLevel) && !hasExplicitDir {
+	if (parsed.PaneRef != "" || (parsed.WindowRef != "" && !parsed.Auto) || parsed.RootLevel) && !hasExplicitDir {
 		parsed.Dir = mux.SplitHorizontal
 	}
 	return parsed, nil
@@ -163,6 +169,7 @@ func ParseSplitArgs(args []string) (SplitArgs, error) {
 
 type SpawnArgs struct {
 	PaneRef      string
+	WindowRef    string
 	RootLevel    bool
 	Dir          mux.SplitDir
 	Meta         mux.PaneMeta
@@ -182,6 +189,7 @@ func ParseSpawnArgs(args []string) (SpawnArgs, error) {
 	}
 	return SpawnArgs{
 		PaneRef:   parsed.PaneRef,
+		WindowRef: parsed.WindowRef,
 		RootLevel: parsed.RootLevel,
 		Dir:       parsed.Dir,
 		Meta: mux.PaneMeta{

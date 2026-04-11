@@ -52,6 +52,16 @@ func TestParseCreatePaneArgs(t *testing.T) {
 			},
 		},
 		{
+			name: "spawn parses window target",
+			mode: createPaneModeSpawn,
+			args: []string{"--window", "logs", "--name", "worker"},
+			want: createPaneArgs{
+				WindowRef: "logs",
+				Dir:       mux.SplitHorizontal,
+				Name:      "worker",
+			},
+		},
+		{
 			name:    "spawn rejects split-only pane refs",
 			mode:    createPaneModeSpawn,
 			args:    []string{"pane-1"},
@@ -215,6 +225,31 @@ func TestParseSpawnArgs(t *testing.T) {
 			},
 		},
 		{
+			name: "parses auto mode with window target",
+			args: []string{"--auto", "--window", "logs", "--name", "worker-1"},
+			want: SpawnArgs{
+				Auto:      true,
+				WindowRef: "logs",
+				Dir:       mux.SplitVertical,
+				Meta: mux.PaneMeta{
+					Name: "worker-1",
+					Host: mux.DefaultHost,
+				},
+			},
+		},
+		{
+			name: "parses window targeted spawn placement",
+			args: []string{"--window", "logs", "--name", "worker-1"},
+			want: SpawnArgs{
+				WindowRef: "logs",
+				Dir:       mux.SplitHorizontal,
+				Meta: mux.PaneMeta{
+					Name: "worker-1",
+					Host: mux.DefaultHost,
+				},
+			},
+		},
+		{
 			name: "parses targeted spawn placement",
 			args: []string{"--at", "pane-1", "--name", "worker-1"},
 			want: SpawnArgs{
@@ -269,6 +304,11 @@ func TestParseSpawnArgs(t *testing.T) {
 			name:    "rejects auto with explicit target",
 			args:    []string{"--auto", "--at", "pane-1"},
 			wantErr: "spawn --auto cannot be combined with explicit placement",
+		},
+		{
+			name:    "rejects window with explicit pane target",
+			args:    []string{"--window", "logs", "--at", "pane-1"},
+			wantErr: "spawn --window cannot be combined with --at",
 		},
 		{
 			name:    "rejects spiral flag",
