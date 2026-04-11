@@ -36,8 +36,6 @@ func TestCommandSpawnAutoAppendsToShortestUnderfilledColumnAndEqualizes(t *testi
 		p2X int
 		p3X int
 		p4X int
-		p1H int
-		p2H int
 		p3H int
 		p4H int
 	} {
@@ -49,8 +47,6 @@ func TestCommandSpawnAutoAppendsToShortestUnderfilledColumnAndEqualizes(t *testi
 				p2X int
 				p3X int
 				p4X int
-				p1H int
-				p2H int
 				p3H int
 				p4H int
 			}{}
@@ -60,8 +56,6 @@ func TestCommandSpawnAutoAppendsToShortestUnderfilledColumnAndEqualizes(t *testi
 			p2X int
 			p3X int
 			p4X int
-			p1H int
-			p2H int
 			p3H int
 			p4H int
 		}{
@@ -69,8 +63,6 @@ func TestCommandSpawnAutoAppendsToShortestUnderfilledColumnAndEqualizes(t *testi
 			p2X: w.Root.FindPane(p2.ID).X,
 			p3X: w.Root.FindPane(p3.ID).X,
 			p4X: w.Root.FindPane(p4.ID).X,
-			p1H: w.Root.FindPane(p1.ID).H,
-			p2H: w.Root.FindPane(p2.ID).H,
 			p3H: w.Root.FindPane(p3.ID).H,
 			p4H: w.Root.FindPane(p4.ID).H,
 		}
