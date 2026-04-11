@@ -44,6 +44,8 @@ type headlessCommand struct {
 	reply chan *server.Message
 }
 
+const defaultHeadlessCommandTimeout = 10 * time.Second
+
 func dialHeadlessSocket(sockPath string, timeout time.Duration) (net.Conn, error) {
 	_ = timeout // timeout is exercised by the layout wait below in newHeadlessClient
 	return net.Dial("unix", sockPath)
@@ -196,6 +198,10 @@ func (hc *headlessClient) sendUIEvent(name string) {
 // runCommand sends a server command over the attached client connection and
 // waits for the single CmdResult reply.
 func (hc *headlessClient) runCommand(cmdName string, args ...string) *server.Message {
+	return hc.runCommandWithTimeout(defaultHeadlessCommandTimeout, cmdName, args...)
+}
+
+func (hc *headlessClient) runCommandWithTimeout(timeout time.Duration, cmdName string, args ...string) *server.Message {
 	req := headlessCommand{
 		msg: &server.Message{
 			Type:    server.MsgTypeCommand,
@@ -216,7 +222,7 @@ func (hc *headlessClient) runCommand(cmdName string, args ...string) *server.Mes
 	select {
 	case msg := <-req.reply:
 		return msg
-	case <-time.After(10 * time.Second):
+	case <-time.After(timeout):
 		return &server.Message{Type: server.MsgTypeCmdResult, CmdErr: "timeout waiting for command result"}
 	case <-hc.closing:
 		select {
