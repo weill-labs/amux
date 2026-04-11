@@ -208,6 +208,7 @@ func ParseMoveArgs(args []string) (string, []string, error) {
 
 type spawnCLIOptions struct {
 	at             string
+	window         string
 	dir            mux.SplitDir
 	hasExplicitDir bool
 	auto           bool
@@ -238,6 +239,12 @@ func ParseSpawnCommandArgs(args []string) (string, []string, error) {
 				return "", nil, fmt.Errorf(spawnUsage)
 			}
 			opts.at = args[i+1]
+			i++
+		case "--window":
+			if i+1 >= len(args) {
+				return "", nil, fmt.Errorf(spawnUsage)
+			}
+			opts.window = args[i+1]
 			i++
 		case "--vertical":
 			if err := setDir(mux.SplitVertical); err != nil {
@@ -282,12 +289,18 @@ func ParseSpawnCommandArgs(args []string) (string, []string, error) {
 		}
 	}
 
+	if opts.window != "" && opts.at != "" {
+		return "", nil, fmt.Errorf(spawnUsage)
+	}
 	if opts.auto && (opts.at != "" || opts.root || opts.hasExplicitDir) {
 		return "", nil, fmt.Errorf(spawnUsage)
 	}
 
 	cmdArgs := make([]string, 0, 10)
 	if opts.auto {
+		if opts.window != "" {
+			cmdArgs = append(cmdArgs, "--window", opts.window)
+		}
 		if opts.focus {
 			cmdArgs = append(cmdArgs, "--focus")
 		}
@@ -309,6 +322,9 @@ func ParseSpawnCommandArgs(args []string) (string, []string, error) {
 
 	if opts.at != "" {
 		cmdArgs = append(cmdArgs, "--at", opts.at)
+	}
+	if opts.window != "" {
+		cmdArgs = append(cmdArgs, "--window", opts.window)
 	}
 	if opts.root {
 		cmdArgs = append(cmdArgs, "--root")

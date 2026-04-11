@@ -25,14 +25,18 @@ func TestParseSpawnCommandArgs(t *testing.T) {
 		{name: "default spawn", args: nil, wantCmd: "spawn", wantArgs: []string{}},
 		{name: "focused spawn", args: []string{"--focus"}, wantCmd: "spawn", wantArgs: []string{"--focus"}},
 		{name: "auto spawn", args: []string{"--auto"}, wantCmd: "spawn", wantArgs: []string{"--auto"}},
+		{name: "auto spawn in named window", args: []string{"--auto", "--window", "logs"}, wantCmd: "spawn", wantArgs: []string{"--window", "logs", "--auto"}},
 		{name: "targeted spawn at pane", args: []string{"--at", "pane-1"}, wantCmd: "spawn", wantArgs: []string{"--at", "pane-1"}},
+		{name: "targeted spawn in named window", args: []string{"--window", "logs"}, wantCmd: "spawn", wantArgs: []string{"--window", "logs"}},
 		{name: "targeted spawn active vertical", args: []string{"--vertical"}, wantCmd: "spawn", wantArgs: []string{"--vertical"}},
 		{name: "targeted spawn root vertical", args: []string{"--at", "pane-1", "--root", "--vertical"}, wantCmd: "spawn", wantArgs: []string{"--at", "pane-1", "--root", "--vertical"}},
 		{name: "targeted spawn with metadata", args: []string{"--at", "pane-1", "--task", "build", "--color", "blue"}, wantCmd: "spawn", wantArgs: []string{"--at", "pane-1", "--task", "build", "--color", "blue"}},
 		{name: "conflicting directions", args: []string{"--vertical", "--horizontal"}, wantErrText: spawnUsage},
 		{name: "auto conflicts with explicit placement", args: []string{"--auto", "--vertical"}, wantErrText: spawnUsage},
+		{name: "window conflicts with explicit pane target", args: []string{"--window", "logs", "--at", "pane-1"}, wantErrText: spawnUsage},
 		{name: "spiral rejected", args: []string{"--spiral"}, wantErrText: spawnUsage},
 		{name: "missing at value", args: []string{"--at"}, wantErrText: spawnUsage},
+		{name: "missing window value", args: []string{"--window"}, wantErrText: spawnUsage},
 		{name: "unknown arg", args: []string{"pane-1"}, wantErrText: spawnUsage},
 	}
 

@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/weill-labs/amux/internal/mux"
@@ -72,6 +73,7 @@ const (
 
 type createPaneRequest struct {
 	paneRef      string
+	windowRef    string
 	hostName     string
 	hostExplicit bool
 	name         string
@@ -121,7 +123,7 @@ type respawnTarget struct {
 }
 
 func runCreatePane(ctx *CommandContext, actorPaneID uint32, command string, placement createPanePlacement, req createPaneRequest, keepFocus bool) commandpkg.Result {
-	snapshot, err := queryCreatePaneSnapshot(ctx.Sess, actorPaneID, command, placement, req.paneRef)
+	snapshot, err := queryCreatePaneSnapshot(ctx.Sess, actorPaneID, command, placement, req.paneRef, req.windowRef)
 	if err != nil {
 		return commandpkg.Result{Err: err}
 	}
@@ -180,12 +182,11 @@ func runCreatePane(ctx *CommandContext, actorPaneID uint32, command string, plac
 	}))
 }
 
-func queryCreatePaneSnapshot(sess *Session, actorPaneID uint32, command string, placement createPanePlacement, paneRef string) (createPaneSnapshot, error) {
+func queryCreatePaneSnapshot(sess *Session, actorPaneID uint32, command string, placement createPanePlacement, paneRef, windowRef string) (createPaneSnapshot, error) {
 	return enqueueSessionQuery(sess, func(sess *Session) (createPaneSnapshot, error) {
 		if placement == createPanePlacementColumnFill {
-			return queryColumnFillCreatePaneSnapshot(sess, actorPaneID, command)
+			return queryColumnFillCreatePaneSnapshot(sess, actorPaneID, command, windowRef)
 		}
-		w := sess.windowForActor(actorPaneID)
 		if paneRef != "" {
 			pane, resolvedWindow, err := sess.resolvePaneAcrossWindowsForActor(actorPaneID, paneRef)
 			if err != nil {
@@ -204,6 +205,10 @@ func queryCreatePaneSnapshot(sess *Session, actorPaneID uint32, command string, 
 				treatLeadPaneAsWindowRef: command == "spawn",
 			}, nil
 		}
+		w, err := resolveCreatePaneTargetWindow(sess, actorPaneID, command, windowRef)
+		if err != nil {
+			return createPaneSnapshot{}, err
+		}
 		if w == nil {
 			return createPaneSnapshot{}, createPaneWindowError(command)
 		}
@@ -221,10 +226,30 @@ func queryCreatePaneSnapshot(sess *Session, actorPaneID uint32, command string, 
 	})
 }
 
-func queryColumnFillCreatePaneSnapshot(sess *Session, actorPaneID uint32, command string) (createPaneSnapshot, error) {
+func resolveCreatePaneTargetWindow(sess *Session, actorPaneID uint32, command, windowRef string) (*mux.Window, error) {
+	if windowRef != "" {
+		if windowID, err := strconv.Atoi(windowRef); err == nil {
+			if w := sess.windowByID(uint32(windowID)); w != nil {
+				return w, nil
+			}
+		}
+		w := sess.resolveWindow(windowRef)
+		if w == nil {
+			return nil, fmt.Errorf("window %q not found", windowRef)
+		}
+		return w, nil
+	}
 	w := sess.windowForActor(actorPaneID)
 	if w == nil {
-		return createPaneSnapshot{}, createPaneWindowError(command)
+		return nil, createPaneWindowError(command)
+	}
+	return w, nil
+}
+
+func queryColumnFillCreatePaneSnapshot(sess *Session, actorPaneID uint32, command, windowRef string) (createPaneSnapshot, error) {
+	w, err := resolveCreatePaneTargetWindow(sess, actorPaneID, command, windowRef)
+	if err != nil {
+		return createPaneSnapshot{}, err
 	}
 
 	plan, err := w.PlanColumnFillSpawn()
@@ -439,6 +464,7 @@ func createPaneRequestFromSpawnArgs(args layoutcmd.SpawnArgs) createPaneRequest 
 	}
 	return createPaneRequest{
 		paneRef:      args.PaneRef,
+		windowRef:    args.WindowRef,
 		hostName:     hostName,
 		hostExplicit: args.HostExplicit,
 		name:         args.Meta.Name,
