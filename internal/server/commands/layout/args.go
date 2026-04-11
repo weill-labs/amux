@@ -134,10 +134,10 @@ func parseCreatePaneArgs(mode createPaneMode, args []string) (createPaneArgs, er
 	if parsed.WindowRef != "" && parsed.PaneRef != "" {
 		return createPaneArgs{}, fmt.Errorf("spawn --window cannot be combined with --at")
 	}
-	if parsed.Auto && (parsed.PaneRef != "" || parsed.RootLevel || hasExplicitDir) {
+	if parsed.Auto && (parsed.RootLevel || hasExplicitDir) {
 		return createPaneArgs{}, fmt.Errorf("spawn --auto cannot be combined with explicit placement")
 	}
-	if (parsed.PaneRef != "" || (parsed.WindowRef != "" && !parsed.Auto) || parsed.RootLevel) && !hasExplicitDir {
+	if (((parsed.PaneRef != "" || parsed.WindowRef != "") && !parsed.Auto) || parsed.RootLevel) && !hasExplicitDir {
 		parsed.Dir = mux.SplitHorizontal
 	}
 	return parsed, nil
