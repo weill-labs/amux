@@ -51,6 +51,18 @@ func capturePaneJSONFor(tb testing.TB, pane string, runCmd func(...string) strin
 	}
 }
 
+func capturePaneJSONOrUnavailable(runCmd func(...string) string, pane string) (proto.CapturePane, bool) {
+	raw := runCmd("capture", "--format", "json", pane)
+	var capture proto.CapturePane
+	if err := json.Unmarshal([]byte(raw), &capture); err == nil {
+		return capture, true
+	}
+	if isCaptureUnavailable(raw) || isTransientSessionQueryFailure(raw) || strings.Contains(raw, "not found") {
+		return proto.CapturePane{}, false
+	}
+	return proto.CapturePane{}, false
+}
+
 func isTransientSessionQueryFailure(raw string) bool {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {

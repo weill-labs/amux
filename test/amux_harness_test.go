@@ -443,6 +443,20 @@ func (h *AmuxHarness) waitForCaptureJSON(fn func(proto.CaptureJSON) bool, timeou
 	)
 }
 
+func (h *AmuxHarness) waitForPaneCaptureJSON(pane string, timeout time.Duration) (proto.CapturePane, bool) {
+	h.tb.Helper()
+	return waitForPaneCaptureJSONWithLayout(
+		func() (proto.CapturePane, bool) {
+			return capturePaneJSONOrUnavailable(h.runCmd, pane)
+		},
+		h.generation,
+		func(afterGen uint64, waitFor time.Duration) bool {
+			return h.waitLayoutOrTimeout(afterGen, waitFor.String())
+		},
+		timeout,
+	)
+}
+
 // ---------------------------------------------------------------------------
 // Capture — inner compositor and outer rendered content
 // ---------------------------------------------------------------------------

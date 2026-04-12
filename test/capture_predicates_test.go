@@ -7,6 +7,11 @@ import (
 )
 
 func captureHasActiveZoomedPane(capture proto.CaptureJSON, name string) bool {
+	for _, pane := range capture.Panes {
+		if pane.Name == name {
+			return pane.Active && pane.Zoomed
+		}
+	}
 	return false
 }
 
