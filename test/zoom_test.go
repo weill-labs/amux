@@ -487,8 +487,20 @@ func TestZoomSplitKeepsZoomAndFocus(t *testing.T) {
 	h := newAmuxHarness(t)
 
 	h.splitH()
+	if capture, ok := h.waitForCaptureJSON(func(capture proto.CaptureJSON) bool {
+		return len(capture.Panes) == 2
+	}, 3*time.Second); !ok {
+		t.Fatalf("initial split never settled on a 2-pane capture.\nCapture:\n%s\nOuter:\n%s", h.runCmd("capture", "--format", "json"), h.captureOuter())
+	} else {
+		h.jsonPane(capture, "pane-2")
+	}
 
 	h.runCmd("zoom", "pane-1")
+	if _, ok := h.waitForCaptureJSON(func(capture proto.CaptureJSON) bool {
+		return captureHasActiveZoomedPane(capture, "pane-1")
+	}, 3*time.Second); !ok {
+		t.Fatalf("pane-1 never settled into active zoomed state.\nCapture:\n%s\nOuter:\n%s", h.runCmd("capture", "--format", "json"), h.captureOuter())
+	}
 	h.assertScreen("pane-1 zoomed before split", func(s string) bool {
 		return strings.Contains(s, "[pane-1]") && !strings.Contains(s, "[pane-2]")
 	})
@@ -502,6 +514,14 @@ func TestZoomSplitKeepsZoomAndFocus(t *testing.T) {
 		return strings.Contains(s, "[pane-1]") && !strings.Contains(s, "[pane-2]") &&
 			!strings.Contains(s, "[pane-3]")
 	})
+
+	p3, ok := h.waitForPaneCaptureJSON("pane-3", 3*time.Second)
+	if !ok {
+		t.Fatalf("zoomed split never surfaced pane-3 in direct capture.\nCapture:\n%s\nPane-3:\n%s\nOuter:\n%s", h.runCmd("capture", "--format", "json"), h.runCmd("capture", "--format", "json", "pane-3"), h.captureOuter())
+	}
+	if p3.Name != "pane-3" {
+		t.Fatalf("pane-3 direct capture resolved unexpected pane %q", p3.Name)
+	}
 
 	capture := h.captureJSON()
 	p1 := h.jsonPane(capture, "pane-1")
