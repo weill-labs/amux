@@ -503,8 +503,17 @@ func TestZoomSplitKeepsZoomAndFocus(t *testing.T) {
 			!strings.Contains(s, "[pane-3]")
 	})
 
-	capture := h.captureJSON()
+	capture, ok := h.waitForCaptureJSON(func(capture proto.CaptureJSON) bool {
+		// A zoomed compositor capture looks identical before and after the
+		// split. Wait for the hidden pane set to exist before asserting on it.
+		return len(capture.Panes) == 3 && captureHasActiveZoomedPane(capture, "pane-1")
+	}, 3*time.Second)
+	if !ok {
+		t.Fatalf("zoomed split never settled on a 3-pane active/zoomed capture.\nCapture:\n%s\nOuter:\n%s", h.runCmd("capture", "--format", "json"), h.captureOuter())
+	}
+
 	p1 := h.jsonPane(capture, "pane-1")
+	h.jsonPane(capture, "pane-3")
 	if !p1.Active || !p1.Zoomed {
 		t.Fatalf("pane-1 state after split = active:%v zoomed:%v, want true/true", p1.Active, p1.Zoomed)
 	}
