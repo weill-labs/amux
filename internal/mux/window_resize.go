@@ -239,11 +239,10 @@ func (w *Window) equalizeWidths(logical *LayoutCell) {
 }
 
 func (w *Window) anchoredLeadColumnsWidthChanged() bool {
-	columns := w.anchoredLeadWidthColumns()
+	columns, sizes := w.anchoredLeadWidthTargets()
 	if len(columns) < 2 {
 		return false
 	}
-	sizes := equalSplitSizes(w.Width, len(columns))
 	for i, column := range columns {
 		if column.W != sizes[i] {
 			return true
@@ -253,14 +252,13 @@ func (w *Window) anchoredLeadColumnsWidthChanged() bool {
 }
 
 func (w *Window) equalizeAnchoredLeadColumns() {
-	columns := w.anchoredLeadWidthColumns()
+	columns, sizes := w.anchoredLeadWidthTargets()
 	if len(columns) < 2 {
 		return
 	}
 
 	lead := w.Root.Children[0]
 	logical := w.Root.Children[1]
-	sizes := equalSplitSizes(w.Width, len(columns))
 	lead.ResizeSubtree(sizes[0], w.Root.H)
 
 	if len(columns) == 2 {
@@ -268,14 +266,7 @@ func (w *Window) equalizeAnchoredLeadColumns() {
 		return
 	}
 
-	logicalW := 0
-	for i, size := range sizes[1:] {
-		if i > 0 {
-			logicalW++
-		}
-		logicalW += size
-	}
-	logical.ResizeSubtree(logicalW, w.Root.H)
+	logical.ResizeSubtree(equalizedColumnGroupWidth(sizes[1:]), w.Root.H)
 }
 
 func (w *Window) anchoredLeadWidthColumns() []*LayoutCell {
@@ -292,6 +283,25 @@ func (w *Window) anchoredLeadWidthColumns() []*LayoutCell {
 		return append(columns, logical.Children...)
 	}
 	return append(columns, logical)
+}
+
+func (w *Window) anchoredLeadWidthTargets() ([]*LayoutCell, []int) {
+	columns := w.anchoredLeadWidthColumns()
+	if len(columns) < 2 {
+		return columns, nil
+	}
+	return columns, equalSplitSizes(w.Width, len(columns))
+}
+
+func equalizedColumnGroupWidth(sizes []int) int {
+	width := 0
+	for i, size := range sizes {
+		if i > 0 {
+			width++
+		}
+		width += size
+	}
+	return width
 }
 
 func collectEqualizeColumns(root *LayoutCell) []*LayoutCell {
