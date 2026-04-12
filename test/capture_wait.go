@@ -6,18 +6,17 @@ import (
 	"github.com/weill-labs/amux/internal/proto"
 )
 
-func waitForCaptureJSONWithLayout(
-	capture func() proto.CaptureJSON,
+func waitForValueWithLayout[T any](
+	capture func() (T, bool),
 	generation func() uint64,
 	waitLayout func(afterGen uint64, timeout time.Duration) bool,
-	fn func(proto.CaptureJSON) bool,
 	timeout time.Duration,
-) (proto.CaptureJSON, bool) {
+) (T, bool) {
 	deadline := time.Now().Add(timeout)
 	gen := generation()
 	for time.Now().Before(deadline) {
-		got := capture()
-		if fn(got) {
+		got, ok := capture()
+		if ok {
 			return got, true
 		}
 
@@ -34,6 +33,23 @@ func waitForCaptureJSONWithLayout(
 		gen = generation()
 	}
 
-	got := capture()
-	return got, fn(got)
+	return capture()
+}
+
+func waitForCaptureJSONWithLayout(
+	capture func() proto.CaptureJSON,
+	generation func() uint64,
+	waitLayout func(afterGen uint64, timeout time.Duration) bool,
+	fn func(proto.CaptureJSON) bool,
+	timeout time.Duration,
+) (proto.CaptureJSON, bool) {
+	return waitForValueWithLayout(
+		func() (proto.CaptureJSON, bool) {
+			got := capture()
+			return got, fn(got)
+		},
+		generation,
+		waitLayout,
+		timeout,
+	)
 }
