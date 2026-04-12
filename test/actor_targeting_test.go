@@ -31,17 +31,16 @@ func TestExplicitPaneCommandsPreferActorWindowWithoutChangingFocus(t *testing.T)
 		t.Fatalf("active window index = %d, want 1 before actor-targeted commands", got)
 	}
 
-	h.sendKeys("3", amuxBin+" -s "+h.session+" send-keys shared 'echo ACTOR_ROUTE' Enter", "Enter")
+	h.sendKeys("3", nestedAmuxCommand(amuxBin, h.session, "send-keys", "shared", "echo ACTOR_ROUTE", "Enter"), "Enter")
 	h.waitFor("4", "ACTOR_ROUTE")
+	h.waitIdleWithSettle("3", "25ms", "5s")
 	if paneOne := h.runCmd("capture", "2"); strings.Contains(paneOne, "ACTOR_ROUTE") {
 		t.Fatalf("window-1 shared pane should not receive actor-routed input:\n%s", paneOne)
 	}
 
-	h.sendKeys("3", amuxBin+" -s "+h.session+" capture shared | grep WINDOW_TWO && echo CAPTURE_OK", "Enter")
-	h.waitFor("3", "CAPTURE_OK")
+	h.runShellCommandWithSettle("3", nestedAmuxCommand(amuxBin, h.session, "capture", "--history", "shared")+" | grep WINDOW_TWO && echo CAPTURE_OK", "CAPTURE_OK", "25ms")
 
-	h.sendKeys("3", amuxBin+" -s "+h.session+" wait content shared WINDOW_TWO --timeout 1s && echo WAIT_OK", "Enter")
-	h.waitFor("3", "WAIT_OK")
+	h.runShellCommandWithSettle("3", nestedAmuxCommand(amuxBin, h.session, "wait", "content", "shared", "WINDOW_TWO", "--timeout", "5s")+" && echo WAIT_OK", "WAIT_OK", "25ms")
 
 	if got := h.captureJSON().Window.Index; got != 1 {
 		t.Fatalf("active window index = %d, want 1 after actor-targeted commands", got)

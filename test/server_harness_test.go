@@ -1265,6 +1265,16 @@ func (h *ServerHarness) waitIdle(pane string) {
 	}
 }
 
+func (h *ServerHarness) waitIdleWithSettle(pane, settle, timeout string) {
+	h.tb.Helper()
+	restore := h.pushWaitState(fmt.Sprintf("waiting for %s to become idle (settle %s, timeout %s)", pane, settle, timeout))
+	defer restore()
+	out := h.runCmd("wait", "idle", pane, "--settle", settle, "--timeout", timeout)
+	if strings.Contains(out, "timeout") || strings.Contains(out, "not found") {
+		h.tb.Fatalf("wait-idle %s settle=%s timeout=%s: %s\n%s", pane, settle, timeout, strings.TrimSpace(out), h.diagnosticSnapshot("wait-idle failure"))
+	}
+}
+
 // generation returns the current layout generation counter.
 func (h *ServerHarness) generation() uint64 {
 	h.tb.Helper()
@@ -1698,6 +1708,13 @@ func (h *ServerHarness) runShellCommand(pane, command, marker string) {
 	h.sendKeys(pane, command, "Enter")
 	h.waitFor(pane, marker)
 	h.waitIdle(pane)
+}
+
+func (h *ServerHarness) runShellCommandWithSettle(pane, command, marker, settle string) {
+	h.tb.Helper()
+	h.sendKeys(pane, command, "Enter")
+	h.waitFor(pane, marker)
+	h.waitIdleWithSettle(pane, settle, "5s")
 }
 
 func (h *ServerHarness) sendClientKeys(keys ...string) string {
