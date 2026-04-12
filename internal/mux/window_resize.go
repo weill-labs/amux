@@ -159,9 +159,9 @@ func (w *Window) ResizePane(paneID uint32, direction string, delta int) bool {
 	return false
 }
 
-// Equalize rebalances the current logical root. When widths is true, vertical
-// splits within the logical root are redistributed evenly, including nested
-// vertical groups. When heights is true, rows within each logical column are
+// Equalize rebalances the window layout. When widths is true, vertical splits
+// are redistributed evenly, treating an anchored lead as part of the root
+// column set. When heights is true, rows within each logical column are
 // redistributed evenly. Returns true if the layout changed.
 func (w *Window) Equalize(widths, heights bool) bool {
 	w.assertOwner("Equalize")
@@ -174,7 +174,7 @@ func (w *Window) Equalize(widths, heights bool) bool {
 		return false
 	}
 
-	widthChanged := widths && logical.equalizeAxisNeeded(SplitVertical)
+	widthChanged := widths && w.equalizeWidthsNeeded(logical)
 
 	var columns []*LayoutCell
 	heightChanged := false
@@ -197,7 +197,7 @@ func (w *Window) Equalize(widths, heights bool) bool {
 	}
 
 	if widthChanged {
-		logical.equalizeAxisRecursive(SplitVertical)
+		w.equalizeWidths(logical)
 	}
 	if heightChanged {
 		for _, column := range columns {
@@ -211,6 +211,97 @@ func (w *Window) Equalize(widths, heights bool) bool {
 	w.Root.FixOffsets()
 	w.resizePTYs()
 	return true
+}
+
+func (w *Window) equalizeWidthsNeeded(logical *LayoutCell) bool {
+	if logical == nil {
+		return false
+	}
+	if !w.hasAnchoredLead() {
+		return logical.equalizeAxisNeeded(SplitVertical)
+	}
+	if w.anchoredLeadColumnsWidthChanged() {
+		return true
+	}
+	return logical.equalizeAxisNeeded(SplitVertical)
+}
+
+func (w *Window) equalizeWidths(logical *LayoutCell) {
+	if logical == nil {
+		return
+	}
+	if !w.hasAnchoredLead() {
+		logical.equalizeAxisRecursive(SplitVertical)
+		return
+	}
+	w.equalizeAnchoredLeadColumns()
+	logical.equalizeAxisRecursive(SplitVertical)
+}
+
+func (w *Window) anchoredLeadColumnsWidthChanged() bool {
+	columns, sizes := w.anchoredLeadWidthTargets()
+	if len(columns) < 2 {
+		return false
+	}
+	for i, column := range columns {
+		if column.W != sizes[i] {
+			return true
+		}
+	}
+	return false
+}
+
+func (w *Window) equalizeAnchoredLeadColumns() {
+	columns, sizes := w.anchoredLeadWidthTargets()
+	if len(columns) < 2 {
+		return
+	}
+
+	lead := w.Root.Children[0]
+	logical := w.Root.Children[1]
+	lead.ResizeSubtree(sizes[0], w.Root.H)
+
+	if len(columns) == 2 {
+		logical.ResizeSubtree(sizes[1], w.Root.H)
+		return
+	}
+
+	logical.ResizeSubtree(equalizedColumnGroupWidth(sizes[1:]), w.Root.H)
+}
+
+func (w *Window) anchoredLeadWidthColumns() []*LayoutCell {
+	if !w.hasAnchoredLead() {
+		return nil
+	}
+
+	logical := w.logicalRoot()
+	columns := []*LayoutCell{w.Root.Children[0]}
+	if logical == nil {
+		return columns
+	}
+	if !logical.IsLeaf() && logical.Dir == SplitVertical {
+		return append(columns, logical.Children...)
+	}
+	return append(columns, logical)
+}
+
+func (w *Window) anchoredLeadWidthTargets() ([]*LayoutCell, []int) {
+	columns := w.anchoredLeadWidthColumns()
+	if len(columns) < 2 {
+		return columns, nil
+	}
+	return columns, equalSplitSizes(w.Width, len(columns))
+}
+
+func equalizedColumnGroupWidth(sizes []int) int {
+	width := 0
+	for i, size := range sizes {
+		if i > 0 {
+			width++
+		}
+		width += size
+	}
+	return width
 }
 
 func collectEqualizeColumns(root *LayoutCell) []*LayoutCell {

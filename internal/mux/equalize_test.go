@@ -129,7 +129,7 @@ func TestWindowEqualizeRebalancesNestedColumnsUnderHorizontalRoot(t *testing.T) 
 	}
 }
 
-func TestWindowEqualizeUsesLogicalRootWhenLeadAnchored(t *testing.T) {
+func TestWindowEqualizeIncludesLeadColumnWhenAnchored(t *testing.T) {
 	t.Parallel()
 
 	p1 := fakePaneID(1)
@@ -142,6 +142,9 @@ func TestWindowEqualizeUsesLogicalRootWhenLeadAnchored(t *testing.T) {
 	}
 	if _, err := w.SplitRoot(SplitVertical, p3); err != nil {
 		t.Fatalf("SplitRoot pane-3: %v", err)
+	}
+	if !w.ResizePane(p1.ID, "right", 6) {
+		t.Fatal("ResizePane should skew the future lead column width")
 	}
 	if err := w.SetLead(p1.ID); err != nil {
 		t.Fatalf("SetLead: %v", err)
@@ -158,20 +161,15 @@ func TestWindowEqualizeUsesLogicalRootWhenLeadAnchored(t *testing.T) {
 		t.Fatal("ResizePane should skew logical-root row heights")
 	}
 
-	leadWidth := w.Root.Children[0].W
 	if !w.Equalize(true, true) {
 		t.Fatal("Equalize(widths=true, heights=true) = false, want true")
 	}
 
-	if got := w.Root.Children[0].W; got != leadWidth {
-		t.Fatalf("lead width after equalize = %d, want %d", got, leadWidth)
-	}
-
 	logical := w.logicalRoot()
-	gotWidths := []int{logical.Children[0].W, logical.Children[1].W}
-	wantWidths := []int{26, 26}
+	gotWidths := []int{w.Root.Children[0].W, logical.Children[0].W, logical.Children[1].W}
+	wantWidths := []int{26, 26, 26}
 	if !reflect.DeepEqual(gotWidths, wantWidths) {
-		t.Fatalf("logical-root column widths after equalize = %v, want %v", gotWidths, wantWidths)
+		t.Fatalf("root column widths after equalize = %v, want %v", gotWidths, wantWidths)
 	}
 
 	leftColumn := logical.Children[0]
@@ -179,6 +177,78 @@ func TestWindowEqualizeUsesLogicalRootWhenLeadAnchored(t *testing.T) {
 	wantHeights := []int{11, 12}
 	if !reflect.DeepEqual(gotHeights, wantHeights) {
 		t.Fatalf("logical-root row heights after equalize = %v, want %v", gotHeights, wantHeights)
+	}
+}
+
+func TestWindowEqualizeIncludesLeadColumnWhenAnchoredWithSingleLogicalColumn(t *testing.T) {
+	t.Parallel()
+
+	p1 := fakePaneID(1)
+	p2 := fakePaneID(2)
+	w := NewWindow(p1, 80, 24)
+	if _, err := w.SplitRoot(SplitVertical, p2); err != nil {
+		t.Fatalf("SplitRoot pane-2: %v", err)
+	}
+	if !w.ResizePane(p1.ID, "right", 6) {
+		t.Fatal("ResizePane should skew the future lead column width")
+	}
+	if err := w.SetLead(p1.ID); err != nil {
+		t.Fatalf("SetLead: %v", err)
+	}
+
+	if !w.Equalize(true, false) {
+		t.Fatal("Equalize(widths=true, heights=false) = false, want true")
+	}
+
+	got := []int{w.Root.Children[0].W, w.logicalRoot().W}
+	want := []int{39, 40}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("root widths after equalize = %v, want %v", got, want)
+	}
+}
+
+func TestWindowEqualizeWidthHelpersWithoutAnchoredLead(t *testing.T) {
+	t.Parallel()
+
+	p1 := fakePaneID(1)
+	p2 := fakePaneID(2)
+	w := NewWindow(p1, 80, 24)
+
+	if w.equalizeWidthsNeeded(nil) {
+		t.Fatal("equalizeWidthsNeeded(nil) = true, want false")
+	}
+	if cols := w.anchoredLeadWidthColumns(); cols != nil {
+		t.Fatalf("anchoredLeadWidthColumns() = %v, want nil without a lead pane", cols)
+	}
+	if cols, sizes := w.anchoredLeadWidthTargets(); cols != nil || sizes != nil {
+		t.Fatalf("anchoredLeadWidthTargets() = (%v, %v), want (nil, nil) without a lead pane", cols, sizes)
+	}
+	if w.anchoredLeadColumnsWidthChanged() {
+		t.Fatal("anchoredLeadColumnsWidthChanged() = true, want false without a lead pane")
+	}
+
+	w.equalizeAnchoredLeadColumns()
+	if got := []int{w.Root.W, w.Root.H}; !reflect.DeepEqual(got, []int{80, 24}) {
+		t.Fatalf("equalizeAnchoredLeadColumns() changed root size = %v, want [80 24]", got)
+	}
+
+	if _, err := w.SplitRoot(SplitVertical, p2); err != nil {
+		t.Fatalf("SplitRoot pane-2: %v", err)
+	}
+	if !w.ResizePane(p1.ID, "right", 6) {
+		t.Fatal("ResizePane should skew root column widths")
+	}
+
+	logical := w.logicalRoot()
+	if !w.equalizeWidthsNeeded(logical) {
+		t.Fatal("equalizeWidthsNeeded(logical) = false, want true")
+	}
+	w.equalizeWidths(logical)
+
+	got := []int{w.Root.Children[0].W, w.Root.Children[1].W}
+	want := []int{39, 40}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("root widths after equalizeWidths(logical) = %v, want %v", got, want)
 	}
 }
 

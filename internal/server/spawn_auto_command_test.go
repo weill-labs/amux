@@ -1,6 +1,7 @@
 package server
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/weill-labs/amux/internal/mux"
@@ -140,6 +141,106 @@ func TestCommandSpawnAutoRootSplitsWhenColumnsAreFull(t *testing.T) {
 	}
 	if state.p3H != 23 {
 		t.Fatalf("new root column should span the full window height, got %+v", state)
+	}
+}
+
+func TestCommandSpawnAutoRootSplitsAndEqualizesLeadColumn(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	p1 := newTestPane(sess, 1, "pane-1")
+	p2 := newTestPane(sess, 2, "pane-2")
+	p3 := newTestPane(sess, 3, "pane-3")
+	w := mux.NewWindow(p1, 80, 23)
+	w.ID = 1
+	w.Name = "main"
+	if _, err := w.SplitRoot(mux.SplitVertical, p2); err != nil {
+		t.Fatalf("SplitRoot pane-2: %v", err)
+	}
+	if err := w.SetLead(p1.ID); err != nil {
+		t.Fatalf("SetLead pane-1: %v", err)
+	}
+	if _, err := w.SplitPaneWithOptions(p2.ID, mux.SplitHorizontal, p3, mux.SplitOptions{}); err != nil {
+		t.Fatalf("Split pane-2 horizontally: %v", err)
+	}
+	setSessionLayoutForTest(t, sess, w.ID, []*mux.Window{w}, p1, p2, p3)
+
+	res := runTestCommand(t, srv, sess, "spawn", "--auto", "--name", "worker-4")
+	if res.cmdErr != "" {
+		t.Fatalf("spawn --auto failed: %s", res.cmdErr)
+	}
+
+	state := mustSessionQuery(t, sess, func(sess *Session) struct {
+		p1X int
+		p2X int
+		p3X int
+		p4X int
+		p1W int
+		p2W int
+		p3W int
+		p4W int
+	} {
+		w := sess.activeWindow()
+		p4, err := sess.findPaneByRef("worker-4")
+		if err != nil {
+			return struct {
+				p1X int
+				p2X int
+				p3X int
+				p4X int
+				p1W int
+				p2W int
+				p3W int
+				p4W int
+			}{}
+		}
+		p1Cell := w.Root.FindPane(p1.ID)
+		p2Cell := w.Root.FindPane(p2.ID)
+		p3Cell := w.Root.FindPane(p3.ID)
+		p4Cell := w.Root.FindPane(p4.ID)
+		if p1Cell == nil || p2Cell == nil || p3Cell == nil || p4Cell == nil {
+			return struct {
+				p1X int
+				p2X int
+				p3X int
+				p4X int
+				p1W int
+				p2W int
+				p3W int
+				p4W int
+			}{}
+		}
+		return struct {
+			p1X int
+			p2X int
+			p3X int
+			p4X int
+			p1W int
+			p2W int
+			p3W int
+			p4W int
+		}{
+			p1X: p1Cell.X,
+			p2X: p2Cell.X,
+			p3X: p3Cell.X,
+			p4X: p4Cell.X,
+			p1W: p1Cell.W,
+			p2W: p2Cell.W,
+			p3W: p3Cell.W,
+			p4W: p4Cell.W,
+		}
+	})
+
+	if state.p2X != state.p3X {
+		t.Fatalf("pane-2 and pane-3 should remain stacked in the middle column: %+v", state)
+	}
+	if state.p1X >= state.p2X || state.p2X >= state.p4X {
+		t.Fatalf("lead, logical, and spawned columns should remain left-to-right: %+v", state)
+	}
+	if got := []int{state.p1W, state.p2W, state.p3W, state.p4W}; !reflect.DeepEqual(got, []int{26, 26, 26, 26}) {
+		t.Fatalf("spawn --auto should equalize widths across lead and non-lead columns: %v", got)
 	}
 }
 
