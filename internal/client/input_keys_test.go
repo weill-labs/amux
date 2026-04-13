@@ -2,6 +2,8 @@ package client
 
 import (
 	"bytes"
+	"strconv"
+	"strings"
 	"testing"
 
 	uv "github.com/charmbracelet/ultraviolet"
@@ -95,6 +97,94 @@ func TestNormalizeLocalInput(t *testing.T) {
 
 			if got := normalizeLocalInput(tt.input); !bytes.Equal(got, tt.want) {
 				t.Fatalf("normalizeLocalInput(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSplitTrailingIncompleteUTF8(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		input        []byte
+		wantComplete []byte
+		wantPending  []byte
+	}{
+		{
+			name:         "ascii stays complete",
+			input:        []byte("hello"),
+			wantComplete: []byte("hello"),
+		},
+		{
+			name:         "complete multibyte rune stays complete",
+			input:        []byte("→"),
+			wantComplete: []byte("→"),
+		},
+		{
+			name:         "three-byte prefix is deferred",
+			input:        []byte("A\xe2"),
+			wantComplete: []byte("A"),
+			wantPending:  []byte{0xe2},
+		},
+		{
+			name:        "emoji prefix is deferred",
+			input:       []byte{0xf0, 0x9f},
+			wantPending: []byte{0xf0, 0x9f},
+		},
+		{
+			name:         "invalid continuation byte is preserved",
+			input:        []byte{0x80},
+			wantComplete: []byte{0x80},
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			gotComplete, gotPending := splitTrailingIncompleteUTF8(tt.input)
+			if !bytes.Equal(gotComplete, tt.wantComplete) {
+				t.Fatalf("complete = %q, want %q", gotComplete, tt.wantComplete)
+			}
+			if !bytes.Equal(gotPending, tt.wantPending) {
+				t.Fatalf("pending = %q, want %q", gotPending, tt.wantPending)
+			}
+		})
+	}
+}
+
+func TestSplitTrailingIncompleteUTF8RoundTripsChunkedPaste(t *testing.T) {
+	t.Parallel()
+
+	payload := []byte(strings.Repeat("→ 72°F — 22°C — 🙂漢字\n", 128))
+	chunkSizes := []int{2, 3, 5, 4095, 4097}
+
+	for _, chunkSize := range chunkSizes {
+		chunkSize := chunkSize
+		t.Run(strconv.Itoa(chunkSize), func(t *testing.T) {
+			t.Parallel()
+
+			var (
+				got     []byte
+				pending []byte
+			)
+
+			for start := 0; start < len(payload); start += chunkSize {
+				end := start + chunkSize
+				if end > len(payload) {
+					end = len(payload)
+				}
+				chunk := append(append([]byte(nil), pending...), payload[start:end]...)
+				ready, tail := splitTrailingIncompleteUTF8(chunk)
+				got = append(got, ready...)
+				pending = append(pending[:0], tail...)
+			}
+			got = append(got, pending...)
+
+			if !bytes.Equal(got, payload) {
+				t.Fatalf("round-tripped payload mismatch for chunk size %d", chunkSize)
 			}
 		})
 	}

@@ -13,6 +13,25 @@ type decodedInputEvent struct {
 	event uv.Event
 }
 
+func splitTrailingIncompleteUTF8(raw []byte) (complete []byte, pending []byte) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+
+	start := len(raw) - 1
+	for start >= 0 && len(raw)-start < utf8.UTFMax && !utf8.RuneStart(raw[start]) {
+		start--
+	}
+	if start < 0 || !utf8.RuneStart(raw[start]) {
+		return raw, nil
+	}
+	if utf8.FullRune(raw[start:]) {
+		return raw, nil
+	}
+
+	return raw[:start], raw[start:]
+}
+
 func decodeInputEvents(raw []byte) []decodedInputEvent {
 	decoder := uv.EventDecoder{}
 	events := make([]decodedInputEvent, 0, len(raw))
