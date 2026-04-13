@@ -73,6 +73,66 @@ func TestQueuedCommandRenameWindow(t *testing.T) {
 	assertSessionLayoutConsistent(t, sess)
 }
 
+func TestQueuedCommandRenamePane(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	p1 := newTestPane(sess, 1, "pane-1")
+	p2 := newTestPane(sess, 2, "pane-2")
+	w := newTestWindowWithPanes(t, sess, 1, "window-1", p1, p2)
+	sess.Windows = []*mux.Window{w}
+	sess.ActiveWindowID = w.ID
+	sess.Panes = w.Panes()
+
+	before := sess.generation.Load()
+	res := runTestCommand(t, srv, sess, "rename", "pane-1", "logs")
+
+	if res.cmdErr != "" {
+		t.Fatalf("rename error: %s", res.cmdErr)
+	}
+	if !strings.Contains(res.output, "Renamed pane-1 to logs") {
+		t.Fatalf("rename output = %q", res.output)
+	}
+	if p1.Meta.Name != "logs" {
+		t.Fatalf("pane name = %q, want %q", p1.Meta.Name, "logs")
+	}
+	if sess.generation.Load() <= before {
+		t.Fatal("expected layout generation to increment")
+	}
+	assertSessionLayoutConsistent(t, sess)
+}
+
+func TestQueuedCommandRenamePaneRejectsDuplicateNameAcrossWindows(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	p1 := newTestPane(sess, 1, "pane-1")
+	p2 := newTestPane(sess, 2, "pane-2")
+	w1 := newTestWindowWithPanes(t, sess, 1, "window-1", p1)
+	w2 := newTestWindowWithPanes(t, sess, 2, "window-2", p2)
+	sess.Windows = []*mux.Window{w1, w2}
+	sess.ActiveWindowID = w1.ID
+	sess.Panes = []*mux.Pane{p1, p2}
+
+	before := sess.generation.Load()
+	res := runTestCommand(t, srv, sess, "rename", "pane-1", "pane-2")
+
+	if res.cmdErr != `pane "pane-2" already exists` {
+		t.Fatalf("rename duplicate error = %q, want %q", res.cmdErr, `pane "pane-2" already exists`)
+	}
+	if p1.Meta.Name != "pane-1" {
+		t.Fatalf("pane name = %q, want %q", p1.Meta.Name, "pane-1")
+	}
+	if got := sess.generation.Load(); got != before {
+		t.Fatalf("generation = %d, want %d", got, before)
+	}
+	assertSessionLayoutConsistent(t, sess)
+}
+
 func TestQueuedCommandResizeWindow(t *testing.T) {
 	t.Parallel()
 

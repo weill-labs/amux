@@ -15,6 +15,12 @@ type fakeLayoutContext struct {
 	splitCalled      bool
 	splitResult      commandpkg.Result
 
+	renameActorPaneID uint32
+	renamePaneRef     string
+	renameName        string
+	renameCalled      bool
+	renameResult      commandpkg.Result
+
 	spawnActorPaneID uint32
 	spawnArgs        SpawnArgs
 	spawnCalled      bool
@@ -77,6 +83,14 @@ func (f *fakeLayoutContext) Spawn(actorPaneID uint32, args SpawnArgs) commandpkg
 	f.spawnArgs = args
 	f.spawnCalled = true
 	return f.spawnResult
+}
+
+func (f *fakeLayoutContext) Rename(actorPaneID uint32, paneRef, name string) commandpkg.Result {
+	f.renameActorPaneID = actorPaneID
+	f.renamePaneRef = paneRef
+	f.renameName = name
+	f.renameCalled = true
+	return f.renameResult
 }
 
 func (f *fakeLayoutContext) Zoom(uint32, string) commandpkg.Result {
@@ -228,6 +242,57 @@ func TestFocusDefaultsToNext(t *testing.T) {
 	}
 	if got.Output != "focused\n" {
 		t.Fatalf("result output = %q, want %q", got.Output, "focused\n")
+	}
+}
+
+func TestRenameParsesArgsAndDelegates(t *testing.T) {
+	t.Parallel()
+
+	ctx := &fakeLayoutContext{
+		renameResult: commandpkg.Result{Output: "renamed\n"},
+	}
+
+	got := Rename(ctx, 9, []string{"pane-1", "logs"})
+
+	if !ctx.renameCalled {
+		t.Fatal("Rename() did not call context")
+	}
+	if ctx.renameActorPaneID != 9 {
+		t.Fatalf("actorPaneID = %d, want 9", ctx.renameActorPaneID)
+	}
+	if ctx.renamePaneRef != "pane-1" {
+		t.Fatalf("paneRef = %q, want %q", ctx.renamePaneRef, "pane-1")
+	}
+	if ctx.renameName != "logs" {
+		t.Fatalf("name = %q, want %q", ctx.renameName, "logs")
+	}
+	if got.Output != "renamed\n" {
+		t.Fatalf("result output = %q, want %q", got.Output, "renamed\n")
+	}
+}
+
+func TestRenameRejectsInvalidArgs(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		args    []string
+		wantErr string
+	}{
+		{name: "missing pane", wantErr: "usage: rename <pane> <new-name>"},
+		{name: "missing name", args: []string{"pane-1"}, wantErr: "usage: rename <pane> <new-name>"},
+		{name: "extra arg", args: []string{"pane-1", "logs", "extra"}, wantErr: "usage: rename <pane> <new-name>"},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := Rename(&fakeLayoutContext{}, 3, tt.args).Err; got == nil || got.Error() != tt.wantErr {
+				t.Fatalf("Rename(%v) error = %v, want %q", tt.args, got, tt.wantErr)
+			}
+		})
 	}
 }
 
