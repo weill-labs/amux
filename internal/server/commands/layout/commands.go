@@ -19,6 +19,7 @@ const (
 type Context interface {
 	Split(actorPaneID uint32, args SplitArgs) commandpkg.Result
 	Focus(actorPaneID uint32, direction string) commandpkg.Result
+	Rename(actorPaneID uint32, paneRef, name string) commandpkg.Result
 	Spawn(actorPaneID uint32, args SpawnArgs) commandpkg.Result
 	Zoom(actorPaneID uint32, paneRef string) commandpkg.Result
 	Reset(actorPaneID uint32, paneRef string) commandpkg.Result
@@ -74,6 +75,13 @@ func Focus(ctx Context, actorPaneID uint32, args []string) commandpkg.Result {
 		direction = args[0]
 	}
 	return ctx.Focus(actorPaneID, direction)
+}
+
+func Rename(ctx Context, actorPaneID uint32, args []string) commandpkg.Result {
+	if len(args) != 2 {
+		return commandpkg.Result{Err: fmt.Errorf("usage: rename <pane> <new-name>")}
+	}
+	return ctx.Rename(actorPaneID, args[0], args[1])
 }
 
 func Spawn(ctx Context, actorPaneID uint32, args []string) commandpkg.Result {

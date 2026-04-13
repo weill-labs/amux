@@ -24,6 +24,7 @@ const (
 	listWindowsUsage  = "usage: amux list-windows"
 	reconnectUsage    = "usage: amux reconnect <host>"
 	reloadServerUsage = "usage: amux reload-server"
+	renameUsage       = "usage: amux rename <pane> <new-name>"
 	renameWindowUsage = "usage: amux rename-window <name>"
 	resetUsage        = "usage: amux reset <pane>"
 	respawnUsage      = "usage: amux respawn <pane>"
@@ -70,6 +71,7 @@ var commandUsageByName = map[string]string{
 	"next-window":      nextWindowUsage,
 	"prev-window":      prevWindowUsage,
 	"last-window":      lastWindowUsage,
+	"rename":           renameUsage,
 	"reconnect":        reconnectUsage,
 	"reload-server":    reloadServerUsage,
 	"rename-window":    renameWindowUsage,
@@ -194,6 +196,7 @@ Usage:
   amux [-s session] kill <pane>        Kill a pane
   amux [-s session] undo              Undo last pane close
   amux [-s session] focus <pane>       Focus a pane by name or ID
+  amux [-s session] rename <pane> <n>  Rename a pane
   amux [-s session] lead [pane]
   amux [-s session] lead --clear
                                        Set or clear the lead pane
