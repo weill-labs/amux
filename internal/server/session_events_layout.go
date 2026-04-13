@@ -300,6 +300,13 @@ func (ctx *MutationContext) emitEvent(ev Event) {
 	})
 }
 
+func (ctx *MutationContext) prunePaneEventSubs(paneName string) {
+	_ = mutationContextDo(ctx, func(sess *Session) error {
+		sess.prunePaneEventSubs(paneName)
+		return nil
+	})
+}
+
 func (ctx *MutationContext) ensureInitialWindowLocked(srv *Server, cols, rows int, preferred *clientConn) (ensureInitialWindowResult, error) {
 	return mutationContextCall(ctx, func(sess *Session) (ensureInitialWindowResult, error) {
 		return sess.ensureInitialWindowLocked(srv, cols, rows, preferred)

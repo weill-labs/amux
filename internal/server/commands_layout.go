@@ -559,6 +559,7 @@ func runRename(ctx *CommandContext, actorPaneID uint32, paneRef, name string) co
 
 		oldName := pane.Meta.Name
 		pane.Meta.Name = name
+		mctx.prunePaneEventSubs(oldName)
 		return commandMutationResult{
 			output:          fmt.Sprintf("Renamed %s to %s\n", oldName, name),
 			broadcastLayout: true,
