@@ -65,6 +65,15 @@ func drainQueuedStdinChunks(first []byte, stdinCh <-chan []byte) (chunks [][]byt
 	}
 }
 
+func flushBufferedBytes(buf *[]byte, handle func([]byte) bool) bool {
+	if len(*buf) == 0 {
+		return false
+	}
+	data := append([]byte(nil), (*buf)...)
+	*buf = (*buf)[:0]
+	return handle(data)
+}
+
 func dispatchQueuedMouseInputChunks(
 	parser *mouse.Parser,
 	chunks [][]byte,
@@ -73,6 +82,7 @@ func dispatchQueuedMouseInputChunks(
 	handleBytes func([]byte) bool,
 ) bool {
 	var pendingMotion *mouse.Event
+	var pendingBytes []byte
 
 	flushPendingMotion := func() {
 		if pendingMotion == nil {
@@ -103,6 +113,9 @@ func dispatchQueuedMouseInputChunks(
 		for i := 0; i < len(chunk); i++ {
 			ev, isMouse, flushed := parser.Feed(chunk[i])
 			if isMouse {
+				if flushBufferedBytes(&pendingBytes, handleBytes) {
+					return true
+				}
 				dispatchMouse(ev)
 				continue
 			}
@@ -110,19 +123,18 @@ func dispatchQueuedMouseInputChunks(
 				continue
 			}
 			flushPendingMotion()
-			if handleBytes(flushed) {
-				return true
-			}
+			pendingBytes = append(pendingBytes, flushed...)
 		}
 
 		if flushed := parser.FlushPending(); len(flushed) > 0 {
 			flushPendingMotion()
-			if handleBytes(flushed) {
-				return true
-			}
+			pendingBytes = append(pendingBytes, flushed...)
 		}
 	}
 
+	if flushBufferedBytes(&pendingBytes, handleBytes) {
+		return true
+	}
 	flushPendingMotion()
 	return false
 }
@@ -711,14 +723,23 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 		stdinCh := make(chan []byte, 4)
 		go func() {
 			defer close(stdinCh)
+			var pendingUTF8 []byte
 			for {
 				n, err := stdin.Read(buf)
+				if n > 0 {
+					cp := append(append([]byte(nil), pendingUTF8...), buf[:n]...)
+					ready, pending := splitTrailingIncompleteUTF8(cp)
+					pendingUTF8 = append(pendingUTF8[:0], pending...)
+					if len(ready) > 0 {
+						stdinCh <- ready
+					}
+				}
 				if err != nil {
+					if len(pendingUTF8) > 0 {
+						stdinCh <- append([]byte(nil), pendingUTF8...)
+					}
 					return
 				}
-				cp := make([]byte, n)
-				copy(cp, buf[:n])
-				stdinCh <- cp
 			}
 		}()
 
@@ -978,22 +999,28 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 					decodeAndDispatch,
 				)
 			} else {
+				var pendingDecodedInput []byte
 				for i := 0; i < len(raw) && !shouldExit; i++ {
 					ev, isMouse, flushed := mouseParser.Feed(raw[i])
 
 					if isMouse {
+						shouldExit = flushBufferedBytes(&pendingDecodedInput, decodeAndDispatch)
+						if shouldExit {
+							break
+						}
 						dispatchMouse(ev)
 						continue
 					}
 
-					shouldExit = decodeAndDispatch(flushed)
+					pendingDecodedInput = append(pendingDecodedInput, flushed...)
 				}
 
 				// Flush a standalone Escape at the end of a read so Esc then j
 				// does not coalesce into Alt+j. Split CSI and mouse sequences
 				// stay buffered in the parser and complete on the next read.
 				if !shouldExit {
-					shouldExit = decodeAndDispatch(mouseParser.FlushPending())
+					pendingDecodedInput = append(pendingDecodedInput, mouseParser.FlushPending()...)
+					shouldExit = flushBufferedBytes(&pendingDecodedInput, decodeAndDispatch)
 				}
 			}
 
