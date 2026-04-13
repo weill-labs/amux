@@ -1261,10 +1261,9 @@ func TestRemovePaneKVValueBranchResumesAutoDetect(t *testing.T) {
 	t.Parallel()
 
 	pane := newProxyPane(1, mux.PaneMeta{
-		Name:      "pane-1",
-		Host:      mux.DefaultHost,
-		Color:     "f5e0dc",
-		GitBranch: "old-branch",
+		Name:  "pane-1",
+		Host:  mux.DefaultHost,
+		Color: "f5e0dc",
 		KV: map[string]string{
 			mux.PaneMetaKeyBranch: "",
 		},
@@ -1272,6 +1271,9 @@ func TestRemovePaneKVValueBranchResumesAutoDetect(t *testing.T) {
 
 	if !pane.MetaManualBranch() {
 		t.Fatal("MetaManualBranch() = false, want explicit empty branch override")
+	}
+	if pane.Meta.GitBranch != "" {
+		t.Fatalf("git_branch = %q, want empty explicit override before remove", pane.Meta.GitBranch)
 	}
 
 	if err := removePaneKVValue(pane, mux.PaneMetaKeyBranch); err != nil {
