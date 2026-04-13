@@ -206,6 +206,13 @@ func TestResolveCanonicalSessionCommand(t *testing.T) {
 			wantHandled: true,
 		},
 		{
+			name:        "rename forwards pane and new name",
+			args:        []string{"rename", "pane-1", "logs"},
+			wantCmd:     "rename",
+			wantArgs:    []string{"pane-1", "logs"},
+			wantHandled: true,
+		},
+		{
 			name:        "list forwards args",
 			args:        []string{"list", "--no-cwd"},
 			wantCmd:     "list",
@@ -244,6 +251,12 @@ func TestResolveCanonicalSessionCommand(t *testing.T) {
 			args:        []string{"unsplice"},
 			wantHandled: true,
 			wantErrText: "usage: amux unsplice <host>",
+		},
+		{
+			name:        "rename needs pane and new name",
+			args:        []string{"rename", "pane-1"},
+			wantHandled: true,
+			wantErrText: "usage: amux rename <pane> <new-name>",
 		},
 	}
 
@@ -544,6 +557,12 @@ func TestMaybePrintCommandHelp(t *testing.T) {
 			wantStdout:  "usage: amux last-window\n",
 		},
 		{
+			name:        "rename help",
+			args:        []string{"rename", "--help"},
+			wantHandled: true,
+			wantStdout:  "usage: amux rename <pane> <new-name>\n",
+		},
+		{
 			name:        "help after command args stays unhandled",
 			args:        []string{"send-keys", "pane-1", "--help"},
 			wantHandled: false,
@@ -675,6 +694,14 @@ func TestRunMainDispatchesCommands(t *testing.T) {
 			wantExit: 0,
 			wantCalls: []cliCall{
 				{kind: "server-command", session: resolvedSessionMarker, cmd: "last-window"},
+			},
+		},
+		{
+			name:     "rename dispatches through server",
+			args:     []string{"rename", "pane-1", "logs"},
+			wantExit: 0,
+			wantCalls: []cliCall{
+				{kind: "server-command", session: resolvedSessionMarker, cmd: "rename", args: []string{"pane-1", "logs"}},
 			},
 		},
 		{

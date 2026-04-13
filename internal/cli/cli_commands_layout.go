@@ -100,6 +100,13 @@ func layoutCLICommands() map[string]commandHandler {
 			}
 			return inv.runSessionCommand("focus", []string{args[0]})
 		},
+		"rename": func(inv invocation, args []string) int {
+			if len(args) < 2 {
+				fmt.Fprintln(inv.runtime.Stderr, renameUsage)
+				return 1
+			}
+			return inv.runSessionCommand("rename", args)
+		},
 		"kill": func(inv invocation, args []string) int {
 			if err := server.ValidateKillCommandArgs(args); err != nil {
 				fmt.Fprintln(inv.runtime.Stderr, server.FormatKillCommandError(err, "amux"))

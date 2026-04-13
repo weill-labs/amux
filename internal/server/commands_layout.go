@@ -376,6 +376,10 @@ func (ctx layoutCommandContext) Focus(actorPaneID uint32, direction string) comm
 	return runFocus(ctx.CommandContext, actorPaneID, direction)
 }
 
+func (ctx layoutCommandContext) Rename(actorPaneID uint32, paneRef, name string) commandpkg.Result {
+	return runRename(ctx.CommandContext, actorPaneID, paneRef, name)
+}
+
 func (ctx layoutCommandContext) Spawn(actorPaneID uint32, args layoutcmd.SpawnArgs) commandpkg.Result {
 	return runSpawn(ctx.CommandContext, actorPaneID, args)
 }
@@ -539,6 +543,35 @@ func runFocus(ctx *CommandContext, actorPaneID uint32, direction string) command
 
 func cmdFocus(ctx *CommandContext) {
 	ctx.applyCommandResult(layoutcmd.Focus(layoutCommandContext{ctx}, ctx.ActorPaneID, ctx.Args))
+}
+
+func runRename(ctx *CommandContext, actorPaneID uint32, paneRef, name string) commandpkg.Result {
+	return toCommandResult(ctx.Sess.enqueueCommandMutation(func(mctx *MutationContext) commandMutationResult {
+		pane, _, err := mctx.resolvePaneAcrossWindowsForActor(actorPaneID, paneRef)
+		if err != nil {
+			return commandMutationResult{err: err}
+		}
+		oldName := pane.Meta.Name
+		if oldName == name {
+			return commandMutationResult{output: "Pane name unchanged\n"}
+		}
+		for _, candidate := range mctx.Panes {
+			if candidate.ID != pane.ID && candidate.Meta.Name == name {
+				return commandMutationResult{err: fmt.Errorf("pane %q already exists", name)}
+			}
+		}
+
+		pane.Meta.Name = name
+		mctx.prunePaneEventSubs(oldName)
+		return commandMutationResult{
+			output:          fmt.Sprintf("Renamed %s to %s\n", oldName, name),
+			broadcastLayout: true,
+		}
+	}))
+}
+
+func cmdRename(ctx *CommandContext) {
+	ctx.applyCommandResult(layoutcmd.Rename(layoutCommandContext{ctx}, ctx.ActorPaneID, ctx.Args))
 }
 
 func runSpawn(ctx *CommandContext, actorPaneID uint32, args layoutcmd.SpawnArgs) commandpkg.Result {
