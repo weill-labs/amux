@@ -166,22 +166,17 @@ func NormalizePaneMeta(meta *PaneMeta) (manualBranch bool, err error) {
 	if err := applyPaneMetaKV(meta); err != nil {
 		return false, err
 	}
-	return manualBranch && meta != nil && meta.GitBranch != "", nil
+	return manualBranch, nil
 }
 
 func SetPaneMetaKV(meta *PaneMeta, key, value string) (manualBranch bool, err error) {
 	next := clonePaneMeta(meta)
 	hydrateReservedKV(&next)
 	next.KV[key] = value
-	manualBranch, err = func() (bool, error) {
-		if err := applyPaneMetaKV(&next); err != nil {
-			return false, err
-		}
-		return next.GitBranch != "", nil
-	}()
-	if err != nil {
+	if err := applyPaneMetaKV(&next); err != nil {
 		return false, err
 	}
+	_, manualBranch = next.KV[PaneMetaKeyBranch]
 	*meta = next
 	return manualBranch, nil
 }
@@ -193,15 +188,10 @@ func RemovePaneMetaKV(meta *PaneMeta, key string) (manualBranch bool, err error)
 	if len(next.KV) == 0 {
 		next.KV = nil
 	}
-	manualBranch, err = func() (bool, error) {
-		if err := applyPaneMetaKV(&next); err != nil {
-			return false, err
-		}
-		return next.GitBranch != "", nil
-	}()
-	if err != nil {
+	if err := applyPaneMetaKV(&next); err != nil {
 		return false, err
 	}
+	_, manualBranch = next.KV[PaneMetaKeyBranch]
 	*meta = next
 	return manualBranch, nil
 }
