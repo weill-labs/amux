@@ -22,7 +22,6 @@ const (
 	globalBarTitlePrefixVisibleWidth = 8 // " amux │ "
 	globalBarHelpVisibleWidth        = 6 // "? help"
 )
-const missingIssueHint = "set issue"
 
 type globalBarWindowTab struct {
 	window  WindowInfo
@@ -124,8 +123,8 @@ func buildPaneStatusSegments(cellWidth int, isActive bool, pd PaneData) []paneSt
 		segments = appendPaneStatusSegment(segments, copyText, paneStatusSegmentYellow)
 	}
 
-	metaItems := paneStatusMetadataItemsForPane(pd, isActive)
-	metaSegments := paneStatusMetadataSegments(metaItems, availableMetadataWidth(cellWidth, pd, isActive))
+	metaItems := paneStatusMetadataItemsForPane(pd)
+	metaSegments := paneStatusMetadataSegments(metaItems, availableMetadataWidth(cellWidth, pd))
 	if len(metaSegments) > 0 {
 		segments = appendPaneStatusSegment(segments, " ", paneStatusSegmentBackground)
 		for _, segment := range metaSegments {
@@ -277,9 +276,9 @@ func truncateRunes(s string, max int) string {
 	return string(runes[:max-1]) + "…"
 }
 
-func paneStatusMetadataItems(prs []proto.TrackedPR, issues []proto.TrackedIssue, rawIssue string, showMissingIssueHint bool) []paneStatusMetadataItem {
+func paneStatusMetadataItems(prs []proto.TrackedPR, issues []proto.TrackedIssue, rawIssue string) []paneStatusMetadataItem {
 	issues = paneStatusTrackedIssues(issues, rawIssue)
-	items := make([]paneStatusMetadataItem, 0, len(prs)+len(issues)+1)
+	items := make([]paneStatusMetadataItem, 0, len(prs)+len(issues))
 	for _, pr := range prs {
 		if pr.Number <= 0 {
 			continue
@@ -289,20 +288,15 @@ func paneStatusMetadataItems(prs []proto.TrackedPR, issues []proto.TrackedIssue,
 			status: normalizeTrackedStatus(pr.Status),
 		})
 	}
-	hasIssue := false
 	for _, issue := range issues {
 		id := strings.TrimSpace(issue.ID)
 		if id == "" {
 			continue
 		}
-		hasIssue = true
 		items = append(items, paneStatusMetadataItem{
 			text:   id,
 			status: normalizeTrackedStatus(issue.Status),
 		})
-	}
-	if showMissingIssueHint && !hasIssue {
-		items = append(items, paneStatusMetadataItem{text: missingIssueHint})
 	}
 	return items
 }
@@ -322,12 +316,12 @@ func paneStatusTrackedIssues(issues []proto.TrackedIssue, rawIssue string) []pro
 	}}
 }
 
-func paneStatusMetadataItemsForPane(pd PaneData, showMissingIssueHint bool) []paneStatusMetadataItem {
-	return paneStatusMetadataItems(pd.TrackedPRs(), pd.TrackedIssues(), pd.Issue(), showMissingIssueHint)
+func paneStatusMetadataItemsForPane(pd PaneData) []paneStatusMetadataItem {
+	return paneStatusMetadataItems(pd.TrackedPRs(), pd.TrackedIssues(), pd.Issue())
 }
 
-func availableMetadataWidth(cellWidth int, pd PaneData, showMissingIssueHint bool) int {
-	if len(paneStatusMetadataItemsForPane(pd, showMissingIssueHint)) == 0 {
+func availableMetadataWidth(cellWidth int, pd PaneData) int {
+	if len(paneStatusMetadataItemsForPane(pd)) == 0 {
 		return 0
 	}
 	return cellWidth - paneStatusUsedWidthWithoutMetadata(pd) - 1

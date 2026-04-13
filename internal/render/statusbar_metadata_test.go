@@ -60,7 +60,7 @@ func TestAvailableMetadataWidthReturnsZeroWithoutMetadata(t *testing.T) {
 	t.Parallel()
 
 	pd := &statusPaneData{name: "pane-1"}
-	if got := availableMetadataWidth(40, pd, false); got != 0 {
+	if got := availableMetadataWidth(40, pd); got != 0 {
 		t.Fatalf("availableMetadataWidth() = %d, want 0", got)
 	}
 }

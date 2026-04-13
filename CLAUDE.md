@@ -63,13 +63,21 @@ amux capture --format json        # structured JSON for agents
 amux capture --format json pane-1 # single pane JSON
 ```
 
-### Pause Before Irreversible Actions on Workers
+### Confirm Before Any Destructive Pane or Daemon Action
 
-Before any irreversible action on worker panes, state what information will be lost and confirm the order of operations:
+**Get explicit user approval before** killing panes, closing windows, restarting orca, cancelling tasks, or any action that destroys worker state. No exceptions. These actions lose running agent context, in-progress work, and session history that cannot be recovered.
 
-- **Before killing a process**: capture diagnostics first (`kill -3` / SIGQUIT for Go goroutine trace). The trace is the only evidence for deadlock root cause and is destroyed on kill.
-- **Before `/exit` on codex**: run postmortem first. Session context (reasoning, corrections, decisions) is destroyed on exit and cannot be recovered.
-- **Before mass `send-keys`**: if sending to more than 3 panes, present the message and pane list to the user for approval. Batch operations are where mistakes scale.
+Destructive actions that require user confirmation:
+
+- **Killing or closing a pane** (`amux kill`, closing a window)
+- **Restarting orca** (`orca stop`, `orca start`) — kills worker panes and orphans active tasks
+- **Cancelling an orca task** (`orca cancel`)
+- **Killing a process** in a worker pane — capture diagnostics first (`kill -3` / SIGQUIT for Go goroutine trace). The trace is the only evidence for deadlock root cause and is destroyed on kill.
+- **`/exit` on codex** — run postmortem first. Session context (reasoning, corrections, decisions) is destroyed on exit and cannot be recovered.
+- **Mass `send-keys`** — if sending to more than 3 panes, present the message and pane list to the user for approval. Batch operations are where mistakes scale.
+
+When troubleshooting spawn or assignment failures, fix the specific problem (clean up duplicate panes, check amux state) rather than restarting orca.
+
 - **Recovery ≠ assignment**: restoring a codex process is a separate action from giving it work. After recovery, leave workers at idle prompts. Only assign specific, user-approved issues.
 
 ### Working In amux

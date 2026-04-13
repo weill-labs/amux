@@ -237,28 +237,6 @@ func TestRenderPaneStatusClipsLongTaskToPaneWidth(t *testing.T) {
 	}
 }
 
-func TestRenderPaneStatusHintsWhenActivePaneHasNoIssueMetadata(t *testing.T) {
-	t.Parallel()
-
-	cell := mux.NewLeaf(&mux.Pane{ID: 1}, 0, 0, 60, 3)
-	buf := strings.Builder{}
-	renderPaneStatus(&buf, cell, true, &statusPaneData{
-		id:   1,
-		name: "pane-1",
-		trackedPRs: []proto.TrackedPR{
-			{Number: 42},
-		},
-		color: config.TextColorHex,
-	})
-
-	line := MaterializeGrid(buf.String(), cell.W, 1)
-	for _, want := range []string{"[pane-1]", "#42", "set issue"} {
-		if !strings.Contains(line, want) {
-			t.Fatalf("status line %q missing %q", line, want)
-		}
-	}
-}
-
 func TestRenderPaneStatusFallsBackToPlainIssueKV(t *testing.T) {
 	t.Parallel()
 
@@ -279,29 +257,6 @@ func TestRenderPaneStatusFallsBackToPlainIssueKV(t *testing.T) {
 		if !strings.Contains(line, want) {
 			t.Fatalf("status line %q missing %q", line, want)
 		}
-	}
-	if strings.Contains(line, missingIssueHint) {
-		t.Fatalf("status line %q should not show %q when raw issue metadata exists", line, missingIssueHint)
-	}
-}
-
-func TestRenderPaneStatusSkipsMissingIssueHintForInactivePane(t *testing.T) {
-	t.Parallel()
-
-	cell := mux.NewLeaf(&mux.Pane{ID: 1}, 0, 0, 60, 3)
-	buf := strings.Builder{}
-	renderPaneStatus(&buf, cell, false, &statusPaneData{
-		id:   1,
-		name: "pane-1",
-		trackedPRs: []proto.TrackedPR{
-			{Number: 42},
-		},
-		color: config.TextColorHex,
-	})
-
-	line := MaterializeGrid(buf.String(), cell.W, 1)
-	if strings.Contains(line, "set issue") {
-		t.Fatalf("inactive status line should not show the missing-issue hint: %q", line)
 	}
 }
 
@@ -661,36 +616,6 @@ func TestBuildStatusCellsStylesCompletedMetadata(t *testing.T) {
 	for offset := 0; offset < len([]rune("#314")); offset++ {
 		if grid.Get(start+offset, 0).Style.Attrs&uv.AttrStrikethrough != 0 {
 			t.Fatalf("active metadata cell at x=%d should not be strikethrough", start+offset)
-		}
-	}
-}
-
-func TestBuildStatusCellsHintsWhenActivePaneHasNoIssueMetadata(t *testing.T) {
-	t.Parallel()
-
-	cell := mux.NewLeaf(&mux.Pane{ID: 1}, 0, 0, 40, 4)
-	grid := NewScreenGrid(40, 4)
-	buildStatusCells(grid, cell, true, &statusPaneData{
-		id:   1,
-		name: "pane-1",
-		trackedPRs: []proto.TrackedPR{
-			{Number: 42},
-		},
-		color: config.TextColorHex,
-	})
-
-	var row strings.Builder
-	for x := 0; x < 40; x++ {
-		ch := grid.Get(x, 0).Char
-		if ch == "" {
-			ch = " "
-		}
-		row.WriteString(ch)
-	}
-	line := strings.TrimRight(row.String(), " ")
-	for _, want := range []string{"#42", "set issue"} {
-		if !strings.Contains(line, want) {
-			t.Fatalf("status row %q missing %q", line, want)
 		}
 	}
 }
