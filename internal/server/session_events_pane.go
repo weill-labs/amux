@@ -185,11 +185,7 @@ func (e metaUpdateEvent) handle(s *Session) {
 		_ = setPaneKVValue(p, mux.PaneMetaKeyPR, *e.update.PR)
 	}
 	if e.update.Branch != nil {
-		if *e.update.Branch == "" {
-			_ = removePaneKVValue(p, mux.PaneMetaKeyBranch)
-		} else {
-			_ = setPaneKVValue(p, mux.PaneMetaKeyBranch, *e.update.Branch)
-		}
+		_ = setPaneKVValue(p, mux.PaneMetaKeyBranch, *e.update.Branch)
 	}
 	s.broadcastLayoutNow()
 }

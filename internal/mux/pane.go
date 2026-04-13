@@ -127,7 +127,7 @@ type Pane struct {
 
 	// CWD/branch detection
 	liveCwd          string // last-detected CWD, not checkpointed
-	metaManualBranch bool   // true when GitBranch was set via escape sequence or CLI
+	metaManualBranch bool   // true when metadata owns branch state, including explicit empty clears
 }
 
 type paneBaseHistory struct {

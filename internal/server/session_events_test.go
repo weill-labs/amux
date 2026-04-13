@@ -1246,10 +1246,46 @@ func TestMetaUpdateEventClearsBranch(t *testing.T) {
 		t.Fatalf("git_branch = %q, want empty after clear", pane.Meta.GitBranch)
 	}
 
-	// After clearing, auto-detect should work again
+	if !pane.MetaManualBranch() {
+		t.Fatal("MetaManualBranch() = false, want explicit clear to remain a manual override")
+	}
+
+	// Explicit branch clears must survive later auto-detect refreshes.
+	pane.ApplyCwdBranch("/tmp", "auto-branch")
+	if pane.Meta.GitBranch != "" {
+		t.Fatalf("git_branch = %q, want empty explicit clear preserved", pane.Meta.GitBranch)
+	}
+}
+
+func TestRemovePaneKVValueBranchResumesAutoDetect(t *testing.T) {
+	t.Parallel()
+
+	pane := newProxyPane(1, mux.PaneMeta{
+		Name:  "pane-1",
+		Host:  mux.DefaultHost,
+		Color: "f5e0dc",
+		KV: map[string]string{
+			mux.PaneMetaKeyBranch: "",
+		},
+	}, 80, 23, nil, nil, func(data []byte) (int, error) { return len(data), nil })
+
+	if !pane.MetaManualBranch() {
+		t.Fatal("MetaManualBranch() = false, want explicit empty branch override")
+	}
+	if pane.Meta.GitBranch != "" {
+		t.Fatalf("git_branch = %q, want empty explicit override before remove", pane.Meta.GitBranch)
+	}
+
+	if err := removePaneKVValue(pane, mux.PaneMetaKeyBranch); err != nil {
+		t.Fatalf("removePaneKVValue(branch): %v", err)
+	}
+	if pane.MetaManualBranch() {
+		t.Fatal("MetaManualBranch() = true, want remove to resume auto-detect")
+	}
+
 	pane.ApplyCwdBranch("/tmp", "auto-branch")
 	if pane.Meta.GitBranch != "auto-branch" {
-		t.Fatalf("git_branch = %q, want auto-detect to resume after clear", pane.Meta.GitBranch)
+		t.Fatalf("git_branch = %q, want auto-detect to resume after remove", pane.Meta.GitBranch)
 	}
 }
 

@@ -244,6 +244,26 @@ func TestNewProxyPaneWithScrollbackPinsExplicitBranchKV(t *testing.T) {
 	}
 }
 
+func TestNewProxyPaneWithScrollbackPinsExplicitEmptyBranchKV(t *testing.T) {
+	t.Parallel()
+
+	p := NewProxyPaneWithScrollback(1, PaneMeta{
+		Name: "pane-1",
+		KV: map[string]string{
+			PaneMetaKeyBranch: "",
+		},
+	}, 80, 24, DefaultScrollbackLines, nil, nil, nil)
+
+	p.ApplyCwdBranch("/tmp/project", "auto-branch")
+
+	if !p.MetaManualBranch() {
+		t.Fatal("MetaManualBranch() = false, want true for explicit empty branch kv")
+	}
+	if p.Meta.GitBranch != "" {
+		t.Fatalf("GitBranch = %q, want empty explicit override preserved", p.Meta.GitBranch)
+	}
+}
+
 func TestSetOnMetaUpdateCallback(t *testing.T) {
 	t.Parallel()
 
