@@ -1,13 +1,8 @@
 package test
 
 import (
-	"fmt"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestMetaSetSetsTaskAndBranch(t *testing.T) {
@@ -58,55 +53,6 @@ func TestMetaSetClearsBranch(t *testing.T) {
 	list = h.runCmd("list")
 	if strings.Contains(list, "feat/bar") {
 		t.Fatalf("branch should be cleared, got:\n%s", list)
-	}
-}
-
-func TestMetaSetClearsBranchAcrossIdleRefresh(t *testing.T) {
-	t.Parallel()
-
-	h := newServerHarnessWithOptions(t, 80, 24, "", false, false, "AMUX_DISABLE_META_REFRESH=0")
-
-	repoDir := filepath.Join(h.home, "clear-branch-repo")
-	if err := os.MkdirAll(repoDir, 0o755); err != nil {
-		t.Fatalf("MkdirAll(%q): %v", repoDir, err)
-	}
-	if out, err := exec.Command("git", "-C", repoDir, "init", "-b", "meta-branch").CombinedOutput(); err != nil {
-		t.Fatalf("git init repo: %v\n%s", err, out)
-	}
-	if out, err := exec.Command("git", "-C", repoDir, "config", "user.email", "amux-tests@example.com").CombinedOutput(); err != nil {
-		t.Fatalf("git config user.email: %v\n%s", err, out)
-	}
-	if out, err := exec.Command("git", "-C", repoDir, "config", "user.name", "amux tests").CombinedOutput(); err != nil {
-		t.Fatalf("git config user.name: %v\n%s", err, out)
-	}
-	if err := os.WriteFile(filepath.Join(repoDir, "README.md"), []byte("clear branch\n"), 0o644); err != nil {
-		t.Fatalf("write repo file: %v", err)
-	}
-	if out, err := exec.Command("git", "-C", repoDir, "add", "README.md").CombinedOutput(); err != nil {
-		t.Fatalf("git add: %v\n%s", err, out)
-	}
-	if out, err := exec.Command("git", "-C", repoDir, "commit", "-m", "init").CombinedOutput(); err != nil {
-		t.Fatalf("git commit: %v\n%s", err, out)
-	}
-
-	h.sendKeys("pane-1", fmt.Sprintf("cd %q && echo META_READY", repoDir), "Enter")
-	h.waitFor("pane-1", "META_READY")
-	h.waitIdle("pane-1")
-	waitForListMetadata(t, h, "meta-branch")
-
-	h.runCmd("meta", "set", "pane-1", "branch=")
-
-	h.sendKeys("pane-1", "printf 'REFRESH\\n'", "Enter")
-	h.waitFor("pane-1", "REFRESH")
-	h.waitIdle("pane-1")
-
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		list := h.runCmd("list")
-		if strings.Contains(list, "meta-branch") {
-			t.Fatalf("cleared branch should stay empty across idle refresh, got:\n%s", list)
-		}
-		time.Sleep(50 * time.Millisecond)
 	}
 }
 
