@@ -551,13 +551,16 @@ func runRename(ctx *CommandContext, actorPaneID uint32, paneRef, name string) co
 		if err != nil {
 			return commandMutationResult{err: err}
 		}
+		oldName := pane.Meta.Name
+		if oldName == name {
+			return commandMutationResult{output: "Pane name unchanged\n"}
+		}
 		for _, candidate := range mctx.Panes {
-			if candidate.Meta.Name == name {
+			if candidate.ID != pane.ID && candidate.Meta.Name == name {
 				return commandMutationResult{err: fmt.Errorf("pane %q already exists", name)}
 			}
 		}
 
-		oldName := pane.Meta.Name
 		pane.Meta.Name = name
 		mctx.prunePaneEventSubs(oldName)
 		return commandMutationResult{

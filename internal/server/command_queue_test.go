@@ -102,6 +102,22 @@ func TestQueuedCommandRenamePane(t *testing.T) {
 		t.Fatal("expected layout generation to increment")
 	}
 	assertSessionLayoutConsistent(t, sess)
+
+	beforeNoop := sess.generation.Load()
+	res = runTestCommand(t, srv, sess, "rename", "logs", "logs")
+
+	if res.cmdErr != "" {
+		t.Fatalf("self-rename error: %s", res.cmdErr)
+	}
+	if res.output != "Pane name unchanged\n" {
+		t.Fatalf("self-rename output = %q, want %q", res.output, "Pane name unchanged\n")
+	}
+	if p1.Meta.Name != "logs" {
+		t.Fatalf("pane name after self-rename = %q, want %q", p1.Meta.Name, "logs")
+	}
+	if got := sess.generation.Load(); got != beforeNoop {
+		t.Fatalf("generation after self-rename = %d, want %d", got, beforeNoop)
+	}
 }
 
 func TestQueuedCommandRenamePaneRejectsDuplicateNameAcrossWindows(t *testing.T) {
