@@ -65,6 +65,15 @@ func drainQueuedStdinChunks(first []byte, stdinCh <-chan []byte) (chunks [][]byt
 	}
 }
 
+func flushBufferedBytes(buf *[]byte, handle func([]byte) bool) bool {
+	if len(*buf) == 0 {
+		return false
+	}
+	data := append([]byte(nil), (*buf)...)
+	*buf = (*buf)[:0]
+	return handle(data)
+}
+
 func dispatchQueuedMouseInputChunks(
 	parser *mouse.Parser,
 	chunks [][]byte,
@@ -100,20 +109,11 @@ func dispatchQueuedMouseInputChunks(
 		pendingMotion = &evCopy
 	}
 
-	flushPendingBytes := func() bool {
-		if len(pendingBytes) == 0 {
-			return false
-		}
-		data := append([]byte(nil), pendingBytes...)
-		pendingBytes = pendingBytes[:0]
-		return handleBytes(data)
-	}
-
 	for _, chunk := range chunks {
 		for i := 0; i < len(chunk); i++ {
 			ev, isMouse, flushed := parser.Feed(chunk[i])
 			if isMouse {
-				if flushPendingBytes() {
+				if flushBufferedBytes(&pendingBytes, handleBytes) {
 					return true
 				}
 				dispatchMouse(ev)
@@ -132,7 +132,7 @@ func dispatchQueuedMouseInputChunks(
 		}
 	}
 
-	if flushPendingBytes() {
+	if flushBufferedBytes(&pendingBytes, handleBytes) {
 		return true
 	}
 	flushPendingMotion()
@@ -1000,19 +1000,11 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 				)
 			} else {
 				var pendingDecodedInput []byte
-				flushPendingDecodedInput := func() bool {
-					if len(pendingDecodedInput) == 0 {
-						return false
-					}
-					data := append([]byte(nil), pendingDecodedInput...)
-					pendingDecodedInput = pendingDecodedInput[:0]
-					return decodeAndDispatch(data)
-				}
 				for i := 0; i < len(raw) && !shouldExit; i++ {
 					ev, isMouse, flushed := mouseParser.Feed(raw[i])
 
 					if isMouse {
-						shouldExit = flushPendingDecodedInput()
+						shouldExit = flushBufferedBytes(&pendingDecodedInput, decodeAndDispatch)
 						if shouldExit {
 							break
 						}
@@ -1028,7 +1020,7 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 				// stay buffered in the parser and complete on the next read.
 				if !shouldExit {
 					pendingDecodedInput = append(pendingDecodedInput, mouseParser.FlushPending()...)
-					shouldExit = flushPendingDecodedInput()
+					shouldExit = flushBufferedBytes(&pendingDecodedInput, decodeAndDispatch)
 				}
 			}
 
