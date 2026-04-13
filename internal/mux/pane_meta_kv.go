@@ -158,10 +158,16 @@ func applyPaneMetaKV(meta *PaneMeta) error {
 	return nil
 }
 
-func NormalizePaneMeta(meta *PaneMeta) (manualBranch bool, err error) {
-	if meta != nil && meta.KV != nil {
-		_, manualBranch = meta.KV[PaneMetaKeyBranch]
+func hasManualBranchOverride(meta *PaneMeta) bool {
+	if meta == nil || meta.KV == nil {
+		return false
 	}
+	_, ok := meta.KV[PaneMetaKeyBranch]
+	return ok
+}
+
+func NormalizePaneMeta(meta *PaneMeta) (manualBranch bool, err error) {
+	manualBranch = hasManualBranchOverride(meta)
 	hydrateReservedKV(meta)
 	if err := applyPaneMetaKV(meta); err != nil {
 		return false, err
@@ -176,7 +182,7 @@ func SetPaneMetaKV(meta *PaneMeta, key, value string) (manualBranch bool, err er
 	if err := applyPaneMetaKV(&next); err != nil {
 		return false, err
 	}
-	_, manualBranch = next.KV[PaneMetaKeyBranch]
+	manualBranch = hasManualBranchOverride(&next)
 	*meta = next
 	return manualBranch, nil
 }
@@ -191,7 +197,7 @@ func RemovePaneMetaKV(meta *PaneMeta, key string) (manualBranch bool, err error)
 	if err := applyPaneMetaKV(&next); err != nil {
 		return false, err
 	}
-	_, manualBranch = next.KV[PaneMetaKeyBranch]
+	manualBranch = hasManualBranchOverride(&next)
 	*meta = next
 	return manualBranch, nil
 }
