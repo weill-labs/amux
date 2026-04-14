@@ -672,7 +672,13 @@ func TestBuildStatusCellsMarksWideConnStatusRune(t *testing.T) {
 	}
 
 	line := row.String()
-	start := strings.Index(line, "⚡")
+	start := -1
+	for x := 0; x < 32; x++ {
+		if grid.Get(x, 0).Char == "⚡" {
+			start = x
+			break
+		}
+	}
 	if start < 0 {
 		t.Fatalf("status row %q missing connected marker", line)
 	}

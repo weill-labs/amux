@@ -32,7 +32,7 @@ func helpBarRowCount(overlay *HelpBarOverlay) int {
 	return len(helpBarRows(overlay))
 }
 
-func buildHelpBarRowChars(width int, row string) []styledChar {
+func buildHelpBarRowChars(width int, row string) []ScreenCell {
 	if width <= 0 {
 		return nil
 	}
@@ -40,15 +40,15 @@ func buildHelpBarRowChars(width int, row string) []styledChar {
 	bg := hexToColor(config.Surface0Hex)
 	baseStyle := uv.Style{Fg: hexToColor(config.TextColorHex), Bg: bg}
 	text := truncateRunes(strings.TrimSpace(row), max(width-1, 0))
-	chars := make([]styledChar, 0, width)
-	chars = appendStyledStr(chars, " ", baseStyle)
-	chars = appendStyledStr(chars, text, baseStyle)
+	cells := make([]ScreenCell, 0, width)
+	cells = appendStyledStr(cells, " ", baseStyle)
+	cells = appendStyledStr(cells, text, baseStyle)
 
 	fill := width - 1 - helpBarTextWidth(text)
 	if fill > 0 {
-		chars = appendStyledStr(chars, strings.Repeat(" ", fill), baseStyle)
+		cells = appendStyledStr(cells, strings.Repeat(" ", fill), baseStyle)
 	}
-	return chars
+	return cells
 }
 
 func buildHelpBarCells(g *ScreenGrid, overlay *HelpBarOverlay) {
@@ -64,9 +64,9 @@ func buildHelpBarCells(g *ScreenGrid, overlay *HelpBarOverlay) {
 	}
 	startY := g.Height - 1 - len(rows)
 	for rowIdx, row := range rows {
-		chars := buildHelpBarRowChars(g.Width, row)
-		for i := 0; i < g.Width && i < len(chars); i++ {
-			g.Set(i, startY+rowIdx, ScreenCell{Char: chars[i].ch, Width: 1, Style: chars[i].style})
+		cells := buildHelpBarRowChars(g.Width, row)
+		for i := 0; i < g.Width && i < len(cells); i++ {
+			g.Set(i, startY+rowIdx, cells[i])
 		}
 	}
 }
