@@ -582,9 +582,9 @@ func (p paneStatusGridPalette) style(role paneStatusSegmentRole) uv.Style {
 	}
 }
 
-// appendStyledStr expands s into styled screen cells so diff rendering honors
+// appendStyledCells expands s into styled screen cells so diff rendering honors
 // the display width of wide glyphs the same way the ANSI full-render path does.
-func appendStyledStr(cells []ScreenCell, s string, style uv.Style) []ScreenCell {
+func appendStyledCells(cells []ScreenCell, s string, style uv.Style) []ScreenCell {
 	for len(s) > 0 {
 		cluster, clusterWidth := ansi.FirstGraphemeCluster(s, ansi.GraphemeWidth)
 		if cluster == "" {
@@ -618,10 +618,10 @@ func buildStatusCellsPressed(g *ScreenGrid, cell *mux.LayoutCell, isActive, pres
 	palette := newPaneStatusGridPalette(colorHex, bg)
 	var cells []ScreenCell
 	for _, segment := range buildPaneStatusSegments(cell.W, isActive, pd) {
-		cells = appendStyledStr(cells, segment.text, palette.style(segment.role))
+		cells = appendStyledCells(cells, segment.text, palette.style(segment.role))
 	}
 
-	// Write chars to grid, fill remaining with spaces.
+	// Write cells to grid, fill remaining with spaces.
 	fillCell := ScreenCell{Char: " ", Width: 1, Style: uv.Style{Bg: bg}}
 	for i := 0; i < cell.W; i++ {
 		sc := fillCell
@@ -673,9 +673,9 @@ func buildGlobalBarCells(g *ScreenGrid, sessionName string, paneCount int, width
 	showHelp := globalBarShowsHelp(width, sessionName, paneCount, windows, message, now)
 
 	// " amux │ "
-	cells = appendStyledStr(cells, " ", baseStyle)
-	cells = appendStyledStr(cells, "amux", boldStyle)
-	cells = appendStyledStr(cells, " │ ", baseStyle)
+	cells = appendStyledCells(cells, " ", baseStyle)
+	cells = appendStyledCells(cells, "amux", boldStyle)
+	cells = appendStyledCells(cells, " │ ", baseStyle)
 
 	if tabs := buildGlobalBarWindowTabs(windows); len(tabs) > 0 {
 		for _, tab := range tabs {
@@ -684,12 +684,12 @@ func buildGlobalBarCells(g *ScreenGrid, sessionName string, paneCount int, width
 				style = boldStyle
 			}
 			style.Fg = hexToColor(globalBarTabColorHex(tab.window))
-			cells = appendStyledStr(cells, tab.display, style)
-			cells = appendStyledStr(cells, " ", baseStyle)
+			cells = appendStyledCells(cells, tab.display, style)
+			cells = appendStyledCells(cells, " ", baseStyle)
 		}
-		cells = appendStyledStr(cells, "│ ", baseStyle)
+		cells = appendStyledCells(cells, "│ ", baseStyle)
 	} else {
-		cells = appendStyledStr(cells, sessionName+" ", baseStyle)
+		cells = appendStyledCells(cells, sessionName+" ", baseStyle)
 	}
 
 	rightText := ""
@@ -712,12 +712,12 @@ func buildGlobalBarCells(g *ScreenGrid, sessionName string, paneCount int, width
 		if len(messageRunes) > fill {
 			messageRunes = messageRunes[:fill]
 		}
-		cells = appendStyledStr(cells, string(messageRunes), baseStyle)
+		cells = appendStyledCells(cells, string(messageRunes), baseStyle)
 		for i := len(messageRunes); i < fill; i++ {
 			cells = append(cells, ScreenCell{Char: " ", Width: 1, Style: baseStyle})
 		}
 	}
-	cells = appendStyledStr(cells, rightText, rightStyle)
+	cells = appendStyledCells(cells, rightText, rightStyle)
 
 	// Write to grid.
 	for i := 0; i < width && i < len(cells); i++ {
