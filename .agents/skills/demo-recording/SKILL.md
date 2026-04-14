@@ -39,7 +39,7 @@ The converter supports both v2 and v3, but v2 absolute timestamps are easier to 
 
 The driver runs inside asciinema's recorded PTY with a foreground/background split:
 
-1. **Background agent** waits for the amux server socket, then drives the demo via `amux` CLI commands (spawn, split, send-keys, wait-idle, capture)
+1. **Background agent** waits for the amux server socket, then drives the demo via `amux` CLI commands (spawn, split, send-keys, wait idle, capture)
 2. **Foreground amux client** renders the TUI into the PTY that asciinema records
 3. Agent kills the client (via saved PID) to end the recording
 
