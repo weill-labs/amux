@@ -184,6 +184,13 @@ func (hc *headlessClient) resize(cols, rows int) {
 	})
 }
 
+// resizeTerminal mirrors a real interactive client resize: update the local
+// renderer immediately, then notify the server so the session relayouts.
+func (hc *headlessClient) resizeTerminal(cols, rows int) {
+	hc.renderer.Resize(cols, rows)
+	hc.resize(cols, rows)
+}
+
 func (hc *headlessClient) sendUIEvent(name string) {
 	conn := hc.currentConn()
 	if conn == nil {
