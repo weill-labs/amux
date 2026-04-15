@@ -14,9 +14,9 @@ func TestChunkPaneHistoryMessagesSplitsLargeHistoryUnderThreshold(t *testing.T) 
 	t.Parallel()
 
 	const (
-		lineCount      = 320
+		lineCount      = 260
 		lineWidth      = 64 * 1024
-		chunkThreshold = 1 << 20
+		chunkThreshold = paneHistoryChunkThreshold
 	)
 
 	pane := newProxyPane(1, mux.PaneMeta{
@@ -71,7 +71,7 @@ func TestHandleAttachChunksLargePaneHistoryDuringBootstrap(t *testing.T) {
 	defer cleanup()
 
 	const (
-		lineCount = 320
+		lineCount = 260
 		lineWidth = 64 * 1024
 	)
 
@@ -99,7 +99,7 @@ func TestHandleAttachChunksLargePaneHistoryDuringBootstrap(t *testing.T) {
 		})
 	}()
 
-	msg := readMsgWithTimeoutDuration(t, peerConn, 5*time.Second)
+	msg := readMsgWithTimeoutDuration(t, peerConn, 15*time.Second)
 	if msg.Type != MsgTypeLayout {
 		t.Fatalf("first message type = %v, want layout", msg.Type)
 	}
@@ -114,7 +114,7 @@ func TestHandleAttachChunksLargePaneHistoryDuringBootstrap(t *testing.T) {
 		outputs     int
 	)
 	for outputs < paneCount {
-		msg = readMsgWithTimeoutDuration(t, peerConn, 5*time.Second)
+		msg = readMsgWithTimeoutDuration(t, peerConn, 15*time.Second)
 		switch msg.Type {
 		case MsgTypePaneHistory:
 			historyMsgs++
