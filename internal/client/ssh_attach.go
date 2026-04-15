@@ -78,35 +78,10 @@ func defaultSSHRunSessionOps() sshRunSessionOps {
 func sshRunSessionDeps(target sshSessionTarget, state *sshSessionState, ops sshRunSessionOps) runSessionDeps {
 	deps := defaultRunSessionDeps()
 	deps.ensureDaemon = func(sessionName string, timeout time.Duration) error {
-		sshCfg, err := ops.buildSSHConfig(target.User, target.IdentityFile)
+		sshClient, sockPath, err := connectSSHSession(target, sessionName, timeout, ops)
 		if err != nil {
-			return fmt.Errorf("building SSH config: %w", err)
-		}
-
-		sshClient, err := ops.sshDial("tcp", target.Address, sshCfg)
-		if err != nil {
-			return fmt.Errorf("SSH dial: %w", err)
-		}
-
-		remoteUID, err := ops.sshOutput(sshClient, "id -u")
-		if err != nil {
-			_ = sshClient.Close()
-			return fmt.Errorf("querying remote UID: %w", err)
-		}
-
-		// Keep deploy best-effort so connection still works when upload fails.
-		_ = ops.deployBinary(sshClient, clientBuildHash())
-
-		sockPath := sshutil.RemoteSocketPath(remoteUID, sessionName)
-		if err := ops.ensureRemoteServer(sshClient, sockPath, sessionName); err != nil {
-			_ = sshClient.Close()
-			return fmt.Errorf("starting remote server: %w", err)
-		}
-		if err := waitForSSHRemoteSocket(sshClient, sockPath, timeout, ops.sshOutput); err != nil {
-			_ = sshClient.Close()
 			return err
 		}
-
 		state.set(sshClient, sockPath)
 		return nil
 	}
@@ -119,16 +94,52 @@ func sshRunSessionDeps(target sshSessionTarget, state *sshSessionState, ops sshR
 	return deps
 }
 
+func connectSSHSession(target sshSessionTarget, sessionName string, timeout time.Duration, ops sshRunSessionOps) (*ssh.Client, string, error) {
+	sshCfg, err := ops.buildSSHConfig(target.User, target.IdentityFile)
+	if err != nil {
+		return nil, "", fmt.Errorf("building SSH config: %w", err)
+	}
+
+	sshClient, err := ops.sshDial("tcp", target.Address, sshCfg)
+	if err != nil {
+		return nil, "", fmt.Errorf("SSH dial: %w", err)
+	}
+
+	remoteUID, err := ops.sshOutput(sshClient, "id -u")
+	if err != nil {
+		_ = sshClient.Close()
+		return nil, "", fmt.Errorf("querying remote UID: %w", err)
+	}
+
+	// Keep deploy best-effort so connection still works when upload fails.
+	_ = ops.deployBinary(sshClient, clientBuildHash())
+
+	sockPath := sshutil.RemoteSocketPath(remoteUID, sessionName)
+	if err := ops.ensureRemoteServer(sshClient, sockPath, sessionName); err != nil {
+		_ = sshClient.Close()
+		return nil, "", fmt.Errorf("starting remote server: %w", err)
+	}
+	if err := waitForSSHRemoteSocket(sshClient, sockPath, timeout, ops.sshOutput); err != nil {
+		_ = sshClient.Close()
+		return nil, "", err
+	}
+	return sshClient, sockPath, nil
+}
+
 func waitForSSHRemoteSocket(client *ssh.Client, sockPath string, timeout time.Duration, sshOutput func(*ssh.Client, string) (string, error)) error {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		out, err := sshOutput(client, fmt.Sprintf("test -S %s && echo ok", sockPath))
+		out, err := sshOutput(client, remoteSocketProbeCmd(sockPath))
 		if err == nil && out == "ok" {
 			return nil
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
 	return fmt.Errorf("socket %s did not appear within %v", sockPath, timeout)
+}
+
+func remoteSocketProbeCmd(sockPath string) string {
+	return fmt.Sprintf("test -S %s && echo ok", sockPath)
 }
 
 func resolveSSHAddress(addr, port string) string {
