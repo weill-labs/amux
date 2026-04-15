@@ -87,7 +87,6 @@ func TestHandleAttachChunksLargePaneHistoryDuringBootstrap(t *testing.T) {
 	}
 
 	serverConn, peerConn := net.Pipe()
-	defer peerConn.Close()
 
 	done := make(chan struct{})
 	go func() {
@@ -107,13 +106,14 @@ func TestHandleAttachChunksLargePaneHistoryDuringBootstrap(t *testing.T) {
 	if msg.Layout == nil || len(msg.Layout.Panes) != 1 {
 		t.Fatalf("layout panes = %d, want 1", len(msg.Layout.Panes))
 	}
+	paneCount := len(msg.Layout.Panes)
 
 	var (
 		historyMsgs int
 		gotHistory  []string
 		outputs     int
 	)
-	for outputs < len(msg.Layout.Panes) {
+	for outputs < paneCount {
 		msg = readMsgWithTimeoutDuration(t, peerConn, 5*time.Second)
 		switch msg.Type {
 		case MsgTypePaneHistory:
@@ -138,8 +138,8 @@ func TestHandleAttachChunksLargePaneHistoryDuringBootstrap(t *testing.T) {
 		}
 	}
 
-	if err := writeMsgOnConn(peerConn, &Message{Type: MsgTypeDetach}); err != nil {
-		t.Fatalf("WriteMsg detach: %v", err)
+	if err := peerConn.Close(); err != nil {
+		t.Fatalf("Close peer conn: %v", err)
 	}
 
 	select {

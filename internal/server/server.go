@@ -802,12 +802,14 @@ func (s *Server) handleAttach(cc *clientConn, msg *Message) {
 	bootstrapSeqs := make(map[uint32]uint64, len(res.paneSnapshots))
 	for _, ps := range res.paneSnapshots {
 		if len(ps.styledHistory) > 0 {
-			cc.Send(&Message{
-				Type:          MsgTypePaneHistory,
-				PaneID:        ps.paneID,
-				History:       proto.StyledLineText(ps.styledHistory),
-				StyledHistory: proto.CloneStyledLines(ps.styledHistory),
-			})
+			messages, err := chunkPaneHistoryMessages(ps.paneID, ps.styledHistory, paneHistoryChunkThreshold)
+			if err != nil {
+				cc.Close()
+				return
+			}
+			for _, historyMsg := range messages {
+				cc.Send(historyMsg)
+			}
 		}
 		cc.Send(&Message{Type: MsgTypePaneOutput, PaneID: ps.paneID, PaneData: ps.screen})
 		bootstrapSeqs[ps.paneID] = ps.outputSeq

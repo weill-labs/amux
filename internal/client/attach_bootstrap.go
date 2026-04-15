@@ -44,7 +44,7 @@ func attachBootstrapPaneCount(layout *proto.LayoutSnapshot) int {
 func applyAttachBootstrapMessage(cr *ClientRenderer, msg attachBootstrapMessage) int {
 	switch msg.msg.Type {
 	case proto.MsgTypePaneHistory:
-		cr.HandlePaneHistoryMessage(msg.msg.PaneID, msg.msg.History, msg.msg.StyledHistory)
+		cr.AppendPaneHistoryMessage(msg.msg.PaneID, msg.msg.History, msg.msg.StyledHistory)
 		return 0
 	case proto.MsgTypePaneOutput:
 		cr.HandlePaneOutput(msg.msg.PaneID, msg.msg.PaneData)

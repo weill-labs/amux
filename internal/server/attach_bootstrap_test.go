@@ -503,7 +503,7 @@ func (r *attachReplayState) HandleLayout(layout *proto.LayoutSnapshot) {
 }
 
 func (r *attachReplayState) HandlePaneHistory(paneID uint32, history []string) {
-	r.histories[paneID] = append([]string(nil), history...)
+	r.histories[paneID] = append(r.histories[paneID], history...)
 }
 
 func (r *attachReplayState) HandlePaneOutput(paneID uint32, data []byte) {
