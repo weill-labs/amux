@@ -87,6 +87,13 @@ func (cr *ClientRenderer) HandlePaneHistory(paneID uint32, lines []string) {
 	cr.HandlePaneHistoryStyled(paneID, plainStyledHistory(lines))
 }
 
+// AppendPaneHistory appends retained server history for a pane during attach
+// bootstrap chunk replay. History is oldest-first and excludes the visible
+// screen.
+func (cr *ClientRenderer) AppendPaneHistory(paneID uint32, lines []string) {
+	cr.AppendPaneHistoryStyled(paneID, plainStyledHistory(lines))
+}
+
 // HandlePaneHistoryStyled stores retained server history with frozen cells for
 // a pane during attach bootstrap.
 func (cr *ClientRenderer) HandlePaneHistoryStyled(paneID uint32, lines []proto.StyledLine) {
@@ -97,12 +104,30 @@ func (cr *ClientRenderer) HandlePaneHistoryStyled(paneID uint32, lines []proto.S
 	})
 }
 
+// AppendPaneHistoryStyled appends retained server history with frozen cells for
+// a pane during attach bootstrap chunk replay.
+func (cr *ClientRenderer) AppendPaneHistoryStyled(paneID uint32, lines []proto.StyledLine) {
+	history := proto.CloneStyledLines(lines)
+	cr.updateState(func(next *clientSnapshot) clientUIResult {
+		next.baseHistory[paneID] = append(next.baseHistory[paneID], history...)
+		return clientUIResult{}
+	})
+}
+
 func (cr *ClientRenderer) HandlePaneHistoryMessage(paneID uint32, history []string, styledHistory []proto.StyledLine) {
 	if len(styledHistory) > 0 {
 		cr.HandlePaneHistoryStyled(paneID, styledHistory)
 		return
 	}
 	cr.HandlePaneHistory(paneID, history)
+}
+
+func (cr *ClientRenderer) AppendPaneHistoryMessage(paneID uint32, history []string, styledHistory []proto.StyledLine) {
+	if len(styledHistory) > 0 {
+		cr.AppendPaneHistoryStyled(paneID, styledHistory)
+		return
+	}
+	cr.AppendPaneHistory(paneID, history)
 }
 
 func (cr *ClientRenderer) emitUIEvent(name string) {
