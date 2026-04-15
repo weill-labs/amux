@@ -171,7 +171,9 @@ func (hc *headlessClient) waitCommandReady() error {
 	return nil
 }
 
-// resize sends a MsgTypeResize to the server, simulating a terminal resize.
+// resize notifies the server about a terminal resize without changing the
+// local renderer. Tests that want the full interactive-client behavior should
+// use resizeTerminal.
 func (hc *headlessClient) resize(cols, rows int) {
 	conn := hc.currentConn()
 	if conn == nil {
