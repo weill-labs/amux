@@ -41,7 +41,7 @@ func attachBootstrapPaneCount(layout *proto.LayoutSnapshot) int {
 	return count
 }
 
-func applyAttachBootstrapMessage(cr *ClientRenderer, msg attachBootstrapMessage) int {
+func applyAttachBootstrapReplayMessage(cr *ClientRenderer, msg attachBootstrapMessage) int {
 	switch msg.msg.Type {
 	case proto.MsgTypePaneHistory:
 		cr.AppendPaneHistoryMessage(msg.msg.PaneID, msg.msg.History, msg.msg.StyledHistory)
@@ -82,6 +82,19 @@ func readImmediateAttachCorrection(conn net.Conn, reader *proto.Reader, cr *Clie
 	}
 }
 
+func applyAttachBootstrapMessage(cr *ClientRenderer, msg attachBootstrapMessage) int {
+	switch msg.msg.Type {
+	case proto.MsgTypePaneHistory:
+		cr.HandlePaneHistoryMessage(msg.msg.PaneID, msg.msg.History, msg.msg.StyledHistory)
+		return 0
+	case proto.MsgTypePaneOutput:
+		cr.HandlePaneOutput(msg.msg.PaneID, msg.msg.PaneData)
+		return 1
+	default:
+		return 0
+	}
+}
+
 func readAttachBootstrapPaneReplays(conn net.Conn, reader *proto.Reader, cr *ClientRenderer, remainingOutputs int, timeout time.Duration) (int, error) {
 	if remainingOutputs <= 0 {
 		return 0, nil
@@ -108,7 +121,7 @@ func readAttachBootstrapPaneReplays(conn net.Conn, reader *proto.Reader, cr *Cli
 			// Exit bootstrap early and let later state continue via the normal loop.
 			return remainingOutputs, nil
 		}
-		remainingOutputs -= applyAttachBootstrapMessage(cr, bufferedMsg)
+		remainingOutputs -= applyAttachBootstrapReplayMessage(cr, bufferedMsg)
 	}
 	return 0, nil
 }
@@ -138,7 +151,7 @@ func readAttachBootstrap(conn net.Conn, reader *proto.Reader, cr *ClientRenderer
 
 	remainingOutputs := attachBootstrapPaneCount(layout)
 	for _, msg := range buffered {
-		remainingOutputs -= applyAttachBootstrapMessage(cr, msg)
+		remainingOutputs -= applyAttachBootstrapReplayMessage(cr, msg)
 	}
 
 	remainingOutputs, err := readAttachBootstrapPaneReplays(conn, reader, cr, remainingOutputs, config.BootstrapPaneReplayWait)

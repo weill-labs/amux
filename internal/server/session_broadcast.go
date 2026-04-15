@@ -101,12 +101,7 @@ func (s *Session) broadcastPaneOutputNow(paneID uint32, data []byte, seq uint64)
 
 func (s *Session) broadcastPaneHistoryNow(paneID uint32, history []proto.StyledLine) {
 	clients := s.ensureClientManager().snapshotClients()
-	msg := &Message{
-		Type:          MsgTypePaneHistory,
-		PaneID:        paneID,
-		History:       proto.StyledLineText(history),
-		StyledHistory: proto.CloneStyledLines(history),
-	}
+	msg := newPaneHistoryMessage(paneID, history)
 	for _, c := range clients {
 		c.sendPaneMessage(msg)
 	}
