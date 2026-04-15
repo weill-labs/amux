@@ -20,85 +20,63 @@ import (
 	"github.com/weill-labs/amux/internal/render"
 )
 
-type ptyOutputCollector struct {
-	ptmx    *os.File
+type asyncOutputCollector struct {
 	mu      sync.Mutex
 	buf     strings.Builder
 	updates chan struct{}
 	done    chan struct{}
+}
+
+type ptyOutputCollector struct {
+	*asyncOutputCollector
 }
 
 type streamOutputCollector struct {
-	reader  io.Reader
-	mu      sync.Mutex
-	buf     strings.Builder
-	updates chan struct{}
-	done    chan struct{}
+	*asyncOutputCollector
+}
+
+func newAsyncOutputCollector(reader io.Reader) *asyncOutputCollector {
+	c := &asyncOutputCollector{
+		updates: make(chan struct{}, 1),
+		done:    make(chan struct{}),
+	}
+	go func() {
+		defer close(c.done)
+		buf := make([]byte, 4096)
+		for {
+			n, err := reader.Read(buf)
+			if n > 0 {
+				c.mu.Lock()
+				c.buf.Write(buf[:n])
+				c.mu.Unlock()
+				select {
+				case c.updates <- struct{}{}:
+				default:
+				}
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+	return c
 }
 
 func newPTYOutputCollector(ptmx *os.File) *ptyOutputCollector {
-	c := &ptyOutputCollector{
-		ptmx:    ptmx,
-		updates: make(chan struct{}, 1),
-		done:    make(chan struct{}),
-	}
-	go func() {
-		defer close(c.done)
-		buf := make([]byte, 4096)
-		for {
-			n, err := ptmx.Read(buf)
-			if n > 0 {
-				c.mu.Lock()
-				c.buf.Write(buf[:n])
-				c.mu.Unlock()
-				select {
-				case c.updates <- struct{}{}:
-				default:
-				}
-			}
-			if err != nil {
-				return
-			}
-		}
-	}()
-	return c
+	return &ptyOutputCollector{asyncOutputCollector: newAsyncOutputCollector(ptmx)}
 }
 
 func newStreamOutputCollector(reader io.Reader) *streamOutputCollector {
-	c := &streamOutputCollector{
-		reader:  reader,
-		updates: make(chan struct{}, 1),
-		done:    make(chan struct{}),
-	}
-	go func() {
-		defer close(c.done)
-		buf := make([]byte, 4096)
-		for {
-			n, err := c.reader.Read(buf)
-			if n > 0 {
-				c.mu.Lock()
-				c.buf.Write(buf[:n])
-				c.mu.Unlock()
-				select {
-				case c.updates <- struct{}{}:
-				default:
-				}
-			}
-			if err != nil {
-				return
-			}
-		}
-	}()
-	return c
+	return &streamOutputCollector{asyncOutputCollector: newAsyncOutputCollector(reader)}
 }
 
-func (c *ptyOutputCollector) snapshot() string {
+func (c *asyncOutputCollector) snapshot() string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.buf.String()
 }
 
-func (c *ptyOutputCollector) waitContains(t *testing.T, want string) string {
+func (c *asyncOutputCollector) waitContains(t *testing.T, source, want string) string {
 	t.Helper()
 
 	deadline := time.After(5 * time.Second)
@@ -109,14 +87,18 @@ func (c *ptyOutputCollector) waitContains(t *testing.T, want string) string {
 		select {
 		case <-c.updates:
 		case <-deadline:
-			t.Fatalf("pty output never contained %q; got %q", want, c.snapshot())
+			t.Fatalf("%s never contained %q; got %q", source, want, c.snapshot())
 		case <-c.done:
 			if got := c.snapshot(); strings.Contains(got, want) {
 				return got
 			}
-			t.Fatalf("pty output ended before containing %q; got %q", want, c.snapshot())
+			t.Fatalf("%s ended before containing %q; got %q", source, want, c.snapshot())
 		}
 	}
+}
+
+func (c *ptyOutputCollector) waitContains(t *testing.T, want string) string {
+	return c.asyncOutputCollector.waitContains(t, "pty output", want)
 }
 
 func (c *ptyOutputCollector) waitContainsWithin(want string, timeout time.Duration) bool {
@@ -135,31 +117,8 @@ func (c *ptyOutputCollector) waitContainsWithin(want string, timeout time.Durati
 	}
 }
 
-func (c *streamOutputCollector) snapshot() string {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.buf.String()
-}
-
 func (c *streamOutputCollector) waitContains(t *testing.T, want string) string {
-	t.Helper()
-
-	deadline := time.After(5 * time.Second)
-	for {
-		if got := c.snapshot(); strings.Contains(got, want) {
-			return got
-		}
-		select {
-		case <-c.updates:
-		case <-deadline:
-			t.Fatalf("stream output never contained %q; got %q", want, c.snapshot())
-		case <-c.done:
-			if got := c.snapshot(); strings.Contains(got, want) {
-				return got
-			}
-			t.Fatalf("stream output ended before containing %q; got %q", want, c.snapshot())
-		}
-	}
+	return c.asyncOutputCollector.waitContains(t, "stream output", want)
 }
 
 type runSessionHarness struct {
