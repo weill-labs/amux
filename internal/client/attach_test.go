@@ -2,7 +2,11 @@ package client
 
 import (
 	"errors"
+	"fmt"
+	"io"
 	"net"
+	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -214,13 +218,7 @@ func TestWaitForRunSessionEnd(t *testing.T) {
 		if reloadReady {
 			triggerReload <- struct{}{}
 		}
-		reloaded := false
-
-		waitForRunSessionEnd(done, triggerReload, func() {
-			reloaded = true
-		})
-
-		return reloaded
+		return waitForRunSessionEnd(done, triggerReload)
 	}
 
 	t.Run("done without reload returns", func(t *testing.T) {
@@ -248,6 +246,59 @@ func TestWaitForRunSessionEnd(t *testing.T) {
 			}
 		}
 	})
+}
+
+func TestFormatAttachError(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{name: "protocol error", err: fmt.Errorf("%w: bad bootstrap", errAttachProtocol), want: "attach failed: protocol error"},
+		{name: "socket missing", err: os.ErrNotExist, want: "attach failed: socket not found"},
+		{name: "connection lost", err: io.EOF, want: "attach failed: connection lost"},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := formatAttachError(tt.err)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("formatAttachError(%v) = %v, want substring %q", tt.err, err, tt.want)
+			}
+		})
+	}
+}
+
+func TestHotReloadDetachNotice(t *testing.T) {
+	t.Parallel()
+
+	clientVersion := currentClientVersion()
+
+	tests := []struct {
+		name          string
+		serverVersion string
+		wantContains  string
+	}{
+		{name: "matching version", serverVersion: clientVersion, wantContains: "detached: server requested hot-reload"},
+		{name: "mismatched version", serverVersion: clientVersion + "-other", wantContains: "detached: binary version mismatch"},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := hotReloadDetachNotice(tt.serverVersion)
+			if !strings.Contains(got, tt.wantContains) {
+				t.Fatalf("hotReloadDetachNotice(%q) = %q, want substring %q", tt.serverVersion, got, tt.wantContains)
+			}
+		})
+	}
 }
 
 func TestDispatchQueuedMouseInputChunksCoalescesConsecutiveDragMotions(t *testing.T) {

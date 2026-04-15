@@ -53,7 +53,7 @@ func (ctx *CommandContext) replyCommandMutation(res commandMutationResult) {
 		_ = ctx.CC.Flush()
 	}
 	if res.sendExit {
-		ctx.Sess.broadcast(&Message{Type: MsgTypeExit})
+		ctx.Sess.broadcast(&Message{Type: MsgTypeExit, Text: "session exited"})
 	}
 	if res.shutdownServer {
 		go ctx.Srv.Shutdown()

@@ -133,7 +133,7 @@ func (s *Server) Reload(execPath string) error {
 	// Deliver the reload notice only after checkpointing succeeds so a failed
 	// checkpoint doesn't disrupt attached clients.
 	for _, c := range clients {
-		c.sendBroadcastSync(&Message{Type: MsgTypeServerReload})
+		c.sendBroadcastSync(&Message{Type: MsgTypeServerReload, Text: BuildVersion})
 	}
 	if _, err := enqueueSessionQuery(sess, func(sess *Session) (struct{}, error) {
 		sess.disconnectClientsForReload(clients)

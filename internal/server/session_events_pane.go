@@ -51,7 +51,7 @@ func (s *Session) handleFinalizedPaneRemoval(paneID uint32, closePane bool, reas
 		s.closePaneAsync(removed.pane)
 	}
 	if removed.sendExit {
-		s.broadcastNow(&Message{Type: MsgTypeExit})
+		s.broadcastNow(&Message{Type: MsgTypeExit, Text: "session exited"})
 		s.wantShutdown = true
 		return
 	}
