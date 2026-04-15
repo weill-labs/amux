@@ -87,6 +87,32 @@ func TestBuildSSHConfigUsesDefaultUserAndTOFUCallback(t *testing.T) {
 	}
 }
 
+func TestBuildSSHConfigInsecureEnvVar(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("SSH_AUTH_SOCK", "")
+	t.Setenv("AMUX_SSH_INSECURE", "1")
+
+	sshDir := filepath.Join(tmpDir, ".ssh")
+	if err := os.MkdirAll(sshDir, 0o700); err != nil {
+		t.Fatalf("mkdir .ssh: %v", err)
+	}
+	writeTestKey(t, filepath.Join(sshDir, "id_ed25519"))
+
+	cfg, err := BuildSSHConfig("", "")
+	if err != nil {
+		t.Fatalf("BuildSSHConfig() error = %v", err)
+	}
+
+	key := testHostKey(t)
+	if err := cfg.HostKeyCallback("example.com:22", fakeAddr{"1.2.3.4:22"}, key); err != nil {
+		t.Fatalf("HostKeyCallback() error = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(sshDir, "known_hosts")); err == nil {
+		t.Fatal("known_hosts should not be created in insecure mode")
+	}
+}
+
 func TestSSHOutput(t *testing.T) {
 	t.Parallel()
 
@@ -98,6 +124,45 @@ func TestSSHOutput(t *testing.T) {
 	}
 	if out != "hello" {
 		t.Fatalf("SSHOutput() = %q, want %q", out, "hello")
+	}
+}
+
+func TestHostKeyCallbackRejectsChangedKey(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "known_hosts")
+	keyA := testHostKey(t)
+	keyB := testHostKey(t)
+
+	if err := AppendKnownHost(path, "example.com:22", keyA); err != nil {
+		t.Fatalf("AppendKnownHost() error = %v", err)
+	}
+
+	cb := HostKeyCallback(path)
+	err := cb("example.com:22", fakeAddr{"1.2.3.4:22"}, keyB)
+	if err == nil {
+		t.Fatal("HostKeyCallback() error = nil, want changed-host failure")
+	}
+	if !strings.Contains(err.Error(), "CHANGED") {
+		t.Fatalf("HostKeyCallback() error = %q, want changed-host warning", err)
+	}
+	if !strings.Contains(err.Error(), "ssh-keygen -R") {
+		t.Fatalf("HostKeyCallback() error = %q, want ssh-keygen guidance", err)
+	}
+}
+
+func TestDefaultKnownHostsPath(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+
+	got, err := DefaultKnownHostsPath()
+	if err != nil {
+		t.Fatalf("DefaultKnownHostsPath() error = %v", err)
+	}
+	want := filepath.Join(tmpDir, ".ssh", "known_hosts")
+	if got != want {
+		t.Fatalf("DefaultKnownHostsPath() = %q, want %q", got, want)
 	}
 }
 

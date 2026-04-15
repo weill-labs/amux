@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -11,6 +12,84 @@ import (
 
 	"github.com/weill-labs/amux/internal/sshutil"
 )
+
+func TestDefaultSSHRunSessionOps(t *testing.T) {
+	t.Parallel()
+
+	ops := defaultSSHRunSessionOps()
+	if ops.buildSSHConfig == nil || ops.sshDial == nil || ops.sshOutput == nil || ops.deployBinary == nil || ops.ensureRemoteServer == nil || ops.dialRemoteSocket == nil {
+		t.Fatalf("defaultSSHRunSessionOps() = %#v, want all hooks wired", ops)
+	}
+}
+
+func TestRunSSHSessionReturnsConfigLoadError(t *testing.T) {
+	configPath := t.TempDir() + "/config.toml"
+	if err := os.WriteFile(configPath, []byte("["), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	t.Setenv("AMUX_CONFIG", configPath)
+
+	err := RunSSHSession(sshutil.SSHTarget{
+		User:    "deploy",
+		Host:    "builder",
+		Port:    "22",
+		Session: "work",
+	})
+	if err == nil {
+		t.Fatal("RunSSHSession() error = nil, want config load failure")
+	}
+	if !strings.Contains(err.Error(), "loading config") {
+		t.Fatalf("RunSSHSession() error = %q, want loading config", err.Error())
+	}
+}
+
+func TestRunSSHSessionUsesRunner(t *testing.T) {
+	configPath := t.TempDir() + "/config.toml"
+	if err := os.WriteFile(configPath, []byte(`
+[hosts.builder]
+address = "10.0.0.5:2222"
+identity_file = "/tmp/id_builder"
+`), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	t.Setenv("AMUX_CONFIG", configPath)
+
+	getSize := func(int) (int, int, error) { return 80, 24, nil }
+	ops := sshRunSessionOps{
+		buildSSHConfig:     func(string, string) (*ssh.ClientConfig, error) { return &ssh.ClientConfig{}, nil },
+		sshDial:            func(string, string, *ssh.ClientConfig) (*ssh.Client, error) { return new(ssh.Client), nil },
+		sshOutput:          func(*ssh.Client, string) (string, error) { return "", nil },
+		deployBinary:       func(*ssh.Client, string) error { return nil },
+		ensureRemoteServer: func(*ssh.Client, string, string) error { return nil },
+		dialRemoteSocket:   func(*ssh.Client, string) (net.Conn, error) { return nil, nil },
+	}
+
+	called := false
+	err := runSSHSession(sshutil.SSHTarget{
+		User:    "deploy",
+		Host:    "builder",
+		Port:    "22",
+		Session: "work",
+	}, getSize, ops, func(sessionName string, gotGetSize func(int) (int, int, error), deps runSessionDeps) error {
+		called = true
+		if sessionName != "work" {
+			t.Fatalf("runner sessionName = %q, want work", sessionName)
+		}
+		if gotGetSize == nil {
+			t.Fatal("runner getTermSize should be wired")
+		}
+		if deps.ensureDaemon == nil || deps.dial == nil {
+			t.Fatal("runner deps should include SSH ensureDaemon and dial hooks")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("runSSHSession() error = %v", err)
+	}
+	if !called {
+		t.Fatal("runner was not called")
+	}
+}
 
 func TestResolveSSHSessionTargetUsesConfiguredAddressAndIdentity(t *testing.T) {
 	configPath := t.TempDir() + "/config.toml"
@@ -37,6 +116,32 @@ identity_file = "/tmp/id_builder"
 	}
 	if target.IdentityFile != "/tmp/id_builder" {
 		t.Fatalf("resolveSSHSessionTarget() identity file = %q, want %q", target.IdentityFile, "/tmp/id_builder")
+	}
+}
+
+func TestResolveSSHAddress(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		addr string
+		port string
+		want string
+	}{
+		{name: "preserve explicit port", addr: "builder:2222", port: "22", want: "builder:2222"},
+		{name: "apply custom target port", addr: "builder", port: "2200", want: "builder:2200"},
+		{name: "default to port 22", addr: "builder", port: "22", want: "builder:22"},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := resolveSSHAddress(tt.addr, tt.port); got != tt.want {
+				t.Fatalf("resolveSSHAddress(%q, %q) = %q, want %q", tt.addr, tt.port, got, tt.want)
+			}
+		})
 	}
 }
 

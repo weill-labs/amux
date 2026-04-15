@@ -33,6 +33,15 @@ type sshRunSessionOps struct {
 }
 
 func RunSSHSession(target sshutil.SSHTarget) error {
+	return runSSHSession(target, term.GetSize, defaultSSHRunSessionOps(), runSessionWithDeps)
+}
+
+func runSSHSession(
+	target sshutil.SSHTarget,
+	getTermSize func(int) (int, int, error),
+	ops sshRunSessionOps,
+	runner func(string, func(int) (int, int, error), runSessionDeps) error,
+) error {
 	resolved, err := resolveSSHSessionTarget(target)
 	if err != nil {
 		return err
@@ -41,7 +50,7 @@ func RunSSHSession(target sshutil.SSHTarget) error {
 	state := &sshSessionState{}
 	defer state.close()
 
-	return runSessionWithDeps(resolved.Session, term.GetSize, sshRunSessionDeps(resolved, state, defaultSSHRunSessionOps()))
+	return runner(resolved.Session, getTermSize, sshRunSessionDeps(resolved, state, ops))
 }
 
 func resolveSSHSessionTarget(target sshutil.SSHTarget) (sshSessionTarget, error) {

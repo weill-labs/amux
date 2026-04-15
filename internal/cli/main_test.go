@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"reflect"
@@ -816,6 +817,12 @@ func TestRunMainHelpAndUsageErrors(t *testing.T) {
 			wantExit:   1,
 			wantStderr: sendKeysUsage + "\n",
 		},
+		{
+			name:       "ssh usage error stays in dispatch layer",
+			args:       []string{"ssh"},
+			wantExit:   1,
+			wantStderr: sshUsage + "\n",
+		},
 	}
 
 	for _, tt := range tests {
@@ -837,6 +844,24 @@ func TestRunMainHelpAndUsageErrors(t *testing.T) {
 	}
 }
 
+func TestRunMainSSHRuntimeError(t *testing.T) {
+	configPath := writeRuntimeConfig(t, `
+[hosts.builder]
+user = "deploy"
+`)
+	t.Setenv("AMUX_CONFIG", configPath)
+
+	h := newCLIRuntimeHarness()
+	h.runSSHSessionErr = errors.New("boom")
+
+	if exitCode := RunWithRuntime([]string{"ssh", "builder"}, h.runtime()); exitCode != 1 {
+		t.Fatalf("RunWithRuntime() exit = %d, want 1", exitCode)
+	}
+	if got := h.stderr.String(); got != "amux: boom\n" {
+		t.Fatalf("stderr = %q, want %q", got, "amux: boom\n")
+	}
+}
+
 type cliCall struct {
 	kind    string
 	session string
@@ -854,6 +879,7 @@ type cliRuntimeHarness struct {
 	usageCalls        int
 	shouldTakeover    bool
 	tryTakeoverResult bool
+	runSSHSessionErr  error
 	calls             []cliCall
 }
 
@@ -918,7 +944,7 @@ func (h *cliRuntimeHarness) runtime() Runtime {
 		RunSSHSession: func(target sshutil.SSHTarget) error {
 			targetCopy := target
 			h.calls = append(h.calls, cliCall{kind: "ssh", target: &targetCopy})
-			return nil
+			return h.runSSHSessionErr
 		},
 		CheckNesting: func(sessionName string) {
 			h.calls = append(h.calls, cliCall{kind: "check-nesting", session: sessionName})
