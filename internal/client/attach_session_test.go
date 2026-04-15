@@ -20,17 +20,23 @@ import (
 	"github.com/weill-labs/amux/internal/render"
 )
 
-type ptyOutputCollector struct {
-	ptmx    *os.File
+type asyncOutputCollector struct {
 	mu      sync.Mutex
 	buf     strings.Builder
 	updates chan struct{}
 	done    chan struct{}
 }
 
-func newPTYOutputCollector(ptmx *os.File) *ptyOutputCollector {
-	c := &ptyOutputCollector{
-		ptmx:    ptmx,
+type ptyOutputCollector struct {
+	*asyncOutputCollector
+}
+
+type streamOutputCollector struct {
+	*asyncOutputCollector
+}
+
+func newAsyncOutputCollector(reader io.Reader) *asyncOutputCollector {
+	c := &asyncOutputCollector{
 		updates: make(chan struct{}, 1),
 		done:    make(chan struct{}),
 	}
@@ -38,7 +44,7 @@ func newPTYOutputCollector(ptmx *os.File) *ptyOutputCollector {
 		defer close(c.done)
 		buf := make([]byte, 4096)
 		for {
-			n, err := ptmx.Read(buf)
+			n, err := reader.Read(buf)
 			if n > 0 {
 				c.mu.Lock()
 				c.buf.Write(buf[:n])
@@ -56,13 +62,21 @@ func newPTYOutputCollector(ptmx *os.File) *ptyOutputCollector {
 	return c
 }
 
-func (c *ptyOutputCollector) snapshot() string {
+func newPTYOutputCollector(ptmx *os.File) *ptyOutputCollector {
+	return &ptyOutputCollector{asyncOutputCollector: newAsyncOutputCollector(ptmx)}
+}
+
+func newStreamOutputCollector(reader io.Reader) *streamOutputCollector {
+	return &streamOutputCollector{asyncOutputCollector: newAsyncOutputCollector(reader)}
+}
+
+func (c *asyncOutputCollector) snapshot() string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.buf.String()
 }
 
-func (c *ptyOutputCollector) waitContains(t *testing.T, want string) string {
+func (c *asyncOutputCollector) waitContains(t *testing.T, source, want string) string {
 	t.Helper()
 
 	deadline := time.After(5 * time.Second)
@@ -73,14 +87,18 @@ func (c *ptyOutputCollector) waitContains(t *testing.T, want string) string {
 		select {
 		case <-c.updates:
 		case <-deadline:
-			t.Fatalf("pty output never contained %q; got %q", want, c.snapshot())
+			t.Fatalf("%s never contained %q; got %q", source, want, c.snapshot())
 		case <-c.done:
 			if got := c.snapshot(); strings.Contains(got, want) {
 				return got
 			}
-			t.Fatalf("pty output ended before containing %q; got %q", want, c.snapshot())
+			t.Fatalf("%s ended before containing %q; got %q", source, want, c.snapshot())
 		}
 	}
+}
+
+func (c *ptyOutputCollector) waitContains(t *testing.T, want string) string {
+	return c.asyncOutputCollector.waitContains(t, "pty output", want)
 }
 
 func (c *ptyOutputCollector) waitContainsWithin(want string, timeout time.Duration) bool {
@@ -99,6 +117,10 @@ func (c *ptyOutputCollector) waitContainsWithin(want string, timeout time.Durati
 	}
 }
 
+func (c *streamOutputCollector) waitContains(t *testing.T, want string) string {
+	return c.asyncOutputCollector.waitContains(t, "stream output", want)
+}
+
 type runSessionHarness struct {
 	t        *testing.T
 	session  string
@@ -108,6 +130,7 @@ type runSessionHarness struct {
 	ptmx   *os.File
 	tty    *os.File
 	output *ptyOutputCollector
+	stderr *streamOutputCollector
 
 	attachCh chan *proto.Message
 	msgCh    chan *proto.Message
@@ -149,10 +172,20 @@ func newRunSessionHarness(t *testing.T, sizeFn func(int) (int, int, error)) *run
 
 	prevStdin := os.Stdin
 	prevStdout := os.Stdout
+	prevStderr := os.Stderr
 	os.Stdin = tty
 	os.Stdout = tty
+	stderrR, stderrW, err := os.Pipe()
+	if err != nil {
+		listener.Close()
+		_ = ptmx.Close()
+		_ = tty.Close()
+		t.Fatalf("os.Pipe(stderr): %v", err)
+	}
+	os.Stderr = stderrW
 
 	output := newPTYOutputCollector(ptmx)
+	stderr := newStreamOutputCollector(stderrR)
 	h := &runSessionHarness{
 		t:        t,
 		session:  session,
@@ -161,6 +194,7 @@ func newRunSessionHarness(t *testing.T, sizeFn func(int) (int, int, error)) *run
 		ptmx:     ptmx,
 		tty:      tty,
 		output:   output,
+		stderr:   stderr,
 		attachCh: make(chan *proto.Message, 1),
 		msgCh:    make(chan *proto.Message, 64),
 		runErr:   make(chan error, 1),
@@ -174,6 +208,9 @@ func newRunSessionHarness(t *testing.T, sizeFn func(int) (int, int, error)) *run
 	t.Cleanup(func() {
 		os.Stdin = prevStdin
 		os.Stdout = prevStdout
+		os.Stderr = prevStderr
+		_ = stderrW.Close()
+		_ = stderrR.Close()
 		_ = listener.Close()
 		h.closeConn()
 		_ = ptmx.Close()
@@ -999,6 +1036,7 @@ func TestRunSessionHandlesServerMessagesAndInteractiveInput(t *testing.T) {
 	if err := h.waitRunResult(t); err != nil {
 		t.Fatalf("RunSession() = %v, want nil", err)
 	}
+	h.stderr.waitContains(t, "detached: session exited")
 	h.output.waitContains(t, render.AltScreenExit)
 }
 
@@ -1226,10 +1264,35 @@ func TestRunSessionDetachFlushesPendingInput(t *testing.T) {
 	if err := h.waitRunResult(t); err != nil {
 		t.Fatalf("RunSession() = %v, want nil", err)
 	}
+	h.stderr.waitContains(t, "detached: client requested detach")
 
 	t.Run("rejects legacy keys config", func(t *testing.T) {
 		assertRunSessionRejectsLegacyKeysConfig(t)
 	})
+}
+
+func TestRunSessionPrintsDetachReasonWhenConnectionLost(t *testing.T) {
+	// Not parallel: newRunSessionHarness uses t.Setenv and swaps os.Stdin/os.Stdout/os.Stderr.
+	h := newRunSessionHarness(t, func(int) (int, int, error) {
+		return 80, 24, nil
+	})
+
+	attach := h.waitAttach(t)
+	if attach.Type != proto.MsgTypeAttach {
+		t.Fatalf("attach type = %d, want %d", attach.Type, proto.MsgTypeAttach)
+	}
+
+	h.send(t, &proto.Message{Type: proto.MsgTypeLayout, Layout: sessionLayoutSnapshot(h.session)})
+	h.send(t, &proto.Message{Type: proto.MsgTypePaneOutput, PaneID: 1, PaneData: []byte("left")})
+	h.send(t, &proto.Message{Type: proto.MsgTypePaneOutput, PaneID: 2, PaneData: []byte("right")})
+	h.output.waitContains(t, render.AltScreenEnter)
+
+	h.closeConn()
+
+	if err := h.waitRunResult(t); err != nil {
+		t.Fatalf("RunSession() = %v, want nil", err)
+	}
+	h.stderr.waitContains(t, "detached: connection lost")
 }
 
 func TestRunSessionEnablesPprofEndpointWhenConfigured(t *testing.T) {
@@ -1295,6 +1358,28 @@ func TestRunSessionReturnsClientPprofSetupError(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "enabling client pprof debug endpoint failed") {
 		t.Fatalf("RunSession() error = %v, want client pprof setup failure", err)
+	}
+}
+
+func TestRunSessionWrapsAttachBootstrapProtocolError(t *testing.T) {
+	// Not parallel: newRunSessionHarness uses t.Setenv and swaps os.Stdin/os.Stdout/os.Stderr.
+	h := newRunSessionHarness(t, func(int) (int, int, error) {
+		return 80, 24, nil
+	})
+
+	attach := h.waitAttach(t)
+	if attach.Type != proto.MsgTypeAttach {
+		t.Fatalf("attach type = %d, want %d", attach.Type, proto.MsgTypeAttach)
+	}
+
+	h.send(t, &proto.Message{Type: proto.MsgTypeExit})
+
+	err := h.waitRunResult(t)
+	if err == nil {
+		t.Fatal("RunSession() error = nil, want attach bootstrap protocol error")
+	}
+	if !strings.Contains(err.Error(), "attach failed: protocol error") {
+		t.Fatalf("RunSession() error = %v, want attach failed protocol error", err)
 	}
 }
 

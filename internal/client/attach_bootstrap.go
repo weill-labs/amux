@@ -1,6 +1,7 @@
 package client
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"time"
@@ -8,6 +9,8 @@ import (
 	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/proto"
 )
+
+var errAttachProtocol = errors.New("attach protocol error")
 
 type attachBootstrapMessage struct {
 	msg *proto.Message
@@ -125,7 +128,7 @@ func readAttachBootstrap(conn net.Conn, reader *proto.Reader, cr *ClientRenderer
 		default:
 			bufferedMsg, ok := newAttachBootstrapMessage(msg)
 			if !ok {
-				return fmt.Errorf("unexpected attach bootstrap message type %d before layout", msg.Type)
+				return fmt.Errorf("%w: unexpected attach bootstrap message type %d before layout", errAttachProtocol, msg.Type)
 			}
 			buffered = append(buffered, bufferedMsg)
 		}

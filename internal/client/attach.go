@@ -1,18 +1,22 @@
 package client
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"os"
 	"os/signal"
 	"runtime/coverage"
+	"runtime/debug"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/muesli/termenv"
+	"github.com/weill-labs/amux/internal/checkpoint"
 	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/copymode"
 	"github.com/weill-labs/amux/internal/mouse"
@@ -23,17 +27,141 @@ import (
 	"golang.org/x/term"
 )
 
-func waitForRunSessionEnd(done <-chan struct{}, triggerReload <-chan struct{}, reload func()) {
+type runSessionDeps struct {
+	stdin             *os.File
+	stdout            *os.File
+	stderr            io.Writer
+	ensureDaemon      func(string, time.Duration) error
+	dial              func(network, address string) (net.Conn, error)
+	resolveExecutable func() (string, error)
+	execSelf          func(execPath string, sender *messageSender, restoreTerminal func()) error
+}
+
+type sessionExitState struct {
+	mu     sync.Mutex
+	notice string
+}
+
+func (s *sessionExitState) set(notice string) {
+	if notice == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.notice == "" {
+		s.notice = notice
+	}
+}
+
+func (s *sessionExitState) get() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.notice
+}
+
+func defaultRunSessionDeps() runSessionDeps {
+	return runSessionDeps{
+		stdin:             os.Stdin,
+		stdout:            os.Stdout,
+		stderr:            os.Stderr,
+		ensureDaemon:      proto.EnsureDaemon,
+		dial:              net.Dial,
+		resolveExecutable: reload.ResolveExecutable,
+		execSelf:          execSelf,
+	}
+}
+
+func waitForRunSessionEnd(done <-chan struct{}, triggerReload <-chan struct{}) bool {
 	select {
 	case <-done:
 		select {
 		case <-triggerReload:
-			reload()
+			return true
 		default:
+			return false
 		}
 	case <-triggerReload:
-		reload()
+		return true
 	}
+}
+
+func isConnectionLostError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return errors.Is(err, io.EOF) ||
+		errors.Is(err, net.ErrClosed) ||
+		strings.Contains(err.Error(), "use of closed network connection") ||
+		strings.Contains(err.Error(), "broken pipe") ||
+		strings.Contains(err.Error(), "connection reset by peer")
+}
+
+func isSocketNotFoundError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return errors.Is(err, os.ErrNotExist) || strings.Contains(err.Error(), "no such file or directory")
+}
+
+func formatAttachError(err error) error {
+	if err == nil {
+		return nil
+	}
+	switch {
+	case errors.Is(err, errAttachProtocol):
+		return fmt.Errorf("attach failed: protocol error: %v", err)
+	case isSocketNotFoundError(err):
+		return fmt.Errorf("attach failed: socket not found")
+	case isConnectionLostError(err):
+		return fmt.Errorf("attach failed: connection lost")
+	default:
+		return fmt.Errorf("attach failed: %w", err)
+	}
+}
+
+func disconnectNoticeForReadError(err error) string {
+	if err == nil {
+		return ""
+	}
+	if isConnectionLostError(err) {
+		return "detached: connection lost"
+	}
+	return "detached: protocol error"
+}
+
+func formatDetachNotice(text, fallback string) string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return fallback
+	}
+	if strings.HasPrefix(text, "detached:") {
+		return text
+	}
+	return "detached: " + text
+}
+
+func clientBuildHash() string {
+	if info, ok := debug.ReadBuildInfo(); ok {
+		for _, setting := range info.Settings {
+			if setting.Key == "vcs.revision" && len(setting.Value) >= 7 {
+				return setting.Value[:7]
+			}
+		}
+	}
+	return "dev"
+}
+
+func currentClientVersion() string {
+	return fmt.Sprintf("%s (checkpoint v%d)", clientBuildHash(), checkpoint.ServerCheckpointVersion)
+}
+
+func hotReloadDetachNotice(serverVersion string) string {
+	serverVersion = strings.TrimSpace(serverVersion)
+	clientVersion := currentClientVersion()
+	if serverVersion != "" && serverVersion != clientVersion {
+		return fmt.Sprintf("detached: binary version mismatch (client %s, server %s) — run make install", clientVersion, serverVersion)
+	}
+	return "detached: server requested hot-reload"
 }
 
 func dragMotionCoalescingActive(drag *dragState) bool {
@@ -280,6 +408,10 @@ func terminalExitSequence(caps proto.ClientCapabilities) string {
 // RunSession connects to an existing server or starts one, then enters raw
 // terminal mode for interactive use.
 func RunSession(sessionName string, getTermSize func(int) (int, int, error)) error {
+	return runSessionWithDeps(sessionName, getTermSize, defaultRunSessionDeps())
+}
+
+func runSessionWithDeps(sessionName string, getTermSize func(int) (int, int, error), deps runSessionDeps) error {
 	cfg, err := config.Load(config.DefaultPath())
 	if err != nil {
 		return fmt.Errorf("loading config: %w", err)
@@ -298,18 +430,22 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 	}()
 	kb := config.DefaultKeybindings()
 	scrollbackLines := cfg.EffectiveScrollbackLines()
-	stdin := os.Stdin
-	stdout := os.Stdout
+	stdin := deps.stdin
+	stdout := deps.stdout
+	stderr := deps.stderr
+	if stderr == nil {
+		stderr = io.Discard
+	}
 
 	sockPath := proto.SocketPath(sessionName)
 
-	if err := proto.EnsureDaemon(sessionName, 5*time.Second); err != nil {
-		return err
+	if err := deps.ensureDaemon(sessionName, 5*time.Second); err != nil {
+		return formatAttachError(err)
 	}
 
-	conn, err := net.Dial("unix", sockPath)
+	conn, err := deps.dial("unix", sockPath)
 	if err != nil {
-		return fmt.Errorf("connecting to server: %w", err)
+		return formatAttachError(err)
 	}
 	defer conn.Close()
 	sender := newMessageSender(conn)
@@ -338,7 +474,7 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 		AttachColorProfile: attachProfile,
 		AttachCapabilities: attachCaps,
 	}); err != nil {
-		return fmt.Errorf("sending attach: %w", err)
+		return formatAttachError(err)
 	}
 
 	// Client-side renderer with per-pane emulators
@@ -351,7 +487,7 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 		})
 	}
 	if err := readAttachBootstrap(conn, reader, cr); err != nil {
-		return fmt.Errorf("reading attach bootstrap: %w", err)
+		return formatAttachError(err)
 	}
 
 	// Enter raw mode + alternate screen only once there is enough bootstrap
@@ -362,10 +498,16 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 		return fmt.Errorf("raw mode: %w", err)
 	}
 	stdout.Write([]byte(terminalEnterSequence(negotiatedAttachCaps)))
-	defer func() {
+	terminalRestored := false
+	restoreTerminal := func() {
+		if terminalRestored {
+			return
+		}
+		terminalRestored = true
 		stdout.Write([]byte(terminalExitSequence(negotiatedAttachCaps)))
-		term.Restore(fd, oldState)
-	}()
+		_ = term.Restore(fd, oldState)
+	}
+	defer restoreTerminal()
 
 	if initial := cr.Render(true); initial != "" {
 		io.WriteString(stdout, wrapSynchronizedFrame(initial))
@@ -374,7 +516,8 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 	// Resolve the current binary once so explicit reloads and server reload
 	// notices can re-exec the client into the replacement binary.
 	triggerReload := make(chan struct{}, 1)
-	execPath, _ := reload.ResolveExecutable()
+	execPath, _ := deps.resolveExecutable()
+	exitState := &sessionExitState{}
 
 	// Channel for injecting keystrokes from type-keys (server → client).
 	type injectedInput struct {
@@ -395,6 +538,7 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 		for {
 			msg, err := reader.ReadMsg()
 			if err != nil {
+				exitState.set(disconnectNoticeForReadError(err))
 				return
 			}
 			switch msg.Type {
@@ -411,6 +555,7 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 			case proto.MsgTypeCopyMode:
 				msgCh <- &RenderMsg{Typ: RenderMsgCopyMode, PaneID: msg.PaneID}
 			case proto.MsgTypeExit:
+				exitState.set(formatDetachNotice(msg.Text, "detached: session exited"))
 				msgCh <- &RenderMsg{Typ: RenderMsgExit}
 				return
 			case proto.MsgTypeBell:
@@ -430,7 +575,8 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 				default:
 				}
 			case proto.MsgTypeServerReload:
-				// Server is reloading — re-exec ourselves to reconnect
+				// Server is reloading — re-exec ourselves to reconnect.
+				exitState.set(hotReloadDetachNotice(msg.Text))
 				select {
 				case triggerReload <- struct{}{}:
 				default:
@@ -559,6 +705,7 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 					}
 					_ = sender.Send(&proto.Message{Type: proto.MsgTypeDetach})
 					_ = sender.Flush()
+					exitState.set("detached: client requested detach")
 					disconnectRequested = true
 					return true
 				case "reload":
@@ -568,6 +715,7 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 						})
 						*forward = nil
 					}
+					exitState.set("detached: client requested hot-reload")
 					select {
 					case triggerReload <- struct{}{}:
 					default:
@@ -1048,16 +1196,26 @@ func RunSession(sessionName string, getTermSize func(int) (int, int, error)) err
 		}
 	}()
 
-	waitForRunSessionEnd(done, triggerReload, func() {
+	if waitForRunSessionEnd(done, triggerReload) {
+		if exitState.get() == "" {
+			exitState.set("detached: server requested hot-reload")
+		}
 		if clientPprof != nil {
 			clientPprof.close()
 			clientPprof = nil
 		}
 		if execPath != "" {
-			ExecSelf(execPath, sender, fd, oldState, negotiatedAttachCaps)
+			if err := deps.execSelf(execPath, sender, restoreTerminal); err != nil {
+				restoreTerminal()
+				return fmt.Errorf("%s: %w", exitState.get(), err)
+			}
+			return nil
 		}
-		// ExecSelf replaces the process; if we get here, exec failed fatally
-	})
+	}
+	if notice := exitState.get(); notice != "" {
+		restoreTerminal()
+		_, _ = fmt.Fprintln(stderr, notice)
+	}
 	return nil
 }
 
@@ -1101,22 +1259,19 @@ func formatKeyName(b byte) string {
 	}
 }
 
-// ExecSelf replaces the current process with the binary at execPath.
-// Pre-validates the binary before tearing down the connection.
-func ExecSelf(execPath string, sender *messageSender, fd int, oldState *term.State, caps proto.ClientCapabilities) {
+func execSelf(execPath string, sender *messageSender, restoreTerminal func()) error {
 	// Pre-validate: binary must exist and be accessible
 	if _, err := os.Stat(execPath); err != nil {
-		return
+		return err
 	}
 
 	// Clean disconnect from server
 	_ = sender.Send(&proto.Message{Type: proto.MsgTypeDetach})
 	_ = sender.Flush()
-	sender.conn.Close()
+	_ = sender.conn.Close()
 
 	// Restore terminal state
-	term.Restore(fd, oldState)
-	os.Stdout.Write([]byte(terminalExitSequence(caps)))
+	restoreTerminal()
 
 	// Flush coverage data before exec (which replaces the process image
 	// without running atexit handlers). No-op if not built with -cover.
@@ -1125,10 +1280,16 @@ func ExecSelf(execPath string, sender *messageSender, fd int, oldState *term.Sta
 	}
 
 	// Replace process
-	err := syscall.Exec(execPath, os.Args, os.Environ())
-	if err != nil {
-		// Unrecoverable — connection is closed
-		os.Stderr.WriteString("amux: reload failed: " + err.Error() + "\n")
-		os.Exit(1)
-	}
+	return syscall.Exec(execPath, os.Args, os.Environ())
+}
+
+// ExecSelf replaces the current process with the binary at execPath.
+// Pre-validates the binary before tearing down the connection.
+func ExecSelf(execPath string, sender *messageSender, fd int, oldState *term.State, caps proto.ClientCapabilities) {
+	_ = execSelf(execPath, sender, func() {
+		if oldState != nil {
+			_ = term.Restore(fd, oldState)
+		}
+		os.Stdout.Write([]byte(terminalExitSequence(caps)))
+	})
 }
