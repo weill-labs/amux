@@ -3,13 +3,16 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
+	"os"
 	"reflect"
 	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/weill-labs/amux/internal/checkpoint"
+	"github.com/weill-labs/amux/internal/sshutil"
 )
 
 func TestParseSpawnCommandArgs(t *testing.T) {
@@ -728,6 +731,28 @@ func TestRunMainDispatchesCommands(t *testing.T) {
 				{kind: "server-command", session: resolvedSessionMarker, cmd: "disconnect", args: []string{"host-a"}},
 			},
 		},
+		{
+			name: "ssh command dispatches through runtime",
+			args: []string{"ssh", "builder:work"},
+			env: map[string]string{
+				"AMUX_CONFIG": writeRuntimeConfig(t, `
+[hosts.builder]
+user = "deploy"
+`),
+			},
+			wantExit: 0,
+			wantCalls: []cliCall{
+				{
+					kind: "ssh",
+					target: &sshutil.SSHTarget{
+						User:    "deploy",
+						Host:    "builder",
+						Port:    "22",
+						Session: "work",
+					},
+				},
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -792,6 +817,12 @@ func TestRunMainHelpAndUsageErrors(t *testing.T) {
 			wantExit:   1,
 			wantStderr: sendKeysUsage + "\n",
 		},
+		{
+			name:       "ssh usage error stays in dispatch layer",
+			args:       []string{"ssh"},
+			wantExit:   1,
+			wantStderr: sshUsage + "\n",
+		},
 	}
 
 	for _, tt := range tests {
@@ -813,12 +844,31 @@ func TestRunMainHelpAndUsageErrors(t *testing.T) {
 	}
 }
 
+func TestRunMainSSHRuntimeError(t *testing.T) {
+	configPath := writeRuntimeConfig(t, `
+[hosts.builder]
+user = "deploy"
+`)
+	t.Setenv("AMUX_CONFIG", configPath)
+
+	h := newCLIRuntimeHarness()
+	h.runSSHSessionErr = errors.New("boom")
+
+	if exitCode := RunWithRuntime([]string{"ssh", "builder"}, h.runtime()); exitCode != 1 {
+		t.Fatalf("RunWithRuntime() exit = %d, want 1", exitCode)
+	}
+	if got := h.stderr.String(); got != "amux: boom\n" {
+		t.Fatalf("stderr = %q, want %q", got, "amux: boom\n")
+	}
+}
+
 type cliCall struct {
 	kind    string
 	session string
 	cmd     string
 	args    []string
 	managed bool
+	target  *sshutil.SSHTarget
 }
 
 const resolvedSessionMarker = "__resolved_session__"
@@ -829,6 +879,7 @@ type cliRuntimeHarness struct {
 	usageCalls        int
 	shouldTakeover    bool
 	tryTakeoverResult bool
+	runSSHSessionErr  error
 	calls             []cliCall
 }
 
@@ -890,6 +941,11 @@ func (h *cliRuntimeHarness) runtime() Runtime {
 				args:    append([]string(nil), args...),
 			})
 		},
+		RunSSHSession: func(target sshutil.SSHTarget) error {
+			targetCopy := target
+			h.calls = append(h.calls, cliCall{kind: "ssh", target: &targetCopy})
+			return h.runSSHSessionErr
+		},
 		CheckNesting: func(sessionName string) {
 			h.calls = append(h.calls, cliCall{kind: "check-nesting", session: sessionName})
 		},
@@ -904,4 +960,14 @@ func (h *cliRuntimeHarness) runtime() Runtime {
 			h.usageCalls++
 		},
 	}
+}
+
+func writeRuntimeConfig(t *testing.T, content string) string {
+	t.Helper()
+
+	path := t.TempDir() + "/config.toml"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	return path
 }

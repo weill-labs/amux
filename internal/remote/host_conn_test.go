@@ -15,6 +15,7 @@ import (
 
 	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/proto"
+	"github.com/weill-labs/amux/internal/sshutil"
 )
 
 // testInActor runs fn inside the HostConn actor goroutine and waits for it
@@ -39,7 +40,7 @@ func testInActor(hc *HostConn, fn func(*HostConn)) {
 func TestBuildEnsureServerCmd(t *testing.T) {
 	t.Parallel()
 
-	cmd := buildEnsureServerCmd("/tmp/amux-1000/main", "main@myhost")
+	cmd := sshutil.BuildEnsureServerCmd("/tmp/amux-1000/main", "main@myhost")
 
 	if !strings.Contains(cmd, `[ ! -S /tmp/amux-1000/main ]`) {
 		t.Error("command should check socket existence")

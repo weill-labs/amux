@@ -262,6 +262,20 @@ func TestDefaultKnownHostsPathEmptyHome(t *testing.T) {
 	}
 }
 
+func TestDefaultKnownHostsPath(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+
+	got, err := defaultKnownHostsPath()
+	if err != nil {
+		t.Fatalf("defaultKnownHostsPath() error = %v", err)
+	}
+	want := filepath.Join(tmpDir, ".ssh", "known_hosts")
+	if got != want {
+		t.Fatalf("defaultKnownHostsPath() = %q, want %q", got, want)
+	}
+}
+
 func TestBuildSSHConfigWiresHostKeyCallback(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)

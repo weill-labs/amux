@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	"golang.org/x/crypto/ssh"
+
+	"github.com/weill-labs/amux/internal/sshutil"
 )
 
 const remoteInstallPath = "$HOME/.local/bin/amux"
@@ -241,17 +243,7 @@ func remoteReleaseInstallCmd(url, archiveName string) string {
 
 // sshOutput runs a command on the remote and returns trimmed stdout.
 func sshOutput(client *ssh.Client, cmd string) (string, error) {
-	sess, err := client.NewSession()
-	if err != nil {
-		return "", err
-	}
-	defer sess.Close()
-
-	out, err := sess.Output(cmd)
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(string(out)), nil
+	return sshutil.SSHOutput(client, cmd)
 }
 
 // sshRunErr runs a command on the remote and returns the error.
