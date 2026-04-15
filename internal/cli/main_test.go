@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"os"
 	"reflect"
 	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/weill-labs/amux/internal/checkpoint"
+	"github.com/weill-labs/amux/internal/sshutil"
 )
 
 func TestParseSpawnCommandArgs(t *testing.T) {
@@ -251,6 +253,12 @@ func TestResolveCanonicalSessionCommand(t *testing.T) {
 			args:        []string{"unsplice"},
 			wantHandled: true,
 			wantErrText: "usage: amux unsplice <host>",
+		},
+		{
+			name:        "ssh needs a target",
+			args:        []string{"ssh"},
+			wantHandled: true,
+			wantErrText: "usage: amux ssh <user@host[:session] | host[:session]>",
 		},
 		{
 			name:        "rename needs pane and new name",
@@ -728,6 +736,28 @@ func TestRunMainDispatchesCommands(t *testing.T) {
 				{kind: "server-command", session: resolvedSessionMarker, cmd: "disconnect", args: []string{"host-a"}},
 			},
 		},
+		{
+			name: "ssh command dispatches through runtime",
+			args: []string{"ssh", "builder:work"},
+			env: map[string]string{
+				"AMUX_CONFIG": writeRuntimeConfig(t, `
+[hosts.builder]
+user = "deploy"
+`),
+			},
+			wantExit: 0,
+			wantCalls: []cliCall{
+				{
+					kind: "ssh",
+					target: &sshutil.SSHTarget{
+						User:    "deploy",
+						Host:    "builder",
+						Port:    "22",
+						Session: "work",
+					},
+				},
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -819,6 +849,7 @@ type cliCall struct {
 	cmd     string
 	args    []string
 	managed bool
+	target  *sshutil.SSHTarget
 }
 
 const resolvedSessionMarker = "__resolved_session__"
@@ -890,6 +921,11 @@ func (h *cliRuntimeHarness) runtime() Runtime {
 				args:    append([]string(nil), args...),
 			})
 		},
+		RunSSHSession: func(target sshutil.SSHTarget) error {
+			targetCopy := target
+			h.calls = append(h.calls, cliCall{kind: "ssh", target: &targetCopy})
+			return nil
+		},
 		CheckNesting: func(sessionName string) {
 			h.calls = append(h.calls, cliCall{kind: "check-nesting", session: sessionName})
 		},
@@ -904,4 +940,14 @@ func (h *cliRuntimeHarness) runtime() Runtime {
 			h.usageCalls++
 		},
 	}
+}
+
+func writeRuntimeConfig(t *testing.T, content string) string {
+	t.Helper()
+
+	path := t.TempDir() + "/config.toml"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	return path
 }
