@@ -98,6 +98,8 @@ func sshRunSessionDeps(target sshSessionTarget, state *sshSessionState, ops sshR
 		if state.client == nil || state.sockPath == "" {
 			return nil, fmt.Errorf("ssh client not initialized")
 		}
+		// Ignore the local dial arguments: the remote socket path is established
+		// during ensureDaemon after we know the remote UID.
 		return ops.dialRemoteSocket(state.client, state.sockPath)
 	}
 	return deps
