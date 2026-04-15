@@ -4,18 +4,12 @@ package reload
 
 import (
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"sync"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
-)
-
-const (
-	reloadDebounceDelay   = 200 * time.Millisecond
-	reloadReadyRetryDelay = 50 * time.Millisecond
 )
 
 // ResolveExecutable returns the absolute invocation path of the running binary.
@@ -143,15 +137,12 @@ func executablePathReady(execPath string) bool {
 	defer f.Close()
 
 	var prefix [4]byte
-	n, err := io.ReadFull(f, prefix[:])
-	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
-		return false
-	}
+	n, _ := f.Read(prefix[:])
 	return executablePrefixLooksValid(prefix[:n])
 }
 
 // WatchBinary watches for changes to the binary at execPath and sends on
-// triggerReload when a change is detected.
+// triggerReload when a change is detected (with 200ms debounce).
 // If ready is non-nil, it is closed after the file watcher is registered.
 func WatchBinary(execPath string, triggerReload chan<- struct{}, ready chan<- struct{}) {
 	watchBinary(execPath, triggerReload, ready, nil)
@@ -201,18 +192,18 @@ func watchBinary(execPath string, triggerReload chan<- struct{}, ready chan<- st
 			if !watchEventMatchesTarget(event, base, matchChmod) {
 				continue
 			}
-			debounce = resetDebounceTimer(debounce, reloadDebounceDelay)
+			debounce = resetDebounceTimer(debounce, 200*time.Millisecond)
 			debounceC = debounce.C
 
 		case <-debounceC:
 			debounceC = nil
 			if drainPendingReloadEvents(watcher.Events, watcher.Errors, base, matchChmod) {
-				debounce = resetDebounceTimer(debounce, reloadDebounceDelay)
+				debounce = resetDebounceTimer(debounce, 200*time.Millisecond)
 				debounceC = debounce.C
 				continue
 			}
 			if !executablePathReady(execPath) {
-				debounce = resetDebounceTimer(debounce, reloadReadyRetryDelay)
+				debounce = resetDebounceTimer(debounce, 50*time.Millisecond)
 				debounceC = debounce.C
 				continue
 			}

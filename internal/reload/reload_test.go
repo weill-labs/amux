@@ -461,6 +461,74 @@ func TestWatchBinaryDeleteAndRecreate(t *testing.T) {
 	}
 }
 
+func TestWatchBinaryWaitsForExecutableReady(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	binPath := filepath.Join(dir, "amux-test")
+	writeFakeVersionedBinary(t, binPath, "v1")
+
+	triggerReload := make(chan struct{}, 1)
+	ready := make(chan struct{})
+	stop := make(chan struct{})
+	t.Cleanup(func() { close(stop) })
+	go watchBinary(binPath, triggerReload, ready, stop)
+	<-ready
+
+	if err := os.WriteFile(binPath, []byte("not an executable"), 0755); err != nil {
+		t.Fatalf("write invalid replacement: %v", err)
+	}
+
+	select {
+	case <-triggerReload:
+		t.Fatal("reload triggered before replacement path became executable")
+	case <-time.After(400 * time.Millisecond):
+	}
+
+	writeFakeVersionedBinary(t, binPath, "v2")
+
+	select {
+	case <-triggerReload:
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected reload trigger after executable replacement became ready")
+	}
+}
+
+func TestExecutablePrefixLooksValid(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		prefix []byte
+		want   bool
+	}{
+		{name: "empty", prefix: nil, want: false},
+		{name: "short shebang", prefix: []byte("#!"), want: true},
+		{name: "short invalid", prefix: []byte("ab"), want: false},
+		{name: "elf", prefix: []byte{0x7f, 'E', 'L', 'F'}, want: true},
+		{name: "mach o 32", prefix: []byte{0xfe, 0xed, 0xfa, 0xce}, want: true},
+		{name: "mach o 32 swapped", prefix: []byte{0xce, 0xfa, 0xed, 0xfe}, want: true},
+		{name: "mach o 64", prefix: []byte{0xfe, 0xed, 0xfa, 0xcf}, want: true},
+		{name: "mach o 64 swapped", prefix: []byte{0xcf, 0xfa, 0xed, 0xfe}, want: true},
+		{name: "fat", prefix: []byte{0xca, 0xfe, 0xba, 0xbe}, want: true},
+		{name: "fat swapped", prefix: []byte{0xbe, 0xba, 0xfe, 0xca}, want: true},
+		{name: "fat64", prefix: []byte{0xca, 0xfe, 0xba, 0xbf}, want: true},
+		{name: "fat64 swapped", prefix: []byte{0xbf, 0xba, 0xfe, 0xca}, want: true},
+		{name: "invalid four byte prefix", prefix: []byte("nope"), want: false},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := executablePrefixLooksValid(tt.prefix); got != tt.want {
+				t.Fatalf("executablePrefixLooksValid(%v) = %v, want %v", tt.prefix, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestExecutablePathReady(t *testing.T) {
 	t.Parallel()
 
@@ -476,6 +544,13 @@ func TestExecutablePathReady(t *testing.T) {
 	if err := os.WriteFile(notExecPath, []byte(fakeVersionedBinaryScript("notexec")), 0644); err != nil {
 		t.Fatalf("write non-executable script: %v", err)
 	}
+	unreadablePath := filepath.Join(dir, "unreadable")
+	if err := os.WriteFile(unreadablePath, []byte(fakeVersionedBinaryScript("unreadable")), 0700); err != nil {
+		t.Fatalf("write unreadable script seed: %v", err)
+	}
+	if err := os.Chmod(unreadablePath, 0111); err != nil {
+		t.Fatalf("chmod unreadable script: %v", err)
+	}
 
 	tests := []struct {
 		name string
@@ -486,6 +561,7 @@ func TestExecutablePathReady(t *testing.T) {
 		{name: "invalid executable bytes", path: invalidPath, want: false},
 		{name: "valid script", path: scriptPath, want: true},
 		{name: "missing execute bit", path: notExecPath, want: false},
+		{name: "missing read bit", path: unreadablePath, want: false},
 	}
 
 	for _, tt := range tests {
