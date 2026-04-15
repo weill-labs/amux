@@ -13,8 +13,6 @@ import (
 )
 
 func TestResolveSSHSessionTargetUsesConfiguredAddressAndIdentity(t *testing.T) {
-	t.Parallel()
-
 	configPath := t.TempDir() + "/config.toml"
 	if err := os.WriteFile(configPath, []byte(`
 [hosts.builder]

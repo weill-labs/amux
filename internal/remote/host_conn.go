@@ -10,11 +10,11 @@ import (
 
 	charmlog "github.com/charmbracelet/log"
 	"golang.org/x/crypto/ssh"
-	"golang.org/x/crypto/ssh/agent"
 
 	"github.com/weill-labs/amux/internal/auditlog"
 	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/proto"
+	"github.com/weill-labs/amux/internal/sshutil"
 )
 
 // HostConn manages a single SSH connection to a remote host and multiplexes
@@ -36,9 +36,9 @@ type HostConn struct {
 	logger    *charmlog.Logger
 
 	// Actor-owned state — accessed only from eventLoop goroutine.
-	state     ConnState
-	sshClient *ssh.Client
-	amuxConn  net.Conn // persistent attach connection for pane I/O
+	state      ConnState
+	sshClient  *ssh.Client
+	amuxConn   net.Conn // persistent attach connection for pane I/O
 	amuxReader *proto.Reader
 	amuxWriter *proto.Writer
 
@@ -615,67 +615,19 @@ func parseSpawnOutput(output string) (uint32, error) {
 
 // buildSSHConfig builds the SSH client configuration using agent auth and key files.
 func (hc *HostConn) buildSSHConfig() (*ssh.ClientConfig, error) {
-	var authMethods []ssh.AuthMethod
-
-	keyPaths := []string{
-		os.ExpandEnv("$HOME/.ssh/id_ed25519"),
-		os.ExpandEnv("$HOME/.ssh/id_rsa"),
+	cfg, err := sshutil.BuildSSHConfig(hc.config.User, hc.config.IdentityFile)
+	if err != nil {
+		return nil, err
 	}
-	if hc.config.IdentityFile != "" {
-		keyPaths = append([]string{hc.config.IdentityFile}, keyPaths...)
+	if os.Getenv("AMUX_SSH_INSECURE") != "1" {
+		cfg.HostKeyCallback = hostKeyCallback("", hc.logger)
 	}
-	for _, keyPath := range keyPaths {
-		key, err := os.ReadFile(keyPath)
-		if err != nil {
-			continue
-		}
-		signer, err := ssh.ParsePrivateKey(key)
-		if err != nil {
-			continue
-		}
-		authMethods = append(authMethods, ssh.PublicKeys(signer))
-	}
-
-	if sock := os.Getenv("SSH_AUTH_SOCK"); sock != "" {
-		conn, err := net.Dial("unix", sock)
-		if err == nil {
-			agentClient := agent.NewClient(conn)
-			authMethods = append(authMethods, ssh.PublicKeysCallback(agentClient.Signers))
-		}
-	}
-
-	if len(authMethods) == 0 {
-		return nil, fmt.Errorf("no SSH auth methods available (no agent, no key files)")
-	}
-
-	user := hc.config.User
-	if user == "" {
-		user = "ubuntu"
-	}
-
-	var hkCallback ssh.HostKeyCallback
-	if os.Getenv("AMUX_SSH_INSECURE") == "1" {
-		hkCallback = ssh.InsecureIgnoreHostKey()
-	} else {
-		hkCallback = hostKeyCallback("", hc.logger)
-	}
-
-	return &ssh.ClientConfig{
-		User:            user,
-		Auth:            authMethods,
-		HostKeyCallback: hkCallback,
-	}, nil
+	return cfg, nil
 }
 
 // ensureRemoteServer starts the remote amux server if it's not already running.
 func ensureRemoteServer(client *ssh.Client, sockPath, sessionName string) error {
-	sess, err := client.NewSession()
-	if err != nil {
-		return err
-	}
-	defer sess.Close()
-	cmd := buildEnsureServerCmd(sockPath, sessionName)
-	return sess.Run(cmd)
+	return sshutil.EnsureRemoteServer(client, sockPath, sessionName)
 }
 
 // buildEnsureServerCmd returns the shell command that starts amux _server if
@@ -689,7 +641,7 @@ func buildEnsureServerCmd(sockPath, sessionName string) string {
 
 // socketPath returns the expected amux socket path on the remote host.
 func socketPath(remoteUID, sessionName string) string {
-	return fmt.Sprintf("/tmp/amux-%s/%s", remoteUID, sessionName)
+	return sshutil.RemoteSocketPath(remoteUID, sessionName)
 }
 
 // ManagedSessionName returns the session name to use on the remote server.
@@ -716,62 +668,12 @@ func waitForSocket(client *ssh.Client, sockPath string, timeout time.Duration) e
 
 // dialRemoteSocket connects to the remote amux Unix socket.
 func (hc *HostConn) dialRemoteSocket(client *ssh.Client, sockPath string) (net.Conn, error) {
-	conn, err := client.Dial("unix", sockPath)
-	if err == nil {
-		return conn, nil
-	}
-
-	tcpConn, tcpErr := hc.dialRemoteSocketTCP(client, sockPath)
-	if tcpErr != nil {
-		return nil, fmt.Errorf("unix dial failed (%w) and TCP fallback failed (%w)", err, tcpErr)
-	}
-	return tcpConn, nil
-}
-
-func (hc *HostConn) dialRemoteSocketTCP(client *ssh.Client, sockPath string) (net.Conn, error) {
-	port, err := hc.startSocatBridge(client, sockPath)
-	if err != nil {
-		return nil, err
-	}
-
-	tcpConn, err := client.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", port))
-	if err != nil {
-		return nil, err
-	}
-	return tcpConn, nil
-}
-
-// startSocatBridge launches socat on the remote to bridge a TCP port to the
-// Unix socket.
-func (hc *HostConn) startSocatBridge(client *ssh.Client, sockPath string) (int, error) {
-	out, err := sshOutput(client, fmt.Sprintf(
-		`port=$(python3 -c "import socket; s=socket.socket(); s.bind(('',0)); print(s.getsockname()[1]); s.close()" 2>/dev/null || shuf -i 49152-65535 -n 1); `+
-			`nohup socat TCP-LISTEN:$port,bind=127.0.0.1,fork,reuseaddr UNIX-CONNECT:%s </dev/null >/dev/null 2>&1 & `+
-			`sleep 0.3; echo $port`, sockPath))
-	if err != nil {
-		return 0, fmt.Errorf("starting socat: %w", err)
-	}
-
-	var port int
-	fmt.Sscanf(out, "%d", &port)
-	if port == 0 {
-		return 0, fmt.Errorf("could not parse socat port from: %s", out)
-	}
-	return port, nil
-}
-
-// hasPort returns true if the address already includes a port.
-func hasPort(addr string) bool {
-	_, _, err := net.SplitHostPort(addr)
-	return err == nil
+	return sshutil.DialRemoteSocket(client, sockPath)
 }
 
 // normalizeAddr ensures the address has a port, defaulting to :22.
 func normalizeAddr(addr string) string {
-	if !hasPort(addr) {
-		return addr + ":22"
-	}
-	return addr
+	return sshutil.NormalizeAddr(addr)
 }
 
 func addrOrFallback(values ...string) string {

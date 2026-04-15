@@ -107,7 +107,7 @@ func TestEnsureRemoteServer(t *testing.T) {
 	ts := startTestSSH(t)
 	writeFakeRemoteAmux(t, ts)
 
-	sessionName := "main@test"
+	sessionName := strings.ReplaceAll(t.Name(), "/", "-")
 	sockPath := RemoteSocketPath("1000", sessionName)
 	actualSockPath := RemoteSocketPath(fmt.Sprintf("%d", os.Getuid()), sessionName)
 	_ = os.Remove(sockPath)

@@ -255,12 +255,6 @@ func TestResolveCanonicalSessionCommand(t *testing.T) {
 			wantErrText: "usage: amux unsplice <host>",
 		},
 		{
-			name:        "ssh needs a target",
-			args:        []string{"ssh"},
-			wantHandled: true,
-			wantErrText: "usage: amux ssh <user@host[:session] | host[:session]>",
-		},
-		{
 			name:        "rename needs pane and new name",
 			args:        []string{"rename", "pane-1"},
 			wantHandled: true,

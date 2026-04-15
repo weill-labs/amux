@@ -4,12 +4,15 @@ import (
 	"fmt"
 	"io"
 	"os"
+
+	"github.com/weill-labs/amux/internal/sshutil"
 )
 
 type Runtime struct {
 	Stdout             io.Writer
 	Stderr             io.Writer
 	AttachSession      func(string) error
+	RunSSHSession      func(sshutil.SSHTarget) error
 	WriteVersionOutput func(io.Writer, []string) error
 	InstallTerminfo    func() error
 	RunDebugCommand    func(string, []string)
@@ -41,6 +44,7 @@ func buildCLICommands() map[string]commandHandler {
 	addCLICommands(commands, layoutCLICommands())
 	addCLICommands(commands, windowCLICommands())
 	addCLICommands(commands, remoteCLICommands())
+	addCLICommands(commands, sshCLICommands())
 	return commands
 }
 
