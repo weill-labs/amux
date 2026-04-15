@@ -329,18 +329,18 @@ func TestWatchBinaryDebounce(t *testing.T) {
 	// Create a temp directory with a fake binary
 	dir := t.TempDir()
 	binPath := filepath.Join(dir, "amux-test")
-	if err := os.WriteFile(binPath, []byte("v1"), 0755); err != nil {
-		t.Fatal(err)
-	}
+	writeFakeVersionedBinary(t, binPath, "v1")
 
 	triggerReload := make(chan struct{}, 1)
 	ready := make(chan struct{})
-	go WatchBinary(binPath, triggerReload, ready)
+	stop := make(chan struct{})
+	t.Cleanup(func() { close(stop) })
+	go watchBinary(binPath, triggerReload, ready, stop)
 	<-ready
 
 	// Write to the file multiple times in quick succession (simulates go build)
 	for i := 0; i < 5; i++ {
-		os.WriteFile(binPath, []byte("v2"), 0755)
+		writeFakeVersionedBinary(t, binPath, fmt.Sprintf("v2-%d", i))
 		time.Sleep(20 * time.Millisecond)
 	}
 
@@ -368,13 +368,13 @@ func TestWatchBinaryIgnoresOtherFiles(t *testing.T) {
 	binPath := filepath.Join(dir, "amux-test")
 	otherPath := filepath.Join(dir, "other-file")
 
-	if err := os.WriteFile(binPath, []byte("v1"), 0755); err != nil {
-		t.Fatal(err)
-	}
+	writeFakeVersionedBinary(t, binPath, "v1")
 
 	triggerReload := make(chan struct{}, 1)
 	ready := make(chan struct{})
-	go WatchBinary(binPath, triggerReload, ready)
+	stop := make(chan struct{})
+	t.Cleanup(func() { close(stop) })
+	go watchBinary(binPath, triggerReload, ready, stop)
 	<-ready
 
 	// Write to a different file in the same directory
@@ -396,17 +396,17 @@ func TestWatchBinaryNilReady(t *testing.T) {
 	// Passing nil for the ready channel should not panic.
 	dir := t.TempDir()
 	binPath := filepath.Join(dir, "amux-test")
-	if err := os.WriteFile(binPath, []byte("v1"), 0755); err != nil {
-		t.Fatal(err)
-	}
+	writeFakeVersionedBinary(t, binPath, "v1")
 
 	triggerReload := make(chan struct{}, 1)
-	go WatchBinary(binPath, triggerReload, nil)
+	stop := make(chan struct{})
+	t.Cleanup(func() { close(stop) })
+	go watchBinary(binPath, triggerReload, nil, stop)
 
 	// Inherent race: cannot use ready channel since we're testing nil.
 	// Generous 2s fallback timeout below handles slow CI.
 	<-time.After(200 * time.Millisecond) // let watcher register
-	os.WriteFile(binPath, []byte("v2"), 0755)
+	writeFakeVersionedBinary(t, binPath, "v2")
 
 	select {
 	case <-triggerReload:
@@ -440,9 +440,7 @@ func TestWatchBinaryDeleteAndRecreate(t *testing.T) {
 	dir := t.TempDir()
 	binPath := filepath.Join(dir, "amux-test")
 
-	if err := os.WriteFile(binPath, []byte("v1"), 0755); err != nil {
-		t.Fatal(err)
-	}
+	writeFakeVersionedBinary(t, binPath, "v1")
 
 	triggerReload := make(chan struct{}, 1)
 	ready := make(chan struct{})
@@ -452,7 +450,7 @@ func TestWatchBinaryDeleteAndRecreate(t *testing.T) {
 	// Delete and recreate (simulates build tools that replace via rename)
 	os.Remove(binPath)
 	time.Sleep(50 * time.Millisecond)
-	os.WriteFile(binPath, []byte("v2"), 0755)
+	writeFakeVersionedBinary(t, binPath, "v2")
 
 	// Should trigger reload after debounce
 	select {
@@ -460,6 +458,121 @@ func TestWatchBinaryDeleteAndRecreate(t *testing.T) {
 		// Good
 	case <-time.After(2 * time.Second):
 		t.Fatal("expected reload trigger after delete+create, got none")
+	}
+}
+
+func TestWatchBinaryWaitsForExecutableReady(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	binPath := filepath.Join(dir, "amux-test")
+	writeFakeVersionedBinary(t, binPath, "v1")
+
+	triggerReload := make(chan struct{}, 1)
+	ready := make(chan struct{})
+	stop := make(chan struct{})
+	t.Cleanup(func() { close(stop) })
+	go watchBinary(binPath, triggerReload, ready, stop)
+	<-ready
+
+	if err := os.WriteFile(binPath, []byte("not an executable"), 0755); err != nil {
+		t.Fatalf("write invalid replacement: %v", err)
+	}
+
+	select {
+	case <-triggerReload:
+		t.Fatal("reload triggered before replacement path became executable")
+	case <-time.After(400 * time.Millisecond):
+	}
+
+	writeFakeVersionedBinary(t, binPath, "v2")
+
+	select {
+	case <-triggerReload:
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected reload trigger after executable replacement became ready")
+	}
+}
+
+func TestExecutablePrefixLooksValid(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		prefix []byte
+		want   bool
+	}{
+		{name: "empty", prefix: nil, want: false},
+		{name: "short shebang", prefix: []byte("#!"), want: true},
+		{name: "short invalid", prefix: []byte("ab"), want: false},
+		{name: "elf", prefix: []byte{0x7f, 'E', 'L', 'F'}, want: true},
+		{name: "mach o 32", prefix: []byte{0xfe, 0xed, 0xfa, 0xce}, want: true},
+		{name: "mach o 32 swapped", prefix: []byte{0xce, 0xfa, 0xed, 0xfe}, want: true},
+		{name: "mach o 64", prefix: []byte{0xfe, 0xed, 0xfa, 0xcf}, want: true},
+		{name: "mach o 64 swapped", prefix: []byte{0xcf, 0xfa, 0xed, 0xfe}, want: true},
+		{name: "fat", prefix: []byte{0xca, 0xfe, 0xba, 0xbe}, want: true},
+		{name: "fat swapped", prefix: []byte{0xbe, 0xba, 0xfe, 0xca}, want: true},
+		{name: "fat64", prefix: []byte{0xca, 0xfe, 0xba, 0xbf}, want: true},
+		{name: "fat64 swapped", prefix: []byte{0xbf, 0xba, 0xfe, 0xca}, want: true},
+		{name: "invalid four byte prefix", prefix: []byte("nope"), want: false},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := executablePrefixLooksValid(tt.prefix); got != tt.want {
+				t.Fatalf("executablePrefixLooksValid(%v) = %v, want %v", tt.prefix, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestExecutablePathReady(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	missingPath := filepath.Join(dir, "missing")
+	invalidPath := filepath.Join(dir, "invalid")
+	if err := os.WriteFile(invalidPath, []byte("not an executable"), 0755); err != nil {
+		t.Fatalf("write invalid executable: %v", err)
+	}
+	scriptPath := filepath.Join(dir, "script")
+	writeFakeVersionedBinary(t, scriptPath, "ready")
+	notExecPath := filepath.Join(dir, "not-exec")
+	if err := os.WriteFile(notExecPath, []byte(fakeVersionedBinaryScript("notexec")), 0644); err != nil {
+		t.Fatalf("write non-executable script: %v", err)
+	}
+	unreadablePath := filepath.Join(dir, "unreadable")
+	if err := os.WriteFile(unreadablePath, []byte(fakeVersionedBinaryScript("unreadable")), 0700); err != nil {
+		t.Fatalf("write unreadable script seed: %v", err)
+	}
+	if err := os.Chmod(unreadablePath, 0111); err != nil {
+		t.Fatalf("chmod unreadable script: %v", err)
+	}
+
+	tests := []struct {
+		name string
+		path string
+		want bool
+	}{
+		{name: "missing", path: missingPath, want: false},
+		{name: "invalid executable bytes", path: invalidPath, want: false},
+		{name: "valid script", path: scriptPath, want: true},
+		{name: "missing execute bit", path: notExecPath, want: false},
+		{name: "missing read bit", path: unreadablePath, want: false},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := executablePathReady(tt.path); got != tt.want {
+				t.Fatalf("executablePathReady(%q) = %v, want %v", tt.path, got, tt.want)
+			}
+		})
 	}
 }
 

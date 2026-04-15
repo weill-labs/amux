@@ -89,10 +89,66 @@ func drainPendingReloadEvents(events <-chan fsnotify.Event, errors <-chan error,
 	}
 }
 
+func executablePrefixLooksValid(prefix []byte) bool {
+	if len(prefix) >= 2 && prefix[0] == '#' && prefix[1] == '!' {
+		return true
+	}
+	if len(prefix) < 4 {
+		return false
+	}
+
+	switch {
+	case prefix[0] == 0x7f && prefix[1] == 'E' && prefix[2] == 'L' && prefix[3] == 'F':
+		return true
+	case prefix[0] == 0xfe && prefix[1] == 0xed && prefix[2] == 0xfa && prefix[3] == 0xce:
+		return true
+	case prefix[0] == 0xce && prefix[1] == 0xfa && prefix[2] == 0xed && prefix[3] == 0xfe:
+		return true
+	case prefix[0] == 0xfe && prefix[1] == 0xed && prefix[2] == 0xfa && prefix[3] == 0xcf:
+		return true
+	case prefix[0] == 0xcf && prefix[1] == 0xfa && prefix[2] == 0xed && prefix[3] == 0xfe:
+		return true
+	case prefix[0] == 0xca && prefix[1] == 0xfe && prefix[2] == 0xba && prefix[3] == 0xbe:
+		return true
+	case prefix[0] == 0xbe && prefix[1] == 0xba && prefix[2] == 0xfe && prefix[3] == 0xca:
+		return true
+	case prefix[0] == 0xca && prefix[1] == 0xfe && prefix[2] == 0xba && prefix[3] == 0xbf:
+		return true
+	case prefix[0] == 0xbf && prefix[1] == 0xba && prefix[2] == 0xfe && prefix[3] == 0xca:
+		return true
+	default:
+		return false
+	}
+}
+
+func executablePathReady(execPath string) bool {
+	info, err := os.Stat(execPath)
+	if err != nil {
+		return false
+	}
+	if !info.Mode().IsRegular() || info.Mode().Perm()&0111 == 0 {
+		return false
+	}
+
+	f, err := os.Open(execPath)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+
+	var prefix [4]byte
+	n, _ := f.Read(prefix[:])
+	return executablePrefixLooksValid(prefix[:n])
+}
+
 // WatchBinary watches for changes to the binary at execPath and sends on
 // triggerReload when a change is detected (with 200ms debounce).
 // If ready is non-nil, it is closed after the file watcher is registered.
 func WatchBinary(execPath string, triggerReload chan<- struct{}, ready chan<- struct{}) {
+	watchBinary(execPath, triggerReload, ready, nil)
+}
+
+func watchBinary(execPath string, triggerReload chan<- struct{}, ready chan<- struct{}, stop <-chan struct{}) {
 	dir := filepath.Dir(execPath)
 	base := filepath.Base(execPath)
 	matchChmod := false
@@ -126,6 +182,9 @@ func WatchBinary(execPath string, triggerReload chan<- struct{}, ready chan<- st
 
 	for {
 		select {
+		case <-stop:
+			return
+
 		case event, ok := <-watcher.Events:
 			if !ok {
 				return
@@ -140,6 +199,11 @@ func WatchBinary(execPath string, triggerReload chan<- struct{}, ready chan<- st
 			debounceC = nil
 			if drainPendingReloadEvents(watcher.Events, watcher.Errors, base, matchChmod) {
 				debounce = resetDebounceTimer(debounce, 200*time.Millisecond)
+				debounceC = debounce.C
+				continue
+			}
+			if !executablePathReady(execPath) {
+				debounce = resetDebounceTimer(debounce, 50*time.Millisecond)
 				debounceC = debounce.C
 				continue
 			}
