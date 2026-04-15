@@ -90,6 +90,7 @@ func isConnectionLostError(err error) bool {
 		return false
 	}
 	return errors.Is(err, io.EOF) ||
+		errors.Is(err, io.ErrUnexpectedEOF) ||
 		errors.Is(err, net.ErrClosed) ||
 		strings.Contains(err.Error(), "use of closed network connection") ||
 		strings.Contains(err.Error(), "broken pipe") ||
@@ -126,7 +127,7 @@ func disconnectNoticeForReadError(err error) string {
 	if isConnectionLostError(err) {
 		return "detached: connection lost"
 	}
-	return "detached: protocol error"
+	return fmt.Sprintf("detached: protocol error: %v", err)
 }
 
 func formatDetachNotice(text, fallback string) string {
