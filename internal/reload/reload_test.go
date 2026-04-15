@@ -423,10 +423,8 @@ func TestWatchBinaryBadDirClosesReady(t *testing.T) {
 	// should still be closed so callers don't block forever.
 	ready := make(chan struct{})
 	triggerReload := make(chan struct{}, 1)
-	stop := make(chan struct{})
-	t.Cleanup(func() { close(stop) })
 
-	go watchBinary("/nonexistent/path/amux-test", triggerReload, ready, stop)
+	go WatchBinary("/nonexistent/path/amux-test", triggerReload, ready)
 
 	select {
 	case <-ready:
@@ -446,9 +444,7 @@ func TestWatchBinaryDeleteAndRecreate(t *testing.T) {
 
 	triggerReload := make(chan struct{}, 1)
 	ready := make(chan struct{})
-	stop := make(chan struct{})
-	t.Cleanup(func() { close(stop) })
-	go watchBinary(binPath, triggerReload, ready, stop)
+	go WatchBinary(binPath, triggerReload, ready)
 	<-ready
 
 	// Delete and recreate (simulates build tools that replace via rename)
@@ -522,9 +518,7 @@ func TestWatchBinaryInstallScriptSequence(t *testing.T) {
 
 	triggerReload := make(chan struct{}, 1)
 	ready := make(chan struct{})
-	stop := make(chan struct{})
-	t.Cleanup(func() { close(stop) })
-	go watchBinary(binPath, triggerReload, ready, stop)
+	go WatchBinary(binPath, triggerReload, ready)
 	<-ready
 
 	toolDir := newInstallScriptToolDir(t, "newbuild")
@@ -572,9 +566,7 @@ func TestWatchBinaryInstallScriptSequenceViaSymlinkPath(t *testing.T) {
 
 	triggerReload := make(chan struct{}, 1)
 	ready := make(chan struct{})
-	stop := make(chan struct{})
-	t.Cleanup(func() { close(stop) })
-	go watchBinary(binPath, triggerReload, ready, stop)
+	go WatchBinary(binPath, triggerReload, ready)
 	<-ready
 
 	toolDir := newInstallScriptToolDir(t, "newbuild")
