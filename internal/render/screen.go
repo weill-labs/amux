@@ -142,6 +142,10 @@ func emitDiffWithProfile(changes []CellChange, profile termenv.Profile) string {
 	expectX, expectY := -1, -1
 
 	for _, ch := range changes {
+		if ch.Cell.Width == 0 {
+			continue
+		}
+
 		// Emit CUP only when cursor is not at the expected position.
 		if ch.Y != expectY || ch.X != expectX {
 			writeCursorTo(&buf, ch.Y+1, ch.X+1)
@@ -522,12 +526,6 @@ func linkIsZero(link uv.Link) bool {
 	return link.URL == "" && link.Params == ""
 }
 
-// styledChar represents a single character with styling for status/bar rendering.
-type styledChar struct {
-	ch    string
-	style uv.Style
-}
-
 type paneStatusGridPalette struct {
 	background    uv.Style
 	pane          uv.Style
@@ -584,12 +582,24 @@ func (p paneStatusGridPalette) style(role paneStatusSegmentRole) uv.Style {
 	}
 }
 
-// appendStyledStr appends each rune of s as a styledChar with the given style.
-func appendStyledStr(chars []styledChar, s string, style uv.Style) []styledChar {
-	for _, r := range s {
-		chars = append(chars, styledChar{ch: string(r), style: style})
+// appendStyledCells expands s into styled screen cells so diff rendering honors
+// the display width of wide glyphs the same way the ANSI full-render path does.
+func appendStyledCells(cells []ScreenCell, s string, style uv.Style) []ScreenCell {
+	for len(s) > 0 {
+		cluster, clusterWidth := ansi.FirstGraphemeCluster(s, ansi.GraphemeWidth)
+		if cluster == "" {
+			break
+		}
+		if clusterWidth <= 0 {
+			clusterWidth = 1
+		}
+		cells = append(cells, ScreenCell{Char: cluster, Width: clusterWidth, Style: style})
+		for i := 1; i < clusterWidth; i++ {
+			cells = append(cells, ScreenCell{Char: " ", Width: 0, Style: style})
+		}
+		s = s[len(cluster):]
 	}
-	return chars
+	return cells
 }
 
 // buildStatusCells writes the per-pane status line into the grid cell-by-cell.
@@ -606,17 +616,17 @@ func buildStatusCellsPressed(g *ScreenGrid, cell *mux.LayoutCell, isActive, pres
 	bg := hexToColor(bgHex)
 	colorHex := paneStatusColorHex(pd)
 	palette := newPaneStatusGridPalette(colorHex, bg)
-	var chars []styledChar
+	var cells []ScreenCell
 	for _, segment := range buildPaneStatusSegments(cell.W, isActive, pd) {
-		chars = appendStyledStr(chars, segment.text, palette.style(segment.role))
+		cells = appendStyledCells(cells, segment.text, palette.style(segment.role))
 	}
 
-	// Write chars to grid, fill remaining with spaces.
+	// Write cells to grid, fill remaining with spaces.
 	fillCell := ScreenCell{Char: " ", Width: 1, Style: uv.Style{Bg: bg}}
 	for i := 0; i < cell.W; i++ {
 		sc := fillCell
-		if i < len(chars) {
-			sc = ScreenCell{Char: chars[i].ch, Width: 1, Style: chars[i].style}
+		if i < len(cells) {
+			sc = cells[i]
 		}
 		g.Set(cell.X+i, y, sc)
 	}
@@ -659,13 +669,13 @@ func buildGlobalBarCells(g *ScreenGrid, sessionName string, paneCount int, width
 	focusedStyle.Fg = hexToColor(config.BlueHex)
 	errorStyle := uv.Style{Fg: redFg, Bg: bg}
 
-	var chars []styledChar
+	var cells []ScreenCell
 	showHelp := globalBarShowsHelp(width, sessionName, paneCount, windows, message, now)
 
 	// " amux │ "
-	chars = appendStyledStr(chars, " ", baseStyle)
-	chars = appendStyledStr(chars, "amux", boldStyle)
-	chars = appendStyledStr(chars, " │ ", baseStyle)
+	cells = appendStyledCells(cells, " ", baseStyle)
+	cells = appendStyledCells(cells, "amux", boldStyle)
+	cells = appendStyledCells(cells, " │ ", baseStyle)
 
 	if tabs := buildGlobalBarWindowTabs(windows); len(tabs) > 0 {
 		for _, tab := range tabs {
@@ -674,18 +684,18 @@ func buildGlobalBarCells(g *ScreenGrid, sessionName string, paneCount int, width
 				style = boldStyle
 			}
 			style.Fg = hexToColor(globalBarTabColorHex(tab.window))
-			chars = appendStyledStr(chars, tab.display, style)
-			chars = appendStyledStr(chars, " ", baseStyle)
+			cells = appendStyledCells(cells, tab.display, style)
+			cells = appendStyledCells(cells, " ", baseStyle)
 		}
-		chars = appendStyledStr(chars, "│ ", baseStyle)
+		cells = appendStyledCells(cells, "│ ", baseStyle)
 	} else {
-		chars = appendStyledStr(chars, sessionName+" ", baseStyle)
+		cells = appendStyledCells(cells, sessionName+" ", baseStyle)
 	}
 
 	rightText := ""
 	rightStyle := baseStyle
 	if message != "" {
-		maxText := width - len(chars) - 2
+		maxText := width - len(cells) - 2
 		rightText = " " + truncateRunes(message, maxText) + " "
 		rightStyle = errorStyle
 		message = ""
@@ -694,7 +704,7 @@ func buildGlobalBarCells(g *ScreenGrid, sessionName string, paneCount int, width
 	}
 
 	// Fill middle.
-	leftLen := len(chars)
+	leftLen := len(cells)
 	rightLen := len([]rune(rightText))
 	fill := width - leftLen - rightLen
 	if fill > 0 {
@@ -702,16 +712,16 @@ func buildGlobalBarCells(g *ScreenGrid, sessionName string, paneCount int, width
 		if len(messageRunes) > fill {
 			messageRunes = messageRunes[:fill]
 		}
-		chars = appendStyledStr(chars, string(messageRunes), baseStyle)
+		cells = appendStyledCells(cells, string(messageRunes), baseStyle)
 		for i := len(messageRunes); i < fill; i++ {
-			chars = append(chars, styledChar{ch: " ", style: baseStyle})
+			cells = append(cells, ScreenCell{Char: " ", Width: 1, Style: baseStyle})
 		}
 	}
-	chars = appendStyledStr(chars, rightText, rightStyle)
+	cells = appendStyledCells(cells, rightText, rightStyle)
 
 	// Write to grid.
-	for i := 0; i < width && i < len(chars); i++ {
-		g.Set(i, yPos, ScreenCell{Char: chars[i].ch, Width: 1, Style: chars[i].style})
+	for i := 0; i < width && i < len(cells); i++ {
+		g.Set(i, yPos, cells[i])
 	}
 }
 

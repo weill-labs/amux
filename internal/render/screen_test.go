@@ -1262,6 +1262,51 @@ func TestRenderDiff_LongLines_TwoPanes(t *testing.T) {
 	}
 }
 
+func TestRenderDiff_StatusLineWideRuneMatchesRenderFullAcrossPanes(t *testing.T) {
+	t.Parallel()
+
+	pane1W := 32
+	pane2W := 32
+	width := pane1W + 1 + pane2W
+	height := 6
+	totalH := height + GlobalBarHeight
+
+	root := mkSplit(mux.SplitVertical, 0, 0, width, height,
+		mux.NewLeafByID(1, 0, 0, pane1W, height),
+		mux.NewLeafByID(2, pane1W+1, 0, pane2W, height),
+	)
+	lookup := func(id uint32) PaneData {
+		switch id {
+		case 1:
+			return &statusPaneData{
+				id:           1,
+				name:         "pane-1",
+				connStatus:   "connected",
+				task:         "sync-logs",
+				color:        config.TextColorHex,
+				screen:       "",
+				cursorHidden: true,
+			}
+		case 2:
+			return &statusPaneData{
+				id:           2,
+				name:         "pane-2",
+				color:        config.TextColorHex,
+				screen:       "",
+				cursorHidden: true,
+			}
+		}
+		return nil
+	}
+
+	comp := newTestCompositor(width, totalH, "test")
+	display := vt.NewSafeEmulator(width, totalH)
+
+	if err := oracleCheck(comp, display, root, 1, lookup, width, totalH); err != "" {
+		t.Error(err)
+	}
+}
+
 func TestRenderDiff_ColorOracle_LongLines(t *testing.T) {
 	t.Parallel()
 	pane1W := 20

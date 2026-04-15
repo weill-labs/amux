@@ -649,6 +649,53 @@ func TestBuildStatusCellsClipsLongTaskToPaneWidth(t *testing.T) {
 	}
 }
 
+func TestBuildStatusCellsMarksWideConnStatusRune(t *testing.T) {
+	t.Parallel()
+
+	cell := mux.NewLeaf(&mux.Pane{ID: 1}, 0, 0, 32, 4)
+	grid := NewScreenGrid(32, 4)
+	buildStatusCells(grid, cell, true, &statusPaneData{
+		id:         1,
+		name:       "pane-1",
+		connStatus: "connected",
+		task:       "sync",
+		color:      config.TextColorHex,
+	})
+
+	var row strings.Builder
+	for x := 0; x < 32; x++ {
+		ch := grid.Get(x, 0).Char
+		if ch == "" {
+			ch = " "
+		}
+		row.WriteString(ch)
+	}
+
+	line := row.String()
+	start := -1
+	for x := 0; x < 32; x++ {
+		if grid.Get(x, 0).Char == "⚡" {
+			start = x
+			break
+		}
+	}
+	if start < 0 {
+		t.Fatalf("status row %q missing connected marker", line)
+	}
+	if got := grid.Get(start, 0).Width; got != 2 {
+		t.Fatalf("connected marker width = %d, want 2", got)
+	}
+	if got := grid.Get(start+1, 0).Width; got != 0 {
+		t.Fatalf("connected marker continuation width = %d, want 0", got)
+	}
+	if got := grid.Get(start+2, 0).Char; got != " " {
+		t.Fatalf("cell after connected marker = %q, want task separator space", got)
+	}
+	if got := grid.Get(start+3, 0).Char; got != "s" {
+		t.Fatalf("task should start after the wide rune continuation, got %q", got)
+	}
+}
+
 func TestBuildGlobalBarCellsTruncatesMessages(t *testing.T) {
 	t.Parallel()
 
