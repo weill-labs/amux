@@ -274,6 +274,40 @@ func TestFormatAttachError(t *testing.T) {
 	}
 }
 
+func TestDisconnectNoticeForReadError(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{name: "nil", err: nil, want: ""},
+		{name: "connection lost eof", err: io.EOF, want: "detached: connection lost"},
+		{
+			name: "connection lost unexpected eof during decode",
+			err:  fmt.Errorf("decoding message: %w", io.ErrUnexpectedEOF),
+			want: "detached: connection lost",
+		},
+		{
+			name: "protocol error includes detail",
+			err:  errors.New("decoding message: unknown wire type 7"),
+			want: "detached: protocol error: decoding message: unknown wire type 7",
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := disconnectNoticeForReadError(tt.err); got != tt.want {
+				t.Fatalf("disconnectNoticeForReadError(%v) = %q, want %q", tt.err, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestHotReloadDetachNotice(t *testing.T) {
 	t.Parallel()
 

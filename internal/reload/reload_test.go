@@ -329,18 +329,18 @@ func TestWatchBinaryDebounce(t *testing.T) {
 	// Create a temp directory with a fake binary
 	dir := t.TempDir()
 	binPath := filepath.Join(dir, "amux-test")
-	if err := os.WriteFile(binPath, []byte("v1"), 0755); err != nil {
-		t.Fatal(err)
-	}
+	writeFakeVersionedBinary(t, binPath, "v1")
 
 	triggerReload := make(chan struct{}, 1)
 	ready := make(chan struct{})
-	go WatchBinary(binPath, triggerReload, ready)
+	stop := make(chan struct{})
+	t.Cleanup(func() { close(stop) })
+	go watchBinary(binPath, triggerReload, ready, stop)
 	<-ready
 
 	// Write to the file multiple times in quick succession (simulates go build)
 	for i := 0; i < 5; i++ {
-		os.WriteFile(binPath, []byte("v2"), 0755)
+		writeFakeVersionedBinary(t, binPath, fmt.Sprintf("v2-%d", i))
 		time.Sleep(20 * time.Millisecond)
 	}
 
@@ -368,13 +368,13 @@ func TestWatchBinaryIgnoresOtherFiles(t *testing.T) {
 	binPath := filepath.Join(dir, "amux-test")
 	otherPath := filepath.Join(dir, "other-file")
 
-	if err := os.WriteFile(binPath, []byte("v1"), 0755); err != nil {
-		t.Fatal(err)
-	}
+	writeFakeVersionedBinary(t, binPath, "v1")
 
 	triggerReload := make(chan struct{}, 1)
 	ready := make(chan struct{})
-	go WatchBinary(binPath, triggerReload, ready)
+	stop := make(chan struct{})
+	t.Cleanup(func() { close(stop) })
+	go watchBinary(binPath, triggerReload, ready, stop)
 	<-ready
 
 	// Write to a different file in the same directory
@@ -396,17 +396,17 @@ func TestWatchBinaryNilReady(t *testing.T) {
 	// Passing nil for the ready channel should not panic.
 	dir := t.TempDir()
 	binPath := filepath.Join(dir, "amux-test")
-	if err := os.WriteFile(binPath, []byte("v1"), 0755); err != nil {
-		t.Fatal(err)
-	}
+	writeFakeVersionedBinary(t, binPath, "v1")
 
 	triggerReload := make(chan struct{}, 1)
-	go WatchBinary(binPath, triggerReload, nil)
+	stop := make(chan struct{})
+	t.Cleanup(func() { close(stop) })
+	go watchBinary(binPath, triggerReload, nil, stop)
 
 	// Inherent race: cannot use ready channel since we're testing nil.
 	// Generous 2s fallback timeout below handles slow CI.
 	<-time.After(200 * time.Millisecond) // let watcher register
-	os.WriteFile(binPath, []byte("v2"), 0755)
+	writeFakeVersionedBinary(t, binPath, "v2")
 
 	select {
 	case <-triggerReload:
@@ -423,8 +423,10 @@ func TestWatchBinaryBadDirClosesReady(t *testing.T) {
 	// should still be closed so callers don't block forever.
 	ready := make(chan struct{})
 	triggerReload := make(chan struct{}, 1)
+	stop := make(chan struct{})
+	t.Cleanup(func() { close(stop) })
 
-	go WatchBinary("/nonexistent/path/amux-test", triggerReload, ready)
+	go watchBinary("/nonexistent/path/amux-test", triggerReload, ready, stop)
 
 	select {
 	case <-ready:
@@ -440,19 +442,19 @@ func TestWatchBinaryDeleteAndRecreate(t *testing.T) {
 	dir := t.TempDir()
 	binPath := filepath.Join(dir, "amux-test")
 
-	if err := os.WriteFile(binPath, []byte("v1"), 0755); err != nil {
-		t.Fatal(err)
-	}
+	writeFakeVersionedBinary(t, binPath, "v1")
 
 	triggerReload := make(chan struct{}, 1)
 	ready := make(chan struct{})
-	go WatchBinary(binPath, triggerReload, ready)
+	stop := make(chan struct{})
+	t.Cleanup(func() { close(stop) })
+	go watchBinary(binPath, triggerReload, ready, stop)
 	<-ready
 
 	// Delete and recreate (simulates build tools that replace via rename)
 	os.Remove(binPath)
 	time.Sleep(50 * time.Millisecond)
-	os.WriteFile(binPath, []byte("v2"), 0755)
+	writeFakeVersionedBinary(t, binPath, "v2")
 
 	// Should trigger reload after debounce
 	select {
@@ -460,6 +462,45 @@ func TestWatchBinaryDeleteAndRecreate(t *testing.T) {
 		// Good
 	case <-time.After(2 * time.Second):
 		t.Fatal("expected reload trigger after delete+create, got none")
+	}
+}
+
+func TestExecutablePathReady(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	missingPath := filepath.Join(dir, "missing")
+	invalidPath := filepath.Join(dir, "invalid")
+	if err := os.WriteFile(invalidPath, []byte("not an executable"), 0755); err != nil {
+		t.Fatalf("write invalid executable: %v", err)
+	}
+	scriptPath := filepath.Join(dir, "script")
+	writeFakeVersionedBinary(t, scriptPath, "ready")
+	notExecPath := filepath.Join(dir, "not-exec")
+	if err := os.WriteFile(notExecPath, []byte(fakeVersionedBinaryScript("notexec")), 0644); err != nil {
+		t.Fatalf("write non-executable script: %v", err)
+	}
+
+	tests := []struct {
+		name string
+		path string
+		want bool
+	}{
+		{name: "missing", path: missingPath, want: false},
+		{name: "invalid executable bytes", path: invalidPath, want: false},
+		{name: "valid script", path: scriptPath, want: true},
+		{name: "missing execute bit", path: notExecPath, want: false},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := executablePathReady(tt.path); got != tt.want {
+				t.Fatalf("executablePathReady(%q) = %v, want %v", tt.path, got, tt.want)
+			}
+		})
 	}
 }
 
@@ -481,7 +522,9 @@ func TestWatchBinaryInstallScriptSequence(t *testing.T) {
 
 	triggerReload := make(chan struct{}, 1)
 	ready := make(chan struct{})
-	go WatchBinary(binPath, triggerReload, ready)
+	stop := make(chan struct{})
+	t.Cleanup(func() { close(stop) })
+	go watchBinary(binPath, triggerReload, ready, stop)
 	<-ready
 
 	toolDir := newInstallScriptToolDir(t, "newbuild")
@@ -529,7 +572,9 @@ func TestWatchBinaryInstallScriptSequenceViaSymlinkPath(t *testing.T) {
 
 	triggerReload := make(chan struct{}, 1)
 	ready := make(chan struct{})
-	go WatchBinary(binPath, triggerReload, ready)
+	stop := make(chan struct{})
+	t.Cleanup(func() { close(stop) })
+	go watchBinary(binPath, triggerReload, ready, stop)
 	<-ready
 
 	toolDir := newInstallScriptToolDir(t, "newbuild")
