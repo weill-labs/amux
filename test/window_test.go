@@ -2,10 +2,12 @@ package test
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
 )
 
@@ -366,6 +368,80 @@ func TestWindowSwitchResyncsStaleCursorState(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestWindowSwitchResizesHiddenWindowPanesToCurrentTerminal(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		switchFn func(*ServerHarness)
+	}{
+		{
+			name: "select-window",
+			switchFn: func(h *ServerHarness) {
+				h.runCmd("select-window", "2")
+			},
+		},
+		{
+			name: "next-window",
+			switchFn: func(h *ServerHarness) {
+				h.runCmd("next-window")
+			},
+		},
+		{
+			name: "prev-window",
+			switchFn: func(h *ServerHarness) {
+				h.runCmd("prev-window")
+			},
+		},
+		{
+			name: "last-window",
+			switchFn: func(h *ServerHarness) {
+				h.runCmd("last-window")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newServerHarness(t)
+			h.waitFor("pane-1", "$")
+
+			h.runCmd("new-window")
+			h.waitFor("pane-2", "$")
+
+			gen := h.generation()
+			h.runCmd("split", "pane-2", "v")
+			h.waitLayout(gen)
+			h.waitFor("pane-3", "$")
+
+			gen = h.generation()
+			h.runCmd("select-window", "1")
+			h.waitLayout(gen)
+
+			gen = h.generation()
+			h.client.resizeTerminal(120, 40)
+			h.waitLayout(gen)
+
+			gen = h.generation()
+			tt.switchFn(h)
+			h.waitLayout(gen)
+
+			capture := h.captureJSON()
+			wantPane2 := expectedSttySize(h.jsonPane(capture, "pane-2"))
+			wantPane3 := expectedSttySize(h.jsonPane(capture, "pane-3"))
+
+			h.runShellCommand("pane-2", "stty size", wantPane2)
+			h.runShellCommand("pane-3", "stty size", wantPane3)
+		})
+	}
+}
+
+func expectedSttySize(pane proto.CapturePane) string {
+	return fmt.Sprintf("%d %d", mux.PaneContentHeight(pane.Position.Height), pane.Position.Width)
 }
 
 // ---------------------------------------------------------------------------

@@ -171,7 +171,9 @@ func (hc *headlessClient) waitCommandReady() error {
 	return nil
 }
 
-// resize sends a MsgTypeResize to the server, simulating a terminal resize.
+// resize notifies the server about a terminal resize without changing the
+// local renderer. Tests that want the full interactive-client behavior should
+// use resizeTerminal.
 func (hc *headlessClient) resize(cols, rows int) {
 	conn := hc.currentConn()
 	if conn == nil {
@@ -182,6 +184,13 @@ func (hc *headlessClient) resize(cols, rows int) {
 		Cols: cols,
 		Rows: rows,
 	})
+}
+
+// resizeTerminal mirrors a real interactive client resize: update the local
+// renderer immediately, then notify the server so the session relayouts.
+func (hc *headlessClient) resizeTerminal(cols, rows int) {
+	hc.renderer.Resize(cols, rows)
+	hc.resize(cols, rows)
 }
 
 func (hc *headlessClient) sendUIEvent(name string) {
