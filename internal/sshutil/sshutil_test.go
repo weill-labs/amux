@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -379,7 +380,8 @@ func handleSession(ch ssh.Channel, reqs <-chan *ssh.Request, execEnv []string) {
 
 		exitCode := 0
 		if err := cmd.Run(); err != nil {
-			if exitErr, ok := err.(*exec.ExitError); ok {
+			var exitErr *exec.ExitError
+			if errors.As(err, &exitErr) {
 				exitCode = exitErr.ExitCode()
 			} else {
 				exitCode = 1

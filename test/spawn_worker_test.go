@@ -173,11 +173,7 @@ func runSpawnWorkerScript(t *testing.T, repoRoot, tempDir string, extraEnv []str
 	if err == nil {
 		return string(out), 0
 	}
-
-	exitErr, ok := err.(*exec.ExitError)
-	if !ok {
-		t.Fatalf("run spawn-worker script: %v\n%s", err, out)
-	}
+	exitErr := mustExitError(t, err, out)
 	return string(out), exitErr.ExitCode()
 }
 

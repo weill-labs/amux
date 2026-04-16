@@ -110,11 +110,11 @@ func formatAttachError(err error) error {
 	}
 	switch {
 	case errors.Is(err, errAttachProtocol):
-		return fmt.Errorf("attach failed: protocol error: %v", err)
+		return fmt.Errorf("attach failed: protocol error: %w", err)
 	case isSocketNotFoundError(err):
 		return fmt.Errorf("attach failed: socket not found")
 	case isConnectionLostError(err):
-		return fmt.Errorf("attach failed: connection lost: %v", err)
+		return fmt.Errorf("attach failed: connection lost: %w", err)
 	default:
 		return fmt.Errorf("attach failed: %w", err)
 	}

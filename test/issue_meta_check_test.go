@@ -28,11 +28,7 @@ EOF
 	if err == nil {
 		t.Fatalf("expected non-zero exit when issue metadata is missing\n%s", out)
 	}
-
-	exitErr, ok := err.(*exec.ExitError)
-	if !ok {
-		t.Fatalf("unexpected error: %v\n%s", err, out)
-	}
+	exitErr := mustExitError(t, err, out)
 	if exitErr.ExitCode() != 1 {
 		t.Fatalf("exit code = %d, want 1\n%s", exitErr.ExitCode(), out)
 	}

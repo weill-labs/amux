@@ -411,10 +411,6 @@ func runPRReadyCheck(t *testing.T, tempDir string, extraEnv []string, extraArgs 
 	if err == nil {
 		return string(out), 0
 	}
-
-	exitErr, ok := err.(*exec.ExitError)
-	if !ok {
-		t.Fatalf("unexpected error: %v\n%s", err, out)
-	}
+	exitErr := mustExitError(t, err, out)
 	return string(out), exitErr.ExitCode()
 }

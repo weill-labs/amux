@@ -401,7 +401,7 @@ func resolveBroadcastMatchTargets(sess *Session, pattern string) ([]resolvedPane
 	for _, pane := range sess.Panes {
 		matched, err := filepath.Match(pattern, pane.Meta.Name)
 		if err != nil {
-			return nil, fmt.Errorf("broadcast: invalid match pattern %q: %v", pattern, err)
+			return nil, fmt.Errorf("broadcast: invalid match pattern %q: %w", pattern, err)
 		}
 		if !matched {
 			continue

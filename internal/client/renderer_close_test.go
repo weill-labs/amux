@@ -1,6 +1,7 @@
 package client
 
 import (
+	"errors"
 	"io"
 	"testing"
 
@@ -24,10 +25,10 @@ func TestRendererCloseClosesPaneEmulators(t *testing.T) {
 	r.Close()
 	r.Close()
 
-	if _, err := emu.Write([]byte("x")); err != io.ErrClosedPipe {
+	if _, err := emu.Write([]byte("x")); !errors.Is(err, io.ErrClosedPipe) {
 		t.Fatalf("emu.Write after Close() = %v, want %v", err, io.ErrClosedPipe)
 	}
-	if _, err := emu.Read(make([]byte, 1)); err != io.EOF {
+	if _, err := emu.Read(make([]byte, 1)); !errors.Is(err, io.EOF) {
 		t.Fatalf("emu.Read after Close() = %v, want %v", err, io.EOF)
 	}
 }
@@ -51,7 +52,7 @@ func TestHandleLayoutClosesRemovedPaneEmulators(t *testing.T) {
 	r.HandleLayout(singlePane20x3())
 
 	// The removed emulator's pipe should be closed.
-	if _, err := emu2.Read(make([]byte, 1)); err != io.EOF {
+	if _, err := emu2.Read(make([]byte, 1)); !errors.Is(err, io.EOF) {
 		t.Fatalf("removed emulator Read() = %v, want io.EOF", err)
 	}
 

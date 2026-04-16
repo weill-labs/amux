@@ -159,11 +159,7 @@ func runBashScriptWithInput(t *testing.T, scriptPath, input string, env []string
 	if err == nil {
 		return string(out), 0
 	}
-
-	exitErr, ok := err.(*exec.ExitError)
-	if !ok {
-		t.Fatalf("unexpected error running %s: %v\n%s", scriptPath, err, out)
-	}
+	exitErr := mustExitError(t, err, out)
 	return string(out), exitErr.ExitCode()
 }
 

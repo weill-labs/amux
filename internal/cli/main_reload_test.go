@@ -5,7 +5,6 @@ import (
 	"io"
 	"net"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -60,10 +59,7 @@ func TestMainCheckpointReloadStartsServerWithoutSubcommand(t *testing.T) {
 	cmd.Env = append(cmd.Env, "AMUX_CHECKPOINT=/definitely/missing")
 
 	out, err := cmd.CombinedOutput()
-	exitErr, ok := err.(*exec.ExitError)
-	if !ok {
-		t.Fatalf("helper error = %v\n%s", err, out)
-	}
+	exitErr := requireExitError(t, err, out)
 	if exitErr.ExitCode() != 1 {
 		t.Fatalf("exit code = %d, want 1\n%s", exitErr.ExitCode(), out)
 	}
