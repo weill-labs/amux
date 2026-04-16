@@ -86,6 +86,7 @@ const (
 // Host defines a machine that can run agents.
 type Host struct {
 	Type         string `toml:"type"`          // "local" or "remote"
+	Transport    string `toml:"transport"`     // transport type; empty defaults to ssh
 	User         string `toml:"user"`          // SSH user (remote only)
 	Address      string `toml:"address"`       // IP or hostname (remote only)
 	IdentityFile string `toml:"identity_file"` // SSH private key path (optional)
@@ -217,6 +218,14 @@ func (c *Config) HostAddress(hostname string) string {
 		return h.Address
 	}
 	return hostname
+}
+
+// HostTransport returns the configured transport for a host, defaulting to ssh.
+func (c *Config) HostTransport(hostname string) string {
+	if h, ok := c.Hosts[hostname]; ok && h.Transport != "" {
+		return h.Transport
+	}
+	return "ssh"
 }
 
 // HostColor returns the color for a host.
