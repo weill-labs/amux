@@ -180,10 +180,6 @@ func applyAttachBootstrapReplayMessage(cr *ClientRenderer, msg attachBootstrapMe
 	}
 }
 
-func readImmediateAttachCorrection(conn net.Conn, reader *proto.Reader, cr *ClientRenderer, timeout time.Duration) error {
-	return readImmediateAttachCorrectionFromSource(newAttachMessageSource(conn, reader), cr, timeout)
-}
-
 func readImmediateAttachCorrectionFromSource(reader attachTimedReader, cr *ClientRenderer, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for {
