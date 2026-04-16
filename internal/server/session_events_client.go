@@ -378,14 +378,25 @@ func (s *Session) handleAttachEvent(srv *Server, cc *clientConn, cols, rows int)
 	}
 
 	res.snap = s.snapshotLayout(idleSnap)
+	activeWindow := s.activeWindow()
+	activeWindowPanes := windowPanes(activeWindow)
+	activePaneIDs := make(map[uint32]struct{}, len(activeWindowPanes))
+	for _, pane := range activeWindowPanes {
+		activePaneIDs[pane.ID] = struct{}{}
+	}
 	for _, p := range s.Panes {
-		history, screen, seq := p.StyledHistoryScreenSnapshot()
-		res.paneSnapshots = append(res.paneSnapshots, attachPaneSnapshot{
-			paneID:        p.ID,
-			styledHistory: history,
-			screen:        []byte(screen),
-			outputSeq:     seq,
-		})
+		snapshot := attachPaneSnapshot{paneID: p.ID}
+		if _, ok := activePaneIDs[p.ID]; ok {
+			history, screen, seq := p.StyledHistoryScreenSnapshot()
+			snapshot.styledHistory = history
+			snapshot.screen = []byte(screen)
+			snapshot.outputSeq = seq
+		} else {
+			screen, seq := p.ScreenSnapshot()
+			snapshot.screen = []byte(screen)
+			snapshot.outputSeq = seq
+		}
+		res.paneSnapshots = append(res.paneSnapshots, snapshot)
 	}
 
 	return res

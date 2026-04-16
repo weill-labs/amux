@@ -360,6 +360,27 @@ type paneHistoryUpdate struct {
 	history []proto.StyledLine
 }
 
+func windowPaneHistories(w *mux.Window) []paneHistoryUpdate {
+	if w == nil || w.Root == nil {
+		return nil
+	}
+	histories := make([]paneHistoryUpdate, 0, w.PaneCount())
+	w.Root.Walk(func(cell *mux.LayoutCell) {
+		if cell == nil || cell.Pane == nil {
+			return
+		}
+		history := cell.Pane.StyledHistorySnapshot()
+		if len(history) == 0 {
+			return
+		}
+		histories = append(histories, paneHistoryUpdate{
+			paneID:  cell.Pane.ID,
+			history: history,
+		})
+	})
+	return histories
+}
+
 type paneRender struct {
 	paneID uint32
 	data   []byte
@@ -441,11 +462,17 @@ type commandMutationEvent struct {
 }
 
 func (e commandMutationEvent) handle(s *Session) {
+	beforeActiveWindowID := s.ActiveWindowID
 	ctx := newMutationContext(s)
 	res := recoverCommandMutation(e.fn, ctx)
 	ctx.commit()
 	s.drainScheduledMutationPanes(ctx)
 	if res.err == nil {
+		activeWindowChanged := s.ActiveWindowID != beforeActiveWindowID
+		var deferredHistories []paneHistoryUpdate
+		if activeWindowChanged {
+			deferredHistories = windowPaneHistories(s.activeWindow())
+		}
 		s.ensureInputRouter().syncPanes(s.Panes)
 		// Keep enqueueCommandMutation callers from observing stale input routing
 		// after focus/window mutations return.
@@ -453,6 +480,9 @@ func (e commandMutationEvent) handle(s *Session) {
 		if res.broadcastLayout {
 			s.broadcastLayoutNow()
 			res.broadcastLayout = false
+		}
+		for _, ph := range deferredHistories {
+			s.broadcastPaneHistoryNow(ph.paneID, ph.history)
 		}
 		for _, ph := range res.paneHistories {
 			s.broadcastPaneHistoryNow(ph.paneID, ph.history)

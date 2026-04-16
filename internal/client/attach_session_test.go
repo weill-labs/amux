@@ -1,12 +1,14 @@
 package client
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -643,6 +645,109 @@ func TestReadAttachBootstrapAppliesImmediateReattachResizeCorrectionBeforeReturn
 	lines := strings.Split(cr.renderer.CapturePaneText(1, false), "\n")
 	if len(lines) == 0 || lines[0] != resizedLine {
 		t.Fatalf("pane-1 first line after bootstrap = %q, want %q", lines[0], resizedLine)
+	}
+}
+
+func TestReadAttachBootstrapDefersHiddenPaneHistoryUntilLaterWindowActivation(t *testing.T) {
+	t.Parallel()
+
+	serverConn, clientConn := net.Pipe()
+	done := make(chan struct{})
+	t.Cleanup(func() {
+		_ = serverConn.Close()
+		_ = clientConn.Close()
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Fatal("attach bootstrap writer did not exit")
+		}
+	})
+
+	root1 := proto.CellSnapshot{
+		X: 0, Y: 0, W: 20, H: 3,
+		IsLeaf: true, Dir: -1, PaneID: 1,
+	}
+	root2 := proto.CellSnapshot{
+		X: 0, Y: 0, W: 20, H: 3,
+		IsLeaf: true, Dir: -1, PaneID: 2,
+	}
+	panes := []proto.PaneSnapshot{
+		{ID: 1, Name: "pane-1", Host: "local", Color: "f5e0dc"},
+		{ID: 2, Name: "pane-2", Host: "local", Color: "f2cdcd"},
+	}
+	layout1 := &proto.LayoutSnapshot{
+		SessionName:  "test",
+		ActivePaneID: 1,
+		Width:        20,
+		Height:       3,
+		Root:         root1,
+		Panes:        panes,
+		Windows: []proto.WindowSnapshot{
+			{ID: 1, Name: "window-1", Index: 1, ActivePaneID: 1, Root: root1, Panes: []proto.PaneSnapshot{panes[0]}},
+			{ID: 2, Name: "window-2", Index: 2, ActivePaneID: 2, Root: root2, Panes: []proto.PaneSnapshot{panes[1]}},
+		},
+		ActiveWindowID: 1,
+	}
+	layout2 := &proto.LayoutSnapshot{
+		SessionName:  "test",
+		ActivePaneID: 2,
+		Width:        20,
+		Height:       3,
+		Root:         root2,
+		Panes:        panes,
+		Windows: []proto.WindowSnapshot{
+			{ID: 1, Name: "window-1", Index: 1, ActivePaneID: 1, Root: root1, Panes: []proto.PaneSnapshot{panes[0]}},
+			{ID: 2, Name: "window-2", Index: 2, ActivePaneID: 2, Root: root2, Panes: []proto.PaneSnapshot{panes[1]}},
+		},
+		ActiveWindowID: 2,
+	}
+
+	const hiddenScreen = "hidden-live"
+
+	go func() {
+		defer close(done)
+		_ = writeProtoMessages(
+			serverConn,
+			&proto.Message{Type: proto.MsgTypeLayout, Layout: layout1},
+			&proto.Message{Type: proto.MsgTypePaneHistory, PaneID: 1, History: []string{"older-visible"}},
+			&proto.Message{Type: proto.MsgTypePaneOutput, PaneID: 1, PaneData: []byte("\033[2J\033[Hvisible-live")},
+			&proto.Message{Type: proto.MsgTypePaneOutput, PaneID: 2, PaneData: []byte("\033[2J\033[H" + hiddenScreen)},
+			&proto.Message{Type: proto.MsgTypeBell},
+		)
+	}()
+
+	cr := NewClientRenderer(20, 4)
+	if err := readAttachBootstrap(clientConn, proto.NewReader(clientConn), cr); err != nil {
+		t.Fatalf("readAttachBootstrap: %v", err)
+	}
+
+	if history := cr.loadState().baseHistory[2]; len(history) != 0 {
+		t.Fatalf("hidden pane bootstrap history = %q, want no history before deferred update", history)
+	}
+
+	cr.HandleLayout(layout2)
+
+	lines := strings.Split(cr.renderer.CapturePaneText(2, false), "\n")
+	if len(lines) == 0 || lines[0] != hiddenScreen {
+		t.Fatalf("hidden pane first line after window activation = %q, want %q", lines[0], hiddenScreen)
+	}
+
+	cr.HandlePaneHistoryMessage(2, []string{"older-hidden"}, nil)
+
+	var capture proto.CaptureJSON
+	out := cr.CaptureJSONWithHistory(nil)
+	if err := json.Unmarshal([]byte(out), &capture); err != nil {
+		t.Fatalf("JSON parse: %v\nraw: %s", err, out)
+	}
+	if len(capture.Panes) != 1 {
+		t.Fatalf("panes = %d, want 1", len(capture.Panes))
+	}
+	got := capture.Panes[0].Content
+	for len(got) > 0 && got[len(got)-1] == "" {
+		got = got[:len(got)-1]
+	}
+	if want := []string{"older-hidden", hiddenScreen}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("content = %#v, want %#v", got, want)
 	}
 }
 

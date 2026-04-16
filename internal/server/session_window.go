@@ -49,6 +49,20 @@ func (s *Session) findWindowByPaneID(paneID uint32) *mux.Window {
 	return nil
 }
 
+func windowPanes(w *mux.Window) []*mux.Pane {
+	if w == nil || w.Root == nil {
+		return nil
+	}
+	panes := make([]*mux.Pane, 0, w.PaneCount())
+	w.Root.Walk(func(cell *mux.LayoutCell) {
+		if cell == nil || cell.Pane == nil {
+			return
+		}
+		panes = append(panes, cell.Pane)
+	})
+	return panes
+}
+
 // removeWindow removes a window from the list by ID.
 func (s *Session) removeWindow(windowID uint32) {
 	for i, w := range s.Windows {
