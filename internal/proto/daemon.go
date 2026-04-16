@@ -171,7 +171,7 @@ func defaultStartupLockDeps() startupLockDeps {
 	}
 }
 
-func withSessionStartupLockWithDeps(sessionName string, deps startupLockDeps, fn func() error) error {
+func withSessionStartupLockWithDeps(sessionName string, deps startupLockDeps, fn func() error) (err error) {
 	if err := deps.mkdirAll(SocketDir(), 0700); err != nil {
 		return fmt.Errorf("creating socket dir: %w", err)
 	}
@@ -186,7 +186,12 @@ func withSessionStartupLockWithDeps(sessionName string, deps startupLockDeps, fn
 	if err := deps.flock(int(lockFile.Fd()), syscall.LOCK_EX); err != nil {
 		return fmt.Errorf("locking startup lock: %w", err)
 	}
-	defer deps.flock(int(lockFile.Fd()), syscall.LOCK_UN)
+	defer func() {
+		unlockErr := deps.flock(int(lockFile.Fd()), syscall.LOCK_UN)
+		if err == nil && unlockErr != nil {
+			err = fmt.Errorf("unlocking startup lock: %w", unlockErr)
+		}
+	}()
 
 	return fn()
 }

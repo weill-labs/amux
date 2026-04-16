@@ -19,7 +19,7 @@ func assertGolden(t *testing.T, name string, actual string) {
 	path := filepath.Join("testdata", name)
 
 	if *updateGoldens {
-		os.MkdirAll("testdata", 0755)
+		mustMkdirAll(t, "testdata", 0755)
 		if err := os.WriteFile(path, []byte(actual), 0644); err != nil {
 			t.Fatalf("writing golden %s: %v", path, err)
 		}

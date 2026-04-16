@@ -408,7 +408,7 @@ func TestRenderDiffWithOverlayDirtySkipsCleanPaneCellReads(t *testing.T) {
 	t.Parallel()
 
 	root := mux.NewLeaf(&mux.Pane{ID: 1, Meta: mux.PaneMeta{Name: "pane-1"}}, 0, 0, 80, 11)
-	root.Split(mux.SplitHorizontal, &mux.Pane{ID: 2, Meta: mux.PaneMeta{Name: "pane-2"}})
+	mustSplitCell(t, root, mux.SplitHorizontal, &mux.Pane{ID: 2, Meta: mux.PaneMeta{Name: "pane-2"}})
 	root.FixOffsets()
 
 	pane1Reads := 0

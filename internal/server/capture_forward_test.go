@@ -1050,7 +1050,7 @@ func readCaptureRequestForTest(t *testing.T, conn net.Conn) *Message {
 	if err := conn.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
 		t.Fatalf("SetReadDeadline: %v", err)
 	}
-	defer conn.SetReadDeadline(time.Time{})
+	defer mustSetReadDeadline(t, conn, time.Time{})
 
 	msg, err := readMsgOnConn(conn)
 	if err != nil {

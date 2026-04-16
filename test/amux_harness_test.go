@@ -2,7 +2,6 @@ package test
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -112,7 +111,7 @@ func newAmuxHarnessWithBinInDir(tb testing.TB, binPath, launchDir string, envVar
 	}
 
 	var b [4]byte
-	rand.Read(b[:])
+	mustRandRead(tb, b[:])
 	inner := fmt.Sprintf("t-%x", b)
 
 	h := &AmuxHarness{outer: outer, inner: inner, innerBin: binPath, tb: tb, session: inner}
@@ -147,14 +146,14 @@ func shutdownAmuxHarness(tb testing.TB, h *AmuxHarness) {
 
 	for _, pid := range h.innerServerPIDs() {
 		if pid != "" {
-			exec.Command("kill", pid).Run()
+			_ = exec.Command("kill", pid).Run()
 		}
 	}
 	h.waitInnerServerGone(5 * time.Second)
 	if pids := h.innerServerPIDs(); len(pids) > 0 {
 		for _, pid := range pids {
 			if pid != "" {
-				exec.Command("kill", "-9", pid).Run()
+				_ = exec.Command("kill", "-9", pid).Run()
 			}
 		}
 		h.waitInnerServerGone(2 * time.Second)
@@ -176,7 +175,7 @@ func shutdownAmuxHarness(tb testing.TB, h *AmuxHarness) {
 		return
 	}
 	for _, suffix := range []string{"", ".log"} {
-		exec.Command("rm", "-f", fmt.Sprintf("%s/%s%s", socketDir, h.inner, suffix)).Run()
+		_ = exec.Command("rm", "-f", fmt.Sprintf("%s/%s%s", socketDir, h.inner, suffix)).Run()
 	}
 	h.inner = ""
 	h.session = ""
@@ -334,29 +333,6 @@ func (h *AmuxHarness) waitUIAfter(event string, afterGen uint64, timeout time.Du
 	}
 	if !strings.Contains(out, event) {
 		h.tb.Fatalf("wait-ui %s --after %d output = %q", event, afterGen, out)
-	}
-}
-
-func (h *AmuxHarness) waitUIGenChange(previousGen uint64, timeout time.Duration) uint64 {
-	h.tb.Helper()
-
-	deadline := time.Now().Add(timeout)
-	var out string
-	for {
-		out = strings.TrimSpace(h.runCmd("cursor", "ui"))
-		n, err := strconv.ParseUint(out, 10, 64)
-		if err == nil {
-			if n != previousGen {
-				return n
-			}
-		} else if !isCommandConnectError(out) || !time.Now().Before(deadline) {
-			h.tb.Fatalf("parsing inner ui-gen after %d: %v (output: %q)", previousGen, err, out)
-		}
-
-		if !time.Now().Before(deadline) {
-			h.tb.Fatalf("ui generation did not change from %d within %v (last output: %q)\nouter:\n%s", previousGen, timeout, out, h.captureOuter())
-		}
-		time.Sleep(25 * time.Millisecond)
 	}
 }
 

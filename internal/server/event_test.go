@@ -143,7 +143,7 @@ func TestEventJSONOmitsZeroFields(t *testing.T) {
 	}
 
 	var raw map[string]interface{}
-	json.Unmarshal(data, &raw)
+	mustUnmarshalJSON(t, data, &raw)
 
 	if _, ok := raw["generation"]; ok {
 		t.Error("generation should be omitted when zero")
@@ -439,7 +439,7 @@ func TestEmitEventFiltered(t *testing.T) {
 	select {
 	case data := <-res.sub.Ch:
 		var ev Event
-		json.Unmarshal(data, &ev)
+		mustUnmarshalJSON(t, data, &ev)
 		if ev.Type != EventIdle {
 			t.Errorf("expected idle event, got %q", ev.Type)
 		}

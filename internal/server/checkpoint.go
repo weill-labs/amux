@@ -123,10 +123,16 @@ func (s *Server) Reload(execPath string) error {
 	sess.logCheckpointWrite("reload", cpPath, time.Since(reloadStarted), nil)
 
 	// Clear FD_CLOEXEC on inherited FDs (skip proxy panes — they have no PTY)
-	clearCloexec(uintptr(cp.ListenerFd))
+	if err := clearCloexec(uintptr(cp.ListenerFd)); err != nil {
+		sess.shutdown.Store(false)
+		return fmt.Errorf("clearing close-on-exec on listener: %w", err)
+	}
 	for _, pc := range cp.Panes {
 		if !pc.IsProxy && pc.PtmxFd >= 0 {
-			clearCloexec(uintptr(pc.PtmxFd))
+			if err := clearCloexec(uintptr(pc.PtmxFd)); err != nil {
+				sess.shutdown.Store(false)
+				return fmt.Errorf("clearing close-on-exec on pane %d PTY: %w", pc.ID, err)
+			}
 		}
 	}
 
@@ -325,7 +331,9 @@ func NewServerFromCheckpointWithScrollbackLogger(cp *checkpoint.ServerCheckpoint
 				return false
 			}
 			for _, target := range targets {
-				target.pane.Resize(target.cols, target.rows)
+				if err := target.pane.Resize(target.cols, target.rows); err != nil {
+					return false
+				}
 			}
 			return true
 		}
@@ -366,6 +374,10 @@ func listenerFd(ln net.Listener) (int, error) {
 }
 
 // clearCloexec clears the FD_CLOEXEC flag so the FD survives exec.
-func clearCloexec(fd uintptr) {
-	syscall.Syscall(syscall.SYS_FCNTL, fd, syscall.F_SETFD, 0)
+func clearCloexec(fd uintptr) error {
+	_, _, errno := syscall.Syscall(syscall.SYS_FCNTL, fd, syscall.F_SETFD, 0)
+	if errno != 0 {
+		return errno
+	}
+	return nil
 }

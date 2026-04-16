@@ -33,7 +33,7 @@ func TestCopyModeScroll(t *testing.T) {
 
 	// Generate 50 numbered lines of output using a temp script
 	scriptPath := filepath.Join(os.TempDir(), fmt.Sprintf("amux-scroll-%s.sh", h.session))
-	os.WriteFile(scriptPath, []byte(`#!/bin/bash
+	mustWriteFile(t, scriptPath, []byte(`#!/bin/bash
 for i in $(seq -w 1 50); do echo "SCROLLTEST-$i"; done
 `), 0755)
 	t.Cleanup(func() { os.Remove(scriptPath) })
@@ -76,7 +76,7 @@ func TestCopyModeKittyCtrlUDHalfPageScroll(t *testing.T) {
 	h.runCmd("resize-window", "80", "14")
 
 	scriptPath := filepath.Join(os.TempDir(), fmt.Sprintf("amux-kitty-half-page-%s.sh", h.session))
-	os.WriteFile(scriptPath, []byte(`#!/bin/bash
+	mustWriteFile(t, scriptPath, []byte(`#!/bin/bash
 for i in $(seq -w 1 40); do echo "KITTYHALF-$i"; done
 `), 0755)
 	t.Cleanup(func() { os.Remove(scriptPath) })
@@ -219,7 +219,7 @@ func TestCopyModeResizeSurvives(t *testing.T) {
 
 	// Generate output so scrollback has content
 	scriptPath := filepath.Join(os.TempDir(), fmt.Sprintf("amux-resize-%s.sh", h.session))
-	os.WriteFile(scriptPath, []byte("#!/bin/bash\nfor i in $(seq -w 1 30); do echo \"RESIZE-$i\"; done\n"), 0755)
+	mustWriteFile(t, scriptPath, []byte("#!/bin/bash\nfor i in $(seq -w 1 30); do echo \"RESIZE-$i\"; done\n"), 0755)
 	t.Cleanup(func() { os.Remove(scriptPath) })
 
 	h.sendKeys(scriptPath, "Enter")
@@ -305,7 +305,7 @@ func TestCopyModeVimMotions(t *testing.T) {
 
 	// Generate output with distinctive words on multiple lines.
 	scriptPath := filepath.Join(os.TempDir(), fmt.Sprintf("amux-motions-%s.sh", h.session))
-	os.WriteFile(scriptPath, []byte(`#!/bin/bash
+	mustWriteFile(t, scriptPath, []byte(`#!/bin/bash
 for i in $(seq -w 1 50); do echo "ALPHA BRAVO CHARLIE $i"; done
 `), 0755)
 	t.Cleanup(func() { os.Remove(scriptPath) })

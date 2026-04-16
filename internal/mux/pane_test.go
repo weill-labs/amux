@@ -25,7 +25,7 @@ func TestContentLines(t *testing.T) {
 	}
 
 	// Write two lines of content
-	emu.Write([]byte("hello world\r\nline two\r\n"))
+	mustWrite(t, emu, []byte("hello world\r\nline two\r\n"))
 
 	lines := p.ContentLines()
 
@@ -57,7 +57,7 @@ func TestContentLinesStripsANSI(t *testing.T) {
 	}
 
 	// Write colored text
-	emu.Write([]byte("\033[31mRED\033[m normal\r\n"))
+	mustWrite(t, emu, []byte("\033[31mRED\033[m normal\r\n"))
 
 	lines := p.ContentLines()
 
@@ -80,7 +80,7 @@ func TestCaptureSnapshotIncludesHistoryContentAndCursor(t *testing.T) {
 	}
 	p.SetRetainedHistory([]string{"base-1"})
 
-	emu.Write([]byte("line-1\r\nline-2\r\nline-3"))
+	mustWrite(t, emu, []byte("line-1\r\nline-2\r\nline-3"))
 
 	snap := p.CaptureSnapshot()
 
@@ -107,13 +107,13 @@ func TestTerminalSnapshotIncludesCursorAndMetadata(t *testing.T) {
 		emulator: emu,
 	}
 
-	emu.Write([]byte(
-		"\x1b]10;#112233\x07" +
-			"\x1b]11;#445566\x07" +
-			"\x1b]12;#778899\x07" +
-			"\x1b]8;;https://example.com\x07" +
-			"\x1b[6 q" +
-			"\x1b[?1049h" +
+	mustWrite(t, emu, []byte(
+		"\x1b]10;#112233\x07"+
+			"\x1b]11;#445566\x07"+
+			"\x1b]12;#778899\x07"+
+			"\x1b]8;;https://example.com\x07"+
+			"\x1b[6 q"+
+			"\x1b[?1049h"+
 			"prompt",
 	))
 
@@ -305,7 +305,7 @@ func TestCaptureSnapshotRespectsScrollbackLimit(t *testing.T) {
 	}
 	p.SetRetainedHistory([]string{"base-1", "base-2", "base-3"})
 
-	emu.Write([]byte("line-1\r\nline-2\r\nline-3"))
+	mustWrite(t, emu, []byte("line-1\r\nline-2\r\nline-3"))
 
 	snap := p.CaptureSnapshot()
 
@@ -326,7 +326,7 @@ func TestCaptureSnapshotIncludesCursorBlock(t *testing.T) {
 		emulator: emu,
 	}
 
-	emu.Write([]byte("\x1b[2J\x1b[H❯ \x1b[7m \x1b[m\x1b[?25l\x1b[2;1H"))
+	mustWrite(t, emu, []byte("\x1b[2J\x1b[H❯ \x1b[7m \x1b[m\x1b[?25l\x1b[2;1H"))
 
 	snap := p.CaptureSnapshot()
 	if !snap.HasCursorBlock {
@@ -354,9 +354,9 @@ func TestCaptureSnapshotTracksLiveScrollbackSourceWidthsAcrossResize(t *testing.
 	}
 	wireScrollbackCallbacks(p)
 
-	emu.Write([]byte("01234567890123456789\r\n"))
+	mustWrite(t, emu, []byte("01234567890123456789\r\n"))
 	emu.Resize(10, 1)
-	emu.Write([]byte("ABCDEFGHIJ\r\n"))
+	mustWrite(t, emu, []byte("ABCDEFGHIJ\r\n"))
 
 	snap := p.CaptureSnapshot()
 	if len(snap.LiveHistory) != 2 {
@@ -381,7 +381,7 @@ func TestPaneResetStateClearsRetainedAndLiveHistory(t *testing.T) {
 	}
 	p.SetRetainedHistory([]string{"base-1", "base-2"})
 
-	emu.Write([]byte("line-1\r\nline-2\r\nline-3"))
+	mustWrite(t, emu, []byte("line-1\r\nline-2\r\nline-3"))
 
 	before := p.CaptureSnapshot()
 	if len(before.History) == 0 {
@@ -426,11 +426,11 @@ func TestCaptureSnapshotTrimsLiveScrollbackWidthMetadataWithCap(t *testing.T) {
 	}
 	wireScrollbackCallbacks(p)
 
-	emu.Write([]byte("11111\r\n"))
+	mustWrite(t, emu, []byte("11111\r\n"))
 	emu.Resize(6, 1)
-	emu.Write([]byte("222222\r\n"))
+	mustWrite(t, emu, []byte("222222\r\n"))
 	emu.Resize(7, 1)
-	emu.Write([]byte("3333333\r\n"))
+	mustWrite(t, emu, []byte("3333333\r\n"))
 
 	snap := p.CaptureSnapshot()
 	if len(snap.LiveHistory) != 2 {
@@ -456,7 +456,7 @@ func TestPaneScrollbackWidthClearsWithScrollback(t *testing.T) {
 	}
 	wireScrollbackCallbacks(p)
 
-	emu.Write([]byte("11111\r\n"))
+	mustWrite(t, emu, []byte("11111\r\n"))
 
 	if got := p.ScrollbackSourceWidth(0); got != 5 {
 		t.Fatalf("ScrollbackSourceWidth(0) = %d, want 5", got)

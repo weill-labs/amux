@@ -65,7 +65,9 @@ func (w *Window) SplitRoot(dir SplitDir, newPane *Pane) (*Pane, error) {
 func (w *Window) SplitRootWithOptions(dir SplitDir, newPane *Pane, opts SplitOptions) (*Pane, error) {
 	w.assertOwner("SplitRootWithOptions")
 	if w.ZoomedPaneID != 0 && !opts.KeepFocus {
-		w.Unzoom()
+		if err := w.Unzoom(); err != nil {
+			return nil, err
+		}
 	}
 	if w.hasPendingLead() {
 		// First split on a single-pane lead window always anchors the lead on the
@@ -168,7 +170,9 @@ func (w *Window) SplitWithOptions(dir SplitDir, newPane *Pane, opts SplitOptions
 func (w *Window) SplitPaneWithOptions(targetPaneID uint32, dir SplitDir, newPane *Pane, opts SplitOptions) (*Pane, error) {
 	w.assertOwner("SplitPaneWithOptions")
 	if w.ZoomedPaneID != 0 && !opts.KeepFocus {
-		w.Unzoom()
+		if err := w.Unzoom(); err != nil {
+			return nil, err
+		}
 	}
 	if w.hasPendingLead() && targetPaneID == w.LeadPaneID {
 		return w.materializePendingLead(newPane, opts)
@@ -194,7 +198,9 @@ func (w *Window) splitCellWithOptions(cell *LayoutCell, dir SplitDir, newPane *P
 	}
 
 	// Resize PTYs to match layout cells (minus status line row)
-	newPane.Resize(newCell.W, PaneContentHeight(newCell.H))
+	if err := newPane.Resize(newCell.W, PaneContentHeight(newCell.H)); err != nil {
+		return nil, err
+	}
 
 	// Find the existing pane's cell without a second tree walk:
 	// - Case A (sibling insertion): cell itself still holds the existing pane
@@ -206,7 +212,9 @@ func (w *Window) splitCellWithOptions(cell *LayoutCell, dir SplitDir, newPane *P
 		existingCell = cell.Children[0]
 	}
 	if existingCell != nil && existingCell.Pane != nil {
-		existingCell.Pane.Resize(existingCell.W, PaneContentHeight(existingCell.H))
+		if err := existingCell.Pane.Resize(existingCell.W, PaneContentHeight(existingCell.H)); err != nil {
+			return nil, err
+		}
 	}
 
 	w.Root.FixOffsets()
@@ -285,7 +293,9 @@ func (w *Window) MovePaneIntoSplit(paneID, targetPaneID uint32, dir SplitDir, in
 		activePaneID = w.ActivePane.ID
 	}
 	if w.ZoomedPaneID != 0 {
-		w.Unzoom()
+		if err := w.Unzoom(); err != nil {
+			return err
+		}
 	}
 
 	if err := w.ClosePane(paneID); err != nil {
@@ -300,7 +310,9 @@ func (w *Window) MovePaneIntoSplit(paneID, targetPaneID uint32, dir SplitDir, in
 	if err != nil {
 		return err
 	}
-	sourcePane.Resize(newCell.W, PaneContentHeight(newCell.H))
+	if err := sourcePane.Resize(newCell.W, PaneContentHeight(newCell.H)); err != nil {
+		return err
+	}
 
 	var existingCell *LayoutCell
 	if targetCell.IsLeaf() {
@@ -311,7 +323,9 @@ func (w *Window) MovePaneIntoSplit(paneID, targetPaneID uint32, dir SplitDir, in
 		existingCell = targetCell.Children[0]
 	}
 	if existingCell != nil && existingCell.Pane != nil {
-		existingCell.Pane.Resize(existingCell.W, PaneContentHeight(existingCell.H))
+		if err := existingCell.Pane.Resize(existingCell.W, PaneContentHeight(existingCell.H)); err != nil {
+			return err
+		}
 	}
 
 	w.Root.FixOffsets()
@@ -343,7 +357,9 @@ func (w *Window) MovePaneToRootEdge(paneID uint32, dir SplitDir, insertFirst boo
 		activePaneID = w.ActivePane.ID
 	}
 	if w.ZoomedPaneID != 0 {
-		w.Unzoom()
+		if err := w.Unzoom(); err != nil {
+			return err
+		}
 	}
 
 	if err := w.ClosePane(paneID); err != nil {
@@ -551,7 +567,9 @@ func (w *Window) SwapTree(id1, id2 uint32) error {
 	}
 
 	if w.ZoomedPaneID != 0 {
-		w.Unzoom()
+		if err := w.Unzoom(); err != nil {
+			return err
+		}
 	}
 
 	root := w.logicalRoot()
@@ -583,7 +601,9 @@ func (w *Window) MovePane(paneID, targetPaneID uint32, before bool) error {
 	}
 	if sourceCell.Parent != nil && sourceCell.Parent == targetCell.Parent {
 		if w.ZoomedPaneID != 0 {
-			w.Unzoom()
+			if err := w.Unzoom(); err != nil {
+				return err
+			}
 		}
 		parent := sourceCell.Parent
 		parent.Children = reorderLayoutChildren(parent.Children, sourceCell.IndexInParent(), targetCell.IndexInParent(), before)
@@ -604,7 +624,9 @@ func (w *Window) MovePane(paneID, targetPaneID uint32, before bool) error {
 	}
 
 	if w.ZoomedPaneID != 0 {
-		w.Unzoom()
+		if err := w.Unzoom(); err != nil {
+			return err
+		}
 	}
 
 	root := w.logicalRoot()
@@ -639,7 +661,9 @@ func (w *Window) movePaneWithinSplitGroup(paneID uint32, delta int) error {
 		return fmt.Errorf("pane %d is already last in its split group", paneID)
 	}
 	if w.ZoomedPaneID != 0 {
-		w.Unzoom()
+		if err := w.Unzoom(); err != nil {
+			return err
+		}
 	}
 	// MovePaneUp inserts before the previous sibling; MovePaneDown inserts after
 	// the next sibling, so only negative deltas map to reorderLayoutChildren's
@@ -745,7 +769,9 @@ func (w *Window) Zoom(paneID uint32) error {
 		return w.Unzoom()
 	}
 	if w.ZoomedPaneID != 0 {
-		w.Unzoom()
+		if err := w.Unzoom(); err != nil {
+			return err
+		}
 	}
 
 	cell, err := w.mustFindPane(paneID)
@@ -764,7 +790,9 @@ func (w *Window) Zoom(paneID uint32) error {
 	w.setActive(cell.Pane)
 
 	// Resize zoomed pane PTY to full window
-	cell.Pane.Resize(w.Width, PaneContentHeight(w.Height))
+	if err := cell.Pane.Resize(w.Width, PaneContentHeight(w.Height)); err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -783,7 +811,9 @@ func (w *Window) Unzoom() error {
 	// Resize the previously-zoomed pane back to its cell size
 	cell := w.Root.FindPane(paneID)
 	if cell != nil && cell.Pane != nil {
-		cell.Pane.Resize(cell.W, PaneContentHeight(cell.H))
+		if err := cell.Pane.Resize(cell.W, PaneContentHeight(cell.H)); err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -830,7 +860,9 @@ func (w *Window) SplicePane(oldPaneID uint32, newPanes []*Pane) ([]*LayoutCell, 
 	// Single pane: simple replacement
 	if len(newPanes) == 1 {
 		cell.Pane = newPanes[0]
-		newPanes[0].Resize(cell.W, PaneContentHeight(cell.H))
+		if err := newPanes[0].Resize(cell.W, PaneContentHeight(cell.H)); err != nil {
+			return nil, err
+		}
 		if w.ActivePane != nil && w.ActivePane.ID == oldPaneID {
 			w.setActive(newPanes[0])
 		}
@@ -864,7 +896,9 @@ func (w *Window) SplicePane(oldPaneID uint32, newPanes []*Pane) ([]*LayoutCell, 
 		leaf.Parent = cell
 		cell.Children[i] = leaf
 
-		pane.Resize(childW, PaneContentHeight(h))
+		if err := pane.Resize(childW, PaneContentHeight(h)); err != nil {
+			return nil, err
+		}
 		xoff += childW + 1 // +1 for separator
 	}
 
@@ -929,7 +963,9 @@ func (w *Window) UnsplicePane(hostName string, replacement *Pane) error {
 		targetCell.Children = nil
 	}
 
-	replacement.Resize(targetCell.W, PaneContentHeight(targetCell.H))
+	if err := replacement.Resize(targetCell.W, PaneContentHeight(targetCell.H)); err != nil {
+		return err
+	}
 	if w.ActivePane == nil || w.ActivePane.Meta.Host == hostName || w.Root.FindPane(w.ActivePane.ID) == nil {
 		w.setActive(replacement)
 	} else if targetCell.Parent == nil {

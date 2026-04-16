@@ -195,8 +195,6 @@ func (c *LayoutCell) Close() *LayoutCell {
 		if parent.Parent != nil {
 			pidx := parent.IndexInParent()
 			parent.Parent.Children[pidx] = only
-		} else {
-			// only becomes the new root — caller must update window.Root
 		}
 		return only
 	}

@@ -47,6 +47,13 @@ jobs:
         with:
           go-version: "1.25"
 
+      - name: Lint
+        if: steps.changes.outputs.code_changed == 'true'
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          args: ./...
+
       - name: Cache apt packages
         if: steps.changes.outputs.code_changed == 'true'
         uses: actions/cache@v5.0.3

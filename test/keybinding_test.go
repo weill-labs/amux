@@ -51,17 +51,17 @@ func newAmuxHarnessWithConfig(t *testing.T, configContent string) *AmuxHarness {
 
 	t.Cleanup(func() {
 		// Best-effort detach (only works with default prefix).
-		exec.Command(amuxBin, "-s", inner, "list").Run()
+		_ = exec.Command(amuxBin, "-s", inner, "list").Run()
 		out, _ := exec.Command("pgrep", "-f", fmt.Sprintf("amux _server %s$", inner)).Output()
 		for _, pid := range strings.Split(strings.TrimSpace(string(out)), "\n") {
 			if pid != "" {
-				exec.Command("kill", pid).Run()
+				_ = exec.Command("kill", pid).Run()
 			}
 		}
 		time.Sleep(200 * time.Millisecond)
 		socketDir := server.SocketDir()
 		for _, suffix := range []string{"", ".log"} {
-			exec.Command("rm", "-f", fmt.Sprintf("%s/%s%s", socketDir, inner, suffix)).Run()
+			_ = exec.Command("rm", "-f", fmt.Sprintf("%s/%s%s", socketDir, inner, suffix)).Run()
 		}
 	})
 

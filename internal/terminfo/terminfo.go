@@ -2,6 +2,7 @@ package terminfo
 
 import (
 	_ "embed"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -27,7 +28,7 @@ var (
 
 // Install compiles the embedded amux terminfo entry into ~/.terminfo.
 // It is safe to run repeatedly.
-func Install() error {
+func Install() (err error) {
 	home, err := userHomeDir()
 	if err != nil {
 		return fmt.Errorf("finding home directory for %s terminfo install: %w", Name, err)
@@ -48,7 +49,12 @@ func Install() error {
 	if err := flockFile(lockFile, syscall.LOCK_EX); err != nil {
 		return fmt.Errorf("locking %s terminfo install: %w", Name, err)
 	}
-	defer flockFile(lockFile, syscall.LOCK_UN)
+	defer func() {
+		unlockErr := flockFile(lockFile, syscall.LOCK_UN)
+		if err == nil && unlockErr != nil {
+			err = fmt.Errorf("unlocking %s terminfo install: %w", Name, unlockErr)
+		}
+	}()
 
 	tic, err := exec.LookPath("tic")
 	if err != nil {
@@ -63,7 +69,10 @@ func Install() error {
 	defer os.Remove(tmpPath)
 
 	if err := writeTempSource(tmp, source); err != nil {
-		closeTempSource(tmp)
+		closeErr := closeTempSource(tmp)
+		if closeErr != nil {
+			return fmt.Errorf("writing temp terminfo source: %w", errors.Join(err, fmt.Errorf("closing temp terminfo source: %w", closeErr)))
+		}
 		return fmt.Errorf("writing temp terminfo source: %w", err)
 	}
 	if err := closeTempSource(tmp); err != nil {

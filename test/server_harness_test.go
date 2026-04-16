@@ -2,7 +2,6 @@ package test
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -143,13 +142,6 @@ func newServerHarnessWithConfig(tb testing.TB, cols, rows int, configContent str
 	return newServerHarnessWithOptions(tb, cols, rows, configContent, false, false)
 }
 
-// newServerHarnessExitUnattached starts a server that exits when all clients
-// disconnect. Use this only in tests that explicitly exercise exit-unattached.
-func newServerHarnessExitUnattached(tb testing.TB) *ServerHarness {
-	tb.Helper()
-	return newServerHarnessWithOptions(tb, 80, 24, "", true, false)
-}
-
 // newServerHarnessWithOptions is the shared constructor. When exitUnattached
 // is true the server self-terminates after all clients disconnect.
 func newServerHarnessWithOptions(tb testing.TB, cols, rows int, configContent string, exitUnattached, keepalive bool, extraEnv ...string) *ServerHarness {
@@ -161,7 +153,7 @@ func newServerHarnessForSession(tb testing.TB, session, home string, cols, rows 
 	tb.Helper()
 	var b [4]byte
 	if session == "" {
-		rand.Read(b[:])
+		mustRandRead(tb, b[:])
 		session = fmt.Sprintf("t-%x", b)
 	}
 
@@ -213,13 +205,13 @@ func newServerHarnessForSession(tb testing.TB, session, home string, cols, rows 
 	var coverDir string
 	if gocoverDir != "" {
 		coverDir = filepath.Join(gocoverDir, session)
-		os.MkdirAll(coverDir, 0755)
+		mustMkdirAll(tb, coverDir, 0755)
 		env = upsertEnv(env, "GOCOVERDIR", coverDir)
 	}
 	cmd.Env = env
 
 	logDir := server.SocketDir()
-	os.MkdirAll(logDir, 0700)
+	mustMkdirAll(tb, logDir, 0700)
 	logPath := filepath.Join(logDir, session+".log")
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
 	if err != nil {
@@ -241,7 +233,7 @@ func newServerHarnessForSession(tb testing.TB, session, home string, cols, rows 
 	logFile.Close()
 
 	// Block until server signals readiness (after net.Listen succeeds).
-	readPipe.SetReadDeadline(time.Now().Add(10 * time.Second))
+	mustSetReadDeadline(tb, readPipe, time.Now().Add(10*time.Second))
 	buf := make([]byte, 64)
 	n, err := readPipe.Read(buf)
 	readPipe.Close()
@@ -249,7 +241,7 @@ func newServerHarnessForSession(tb testing.TB, session, home string, cols, rows 
 		logData, _ := os.ReadFile(logPath)
 		var waitErr error
 		if err != nil && os.IsTimeout(err) {
-			_ = cmd.Process.Kill()
+			ignoreProcessKill(cmd.Process)
 			waitErr = cmd.Wait()
 		} else {
 			waitErr = cmd.Wait()
@@ -280,12 +272,12 @@ func newServerHarnessForSession(tb testing.TB, session, home string, cols, rows 
 	sockPath := server.SocketPath(session)
 	client, err := newHeadlessClient(sockPath, session, cols, rows)
 	if err != nil {
-		cmd.Process.Kill()
+		ignoreProcessKill(cmd.Process)
 		tb.Fatalf("attaching headless client: %v", err)
 	}
 	if err := client.waitCommandReady(); err != nil {
 		client.close()
-		cmd.Process.Kill()
+		ignoreProcessKill(cmd.Process)
 		tb.Fatalf("headless client command-ready: %v", err)
 	}
 	h.client = client
@@ -293,7 +285,7 @@ func newServerHarnessForSession(tb testing.TB, session, home string, cols, rows 
 		secondary, err := newHeadlessClient(sockPath, session, cols, rows)
 		if err != nil {
 			h.client.close()
-			cmd.Process.Kill()
+			ignoreProcessKill(cmd.Process)
 			tb.Fatalf("attaching keepalive headless client: %v", err)
 		}
 		h.keepalive = secondary
@@ -321,8 +313,11 @@ func (h *ServerHarness) ensureControlClient() error {
 }
 
 func (h *ServerHarness) signalServer(sig os.Signal) error {
+	if h == nil {
+		return fmt.Errorf("server process is not running")
+	}
 	h.tb.Helper()
-	if h == nil || h.cmd == nil || h.cmd.Process == nil {
+	if h.cmd == nil || h.cmd.Process == nil {
 		return fmt.Errorf("server process is not running")
 	}
 	pid := h.cmd.Process.Pid
@@ -353,19 +348,18 @@ func (h *ServerHarness) cleanup() {
 		h.cmd = nil
 	}
 
-	gracefulShutdown := h.shutdownPipe == nil
 	switch {
 	case h.cmd == nil || h.cmd.Process == nil:
 	case h.exitUnattached:
 		if h.shutdownPipe != nil {
-			gracefulShutdown = h.waitForShutdownSignalWithin(5 * time.Second)
+			_ = h.waitForShutdownSignalWithin(5 * time.Second)
 		}
 	default:
 		if serverProcessMatchesSession(serverPid, h.session) {
 			_ = h.cmd.Process.Signal(os.Interrupt)
 		}
 		if h.shutdownPipe != nil {
-			gracefulShutdown = h.waitForShutdownSignalWithin(5 * time.Second)
+			_ = h.waitForShutdownSignalWithin(5 * time.Second)
 		}
 	}
 
@@ -376,9 +370,6 @@ func (h *ServerHarness) cleanup() {
 		if !h.waitForProcessExit(3 * time.Second) {
 			h.tb.Fatalf("server process %d did not exit during harness cleanup", serverPid)
 		}
-	} else if h.cmd != nil && !gracefulShutdown {
-		// The process exited before we observed the explicit shutdown signal.
-		// Treat the cleanup as complete once the server is gone.
 	}
 
 	if h.shutdownPipe != nil {
@@ -453,7 +444,7 @@ func killChildrenByPid(pid int) {
 	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
 		line = strings.TrimSpace(line)
 		if childPID, err := strconv.Atoi(line); err == nil {
-			syscall.Kill(childPID, syscall.SIGKILL)
+			_ = syscall.Kill(childPID, syscall.SIGKILL)
 		}
 	}
 }
@@ -930,21 +921,6 @@ func (h *ServerHarness) serverLogTail(maxBytes int) string {
 	return tailDiagnostic(string(data), maxBytes)
 }
 
-func (h *ServerHarness) serverWaitStatus() string {
-	if h.waitDone == nil {
-		return ""
-	}
-	select {
-	case <-h.waitDone:
-		if h.waitErr == nil {
-			return "server process exited cleanly"
-		}
-		return "server process exited: " + h.waitErr.Error()
-	default:
-		return "server process still running"
-	}
-}
-
 func truncateDiagnostic(s string, max int) string {
 	if max <= 0 || len(s) <= max {
 		return s
@@ -1392,19 +1368,6 @@ func (h *ServerHarness) waitForPaneContent(pane, substr string, timeout time.Dur
 // Split helpers — synchronous via CLI, no keybinding simulation
 // ---------------------------------------------------------------------------
 
-// activePaneName returns the name of the currently active pane via JSON capture.
-func (h *ServerHarness) activePaneName() string {
-	h.tb.Helper()
-	c := h.captureJSON()
-	for _, p := range c.Panes {
-		if p.Active {
-			return p.Name
-		}
-	}
-	h.tb.Fatal("no active pane found in capture")
-	return ""
-}
-
 // doSplit is a layout-construction helper for tests. It clears the default
 // single-pane pending lead so generic layout tests keep exercising ordinary
 // split semantics, then runs the public split CLI command against the active
@@ -1715,13 +1678,6 @@ func (h *ServerHarness) runShellCommandWithSettle(pane, command, marker, settle 
 	h.sendKeys(pane, command, "Enter")
 	h.waitFor(pane, marker)
 	h.waitIdleWithSettle(pane, settle, "5s")
-}
-
-func (h *ServerHarness) sendClientKeys(keys ...string) string {
-	h.tb.Helper()
-	pane := h.activePaneName()
-	args := append([]string{"send-keys", pane, "--via", "client"}, keys...)
-	return h.runCmd(args...)
 }
 
 func TestNewServerHarnessReturnsCommandReady(t *testing.T) {

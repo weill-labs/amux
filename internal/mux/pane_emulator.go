@@ -39,7 +39,9 @@ func (p *Pane) drainResponses(emulator TerminalEmulator, ptmx *os.File, done cha
 	for {
 		n, err := emulator.Read(buf)
 		if n > 0 {
-			ptmx.Write(buf[:n])
+			if _, writeErr := ptmx.Write(buf[:n]); writeErr != nil {
+				return
+			}
 		}
 		if err != nil {
 			return

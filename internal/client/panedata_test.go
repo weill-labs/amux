@@ -257,7 +257,7 @@ func TestPaneDataRenderScreenInCopyModeAppliesOverlayAndPreservesBaseStyle(t *te
 	rendered := pane.RenderScreen(true)
 
 	term := vt.NewSafeEmulator(5, 1)
-	term.Write([]byte(rendered))
+	mustWrite(t, term, []byte(rendered))
 	cell := term.CellAt(1, 0)
 	if cell == nil {
 		t.Fatal("CellAt(1, 0) = nil, want styled cell")
@@ -295,7 +295,7 @@ func TestPaneDataRenderScreenInCopyModeResetsTrailingStyle(t *testing.T) {
 	rendered := pane.RenderScreen(true)
 
 	term := vt.NewSafeEmulator(2, 1)
-	term.Write([]byte(rendered + "X"))
+	mustWrite(t, term, []byte(rendered+"X"))
 	trailing := term.CellAt(1, 0)
 	if trailing == nil {
 		t.Fatal("CellAt(1, 0) = nil, want trailing cell")

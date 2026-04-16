@@ -287,8 +287,16 @@ func (cc *clientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 	defer func() {
 		if r := recover(); r != nil {
 			ctx.auditErr = fmt.Sprintf("internal error: panic in command %q", msg.CmdName)
-			sess.logPanic("command_panic", r, debug.Stack())
-			cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: ctx.auditErr})
+			if err := sess.logPanic("command_panic", r, debug.Stack()); err != nil {
+				ctx.auditErr = err.Error()
+			}
+			if err := cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: ctx.auditErr}); err != nil && cc.logger != nil {
+				cc.logger.Warn("sending panic response failed",
+					"event", "command_panic",
+					"command", msg.CmdName,
+					"error", err,
+				)
+			}
 		}
 		sess.logCommandExecution(cc.ID, msg.CmdName, msg.CmdArgs, msg.ActorPaneID, time.Since(started), ctx.auditErr)
 	}()
@@ -297,8 +305,13 @@ func (cc *clientConn) handleCommand(srv *Server, sess *Session, msg *Message) {
 	handler, ok := srv.lookupCommand(msg.CmdName)
 	if !ok {
 		ctx.auditErr = fmt.Sprintf("unknown command: %s", msg.CmdName)
-		cc.Send(&Message{Type: MsgTypeCmdResult,
-			CmdErr: ctx.auditErr})
+		if err := cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: ctx.auditErr}); err != nil && cc.logger != nil {
+			cc.logger.Warn("sending unknown-command response failed",
+				"event", "command_dispatch",
+				"command", msg.CmdName,
+				"error", err,
+			)
+		}
 		return
 	}
 	handler(ctx)

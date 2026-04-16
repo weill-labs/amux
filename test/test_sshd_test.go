@@ -225,7 +225,7 @@ func handleSSHConn(ctx context.Context, tcpConn net.Conn, config *ssh.ServerConf
 			handleStreamLocal(newChannel)
 
 		default:
-			newChannel.Reject(ssh.UnknownChannelType, "unsupported channel type")
+			ignoreReject(newChannel, ssh.UnknownChannelType, "unsupported channel type")
 		}
 	}
 }
@@ -256,12 +256,12 @@ func handleSession(ctx context.Context, ch ssh.Channel, reqs <-chan *ssh.Request
 	for req := range reqs {
 		switch req.Type {
 		case "env":
-			req.Reply(true, nil)
+			ignoreReply(req, true)
 
 		case "pty-req":
 			var ptyReq ptyRequest
 			if err := ssh.Unmarshal(req.Payload, &ptyReq); err != nil {
-				req.Reply(false, nil)
+				ignoreReply(req, false)
 				continue
 			}
 			winSize = &pty.Winsize{
@@ -271,27 +271,27 @@ func handleSession(ctx context.Context, ch ssh.Channel, reqs <-chan *ssh.Request
 			if ptyReq.Term != "" {
 				termType = ptyReq.Term
 			}
-			req.Reply(true, nil)
+			ignoreReply(req, true)
 
 		case "shell":
-			req.Reply(true, nil)
+			ignoreReply(req, true)
 			runShellSession(ctx, ch, reqs, execEnv, winSize, termType)
 			return
 
 		case "exec":
 			if len(req.Payload) < 4 {
-				req.Reply(false, nil)
+				ignoreReply(req, false)
 				continue
 			}
 			cmdLen := binary.BigEndian.Uint32(req.Payload[:4])
 			command := string(req.Payload[4 : 4+cmdLen])
-			req.Reply(true, nil)
+			ignoreReply(req, true)
 			sendExitStatus(ch, runExecCommand(ctx, ch, command, execEnv, termType))
 			return
 
 		default:
 			if req.WantReply {
-				req.Reply(false, nil)
+				ignoreReply(req, false)
 			}
 		}
 	}
@@ -315,15 +315,15 @@ func runShellSession(ctx context.Context, ch ssh.Channel, reqs <-chan *ssh.Reque
 					sizeMu.Unlock()
 				}
 				if req.WantReply {
-					req.Reply(true, nil)
+					ignoreReply(req, true)
 				}
 			case "signal":
 				if req.WantReply {
-					req.Reply(true, nil)
+					ignoreReply(req, true)
 				}
 			default:
 				if req.WantReply {
-					req.Reply(false, nil)
+					ignoreReply(req, false)
 				}
 			}
 		}
@@ -359,11 +359,7 @@ func runShellSession(ctx context.Context, ch ssh.Channel, reqs <-chan *ssh.Reque
 func sendExitStatus(ch ssh.Channel, exitCode int) {
 	exitMsg := make([]byte, 4)
 	binary.BigEndian.PutUint32(exitMsg, uint32(exitCode))
-	ch.SendRequest("exit-status", false, exitMsg)
-}
-
-type crToLFWriter struct {
-	w io.Writer
+	ignoreSendRequest(ch, "exit-status", false, exitMsg)
 }
 
 // sshCmdTimeout bounds any single exec/shell command spawned by the test SSH
@@ -479,13 +475,13 @@ type streamLocalData struct {
 func handleStreamLocal(newChannel ssh.NewChannel) {
 	var data streamLocalData
 	if err := ssh.Unmarshal(newChannel.ExtraData(), &data); err != nil {
-		newChannel.Reject(ssh.ConnectionFailed, "invalid channel data")
+		ignoreReject(newChannel, ssh.ConnectionFailed, "invalid channel data")
 		return
 	}
 
 	unixConn, err := net.Dial("unix", data.SocketPath)
 	if err != nil {
-		newChannel.Reject(ssh.ConnectionFailed, fmt.Sprintf("dial unix %s: %v", data.SocketPath, err))
+		ignoreReject(newChannel, ssh.ConnectionFailed, fmt.Sprintf("dial unix %s: %v", data.SocketPath, err))
 		return
 	}
 
@@ -497,11 +493,11 @@ func handleStreamLocal(newChannel ssh.NewChannel) {
 
 	// Bidirectional proxy
 	go func() {
-		io.Copy(ch, unixConn)
-		ch.CloseWrite()
+		ignoreCopy(ch, unixConn)
+		ignoreCloseWrite(ch)
 	}()
 	go func() {
-		io.Copy(unixConn, ch)
+		ignoreCopy(unixConn, ch)
 		unixConn.Close()
 	}()
 }

@@ -27,10 +27,10 @@ const (
 )
 
 var (
-	Bold   = ansi.SGR(ansi.BoldAttr)
-	NoBold = ansi.SGR(ansi.NormalIntensityAttr)
+	Bold   = ansi.SGR(ansi.AttrBold)
+	NoBold = ansi.SGR(ansi.AttrNormalIntensity)
 
-	StrikeOn = ansi.SGR(ansi.StrikethroughAttr)
+	StrikeOn = ansi.SGR(ansi.AttrStrikethrough)
 
 	DimFg      = foregroundSequence(config.DimColorHex)
 	Surface0Bg = backgroundSequence(config.Surface0Hex)

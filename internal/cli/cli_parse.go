@@ -109,7 +109,7 @@ func ResolveCanonicalSessionCommand(args []string) (cmdName string, cmdArgs []st
 
 func ParseLogArgs(args []string) (string, []string, error) {
 	if len(args) != 1 {
-		return "", nil, fmt.Errorf(logUsage)
+		return "", nil, errors.New(logUsage)
 	}
 	switch args[0] {
 	case "clients":
@@ -117,7 +117,7 @@ func ParseLogArgs(args []string) (string, []string, error) {
 	case "panes":
 		return "pane-log", nil, nil
 	default:
-		return "", nil, fmt.Errorf(logUsage)
+		return "", nil, errors.New(logUsage)
 	}
 }
 
@@ -130,13 +130,13 @@ func ParseLeadArgs(args []string) (string, []string, error) {
 	case len(args) == 1 && !strings.HasPrefix(args[0], "-"):
 		return "set-lead", []string{args[0]}, nil
 	default:
-		return "", nil, fmt.Errorf(leadUsage)
+		return "", nil, errors.New(leadUsage)
 	}
 }
 
 func ValidateMetaArgs(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf(metaUsage)
+		return errors.New(metaUsage)
 	}
 	switch args[0] {
 	case "set":
@@ -152,21 +152,21 @@ func ValidateMetaArgs(args []string) error {
 			return fmt.Errorf("usage: amux meta rm <pane> key [key...]")
 		}
 	default:
-		return fmt.Errorf(metaUsage)
+		return errors.New(metaUsage)
 	}
 	return nil
 }
 
 func ParseSwapArgs(args []string) (string, []string, error) {
 	if len(args) == 0 {
-		return "", nil, fmt.Errorf(swapUsage)
+		return "", nil, errors.New(swapUsage)
 	}
 	filtered := make([]string, 0, len(args))
 	tree := false
 	for _, arg := range args {
 		if arg == "--tree" {
 			if tree {
-				return "", nil, fmt.Errorf(swapUsage)
+				return "", nil, errors.New(swapUsage)
 			}
 			tree = true
 			continue
@@ -175,7 +175,7 @@ func ParseSwapArgs(args []string) (string, []string, error) {
 	}
 	if tree {
 		if len(filtered) != 2 {
-			return "", nil, fmt.Errorf(swapUsage)
+			return "", nil, errors.New(swapUsage)
 		}
 		return "swap-tree", filtered, nil
 	}
@@ -185,12 +185,12 @@ func ParseSwapArgs(args []string) (string, []string, error) {
 	if len(filtered) == 2 {
 		return "swap", filtered, nil
 	}
-	return "", nil, fmt.Errorf(swapUsage)
+	return "", nil, errors.New(swapUsage)
 }
 
 func ParseMoveArgs(args []string) (string, []string, error) {
 	if len(args) < 2 {
-		return "", nil, fmt.Errorf(moveUsage)
+		return "", nil, errors.New(moveUsage)
 	}
 	paneRef := args[0]
 	switch {
@@ -203,7 +203,7 @@ func ParseMoveArgs(args []string) (string, []string, error) {
 	case len(args) == 3 && args[1] == "--to-column":
 		return "move-to", []string{paneRef, args[2]}, nil
 	default:
-		return "", nil, fmt.Errorf(moveUsage)
+		return "", nil, errors.New(moveUsage)
 	}
 }
 
@@ -226,7 +226,7 @@ func ParseSpawnCommandArgs(args []string) (string, []string, error) {
 
 	setDir := func(next mux.SplitDir) error {
 		if opts.hasExplicitDir && opts.dir != next {
-			return fmt.Errorf(spawnUsage)
+			return errors.New(spawnUsage)
 		}
 		opts.dir = next
 		opts.hasExplicitDir = true
@@ -237,13 +237,13 @@ func ParseSpawnCommandArgs(args []string) (string, []string, error) {
 		switch args[i] {
 		case "--at":
 			if i+1 >= len(args) {
-				return "", nil, fmt.Errorf(spawnUsage)
+				return "", nil, errors.New(spawnUsage)
 			}
 			opts.at = args[i+1]
 			i++
 		case "--window":
 			if i+1 >= len(args) {
-				return "", nil, fmt.Errorf(spawnUsage)
+				return "", nil, errors.New(spawnUsage)
 			}
 			opts.window = args[i+1]
 			i++
@@ -263,38 +263,38 @@ func ParseSpawnCommandArgs(args []string) (string, []string, error) {
 			opts.focus = true
 		case "--name":
 			if i+1 >= len(args) {
-				return "", nil, fmt.Errorf(spawnUsage)
+				return "", nil, errors.New(spawnUsage)
 			}
 			opts.name = args[i+1]
 			i++
 		case "--host":
 			if i+1 >= len(args) {
-				return "", nil, fmt.Errorf(spawnUsage)
+				return "", nil, errors.New(spawnUsage)
 			}
 			opts.host = args[i+1]
 			i++
 		case "--task":
 			if i+1 >= len(args) {
-				return "", nil, fmt.Errorf(spawnUsage)
+				return "", nil, errors.New(spawnUsage)
 			}
 			opts.task = args[i+1]
 			i++
 		case "--color":
 			if i+1 >= len(args) {
-				return "", nil, fmt.Errorf(spawnUsage)
+				return "", nil, errors.New(spawnUsage)
 			}
 			opts.color = args[i+1]
 			i++
 		default:
-			return "", nil, fmt.Errorf(spawnUsage)
+			return "", nil, errors.New(spawnUsage)
 		}
 	}
 
 	if opts.window != "" && opts.at != "" {
-		return "", nil, fmt.Errorf(spawnUsage)
+		return "", nil, errors.New(spawnUsage)
 	}
 	if opts.auto && (opts.at != "" || opts.root || opts.hasExplicitDir) {
-		return "", nil, fmt.Errorf(spawnUsage)
+		return "", nil, errors.New(spawnUsage)
 	}
 
 	cmdArgs := make([]string, 0, 10)
@@ -373,16 +373,4 @@ func ParseEqualizeArgs(args []string) ([]string, error) {
 		return nil, nil
 	}
 	return []string{mode}, nil
-}
-
-func looksLikePaneRefArg(arg string) bool {
-	if strings.HasPrefix(arg, "pane-") {
-		return true
-	}
-	for _, r := range arg {
-		if r < '0' || r > '9' {
-			return false
-		}
-	}
-	return arg != ""
 }

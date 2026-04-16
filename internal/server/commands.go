@@ -19,13 +19,27 @@ type CommandContext struct {
 	auditErr    string
 }
 
+func (ctx *CommandContext) send(msg *Message) {
+	if ctx.CC == nil || msg == nil {
+		return
+	}
+	if err := ctx.CC.Send(msg); err != nil && ctx.CC.logger != nil {
+		ctx.CC.logger.Warn("sending command response failed",
+			"event", "command_response",
+			"command", ctx.CommandName,
+			"message_type", msg.Type,
+			"error", err,
+		)
+	}
+}
+
 func (ctx *CommandContext) reply(output string) {
-	ctx.CC.Send(&Message{Type: MsgTypeCmdResult, CmdOutput: output})
+	ctx.send(&Message{Type: MsgTypeCmdResult, CmdOutput: output})
 }
 
 func (ctx *CommandContext) replyErr(errMsg string) {
 	ctx.auditErr = errMsg
-	ctx.CC.Send(&Message{Type: MsgTypeCmdResult, CmdErr: errMsg})
+	ctx.send(&Message{Type: MsgTypeCmdResult, CmdErr: errMsg})
 }
 
 func (ctx *CommandContext) replyCommandMutation(res commandMutationResult) {
@@ -40,12 +54,12 @@ func (ctx *CommandContext) replyCommandMutation(res commandMutationResult) {
 		pane.Start()
 	}
 	if res.bell {
-		ctx.CC.Send(&Message{Type: MsgTypeBell})
+		ctx.send(&Message{Type: MsgTypeBell})
 	}
 	if res.output != "" {
 		ctx.reply(res.output)
 	} else {
-		ctx.CC.Send(&Message{Type: MsgTypeCmdResult})
+		ctx.send(&Message{Type: MsgTypeCmdResult})
 	}
 	if ctx.CC != nil && (res.sendExit || res.shutdownServer) {
 		// Flush the command reply before exiting or shutting down so one-shot
@@ -88,7 +102,7 @@ func (ctx *CommandContext) applyCommandResult(res commandpkg.Result) {
 			ctx.replyErr(err.Error())
 		}
 	case res.Message != nil:
-		ctx.CC.Send(res.Message)
+		ctx.send(res.Message)
 	default:
 		ctx.replyCommandMutation(toCommandMutationResult(res))
 	}
@@ -148,14 +162,6 @@ func toCommandResult(res commandMutationResult) commandpkg.Result {
 		SendExit:        res.sendExit,
 		ShutdownServer:  res.shutdownServer,
 	}
-}
-
-func (ctx *CommandContext) activeWindowSnapshot() (activePid, width, height int, err error) {
-	snap, err := ctx.Sess.queryActiveWindowSnapshot()
-	if err != nil {
-		return 0, 0, 0, err
-	}
-	return snap.activePID, snap.width, snap.height, nil
 }
 
 // commandRegistry maps command names to their handlers, following

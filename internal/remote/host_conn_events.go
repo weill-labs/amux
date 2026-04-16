@@ -256,7 +256,18 @@ func (e sendInputEvent) handle(hc *HostConn) {
 		}
 		return
 	}
-	hc.sendInputNow(e.localPaneID, e.data)
+	if err := hc.sendInputNow(e.localPaneID, e.data); err != nil {
+		hc.pendingInputs = append([]pendingPaneInput{{
+			localPaneID: e.localPaneID,
+			data:        append([]byte(nil), e.data...),
+		}}, hc.pendingInputs...)
+		hc.logger.Warn("remote input write failed",
+			"event", "remote_input",
+			"host", hc.name,
+			"error", err,
+		)
+		readDisconnectEvent{}.handle(hc)
+	}
 }
 
 type readPaneOutputEvent struct {

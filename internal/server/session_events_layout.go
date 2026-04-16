@@ -233,12 +233,6 @@ func (ctx *MutationContext) findWindowByPaneID(id uint32) *mux.Window {
 	return w
 }
 
-func (ctx *MutationContext) createPaneWithMeta(srv *Server, meta mux.PaneMeta, cols, rows int) (*mux.Pane, error) {
-	return mutationContextCall(ctx, func(sess *Session) (*mux.Pane, error) {
-		return sess.createPaneWithMeta(srv, meta, cols, rows)
-	})
-}
-
 type pendingLocalPaneResult struct {
 	pane  *mux.Pane
 	build localPaneBuildRequest
@@ -359,13 +353,6 @@ func (ctx *MutationContext) ensureClientManager() *clientManager {
 		return sess.ensureClientManager(), nil
 	})
 	return manager
-}
-
-func (ctx *MutationContext) refreshInputTarget() {
-	_ = mutationContextDo(ctx, func(sess *Session) error {
-		sess.refreshInputTarget()
-		return nil
-	})
 }
 
 type paneHistoryUpdate struct {

@@ -2,7 +2,6 @@ package tree
 
 import (
 	"errors"
-	"fmt"
 )
 
 const MoveUsage = "usage: move <pane> --before <target> | move <pane> --after <target>"
@@ -12,7 +11,7 @@ const MoveDownUsage = "usage: move-down <pane>"
 
 func ParseMoveArgs(args []string) (paneRef, targetRef string, before bool, err error) {
 	if len(args) != 3 {
-		return "", "", false, fmt.Errorf(MoveUsage)
+		return "", "", false, errors.New(MoveUsage)
 	}
 
 	paneRef = args[0]
@@ -23,7 +22,7 @@ func ParseMoveArgs(args []string) (paneRef, targetRef string, before bool, err e
 		before = true
 	case "--after":
 	default:
-		return "", "", false, fmt.Errorf(MoveUsage)
+		return "", "", false, errors.New(MoveUsage)
 	}
 
 	return paneRef, targetRef, before, nil
@@ -31,7 +30,7 @@ func ParseMoveArgs(args []string) (paneRef, targetRef string, before bool, err e
 
 func ParseMoveToArgs(args []string) (paneRef, targetRef string, err error) {
 	if len(args) != 2 {
-		return "", "", fmt.Errorf(MoveToUsage)
+		return "", "", errors.New(MoveToUsage)
 	}
 	return args[0], args[1], nil
 }

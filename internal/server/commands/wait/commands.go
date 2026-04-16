@@ -1,6 +1,7 @@
 package wait
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -35,7 +36,7 @@ type Context interface {
 
 func Cursor(ctx Context, args []string) commandpkg.Result {
 	if len(args) == 0 {
-		return commandpkg.Result{Err: fmt.Errorf(cursorCommandUsage)}
+		return commandpkg.Result{Err: errors.New(cursorCommandUsage)}
 	}
 
 	switch args[0] {
@@ -52,7 +53,7 @@ func Cursor(ctx Context, args []string) commandpkg.Result {
 
 func Wait(ctx Context, actorPaneID uint32, args []string) commandpkg.Result {
 	if len(args) == 0 {
-		return commandpkg.Result{Err: fmt.Errorf(waitCommandUsage)}
+		return commandpkg.Result{Err: errors.New(waitCommandUsage)}
 	}
 
 	switch args[0] {

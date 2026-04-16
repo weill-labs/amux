@@ -41,7 +41,7 @@ func BenchmarkEmulatorWrite(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 			for b.Loop() {
-				emu.Write(payload)
+				mustWrite(b, emu, payload)
 			}
 		})
 	}
@@ -52,7 +52,7 @@ func BenchmarkEmulatorRender(b *testing.B) {
 
 	// Write realistic 80x24 content once in setup
 	payload := realisticTerminalPayload(80 * 24)
-	emu.Write(payload)
+	mustWrite(b, emu, payload)
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -64,7 +64,7 @@ func BenchmarkEmulatorRender(b *testing.B) {
 func BenchmarkEmulatorContentLines(b *testing.B) {
 	emu := NewVTEmulatorWithDrain(80, 24)
 	payload := realisticTerminalPayload(80 * 24)
-	emu.Write(payload)
+	mustWrite(b, emu, payload)
 
 	b.Run("Render+StripANSI", func(b *testing.B) {
 		b.ReportAllocs()
@@ -90,7 +90,7 @@ func BenchmarkEmulatorContentLines(b *testing.B) {
 func BenchmarkScreenContains(b *testing.B) {
 	emu := NewVTEmulatorWithDrain(80, 24)
 	payload := realisticTerminalPayload(80 * 24)
-	emu.Write(payload)
+	mustWrite(b, emu, payload)
 
 	// Search for a string that appears near the bottom of the screen
 	target := "README.md"

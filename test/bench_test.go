@@ -2,7 +2,6 @@ package test
 
 import (
 	"bufio"
-	"crypto/rand"
 	"fmt"
 	"net"
 	"os/exec"
@@ -36,7 +35,7 @@ func newTmuxBenchHarness(b *testing.B) *TmuxBenchHarness {
 	}
 
 	var buf [4]byte
-	rand.Read(buf[:])
+	mustRandRead(b, buf[:])
 	session := fmt.Sprintf("bench-%x", buf)
 
 	out, err := exec.Command("tmux", "new-session", "-d", "-s", session, "-x", "80", "-y", "24").CombinedOutput()
@@ -56,7 +55,7 @@ func (h *TmuxBenchHarness) run(args ...string) string {
 }
 
 func (h *TmuxBenchHarness) cleanup() {
-	exec.Command("tmux", "kill-session", "-t", h.session).Run()
+	mustRun(h.tb, exec.Command("tmux", "kill-session", "-t", h.session))
 }
 
 // ---------------------------------------------------------------------------
@@ -471,11 +470,13 @@ func BenchmarkOutputDetection(b *testing.B) {
 				}
 				defer conn.Close()
 
-				writeMsgOnConn(conn, &server.Message{
+				if err := writeMsgOnConn(conn, &server.Message{
 					Type:    server.MsgTypeCommand,
 					CmdName: "events",
 					CmdArgs: []string{"--filter", "layout"},
-				})
+				}); err != nil {
+					b.Fatalf("write events command: %v", err)
+				}
 
 				pr, pw := net.Pipe()
 				defer pr.Close()
@@ -487,7 +488,7 @@ func BenchmarkOutputDetection(b *testing.B) {
 							return
 						}
 						if msg.CmdOutput != "" {
-							pw.Write([]byte(msg.CmdOutput))
+							mustWrite(b, pw, []byte(msg.CmdOutput))
 						}
 					}
 				}()
@@ -545,11 +546,13 @@ func BenchmarkDetectLayoutChange(b *testing.B) {
 		}
 		defer conn.Close()
 
-		writeMsgOnConn(conn, &server.Message{
+		if err := writeMsgOnConn(conn, &server.Message{
 			Type:    server.MsgTypeCommand,
 			CmdName: "events",
 			CmdArgs: []string{"--filter", "layout"},
-		})
+		}); err != nil {
+			b.Fatalf("write events command: %v", err)
+		}
 
 		pr, pw := net.Pipe()
 		defer pr.Close()
@@ -561,7 +564,7 @@ func BenchmarkDetectLayoutChange(b *testing.B) {
 					return
 				}
 				if msg.CmdOutput != "" {
-					pw.Write([]byte(msg.CmdOutput))
+					mustWrite(b, pw, []byte(msg.CmdOutput))
 				}
 			}
 		}()

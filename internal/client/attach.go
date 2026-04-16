@@ -511,7 +511,9 @@ func runSessionWithDeps(sessionName string, getTermSize func(int) (int, int, err
 	defer restoreTerminal()
 
 	if initial := cr.Render(true); initial != "" {
-		io.WriteString(stdout, wrapSynchronizedFrame(initial))
+		if _, err := io.WriteString(stdout, wrapSynchronizedFrame(initial)); err != nil {
+			return err
+		}
 	}
 
 	// Resolve the current binary once so explicit reloads and server reload
@@ -519,6 +521,21 @@ func runSessionWithDeps(sessionName string, getTermSize func(int) (int, int, err
 	triggerReload := make(chan struct{}, 1)
 	execPath, _ := deps.resolveExecutable()
 	exitState := &sessionExitState{}
+	writeOutput := func(data string) error {
+		if data == "" {
+			return nil
+		}
+		_, err := io.WriteString(stdout, data)
+		return err
+	}
+	sendMessage := func(msg *proto.Message) error {
+		if err := sender.Send(msg); err != nil {
+			exitState.set(disconnectNoticeForReadError(err))
+			_ = conn.Close()
+			return err
+		}
+		return nil
+	}
 
 	// Channel for injecting keystrokes from type-keys (server → client).
 	type injectedInput struct {
@@ -569,7 +586,9 @@ func runSessionWithDeps(sessionName string, getTermSize func(int) (int, int, err
 				resp := callLocalRenderAction[*proto.Message](cr, msgCh, func(cr *ClientRenderer) localRenderResult {
 					return localRenderResult{value: cr.HandleCaptureRequest(msg.CmdArgs, msg.AgentStatus)}
 				})
-				sender.Send(resp)
+				if err := sendMessage(resp); err != nil {
+					return
+				}
 			case proto.MsgTypeTypeKeys:
 				select {
 				case injectCh <- injectedInput{data: msg.Input, paneID: msg.PaneID}:
@@ -591,7 +610,10 @@ func runSessionWithDeps(sessionName string, getTermSize func(int) (int, int, err
 	go func() {
 		defer close(done)
 		cr.RenderCoalesced(msgCh, func(data string) {
-			io.WriteString(stdout, data)
+			if err := writeOutput(data); err != nil {
+				exitState.set(fmt.Sprintf("detached: writing terminal output: %v", err))
+				_ = conn.Close()
+			}
 		})
 	}()
 
@@ -609,7 +631,7 @@ func runSessionWithDeps(sessionName string, getTermSize func(int) (int, int, err
 	}()
 	// Recheck once after the handler is live so startup-time size changes
 	// (common on mobile/SSH clients) are not lost before the first SIGWINCH.
-	cols, rows = syncTerminalSize(fd, cols, rows, cr, sender, getTermSize, msgCh)
+	_, _ = syncTerminalSize(fd, cols, rows, cr, sender, getTermSize, msgCh)
 
 	// Terminal → server: read input with mouse parsing + Ctrl-a prefix handling
 	go func() {
@@ -671,13 +693,17 @@ func runSessionWithDeps(sessionName string, getTermSize func(int) (int, int, err
 		execPrefixKey := func(b byte, forward *[]byte) bool {
 			showChooser := func(mode chooserMode) {
 				if !showChooserOnRenderLoop(cr, msgCh, mode) {
-					io.WriteString(stdout, "\a")
+					if err := writeOutput("\a"); err != nil {
+						return
+					}
 					return
 				}
 			}
 			showPrefixMessage := func(key byte) {
 				cr.ShowPrefixMessage(formatUnboundPrefixMessage(kb.Prefix, key))
-				io.WriteString(stdout, "\a")
+				if err := writeOutput("\a"); err != nil {
+					return
+				}
 				runLocalRenderAction(cr, msgCh, func(*ClientRenderer) localRenderResult { return overlayRenderNowResult() })
 			}
 			clearPrefixMessage := func() {
@@ -728,11 +754,11 @@ func runSessionWithDeps(sessionName string, getTermSize func(int) (int, int, err
 					})
 				case "display-panes":
 					if !toggleDisplayPanesOnRenderLoop(cr, msgCh) {
-						io.WriteString(stdout, "\a")
+						_ = writeOutput("\a")
 					}
 				case "help":
 					if !toggleHelpBarOnRenderLoop(cr, msgCh, kb) {
-						io.WriteString(stdout, "\a")
+						_ = writeOutput("\a")
 					}
 				case "choose-tree":
 					showChooser(chooserModeTree)
@@ -740,12 +766,12 @@ func runSessionWithDeps(sessionName string, getTermSize func(int) (int, int, err
 					showChooser(chooserModeWindow)
 				case "rename-window":
 					if !showWindowRenamePromptOnRenderLoop(cr, msgCh) {
-						io.WriteString(stdout, "\a")
+						_ = writeOutput("\a")
 					}
 				case "split":
 					handleSplitBinding(cr, sender, binding, stdout)
 				case "compat-bell":
-					io.WriteString(stdout, "\a")
+					_ = writeOutput("\a")
 				default:
 					// Generic server command
 					sender.Command(binding.Action, binding.Args)
@@ -943,10 +969,12 @@ func runSessionWithDeps(sessionName string, getTermSize func(int) (int, int, err
 			if localInput && !localActivity {
 				for _, decoded := range decodeInputEvents(raw) {
 					if uiEvent, handled := clientUIEventForDecodedInput(decoded); handled && uiEvent != "" {
-						sender.Send(&proto.Message{
+						if err := sendMessage(&proto.Message{
 							Type:    proto.MsgTypeUIEvent,
 							UIEvent: uiEvent,
-						})
+						}); err != nil {
+							return
+						}
 					}
 				}
 				continue
@@ -1017,10 +1045,12 @@ func runSessionWithDeps(sessionName string, getTermSize func(int) (int, int, err
 			dispatchDecoded := func(decoded decodedInputEvent) bool {
 				if uiEvent, handled := clientUIEventForDecodedInput(decoded); handled {
 					if uiEvent != "" {
-						sender.Send(&proto.Message{
+						if err := sendMessage(&proto.Message{
 							Type:    proto.MsgTypeUIEvent,
 							UIEvent: uiEvent,
-						})
+						}); err != nil {
+							return true
+						}
 					}
 					return false
 				}
@@ -1048,7 +1078,9 @@ func runSessionWithDeps(sessionName string, getTermSize func(int) (int, int, err
 				if cr.WindowRenamePromptActive() {
 					action := handleWindowRenamePromptInputOnRenderLoop(cr, msgCh, normalized)
 					if action.bell {
-						io.WriteString(stdout, "\a")
+						if err := writeOutput("\a"); err != nil {
+							return true
+						}
 					}
 					if action.command != "" {
 						sender.Command(action.command, action.args)
@@ -1111,7 +1143,9 @@ func runSessionWithDeps(sessionName string, getTermSize func(int) (int, int, err
 					continue
 				}
 				if result.action.bell {
-					io.WriteString(stdout, "\a")
+					if err := writeOutput("\a"); err != nil {
+						return
+					}
 				}
 				if result.action.command != "" {
 					sender.Command(result.action.command, result.action.args)
@@ -1227,9 +1261,11 @@ func handleSplitBinding(cr *ClientRenderer, sender *messageSender, binding confi
 		return
 	}
 	cr.ShowCommandError("cannot split: layout not ready yet")
-	io.WriteString(out, "\a")
+	if _, err := io.WriteString(out, "\a"); err != nil {
+		return
+	}
 	if data := cr.RenderDiff(); data != "" {
-		io.WriteString(out, data)
+		_, _ = io.WriteString(out, data)
 	}
 }
 

@@ -50,7 +50,7 @@ func TestCleanStaleSocketsIn(t *testing.T) {
 	ln.Close()
 
 	staleLog := staleSock + ".log"
-	os.WriteFile(staleLog, []byte("old log"), 0600)
+	mustWriteFile(t, staleLog, []byte("old log"), 0600)
 
 	// Create a live socket (server listening).
 	liveSock := filepath.Join(tmpDir, "live-session")
@@ -61,15 +61,15 @@ func TestCleanStaleSocketsIn(t *testing.T) {
 	defer liveLn.Close()
 
 	liveLog := liveSock + ".log"
-	os.WriteFile(liveLog, []byte("live log"), 0600)
+	mustWriteFile(t, liveLog, []byte("live log"), 0600)
 
 	// Create an orphaned log with no socket.
 	orphanLog := filepath.Join(tmpDir, "orphan-session.log")
-	os.WriteFile(orphanLog, []byte("orphan"), 0600)
+	mustWriteFile(t, orphanLog, []byte("orphan"), 0600)
 
 	// Create a regular file (not a socket) — should be ignored.
 	regularFile := filepath.Join(tmpDir, "not-a-socket")
-	os.WriteFile(regularFile, []byte("data"), 0600)
+	mustWriteFile(t, regularFile, []byte("data"), 0600)
 
 	cleanStaleSocketsIn(tmpDir)
 

@@ -156,7 +156,7 @@ func testHandleSSHConn(tcpConn net.Conn, config *ssh.ServerConfig, execEnv []str
 
 	for newChannel := range chans {
 		if newChannel.ChannelType() != "session" {
-			newChannel.Reject(ssh.UnknownChannelType, "unsupported")
+			ignoreReject(newChannel, ssh.UnknownChannelType, "unsupported")
 			continue
 		}
 		ch, chReqs, err := newChannel.Accept()
@@ -172,17 +172,17 @@ func testHandleSession(ch ssh.Channel, reqs <-chan *ssh.Request, execEnv []strin
 	for req := range reqs {
 		if req.Type != "exec" {
 			if req.WantReply {
-				req.Reply(false, nil)
+				ignoreReply(req, false)
 			}
 			continue
 		}
 		if len(req.Payload) < 4 {
-			req.Reply(false, nil)
+			ignoreReply(req, false)
 			continue
 		}
 		cmdLen := binary.BigEndian.Uint32(req.Payload[:4])
 		command := string(req.Payload[4 : 4+cmdLen])
-		req.Reply(true, nil)
+		ignoreReply(req, true)
 
 		cmd := exec.Command("sh", "-c", command)
 		cmd.Env = execEnv
@@ -201,7 +201,7 @@ func testHandleSession(ch ssh.Channel, reqs <-chan *ssh.Request, execEnv []strin
 
 		exitMsg := make([]byte, 4)
 		binary.BigEndian.PutUint32(exitMsg, uint32(exitCode))
-		ch.SendRequest("exit-status", false, exitMsg)
+		ignoreSendRequest(ch, "exit-status", false, exitMsg)
 		return
 	}
 }

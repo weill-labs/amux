@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -76,7 +77,7 @@ func parseWaitIdleArgs(args []string) (string, waitIdleOptions, error) {
 
 func parseWaitIdleArgsWithDefaults(args []string, settleDefault, timeoutDefault time.Duration) (string, waitIdleOptions, error) {
 	if len(args) < 1 {
-		return "", waitIdleOptions{}, fmt.Errorf(waitIdleUsage)
+		return "", waitIdleOptions{}, errors.New(waitIdleUsage)
 	}
 
 	flags, err := cmdflags.ParseCommandFlags(args[1:], []cmdflags.FlagSpec{

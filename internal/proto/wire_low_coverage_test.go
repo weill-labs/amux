@@ -571,7 +571,7 @@ func TestPaneHistoryWithStyledCellsRoundTrips(t *testing.T) {
 				Text: "styled line",
 				Cells: []Cell{
 					{Char: "s", Style: uvStyle(ansi.Red, ansi.BrightWhite), Width: 1},
-					{Char: "t", Style: uvStyle(ansi.TrueColor(0xff8800), nil), Width: 1},
+					{Char: "t", Style: uvStyle(ansi.RGBColor{R: 0xff, G: 0x88, B: 0x00}, nil), Width: 1},
 					{Char: "y", Style: uvStyle(ansi.IndexedColor(42), nil), Width: 1},
 				},
 			},

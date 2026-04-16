@@ -634,7 +634,7 @@ func TestServerReloadTUIRedraw(t *testing.T) {
 	h := newAmuxHarness(t)
 
 	scriptPath := filepath.Join(os.TempDir(), fmt.Sprintf("amux-tui-%s.sh", h.session))
-	os.WriteFile(scriptPath, []byte(`#!/bin/bash
+	mustWriteFile(t, scriptPath, []byte(`#!/bin/bash
 printf '\033[?1049h'
 draw() { printf '\033[2J\033[H'; echo TUIMARK_OK; }
 trap draw WINCH

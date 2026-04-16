@@ -93,7 +93,9 @@ func (w *Window) ResizePane(paneID uint32, direction string, delta int) bool {
 		return false
 	}
 	if w.ZoomedPaneID != 0 {
-		w.Unzoom()
+		if err := w.Unzoom(); err != nil {
+			return false
+		}
 	}
 
 	// Map direction to split axis and change sign.
@@ -193,7 +195,9 @@ func (w *Window) Equalize(widths, heights bool) bool {
 	}
 
 	if w.ZoomedPaneID != 0 {
-		w.Unzoom()
+		if err := w.Unzoom(); err != nil {
+			return false
+		}
 	}
 
 	if widthChanged {
@@ -456,7 +460,7 @@ func transferAxisSize(grower, donor *LayoutCell, axis SplitDir, needed int, grow
 func (w *Window) resizePTYs() {
 	w.Root.Walk(func(c *LayoutCell) {
 		if c.Pane != nil {
-			c.Pane.Resize(c.W, PaneContentHeight(c.H))
+			_ = c.Pane.Resize(c.W, PaneContentHeight(c.H))
 		}
 	})
 }
@@ -467,6 +471,6 @@ func (w *Window) restoreZoomedPaneSize() {
 	}
 	cell := w.Root.FindPane(w.ZoomedPaneID)
 	if cell != nil && cell.Pane != nil {
-		cell.Pane.Resize(w.Width, PaneContentHeight(w.Height))
+		_ = cell.Pane.Resize(w.Width, PaneContentHeight(w.Height))
 	}
 }

@@ -23,8 +23,7 @@ func TestReleaseInstallScriptInstallsExplicitVersionArchive(t *testing.T) {
 	archive := fakeReleaseInstallArchive(t, script)
 	checksums := fmt.Sprintf("%x  %s\n", sha256.Sum256(archive), releaseArchiveName(version))
 
-	var ts *httptest.Server
-	ts = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case releaseArchivePath(version):
 			w.Header().Set("Content-Type", "application/gzip")

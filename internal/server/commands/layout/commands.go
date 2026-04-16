@@ -307,7 +307,7 @@ func ParseCopyModeArgs(args []string, defaultTimeout time.Duration) (CopyModeOpt
 	}
 	positionals := flags.Positionals()
 	if len(positionals) > 1 {
-		return CopyModeOptions{}, fmt.Errorf(copyModeUsage)
+		return CopyModeOptions{}, errors.New(copyModeUsage)
 	}
 	opts := CopyModeOptions{WaitTimeout: flags.Duration("--timeout")}
 	if len(positionals) == 1 {
