@@ -124,8 +124,10 @@ func TestMain(m *testing.M) {
 	if gocoverDir != "" {
 		entries, _ := os.ReadDir(gocoverDir)
 		if len(entries) > 0 {
-			exec.Command("go", "tool", "covdata", "textfmt",
-				"-i="+gocoverDir, "-o=integration-coverage.txt").Run()
+			if err := exec.Command("go", "tool", "covdata", "textfmt",
+				"-i="+gocoverDir, "-o=integration-coverage.txt").Run(); err != nil {
+				fmt.Fprintf(os.Stderr, "go tool covdata textfmt: %v\n", err)
+			}
 		}
 		if gocoverOwned {
 			os.RemoveAll(gocoverDir)
@@ -216,7 +218,7 @@ func cleanupStaleTestSessions() {
 		out, _ = exec.Command("tmux", "list-sessions", "-F", "#{session_name}").Output()
 		for _, name := range strings.Split(strings.TrimSpace(string(out)), "\n") {
 			if isBenchSession(name) {
-				exec.Command("tmux", "kill-session", "-t", name).Run()
+				_ = exec.Command("tmux", "kill-session", "-t", name).Run()
 			}
 		}
 	}
@@ -347,7 +349,7 @@ func killOrphanedTestClients(socketDir string, staleSessions map[string]bool) {
 			if serverProcessMatchesSession(pid, session) {
 				continue
 			}
-			exec.Command("kill", currentPid).Run()
+			_ = exec.Command("kill", currentPid).Run()
 		}
 	}
 }

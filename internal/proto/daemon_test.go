@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -302,6 +303,22 @@ func TestWithSessionStartupLockWithDepsErrors(t *testing.T) {
 				flock: func(int, int) error { return errors.New("flock boom") },
 			},
 			want: "locking startup lock: flock boom",
+		},
+		{
+			name: "unlock error",
+			deps: startupLockDeps{
+				mkdirAll: func(string, os.FileMode) error { return nil },
+				openFile: func(string, int, os.FileMode) (lockFile, error) {
+					return &stubLockFile{fd: 7}, nil
+				},
+				flock: func(_ int, how int) error {
+					if how == syscall.LOCK_EX {
+						return nil
+					}
+					return errors.New("unlock boom")
+				},
+			},
+			want: "unlocking startup lock: unlock boom",
 		},
 	}
 

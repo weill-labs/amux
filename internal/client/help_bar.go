@@ -389,10 +389,6 @@ func (cr *ClientRenderer) HideHelpBar() bool {
 	return changed
 }
 
-func (cr *ClientRenderer) helpBar() *helpBarState {
-	return cr.loadState().ui.helpBar
-}
-
 func toggleHelpBarOnRenderLoop(cr *ClientRenderer, msgCh chan<- *RenderMsg, kb *config.Keybindings) bool {
 	return callLocalRenderAction[bool](cr, msgCh, func(cr *ClientRenderer) localRenderResult {
 		if cr.HelpBarActive() {

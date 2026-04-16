@@ -1,7 +1,6 @@
 package test
 
 import (
-	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -66,7 +65,7 @@ func TestCrashRecovery_LayoutRestored(t *testing.T) {
 	if err := h.signalServer(syscall.SIGKILL); err != nil {
 		t.Fatalf("SIGKILL server: %v", err)
 	}
-	h.cmd.Wait()
+	ignoreCmdWait(h.cmd)
 	h.cmd = nil // prevent cleanup from trying to kill again
 
 	// Verify crash checkpoint file still exists (SIGKILL = no cleanup)
@@ -167,7 +166,7 @@ func TestCrashRecovery_FocusUpFromRestoredFullWidthBottomPane(t *testing.T) {
 	if err := h.signalServer(syscall.SIGKILL); err != nil {
 		t.Fatalf("SIGKILL server: %v", err)
 	}
-	h.cmd.Wait()
+	ignoreCmdWait(h.cmd)
 	h.cmd = nil
 
 	h2 := startServerForSession(t, h.session, h.home)
@@ -207,7 +206,7 @@ func TestCrashRecovery_PreservesHistoryCapture(t *testing.T) {
 	if err := h.signalServer(syscall.SIGKILL); err != nil {
 		t.Fatalf("SIGKILL server: %v", err)
 	}
-	h.cmd.Wait()
+	ignoreCmdWait(h.cmd)
 	h.cmd = nil
 
 	h2 := startServerForSession(t, h.session, h.home)
@@ -237,7 +236,7 @@ func TestCrashRecovery_ReplaysVisibleScreenForIdleShellPane(t *testing.T) {
 	if err := h.signalServer(syscall.SIGKILL); err != nil {
 		t.Fatalf("SIGKILL server: %v", err)
 	}
-	h.cmd.Wait()
+	ignoreCmdWait(h.cmd)
 	h.cmd = nil
 
 	h2 := startServerForSession(t, h.session, h.home)
@@ -268,7 +267,7 @@ func TestCrashRecovery_BusyPaneShowsRecoveryNoticeInsteadOfReplayingStaleScreen(
 	if err := h.signalServer(syscall.SIGKILL); err != nil {
 		t.Fatalf("SIGKILL server: %v", err)
 	}
-	h.cmd.Wait()
+	ignoreCmdWait(h.cmd)
 	h.cmd = nil
 
 	h2 := startServerForSession(t, h.session, h.home)
@@ -504,15 +503,15 @@ func startServerForSession(t *testing.T, session, home string) *ServerHarness {
 	var coverDir string
 	if gocoverDir != "" {
 		var b [4]byte
-		rand.Read(b[:])
+		mustRandRead(t, b[:])
 		coverDir = filepath.Join(gocoverDir, fmt.Sprintf("recover-%x", b))
-		os.MkdirAll(coverDir, 0755)
+		mustMkdirAll(t, coverDir, 0755)
 		env = upsertEnv(env, "GOCOVERDIR", coverDir)
 	}
 	cmd.Env = env
 
 	logDir := server.SocketDir()
-	os.MkdirAll(logDir, 0700)
+	mustMkdirAll(t, logDir, 0700)
 	logPath := filepath.Join(logDir, session+".log")
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
 	if err != nil {
@@ -533,12 +532,12 @@ func startServerForSession(t *testing.T, session, home string) *ServerHarness {
 	shutdownWritePipe.Close()
 	logFile.Close()
 
-	readPipe.SetReadDeadline(time.Now().Add(10 * time.Second))
+	mustSetReadDeadline(t, readPipe, time.Now().Add(10*time.Second))
 	buf := make([]byte, 64)
 	n, err := readPipe.Read(buf)
 	readPipe.Close()
 	if err != nil || !strings.Contains(string(buf[:n]), "ready") {
-		cmd.Process.Kill()
+		ignoreProcessKill(cmd.Process)
 		shutdownReadPipe.Close()
 		// Print server log for debugging
 		logData, _ := os.ReadFile(logPath)
@@ -553,12 +552,12 @@ func startServerForSession(t *testing.T, session, home string) *ServerHarness {
 	sockPath := server.SocketPath(session)
 	client, err := newHeadlessClient(sockPath, session, 80, 24)
 	if err != nil {
-		cmd.Process.Kill()
+		ignoreProcessKill(cmd.Process)
 		t.Fatalf("attaching headless client to recovered server: %v", err)
 	}
 	if err := client.waitCommandReady(); err != nil {
 		client.close()
-		cmd.Process.Kill()
+		ignoreProcessKill(cmd.Process)
 		t.Fatalf("recovered headless client command-ready: %v", err)
 	}
 	h.client = client

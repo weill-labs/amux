@@ -378,7 +378,9 @@ func TestWatchBinaryIgnoresOtherFiles(t *testing.T) {
 	<-ready
 
 	// Write to a different file in the same directory
-	os.WriteFile(otherPath, []byte("noise"), 0644)
+	if err := os.WriteFile(otherPath, []byte("noise"), 0644); err != nil {
+		t.Fatalf("WriteFile(%q): %v", otherPath, err)
+	}
 	time.Sleep(500 * time.Millisecond)
 
 	// Should NOT trigger reload

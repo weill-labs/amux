@@ -64,22 +64,6 @@ func testCaptureHexColor(c color.Color) string {
 	return fmt.Sprintf("%02x%02x%02x", uint8(r>>8), uint8(g>>8), uint8(b>>8))
 }
 
-func mustReadMessage(t *testing.T, conn net.Conn) *Message {
-	t.Helper()
-
-	if err := conn.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
-		t.Fatalf("SetReadDeadline: %v", err)
-	}
-	msg, err := readMsgOnConn(conn)
-	if err != nil {
-		t.Fatalf("ReadMsg: %v", err)
-	}
-	if err := conn.SetReadDeadline(time.Time{}); err != nil {
-		t.Fatalf("reset deadline: %v", err)
-	}
-	return msg
-}
-
 func runTestCommandMessages(t *testing.T, srv *Server, sess *Session, name string, args ...string) []*Message {
 	t.Helper()
 

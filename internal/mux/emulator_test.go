@@ -12,7 +12,7 @@ import (
 func TestVTEmulatorWriteRender(t *testing.T) {
 	t.Parallel()
 	emu := NewVTEmulator(80, 24)
-	emu.Write([]byte("Hello, world!"))
+	mustWrite(t, emu, []byte("Hello, world!"))
 
 	rendered := emu.Render()
 	if !strings.Contains(rendered, "Hello, world!") {
@@ -146,7 +146,7 @@ func TestVTEmulatorCursorPosition(t *testing.T) {
 			t.Parallel()
 			emu := NewVTEmulator(80, 24)
 			if tt.input != "" {
-				emu.Write([]byte(tt.input))
+				mustWrite(t, emu, []byte(tt.input))
 			}
 			col, row := emu.CursorPosition()
 			if col != tt.wantCol || row != tt.wantRow {
@@ -159,7 +159,7 @@ func TestVTEmulatorCursorPosition(t *testing.T) {
 func TestRenderWithCursor(t *testing.T) {
 	t.Parallel()
 	emu := NewVTEmulator(80, 24)
-	emu.Write([]byte("test"))
+	mustWrite(t, emu, []byte("test"))
 
 	result := RenderWithCursor(emu)
 	if !strings.Contains(result, "\033[") {
@@ -171,7 +171,7 @@ func TestVTEmulatorClampsOversizedVerticalMargins(t *testing.T) {
 	t.Parallel()
 
 	emu := NewVTEmulatorWithDrain(10, 4)
-	emu.Write([]byte("\x1b[1;24r\x1b[H\x1bMok"))
+	mustWrite(t, emu, []byte("\x1b[1;24r\x1b[H\x1bMok"))
 
 	if !emu.ScreenContains("ok") {
 		t.Fatalf("ScreenContains(%q) = false\nrender:\n%s", "ok", emu.Render())
@@ -182,7 +182,7 @@ func TestVTEmulatorClampsOversizedHorizontalMargins(t *testing.T) {
 	t.Parallel()
 
 	emu := NewVTEmulatorWithDrain(5, 4)
-	emu.Write([]byte("\x1b[?69h\x1b[1;24s\x1b[H\x1b[@x"))
+	mustWrite(t, emu, []byte("\x1b[?69h\x1b[1;24s\x1b[H\x1b[@x"))
 
 	if !emu.ScreenContains("x") {
 		t.Fatalf("ScreenContains(%q) = false\nrender:\n%s", "x", emu.Render())
@@ -207,11 +207,11 @@ func TestRenderWithCursorRoundTrip(t *testing.T) {
 	w, h := 44, 20
 	emu1 := NewVTEmulatorWithDrain(w, h)
 	for i, line := range content {
-		emu1.Write([]byte(fmt.Sprintf("\033[%d;1H%s", i+1, line)))
+		mustWrite(t, emu1, []byte(fmt.Sprintf("\033[%d;1H%s", i+1, line)))
 	}
 
 	emu2 := NewVTEmulatorWithDrain(w, h)
-	emu2.Write([]byte(RenderWithCursor(emu1)))
+	mustWrite(t, emu2, []byte(RenderWithCursor(emu1)))
 
 	lines1 := strings.Split(emu1.Render(), "\n")
 	lines2 := strings.Split(emu2.Render(), "\n")
@@ -229,11 +229,11 @@ func TestRenderWithCursorRoundTripPreservesHiddenCursor(t *testing.T) {
 	t.Parallel()
 
 	emu1 := NewVTEmulatorWithDrain(40, 10)
-	emu1.Write([]byte("\x1b[?25l"))
-	emu1.Write([]byte("\x1b[?1049h"))
+	mustWrite(t, emu1, []byte("\x1b[?25l"))
+	mustWrite(t, emu1, []byte("\x1b[?1049h"))
 
 	emu2 := NewVTEmulatorWithDrain(40, 10)
-	emu2.Write([]byte(RenderWithCursor(emu1)))
+	mustWrite(t, emu2, []byte(RenderWithCursor(emu1)))
 
 	if !emu1.IsAltScreen() {
 		t.Fatal("source IsAltScreen() = false, want true")
@@ -253,10 +253,10 @@ func TestRenderWithCursorRoundTripPreservesMouseProtocol(t *testing.T) {
 	t.Parallel()
 
 	emu1 := NewVTEmulatorWithDrain(40, 10)
-	emu1.Write([]byte("\x1b[?1002h\x1b[?1006h"))
+	mustWrite(t, emu1, []byte("\x1b[?1002h\x1b[?1006h"))
 
 	emu2 := NewVTEmulatorWithDrain(40, 10)
-	emu2.Write([]byte(RenderWithCursor(emu1)))
+	mustWrite(t, emu2, []byte(RenderWithCursor(emu1)))
 
 	if got := emu1.MouseProtocol(); got.Tracking != MouseTrackingButton || !got.SGR {
 		t.Fatalf("source MouseProtocol() = %+v, want button+SGR", got)
@@ -273,7 +273,7 @@ func TestRenderWithoutCursorBlock(t *testing.T) {
 		t.Parallel()
 		emu := NewVTEmulator(40, 10)
 		// Write prompt, then a reverse-video space (simulating a block cursor)
-		emu.Write([]byte("hello \033[7m \033[m\033[1D"))
+		mustWrite(t, emu, []byte("hello \033[7m \033[m\033[1D"))
 
 		// Normal Render should contain reverse video
 		normal := emu.Render()
@@ -298,7 +298,7 @@ func TestRenderWithoutCursorBlock(t *testing.T) {
 		t.Parallel()
 		emu := NewVTEmulator(40, 10)
 		// Write a selection-like highlight (multiple reverse-video characters)
-		emu.Write([]byte("\033[7mselected\033[m"))
+		mustWrite(t, emu, []byte("\033[7mselected\033[m"))
 
 		stripped := emu.RenderWithoutCursorBlock()
 		if !strings.Contains(stripped, "\033[7m") {
@@ -309,7 +309,7 @@ func TestRenderWithoutCursorBlock(t *testing.T) {
 	t.Run("no-op when cursor cell has no reverse video", func(t *testing.T) {
 		t.Parallel()
 		emu := NewVTEmulator(40, 10)
-		emu.Write([]byte("hello"))
+		mustWrite(t, emu, []byte("hello"))
 
 		normal := emu.Render()
 		stripped := emu.RenderWithoutCursorBlock()
@@ -321,8 +321,8 @@ func TestRenderWithoutCursorBlock(t *testing.T) {
 	t.Run("preserves isolated reverse-video space away from cursor", func(t *testing.T) {
 		t.Parallel()
 		emu := NewVTEmulator(40, 10)
-		emu.Write([]byte("hello \033[7m \033[m"))
-		emu.Write([]byte("\033[1;1H"))
+		mustWrite(t, emu, []byte("hello \033[7m \033[m"))
+		mustWrite(t, emu, []byte("\033[1;1H"))
 
 		stripped := emu.RenderWithoutCursorBlock()
 		if !strings.Contains(stripped, "\033[7m") {
@@ -335,8 +335,8 @@ func TestVTEmulatorResetClearsScreenScrollbackAndModes(t *testing.T) {
 	t.Parallel()
 
 	emu := NewVTEmulatorWithDrainAndScrollback(10, 3, 4)
-	emu.Write([]byte("line-1\r\nline-2\r\nline-3\r\nline-4"))
-	emu.Write([]byte("\x1b[?1049h\x1b[?1002h\x1b[?1006h\x1b[?25l"))
+	mustWrite(t, emu, []byte("line-1\r\nline-2\r\nline-3\r\nline-4"))
+	mustWrite(t, emu, []byte("\x1b[?1049h\x1b[?1002h\x1b[?1006h\x1b[?25l"))
 
 	if !emu.IsAltScreen() {
 		t.Fatal("alternate screen should be enabled before reset")
@@ -379,7 +379,7 @@ func TestHasCursorBlock(t *testing.T) {
 	t.Run("true for isolated reverse-video space", func(t *testing.T) {
 		t.Parallel()
 		emu := NewVTEmulator(40, 10)
-		emu.Write([]byte("hello \033[7m \033[m\033[1D"))
+		mustWrite(t, emu, []byte("hello \033[7m \033[m\033[1D"))
 		if !emu.HasCursorBlock() {
 			t.Error("HasCursorBlock() = false, want true")
 		}
@@ -388,7 +388,7 @@ func TestHasCursorBlock(t *testing.T) {
 	t.Run("false for adjacent reverse-video content", func(t *testing.T) {
 		t.Parallel()
 		emu := NewVTEmulator(40, 10)
-		emu.Write([]byte("\033[7mselected\033[m"))
+		mustWrite(t, emu, []byte("\033[7mselected\033[m"))
 		if emu.HasCursorBlock() {
 			t.Error("HasCursorBlock() = true for multi-char reverse video, want false")
 		}
@@ -397,7 +397,7 @@ func TestHasCursorBlock(t *testing.T) {
 	t.Run("false when no reverse video", func(t *testing.T) {
 		t.Parallel()
 		emu := NewVTEmulator(40, 10)
-		emu.Write([]byte("hello"))
+		mustWrite(t, emu, []byte("hello"))
 		if emu.HasCursorBlock() {
 			t.Error("HasCursorBlock() = true with no reverse video, want false")
 		}
@@ -406,8 +406,8 @@ func TestHasCursorBlock(t *testing.T) {
 	t.Run("false for isolated reverse-video space away from cursor", func(t *testing.T) {
 		t.Parallel()
 		emu := NewVTEmulator(40, 10)
-		emu.Write([]byte("hello \033[7m \033[m"))
-		emu.Write([]byte("\033[1;1H"))
+		mustWrite(t, emu, []byte("hello \033[7m \033[m"))
+		mustWrite(t, emu, []byte("\033[1;1H"))
 		if emu.HasCursorBlock() {
 			t.Error("HasCursorBlock() = true for off-cursor reverse video, want false")
 		}
@@ -416,8 +416,8 @@ func TestHasCursorBlock(t *testing.T) {
 	t.Run("true for isolated reverse-video space above lower-left reported cursor", func(t *testing.T) {
 		t.Parallel()
 		emu := NewVTEmulator(40, 10)
-		emu.Write([]byte("hello \033[7m \033[m"))
-		emu.Write([]byte("\033[2;1H"))
+		mustWrite(t, emu, []byte("hello \033[7m \033[m"))
+		mustWrite(t, emu, []byte("\033[2;1H"))
 		if !emu.HasCursorBlock() {
 			t.Error("HasCursorBlock() = false with fallback cursor block, want true")
 		}
@@ -428,8 +428,8 @@ func TestRenderWithoutCursorBlockFallsBackFromLowerLeftCursor(t *testing.T) {
 	t.Parallel()
 
 	emu := NewVTEmulator(40, 10)
-	emu.Write([]byte("hello \033[7m \033[m"))
-	emu.Write([]byte("\033[2;1H"))
+	mustWrite(t, emu, []byte("hello \033[7m \033[m"))
+	mustWrite(t, emu, []byte("\033[2;1H"))
 
 	stripped := emu.RenderWithoutCursorBlock()
 	if strings.Contains(stripped, "\033[7m") {
@@ -453,7 +453,7 @@ func TestMouseProtocolTracking(t *testing.T) {
 		t.Fatal("alternate screen should start disabled")
 	}
 
-	emu.Write([]byte("\x1b[?1049h\x1b[?1000h\x1b[?1006h"))
+	mustWrite(t, emu, []byte("\x1b[?1049h\x1b[?1000h\x1b[?1006h"))
 	got := emu.MouseProtocol()
 	if !emu.IsAltScreen() {
 		t.Fatal("expected alternate screen to be enabled")
@@ -462,19 +462,19 @@ func TestMouseProtocolTracking(t *testing.T) {
 		t.Fatalf("MouseProtocol = %+v, want standard+SGR", got)
 	}
 
-	emu.Write([]byte("\x1b[?1000l\x1b[?1002h"))
+	mustWrite(t, emu, []byte("\x1b[?1000l\x1b[?1002h"))
 	got = emu.MouseProtocol()
 	if got.Tracking != MouseTrackingButton || !got.SGR {
 		t.Fatalf("MouseProtocol after 1002h = %+v, want button+SGR", got)
 	}
 
-	emu.Write([]byte("\x1b[?1003h"))
+	mustWrite(t, emu, []byte("\x1b[?1003h"))
 	got = emu.MouseProtocol()
 	if got.Tracking != MouseTrackingAny {
 		t.Fatalf("MouseProtocol after 1003h = %+v, want any", got)
 	}
 
-	emu.Write([]byte("\x1b[?1003l\x1b[?1002l\x1b[?1006l\x1b[?1049l"))
+	mustWrite(t, emu, []byte("\x1b[?1003l\x1b[?1002l\x1b[?1006l\x1b[?1049l"))
 	got = emu.MouseProtocol()
 	if got.Enabled() || got.SGR {
 		t.Fatalf("MouseProtocol after reset = %+v, want disabled", got)
@@ -493,13 +493,13 @@ func TestEncodeMouse(t *testing.T) {
 		t.Fatalf("EncodeMouse without mode = %q, want nil", got)
 	}
 
-	emu.Write([]byte("\x1b[?1002h\x1b[?1006h"))
+	mustWrite(t, emu, []byte("\x1b[?1002h\x1b[?1006h"))
 	got := string(emu.EncodeMouse(ev, 4, 6))
 	if got != "\x1b[<64;5;7M" {
 		t.Fatalf("EncodeMouse SGR = %q, want %q", got, "\x1b[<64;5;7M")
 	}
 
-	emu.Write([]byte("\x1b[?1006l"))
+	mustWrite(t, emu, []byte("\x1b[?1006l"))
 	got = string(emu.EncodeMouse(ev, 4, 6))
 	if got != "\x1b[M`%'" {
 		t.Fatalf("EncodeMouse X10 = %q, want %q", got, "\x1b[M`%'")
@@ -525,7 +525,7 @@ func TestScreenLineText(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			emu := NewVTEmulatorWithDrain(80, 24)
-			emu.Write([]byte(tt.input))
+			mustWrite(t, emu, []byte(tt.input))
 			got := emu.ScreenLineText(tt.row)
 			if got != tt.want {
 				t.Errorf("ScreenLineText(%d) = %q, want %q", tt.row, got, tt.want)
@@ -538,7 +538,7 @@ func TestScreenLineTextWideChars(t *testing.T) {
 	t.Parallel()
 	emu := NewVTEmulatorWithDrain(80, 24)
 	// CJK character "中" is width 2, occupies 2 cells
-	emu.Write([]byte("A中B"))
+	mustWrite(t, emu, []byte("A中B"))
 	got := emu.ScreenLineText(0)
 	if got != "A中B" {
 		t.Errorf("ScreenLineText(0) = %q, want %q", got, "A中B")
@@ -589,7 +589,7 @@ func TestScreenLineTextGraphemeClusters(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			emu := NewVTEmulatorWithDrain(20, 5)
-			emu.Write(tt.input)
+			mustWrite(t, emu, tt.input)
 
 			if got := emu.ScreenLineText(0); got != tt.wantLine {
 				t.Fatalf("ScreenLineText(0) = %q, want %q", got, tt.wantLine)
@@ -620,7 +620,7 @@ func TestScreenLineTextGraphemeClusters(t *testing.T) {
 func TestScreenLineTextTrailingSpaces(t *testing.T) {
 	t.Parallel()
 	emu := NewVTEmulatorWithDrain(80, 24)
-	emu.Write([]byte("hello"))
+	mustWrite(t, emu, []byte("hello"))
 	got := emu.ScreenLineText(0)
 	// Should not have trailing spaces (the remaining 75 columns)
 	if got != "hello" {
@@ -679,7 +679,7 @@ func TestScreenContains(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			emu := NewVTEmulatorWithDrain(80, 24)
-			emu.Write([]byte(tt.input))
+			mustWrite(t, emu, []byte(tt.input))
 			got := emu.ScreenContains(tt.substr)
 			if got != tt.want {
 				t.Errorf("ScreenContains(%q) = %v, want %v", tt.substr, got, tt.want)
@@ -691,7 +691,7 @@ func TestScreenContains(t *testing.T) {
 func TestScreenContainsMultiRow(t *testing.T) {
 	t.Parallel()
 	emu := NewVTEmulatorWithDrain(80, 24)
-	emu.Write([]byte("first line\r\nsecond line\r\nthird line"))
+	mustWrite(t, emu, []byte("first line\r\nsecond line\r\nthird line"))
 
 	if !emu.ScreenContains("second") {
 		t.Error("ScreenContains(\"second\") = false, want true")
@@ -710,7 +710,7 @@ func TestScreenContainsSoftWrap(t *testing.T) {
 	// soft-wraps at column 20, splitting the text across two screen rows.
 	// ScreenContains should still find the full substring.
 	emu := NewVTEmulatorWithDrain(20, 5)
-	emu.Write([]byte("cannot attach recursive nesting"))
+	mustWrite(t, emu, []byte("cannot attach recursive nesting"))
 
 	if !emu.ScreenContains("recursive nesting") {
 		t.Error("ScreenContains should match across soft-wrapped lines")
@@ -739,7 +739,7 @@ func TestCursorHidden(t *testing.T) {
 	t.Run("hidden after hide sequence", func(t *testing.T) {
 		t.Parallel()
 		emu := NewVTEmulator(80, 24)
-		emu.Write([]byte("\033[?25l")) // hide cursor
+		mustWrite(t, emu, []byte("\033[?25l")) // hide cursor
 		if !emu.CursorHidden() {
 			t.Error("CursorHidden() = false after \\033[?25l, want true")
 		}
@@ -748,8 +748,8 @@ func TestCursorHidden(t *testing.T) {
 	t.Run("visible after show sequence", func(t *testing.T) {
 		t.Parallel()
 		emu := NewVTEmulator(80, 24)
-		emu.Write([]byte("\033[?25l")) // hide
-		emu.Write([]byte("\033[?25h")) // show
+		mustWrite(t, emu, []byte("\033[?25l")) // hide
+		mustWrite(t, emu, []byte("\033[?25h")) // show
 		if emu.CursorHidden() {
 			t.Error("CursorHidden() = true after \\033[?25h, want false")
 		}

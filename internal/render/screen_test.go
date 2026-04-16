@@ -106,7 +106,7 @@ func TestEmitDiff_CUP(t *testing.T) {
 
 	// Verify via VT emulator.
 	emu := vt.NewSafeEmulator(10, 5)
-	emu.Write([]byte(output))
+	mustWrite(t, emu, []byte(output))
 
 	cellA := emu.CellAt(3, 1)
 	if cellA == nil || cellA.Content != "A" {
@@ -138,7 +138,7 @@ func TestEmitDiff_StyleTransition(t *testing.T) {
 	output := EmitDiff(changes)
 
 	emu := vt.NewSafeEmulator(10, 5)
-	emu.Write([]byte(output))
+	mustWrite(t, emu, []byte(output))
 
 	cellR := emu.CellAt(0, 0)
 	if cellR == nil || cellR.Content != "R" {
@@ -183,7 +183,7 @@ func TestEmitDiff_BatchConsecutive(t *testing.T) {
 
 	// Verify content via emulator.
 	emu := vt.NewSafeEmulator(10, 5)
-	emu.Write([]byte(output))
+	mustWrite(t, emu, []byte(output))
 	for i, want := range []string{"A", "B", "C"} {
 		cell := emu.CellAt(3+i, 2)
 		if cell == nil || cell.Content != want {
@@ -291,7 +291,7 @@ func TestEmitDiff_NonConsecutiveRows(t *testing.T) {
 
 	// Verify positions.
 	emu := vt.NewSafeEmulator(10, 5)
-	emu.Write([]byte(output))
+	mustWrite(t, emu, []byte(output))
 
 	for _, tc := range []struct {
 		x, y int
@@ -410,7 +410,9 @@ func oracleCheck(comp *Compositor, display *vt.SafeEmulator, root *mux.LayoutCel
 
 	// Diff path: RenderDiff → feed to display emulator → read back
 	diff := comp.RenderDiff(root, activeID, lookup)
-	display.Write([]byte(diff))
+	if _, err := display.Write([]byte(diff)); err != nil {
+		return fmt.Sprintf("apply diff to display: %v", err)
+	}
 
 	// Read display grid
 	var actual strings.Builder
@@ -498,7 +500,7 @@ func TestRenderDiff_InitialPaint(t *testing.T) {
 	totalH := height + GlobalBarHeight
 
 	pane1Emu := vt.NewSafeEmulator(40, height-mux.StatusLineRows)
-	pane1Emu.Write([]byte("hello world"))
+	mustWrite(t, pane1Emu, []byte("hello world"))
 
 	root := mux.NewLeafByID(1, 0, 0, width, height)
 	lookup := func(id uint32) PaneData {
@@ -536,10 +538,10 @@ func TestRenderDiff_PaneOutput(t *testing.T) {
 
 	// Initial paint.
 	diff := comp.RenderDiff(root, 1, lookup)
-	display.Write([]byte(diff))
+	mustWrite(t, display, []byte(diff))
 
 	// Feed output to pane emulator.
-	pane1Emu.Write([]byte("hello world"))
+	mustWrite(t, pane1Emu, []byte("hello world"))
 
 	// Second render should diff correctly.
 	if err := oracleCheck(comp, display, root, 1, lookup, width, totalH); err != "" {
@@ -558,8 +560,8 @@ func TestRenderDiff_FocusChange(t *testing.T) {
 	contentH := height - mux.StatusLineRows
 	pane1Emu := vt.NewSafeEmulator(pane1W, contentH)
 	pane2Emu := vt.NewSafeEmulator(pane2W, contentH)
-	pane1Emu.Write([]byte("left pane"))
-	pane2Emu.Write([]byte("right pane"))
+	mustWrite(t, pane1Emu, []byte("left pane"))
+	mustWrite(t, pane2Emu, []byte("right pane"))
 
 	left := mux.NewLeafByID(1, 0, 0, pane1W, height)
 	right := mux.NewLeafByID(2, pane1W+1, 0, pane2W, height)
@@ -586,7 +588,7 @@ func TestRenderDiff_FocusChange(t *testing.T) {
 
 	// Initial render with pane-1 active.
 	diff := comp.RenderDiff(root, 1, lookup)
-	display.Write([]byte(diff))
+	mustWrite(t, display, []byte(diff))
 
 	// Switch focus to pane-2.
 	if err := oracleCheck(comp, display, root, 2, lookup, width, totalH); err != "" {
@@ -600,7 +602,7 @@ func TestRenderDiff_Backspace(t *testing.T) {
 	totalH := height + GlobalBarHeight
 
 	pane1Emu := vt.NewSafeEmulator(40, height-mux.StatusLineRows)
-	pane1Emu.Write([]byte("hello"))
+	mustWrite(t, pane1Emu, []byte("hello"))
 
 	root := mux.NewLeafByID(1, 0, 0, width, height)
 	lookup := func(id uint32) PaneData {
@@ -615,10 +617,10 @@ func TestRenderDiff_Backspace(t *testing.T) {
 
 	// Initial paint.
 	diff := comp.RenderDiff(root, 1, lookup)
-	display.Write([]byte(diff))
+	mustWrite(t, display, []byte(diff))
 
 	// Backspace: erase the 'o'.
-	pane1Emu.Write([]byte("\b \b"))
+	mustWrite(t, pane1Emu, []byte("\b \b"))
 
 	if err := oracleCheck(comp, display, root, 1, lookup, width, totalH); err != "" {
 		t.Error(err)
@@ -631,7 +633,7 @@ func TestRenderDiff_Resize(t *testing.T) {
 	totalH := height + GlobalBarHeight
 
 	pane1Emu := vt.NewSafeEmulator(40, height-mux.StatusLineRows)
-	pane1Emu.Write([]byte("content"))
+	mustWrite(t, pane1Emu, []byte("content"))
 
 	root := mux.NewLeafByID(1, 0, 0, width, height)
 	lookup := func(id uint32) PaneData {
@@ -646,7 +648,7 @@ func TestRenderDiff_Resize(t *testing.T) {
 
 	// Initial paint.
 	diff := comp.RenderDiff(root, 1, lookup)
-	display.Write([]byte(diff))
+	mustWrite(t, display, []byte(diff))
 
 	// Resize — should clear prevGrid and force full repaint.
 	newW, newH := 50, 8
@@ -684,7 +686,7 @@ func TestPrevGridText(t *testing.T) {
 	totalH := height + GlobalBarHeight
 
 	paneEmu := vt.NewSafeEmulator(40, height-mux.StatusLineRows)
-	paneEmu.Write([]byte("hello world"))
+	mustWrite(t, paneEmu, []byte("hello world"))
 
 	root := mux.NewLeafByID(1, 0, 0, width, height)
 	lookup := func(id uint32) PaneData {
@@ -829,11 +831,15 @@ func colorOracleCheck(comp *Compositor, diffDisplay *vt.SafeEmulator, root *mux.
 	// Ground truth: RenderFull (clear screen) -> fresh display emulator.
 	fullANSI := comp.RenderFull(root, activeID, lookup, true)
 	fullDisplay := vt.NewSafeEmulator(width, height)
-	fullDisplay.Write([]byte(fullANSI))
+	if _, err := fullDisplay.Write([]byte(fullANSI)); err != nil {
+		return []string{fmt.Sprintf("apply full ANSI to display: %v", err)}
+	}
 
 	// Diff path: RenderDiff -> persistent display emulator.
 	diffANSI := comp.RenderDiff(root, activeID, lookup)
-	diffDisplay.Write([]byte(diffANSI))
+	if _, err := diffDisplay.Write([]byte(diffANSI)); err != nil {
+		return []string{fmt.Sprintf("apply diff ANSI to display: %v", err)}
+	}
 
 	var mismatches []string
 	for y := 0; y < height; y++ {
@@ -909,7 +915,7 @@ func TestRenderDiff_ColorOracle(t *testing.T) {
 	contentH := height - mux.StatusLineRows
 
 	paneEmu := vt.NewSafeEmulator(width, contentH)
-	paneEmu.Write([]byte(htopSampleANSI))
+	mustWrite(t, paneEmu, []byte(htopSampleANSI))
 
 	root := mux.NewLeafByID(1, 0, 0, width, height)
 	lookup := func(id uint32) PaneData {
@@ -936,7 +942,7 @@ func TestRenderDiff_ColorOracle_IncrementalUpdate(t *testing.T) {
 	contentH := height - mux.StatusLineRows
 
 	paneEmu := vt.NewSafeEmulator(width, contentH)
-	paneEmu.Write([]byte(htopSampleANSI))
+	mustWrite(t, paneEmu, []byte(htopSampleANSI))
 
 	root := mux.NewLeafByID(1, 0, 0, width, height)
 	lookup := func(id uint32) PaneData {
@@ -951,13 +957,13 @@ func TestRenderDiff_ColorOracle_IncrementalUpdate(t *testing.T) {
 
 	// Initial render: populate prevGrid and prime the diff display.
 	initDiff := comp.RenderDiff(root, 1, lookup)
-	diffDisplay.Write([]byte(initDiff))
+	mustWrite(t, diffDisplay, []byte(initDiff))
 
 	// Simulate htop redraw: overwrite CPU bars with new values.
-	paneEmu.Write([]byte(
-		"\033[1;1H" + // home cursor to top-left of pane content
-			"\033[32m|||||||\033[31m|\033[90;1m  \033[0m CPU1 [###..]" +
-			"\r\n" +
+	mustWrite(t, paneEmu, []byte(
+		"\033[1;1H"+ // home cursor to top-left of pane content
+			"\033[32m|||||||\033[31m|\033[90;1m  \033[0m CPU1 [###..]"+
+			"\r\n"+
 			"\033[34m||\033[33m||||\033[90;1m    \033[0m CPU2 [##...]",
 	))
 
@@ -1012,7 +1018,7 @@ func TestRenderDiff_ColorOracle_CursorAssembledGraphemeClusters(t *testing.T) {
 			contentH := height - mux.StatusLineRows
 
 			paneEmu := vt.NewSafeEmulator(width, contentH)
-			paneEmu.Write([]byte(tt.initial))
+			mustWrite(t, paneEmu, []byte(tt.initial))
 
 			root := mux.NewLeafByID(1, 0, 0, width, height)
 			lookup := func(id uint32) PaneData {
@@ -1031,7 +1037,7 @@ func TestRenderDiff_ColorOracle_CursorAssembledGraphemeClusters(t *testing.T) {
 				t.Fatalf("writing initial diff: %v", err)
 			}
 
-			paneEmu.Write([]byte(tt.update))
+			mustWrite(t, paneEmu, []byte(tt.update))
 
 			if err := muxTextOracleCheck(comp, diffDisplay, root, 1, lookup, width, totalH); err != "" {
 				t.Fatalf("cursor-assembled grapheme mismatch:\n%s", err)
@@ -1048,7 +1054,7 @@ func TestRenderDiff_ColorOracle_LeadPane(t *testing.T) {
 	contentH := height - mux.StatusLineRows
 
 	paneEmu := vt.NewSafeEmulator(width, contentH)
-	paneEmu.Write([]byte("lead pane content"))
+	mustWrite(t, paneEmu, []byte("lead pane content"))
 
 	root := mux.NewLeafByID(1, 0, 0, width, height)
 	lookup := func(id uint32) PaneData {
@@ -1204,7 +1210,7 @@ func TestRenderDiff_LongLines(t *testing.T) {
 	paneEmu := vt.NewSafeEmulator(width, contentH)
 	// Write a line that exceeds the pane width — triggers wrapping in the VT emulator.
 	longLine := strings.Repeat("A", width+20)
-	paneEmu.Write([]byte(longLine))
+	mustWrite(t, paneEmu, []byte(longLine))
 
 	root := mux.NewLeafByID(1, 0, 0, width, height)
 	lookup := func(id uint32) PaneData {
@@ -1235,11 +1241,11 @@ func TestRenderDiff_LongLines_TwoPanes(t *testing.T) {
 	pane2Emu := vt.NewSafeEmulator(pane2W, contentH)
 
 	// Left pane: long line with ANSI colors (simulates a colored prompt with long branch name).
-	pane1Emu.Write([]byte(
+	mustWrite(t, pane1Emu, []byte(
 		"\033[32muser@host\033[0m:\033[34m~/very/deeply/nested/project/directory\033[0m (feature/extremely-long-branch-name-that-overflows)$ ",
 	))
 	// Right pane: long plain text line.
-	pane2Emu.Write([]byte(strings.Repeat("B", pane2W+15)))
+	mustWrite(t, pane2Emu, []byte(strings.Repeat("B", pane2W+15)))
 
 	root := mkSplit(mux.SplitVertical, 0, 0, width, height,
 		mux.NewLeafByID(1, 0, 0, pane1W, height),
@@ -1256,7 +1262,7 @@ func TestRenderDiff_LongLines_TwoPanes(t *testing.T) {
 	}
 
 	// Incremental: add more long content.
-	pane1Emu.Write([]byte("\r\n" + strings.Repeat("X", pane1W+10)))
+	mustWrite(t, pane1Emu, []byte("\r\n"+strings.Repeat("X", pane1W+10)))
 	if err := oracleCheck(comp, display, root, 1, lookup, width, totalH); err != "" {
 		t.Error(err)
 	}
@@ -1320,11 +1326,11 @@ func TestRenderDiff_ColorOracle_LongLines(t *testing.T) {
 	pane2Emu := vt.NewSafeEmulator(pane2W, contentH)
 
 	// Colored long lines — ANSI escapes + text exceeding pane width.
-	pane1Emu.Write([]byte(
-		"\033[32m" + strings.Repeat("|", pane1W+10) + "\033[0m",
+	mustWrite(t, pane1Emu, []byte(
+		"\033[32m"+strings.Repeat("|", pane1W+10)+"\033[0m",
 	))
-	pane2Emu.Write([]byte(
-		"\033[31m" + strings.Repeat("#", pane2W+10) + "\033[0m",
+	mustWrite(t, pane2Emu, []byte(
+		"\033[31m"+strings.Repeat("#", pane2W+10)+"\033[0m",
 	))
 
 	root := mkSplit(mux.SplitVertical, 0, 0, width, height,
@@ -1342,8 +1348,8 @@ func TestRenderDiff_ColorOracle_LongLines(t *testing.T) {
 	}
 
 	// Incremental update: overwrite with new long colored content.
-	pane1Emu.Write([]byte(
-		"\033[1;1H\033[33m" + strings.Repeat("=", pane1W+5) + "\033[0m",
+	mustWrite(t, pane1Emu, []byte(
+		"\033[1;1H\033[33m"+strings.Repeat("=", pane1W+5)+"\033[0m",
 	))
 	if mismatches := colorOracleCheck(comp, diffDisplay, root, 1, lookup, width, totalH); len(mismatches) > 0 {
 		t.Errorf("long-line color oracle incremental: %d mismatches:\n%s",
@@ -1366,7 +1372,7 @@ func TestRenderDiff_LongLines_NinePanes(t *testing.T) {
 		emus[i] = vt.NewSafeEmulator(colW, contentH)
 		// Each pane gets a line that overflows its width.
 		line := fmt.Sprintf("pane-%d:%s", i+1, strings.Repeat(string(rune('a'+i)), colW+10))
-		emus[i].Write([]byte(line))
+		mustWrite(t, emus[i], []byte(line))
 	}
 
 	root := buildNinePaneGrid(colW, rowH, width, height)
@@ -1411,13 +1417,13 @@ func TestRenderDiff_ColorOracle_TwoPanes(t *testing.T) {
 	pane2Emu := vt.NewSafeEmulator(pane2W, contentH)
 
 	// Left pane: htop-like colored bars
-	pane1Emu.Write([]byte(
-		"\033[32m|||||\033[31m||\033[90;1m   \033[0m CPU1\r\n" +
+	mustWrite(t, pane1Emu, []byte(
+		"\033[32m|||||\033[31m||\033[90;1m   \033[0m CPU1\r\n"+
 			"\033[34m|||\033[33m|||\033[90;1m    \033[0m CPU2",
 	))
 
 	// Right pane: plain text
-	pane2Emu.Write([]byte("$ top\r\nPID  CPU%  MEM%"))
+	mustWrite(t, pane2Emu, []byte("$ top\r\nPID  CPU%  MEM%"))
 
 	left := mux.NewLeafByID(1, 0, 0, pane1W, height)
 	right := mux.NewLeafByID(2, pane1W+1, 0, pane2W, height)
@@ -1449,8 +1455,8 @@ func TestRenderDiff_ColorOracle_TwoPanes(t *testing.T) {
 	}
 
 	// Update left pane, keep right pane unchanged.
-	pane1Emu.Write([]byte(
-		"\033[1;1H" +
+	mustWrite(t, pane1Emu, []byte(
+		"\033[1;1H"+
 			"\033[32m|||||||\033[31m|\033[90;1m  \033[0m CPU1",
 	))
 
@@ -1632,7 +1638,7 @@ func FuzzCompositor(f *testing.F) {
 				}
 				if start < len(contentData) {
 					content := fuzzPaneContent(contentData[start:end], cell.W, contentH)
-					emu.Write([]byte(content))
+					mustWrite(t, emu, []byte(content))
 				}
 			}
 

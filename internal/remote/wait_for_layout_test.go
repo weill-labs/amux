@@ -1,7 +1,9 @@
 package remote
 
 import (
+	"errors"
 	"net"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -39,7 +41,7 @@ func TestWaitForLayout(t *testing.T) {
 		defer client.Close()
 
 		go func() {
-			remoteTestWriter(server).WriteMsg(&proto.Message{Type: proto.MsgTypeLayout, Layout: testLayoutSnapshot()})
+			mustWriteMsg(t, remoteTestWriter(server), &proto.Message{Type: proto.MsgTypeLayout, Layout: testLayoutSnapshot()})
 		}()
 
 		if err := waitForLayout(client, remoteTestReader(client), 5*time.Second); err != nil {
@@ -55,8 +57,8 @@ func TestWaitForLayout(t *testing.T) {
 
 		go func() {
 			writer := remoteTestWriter(server)
-			writer.WriteMsg(&proto.Message{Type: proto.MsgTypePaneOutput, PaneID: 1, PaneData: []byte("hello")})
-			writer.WriteMsg(&proto.Message{Type: proto.MsgTypeLayout, Layout: testLayoutSnapshot()})
+			mustWriteMsg(t, writer, &proto.Message{Type: proto.MsgTypePaneOutput, PaneID: 1, PaneData: []byte("hello")})
+			mustWriteMsg(t, writer, &proto.Message{Type: proto.MsgTypeLayout, Layout: testLayoutSnapshot()})
 		}()
 
 		if err := waitForLayout(client, remoteTestReader(client), 5*time.Second); err != nil {
@@ -72,8 +74,8 @@ func TestWaitForLayout(t *testing.T) {
 
 		go func() {
 			writer := remoteTestWriter(server)
-			writer.WriteMsg(&proto.Message{Type: proto.MsgTypeLayout})
-			writer.WriteMsg(&proto.Message{Type: proto.MsgTypeLayout, Layout: testLayoutSnapshot()})
+			mustWriteMsg(t, writer, &proto.Message{Type: proto.MsgTypeLayout})
+			mustWriteMsg(t, writer, &proto.Message{Type: proto.MsgTypeLayout, Layout: testLayoutSnapshot()})
 		}()
 
 		if err := waitForLayout(client, remoteTestReader(client), 5*time.Second); err != nil {
@@ -104,6 +106,49 @@ func TestWaitForLayout(t *testing.T) {
 			t.Fatal("expected timeout error")
 		}
 	})
+
+	t.Run("returns deadline exceeded when deadlines are unsupported and nothing arrives", func(t *testing.T) {
+		t.Parallel()
+		_, client := net.Pipe()
+		defer client.Close()
+
+		err := waitForLayout(noDeadlineConn{Conn: client}, remoteTestReader(client), 50*time.Millisecond)
+		if !errors.Is(err, os.ErrDeadlineExceeded) {
+			t.Fatalf("waitForLayout() error = %v, want %v", err, os.ErrDeadlineExceeded)
+		}
+	})
+
+	t.Run("falls back when deadlines are unsupported", func(t *testing.T) {
+		t.Parallel()
+		server, client := net.Pipe()
+		defer server.Close()
+		defer client.Close()
+
+		go func() {
+			_ = remoteTestWriter(server).WriteMsg(&proto.Message{Type: proto.MsgTypeLayout, Layout: testLayoutSnapshot()})
+		}()
+
+		conn := noDeadlineConn{Conn: client}
+		if err := waitForLayout(conn, remoteTestReader(conn), 5*time.Second); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("falls back when deadline errors are not wrapped", func(t *testing.T) {
+		t.Parallel()
+		server, client := net.Pipe()
+		defer server.Close()
+		defer client.Close()
+
+		go func() {
+			_ = remoteTestWriter(server).WriteMsg(&proto.Message{Type: proto.MsgTypeLayout, Layout: testLayoutSnapshot()})
+		}()
+
+		conn := stringNoDeadlineConn{Conn: client}
+		if err := waitForLayout(conn, remoteTestReader(conn), 5*time.Second); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
 }
 
 func TestAttachAndWait(t *testing.T) {
@@ -125,7 +170,7 @@ func TestAttachAndWait(t *testing.T) {
 				t.Errorf("attach mode = %v, want %v", msg.AttachMode, proto.AttachModeNonInteractive)
 			}
 			// Reply with layout
-			remoteTestWriter(server).WriteMsg(&proto.Message{Type: proto.MsgTypeLayout, Layout: testLayoutSnapshot()})
+			mustWriteMsg(t, remoteTestWriter(server), &proto.Message{Type: proto.MsgTypeLayout, Layout: testLayoutSnapshot()})
 		}()
 
 		if err := attachAndWait(client, remoteTestWriter(client), remoteTestReader(client), "test-session", 5*time.Second); err != nil {
@@ -155,7 +200,7 @@ func TestAttachAndWait(t *testing.T) {
 
 		go func() {
 			// Read the attach, then close without sending layout
-			remoteTestReader(server).ReadMsg()
+			_ = mustReadMsg(t, remoteTestReader(server))
 			server.Close()
 		}()
 
@@ -174,8 +219,8 @@ func TestAttachAndWait(t *testing.T) {
 		defer client.Close()
 
 		go func() {
-			remoteTestReader(server).ReadMsg()
-			remoteTestWriter(server).WriteMsg(&proto.Message{Type: proto.MsgTypeLayout})
+			_ = mustReadMsg(t, remoteTestReader(server))
+			mustWriteMsg(t, remoteTestWriter(server), &proto.Message{Type: proto.MsgTypeLayout})
 			server.Close()
 		}()
 
@@ -188,3 +233,27 @@ func TestAttachAndWait(t *testing.T) {
 		}
 	})
 }
+
+type noDeadlineConn struct {
+	net.Conn
+}
+
+func (c noDeadlineConn) SetDeadline(time.Time) error      { return os.ErrNoDeadline }
+func (c noDeadlineConn) SetReadDeadline(time.Time) error  { return os.ErrNoDeadline }
+func (c noDeadlineConn) SetWriteDeadline(time.Time) error { return os.ErrNoDeadline }
+
+type stringNoDeadlineConn struct {
+	net.Conn
+}
+
+func (c stringNoDeadlineConn) SetDeadline(time.Time) error { return nil }
+func (c stringNoDeadlineConn) SetReadDeadline(time.Time) error {
+	return os.NewSyscallError("tcpChan", errDeadlineNotSupported)
+}
+func (c stringNoDeadlineConn) SetWriteDeadline(time.Time) error { return nil }
+
+var errDeadlineNotSupported = deadlineNotSupportedError{}
+
+type deadlineNotSupportedError struct{}
+
+func (deadlineNotSupportedError) Error() string { return "deadline not supported" }

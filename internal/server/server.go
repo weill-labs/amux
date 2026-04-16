@@ -488,7 +488,10 @@ func newServerWithScrollbackLogger(sessionName string, scrollbackLines int, logg
 	if err != nil {
 		return nil, fmt.Errorf("listening: %w", err)
 	}
-	os.Chmod(sockPath, 0700)
+	if err := os.Chmod(sockPath, 0700); err != nil {
+		listener.Close()
+		return nil, fmt.Errorf("chmod socket: %w", err)
+	}
 
 	sess := newSessionWithLogger(sessionName, scrollbackLines, logger.With("session", sessionName))
 
@@ -648,7 +651,10 @@ func NewServerFromCrashCheckpointWithScrollbackLogger(sessionName string, cp *ch
 	if err != nil {
 		return nil, fmt.Errorf("listening: %w", err)
 	}
-	os.Chmod(sockPath, 0700)
+	if err := os.Chmod(sockPath, 0700); err != nil {
+		listener.Close()
+		return nil, fmt.Errorf("chmod socket: %w", err)
+	}
 
 	return newServerFromCrashCheckpointWithListenerLogger(sessionName, listener, sockPath, cp, crashPath, scrollbackLines, logger)
 }
@@ -798,7 +804,10 @@ func (s *Server) handleAttach(cc *clientConn, msg *Message) {
 		return
 	}
 
-	cc.Send(&Message{Type: MsgTypeLayout, Layout: res.snap})
+	if err := cc.Send(&Message{Type: MsgTypeLayout, Layout: res.snap}); err != nil {
+		cc.Close()
+		return
+	}
 	bootstrapSeqs := make(map[uint32]uint64, len(res.paneSnapshots))
 	for _, ps := range res.paneSnapshots {
 		if len(ps.styledHistory) > 0 {
@@ -808,10 +817,16 @@ func (s *Server) handleAttach(cc *clientConn, msg *Message) {
 				return
 			}
 			for _, historyMsg := range messages {
-				cc.Send(historyMsg)
+				if err := cc.Send(historyMsg); err != nil {
+					cc.Close()
+					return
+				}
 			}
 		}
-		cc.Send(&Message{Type: MsgTypePaneOutput, PaneID: ps.paneID, PaneData: ps.screen})
+		if err := cc.Send(&Message{Type: MsgTypePaneOutput, PaneID: ps.paneID, PaneData: ps.screen}); err != nil {
+			cc.Close()
+			return
+		}
 		bootstrapSeqs[ps.paneID] = ps.outputSeq
 	}
 	if s.attachBootstrapHook != nil {
@@ -835,7 +850,7 @@ func (s *Server) handleOneShot(cc *clientConn, msg *Message) {
 	sess := s.firstSession()
 
 	if sess == nil {
-		cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "no session"})
+		_ = cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: "no session"})
 		return
 	}
 

@@ -66,7 +66,9 @@ func BenchmarkWriteMsg_PaneOutput(b *testing.B) {
 			b.ResetTimer()
 			for b.Loop() {
 				buf.Reset()
-				WriteMsg(&buf, msg)
+				if err := WriteMsg(&buf, msg); err != nil {
+					b.Fatal(err)
+				}
 			}
 		})
 	}
@@ -78,14 +80,18 @@ func BenchmarkReadMsg_PaneOutput(b *testing.B) {
 			msg := benchPaneOutputMsg(size)
 			// Pre-encode
 			var encoded bytes.Buffer
-			WriteMsg(&encoded, msg)
+			if err := WriteMsg(&encoded, msg); err != nil {
+				b.Fatal(err)
+			}
 			raw := encoded.Bytes()
 
 			b.SetBytes(int64(size))
 			b.ReportAllocs()
 			b.ResetTimer()
 			for b.Loop() {
-				ReadMsg(bytes.NewReader(raw))
+				if _, err := ReadMsg(bytes.NewReader(raw)); err != nil {
+					b.Fatal(err)
+				}
 			}
 		})
 	}
@@ -104,7 +110,9 @@ func BenchmarkWriteMsg_Layout(b *testing.B) {
 			b.ResetTimer()
 			for b.Loop() {
 				buf.Reset()
-				WriteMsg(&buf, msg)
+				if err := WriteMsg(&buf, msg); err != nil {
+					b.Fatal(err)
+				}
 			}
 		})
 	}
@@ -119,13 +127,17 @@ func BenchmarkReadMsg_Layout(b *testing.B) {
 				Layout: snap,
 			}
 			var encoded bytes.Buffer
-			WriteMsg(&encoded, msg)
+			if err := WriteMsg(&encoded, msg); err != nil {
+				b.Fatal(err)
+			}
 			raw := encoded.Bytes()
 
 			b.ReportAllocs()
 			b.ResetTimer()
 			for b.Loop() {
-				ReadMsg(bytes.NewReader(raw))
+				if _, err := ReadMsg(bytes.NewReader(raw)); err != nil {
+					b.Fatal(err)
+				}
 			}
 		})
 	}

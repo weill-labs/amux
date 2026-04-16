@@ -340,7 +340,7 @@ func TestClientRendererCaptureJSON(t *testing.T) {
 	}
 	out2 := cr.CaptureJSON(status)
 	var capture2 proto.CaptureJSON
-	json.Unmarshal([]byte(out2), &capture2)
+	mustUnmarshalJSON(t, []byte(out2), &capture2)
 
 	for _, p := range capture2.Panes {
 		if p.Name == "pane-1" && !p.Idle {

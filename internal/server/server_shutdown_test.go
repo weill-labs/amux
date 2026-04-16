@@ -90,6 +90,35 @@ func TestShutdownCommandFlushesReplyBeforeShutdownStarts(t *testing.T) {
 	}
 }
 
+func TestHandleOneShotWithoutSessionReturnsNoSession(t *testing.T) {
+	t.Parallel()
+
+	srv := &Server{}
+
+	serverConn, clientConn := net.Pipe()
+	defer func() { _ = clientConn.Close() }()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		srv.handleOneShot(newClientConn(serverConn), &Message{Type: MsgTypeCommand, CmdName: "status"})
+	}()
+
+	msg, err := readMsgOnConn(clientConn)
+	if err != nil {
+		t.Fatalf("ReadMsg() error = %v", err)
+	}
+	if msg.Type != MsgTypeCmdResult || msg.CmdErr != "no session" {
+		t.Fatalf("one-shot no-session reply = %#v, want no-session cmd result", msg)
+	}
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("handleOneShot did not return")
+	}
+}
+
 type gatedConn struct {
 	net.Conn
 	writeStarted chan struct{}

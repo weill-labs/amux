@@ -37,18 +37,6 @@ func FormatKillCommandError(err error, command string) string {
 	return layoutcmd.FormatKillCommandError(err, command)
 }
 
-func parseKillCommandArgs(args []string) (killCommandArgs, error) {
-	parsed, err := layoutcmd.ParseKillCommandArgs(args)
-	if err != nil {
-		return killCommandArgs{}, err
-	}
-	return killCommandArgs{
-		paneRef: parsed.PaneRef,
-		cleanup: parsed.Cleanup,
-		timeout: parsed.Timeout,
-	}, nil
-}
-
 func dirName(d mux.SplitDir) string {
 	return layoutcmd.DirName(d)
 }

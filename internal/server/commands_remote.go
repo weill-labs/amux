@@ -12,10 +12,6 @@ import (
 
 const ReloadServerExecPathFlag = remotecmd.ReloadServerExecPathFlag
 
-func requestedReloadExecPath(args []string) (string, error) {
-	return remotecmd.RequestedReloadExecPath(args)
-}
-
 type remoteCommandContext struct {
 	*CommandContext
 }

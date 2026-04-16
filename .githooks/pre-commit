@@ -45,6 +45,17 @@ if [ "$NEEDS_FMT" = true ]; then
     echo "goimports: auto-formatted staged Go files"
 fi
 
+# Run golangci-lint on staged Go files
+if ! command -v golangci-lint &>/dev/null; then
+    echo "golangci-lint not found. Install: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest"
+    exit 1
+fi
+
+if ! golangci-lint run $STAGED; then
+    echo "golangci-lint: fix the reported issues before committing"
+    exit 1
+fi
+
 # Reject new time.Sleep additions in test files — use wait primitives instead
 SLEEP_ADDITIONS=$(git diff --cached --diff-filter=ACM -U0 -- '*_test.go' | grep '^\+' | grep -vF '+++' | grep -F 'time.Sleep')
 if [ -n "$SLEEP_ADDITIONS" ]; then

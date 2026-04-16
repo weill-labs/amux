@@ -34,7 +34,7 @@ func (h *ServerHarness) attachAt(cols, rows int) *server.Message {
 		h.tb.Fatalf("attachAt: write: %v", err)
 	}
 
-	conn.SetReadDeadline(time.Now().Add(10 * time.Second))
+	mustSetReadDeadline(h.tb, conn, time.Now().Add(10*time.Second))
 	for {
 		msg, err := readMsgOnConn(conn)
 		if err != nil {
@@ -68,7 +68,7 @@ func (h *ServerHarness) attachRendererAt(cols, rows int, afterLayout func(*clien
 		h.tb.Fatalf("attachRendererAt: write: %v", err)
 	}
 
-	conn.SetReadDeadline(time.Now().Add(10 * time.Second))
+	mustSetReadDeadline(h.tb, conn, time.Now().Add(10*time.Second))
 
 	// Drain until the initial layout arrives (pane output may arrive first
 	// under -race).

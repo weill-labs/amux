@@ -7,6 +7,8 @@ import (
 
 type testPaneTransport struct{}
 
+var _ PaneTransport = testPaneTransport{}
+
 func (testPaneTransport) SendInput(uint32, []byte) error                    { return nil }
 func (testPaneTransport) SendResize(uint32, int, int) error                 { return nil }
 func (testPaneTransport) KillPane(uint32, bool, time.Duration) error        { return nil }
@@ -40,14 +42,5 @@ func TestConnStateConstants(t *testing.T) {
 				t.Fatalf("string(%s) = %q, want %q", tt.name, got, tt.want)
 			}
 		})
-	}
-}
-
-func TestPaneTransportInterfaceShape(t *testing.T) {
-	t.Parallel()
-
-	var transport PaneTransport = testPaneTransport{}
-	if transport == nil {
-		t.Fatal("PaneTransport should accept a concrete transport implementation")
 	}
 }

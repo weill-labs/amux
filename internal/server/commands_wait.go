@@ -210,12 +210,6 @@ func (ctx waitCommandContext) WaitIdle(actorPaneID uint32, args []string) error 
 	return waitForPaneIdle(ctx.Sess, paneRef, pane.paneID, opts)
 }
 
-func waitSubcommandContext(ctx *CommandContext, args []string) *CommandContext {
-	sub := *ctx
-	sub.Args = args
-	return &sub
-}
-
 func parseWaitArgs(args []string) (afterGen uint64, afterSet bool, timeout time.Duration, err error) {
 	return waitcmd.ParseWaitArgs(args)
 }
@@ -252,40 +246,12 @@ func cmdWait(ctx *CommandContext) {
 	ctx.applyCommandResult(waitcmd.Wait(waitCommandContext{ctx}, ctx.ActorPaneID, ctx.Args))
 }
 
-func cmdGeneration(ctx *CommandContext) {
-	ctx.applyCommandResult(waitcmd.Generation(waitCommandContext{ctx}, ctx.Args))
-}
-
 func cmdLayoutJSON(ctx *CommandContext) {
 	ctx.applyCommandResult(waitcmd.LayoutJSON(waitCommandContext{ctx}, ctx.Args))
 }
 
-func cmdWaitLayout(ctx *CommandContext) {
-	ctx.applyCommandResult(waitcmd.WaitLayout(waitCommandContext{ctx}, ctx.Args))
-}
-
-func cmdClipboardGen(ctx *CommandContext) {
-	ctx.applyCommandResult(waitcmd.ClipboardGen(waitCommandContext{ctx}, ctx.Args))
-}
-
-func cmdWaitClipboard(ctx *CommandContext) {
-	ctx.applyCommandResult(waitcmd.WaitClipboard(waitCommandContext{ctx}, ctx.Args))
-}
-
-func cmdWaitCheckpoint(ctx *CommandContext) {
-	ctx.applyCommandResult(waitcmd.WaitCheckpoint(waitCommandContext{ctx}, ctx.Args))
-}
-
-func cmdUIGen(ctx *CommandContext) {
-	ctx.applyCommandResult(waitcmd.UIGen(waitCommandContext{ctx}, ctx.Args))
-}
-
 func cmdWaitFor(ctx *CommandContext) {
 	ctx.applyCommandResult(waitcmd.WaitFor(waitCommandContext{ctx}, ctx.ActorPaneID, ctx.Args))
-}
-
-func cmdWaitExited(ctx *CommandContext) {
-	ctx.applyCommandResult(waitcmd.WaitExited(waitCommandContext{ctx}, ctx.ActorPaneID, ctx.Args))
 }
 
 func cmdWaitBusy(ctx *CommandContext) {

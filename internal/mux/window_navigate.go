@@ -17,7 +17,9 @@ func (w *Window) setActive(p *Pane) {
 func (w *Window) FocusPane(p *Pane) {
 	w.assertOwner("FocusPane")
 	if w.ZoomedPaneID != 0 && p.ID != w.ZoomedPaneID {
-		w.Unzoom()
+		if err := w.Unzoom(); err != nil {
+			return
+		}
 	}
 	w.setActive(p)
 }
@@ -28,7 +30,9 @@ func (w *Window) FocusPane(p *Pane) {
 func (w *Window) Focus(direction string) {
 	w.assertOwner("Focus")
 	if w.ZoomedPaneID != 0 {
-		w.Unzoom()
+		if err := w.Unzoom(); err != nil {
+			return
+		}
 	}
 	panes := w.Panes()
 	if len(panes) <= 1 {

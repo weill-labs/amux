@@ -1,6 +1,7 @@
 package remote
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -234,11 +235,6 @@ func (hc *HostConn) doConnectWithAddr(sessionName, addr string) (*connectOutcome
 		sshClient.Close()
 		return nil, err
 	}
-	if err := hc.validateRemoteSessionHasPanes(sshClient, sockPath, remoteSession); err != nil {
-		amuxConn.Close()
-		sshClient.Close()
-		return nil, err
-	}
 
 	return &connectOutcome{
 		sshClient:   sshClient,
@@ -281,11 +277,6 @@ func (hc *HostConn) doConnectTakeover(sessionName, remoteUID, sshAddr string) (*
 	amuxReader := proto.NewReader(amuxConn)
 	amuxWriter := proto.NewWriter(amuxConn)
 	if err := attachAndWait(amuxConn, amuxWriter, amuxReader, sessionName, 10*time.Second); err != nil {
-		amuxConn.Close()
-		sshClient.Close()
-		return nil, err
-	}
-	if err := hc.validateRemoteSessionHasPanes(sshClient, remoteSock, sessionName); err != nil {
 		amuxConn.Close()
 		sshClient.Close()
 		return nil, err
@@ -466,17 +457,6 @@ func (hc *HostConn) KillPane(localPaneID uint32, cleanup bool, timeout time.Dura
 	return err
 }
 
-func (hc *HostConn) validateRemoteSessionHasPanes(client *ssh.Client, sockPath, sessionName string) error {
-	output, err := hc.runSocketCommand(client, sockPath, "list", nil)
-	if err != nil {
-		return fmt.Errorf("listing remote panes for %s: %w", sessionName, err)
-	}
-	if strings.TrimSpace(output) == "No panes." {
-		return fmt.Errorf("remote session %q has no panes", sessionName)
-	}
-	return nil
-}
-
 // readLoop reads messages from the persistent attach connection and dispatches
 // them through the actor. Runs in its own goroutine; exits when conn is closed
 // or returns an error.
@@ -520,12 +500,12 @@ func (hc *HostConn) closeConns() {
 	}
 }
 
-func (hc *HostConn) sendInputNow(localPaneID uint32, data []byte) {
+func (hc *HostConn) sendInputNow(localPaneID uint32, data []byte) error {
 	remotePaneID, ok := hc.localToRemote[localPaneID]
 	if !ok || hc.amuxWriter == nil {
-		return
+		return nil
 	}
-	hc.amuxWriter.WriteMsg(&proto.Message{
+	return hc.amuxWriter.WriteMsg(&proto.Message{
 		Type:     proto.MsgTypeInputPane,
 		PaneID:   remotePaneID,
 		PaneData: data,
@@ -539,8 +519,13 @@ func (hc *HostConn) flushPendingInputs() {
 
 	pending := hc.pendingInputs
 	hc.pendingInputs = nil
-	for _, input := range pending {
-		hc.sendInputNow(input.localPaneID, input.data)
+	for i, input := range pending {
+		if err := hc.sendInputNow(input.localPaneID, input.data); err != nil {
+			hc.pendingInputs = append([]pendingPaneInput{input}, pending[i+1:]...)
+			hc.logger.Warn("remote input write failed", "event", "remote_input", "host", hc.name, "error", err)
+			readDisconnectEvent{}.handle(hc)
+			return
+		}
 	}
 }
 
@@ -567,15 +552,45 @@ func attachAndWait(conn net.Conn, writer *proto.Writer, reader *proto.Reader, se
 // waitForLayout reads messages from conn until a usable MsgTypeLayout arrives,
 // confirming the remote server has an active window with at least one pane.
 // Non-layout or unusable layout messages are discarded until timeout.
-func waitForLayout(conn net.Conn, reader *proto.Reader, timeout time.Duration) error {
-	conn.SetReadDeadline(time.Now().Add(timeout))
-	defer conn.SetReadDeadline(time.Time{})
+func waitForLayout(conn net.Conn, reader *proto.Reader, timeout time.Duration) (err error) {
+	deadlineErr := conn.SetReadDeadline(time.Now().Add(timeout))
+	if deadlineErr == nil {
+		defer func() {
+			clearErr := conn.SetReadDeadline(time.Time{})
+			if err == nil && clearErr != nil && !isNoDeadlineError(clearErr) {
+				err = clearErr
+			}
+		}()
+		return readUntilReadyLayout(reader)
+	}
+
+	if !isNoDeadlineError(deadlineErr) {
+		return deadlineErr
+	}
+
+	result := make(chan error, 1)
+	go func() {
+		result <- readUntilReadyLayout(reader)
+	}()
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	select {
+	case err := <-result:
+		return err
+	case <-timer.C:
+		return os.ErrDeadlineExceeded
+	}
+}
+
+func readUntilReadyLayout(reader *proto.Reader) error {
 	for {
 		msg, err := reader.ReadMsg()
 		if err != nil {
 			return err
 		}
-		if msg.Type == proto.MsgTypeLayout && layoutReady(msg.Layout) {
+		if msg.Type == proto.MsgTypeLayout && msg.Layout != nil {
 			return nil
 		}
 	}
@@ -601,11 +616,17 @@ func layoutReady(layout *proto.LayoutSnapshot) bool {
 	return false
 }
 
+func isNoDeadlineError(err error) bool {
+	return errors.Is(err, os.ErrNoDeadline) || strings.Contains(err.Error(), "deadline not supported")
+}
+
 // parseSpawnOutput extracts the pane ID from "Spawned remote-N in pane M\n".
 func parseSpawnOutput(output string) (uint32, error) {
 	var id uint32
 	if idx := strings.LastIndex(output, "pane "); idx >= 0 {
-		fmt.Sscanf(output[idx:], "pane %d", &id)
+		if _, err := fmt.Sscanf(output[idx:], "pane %d", &id); err != nil {
+			return 0, fmt.Errorf("parsing remote pane ID from %q: %w", output[idx:], err)
+		}
 	}
 	if id == 0 {
 		return 0, fmt.Errorf("could not parse remote pane ID from: %s", output)

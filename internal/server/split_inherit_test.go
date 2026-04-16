@@ -45,7 +45,9 @@ func TestSplitInheritsRemoteHost(t *testing.T) {
 		func(data []byte) (int, error) { return len(data), nil },
 	)
 	sess.Panes = append(sess.Panes, proxyPane)
-	w.Split(mux.SplitHorizontal, proxyPane)
+	if _, err := w.Split(mux.SplitHorizontal, proxyPane); err != nil {
+		t.Fatalf("Split: %v", err)
+	}
 	w.FocusPane(proxyPane) // make proxy pane active
 
 	// Send the split command through handleCommand with a pipe to capture the response.

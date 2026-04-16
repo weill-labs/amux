@@ -133,6 +133,15 @@ func TestParseDebugCommand(t *testing.T) {
 			wantSockPath: wantSocket,
 		},
 		{
+			name: "rejects extra frames args",
+			loadConfig: func() (*config.Config, error) {
+				t.Fatal("loadConfig should not be called for debug frames")
+				return nil, nil
+			},
+			args:    []string{"frames", "extra"},
+			wantErr: debugUsage,
+		},
+		{
 			name:         "parses default profile duration",
 			loadConfig:   func() (*config.Config, error) { return &config.Config{Debug: config.DebugConfig{Pprof: true}}, nil },
 			args:         []string{"profile"},
@@ -184,6 +193,12 @@ func TestParseDebugCommand(t *testing.T) {
 			name:       "rejects invalid profile flag",
 			loadConfig: func() (*config.Config, error) { return &config.Config{}, nil },
 			args:       []string{"profile", "--seconds", "1s"},
+			wantErr:    debugUsage,
+		},
+		{
+			name:       "rejects missing profile duration value",
+			loadConfig: func() (*config.Config, error) { return &config.Config{}, nil },
+			args:       []string{"profile", "--duration"},
 			wantErr:    debugUsage,
 		},
 		{

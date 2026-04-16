@@ -38,13 +38,6 @@ type AgentStatus struct {
 	CurrentCommand string
 }
 
-// shellOnlyChildChain reports whether the shell's descendants form a single
-// chain of same-name shell processes. Bash can briefly create this shape while
-// returning to prompt on Linux; it should not count as user-visible busy work.
-func shellOnlyChildChain(shellName string, children []int) bool {
-	return shellOnlyChildChainWithLookups(shellName, children, processName, childPIDs)
-}
-
 func shellOnlyChildChainWithLookups(shellName string, children []int, nameForPID func(int) string, childPIDsForPID func(int) []int) bool {
 	if shellName == "" || len(children) != 1 {
 		return false

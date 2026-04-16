@@ -481,7 +481,7 @@ func TestShutdownLeavesNoOrphans(t *testing.T) {
 	}
 	done := make(chan struct{})
 	go func() {
-		h.cmd.Wait()
+		ignoreCmdWait(h.cmd)
 		close(done)
 	}()
 	select {
@@ -502,7 +502,7 @@ func TestShutdownLeavesNoOrphans(t *testing.T) {
 		}
 		if err := syscall.Kill(pid, 0); err == nil {
 			t.Errorf("child PID %d still alive after server shutdown", pid)
-			syscall.Kill(pid, syscall.SIGKILL)
+			_ = syscall.Kill(pid, syscall.SIGKILL)
 		}
 	}
 }

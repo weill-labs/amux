@@ -350,7 +350,7 @@ func paneStatusMetadataSegments(items []paneStatusMetadataItem, maxWidth int) []
 
 		if i == 0 {
 			if labelWidth <= maxWidth {
-				segments = append(segments, paneStatusMetadataSegment{text: item.text, status: item.status})
+				segments = append(segments, paneStatusMetadataSegment(item))
 				usedWidth = labelWidth
 				continue
 			}
@@ -368,7 +368,7 @@ func paneStatusMetadataSegments(items []paneStatusMetadataItem, maxWidth int) []
 		if usedWidth+2+labelWidth <= maxWidth {
 			segments = append(segments,
 				paneStatusMetadataSegment{text: ", "},
-				paneStatusMetadataSegment{text: item.text, status: item.status},
+				paneStatusMetadataSegment(item),
 			)
 			usedWidth += 2 + labelWidth
 			continue

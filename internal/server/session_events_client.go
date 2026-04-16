@@ -234,7 +234,9 @@ func (e uiEventCmd) handle(s *Session) {
 	changed, err := e.cc.applyUIEvent(e.uiEvent)
 	clientID := e.cc.ID
 	if err != nil {
-		e.cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: err.Error()})
+		if sendErr := e.cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: err.Error()}); sendErr != nil && e.cc.logger != nil {
+			e.cc.logger.Warn("sending UI event error failed", "event", "ui_event", "ui_event", e.uiEvent, "error", sendErr)
+		}
 		return
 	}
 	if activityChanged {

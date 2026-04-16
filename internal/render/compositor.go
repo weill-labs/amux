@@ -355,13 +355,6 @@ func (c *Compositor) renderCursorDiffWithLayoutHeight(buf *strings.Builder, root
 	c.renderCursorTransition(buf, c.cursorRenderStateForLayoutHeight(root, activePaneID, lookup, layoutHeight), false)
 }
 
-// renderCursor positions the terminal cursor at the active pane's cursor
-// location, or hides it when the active pane has a hidden cursor or renders
-// its own block cursor.
-func (c *Compositor) renderCursor(buf *strings.Builder, root *mux.LayoutCell, activePaneID uint32, lookup func(uint32) PaneData) {
-	c.renderCursorWithLayoutHeight(buf, root, activePaneID, lookup, c.LayoutHeight())
-}
-
 func (c *Compositor) renderCursorWithLayoutHeight(buf *strings.Builder, root *mux.LayoutCell, activePaneID uint32, lookup func(uint32) PaneData, layoutHeight int) {
 	state := c.cursorRenderStateForLayoutHeight(root, activePaneID, lookup, layoutHeight)
 	if !state.visible {
@@ -658,13 +651,6 @@ func hexToANSIWithProfile(hex string, profile termenv.Profile) string {
 		return fgHexSequence(config.DimColorHex, profile)
 	}
 	return fgHexSequence(hex, profile)
-}
-
-func hexToANSIBg(hex string) string {
-	if len(hex) < 6 {
-		return Surface0Bg
-	}
-	return computeANSIBg(hex)
 }
 
 func hexToLipGlossColor(hex string) lipgloss.Color {

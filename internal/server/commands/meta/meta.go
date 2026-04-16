@@ -1,6 +1,7 @@
 package meta
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -18,7 +19,7 @@ type Context interface {
 
 func Meta(ctx Context, args []string) commandpkg.Result {
 	if len(args) == 0 {
-		return commandpkg.Result{Err: fmt.Errorf(MetaUsage)}
+		return commandpkg.Result{Err: errors.New(MetaUsage)}
 	}
 
 	switch args[0] {
@@ -29,7 +30,7 @@ func Meta(ctx Context, args []string) commandpkg.Result {
 	case "rm":
 		return MetaRm(ctx, args[1:])
 	default:
-		return commandpkg.Result{Err: fmt.Errorf(MetaUsage)}
+		return commandpkg.Result{Err: errors.New(MetaUsage)}
 	}
 }
 

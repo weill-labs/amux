@@ -70,7 +70,10 @@ func (s *Session) handleTakeover(sshPaneID uint32, req mux.TakeoverRequest) {
 
 	// Send ack through the SSH PTY's stdin — carries the agreed session name
 	// so the remote amux starts its server at the right socket path.
-	start.sshPane.Write([]byte(mux.FormatTakeoverAck(start.managedSession) + "\n"))
+	if _, err := start.sshPane.Write([]byte(mux.FormatTakeoverAck(start.managedSession) + "\n")); err != nil {
+		failTakeover(err)
+		return
+	}
 
 	layout, err := enqueueSessionQuery(s, func(s *Session) (takeoverLayout, error) {
 		w := s.findWindowByPaneID(sshPaneID)
@@ -167,9 +170,7 @@ func (s *Session) handleTakeover(sshPaneID uint32, req mux.TakeoverRequest) {
 		if w == nil {
 			return commandMutationResult{err: fmt.Errorf("pane %d not in any window", sshPaneID)}
 		}
-		for _, pp := range proxyPanes {
-			s.Panes = append(s.Panes, pp)
-		}
+		s.Panes = append(s.Panes, proxyPanes...)
 		if _, err := w.SplicePane(sshPaneID, proxyPanes); err != nil {
 			for _, pp := range proxyPanes {
 				s.removePane(pp.ID)

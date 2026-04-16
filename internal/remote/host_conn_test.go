@@ -525,6 +525,7 @@ func TestParseSpawnOutput(t *testing.T) {
 		{name: "high pane ID", input: "Spawned remote-42 in pane 123\n", want: 123},
 		{name: "no trailing newline", input: "Spawned remote-1 in pane 7", want: 7},
 		{name: "no pane keyword", input: "something else\n", wantErr: true},
+		{name: "invalid pane id", input: "Spawned remote-1 in pane nope\n", wantErr: true},
 		{name: "empty string", input: "", wantErr: true},
 		{name: "pane 0", input: "pane 0", wantErr: true},
 	}
@@ -548,6 +549,65 @@ func TestParseSpawnOutput(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestFlushPendingInputsRequeuesAndDisconnectsOnWriteFailure(t *testing.T) {
+	t.Parallel()
+
+	hc := NewHostConn("test", config.Host{}, "hash", nil, nil, nil)
+	defer hc.Close()
+
+	serverConn, clientConn := net.Pipe()
+	serverConn.Close()
+
+	testInActor(hc, func(hc *HostConn) {
+		hc.state = Connected
+		hc.amuxConn = clientConn
+		hc.amuxWriter = remoteTestWriter(clientConn)
+		hc.localToRemote[42] = 100
+		hc.pendingInputs = []pendingPaneInput{
+			{localPaneID: 42, data: []byte("hello")},
+			{localPaneID: 42, data: []byte(" world")},
+		}
+
+		hc.flushPendingInputs()
+
+		if got := len(hc.pendingInputs); got != 2 {
+			t.Fatalf("pendingInputs after failed flush = %d, want 2", got)
+		}
+		if hc.state != Reconnecting {
+			t.Fatalf("state after failed flush = %v, want %v", hc.state, Reconnecting)
+		}
+	})
+}
+
+func TestSendInputEventRequeuesAndDisconnectsOnWriteFailure(t *testing.T) {
+	t.Parallel()
+
+	hc := NewHostConn("test", config.Host{}, "hash", nil, nil, nil)
+	defer hc.Close()
+
+	serverConn, clientConn := net.Pipe()
+	serverConn.Close()
+
+	testInActor(hc, func(hc *HostConn) {
+		hc.state = Connected
+		hc.amuxConn = clientConn
+		hc.amuxWriter = remoteTestWriter(clientConn)
+		hc.localToRemote[42] = 100
+
+		sendInputEvent{localPaneID: 42, data: []byte("hello")}.handle(hc)
+
+		if got := len(hc.pendingInputs); got != 1 {
+			t.Fatalf("pendingInputs after failed send = %d, want 1", got)
+		}
+		if string(hc.pendingInputs[0].data) != "hello" {
+			t.Fatalf("requeued input = %q, want %q", hc.pendingInputs[0].data, "hello")
+		}
+		if hc.state != Reconnecting {
+			t.Fatalf("state after failed send = %v, want %v", hc.state, Reconnecting)
+		}
+	})
 }
 
 // writeTestKey generates a temporary ed25519 private key file for testing.

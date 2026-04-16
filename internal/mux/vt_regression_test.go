@@ -10,7 +10,7 @@ func TestVTEmulatorClampsOversizedScrollMarginsAfterShrink(t *testing.T) {
 
 	// Regression: after a shrink, some apps still emit scroll margins for the
 	// old height. Reverse index at the top margin used to panic inside x/vt.
-	emu.Write([]byte("\x1b[1;21r\x1b[H\x1bM"))
+	mustWrite(t, emu, []byte("\x1b[1;21r\x1b[H\x1bM"))
 
 	col, row := emu.CursorPosition()
 	if col != 0 || row != 0 {

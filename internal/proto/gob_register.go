@@ -12,7 +12,6 @@ func init() {
 	// color.Color interface fields in StyledLine.Cells.
 	gob.Register(ansi.BasicColor(0))
 	gob.Register(ansi.IndexedColor(0))
-	gob.Register(ansi.TrueColor(0))
 	gob.Register(ansi.RGBColor{})
 	gob.Register(color.RGBA{})
 }

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 	"slices"
@@ -141,14 +142,14 @@ func parseTypeKeysArgs(args []string) (typeKeysOptions, error) {
 
 func (ctx inputCommandContext) SendKeys(actorPaneID uint32, args []string) (string, int, error) {
 	if len(args) < 2 {
-		return "", 0, fmt.Errorf(sendKeysUsage)
+		return "", 0, errors.New(sendKeysUsage)
 	}
 	opts, err := parseSendKeysArgs(args[1:])
 	if err != nil {
 		return "", 0, err
 	}
 	if len(opts.keys) == 0 {
-		return "", 0, fmt.Errorf(sendKeysUsage)
+		return "", 0, errors.New(sendKeysUsage)
 	}
 	chunks, err := encodeKeyChunks(opts.hexMode, opts.keys)
 	if err != nil {
@@ -270,7 +271,7 @@ func cmdBroadcast(ctx *CommandContext) {
 
 func parseBroadcastCommandArgs(args []string) (broadcastCommandArgs, error) {
 	if len(args) == 0 {
-		return broadcastCommandArgs{}, fmt.Errorf(broadcastUsage)
+		return broadcastCommandArgs{}, errors.New(broadcastUsage)
 	}
 
 	var parsed broadcastCommandArgs
@@ -285,7 +286,7 @@ func parseBroadcastCommandArgs(args []string) (broadcastCommandArgs, error) {
 			i = len(args)
 		case "--panes":
 			if i+1 >= len(args) {
-				return broadcastCommandArgs{}, fmt.Errorf(broadcastUsage)
+				return broadcastCommandArgs{}, errors.New(broadcastUsage)
 			}
 			selectorCount++
 			parsed.paneRefs = splitBroadcastPaneRefs(args[i+1])
@@ -295,14 +296,14 @@ func parseBroadcastCommandArgs(args []string) (broadcastCommandArgs, error) {
 			i += 2
 		case "--window":
 			if i+1 >= len(args) {
-				return broadcastCommandArgs{}, fmt.Errorf(broadcastUsage)
+				return broadcastCommandArgs{}, errors.New(broadcastUsage)
 			}
 			selectorCount++
 			parsed.windowRef = args[i+1]
 			i += 2
 		case "--match":
 			if i+1 >= len(args) {
-				return broadcastCommandArgs{}, fmt.Errorf(broadcastUsage)
+				return broadcastCommandArgs{}, errors.New(broadcastUsage)
 			}
 			selectorCount++
 			parsed.matchPattern = args[i+1]
@@ -314,7 +315,7 @@ func parseBroadcastCommandArgs(args []string) (broadcastCommandArgs, error) {
 	}
 
 	if selectorCount == 0 {
-		return broadcastCommandArgs{}, fmt.Errorf(broadcastUsage)
+		return broadcastCommandArgs{}, errors.New(broadcastUsage)
 	}
 	if selectorCount != 1 {
 		return broadcastCommandArgs{}, fmt.Errorf("broadcast: specify exactly one of --panes, --window, or --match")
@@ -322,7 +323,7 @@ func parseBroadcastCommandArgs(args []string) (broadcastCommandArgs, error) {
 
 	parsed.hexMode, parsed.keys = parseKeyArgs(keyArgs)
 	if len(parsed.keys) == 0 {
-		return broadcastCommandArgs{}, fmt.Errorf(broadcastUsage)
+		return broadcastCommandArgs{}, errors.New(broadcastUsage)
 	}
 
 	return parsed, nil
@@ -353,7 +354,7 @@ func resolveBroadcastTargetsForActor(sess *Session, actorPaneID uint32, args bro
 		case args.matchPattern != "":
 			return resolveBroadcastMatchTargets(sess, args.matchPattern)
 		default:
-			return nil, fmt.Errorf(broadcastUsage)
+			return nil, errors.New(broadcastUsage)
 		}
 	})
 }
@@ -470,7 +471,7 @@ func (ctx inputCommandContext) TypeKeys(args []string) (int, error) {
 		return 0, err
 	}
 	if len(opts.keys) == 0 {
-		return 0, fmt.Errorf(typeKeysUsage)
+		return 0, errors.New(typeKeysUsage)
 	}
 	chunks, err := encodeKeyChunks(opts.hexMode, opts.keys)
 	if err != nil {

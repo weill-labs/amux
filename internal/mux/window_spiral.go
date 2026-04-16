@@ -172,7 +172,9 @@ func (w *Window) MovePaneToColumn(paneID, targetPaneID uint32) error {
 	}
 
 	if w.ZoomedPaneID != 0 {
-		w.Unzoom()
+		if err := w.Unzoom(); err != nil {
+			return err
+		}
 	}
 
 	sourceWasActive := w.ActivePane != nil && w.ActivePane.ID == paneID
@@ -205,7 +207,9 @@ func (w *Window) splitSubtreeRootWithOptions(root *LayoutCell, dir SplitDir, new
 		return nil, fmt.Errorf("no layout")
 	}
 	if w.ZoomedPaneID != 0 && !opts.KeepFocus {
-		w.Unzoom()
+		if err := w.Unzoom(); err != nil {
+			return nil, err
+		}
 	}
 
 	newLeaf := NewLeaf(newPane, 0, 0, 0, 0)
@@ -267,7 +271,6 @@ func (w *Window) splitSubtreeRootWithOptions(root *LayoutCell, dir SplitDir, new
 		} else {
 			parent.Children[parentIdx] = newRoot
 		}
-		root = newRoot
 	}
 
 	w.Root.FixOffsets()

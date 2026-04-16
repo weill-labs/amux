@@ -56,7 +56,7 @@ func eventStream(t *testing.T, session string, args ...string) (*bufio.Scanner, 
 				return
 			}
 			if msg.CmdOutput != "" {
-				pw.Write([]byte(msg.CmdOutput))
+				_, _ = pw.Write([]byte(msg.CmdOutput)) //nolint:errcheck // teardown may close the pipe before the forwarder exits
 			}
 		}
 	}()

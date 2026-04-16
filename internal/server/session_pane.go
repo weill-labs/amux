@@ -52,16 +52,6 @@ func (s *Session) closePaneAsync(pane *mux.Pane) {
 	go closePane(pane)
 }
 
-func cleanupFailedPreparedPane(sess *Session, pane *mux.Pane, err error) commandMutationResult {
-	if pane != nil && pane.IsProxy() && sess.RemoteManager != nil {
-		sess.RemoteManager.RemovePane(pane.ID)
-	}
-	return commandMutationResult{
-		err:        err,
-		closePanes: []*mux.Pane{pane},
-	}
-}
-
 func cleanupFailedPreparedPaneMutationContext(ctx *MutationContext, pane *mux.Pane, err error) commandMutationResult {
 	if pane != nil && pane.IsProxy() && ctx.RemoteManager != nil {
 		ctx.RemoteManager.RemovePane(pane.ID)
@@ -442,13 +432,6 @@ func (s *Session) replacePaneInstance(oldPane, newPane *mux.Pane, w *mux.Window)
 	delete(s.terminalEventState, oldPane.ID)
 	s.ensureIdleTracker().StopPane(oldPane.ID)
 	return nil
-}
-
-// finalizeClosedPane removes a soft-closed pane from the undo stack and
-// returns it for final cleanup (PTY close). The pane was already removed
-// from Session.Panes during soft close.
-func (s *Session) finalizeClosedPane(paneID uint32) *mux.Pane {
-	return s.ensureUndoManager().finalizeClosedPane(paneID)
 }
 
 // paneOutputCallback returns the standard onOutput callback for panes.

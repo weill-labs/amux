@@ -696,17 +696,6 @@ func (p *Pane) resizePTY(cols, rows int) error {
 	})
 }
 
-// shellProcess returns the *os.Process for the pane's shell, or nil for proxy panes.
-func (p *Pane) shellProcess() *os.Process {
-	if p.cmd != nil {
-		return p.cmd.Process
-	}
-	if p.process != nil {
-		return p.process
-	}
-	return nil
-}
-
 func (p *Pane) ensureCloseDone() chan struct{} {
 	p.closeDoneOnce.Do(func() {
 		p.closeDone = make(chan struct{})
@@ -773,47 +762,6 @@ func (p *Pane) closeBlocking() error {
 		return state.emulator.Close()
 	}()
 	return errors.Join(ptmxErr, emuErr)
-}
-
-func (p *Pane) waitForProcessExit(proc *os.Process, timeout time.Duration) {
-	if proc == nil {
-		return
-	}
-	if p.waitLoopDone != nil {
-		select {
-		case <-p.exitDone:
-		case <-time.After(timeout):
-			_ = proc.Signal(syscall.SIGKILL)
-			<-p.exitDone
-		}
-		<-p.waitLoopDone
-		return
-	}
-	if p.cmd == nil {
-		select {
-		case <-p.exitDone:
-		case <-time.After(timeout):
-			_ = proc.Signal(syscall.SIGKILL)
-			<-p.exitDone
-		}
-		return
-	}
-
-	waitDone := make(chan struct{})
-	cmd := p.cmd
-	exitDone := p.exitDone
-	go func() {
-		_ = cmd.Wait()
-		close(exitDone)
-		close(waitDone)
-	}()
-
-	select {
-	case <-waitDone:
-	case <-time.After(timeout):
-		_ = proc.Signal(syscall.SIGKILL)
-		<-waitDone
-	}
 }
 
 // NewProxyPaneWithScrollback creates a proxy pane with an explicit retained

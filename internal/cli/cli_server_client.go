@@ -83,7 +83,7 @@ func RunEventsCommand(sessionName string, args []string) {
 	}
 
 	for {
-		err := streamCommandOutput(socket, "events")
+		_ = streamCommandOutput(socket, "events")
 		if !opts.reconnect {
 			return
 		}

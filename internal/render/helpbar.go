@@ -71,10 +71,6 @@ func buildHelpBarCells(g *ScreenGrid, overlay *HelpBarOverlay) {
 	}
 }
 
-func renderHelpBar(buf *strings.Builder, width, height int, overlay *HelpBarOverlay) {
-	renderHelpBarWithProfile(buf, width, height, overlay, defaultColorProfile)
-}
-
 func renderHelpBarWithProfile(buf *strings.Builder, width, height int, overlay *HelpBarOverlay, profile termenv.Profile) {
 	if overlay == nil || width <= 0 || height < 2 {
 		return

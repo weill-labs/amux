@@ -219,7 +219,9 @@ func startSocatBridge(client *ssh.Client, sockPath string) (int, error) {
 	}
 
 	var port int
-	fmt.Sscanf(out, "%d", &port)
+	if _, err := fmt.Sscanf(out, "%d", &port); err != nil {
+		return 0, fmt.Errorf("parsing socat port %q: %w", strings.TrimSpace(out), err)
+	}
 	if port == 0 {
 		return 0, fmt.Errorf("could not parse socat port from: %s", out)
 	}

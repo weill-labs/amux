@@ -1702,7 +1702,7 @@ func readMsgWithTimeoutDuration(t *testing.T, conn net.Conn, timeout time.Durati
 	if err := conn.SetReadDeadline(time.Now().Add(timeout)); err != nil {
 		t.Fatalf("SetReadDeadline: %v", err)
 	}
-	defer conn.SetReadDeadline(time.Time{})
+	defer mustSetReadDeadline(t, conn, time.Time{})
 
 	msg, err := readMsgOnConn(conn)
 	if err != nil {

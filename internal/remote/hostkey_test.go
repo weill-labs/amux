@@ -239,7 +239,11 @@ func TestHostKeyWriteFailureRejects(t *testing.T) {
 	if err := os.MkdirAll(roDir, 0500); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { os.Chmod(roDir, 0700) })
+	t.Cleanup(func() {
+		if err := os.Chmod(roDir, 0700); err != nil {
+			t.Fatalf("Chmod(%q): %v", roDir, err)
+		}
+	})
 
 	cb := hostKeyCallback(path)
 	key := testHostKey(t)

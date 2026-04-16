@@ -1,12 +1,12 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/weill-labs/amux/internal/mux"
 	cmdflags "github.com/weill-labs/amux/internal/server/commands/flags"
-	waitcmd "github.com/weill-labs/amux/internal/server/commands/wait"
 )
 
 const (
@@ -50,18 +50,14 @@ type paneReadyState struct {
 	vtIdle idleWaitState
 }
 
-func cmdWaitReady(ctx *CommandContext) {
-	ctx.applyCommandResult(waitcmd.WaitReady(waitCommandContext{ctx}, ctx.ActorPaneID, ctx.Args))
-}
-
 func parseWaitReadyArgs(args []string) (string, waitReadyOptions, error) {
 	if len(args) < 1 {
-		return "", waitReadyOptions{}, fmt.Errorf(waitReadyUsage)
+		return "", waitReadyOptions{}, errors.New(waitReadyUsage)
 	}
 
 	for _, arg := range args[1:] {
 		if arg == "--continue-known-dialogs" {
-			return "", waitReadyOptions{}, fmt.Errorf(waitReadyRemovedContinueFlagErr)
+			return "", waitReadyOptions{}, errors.New(waitReadyRemovedContinueFlagErr)
 		}
 	}
 	flags, err := cmdflags.ParseCommandFlags(args[1:], []cmdflags.FlagSpec{
@@ -126,7 +122,7 @@ func parseSendKeysArgs(args []string) (sendKeysOptions, error) {
 		case "--wait-ready":
 			return sendKeysOptions{}, fmt.Errorf("send-keys: --wait-ready was removed; use --wait ready")
 		case "--continue-known-dialogs":
-			return sendKeysOptions{}, fmt.Errorf(sendKeysRemovedContinueFlagErr)
+			return sendKeysOptions{}, errors.New(sendKeysRemovedContinueFlagErr)
 		case "--timeout":
 			if i+1 >= len(args) {
 				return sendKeysOptions{}, fmt.Errorf("missing value for --timeout")

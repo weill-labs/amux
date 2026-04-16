@@ -6,12 +6,26 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 	"time"
 
 	"github.com/weill-labs/amux/internal/checkpoint"
 	"github.com/weill-labs/amux/internal/mux"
 )
+
+func TestClearCloexecReturnsErrnoOnInvalidFD(t *testing.T) {
+	t.Parallel()
+
+	err := clearCloexec(^uintptr(0))
+	if err == nil {
+		t.Fatal("clearCloexec() error = nil, want errno")
+	}
+	var errno syscall.Errno
+	if !errors.As(err, &errno) || errno == 0 {
+		t.Fatalf("clearCloexec() error = %v, want syscall.Errno", err)
+	}
+}
 
 func TestServerReloadReturnsSessionShuttingDownBeforeCheckpoint(t *testing.T) {
 	t.Parallel()

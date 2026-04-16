@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/weill-labs/amux/internal/mux"
@@ -28,7 +29,7 @@ func parseMoveSiblingArgs(args []string, usage string) (paneRef string, err erro
 
 func parseDropPaneArgs(args []string) (paneRef, targetRef, edge string, err error) {
 	if len(args) != 3 {
-		return "", "", "", fmt.Errorf(dropPaneUsage)
+		return "", "", "", errors.New(dropPaneUsage)
 	}
 	paneRef = args[0]
 	targetRef = args[1]
@@ -37,7 +38,7 @@ func parseDropPaneArgs(args []string) (paneRef, targetRef, edge string, err erro
 	case "left", "right", "top", "bottom":
 		return paneRef, targetRef, edge, nil
 	default:
-		return "", "", "", fmt.Errorf(dropPaneUsage)
+		return "", "", "", errors.New(dropPaneUsage)
 	}
 }
 

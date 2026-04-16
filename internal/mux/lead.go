@@ -21,7 +21,9 @@ func (w *Window) SetLead(paneID uint32) error {
 	}
 
 	if w.ZoomedPaneID != 0 {
-		w.Unzoom()
+		if err := w.Unzoom(); err != nil {
+			return err
+		}
 	}
 
 	cell := w.Root.FindPane(paneID)

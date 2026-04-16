@@ -58,7 +58,6 @@ func newStatusBarStylesPressed(accentHex string, pressed bool) statusBarStyles {
 	}
 	base := lipgloss.NewStyle().
 		Inline(true).
-		ColorWhitespace(true).
 		Background(bgColor)
 	active := base.Foreground(hexToLipGlossColor(accentHex))
 	dim := base.Foreground(palette.dim)
@@ -110,10 +109,6 @@ func (s statusBarStyles) windowTab(window WindowInfo) lipgloss.Style {
 	return s.busy
 }
 
-func renderStyledText(style lipgloss.Style, text string) string {
-	return renderStyledTextWithProfile(style, text, defaultColorProfile)
-}
-
 func renderStyledTextWithProfile(style lipgloss.Style, text string, profile termenv.Profile) string {
 	if text == "" {
 		return ""
@@ -121,19 +116,11 @@ func renderStyledTextWithProfile(style lipgloss.Style, text string, profile term
 	return styleANSIWithProfile(style, profile) + text + Reset
 }
 
-func writeStyledText(buf *strings.Builder, style lipgloss.Style, text string) {
-	writeStyledTextWithProfile(buf, style, text, defaultColorProfile)
-}
-
 func writeStyledTextWithProfile(buf *strings.Builder, style lipgloss.Style, text string, profile termenv.Profile) {
 	if text == "" {
 		return
 	}
 	buf.WriteString(renderStyledTextWithProfile(style, text, profile))
-}
-
-func styleANSI(style lipgloss.Style) string {
-	return styleANSIWithProfile(style, defaultColorProfile)
 }
 
 func styleANSIWithProfile(style lipgloss.Style, profile termenv.Profile) string {

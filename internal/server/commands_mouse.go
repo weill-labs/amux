@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"time"
@@ -73,7 +74,7 @@ func parseMouseCommandArgs(args []string) (mouseCommandOptions, error) {
 
 parseAction:
 	if i >= len(args) {
-		return mouseCommandOptions{}, fmt.Errorf(mouseCommandUsage)
+		return mouseCommandOptions{}, errors.New(mouseCommandUsage)
 	}
 
 	action := args[i]
@@ -118,22 +119,22 @@ parseAction:
 			opts.paneRef = rest[0]
 			for _, arg := range rest[1:] {
 				if arg != "--status-line" {
-					return mouseCommandOptions{}, fmt.Errorf(mouseCommandUsage)
+					return mouseCommandOptions{}, errors.New(mouseCommandUsage)
 				}
 				opts.statusLine = true
 			}
 		default:
-			return mouseCommandOptions{}, fmt.Errorf(mouseCommandUsage)
+			return mouseCommandOptions{}, errors.New(mouseCommandUsage)
 		}
 	case "drag":
 		if len(rest) != 3 || rest[1] != "--to" {
-			return mouseCommandOptions{}, fmt.Errorf(mouseCommandUsage)
+			return mouseCommandOptions{}, errors.New(mouseCommandUsage)
 		}
 		opts.kind = mouseCommandDragPane
 		opts.paneRef = rest[0]
 		opts.targetPaneRef = rest[2]
 	default:
-		return mouseCommandOptions{}, fmt.Errorf(mouseCommandUsage)
+		return mouseCommandOptions{}, errors.New(mouseCommandUsage)
 	}
 
 	return opts, nil
@@ -150,7 +151,7 @@ func looksLikeMouseCoordinatePair(args []string) bool {
 
 func parseMouseCoordinates(args []string) (int, int, error) {
 	if len(args) != 2 {
-		return 0, 0, fmt.Errorf(mouseCommandUsage)
+		return 0, 0, errors.New(mouseCommandUsage)
 	}
 	x, err := parsePositiveCoordinate(args[0], "x")
 	if err != nil {
@@ -352,7 +353,7 @@ func mouseChunksForAction(layout *mux.LayoutCell, opts mouseCommandOptions, pane
 		}
 		return []encodedKeyChunk{press, motion, release}, nil
 	default:
-		return nil, fmt.Errorf(mouseCommandUsage)
+		return nil, errors.New(mouseCommandUsage)
 	}
 }
 

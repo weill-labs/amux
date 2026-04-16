@@ -308,7 +308,7 @@ func TestResizeActiveLastChild(t *testing.T) {
 	p2 := fakePaneID(2)
 
 	root := NewLeaf(p1, 0, 0, 80, 24)
-	root.Split(SplitVertical, p2)
+	mustSplitCell(t, root, SplitVertical, p2)
 	root.FixOffsets()
 
 	// Active pane is p2 — the LAST child (idx=1, len=2)
@@ -329,7 +329,7 @@ func TestResizeActiveFirstChild(t *testing.T) {
 	p2 := fakePaneID(2)
 
 	root := NewLeaf(p1, 0, 0, 80, 24)
-	root.Split(SplitVertical, p2)
+	mustSplitCell(t, root, SplitVertical, p2)
 	root.FixOffsets()
 
 	// Active pane is p1 — the FIRST child (idx=0)
@@ -409,7 +409,7 @@ func TestResizePane(t *testing.T) {
 			p2 := fakePaneID(2)
 
 			root := NewLeaf(p1, 0, 0, 80, 24)
-			root.Split(tt.splitDir, p2)
+			mustSplitCell(t, root, tt.splitDir, p2)
 			root.FixOffsets()
 
 			w := &Window{Root: root, ActivePane: p2, Width: 80, Height: 24}
@@ -835,7 +835,7 @@ func TestResizePaneDelegation(t *testing.T) {
 	p2 := fakePaneID(2)
 
 	root := NewLeaf(p1, 0, 0, 80, 24)
-	root.Split(SplitVertical, p2)
+	mustSplitCell(t, root, SplitVertical, p2)
 	root.FixOffsets()
 
 	w := &Window{Root: root, ActivePane: p1, Width: 80, Height: 24}
@@ -860,7 +860,7 @@ func TestSwapPanes(t *testing.T) {
 	p2.Meta.Name = "beta"
 
 	root := NewLeaf(p1, 0, 0, 80, 24)
-	root.Split(SplitVertical, p2)
+	mustSplitCell(t, root, SplitVertical, p2)
 
 	w := &Window{Root: root, ActivePane: p1, Width: 80, Height: 24}
 
@@ -1731,8 +1731,8 @@ func TestSwapPaneForward(t *testing.T) {
 	p3 := fakePaneID(3)
 
 	root := NewLeaf(p1, 0, 0, 120, 24)
-	root.Split(SplitVertical, p2)
-	root.Children[1].Split(SplitVertical, p3)
+	mustSplitCell(t, root, SplitVertical, p2)
+	mustSplitCell(t, root.Children[1], SplitVertical, p3)
 
 	// Active is pane-3 (last in walk order)
 	w := &Window{Root: root, ActivePane: p3, Width: 120, Height: 24}
@@ -1756,8 +1756,8 @@ func TestSwapPaneBackward(t *testing.T) {
 	p3 := fakePaneID(3)
 
 	root := NewLeaf(p1, 0, 0, 120, 24)
-	root.Split(SplitVertical, p2)
-	root.Children[1].Split(SplitVertical, p3)
+	mustSplitCell(t, root, SplitVertical, p2)
+	mustSplitCell(t, root.Children[1], SplitVertical, p3)
 
 	// Active is pane-3 (last in walk order)
 	w := &Window{Root: root, ActivePane: p3, Width: 120, Height: 24}
@@ -1781,12 +1781,12 @@ func TestRotatePanesForward(t *testing.T) {
 	p3 := fakePaneID(3)
 
 	root := NewLeaf(p1, 0, 0, 120, 24)
-	root.Split(SplitVertical, p2)
-	root.Children[1].Split(SplitVertical, p3)
+	mustSplitCell(t, root, SplitVertical, p2)
+	mustSplitCell(t, root.Children[1], SplitVertical, p3)
 
 	w := &Window{Root: root, ActivePane: p1, Width: 120, Height: 24}
 
-	w.RotatePanes(true)
+	mustRotate(t, w, true)
 
 	// Forward: each cell gets the pane from the previous cell (last wraps to first)
 	// Before: [1, 2, 3], After: [3, 1, 2]
@@ -1803,12 +1803,12 @@ func TestRotatePanesBackward(t *testing.T) {
 	p3 := fakePaneID(3)
 
 	root := NewLeaf(p1, 0, 0, 120, 24)
-	root.Split(SplitVertical, p2)
-	root.Children[1].Split(SplitVertical, p3)
+	mustSplitCell(t, root, SplitVertical, p2)
+	mustSplitCell(t, root.Children[1], SplitVertical, p3)
 
 	w := &Window{Root: root, ActivePane: p1, Width: 120, Height: 24}
 
-	w.RotatePanes(false)
+	mustRotate(t, w, false)
 
 	// Backward: each cell gets the pane from the next cell (first wraps to last)
 	// Before: [1, 2, 3], After: [2, 3, 1]
@@ -1830,7 +1830,7 @@ func TestResizeActiveFromLastChild(t *testing.T) {
 	p2 := fakePaneID(2)
 
 	root := NewLeaf(p1, 0, 0, 80, 24)
-	root.Split(SplitVertical, p2)
+	mustSplitCell(t, root, SplitVertical, p2)
 
 	w := &Window{Root: root, ActivePane: p2, Width: 80, Height: 24}
 	w.Root.FixOffsets()
@@ -1856,7 +1856,7 @@ func TestResizeActiveFromFirstChild(t *testing.T) {
 	p2 := fakePaneID(2)
 
 	root := NewLeaf(p1, 0, 0, 80, 24)
-	root.Split(SplitVertical, p2)
+	mustSplitCell(t, root, SplitVertical, p2)
 
 	w := &Window{Root: root, ActivePane: p1, Width: 80, Height: 24}
 	w.Root.FixOffsets()
@@ -1881,7 +1881,7 @@ func TestRotateSinglePane(t *testing.T) {
 	w := &Window{Root: root, ActivePane: p1, Width: 80, Height: 24}
 
 	// Single pane — should be a no-op
-	w.RotatePanes(true)
+	mustRotate(t, w, true)
 
 	ids := collectPaneIDs(w)
 	if len(ids) != 1 || ids[0] != 1 {

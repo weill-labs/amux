@@ -185,7 +185,7 @@ func TestSplitSiblingInsertion(t *testing.T) {
 	root := NewLeaf(p1, 0, 0, 80, 24)
 
 	p2 := fakePaneID(2)
-	root.Split(SplitVertical, p2)
+	mustSplitCell(t, root, SplitVertical, p2)
 
 	// Now split the left child (which has W=39) vertically
 	left := root.Children[0]
@@ -218,7 +218,7 @@ func TestSplitSiblingEqualRedistribution(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			root := NewLeaf(fakePaneID(1), 0, 0, tt.w, tt.h)
-			root.Split(tt.dir, fakePaneID(2))
+			mustSplitCell(t, root, tt.dir, fakePaneID(2))
 
 			size := func(c *LayoutCell) int {
 				if tt.dir == SplitVertical {
@@ -228,7 +228,7 @@ func TestSplitSiblingEqualRedistribution(t *testing.T) {
 			}
 
 			// Split child0 again in the same direction (Case A)
-			root.Children[0].Split(tt.dir, fakePaneID(3))
+			mustSplitCell(t, root.Children[0], tt.dir, fakePaneID(3))
 
 			// All 3 siblings should have approximately equal sizes
 			if len(root.Children) != 3 {
@@ -261,7 +261,7 @@ func TestClosePane(t *testing.T) {
 	root := NewLeaf(p1, 0, 0, 80, 24)
 
 	p2 := fakePaneID(2)
-	root.Split(SplitVertical, p2)
+	mustSplitCell(t, root, SplitVertical, p2)
 
 	right := root.Children[1]
 	rightW := right.W
@@ -286,7 +286,7 @@ func TestCloseCollapsesSingleChild(t *testing.T) {
 	root := NewLeaf(p1, 0, 0, 80, 24)
 
 	p2 := fakePaneID(2)
-	root.Split(SplitVertical, p2)
+	mustSplitCell(t, root, SplitVertical, p2)
 
 	// Close right pane — parent should collapse, left becomes new root-level cell
 	right := root.Children[1]
@@ -311,7 +311,7 @@ func TestFixOffsets(t *testing.T) {
 	root := NewLeaf(p1, 0, 0, 80, 24)
 
 	p2 := fakePaneID(2)
-	root.Split(SplitVertical, p2)
+	mustSplitCell(t, root, SplitVertical, p2)
 
 	// Manually mess up offsets
 	root.Children[0].X = 999
@@ -339,7 +339,7 @@ func TestResizeAll(t *testing.T) {
 	root := NewLeaf(p1, 0, 0, 80, 24)
 
 	p2 := fakePaneID(2)
-	root.Split(SplitVertical, p2)
+	mustSplitCell(t, root, SplitVertical, p2)
 
 	// Resize to 120x40
 	root.ResizeAll(120, 40)
@@ -613,10 +613,10 @@ func TestWalkAndFindPane(t *testing.T) {
 	root := NewLeaf(p1, 0, 0, 80, 24)
 
 	p2 := fakePaneID(2)
-	root.Split(SplitVertical, p2)
+	mustSplitCell(t, root, SplitVertical, p2)
 
 	p3 := fakePaneID(3)
-	root.Children[1].Split(SplitHorizontal, p3)
+	mustSplitCell(t, root.Children[1], SplitHorizontal, p3)
 
 	// Walk should find 3 leaves
 	count := 0
@@ -643,7 +643,7 @@ func TestFindLeafAt(t *testing.T) {
 	p1 := fakePaneID(1)
 	root := NewLeaf(p1, 0, 0, 80, 24)
 	p2 := fakePaneID(2)
-	root.Split(SplitVertical, p2)
+	mustSplitCell(t, root, SplitVertical, p2)
 	root.FixOffsets()
 
 	tests := []struct {
@@ -689,7 +689,7 @@ func TestFindLeafAtVerticalSplit(t *testing.T) {
 	p1 := fakePaneID(1)
 	root := NewLeaf(p1, 0, 0, 80, 25)
 	p2 := fakePaneID(2)
-	root.Split(SplitHorizontal, p2)
+	mustSplitCell(t, root, SplitHorizontal, p2)
 	root.FixOffsets()
 
 	top := root.Children[0]
@@ -721,7 +721,7 @@ func TestFindBorderAt(t *testing.T) {
 	p1 := fakePaneID(1)
 	root := NewLeaf(p1, 0, 0, 80, 24)
 	p2 := fakePaneID(2)
-	root.Split(SplitVertical, p2)
+	mustSplitCell(t, root, SplitVertical, p2)
 	root.FixOffsets()
 
 	borderX := root.Children[0].W
@@ -748,11 +748,11 @@ func TestFindBorderAtNested(t *testing.T) {
 	p1 := fakePaneID(1)
 	root := NewLeaf(p1, 0, 0, 81, 25)
 	p2 := fakePaneID(2)
-	root.Split(SplitVertical, p2)
+	mustSplitCell(t, root, SplitVertical, p2)
 	p3 := fakePaneID(3)
-	root.Children[0].Split(SplitHorizontal, p3)
+	mustSplitCell(t, root.Children[0], SplitHorizontal, p3)
 	p4 := fakePaneID(4)
-	root.Children[1].Split(SplitHorizontal, p4)
+	mustSplitCell(t, root.Children[1], SplitHorizontal, p4)
 	root.FixOffsets()
 
 	// Vertical border between left and right halves
@@ -807,13 +807,13 @@ func TestNestedSplits(t *testing.T) {
 	root := NewLeaf(p1, 0, 0, 81, 25)
 
 	p2 := fakePaneID(2)
-	root.Split(SplitVertical, p2)
+	mustSplitCell(t, root, SplitVertical, p2)
 
 	p3 := fakePaneID(3)
-	root.Children[0].Split(SplitHorizontal, p3)
+	mustSplitCell(t, root.Children[0], SplitHorizontal, p3)
 
 	p4 := fakePaneID(4)
-	root.Children[1].Split(SplitHorizontal, p4)
+	mustSplitCell(t, root.Children[1], SplitHorizontal, p4)
 
 	root.FixOffsets()
 
