@@ -252,22 +252,22 @@ func TestFormatAttachError(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
-		err  error
-		want string
+		name         string
+		err          error
+		wantContains string
 	}{
-		{name: "protocol error", err: fmt.Errorf("%w: bad bootstrap", errAttachProtocol), want: "attach failed: protocol error"},
-		{name: "socket missing", err: os.ErrNotExist, want: "attach failed: socket not found"},
-		{name: "connection lost eof", err: io.EOF, want: "attach failed: connection lost"},
+		{name: "protocol error", err: fmt.Errorf("%w: bad bootstrap", errAttachProtocol), wantContains: "attach failed: protocol error"},
+		{name: "socket missing", err: os.ErrNotExist, wantContains: "attach failed: socket not found"},
+		{name: "connection lost eof", err: io.EOF, wantContains: "attach failed: connection lost"},
 		{
-			name: "ssh handshake keeps detail",
-			err:  fmt.Errorf("SSH dial: ssh: handshake failed: %w", io.EOF),
-			want: "SSH dial: ssh: handshake failed",
+			name:         "ssh handshake keeps detail",
+			err:          fmt.Errorf("SSH dial: ssh: handshake failed: %w", io.EOF),
+			wantContains: "SSH dial: ssh: handshake failed",
 		},
 		{
-			name: "connection reset keeps detail",
-			err:  errors.New("read unix /tmp/amux.sock->/tmp/amux.sock: connection reset by peer"),
-			want: "connection reset by peer",
+			name:         "connection reset keeps detail",
+			err:          errors.New("read unix /tmp/amux.sock->/tmp/amux.sock: connection reset by peer"),
+			wantContains: "connection reset by peer",
 		},
 	}
 
@@ -277,8 +277,8 @@ func TestFormatAttachError(t *testing.T) {
 			t.Parallel()
 
 			err := formatAttachError(tt.err)
-			if err == nil || !strings.Contains(err.Error(), tt.want) {
-				t.Fatalf("formatAttachError(%v) = %v, want substring %q", tt.err, err, tt.want)
+			if err == nil || !strings.Contains(err.Error(), tt.wantContains) {
+				t.Fatalf("formatAttachError(%v) = %v, want substring %q", tt.err, err, tt.wantContains)
 			}
 		})
 	}
