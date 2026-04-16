@@ -23,6 +23,9 @@ type attachReadResult struct {
 	err error
 }
 
+// attachMessageSource uses conn deadlines while they work, then permanently
+// switches to a single-reader pump when the transport rejects deadlines (for
+// example, SSH channels).
 type attachMessageSource struct {
 	conn   net.Conn
 	reader *proto.Reader
@@ -38,6 +41,13 @@ func newAttachMessageSource(conn net.Conn, reader *proto.Reader) *attachMessageS
 		conn:   conn,
 		reader: reader,
 	}
+}
+
+func (s *attachMessageSource) pumpReader() *attachMessagePump {
+	if s.pump == nil {
+		s.pump = newAttachMessagePump(s.reader)
+	}
+	return s.pump
 }
 
 func newAttachMessagePump(reader *proto.Reader) *attachMessagePump {
@@ -95,8 +105,7 @@ func (s *attachMessageSource) ReadMsgWithTimeout(timeout time.Duration) (*proto.
 		return s.pump.ReadMsgWithTimeout(timeout)
 	}
 	if err := s.conn.SetReadDeadline(time.Now().Add(timeout)); err != nil {
-		s.pump = newAttachMessagePump(s.reader)
-		return s.pump.ReadMsgWithTimeout(timeout)
+		return s.pumpReader().ReadMsgWithTimeout(timeout)
 	}
 	defer s.conn.SetReadDeadline(time.Time{}) //nolint:errcheck // best-effort reset
 
