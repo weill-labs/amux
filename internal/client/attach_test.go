@@ -284,6 +284,17 @@ func TestFormatAttachError(t *testing.T) {
 	}
 }
 
+func TestFormatAttachErrorPreservesWrappedEOF(t *testing.T) {
+	t.Parallel()
+
+	err := fmt.Errorf("SSH dial: ssh: handshake failed: %w", io.EOF)
+
+	got := formatAttachError(err)
+	if !errors.Is(got, io.EOF) {
+		t.Fatalf("errors.Is(%v, io.EOF) = false, want true", got)
+	}
+}
+
 func TestIsConnectionLostError(t *testing.T) {
 	t.Parallel()
 
