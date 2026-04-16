@@ -120,6 +120,35 @@ func TestWindowOperationsPropagateResizeFailures(t *testing.T) {
 			}
 		})
 
+		t.Run("move pane between root groups with nested source group", func(t *testing.T) {
+			p1, p2, p3 := fakePaneID(1), fakePaneID(2), fakePaneID(3)
+			w := NewWindow(p1, 120, 24)
+			mustSplitRootPane(t, w, SplitVertical, p2)
+			mustSplitPane(t, w, p1.ID, SplitHorizontal, p3)
+			if err := w.Zoom(p2.ID); err != nil {
+				t.Fatalf("Zoom(%d): %v", p2.ID, err)
+			}
+			markPaneResizeError(t, p2)
+
+			if err := w.MovePane(p1.ID, p2.ID, true); err == nil {
+				t.Fatal("MovePane() error = nil, want resize failure while unzooming")
+			}
+		})
+
+		t.Run("move pane into split unzooms first", func(t *testing.T) {
+			p1, p2 := fakePaneID(1), fakePaneID(2)
+			w := NewWindow(p1, 80, 24)
+			mustSplitRootPane(t, w, SplitVertical, p2)
+			if err := w.Zoom(p2.ID); err != nil {
+				t.Fatalf("Zoom(%d): %v", p2.ID, err)
+			}
+			markPaneResizeError(t, p2)
+
+			if err := w.MovePaneIntoSplit(p1.ID, p2.ID, SplitHorizontal, true); err == nil {
+				t.Fatal("MovePaneIntoSplit() error = nil, want resize failure while unzooming")
+			}
+		})
+
 		t.Run("move pane within split group", func(t *testing.T) {
 			p1, p2, p3 := fakePaneID(1), fakePaneID(2), fakePaneID(3)
 			w := NewWindow(p1, 120, 24)
@@ -221,6 +250,20 @@ func TestWindowOperationsPropagateResizeFailures(t *testing.T) {
 			}
 		})
 
+		t.Run("zoom replaces existing zoom only after successful unzoom", func(t *testing.T) {
+			p1, p2 := fakePaneID(1), fakePaneID(2)
+			w := NewWindow(p1, 80, 24)
+			mustSplitRootPane(t, w, SplitVertical, p2)
+			if err := w.Zoom(p2.ID); err != nil {
+				t.Fatalf("Zoom(%d): %v", p2.ID, err)
+			}
+			markPaneResizeError(t, p2)
+
+			if err := w.Zoom(p1.ID); err == nil {
+				t.Fatal("Zoom() error = nil, want resize failure while clearing prior zoom")
+			}
+		})
+
 		t.Run("splice pane single", func(t *testing.T) {
 			p1 := fakePaneID(1)
 			w := NewWindow(p1, 80, 24)
@@ -261,22 +304,37 @@ func TestWindowNoOpPathsOnUnzoomFailure(t *testing.T) {
 	t.Parallel()
 
 	t.Run("focus operations keep active pane", func(t *testing.T) {
-		p1, p2 := fakePaneID(1), fakePaneID(2)
-		w := NewWindow(p1, 80, 24)
-		mustSplitRootPane(t, w, SplitVertical, p2)
-		markPaneResizeError(t, p2)
-		w.ZoomedPaneID = p2.ID
-		before := w.ActivePane
+		t.Run("directional focus", func(t *testing.T) {
+			p1, p2 := fakePaneID(1), fakePaneID(2)
+			w := NewWindow(p1, 80, 24)
+			mustSplitRootPane(t, w, SplitVertical, p2)
+			if err := w.Zoom(p2.ID); err != nil {
+				t.Fatalf("Zoom(%d): %v", p2.ID, err)
+			}
+			markPaneResizeError(t, p2)
+			before := w.ActivePane
 
-		w.Focus("right")
-		if w.ActivePane != before {
-			t.Fatalf("Focus() active pane = %v, want unchanged %v", w.ActivePane, before)
-		}
+			w.Focus("right")
+			if w.ActivePane != before {
+				t.Fatalf("Focus() active pane = %v, want unchanged %v", w.ActivePane, before)
+			}
+		})
 
-		w.FocusPane(p2)
-		if w.ActivePane != before {
-			t.Fatalf("FocusPane() active pane = %v, want unchanged %v", w.ActivePane, before)
-		}
+		t.Run("direct focus", func(t *testing.T) {
+			p1, p2 := fakePaneID(1), fakePaneID(2)
+			w := NewWindow(p1, 80, 24)
+			mustSplitRootPane(t, w, SplitVertical, p2)
+			if err := w.Zoom(p2.ID); err != nil {
+				t.Fatalf("Zoom(%d): %v", p2.ID, err)
+			}
+			markPaneResizeError(t, p2)
+			before := w.ActivePane
+
+			w.FocusPane(p1)
+			if w.ActivePane != before {
+				t.Fatalf("FocusPane() active pane = %v, want unchanged %v", w.ActivePane, before)
+			}
+		})
 	})
 
 	t.Run("resize returns false", func(t *testing.T) {

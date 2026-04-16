@@ -100,6 +100,7 @@ func TestParseMouseCommandArgs(t *testing.T) {
 		{name: "invalid y coordinate", args: []string{"motion", "2", "down"}, wantErr: `mouse: invalid y coordinate "down"`},
 		{name: "zero coordinate", args: []string{"release", "0", "3"}, wantErr: "mouse: x coordinate must be >= 1"},
 		{name: "click pane invalid flag", args: []string{"click", "pane-1", "--bogus"}, wantErr: mouseCommandUsage},
+		{name: "click missing selector", args: []string{"click", "--status-line"}, wantErr: mouseCommandUsage},
 		{name: "drag missing to", args: []string{"drag", "pane-1", "pane-2"}, wantErr: mouseCommandUsage},
 		{name: "unknown action", args: []string{"hover", "1", "1"}, wantErr: mouseCommandUsage},
 		{name: "no action after flags", args: []string{"--client", "client-1"}, wantErr: mouseCommandUsage},

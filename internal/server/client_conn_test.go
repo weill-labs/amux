@@ -563,6 +563,34 @@ func TestClientConnReadLoopCommandRepliesDoNotBlockOnBlockedWriter(t *testing.T)
 	}
 }
 
+func TestClientConnHandleCommandIgnoresClosedWriterOnReplyPaths(t *testing.T) {
+	t.Parallel()
+
+	sess := newSession("test-client-command-closed-writer")
+	stopCrashCheckpointLoop(t, sess)
+	defer stopSessionBackgroundLoops(t, sess)
+
+	t.Run("unknown command", func(t *testing.T) {
+		cc := newClientConn(discardConn{})
+		cc.Close()
+
+		cc.handleCommand(&Server{}, sess, &Message{Type: MsgTypeCommand, CmdName: "nope"})
+	})
+
+	t.Run("panic response", func(t *testing.T) {
+		cc := newClientConn(discardConn{})
+		cc.Close()
+
+		srv := &Server{commands: map[string]CommandHandler{
+			"panic": func(*CommandContext) {
+				panic("boom")
+			},
+		}}
+
+		cc.handleCommand(srv, sess, &Message{Type: MsgTypeCommand, CmdName: "panic"})
+	})
+}
+
 func TestClientConnTypeKeyQueueDoesNotBlockOnBlockedWriter(t *testing.T) {
 	t.Parallel()
 

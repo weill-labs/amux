@@ -18,11 +18,12 @@ func TestCommandContextSendLogsWhenWriteFails(t *testing.T) {
 	t.Parallel()
 
 	serverConn, peerConn := net.Pipe()
-	_ = peerConn.Close()
+	defer func() { _ = peerConn.Close() }()
 	defer func() { _ = serverConn.Close() }()
 
 	cc := newClientConn(serverConn)
 	cc.logger = auditlog.Discard()
+	cc.Close()
 
 	ctx := &CommandContext{
 		CC:          cc,
