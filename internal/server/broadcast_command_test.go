@@ -156,6 +156,11 @@ func TestResolveBroadcastTargets(t *testing.T) {
 			args:      broadcastCommandArgs{matchPattern: "missing-*"},
 			wantError: `broadcast: no panes match "missing-*"`,
 		},
+		{
+			name:      "invalid match pattern",
+			args:      broadcastCommandArgs{matchPattern: "["},
+			wantError: `broadcast: invalid match pattern "[": syntax error in pattern`,
+		},
 	}
 
 	for _, tt := range tests {

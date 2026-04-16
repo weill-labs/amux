@@ -1,6 +1,7 @@
 package remote
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -41,6 +42,32 @@ func TestRequestedReloadExecPathRejectsMissingBinary(t *testing.T) {
 	missingPath := filepath.Join(t.TempDir(), "missing-amux")
 	if _, err := RequestedReloadExecPath([]string{ReloadServerExecPathFlag, missingPath}); err == nil {
 		t.Fatalf("RequestedReloadExecPath(%q) should fail", missingPath)
+	}
+}
+
+func TestReloadServerWrapsRequestedExecPathError(t *testing.T) {
+	t.Parallel()
+
+	missingPath := filepath.Join(t.TempDir(), "missing-amux")
+	res := ReloadServer(reloadTestContext{}, []string{ReloadServerExecPathFlag, missingPath})
+	if res.Err == nil {
+		t.Fatal("ReloadServer() error = nil, want missing binary error")
+	}
+	if !errors.Is(res.Err, os.ErrNotExist) {
+		t.Fatalf("errors.Is(%v, os.ErrNotExist) = false, want true", res.Err)
+	}
+}
+
+func TestReloadServerWrapsResolverError(t *testing.T) {
+	t.Parallel()
+
+	wantErr := errors.New("boom")
+	res := ReloadServer(reloadTestContext{resolveErr: wantErr}, nil)
+	if res.Err == nil {
+		t.Fatal("ReloadServer() error = nil, want resolver error")
+	}
+	if !errors.Is(res.Err, wantErr) {
+		t.Fatalf("errors.Is(%v, wantErr) = false, want true", res.Err)
 	}
 }
 
@@ -92,8 +119,9 @@ func TestReloadServerReturnsFlushError(t *testing.T) {
 }
 
 type reloadTestContext struct {
-	execPath string
-	onReload func(string) error
+	execPath   string
+	resolveErr error
+	onReload   func(string) error
 }
 
 func (ctx reloadTestContext) HostStatuses() map[string]string { return nil }
@@ -102,7 +130,12 @@ func (ctx reloadTestContext) DisconnectHost(string) error { return nil }
 
 func (ctx reloadTestContext) ReconnectHost(string) error { return nil }
 
-func (ctx reloadTestContext) ResolveReloadExecPath() (string, error) { return ctx.execPath, nil }
+func (ctx reloadTestContext) ResolveReloadExecPath() (string, error) {
+	if ctx.resolveErr != nil {
+		return "", ctx.resolveErr
+	}
+	return ctx.execPath, nil
+}
 
 func (ctx reloadTestContext) ReloadServer(execPath string) error { return ctx.onReload(execPath) }
 
