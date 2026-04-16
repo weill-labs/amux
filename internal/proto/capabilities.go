@@ -54,7 +54,7 @@ func (c ClientCapabilities) Intersect(other ClientCapabilities) ClientCapabiliti
 
 // EnabledNames returns enabled capability names in stable display order.
 func (c ClientCapabilities) EnabledNames() []string {
-	names := make([]string, 0, 6)
+	names := make([]string, 0, 7)
 	if c.KittyKeyboard {
 		names = append(names, "kitty_keyboard")
 	}

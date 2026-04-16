@@ -8,8 +8,9 @@ import (
 	"io"
 )
 
-// Writer caches gob encoder state for one connection. It is safe for sequential
-// use only; callers serialize writes at a higher level.
+// Writer caches gob encoder state for one connection and can opt specific
+// high-volume message types into compact binary frames. It is safe for
+// sequential use only; callers serialize writes at a higher level.
 type Writer struct {
 	dst               io.Writer
 	gobBuf            bytes.Buffer
@@ -185,8 +186,9 @@ const maxMessageSize = 16 * 1024 * 1024 // 16 MB
 
 // Wire format discriminators. The first byte on the wire identifies the
 // encoding used for the rest of the message:
-//   - wireFormatGob:    [0x00][length:4 BE][gob payload]
-//   - wireFormatBinary: [0x01][paneID:4 BE][length:4 BE][pane data]
+//   - wireFormatGob:         [0x00][length:4 BE][gob payload]
+//   - wireFormatBinary:      [0x01][paneID:4 BE][length:4 BE][pane data]
+//   - wireFormatPaneHistory: [0x02][paneID:4 BE][length:4 BE][pane history payload]
 const (
 	wireFormatGob    byte = 0x00
 	wireFormatBinary byte = 0x01
@@ -194,8 +196,9 @@ const (
 
 // WriteMsg encodes and writes a message to w.
 //
-// MsgTypePaneOutput uses a compact binary encoding (no gob overhead).
-// All other message types use the original length-prefixed gob encoding.
+// The stateless helper only uses the always-on compact PaneOutput frame.
+// Connection-scoped writers can also opt PaneHistory into compact binary via
+// SetBinaryPaneHistory when both peers negotiated support.
 func WriteMsg(w io.Writer, msg *Message) error {
 	if msg.Type == MsgTypePaneOutput {
 		return writePaneOutputBinary(w, msg)
