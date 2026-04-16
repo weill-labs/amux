@@ -9,11 +9,7 @@ import (
 
 const paneHistoryChunkThreshold = 4 * 1024 * 1024
 
-func chunkPaneHistoryMessages(paneID uint32, history []proto.StyledLine, maxChunkSize int) ([]*Message, error) {
-	return chunkPaneHistoryMessagesWithEncoding(paneID, history, maxChunkSize, false)
-}
-
-func chunkPaneHistoryMessagesWithEncoding(paneID uint32, history []proto.StyledLine, maxChunkSize int, binaryPaneHistory bool) ([]*Message, error) {
+func chunkPaneHistoryMessages(paneID uint32, history []proto.StyledLine, maxChunkSize int, binaryPaneHistory bool) ([]*Message, error) {
 	if len(history) == 0 {
 		return nil, nil
 	}
@@ -38,7 +34,7 @@ func findPaneHistoryChunkEnd(paneID uint32, history []proto.StyledLine, start, m
 	best := start
 	for lo <= hi {
 		mid := lo + (hi-lo)/2
-		size, err := estimatePaneHistoryMessageSizeWithEncoding(newPaneHistoryMessage(paneID, history[start:mid]), binaryPaneHistory)
+		size, err := estimatePaneHistoryMessageSize(newPaneHistoryMessage(paneID, history[start:mid]), binaryPaneHistory)
 		if err != nil {
 			return 0, err
 		}
@@ -64,11 +60,7 @@ func newPaneHistoryMessage(paneID uint32, history []proto.StyledLine) *Message {
 	}
 }
 
-func estimatePaneHistoryMessageSize(msg *Message) (int, error) {
-	return estimatePaneHistoryMessageSizeWithEncoding(msg, false)
-}
-
-func estimatePaneHistoryMessageSizeWithEncoding(msg *Message, binaryPaneHistory bool) (int, error) {
+func estimatePaneHistoryMessageSize(msg *Message, binaryPaneHistory bool) (int, error) {
 	var buf bytes.Buffer
 	writer := proto.NewWriter(&buf)
 	writer.SetBinaryPaneHistory(binaryPaneHistory)
