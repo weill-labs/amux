@@ -522,11 +522,7 @@ func (hc *HostConn) flushPendingInputs() {
 	for i, input := range pending {
 		if err := hc.sendInputNow(input.localPaneID, input.data); err != nil {
 			hc.pendingInputs = append([]pendingPaneInput{input}, pending[i+1:]...)
-			hc.logger.Warn("remote input write failed",
-				"event", "remote_input",
-				"host", hc.name,
-				"error", err,
-			)
+			hc.logger.Warn("remote input write failed", "event", "remote_input", "host", hc.name, "error", err)
 			readDisconnectEvent{}.handle(hc)
 			return
 		}

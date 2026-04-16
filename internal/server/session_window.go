@@ -144,11 +144,7 @@ func (s *Session) closePaneInWindow(paneID uint32) string {
 		return windowName
 	}
 	if err := w.ClosePane(paneID); err != nil {
-		s.logger.Warn("closing pane in window failed",
-			"event", "close_pane",
-			"pane_id", paneID,
-			"error", err,
-		)
+		s.logger.Warn("closing pane in window failed", "event", "close_pane", "pane_id", paneID, "error", err)
 	}
 	return ""
 }

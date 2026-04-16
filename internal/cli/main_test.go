@@ -40,6 +40,10 @@ func TestParseSpawnCommandArgs(t *testing.T) {
 		{name: "spiral rejected", args: []string{"--spiral"}, wantErrText: spawnUsage},
 		{name: "missing at value", args: []string{"--at"}, wantErrText: spawnUsage},
 		{name: "missing window value", args: []string{"--window"}, wantErrText: spawnUsage},
+		{name: "missing name value", args: []string{"--name"}, wantErrText: spawnUsage},
+		{name: "missing host value", args: []string{"--host"}, wantErrText: spawnUsage},
+		{name: "missing task value", args: []string{"--task"}, wantErrText: spawnUsage},
+		{name: "missing color value", args: []string{"--color"}, wantErrText: spawnUsage},
 		{name: "unknown arg", args: []string{"pane-1"}, wantErrText: spawnUsage},
 	}
 
@@ -66,6 +70,45 @@ func TestParseSpawnCommandArgs(t *testing.T) {
 			}
 			if !reflect.DeepEqual(gotArgs, tt.wantArgs) {
 				t.Fatalf("ParseSpawnCommandArgs(%v) args = %v, want %v", tt.args, gotArgs, tt.wantArgs)
+			}
+		})
+	}
+}
+
+func TestParseLogArgs(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		args     []string
+		wantCmd  string
+		wantArgs []string
+		wantErr  string
+	}{
+		{name: "clients", args: []string{"clients"}, wantCmd: "connection-log"},
+		{name: "panes", args: []string{"panes"}, wantCmd: "pane-log"},
+		{name: "missing args", wantErr: logUsage},
+		{name: "unknown scope", args: []string{"sessions"}, wantErr: logUsage},
+		{name: "extra args", args: []string{"clients", "extra"}, wantErr: logUsage},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			gotCmd, gotArgs, err := ParseLogArgs(tt.args)
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("ParseLogArgs(%v) error = %v, want %q", tt.args, err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("ParseLogArgs(%v): %v", tt.args, err)
+			}
+			if gotCmd != tt.wantCmd || !reflect.DeepEqual(gotArgs, tt.wantArgs) {
+				t.Fatalf("ParseLogArgs(%v) = (%q, %v), want (%q, %v)", tt.args, gotCmd, gotArgs, tt.wantCmd, tt.wantArgs)
 			}
 		})
 	}
@@ -383,6 +426,9 @@ func TestParseSwapArgs(t *testing.T) {
 		{name: "pair", args: []string{"pane-1", "pane-2"}, wantCmd: "swap", wantArgs: []string{"pane-1", "pane-2"}},
 		{name: "tree", args: []string{"pane-1", "pane-2", "--tree"}, wantCmd: "swap-tree", wantArgs: []string{"pane-1", "pane-2"}},
 		{name: "missing args", args: nil, wantErr: swapUsage},
+		{name: "duplicate tree flag", args: []string{"pane-1", "--tree", "--tree", "pane-2"}, wantErr: swapUsage},
+		{name: "tree needs two panes", args: []string{"pane-1", "--tree"}, wantErr: swapUsage},
+		{name: "too many panes without tree", args: []string{"pane-1", "pane-2", "pane-3"}, wantErr: swapUsage},
 	}
 
 	for _, tt := range tests {

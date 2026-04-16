@@ -448,6 +448,15 @@ func TestCopyModeParsesArgsAndDelegates(t *testing.T) {
 	}
 }
 
+func TestParseCopyModeArgsRejectsMultiplePaneRefs(t *testing.T) {
+	t.Parallel()
+
+	_, err := ParseCopyModeArgs([]string{"pane-1", "pane-2"}, 5*time.Second)
+	if err == nil || err.Error() != copyModeUsage {
+		t.Fatalf("ParseCopyModeArgs() error = %v, want %q", err, copyModeUsage)
+	}
+}
+
 func TestEqualizeParsesModesAndDelegates(t *testing.T) {
 	t.Parallel()
 

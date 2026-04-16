@@ -236,10 +236,7 @@ func (s *Session) sendCaptureRequestAsync(req *captureRequest) {
 		return
 	}
 	if err := req.client.Send(s.captureRequestMessage(req)); err != nil && req.client.logger != nil {
-		req.client.logger.Warn("sending capture request failed",
-			"event", "capture_request",
-			"error", err,
-		)
+		req.client.logger.Warn("sending capture request failed", "event", "capture_request", "error", err)
 	}
 }
 

@@ -969,10 +969,7 @@ func runSessionWithDeps(sessionName string, getTermSize func(int) (int, int, err
 			if localInput && !localActivity {
 				for _, decoded := range decodeInputEvents(raw) {
 					if uiEvent, handled := clientUIEventForDecodedInput(decoded); handled && uiEvent != "" {
-						if err := sendMessage(&proto.Message{
-							Type:    proto.MsgTypeUIEvent,
-							UIEvent: uiEvent,
-						}); err != nil {
+						if err := sendMessage(&proto.Message{Type: proto.MsgTypeUIEvent, UIEvent: uiEvent}); err != nil {
 							return
 						}
 					}
@@ -1045,10 +1042,7 @@ func runSessionWithDeps(sessionName string, getTermSize func(int) (int, int, err
 			dispatchDecoded := func(decoded decodedInputEvent) bool {
 				if uiEvent, handled := clientUIEventForDecodedInput(decoded); handled {
 					if uiEvent != "" {
-						if err := sendMessage(&proto.Message{
-							Type:    proto.MsgTypeUIEvent,
-							UIEvent: uiEvent,
-						}); err != nil {
+						if err := sendMessage(&proto.Message{Type: proto.MsgTypeUIEvent, UIEvent: uiEvent}); err != nil {
 							return true
 						}
 					}

@@ -1,6 +1,7 @@
 package remote
 
 import (
+	"errors"
 	"net"
 	"os"
 	"strings"
@@ -103,6 +104,17 @@ func TestWaitForLayout(t *testing.T) {
 		err := waitForLayout(client, remoteTestReader(client), 50*time.Millisecond)
 		if err == nil {
 			t.Fatal("expected timeout error")
+		}
+	})
+
+	t.Run("returns deadline exceeded when deadlines are unsupported and nothing arrives", func(t *testing.T) {
+		t.Parallel()
+		_, client := net.Pipe()
+		defer client.Close()
+
+		err := waitForLayout(noDeadlineConn{Conn: client}, remoteTestReader(client), 50*time.Millisecond)
+		if !errors.Is(err, os.ErrDeadlineExceeded) {
+			t.Fatalf("waitForLayout() error = %v, want %v", err, os.ErrDeadlineExceeded)
 		}
 	})
 

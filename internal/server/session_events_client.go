@@ -235,11 +235,7 @@ func (e uiEventCmd) handle(s *Session) {
 	clientID := e.cc.ID
 	if err != nil {
 		if sendErr := e.cc.Send(&Message{Type: MsgTypeCmdResult, CmdErr: err.Error()}); sendErr != nil && e.cc.logger != nil {
-			e.cc.logger.Warn("sending UI event error failed",
-				"event", "ui_event",
-				"ui_event", e.uiEvent,
-				"error", sendErr,
-			)
+			e.cc.logger.Warn("sending UI event error failed", "event", "ui_event", "ui_event", e.uiEvent, "error", sendErr)
 		}
 		return
 	}

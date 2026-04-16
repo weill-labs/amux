@@ -24,12 +24,7 @@ func (ctx *CommandContext) send(msg *Message) {
 		return
 	}
 	if err := ctx.CC.Send(msg); err != nil && ctx.CC.logger != nil {
-		ctx.CC.logger.Warn("sending command response failed",
-			"event", "command_response",
-			"command", ctx.CommandName,
-			"message_type", msg.Type,
-			"error", err,
-		)
+		ctx.CC.logger.Warn("sending command response failed", "event", "command_response", "command", ctx.CommandName, "message_type", msg.Type, "error", err)
 	}
 }
 

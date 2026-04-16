@@ -48,6 +48,26 @@ func TestParseBroadcastCommandArgs(t *testing.T) {
 			wantError: "usage: broadcast",
 		},
 		{
+			name:      "missing panes value",
+			args:      []string{"--panes"},
+			wantError: "usage: broadcast",
+		},
+		{
+			name:      "missing window value",
+			args:      []string{"--window"},
+			wantError: "usage: broadcast",
+		},
+		{
+			name:      "missing match value",
+			args:      []string{"--match"},
+			wantError: "usage: broadcast",
+		},
+		{
+			name:      "missing keys after selector",
+			args:      []string{"--panes", "pane-1"},
+			wantError: "usage: broadcast",
+		},
+		{
 			name:      "multiple selectors",
 			args:      []string{"--panes", "pane-1", "--window", "1", "echo hello", "Enter"},
 			wantError: "specify exactly one",
@@ -72,6 +92,21 @@ func TestParseBroadcastCommandArgs(t *testing.T) {
 				t.Fatalf("parseBroadcastCommandArgs() = %#v, want %#v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestResolveBroadcastTargetsForActorRejectsMissingSelector(t *testing.T) {
+	t.Parallel()
+
+	sess := newSession("test-broadcast-missing-selector")
+	stopCrashCheckpointLoop(t, sess)
+
+	targets, err := resolveBroadcastTargetsForActor(sess, 0, broadcastCommandArgs{})
+	if err == nil || err.Error() != broadcastUsage {
+		t.Fatalf("resolveBroadcastTargetsForActor() error = %v, want %q", err, broadcastUsage)
+	}
+	if targets != nil {
+		t.Fatalf("resolveBroadcastTargetsForActor() targets = %v, want nil", targets)
 	}
 }
 
