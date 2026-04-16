@@ -105,6 +105,16 @@ func (p *Pane) RenderScreen() string {
 	})
 }
 
+// ScreenSnapshot returns the current visible screen plus the latest
+// live-output sequence included in that state.
+func (p *Pane) ScreenSnapshot() (screen string, seq uint64) {
+	p.withActor(func() {
+		screen = RenderWithCursor(p.emulator)
+		seq = p.outputSeq.Load()
+	})
+	return screen, seq
+}
+
 // HistoryScreenSnapshot returns a consistent snapshot of retained scrollback,
 // current screen, and the latest live-output sequence included in that state.
 func (p *Pane) HistoryScreenSnapshot() (history []string, screen string, seq uint64) {
@@ -116,19 +126,31 @@ func (p *Pane) HistoryScreenSnapshot() (history []string, screen string, seq uin
 	return history, screen, seq
 }
 
+func (p *Pane) styledHistorySnapshot() []proto.StyledLine {
+	baseHistory := p.loadBaseHistory()
+	liveHistory := EmulatorScrollbackStyledLines(p.emulator)
+	baseStart, liveStart := trimScrollbackStarts(len(baseHistory), len(liveHistory), effectiveScrollbackLines(p.scrollbackLines))
+
+	history := make([]proto.StyledLine, 0, len(baseHistory)-baseStart+len(liveHistory)-liveStart)
+	for _, line := range baseHistory[baseStart:] {
+		history = append(history, proto.StyledLine{Text: line})
+	}
+	return append(history, proto.CloneStyledLines(liveHistory[liveStart:])...)
+}
+
+// StyledHistorySnapshot returns retained history with frozen cell styles.
+func (p *Pane) StyledHistorySnapshot() (history []proto.StyledLine) {
+	p.withActor(func() {
+		history = p.styledHistorySnapshot()
+	})
+	return history
+}
+
 // StyledHistoryScreenSnapshot returns retained history with frozen cell styles,
 // current screen, and the latest live-output sequence included in that state.
 func (p *Pane) StyledHistoryScreenSnapshot() (history []proto.StyledLine, screen string, seq uint64) {
 	p.withActor(func() {
-		baseHistory := p.loadBaseHistory()
-		liveHistory := EmulatorScrollbackStyledLines(p.emulator)
-		baseStart, liveStart := trimScrollbackStarts(len(baseHistory), len(liveHistory), effectiveScrollbackLines(p.scrollbackLines))
-
-		history = make([]proto.StyledLine, 0, len(baseHistory)-baseStart+len(liveHistory)-liveStart)
-		for _, line := range baseHistory[baseStart:] {
-			history = append(history, proto.StyledLine{Text: line})
-		}
-		history = append(history, proto.CloneStyledLines(liveHistory[liveStart:])...)
+		history = p.styledHistorySnapshot()
 		screen = RenderWithCursor(p.emulator)
 		seq = p.outputSeq.Load()
 	})
