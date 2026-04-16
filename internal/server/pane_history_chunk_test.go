@@ -194,8 +194,7 @@ func TestHandleAttachChunksLargePaneHistoryDuringBootstrap(t *testing.T) {
 func largeHistoryLines(lineCount, lineWidth int) []string {
 	lines := make([]string, lineCount)
 	for i := range lines {
-		suffix := fmt.Sprintf("-%06d", i)
-		lines[i] = strings.Repeat(string(rune('a'+(i%26))), lineWidth-len(suffix)) + suffix
+		lines[i] = largeHistoryLine(i, lineWidth)
 	}
 	return lines
 }
@@ -218,8 +217,7 @@ func BenchmarkNewPaneHistoryMessage(b *testing.B) {
 func largeStyledHistoryLines(lineCount, lineWidth int) []proto.StyledLine {
 	lines := make([]proto.StyledLine, lineCount)
 	for i := range lines {
-		text := largeHistoryLines(1, lineWidth)[0]
-		text = text[:len(text)-7] + fmt.Sprintf("-%06d", i)
+		text := largeHistoryLine(i, lineWidth)
 
 		cells := make([]proto.Cell, 0, len(text))
 		for _, r := range text {
@@ -234,4 +232,9 @@ func largeStyledHistoryLines(lineCount, lineWidth int) []proto.StyledLine {
 		}
 	}
 	return lines
+}
+
+func largeHistoryLine(i, lineWidth int) string {
+	suffix := fmt.Sprintf("-%06d", i)
+	return strings.Repeat(string(rune('a'+(i%26))), lineWidth-len(suffix)) + suffix
 }
