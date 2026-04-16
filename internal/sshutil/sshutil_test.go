@@ -69,8 +69,9 @@ func TestBuildSSHConfigUsesDefaultUserAndTOFUCallback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildSSHConfig() error = %v", err)
 	}
-	if cfg.User != DefaultSSHUser() {
-		t.Fatalf("BuildSSHConfig() user = %q, want %q", cfg.User, DefaultSSHUser())
+	wantUser := DefaultSSHUser()
+	if cfg.User != wantUser {
+		t.Fatalf("BuildSSHConfig() user = %q, want %q", cfg.User, wantUser)
 	}
 
 	key := testHostKey(t)

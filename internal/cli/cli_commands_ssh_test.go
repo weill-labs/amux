@@ -52,8 +52,9 @@ func TestResolveCLISSHTargetUsesDefaultSSHUser(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolveCLISSHTarget() error = %v", err)
 	}
-	if target.User != sshutil.DefaultSSHUser() {
-		t.Fatalf("resolveCLISSHTarget() user = %q, want %q", target.User, sshutil.DefaultSSHUser())
+	wantUser := sshutil.DefaultSSHUser()
+	if target.User != wantUser {
+		t.Fatalf("resolveCLISSHTarget() user = %q, want %q", target.User, wantUser)
 	}
 	if target.Host != "builder" || target.Session != "work" {
 		t.Fatalf("resolveCLISSHTarget() = %#v, want builder/work target", target)
