@@ -43,6 +43,10 @@ func TestParseBroadcastCommandArgs(t *testing.T) {
 			},
 		},
 		{
+			name:      "no args",
+			wantError: "usage: broadcast",
+		},
+		{
 			name:      "missing selector",
 			args:      []string{"echo hello", "Enter"},
 			wantError: "usage: broadcast",
