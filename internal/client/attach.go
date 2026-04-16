@@ -114,7 +114,7 @@ func formatAttachError(err error) error {
 	case isSocketNotFoundError(err):
 		return fmt.Errorf("attach failed: socket not found")
 	case isConnectionLostError(err):
-		return fmt.Errorf("attach failed: connection lost")
+		return fmt.Errorf("attach failed: connection lost: %v", err)
 	default:
 		return fmt.Errorf("attach failed: %w", err)
 	}
