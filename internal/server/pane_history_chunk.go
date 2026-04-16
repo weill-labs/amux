@@ -57,7 +57,7 @@ func newPaneHistoryMessage(paneID uint32, history []proto.StyledLine) *Message {
 		Type:          MsgTypePaneHistory,
 		PaneID:        paneID,
 		History:       proto.StyledLineText(history),
-		StyledHistory: proto.CloneStyledLines(history),
+		StyledHistory: append([]proto.StyledLine(nil), history...),
 	}
 }
 
