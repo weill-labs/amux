@@ -37,8 +37,7 @@ func assertNoMessage(t *testing.T, conn net.Conn) {
 	if err == nil {
 		t.Fatalf("unexpected message: %+v", msg)
 	}
-	var netErr net.Error
-	if !errors.As(err, &netErr) || !netErr.Timeout() {
+	if !isTimeoutNetError(err) {
 		t.Fatalf("read error = %v, want timeout", err)
 	}
 }
