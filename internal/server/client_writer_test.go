@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"net"
 	"testing"
 	"time"
@@ -198,6 +199,29 @@ func TestClientWriterBootstrappingStopsOnRequestStop(t *testing.T) {
 	case <-w.done:
 	case <-time.After(time.Second):
 		t.Fatal("clientWriter loop did not exit after stop during bootstrap")
+	}
+}
+
+func TestClientWriterSetBinaryPaneHistory(t *testing.T) {
+	t.Parallel()
+
+	var nilWriter *clientWriter
+	nilWriter.setBinaryPaneHistory(true)
+
+	msg := &Message{
+		Type:          MsgTypePaneHistory,
+		PaneID:        4,
+		History:       []string{"x"},
+		StyledHistory: []proto.StyledLine{{Text: "x"}},
+	}
+	var buf bytes.Buffer
+	w := &clientWriter{wire: proto.NewWriter(&buf)}
+	w.setBinaryPaneHistory(true)
+	if err := w.wire.WriteMsg(msg); err != nil {
+		t.Fatalf("WriteMsg: %v", err)
+	}
+	if got := buf.Bytes(); len(got) == 0 || got[0] != 0x02 {
+		t.Fatalf("pane history frame discriminator = %#v, want 0x02", got)
 	}
 }
 

@@ -226,6 +226,7 @@ func cloneMessage(msg *Message) *Message {
 	cp.RenderData = append([]byte(nil), msg.RenderData...)
 	cp.PaneData = append([]byte(nil), msg.PaneData...)
 	cp.History = append([]string(nil), msg.History...)
+	cp.StyledHistory = proto.CloneStyledLines(msg.StyledHistory)
 	return &cp
 }
 
