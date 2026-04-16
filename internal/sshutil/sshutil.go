@@ -50,7 +50,7 @@ func BuildSSHConfig(user, identityFile string) (*ssh.ClientConfig, error) {
 	}
 
 	if user == "" {
-		user = "ubuntu"
+		user = DefaultSSHUser()
 	}
 
 	var hostKeyCallback ssh.HostKeyCallback

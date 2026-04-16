@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/weill-labs/amux/internal/proto"
+	"github.com/weill-labs/amux/internal/sshutil"
 )
 
 func TestLoadMissing(t *testing.T) {
@@ -88,23 +89,28 @@ func TestColorForHost(t *testing.T) {
 
 func TestHostUser(t *testing.T) {
 	t.Parallel()
+
 	cfg := &Config{
 		Hosts: map[string]Host{
 			"myhost": {User: "admin"},
 		},
 	}
+	defaultUser := sshutil.DefaultSSHUser()
 
 	tests := []struct {
+		name string
 		host string
 		want string
 	}{
-		{"myhost", "admin"},
-		{"unknown", "ubuntu"},
+		{name: "configured user wins", host: "myhost", want: "admin"},
+		{name: "missing host falls back to shared default user", host: "unknown", want: defaultUser},
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.host, func(t *testing.T) {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+
 			if got := cfg.HostUser(tt.host); got != tt.want {
 				t.Errorf("HostUser(%q) = %q, want %q", tt.host, got, tt.want)
 			}

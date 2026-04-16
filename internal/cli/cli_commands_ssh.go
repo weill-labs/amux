@@ -36,7 +36,7 @@ func resolveCLISSHTarget(raw string) (sshutil.SSHTarget, error) {
 		return sshutil.SSHTarget{}, fmt.Errorf("loading config: %w", err)
 	}
 
-	target, err := sshutil.ParseTarget(raw, "ubuntu")
+	target, err := sshutil.ParseTarget(raw, "")
 	if err != nil {
 		return sshutil.SSHTarget{}, err
 	}
