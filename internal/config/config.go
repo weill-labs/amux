@@ -8,6 +8,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/weill-labs/amux/internal/proto"
+	"github.com/weill-labs/amux/internal/sshutil"
 )
 
 // catppuccinMocha is the accent palette in official order (catppuccin.com/palette).
@@ -202,12 +203,12 @@ func ColorForHost(hostname string) string {
 	return AccentColor(h)
 }
 
-// HostUser returns the SSH user for a host, defaulting to "ubuntu".
+// HostUser returns the SSH user for a host, defaulting to the current OS user.
 func (c *Config) HostUser(hostname string) string {
 	if h, ok := c.Hosts[hostname]; ok && h.User != "" {
 		return h.User
 	}
-	return "ubuntu"
+	return sshutil.DefaultSSHUser()
 }
 
 // HostAddress returns the address for a host, falling back to the hostname itself.

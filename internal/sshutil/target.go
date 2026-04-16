@@ -17,14 +17,14 @@ func ParseTarget(raw, defaultUser string) (SSHTarget, error) {
 	if raw == "" {
 		return SSHTarget{}, fmt.Errorf("ssh target is required")
 	}
+	if defaultUser == "" {
+		defaultUser = DefaultSSHUser()
+	}
 
 	target := SSHTarget{
 		User:    defaultUser,
 		Port:    "22",
 		Session: "main",
-	}
-	if target.User == "" {
-		target.User = "ubuntu"
 	}
 
 	if at := strings.LastIndex(raw, "@"); at >= 0 {
@@ -33,9 +33,6 @@ func ParseTarget(raw, defaultUser string) (SSHTarget, error) {
 		}
 		target.User = raw[:at]
 		raw = raw[at+1:]
-	}
-	if target.User == "" {
-		return SSHTarget{}, fmt.Errorf("ssh target user is required")
 	}
 	if raw == "" {
 		return SSHTarget{}, fmt.Errorf("ssh target host is required")
