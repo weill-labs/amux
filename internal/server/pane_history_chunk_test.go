@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/weill-labs/amux/internal/mux"
+	"github.com/weill-labs/amux/internal/proto"
 )
 
 func TestChunkPaneHistoryMessagesSplitsLargeHistoryUnderThreshold(t *testing.T) {
@@ -61,6 +62,47 @@ func TestChunkPaneHistoryMessagesSplitsLargeHistoryUnderThreshold(t *testing.T) 
 		if got := flat[i]; got != want {
 			t.Fatalf("history line %d = %q, want %q", i, got, want)
 		}
+	}
+}
+
+func TestNewPaneHistoryMessageCopiesStyledLineHeaders(t *testing.T) {
+	t.Parallel()
+
+	history := []proto.StyledLine{
+		{
+			Text: "line-0",
+			Cells: []proto.Cell{
+				{Char: "a", Width: 1},
+				{Char: "b", Width: 1},
+			},
+		},
+	}
+
+	msg := newPaneHistoryMessage(7, history)
+
+	if got, want := len(msg.StyledHistory), len(history); got != want {
+		t.Fatalf("styled history len = %d, want %d", got, want)
+	}
+	if got, want := msg.History, []string{"line-0"}; len(got) != len(want) || got[0] != want[0] {
+		t.Fatalf("history text = %v, want %v", got, want)
+	}
+	if &msg.StyledHistory[0] == &history[0] {
+		t.Fatal("styled history reused caller slice header")
+	}
+	if len(msg.StyledHistory[0].Cells) != len(history[0].Cells) {
+		t.Fatalf("styled history cell count = %d, want %d", len(msg.StyledHistory[0].Cells), len(history[0].Cells))
+	}
+	if &msg.StyledHistory[0].Cells[0] != &history[0].Cells[0] {
+		t.Fatal("styled history cells were deep-cloned, want shared backing cells")
+	}
+
+	history[0].Text = "mutated"
+	history[0].Cells = nil
+	if got, want := msg.StyledHistory[0].Text, "line-0"; got != want {
+		t.Fatalf("styled history text = %q, want %q", got, want)
+	}
+	if got, want := len(msg.StyledHistory[0].Cells), 2; got != want {
+		t.Fatalf("styled history cells len after caller mutation = %d, want %d", got, want)
 	}
 }
 
@@ -152,8 +194,47 @@ func TestHandleAttachChunksLargePaneHistoryDuringBootstrap(t *testing.T) {
 func largeHistoryLines(lineCount, lineWidth int) []string {
 	lines := make([]string, lineCount)
 	for i := range lines {
-		suffix := fmt.Sprintf("-%06d", i)
-		lines[i] = strings.Repeat(string(rune('a'+(i%26))), lineWidth-len(suffix)) + suffix
+		lines[i] = largeHistoryLine(i, lineWidth)
 	}
 	return lines
+}
+
+func BenchmarkNewPaneHistoryMessage(b *testing.B) {
+	history := largeStyledHistoryLines(256, 256)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	var msg *Message
+	for b.Loop() {
+		msg = newPaneHistoryMessage(1, history)
+	}
+	if msg == nil {
+		b.Fatal("newPaneHistoryMessage returned nil")
+	}
+}
+
+func largeStyledHistoryLines(lineCount, lineWidth int) []proto.StyledLine {
+	lines := make([]proto.StyledLine, lineCount)
+	for i := range lines {
+		text := largeHistoryLine(i, lineWidth)
+
+		cells := make([]proto.Cell, 0, len(text))
+		for _, r := range text {
+			cells = append(cells, proto.Cell{
+				Char:  string(r),
+				Width: 1,
+			})
+		}
+		lines[i] = proto.StyledLine{
+			Text:  text,
+			Cells: cells,
+		}
+	}
+	return lines
+}
+
+func largeHistoryLine(i, lineWidth int) string {
+	suffix := fmt.Sprintf("-%06d", i)
+	return strings.Repeat(string(rune('a'+(i%26))), lineWidth-len(suffix)) + suffix
 }
