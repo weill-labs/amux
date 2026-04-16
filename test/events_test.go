@@ -652,12 +652,12 @@ func TestEventsCLIReconnectExitsAfterRetryCap(t *testing.T) {
 	}
 
 	err := proc.wait(5 * time.Second)
-	exitErr, ok := err.(*exec.ExitError)
+	exitCode, ok := exitErrorCode(err)
 	if !ok {
 		t.Fatalf("events CLI exit = %v, want nonzero exit", err)
 	}
-	if exitErr.ExitCode() != 1 {
-		t.Fatalf("events CLI exit code = %d, want 1", exitErr.ExitCode())
+	if exitCode != 1 {
+		t.Fatalf("events CLI exit code = %d, want 1", exitCode)
 	}
 	if !strings.Contains(proc.stderrString(), "reconnect failed") {
 		t.Fatalf("stderr = %q, want reconnect failure", proc.stderrString())
@@ -759,9 +759,9 @@ func TestEventsCLIConnectError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected initial connect error")
 	}
-	if exit, ok := err.(*exec.ExitError); ok {
-		if exit.ExitCode() != 1 {
-			t.Errorf("exit code: got %d, want 1", exit.ExitCode())
+	if exitCode, ok := exitErrorCode(err); ok {
+		if exitCode != 1 {
+			t.Errorf("exit code: got %d, want 1", exitCode)
 		}
 	}
 	if got := string(out); !strings.Contains(got, "amux events: connecting to server:") || !strings.Contains(got, "no such file or directory") {

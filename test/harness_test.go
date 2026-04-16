@@ -48,7 +48,7 @@ func buildAmuxWithCommit(binPath, buildCommit string) error {
 	args = append(args, "-o", binPath, "..")
 	out, err := exec.Command("go", args...).CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("building amux: %v\n%s", err, out)
+		return fmt.Errorf("building amux: %w\n%s", err, out)
 	}
 	return nil
 }

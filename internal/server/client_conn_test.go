@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"net"
 	"testing"
 	"time"
@@ -812,7 +813,8 @@ func assertNoClientMessage(t *testing.T, conn net.Conn) {
 		t.Fatalf("SetReadDeadline: %v", err)
 	}
 	msg, err := readMsgOnConn(conn)
-	if ne, ok := err.(net.Error); ok && ne.Timeout() {
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
 		if err := conn.SetReadDeadline(time.Time{}); err != nil {
 			t.Fatalf("reset read deadline: %v", err)
 		}

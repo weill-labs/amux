@@ -112,7 +112,7 @@ func (h *ServerHarness) attachRendererAt(cols, rows int, afterLayout func(*clien
 	for {
 		msg, err := readMsgOnConn(conn)
 		if err != nil {
-			if ne, ok := err.(net.Error); ok && ne.Timeout() {
+			if isTimeoutNetError(err) {
 				return r
 			}
 			if errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed) || strings.Contains(err.Error(), "use of closed network connection") {

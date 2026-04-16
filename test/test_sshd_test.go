@@ -404,7 +404,8 @@ func runExecCommand(ctx context.Context, ch ssh.Channel, command string, execEnv
 		if errors.Is(err, exec.ErrWaitDelay) {
 			return 0
 		}
-		if exitErr, ok := err.(*exec.ExitError); ok {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
 			return exitErr.ExitCode()
 		}
 		return 1
@@ -450,7 +451,8 @@ func runShellCommand(ctx context.Context, ch ssh.Channel, command string, execEn
 
 	exitCode := 0
 	if err := cmd.Wait(); err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
 			exitCode = exitErr.ExitCode()
 		} else {
 			exitCode = 1

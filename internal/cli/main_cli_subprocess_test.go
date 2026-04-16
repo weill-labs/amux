@@ -39,11 +39,7 @@ func runHermeticMain(t *testing.T, args ...string) (output string, exitCode int)
 	if err == nil {
 		return string(out), 0
 	}
-
-	exitErr, ok := err.(*exec.ExitError)
-	if !ok {
-		t.Fatalf("helper error = %v\n%s", err, out)
-	}
+	exitErr := requireExitError(t, err, out)
 	return string(out), exitErr.ExitCode()
 }
 
@@ -61,12 +57,18 @@ func runHermeticMainWithTimeout(t *testing.T, timeout time.Duration, args ...str
 	if errors.Is(err, context.DeadlineExceeded) {
 		return string(out), -1, true
 	}
+	exitErr := requireExitError(t, err, out)
+	return string(out), exitErr.ExitCode(), false
+}
 
-	exitErr, ok := err.(*exec.ExitError)
-	if !ok {
+func requireExitError(t *testing.T, err error, out []byte) *exec.ExitError {
+	t.Helper()
+
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) {
 		t.Fatalf("helper error = %v\n%s", err, out)
 	}
-	return string(out), exitErr.ExitCode(), false
+	return exitErr
 }
 
 func newHermeticMainCmd(t *testing.T, args ...string) *exec.Cmd {

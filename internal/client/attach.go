@@ -104,17 +104,25 @@ func isSocketNotFoundError(err error) bool {
 	return errors.Is(err, os.ErrNotExist) || strings.Contains(err.Error(), "no such file or directory")
 }
 
+func isTimeoutNetError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var netErr net.Error
+	return errors.As(err, &netErr) && netErr.Timeout()
+}
+
 func formatAttachError(err error) error {
 	if err == nil {
 		return nil
 	}
 	switch {
 	case errors.Is(err, errAttachProtocol):
-		return fmt.Errorf("attach failed: protocol error: %v", err)
+		return fmt.Errorf("attach failed: protocol error: %w", err)
 	case isSocketNotFoundError(err):
 		return fmt.Errorf("attach failed: socket not found")
 	case isConnectionLostError(err):
-		return fmt.Errorf("attach failed: connection lost: %v", err)
+		return fmt.Errorf("attach failed: connection lost: %w", err)
 	default:
 		return fmt.Errorf("attach failed: %w", err)
 	}

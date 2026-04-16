@@ -2,11 +2,18 @@ linters:
   disable-all: true
   enable:
     - errcheck
+    - errorlint
     - govet
     - staticcheck
     - unused
     - gosimple
     - ineffassign
+
+linters-settings:
+  errorlint:
+    errorf: true
+    asserts: true
+    comparison: true
 
 issues:
   max-issues-per-linter: 0

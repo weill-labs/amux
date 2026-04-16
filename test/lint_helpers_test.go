@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"testing"
@@ -89,4 +90,27 @@ func ignoreCopy(dst io.Writer, src io.Reader) {
 
 func ignoreCloseWrite(ch ssh.Channel) {
 	_ = ch.CloseWrite() //nolint:errcheck // test SSH channel may already be closing
+}
+
+func mustExitError(tb testing.TB, err error, out []byte) *exec.ExitError {
+	tb.Helper()
+
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) {
+		tb.Fatalf("expected *exec.ExitError, got %v\n%s", err, out)
+	}
+	return exitErr
+}
+
+func exitErrorCode(err error) (int, bool) {
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) {
+		return 0, false
+	}
+	return exitErr.ExitCode(), true
+}
+
+func isTimeoutNetError(err error) bool {
+	var netErr net.Error
+	return errors.As(err, &netErr) && netErr.Timeout()
 }

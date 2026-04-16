@@ -536,8 +536,10 @@ func TestHandleSplitBindingShowsErrorWhenLayoutNotReady(t *testing.T) {
 	}
 	if _, err := inputDispatchReader(serverConn).ReadMsg(); err == nil {
 		t.Fatal("split binding without layout should not send a command")
-	} else if ne, ok := err.(net.Error); !ok || !ne.Timeout() {
-		t.Fatalf("read command message error = %v, want timeout", err)
+	} else {
+		if !isTimeoutNetError(err) {
+			t.Fatalf("read command message error = %v, want timeout", err)
+		}
 	}
 }
 

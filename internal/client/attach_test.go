@@ -37,7 +37,7 @@ func assertNoMessage(t *testing.T, conn net.Conn) {
 	if err == nil {
 		t.Fatalf("unexpected message: %+v", msg)
 	}
-	if ne, ok := err.(net.Error); !ok || !ne.Timeout() {
+	if !isTimeoutNetError(err) {
 		t.Fatalf("read error = %v, want timeout", err)
 	}
 }
@@ -281,6 +281,17 @@ func TestFormatAttachError(t *testing.T) {
 				t.Fatalf("formatAttachError(%v) = %v, want substring %q", tt.err, err, tt.wantContains)
 			}
 		})
+	}
+}
+
+func TestFormatAttachErrorPreservesWrappedEOF(t *testing.T) {
+	t.Parallel()
+
+	err := fmt.Errorf("SSH dial: ssh: handshake failed: %w", io.EOF)
+
+	got := formatAttachError(err)
+	if !errors.Is(got, io.EOF) {
+		t.Fatalf("errors.Is(%v, io.EOF) = false, want true", got)
 	}
 }
 

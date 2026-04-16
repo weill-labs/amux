@@ -1,6 +1,7 @@
 package mux
 
 import (
+	"errors"
 	"fmt"
 	"os/exec"
 	"testing"
@@ -38,8 +39,8 @@ func exitError(t *testing.T, code int) *exec.ExitError {
 	if err == nil {
 		t.Fatalf("expected exit %d, got nil error", code)
 	}
-	exitErr, ok := err.(*exec.ExitError)
-	if !ok {
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) {
 		t.Fatalf("expected *exec.ExitError, got %T", err)
 	}
 	return exitErr

@@ -111,7 +111,7 @@ func (s *attachMessageSource) ReadMsgWithTimeout(timeout time.Duration) (*proto.
 
 	msg, err := s.reader.ReadMsg()
 	if err != nil {
-		if ne, ok := err.(net.Error); ok && ne.Timeout() {
+		if isTimeoutNetError(err) {
 			return nil, true, nil
 		}
 		return nil, false, err

@@ -93,7 +93,7 @@ func restoreServerFromReloadCheckpointLogger(sessionName, cpPath string, scrollb
 	crashPath := crashPaths[0]
 	crashCP, crashErr := checkpoint.ReadCrash(crashPath)
 	if crashErr != nil {
-		return nil, fmt.Errorf("%w; crash fallback %s: %v", err, crashPath, crashErr)
+		return nil, fmt.Errorf("%w; crash fallback %s: %w", err, crashPath, crashErr)
 	}
 	if cp.ListenerFd <= 0 {
 		return nil, fmt.Errorf("%w; invalid listener fd %d in reload checkpoint", err, cp.ListenerFd)
@@ -348,7 +348,7 @@ func waitForTakeoverAck(stdin *os.File, fallbackSession string, timeout time.Dur
 		timeoutMS := int((remaining + time.Millisecond - 1) / time.Millisecond)
 		n, err := unix.Poll([]unix.PollFd{{Fd: fd, Events: unix.POLLIN}}, timeoutMS)
 		if err != nil {
-			if err == syscall.EINTR {
+			if errors.Is(err, syscall.EINTR) {
 				continue
 			}
 			return "", false

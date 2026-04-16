@@ -64,12 +64,12 @@ func Reconnect(ctx Context, args []string) commandpkg.Result {
 func ReloadServer(ctx Context, args []string) commandpkg.Result {
 	execPath, err := RequestedReloadExecPath(args)
 	if err != nil {
-		return commandpkg.Result{Err: fmt.Errorf("reload: %v", err)}
+		return commandpkg.Result{Err: fmt.Errorf("reload: %w", err)}
 	}
 	if execPath == "" {
 		execPath, err = ctx.ResolveReloadExecPath()
 		if err != nil {
-			return commandpkg.Result{Err: fmt.Errorf("reload: %v", err)}
+			return commandpkg.Result{Err: fmt.Errorf("reload: %w", err)}
 		}
 	}
 	return commandpkg.Result{
