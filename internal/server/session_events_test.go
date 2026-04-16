@@ -211,6 +211,90 @@ func TestHandleAttachSendsPaneHistoryBeforePaneOutput(t *testing.T) {
 	}
 }
 
+func TestHandleAttachOnlySendsPaneHistoryForActiveWindowPanes(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	pane1 := newAttachTestPane(sess, 1, "pane-1", 80, 2)
+	pane1.FeedOutput([]byte("pane-1-a\r\npane-1-b\r\npane-1-c\r\n"))
+
+	pane2 := newAttachTestPane(sess, 2, "pane-2", 80, 2)
+	pane2.FeedOutput([]byte("pane-2-a\r\npane-2-b\r\npane-2-c\r\n"))
+
+	w1 := mux.NewWindow(pane1, 80, 3)
+	w1.ID = 1
+	w1.Name = "window-1"
+
+	w2 := mux.NewWindow(pane2, 80, 3)
+	w2.ID = 2
+	w2.Name = "window-2"
+
+	if err := setAttachTestLayout(sess, []*mux.Window{w1, w2}, w1.ID, []*mux.Pane{pane1, pane2}); err != nil {
+		t.Fatalf("setAttachTestLayout: %v", err)
+	}
+
+	serverConn, peerConn := net.Pipe()
+	defer peerConn.Close()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		srv.handleAttach(newClientConn(serverConn), &Message{
+			Type:    MsgTypeAttach,
+			Session: sess.Name,
+			Cols:    80,
+			Rows:    4,
+		})
+	}()
+
+	if msg := readMsgWithTimeout(t, peerConn); msg.Type != MsgTypeLayout {
+		t.Fatalf("first message type = %v, want layout", msg.Type)
+	}
+
+	msg := readMsgWithTimeout(t, peerConn)
+	if msg.Type != MsgTypePaneHistory {
+		t.Fatalf("second message type = %v, want pane history", msg.Type)
+	}
+	if msg.PaneID != pane1.ID {
+		t.Fatalf("history pane id = %d, want %d", msg.PaneID, pane1.ID)
+	}
+
+	msg = readMsgWithTimeout(t, peerConn)
+	if msg.Type != MsgTypePaneOutput {
+		t.Fatalf("third message type = %v, want pane output", msg.Type)
+	}
+	if msg.PaneID != pane1.ID {
+		t.Fatalf("first pane output id = %d, want %d", msg.PaneID, pane1.ID)
+	}
+
+	msg = readMsgWithTimeout(t, peerConn)
+	if msg.Type != MsgTypePaneOutput {
+		t.Fatalf("fourth message type = %v, want pane output for hidden window pane", msg.Type)
+	}
+	if msg.PaneID != pane2.ID {
+		t.Fatalf("hidden pane output id = %d, want %d", msg.PaneID, pane2.ID)
+	}
+	if !bytes.Contains(msg.PaneData, []byte("pane-2-c")) {
+		t.Fatalf("hidden pane output = %q, want latest hidden pane screen", msg.PaneData)
+	}
+
+	readUntil(t, peerConn, func(msg *Message) bool {
+		return msg.Type == MsgTypeLayout && msg.Layout != nil && msg.Layout.ActiveWindowID == w1.ID
+	})
+
+	if err := writeMsgOnConn(peerConn, &Message{Type: MsgTypeDetach}); err != nil {
+		t.Fatalf("WriteMsg detach: %v", err)
+	}
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("handleAttach did not exit after detach")
+	}
+}
+
 func TestEnqueueLiveInputPaneResolvesFreshSessionPane(t *testing.T) {
 	t.Parallel()
 
@@ -406,6 +490,81 @@ func TestCommandMutationBroadcastsLayoutBeforeQueuedPaneOutput(t *testing.T) {
 	}
 	if second.PaneID != pane.ID || string(second.PaneData) != "queued-output" {
 		t.Fatalf("pane output = pane %d %q, want pane %d queued-output", second.PaneID, string(second.PaneData), pane.ID)
+	}
+}
+
+func TestCommandMutationBroadcastsDeferredHistoryWhenActiveWindowChanges(t *testing.T) {
+	t.Parallel()
+
+	sess := newSession("test-command-deferred-history")
+	t.Cleanup(func() { stopSessionBackgroundLoops(t, sess) })
+
+	pane1 := newProxyPane(1, mux.PaneMeta{
+		Name:  "pane-1",
+		Host:  mux.DefaultHost,
+		Color: "f5e0dc",
+	}, 80, 2, nil, nil, func(data []byte) (int, error) { return len(data), nil })
+	pane1.FeedOutput([]byte("pane-1-a\r\npane-1-b\r\npane-1-c\r\n"))
+
+	pane2 := newProxyPane(2, mux.PaneMeta{
+		Name:  "pane-2",
+		Host:  mux.DefaultHost,
+		Color: "f2cdcd",
+	}, 80, 2, nil, nil, func(data []byte) (int, error) { return len(data), nil })
+	pane2.FeedOutput([]byte("pane-2-a\r\npane-2-b\r\npane-2-c\r\n"))
+
+	w1 := mux.NewWindow(pane1, 80, 3)
+	w1.ID = 1
+	w1.Name = "window-1"
+
+	w2 := mux.NewWindow(pane2, 80, 3)
+	w2.ID = 2
+	w2.Name = "window-2"
+
+	sess.Windows = []*mux.Window{w1, w2}
+	sess.ActiveWindowID = w1.ID
+	sess.Panes = []*mux.Pane{pane1, pane2}
+
+	serverConn, peerConn := net.Pipe()
+	t.Cleanup(func() { _ = peerConn.Close() })
+
+	cc := newClientConn(serverConn)
+	t.Cleanup(cc.Close)
+	sess.ensureClientManager().setClientsForTest(cc)
+
+	res := sess.enqueueCommandMutation(func(mctx *MutationContext) commandMutationResult {
+		mctx.activateWindow(w2)
+		return commandMutationResult{
+			broadcastLayout: true,
+			paneRenders:     activePaneRender(mctx.activeWindow()),
+		}
+	})
+	if res.err != nil {
+		t.Fatalf("enqueueCommandMutation error = %v", res.err)
+	}
+
+	first := readMsgWithTimeout(t, peerConn)
+	if first.Type != MsgTypeLayout {
+		t.Fatalf("first message type = %v, want layout", first.Type)
+	}
+	if first.Layout == nil || first.Layout.ActiveWindowID != w2.ID {
+		t.Fatalf("layout active window = %+v, want window %d", first.Layout, w2.ID)
+	}
+
+	second := readMsgWithTimeout(t, peerConn)
+	if second.Type != MsgTypePaneHistory {
+		t.Fatalf("second message type = %v, want deferred pane history", second.Type)
+	}
+	if second.PaneID != pane2.ID {
+		t.Fatalf("history pane id = %d, want %d", second.PaneID, pane2.ID)
+	}
+
+	third := readMsgWithTimeout(t, peerConn)
+	if third.Type != MsgTypePaneOutput {
+		t.Fatalf("third message type = %v, want pane output", third.Type)
+	}
+	if third.PaneID != pane2.ID {
+		t.Fatalf("pane output id = %d, want %d", third.PaneID, pane2.ID)
 	}
 }
 
