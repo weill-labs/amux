@@ -97,13 +97,14 @@ func TestReaderReadMsgMixedStreamWithPaneHistoryBinaryFrame(t *testing.T) {
 	}
 
 	var wire bytes.Buffer
-	if err := WriteMsg(&wire, msgs[0]); err != nil {
+	writer := NewWriter(&wire)
+	if err := writer.WriteMsg(msgs[0]); err != nil {
 		t.Fatalf("WriteMsg layout: %v", err)
 	}
 	if _, err := wire.Write(encodeTestPaneHistoryFrame(t, msgs[1])); err != nil {
 		t.Fatalf("write pane history frame: %v", err)
 	}
-	if err := WriteMsg(&wire, msgs[2]); err != nil {
+	if err := writer.WriteMsg(msgs[2]); err != nil {
 		t.Fatalf("WriteMsg command: %v", err)
 	}
 
@@ -162,14 +163,10 @@ func TestWriterWriteMsgPaneHistoryUsesBinaryFrameWhenEnabled(t *testing.T) {
 func enableWriterPaneHistoryBinary(t *testing.T, writer *Writer) {
 	t.Helper()
 
-	field := reflect.ValueOf(writer).Elem().FieldByName("binaryPaneHistory")
-	if !field.IsValid() {
-		t.Fatal("Writer.binaryPaneHistory field not found")
+	if writer == nil {
+		t.Fatal("writer is nil")
 	}
-	if !field.CanSet() || field.Kind() != reflect.Bool {
-		t.Fatal("Writer.binaryPaneHistory field is not a settable bool")
-	}
-	field.SetBool(true)
+	writer.SetBinaryPaneHistory(true)
 }
 
 func encodeTestPaneHistoryFrame(t *testing.T, msg *Message) []byte {
@@ -408,4 +405,107 @@ func testCellsText(cells []Cell) string {
 		b.WriteString(cell.Char)
 	}
 	return b.String()
+}
+
+func BenchmarkPaneHistoryMessageWire(b *testing.B) {
+	msg := benchmarkPaneHistoryMessage(1024, 120)
+
+	b.Run("write/gob", func(b *testing.B) {
+		var wire bytes.Buffer
+		b.ReportAllocs()
+		for b.Loop() {
+			wire.Reset()
+			if err := WriteMsg(&wire, msg); err != nil {
+				b.Fatalf("WriteMsg: %v", err)
+			}
+		}
+	})
+
+	b.Run("write/binary", func(b *testing.B) {
+		var wire bytes.Buffer
+		writer := NewWriter(&wire)
+		writer.SetBinaryPaneHistory(true)
+		b.ReportAllocs()
+		for b.Loop() {
+			wire.Reset()
+			if err := writer.WriteMsg(msg); err != nil {
+				b.Fatalf("WriteMsg: %v", err)
+			}
+		}
+	})
+
+	b.Run("read/gob", func(b *testing.B) {
+		var wire bytes.Buffer
+		if err := WriteMsg(&wire, msg); err != nil {
+			b.Fatalf("WriteMsg: %v", err)
+		}
+		raw := append([]byte(nil), wire.Bytes()...)
+
+		b.ReportAllocs()
+		for b.Loop() {
+			if _, err := ReadMsg(bytes.NewReader(raw)); err != nil {
+				b.Fatalf("ReadMsg: %v", err)
+			}
+		}
+	})
+
+	b.Run("read/binary", func(b *testing.B) {
+		var wire bytes.Buffer
+		writer := NewWriter(&wire)
+		writer.SetBinaryPaneHistory(true)
+		if err := writer.WriteMsg(msg); err != nil {
+			b.Fatalf("WriteMsg: %v", err)
+		}
+		raw := append([]byte(nil), wire.Bytes()...)
+
+		b.ReportAllocs()
+		for b.Loop() {
+			if _, err := ReadMsg(bytes.NewReader(raw)); err != nil {
+				b.Fatalf("ReadMsg: %v", err)
+			}
+		}
+	})
+}
+
+func benchmarkPaneHistoryMessage(lineCount, width int) *Message {
+	styles := []uv.Style{
+		{Fg: ansi.BasicColor(2)},
+		{Fg: ansi.BasicColor(6), Attrs: uv.AttrBold},
+		{Fg: ansi.RGBColor{R: 0xff, G: 0x88}, Bg: ansi.BasicColor(0)},
+	}
+
+	history := make([]string, lineCount)
+	styled := make([]StyledLine, lineCount)
+	contentWidth := width - 24
+	if contentWidth < 1 {
+		contentWidth = width
+	}
+	alphabet := "abcdefghijklmnopqrstuvwxyz0123456789"
+
+	for i := 0; i < lineCount; i++ {
+		cells := make([]Cell, width)
+		var text strings.Builder
+		for x := 0; x < width; x++ {
+			style := styles[(i/8+x/24)%len(styles)]
+			if x < contentWidth {
+				ch := string(alphabet[(i+x)%len(alphabet)])
+				cells[x] = Cell{Char: ch, Width: 1, Style: style}
+				text.WriteString(ch)
+				continue
+			}
+			cells[x] = Cell{Char: " ", Width: 1, Style: style}
+		}
+		history[i] = text.String()
+		styled[i] = StyledLine{
+			Text:  history[i],
+			Cells: cells,
+		}
+	}
+
+	return &Message{
+		Type:          MsgTypePaneHistory,
+		PaneID:        9,
+		History:       history,
+		StyledHistory: styled,
+	}
 }

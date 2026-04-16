@@ -11,9 +11,10 @@ import (
 // Writer caches gob encoder state for one connection. It is safe for sequential
 // use only; callers serialize writes at a higher level.
 type Writer struct {
-	dst    io.Writer
-	gobBuf bytes.Buffer
-	gobEnc *gob.Encoder
+	dst               io.Writer
+	gobBuf            bytes.Buffer
+	gobEnc            *gob.Encoder
+	binaryPaneHistory bool
 }
 
 // NewWriter binds a stateful gob encoder to one output stream.
@@ -34,6 +35,9 @@ func (w *Writer) WriteMsg(msg *Message) error {
 	}
 	if msg.Type == MsgTypePaneOutput {
 		return writePaneOutputBinary(w.dst, msg)
+	}
+	if msg.Type == MsgTypePaneHistory && w.binaryPaneHistory {
+		return writePaneHistoryBinary(w.dst, msg)
 	}
 	w.gobBuf.Reset()
 	if err := w.gobEnc.Encode(msg); err != nil {
@@ -73,6 +77,9 @@ func (r *Reader) ReadMsg() (*Message, error) {
 
 	if disc[0] == wireFormatBinary {
 		return readPaneOutputBinary(r.src)
+	}
+	if disc[0] == wireFormatPaneHistory {
+		return readPaneHistoryBinary(r.src)
 	}
 	return r.readMsgGob()
 }
@@ -249,6 +256,9 @@ func ReadMsg(r io.Reader) (*Message, error) {
 
 	if disc[0] == wireFormatBinary {
 		return readPaneOutputBinary(r)
+	}
+	if disc[0] == wireFormatPaneHistory {
+		return readPaneHistoryBinary(r)
 	}
 	return readMsgGob(r)
 }

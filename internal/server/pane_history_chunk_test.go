@@ -29,7 +29,7 @@ func TestChunkPaneHistoryMessagesSplitsLargeHistoryUnderThreshold(t *testing.T) 
 	pane.SetRetainedHistory(lines)
 
 	styledHistory, _, _ := pane.StyledHistoryScreenSnapshot()
-	chunks, err := chunkPaneHistoryMessages(pane.ID, styledHistory, chunkThreshold)
+	chunks, err := chunkPaneHistoryMessagesWithEncoding(pane.ID, styledHistory, chunkThreshold, true)
 	if err != nil {
 		t.Fatalf("chunkPaneHistoryMessages: %v", err)
 	}
@@ -45,7 +45,7 @@ func TestChunkPaneHistoryMessagesSplitsLargeHistoryUnderThreshold(t *testing.T) 
 		if msg.PaneID != pane.ID {
 			t.Fatalf("chunk %d pane id = %d, want %d", i, msg.PaneID, pane.ID)
 		}
-		size, err := estimatePaneHistoryMessageSize(msg)
+		size, err := estimatePaneHistoryMessageSizeWithEncoding(msg, true)
 		if err != nil {
 			t.Fatalf("estimate chunk %d size: %v", i, err)
 		}
@@ -138,6 +138,9 @@ func TestHandleAttachChunksLargePaneHistoryDuringBootstrap(t *testing.T) {
 			Session: sess.Name,
 			Cols:    80,
 			Rows:    24,
+			AttachCapabilities: &proto.ClientCapabilities{
+				BinaryPaneHistory: true,
+			},
 		})
 	}()
 

@@ -135,11 +135,12 @@ func TestDetectAttachCapabilitiesFromEnvOverride(t *testing.T) {
 				"AMUX_CLIENT_CAPABILITIES": "all,-graphics_placeholder",
 			},
 			want: proto.ClientCapabilities{
-				KittyKeyboard:  true,
-				Hyperlinks:     true,
-				RichUnderline:  true,
-				CursorMetadata: true,
-				PromptMarkers:  true,
+				KittyKeyboard:     true,
+				Hyperlinks:        true,
+				RichUnderline:     true,
+				CursorMetadata:    true,
+				PromptMarkers:     true,
+				BinaryPaneHistory: true,
 			},
 		},
 		{

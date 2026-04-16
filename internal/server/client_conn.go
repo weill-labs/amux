@@ -66,6 +66,7 @@ func newClientConn(conn net.Conn) *clientConn {
 
 func (cc *clientConn) setNegotiatedCapabilities(caps proto.ClientCapabilities) {
 	cc.capabilities = caps
+	cc.ensureWriter().setBinaryPaneHistory(caps.BinaryPaneHistory)
 }
 
 func (cc *clientConn) capabilitySummary() string {

@@ -1543,7 +1543,7 @@ func TestAdvertisedAttachCapabilitiesUsesEnvironment(t *testing.T) {
 	if caps == nil {
 		t.Fatal("advertisedAttachCapabilities() = nil, want capabilities")
 	}
-	if !caps.KittyKeyboard || !caps.Hyperlinks || !caps.CursorMetadata || !caps.GraphicsPlaceholder {
+	if !caps.KittyKeyboard || !caps.Hyperlinks || !caps.CursorMetadata || !caps.GraphicsPlaceholder || !caps.BinaryPaneHistory {
 		t.Fatalf("advertised capabilities = %+v, want iTerm defaults plus override", *caps)
 	}
 }
