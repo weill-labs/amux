@@ -18,8 +18,7 @@ import (
 const attachBootstrapPeakHeapSubprocessEnv = "AMUX_TEST_ATTACH_BOOTSTRAP_PEAK_HEAP"
 
 func TestReadAttachBootstrapKeepsPeakHeapUnderBound(t *testing.T) {
-	// This samples process-wide heap usage, so concurrent package tests would
-	// pollute the measurement and produce false regressions.
+	t.Parallel()
 
 	if os.Getenv(attachBootstrapPeakHeapSubprocessEnv) == "1" {
 		runReadAttachBootstrapPeakHeapTest(t)
