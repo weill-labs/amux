@@ -451,7 +451,7 @@ func runSessionWithDeps(sessionName string, getTermSize func(int) (int, int, err
 	defer conn.Close()
 	sender := newMessageSender(conn)
 	defer sender.Close()
-	reader := proto.NewReader(conn)
+	attachReader := newAttachMessageSource(conn, proto.NewReader(conn))
 
 	fd := int(stdin.Fd())
 	cols, rows, _ := getTermSize(fd)
@@ -487,7 +487,7 @@ func runSessionWithDeps(sessionName string, getTermSize func(int) (int, int, err
 			UIEvent: name,
 		})
 	}
-	if err := readAttachBootstrap(conn, reader, cr); err != nil {
+	if err := readAttachBootstrapFromSource(attachReader, cr); err != nil {
 		return formatAttachError(err)
 	}
 
@@ -554,7 +554,7 @@ func runSessionWithDeps(sessionName string, getTermSize func(int) (int, int, err
 	go func() {
 		defer close(msgCh)
 		for {
-			msg, err := reader.ReadMsg()
+			msg, err := attachReader.ReadMsg()
 			if err != nil {
 				exitState.set(disconnectNoticeForReadError(err))
 				return
