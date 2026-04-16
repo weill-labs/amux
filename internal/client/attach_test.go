@@ -252,13 +252,23 @@ func TestFormatAttachError(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
-		err  error
-		want string
+		name         string
+		err          error
+		wantContains string
 	}{
-		{name: "protocol error", err: fmt.Errorf("%w: bad bootstrap", errAttachProtocol), want: "attach failed: protocol error"},
-		{name: "socket missing", err: os.ErrNotExist, want: "attach failed: socket not found"},
-		{name: "connection lost", err: io.EOF, want: "attach failed: connection lost"},
+		{name: "protocol error", err: fmt.Errorf("%w: bad bootstrap", errAttachProtocol), wantContains: "attach failed: protocol error"},
+		{name: "socket missing", err: os.ErrNotExist, wantContains: "attach failed: socket not found"},
+		{name: "connection lost eof", err: io.EOF, wantContains: "attach failed: connection lost"},
+		{
+			name:         "ssh handshake keeps detail",
+			err:          fmt.Errorf("SSH dial: ssh: handshake failed: %w", io.EOF),
+			wantContains: "SSH dial: ssh: handshake failed",
+		},
+		{
+			name:         "connection reset keeps detail",
+			err:          errors.New("read unix /tmp/amux.sock->/tmp/amux.sock: connection reset by peer"),
+			wantContains: "connection reset by peer",
+		},
 	}
 
 	for _, tt := range tests {
@@ -267,8 +277,39 @@ func TestFormatAttachError(t *testing.T) {
 			t.Parallel()
 
 			err := formatAttachError(tt.err)
-			if err == nil || !strings.Contains(err.Error(), tt.want) {
-				t.Fatalf("formatAttachError(%v) = %v, want substring %q", tt.err, err, tt.want)
+			if err == nil || !strings.Contains(err.Error(), tt.wantContains) {
+				t.Fatalf("formatAttachError(%v) = %v, want substring %q", tt.err, err, tt.wantContains)
+			}
+		})
+	}
+}
+
+func TestIsConnectionLostError(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "nil", err: nil, want: false},
+		{name: "eof", err: io.EOF, want: true},
+		{name: "unexpected eof", err: io.ErrUnexpectedEOF, want: true},
+		{name: "wrapped eof", err: fmt.Errorf("ssh handshake: %w", io.EOF), want: true},
+		{name: "closed network", err: net.ErrClosed, want: true},
+		{name: "closed network text", err: errors.New("use of closed network connection"), want: true},
+		{name: "broken pipe text", err: errors.New("write unix /tmp/amux.sock: broken pipe"), want: true},
+		{name: "connection reset text", err: errors.New("connection reset by peer"), want: true},
+		{name: "other error", err: errors.New("permission denied"), want: false},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := isConnectionLostError(tt.err); got != tt.want {
+				t.Fatalf("isConnectionLostError(%v) = %v, want %v", tt.err, got, tt.want)
 			}
 		})
 	}
