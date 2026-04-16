@@ -66,6 +66,7 @@ func newClientConn(conn net.Conn) *clientConn {
 
 func (cc *clientConn) setNegotiatedCapabilities(caps proto.ClientCapabilities) {
 	cc.capabilities = caps
+	cc.ensureWriter().setBinaryPaneHistory(caps.BinaryPaneHistory)
 }
 
 func (cc *clientConn) capabilitySummary() string {
@@ -225,6 +226,7 @@ func cloneMessage(msg *Message) *Message {
 	cp.RenderData = append([]byte(nil), msg.RenderData...)
 	cp.PaneData = append([]byte(nil), msg.PaneData...)
 	cp.History = append([]string(nil), msg.History...)
+	cp.StyledHistory = proto.CloneStyledLines(msg.StyledHistory)
 	return &cp
 }
 

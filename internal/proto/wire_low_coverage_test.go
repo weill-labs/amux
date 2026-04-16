@@ -465,6 +465,7 @@ func TestClientCapabilitiesEnabledNamesCoversAllFlags(t *testing.T) {
 		PromptMarkers:       true,
 		CursorMetadata:      true,
 		GraphicsPlaceholder: true,
+		BinaryPaneHistory:   true,
 	}
 
 	got := caps.EnabledNames()
@@ -474,6 +475,7 @@ func TestClientCapabilitiesEnabledNamesCoversAllFlags(t *testing.T) {
 		"cursor_metadata",
 		"prompt_markers",
 		"graphics_placeholder",
+		"binary_pane_history",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("EnabledNames() = %v, want %v", got, want)

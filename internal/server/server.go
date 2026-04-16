@@ -811,7 +811,7 @@ func (s *Server) handleAttach(cc *clientConn, msg *Message) {
 	bootstrapSeqs := make(map[uint32]uint64, len(res.paneSnapshots))
 	for _, ps := range res.paneSnapshots {
 		if len(ps.styledHistory) > 0 {
-			messages, err := chunkPaneHistoryMessages(ps.paneID, ps.styledHistory, paneHistoryChunkThreshold)
+			messages, err := chunkPaneHistoryMessages(ps.paneID, ps.styledHistory, paneHistoryChunkThreshold, cc.capabilities.BinaryPaneHistory)
 			if err != nil {
 				cc.Close()
 				return

@@ -21,7 +21,11 @@ const (
 // capability registry. This is intentionally conservative: if a feature cannot
 // be inferred reliably from the client environment, we leave it disabled.
 func advertisedAttachCapabilities() *proto.ClientCapabilities {
-	caps := detectAttachCapabilitiesFromEnv(os.LookupEnv)
+	caps := detectedAttachCapabilities(detectTerminalFlavor(os.LookupEnv))
+	caps.BinaryPaneHistory = true
+	if raw, ok := os.LookupEnv("AMUX_CLIENT_CAPABILITIES"); ok {
+		caps = applyCapabilityOverride(caps, raw)
+	}
 	return &caps
 }
 
@@ -115,6 +119,8 @@ func setCapability(caps *proto.ClientCapabilities, name string, enabled bool) bo
 		caps.PromptMarkers = enabled
 	case "graphics_placeholder":
 		caps.GraphicsPlaceholder = enabled
+	case "binary_pane_history":
+		caps.BinaryPaneHistory = enabled
 	default:
 		return false
 	}

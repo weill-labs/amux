@@ -12,6 +12,7 @@ type ClientCapabilities struct {
 	CursorMetadata      bool `json:"cursor_metadata,omitempty"`
 	PromptMarkers       bool `json:"prompt_markers,omitempty"`
 	GraphicsPlaceholder bool `json:"graphics_placeholder,omitempty"`
+	BinaryPaneHistory   bool `json:"binary_pane_history,omitempty"`
 }
 
 // KnownClientCapabilities returns the capability set understood by this build.
@@ -24,6 +25,7 @@ func KnownClientCapabilities() ClientCapabilities {
 		CursorMetadata:      true,
 		PromptMarkers:       true,
 		GraphicsPlaceholder: true,
+		BinaryPaneHistory:   true,
 	}
 }
 
@@ -46,12 +48,13 @@ func (c ClientCapabilities) Intersect(other ClientCapabilities) ClientCapabiliti
 		CursorMetadata:      c.CursorMetadata && other.CursorMetadata,
 		PromptMarkers:       c.PromptMarkers && other.PromptMarkers,
 		GraphicsPlaceholder: c.GraphicsPlaceholder && other.GraphicsPlaceholder,
+		BinaryPaneHistory:   c.BinaryPaneHistory && other.BinaryPaneHistory,
 	}
 }
 
 // EnabledNames returns enabled capability names in stable display order.
 func (c ClientCapabilities) EnabledNames() []string {
-	names := make([]string, 0, 6)
+	names := make([]string, 0, 7)
 	if c.KittyKeyboard {
 		names = append(names, "kitty_keyboard")
 	}
@@ -69,6 +72,9 @@ func (c ClientCapabilities) EnabledNames() []string {
 	}
 	if c.GraphicsPlaceholder {
 		names = append(names, "graphics_placeholder")
+	}
+	if c.BinaryPaneHistory {
+		names = append(names, "binary_pane_history")
 	}
 	return names
 }

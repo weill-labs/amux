@@ -182,6 +182,13 @@ func newClientWriter(conn net.Conn) *clientWriter {
 	return w
 }
 
+func (w *clientWriter) setBinaryPaneHistory(enabled bool) {
+	if w == nil || w.wire == nil {
+		return
+	}
+	w.wire.SetBinaryPaneHistory(enabled)
+}
+
 func (w *clientWriter) loop() {
 	defer close(w.done)
 

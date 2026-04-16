@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
+	"os/exec"
 	"runtime"
 	"strings"
 	"testing"
@@ -13,16 +15,32 @@ import (
 	"github.com/weill-labs/amux/internal/proto"
 )
 
+const attachBootstrapPeakHeapSubprocessEnv = "AMUX_TEST_ATTACH_BOOTSTRAP_PEAK_HEAP"
+
 func TestReadAttachBootstrapKeepsPeakHeapUnderBound(t *testing.T) {
 	t.Parallel()
 
+	if os.Getenv(attachBootstrapPeakHeapSubprocessEnv) == "1" {
+		runReadAttachBootstrapPeakHeapTest(t)
+		return
+	}
+
+	cmd := exec.Command(os.Args[0], "-test.run=^TestReadAttachBootstrapKeepsPeakHeapUnderBound$", "-test.parallel=1")
+	cmd.Env = append(os.Environ(), attachBootstrapPeakHeapSubprocessEnv+"=1")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("peak-heap subprocess failed: %v\n%s", err, output)
+	}
+}
+
+func runReadAttachBootstrapPeakHeapTest(t *testing.T) {
 	const (
-		paneCount      = 32
-		historyLines   = 128
-		lineWidth      = 120
-		layoutHeight   = 24
-		peakHeapLimit  = 256 << 20
-		sessionName    = "bootstrap-memory"
+		paneCount     = 32
+		historyLines  = 128
+		lineWidth     = 120
+		layoutHeight  = 24
+		peakHeapLimit = 256 << 20
+		sessionName   = "bootstrap-memory"
 	)
 
 	stream := buildAttachBootstrapReplay(t, sessionName, paneCount, historyLines, lineWidth, layoutHeight)
@@ -59,6 +77,7 @@ func buildAttachBootstrapReplay(t *testing.T, sessionName string, paneCount, his
 
 	var buf bytes.Buffer
 	writer := proto.NewWriter(&buf)
+	writer.SetBinaryPaneHistory(true)
 	if err := writer.WriteMsg(&proto.Message{Type: proto.MsgTypeLayout, Layout: layout}); err != nil {
 		t.Fatalf("write layout: %v", err)
 	}
