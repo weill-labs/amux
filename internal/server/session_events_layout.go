@@ -468,8 +468,9 @@ func (e commandMutationEvent) handle(s *Session) {
 	ctx.commit()
 	s.drainScheduledMutationPanes(ctx)
 	if res.err == nil {
-		deferredHistories := []paneHistoryUpdate(nil)
-		if s.ActiveWindowID != beforeActiveWindowID {
+		activeWindowChanged := s.ActiveWindowID != beforeActiveWindowID
+		var deferredHistories []paneHistoryUpdate
+		if activeWindowChanged {
 			deferredHistories = windowPaneHistories(s.activeWindow())
 		}
 		s.ensureInputRouter().syncPanes(s.Panes)

@@ -378,7 +378,8 @@ func (s *Session) handleAttachEvent(srv *Server, cc *clientConn, cols, rows int)
 	}
 
 	res.snap = s.snapshotLayout(idleSnap)
-	activeWindowPanes := windowPanes(s.activeWindow())
+	activeWindow := s.activeWindow()
+	activeWindowPanes := windowPanes(activeWindow)
 	activePaneIDs := make(map[uint32]struct{}, len(activeWindowPanes))
 	for _, pane := range activeWindowPanes {
 		activePaneIDs[pane.ID] = struct{}{}
