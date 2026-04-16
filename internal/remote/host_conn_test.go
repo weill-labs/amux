@@ -494,8 +494,8 @@ func TestBuildSSHConfigDefaultUser(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildSSHConfig() error: %v", err)
 	}
-	if cfg.User != "ubuntu" {
-		t.Errorf("User = %q, want ubuntu (default)", cfg.User)
+	if cfg.User != sshutil.DefaultSSHUser() {
+		t.Errorf("User = %q, want %q (default)", cfg.User, sshutil.DefaultSSHUser())
 	}
 }
 

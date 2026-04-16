@@ -8,6 +8,7 @@ import (
 func TestParseTarget(t *testing.T) {
 	t.Parallel()
 
+	defaultUser := DefaultSSHUser()
 	tests := []struct {
 		name        string
 		raw         string
@@ -66,6 +67,17 @@ func TestParseTarget(t *testing.T) {
 			want: SSHTarget{
 				User:    "ubuntu",
 				Host:    "::1",
+				Port:    "22",
+				Session: "main",
+			},
+		},
+		{
+			name:        "blank default uses resolved current user",
+			raw:         "builder",
+			defaultUser: "",
+			want: SSHTarget{
+				User:    defaultUser,
+				Host:    "builder",
 				Port:    "22",
 				Session: "main",
 			},
