@@ -18,6 +18,7 @@ import (
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/creack/pty"
+	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/proto"
 	"github.com/weill-labs/amux/internal/render"
 )
@@ -856,23 +857,31 @@ func TestReadAttachBootstrapPaneReplaysBranches(t *testing.T) {
 		}
 	})
 
-	t.Run("propagates deadline setup errors", func(t *testing.T) {
+	t.Run("returns remaining outputs when replay timeout fires", func(t *testing.T) {
 		t.Parallel()
 
-		wantErr := errors.New("deadline boom")
-		conn := &stubAttachConn{setReadDeadlineErr: wantErr}
+		serverConn, clientConn := net.Pipe()
+		t.Cleanup(func() {
+			_ = serverConn.Close()
+			_ = clientConn.Close()
+		})
+
+		start := time.Now()
 		remaining, err := readAttachBootstrapPaneReplays(
-			conn,
-			proto.NewReader(conn),
+			clientConn,
+			proto.NewReader(clientConn),
 			NewClientRenderer(20, 4),
 			1,
-			time.Second,
+			20*time.Millisecond,
 		)
-		if !errors.Is(err, wantErr) {
-			t.Fatalf("readAttachBootstrapPaneReplays() error = %v, want %v", err, wantErr)
+		if err != nil {
+			t.Fatalf("readAttachBootstrapPaneReplays() error = %v, want nil", err)
 		}
 		if remaining != 1 {
 			t.Fatalf("remaining outputs = %d, want 1", remaining)
+		}
+		if elapsed := time.Since(start); elapsed < 10*time.Millisecond {
+			t.Fatalf("replay timeout elapsed = %v, want at least 10ms", elapsed)
 		}
 	})
 
@@ -928,7 +937,7 @@ func TestReadAttachBootstrapPaneReplaysBranches(t *testing.T) {
 	})
 }
 
-func TestReadAttachBootstrapPropagatesPaneReplaySetupError(t *testing.T) {
+func TestReadAttachBootstrapIgnoresUnsupportedReadDeadline(t *testing.T) {
 	t.Parallel()
 
 	serverConn, clientConn := net.Pipe()
@@ -937,16 +946,49 @@ func TestReadAttachBootstrapPropagatesPaneReplaySetupError(t *testing.T) {
 		_ = clientConn.Close()
 	})
 
-	wantErr := errors.New("deadline boom")
-	wrappedConn := &deadlineErrorConn{Conn: clientConn, setReadDeadlineErr: wantErr}
+	wrappedConn := &deadlineErrorConn{Conn: clientConn, setReadDeadlineErr: errors.New("deadline boom")}
 	go func() {
-		_ = writeProtoMessages(serverConn, &proto.Message{Type: proto.MsgTypeLayout, Layout: singlePane20x3()})
+		_ = writeProtoMessages(
+			serverConn,
+			&proto.Message{Type: proto.MsgTypeLayout, Layout: singlePane20x3()},
+			&proto.Message{Type: proto.MsgTypePaneOutput, PaneID: 1, PaneData: []byte("hello")},
+			&proto.Message{Type: proto.MsgTypeBell},
+		)
 		_ = serverConn.Close()
 	}()
 
-	err := readAttachBootstrap(wrappedConn, proto.NewReader(wrappedConn), NewClientRenderer(20, 4))
-	if !errors.Is(err, wantErr) {
-		t.Fatalf("readAttachBootstrap() error = %v, want %v", err, wantErr)
+	cr := NewClientRenderer(20, 4)
+	if err := readAttachBootstrap(wrappedConn, proto.NewReader(wrappedConn), cr); err != nil {
+		t.Fatalf("readAttachBootstrap() error = %v, want nil", err)
+	}
+	if got := strings.Split(cr.renderer.CapturePaneText(1, false), "\n")[0]; got != "hello" {
+		t.Fatalf("pane text after bootstrap = %q, want %q", got, "hello")
+	}
+}
+
+func TestReadAttachBootstrapReturnsAfterPaneReplayTimeout(t *testing.T) {
+	t.Parallel()
+
+	serverConn, clientConn := net.Pipe()
+	t.Cleanup(func() {
+		_ = serverConn.Close()
+		_ = clientConn.Close()
+	})
+
+	go func() {
+		_ = writeProtoMessages(serverConn, &proto.Message{Type: proto.MsgTypeLayout, Layout: singlePane20x3()})
+	}()
+
+	start := time.Now()
+	if err := readAttachBootstrap(clientConn, proto.NewReader(clientConn), NewClientRenderer(20, 4)); err != nil {
+		t.Fatalf("readAttachBootstrap() error = %v, want nil", err)
+	}
+	elapsed := time.Since(start)
+	if elapsed < config.BootstrapPaneReplayWait/2 {
+		t.Fatalf("bootstrap timeout elapsed = %v, want at least %v", elapsed, config.BootstrapPaneReplayWait/2)
+	}
+	if elapsed > time.Second {
+		t.Fatalf("bootstrap timeout elapsed = %v, want under 1s", elapsed)
 	}
 }
 

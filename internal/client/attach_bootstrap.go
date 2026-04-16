@@ -3,6 +3,7 @@ package client
 import (
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"time"
 
@@ -11,6 +12,120 @@ import (
 )
 
 var errAttachProtocol = errors.New("attach protocol error")
+
+type attachTimedReader interface {
+	ReadMsg() (*proto.Message, error)
+	ReadMsgWithTimeout(time.Duration) (*proto.Message, bool, error)
+}
+
+type attachReadResult struct {
+	msg *proto.Message
+	err error
+}
+
+// attachMessageSource uses conn deadlines while they work, then permanently
+// switches to a single-reader pump when the transport rejects deadlines (for
+// example, SSH channels).
+type attachMessageSource struct {
+	conn   net.Conn
+	reader *proto.Reader
+	pump   *attachMessagePump
+}
+
+type attachMessagePump struct {
+	results chan attachReadResult
+}
+
+func newAttachMessageSource(conn net.Conn, reader *proto.Reader) *attachMessageSource {
+	return &attachMessageSource{
+		conn:   conn,
+		reader: reader,
+	}
+}
+
+func (s *attachMessageSource) pumpReader() *attachMessagePump {
+	if s.pump == nil {
+		s.pump = newAttachMessagePump(s.reader)
+	}
+	return s.pump
+}
+
+func newAttachMessagePump(reader *proto.Reader) *attachMessagePump {
+	pump := &attachMessagePump{
+		results: make(chan attachReadResult, 16),
+	}
+	go func() {
+		defer close(pump.results)
+		for {
+			msg, err := reader.ReadMsg()
+			pump.results <- attachReadResult{msg: msg, err: err}
+			if err != nil {
+				return
+			}
+		}
+	}()
+	return pump
+}
+
+func (p *attachMessagePump) ReadMsg() (*proto.Message, error) {
+	result, ok := <-p.results
+	if !ok {
+		return nil, io.EOF
+	}
+	return result.msg, result.err
+}
+
+func (p *attachMessagePump) ReadMsgWithTimeout(timeout time.Duration) (*proto.Message, bool, error) {
+	if timeout <= 0 {
+		return nil, true, nil
+	}
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	select {
+	case result, ok := <-p.results:
+		if !ok {
+			return nil, false, io.EOF
+		}
+		return result.msg, false, result.err
+	case <-timer.C:
+		return nil, true, nil
+	}
+}
+
+func (s *attachMessageSource) ReadMsg() (*proto.Message, error) {
+	if s.pump != nil {
+		return s.pump.ReadMsg()
+	}
+	return s.reader.ReadMsg()
+}
+
+func (s *attachMessageSource) ReadMsgWithTimeout(timeout time.Duration) (*proto.Message, bool, error) {
+	if s.pump != nil {
+		return s.pump.ReadMsgWithTimeout(timeout)
+	}
+	if err := s.conn.SetReadDeadline(time.Now().Add(timeout)); err != nil {
+		return s.pumpReader().ReadMsgWithTimeout(timeout)
+	}
+	defer s.conn.SetReadDeadline(time.Time{}) //nolint:errcheck // best-effort reset
+
+	msg, err := s.reader.ReadMsg()
+	if err != nil {
+		if ne, ok := err.(net.Error); ok && ne.Timeout() {
+			return nil, true, nil
+		}
+		return nil, false, err
+	}
+	return msg, false, nil
+}
+
+func readMsgWithTimeout(reader attachTimedReader, timeout time.Duration) (*proto.Message, bool, error) {
+	return reader.ReadMsgWithTimeout(timeout)
+}
+
+func readMsgBeforeDeadline(reader attachTimedReader, deadline time.Time) (*proto.Message, bool, error) {
+	return readMsgWithTimeout(reader, time.Until(deadline))
+}
 
 type attachBootstrapMessage struct {
 	msg *proto.Message
@@ -41,7 +156,18 @@ func attachBootstrapPaneCount(layout *proto.LayoutSnapshot) int {
 	return count
 }
 
+func releaseAttachBootstrapMessage(msg *proto.Message) {
+	if msg == nil {
+		return
+	}
+	msg.History = nil
+	msg.StyledHistory = nil
+	msg.PaneData = nil
+	msg.Layout = nil
+}
+
 func applyAttachBootstrapReplayMessage(cr *ClientRenderer, msg attachBootstrapMessage) int {
+	defer releaseAttachBootstrapMessage(msg.msg)
 	switch msg.msg.Type {
 	case proto.MsgTypePaneHistory:
 		cr.AppendPaneHistoryMessage(msg.msg.PaneID, msg.msg.History, msg.msg.StyledHistory)
@@ -54,17 +180,14 @@ func applyAttachBootstrapReplayMessage(cr *ClientRenderer, msg attachBootstrapMe
 	}
 }
 
-func readImmediateAttachCorrection(conn net.Conn, reader *proto.Reader, cr *ClientRenderer, timeout time.Duration) error {
-	if err := conn.SetReadDeadline(time.Now().Add(timeout)); err != nil {
-		return err
-	}
-	defer conn.SetReadDeadline(time.Time{}) //nolint:errcheck // best-effort reset
+func readImmediateAttachCorrectionFromSource(reader attachTimedReader, cr *ClientRenderer, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
 	for {
-		msg, err := reader.ReadMsg()
+		msg, timedOut, err := readMsgBeforeDeadline(reader, deadline)
+		if timedOut {
+			return nil
+		}
 		if err != nil {
-			if ne, ok := err.(net.Error); ok && ne.Timeout() {
-				return nil
-			}
 			return err
 		}
 		if msg.Type == proto.MsgTypeLayout {
@@ -83,6 +206,7 @@ func readImmediateAttachCorrection(conn net.Conn, reader *proto.Reader, cr *Clie
 }
 
 func applyAttachBootstrapMessage(cr *ClientRenderer, msg attachBootstrapMessage) int {
+	defer releaseAttachBootstrapMessage(msg.msg)
 	switch msg.msg.Type {
 	case proto.MsgTypePaneHistory:
 		cr.HandlePaneHistoryMessage(msg.msg.PaneID, msg.msg.History, msg.msg.StyledHistory)
@@ -96,19 +220,20 @@ func applyAttachBootstrapMessage(cr *ClientRenderer, msg attachBootstrapMessage)
 }
 
 func readAttachBootstrapPaneReplays(conn net.Conn, reader *proto.Reader, cr *ClientRenderer, remainingOutputs int, timeout time.Duration) (int, error) {
+	return readAttachBootstrapPaneReplaysFromSource(newAttachMessageSource(conn, reader), cr, remainingOutputs, timeout)
+}
+
+func readAttachBootstrapPaneReplaysFromSource(reader attachTimedReader, cr *ClientRenderer, remainingOutputs int, timeout time.Duration) (int, error) {
 	if remainingOutputs <= 0 {
 		return 0, nil
 	}
-	if err := conn.SetReadDeadline(time.Now().Add(timeout)); err != nil {
-		return remainingOutputs, err
-	}
-	defer conn.SetReadDeadline(time.Time{}) //nolint:errcheck // best-effort reset
+	deadline := time.Now().Add(timeout)
 	for remainingOutputs > 0 {
-		msg, err := reader.ReadMsg()
+		msg, timedOut, err := readMsgBeforeDeadline(reader, deadline)
+		if timedOut {
+			return remainingOutputs, nil
+		}
 		if err != nil {
-			if ne, ok := err.(net.Error); ok && ne.Timeout() {
-				return remainingOutputs, nil
-			}
 			return remainingOutputs, err
 		}
 		if msg.Type == proto.MsgTypeLayout {
@@ -127,6 +252,10 @@ func readAttachBootstrapPaneReplays(conn net.Conn, reader *proto.Reader, cr *Cli
 }
 
 func readAttachBootstrap(conn net.Conn, reader *proto.Reader, cr *ClientRenderer) error {
+	return readAttachBootstrapFromSource(newAttachMessageSource(conn, reader), cr)
+}
+
+func readAttachBootstrapFromSource(reader attachTimedReader, cr *ClientRenderer) error {
 	var layout *proto.LayoutSnapshot
 	var buffered []attachBootstrapMessage
 
@@ -154,7 +283,7 @@ func readAttachBootstrap(conn net.Conn, reader *proto.Reader, cr *ClientRenderer
 		remainingOutputs -= applyAttachBootstrapReplayMessage(cr, msg)
 	}
 
-	remainingOutputs, err := readAttachBootstrapPaneReplays(conn, reader, cr, remainingOutputs, config.BootstrapPaneReplayWait)
+	remainingOutputs, err := readAttachBootstrapPaneReplaysFromSource(reader, cr, remainingOutputs, config.BootstrapPaneReplayWait)
 	if err != nil {
 		return err
 	}
@@ -165,5 +294,5 @@ func readAttachBootstrap(conn net.Conn, reader *proto.Reader, cr *ClientRenderer
 		return nil
 	}
 
-	return readImmediateAttachCorrection(conn, reader, cr, config.BootstrapCorrectionWindow)
+	return readImmediateAttachCorrectionFromSource(reader, cr, config.BootstrapCorrectionWindow)
 }
