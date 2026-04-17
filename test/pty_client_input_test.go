@@ -20,8 +20,8 @@ func TestPTYClientTextInputEchoesInPane(t *testing.T) {
 	token := fmt.Sprintf("ci-%d", time.Now().UnixNano()%1_000_000)
 	client.sendText(token)
 
-	if !client.waitForOutput(token, 5*time.Second) {
-		t.Fatalf("typed text %q did not echo in client output\nOutput:\n%s", token, client.outputString())
+	if !client.waitForScreenText(token, 5*time.Second) {
+		t.Fatalf("typed text %q did not echo in client screen\nScreen:\n%s\nOutput:\n%s", token, client.screen(80, 24), client.outputString())
 	}
 
 	client.detach()
@@ -49,8 +49,8 @@ func TestPTYClientTextInputEchoesWithLoginProfileNoise(t *testing.T) {
 	token := fmt.Sprintf("ci-%d", time.Now().UnixNano()%1_000_000)
 	client.sendText(token)
 
-	if !client.waitForOutput(token, 5*time.Second) {
-		t.Fatalf("typed text %q did not echo in client output with login profile noise\nOutput:\n%s", token, client.outputString())
+	if !client.waitForScreenText(token, 5*time.Second) {
+		t.Fatalf("typed text %q did not echo in client screen with login profile noise\nScreen:\n%s\nOutput:\n%s", token, client.screen(80, 24), client.outputString())
 	}
 	if strings.Contains(client.outputString(), "HARNESS_LOGIN_BANNER") {
 		t.Fatalf("pty client should ignore harness login profile output\nOutput:\n%s", client.outputString())

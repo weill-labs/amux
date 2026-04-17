@@ -17,12 +17,13 @@ func TestAdvertisedAttachCapabilitiesUsesProcessEnv(t *testing.T) {
 
 	got := advertisedAttachCapabilities()
 	want := &proto.ClientCapabilities{
-		KittyKeyboard:     true,
-		Hyperlinks:        true,
-		RichUnderline:     true,
-		PromptMarkers:     true,
-		CursorMetadata:    false,
-		BinaryPaneHistory: true,
+		KittyKeyboard:       true,
+		Hyperlinks:          true,
+		RichUnderline:       true,
+		PromptMarkers:       true,
+		CursorMetadata:      false,
+		BinaryPaneHistory:   true,
+		PredictionSupported: true,
 	}
 
 	if got == nil {
@@ -33,6 +34,7 @@ func TestAdvertisedAttachCapabilitiesUsesProcessEnv(t *testing.T) {
 		got.RichUnderline != want.RichUnderline ||
 		got.PromptMarkers != want.PromptMarkers ||
 		got.BinaryPaneHistory != want.BinaryPaneHistory ||
+		got.PredictionSupported != want.PredictionSupported ||
 		got.GraphicsPlaceholder != want.GraphicsPlaceholder {
 		t.Fatalf("advertisedAttachCapabilities() = %+v, want %+v", *got, *want)
 	}

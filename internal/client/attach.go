@@ -276,6 +276,55 @@ func dispatchQueuedMouseInputChunks(
 	return false
 }
 
+type forwardInputChunk struct {
+	data      []byte
+	candidate bool
+}
+
+type localEchoInputResult struct {
+	epoch     uint32
+	predicted bool
+}
+
+func splitForwardPredictionChunks(data []byte) []forwardInputChunk {
+	if len(data) == 0 {
+		return nil
+	}
+	var (
+		chunks         []forwardInputChunk
+		pending        []byte
+		candidateCount int
+	)
+	flushPending := func() {
+		if len(pending) == 0 {
+			return
+		}
+		chunks = append(chunks, forwardInputChunk{data: append([]byte(nil), pending...)})
+		pending = nil
+	}
+	for _, decoded := range decodeInputEvents(data) {
+		token := forwardedBytesForDecodedInput(decoded)
+		if len(token) == 0 {
+			continue
+		}
+		if _, _, ok := singlePrintableInput(token); ok {
+			candidateCount++
+			if candidateCount > localEchoPasteBurstThreshold {
+				return []forwardInputChunk{{data: append([]byte(nil), data...)}}
+			}
+			flushPending()
+			chunks = append(chunks, forwardInputChunk{
+				data:      append([]byte(nil), token...),
+				candidate: true,
+			})
+			continue
+		}
+		pending = append(pending, token...)
+	}
+	flushPending()
+	return chunks
+}
+
 type displayPaneSelectionResult struct {
 	paneID uint32
 	ok     bool
@@ -489,6 +538,7 @@ func runSessionWithDeps(sessionName string, getTermSize func(int) (int, int, err
 	// Client-side renderer with per-pane emulators
 	cr := newAttachClientRenderer(cols, rows, scrollbackLines, stdout, processEnviron{}, termenv.WithTTY(true))
 	cr.SetCapabilities(negotiatedAttachCaps)
+	cr.ConfigureLocalEcho(cfg.EffectiveLocalEchoMode(), cfg.EffectiveLocalEchoStyle())
 	cr.OnUIEvent = func(name string) {
 		_ = sender.Send(&proto.Message{
 			Type:    proto.MsgTypeUIEvent,
@@ -573,7 +623,7 @@ func runSessionWithDeps(sessionName string, getTermSize func(int) (int, int, err
 			case proto.MsgTypePaneHistory:
 				cr.HandlePaneHistoryMessage(msg.PaneID, msg.History, msg.StyledHistory)
 			case proto.MsgTypePaneOutput:
-				msgCh <- &RenderMsg{Typ: RenderMsgPaneOutput, PaneID: msg.PaneID, Data: msg.PaneData}
+				msgCh <- &RenderMsg{Typ: RenderMsgPaneOutput, PaneID: msg.PaneID, Data: msg.PaneData, SourceEpoch: msg.SourceEpoch}
 			case proto.MsgTypeCmdResult:
 				if msg.CmdErr != "" {
 					msgCh <- &RenderMsg{Typ: RenderMsgCmdError, Text: msg.CmdErr}
@@ -1006,10 +1056,36 @@ func runSessionWithDeps(sessionName string, getTermSize func(int) (int, int, err
 					})
 					return
 				}
-				_ = sender.Send(&proto.Message{
-					Type:  proto.MsgTypeInput,
-					Input: data,
-				})
+				if !localInput {
+					_ = sender.Send(&proto.Message{Type: proto.MsgTypeInput, Input: data})
+					return
+				}
+				for _, chunk := range splitForwardPredictionChunks(data) {
+					if !chunk.candidate {
+						_ = sender.Send(&proto.Message{Type: proto.MsgTypeInput, Input: chunk.data})
+						continue
+					}
+					now := time.Now()
+					result := callLocalRenderAction[localEchoInputResult](cr, msgCh, func(cr *ClientRenderer) localRenderResult {
+						epoch, predicted := cr.PrepareLocalEchoInput(chunk.data, now)
+						var effects []clientEffect
+						if predicted {
+							effects = appendStopAndRenderNow(nil)
+						}
+						return localRenderResult{
+							effects: effects,
+							value: localEchoInputResult{
+								epoch:     epoch,
+								predicted: predicted,
+							},
+						}
+					})
+					msg := &proto.Message{Type: proto.MsgTypeInput, Input: chunk.data}
+					if result.epoch != 0 {
+						msg.InputEpoch = result.epoch
+					}
+					_ = sender.Send(msg)
+				}
 			}
 
 			flushCopyInput := func() {

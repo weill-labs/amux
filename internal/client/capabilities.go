@@ -23,6 +23,7 @@ const (
 func advertisedAttachCapabilities() *proto.ClientCapabilities {
 	caps := detectedAttachCapabilities(detectTerminalFlavor(os.LookupEnv))
 	caps.BinaryPaneHistory = true
+	caps.PredictionSupported = true
 	if raw, ok := os.LookupEnv("AMUX_CLIENT_CAPABILITIES"); ok {
 		caps = applyCapabilityOverride(caps, raw)
 	}
@@ -121,6 +122,8 @@ func setCapability(caps *proto.ClientCapabilities, name string, enabled bool) bo
 		caps.GraphicsPlaceholder = enabled
 	case "binary_pane_history":
 		caps.BinaryPaneHistory = enabled
+	case "prediction_supported":
+		caps.PredictionSupported = enabled
 	default:
 		return false
 	}

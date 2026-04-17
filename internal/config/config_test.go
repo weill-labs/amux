@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/weill-labs/amux/internal/proto"
@@ -277,6 +278,78 @@ func TestLoadDebugPprof(t *testing.T) {
 
 	if !cfg.PprofEnabled() {
 		t.Fatal("PprofEnabled() = false, want true")
+	}
+}
+
+func TestLoadClientLocalEcho(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	content := `
+[client]
+local_echo = "always"
+local_echo_style = "underline"
+`
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if got := cfg.EffectiveLocalEchoMode(); got != "always" {
+		t.Fatalf("EffectiveLocalEchoMode() = %q, want always", got)
+	}
+	if got := cfg.EffectiveLocalEchoStyle(); got != "underline" {
+		t.Fatalf("EffectiveLocalEchoStyle() = %q, want underline", got)
+	}
+}
+
+func TestLoadRejectsInvalidClientLocalEcho(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		content string
+		want    string
+	}{
+		{
+			name: "invalid mode",
+			content: `
+[client]
+local_echo = "maybe"
+`,
+			want: "local_echo must be one of",
+		},
+		{
+			name: "invalid style",
+			content: `
+[client]
+local_echo_style = "flashy"
+`,
+			want: "local_echo_style must be one of",
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			dir := t.TempDir()
+			path := filepath.Join(dir, "config.toml")
+			if err := os.WriteFile(path, []byte(tt.content), 0644); err != nil {
+				t.Fatalf("WriteFile: %v", err)
+			}
+
+			_, err := Load(path)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("Load() error = %v, want substring %q", err, tt.want)
+			}
+		})
 	}
 }
 

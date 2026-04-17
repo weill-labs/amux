@@ -248,6 +248,21 @@ func TestWaitForRunSessionEnd(t *testing.T) {
 	})
 }
 
+func TestSplitForwardPredictionChunksTreatsPasteBurstAsSingleChunk(t *testing.T) {
+	t.Parallel()
+
+	chunks := splitForwardPredictionChunks([]byte("paste"))
+	if len(chunks) != 1 {
+		t.Fatalf("len(chunks) = %d, want 1", len(chunks))
+	}
+	if chunks[0].candidate {
+		t.Fatal("paste burst should not be marked prediction candidate")
+	}
+	if got := string(chunks[0].data); got != "paste" {
+		t.Fatalf("chunk data = %q, want %q", got, "paste")
+	}
+}
+
 func TestFormatAttachError(t *testing.T) {
 	t.Parallel()
 

@@ -18,7 +18,8 @@ import (
 // Renderer (which handles emulators, layout, and capture) and adds copy mode,
 // dirty tracking, and the coalesced render loop.
 type ClientRenderer struct {
-	renderer *Renderer
+	renderer  *Renderer
+	predictor *predictor
 
 	state           atomic.Pointer[clientSnapshot]
 	frameStats      clientFrameStats
@@ -37,6 +38,7 @@ type ClientRenderer struct {
 func NewClientRendererWithScrollback(width, height, scrollbackLines int) *ClientRenderer {
 	cr := &ClientRenderer{
 		renderer:        NewWithScrollback(width, height, scrollbackLines),
+		predictor:       newPredictor(localEchoModeOff, localEchoStyleDim),
 		scrollbackLines: scrollbackLines,
 	}
 	cr.state.Store(newClientSnapshot())
@@ -70,6 +72,7 @@ func (cr *ClientRenderer) handleLayoutResult(snap *proto.LayoutSnapshot) (bool, 
 			validPanes[ps.ID] = true
 		}
 	}
+	cr.predictor.prune(validPanes, structureChanged)
 	result := cr.updateState(func(next *clientSnapshot) clientUIResult {
 		for paneID := range next.baseHistory {
 			if !validPanes[paneID] {
@@ -160,11 +163,15 @@ func (cr *ClientRenderer) SetInputIdle(idle bool) {
 // HandlePaneOutput applies pane output and reports whether it affects the
 // currently visible frame.
 func (cr *ClientRenderer) HandlePaneOutput(paneID uint32, data []byte) bool {
-	info := cr.handlePaneOutputRenderInfo(paneID, data)
+	return cr.HandlePaneOutputWithEpoch(paneID, data, 0)
+}
+
+func (cr *ClientRenderer) HandlePaneOutputWithEpoch(paneID uint32, data []byte, sourceEpoch uint32) bool {
+	info := cr.handlePaneOutputRenderInfo(paneID, data, sourceEpoch)
 	return info.screenChanged || info.cursorChanged
 }
 
-func (cr *ClientRenderer) handlePaneOutputRenderInfo(paneID uint32, data []byte) paneOutputRenderInfo {
+func (cr *ClientRenderer) handlePaneOutputRenderInfo(paneID uint32, data []byte, sourceEpoch uint32) paneOutputRenderInfo {
 	state := cr.loadState()
 	activePaneID := cr.renderer.ActivePaneID()
 	copyModeVisible := state.ui.copyModes[paneID] != nil
@@ -173,7 +180,19 @@ func (cr *ClientRenderer) handlePaneOutputRenderInfo(paneID uint32, data []byte)
 		!copyModeVisible &&
 		!paneDragHidesCursor(state, activePaneID, paneID)
 
+	var before panePredictionSnapshot
+	if sourceEpoch != 0 {
+		before, _ = cr.renderer.PanePredictionSnapshot(paneID)
+	}
 	info := cr.renderer.HandlePaneOutputInfo(paneID, data, cursorVisible)
+	if sourceEpoch != 0 {
+		if after, ok := cr.renderer.PanePredictionSnapshot(paneID); ok {
+			cr.predictor.recordAck(paneID, classifyPredictionAck(before, after, data))
+			if result := cr.predictor.reconcile(paneID, after, sourceEpoch); result.Changed {
+				info.screenChanged = true
+			}
+		}
+	}
 	needsRender := info.cursorChanged || (info.paneVisible && !copyModeVisible && info.screenChanged)
 	if !needsRender {
 		return info
@@ -244,12 +263,15 @@ func (cr *ClientRenderer) paneLookup(state *clientSnapshot) func(*rendererActorS
 			return nil
 		}
 		cm := state.ui.copyModes[paneID]
+		shadow, _ := cr.predictor.shadow(paneID)
 		return &clientPaneData{
-			emu:        emu,
-			info:       info,
-			cm:         cm,
-			hideCursor: paneDragHidesCursor(state, st.snapshot.activePaneID, paneID),
-			caps:       st.snapshot.capabilities,
+			emu:             emu,
+			prediction:      shadow,
+			predictionStyle: cr.predictor.style,
+			info:            info,
+			cm:              cm,
+			hideCursor:      paneDragHidesCursor(state, st.snapshot.activePaneID, paneID),
+			caps:            st.snapshot.capabilities,
 		}
 	}
 }
@@ -388,13 +410,14 @@ const (
 
 // RenderMsg is an internal message type for the render coalescing loop.
 type RenderMsg struct {
-	Typ    RenderMsgType
-	Layout *proto.LayoutSnapshot
-	PaneID uint32
-	Data   []byte
-	Text   string
-	Local  localRenderFunc
-	Reply  chan any
+	Typ         RenderMsgType
+	Layout      *proto.LayoutSnapshot
+	PaneID      uint32
+	Data        []byte
+	SourceEpoch uint32
+	Text        string
+	Local       localRenderFunc
+	Reply       chan any
 }
 
 type localRenderFunc func(*ClientRenderer) localRenderResult
@@ -508,7 +531,7 @@ func (cr *ClientRenderer) handleRenderMsg(msg *RenderMsg) []clientEffect {
 		}
 		return appendStopAndRenderNow(effects)
 	case RenderMsgPaneOutput:
-		if !cr.HandlePaneOutput(msg.PaneID, msg.Data) {
+		if !cr.HandlePaneOutputWithEpoch(msg.PaneID, msg.Data, msg.SourceEpoch) {
 			return nil
 		}
 		if cr.shouldPrioritizePaneOutput(msg.PaneID) {
@@ -875,6 +898,31 @@ func (cr *ClientRenderer) CopyBuffer() string {
 	return cr.copyBufferValue()
 }
 
+func (cr *ClientRenderer) ConfigureLocalEcho(mode, style string) {
+	if cr == nil || cr.predictor == nil {
+		return
+	}
+	cr.predictor.configure(mode, style)
+}
+
+func (cr *ClientRenderer) PrepareLocalEchoInput(data []byte, now time.Time) (uint32, bool) {
+	if cr == nil || cr.predictor == nil || !cr.predictor.enabled() {
+		return 0, false
+	}
+	if !cr.Capabilities().PredictionSupported {
+		return 0, false
+	}
+	paneID := cr.ActivePaneID()
+	if paneID == 0 || cr.InCopyMode(paneID) {
+		return 0, false
+	}
+	ctx, base, ok := cr.renderer.PanePredictionBase(paneID)
+	if !ok {
+		return 0, false
+	}
+	return cr.predictor.prepareInput(paneID, ctx, base, data, now)
+}
+
 // HandleCaptureRequest processes a capture request forwarded from the server.
 // It renders from the client-side emulators and returns a response message.
 func (cr *ClientRenderer) HandleCaptureRequest(args []string, agentStatus map[uint32]proto.PaneAgentStatus) *proto.Message {
@@ -901,11 +949,13 @@ func (cr *ClientRenderer) HandleCaptureRequest(args []string, agentStatus map[ui
 // clientPaneData adapts an emulator + snapshot metadata for the render.PaneData
 // interface, including optional copy mode overlay.
 type clientPaneData struct {
-	emu        mux.TerminalEmulator
-	info       proto.PaneSnapshot
-	cm         *copymode.CopyMode // nil when not in copy mode
-	hideCursor bool
-	caps       proto.ClientCapabilities
+	emu             mux.TerminalEmulator
+	prediction      mux.TerminalEmulator
+	predictionStyle localEchoStyle
+	info            proto.PaneSnapshot
+	cm              *copymode.CopyMode // nil when not in copy mode
+	hideCursor      bool
+	caps            proto.ClientCapabilities
 }
 
 func (c *clientPaneData) suppressCursor(active bool) bool {
@@ -916,10 +966,20 @@ func (c *clientPaneData) localCursorHidden() bool {
 	return c.cm != nil || c.hideCursor
 }
 
+func (c *clientPaneData) displayEmulator() mux.TerminalEmulator {
+	if c.prediction != nil {
+		return c.prediction
+	}
+	return c.emu
+}
+
 func (c *clientPaneData) RenderScreen(active bool) string {
 	var rendered string
 	if c.cm != nil {
 		rendered = render.RenderPaneViewportANSI(c.cm.ViewportWidth(), c.cm.ViewportHeight(), active, c)
+	} else if c.prediction != nil {
+		width, height := c.prediction.Size()
+		rendered = render.RenderPaneViewportANSI(width, height, active, c)
 	} else if c.suppressCursor(active) {
 		rendered = c.emu.RenderWithoutCursorBlock()
 	} else {
@@ -932,10 +992,17 @@ func (c *clientPaneData) CellAt(col, row int, active bool) render.ScreenCell {
 	if c.cm != nil {
 		return render.ScreenCellFromCopyMode(c.cm.ViewportCellAt(col, row))
 	}
-	cell := c.emu.CellAt(col, row)
+	emu := c.displayEmulator()
+	cell := emu.CellAt(col, row)
 	sc := render.CellFromUV(cell)
 	if c.suppressCursor(active) {
-		stripCursorBlock(&sc, c.emu, col, row)
+		stripCursorBlock(&sc, emu, col, row)
+	}
+	if c.prediction != nil {
+		confirmed := render.CellFromUV(c.emu.CellAt(col, row))
+		if predictionCellChanged(confirmed, sc) {
+			sc = applyPredictionStyle(sc, c.predictionStyle)
+		}
 	}
 	return sc
 }
@@ -944,7 +1011,7 @@ func (c *clientPaneData) CursorPos() (col, row int) {
 	if c.cm != nil {
 		return c.cm.CursorPos()
 	}
-	return c.emu.CursorPosition()
+	return c.displayEmulator().CursorPosition()
 }
 
 func (c *clientPaneData) CopyModeOverlay() *proto.ViewportOverlay {
@@ -958,14 +1025,14 @@ func (c *clientPaneData) CursorHidden() bool {
 	if c.localCursorHidden() {
 		return true // copy mode and pane drag manage cursor visibility locally
 	}
-	return c.emu.CursorHidden()
+	return c.displayEmulator().CursorHidden()
 }
 
 func (c *clientPaneData) HasCursorBlock() bool {
 	if c.localCursorHidden() {
 		return false // local cursor suppression strips any emulator cursor block
 	}
-	return c.emu.HasCursorBlock()
+	return c.displayEmulator().HasCursorBlock()
 }
 
 func (c *clientPaneData) ID() uint32   { return c.info.ID }

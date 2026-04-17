@@ -101,10 +101,16 @@ type DebugConfig struct {
 	Pprof bool `toml:"pprof"`
 }
 
+type ClientConfig struct {
+	LocalEcho      string `toml:"local_echo"`
+	LocalEchoStyle string `toml:"local_echo_style"`
+}
+
 // Config is the top-level amux configuration.
 type Config struct {
 	ScrollbackLines *int            `toml:"scrollback_lines"`
 	Debug           DebugConfig     `toml:"debug"`
+	Client          ClientConfig    `toml:"client"`
 	Hosts           map[string]Host `toml:"hosts"`
 }
 
@@ -146,6 +152,12 @@ func Load(path string) (*Config, error) {
 	}
 
 	if _, err := ResolveScrollbackLines(cfg.ScrollbackLines); err != nil {
+		return nil, err
+	}
+	if _, err := ResolveLocalEchoMode(cfg.Client.LocalEcho); err != nil {
+		return nil, err
+	}
+	if _, err := ResolveLocalEchoStyle(cfg.Client.LocalEchoStyle); err != nil {
 		return nil, err
 	}
 
@@ -197,6 +209,50 @@ func (c *Config) EffectiveScrollbackLines() int {
 
 func (c *Config) PprofEnabled() bool {
 	return c != nil && c.Debug.Pprof
+}
+
+func ResolveLocalEchoMode(mode string) (string, error) {
+	switch mode {
+	case "", "auto":
+		return "auto", nil
+	case "off", "always":
+		return mode, nil
+	default:
+		return "", fmt.Errorf(`local_echo must be one of "auto", "off", or "always"`)
+	}
+}
+
+func ResolveLocalEchoStyle(style string) (string, error) {
+	switch style {
+	case "", "dim":
+		return "dim", nil
+	case "underline", "none":
+		return style, nil
+	default:
+		return "", fmt.Errorf(`local_echo_style must be one of "dim", "underline", or "none"`)
+	}
+}
+
+func (c *Config) EffectiveLocalEchoMode() string {
+	if c == nil {
+		return "auto"
+	}
+	mode, err := ResolveLocalEchoMode(c.Client.LocalEcho)
+	if err != nil {
+		return "auto"
+	}
+	return mode
+}
+
+func (c *Config) EffectiveLocalEchoStyle() string {
+	if c == nil {
+		return "dim"
+	}
+	style, err := ResolveLocalEchoStyle(c.Client.LocalEchoStyle)
+	if err != nil {
+		return "dim"
+	}
+	return style
 }
 
 // ColorForHost deterministically picks a Catppuccin color based on hostname.

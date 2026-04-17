@@ -41,6 +41,7 @@ type clientConn struct {
 	typeKeyQueue       *pacedInputQueue
 	capabilities       proto.ClientCapabilities
 	colorProfile       string
+	predictions        map[uint32][]pendingPredictionEpoch
 	logger             *charmlog.Logger
 	bootstrapping      atomic.Bool
 	disconnectReason   atomic.Pointer[string]
@@ -52,13 +53,19 @@ type pendingMessage struct {
 	outputSeq uint64
 }
 
+type pendingPredictionEpoch struct {
+	epoch     uint32
+	remaining []byte
+}
+
 // newClientConn wraps a net.Conn for protocol communication.
 func newClientConn(conn net.Conn) *clientConn {
 	cc := &clientConn{
-		conn:      conn,
-		reader:    proto.NewReader(conn),
-		inputIdle: true,
-		logger:    auditlog.Discard(),
+		conn:        conn,
+		reader:      proto.NewReader(conn),
+		inputIdle:   true,
+		predictions: make(map[uint32][]pendingPredictionEpoch),
+		logger:      auditlog.Discard(),
 	}
 	cc.writer = newClientWriter(conn)
 	return cc
@@ -151,7 +158,7 @@ func (cc *clientConn) sendBroadcastSync(msg *Message) {
 }
 
 func (cc *clientConn) sendPaneOutput(msg *Message, paneID uint32, seq uint64) {
-	cc.ensureWriter().sendPaneOutput(msg, paneID, seq)
+	cc.ensureWriter().sendPaneOutput(cc.decoratePaneOutput(msg, paneID), paneID, seq)
 }
 
 func (cc *clientConn) sendPaneMessage(msg *Message) {
@@ -234,6 +241,76 @@ func (cc *clientConn) activeInputPaneForWrite(sess *Session) *mux.Pane {
 	return sess.activeInputPaneForWrite(cc)
 }
 
+func (cc *clientConn) notePredictionEpoch(paneID uint32, epoch uint32, data []byte) {
+	if cc == nil || paneID == 0 || epoch == 0 || !cc.capabilities.PredictionSupported || len(data) == 0 {
+		return
+	}
+	cc.predictions[paneID] = append(cc.predictions[paneID], pendingPredictionEpoch{
+		epoch:     epoch,
+		remaining: append([]byte(nil), data...),
+	})
+}
+
+func (cc *clientConn) decoratePaneOutput(msg *Message, paneID uint32) *Message {
+	if cc == nil || msg == nil || msg.SourceEpoch != 0 || !cc.capabilities.PredictionSupported {
+		return msg
+	}
+	sourceEpoch := cc.consumePredictionEpoch(paneID, msg.PaneData)
+	if sourceEpoch == 0 {
+		return msg
+	}
+	decorated := cloneMessage(msg)
+	decorated.SourceEpoch = sourceEpoch
+	return decorated
+}
+
+func (cc *clientConn) consumePredictionEpoch(paneID uint32, data []byte) uint32 {
+	if cc == nil || paneID == 0 || len(data) == 0 {
+		return 0
+	}
+	queue := cc.predictions[paneID]
+	if len(queue) == 0 {
+		return 0
+	}
+
+	latest := uint32(0)
+	index := 0
+	pos := 0
+	matchedPrefix := false
+	for index < len(queue) {
+		entry := queue[index]
+		for len(entry.remaining) > 0 && pos < len(data) && entry.remaining[0] == data[pos] {
+			entry.remaining = entry.remaining[1:]
+			pos++
+			matchedPrefix = true
+		}
+		queue[index] = entry
+		if len(entry.remaining) != 0 {
+			break
+		}
+		latest = entry.epoch
+		index++
+	}
+
+	switch {
+	case latest != 0:
+		queue = queue[index:]
+	case matchedPrefix:
+		cc.predictions[paneID] = queue
+		return 0
+	default:
+		latest = queue[0].epoch
+		queue = queue[1:]
+	}
+
+	if len(queue) == 0 {
+		delete(cc.predictions, paneID)
+	} else {
+		cc.predictions[paneID] = queue
+	}
+	return latest
+}
+
 // readLoop reads messages from the client and dispatches them to the session.
 func (cc *clientConn) readLoop(srv *Server, sess *Session) {
 	detachReason := DisconnectReasonSocketError
@@ -251,13 +328,13 @@ func (cc *clientConn) readLoop(srv *Server, sess *Session) {
 
 		switch msg.Type {
 		case MsgTypeInput:
-			sess.enqueueLiveInput(cc, msg.Input)
+			sess.enqueueLiveInputWithEpoch(cc, msg.Input, msg.InputEpoch)
 
 		case MsgTypeResize:
 			sess.enqueueResizeClient(cc, msg.Cols, msg.Rows)
 
 		case MsgTypeInputPane:
-			sess.enqueueLiveInputPane(msg.PaneID, msg.PaneData)
+			sess.enqueueLiveInputPaneFromClient(cc, msg.PaneID, msg.PaneData, msg.InputEpoch)
 
 		case MsgTypeDetach:
 			cc.markDisconnectReason(disconnectReasonClientDetach)

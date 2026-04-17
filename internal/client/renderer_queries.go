@@ -14,6 +14,7 @@ type paneInteractionSnapshot struct {
 	CursorRow     int
 	CursorHidden  bool
 	AltScreen     bool
+	CursorStyle   string
 	MouseProtocol mux.MouseProtocol
 }
 
@@ -230,6 +231,7 @@ func (r *Renderer) PaneInteractionSnapshot(paneID uint32) (paneInteractionSnapsh
 			CursorRow:     cursorRow,
 			CursorHidden:  emu.CursorHidden(),
 			AltScreen:     emu.IsAltScreen(),
+			CursorStyle:   emu.TerminalState().CursorStyle,
 			MouseProtocol: emu.MouseProtocol(),
 		}
 		ok = true
@@ -271,6 +273,74 @@ func (r *Renderer) PaneBufferSnapshotStyled(paneID uint32, baseHistory []proto.S
 		}
 		st.warmPaneOutput(paneID, st.emulators)
 		snap = capturePaneBufferSnapshotStyled(emu, proto.CloneStyledLines(baseHistory), st.snapshot.scrollbackLines)
+		ok = true
+	})
+	return snap, ok
+}
+
+func (r *Renderer) PanePredictionBase(paneID uint32) (panePredictionContext, panePredictionBase, bool) {
+	var (
+		ctx  panePredictionContext
+		base panePredictionBase
+		ok   bool
+	)
+	r.withActor(func(st *rendererActorState) {
+		emu := st.ensurePaneEmulator(paneID)
+		if emu == nil {
+			return
+		}
+		st.warmPaneOutput(paneID, st.emulators)
+		width, height := emu.Size()
+		cursorCol, cursorRow := emu.CursorPosition()
+		term := emu.TerminalState()
+		ctx = panePredictionContext{
+			Width:       width,
+			Height:      height,
+			CursorCol:   cursorCol,
+			CursorRow:   cursorRow,
+			AltScreen:   emu.IsAltScreen(),
+			CursorStyle: term.CursorStyle,
+		}
+		base = panePredictionBase{
+			Width:  width,
+			Height: height,
+			Screen: mux.RenderWithCursor(emu),
+		}
+		ok = true
+	})
+	return ctx, base, ok
+}
+
+func capturePanePredictionSnapshot(emu mux.TerminalEmulator) panePredictionSnapshot {
+	width, height := emu.Size()
+	cursorCol, cursorRow := emu.CursorPosition()
+	snap := panePredictionSnapshot{
+		Width:        width,
+		Height:       height,
+		CursorCol:    cursorCol,
+		CursorRow:    cursorRow,
+		CursorHidden: emu.CursorHidden(),
+		Screen:       mux.RenderWithCursor(emu),
+		Cells:        make([]render.ScreenCell, width*height),
+	}
+	for row := 0; row < height; row++ {
+		for col := 0; col < width; col++ {
+			snap.Cells[row*width+col] = render.CellFromUV(emu.CellAt(col, row))
+		}
+	}
+	return snap
+}
+
+func (r *Renderer) PanePredictionSnapshot(paneID uint32) (panePredictionSnapshot, bool) {
+	snap := panePredictionSnapshot{}
+	ok := false
+	r.withActor(func(st *rendererActorState) {
+		emu := st.ensurePaneEmulator(paneID)
+		if emu == nil {
+			return
+		}
+		st.warmPaneOutput(paneID, st.emulators)
+		snap = capturePanePredictionSnapshot(emu)
 		ok = true
 	})
 	return snap, ok

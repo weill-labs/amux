@@ -816,6 +816,57 @@ func TestReadImmediateAttachCorrectionReturnsErrorOnConnectionClose(t *testing.T
 	}
 }
 
+func TestRunSessionLocalEchoRendersBeforeDelayedServerAck(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(configPath, []byte("[client]\nlocal_echo = \"always\"\n"), 0644); err != nil {
+		t.Fatalf("WriteFile(config): %v", err)
+	}
+	t.Setenv("AMUX_CONFIG", configPath)
+
+	h := newRunSessionHarness(t, func(int) (int, int, error) {
+		return 20, 4, nil
+	})
+
+	attach := h.waitAttach(t)
+	if attach.AttachCapabilities == nil || !attach.AttachCapabilities.PredictionSupported {
+		t.Fatalf("AttachCapabilities = %+v, want prediction support", attach.AttachCapabilities)
+	}
+
+	h.send(t, &proto.Message{Type: proto.MsgTypeLayout, Layout: singlePane20x3()})
+	h.send(t, &proto.Message{Type: proto.MsgTypePaneOutput, PaneID: 1, PaneData: []byte("$ ")})
+	h.output.waitContains(t, render.AltScreenEnter)
+
+	before := h.output.snapshot()
+	if strings.Contains(before, "λ") {
+		t.Fatalf("initial output unexpectedly contains predicted marker rune: %q", before)
+	}
+
+	start := time.Now()
+	h.writeInput(t, []byte("λ"))
+
+	input := h.waitMessage(t, func(msg *proto.Message) bool {
+		return msg.Type == proto.MsgTypeInput && string(msg.Input) == "λ"
+	})
+	if input.InputEpoch == 0 {
+		t.Fatal("InputEpoch = 0, want prediction epoch")
+	}
+	if !h.output.waitContainsWithin("λ", 50*time.Millisecond) {
+		t.Fatalf("predicted glyph did not render before delayed ack; output=%q", h.output.snapshot())
+	}
+	if elapsed := time.Since(start); elapsed > 100*time.Millisecond {
+		t.Fatalf("prediction took %v, want under 100ms before server ack", elapsed)
+	}
+
+	time.Sleep(150 * time.Millisecond)
+	h.send(t, &proto.Message{
+		Type:        proto.MsgTypePaneOutput,
+		PaneID:      1,
+		PaneData:    []byte("λ"),
+		SourceEpoch: input.InputEpoch,
+	})
+	h.output.waitContains(t, "λ")
+}
+
 func TestReadImmediateAttachCorrectionEndsOnUnknownMessageType(t *testing.T) {
 	t.Parallel()
 
@@ -1092,9 +1143,15 @@ func TestRunSessionHandlesServerMessagesAndInteractiveInput(t *testing.T) {
 	})
 
 	h.writeInput(t, []byte("hi"))
-	h.waitMessage(t, func(msg *proto.Message) bool {
-		return msg.Type == proto.MsgTypeInput && string(msg.Input) == "hi"
+	firstInput := h.waitMessage(t, func(msg *proto.Message) bool {
+		return msg.Type == proto.MsgTypeInput && string(msg.Input) == "h"
 	})
+	secondInput := h.waitMessage(t, func(msg *proto.Message) bool {
+		return msg.Type == proto.MsgTypeInput && string(msg.Input) == "i"
+	})
+	if firstInput.InputEpoch == 0 || secondInput.InputEpoch == 0 {
+		t.Fatalf("input epochs = (%d,%d), want non-zero epochs", firstInput.InputEpoch, secondInput.InputEpoch)
+	}
 	h.waitMessage(t, func(msg *proto.Message) bool {
 		return msg.Type == proto.MsgTypeUIEvent && msg.UIEvent == proto.UIEventInputBusy
 	})
