@@ -186,6 +186,10 @@ func (st *rendererActorState) bufferPaneOutput(paneID uint32, data []byte) {
 	buf.appendChunk(data)
 }
 
+// paneEmulatorDimensions returns the size a cold emulator should use before any
+// buffered replay runs. Hidden panes prefer the buffered source dimensions so
+// VT replay matches the shell's original cursor math; once visible, the normal
+// resize path updates the emulator to the current layout dimensions.
 func (st *rendererActorState) paneEmulatorDimensions(snap *rendererSnapshot, paneID uint32) (int, int, bool) {
 	if buf := st.pendingPaneOutput[paneID]; buf != nil {
 		if width, height, ok := buf.replayDimensions(); ok {
