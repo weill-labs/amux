@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -1840,6 +1841,51 @@ func TestServerHarnessLateGenerationAndAttachSurviveHeadlessClientDetach(t *test
 	}
 	if len(msg.Layout.Panes) != 2 {
 		t.Fatalf("late attach returned %d panes, want 2", len(msg.Layout.Panes))
+	}
+}
+
+func TestHiddenWindowReplayMatchesHistoryAfterResizeAndWindowSwitch(t *testing.T) {
+	t.Parallel()
+
+	h := newServerHarnessWithSize(t, 20, 6)
+
+	h.client.close()
+	h.client = nil
+
+	h.runCmd("new-window", "--name", "hidden")
+	h.runCmd("select-window", "1")
+
+	if err := h.ensureControlClient(); err != nil {
+		t.Fatalf("ensureControlClient: %v", err)
+	}
+
+	h.sendKeys("pane-2",
+		`printf '\033[2J\033[Hgit pull and make install and restart binary\033[2;1HBash(git pull && make install && orca stop; orca start)\033[3;1HFrom github.com:weill-labs/orca'`,
+		"Enter",
+	)
+	h.waitIdle("pane-2")
+
+	gen := h.generation()
+	h.client.resizeTerminal(30, 6)
+	h.waitLayout(gen)
+
+	gen = h.generation()
+	h.runCmd("select-window", "2")
+	h.waitLayout(gen)
+
+	plain := capturePaneJSONFor(t, "pane-2", h.runCmd)
+
+	historyRaw := h.runCmd("capture", "--history", "--format", "json", "pane-2")
+	var history proto.CapturePane
+	if err := json.Unmarshal([]byte(historyRaw), &history); err != nil {
+		t.Fatalf("json.Unmarshal(history): %v\nraw:\n%s", err, historyRaw)
+	}
+
+	if got, want := plain.Content, history.Content; !slices.Equal(got, want) {
+		t.Fatalf("plain content = %q, want %q", got, want)
+	}
+	if got, want := plain.Cursor, history.Cursor; got != want {
+		t.Fatalf("plain cursor = %+v, want %+v", got, want)
 	}
 }
 
