@@ -29,6 +29,7 @@ func TestParseSpawnCommandArgs(t *testing.T) {
 		{name: "focused spawn", args: []string{"--focus"}, wantCmd: "spawn", wantArgs: []string{"--focus"}},
 		{name: "auto spawn", args: []string{"--auto"}, wantCmd: "spawn", wantArgs: []string{"--auto"}},
 		{name: "auto spawn in named window", args: []string{"--auto", "--window", "logs"}, wantCmd: "spawn", wantArgs: []string{"--window", "logs", "--auto"}},
+		{name: "auto spawn at pane uses window hint", args: []string{"--auto", "--at", "pane-1"}, wantCmd: "spawn", wantArgs: []string{"--at", "pane-1", "--auto"}},
 		{name: "targeted spawn at pane", args: []string{"--at", "pane-1"}, wantCmd: "spawn", wantArgs: []string{"--at", "pane-1"}},
 		{name: "targeted spawn in named window", args: []string{"--window", "logs"}, wantCmd: "spawn", wantArgs: []string{"--window", "logs"}},
 		{name: "targeted spawn active vertical", args: []string{"--vertical"}, wantCmd: "spawn", wantArgs: []string{"--vertical"}},

@@ -529,6 +529,130 @@ func TestCommandSpawnAutoUsesPaneTargetWindowHint(t *testing.T) {
 	}
 }
 
+func TestCommandSpawnAutoUsesLeadPaneTargetWindowHint(t *testing.T) {
+	t.Parallel()
+
+	srv, sess, cleanup := newCommandTestSession(t)
+	defer cleanup()
+
+	p1 := newTestPane(sess, 1, "pane-1")
+	p2 := newTestPane(sess, 2, "pane-2")
+	p3 := newTestPane(sess, 3, "pane-3")
+	p4 := newTestPane(sess, 4, "pane-4")
+
+	mainWindow := mux.NewWindow(p1, 80, 23)
+	mainWindow.ID = 1
+	mainWindow.Name = "main"
+
+	logsWindow := mux.NewWindow(p2, 80, 23)
+	logsWindow.ID = 4
+	logsWindow.Name = "logs"
+	if err := logsWindow.SetLead(p2.ID); err != nil {
+		t.Fatalf("SetLead pane-2: %v", err)
+	}
+	if _, err := logsWindow.SplitRoot(mux.SplitVertical, p3); err != nil {
+		t.Fatalf("SplitRoot pane-3: %v", err)
+	}
+	if _, err := logsWindow.SplitPaneWithOptions(p3.ID, mux.SplitHorizontal, p4, mux.SplitOptions{}); err != nil {
+		t.Fatalf("Split pane-3 horizontally: %v", err)
+	}
+
+	setSessionLayoutForTest(t, sess, mainWindow.ID, []*mux.Window{mainWindow, logsWindow}, p1, p2, p3, p4)
+
+	res := runTestCommand(t, srv, sess, "spawn", "--auto", "--at", "pane-2", "--name", "worker-5")
+	if res.cmdErr != "" {
+		t.Fatalf("spawn --auto --at lead failed: %s", res.cmdErr)
+	}
+
+	state := mustSessionQuery(t, sess, func(sess *Session) struct {
+		activeWindowID uint32
+		workerWindowID uint32
+		leadX          int
+		leadW          int
+		p3X            int
+		p4X            int
+		p5X            int
+		p5Y            int
+		p3Y            int
+	} {
+		worker, err := sess.findPaneByRef("worker-5")
+		if err != nil {
+			return struct {
+				activeWindowID uint32
+				workerWindowID uint32
+				leadX          int
+				leadW          int
+				p3X            int
+				p4X            int
+				p5X            int
+				p5Y            int
+				p3Y            int
+			}{}
+		}
+		workerWindow := sess.findWindowByPaneID(worker.ID)
+		leadCell := logsWindow.Root.FindPane(p2.ID)
+		p3Cell := logsWindow.Root.FindPane(p3.ID)
+		p4Cell := logsWindow.Root.FindPane(p4.ID)
+		p5Cell := logsWindow.Root.FindPane(worker.ID)
+		if workerWindow == nil || leadCell == nil || p3Cell == nil || p4Cell == nil || p5Cell == nil {
+			return struct {
+				activeWindowID uint32
+				workerWindowID uint32
+				leadX          int
+				leadW          int
+				p3X            int
+				p4X            int
+				p5X            int
+				p5Y            int
+				p3Y            int
+			}{}
+		}
+		return struct {
+			activeWindowID uint32
+			workerWindowID uint32
+			leadX          int
+			leadW          int
+			p3X            int
+			p4X            int
+			p5X            int
+			p5Y            int
+			p3Y            int
+		}{
+			activeWindowID: sess.ActiveWindowID,
+			workerWindowID: workerWindow.ID,
+			leadX:          leadCell.X,
+			leadW:          leadCell.W,
+			p3X:            p3Cell.X,
+			p4X:            p4Cell.X,
+			p5X:            p5Cell.X,
+			p5Y:            p5Cell.Y,
+			p3Y:            p3Cell.Y,
+		}
+	})
+
+	if state.activeWindowID != mainWindow.ID {
+		t.Fatalf("active window = %d, want %d", state.activeWindowID, mainWindow.ID)
+	}
+	if state.workerWindowID != logsWindow.ID {
+		t.Fatalf("worker window = %d, want %d", state.workerWindowID, logsWindow.ID)
+	}
+	if state.leadX != 0 || state.leadW == 0 {
+		t.Fatalf("lead pane should remain anchored on the left: %+v", state)
+	}
+	if state.p3X != state.p4X {
+		t.Fatalf("existing non-lead panes should remain in the same column: %+v", state)
+	}
+	if state.p5X == state.p3X {
+		t.Fatalf("worker-5 should be placed in a new non-lead column: %+v", state)
+	}
+	if state.p5X <= state.p3X {
+		t.Fatalf("worker-5 should be placed to the right of the existing non-lead column: %+v", state)
+	}
+	if state.p5Y != state.p3Y {
+		t.Fatalf("worker-5 should start at the top of the new non-lead column: %+v", state)
+	}
+}
+
 func TestCommandSpawnTargetsSpecifiedWindowActivePane(t *testing.T) {
 	t.Parallel()
 

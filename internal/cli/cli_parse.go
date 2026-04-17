@@ -293,12 +293,15 @@ func ParseSpawnCommandArgs(args []string) (string, []string, error) {
 	if opts.window != "" && opts.at != "" {
 		return "", nil, errors.New(spawnUsage)
 	}
-	if opts.auto && (opts.at != "" || opts.root || opts.hasExplicitDir) {
+	if opts.auto && (opts.root || opts.hasExplicitDir) {
 		return "", nil, errors.New(spawnUsage)
 	}
 
 	cmdArgs := make([]string, 0, 10)
 	if opts.auto {
+		if opts.at != "" {
+			cmdArgs = append(cmdArgs, "--at", opts.at)
+		}
 		if opts.window != "" {
 			cmdArgs = append(cmdArgs, "--window", opts.window)
 		}
