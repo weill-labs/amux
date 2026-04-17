@@ -5,7 +5,8 @@ import (
 	"strings"
 
 	"github.com/weill-labs/amux/internal/config"
-	"github.com/weill-labs/amux/internal/sshutil"
+	"github.com/weill-labs/amux/internal/transport"
+	transportssh "github.com/weill-labs/amux/internal/transport/ssh"
 )
 
 func sshCLICommands() map[string]commandHandler {
@@ -30,18 +31,18 @@ func sshCLICommands() map[string]commandHandler {
 	}
 }
 
-func resolveCLISSHTarget(raw string) (sshutil.SSHTarget, error) {
+func resolveCLISSHTarget(raw string) (transport.Target, error) {
 	cfg, err := config.Load(config.DefaultPath())
 	if err != nil {
-		return sshutil.SSHTarget{}, fmt.Errorf("loading config: %w", err)
+		return transport.Target{}, fmt.Errorf("loading config: %w", err)
 	}
 
-	target, err := sshutil.ParseTarget(raw, "")
+	target, err := transportssh.ParseTarget(raw, "")
 	if err != nil {
-		return sshutil.SSHTarget{}, err
+		return transport.Target{}, err
 	}
 	if !strings.Contains(raw, "@") {
 		target.User = cfg.HostUser(target.Host)
 	}
-	return target, nil
+	return target.TransportTarget(), nil
 }

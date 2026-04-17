@@ -15,7 +15,7 @@ import (
 	"github.com/weill-labs/amux/internal/auditlog"
 	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/proto"
-	"github.com/weill-labs/amux/internal/sshutil"
+	transportssh "github.com/weill-labs/amux/internal/transport/ssh"
 )
 
 // HostConn manages a single SSH connection to a remote host and multiplexes
@@ -636,7 +636,7 @@ func parseSpawnOutput(output string) (uint32, error) {
 
 // buildSSHConfig builds the SSH client configuration using agent auth and key files.
 func (hc *HostConn) buildSSHConfig() (*ssh.ClientConfig, error) {
-	cfg, err := sshutil.BuildSSHConfig(hc.config.User, hc.config.IdentityFile)
+	cfg, err := transportssh.BuildSSHConfig(hc.config.User, hc.config.IdentityFile)
 	if err != nil {
 		return nil, err
 	}
@@ -648,12 +648,12 @@ func (hc *HostConn) buildSSHConfig() (*ssh.ClientConfig, error) {
 
 // ensureRemoteServer starts the remote amux server if it's not already running.
 func ensureRemoteServer(client *ssh.Client, sockPath, sessionName string) error {
-	return sshutil.EnsureRemoteServer(client, sockPath, sessionName)
+	return transportssh.EnsureRemoteServer(client, sockPath, sessionName)
 }
 
 // socketPath returns the expected amux socket path on the remote host.
 func socketPath(remoteUID, sessionName string) string {
-	return sshutil.RemoteSocketPath(remoteUID, sessionName)
+	return transportssh.RemoteSocketPath(remoteUID, sessionName)
 }
 
 // ManagedSessionName returns the session name to use on the remote server.
@@ -680,12 +680,16 @@ func waitForSocket(client *ssh.Client, sockPath string, timeout time.Duration) e
 
 // dialRemoteSocket connects to the remote amux Unix socket.
 func (hc *HostConn) dialRemoteSocket(client *ssh.Client, sockPath string) (net.Conn, error) {
-	return sshutil.DialRemoteSocket(client, sockPath)
+	return transportssh.DialRemoteSocket(client, sockPath)
 }
 
 // normalizeAddr ensures the address has a port, defaulting to :22.
 func normalizeAddr(addr string) string {
-	return sshutil.NormalizeAddr(addr)
+	return transportssh.NormalizeAddr(addr)
+}
+
+func sshOutput(client *ssh.Client, cmd string) (string, error) {
+	return transportssh.SSHOutput(client, cmd)
 }
 
 func addrOrFallback(values ...string) string {

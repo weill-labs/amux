@@ -12,7 +12,7 @@ import (
 	"testing"
 
 	"github.com/weill-labs/amux/internal/checkpoint"
-	"github.com/weill-labs/amux/internal/sshutil"
+	"github.com/weill-labs/amux/internal/transport"
 )
 
 func TestParseSpawnCommandArgs(t *testing.T) {
@@ -790,7 +790,7 @@ user = "deploy"
 			wantCalls: []cliCall{
 				{
 					kind: "ssh",
-					target: &sshutil.SSHTarget{
+					target: &transport.Target{
 						User:    "deploy",
 						Host:    "builder",
 						Port:    "22",
@@ -914,7 +914,7 @@ type cliCall struct {
 	cmd     string
 	args    []string
 	managed bool
-	target  *sshutil.SSHTarget
+	target  *transport.Target
 }
 
 const resolvedSessionMarker = "__resolved_session__"
@@ -987,7 +987,7 @@ func (h *cliRuntimeHarness) runtime() Runtime {
 				args:    append([]string(nil), args...),
 			})
 		},
-		RunSSHSession: func(target sshutil.SSHTarget) error {
+		RunSSHSession: func(target transport.Target) error {
 			targetCopy := target
 			h.calls = append(h.calls, cliCall{kind: "ssh", target: &targetCopy})
 			return h.runSSHSessionErr

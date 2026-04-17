@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/weill-labs/amux/internal/sshutil"
+	"github.com/weill-labs/amux/internal/transport/ssh"
 )
 
 func TestResolveCLISSHTargetKeepsExplicitUser(t *testing.T) {
@@ -52,7 +52,7 @@ func TestResolveCLISSHTargetUsesDefaultSSHUser(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolveCLISSHTarget() error = %v", err)
 	}
-	wantUser := sshutil.DefaultSSHUser()
+	wantUser := ssh.DefaultSSHUser()
 	if target.User != wantUser {
 		t.Fatalf("resolveCLISSHTarget() user = %q, want %q", target.User, wantUser)
 	}

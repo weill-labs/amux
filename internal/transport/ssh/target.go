@@ -1,8 +1,10 @@
-package sshutil
+package ssh
 
 import (
 	"fmt"
 	"strings"
+
+	"github.com/weill-labs/amux/internal/transport"
 )
 
 type SSHTarget struct {
@@ -88,4 +90,13 @@ func splitTargetHostSession(raw string) (host, session string, err error) {
 		return "", "", fmt.Errorf("invalid ssh target %q", raw)
 	}
 	return host, session, nil
+}
+
+func (t SSHTarget) TransportTarget() transport.Target {
+	return transport.Target{
+		Host:    t.Host,
+		User:    t.User,
+		Port:    t.Port,
+		Session: t.Session,
+	}
 }

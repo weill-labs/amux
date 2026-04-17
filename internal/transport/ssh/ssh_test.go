@@ -1,4 +1,4 @@
-package sshutil
+package ssh
 
 import (
 	"bytes"
@@ -174,7 +174,7 @@ func TestEnsureRemoteServer(t *testing.T) {
 	ts := startTestSSH(t)
 	writeFakeRemoteAmux(t, ts)
 
-	sessionName := strings.ReplaceAll(t.Name(), "/", "-")
+	sessionName := filepath.Base(t.TempDir())
 	sockPath := RemoteSocketPath("1000", sessionName)
 	actualSockPath := RemoteSocketPath(fmt.Sprintf("%d", os.Getuid()), sessionName)
 	_ = os.Remove(sockPath)
@@ -261,18 +261,8 @@ func startTestSSH(t *testing.T) *testSSH {
 		t.Fatalf("creating host signer: %v", err)
 	}
 
-	homeDir := t.TempDir()
-	execEnv := os.Environ()
-	for i, entry := range execEnv {
-		if strings.HasPrefix(entry, "HOME=") {
-			execEnv[i] = "HOME=" + homeDir
-		}
-		if strings.HasPrefix(entry, "PATH=") {
-			execEnv[i] = "PATH=" + filepath.Join(homeDir, ".local", "bin") + ":/usr/bin:/bin"
-		}
-	}
-
-	serverCfg := &ssh.ServerConfig{
+	srvCfg := &ssh.ServerConfig{
+		MaxAuthTries: 20,
 		PublicKeyCallback: func(_ ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
 			if bytes.Equal(key.Marshal(), authorizedKeyBytes) {
 				return &ssh.Permissions{}, nil
@@ -280,18 +270,29 @@ func startTestSSH(t *testing.T) *testSSH {
 			return nil, fmt.Errorf("unauthorized")
 		},
 	}
-	serverCfg.AddHostKey(hostSigner)
+	srvCfg.AddHostKey(hostSigner)
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		t.Fatalf("Listen() error = %v", err)
+		t.Fatalf("listen: %v", err)
 	}
 
 	var wg sync.WaitGroup
 	t.Cleanup(func() {
-		_ = ln.Close()
+		ln.Close()
 		wg.Wait()
 	})
+
+	execEnv := os.Environ()
+	homeDir := t.TempDir()
+	for i, e := range execEnv {
+		if strings.HasPrefix(e, "HOME=") {
+			execEnv[i] = "HOME=" + homeDir
+		}
+		if strings.HasPrefix(e, "PATH=") {
+			execEnv[i] = "PATH=" + filepath.Join(homeDir, ".local", "bin") + ":/usr/bin:/bin"
+		}
+	}
 
 	wg.Add(1)
 	go func() {
@@ -304,14 +305,14 @@ func startTestSSH(t *testing.T) *testSSH {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				handleSSHConn(tcpConn, serverCfg, execEnv)
+				testHandleSSHConn(tcpConn, srvCfg, execEnv)
 			}()
 		}
 	}()
 
 	signer, err := ssh.NewSignerFromKey(privEd)
 	if err != nil {
-		t.Fatalf("NewSignerFromKey() error = %v", err)
+		t.Fatalf("creating signer: %v", err)
 	}
 	clientCfg := &ssh.ClientConfig{
 		User:            "testuser",
@@ -320,7 +321,7 @@ func startTestSSH(t *testing.T) *testSSH {
 	}
 	client, err := ssh.Dial("tcp", ln.Addr().String(), clientCfg)
 	if err != nil {
-		t.Fatalf("ssh.Dial() error = %v", err)
+		t.Fatalf("SSH dial: %v", err)
 	}
 	t.Cleanup(func() { _ = client.Close() })
 
@@ -331,10 +332,10 @@ func startTestSSH(t *testing.T) *testSSH {
 	}
 }
 
-func handleSSHConn(tcpConn net.Conn, cfg *ssh.ServerConfig, execEnv []string) {
+func testHandleSSHConn(tcpConn net.Conn, config *ssh.ServerConfig, execEnv []string) {
 	defer tcpConn.Close()
 
-	sshConn, chans, reqs, err := ssh.NewServerConn(tcpConn, cfg)
+	sshConn, chans, reqs, err := ssh.NewServerConn(tcpConn, config)
 	if err != nil {
 		return
 	}
@@ -343,34 +344,33 @@ func handleSSHConn(tcpConn net.Conn, cfg *ssh.ServerConfig, execEnv []string) {
 
 	for newChannel := range chans {
 		if newChannel.ChannelType() != "session" {
-			_ = newChannel.Reject(ssh.UnknownChannelType, "unsupported")
+			ignoreReject(newChannel, ssh.UnknownChannelType, "unsupported")
 			continue
 		}
 		ch, chReqs, err := newChannel.Accept()
 		if err != nil {
 			continue
 		}
-		go handleSession(ch, chReqs, execEnv)
+		go testHandleSession(ch, chReqs, execEnv)
 	}
 }
 
-func handleSession(ch ssh.Channel, reqs <-chan *ssh.Request, execEnv []string) {
+func testHandleSession(ch ssh.Channel, reqs <-chan *ssh.Request, execEnv []string) {
 	defer ch.Close()
-
 	for req := range reqs {
 		if req.Type != "exec" {
 			if req.WantReply {
-				_ = req.Reply(false, nil)
+				ignoreReply(req, false)
 			}
 			continue
 		}
 		if len(req.Payload) < 4 {
-			_ = req.Reply(false, nil)
+			ignoreReply(req, false)
 			continue
 		}
 		cmdLen := binary.BigEndian.Uint32(req.Payload[:4])
 		command := string(req.Payload[4 : 4+cmdLen])
-		_ = req.Reply(true, nil)
+		ignoreReply(req, true)
 
 		cmd := exec.Command("sh", "-c", command)
 		cmd.Env = execEnv
@@ -390,9 +390,21 @@ func handleSession(ch ssh.Channel, reqs <-chan *ssh.Request, execEnv []string) {
 
 		exitMsg := make([]byte, 4)
 		binary.BigEndian.PutUint32(exitMsg, uint32(exitCode))
-		_, _ = ch.SendRequest("exit-status", false, exitMsg)
+		ignoreSendRequest(ch, "exit-status", false, exitMsg)
 		return
 	}
+}
+
+func ignoreReject(newChannel ssh.NewChannel, reason ssh.RejectionReason, message string) {
+	_ = newChannel.Reject(reason, message)
+}
+
+func ignoreReply(req *ssh.Request, ok bool) {
+	_ = req.Reply(ok, nil)
+}
+
+func ignoreSendRequest(ch ssh.Channel, name string, wantReply bool, payload []byte) {
+	_, _ = ch.SendRequest(name, wantReply, payload)
 }
 
 func writeTestKey(t *testing.T, path string) {
@@ -416,7 +428,7 @@ func writeFakeRemoteAmux(t *testing.T, ts *testSSH) {
 
 	path := filepath.Join(ts.HomeDir, ".local", "bin", "amux")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatalf("MkdirAll() error = %v", err)
+		t.Fatalf("mkdir fake amux dir: %v", err)
 	}
 
 	script := `#!/bin/sh
@@ -448,6 +460,6 @@ esac
 exit 1
 `
 	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
-		t.Fatalf("WriteFile() error = %v", err)
+		t.Fatalf("write fake amux script: %v", err)
 	}
 }

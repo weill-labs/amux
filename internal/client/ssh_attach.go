@@ -1,43 +1,40 @@
 package client
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"time"
 
 	"github.com/weill-labs/amux/internal/config"
-	"github.com/weill-labs/amux/internal/remote"
-	"github.com/weill-labs/amux/internal/sshutil"
-	"golang.org/x/crypto/ssh"
+	"github.com/weill-labs/amux/internal/transport"
+	_ "github.com/weill-labs/amux/internal/transport/ssh"
 	"golang.org/x/term"
 )
 
 type sshSessionTarget struct {
-	sshutil.SSHTarget
-	Address      string
-	IdentityFile string
+	Target     transport.Target
+	Transport  string
+	HostConfig config.Host
 }
 
 type sshSessionState struct {
-	client   *ssh.Client
-	sockPath string
+	transport transport.Transport
 }
 
 type sshRunSessionOps struct {
-	buildSSHConfig     func(string, string) (*ssh.ClientConfig, error)
-	sshDial            func(string, string, *ssh.ClientConfig) (*ssh.Client, error)
-	sshOutput          func(*ssh.Client, string) (string, error)
-	deployBinary       func(*ssh.Client, string) error
-	ensureRemoteServer func(*ssh.Client, string, string) error
-	dialRemoteSocket   func(*ssh.Client, string) (net.Conn, error)
+	newTransport       func(string, config.Host) (transport.Transport, error)
+	deployBinary       func(transport.Transport, transport.Target, string) error
+	ensureRemoteServer func(transport.Transport, transport.Target, string) error
+	dialRemoteSocket   func(transport.Transport, transport.Target) (net.Conn, error)
 }
 
-func RunSSHSession(target sshutil.SSHTarget) error {
+func RunSSHSession(target transport.Target) error {
 	return runSSHSession(target, term.GetSize, defaultSSHRunSessionOps(), runSessionWithDeps)
 }
 
 func runSSHSession(
-	target sshutil.SSHTarget,
+	target transport.Target,
 	getTermSize func(int) (int, int, error),
 	ops sshRunSessionOps,
 	runner func(string, func(int) (int, int, error), runSessionDeps) error,
@@ -50,135 +47,111 @@ func runSSHSession(
 	state := &sshSessionState{}
 	defer state.close()
 
-	return runner(resolved.Session, getTermSize, sshRunSessionDeps(resolved, state, ops))
+	return runner(resolved.Target.Session, getTermSize, sshRunSessionDeps(resolved, state, ops))
 }
 
-func resolveSSHSessionTarget(target sshutil.SSHTarget) (sshSessionTarget, error) {
+func resolveSSHSessionTarget(target transport.Target) (sshSessionTarget, error) {
 	cfg, err := config.Load(config.DefaultPath())
 	if err != nil {
 		return sshSessionTarget{}, fmt.Errorf("loading config: %w", err)
 	}
 
 	resolved := sshSessionTarget{
-		SSHTarget: target,
-		Address:   target.Host,
+		Target:    target,
+		Transport: cfg.HostTransport(target.Host),
 	}
 	if hostCfg, ok := cfg.Hosts[target.Host]; ok {
-		resolved.IdentityFile = hostCfg.IdentityFile
-		if hostCfg.Address != "" {
-			resolved.Address = hostCfg.Address
-		}
+		resolved.HostConfig = hostCfg
 	}
-	resolved.Address = resolveSSHAddress(resolved.Address, target.Port)
 	return resolved, nil
 }
 
 func defaultSSHRunSessionOps() sshRunSessionOps {
 	return sshRunSessionOps{
-		buildSSHConfig:     sshutil.BuildSSHConfig,
-		sshDial:            ssh.Dial,
-		sshOutput:          sshutil.SSHOutput,
-		deployBinary:       remote.DeployBinary,
-		ensureRemoteServer: sshutil.EnsureRemoteServer,
-		dialRemoteSocket:   sshutil.DialRemoteSocket,
+		newTransport: func(name string, cfg config.Host) (transport.Transport, error) {
+			return transport.Get(name, cfg)
+		},
+		deployBinary: func(tr transport.Transport, target transport.Target, buildHash string) error {
+			return tr.Deploy(context.Background(), target, buildHash)
+		},
+		ensureRemoteServer: func(tr transport.Transport, target transport.Target, sessionName string) error {
+			return tr.EnsureServer(context.Background(), target, sessionName)
+		},
+		dialRemoteSocket: func(tr transport.Transport, target transport.Target) (net.Conn, error) {
+			return tr.Dial(context.Background(), target)
+		},
 	}
 }
 
 func sshRunSessionDeps(target sshSessionTarget, state *sshSessionState, ops sshRunSessionOps) runSessionDeps {
 	deps := defaultRunSessionDeps()
 	deps.ensureDaemon = func(sessionName string, timeout time.Duration) error {
-		sshClient, sockPath, err := connectSSHSession(target, sessionName, timeout, ops)
+		tr, err := connectSSHSession(target, sessionName, timeout, ops)
 		if err != nil {
 			return err
 		}
-		state.set(sshClient, sockPath)
+		state.set(tr)
 		return nil
 	}
 	deps.dial = func(string, string) (net.Conn, error) {
-		if state.client == nil || state.sockPath == "" {
-			return nil, fmt.Errorf("ssh client not initialized")
+		if state.transport == nil {
+			return nil, fmt.Errorf("ssh transport not initialized")
 		}
-		// Ignore the local dial arguments: the remote socket path is established
-		// during ensureDaemon after we know the remote UID.
-		return ops.dialRemoteSocket(state.client, state.sockPath)
+		return ops.dialRemoteSocket(state.transport, target.Target)
 	}
 	return deps
 }
 
-func connectSSHSession(target sshSessionTarget, sessionName string, timeout time.Duration, ops sshRunSessionOps) (*ssh.Client, string, error) {
-	sshCfg, err := ops.buildSSHConfig(target.User, target.IdentityFile)
-	if err != nil {
-		return nil, "", fmt.Errorf("building SSH config: %w", err)
-	}
+func connectSSHSession(target sshSessionTarget, sessionName string, timeout time.Duration, ops sshRunSessionOps) (transport.Transport, error) {
+	sessionTarget := target.Target
+	sessionTarget.Session = sessionName
 
-	sshClient, err := ops.sshDial("tcp", target.Address, sshCfg)
+	tr, err := ops.newTransport(target.Transport, target.HostConfig)
 	if err != nil {
-		return nil, "", fmt.Errorf("SSH dial: %w", err)
-	}
-
-	remoteUID, err := ops.sshOutput(sshClient, "id -u")
-	if err != nil {
-		_ = sshClient.Close()
-		return nil, "", fmt.Errorf("querying remote UID: %w", err)
+		return nil, fmt.Errorf("creating %s transport: %w", target.Transport, err)
 	}
 
 	// Keep deploy best-effort so connection still works when upload fails.
-	_ = ops.deployBinary(sshClient, clientBuildHash())
+	_ = ops.deployBinary(tr, sessionTarget, clientBuildHash())
 
-	sockPath := sshutil.RemoteSocketPath(remoteUID, sessionName)
-	if err := ops.ensureRemoteServer(sshClient, sockPath, sessionName); err != nil {
-		_ = sshClient.Close()
-		return nil, "", fmt.Errorf("starting remote server: %w", err)
+	if err := ops.ensureRemoteServer(tr, sessionTarget, sessionName); err != nil {
+		_ = tr.Close()
+		return nil, fmt.Errorf("starting remote server: %w", err)
 	}
-	if err := waitForSSHRemoteSocket(sshClient, sockPath, timeout, ops.sshOutput); err != nil {
-		_ = sshClient.Close()
-		return nil, "", err
+	if err := waitForSSHRemoteSocket(tr, sessionTarget, timeout, ops.dialRemoteSocket); err != nil {
+		_ = tr.Close()
+		return nil, err
 	}
-	return sshClient, sockPath, nil
+	return tr, nil
 }
 
-func waitForSSHRemoteSocket(client *ssh.Client, sockPath string, timeout time.Duration, sshOutput func(*ssh.Client, string) (string, error)) error {
+func waitForSSHRemoteSocket(
+	tr transport.Transport,
+	target transport.Target,
+	timeout time.Duration,
+	dialRemoteSocket func(transport.Transport, transport.Target) (net.Conn, error),
+) error {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		out, err := sshOutput(client, remoteSocketProbeCmd(sockPath))
-		if err == nil && out == "ok" {
+		conn, err := dialRemoteSocket(tr, target)
+		if err == nil {
+			_ = conn.Close()
 			return nil
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	return fmt.Errorf("socket %s did not appear within %v", sockPath, timeout)
-}
-
-func remoteSocketProbeCmd(sockPath string) string {
-	return fmt.Sprintf("test -S %s && echo ok", sockPath)
-}
-
-func resolveSSHAddress(addr, port string) string {
-	if hasExplicitPort(addr) {
-		return addr
-	}
-	if port != "" && port != "22" {
-		return addr + ":" + port
-	}
-	return sshutil.NormalizeAddr(addr)
-}
-
-func hasExplicitPort(addr string) bool {
-	_, _, err := net.SplitHostPort(addr)
-	return err == nil
+	return fmt.Errorf("socket for session %s did not appear within %v", target.Session, timeout)
 }
 
 func (s *sshSessionState) close() {
-	if s.client == nil {
+	if s.transport == nil {
 		return
 	}
-	_ = s.client.Close()
-	s.client = nil
-	s.sockPath = ""
+	_ = s.transport.Close()
+	s.transport = nil
 }
 
-func (s *sshSessionState) set(client *ssh.Client, sockPath string) {
+func (s *sshSessionState) set(tr transport.Transport) {
 	s.close()
-	s.client = client
-	s.sockPath = sockPath
+	s.transport = tr
 }
