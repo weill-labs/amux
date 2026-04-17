@@ -602,6 +602,92 @@ exit 1
 	}
 }
 
+func TestWatchPRCIScriptDoesNotPassWhenRESTFallbackHasNoChecksYet(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	writeExecutable(t, filepath.Join(tempDir, "git"), `#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${1:-}" == "rev-parse" && "${2:-}" == "HEAD" ]]; then
+	printf 'deadbeef\n'
+	exit 0
+fi
+
+echo "unexpected git invocation: $*" >&2
+exit 1
+`)
+	writeExecutable(t, filepath.Join(tempDir, "gh"), `#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${1:-}" == "pr" && "${2:-}" == "view" ]]; then
+	cat <<'EOF'
+{"number":422,"url":"https://github.com/weill-labs/amux/pull/422","headRefName":"feat/ci-watch","headRefOid":"stale-sha"}
+EOF
+	exit 0
+fi
+
+if [[ "${1:-}" == "pr" && "${2:-}" == "checks" && " $* " == *" --json "* ]]; then
+	echo "GraphQL: API rate limit already exceeded for user ID 2343711." >&2
+	exit 1
+fi
+
+if [[ "${1:-}" == "api" && "${2:-}" == "repos/weill-labs/amux/branches/main/protection/required_status_checks" ]]; then
+	cat <<'EOF'
+{"strict":true,"contexts":["test"],"checks":[{"context":"test","app_id":15368}]}
+EOF
+	exit 0
+fi
+
+if [[ "${1:-}" == "api" && "${2:-}" == "repos/weill-labs/amux/commits/deadbeef/check-runs"* ]]; then
+	cat <<'EOF'
+{"check_runs":[]}
+EOF
+	exit 0
+fi
+
+if [[ "${1:-}" == "api" && "${2:-}" == "repos/weill-labs/amux/commits/deadbeef/status" ]]; then
+	cat <<'EOF'
+{"statuses":[]}
+EOF
+	exit 0
+fi
+
+if [[ "${1:-}" == "run" && "${2:-}" == "list" ]]; then
+	cat <<'EOF'
+[]
+EOF
+	exit 0
+fi
+
+echo "unexpected gh invocation: $*" >&2
+exit 1
+`)
+
+	cmd := exec.Command("bash", repoPath(t, "scripts/watch-pr-ci.sh"))
+	cmd.Dir = repoRoot(t)
+	cmd.Env = ciWatchScriptEnv(
+		t,
+		tempDir,
+		"AMUX_PR_RUN_DISCOVERY_TIMEOUT=0",
+		"AMUX_PR_RUN_DISCOVERY_INTERVAL=0",
+		"AMUX_PR_CHECK_INTERVAL=0",
+		"AMUX_PR_HEARTBEAT_INTERVAL=0",
+	)
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("expected failure when REST fallback reports no checks yet\n%s", out)
+	}
+
+	output := string(out)
+	if strings.Contains(output, "PR #422 CI passed") {
+		t.Fatalf("output should not report success:\n%s", out)
+	}
+	if !strings.Contains(output, "PR #422 CI failed") {
+		t.Fatalf("output missing failure message:\n%s", out)
+	}
+}
+
 func TestPushAndWatchCIScriptRunsPushBeforeWatching(t *testing.T) {
 	t.Parallel()
 

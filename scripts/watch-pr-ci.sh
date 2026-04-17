@@ -389,7 +389,7 @@ watch_required_checks() {
     while :; do
         poll_required_checks "$pr_number"
         poll_output="$(prefer_rest_required_checks_json "$poll_output" "$poll_status" "$poll_output")"
-        if (( used_rest_required_checks == 1 )); then
+        if (( used_rest_required_checks == 1 )) && json_has_items "$poll_output"; then
             poll_status=0
         fi
 
