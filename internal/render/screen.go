@@ -124,6 +124,7 @@ func DiffGrid(prev, next *ScreenGrid) []CellChange {
 		if firstChanged < 0 {
 			continue
 		}
+		lastChanged = extendChangedStatusTail(next, y, firstChanged, lastChanged)
 		for x := firstChanged; x <= lastChanged; x++ {
 			idx := y*next.Width + x
 			changes = append(changes, CellChange{
@@ -132,6 +133,55 @@ func DiffGrid(prev, next *ScreenGrid) []CellChange {
 		}
 	}
 	return changes
+}
+
+// Rows directly below a horizontal separator are pane-header rows. If a
+// header update changes earlier metadata but leaves the clipped tail
+// text/padding identical in the grid, the terminal can retain stale cells in
+// that tail from a previous partial write. Extend the rewrite through the rest
+// of the styled status-line segment so the lower-row header fully heals.
+func extendChangedStatusTail(next *ScreenGrid, y, firstChanged, lastChanged int) int {
+	if y <= 0 || !rowHasHorizontalSeparator(next, y-1) {
+		return lastChanged
+	}
+	if next.Get(firstChanged, y).Style.Bg == nil {
+		return lastChanged
+	}
+
+	end := lastChanged
+	for x := lastChanged + 1; x < next.Width; x++ {
+		cell := next.Get(x, y)
+		if cell.Width == 0 {
+			end = x
+			continue
+		}
+		if cell.Style.Bg == nil {
+			break
+		}
+		end = x
+	}
+	return end
+}
+
+func rowHasHorizontalSeparator(g *ScreenGrid, y int) bool {
+	if y < 0 || y >= g.Height {
+		return false
+	}
+	for x := 0; x < g.Width; x++ {
+		if isHorizontalSeparatorChar(g.Get(x, y).Char) {
+			return true
+		}
+	}
+	return false
+}
+
+func isHorizontalSeparatorChar(ch string) bool {
+	switch ch {
+	case "─", "┬", "┴", "┼", "├", "┤":
+		return true
+	default:
+		return false
+	}
 }
 
 // EmitDiff produces minimal ANSI output for the given cell changes.
