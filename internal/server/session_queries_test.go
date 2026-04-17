@@ -169,6 +169,44 @@ func TestResolvePaneAcrossWindowsForActorPrefersActorWindowForDuplicateNames(t *
 	}
 }
 
+func TestQueryPaneListSortsLocalFirstThenHost(t *testing.T) {
+	t.Parallel()
+
+	sess := newSession("test-query-pane-list-sort")
+	stopCrashCheckpointLoop(t, sess)
+	defer stopSessionBackgroundLoops(t, sess)
+
+	local := newProxyPane(1, mux.PaneMeta{Name: "local", Host: ""}, 80, 23, sess.paneOutputCallback(), sess.paneExitCallback(), func(data []byte) (int, error) {
+		return len(data), nil
+	})
+	alpha := newProxyPane(2, mux.PaneMeta{Name: "alpha-pane", Host: "alpha"}, 80, 23, sess.paneOutputCallback(), sess.paneExitCallback(), func(data []byte) (int, error) {
+		return len(data), nil
+	})
+	zulu := newProxyPane(3, mux.PaneMeta{Name: "zulu-pane", Host: "zulu"}, 80, 23, sess.paneOutputCallback(), sess.paneExitCallback(), func(data []byte) (int, error) {
+		return len(data), nil
+	})
+	window := newTestWindowWithPanes(t, sess, 1, "main", local, alpha, zulu)
+	setSessionLayoutForTest(t, sess, window.ID, []*mux.Window{window}, zulu, local, alpha)
+
+	entries, err := sess.queryPaneList()
+	if err != nil {
+		t.Fatalf("queryPaneList() error = %v", err)
+	}
+	if len(entries) != 3 {
+		t.Fatalf("queryPaneList() entries = %d, want 3", len(entries))
+	}
+
+	got := []string{
+		entries[0].host + "/" + entries[0].name,
+		entries[1].host + "/" + entries[1].name,
+		entries[2].host + "/" + entries[2].name,
+	}
+	want := []string{"/local", "alpha/alpha-pane", "zulu/zulu-pane"}
+	if got[0] != want[0] || got[1] != want[1] || got[2] != want[2] {
+		t.Fatalf("queryPaneList() order = %v, want %v", got, want)
+	}
+}
+
 func TestEnqueueUIWaitSubscribeErrors(t *testing.T) {
 	t.Parallel()
 

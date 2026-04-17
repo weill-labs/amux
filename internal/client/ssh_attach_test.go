@@ -13,6 +13,77 @@ import (
 	"github.com/weill-labs/amux/internal/transport"
 )
 
+func TestRunSSHSessionViaLocalServer(t *testing.T) {
+	t.Parallel()
+
+	resolved := sshSessionTarget{
+		Target:  transport.Target{Host: "builder", User: "deploy", Session: "work"},
+		HostRef: "deploy@builder",
+	}
+
+	var calls []string
+	err := runSSHSessionViaLocalServer(
+		resolved,
+		func(int) (int, int, error) { return 80, 24, nil },
+		func(session string, timeout time.Duration) error {
+			calls = append(calls, "ensure:"+session)
+			if timeout != 5*time.Second {
+				t.Fatalf("ensureDaemon timeout = %v, want %v", timeout, 5*time.Second)
+			}
+			return nil
+		},
+		func(session, cmd string, args []string) error {
+			calls = append(calls, "command:"+session+":"+cmd)
+			if cmd != "connect" {
+				t.Fatalf("runCommand cmd = %q, want connect", cmd)
+			}
+			if len(args) != 1 || args[0] != "deploy@builder" {
+				t.Fatalf("runCommand args = %#v, want [deploy@builder]", args)
+			}
+			return nil
+		},
+		func(sessionName string, _ func(int) (int, int, error), deps runSessionDeps) error {
+			calls = append(calls, "runner:"+sessionName)
+			if sessionName != "work" {
+				t.Fatalf("runner session = %q, want work", sessionName)
+			}
+			if deps.ensureDaemon == nil || deps.dial == nil {
+				t.Fatal("runner deps should include default session hooks")
+			}
+			return nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("runSSHSessionViaLocalServer() error = %v", err)
+	}
+
+	want := []string{"ensure:work", "command:work:connect", "runner:work"}
+	if strings.Join(calls, ",") != strings.Join(want, ",") {
+		t.Fatalf("calls = %v, want %v", calls, want)
+	}
+}
+
+func TestRunSSHSessionViaLocalServerWrapsConnectError(t *testing.T) {
+	t.Parallel()
+
+	err := runSSHSessionViaLocalServer(
+		sshSessionTarget{
+			Target:  transport.Target{Host: "builder", Session: "work"},
+			HostRef: "builder",
+		},
+		func(int) (int, int, error) { return 80, 24, nil },
+		func(string, time.Duration) error { return nil },
+		func(string, string, []string) error { return errors.New("boom") },
+		func(string, func(int) (int, int, error), runSessionDeps) error {
+			t.Fatal("runner should not be called after connect failure")
+			return nil
+		},
+	)
+	if err == nil || !strings.Contains(err.Error(), "connecting remote host: boom") {
+		t.Fatalf("runSSHSessionViaLocalServer() error = %v, want wrapped connect failure", err)
+	}
+}
+
 func TestDefaultSSHRunSessionOps(t *testing.T) {
 	t.Parallel()
 

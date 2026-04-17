@@ -210,6 +210,7 @@ var commandRegistry = map[string]CommandHandler{
 	"_layout-json":        cmdLayoutJSON,
 	"events":              cmdEvents,
 	"hosts":               cmdHosts,
+	"connect":             cmdConnect,
 	"disconnect":          cmdDisconnect,
 	"reconnect":           cmdReconnect,
 	"reload-server":       cmdReloadServer,

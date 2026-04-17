@@ -19,10 +19,13 @@ type PaneTransport interface {
 	SendResize(localPaneID uint32, cols, rows int) error
 	KillPane(localPaneID uint32, cleanup bool, timeout time.Duration) error
 	RemovePane(localPaneID uint32)
+	RegisterPane(hostName string, localPaneID uint32, remotePaneID uint32) error
 	CreatePane(hostName string, localPaneID uint32, sessionName string) (uint32, error)
+	ConnectHost(hostName string, sessionName string) (*LayoutSnapshot, error)
 	ConnStatusForPane(localPaneID uint32) string
 	HostStatus(hostName string) ConnState
 	AllHostStatus() map[string]ConnState
+	RunHostCommand(hostName string, sessionName string, cmdName string, cmdArgs []string) (string, error)
 	DisconnectHost(hostName string) error
 	ReconnectHost(hostName string, sessionName string) error
 	Shutdown()

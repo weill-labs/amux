@@ -218,12 +218,30 @@ type remoteStateChangeEvent struct {
 }
 
 func (e remoteStateChangeEvent) handle(s *Session) {
+	if rs := s.remoteSessions[e.hostName]; rs != nil {
+		rs.State = e.state
+	}
 	for _, p := range s.Panes {
 		if p.Meta.Host == e.hostName && p.IsProxy() {
 			p.Meta.Remote = string(e.state)
 		}
 	}
 	s.broadcastLayoutNow()
+}
+
+type remoteLayoutEvent struct {
+	hostName string
+	layout   *proto.LayoutSnapshot
+}
+
+func (e remoteLayoutEvent) handle(s *Session) {
+	rs := s.remoteSessions[e.hostName]
+	if rs == nil || e.layout == nil {
+		return
+	}
+	if err := rs.ApplyLayout(s, e.layout, false); err == nil {
+		s.broadcastLayoutNow()
+	}
 }
 
 type localPaneBuildResultEvent struct {
@@ -326,6 +344,10 @@ func (s *Session) enqueueRemotePaneExit(paneID uint32, reason string) {
 
 func (s *Session) enqueueRemoteStateChange(hostName string, state proto.ConnState) {
 	s.enqueueEvent(remoteStateChangeEvent{hostName: hostName, state: state})
+}
+
+func (s *Session) enqueueRemoteLayout(hostName string, layout *proto.LayoutSnapshot) {
+	s.enqueueEvent(remoteLayoutEvent{hostName: hostName, layout: layout})
 }
 
 // --- Pane output subscribe/unsubscribe through the event loop ---

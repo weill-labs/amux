@@ -87,6 +87,7 @@ type Session struct {
 	RemoteManager   proto.PaneTransport
 	remoteTakeover  PaneTakeoverTransport
 	remoteHostColor func(string) string
+	remoteSessions  map[string]*RemoteSession
 
 	// SSH takeover tracking — pane IDs that have already been taken over.
 	// Prevents duplicate takeover if the remote emits the sequence twice.
@@ -447,6 +448,7 @@ func newSessionWithLogger(name string, scrollbackLines int, logger *charmlog.Log
 	}
 	sess.idle = NewIdleTracker(sess.clock)
 	sess.takenOverPanes = make(map[uint32]bool)
+	sess.remoteSessions = make(map[string]*RemoteSession)
 	sess.terminalEventState = make(map[uint32]paneTerminalEventState)
 	sess.waiters = newWaiterManager()
 	sess.capture = newCaptureForwarder()

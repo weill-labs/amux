@@ -186,6 +186,17 @@ func (ctx inputCommandContext) SendKeys(actorPaneID uint32, args []string) (stri
 }
 
 func cmdSendKeys(ctx *CommandContext) {
+	if len(ctx.Args) > 0 {
+		ref, err := ctx.Sess.queryPaneRef(ctx.Args[0])
+		if err != nil {
+			ctx.replyErr(err.Error())
+			return
+		}
+		if ref.Host != "" {
+			ctx.applyCommandResult(remoteCommandResult(ctx.Sess, ref.Host, "send-keys", rewritePaneRefArg(ctx.Args, 0, ref.Pane)))
+			return
+		}
+	}
 	ctx.applyCommandResult(inputcmd.SendKeys(inputCommandContext{ctx}, ctx.ActorPaneID, ctx.Args))
 }
 

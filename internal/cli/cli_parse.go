@@ -33,6 +33,7 @@ var canonicalSessionCommands = map[string]sessionCommandSpec{
 	"_inject-proxy": {connectName: "_inject-proxy", argMode: sessionCommandForwardArgs},
 	"_layout-json":  {connectName: "_layout-json", argMode: sessionCommandNoArgs},
 	"capture":       {connectName: "capture", argMode: sessionCommandForwardArgs},
+	"connect":       {connectName: "connect", minArgs: 1, usage: connectUsage, argMode: sessionCommandFirstArg},
 	"copy-mode":     {connectName: "copy-mode", argMode: sessionCommandForwardArgs},
 	"cursor":        {connectName: "cursor", minArgs: 1, usage: cursorUsage, argMode: sessionCommandForwardArgs},
 	"disconnect":    {connectName: "disconnect", minArgs: 1, usage: disconnectUsage, argMode: sessionCommandFirstArg},

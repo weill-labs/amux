@@ -220,6 +220,7 @@ func RunServer(sessionName string, managedTakeover bool, buildVersion string) {
 			OnPaneOutput:  hooks.OnPaneOutput,
 			OnPaneExit:    hooks.OnPaneExit,
 			OnStateChange: hooks.OnStateChange,
+			OnLayout:      hooks.OnLayout,
 			Logger:        logger.With("component", "ssh"),
 		})
 	}

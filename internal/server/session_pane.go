@@ -519,7 +519,7 @@ func (s *Session) prepareRemotePane(hostName string, cols, rows int) (*mux.Pane,
 	))
 
 	// Create the corresponding pane on the remote server
-	_, err := s.RemoteManager.CreatePane(hostName, id, s.Name)
+	_, err := s.RemoteManager.CreatePane(hostName, id, managedSessionName(s.Name))
 	if err != nil {
 		s.RemoteManager.RemovePane(id)
 		return nil, err

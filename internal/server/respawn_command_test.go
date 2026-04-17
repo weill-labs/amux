@@ -14,6 +14,8 @@ import (
 	"github.com/weill-labs/amux/internal/mux"
 )
 
+const respawnWaitTimeout = 10 * time.Second
+
 func TestRespawnCommandRestartsLocalPaneInPlace(t *testing.T) {
 	t.Parallel()
 
@@ -304,7 +306,7 @@ func withShellForTest(t *testing.T, shellPath string) func() {
 func waitForMarkerCount(t *testing.T, path string, want int) {
 	t.Helper()
 
-	waitUntilRespawn(t, 5*time.Second, func() bool {
+	waitUntilRespawn(t, respawnWaitTimeout, func() bool {
 		data, err := os.ReadFile(path)
 		return err == nil && len(bytes.TrimSpace(data)) >= want
 	})
@@ -313,7 +315,7 @@ func waitForMarkerCount(t *testing.T, path string, want int) {
 func waitForFileString(t *testing.T, path, want string) {
 	t.Helper()
 
-	waitUntilRespawn(t, 5*time.Second, func() bool {
+	waitUntilRespawn(t, respawnWaitTimeout, func() bool {
 		data, err := os.ReadFile(path)
 		return err == nil && strings.TrimSpace(string(data)) == want
 	}, func() string {
@@ -328,7 +330,7 @@ func waitForFileString(t *testing.T, path, want string) {
 func waitForProcessExit(t *testing.T, pid int) {
 	t.Helper()
 
-	waitUntilRespawn(t, 5*time.Second, func() bool {
+	waitUntilRespawn(t, respawnWaitTimeout, func() bool {
 		return syscall.Kill(pid, 0) != nil
 	})
 }

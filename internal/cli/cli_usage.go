@@ -17,6 +17,7 @@ const (
 	spawnUsage        = "usage: amux spawn [--auto] [--at <pane>] [--window <name|id>] [--vertical|--horizontal] [--root] [--focus] [--name NAME] [--host HOST] [--task TASK] [--color COLOR]"
 	swapUsage         = "usage: amux swap <pane1> <pane2> [--tree] | amux swap forward | amux swap backward"
 	cursorUsage       = "usage: amux cursor <layout|clipboard|ui> [--client <id>]"
+	connectUsage      = "usage: amux connect <host>"
 	disconnectUsage   = "usage: amux disconnect <host>"
 	focusUsage        = "usage: amux focus <pane>"
 	listClientsUsage  = "usage: amux list-clients"
@@ -51,6 +52,7 @@ var commandUsageByName = map[string]string{
 	"capture":          "usage: amux capture [pane] [--history <pane>] [--ansi] [--colors]",
 	"copy-mode":        "usage: amux copy-mode [pane] [--wait ui=copy-mode-shown] [--timeout <duration>]",
 	"cursor":           cursorUsage,
+	"connect":          connectUsage,
 	"debug":            debugUsage,
 	"disconnect":       disconnectUsage,
 	"equalize":         "usage: amux equalize [--vertical|--all]",
@@ -168,6 +170,7 @@ Usage:
                                        Capture a pane's retained history + visible screen
   amux [-s session] capture --ansi     Capture with ANSI escape codes
   amux [-s session] capture --colors   Capture border color map
+  amux [-s session] connect <host>     Connect to a remote amux session and mirror its panes locally
   amux [-s session] send-keys <pane> [--via pty|client] [--client <id>] [--wait ready|ui=input-idle] [--timeout <duration>] [--delay-final <duration>] [--hex] <keys>...
                                        Send keystrokes to a pane
   amux [-s session] mouse [--client <id>] [--timeout <duration>] ...

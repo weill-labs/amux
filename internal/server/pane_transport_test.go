@@ -37,8 +37,9 @@ func TestPrepareRemotePaneUsesConfiguredTransportHostColor(t *testing.T) {
 		t.Fatalf("CreatePane calls = %d, want 1", len(transport.createPaneCalls))
 	}
 	call := transport.createPaneCalls[0]
-	if call.hostName != "dev" || call.sessionName != sess.Name {
-		t.Fatalf("CreatePane call = %+v, want host dev and session %q", call, sess.Name)
+	wantSession := managedSessionName(sess.Name)
+	if call.hostName != "dev" || call.sessionName != wantSession {
+		t.Fatalf("CreatePane call = %+v, want host dev and session %q", call, wantSession)
 	}
 }
 

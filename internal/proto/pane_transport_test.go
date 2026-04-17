@@ -13,13 +13,20 @@ func (testPaneTransport) SendInput(uint32, []byte) error                    { re
 func (testPaneTransport) SendResize(uint32, int, int) error                 { return nil }
 func (testPaneTransport) KillPane(uint32, bool, time.Duration) error        { return nil }
 func (testPaneTransport) RemovePane(uint32)                                 {}
+func (testPaneTransport) RegisterPane(string, uint32, uint32) error         { return nil }
 func (testPaneTransport) CreatePane(string, uint32, string) (uint32, error) { return 0, nil }
-func (testPaneTransport) ConnStatusForPane(uint32) string                   { return "" }
-func (testPaneTransport) HostStatus(string) ConnState                       { return Disconnected }
-func (testPaneTransport) AllHostStatus() map[string]ConnState               { return map[string]ConnState{} }
-func (testPaneTransport) DisconnectHost(string) error                       { return nil }
-func (testPaneTransport) ReconnectHost(string, string) error                { return nil }
-func (testPaneTransport) Shutdown()                                         {}
+func (testPaneTransport) ConnectHost(string, string) (*LayoutSnapshot, error) {
+	return &LayoutSnapshot{}, nil
+}
+func (testPaneTransport) ConnStatusForPane(uint32) string     { return "" }
+func (testPaneTransport) HostStatus(string) ConnState         { return Disconnected }
+func (testPaneTransport) AllHostStatus() map[string]ConnState { return map[string]ConnState{} }
+func (testPaneTransport) RunHostCommand(string, string, string, []string) (string, error) {
+	return "", nil
+}
+func (testPaneTransport) DisconnectHost(string) error        { return nil }
+func (testPaneTransport) ReconnectHost(string, string) error { return nil }
+func (testPaneTransport) Shutdown()                          {}
 
 func TestConnStateConstants(t *testing.T) {
 	t.Parallel()

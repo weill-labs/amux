@@ -11,6 +11,9 @@ type stubPaneTransport struct {
 	createPaneErr    error
 	createPaneRemote uint32
 	createPaneCalls  []createPaneCall
+	runHostOutput    string
+	runHostErr       error
+	runHostCalls     []runHostCommandCall
 	sendInputCalls   []sendInputCall
 	sendInputErr     error
 	sendResizeErr    error
@@ -35,6 +38,13 @@ type createPaneCall struct {
 type sendInputCall struct {
 	localPaneID uint32
 	data        []byte
+}
+
+type runHostCommandCall struct {
+	hostName    string
+	sessionName string
+	cmdName     string
+	cmdArgs     []string
 }
 
 type attachForTakeoverCall struct {
@@ -78,6 +88,13 @@ func (s *stubPaneTransport) RemovePane(localPaneID uint32) {
 	s.removedPanes = append(s.removedPanes, localPaneID)
 }
 
+func (s *stubPaneTransport) RegisterPane(hostName string, localPaneID uint32, remotePaneID uint32) error {
+	if err := s.lookupHostErr(s.disconnectErrs, hostName); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (s *stubPaneTransport) CreatePane(hostName string, localPaneID uint32, sessionName string) (uint32, error) {
 	s.createPaneCalls = append(s.createPaneCalls, createPaneCall{
 		hostName:    hostName,
@@ -91,6 +108,28 @@ func (s *stubPaneTransport) CreatePane(hostName string, localPaneID uint32, sess
 		return s.createPaneRemote, nil
 	}
 	return 1, nil
+}
+
+func (s *stubPaneTransport) ConnectHost(hostName string, sessionName string) (*proto.LayoutSnapshot, error) {
+	if err := s.lookupHostErr(s.reconnectErrs, hostName); err != nil {
+		return nil, err
+	}
+	return &proto.LayoutSnapshot{
+		ActiveWindowID: 1,
+		Windows: []proto.WindowSnapshot{{
+			ID:           1,
+			Name:         hostName,
+			ActivePaneID: 1,
+			Root: proto.CellSnapshot{
+				X: 0, Y: 0, W: 80, H: 24, IsLeaf: true, Dir: -1, PaneID: 1,
+			},
+			Panes: []proto.PaneSnapshot{{
+				ID:   1,
+				Name: "pane-1",
+				Host: hostName,
+			}},
+		}},
+	}, nil
 }
 
 func (s *stubPaneTransport) ConnStatusForPane(localPaneID uint32) string {
@@ -119,6 +158,25 @@ func (s *stubPaneTransport) AllHostStatus() map[string]proto.ConnState {
 		out[hostName] = status
 	}
 	return out
+}
+
+func (s *stubPaneTransport) RunHostCommand(hostName string, sessionName string, cmdName string, cmdArgs []string) (string, error) {
+	s.runHostCalls = append(s.runHostCalls, runHostCommandCall{
+		hostName:    hostName,
+		sessionName: sessionName,
+		cmdName:     cmdName,
+		cmdArgs:     append([]string(nil), cmdArgs...),
+	})
+	if err := s.lookupHostErr(s.reconnectErrs, hostName); err != nil {
+		return "", err
+	}
+	if sessionName == "" || cmdName == "" {
+		return "", fmt.Errorf("missing remote command")
+	}
+	if s.runHostErr != nil {
+		return "", s.runHostErr
+	}
+	return s.runHostOutput, nil
 }
 
 func (s *stubPaneTransport) DisconnectHost(hostName string) error {

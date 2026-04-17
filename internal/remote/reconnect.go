@@ -27,11 +27,7 @@ func (hc *HostConn) reconnectLoop(target reconnectTarget) {
 
 		var outcome *connectOutcome
 		var err error
-		if target.takeover {
-			outcome, err = hc.doConnectTakeover(target.sessionName, target.remoteUID, target.connectAddr)
-		} else {
-			outcome, err = hc.doConnectWithAddr(target.sessionName, target.connectAddr)
-		}
+		outcome, err = hc.doConnectTarget(target.target, !target.takeover, target.takeover)
 
 		if err == nil {
 			done := make(chan struct{})

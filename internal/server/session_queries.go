@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/weill-labs/amux/internal/mux"
@@ -10,10 +11,10 @@ import (
 
 type activeWindowSnapshot struct {
 	activePane *mux.Pane
-	activePID int
-	width     int
-	height    int
-	proxyHost string
+	activePID  int
+	width      int
+	height     int
+	proxyHost  string
 }
 
 type resolvedPaneRef struct {
@@ -325,6 +326,33 @@ func (s *Session) queryPaneList() ([]paneListEntry, error) {
 			}
 			entries = append(entries, entry)
 		}
+		slices.SortFunc(entries, func(a, b paneListEntry) int {
+			aGroup, bGroup := a.host, b.host
+			if aGroup == "" {
+				aGroup = "\x00"
+			}
+			if bGroup == "" {
+				bGroup = "\x00"
+			}
+			switch {
+			case aGroup < bGroup:
+				return -1
+			case aGroup > bGroup:
+				return 1
+			}
+			switch {
+			case a.name < b.name:
+				return -1
+			case a.name > b.name:
+				return 1
+			case a.paneID < b.paneID:
+				return -1
+			case a.paneID > b.paneID:
+				return 1
+			default:
+				return 0
+			}
+		})
 		return entries, nil
 	})
 }
