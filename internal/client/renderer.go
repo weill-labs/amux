@@ -117,7 +117,10 @@ func (r *Renderer) HandleLayout(snap *proto.LayoutSnapshot) bool {
 			if !next.paneInActiveLayout(ps.ID) {
 				continue
 			}
-			w, h := proto.FindPaneDimensions(snap, activeRoot, ps.ID, mux.PaneContentHeight)
+			w, h, ok := st.paneEmulatorDimensions(next, ps.ID)
+			if !ok {
+				continue
+			}
 			nextEmulators[ps.ID] = mux.NewVTEmulatorWithDrainAndScrollback(w, h, next.scrollbackLines)
 		}
 

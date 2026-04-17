@@ -129,8 +129,13 @@ type rendererActorState struct {
 // paneOutputBuffer keeps raw PTY bytes for hidden panes until a visible or
 // capture path needs emulator state. This intentionally trades CPU for memory;
 // hidden-pane buffers are uncapped for now and can grow with hidden output.
+// replayWidth/replayHeight capture the pane size the hidden shell was still
+// using when buffering started so a cold emulator can replay at the source
+// width before the normal visible-pane resize path catches up.
 type paneOutputBuffer struct {
-	chunks [][]byte
+	chunks       [][]byte
+	replayWidth  int
+	replayHeight int
 }
 
 func (b *paneOutputBuffer) appendChunk(data []byte) {
@@ -142,6 +147,21 @@ func (b *paneOutputBuffer) appendChunk(data []byte) {
 
 func (b *paneOutputBuffer) empty() bool {
 	return len(b.chunks) == 0
+}
+
+func (b *paneOutputBuffer) setReplayDimensions(width, height int) {
+	if width <= 0 || height <= 0 || (b.replayWidth > 0 && b.replayHeight > 0) {
+		return
+	}
+	b.replayWidth = width
+	b.replayHeight = height
+}
+
+func (b *paneOutputBuffer) replayDimensions() (int, int, bool) {
+	if b.replayWidth <= 0 || b.replayHeight <= 0 {
+		return 0, 0, false
+	}
+	return b.replayWidth, b.replayHeight, true
 }
 
 func (b *paneOutputBuffer) flush(emu mux.TerminalEmulator) {
@@ -160,7 +180,23 @@ func (st *rendererActorState) bufferPaneOutput(paneID uint32, data []byte) {
 		buf = &paneOutputBuffer{}
 		st.pendingPaneOutput[paneID] = buf
 	}
+	if width, height, ok := st.snapshot.paneDimensions(paneID); ok {
+		buf.setReplayDimensions(width, height)
+	}
 	buf.appendChunk(data)
+}
+
+// paneEmulatorDimensions returns the size a cold emulator should use before any
+// buffered replay runs. Hidden panes prefer the buffered source dimensions so
+// VT replay matches the shell's original cursor math; once visible, the normal
+// resize path updates the emulator to the current layout dimensions.
+func (st *rendererActorState) paneEmulatorDimensions(snap *rendererSnapshot, paneID uint32) (int, int, bool) {
+	if buf := st.pendingPaneOutput[paneID]; buf != nil {
+		if width, height, ok := buf.replayDimensions(); ok {
+			return width, height, true
+		}
+	}
+	return snap.paneDimensions(paneID)
 }
 
 func (st *rendererActorState) ensurePaneEmulator(paneID uint32) mux.TerminalEmulator {
@@ -173,7 +209,7 @@ func (st *rendererActorState) ensurePaneEmulator(paneID uint32) mux.TerminalEmul
 	if _, ok := st.snapshot.paneInfo[paneID]; !ok {
 		return nil
 	}
-	width, height, ok := st.snapshot.paneDimensions(paneID)
+	width, height, ok := st.paneEmulatorDimensions(st.snapshot, paneID)
 	if !ok {
 		return nil
 	}
