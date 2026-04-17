@@ -141,7 +141,7 @@ Commit design specs and implementation plans to the feature branch, not main. Co
 
 PR title and description are the permanent record of why a change was made. Write them for a reviewer seeing the diff for the first time.
 
-**Title**: State what changed in imperative mood, under 70 characters. Example: "Timestamp crash checkpoint filenames to prevent overwriting". Omit ticket prefixes like `LAB-314:` — link tickets in the description body instead.
+**Title**: State what changed in imperative mood, under 70 characters. Always include the Linear issue prefix (e.g., `LAB-314:`) when a ticket exists, so the PR list shows the ticket inline. Example: "LAB-314: Timestamp crash checkpoint filenames to prevent overwriting". Also add `Closes LAB-NNN` in the description body for auto-close on merge.
 
 **Description** must include four sections:
 
