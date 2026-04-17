@@ -1,6 +1,7 @@
 package client
 
 import (
+	"context"
 	"errors"
 	"net"
 	"os"
@@ -8,16 +9,15 @@ import (
 	"testing"
 	"time"
 
-	"golang.org/x/crypto/ssh"
-
-	"github.com/weill-labs/amux/internal/sshutil"
+	"github.com/weill-labs/amux/internal/config"
+	"github.com/weill-labs/amux/internal/transport"
 )
 
 func TestDefaultSSHRunSessionOps(t *testing.T) {
 	t.Parallel()
 
 	ops := defaultSSHRunSessionOps()
-	if ops.buildSSHConfig == nil || ops.sshDial == nil || ops.sshOutput == nil || ops.deployBinary == nil || ops.ensureRemoteServer == nil || ops.dialRemoteSocket == nil {
+	if ops.newTransport == nil || ops.deployBinary == nil || ops.ensureRemoteServer == nil || ops.dialRemoteSocket == nil {
 		t.Fatalf("defaultSSHRunSessionOps() = %#v, want all hooks wired", ops)
 	}
 }
@@ -29,7 +29,7 @@ func TestRunSSHSessionReturnsConfigLoadError(t *testing.T) {
 	}
 	t.Setenv("AMUX_CONFIG", configPath)
 
-	err := RunSSHSession(sshutil.SSHTarget{
+	err := RunSSHSession(transport.Target{
 		User:    "deploy",
 		Host:    "builder",
 		Port:    "22",
@@ -47,6 +47,7 @@ func TestRunSSHSessionUsesRunner(t *testing.T) {
 	configPath := t.TempDir() + "/config.toml"
 	if err := os.WriteFile(configPath, []byte(`
 [hosts.builder]
+transport = "ssh"
 address = "10.0.0.5:2222"
 identity_file = "/tmp/id_builder"
 `), 0o600); err != nil {
@@ -56,16 +57,16 @@ identity_file = "/tmp/id_builder"
 
 	getSize := func(int) (int, int, error) { return 80, 24, nil }
 	ops := sshRunSessionOps{
-		buildSSHConfig:     func(string, string) (*ssh.ClientConfig, error) { return &ssh.ClientConfig{}, nil },
-		sshDial:            func(string, string, *ssh.ClientConfig) (*ssh.Client, error) { return new(ssh.Client), nil },
-		sshOutput:          func(*ssh.Client, string) (string, error) { return "", nil },
-		deployBinary:       func(*ssh.Client, string) error { return nil },
-		ensureRemoteServer: func(*ssh.Client, string, string) error { return nil },
-		dialRemoteSocket:   func(*ssh.Client, string) (net.Conn, error) { return nil, nil },
+		newTransport: func(string, config.Host) (transport.Transport, error) {
+			return &stubSessionTransport{}, nil
+		},
+		deployBinary:       func(transport.Transport, transport.Target, string) error { return nil },
+		ensureRemoteServer: func(transport.Transport, transport.Target, string) error { return nil },
+		dialRemoteSocket:   func(transport.Transport, transport.Target) (net.Conn, error) { return noopConn{}, nil },
 	}
 
 	called := false
-	err := runSSHSession(sshutil.SSHTarget{
+	err := runSSHSession(transport.Target{
 		User:    "deploy",
 		Host:    "builder",
 		Port:    "22",
@@ -91,10 +92,11 @@ identity_file = "/tmp/id_builder"
 	}
 }
 
-func TestResolveSSHSessionTargetUsesConfiguredAddressAndIdentity(t *testing.T) {
+func TestResolveSSHSessionTargetUsesConfiguredTransportAndHostConfig(t *testing.T) {
 	configPath := t.TempDir() + "/config.toml"
 	if err := os.WriteFile(configPath, []byte(`
 [hosts.builder]
+transport = "ssh"
 address = "10.0.0.5:2222"
 identity_file = "/tmp/id_builder"
 `), 0o600); err != nil {
@@ -102,7 +104,7 @@ identity_file = "/tmp/id_builder"
 	}
 	t.Setenv("AMUX_CONFIG", configPath)
 
-	target, err := resolveSSHSessionTarget(sshutil.SSHTarget{
+	target, err := resolveSSHSessionTarget(transport.Target{
 		User:    "deploy",
 		Host:    "builder",
 		Port:    "22",
@@ -111,37 +113,14 @@ identity_file = "/tmp/id_builder"
 	if err != nil {
 		t.Fatalf("resolveSSHSessionTarget() error = %v", err)
 	}
-	if target.Address != "10.0.0.5:2222" {
-		t.Fatalf("resolveSSHSessionTarget() address = %q, want %q", target.Address, "10.0.0.5:2222")
+	if target.Transport != "ssh" {
+		t.Fatalf("resolveSSHSessionTarget() transport = %q, want ssh", target.Transport)
 	}
-	if target.IdentityFile != "/tmp/id_builder" {
-		t.Fatalf("resolveSSHSessionTarget() identity file = %q, want %q", target.IdentityFile, "/tmp/id_builder")
+	if target.HostConfig.Address != "10.0.0.5:2222" {
+		t.Fatalf("resolveSSHSessionTarget() address = %q, want %q", target.HostConfig.Address, "10.0.0.5:2222")
 	}
-}
-
-func TestResolveSSHAddress(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name string
-		addr string
-		port string
-		want string
-	}{
-		{name: "preserve explicit port", addr: "builder:2222", port: "22", want: "builder:2222"},
-		{name: "apply custom target port", addr: "builder", port: "2200", want: "builder:2200"},
-		{name: "default to port 22", addr: "builder", port: "22", want: "builder:22"},
-	}
-
-	for _, tt := range tests {
-		tt := tt
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			if got := resolveSSHAddress(tt.addr, tt.port); got != tt.want {
-				t.Fatalf("resolveSSHAddress(%q, %q) = %q, want %q", tt.addr, tt.port, got, tt.want)
-			}
-		})
+	if target.HostConfig.IdentityFile != "/tmp/id_builder" {
+		t.Fatalf("resolveSSHSessionTarget() identity file = %q, want %q", target.HostConfig.IdentityFile, "/tmp/id_builder")
 	}
 }
 
@@ -149,95 +128,76 @@ func TestSSHRunSessionDepsEnsureDaemonAndDial(t *testing.T) {
 	t.Parallel()
 
 	state := &sshSessionState{}
-	sshClient := new(ssh.Client)
-	sshConfig := &ssh.ClientConfig{}
-	connClient, connServer := net.Pipe()
-	t.Cleanup(func() {
-		_ = connClient.Close()
-		_ = connServer.Close()
-	})
+	probeConn := noopConn{}
+	wantConn := noopConn{}
+	tr := &stubSessionTransport{name: "ssh"}
 
 	var calls []string
 	deps := sshRunSessionDeps(sshSessionTarget{
-		SSHTarget: sshutil.SSHTarget{
+		Target: transport.Target{
 			User:    "alice",
 			Host:    "builder",
 			Port:    "22",
 			Session: "work",
 		},
-		Address:      "10.0.0.5:2222",
-		IdentityFile: "/tmp/id_builder",
+		Transport: "ssh",
+		HostConfig: config.Host{
+			Address:      "10.0.0.5:2222",
+			IdentityFile: "/tmp/id_builder",
+		},
 	}, state, sshRunSessionOps{
-		buildSSHConfig: func(user, identityFile string) (*ssh.ClientConfig, error) {
-			calls = append(calls, "build-config")
-			if user != "alice" {
-				t.Fatalf("buildSSHConfig user = %q, want alice", user)
+		newTransport: func(name string, hostCfg config.Host) (transport.Transport, error) {
+			calls = append(calls, "new-transport")
+			if name != "ssh" {
+				t.Fatalf("newTransport name = %q, want ssh", name)
 			}
-			if identityFile != "/tmp/id_builder" {
-				t.Fatalf("buildSSHConfig identityFile = %q, want /tmp/id_builder", identityFile)
+			if hostCfg.Address != "10.0.0.5:2222" {
+				t.Fatalf("newTransport address = %q, want 10.0.0.5:2222", hostCfg.Address)
 			}
-			return sshConfig, nil
+			if hostCfg.IdentityFile != "/tmp/id_builder" {
+				t.Fatalf("newTransport identityFile = %q, want /tmp/id_builder", hostCfg.IdentityFile)
+			}
+			return tr, nil
 		},
-		sshDial: func(network, addr string, cfg *ssh.ClientConfig) (*ssh.Client, error) {
-			calls = append(calls, "ssh-dial")
-			if network != "tcp" {
-				t.Fatalf("sshDial network = %q, want tcp", network)
-			}
-			if addr != "10.0.0.5:2222" {
-				t.Fatalf("sshDial addr = %q, want 10.0.0.5:2222", addr)
-			}
-			if cfg != sshConfig {
-				t.Fatal("sshDial received unexpected client config")
-			}
-			return sshClient, nil
-		},
-		sshOutput: func(client *ssh.Client, cmd string) (string, error) {
-			calls = append(calls, "ssh-output:"+cmd)
-			if client != sshClient {
-				t.Fatal("sshOutput received unexpected client")
-			}
-			switch cmd {
-			case "id -u":
-				return "1001", nil
-			case "test -S /tmp/amux-1001/work && echo ok":
-				return "ok", nil
-			default:
-				t.Fatalf("sshOutput cmd = %q, want id -u or socket probe", cmd)
-				return "", nil
-			}
-		},
-		deployBinary: func(client *ssh.Client, buildHash string) error {
+		deployBinary: func(got transport.Transport, target transport.Target, buildHash string) error {
 			calls = append(calls, "deploy")
-			if client != sshClient {
-				t.Fatal("deployBinary received unexpected client")
+			if got != tr {
+				t.Fatal("deployBinary received unexpected transport")
+			}
+			if target.Host != "builder" || target.Session != "work" {
+				t.Fatalf("deployBinary target = %#v, want builder/work target", target)
 			}
 			if buildHash == "" {
 				t.Fatal("deployBinary buildHash should not be empty")
 			}
 			return nil
 		},
-		ensureRemoteServer: func(client *ssh.Client, sockPath, sessionName string) error {
+		ensureRemoteServer: func(got transport.Transport, target transport.Target, sessionName string) error {
 			calls = append(calls, "ensure-remote")
-			if client != sshClient {
-				t.Fatal("ensureRemoteServer received unexpected client")
+			if got != tr {
+				t.Fatal("ensureRemoteServer received unexpected transport")
 			}
-			if sockPath != "/tmp/amux-1001/work" {
-				t.Fatalf("ensureRemoteServer sockPath = %q, want /tmp/amux-1001/work", sockPath)
+			if target.Host != "builder" || target.Session != "work" {
+				t.Fatalf("ensureRemoteServer target = %#v, want builder/work target", target)
 			}
 			if sessionName != "work" {
 				t.Fatalf("ensureRemoteServer sessionName = %q, want work", sessionName)
 			}
 			return nil
 		},
-		dialRemoteSocket: func(client *ssh.Client, sockPath string) (net.Conn, error) {
-			calls = append(calls, "dial-remote-socket")
-			if client != sshClient {
-				t.Fatal("dialRemoteSocket received unexpected client")
+		dialRemoteSocket: func(got transport.Transport, target transport.Target) (net.Conn, error) {
+			if got != tr {
+				t.Fatal("dialRemoteSocket received unexpected transport")
 			}
-			if sockPath != "/tmp/amux-1001/work" {
-				t.Fatalf("dialRemoteSocket sockPath = %q, want /tmp/amux-1001/work", sockPath)
+			if target.Host != "builder" || target.Session != "work" {
+				t.Fatalf("dialRemoteSocket target = %#v, want builder/work target", target)
 			}
-			return connClient, nil
+			if len(calls) == 3 {
+				calls = append(calls, "probe-dial")
+				return probeConn, nil
+			}
+			calls = append(calls, "session-dial")
+			return wantConn, nil
 		},
 	})
 
@@ -248,18 +208,16 @@ func TestSSHRunSessionDepsEnsureDaemonAndDial(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dial() error = %v", err)
 	}
-	if conn != connClient {
-		t.Fatal("dial() returned unexpected connection")
+	if conn != wantConn {
+		t.Fatalf("dial() = %#v, want %#v", conn, wantConn)
 	}
 
 	wantCalls := []string{
-		"build-config",
-		"ssh-dial",
-		"ssh-output:id -u",
+		"new-transport",
 		"deploy",
 		"ensure-remote",
-		"ssh-output:test -S /tmp/amux-1001/work && echo ok",
-		"dial-remote-socket",
+		"probe-dial",
+		"session-dial",
 	}
 	if len(calls) != len(wantCalls) {
 		t.Fatalf("calls = %v, want %v", calls, wantCalls)
@@ -275,35 +233,59 @@ func TestSSHRunSessionDepsIgnoresDeployFailure(t *testing.T) {
 	t.Parallel()
 
 	state := &sshSessionState{}
-	sshClient := new(ssh.Client)
+	tr := &stubSessionTransport{name: "ssh"}
 
 	deps := sshRunSessionDeps(sshSessionTarget{
-		SSHTarget: sshutil.SSHTarget{
+		Target: transport.Target{
 			User:    "alice",
 			Host:    "builder",
 			Port:    "22",
 			Session: "main",
 		},
-		Address: "builder:22",
+		Transport: "ssh",
 	}, state, sshRunSessionOps{
-		buildSSHConfig: func(string, string) (*ssh.ClientConfig, error) { return &ssh.ClientConfig{}, nil },
-		sshDial:        func(string, string, *ssh.ClientConfig) (*ssh.Client, error) { return sshClient, nil },
-		sshOutput: func(_ *ssh.Client, cmd string) (string, error) {
-			switch cmd {
-			case "id -u":
-				return "1000", nil
-			case "test -S /tmp/amux-1000/main && echo ok":
-				return "ok", nil
-			default:
-				return "", nil
-			}
-		},
-		deployBinary:       func(*ssh.Client, string) error { return errors.New("deploy failed") },
-		ensureRemoteServer: func(*ssh.Client, string, string) error { return nil },
-		dialRemoteSocket:   func(*ssh.Client, string) (net.Conn, error) { return nil, nil },
+		newTransport:       func(string, config.Host) (transport.Transport, error) { return tr, nil },
+		deployBinary:       func(transport.Transport, transport.Target, string) error { return errors.New("deploy failed") },
+		ensureRemoteServer: func(transport.Transport, transport.Target, string) error { return nil },
+		dialRemoteSocket:   func(transport.Transport, transport.Target) (net.Conn, error) { return noopConn{}, nil },
 	})
 
 	if err := deps.ensureDaemon("main", 200*time.Millisecond); err != nil {
 		t.Fatalf("ensureDaemon() error = %v, want deploy failure to be ignored", err)
 	}
 }
+
+type stubSessionTransport struct {
+	name string
+}
+
+func (s *stubSessionTransport) Name() string {
+	return s.name
+}
+
+func (s *stubSessionTransport) Dial(context.Context, transport.Target) (net.Conn, error) {
+	return noopConn{}, nil
+}
+
+func (s *stubSessionTransport) Deploy(context.Context, transport.Target, string) error {
+	return nil
+}
+
+func (s *stubSessionTransport) EnsureServer(context.Context, transport.Target, string) error {
+	return nil
+}
+
+func (s *stubSessionTransport) Close() error {
+	return nil
+}
+
+type noopConn struct{}
+
+func (noopConn) Read([]byte) (int, error)         { return 0, nil }
+func (noopConn) Write([]byte) (int, error)        { return 0, nil }
+func (noopConn) Close() error                     { return nil }
+func (noopConn) LocalAddr() net.Addr              { return nil }
+func (noopConn) RemoteAddr() net.Addr             { return nil }
+func (noopConn) SetDeadline(time.Time) error      { return nil }
+func (noopConn) SetReadDeadline(time.Time) error  { return nil }
+func (noopConn) SetWriteDeadline(time.Time) error { return nil }

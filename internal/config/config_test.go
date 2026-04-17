@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/weill-labs/amux/internal/proto"
-	"github.com/weill-labs/amux/internal/sshutil"
 )
 
 func TestLoadMissing(t *testing.T) {
@@ -95,7 +94,7 @@ func TestHostUser(t *testing.T) {
 			"myhost": {User: "admin"},
 		},
 	}
-	defaultUser := sshutil.DefaultSSHUser()
+	defaultUser := defaultHostUser()
 
 	tests := []struct {
 		name string

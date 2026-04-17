@@ -5,14 +5,14 @@ import (
 	"io"
 	"os"
 
-	"github.com/weill-labs/amux/internal/sshutil"
+	"github.com/weill-labs/amux/internal/transport"
 )
 
 type Runtime struct {
 	Stdout             io.Writer
 	Stderr             io.Writer
 	AttachSession      func(string) error
-	RunSSHSession      func(sshutil.SSHTarget) error
+	RunSSHSession      func(transport.Target) error
 	WriteVersionOutput func(io.Writer, []string) error
 	InstallTerminfo    func() error
 	RunDebugCommand    func(string, []string)

@@ -4,11 +4,12 @@ import (
 	"fmt"
 	"hash/crc32"
 	"os"
+	"os/user"
 	"path/filepath"
 
 	"github.com/BurntSushi/toml"
+	charmlog "github.com/charmbracelet/log"
 	"github.com/weill-labs/amux/internal/proto"
-	"github.com/weill-labs/amux/internal/sshutil"
 )
 
 // catppuccinMocha is the accent palette in official order (catppuccin.com/palette).
@@ -209,7 +210,7 @@ func (c *Config) HostUser(hostname string) string {
 	if h, ok := c.Hosts[hostname]; ok && h.User != "" {
 		return h.User
 	}
-	return sshutil.DefaultSSHUser()
+	return defaultHostUser()
 }
 
 // HostAddress returns the address for a host, falling back to the hostname itself.
@@ -234,4 +235,15 @@ func (c *Config) HostColor(hostname string) string {
 		return h.Color
 	}
 	return ColorForHost(hostname)
+}
+
+func defaultHostUser() string {
+	usr, err := user.Current()
+	if err == nil && usr != nil && usr.Username != "" {
+		return usr.Username
+	}
+	if err != nil {
+		charmlog.Warn("failed to determine current ssh user", "error", err)
+	}
+	return os.Getenv("USER")
 }

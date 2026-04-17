@@ -11,6 +11,8 @@ import (
 )
 
 func TestRegisteredSSHTransport(t *testing.T) {
+	t.Parallel()
+
 	tr, err := transport.Get("ssh", config.Host{})
 	if err != nil {
 		t.Fatalf("Get(%q) error = %v", "ssh", err)
@@ -21,6 +23,8 @@ func TestRegisteredSSHTransport(t *testing.T) {
 }
 
 func TestSSHTransportEnsureServerUsesRemoteSocketPath(t *testing.T) {
+	t.Parallel()
+
 	var calls []string
 	client := new(gossh.Client)
 	tr := newSSHTransportWithDeps(config.Host{
@@ -95,6 +99,8 @@ func TestSSHTransportEnsureServerUsesRemoteSocketPath(t *testing.T) {
 }
 
 func TestSSHTransportDialUsesCachedClient(t *testing.T) {
+	t.Parallel()
+
 	client := new(gossh.Client)
 	connClient, connServer := net.Pipe()
 	t.Cleanup(func() {

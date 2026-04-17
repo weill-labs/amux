@@ -15,9 +15,9 @@ func init() {
 }
 
 type sshTransport struct {
-	cfg      config.Host
-	deps     sshTransportDeps
-	client   *gossh.Client
+	cfg       config.Host
+	deps      sshTransportDeps
+	client    *gossh.Client
 	remoteUID string
 }
 

@@ -4,12 +4,20 @@ import (
 	"context"
 	"net"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/weill-labs/amux/internal/config"
 )
 
+var registryTestMu sync.Mutex
+
 func TestRegisterAndGet(t *testing.T) {
+	t.Parallel()
+	registryTestMu.Lock()
+	t.Cleanup(registryTestMu.Unlock)
+	restoreRegistry(t)
+
 	name := strings.ToLower(t.Name())
 	want := &stubTransport{name: name}
 
@@ -27,6 +35,11 @@ func TestRegisterAndGet(t *testing.T) {
 }
 
 func TestRegisterDuplicatePanics(t *testing.T) {
+	t.Parallel()
+	registryTestMu.Lock()
+	t.Cleanup(registryTestMu.Unlock)
+	restoreRegistry(t)
+
 	name := strings.ToLower(t.Name())
 	Register(name, func(config.Host) (Transport, error) {
 		return &stubTransport{name: name}, nil
@@ -43,6 +56,11 @@ func TestRegisterDuplicatePanics(t *testing.T) {
 }
 
 func TestGetUnknownTransport(t *testing.T) {
+	t.Parallel()
+	registryTestMu.Lock()
+	t.Cleanup(registryTestMu.Unlock)
+	restoreRegistry(t)
+
 	name := strings.ToLower(t.Name())
 	_, err := Get(name, config.Host{})
 	if err == nil {
@@ -54,6 +72,11 @@ func TestGetUnknownTransport(t *testing.T) {
 }
 
 func TestNamesIncludesRegisteredTransport(t *testing.T) {
+	t.Parallel()
+	registryTestMu.Lock()
+	t.Cleanup(registryTestMu.Unlock)
+	restoreRegistry(t)
+
 	name := strings.ToLower(t.Name())
 	Register(name, func(config.Host) (Transport, error) {
 		return &stubTransport{name: name}, nil
@@ -90,4 +113,24 @@ func (s *stubTransport) EnsureServer(context.Context, Target, string) error {
 
 func (s *stubTransport) Close() error {
 	return nil
+}
+
+func restoreRegistry(t *testing.T) {
+	t.Helper()
+
+	registryMu.Lock()
+	snapshot := make(map[string]Factory, len(registry))
+	for name, factory := range registry {
+		snapshot[name] = factory
+	}
+	registryMu.Unlock()
+
+	t.Cleanup(func() {
+		registryMu.Lock()
+		registry = make(map[string]Factory, len(snapshot))
+		for name, factory := range snapshot {
+			registry[name] = factory
+		}
+		registryMu.Unlock()
+	})
 }
