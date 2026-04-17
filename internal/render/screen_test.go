@@ -1553,13 +1553,14 @@ func TestRenderDiff_BelowSeparatorStatusRewriteClearsStalePaddingBeforeBorder(t 
 	rowRunes := []rune(displayRow(display, width, statusY))
 	leftPane := string(rowRunes[:pane1W])
 	trimmed := strings.TrimRight(leftPane, " ")
+	trimmedRunes := []rune(trimmed)
 	if !strings.HasSuffix(trimmed, "…") {
 		t.Fatalf("lower status row %q should end with an ellipsis before padding", leftPane)
 	}
 	if trimmed == leftPane {
 		t.Fatalf("lower status row %q should keep padding spaces before the border", leftPane)
 	}
-	for _, r := range []rune(leftPane[len(trimmed):]) {
+	for _, r := range rowRunes[len(trimmedRunes):pane1W] {
 		if r != ' ' {
 			t.Fatalf("lower status row %q should clear stale padding before the border", leftPane)
 		}
