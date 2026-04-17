@@ -111,13 +111,24 @@ func DiffGrid(prev, next *ScreenGrid) []CellChange {
 	}
 	var changes []CellChange
 	for y := 0; y < next.Height; y++ {
+		firstChanged, lastChanged := -1, -1
 		for x := 0; x < next.Width; x++ {
 			idx := y*next.Width + x
 			if !next.Cells[idx].Equal(prev.Cells[idx]) {
-				changes = append(changes, CellChange{
-					X: x, Y: y, Cell: next.Cells[idx],
-				})
+				if firstChanged < 0 {
+					firstChanged = x
+				}
+				lastChanged = x
 			}
+		}
+		if firstChanged < 0 {
+			continue
+		}
+		for x := firstChanged; x <= lastChanged; x++ {
+			idx := y*next.Width + x
+			changes = append(changes, CellChange{
+				X: x, Y: y, Cell: next.Cells[idx],
+			})
 		}
 	}
 	return changes
