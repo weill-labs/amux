@@ -377,6 +377,317 @@ exit 1
 	}
 }
 
+func TestWatchPRCIScriptFallsBackToRESTPollingOnGraphQLRateLimit(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	ghLog := filepath.Join(tempDir, "gh.log")
+	ghState := filepath.Join(tempDir, "gh.state")
+	writeExecutable(t, filepath.Join(tempDir, "git"), `#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${1:-}" == "rev-parse" && "${2:-}" == "HEAD" ]]; then
+	printf 'deadbeef\n'
+	exit 0
+fi
+
+echo "unexpected git invocation: $*" >&2
+exit 1
+`)
+	writeExecutable(t, filepath.Join(tempDir, "gh"), `#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >>"$FAKE_GH_LOG"
+
+if [[ "${1:-}" == "pr" && "${2:-}" == "view" ]]; then
+	cat <<'EOF'
+{"number":422,"url":"https://github.com/weill-labs/amux/pull/422","headRefName":"feat/ci-watch","headRefOid":"stale-sha"}
+EOF
+	exit 0
+fi
+
+if [[ "${1:-}" == "run" && "${2:-}" == "list" ]]; then
+	cat <<'EOF'
+[{"databaseId":999,"workflowName":"CI","displayTitle":"ci / test","url":"https://github.com/weill-labs/amux/actions/runs/999","conclusion":"","status":"in_progress"}]
+EOF
+	exit 0
+fi
+
+if [[ "${1:-}" == "pr" && "${2:-}" == "checks" && " $* " == *" --json "* ]]; then
+	echo "GraphQL: API rate limit already exceeded for user ID 2343711." >&2
+	exit 1
+fi
+
+if [[ "${1:-}" == "api" && "${2:-}" == "repos/weill-labs/amux/branches/main/protection/required_status_checks" ]]; then
+	cat <<'EOF'
+{"strict":true,"contexts":["test"],"checks":[{"context":"test","app_id":15368}]}
+EOF
+	exit 0
+fi
+
+if [[ "${1:-}" == "api" && "${2:-}" == "repos/weill-labs/amux/commits/deadbeef/check-runs"* ]]; then
+	count=0
+	if [[ -f "$FAKE_GH_STATE" ]]; then
+		count="$(cat "$FAKE_GH_STATE")"
+	fi
+	count=$((count + 1))
+	printf '%s\n' "$count" >"$FAKE_GH_STATE"
+	if [[ "$count" -eq 1 ]]; then
+		cat <<'EOF'
+{"check_runs":[{"name":"test","status":"in_progress","conclusion":null,"html_url":"https://github.com/weill-labs/amux/actions/runs/999/job/123","started_at":"2024-01-01T00:00:00Z","completed_at":null,"app":{"slug":"github-actions"}},{"name":"claude-review","status":"completed","conclusion":"failure","html_url":"https://github.com/weill-labs/amux/actions/runs/1000/job/456","started_at":"2024-01-01T00:00:00Z","completed_at":"2024-01-01T00:00:05Z","app":{"slug":"github-actions"}}]}
+EOF
+		exit 0
+	fi
+	cat <<'EOF'
+{"check_runs":[{"name":"test","status":"completed","conclusion":"success","html_url":"https://github.com/weill-labs/amux/actions/runs/999/job/123","started_at":"2024-01-01T00:00:00Z","completed_at":"2024-01-01T00:00:05Z","app":{"slug":"github-actions"}},{"name":"claude-review","status":"completed","conclusion":"failure","html_url":"https://github.com/weill-labs/amux/actions/runs/1000/job/456","started_at":"2024-01-01T00:00:00Z","completed_at":"2024-01-01T00:00:05Z","app":{"slug":"github-actions"}}]}
+EOF
+	exit 0
+fi
+
+if [[ "${1:-}" == "api" && "${2:-}" == "repos/weill-labs/amux/commits/deadbeef/status" ]]; then
+	cat <<'EOF'
+{"statuses":[]}
+EOF
+	exit 0
+fi
+
+echo "unexpected gh invocation: $*" >&2
+exit 1
+`)
+
+	cmd := exec.Command("bash", repoPath(t, "scripts/watch-pr-ci.sh"))
+	cmd.Dir = repoRoot(t)
+	cmd.Env = ciWatchScriptEnv(
+		t,
+		tempDir,
+		"FAKE_GH_LOG="+ghLog,
+		"FAKE_GH_STATE="+ghState,
+		"AMUX_PR_RUN_DISCOVERY_TIMEOUT=1",
+		"AMUX_PR_RUN_DISCOVERY_INTERVAL=0",
+	)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("expected success: %v\n%s", err, out)
+	}
+
+	output := string(out)
+	for _, want := range []string{
+		"Waiting for: test",
+		"test: in_progress",
+		"test: completed (pass)",
+		"PR #422 CI passed",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("output missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(output, "claude-review") {
+		t.Fatalf("output should ignore non-required REST fallback checks:\n%s", out)
+	}
+
+	logBytes, err := os.ReadFile(ghLog)
+	if err != nil {
+		t.Fatalf("read gh log: %v", err)
+	}
+	log := string(logBytes)
+	for _, want := range []string{
+		"pr checks 422 --required --json name,link,bucket,state,workflow,startedAt,completedAt",
+		"api repos/weill-labs/amux/branches/main/protection/required_status_checks",
+		"api repos/weill-labs/amux/commits/deadbeef/check-runs?per_page=100",
+		"api repos/weill-labs/amux/commits/deadbeef/status",
+	} {
+		if !strings.Contains(log, want) {
+			t.Fatalf("gh log missing %q:\n%s", want, log)
+		}
+	}
+}
+
+func TestWatchPRCIScriptReportsRESTFallbackFailuresOnGraphQLRateLimit(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	ghLog := filepath.Join(tempDir, "gh.log")
+	writeExecutable(t, filepath.Join(tempDir, "git"), `#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${1:-}" == "rev-parse" && "${2:-}" == "HEAD" ]]; then
+	printf 'deadbeef\n'
+	exit 0
+fi
+
+echo "unexpected git invocation: $*" >&2
+exit 1
+`)
+	writeExecutable(t, filepath.Join(tempDir, "gh"), `#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >>"$FAKE_GH_LOG"
+
+if [[ "${1:-}" == "pr" && "${2:-}" == "view" ]]; then
+	cat <<'EOF'
+{"number":422,"url":"https://github.com/weill-labs/amux/pull/422","headRefName":"feat/ci-watch","headRefOid":"stale-sha"}
+EOF
+	exit 0
+fi
+
+if [[ "${1:-}" == "pr" && "${2:-}" == "checks" && " $* " == *" --json "* ]]; then
+	echo "GraphQL: API rate limit already exceeded for user ID 2343711." >&2
+	exit 1
+fi
+
+if [[ "${1:-}" == "run" && "${2:-}" == "list" ]]; then
+	cat <<'EOF'
+[{"databaseId":999,"workflowName":"CI","displayTitle":"ci / test","url":"https://github.com/weill-labs/amux/actions/runs/999","conclusion":"failure","status":"completed"}]
+EOF
+	exit 0
+fi
+
+if [[ "${1:-}" == "run" && "${2:-}" == "view" && "${3:-}" == "999" && "${4:-}" == "--log-failed" ]]; then
+	cat <<'EOF'
+FAIL step output
+--- FAIL: TestRESTFallbackFailure
+EOF
+	exit 0
+fi
+
+if [[ "${1:-}" == "api" && "${2:-}" == "repos/weill-labs/amux/branches/main/protection/required_status_checks" ]]; then
+	cat <<'EOF'
+{"strict":true,"contexts":["test"],"checks":[{"context":"test","app_id":15368}]}
+EOF
+	exit 0
+fi
+
+if [[ "${1:-}" == "api" && "${2:-}" == "repos/weill-labs/amux/commits/deadbeef/check-runs"* ]]; then
+	cat <<'EOF'
+{"check_runs":[{"name":"test","status":"completed","conclusion":"failure","html_url":"https://github.com/weill-labs/amux/actions/runs/999/job/123","started_at":"2024-01-01T00:00:00Z","completed_at":"2024-01-01T00:00:05Z","app":{"slug":"github-actions"}},{"name":"claude-review","status":"completed","conclusion":"success","html_url":"https://github.com/weill-labs/amux/actions/runs/1000/job/456","started_at":"2024-01-01T00:00:00Z","completed_at":"2024-01-01T00:00:05Z","app":{"slug":"github-actions"}}]}
+EOF
+	exit 0
+fi
+
+if [[ "${1:-}" == "api" && "${2:-}" == "repos/weill-labs/amux/commits/deadbeef/status" ]]; then
+	cat <<'EOF'
+{"statuses":[]}
+EOF
+	exit 0
+fi
+
+echo "unexpected gh invocation: $*" >&2
+exit 1
+`)
+
+	cmd := exec.Command("bash", repoPath(t, "scripts/watch-pr-ci.sh"))
+	cmd.Dir = repoRoot(t)
+	cmd.Env = ciWatchScriptEnv(t, tempDir, "FAKE_GH_LOG="+ghLog)
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("expected failure when REST fallback required check fails\n%s", out)
+	}
+
+	exitErr := mustExitError(t, err, out)
+	if exitErr.ExitCode() != 1 {
+		t.Fatalf("exit code = %d, want 1\n%s", exitErr.ExitCode(), out)
+	}
+
+	output := string(out)
+	for _, want := range []string{
+		"PR #422 CI failed",
+		"- test (github-actions): https://github.com/weill-labs/amux/actions/runs/999/job/123",
+		"FAIL step output",
+		"TestRESTFallbackFailure",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("output missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(output, "claude-review") {
+		t.Fatalf("output should not report non-required REST fallback failures:\n%s", out)
+	}
+}
+
+func TestWatchPRCIScriptDoesNotPassWhenRESTFallbackHasNoChecksYet(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	writeExecutable(t, filepath.Join(tempDir, "git"), `#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${1:-}" == "rev-parse" && "${2:-}" == "HEAD" ]]; then
+	printf 'deadbeef\n'
+	exit 0
+fi
+
+echo "unexpected git invocation: $*" >&2
+exit 1
+`)
+	writeExecutable(t, filepath.Join(tempDir, "gh"), `#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${1:-}" == "pr" && "${2:-}" == "view" ]]; then
+	cat <<'EOF'
+{"number":422,"url":"https://github.com/weill-labs/amux/pull/422","headRefName":"feat/ci-watch","headRefOid":"stale-sha"}
+EOF
+	exit 0
+fi
+
+if [[ "${1:-}" == "pr" && "${2:-}" == "checks" && " $* " == *" --json "* ]]; then
+	echo "GraphQL: API rate limit already exceeded for user ID 2343711." >&2
+	exit 1
+fi
+
+if [[ "${1:-}" == "api" && "${2:-}" == "repos/weill-labs/amux/branches/main/protection/required_status_checks" ]]; then
+	cat <<'EOF'
+{"strict":true,"contexts":["test"],"checks":[{"context":"test","app_id":15368}]}
+EOF
+	exit 0
+fi
+
+if [[ "${1:-}" == "api" && "${2:-}" == "repos/weill-labs/amux/commits/deadbeef/check-runs"* ]]; then
+	cat <<'EOF'
+{"check_runs":[]}
+EOF
+	exit 0
+fi
+
+if [[ "${1:-}" == "api" && "${2:-}" == "repos/weill-labs/amux/commits/deadbeef/status" ]]; then
+	cat <<'EOF'
+{"statuses":[]}
+EOF
+	exit 0
+fi
+
+if [[ "${1:-}" == "run" && "${2:-}" == "list" ]]; then
+	cat <<'EOF'
+[]
+EOF
+	exit 0
+fi
+
+echo "unexpected gh invocation: $*" >&2
+exit 1
+`)
+
+	cmd := exec.Command("bash", repoPath(t, "scripts/watch-pr-ci.sh"))
+	cmd.Dir = repoRoot(t)
+	cmd.Env = ciWatchScriptEnv(
+		t,
+		tempDir,
+		"AMUX_PR_RUN_DISCOVERY_TIMEOUT=0",
+		"AMUX_PR_RUN_DISCOVERY_INTERVAL=0",
+		"AMUX_PR_CHECK_INTERVAL=0",
+		"AMUX_PR_HEARTBEAT_INTERVAL=0",
+	)
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("expected failure when REST fallback reports no checks yet\n%s", out)
+	}
+
+	output := string(out)
+	if strings.Contains(output, "PR #422 CI passed") {
+		t.Fatalf("output should not report success:\n%s", out)
+	}
+	if !strings.Contains(output, "PR #422 CI failed") {
+		t.Fatalf("output missing failure message:\n%s", out)
+	}
+}
+
 func TestPushAndWatchCIScriptRunsPushBeforeWatching(t *testing.T) {
 	t.Parallel()
 
