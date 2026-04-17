@@ -21,14 +21,16 @@ func TestNegotiateClientCapabilities(t *testing.T) {
 		{
 			name: "partial modern attach",
 			advertised: &ClientCapabilities{
-				Hyperlinks:     true,
-				PromptMarkers:  true,
-				CursorMetadata: true,
+				Hyperlinks:          true,
+				PromptMarkers:       true,
+				CursorMetadata:      true,
+				PredictionSupported: true,
 			},
 			want: ClientCapabilities{
-				Hyperlinks:     true,
-				PromptMarkers:  true,
-				CursorMetadata: true,
+				Hyperlinks:          true,
+				PromptMarkers:       true,
+				CursorMetadata:      true,
+				PredictionSupported: true,
 			},
 		},
 		{
@@ -69,9 +71,10 @@ func TestClientCapabilitiesEnabledNamesAndSummary(t *testing.T) {
 				GraphicsPlaceholder: true,
 				Hyperlinks:          true,
 				KittyKeyboard:       true,
+				PredictionSupported: true,
 			},
-			want: []string{"kitty_keyboard", "hyperlinks", "graphics_placeholder"},
-			text: "kitty_keyboard,hyperlinks,graphics_placeholder",
+			want: []string{"kitty_keyboard", "hyperlinks", "graphics_placeholder", "prediction_supported"},
+			text: "kitty_keyboard,hyperlinks,graphics_placeholder,prediction_supported",
 		},
 	}
 

@@ -98,10 +98,12 @@ func TestWriteReadMsgAllMessageTypes(t *testing.T) {
 					KittyKeyboard:       true,
 					Hyperlinks:          true,
 					GraphicsPlaceholder: true,
+					PredictionSupported: true,
 				},
 			},
 		},
 		{name: "detach", msg: Message{Type: MsgTypeDetach}},
+		{name: "input with epoch", msg: Message{Type: MsgTypeInput, Input: []byte("hello"), InputEpoch: 7}},
 		{name: "command", msg: Message{Type: MsgTypeCommand, CmdName: "list", CmdArgs: []string{"--all"}}},
 		{name: "render", msg: Message{Type: MsgTypeRender, RenderData: []byte("\x1b[2Jhello")}},
 		{name: "cmd result", msg: Message{Type: MsgTypeCmdResult, CmdOutput: "ok\n", CmdErr: ""}},
@@ -109,6 +111,7 @@ func TestWriteReadMsgAllMessageTypes(t *testing.T) {
 		{name: "notify", msg: Message{Type: MsgTypeNotify, Text: "notice"}},
 		{name: "bell", msg: Message{Type: MsgTypeBell}},
 		{name: "pane output", msg: Message{Type: MsgTypePaneOutput, PaneID: 7, PaneData: []byte("terminal output")}},
+		{name: "pane output with source epoch", msg: Message{Type: MsgTypePaneOutput, PaneID: 7, PaneData: []byte("terminal output"), SourceEpoch: 9}},
 		{name: "layout", msg: Message{Type: MsgTypeLayout, Layout: sampleLayoutSnapshot()}},
 		{name: "server reload", msg: Message{Type: MsgTypeServerReload}},
 		{name: "copy mode", msg: Message{Type: MsgTypeCopyMode, PaneID: 3}},
@@ -240,6 +243,38 @@ func TestWriteMsgErrors(t *testing.T) {
 				t.Fatalf("WriteMsg() error = %v, want substring %q", err, tt.want)
 			}
 		})
+	}
+}
+
+func TestWriteMsgPaneOutputWithSourceEpochUsesGobFrame(t *testing.T) {
+	t.Parallel()
+
+	msg := &Message{
+		Type:        MsgTypePaneOutput,
+		PaneID:      42,
+		PaneData:    []byte("predicted"),
+		SourceEpoch: 11,
+	}
+
+	var buf bytes.Buffer
+	if err := WriteMsg(&buf, msg); err != nil {
+		t.Fatalf("WriteMsg: %v", err)
+	}
+
+	data := buf.Bytes()
+	if len(data) == 0 {
+		t.Fatal("encoded message is empty")
+	}
+	if data[0] != wireFormatGob {
+		t.Fatalf("frame discriminator = %#x, want %#x for gob fallback", data[0], wireFormatGob)
+	}
+
+	got, err := ReadMsg(&buf)
+	if err != nil {
+		t.Fatalf("ReadMsg: %v", err)
+	}
+	if !reflect.DeepEqual(got, msg) {
+		t.Fatalf("round trip mismatch:\n got: %#v\nwant: %#v", got, msg)
 	}
 }
 
