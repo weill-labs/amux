@@ -149,8 +149,9 @@ func TestHostKeyCallbackRejectsChangedKey(t *testing.T) {
 	if !strings.Contains(err.Error(), "CHANGED") {
 		t.Fatalf("HostKeyCallback() error = %q, want changed-host warning", err)
 	}
-	if !strings.Contains(err.Error(), "ssh-keygen -R") {
-		t.Fatalf("HostKeyCallback() error = %q, want ssh-keygen guidance", err)
+	wantCmd := fmt.Sprintf("ssh-keygen -f %s -R example.com", path)
+	if !strings.Contains(err.Error(), wantCmd) {
+		t.Fatalf("HostKeyCallback() error = %q, want %q", err, wantCmd)
 	}
 }
 

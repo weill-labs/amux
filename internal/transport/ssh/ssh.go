@@ -102,7 +102,7 @@ func HostKeyCallback(knownHostsPath string, loggers ...*charmlog.Logger) ssh.Hos
 			var keyErr *knownhosts.KeyError
 			if errors.As(err, &keyErr) {
 				if len(keyErr.Want) > 0 {
-					return hostKeyChangedError(hostname, keyErr)
+					return hostKeyChangedError(hostname, path, keyErr)
 				}
 			} else {
 				return err
@@ -228,8 +228,11 @@ func startSocatBridge(client *ssh.Client, sockPath string) (int, error) {
 	return port, nil
 }
 
-func hostKeyChangedError(hostname string, keyErr *knownhosts.KeyError) error {
+func hostKeyChangedError(hostname, knownHostsPath string, keyErr *knownhosts.KeyError) error {
 	want := keyErr.Want[0]
+	if want.Filename != "" {
+		knownHostsPath = want.Filename
+	}
 	return fmt.Errorf(`amux: SSH host key verification failed for %s
 @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 @    WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!    @
@@ -237,7 +240,11 @@ func hostKeyChangedError(hostname string, keyErr *knownhosts.KeyError) error {
 The host key for %s has changed.
 Known key: %s in %s:%d
 To fix: remove the old key with
-  ssh-keygen -R %s`, hostname, hostname, want.Key.Type(), want.Filename, want.Line, hostname)
+  %s`, hostname, hostname, want.Key.Type(), want.Filename, want.Line, hostKeyRemovalCommand(knownHostsPath, hostname))
+}
+
+func hostKeyRemovalCommand(knownHostsPath, hostname string) string {
+	return fmt.Sprintf("ssh-keygen -f %s -R %s", knownHostsPath, knownhosts.Normalize(hostname))
 }
 
 func hasPort(addr string) bool {
