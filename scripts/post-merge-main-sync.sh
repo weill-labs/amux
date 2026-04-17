@@ -12,6 +12,22 @@ is_ignored_tracked_path() {
     grep -Fqx -- "$path" <<<"$ignored_tracked_paths"
 }
 
+restore_auto_stash_after_failed_sync() {
+    [[ "$stashed_benign_changes" -eq 1 ]] || return 0
+
+    local sync_failure_output="$1"
+    local restore_output
+    if restore_output=$(git stash pop 2>&1); then
+        echo "Restored auto-stashed benign changes after sync failed." >&2
+    else
+        echo "Sync failed and restoring auto-stashed benign changes also hit conflicts; stash entry was kept for manual recovery." >&2
+        echo "$restore_output" >&2
+    fi
+
+    echo "$sync_failure_output" >&2
+    exit 1
+}
+
 status_output=$(git status --porcelain --untracked-files=all)
 if [[ -n "$status_output" ]]; then
     ignored_tracked_paths=$(git ls-files -ci --exclude-standard)
@@ -61,8 +77,7 @@ fi
 current_branch=$(git branch --show-current 2>/dev/null || true)
 if [[ "$current_branch" != "main" ]]; then
     if ! checkout_output=$(git checkout main 2>&1); then
-        echo "$checkout_output" >&2
-        exit 1
+        restore_auto_stash_after_failed_sync "$checkout_output"
     fi
     checked_out_main=1
 else
@@ -70,8 +85,7 @@ else
 fi
 
 if ! pull_output=$(git pull --ff-only 2>&1); then
-    echo "$pull_output" >&2
-    exit 1
+    restore_auto_stash_after_failed_sync "$pull_output"
 fi
 
 if [[ "$checked_out_main" -eq 1 ]]; then
