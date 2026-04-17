@@ -3,6 +3,7 @@ package server
 import (
 	"errors"
 	"net"
+	"reflect"
 	"testing"
 	"time"
 
@@ -165,6 +166,108 @@ func TestClientConnSendBroadcastSyncDeliversMessage(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("sendBroadcastSync did not return after delivery")
 	}
+}
+
+func TestClientConnConsumePredictionEpochBranches(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		queue     []pendingPredictionEpoch
+		data      []byte
+		wantEpoch uint32
+		wantQueue []pendingPredictionEpoch
+	}{
+		{
+			name: "full match consumes completed epoch",
+			queue: []pendingPredictionEpoch{
+				{epoch: 1, remaining: []byte("abc")},
+				{epoch: 2, remaining: []byte("z")},
+			},
+			data:      []byte("abc"),
+			wantEpoch: 1,
+			wantQueue: []pendingPredictionEpoch{
+				{epoch: 2, remaining: []byte("z")},
+			},
+		},
+		{
+			name: "partial match keeps truncated pending entry",
+			queue: []pendingPredictionEpoch{
+				{epoch: 1, remaining: []byte("abc")},
+			},
+			data:      []byte("ab"),
+			wantEpoch: 0,
+			wantQueue: []pendingPredictionEpoch{
+				{epoch: 1, remaining: []byte("c")},
+			},
+		},
+		{
+			name: "no match promotes oldest epoch to force divergence recovery",
+			queue: []pendingPredictionEpoch{
+				{epoch: 1, remaining: []byte("abc")},
+				{epoch: 2, remaining: []byte("z")},
+			},
+			data:      []byte("["),
+			wantEpoch: 1,
+			wantQueue: []pendingPredictionEpoch{
+				{epoch: 2, remaining: []byte("z")},
+			},
+		},
+		{
+			name: "full match clears pane queue when last entry completes",
+			queue: []pendingPredictionEpoch{
+				{epoch: 7, remaining: []byte("x")},
+			},
+			data:      []byte("x"),
+			wantEpoch: 7,
+			wantQueue: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cc := &clientConn{
+				predictions: map[uint32][]pendingPredictionEpoch{
+					9: clonePendingPredictionEpochs(tt.queue),
+				},
+			}
+
+			if got := cc.consumePredictionEpoch(9, tt.data); got != tt.wantEpoch {
+				t.Fatalf("consumePredictionEpoch() = %d, want %d", got, tt.wantEpoch)
+			}
+
+			gotQueue, ok := cc.predictions[9]
+			if len(tt.wantQueue) == 0 {
+				if ok {
+					t.Fatalf("predictions[9] = %v, want entry removed", gotQueue)
+				}
+				return
+			}
+			if !ok {
+				t.Fatal("predictions[9] missing, want remaining queue")
+			}
+			if !reflect.DeepEqual(gotQueue, tt.wantQueue) {
+				t.Fatalf("predictions[9] = %#v, want %#v", gotQueue, tt.wantQueue)
+			}
+		})
+	}
+}
+
+func clonePendingPredictionEpochs(queue []pendingPredictionEpoch) []pendingPredictionEpoch {
+	if len(queue) == 0 {
+		return nil
+	}
+	cloned := make([]pendingPredictionEpoch, len(queue))
+	for i := range queue {
+		cloned[i] = pendingPredictionEpoch{
+			epoch:     queue[i].epoch,
+			remaining: append([]byte(nil), queue[i].remaining...),
+		}
+	}
+	return cloned
 }
 
 func TestClientConnBootstrappingStateTracksLifecycle(t *testing.T) {

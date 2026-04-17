@@ -299,6 +299,10 @@ func (cc *clientConn) consumePredictionEpoch(paneID uint32, data []byte) uint32 
 		cc.predictions[paneID] = queue
 		return 0
 	default:
+		// Force reconciliation on the oldest pending epoch as soon as unrelated
+		// PTY output diverges from the predicted stream. There is no separate
+		// epoch timeout path today, so leaving the queue untouched here would let
+		// the stale shadow emulator mask real server output indefinitely.
 		latest = queue[0].epoch
 		queue = queue[1:]
 	}

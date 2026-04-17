@@ -31,6 +31,7 @@ const (
 	localEchoAckWindow           = 3
 	localEchoPasteBurstThreshold = 3
 	localEchoPasteWindow         = 20 * time.Millisecond
+	localEchoLastRowBuffer       = 2
 )
 
 type panePredictionContext struct {
@@ -276,7 +277,7 @@ func (p *predictor) allowPrediction(paneID uint32, ctx panePredictionContext, da
 	if len(state.recentPresses) > localEchoPasteBurstThreshold {
 		return false
 	}
-	if ctx.Height > 1 && ctx.CursorRow >= ctx.Height-2 {
+	if ctx.Height > 1 && ctx.CursorRow >= ctx.Height-localEchoLastRowBuffer {
 		return false
 	}
 	if ctx.AltScreen && !predictionUsesInsertCursor(ctx.CursorStyle) {

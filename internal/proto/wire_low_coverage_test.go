@@ -497,20 +497,24 @@ func TestClientCapabilitiesEnabledNamesCoversAllFlags(t *testing.T) {
 	caps := ClientCapabilities{
 		KittyKeyboard:       true,
 		Hyperlinks:          true,
+		RichUnderline:       true,
 		PromptMarkers:       true,
 		CursorMetadata:      true,
 		GraphicsPlaceholder: true,
 		BinaryPaneHistory:   true,
+		PredictionSupported: true,
 	}
 
 	got := caps.EnabledNames()
 	want := []string{
 		"kitty_keyboard",
 		"hyperlinks",
+		"rich_underline",
 		"cursor_metadata",
 		"prompt_markers",
 		"graphics_placeholder",
 		"binary_pane_history",
+		"prediction_supported",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("EnabledNames() = %v, want %v", got, want)

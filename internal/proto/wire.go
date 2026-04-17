@@ -195,6 +195,9 @@ const maxMessageSize = 16 * 1024 * 1024 // 16 MB
 //   - wireFormatGob:         [0x00][length:4 BE][gob payload]
 //   - wireFormatBinary:      [0x01][paneID:4 BE][length:4 BE][pane data]
 //   - wireFormatPaneHistory: [0x02][paneID:4 BE][length:4 BE][pane history payload]
+//
+// PaneOutput falls back to gob when SourceEpoch is non-zero because the
+// compact binary frame does not carry reconciliation metadata.
 const (
 	wireFormatGob    byte = 0x00
 	wireFormatBinary byte = 0x01
