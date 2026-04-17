@@ -242,6 +242,22 @@ func singlePrintableInput(data []byte) (string, int, bool) {
 	return string(r), width, true
 }
 
+func predictionUsesInsertCursor(style string) bool {
+	return style == "bar" || style == "underline"
+}
+
+func hasRecentConfirmingAcks(state *panePredictorState) bool {
+	if state == nil || len(state.recentAcks) < localEchoAckWindow {
+		return false
+	}
+	for _, confirming := range state.recentAcks[len(state.recentAcks)-localEchoAckWindow:] {
+		if !confirming {
+			return false
+		}
+	}
+	return true
+}
+
 func (p *predictor) allowPrediction(paneID uint32, ctx panePredictionContext, data []byte, now time.Time) bool {
 	if !p.enabled() {
 		return false
@@ -263,18 +279,10 @@ func (p *predictor) allowPrediction(paneID uint32, ctx panePredictionContext, da
 	if ctx.Height > 1 && ctx.CursorRow >= ctx.Height-2 {
 		return false
 	}
-	if ctx.AltScreen && ctx.CursorStyle != "bar" && ctx.CursorStyle != "underline" {
+	if ctx.AltScreen && !predictionUsesInsertCursor(ctx.CursorStyle) {
 		return false
 	}
-	if len(state.recentAcks) < localEchoAckWindow {
-		return false
-	}
-	for _, confirming := range state.recentAcks[len(state.recentAcks)-localEchoAckWindow:] {
-		if !confirming {
-			return false
-		}
-	}
-	return true
+	return hasRecentConfirmingAcks(state)
 }
 
 func buildPredictionShadow(base panePredictionBase) mux.TerminalEmulator {
