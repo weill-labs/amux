@@ -28,8 +28,7 @@ func TestPostMergeMainSyncScriptChecksOutMainAndPulls(t *testing.T) {
 
 	gotLog := readTrimmedFile(t, gitLogPath)
 	for _, want := range []string{
-		"diff --quiet --ignore-submodules --",
-		"diff --cached --quiet --ignore-submodules --",
+		"status --porcelain --untracked-files=all",
 		"branch --show-current",
 		"checkout main",
 		"pull --ff-only",
@@ -40,7 +39,7 @@ func TestPostMergeMainSyncScriptChecksOutMainAndPulls(t *testing.T) {
 	}
 }
 
-func TestPostMergeMainSyncScriptSkipsDirtyWorktree(t *testing.T) {
+func TestPostMergeMainSyncScriptAutoStashesUntrackedFiles(t *testing.T) {
 	t.Parallel()
 
 	tempDir := t.TempDir()
@@ -49,22 +48,29 @@ func TestPostMergeMainSyncScriptSkipsDirtyWorktree(t *testing.T) {
 
 	out, exitCode := runBashScriptWithInput(t, "scripts/post-merge-main-sync.sh", "", postMergeHookEnv(tempDir,
 		"FAKE_GIT_LOG="+gitLogPath,
-		"FAKE_GIT_DIRTY=1",
+		"FAKE_GIT_STATUS=?? scratch.txt",
 	))
-	if exitCode != 1 {
-		t.Fatalf("exit code = %d, want 1\n%s", exitCode, out)
+	if exitCode != 0 {
+		t.Fatalf("exit code = %d, want 0\n%s", exitCode, out)
 	}
-	if !strings.Contains(out, "Cannot auto-sync main after merge: worktree has unstaged changes.") {
-		t.Fatalf("output = %q, want dirty-worktree warning", out)
+	if strings.TrimSpace(out) != "Checked out main and pulled latest origin/main. Restored auto-stashed benign changes." {
+		t.Fatalf("output = %q, want auto-stash confirmation", out)
 	}
 
 	gotLog := readTrimmedFile(t, gitLogPath)
-	if strings.Contains(gotLog, "checkout main") || strings.Contains(gotLog, "pull --ff-only") {
-		t.Fatalf("dirty worktree should not attempt checkout or pull:\n%s", gotLog)
+	for _, want := range []string{
+		"stash push -u -m auto-stash by post-merge-main-sync",
+		"checkout main",
+		"pull --ff-only",
+		"stash pop",
+	} {
+		if !strings.Contains(gotLog, want) {
+			t.Fatalf("git log missing %q:\n%s", want, gotLog)
+		}
 	}
 }
 
-func TestPostMergeMainSyncScriptSkipsUntrackedFiles(t *testing.T) {
+func TestPostMergeMainSyncScriptAutoStashesIgnoredTrackedModifications(t *testing.T) {
 	t.Parallel()
 
 	tempDir := t.TempDir()
@@ -73,21 +79,118 @@ func TestPostMergeMainSyncScriptSkipsUntrackedFiles(t *testing.T) {
 
 	out, exitCode := runBashScriptWithInput(t, "scripts/post-merge-main-sync.sh", "", postMergeHookEnv(tempDir,
 		"FAKE_GIT_LOG="+gitLogPath,
-		"FAKE_GIT_UNTRACKED=1",
+		"FAKE_GIT_STATUS= M docs/superpowers/specs/2026-03-14-hot-reload-design.md",
+		"FAKE_GIT_IGNORED_TRACKED=docs/superpowers/specs/2026-03-14-hot-reload-design.md",
+	))
+	if exitCode != 0 {
+		t.Fatalf("exit code = %d, want 0\n%s", exitCode, out)
+	}
+	if strings.TrimSpace(out) != "Checked out main and pulled latest origin/main. Restored auto-stashed benign changes." {
+		t.Fatalf("output = %q, want auto-stash confirmation", out)
+	}
+
+	gotLog := readTrimmedFile(t, gitLogPath)
+	for _, want := range []string{
+		"status --porcelain --untracked-files=all",
+		"ls-files -ci --exclude-standard",
+		"stash push -u -m auto-stash by post-merge-main-sync",
+		"stash pop",
+	} {
+		if !strings.Contains(gotLog, want) {
+			t.Fatalf("git log missing %q:\n%s", want, gotLog)
+		}
+	}
+}
+
+func TestPostMergeMainSyncScriptSkipsNonBenignTrackedModifications(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	gitLogPath := filepath.Join(tempDir, "git.log")
+	writeFakeGit(t, tempDir)
+
+	out, exitCode := runBashScriptWithInput(t, "scripts/post-merge-main-sync.sh", "", postMergeHookEnv(tempDir,
+		"FAKE_GIT_LOG="+gitLogPath,
+		"FAKE_GIT_STATUS= M mux/window.go",
 	))
 	if exitCode != 1 {
 		t.Fatalf("exit code = %d, want 1\n%s", exitCode, out)
 	}
-	if !strings.Contains(out, "Cannot auto-sync main after merge: worktree has untracked files.") {
-		t.Fatalf("output = %q, want untracked-files warning", out)
+	if !strings.Contains(out, "Cannot auto-sync main after merge: worktree has non-benign unstaged changes.") {
+		t.Fatalf("output = %q, want non-benign warning", out)
+	}
+	if !strings.Contains(out, "M mux/window.go") {
+		t.Fatalf("output = %q, want modified path", out)
 	}
 
 	gotLog := readTrimmedFile(t, gitLogPath)
-	if !strings.Contains(gotLog, "ls-files --others --exclude-standard") {
-		t.Fatalf("git log missing untracked-files check:\n%s", gotLog)
+	if strings.Contains(gotLog, "stash push") || strings.Contains(gotLog, "checkout main") || strings.Contains(gotLog, "pull --ff-only") {
+		t.Fatalf("non-benign changes should not attempt stash or sync:\n%s", gotLog)
 	}
-	if strings.Contains(gotLog, "checkout main") || strings.Contains(gotLog, "pull --ff-only") {
-		t.Fatalf("untracked files should not attempt checkout or pull:\n%s", gotLog)
+}
+
+func TestPostMergeMainSyncScriptSkipsStagedChanges(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	gitLogPath := filepath.Join(tempDir, "git.log")
+	writeFakeGit(t, tempDir)
+
+	out, exitCode := runBashScriptWithInput(t, "scripts/post-merge-main-sync.sh", "", postMergeHookEnv(tempDir,
+		"FAKE_GIT_LOG="+gitLogPath,
+		"FAKE_GIT_STATUS=M  scripts/post-merge-main-sync.sh",
+	))
+	if exitCode != 1 {
+		t.Fatalf("exit code = %d, want 1\n%s", exitCode, out)
+	}
+	if !strings.Contains(out, "Cannot auto-sync main after merge: worktree has staged changes.") {
+		t.Fatalf("output = %q, want staged-changes warning", out)
+	}
+	if !strings.Contains(out, "M  scripts/post-merge-main-sync.sh") {
+		t.Fatalf("output = %q, want staged path", out)
+	}
+
+	gotLog := readTrimmedFile(t, gitLogPath)
+	if strings.Contains(gotLog, "stash push") || strings.Contains(gotLog, "checkout main") || strings.Contains(gotLog, "pull --ff-only") {
+		t.Fatalf("staged changes should not attempt stash or sync:\n%s", gotLog)
+	}
+}
+
+func TestPostMergeMainSyncScriptLeavesConflictedStashForUser(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	gitLogPath := filepath.Join(tempDir, "git.log")
+	writeFakeGit(t, tempDir)
+
+	out, exitCode := runBashScriptWithInput(t, "scripts/post-merge-main-sync.sh", "", postMergeHookEnv(tempDir,
+		"FAKE_GIT_LOG="+gitLogPath,
+		"FAKE_GIT_STATUS=?? scratch.txt",
+		"FAKE_GIT_STASH_POP_FAIL=CONFLICT (content): Merge conflict in scratch.txt",
+	))
+	if exitCode != 0 {
+		t.Fatalf("exit code = %d, want 0\n%s", exitCode, out)
+	}
+	if !strings.Contains(out, "Checked out main and pulled latest origin/main.") {
+		t.Fatalf("output = %q, want sync confirmation", out)
+	}
+	if !strings.Contains(out, "Restoring auto-stashed benign changes hit conflicts; stash entry was kept for manual recovery.") {
+		t.Fatalf("output = %q, want stash-conflict warning", out)
+	}
+	if !strings.Contains(out, "CONFLICT (content): Merge conflict in scratch.txt") {
+		t.Fatalf("output = %q, want git stash pop conflict details", out)
+	}
+
+	gotLog := readTrimmedFile(t, gitLogPath)
+	for _, want := range []string{
+		"stash push -u -m auto-stash by post-merge-main-sync",
+		"checkout main",
+		"pull --ff-only",
+		"stash pop",
+	} {
+		if !strings.Contains(gotLog, want) {
+			t.Fatalf("git log missing %q:\n%s", want, gotLog)
+		}
 	}
 }
 
@@ -188,15 +291,18 @@ fi
 	    rev-parse)
 	        printf '%s\n' "${FAKE_GIT_TOPLEVEL:-$PWD}"
 	        ;;
-	    diff)
-        if [ "$1" = "--cached" ]; then
-            [ -n "$FAKE_GIT_CACHED_DIRTY" ] && exit 1
-            exit 0
-        fi
-	        [ -n "$FAKE_GIT_DIRTY" ] && exit 1
-	        exit 0
+	    status)
+	        if [ -n "$FAKE_GIT_STATUS" ]; then
+	            printf '%s\n' "$FAKE_GIT_STATUS"
+	        fi
 	        ;;
 	    ls-files)
+	        if [ "$1" = "-ci" ]; then
+	            if [ -n "$FAKE_GIT_IGNORED_TRACKED" ]; then
+	                printf '%s\n' "$FAKE_GIT_IGNORED_TRACKED"
+	            fi
+	            exit 0
+	        fi
 	        if [ -n "$FAKE_GIT_UNTRACKED" ]; then
 	            printf '%s\n' "scratch.txt"
 	        fi
@@ -204,6 +310,24 @@ fi
 	    branch)
 	        if [ "$1" = "--show-current" ]; then
 	            printf '%s\n' "${FAKE_GIT_BRANCH:-feature-branch}"
+        fi
+        ;;
+    stash)
+        if [ "$1" = "push" ]; then
+            if [ -n "$FAKE_GIT_STASH_PUSH_FAIL" ]; then
+                printf '%s\n' "$FAKE_GIT_STASH_PUSH_FAIL" >&2
+                exit 1
+            fi
+            printf '%s\n' "Saved working directory and index state WIP on ${FAKE_GIT_BRANCH:-feature-branch}: auto-stash by post-merge-main-sync"
+            exit 0
+        fi
+        if [ "$1" = "pop" ]; then
+            if [ -n "$FAKE_GIT_STASH_POP_FAIL" ]; then
+                printf '%s\n' "$FAKE_GIT_STASH_POP_FAIL" >&2
+                exit 1
+            fi
+            printf '%s\n' "Dropped refs/stash@{0}"
+            exit 0
         fi
         ;;
     checkout)
