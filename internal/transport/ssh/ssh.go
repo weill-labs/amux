@@ -240,7 +240,11 @@ func hostKeyChangedError(hostname, knownHostsPath string, keyErr *knownhosts.Key
 The host key for %s has changed.
 Known key: %s in %s:%d
 To fix: remove the old key with
-  ssh-keygen -f %s -R %s`, hostname, hostname, want.Key.Type(), want.Filename, want.Line, knownHostsPath, knownhosts.Normalize(hostname))
+  %s`, hostname, hostname, want.Key.Type(), want.Filename, want.Line, hostKeyRemovalCommand(knownHostsPath, hostname))
+}
+
+func hostKeyRemovalCommand(knownHostsPath, hostname string) string {
+	return fmt.Sprintf("ssh-keygen -f %s -R %s", knownHostsPath, knownhosts.Normalize(hostname))
 }
 
 func hasPort(addr string) bool {
