@@ -9,6 +9,7 @@ import (
 
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/charmbracelet/x/vt"
 	"github.com/muesli/termenv"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
@@ -506,6 +507,60 @@ func TestRenderDiffWithOverlayDirtyMatchesFullRenderAfterShorterRecompose(t *tes
 	}
 	if errs := oobErrors(diffComp); len(errs) > 0 {
 		t.Fatalf("dirty recompose should stay within the clipped visible grid:\n%s", strings.Join(errs, "\n"))
+	}
+}
+
+func TestRenderDiffWithOverlayDirtyClearsVacatedCellsAfterShorterLine(t *testing.T) {
+	t.Parallel()
+
+	const (
+		width  = 80
+		height = 5
+		totalH = height + GlobalBarHeight
+	)
+
+	root := mux.NewLeaf(&mux.Pane{ID: 1, Meta: mux.PaneMeta{Name: "pane-1"}}, 0, 0, width, height)
+	pane := &recomposedPaneData{
+		fakePaneData: &fakePaneData{
+			id:           1,
+			name:         "pane-1",
+			cursorHidden: true,
+			screen:       "branch history still stays explicit and the worktree is actually",
+		},
+		rows: []string{"branch history still stays explicit and the worktree is actually"},
+	}
+	lookup := func(id uint32) PaneData {
+		if id != 1 {
+			return nil
+		}
+		return pane
+	}
+
+	diffComp := newTestCompositor(width, totalH, "test")
+	display := vt.NewSafeEmulator(width, totalH)
+
+	initial := diffComp.RenderDiffWithOverlayDirty(root, 1, lookup, OverlayState{}, map[uint32]struct{}{1: {}}, true)
+	if _, err := display.Write([]byte(initial)); err != nil {
+		t.Fatalf("writing initial diff: %v", err)
+	}
+
+	pane.screen = "branch h"
+	pane.rows = []string{"branch h"}
+	incremental := diffComp.RenderDiffWithOverlayDirty(root, 1, lookup, OverlayState{}, map[uint32]struct{}{1: {}}, false)
+	if _, err := display.Write([]byte(incremental)); err != nil {
+		t.Fatalf("writing incremental diff: %v", err)
+	}
+
+	fullComp := newTestCompositor(width, totalH, "test")
+	want := MaterializeGrid(fullComp.RenderFull(root, 1, lookup), width, totalH)
+	got := displayText(display, width, totalH)
+	if got != want {
+		t.Fatalf("dirty diff display =\n%s\nwant:\n%s", got, want)
+	}
+
+	contentRow := displayRow(display, width, 1)
+	if strings.Contains(contentRow, "still stays explicit") {
+		t.Fatalf("content row retained stale characters after shorter redraw:\n%s", contentRow)
 	}
 }
 

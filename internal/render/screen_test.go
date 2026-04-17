@@ -96,6 +96,91 @@ func TestDiffGrid_NilPrev(t *testing.T) {
 	}
 }
 
+func TestDiffGrid_ExpandsChangedRowSpanAcrossSeparatedChanges(t *testing.T) {
+	t.Parallel()
+
+	oldRow := "◇ [w-LAB-1300] Eliminate double CloneStyledLinesX in re…"
+	newRow := "◇ [w-LAB-1300] Eliminate double CloneStyledLines in ren…"
+
+	prev := NewScreenGrid(len([]rune(oldRow)), 1)
+	next := NewScreenGrid(len([]rune(newRow)), 1)
+	for x, r := range []rune(oldRow) {
+		prev.Set(x, 0, ScreenCell{Char: string(r), Width: 1})
+	}
+	for x, r := range []rune(newRow) {
+		next.Set(x, 0, ScreenCell{Char: string(r), Width: 1})
+	}
+
+	changes := DiffGrid(prev, next)
+	if len(changes) == 0 {
+		t.Fatal("DiffGrid should report row changes")
+	}
+
+	firstX := changes[0].X
+	lastX := changes[len(changes)-1].X
+	wantLen := lastX - firstX + 1
+	if len(changes) != wantLen {
+		t.Fatalf("DiffGrid should expand the changed row span; got %d changes for span [%d,%d], want %d", len(changes), firstX, lastX, wantLen)
+	}
+	for i, ch := range changes {
+		if ch.Y != 0 || ch.X != firstX+i {
+			t.Fatalf("change[%d] = (%d,%d), want contiguous span starting at x=%d", i, ch.X, ch.Y, firstX)
+		}
+	}
+}
+
+func TestEmitDiff_ClearsDeletedInternalCharacters(t *testing.T) {
+	t.Parallel()
+
+	const row = "◇ [w-LAB-1300] Eliminate double CloneStyledLinesX in re…"
+	const updated = "◇ [w-LAB-1300] Eliminate double CloneStyledLines in ren…"
+
+	prev := NewScreenGrid(len([]rune(row)), 1)
+	next := NewScreenGrid(len([]rune(row)), 1)
+	for x, r := range []rune(row) {
+		prev.Set(x, 0, ScreenCell{Char: string(r), Width: 1})
+	}
+	for x, r := range []rune(updated) {
+		next.Set(x, 0, ScreenCell{Char: string(r), Width: 1})
+	}
+
+	emu := vt.NewSafeEmulator(len([]rune(row)), 1)
+	mustWrite(t, emu, []byte(EmitDiff(DiffGrid(nil, prev))))
+	mustWrite(t, emu, []byte(EmitDiff(DiffGrid(prev, next))))
+
+	if got := displayRow(emu, len([]rune(row)), 0); got != updated {
+		t.Fatalf("display row = %q, want %q", got, updated)
+	}
+}
+
+func TestEmitDiff_RewritesChangedRowSpanWithInterveningSpaces(t *testing.T) {
+	t.Parallel()
+
+	oldRow := "abcdefghijklmnopqrstuvwx"
+	newRow := "ab  ef  ij  mn  qr  uv  "
+
+	prev := NewScreenGrid(len([]rune(oldRow)), 1)
+	next := NewScreenGrid(len([]rune(newRow)), 1)
+	for x, r := range []rune(oldRow) {
+		prev.Set(x, 0, ScreenCell{Char: string(r), Width: 1})
+	}
+	for x, r := range []rune(newRow) {
+		next.Set(x, 0, ScreenCell{Char: string(r), Width: 1})
+	}
+
+	output := EmitDiff(DiffGrid(prev, next))
+	if got := countCUPs(output); got != 1 {
+		t.Fatalf("changed row diff should emit one contiguous rewrite, got %d CUPs in %q", got, output)
+	}
+
+	emu := vt.NewSafeEmulator(len([]rune(oldRow)), 1)
+	mustWrite(t, emu, []byte(EmitDiff(DiffGrid(nil, prev))))
+	mustWrite(t, emu, []byte(output))
+	if got := displayRow(emu, len([]rune(newRow)), 0); got != newRow {
+		t.Fatalf("display row = %q, want %q", got, newRow)
+	}
+}
+
 func TestEmitDiff_CUP(t *testing.T) {
 	t.Parallel()
 	changes := []CellChange{
@@ -1313,6 +1398,69 @@ func TestRenderDiff_StatusLineWideRuneMatchesRenderFullAcrossPanes(t *testing.T)
 	}
 }
 
+func TestRenderDiff_TruncatedStatusLinePreservesPaddingBeforeBorder(t *testing.T) {
+	t.Parallel()
+
+	const (
+		pane1W = 56
+		pane2W = 20
+		height = 6
+	)
+	width := pane1W + 1 + pane2W
+	totalH := height + GlobalBarHeight
+
+	root := mkSplit(mux.SplitVertical, 0, 0, width, height,
+		mux.NewLeafByID(1, 0, 0, pane1W, height),
+		mux.NewLeafByID(2, pane1W+1, 0, pane2W, height),
+	)
+	lookup := func(id uint32) PaneData {
+		switch id {
+		case 1:
+			return &statusPaneData{
+				id:           1,
+				name:         "w-LAB-1300",
+				task:         "Eliminate double CloneStyledLines in renderer and compositor",
+				color:        config.TextColorHex,
+				idle:         true,
+				screen:       "",
+				cursorHidden: true,
+			}
+		case 2:
+			return &statusPaneData{
+				id:           2,
+				name:         "pane-2",
+				color:        config.TextColorHex,
+				screen:       "",
+				cursorHidden: true,
+			}
+		}
+		return nil
+	}
+
+	comp := newTestCompositor(width, totalH, "test")
+	display := vt.NewSafeEmulator(width, totalH)
+
+	if err := oracleCheck(comp, display, root, 2, lookup, width, totalH); err != "" {
+		t.Fatalf("RenderDiff mismatch for truncated status line:\n%s", err)
+	}
+
+	rowRunes := []rune(displayRow(display, width, 0))
+	leftPane := string(rowRunes[:pane1W])
+	trimmed := strings.TrimRight(leftPane, " ")
+	if !strings.HasSuffix(trimmed, "…") {
+		t.Fatalf("left pane status row %q should end with an ellipsis before padding", leftPane)
+	}
+
+	for _, r := range []rune(leftPane[len(trimmed):]) {
+		if r != ' ' {
+			t.Fatalf("left pane status row %q should pad with spaces after the ellipsis", leftPane)
+		}
+	}
+	if got := rowRunes[pane1W]; got != '│' {
+		t.Fatalf("border column = %q, want vertical border", string(got))
+	}
+}
+
 func TestRenderDiff_ColorOracle_LongLines(t *testing.T) {
 	t.Parallel()
 	pane1W := 20
@@ -1355,6 +1503,25 @@ func TestRenderDiff_ColorOracle_LongLines(t *testing.T) {
 		t.Errorf("long-line color oracle incremental: %d mismatches:\n%s",
 			len(mismatches), strings.Join(mismatches, "\n"))
 	}
+}
+
+func displayRow(display *vt.SafeEmulator, width, y int) string {
+	var row strings.Builder
+	for x := 0; x < width; x++ {
+		row.WriteString(cellContent(display.CellAt(x, y)))
+	}
+	return row.String()
+}
+
+func displayText(display *vt.SafeEmulator, width, height int) string {
+	var out strings.Builder
+	for y := 0; y < height; y++ {
+		if y > 0 {
+			out.WriteByte('\n')
+		}
+		out.WriteString(strings.TrimRight(displayRow(display, width, y), " "))
+	}
+	return out.String()
 }
 
 func TestRenderDiff_LongLines_NinePanes(t *testing.T) {
