@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -187,6 +188,30 @@ func (h *ptyClientHarness) waitForOutput(substr string, timeout time.Duration) b
 		case <-h.updateCh:
 		case <-h.exited:
 			return bytes.Contains(h.outputBytes(), []byte(substr))
+		case <-time.After(wait):
+		}
+	}
+}
+
+func (h *ptyClientHarness) waitForScreenText(substr string, timeout time.Duration) bool {
+	h.tb.Helper()
+
+	deadline := time.Now().Add(timeout)
+	for {
+		if strings.Contains(h.screen(80, 24), substr) {
+			return true
+		}
+		wait := time.Until(deadline)
+		if wait <= 0 {
+			return false
+		}
+		if wait > 50*time.Millisecond {
+			wait = 50 * time.Millisecond
+		}
+		select {
+		case <-h.updateCh:
+		case <-h.exited:
+			return strings.Contains(h.screen(80, 24), substr)
 		case <-time.After(wait):
 		}
 	}

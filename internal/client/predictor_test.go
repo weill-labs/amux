@@ -1,6 +1,7 @@
 package client
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -104,7 +105,7 @@ func TestPredictorAllowPredictionHeuristics(t *testing.T) {
 			for _, confirming := range tt.prime {
 				p.recordAck(1, confirming)
 			}
-			p.panes[1] = &panePredictorState{recentPresses: append([]time.Time(nil), tt.pressed...)}
+			p.stateForPane(1).recentPresses = append([]time.Time(nil), tt.pressed...)
 
 			if got := p.allowPrediction(1, tt.ctx, tt.data, time.Unix(0, 15*time.Millisecond.Nanoseconds())); got != tt.want {
 				t.Fatalf("allowPrediction() = %t, want %t", got, tt.want)
@@ -159,7 +160,7 @@ func TestPredictorReconcileMatchAndDivergence(t *testing.T) {
 			t.Fatal("predict(second) = false, want true")
 		}
 
-		confirmed := capturePredictionSnapshotFromText(t, "$ {\n\tx")
+		confirmed := capturePredictionSnapshotFromText(t, "$ {\n\t")
 		result := p.reconcile(1, confirmed, firstEpoch)
 		if result.Matched {
 			t.Fatalf("reconcile matched = true, want false: %+v", result)
@@ -171,8 +172,9 @@ func TestPredictorReconcileMatchAndDivergence(t *testing.T) {
 		if !ok {
 			t.Fatal("shadow(1) = missing after rebuild")
 		}
-		if got := shadow.ScreenContains("{x"); !got {
-			t.Fatalf("rebuilt shadow should retain later prediction, got %q", shadow.Render())
+		rendered := shadow.Render()
+		if count := strings.Count(rendered, "x"); count != 1 {
+			t.Fatalf("rebuilt shadow should retain one later prediction, got count=%d render=%q", count, rendered)
 		}
 		if secondEpoch <= firstEpoch {
 			t.Fatalf("epochs = (%d,%d), want increasing", firstEpoch, secondEpoch)

@@ -13,6 +13,7 @@ type ClientCapabilities struct {
 	PromptMarkers       bool `json:"prompt_markers,omitempty"`
 	GraphicsPlaceholder bool `json:"graphics_placeholder,omitempty"`
 	BinaryPaneHistory   bool `json:"binary_pane_history,omitempty"`
+	PredictionSupported bool `json:"prediction_supported,omitempty"`
 }
 
 // KnownClientCapabilities returns the capability set understood by this build.
@@ -26,6 +27,7 @@ func KnownClientCapabilities() ClientCapabilities {
 		PromptMarkers:       true,
 		GraphicsPlaceholder: true,
 		BinaryPaneHistory:   true,
+		PredictionSupported: true,
 	}
 }
 
@@ -49,12 +51,13 @@ func (c ClientCapabilities) Intersect(other ClientCapabilities) ClientCapabiliti
 		PromptMarkers:       c.PromptMarkers && other.PromptMarkers,
 		GraphicsPlaceholder: c.GraphicsPlaceholder && other.GraphicsPlaceholder,
 		BinaryPaneHistory:   c.BinaryPaneHistory && other.BinaryPaneHistory,
+		PredictionSupported: c.PredictionSupported && other.PredictionSupported,
 	}
 }
 
 // EnabledNames returns enabled capability names in stable display order.
 func (c ClientCapabilities) EnabledNames() []string {
-	names := make([]string, 0, 7)
+	names := make([]string, 0, 8)
 	if c.KittyKeyboard {
 		names = append(names, "kitty_keyboard")
 	}
@@ -75,6 +78,9 @@ func (c ClientCapabilities) EnabledNames() []string {
 	}
 	if c.BinaryPaneHistory {
 		names = append(names, "binary_pane_history")
+	}
+	if c.PredictionSupported {
+		names = append(names, "prediction_supported")
 	}
 	return names
 }

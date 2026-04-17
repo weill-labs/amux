@@ -63,14 +63,18 @@ func (e resizeClientEvent) handle(s *Session) {
 }
 
 type liveInputEvent struct {
-	cc   *clientConn
-	data []byte
+	cc    *clientConn
+	data  []byte
+	epoch uint32
 }
 
 func (e liveInputEvent) handle(s *Session) {
 	pane := s.ensureInputRouter().activeInputPaneForWriteOnActor(s, e.cc)
 	if pane == nil {
 		return
+	}
+	if e.cc != nil {
+		e.cc.notePredictionEpoch(pane.ID, e.epoch, e.data)
 	}
 	if err := s.enqueueLivePaneInput(pane, e.data); err != nil && !errors.Is(err, errPacedInputClosed) {
 		s.logger.Warn("live input failed",
@@ -83,14 +87,19 @@ func (e liveInputEvent) handle(s *Session) {
 }
 
 type liveInputPaneEvent struct {
+	cc     *clientConn
 	paneID uint32
 	data   []byte
+	epoch  uint32
 }
 
 func (e liveInputPaneEvent) handle(s *Session) {
 	pane := s.ensureInputRouter().paneByIDOnActor(s, e.paneID)
 	if pane == nil {
 		return
+	}
+	if e.cc != nil {
+		e.cc.notePredictionEpoch(pane.ID, e.epoch, e.data)
 	}
 	if err := s.enqueueLivePaneInput(pane, e.data); err != nil && !errors.Is(err, errPacedInputClosed) {
 		s.logger.Warn("live input failed",
@@ -130,17 +139,25 @@ func (s *Session) enqueueResizeClient(cc *clientConn, cols, rows int) {
 }
 
 func (s *Session) enqueueLiveInput(cc *clientConn, data []byte) bool {
+	return s.enqueueLiveInputWithEpoch(cc, data, 0)
+}
+
+func (s *Session) enqueueLiveInputWithEpoch(cc *clientConn, data []byte, epoch uint32) bool {
 	if len(data) == 0 {
 		return true
 	}
-	return s.enqueueEvent(liveInputEvent{cc: cc, data: append([]byte(nil), data...)})
+	return s.enqueueEvent(liveInputEvent{cc: cc, data: append([]byte(nil), data...), epoch: epoch})
 }
 
 func (s *Session) enqueueLiveInputPane(paneID uint32, data []byte) bool {
+	return s.enqueueLiveInputPaneFromClient(nil, paneID, data, 0)
+}
+
+func (s *Session) enqueueLiveInputPaneFromClient(cc *clientConn, paneID uint32, data []byte, epoch uint32) bool {
 	if len(data) == 0 {
 		return true
 	}
-	return s.enqueueEvent(liveInputPaneEvent{paneID: paneID, data: append([]byte(nil), data...)})
+	return s.enqueueEvent(liveInputPaneEvent{cc: cc, paneID: paneID, data: append([]byte(nil), data...), epoch: epoch})
 }
 
 // --- Event subscribe/unsubscribe through the event loop ---

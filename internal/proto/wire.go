@@ -34,7 +34,7 @@ func (w *Writer) WriteMsg(msg *Message) error {
 	if w == nil {
 		return io.ErrClosedPipe
 	}
-	if msg.Type == MsgTypePaneOutput {
+	if msg.Type == MsgTypePaneOutput && msg.SourceEpoch == 0 {
 		return writePaneOutputBinary(w.dst, msg)
 	}
 	if msg.Type == MsgTypePaneHistory && w.binaryPaneHistory {
@@ -130,6 +130,9 @@ type Message struct {
 
 	// MsgTypeInput
 	Input []byte
+	// InputEpoch optionally tags input forwarded from a predicting client.
+	// Zero means the input is not associated with local echo tracking.
+	InputEpoch uint32
 
 	// MsgTypeResize, MsgTypeAttach
 	Cols int
@@ -166,6 +169,9 @@ type Message struct {
 	// MsgTypePaneOutput, MsgTypeInputPane, MsgTypeTypeKeys (optional target pane)
 	PaneID   uint32
 	PaneData []byte
+	// SourceEpoch optionally tags output with the originating input epoch for
+	// reconciliation on the receiving client. Zero means no epoch is attached.
+	SourceEpoch uint32
 
 	// MsgTypePaneHistory
 	History       []string
@@ -200,7 +206,7 @@ const (
 // Connection-scoped writers can also opt PaneHistory into compact binary via
 // SetBinaryPaneHistory when both peers negotiated support.
 func WriteMsg(w io.Writer, msg *Message) error {
-	if msg.Type == MsgTypePaneOutput {
+	if msg.Type == MsgTypePaneOutput && msg.SourceEpoch == 0 {
 		return writePaneOutputBinary(w, msg)
 	}
 	return writeMsgGob(w, msg)

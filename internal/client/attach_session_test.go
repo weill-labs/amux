@@ -817,8 +817,6 @@ func TestReadImmediateAttachCorrectionReturnsErrorOnConnectionClose(t *testing.T
 }
 
 func TestRunSessionLocalEchoRendersBeforeDelayedServerAck(t *testing.T) {
-	t.Parallel()
-
 	configPath := filepath.Join(t.TempDir(), "config.toml")
 	if err := os.WriteFile(configPath, []byte("[client]\nlocal_echo = \"always\"\n"), 0644); err != nil {
 		t.Fatalf("WriteFile(config): %v", err)
@@ -1145,9 +1143,15 @@ func TestRunSessionHandlesServerMessagesAndInteractiveInput(t *testing.T) {
 	})
 
 	h.writeInput(t, []byte("hi"))
-	h.waitMessage(t, func(msg *proto.Message) bool {
-		return msg.Type == proto.MsgTypeInput && string(msg.Input) == "hi"
+	firstInput := h.waitMessage(t, func(msg *proto.Message) bool {
+		return msg.Type == proto.MsgTypeInput && string(msg.Input) == "h"
 	})
+	secondInput := h.waitMessage(t, func(msg *proto.Message) bool {
+		return msg.Type == proto.MsgTypeInput && string(msg.Input) == "i"
+	})
+	if firstInput.InputEpoch == 0 || secondInput.InputEpoch == 0 {
+		t.Fatalf("input epochs = (%d,%d), want non-zero epochs", firstInput.InputEpoch, secondInput.InputEpoch)
+	}
 	h.waitMessage(t, func(msg *proto.Message) bool {
 		return msg.Type == proto.MsgTypeUIEvent && msg.UIEvent == proto.UIEventInputBusy
 	})
