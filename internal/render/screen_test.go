@@ -1451,7 +1451,7 @@ func TestRenderDiff_TruncatedStatusLinePreservesPaddingBeforeBorder(t *testing.T
 		t.Fatalf("left pane status row %q should end with an ellipsis before padding", leftPane)
 	}
 
-	for _, r := range []rune(leftPane[len(trimmed):]) {
+	for _, r := range leftPane[len(trimmed):] {
 		if r != ' ' {
 			t.Fatalf("left pane status row %q should pad with spaces after the ellipsis", leftPane)
 		}
