@@ -238,12 +238,22 @@ func (c *Config) HostColor(hostname string) string {
 }
 
 func defaultHostUser() string {
-	usr, err := user.Current()
+	return defaultHostUserWith(user.Current, os.Getenv, func(err error) {
+		charmlog.Warn("failed to determine current ssh user", "error", err)
+	})
+}
+
+func defaultHostUserWith(
+	currentUser func() (*user.User, error),
+	getenv func(string) string,
+	logLookupError func(error),
+) string {
+	usr, err := currentUser()
 	if err == nil && usr != nil && usr.Username != "" {
 		return usr.Username
 	}
-	if err != nil {
-		charmlog.Warn("failed to determine current ssh user", "error", err)
+	if err != nil && logLookupError != nil {
+		logLookupError(err)
 	}
-	return os.Getenv("USER")
+	return getenv("USER")
 }

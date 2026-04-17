@@ -22,6 +22,44 @@ func TestDefaultSSHRunSessionOps(t *testing.T) {
 	}
 }
 
+func TestDefaultSSHRunSessionOpsDelegatesToTransport(t *testing.T) {
+	t.Parallel()
+
+	ops := defaultSSHRunSessionOps()
+	target := transport.Target{Host: "builder", User: "deploy", Port: "22", Session: "work"}
+	delegate := &recordingSessionTransport{name: "stub", dialConn: noopConn{}}
+
+	tr, err := ops.newTransport("ssh", config.Host{})
+	if err != nil {
+		t.Fatalf("newTransport() error = %v", err)
+	}
+	if tr.Name() != "ssh" {
+		t.Fatalf("newTransport() name = %q, want ssh", tr.Name())
+	}
+	if err := ops.deployBinary(delegate, target, "abc1234"); err != nil {
+		t.Fatalf("deployBinary() error = %v", err)
+	}
+	if err := ops.ensureRemoteServer(delegate, target, "work"); err != nil {
+		t.Fatalf("ensureRemoteServer() error = %v", err)
+	}
+	conn, err := ops.dialRemoteSocket(delegate, target)
+	if err != nil {
+		t.Fatalf("dialRemoteSocket() error = %v", err)
+	}
+	if conn != delegate.dialConn {
+		t.Fatalf("dialRemoteSocket() = %#v, want %#v", conn, delegate.dialConn)
+	}
+	if delegate.deployBuildHash != "abc1234" {
+		t.Fatalf("deploy build hash = %q, want abc1234", delegate.deployBuildHash)
+	}
+	if delegate.ensureSession != "work" {
+		t.Fatalf("ensure session = %q, want work", delegate.ensureSession)
+	}
+	if delegate.dialTarget.Host != target.Host || delegate.dialTarget.User != target.User || delegate.dialTarget.Port != target.Port || delegate.dialTarget.Session != target.Session {
+		t.Fatalf("dial target = %#v, want %#v", delegate.dialTarget, target)
+	}
+}
+
 func TestRunSSHSessionReturnsConfigLoadError(t *testing.T) {
 	configPath := t.TempDir() + "/config.toml"
 	if err := os.WriteFile(configPath, []byte("["), 0o600); err != nil {
@@ -255,6 +293,41 @@ func TestSSHRunSessionDepsIgnoresDeployFailure(t *testing.T) {
 	}
 }
 
+func TestConnectSSHSessionClosesTransportOnEnsureFailure(t *testing.T) {
+	t.Parallel()
+
+	tr := &recordingSessionTransport{name: "ssh"}
+	_, err := connectSSHSession(sshSessionTarget{
+		Target:    transport.Target{Host: "builder", User: "alice", Port: "22", Session: "main"},
+		Transport: "ssh",
+	}, "main", 10*time.Millisecond, sshRunSessionOps{
+		newTransport:       func(string, config.Host) (transport.Transport, error) { return tr, nil },
+		deployBinary:       func(transport.Transport, transport.Target, string) error { return nil },
+		ensureRemoteServer: func(transport.Transport, transport.Target, string) error { return errors.New("boom") },
+		dialRemoteSocket:   func(transport.Transport, transport.Target) (net.Conn, error) { return noopConn{}, nil },
+	})
+	if err == nil || !strings.Contains(err.Error(), "starting remote server") {
+		t.Fatalf("connectSSHSession() error = %v, want starting remote server failure", err)
+	}
+	if !tr.closed {
+		t.Fatal("connectSSHSession() should close transport after ensure failure")
+	}
+}
+
+func TestSSHSessionStateCloseClosesTransport(t *testing.T) {
+	t.Parallel()
+
+	tr := &recordingSessionTransport{name: "ssh"}
+	state := &sshSessionState{transport: tr}
+	state.close()
+	if !tr.closed {
+		t.Fatal("close() should close the stored transport")
+	}
+	if state.transport != nil {
+		t.Fatal("close() should clear the stored transport")
+	}
+}
+
 type stubSessionTransport struct {
 	name string
 }
@@ -276,6 +349,40 @@ func (s *stubSessionTransport) EnsureServer(context.Context, transport.Target, s
 }
 
 func (s *stubSessionTransport) Close() error {
+	return nil
+}
+
+type recordingSessionTransport struct {
+	name            string
+	deployBuildHash string
+	ensureSession   string
+	dialTarget      transport.Target
+	dialConn        net.Conn
+	closed          bool
+}
+
+func (r *recordingSessionTransport) Name() string {
+	return r.name
+}
+
+func (r *recordingSessionTransport) Dial(_ context.Context, target transport.Target) (net.Conn, error) {
+	r.dialTarget = target
+	return r.dialConn, nil
+}
+
+func (r *recordingSessionTransport) Deploy(_ context.Context, _ transport.Target, buildHash string) error {
+	r.deployBuildHash = buildHash
+	return nil
+}
+
+func (r *recordingSessionTransport) EnsureServer(_ context.Context, target transport.Target, session string) error {
+	r.dialTarget = target
+	r.ensureSession = session
+	return nil
+}
+
+func (r *recordingSessionTransport) Close() error {
+	r.closed = true
 	return nil
 }
 

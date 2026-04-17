@@ -149,3 +149,80 @@ func TestSSHTransportDialUsesCachedClient(t *testing.T) {
 		t.Fatalf("sshDial calls = %d, want 1 cached dial", dialCalls)
 	}
 }
+
+func TestSSHTransportDeployUsesCachedClient(t *testing.T) {
+	t.Parallel()
+
+	client := new(gossh.Client)
+	tr := newSSHTransportWithDeps(config.Host{}, sshTransportDeps{
+		buildSSHConfig: func(string, string) (*gossh.ClientConfig, error) {
+			return &gossh.ClientConfig{}, nil
+		},
+		sshDial: func(string, string, *gossh.ClientConfig) (*gossh.Client, error) {
+			return client, nil
+		},
+		deployBinary: func(got *gossh.Client, buildHash string) error {
+			if got != client {
+				t.Fatal("deployBinary received unexpected client")
+			}
+			if buildHash != "abc1234" {
+				t.Fatalf("deployBinary buildHash = %q, want abc1234", buildHash)
+			}
+			return nil
+		},
+		normalizeAddr: NormalizeAddr,
+	})
+
+	if err := tr.Deploy(context.Background(), transport.Target{Host: "builder", User: "deploy", Port: "22"}, "abc1234"); err != nil {
+		t.Fatalf("Deploy() error = %v", err)
+	}
+}
+
+func TestSSHTransportCloseClosesCachedClient(t *testing.T) {
+	t.Parallel()
+
+	client := new(gossh.Client)
+	closed := 0
+	tr := newSSHTransportWithDeps(config.Host{}, sshTransportDeps{
+		closeClient: func(got *gossh.Client) error {
+			if got != client {
+				t.Fatal("closeClient received unexpected client")
+			}
+			closed++
+			return nil
+		},
+	})
+	tr.client = client
+	tr.remoteUID = "1001"
+
+	if err := tr.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	if closed != 1 {
+		t.Fatalf("closeClient calls = %d, want 1", closed)
+	}
+	if tr.client != nil {
+		t.Fatal("Close() should clear cached client")
+	}
+	if tr.remoteUID != "" {
+		t.Fatalf("Close() remoteUID = %q, want empty", tr.remoteUID)
+	}
+}
+
+func TestSSHTransportContextCancellation(t *testing.T) {
+	t.Parallel()
+
+	tr := newSSHTransportWithDeps(config.Host{}, sshTransportDeps{})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if _, err := tr.Dial(ctx, transport.Target{}); err == nil {
+		t.Fatal("Dial() error = nil, want context cancellation")
+	}
+	if err := tr.Deploy(ctx, transport.Target{}, "hash"); err == nil {
+		t.Fatal("Deploy() error = nil, want context cancellation")
+	}
+	if err := tr.EnsureServer(ctx, transport.Target{}, "main"); err == nil {
+		t.Fatal("EnsureServer() error = nil, want context cancellation")
+	}
+}
