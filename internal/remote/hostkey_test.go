@@ -102,8 +102,9 @@ func TestHostKeyMismatch(t *testing.T) {
 	if !strings.Contains(msg, "CHANGED") {
 		t.Errorf("error should mention CHANGED, got: %s", msg)
 	}
-	if !strings.Contains(msg, "ssh-keygen -R") {
-		t.Errorf("error should suggest ssh-keygen -R, got: %s", msg)
+	wantCmd := "ssh-keygen -f " + path + " -R example.com"
+	if !strings.Contains(msg, wantCmd) {
+		t.Errorf("error = %q, want %q", msg, wantCmd)
 	}
 }
 
