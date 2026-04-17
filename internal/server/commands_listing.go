@@ -3,8 +3,6 @@ package server
 import (
 	"os"
 
-	"github.com/weill-labs/amux/internal/mux"
-	"github.com/weill-labs/amux/internal/proto"
 	listingcmd "github.com/weill-labs/amux/internal/server/commands/listing"
 )
 
@@ -19,9 +17,9 @@ func toListingPaneEntry(entry paneListEntry) listingcmd.PaneEntry {
 		GitBranch:     entry.gitBranch,
 		Idle:          entry.idle,
 		PR:            entry.pr,
-		KV:            mux.CloneMetaKV(entry.kv),
-		TrackedPRs:    proto.CloneTrackedPRs(entry.prs),
-		TrackedIssues: proto.CloneTrackedIssues(entry.issues),
+		KV:            entry.kv,
+		TrackedPRs:    entry.prs,
+		TrackedIssues: entry.issues,
 		Active:        entry.active,
 		Lead:          entry.lead,
 	}
