@@ -26,9 +26,9 @@ func toListingPaneEntry(entry paneListEntry) listingcmd.PaneEntry {
 }
 
 func toListingPaneEntries(entries []paneListEntry) []listingcmd.PaneEntry {
-	out := make([]listingcmd.PaneEntry, 0, len(entries))
-	for _, entry := range entries {
-		out = append(out, toListingPaneEntry(entry))
+	out := make([]listingcmd.PaneEntry, len(entries))
+	for i, entry := range entries {
+		out[i] = toListingPaneEntry(entry)
 	}
 	return out
 }
