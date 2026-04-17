@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/x/ansi"
+	"github.com/charmbracelet/x/vt"
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
 	"github.com/weill-labs/amux/internal/render"
@@ -115,6 +116,35 @@ func singlePane20x3() *proto.LayoutSnapshot {
 
 func singlePane20x5() *proto.LayoutSnapshot {
 	return singlePane20xN(5)
+}
+
+func wideTwoPaneStatus80x23(task string) *proto.LayoutSnapshot {
+	root := proto.CellSnapshot{
+		X: 0, Y: 0, W: 80, H: 23,
+		Dir: int(mux.SplitVertical),
+		Children: []proto.CellSnapshot{
+			{X: 0, Y: 0, W: 56, H: 23, IsLeaf: true, Dir: -1, PaneID: 1},
+			{X: 57, Y: 0, W: 23, H: 23, IsLeaf: true, Dir: -1, PaneID: 2},
+		},
+	}
+	panes := []proto.PaneSnapshot{
+		{ID: 1, Name: "w-LAB-1300", Host: "local", Task: task, Color: "f5e0dc", ColumnIndex: 0, Idle: true},
+		{ID: 2, Name: "pane-2", Host: "local", Color: "f2cdcd", ColumnIndex: 1},
+	}
+	return &proto.LayoutSnapshot{
+		SessionName:  "test",
+		ActivePaneID: 2,
+		Width:        80,
+		Height:       23,
+		Root:         root,
+		Panes:        panes,
+		Windows: []proto.WindowSnapshot{{
+			ID: 1, Name: "window-1", Index: 1, ActivePaneID: 2,
+			Root:  root,
+			Panes: panes,
+		}},
+		ActiveWindowID: 1,
+	}
 }
 
 // buildTestRenderer creates a ClientRenderer with two panes in a vertical split.
@@ -1100,6 +1130,78 @@ func TestCaptureDisplayShowsPaneMetadata(t *testing.T) {
 	display := cr.CaptureDisplay()
 	if !strings.Contains(display, "#42, #314, LAB-339") {
 		t.Fatalf("display should contain pane metadata, got:\n%s", display)
+	}
+}
+
+func TestCaptureDisplayTruncatedStatusLineKeepsPaddingBeforeBorder(t *testing.T) {
+	t.Parallel()
+
+	cr := NewClientRenderer(80, 24)
+	cr.HandleLayout(wideTwoPaneStatus80x23("Eliminate double CloneStyledLinesX in renderer and compositor"))
+	if got := cr.RenderDiff(); got == "" {
+		t.Fatal("RenderDiff should render the initial status frame")
+	}
+
+	cr.HandleLayout(wideTwoPaneStatus80x23("Eliminate double CloneStyledLines in renderer and compositor"))
+
+	if got := cr.RenderDiff(); got == "" {
+		t.Fatal("RenderDiff should render the updated truncated status frame")
+	}
+
+	display := cr.CaptureDisplay()
+	lines := strings.Split(display, "\n")
+	if len(lines) == 0 {
+		t.Fatal("CaptureDisplay returned no rows")
+	}
+	if got, want := display, cr.Capture(true); got != want {
+		t.Fatalf("CaptureDisplay mismatch:\n--- display ---\n%s\n--- full ---\n%s", got, want)
+	}
+
+	leftWidth := 56
+	row := []rune(lines[0])
+	leftPane := string(row[:leftWidth])
+	trimmed := strings.TrimRight(leftPane, " ")
+	if !strings.HasSuffix(trimmed, "…") {
+		t.Fatalf("left pane status row %q should end with an ellipsis before padding", leftPane)
+	}
+	for _, r := range []rune(leftPane[len(trimmed):]) {
+		if r != ' ' {
+			t.Fatalf("left pane status row %q should pad with spaces after the ellipsis", leftPane)
+		}
+	}
+	if row[leftWidth] != '│' {
+		t.Fatalf("border column = %q, want vertical border", string(row[leftWidth]))
+	}
+}
+
+func TestRenderDiffStatusUpdateAppliedToTerminalMatchesCapture(t *testing.T) {
+	t.Parallel()
+
+	cr := NewClientRenderer(80, 24)
+	emu := vt.NewSafeEmulator(80, 24)
+
+	cr.HandleLayout(wideTwoPaneStatus80x23("Eliminate double CloneStyledLinesX in renderer and compositor"))
+	first := cr.RenderDiff()
+	if first == "" {
+		t.Fatal("RenderDiff should render the initial status frame")
+	}
+	if _, err := emu.Write([]byte(first)); err != nil {
+		t.Fatalf("writing initial diff: %v", err)
+	}
+
+	cr.HandleLayout(wideTwoPaneStatus80x23("Eliminate double CloneStyledLines in renderer and compositor"))
+	second := cr.RenderDiff()
+	if second == "" {
+		t.Fatal("RenderDiff should render the updated status frame")
+	}
+	if _, err := emu.Write([]byte(second)); err != nil {
+		t.Fatalf("writing updated diff: %v", err)
+	}
+
+	got := renderDisplayText(emu, 80, 24)
+	want := cr.Capture(true)
+	if got != want {
+		t.Fatalf("terminal display mismatch after status update:\n--- got ---\n%s\n--- want ---\n%s", got, want)
 	}
 }
 
@@ -2386,6 +2488,56 @@ func TestHandleCaptureRequest_DisplayFlag(t *testing.T) {
 			t.Errorf("--display with %v should error", args[1:])
 		}
 	}
+}
+
+func TestCaptureDisplayClearsVacatedCellsAfterShorterRedraw(t *testing.T) {
+	t.Parallel()
+
+	cr := NewClientRenderer(80, 24)
+	cr.HandleLayout(singlePane20x5())
+
+	cr.HandlePaneOutput(1, []byte("\033[2J\033[Hbranch history still stays explicit and the worktree is actually"))
+	if got := cr.RenderDiff(); got == "" {
+		t.Fatal("RenderDiff should render the initial long line")
+	}
+
+	cr.HandlePaneOutput(1, []byte("\033[Hbranch h"))
+	if got := cr.RenderDiff(); got == "" {
+		t.Fatal("RenderDiff should render the overwrite before the clear")
+	}
+
+	cr.HandlePaneOutput(1, []byte("\033[K"))
+	if got := cr.RenderDiff(); got == "" {
+		t.Fatal("RenderDiff should render the clear-only update")
+	}
+
+	display := cr.CaptureDisplay()
+	if got, want := display, cr.Capture(true); got != want {
+		t.Fatalf("CaptureDisplay mismatch after shorter redraw:\n--- display ---\n%s\n--- full ---\n%s", got, want)
+	}
+	if strings.Contains(display, "still stays explicit") {
+		t.Fatalf("CaptureDisplay retained stale characters after shorter redraw:\n%s", display)
+	}
+}
+
+func renderDisplayText(emu *vt.SafeEmulator, width, height int) string {
+	var out strings.Builder
+	for y := 0; y < height; y++ {
+		if y > 0 {
+			out.WriteByte('\n')
+		}
+		var row strings.Builder
+		for x := 0; x < width; x++ {
+			cell := emu.CellAt(x, y)
+			if cell == nil || cell.Content == "" {
+				row.WriteByte(' ')
+				continue
+			}
+			row.WriteString(cell.Content)
+		}
+		out.WriteString(strings.TrimRight(row.String(), " "))
+	}
+	return out.String()
 }
 
 func TestRenderCoalesced_FullRenderMode(t *testing.T) {
