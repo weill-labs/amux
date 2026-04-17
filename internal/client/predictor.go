@@ -362,11 +362,6 @@ func (p *predictor) shadow(paneID uint32) (mux.TerminalEmulator, bool) {
 	return state.shadow, true
 }
 
-func (p *predictor) hasShadow(paneID uint32) bool {
-	_, ok := p.shadow(paneID)
-	return ok
-}
-
 func (p *predictor) recordAck(paneID uint32, confirming bool) {
 	if p == nil || paneID == 0 {
 		return
@@ -461,8 +456,8 @@ func predictionCellChanged(confirmed, predicted render.ScreenCell) bool {
 func applyPredictionStyle(cell render.ScreenCell, style localEchoStyle) render.ScreenCell {
 	switch style {
 	case localEchoStyleUnderline:
-		if cell.Style.Underline == uv.UnderlineStyleNone {
-			cell.Style.Underline = uv.UnderlineStyleSingle
+		if cell.Style.Underline == uv.UnderlineNone {
+			cell.Style.Underline = uv.UnderlineSingle
 		}
 	case localEchoStyleNone:
 		return cell

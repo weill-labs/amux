@@ -138,10 +138,6 @@ func (s *Session) enqueueResizeClient(cc *clientConn, cols, rows int) {
 	s.enqueueEvent(resizeClientEvent{cc: cc, cols: cols, rows: rows})
 }
 
-func (s *Session) enqueueLiveInput(cc *clientConn, data []byte) bool {
-	return s.enqueueLiveInputWithEpoch(cc, data, 0)
-}
-
 func (s *Session) enqueueLiveInputWithEpoch(cc *clientConn, data []byte, epoch uint32) bool {
 	if len(data) == 0 {
 		return true
