@@ -784,20 +784,3 @@ func normalizeAddr(addr string) string {
 func sshOutput(client *ssh.Client, cmd string) (string, error) {
 	return transportssh.SSHOutput(client, cmd)
 }
-
-func addrOrFallback(values ...string) string {
-	for _, value := range values {
-		if value != "" {
-			return value
-		}
-	}
-	return ""
-}
-
-func normalizedDialAddr(hostName string, candidates ...string) string {
-	addr := addrOrFallback(candidates...)
-	if addr == "" {
-		addr = hostName
-	}
-	return normalizeAddr(addr)
-}
