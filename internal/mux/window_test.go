@@ -2059,3 +2059,150 @@ func TestUnsplicePane(t *testing.T) {
 		t.Errorf("active pane = %d, want 99", w.ActivePane.ID)
 	}
 }
+
+func TestApplyLayoutRequiresRoot(t *testing.T) {
+	t.Parallel()
+
+	w := &Window{}
+	if err := w.ApplyLayout(nil, nil, 0, 0, 0, 0); err == nil || err.Error() != "missing layout root" {
+		t.Fatalf("ApplyLayout(nil) error = %v, want missing layout root", err)
+	}
+}
+
+func TestApplyLayoutUsesRootDimensionsAndFirstPane(t *testing.T) {
+	t.Parallel()
+
+	p1 := fakePaneID(1)
+	p2 := fakePaneID(2)
+	root := NewLeaf(p1, 5, 7, 60, 18)
+	mustSplitCell(t, root, SplitVertical, p2)
+	root.FixOffsets()
+
+	w := &Window{
+		Root:       NewLeaf(fakePaneID(99), 0, 0, 80, 24),
+		ActivePane: fakePaneID(99),
+		Width:      80,
+		Height:     24,
+	}
+	if err := w.ApplyLayout(root, nil, 0, 0, 42, 24); err != nil {
+		t.Fatalf("ApplyLayout() error = %v", err)
+	}
+
+	if w.Root != root {
+		t.Fatal("ApplyLayout() should replace the window root")
+	}
+	if w.Width != root.W || w.Height != root.H {
+		t.Fatalf("window size = %dx%d, want %dx%d", w.Width, w.Height, root.W, root.H)
+	}
+	if w.ActivePane != p1 {
+		t.Fatalf("active pane = %#v, want first pane %#v", w.ActivePane, p1)
+	}
+	if w.ZoomedPaneID != 42 || w.LeadPaneID != 24 {
+		t.Fatalf("zoom/lead = (%d,%d), want (42,24)", w.ZoomedPaneID, w.LeadPaneID)
+	}
+	if root.Parent != nil || root.X != 0 || root.Y != 0 {
+		t.Fatalf("root placement = parent:%v x:%d y:%d, want parent:nil x:0 y:0", root.Parent, root.X, root.Y)
+	}
+}
+
+func TestSplicePaneWithLayoutRequiresSubtree(t *testing.T) {
+	t.Parallel()
+
+	p1 := fakePaneID(1)
+	w := &Window{Root: NewLeaf(p1, 0, 0, 80, 24), ActivePane: p1, Width: 80, Height: 24}
+	if err := w.SplicePaneWithLayout(1, nil, nil); err == nil || err.Error() != "missing subtree" {
+		t.Fatalf("SplicePaneWithLayout(nil) error = %v, want missing subtree", err)
+	}
+}
+
+func TestSplicePaneWithLayoutReplacesNestedPane(t *testing.T) {
+	t.Parallel()
+
+	p1 := fakePaneID(1)
+	p2 := fakePaneID(2)
+	root := NewLeaf(p1, 0, 0, 80, 24)
+	mustSplitCell(t, root, SplitVertical, p2)
+	root.FixOffsets()
+
+	w := &Window{Root: root, ActivePane: p2, Width: 80, Height: 24, ZoomedPaneID: 1}
+	oldCell := root.FindPane(1)
+	if oldCell == nil {
+		t.Fatal("missing pane-1 cell")
+	}
+
+	p3 := fakePaneID(3)
+	p4 := fakePaneID(4)
+	subtree := NewLeaf(p3, 0, 0, 20, 10)
+	mustSplitCell(t, subtree, SplitHorizontal, p4)
+
+	if err := w.SplicePaneWithLayout(1, subtree, nil); err != nil {
+		t.Fatalf("SplicePaneWithLayout() error = %v", err)
+	}
+
+	if w.ZoomedPaneID != 0 {
+		t.Fatalf("ZoomedPaneID = %d, want 0", w.ZoomedPaneID)
+	}
+	if w.Root.Children[0] != subtree {
+		t.Fatal("subtree was not installed in the replaced child slot")
+	}
+	if subtree.Parent != w.Root {
+		t.Fatal("subtree parent should be the root split")
+	}
+	if subtree.X != oldCell.X || subtree.Y != oldCell.Y || subtree.W != oldCell.W || subtree.H != oldCell.H {
+		t.Fatalf("subtree frame = (%d,%d %dx%d), want (%d,%d %dx%d)", subtree.X, subtree.Y, subtree.W, subtree.H, oldCell.X, oldCell.Y, oldCell.W, oldCell.H)
+	}
+	if w.Root.FindPane(1) != nil {
+		t.Fatal("pane-1 should be removed after splice")
+	}
+	if w.Root.FindPane(3) == nil || w.Root.FindPane(4) == nil {
+		t.Fatal("spliced subtree panes should be present in the window")
+	}
+	if w.ActivePane != p3 {
+		t.Fatalf("active pane = %#v, want first pane %#v", w.ActivePane, p3)
+	}
+}
+
+func TestSplicePaneWithLayoutReplacesRoot(t *testing.T) {
+	t.Parallel()
+
+	p1 := fakePaneID(1)
+	w := &Window{
+		Root:         NewLeaf(p1, 0, 0, 80, 24),
+		ActivePane:   p1,
+		Width:        80,
+		Height:       24,
+		ZoomedPaneID: 1,
+	}
+	p2 := fakePaneID(2)
+	subtree := NewLeaf(p2, 0, 0, 0, 0)
+
+	if err := w.SplicePaneWithLayout(1, subtree, nil); err != nil {
+		t.Fatalf("SplicePaneWithLayout() error = %v", err)
+	}
+
+	if w.Root != subtree {
+		t.Fatal("root splice should replace the window root")
+	}
+	if w.ActivePane != p2 {
+		t.Fatalf("active pane = %#v, want %#v", w.ActivePane, p2)
+	}
+	if w.ZoomedPaneID != 0 {
+		t.Fatalf("ZoomedPaneID = %d, want 0", w.ZoomedPaneID)
+	}
+}
+
+func TestFirstPaneInSubtree(t *testing.T) {
+	t.Parallel()
+
+	if got := firstPaneInSubtree(nil); got != nil {
+		t.Fatalf("firstPaneInSubtree(nil) = %#v, want nil", got)
+	}
+
+	p1 := fakePaneID(1)
+	p2 := fakePaneID(2)
+	root := NewLeaf(p1, 0, 0, 80, 24)
+	mustSplitCell(t, root, SplitVertical, p2)
+	if got := firstPaneInSubtree(root); got != p1 {
+		t.Fatalf("firstPaneInSubtree(root) = %#v, want %#v", got, p1)
+	}
+}

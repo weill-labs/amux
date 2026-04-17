@@ -870,6 +870,12 @@ func TestRunMainHelpAndUsageErrors(t *testing.T) {
 			wantExit:   1,
 			wantStderr: sshUsage + "\n",
 		},
+		{
+			name:       "connect usage error stays in dispatch layer",
+			args:       []string{"connect"},
+			wantExit:   1,
+			wantStderr: "usage: amux connect <host>\n",
+		},
 	}
 
 	for _, tt := range tests {
