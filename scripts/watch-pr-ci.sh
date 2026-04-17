@@ -23,6 +23,7 @@ head_runs_json=""
 latest_checks_json=""
 poll_output=""
 poll_status=0
+used_rest_required_checks=0
 
 declare -A last_check_state=()
 last_waiting_line=""
@@ -171,6 +172,28 @@ rest_required_checks_json() {
           end
         | sort_by(.name)
     '
+}
+
+prefer_rest_required_checks_json() {
+    local checks_json="$1"
+    local gh_status="${2:-0}"
+    local gh_output="${3:-}"
+    local rest_output
+
+    used_rest_required_checks=0
+    if (( gh_status == 0 )) || ! is_graphql_rate_limit_error "$gh_output"; then
+        printf '%s\n' "$checks_json"
+        return 0
+    fi
+
+    rest_output="$(rest_required_checks_json "$pr_repo" "$head_sha" "$base_ref" || true)"
+    if json_is_array "$rest_output"; then
+        used_rest_required_checks=1
+        printf '%s\n' "$rest_output"
+        return 0
+    fi
+
+    printf '%s\n' "$checks_json"
 }
 
 timestamp_to_epoch() {
@@ -363,16 +386,11 @@ watch_required_checks() {
     local next_heartbeat=0
     local no_checks_retries=0
     local now
-    local rest_output
-
     while :; do
         poll_required_checks "$pr_number"
-        if [[ "$poll_status" -ne 0 ]] && is_graphql_rate_limit_error "$poll_output"; then
-            rest_output="$(rest_required_checks_json "$pr_repo" "$head_sha" "$base_ref" || true)"
-            if json_is_array "$rest_output"; then
-                poll_output="$rest_output"
-                poll_status=0
-            fi
+        poll_output="$(prefer_rest_required_checks_json "$poll_output" "$poll_status" "$poll_output")"
+        if (( used_rest_required_checks == 1 )); then
+            poll_status=0
         fi
 
         if json_is_array "$poll_output" && json_has_items "$poll_output"; then
@@ -457,8 +475,8 @@ checks_json="$latest_checks_json"
 if [[ -z "$checks_json" ]]; then
     checks_json="$(gh pr checks "$pr_num" --required --json name,link,bucket,state,workflow 2>/dev/null || true)"
 fi
-if [[ -z "$checks_json" || "$checks_json" == "null" ]] && is_graphql_rate_limit_error "$poll_output"; then
-    checks_json="$(rest_required_checks_json "$pr_repo" "$head_sha" "$base_ref" || true)"
+if [[ -z "$checks_json" || "$checks_json" == "null" ]]; then
+    checks_json="$(prefer_rest_required_checks_json "$checks_json" 1 "$poll_output")"
 fi
 if json_has_items "$checks_json"; then
     if ! printf '%s\n' "$checks_json" | jq -e '.[] | select(.bucket == "fail" or .bucket == "cancel")' >/dev/null 2>&1; then
