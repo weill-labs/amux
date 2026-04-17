@@ -1461,6 +1461,115 @@ func TestRenderDiff_TruncatedStatusLinePreservesPaddingBeforeBorder(t *testing.T
 	}
 }
 
+func TestRenderDiff_BelowSeparatorStatusRewriteClearsStalePaddingBeforeBorder(t *testing.T) {
+	t.Parallel()
+
+	const (
+		pane1W = 52
+		pane2W = 20
+		topH   = 3
+		botH   = 3
+	)
+	width := pane1W + 1 + pane2W
+	height := topH + 1 + botH
+	totalH := height + GlobalBarHeight
+
+	root := mkSplit(mux.SplitHorizontal, 0, 0, width, height,
+		mux.NewLeafByID(1, 0, 0, width, topH),
+		mkSplit(mux.SplitVertical, 0, topH+1, width, botH,
+			mux.NewLeafByID(2, 0, topH+1, pane1W, botH),
+			mux.NewLeafByID(3, pane1W+1, topH+1, pane2W, botH),
+		),
+	)
+
+	completedIssues := func(ids ...string) []proto.TrackedIssue {
+		issues := make([]proto.TrackedIssue, 0, len(ids))
+		for _, id := range ids {
+			issues = append(issues, proto.TrackedIssue{
+				ID:     id,
+				Status: proto.TrackedStatusCompleted,
+			})
+		}
+		return issues
+	}
+
+	pane2 := &statusPaneData{
+		id:           2,
+		name:         "w-LAB-1272",
+		color:        config.TextColorHex,
+		idle:         true,
+		cursorHidden: true,
+		trackedIssues: completedIssues(
+			"LAB-1306",
+			"LAB-1307",
+			"LAB-1308",
+			"LAB-1309",
+		),
+	}
+	lookup := func(id uint32) PaneData {
+		switch id {
+		case 1:
+			return &statusPaneData{
+				id:           1,
+				name:         "pane-1",
+				color:        config.TextColorHex,
+				idle:         true,
+				cursorHidden: true,
+			}
+		case 2:
+			return pane2
+		case 3:
+			return &statusPaneData{
+				id:           3,
+				name:         "pane-3",
+				color:        config.TextColorHex,
+				idle:         true,
+				cursorHidden: true,
+			}
+		}
+		return nil
+	}
+
+	comp := newTestCompositor(width, totalH, "test")
+	display := vt.NewSafeEmulator(width, totalH)
+
+	initial := comp.RenderDiff(root, 3, lookup)
+	mustWrite(t, display, []byte(initial))
+
+	statusY := topH + 1
+	for x := pane1W - 8; x < pane1W; x++ {
+		mustWrite(t, display, []byte(fmt.Sprintf("\x1b[%d;%dH#", statusY+1, x+1)))
+	}
+
+	pane2.trackedIssues = completedIssues(
+		"LAB-1406",
+		"LAB-1407",
+		"LAB-1408",
+		"LAB-1409",
+	)
+	update := comp.RenderDiff(root, 3, lookup)
+	mustWrite(t, display, []byte(update))
+
+	rowRunes := []rune(displayRow(display, width, statusY))
+	leftPane := string(rowRunes[:pane1W])
+	trimmed := strings.TrimRight(leftPane, " ")
+	trimmedRunes := []rune(trimmed)
+	if !strings.HasSuffix(trimmed, "…") {
+		t.Fatalf("lower status row %q should end with an ellipsis before padding", leftPane)
+	}
+	if trimmed == leftPane {
+		t.Fatalf("lower status row %q should keep padding spaces before the border", leftPane)
+	}
+	for _, r := range rowRunes[len(trimmedRunes):pane1W] {
+		if r != ' ' {
+			t.Fatalf("lower status row %q should clear stale padding before the border", leftPane)
+		}
+	}
+	if got := rowRunes[pane1W]; got != '│' {
+		t.Fatalf("border column = %q, want vertical border", string(got))
+	}
+}
+
 func TestRenderDiff_ColorOracle_LongLines(t *testing.T) {
 	t.Parallel()
 	pane1W := 20
