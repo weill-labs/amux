@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
 	"github.com/weill-labs/amux/internal/server"
 )
@@ -571,12 +572,63 @@ func (h *ServerHarness) attachedClientKnowsPane(ref string) bool {
 	return false
 }
 
+func (h *ServerHarness) attachedClientTargetsRemotePane(ref string) bool {
+	if ref == "" {
+		return false
+	}
+	if strings.Contains(ref, "/") {
+		return true
+	}
+	if h == nil || h.client == nil {
+		return false
+	}
+
+	var capture proto.CaptureJSON
+	if err := json.Unmarshal([]byte(h.client.renderer.CaptureJSON(nil)), &capture); err != nil {
+		return false
+	}
+	for _, pane := range capture.Panes {
+		if pane.Name != ref && !strings.HasPrefix(pane.Name, ref) && strconv.FormatUint(uint64(pane.ID), 10) != ref {
+			continue
+		}
+		return pane.Host != "" && pane.Host != mux.DefaultHost
+	}
+	return false
+}
+
+func (h *ServerHarness) attachedClientCommandTargetsRemotePane(args []string) bool {
+	if len(args) == 0 {
+		return false
+	}
+
+	switch args[0] {
+	case "focus", "send-keys":
+		if len(args) < 2 {
+			return false
+		}
+		return h.attachedClientTargetsRemotePane(args[1])
+	case "wait":
+		if len(args) < 3 {
+			return false
+		}
+		switch args[1] {
+		case "content", "ready", "idle", "exited", "busy":
+			return h.attachedClientTargetsRemotePane(args[2])
+		}
+	}
+
+	return false
+}
+
 func (h *ServerHarness) canUseAttachedClient(args []string) bool {
 	if len(args) == 0 {
 		return false
 	}
 	cmdName := args[0]
 	if !attachedClientCommands[cmdName] {
+		return false
+	}
+	if h.attachedClientCommandTargetsRemotePane(args) {
 		return false
 	}
 	h.commandConnMu.Lock()
