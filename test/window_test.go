@@ -134,6 +134,71 @@ func TestSpawnAtLeadPaneUsesWindowPlacement(t *testing.T) {
 	}
 }
 
+func TestSpawnAutoAtLeadPaneUsesWindowPlacement(t *testing.T) {
+	t.Parallel()
+
+	h := newServerHarness(t)
+	setLead(t, h, "pane-1")
+
+	out := h.runCmd("spawn", "--name", "worker-1")
+	if strings.Contains(out, "cannot operate on lead pane") {
+		t.Fatalf("spawn should not reject the pending lead pane, got: %s", out)
+	}
+
+	out = h.runCmd("spawn", "--at", "pane-1", "--name", "worker-2")
+	if strings.Contains(out, "cannot operate on lead pane") {
+		t.Fatalf("spawn --at should treat the lead pane as a window reference, got: %s", out)
+	}
+
+	before := h.captureJSON()
+	leadBefore := h.jsonPane(before, "pane-1")
+
+	out = h.runCmd("spawn", "--auto", "--at", "pane-1", "--name", "worker-3")
+	if !strings.Contains(out, "Spawned worker-3") {
+		t.Fatalf("spawn --auto --at should report the new pane, got: %s", out)
+	}
+	if strings.Contains(out, "cannot operate on lead pane") {
+		t.Fatalf("spawn --auto --at should treat the lead pane as a window reference, got: %s", out)
+	}
+
+	after := h.captureJSON()
+	leadAfter := h.jsonPane(after, "pane-1")
+	worker1 := h.jsonPane(after, "worker-1")
+	worker2 := h.jsonPane(after, "worker-2")
+	worker3 := h.jsonPane(after, "worker-3")
+	if !leadAfter.Lead {
+		t.Fatal("pane-1 should remain the lead pane after auto spawn")
+	}
+	if leadBefore.Position == nil || leadAfter.Position == nil || worker1.Position == nil || worker2.Position == nil || worker3.Position == nil {
+		t.Fatalf(
+			"auto lead spawn should include positions, before=%+v after=%+v worker-1=%+v worker-2=%+v worker-3=%+v",
+			leadBefore.Position,
+			leadAfter.Position,
+			worker1.Position,
+			worker2.Position,
+			worker3.Position,
+		)
+	}
+	if *leadBefore.Position != *leadAfter.Position {
+		t.Fatalf("auto spawn should leave the lead pane unchanged: before=%+v after=%+v", leadBefore.Position, leadAfter.Position)
+	}
+	if leadAfter.Position.X >= worker1.Position.X || leadAfter.Position.X >= worker2.Position.X || leadAfter.Position.X >= worker3.Position.X {
+		t.Fatalf("lead pane should remain left of worker panes: lead=%+v worker-1=%+v worker-2=%+v worker-3=%+v", leadAfter.Position, worker1.Position, worker2.Position, worker3.Position)
+	}
+	if worker1.Position.X != worker2.Position.X {
+		t.Fatalf("existing worker panes should remain in the same column: worker-1=%+v worker-2=%+v", worker1.Position, worker2.Position)
+	}
+	if worker1.Position.Y == worker2.Position.Y {
+		t.Fatalf("existing worker panes should stay stacked vertically: worker-1=%+v worker-2=%+v", worker1.Position, worker2.Position)
+	}
+	if worker3.Position.X == worker1.Position.X {
+		t.Fatalf("auto spawn should create a new non-lead column instead of splitting the lead pane: worker-1=%+v worker-3=%+v", worker1.Position, worker3.Position)
+	}
+	if worker3.Position.X <= worker1.Position.X {
+		t.Fatalf("auto spawn should place the new pane to the right of the existing non-lead column: worker-1=%+v worker-3=%+v", worker1.Position, worker3.Position)
+	}
+}
+
 func TestSetLeadSinglePaneWindowSurvivesCollapseAndRegrowsAnchoredLayout(t *testing.T) {
 	t.Parallel()
 
