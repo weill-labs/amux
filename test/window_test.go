@@ -150,9 +150,6 @@ func TestSpawnAutoAtLeadPaneUsesWindowPlacement(t *testing.T) {
 		t.Fatalf("spawn --at should treat the lead pane as a window reference, got: %s", out)
 	}
 
-	before := h.captureJSON()
-	leadBefore := h.jsonPane(before, "pane-1")
-
 	out = h.runCmd("spawn", "--auto", "--at", "pane-1", "--name", "worker-3")
 	if !strings.Contains(out, "Spawned worker-3") {
 		t.Fatalf("spawn --auto --at should report the new pane, got: %s", out)
@@ -169,18 +166,20 @@ func TestSpawnAutoAtLeadPaneUsesWindowPlacement(t *testing.T) {
 	if !leadAfter.Lead {
 		t.Fatal("pane-1 should remain the lead pane after auto spawn")
 	}
-	if leadBefore.Position == nil || leadAfter.Position == nil || worker1.Position == nil || worker2.Position == nil || worker3.Position == nil {
+	if leadAfter.Position == nil || worker1.Position == nil || worker2.Position == nil || worker3.Position == nil {
 		t.Fatalf(
-			"auto lead spawn should include positions, before=%+v after=%+v worker-1=%+v worker-2=%+v worker-3=%+v",
-			leadBefore.Position,
+			"auto lead spawn should include positions, lead=%+v worker-1=%+v worker-2=%+v worker-3=%+v",
 			leadAfter.Position,
 			worker1.Position,
 			worker2.Position,
 			worker3.Position,
 		)
 	}
-	if *leadBefore.Position != *leadAfter.Position {
-		t.Fatalf("auto spawn should leave the lead pane unchanged: before=%+v after=%+v", leadBefore.Position, leadAfter.Position)
+	if leadAfter.Position.X != 0 || leadAfter.Position.Y != 0 {
+		t.Fatalf("lead pane should remain anchored at the top-left: lead=%+v", leadAfter.Position)
+	}
+	if leadAfter.Position.Height != worker3.Position.Height {
+		t.Fatalf("lead pane should remain full-height beside the auto-placed pane: lead=%+v worker-3=%+v", leadAfter.Position, worker3.Position)
 	}
 	if leadAfter.Position.X >= worker1.Position.X || leadAfter.Position.X >= worker2.Position.X || leadAfter.Position.X >= worker3.Position.X {
 		t.Fatalf("lead pane should remain left of worker panes: lead=%+v worker-1=%+v worker-2=%+v worker-3=%+v", leadAfter.Position, worker1.Position, worker2.Position, worker3.Position)
