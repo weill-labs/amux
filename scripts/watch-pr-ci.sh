@@ -26,6 +26,8 @@ poll_status=0
 
 declare -A last_check_state=()
 last_waiting_line=""
+pr_repo=""
+base_ref=""
 
 current_epoch() {
     date +%s
@@ -46,6 +48,27 @@ json_is_array() {
 json_has_items() {
     local json="$1"
     [[ -n "$json" ]] && printf '%s\n' "$json" | jq -e 'length > 0' >/dev/null 2>&1
+}
+
+is_graphql_rate_limit_error() {
+    local output="$1"
+    [[ "$output" == *"GraphQL:"*"rate limit"* ]] ||
+        [[ "$output" == *"secondary rate limit"* ]] ||
+        [[ "$output" == *"API rate limit exceeded"* ]]
+}
+
+repo_slug_from_pr_url() {
+    local url="$1"
+    if [[ "$url" =~ github\.com/([^/]+/[^/]+)/pull/ ]]; then
+        printf '%s\n' "${BASH_REMATCH[1]}"
+        return 0
+    fi
+    return 1
+}
+
+urlencode_component() {
+    local value="$1"
+    jq -nr --arg value "$value" '$value | @uri'
 }
 
 check_rows_tsv() {
@@ -75,6 +98,79 @@ poll_required_checks() {
     poll_output="$(gh pr checks "$pr_number" --required --json name,link,bucket,state,workflow,startedAt,completedAt 2>&1)"
     poll_status=$?
     set -e
+}
+
+rest_required_checks_json() {
+    local repo="$1"
+    local sha="$2"
+    local base_branch="$3"
+    local branch_ref required_json check_runs_json status_json required_contexts
+
+    [[ -n "$repo" && -n "$sha" ]] || return 1
+
+    branch_ref="$(urlencode_component "$base_branch")"
+    required_json="$(gh api "repos/$repo/branches/$branch_ref/protection/required_status_checks" 2>/dev/null || true)"
+    check_runs_json="$(gh api "repos/$repo/commits/$sha/check-runs?per_page=100" 2>/dev/null || true)"
+    status_json="$(gh api "repos/$repo/commits/$sha/status" 2>/dev/null || true)"
+
+    [[ -n "$check_runs_json" ]] || check_runs_json='{}'
+    [[ -n "$status_json" ]] || status_json='{}'
+
+    required_contexts="$(
+        if [[ -n "$required_json" ]]; then
+            printf '%s\n' "$required_json" |
+                jq -c '((.checks // []) | map(.context)) + (.contexts // []) | map(select(. != null and . != "")) | unique' 2>/dev/null || printf '[]\n'
+        else
+            printf '[]\n'
+        fi
+    )"
+
+    jq -cn \
+        --argjson check_runs "$check_runs_json" \
+        --argjson statuses "$status_json" \
+        --argjson required "$required_contexts" '
+        def bucket_from_check:
+            if (.status // "") != "completed" then "pending"
+            elif (.conclusion // "") == "success" then "pass"
+            elif (.conclusion // "") == "cancelled" then "cancel"
+            elif ((.conclusion // "") == "neutral" or (.conclusion // "") == "skipped") then "skipping"
+            else "fail"
+            end;
+        def bucket_from_status:
+            if (.state // "") == "success" then "pass"
+            elif (.state // "") == "pending" then "pending"
+            else "fail"
+            end;
+        [
+            (($statuses.statuses // []) | map({
+                name: (.context // "status"),
+                link: (.target_url // ""),
+                bucket: bucket_from_status,
+                state: (.state // ""),
+                workflow: "status",
+                startedAt: (.created_at // .updated_at // ""),
+                completedAt: (if (.state // "") == "pending" then "" else (.updated_at // "") end)
+            })[]),
+            (($check_runs.check_runs // []) | map({
+                name: (.name // "check"),
+                link: (.html_url // ""),
+                bucket: bucket_from_check,
+                state: (.status // .conclusion // ""),
+                workflow: (.app.slug // .app.name // "check"),
+                startedAt: (.started_at // ""),
+                completedAt: (.completed_at // "")
+            })[])
+        ]
+        | flatten
+        | reduce .[] as $check ({}; .[$check.name] = $check)
+        | [.[]]
+        | if ($required | length) > 0 then
+            map(select(.name as $name | $required | index($name)))
+          else
+            .
+          end
+        | sort_by(.name)
+    '
 }
 
 timestamp_to_epoch() {
@@ -267,9 +363,17 @@ watch_required_checks() {
     local next_heartbeat=0
     local no_checks_retries=0
     local now
+    local rest_output
 
     while :; do
         poll_required_checks "$pr_number"
+        if [[ "$poll_status" -ne 0 ]] && is_graphql_rate_limit_error "$poll_output"; then
+            rest_output="$(rest_required_checks_json "$pr_repo" "$head_sha" "$base_ref" || true)"
+            if json_is_array "$rest_output"; then
+                poll_output="$rest_output"
+                poll_status=0
+            fi
+        fi
 
         if json_is_array "$poll_output" && json_has_items "$poll_output"; then
             latest_checks_json="$poll_output"
@@ -316,9 +420,9 @@ watch_required_checks() {
 
 pr_json="$(
     if [[ -n "$pr_ref" ]]; then
-        gh pr view "$pr_ref" --json number,url,headRefName,headRefOid 2>/dev/null || true
+        gh pr view "$pr_ref" --json number,url,headRefName,headRefOid,baseRefName 2>/dev/null || true
     else
-        gh pr view --json number,url,headRefName,headRefOid 2>/dev/null || true
+        gh pr view --json number,url,headRefName,headRefOid,baseRefName 2>/dev/null || true
     fi
 )"
 
@@ -329,6 +433,8 @@ fi
 
 pr_num="$(printf '%s\n' "$pr_json" | jq -r '.number')"
 pr_url="$(printf '%s\n' "$pr_json" | jq -r '.url')"
+base_ref="$(printf '%s\n' "$pr_json" | jq -r '.baseRefName // "main"')"
+pr_repo="$(repo_slug_from_pr_url "$pr_url" || true)"
 head_sha="$(git rev-parse HEAD 2>/dev/null || true)"
 if [[ -z "$head_sha" ]]; then
     head_sha="$(printf '%s\n' "$pr_json" | jq -r '.headRefOid')"
@@ -350,6 +456,9 @@ echo "Failed required checks:"
 checks_json="$latest_checks_json"
 if [[ -z "$checks_json" ]]; then
     checks_json="$(gh pr checks "$pr_num" --required --json name,link,bucket,state,workflow 2>/dev/null || true)"
+fi
+if [[ -z "$checks_json" || "$checks_json" == "null" ]] && is_graphql_rate_limit_error "$poll_output"; then
+    checks_json="$(rest_required_checks_json "$pr_repo" "$head_sha" "$base_ref" || true)"
 fi
 if json_has_items "$checks_json"; then
     if ! printf '%s\n' "$checks_json" | jq -e '.[] | select(.bucket == "fail" or .bucket == "cancel")' >/dev/null 2>&1; then
