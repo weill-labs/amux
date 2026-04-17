@@ -123,15 +123,8 @@ func TestSpawnAtLeadPaneUsesWindowPlacement(t *testing.T) {
 	if lead.Position == nil || worker1.Position == nil || worker2.Position == nil {
 		t.Fatalf("targeted spawn should include positions, lead=%+v worker-1=%+v worker-2=%+v", lead.Position, worker1.Position, worker2.Position)
 	}
-	if lead.Position.X >= worker1.Position.X || lead.Position.X >= worker2.Position.X {
-		t.Fatalf("lead pane should remain left of worker panes: lead=%+v worker-1=%+v worker-2=%+v", lead.Position, worker1.Position, worker2.Position)
-	}
-	if worker1.Position.X != worker2.Position.X {
-		t.Fatalf("targeted spawn should keep non-lead panes in the same column: worker-1=%+v worker-2=%+v", worker1.Position, worker2.Position)
-	}
-	if worker1.Position.Y == worker2.Position.Y {
-		t.Fatalf("targeted spawn should stack the non-lead panes vertically: worker-1=%+v worker-2=%+v", worker1.Position, worker2.Position)
-	}
+	assertLeadPaneLeftOfWorkers(t, lead, worker1, worker2)
+	assertWorkersStackedInSameColumn(t, "targeted spawn", worker1, worker2)
 }
 
 func TestSpawnAutoAtLeadPaneUsesWindowPlacement(t *testing.T) {
@@ -181,15 +174,8 @@ func TestSpawnAutoAtLeadPaneUsesWindowPlacement(t *testing.T) {
 	if leadAfter.Position.Height != worker3.Position.Height {
 		t.Fatalf("lead pane should remain full-height beside the auto-placed pane: lead=%+v worker-3=%+v", leadAfter.Position, worker3.Position)
 	}
-	if leadAfter.Position.X >= worker1.Position.X || leadAfter.Position.X >= worker2.Position.X || leadAfter.Position.X >= worker3.Position.X {
-		t.Fatalf("lead pane should remain left of worker panes: lead=%+v worker-1=%+v worker-2=%+v worker-3=%+v", leadAfter.Position, worker1.Position, worker2.Position, worker3.Position)
-	}
-	if worker1.Position.X != worker2.Position.X {
-		t.Fatalf("existing worker panes should remain in the same column: worker-1=%+v worker-2=%+v", worker1.Position, worker2.Position)
-	}
-	if worker1.Position.Y == worker2.Position.Y {
-		t.Fatalf("existing worker panes should stay stacked vertically: worker-1=%+v worker-2=%+v", worker1.Position, worker2.Position)
-	}
+	assertLeadPaneLeftOfWorkers(t, leadAfter, worker1, worker2, worker3)
+	assertWorkersStackedInSameColumn(t, "auto lead spawn", worker1, worker2)
 	if worker3.Position.X == worker1.Position.X {
 		t.Fatalf("auto spawn should create a new non-lead column instead of splitting the lead pane: worker-1=%+v worker-3=%+v", worker1.Position, worker3.Position)
 	}
@@ -264,6 +250,27 @@ func listLineForPane(listOut, paneName string) string {
 		}
 	}
 	return ""
+}
+
+func assertLeadPaneLeftOfWorkers(t *testing.T, lead proto.CapturePane, workers ...proto.CapturePane) {
+	t.Helper()
+
+	for _, worker := range workers {
+		if lead.Position.X >= worker.Position.X {
+			t.Fatalf("lead pane should remain left of worker panes: lead=%+v worker=%+v", lead.Position, worker.Position)
+		}
+	}
+}
+
+func assertWorkersStackedInSameColumn(t *testing.T, context string, top, bottom proto.CapturePane) {
+	t.Helper()
+
+	if top.Position.X != bottom.Position.X {
+		t.Fatalf("%s should keep non-lead panes in the same column: top=%+v bottom=%+v", context, top.Position, bottom.Position)
+	}
+	if top.Position.Y == bottom.Position.Y {
+		t.Fatalf("%s should stack the non-lead panes vertically: top=%+v bottom=%+v", context, top.Position, bottom.Position)
+	}
 }
 
 func assertAnchoredLeadSpawnLayout(t *testing.T, h *ServerHarness, capture proto.CaptureJSON, leadName, workerName string) {
