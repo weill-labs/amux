@@ -412,6 +412,8 @@ func (s *Session) connectRemoteSession(hostName string, layout *proto.LayoutSnap
 	if rs == nil {
 		rs = NewRemoteSession(hostName, mode)
 		s.remoteSessions[hostName] = rs
+	} else if rs.Mode != mode {
+		return fmt.Errorf("remote host %q already uses %s mode", hostName, rs.Mode)
 	}
 	rs.Mode = mode
 	if placeholderPaneID != 0 {

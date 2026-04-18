@@ -176,7 +176,7 @@ func TestQueryPaneListSortsLocalFirstThenHost(t *testing.T) {
 	stopCrashCheckpointLoop(t, sess)
 	defer stopSessionBackgroundLoops(t, sess)
 
-	local := newProxyPane(1, mux.PaneMeta{Name: "local", Host: ""}, 80, 23, sess.paneOutputCallback(), sess.paneExitCallback(), func(data []byte) (int, error) {
+	local := newProxyPane(1, mux.PaneMeta{Name: "local", Host: mux.DefaultHost}, 80, 23, sess.paneOutputCallback(), sess.paneExitCallback(), func(data []byte) (int, error) {
 		return len(data), nil
 	})
 	alpha := newProxyPane(2, mux.PaneMeta{Name: "alpha-pane", Host: "alpha"}, 80, 23, sess.paneOutputCallback(), sess.paneExitCallback(), func(data []byte) (int, error) {
@@ -201,7 +201,7 @@ func TestQueryPaneListSortsLocalFirstThenHost(t *testing.T) {
 		entries[1].host + "/" + entries[1].name,
 		entries[2].host + "/" + entries[2].name,
 	}
-	want := []string{"/local", "alpha/alpha-pane", "zulu/zulu-pane"}
+	want := []string{"local/local", "alpha/alpha-pane", "zulu/zulu-pane"}
 	if got[0] != want[0] || got[1] != want[1] || got[2] != want[2] {
 		t.Fatalf("queryPaneList() order = %v, want %v", got, want)
 	}

@@ -17,10 +17,8 @@ func ParsePaneRef(s string) (PaneRef, error) {
 	if !strings.Contains(s, "/") {
 		return PaneRef{Pane: s}, nil
 	}
-	host, pane, ok := strings.Cut(s, "/")
+	host, pane, _ := strings.Cut(s, "/")
 	switch {
-	case !ok:
-		return PaneRef{Pane: s}, nil
 	case host == "":
 		return PaneRef{}, fmt.Errorf("invalid pane ref %q: missing host", s)
 	case pane == "":

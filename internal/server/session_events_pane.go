@@ -241,6 +241,8 @@ func (e remoteLayoutEvent) handle(s *Session) {
 	}
 	if err := rs.ApplyLayout(s, e.layout, false); err == nil {
 		s.broadcastLayoutNow()
+	} else {
+		s.logger.Warn("remote layout apply failed", "event", "remote_layout_apply", "host", e.hostName, "error", err)
 	}
 }
 

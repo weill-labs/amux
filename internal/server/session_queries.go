@@ -328,10 +328,10 @@ func (s *Session) queryPaneList() ([]paneListEntry, error) {
 		}
 		slices.SortFunc(entries, func(a, b paneListEntry) int {
 			aGroup, bGroup := a.host, b.host
-			if aGroup == "" {
+			if aGroup == "" || aGroup == mux.DefaultHost {
 				aGroup = "\x00"
 			}
-			if bGroup == "" {
+			if bGroup == "" || bGroup == mux.DefaultHost {
 				bGroup = "\x00"
 			}
 			switch {
