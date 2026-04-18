@@ -154,6 +154,7 @@ func (m *Manager) resolveHostConfig(hostName string) (config.Host, error) {
 		if host.Color == "" {
 			host.Color = m.cfg.HostColor(hostName)
 		}
+		host.TransportPreference = m.cfg.TransportPreferences()
 		return host, nil
 	}
 
@@ -164,10 +165,11 @@ func (m *Manager) resolveHostConfig(hostName string) (config.Host, error) {
 		user = m.cfg.HostUser(hostName)
 	}
 	return config.Host{
-		Type:    "remote",
-		User:    user,
-		Address: hostName,
-		Color:   m.cfg.HostColor(hostName),
+		Type:                "remote",
+		User:                user,
+		Address:             hostName,
+		Color:               m.cfg.HostColor(hostName),
+		TransportPreference: m.cfg.TransportPreferences(),
 	}, nil
 }
 

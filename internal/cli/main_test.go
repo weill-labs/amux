@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"os"
 	"reflect"
 	"strconv"
 	"strings"
@@ -779,26 +778,10 @@ func TestRunMainDispatchesCommands(t *testing.T) {
 			},
 		},
 		{
-			name: "ssh command dispatches through runtime",
-			args: []string{"ssh", "builder:work"},
-			env: map[string]string{
-				"AMUX_CONFIG": writeRuntimeConfig(t, `
-[hosts.builder]
-user = "deploy"
-`),
-			},
-			wantExit: 0,
-			wantCalls: []cliCall{
-				{
-					kind: "ssh",
-					target: &transport.Target{
-						User:    "deploy",
-						Host:    "builder",
-						Port:    "22",
-						Session: "work",
-					},
-				},
-			},
+			name:       "removed ssh command prints migration hint",
+			args:       []string{"ssh", "builder:work"},
+			wantExit:   1,
+			wantStderr: "amux: \"ssh\" is no longer a top-level command. Use \"amux connect builder:work\" instead.\n",
 		},
 	}
 
@@ -865,10 +848,10 @@ func TestRunMainHelpAndUsageErrors(t *testing.T) {
 			wantStderr: sendKeysUsage + "\n",
 		},
 		{
-			name:       "ssh usage error stays in dispatch layer",
-			args:       []string{"ssh"},
+			name:       "ssh migration hint stays in dispatch layer",
+			args:       []string{"ssh", "builder"},
 			wantExit:   1,
-			wantStderr: sshUsage + "\n",
+			wantStderr: "amux: \"ssh\" is no longer a top-level command. Use \"amux connect builder\" instead.\n",
 		},
 		{
 			name:       "connect usage error stays in dispatch layer",
@@ -897,21 +880,20 @@ func TestRunMainHelpAndUsageErrors(t *testing.T) {
 	}
 }
 
-func TestRunMainSSHRuntimeError(t *testing.T) {
-	configPath := writeRuntimeConfig(t, `
-[hosts.builder]
-user = "deploy"
-`)
-	t.Setenv("AMUX_CONFIG", configPath)
+func TestRunMainSSHMigrationHintDoesNotCallRuntime(t *testing.T) {
+	t.Parallel()
 
 	h := newCLIRuntimeHarness()
 	h.runSSHSessionErr = errors.New("boom")
 
 	if exitCode := RunWithRuntime([]string{"ssh", "builder"}, h.runtime()); exitCode != 1 {
-		t.Fatalf("RunWithRuntime() exit = %d, want 1", exitCode)
+		t.Fatalf("RunWithRuntime(%v) exit = %d, want 1", []string{"ssh", "builder"}, exitCode)
 	}
-	if got := h.stderr.String(); got != "amux: boom\n" {
-		t.Fatalf("stderr = %q, want %q", got, "amux: boom\n")
+	if got := h.stderr.String(); got != "amux: \"ssh\" is no longer a top-level command. Use \"amux connect builder\" instead.\n" {
+		t.Fatalf("stderr = %q, want migration hint", got)
+	}
+	if len(h.calls) != 0 {
+		t.Fatalf("calls = %#v, want no runtime calls", h.calls)
 	}
 }
 
@@ -941,6 +923,9 @@ func newCLIRuntimeHarness() *cliRuntimeHarness {
 }
 
 func resolveTestSessions(calls []cliCall) []cliCall {
+	if len(calls) == 0 {
+		return nil
+	}
 	resolved := ResolveSessionName("", false)
 	out := make([]cliCall, len(calls))
 	for i, call := range calls {
@@ -1013,14 +998,4 @@ func (h *cliRuntimeHarness) runtime() Runtime {
 			h.usageCalls++
 		},
 	}
-}
-
-func writeRuntimeConfig(t *testing.T, content string) string {
-	t.Helper()
-
-	path := t.TempDir() + "/config.toml"
-	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
-		t.Fatalf("WriteFile() error = %v", err)
-	}
-	return path
 }

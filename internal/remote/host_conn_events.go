@@ -384,6 +384,9 @@ func (hc *HostConn) applyOutcome(o *connectOutcome) {
 	hc.amuxConn = o.amuxConn
 	hc.amuxReader = o.amuxReader
 	hc.amuxWriter = o.amuxWriter
+	if o.tr != nil && o.tr.Name() != "" && o.tr.Name() != "auto" {
+		hc.cachedTransport = o.tr.Name()
+	}
 	hc.sessionName = o.sessionName
 	hc.remoteUID = o.remoteUID
 	hc.connectAddr = o.connectAddr

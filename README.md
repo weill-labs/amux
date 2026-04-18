@@ -375,10 +375,11 @@ Higher-level prompt delegation now lives at the script layer: compose `wait idle
 | Command | Description |
 |---------|-------------|
 | `amux hosts` | List configured remote hosts and connection status |
+| `amux connect <host>` | Connect to a remote amux session and mirror its panes locally |
 | `amux spawn --at <pane> [--root] [--vertical\|--horizontal] [--name NAME] --host HOST` | Create a remote split pane on HOST |
-| `amux disconnect <host>` | Drop SSH connection to a host |
+| `amux disconnect <host>` | Drop a remote host connection |
 | `amux reconnect <host>` | Reconnect to a remote host |
-| `amux unsplice <host>` | Revert SSH takeover, replace remote panes with local |
+| `amux unsplice <host>` | Revert remote takeover, replace remote panes with local |
 
 ## Keybindings
 
@@ -457,8 +458,12 @@ amux debug client-profile --duration 30s > client-cpu.pprof.gz
 ### Remote Hosts
 
 ```toml
+[transport]
+preference = ["mosh", "ssh"] # optional: order for hosts that opt into transport = "auto"
+
 [hosts.lambda-a100]
 type = "remote"
+transport = "ssh"            # optional: "ssh", "mosh", or "auto"; empty still defaults to ssh
 user = "ubuntu"
 address = "150.136.64.231"
 identity_file = "~/.ssh/id_ed25519"
@@ -470,6 +475,16 @@ color = "f38ba8"            # Catppuccin Red — optional, auto-assigned if omit
 type = "local"
 color = "a6e3a1"            # Catppuccin Green
 ```
+
+### Remote Transports
+
+Remote hosts can choose a transport with `transport = "ssh"`, `transport = "mosh"`, or `transport = "auto"`.
+
+- `ssh` is the current working transport.
+- `mosh` is recognized now but still returns `mosh transport not yet implemented`.
+- `auto` tries each transport in `[transport].preference` order and keeps the first one that works for the rest of the local session.
+
+Hosts without a `transport` field still default to `ssh` for backward compatibility. Existing `hosts.toml` and `config.toml` files keep the exact pre-LAB-1335 behavior until you opt a host into `transport = "auto"`.
 
 ## AI Agent Support
 

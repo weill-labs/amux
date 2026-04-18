@@ -9,6 +9,7 @@ import (
 	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/proto"
 	"github.com/weill-labs/amux/internal/transport"
+	_ "github.com/weill-labs/amux/internal/transport/mosh"
 	_ "github.com/weill-labs/amux/internal/transport/ssh"
 	"golang.org/x/term"
 )
@@ -86,6 +87,7 @@ func resolveSSHSessionTarget(target transport.Target) (sshSessionTarget, error) 
 	if hostCfg, ok := cfg.Hosts[target.Host]; ok {
 		resolved.HostConfig = hostCfg
 	}
+	resolved.HostConfig.TransportPreference = cfg.TransportPreferences()
 	configuredUser := cfg.HostUser(target.Host)
 	if resolved.HostConfig.User == "" {
 		resolved.HostConfig.User = configuredUser

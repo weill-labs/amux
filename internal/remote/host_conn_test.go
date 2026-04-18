@@ -1,6 +1,7 @@
 package remote
 
 import (
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/pem"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/proto"
+	"github.com/weill-labs/amux/internal/transport"
 	transportssh "github.com/weill-labs/amux/internal/transport/ssh"
 )
 
@@ -434,6 +436,46 @@ func TestBufferedInputFlushesAfterConnect(t *testing.T) {
 		}
 	})
 }
+
+func TestApplyOutcomeCachesResolvedTransport(t *testing.T) {
+	t.Parallel()
+
+	hc := NewHostConn("test", config.Host{Transport: "auto"}, "hash", nil, nil, nil)
+	defer hc.Close()
+
+	serverConn, clientConn := net.Pipe()
+	defer serverConn.Close()
+
+	testInActor(hc, func(hc *HostConn) {
+		hc.applyOutcome(&connectOutcome{
+			tr:          &stubNamedTransport{name: "ssh"},
+			amuxConn:    clientConn,
+			amuxReader:  remoteTestReader(clientConn),
+			amuxWriter:  remoteTestWriter(clientConn),
+			sessionName: "main",
+		})
+		if got := hc.cachedTransport; got != "ssh" {
+			t.Fatalf("cachedTransport = %q, want ssh", got)
+		}
+		if got := hc.transportName(); got != "ssh" {
+			t.Fatalf("transportName() = %q, want ssh", got)
+		}
+	})
+}
+
+type stubNamedTransport struct {
+	name string
+}
+
+func (s *stubNamedTransport) Name() string { return s.name }
+func (s *stubNamedTransport) Dial(context.Context, transport.Target) (net.Conn, error) {
+	return nil, nil
+}
+func (s *stubNamedTransport) Deploy(context.Context, transport.Target, string) error { return nil }
+func (s *stubNamedTransport) EnsureServer(context.Context, transport.Target, string) error {
+	return nil
+}
+func (s *stubNamedTransport) Close() error { return nil }
 
 func TestCloseConns(t *testing.T) {
 	t.Parallel()

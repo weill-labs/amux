@@ -44,7 +44,6 @@ func buildCLICommands() map[string]commandHandler {
 	addCLICommands(commands, layoutCLICommands())
 	addCLICommands(commands, windowCLICommands())
 	addCLICommands(commands, remoteCLICommands())
-	addCLICommands(commands, sshCLICommands())
 	return commands
 }
 
@@ -67,6 +66,9 @@ func runCLI(runtime Runtime, rawArgs []string) int {
 	}
 	if len(args) == 0 {
 		return invocation.runDefaultSession()
+	}
+	if maybePrintSSHMigrationHint(runtime.Stderr, args) {
+		return 1
 	}
 	if MaybePrintCommandHelp(runtime.Stdout, args) {
 		return 0
@@ -100,4 +102,17 @@ func (inv invocation) runDefaultSession() int {
 func (inv invocation) runSessionCommand(cmdName string, args []string) int {
 	inv.runtime.RunServerCommand(inv.sessionName, cmdName, args)
 	return 0
+}
+
+func maybePrintSSHMigrationHint(stderr io.Writer, args []string) bool {
+	if len(args) == 0 || args[0] != "ssh" {
+		return false
+	}
+
+	target := "<host>"
+	if len(args) > 1 && !isHelpFlag(args[1]) {
+		target = args[1]
+	}
+	fmt.Fprintf(stderr, "amux: \"ssh\" is no longer a top-level command. Use \"amux connect %s\" instead.\n", target)
+	return true
 }
