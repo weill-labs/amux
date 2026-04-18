@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 	charmlog "github.com/charmbracelet/log"
@@ -86,15 +87,16 @@ const (
 
 // Host defines a machine that can run agents.
 type Host struct {
-	Type         string `toml:"type"`          // "local" or "remote"
-	Transport    string `toml:"transport"`     // transport type; empty defaults to ssh
-	User         string `toml:"user"`          // SSH user (remote only)
-	Address      string `toml:"address"`       // IP or hostname (remote only)
-	IdentityFile string `toml:"identity_file"` // SSH private key path (optional)
-	ProjectDir   string `toml:"project_dir"`
-	GPU          string `toml:"gpu"`
-	Color        string `toml:"color"`  // hex color, auto-assigned if empty
-	Deploy       *bool  `toml:"deploy"` // auto-deploy binary; nil = true (opt-out with false)
+	Type                string   `toml:"type"`          // "local" or "remote"
+	Transport           string   `toml:"transport"`     // transport type; empty defaults to ssh
+	TransportPreference []string `toml:"-"`             // resolved global transport preference order
+	User                string   `toml:"user"`          // SSH user (remote only)
+	Address             string   `toml:"address"`       // IP or hostname (remote only)
+	IdentityFile        string   `toml:"identity_file"` // SSH private key path (optional)
+	ProjectDir          string   `toml:"project_dir"`
+	GPU                 string   `toml:"gpu"`
+	Color               string   `toml:"color"`  // hex color, auto-assigned if empty
+	Deploy              *bool    `toml:"deploy"` // auto-deploy binary; nil = true (opt-out with false)
 }
 
 type DebugConfig struct {
@@ -106,12 +108,23 @@ type ClientConfig struct {
 	LocalEchoStyle string `toml:"local_echo_style"`
 }
 
+type TransportConfig struct {
+	Preference []string `toml:"preference"`
+}
+
 // Config is the top-level amux configuration.
 type Config struct {
 	ScrollbackLines *int            `toml:"scrollback_lines"`
 	Debug           DebugConfig     `toml:"debug"`
 	Client          ClientConfig    `toml:"client"`
+	Transport       TransportConfig `toml:"transport"`
 	Hosts           map[string]Host `toml:"hosts"`
+}
+
+var defaultTransportPreference = []string{"mosh", "ssh"}
+
+func DefaultTransportPreferences() []string {
+	return append([]string(nil), defaultTransportPreference...)
 }
 
 // DefaultPath returns the default config file path.
@@ -162,11 +175,13 @@ func Load(path string) (*Config, error) {
 	}
 
 	// Auto-assign colors for hosts without explicit color
+	preferences := cfg.TransportPreferences()
 	for name, host := range cfg.Hosts {
 		if host.Color == "" {
 			host.Color = ColorForHost(name)
-			cfg.Hosts[name] = host
 		}
+		host.TransportPreference = append([]string(nil), preferences...)
+		cfg.Hosts[name] = host
 	}
 
 	return cfg, nil
@@ -253,6 +268,30 @@ func (c *Config) EffectiveLocalEchoStyle() string {
 		return "dim"
 	}
 	return style
+}
+
+func (c *Config) TransportPreferences() []string {
+	if c == nil || len(c.Transport.Preference) == 0 {
+		return DefaultTransportPreferences()
+	}
+
+	out := make([]string, 0, len(c.Transport.Preference))
+	seen := make(map[string]struct{}, len(c.Transport.Preference))
+	for _, name := range c.Transport.Preference {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		out = append(out, name)
+	}
+	if len(out) == 0 {
+		return DefaultTransportPreferences()
+	}
+	return out
 }
 
 // ColorForHost deterministically picks a Catppuccin color based on hostname.

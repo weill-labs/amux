@@ -17,6 +17,7 @@ import (
 	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/proto"
 	"github.com/weill-labs/amux/internal/transport"
+	_ "github.com/weill-labs/amux/internal/transport/mosh"
 	transportssh "github.com/weill-labs/amux/internal/transport/ssh"
 )
 
@@ -39,12 +40,13 @@ type HostConn struct {
 	logger    *charmlog.Logger
 
 	// Actor-owned state — accessed only from eventLoop goroutine.
-	state      ConnState
-	sshClient  *ssh.Client
-	tr         transport.Transport
-	amuxConn   net.Conn // persistent attach connection for pane I/O
-	amuxReader *proto.Reader
-	amuxWriter *proto.Writer
+	state           ConnState
+	sshClient       *ssh.Client
+	tr              transport.Transport
+	amuxConn        net.Conn // persistent attach connection for pane I/O
+	amuxReader      *proto.Reader
+	amuxWriter      *proto.Writer
+	cachedTransport string
 
 	// Pane ID mapping: local ↔ remote (actor-owned)
 	remoteToLocal map[uint32]uint32
@@ -192,6 +194,9 @@ func (hc *HostConn) BeginInputBuffering() {
 }
 
 func (hc *HostConn) transportName() string {
+	if hc.cachedTransport != "" {
+		return hc.cachedTransport
+	}
 	if hc.config.Transport != "" {
 		return hc.config.Transport
 	}

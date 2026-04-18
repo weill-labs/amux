@@ -882,6 +882,8 @@ func TestRunMainHelpAndUsageErrors(t *testing.T) {
 }
 
 func TestRunMainSSHMigrationHintDoesNotCallRuntime(t *testing.T) {
+	t.Parallel()
+
 	h := newCLIRuntimeHarness()
 	h.runSSHSessionErr = errors.New("boom")
 
@@ -922,6 +924,9 @@ func newCLIRuntimeHarness() *cliRuntimeHarness {
 }
 
 func resolveTestSessions(calls []cliCall) []cliCall {
+	if len(calls) == 0 {
+		return nil
+	}
 	resolved := ResolveSessionName("", false)
 	out := make([]cliCall, len(calls))
 	for i, call := range calls {

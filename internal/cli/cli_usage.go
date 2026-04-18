@@ -32,7 +32,6 @@ const (
 	resizeWindowUsage = "usage: amux resize-window <cols> <rows>"
 	rotateUsage       = "usage: amux rotate [--reverse]"
 	selectWindowUsage = "usage: amux select-window <index|name>"
-	sshUsage          = "usage: amux ssh <user@host[:session] | host[:session]>"
 	statusUsage       = "usage: amux status"
 	unspliceUsage     = "usage: amux unsplice <host>"
 	undoUsage         = "usage: amux undo"
@@ -85,7 +84,6 @@ var commandUsageByName = map[string]string{
 	"rotate":           rotateUsage,
 	"select-window":    selectWindowUsage,
 	"send-keys":        sendKeysUsage,
-	"ssh":              sshUsage,
 	"spawn":            spawnUsage,
 	"status":           statusUsage,
 	"undo":             undoUsage,
@@ -222,11 +220,10 @@ Usage:
                                        Resize window to cols x rows
   amux [-s session] events [--filter type1,type2] [--pane <ref>] [--host <name>] [--client <id>] [--no-reconnect]
                                        Stream events as NDJSON (layout, output, idle, busy, exited, client-connect, client-disconnect, display-panes-*, choose-*, copy-mode-*, input-*, reconnect)
-  amux ssh <user@host[:session]>      Attach local client to a remote amux server over SSH
   amux [-s session] hosts              List configured remote hosts + status
-  amux [-s session] disconnect <host>  Drop SSH connection to a host
+  amux [-s session] disconnect <host>  Drop a remote host connection
   amux [-s session] reconnect <host>   Reconnect to a remote host
-  amux [-s session] unsplice <host>    Revert SSH takeover for a host
+  amux [-s session] unsplice <host>    Revert remote takeover for a host
   amux [-s session] reload-server      Hot-reload the server (preserves panes)
   amux [-s session] cursor layout      Show current layout cursor
   amux [-s session] cursor clipboard   Show current clipboard cursor
