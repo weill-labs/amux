@@ -50,3 +50,17 @@ func TestTransportPreferencesUseConfiguredOrder(t *testing.T) {
 		t.Fatalf("TransportPreferences() = %v, want %v", got, want)
 	}
 }
+
+func TestTransportPreferencesNormalizeConfiguredOrder(t *testing.T) {
+	t.Parallel()
+
+	cfg := &Config{
+		Transport: TransportConfig{
+			Preference: []string{" ssh ", "", "ssh", "mosh", "mosh"},
+		},
+	}
+	want := []string{"ssh", "mosh"}
+	if got := cfg.TransportPreferences(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("TransportPreferences() = %v, want %v", got, want)
+	}
+}

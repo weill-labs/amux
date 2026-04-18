@@ -3,6 +3,7 @@ package remote
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/weill-labs/amux/internal/config"
@@ -186,6 +187,37 @@ func TestManagerCreatePaneErrors(t *testing.T) {
 	_, err = m.CreatePane("local", 1, "main")
 	if err == nil {
 		t.Error("CreatePane with local host should error")
+	}
+}
+
+func TestResolveHostConfigPropagatesTransportPreferences(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config.Config{
+		Transport: config.TransportConfig{Preference: []string{"ssh", "mosh"}},
+		Hosts: map[string]config.Host{
+			"builder": {Type: "remote", Address: "10.0.0.5"},
+		},
+	}
+	m := newTestManager(t, cfg, "hash")
+
+	host, err := m.resolveHostConfig("builder")
+	if err != nil {
+		t.Fatalf("resolveHostConfig(configured) error = %v", err)
+	}
+	if got, want := host.TransportPreference, []string{"ssh", "mosh"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("configured TransportPreference = %v, want %v", got, want)
+	}
+
+	host, err = m.resolveHostConfig("deploy@shadow")
+	if err != nil {
+		t.Fatalf("resolveHostConfig(implicit) error = %v", err)
+	}
+	if host.User != "deploy" {
+		t.Fatalf("implicit host user = %q, want deploy", host.User)
+	}
+	if got, want := host.TransportPreference, []string{"ssh", "mosh"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("implicit TransportPreference = %v, want %v", got, want)
 	}
 }
 

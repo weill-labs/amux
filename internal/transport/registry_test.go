@@ -185,6 +185,39 @@ func TestGetAutoFallsBackAndCachesSelection(t *testing.T) {
 	}
 }
 
+func TestGetAutoUsesDefaultPreferencesWhenUnset(t *testing.T) {
+	t.Parallel()
+	registryTestMu.Lock()
+	t.Cleanup(registryTestMu.Unlock)
+	restoreRegistry(t)
+
+	Register("mosh", func(config.Host) (Transport, error) {
+		return &stubTransport{
+			name: "mosh",
+			deployFunc: func(context.Context, Target, string) error {
+				return errors.New("mosh transport not yet implemented")
+			},
+		}, nil
+	})
+	Register("ssh", func(config.Host) (Transport, error) {
+		return &stubTransport{
+			name:       "ssh",
+			deployFunc: func(context.Context, Target, string) error { return nil },
+		}, nil
+	})
+
+	tr, err := Get("auto", config.Host{})
+	if err != nil {
+		t.Fatalf("Get(%q) error = %v", "auto", err)
+	}
+	if err := tr.Deploy(context.Background(), Target{Host: "builder"}, "hash"); err != nil {
+		t.Fatalf("Deploy() error = %v", err)
+	}
+	if got := tr.Name(); got != "ssh" {
+		t.Fatalf("Name() after default fallback = %q, want ssh", got)
+	}
+}
+
 type stubTransport struct {
 	name       string
 	dialFunc   func(context.Context, Target) (net.Conn, error)
