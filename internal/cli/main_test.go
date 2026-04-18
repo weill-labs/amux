@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"os"
 	"reflect"
 	"strconv"
 	"strings"
@@ -999,14 +998,4 @@ func (h *cliRuntimeHarness) runtime() Runtime {
 			h.usageCalls++
 		},
 	}
-}
-
-func writeRuntimeConfig(t *testing.T, content string) string {
-	t.Helper()
-
-	path := t.TempDir() + "/config.toml"
-	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
-		t.Fatalf("WriteFile() error = %v", err)
-	}
-	return path
 }
