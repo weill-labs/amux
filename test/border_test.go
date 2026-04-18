@@ -145,6 +145,12 @@ func TestVerticalBorderPartialColor(t *testing.T) {
 	h.splitV()
 	h.splitH()
 
+	// splitH() only waits for the inner server layout generation. Wait until
+	// the outer PTY has rendered the new active pane before sampling ANSI.
+	if !h.waitFor("● [pane-3]", 3*time.Second) {
+		t.Fatal("timed out waiting for pane-3 to appear in outer capture")
+	}
+
 	lines := strings.Split(h.captureANSI(), "\n")
 
 	hBorderRows := findANSIHorizontalBorderRows(lines)
