@@ -223,12 +223,10 @@ func TestReconnectTargetFallsBackToHostName(t *testing.T) {
 	hc := NewHostConn("test-remote", config.Host{}, "hash", nil, nil, nil)
 	defer hc.Close()
 
-	testInActor(hc, func(hc *HostConn) {
-		target := hc.reconnectTarget()
-		if target.connectAddr != "test-remote:22" {
-			t.Fatalf("target.connectAddr = %q, want test-remote:22", target.connectAddr)
-		}
-	})
+	target := hc.reconnectTarget()
+	if target.connectAddr != "test-remote:22" {
+		t.Fatalf("target.connectAddr = %q, want test-remote:22", target.connectAddr)
+	}
 }
 
 func TestRemovePane(t *testing.T) {

@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"os"
 	"strings"
@@ -10,8 +11,104 @@ import (
 	"time"
 
 	"github.com/weill-labs/amux/internal/config"
+	"github.com/weill-labs/amux/internal/proto"
 	"github.com/weill-labs/amux/internal/transport"
 )
+
+func TestRunSSHSessionViaLocalServer(t *testing.T) {
+	t.Parallel()
+
+	resolved := sshSessionTarget{
+		Target:  transport.Target{Host: "builder", User: "deploy", Session: "work"},
+		HostRef: "deploy@builder",
+	}
+
+	var calls []string
+	err := runSSHSessionViaLocalServer(
+		resolved,
+		func(int) (int, int, error) { return 80, 24, nil },
+		func(session string, timeout time.Duration) error {
+			calls = append(calls, "ensure:"+session)
+			if timeout != 5*time.Second {
+				t.Fatalf("ensureDaemon timeout = %v, want %v", timeout, 5*time.Second)
+			}
+			return nil
+		},
+		func(session, cmd string, args []string) error {
+			calls = append(calls, "command:"+session+":"+cmd)
+			if cmd != "connect" {
+				t.Fatalf("runCommand cmd = %q, want connect", cmd)
+			}
+			if len(args) != 1 || args[0] != "deploy@builder" {
+				t.Fatalf("runCommand args = %#v, want [deploy@builder]", args)
+			}
+			return nil
+		},
+		func(sessionName string, _ func(int) (int, int, error), deps runSessionDeps) error {
+			calls = append(calls, "runner:"+sessionName)
+			if sessionName != "work" {
+				t.Fatalf("runner session = %q, want work", sessionName)
+			}
+			if deps.ensureDaemon == nil || deps.dial == nil {
+				t.Fatal("runner deps should include default session hooks")
+			}
+			return nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("runSSHSessionViaLocalServer() error = %v", err)
+	}
+
+	want := []string{"ensure:work", "command:work:connect", "runner:work"}
+	if strings.Join(calls, ",") != strings.Join(want, ",") {
+		t.Fatalf("calls = %v, want %v", calls, want)
+	}
+}
+
+func TestRunSSHSessionViaLocalServerWrapsConnectError(t *testing.T) {
+	t.Parallel()
+
+	err := runSSHSessionViaLocalServer(
+		sshSessionTarget{
+			Target:  transport.Target{Host: "builder", Session: "work"},
+			HostRef: "builder",
+		},
+		func(int) (int, int, error) { return 80, 24, nil },
+		func(string, time.Duration) error { return nil },
+		func(string, string, []string) error { return errors.New("boom") },
+		func(string, func(int) (int, int, error), runSessionDeps) error {
+			t.Fatal("runner should not be called after connect failure")
+			return nil
+		},
+	)
+	if err == nil || !strings.Contains(err.Error(), "connecting remote host: boom") {
+		t.Fatalf("runSSHSessionViaLocalServer() error = %v, want wrapped connect failure", err)
+	}
+}
+
+func TestRunSSHSessionViaLocalServerWrapsEnsureDaemonError(t *testing.T) {
+	t.Parallel()
+
+	err := runSSHSessionViaLocalServer(
+		sshSessionTarget{
+			Target:  transport.Target{Host: "builder", Session: "work"},
+			HostRef: "builder",
+		},
+		func(int) (int, int, error) { return 80, 24, nil },
+		func(string, time.Duration) error { return errors.New("daemon down") },
+		func(string, string, []string) error {
+			t.Fatal("runCommand should not be called after ensureDaemon failure")
+			return nil
+		},
+		func(string, func(int) (int, int, error), runSessionDeps) error {
+			t.Fatal("runner should not be called after ensureDaemon failure")
+			return nil
+		},
+	)
+	if err == nil || !strings.Contains(err.Error(), "ensuring local server: daemon down") {
+		t.Fatalf("runSSHSessionViaLocalServer() error = %v, want wrapped ensureDaemon failure", err)
+	}
+}
 
 func TestDefaultSSHRunSessionOps(t *testing.T) {
 	t.Parallel()
@@ -311,6 +408,126 @@ func TestConnectSSHSessionClosesTransportOnEnsureFailure(t *testing.T) {
 	}
 	if !tr.closed {
 		t.Fatal("connectSSHSession() should close transport after ensure failure")
+	}
+}
+
+func TestRunLocalServerCommand(t *testing.T) {
+	t.Parallel()
+
+	session := fmt.Sprintf("run-local-server-command-%d", time.Now().UnixNano())
+	socketPath := proto.SocketPath(session)
+	if err := os.MkdirAll(proto.SocketDir(), 0o700); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	_ = os.Remove(socketPath)
+	listener, err := net.Listen("unix", socketPath)
+	if err != nil {
+		t.Fatalf("Listen() error = %v", err)
+	}
+	t.Cleanup(func() {
+		_ = listener.Close()
+		_ = os.Remove(socketPath)
+	})
+
+	received := make(chan *proto.Message, 1)
+	serverErr := make(chan error, 1)
+	go func() {
+		conn, err := listener.Accept()
+		if err != nil {
+			serverErr <- err
+			return
+		}
+		defer conn.Close()
+
+		reader := proto.NewReader(conn)
+		writer := proto.NewWriter(conn)
+		msg, err := reader.ReadMsg()
+		if err != nil {
+			serverErr <- err
+			return
+		}
+		received <- msg
+		if err := writer.WriteMsg(&proto.Message{Type: proto.MsgTypeNotify, Text: "ignored"}); err != nil {
+			serverErr <- err
+			return
+		}
+		serverErr <- writer.WriteMsg(&proto.Message{Type: proto.MsgTypeCmdResult})
+	}()
+
+	if err := runLocalServerCommand(session, "connect", []string{"builder"}); err != nil {
+		t.Fatalf("runLocalServerCommand() error = %v", err)
+	}
+	msg := <-received
+	if msg.Type != proto.MsgTypeCommand {
+		t.Fatalf("command type = %v, want %v", msg.Type, proto.MsgTypeCommand)
+	}
+	if msg.CmdName != "connect" {
+		t.Fatalf("command name = %q, want connect", msg.CmdName)
+	}
+	if len(msg.CmdArgs) != 1 || msg.CmdArgs[0] != "builder" {
+		t.Fatalf("command args = %#v, want [builder]", msg.CmdArgs)
+	}
+	if err := <-serverErr; err != nil {
+		t.Fatalf("server goroutine error = %v", err)
+	}
+}
+
+func TestRunLocalServerCommandReturnsServerError(t *testing.T) {
+	t.Parallel()
+
+	session := fmt.Sprintf("run-local-server-command-error-%d", time.Now().UnixNano())
+	socketPath := proto.SocketPath(session)
+	if err := os.MkdirAll(proto.SocketDir(), 0o700); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	_ = os.Remove(socketPath)
+	listener, err := net.Listen("unix", socketPath)
+	if err != nil {
+		t.Fatalf("Listen() error = %v", err)
+	}
+	t.Cleanup(func() {
+		_ = listener.Close()
+		_ = os.Remove(socketPath)
+	})
+
+	serverErr := make(chan error, 1)
+	go func() {
+		conn, err := listener.Accept()
+		if err != nil {
+			serverErr <- err
+			return
+		}
+		defer conn.Close()
+
+		reader := proto.NewReader(conn)
+		writer := proto.NewWriter(conn)
+		if _, err := reader.ReadMsg(); err != nil {
+			serverErr <- err
+			return
+		}
+		serverErr <- writer.WriteMsg(&proto.Message{
+			Type:   proto.MsgTypeCmdResult,
+			CmdErr: "boom",
+		})
+	}()
+
+	err = runLocalServerCommand(session, "disconnect", []string{"builder"})
+	if err == nil || err.Error() != "boom" {
+		t.Fatalf("runLocalServerCommand() error = %v, want boom", err)
+	}
+	if err := <-serverErr; err != nil {
+		t.Fatalf("server goroutine error = %v", err)
+	}
+}
+
+func TestRunLocalServerCommandReturnsDialError(t *testing.T) {
+	t.Parallel()
+
+	session := fmt.Sprintf("run-local-server-command-missing-%d", time.Now().UnixNano())
+	_ = os.Remove(proto.SocketPath(session))
+
+	if err := runLocalServerCommand(session, "connect", []string{"builder"}); err == nil {
+		t.Fatal("runLocalServerCommand() error = nil, want dial failure")
 	}
 }
 

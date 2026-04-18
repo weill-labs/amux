@@ -14,6 +14,7 @@ type PaneTransportHooks struct {
 	OnPaneOutput  func(localPaneID uint32, data []byte)
 	OnPaneExit    func(localPaneID uint32, reason string)
 	OnStateChange func(hostName string, state proto.ConnState)
+	OnLayout      func(hostName string, layout *proto.LayoutSnapshot)
 }
 
 // PaneTransportFactory builds one transport for a session using the session's
@@ -50,6 +51,9 @@ func (s *Session) paneTransportHooks() PaneTransportHooks {
 		},
 		OnStateChange: func(hostName string, state proto.ConnState) {
 			s.enqueueRemoteStateChange(hostName, state)
+		},
+		OnLayout: func(hostName string, layout *proto.LayoutSnapshot) {
+			s.enqueueRemoteLayout(hostName, layout)
 		},
 	}
 }

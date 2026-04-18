@@ -1437,6 +1437,32 @@ func TestCloseActiveWindowPreservesPreviousWindow(t *testing.T) {
 	}
 }
 
+func TestRemoveWindowFallsBackToRemainingActiveWindow(t *testing.T) {
+	t.Parallel()
+
+	sess := &Session{}
+	p1 := newTestPane(sess, 1, "pane-1")
+	p2 := newTestPane(sess, 2, "pane-2")
+	w1 := newTestWindowWithPanes(t, sess, 1, "one", p1)
+	w2 := newTestWindowWithPanes(t, sess, 2, "two", p2)
+	sess.Windows = []*mux.Window{w1, w2}
+	sess.ActiveWindowID = w2.ID
+	sess.PreviousWindowID = w1.ID
+	sess.refreshInputTarget()
+
+	sess.removeWindow(w2.ID)
+
+	if got := len(sess.Windows); got != 1 {
+		t.Fatalf("windows after remove = %d, want 1", got)
+	}
+	if got := sess.ActiveWindowID; got != w1.ID {
+		t.Fatalf("active window after remove = %d, want %d", got, w1.ID)
+	}
+	if got := sess.inputTargetPane(); got == nil || got.ID != p1.ID {
+		t.Fatalf("input target after remove = %v, want pane %d", got, p1.ID)
+	}
+}
+
 func TestParseKeyArgsAndEncodeKeyChunks(t *testing.T) {
 	t.Parallel()
 

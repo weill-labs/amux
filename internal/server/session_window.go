@@ -69,11 +69,18 @@ func (s *Session) removeWindow(windowID uint32) {
 		if w.ID == windowID {
 			s.Windows = append(s.Windows[:i], s.Windows[i+1:]...)
 			if s.ActiveWindowID == windowID {
-				s.ActiveWindowID = 0
+				if prev := s.previousWindow(); prev != nil && prev.ID != windowID {
+					s.ActiveWindowID = prev.ID
+				} else if len(s.Windows) > 0 {
+					s.ActiveWindowID = s.Windows[0].ID
+				} else {
+					s.ActiveWindowID = 0
+				}
 			}
 			if s.PreviousWindowID == windowID {
 				s.PreviousWindowID = 0
 			}
+			s.refreshInputTarget()
 			return
 		}
 	}

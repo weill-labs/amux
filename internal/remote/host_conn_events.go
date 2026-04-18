@@ -8,6 +8,7 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/weill-labs/amux/internal/proto"
+	"github.com/weill-labs/amux/internal/transport"
 )
 
 var errHostConnClosed = errors.New("host connection closed")
@@ -23,14 +24,17 @@ type hostEvent interface {
 // Returned by doConnect/doConnectTakeover (which run outside the actor)
 // and applied to HostConn state by the actor.
 type connectOutcome struct {
-	sshClient   *ssh.Client
-	amuxConn    net.Conn
-	amuxReader  *proto.Reader
-	amuxWriter  *proto.Writer
-	sessionName string
-	remoteUID   string
-	connectAddr string
-	takeover    bool
+	sshClient     *ssh.Client
+	tr            transport.Transport
+	amuxConn      net.Conn
+	amuxReader    *proto.Reader
+	amuxWriter    *proto.Writer
+	sessionName   string
+	remoteUID     string
+	connectAddr   string
+	connectTarget transport.Target
+	initialLayout *proto.LayoutSnapshot
+	takeover      bool
 }
 
 // closeConns closes the connections held by a connectOutcome.
@@ -41,6 +45,9 @@ func (o *connectOutcome) closeConns() {
 	}
 	if o.sshClient != nil {
 		o.sshClient.Close()
+	}
+	if o.tr != nil {
+		_ = o.tr.Close()
 	}
 }
 
@@ -54,8 +61,17 @@ func (e stateQuery) handle(hc *HostConn) {
 	e.reply <- hc.state
 }
 
+type layoutQuery struct {
+	reply chan *proto.LayoutSnapshot
+}
+
+func (e layoutQuery) handle(hc *HostConn) {
+	e.reply <- hc.lastLayout
+}
+
 type connInfoResult struct {
 	sshClient   *ssh.Client
+	target      transport.Target
 	sessionName string
 	remoteUID   string
 }
@@ -67,6 +83,7 @@ type connInfoQuery struct {
 func (e connInfoQuery) handle(hc *HostConn) {
 	e.reply <- connInfoResult{
 		sshClient:   hc.sshClient,
+		target:      hc.connectTarget,
 		sessionName: hc.sessionName,
 		remoteUID:   hc.remoteUID,
 	}
@@ -203,7 +220,11 @@ func (e reconnectCmd) handle(hc *HostConn) {
 
 	// Start a new connect.
 	hc.startConnect(e.reply, func() (*connectOutcome, error) {
-		return hc.doConnectWithAddr(e.sessionName, hc.connectAddr)
+		sessionName := e.sessionName
+		if hc.sessionName != "" {
+			sessionName = hc.sessionName
+		}
+		return hc.doConnectWithAddr(sessionName, hc.connectAddr)
 	})
 }
 
@@ -286,6 +307,7 @@ func (e readLayoutEvent) handle(hc *HostConn) {
 	if hc.takeoverMode && !layoutReady(e.layout) {
 		return
 	}
+	hc.lastLayout = e.layout
 
 	present := make(map[uint32]struct{}, len(e.layout.Panes))
 	for _, pane := range e.layout.Panes {
@@ -309,6 +331,9 @@ func (e readLayoutEvent) handle(hc *HostConn) {
 		exited = append(exited, localPaneID)
 	}
 
+	if hc.onLayout != nil {
+		hc.onLayout(hc.name, e.layout)
+	}
 	if hc.onPaneExit == nil {
 		return
 	}
@@ -355,17 +380,23 @@ func (e reconnectDoneEvent) handle(hc *HostConn) {
 // connectDoneEvent and reconnectDoneEvent.
 func (hc *HostConn) applyOutcome(o *connectOutcome) {
 	hc.sshClient = o.sshClient
+	hc.tr = o.tr
 	hc.amuxConn = o.amuxConn
 	hc.amuxReader = o.amuxReader
 	hc.amuxWriter = o.amuxWriter
 	hc.sessionName = o.sessionName
 	hc.remoteUID = o.remoteUID
 	hc.connectAddr = o.connectAddr
+	hc.connectTarget = o.connectTarget
+	hc.lastLayout = o.initialLayout
 	if o.takeover {
 		hc.takeoverMode = true
 	}
 	hc.setState(Connected)
 	hc.logSSHConnect()
+	if hc.onLayout != nil && o.initialLayout != nil {
+		hc.onLayout(hc.name, o.initialLayout)
+	}
 	hc.bufferPendingInputs = false
 	hc.flushPendingInputs()
 	go hc.readLoop(hc.amuxReader)
@@ -387,10 +418,12 @@ func (hc *HostConn) disconnectAndDrainPending() {
 	hc.setState(Disconnected)
 	hc.bufferPendingInputs = false
 	hc.pendingInputs = nil
+	hc.lastLayout = nil
 	hc.drainPendingReplies(errHostConnClosed)
 }
 
 type reconnectTarget struct {
+	target      transport.Target
 	sessionName string
 	remoteUID   string
 	connectAddr string
@@ -400,9 +433,24 @@ type reconnectTarget struct {
 func (hc *HostConn) reconnectTarget() reconnectTarget {
 	connectAddr := hc.connectAddr
 	if connectAddr == "" {
-		connectAddr = normalizedDialAddr(hc.name, hc.config.Address)
+		switch {
+		case hc.connectTarget.Host != "":
+			connectAddr = hc.connectTarget.Host
+		case hc.config.Address != "":
+			connectAddr = normalizeAddr(hc.config.Address)
+		default:
+			connectAddr = normalizeAddr(hc.name)
+		}
 	}
+
+	target := hc.connectTarget
+	if target.Host == "" {
+		target = hc.targetForSession(hc.sessionName)
+		target.Host = connectAddr
+	}
+
 	return reconnectTarget{
+		target:      target,
 		sessionName: hc.sessionName,
 		remoteUID:   hc.remoteUID,
 		connectAddr: connectAddr,

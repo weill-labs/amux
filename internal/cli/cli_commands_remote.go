@@ -4,6 +4,13 @@ import "fmt"
 
 func remoteCLICommands() map[string]commandHandler {
 	return map[string]commandHandler{
+		"connect": func(inv invocation, args []string) int {
+			if len(args) < 1 {
+				fmt.Fprintln(inv.runtime.Stderr, "usage: amux connect <host>")
+				return 1
+			}
+			return inv.runSessionCommand("connect", []string{args[0]})
+		},
 		"hosts": func(inv invocation, args []string) int {
 			return inv.runSessionCommand("hosts", nil)
 		},

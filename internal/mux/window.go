@@ -980,3 +980,94 @@ func (w *Window) UnsplicePane(hostName string, replacement *Pane) error {
 
 	return nil
 }
+
+// ApplyLayout replaces the window root and metadata with a rebuilt layout tree.
+// Callers provide pane pointers that are already wired into root.
+func (w *Window) ApplyLayout(root *LayoutCell, activePane *Pane, width, height int, zoomedPaneID, leadPaneID uint32) error {
+	w.assertOwner("ApplyLayout")
+	if root == nil {
+		return fmt.Errorf("missing layout root")
+	}
+	if width <= 0 {
+		width = root.W
+	}
+	if height <= 0 {
+		height = root.H
+	}
+
+	root.Parent = nil
+	root.X = 0
+	root.Y = 0
+	root.ResizeAll(width, height)
+
+	w.Root = root
+	w.Width = width
+	w.Height = height
+	w.ZoomedPaneID = zoomedPaneID
+	w.LeadPaneID = leadPaneID
+	if activePane == nil {
+		activePane = firstPaneInSubtree(root)
+	}
+	w.ActivePane = activePane
+	w.resizePTYs()
+	return nil
+}
+
+// SplicePaneWithLayout replaces a leaf pane with an arbitrary layout subtree.
+// The subtree is resized to the replaced pane's cell before it is installed.
+func (w *Window) SplicePaneWithLayout(oldPaneID uint32, subtree *LayoutCell, activePane *Pane) error {
+	w.assertOwner("SplicePaneWithLayout")
+	if subtree == nil {
+		return fmt.Errorf("missing subtree")
+	}
+
+	cell, err := w.mustFindPane(oldPaneID)
+	if err != nil {
+		return err
+	}
+	if w.ZoomedPaneID == oldPaneID {
+		w.ZoomedPaneID = 0
+	}
+
+	subtree.Parent = cell.Parent
+	subtree.X = cell.X
+	subtree.Y = cell.Y
+	subtree.ResizeSubtree(cell.W, cell.H)
+	subtree.FixOffsets()
+
+	if cell.Parent == nil {
+		w.Root = subtree
+	} else {
+		for i, child := range cell.Parent.Children {
+			if child == cell {
+				cell.Parent.Children[i] = subtree
+				break
+			}
+		}
+	}
+
+	if activePane == nil {
+		activePane = firstPaneInSubtree(subtree)
+	}
+	if activePane != nil {
+		w.setActive(activePane)
+	}
+
+	w.Root.FixOffsets()
+	w.resizePTYs()
+	return nil
+}
+
+func firstPaneInSubtree(root *LayoutCell) *Pane {
+	if root == nil {
+		return nil
+	}
+	var pane *Pane
+	root.Walk(func(cell *LayoutCell) {
+		if pane != nil || cell == nil || cell.Pane == nil {
+			return
+		}
+		pane = cell.Pane
+	})
+	return pane
+}

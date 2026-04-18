@@ -7,6 +7,7 @@ import (
 
 	"github.com/weill-labs/amux/internal/mux"
 	"github.com/weill-labs/amux/internal/proto"
+	commandpkg "github.com/weill-labs/amux/internal/server/commands"
 	waitcmd "github.com/weill-labs/amux/internal/server/commands/wait"
 )
 
@@ -17,6 +18,37 @@ const (
 
 type waitCommandContext struct {
 	*CommandContext
+}
+
+func waitRemoteForward(ctx *CommandContext, args []string) (commandpkg.Result, bool) {
+	if len(args) == 0 {
+		return commandpkg.Result{}, false
+	}
+
+	var paneArgIndex int
+	switch args[0] {
+	case "content":
+		if len(args) < 2 {
+			return commandpkg.Result{}, false
+		}
+		paneArgIndex = 1
+	case "ready", "idle", "exited", "busy":
+		if len(args) < 2 {
+			return commandpkg.Result{}, false
+		}
+		paneArgIndex = 1
+	default:
+		return commandpkg.Result{}, false
+	}
+
+	ref, err := ctx.Sess.queryPaneRef(args[paneArgIndex])
+	if err != nil {
+		return commandpkg.Result{Err: err}, true
+	}
+	if ref.Host == "" {
+		return commandpkg.Result{}, false
+	}
+	return remoteCommandResult(ctx.Sess, ref.Host, "wait", rewritePaneRefArg(args, paneArgIndex, ref.Pane)), true
 }
 
 func (ctx waitCommandContext) Generation() uint64 {
@@ -243,6 +275,10 @@ func cmdCursor(ctx *CommandContext) {
 }
 
 func cmdWait(ctx *CommandContext) {
+	if res, ok := waitRemoteForward(ctx, ctx.Args); ok {
+		ctx.applyCommandResult(res)
+		return
+	}
 	ctx.applyCommandResult(waitcmd.Wait(waitCommandContext{ctx}, ctx.ActorPaneID, ctx.Args))
 }
 
@@ -251,10 +287,22 @@ func cmdLayoutJSON(ctx *CommandContext) {
 }
 
 func cmdWaitFor(ctx *CommandContext) {
+	if forwardedArgs := append([]string{"content"}, ctx.Args...); len(ctx.Args) > 0 {
+		if res, ok := waitRemoteForward(ctx, forwardedArgs); ok {
+			ctx.applyCommandResult(res)
+			return
+		}
+	}
 	ctx.applyCommandResult(waitcmd.WaitFor(waitCommandContext{ctx}, ctx.ActorPaneID, ctx.Args))
 }
 
 func cmdWaitBusy(ctx *CommandContext) {
+	if forwardedArgs := append([]string{"busy"}, ctx.Args...); len(ctx.Args) > 0 {
+		if res, ok := waitRemoteForward(ctx, forwardedArgs); ok {
+			ctx.applyCommandResult(res)
+			return
+		}
+	}
 	ctx.applyCommandResult(waitcmd.WaitBusy(waitCommandContext{ctx}, ctx.ActorPaneID, ctx.Args))
 }
 

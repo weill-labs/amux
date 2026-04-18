@@ -180,6 +180,15 @@ func (s *Session) handleTakeover(sshPaneID uint32, req mux.TakeoverRequest) {
 		if sshPane := s.findPaneByID(sshPaneID); sshPane != nil {
 			sshPane.Meta.Dormant = true
 		}
+		rs := NewRemoteSession(start.hostname, RemoteSessionTakeover)
+		rs.PlaceholderPane = sshPaneID
+		rs.State = proto.Connected
+		for i, pp := range proxyPanes {
+			remotePaneID := remotePanes[i].ID
+			rs.RemoteToLocal[remotePaneID] = pp.ID
+			rs.LocalToRemote[pp.ID] = remotePaneID
+		}
+		s.sess.remoteSessions[start.hostname] = rs
 		return commandMutationResult{broadcastLayout: true}
 	})
 	if res.err != nil {

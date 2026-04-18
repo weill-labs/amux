@@ -1,6 +1,7 @@
 package remote
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -15,6 +16,7 @@ import (
 	"github.com/weill-labs/amux/internal/auditlog"
 	"github.com/weill-labs/amux/internal/config"
 	"github.com/weill-labs/amux/internal/proto"
+	"github.com/weill-labs/amux/internal/transport"
 	transportssh "github.com/weill-labs/amux/internal/transport/ssh"
 )
 
@@ -39,6 +41,7 @@ type HostConn struct {
 	// Actor-owned state — accessed only from eventLoop goroutine.
 	state      ConnState
 	sshClient  *ssh.Client
+	tr         transport.Transport
 	amuxConn   net.Conn // persistent attach connection for pane I/O
 	amuxReader *proto.Reader
 	amuxWriter *proto.Writer
@@ -48,10 +51,12 @@ type HostConn struct {
 	localToRemote map[uint32]uint32
 
 	// Session name for the remote amux server (includes local hostname)
-	sessionName  string
-	remoteUID    string // UID of the remote user (for socket path)
-	connectAddr  string // normalized SSH address used by the current connection
-	takeoverMode bool   // true when established via takeover
+	sessionName   string
+	remoteUID     string // UID of the remote user (for socket path)
+	connectAddr   string // normalized SSH address used by the current connection
+	connectTarget transport.Target
+	lastLayout    *proto.LayoutSnapshot
+	takeoverMode  bool // true when established via takeover
 
 	// Pending connect waiters — replied when connectDoneEvent arrives.
 	pendingConnectReplies []chan error
@@ -62,6 +67,7 @@ type HostConn struct {
 	onPaneOutput  PaneOutputCallback
 	onPaneExit    PaneExitCallback
 	onStateChange StateChangeCallback
+	onLayout      LayoutChangeCallback
 
 	// Event loop channels
 	cmds      chan hostEvent
@@ -121,6 +127,20 @@ func (hc *HostConn) State() ConnState {
 	}
 }
 
+// Layout returns the most recently observed remote layout snapshot.
+func (hc *HostConn) Layout() *proto.LayoutSnapshot {
+	reply := make(chan *proto.LayoutSnapshot, 1)
+	if !hc.enqueue(layoutQuery{reply: reply}) {
+		return nil
+	}
+	select {
+	case layout := <-reply:
+		return layout
+	case <-hc.done:
+		return nil
+	}
+}
+
 // setState updates the state and fires the callback.
 // Only called from the actor goroutine.
 func (hc *HostConn) setState(s ConnState) {
@@ -171,6 +191,29 @@ func (hc *HostConn) BeginInputBuffering() {
 	hc.enqueue(beginInputBufferingEvent{})
 }
 
+func (hc *HostConn) transportName() string {
+	if hc.config.Transport != "" {
+		return hc.config.Transport
+	}
+	return "ssh"
+}
+
+func (hc *HostConn) newTransport() (transport.Transport, error) {
+	return transport.Get(hc.transportName(), hc.config)
+}
+
+func (hc *HostConn) targetForSession(sessionName string) transport.Target {
+	target := transport.Target{
+		Host:    hc.name,
+		User:    hc.config.User,
+		Session: sessionName,
+	}
+	if hc.connectAddr != "" {
+		target.Host = hc.connectAddr
+	}
+	return target
+}
+
 // doConnect performs the SSH dial, deploy, server start, and amux attach.
 // Runs outside the actor in a spawned goroutine. Only reads immutable fields;
 // returns all results for the actor to apply.
@@ -182,116 +225,108 @@ func (hc *HostConn) doConnect(sessionName string) (*connectOutcome, error) {
 // using the supplied address. If addr is empty, the configured host address or
 // HostConn name is used.
 func (hc *HostConn) doConnectWithAddr(sessionName, addr string) (*connectOutcome, error) {
-	sshCfg, err := hc.buildSSHConfig()
-	if err != nil {
-		return nil, fmt.Errorf("building SSH config: %w", err)
+	target := hc.targetForSession(sessionName)
+	if addr != "" {
+		target.Host = addr
 	}
-
-	addr = normalizedDialAddr(hc.name, addr, hc.config.Address)
-
-	sshClient, err := ssh.Dial("tcp", addr, sshCfg)
-	if err != nil {
-		return nil, fmt.Errorf("SSH dial: %w", err)
-	}
-
-	// Query the remote user's UID for socket path construction.
-	remoteUID, err := sshOutput(sshClient, "id -u")
-	if err != nil {
-		sshClient.Close()
-		return nil, fmt.Errorf("querying remote UID: %w", err)
-	}
-
-	// Deploy local binary to remote if needed (best-effort)
-	if hc.shouldDeploy() {
-		if err := DeployBinary(sshClient, hc.buildHash); err != nil {
-			hc.logger.Warn("ssh deploy failed",
-				"event", "ssh_deploy",
-				"host", hc.name,
-				"stage", "deploy",
-				"error", err,
-			)
-		}
-	}
-
-	// Ensure remote amux server is running
-	remoteSession := ManagedSessionName(sessionName)
-	sockPath := socketPath(remoteUID, remoteSession)
-	if err := ensureRemoteServer(sshClient, sockPath, remoteSession); err != nil {
-		sshClient.Close()
-		return nil, fmt.Errorf("starting remote server: %w", err)
-	}
-
-	// Persistent attach connection for streaming pane output.
-	amuxConn, err := hc.dialRemoteSocket(sshClient, sockPath)
-	if err != nil {
-		sshClient.Close()
-		return nil, fmt.Errorf("dialing remote socket %s: %w", sockPath, err)
-	}
-
-	amuxReader := proto.NewReader(amuxConn)
-	amuxWriter := proto.NewWriter(amuxConn)
-	if err := attachAndWait(amuxConn, amuxWriter, amuxReader, remoteSession, 10*time.Second); err != nil {
-		amuxConn.Close()
-		sshClient.Close()
-		return nil, err
-	}
-
-	return &connectOutcome{
-		sshClient:   sshClient,
-		amuxConn:    amuxConn,
-		amuxReader:  amuxReader,
-		amuxWriter:  amuxWriter,
-		sessionName: remoteSession,
-		remoteUID:   remoteUID,
-		connectAddr: addr,
-	}, nil
+	return hc.doConnectTarget(target, true, false)
 }
 
 // doConnectTakeover performs the SSH dial and amux attach for a takeover.
 // Runs outside the actor in a spawned goroutine.
 func (hc *HostConn) doConnectTakeover(sessionName, remoteUID, sshAddr string) (*connectOutcome, error) {
-	sshCfg, err := hc.buildSSHConfig()
+	_ = remoteUID
+	target := hc.targetForSession(sessionName)
+	if sshAddr != "" {
+		target.Host = sshAddr
+	}
+	return hc.doConnectTarget(target, false, true)
+}
+
+func (hc *HostConn) doConnectTarget(target transport.Target, ensureServer bool, takeover bool) (*connectOutcome, error) {
+	tr, err := hc.newTransport()
 	if err != nil {
-		return nil, fmt.Errorf("building SSH config: %w", err)
+		return nil, fmt.Errorf("creating %s transport: %w", hc.transportName(), err)
 	}
 
-	sshAddr = normalizeAddr(sshAddr)
-
-	sshClient, err := ssh.Dial("tcp", sshAddr, sshCfg)
-	if err != nil {
-		return nil, fmt.Errorf("SSH dial %s: %w", sshAddr, err)
+	if ensureServer && hc.shouldDeploy() {
+		if err := tr.Deploy(context.Background(), target, hc.buildHash); err != nil {
+			hc.logger.Warn("transport deploy failed",
+				"event", "remote_deploy",
+				"host", hc.name,
+				"transport", tr.Name(),
+				"error", err,
+			)
+		}
+	}
+	if ensureServer {
+		if err := tr.EnsureServer(context.Background(), target, target.Session); err != nil {
+			_ = tr.Close()
+			if isImmediateTransportError(err) {
+				return nil, err
+			}
+			return nil, fmt.Errorf("starting remote server: %w", err)
+		}
 	}
 
-	remoteSock := socketPath(remoteUID, sessionName)
-	if err := waitForSocket(sshClient, remoteSock, 5*time.Second); err != nil {
-		sshClient.Close()
-		return nil, fmt.Errorf("waiting for remote socket %s: %w", remoteSock, err)
-	}
-
-	amuxConn, err := hc.dialRemoteSocket(sshClient, remoteSock)
+	amuxConn, err := hc.waitForDial(tr, target, 10*time.Second)
 	if err != nil {
-		sshClient.Close()
-		return nil, fmt.Errorf("dialing remote socket %s: %w", remoteSock, err)
+		_ = tr.Close()
+		return nil, err
 	}
 
 	amuxReader := proto.NewReader(amuxConn)
 	amuxWriter := proto.NewWriter(amuxConn)
-	if err := attachAndWait(amuxConn, amuxWriter, amuxReader, sessionName, 10*time.Second); err != nil {
+	initialLayout, err := attachAndWaitLayout(amuxConn, amuxWriter, amuxReader, target.Session, 10*time.Second)
+	if err != nil {
 		amuxConn.Close()
-		sshClient.Close()
+		_ = tr.Close()
 		return nil, err
 	}
 
 	return &connectOutcome{
-		sshClient:   sshClient,
-		amuxConn:    amuxConn,
-		amuxReader:  amuxReader,
-		amuxWriter:  amuxWriter,
-		sessionName: sessionName,
-		remoteUID:   remoteUID,
-		connectAddr: sshAddr,
-		takeover:    true,
+		sshClient:     hc.sshClient,
+		tr:            tr,
+		amuxConn:      amuxConn,
+		amuxReader:    amuxReader,
+		amuxWriter:    amuxWriter,
+		sessionName:   target.Session,
+		connectAddr:   target.Host,
+		connectTarget: target,
+		initialLayout: initialLayout,
+		takeover:      takeover,
 	}, nil
+}
+
+func (hc *HostConn) waitForDial(tr transport.Transport, target transport.Target, timeout time.Duration) (net.Conn, error) {
+	deadline := time.Now().Add(timeout)
+	var lastErr error
+	for time.Now().Before(deadline) {
+		conn, err := tr.Dial(context.Background(), target)
+		if err == nil {
+			return conn, nil
+		}
+		if isImmediateTransportError(err) {
+			return nil, err
+		}
+		lastErr = err
+		time.Sleep(100 * time.Millisecond)
+	}
+	if lastErr == nil {
+		lastErr = fmt.Errorf("dial timeout")
+	}
+	return nil, fmt.Errorf("dialing remote socket: %w", lastErr)
+}
+
+func isImmediateTransportError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "SSH dial:") ||
+		strings.Contains(msg, "building SSH config:") ||
+		strings.Contains(msg, "querying remote UID:") ||
+		strings.Contains(msg, "host key verification failed")
 }
 
 // Disconnect closes the SSH connection and marks state as disconnected.
@@ -408,16 +443,52 @@ func (hc *HostConn) queryRemotePaneID(localPaneID uint32) remotePaneIDResult {
 // with the persistent readLoop on the attach connection.
 func (hc *HostConn) runCommand(cmdName string, cmdArgs []string) (string, error) {
 	info := hc.queryConnInfo()
-	if info.sshClient == nil {
+	if info.sessionName == "" {
 		return "", fmt.Errorf("not connected")
 	}
+	if info.sshClient != nil {
+		remoteSock := socketPath(info.remoteUID, info.sessionName)
+		return hc.runSocketCommand(info.sshClient, remoteSock, cmdName, cmdArgs)
+	}
 
-	remoteSock := socketPath(info.remoteUID, info.sessionName)
-	return hc.runSocketCommand(info.sshClient, remoteSock, cmdName, cmdArgs)
+	target := info.target
+	target.Session = info.sessionName
+	return hc.runTransportCommand(target, cmdName, cmdArgs)
 }
 
 func (hc *HostConn) runSocketCommand(client *ssh.Client, sockPath, cmdName string, cmdArgs []string) (string, error) {
 	conn, err := hc.dialRemoteSocket(client, sockPath)
+	if err != nil {
+		return "", fmt.Errorf("dialing remote socket: %w", err)
+	}
+	defer conn.Close()
+
+	if err := proto.WriteMsg(conn, &proto.Message{
+		Type:    proto.MsgTypeCommand,
+		CmdName: cmdName,
+		CmdArgs: cmdArgs,
+	}); err != nil {
+		return "", err
+	}
+
+	reply, err := proto.ReadMsg(conn)
+	if err != nil {
+		return "", err
+	}
+	if reply.CmdErr != "" {
+		return "", fmt.Errorf("%s", reply.CmdErr)
+	}
+	return reply.CmdOutput, nil
+}
+
+func (hc *HostConn) runTransportCommand(target transport.Target, cmdName string, cmdArgs []string) (string, error) {
+	tr, err := hc.newTransport()
+	if err != nil {
+		return "", fmt.Errorf("creating %s transport: %w", hc.transportName(), err)
+	}
+	defer tr.Close()
+
+	conn, err := tr.Dial(context.Background(), target)
 	if err != nil {
 		return "", fmt.Errorf("dialing remote socket: %w", err)
 	}
@@ -498,6 +569,10 @@ func (hc *HostConn) closeConns() {
 		hc.sshClient.Close()
 		hc.sshClient = nil
 	}
+	if hc.tr != nil {
+		_ = hc.tr.Close()
+		hc.tr = nil
+	}
 }
 
 func (hc *HostConn) sendInputNow(localPaneID uint32, data []byte) error {
@@ -534,6 +609,11 @@ func (hc *HostConn) flushPendingInputs() {
 // attachAndWait sends MsgTypeAttach and blocks until the remote server
 // responds with a MsgTypeLayout, confirming the session window exists.
 func attachAndWait(conn net.Conn, writer *proto.Writer, reader *proto.Reader, session string, timeout time.Duration) error {
+	_, err := attachAndWaitLayout(conn, writer, reader, session, timeout)
+	return err
+}
+
+func attachAndWaitLayout(conn net.Conn, writer *proto.Writer, reader *proto.Reader, session string, timeout time.Duration) (*proto.LayoutSnapshot, error) {
 	if err := writer.WriteMsg(&proto.Message{
 		Type:       proto.MsgTypeAttach,
 		Session:    session,
@@ -541,18 +621,24 @@ func attachAndWait(conn net.Conn, writer *proto.Writer, reader *proto.Reader, se
 		Rows:       24,
 		AttachMode: proto.AttachModeNonInteractive,
 	}); err != nil {
-		return fmt.Errorf("attaching to remote: %w", err)
+		return nil, fmt.Errorf("attaching to remote: %w", err)
 	}
-	if err := waitForLayout(conn, reader, timeout); err != nil {
-		return fmt.Errorf("waiting for remote layout: %w", err)
+	layout, err := waitForLayoutSnapshot(conn, reader, timeout)
+	if err != nil {
+		return nil, fmt.Errorf("waiting for remote layout: %w", err)
 	}
-	return nil
+	return layout, nil
 }
 
 // waitForLayout reads messages from conn until a usable MsgTypeLayout arrives,
 // confirming the remote server has an active window with at least one pane.
 // Non-layout or unusable layout messages are discarded until timeout.
-func waitForLayout(conn net.Conn, reader *proto.Reader, timeout time.Duration) (err error) {
+func waitForLayout(conn net.Conn, reader *proto.Reader, timeout time.Duration) error {
+	_, err := waitForLayoutSnapshot(conn, reader, timeout)
+	return err
+}
+
+func waitForLayoutSnapshot(conn net.Conn, reader *proto.Reader, timeout time.Duration) (layout *proto.LayoutSnapshot, err error) {
 	deadlineErr := conn.SetReadDeadline(time.Now().Add(timeout))
 	if deadlineErr == nil {
 		defer func() {
@@ -565,33 +651,40 @@ func waitForLayout(conn net.Conn, reader *proto.Reader, timeout time.Duration) (
 	}
 
 	if !isNoDeadlineError(deadlineErr) {
-		return deadlineErr
+		return nil, deadlineErr
 	}
 
-	result := make(chan error, 1)
+	result := make(chan struct {
+		layout *proto.LayoutSnapshot
+		err    error
+	}, 1)
 	go func() {
-		result <- readUntilReadyLayout(reader)
+		nextLayout, nextErr := readUntilReadyLayout(reader)
+		result <- struct {
+			layout *proto.LayoutSnapshot
+			err    error
+		}{layout: nextLayout, err: nextErr}
 	}()
 
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
 
 	select {
-	case err := <-result:
-		return err
+	case res := <-result:
+		return res.layout, res.err
 	case <-timer.C:
-		return os.ErrDeadlineExceeded
+		return nil, os.ErrDeadlineExceeded
 	}
 }
 
-func readUntilReadyLayout(reader *proto.Reader) error {
+func readUntilReadyLayout(reader *proto.Reader) (*proto.LayoutSnapshot, error) {
 	for {
 		msg, err := reader.ReadMsg()
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if msg.Type == proto.MsgTypeLayout && msg.Layout != nil {
-			return nil
+			return msg.Layout, nil
 		}
 	}
 }
@@ -690,21 +783,4 @@ func normalizeAddr(addr string) string {
 
 func sshOutput(client *ssh.Client, cmd string) (string, error) {
 	return transportssh.SSHOutput(client, cmd)
-}
-
-func addrOrFallback(values ...string) string {
-	for _, value := range values {
-		if value != "" {
-			return value
-		}
-	}
-	return ""
-}
-
-func normalizedDialAddr(hostName string, candidates ...string) string {
-	addr := addrOrFallback(candidates...)
-	if addr == "" {
-		addr = hostName
-	}
-	return normalizeAddr(addr)
 }

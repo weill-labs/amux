@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/weill-labs/amux/internal/config"
+	"github.com/weill-labs/amux/internal/proto"
 	"github.com/weill-labs/amux/internal/transport"
 	_ "github.com/weill-labs/amux/internal/transport/ssh"
 	"golang.org/x/term"
@@ -16,6 +17,7 @@ type sshSessionTarget struct {
 	Target     transport.Target
 	Transport  string
 	HostConfig config.Host
+	HostRef    string
 }
 
 type sshSessionState struct {
@@ -30,7 +32,27 @@ type sshRunSessionOps struct {
 }
 
 func RunSSHSession(target transport.Target) error {
-	return runSSHSession(target, term.GetSize, defaultSSHRunSessionOps(), runSessionWithDeps)
+	resolved, err := resolveSSHSessionTarget(target)
+	if err != nil {
+		return err
+	}
+	return runSSHSessionViaLocalServer(resolved, term.GetSize, proto.EnsureDaemon, runLocalServerCommand, runSessionWithDeps)
+}
+
+func runSSHSessionViaLocalServer(
+	resolved sshSessionTarget,
+	getTermSize func(int) (int, int, error),
+	ensureDaemon func(string, time.Duration) error,
+	runCommand func(string, string, []string) error,
+	runner func(string, func(int) (int, int, error), runSessionDeps) error,
+) error {
+	if err := ensureDaemon(resolved.Target.Session, 5*time.Second); err != nil {
+		return fmt.Errorf("ensuring local server: %w", err)
+	}
+	if err := runCommand(resolved.Target.Session, "connect", []string{resolved.HostRef}); err != nil {
+		return fmt.Errorf("connecting remote host: %w", err)
+	}
+	return runner(resolved.Target.Session, getTermSize, defaultRunSessionDeps())
 }
 
 func runSSHSession(
@@ -59,9 +81,17 @@ func resolveSSHSessionTarget(target transport.Target) (sshSessionTarget, error) 
 	resolved := sshSessionTarget{
 		Target:    target,
 		Transport: cfg.HostTransport(target.Host),
+		HostRef:   target.Host,
 	}
 	if hostCfg, ok := cfg.Hosts[target.Host]; ok {
 		resolved.HostConfig = hostCfg
+	}
+	configuredUser := cfg.HostUser(target.Host)
+	if resolved.HostConfig.User == "" {
+		resolved.HostConfig.User = configuredUser
+	}
+	if target.User != "" && target.User != configuredUser {
+		resolved.HostRef = target.User + "@" + target.Host
 	}
 	return resolved, nil
 }
@@ -154,4 +184,36 @@ func (s *sshSessionState) close() {
 func (s *sshSessionState) set(tr transport.Transport) {
 	s.close()
 	s.transport = tr
+}
+
+func runLocalServerCommand(sessionName, cmdName string, args []string) error {
+	conn, err := net.Dial("unix", proto.SocketPath(sessionName))
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	writer := proto.NewWriter(conn)
+	reader := proto.NewReader(conn)
+	if err := writer.WriteMsg(&proto.Message{
+		Type:    proto.MsgTypeCommand,
+		CmdName: cmdName,
+		CmdArgs: args,
+	}); err != nil {
+		return err
+	}
+
+	for {
+		reply, err := reader.ReadMsg()
+		if err != nil {
+			return err
+		}
+		if reply.Type != proto.MsgTypeCmdResult {
+			continue
+		}
+		if reply.CmdErr != "" {
+			return fmt.Errorf("%s", reply.CmdErr)
+		}
+		return nil
+	}
 }

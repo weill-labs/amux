@@ -729,6 +729,23 @@ func cmdReset(ctx *CommandContext) {
 }
 
 func runKill(ctx *CommandContext, actorPaneID uint32, opts killCommandArgs) commandpkg.Result {
+	if opts.paneRef != "" {
+		ref, err := ctx.Sess.queryPaneRef(opts.paneRef)
+		if err != nil {
+			return commandpkg.Result{Err: err}
+		}
+		if ref.Host != "" {
+			args := make([]string, 0, 4)
+			if opts.cleanup {
+				args = append(args, "--cleanup", "--timeout", opts.timeout.String())
+			}
+			if ref.Pane != "" {
+				args = append(args, ref.Pane)
+			}
+			return remoteCommandResult(ctx.Sess, ref.Host, "kill", args)
+		}
+	}
+
 	target, err := ctx.Sess.queryKillTarget(actorPaneID, opts.paneRef)
 	if err != nil {
 		return commandpkg.Result{Err: err}

@@ -1,8 +1,11 @@
 package test
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/weill-labs/amux/internal/proto"
 )
 
 // remoteHarness bundles a ServerHarness with SSH test infrastructure.
@@ -21,6 +24,16 @@ func splitRemotePane(t *testing.T, h *ServerHarness) {
 	out := h.runCmd("split", "pane-1", "--host", "test-remote")
 	if strings.Contains(out, "error") || strings.Contains(out, "Error") {
 		t.Fatalf("remote split failed: %s", out)
+	}
+	h.waitLayout(gen)
+}
+
+func connectRemoteSession(t *testing.T, h *ServerHarness) {
+	t.Helper()
+	gen := h.generation()
+	out := h.runCmd("connect", "test-remote")
+	if strings.Contains(out, "error") || strings.Contains(out, "Error") {
+		t.Fatalf("remote connect failed: %s", out)
 	}
 	h.waitLayout(gen)
 }
@@ -133,6 +146,63 @@ func TestDisconnectAndReconnect(t *testing.T) {
 	out = h.runCmd("hosts")
 	if !hostsShowsState(out, "connected") {
 		t.Errorf("hosts should show connected after reconnect, got:\n%s", out)
+	}
+}
+
+func TestConnectCaptureAndDisconnect(t *testing.T) {
+	t.Parallel()
+
+	h := newRemoteHarness(t)
+	connectRemoteSession(t, h)
+
+	c := h.captureJSON()
+	assertCaptureConsistent(t, c)
+	if len(c.Panes) == 0 {
+		t.Fatal("connect should leave at least one visible pane in capture")
+	}
+
+	listOut := h.runCmd("list")
+	if !strings.Contains(listOut, "HOST") {
+		t.Fatalf("list output missing HOST column:\n%s", listOut)
+	}
+	if !strings.Contains(listOut, "test-remote") {
+		t.Fatalf("list output missing remote host entry:\n%s", listOut)
+	}
+	if !strings.Contains(listOut, "pane-1") {
+		t.Fatalf("list output missing mirrored remote pane name:\n%s", listOut)
+	}
+
+	h.sendKeys("test-remote/pane-1", "echo CONNECT_REMOTE_OK", "Enter")
+	h.waitForTimeout("test-remote/pane-1", "CONNECT_REMOTE_OK", "5s")
+
+	rawCapture := h.runCmd("capture", "test-remote/pane-1", "--format", "json")
+	var paneCapture proto.CapturePane
+	if err := json.Unmarshal([]byte(rawCapture), &paneCapture); err != nil {
+		t.Fatalf("capture remote pane json: %v\nraw: %s", err, rawCapture)
+	}
+	if joined := strings.Join(append(append([]string(nil), paneCapture.History...), paneCapture.Content...), "\n"); !strings.Contains(joined, "CONNECT_REMOTE_OK") {
+		t.Fatalf("remote pane capture missing command output:\n%s", rawCapture)
+	}
+
+	gen := h.generation()
+	out := h.runCmd("disconnect", "test-remote")
+	if !strings.Contains(out, "Disconnected from test-remote") {
+		t.Fatalf("disconnect should confirm, got: %s", out)
+	}
+	h.waitLayout(gen)
+
+	c = h.captureJSON()
+	assertCaptureConsistent(t, c)
+	listOut = h.runCmd("list")
+	for _, line := range strings.Split(listOut, "\n") {
+		if strings.Contains(line, "test-remote") {
+			t.Fatalf("disconnect should remove remote panes from list, still found:\n%s", listOut)
+		}
+	}
+
+	out = h.runCmd("hosts")
+	if !hostsShowsState(out, "disconnected") {
+		t.Fatalf("hosts should show disconnected after connect/disconnect, got:\n%s", out)
 	}
 }
 

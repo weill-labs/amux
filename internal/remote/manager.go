@@ -5,6 +5,7 @@ package remote
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/weill-labs/amux/internal/auditlog"
 	"github.com/weill-labs/amux/internal/config"
+	"github.com/weill-labs/amux/internal/proto"
 )
 
 // PaneCreatedCallback is called when a remote pane is created and ready.
@@ -28,6 +30,9 @@ type PaneExitCallback func(localPaneID uint32, reason string)
 
 // StateChangeCallback is called when a host's connection state changes.
 type StateChangeCallback func(hostName string, state ConnState)
+
+// LayoutChangeCallback is called when a host publishes a fresh remote layout.
+type LayoutChangeCallback func(hostName string, layout *proto.LayoutSnapshot)
 
 // HostConnFactory constructs HostConn instances for both managed and temporary
 // deploy-only connections.
@@ -45,6 +50,7 @@ type ManagerDeps struct {
 	OnPaneOutput  PaneOutputCallback
 	OnPaneExit    PaneExitCallback
 	OnStateChange StateChangeCallback
+	OnLayout      LayoutChangeCallback
 	NewHostConn   HostConnFactory
 	Logger        *charmlog.Logger
 }
@@ -67,6 +73,7 @@ type Manager struct {
 	onPaneOutput  PaneOutputCallback
 	onPaneExit    PaneExitCallback
 	onStateChange StateChangeCallback
+	onLayout      LayoutChangeCallback
 
 	// Actor-owned state.
 	hosts       map[string]*HostConn // keyed by config host name
@@ -95,6 +102,7 @@ func NewManager(cfg *config.Config, buildHash string, deps ManagerDeps) *Manager
 		onPaneOutput:  deps.OnPaneOutput,
 		onPaneExit:    deps.OnPaneExit,
 		onStateChange: deps.OnStateChange,
+		onLayout:      deps.OnLayout,
 		hosts:         make(map[string]*HostConn),
 		localToHost:   make(map[uint32]string),
 	}
@@ -112,6 +120,7 @@ func (m *Manager) Config() *config.Config {
 
 func (m *Manager) newManagedHostConn(name string, cfg config.Host) *HostConn {
 	hc := m.newHostConn(name, cfg, m.buildHash, m.onPaneOutput, m.onPaneExit, m.onStateChange)
+	hc.onLayout = m.onLayout
 	hc.logger = m.logger.With("host", name)
 	return hc
 }
@@ -120,6 +129,60 @@ func (m *Manager) newDeployHostConn(name string, cfg config.Host) *HostConn {
 	hc := m.newHostConn(name, cfg, m.buildHash, nil, nil, nil)
 	hc.logger = m.logger.With("host", name)
 	return hc
+}
+
+func (m *Manager) resolveHostConfig(hostName string) (config.Host, error) {
+	user := ""
+	if at := strings.LastIndex(hostName, "@"); at > 0 {
+		user = hostName[:at]
+		hostName = hostName[at+1:]
+	}
+
+	if host, ok := m.cfg.Hosts[hostName]; ok {
+		if host.Type == "local" {
+			return config.Host{}, fmt.Errorf("host %q is local, not remote", hostName)
+		}
+		if user != "" {
+			host.User = user
+		}
+		if host.User == "" {
+			host.User = m.cfg.HostUser(hostName)
+		}
+		if host.Address == "" {
+			host.Address = m.cfg.HostAddress(hostName)
+		}
+		if host.Color == "" {
+			host.Color = m.cfg.HostColor(hostName)
+		}
+		return host, nil
+	}
+
+	if hostName == "" {
+		return config.Host{}, fmt.Errorf("host %q not found in config", hostName)
+	}
+	if user == "" {
+		user = m.cfg.HostUser(hostName)
+	}
+	return config.Host{
+		Type:    "remote",
+		User:    user,
+		Address: hostName,
+		Color:   m.cfg.HostColor(hostName),
+	}, nil
+}
+
+func (m *Manager) managedHostConn(hostName string) (*HostConn, error) {
+	hostCfg, err := m.resolveHostConfig(hostName)
+	if err != nil {
+		return nil, err
+	}
+
+	hc, ok := m.hosts[hostName]
+	if !ok {
+		hc = m.newManagedHostConn(hostName, hostCfg)
+		m.hosts[hostName] = hc
+	}
+	return hc, nil
 }
 
 // DeployToAddress deploys the local binary to a remote host via a temporary SSH
@@ -163,18 +226,9 @@ func (m *Manager) DeployToAddress(hostName, sshAddr, sshUser string) {
 // The localPaneID is used for routing output back to the correct local pane.
 func (m *Manager) CreatePane(hostName string, localPaneID uint32, sessionName string) (uint32, error) {
 	hc, err := enqueueManagerQuery(m, func(m *Manager) (*HostConn, error) {
-		host, ok := m.cfg.Hosts[hostName]
-		if !ok {
-			return nil, fmt.Errorf("host %q not found in config", hostName)
-		}
-		if host.Type == "local" {
-			return nil, fmt.Errorf("host %q is local, not remote", hostName)
-		}
-
-		hc, ok := m.hosts[hostName]
-		if !ok {
-			hc = m.newManagedHostConn(hostName, host)
-			m.hosts[hostName] = hc
+		hc, err := m.managedHostConn(hostName)
+		if err != nil {
+			return nil, err
 		}
 		m.localToHost[localPaneID] = hostName
 		return hc, nil
@@ -193,6 +247,25 @@ func (m *Manager) CreatePane(hostName string, localPaneID uint32, sessionName st
 	}
 
 	return remotePaneID, nil
+}
+
+// ConnectHost ensures the named host is connected to the requested remote
+// session and returns the most recent layout snapshot from that host.
+func (m *Manager) ConnectHost(hostName string, sessionName string) (*proto.LayoutSnapshot, error) {
+	hc, err := enqueueManagerQuery(m, func(m *Manager) (*HostConn, error) {
+		return m.managedHostConn(hostName)
+	})
+	if err != nil {
+		return nil, err
+	}
+	if err := hc.EnsureConnected(sessionName); err != nil {
+		return nil, fmt.Errorf("connecting to %s: %w", hostName, err)
+	}
+	layout := hc.Layout()
+	if layout == nil {
+		return nil, fmt.Errorf("host %q did not publish a layout", hostName)
+	}
+	return layout, nil
 }
 
 // AttachForTakeover connects to a remote amux server that was started by a takeover
@@ -231,6 +304,24 @@ func (m *Manager) AttachForTakeover(hostName, sshAddr, sshUser, remoteUID, sessi
 	}
 
 	return hc.EnsureConnectedForTakeover(sessionName, remoteUID, sshAddr)
+}
+
+// RegisterPane registers an existing remote pane mapping for a host-backed
+// remote session.
+func (m *Manager) RegisterPane(hostName string, localPaneID uint32, remotePaneID uint32) error {
+	hc, err := enqueueManagerQuery(m, func(m *Manager) (*HostConn, error) {
+		hc, err := m.managedHostConn(hostName)
+		if err != nil {
+			return nil, err
+		}
+		m.localToHost[localPaneID] = hostName
+		return hc, nil
+	})
+	if err != nil {
+		return err
+	}
+	hc.RegisterPane(localPaneID, remotePaneID)
+	return nil
 }
 
 // findHostByAddress finds a config host entry whose Address matches sshAddr.
@@ -321,6 +412,20 @@ func (m *Manager) HostStatus(hostName string) ConnState {
 	return hc.State()
 }
 
+// RunHostCommand forwards a one-shot command to the named remote host.
+func (m *Manager) RunHostCommand(hostName string, sessionName string, cmdName string, cmdArgs []string) (string, error) {
+	hc, err := enqueueManagerQuery(m, func(m *Manager) (*HostConn, error) {
+		return m.managedHostConn(hostName)
+	})
+	if err != nil {
+		return "", err
+	}
+	if err := hc.EnsureConnected(sessionName); err != nil {
+		return "", fmt.Errorf("connecting to %s: %w", hostName, err)
+	}
+	return hc.runCommand(cmdName, cmdArgs)
+}
+
 // AllHostStatus returns connection states for all configured remote hosts.
 func (m *Manager) AllHostStatus() map[string]ConnState {
 	hosts, err := enqueueManagerQuery(m, func(m *Manager) (map[string]*HostConn, error) {
@@ -330,6 +435,11 @@ func (m *Manager) AllHostStatus() map[string]ConnState {
 				continue
 			}
 			result[name] = m.hosts[name]
+		}
+		for name, hc := range m.hosts {
+			if _, ok := result[name]; !ok {
+				result[name] = hc
+			}
 		}
 		return result, nil
 	})
