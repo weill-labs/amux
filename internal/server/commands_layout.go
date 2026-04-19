@@ -22,11 +22,6 @@ type killCommandArgs struct {
 	timeout time.Duration
 }
 
-// KillCommandUsage formats the user-facing usage string for the kill command.
-func KillCommandUsage(command string) string {
-	return layoutcmd.KillCommandUsage(command)
-}
-
 // ValidateKillCommandArgs validates kill CLI arguments without mutating state.
 func ValidateKillCommandArgs(args []string) error {
 	return layoutcmd.ValidateKillCommandArgs(args)

@@ -1,7 +1,5 @@
 package mux
 
-import "sort"
-
 // ReservedMetaKeys are modeled directly on PaneMeta fields and exposed through
 // the generic meta command surface.
 var ReservedMetaKeys = map[string]struct{}{
@@ -44,17 +42,4 @@ func NormalizedMetaKV(meta PaneMeta) map[string]string {
 		kv["pr"] = meta.PR
 	}
 	return kv
-}
-
-func SortedMetaKeys(meta PaneMeta) []string {
-	kv := NormalizedMetaKV(meta)
-	if len(kv) == 0 {
-		return nil
-	}
-	keys := make([]string, 0, len(kv))
-	for key := range kv {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	return keys
 }

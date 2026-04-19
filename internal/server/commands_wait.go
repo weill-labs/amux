@@ -242,34 +242,6 @@ func (ctx waitCommandContext) WaitIdle(actorPaneID uint32, args []string) error 
 	return waitForPaneIdle(ctx.Sess, paneRef, pane.paneID, opts)
 }
 
-func parseWaitArgs(args []string) (afterGen uint64, afterSet bool, timeout time.Duration, err error) {
-	return waitcmd.ParseWaitArgs(args)
-}
-
-func parseWaitArgsWithDefault(args []string, defaultTimeout time.Duration) (afterGen uint64, afterSet bool, timeout time.Duration, err error) {
-	return waitcmd.ParseWaitArgsWithDefault(args, defaultTimeout)
-}
-
-func parseTimeout(args []string, startIdx int, defaultTimeout time.Duration) (time.Duration, error) {
-	return waitcmd.ParseTimeout(args, startIdx, defaultTimeout)
-}
-
-func parseUIGenArgs(args []string) (clientID string, err error) {
-	return waitcmd.ParseUIGenArgs(args)
-}
-
-func parseWaitUIArgs(args []string) (eventName, clientID string, afterGen uint64, afterSet bool, timeout time.Duration, err error) {
-	return waitcmd.ParseWaitUIArgs(args)
-}
-
-func waitBusyForegroundProcessGroup(status mux.ForegroundJobState) int {
-	return waitcmd.WaitBusyForegroundProcessGroup(status)
-}
-
-func waitBusyReady(candidateProcessGroup int, status mux.ForegroundJobState) (nextProcessGroup int, ready bool) {
-	return waitcmd.WaitBusyReady(candidateProcessGroup, status)
-}
-
 func cmdCursor(ctx *CommandContext) {
 	ctx.applyCommandResult(waitcmd.Cursor(waitCommandContext{ctx}, ctx.Args))
 }
@@ -347,14 +319,14 @@ func waitForPaneBusy(sess *Session, paneID uint32, paneRef string, timeout time.
 		if err != nil {
 			return err
 		}
-		candidateProcessGroup := waitBusyForegroundProcessGroup(st)
+		candidateProcessGroup := waitcmd.WaitBusyForegroundProcessGroup(st)
 		if candidateProcessGroup != 0 {
 			time.Sleep(50 * time.Millisecond)
 			st2, err := checkBusyStatus()
 			if err != nil {
 				return err
 			}
-			if _, ready := waitBusyReady(candidateProcessGroup, st2); ready {
+			if _, ready := waitcmd.WaitBusyReady(candidateProcessGroup, st2); ready {
 				return nil
 			}
 		}
@@ -378,7 +350,7 @@ func waitForPaneBusy(sess *Session, paneID uint32, paneRef string, timeout time.
 		if err != nil {
 			return err
 		}
-		nextProcessGroup, ready := waitBusyReady(candidateProcessGroup, st)
+		nextProcessGroup, ready := waitcmd.WaitBusyReady(candidateProcessGroup, st)
 		if ready {
 			return nil
 		}

@@ -273,15 +273,6 @@ type vtIdleSnapshot struct {
 	lastOutput map[uint32]time.Time
 }
 
-func NewVTIdleTracker(clock Clock) *VTIdleTracker {
-	return newVTIdleTracker(func() Clock {
-		if clock != nil {
-			return clock
-		}
-		return RealClock{}
-	})
-}
-
 func newVTIdleTracker(clock func() Clock) *VTIdleTracker {
 	t := &VTIdleTracker{
 		clock:      normalizeClockFunc(clock),
