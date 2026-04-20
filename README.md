@@ -377,11 +377,13 @@ Remote host commands are also available under `amux remote ...`.
 | Command | Description |
 |---------|-------------|
 | `amux remote hosts` | List configured remote hosts and connection status |
-| `amux remote connect <host>` | Connect to a remote amux session and mirror its panes locally |
+| `amux remote connect <host> [--session <name> \| --session-per-client]` | Connect to a remote amux session and mirror its panes locally |
 | `amux spawn --at <pane> [--root] [--vertical\|--horizontal] [--name NAME] --host HOST` | Create a remote split pane on HOST |
 | `amux remote disconnect <host>` | Drop a remote host connection |
 | `amux remote reconnect <host>` | Reconnect to a remote host |
 | `amux remote unsplice <host>` | Revert remote takeover, replace remote panes with local |
+
+`amux remote connect <host>` attaches to the remote `main` session by default. Use `--session <name>` to mirror a different remote session, or `--session-per-client` to keep the older per-local-machine managed-session behavior.
 
 ## Keybindings
 
