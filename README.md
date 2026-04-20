@@ -372,14 +372,16 @@ Higher-level prompt delegation now lives at the script layer: compose `wait idle
 
 ### Remote Hosts
 
+Remote host commands are also available under `amux remote ...`.
+
 | Command | Description |
 |---------|-------------|
-| `amux hosts` | List configured remote hosts and connection status |
-| `amux connect <host>` | Connect to a remote amux session and mirror its panes locally |
+| `amux remote hosts` | List configured remote hosts and connection status |
+| `amux remote connect <host>` | Connect to a remote amux session and mirror its panes locally |
 | `amux spawn --at <pane> [--root] [--vertical\|--horizontal] [--name NAME] --host HOST` | Create a remote split pane on HOST |
-| `amux disconnect <host>` | Drop a remote host connection |
-| `amux reconnect <host>` | Reconnect to a remote host |
-| `amux unsplice <host>` | Revert remote takeover, replace remote panes with local |
+| `amux remote disconnect <host>` | Drop a remote host connection |
+| `amux remote reconnect <host>` | Reconnect to a remote host |
+| `amux remote unsplice <host>` | Revert remote takeover, replace remote panes with local |
 
 ## Keybindings
 
