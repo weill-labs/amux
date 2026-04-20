@@ -286,21 +286,6 @@ func (r *Renderer) ClearPrevGrid() {
 	})
 }
 
-// RenderFullWithOverlay produces ANSI output compositing all panes plus
-// optional client-local overlays. The paneLookup function maps pane IDs to
-// PaneData — the caller provides this so it can inject copy-mode overlays or
-// other per-pane customization. Returns empty string if no layout is available.
-//
-// The lock is released before calling into the compositor so the paneLookup
-// callback may safely call Emulator/PaneInfo without deadlocking. Callers must
-// ensure render and layout mutation are not concurrent; in practice the
-// interactive client renders from a single goroutine and the headless client is
-// sequential.
-func (r *Renderer) RenderFullWithOverlay(paneLookup func(*rendererActorState, uint32) render.PaneData, overlay render.OverlayState, clearScreen ...bool) string {
-	out, _ := r.RenderFullWithOverlayStats(paneLookup, overlay, clearScreen...)
-	return out
-}
-
 func (r *Renderer) RenderFullWithOverlayStats(paneLookup func(*rendererActorState, uint32) render.PaneData, overlay render.OverlayState, clearScreen ...bool) (string, render.RenderStats) {
 	type result struct {
 		out   string
@@ -320,26 +305,6 @@ func (r *Renderer) RenderFullWithOverlayStats(paneLookup func(*rendererActorStat
 		return result{out: out, stats: stats}
 	})
 	return res.out, res.stats
-}
-
-// RenderDiffWithOverlay produces minimal ANSI output by diffing against the
-// previous frame, plus optional client-local overlays. Returns empty string if
-// no layout is available.
-func (r *Renderer) RenderDiffWithOverlay(paneLookup func(*rendererActorState, uint32) render.PaneData, overlay render.OverlayState) string {
-	return r.RenderDiffWithOverlayDirty(paneLookup, overlay, nil, true)
-}
-
-// RenderDiffWithOverlayDirty produces minimal ANSI output by diffing against
-// the previous frame and only re-compositing the supplied dirty panes unless a
-// full redraw is requested.
-func (r *Renderer) RenderDiffWithOverlayDirty(
-	paneLookup func(*rendererActorState, uint32) render.PaneData,
-	overlay render.OverlayState,
-	dirtyPanes map[uint32]struct{},
-	fullRedraw bool,
-) string {
-	out, _ := r.RenderDiffWithOverlayDirtyStats(paneLookup, overlay, dirtyPanes, fullRedraw)
-	return out
 }
 
 func (r *Renderer) RenderDiffWithOverlayDirtyStats(

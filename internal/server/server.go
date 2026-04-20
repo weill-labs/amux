@@ -661,12 +661,6 @@ func NewServerFromCrashCheckpointWithScrollbackLogger(sessionName string, cp *ch
 	return newServerFromCrashCheckpointWithListenerLogger(sessionName, listener, sockPath, cp, crashPath, scrollbackLines, logger)
 }
 
-// NewServerFromCrashCheckpointWithListenerFd restores crash state onto the
-// listener inherited across a failed hot-reload restore.
-func NewServerFromCrashCheckpointWithListenerFd(sessionName string, listenerFd int, cp *checkpoint.CrashCheckpoint, crashPath string, scrollbackLines int) (*Server, error) {
-	return NewServerFromCrashCheckpointWithListenerFdLogger(sessionName, listenerFd, cp, crashPath, scrollbackLines, nil)
-}
-
 func NewServerFromCrashCheckpointWithListenerFdLogger(sessionName string, listenerFd int, cp *checkpoint.CrashCheckpoint, crashPath string, scrollbackLines int, logger *charmlog.Logger) (*Server, error) {
 	listener, err := restoreListenerFromFD(listenerFd)
 	if err != nil {
