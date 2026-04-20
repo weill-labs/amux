@@ -778,6 +778,14 @@ func TestRunMainDispatchesCommands(t *testing.T) {
 			},
 		},
 		{
+			name:     "remote subcommand dispatches through server",
+			args:     []string{"remote", "disconnect", "host-a"},
+			wantExit: 0,
+			wantCalls: []cliCall{
+				{kind: "server-command", session: resolvedSessionMarker, cmd: "disconnect", args: []string{"host-a"}},
+			},
+		},
+		{
 			name:       "removed ssh command prints migration hint",
 			args:       []string{"ssh", "builder:work"},
 			wantExit:   1,

@@ -16,6 +16,12 @@ func newRemoteHarness(t *testing.T) *ServerHarness {
 	return newServerHarnessWithConfig(t, 80, 24, remoteTestConfig(addr, keyFile))
 }
 
+func newPersistentRemoteHarness(t *testing.T) *ServerHarness {
+	t.Helper()
+	addr, keyFile := setupTestSSH(t)
+	return newServerHarnessWithOptions(t, 80, 24, remoteTestConfig(addr, keyFile), false, false)
+}
+
 // splitRemotePane creates a remote pane on "test-remote" and waits for the
 // layout to update. Fails the test if the split command errors.
 func splitRemotePane(t *testing.T, h *ServerHarness) {
@@ -32,6 +38,16 @@ func connectRemoteSession(t *testing.T, h *ServerHarness) {
 	t.Helper()
 	gen := h.generation()
 	out := h.runCmd("connect", "test-remote")
+	if strings.Contains(out, "error") || strings.Contains(out, "Error") {
+		t.Fatalf("remote connect failed: %s", out)
+	}
+	h.waitLayout(gen)
+}
+
+func connectRemoteSessionViaRemoteCLI(t *testing.T, h *ServerHarness) {
+	t.Helper()
+	gen := h.generation()
+	out := h.runCmd("remote", "connect", "test-remote")
 	if strings.Contains(out, "error") || strings.Contains(out, "Error") {
 		t.Fatalf("remote connect failed: %s", out)
 	}
@@ -203,6 +219,37 @@ func TestConnectCaptureAndDisconnect(t *testing.T) {
 	out = h.runCmd("hosts")
 	if !hostsShowsState(out, "disconnected") {
 		t.Fatalf("hosts should show disconnected after connect/disconnect, got:\n%s", out)
+	}
+}
+
+func TestRemoteCommandDisconnectUpdatesHostStatusAndLayout(t *testing.T) {
+	t.Parallel()
+
+	h := newPersistentRemoteHarness(t)
+	connectRemoteSessionViaRemoteCLI(t, h)
+
+	out := h.runCmd("remote", "hosts")
+	if !hostsShowsState(out, "connected") {
+		t.Fatalf("remote hosts should show connected after connect, got:\n%s", out)
+	}
+
+	gen := h.generation()
+	out = h.runCmd("remote", "disconnect", "test-remote")
+	if !strings.Contains(out, "Disconnected from test-remote") {
+		t.Fatalf("remote disconnect should confirm, got: %s", out)
+	}
+	h.waitLayout(gen)
+
+	listOut := h.runCmd("list")
+	for _, line := range strings.Split(listOut, "\n") {
+		if strings.Contains(line, "test-remote") {
+			t.Fatalf("remote disconnect should remove remote panes from list, still found:\n%s", listOut)
+		}
+	}
+
+	out = h.runCmd("remote", "hosts")
+	if !hostsShowsState(out, "disconnected") {
+		t.Fatalf("remote hosts should show disconnected after disconnect, got:\n%s", out)
 	}
 }
 
