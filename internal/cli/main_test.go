@@ -280,6 +280,13 @@ func TestResolveCanonicalSessionCommand(t *testing.T) {
 			wantHandled: true,
 		},
 		{
+			name:        "remote disconnect unwraps to session command",
+			args:        []string{"remote", "disconnect", "host-a"},
+			wantCmd:     "disconnect",
+			wantArgs:    []string{"host-a"},
+			wantHandled: true,
+		},
+		{
 			name:        "respawn narrows to pane arg",
 			args:        []string{"respawn", "pane-1", "ignored"},
 			wantCmd:     "respawn",
