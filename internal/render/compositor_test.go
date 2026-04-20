@@ -658,6 +658,78 @@ func TestBuildGridWithOverlayDirtyKeepsThreeDirtyPanesSerial(t *testing.T) {
 	}
 }
 
+func TestBuildGridWithOverlayParallelizesFourPanes(t *testing.T) {
+	t.Parallel()
+
+	const (
+		width       = 120
+		layoutH     = 24
+		composeWait = 100 * time.Millisecond
+	)
+
+	root, paneIDs := benchLayoutTree(4, width, layoutH)
+	barrier := newPaneComposeBarrier(4, composeWait)
+	lookupMap := make(map[uint32]PaneData, len(paneIDs))
+
+	root.Walk(func(cell *mux.LayoutCell) {
+		pid := cell.CellPaneID()
+		if pid == 0 {
+			return
+		}
+		lookupMap[pid] = &synchronizingPaneData{
+			fakePaneData: &fakePaneData{
+				id:     pid,
+				name:   fmt.Sprintf("pane-%d", pid),
+				screen: benchScreen(cell.W, mux.PaneContentHeight(cell.H)),
+			},
+			barrier: barrier,
+		}
+	})
+
+	comp := NewCompositor(width, layoutH+GlobalBarHeight, "test")
+	comp.buildGridWithOverlay(root, paneIDs[0], func(id uint32) PaneData { return lookupMap[id] }, OverlayState{})
+
+	if got := barrier.timeoutCount(); got != 0 {
+		t.Fatalf("four panes should start composing concurrently; timed out waiting for %d pane(s)", got)
+	}
+}
+
+func TestBuildGridWithOverlayKeepsThreePanesSerial(t *testing.T) {
+	t.Parallel()
+
+	const (
+		width       = 120
+		layoutH     = 24
+		composeWait = 100 * time.Millisecond
+	)
+
+	root, paneIDs := benchLayoutTree(3, width, layoutH)
+	barrier := newPaneComposeBarrier(3, composeWait)
+	lookupMap := make(map[uint32]PaneData, len(paneIDs))
+
+	root.Walk(func(cell *mux.LayoutCell) {
+		pid := cell.CellPaneID()
+		if pid == 0 {
+			return
+		}
+		lookupMap[pid] = &synchronizingPaneData{
+			fakePaneData: &fakePaneData{
+				id:     pid,
+				name:   fmt.Sprintf("pane-%d", pid),
+				screen: benchScreen(cell.W, mux.PaneContentHeight(cell.H)),
+			},
+			barrier: barrier,
+		}
+	})
+
+	comp := NewCompositor(width, layoutH+GlobalBarHeight, "test")
+	comp.buildGridWithOverlay(root, paneIDs[0], func(id uint32) PaneData { return lookupMap[id] }, OverlayState{})
+
+	if got := barrier.timeoutCount(); got == 0 {
+		t.Fatal("three panes should stay on the serial path")
+	}
+}
+
 func TestRenderDiffWithOverlayDirtyMatchesFullRenderWithPaneLabelsOnParallelPath(t *testing.T) {
 	t.Parallel()
 

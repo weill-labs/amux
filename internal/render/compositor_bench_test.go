@@ -17,15 +17,25 @@ func benchLayoutTree(n, w, h int) (*mux.LayoutCell, []uint32) {
 	root := mux.NewLeaf(&mux.Pane{ID: 1, Meta: mux.PaneMeta{Name: "pane-1"}}, 0, 0, w, h)
 	ids = append(ids, 1)
 	for i := 2; i <= n; i++ {
-		var target *mux.LayoutCell
-		root.Walk(func(c *mux.LayoutCell) {
-			if target == nil {
-				target = c
-			}
-		})
 		dir := mux.SplitVertical
 		if i%2 == 0 {
 			dir = mux.SplitHorizontal
+		}
+
+		var target *mux.LayoutCell
+		bestSize := -1
+		root.Walk(func(c *mux.LayoutCell) {
+			size := c.W
+			if dir == mux.SplitHorizontal {
+				size = c.H
+			}
+			if size >= 2*mux.PaneMinSize+1 && size > bestSize {
+				target = c
+				bestSize = size
+			}
+		})
+		if target == nil {
+			panic(fmt.Sprintf("no splittable leaf for pane %d", i))
 		}
 		p := &mux.Pane{ID: uint32(i), Meta: mux.PaneMeta{Name: fmt.Sprintf("pane-%d", i)}}
 		if _, err := target.Split(dir, p); err != nil {
@@ -48,7 +58,7 @@ func benchScreen(w, h int) string {
 }
 
 func BenchmarkRenderFull(b *testing.B) {
-	for _, n := range []int{1, 4, 10, 20} {
+	for _, n := range []int{2, 4, 6, 8, 12} {
 		b.Run(fmt.Sprintf("panes_%d", n), func(b *testing.B) {
 			w, h := 200, 60
 			root, _ := benchLayoutTree(n, w, h)
@@ -73,6 +83,36 @@ func BenchmarkRenderFull(b *testing.B) {
 			b.ResetTimer()
 			for b.Loop() {
 				comp.RenderFull(root, 1, lookup)
+			}
+		})
+	}
+}
+
+func BenchmarkBuildGridWithOverlay(b *testing.B) {
+	for _, n := range []int{2, 4, 6, 8, 12} {
+		b.Run(fmt.Sprintf("panes_%d", n), func(b *testing.B) {
+			w, h := 200, 60
+			root, paneIDs := benchLayoutTree(n, w, h)
+
+			paneDataMap := make(map[uint32]PaneData, n)
+			root.Walk(func(c *mux.LayoutCell) {
+				pid := c.CellPaneID()
+				paneDataMap[pid] = &fakePaneData{
+					id:     pid,
+					name:   fmt.Sprintf("pane-%d", pid),
+					screen: benchScreen(c.W, mux.PaneContentHeight(c.H)),
+				}
+			})
+
+			lookup := func(id uint32) PaneData {
+				return paneDataMap[id]
+			}
+
+			comp := NewCompositor(w, h+GlobalBarHeight, "bench")
+			b.ReportAllocs()
+			b.ResetTimer()
+			for b.Loop() {
+				comp.buildGridWithOverlay(root, paneIDs[0], lookup, OverlayState{})
 			}
 		})
 	}
