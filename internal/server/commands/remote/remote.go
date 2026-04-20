@@ -12,6 +12,7 @@ import (
 type Context interface {
 	HostStatuses() map[string]string
 	DisconnectHost(host string) error
+	FinalizeDisconnect(host string) commandpkg.Result
 	ReconnectHost(host string) error
 	ResolveReloadExecPath() (string, error)
 	ReloadServer(execPath string) error
@@ -47,7 +48,7 @@ func Disconnect(ctx Context, args []string) commandpkg.Result {
 	if err := ctx.DisconnectHost(host); err != nil {
 		return commandpkg.Result{Err: err}
 	}
-	return commandpkg.Result{Output: fmt.Sprintf("Disconnected from %s\n", host)}
+	return ctx.FinalizeDisconnect(host)
 }
 
 func Reconnect(ctx Context, args []string) commandpkg.Result {

@@ -35,6 +35,20 @@ func (ctx remoteCommandContext) DisconnectHost(host string) error {
 	return ctx.Sess.RemoteManager.DisconnectHost(host)
 }
 
+func (ctx remoteCommandContext) FinalizeDisconnect(hostName string) commandpkg.Result {
+	return commandpkg.Result{
+		Mutate: func() commandpkg.Result {
+			if err := ctx.Sess.disconnectRemoteSession(hostName); err != nil {
+				return commandpkg.Result{Err: err}
+			}
+			return commandpkg.Result{
+				Output:          fmt.Sprintf("Disconnected from %s\n", hostName),
+				BroadcastLayout: true,
+			}
+		},
+	}
+}
+
 func (ctx remoteCommandContext) ReconnectHost(host string) error {
 	if ctx.Sess.RemoteManager == nil {
 		return fmt.Errorf("no remote hosts configured")
@@ -164,34 +178,8 @@ func cmdConnect(ctx *CommandContext) {
 	ctx.applyCommandResult(runConnect(ctx))
 }
 
-func runDisconnect(ctx *CommandContext) commandpkg.Result {
-	if len(ctx.Args) < 1 {
-		return commandpkg.Result{Err: fmt.Errorf("usage: disconnect <host>")}
-	}
-	if ctx.Sess.RemoteManager == nil {
-		return commandpkg.Result{Err: fmt.Errorf("no remote hosts configured")}
-	}
-
-	hostName := ctx.Args[0]
-	if err := ctx.Sess.RemoteManager.DisconnectHost(hostName); err != nil {
-		return commandpkg.Result{Err: err}
-	}
-
-	return toCommandResult(ctx.Sess.enqueueCommandMutation(func(mctx *MutationContext) commandMutationResult {
-		if err := mutationContextDo(mctx, func(sess *Session) error {
-			return sess.disconnectRemoteSession(hostName)
-		}); err != nil {
-			return commandMutationResult{err: err}
-		}
-		return commandMutationResult{
-			output:          fmt.Sprintf("Disconnected from %s\n", hostName),
-			broadcastLayout: true,
-		}
-	}))
-}
-
 func cmdDisconnect(ctx *CommandContext) {
-	ctx.applyCommandResult(runDisconnect(ctx))
+	ctx.applyCommandResult(remotecmd.Disconnect(remoteCommandContext{ctx}, ctx.Args))
 }
 
 func cmdReconnect(ctx *CommandContext) {

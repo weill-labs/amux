@@ -128,6 +128,10 @@ func (ctx reloadTestContext) HostStatuses() map[string]string { return nil }
 
 func (ctx reloadTestContext) DisconnectHost(string) error { return nil }
 
+func (ctx reloadTestContext) FinalizeDisconnect(host string) commandpkg.Result {
+	return commandpkg.Result{Output: fmt.Sprintf("Disconnected from %s\n", host)}
+}
+
 func (ctx reloadTestContext) ReconnectHost(string) error { return nil }
 
 func (ctx reloadTestContext) ResolveReloadExecPath() (string, error) {

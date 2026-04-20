@@ -2,6 +2,8 @@ package cli
 
 import "fmt"
 
+const remoteUsage = "usage: amux remote <hosts|connect|disconnect|reconnect|unsplice|reload-server>"
+
 func remoteCLICommands() map[string]commandHandler {
 	return map[string]commandHandler{
 		"connect": func(inv invocation, args []string) int {
@@ -44,5 +46,32 @@ func remoteCLICommands() map[string]commandHandler {
 		"_inject-proxy": func(inv invocation, args []string) int {
 			return inv.runSessionCommand("_inject-proxy", args)
 		},
+	}
+}
+
+func remoteCLICommandGroup() commandHandler {
+	subcommands := remoteCLICommands()
+	return func(inv invocation, args []string) int {
+		switch {
+		case len(args) == 0:
+			fmt.Fprintln(inv.runtime.Stderr, remoteUsage)
+			return 1
+		case isHelpFlag(args[0]):
+			fmt.Fprintln(inv.runtime.Stdout, remoteUsage)
+			return 0
+		case len(args) > 1 && isHelpFlag(args[1]):
+			if usage, ok := commandUsageByName[args[0]]; ok {
+				fmt.Fprintln(inv.runtime.Stdout, usage)
+				return 0
+			}
+		}
+
+		handler, ok := subcommands[args[0]]
+		if !ok {
+			fmt.Fprintf(inv.runtime.Stderr, "amux: unknown remote command %q\n", args[0])
+			fmt.Fprintln(inv.runtime.Stderr, remoteUsage)
+			return 1
+		}
+		return handler(inv, args[1:])
 	}
 }

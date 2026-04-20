@@ -89,6 +89,12 @@ func ResolveCanonicalSessionCommand(args []string) (cmdName string, cmdArgs []st
 	if len(args) == 0 {
 		return "", nil, false, nil
 	}
+	if args[0] == "remote" {
+		if len(args) == 1 {
+			return "", nil, true, errors.New(remoteUsage)
+		}
+		return ResolveCanonicalSessionCommand(args[1:])
+	}
 
 	spec, ok := canonicalSessionCommands[args[0]]
 	if !ok {

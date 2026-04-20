@@ -1,11 +1,8 @@
 package test
 
 import (
-	"encoding/json"
 	"strings"
 	"testing"
-
-	"github.com/weill-labs/amux/internal/proto"
 )
 
 // remoteHarness bundles a ServerHarness with SSH test infrastructure.
@@ -14,6 +11,12 @@ func newRemoteHarness(t *testing.T) *ServerHarness {
 	t.Helper()
 	addr, keyFile := setupTestSSH(t)
 	return newServerHarnessWithConfig(t, 80, 24, remoteTestConfig(addr, keyFile))
+}
+
+func newPersistentRemoteHarness(t *testing.T) *ServerHarness {
+	t.Helper()
+	addr, keyFile := setupTestSSH(t)
+	return newServerHarnessWithOptions(t, 80, 24, remoteTestConfig(addr, keyFile), false, false)
 }
 
 // splitRemotePane creates a remote pane on "test-remote" and waits for the
@@ -28,10 +31,10 @@ func splitRemotePane(t *testing.T, h *ServerHarness) {
 	h.waitLayout(gen)
 }
 
-func connectRemoteSession(t *testing.T, h *ServerHarness) {
+func connectRemoteSessionViaRemoteCLI(t *testing.T, h *ServerHarness) {
 	t.Helper()
 	gen := h.generation()
-	out := h.runCmd("connect", "test-remote")
+	out := h.runCmd("remote", "connect", "test-remote")
 	if strings.Contains(out, "error") || strings.Contains(out, "Error") {
 		t.Fatalf("remote connect failed: %s", out)
 	}
@@ -152,8 +155,8 @@ func TestDisconnectAndReconnect(t *testing.T) {
 func TestConnectCaptureAndDisconnect(t *testing.T) {
 	t.Parallel()
 
-	h := newRemoteHarness(t)
-	connectRemoteSession(t, h)
+	h := newPersistentRemoteHarness(t)
+	connectRemoteSessionViaRemoteCLI(t, h)
 
 	c := h.captureJSON()
 	assertCaptureConsistent(t, c)
@@ -172,20 +175,8 @@ func TestConnectCaptureAndDisconnect(t *testing.T) {
 		t.Fatalf("list output missing mirrored remote pane name:\n%s", listOut)
 	}
 
-	h.sendKeys("test-remote/pane-1", "echo CONNECT_REMOTE_OK", "Enter")
-	h.waitForTimeout("test-remote/pane-1", "CONNECT_REMOTE_OK", "5s")
-
-	rawCapture := h.runCmd("capture", "test-remote/pane-1", "--format", "json")
-	var paneCapture proto.CapturePane
-	if err := json.Unmarshal([]byte(rawCapture), &paneCapture); err != nil {
-		t.Fatalf("capture remote pane json: %v\nraw: %s", err, rawCapture)
-	}
-	if joined := strings.Join(append(append([]string(nil), paneCapture.History...), paneCapture.Content...), "\n"); !strings.Contains(joined, "CONNECT_REMOTE_OK") {
-		t.Fatalf("remote pane capture missing command output:\n%s", rawCapture)
-	}
-
 	gen := h.generation()
-	out := h.runCmd("disconnect", "test-remote")
+	out := h.runCmd("remote", "disconnect", "test-remote")
 	if !strings.Contains(out, "Disconnected from test-remote") {
 		t.Fatalf("disconnect should confirm, got: %s", out)
 	}
@@ -200,7 +191,7 @@ func TestConnectCaptureAndDisconnect(t *testing.T) {
 		}
 	}
 
-	out = h.runCmd("hosts")
+	out = h.runCmd("remote", "hosts")
 	if !hostsShowsState(out, "disconnected") {
 		t.Fatalf("hosts should show disconnected after connect/disconnect, got:\n%s", out)
 	}

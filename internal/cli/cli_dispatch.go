@@ -44,6 +44,7 @@ func buildCLICommands() map[string]commandHandler {
 	addCLICommands(commands, layoutCLICommands())
 	addCLICommands(commands, windowCLICommands())
 	addCLICommands(commands, remoteCLICommands())
+	commands["remote"] = remoteCLICommandGroup()
 	return commands
 }
 

@@ -74,6 +74,7 @@ var commandUsageByName = map[string]string{
 	"prev-window":      prevWindowUsage,
 	"last-window":      lastWindowUsage,
 	"rename":           renameUsage,
+	"remote":           remoteUsage,
 	"reconnect":        reconnectUsage,
 	"reload-server":    reloadServerUsage,
 	"rename-window":    renameWindowUsage,
@@ -220,11 +221,15 @@ Usage:
                                        Resize window to cols x rows
   amux [-s session] events [--filter type1,type2] [--pane <ref>] [--host <name>] [--client <id>] [--no-reconnect]
                                        Stream events as NDJSON (layout, output, idle, busy, exited, client-connect, client-disconnect, display-panes-*, choose-*, copy-mode-*, input-*, reconnect)
-  amux [-s session] hosts              List configured remote hosts + status
-  amux [-s session] disconnect <host>  Drop a remote host connection
-  amux [-s session] reconnect <host>   Reconnect to a remote host
-  amux [-s session] unsplice <host>    Revert remote takeover for a host
-  amux [-s session] reload-server      Hot-reload the server (preserves panes)
+  amux [-s session] remote hosts       List configured remote hosts + status
+  amux [-s session] remote disconnect <host>
+                                       Drop a remote host connection
+  amux [-s session] remote reconnect <host>
+                                       Reconnect to a remote host
+  amux [-s session] remote unsplice <host>
+                                       Revert remote takeover for a host
+  amux [-s session] remote reload-server
+                                       Hot-reload the server (preserves panes)
   amux [-s session] cursor layout      Show current layout cursor
   amux [-s session] cursor clipboard   Show current clipboard cursor
   amux [-s session] cursor ui [--client <id>]
