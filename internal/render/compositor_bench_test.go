@@ -88,6 +88,36 @@ func BenchmarkRenderFull(b *testing.B) {
 	}
 }
 
+func BenchmarkBuildGridWithOverlay(b *testing.B) {
+	for _, n := range []int{2, 4, 6, 8, 12} {
+		b.Run(fmt.Sprintf("panes_%d", n), func(b *testing.B) {
+			w, h := 200, 60
+			root, paneIDs := benchLayoutTree(n, w, h)
+
+			paneDataMap := make(map[uint32]PaneData, n)
+			root.Walk(func(c *mux.LayoutCell) {
+				pid := c.CellPaneID()
+				paneDataMap[pid] = &fakePaneData{
+					id:     pid,
+					name:   fmt.Sprintf("pane-%d", pid),
+					screen: benchScreen(c.W, mux.PaneContentHeight(c.H)),
+				}
+			})
+
+			lookup := func(id uint32) PaneData {
+				return paneDataMap[id]
+			}
+
+			comp := NewCompositor(w, h+GlobalBarHeight, "bench")
+			b.ReportAllocs()
+			b.ResetTimer()
+			for b.Loop() {
+				comp.buildGridWithOverlay(root, paneIDs[0], lookup, OverlayState{})
+			}
+		})
+	}
+}
+
 func BenchmarkRenderDiffDirtyPanes(b *testing.B) {
 	const (
 		width  = 200
