@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -164,29 +165,29 @@ func parseConnectTarget(args []string, localSessionName string) (connectTarget, 
 		switch arg := args[i]; arg {
 		case "--session":
 			if perClient || i+1 >= len(args) || args[i+1] == "" || strings.HasPrefix(args[i+1], "-") {
-				return connectTarget{}, fmt.Errorf(connectCommandUsage)
+				return connectTarget{}, errors.New(connectCommandUsage)
 			}
 			target.sessionName = args[i+1]
 			sessionExplicit = true
 			i++
 		case "--session-per-client":
 			if sessionExplicit || perClient {
-				return connectTarget{}, fmt.Errorf(connectCommandUsage)
+				return connectTarget{}, errors.New(connectCommandUsage)
 			}
 			perClient = true
 		default:
 			if strings.HasPrefix(arg, "-") {
-				return connectTarget{}, fmt.Errorf(connectCommandUsage)
+				return connectTarget{}, errors.New(connectCommandUsage)
 			}
 			if target.hostName != "" {
-				return connectTarget{}, fmt.Errorf(connectCommandUsage)
+				return connectTarget{}, errors.New(connectCommandUsage)
 			}
 			target.hostName = arg
 		}
 	}
 
 	if target.hostName == "" {
-		return connectTarget{}, fmt.Errorf(connectCommandUsage)
+		return connectTarget{}, errors.New(connectCommandUsage)
 	}
 	if perClient {
 		target.sessionName = managedSessionName(localSessionName)
