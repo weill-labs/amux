@@ -270,15 +270,17 @@ func (s *Session) buildCrashCheckpoint() *checkpoint.CrashCheckpoint {
 			Timestamp:     time.Now(),
 		}
 
+		paneSnapshots := snapshotPaneHistoryScreens(s.Panes, (*mux.Pane).HistoryScreenSnapshot)
+		cp.PaneStates = make([]checkpoint.CrashPaneState, len(s.Panes))
 		var cwdWork []pidEntry
-		for _, p := range s.Panes {
-			history, screen, _ := p.HistoryScreenSnapshot()
+		for i, p := range s.Panes {
+			snapshot := paneSnapshots[i]
 			ps := checkpoint.CrashPaneState{
 				ID:           p.ID,
 				Meta:         p.Meta,
 				ManualBranch: p.MetaManualBranch(),
-				History:      history,
-				Screen:       screen,
+				History:      snapshot.history,
+				Screen:       snapshot.screen,
 				CreatedAt:    p.CreatedAt(),
 				IsProxy:      p.IsProxy(),
 			}
@@ -292,10 +294,10 @@ func (s *Session) buildCrashCheckpoint() *checkpoint.CrashCheckpoint {
 			}
 
 			if !p.IsProxy() {
-				cwdWork = append(cwdWork, pidEntry{index: len(cp.PaneStates), pane: p, pid: p.ProcessPid()})
+				cwdWork = append(cwdWork, pidEntry{index: i, pane: p, pid: p.ProcessPid()})
 			}
 
-			cp.PaneStates = append(cp.PaneStates, ps)
+			cp.PaneStates[i] = ps
 		}
 
 		return crashSnapshot{cp: cp, cwdWork: cwdWork}, nil
