@@ -63,14 +63,16 @@ func (s *Server) Reload(execPath string) error {
 			Layout:        *snap,
 		}
 
-		for _, p := range sess.Panes {
-			history, screen, _ := p.HistoryScreenSnapshot()
+		paneSnapshots := snapshotPaneHistoryScreens(sess.Panes, (*mux.Pane).HistoryScreenSnapshot)
+		cp.Panes = make([]checkpoint.PaneCheckpoint, len(sess.Panes))
+		for i, p := range sess.Panes {
+			snapshot := paneSnapshots[i]
 			pc := checkpoint.PaneCheckpoint{
 				ID:           p.ID,
 				Meta:         p.Meta,
 				ManualBranch: p.MetaManualBranch(),
-				History:      history,
-				Screen:       screen,
+				History:      snapshot.history,
+				Screen:       snapshot.screen,
 				CreatedAt:    p.CreatedAt(),
 				IsProxy:      p.IsProxy(),
 			}
@@ -88,7 +90,7 @@ func (s *Server) Reload(execPath string) error {
 					break
 				}
 			}
-			cp.Panes = append(cp.Panes, pc)
+			cp.Panes[i] = pc
 		}
 
 		return cp, nil
