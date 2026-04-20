@@ -2,6 +2,7 @@ package client
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/weill-labs/amux/internal/config"
@@ -108,6 +109,49 @@ func benchRendererWithContent(n int) (*Renderer, map[uint32]proto.PaneAgentStatu
 	}
 
 	return r, status
+}
+
+func benchScrollbackPayload(paneID uint32, lines int) []byte {
+	var b strings.Builder
+	for line := 0; line < lines; line++ {
+		fmt.Fprintf(&b, "\x1b[3%dm pane-%d live line %03d %s\x1b[0m\r\n", (int(paneID)+line)%8, paneID, line, "scrollback payload")
+	}
+	return []byte(b.String())
+}
+
+func benchStyledHistory(paneID uint32, lines int) []proto.StyledLine {
+	history := make([]proto.StyledLine, lines)
+	for line := 0; line < lines; line++ {
+		history[line] = proto.StyledLine{
+			Text: fmt.Sprintf("pane-%d history line %03d", paneID, line),
+		}
+	}
+	return history
+}
+
+func benchRendererWithScrollback(n int) (*Renderer, map[uint32]proto.PaneAgentStatus, map[uint32][]proto.StyledLine) {
+	const (
+		width           = 240
+		layoutHeight    = 31
+		scrollbackLines = 256
+	)
+
+	r := NewWithScrollback(width, layoutHeight+1, scrollbackLines)
+	snap := benchLayoutSnapshot(n, width, layoutHeight)
+	r.HandleLayout(snap)
+
+	status := make(map[uint32]proto.PaneAgentStatus, n)
+	baseHistory := make(map[uint32][]proto.StyledLine, n)
+	for _, pane := range snap.Panes {
+		r.HandlePaneOutput(pane.ID, benchScrollbackPayload(pane.ID, 128))
+		status[pane.ID] = proto.PaneAgentStatus{
+			Idle:           true,
+			CurrentCommand: "bash",
+		}
+		baseHistory[pane.ID] = benchStyledHistory(pane.ID, 96)
+	}
+
+	return r, status, baseHistory
 }
 
 func BenchmarkRendererHandlePaneOutput(b *testing.B) {
@@ -234,6 +278,23 @@ func BenchmarkRendererHandlePaneOutputVisibility(b *testing.B) {
 			r.HandlePaneOutput(paneID, payload)
 		}
 	})
+}
+
+func BenchmarkCaptureJSON(b *testing.B) {
+	for _, panes := range []int{2, 4, 8, 16} {
+		b.Run(fmt.Sprintf("panes_%d", panes), func(b *testing.B) {
+			r, status, baseHistory := benchRendererWithScrollback(panes)
+			defer r.Close()
+
+			b.ReportAllocs()
+			b.ResetTimer()
+			for b.Loop() {
+				if _, ok := r.captureJSONValueWithHistory(status, baseHistory, true); !ok {
+					b.Fatal("captureJSONValueWithHistory returned no layout")
+				}
+			}
+		})
+	}
 }
 
 func BenchmarkRendererCaptureJSON(b *testing.B) {

@@ -78,6 +78,39 @@ func threePane80x23() *proto.LayoutSnapshot {
 	}
 }
 
+func fourPane80x23OutOfOrder() *proto.LayoutSnapshot {
+	root := proto.CellSnapshot{
+		X: 0, Y: 0, W: 80, H: 23,
+		Dir: int(mux.SplitVertical),
+		Children: []proto.CellSnapshot{
+			{X: 0, Y: 0, W: 19, H: 23, IsLeaf: true, Dir: -1, PaneID: 3},
+			{X: 20, Y: 0, W: 19, H: 23, IsLeaf: true, Dir: -1, PaneID: 1},
+			{X: 40, Y: 0, W: 19, H: 23, IsLeaf: true, Dir: -1, PaneID: 4},
+			{X: 60, Y: 0, W: 19, H: 23, IsLeaf: true, Dir: -1, PaneID: 2},
+		},
+	}
+	panes := []proto.PaneSnapshot{
+		{ID: 1, Name: "pane-1", Host: "local", Color: "f5e0dc", ColumnIndex: 0},
+		{ID: 2, Name: "pane-2", Host: "local", Color: "f2cdcd", ColumnIndex: 1},
+		{ID: 3, Name: "pane-3", Host: "local", Color: "cba6f7", ColumnIndex: 2},
+		{ID: 4, Name: "pane-4", Host: "local", Color: "89dceb", ColumnIndex: 3},
+	}
+	return &proto.LayoutSnapshot{
+		SessionName:  "test",
+		ActivePaneID: 3,
+		Width:        80,
+		Height:       23,
+		Root:         root,
+		Panes:        panes,
+		Windows: []proto.WindowSnapshot{{
+			ID: 1, Name: "window-1", Index: 1, ActivePaneID: 3,
+			Root:  root,
+			Panes: panes,
+		}},
+		ActiveWindowID: 1,
+	}
+}
+
 func duplicateNameTwoPane80x23(name string) *proto.LayoutSnapshot {
 	snap := twoPane80x23()
 	for i := range snap.Panes {
@@ -514,6 +547,34 @@ func TestRendererCaptureJSONValueMatchesCaptureJSON(t *testing.T) {
 
 	if got, want := marshalIndented(capture), cr.renderer.CaptureJSON(status); got != want {
 		t.Fatalf("captureJSONValue output mismatch\n got: %s\nwant: %s", got, want)
+	}
+}
+
+func TestRendererCaptureJSONPreservesLayoutWalkOrder(t *testing.T) {
+	t.Parallel()
+
+	r := NewWithScrollback(80, 24, mux.DefaultScrollbackLines)
+	defer r.Close()
+	r.HandleLayout(fourPane80x23OutOfOrder())
+	for _, paneID := range []uint32{1, 2, 3, 4} {
+		r.HandlePaneOutput(paneID, []byte(fmt.Sprintf("pane-%d output", paneID)))
+	}
+
+	capture, ok := r.captureJSONValue(nil)
+	if !ok {
+		t.Fatal("captureJSONValue returned no layout")
+	}
+	if got, want := len(capture.Panes), 4; got != want {
+		t.Fatalf("panes = %d, want %d", got, want)
+	}
+
+	gotIDs := make([]uint32, 0, len(capture.Panes))
+	for _, pane := range capture.Panes {
+		gotIDs = append(gotIDs, pane.ID)
+	}
+	wantIDs := []uint32{3, 1, 4, 2}
+	if !reflect.DeepEqual(gotIDs, wantIDs) {
+		t.Fatalf("pane order = %#v, want %#v", gotIDs, wantIDs)
 	}
 }
 
