@@ -430,20 +430,71 @@ func (r *Renderer) captureJSONValueWithHistory(agentStatus map[uint32]proto.Pane
 			}
 		}
 
+		type capturePaneWork struct {
+			paneID      uint32
+			position    proto.CapturePos
+			baseHistory []proto.StyledLine
+		}
+
+		paneWork := make([]capturePaneWork, 0)
 		root.Walk(func(c *mux.LayoutCell) {
 			paneID := c.CellPaneID()
 			if paneID == 0 {
 				return
 			}
-			cp, ok := r.buildCapturePane(st, snap, paneID, agentStatus, includeHistory, baseHistory[paneID])
-			if !ok {
-				return
-			}
-			cp.Position = &proto.CapturePos{
-				X: c.X, Y: c.Y, Width: c.W, Height: c.H,
-			}
-			capture.Panes = append(capture.Panes, cp)
+			paneWork = append(paneWork, capturePaneWork{
+				paneID:      paneID,
+				position:    proto.CapturePos{X: c.X, Y: c.Y, Width: c.W, Height: c.H},
+				baseHistory: baseHistory[paneID],
+			})
 		})
+
+		emulators := make([]mux.TerminalEmulator, len(paneWork))
+		// Pre-warm serially so the fan-out only performs read-only access across
+		// the emulator and snapshot maps.
+		for i, work := range paneWork {
+			emulators[i] = st.ensurePaneEmulator(work.paneID)
+			if emulators[i] == nil {
+				continue
+			}
+			st.warmPaneOutput(work.paneID, st.emulators)
+		}
+
+		ordered := make([]proto.CapturePane, len(paneWork))
+		orderedOK := make([]bool, len(paneWork))
+		var wg sync.WaitGroup
+		for i, work := range paneWork {
+			emu := emulators[i]
+			if emu == nil {
+				continue
+			}
+			wg.Add(1)
+			go func(i int, work capturePaneWork, emu mux.TerminalEmulator) {
+				defer wg.Done()
+
+				cp, ok := r.buildCapturePaneFromEmulator(emu, snap, work.paneID, agentStatus, includeHistory, work.baseHistory)
+				if !ok {
+					return
+				}
+				cp.Position = &proto.CapturePos{
+					X:      work.position.X,
+					Y:      work.position.Y,
+					Width:  work.position.Width,
+					Height: work.position.Height,
+				}
+				ordered[i] = cp
+				orderedOK[i] = true
+			}(i, work, emu)
+		}
+		wg.Wait()
+
+		capture.Panes = make([]proto.CapturePane, 0, len(ordered))
+		for i := range ordered {
+			if !orderedOK[i] {
+				continue
+			}
+			capture.Panes = append(capture.Panes, ordered[i])
+		}
 
 		ok = true
 	})
@@ -558,6 +609,10 @@ func (r *Renderer) buildCapturePane(st *rendererActorState, snap *rendererSnapsh
 		return proto.CapturePane{}, false
 	}
 	st.warmPaneOutput(paneID, st.emulators)
+	return r.buildCapturePaneFromEmulator(emu, snap, paneID, agentStatus, includeHistory, baseHistory)
+}
+
+func (r *Renderer) buildCapturePaneFromEmulator(emu mux.TerminalEmulator, snap *rendererSnapshot, paneID uint32, agentStatus map[uint32]proto.PaneAgentStatus, includeHistory bool, baseHistory []proto.StyledLine) (proto.CapturePane, bool) {
 	info, ok := snap.paneInfo[paneID]
 	if !ok {
 		return proto.CapturePane{}, false
