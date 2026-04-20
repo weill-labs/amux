@@ -64,6 +64,8 @@ func remoteCLICommandGroup() commandHandler {
 				fmt.Fprintln(inv.runtime.Stdout, usage)
 				return 0
 			}
+			fmt.Fprintln(inv.runtime.Stdout, remoteUsage)
+			return 0
 		}
 
 		handler, ok := subcommands[args[0]]

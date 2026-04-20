@@ -287,6 +287,12 @@ func TestResolveCanonicalSessionCommand(t *testing.T) {
 			wantHandled: true,
 		},
 		{
+			name:        "remote alone returns usage error",
+			args:        []string{"remote"},
+			wantHandled: true,
+			wantErrText: remoteUsage,
+		},
+		{
 			name:        "respawn narrows to pane arg",
 			args:        []string{"respawn", "pane-1", "ignored"},
 			wantCmd:     "respawn",
@@ -852,6 +858,12 @@ func TestRemoteCLICommandGroupUsageAndErrors(t *testing.T) {
 			args:       []string{"disconnect", "--help"},
 			wantExit:   0,
 			wantStdout: disconnectUsage + "\n",
+		},
+		{
+			name:       "unknown subcommand with help flag prints group usage",
+			args:       []string{"unknown", "--help"},
+			wantExit:   0,
+			wantStdout: remoteUsage + "\n",
 		},
 		{
 			name:       "unknown subcommand prints error",
