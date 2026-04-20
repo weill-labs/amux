@@ -826,6 +826,61 @@ func TestRunMainDispatchesCommands(t *testing.T) {
 	}
 }
 
+func TestRemoteCLICommandGroupUsageAndErrors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		args       []string
+		wantExit   int
+		wantStdout string
+		wantStderr string
+	}{
+		{
+			name:       "missing subcommand prints usage",
+			wantExit:   1,
+			wantStderr: remoteUsage + "\n",
+		},
+		{
+			name:       "group help prints usage",
+			args:       []string{"--help"},
+			wantExit:   0,
+			wantStdout: remoteUsage + "\n",
+		},
+		{
+			name:       "nested help prints subcommand usage",
+			args:       []string{"disconnect", "--help"},
+			wantExit:   0,
+			wantStdout: disconnectUsage + "\n",
+		},
+		{
+			name:       "unknown subcommand prints error",
+			args:       []string{"unknown"},
+			wantExit:   1,
+			wantStderr: "amux: unknown remote command \"unknown\"\n" + remoteUsage + "\n",
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newCLIRuntimeHarness()
+			exitCode := remoteCLICommandGroup()(invocation{runtime: h.runtime(), sessionName: resolvedSessionMarker}, tt.args)
+			if exitCode != tt.wantExit {
+				t.Fatalf("exit = %d, want %d", exitCode, tt.wantExit)
+			}
+			if got := h.stdout.String(); got != tt.wantStdout {
+				t.Fatalf("stdout = %q, want %q", got, tt.wantStdout)
+			}
+			if got := h.stderr.String(); got != tt.wantStderr {
+				t.Fatalf("stderr = %q, want %q", got, tt.wantStderr)
+			}
+		})
+	}
+}
+
 func TestRunMainHelpAndUsageErrors(t *testing.T) {
 	t.Parallel()
 
