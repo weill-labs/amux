@@ -324,10 +324,10 @@ type paneComposite struct {
 func (c *Compositor) composePane(g *ScreenGrid, layoutHeight int, pane paneComposite) {
 	buildStatusCellsPressed(g, pane.cell, pane.isActive, pane.pressed, pane.pd)
 	contentH := c.visibleContentHeightForLayoutHeight(pane.cell, layoutHeight)
-	// Rebuild every row for dirty panes. TUI full-screen recomposes can
-	// move or clear lines without producing a pane-local dirty report that
-	// safely describes every changed row, so reusing cached rows here can
-	// leave stale cells until the next full redraw.
+	// Rebuild every row for both full redraws and dirty panes. TUI full-screen
+	// recomposes can move or clear lines without producing a pane-local dirty
+	// report that safely describes every changed row, so reusing cached rows
+	// here can leave stale cells until the next full redraw.
 	for row := 0; row < contentH; row++ {
 		buildPaneContentCells(g, pane.cell, row, pane.isActive, pane.pd, pane.copyOverlay)
 	}

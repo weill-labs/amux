@@ -17,11 +17,16 @@ func benchLayoutTree(n, w, h int) (*mux.LayoutCell, []uint32) {
 	root := mux.NewLeaf(&mux.Pane{ID: 1, Meta: mux.PaneMeta{Name: "pane-1"}}, 0, 0, w, h)
 	ids = append(ids, 1)
 	for i := 2; i <= n; i++ {
+		dir := mux.SplitVertical
+		if i%2 == 0 {
+			dir = mux.SplitHorizontal
+		}
+
 		var target *mux.LayoutCell
 		bestSize := -1
 		root.Walk(func(c *mux.LayoutCell) {
 			size := c.W
-			if i%2 == 0 {
+			if dir == mux.SplitHorizontal {
 				size = c.H
 			}
 			if size >= 2*mux.PaneMinSize+1 && size > bestSize {
@@ -29,9 +34,8 @@ func benchLayoutTree(n, w, h int) (*mux.LayoutCell, []uint32) {
 				bestSize = size
 			}
 		})
-		dir := mux.SplitVertical
-		if i%2 == 0 {
-			dir = mux.SplitHorizontal
+		if target == nil {
+			panic(fmt.Sprintf("no splittable leaf for pane %d", i))
 		}
 		p := &mux.Pane{ID: uint32(i), Meta: mux.PaneMeta{Name: fmt.Sprintf("pane-%d", i)}}
 		if _, err := target.Split(dir, p); err != nil {
